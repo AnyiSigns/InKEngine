@@ -43,12 +43,27 @@ from ink_engine.core.llm.messages import (
     tool_result,
     user,
 )
-from ink_engine.core.llm.registry import adapter_names, create_llm, get_adapter_class, register_adapter
+from ink_engine.core.llm.registry import (
+    adapter_names,
+    create_llm,
+    get_adapter_class,
+    register_adapter,
+)
 from ink_engine.core.llm.tools import ToolSpec, to_openai_tools
+
+_EMBEDDING_NAMES = (
+    "AsyncEmbedder",
+    "EmbeddingConfig",
+    "OpenAICompatibleEmbedder",
+    "create_embedder",
+    "embedder_names",
+    "get_embedder_class",
+    "register_embedder",
+)
 
 
 def __getattr__(name: str):
-    """PEP 562 惰性导出：OpenAICompatibleLLM 依赖 httpx，用到才导入。"""
+    """PEP 562 惰性导出：依赖 httpx 的适配器用到才导入。"""
     if name == "OpenAICompatibleLLM":
         try:
             from ink_engine.core.llm.openai_compat import OpenAICompatibleLLM
@@ -59,10 +74,22 @@ def __getattr__(name: str):
                 ) from exc
             raise
         return OpenAICompatibleLLM
+    if name in _EMBEDDING_NAMES:
+        try:
+            from ink_engine.core.llm import embeddings as _emb
+        except ModuleNotFoundError as exc:
+            if getattr(exc, "name", None) == "httpx":
+                raise ModuleNotFoundError(
+                    "embedding 适配器需要 httpx：请安装 textforge-engine-core[llm]"
+                ) from exc
+            raise
+        return getattr(_emb, name)
     raise AttributeError(f"module {__name__!r} has no attribute {name!r}")
 
 __all__ = [
+    "AsyncEmbedder",
     "AsyncLLM",
+    "EmbeddingConfig",
     "LLMAuthError",
     "LLMBadRequestError",
     "LLMChunk",
@@ -81,6 +108,7 @@ __all__ = [
     "LLMUnknownError",
     "Message",
     "ModelChain",
+    "OpenAICompatibleEmbedder",
     "OpenAICompatibleLLM",
     "RetryPolicy",
     "ToolCall",
@@ -91,10 +119,14 @@ __all__ = [
     "assistant",
     "classify_llm_error",
     "collect_result",
+    "create_embedder",
     "create_llm",
+    "embedder_names",
     "get_adapter_class",
+    "get_embedder_class",
     "is_transient_llm_error",
     "register_adapter",
+    "register_embedder",
     "system",
     "to_openai_tools",
     "tool_result",

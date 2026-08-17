@@ -31,7 +31,7 @@ from .graph import Graph, NodeContext, TerminateReason
 from .interrupt import InterruptCoordinator, InterruptSignal, InterruptState
 from .logging import get_logger, trace_id_var
 from .security import strip_sensitive
-from .state import StateSchema
+from .state import StateSchema, is_additive_reducer, is_merge_reducer
 from .storage import CheckpointRecord, Storage
 
 logger = get_logger(__name__)
@@ -104,6 +104,7 @@ class _NodeContextImpl(NodeContext):
         thread_id: str = "-",
         node: str | None = None,
         transports: list[EngineTransport] | None = None,
+        resume_map: dict[tuple[str, ...], int] | None = None,
     ) -> None:
         self._engine = engine
         self._state = state
@@ -114,6 +115,9 @@ class _NodeContextImpl(NodeContext):
         self._transports = transports or engine.options.transports
         self.node = node
         self._terminated: str | None = None
+        # 嵌套子图恢复锚点表（graph_path → checkpoint_id）：子图 runner 据此
+        # 把锚点传给子图引擎（断线续流落在子图 checkpoint 时的下沉恢复）
+        self.resume_map = resume_map or {}
 
     @property
     def state(self) -> dict:
@@ -216,6 +220,12 @@ class Engine:
         self._subgraph_engines: dict[int, Engine] = {}
         # 事件日志写失败降频时间戳（存储故障时避免每事件一条 ERROR 洪水）
         self._event_log_error_ts = 0.0
+        # 内存态执行日志 seq（checkpoint 锚点权威来源；append_event 已返回 seq，
+        # 避免每节点一次 latest_event_seq 查询；None = 尚未产生事件/无存储）
+        self._latest_event_seq: int | None = None
+        # 链尾推进标志：嵌套子图执行后置位（子图 checkpoint 推进版本链），
+        # 下次写 checkpoint 前据此查询链尾作为 parent（避免顺序执行时每节点查询）
+        self._chain_advanced = False
 
     async def _publish(
         self, event: EngineEvent, *, transports: list[EngineTransport] | None = None
@@ -233,6 +243,8 @@ class Engine:
             try:
                 seq = await self.options.storage.append_event(event.thread_id, event)
                 event = replace(event, seq=seq)
+                # 内存态 seq 锚点（checkpoint 写入复用，免每节点查询）
+                self._latest_event_seq = seq
             except Exception as exc:
                 now = time.monotonic()
                 if now - self._event_log_error_ts >= 5.0:
@@ -255,6 +267,7 @@ class Engine:
         trace_id: str | None = None,
         truncate_log_after: int | None = None,
         parent_checkpoint: int | None = None,
+        transports: list[EngineTransport] | None = None,
     ) -> AsyncGenerator[EngineEvent, None]:
         """流式执行入口：产出事件流（含子图事件，顺序 = 发射顺序）。
 
@@ -268,13 +281,14 @@ class Engine:
             truncate_log_after: 编辑重放：先截断执行日志 seq 之后（删除
                 目标之后步骤，失效区保留），再续跑。
             parent_checkpoint: 编辑重放：新 checkpoint 链的父锚点（分叉）。
+            transports: 追加事件传输（与 options.transports 叠加，按发射顺序送达）。
         """
         thread_id = thread_id or f"thread-{uuid.uuid4().hex[:12]}"
         trace_id = trace_id or uuid.uuid4().hex
         token = trace_id_var.set(trace_id)
         queue: asyncio.Queue[EngineEvent | None] = asyncio.Queue()
         # 事件流产出通道挂到传输列表（顺序 = 发射顺序；挂载后事件既落日志又进队列）
-        transports = [*self.options.transports, _QueueTransport(queue)]
+        transports = [*self.options.transports, *(transports or []), _QueueTransport(queue)]
         try:
             if inject:
                 self._coordinator.inject(inject)
@@ -308,6 +322,50 @@ class Engine:
                     self._coordinator.pending_inject.pop(key, None)
             trace_id_var.reset(token)
 
+    async def ainvoke(
+        self,
+        state: dict,
+        *,
+        thread_id: str | None = None,
+        round_id: str | None = None,
+        resume_from: int | None = None,
+        inject: dict[str, Any] | None = None,
+        trace_id: str | None = None,
+        truncate_log_after: int | None = None,
+        parent_checkpoint: int | None = None,
+        transports: list[EngineTransport] | None = None,
+    ) -> RunResult:
+        """非流式执行（独立子图/一次性任务语义）：执行到终止，返回终态 RunResult。
+
+        与 run 的差异：不产出事件队列（事件仍经 options.transports + 本参数
+        transports 推送，适合 CollectorTransport 收集/审计日志场景），直接
+        返回最终结果。注入值同样一次性清理（防残留泄漏，与 run 同语义）。
+        """
+        thread_id = thread_id or f"thread-{uuid.uuid4().hex[:12]}"
+        trace_id = trace_id or uuid.uuid4().hex
+        token = trace_id_var.set(trace_id)
+        try:
+            if inject:
+                self._coordinator.inject(inject)
+            if truncate_log_after is not None and self.options.storage is not None:
+                await self.options.storage.truncate_events(thread_id, truncate_log_after)
+            _state, result = await self._execute(
+                state=state,
+                thread_id=thread_id,
+                round_id=round_id,
+                resume_from=resume_from,
+                trace_id=trace_id,
+                queue=None,
+                parent_checkpoint=parent_checkpoint,
+                transports=transports,
+            )
+            return result
+        finally:
+            if inject:
+                for key in inject:
+                    self._coordinator.pending_inject.pop(key, None)
+            trace_id_var.reset(token)
+
     async def _execute(
         self,
         *,
@@ -318,18 +376,18 @@ class Engine:
         trace_id: str,
         queue: asyncio.Queue[EngineEvent | None] | None,
         parent_checkpoint: int | None = None,
-        parent_ctx: _NodeContextImpl | None = None,
         graph_path: tuple[str, ...] = (),
         transports: list[EngineTransport] | None = None,
+        resume_map: dict[tuple[str, ...], int] | None = None,
     ) -> tuple[dict, RunResult]:
         """主执行循环（顶层与嵌套子图共用）。
 
         Args:
-            parent_ctx: 嵌套子图执行时父上下文（事件经父 graph_path 透传，
-                子图最终状态作为增量返回父图）。
             graph_path: 本图执行的事件路径（顶层 ()；子图 = 父路径 + 子图名）。
             transports: 事件传输列表（None = 引擎 options 默认；顶层 run
                 传入含队列的传输链，子图 None 走共享传输）。
+            resume_map: 嵌套子图恢复锚点表（graph_path → checkpoint_id，
+                断线续流落在子图 checkpoint 时由父级下沉传递）。
         """
         graph = self.graph
         schema = self.options.schema
@@ -340,7 +398,11 @@ class Engine:
         current: str = graph.entry
         current_state = dict(state)
         last_checkpoint: CheckpointRecord | None = None
+        resume_map = dict(resume_map or {})
         if resume_from is not None and storage is not None:
+            # 恢复续跑：历史链尾可能已推进（上次中断/子图锚点），首写 parent
+            # 须跟随当前链尾——置位后由 checkpoint 写入处统一查询
+            self._chain_advanced = True
             last_checkpoint = await storage.get_checkpoint(resume_from)
             if last_checkpoint is None:
                 raise StorageError(f"恢复锚点不存在: {resume_from}")
@@ -349,6 +411,41 @@ class Engine:
             if queue is not None:
                 for event in await storage.events_after(thread_id, last_checkpoint.event_seq):
                     await queue.put(event)
+            # 顶层引擎（graph_path 空）：锚点可能落在任一层（含嵌套子图内），
+            # 沿版本链回溯收集各级恢复锚点（graph_path → checkpoint_id）——
+            # 中断链上每级引擎都写有 interrupted checkpoint（顶层中断锚点的
+            # 父链含各级子图锚点），各级从各自最近 checkpoint 恢复，子图锚点
+            # 经 resume_map 下沉（子图 runner 路径匹配时传给子图引擎，
+            # 跳过祖先节点重执行）。子图引擎（graph_path 非空）收到的
+            # resume_from 已匹配本层路径，直接恢复不再回溯。
+            if not graph_path:
+                cp: CheckpointRecord | None = last_checkpoint
+                top_anchor: int | None = None
+                while cp is not None:
+                    path = cp.graph_path or ()
+                    if path:
+                        resume_map.setdefault(path, cp.checkpoint_id)
+                    elif top_anchor is None:
+                        top_anchor = cp.checkpoint_id  # 最近的顶层锚点
+                    # 继续沿父链回溯：顶层中断 checkpoint 的父链含子图层锚点
+                    cp = (
+                        await storage.get_checkpoint(cp.parent_id)
+                        if cp.parent_id is not None
+                        else None
+                    )
+                if top_anchor is not None:
+                    last_checkpoint = await storage.get_checkpoint(top_anchor)
+                    current_state = dict(last_checkpoint.state)
+                    if queue is not None:
+                        for event in await storage.events_after(
+                            thread_id, last_checkpoint.event_seq
+                        ):
+                            await queue.put(event)
+                else:
+                    # 顶层锚点缺失（图入口即子图）：本级从入口开始，子图锚点
+                    # 保留在 resume_map（到达路径匹配的子图节点时恢复）
+                    last_checkpoint = None
+                    current_state = dict(state)
 
         ctx = _NodeContextImpl(
             engine=self,
@@ -358,6 +455,7 @@ class Engine:
             trace_id=trace_id,
             thread_id=thread_id,
             transports=transports,
+            resume_map=resume_map,
         )
         # 恢复起点定位：
         # - 中断 checkpoint（reason=interrupted）：重入中断节点（节点内按注入值分支）；
@@ -373,7 +471,9 @@ class Engine:
                 else:
                     # 已完成节点无出边：图已走完（或节点为出口），终止不再执行
                     skip_first_node = True
-        parent_id = parent_checkpoint or (last_checkpoint.checkpoint_id if last_checkpoint else None)
+        parent_id = parent_checkpoint or (
+            last_checkpoint.checkpoint_id if last_checkpoint else None
+        )
         # 编辑重放分叉：首写 checkpoint 跳过存储层链尾校验（锚点指向历史链节点）
         fork_write = parent_checkpoint is not None
         interrupt_state: InterruptState | None = None
@@ -472,8 +572,20 @@ class Engine:
             # ── checkpoint 快照（每节点完成，版本链）──
             if storage is not None:
                 # 恢复锚点权威来源 = 事件日志本身（跨实例/跨 run/子图事件全部
-                # 自然包含，无内存态依赖；恢复 = 快照 + 该 seq 之后的增量重放）
-                event_seq = await storage.latest_event_seq(thread_id)
+                # 自然包含，无内存态依赖；恢复 = 快照 + 该 seq 之后的增量重放）。
+                # seq 取内存态（_publish 已维护），避免每节点一次 latest_event_seq 查询。
+                event_seq = (
+                    self._latest_event_seq
+                    if self._latest_event_seq is not None
+                    else await storage.latest_event_seq(thread_id)
+                )
+                if self._chain_advanced:
+                    # 嵌套子图推进过链尾（或恢复续跑）：parent 跟随当前链尾
+                    # （版本链严格线性，跨引擎连续），查一次后复位
+                    _tail = await storage.get_latest_checkpoint(thread_id)
+                    if _tail is not None:
+                        parent_id = _tail.checkpoint_id
+                    self._chain_advanced = False
                 last_checkpoint = await storage.put_checkpoint(
                     CheckpointRecord(
                         checkpoint_id=0,
@@ -505,7 +617,17 @@ class Engine:
 
         # ── 终态 checkpoint（携带终止原因/异常快照，入轨迹与审计）──
         if storage is not None:
-            event_seq = await storage.latest_event_seq(thread_id)
+            event_seq = (
+                self._latest_event_seq
+                if self._latest_event_seq is not None
+                else await storage.latest_event_seq(thread_id)
+            )
+            if self._chain_advanced:
+                # 版本链严格线性：parent 跟随当前链尾（与节点 checkpoint 同语义）
+                _tail = await storage.get_latest_checkpoint(thread_id)
+                if _tail is not None:
+                    parent_id = _tail.checkpoint_id
+                self._chain_advanced = False
             last_checkpoint = await storage.put_checkpoint(
                 CheckpointRecord(
                     checkpoint_id=0,
@@ -548,22 +670,94 @@ async def run_subgraph(subgraph: Graph, parent_ctx: NodeContext) -> dict | None:
         engine._subgraph_engines[id(subgraph)] = sub_engine
     # 共享父引擎 coordinator：子图内 interrupt 重入与父图同一通道
     sub_engine._coordinator = engine._coordinator
+    entry_state = dict(parent_ctx.state)
+    # 入口剥离合并累加族通道（merge_metrics/merge_dicts）：子图内从 0 起算，
+    # 回流增量 = 子图内新增（父图 reducer 加和恰好一次，防二次加和翻倍）。
+    # 分类声明化（is_merge_reducer）：业务注册的自定义合并 reducer 同样生效。
+    schema = engine.options.schema
+    if schema is not None:
+        for key, channel in schema.channels.items():
+            if is_merge_reducer(channel.reducer) and key in entry_state:
+                entry_state[key] = {}
+    sub_path = (*parent_ctx.graph_path, subgraph.name)
+    # 子图首写 checkpoint 的 parent 须跟随父链尾（版本链跨引擎线性连续——
+    # 子图进入时链尾 = 父层最近 checkpoint；置位后由首写处统一查询并复位）
+    if engine.options.storage is not None:
+        sub_engine._chain_advanced = True
     final_state, sub_result = await sub_engine._execute(
-        state=dict(parent_ctx.state),
+        state=entry_state,
         thread_id=parent._thread_id,
         round_id=parent_ctx.round_id,
-        resume_from=None,
+        resume_from=(parent_ctx.resume_map or {}).get(sub_path),
         trace_id=parent_ctx.trace_id,
         queue=None,
-        graph_path=(*parent_ctx.graph_path, subgraph.name),
+        graph_path=sub_path,
         transports=parent._transports,  # 继承父传输链（含顶层队列）
+        resume_map=parent_ctx.resume_map,
     )
+    # 子图 checkpoint 推进版本链：父引擎下次写 checkpoint 前须查询链尾作为
+    # parent（版本链严格线性；顺序执行路径则复用内存态，免每节点查询）。
+    # 置于中断提升前：子图中断同样推进过链尾（中断 checkpoint 已写入）。
+    if engine.options.storage is not None:
+        engine._chain_advanced = True
+    # 子图事件并入父引擎计数（父结果 events_emitted 含子图发射量）
+    engine._event_counter += sub_engine._event_counter
     # 子图内中断 → 提升为父图 interrupt（挂起卡跨嵌套层保留，重入语义一致）
     if sub_result.interrupt is not None:
         raise InterruptSignal(sub_result.interrupt.key, sub_result.interrupt.payload)
-    # 子图事件并入父引擎计数（父结果 events_emitted 含子图发射量）
-    engine._event_counter += sub_engine._event_counter
-    return final_state
+    # 子图终态 → 父图增量（delta = 子图内实际变化，防 reducer 加和翻倍）：
+    # 子图执行以入口快照为基，reducer（merge_metrics 等）已把入口值并入
+    # 终态——整体回流父图会二次加和。规则：
+    # - add_messages 通道：返回新增消息（按 id 差集），父图追加恰好一次；
+    # - 其余通道：返回终态（入口已剥离归零，终态即子图内新增）。
+    return _subgraph_overlay_delta(entry_state, final_state, engine.options.schema)
+
+
+def _subgraph_overlay_delta(
+    entry_state: dict, final_state: dict, schema: StateSchema | None
+) -> dict:
+    """计算子图回流增量（入口快照 → 终态，按通道 reducer 语义分类）。
+
+    - additive（累积追加族，add_messages 及 register_reducer(additive=True)）：
+      返回终态中「入口未见」的条目（按条目身份键差集），父图追加恰好一次；
+    - 其余（merge 类/裸通道）：入口已剥离归零（merge 类）或未变化跳过，
+      终态即子图内新增（减少回流噪音）。
+    """
+    if schema is None:
+        return dict(final_state)
+    delta: dict = {}
+    for key, value in final_state.items():
+        channel = schema.channels.get(key)
+        reducer = channel.reducer if channel is not None else None
+        if is_additive_reducer(reducer):
+            entry_msgs = entry_state.get(key) or []
+            entry_keys = {
+                k for m in entry_msgs if (k := _item_key(m)) is not None
+            }
+            new_msgs = [
+                m for m in (value or []) if _item_key(m) not in entry_keys
+            ]
+            if new_msgs:
+                delta[key] = new_msgs
+        else:
+            # merge 类/裸通道：入口剥离后终态即新增；未变化的键跳过（减少回流噪音）
+            if value != entry_state.get(key):
+                delta[key] = value
+    return delta
+
+
+def _item_key(m: Any) -> Any:
+    """条目身份键（additive 差集用）：消息按 id；{kind,text} 条目按内容对；
+    其余对象无稳定身份 → None（视为新增，宽容不丢）。"""
+    if isinstance(m, dict):
+        mid = m.get("id")
+        if mid is not None:
+            return ("id", mid)
+        if m.get("text") is not None:
+            return ("content", m.get("kind"), m["text"])
+        return None
+    mid = getattr(m, "id", None)
+    return ("id", mid) if mid is not None else None
 
 
 __all__ = ["Engine", "RunOptions", "RunResult"]

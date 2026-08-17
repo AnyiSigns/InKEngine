@@ -8,6 +8,7 @@
 from __future__ import annotations
 
 import json
+import uuid
 from collections.abc import Iterable
 from dataclasses import dataclass
 from typing import Any
@@ -52,6 +53,8 @@ class Message:
     """聊天消息（system/user/assistant/tool 四角色）。
 
     Args:
+        id: 消息唯一 id（add_messages 按 id 去重/RemoveMessage 删除；None = 追加不去重，
+            构造时未显式提供则自动生成——对齐 langchain 消息 id 语义）。
         role: 角色（system/user/assistant/tool）。
         content: 文本内容（assistant 可为空——纯工具调用消息）。
         tool_call_id: tool 角色必填，回指 assistant 的工具调用 id。
@@ -65,12 +68,15 @@ class Message:
     tool_call_id: str | None = None
     tool_calls: list[ToolCall] | None = None
     reasoning: str | None = None
+    id: str | None = None
 
     def __post_init__(self) -> None:
         if self.role not in _ROLES:
             raise LLMConfigError(f"非法消息角色: {self.role!r}")
         if self.role == "tool" and not self.tool_call_id:
             raise LLMConfigError("tool 角色消息必须携带 tool_call_id")
+        if self.id is None:
+            self.id = uuid.uuid4().hex
 
     def to_openai_dict(self) -> dict[str, Any]:
         """序列化为 OpenAI 兼容请求负载。"""
@@ -102,6 +108,7 @@ class Message:
                 else None
             ),
             "reasoning": self.reasoning,
+            "id": self.id,
         }
 
     @classmethod
@@ -115,6 +122,7 @@ class Message:
                 [ToolCall(**tc) for tc in tool_calls] if tool_calls else None
             ),
             reasoning=data.get("reasoning"),
+            id=data.get("id"),
         )
 
 

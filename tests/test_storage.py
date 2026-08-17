@@ -226,6 +226,39 @@ async def test_checkpoint_patch_chain_roundtrip(storage):
     assert restored.assemble()["content"] == "草稿一草稿二"
 
 
+async def test_checkpoint_engine_message_roundtrip(storage):
+    """引擎 Message/ToolCall 随 checkpoint 序列化往返（marker 内联还原）。
+
+    引擎状态通道持有 Message 对象时，checkpoint 落库/恢复必须精确还原
+    消息 id/tool_calls/reasoning（add_messages 按 id 去重语义跨存储一致）。
+    """
+    from engine_core.llm.messages import Message, ToolCall
+
+    msgs = [
+        Message(role="user", content="你好", id="m1"),
+        Message(
+            role="assistant",
+            content="",
+            tool_calls=[ToolCall(id="c1", name="lookup", arguments='{"q": 1}')],
+            reasoning="先查库",
+            id="m2",
+        ),
+        Message(role="tool", content="结果", tool_call_id="c1", id="m3"),
+    ]
+    rec = await storage.put_checkpoint(_cp(state={"messages": msgs}))
+    got = await storage.get_checkpoint(rec.checkpoint_id)
+    assert got is not None
+    restored = got.state["messages"]
+    assert len(restored) == 3
+    assert all(isinstance(m, Message) for m in restored)
+    assert restored[0].id == "m1"
+    assert restored[1].tool_calls[0].name == "lookup"
+    assert restored[1].tool_calls[0].arguments == '{"q": 1}'
+    assert restored[1].reasoning == "先查库"
+    assert restored[2].role == "tool"
+    assert restored[2].tool_call_id == "c1"
+
+
 async def test_event_log_append_and_replay(storage):
     e1 = EngineEvent(type="reply_token", payload={"text": "a"}, seq=1)
     e2 = EngineEvent(type="reply_token", payload={"text": "b"}, seq=2)

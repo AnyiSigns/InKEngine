@@ -27,12 +27,17 @@ SCHEME_POSTGRES = "postgresql"
 
 # 补丁链序列化标记键（checkpoint JSON 列内联结构，from_dict 精确还原）
 _PATCH_CHAIN_MARKER = "__patch_chain__"
+# 引擎消息/工具调用序列化标记键（状态通道可能持有 Message/ToolCall 对象，
+# checkpoint 落库前须转为可 JSON 结构，恢复时精确还原）
+_MESSAGE_MARKER = "__engine_message__"
+_TOOL_CALL_MARKER = "__engine_tool_call__"
 
 logger = get_logger(__name__)
 
 
 def _jsonable_strip(value: Any) -> Any:
-    """状态值 → JSON 可序列化（PatchChain 内联为标记 dict），单次递归内联敏感键剥离。
+    """状态值 → JSON 可序列化（PatchChain/Message/ToolCall 内联为标记 dict），
+    单次递归内联敏感键剥离。
 
     checkpoint 序列化热路径：剥离与 jsonable 合并为一次遍历（原 strip + jsonable
     两次全量递归）。copy-on-write：子树无敏感键返回原对象。
@@ -45,6 +50,17 @@ def _jsonable_strip(value: Any) -> Any:
                 {"op": p.op.value, "path": list(p.path), "value": _jsonable_strip(p.value)}
                 for p in value.patches
             ],
+        }
+    from .llm.messages import Message, ToolCall
+
+    if isinstance(value, Message):
+        return {_MESSAGE_MARKER: True, "data": _jsonable_strip(value.to_dict())}
+    if isinstance(value, ToolCall):
+        return {
+            _TOOL_CALL_MARKER: True,
+            "id": value.id,
+            "name": value.name,
+            "arguments": value.arguments,
         }
     if isinstance(value, dict):
         result: dict[str, Any] = {}
@@ -69,10 +85,20 @@ def _jsonable_strip(value: Any) -> Any:
 
 
 def _from_jsonable(value: Any) -> Any:
-    """JSON 反序列化还原（标记 dict → PatchChain，其余递归）。"""
+    """JSON 反序列化还原（标记 dict → PatchChain/Message/ToolCall，其余递归）。"""
     if isinstance(value, dict):
         if value.get(_PATCH_CHAIN_MARKER):
             return PatchChain.from_dict(value)
+        if value.get(_MESSAGE_MARKER):
+            from .llm.messages import Message
+
+            return Message.from_dict(_from_jsonable(value["data"]))
+        if value.get(_TOOL_CALL_MARKER):
+            from .llm.messages import ToolCall
+
+            return ToolCall(
+                id=value["id"], name=value["name"], arguments=value["arguments"]
+            )
         return {k: _from_jsonable(v) for k, v in value.items()}
     if isinstance(value, list):
         return [_from_jsonable(v) for v in value]

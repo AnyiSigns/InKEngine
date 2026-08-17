@@ -638,4 +638,155 @@ async def test_transport_failure_does_not_block():
     events: list[EngineEvent] = []
     async for event in engine.run({}, thread_id="t"):
         events.append(event)
-    assert len(events) == 1  # 执行未被打断
+    assert len(events) == 1
+
+
+async def test_subgraph_additive_reducer_reflow_delta():
+    """additive reducer 声明化：滚动追加族子图回流按条目差集（不二次追加）。
+
+    业务自定义追加型 reducer 经 register_reducer(additive=True) 声明后，
+    嵌套子图回流增量 = 终态 − 入口条目（父图滚动追加恰好一次）。
+    """
+    from engine_core.state import register_reducer
+
+    def roll_summary(base, overlay):
+        items = list(base or [])
+        for item in overlay or []:
+            if isinstance(item, dict) and item.get("text"):
+                items.append(dict(item))
+        return items[-3:]
+
+    register_reducer("roll_summary", roll_summary, additive=True)
+    schema = StateSchema({"summary": "roll_summary"})
+    parent = Graph(name="parent", entry="sub")
+
+    async def sub_work(ctx):
+        return {"summary": [{"kind": "k", "text": "子图新增"}]}
+
+    sub = Graph(name="sub", entry="s1")
+    sub.add_node("s1", sub_work)
+    sub.add_exit("s1")
+    parent.add_subgraph("sub", sub)
+    parent.add_exit("sub")
+
+    engine = make_engine(parent, schema=schema)
+    state, _ = await _execute(
+        engine, {"summary": [{"kind": "k", "text": "既有"}]}
+    )
+    # 回流只带新增条目 → 父图滚动追加恰好一次（无「既有」重复）
+    assert state["summary"] == [
+        {"kind": "k", "text": "既有"},
+        {"kind": "k", "text": "子图新增"},
+    ]
+
+
+async def test_subgraph_merge_dicts_reflow_accumulates():
+    """merge_dicts 通道（domain_windows 同款）：多次子图访问逐次累加不互覆。
+
+    合并累加族通道入口剥离归零、终态整体回流——两次子图写入不同键时
+    父图 merge 恰好一次，后访问不覆盖先访问（裸覆盖通道会互覆丢值）。
+    """
+    from functools import partial
+
+    schema = StateSchema({"group": None, "windows": "merge_dicts"})
+    parent = Graph(name="parent", entry="first")
+
+    async def set_group(ctx, group: str):
+        return {"group": group}
+
+    async def sub_work(ctx):
+        return {"windows": {ctx.state.get("group"): {"digest": f"d-{ctx.state.get('group')}"}}}
+
+    sub = Graph(name="sub", entry="s1")
+    sub.add_node("s1", sub_work)
+    sub.add_exit("s1")
+
+    parent.add_node("first", partial(set_group, group="query"))
+    parent.add_node("second", partial(set_group, group="entity"))
+    parent.add_subgraph("sub", sub)
+    parent.add_node("done", lambda ctx: {})
+
+    async def again(ctx):
+        return ctx.state.get("group") == "query"
+
+    async def to_done(ctx):
+        return ctx.state.get("group") == "entity"
+
+    parent.add_edge("first", "sub")
+    parent.add_conditional_edge("sub", "second", again)
+    parent.add_edge("second", "sub")
+    parent.add_conditional_edge("sub", "done", to_done)
+    parent.add_exit("done")
+
+    engine = make_engine(parent, schema=schema)
+    state, _ = await _execute(engine)
+    assert state["windows"] == {
+        "query": {"digest": "d-query"},
+        "entity": {"digest": "d-entity"},
+    }
+
+
+async def test_resume_from_subgraph_checkpoint_graph_path_aware(memory_storage):
+    """graph_path 感知恢复：锚点落在嵌套子图 checkpoint 时从子图内继续。
+
+    断线续流锚点 = 内层子图中断 checkpoint：沿版本链回溯各级最近锚点，
+    顶层/中间层从各自最近 checkpoint 恢复（祖先节点不重跑），内层重入
+    中断节点（inject 值继续），最终状态正确。
+    """
+    calls = {"top": 0, "tool": 0, "gate": 0, "finish": 0}
+
+    async def top(ctx):
+        calls["top"] += 1
+        return {"top_done": True}
+
+    async def tool_entry(ctx):
+        calls["tool"] += 1
+        return {}
+
+    async def gate(ctx):
+        calls["gate"] += 1
+        decision = await ctx.interrupt("inner_gate", {"q": "?"})
+        return {"passed": decision == "yes"}
+
+    async def finish(ctx):
+        calls["finish"] += 1
+        return {"inner_done": True}
+
+    domain = Graph(name="domain", entry="gate")
+    domain.add_node("gate", gate)
+    domain.add_node("finish", finish)
+    domain.add_edge("gate", "finish")
+    domain.add_exit("finish")
+
+    tool = Graph(name="tool", entry="tool_entry")
+    tool.add_node("tool_entry", tool_entry)
+    tool.add_subgraph("domain", domain)
+    tool.add_edge("tool_entry", "domain")
+    tool.add_exit("domain")
+
+    parent = Graph(name="parent", entry="top")
+    parent.add_node("top", top)
+    parent.add_subgraph("tool", tool)
+    parent.add_edge("top", "tool")
+    parent.add_exit("tool")
+
+    engine = make_engine(parent, storage=memory_storage)
+    _, result = await _execute(engine, thread_id="t1")
+    assert result.interrupt is not None and result.interrupt.key == "inner_gate"
+    assert calls == {"top": 1, "tool": 1, "gate": 1, "finish": 0}
+
+    # 锚点 = 最近 checkpoint（顶层中断锚点，graph_path=()）；恢复逻辑沿版本链
+    # 回溯各级子图锚点（("tool",) / ("tool","domain")）并下沉恢复
+    anchor = await memory_storage.get_latest_checkpoint("t1")
+    assert anchor is not None and anchor.graph_path == ()
+    engine._coordinator.inject({"inner_gate": "yes"})
+    state, result = await _execute(
+        engine,
+        thread_id="t1",
+        resume_from=anchor.checkpoint_id,
+    )
+    assert result.reason == TerminateReason.REPLY
+    assert state["passed"] is True
+    assert state["inner_done"] is True
+    # 祖先节点（top/tool_entry）不重跑；gate 中断重入执行一次
+    assert calls == {"top": 1, "tool": 1, "gate": 2, "finish": 1}  # 执行未被打断

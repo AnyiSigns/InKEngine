@@ -124,6 +124,41 @@ REDUCER_REGISTRY: dict[str, Reducer] = {
     "last_value": last_value,
 }
 
+# 累积追加族 reducer（additive）：overlay 条目「追加」进 base（按条目身份去重/
+# 滚动），子图回流增量 = 终态 − 入口的条目差集（防整体回流二次追加）。
+# 注册自定义追加型 reducer 时须经 register_reducer(additive=True) 声明，
+# 嵌套子图回流才会按条目差集计算增量。
+ADDITIVE_REDUCERS: set[str] = {"add_messages"}
+
+# 合并累加族 reducer（merge）：overlay 与 base 合并（数值加和/键覆盖），
+# 子图入口剥离归零、终态整体回流（父图合并恰好一次，防二次加和翻倍）。
+MERGE_REDUCERS: frozenset[str] = frozenset({"merge_metrics", "merge_dicts"})
+
+
+def register_reducer(
+    name: str, reducer: Reducer, *, additive: bool = False
+) -> None:
+    """注册自定义 reducer（幂等覆盖），additive=True 声明为累积追加族。
+
+    additive 声明决定嵌套子图回流增量算法（条目差集 vs 终态整体），
+    注册表开放：业务自定义 reducer 必须经本函数注册并声明分类。
+    """
+    REDUCER_REGISTRY[name] = reducer
+    if additive:
+        ADDITIVE_REDUCERS.add(name)
+    else:
+        ADDITIVE_REDUCERS.discard(name)
+
+
+def is_additive_reducer(name: str | None) -> bool:
+    """判断 reducer 是否为累积追加族（add_messages 及注册时声明 additive 者）。"""
+    return name in ADDITIVE_REDUCERS
+
+
+def is_merge_reducer(name: str | None) -> bool:
+    """判断 reducer 是否为合并累加族（merge_metrics/merge_dicts）。"""
+    return name in MERGE_REDUCERS
+
 
 def get_reducer(name: str | None) -> Reducer | None:
     """按名取 reducer；None 表示裸通道（覆盖语义）。"""
@@ -181,13 +216,18 @@ class StateSchema:
 
 
 __all__ = [
+    "ADDITIVE_REDUCERS",
+    "MERGE_REDUCERS",
     "Channel",
     "Reducer",
     "StateSchema",
     "add_messages",
     "get_reducer",
+    "is_additive_reducer",
+    "is_merge_reducer",
     "last_value",
     "merge_dicts",
     "merge_metrics",
     "patch_chain_reducer",
+    "register_reducer",
 ]

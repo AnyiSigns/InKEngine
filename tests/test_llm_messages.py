@@ -17,10 +17,71 @@ from ink_engine.core.llm.messages import (
     ToolCall,
     accumulate_tool_calls,
     assistant,
+    message_role,
     system,
     tool_result,
     user,
 )
+
+
+class TestMessageRole:
+    """角色归一（上下文投影/窗口裁剪等原语的总入口，须覆盖全部消息形态）。"""
+
+    def test_engine_message_roles_pass_through(self):
+        assert message_role(system("s")) == "system"
+        assert message_role(user("u")) == "user"
+        assert message_role(assistant("a")) == "assistant"
+        assert message_role(tool_result("r", "c1")) == "tool"
+
+    def test_dict_type_key_with_aliases(self):
+        assert message_role({"type": "human", "content": "x"}) == "user"
+        assert message_role({"type": "ai", "content": "x"}) == "assistant"
+        assert message_role({"type": "system"}) == "system"
+
+    def test_dict_role_key_preferred(self):
+        """引擎 Message.to_dict() 落 role 键：dict 形态也须判得出角色。"""
+        assert message_role(user("u").to_dict()) == "user"
+        assert message_role({"role": "assistant"}) == "assistant"
+
+    def test_dict_without_role_or_type(self):
+        assert message_role({}) == ""
+        assert message_role({"type": None}) == ""
+
+    def test_duck_typed_class_name_fallback(self):
+        """历史遗留消息类（AIMessage 等）按类名兜底归一。"""
+
+        class HumanMessage:
+            pass
+
+        class AIMessage:
+            pass
+
+        class ToolMessage:
+            pass
+
+        class Unknown:
+            pass
+
+        assert message_role(HumanMessage()) == "user"
+        assert message_role(AIMessage()) == "assistant"
+        assert message_role(ToolMessage()) == "tool"
+        assert message_role(Unknown()) == "unknown"
+
+    def test_class_named_message_does_not_normalize_to_empty(self):
+        """类名恰为 Message（无 role 属性）时不得归一成空串。"""
+
+        class Message:
+            pass
+
+        assert message_role(Message()) == "message"
+
+    def test_role_attribute_aliases(self):
+        """鸭子类型对象携带 human/ai 角色时同样归一。"""
+
+        class Custom:
+            role = "ai"
+
+        assert message_role(Custom()) == "assistant"
 
 
 class TestMessage:

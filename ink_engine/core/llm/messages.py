@@ -17,6 +17,9 @@ from ink_engine.core.llm.errors import LLMConfigError
 
 _ROLES = frozenset({"system", "user", "assistant", "tool"})
 
+# 历史/外部消息形态的角色别名（LangChain 系 human/ai 命名 → 引擎规范角色）
+_ROLE_ALIASES = {"human": "user", "ai": "assistant"}
+
 
 @dataclass(frozen=True, slots=True)
 class ToolCallDelta:
@@ -142,6 +145,35 @@ def tool_result(content: str, tool_call_id: str) -> Message:
     return Message(role="tool", content=content, tool_call_id=tool_call_id)
 
 
+def message_role(msg: Any) -> str:
+    """任意消息形态的角色归一（system/user/assistant/tool）。
+
+    消息在引擎执行期统一为 Message，但状态通道里可能混入宿主注入的 dict
+    形态（初始输入、删除标记）或历史遗留的鸭子类型消息类——上下文投影、
+    窗口裁剪等原语需要一个总函数来判角色，不能假定单一形态。
+
+    识别顺序：
+
+    1. ``role`` 属性（引擎 Message，规范角色直接透传）；
+    2. dict 的 ``role`` / ``type`` 键（``type`` 是宿主注入形态的常用键）；
+    3. 类名兜底（去掉 ``Message`` 后缀，如 ``AIMessage`` → assistant）。
+
+    human/ai 别名统一归一为 user/assistant；无法识别时返回小写类名或空串，
+    调用方按「非已知角色」处理即可（不抛错，防迁移期偶发形态崩）。
+    """
+    role = getattr(msg, "role", None)
+    if role is not None:
+        role = str(role)
+        return _ROLE_ALIASES.get(role, role)
+    if isinstance(msg, dict):
+        raw = str(msg.get("role") or msg.get("type") or "")
+        return _ROLE_ALIASES.get(raw, raw)
+    name = type(msg).__name__.lower()
+    # 后缀剥离后为空（类名恰为 "Message"）时退回原类名，避免归一成空串
+    stem = name.removesuffix("message") or name
+    return _ROLE_ALIASES.get(stem, stem)
+
+
 def accumulate_tool_calls(deltas: Iterable[ToolCallDelta]) -> list[ToolCall]:
     """按 index 合并流式工具调用增量。
 
@@ -171,6 +203,7 @@ __all__ = [
     "ToolCallDelta",
     "accumulate_tool_calls",
     "assistant",
+    "message_role",
     "system",
     "tool_result",
     "user",

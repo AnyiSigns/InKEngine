@@ -7,12 +7,12 @@ from __future__ import annotations
 
 import pytest
 
-from engine_core.budget import BudgetPolicy
-from engine_core.events import CollectorTransport
-from engine_core.exceptions import BudgetExceededError
-from engine_core.executor import Engine, RunOptions
-from engine_core.graph import Graph
-from engine_core.storage import create_storage
+from ink_engine.core.budget import BudgetPolicy
+from ink_engine.core.events import CollectorTransport
+from ink_engine.core.exceptions import BudgetExceededError
+from ink_engine.core.executor import Engine, RunOptions
+from ink_engine.core.graph import Graph
+from ink_engine.core.storage import create_storage
 
 
 @pytest.fixture

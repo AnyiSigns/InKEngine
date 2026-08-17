@@ -1,8 +1,8 @@
 """状态通道 + reducer 注册表单测：累积型/内容型/合并型/覆盖型 + schema 合并。"""
 from __future__ import annotations
 
-from engine_core.patch_chain import Patch, PatchChain, PatchOp
-from engine_core.state import (
+from ink_engine.core.patch_chain import Patch, PatchChain, PatchOp
+from ink_engine.core.state import (
     Channel,
     StateSchema,
     add_messages,

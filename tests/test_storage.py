@@ -6,10 +6,10 @@ import os
 
 import pytest
 
-from engine_core.events import EngineEvent
-from engine_core.exceptions import CheckpointConflictError, StorageError
-from engine_core.security import SENSITIVE_KEYS, strip_sensitive
-from engine_core.storage import CheckpointRecord, create_storage
+from ink_engine.core.events import EngineEvent
+from ink_engine.core.exceptions import CheckpointConflictError, StorageError
+from ink_engine.core.security import SENSITIVE_KEYS, strip_sensitive
+from ink_engine.core.storage import CheckpointRecord, create_storage
 
 
 @pytest.fixture(params=["memory://", "sqlite:///:memory:"])
@@ -133,7 +133,7 @@ async def test_checkpoint_sensitive_keys_stripped(storage):
 
 async def test_checkpoint_sensitive_keys_stripped_in_patch_chain(storage):
     """安全：补丁链通道（引擎主内容通道）内敏感键同样剥离，不绕过。"""
-    from engine_core.patch_chain import Patch, PatchChain, PatchOp
+    from ink_engine.core.patch_chain import Patch, PatchChain, PatchOp
 
     chain = PatchChain(base={"content": ""})
     chain.apply(Patch(op=PatchOp.APPEND, path=("content",), value="正文"))
@@ -213,7 +213,7 @@ async def test_use_after_close_raises():
 
 async def test_checkpoint_patch_chain_roundtrip(storage):
     """内容型补丁链随 checkpoint 序列化往返（sqlite JSON 列内联还原）。"""
-    from engine_core.patch_chain import Patch, PatchChain, PatchOp
+    from ink_engine.core.patch_chain import Patch, PatchChain, PatchOp
 
     chain = PatchChain(base={"content": ""})
     chain.apply(Patch(op=PatchOp.APPEND, path=("content",), value="草稿一"))
@@ -232,7 +232,7 @@ async def test_checkpoint_engine_message_roundtrip(storage):
     引擎状态通道持有 Message 对象时，checkpoint 落库/恢复必须精确还原
     消息 id/tool_calls/reasoning（add_messages 按 id 去重语义跨存储一致）。
     """
-    from engine_core.llm.messages import Message, ToolCall
+    from ink_engine.core.llm.messages import Message, ToolCall
 
     msgs = [
         Message(role="user", content="你好", id="m1"),

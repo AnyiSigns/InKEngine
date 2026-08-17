@@ -1,4 +1,4 @@
-﻿"""重试/退避/备用切换/流式中断（ModelChain）单测。
+"""重试/退避/备用切换/流式中断（ModelChain）单测。
 
 用 ScriptedLLM 脚本化调用结果（异常或成功），零网络、确定性验证：
 - 瞬时故障指数退避重试（流式仅首块前重试）；
@@ -14,8 +14,8 @@ import asyncio
 
 import pytest
 
-from engine_core.llm.base import AsyncLLM, LLMChunk, LLMConfig, LLMResult
-from engine_core.llm.errors import (
+from ink_engine.core.llm.base import AsyncLLM, LLMChunk, LLMConfig, LLMResult
+from ink_engine.core.llm.errors import (
     LLMAuthError,
     LLMBadRequestError,
     LLMError,
@@ -23,8 +23,8 @@ from engine_core.llm.errors import (
     LLMServerError,
     LLMTimeoutError,
 )
-from engine_core.llm.fallback import ModelChain, RetryPolicy
-from engine_core.llm.messages import user
+from ink_engine.core.llm.fallback import ModelChain, RetryPolicy
+from ink_engine.core.llm.messages import user
 
 INFINITE_STREAM = object()  # 哨兵：无限流脚本（取消语义测试专用）
 

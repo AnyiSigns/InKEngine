@@ -1,4 +1,4 @@
-﻿"""挡位级模型链：主模型 + 备用列表 + 指数退避重试 + 流式中断语义。
+"""挡位级模型链：主模型 + 备用列表 + 指数退避重试 + 流式中断语义。
 
 吸收 text_forge_backend/core/llm_retry 语义（引擎自包含，宿主不再重复实现）：
 
@@ -26,16 +26,16 @@ from collections.abc import AsyncIterator, Callable, Mapping, Sequence
 from dataclasses import dataclass
 from typing import Any
 
-from engine_core.llm.base import AsyncLLM, LLMChunk, LLMConfig, LLMParams, LLMResult
-from engine_core.llm.errors import (
+from ink_engine.core.llm.base import AsyncLLM, LLMChunk, LLMConfig, LLMParams, LLMResult
+from ink_engine.core.llm.errors import (
     LLMAuthError,
     LLMConfigError,
     LLMError,
     is_transient_llm_error,
 )
-from engine_core.llm.messages import Message
-from engine_core.llm.registry import create_llm
-from engine_core.llm.tools import ToolSpec
+from ink_engine.core.llm.messages import Message
+from ink_engine.core.llm.registry import create_llm
+from ink_engine.core.llm.tools import ToolSpec
 
 logger = logging.getLogger(__name__)
 

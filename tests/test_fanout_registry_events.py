@@ -5,10 +5,10 @@ import asyncio
 
 import pytest
 
-from engine_core.events import PROTOCOL_VERSION, EngineEvent, is_system_event
-from engine_core.exceptions import NodeNotFoundError, ProtocolVersionError
-from engine_core.fanout import fan_out
-from engine_core.registry import NodeRegistry, register_node, resolve_node
+from ink_engine.core.events import PROTOCOL_VERSION, EngineEvent, is_system_event
+from ink_engine.core.exceptions import NodeNotFoundError, ProtocolVersionError
+from ink_engine.core.fanout import fan_out
+from ink_engine.core.registry import NodeRegistry, register_node, resolve_node
 
 # ── fan_out ──
 

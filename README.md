@@ -33,9 +33,9 @@ pip install -e ".[postgres]"  # postgres 存储后端
 
 ```python
 import asyncio
-from engine_core.executor import Engine, RunOptions
-from engine_core.graph import Graph
-from engine_core.storage import create_storage
+from ink_engine.core.executor import Engine, RunOptions
+from ink_engine.core.graph import Graph
+from ink_engine.core.storage import create_storage
 
 async def main():
     async def start(ctx):

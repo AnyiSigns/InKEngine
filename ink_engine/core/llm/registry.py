@@ -16,8 +16,8 @@ from __future__ import annotations
 from collections.abc import Mapping
 from typing import Any
 
-from engine_core.llm.base import AsyncLLM, LLMConfig
-from engine_core.llm.errors import LLMConfigError
+from ink_engine.core.llm.base import AsyncLLM, LLMConfig
+from ink_engine.core.llm.errors import LLMConfigError
 
 _LLM_REGISTRY: dict[str, type[AsyncLLM]] = {}
 _BUILTINS_REGISTERED = False
@@ -39,7 +39,7 @@ def _ensure_builtins() -> None:
     if _BUILTINS_REGISTERED:
         return
     try:
-        from engine_core.llm.openai_compat import OpenAICompatibleLLM
+        from ink_engine.core.llm.openai_compat import OpenAICompatibleLLM
     except ModuleNotFoundError as exc:
         if getattr(exc, "name", None) == "httpx":
             raise LLMConfigError(

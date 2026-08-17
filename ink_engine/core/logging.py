@@ -5,7 +5,7 @@
 trace_id 经 contextvars 传递，贯穿一次 run() 全链路（可观测性要求）。
 
 库侧遵循标准 logging 语义：只 getLogger + NullHandler，不抢占 handler/
-级别/propagate——宿主可自行接管（挂 root 或 engine_core 上的采集器）。
+级别/propagate——宿主可自行接管（挂 root 或 core 上的采集器）。
 开箱即用的 JSON 输出由宿主显式调用 configure_engine_logging() 启用
 （examples/ 已调用）。
 """
@@ -68,10 +68,10 @@ def get_logger(name: str) -> logging.Logger:
 def configure_engine_logging(level: int = logging.INFO) -> None:
     """显式启用引擎 JSON 日志（宿主调用；未调用时引擎日志并入宿主日志体系）。
 
-    幂等：只挂一次 JSON handler。engine_core 根 logger 挂 handler，
+    幂等：只挂一次 JSON handler。core 根 logger 挂 handler，
     子模块 logger 经 propagate 输出，宿主 root 采集器同样可接收。
     """
-    root = logging.getLogger("engine_core")
+    root = logging.getLogger("core")
     for handler in root.handlers:
         if isinstance(handler, logging.StreamHandler) and not isinstance(
             handler, logging.NullHandler

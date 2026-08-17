@@ -4,8 +4,8 @@ from __future__ import annotations
 import pytest
 from conftest import demo_conditional_graph, demo_linear_graph, demo_loop_graph
 
-from engine_core.exceptions import GraphDefinitionError, NodeNotFoundError
-from engine_core.graph import Graph
+from ink_engine.core.exceptions import GraphDefinitionError, NodeNotFoundError
+from ink_engine.core.graph import Graph
 
 
 def test_compile_ok_linear():

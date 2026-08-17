@@ -8,7 +8,7 @@ HTTP 适配器经 __getattr__ 惰性导入，仅使用消息/工具/异常等纯
 """
 from __future__ import annotations
 
-from engine_core.llm.base import (
+from ink_engine.core.llm.base import (
     AsyncLLM,
     LLMChunk,
     LLMConfig,
@@ -17,7 +17,7 @@ from engine_core.llm.base import (
     ToolCallDelta,
     collect_result,
 )
-from engine_core.llm.errors import (
+from ink_engine.core.llm.errors import (
     LLMAuthError,
     LLMBadRequestError,
     LLMConfigError,
@@ -33,8 +33,8 @@ from engine_core.llm.errors import (
     classify_llm_error,
     is_transient_llm_error,
 )
-from engine_core.llm.fallback import ModelChain, RetryPolicy
-from engine_core.llm.messages import (
+from ink_engine.core.llm.fallback import ModelChain, RetryPolicy
+from ink_engine.core.llm.messages import (
     Message,
     ToolCall,
     accumulate_tool_calls,
@@ -43,15 +43,15 @@ from engine_core.llm.messages import (
     tool_result,
     user,
 )
-from engine_core.llm.registry import adapter_names, create_llm, get_adapter_class, register_adapter
-from engine_core.llm.tools import ToolSpec, to_openai_tools
+from ink_engine.core.llm.registry import adapter_names, create_llm, get_adapter_class, register_adapter
+from ink_engine.core.llm.tools import ToolSpec, to_openai_tools
 
 
 def __getattr__(name: str):
     """PEP 562 惰性导出：OpenAICompatibleLLM 依赖 httpx，用到才导入。"""
     if name == "OpenAICompatibleLLM":
         try:
-            from engine_core.llm.openai_compat import OpenAICompatibleLLM
+            from ink_engine.core.llm.openai_compat import OpenAICompatibleLLM
         except ModuleNotFoundError as exc:
             if getattr(exc, "name", None) == "httpx":
                 raise ModuleNotFoundError(

@@ -17,10 +17,10 @@ pytestmark = pytest.mark.live
 
 pytest.importorskip("httpx")
 
-from engine_core.llm.base import LLMConfig, collect_result  # noqa: E402
-from engine_core.llm.messages import user  # noqa: E402
-from engine_core.llm.registry import create_llm  # noqa: E402
-from engine_core.llm.tools import ToolSpec  # noqa: E402
+from ink_engine.core.llm.base import LLMConfig, collect_result  # noqa: E402
+from ink_engine.core.llm.messages import user  # noqa: E402
+from ink_engine.core.llm.registry import create_llm  # noqa: E402
+from ink_engine.core.llm.tools import ToolSpec  # noqa: E402
 
 WEATHER_TOOL = ToolSpec(
     name="get_weather",

@@ -10,8 +10,8 @@ import json
 import httpx
 import pytest
 
-from engine_core.llm.base import LLMConfig, LLMParams, collect_result
-from engine_core.llm.errors import (
+from ink_engine.core.llm.base import LLMConfig, LLMParams, collect_result
+from ink_engine.core.llm.errors import (
     LLMAuthError,
     LLMBadRequestError,
     LLMEmptyStreamError,
@@ -21,9 +21,9 @@ from engine_core.llm.errors import (
     LLMServerError,
     LLMTimeoutError,
 )
-from engine_core.llm.messages import system, user
-from engine_core.llm.openai_compat import OpenAICompatibleLLM
-from engine_core.llm.tools import ToolSpec
+from ink_engine.core.llm.messages import system, user
+from ink_engine.core.llm.openai_compat import OpenAICompatibleLLM
+from ink_engine.core.llm.tools import ToolSpec
 
 JSON_HEADERS = {"content-type": "application/json"}
 

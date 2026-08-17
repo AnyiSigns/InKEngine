@@ -13,7 +13,7 @@ from collections.abc import Iterable
 from dataclasses import dataclass
 from typing import Any
 
-from engine_core.llm.errors import LLMConfigError
+from ink_engine.core.llm.errors import LLMConfigError
 
 _ROLES = frozenset({"system", "user", "assistant", "tool"})
 

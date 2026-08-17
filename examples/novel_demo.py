@@ -7,16 +7,16 @@ from __future__ import annotations
 
 import asyncio
 
-from engine_core.events import EngineEvent
-from engine_core.executor import Engine, RunOptions
-from engine_core.graph import Graph, NodeContext, TerminateReason
-from engine_core.patch_chain import Patch, PatchChain, PatchOp
-from engine_core.storage import CheckpointRecord, create_storage
+from ink_engine.core.events import EngineEvent
+from ink_engine.core.executor import Engine, RunOptions
+from ink_engine.core.graph import Graph, NodeContext, TerminateReason
+from ink_engine.core.patch_chain import Patch, PatchChain, PatchOp
+from ink_engine.core.storage import CheckpointRecord, create_storage
 
 
 async def _main() -> None:
     # ── 1. 状态 schema：消息累积 + 草稿补丁链 ──
-    from engine_core.state import StateSchema
+    from ink_engine.core.state import StateSchema
 
     schema = StateSchema(
         channels={"messages": "add_messages", "draft": "patch_chain"}

@@ -3,10 +3,10 @@ from __future__ import annotations
 
 import pytest
 
-from engine_core.llm.base import AsyncLLM, LLMConfig
-from engine_core.llm.errors import LLMConfigError
-from engine_core.llm.openai_compat import OpenAICompatibleLLM
-from engine_core.llm.registry import (
+from ink_engine.core.llm.base import AsyncLLM, LLMConfig
+from ink_engine.core.llm.errors import LLMConfigError
+from ink_engine.core.llm.openai_compat import OpenAICompatibleLLM
+from ink_engine.core.llm.registry import (
     adapter_names,
     create_llm,
     get_adapter_class,
@@ -78,7 +78,7 @@ class TestRegistry:
             assert llm.created_with.model_id == "m"
         finally:
             register_adapter("custom", CustomLLM)  # 覆盖回（同名键语义）
-            from engine_core.llm.registry import _LLM_REGISTRY
+            from ink_engine.core.llm.registry import _LLM_REGISTRY
 
             _LLM_REGISTRY.pop("custom", None)
 

@@ -3,8 +3,8 @@ from __future__ import annotations
 
 import pytest
 
-from engine_core.llm.base import ToolCallDelta
-from engine_core.llm.errors import (
+from ink_engine.core.llm.base import ToolCallDelta
+from ink_engine.core.llm.errors import (
     LLMAuthError,
     LLMConfigError,
     LLMError,
@@ -12,7 +12,7 @@ from engine_core.llm.errors import (
     LLMTimeoutError,
     classify_llm_error,
 )
-from engine_core.llm.messages import (
+from ink_engine.core.llm.messages import (
     Message,
     ToolCall,
     accumulate_tool_calls,
@@ -144,7 +144,7 @@ class TestLLMErrorSanitization:
         assert exc.status_code == 408
 
     def test_keyword_fallback_classification(self):
-        from engine_core.llm.errors import LLMServerError
+        from ink_engine.core.llm.errors import LLMServerError
 
         exc = classify_llm_error(detail="服务繁忙，请稍后重试")
         assert isinstance(exc, LLMServerError)

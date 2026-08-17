@@ -1,4 +1,4 @@
-﻿"""统一 LLM 接口（AsyncLLM）与数据模型。
+"""统一 LLM 接口（AsyncLLM）与数据模型。
 
 计划形态：AsyncLLM.astream(messages, tools, params) -> AsyncGenerator[LLMChunk]。
 LLMChunk 增量语义（{token?, tool_calls_delta?, reasoning_token?} + finish_reason/usage
@@ -13,9 +13,9 @@ from collections.abc import AsyncIterator, Mapping, Sequence
 from dataclasses import dataclass
 from typing import Any
 
-from engine_core.llm.errors import LLMConfigError
-from engine_core.llm.messages import Message, ToolCall, ToolCallDelta, accumulate_tool_calls
-from engine_core.llm.tools import ToolSpec
+from ink_engine.core.llm.errors import LLMConfigError
+from ink_engine.core.llm.messages import Message, ToolCall, ToolCallDelta, accumulate_tool_calls
+from ink_engine.core.llm.tools import ToolSpec
 
 # from_dict 白名单键（v3 模型配置形态：adapter/base_url/api_key/model_id/
 # temperature/max_tokens/request_timeout）；未知键收进 extra 透传不破坏。

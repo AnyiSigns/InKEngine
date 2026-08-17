@@ -3,8 +3,8 @@ from __future__ import annotations
 
 import pytest
 
-from engine_core.llm.errors import LLMConfigError
-from engine_core.llm.tools import ToolSpec, to_openai_tools
+from ink_engine.core.llm.errors import LLMConfigError
+from ink_engine.core.llm.tools import ToolSpec, to_openai_tools
 
 EMPTY_PARAMS = {"type": "object", "properties": {}}
 

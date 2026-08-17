@@ -21,7 +21,7 @@ from typing import Any
 
 import httpx
 
-from engine_core.llm.base import (
+from ink_engine.core.llm.base import (
     AsyncLLM,
     LLMChunk,
     LLMConfig,
@@ -29,14 +29,14 @@ from engine_core.llm.base import (
     LLMResult,
     ToolCallDelta,
 )
-from engine_core.llm.errors import (
+from ink_engine.core.llm.errors import (
     LLMEmptyStreamError,
     LLMError,
     LLMFormatError,
     classify_llm_error,
 )
-from engine_core.llm.messages import Message, ToolCall
-from engine_core.llm.tools import ToolSpec, to_openai_tools
+from ink_engine.core.llm.messages import Message, ToolCall
+from ink_engine.core.llm.tools import ToolSpec, to_openai_tools
 
 DEFAULT_REQUEST_TIMEOUT = 120.0
 

@@ -11,11 +11,11 @@ from conftest import (
     make_engine,
 )
 
-from engine_core.events import EngineEvent
-from engine_core.exceptions import StorageError
-from engine_core.executor import Engine
-from engine_core.graph import Graph, TerminateReason
-from engine_core.state import StateSchema
+from ink_engine.core.events import EngineEvent
+from ink_engine.core.exceptions import StorageError
+from ink_engine.core.executor import Engine
+from ink_engine.core.graph import Graph, TerminateReason
+from ink_engine.core.state import StateSchema
 
 
 async def _execute(engine: Engine, state: dict | None = None, **kw):
@@ -520,8 +520,8 @@ async def test_interrupt_payload_stripped(memory_storage):
 
 async def test_patch_chain_node_mutation_no_duplicate():
     """补丁链通道：节点读链→就地追加→整链返回不重复追加（N1）。"""
-    from engine_core.patch_chain import Patch, PatchChain, PatchOp
-    from engine_core.state import StateSchema
+    from ink_engine.core.patch_chain import Patch, PatchChain, PatchOp
+    from ink_engine.core.state import StateSchema
 
     schema = StateSchema(channels={"draft": "patch_chain"})
 
@@ -547,8 +547,8 @@ async def test_patch_chain_node_mutation_no_duplicate():
 
 async def test_subgraph_patch_chain_reflow_no_duplicate():
     """子图回流：patch_chain 通道输出回流父图不重复追加（N1+S5）。"""
-    from engine_core.patch_chain import Patch, PatchChain, PatchOp
-    from engine_core.state import StateSchema
+    from ink_engine.core.patch_chain import Patch, PatchChain, PatchOp
+    from ink_engine.core.state import StateSchema
 
     schema = StateSchema(channels={"content": "patch_chain"})
     parent = Graph(name="parent", entry="sub")
@@ -647,7 +647,7 @@ async def test_subgraph_additive_reducer_reflow_delta():
     业务自定义追加型 reducer 经 register_reducer(additive=True) 声明后，
     嵌套子图回流增量 = 终态 − 入口条目（父图滚动追加恰好一次）。
     """
-    from engine_core.state import register_reducer
+    from ink_engine.core.state import register_reducer
 
     def roll_summary(base, overlay):
         items = list(base or [])

@@ -3,7 +3,7 @@ requires = ["setuptools>=68"]
 build-backend = "setuptools.build_meta"
 
 [project]
-name = "textforge-engine-core"
+name = "ink_engine"
 version = "0.1.0"
 description = "InkEngine 墨引擎内核：TextForge 自研小说生成引擎（图执行/checkpoint 版本链/事件流/interrupt/补丁链）"
 readme = "README.md"
@@ -26,7 +26,7 @@ test = [
 ]
 
 [tool.setuptools.packages.find]
-include = ["engine_core*"]
+include = ["ink_engine*"]
 
 [tool.pytest.ini_options]
 testpaths = ["tests"]

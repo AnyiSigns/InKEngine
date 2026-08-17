@@ -14,9 +14,9 @@ from http.server import BaseHTTPRequestHandler, ThreadingHTTPServer
 
 import pytest
 
-from engine_core.llm.base import LLMConfig
-from engine_core.llm.messages import user
-from engine_core.llm.openai_compat import OpenAICompatibleLLM
+from ink_engine.core.llm.base import LLMConfig
+from ink_engine.core.llm.messages import user
+from ink_engine.core.llm.openai_compat import OpenAICompatibleLLM
 
 # 首帧后保活窗口（秒）：客户端取消后服务端应在此窗口内观察到断连
 _KEEPALIVE_WINDOW_SECONDS = 10.0

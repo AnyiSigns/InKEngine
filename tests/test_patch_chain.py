@@ -3,7 +3,7 @@ from __future__ import annotations
 
 import pytest
 
-from engine_core.patch_chain import AssembleMode, Patch, PatchChain, PatchOp
+from ink_engine.core.patch_chain import AssembleMode, Patch, PatchChain, PatchOp
 
 
 def test_append_to_list():

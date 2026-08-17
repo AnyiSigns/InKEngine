@@ -19,8 +19,8 @@ from __future__ import annotations
 
 import re
 
-from engine_core.exceptions import EngineError
-from engine_core.logging import redact
+from ink_engine.core.exceptions import EngineError
+from ink_engine.core.logging import redact
 
 # 上游正文进入异常前的规范化上限（与引擎其他错误分支 200 字符口径一致）
 _DETAIL_MAX_LEN = 200

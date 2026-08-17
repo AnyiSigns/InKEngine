@@ -10,7 +10,7 @@ from __future__ import annotations
 from dataclasses import dataclass
 from typing import Any
 
-from engine_core.llm.errors import LLMConfigError
+from ink_engine.core.llm.errors import LLMConfigError
 
 _EMPTY_PARAMETERS: dict[str, Any] = {"type": "object", "properties": {}}
 

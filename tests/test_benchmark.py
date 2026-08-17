@@ -17,8 +17,8 @@ import time
 
 import pytest
 
-from engine_core.patch_chain import Patch, PatchChain, PatchOp
-from engine_core.storage import CheckpointRecord, create_storage
+from ink_engine.core.patch_chain import Patch, PatchChain, PatchOp
+from ink_engine.core.storage import CheckpointRecord, create_storage
 
 # 验收指标（毫秒/秒），CI 门禁宽松阈值
 CHECKPOINT_WRITE_MS = 10.0
@@ -63,7 +63,7 @@ def test_checkpoint_write_latency():
 @pytest.mark.benchmark
 def test_event_throughput():
     """事件流吞吐 ≥500 事件/s（内存收集传输，纯 emit 路径）。"""
-    from engine_core.events import EngineEvent
+    from ink_engine.core.events import EngineEvent
 
     storage = create_storage("memory://")
     event = EngineEvent(type="reply_token", payload={"text": "x"})

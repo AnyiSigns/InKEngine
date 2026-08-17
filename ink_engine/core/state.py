@@ -70,9 +70,15 @@ def merge_dicts(base: Any, overlay: Any) -> dict:
 
 
 def merge_metrics(base: Any, overlay: Any) -> dict:
-    """指标聚合：数值相加、嵌套 dict 递归合并、其余取 overlay。"""
-    base = base or {}
+    """指标聚合：数值相加、嵌套 dict 递归合并、其余取 overlay。
+
+    特殊值：overlay 含 "__reset__": True 时整体重置（新用户回合由
+    业务层输入注入，避免 checkpoint 旧值跨回合累计）。
+    """
     overlay = overlay or {}
+    if isinstance(overlay, dict) and overlay.get("__reset__"):
+        return {k: v for k, v in overlay.items() if k != "__reset__"}
+    base = base or {}
     result: dict = {}
     for key in set(base) | set(overlay):
         b, o = base.get(key), overlay.get(key)

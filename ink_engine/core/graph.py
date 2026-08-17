@@ -80,6 +80,10 @@ class Graph:
 
     entry/exits 必须声明（多入口图不支持，入口 = entry 节点）；
     exits 中的节点执行完毕后图终止（含 END 语义，业务自行命名）。
+
+    schema: 本图状态通道 schema（None = 继承父图/引擎默认）。嵌套子图
+    允许自定义 schema（路由子图/工具子图各自声明通道），未声明时继承
+    父引擎 options.schema——单引擎内子图按需声明，互不干扰。
     """
 
     name: str
@@ -88,6 +92,7 @@ class Graph:
     edges: dict[str, list[Edge]] = field(default_factory=dict)
     exits: set[str] = field(default_factory=set)
     subgraphs: dict[str, Graph] = field(default_factory=dict)
+    schema: Any = None
 
     def add_node(self, name: str, fn: NodeFn) -> None:
         self.nodes[name] = fn

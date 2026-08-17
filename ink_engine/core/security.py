@@ -26,7 +26,10 @@ SENSITIVE_KEYS: frozenset[str] = frozenset(
 )
 
 # 常见凭据键后缀（openai_api_key/client_secret/auth_token 等前后缀形态，
-# 精确匹配覆盖不到；后缀命中基本即凭据，误伤面小）
+# 精确匹配覆盖不到；后缀命中基本即凭据，误伤面小）。
+# 注意：启发式为保守剥离——任何以 _key/_token/_secret/_password 结尾的
+# 非凭据字段也会被置空（当前 state 通道无此形态键；未来新增通道若属
+# 业务数据且恰以此后缀命名，须在 SENSITIVE_KEYS 之外显式豁免）。
 _SENSITIVE_SUFFIXES: tuple[str, ...] = ("_key", "_token", "_secret", "_password")
 
 

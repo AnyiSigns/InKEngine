@@ -1,9 +1,10 @@
-"""动态子图展开原语（spawn：子任务清单 → 并发展开为子图实例）。
+"""动态子图展开原语的数据面（子任务清单模型/校验/实例归属）。
 
 Codex 式「主 agent 拆解 → 动态分配子 agent」的引擎形态：路由节点
-（宿主注册）产出子任务清单，本原语把清单并发展开为子图实例执行，
-实例最终状态按 index 顺序回流父图（结果回收）。拆解策略/分配策略
-在路由节点（业务），引擎只提供展开、隔离与回收。
+（宿主注册）产出子任务清单，本模块定义清单的数据形态与收集校验；
+清单的并发展开与结果回收由执行器承担（``Engine.run_spawned``）——
+数据驱动形态（节点返回值携带 ``__spawn__`` 保留键）与命令式
+``ctx.spawn`` 收集的清单在这里统一合并校验。
 
 实例隔离（半共享 + 独立子链）：
 - 入口状态自包含：清单 state 即实例完整入口（可序列化可重放，
@@ -23,10 +24,7 @@ from __future__ import annotations
 
 from dataclasses import dataclass, field
 
-from .executor import Engine, RunOptions, _NodeContextImpl, _subgraph_overlay_delta
-from .fanout import fan_out
-from .graph import Graph, NodeContext, TerminateReason
-from .interrupt import InterruptSignal
+from .graph import Graph
 from .state import is_merge_reducer
 
 # 数据驱动形态的保留键：节点返回值携带此键 = 子任务清单（引擎内部
@@ -59,12 +57,12 @@ class SpawnResult:
     failures: list[SpawnFailure] = field(default_factory=list)
 
 
-def _instance_thread_id(parent_thread: str, index: int) -> str:
+def instance_thread_id(parent_thread: str, index: int) -> str:
     """实例版本链归属：``{父thread}:spawn:{index}``（可回放/回溯定位）。"""
     return f"{parent_thread}:spawn:{index}"
 
 
-def _instance_entry_state(spec: SpawnSpec, sub_schema) -> dict:
+def instance_entry_state(spec: SpawnSpec, sub_schema) -> dict:
     """实例入口状态：清单 state 自包含；合并累加族通道归零（回流增量口径）。
 
     与静态子图同语义：子图内从 0 起算，回流增量 = 子图内新增（父图
@@ -77,125 +75,6 @@ def _instance_entry_state(spec: SpawnSpec, sub_schema) -> dict:
             if is_merge_reducer(channel.reducer) and key in entry:
                 entry[key] = {}
     return entry
-
-
-def _make_instance_engine(parent: _NodeContextImpl, subgraph: Graph) -> Engine:
-    """实例引擎：独立实例（并发安全，不复用图级缓存——实例间互不干扰）。
-
-    共享父引擎存储/schema/预算/传输配置；coordinator 共享（实例内
-    interrupt 重入与父图同一通道）。
-    """
-    engine = parent._engine
-    sub_engine = Engine(
-        subgraph,
-        options=RunOptions(
-            storage=engine.options.storage,
-            schema=subgraph.schema or engine.options.schema,
-            budget=engine.options.budget,
-            transports=engine.options.transports,
-            max_node_retries=engine.options.max_node_retries,
-            error_on_exception=engine.options.error_on_exception,
-            # 成本护栏整体继承：父层显式禁用/收紧的 spawn 限制在实例层不旁落
-            max_spawns=engine.options.max_spawns,
-            spawn_concurrency=engine.options.spawn_concurrency,
-        ),
-    )
-    sub_engine._coordinator = engine._coordinator
-    return sub_engine
-
-
-async def run_spawned_subgraphs(
-    specs: list[SpawnSpec],
-    parent_ctx: NodeContext,
-    *,
-    concurrency: int,
-) -> SpawnResult:
-    """把子任务清单并发展开为子图实例，回收结果回流父图。
-
-    Args:
-        specs: 子任务清单（路由节点产出，按 index 顺序回流合并）。
-        concurrency: 并发上限（fan_out 限流，成本护栏）。
-        parent_ctx: 父图节点上下文（事件透传/中断共享/版本链归属）。
-
-    Returns:
-        SpawnResult：成功实例回流增量（按 index 升序合并，确定性）+ 失败清单。
-
-    Raises:
-        InterruptSignal: 任一实例内中断（提升为父图挂起卡，重入语义一致）。
-    """
-    parent: _NodeContextImpl = parent_ctx  # type: ignore[assignment]
-    engine = parent._engine
-    results: dict[int, dict] = {}
-    failures: list[SpawnFailure] = []
-
-    async def run_one(index: int) -> None:
-        spec = specs[index]
-        sub_engine = _make_instance_engine(parent, spec.subgraph)
-        sub_path = (*parent_ctx.graph_path, spec.subgraph.name, str(spec.index))
-        instance_thread = _instance_thread_id(parent._thread_id, spec.index)
-        # 恢复：实例从自身链尾续跑（中断/未终态 checkpoint 续跑，同回合
-        # 挂卡重入不重跑已完成节点）；终态链尾（reply/stop/error 等 = 上
-        # 一回合或已完成的陈旧结果）不作续跑锚点——从头执行，防多轮会话
-        # 静默沿用旧结果。从头执行也续接实例链尾（版本链严格线性）。
-        resume_from: int | None = None
-        if engine.options.storage is not None:
-            tail = await engine.options.storage.get_latest_checkpoint(instance_thread)
-            if tail is not None and tail.reason in (None, "interrupted"):
-                resume_from = tail.checkpoint_id
-            sub_engine._chain_advanced = True
-        final_state, sub_result = await sub_engine._execute(
-            state=_instance_entry_state(spec, sub_engine.options.schema),
-            thread_id=parent._thread_id,
-            round_id=parent_ctx.round_id,
-            resume_from=resume_from,
-            trace_id=parent_ctx.trace_id,
-            queue=None,
-            graph_path=sub_path,
-            # 继承父传输链（含顶层 run 队列）：实例事件汇入父事件流——
-            # "事件统一父链、前端协议不变"（与静态子图 run_subgraph 同口径）
-            transports=parent._transports,
-            # checkpoint 独立子链：实例写入实例 thread，事件日志统一父链
-            checkpoint_thread_id=instance_thread,
-        )
-        # 实例事件并入父引擎计数与 seq 锚点（事件统一落父链日志，父引擎
-        # 后续 checkpoint 须以含实例事件的最新 seq 为锚，防恢复重放重复）
-        engine._event_counter += sub_engine._event_counter
-        if sub_engine._latest_event_seq is not None:
-            engine._latest_event_seq = (
-                sub_engine._latest_event_seq
-                if engine._latest_event_seq is None
-                else max(engine._latest_event_seq, sub_engine._latest_event_seq)
-            )
-        # 实例内中断 → 提升为父图 interrupt（挂起卡跨层保留，重入语义一致）
-        if sub_result.interrupt is not None:
-            raise InterruptSignal(sub_result.interrupt.key, sub_result.interrupt.payload)
-        # 实例终态为 ERROR：不入回流（剔除留痕，父链继续）——部分失败
-        # 语义不允许失败实例的部分状态污染父图
-        if sub_result.reason == TerminateReason.ERROR:
-            raise RuntimeError(
-                sub_result.error or f"spawn 实例执行失败（index={index}）"
-            )
-        results[spec.index] = _subgraph_overlay_delta(
-            _instance_entry_state(spec, sub_engine.options.schema),
-            final_state,
-            sub_engine.options.schema,
-        )
-
-    # 并发展开：部分失败剔除（成功结果回流，父链继续）；实例内中断为
-    # 控制流异常（propagate 传播），中断时 fan_out 取消未完成兄弟实例
-    outcome = await fan_out(
-        [lambda i: run_one(i) for i in range(len(specs))],
-        concurrency,
-        propagate=InterruptSignal,
-    )
-    for failure in outcome.failures:
-        failures.append(SpawnFailure(failure.index, failure.error))
-
-    overlay: dict = {}
-    for spec in sorted(specs, key=lambda s: s.index):
-        if spec.index in results:
-            overlay.update(results[spec.index])
-    return SpawnResult(overlay=overlay, failures=failures)
 
 
 def collect_spawn_specs(
@@ -241,5 +120,6 @@ __all__ = [
     "SpawnResult",
     "SpawnSpec",
     "collect_spawn_specs",
-    "run_spawned_subgraphs",
+    "instance_entry_state",
+    "instance_thread_id",
 ]

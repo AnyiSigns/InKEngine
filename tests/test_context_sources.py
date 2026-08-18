@@ -2,6 +2,7 @@
 from __future__ import annotations
 
 from ink_engine.core.context import ContextSource
+from ink_engine.core.memory import MemoryEntry
 from ink_engine.novel_harness.context_sources import (
     SOURCE_BOOK,
     SOURCE_BRANCH,
@@ -11,10 +12,10 @@ from ink_engine.novel_harness.context_sources import (
     SOURCE_MEMORY,
     SOURCE_STYLE,
     SOURCE_WORLD,
+    STYLE_KIND,
     ChapterSummary,
     CharacterCard,
     FeedbackItem,
-    MemoryNote,
     SimBranchInfo,
     body_source,
     book_title_source,
@@ -27,6 +28,10 @@ from ink_engine.novel_harness.context_sources import (
     world_state_source,
 )
 from ink_engine.novel_harness.world_state import CharacterState, WorldState
+
+
+def _mem(content: str, kind: str = "note") -> MemoryEntry:
+    return MemoryEntry(namespace="book:1", kind=kind, content=content)
 
 
 def test_book_title_source():
@@ -105,7 +110,7 @@ def test_branch_source_skips_empty():
 
 
 def test_memory_source():
-    src = memory_source([MemoryNote(content="先抑后扬", kind="plot"), MemoryNote(content="")])
+    src = memory_source([_mem("先抑后扬", kind="plot"), _mem("")])
     assert src.type == SOURCE_MEMORY
     assert "- [plot] 先抑后扬" in src.content
     assert src.dedup_key == "memory"
@@ -113,10 +118,22 @@ def test_memory_source():
 
 
 def test_style_source():
-    src = style_source([MemoryNote(content="禁用烂尾桥段")])
+    src = style_source([_mem("禁用烂尾桥段", kind=STYLE_KIND)])
     assert src.type == SOURCE_STYLE
     assert "- [style] 禁用烂尾桥段" in src.content
     assert src.dedup_key == "style"
+
+
+def test_memory_style_kind_partition():
+    """kind 分流：style 条目只进 style 源，普通条目只进 memory 源（防双源重复注入）。"""
+    style_entry = _mem("禁用烂尾桥段", kind=STYLE_KIND)
+    plot_entry = _mem("先抑后扬", kind="plot")
+    mem = memory_source([style_entry, plot_entry])
+    assert "先抑后扬" in mem.content
+    assert "禁用烂尾桥段" not in mem.content
+    st = style_source([style_entry, plot_entry])
+    assert "禁用烂尾桥段" in st.content
+    assert "先抑后扬" not in st.content
 
 
 def test_feedback_source():
@@ -163,8 +180,8 @@ def test_all_sources_valid_metadata():
         character_source([CharacterCard("N", "D")]),
         body_source("T", "C"),
         branch_source([SimBranchInfo("T", "C")]),
-        memory_source([MemoryNote("C")]),
-        style_source([MemoryNote("C")]),
+        memory_source([_mem("C")]),
+        style_source([_mem("C", kind=STYLE_KIND)]),
         feedback_source([FeedbackItem("C")]),
         world_state_source(WorldState()),
     ]

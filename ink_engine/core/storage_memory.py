@@ -71,6 +71,19 @@ class MemoryStorage:
             record = _normalize_record(record)
             if record.checkpoint_id == 0:
                 if not fork and record.parent_id is not None:
+                    # 链一致性不变量（与 sqlite/postgres 同语义，锁内原子判定）：
+                    # 父指针必须存在且属于同一 thread、event_seq 不高于新节点
+                    # （悬挂/跨线程父指针与 event_seq 回退在写入期暴露）。
+                    parent = self._checkpoints.get(record.parent_id)
+                    if (
+                        parent is None
+                        or parent.thread_id != record.thread_id
+                        or parent.event_seq > record.event_seq
+                    ):
+                        raise CheckpointConflictError(
+                            f"checkpoint 写入被拒绝（父指针不存在/跨线程/event_seq 回退）: "
+                            f"thread={record.thread_id} parent=#{record.parent_id}"
+                        )
                     # 并发写保护（与 sqlite/postgres 同语义，锁内校验原子）：
                     # 链尾仍是 parent_id 才插入；链已前进（并发写）→ 冲突。
                     latest_id = self._latest_checkpoint_by_thread.get(record.thread_id)

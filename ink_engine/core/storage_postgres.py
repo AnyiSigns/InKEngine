@@ -152,7 +152,13 @@ class PostgresStorage:
                             "SELECT pg_advisory_xact_lock(hashtext($1))", record.thread_id
                         )
                         if not fork and record.parent_id is not None:
-                            # 并发写保护（乐观锁语义）：链尾仍是 parent_id 才插入；
+                            # 链一致性不变量（事务级咨询锁内原子判定）：
+                            # - 链尾校验：链尾仍是 parent_id 才插入（NOT EXISTS
+                            #   查不到比 parent 更新的节点）；链已前进（他写并发）
+                            #   → 0 行 → 冲突；
+                            # - 父指针校验：parent 必须存在且属于同一 thread、
+                            #   且 event_seq 不高于新节点（EXISTS 判定）——悬挂/
+                            #   跨线程父指针与 event_seq 回退在写入期暴露。
                             # fork=True（编辑重放分叉）跳过校验，允许锚点指向历史链节点。
                             # 参数全部显式转型：asyncpg 对 INSERT ... SELECT 的
                             # 目标列表参数无目标列类型可推断，裸 $n 报
@@ -164,6 +170,9 @@ class PostgresStorage:
                                 " $7::double precision,1,$8::bigint,$9::text,$12::jsonb"
                                 " WHERE NOT EXISTS (SELECT 1 FROM checkpoints"
                                 " WHERE thread_id = $10::text AND checkpoint_id > $11::bigint)"
+                                " AND EXISTS (SELECT 1 FROM checkpoints"
+                                " WHERE checkpoint_id = $13::bigint"
+                                " AND thread_id = $14::text AND event_seq <= $15::bigint)"
                                 " RETURNING checkpoint_id",
                                 data["thread_id"],
                                 data["node"],
@@ -179,10 +188,14 @@ class PostgresStorage:
                                 json.dumps(data["interrupt"], ensure_ascii=False)
                                 if data["interrupt"] is not None
                                 else None,
+                                data["parent_id"],
+                                data["thread_id"],
+                                data["event_seq"],
                             )
                             if row is None:
                                 raise CheckpointConflictError(
-                                    f"checkpoint 并发写冲突（链尾已前进）: thread={data['thread_id']}"
+                                    f"checkpoint 写入被拒绝（链尾已前进/父指针不存在/跨线程/event_seq 回退）: "
+                                    f"thread={data['thread_id']}"
                                 )
                         else:
                             row = await conn.fetchrow(

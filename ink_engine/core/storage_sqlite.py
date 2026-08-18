@@ -143,15 +143,23 @@ class SqliteStorage:
             if record.checkpoint_id == 0:
                 # 新链节点：插入后返回自增 id
                 if not fork and record.parent_id is not None:
-                    # 并发写保护（乐观锁语义，单条语句防 TOCTOU）：
-                    # 仅当链尾仍是 parent_id 时插入；链已前进（他写并发）→ 0 行 → 冲突。
+                    # 链一致性不变量（单条语句原子判定，防 TOCTOU）：
+                    # - 链尾校验：链尾仍是 parent_id 才插入（NOT EXISTS 查
+                    #   不到比 parent 更新的节点）；链已前进（他写并发）→
+                    #   0 行 → 冲突；
+                    # - 父指针校验：parent 必须存在且属于同一 thread、且
+                    #   event_seq 不高于新节点（EXISTS 判定）——悬挂/跨线程
+                    #   父指针与 event_seq 回退会在写入期暴露，而非恢复期
+                    #   重放错乱才暴露。
                     # fork=True（编辑重放分叉）跳过校验，允许锚点指向历史链节点。
                     cur = await self._conn.execute(
                         "INSERT INTO checkpoints (thread_id, node, graph_path, state,"
                         " parent_id, reason, created_at, version, event_seq, error, interrupt)"
                         " SELECT ?,?,?,?,?,?,?,?,?,?,?"
                         " WHERE NOT EXISTS (SELECT 1 FROM checkpoints"
-                        " WHERE thread_id = ? AND checkpoint_id > ?)",
+                        " WHERE thread_id = ? AND checkpoint_id > ?)"
+                        " AND EXISTS (SELECT 1 FROM checkpoints"
+                        " WHERE checkpoint_id = ? AND thread_id = ? AND event_seq <= ?)",
                         (
                             data["thread_id"],
                             data["node"],
@@ -168,6 +176,9 @@ class SqliteStorage:
                             else None,
                             data["thread_id"],
                             data["parent_id"],
+                            data["parent_id"],
+                            data["thread_id"],
+                            data["event_seq"],
                         ),
                     )
                 else:
@@ -199,7 +210,8 @@ class SqliteStorage:
                 await cur.close()
                 if updated == 0 or checkpoint_id is None:
                     raise CheckpointConflictError(
-                        f"checkpoint 并发写冲突（链尾已前进）: thread={data['thread_id']}"
+                        f"checkpoint 写入被拒绝（链尾已前进/父指针不存在/跨线程/event_seq 回退）: "
+                        f"thread={data['thread_id']}"
                     )
                 return CheckpointRecord(
                     checkpoint_id=checkpoint_id,

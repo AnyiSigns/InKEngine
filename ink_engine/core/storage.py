@@ -223,6 +223,74 @@ class Storage(Protocol):
     async def close(self) -> None: ...
 
 
+async def validate_chain(
+    storage: Storage,
+    thread_id: str,
+    *,
+    max_walk: int = 10000,
+    check_event_seq: bool = True,
+) -> list[str]:
+    """版本链一致性校验（存储层断言工具：调试/测试/巡检）。
+
+    从链尾沿 parent_id 回溯，校验：
+    - parent 引用存在且属于同一 thread（防悬挂/跨线程父指针静默成链）；
+    - checkpoint_id 沿父链严格递减（防环/自引用）；
+    - event_seq 沿链单调不减（checkpoint 快照锚点与增量日志重放顺序一致）。
+
+    fork 分叉（编辑重放：truncate_log_after + parent_checkpoint）的新分支
+    首节点 event_seq 允许低于历史父锚点（事件日志已截断回退），此时调用方
+    应传 ``check_event_seq=False`` 或知晓该豁免。
+
+    Args:
+        storage: 存储服务（任意后端，只依赖 Storage 协议）。
+        thread_id: 版本链归属线程。
+        max_walk: 回溯步数上限（防意外成环死循环；超限报违规并停止）。
+        check_event_seq: 是否校验 event_seq 单调性（分叉链豁免场景置 False）。
+
+    Returns:
+        违规描述列表（空 = 链一致）。
+    """
+    violations: list[str] = []
+    node = await storage.get_latest_checkpoint(thread_id)
+    walked = 0
+    while node is not None:
+        walked += 1
+        if walked > max_walk:
+            violations.append(
+                f"链遍历超限（>{max_walk} 节点，疑似成环）: 停于 #{node.checkpoint_id}"
+            )
+            break
+        parent = (
+            await storage.get_checkpoint(node.parent_id)
+            if node.parent_id is not None
+            else None
+        )
+        if node.parent_id is not None and parent is None:
+            violations.append(
+                f"悬挂父指针: #{node.checkpoint_id} -> parent #{node.parent_id} 不存在"
+            )
+            break
+        if parent is not None:
+            if parent.thread_id != node.thread_id:
+                violations.append(
+                    f"跨线程父指针: #{node.checkpoint_id}(thread={node.thread_id}) "
+                    f"-> #{parent.checkpoint_id}(thread={parent.thread_id})"
+                )
+            if parent.checkpoint_id >= node.checkpoint_id:
+                violations.append(
+                    f"父链非递减（环/自引用）: #{node.checkpoint_id} "
+                    f"-> #{parent.checkpoint_id}"
+                )
+                break  # 环/自引用：继续回溯无意义且死循环
+            if check_event_seq and parent.event_seq > node.event_seq:
+                violations.append(
+                    f"event_seq 回退: #{node.checkpoint_id} event_seq={node.event_seq} "
+                    f"< 父 #{parent.checkpoint_id} event_seq={parent.event_seq}"
+                )
+        node = parent
+    return violations
+
+
 def create_storage(conn_string: str) -> Storage:
     """存储后端工厂：连接串协议前缀决定后端（内存/sqlite/postgres）。
 
@@ -265,5 +333,6 @@ __all__ = [
     "CheckpointRecord",
     "Storage",
     "create_storage",
+    "validate_chain",
 ]
 

@@ -19,19 +19,32 @@ publish 通道自然汇入父事件流（graph_path 记录路径），子图最�
 from __future__ import annotations
 
 import asyncio
+import inspect
+import time
 import uuid
 from collections.abc import AsyncGenerator
-from dataclasses import dataclass, field
+from dataclasses import dataclass, field, replace
 from typing import Any
 
 from .budget import BudgetManager
 from .events import EngineEvent, EngineTransport
-from .exceptions import NodeExecutionError, StorageError
+from .exceptions import NodeExecutionError
+from .fanout import fan_out
 from .graph import Graph, NodeContext, TerminateReason
 from .interrupt import InterruptCoordinator, InterruptSignal, InterruptState
 from .logging import get_logger, trace_id_var
+from .recovery import resolve_resume, tail_checkpoint
 from .security import strip_sensitive
-from .state import StateSchema, is_additive_reducer, is_merge_reducer
+from .spawn import (
+    SPAWN_KEY,
+    SpawnFailure,
+    SpawnResult,
+    SpawnSpec,
+    collect_spawn_specs,
+    instance_entry_state,
+    instance_thread_id,
+)
+from .state import StateSchema, is_merge_reducer, subgraph_overlay_delta
 from .storage import CheckpointRecord, Storage
 
 logger = get_logger(__name__)
@@ -206,8 +219,6 @@ class _NodeContextImpl(NodeContext):
         与数据驱动形态（节点返回值携带 ``__spawn__`` 键）等价——引擎在
         节点返回后统一展开收集的清单。index 缺省按收集顺序自动分配。
         """
-        from .spawn import SpawnSpec
-
         self._spawns.append(
             SpawnSpec(subgraph=subgraph, state=dict(state), index=index if index is not None else len(self._spawns))
         )
@@ -222,8 +233,6 @@ async def _select_next_node(graph: Graph, ctx: NodeContext, current: str) -> str
     条件边兼容同步/异步判定（``inspect.isawaitable`` 检测），业务可写
     同步 lambda 或 async 函数，无需关心执行器形态。
     """
-    import inspect
-
     edges = graph.edges.get(current)
     if not edges:
         return None
@@ -274,9 +283,6 @@ class Engine:
         存储/传输消费失败都不影响主流程（观测不阻断执行）；存储故障按
         时间窗降频记录，避免 token 级事件流触发日志洪水。
         """
-        import time
-        from dataclasses import replace
-
         self._event_counter += 1
         if self.options.storage is not None:
             try:
@@ -513,87 +519,31 @@ class Engine:
         transports = transports if transports is not None else self.options.transports
         chain_thread = checkpoint_thread_id or thread_id
 
-        # ── 恢复：checkpoint 快照 + 增量日志重放（断线续流）──
+        # ── 恢复：checkpoint 快照 + 增量日志重放（断线续流，解析在 recovery 模块）──
         current: str = graph.entry
-        # 初始状态经 schema 归一化（对齐 langgraph 输入处理）：reducer 通道
-        # 的输入值（如指标通道的 __reset__ 标记）在入口即应用归约语义，
-        # 与 checkpoint 恢复路径一致，避免原始标记残留在终态
-        current_state = (
-            schema.apply({}, state)
-            if schema is not None
-            else dict(state)
+        # 续链/续跑的首写 parent 须跟随当前链尾（历史链尾可能已推进——
+        # 上次中断/子图锚点/spawn 实例）：置位后由 checkpoint 写入处统一查询
+        if (continue_chain or resume_from is not None) and storage is not None:
+            self._chain_advanced = True
+        resume = await resolve_resume(
+            storage=storage,
+            state=state,
+            schema=schema,
+            thread_id=thread_id,
+            chain_thread=chain_thread,
+            resume_from=resume_from,
+            continue_chain=continue_chain,
+            graph_path=graph_path,
+            replay=queue is not None,
+            resume_map=resume_map,
         )
-        last_checkpoint: CheckpointRecord | None = None
-        resume_map = dict(resume_map or {})
-        if continue_chain and storage is not None:
-            # 新回合续链：读链尾 checkpoint 为基底，输入 state 经 schema 覆盖
-            # 合并（消息追加/指标复位等 reducer 语义），从入口执行，版本链
-            # 续接链尾——不重放事件（新回合事件全新产生）。
-            self._chain_advanced = True
-            last_checkpoint = await storage.get_latest_checkpoint(chain_thread)
-            if last_checkpoint is not None:
-                base = dict(last_checkpoint.state)
-                current_state = schema.apply(base, state) if schema else {
-                    **base, **state
-                }
-        elif resume_from is not None and storage is not None:
-            # 恢复续跑：历史链尾可能已推进（上次中断/子图锚点），首写 parent
-            # 须跟随当前链尾——置位后由 checkpoint 写入处统一查询
-            self._chain_advanced = True
-            last_checkpoint = await storage.get_checkpoint(resume_from)
-            if last_checkpoint is None:
-                raise StorageError(f"恢复锚点不存在: {resume_from}")
-            # 输入 state 作为覆盖层（对齐 langgraph 续跑语义）：checkpoint 状态
-            # 为基底，输入中提供的通道值经 reducer 合并（弹卡注入的 decision/
-            # 清空的一次性状态等），缺失键保留 checkpoint 值
-            current_state = dict(last_checkpoint.state)
-            if state:
-                current_state = schema.apply(current_state, state) if schema else {
-                    **current_state, **state
-                }
-            # 增量日志重放：把 checkpoint 之后的事件补发给传输（断线续流）
-            if queue is not None:
-                for event in await storage.events_after(thread_id, last_checkpoint.event_seq):
-                    await queue.put(event)
-            # 顶层引擎（graph_path 空）：锚点可能落在任一层（含嵌套子图内），
-            # 沿版本链回溯收集各级恢复锚点（graph_path → checkpoint_id）——
-            # 中断链上每级引擎都写有 interrupted checkpoint（顶层中断锚点的
-            # 父链含各级子图锚点），各级从各自最近 checkpoint 恢复，子图锚点
-            # 经 resume_map 下沉（子图 runner 路径匹配时传给子图引擎，
-            # 跳过祖先节点重执行）。子图引擎（graph_path 非空）收到的
-            # resume_from 已匹配本层路径，直接恢复不再回溯。
-            if not graph_path:
-                cp: CheckpointRecord | None = last_checkpoint
-                top_anchor: int | None = None
-                while cp is not None:
-                    path = cp.graph_path or ()
-                    if path:
-                        # 仅收未完成/中断锚点（reason 为 None 的节点快照或
-                        # interrupted 挂起轮）：reply/stop/error 终态 = 已完成
-                        # 子图的陈旧结果，作恢复锚点会让子图直接收尾回流旧状态
-                        if cp.reason in (None, "interrupted"):
-                            resume_map.setdefault(path, cp.checkpoint_id)
-                    elif top_anchor is None:
-                        top_anchor = cp.checkpoint_id  # 最近的顶层锚点
-                    # 继续沿父链回溯：顶层中断 checkpoint 的父链含子图层锚点
-                    cp = (
-                        await storage.get_checkpoint(cp.parent_id)
-                        if cp.parent_id is not None
-                        else None
-                    )
-                if top_anchor is not None:
-                    last_checkpoint = await storage.get_checkpoint(top_anchor)
-                    current_state = dict(last_checkpoint.state)
-                    if queue is not None:
-                        for event in await storage.events_after(
-                            thread_id, last_checkpoint.event_seq
-                        ):
-                            await queue.put(event)
-                else:
-                    # 顶层锚点缺失（图入口即子图）：本级从入口开始，子图锚点
-                    # 保留在 resume_map（到达路径匹配的子图节点时恢复）
-                    last_checkpoint = None
-                    current_state = dict(state)
+        current_state = resume.state
+        last_checkpoint = resume.last_checkpoint
+        resume_map = resume.resume_map
+        # 增量日志重放：把最终锚点之后的事件补发给传输（断线续流；
+        # replay 非空时 queue 必挂载，收集条件与入队条件一致）
+        for event in resume.replay:
+            await queue.put(event)
 
         ctx = _NodeContextImpl(
             engine=self,
@@ -656,8 +606,6 @@ class Engine:
                     break
 
             # ── 执行节点（重试 N 次 / 终止；兼容同步/异步节点函数）──
-            import inspect
-
             overlay: dict | None = None
             node_error: str | None = None
             for attempt in range(self.options.max_node_retries + 1):
@@ -715,11 +663,7 @@ class Engine:
                 break
 
             # ── spawn 清单提取（保留键不落状态；与命令式收集项合并）──
-            from .spawn import SPAWN_KEY
-
             if self.options.max_spawns > 0:
-                from .spawn import collect_spawn_specs
-
                 try:
                     spawn_specs = collect_spawn_specs(overlay, ctx._spawns)
                     # 命令式清单一次性消费：清空收集器，防清单泄漏到后续
@@ -757,8 +701,6 @@ class Engine:
 
             # ── spawn 展开（子任务清单并发展开为子图实例，结果回流）──
             if spawn_specs:
-                from .spawn import run_spawned_subgraphs
-
                 if len(spawn_specs) > self.options.max_spawns:
                     node_error = (
                         f"spawn 清单超限: {len(spawn_specs)} > {self.options.max_spawns}"
@@ -769,7 +711,7 @@ class Engine:
                     reason = TerminateReason.ERROR
                     break
                 try:
-                    spawn_result = await run_spawned_subgraphs(
+                    spawn_result = await self.run_spawned(
                         spawn_specs,
                         ctx,
                         concurrency=self.options.spawn_concurrency,
@@ -824,9 +766,9 @@ class Engine:
                     else await storage.latest_event_seq(thread_id)
                 )
                 if self._chain_advanced:
-                    # 嵌套子图推进过链尾（或恢复续跑）：parent 跟随当前链尾
-                    # （版本链严格线性，跨引擎连续），查一次后复位
-                    _tail = await storage.get_latest_checkpoint(chain_thread)
+                    # 嵌套子图/spawn 实例推进过链尾（或恢复续跑）：parent 跟随
+                    # 当前链尾（版本链严格线性，跨引擎连续），查一次后复位
+                    _tail = await tail_checkpoint(storage, chain_thread)
                     if _tail is not None:
                         parent_id = _tail.checkpoint_id
                     self._chain_advanced = False
@@ -868,7 +810,7 @@ class Engine:
             )
             if self._chain_advanced:
                 # 版本链严格线性：parent 跟随当前链尾（与节点 checkpoint 同语义）
-                _tail = await storage.get_latest_checkpoint(chain_thread)
+                _tail = await tail_checkpoint(storage, chain_thread)
                 if _tail is not None:
                     parent_id = _tail.checkpoint_id
                 self._chain_advanced = False
@@ -898,6 +840,122 @@ class Engine:
             error=error_msg,
         )
         return current_state, result
+
+    def _make_instance_engine(self, subgraph: Graph) -> Engine:
+        """实例引擎：独立实例（并发安全，不复用图级缓存——实例间互不干扰）。
+
+        共享父引擎存储/schema/预算/传输配置；coordinator 共享（实例内
+        interrupt 重入与父图同一通道）。
+        """
+        sub_engine = Engine(
+            subgraph,
+            options=RunOptions(
+                storage=self.options.storage,
+                schema=subgraph.schema or self.options.schema,
+                budget=self.options.budget,
+                transports=self.options.transports,
+                max_node_retries=self.options.max_node_retries,
+                error_on_exception=self.options.error_on_exception,
+                # 成本护栏整体继承：父层显式禁用/收紧的 spawn 限制在实例层不旁落
+                max_spawns=self.options.max_spawns,
+                spawn_concurrency=self.options.spawn_concurrency,
+            ),
+        )
+        sub_engine._coordinator = self._coordinator
+        return sub_engine
+
+    async def run_spawned(
+        self,
+        specs: list[SpawnSpec],
+        parent_ctx: NodeContext,
+        *,
+        concurrency: int,
+    ) -> SpawnResult:
+        """把子任务清单并发展开为子图实例，回收结果回流父图（公开接口）。
+
+        Args:
+            specs: 子任务清单（路由节点产出，按 index 顺序回流合并）。
+            parent_ctx: 父图节点上下文（事件透传/中断共享/版本链归属）。
+            concurrency: 并发上限（fan_out 限流，成本护栏）。
+
+        Returns:
+            SpawnResult：成功实例回流增量（按 index 升序合并，确定性）+ 失败清单。
+
+        Raises:
+            InterruptSignal: 任一实例内中断（提升为父图挂起卡，重入语义一致）。
+        """
+        parent: _NodeContextImpl = parent_ctx  # type: ignore[assignment]
+        results: dict[int, dict] = {}
+        failures: list[SpawnFailure] = []
+
+        async def run_one(index: int) -> None:
+            spec = specs[index]
+            sub_engine = self._make_instance_engine(spec.subgraph)
+            sub_path = (*parent_ctx.graph_path, spec.subgraph.name, str(spec.index))
+            instance_thread = instance_thread_id(parent._thread_id, spec.index)
+            # 恢复：实例从自身链尾续跑（中断/未终态 checkpoint 续跑，同回合
+            # 挂卡重入不重跑已完成节点）；终态链尾（reply/stop/error 等 = 上
+            # 一回合或已完成的陈旧结果）不作续跑锚点——从头执行，防多轮会话
+            # 静默沿用旧结果。从头执行也续接实例链尾（版本链严格线性）。
+            resume_from: int | None = None
+            if self.options.storage is not None:
+                tail = await tail_checkpoint(self.options.storage, instance_thread)
+                if tail is not None and tail.reason in (None, "interrupted"):
+                    resume_from = tail.checkpoint_id
+                sub_engine._chain_advanced = True
+            final_state, sub_result = await sub_engine._execute(
+                state=instance_entry_state(spec, sub_engine.options.schema),
+                thread_id=parent._thread_id,
+                round_id=parent_ctx.round_id,
+                resume_from=resume_from,
+                trace_id=parent_ctx.trace_id,
+                queue=None,
+                graph_path=sub_path,
+                # 继承父传输链（含顶层 run 队列）：实例事件汇入父事件流——
+                # "事件统一父链、前端协议不变"（与静态子图 run_subgraph 同口径）
+                transports=parent._transports,
+                # checkpoint 独立子链：实例写入实例 thread，事件日志统一父链
+                checkpoint_thread_id=instance_thread,
+            )
+            # 实例事件并入父引擎计数与 seq 锚点（事件统一落父链日志，父引擎
+            # 后续 checkpoint 须以含实例事件的最新 seq 为锚，防恢复重放重复）
+            self._event_counter += sub_engine._event_counter
+            if sub_engine._latest_event_seq is not None:
+                self._latest_event_seq = (
+                    sub_engine._latest_event_seq
+                    if self._latest_event_seq is None
+                    else max(self._latest_event_seq, sub_engine._latest_event_seq)
+                )
+            # 实例内中断 → 提升为父图 interrupt（挂起卡跨层保留，重入语义一致）
+            if sub_result.interrupt is not None:
+                raise InterruptSignal(sub_result.interrupt.key, sub_result.interrupt.payload)
+            # 实例终态为 ERROR：不入回流（剔除留痕，父链继续）——部分失败
+            # 语义不允许失败实例的部分状态污染父图
+            if sub_result.reason == TerminateReason.ERROR:
+                raise RuntimeError(
+                    sub_result.error or f"spawn 实例执行失败（index={index}）"
+                )
+            results[spec.index] = subgraph_overlay_delta(
+                instance_entry_state(spec, sub_engine.options.schema),
+                final_state,
+                sub_engine.options.schema,
+            )
+
+        # 并发展开：部分失败剔除（成功结果回流，父链继续）；实例内中断为
+        # 控制流异常（propagate 传播），中断时 fan_out 取消未完成兄弟实例
+        outcome = await fan_out(
+            [lambda i: run_one(i) for i in range(len(specs))],
+            concurrency,
+            propagate=InterruptSignal,
+        )
+        for failure in outcome.failures:
+            failures.append(SpawnFailure(failure.index, failure.error))
+
+        overlay: dict = {}
+        for spec in sorted(specs, key=lambda s: s.index):
+            if spec.index in results:
+                overlay.update(results[spec.index])
+        return SpawnResult(overlay=overlay, failures=failures)
 
 
 async def run_subgraph(subgraph: Graph, parent_ctx: NodeContext) -> dict | None:
@@ -996,56 +1054,9 @@ async def run_subgraph(subgraph: Graph, parent_ctx: NodeContext) -> dict | None:
     # - 其余通道：返回终态（入口已剥离归零，终态即子图内新增）。
     # 分类判定用子图自身 schema：与入口剥离（run_subgraph 内同口径）一致，
     # 子图自定义 schema 的 additive/merge 声明不回流入父口径错位。
-    return _subgraph_overlay_delta(
+    return subgraph_overlay_delta(
         entry_state, final_state, sub_engine.options.schema
     )
-
-
-def _subgraph_overlay_delta(
-    entry_state: dict, final_state: dict, schema: StateSchema | None
-) -> dict:
-    """计算子图回流增量（入口快照 → 终态，按通道 reducer 语义分类）。
-
-    - additive（累积追加族，add_messages 及 register_reducer(additive=True)）：
-      返回终态中「入口未见」的条目（按条目身份键差集），父图追加恰好一次；
-    - 其余（merge 类/裸通道）：入口已剥离归零（merge 类）或未变化跳过，
-      终态即子图内新增（减少回流噪音）。
-    """
-    if schema is None:
-        return dict(final_state)
-    delta: dict = {}
-    for key, value in final_state.items():
-        channel = schema.channels.get(key)
-        reducer = channel.reducer if channel is not None else None
-        if is_additive_reducer(reducer):
-            entry_msgs = entry_state.get(key) or []
-            entry_keys = {
-                k for m in entry_msgs if (k := _item_key(m)) is not None
-            }
-            new_msgs = [
-                m for m in (value or []) if _item_key(m) not in entry_keys
-            ]
-            if new_msgs:
-                delta[key] = new_msgs
-        else:
-            # merge 类/裸通道：入口剥离后终态即新增；未变化的键跳过（减少回流噪音）
-            if value != entry_state.get(key):
-                delta[key] = value
-    return delta
-
-
-def _item_key(m: Any) -> Any:
-    """条目身份键（additive 差集用）：消息按 id；{kind,text} 条目按内容对；
-    其余对象无稳定身份 → None（视为新增，宽容不丢）。"""
-    if isinstance(m, dict):
-        mid = m.get("id")
-        if mid is not None:
-            return ("id", mid)
-        if m.get("text") is not None:
-            return ("content", m.get("kind"), m["text"])
-        return None
-    mid = getattr(m, "id", None)
-    return ("id", mid) if mid is not None else None
 
 
 __all__ = ["Engine", "RunOptions", "RunResult"]

@@ -14,6 +14,7 @@ from collections.abc import Sequence
 from dataclasses import dataclass
 
 from ink_engine.core.context import ContextSource
+from ink_engine.core.memory import MemoryEntry
 from ink_engine.novel_harness.world_state import WorldState
 
 # 源类型常量（宿主装配留痕 / 预算策略按类型差异化元数据用）
@@ -26,6 +27,14 @@ SOURCE_MEMORY = "memory"
 SOURCE_STYLE = "style"
 SOURCE_FEEDBACK = "feedback"
 SOURCE_WORLD = "world"
+
+# 小说记忆 kind 约定（引擎 MemoryEntry.kind 的领域语义）
+STYLE_KIND = "style"
+"""风格偏好条目 kind：写作时严格遵守，走 style 源单独注入（高权重）。
+
+宿主写入记忆时以 kind=STYLE_KIND 标记风格条目，注入时自动分流：
+style_source 只收该 kind，memory_source 排除该 kind（防重复注入）。
+"""
 
 # 各成分截断长度（与旧静态取段口径对齐，防单源撑爆预算）
 _SUMMARY_MAX_CHARS = 200
@@ -63,14 +72,6 @@ class SimBranchInfo:
 
     title: str
     content: str
-
-
-@dataclass(frozen=True, slots=True)
-class MemoryNote:
-    """记忆条目（宿主记忆查询结果 → 纯数据，与引擎 MemoryEntry 解耦）。"""
-
-    content: str
-    kind: str = "note"
 
 
 @dataclass(frozen=True, slots=True)
@@ -204,26 +205,31 @@ def branch_source(
     )
 
 
-def _memory_lines(notes: Sequence[MemoryNote], kind_label: str | None) -> list[str]:
-    """记忆条目行格式化；kind_label=None 时逐条取 note.kind，否则统一标签。"""
+def _memory_lines(entries: Sequence[MemoryEntry], kind_label: str | None) -> list[str]:
+    """记忆条目行格式化；kind_label=None 时逐条取 entry.kind，否则统一标签。"""
     lines: list[str] = []
-    for note in notes:
-        content = (note.content or "").strip()[:_MEMORY_MAX_CHARS]
+    for entry in entries:
+        content = (entry.content or "").strip()[:_MEMORY_MAX_CHARS]
         if not content:
             continue
-        label = note.kind if kind_label is None else kind_label
+        label = entry.kind if kind_label is None else kind_label
         lines.append(f"- [{label or 'note'}] {content}")
     return lines
 
 
 def memory_source(
-    notes: Sequence[MemoryNote],
+    entries: Sequence[MemoryEntry],
     *,
     weight: float = 0.7,
     relevance: float = 0.6,
     max_chars: int = 1200,
 ) -> ContextSource:
-    """工作/书级记忆源（auto-recall 检索注入点；外部数据防注入包装由宿主管）。"""
+    """工作/书级记忆源（auto-recall 检索注入点；外部数据防注入包装由宿主管）。
+
+    排除风格偏好条目（kind=style，走 :func:`style_source` 单独注入高权重源，
+    防同一内容双源重复注入）。
+    """
+    notes = [e for e in entries if e.kind != STYLE_KIND]
     return ContextSource(
         type=SOURCE_MEMORY,
         content="\n".join(_memory_lines(notes, None)),
@@ -236,13 +242,17 @@ def memory_source(
 
 
 def style_source(
-    notes: Sequence[MemoryNote],
+    entries: Sequence[MemoryEntry],
     *,
     weight: float = 0.95,
     relevance: float = 0.85,
     max_chars: int = 800,
 ) -> ContextSource:
-    """作者风格偏好源（书级记忆，写作时严格遵守，权重高于普通记忆）。"""
+    """作者风格偏好源（kind=style 条目，写作时严格遵守，权重高于普通记忆）。
+
+    只收 :data:`STYLE_KIND` 条目（其余 kind 由 :func:`memory_source` 承载）。
+    """
+    notes = [e for e in entries if e.kind == STYLE_KIND]
     return ContextSource(
         type=SOURCE_STYLE,
         content="\n".join(_memory_lines(notes, "style")),
@@ -351,10 +361,10 @@ __all__ = [
     "SOURCE_MEMORY",
     "SOURCE_STYLE",
     "SOURCE_WORLD",
+    "STYLE_KIND",
     "ChapterSummary",
     "CharacterCard",
     "FeedbackItem",
-    "MemoryNote",
     "SimBranchInfo",
     "body_source",
     "book_title_source",

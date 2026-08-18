@@ -186,6 +186,56 @@ def is_merge_reducer(name: str | None) -> bool:
     return name in MERGE_REDUCERS
 
 
+def _item_key(m: Any) -> Any:
+    """条目身份键（additive 差集用）：消息按 id；{kind,text} 条目按内容对；
+    其余对象无稳定身份 → None（视为新增，宽容不丢）。"""
+    if isinstance(m, dict):
+        mid = m.get("id")
+        if mid is not None:
+            return ("id", mid)
+        if m.get("text") is not None:
+            return ("content", m.get("kind"), m["text"])
+        return None
+    mid = getattr(m, "id", None)
+    return ("id", mid) if mid is not None else None
+
+
+def subgraph_overlay_delta(
+    entry_state: dict, final_state: dict, schema: StateSchema | None
+) -> dict:
+    """计算子图回流增量（入口快照 → 终态，按通道 reducer 语义分类）。
+
+    - additive（累积追加族，add_messages 及 register_reducer(additive=True)）：
+      返回终态中「入口未见」的条目（按条目身份键差集），父图追加恰好一次；
+    - 其余（merge 类/裸通道）：入口已剥离归零（merge 类）或未变化跳过，
+      终态即子图内新增（减少回流噪音）。
+
+    嵌套子图与 spawn 实例共用：入口剥离（run_subgraph 内同口径）决定
+    「子图内新增」的起算基准，两处增量口径一致防二次加和翻倍。
+    """
+    if schema is None:
+        return dict(final_state)
+    delta: dict = {}
+    for key, value in final_state.items():
+        channel = schema.channels.get(key)
+        reducer = channel.reducer if channel is not None else None
+        if is_additive_reducer(reducer):
+            entry_msgs = entry_state.get(key) or []
+            entry_keys = {
+                k for m in entry_msgs if (k := _item_key(m)) is not None
+            }
+            new_msgs = [
+                m for m in (value or []) if _item_key(m) not in entry_keys
+            ]
+            if new_msgs:
+                delta[key] = new_msgs
+        else:
+            # merge 类/裸通道：入口剥离后终态即新增；未变化的键跳过（减少回流噪音）
+            if value != entry_state.get(key):
+                delta[key] = value
+    return delta
+
+
 def get_reducer(name: str | None) -> Reducer | None:
     """按名取 reducer；None 表示裸通道（覆盖语义）。"""
     if name is None:
@@ -256,4 +306,5 @@ __all__ = [
     "merge_metrics",
     "patch_chain_reducer",
     "register_reducer",
+    "subgraph_overlay_delta",
 ]

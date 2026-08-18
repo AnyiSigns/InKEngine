@@ -9,7 +9,7 @@ import pytest
 from ink_engine.core.events import EngineEvent
 from ink_engine.core.exceptions import CheckpointConflictError, StorageError
 from ink_engine.core.security import SENSITIVE_KEYS, strip_sensitive
-from ink_engine.core.storage import CheckpointRecord, create_storage
+from ink_engine.core.storage import CheckpointRecord, create_storage, validate_chain
 
 
 @pytest.fixture(params=["memory://", "sqlite:///:memory:"])
@@ -382,3 +382,134 @@ async def test_non_json_state_rejected(storage):
 
     with pytest.raises(StorageError):
         await storage.put_checkpoint(_cp(state={"obj": _Obj()}))
+
+
+async def test_dangling_parent_rejected(storage):
+    """链一致性不变量：parent 引用不存在（悬挂父指针）→ 写入拒绝。
+    修复前：条件插入的链尾校验对不存在的 parent 空满足，悬挂节点静默成链，
+    恢复回溯时断链。"""
+    with pytest.raises(CheckpointConflictError):
+        await storage.put_checkpoint(
+            CheckpointRecord(checkpoint_id=0, thread_id="t1", node="n2", parent_id=999)
+        )
+
+
+async def test_cross_thread_parent_rejected(storage):
+    """链一致性不变量：parent 属于其他 thread → 写入拒绝（版本链不跨线程）。"""
+    c1 = await storage.put_checkpoint(_cp(state={"v": 1}))
+    with pytest.raises(CheckpointConflictError):
+        await storage.put_checkpoint(
+            CheckpointRecord(
+                checkpoint_id=0,
+                thread_id="t2",
+                node="n2",
+                state={"v": 2},
+                parent_id=c1.checkpoint_id,
+            )
+        )
+
+
+async def test_event_seq_regression_rejected(storage):
+    """链一致性不变量：新节点 event_seq 低于父节点（快照锚点回退）→ 写入拒绝。
+    修复前：event_seq 回退静默成链，恢复时增量日志重放顺序错乱。"""
+    c1 = await storage.put_checkpoint(_cp(state={"v": 1}, event_seq=5))
+    with pytest.raises(CheckpointConflictError):
+        await storage.put_checkpoint(
+            CheckpointRecord(
+                checkpoint_id=0,
+                thread_id="t1",
+                node="n2",
+                state={"v": 2},
+                parent_id=c1.checkpoint_id,
+                event_seq=2,
+            )
+        )
+
+
+async def test_fork_bypasses_chain_invariants(storage):
+    """fork（编辑重放分叉）豁免链一致性校验：锚点允许指向历史链节点，
+    event_seq 允许低于父锚点（事件日志截断回退语义）。"""
+    c1 = await storage.put_checkpoint(_cp(state={"v": 1}, event_seq=100))
+    fork_rec = await storage.put_checkpoint(
+        CheckpointRecord(
+            checkpoint_id=0,
+            thread_id="t1",
+            node="n2",
+            state={"v": 2},
+            parent_id=c1.checkpoint_id,
+            event_seq=10,
+        ),
+        fork=True,
+    )
+    assert fork_rec.checkpoint_id > c1.checkpoint_id
+
+
+async def test_validate_chain_consistent(storage):
+    """validate_chain：正常线性链（event_seq 单调）返回无违规。"""
+    c1 = await storage.put_checkpoint(_cp(state={"v": 1}, event_seq=0))
+    c2 = await storage.put_checkpoint(
+        CheckpointRecord(
+            checkpoint_id=0, thread_id="t1", node="n2", state={"v": 2},
+            parent_id=c1.checkpoint_id, event_seq=5,
+        )
+    )
+    await storage.put_checkpoint(
+        CheckpointRecord(
+            checkpoint_id=0, thread_id="t1", node="n3", state={"v": 3},
+            parent_id=c2.checkpoint_id, event_seq=5,
+        )
+    )
+    assert await validate_chain(storage, "t1") == []
+    assert await validate_chain(storage, "missing_thread") == []
+
+
+async def test_validate_chain_detects_violations():
+    """validate_chain：链遍历逐项报告悬挂父指针/跨线程/event_seq 回退/环。
+    坏链经内存后端内部结构直接注入（写入端不变量已拒绝这些形态，此处
+    验证校验器对存量坏链的检出能力）。"""
+    from ink_engine.core.storage_memory import MemoryStorage
+
+    store = MemoryStorage()
+    await store.put_checkpoint(_cp(state={"v": 1}, event_seq=0))
+
+    def _inject(cp: CheckpointRecord) -> None:
+        store._checkpoints[cp.checkpoint_id] = cp
+        store._latest_checkpoint_by_thread[cp.thread_id] = cp.checkpoint_id
+
+    _inject(
+        CheckpointRecord(
+            checkpoint_id=101, thread_id="t1", node="dangling",
+            state={}, parent_id=999, event_seq=3,
+        )
+    )
+    violations = await validate_chain(store, "t1")
+    assert any("悬挂父指针" in v for v in violations)
+
+    _inject(
+        CheckpointRecord(
+            checkpoint_id=102, thread_id="t2", node="cross",
+            state={}, parent_id=101, event_seq=4,
+        )
+    )
+    violations = await validate_chain(store, "t2")
+    assert any("跨线程父指针" in v for v in violations)
+
+    _inject(
+        CheckpointRecord(
+            checkpoint_id=103, thread_id="t1", node="regress",
+            state={}, parent_id=101, event_seq=1,
+        )
+    )
+    violations = await validate_chain(store, "t1")
+    assert any("event_seq 回退" in v for v in violations)
+
+    _inject(
+        CheckpointRecord(
+            checkpoint_id=104, thread_id="t1", node="self-loop",
+            state={}, parent_id=104, event_seq=0,
+        )
+    )
+    violations = await validate_chain(store, "t1")
+    assert any("父链非递减" in v for v in violations)
+    # 环检测立即终止：不触发遍历超限
+    assert not any("遍历超限" in v for v in violations)

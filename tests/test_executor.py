@@ -886,3 +886,41 @@ async def test_subgraph_events_anchor_after_parent_events(memory_storage):
     async for event in engine.run({}, thread_id="t1", resume_from=latest.checkpoint_id):
         replay.append(event)
     assert len(replay) == 0  # 修复前：锚点停在 seq=1，子图事件被重复重放
+
+
+async def test_resume_replay_from_stale_anchor_no_duplicate(memory_storage):
+    """断线续流重放去重：旧锚点 resume 时，锚点之后的增量事件只投递一次。
+
+    场景：挂起轮中断（锚点 A）→ 注入重入推进到更新链尾（锚点 B）→
+    再次以旧锚点 A 续流。锚点回溯后的最终锚点仍是 A，增量事件
+    （A.event_seq 之后）必须恰好重放一次——修复前：resume_from 锚点
+    先重放一次、顶层锚点回溯后再重放一次（超集），事件流重复投递。
+    """
+    async def gated(ctx):
+        await ctx.emit("tick", {"n": 1}, step_id="s:1")
+        await ctx.interrupt("gate", {"q": "?"})
+        await ctx.emit("tick", {"n": 2}, step_id="s:2")
+        return {"passed": True}
+
+    g = Graph(name="g", entry="a")
+    g.add_node("a", gated)
+    g.add_exit("a")
+    engine = make_engine(g, storage=memory_storage)
+
+    # 第一轮：挂起中断（锚点 A，event_seq=1）
+    async for _ in engine.run({}, thread_id="t1"):
+        pass
+    anchor_a = await memory_storage.get_latest_checkpoint("t1")
+    assert anchor_a is not None and anchor_a.reason == "interrupted"
+    # 第二轮：注入重入（重入中断节点从头重跑，产生增量事件 seq=2/3），推进链尾
+    async for _ in engine.run({}, thread_id="t1", resume_from=anchor_a.checkpoint_id,
+                              inject={"gate": "yes"}):
+        pass
+    # 第三轮：旧锚点 A 续流（挂起轮无注入 → 再次中断）
+    replay: list[EngineEvent] = []
+    async for event in engine.run({}, thread_id="t1", resume_from=anchor_a.checkpoint_id):
+        replay.append(event)
+    # 流 = 增量重放（第二轮 seq=2/3，各一次）+ 本次重入节点新产生的 seq=4；
+    # 修复前：锚点重放两次，流为 [2,3,2,3,4]（seq=2/3 重复投递）
+    assert [e.seq for e in replay] == [2, 3, 4]
+    assert [e.payload for e in replay] == [{"n": 1}, {"n": 2}, {"n": 1}]

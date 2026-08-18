@@ -14,6 +14,7 @@
 """
 from __future__ import annotations
 
+from collections.abc import Sequence
 from dataclasses import dataclass, field
 from enum import StrEnum
 from typing import Any
@@ -221,10 +222,44 @@ def _deep_copy(value: Any) -> Any:
     return value
 
 
+def build_message_compress_patches(
+    messages: Sequence[Any],
+    cutoff: int,
+    summary: Any,
+) -> PatchChain:
+    """消息压缩补丁链：delete 旧消息段 + 摘要落链首（append-only 入链）。
+
+    压缩 = 摘要替换链首消息 + 删除其后的旧消息段：delete 从后向前逐条
+    落索引路径补丁（防索引漂移），摘要以 replace 落到 0 位——组装结果
+    = 摘要 + 保留段。链即删除证据：removed_message_ids 差集契约由
+    delete op 天然吸收（回放补丁链可精确还原删了什么），宿主无需另行
+    差集传播；rebase = 压缩压扁（链长收敛，落库前收敛形态）。
+
+    Args:
+        messages: 消息流（只读，不修改；构造以副本为 base）。
+        cutoff: 裁剪点（[0, cutoff) 为待替换/删除的旧消息段，至少 1 条
+            被摘要替换——摘要需要落位）。
+        summary: 摘要（消息形态：Message/dict 均可，replace 原样落链）。
+
+    Returns:
+        PatchChain：base = 消息流副本，patches = 逐条 delete + 摘要 replace。
+    """
+    if cutoff < 1 or cutoff > len(messages):
+        raise ValueError(f"裁剪点越界: cutoff={cutoff}, messages={len(messages)}（须为 1..N）")
+    chain = PatchChain(base={"messages": _deep_copy(list(messages))})
+    # delete 从后向前（防索引漂移），删除摘要落位之后的旧消息段
+    for index in range(cutoff - 1, 0, -1):
+        chain.apply(Patch(op=PatchOp.DELETE, path=("messages", index)))
+    # 摘要替换链首（0 位）：压缩后摘要即链首消息
+    chain.apply(Patch(op=PatchOp.REPLACE, path=("messages", 0), value=summary))
+    return chain
+
+
 __all__ = [
     "AssembleMode",
     "Patch",
     "PatchChain",
     "PatchOp",
     "Path",
+    "build_message_compress_patches",
 ]

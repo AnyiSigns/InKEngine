@@ -13,12 +13,15 @@ from __future__ import annotations
 
 import time
 from dataclasses import dataclass, field
-from typing import Any, Protocol, runtime_checkable
+from typing import TYPE_CHECKING, Any, Protocol, runtime_checkable
 
 from .events import EngineEvent
 from .logging import get_logger
 from .patch_chain import PatchChain
 from .security import is_sensitive_key
+
+if TYPE_CHECKING:
+    from .interrupt import InterruptState
 
 # 连接串协议前缀 → 后端工厂（memory:// / sqlite:///path / postgresql://）
 SCHEME_MEMORY = "memory"
@@ -121,6 +124,8 @@ class CheckpointRecord:
         version: 乐观锁版本号（并发写保护，每次写入 +1）。
         event_seq: 执行事件日志锚点（恢复 = 快照 + 该 seq 之后的增量日志重放）。
         error: 异常快照（reason=error 时携带脱敏后的错误消息，可诊断；None = 无）。
+        interrupt: 挂起卡状态（reason=interrupted 时携带：中断键 + 卡负载 +
+            中断节点定位，续流恢复定位锚点；其余终止形态为 None）。
     """
 
     checkpoint_id: int
@@ -134,6 +139,7 @@ class CheckpointRecord:
     version: int = 1
     event_seq: int = 0
     error: str | None = None
+    interrupt: InterruptState | None = None
 
     def to_dict(self) -> dict:
         return {
@@ -148,10 +154,18 @@ class CheckpointRecord:
             "version": self.version,
             "event_seq": self.event_seq,
             "error": self.error,
+            "interrupt": (
+                _jsonable_strip(self.interrupt.to_dict())
+                if self.interrupt is not None
+                else None
+            ),
         }
 
     @classmethod
     def from_dict(cls, data: dict) -> CheckpointRecord:
+        from .interrupt import InterruptState
+
+        interrupt = data.get("interrupt")
         return cls(
             checkpoint_id=int(data["checkpoint_id"]),
             thread_id=data["thread_id"],
@@ -164,6 +178,11 @@ class CheckpointRecord:
             version=int(data.get("version") or 1),
             event_seq=int(data.get("event_seq") or 0),
             error=data.get("error"),
+            interrupt=(
+                InterruptState.from_dict(_from_jsonable(interrupt))
+                if isinstance(interrupt, dict)
+                else None
+            ),
         )
 
 

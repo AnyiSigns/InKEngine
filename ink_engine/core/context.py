@@ -509,6 +509,60 @@ class ContextMixer:
         return self.assembler.assemble(sources, total_chars=total)
 
 
+@runtime_checkable
+class CompressionPolicy(Protocol):
+    """压缩策略钩子：触发判定 + 预算（宿主注入，换策略不改装配）。
+
+    触发判定与预算分配分层：判定（该不该压）与分配（压到多紧）都是
+    可注入策略——分配复用 BudgetAllocator 协议，判定/预算经本钩子
+    注入；默认实现见 ThresholdCompressionPolicy。
+    """
+
+    def should_compress(self, state: dict) -> bool:
+        """触发判定：基于状态（消息量/字符量等）决定本轮是否压缩。"""
+        ...
+
+    def budget_chars(self, state: dict) -> int:
+        """压缩预算（摘要目标字符数，喂给预算分配）。"""
+        ...
+
+
+class ThresholdCompressionPolicy:
+    """默认压缩策略：消息量与字符量双阈值触发（确定性，可断言）。
+
+    策略语义：两者都达到阈值才触发（短消息多轮不压、长消息少量不压），
+    预算固定返回配置值；阈值与预算均为构造参数（宿主按场景注入）。
+    """
+
+    def __init__(
+        self,
+        *,
+        min_messages: int = 30,
+        min_chars: int = 40000,
+        budget_chars: int = 8000,
+    ) -> None:
+        if min_messages < 1 or min_chars < 1 or budget_chars < 1:
+            raise ValueError("压缩阈值与预算必须为正数")
+        self.min_messages = min_messages
+        self.min_chars = min_chars
+        self._budget_chars = budget_chars
+
+    def should_compress(self, state: dict) -> bool:
+        messages = state.get("messages") or []
+        if len(messages) < self.min_messages:
+            return False
+        total = 0
+        for msg in messages:
+            content = msg.get("content") if isinstance(msg, dict) else getattr(msg, "content", None)
+            total += len(str(content or ""))
+            if total >= self.min_chars:
+                return True
+        return False
+
+    def budget_chars(self, state: dict) -> int:
+        return self._budget_chars
+
+
 __all__ = [
     "DEFAULT_BUDGET_CHARS",
     "DEFAULT_RELEVANCE",
@@ -520,6 +574,7 @@ __all__ = [
     "TRUNCATE_MIN_SCORE",
     "AssembledContext",
     "BudgetAllocator",
+    "CompressionPolicy",
     "ContextAssembler",
     "ContextMixer",
     "ContextSource",
@@ -528,5 +583,6 @@ __all__ = [
     "FusionRegistry",
     "SourceAllocation",
     "SourceInclusion",
+    "ThresholdCompressionPolicy",
     "WeightedBudgetAllocator",
 ]

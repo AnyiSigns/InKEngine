@@ -31,7 +31,8 @@ CREATE TABLE IF NOT EXISTS checkpoints (
     created_at REAL NOT NULL,
     version INTEGER NOT NULL DEFAULT 1,
     event_seq INTEGER NOT NULL DEFAULT 0,
-    error TEXT
+    error TEXT,
+    interrupt TEXT
 );
 CREATE INDEX IF NOT EXISTS idx_checkpoints_thread ON checkpoints(thread_id, checkpoint_id DESC);
 
@@ -101,6 +102,11 @@ class SqliteStorage:
                 "检测到旧版 checkpoints 表（缺 error 列）：本项目不做数据迁移，"
                 "请删除库/表后重启（DROP TABLE checkpoints, event_log, records;）"
             )
+        if columns and "interrupt" not in columns:
+            raise StorageError(
+                "检测到旧版 checkpoints 表（缺 interrupt 列）：本项目不做数据迁移，"
+                "请删除库/表后重启（DROP TABLE checkpoints, event_log, records;）"
+            )
 
     # ── checkpoint 版本链 ──
     async def get_checkpoint(self, checkpoint_id: int) -> CheckpointRecord | None:
@@ -142,8 +148,8 @@ class SqliteStorage:
                     # fork=True（编辑重放分叉）跳过校验，允许锚点指向历史链节点。
                     cur = await self._conn.execute(
                         "INSERT INTO checkpoints (thread_id, node, graph_path, state,"
-                        " parent_id, reason, created_at, version, event_seq, error)"
-                        " SELECT ?,?,?,?,?,?,?,?,?,?"
+                        " parent_id, reason, created_at, version, event_seq, error, interrupt)"
+                        " SELECT ?,?,?,?,?,?,?,?,?,?,?"
                         " WHERE NOT EXISTS (SELECT 1 FROM checkpoints"
                         " WHERE thread_id = ? AND checkpoint_id > ?)",
                         (
@@ -157,6 +163,9 @@ class SqliteStorage:
                             1,
                             data["event_seq"],
                             data["error"],
+                            json.dumps(data["interrupt"], ensure_ascii=False)
+                            if data["interrupt"] is not None
+                            else None,
                             data["thread_id"],
                             data["parent_id"],
                         ),
@@ -164,8 +173,8 @@ class SqliteStorage:
                 else:
                     cur = await self._conn.execute(
                         "INSERT INTO checkpoints (thread_id, node, graph_path, state,"
-                        " parent_id, reason, created_at, version, event_seq, error)"
-                        " VALUES (?,?,?,?,?,?,?,?,?,?)",
+                        " parent_id, reason, created_at, version, event_seq, error, interrupt)"
+                        " VALUES (?,?,?,?,?,?,?,?,?,?,?)",
                         (
                             data["thread_id"],
                             data["node"],
@@ -177,6 +186,9 @@ class SqliteStorage:
                             1,
                             data["event_seq"],
                             data["error"],
+                            json.dumps(data["interrupt"], ensure_ascii=False)
+                            if data["interrupt"] is not None
+                            else None,
                         ),
                     )
                 await self._conn.commit()
@@ -201,6 +213,7 @@ class SqliteStorage:
                     version=1,
                     event_seq=record.event_seq,
                     error=record.error,
+                    interrupt=record.interrupt,
                 )
             # 已存在：乐观锁更新（version 期望校验，冲突抛异常）
             if expected_version is None:
@@ -215,7 +228,7 @@ class SqliteStorage:
                 expected_version = row["version"]
             cur = await self._conn.execute(
                 "UPDATE checkpoints SET state = ?, node = ?, graph_path = ?, reason = ?,"
-                " event_seq = ?, error = ?, version = version + 1"
+                " event_seq = ?, error = ?, interrupt = ?, version = version + 1"
                 " WHERE checkpoint_id = ? AND version = ?",
                 (
                     json.dumps(data["state"], ensure_ascii=False),
@@ -224,6 +237,9 @@ class SqliteStorage:
                     data["reason"],
                     data["event_seq"],
                     data["error"],
+                    json.dumps(data["interrupt"], ensure_ascii=False)
+                    if data["interrupt"] is not None
+                    else None,
                     record.checkpoint_id,
                     expected_version,
                 ),
@@ -247,6 +263,7 @@ class SqliteStorage:
                 version=expected_version + 1,
                 event_seq=record.event_seq,
                 error=record.error,
+                interrupt=record.interrupt,
             )
         except CheckpointConflictError:
             raise
@@ -373,6 +390,8 @@ class SqliteStorage:
 
     @staticmethod
     def _row_to_record(row: Any) -> CheckpointRecord:
+        from .interrupt import InterruptState
+
         return CheckpointRecord(
             checkpoint_id=row["checkpoint_id"],
             thread_id=row["thread_id"],
@@ -385,6 +404,11 @@ class SqliteStorage:
             version=row["version"],
             event_seq=row["event_seq"],
             error=row["error"],
+            interrupt=(
+                InterruptState.from_dict(_from_jsonable(json.loads(row["interrupt"])))
+                if row["interrupt"]
+                else None
+            ),
         )
 
 

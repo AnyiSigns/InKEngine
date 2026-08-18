@@ -49,6 +49,9 @@ class RunOptions:
         max_node_retries: 节点异常重试次数（0 = 不重试，直接终止）。
         error_on_exception: True = 节点异常终止本轮（reason=error）；
             False = 跳过异常节点继续（reason=stop 语义由业务边决定）。
+        max_spawns: 单次展开的子任务清单数量上限（成本护栏：清单
+            超限即节点失败，防拆解爆炸）。
+        spawn_concurrency: spawn 实例并发上限（fan_out 限流）。
     """
 
     storage: Storage | None = None
@@ -57,6 +60,8 @@ class RunOptions:
     transports: list[EngineTransport] = field(default_factory=list)
     max_node_retries: int = 0
     error_on_exception: bool = True
+    max_spawns: int = 16
+    spawn_concurrency: int = 4
 
 
 @dataclass(slots=True)
@@ -118,6 +123,8 @@ class _NodeContextImpl(NodeContext):
         # 嵌套子图恢复锚点表（graph_path → checkpoint_id）：子图 runner 据此
         # 把锚点传给子图引擎（断线续流落在子图 checkpoint 时的下沉恢复）
         self.resume_map = resume_map or {}
+        # 命令式 spawn 收集清单（节点内 ctx.spawn 追加，返回后统一展开）
+        self._spawns: list = []
 
     @property
     def state(self) -> dict:
@@ -172,6 +179,18 @@ class _NodeContextImpl(NodeContext):
         if self._engine._coordinator.has_inject(review_key):
             return self._engine._coordinator.consume(review_key)
         raise InterruptSignal(review_key, payload)
+
+    def spawn(self, subgraph, state: dict, *, index: int | None = None) -> None:
+        """命令式子任务收集（便捷封装）：登记一个子图实例清单项。
+
+        与数据驱动形态（节点返回值携带 ``__spawn__`` 键）等价——引擎在
+        节点返回后统一展开收集的清单。index 缺省按收集顺序自动分配。
+        """
+        from .spawn import SpawnSpec
+
+        self._spawns.append(
+            SpawnSpec(subgraph=subgraph, state=dict(state), index=index if index is not None else len(self._spawns))
+        )
 
     def terminate(self, reason: str, **meta: Any) -> None:
         """声明终止（校验延迟到执行器检查点：编程错误不被节点异常捕获吞掉）。"""
@@ -276,6 +295,8 @@ class Engine:
         # event_seq 沿用链尾：update_state 不产生任何执行事件，链尾与新快照
         # 的增量日志区间恒为空——resume 以任一锚点重放 events_after 均无重复。
         # 隐式前提：本方法不得改写成附带写事件，否则同 seq 双快照会重复重放。
+        # interrupt 不沿袭链尾：外部补丁不是挂起轮，新快照不带挂起卡标记
+        # （挂起卡状态只存在于真正中断的 checkpoint 上）。
         await self.options.storage.put_checkpoint(
             CheckpointRecord(
                 checkpoint_id=0,
@@ -286,6 +307,20 @@ class Engine:
                 event_seq=latest.event_seq,
             )
         )
+
+    async def get_latest_interrupt(self, thread_id: str) -> InterruptState | None:
+        """读取链尾挂起卡（中断键 + 卡负载 + 定位），续流恢复定位锚点。
+
+        挂起轮结束后，宿主从链尾取挂起卡状态（键与负载），用户在卡上
+        做出决策后按同一键注入值重入（``run(inject={key: decision})``）。
+        链尾无挂起卡（未中断/补丁快照/无存储）返回 None。
+        """
+        if self.options.storage is None:
+            return None
+        latest = await self.options.storage.get_latest_checkpoint(thread_id)
+        if latest is None or latest.interrupt is None:
+            return None
+        return latest.interrupt
 
     async def run(
         self,
@@ -419,20 +454,26 @@ class Engine:
         graph_path: tuple[str, ...] = (),
         transports: list[EngineTransport] | None = None,
         resume_map: dict[tuple[str, ...], int] | None = None,
+        checkpoint_thread_id: str | None = None,
     ) -> tuple[dict, RunResult]:
-        """主执行循环（顶层与嵌套子图共用）。
+        """主执行循环（顶层与嵌套子图/实例共用）。
 
         Args:
-            graph_path: 本图执行的事件路径（顶层 ()；子图 = 父路径 + 子图名）。
+            graph_path: 本图执行的事件路径（顶层 ()；子图 = 父路径 + 子图名；
+                spawn 实例 = 父路径 + 子图名 + 实例序号）。
             transports: 事件传输列表（None = 引擎 options 默认；顶层 run
                 传入含队列的传输链，子图 None 走共享传输）。
             resume_map: 嵌套子图恢复锚点表（graph_path → checkpoint_id，
                 断线续流落在子图 checkpoint 时由父级下沉传递）。
+            checkpoint_thread_id: checkpoint 版本链归属（None = 与 thread_id
+                相同）。spawn 实例借此把 checkpoint 写入独立子链、事件日志
+                仍统一落 thread_id 父链（半共享 + 独立子链）。
         """
         graph = self.graph
         schema = self.options.schema
         storage = self.options.storage
         transports = transports if transports is not None else self.options.transports
+        chain_thread = checkpoint_thread_id or thread_id
 
         # ── 恢复：checkpoint 快照 + 增量日志重放（断线续流）──
         current: str = graph.entry
@@ -451,7 +492,7 @@ class Engine:
             # 合并（消息追加/指标复位等 reducer 语义），从入口执行，版本链
             # 续接链尾——不重放事件（新回合事件全新产生）。
             self._chain_advanced = True
-            last_checkpoint = await storage.get_latest_checkpoint(thread_id)
+            last_checkpoint = await storage.get_latest_checkpoint(chain_thread)
             if last_checkpoint is not None:
                 base = dict(last_checkpoint.state)
                 current_state = schema.apply(base, state) if schema else {
@@ -524,10 +565,12 @@ class Engine:
         )
         # 恢复起点定位：
         # - 中断 checkpoint（reason=interrupted）：重入中断节点（节点内按注入值分支）；
+        # - 异常 checkpoint（reason=error）：重入失败节点（该节点未完成，
+        #   恢复即重试；error_on_exception=False 的跳过语义不落 error 终态）；
         # - 正常 checkpoint（节点已完成）：从已完成节点的下一节点继续，不重跑已完成节点。
         skip_first_node = False
         if last_checkpoint is not None and last_checkpoint.node:
-            if last_checkpoint.reason == "interrupted":
+            if last_checkpoint.reason in ("interrupted", TerminateReason.ERROR):
                 current = last_checkpoint.node
             else:
                 nxt = await _select_next_node(graph, ctx, last_checkpoint.node)
@@ -620,6 +663,22 @@ class Engine:
                 reason = TerminateReason.ERROR
                 break
 
+            # ── spawn 清单提取（保留键不落状态；与命令式收集项合并）──
+            if self.options.max_spawns > 0:
+                from .spawn import collect_spawn_specs
+
+                try:
+                    spawn_specs = collect_spawn_specs(overlay, ctx._spawns)
+                except ValueError as exc:
+                    node_error = f"spawn 清单非法: {exc}"
+                    logger.error(f"spawn 清单非法 [{current}]: {exc}")
+                    await ctx.emit("error", {"node": current, "message": node_error})
+                    error_msg = node_error
+                    reason = TerminateReason.ERROR
+                    break
+            else:
+                spawn_specs = []
+
             # ── 增量合并（reducer）──
             if overlay:
                 current_state = schema.apply(current_state, overlay) if schema else {
@@ -634,6 +693,44 @@ class Engine:
                     raise ValueError(f"非法终止原因: {reason}")
                 break
 
+            # ── spawn 展开（子任务清单并发展开为子图实例，结果回流）──
+            if spawn_specs:
+                from .spawn import run_spawned_subgraphs
+
+                if len(spawn_specs) > self.options.max_spawns:
+                    node_error = (
+                        f"spawn 清单超限: {len(spawn_specs)} > {self.options.max_spawns}"
+                    )
+                    logger.error(f"spawn 清单超限 [{current}]: {node_error}")
+                    await ctx.emit("error", {"node": current, "message": node_error})
+                    error_msg = node_error
+                    reason = TerminateReason.ERROR
+                    break
+                try:
+                    spawn_result = await run_spawned_subgraphs(
+                        spawn_specs,
+                        ctx,
+                        concurrency=self.options.spawn_concurrency,
+                    )
+                except InterruptSignal as sig:
+                    # 实例内中断 → 提升为父图挂起卡（与静态子图同语义：中断
+                    # 负载经 RunResult 直返宿主，同口径剥离敏感键）
+                    interrupt_state = InterruptState(
+                        key=sig.key,
+                        payload=strip_sensitive(sig.payload),
+                        node=current,
+                        graph_path=ctx.graph_path,
+                    )
+                    reason = "interrupted"
+                    break
+                if spawn_result.overlay:
+                    current_state = (
+                        schema.apply(current_state, spawn_result.overlay)
+                        if schema
+                        else {**current_state, **spawn_result.overlay}
+                    )
+                ctx._state = current_state
+
             # ── checkpoint 快照（每节点完成，版本链）──
             if storage is not None:
                 # 恢复锚点权威来源 = 事件日志本身（跨实例/跨 run/子图事件全部
@@ -647,14 +744,14 @@ class Engine:
                 if self._chain_advanced:
                     # 嵌套子图推进过链尾（或恢复续跑）：parent 跟随当前链尾
                     # （版本链严格线性，跨引擎连续），查一次后复位
-                    _tail = await storage.get_latest_checkpoint(thread_id)
+                    _tail = await storage.get_latest_checkpoint(chain_thread)
                     if _tail is not None:
                         parent_id = _tail.checkpoint_id
                     self._chain_advanced = False
                 last_checkpoint = await storage.put_checkpoint(
                     CheckpointRecord(
                         checkpoint_id=0,
-                        thread_id=thread_id,
+                        thread_id=chain_thread,
                         node=current,
                         graph_path=ctx.graph_path,
                         state=current_state,
@@ -689,14 +786,14 @@ class Engine:
             )
             if self._chain_advanced:
                 # 版本链严格线性：parent 跟随当前链尾（与节点 checkpoint 同语义）
-                _tail = await storage.get_latest_checkpoint(thread_id)
+                _tail = await storage.get_latest_checkpoint(chain_thread)
                 if _tail is not None:
                     parent_id = _tail.checkpoint_id
                 self._chain_advanced = False
             last_checkpoint = await storage.put_checkpoint(
                 CheckpointRecord(
                     checkpoint_id=0,
-                    thread_id=thread_id,
+                    thread_id=chain_thread,
                     node=current,
                     graph_path=ctx.graph_path,
                     state=current_state,
@@ -704,6 +801,9 @@ class Engine:
                     reason=reason,
                     event_seq=event_seq,
                     error=error_msg,
+                    # 挂起卡状态随终态快照持久化：reason=interrupted 时携带
+                    # 中断键与卡负载（续流恢复定位锚点，宿主据此注入决策值）
+                    interrupt=interrupt_state,
                 ),
                 fork=fork_write,
             )

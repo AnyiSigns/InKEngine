@@ -32,7 +32,8 @@ CREATE TABLE IF NOT EXISTS checkpoints (
     created_at DOUBLE PRECISION NOT NULL,
     version INTEGER NOT NULL DEFAULT 1,
     event_seq BIGINT NOT NULL DEFAULT 0,
-    error TEXT
+    error TEXT,
+    interrupt JSONB
 );
 CREATE INDEX IF NOT EXISTS idx_checkpoints_thread ON checkpoints(thread_id, checkpoint_id DESC);
 
@@ -101,6 +102,11 @@ class PostgresStorage:
                 "检测到旧版 checkpoints 表（缺 error 列）：本项目不做数据迁移，"
                 "请删除表后重启（DROP TABLE checkpoints, event_log, records;）"
             )
+        if columns and "interrupt" not in columns:
+            raise StorageError(
+                "检测到旧版 checkpoints 表（缺 interrupt 列）：本项目不做数据迁移，"
+                "请删除表后重启（DROP TABLE checkpoints, event_log, records;）"
+            )
 
     async def get_checkpoint(self, checkpoint_id: int) -> CheckpointRecord | None:
         await self._connect()
@@ -150,8 +156,8 @@ class PostgresStorage:
                             # fork=True（编辑重放分叉）跳过校验，允许锚点指向历史链节点。
                             row = await conn.fetchrow(
                                 "INSERT INTO checkpoints (thread_id, node, graph_path, state,"
-                                " parent_id, reason, created_at, version, event_seq, error)"
-                                " SELECT $1,$2,$3,$4,$5,$6,$7,1,$8,$9"
+                                " parent_id, reason, created_at, version, event_seq, error, interrupt)"
+                                " SELECT $1,$2,$3,$4,$5,$6,$7,1,$8,$9,$12"
                                 " WHERE NOT EXISTS (SELECT 1 FROM checkpoints"
                                 " WHERE thread_id = $10 AND checkpoint_id > $11)"
                                 " RETURNING checkpoint_id",
@@ -166,6 +172,9 @@ class PostgresStorage:
                                 data["error"],
                                 data["thread_id"],
                                 data["parent_id"],
+                                json.dumps(data["interrupt"], ensure_ascii=False)
+                                if data["interrupt"] is not None
+                                else None,
                             )
                             if row is None:
                                 raise CheckpointConflictError(
@@ -174,8 +183,8 @@ class PostgresStorage:
                         else:
                             row = await conn.fetchrow(
                                 "INSERT INTO checkpoints (thread_id, node, graph_path, state,"
-                                " parent_id, reason, created_at, version, event_seq, error)"
-                                " VALUES ($1,$2,$3,$4,$5,$6,$7,1,$8,$9) RETURNING checkpoint_id",
+                                " parent_id, reason, created_at, version, event_seq, error, interrupt)"
+                                " VALUES ($1,$2,$3,$4,$5,$6,$7,1,$8,$9,$10) RETURNING checkpoint_id",
                                 data["thread_id"],
                                 data["node"],
                                 json.dumps(data["graph_path"]),
@@ -185,6 +194,9 @@ class PostgresStorage:
                                 data["created_at"],
                                 data["event_seq"],
                                 data["error"],
+                                json.dumps(data["interrupt"], ensure_ascii=False)
+                                if data["interrupt"] is not None
+                                else None,
                             )
                     return CheckpointRecord(
                         checkpoint_id=row["checkpoint_id"],
@@ -198,6 +210,7 @@ class PostgresStorage:
                         version=1,
                         event_seq=record.event_seq,
                         error=record.error,
+                        interrupt=record.interrupt,
                     )
                 if expected_version is None:
                     row = await conn.fetchrow(
@@ -209,14 +222,18 @@ class PostgresStorage:
                     expected_version = row["version"]
                 updated = await conn.execute(
                     "UPDATE checkpoints SET state = $1, node = $2, graph_path = $3,"
-                    " reason = $4, event_seq = $5, error = $6, version = version + 1"
-                    " WHERE checkpoint_id = $7 AND version = $8",
+                    " reason = $4, event_seq = $5, error = $6, interrupt = $7,"
+                    " version = version + 1"
+                    " WHERE checkpoint_id = $8 AND version = $9",
                     json.dumps(data["state"], ensure_ascii=False),
                     data["node"],
                     json.dumps(data["graph_path"]),
                     data["reason"],
                     data["event_seq"],
                     data["error"],
+                    json.dumps(data["interrupt"], ensure_ascii=False)
+                    if data["interrupt"] is not None
+                    else None,
                     record.checkpoint_id,
                     expected_version,
                 )
@@ -236,6 +253,7 @@ class PostgresStorage:
                     version=expected_version + 1,
                     event_seq=record.event_seq,
                     error=record.error,
+                    interrupt=record.interrupt,
                 )
         except CheckpointConflictError:
             raise
@@ -360,6 +378,8 @@ class PostgresStorage:
 
     @staticmethod
     def _row_to_record(row: Any) -> CheckpointRecord:
+        from .interrupt import InterruptState
+
         return CheckpointRecord(
             checkpoint_id=row["checkpoint_id"],
             thread_id=row["thread_id"],
@@ -372,6 +392,11 @@ class PostgresStorage:
             version=row["version"],
             event_seq=row["event_seq"],
             error=row["error"],
+            interrupt=(
+                InterruptState.from_dict(_from_jsonable(json.loads(row["interrupt"])))
+                if row["interrupt"]
+                else None
+            ),
         )
 
 

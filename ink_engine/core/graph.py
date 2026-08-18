@@ -66,6 +66,15 @@ class NodeContext(Protocol):
 
     async def interrupt(self, review_key: str, payload: dict) -> Any: ...
 
+    def spawn(self, subgraph: Graph, state: dict, *, index: int | None = None) -> None:
+        """登记一个动态子任务（子图实例清单项，节点返回后统一展开）。
+
+        便捷封装：与数据驱动形态（节点返回值携带 ``__spawn__`` 保留键
+        的清单）等价；清单项在节点返回后由执行器并发展开为独立子图
+        实例，实例最终状态按 index 顺序回流父图。
+        """
+        ...
+
     def terminate(self, reason: str, **meta: Any) -> None: ...
 
     @property

@@ -66,6 +66,7 @@ class MemoryStorage:
                     version=record.version,
                     event_seq=record.event_seq,
                     error=record.error,
+                    interrupt=record.interrupt,
                 )
                 self._next_checkpoint_id += 1
             existing = self._checkpoints.get(record.checkpoint_id)

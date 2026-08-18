@@ -12,8 +12,9 @@ step_id 在回合内稳定唯一（前端渲染 key 与 SSE 配对更新依赖�
 - thinking/plan/review_card/memory_hit/suggestions/error 按类计数
   （``think:1`` / ``plan:1`` / ``card:1`` ...）；
 - tool 按 tool_call_id（``tool:<id>``，无 id 回退计数）；
-- node 按 node_id（``node:<node_id>``；携带 chapter_index 时按
-  ``node:<node_id>:<序号>`` 分卡，同 id 的 node_start 复用更新）；
+- node 按 node_id（``node:<node_id>``；携带进度序号——协议字段
+  chapter_index——时按 ``node:<node_id>:<序号>`` 分卡，同 id 的
+  node_start 复用更新）；
 - reply_token 按回复段计数（``reply:1`` / ``reply:2``——工具卡/审批卡/
   节点卡出现即切新段，与前端回复气泡分段语义一致）；
 - user 固定 ``user``（回合边界，单条）。
@@ -361,17 +362,17 @@ class RoundSteps:
     # ---- 节点卡 ----
 
     @staticmethod
-    def _node_step_id(node_id: str, chapter_index: int = 0) -> str:
+    def _node_step_id(node_id: str, index: int = 0) -> str:
         """节点 step_id：带序号即分卡（批量任务每项一卡），否则同 id 复用。
 
         与 :meth:`_append` 同口径截断——stream/end/fail 按此 id 查索引，
         不截断会在超长 node_id 时查不到已追加的记录。
         """
-        step_id = f"node:{node_id}:{chapter_index}" if chapter_index else f"node:{node_id}"
+        step_id = f"node:{node_id}:{index}" if index else f"node:{node_id}"
         return step_id[:_STEP_ID_MAX_CHARS]
 
     def node_start(self, node_id: str, label: str, extra: dict | None = None) -> str:
-        """节点卡开始。extra 携带 chapter_index/chapter_total 时按序号分卡并内嵌进度。
+        """节点卡开始。extra 携带进度序号（chapter_index/chapter_total）时按序号分卡并内嵌进度。
 
         同 step_id 复用时只刷新状态/进度，保留首次标签——节点内部多环节
         各自 start 不覆盖对外展示名。
@@ -406,23 +407,23 @@ class RoundSteps:
             return {"step": "write", "n": int(chapter_index), "total": int(chapter_total)}
         return None
 
-    def node_stream(self, node_id: str, chapter_index: int, token: str) -> str:
-        step_id = self._node_step_id(node_id, int(chapter_index or 0))
+    def node_stream(self, node_id: str, index: int, token: str) -> str:
+        step_id = self._node_step_id(node_id, int(index or 0))
         self._update(
             step_id, {"content": self._step_payload(step_id).get("content", "") + token}
         )
         return step_id
 
-    def node_end(self, node_id: str, chapter_index: int, tokens: int | None) -> str:
-        step_id = self._node_step_id(node_id, int(chapter_index or 0))
+    def node_end(self, node_id: str, index: int, tokens: int | None) -> str:
+        step_id = self._node_step_id(node_id, int(index or 0))
         patch: dict[str, Any] = {"status": "completed"}
         if tokens is not None:
             patch["tokens"] = tokens
         self._update(step_id, patch)
         return step_id
 
-    def node_fail(self, node_id: str, chapter_index: int, reason: str) -> str:
-        step_id = self._node_step_id(node_id, int(chapter_index or 0))
+    def node_fail(self, node_id: str, index: int, reason: str) -> str:
+        step_id = self._node_step_id(node_id, int(index or 0))
         self._update(step_id, {"status": "failed", "reason": reason})
         return step_id
 

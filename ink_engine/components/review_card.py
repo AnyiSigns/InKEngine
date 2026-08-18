@@ -108,8 +108,8 @@ def truncate_preview(card: dict[str, Any]) -> dict[str, Any]:
 
 def build_body_card(
     target_id: int,
-    chapter_index: int,
-    chapter_total: int,
+    index: int,
+    total: int,
     content: str,
     node_label: str,
     node_id: str | None = None,
@@ -124,8 +124,8 @@ def build_body_card(
 
     Args:
         target_id: 卡关联的目标引用 ID（宿主语义，如目标实体 ID）。
-        chapter_index: 进度序号（第 N/M）。
-        chapter_total: 进度总数。
+        index: 进度序号（第 N/M，协议字段 chapter_index）。
+        total: 进度总数（协议字段 chapter_total）。
         content: 完整内容。
         node_label: 卡标签。
         node_id: 节点 ID（宿主必传；缺省会被必填校验拒绝）。
@@ -140,8 +140,9 @@ def build_body_card(
         "content": content,
         "reason": "内容已生成，请确认后落库（可在编辑后确认）。",
         "target_id": target_id,
-        "chapter_index": chapter_index,
-        "chapter_total": chapter_total,
+        # 协议锁定字段名（chapter_index/chapter_total），构造点按协议名映射
+        "chapter_index": index,
+        "chapter_total": total,
         "tokens": 0,
         "elapsed_ms": 0,
     }

@@ -281,13 +281,21 @@ async def test_pipeline_truncates_overflow(tmp_path):
 
 
 async def test_pipeline_pure_memory_tool_passthrough():
-    """无提取目标（extractor 显式返回 None 的纯内存工具）：不触发权限/沙箱。"""
+    """无提取目标（extractor 显式返回 None 的纯内存工具）：
+    默认 fail-closed 拒绝（判定不出目标 = 无法做权限/沙箱判定），
+    宿主须显式 allow_unchecked=True 才直通。"""
     ctx = _FakeCtx()
     pipeline = ToolPipeline(
         gate=PermissionGate(),
         extractor=lambda spec, args: None,  # 显式声明无判定目标
         executor=lambda ctx, spec, args, approval: "ok",
     )
+    result = await pipeline.execute(ctx, ToolSpec(name="summarize"), {"text": "x"})
+    assert result.ok is False
+    assert result.decision == DENY
+    assert "无法判定目标" in (result.error or "")
+    # 宿主明示让步后才直通
+    pipeline.allow_unchecked = True
     result = await pipeline.execute(ctx, ToolSpec(name="summarize"), {"text": "x"})
     assert result.ok is True
     assert result.output == "ok"

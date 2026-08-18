@@ -22,7 +22,9 @@ Codex 式「主 agent 拆解 → 动态分配子 agent」的引擎形态：路�
 """
 from __future__ import annotations
 
+from collections.abc import Callable
 from dataclasses import dataclass, field
+from typing import Any
 
 from .graph import Graph
 from .state import is_merge_reducer
@@ -80,12 +82,18 @@ def instance_entry_state(spec: SpawnSpec, sub_schema) -> dict:
 def collect_spawn_specs(
     overlay: dict | None,
     pending: list[SpawnSpec],
+    *,
+    resolve_graph: Callable[[Any], Graph] | None = None,
 ) -> list[SpawnSpec]:
     """清单汇总：命令式 ctx.spawn 收集项 + 数据驱动返回键（SPAWN_KEY）。
 
-    数据驱动项校验（子图必须为 Graph 实例），与命令式项统一排序
-    （先命令式后数据驱动，序号保持稳定）；实例序号全局唯一（重复
-    序号会造成实例链/回流顺序冲突，拒绝）。
+    子图放宽：数据驱动项的子图可为 Graph 实例或图定义数据 dict（经
+    ``resolve_graph`` 回调重建——图 = 数据，spawn 清单可跨进程传递、
+    可随计划版本化）。未注入解析器时 dict 形态显式拒绝（防静默当作
+    缺子图）。
+
+    与命令式项统一排序（先命令式后数据驱动，序号保持稳定）；实例序号
+    全局唯一（重复序号会造成实例链/回流顺序冲突，拒绝）。
     """
     specs = list(pending)
     if overlay is not None and SPAWN_KEY in overlay:
@@ -96,8 +104,15 @@ def collect_spawn_specs(
             raise ValueError("spawn 清单须为 [{subgraph, state, index}, ...] 形态")
         for i, item in enumerate(items):
             subgraph = item.get("subgraph")
-            if not isinstance(subgraph, Graph):
-                raise ValueError(f"spawn 清单第 {i} 项缺子图实例（Graph）")
+            if isinstance(subgraph, Graph):
+                pass
+            elif isinstance(subgraph, dict) and resolve_graph is not None:
+                subgraph = resolve_graph(subgraph)
+            else:
+                raise ValueError(
+                    f"spawn 清单第 {i} 项缺子图实例（Graph 或图定义数据"
+                    f"{'，需注入解析器' if not isinstance(subgraph, dict) else ''}）"
+                )
             state = item.get("state") or {}
             if not isinstance(state, dict):
                 raise ValueError(f"spawn 清单第 {i} 项状态须为 dict")

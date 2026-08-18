@@ -56,6 +56,13 @@ class StorageError(EngineError):
     """存储服务错误（后端不可用/写入失败等）。"""
 
 
+class GraphVersionMismatchError(EngineError):
+    """图定义版本与恢复锚点不匹配（恢复语义不保证，显式拒绝而非静默错位）。
+
+    非存储故障：宿主不应走存储重试/降级路径，应重建会话或换锚点。
+    """
+
+
 class SandboxViolation(EngineError):
     """沙箱守卫拒绝（路径越界/symlink 逃逸/命令不在白名单等）。"""
 
@@ -72,6 +79,7 @@ __all__ = [
     "CheckpointConflictError",
     "EngineError",
     "GraphDefinitionError",
+    "GraphVersionMismatchError",
     "InterruptError",
     "NodeExecutionError",
     "NodeNotFoundError",

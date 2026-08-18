@@ -32,7 +32,9 @@ CREATE TABLE IF NOT EXISTS checkpoints (
     version INTEGER NOT NULL DEFAULT 1,
     event_seq INTEGER NOT NULL DEFAULT 0,
     error TEXT,
-    interrupt TEXT
+    interrupt TEXT,
+    graph_version TEXT,
+    plan TEXT
 );
 CREATE INDEX IF NOT EXISTS idx_checkpoints_thread ON checkpoints(thread_id, checkpoint_id DESC);
 
@@ -107,6 +109,16 @@ class SqliteStorage:
                 "检测到旧版 checkpoints 表（缺 interrupt 列）：本项目不做数据迁移，"
                 "请删除库/表后重启（DROP TABLE checkpoints, event_log, records;）"
             )
+        if columns and "graph_version" not in columns:
+            raise StorageError(
+                "检测到旧版 checkpoints 表（缺 graph_version 列）：本项目不做数据迁移，"
+                "请删除库/表后重启（DROP TABLE checkpoints, event_log, records;）"
+            )
+        if columns and "plan" not in columns:
+            raise StorageError(
+                "检测到旧版 checkpoints 表（缺 plan 列）：本项目不做数据迁移，"
+                "请删除库/表后重启（DROP TABLE checkpoints, event_log, records;）"
+            )
 
     # ── checkpoint 版本链 ──
     async def get_checkpoint(self, checkpoint_id: int) -> CheckpointRecord | None:
@@ -154,8 +166,9 @@ class SqliteStorage:
                     # fork=True（编辑重放分叉）跳过校验，允许锚点指向历史链节点。
                     cur = await self._conn.execute(
                         "INSERT INTO checkpoints (thread_id, node, graph_path, state,"
-                        " parent_id, reason, created_at, version, event_seq, error, interrupt)"
-                        " SELECT ?,?,?,?,?,?,?,?,?,?,?"
+                        " parent_id, reason, created_at, version, event_seq, error, interrupt,"
+                        " graph_version, plan)"
+                        " SELECT ?,?,?,?,?,?,?,?,?,?,?,?,?"
                         " WHERE NOT EXISTS (SELECT 1 FROM checkpoints"
                         " WHERE thread_id = ? AND checkpoint_id > ?)"
                         " AND EXISTS (SELECT 1 FROM checkpoints"
@@ -174,6 +187,10 @@ class SqliteStorage:
                             json.dumps(data["interrupt"], ensure_ascii=False)
                             if data["interrupt"] is not None
                             else None,
+                            data["graph_version"],
+                            json.dumps(data["plan"], ensure_ascii=False)
+                            if data["plan"] is not None
+                            else None,
                             data["thread_id"],
                             data["parent_id"],
                             data["parent_id"],
@@ -184,8 +201,9 @@ class SqliteStorage:
                 else:
                     cur = await self._conn.execute(
                         "INSERT INTO checkpoints (thread_id, node, graph_path, state,"
-                        " parent_id, reason, created_at, version, event_seq, error, interrupt)"
-                        " VALUES (?,?,?,?,?,?,?,?,?,?,?)",
+                        " parent_id, reason, created_at, version, event_seq, error, interrupt,"
+                        " graph_version, plan)"
+                        " VALUES (?,?,?,?,?,?,?,?,?,?,?,?,?)",
                         (
                             data["thread_id"],
                             data["node"],
@@ -199,6 +217,10 @@ class SqliteStorage:
                             data["error"],
                             json.dumps(data["interrupt"], ensure_ascii=False)
                             if data["interrupt"] is not None
+                            else None,
+                            data["graph_version"],
+                            json.dumps(data["plan"], ensure_ascii=False)
+                            if data["plan"] is not None
                             else None,
                         ),
                     )
@@ -226,6 +248,8 @@ class SqliteStorage:
                     event_seq=record.event_seq,
                     error=record.error,
                     interrupt=record.interrupt,
+                    graph_version=record.graph_version,
+                    plan=record.plan,
                 )
             # 已存在：乐观锁更新（version 期望校验，冲突抛异常）
             if expected_version is None:
@@ -240,7 +264,8 @@ class SqliteStorage:
                 expected_version = row["version"]
             cur = await self._conn.execute(
                 "UPDATE checkpoints SET state = ?, node = ?, graph_path = ?, reason = ?,"
-                " event_seq = ?, error = ?, interrupt = ?, version = version + 1"
+                " event_seq = ?, error = ?, interrupt = ?, graph_version = ?, plan = ?,"
+                " version = version + 1"
                 " WHERE checkpoint_id = ? AND version = ?",
                 (
                     json.dumps(data["state"], ensure_ascii=False),
@@ -251,6 +276,10 @@ class SqliteStorage:
                     data["error"],
                     json.dumps(data["interrupt"], ensure_ascii=False)
                     if data["interrupt"] is not None
+                    else None,
+                    data["graph_version"],
+                    json.dumps(data["plan"], ensure_ascii=False)
+                    if data["plan"] is not None
                     else None,
                     record.checkpoint_id,
                     expected_version,
@@ -488,6 +517,8 @@ class SqliteStorage:
                 if row["interrupt"]
                 else None
             ),
+            graph_version=row["graph_version"],
+            plan=json.loads(row["plan"]) if row["plan"] else None,
         )
 
 

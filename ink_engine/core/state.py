@@ -16,6 +16,7 @@ from collections.abc import Callable
 from dataclasses import dataclass, field
 from typing import Any
 
+from .exceptions import GraphDefinitionError
 from .patch_chain import Patch, PatchChain, _deep_copy
 
 # reducer 签名：(base, overlay) -> new；None 通道 = 裸 LastValue
@@ -240,7 +241,10 @@ def get_reducer(name: str | None) -> Reducer | None:
     """按名取 reducer；None 表示裸通道（覆盖语义）。"""
     if name is None:
         return None
-    return REDUCER_REGISTRY[name]
+    reducer = REDUCER_REGISTRY.get(name)
+    if reducer is None:
+        raise GraphDefinitionError(f"未知 reducer: {name}")
+    return reducer
 
 
 @dataclass(frozen=True, slots=True)
@@ -271,6 +275,38 @@ class StateSchema:
 
     def add(self, name: str, reducer: str | None = None) -> None:
         self.channels[name] = Channel(reducer=reducer)
+
+    def to_dict(self) -> dict:
+        """序列化为数据形态（通道名 → reducer 名，None = 裸覆盖通道）。
+
+        与图定义数据同链路：schema 是图的可恢复定义的一部分，随图定义
+        导出/导入与版本化。
+        """
+        return {
+            "channels": {
+                name: channel.reducer for name, channel in self.channels.items()
+            }
+        }
+
+    @classmethod
+    def from_dict(cls, data: dict | None) -> StateSchema | None:
+        """反序列化（None/缺省 → None = 全部裸通道语义，兼容无 schema 图）。
+
+        Raises:
+            GraphDefinitionError: reducer 名未注册（图定义数据来自 LLM/
+                外部时在反序列化处闸门化，不等到执行期合并才 KeyError）。
+        """
+        if not data or not isinstance(data, dict):
+            return None
+        raw = data.get("channels")
+        if raw is not None and not isinstance(raw, dict):
+            raise GraphDefinitionError(
+                f"状态 schema channels 字段非法: 期望 dict，收到 {type(raw).__name__}"
+            )
+        for _name, reducer in (raw or {}).items():
+            if reducer is not None:
+                get_reducer(reducer)  # 未注册 reducer 在此暴露（fail-fast）
+        return cls(dict(raw or {}))
 
     def apply(self, state: dict, overlay: dict) -> dict:
         """把节点增量 overlay 按通道 reducer 合并进 state（纯函数，返回新 dict）。

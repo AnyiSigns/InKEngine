@@ -104,6 +104,8 @@ class MemoryStorage:
                     event_seq=record.event_seq,
                     error=record.error,
                     interrupt=record.interrupt,
+                    graph_version=record.graph_version,
+                    plan=record.plan,
                 )
                 self._next_checkpoint_id += 1
                 self._checkpoints[record.checkpoint_id] = record

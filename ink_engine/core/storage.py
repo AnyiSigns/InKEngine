@@ -126,6 +126,11 @@ class CheckpointRecord:
         error: 异常快照（reason=error 时携带脱敏后的错误消息，可诊断；None = 无）。
         interrupt: 挂起卡状态（reason=interrupted 时携带：中断键 + 卡负载 +
             中断节点定位，续流恢复定位锚点；其余终止形态为 None）。
+        graph_version: 图定义内容指纹（执行时图的身份；恢复时与当前图比对，
+            不一致拒绝续跑——图定义变了恢复语义不保证）。
+        plan: 运行中计划快照（{steps, index}，None = 无计划/计划已耗尽）。
+            计划随 checkpoint 版本链落盘与回滚——回溯决策点时计划与状态
+            一起回到当时版本。
     """
 
     checkpoint_id: int
@@ -140,6 +145,8 @@ class CheckpointRecord:
     event_seq: int = 0
     error: str | None = None
     interrupt: InterruptState | None = None
+    graph_version: str | None = None
+    plan: dict | None = None
 
     def to_dict(self) -> dict:
         return {
@@ -159,6 +166,8 @@ class CheckpointRecord:
                 if self.interrupt is not None
                 else None
             ),
+            "graph_version": self.graph_version,
+            "plan": self.plan,
         }
 
     @classmethod
@@ -183,6 +192,8 @@ class CheckpointRecord:
                 if isinstance(interrupt, dict)
                 else None
             ),
+            graph_version=data.get("graph_version"),
+            plan=data.get("plan"),
         )
 
 

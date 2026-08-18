@@ -44,6 +44,29 @@ class ToolSpec:
     parameters: Any = None
     permissions: tuple[str, ...] = ()
 
+    def to_dict(self) -> dict:
+        """序列化为数据形态（工具 = 数据：可入 checkpoint/知识集/仓库）。
+
+        parameters 统一解析为 JSON Schema dict（pydantic 类 → schema）——
+        数据形态即 OpenAI 兼容形态，语义无损。
+        """
+        return {
+            "name": self.name,
+            "description": self.description,
+            "parameters": _resolve_parameters(self.parameters),
+            "permissions": list(self.permissions),
+        }
+
+    @classmethod
+    def from_dict(cls, data: dict) -> ToolSpec:
+        """从数据形态还原（未知键忽略，兼容增量演进）。"""
+        return cls(
+            name=data["name"],
+            description=data.get("description") or "",
+            parameters=data.get("parameters"),
+            permissions=tuple(data.get("permissions") or ()),
+        )
+
 
 def _resolve_parameters(parameters: Any) -> dict[str, Any]:
     """解析参数 schema：None → 空对象；dict 直通；pydantic 类转换。"""

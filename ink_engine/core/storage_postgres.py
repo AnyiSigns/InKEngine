@@ -33,7 +33,9 @@ CREATE TABLE IF NOT EXISTS checkpoints (
     version INTEGER NOT NULL DEFAULT 1,
     event_seq BIGINT NOT NULL DEFAULT 0,
     error TEXT,
-    interrupt JSONB
+    interrupt JSONB,
+    graph_version TEXT,
+    plan JSONB
 );
 CREATE INDEX IF NOT EXISTS idx_checkpoints_thread ON checkpoints(thread_id, checkpoint_id DESC);
 
@@ -107,6 +109,16 @@ class PostgresStorage:
                 "检测到旧版 checkpoints 表（缺 interrupt 列）：本项目不做数据迁移，"
                 "请删除表后重启（DROP TABLE checkpoints, event_log, records;）"
             )
+        if columns and "graph_version" not in columns:
+            raise StorageError(
+                "检测到旧版 checkpoints 表（缺 graph_version 列）：本项目不做数据迁移，"
+                "请删除表后重启（DROP TABLE checkpoints, event_log, records;）"
+            )
+        if columns and "plan" not in columns:
+            raise StorageError(
+                "检测到旧版 checkpoints 表（缺 plan 列）：本项目不做数据迁移，"
+                "请删除表后重启（DROP TABLE checkpoints, event_log, records;）"
+            )
 
     async def get_checkpoint(self, checkpoint_id: int) -> CheckpointRecord | None:
         await self._connect()
@@ -165,14 +177,16 @@ class PostgresStorage:
                             # "could not determine data type of parameter"。
                             row = await conn.fetchrow(
                                 "INSERT INTO checkpoints (thread_id, node, graph_path, state,"
-                                " parent_id, reason, created_at, version, event_seq, error, interrupt)"
+                                " parent_id, reason, created_at, version, event_seq, error, interrupt,"
+                                " graph_version, plan)"
                                 " SELECT $1::text,$2::text,$3::jsonb,$4::jsonb,$5::bigint,$6::text,"
-                                " $7::double precision,1,$8::bigint,$9::text,$12::jsonb"
+                                " $7::double precision,1,$8::bigint,$9::text,$12::jsonb,"
+                                " $13::text,$16::jsonb"
                                 " WHERE NOT EXISTS (SELECT 1 FROM checkpoints"
                                 " WHERE thread_id = $10::text AND checkpoint_id > $11::bigint)"
                                 " AND EXISTS (SELECT 1 FROM checkpoints"
-                                " WHERE checkpoint_id = $13::bigint"
-                                " AND thread_id = $14::text AND event_seq <= $15::bigint)"
+                                " WHERE checkpoint_id = $15::bigint"
+                                " AND thread_id = $14::text AND event_seq <= $17::bigint)"
                                 " RETURNING checkpoint_id",
                                 data["thread_id"],
                                 data["node"],
@@ -188,8 +202,12 @@ class PostgresStorage:
                                 json.dumps(data["interrupt"], ensure_ascii=False)
                                 if data["interrupt"] is not None
                                 else None,
-                                data["parent_id"],
+                                data["graph_version"],
                                 data["thread_id"],
+                                data["parent_id"],
+                                json.dumps(data["plan"], ensure_ascii=False)
+                                if data["plan"] is not None
+                                else None,
                                 data["event_seq"],
                             )
                             if row is None:
@@ -200,8 +218,10 @@ class PostgresStorage:
                         else:
                             row = await conn.fetchrow(
                                 "INSERT INTO checkpoints (thread_id, node, graph_path, state,"
-                                " parent_id, reason, created_at, version, event_seq, error, interrupt)"
-                                " VALUES ($1,$2,$3,$4,$5,$6,$7,1,$8,$9,$10) RETURNING checkpoint_id",
+                                " parent_id, reason, created_at, version, event_seq, error, interrupt,"
+                                " graph_version, plan)"
+                                " VALUES ($1,$2,$3,$4,$5,$6,$7,1,$8,$9,$10,$11,$12)"
+                                " RETURNING checkpoint_id",
                                 data["thread_id"],
                                 data["node"],
                                 json.dumps(data["graph_path"]),
@@ -213,6 +233,10 @@ class PostgresStorage:
                                 data["error"],
                                 json.dumps(data["interrupt"], ensure_ascii=False)
                                 if data["interrupt"] is not None
+                                else None,
+                                data["graph_version"],
+                                json.dumps(data["plan"], ensure_ascii=False)
+                                if data["plan"] is not None
                                 else None,
                             )
                     return CheckpointRecord(
@@ -228,6 +252,8 @@ class PostgresStorage:
                         event_seq=record.event_seq,
                         error=record.error,
                         interrupt=record.interrupt,
+                        graph_version=record.graph_version,
+                        plan=record.plan,
                     )
                 if expected_version is None:
                     row = await conn.fetchrow(
@@ -240,8 +266,8 @@ class PostgresStorage:
                 updated = await conn.execute(
                     "UPDATE checkpoints SET state = $1, node = $2, graph_path = $3,"
                     " reason = $4, event_seq = $5, error = $6, interrupt = $7,"
-                    " version = version + 1"
-                    " WHERE checkpoint_id = $8 AND version = $9",
+                    " graph_version = $8, plan = $9, version = version + 1"
+                    " WHERE checkpoint_id = $10 AND version = $11",
                     json.dumps(data["state"], ensure_ascii=False),
                     data["node"],
                     json.dumps(data["graph_path"]),
@@ -250,6 +276,10 @@ class PostgresStorage:
                     data["error"],
                     json.dumps(data["interrupt"], ensure_ascii=False)
                     if data["interrupt"] is not None
+                    else None,
+                    data["graph_version"],
+                    json.dumps(data["plan"], ensure_ascii=False)
+                    if data["plan"] is not None
                     else None,
                     record.checkpoint_id,
                     expected_version,
@@ -482,6 +512,8 @@ class PostgresStorage:
                 if row["interrupt"]
                 else None
             ),
+            graph_version=row["graph_version"],
+            plan=json.loads(row["plan"]) if row["plan"] else None,
         )
 
 

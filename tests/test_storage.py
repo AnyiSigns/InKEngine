@@ -138,6 +138,101 @@ async def test_checkpoint_error_field_roundtrip(storage):
     assert got.error == "节点执行失败: a"
 
 
+async def test_checkpoint_graph_version_plan_roundtrip(storage):
+    """图版本 + 计划快照三后端持久化（M1/M2 验收：随 checkpoint 版本链落盘）。
+
+    回归 P0-1：postgres 守卫式续链 INSERT 曾发生 $14/$15 参数错位（thread_id
+    喂给 checkpoint_id::bigint），常规续链第二个 checkpoint 起必然失败——
+    memory/sqlite 全路径在此覆盖（插入 + 守卫式续链 + 更新），postgres
+    由同构 marker 用例覆盖。
+    """
+    rec = await storage.put_checkpoint(
+        _cp(
+            state={"v": 1},
+            graph_version="a" * 64,
+            plan={"steps": [{"nodes": ["a"]}, {"nodes": ["b"]}], "index": 1},
+        )
+    )
+    got = await storage.get_checkpoint(rec.checkpoint_id)
+    assert got is not None
+    assert got.graph_version == "a" * 64
+    assert got.plan == {"steps": [{"nodes": ["a"]}, {"nodes": ["b"]}], "index": 1}
+    # 守卫式续链插入（常规续链路径：not fork 且 parent_id 非 None）
+    c2 = await storage.put_checkpoint(
+        CheckpointRecord(
+            checkpoint_id=0,
+            thread_id="t1",
+            node="n2",
+            state={"v": 2},
+            parent_id=rec.checkpoint_id,
+            graph_version="b" * 64,
+            plan=None,
+        )
+    )
+    got2 = await storage.get_checkpoint(c2.checkpoint_id)
+    assert got2 is not None
+    assert got2.graph_version == "b" * 64
+    assert got2.plan is None
+    # 更新路径（update_state 的写回语义）字段保持
+    updated = await storage.put_checkpoint(
+        CheckpointRecord(
+            checkpoint_id=c2.checkpoint_id,
+            thread_id="t1",
+            node="n2",
+            state={"v": 3},
+            parent_id=rec.checkpoint_id,
+            version=c2.version,
+            graph_version="b" * 64,
+            plan={"steps": [{"nodes": ["b"]}], "index": 0},
+        ),
+        expected_version=c2.version,
+    )
+    got3 = await storage.get_checkpoint(updated.checkpoint_id)
+    assert got3 is not None
+    assert got3.graph_version == "b" * 64
+    assert got3.plan == {"steps": [{"nodes": ["b"]}], "index": 0}
+    assert await validate_chain(storage, "t1") == []
+
+
+@pytest.mark.postgres
+@pytest.mark.skipif(
+    not os.environ.get("POSTGRES_TEST_URL"),
+    reason="未配置 POSTGRES_TEST_URL，跳过真实 Postgres 后端验证",
+)
+async def test_checkpoint_graph_version_plan_roundtrip_postgres():
+    """postgres 后端同构字段 round-trip（CI 有 PG 环境时跑；无环境跳过）。
+
+    回归 P0-1：此用例直接覆盖守卫式续链 INSERT 的参数序（$14/$15
+    错位会让第二个 checkpoint 写入失败）。
+    """
+    store = create_storage(os.environ["POSTGRES_TEST_URL"])
+    try:
+        rec = await store.put_checkpoint(
+            _cp(
+                state={"v": 1},
+                graph_version="a" * 64,
+                plan={"steps": [{"nodes": ["a"]}], "index": 0},
+            )
+        )
+        c2 = await store.put_checkpoint(
+            CheckpointRecord(
+                checkpoint_id=0,
+                thread_id="t1",
+                node="n2",
+                state={"v": 2},
+                parent_id=rec.checkpoint_id,
+                graph_version="b" * 64,
+                plan=None,
+            )
+        )
+        got = await store.get_checkpoint(c2.checkpoint_id)
+        assert got is not None
+        assert got.graph_version == "b" * 64
+        assert got.plan is None
+    finally:
+        await store.close()
+
+
 async def test_checkpoint_sensitive_keys_stripped(storage):
     """安全：checkpoint 永不落 api_key（引擎默认剥离语义）。"""
     rec = await storage.put_checkpoint(

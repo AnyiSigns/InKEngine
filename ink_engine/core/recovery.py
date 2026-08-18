@@ -18,7 +18,7 @@ from __future__ import annotations
 from dataclasses import dataclass, field
 
 from .events import EngineEvent
-from .exceptions import StorageError
+from .exceptions import GraphVersionMismatchError, StorageError
 from .state import StateSchema
 from .storage import ChainLink, CheckpointRecord, Storage
 
@@ -50,6 +50,7 @@ async def resolve_resume(
     graph_path: tuple[str, ...],
     replay: bool,
     resume_map: dict[tuple[str, ...], int] | None,
+    graph_version: str | None = None,
 ) -> ResumeResolution:
     """解析恢复起点：初始状态归一化 + 续链/续跑锚点 + 锚点回溯 + 重放清单。
 
@@ -59,11 +60,15 @@ async def resolve_resume(
         schema: 状态通道 schema（None = 全部裸通道覆盖语义）。
         thread_id: 事件日志归属线程（事件重放按此查询）。
         chain_thread: checkpoint 版本链归属（spawn 实例 = 独立子链）。
-        resume_from: checkpoint_id 锚点（恢复/续流；None = 从头执行）。
+        resume_from: checkpoint_id 锚点（恢复/续跑；None = 从头执行）。
         continue_chain: 新回合续链（读链尾为基底，输入 state 覆盖后从入口执行）。
         graph_path: 本图执行路径（顶层 () 才做嵌套子图锚点回溯）。
         replay: 是否收集增量日志重放（顶层事件流挂载时）。
         resume_map: 嵌套子图恢复锚点表（graph_path → checkpoint_id）。
+        graph_version: 当前图内容指纹（None = 不校验）。恢复锚点携带的图
+            指纹与当前图不一致 = 图定义已变更，恢复语义不保证——显式拒绝
+            （GraphVersionMismatchError）而非静默错位续跑。只对 resume_from
+            真恢复生效；continue_chain 续链不重放事件，不校验。
 
     Returns:
         ResumeResolution：基底状态 + 最终恢复锚点 + 子图锚点表 + 重放事件。
@@ -77,7 +82,10 @@ async def resolve_resume(
     if continue_chain and storage is not None:
         # 新回合续链：读链尾 checkpoint 为基底，输入 state 经 schema 覆盖
         # 合并（消息追加/指标复位等 reducer 语义），从入口执行，版本链
-        # 续接链尾——不重放事件（新回合事件全新产生）。
+        # 续接链尾——不重放事件（新回合事件全新产生）。图版本不校验：
+        # 续链无重放/回溯语义（状态通道继承、事件全新产生），同 thread
+        # 换图（按任务切 harness）是合法场景——图版本校验只作用于
+        # resume_from（真恢复/重放）。
         last_checkpoint = await storage.get_latest_checkpoint(chain_thread)
         if last_checkpoint is not None:
             base = dict(last_checkpoint.state)
@@ -128,12 +136,40 @@ async def resolve_resume(
                 # 保留在 resume_map（到达路径匹配的子图节点时恢复）
                 last_checkpoint = None
                 current_state = dict(state)
+    if resume_from is not None:
+        # 图版本校验只作用于真恢复（resume_from 锚点）：恢复 = 快照 +
+        # 事件重放，图定义变了重放语义不保证；continue_chain 不重放事件，
+        # 状态通道继承（同 thread 换图是 M3 合法场景），不校验。
+        _assert_graph_version(last_checkpoint, graph_version)
     return ResumeResolution(
         state=current_state,
         last_checkpoint=last_checkpoint,
         resume_map=resume_map,
         replay=tuple(replay_events),
     )
+
+
+def _assert_graph_version(
+    checkpoint: CheckpointRecord | None, graph_version: str | None
+) -> None:
+    """恢复锚点图版本校验：锚点带图指纹且与当前图不一致 → 拒绝续跑。
+
+    图定义 = 可恢复状态的一部分：拓扑/节点/条件引用变了，同一份状态与
+    事件日志的语义就不同——继续重放会产生错位结果。显式报错让调用方
+    决定重建或换锚点，绝不静默错位（旧数据无指纹，跳过校验兼容）。
+    """
+    if (
+        graph_version is None
+        or checkpoint is None
+        or checkpoint.graph_version is None
+    ):
+        return
+    if checkpoint.graph_version != graph_version:
+        raise GraphVersionMismatchError(
+            f"图定义版本与恢复锚点不匹配（锚点 {checkpoint.graph_version[:12]}…"
+            f" vs 当前 {graph_version[:12]}…）：图已变更，恢复语义不保证，"
+            f"请重建会话或选择匹配的锚点"
+        )
 
 
 async def collect_resume_anchors(

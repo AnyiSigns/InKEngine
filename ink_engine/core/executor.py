@@ -29,12 +29,22 @@ from typing import Any
 from .budget import BudgetManager
 from .chain_rebase import maybe_compact_chain
 from .events import EngineEvent, EngineTransport
-from .exceptions import NodeExecutionError
+from .exceptions import BudgetExceededError, GraphDefinitionError, NodeExecutionError
 from .fanout import fan_out
 from .graph import Graph, NodeContext, TerminateReason
 from .interrupt import InterruptCoordinator, InterruptSignal, InterruptState
 from .logging import get_logger, trace_id_var
+from .plan import (
+    DEFAULT_MAX_PLAN_STEPS,
+    KIND_NODES,
+    KIND_PARALLEL,
+    KIND_SPAWNS,
+    PLAN_KEY,
+    Plan,
+    PlanStep,
+)
 from .recovery import resolve_resume, tail_checkpoint
+from .registry import GraphRegistries
 from .security import strip_sensitive
 from .spawn import (
     SPAWN_KEY,
@@ -85,6 +95,12 @@ class RunOptions:
     # 系统信号事件集合（宿主协议注入）：命中的事件类型强制 step_id=None、
     # 不入回合步骤序列（机制层默认空——不预置任何领域事件名）
     system_events: frozenset[str] = frozenset()
+    # 运行时重规划（__plan__）配置
+    plan_policy: str = "loose"  # loose = 计划落在图内任意节点；strict = 计划须满足图边约束
+    max_plan_steps: int = DEFAULT_MAX_PLAN_STEPS  # 计划步数上限（成本护栏，0 = 禁用计划）
+    parallel_concurrency: int = 4  # 并行节点组并发上限
+    # 建图注册表（spawn 子图数据/计划条件的解析来源；None = 不启用数据形态）
+    registries: GraphRegistries | None = None
 
 
 @dataclass(slots=True)
@@ -117,6 +133,45 @@ class _QueueTransport:
 
     async def send(self, event: EngineEvent) -> None:
         await self._queue.put(event)
+
+
+@dataclass(slots=True)
+class _PlanAdvance:
+    """计划游标推进结果（计划步执行/取节点的控制流传递）。
+
+    Attributes:
+        node: 待执行的下一节点（None = 无节点产出——计划耗尽或已终止）。
+        plan: 推进后的计划（None = 计划耗尽/终止——转边定位或收尾）。
+        state: 合并后的状态（并行/spawn 步回流已并入）。
+        reason: 终止原因（计划步内 terminate/预算超限/错误，None = 正常推进）。
+        error: 错误消息（reason=error 时）。
+        interrupt: 计划步内中断（并行成员/spawn 实例挂起，None = 无）。
+        parent_id: 链写状态（计划步 checkpoint 后的新父锚点）。
+        fork_write: 链写状态（分叉首写标志，写入后复位 False）。
+    """
+
+    node: str | None = None
+    plan: Plan | None = None
+    state: dict = field(default_factory=dict)
+    reason: str | None = None
+    error: str | None = None
+    interrupt: InterruptState | None = None
+    parent_id: int | None = None
+    fork_write: bool = False
+
+
+@dataclass(slots=True)
+class _PlanWorkOutcome:
+    """计划工作步（并行组/spawn）的执行结果与控制流信号。
+
+    overlay 与三种控制流信号互斥：有信号 = 本步未完成（主循环终止），
+    无信号 = 本步完成（overlay 可并入状态）。
+    """
+
+    overlay: dict = field(default_factory=dict)
+    terminate: str | None = None
+    interrupt: InterruptState | None = None
+    error: str | None = None
 
 
 class _NodeContextImpl(NodeContext):
@@ -258,6 +313,36 @@ async def _select_next_node(graph: Graph, ctx: NodeContext, current: str) -> str
     return None
 
 
+async def _locate_next(
+    graph: Graph, ctx: NodeContext, current: str
+) -> tuple[str | None, str | None]:
+    """边/出口定位：出口节点 → REPLY 终止；条件边/静态边 → 下一节点。
+
+    Returns:
+        (reason, next_node)：reason 非 None = 终止（next_node 恒 None）；
+        next_node 非 None = 继续执行该节点；两者皆 None = 图定义不完备
+        （无出边且非 exit），按 stop 终止（入轨迹可诊断）。
+    """
+    if current in graph.exits:
+        return TerminateReason.REPLY, None
+    nxt = await _select_next_node(graph, ctx, current)
+    if nxt is None:
+        if current not in graph.exits:
+            return TerminateReason.STOP, None
+        return TerminateReason.REPLY, None
+    return None, nxt
+
+
+def _node_in_plan_steps(node: str, plan: Plan) -> bool:
+    """节点是否属于计划步骤的节点集合（NODES/PARALLEL 步成员）。
+
+    恢复定位判据：中断/异常 checkpoint 的 node 属于计划步骤节点 = 顺序
+    节点步中断（重入该节点）；不属于 = 计划工作步（并行/spawn）中断
+    （checkpoint.node 是计划产出节点，重入它 = 重新规划，应重入计划步）。
+    """
+    return any(node in step.nodes for step in plan.steps)
+
+
 class Engine:
     """引擎实例：Graph + 配置的组装点（业务侧一次构建，多次 run）。
 
@@ -268,9 +353,21 @@ class Engine:
     def __init__(self, graph: Graph, *, options: RunOptions | None = None) -> None:
         self.graph = graph
         self.options = options or RunOptions()
+        # 声明式节点/条件边先经注册表解析（Engine 持有注册表即可解析——
+        # 未解析的条件边与声明式节点在编译期被拒绝，绝不静默当静态边
+        # 误走/报误导性的入口缺失错误）
+        if self.options.registries is not None:
+            graph.resolve_conditions(self.options.registries.edges)
+            graph.resolve_types(self.options.registries.nodes)
         self.compiled = graph.compile()
         self._coordinator = InterruptCoordinator()
         self._event_counter = 0
+        # 事件登记锁：并行节点组（计划步骤）成员并发发射时串行化计数与
+        # seq 锚点登记（防丢更新/乱序覆盖导致恢复重放重复事件）
+        self._event_lock = asyncio.Lock()
+        # 图内容指纹（checkpoint 图版本）：本图执行产生的 checkpoint 均携带，
+        # 恢复时与锚点比对（图定义变了 = 恢复语义不保证，拒绝续跑）
+        self._graph_digest = graph.digest()
         # 子图引擎缓存（嵌套图/循环/并行场景避免每次执行重复 compile）
         self._subgraph_engines: dict[int, Engine] = {}
         # 事件日志写失败降频时间戳（存储故障时避免每事件一条 ERROR 洪水）
@@ -289,19 +386,25 @@ class Engine:
 
         存储/传输消费失败都不影响主流程（观测不阻断执行）；存储故障按
         时间窗降频记录，避免 token 级事件流触发日志洪水。
+
+        并发安全：并行节点组（计划步骤）成员并发发射事件——计数与 seq
+        锚点的登记经引擎级事件锁串行化（计数器防丢更新、seq 锚点防乱序
+        覆盖导致恢复重放重复事件）；传输推送在锁外（消费方自身线程安全
+        由传输实现保证，不互相等待）。
         """
-        self._event_counter += 1
-        if self.options.storage is not None:
-            try:
-                seq = await self.options.storage.append_event(event.thread_id, event)
-                event = replace(event, seq=seq)
-                # 内存态 seq 锚点（checkpoint 写入复用，免每节点查询）
-                self._latest_event_seq = seq
-            except Exception as exc:
-                now = time.monotonic()
-                if now - self._event_log_error_ts >= 5.0:
-                    self._event_log_error_ts = now
-                    logger.error(f"事件日志写入失败（忽略，继续执行）: {exc}")
+        async with self._event_lock:
+            self._event_counter += 1
+            if self.options.storage is not None:
+                try:
+                    seq = await self.options.storage.append_event(event.thread_id, event)
+                    event = replace(event, seq=seq)
+                    # 内存态 seq 锚点（checkpoint 写入复用，免每节点查询）
+                    self._latest_event_seq = seq
+                except Exception as exc:
+                    now = time.monotonic()
+                    if now - self._event_log_error_ts >= 5.0:
+                        self._event_log_error_ts = now
+                        logger.error(f"事件日志写入失败（忽略，继续执行）: {exc}")
         for transport in transports or self.options.transports:
             try:
                 await transport.send(event)
@@ -338,6 +441,10 @@ class Engine:
                 state=merged,
                 parent_id=latest.checkpoint_id,
                 event_seq=latest.event_seq,
+                graph_version=self._graph_digest,
+                # 计划快照沿袭链尾：注入/裁剪产生的新链尾不得丢计划游标
+                # （计划随 checkpoint 版本链落盘的回滚语义在注入路径也成立）
+                plan=latest.plan,
             )
         )
 
@@ -582,6 +689,7 @@ class Engine:
             graph_path=graph_path,
             replay=queue is not None,
             resume_map=resume_map,
+            graph_version=self._graph_digest,
         )
         current_state = resume.state
         last_checkpoint = resume.last_checkpoint
@@ -605,11 +713,54 @@ class Engine:
         # - 中断 checkpoint（reason=interrupted）：重入中断节点（节点内按注入值分支）；
         # - 异常 checkpoint（reason=error）：重入失败节点（该节点未完成，
         #   恢复即重试；error_on_exception=False 的跳过语义不落 error 终态）；
-        # - 正常 checkpoint（节点已完成）：从已完成节点的下一节点继续，不重跑已完成节点。
+        # - 正常 checkpoint（节点已完成）：从已完成节点的下一节点继续，不重跑已完成节点；
+        # - 计划 checkpoint（plan 快照非空）：节点已完成，从计划的剩余步骤
+        #   续跑（计划随 checkpoint 版本化——回溯决策点时计划与状态同版本）。
+        #   中断/失败 checkpoint 的 plan 快照区分两种形态：
+        #   - 计划工作步（并行组/spawn 步）内中断：checkpoint.node 是计划
+        #     产出节点（重跑它 = 重新规划，中断步与注入值丢失）——应重入
+        #     计划步本身（plan_pending 直达计划推进，工作步重跑，中断成员
+        #     经注入值分支）；判据 = 该节点不属于计划任何步骤的节点集合；
+        #   - 顺序节点步中断：checkpoint.node 是未完成的计划步节点——重入
+        #     该节点（计划游标已推进到下一步，完成后从剩余步骤续跑）。
         skip_first_node = False
-        if last_checkpoint is not None and last_checkpoint.node:
+        plan_pending = False
+        active_plan: Plan | None = None
+        if continue_chain:
+            # 新回合续链：链尾为基底（状态通道继承）、事件全新产生、不恢复
+            # 旧计划快照（新回合重新规划）。定位分流：
+            # - 链尾节点在新图存在（同图续链）：从链尾节点出边继续——宿主
+            #   回合语义「终止节点带出边，续链从出边继续」，不重跑终止节点；
+            # - 链尾节点在新图不存在（换图/M3 同 thread 切 harness）：从
+            #   新图入口执行（current 保持 graph.entry）——按链尾定位会因
+            #   节点名缺失静默终态。
+            if last_checkpoint is not None and last_checkpoint.node:
+                if last_checkpoint.node not in graph.nodes:
+                    # 换图：链尾节点在新图不存在，从新图入口执行
+                    pass
+                else:
+                    nxt = await _select_next_node(graph, ctx, last_checkpoint.node)
+                    if nxt is not None:
+                        current = nxt
+                    else:
+                        # 链尾为出口/无出边：图已走完，终态收尾不重复执行
+                        skip_first_node = True
+        elif last_checkpoint is not None and last_checkpoint.node:
             if last_checkpoint.reason in ("interrupted", TerminateReason.ERROR):
                 current = last_checkpoint.node
+                # 中断/失败发生在计划执行中：计划快照随中断 checkpoint 落盘
+                # （工作步中断 index 停留在当前步；顺序节点中断 index 已推进
+                # 到下一步）——重入节点/计划步拿到注入值/重试完成后从计划
+                # 剩余步骤续跑（不丢计划，回溯决策点计划同版本）
+                if last_checkpoint.plan is not None:
+                    active_plan = Plan.from_dict(last_checkpoint.plan)
+                    if not _node_in_plan_steps(current, active_plan):
+                        plan_pending = True
+            elif last_checkpoint.plan is not None:
+                active_plan = Plan.from_dict(last_checkpoint.plan)
+                # 普通计划 checkpoint：产出节点已完成，跳过其执行，直接从
+                # 计划剩余步骤续跑（重跑产出节点会重新规划，覆盖计划游标）
+                plan_pending = True
             else:
                 nxt = await _select_next_node(graph, ctx, last_checkpoint.node)
                 if nxt is not None:
@@ -635,11 +786,59 @@ class Engine:
             # ── 恢复终点：已完成节点无出边，直接进入终态收尾 ──
             if skip_first_node:
                 skip_first_node = False
-                # 终态快照沿用恢复锚点的已完成节点：回写入口节点会让链尾
-                # 变成"entry 已完成"，后续 resume 从 entry 的下一节点整图
-                # 重跑（重复执行 + 重复写 checkpoint）
-                if last_checkpoint is not None and last_checkpoint.node:
-                    current = last_checkpoint.node
+                if active_plan is None:
+                    # 终态快照沿用恢复锚点的已完成节点：回写入口节点会让链尾
+                    # 变成"entry 已完成"，后续 resume 从 entry 的下一节点整图
+                    # 重跑（重复执行 + 重复写 checkpoint）
+                    if last_checkpoint is not None and last_checkpoint.node:
+                        current = last_checkpoint.node
+                    break
+                # 计划恢复：已完成节点不重跑，直接进入下一步定位（计划推进）
+
+            # ── 计划恢复首轮：跳过节点执行，直接推进计划游标 ──
+            # 普通计划 checkpoint（产出节点已完成）与工作步中断恢复（重入
+            # 计划步）共用：从 checkpoint 计划快照的 index 续跑，不重跑
+            # 产出节点（重跑 = 重新规划，计划游标与 M5 回溯锚点丢失）。
+            if plan_pending:
+                plan_pending = False
+                assert active_plan is not None
+                advance = await self._plan_advance(
+                    plan=active_plan,
+                    ctx=ctx,
+                    graph=graph,
+                    schema=schema,
+                    state=current_state,
+                    storage=storage,
+                    thread_id=thread_id,
+                    chain_thread=chain_thread,
+                    parent_id=parent_id,
+                    fork_write=fork_write,
+                )
+                current_state = advance.state
+                if advance.interrupt is not None:
+                    interrupt_state = advance.interrupt
+                    reason = "interrupted"
+                    break
+                if advance.reason is not None:
+                    reason = advance.reason
+                    error_msg = advance.error
+                    break
+                parent_id = advance.parent_id
+                fork_write = advance.fork_write
+                active_plan = advance.plan
+                if active_plan is not None:
+                    current = advance.node
+                    continue
+                # 计划耗尽：从已完成节点走边/出口定位（不重走 graph.entry）
+                current = (
+                    last_checkpoint.node
+                    if last_checkpoint is not None and last_checkpoint.node
+                    else current
+                )
+                reason, nxt = await _locate_next(graph, ctx, current)
+                if nxt is not None:
+                    current = nxt
+                    continue
                 break
 
             # ── 预算检查（节点边界，策略由业务注册）──
@@ -711,13 +910,19 @@ class Engine:
             # ── spawn 清单提取（保留键不落状态；与命令式收集项合并）──
             if self.options.max_spawns > 0:
                 try:
-                    spawn_specs = collect_spawn_specs(overlay, ctx._spawns)
+                    spawn_specs = collect_spawn_specs(
+                        overlay,
+                        ctx._spawns,
+                        resolve_graph=self._resolve_graph_data,
+                    )
                     # 命令式清单一次性消费：清空收集器，防清单泄漏到后续
                     # 节点被重复展开（数据驱动项已随 overlay 弹出，不重复）
                     ctx._spawns.clear()
-                except (ValueError, TypeError) as exc:
+                except (ValueError, TypeError, GraphDefinitionError) as exc:
                     # TypeError 双保险：不可信清单的类型错误必须走同一
-                    # 错误路径（终态 checkpoint + error 事件），不得穿出
+                    # 错误路径（终态 checkpoint + error 事件），不得穿出；
+                    # GraphDefinitionError：数据形态子图的图定义非法
+                    # （缺字段/节点未注册/条件未注册）——同样按节点失败收口
                     node_error = f"spawn 清单非法: {exc}"
                     logger.error(f"spawn 清单非法 [{current}]: {exc}")
                     await ctx.emit("error", {"node": current, "message": node_error})
@@ -730,6 +935,32 @@ class Engine:
                 # 清单含 Graph 对象，泄漏会破坏状态可序列化性）
                 if overlay is not None and SPAWN_KEY in overlay:
                     overlay.pop(SPAWN_KEY)
+
+            # ── 计划清单提取（保留键不落状态；与 __spawn__ 键同语义）──
+            # 节点返回 __plan__ = 下一跳编排清单（图拓扑的可改写数据形态）：
+            # 引擎按清单续跑、执行一段后再规划；清单经解析校验（节点存在性/
+            # 条件注册/步数上限）后才生效，非法清单按节点失败终止（fail-fast，
+            # 不静默忽略也不穿出）。
+            plan_data = overlay.pop(PLAN_KEY, None) if overlay is not None else None
+            if plan_data is not None:
+                try:
+                    if self.options.max_plan_steps <= 0:
+                        raise ValueError("计划已禁用（max_plan_steps=0）")
+                    _registries = self.options.registries
+                    active_plan = Plan.parse(
+                        plan_data,
+                        graph=graph,
+                        edge_registry=_registries.edges if _registries is not None else None,
+                        policy=self.options.plan_policy,
+                        max_steps=self.options.max_plan_steps,
+                    )
+                except (GraphDefinitionError, ValueError, TypeError) as exc:
+                    node_error = f"计划清单非法: {exc}"
+                    logger.error(f"计划清单非法 [{current}]: {exc}")
+                    await ctx.emit("error", {"node": current, "message": node_error})
+                    error_msg = node_error
+                    reason = TerminateReason.ERROR
+                    break
 
             # ── 增量合并（reducer）──
             if overlay:
@@ -801,81 +1032,76 @@ class Engine:
                         },
                     )
 
-            # ── checkpoint 快照（每节点完成，版本链）──
+            # ── checkpoint 快照（每节点完成，版本链；计划激活时随附计划快照）──
             if storage is not None:
-                # 恢复锚点权威来源 = 事件日志本身（跨实例/跨 run/子图事件全部
-                # 自然包含，无内存态依赖；恢复 = 快照 + 该 seq 之后的增量重放）。
-                # seq 取内存态（_publish 已维护），避免每节点一次 latest_event_seq 查询。
-                event_seq = (
-                    self._latest_event_seq
-                    if self._latest_event_seq is not None
-                    else await storage.latest_event_seq(thread_id)
-                )
-                if self._chain_advanced:
-                    # 嵌套子图/spawn 实例推进过链尾（或恢复续跑）：parent 跟随
-                    # 当前链尾（版本链严格线性，跨引擎连续），查一次后复位
-                    _tail = await tail_checkpoint(storage, chain_thread)
-                    if _tail is not None:
-                        parent_id = _tail.checkpoint_id
-                    self._chain_advanced = False
-                last_checkpoint = await storage.put_checkpoint(
-                    CheckpointRecord(
-                        checkpoint_id=0,
-                        thread_id=chain_thread,
-                        node=current,
-                        graph_path=ctx.graph_path,
-                        state=current_state,
-                        parent_id=parent_id,
-                        event_seq=event_seq,
-                    ),
-                    # 编辑重放分叉（parent_checkpoint 锚点指向历史链）：首写跳过
-                    # 链尾校验，其余写正常续链（存储层原子校验并发写）
-                    fork=fork_write,
-                )
-                fork_write = False
-                parent_id = last_checkpoint.checkpoint_id
-
-            # ── 条件边选下一节点 / 出口 ──
-            if current in graph.exits:
-                reason = TerminateReason.REPLY
-                break
-            nxt = await _select_next_node(graph, ctx, current)
-            if nxt is None:
-                # 无出边且非 exit：图定义不完备，按 stop 终止（入轨迹可诊断）
-                if current not in graph.exits:
-                    reason = TerminateReason.STOP
-                break
-            current = nxt
-
-        # ── 终态 checkpoint（携带终止原因/异常快照，入轨迹与审计）──
-        if storage is not None:
-            event_seq = (
-                self._latest_event_seq
-                if self._latest_event_seq is not None
-                else await storage.latest_event_seq(thread_id)
-            )
-            if self._chain_advanced:
-                # 版本链严格线性：parent 跟随当前链尾（与节点 checkpoint 同语义）
-                _tail = await tail_checkpoint(storage, chain_thread)
-                if _tail is not None:
-                    parent_id = _tail.checkpoint_id
-                self._chain_advanced = False
-            last_checkpoint = await storage.put_checkpoint(
-                CheckpointRecord(
-                    checkpoint_id=0,
-                    thread_id=chain_thread,
+                last_checkpoint, fork_write = await self._write_checkpoint(
+                    storage=storage,
+                    thread_id=thread_id,
+                    chain_thread=chain_thread,
+                    ctx=ctx,
                     node=current,
-                    graph_path=ctx.graph_path,
                     state=current_state,
                     parent_id=parent_id,
-                    reason=reason,
-                    event_seq=event_seq,
-                    error=error_msg,
-                    # 挂起卡状态随终态快照持久化：reason=interrupted 时携带
-                    # 中断键与卡负载（续流恢复定位锚点，宿主据此注入决策值）
-                    interrupt=interrupt_state,
-                ),
-                fork=fork_write,
+                    fork_write=fork_write,
+                    plan=active_plan.to_dict() if active_plan is not None else None,
+                )
+                parent_id = last_checkpoint.checkpoint_id
+
+            # ── 下一步定位：计划推进（优先）or 条件边/出口 ──
+            if active_plan is not None:
+                advance = await self._plan_advance(
+                    plan=active_plan,
+                    ctx=ctx,
+                    graph=graph,
+                    schema=schema,
+                    state=current_state,
+                    storage=storage,
+                    thread_id=thread_id,
+                    chain_thread=chain_thread,
+                    parent_id=parent_id,
+                    fork_write=fork_write,
+                )
+                current_state = advance.state
+                if advance.interrupt is not None:
+                    # 计划工作步内中断（并行组成员/spawn 实例）→ 提升为父图
+                    # 挂起卡（与节点中断同口径：负载剥离敏感键后直返宿主）
+                    interrupt_state = advance.interrupt
+                    reason = "interrupted"
+                    break
+                if advance.reason is not None:
+                    reason = advance.reason
+                    error_msg = advance.error
+                    break
+                parent_id = advance.parent_id
+                fork_write = advance.fork_write
+                active_plan = advance.plan
+                if active_plan is not None:
+                    current = advance.node
+                    continue
+                # 计划耗尽：回到条件边/出口定位（current = 计划末节点）
+            reason, nxt = await _locate_next(graph, ctx, current)
+            if nxt is not None:
+                current = nxt
+            else:
+                break
+
+        # ── 终态 checkpoint（携带终止原因/异常快照/计划快照，入轨迹与审计）──
+        if storage is not None:
+            last_checkpoint, fork_write = await self._write_checkpoint(
+                storage=storage,
+                thread_id=thread_id,
+                chain_thread=chain_thread,
+                ctx=ctx,
+                node=current,
+                state=current_state,
+                parent_id=parent_id,
+                fork_write=fork_write,
+                reason=reason,
+                error=error_msg,
+                # 挂起卡状态随终态快照持久化：reason=interrupted 时携带
+                # 中断键与卡负载（续流恢复定位锚点，宿主据此注入决策值）
+                interrupt=interrupt_state,
+                plan=active_plan.to_dict() if active_plan is not None else None,
             )
         result = RunResult(
             state=current_state,
@@ -886,6 +1112,426 @@ class Engine:
             error=error_msg,
         )
         return current_state, result
+
+    async def _write_checkpoint(
+        self,
+        *,
+        storage: Storage,
+        thread_id: str,
+        chain_thread: str,
+        ctx: NodeContext,
+        node: str,
+        state: dict,
+        parent_id: int | None,
+        fork_write: bool,
+        reason: str | None = None,
+        error: str | None = None,
+        interrupt: InterruptState | None = None,
+        plan: dict | None = None,
+    ) -> tuple[CheckpointRecord, bool]:
+        """统一 checkpoint 写入（主循环/计划步共用，链写入不变量单点维护）。
+
+        - 恢复锚点权威来源 = 事件日志本身（跨实例/跨 run/子图事件全部
+          自然包含，无内存态依赖；恢复 = 快照 + 该 seq 之后的增量重放），
+          seq 取内存态（_publish 已维护），避免每节点一次 latest_event_seq 查询；
+        - 链尾跟随：嵌套子图/spawn 实例推进过链尾（或恢复续跑）时 parent
+          跟随当前链尾（版本链严格线性，跨引擎连续），查一次后复位；
+        - 编辑重放分叉（fork_write=True）首写跳过链尾校验（锚点指向历史链）。
+
+        Returns:
+            (落库记录, 新的 fork_write 值)——fork 仅在首次写生效，返回 False。
+        """
+        event_seq = (
+            self._latest_event_seq
+            if self._latest_event_seq is not None
+            else await storage.latest_event_seq(thread_id)
+        )
+        if self._chain_advanced:
+            _tail = await tail_checkpoint(storage, chain_thread)
+            if _tail is not None:
+                parent_id = _tail.checkpoint_id
+            self._chain_advanced = False
+        record = await storage.put_checkpoint(
+            CheckpointRecord(
+                checkpoint_id=0,
+                thread_id=chain_thread,
+                node=node,
+                graph_path=ctx.graph_path,
+                state=state,
+                parent_id=parent_id,
+                reason=reason,
+                event_seq=event_seq,
+                error=error,
+                interrupt=interrupt,
+                graph_version=self._graph_digest,
+                plan=plan,
+            ),
+            fork=fork_write,
+        )
+        return record, False
+
+    async def _plan_advance(
+        self,
+        *,
+        plan: Plan,
+        ctx: NodeContext,
+        graph: Graph,
+        schema: StateSchema | None,
+        state: dict,
+        storage: Storage | None,
+        thread_id: str,
+        chain_thread: str,
+        parent_id: int | None,
+        fork_write: bool,
+    ) -> _PlanAdvance:
+        """计划游标推进：取下一执行节点 / 执行无节点形态的计划步。
+
+        循环语义（skip 型步骤内联消耗，直至产出可执行节点或计划耗尽）：
+        - 条件门：按条件名求值（注册表解析），不满足 = 跳过该步；
+        - 顺序节点步：产出节点名（主循环执行，每节点 checkpoint 粒度）；
+        - 并行组/spawn 步：本方法内执行（隔离状态并发/实例展开），结果
+          合并后写入 checkpoint（计划快照 index 推进）——恢复不重跑有
+          副作用的步骤；
+        - 计划耗尽：返回 plan=None（主循环转条件边/出口定位）。
+
+        计划步内的终止/中断（并行组成员 terminate、spawn 实例 interrupt）
+        以控制流信号返回（不落 checkpoint——终态快照由主循环统一写入）。
+        """
+        while True:
+            if plan.index >= len(plan.steps):
+                return _PlanAdvance(
+                    state=state,
+                    parent_id=parent_id,
+                    fork_write=fork_write,
+                )
+            step = plan.steps[plan.index]
+            nxt_plan = replace(plan, index=plan.index + 1)
+            if step.condition is not None and not await self._eval_condition(step.condition, ctx):
+                plan = nxt_plan
+                continue
+            if step.kind == KIND_NODES:
+                return _PlanAdvance(
+                    node=step.nodes[0],
+                    plan=nxt_plan,
+                    state=state,
+                    parent_id=parent_id,
+                    fork_write=fork_write,
+                )
+            outcome = await self._execute_plan_work_step(step, ctx, state, graph, schema)
+            if outcome.interrupt is not None:
+                return _PlanAdvance(
+                    interrupt=outcome.interrupt,
+                    state=state,
+                    parent_id=parent_id,
+                    fork_write=fork_write,
+                )
+            if outcome.terminate is not None:
+                return _PlanAdvance(
+                    reason=outcome.terminate,
+                    error=outcome.error,
+                    state=state,
+                    parent_id=parent_id,
+                    fork_write=fork_write,
+                )
+            if outcome.error is not None:
+                # 计划步失败（并行组成员失败/清单非法）→ 整轮按错误终止
+                return _PlanAdvance(
+                    reason=TerminateReason.ERROR,
+                    error=outcome.error,
+                    state=state,
+                    parent_id=parent_id,
+                    fork_write=fork_write,
+                )
+            if outcome.overlay:
+                state = (
+                    schema.apply(state, outcome.overlay)
+                    if schema
+                    else {**state, **outcome.overlay}
+                )
+            ctx._state = state
+            plan = nxt_plan
+            if storage is not None:
+                record, fork_write = await self._write_checkpoint(
+                    storage=storage,
+                    thread_id=thread_id,
+                    chain_thread=chain_thread,
+                    ctx=ctx,
+                    node=ctx.node or "",
+                    state=state,
+                    parent_id=parent_id,
+                    fork_write=fork_write,
+                    plan=plan.to_dict(),
+                )
+                parent_id = record.checkpoint_id
+
+    async def _eval_condition(self, name: str, ctx: NodeContext) -> bool:
+        """计划条件门按名求值（经注册表解析；异常按不满足处理，不阻断执行）。
+
+        条件函数是业务判定（与条件边同语义）：失败视为不满足（跳过该
+        计划步）并留痕——条件异常阻断整轮执行得不偿失，跳步是安全的
+        降级（步骤本身会在后续规划中重估）。
+        """
+        registries = self.options.registries
+        if registries is None:
+            raise GraphDefinitionError(f"条件未注册（无注册表可解析）: {name}")
+        try:
+            condition = registries.edges.create(name)
+            result = condition(ctx)
+            if inspect.isawaitable(result):
+                result = await result
+            return bool(result)
+        except Exception as exc:
+            logger.warning(f"计划条件求值失败（按不满足处理）[{name}]: {exc}")
+            return False
+
+    async def _execute_plan_work_step(
+        self,
+        step: PlanStep,
+        ctx: NodeContext,
+        state: dict,
+        graph: Graph,
+        schema: StateSchema | None,
+    ) -> _PlanWorkOutcome:
+        """执行无节点形态的计划步（并行组/spawn 子任务），返回合并增量与控制流信号。
+
+        顺序节点步不经过本方法（主循环逐节点执行，保留每节点 checkpoint
+        粒度）；此处两种形态都内联消耗：
+        - 并行组：同图节点隔离状态并发执行，结果按声明序合并；
+        - spawn 步：子任务清单实例展开（展开执行器与 __spawn__ 共用）。
+        """
+        if step.kind == KIND_PARALLEL:
+            return await self._run_parallel_group(step.nodes, ctx, state, graph)
+        if step.kind == KIND_SPAWNS:
+            return await self._run_plan_spawns(step.spawns, ctx)
+        raise ValueError(f"未知计划步骤类型: {step.kind}")
+
+    async def _run_parallel_group(
+        self,
+        names: tuple[str, ...],
+        ctx: NodeContext,
+        state: dict,
+        graph: Graph,
+    ) -> _PlanWorkOutcome:
+        """并行节点组：隔离状态并发执行同图节点，结果按声明序合并。
+
+        并发安全要点：
+        - 每个成员持有状态快照（dict 拷贝——节点只返回增量不就地改状态，
+          快照即隔离；事件/checkpoint 共享父引擎与父线程，seq 由引擎锁
+          串行化）；
+        - 成员内 spawn 收集经同一展开路径执行（实例并发上限按 spawn 配置）；
+        - 失败语义与节点一致：error_on_exception=True = 整组失败（不合并
+          任何成员结果，防部分成功污染计划流）；False = 失败成员剔除，
+          成功成员按声明序合并；
+        - 中断/终止（成员内 interrupt/terminate）以控制流信号返回：兄弟
+          成员经 gather 自然取消，不残留后台写链。
+        """
+        outcome = _PlanWorkOutcome()
+        semaphore = asyncio.Semaphore(self.options.parallel_concurrency)
+        results: dict[str, dict | None] = {}
+        errors: dict[str, str] = {}
+
+        async def run_member(name: str) -> None:
+            async with semaphore:
+                member_ctx = _NodeContextImpl(
+                    engine=self,
+                    state=dict(state),
+                    graph_path=ctx.graph_path,
+                    round_id=ctx.round_id,
+                    trace_id=ctx.trace_id,
+                    thread_id=ctx._thread_id,
+                    transports=ctx._transports,
+                    resume_map=ctx.resume_map,
+                )
+                member_ctx.node = name
+                if self.options.budget is not None:
+                    try:
+                        await self.options.budget.check(member_ctx)
+                    except BudgetExceededError as exc:
+                        # 预算超限 = 整组终止信号（与主循环同语义），不复用错误通道
+                        outcome.terminate = TerminateReason.BUDGET_EXCEEDED
+                        outcome.error = str(exc)
+                        return
+                    except Exception as exc:
+                        outcome.terminate = TerminateReason.BUDGET_EXCEEDED
+                        outcome.error = f"并行组预算检查失败: {exc}"
+                        return
+                for attempt in range(self.options.max_node_retries + 1):
+                    member_ctx._spawns.clear()
+                    member_ctx._terminated = None
+                    try:
+                        fn = graph.nodes[name]
+                        result = fn(member_ctx)
+                        if inspect.isawaitable(result):
+                            result = await result
+                        if result is not None and not isinstance(result, dict):
+                            raise TypeError(
+                                f"节点返回非法增量类型: {type(result).__name__}"
+                            )
+                        # 成员内命令式/数据驱动 spawn：同路径展开（结果并入成员增量）
+                        if member_ctx._spawns or (
+                            result is not None and SPAWN_KEY in result
+                        ):
+                            specs = collect_spawn_specs(
+                                result,
+                                member_ctx._spawns,
+                                resolve_graph=self._resolve_graph_data,
+                            )
+                            spawn_result = await self.run_spawned(
+                                specs,
+                                member_ctx,
+                                concurrency=self.options.spawn_concurrency,
+                            )
+                            if spawn_result.failures:
+                                for failure in spawn_result.failures:
+                                    logger.warning(
+                                        f"并行组成员 spawn 实例失败（剔除）[{name}] "
+                                        f"index={failure.index}: {failure.error}"
+                                    )
+                            if spawn_result.overlay:
+                                result = {**(result or {}), **spawn_result.overlay}
+                        results[name] = result
+                        if member_ctx.terminated:
+                            outcome.terminate = (
+                                member_ctx.terminate_reason or TerminateReason.REPLY
+                            )
+                        return
+                    except InterruptSignal as sig:
+                        outcome.interrupt = InterruptState(
+                            key=sig.key,
+                            payload=strip_sensitive(sig.payload),
+                            node=name,
+                            graph_path=ctx.graph_path,
+                        )
+                        return
+                    except Exception as exc:
+                        if attempt < self.options.max_node_retries:
+                            continue
+                        errors[name] = f"节点执行失败: {name}"
+                        logger.error(
+                            f"并行组成员执行失败 [{name}]: {exc}", exc_info=exc
+                        )
+                        return
+
+        # 并发执行 + 首信号取消：任一成员中断/终止（或预算超限）时立即
+        # 取消未完成兄弟成员（asyncio.gather 会等待全部成员——挂起成员的
+        # 后台执行会残留写链/事件，污染恢复区间）
+        tasks = [asyncio.create_task(run_member(name)) for name in names]
+        try:
+            while tasks:
+                _, pending = await asyncio.wait(
+                    tasks, return_when=asyncio.FIRST_COMPLETED
+                )
+                if outcome.interrupt is not None or outcome.terminate is not None:
+                    for task in pending:
+                        task.cancel()
+                    await asyncio.gather(*pending, return_exceptions=True)
+                    break
+                tasks = list(pending)
+        finally:
+            for task in tasks:
+                if not task.done():
+                    task.cancel()
+        if outcome.interrupt is not None or outcome.terminate is not None:
+            return outcome
+        if errors:
+            if self.options.error_on_exception:
+                outcome.error = f"并行组失败 {len(errors)} 个成员: " + ", ".join(errors)
+                await ctx.emit("error", {"node": ctx.node, "message": outcome.error})
+                return outcome
+            logger.warning(
+                f"并行组成员失败（error_on_exception=False，剔除）: {errors}"
+            )
+        merged: dict = {}
+        for name in names:
+            overlay = results.get(name)
+            if overlay:
+                merged = {**merged, **overlay}
+        outcome.overlay = merged
+        return outcome
+
+    async def _run_plan_spawns(
+        self, items: tuple[dict, ...], ctx: NodeContext
+    ) -> _PlanWorkOutcome:
+        """计划 spawn 步：子任务清单实例展开（与 __spawn__ 共用展开执行器）。
+
+        清单项经 :meth:`_resolve_graph_data` 解析（Graph 直通/图定义数据
+        重建）；失败实例剔除不阻断计划流（与节点 spawn 同语义，留痕可见）。
+        """
+        outcome = _PlanWorkOutcome()
+        overlay_payload = {SPAWN_KEY: [dict(item) for item in items]}
+        try:
+            specs = collect_spawn_specs(
+                overlay_payload, [], resolve_graph=self._resolve_graph_data
+            )
+        except (ValueError, TypeError, GraphDefinitionError) as exc:
+            logger.error(f"计划 spawn 清单非法: {exc}")
+            await ctx.emit("error", {"node": ctx.node, "message": f"spawn 清单非法: {exc}"})
+            outcome.error = f"spawn 清单非法: {exc}"
+            return outcome
+        if len(specs) > self.options.max_spawns:
+            # 成本护栏：与主路径 __spawn__ 同语义（max_spawns 上限防清单爆炸）
+            message = f"计划 spawn 清单超限: {len(specs)} > {self.options.max_spawns}"
+            logger.error(f"计划 spawn 清单超限 [{ctx.node}]: {message}")
+            await ctx.emit("error", {"node": ctx.node, "message": message})
+            outcome.error = message
+            return outcome
+        try:
+            spawn_result = await self.run_spawned(
+                specs,
+                ctx,
+                concurrency=self.options.spawn_concurrency,
+            )
+        except InterruptSignal as sig:
+            outcome.interrupt = InterruptState(
+                key=sig.key,
+                payload=strip_sensitive(sig.payload),
+                node=ctx.node,
+                graph_path=ctx.graph_path,
+            )
+            return outcome
+        if spawn_result.failures:
+            for failure in spawn_result.failures:
+                logger.warning(
+                    f"计划 spawn 实例失败（剔除，计划继续）index={failure.index}: {failure.error}"
+                )
+            if self.options.error_on_exception:
+                # 与并行组同语义：error_on_exception=True = 计划步失败即中止
+                # 计划（不合并部分成功污染计划流）；False = 剔除失败项继续
+                outcome.error = (
+                    f"计划 spawn 实例失败 {len(spawn_result.failures)} 个: "
+                    + ", ".join(f"#{f.index}" for f in spawn_result.failures)
+                )
+                await ctx.emit("error", {"node": ctx.node, "message": outcome.error})
+                return outcome
+            await ctx.emit(
+                "error",
+                {
+                    "node": ctx.node,
+                    "message": (
+                        f"spawn 实例失败 {len(spawn_result.failures)} 个（已剔除，计划继续）: "
+                        + ", ".join(f"#{f.index}" for f in spawn_result.failures)
+                    ),
+                },
+            )
+        outcome.overlay = spawn_result.overlay
+        return outcome
+
+    def _resolve_graph_data(self, data: Any) -> Graph:
+        """子图数据形态解析：Graph 直通；图定义数据经注册表重建。
+
+        数据形态（spawn 清单/计划携带的 dict 子图）要求引擎注入注册表
+        （RunOptions.registries）——缺失时显式报错，不静默降级为执行错误。
+        """
+        if isinstance(data, Graph):
+            return data
+        if not isinstance(data, dict):
+            raise ValueError(f"子图须为 Graph 或图定义数据: {type(data).__name__}")
+        registries = self.options.registries
+        if registries is None:
+            raise ValueError("图定义数据需注册表解析（RunOptions.registries 未注入）")
+        return Graph.from_dict(
+            data, registry=registries.nodes, edge_registry=registries.edges
+        )
 
     def _make_instance_engine(self, subgraph: Graph) -> Engine:
         """实例引擎：独立实例（并发安全，不复用图级缓存——实例间互不干扰）。
@@ -905,6 +1551,12 @@ class Engine:
                 # 成本护栏整体继承：父层显式禁用/收紧的 spawn 限制在实例层不旁落
                 max_spawns=self.options.max_spawns,
                 spawn_concurrency=self.options.spawn_concurrency,
+                # 建图注册表与计划配置随实例传播（数据形态子图/计划条件在
+                # 实例层同样可解析；计划策略/护栏口径与父层一致）
+                registries=self.options.registries,
+                plan_policy=self.options.plan_policy,
+                max_plan_steps=self.options.max_plan_steps,
+                parallel_concurrency=self.options.parallel_concurrency,
             ),
         )
         sub_engine._coordinator = self._coordinator
@@ -1035,6 +1687,12 @@ async def run_subgraph(subgraph: Graph, parent_ctx: NodeContext) -> dict | None:
                 # 成本护栏整体继承：父层禁用/收紧的 spawn 限制在子图内不旁落
                 max_spawns=engine.options.max_spawns,
                 spawn_concurrency=engine.options.spawn_concurrency,
+                # 建图注册表与计划配置随子图传播（数据形态子图/计划条件
+                # 在子图内同样可解析；计划策略/护栏口径与父层一致）
+                registries=engine.options.registries,
+                plan_policy=engine.options.plan_policy,
+                max_plan_steps=engine.options.max_plan_steps,
+                parallel_concurrency=engine.options.parallel_concurrency,
             ),
         )
         engine._subgraph_engines[id(subgraph)] = sub_engine

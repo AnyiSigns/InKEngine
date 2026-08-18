@@ -19,6 +19,7 @@
 from __future__ import annotations
 
 import inspect
+import time
 from collections.abc import Awaitable, Callable
 from dataclasses import dataclass
 from typing import Any
@@ -31,9 +32,13 @@ from .approval import (
 )
 from .exceptions import SandboxViolation
 from .llm.tools import ToolSpec
+from .logging import get_logger
 from .permissions import ALLOW as _ALLOW
 from .permissions import DENY as _DENY
 from .permissions import REVIEW as _REVIEW
+from .tool_orchestrator import ToolTrace
+
+logger = get_logger(__name__)
 
 DENY = _DENY
 ALLOW = _ALLOW
@@ -102,9 +107,39 @@ class ToolPipeline:
     audit: Callable[..., Any] | None = None
     max_result_chars: int = 100_000
     allow_unchecked: bool = False
+    # 工具轨迹回调（经验闭环的信号出口）：每次调用结束后回调
+    # (trace: ToolTrace)，宿主接 ToolTraceStore 落库；None = 不记录。
+    # 回调失败只记日志不阻断主流程（观测不阻断执行）。
+    trace_sink: Callable[..., Any] | None = None
 
     async def execute(self, ctx: Any, spec: ToolSpec, args: dict) -> ToolResult:
-        """执行一次工具调用（全环节机制化装配，任一环节拒绝即 fail-closed）。"""
+        """执行一次工具调用（全环节机制化装配，任一环节拒绝即 fail-closed）。
+
+        全程计时并在出口回调轨迹（成败/决议/耗时/错误——经验闭环的
+        原始信号）；所有返回路径统一经 :meth:`_finish` 收口，保证轨迹
+        记录不遗漏。
+        """
+        started = time.monotonic()
+
+        async def _finish(result: ToolResult) -> ToolResult:
+            if self.trace_sink is not None:
+                try:
+                    outcome = self.trace_sink(
+                        ToolTrace(
+                            tool=spec.name,
+                            ok=result.ok,
+                            decision=result.decision,
+                            args=dict(args),
+                            error=result.error,
+                            duration_ms=(time.monotonic() - started) * 1000.0,
+                        )
+                    )
+                    if inspect.isawaitable(outcome):
+                        await outcome
+                except Exception as exc:
+                    logger.warning(f"工具轨迹记录失败（忽略）[{spec.name}]: {exc}")
+            return result
+
         # 未配置操作提取器：无判定目标即无法做权限/沙箱判定——默认拒绝
         # （fail-closed），宿主须显式 allow_unchecked=True 才可直通
         if self.extractor is None and not self.allow_unchecked:
@@ -112,9 +147,26 @@ class ToolPipeline:
                 ctx,
                 {"tool": spec.name, "decision": "deny", "reason": "未配置操作提取器，拒绝执行（fail-closed）"},
             )
-            return ToolResult(ok=False, decision=DENY, error="未配置操作提取器，拒绝执行（fail-closed）")
+            return await _finish(
+                ToolResult(ok=False, decision=DENY, error="未配置操作提取器，拒绝执行（fail-closed）")
+            )
         op_target = self.extractor(spec, args) if self.extractor is not None else None
-        operation, target = op_target if op_target is not None else (None, None)
+        if op_target is None:
+            # 提取器已配置但本次调用解析不出判定目标（非法/缺参）：
+            # 与「未配置提取器」同语义 fail-closed——无法判定目标就无法做
+            # 权限/沙箱判定，绝不直通执行（声明式工具的非法参数路径）。
+            # allow_unchecked=True 的直通仅对「有意不做判定」的工具生效。
+            if not self.allow_unchecked:
+                await self._audit(
+                    ctx,
+                    {"tool": spec.name, "decision": "deny", "reason": "操作提取器无法判定目标，拒绝执行（fail-closed）"},
+                )
+                return await _finish(
+                    ToolResult(ok=False, decision=DENY, error="操作提取器无法判定目标，拒绝执行（fail-closed）")
+                )
+            operation, target = None, None
+        else:
+            operation, target = op_target
 
         # ── 调用前策略：权限门禁（review 委托挂卡审批）──
         approval: ApprovalDecision | None = None
@@ -135,7 +187,9 @@ class ToolPipeline:
                         ctx,
                         {"tool": spec.name, "operation": operation, "decision": approval.decision, "reason": approval.reason},
                     )
-                    return ToolResult(ok=False, decision=approval.decision, approval=approval, error=approval.reason or "审批未通过")
+                    return await _finish(
+                        ToolResult(ok=False, decision=approval.decision, approval=approval, error=approval.reason or "审批未通过")
+                    )
             else:
                 # DENY 与任何未知 decision：一律拒绝（fail-closed——未知
                 # 判定值不得静默落到"继续执行"）
@@ -143,7 +197,9 @@ class ToolPipeline:
                     ctx,
                     {"tool": spec.name, "operation": operation, "decision": "deny", "reason": verdict.reason or f"未命中的权限判定: {verdict.decision!r}"},
                 )
-                return ToolResult(ok=False, decision=DENY, error=verdict.reason or "权限拒绝")
+                return await _finish(
+                    ToolResult(ok=False, decision=DENY, error=verdict.reason or "权限拒绝")
+                )
 
         # ── 沙箱守卫（校验结果回写执行参数：执行对象 = 校验对象）──
         resolved_target: str | None = None
@@ -156,7 +212,7 @@ class ToolPipeline:
                         ctx,
                         {"tool": spec.name, "operation": operation, "decision": "deny", "reason": str(exc)},
                     )
-                    return ToolResult(ok=False, decision=DENY, error=str(exc))
+                    return await _finish(ToolResult(ok=False, decision=DENY, error=str(exc)))
                 if resolved is not None and resolved_target is None:
                     resolved_target = str(resolved)
             if resolved_target is not None and resolved_target != target:
@@ -173,11 +229,15 @@ class ToolPipeline:
                     ctx,
                     {"tool": spec.name, "decision": "deny", "reason": f"守卫拒绝: {exc}"},
                 )
-                return ToolResult(ok=False, decision=DENY, error=f"守卫拒绝: {exc}")
+                return await _finish(
+                    ToolResult(ok=False, decision=DENY, error=f"守卫拒绝: {exc}")
+                )
 
         # ── 分发执行（兼容同步/异步执行器）──
         if self.executor is None:
-            return ToolResult(ok=False, decision=DENY, error="未配置执行器")
+            return await _finish(
+                ToolResult(ok=False, decision=DENY, error="未配置执行器")
+            )
         try:
             output = self.executor(ctx, spec, args, approval)
             if inspect.isawaitable(output):
@@ -186,7 +246,9 @@ class ToolPipeline:
             await self._audit(
                 ctx, {"tool": spec.name, "decision": "error", "error": str(exc)}
             )
-            return ToolResult(ok=False, decision="error", error=str(exc))
+            return await _finish(
+                ToolResult(ok=False, decision="error", error=str(exc))
+            )
 
         # ── 调用后：审计留痕 + 结果观察（截断/溢出标记）──
         text = str(output) if output is not None else ""
@@ -195,8 +257,10 @@ class ToolPipeline:
         await self._audit(
             ctx, {"tool": spec.name, "decision": "ok", "overflow": overflow}
         )
-        return ToolResult(
-            ok=True, decision=ALLOW, output=truncated, overflow=overflow, approval=approval
+        return await _finish(
+            ToolResult(
+                ok=True, decision=ALLOW, output=truncated, overflow=overflow, approval=approval
+            )
         )
 
     async def _audit(self, ctx: Any, record: dict) -> None:

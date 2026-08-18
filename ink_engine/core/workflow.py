@@ -166,8 +166,10 @@ def build_workflow_graph(spec: WorkflowSpec, registry: NodeTypeRegistry) -> Grap
 
     graph = Graph(name=spec.name, entry=order[0])
     for node in spec.nodes:
-        fn = registry.create(node.type, node.config)
-        graph.add_node(node.id, fn)
+        # 声明式绑定：类型名 + 配置记录在图上（图定义数据化——序列化/重建
+        # 按类型名引用），函数实例化经 resolve_types 统一解析
+        graph.add_node_type(node.id, node.type, node.config)
+    graph.resolve_types(registry)
     # 串行化衔接：相邻拓扑序节点的连接边（规格边或桥接边）一律先于
     # 该节点的其余规格边加入——执行器沿首个静态边行走，链边必须占据
     # 边列表首位，否则扇出分支会抢先拐走、后续节点被跳过。

@@ -154,12 +154,16 @@ class PostgresStorage:
                         if not fork and record.parent_id is not None:
                             # 并发写保护（乐观锁语义）：链尾仍是 parent_id 才插入；
                             # fork=True（编辑重放分叉）跳过校验，允许锚点指向历史链节点。
+                            # 参数全部显式转型：asyncpg 对 INSERT ... SELECT 的
+                            # 目标列表参数无目标列类型可推断，裸 $n 报
+                            # "could not determine data type of parameter"。
                             row = await conn.fetchrow(
                                 "INSERT INTO checkpoints (thread_id, node, graph_path, state,"
                                 " parent_id, reason, created_at, version, event_seq, error, interrupt)"
-                                " SELECT $1,$2,$3,$4,$5,$6,$7,1,$8,$9,$12"
+                                " SELECT $1::text,$2::text,$3::jsonb,$4::jsonb,$5::bigint,$6::text,"
+                                " $7::double precision,1,$8::bigint,$9::text,$12::jsonb"
                                 " WHERE NOT EXISTS (SELECT 1 FROM checkpoints"
-                                " WHERE thread_id = $10 AND checkpoint_id > $11)"
+                                " WHERE thread_id = $10::text AND checkpoint_id > $11::bigint)"
                                 " RETURNING checkpoint_id",
                                 data["thread_id"],
                                 data["node"],

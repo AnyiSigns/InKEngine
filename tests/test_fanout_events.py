@@ -91,6 +91,36 @@ async def test_fan_out_concurrency_capped():
     assert active["max"] <= 3
 
 
+class _ControlFlow(BaseException):
+    """测试控制流异常（模拟 InterruptSignal 的 BaseException 形态）。"""
+
+
+async def test_fan_out_propagate_cancels_siblings():
+    """propagate 语义：控制流异常不做剔除而是传播，并取消未完成兄弟任务
+    （修复前：gather 不取消兄弟，任务泄漏到后台继续执行）。"""
+    done: list[int] = []
+
+    async def fast(i):
+        raise _ControlFlow("stop")
+
+    async def slow(i):
+        await asyncio.sleep(0.3)
+        done.append(i)
+
+    with pytest.raises(_ControlFlow):
+        await fan_out([fast, slow], limit=2, propagate=_ControlFlow)
+    assert done == []  # 兄弟任务被取消
+
+
+async def test_fan_out_propagate_without_cancel_on_normal_failure():
+    """propagate 不干扰普通失败剔除语义。"""
+    async def fail(i):
+        raise ValueError("boom")
+
+    result = await fan_out([fail], limit=1, propagate=_ControlFlow)
+    assert len(result.failures) == 1
+
+
 # ── 事件协议 ──
 
 def test_event_roundtrip():

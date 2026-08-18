@@ -234,7 +234,9 @@ class WeightedBudgetAllocator:
         if degraded:
             trunc = sorted(trunc + degraded, key=lambda s: s.score(), reverse=True)
 
-        # 4. 截断档水塘填充：按 score 占比分剩余预算，逐轮返还超限份额
+        # 4. 截断档水塘填充：每轮所有源按同一初始余额算份额，轮末统一扣减
+        #    本轮实际分配额（预算硬上界：下一轮余额 = 尚未分配的部分，封顶
+        #    源多占份额自然留池回流；同轮内不互相挤占份额）
         pool = trunc
         while pool and remaining > 0:
             total_score = sum(s.score() for s in pool)
@@ -245,7 +247,7 @@ class WeightedBudgetAllocator:
                     )
                 break
             next_pool: list[ContextSource] = []
-            surplus = 0
+            spent = 0
             for src in pool:
                 share = int(remaining * src.score() / total_score)
                 avail = self._available_chars(src)
@@ -254,21 +256,22 @@ class WeightedBudgetAllocator:
                         src, MODE_TRUNCATE, avail,
                         f"预算份额 {share} 超过可用长度，整源保留",
                     )
-                    surplus += share - avail
+                    spent += avail
                 elif share >= self.min_truncate_chars:
                     allocations[id(src)] = SourceAllocation(
                         src, MODE_TRUNCATE, share,
                         f"预算份额 {share} 字符",
                     )
+                    spent += share
                 else:
-                    # 份额低于下限：丢弃，其份额自然回流池中重新分配（不改 remaining）
+                    # 份额低于下限：丢弃，其份额自然回流池中重新分配（不扣减）
                     allocations[id(src)] = SourceAllocation(
                         src, MODE_DROP, 0,
                         f"预算份额 {share} 低于下限 {self.min_truncate_chars}，丢弃",
                     )
                 if share < avail:
                     next_pool.append(src)
-            remaining += surplus
+            remaining -= spent
             if not next_pool or len(next_pool) >= len(pool):
                 # 全部封顶或份额无变化（精度收敛），退出防死循环
                 pool = next_pool if len(next_pool) < len(pool) else []
@@ -285,7 +288,15 @@ class WeightedBudgetAllocator:
                 allocations[id(src)] = SourceAllocation(
                     src, MODE_DROP, 0, "预算耗尽"
                 )
-        return [allocations[id(s)] for s in alive]
+        result = [allocations[id(s)] for s in alive]
+        # 预算硬上界契约（Protocol 承诺）：总分配量不得超过 total_chars。
+        # 违反即分配器实现缺陷（编程错误），显式失败而非静默超预算。
+        total_allocated = sum(a.char_limit for a in result)
+        if total_allocated > total_chars:
+            raise AssertionError(
+                f"预算分配超出硬上界: 分配 {total_allocated} > 预算 {total_chars}"
+            )
+        return result
 
 
 @dataclass(frozen=True, slots=True)

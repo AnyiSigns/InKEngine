@@ -333,3 +333,52 @@ async def test_postgres_backend_switch():
     got = await store.get_checkpoint(rec.checkpoint_id)
     assert got is not None and got.state == {"x": 1}
     await store.close()
+
+
+async def test_checkpoint_snapshot_not_mutated_by_caller(storage):
+    """P1 回归：写入后修改调用方持有的状态，存储内快照不受影响
+    （内存后端存活引用已修，与 SQL 后端真快照语义对齐）。"""
+    rec = await storage.put_checkpoint(_cp(state={"items": [1]}))
+    rec.state["items"].append(2)
+    got = await storage.get_checkpoint(rec.checkpoint_id)
+    assert got is not None and got.state["items"] == [1]
+
+
+async def test_update_preserves_record_types(storage):
+    """P1 回归：更新路径保持记录类型（graph_path 为 tuple、version 递增），
+    禁止 to_dict 回灌构造器（修复前：内存端更新后 graph_path 变 list，
+    恢复路径按 tuple 哈希定位锚点时崩溃）。"""
+    rec = await storage.put_checkpoint(_cp(state={"v": 1}))
+    updated = await storage.put_checkpoint(
+        CheckpointRecord(
+            checkpoint_id=rec.checkpoint_id,
+            thread_id="t1",
+            node="n1",
+            state={"v": 2},
+            version=rec.version,
+        )
+    )
+    assert updated.graph_path == ()
+    assert updated.version == rec.version + 1
+
+
+async def test_update_missing_checkpoint_rejected(storage):
+    """P1 回归：更新不存在的 checkpoint 抛 StorageError（三后端同口径，
+    修复前：内存后端静默插入任意 id）。"""
+    with pytest.raises(StorageError):
+        await storage.put_checkpoint(
+            CheckpointRecord(
+                checkpoint_id=12345, thread_id="t1", node="n1", state={"v": 1}
+            )
+        )
+
+
+async def test_non_json_state_rejected(storage):
+    """P1 回归：状态含不可 JSON 序列化对象 → StorageError（三后端同口径，
+    修复前：内存后端静默通过，切 sqlite 即错）。"""
+
+    class _Obj:
+        pass
+
+    with pytest.raises(StorageError):
+        await storage.put_checkpoint(_cp(state={"obj": _Obj()}))

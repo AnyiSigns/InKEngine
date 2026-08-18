@@ -664,11 +664,16 @@ class Engine:
                 break
 
             # ── spawn 清单提取（保留键不落状态；与命令式收集项合并）──
+            from .spawn import SPAWN_KEY
+
             if self.options.max_spawns > 0:
                 from .spawn import collect_spawn_specs
 
                 try:
                     spawn_specs = collect_spawn_specs(overlay, ctx._spawns)
+                    # 命令式清单一次性消费：清空收集器，防清单泄漏到后续
+                    # 节点被重复展开（数据驱动项已随 overlay 弹出，不重复）
+                    ctx._spawns.clear()
                 except ValueError as exc:
                     node_error = f"spawn 清单非法: {exc}"
                     logger.error(f"spawn 清单非法 [{current}]: {exc}")
@@ -678,6 +683,10 @@ class Engine:
                     break
             else:
                 spawn_specs = []
+                # spawn 禁用：保留键仍须从增量弹出（不落状态/checkpoint——
+                # 清单含 Graph 对象，泄漏会破坏状态可序列化性）
+                if overlay is not None and SPAWN_KEY in overlay:
+                    overlay.pop(SPAWN_KEY)
 
             # ── 增量合并（reducer）──
             if overlay:
@@ -882,9 +891,26 @@ async def run_subgraph(subgraph: Graph, parent_ctx: NodeContext) -> dict | None:
         engine._chain_advanced = True
     # 子图事件并入父引擎计数（父结果 events_emitted 含子图发射量）
     engine._event_counter += sub_engine._event_counter
+    # 子图事件 seq 同步回父引擎：子图事件已落父 thread 日志，父引擎
+    # 后续 checkpoint 锚点须含子图事件 seq（否则恢复时子图事件被重复
+    # 重放）。子图引擎 _latest_event_seq 与父引擎同读父日志，取大者。
+    if sub_engine._latest_event_seq is not None:
+        engine._latest_event_seq = (
+            sub_engine._latest_event_seq
+            if engine._latest_event_seq is None
+            else max(engine._latest_event_seq, sub_engine._latest_event_seq)
+        )
     # 子图内中断 → 提升为父图 interrupt（挂起卡跨嵌套层保留，重入语义一致）
     if sub_result.interrupt is not None:
         raise InterruptSignal(sub_result.interrupt.key, sub_result.interrupt.payload)
+    # 子图终态为 ERROR → 向父图传播（与顶层 error_on_exception 语义一致：
+    # 子图失败不得静默吞没，父图照常回流陈旧部分增量会掩盖数据损坏）。
+    # 父层节点循环捕获后按 error_on_exception 决定终止或跳过。
+    if sub_result.reason == TerminateReason.ERROR:
+        raise NodeExecutionError(
+            subgraph.name,
+            RuntimeError(sub_result.error or f"子图执行失败: {subgraph.name}"),
+        )
     # 子图终态 → 父图增量（delta = 子图内实际变化，防 reducer 加和翻倍）：
     # 子图执行以入口快照为基，reducer（merge_metrics 等）已把入口值并入
     # 终态——整体回流父图会二次加和。规则：

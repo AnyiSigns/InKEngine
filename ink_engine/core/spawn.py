@@ -16,7 +16,8 @@ Codex 式「主 agent 拆解 → 动态分配子 agent」的引擎形态：路�
 
 失败语义：部分失败剔除（fan_out 语义），成功结果回流、失败留痕，
 父链继续。恢复语义：父链挂卡中断后由路由节点重入重跑重新产出
-清单，各实例从各自链尾 checkpoint 续跑（节点重入 + 实例链尾）。
+清单，各实例从各自链尾 checkpoint 续跑（节点重入 + 实例链尾；
+仅中断/未终态链尾可续跑，终态链尾 = 陈旧结果，从头执行）。
 """
 from __future__ import annotations
 
@@ -24,7 +25,7 @@ from dataclasses import dataclass, field
 
 from .executor import Engine, RunOptions, _NodeContextImpl, _subgraph_overlay_delta
 from .fanout import fan_out
-from .graph import Graph, NodeContext
+from .graph import Graph, NodeContext, TerminateReason
 from .interrupt import InterruptSignal
 from .state import is_merge_reducer
 
@@ -129,13 +130,16 @@ async def run_spawned_subgraphs(
         sub_engine = _make_instance_engine(parent, spec.subgraph)
         sub_path = (*parent_ctx.graph_path, spec.subgraph.name, str(spec.index))
         instance_thread = _instance_thread_id(parent._thread_id, spec.index)
-        # 恢复：实例从自身链尾续跑（中断/失败过的实例重入各自链尾，
-        # 未执行过的实例从入口开始）——父链恢复由路由节点重入重跑清单
+        # 恢复：实例从自身链尾续跑（中断/未终态 checkpoint 续跑，同回合
+        # 挂卡重入不重跑已完成节点）；终态链尾（reply/stop/error 等 = 上
+        # 一回合或已完成的陈旧结果）不作续跑锚点——从头执行，防多轮会话
+        # 静默沿用旧结果。从头执行也续接实例链尾（版本链严格线性）。
         resume_from: int | None = None
         if engine.options.storage is not None:
             tail = await engine.options.storage.get_latest_checkpoint(instance_thread)
-            if tail is not None:
+            if tail is not None and tail.reason in (None, "interrupted"):
                 resume_from = tail.checkpoint_id
+            sub_engine._chain_advanced = True
         final_state, sub_result = await sub_engine._execute(
             state=_instance_entry_state(spec, sub_engine.options.schema),
             thread_id=parent._thread_id,
@@ -147,21 +151,36 @@ async def run_spawned_subgraphs(
             # checkpoint 独立子链：实例写入实例 thread，事件日志统一父链
             checkpoint_thread_id=instance_thread,
         )
-        # 实例事件并入父引擎计数（父结果 events_emitted 含实例发射量）
+        # 实例事件并入父引擎计数与 seq 锚点（事件统一落父链日志，父引擎
+        # 后续 checkpoint 须以含实例事件的最新 seq 为锚，防恢复重放重复）
         engine._event_counter += sub_engine._event_counter
+        if sub_engine._latest_event_seq is not None:
+            engine._latest_event_seq = (
+                sub_engine._latest_event_seq
+                if engine._latest_event_seq is None
+                else max(engine._latest_event_seq, sub_engine._latest_event_seq)
+            )
         # 实例内中断 → 提升为父图 interrupt（挂起卡跨层保留，重入语义一致）
         if sub_result.interrupt is not None:
             raise InterruptSignal(sub_result.interrupt.key, sub_result.interrupt.payload)
+        # 实例终态为 ERROR：不入回流（剔除留痕，父链继续）——部分失败
+        # 语义不允许失败实例的部分状态污染父图
+        if sub_result.reason == TerminateReason.ERROR:
+            raise RuntimeError(
+                sub_result.error or f"spawn 实例执行失败（index={index}）"
+            )
         results[spec.index] = _subgraph_overlay_delta(
             _instance_entry_state(spec, sub_engine.options.schema),
             final_state,
             sub_engine.options.schema,
         )
 
-    # 并发展开：部分失败剔除（成功结果回流，父链继续）
+    # 并发展开：部分失败剔除（成功结果回流，父链继续）；实例内中断为
+    # 控制流异常（propagate 传播），中断时 fan_out 取消未完成兄弟实例
     outcome = await fan_out(
         [lambda i: run_one(i) for i in range(len(specs))],
         concurrency,
+        propagate=InterruptSignal,
     )
     for failure in outcome.failures:
         failures.append(SpawnFailure(failure.index, failure.error))

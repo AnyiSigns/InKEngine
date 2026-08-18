@@ -1,7 +1,10 @@
 """fan_out 并行原语（并发执行，替代 asyncio.gather 裸用）。
 
 语义（部分失败剔除）：并行执行任务（asyncio.Semaphore 限流），
-失败任务剔除、成功结果保留，并行容错在引擎层统一。
+普通失败（Exception）剔除、成功结果保留，并行容错在引擎层统一。
+控制流异常（propagate 指定的 BaseException 子类，如中断信号）不做
+剔除而是传播：传播时取消全部未完成兄弟任务后上抛——防止父流程已
+收尾、兄弟任务仍留在后台写链/写事件的泄漏与存储竞态。
 """
 from __future__ import annotations
 
@@ -45,12 +48,16 @@ class FanOutResult:
 async def fan_out(
     tasks: list[Callable[[int], Awaitable[T]]],
     limit: int,
+    *,
+    propagate: type[BaseException] | tuple[type[BaseException], ...] = (),
 ) -> FanOutResult:
     """并发执行任务列表，部分失败剔除（gather(return_exceptions=True) 语义）。
 
     Args:
         tasks: 任务工厂列表，每项接收自身索引（并行项编号注入）。
         limit: 并发上限（成本护栏，由业务侧传参）。
+        propagate: 不做剔除、直接传播的控制流异常类型（默认无）。
+            传播时取消全部未完成兄弟任务后上抛（防兄弟任务泄漏）。
 
     Returns:
         FanOutResult：successes 保持输入顺序，success_indices 与 successes
@@ -60,6 +67,7 @@ async def fan_out(
         raise ValueError(f"fan_out 并发上限必须为正: {limit}")
     if not tasks:
         return FanOutResult()
+    propagate_types = (propagate,) if isinstance(propagate, type) else tuple(propagate)
     semaphore = asyncio.Semaphore(limit)
     successes: list[Any] = [_UNSET] * len(tasks)
     failures: list[FanOutFailure] = []
@@ -68,11 +76,25 @@ async def fan_out(
         async with semaphore:
             try:
                 successes[index] = await factory(index)
+            except propagate_types:
+                raise
+            except asyncio.CancelledError:
+                raise
             except Exception as exc:  # 部分失败剔除：记录原因不中断并行
                 failures.append(FanOutFailure(index=index, error=str(exc)))
                 logger.warning(f"fan_out 任务[{index}]失败，剔除: {exc}")
 
-    await asyncio.gather(*(_run_one(i, t) for i, t in enumerate(tasks)))
+    wrapped = [asyncio.create_task(_run_one(i, t)) for i, t in enumerate(tasks)]
+    try:
+        await asyncio.gather(*wrapped)
+    except BaseException:
+        # 控制流异常（InterruptSignal 等）传播：gather 不取消其余兄弟，
+        # 显式取消未完成任务防泄漏（普通失败已由 _run_one 内部消化，不至此）
+        for task in wrapped:
+            if not task.done():
+                task.cancel()
+        await asyncio.gather(*wrapped, return_exceptions=True)
+        raise
     return FanOutResult(
         successes=[s for s in successes if s is not _UNSET],
         failures=sorted(failures, key=lambda f: f.index),

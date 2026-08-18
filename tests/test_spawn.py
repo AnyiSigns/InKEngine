@@ -7,6 +7,8 @@
 """
 from __future__ import annotations
 
+import asyncio
+
 from conftest import make_engine
 
 from ink_engine.core.executor import Engine
@@ -305,3 +307,94 @@ async def test_failed_instance_resumes_from_own_tail(memory_storage):
     assert result2.reason == TerminateReason.REPLY
     assert state2.get("sub_result") == 6
     assert log == ["run:5", "run:5"]  # 新实例从入口重跑（无中断/完成态 checkpoint 续跑）
+
+
+async def test_second_round_respawns_instances(memory_storage):
+    """P0 回归：同 thread 第二轮 spawn（上轮终态链尾）→ 实例重新执行，
+    不得静默沿用上一回合陈旧结果（修复前：第二轮零执行，结果恒为第一轮）。"""
+    calls: list[int] = []
+
+    async def sub_node(ctx):
+        calls.append(ctx.state.get("seed", 0))
+        return {"sub_result": ctx.state.get("seed", 0) + 1}
+
+    sub = Graph(name="sub", entry="s1")
+    sub.add_node("s1", sub_node)
+    sub.add_exit("s1")
+
+    async def route(ctx):
+        return {SPAWN_KEY: [{"subgraph": sub, "state": {"seed": 10}, "index": 0}]}
+
+    engine = make_engine(_parent_graph(route), storage=memory_storage)
+    _, result = await _run(engine, thread_id="t1")
+    assert result.reason == TerminateReason.REPLY
+    _, result2 = await _run(engine, thread_id="t1")
+    assert result2.reason == TerminateReason.REPLY
+    assert calls == [10, 10]  # 第二轮重新执行（修复前：第二轮零执行，calls 仅一次）
+
+
+async def test_spawn_collection_consumed_per_node(memory_storage):
+    """P1 回归：命令式清单每节点一次性消费——spawn 节点非出口时，后续节点
+    不得重复展开已收集的清单（修复前：清单跨节点泄漏，子任务重复执行）。"""
+    calls: list[int] = []
+
+    async def sub_node(ctx):
+        calls.append(ctx.state.get("seed", 0))
+        return {}
+
+    sub = Graph(name="sub", entry="s1")
+    sub.add_node("s1", sub_node)
+    sub.add_exit("s1")
+
+    async def route(ctx):
+        ctx.spawn(sub, {"seed": 1})
+        return {}
+
+    async def merge(ctx):
+        return {}
+
+    g = Graph(name="parent", entry="route")
+    g.add_node("route", route)
+    g.add_node("merge", merge)
+    g.add_edge("route", "merge")
+    g.add_exit("merge")
+
+    engine = make_engine(g, storage=memory_storage)
+    _, result = await _run(engine, thread_id="t1")
+    assert result.reason == TerminateReason.REPLY
+    assert calls == [1]  # 修复前：merge 节点重复展开 → [1, 1]
+
+
+async def test_instance_interrupt_cancels_siblings(memory_storage):
+    """P1 回归：实例中断提升为父图挂卡时，未完成兄弟实例被取消
+    （修复前：兄弟任务继续后台执行并写链/事件，污染恢复区间）。"""
+    done: list[str] = []
+
+    async def gated_sub(ctx):
+        await ctx.interrupt("review:gate", {"q": "?"})
+        return {}
+
+    async def slow_sub(ctx):
+        await asyncio.sleep(0.3)
+        done.append("slow-done")
+        return {}
+
+    gated = Graph(name="gated", entry="s1")
+    gated.add_node("s1", gated_sub)
+    gated.add_exit("s1")
+    slow = Graph(name="slow", entry="s1")
+    slow.add_node("s1", slow_sub)
+    slow.add_exit("s1")
+
+    async def route(ctx):
+        return {
+            SPAWN_KEY: [
+                {"subgraph": gated, "state": {}, "index": 0},
+                {"subgraph": slow, "state": {}, "index": 1},
+            ]
+        }
+
+    engine = make_engine(_parent_graph(route), storage=memory_storage, spawn_concurrency=2)
+    _, result = await _run(engine, thread_id="t1")
+    assert result.reason == "interrupted"
+    assert "slow-done" not in done  # 兄弟实例被取消（修复前：sleep 完成并继续写链）

@@ -164,6 +164,16 @@ class TestWeightedBudgetAllocator:
         with pytest.raises(ValueError):
             WeightedBudgetAllocator().allocate([_src()], -1)
 
+    def test_budget_hard_bound_with_capped_source(self):
+        # P1 回归：小源封顶（份额>可用长度）+ 大源截断，总分配不得超预算
+        # （修复前：封顶源的 surplus 叠加回流，总分配超出 total_chars）
+        small = _src(type_="a", content="A" * 10, weight=0.5, relevance=0.5)
+        big = _src(type_="b", content="B" * 10000, weight=0.5, relevance=0.5)
+        allocs = WeightedBudgetAllocator().allocate([small, big], 1000)
+        assert sum(a.char_limit for a in allocs) <= 1000
+        assert any(a.source is small for a in allocs)
+        assert any(a.source is big and a.char_limit > 0 for a in allocs)
+
 
 class TestContextAssembler:
     def test_empty_sources(self):

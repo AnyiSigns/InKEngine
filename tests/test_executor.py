@@ -790,3 +790,56 @@ async def test_resume_from_subgraph_checkpoint_graph_path_aware(memory_storage):
     assert state["inner_done"] is True
     # 祖先节点（top/tool_entry）不重跑；gate 中断重入执行一次
     assert calls == {"top": 1, "tool": 1, "gate": 2, "finish": 1}  # 执行未被打断
+
+
+async def test_subgraph_error_propagates_to_parent(memory_storage):
+    """P1 回归：嵌套子图 reason=ERROR 上抛父图（父图按 error_on_exception
+    终止），不得静默回流陈旧部分增量（修复前：子图错误对父图完全透明）。"""
+
+    async def boom(ctx):
+        raise RuntimeError("sub boom")
+
+    sub = Graph(name="sub", entry="s1")
+    sub.add_node("s1", boom)
+    sub.add_exit("s1")
+    parent = Graph(name="parent", entry="sub")
+    parent.add_subgraph("sub", sub)
+    parent.add_exit("sub")
+    engine = make_engine(parent, storage=memory_storage)
+    _, result = await _execute(engine, thread_id="t1")
+    assert result.reason == TerminateReason.ERROR
+    assert "sub" in (result.error or "")
+
+
+async def test_subgraph_events_anchor_after_parent_events(memory_storage):
+    """P1 回归：父引擎已有事件 seq 后子图再发事件，父 checkpoint 锚点须含
+    子图事件 seq——resume 不得重复重放子图事件（修复前：父引擎 seq 锚点
+    停留在子图进入前，子图事件被重复投递）。"""
+
+    async def parent_emit(ctx):
+        await ctx.emit("thinking_start", {"text": "p"}, step_id="p:1")
+        return {}
+
+    async def sub_emit(ctx):
+        await ctx.emit("node_start", {"name": "s1"}, step_id="n:1")
+        return {"done": True}
+
+    sub = Graph(name="sub", entry="s1")
+    sub.add_node("s1", sub_emit)
+    sub.add_exit("s1")
+    parent = Graph(name="parent", entry="a")
+    parent.add_node("a", parent_emit)
+    parent.add_subgraph("sub", sub)
+    parent.add_edge("a", "sub")
+    parent.add_exit("sub")
+    engine = make_engine(parent, storage=memory_storage)
+    events: list[EngineEvent] = []
+    async for event in engine.run({}, thread_id="t1"):
+        events.append(event)
+    assert len(events) == 2  # 父事件 + 子图事件
+    latest = await memory_storage.get_latest_checkpoint("t1")
+    assert latest is not None and latest.event_seq == 2  # 锚点含子图事件 seq
+    replay: list[EngineEvent] = []
+    async for event in engine.run({}, thread_id="t1", resume_from=latest.checkpoint_id):
+        replay.append(event)
+    assert len(replay) == 0  # 修复前：锚点停在 seq=1，子图事件被重复重放

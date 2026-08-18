@@ -94,19 +94,20 @@ def _set(doc: dict, path: Path, value: Any) -> None:
 
 
 def _apply_one(doc: dict, patch: Patch) -> None:
-    """把单条补丁应用到文档（就地）。"""
+    """把单条补丁应用到文档（就地；value 深拷贝入文档——组装是纯函数，
+    产物与链共享 value 引用会让外部修改污染链，破坏可回放性）。"""
     if patch.op is PatchOp.APPEND:
         current = _resolve(doc, patch.path)
         if current is None:
-            _set(doc, patch.path, [patch.value] if patch.value is not None else [])
+            _set(doc, patch.path, [_deep_copy(patch.value)] if patch.value is not None else [])
         elif isinstance(current, list):
-            current.append(patch.value)
+            current.append(_deep_copy(patch.value))
         elif isinstance(current, str):
             _set(doc, patch.path, current + str(patch.value or ""))
         else:
             raise TypeError(f"append 目标必须是 list/str，实际 {type(current).__name__}: {patch.path}")
     elif patch.op is PatchOp.REPLACE:
-        _set(doc, patch.path, patch.value)
+        _set(doc, patch.path, _deep_copy(patch.value))
     elif patch.op is PatchOp.DELETE:
         node: Any = doc
         for seg in patch.path[:-1]:
@@ -186,10 +187,17 @@ class PatchChain:
     def branch(self, at: int | None = None) -> PatchChain:
         """派生分支：共享 base 与 [0:at] 前缀补丁的新链（What-if 平行宇宙/重放分叉）。
 
-        新链的 base/patches 均为深拷贝，与原链互不影响。
+        新链的 base/patches 均为深拷贝，与原链互不影响（补丁 value 为
+        可变对象，浅拷贝会让分支修改污染原链）。
         """
         cut = at if at is not None else len(self.patches)
-        return PatchChain(base=_deep_copy(self.base), patches=list(self.patches[:cut]))
+        return PatchChain(
+            base=_deep_copy(self.base),
+            patches=[
+                Patch(op=p.op, path=p.path, value=_deep_copy(p.value))
+                for p in self.patches[:cut]
+            ],
+        )
 
     def to_dict(self) -> dict:
         """序列化（存储层用）：{base, patches:[{op, path, value}]}。"""
@@ -205,7 +213,7 @@ class PatchChain:
     def from_dict(cls, data: dict) -> PatchChain:
         """反序列化（存储层用），兼容加字段演进（未知字段忽略）。"""
         patches = [
-            Patch(op=PatchOp(p["op"]), path=tuple(p["path"]), value=p.get("value"))
+            Patch(op=PatchOp(p["op"]), path=tuple(p["path"]), value=_deep_copy(p.get("value")))
             for p in data.get("patches", [])
         ]
         return cls(base=_deep_copy(data.get("base") or {}), patches=patches)

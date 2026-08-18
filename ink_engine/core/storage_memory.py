@@ -1,12 +1,36 @@
-"""内存存储实现（测试/单进程默认后端，异步锁保证并发安全）。"""
+"""内存存储实现（测试/单进程默认后端，异步锁保证并发安全）。
+
+与 sqlite/postgres 后端同口径：checkpoint/records 落库前走 JSON 序列化
+契约（CheckpointRecord.to_dict 内联敏感键剥离 + PatchChain/Message 标记，
+from_dict 精确还原类型），事件负载走 strip + JSON 往返——杜绝「内存
+后端存活引用/非 JSON 形态，切库即错」的三后端漂移。读取返回深拷贝，
+防消费方修改污染存储内快照。
+"""
 from __future__ import annotations
 
 import asyncio
+import copy
+import json
 
 from .events import EngineEvent
-from .exceptions import CheckpointConflictError
+from .exceptions import CheckpointConflictError, StorageError
 from .security import strip_sensitive
 from .storage import CheckpointRecord
+
+
+def _normalize_record(record: CheckpointRecord) -> CheckpointRecord:
+    """序列化契约规范化（与 SQL 后端同口径）：JSON 形态 + 深拷贝 + 敏感剥离。
+
+    不可 JSON 序列化的状态（非标记类型对象）抛 StorageError，与 sqlite
+    json.dumps 失败行为对齐——含任意对象的状态在生产第一条 checkpoint
+    就失败，而非内存后端静默通过、切库即错。
+    """
+    data = record.to_dict()
+    try:
+        json.dumps(data, ensure_ascii=False)
+    except (TypeError, ValueError) as exc:
+        raise StorageError(f"checkpoint 状态不可 JSON 序列化: {exc}") from exc
+    return CheckpointRecord.from_dict(data)
 
 
 class MemoryStorage:
@@ -28,23 +52,23 @@ class MemoryStorage:
 
     # ── checkpoint 版本链 ──
     async def get_checkpoint(self, checkpoint_id: int) -> CheckpointRecord | None:
-        return self._checkpoints.get(checkpoint_id)
+        record = self._checkpoints.get(checkpoint_id)
+        return CheckpointRecord.from_dict(record.to_dict()) if record else None
 
     async def get_latest_checkpoint(self, thread_id: str) -> CheckpointRecord | None:
         async with self._lock:
             latest_id = self._latest_checkpoint_by_thread.get(thread_id)
             if latest_id is None:
                 return None
-            return self._checkpoints.get(latest_id)
+            record = self._checkpoints.get(latest_id)
+            return CheckpointRecord.from_dict(record.to_dict()) if record else None
 
     async def put_checkpoint(
         self, record: CheckpointRecord, *, expected_version: int | None = None, fork: bool = False
     ) -> CheckpointRecord:
-        from dataclasses import replace
-
         async with self._lock:
-            # 安全：落库前剥离敏感键（与 sqlite/postgres 走 to_dict 同口径）
-            record = replace(record, state=strip_sensitive(record.state))
+            # 序列化契约：JSON 形态 + 深拷贝 + 敏感剥离（与 sqlite/postgres 同口径）
+            record = _normalize_record(record)
             if record.checkpoint_id == 0:
                 if not fork and record.parent_id is not None:
                     # 并发写保护（与 sqlite/postgres 同语义，锁内校验原子）：
@@ -63,28 +87,48 @@ class MemoryStorage:
                     parent_id=record.parent_id,
                     reason=record.reason,
                     created_at=record.created_at,
-                    version=record.version,
+                    version=1,  # 与 sqlite/postgres 同口径：新节点 version 恒 1
                     event_seq=record.event_seq,
                     error=record.error,
                     interrupt=record.interrupt,
                 )
                 self._next_checkpoint_id += 1
+                self._checkpoints[record.checkpoint_id] = record
+                current = self._latest_checkpoint_by_thread.get(record.thread_id)
+                if current is None or record.checkpoint_id > current:
+                    self._latest_checkpoint_by_thread[record.thread_id] = record.checkpoint_id
+                # 返回深拷贝副本（与 sqlite 返回对象与存储解耦的语义一致：
+                # 调用方修改返回记录不得污染存储内快照）
+                return CheckpointRecord.from_dict(record.to_dict())
+            # 显式更新路径（checkpoint_id != 0）：与 sqlite/postgres 同口径，
+            # 更新不存在的 checkpoint 抛错（内存端静默插入任意 id 会让
+            # 并发校验与自增 id 错乱）
             existing = self._checkpoints.get(record.checkpoint_id)
-            if existing is not None:
-                # 与 sqlite/postgres 同口径：expected_version=None = 自动读当前版本
-                if expected_version is None:
-                    expected_version = existing.version
-                if existing.version != expected_version:
-                    raise CheckpointConflictError(
-                        f"checkpoint {record.checkpoint_id} 并发写冲突: "
-                        f"expected version={expected_version}, actual={existing.version}"
-                    )
-                record = CheckpointRecord(
-                    **{**record.to_dict(), "version": existing.version + 1}
+            if existing is None:
+                raise StorageError(f"checkpoint 不存在: {record.checkpoint_id}")
+            # 与 sqlite/postgres 同口径：expected_version=None = 自动读当前版本
+            if expected_version is None:
+                expected_version = existing.version
+            if existing.version != expected_version:
+                raise CheckpointConflictError(
+                    f"checkpoint {record.checkpoint_id} 并发写冲突: "
+                    f"expected version={expected_version}, actual={existing.version}"
                 )
+            # 更新经 to_dict/from_dict 规范化（禁止 to_dict 回灌构造器：
+            # graph_path 变 list / interrupt 变 dict 会污染记录类型，
+            # 恢复路径按 tuple 哈希定位锚点时直接崩溃）
+            record = CheckpointRecord.from_dict(
+                {**record.to_dict(), "version": existing.version + 1}
+            )
             self._checkpoints[record.checkpoint_id] = record
-            self._latest_checkpoint_by_thread[record.thread_id] = record.checkpoint_id
-            return record
+            # 链尾指针只前进（与 sqlite/postgres 的 MAX(checkpoint_id)
+            # 语义一致）：更新历史 checkpoint 不得回退链尾，否则并发续链
+            # 保护与恢复锚点定位失效
+            current = self._latest_checkpoint_by_thread.get(record.thread_id)
+            if current is None or record.checkpoint_id > current:
+                self._latest_checkpoint_by_thread[record.thread_id] = record.checkpoint_id
+            # 返回深拷贝副本（调用方修改返回记录不得污染存储内快照）
+            return CheckpointRecord.from_dict(record.to_dict())
 
     async def list_checkpoints(self, thread_id: str, *, limit: int = 100) -> list[CheckpointRecord]:
         async with self._lock:
@@ -101,16 +145,21 @@ class MemoryStorage:
         async with self._lock:
             seq = self._next_event_seq
             self._next_event_seq += 1
-            # 安全：事件负载落库前剥离敏感键（与 sqlite/postgres 同口径）
-            event = replace(event, seq=seq, payload=strip_sensitive(event.payload))
+            # 安全 + 序列化契约：敏感键剥离后 JSON 往返（与 sqlite 的
+            # strip → to_json(default=str) 同口径：非 JSON 对象静默字符串化）
+            payload = json.loads(
+                json.dumps(strip_sensitive(event.payload), ensure_ascii=False, default=str)
+            )
             # seq 写回事件副本（重放/续流拿得到序号）
+            event = replace(event, seq=seq, payload=payload)
             self._events.setdefault(thread_id, []).append(event)
             return seq
 
     async def events_after(self, thread_id: str, seq: int) -> list[EngineEvent]:
         async with self._lock:
             events = self._events.get(thread_id, [])
-            return [e for e in events if (e.seq or 0) > seq]
+            # 深拷贝：重放消费方修改事件不得污染存储内日志
+            return [copy.deepcopy(e) for e in events if (e.seq or 0) > seq]
 
     async def latest_event_seq(self, thread_id: str) -> int:
         async with self._lock:
@@ -125,14 +174,22 @@ class MemoryStorage:
     # ── structured records ──
     async def put_record(self, collection: str, key: str, data: dict) -> None:
         async with self._lock:
-            # 安全：records（记忆等宿主结构化数据）落库前剥离敏感键
-            self._records.setdefault(collection, {})[key] = strip_sensitive(data)
+            try:
+                # 安全 + 序列化契约：敏感键剥离后 JSON 往返（与 sqlite 同口径，
+                # 非 JSON 对象抛错而非静默降级）
+                normalized = json.loads(
+                    json.dumps(strip_sensitive(data), ensure_ascii=False)
+                )
+            except (TypeError, ValueError) as exc:
+                raise StorageError(f"records 写入失败: {exc}") from exc
+            self._records.setdefault(collection, {})[key] = normalized
 
     async def get_record(self, collection: str, key: str) -> dict | None:
-        return self._records.get(collection, {}).get(key)
+        record = self._records.get(collection, {}).get(key)
+        return copy.deepcopy(record) if record is not None else None
 
     async def list_records(self, collection: str) -> list[dict]:
-        return list(self._records.get(collection, {}).values())
+        return [copy.deepcopy(r) for r in self._records.get(collection, {}).values()]
 
     async def close(self) -> None:
         pass

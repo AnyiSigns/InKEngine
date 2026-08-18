@@ -143,3 +143,32 @@ def test_length():
     assert chain.length == 0
     chain.apply(Patch(op=PatchOp.REPLACE, path=("a",), value=1))
     assert chain.length == 1
+
+
+def test_assemble_result_isolated_from_chain():
+    """P1 回归：组装产物修改不污染链（补丁 value 深拷贝入文档，
+    修复前：产物与链共享 value 引用，二次组装结果被污染）。"""
+    chain = PatchChain(base={})
+    chain.apply(Patch(op=PatchOp.REPLACE, path=("doc",), value={"k": [1]}))
+    doc = chain.assemble()
+    doc["doc"]["k"].append(2)
+    assert chain.assemble()["doc"] == {"k": [1]}
+
+
+def test_assemble_append_value_isolated_from_chain():
+    """P1 回归：append 补丁的 value 同样深拷贝入产物。"""
+    chain = PatchChain(base={})
+    chain.apply(Patch(op=PatchOp.APPEND, path=("items",), value={"k": [1]}))
+    doc = chain.assemble()
+    doc["items"][0]["k"].append(2)
+    assert chain.assemble()["items"] == [{"k": [1]}]
+
+
+def test_branch_deep_copies_patch_values():
+    """P1 回归：branch 分支补丁深拷贝——修改分支不污染原链
+    （修复前：浅拷贝共享 Patch.value，What-if 平行宇宙互相污染）。"""
+    chain = PatchChain(base={})
+    chain.apply(Patch(op=PatchOp.REPLACE, path=("doc",), value={"k": [1]}))
+    branch = chain.branch()
+    branch.patches[0].value["k"].append(9)
+    assert chain.assemble()["doc"] == {"k": [1]}

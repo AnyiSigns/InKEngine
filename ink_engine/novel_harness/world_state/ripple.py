@@ -7,8 +7,8 @@ from __future__ import annotations
 
 from dataclasses import dataclass
 
+from .issues import SEVERITY_ERROR, SEVERITY_WARNING
 from .models import _key
-from .validate import SEVERITY_ERROR, SEVERITY_WARNING
 
 
 @dataclass(frozen=True, slots=True)

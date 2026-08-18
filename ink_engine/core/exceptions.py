@@ -63,6 +63,13 @@ class GraphVersionMismatchError(EngineError):
     """
 
 
+class FixtureGateError(EngineError):
+    """样例闸门未通过（新规则必须先让 fixture 全绿才允许落库——非谈判项）。
+
+    异常消息携带失败用例明细（可审计）；调用方应拒绝该规则集变更落库。
+    """
+
+
 class SandboxViolation(EngineError):
     """沙箱守卫拒绝（路径越界/symlink 逃逸/命令不在白名单等）。"""
 
@@ -78,6 +85,7 @@ __all__ = [
     "BudgetExceededError",
     "CheckpointConflictError",
     "EngineError",
+    "FixtureGateError",
     "GraphDefinitionError",
     "GraphVersionMismatchError",
     "InterruptError",

@@ -1,5 +1,9 @@
-"""novel_harness/world_state.py 测试：世界状态图模型、状态更新、校验、涟漪扫描、分支。"""
+"""novel_harness/world_state.py 测试：世界状态图模型、状态更新、涟漪扫描、分支。
 
+写时校验（信息差/因果链/伏笔链/指纹禁忌）已规则化，其测试在
+test_world_state_rules.py（入口回归 + 样例库闸门）；本文件只覆盖模型/
+更新/涟漪/分支的机制行为。
+"""
 from __future__ import annotations
 
 import asyncio
@@ -7,16 +11,11 @@ import json
 
 from ink_engine.novel_harness.narrative_state import (
     STATUS_ADVANCING,
-    STATUS_RESOLVED,
     STATUS_SET,
 )
 from ink_engine.novel_harness.world_state import (
-    ISSUE_CAUSAL,
-    ISSUE_FINGERPRINT,
-    ISSUE_KNOWLEDGE_GAP,
     CausalEvent,
     CausalLink,
-    CharacterFingerprint,
     CharacterState,
     CharacterUpdate,
     EntityReference,
@@ -33,16 +32,11 @@ from ink_engine.novel_harness.world_state import (
     WorldState,
     apply_state_changes,
     branch_world_state,
-    check_fingerprint_taboos,
-    check_knowledge_gap,
     compare_world_states,
     group_ripple_hits_by_chapter,
     has_hard_conflict,
     parse_extracted_changes,
-    run_world_precheck,
     scan_ripple,
-    validate_causal_chain,
-    validate_foreshadowing_chain,
 )
 
 
@@ -323,156 +317,14 @@ class TestLLMStateChangeExtractor:
 
 
 class TestValidation:
-    def test_knowledge_gap_detects_leak(self):
-        world = _world()
-        issues = check_knowledge_gap(world, "c1", ["f1", "f_secret"], at_chapter=5)
-        assert len(issues) == 1  # f1 已知，f_secret 泄漏
-        assert issues[0].kind == "knowledge_gap"
-        assert issues[0].severity == "error"
-        assert "f_secret" in issues[0].message
-
-    def test_causal_chain_flags_dangling_and_reverse(self):
-        world = _world()
-        world.add_event(CausalEvent(event_id="e3", chapter_id=30, summary="后续"))
-        world.link_causality("e1", "ghost")  # 被拒绝，不会出现悬空边
-        world.causal_links.append(CausalLink("e2", "e1"))  # 手工注入反向边（e2 第 23 章 → e1 第 3 章）
-        issues = validate_causal_chain(world)
-        kinds = {i.kind for i in issues}
-        assert ISSUE_CAUSAL in kinds
-        assert any("后果早于原因" in i.message for i in issues)
-
-    def test_causal_chain_clean(self):
-        issues = validate_causal_chain(_world())
-        assert issues == []
-
-    def test_foreshadowing_chain_illegal_recovery(self):
-        world = WorldState()
-        world.upsert_foreshadowing(
-            ForeshadowingNode(
-                foreshadowing_id="a",
-                status=STATUS_RESOLVED,  # 未埋设即回收
-                resolved_at_chapter=10,
-            )
-        )
-        issues = validate_foreshadowing_chain(world)
-        assert any("未埋设即回收" in i.message for i in issues)
-
-    def test_foreshadowing_chain_reverse_plant_after_resolve(self):
-        world = WorldState()
-        world.upsert_foreshadowing(
-            ForeshadowingNode(foreshadowing_id="a", status=STATUS_RESOLVED, planted_at_chapter=5, resolved_at_chapter=3)
-        )
-        issues = validate_foreshadowing_chain(world)
-        assert any("早于埋设" in i.message for i in issues)
-
-    def test_foreshadowing_chain_reference_unplanted(self):
-        world = WorldState()
-        world.upsert_foreshadowing(
-            ForeshadowingNode(
-                foreshadowing_id="a",
-                status=STATUS_RESOLVED,
-                planted_at_chapter=2,
-                resolved_at_chapter=8,
-                references=("b",),
-            )
-        )
-        world.upsert_foreshadowing(ForeshadowingNode(foreshadowing_id="b", status=STATUS_SET))  # 未埋设
-        issues = validate_foreshadowing_chain(world)
-        assert any("尚未埋设" in i.message for i in issues)
-
-    def test_foreshadowing_chain_invalid_status(self):
-        world = WorldState()
-        world.upsert_foreshadowing(ForeshadowingNode(foreshadowing_id="a", status="bogus"))
-        issues = validate_foreshadowing_chain(world)
-        assert any("合法叙事状态" in i.message for i in issues)
-
-    def test_fingerprint_taboos(self):
-        fp = CharacterFingerprint(taboos=("不可饶恕",))
-        issues = check_fingerprint_taboos(fp, "他说出「不可饶恕」四个字", character_name="林晚")
-        assert len(issues) == 1
-        assert issues[0].severity == "warning"
-
     def test_has_hard_conflict(self):
         assert has_hard_conflict([WorldIssue("x", "error", "m")]) is True
         assert has_hard_conflict([WorldIssue("x", "warning", "m")]) is False
 
-    def test_run_world_precheck_composes(self):
-        world = _world()
-        world.set_character(
-            _char(fingerprint=CharacterFingerprint(taboos=("不可饶恕",)))
-        )
-        world.causal_links.append(CausalLink("e2", "e1"))
-        issues = asyncio.run(
-            run_world_precheck(
-                world,
-                text="他说出「不可饶恕」",
-                character_id="c1",
-                fact_ids=["f_secret"],
-                at_chapter=5,
-            )
-        )
-        kinds = {i.kind for i in issues}
-        assert ISSUE_KNOWLEDGE_GAP in kinds
-        assert ISSUE_CAUSAL in kinds
-        assert ISSUE_FINGERPRINT in kinds
-
-    def test_run_world_precheck_verifier_hook(self):
-        class _Verifier:
-            async def verify(self, fingerprint, text, *, character_name="", context=None):
-                return [WorldIssue("fingerprint", "error", "言行偏离严重", entity_type="character")]
-
-        world = _world()
-        world.set_character(_char(fingerprint=CharacterFingerprint()))
-        issues = asyncio.run(
-            run_world_precheck(
-                world, text="正文", character_id="c1", verifier=_Verifier()
-            )
-        )
-        assert any("言行偏离严重" in i.message for i in issues)
-
-    def test_run_world_precheck_verifier_failure_skipped(self):
-        class _BadVerifier:
-            async def verify(self, fingerprint, text, *, character_name="", context=None):
-                raise RuntimeError("boom")
-
-        world = _world()
-        world.set_character(_char(fingerprint=CharacterFingerprint()))
-        issues = asyncio.run(
-            run_world_precheck(
-                world, text="正文", character_id="c1", verifier=_BadVerifier()
-            )
-        )
-        assert issues == []
-
-    def test_run_world_precheck_deterministic_validators_fail_open(self):
-        """P1 回归：确定性校验器异常同样 fail-open——预检是增强护栏不是写门禁，
-        任一环节异常跳过该环节，绝不穿透阻断写操作（修复前仅 verifier 有
-        try/except，docstring 承诺与实际不符）。"""
-        from ink_engine.novel_harness.world_state import validate as vmod
-
-        world = _world()
-        world.set_character(_char(fingerprint=CharacterFingerprint()))
-
-        def boom(*args, **kwargs):
-            raise RuntimeError("确定性校验器内部错误")
-
-        orig_causal, orig_knowledge = vmod.validate_causal_chain, vmod.check_knowledge_gap
-        vmod.validate_causal_chain = boom
-        vmod.check_knowledge_gap = boom
-        try:
-            issues = asyncio.run(
-                run_world_precheck(
-                    world,
-                    text="正文",
-                    character_id="c1",
-                    fact_ids=["f1"],
-                    verifier=None,
-                )
-            )
-        finally:
-            vmod.validate_causal_chain = orig_causal
-            vmod.check_knowledge_gap = orig_knowledge
-        assert issues == []  # 异常跳过该环节，不阻断、不穿透
+    def test_issue_round_trip(self):
+        issue = WorldIssue("causal_chain", "error", "后果早于原因", entity_type="event", entity_id="e1")
+        rebuilt = WorldIssue(**issue.to_dict())
+        assert rebuilt == issue
 
 
 class TestRippleScan:

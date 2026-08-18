@@ -18,9 +18,9 @@
    （可序列化落库）；
 2. **状态更新**（extract + apply）：确定性更新（结构化变更直接应用）+
    LLM 提取（:class:`StateChangeExtractor`，best-effort，失败不阻断主流程）；
-3. **写时校验**（validate）：:class:`WorldIssue` 统一问题模型 + 确定性规则
-   （信息差/因果链/伏笔合法性/指纹禁忌）+ LLM 指纹判定钩子
-   （:class:`FingerprintVerifier`，宿主可注册实现）；
+3. **写时校验（规则化）**（ruleset）：声明式规则集（信息差/因果链/伏笔
+   合法性/指纹禁忌）+ 注册谓词执行 + 可选 LLM 钩子（:class:`RuleViolation`
+   违规模型，kind/severity 与 :mod:`.issues` 问题模型词汇对齐）；
 4. **操作层**（ripple + diff）：涟漪扫描（:func:`scan_ripple` 输出需修订
    清单）+ What-if 分支（:func:`branch_world_state` +
    :func:`compare_world_states`）。
@@ -52,6 +52,17 @@ from .extract import (
     StateChangeExtractor,
     parse_extracted_changes,
 )
+from .issues import (
+    ISSUE_APPLY,
+    ISSUE_CAUSAL,
+    ISSUE_FINGERPRINT,
+    ISSUE_FORESHADOWING,
+    ISSUE_KNOWLEDGE_GAP,
+    SEVERITY_ERROR,
+    SEVERITY_WARNING,
+    WorldIssue,
+    has_hard_conflict,
+)
 from .models import (
     CHANGE_BRANCH,
     CHANGE_CAUSAL,
@@ -76,21 +87,14 @@ from .ripple import (
     group_ripple_hits_by_chapter,
     scan_ripple,
 )
-from .validate import (
-    ISSUE_CAUSAL,
-    ISSUE_FINGERPRINT,
-    ISSUE_FORESHADOWING,
-    ISSUE_KNOWLEDGE_GAP,
-    SEVERITY_ERROR,
-    SEVERITY_WARNING,
-    FingerprintVerifier,
-    WorldIssue,
-    check_fingerprint_taboos,
-    check_knowledge_gap,
-    has_hard_conflict,
-    run_world_precheck,
-    validate_causal_chain,
-    validate_foreshadowing_chain,
+from .ruleset import (
+    WORLD_STATE_FIXTURES,
+    WORLD_STATE_RULE_SET,
+    build_world_state_fixtures,
+    build_world_state_registry,
+    build_world_state_rule_set,
+    check_world_state_rules,
+    register_world_state_predicates,
 )
 
 __all__ = [
@@ -104,12 +108,15 @@ __all__ = [
     "CHANGE_EVENT",
     "CHANGE_FORESHADOWING",
     "CHANGE_KNOWLEDGE",
+    "ISSUE_APPLY",
     "ISSUE_CAUSAL",
     "ISSUE_FINGERPRINT",
     "ISSUE_FORESHADOWING",
     "ISSUE_KNOWLEDGE_GAP",
     "SEVERITY_ERROR",
     "SEVERITY_WARNING",
+    "WORLD_STATE_FIXTURES",
+    "WORLD_STATE_RULE_SET",
     "ApplyResult",
     "CausalEvent",
     "CausalLink",
@@ -118,7 +125,6 @@ __all__ = [
     "CharacterUpdate",
     "EntityReference",
     "ExtractedStateChanges",
-    "FingerprintVerifier",
     "ForeshadowingNode",
     "ForeshadowingUpdate",
     "KnowledgeEntry",
@@ -135,14 +141,14 @@ __all__ = [
     "WorldStateDiff",
     "apply_state_changes",
     "branch_world_state",
-    "check_fingerprint_taboos",
-    "check_knowledge_gap",
+    "build_world_state_fixtures",
+    "build_world_state_registry",
+    "build_world_state_rule_set",
+    "check_world_state_rules",
     "compare_world_states",
     "group_ripple_hits_by_chapter",
     "has_hard_conflict",
     "parse_extracted_changes",
-    "run_world_precheck",
+    "register_world_state_predicates",
     "scan_ripple",
-    "validate_causal_chain",
-    "validate_foreshadowing_chain",
 ]

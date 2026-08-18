@@ -14,8 +14,7 @@ from ink_engine.novel_harness.narrative_state import (
 )
 
 from .extract import ExtractedStateChanges
-from .models import ForeshadowingNode, KnowledgeEntry, WorldState
-from .validate import (
+from .issues import (
     ISSUE_APPLY,
     ISSUE_CAUSAL,
     ISSUE_FORESHADOWING,
@@ -23,6 +22,7 @@ from .validate import (
     SEVERITY_WARNING,
     WorldIssue,
 )
+from .models import ForeshadowingNode, KnowledgeEntry, WorldState
 
 
 @dataclass(slots=True)

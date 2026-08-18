@@ -1,4 +1,4 @@
-"""状态机原语与 append-only 转换日志（叙事状态机的通用底座）。
+"""状态机原语与 append-only 转换日志（状态机通用底座）。
 
 心智模型与引擎的补丁链一致：**转换 = 补丁（append-only），当前状态 =
 最后应用结果**。状态机不持有可变状态字段，而是持有一条不可回写的转换
@@ -13,7 +13,7 @@
 - :class:`TransitionLog`：append-only 日志容器，当前状态由日志推导。
 
 领域中立：状态名、终态、触发方（actor）取值均由使用方声明，引擎不内置任何
-业务状态语义（叙事伏笔/情节线的具体状态定义见 novel_harness 包）。
+业务状态语义（具体状态定义由使用方领域包声明）。
 """
 from __future__ import annotations
 
@@ -40,7 +40,7 @@ class StateTransition:
         actor: 触发方（业务自定义枚举，如 agent/user/system）。
         note: 转换说明（可读留痕）。
         at: 发生时间戳（epoch 秒）。
-        meta: 业务元数据（关联章节/实体等，落库时随记录序列化）。
+        meta: 业务元数据（关联目标/实体等，落库时随记录序列化）。
     """
 
     to_state: str

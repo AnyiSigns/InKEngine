@@ -124,7 +124,7 @@ class MemoryStorage:
     # ── structured records ──
     async def put_record(self, collection: str, key: str, data: dict) -> None:
         async with self._lock:
-            # 安全：records（记忆/世界状态）落库前剥离敏感键
+            # 安全：records（记忆等宿主结构化数据）落库前剥离敏感键
             self._records.setdefault(collection, {})[key] = strip_sensitive(data)
 
     async def get_record(self, collection: str, key: str) -> dict | None:

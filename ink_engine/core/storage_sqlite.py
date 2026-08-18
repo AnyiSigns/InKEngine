@@ -331,7 +331,7 @@ class SqliteStorage:
     async def put_record(self, collection: str, key: str, data: dict) -> None:
         await self._connect()
         try:
-            # 安全：records（记忆/世界状态）落库前剥离敏感键
+            # 安全：records（记忆等宿主结构化数据）落库前剥离敏感键
             await self._conn.execute(
                 "INSERT INTO records (collection, key, data) VALUES (?,?,?)"
                 " ON CONFLICT(collection, key) DO UPDATE SET data = excluded.data",

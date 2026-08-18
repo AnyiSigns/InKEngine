@@ -1,7 +1,7 @@
 """内容型补丁链（Event Sourcing 核心原语）。
 
 心智模型：变化 = 补丁（append-only），状态 = 基础(base) + 补丁链，
-取用 = 组装(assemble)，压缩 = 压扁(rebase)。正文/设定工作区、发散候选
+取用 = 组装(assemble)，压缩 = 压扁(rebase)。内容工作区、并行候选
 段落级混合、编辑重放截断分支都建立在此原语上。
 
 补丁类型：
@@ -153,7 +153,7 @@ class PatchChain:
 
         full：基础 + 全部补丁按序应用；
         base_only：仅返回基础的深拷贝（非破坏性压缩的降级视图）；
-        partial：基础 + [start:end) 区间补丁（候选段落级混合的分段取用）。
+        partial：基础 + [start:end) 区间补丁（候选内容的分段取用）。
 
         Complexity: O(n × depth)，n = 补丁数（100 补丁组装基准 <5ms）。
         """

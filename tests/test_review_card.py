@@ -5,7 +5,6 @@ import pytest
 
 from ink_engine.components.review_card import (
     GATING_OVERRIDE_VALUES,
-    PREVIEW_LIMIT_CHAPTER,
     PREVIEW_LIMIT_DEFAULT,
     GatingTier,
     build_audit_card,
@@ -34,7 +33,7 @@ class TestValidateCard:
                     "review_type": "body",
                     "node_id": "generate_chapter",
                     "node_label": "生成",
-                    "target_chapter_id": 1,
+                    "target_id": 1,
                     "chapter_index": -1,
                     "chapter_total": 3,
                 }
@@ -46,28 +45,28 @@ class TestValidateCard:
                 "review_type": "body",
                 "node_id": "generate_chapter",
                 "node_label": "生成",
-                "target_chapter_id": 1,
+                "target_id": 1,
                 "chapter_index": 1,
                 "chapter_total": 3,
-                "output_preview": "x" * (PREVIEW_LIMIT_CHAPTER + 50),
-                "content": "x" * (PREVIEW_LIMIT_CHAPTER + 50),
+                "preview_limit": 8000,
+                "output_preview": "x" * 8050,
+                "content": "x" * 8050,
             }
         )
-        # content 全量保留（编辑回填），preview 截断
-        assert len(card["content"]) > PREVIEW_LIMIT_CHAPTER
-        assert len(card["output_preview"]) <= PREVIEW_LIMIT_CHAPTER + 20
+        # content 全量保留（编辑回填），preview 按卡内 preview_limit 截断
+        assert len(card["content"]) > 8000
+        assert len(card["output_preview"]) <= 8020
         assert "已截断" in card["output_preview"]
 
 
 class TestPreviewLimit:
-    def test_chapter_tiers(self):
-        assert preview_limit_for("write_chapter_content") == PREVIEW_LIMIT_CHAPTER
-        assert preview_limit_for("generate_chapter") == PREVIEW_LIMIT_CHAPTER
+    def test_limits_injected(self):
+        limits = {"write_chapter_content": 8000, "update_entity": 6000}
+        assert preview_limit_for("write_chapter_content", limits=limits) == 8000
+        assert preview_limit_for("update_entity", limits=limits) == 6000
 
-    def test_entity_tier(self):
-        from ink_engine.components.review_card import PREVIEW_LIMIT_ENTITY
-
-        assert preview_limit_for("update_entity") == PREVIEW_LIMIT_ENTITY
+    def test_missing_limits_fallback_default(self):
+        assert preview_limit_for("write_chapter_content") == PREVIEW_LIMIT_DEFAULT
 
     def test_default_tier(self):
         assert preview_limit_for("anything_else") == PREVIEW_LIMIT_DEFAULT
@@ -91,12 +90,16 @@ class TestTruncatePreview:
 
 class TestBuilders:
     def test_build_body_card(self):
-        card = build_body_card(1, 2, 3, "正文内容", "生成章节")
+        card = build_body_card(1, 2, 3, "正文内容", "生成章节", node_id="generate_chapter")
         assert card["review_type"] == "body"
         assert card["content"] == "正文内容"
-        assert card["target_chapter_id"] == 1
+        assert card["target_id"] == 1
         assert card["chapter_index"] == 2
         assert card["chapter_total"] == 3
+
+    def test_build_body_card_without_node_id_rejected(self):
+        with pytest.raises(ValueError):
+            build_body_card(1, 2, 3, "正文内容", "生成章节")
 
     def test_build_audit_card(self):
         card = build_audit_card("writer", "执笔", "wf-1", "输出", "不合格", 1)
@@ -104,13 +107,17 @@ class TestBuilders:
         assert card["workflow_id"] == "wf-1"
 
     def test_build_candidate_card_workflow(self):
-        card = build_candidate_card(1, "wf-1", [{"node_id": "n", "output": "x"}], source="workflow")
+        card = build_candidate_card(
+            1, "wf-1", [{"node_id": "n", "output": "x"}], source="workflow", node_id="workflow_candidate"
+        )
         assert card["review_type"] == "candidate"
         assert card["source"] == "workflow"
         assert card["node_id"] == "workflow_candidate"
 
     def test_build_candidate_card_divergent(self):
-        card = build_candidate_card(1, "divergent", [{"node_id": "d:0", "output": "x"}], source="divergent")
+        card = build_candidate_card(
+            1, "divergent", [{"node_id": "d:0", "output": "x"}], source="divergent", node_id="divergent_draft"
+        )
         assert card["source"] == "divergent"
         assert card["node_id"] == "divergent_draft"
 

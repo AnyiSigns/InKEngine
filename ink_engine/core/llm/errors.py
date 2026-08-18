@@ -1,7 +1,7 @@
 """LLM 层异常体系（引擎内核模块，零业务依赖）。
 
 层级：LLMError（EngineError 子类）→ 按失败语义细分。classify_llm_error
-把 httpx 传输异常 / HTTP 状态码 / 上游错误正文关键词映射为语义化异常，
+把 httpx 传输异常 / HTTP 状态码 / 上游错误响应文本关键词映射为语义化异常，
 供重试与备用切换策略判定：
 
 - retryable（瞬时）：超时（含 408）/ 限流（含 402 额度）/ 网络 / 5xx / 空流
@@ -12,7 +12,7 @@
 语义对齐 text_forge_backend/core/llm_retry 的瞬时故障集合（429/500/502/503/504
 + 超时 + 网络 + 额度 + 国内 MaaS 中文文案兜底），引擎自包含实现，宿主不再重复维护。
 
-**上游文本规范化（对象级不变量）**：进入异常的任何上游正文（detail）统一执行
+**上游文本规范化（对象级不变量）**：进入异常的任何上游响应文本（detail）统一执行
 控制字符剥离 → 长度截断 → 敏感形态遮蔽——日志侧/出站侧不再二次过滤。
 """
 from __future__ import annotations
@@ -22,12 +22,12 @@ import re
 from ink_engine.core.exceptions import EngineError
 from ink_engine.core.logging import redact
 
-# 上游正文进入异常前的规范化上限（与引擎其他错误分支 200 字符口径一致）
+# 上游响应文本进入异常前的规范化上限（与引擎其他错误分支 200 字符口径一致）
 _DETAIL_MAX_LEN = 200
 # 控制字符（C0 + DEL）剥离：防日志注入（伪造行/ANSI 序列）与终端干扰
 _CONTROL_CHAR_RE = re.compile(r"[\x00-\x1f\x7f]")
 
-# 上游错误正文关键词 → 瞬时故障分类（吸收 core/errors.classify_model_error
+# 上游错误响应文本关键词 → 瞬时故障分类（吸收 core/errors.classify_model_error
 # 的文本兜底：国内 MaaS 常见「服务繁忙/过载」等文案错误帧无状态码可依）
 _TRANSIENT_KEYWORDS: tuple[tuple[tuple[str, ...], type[LLMError]], ...] = (
     (("timeout", "timed out", "读超时", "连接超时"), "LLMTimeoutError"),
@@ -44,7 +44,7 @@ _TRANSIENT_KEYWORDS: tuple[tuple[tuple[str, ...], type[LLMError]], ...] = (
 class LLMError(EngineError):
     """LLM 调用失败基类（重试/备用策略按子类语义判定）。
 
-    上游正文（detail）在构造时统一规范化：控制字符剥离 → 截断 → 遮蔽，
+    上游响应文本（detail）在构造时统一规范化：控制字符剥离 → 截断 → 遮蔽，
     message 与 detail 双遮蔽——「遮蔽」为对象级不变量而非仅日志出口。
     """
 
@@ -137,7 +137,7 @@ class LLMUnknownError(LLMError):
 
 
 def _status_code_by_keywords(detail: str | None) -> type[LLMError] | None:
-    """按上游错误正文关键词判定瞬时错误类型（无状态码可依的兜底）。"""
+    """按上游错误响应文本关键词判定瞬时错误类型（无状态码可依的兜底）。"""
     if not detail:
         return None
     lowered = detail.lower()
@@ -153,7 +153,7 @@ def classify_llm_error(
     detail: str | None = None,
     exc: BaseException | None = None,
 ) -> LLMError:
-    """把 HTTP 状态码 / 传输异常 / 上游正文关键词分类为语义化 LLMError。
+    """把 HTTP 状态码 / 传输异常 / 上游响应文本关键词分类为语义化 LLMError。
 
     Args:
         status_code: 上游 HTTP 状态码（无则 None）。

@@ -14,12 +14,12 @@ step_id 在回合内稳定唯一（前端渲染 key 与 SSE 配对更新依赖�
 - tool 按 tool_call_id（``tool:<id>``，无 id 回退计数）；
 - node 按 node_id（``node:<node_id>``；携带 chapter_index 时按
   ``node:<node_id>:<序号>`` 分卡，同 id 的 node_start 复用更新）；
-- reply_token 按正文段计数（``reply:1`` / ``reply:2``——工具卡/审批卡/
-  节点卡出现即切新段，与前端正文气泡分段语义一致）；
+- reply_token 按回复段计数（``reply:1`` / ``reply:2``——工具卡/审批卡/
+  节点卡出现即切新段，与前端回复气泡分段语义一致）；
 - user 固定 ``user``（回合边界，单条）。
 
 领域中立：节点展示标签由宿主经 ``node_labels`` 注入（引擎不内置任何
-业务节点名或界面文案），其余语义对叙事/对话类 agent 通用。
+业务节点名或界面文案），其余语义对各类 agent 通用。
 """
 from __future__ import annotations
 
@@ -35,10 +35,10 @@ _COUNTED_KINDS = frozenset(
     {"thinking", "plan", "review_card", "memory_hit", "suggestions", "error"}
 )
 
-# 正文段落计数键（reply_token 步骤共用一个计数器，与步骤 type 名不同）
+# 回复段落计数键（reply_token 步骤共用一个计数器，与步骤 type 名不同）
 _REPLY_COUNT_KEY = "reply"
 
-# 路由 reply 分支拼接「执行层正文」与「收尾段」的分隔符：不属流式内容，
+# 路由 reply 分支拼接「执行层回复」与「收尾段」的分隔符：不属流式内容，
 # set_final_reply 剥离前缀后需连带剥离它（防末段以空行开头）
 _REPLY_JOIN_SEPARATOR = "\n\n"
 
@@ -75,7 +75,7 @@ class RoundSteps:
             for s in (seed or [])
             if isinstance(s, dict)
         ]
-        # step_id → 步骤记录索引：流式高频追加/更新（正文、节点 token）走 O(1)，
+        # step_id → 步骤记录索引：流式高频追加/更新（回复、节点 token）走 O(1)，
         # 避免每 token 全数组扫描（长回合步骤数可达千级时退化为 O(n·tokens)）
         self._index: dict[str, dict[str, Any]] = {
             str(s.get("step_id")): s for s in self._steps if s.get("step_id")
@@ -171,7 +171,7 @@ class RoundSteps:
         return None
 
     def _close_reply(self) -> None:
-        """关闭当前正文段：后续 reply_token 另起新段。"""
+        """关闭当前回复段：后续 reply_token 另起新段。"""
         self._reply_open = False
 
     # ---- 回合边界 ----
@@ -184,10 +184,10 @@ class RoundSteps:
         self._close_reply()
         return self._append("user", "user", {"content": content})
 
-    # ---- 正文流 ----
+    # ---- 回复流 ----
 
     def reply_token(self, token: str) -> str:
-        """正文流累积：当前段追加；无打开段时新建 reply 步骤。"""
+        """回复流累积：当前段追加；无打开段时新建 reply 步骤。"""
         if self._reply_open and self._steps and self._steps[-1]["type"] == "reply_token":
             self._steps[-1]["payload"]["content"] = (
                 self._steps[-1]["payload"].get("content", "") + token
@@ -198,9 +198,9 @@ class RoundSteps:
         self._reply_open = True
         return step_id
     def set_final_reply(self, reply: str) -> None:
-        """回合完成时以最终回复校准正文（防执行层正文重复）。
+        """回合完成时以最终回复校准回复（防执行层回复重复）。
 
-        终态回复常是「执行层正文 + 收尾段」的完整拼接，而执行层正文已流式
+        终态回复常是「执行层回复 + 收尾段」的完整拼接，而执行层回复已流式
         进更早的 reply 段，按三种情形处理：
 
         - 多段且 reply 以「前 N-1 段拼接」为前缀 → 仅替换末段为剩余部分；
@@ -227,7 +227,7 @@ class RoundSteps:
                 last["payload"]["content"] = remainder
             return
         if self.last_step() is last:
-            # 末段仍是最后一步（正文段未切段）：整段定型替换
+            # 末段仍是最后一步（回复段未切段）：整段定型替换
             if last["payload"].get("content") != reply:
                 last["payload"]["content"] = reply
             return

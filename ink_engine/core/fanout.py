@@ -1,7 +1,7 @@
-"""fan_out 并行原语（发散并发，替代 asyncio.gather 裸用）。
+"""fan_out 并行原语（并发执行，替代 asyncio.gather 裸用）。
 
 语义（部分失败剔除）：并行执行任务（asyncio.Semaphore 限流），
-失败任务剔除、成功结果入候选集，发散容错在引擎层统一。
+失败任务剔除、成功结果保留，并行容错在引擎层统一。
 """
 from __future__ import annotations
 
@@ -23,7 +23,7 @@ _UNSET = object()
 
 @dataclass(frozen=True, slots=True)
 class FanOutFailure:
-    """单任务失败信息（剔除原因留痕，候选卡注明）。"""
+    """单任务失败信息（剔除原因留痕，供消费方展示）。"""
 
     index: int
     error: str
@@ -31,7 +31,7 @@ class FanOutFailure:
 
 @dataclass(slots=True)
 class FanOutResult:
-    """发散结果：成功值按输入顺序 + 失败剔除清单。"""
+    """并行结果：成功值按输入顺序 + 失败剔除清单。"""
 
     successes: list[Any] = field(default_factory=list)
     failures: list[FanOutFailure] = field(default_factory=list)
@@ -49,8 +49,8 @@ async def fan_out(
     """并发执行任务列表，部分失败剔除（gather(return_exceptions=True) 语义）。
 
     Args:
-        tasks: 任务工厂列表，每项接收自身索引（变体编号注入）。
-        limit: 并发上限（成本护栏，发散候选 ≤5 等由业务侧传参）。
+        tasks: 任务工厂列表，每项接收自身索引（并行项编号注入）。
+        limit: 并发上限（成本护栏，由业务侧传参）。
 
     Returns:
         FanOutResult：successes 保持输入顺序，success_indices 与 successes

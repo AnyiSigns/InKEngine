@@ -10,7 +10,7 @@ core 之上的通用原语集合——回合步骤 / 审批卡 / 域窗口 /
 - ``core``：纯机制（图执行/checkpoint/事件流/interrupt/存储/补丁链/
   沙箱与审批原语——唯一 seam，API 即协议）；
 - ``components``：共享组件（本包）——跨域共用的通用原语；
-- ``novel_harness``：叙事领域包（随引擎发布的参考 harness，
+- ``novel_harness``：领域包（随引擎发布的参考 harness，
   消费本包与 core）。
 """
 

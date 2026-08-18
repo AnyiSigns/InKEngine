@@ -216,7 +216,7 @@ class Engine:
         self.compiled = graph.compile()
         self._coordinator = InterruptCoordinator()
         self._event_counter = 0
-        # 子图引擎缓存（嵌套图/循环/发散场景避免每次执行重复 compile）
+        # 子图引擎缓存（嵌套图/循环/并行场景避免每次执行重复 compile）
         self._subgraph_engines: dict[int, Engine] = {}
         # 事件日志写失败降频时间戳（存储故障时避免每事件一条 ERROR 洪水）
         self._event_log_error_ts = 0.0
@@ -724,7 +724,7 @@ async def run_subgraph(subgraph: Graph, parent_ctx: NodeContext) -> dict | None:
     子图复用父引擎（共享 storage/transports/budget/coordinator——
     interrupt 在子图内同样可用），graph_path 追加子图名；子图最终状态
     整体作为增量返回父图（输出回流，reducer 合并，绝不静默丢值）。
-    子图引擎按图实例缓存（循环/发散场景避免每次执行重复 compile）；
+    子图引擎按图实例缓存（循环/并行场景避免每次执行重复 compile）；
     复用实例的事件计数跨执行累加，events_emitted 用差值统计不受影响。
     """
     parent: _NodeContextImpl = parent_ctx  # type: ignore[assignment]

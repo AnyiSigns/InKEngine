@@ -1,12 +1,12 @@
 """域上下文窗口投影原语（域上下文管理）。
 
-多域/多角色 agent 的痛点：所有域共享一条消息流，域切换后 LLM 会看到大量
+多域 agent 的痛点：所有域共享一条消息流，域切换后 LLM 会看到大量
 异域噪音（其它域的工具调用与结果）。域窗口 = 对共享消息流做**投影**，
 只给当前域看它该看的部分：
 
 - 用户消息全留（跨回合意图连续性，不设上限）；
 - 本域（及公共集）最近若干工具轮保留，异域工具轮整轮剔除；
-- 最近一条完成性正文保留（承接上文）；
+- 最近一条完成性回复保留（承接上文）；
 - 离开该域时窗口归档为确定性摘要，下次进入该域时作为连续性锚点注入。
 
 共享消息流本身不变（对话流/checkpoint/审计/历史渲染零影响），投影只作用
@@ -71,7 +71,7 @@ def iter_tool_rounds(messages: Sequence[Any]) -> list[tuple[Any, list]]:
 
     消息流顺序 = assistant(tool_calls) → tool 消息…，故从后往前扫时 tool
     消息先入缓冲，遇到其所属 assistant 消息时配对成轮；遇用户消息（回合
-    边界）停止——工具轮只取最近回合的；完成性正文 assistant 消息（无
+    边界）停止——工具轮只取最近回合的；完成性回复 assistant 消息（无
     tool_calls）不属任何轮，清空未配对缓冲后继续向前扫（其前可能仍有更早
     的工具轮）。
 
@@ -87,7 +87,7 @@ def iter_tool_rounds(messages: Sequence[Any]) -> list[tuple[Any, list]]:
         elif role == "assistant":
             if _tool_calls_of(msg):
                 rounds.append((msg, pending_tool_msgs))
-            # 完成性正文：其后的未配对缓冲不属任何轮（正文在消息流中位于轮后）
+            # 完成性回复：其后的未配对缓冲不属任何轮（回复在消息流中位于轮后）
             pending_tool_msgs = []
         elif role == "user":
             break
@@ -95,7 +95,7 @@ def iter_tool_rounds(messages: Sequence[Any]) -> list[tuple[Any, list]]:
 
 
 def last_body_message(messages: Sequence[Any]) -> Any | None:
-    """最近一条完成性正文（assistant 且无 tool_calls 且文本非空），不跨回合。"""
+    """最近一条完成性回复（assistant 且无 tool_calls 且文本非空），不跨回合。"""
     for msg in reversed(messages):
         role = message_role(msg)
         if role == "user":
@@ -112,7 +112,7 @@ def build_domain_window(
     group_of: GroupResolver,
     max_tool_rounds: int = DEFAULT_MAX_TOOL_ROUNDS,
 ) -> list:
-    """上下文视图投影：用户消息全留 + 本域最近工具轮 + 最近完成性正文。
+    """上下文视图投影：用户消息全留 + 本域最近工具轮 + 最近完成性回复。
 
     工具轮归属：轮内**任一**工具属于本域（或公共集）则整轮保留——宁多勿少，
     防上下文撕裂（只留半轮会让模型看到无结果的调用或无调用的结果）。
@@ -124,7 +124,7 @@ def build_domain_window(
         max_tool_rounds: 保留的工具轮数上限，防上下文膨胀。
 
     Returns:
-        投影后的窗口消息列表（用户消息在前，工具轮与正文按原序在后）。
+        投影后的窗口消息列表（用户消息在前，工具轮与回复按原序在后）。
     """
     window = [m for m in messages if message_role(m) == "user"]
     kept: list = []
@@ -144,7 +144,7 @@ def archive_digest(
 ) -> str:
     """确定性窗口归档摘要（无 LLM，避免域切换频繁触发压缩成本）。
 
-    内容 = 最近用户目标 + 最近正文截断 + 工具轮统计，作为下次进入该域时的
+    内容 = 最近用户目标 + 最近回复截断 + 工具轮统计，作为下次进入该域时的
     连续性锚点。确定性 = 同一窗口必得同一摘要（可缓存、可断言、零成本）；
     LLM 级语义摘要由上层记忆策略承接，不在此原语内。
     """
@@ -167,7 +167,7 @@ def archive_digest(
     if goals:
         parts.append("用户目标：" + "；".join(goals[-_DIGEST_GOAL_COUNT:]))
     if bodies:
-        parts.append("最近正文：" + bodies[-1])
+        parts.append("最近回复：" + bodies[-1])
     parts.append(f"工具轮数：{tool_rounds}")
     return "\n".join(parts)[:max_chars]
 

@@ -317,7 +317,7 @@ class PostgresStorage:
         await self._connect()
         try:
             async with self._pool.acquire() as conn:
-                # 安全：records（记忆/世界状态）落库前剥离敏感键
+                # 安全：records（记忆等宿主结构化数据）落库前剥离敏感键
                 await conn.execute(
                     "INSERT INTO records (collection, key, data) VALUES ($1,$2,$3)"
                     " ON CONFLICT (collection, key) DO UPDATE SET data = excluded.data",

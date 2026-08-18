@@ -60,7 +60,7 @@ def _strip_from_dict(data: dict[str, Any]) -> dict[str, Any]:
 def strip_sensitive(value: Any) -> Any:
     """递归剥离敏感键（dict 按键剔除；list/tuple 逐项递归；其余原样返回）。
 
-    PatchChain 是引擎主内容通道（正文/设定），其 base 与每条补丁的 value
+    PatchChain 是引擎主内容通道（内容工作区），其 base 与每条补丁的 value
     同样递归剥离——否则 ``CheckpointRecord.to_dict`` 的序列化会让敏感键经
     PatchChain 绕过。剥离是纯函数（不改原结构，PatchChain 返回新链），
     copy-on-write：子树不含敏感键时返回原对象，热路径零拷贝。

@@ -1,12 +1,12 @@
-"""记忆策略原语（领域复用：叙事/对话类 agent 通用）。
+"""记忆策略原语（领域复用：各类 agent 通用）。
 
 记忆 = 带元数据的条目累积（来源/权重/时效），取用 = 召回策略按时间线
 与权重筛选。引擎只定义存储接口与召回/失效策略契约，不绑定具体持久化
-与业务语义——后端的书级 pgvector 记忆、复用者的文件/向量记忆都实现
-同一 MemoryStore 协议即可互换。
+与业务语义——任意宿主记忆（结构化记忆/文件记忆/向量记忆）实现同一
+MemoryStore 协议即可互换。
 
 分层语义（业务层职责，引擎不约束）：工作记忆（回合内域窗口/消息）、
-书级叙事记忆（每书）、风格记忆（作者偏好）都是 MemoryEntry 的
+长程记忆（每对象）、风格记忆（用户偏好）都是 MemoryEntry 的
 namespace/kind 区分；召回策略按 namespace + kind + 权重排序取用。
 
 删除对非破坏性开放：forget = 标记失效而非物理擦除，与引擎 Event
@@ -30,10 +30,9 @@ class MemoryEntry:
     """单条记忆条目（带元数据的累积单元）。
 
     Attributes:
-        namespace: 记忆域（用户级 "user:<id>" 或 书级 "book:<id>"），
-            区分工作/书级/风格记忆的作用边界。
-        kind: 记忆类型（plot/style/note/...），业务自定义枚举。
-        content: 记忆正文。
+        namespace: 记忆域（用户级 "user:<id>" 或 对象级 "object:<id>"），
+            区分工作/长程/风格记忆的作用边界。
+        content: 记忆内容。
         id: 条目唯一 id（存储实现分配，新建时为 None）。
         title: 可选标题（列表可读）。
         source: 来源（chapter_decision/domain_window/agent_self_reflection/...）。

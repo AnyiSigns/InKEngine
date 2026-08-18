@@ -5,9 +5,9 @@ structured records + JSON 数据，适配内存/sqlite/postgres，连接串/配�
 - checkpoint 版本链（快照，乐观锁并发写保护）；
 - 执行事件日志（append-only，恢复 = 快照 + 增量日志重放）。
 
-接口只定义存储语义，不绑定图执行——未来回合记录/步骤序列/记忆/世界状态
-同走此接口（structured records 通道）。后端切换 = 换连接串（create_storage
-工厂），业务代码零改动。
+接口只定义存储语义，不绑定图执行——回合记录/步骤序列/记忆等宿主
+结构化数据同走此接口（structured records 通道）。后端切换 = 换连接串
+（create_storage 工厂），业务代码零改动。
 """
 from __future__ import annotations
 
@@ -196,7 +196,7 @@ class Storage(Protocol):
     async def truncate_events(self, thread_id: str, after_seq: int) -> None: ...
     async def latest_event_seq(self, thread_id: str) -> int: ...
 
-    # ── structured records（回合记录/记忆/世界状态共用）──
+    # ── structured records（回合记录/记忆等宿主结构化数据共用）──
     async def put_record(self, collection: str, key: str, data: dict) -> None: ...
     async def get_record(self, collection: str, key: str) -> dict | None: ...
     async def list_records(self, collection: str) -> list[dict]: ...

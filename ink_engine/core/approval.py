@@ -10,7 +10,7 @@
   （auto-approve 直过、审批超时窗口；默认全挂起 + 不限时，宿主可替换）。
 
 机制定在 core、语义归属审批卡协议（`components.review_card` 四类卡）——
-不绑叙事语义、跨域共用；挂起/重入走引擎 interrupt 原语（`core/interrupt.py`），
+不绑领域语义、跨域共用；挂起/重入走引擎 interrupt 原语（`core/interrupt.py`），
 本模块不引入第二套挂起语义。
 
 决议集合（对应注入值）：

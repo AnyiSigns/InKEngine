@@ -3,7 +3,7 @@
 接口形态：AsyncLLM.astream(messages, tools, params) -> AsyncGenerator[LLMChunk]。
 LLMChunk 增量语义（{token?, tool_calls_delta?, reasoning_token?} + finish_reason/usage
 ——增量演进加字段不破坏）；ainvoke 为非流式补全（压缩/审计/
-章节生成等非流式路径）。厂商差异全部收敛到适配器内部（流式 SSE 解析、工具
+任意非流式路径）。厂商差异全部收敛到适配器内部（流式 SSE 解析、工具
 增量、reasoning 透传），上层只消费统一增量模型。
 """
 from __future__ import annotations
@@ -82,7 +82,7 @@ class LLMParams:
 class LLMChunk:
     """流式增量帧：内容/推理/工具调用均为增量，累积由上层负责。
 
-    - token: 正文内容增量；
+    - token: 文本内容增量；
     - reasoning_token: 推理内容增量（reasoning_content 透传）；
     - tool_calls_delta: 工具调用增量（同一帧可携带多个 index 的碎片）；
     - finish_reason: 终止原因（stop/tool_calls/length/...，通常末帧携带）；

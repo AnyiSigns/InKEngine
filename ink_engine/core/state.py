@@ -6,7 +6,7 @@ overlay 逐通道应用 reducer 合并进状态——无框架 magic，全部自
 
 reducer 族（对齐补丁链心智模型）：
 - 累积型：add_messages（消息追加，每条消息 = 一个补丁）；
-- 内容型：patch_chain（正文/设定 = 基础 + 补丁链，通道值即 PatchChain）；
+- 内容型：patch_chain（内容工作区 = 基础 + 补丁链，通道值即 PatchChain）；
 - 合并型：merge_dicts / merge_metrics；
 - 覆盖型：last_value（默认，裸通道语义）。
 """

@@ -1,8 +1,13 @@
-# InkEngine 墨引擎内核（engine-core）
+# InkEngine 墨引擎（engine-core + engine-domain-novel）
 
-TextForge 自研小说生成引擎内核（v4 计划 E1），替代 langchain/langgraph 依赖。
+TextForge 自研小说生成引擎（v4 计划 E1-E4），替代 langchain/langgraph 依赖。
 以 TextForge 为基底、零反向依赖的独立 Python 包：引擎只提供执行机制，
 不约束策略；机制在内核，策略在领域/业务层。
+
+- `ink_engine.core`（engine-core）：抽象与算法通用的引擎内核；
+- `ink_engine.domain_novel`（engine-domain-novel）：绑定小说语义的领域原语；
+- `examples/`：可独立运行的示例（TextForge 为完整参考实现）；
+- `docs/`：概念文档（concepts.md）+ 扩展点文档（extensions.md）。
 
 ## 安装
 
@@ -11,23 +16,44 @@ TextForge 自研小说生成引擎内核（v4 计划 E1），替代 langchain/la
 pip install -e .            # 内核（纯标准库）
 pip install -e ".[sqlite]"  # sqlite 存储后端
 pip install -e ".[postgres]"  # postgres 存储后端
+pip install -e ".[llm]"     # LLM 层（AsyncLLM/厂商适配，httpx）
+pip install -e ".[test]"    # 测试与 lint 依赖（pytest/ruff）
 ```
 
 ## 模块总览
 
+### 内核（ink_engine.core）
+
 | 模块 | 职责 |
 |---|---|
-| `graph.py` | 图定义 DSL（节点/边/条件边/嵌套图/图路径/终止信号） |
-| `executor.py` | 执行循环（checkpoint 版本链/恢复重放/interrupt 注入/预算钩子/异常策略） |
-| `state.py` | 状态通道 + 字段级 reducer 注册表（累积型/内容型/合并型/覆盖型） |
-| `patch_chain.py` | 内容型补丁链（append/replace/delete + assemble/rebase/branch） |
+| `graph.py` / `executor.py` | 图定义 DSL + 执行循环（checkpoint 版本链/恢复重放/interrupt 注入/预算钩子/异常策略） |
+| `state.py` / `patch_chain.py` | 状态通道 + reducer 注册表；内容型补丁链（append/replace/delete + assemble/rebase/branch） |
 | `events.py` | 事件信封（协议版本化 + 传输接口化，负载对齐前端协议 v2） |
 | `storage.py` | 通用存储服务（checkpoint/执行事件日志/structured records，内存/sqlite/postgres） |
 | `interrupt.py` | interrupt 挂起/注入重入（弹卡审批一等能力） |
 | `fanout.py` | 发散并行原语（部分失败剔除） |
 | `budget.py` | 执行预算钩子（步骤/轮数上限由业务注册策略） |
 | `registry.py` | 节点/边注册表（业务自定义节点，引擎不封闭） |
-| `security.py` | 敏感信息剥离（checkpoint 永不落 api_key） |
+| `security.py` / `logging.py` | 敏感信息剥离；结构化 JSON 日志 + trace_id 链路追踪 |
+| `round_steps.py` | 回合步骤协议（D1：step_id 累积/重放，断线续流种子） |
+| `domain_window.py` | 域上下文窗口投影/归档摘要（D4） |
+| `state_machine.py` | 通用状态机原语（D6 core 侧：状态/事件/转换/日志） |
+| `memory.py` | 记忆策略原语（D10：MemoryStore 协议/召回策略/存储后端实现） |
+| `tiers.py` | 模型分层挡位（D5：挡位配置解析/按挡位建链/调用统计钩子） |
+| `review.py` | 测试时专才化评审-收敛原语（D9 core 侧：评审器/收敛策略/web 验证钩子） |
+| `context.py` | **上下文调配器（D7：源元数据/预算分配/加权组装/融合钩子/行为开关支撑）** |
+| `llm/` | AsyncLLM + OpenAI 兼容适配器 + 工具 schema + fallback 链 + embedding |
+
+### 叙事领域包（ink_engine.domain_novel）
+
+| 模块 | 职责 |
+|---|---|
+| `narrative_state.py` | 叙事状态定义（伏笔 set→advancing→resolved/stalled 纯函数，D6） |
+| `review_card.py` | 四类审批卡数据模型 + 门控分级注册表（D3） |
+| `candidate_mix.py` | 候选段落级混合（D2 进阶：跨候选取段落组装 + 来源留痕） |
+| `review.py` | 小说评审-收敛循环（D9：段落级评审 + 再生成 + web 验证注入） |
+| `world_state.py` | 世界状态层（D8：角色状态机/知识矩阵/因果链/伏笔矩阵 + 校验 + 涟漪扫描 + What-if 分支） |
+| `context_sources.py` | **上下文调配器源构建器（D7：章节/角色/正文/支线/记忆/风格/反馈/世界状态 → ContextSource）** |
 
 ## 快速开始
 
@@ -59,6 +85,9 @@ async def main():
 asyncio.run(main())
 ```
 
+更多示例：`python examples/novel_demo.py`（图执行/事件流/interrupt/补丁链）、
+`python examples/context_mixer_demo.py`（D7 调配器多源融合）。
+
 ## 核心概念
 
 - **执行即日志，状态即快照**：事件流 = append-only 执行事件日志；
@@ -70,6 +99,14 @@ asyncio.run(main())
   引擎持久化中断状态并挂起；外部注入值后从该节点重入（弹卡审批）。
 - **事件即协议**：节点 `ctx.emit(type, payload)` 产出事件流，负载直接
   对齐前端协议 v2（step_id/round_id），无框架事件中间层。
+- **上下文调配器（D7）**：多源上下文（章节/记忆/角色/世界状态…）按
+  预算加权融合——确定性层零 LLM 调用，融合钩子按需升级（失败自动回退）。
+- **世界状态层（D8）**：创作关键状态显式化（角色状态机/知识矩阵/因果链/
+  伏笔矩阵），写时校验 + 涟漪扫描 + What-if 分支。
+- **测试时专才化（D9）**：生成 → 评审 → 校验 → 收敛（不微调权重），
+  web 验证钩子按需触发。
+
+详见 `docs/concepts.md`（概念体系）与 `docs/extensions.md`（扩展点目录）。
 
 ## 测试
 
@@ -99,4 +136,4 @@ E1 验收基准：checkpoint 写入 <10ms、事件流吞吐 ≥500 事件/s、
 
 ## License
 
-MIT（引擎随 TextForge 仓库发布；拆独立仓库时随带 LICENSE）。
+MIT（见 LICENSE；pyproject license 字段同标；拆独立仓库时随带）。

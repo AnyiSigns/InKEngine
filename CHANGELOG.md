@@ -11,6 +11,24 @@ InkEngine 遵循 [语义化版本](https://semver.org/lang/zh-CN/)（`MAJOR.MINO
 
 ### 新增
 
+- **链级 rebase（checkpoint 版本链行数维度有界化）**
+  - checkpoint 版本链每节点执行 +1 行、事件日志 append-only，行数随执行
+    线性增长且与快照值大小无关——恢复回溯/巡检为 O(链长) 次逐跳查询，
+    备份/迁移/并发写冲突扫描范围随链长增长。
+  - 方案：链超窗口后压缩历史前缀——窗口外行删除、每叶路径窗口最旧行
+    改写 parent_id=None 成为归档链头（全量快照，锚点状态无丢失；
+    损失窗口外逐节点粒度），链遍历从 O(链长) 降为 O(窗口)；事件日志
+    连带裁剪（<= 归档链头 event_seq 的事件对任何保留锚点不可达）。
+  - 新原语：`Storage.chain_index`（轻量链行索引，单次查询）/`delete_checkpoints`/
+    `set_checkpoint_parent`/`trim_events`（memory/sqlite/postgres 三后端）；
+    `core/chain_rebase.py`：`plan_compaction` 纯函数规划 + `maybe_compact_chain`
+    执行（改写先行、删除在后，失败不产生悬挂父指针，幂等）。
+  - 接线：`RunOptions.checkpoint_keep`（默认 256，0 = 禁用）；顶层
+    run/ainvoke 入口触发（编辑重放 parent_checkpoint 分叉跳过——锚点
+    可能落在窗口外）；spawn 实例独立子链回合收尾同步压缩；压缩失败
+    fail-open（宿主自定义存储缺原语时跳过，功能不受损）。
+  - 恢复/巡检配套：`collect_resume_anchors`/`validate_chain` 改为单次
+    chain_index 取链 + 内存回溯（消除逐跳串行重查询）。
 - **内核（engine-core）**
   - 图定义 DSL + 执行循环：节点/静态边/条件边/嵌套子图/循环回路/回合终止
     信号（reply/止损/超限/异常四类终止原因）；节点/边注册表开放；

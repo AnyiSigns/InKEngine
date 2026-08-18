@@ -208,6 +208,25 @@ def test_tool_start_same_id_reuses_and_resume():
     assert _steps_of(rs)[0]["payload"]["status"] == "done"
 
 
+def test_tool_repeat_id_after_other_tool_keeps_single_card():
+    """P1 回归：tool:A 结束后隔了 tool:B 再重发 tool:A——step_id 唯一性
+    不变量不被破坏（修复前追加同 step_id 第二条记录，回放 key 冲突）。"""
+    rs = RoundSteps("r1")
+    assert rs.tool_start("write", "call-a") == "tool:call-a"
+    rs.tool_end("call-a", success=True)
+    assert rs.tool_start("query", "call-b") == "tool:call-b"
+    rs.tool_end("call-b", success=True)
+    # 重发 call-a：复用既有卡（复位 running），不产生第二条
+    assert rs.tool_start("write", "call-a") == "tool:call-a"
+    tools = [s for s in _steps_of(rs) if s["type"] == "tool"]
+    assert [t["step_id"] for t in tools] == ["tool:call-a", "tool:call-b"]
+    assert tools[0]["payload"]["status"] == "running"  # 复用卡复位
+    rs.tool_end("call-a", success=True)
+    assert tools[0]["payload"]["status"] == "done"
+    # 配对命中同一张卡（无重复投递）
+    assert _steps_of(rs)[1]["payload"]["status"] == "done"
+
+
 def test_tool_without_call_id_falls_back_to_counter():
     """无 tool_call_id：step_id 回退计数，收尾只认末步工具卡。"""
     rs = RoundSteps("r1")

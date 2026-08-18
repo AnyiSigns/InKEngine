@@ -188,7 +188,7 @@ class WeightedBudgetAllocator:
 
     @staticmethod
     def _available_chars(source: ContextSource) -> int:
-        """源的可用字符数（max_chars 兜底截断，保证单源也有上限）。"""
+        """源的可用内容字符数（max_chars 兜底截断，保证单源也有上限）。"""
         length = len(source.content)
         if source.max_chars is not None:
             return min(length, source.max_chars)
@@ -221,6 +221,8 @@ class WeightedBudgetAllocator:
 
         allocations: dict[int, SourceAllocation] = {}
         # 3. 全保留档顺序填充；预算不足者降级到截断池分享剩余
+        # （块成本含标题/分隔符开销，分配按内容长口径——超界部分由
+        # 组装层按剩余预算截断内容保留，见 ContextAssembler.assemble）
         remaining = total_chars
         degraded: list[ContextSource] = []
         for src in keep:
@@ -396,17 +398,34 @@ class ContextAssembler:
             if not content.strip():
                 dropped.append(DroppedSource(alloc.source.type, alloc.source.title, "截断后为空"))
                 continue
-            block = (
-                f"【{alloc.source.title}】\n{content}"
-                if alloc.source.title
-                else content
-            )
-            cost = len(block) + (2 if blocks else 0)  # 块间 "\n\n" 分隔符计入预算
-            if used + cost > total:
+            title = alloc.source.title
+            # 块成本 = 标题块【t】\n + 内容 + 块间分隔符 \n\n（首块无分隔符）
+            overhead = (len(title) + 2 if title else 0) + (2 if blocks else 0)
+            if used + overhead >= total:
+                # 标题/分隔符开销都放不下：整块无法呈现，丢弃（留痕可辨）
                 dropped.append(
                     DroppedSource(alloc.source.type, alloc.source.title, "预算耗尽")
                 )
                 continue
+            if used + overhead + len(content) > total:
+                # 内容超界：截断内容至剩余预算（标题保留）——分配层按内容
+                # 长口径判全保留，块开销（标题/分隔符）会顶掉少量内容；
+                # 截断保留而非整源丢弃，高优源必在场（防静默丢重要内容）
+                content = content[: total - used - overhead]
+                if not content.strip():
+                    dropped.append(
+                        DroppedSource(alloc.source.type, alloc.source.title, "预算耗尽")
+                    )
+                    continue
+                dropped.append(  # 留痕：截断部分的来源可追溯
+                    DroppedSource(
+                        alloc.source.type,
+                        alloc.source.title,
+                        f"块开销截断 {len(alloc.source.content[: alloc.char_limit]) - len(content)} 字符",
+                    )
+                )
+            block = f"【{title}】\n{content}" if title else content
+            cost = len(block) + (2 if blocks else 0)
             blocks.append(block)
             used += cost
             included.append(

@@ -15,7 +15,7 @@ import json
 from .events import EngineEvent
 from .exceptions import CheckpointConflictError, StorageError
 from .security import strip_sensitive
-from .storage import CheckpointRecord
+from .storage import ChainLink, CheckpointRecord
 
 
 def _normalize_record(record: CheckpointRecord) -> CheckpointRecord:
@@ -130,8 +130,15 @@ class MemoryStorage:
             # 更新经 to_dict/from_dict 规范化（禁止 to_dict 回灌构造器：
             # graph_path 变 list / interrupt 变 dict 会污染记录类型，
             # 恢复路径按 tuple 哈希定位锚点时直接崩溃）
+            # 父指针不可变（与 sqlite/postgres 的 UPDATE 不含 parent_id
+            # 同口径）：更新路径忽略传入值，保留链上原有父指针——父指针
+            # 改写是链级 rebase 的专属操作（set_checkpoint_parent）。
             record = CheckpointRecord.from_dict(
-                {**record.to_dict(), "version": existing.version + 1}
+                {
+                    **record.to_dict(),
+                    "version": existing.version + 1,
+                    "parent_id": existing.parent_id,
+                }
             )
             self._checkpoints[record.checkpoint_id] = record
             # 链尾指针只前进（与 sqlite/postgres 的 MAX(checkpoint_id)
@@ -149,7 +156,60 @@ class MemoryStorage:
                 c for c in self._checkpoints.values() if c.thread_id == thread_id
             ]
             candidates.sort(key=lambda c: c.checkpoint_id, reverse=True)
-            return candidates[:limit]
+            # 深拷贝副本（与 get_checkpoint 同口径：调用方修改返回记录
+            # 不得污染存储内快照）
+            return [
+                CheckpointRecord.from_dict(c.to_dict()) for c in candidates[:limit]
+            ]
+
+    async def chain_index(self, thread_id: str) -> list[ChainLink]:
+        async with self._lock:
+            links = [
+                ChainLink(
+                    checkpoint_id=c.checkpoint_id,
+                    parent_id=c.parent_id,
+                    event_seq=c.event_seq,
+                    graph_path=c.graph_path,
+                    reason=c.reason,
+                )
+                for c in self._checkpoints.values()
+                if c.thread_id == thread_id
+            ]
+            links.sort(key=lambda link: link.checkpoint_id, reverse=True)
+            return links
+
+    async def delete_checkpoints(self, thread_id: str, ids: list[int]) -> int:
+        async with self._lock:
+            target = set(ids)
+            removed = 0
+            for cid in target:
+                record = self._checkpoints.pop(cid, None)
+                if record is None or record.thread_id != thread_id:
+                    continue
+                removed += 1
+                # 链尾指针防退：删除行恰为链尾时重算为剩余最大 id
+                # （压缩规划恒保留叶行，此为误用兜底）
+                if self._latest_checkpoint_by_thread.get(thread_id) == cid:
+                    remaining = [
+                        c.checkpoint_id
+                        for c in self._checkpoints.values()
+                        if c.thread_id == thread_id
+                    ]
+                    self._latest_checkpoint_by_thread[thread_id] = (
+                        max(remaining) if remaining else None
+                    )
+            return removed
+
+    async def set_checkpoint_parent(
+        self, thread_id: str, checkpoint_id: int, parent_id: int | None
+    ) -> None:
+        async with self._lock:
+            existing = self._checkpoints.get(checkpoint_id)
+            if existing is None or existing.thread_id != thread_id:
+                return  # 与 SQL 后端同口径：无匹配行静默无操作（幂等）
+            self._checkpoints[checkpoint_id] = CheckpointRecord.from_dict(
+                {**existing.to_dict(), "parent_id": parent_id}
+            )
 
     # ── 执行事件日志（append-only）──
     async def append_event(self, thread_id: str, event: EngineEvent) -> int:
@@ -183,6 +243,13 @@ class MemoryStorage:
         async with self._lock:
             events = self._events.get(thread_id, [])
             self._events[thread_id] = [e for e in events if (e.seq or 0) <= after_seq]
+
+    async def trim_events(self, thread_id: str, before_seq: int) -> int:
+        async with self._lock:
+            events = self._events.get(thread_id, [])
+            kept = [e for e in events if (e.seq or 0) > before_seq]
+            self._events[thread_id] = kept
+            return len(events) - len(kept)
 
     # ── structured records ──
     async def put_record(self, collection: str, key: str, data: dict) -> None:

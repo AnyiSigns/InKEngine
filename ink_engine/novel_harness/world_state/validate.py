@@ -24,6 +24,8 @@ ISSUE_KNOWLEDGE_GAP = "knowledge_gap"
 ISSUE_CAUSAL = "causal_chain"
 ISSUE_FORESHADOWING = "foreshadowing_chain"
 ISSUE_FINGERPRINT = "fingerprint"
+# 变更应用期结构问题（apply_state_changes 拒绝分支：未知实体/非法状态迁移）
+ISSUE_APPLY = "apply"
 
 
 @dataclass(frozen=True, slots=True)
@@ -307,18 +309,26 @@ async def run_world_precheck(
         校验问题列表（dict 形态见 :meth:`WorldIssue.to_dict`，可直接消费）。
     """
     issues: list[WorldIssue] = []
-    issues.extend(validate_causal_chain(world))
-    issues.extend(validate_foreshadowing_chain(world))
-    if character_id is not None and fact_ids:
-        issues.extend(check_knowledge_gap(world, character_id, fact_ids, at_chapter=at_chapter))
+    # 确定性校验器统一 fail-open（与 docstring 承诺一致）：任一环节异常
+    # 跳过该环节并留痕，绝不穿透阻断写操作——预检是增强护栏，不是写门禁
+    try:
+        issues.extend(validate_causal_chain(world))
+        issues.extend(validate_foreshadowing_chain(world))
+        if character_id is not None and fact_ids:
+            issues.extend(check_knowledge_gap(world, character_id, fact_ids, at_chapter=at_chapter))
+        if character_id is not None and text:
+            char = world.get_character(character_id)
+            if char is not None and char.fingerprint is not None:
+                issues.extend(
+                    check_fingerprint_taboos(char.fingerprint, text, character_name=char.name)
+                )
+    except Exception as exc:
+        logger.warning(f"[world_state] 确定性预检失败（跳过该环节）: {exc}")
     if character_id is not None and text:
         char = world.get_character(character_id)
         if char is not None and char.fingerprint is not None:
-            issues.extend(
-                check_fingerprint_taboos(char.fingerprint, text, character_name=char.name)
-            )
-            if verifier is not None:
-                try:
+            try:
+                if verifier is not None:
                     issues.extend(
                         await verifier.verify(
                             char.fingerprint,
@@ -326,12 +336,13 @@ async def run_world_precheck(
                             character_name=char.name,
                         )
                     )
-                except Exception as exc:
-                    logger.warning(f"[world_state] 指纹 LLM 判定失败（跳过）: {exc}")
+            except Exception as exc:
+                logger.warning(f"[world_state] 指纹 LLM 判定失败（跳过）: {exc}")
     return issues
 
 
 __all__ = [
+    "ISSUE_APPLY",
     "ISSUE_CAUSAL",
     "ISSUE_FINGERPRINT",
     "ISSUE_FORESHADOWING",

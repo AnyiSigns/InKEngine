@@ -211,6 +211,16 @@ class TestContextAssembler:
         result = ContextAssembler().assemble(sources, total_chars=1000)
         assert len(result.text) <= 1000
 
+    def test_keep_full_source_survives_title_overhead(self):
+        """P1 回归：高权重源按内容长全保留，但标题/分隔符开销顶掉预算——
+        组装层截断内容保留（修复前整源静默丢弃，分配器承诺被推翻）。"""
+        src = _src(content="x" * 100, title="十个字标题啊", weight=1.0, relevance=1.0)
+        result = ContextAssembler().assemble([src], total_chars=100)
+        assert src.type in [i.type for i in result.included]  # 源必在场
+        assert result.text.startswith("【十个字标题啊】\n")
+        assert len(result.text) <= 100
+        assert any("截断" in d.reason for d in result.dropped)  # 截断留痕可追溯
+
     def test_budget_exhausted_drops_tail_sources(self):
         sources = [_src(type_=f"t{i}", content="x" * 500, title=f"块{i}") for i in range(4)]
         result = ContextAssembler().assemble(sources, total_chars=1000)

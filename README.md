@@ -1,8 +1,14 @@
 # InkEngine 墨引擎（engine-core + engine-components + engine-novel-harness）
 
-TextForge 自研小说生成引擎，替代 langchain/langgraph 依赖。
-以 TextForge 为基底、零反向依赖的独立 Python 包：引擎只提供执行机制，
-不约束策略；机制在内核，策略在领域/业务层。
+TextForge 自研的通用 agent 机制引擎（当前宿主领域：小说生成平台），
+替代 langchain/langgraph 依赖。以 TextForge 为基底、零反向依赖的独立
+Python 包：引擎只提供执行机制，不约束策略；机制在内核，策略在领域/业务层。
+
+**核心思想：机制是引擎，知识是数据，变化是补丁，汇入靠调配。**
+引擎只保留不可降维的机制骨架（图执行/补丁链/调配器/沙箱/审批等），
+其余一切（图/计划/harness/工具/知识/参数/分支）皆为数据；一切演化
+皆为补丁链（append-only、可回退、可分支、可审计）；一切多源汇入
+（上下文/知识/工具/记忆/证据）皆经调配器（加权、预算、组装、留痕）。
 
 - `ink_engine.core`（engine-core）：纯机制引擎内核——图执行/checkpoint/事件流/
   interrupt/存储/补丁链/LLM/安全剥离/沙箱与审批原语（唯一 seam，API 即协议）；

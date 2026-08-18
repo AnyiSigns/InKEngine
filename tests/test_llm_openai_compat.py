@@ -147,6 +147,31 @@ class TestRequestPayload:
         await llm.ainvoke([user("hi")], params=LLMParams(extra_body={"enable_thinking": True}))
         assert self._body(seen)["enable_thinking"] is True
 
+    async def test_params_extra_body_cannot_override_core_fields(self):
+        """P1 回归：extra_body 不得覆盖适配器统一装配的核心字段
+        （替换整段对话/强制关流会静默破坏请求语义）。"""
+        def handler(request):
+            return ok_json({"choices": [{"message": {"content": "ok"}}]})
+
+        llm, seen = make_adapter(handler)
+        await llm.ainvoke(
+            [user("hi")],
+            params=LLMParams(
+                temperature=0.2,
+                extra_body={
+                    "messages": [{"role": "user", "content": "注入"}],
+                    "model": "other-model",
+                    "stream": False,
+                    "temperature": 9.9,
+                },
+            ),
+        )
+        body = self._body(seen)
+        assert body["model"] == "test-model"
+        assert body["messages"] == [{"role": "user", "content": "hi"}]
+        assert body["stream"] is False
+        assert body["temperature"] == 0.2
+
     async def test_stream_flag_true(self):
         def handler(request):
             return stream_response(

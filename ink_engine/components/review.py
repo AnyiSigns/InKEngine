@@ -182,8 +182,18 @@ class MaxRoundsConvergencePolicy:
 
     def decide(self, reviews: list[CandidateReview], *, round_no: int) -> ConvergenceDecision:
         if not reviews:
-            return ConvergenceDecision(converged=True, notes=("无候选可评审",))
-        passed = [r for r in reviews if r.passed]
+            # 空评审集 = 无候选可判定，收敛失败（与评审器异常分支同语义：
+            # 呈交现状，绝不把空集当「已收敛」——调用方按 converged 取
+            # candidates[0] 会拿到空集崩溃）
+            return ConvergenceDecision(
+                converged=False, notes=("无候选可评审",)
+            )
+        # threshold 是策略层二次门槛：评审器按自身阈值预计算 passed，
+        # 策略 threshold 与之独立——宿主收紧 threshold（如 0.9）须真实生效，
+        # 否则配置静默失效（评审器 0.75 达标即收敛）
+        passed = [
+            r for r in reviews if r.passed and r.score >= self.threshold
+        ]
         if passed:
             best = max(passed, key=lambda r: r.score)
             return ConvergenceDecision(

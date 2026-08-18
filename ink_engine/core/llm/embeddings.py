@@ -15,7 +15,7 @@ import abc
 import contextlib
 import json
 from collections.abc import Mapping, Sequence
-from dataclasses import dataclass
+from dataclasses import dataclass, field
 from typing import Any
 
 import httpx
@@ -48,7 +48,8 @@ class EmbeddingConfig:
     adapter: str
     model_id: str
     base_url: str
-    api_key: str | None = None
+    # 安全：api_key 不参与 repr（与 LLMConfig 同口径，防日志/异常消息泄漏凭据）
+    api_key: str | None = field(default=None, repr=False)
     request_timeout: float | None = None
     extra: dict[str, Any] | None = None
 

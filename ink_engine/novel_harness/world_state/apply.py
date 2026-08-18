@@ -15,7 +15,14 @@ from ink_engine.novel_harness.narrative_state import (
 
 from .extract import ExtractedStateChanges
 from .models import ForeshadowingNode, KnowledgeEntry, WorldState
-from .validate import WorldIssue
+from .validate import (
+    ISSUE_APPLY,
+    ISSUE_CAUSAL,
+    ISSUE_FORESHADOWING,
+    SEVERITY_ERROR,
+    SEVERITY_WARNING,
+    WorldIssue,
+)
 
 
 @dataclass(slots=True)
@@ -25,7 +32,9 @@ class ApplyResult:
     Attributes:
         applied: 成功应用的变更数。
         skipped: 被跳过/拒绝的原因列表（含未应用内容，可读留痕）。
-        issues: 应用过程中触发的校验问题（结构约束/合法性）。
+        issues: 应用过程中触发的校验问题（结构约束/合法性）——拒绝分支
+            同时写入结构化 WorldIssue（与 skipped 可读留痕并存），
+            调用方可直接渲染冲突而不必解析文本。
     """
 
     applied: int = 0
@@ -64,6 +73,15 @@ def apply_state_changes(
             result.applied += 1
         else:
             result.skipped.append(f"角色 {upd.character_id} 不存在，忽略状态更新")
+            result.issues.append(
+                WorldIssue(
+                    kind=ISSUE_APPLY,
+                    severity=SEVERITY_ERROR,
+                    message=f"角色 {upd.character_id} 不存在，忽略状态更新",
+                    entity_type="character",
+                    entity_id=str(upd.character_id),
+                )
+            )
     for gain in changes.knowledge_gains:
         if not world.character_knows(gain.character_id, gain.fact_id, at_chapter):
             if world.get_character(gain.character_id) is not None:
@@ -80,8 +98,26 @@ def apply_state_changes(
                 result.applied += 1
             else:
                 result.skipped.append(f"角色 {gain.character_id} 不存在，忽略知识登记")
+                result.issues.append(
+                    WorldIssue(
+                        kind=ISSUE_APPLY,
+                        severity=SEVERITY_ERROR,
+                        message=f"角色 {gain.character_id} 不存在，忽略知识登记",
+                        entity_type="character",
+                        entity_id=str(gain.character_id),
+                    )
+                )
         else:
             result.skipped.append(f"角色 {gain.character_id} 已知事实 {gain.fact_id}，跳过")
+            result.issues.append(
+                WorldIssue(
+                    kind=ISSUE_APPLY,
+                    severity=SEVERITY_WARNING,
+                    message=f"角色 {gain.character_id} 已知事实 {gain.fact_id}，跳过",
+                    entity_type="character",
+                    entity_id=str(gain.character_id),
+                )
+            )
     for event in changes.events:
         world.add_event(event, actor=actor)
         result.applied += 1
@@ -91,18 +127,57 @@ def apply_state_changes(
             result.applied += 1
         else:
             result.skipped.append(f"因果边 {link.cause_event_id}->{link.effect_event_id} 拒绝（事件缺失或重复）")
+            result.issues.append(
+                WorldIssue(
+                    kind=ISSUE_CAUSAL,
+                    severity=SEVERITY_ERROR,
+                    message=f"因果边 {link.cause_event_id}->{link.effect_event_id} 拒绝（事件缺失或重复）",
+                    entity_type="event",
+                    entity_id=f"{link.cause_event_id}->{link.effect_event_id}",
+                )
+            )
     for upd in changes.foreshadowing_updates:
         node = world.get_foreshadowing(upd.foreshadowing_id)
         if node is None:
             result.skipped.append(f"伏笔 {upd.foreshadowing_id} 不存在，忽略状态推进")
+            result.issues.append(
+                WorldIssue(
+                    kind=ISSUE_APPLY,
+                    severity=SEVERITY_ERROR,
+                    message=f"伏笔 {upd.foreshadowing_id} 不存在，忽略状态推进",
+                    entity_type="foreshadowing",
+                    entity_id=str(upd.foreshadowing_id),
+                )
+            )
             continue
         if not is_valid_status(upd.status):
             result.skipped.append(f"伏笔 {upd.foreshadowing_id} 状态 {upd.status!r} 非法，忽略")
+            result.issues.append(
+                WorldIssue(
+                    kind=ISSUE_FORESHADOWING,
+                    severity=SEVERITY_ERROR,
+                    message=f"伏笔 {upd.foreshadowing_id} 状态 {upd.status!r} 非法，忽略",
+                    entity_type="foreshadowing",
+                    entity_id=str(upd.foreshadowing_id),
+                )
+            )
             continue
         if is_illegal_transition(node.status, upd.status):
             result.skipped.append(
                 f"伏笔 {upd.foreshadowing_id} 状态非法迁移被拒绝: "
                 f"{node.status!r} -> {upd.status!r}（resolved 为终态不得回退）"
+            )
+            result.issues.append(
+                WorldIssue(
+                    kind=ISSUE_FORESHADOWING,
+                    severity=SEVERITY_ERROR,
+                    message=(
+                        f"伏笔 {upd.foreshadowing_id} 状态非法迁移被拒绝: "
+                        f"{node.status!r} -> {upd.status!r}"
+                    ),
+                    entity_type="foreshadowing",
+                    entity_id=str(upd.foreshadowing_id),
+                )
             )
             continue
         world.upsert_foreshadowing(

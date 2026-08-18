@@ -137,15 +137,25 @@ class RoundSteps:
 
         返回截断值而非原值：调用方拿它作事件负载的 step_id，必须与记录内的
         step_id 一致，否则超长 id 场景下实时事件与回放记录会指向不同 key。
+
+        同 step_id 复用：step_id 是回合内稳定唯一键（文件头契约）——同一
+        id 再次出现（如 tool:A 结束后重发同 tool_call_id、条件边回路二次
+        进入同名节点）时更新既有记录而非追加重复卡，保证回放/前端 key
+        唯一、配对操作命中同一张卡。
         """
+        final_id = step_id[:_STEP_ID_MAX_CHARS]
+        existing = self._index.get(final_id)
+        if existing is not None:
+            existing["payload"] = {**(existing.get("payload") or {}), **payload}
+            return final_id
         record: dict[str, Any] = {
-            "step_id": step_id[:_STEP_ID_MAX_CHARS],
+            "step_id": final_id,
             "type": step_type,
             "payload": payload,
         }
         self._steps.append(record)
-        self._index[record["step_id"]] = record
-        return record["step_id"]
+        self._index[final_id] = record
+        return final_id
 
     def _pop_last(self) -> dict | None:
         """移除最后一个步骤并同步索引（空思考/空规划卡丢弃用）。"""

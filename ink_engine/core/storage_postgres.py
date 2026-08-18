@@ -16,7 +16,7 @@ from .events import EngineEvent
 from .exceptions import CheckpointConflictError, StorageError
 from .logging import get_logger
 from .security import strip_sensitive
-from .storage import CheckpointRecord, _from_jsonable
+from .storage import ChainLink, CheckpointRecord, _from_jsonable
 
 logger = get_logger(__name__)
 
@@ -258,20 +258,14 @@ class PostgresStorage:
                     raise CheckpointConflictError(
                         f"checkpoint {record.checkpoint_id} 并发写冲突: expected version={expected_version}"
                     )
-                return CheckpointRecord(
-                    checkpoint_id=record.checkpoint_id,
-                    thread_id=record.thread_id,
-                    node=data["node"],
-                    graph_path=record.graph_path,
-                    state=record.state,
-                    parent_id=record.parent_id,
-                    reason=record.reason,
-                    created_at=record.created_at,
-                    version=expected_version + 1,
-                    event_seq=record.event_seq,
-                    error=record.error,
-                    interrupt=record.interrupt,
+                # 返回库中真值（回读）：父指针不可变（UPDATE 不含 parent_id），
+                # 调用方传入的 parent_id 必须被忽略——返回对象与存储一致，
+                # 防下游按返回值续链时用错父锚点
+                row = await conn.fetchrow(
+                    "SELECT * FROM checkpoints WHERE checkpoint_id = $1",
+                    record.checkpoint_id,
                 )
+                return self._row_to_record(row)
         except CheckpointConflictError:
             raise
         except Exception as exc:
@@ -291,6 +285,66 @@ class PostgresStorage:
         except Exception as exc:
             raise StorageError(f"postgres 列出 checkpoints 失败: {exc}") from exc
         return [self._row_to_record(r) for r in rows]
+
+    async def chain_index(self, thread_id: str) -> list[ChainLink]:
+        """轻量链行索引（无 state 快照负载，单次查询取整链，id 降序）。"""
+        await self._connect()
+        try:
+            async with self._pool.acquire() as conn:
+                rows = await conn.fetch(
+                    "SELECT checkpoint_id, parent_id, event_seq, graph_path, reason"
+                    " FROM checkpoints WHERE thread_id = $1"
+                    " ORDER BY checkpoint_id DESC",
+                    thread_id,
+                )
+        except Exception as exc:
+            raise StorageError(f"postgres 读取链索引失败: {exc}") from exc
+        return [
+            ChainLink(
+                checkpoint_id=row["checkpoint_id"],
+                parent_id=row["parent_id"],
+                event_seq=row["event_seq"],
+                graph_path=tuple(json.loads(row["graph_path"] or "[]")),
+                reason=row["reason"],
+            )
+            for row in rows
+        ]
+
+    async def delete_checkpoints(self, thread_id: str, ids: list[int]) -> int:
+        if not ids:
+            return 0
+        await self._connect()
+        # 参数从 $2 起（$1 = thread_id），逐位生成占位符
+        placeholders = ",".join(f"${i}" for i in range(2, 2 + len(ids)))
+        try:
+            async with self._pool.acquire() as conn:
+                tag = await conn.execute(
+                    f"DELETE FROM checkpoints WHERE thread_id = $1"
+                    f" AND checkpoint_id IN ({placeholders})",
+                    thread_id,
+                    *ids,
+                )
+        except Exception as exc:
+            raise StorageError(f"postgres 删除 checkpoints 失败: {exc}") from exc
+        # 命令标签形如 "DELETE 5"（asyncpg 无返回值 SQL）
+        return int(tag.split()[-1]) if tag.startswith("DELETE") else 0
+
+    async def set_checkpoint_parent(
+        self, thread_id: str, checkpoint_id: int, parent_id: int | None
+    ) -> None:
+        """改写链父指针（链级 rebase：窗口最旧行改写为链头 None）。"""
+        await self._connect()
+        try:
+            async with self._pool.acquire() as conn:
+                await conn.execute(
+                    "UPDATE checkpoints SET parent_id = $1"
+                    " WHERE thread_id = $2 AND checkpoint_id = $3",
+                    parent_id,
+                    thread_id,
+                    checkpoint_id,
+                )
+        except Exception as exc:
+            raise StorageError(f"postgres 改写 checkpoint 父指针失败: {exc}") from exc
 
     async def append_event(self, thread_id: str, event: EngineEvent) -> int:
         from dataclasses import replace
@@ -347,6 +401,20 @@ class PostgresStorage:
                 )
         except Exception as exc:
             raise StorageError(f"postgres 事件日志截断失败: {exc}") from exc
+
+    async def trim_events(self, thread_id: str, before_seq: int) -> int:
+        """裁剪执行日志前缀：删除 seq <= before_seq 的事件（链压缩连带，防日志无界）。"""
+        await self._connect()
+        try:
+            async with self._pool.acquire() as conn:
+                tag = await conn.execute(
+                    "DELETE FROM event_log WHERE thread_id = $1 AND seq <= $2",
+                    thread_id,
+                    before_seq,
+                )
+        except Exception as exc:
+            raise StorageError(f"postgres 事件日志裁剪失败: {exc}") from exc
+        return int(tag.split()[-1]) if tag.startswith("DELETE") else 0
 
     async def put_record(self, collection: str, key: str, data: dict) -> None:
         await self._connect()

@@ -43,6 +43,11 @@ DEFAULT_REQUEST_TIMEOUT = 120.0
 # 兼容端点常见但非标准的推理字段（DeepSeek/DashScope qwq 等）
 _REASONING_FIELDS = ("reasoning_content", "reasoning")
 
+# 适配器统一装配的核心请求字段：extra_body 不得覆盖（防替换对话/强制关流）
+_CORE_PAYLOAD_KEYS = frozenset(
+    {"model", "messages", "stream", "tools", "temperature", "max_tokens"}
+)
+
 
 def _status_hint(code: Any) -> int | None:
     """从上游错误 code 猜测 HTTP 状态码（分类提示，无则 None）。
@@ -143,7 +148,16 @@ class OpenAICompatibleLLM(AsyncLLM):
         if max_tokens is not None:
             payload["max_tokens"] = max_tokens
         if params and params.extra_body:
-            payload.update(params.extra_body)
+            # extra_body 仅透传厂商扩展键：核心字段（model/messages/stream/
+            # tools/temperature/max_tokens）由适配器统一装配，静默覆盖会
+            # 替换整段对话/强制关流——与 embeddings 适配器的白名单策略一致
+            payload.update(
+                {
+                    k: v
+                    for k, v in params.extra_body.items()
+                    if k not in _CORE_PAYLOAD_KEYS
+                }
+            )
         return payload
 
     # ------------------------------------------------------------------

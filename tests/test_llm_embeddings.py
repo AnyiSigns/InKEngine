@@ -61,6 +61,14 @@ async def test_query_returns_vector():
     assert seen["calls"] == 1
 
 
+def test_embedding_config_repr_hides_api_key():
+    """P1 回归：EmbeddingConfig 的 api_key 不参与 repr（防日志/异常泄漏凭据，
+    与 LLMConfig 同口径）。"""
+    cfg = EmbeddingConfig(adapter="openai_compat", model_id="m", base_url="http://x", api_key="sk-secret")
+    assert "sk-secret" not in repr(cfg)
+    assert "sk-secret" not in str(cfg)
+
+
 async def test_documents_preserve_order():
     def handler(request: httpx.Request) -> httpx.Response:
         body = json.loads(request.content)

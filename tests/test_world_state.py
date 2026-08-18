@@ -172,6 +172,11 @@ class TestStateChanges:
         )
         assert result.applied == 0
         assert result.skipped and "不存在" in result.skipped[0]
+        # P1 回归：拒绝分支同步产出结构化 issues（与 skipped 可读留痕并存）
+        assert len(result.issues) == 1
+        assert result.issues[0].entity_type == "character"
+        assert result.issues[0].entity_id == "ghost"
+        assert result.issues[0].severity == "error"
 
     def test_apply_knowledge_and_skip_known(self):
         world = _world()
@@ -184,6 +189,8 @@ class TestStateChanges:
         )
         assert result.applied == 1  # f1 已登记跳过，f2 新增
         assert world.character_knows("c1", "f2", at_chapter=10)
+        # 已知事实跳过：结构化 issue 留痕（实体 = 角色，消息含事实 id）
+        assert any(i.entity_id == "c1" and "f1" in i.message for i in result.issues)
 
     def test_apply_events_and_links(self):
         world = WorldState()
@@ -205,6 +212,9 @@ class TestStateChanges:
             ExtractedStateChanges(causal_links=[CausalLink("e1", "ghost")]),
         )
         assert result.skipped and "拒绝" in result.skipped[0]
+        assert len(result.issues) == 1
+        assert result.issues[0].kind == "causal_chain"
+        assert result.issues[0].severity == "error"
 
     def test_apply_foreshadowing_status(self):
         world = WorldState()
@@ -433,6 +443,36 @@ class TestValidation:
             )
         )
         assert issues == []
+
+    def test_run_world_precheck_deterministic_validators_fail_open(self):
+        """P1 回归：确定性校验器异常同样 fail-open——预检是增强护栏不是写门禁，
+        任一环节异常跳过该环节，绝不穿透阻断写操作（修复前仅 verifier 有
+        try/except，docstring 承诺与实际不符）。"""
+        from ink_engine.novel_harness.world_state import validate as vmod
+
+        world = _world()
+        world.set_character(_char(fingerprint=CharacterFingerprint()))
+
+        def boom(*args, **kwargs):
+            raise RuntimeError("确定性校验器内部错误")
+
+        orig_causal, orig_knowledge = vmod.validate_causal_chain, vmod.check_knowledge_gap
+        vmod.validate_causal_chain = boom
+        vmod.check_knowledge_gap = boom
+        try:
+            issues = asyncio.run(
+                run_world_precheck(
+                    world,
+                    text="正文",
+                    character_id="c1",
+                    fact_ids=["f1"],
+                    verifier=None,
+                )
+            )
+        finally:
+            vmod.validate_causal_chain = orig_causal
+            vmod.check_knowledge_gap = orig_knowledge
+        assert issues == []  # 异常跳过该环节，不阻断、不穿透
 
 
 class TestRippleScan:

@@ -16,6 +16,7 @@ from ink_engine.core.exceptions import StorageError
 from ink_engine.core.executor import Engine
 from ink_engine.core.graph import Graph, TerminateReason
 from ink_engine.core.state import StateSchema
+from ink_engine.core.storage import validate_chain
 
 
 async def _execute(engine: Engine, state: dict | None = None, **kw):
@@ -924,3 +925,45 @@ async def test_resume_replay_from_stale_anchor_no_duplicate(memory_storage):
     # 修复前：锚点重放两次，流为 [2,3,2,3,4]（seq=2/3 重复投递）
     assert [e.seq for e in replay] == [2, 3, 4]
     assert [e.payload for e in replay] == [{"n": 1}, {"n": 2}, {"n": 1}]
+
+
+async def test_cached_subgraph_engine_resets_seq_and_count(memory_storage):
+    """P1 回归：缓存子图引擎跨 run 复用不残留陈旧 event_seq/事件计数。
+
+    修复前：第二轮父链 seq 已推进（pre 节点事件），子图首个不发事件的
+    节点写 checkpoint 时沿用首轮陈旧 seq → 命中存储层 event_seq 回退
+    校验（CheckpointConflictError）崩溃；events_emitted 含历史轮残留
+    虚高。修复后 _execute 入口复位，seq 回落查询存储、计数从零起算。
+    """
+    parent = Graph(name="parent", entry="pre")
+
+    async def pre(ctx):
+        await ctx.emit("log", {"n": 0})
+
+    async def s1(ctx):
+        return {}  # 不发事件：首 checkpoint 直接用内存态 seq（陈旧值暴露点）
+
+    async def s2(ctx):
+        await ctx.emit("log", {"n": 1})
+
+    sub = Graph(name="sub", entry="s1")
+    sub.add_node("s1", s1)
+    sub.add_node("s2", s2)
+    sub.add_edge("s1", "s2")
+    sub.add_exit("s2")
+    parent.add_node("pre", pre)
+    parent.add_subgraph("sub", sub)
+    parent.add_edge("pre", "sub")
+    parent.add_exit("sub")
+
+    engine = make_engine(parent, storage=memory_storage)
+    r1 = await engine.ainvoke({}, thread_id="t1")
+    assert r1.events_emitted == 2
+    r2 = await engine.ainvoke({}, thread_id="t1")
+    assert r2.reason == TerminateReason.REPLY
+    assert r2.events_emitted == 2  # 修复前：历史残留导致虚高
+    assert await validate_chain(memory_storage, "t1") == []
+    # 第三次复用同样稳定（缓存子引擎持续复用）
+    r3 = await engine.ainvoke({}, thread_id="t1")
+    assert r3.reason == TerminateReason.REPLY
+    assert r3.events_emitted == 2

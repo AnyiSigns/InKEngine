@@ -27,6 +27,7 @@ from dataclasses import dataclass, field, replace
 from typing import Any
 
 from .budget import BudgetManager
+from .chain_rebase import maybe_compact_chain
 from .events import EngineEvent, EngineTransport
 from .exceptions import NodeExecutionError
 from .fanout import fan_out
@@ -65,6 +66,8 @@ class RunOptions:
         max_spawns: 单次展开的子任务清单数量上限（成本护栏：清单
             超限即节点失败，防拆解爆炸）。
         spawn_concurrency: spawn 实例并发上限（fan_out 限流）。
+        checkpoint_keep: 版本链每叶路径保留行数（链级 rebase 窗口；
+            0 = 禁用压缩，历史逐节点全量保留，链长随执行线性增长）。
     """
 
     storage: Storage | None = None
@@ -75,6 +78,10 @@ class RunOptions:
     error_on_exception: bool = True
     max_spawns: int = 16
     spawn_concurrency: int = 4
+    # 链级 rebase 窗口：链长超出后压缩历史前缀（窗口外行删除、窗口最旧
+    # 行改链头、事件日志连带裁剪）——恢复/巡检从 O(链长) 降为 O(窗口)。
+    # 编辑重放（parent_checkpoint 分叉）期间跳过：分叉锚点可能落在窗口外。
+    checkpoint_keep: int = 256
     # 系统信号事件集合（宿主协议注入）：命中的事件类型强制 step_id=None、
     # 不入回合步骤序列（机制层默认空——不预置任何领域事件名）
     system_events: frozenset[str] = frozenset()
@@ -398,6 +405,11 @@ class Engine:
                 self._coordinator.inject(inject)
             if truncate_log_after is not None and self.options.storage is not None:
                 await self.options.storage.truncate_events(thread_id, truncate_log_after)
+            # 链级 rebase：顶层入口压缩历史前缀（版本链行数维度有界化）。
+            # 编辑重放（parent_checkpoint 分叉锚点指向历史链）跳过——锚点
+            # 可能落在窗口外，压缩会删掉分叉目标。
+            if parent_checkpoint is None:
+                await self._maybe_compact_chain(thread_id)
             task = asyncio.create_task(
                 self._execute(
                     state=state,
@@ -464,6 +476,8 @@ class Engine:
                 self._coordinator.inject(inject)
             if truncate_log_after is not None and self.options.storage is not None:
                 await self.options.storage.truncate_events(thread_id, truncate_log_after)
+            if parent_checkpoint is None:
+                await self._maybe_compact_chain(thread_id)
             _state, result = await self._execute(
                 state=state,
                 thread_id=thread_id,
@@ -483,6 +497,28 @@ class Engine:
                 for key in inject:
                     self._coordinator.pending_inject.pop(key, None)
             trace_id_var.reset(token)
+
+    async def _maybe_compact_chain(self, thread_id: str) -> None:
+        """链级 rebase 入口（fail-open：压缩失败不阻断执行）。
+
+        宿主自定义存储未实现压缩原语时跳过——版本链照常增长，功能
+        不受损；引擎内置三后端（memory/sqlite/postgres）均已实现。
+        """
+        storage = self.options.storage
+        if storage is None or self.options.checkpoint_keep <= 0:
+            return
+        try:
+            outcome = await maybe_compact_chain(
+                storage, thread_id, keep=self.options.checkpoint_keep
+            )
+        except Exception as exc:
+            logger.warning(f"链级 rebase 不可用（跳过）: {exc}")
+            return
+        if outcome.compacted:
+            logger.info(
+                f"链级 rebase: thread={thread_id} 删除 {outcome.removed} 行、"
+                f"改写链头 {outcome.rewired} 个、裁剪事件 {outcome.trimmed} 条"
+            )
 
     async def _execute(
         self,
@@ -518,6 +554,16 @@ class Engine:
         storage = self.options.storage
         transports = transports if transports is not None else self.options.transports
         chain_thread = checkpoint_thread_id or thread_id
+
+        # 每轮执行独立计数/seq 锚点：`_execute` 是顶层与嵌套子图/实例共用
+        # 入口——缓存子图引擎跨 run 复用（run_subgraph 按图实例缓存）时，
+        # 上一轮的累计值若残留，父引擎合并计数会虚高（events_emitted 翻倍）
+        # 且陈旧 seq 会命中存储层 event_seq 回退校验崩溃。此处复位保证
+        # 每次执行从零起算（顶层 run/ainvoke 的入口复位与此幂等）。
+        # 注意：`_chain_advanced` 由调用方预置（spawn 实例续接链尾/子图
+        # 首写跟随父链尾），不复位。
+        self._event_counter = 0
+        self._latest_event_seq = None
 
         # ── 恢复：checkpoint 快照 + 增量日志重放（断线续流，解析在 recovery 模块）──
         current: str = graph.entry
@@ -926,6 +972,9 @@ class Engine:
                     if self._latest_event_seq is None
                     else max(self._latest_event_seq, sub_engine._latest_event_seq)
                 )
+            # 实例独立子链同样执行链级 rebase（回合内多轮累计，实例链
+            # 行数与父链同轴增长；压缩只动实例链自身，事件日志归父链不裁剪）
+            await self._maybe_compact_chain(instance_thread)
             # 实例内中断 → 提升为父图 interrupt（挂起卡跨层保留，重入语义一致）
             if sub_result.interrupt is not None:
                 raise InterruptSignal(sub_result.interrupt.key, sub_result.interrupt.payload)
@@ -965,7 +1014,8 @@ async def run_subgraph(subgraph: Graph, parent_ctx: NodeContext) -> dict | None:
     interrupt 在子图内同样可用），graph_path 追加子图名；子图最终状态
     整体作为增量返回父图（输出回流，reducer 合并，绝不静默丢值）。
     子图引擎按图实例缓存（循环/并行场景避免每次执行重复 compile）；
-    复用实例的事件计数跨执行累加，events_emitted 用差值统计不受影响。
+    复用实例的事件计数由 _execute 入口复位（每轮从零起算，父引擎按
+    差值合并，events_emitted 无历史轮残留）。
     """
     parent: _NodeContextImpl = parent_ctx  # type: ignore[assignment]
     engine = parent._engine

@@ -186,6 +186,29 @@ class CheckpointRecord:
         )
 
 
+@dataclass(frozen=True, slots=True)
+class ChainLink:
+    """版本链轻量行索引（回溯/巡检/压缩用，不含 state 快照负载）。
+
+    与 :class:`CheckpointRecord` 的区别：只携带链遍历所需的元数据字段，
+    单次查询即可取得整链（快照负载可能很大，回溯逐条取全量记录是
+    O(链长) 次串行重查询）。
+
+    Attributes:
+        checkpoint_id: 全局自增 id（版本链锚点）。
+        parent_id: 版本链父指针（None = 链头）。
+        event_seq: 执行事件日志锚点（恢复 = 快照 + 该 seq 之后的增量重放）。
+        graph_path: 嵌套图路径（恢复定位；() = 顶层）。
+        reason: 回合终止原因（None = 未终止）。
+    """
+
+    checkpoint_id: int
+    parent_id: int | None
+    event_seq: int
+    graph_path: tuple[str, ...] = ()
+    reason: str | None = None
+
+
 @runtime_checkable
 class Storage(Protocol):
     """通用存储服务接口。
@@ -195,6 +218,9 @@ class Storage(Protocol):
       CheckpointConflictError，调用方重读后重试）；
     - 事件日志 append-only（seq 严格递增，重放按 seq 有序）；
     - 全部方法幂等/可重试（网络抖动场景调用方重试安全）。
+    - 链压缩原语（chain_index/delete_checkpoints/set_checkpoint_parent/
+      trim_events）为链级 rebase 提供底座：不实现的后端在调用方
+      fail-open 兜底下跳过压缩（版本链照常增长，功能不受损）。
     """
 
     # ── checkpoint 版本链 ──
@@ -208,11 +234,17 @@ class Storage(Protocol):
         fork: bool = False,
     ) -> CheckpointRecord: ...
     async def list_checkpoints(self, thread_id: str, *, limit: int = 100) -> list[CheckpointRecord]: ...
+    async def chain_index(self, thread_id: str) -> list[ChainLink]: ...
+    async def delete_checkpoints(self, thread_id: str, ids: list[int]) -> int: ...
+    async def set_checkpoint_parent(
+        self, thread_id: str, checkpoint_id: int, parent_id: int | None
+    ) -> None: ...
 
     # ── 执行事件日志（append-only）──
     async def append_event(self, thread_id: str, event: EngineEvent) -> int: ...
     async def events_after(self, thread_id: str, seq: int) -> list[EngineEvent]: ...
     async def truncate_events(self, thread_id: str, after_seq: int) -> None: ...
+    async def trim_events(self, thread_id: str, before_seq: int) -> int: ...
     async def latest_event_seq(self, thread_id: str) -> int: ...
 
     # ── structured records（回合记录/记忆等宿主结构化数据共用）──
@@ -241,6 +273,10 @@ async def validate_chain(
     首节点 event_seq 允许低于历史父锚点（事件日志已截断回退），此时调用方
     应传 ``check_event_seq=False`` 或知晓该豁免。
 
+    遍历实现：整链索引一次取回（:meth:`Storage.chain_index`，轻量行，
+    无快照负载），内存内按 parent_id 回溯——避免逐跳重查询的 O(链长)
+    次串行 DB 往返；链级 rebase 压缩后链长有界，巡检成本随之有界。
+
     Args:
         storage: 存储服务（任意后端，只依赖 Storage 协议）。
         thread_id: 版本链归属线程。
@@ -251,7 +287,11 @@ async def validate_chain(
         违规描述列表（空 = 链一致）。
     """
     violations: list[str] = []
-    node = await storage.get_latest_checkpoint(thread_id)
+    links = await storage.chain_index(thread_id)
+    if not links:
+        return violations
+    by_id = {link.checkpoint_id: link for link in links}
+    node: ChainLink | None = links[0]  # 最新行（chain_index 按 id 降序）
     walked = 0
     while node is not None:
         walked += 1
@@ -260,22 +300,22 @@ async def validate_chain(
                 f"链遍历超限（>{max_walk} 节点，疑似成环）: 停于 #{node.checkpoint_id}"
             )
             break
-        parent = (
-            await storage.get_checkpoint(node.parent_id)
-            if node.parent_id is not None
-            else None
-        )
+        parent = by_id.get(node.parent_id) if node.parent_id is not None else None
         if node.parent_id is not None and parent is None:
-            violations.append(
-                f"悬挂父指针: #{node.checkpoint_id} -> parent #{node.parent_id} 不存在"
-            )
+            # 父不在本线程索引：悬挂或跨线程二选一，单次查询区分
+            # （巡检低频路径，不引入每跳重查询）
+            cross = await storage.get_checkpoint(node.parent_id)
+            if cross is None:
+                violations.append(
+                    f"悬挂父指针: #{node.checkpoint_id} -> parent #{node.parent_id} 不存在"
+                )
+            else:
+                violations.append(
+                    f"跨线程父指针: #{node.checkpoint_id}(thread={thread_id}) "
+                    f"-> #{cross.checkpoint_id}(thread={cross.thread_id})"
+                )
             break
         if parent is not None:
-            if parent.thread_id != node.thread_id:
-                violations.append(
-                    f"跨线程父指针: #{node.checkpoint_id}(thread={node.thread_id}) "
-                    f"-> #{parent.checkpoint_id}(thread={parent.thread_id})"
-                )
             if parent.checkpoint_id >= node.checkpoint_id:
                 violations.append(
                     f"父链非递减（环/自引用）: #{node.checkpoint_id} "
@@ -330,6 +370,7 @@ __all__ = [
     "SCHEME_MEMORY",
     "SCHEME_POSTGRES",
     "SCHEME_SQLITE",
+    "ChainLink",
     "CheckpointRecord",
     "Storage",
     "create_storage",

@@ -74,6 +74,25 @@ async def test_optimistic_lock_conflict(storage):
             ),
             expected_version=rec.version,
         )
+    # P1 回归：更新路径父指针不可变（与 sqlite/postgres 同口径——传不同
+    # parent_id 不得改写链上父指针，父指针改写是链级 rebase 专属操作）
+    child = await storage.put_checkpoint(
+        _cp(state={"v": 9}, parent_id=rec.checkpoint_id)
+    )
+    updated_child = await storage.put_checkpoint(
+        CheckpointRecord(
+            checkpoint_id=child.checkpoint_id,
+            thread_id="t1",
+            node="n2",
+            state={"v": 10},
+            parent_id=999,  # 注入非法父指针：更新路径必须忽略
+        ),
+        expected_version=child.version,
+    )
+    assert updated_child.parent_id == rec.checkpoint_id
+    got_child = await storage.get_checkpoint(child.checkpoint_id)
+    assert got_child is not None and got_child.parent_id == rec.checkpoint_id
+    assert await validate_chain(storage, "t1") == []
 
 
 async def test_optimistic_lock_update_without_expected_version(storage):

@@ -20,7 +20,7 @@ from dataclasses import dataclass, field
 from .events import EngineEvent
 from .exceptions import StorageError
 from .state import StateSchema
-from .storage import CheckpointRecord, Storage
+from .storage import ChainLink, CheckpointRecord, Storage
 
 
 @dataclass(slots=True)
@@ -141,18 +141,37 @@ async def collect_resume_anchors(
     tail: CheckpointRecord,
     resume_map: dict[tuple[str, ...], int],
 ) -> tuple[int | None, dict[tuple[str, ...], int]]:
-    """沿版本链回溯收集恢复锚点（顶层中断 checkpoint 的父链含各级子图锚点）。
+    """沿版本链回溯收集恢复锚点（顶层中断 checkpoint 的父链含各级子链锚点）。
 
     - 非空路径节点：仅收未完成/中断锚点（reason 为 None 的节点快照或
-      interrupted 挂起轮）——reply/stop/error 终态 = 已完成子图的陈旧
-      结果，作恢复锚点会让子图直接收尾回流旧状态；
+      interrupted 挂起轮）——reply/stop/error 终态 = 已完成子链的陈旧
+      结果，作恢复锚点会让子链直接收尾回流旧状态；
     - 空路径节点：最近的顶层锚点（本级恢复起点）。
+
+    遍历实现：整链索引一次取回（:meth:`Storage.chain_index`，轻量行无
+    快照负载），内存内按 parent_id 回溯——避免逐跳 get_checkpoint 的
+    O(链长) 次串行 DB 往返；链级 rebase 压缩后链长有界（窗口内），
+    回溯自然停在归档链头（parent_id=None）。
 
     Returns:
         (top_anchor, resume_map)：顶层锚点 checkpoint_id（None = 图入口
-        即子图，本级无顶层锚点）+ 子图锚点表（沿用传入表，逐级补录）。
+        即子链，本级无顶层锚点）+ 子链锚点表（沿用传入表，逐级补录）。
     """
-    cp: CheckpointRecord | None = tail
+    if tail is None:
+        # 无恢复锚点（首轮执行/无 checkpoint）：无回溯可言
+        return None, resume_map
+    links = await storage.chain_index(tail.thread_id)
+    by_id = {link.checkpoint_id: link for link in links}
+    cp = by_id.get(tail.checkpoint_id)
+    if cp is None:
+        # 防御：锚点不在索引（异常状态）仍可沿传入记录回溯一步
+        cp = ChainLink(
+            checkpoint_id=tail.checkpoint_id,
+            parent_id=tail.parent_id,
+            event_seq=tail.event_seq,
+            graph_path=tail.graph_path,
+            reason=tail.reason,
+        )
     top_anchor: int | None = None
     while cp is not None:
         path = cp.graph_path or ()
@@ -162,11 +181,7 @@ async def collect_resume_anchors(
         elif top_anchor is None:
             top_anchor = cp.checkpoint_id  # 最近的顶层锚点
         # 继续沿父链回溯：顶层中断 checkpoint 的父链含子图层锚点
-        cp = (
-            await storage.get_checkpoint(cp.parent_id)
-            if cp.parent_id is not None
-            else None
-        )
+        cp = by_id.get(cp.parent_id) if cp.parent_id is not None else None
     return top_anchor, resume_map
 
 

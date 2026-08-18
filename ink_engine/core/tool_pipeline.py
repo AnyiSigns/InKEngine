@@ -33,9 +33,26 @@ from .exceptions import SandboxViolation
 from .llm.tools import ToolSpec
 from .permissions import ALLOW as _ALLOW
 from .permissions import DENY as _DENY
+from .permissions import REVIEW as _REVIEW
 
 DENY = _DENY
 ALLOW = _ALLOW
+REVIEW = _REVIEW
+
+
+def _substitute_target(value: Any, target: str, resolved: str) -> Any:
+    """递归替换 args 中与原始 target 相等的值 → 沙箱解析结果。
+
+    执行对象与校验对象一致：extractor 从 args 提取 target 判定的路径，
+    分发执行前替换为规范化绝对路径（防二次拼接/相对基准漂移引入逃逸）。
+    """
+    if isinstance(value, dict):
+        return {k: _substitute_target(v, target, resolved) for k, v in value.items()}
+    if isinstance(value, list):
+        return [_substitute_target(v, target, resolved) for v in value]
+    if value == target:
+        return resolved
+    return value
 
 
 @dataclass(slots=True)
@@ -62,16 +79,19 @@ class ToolResult:
 
 @dataclass(slots=True)
 class ToolPipeline:
-    """工具执行流水线装配（机制环节全可注入，缺省 = 无门禁直通执行器）。
+    """工具执行流水线装配（机制环节全可注入，缺省 = fail-closed 拒绝）。
 
     Attributes:
         gate: 权限门禁（None = 跳过权限判定，宿主自行取舍）。
-        extractor: 操作提取器 (spec, args) -> (operation, target) | None。
+        extractor: 操作提取器 (spec, args) -> (operation, target) | None
+            （None = 纯内存工具无判定目标，直通）。
         sandboxes: 沙箱守卫列表（validate(operation, target) 协议）。
         guards: 单调守卫列表 (ctx, spec, args)，抛异常即拒绝执行。
         executor: 分发执行器 (ctx, spec, args, approval) -> 结果文本。
         audit: 审计钩子 (ctx, record)；None = 默认经 ctx.emit 发 tool_audit 事件。
         max_result_chars: 结果观察截断上限。
+        allow_unchecked: 未配置 extractor 时是否允许直通执行器（默认
+            False = 拒绝；宿主须明示安全让步才可放宽）。
     """
 
     gate: Any | None = None
@@ -81,9 +101,18 @@ class ToolPipeline:
     executor: Callable[..., Awaitable] | None = None
     audit: Callable[..., Any] | None = None
     max_result_chars: int = 100_000
+    allow_unchecked: bool = False
 
     async def execute(self, ctx: Any, spec: ToolSpec, args: dict) -> ToolResult:
         """执行一次工具调用（全环节机制化装配，任一环节拒绝即 fail-closed）。"""
+        # 未配置操作提取器：无判定目标即无法做权限/沙箱判定——默认拒绝
+        # （fail-closed），宿主须显式 allow_unchecked=True 才可直通
+        if self.extractor is None and not self.allow_unchecked:
+            await self._audit(
+                ctx,
+                {"tool": spec.name, "decision": "deny", "reason": "未配置操作提取器，拒绝执行（fail-closed）"},
+            )
+            return ToolResult(ok=False, decision=DENY, error="未配置操作提取器，拒绝执行（fail-closed）")
         op_target = self.extractor(spec, args) if self.extractor is not None else None
         operation, target = op_target if op_target is not None else (None, None)
 
@@ -93,13 +122,9 @@ class ToolPipeline:
             verdict = self.gate.check(
                 spec.name, operation, target, permissions=spec.permissions
             )
-            if verdict.decision == DENY:
-                await self._audit(
-                    ctx,
-                    {"tool": spec.name, "operation": operation, "decision": "deny", "reason": verdict.reason},
-                )
-                return ToolResult(ok=False, decision=DENY, error=verdict.reason)
-            if verdict.decision == "review":
+            if verdict.decision == _ALLOW:
+                pass
+            elif verdict.decision == _REVIEW:
                 approval = await approve_before_execute(
                     ctx,
                     f"gate:{spec.name}",
@@ -111,18 +136,31 @@ class ToolPipeline:
                         {"tool": spec.name, "operation": operation, "decision": approval.decision, "reason": approval.reason},
                     )
                     return ToolResult(ok=False, decision=approval.decision, approval=approval, error=approval.reason or "审批未通过")
+            else:
+                # DENY 与任何未知 decision：一律拒绝（fail-closed——未知
+                # 判定值不得静默落到"继续执行"）
+                await self._audit(
+                    ctx,
+                    {"tool": spec.name, "operation": operation, "decision": "deny", "reason": verdict.reason or f"未命中的权限判定: {verdict.decision!r}"},
+                )
+                return ToolResult(ok=False, decision=DENY, error=verdict.reason or "权限拒绝")
 
-        # ── 沙箱守卫 ──
+        # ── 沙箱守卫（校验结果回写执行参数：执行对象 = 校验对象）──
+        resolved_target: str | None = None
         if operation is not None:
             for sb in self.sandboxes:
                 try:
-                    sb.validate(operation, target)
+                    resolved = sb.validate(operation, target)
                 except SandboxViolation as exc:
                     await self._audit(
                         ctx,
                         {"tool": spec.name, "operation": operation, "decision": "deny", "reason": str(exc)},
                     )
                     return ToolResult(ok=False, decision=DENY, error=str(exc))
+                if resolved is not None and resolved_target is None:
+                    resolved_target = str(resolved)
+            if resolved_target is not None and resolved_target != target:
+                args = _substitute_target(args, target, resolved_target)
 
         # ── 单调守卫（抛异常即拒绝，fail-closed）──
         for guard in self.guards:

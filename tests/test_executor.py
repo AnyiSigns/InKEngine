@@ -542,7 +542,9 @@ async def test_patch_chain_node_mutation_no_duplicate():
     state, _ = await _execute(engine)
     chain = state["draft"]
     assert chain.length == 1  # 不重复追加
-    assert chain.assemble() == {"text": ["段落A"]}
+    # base 保留（原实现丢 base 后 append 落空文档为列表；保留后 str 拼接）
+    assert chain.base == {"text": ""}
+    assert chain.assemble() == {"text": "段落A"}
 
 
 async def test_subgraph_patch_chain_reflow_no_duplicate():
@@ -574,6 +576,47 @@ async def test_subgraph_patch_chain_reflow_no_duplicate():
     chain = state["content"]
     assert chain.length == 1
     assert chain.assemble() == {"text": ["子图内容"]}
+
+
+async def test_subgraph_patch_chain_full_chain_reflow_no_duplicate():
+    """子图内多节点就地追加、整链回流：父链已有补丁不二次追加、base 不丢。"""
+    from ink_engine.core.patch_chain import Patch, PatchChain, PatchOp
+    from ink_engine.core.state import StateSchema
+
+    schema = StateSchema(channels={"draft": "patch_chain"})
+    parent = Graph(name="parent", entry="sub")
+
+    async def sub_seed(ctx):
+        chain = ctx.state.get("draft")
+        chain.apply(Patch(op=PatchOp.APPEND, path=("text",), value="子图A"))
+        return {"draft": chain}
+
+    async def sub_append(ctx):
+        chain = ctx.state.get("draft")
+        chain.apply(Patch(op=PatchOp.APPEND, path=("text",), value="子图B"))
+        return {"draft": chain}
+
+    sub = Graph(name="sub", entry="s1")
+    sub.add_node("s1", sub_seed)
+    sub.add_node("s2", sub_append)
+    sub.add_edge("s1", "s2")
+    sub.add_exit("s2")
+    parent.add_subgraph("sub", sub)
+
+    async def after(ctx):
+        return {}
+
+    parent.add_node("after", after)
+    parent.add_edge("sub", "after")
+    parent.add_exit("after")
+    engine = make_engine(parent, schema=schema)
+    state, _ = await _execute(
+        engine, {"draft": PatchChain(base={"text": "父开头"})}
+    )
+    chain = state["draft"]
+    assert chain.length == 2  # 仅子图新增 2 条，父链补丁不重复
+    assert chain.base == {"text": "父开头"}  # 基础文本未丢失
+    assert chain.assemble() == {"text": "父开头子图A子图B"}
 
 
 async def test_stale_inject_cleaned_after_run():

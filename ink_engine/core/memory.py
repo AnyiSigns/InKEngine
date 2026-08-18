@@ -14,6 +14,7 @@ Sourcing 哲学一致，失效记录仍可追溯。
 """
 from __future__ import annotations
 
+import asyncio
 import time
 import uuid
 from dataclasses import dataclass, field
@@ -35,10 +36,10 @@ class MemoryEntry:
         content: 记忆内容。
         id: 条目唯一 id（存储实现分配，新建时为 None）。
         title: 可选标题（列表可读）。
-        source: 来源（chapter_decision/domain_window/agent_self_reflection/...）。
+        source: 来源（宿主语义，如 "decision"/"domain_window"/"self_reflection"）。
         priority: 优先级（数值大优先，召回排序用）。
         weight: 召回权重（相关度维度，确定性召回外的调酒师融合用）。
-        meta: 业务元数据（domain/related_chapter_id/...）。
+        meta: 业务元数据（宿主语义，如 domain/related_entity_id/...）。
         created_at: 创建时间戳（epoch 秒）。
         expires_at: 失效时间戳（None = 不过期；时效失效策略用）。
     """
@@ -157,11 +158,22 @@ class StorageBackedMemoryStore:
     引擎零反向依赖：复用者无需关系型数据库即可获得可换后端、可持久化的
     记忆能力。删除走非破坏性语义（标记失效而非物理擦除），与引擎
     Event Sourcing 哲学一致——forget = 失效，记录仍可追溯。
+
+    并发：update/delete 为读-改-写两段操作，本实现以进程内 per-key 锁
+    串行化（asyncio 单进程内安全）；跨进程并发写仍需宿主在业务层
+    串行化（存储抽象不提供跨进程事务级合并）。
     """
 
     def __init__(self, storage: Storage, collection: str = "memory") -> None:
         self._storage = storage
         self._collection = collection
+        self._locks: dict[str, asyncio.Lock] = {}
+
+    def _lock_for(self, entry_id: str) -> asyncio.Lock:
+        lock = self._locks.get(entry_id)
+        if lock is None:
+            lock = self._locks[entry_id] = asyncio.Lock()
+        return lock
 
     async def save(self, entry: MemoryEntry) -> str:
         entry_id = entry.id or _make_id(entry)
@@ -175,22 +187,25 @@ class StorageBackedMemoryStore:
         return _record_to_entry(rec)
 
     async def update(self, entry_id: str, data: dict) -> bool:
-        rec = await self._storage.get_record(self._collection, entry_id)
-        if not rec or rec.get("_deleted"):
-            return False
-        # id/namespace/created_at 为不可变身份字段，更新忽略
-        protected = {"id", "namespace", "created_at", "_deleted"}
-        rec.update({k: v for k, v in data.items() if k not in protected})
-        await self._storage.put_record(self._collection, entry_id, rec)
-        return True
+        # 读-改-写整体持锁：并发 update 同 key 不互相覆盖（丢更新）
+        async with self._lock_for(entry_id):
+            rec = await self._storage.get_record(self._collection, entry_id)
+            if not rec or rec.get("_deleted"):
+                return False
+            # id/namespace/created_at 为不可变身份字段，更新忽略
+            protected = {"id", "namespace", "created_at", "_deleted"}
+            rec.update({k: v for k, v in data.items() if k not in protected})
+            await self._storage.put_record(self._collection, entry_id, rec)
+            return True
 
     async def delete(self, entry_id: str) -> bool:
-        rec = await self._storage.get_record(self._collection, entry_id)
-        if not rec:
-            return False
-        rec = {**rec, "_deleted": True}
-        await self._storage.put_record(self._collection, entry_id, rec)
-        return True
+        async with self._lock_for(entry_id):
+            rec = await self._storage.get_record(self._collection, entry_id)
+            if not rec:
+                return False
+            rec = {**rec, "_deleted": True}
+            await self._storage.put_record(self._collection, entry_id, rec)
+            return True
 
     async def query(self, q: MemoryQuery) -> list[MemoryEntry]:
         recs = await self._storage.list_records(self._collection)

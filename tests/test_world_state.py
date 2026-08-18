@@ -107,9 +107,12 @@ class TestWorldStateModel:
         assert world.character_knows("c1", "f1") is True  # 无时间基准 = 任意时间已知
 
     def test_add_knowledge_idempotent_monotonic(self):
-        world = _world()
-        assert world.add_knowledge(KnowledgeEntry("c1", "f1", known_at_chapter=5)) is False  # 已登记更早
-        assert world.add_knowledge(KnowledgeEntry("c1", "f1", known_at_chapter=1)) is True  # 更早知晓允许
+        world = _world()  # c1/f1 初始 known_at_chapter=3
+        assert world.add_knowledge(KnowledgeEntry("c1", "f1", known_at_chapter=5)) is False  # 同事实已登记，幂等跳过
+        assert world.add_knowledge(KnowledgeEntry("c1", "f1", known_at_chapter=1)) is False  # 更早章：回填而非追加
+        assert world.character_knows("c1", "f1", at_chapter=1) is True  # 回填生效：第 1 章起已知
+        assert world.character_knows("c1", "f1", at_chapter=2) is True
+        assert len(world.knowledge["c1"]) == 1  # 无重复条目
         assert world.add_knowledge(KnowledgeEntry("c1", "f2", known_at_chapter=10)) is True
 
     def test_causal_link_rejects_unknown_events(self):

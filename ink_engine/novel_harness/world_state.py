@@ -35,7 +35,7 @@ from __future__ import annotations
 import json
 import logging
 import re
-from dataclasses import asdict, dataclass, field
+from dataclasses import asdict, dataclass, field, replace
 from typing import Any, Protocol, runtime_checkable
 
 from ink_engine.novel_harness.narrative_state import (
@@ -44,6 +44,7 @@ from ink_engine.novel_harness.narrative_state import (
     ACTOR_SYSTEM,
     ACTOR_USER,
     STATUS_SET,
+    is_illegal_transition,
     is_valid_status,
 )
 
@@ -360,13 +361,26 @@ class WorldState:
     ) -> bool:
         """追加知识矩阵条目。
 
-        幂等语义：同角色同事实已登记（且知晓章不晚于本次）时跳过——
-        知识只会早不会晚，重复登记可能把"第 5 章已知"倒退成"第 8 章已知"。
+        幂等语义：同角色同事实**只登记一条**（知识只会早不会晚）——
+        已登记章的知晓时间不得倒退；更早登记（known_at 更小）时回填
+        条目而非追加重复行（重复行会让信息差视图失真）。
         """
         key = _key(entry.character_id)
         existing = self.knowledge.get(key, [])
-        for e in existing:
-            if e.fact_id == entry.fact_id and e.known_at_chapter <= entry.known_at_chapter:
+        for i, e in enumerate(existing):
+            if e.fact_id == entry.fact_id:
+                if entry.known_at_chapter < e.known_at_chapter:
+                    # 更早知晓：回填（知识只会早不会晚，单条记录向前修正）
+                    existing[i] = replace(
+                        e, known_at_chapter=entry.known_at_chapter
+                    )
+                    self.record_change(
+                        CHANGE_KNOWLEDGE,
+                        at_chapter=entry.known_at_chapter,
+                        actor=actor,
+                        detail=f"角色[{key}] 知晓事实 {entry.fact_id}（知晓章回填至第{entry.known_at_chapter}章）",
+                        payload={"character_id": key, "fact_id": entry.fact_id},
+                    )
                 return False
         self.knowledge.setdefault(key, []).append(entry)
         self.record_change(
@@ -442,9 +456,21 @@ class WorldState:
         node: ForeshadowingNode,
         *,
         actor: str = ACTOR_AGENT,
-    ) -> ForeshadowingNode:
-        """写入/合并伏笔节点（按 id 覆盖；合法性由校验层判定）。"""
+    ) -> ForeshadowingNode | None:
+        """写入/合并伏笔节点（按 id 覆盖；终态不可逆规则在写时拒绝）。
+
+        终态规则接线（narrative_state.is_illegal_transition）：resolved 为
+        终态，回收后不得回退为埋设/推进/停滞——写时拒绝并留痕，防规则
+        只在校验层事后被动报告、违例仍落库。
+        """
         key = _key(node.foreshadowing_id)
+        current = self.foreshadowings.get(key)
+        if current is not None and is_illegal_transition(current.status, node.status):
+            logger.warning(
+                f"[world_state] 伏笔状态非法迁移被拒绝: {key} "
+                f"{current.status!r} -> {node.status!r}（resolved 为终态不得回退）"
+            )
+            return None
         self.foreshadowings[key] = node
         self.record_change(
             CHANGE_FORESHADOWING,
@@ -974,6 +1000,12 @@ def apply_state_changes(
             continue
         if not is_valid_status(upd.status):
             result.skipped.append(f"伏笔 {upd.foreshadowing_id} 状态 {upd.status!r} 非法，忽略")
+            continue
+        if is_illegal_transition(node.status, upd.status):
+            result.skipped.append(
+                f"伏笔 {upd.foreshadowing_id} 状态非法迁移被拒绝: "
+                f"{node.status!r} -> {upd.status!r}（resolved 为终态不得回退）"
+            )
             continue
         world.upsert_foreshadowing(
             ForeshadowingNode(

@@ -60,8 +60,8 @@ class LLMError(EngineError):
     ) -> None:
         self.status_code = status_code if status_code is not None else type(self).status_code
         if detail:
-            detail = _CONTROL_CHAR_RE.sub(" ", detail)[:_DETAIL_MAX_LEN]
-            detail = redact(detail)
+            # 先遮蔽后截断：密钥残片被边界切短（<8 字符）时遮蔽规则不失配
+            detail = _CONTROL_CHAR_RE.sub(" ", redact(detail))[:_DETAIL_MAX_LEN]
         self.detail = detail
         base = message or self.default_message
         if detail:

@@ -13,6 +13,7 @@ get_adapter_class 时才注册，缺 httpx 时给出可操作的安装提示。
 """
 from __future__ import annotations
 
+import contextlib
 from collections.abc import Mapping
 from typing import Any
 
@@ -27,14 +28,24 @@ _OPENAI_COMPAT_ALIASES = ("openai_compat", "openai", "deepseek", "zhipu", "moons
 
 
 def register_adapter(name: str, cls: type[AsyncLLM]) -> None:
-    """注册适配器类（可覆盖同名——宿主可换掉内置实现）。"""
+    """注册适配器类（可覆盖同名——宿主可换掉内置实现）。
+
+    入口先注册内置（setdefault 不覆盖宿主注册）：宿主先于内置注册的
+    同名适配器不被惰性内置注册静默覆盖（内置注册只补缺省名）。
+    """
     if not name:
         raise LLMConfigError("适配器注册名不能为空")
+    # 缺 httpx 时自定义适配器注册不受阻（内置惰性，用不到即不依赖）
+    with contextlib.suppress(LLMConfigError):
+        _ensure_builtins()
     _LLM_REGISTRY[name] = cls
 
 
 def _ensure_builtins() -> None:
-    """惰性注册内置适配器（首次访问注册表面时执行，防 import 即要求 httpx）。"""
+    """惰性注册内置适配器（首次访问注册表面时执行，防 import 即要求 httpx）。
+
+    只补缺省名（setdefault）：宿主已注册的同名适配器保持生效。
+    """
     global _BUILTINS_REGISTERED
     if _BUILTINS_REGISTERED:
         return
@@ -47,7 +58,7 @@ def _ensure_builtins() -> None:
             ) from exc
         raise
     for name in _OPENAI_COMPAT_ALIASES:
-        _LLM_REGISTRY[name] = OpenAICompatibleLLM
+        _LLM_REGISTRY.setdefault(name, OpenAICompatibleLLM)
     _BUILTINS_REGISTERED = True
 
 

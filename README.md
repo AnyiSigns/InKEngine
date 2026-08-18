@@ -32,7 +32,7 @@ pip install -e ".[test]"    # 测试与 lint 依赖（pytest/ruff）
 |---|---|
 | `graph.py` / `executor.py` | 图定义 DSL + 执行循环（checkpoint 版本链/恢复重放/interrupt 注入/预算钩子/异常策略） |
 | `state.py` / `patch_chain.py` | 状态通道 + reducer 注册表；内容型补丁链（append/replace/delete + assemble/rebase/branch） |
-| `events.py` | 事件信封（协议版本化 + 传输接口化，负载对齐前端协议 v2） |
+| `events.py` | 事件信封（协议版本化 + 传输接口化，负载对齐前端协议） |
 | `storage.py` | 通用存储服务（checkpoint/执行事件日志/structured records，内存/sqlite/postgres） |
 | `interrupt.py` | interrupt 挂起/注入重入（弹卡审批一等能力） |
 | `approval.py` | 工具调用前挂卡审批标准姿势（approve_before_execute/approve_batch，包装） |

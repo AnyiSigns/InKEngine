@@ -28,6 +28,8 @@ _REDACT_PATTERNS: tuple[re.Pattern[str], ...] = (
     re.compile(r"sk-[A-Za-z0-9_\-]{8,}"),
     re.compile(r"(?i)(api[-_]?key|token|secret|password|authorization)\s*[=:]\s*\S+"),
     re.compile(r"(?i)\b(authorization|proxy-authorization)\b[^,;\r\n]*"),
+    re.compile(r"(?i)\bbearer\s+[A-Za-z0-9._\-]+"),
+    re.compile(r"(?i)\"(api[-_]?key|token|secret|password|authorization)\"\s*:\s*\"[^\"]*\""),
     re.compile(r"(?:postgres(?:ql)?|mysql|redis|amqp)://[^@\s/]+@"),
     re.compile(r"[?&](?:key|token|api_key|access_token|secret)=[^&\s]+"),
 )
@@ -35,8 +37,11 @@ _REDACT_PATTERNS: tuple[re.Pattern[str], ...] = (
 
 def redact(text: str) -> str:
     """对日志文本统一遮蔽敏感形态（失败安全：异常时不遮蔽也不崩溃）。"""
-    for pattern in _REDACT_PATTERNS:
-        text = pattern.sub("[REDACTED]", text)
+    try:
+        for pattern in _REDACT_PATTERNS:
+            text = pattern.sub("[REDACTED]", text)
+    except Exception:
+        return str(text)  # 失败安全：非 str 输入等异常不遮蔽也不崩溃
     return text
 
 
@@ -68,10 +73,11 @@ def get_logger(name: str) -> logging.Logger:
 def configure_engine_logging(level: int = logging.INFO) -> None:
     """显式启用引擎 JSON 日志（宿主调用；未调用时引擎日志并入宿主日志体系）。
 
-    幂等：只挂一次 JSON handler。core 根 logger 挂 handler，
-    子模块 logger 经 propagate 输出，宿主 root 采集器同样可接收。
+    幂等：只挂一次 JSON handler。包根 logger（``ink_engine``）挂 handler，
+    子模块 logger（``ink_engine.core.*`` 等）经层级 propagate 输出，宿主
+    root 采集器同样可接收。
     """
-    root = logging.getLogger("core")
+    root = logging.getLogger("ink_engine")
     for handler in root.handlers:
         if isinstance(handler, logging.StreamHandler) and not isinstance(
             handler, logging.NullHandler

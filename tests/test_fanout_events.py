@@ -144,10 +144,10 @@ def test_event_json_line():
     assert '"step_id": "s1"' in j
 
 
-def test_system_events_not_in_step_sequence():
-    assert is_system_event("end")
-    assert is_system_event("chapter_written")
-    assert is_system_event("regenerated_from")
+def test_system_events_default_empty():
+    """机制层默认不预置领域事件名（宿主协议注入）；模块级常量可覆盖。"""
+    assert not is_system_event("end")
+    assert not is_system_event("chapter_written")
     assert not is_system_event("reply_token")
 
 

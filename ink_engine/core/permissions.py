@@ -74,10 +74,14 @@ def rule_matches(rule: PermissionRule, operation: str, target: str) -> bool:
     if rule.domain == "network":
         return network_matches(rule.pattern, target)
     if rule.domain == "filesystem":
-        # Windows 反斜杠在 fnmatch 中是转义符：路径统一转正斜杠后 glob
-        return _fnmatch_any(
-            rule.pattern.replace("\\", "/"), target.replace("\\", "/")
-        )
+        # Windows 反斜杠在 fnmatch 中是转义符：路径统一转正斜杠后 glob；
+        # 含 ``..`` 段的路径一律拒绝——fnmatch 的 ``*``/``**`` 跨路径分隔符
+        # 匹配，``/book/**`` 可放行 ``/book/../../etc/passwd``，权限层必须先
+        # 守住路径边界（``..`` 归一到沙箱/调用方再判等于放行穿越）
+        t = target.replace("\\", "/")
+        if ".." in t.split("/"):
+            return False
+        return _fnmatch_any(rule.pattern.replace("\\", "/"), t)
     if rule.domain in _KNOWN_DOMAINS:
         return _fnmatch_any(rule.pattern, target)
     # 宿主自定义域：同样走 fnmatch（机制不给自定义域额外语义）

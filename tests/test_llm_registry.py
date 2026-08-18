@@ -92,6 +92,18 @@ class TestRegistry:
         finally:
             register_adapter("openai_compat", OpenAICompatibleLLM)
 
+    def test_builtins_do_not_overwrite_host_registration(self):
+        """回归：宿主先注册的同名适配器不被惰性内置注册静默覆盖（setdefault）。"""
+
+        class MineLLM(OpenAICompatibleLLM):
+            adapter = "openai"
+
+        register_adapter("openai", MineLLM)
+        try:
+            assert get_adapter_class("openai") is MineLLM
+        finally:
+            register_adapter("openai", OpenAICompatibleLLM)
+
     def test_empty_name_rejected(self):
         with pytest.raises(LLMConfigError):
             register_adapter("", OpenAICompatibleLLM)

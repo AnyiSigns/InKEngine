@@ -16,7 +16,7 @@ from collections.abc import Callable
 from dataclasses import dataclass, field
 from typing import Any
 
-from .patch_chain import Patch, PatchChain
+from .patch_chain import Patch, PatchChain, _deep_copy
 
 # reducer 签名：(base, overlay) -> new；None 通道 = 裸 LastValue
 Reducer = Callable[[Any, Any], Any]
@@ -99,12 +99,27 @@ def patch_chain_reducer(base: Any, overlay: Any) -> Any:
     反复应用 overlay 即不断追加补丁（append-only）；组装/压扁是读取侧操作
     （assemble/rebase），不写通道——"状态 = 快照"由 checkpoint 承担。
 
-    契约（防重复追加）：overlay 必须是"增量"——仅包含新补丁的 Patch /
-    Patch 列表 / 独立新链。节点从 ctx.state 读取链后就地追加、再整链返回
-    是常见写法（含子图回流场景）：此时 overlay 与 base 是同一对象，链内
-    已含全部补丁，直接短路返回，避免自身补丁被再次追加导致内容翻倍。
+    契约（防重复追加）：
+    - overlay 必须是"增量"——仅包含新补丁的 Patch / Patch 列表 / 独立新链；
+    - 节点从 ctx.state 读取链后就地追加、再整链返回是常见写法（含子图
+      回流场景）：overlay 与 base 是同一对象时直接短路返回；
+    - 整链回流（子图终态链回父图）：overlay 补丁若以链上已有补丁为前缀
+      （同源链的隔离拷贝），只追加差集段，防自身补丁被再次追加导致
+      内容翻倍；base 非链时的整链写入整体保留基础文本（不丢弃）。
     """
-    chain = base if isinstance(base, PatchChain) else PatchChain()
+    if overlay is None:
+        return base if isinstance(base, PatchChain) else PatchChain()
+    if isinstance(base, PatchChain):
+        chain = base
+    elif isinstance(overlay, PatchChain):
+        # 首次写入完整链（含子图入口归一化收到父链引用）：整体保留
+        # base+补丁，且深拷贝隔离——就地追加不污染原链
+        return overlay.branch()
+    elif isinstance(overlay, dict):
+        # 裸 dict 初值（通道首值非链形态）：作为基础文本（深拷贝防共享污染）
+        return PatchChain(base=_deep_copy(overlay))
+    else:
+        chain = PatchChain()
     if overlay is chain:
         return chain
     if isinstance(overlay, Patch):
@@ -112,7 +127,12 @@ def patch_chain_reducer(base: Any, overlay: Any) -> Any:
     elif isinstance(overlay, list):
         chain.apply_many([p for p in overlay if isinstance(p, Patch)])
     elif isinstance(overlay, PatchChain):
-        chain.apply_many(overlay.patches)
+        n = chain.length
+        if overlay.length >= n and overlay.patches[:n] == chain.patches:
+            # 同源链新拷贝（就地追加后整链回流）：只追加差集段
+            chain.apply_many(overlay.patches[n:])
+        else:
+            chain.apply_many(overlay.patches)
     return chain
 
 

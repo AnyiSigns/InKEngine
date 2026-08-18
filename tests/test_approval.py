@@ -162,6 +162,35 @@ async def test_no_timeout_by_default():
     assert "expires_at" not in ctx.hung[1]  # 默认不限时，不写 expires_at
 
 
+async def test_timeout_reads_back_hung_card_expires_at():
+    """重入场景：超时判定读回挂起卡持久化的 expires_at（不重算窗口）。
+
+    修复前：重入时 expires_at 按 now+timeout 重算，now 恒小于重算值，
+    "超时默认拒绝"永不触发——超时后补批照样通过。
+    """
+    clock = _FakeClock(start=1000.0)
+    policy = DefaultInterruptPolicy(timeout=30.0)
+
+    class _PersistentCtx(_FakeCtx):
+        def __init__(self, saved_card, on_interrupt=None):
+            super().__init__(inject={"gate": {"decision": DECISION_ACCEPT}}, on_interrupt=on_interrupt)
+            self._saved = saved_card
+
+        async def get_interrupt_payload(self, review_key):
+            return self._saved
+
+    # 首次挂起：expires_at = 1000 + 30 = 1030（随挂起卡持久化）
+    first = _FakeCtx()
+    with suppress(InterruptSignal):
+        await approve_before_execute(first, "gate", ACTION_WRITE, policy=policy, clock=clock)
+    saved_card = dict(first.hung[1])
+    # 重入：时钟已流逝 31 秒，读回 1030 → 过期默认拒绝（fail-closed 生效）
+    ctx = _PersistentCtx(saved_card, on_interrupt=lambda: clock.advance(31.0))
+    decision = await approve_before_execute(ctx, "gate", ACTION_WRITE, policy=policy, clock=clock)
+    assert decision.decision == DECISION_REJECT
+    assert decision.source == "expired"
+
+
 # ── 非法注入 fail-closed ──
 
 
@@ -172,6 +201,7 @@ async def test_invalid_inject_fail_closed():
         {"decision": DECISION_AUTO},  # auto 只由策略产生，注入无效
         {"decision": DECISION_EDIT},  # edit 缺 edited_content
         "edit",  # 字符串简写不含 edit
+        "auto",  # 字符串 auto 与 dict 分支同口径：不得伪装策略直过
         42,
     ):
         ctx = _FakeCtx(inject={"gate": bad})

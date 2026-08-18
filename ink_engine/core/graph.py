@@ -66,6 +66,12 @@ class NodeContext(Protocol):
 
     async def interrupt(self, review_key: str, payload: dict) -> Any: ...
 
+    async def get_interrupt_payload(self, review_key: str) -> dict | None:
+        """读取链尾挂起卡负载（key 匹配时）：重入场景读回挂起时的卡状态
+        （如审批超时窗口 expires_at），供挂起语义的时间敏感判定使用。
+        """
+        ...
+
     def spawn(self, subgraph: Graph, state: dict, *, index: int | None = None) -> None:
         """登记一个动态子任务（子图实例清单项，节点返回后统一展开）。
 

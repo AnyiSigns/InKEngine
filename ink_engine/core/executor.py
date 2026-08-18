@@ -25,7 +25,7 @@ from dataclasses import dataclass, field
 from typing import Any
 
 from .budget import BudgetManager
-from .events import EngineEvent, EngineTransport, is_system_event
+from .events import EngineEvent, EngineTransport
 from .exceptions import NodeExecutionError, StorageError
 from .graph import Graph, NodeContext, TerminateReason
 from .interrupt import InterruptCoordinator, InterruptSignal, InterruptState
@@ -62,6 +62,9 @@ class RunOptions:
     error_on_exception: bool = True
     max_spawns: int = 16
     spawn_concurrency: int = 4
+    # 系统信号事件集合（宿主协议注入）：命中的事件类型强制 step_id=None、
+    # 不入回合步骤序列（机制层默认空——不预置任何领域事件名）
+    system_events: frozenset[str] = frozenset()
 
 
 @dataclass(slots=True)
@@ -153,10 +156,10 @@ class _NodeContextImpl(NodeContext):
     async def emit(self, etype: str, payload: dict, *, step_id: str | None = None) -> None:
         """发射事件（事件即协议：负载直接对齐协议 v2，无框架中间层）。
 
-        系统信号（chapter_written/title_update/regenerated_from/end）不入
-        回合步骤序列——强制 step_id=None，与协议 v2 语义对齐。
+        系统信号（宿主注入的 RunOptions.system_events 命中类型）不入
+        回合步骤序列——强制 step_id=None，与事件协议语义对齐。
         """
-        if is_system_event(etype):
+        if etype in self._engine.options.system_events:
             step_id = None
         await self._engine._publish(
             EngineEvent(
@@ -179,6 +182,23 @@ class _NodeContextImpl(NodeContext):
         if self._engine._coordinator.has_inject(review_key):
             return self._engine._coordinator.consume(review_key)
         raise InterruptSignal(review_key, payload)
+
+    async def get_interrupt_payload(self, review_key: str) -> dict | None:
+        """读取链尾挂起卡负载（重入场景）：链尾中断 checkpoint 的 key 匹配
+        时返回卡负载（审批超时窗口等挂起时状态），否则 None。
+        """
+        if self._engine.options.storage is None:
+            return None
+        latest = await self._engine.options.storage.get_latest_checkpoint(
+            self._thread_id
+        )
+        if (
+            latest is not None
+            and latest.interrupt is not None
+            and latest.interrupt.key == review_key
+        ):
+            return latest.interrupt.payload
+        return None
 
     def spawn(self, subgraph, state: dict, *, index: int | None = None) -> None:
         """命令式子任务收集（便捷封装）：登记一个子图实例清单项。
@@ -360,6 +380,13 @@ class Engine:
         queue: asyncio.Queue[EngineEvent | None] = asyncio.Queue()
         # 事件流产出通道挂到传输列表（顺序 = 发射顺序；挂载后事件既落日志又进队列）
         transports = [*self.options.transports, *(transports or []), _QueueTransport(queue)]
+        task: asyncio.Task | None = None
+        # per-run 状态复位：run 是顶层入口（嵌套子图/spawn 走 _execute 不经过
+        # 此处）——同实例串行多 run 的计数/seq 锚点/链尾标志不跨 run 残留
+        # （否则不同 thread 的 checkpoint 锚点串台，恢复重放丢事件）
+        self._event_counter = 0
+        self._latest_event_seq = None
+        self._chain_advanced = False
         try:
             if inject:
                 self._coordinator.inject(inject)
@@ -387,6 +414,11 @@ class Engine:
                 yield event
             await task
         finally:
+            # 消费方提前退出（断连/break）：取消后台执行任务并等待其真正停止
+            # （否则任务继续调 LLM/写 checkpoint，成本与数据泄漏）
+            if task is not None and not task.done():
+                task.cancel()
+                await asyncio.gather(task, return_exceptions=True)
             # 清理本轮注入但未被消费的值：注入值一次性（已注入决策的审批视为
             # 放弃，防门控绕过），残留会泄漏到下一次 run 被静默消费
             if inject:
@@ -417,6 +449,10 @@ class Engine:
         thread_id = thread_id or f"thread-{uuid.uuid4().hex[:12]}"
         trace_id = trace_id or uuid.uuid4().hex
         token = trace_id_var.set(trace_id)
+        # per-run 状态复位（与 run() 同语义：顶层入口不跨 run 残留）
+        self._event_counter = 0
+        self._latest_event_seq = None
+        self._chain_advanced = False
         try:
             if inject:
                 self._coordinator.inject(inject)
@@ -431,7 +467,9 @@ class Engine:
                 trace_id=trace_id,
                 queue=None,
                 parent_checkpoint=parent_checkpoint,
-                transports=transports,
+                # 叠加而非替换：事件经 options.transports + 本参数 transports 推送
+                # （与 run() 同口径，防静态审计/落库传输被静默停掉）
+                transports=[*self.options.transports, *(transports or [])],
             )
             return result
         finally:
@@ -530,7 +568,11 @@ class Engine:
                 while cp is not None:
                     path = cp.graph_path or ()
                     if path:
-                        resume_map.setdefault(path, cp.checkpoint_id)
+                        # 仅收未完成/中断锚点（reason 为 None 的节点快照或
+                        # interrupted 挂起轮）：reply/stop/error 终态 = 已完成
+                        # 子图的陈旧结果，作恢复锚点会让子图直接收尾回流旧状态
+                        if cp.reason in (None, "interrupted"):
+                            resume_map.setdefault(path, cp.checkpoint_id)
                     elif top_anchor is None:
                         top_anchor = cp.checkpoint_id  # 最近的顶层锚点
                     # 继续沿父链回溯：顶层中断 checkpoint 的父链含子图层锚点
@@ -597,6 +639,11 @@ class Engine:
             # ── 恢复终点：已完成节点无出边，直接进入终态收尾 ──
             if skip_first_node:
                 skip_first_node = False
+                # 终态快照沿用恢复锚点的已完成节点：回写入口节点会让链尾
+                # 变成"entry 已完成"，后续 resume 从 entry 的下一节点整图
+                # 重跑（重复执行 + 重复写 checkpoint）
+                if last_checkpoint is not None and last_checkpoint.node:
+                    current = last_checkpoint.node
                 break
 
             # ── 预算检查（节点边界，策略由业务注册）──
@@ -614,6 +661,10 @@ class Engine:
             overlay: dict | None = None
             node_error: str | None = None
             for attempt in range(self.options.max_node_retries + 1):
+                # 每次尝试复位收集器与终止标记：失败尝试的残留清单不得在
+                # 重试成功后一并展开（序号冲突/重复执行），终止信号同理
+                ctx._spawns.clear()
+                ctx._terminated = None
                 try:
                     fn = graph.nodes[current]
                     result = fn(ctx)
@@ -674,7 +725,9 @@ class Engine:
                     # 命令式清单一次性消费：清空收集器，防清单泄漏到后续
                     # 节点被重复展开（数据驱动项已随 overlay 弹出，不重复）
                     ctx._spawns.clear()
-                except ValueError as exc:
+                except (ValueError, TypeError) as exc:
+                    # TypeError 双保险：不可信清单的类型错误必须走同一
+                    # 错误路径（终态 checkpoint + error 事件），不得穿出
                     node_error = f"spawn 清单非法: {exc}"
                     logger.error(f"spawn 清单非法 [{current}]: {exc}")
                     await ctx.emit("error", {"node": current, "message": node_error})
@@ -739,6 +792,26 @@ class Engine:
                         else {**current_state, **spawn_result.overlay}
                     )
                 ctx._state = current_state
+                # 失败实例留痕：剔除不阻断父链（部分失败语义），但必须可见
+                # 可诊断——error 事件入流 + 日志带实例序号与原因
+                if spawn_result.failures:
+                    for failure in spawn_result.failures:
+                        logger.warning(
+                            f"spawn 实例失败（剔除，父链继续）[{current}] index={failure.index}: {failure.error}"
+                        )
+                    await ctx.emit(
+                        "error",
+                        {
+                            "node": current,
+                            "message": (
+                                f"spawn 实例失败 {len(spawn_result.failures)} 个"
+                                f"（已剔除，父链继续）: "
+                                + ", ".join(
+                                    f"#{f.index}" for f in spawn_result.failures
+                                )
+                            ),
+                        },
+                    )
 
             # ── checkpoint 快照（每节点完成，版本链）──
             if storage is not None:
@@ -851,6 +924,9 @@ async def run_subgraph(subgraph: Graph, parent_ctx: NodeContext) -> dict | None:
                 transports=engine.options.transports,
                 max_node_retries=engine.options.max_node_retries,
                 error_on_exception=engine.options.error_on_exception,
+                # 成本护栏整体继承：父层禁用/收紧的 spawn 限制在子图内不旁落
+                max_spawns=engine.options.max_spawns,
+                spawn_concurrency=engine.options.spawn_concurrency,
             ),
         )
         engine._subgraph_engines[id(subgraph)] = sub_engine
@@ -877,7 +953,9 @@ async def run_subgraph(subgraph: Graph, parent_ctx: NodeContext) -> dict | None:
         state=entry_state,
         thread_id=parent._thread_id,
         round_id=parent_ctx.round_id,
-        resume_from=(parent_ctx.resume_map or {}).get(sub_path),
+        # 恢复锚点消费即清除：同 run 内条件边回路二次进入同名子图不得复用
+        # 旧锚点"恢复"（会跳过子图前段节点或直接收尾回流陈旧状态）
+        resume_from=(parent_ctx.resume_map or {}).pop(sub_path, None),
         trace_id=parent_ctx.trace_id,
         queue=None,
         graph_path=sub_path,
@@ -916,7 +994,11 @@ async def run_subgraph(subgraph: Graph, parent_ctx: NodeContext) -> dict | None:
     # 终态——整体回流父图会二次加和。规则：
     # - add_messages 通道：返回新增消息（按 id 差集），父图追加恰好一次；
     # - 其余通道：返回终态（入口已剥离归零，终态即子图内新增）。
-    return _subgraph_overlay_delta(entry_state, final_state, engine.options.schema)
+    # 分类判定用子图自身 schema：与入口剥离（run_subgraph 内同口径）一致，
+    # 子图自定义 schema 的 additive/merge 声明不回流入父口径错位。
+    return _subgraph_overlay_delta(
+        entry_state, final_state, sub_engine.options.schema
+    )
 
 
 def _subgraph_overlay_delta(

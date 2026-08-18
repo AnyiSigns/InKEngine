@@ -140,10 +140,16 @@ class OpenAICompatibleEmbedder(AsyncEmbedder):
             headers["Authorization"] = f"Bearer {self.config.api_key}"
         return headers
 
+    # extra 透传白名单：仅厂商扩展字段可进请求体；model/input 等核心键
+    # 禁止被配置覆盖（覆盖会静默错配：向量与文本不对应 → 记忆库污染）
+    _EXTRA_ALLOWED_KEYS = ("dimensions", "encoding_format", "user")
+
     def _payload(self, inputs: Any) -> dict[str, Any]:
         payload: dict[str, Any] = {"model": self.config.model_id, "input": inputs}
         if self.config.extra:
-            payload.update(self.config.extra)
+            for key, value in self.config.extra.items():
+                if key in self._EXTRA_ALLOWED_KEYS:
+                    payload[key] = value
         return payload
 
     @staticmethod
@@ -211,19 +217,27 @@ _OPENAI_COMPAT_ALIASES = ("openai_compat", "openai", "deepseek", "dashscope", "o
 
 
 def register_embedder(name: str, cls: type[AsyncEmbedder]) -> None:
-    """注册 embedding 适配器类（可覆盖同名——宿主可换掉内置实现）。"""
+    """注册 embedding 适配器类（可覆盖同名——宿主可换掉内置实现）。
+
+    入口先注册内置（setdefault 不覆盖宿主注册）：宿主先于内置注册的
+    同名适配器不被惰性内置注册静默覆盖。
+    """
     if not name:
         raise LLMConfigError("embedding 适配器注册名不能为空")
+    _ensure_builtins()
     _EMBEDDING_REGISTRY[name] = cls
 
 
 def _ensure_builtins() -> None:
-    """惰性注册内置适配器（首次访问注册表面时执行，防 import 即要求 httpx）。"""
+    """惰性注册内置适配器（首次访问注册表面时执行，防 import 即要求 httpx）。
+
+    只补缺省名（setdefault）：宿主已注册的同名适配器保持生效。
+    """
     global _BUILTINS_REGISTERED
     if _BUILTINS_REGISTERED:
         return
     for name in _OPENAI_COMPAT_ALIASES:
-        _EMBEDDING_REGISTRY[name] = OpenAICompatibleEmbedder
+        _EMBEDDING_REGISTRY.setdefault(name, OpenAICompatibleEmbedder)
     _BUILTINS_REGISTERED = True
 
 

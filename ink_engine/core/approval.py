@@ -143,7 +143,19 @@ async def approve_before_execute(
         return ApprovalDecision(decision=DECISION_AUTO, action=action, source="policy")
     card = _build_gate_card(action, payload)
     timeout = policy.timeout_for(key, action)
-    if timeout is not None:
+    # 重入读回已挂卡的超时窗口（持久化在中断 checkpoint 的卡负载）：挂起
+    # 时写入的 expires_at 才是超时判定的权威时钟——重算（now+timeout）会让
+    # "超时默认拒绝"永不触发（重入时 now 恒小于 now+timeout），超时后补批
+    # 照样通过。链尾无挂起卡（首次挂起/无存储）时按策略写 expires_at。
+    saved_expires = None
+    get_payload = getattr(ctx, "get_interrupt_payload", None)
+    if get_payload is not None:
+        saved = await get_payload(key)
+        if isinstance(saved, dict):
+            saved_expires = saved.get("expires_at")
+    if saved_expires is not None:
+        card["expires_at"] = saved_expires
+    elif timeout is not None:
         card["expires_at"] = clock() + timeout
     injected = await ctx.interrupt(key, card)
     decision, contents, reason, source = _resolve_decision(
@@ -194,7 +206,17 @@ async def approve_batch(
     card = _build_batch_card(actions, payload)
     timeouts = [policy.timeout_for(key, a) for a in actions]
     shortest = min((t for t in timeouts if t is not None), default=None)
-    if shortest is not None:
+    # 重入读回已挂卡的超时窗口（与 approve_before_execute 同语义：
+    # 挂起时的 expires_at 才是超时判定的权威时钟）
+    saved_expires = None
+    get_payload = getattr(ctx, "get_interrupt_payload", None)
+    if get_payload is not None:
+        saved = await get_payload(key)
+        if isinstance(saved, dict):
+            saved_expires = saved.get("expires_at")
+    if saved_expires is not None:
+        card["expires_at"] = saved_expires
+    elif shortest is not None:
         card["expires_at"] = clock() + shortest
     injected = await ctx.interrupt(key, card)
     decision, contents, reason, source = _resolve_decision(
@@ -256,7 +278,9 @@ def _resolve_decision(
     if isinstance(expires_at, (int, float)) and now > expires_at:
         return DECISION_REJECT, None, "审批已超时，默认拒绝", "expired"
     if isinstance(injected, str):
-        if injected not in VALID_DECISIONS or injected == DECISION_EDIT:
+        # 字符串形态与 dict 形态同口径：auto 属策略直过来源，外部注入
+        # 不得以字符串 "auto" 伪装直过（dict 分支已拒绝，此处对齐）
+        if injected not in VALID_DECISIONS or injected in (DECISION_EDIT, DECISION_AUTO):
             return DECISION_REJECT, None, f"注入值非法: {injected!r}", "invalid"
         return injected, None, None, "inject"
     if isinstance(injected, dict):

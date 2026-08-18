@@ -160,7 +160,8 @@ class WeightedBudgetAllocator:
     3. score ≥ ``keep_full_threshold`` → 整源保留（受 max_chars 约束），
        按（优先级降序, score 降序）顺序填充预算，预算不足者降级为截断；
     4. 其余 score ≥ ``truncate_min_score`` → 按分配分占比分享剩余预算
-       （水塘填充：超过可用长度的份额返还重新分配，防截断到比自己还短）；
+       （水塘填充：超过可用长度的份额返还重新分配，跨轮份额**累加**、
+       已整源保留者移出池锁定，防截断到比自己还短）；
     5. 份额低于 ``min_truncate_chars`` 或 score 低于门槛 → 丢弃。
 
     确定性 = 同一输入必得同一输出（可缓存、可断言、零 LLM 调用）。
@@ -236,41 +237,50 @@ class WeightedBudgetAllocator:
 
         # 4. 截断档水塘填充：每轮所有源按同一初始余额算份额，轮末统一扣减
         #    本轮实际分配额（预算硬上界：下一轮余额 = 尚未分配的部分，封顶
-        #    源多占份额自然留池回流；同轮内不互相挤占份额）
+        #    源多占份额自然留池回流；同轮内不互相挤占份额）。
+        #    跨轮**累加**：源在后续轮的份额是新增量而非覆写——覆写会把已
+        #    封顶源释放预算触发第二轮时其余源的份额变小，静默少分配/丢内容
+        #    （硬上界断言不触发，属静默错误）。已整源保留的源移出池锁定。
         pool = trunc
         while pool and remaining > 0:
             total_score = sum(s.score() for s in pool)
             if total_score <= 0:
                 for src in pool:
-                    allocations[id(src)] = SourceAllocation(
-                        src, MODE_DROP, 0, "分配分为零，无份额"
-                    )
+                    if id(src) not in allocations:
+                        allocations[id(src)] = SourceAllocation(
+                            src, MODE_DROP, 0, "分配分为零，无份额"
+                        )
                 break
             next_pool: list[ContextSource] = []
             spent = 0
             for src in pool:
                 share = int(remaining * src.score() / total_score)
                 avail = self._available_chars(src)
-                if share >= avail:
+                cur = allocations.get(id(src))
+                cur_limit = cur.char_limit if cur is not None else 0
+                if cur_limit >= avail:
+                    continue  # 已整源保留：移出池锁定，不覆写不重复扣减
+                if share >= avail - cur_limit:
                     allocations[id(src)] = SourceAllocation(
                         src, MODE_TRUNCATE, avail,
                         f"预算份额 {share} 超过可用长度，整源保留",
                     )
-                    spent += avail
-                elif share >= self.min_truncate_chars:
+                    spent += avail - cur_limit
+                elif cur_limit + share >= self.min_truncate_chars:
                     allocations[id(src)] = SourceAllocation(
-                        src, MODE_TRUNCATE, share,
-                        f"预算份额 {share} 字符",
+                        src, MODE_TRUNCATE, cur_limit + share,
+                        f"预算份额 {share} 字符（累计 {cur_limit + share}）",
                     )
                     spent += share
-                else:
-                    # 份额低于下限：丢弃，其份额自然回流池中重新分配（不扣减）
-                    allocations[id(src)] = SourceAllocation(
-                        src, MODE_DROP, 0,
-                        f"预算份额 {share} 低于下限 {self.min_truncate_chars}，丢弃",
-                    )
-                if share < avail:
                     next_pool.append(src)
+                else:
+                    # 份额低于下限：从未获得分配的源丢弃（其份额自然回流池
+                    # 重新分配）；已有累计分配的源保留现有结果并退出池
+                    if cur is None:
+                        allocations[id(src)] = SourceAllocation(
+                            src, MODE_DROP, 0,
+                            f"预算份额 {share} 低于下限 {self.min_truncate_chars}，丢弃",
+                        )
             remaining -= spent
             if not next_pool or len(next_pool) >= len(pool):
                 # 全部封顶或份额无变化（精度收敛），退出防死循环

@@ -23,13 +23,14 @@ from .exceptions import ProtocolVersionError
 # 事件协议版本：与前端协议同构（前端零改动约束）
 PROTOCOL_VERSION = 2
 
-# 系统信号（不入回合步骤序列，与事件协议语义对齐）
-SYSTEM_EVENTS: frozenset[str] = frozenset(
-    {"chapter_written", "title_update", "regenerated_from", "end"}
-)
+# 系统信号集合（不入回合步骤序列，与事件协议语义对齐）。
+# 机制层默认空：哪些事件属"系统信号"由宿主协议决定（宿主经
+# RunOptions.system_events 注入）——core 不预置任何领域事件名。
+SYSTEM_EVENTS: frozenset[str] = frozenset()
 
 
 def is_system_event(etype: str) -> bool:
+    """按模块级集合判定（默认空；宿主可覆盖 SYSTEM_EVENTS 常量以全局生效）。"""
     return etype in SYSTEM_EVENTS
 
 

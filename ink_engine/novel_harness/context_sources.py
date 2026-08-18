@@ -308,10 +308,16 @@ def world_state_source(
         if rels:
             bits.append(f"关系={','.join(rels)}")
         lines.append(f"- {ch.name}" + (f"：{'；'.join(bits)}" if bits else ""))
-    for fact_id in sorted(world.knowledge):
+    # 知识矩阵按事实归并渲染：knowledge 以 character_id 为键分组登记，
+    # 展示须以 fact_id 为条目（"谁知道某事实"的信息差视图），跨角色归并
+    by_fact: dict[str, list] = {}
+    for entries in world.knowledge.values():
+        for entry in entries:
+            by_fact.setdefault(entry.fact_id, []).append(entry)
+    for fact_id in sorted(by_fact):
         holders = ", ".join(
             f"{entry.character_id}@第{entry.known_at_chapter}章" if entry.known_at_chapter else entry.character_id
-            for entry in world.knowledge[fact_id]
+            for entry in by_fact[fact_id]
         )
         lines.append(f"- 事实「{fact_id}」已知者：{holders}")
     for fs_id in sorted(world.foreshadowings):

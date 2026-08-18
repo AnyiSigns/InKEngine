@@ -95,6 +95,9 @@ def _make_instance_engine(parent: _NodeContextImpl, subgraph: Graph) -> Engine:
             transports=engine.options.transports,
             max_node_retries=engine.options.max_node_retries,
             error_on_exception=engine.options.error_on_exception,
+            # 成本护栏整体继承：父层显式禁用/收紧的 spawn 限制在实例层不旁落
+            max_spawns=engine.options.max_spawns,
+            spawn_concurrency=engine.options.spawn_concurrency,
         ),
     )
     sub_engine._coordinator = engine._coordinator
@@ -148,6 +151,9 @@ async def run_spawned_subgraphs(
             trace_id=parent_ctx.trace_id,
             queue=None,
             graph_path=sub_path,
+            # 继承父传输链（含顶层 run 队列）：实例事件汇入父事件流——
+            # "事件统一父链、前端协议不变"（与静态子图 run_subgraph 同口径）
+            transports=parent._transports,
             # checkpoint 独立子链：实例写入实例 thread，事件日志统一父链
             checkpoint_thread_id=instance_thread,
         )
@@ -216,7 +222,12 @@ def collect_spawn_specs(
             state = item.get("state") or {}
             if not isinstance(state, dict):
                 raise ValueError(f"spawn 清单第 {i} 项状态须为 dict")
-            index = int(item.get("index") if item.get("index") is not None else len(specs))
+            try:
+                index = int(
+                    item.get("index") if item.get("index") is not None else len(specs)
+                )
+            except (TypeError, ValueError) as exc:
+                raise ValueError(f"spawn 清单第 {i} 项序号非法: {exc!r}") from exc
             specs.append(SpawnSpec(subgraph=subgraph, state=dict(state), index=index))
     indexes = [spec.index for spec in specs]
     if len(set(indexes)) != len(indexes):

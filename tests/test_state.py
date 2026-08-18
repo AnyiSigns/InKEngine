@@ -78,6 +78,45 @@ def test_patch_chain_reducer_batch_and_chain():
     assert chain.assemble() == {"x": 1, "y": 2}
 
 
+def test_patch_chain_reducer_base_preserved_on_first_chain():
+    """base 非链 + overlay 完整链：基础文本整体保留（不丢弃 overlay.base）。"""
+    seed = PatchChain(base={"text": "开头段落"}, patches=[])
+    chain = patch_chain_reducer(None, seed)
+    assert chain.assemble() == {"text": "开头段落"}
+    assert chain is not seed  # 深拷贝隔离，共享引用污染防护
+
+
+def test_patch_chain_reducer_isolated_copy_no_mutate_source():
+    """整链写入返回隔离拷贝：就地追加不污染原链（子图入口归一化场景）。"""
+    parent = PatchChain(base={"text": "开头"})
+    parent.apply(Patch(op=PatchOp.APPEND, path=("text",), value="A"))
+    entry = patch_chain_reducer(None, parent)
+    entry.apply(Patch(op=PatchOp.APPEND, path=("text",), value="B"))
+    assert entry.assemble() == {"text": "开头AB"}
+    assert parent.length == 1  # 原链未被污染
+    assert parent.assemble() == {"text": "开头A"}
+
+
+def test_patch_chain_reducer_full_chain_reflow_no_duplicate():
+    """整链回流（子图终态链回父图）：同源前缀只追加差集段，不重复追加。"""
+    parent = PatchChain(base={"text": "开头"})
+    parent.apply(Patch(op=PatchOp.APPEND, path=("text",), value="A"))
+    child = parent.branch()  # 子图入口 = 父链隔离拷贝
+    child.apply(Patch(op=PatchOp.APPEND, path=("text",), value="B"))
+    result = patch_chain_reducer(parent, child)  # 回流整链
+    assert result is parent
+    assert parent.length == 2
+    assert parent.assemble() == {"text": "开头AB"}
+
+
+def test_patch_chain_reducer_dict_initial_as_base():
+    """裸 dict 初值：作为基础文本写入（不丢初值）。"""
+    chain = patch_chain_reducer(None, {"text": "初始"})
+    assert chain.assemble() == {"text": "初始"}
+    chain = patch_chain_reducer(chain, Patch(op=PatchOp.APPEND, path=("text",), value="+A"))
+    assert chain.assemble() == {"text": "初始+A"}
+
+
 def test_reducer_registry():
     assert get_reducer("add_messages") is add_messages
     assert get_reducer("merge_dicts") is merge_dicts

@@ -174,6 +174,21 @@ class TestWeightedBudgetAllocator:
         assert any(a.source is small for a in allocs)
         assert any(a.source is big and a.char_limit > 0 for a in allocs)
 
+    def test_pool_reflow_accumulates_not_overwrites(self):
+        # P1 回归：封顶源释放预算触发第二轮时，未封顶源的份额必须**累加**
+        # （修复前逐轮覆写：A 封顶 100 后，B/C 第二轮份额被更小值覆写，
+        # 预算大量剩余却静默丢内容——硬上界断言不触发）
+        a = _src(type_="a", content="A" * 100, weight=0.5, relevance=0.5)  # 0.25，封顶
+        b = _src(type_="b", content="B" * 10000, weight=0.4, relevance=0.5)  # 0.20
+        c = _src(type_="c", content="C" * 10000, weight=0.3, relevance=0.5)  # 0.15
+        allocs = WeightedBudgetAllocator().allocate([a, b, c], 1000)
+        by_type = {x.source.type: x for x in allocs}
+        assert by_type["a"].char_limit == 100  # 封顶整源
+        # 轮1 份额 333/250，轮2 份额 181/135 累加（修复前被覆写变小）
+        assert by_type["b"].char_limit == 514
+        assert by_type["c"].char_limit == 385
+        assert sum(x.char_limit for x in allocs) == 999  # 预算回流无静默浪费
+
 
 class TestContextAssembler:
     def test_empty_sources(self):

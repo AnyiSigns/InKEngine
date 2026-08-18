@@ -13,7 +13,7 @@ from collections.abc import Iterable
 from dataclasses import dataclass
 from typing import Any
 
-from ink_engine.core.llm.errors import LLMConfigError
+from ink_engine.core.llm.errors import LLMConfigError, LLMFormatError
 
 _ROLES = frozenset({"system", "user", "assistant", "tool"})
 
@@ -42,13 +42,31 @@ class ToolCall:
     @property
     def parsed_arguments(self) -> dict[str, Any]:
         """容错解析 arguments JSON（未完成/非法时返回空 dict，不抛错）。"""
+        return self.parse_arguments()
+
+    def parse_arguments(self, *, strict: bool = False) -> dict[str, Any]:
+        """解析 arguments JSON。
+
+        容错（默认）：未完成/非法返回空 dict——流式累积中的截断碎片是
+        常态，容忍解析不抛错；调用方在**执行前**须用 strict=True 校验
+        完整参数（防"参数被截断却以空参数执行"的静默降级）。
+        strict=True：非法/非对象 JSON 抛 LLMFormatError，调用方显式拒绝。
+        """
         if not self.arguments.strip():
+            if strict:
+                raise LLMFormatError("工具调用参数为空或未完成")
             return {}
         try:
             value = json.loads(self.arguments)
         except json.JSONDecodeError:
+            if strict:
+                raise LLMFormatError("工具调用参数非法（非完整 JSON）") from None
             return {}
-        return value if isinstance(value, dict) else {}
+        if not isinstance(value, dict):
+            if strict:
+                raise LLMFormatError("工具调用参数须为 JSON 对象")
+            return {}
+        return value
 
 
 @dataclass(slots=True)

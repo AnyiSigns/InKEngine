@@ -281,15 +281,78 @@ async def test_pipeline_truncates_overflow(tmp_path):
 
 
 async def test_pipeline_pure_memory_tool_passthrough():
-    """无提取目标（纯内存工具）：不触发权限/沙箱，直通执行。"""
+    """无提取目标（extractor 显式返回 None 的纯内存工具）：不触发权限/沙箱。"""
+    ctx = _FakeCtx()
+    pipeline = ToolPipeline(
+        gate=PermissionGate(),
+        extractor=lambda spec, args: None,  # 显式声明无判定目标
+        executor=lambda ctx, spec, args, approval: "ok",
+    )
+    result = await pipeline.execute(ctx, ToolSpec(name="summarize"), {"text": "x"})
+    assert result.ok is True
+    assert result.output == "ok"
+
+
+async def test_pipeline_deny_without_extractor():
+    """未配置操作提取器：默认拒绝（fail-closed），须 allow_unchecked 才直通。"""
     ctx = _FakeCtx()
     pipeline = ToolPipeline(
         gate=PermissionGate(),
         executor=lambda ctx, spec, args, approval: "ok",
     )
     result = await pipeline.execute(ctx, ToolSpec(name="summarize"), {"text": "x"})
+    assert result.ok is False
+    assert result.decision == DENY
+    assert "提取器" in (result.error or "")
+    # 宿主明示让步后才放行
+    pipeline.allow_unchecked = True
+    result = await pipeline.execute(ctx, ToolSpec(name="summarize"), {"text": "x"})
     assert result.ok is True
-    assert result.output == "ok"
+
+
+async def test_pipeline_unknown_decision_denied(tmp_path):
+    """门禁返回未知 decision：一律拒绝（fail-closed，不静默落到继续执行）。"""
+    ctx = _FakeCtx()
+
+    class _WeirdGate:
+        def check(self, tool, operation, target, *, permissions=()):
+            from ink_engine.core.permissions import GateResult
+
+            return GateResult("maybe_allow", tool, operation, target, "厂商扩展判定")
+
+    pipeline = ToolPipeline(
+        gate=_WeirdGate(),
+        extractor=lambda spec, args: ("write", str(args["path"])),
+        sandboxes=(FileSandbox(tmp_path),),
+        executor=lambda ctx, spec, args, approval: "ok",
+    )
+    result = await pipeline.execute(
+        ctx, _write_spec(), {"path": str(tmp_path / "a.md")}
+    )
+    assert result.ok is False
+    assert result.decision == DENY
+
+
+async def test_pipeline_sandbox_resolved_target_passed(tmp_path):
+    """沙箱解析结果回写执行参数：执行对象 = 校验对象（防二次拼接逃逸）。"""
+    ctx = _FakeCtx()
+    seen: list = []
+
+    pipeline = ToolPipeline(
+        gate=PermissionGate(),
+        extractor=lambda spec, args: ("write", str(args["path"])),
+        sandboxes=(FileSandbox(tmp_path),),
+        executor=lambda ctx, spec, args, approval: seen.append(args) or "ok",
+    )
+    rel = tmp_path / "sub" / "a.md"
+    result = await pipeline.execute(
+        ctx,
+        _write_spec(("filesystem:write:**",)),  # 宽泛声明命中，沙箱解析约束边界
+        {"path": str(rel.relative_to(tmp_path))},  # 沙箱根内相对路径
+    )
+    assert result.ok is True
+    # 已替换为沙箱解析后的绝对路径（执行对象 = 校验对象）
+    assert seen and str(seen[0]["path"]) == str(rel.resolve())
 
 
 async def test_pipeline_custom_audit_hook(tmp_path):

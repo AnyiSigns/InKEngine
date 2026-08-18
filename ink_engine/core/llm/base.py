@@ -10,7 +10,7 @@ from __future__ import annotations
 
 import abc
 from collections.abc import AsyncIterator, Mapping, Sequence
-from dataclasses import dataclass
+from dataclasses import dataclass, field
 from typing import Any
 
 from ink_engine.core.llm.errors import LLMConfigError
@@ -48,11 +48,12 @@ class LLMConfig:
     adapter: str
     model_id: str
     base_url: str
-    api_key: str | None = None
+    # repr=False：repr/日志/异常消息（default=str 序列化）不得携带凭据明文
+    api_key: str | None = field(default=None, repr=False)
     temperature: float | None = None
     max_tokens: int | None = None
     request_timeout: float | None = None
-    extra: dict[str, Any] | None = None
+    extra: dict[str, Any] | None = field(default=None, repr=False)
 
     @classmethod
     def from_dict(cls, data: Mapping[str, Any]) -> LLMConfig:

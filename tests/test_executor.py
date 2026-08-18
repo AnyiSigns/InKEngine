@@ -206,7 +206,7 @@ async def test_event_order_and_fields(memory_storage):
 
 
 async def test_nested_subgraph_path_and_reflow():
-    """嵌套图：graph_path 记录子图路径，子图输出回流父图（v3 T2 教训）。"""
+    """嵌套图：graph_path 记录子图路径，子图输出回流父图（回流父图的既有经验）。"""
     parent = Graph(name="parent", entry="sub")
 
     async def sub_start(ctx):
@@ -290,7 +290,7 @@ async def test_node_exception_terminates_with_error(memory_storage):
 
 
 async def test_node_exception_message_sanitized(memory_storage):
-    """节点异常 → 事件/checkpoint 消息脱敏，内部细节只进日志（S4）。"""
+    """节点异常 → 事件/checkpoint 消息脱敏，内部细节只进日志。"""
 
     async def boom(ctx):
         raise RuntimeError("连接器串泄露: postgresql://user:pwd@host/db")
@@ -311,7 +311,7 @@ async def test_node_exception_message_sanitized(memory_storage):
 
 
 async def test_node_invalid_overlay_type_terminates(memory_storage):
-    """节点返回非 dict 增量 → error 事件 + 图终止（N3，不裸崩溃）。"""
+    """节点返回非 dict 增量 → error 事件 + 图终止（不裸崩溃）。"""
 
     async def bad(ctx):
         return "not-a-dict"
@@ -402,7 +402,7 @@ async def test_budget_policy_normal_flow_passes():
 
 
 async def test_truncate_log_branch(memory_storage):
-    """编辑重放：日志截断 + 新分支（T6 语义）。"""
+    """编辑重放：日志截断 + 新分支。"""
     g = demo_linear_graph()
     engine = make_engine(g, storage=memory_storage)
     await _execute(engine, thread_id="t1", round_id="r1")
@@ -423,7 +423,7 @@ async def test_truncate_log_branch(memory_storage):
 
 
 async def test_checkpoint_event_seq_filled(memory_storage):
-    """checkpoint.event_seq 回填：恢复重放 = 快照 + 该 seq 之后的增量（B3）。"""
+    """checkpoint.event_seq 回填：恢复重放 = 快照 + 该 seq 之后的增量。"""
     events_seen: list[int] = []
 
     async def emitter(ctx):
@@ -477,7 +477,7 @@ async def test_resume_new_engine_instance_incremental(memory_storage):
 
 
 async def test_subgraph_events_anchor_resume_no_duplicate(memory_storage):
-    """子图事件计入父 checkpoint 锚点：resume 不重复投递子图事件（F1）。"""
+    """子图事件计入父 checkpoint 锚点：resume 不重复投递子图事件。"""
 
     async def sub_emit(ctx):
         await ctx.emit("node_start", {"name": "s1"}, step_id="n:1")
@@ -503,7 +503,7 @@ async def test_subgraph_events_anchor_resume_no_duplicate(memory_storage):
 
 
 async def test_interrupt_payload_stripped(memory_storage):
-    """中断负载（审批卡）敏感键剥离后才返回宿主（F13）。"""
+    """中断负载（审批卡）敏感键剥离后才返回宿主。"""
 
     async def gated(ctx):
         await ctx.interrupt("gate", {"question": "ok", "api_key": "sk-secret"})
@@ -519,7 +519,7 @@ async def test_interrupt_payload_stripped(memory_storage):
 
 
 async def test_patch_chain_node_mutation_no_duplicate():
-    """补丁链通道：节点读链→就地追加→整链返回不重复追加（N1）。"""
+    """补丁链通道：节点读链→就地追加→整链返回不重复追加。"""
     from ink_engine.core.patch_chain import Patch, PatchChain, PatchOp
     from ink_engine.core.state import StateSchema
 
@@ -546,7 +546,7 @@ async def test_patch_chain_node_mutation_no_duplicate():
 
 
 async def test_subgraph_patch_chain_reflow_no_duplicate():
-    """子图回流：patch_chain 通道输出回流父图不重复追加（N1+S5）。"""
+    """子图回流：patch_chain 通道输出回流父图不重复追加。"""
     from ink_engine.core.patch_chain import Patch, PatchChain, PatchOp
     from ink_engine.core.state import StateSchema
 
@@ -577,7 +577,7 @@ async def test_subgraph_patch_chain_reflow_no_duplicate():
 
 
 async def test_stale_inject_cleaned_after_run():
-    """注入值一次性：run 结束后未消费的注入残留被清理（N2）。"""
+    """注入值一次性：run 结束后未消费的注入残留被清理。"""
 
     async def gated(ctx):
         decision = await ctx.interrupt("gate", {"q": "?"})

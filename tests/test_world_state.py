@@ -1,16 +1,16 @@
-"""domain_novel/world_state.py 测试：世界状态图模型、状态更新、校验、涟漪扫描、分支。"""
+"""novel_harness/world_state.py 测试：世界状态图模型、状态更新、校验、涟漪扫描、分支。"""
 
 from __future__ import annotations
 
 import asyncio
 import json
 
-from ink_engine.domain_novel.narrative_state import (
+from ink_engine.novel_harness.narrative_state import (
     STATUS_ADVANCING,
     STATUS_RESOLVED,
     STATUS_SET,
 )
-from ink_engine.domain_novel.world_state import (
+from ink_engine.novel_harness.world_state import (
     ISSUE_CAUSAL,
     ISSUE_FINGERPRINT,
     ISSUE_KNOWLEDGE_GAP,

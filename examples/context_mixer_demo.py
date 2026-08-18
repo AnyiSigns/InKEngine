@@ -1,4 +1,4 @@
-"""InkEngine demo：D7 上下文调配器（Context Mixer）——多源加权融合。
+"""InkEngine demo：上下文调配器（Context Mixer）——多源加权融合。
 
 演示引擎核心能力：ContextSource 源元数据模型 + 确定性预算分配 +
 加权组装 + 融合钩子（LLM 调酒师，失败自动回退确定性组装）。

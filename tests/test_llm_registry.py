@@ -18,7 +18,7 @@ class TestRegistry:
     def test_builtin_adapters(self):
         names = adapter_names()
         assert "openai_compat" in names
-        # OpenAI 兼容厂商别名齐备（E3 迁移时 v3 adapter 名直接可用）
+        # OpenAI 兼容厂商别名齐备（adapter 名直接可用）
         for alias in ("openai", "deepseek", "zhipu", "moonshot", "ollama"):
             assert alias in names
 

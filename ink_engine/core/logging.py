@@ -1,6 +1,6 @@
 """结构化 JSON 日志（引擎自包含，零外部依赖）。
 
-对齐 v3 config.logging 的 JSON 日志风格（ts/level/logger/msg + trace_id），
+对齐 config.logging 的 JSON 日志风格（ts/level/logger/msg + trace_id），
 但引擎包零反向依赖，不 import text_forge_backend 任何模块——自带最小实现。
 trace_id 经 contextvars 传递，贯穿一次 run() 全链路（可观测性要求）。
 

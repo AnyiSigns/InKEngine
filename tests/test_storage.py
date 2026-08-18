@@ -77,7 +77,7 @@ async def test_optimistic_lock_conflict(storage):
 
 
 async def test_optimistic_lock_update_without_expected_version(storage):
-    """expected_version=None 时自动读当前版本（三后端同口径，N4 对齐）。"""
+    """expected_version=None 时自动读当前版本（三后端同口径）。"""
     rec = await storage.put_checkpoint(_cp(state={"v": 1}))
     updated = await storage.put_checkpoint(
         CheckpointRecord(
@@ -92,7 +92,7 @@ async def test_optimistic_lock_update_without_expected_version(storage):
 
 
 async def test_checkpoint_chain_tail_conflict(storage):
-    """并发写保护：链尾已前进时续链冲突（E1 乐观锁语义，executor 续链路径）。"""
+    """并发写保护：链尾已前进时续链冲突（乐观锁语义，executor 续链路径）。"""
     c1 = await storage.put_checkpoint(_cp(state={"v": 1}))  # 链头（parent=None）
     c2 = await storage.put_checkpoint(
         CheckpointRecord(checkpoint_id=0, thread_id="t1", node="n2", state={"v": 2}, parent_id=c1.checkpoint_id)
@@ -111,7 +111,7 @@ async def test_checkpoint_chain_tail_conflict(storage):
 
 
 async def test_checkpoint_error_field_roundtrip(storage):
-    """异常快照随 checkpoint 持久化（S4：reason=error 时携带脱敏错误消息）。"""
+    """异常快照随 checkpoint 持久化（reason=error 时携带脱敏错误消息）。"""
     rec = await storage.put_checkpoint(_cp(state={"v": 1}, reason="error", error="节点执行失败: a"))
     got = await storage.get_checkpoint(rec.checkpoint_id)
     assert got is not None
@@ -120,7 +120,7 @@ async def test_checkpoint_error_field_roundtrip(storage):
 
 
 async def test_checkpoint_sensitive_keys_stripped(storage):
-    """安全：checkpoint 永不落 api_key（继承 v3 剥离语义为引擎默认）。"""
+    """安全：checkpoint 永不落 api_key（引擎默认剥离语义）。"""
     rec = await storage.put_checkpoint(
         _cp(state={"model_config": {"api_key": "sk-secret", "model": "x"}, "ok": 1})
     )

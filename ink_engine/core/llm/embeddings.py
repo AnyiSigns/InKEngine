@@ -22,7 +22,7 @@ import httpx
 
 from ink_engine.core.llm.errors import LLMConfigError, LLMError, classify_llm_error
 
-# 配置白名单键（v3 模型配置形态兼容，未知键收进 extra 透传不破坏）。
+# 配置白名单键（模型配置形态兼容，未知键收进 extra 透传不破坏）。
 _CONFIG_KEYS = (
     "adapter",
     "model_id",
@@ -54,7 +54,7 @@ class EmbeddingConfig:
 
     @classmethod
     def from_dict(cls, data: Mapping[str, Any]) -> EmbeddingConfig:
-        """从配置字典构建（v3 模型配置形态兼容，未知键收进 extra）。
+        """从配置字典构建（模型配置形态兼容，未知键收进 extra）。
 
         Raises:
             LLMConfigError: adapter/model_id/base_url 缺失时。
@@ -241,7 +241,7 @@ def create_embedder(config: EmbeddingConfig | Mapping[str, Any]) -> AsyncEmbedde
     """按配置创建 embedding 实例（配置驱动选择适配器）。
 
     Args:
-        config: EmbeddingConfig 或配置字典（dict 形态与 v3 模型配置兼容）。
+        config: EmbeddingConfig 或配置字典（dict 形态与模型配置兼容）。
 
     Raises:
         LLMConfigError: 适配器未注册 / 配置缺字段 / 缺 httpx 依赖时。

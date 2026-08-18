@@ -65,7 +65,7 @@ def create_llm(config: LLMConfig | Mapping[str, Any]) -> AsyncLLM:
     """按配置创建 LLM 实例（配置驱动选择适配器）。
 
     Args:
-        config: LLMConfig 或配置字典（dict 形态与 v3 模型配置兼容）。
+        config: LLMConfig 或配置字典（dict 形态与既有模型配置兼容）。
 
     Raises:
         LLMConfigError: 适配器未注册 / 配置缺字段 / 缺 httpx 依赖时。

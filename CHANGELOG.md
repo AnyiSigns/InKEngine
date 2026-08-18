@@ -53,10 +53,23 @@ InkEngine 遵循 [语义化版本](https://semver.org/lang/zh-CN/)（`MAJOR.MINO
   （novel_demo.py + context_mixer_demo.py）、CI 门禁（GitHub Actions：
   lint + 单测 + E1 性能基准）。
 
+- **共享组件包（`ink_engine.components`，harness 组件库）**
+  - D1 回合步骤（round_steps）/ D3 审批卡（review_card）/ D4 域窗口
+    （domain_window）/ D9 评审收敛（review）重归类为共享组件——通用原语
+    从 core 与领域包归拢到组件包，只依赖 core，可选引入、可组合可替换。
+- **叙事领域包（`ink_engine.novel_harness`，随引擎发布的参考 harness）**
+  - 叙事状态定义（D6）/ 世界状态层（D8）/ 候选段落级混合（D2）/
+    小说评审-收敛（D9 叙事实现）/ 上下文源构建器（D7 域侧）归入叙事领域包；
+  - 旧路径 `ink_engine.domain_novel` 保留为兼容别名（re-export），
+    新代码使用 `ink_engine.components` / `ink_engine.novel_harness`。
+
 ### 变更
 
 - 引擎包零业务依赖（仅标准库；sqlite/postgres/llm 为可选 extra）。
 - 存储 schema 与 langgraph 时代不兼容（新表，旧库删表重建）。
+- E7 harness 分层：包归属重划（core 纯机制 / components 共享组件 /
+  novel_harness 叙事领域），模块 API 形状不变；import 路径迁移属破坏性
+  变更，旧路径由 `domain_novel` 兼容别名层承接。
 
 ### 修复
 
@@ -68,7 +81,8 @@ InkEngine 遵循 [语义化版本](https://semver.org/lang/zh-CN/)（`MAJOR.MINO
 |---|---|---|
 | 0.1.0 | 首版发布 | 无历史兼容负担 |
 
-## 未发布路线（拆独立仓库后规划）
+## 发布形态
 
-- 引擎随 TextForge 仓库发布；拆独立仓库 = 搬目录零重构（pyproject 拆分）。
-- M3 后评估 PyPI 发布（pyproject license 字段已标 MIT）。
+- 引擎随 TextForge 仓库发布；各包目录物理独立（pyproject 多包布局），
+  搬目录零重构。
+- license 字段已标 MIT（见 LICENSE）。

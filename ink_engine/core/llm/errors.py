@@ -27,7 +27,7 @@ _DETAIL_MAX_LEN = 200
 # 控制字符（C0 + DEL）剥离：防日志注入（伪造行/ANSI 序列）与终端干扰
 _CONTROL_CHAR_RE = re.compile(r"[\x00-\x1f\x7f]")
 
-# 上游错误正文关键词 → 瞬时故障分类（吸收 v3 core/errors.classify_model_error
+# 上游错误正文关键词 → 瞬时故障分类（吸收 core/errors.classify_model_error
 # 的文本兜底：国内 MaaS 常见「服务繁忙/过载」等文案错误帧无状态码可依）
 _TRANSIENT_KEYWORDS: tuple[tuple[tuple[str, ...], type[LLMError]], ...] = (
     (("timeout", "timed out", "读超时", "连接超时"), "LLMTimeoutError"),

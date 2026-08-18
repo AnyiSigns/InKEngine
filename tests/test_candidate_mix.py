@@ -1,10 +1,10 @@
-"""domain_novel/candidate_mix.py 测试：段落切分与跨候选取段落组装。"""
+"""novel_harness/candidate_mix.py 测试：段落切分与跨候选取段落组装。"""
 from __future__ import annotations
 
 import pytest
 
-from ink_engine.core.review import CandidateReview, ParagraphScore
-from ink_engine.domain_novel.candidate_mix import (
+from ink_engine.components.review import CandidateReview, ParagraphScore
+from ink_engine.novel_harness.candidate_mix import (
     MixedCandidate,
     ParagraphSource,
     build_mixed_candidate,

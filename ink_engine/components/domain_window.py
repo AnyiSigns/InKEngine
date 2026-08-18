@@ -1,4 +1,4 @@
-"""域上下文窗口投影原语（D4 域上下文管理）。
+"""域上下文窗口投影原语（域上下文管理）。
 
 多域/多角色 agent 的痛点：所有域共享一条消息流，域切换后 LLM 会看到大量
 异域噪音（其它域的工具调用与结果）。域窗口 = 对共享消息流做**投影**，
@@ -20,7 +20,7 @@ from __future__ import annotations
 from collections.abc import Callable, Sequence
 from typing import Any
 
-from .llm.messages import message_role
+from ink_engine.core.llm.messages import message_role
 
 # 域窗口保留的工具轮数上限（防上下文膨胀；用户消息不设限全留）
 DEFAULT_MAX_TOOL_ROUNDS = 8

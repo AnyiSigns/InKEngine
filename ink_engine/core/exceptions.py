@@ -56,6 +56,10 @@ class StorageError(EngineError):
     """存储服务错误（后端不可用/写入失败等）。"""
 
 
+class SandboxViolation(EngineError):
+    """沙箱守卫拒绝（路径越界/symlink 逃逸/命令不在白名单等）。"""
+
+
 class ProtocolVersionError(EngineError):
     """事件协议版本不兼容（增量演进范围内加字段兼容，破坏性变更需升级版本）。"""
 
@@ -72,5 +76,6 @@ __all__ = [
     "NodeExecutionError",
     "NodeNotFoundError",
     "ProtocolVersionError",
+    "SandboxViolation",
     "StorageError",
 ]

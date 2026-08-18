@@ -1,4 +1,4 @@
-"""回合步骤序列累积原语（D1 回合步骤协议）。
+"""回合步骤序列累积原语（回合步骤协议）。
 
 回合（用户消息边界）/ 步骤（step_id）/ 回合步骤序列是历史回放的单一事实
 来源：实时事件发射顺序 = 录制顺序 = 回放顺序。累积器维护「当前回合」的
@@ -56,7 +56,7 @@ class RoundSteps:
         round_id: 所属回合 id（回合边界标识，累积器本身不做校验）。
         seed: 中断回合的已有步骤（来自 checkpoint 通道），None = 新回合。
         node_labels: 节点展示标签覆盖表（``node_id -> 标签``）。命中即以
-            表内标签替代调用方传入的 label，用于把内部阶段名收敛为对外
+            表内标签替代调用方传入的 label，用于把内部环节名收敛为对外
             统一文案；引擎不内置任何业务默认值。
     """
 
@@ -373,7 +373,7 @@ class RoundSteps:
     def node_start(self, node_id: str, label: str, extra: dict | None = None) -> str:
         """节点卡开始。extra 携带 chapter_index/chapter_total 时按序号分卡并内嵌进度。
 
-        同 step_id 复用时只刷新状态/进度，保留首次标签——节点内部多阶段
+        同 step_id 复用时只刷新状态/进度，保留首次标签——节点内部多环节
         各自 start 不覆盖对外展示名。
         """
         self._close_reply()
@@ -389,7 +389,7 @@ class RoundSteps:
             return str(existing["step_id"])
         payload: dict[str, Any] = {
             "node_id": node_id,
-            # 宿主注入的展示标签优先（内部阶段名收敛为对外统一文案）
+            # 宿主注入的展示标签优先（内部环节名收敛为对外统一文案）
             "label": self._node_labels.get(node_id, label) or node_id,
             "status": "running",
         }

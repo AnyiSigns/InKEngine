@@ -1,7 +1,7 @@
 ﻿"""通用存储服务（Kilo Code 式：引擎内全部持久化统一走存储服务接口）。
 
 structured records + JSON 数据，适配内存/sqlite/postgres，连接串/配置
-切换后端。E1 承载两类持久化：
+切换后端。引擎承载两类持久化：
 - checkpoint 版本链（快照，乐观锁并发写保护）；
 - 执行事件日志（append-only，恢复 = 快照 + 增量日志重放）。
 

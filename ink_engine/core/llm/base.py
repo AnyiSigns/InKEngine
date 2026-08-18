@@ -1,8 +1,8 @@
 """统一 LLM 接口（AsyncLLM）与数据模型。
 
-计划形态：AsyncLLM.astream(messages, tools, params) -> AsyncGenerator[LLMChunk]。
+接口形态：AsyncLLM.astream(messages, tools, params) -> AsyncGenerator[LLMChunk]。
 LLMChunk 增量语义（{token?, tool_calls_delta?, reasoning_token?} + finish_reason/usage
-——增量演进加字段不破坏）；ainvoke 为非流式补全（E3 大量调用点：压缩/审计/
+——增量演进加字段不破坏）；ainvoke 为非流式补全（压缩/审计/
 章节生成等非流式路径）。厂商差异全部收敛到适配器内部（流式 SSE 解析、工具
 增量、reasoning 透传），上层只消费统一增量模型。
 """
@@ -17,7 +17,7 @@ from ink_engine.core.llm.errors import LLMConfigError
 from ink_engine.core.llm.messages import Message, ToolCall, ToolCallDelta, accumulate_tool_calls
 from ink_engine.core.llm.tools import ToolSpec
 
-# from_dict 白名单键（v3 模型配置形态：adapter/base_url/api_key/model_id/
+# from_dict 白名单键（模型配置形态：adapter/base_url/api_key/model_id/
 # temperature/max_tokens/request_timeout）；未知键收进 extra 透传不破坏。
 _CONFIG_KEYS = (
     "adapter",
@@ -56,7 +56,7 @@ class LLMConfig:
 
     @classmethod
     def from_dict(cls, data: Mapping[str, Any]) -> LLMConfig:
-        """从配置字典构建（v3 模型配置形态兼容，未知键收进 extra）。
+        """从配置字典构建（模型配置形态兼容，未知键收进 extra）。
 
         Raises:
             LLMConfigError: adapter/model_id/base_url 缺失时。

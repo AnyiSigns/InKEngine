@@ -16,7 +16,12 @@ from ink_engine.core.llm import (
     create_embedder,
     embedder_names,
 )
-from ink_engine.core.llm.errors import LLMAuthError, LLMBadRequestError, LLMError
+from ink_engine.core.llm.errors import (
+    LLMAuthError,
+    LLMBadRequestError,
+    LLMConfigError,
+    LLMError,
+)
 
 
 def make_embedder(handler, **config_kw) -> tuple[OpenAICompatibleEmbedder, dict]:
@@ -124,7 +129,7 @@ async def test_extra_fields_forwarded():
 
 
 def test_config_requires_fields():
-    with pytest.raises(Exception):
+    with pytest.raises(LLMConfigError):
         EmbeddingConfig.from_dict({"adapter": "openai_compat", "model_id": "m"})
 
 

@@ -1,8 +1,8 @@
-"""domain_novel/context_sources.py 测试：叙事源构建器（纯数据 → 源）。"""
+"""novel_harness/context_sources.py 测试：叙事源构建器（纯数据 → 源）。"""
 from __future__ import annotations
 
 from ink_engine.core.context import ContextSource
-from ink_engine.domain_novel.context_sources import (
+from ink_engine.novel_harness.context_sources import (
     SOURCE_BOOK,
     SOURCE_BRANCH,
     SOURCE_CHAPTER,
@@ -26,7 +26,7 @@ from ink_engine.domain_novel.context_sources import (
     style_source,
     world_state_source,
 )
-from ink_engine.domain_novel.world_state import CharacterState, WorldState
+from ink_engine.novel_harness.world_state import CharacterState, WorldState
 
 
 def test_book_title_source():
@@ -135,7 +135,7 @@ def test_world_state_source_empty():
 
 
 def test_world_state_source_renders_components():
-    from ink_engine.domain_novel.world_state import ForeshadowingNode
+    from ink_engine.novel_harness.world_state import ForeshadowingNode
 
     world = WorldState()
     world.set_character(

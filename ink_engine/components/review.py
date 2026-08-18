@@ -1,8 +1,8 @@
-"""测试时专才化评审-收敛原语（D9：评审器接口 / 收敛策略 / 轮次上限 / web 验证钩子）。
+"""测试时专才化评审-收敛原语（评审器接口 / 收敛策略 / 轮次上限 / web 验证钩子）。
 
 测试时专才化（Test-time Specialization）：不微调权重，靠「生成 → 评审 →
 校验 → 迭代收敛」把输出质量逼近专才水平。奖励信号三源：评审器质量评分、
-一致性校验（D8 校验层）、卡回路人类反馈（accept/reject/edit——最真实奖励，
+一致性校验（校验层）、卡回路人类反馈（accept/reject/edit——最真实奖励，
 弹卡即收集偏好数据）。
 
 本模块只定义**机制**（接口 + 数据类 + 默认策略），不绑定任何领域语义：
@@ -16,7 +16,7 @@
 - :class:`MaxRoundsConvergencePolicy`：默认策略（达阈值收敛 + Beam 宽度 +
   轮次上限）。
 
-领域语义（小说正文评审 prompt、发散候选混合）在 domain_novel 包实现，
+领域语义（小说正文评审 prompt、发散候选混合）在 novel_harness 包实现，
 宿主只负责注册与装配——换评审策略 / 换验证后端不改本模块。
 """
 from __future__ import annotations
@@ -39,7 +39,7 @@ NEUTRAL_SCORE = 0.5
 
 @dataclass(frozen=True, slots=True)
 class ParagraphScore:
-    """单个段落的质量评分（D2 段落级混合的输入，混合逐段位取最高分）。
+    """单个段落的质量评分（段落级混合的输入，混合逐段位取最高分）。
 
     Attributes:
         candidate_index: 所属候选下标。
@@ -63,7 +63,7 @@ class CandidateReview:
         score: 候选整体质量分（0-1，通常为段落分均值）。
         passed: 是否达到收敛标准（score >= 阈值）。
         feedback: 改进意见（再生成指导）。
-        paragraphs: 段落级评分（D2 混合用；评审器未产出时为空）。
+        paragraphs: 段落级评分（混合用；评审器未产出时为空）。
         uncertain_claims: 评审发现的存疑事实声明（触发 web 验证）。
     """
 

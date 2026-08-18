@@ -146,7 +146,7 @@ class PostgresStorage:
                             "SELECT pg_advisory_xact_lock(hashtext($1))", record.thread_id
                         )
                         if not fork and record.parent_id is not None:
-                            # 并发写保护（E1 乐观锁语义）：链尾仍是 parent_id 才插入；
+                            # 并发写保护（乐观锁语义）：链尾仍是 parent_id 才插入；
                             # fork=True（编辑重放分叉）跳过校验，允许锚点指向历史链节点。
                             row = await conn.fetchrow(
                                 "INSERT INTO checkpoints (thread_id, node, graph_path, state,"

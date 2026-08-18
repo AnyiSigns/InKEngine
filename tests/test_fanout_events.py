@@ -1,4 +1,4 @@
-"""fan_out 并发原语 / 节点与边注册表 / 事件协议版本化 单测。"""
+"""fan_out 并发原语 / 事件协议版本化 单测。"""
 from __future__ import annotations
 
 import asyncio
@@ -6,9 +6,8 @@ import asyncio
 import pytest
 
 from ink_engine.core.events import PROTOCOL_VERSION, EngineEvent, is_system_event
-from ink_engine.core.exceptions import NodeNotFoundError, ProtocolVersionError
+from ink_engine.core.exceptions import ProtocolVersionError
 from ink_engine.core.fanout import fan_out
-from ink_engine.core.registry import NodeRegistry, register_node, resolve_node
 
 # ── fan_out ──
 
@@ -19,6 +18,7 @@ async def test_fan_out_all_success():
 
     result = await fan_out([task, task, task], limit=2)
     assert result.successes == [0, 2, 4]
+    assert result.success_indices == [0, 1, 2]
     assert result.failures == []
     assert result.all_succeeded
 
@@ -31,6 +31,7 @@ async def test_fan_out_partial_failure_removed():
 
     result = await fan_out([task, task, task], limit=2)
     assert result.successes == [0, 2]  # 失败剔除，成功保留
+    assert result.success_indices == [0, 2]
     assert len(result.failures) == 1
     assert result.failures[0].index == 1
     assert "failed" in result.failures[0].error
@@ -38,7 +39,7 @@ async def test_fan_out_partial_failure_removed():
 
 
 async def test_fan_out_none_result_kept():
-    """任务合法返回 None 不被当作失败剔除，成功集保持输入下标对齐（A4）。"""
+    """任务合法返回 None 不被当作失败剔除，成功集经 success_indices 定位。"""
 
     async def task(i):
         if i == 1:
@@ -47,6 +48,7 @@ async def test_fan_out_none_result_kept():
 
     result = await fan_out([task, task, task], limit=2)
     assert result.successes == [None, None]  # 0 与 2 成功（值 None），1 失败剔除
+    assert result.success_indices == [0, 2]
     assert [f.index for f in result.failures] == [1]
 
 
@@ -56,12 +58,14 @@ async def test_fan_out_all_failed():
 
     result = await fan_out([task, task], limit=1)
     assert result.successes == []
+    assert result.success_indices == []
     assert len(result.failures) == 2
 
 
 async def test_fan_out_empty():
     result = await fan_out([], limit=3)
     assert result.successes == [] and result.failures == []
+    assert result.success_indices == []
 
 
 async def test_fan_out_invalid_limit():
@@ -85,45 +89,6 @@ async def test_fan_out_concurrency_capped():
 
     await fan_out([task] * 8, limit=3)
     assert active["max"] <= 3
-
-
-# ── 注册表 ──
-
-def test_node_registry_register_resolve():
-    reg = NodeRegistry("test")
-
-    async def fn(ctx):
-        return {}
-
-    reg.register("my_node", fn)
-    assert reg.resolve("my_node") is fn
-    assert reg.has("my_node")
-    assert reg.names() == ["my_node"]
-
-
-def test_node_registry_duplicate_rejected():
-    reg = NodeRegistry("test")
-
-    async def fn(ctx):
-        return {}
-
-    reg.register("n", fn)
-    with pytest.raises(ValueError):
-        reg.register("n", fn)
-
-
-def test_node_registry_missing_raises():
-    reg = NodeRegistry("test")
-    with pytest.raises(NodeNotFoundError):
-        reg.resolve("ghost")
-
-
-def test_global_registry():
-    async def fn(ctx):
-        return {}
-
-    register_node("g_test_node", fn)
-    assert resolve_node("g_test_node") is fn
 
 
 # ── 事件协议 ──

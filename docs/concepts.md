@@ -2,8 +2,11 @@
 
 引擎的心智模型：**「变化 = 补丁/事件（append-only），状态 = 快照，取用 = 组装」**。
 本文档按概念介绍引擎的独创体系，作为框架心智模型与宣传点；机制在
-`ink_engine/core`（engine-core），小说语义在 `ink_engine/domain_novel`
-（engine-domain-novel），TextForge 本身是完整参考实现（见 examples/）。
+`ink_engine/core`（engine-core，纯机制唯一 seam），通用原语在
+`ink_engine/components`（共享组件包），小说语义在
+`ink_engine/novel_harness`（叙事领域包，随引擎发布的参考 harness）；
+TextForge/lite 等宿主作为本包消费方，读取 core API 与共享组件组装
+自身流程，不复写机制；`examples/` 附可独立运行的示例。
 
 ## 卡回路（Review Loop）
 
@@ -14,6 +17,9 @@
   持久化；外部注入裁决值后从该节点重入（`ctx.interrupt(key, payload)`）。
 - 弹卡即收集偏好数据（accept/reject/edit = 最真实奖励信号，D9 评审-收敛
   的奖励来源之一）。
+- 工具调用前挂卡有标准姿势：`approve_before_execute`/`approve_batch`
+  （`core/approval.py`）——D3 gate 卡的标准包装，挂起/注入/重入走
+  interrupt 原语，宿主不必自写挂卡实现。
 - 行为语义（拒绝转讨论/重试止损/挂起卡保留）由业务层编排，引擎只提供机制。
 
 ## 创作时间线（Creative Timeline）
@@ -24,7 +30,8 @@
 - **断线续流**：快照 + 增量日志重放；
 - **编辑重放**：日志截断 + 新分支（`regenerated_from` 标记失效区）；
 - **轨迹树**：parent_step_id 显式化步骤父子关系，回溯「哪个决策导致什么结果」；
-- **任意决策点重放（规划中）**：不限于编辑用户消息，可在轨迹树任意决策点分叉。
+- **轨迹分叉**：补丁链 `branch` 派生共享前缀的新链（What-if 平行宇宙），
+  不物理改动原链。
 
 ## 发散-收敛（Diverge-Converge）
 
@@ -66,7 +73,7 @@
   失败自动回退确定性组装（fail-open）；
 - **行为开关**：默认启用新装配，正文质量回退时一键关回退旧静态取段
   （TextForge 侧 CONTEXT_MIXER_ENABLED）；
-- **非破坏性压缩（推论）**：全量保留，「压缩」= 组装时降级选择
+- **非破坏性压缩**：全量保留，「压缩」= 组装时降级选择
   （base_only/partial/摘要视图），不再物理删除。
 
 ## 世界状态层（World State）
@@ -85,6 +92,35 @@
   替代版本，与主线并存对比；
 - 世界状态本身 = 补丁链：每次写操作 append-only，状态变更日志支持
   回溯/回滚/分支；校验基于组装后的世界状态。
+
+## 工具执行环境（沙箱 + 权限门禁 + 挂卡审批）
+
+工具调用不裸奔：引擎提供「权限门禁 → 沙箱守卫 → 挂卡审批 → 执行 →
+审计」的完整机制装配（`core/permissions.py`/`core/sandbox.py`/
+`core/tool_pipeline.py`/`core/approval.py`），宿主按工具声明权限与
+参数语义即可接入，不必自写安全环节。
+
+- **默认拒绝（fail-closed）**：`PermissionGate` 判定权限声明
+  （`ToolSpec.permissions`，`domain:action:pattern` 字符串，如
+  `filesystem:write:/book/**`、`process:exec:git|python`）；未声明
+  权限的工具直接拒绝；判定三路——通过（allow）/ 需审批（review）/
+  拒绝（deny），「需审批」委托 `approve_before_execute` 挂 D3 gate 卡，
+  门禁自身不挂起；门控分级（L1-L3）由宿主经 `review_tier` 注入。
+- **沙箱守卫**：`FileSandbox`（根目录前缀 + resolve 校验 + symlink
+  逃逸检测 + 写前快照还原，事务性文件写入底座）与 `ProcessSandbox`
+  （白名单命令 + 超时 kill + 输出截断 + 工作目录限定 + 环境变量清理 +
+  默认禁 `shell=True`）；`NetworkPolicy` 默认禁网，白名单域名由宿主
+  配置。沙箱是机制、非安全边界承诺——默认拒绝兜底 + 纵深防御。
+- **执行流水线** `ToolPipeline`：调用前策略（门禁判定，review 委托挂卡）
+  → 沙箱守卫（逐个 validate）→ 单调守卫（可注入，抛异常即拒绝）→
+  分发执行（executor 钩子，审批决议透传）→ 调用后策略（`tool_audit`
+  事件留痕，可替换宿主审计钩子）→ 结果观察（截断 + 溢出标记）。
+- **挂卡审批标准姿势**：`approve_before_execute`（单动作）/`approve_batch`
+  （同回合多写聚合一张合并卡）——决议集 accept/edit/reject/terminate/auto；
+  `InterruptPolicy` 策略钩子可替换（auto-approve 直过名单、超时窗口），
+  默认全挂起 + 不限时；超时默认拒绝（`source=expired`）、非法注入回落
+  reject（`source=invalid`），fail-closed 兜底；挂起卡随 interrupt
+  checkpoint 持久化，与执行中 cancel 语义互不干扰。
 
 ## 测试时专才化（Test-time Specialization）
 

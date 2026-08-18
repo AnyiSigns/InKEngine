@@ -1,6 +1,6 @@
 """真实厂商冒烟测试（opt-in：-m live + INKENGINE_LIVE_* 环境变量）。
 
-验证清单第 2 条：E2 LLM 层真实厂商冒烟（流式/tool/reasoning 三项）。
+验证清单第 2 条：LLM 层真实厂商冒烟（流式/tool/reasoning 三项）。
 默认不跑（pyproject addopts 排除 live marker）；显式 `pytest -m live` 时
 必须设置 INKENGINE_LIVE_BASE_URL / INKENGINE_LIVE_API_KEY / INKENGINE_LIVE_MODEL
 ——环境变量缺失直接 fail（门禁不允许空跑：显式选中即代表要真实验证，

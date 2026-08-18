@@ -5,11 +5,9 @@ Graph{nodes: {name: Node}, edges: {from: [Edge]}, entry, exits}：
 - Edge = 静态边 | 条件边 (ctx) -> bool 判定向 target；
 - 嵌套图：子图 = 图实例挂为节点，执行时入路径栈（graph_path 显式记录，
   替代 langgraph ns 三元组）；
-- 循环回路：条件边可回指图内节点（v3 路由→监督者→域专才→回路由语义）；
+- 循环回路：条件边可回指图内节点（路由→监督者→域专才→回路由语义）；
 - 回合终止信号：节点经 ctx.terminate(reason) 声明，引擎结束本轮并记录
   终止原因（reply/止损/超限/异常，入轨迹与审计）。
-
-注册表开放：业务可注册自定义节点/边（registry），引擎不封闭。
 """
 from __future__ import annotations
 
@@ -159,7 +157,7 @@ class CompiledGraph:
 def _subgraph_runner(subgraph: Graph) -> NodeFn:
     """嵌套图节点包装：执行子图并把子图最终状态作为增量返回（输出回流）。
 
-    子图输出回流语义内建（v3 T2 教训：目标通道在父层不存在时静默丢弃）：
+    子图输出回流语义内建（子图通道回流的教训：目标通道在父层不存在时静默丢弃）：
     子图最终状态整体作为增量合并回父图——父图 reducer 负责按通道语义合并，
     未知通道宽容覆盖，绝不静默丢值。子图内部事件经父 ctx 透传（graph_path
     记录子图路径，前端协议不变）。

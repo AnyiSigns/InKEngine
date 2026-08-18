@@ -62,7 +62,7 @@ def test_patch_chain_reducer_accumulates():
 
 
 def test_patch_chain_reducer_same_object_no_duplicate():
-    """overlay 与 base 同一对象（节点读链→就地追加→整链返回）→ 短路不重复（N1）。"""
+    """overlay 与 base 同一对象（节点读链→就地追加→整链返回）→ 短路不重复。"""
     chain = PatchChain(base={"text": ""})
     chain.apply(Patch(op=PatchOp.APPEND, path=("text",), value="A"))
     result = patch_chain_reducer(chain, chain)

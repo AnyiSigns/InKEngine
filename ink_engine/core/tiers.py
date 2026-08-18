@@ -1,4 +1,4 @@
-"""模型分层挡位原语（D5：挡位配置模型 / 按挡位建链 / 调用统计钩子）。
+"""模型分层挡位原语（挡位配置模型 / 按挡位建链 / 调用统计钩子）。
 
 模型分层：router/tool/main/audit 四挡位（轻量/中等/主/审计）按场景分配——
 路由决策用轻量挡，正文生成用主挡，审计用审计挡。**组 → 挡位映射**属宿主
@@ -6,10 +6,10 @@
 
 - :func:`tier_key`：挡位名 → 配置键前缀（未知/缺省回落 main）；
 - :func:`resolve_tier_config`：从用户模型配置解析单挡位的「主配置 + 备用列表」；
-- :func:`build_tier_chain`：按挡位构建 ``ModelChain``（复用 E2 重试/备用链）；
+- :func:`build_tier_chain`：按挡位构建 ``ModelChain``（复用重试/备用链）；
 - :class:`TierCallStats`：挡位调用统计钩子（``llm_calls_by_tier`` 观测）。
 
-配置形态（与 E3 对齐）：``model_config`` 为 dict，挡位配置键 =
+配置形态：``model_config`` 为 dict，挡位配置键 =
 ``f"{tier}_config"``（缺省回退 ``main_config``），备用链键 =
 ``f"{tier}_fallback_configs"``（兼容历史嵌套 ``fallback_configs``）。
 

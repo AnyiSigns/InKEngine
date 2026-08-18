@@ -1,9 +1,9 @@
-"""core/review.py 测试：评审-收敛原语的接口、数据类与默认策略。"""
+"""components/review.py 测试：评审-收敛原语的接口、数据类与默认策略。"""
 from __future__ import annotations
 
 import pytest
 
-from ink_engine.core.review import (
+from ink_engine.components.review import (
     NEUTRAL_SCORE,
     CandidateReview,
     MaxRoundsConvergencePolicy,

@@ -37,7 +37,7 @@ pythonpath = ["."]
 # 真实厂商冒烟（-m live）需 INKENGINE_LIVE_* 环境变量，默认不跑
 addopts = ["-m", "not benchmark and not live"]
 markers = [
-    "benchmark: 性能基准测试（E1 验收指标）",
+    "benchmark: 性能基准测试（验收指标）",
     "postgres: 需要真实 Postgres 的集成测试，无环境时跳过",
     "live: 真实厂商冒烟测试（流式/tool/reasoning），需 INKENGINE_LIVE_BASE_URL/API_KEY/MODEL 环境变量",
 ]

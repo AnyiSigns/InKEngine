@@ -14,8 +14,8 @@
 - **取消语义**：CancelledError 属 BaseException 不被捕获，原样穿透——
   适配器在退出路径关闭上游连接（客户端中断 → 终止上游请求）。
 
-配置形态（E2 决策：主配置 + 备用列表）：主模型 LLMConfig 在前，
-fallback 链为其后的 LLMConfig 列表，层级调用方（E3 挡位装配）负责
+配置形态（主配置 + 备用列表）：主模型 LLMConfig 在前，
+fallback 链为其后的 LLMConfig 列表，层级调用方（挡位装配）负责
 把 main_config + main_fallback_configs 组装为 configs 传入。
 """
 from __future__ import annotations

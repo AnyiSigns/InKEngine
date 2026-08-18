@@ -1,16 +1,16 @@
 """事件协议：EngineEvent 信封 + 协议版本化 + 传输接口。
 
-事件即协议：节点经 ctx.emit 发射的事件流 = 前端协议 v2 的引擎原生形态
+事件即协议：节点经 ctx.emit 发射的事件流 = 前端协议的引擎原生形态
 （step_id/round_id 天然有序，无框架事件中间层）。事件携带 step_id/
 round_id/graph_path（嵌套图路径，替代 langgraph ns 三元组），负载为
-协议 v2 同构 dict（thinking/plan/tool/node/reply_token/review_card...）。
+与协议同构的 dict（thinking/plan/tool/node/reply_token/review_card...）。
 
 协议演进策略：版本化结构（PROTOCOL_VERSION 常量）+ payload 增量演进
 （加字段不破坏，step_id/round_id 语义长期稳定）；破坏性变更升版本，
 不兼容版本在传输入口拒绝（ProtocolVersionError）。
 
 传输接口化：EngineTransport = 事件消费者（SSE/WS/队列可换实现），
-引擎只负责产出事件流，消费方式由宿主注入（E1 提供内存传输/收集器）。
+引擎只负责产出事件流，消费方式由宿主注入（引擎提供内存传输/收集器）。
 """
 from __future__ import annotations
 
@@ -20,10 +20,10 @@ from typing import Protocol, runtime_checkable
 
 from .exceptions import ProtocolVersionError
 
-# 事件协议版本：v2 = 与 v3 前端协议 v2 同构（前端零改动约束）
+# 事件协议版本：与前端协议同构（前端零改动约束）
 PROTOCOL_VERSION = 2
 
-# 系统信号（不入回合步骤序列，与 v3 event_protocol 语义对齐）
+# 系统信号（不入回合步骤序列，与事件协议语义对齐）
 SYSTEM_EVENTS: frozenset[str] = frozenset(
     {"chapter_written", "title_update", "regenerated_from", "end"}
 )
@@ -35,11 +35,11 @@ def is_system_event(etype: str) -> bool:
 
 @dataclass(frozen=True, slots=True)
 class EngineEvent:
-    """引擎事件信封（协议 v2 原生形态）。
+    """引擎事件信封（协议原生形态）。
 
     Attributes:
         type: 事件类型（thinking_start/reply_token/review_card/...）。
-        payload: 事件负载（协议 v2 同构 dict，增量演进加字段）。
+        payload: 事件负载（与协议同构 dict，增量演进加字段）。
         step_id: 回合步骤 id（展示事件契约；系统信号为 None）。
         round_id: 回合 id（用户消息边界）。
         node: 发射节点名（None = 执行器自身信号）。

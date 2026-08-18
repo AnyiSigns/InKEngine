@@ -385,9 +385,9 @@ class TestAstream:
             # 400 族：invalid_request 含 "invalid" 子串，须先于 401 宽松匹配判
             ("invalid_request_error", "参数非法", LLMBadRequestError),
             ("context_length_exceeded", "上下文超长", LLMBadRequestError),
-            # 429 族：限流/额度（v3 QUOTA_OR_RATE 语义）
+            # 429 族：限流/额度（QUOTA_OR_RATE 语义）
             ("insufficient_quota", "额度不足", LLMRateLimitError),
-            # 服务端：MaaS 常见 code/文案（v3 关键词兜底语义，瞬时可重试）
+            # 服务端：MaaS 常见 code/文案（关键词兜底语义，瞬时可重试）
             ("server_overloaded", "服务繁忙，请稍后重试", LLMServerError),
             ("engine_overloaded", "engine overloaded", LLMServerError),
             (None, "上游暂时不可用，请稍后再试", LLMServerError),

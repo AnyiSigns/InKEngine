@@ -1,7 +1,7 @@
 """fan_out 并行原语（发散并发，替代 asyncio.gather 裸用）。
 
-语义（开放问题已定：部分失败剔除）：并行执行任务（asyncio.Semaphore 限流），
-失败任务剔除、成功结果入候选集——v3 T4 发散容错在引擎层统一。
+语义（部分失败剔除）：并行执行任务（asyncio.Semaphore 限流），
+失败任务剔除、成功结果入候选集，发散容错在引擎层统一。
 """
 from __future__ import annotations
 
@@ -35,6 +35,7 @@ class FanOutResult:
 
     successes: list[Any] = field(default_factory=list)
     failures: list[FanOutFailure] = field(default_factory=list)
+    success_indices: list[int] = field(default_factory=list)
 
     @property
     def all_succeeded(self) -> bool:
@@ -52,7 +53,8 @@ async def fan_out(
         limit: 并发上限（成本护栏，发散候选 ≤5 等由业务侧传参）。
 
     Returns:
-        FanOutResult：successes 保持输入顺序，failures 含剔除原因。
+        FanOutResult：successes 保持输入顺序，success_indices 与 successes
+        对齐记录原始下标（失败剔除后仍可定位来源），failures 含剔除原因。
     """
     if limit <= 0:
         raise ValueError(f"fan_out 并发上限必须为正: {limit}")
@@ -74,6 +76,7 @@ async def fan_out(
     return FanOutResult(
         successes=[s for s in successes if s is not _UNSET],
         failures=sorted(failures, key=lambda f: f.index),
+        success_indices=[i for i, s in enumerate(successes) if s is not _UNSET],
     )
 
 

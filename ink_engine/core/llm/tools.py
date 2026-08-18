@@ -3,7 +3,9 @@
 工具描述与 langchain 解耦：ToolSpec 携带 name/description/parameters
 （parameters 为 JSON Schema dict，或 pydantic BaseModel 类——检测到
 时经 model_json_schema() 转换，pydantic 为可选依赖，未安装则报错）。
-业务工具元数据（门控分级/敏感性等）不属引擎，由宿主注册表维护。
+业务工具元数据（门控分级/敏感性等）不属引擎，由宿主注册表维护；
+permissions 为引擎侧声明式权限（``core.permissions`` 判定输入，
+形态 ``domain:action:pattern``，缺省空 = 由宿主默认策略判定）。
 """
 from __future__ import annotations
 
@@ -25,11 +27,22 @@ def _pydantic_base():
 
 @dataclass(frozen=True, slots=True)
 class ToolSpec:
-    """引擎侧工具描述（宿主工具注册表 → 引擎 → OpenAI tools JSON）。"""
+    """引擎侧工具描述（宿主工具注册表 → 引擎 → OpenAI tools JSON）。
+
+    Attributes:
+        name: 工具名。
+        description: 工具描述。
+        parameters: 参数 schema（dict 或 pydantic 类）。
+        permissions: 声明式权限（如 ``filesystem:write:/book/**``、
+            ``process:exec:git|python``、``network:*.github.com``）；
+            未声明权限的工具由 PermissionGate 按宿主默认策略判定
+            （fail-closed 默认拒绝）。
+    """
 
     name: str
     description: str = ""
     parameters: Any = None
+    permissions: tuple[str, ...] = ()
 
 
 def _resolve_parameters(parameters: Any) -> dict[str, Any]:

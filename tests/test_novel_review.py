@@ -1,15 +1,15 @@
-"""domain_novel/review.py 测试：评审器解析、LLM 评审/再生成、评审-收敛循环。"""
+"""novel_harness/review.py 测试：评审器解析、LLM 评审/再生成、评审-收敛循环。"""
 from __future__ import annotations
 
 import json
 
 import pytest
 
-from ink_engine.core.review import (
+from ink_engine.components.review import (
     NEUTRAL_SCORE,
     MaxRoundsConvergencePolicy,
 )
-from ink_engine.domain_novel.review import (
+from ink_engine.novel_harness.review import (
     NovelRegenerator,
     NovelReviewer,
     parse_review_output,

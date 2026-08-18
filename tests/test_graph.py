@@ -78,7 +78,7 @@ def test_subgraph_register_ok():
 
 
 def test_compile_rejects_static_and_conditional_mix():
-    """静态边与条件边混用 → 编译期拒绝（S7：静态边优先会闷杀条件边）。"""
+    """静态边与条件边混用 → 编译期拒绝（静态边优先会闷杀条件边）。"""
     g = Graph(name="g", entry="a")
     g.add_node("a", lambda ctx: {})
     g.add_node("b", lambda ctx: {})
@@ -91,7 +91,7 @@ def test_compile_rejects_static_and_conditional_mix():
 
 
 def test_compile_validates_nested_subgraph_early():
-    """非法子图在父图 compile 期暴露（S6：不等到运行时才失败）。"""
+    """非法子图在父图 compile 期暴露（不等到运行时才失败）。"""
     parent = Graph(name="parent", entry="sub")
     sub = Graph(name="sub", entry="ghost")  # 子图入口不存在
     sub.add_node("a", lambda ctx: {})

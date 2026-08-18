@@ -35,7 +35,7 @@ def add_messages(base: Any, overlay: Any) -> list:
     """累积型补丁链归约器：消息列表按 id 去重/替换，RemoveMessage 删除。
 
     每条消息 = 一个补丁（append 语义）；同 id 消息 = 补丁替换（编辑后的新内容
-    覆盖旧内容）；RemoveMessage{id} = 删除补丁（T6 编辑重放截断的通道形态）。
+    覆盖旧内容）；RemoveMessage{id} = 删除补丁（编辑重放截断的通道形态）。
     """
     result = list(base) if base is not None else []
     by_id: dict[Any, int] = {}
@@ -206,7 +206,7 @@ class StateSchema:
         """把节点增量 overlay 按通道 reducer 合并进 state（纯函数，返回新 dict）。
 
         未知通道（schema 未声明）按裸覆盖处理——引擎对 schema 外键宽容覆盖，
-        防子图新增通道回流时静默丢失（v3 T2 教训）。
+        防子图新增通道回流时静默丢失（子图通道回流静默丢失的教训）。
         """
         if not overlay:
             return dict(state)

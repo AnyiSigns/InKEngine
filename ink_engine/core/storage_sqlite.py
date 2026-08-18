@@ -2,7 +2,7 @@
 
 三张表：checkpoints（版本链 + 乐观锁）、event_log（append-only 执行日志）、
 records（结构化记录，JSON 列）。checkpoint 状态 JSON 序列化入表，
-与 v3 langgraph checkpoint 表互不兼容（随时删库，不做迁移——schema 变更
+与 langgraph checkpoint 表互不兼容（随时删库，不做迁移——schema 变更
 即删库重建，启动期自检旧表缺列并给出明确指令）。
 """
 from __future__ import annotations
@@ -137,7 +137,7 @@ class SqliteStorage:
             if record.checkpoint_id == 0:
                 # 新链节点：插入后返回自增 id
                 if not fork and record.parent_id is not None:
-                    # 并发写保护（E1 乐观锁语义，单条语句防 TOCTOU）：
+                    # 并发写保护（乐观锁语义，单条语句防 TOCTOU）：
                     # 仅当链尾仍是 parent_id 时插入；链已前进（他写并发）→ 0 行 → 冲突。
                     # fork=True（编辑重放分叉）跳过校验，允许锚点指向历史链节点。
                     cur = await self._conn.execute(

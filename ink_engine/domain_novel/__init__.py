@@ -1,13 +1,14 @@
-"""InkEngine 叙事领域包（engine-domain-novel）。
+"""InkEngine 叙事领域包旧路径（兼容别名层）。
 
-小说/叙事场景的可复用领域原语——绑定叙事语义（伏笔链、情节线、世界状态、
-候选混合、评审收敛等），与 `ink_engine.core` 的通用机制分层：
-
-- ``core``：抽象与算法通用（图执行、checkpoint、事件流、上下文投影、状态机原语、
-  评审-收敛接口）；
-- ``domain_novel``：绑定小说语义（叙事状态定义、世界状态层、候选段落级混合、
-  评审器实现与评审-收敛循环）。
-
-零宿主依赖：本包不 import 任何 TextForge 业务模块，也不依赖 ORM/HTTP——
-落库、检索、外部服务调用由宿主实现并经接口注入。
+引擎包归属已重划：通用原语归 ``ink_engine.components``（共享组件包），
+叙事语义归 ``ink_engine.novel_harness``（叙事领域包）。本包及其子模块
+保留为兼容别名（re-export），保证既有 ``ink_engine.domain_novel.*``
+import 路径继续可用；新代码请使用新路径。
 """
+
+from ink_engine import novel_harness
+from ink_engine.components import review_card
+from ink_engine.components.review_card import *  # noqa: F403
+from ink_engine.novel_harness import *  # noqa: F403
+
+__all__ = list(dict.fromkeys([*review_card.__all__, *novel_harness.__all__]))

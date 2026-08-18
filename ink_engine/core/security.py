@@ -1,6 +1,6 @@
 ﻿"""checkpoint/事件记录落库前的敏感信息剥离（安全要求：状态永不落 key）。
 
-继承 v3 `_strip_api_key_from_checkpoint` 语义为引擎层默认：任何写入存储的
+继承 `_strip_api_key_from_checkpoint` 语义为引擎层默认：任何写入存储的
 快照/记录在序列化前递归剔除敏感键（api_key/token/secret/authorization 等），
 凭据只存在于运行期内存态，进程崩溃/异常快照也不会残留密钥。
 """
@@ -45,7 +45,7 @@ def _strip_from_dict(data: dict[str, Any]) -> dict[str, Any]:
     changed = False
     for key, value in data.items():
         if is_sensitive_key(key):
-            # 置空保留（继承 v3 _strip_model_config_api_keys 语义）：
+            # 置空保留（继承 _strip_model_config_api_keys 语义）：
             # 键结构不破坏，下游 .get("api_key") 恒返回空串，防残留密钥
             result[key] = ""
             changed = True

@@ -1,11 +1,11 @@
-"""RoundSteps 回合步骤序列累积器单元测试（D1 回合步骤协议）。
+"""RoundSteps 回合步骤序列累积器单元测试（回合步骤协议）。
 
 覆盖：
 - user：回合边界幂等
 - reply_token：正文段切分（工具/审批卡/节点卡边界另起新段）、final_reply 校准
 - thinking/plan：流式累积 → 收尾；空思考/空规划不残留
 - tool：start/end 状态流转；同 tool_call_id 复用；review_card 置 pending
-- node：start/stream/end/fail；按序号分卡；阶段内复用不覆盖标签；标签覆盖表注入
+ - node：start/stream/end/fail；按序号分卡；环节内复用不覆盖标签；标签覆盖表注入
 - memory_hit：挂最近 plan/thinking 卡
 - seed：从 checkpoint 恢复中断回合，step_id 连续
 - step_id 截断：超长 id 不撑爆存储与前端渲染 key
@@ -13,7 +13,7 @@
 
 from __future__ import annotations
 
-from ink_engine.core.round_steps import RoundSteps
+from ink_engine.components.round_steps import RoundSteps
 
 
 def _steps_of(rs: RoundSteps) -> list[dict]:
@@ -248,20 +248,20 @@ def test_node_flow_and_label_kept_on_reuse():
 
 
 def test_node_reuse_keeps_first_label():
-    """阶段内多次 node_start：复用步骤，保留首次标签（内部阶段名不覆盖展示名）。"""
+    """环节内多次 node_start：复用步骤，保留首次标签（内部环节名不覆盖展示名）。"""
     rs = RoundSteps("r1")
-    rs.node_start("pipeline", "阶段一")
-    rs.node_start("pipeline", "阶段二")
+    rs.node_start("pipeline", "环节一")
+    rs.node_start("pipeline", "环节二")
     steps = _steps_of(rs)
     assert len(steps) == 1
-    assert steps[0]["payload"]["label"] == "阶段一"
+    assert steps[0]["payload"]["label"] == "环节一"
 
 
 def test_node_label_overrides_injected_by_host():
-    """宿主经 node_labels 扩展点把内部阶段名收敛为对外统一文案。"""
+    """宿主经 node_labels 扩展点把内部环节名收敛为对外统一文案。"""
     rs = RoundSteps("r1", node_labels={"pipeline": "统一文案"})
-    rs.node_start("pipeline", "阶段一")
-    rs.node_start("pipeline", "阶段二")
+    rs.node_start("pipeline", "环节一")
+    rs.node_start("pipeline", "环节二")
     steps = _steps_of(rs)
     assert len(steps) == 1
     assert steps[0]["payload"]["label"] == "统一文案"
@@ -331,7 +331,7 @@ def test_review_card_marks_matching_tool_pending():
 def test_memory_hit_attaches_to_last_plan():
     rs = RoundSteps("r1")
     rs.plan_start()
-    rs.plan_token("执行计划")
+    rs.plan_token("执行方案")
     rs.plan_end()
     hit = {"id": 7, "title": "偏好", "snippet": "先抑后扬"}
     assert rs.memory_hit([hit]) == "plan:1"

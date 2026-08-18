@@ -1,9 +1,9 @@
-"""domain_novel/review_card.py 测试：四类卡校验/截断/构造与门控分级。"""
+"""components/review_card.py 测试：四类卡校验/截断/构造与门控分级。"""
 from __future__ import annotations
 
 import pytest
 
-from ink_engine.domain_novel.review_card import (
+from ink_engine.components.review_card import (
     GATING_OVERRIDE_VALUES,
     PREVIEW_LIMIT_CHAPTER,
     PREVIEW_LIMIT_DEFAULT,
@@ -65,7 +65,7 @@ class TestPreviewLimit:
         assert preview_limit_for("generate_chapter") == PREVIEW_LIMIT_CHAPTER
 
     def test_entity_tier(self):
-        from ink_engine.domain_novel.review_card import PREVIEW_LIMIT_ENTITY
+        from ink_engine.components.review_card import PREVIEW_LIMIT_ENTITY
 
         assert preview_limit_for("update_entity") == PREVIEW_LIMIT_ENTITY
 

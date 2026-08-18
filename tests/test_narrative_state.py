@@ -1,4 +1,4 @@
-"""叙事状态定义单测（D6 小说语义层）。
+"""叙事状态定义单测（小说语义层）。
 
 覆盖：
 - 伏笔/情节线状态枚举与终态声明
@@ -11,7 +11,7 @@ from __future__ import annotations
 
 import pytest
 
-from ink_engine.domain_novel.narrative_state import (
+from ink_engine.novel_harness.narrative_state import (
     ACTOR_AGENT,
     ACTOR_PRECHECK,
     ACTOR_SYSTEM,

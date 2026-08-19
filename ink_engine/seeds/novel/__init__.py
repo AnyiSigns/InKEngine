@@ -91,7 +91,7 @@ def novel_seed_fixtures() -> FixtureSet:
     """novel 领域种子配套：样例库（L2 效果评估/新规则落库的非谈判项）。
 
     样例库与种子规则集同源发布：每条新规则必须先让本样例全绿才允许
-    落库（防退化底线，验收语义 = 领域迁移产物规则集 fixture 全绿）。
+    落库（防退化底线，迁移产物规则集 fixture 全绿为底线）。
     """
     from ink_engine.seeds.novel.ruleset import build_world_state_fixtures
 

@@ -107,7 +107,7 @@ def test_tunable_params_roundtrip():
     assert rebuilt == params
 
 
-# ── 低分反馈降权（验收基准：评审评分随权重调整变化）──
+# ── 低分反馈降权（基准：评审评分随权重调整变化）──
 
 
 def _scorer(weights: dict[str, float]) -> WeightedScorer:
@@ -131,7 +131,7 @@ def test_low_score_feedback_decays_weight():
 
 
 def test_review_score_changes_with_weight_adjustment():
-    """验收基准：评审评分随权重调整变化符合预期。
+    """基准：评审评分随权重调整变化符合预期。
 
     维度 A 得分高、维度 B 得分低——B 低分反馈降权后，总分应抬升
     （劣质维度主导减弱），且基准断言可复算。

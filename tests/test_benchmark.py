@@ -1,4 +1,4 @@
-"""性能基准测试（验收指标门禁）。
+"""性能基准测试（基准指标门禁）。
 
 指标（本地基准，CI 门禁）：
 - checkpoint 单次写入 <10ms
@@ -20,7 +20,7 @@ import pytest
 from ink_engine.core.patch_chain import Patch, PatchChain, PatchOp
 from ink_engine.core.storage import CheckpointRecord, create_storage
 
-# 验收指标（毫秒/秒），CI 门禁宽松阈值
+# 基准指标（毫秒/秒），CI 门禁宽松阈值
 CHECKPOINT_WRITE_MS = 10.0
 EVENT_THROUGHPUT_EPS = 500.0
 PATCH_CHAIN_ASSEMBLE_MS = 5.0

@@ -294,7 +294,7 @@ async def test_swap_branch_unavailable_rejected(memory_storage):
 
 
 async def test_parent_step_id_trace_tree(memory_storage, transport):
-    """轨迹树字段验收：分支事件 parent_step_id = 决策点 step_id。"""
+    """轨迹树字段核对：分支事件 parent_step_id = 决策点 step_id。"""
     async def route(ctx):
         return {
             SIMULATE_KEY: {

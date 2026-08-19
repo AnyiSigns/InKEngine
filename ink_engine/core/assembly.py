@@ -28,11 +28,13 @@ from dataclasses import dataclass, field, replace
 from typing import Any
 
 from .context import (
+    MODE_DROP,
     ContextAssembler,
     ContextSource,
     WeightedBudgetAllocator,
 )
 from .exceptions import GraphDefinitionError
+from .tool_orchestrator import DEFAULT_MAX_TOOLS
 
 # 源类别（分级预算分配的分组标签；与使用方声明保持一致）
 SOURCE_CONTEXT = "context"  # 对话历史/回合上下文
@@ -58,11 +60,10 @@ DEFAULT_TOTAL_BUDGET = 8000
 DEFAULT_CONTEXT_RATIO = 0.5
 DEFAULT_KNOWLEDGE_RATIO = 0.3
 DEFAULT_TOOL_RATIO = 0.1
-DEFAULT_MEMORY_RATIO = 0.1
-DEFAULT_EVIDENCE_RATIO = 0.0
-
-# 工具激活数上限（每轮 3-10 个的经验框架）
-DEFAULT_MAX_TOOLS = 10
+DEFAULT_MEMORY_RATIO = 0.05
+DEFAULT_EVIDENCE_RATIO = 0.05
+# 工具激活数上限（每轮 3-10 个的经验框架；与工具调配器同源单点定义）
+# ——从 tool_orchestrator 导入即模块级常量（装配层与调配层同口径）
 
 # 缺省装配预算（单次 assemble 未指定时的总预算）
 DEFAULT_ASSEMBLY_BUDGET = DEFAULT_TOTAL_BUDGET
@@ -125,16 +126,7 @@ class AssemblyConfig:
 
     def pool_for(self, source_type: str) -> int:
         """源类别 → 分级预算池（总预算 × 占比，向下取整）。"""
-        ratio = {
-            SOURCE_CONTEXT: self.context_ratio,
-            SOURCE_KNOWLEDGE: self.knowledge_ratio,
-            SOURCE_TOOL: self.tool_ratio,
-            SOURCE_MEMORY: self.memory_ratio,
-            SOURCE_EVIDENCE: self.evidence_ratio,
-        }.get(source_type)
-        if ratio is None:
-            raise GraphDefinitionError(f"未知装配源类别: {source_type}")
-        return int(self.total_budget * ratio)
+        return int(self.total_budget * _ratio_for(self, source_type))
 
     def to_dict(self) -> dict[str, Any]:
         return {
@@ -168,7 +160,18 @@ class AssemblyConfig:
 
 @dataclass(frozen=True, slots=True)
 class SourceActivation:
-    """单个源的激活留痕（激活模式：源 + 强度 + 分配档位）。"""
+    """单个源的激活留痕（激活模式：源 + 强度 + 分配档位）。
+
+    Attributes:
+        source_type: 源类别（context/knowledge/tool/memory/evidence）。
+        title: 源标题（可读定位）。
+        weight: 源权重（可信度/调用频率）。
+        relevance: 任务相关度。
+        char_limit: 分配字符数（0 = 本调用未纳入，见 mode/note）。
+        mode: 分配档位（keep_full/truncate/drop/compressed/fallback_keep）。
+        entry_ref: 知识条目/记忆条目的引用（版本快照外可重建）。
+        note: 档位说明（丢弃原因/保底说明等，审计可读）。
+    """
 
     source_type: str
     title: str
@@ -177,9 +180,10 @@ class SourceActivation:
     char_limit: int
     mode: str
     entry_ref: str = ""  # 知识条目/记忆条目的引用（版本快照外可重建）
+    note: str = ""
 
     def to_dict(self) -> dict[str, Any]:
-        return {
+        data: dict[str, Any] = {
             "source_type": self.source_type,
             "title": self.title,
             "weight": self.weight,
@@ -188,6 +192,9 @@ class SourceActivation:
             "mode": self.mode,
             "entry_ref": self.entry_ref,
         }
+        if self.note:
+            data["note"] = self.note
+        return data
 
     @classmethod
     def from_dict(cls, data: dict[str, Any]) -> SourceActivation:
@@ -203,6 +210,7 @@ class SourceActivation:
             char_limit=int(data.get("char_limit", 0)),
             mode=data.get("mode", ""),
             entry_ref=data.get("entry_ref", ""),
+            note=data.get("note", ""),
         )
 
 
@@ -218,16 +226,20 @@ class ActivationRecord:
     assembled_chars: int
     sources: tuple[SourceActivation, ...] = ()
     version_snapshot: dict[str, Any] | None = None
+    truncated_chars: int = 0  # 全局硬截断量（拼接超界时的兜底削减，归因留痕）
     created_at: float = field(default_factory=time.time)
 
     def to_dict(self) -> dict[str, Any]:
-        return {
+        data: dict[str, Any] = {
             "total_budget": self.total_budget,
             "assembled_chars": self.assembled_chars,
             "sources": [s.to_dict() for s in self.sources],
             "version_snapshot": dict(self.version_snapshot) if self.version_snapshot else None,
             "created_at": self.created_at,
         }
+        if self.truncated_chars:
+            data["truncated_chars"] = self.truncated_chars
+        return data
 
     @classmethod
     def from_dict(cls, data: dict[str, Any]) -> ActivationRecord:
@@ -241,6 +253,7 @@ class ActivationRecord:
             assembled_chars=int(data.get("assembled_chars", 0)),
             sources=tuple(SourceActivation.from_dict(s) for s in raw_sources),
             version_snapshot=data.get("version_snapshot"),
+            truncated_chars=int(data.get("truncated_chars", 0)),
             created_at=float(data.get("created_at", time.time())),
         )
 
@@ -285,9 +298,11 @@ class InputAssembler:
     """输入调配管线执行体：多源统一预算分配 → 组装 → 激活留痕。
 
     「能全量则全量，放不下才裁剪」：全部源内容总长不超过总预算时整包
-    激活（集小无稀疏必要）；超预算才按分级池分配（常驻基线 + 任务相关
-    裁剪）。预算分配复用 WeightedBudgetAllocator（高权重全保留/中权重
-    截断/低权重丢弃），组装复用 ContextAssembler（标题块 + 逐源留痕）。
+    激活（集小无稀疏必要——预算足够即零丢弃，不被低分门槛误伤）；
+    超预算才按分级池分配（常驻基线 + 任务相关裁剪）。预算分配复用
+    WeightedBudgetAllocator（高权重全保留/中权重截断/低权重丢弃），
+    组装复用 ContextAssembler（标题块 + 逐源留痕）——注入的分配器
+    同时驱动组装与留痕（换策略即换产物，留痕与实际一致）。
     """
 
     def __init__(
@@ -299,8 +314,14 @@ class InputAssembler:
     ) -> None:
         self.config = config or AssemblyConfig()
         self._allocator = allocator or WeightedBudgetAllocator()
-        self._assembler = ContextAssembler()
+        # 组装器与留痕共用同一分配器：注入策略真实作用于产物（一次分配
+        # 语义——分配决定 = 组装决定，留痕即事实）
+        self._assembler = ContextAssembler(allocator=self._allocator)
         self._compressor = compressor
+        # 全量路径分配器：门槛归零 = 预算足够时全部保留（零低分丢弃）
+        self._keep_all = WeightedBudgetAllocator(
+            keep_full_threshold=0.0, truncate_min_score=0.0, min_truncate_chars=0
+        )
 
     def assemble(
         self,
@@ -317,7 +338,7 @@ class InputAssembler:
             total_budget: 调用点总预算（None = 用配置默认——一次调用的
                 总预算在多源间分级分配，不再各自为政）。
             version_snapshot: 知识/规则版本快照（随激活记录落库，供全量
-                原文重建与回放审计）。
+                原文重建与回放审计；按副本留存，外部改写不污染留痕）。
 
         Returns:
             AssemblyResult：组装文本 + 激活记录。
@@ -330,6 +351,7 @@ class InputAssembler:
         budget = total_budget or self.config.total_budget
         if budget <= 0:
             raise GraphDefinitionError(f"装配总预算必须为正: {budget}")
+        snapshot = dict(version_snapshot) if version_snapshot else None
         grouped = _group_sources(sources)
         all_sources = [s for group in grouped.values() for s in group]
 
@@ -339,30 +361,50 @@ class InputAssembler:
         total_chars = sum(len(s.content) for s in all_sources)
         if total_chars <= budget:
             activated: list[ContextSource] = []
+            dropped_tools: list[ContextSource] = []
             for kind in _SOURCE_TYPES:
                 group = grouped[kind]
-                if kind == SOURCE_TOOL:
-                    group = _limit_tools(group, self.config.max_tools)
+                if kind == SOURCE_TOOL and len(group) > self.config.max_tools:
+                    kept_tools = _limit_tools(group, self.config.max_tools)
+                    kept_ids = {id(s) for s in kept_tools}
+                    dropped_tools.extend(s for s in group if id(s) not in kept_ids)
+                    group = kept_tools
                 activated.extend(group)
-            text = self._assembler.assemble(activated, total_chars=budget).text
+            full_assembler = ContextAssembler(allocator=self._keep_all)
+            assembled = full_assembler.assemble(activated, total_chars=budget)
+            allocations = self._keep_all.allocate(activated, budget)
+            activations = [
+                SourceActivation(
+                    source_type=a.source.type,
+                    title=a.source.title or "",
+                    weight=a.source.weight,
+                    relevance=a.source.relevance,
+                    char_limit=a.char_limit,
+                    mode=a.mode,
+                    entry_ref=a.source.meta.get("entry_id", ""),
+                )
+                for a in allocations
+            ]
+            activations.extend(
+                SourceActivation(
+                    source_type=s.type,
+                    title=s.title or "",
+                    weight=s.weight,
+                    relevance=s.relevance,
+                    char_limit=0,
+                    mode=MODE_DROP,
+                    entry_ref=s.meta.get("entry_id", ""),
+                    note=f"工具激活数超上限（{self.config.max_tools}）",
+                )
+                for s in dropped_tools
+            )
             return AssemblyResult(
-                text=text,
+                text=assembled.text,
                 record=ActivationRecord(
                     total_budget=budget,
-                    assembled_chars=len(text),
-                    sources=tuple(
-                        SourceActivation(
-                            source_type=s.type,
-                            title=s.title or "",
-                            weight=s.weight,
-                            relevance=s.relevance,
-                            char_limit=len(s.content),
-                            mode="keep_full",
-                            entry_ref=s.meta.get("entry_id", ""),
-                        )
-                        for s in activated
-                    ),
-                    version_snapshot=version_snapshot,
+                    assembled_chars=len(assembled.text),
+                    sources=tuple(activations),
+                    version_snapshot=snapshot,
                 ),
             )
 
@@ -374,12 +416,28 @@ class InputAssembler:
             if not pool_sources:
                 continue
             pool_budget = int(budget * _ratio_for(self.config, kind))
-            if kind == SOURCE_TOOL:
-                pool_sources = _limit_tools(pool_sources, self.config.max_tools)
+            if kind == SOURCE_TOOL and len(pool_sources) > self.config.max_tools:
+                kept_tools = _limit_tools(pool_sources, self.config.max_tools)
+                kept_ids = {id(s) for s in kept_tools}
+                activations.extend(
+                    SourceActivation(
+                        source_type=s.type,
+                        title=s.title or "",
+                        weight=s.weight,
+                        relevance=s.relevance,
+                        char_limit=0,
+                        mode=MODE_DROP,
+                        entry_ref=s.meta.get("entry_id", ""),
+                        note=f"工具激活数超上限（{self.config.max_tools}）",
+                    )
+                    for s in pool_sources
+                    if id(s) not in kept_ids
+                )
+                pool_sources = kept_tools
             if not pool_sources:
                 continue
             allocations = self._allocator.allocate(pool_sources, pool_budget)
-            # 组装期条目内压缩（计划「放不下」三层处置的组装期条目内层）：
+            # 组装期条目内压缩（「放不下」三层处置的组装期条目内层）：
             # 被截断的源若挂了压缩钩子，用非破坏性摘要视图替代截断内容——
             # 原文不动（v4 CompressionPolicy 语义：摘要视图/非破坏性压缩），
             # 压缩失败（空串）走默认截断，不影响装配结果。
@@ -418,6 +476,7 @@ class InputAssembler:
                         char_limit=0,
                         mode=a.mode,
                         entry_ref=a.source.meta.get("entry_id", ""),
+                        note=a.reason,
                     )
                     for a in allocations
                 )
@@ -437,20 +496,43 @@ class InputAssembler:
                         char_limit=a.char_limit,
                         mode=MODE_COMPRESSED if id(a.source) in compressed_ids else a.mode,
                         entry_ref=a.source.meta.get("entry_id", ""),
+                        note=a.reason if a.char_limit <= 0 else "",
                     )
                 )
         text = "\n\n".join(chunks)
         # 粘合开销兜底：各分级池分别填满后拼接会超出总预算（每处边界
-        # 两个分隔符）——拼接后做全局硬截断，预算上界恒成立
+        # 两个分隔符）——拼接后做全局硬截断，预算上界恒成立；截断量
+        # 随留痕记录（归因可见，回放不丢信息）
+        truncated_chars = 0
         if len(text) > budget:
+            truncated_chars = len(text) - budget
             text = text[:budget]
+        # 空装配保底：预算过小导致全部分配被丢弃时，保留最高优先源的
+        # 可读片段（宁可截断也不空手喂模型——装配空 = 调用点拿不到
+        # 任何输入上下文）
+        if not text and all_sources:
+            top = max(all_sources, key=lambda s: (s.score(), s.priority))
+            text = top.content[:budget]
+            activations = [
+                SourceActivation(
+                    source_type=top.type,
+                    title=top.title or "",
+                    weight=top.weight,
+                    relevance=top.relevance,
+                    char_limit=len(text),
+                    mode="fallback_keep",
+                    entry_ref=top.meta.get("entry_id", ""),
+                    note="空装配保底：仅保留最高优先源的可读片段",
+                )
+            ]
         return AssemblyResult(
             text=text,
             record=ActivationRecord(
                 total_budget=budget,
                 assembled_chars=len(text),
                 sources=tuple(activations),
-                version_snapshot=version_snapshot,
+                version_snapshot=snapshot,
+                truncated_chars=truncated_chars,
             ),
         )
 

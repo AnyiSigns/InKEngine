@@ -1,4 +1,4 @@
-"""interrupt 挂起/注入重入机制（弹卡审批一等能力，替代 langgraph interrupt）。
+"""interrupt 挂起/注入重入机制（弹卡审批一等能力）。
 
 语义（开放问题已定：节点边界 + 重入幂等）：
 - 节点内 ``await ctx.interrupt(key, payload)`` 声明中断点——首次执行时引擎

@@ -458,6 +458,39 @@ def test_to_dict_config_not_shared_with_binding():
     assert graph.node_bindings["a"].config["value"] == 1
 
 
+def test_to_dict_nested_config_not_shared_with_binding():
+    """to_dict 嵌套 config 也按副本输出：改序列化结果的深层字段不污染活图。
+
+    回归：修复前嵌套 dict 仅浅拷贝——data 深层改写经共享引用泄漏回
+    原图 node_bindings。
+    """
+    graph = Graph(name="g", entry="a")
+    graph.add_node_type(
+        "a", "write", {"prompt": {"system": "基线", "user": "模板"}}
+    )
+    data = graph.to_dict()
+    data["nodes"]["a"]["config"]["prompt"]["system"] = "被篡改"
+    assert graph.node_bindings["a"].config["prompt"]["system"] == "基线"
+    # 重建图同样与输入数据隔离
+    rebuilt = Graph.from_dict(data, registry=_registries().nodes)
+    data["nodes"]["a"]["config"]["prompt"]["user"] = "再篡改"
+    assert rebuilt.node_bindings["a"].config["prompt"]["user"] == "模板"
+
+
+def test_digest_rejects_non_json_config():
+    """图内容指纹对不可 JSON 序列化的配置显式报错（数据契约破坏不裸穿）。
+
+    回归：修复前非 JSON 配置在 digest 处抛裸 TypeError（Engine 构造
+    崩溃），现统一收口为 GraphDefinitionError（图定义数据须可序列化）。
+    """
+    from ink_engine.core.exceptions import GraphDefinitionError
+
+    graph = Graph(name="g", entry="a")
+    graph.add_node_type("a", "write", {"value": {1, 2}})  # set 不可 JSON
+    with pytest.raises(GraphDefinitionError, match="不可 JSON 序列化"):
+        graph.digest()
+
+
 def test_from_dict_malformed_types_rejected():
     """from_dict 类型闸门：nodes/edges/subgraphs/config 类型错乱 → GraphDefinitionError。
 

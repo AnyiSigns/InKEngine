@@ -109,7 +109,10 @@ def test_endpoint_operation_file():
 async def test_executor_dispatch_routes_by_endpoint():
     """执行体分发：按端点类型路由；未注册端点/未登记定义 → 显式拒绝。"""
     executors = DeclarativeToolExecutors()
-    definition = _declarative(endpoint=EndpointType.PROCESS_EXEC)
+    definition = _declarative(
+        endpoint=EndpointType.PROCESS_EXEC,
+        endpoint_config={"allowlist": ["git"]},
+    )
     executors.register_definition(definition)
     calls: list[str] = []
 
@@ -191,6 +194,7 @@ async def test_pipeline_rejects_undeterminable_target(memory_storage):
     definition = _declarative(
         endpoint=EndpointType.PROCESS_EXEC,
         permissions=("process:exec:git",),
+        endpoint_config={"allowlist": ["git"]},
     )
     executors = DeclarativeToolExecutors()
     executors.register_definition(definition)
@@ -224,6 +228,7 @@ def test_make_declarative_extractor_resolves_by_endpoint():
         parameters={"type": "object"},
         permissions=("filesystem:write:/book/**",),
         endpoint=EndpointType.FILE_OPS,
+        endpoint_config={"root": "/book"},
     )
     executors.register_definition(file_def)
     extractor = make_declarative_extractor(executors)
@@ -247,6 +252,7 @@ async def test_build_declarative_pipeline_full_flow(memory_storage):
     definition = _declarative(
         endpoint=EndpointType.PROCESS_EXEC,
         permissions=("process:exec:git",),
+        endpoint_config={"allowlist": ["git"]},
     )
     executors = DeclarativeToolExecutors()
     executors.register_definition(definition)
@@ -355,3 +361,114 @@ def test_endpoint_operation_scheme_whitelist():
     assert endpoint_operation(
         EndpointType.HTTP_FETCH, {"url": "https://user:pass@example.com/x"}
     ) == ("connect", "example.com")
+
+
+def test_process_exec_requires_allowlist_declared():
+    """process_exec 端点强制声明命令白名单：缺失即定义期拒绝（fail-closed）。"""
+    with pytest.raises(GraphDefinitionError, match="allowlist"):
+        _declarative(endpoint=EndpointType.PROCESS_EXEC)
+    with pytest.raises(GraphDefinitionError, match="allowlist"):
+        _declarative(endpoint=EndpointType.PROCESS_EXEC, endpoint_config={"allowlist": []})
+    # 声明合法白名单 → 通过
+    _declarative(endpoint=EndpointType.PROCESS_EXEC, endpoint_config={"allowlist": ["git"]})
+
+
+def test_file_ops_requires_root_declared():
+    """file_ops 端点强制声明根目录：缺失即定义期拒绝（fail-closed）。"""
+    with pytest.raises(GraphDefinitionError, match="root"):
+        _declarative(endpoint=EndpointType.FILE_OPS)
+    _declarative(endpoint=EndpointType.FILE_OPS, endpoint_config={"root": "/book"})
+
+
+async def test_pipeline_auto_wires_process_and_file_sandboxes():
+    """三类端点沙箱自动接线：process/file 从 endpoint_config 构造守卫并生效。"""
+
+    executors = DeclarativeToolExecutors()
+    process_def = _declarative(
+        name="run_tool",
+        endpoint=EndpointType.PROCESS_EXEC,
+        permissions=("process:exec:*",),  # 宽权限：沙箱白名单做命令收口
+        endpoint_config={"allowlist": ["git"]},
+    )
+    file_def = DeclarativeToolSpec(
+        name="fs_tool",
+        description="file tool",
+        parameters={"type": "object"},
+        permissions=("filesystem:write:*",),  # 宽权限：沙箱根目录做路径收口
+        endpoint=EndpointType.FILE_OPS,
+        endpoint_config={"root": "/book"},
+    )
+    executors.register_definition(process_def)
+    executors.register_definition(file_def)
+
+    async def process_executor(ctx, defn, args, approval):
+        return f"exec:{args.get('command')}"
+
+    async def file_executor(ctx, defn, args, approval):
+        return f"fs:{args.get('path')}"
+
+    executors.register(EndpointType.PROCESS_EXEC, process_executor)
+    executors.register(EndpointType.FILE_OPS, file_executor)
+    pipeline = build_declarative_pipeline(executors, gate=None)
+
+    class Ctx:
+        async def emit(self, *args, **kwargs):
+            pass
+
+    # process_exec：白名单命令放行，白名单外命令被沙箱拒绝
+    ok = await pipeline.execute(Ctx(), process_def.to_spec(), {"command": "git"})
+    assert ok.ok is True and ok.output == "exec:git"
+    denied = await pipeline.execute(Ctx(), process_def.to_spec(), {"command": "rm"})
+    assert denied.ok is False and denied.decision == "deny"
+    assert "命令不在白名单" in (denied.error or "")
+
+    # file_ops：根目录内放行（沙箱解析为绝对路径回写执行参数），越界
+    # 被沙箱拒绝（无需宿主手动注入沙箱）
+    fs_ok = await pipeline.execute(
+        Ctx(), file_def.to_spec(), {"operation": "write", "path": "/book/ch1.md"}
+    )
+    assert fs_ok.ok is True and "ch1.md" in fs_ok.output
+    fs_denied = await pipeline.execute(
+        Ctx(), file_def.to_spec(), {"operation": "write", "path": "/etc/passwd"}
+    )
+    assert fs_denied.ok is False and fs_denied.decision == "deny"
+    assert "路径越界" in (fs_denied.error or "")
+
+
+async def test_gate_judges_by_definition_permissions():
+    """门禁按定义声明权限判定：调用方伪造的宽松 spec 权限不生效。
+
+    回归：修复前门禁消费 spec.permissions——构造 name 命中已登记定义、
+    但权限更宽松的 ToolSpec 可绕过定义的白名单约束。
+    """
+    executors = DeclarativeToolExecutors()
+    definition = _declarative(
+        permissions=("network:connect:*.example.com",)
+    )
+    executors.register_definition(definition)
+
+    async def http_executor(ctx, defn, args, approval):
+        return "body"
+
+    executors.register(EndpointType.HTTP_FETCH, http_executor)
+    pipeline = build_declarative_pipeline(executors)
+
+    class Ctx:
+        async def emit(self, *args, **kwargs):
+            pass
+
+    # 伪造宽松权限的 spec：定义只允许 *.example.com
+    forged = ToolSpec(
+        name="my_tool",
+        description="伪造",
+        parameters={},
+        permissions=("network:connect:*",),
+    )
+    allowed = await pipeline.execute(
+        Ctx(), forged, {"url": "https://api.example.com/v1"}
+    )
+    assert allowed.ok is True
+    denied = await pipeline.execute(
+        Ctx(), forged, {"url": "https://evil.example.org/x"}
+    )
+    assert denied.ok is False and denied.decision == "deny"

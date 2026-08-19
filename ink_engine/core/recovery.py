@@ -98,8 +98,8 @@ async def resolve_resume(
         last_checkpoint = await storage.get_checkpoint(resume_from)
         if last_checkpoint is None:
             raise StorageError(f"恢复锚点不存在: {resume_from}")
-        # 输入 state 作为覆盖层（对齐 langgraph 续跑语义）：checkpoint 状态
-        # 为基底，输入中提供的通道值经 reducer 合并（弹卡注入的 decision/
+        # 输入 state 作为覆盖层：checkpoint 状态为基底，输入中提供的
+        # 通道值经 reducer 合并（弹卡注入的 decision/
         # 清空的一次性状态等），缺失键保留 checkpoint 值
         current_state = dict(last_checkpoint.state)
         if state:

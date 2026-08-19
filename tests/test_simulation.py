@@ -20,12 +20,16 @@ from ink_engine.core.registry import GraphRegistries, NodeTypeRegistry
 from ink_engine.core.scoring import DimensionScore
 from ink_engine.core.simulation import (
     SIMULATE_KEY,
+    BestBranchMixer,
     BranchMixer,
     BranchSelection,
+    EvaluatedBranch,
     Evaluation,
     Evaluator,
+    PatchChainBranchMixer,
     ProvenanceNote,
     SimulateSpec,
+    WeightedScorerEvaluator,
     parse_simulate,
     simulate_thread_id,
 )
@@ -281,12 +285,12 @@ async def test_swap_branch_unavailable_rejected(memory_storage):
     )
     assert result.reason == TerminateReason.ERROR
     assert "换选分支不可用" in (result.error or "")
-    # 目标分支不存在 → 同样拒绝
+    # 目标分支不存在（序号越界）→ 同样拒绝（越界 = 换选目标不存在）
     result = await engine.swap_branch(
         thread_id="t1", before_checkpoint_id=before, branch_index=9
     )
     assert result.reason == TerminateReason.ERROR
-    assert "换选分支不可用" in (result.error or "")
+    assert "换选分支序号越界" in (result.error or "")
 
 
 async def test_parent_step_id_trace_tree(memory_storage, transport):
@@ -792,6 +796,106 @@ async def test_spec_evaluation_roundtrip():
 
     evaluation = Evaluation(score=0.8, passed=True, note="n")
     assert Evaluation.from_dict(evaluation.to_dict()) == evaluation
+
+    # 版本上下文（规则版本 + 参数快照）随评估记录 round-trip——回放/审计
+    # 按当时标尺重算（「标尺在动」不改变推演可回放性）
+    snapshot_eval = Evaluation(
+        score=0.6,
+        passed=True,
+        note="带版本",
+        dimensions=(DimensionScore(name="quality", score=0.6),),
+        rule_version="rules-v3",
+        params_snapshot={"weights": {"quality": 0.5}, "rule_version": "rules-v3"},
+    )
+    rebuilt_snapshot = Evaluation.from_dict(snapshot_eval.to_dict())
+    assert rebuilt_snapshot.rule_version == "rules-v3"
+    assert rebuilt_snapshot.params_snapshot == snapshot_eval.params_snapshot
+    assert rebuilt_snapshot.dimensions == snapshot_eval.dimensions
+
+
+async def test_weighted_scorer_evaluator_bridge():
+    """加权打分器 → 评估协议桥接：评审策略配置化接入推演（开箱可跑）。"""
+    from ink_engine.core.scoring import ScoreDimension, ScoringConfig
+
+    config = ScoringConfig(
+        dimensions=(
+            ScoreDimension(name="quality", weight=0.7, threshold=0.5),
+            ScoreDimension(name="consistency", weight=0.3),
+        ),
+        overall_threshold=0.6,
+    )
+
+    def scorer(branch, overlay):
+        return {"quality": 0.9, "consistency": 0.8}
+
+    evaluator = WeightedScorerEvaluator(config, dimension_scorer=scorer)
+    spec = SimulateSpec(subgraph=Graph(name="sim", entry="s1"), state={}, index=0)
+    evaluation = await evaluator.evaluate(spec, {"k": 1})
+    assert evaluation.score == pytest.approx(0.7 * 0.9 + 0.3 * 0.8)
+    assert evaluation.passed is True
+    assert [d.name for d in evaluation.dimensions] == ["quality", "consistency"]
+
+    # 未注入评分钩子：中性基线分（全维 1.0，择优退化确定性选择）
+    neutral = WeightedScorerEvaluator(config)
+    neutral_eval = await neutral.evaluate(spec, {})
+    assert neutral_eval.score == pytest.approx(1.0)
+
+    # 维度不达标 → 不通过（闸门语义：低质分支不参与择优提交）
+    def poor(branch, overlay):
+        return {"quality": 0.3, "consistency": 0.9}
+
+    poor_eval = await WeightedScorerEvaluator(
+        config, dimension_scorer=poor
+    ).evaluate(spec, {})
+    assert poor_eval.passed is False
+
+
+async def test_best_branch_mixer_honors_budget():
+    """单选调配消费预算：提交增量受预算裁剪（主线上下文预算 = 上界）。"""
+    spec0 = SimulateSpec(subgraph=Graph(name="sim", entry="s1"), state={}, index=0)
+    spec1 = SimulateSpec(subgraph=Graph(name="sim", entry="s1"), state={}, index=1)
+    branches = [
+        EvaluatedBranch(
+            spec=spec1,
+            overlay={"big": "x" * 500},
+            evaluation=Evaluation(score=0.9, passed=True),
+        ),
+        EvaluatedBranch(
+            spec=spec0,
+            overlay={"small": "y" * 10},
+            evaluation=Evaluation(score=0.4, passed=True),
+        ),
+    ]
+    mixer = BestBranchMixer()
+    selection = await mixer.mix(branches, budget=200)
+    assert selection.selected == (1,)
+    assert len(selection.overlay["big"]) <= 200  # 超预算被裁剪
+
+
+async def test_cross_branch_conflict_higher_score_wins():
+    """跨分支组装冲突策略：同键多分支竞争由高分分支胜出（先到先得）。"""
+    spec0 = SimulateSpec(subgraph=Graph(name="sim", entry="s1"), state={}, index=0)
+    spec1 = SimulateSpec(subgraph=Graph(name="sim", entry="s1"), state={}, index=1)
+    branches = [
+        EvaluatedBranch(
+            spec=spec0,
+            overlay={"hero": "低分分支的设定", "plot": "低分分支情节"},
+            evaluation=Evaluation(score=0.3, passed=True),
+        ),
+        EvaluatedBranch(
+            spec=spec1,
+            overlay={"hero": "高分分支的设定", "extra": "高分分支补充"},
+            evaluation=Evaluation(score=0.9, passed=True),
+        ),
+    ]
+    mixer = PatchChainBranchMixer()
+    selection = await mixer.mix(branches)
+    assert selection.overlay["hero"] == "高分分支的设定"  # 冲突由高分胜出
+    assert selection.overlay["plot"] == "低分分支情节"  # 低分补空缺键
+    assert selection.overlay["extra"] == "高分分支补充"
+    by_key = {p.key: p.branch_index for p in selection.provenance}
+    assert by_key["hero"] == 1
+    assert by_key["plot"] == 0
 
 
 async def test_simulate_thread_id_format():

@@ -31,6 +31,7 @@ from .exceptions import GraphDefinitionError
 from .llm.tools import ToolSpec
 from .logging import get_logger
 from .permissions import NetworkPolicy, NetworkPolicySandbox, PermissionGate, parse_permission
+from .sandbox import FileSandbox, ProcessSandbox
 
 if TYPE_CHECKING:
     from .tool_pipeline import ToolPipeline
@@ -56,6 +57,14 @@ _ENDPOINT_ACTIONS: dict[EndpointType, tuple[str, ...]] = {
     EndpointType.HTTP_FETCH: ("connect",),
     EndpointType.PROCESS_EXEC: ("exec",),
     EndpointType.FILE_OPS: ("read", "write", "delete"),
+}
+
+# 端点配置的必填白名单键（沙箱自动接线的声明依据：process_exec 须声明
+# 命令白名单、file_ops 须声明根目录——缺失即定义期拒绝，fail-closed）
+_ENDPOINT_CONFIG_REQUIREMENTS: dict[EndpointType, tuple[str, ...]] = {
+    EndpointType.HTTP_FETCH: (),
+    EndpointType.PROCESS_EXEC: ("allowlist",),
+    EndpointType.FILE_OPS: ("root",),
 }
 
 
@@ -87,7 +96,8 @@ class DeclarativeToolSpec:
         self.validate()
 
     def validate(self) -> None:
-        """定义期校验（fail-fast：权限缺失/权限声明非法/参数 schema 非法）。"""
+        """定义期校验（fail-fast：权限缺失/权限声明非法/参数 schema 非法/
+        端点白名单缺失——缺声明即拒绝，不延后到执行期）。"""
         if not self.name:
             raise GraphDefinitionError("工具名不能为空")
         if not self.permissions:
@@ -105,6 +115,26 @@ class DeclarativeToolSpec:
             )
         if self.endpoint not in EndpointType:
             raise GraphDefinitionError(f"工具 {self.name} 端点类型非法: {self.endpoint!r}")
+        for key in _ENDPOINT_CONFIG_REQUIREMENTS.get(self.endpoint, ()):
+            if not self.endpoint_config.get(key):
+                raise GraphDefinitionError(
+                    f"工具 {self.name} 的 {self.endpoint.value} 端点须声明"
+                    f" {key}（沙箱守卫白名单，缺失即拒绝）"
+                )
+        if self.endpoint is EndpointType.PROCESS_EXEC:
+            allowlist = self.endpoint_config.get("allowlist")
+            if not isinstance(allowlist, (list, tuple)) or not all(
+                isinstance(cmd, str) and cmd for cmd in allowlist
+            ):
+                raise GraphDefinitionError(
+                    f"工具 {self.name} 的 allowlist 须为非空命令白名单清单"
+                )
+        if self.endpoint is EndpointType.FILE_OPS:
+            root = self.endpoint_config.get("root")
+            if not isinstance(root, str) or not root:
+                raise GraphDefinitionError(
+                    f"工具 {self.name} 的 root 须为非空根目录路径"
+                )
 
     def to_spec(self) -> ToolSpec:
         """转为引擎工具描述（参数 schema 与权限声明透传）。"""
@@ -266,6 +296,27 @@ def make_declarative_extractor(
     return extract
 
 
+class _DefinitionGate:
+    """定义级权限门禁：按声明式定义声明的权限判定（防宽松 spec 覆盖）。
+
+    调用方传入的 spec.permissions 不参与判定——声明式工具的权限边界
+    = 定义声明的权限（定义期已校验非空且合法）；引擎自有装配路径始终
+    一致，此包装把「调用方伪造宽松权限」的窗口也封住。
+    """
+
+    def __init__(self, executors: DeclarativeToolExecutors, inner: Any) -> None:
+        self._executors = executors
+        self._inner = inner
+
+    def check(self, name: str, operation: str, target: str, permissions=None):
+        definition = self._executors.definitions.get(name)
+        if definition is not None:
+            permissions = definition.permissions
+        return self._inner.check(
+            name, operation, target, permissions=permissions
+        )
+
+
 def build_declarative_pipeline(
     executors: DeclarativeToolExecutors,
     *,
@@ -284,16 +335,19 @@ def build_declarative_pipeline(
     经此走完整流水线（门禁 → 沙箱 → 守卫 → 审批 → 审计）。
 
     门禁默认 fail-closed：未注入 gate 时按 :class:`PermissionGate`
-    默认策略（未声明权限/未命中 = 拒绝）兜底，宿主须显式传
-    ``PermissionGate(default_policy=...)`` 或 ``gate=None`` 才可放宽；
-    network_policy 传入时自动并入沙箱环节（http_fetch 经域名白名单
-    守卫，其余沙箱由宿主按端点注入）；判定目标推导失败恒 fail-closed
-    拒绝。
+    默认策略（未声明权限/未命中 = 拒绝）兜底；判定一律按**定义声明的
+    权限**（:class:`_DefinitionGate` 包装，调用方 spec 权限不参与）；
+    沙箱自动接线：http_fetch 经 ``network_policy`` 并入域名白名单，
+    process_exec/file_ops 从各自 endpoint_config 自动构造
+    :class:`ProcessSandbox`/:class:`FileSandbox`（白名单/根目录在定义
+    期强制声明，缺声明注册即拒绝）——三类端点全部有对应守卫，判定
+    目标推导失败恒 fail-closed 拒绝。
     """
     from .tool_pipeline import ToolPipeline
 
     if gate is None:
         gate = PermissionGate()
+    gate = _DefinitionGate(executors, gate)
     if network_policy is not None:
         sandbox = (
             network_policy
@@ -301,6 +355,19 @@ def build_declarative_pipeline(
             else NetworkPolicySandbox(allow_domains=network_policy.allow_domains)
         )
         sandboxes = (*sandboxes, sandbox)
+    auto_sandboxes: list[Any] = []
+    for definition in executors.definitions.values():
+        if definition.endpoint is EndpointType.PROCESS_EXEC:
+            auto_sandboxes.append(
+                ProcessSandbox(
+                    allowlist=tuple(definition.endpoint_config["allowlist"])
+                )
+            )
+        elif definition.endpoint is EndpointType.FILE_OPS:
+            auto_sandboxes.append(
+                FileSandbox(root=definition.endpoint_config["root"])
+            )
+    sandboxes = (*sandboxes, *auto_sandboxes)
 
     return ToolPipeline(
         gate=gate,

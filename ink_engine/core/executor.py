@@ -1,4 +1,4 @@
-"""执行引擎：run 执行循环（替代 langgraph StateGraph 执行/checkpoint/interrupt）。
+"""执行引擎：run 执行循环（图执行/checkpoint 版本链/interrupt 原语）。
 
 单循环状态机：取当前节点 → 执行（节点内 ctx.emit 发射事件）→ 增量按
 reducer 合并 → checkpoint 快照 → 条件边选下一节点 → 终止/出口。无
@@ -80,7 +80,8 @@ from .spawn import (
     instance_thread_id,
 )
 from .state import StateSchema, is_merge_reducer, subgraph_overlay_delta
-from .storage import CheckpointRecord, Storage
+from .storage import ChainLink, CheckpointRecord, Storage
+from .tuning import TurnMetrics
 
 logger = get_logger(__name__)
 
@@ -140,6 +141,10 @@ class RunOptions:
     # 源）：节点执行前引擎自动调用一次取源并统一调配，节点内 assemble
     # 复用预装配结果（不重复装配/不重复留痕）
     assembly_sources: Any = None
+    # 回合指标聚合（引擎自承载的观测件）：注入后顶层 run 收尾时自动
+    # 记录回合成败与错误摘要（评审分/收敛轮数/挡位调用由使用方按事件
+    # 语义填报——引擎只采集自身可见的执行事实）；None = 不采集
+    metrics: TurnMetrics | None = None
 
 
 @dataclass(slots=True)
@@ -438,11 +443,17 @@ async def _locate_next(
 def _node_in_plan_steps(node: str, plan: Plan) -> bool:
     """节点是否属于计划步骤的节点集合（NODES/PARALLEL 步成员）。
 
-    恢复定位判据：中断/异常 checkpoint 的 node 属于计划步骤节点 = 顺序
-    节点步中断（重入该节点）；不属于 = 计划工作步（并行/spawn）中断
-    （checkpoint.node 是计划产出节点，重入它 = 重新规划，应重入计划步）。
+    恢复定位的兜底判据（旧存档无显式工作步标记时使用）：中断/异常
+    checkpoint 的 node 属于计划步骤节点 = 顺序节点步中断（重入该节点）；
+    不属于 = 计划工作步（并行/spawn）中断（重入计划步）。新写 checkpoint
+    携带显式 ``work_step`` 标记，不再依赖节点名猜测。
     """
     return any(node in step.nodes for step in plan.steps)
+
+
+def _plan_snapshot_is_work_step(plan: dict | None) -> bool:
+    """计划快照是否带工作步标记（并行组/spawn 步内中断/失败的显式信号）。"""
+    return bool(plan) and bool(plan.get("work_step"))
 
 
 class Engine:
@@ -519,8 +530,8 @@ class Engine:
                 logger.warning(f"事件传输失败（忽略）: {event.type}: {exc}")
 
     async def update_state(self, thread_id: str, values: dict) -> None:
-        """外部状态补丁（对齐 langgraph aupdate_state 语义）：读最新 checkpoint，
-        按 schema reducer 合并 values 后写回新 checkpoint——不执行任何节点。
+        """外部状态补丁：读最新 checkpoint，按 schema reducer 合并 values 后
+        写回新 checkpoint——不执行任何节点。
 
         弹卡注入（review_action 写 review_decision 等）/ 手动压缩裁剪 /
         cancel 清挂起共用：挂起卡保留在 checkpoint，注入值以新快照形式
@@ -591,7 +602,7 @@ class Engine:
             round_id: 回合 id（事件契约）。
             resume_from: checkpoint_id 锚点（恢复/续流；None = 从头执行）。
                 恢复时输入 state 作为覆盖层（checkpoint 优先，输入补缺/
-                追加——与 langgraph 续跑语义一致）。
+                追加）。
             continue_chain: 新回合续链（True = 读链尾 checkpoint 为基底，
                 输入 state 覆盖后从入口执行，版本链续接链尾；不重放事件）。
             inject: interrupt 注入值（{review_key: value}，重入语义）。
@@ -614,6 +625,7 @@ class Engine:
         self._event_counter = 0
         self._latest_event_seq = None
         self._chain_advanced = False
+        self._validate_entry_mode(resume_from=resume_from, continue_chain=continue_chain)
         try:
             if inject:
                 self._coordinator.inject(inject)
@@ -644,7 +656,8 @@ class Engine:
                 if event is None:
                     break
                 yield event
-            await task
+            _, run_result = await task
+            self._record_run_metrics(run_result)
         finally:
             # 消费方提前退出（断连/break）：取消后台执行任务并等待其真正停止
             # （否则任务继续调 LLM/写 checkpoint，成本与数据泄漏）
@@ -685,6 +698,7 @@ class Engine:
         self._event_counter = 0
         self._latest_event_seq = None
         self._chain_advanced = False
+        self._validate_entry_mode(resume_from=resume_from, continue_chain=continue_chain)
         try:
             if inject:
                 self._coordinator.inject(inject)
@@ -705,12 +719,68 @@ class Engine:
                 # （与 run() 同口径，防静态审计/落库传输被静默停掉）
                 transports=[*self.options.transports, *(transports or [])],
             )
+            self._record_run_metrics(result)
             return result
         finally:
             if inject:
                 for key in inject:
                     self._coordinator.pending_inject.pop(key, None)
             trace_id_var.reset(token)
+
+    def _validate_entry_mode(
+        self, *, resume_from: int | None, continue_chain: bool
+    ) -> None:
+        """入口模式契约：续链与锚点恢复语义互斥，同置显式拒绝。
+
+        续链（continue_chain）= 新回合从链尾续接，不重放事件；锚点恢复
+        （resume_from）= 从指定快照 + 事件重放续流——两者同置时锚点
+        校验仍会生效（图版本不一致即拒），语义矛盾在入口暴露而非
+        执行期意外终止。
+        """
+        if continue_chain and resume_from is not None:
+            raise GraphDefinitionError(
+                "continue_chain 与 resume_from 语义互斥"
+                "（续链 = 从链尾续接不重放；恢复 = 按锚点快照 + 事件重放）"
+            )
+
+    def _record_run_metrics(self, result: RunResult) -> None:
+        """回合指标采集（引擎自承载：记录自身可见的执行事实）。
+
+        顶层 run 收尾调用一次：回合成败（错误终止 = 失败）与错误摘要
+        入回合指标；评审分/收敛轮数/挡位调用由使用方按事件语义填报
+        （引擎只采集执行本身可见的统计，语义化指标不替使用方猜）。
+        """
+        metrics = self.options.metrics
+        if metrics is None:
+            return
+        failed = result.reason == TerminateReason.ERROR
+        metrics.record_turn(failed=failed, error=result.error or "")
+
+    @staticmethod
+    async def decision_anchor(
+        storage: Storage, thread_id: str
+    ) -> int | None:
+        """定位最近一次决策点执行前的恢复锚点（换选辅助）。
+
+        决策事件（simulate_decision）在事件流中记录决策点位置；锚点 =
+        该事件 seq 之前的最后一个 checkpoint（事件流与版本链同序对齐，
+        恢复 = 快照 + 增量重放，锚点取决策前的快照才可重演决策点）。
+        None = 该线程尚无决策点留痕（换选不可用）。
+        """
+        events = await storage.events_after(thread_id, 0)
+        anchor_seq: int | None = None
+        for event in events:
+            if event.type == "simulate_decision":
+                anchor_seq = event.seq
+        if anchor_seq is None:
+            return None
+        best: ChainLink | None = None
+        for link in await storage.chain_index(thread_id):
+            if link.event_seq < anchor_seq and (
+                best is None or link.event_seq > best.event_seq
+            ):
+                best = link
+        return best.checkpoint_id if best is not None else None
 
     async def swap_branch(
         self,
@@ -728,16 +798,32 @@ class Engine:
         推演-回溯-换选的执行语义：决策点完成后主线提交的是择优结果；
         对落选分支做回溯对比/换选 = 回到决策点节点执行前的 checkpoint
         锚点（决策点自身的 checkpoint 已是选择后状态），强制指定分支
-        序号重放——重放期间各分支仍按独立子链执行，主线状态最终 =
-        目标分支的结果。目标分支在重放时不存在或未通过评估 = 显式报错。
+        序号重放——重放只执行目标分支（其余分支的结果保留在各自独立
+        子链，可回溯对比），主线状态最终 = 目标分支的结果。目标分支在
+        重放时不存在或未通过评估 = 显式报错。锚点可用
+        :meth:`decision_anchor` 从决策事件反查。
 
         Args:
             thread_id: 会话/线程 id（版本链归属）。
-            before_checkpoint_id: 决策点节点执行前的 checkpoint 锚点。
+            before_checkpoint_id: 决策点节点执行前的 checkpoint 锚点
+                （须为该线程链上非终态锚点，见校验）。
             branch_index: 目标分支序号（决策事件 branches 引用可见）。
             inject: 中断注入值（重入语义，与 run 同口径）。
             round_id/trace_id/transports: 透传（与 ainvoke 同语义）。
         """
+        if self.options.storage is not None:
+            anchor = await self.options.storage.get_checkpoint(
+                before_checkpoint_id
+            )
+            if anchor is None:
+                raise SimulationError(
+                    f"换选锚点不存在: {before_checkpoint_id}"
+                )
+            if anchor.reason not in (None, "interrupted"):
+                raise SimulationError(
+                    "换选锚点须为决策点执行前的 checkpoint"
+                    f"（当前锚点已是终态: {anchor.reason}）"
+                )
         original = self.options.branch_pick
         self.options.branch_pick = branch_index
         try:
@@ -877,6 +963,7 @@ class Engine:
         #     该节点（计划游标已推进到下一步，完成后从剩余步骤续跑）。
         skip_first_node = False
         plan_pending = False
+        work_step_signal = False
         active_plan: Plan | None = None
         if continue_chain:
             # 新回合续链：链尾为基底（状态通道继承）、事件全新产生、不恢复
@@ -904,11 +991,17 @@ class Engine:
                 # （工作步中断 index 停留在当前步；顺序节点中断 index 已推进
                 # 到下一步）——重入节点/计划步拿到注入值/重试完成后从计划
                 # 剩余步骤续跑（不丢计划，回溯决策点计划同版本）
-                if last_checkpoint.plan is not None:
+                if last_checkpoint.plan is not None and self.options.max_plan_steps > 0:
                     active_plan = Plan.from_dict(last_checkpoint.plan)
-                    if not _node_in_plan_steps(current, active_plan):
+                    # 工作步（并行组/spawn）内中断/失败 → 重入计划步本身：
+                    # checkpoint.node 是计划产出节点（重跑它 = 重新规划，
+                    # 中断步与注入值丢失）；顺序节点步 → 重入该节点。显式
+                    # 标记优先，旧存档回落节点名判据（兼容）。
+                    if _plan_snapshot_is_work_step(last_checkpoint.plan) or not (
+                        _node_in_plan_steps(current, active_plan)
+                    ):
                         plan_pending = True
-            elif last_checkpoint.plan is not None:
+            elif last_checkpoint.plan is not None and self.options.max_plan_steps > 0:
                 active_plan = Plan.from_dict(last_checkpoint.plan)
                 # 普通计划 checkpoint：产出节点已完成，跳过其执行，直接从
                 # 计划剩余步骤续跑（重跑产出节点会重新规划，覆盖计划游标）
@@ -934,6 +1027,10 @@ class Engine:
             if current not in graph.nodes:
                 raise NodeExecutionError(current, ValueError(f"节点未注册: {current}"))
             ctx.node = current
+            # 输入调配缓存按节点复位：预装配结果只对当前节点有效——跨节点
+            # 复用会让后续节点拿到上一节点的陈旧上下文且无留痕（每次节点
+            # 执行前统一调配 + 留痕可回放的前提）
+            ctx._assembled = None
 
             # ── 恢复终点：已完成节点无出边，直接进入终态收尾 ──
             if skip_first_node:
@@ -967,6 +1064,9 @@ class Engine:
                     fork_write=fork_write,
                 )
                 current_state = advance.state
+                work_step_signal = (
+                    advance.interrupt is not None or advance.reason is not None
+                )
                 if advance.interrupt is not None:
                     interrupt_state = advance.interrupt
                     reason = "interrupted"
@@ -1273,6 +1373,8 @@ class Engine:
                                 "score": b.evaluation.score,
                                 "passed": b.evaluation.passed,
                                 "note": b.evaluation.note,
+                                "rule_version": b.evaluation.rule_version,
+                                "params_snapshot": b.evaluation.params_snapshot,
                             }
                             for b in sim_result.branches
                         ],
@@ -1322,6 +1424,9 @@ class Engine:
                     fork_write=fork_write,
                 )
                 current_state = advance.state
+                work_step_signal = (
+                    advance.interrupt is not None or advance.reason is not None
+                )
                 if advance.interrupt is not None:
                     # 计划工作步内中断（并行组成员/spawn 实例）→ 提升为父图
                     # 挂起卡（与节点中断同口径：负载剥离敏感键后直返宿主）
@@ -1347,6 +1452,13 @@ class Engine:
 
         # ── 终态 checkpoint（携带终止原因/异常快照/计划快照，入轨迹与审计）──
         if storage is not None:
+            plan_snapshot = None
+            if active_plan is not None:
+                plan_snapshot = active_plan.to_dict()
+                if work_step_signal:
+                    # 工作步内中断/失败标记：恢复时据此重入计划步本身
+                    # （显式信号，不依赖 checkpoint.node 的节点名猜测）
+                    plan_snapshot = {**plan_snapshot, "work_step": True}
             last_checkpoint, fork_write = await self._write_checkpoint(
                 storage=storage,
                 thread_id=thread_id,
@@ -1361,7 +1473,7 @@ class Engine:
                 # 挂起卡状态随终态快照持久化：reason=interrupted 时携带
                 # 中断键与卡负载（续流恢复定位锚点，宿主据此注入决策值）
                 interrupt=interrupt_state,
-                plan=active_plan.to_dict() if active_plan is not None else None,
+                plan=plan_snapshot,
             )
         result = RunResult(
             state=current_state,
@@ -1486,6 +1598,14 @@ class Engine:
                     fork_write=fork_write,
                 )
             if outcome.terminate is not None:
+                # 终止成员/已完成成员的 overlay 先并入状态（与单节点
+                # terminate 同语义：增量随终态快照保留，不因组级终止丢弃）
+                if outcome.overlay:
+                    state = (
+                        schema.apply(state, outcome.overlay)
+                        if schema
+                        else {**state, **outcome.overlay}
+                    )
                 return _PlanAdvance(
                     reason=outcome.terminate,
                     error=outcome.error,
@@ -1615,6 +1735,9 @@ class Engine:
                         outcome.terminate = TerminateReason.BUDGET_EXCEEDED
                         outcome.error = f"并行组预算检查失败: {exc}"
                         return
+                # 输入调配预装配（与主循环同口径：节点执行前统一走调配管线，
+                # 并行执行面同样留痕可审计）
+                await member_ctx.preassemble()
                 for attempt in range(self.options.max_node_retries + 1):
                     member_ctx._spawns.clear()
                     member_ctx._terminated = None
@@ -1655,6 +1778,16 @@ class Engine:
                             # 拒绝——保留键泄漏进状态会造成静默丢失
                             raise RuntimeError(
                                 "并行组成员不支持 __simulate__（决策点推演仅主循环执行）"
+                            )
+                        if result is not None and PLAN_KEY in result:
+                            # 重规划仅主循环支持：并行组成员返回 __plan__
+                            # 与并行组声明序合并语义冲突，保留键弹出不落
+                            # 状态（与 __simulate__ 同属引擎保留键，泄漏
+                            # 会破坏状态可序列化性）
+                            result.pop(PLAN_KEY)
+                            logger.warning(
+                                f"并行组成员 {name} 返回的 __plan__ 已忽略"
+                                "（重规划仅主循环执行）"
                             )
                         results[name] = result
                         if member_ctx.terminated:
@@ -1699,6 +1832,14 @@ class Engine:
                 if not task.done():
                     task.cancel()
         if outcome.interrupt is not None or outcome.terminate is not None:
+            if outcome.terminate is not None:
+                # 终止成员的 overlay 随终态保留（与单节点 terminate 同语义：
+                # 节点返回增量先并入状态再终止——已完成的兄弟成员同样并入，
+                # 不因组级终止丢弃成员产出）
+                for name in names:
+                    overlay = results.get(name)
+                    if overlay:
+                        outcome.overlay = {**outcome.overlay, **overlay}
             return outcome
         if errors:
             if self.options.error_on_exception:
@@ -1810,7 +1951,10 @@ class Engine:
         """实例引擎：独立实例（并发安全，不复用图级缓存——实例间互不干扰）。
 
         共享父引擎存储/schema/预算/传输配置；coordinator 共享（实例内
-        interrupt 重入与父图同一通道）。
+        interrupt 重入与父图同一通道）。实例链 checkpoint 的图版本 =
+        子图自身指纹：跨引擎同源漂移由实例链自身的恢复校验覆盖（父链
+        不重放实例事件，无需并入父指纹——图版本校验作用域 = 各自引擎
+        的恢复锚点）。
         """
         sub_engine = Engine(
             subgraph,
@@ -1837,6 +1981,10 @@ class Engine:
                 branch_mixer=self.options.branch_mixer,
                 max_simulations=self.options.max_simulations,
                 simulate_concurrency=self.options.simulate_concurrency,
+                # 输入调配随实例传播（子任务/分支的执行面同样统一走
+                # 调配管线——与父层同一装配配置与源提供者）
+                assembly=self.options.assembly,
+                assembly_sources=self.options.assembly_sources,
             ),
         )
         sub_engine._coordinator = self._coordinator
@@ -2034,8 +2182,22 @@ class Engine:
                 entry_state, final_state, sub_schema
             )
 
+        # 换选路径（branch_pick 非 None）：只执行目标分支——其余分支的
+        # 结果保留在各自独立子链（轨迹树引用可回溯对比/换选，无需重算）；
+        # 正常择优路径全部分支并行推演。目标序号越界 = 换选目标不存在，
+        # 显式报错（不静默回落择优）。
+        pick = self.options.branch_pick
+        run_indexes = list(range(len(specs)))
+        if pick is not None:
+            if pick < 0 or pick >= len(specs):
+                raise SimulationError(
+                    f"换选分支序号越界: {pick}（当前决策点共 {len(specs)} 个分支）"
+                )
+            run_indexes = [pick]
         outcome = await fan_out(
-            [lambda i: run_one(i) for i in range(len(specs))],
+            # fan_out 的任务序号 = 任务列表位置，经默认参数捕获真实分支
+            # 序号（换选路径只跑目标分支时列表位置与分支序号不再对齐）
+            [lambda _pos, _idx=idx: run_one(_idx) for idx in run_indexes],
             concurrency,
             propagate=InterruptSignal,
         )
@@ -2143,6 +2305,9 @@ async def run_subgraph(subgraph: Graph, parent_ctx: NodeContext) -> dict | None:
                 branch_mixer=engine.options.branch_mixer,
                 max_simulations=engine.options.max_simulations,
                 simulate_concurrency=engine.options.simulate_concurrency,
+                # 输入调配随子图传播（嵌套子图执行面同样统一走调配管线）
+                assembly=engine.options.assembly,
+                assembly_sources=engine.options.assembly_sources,
             ),
         )
         engine._subgraph_engines[id(subgraph)] = sub_engine

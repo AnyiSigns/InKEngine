@@ -123,12 +123,18 @@ class Evaluation:
         passed: 是否通过（闸门语义：未通过的分支不参与择优提交）。
         note: 评估说明（留痕可读性）。
         dimensions: 维度明细（可选；加权打分器等策略的审计细节）。
+        rule_version: 评估所用规则集版本（随评估记录落库——回放/审计
+            按当时版本重算，「标尺在动」不改变推演可回放性）。
+        params_snapshot: 权重/阈值快照（ParameterSnapshot 序列化产物；
+            None = 未记录版本上下文）。
     """
 
     score: float = 0.0
     passed: bool = True
     note: str = ""
     dimensions: tuple[DimensionScore, ...] = ()
+    rule_version: str | None = None
+    params_snapshot: dict[str, Any] | None = None
 
     def to_dict(self) -> dict:
         data: dict[str, Any] = {"score": self.score, "passed": self.passed}
@@ -139,6 +145,10 @@ class Evaluation:
                 {"name": d.name, "score": d.score, "note": d.note}
                 for d in self.dimensions
             ]
+        if self.rule_version is not None:
+            data["rule_version"] = self.rule_version
+        if self.params_snapshot is not None:
+            data["params_snapshot"] = dict(self.params_snapshot)
         return data
 
     @classmethod
@@ -153,11 +163,14 @@ class Evaluation:
             )
             for raw in data.get("dimensions") or ()
         )
+        snapshot = data.get("params_snapshot")
         return cls(
             score=float(data.get("score", 0.0)),
             passed=bool(data.get("passed", True)),
             note=data.get("note", ""),
             dimensions=dimensions,
+            rule_version=data.get("rule_version"),
+            params_snapshot=dict(snapshot) if isinstance(snapshot, dict) else None,
         )
 
 
@@ -194,6 +207,68 @@ class Evaluator(Protocol):
         self, branch: SimulateSpec, overlay: dict
     ) -> Evaluation:
         ...
+
+
+# 维度评分钩子：分支规格 + 回流增量 → 维度得分表（0-1，领域语义）
+DimensionScorer = Callable[[SimulateSpec, dict], dict[str, float]]
+
+
+class WeightedScorerEvaluator:
+    """加权打分器 → 评估协议的桥接参考实现（机制接入，策略在使用方）。
+
+    把评审打分配置（:class:`~ink_engine.core.scoring.ScoringConfig`：
+    维度/权重/达标线）接入推演的评估协议：分支回流增量 → 维度得分
+    （注入的评分钩子按 overlay 产出，领域语义在使用方/用户集）→
+    加权打分器加权 → :class:`Evaluation`。未注入评分钩子时全部维度取
+    中性基线分（1.0）——择优退化为评分一致时按分支序号最小者选择，
+    保持确定性可断言。
+
+    附带版本上下文记录：评估时所用规则版本与参数快照随评估结果落库
+    （快照由使用方在评估前注入，回放/审计按当时标尺重算）。
+    """
+
+    def __init__(
+        self,
+        config: Any,
+        *,
+        dimension_scorer: DimensionScorer | None = None,
+        rule_version: str | None = None,
+        params_snapshot: dict[str, Any] | None = None,
+    ) -> None:
+        from .scoring import WeightedScorer
+
+        self._scorer = WeightedScorer(config)
+        self.dimension_scorer = dimension_scorer
+        self.rule_version = rule_version
+        self.params_snapshot = (
+            dict(params_snapshot) if params_snapshot is not None else None
+        )
+
+    async def evaluate(
+        self, branch: SimulateSpec, overlay: dict
+    ) -> Evaluation:
+        if self.dimension_scorer is not None:
+            dimensions = self.dimension_scorer(branch, overlay) or {}
+        else:
+            dimensions = {
+                dim.name: 1.0 for dim in self._scorer.config.dimensions
+            }
+        result = self._scorer.score(dimensions)
+        return Evaluation(
+            score=result.total,
+            passed=result.passed and not result.failing_dimensions,
+            note=(
+                "加权打分器桥接评估"
+                + (
+                    f"; 未达标维度: {[d.name for d in result.failing_dimensions]}"
+                    if result.failing_dimensions
+                    else ""
+                )
+            ),
+            dimensions=result.scores,
+            rule_version=self.rule_version,
+            params_snapshot=self.params_snapshot,
+        )
 
 
 @dataclass(frozen=True, slots=True)
@@ -234,11 +309,45 @@ class BranchMixer(Protocol):
         ...
 
 
+def _fit_overlay(overlay: dict, budget: int | None) -> dict:
+    """提交增量按预算裁剪（序列化字符上界；None/非正 = 不裁剪）。
+
+    确定性：按键序依次纳入，字符串值超预算截断到剩余预算（文本是
+    状态通道的常见形态），非字符串形态整键纳入；首个键至少保留
+    （提交非空）。预算 = 主线上下文可容纳的增量上限，留痕记裁剪后
+    实际提交内容。
+    """
+    if budget is None or budget <= 0:
+        return dict(overlay)
+    import json as _json
+
+    kept: dict[str, Any] = {}
+    used = 0
+    for key, value in overlay.items():
+        if isinstance(value, str):
+            size = len(value)
+            if kept and used + size > budget:
+                break
+            if used + size > budget:
+                value = value[: budget - used]
+            if value or not kept:
+                kept[key] = value
+                used += len(value)
+            continue
+        size = len(_json.dumps(value, ensure_ascii=False, default=str))
+        if kept and used + size > budget:
+            break
+        kept[key] = value
+        used += size
+    return kept
+
+
 class BestBranchMixer:
     """默认调配策略：通过评估的分支中取最高分整体提交（确定性单选）。
 
     未通过分支（passed=False）不参与择优（闸门语义：评估不过关的分支
-    不得提交主线）。平分时取序号最小者（确定性，可断言）。
+    不得提交主线）。平分时取序号最小者（确定性，可断言）。提交增量受
+    预算约束（:func:`_fit_overlay`——主线上下文预算 = 提交上界）。
     """
 
     async def mix(
@@ -248,12 +357,13 @@ class BestBranchMixer:
         if not candidates:
             raise GraphDefinitionError("无可提交的推演分支（全部未通过评估）")
         best = max(candidates, key=lambda b: (b.evaluation.score, -b.spec.index))
+        overlay = _fit_overlay(best.overlay, budget)
         return BranchSelection(
             selected=(best.spec.index,),
-            overlay=dict(best.overlay),
+            overlay=overlay,
             provenance=(
                 (ProvenanceNote(branch_index=best.spec.index, key="*", note="整体提交"),)
-                if best.overlay
+                if overlay
                 else ()
             ),
         )
@@ -262,9 +372,13 @@ class BestBranchMixer:
 class PatchChainBranchMixer:
     """跨分支组装参考实现（补丁链 assemble 复用，来源留痕可审计）。
 
-    各分支 overlay 逐键落为 replace 补丁（后序分支覆盖同键），组装 =
-    补丁链 assemble（纯函数、可版本化）——组装形态与补丁链同构：换选/
-    回退可对组装补丁链做区间重放，留痕 = 来源标注（哪段来自哪个分支）。
+    各分支 overlay 逐键落为 replace 补丁，组装 = 补丁链 assemble（纯
+    函数、可版本化）——组装形态与补丁链同构：换选/回退可对组装补丁链
+    做区间重放，留痕 = 来源标注（哪段来自哪个分支）。
+
+    冲突语义：同键多分支竞争时按评估分降序先到先得（高分分支的设定
+    优先，低分分支只补空缺键——跨分支拼接而非无序覆盖）；提交增量受
+    预算约束（:func:`_fit_overlay`）。
 
     与 :class:`BestBranchMixer` 的分工：单选 = 整体提交；本策略 = 跨
     分支拼接（分支 A 的设定 + 分支 B 的走向），供需要混编的主线使用。
@@ -276,12 +390,22 @@ class PatchChainBranchMixer:
         selected: list[int] = []
         provenance: list[ProvenanceNote] = []
         chain = PatchChain(base={})
-        for evaluated in branches:
+        # 按评估分降序（平分按序号升序）填充：高分分支的键先落位，后续
+        # 分支只补空缺——同键冲突由高分分支胜出（策略明确，可断言）
+        ordered = sorted(
+            branches,
+            key=lambda b: (-b.evaluation.score, b.spec.index),
+        )
+        filled: set[str] = set()
+        for evaluated in ordered:
             overlay = evaluated.overlay
             if not overlay:
                 continue
             selected.append(evaluated.spec.index)
             for key, value in overlay.items():
+                if key in filled:
+                    continue  # 同键已被更高分分支占据，不覆盖
+                filled.add(key)
                 chain.apply(
                     Patch(op=PatchOp.REPLACE, path=(key,), value=value)
                 )
@@ -294,9 +418,10 @@ class PatchChainBranchMixer:
                 )
         if not selected:
             raise GraphDefinitionError("无可提交的推演分支（全部 overlay 为空）")
+        assembled = chain.assemble()
         return BranchSelection(
             selected=tuple(selected),
-            overlay=chain.assemble(),
+            overlay=_fit_overlay(assembled, budget),
             provenance=tuple(provenance),
         )
 
@@ -412,6 +537,7 @@ __all__ = [
     "BestBranchMixer",
     "BranchMixer",
     "BranchSelection",
+    "DimensionScorer",
     "EvaluatedBranch",
     "Evaluation",
     "Evaluator",
@@ -419,6 +545,7 @@ __all__ = [
     "ProvenanceNote",
     "SimulateSpec",
     "SimulationResult",
+    "WeightedScorerEvaluator",
     "parse_simulate",
     "simulate_thread_id",
 ]

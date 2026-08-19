@@ -23,7 +23,7 @@ from .storage import Storage
 logger = get_logger(__name__)
 
 # 默认本轮工具集预算（数量上限，与 spawn 清单上限同档成本护栏语义）
-DEFAULT_MAX_TOOLS = 12
+DEFAULT_MAX_TOOLS = 10
 
 # 相关度默认值（与上下文源同口径：未声明取中值，防全默认均分预算）
 DEFAULT_RELEVANCE = 0.5

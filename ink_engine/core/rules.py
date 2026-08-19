@@ -787,11 +787,15 @@ class RuleCheckResult:
         issues: 违规清单（按规则声明序）。
         skipped: 跳过规则明细 ((rule_id, reason), ...)——谓词异常/数据
             不适用均在此留痕，观测而不阻断。
+        broken: 失效跳过明细 ((rule_id, reason), ...)——谓词执行异常或
+            产出畸形（返回非 dict/缺 message）的规则 = 规则本身失效，
+            样例闸门据此拒绝（静默失效的规则不得骗过闸门）。
         checked: 实际执行（未被跳过）的规则数。
     """
 
     issues: tuple[RuleViolation, ...]
     skipped: tuple[tuple[str, str], ...] = ()
+    broken: tuple[tuple[str, str], ...] = ()
     checked: int = 0
 
     def has_hard_conflict(self) -> bool:
@@ -837,6 +841,7 @@ class RuleEngine:
         merged_context = {"root": data, **(context or {})}
         issues: list[RuleViolation] = []
         skipped: list[tuple[str, str]] = []
+        broken: list[tuple[str, str]] = []
         checked = 0
         for rule in rule_set.rules:
             if rule.type not in _VALID_RULE_TYPES:
@@ -858,15 +863,18 @@ class RuleEngine:
                 for item in items:
                     issues.extend(
                         _evaluate_once(
-                            predicate, item, rule, merged_context, skipped
+                            predicate, item, rule, merged_context, skipped, broken
                         )
                     )
             else:
                 issues.extend(
-                    _evaluate_once(predicate, target, rule, merged_context, skipped)
+                    _evaluate_once(predicate, target, rule, merged_context, skipped, broken)
                 )
         return RuleCheckResult(
-            issues=tuple(issues), skipped=tuple(skipped), checked=checked
+            issues=tuple(issues),
+            skipped=tuple(skipped),
+            broken=tuple(broken),
+            checked=checked,
         )
 
 
@@ -886,15 +894,23 @@ def _evaluate_once(
     rule: Rule,
     context: dict[str, Any],
     skipped: list[tuple[str, str]],
+    broken: list[tuple[str, str]],
 ) -> list[RuleViolation]:
-    """单条目标执行谓词并归一化违规（异常 fail-open 跳过留痕）。"""
+    """单条目标执行谓词并归一化违规（异常 fail-open 跳过留痕）。
+
+    谓词执行异常与产出畸形（非 dict/缺 message）同时计入失效明细
+    （broken）——样例闸门据此拒绝静默失效的规则；数据不适用类跳过
+    （目标缺失/非集合）不属失效，只入跳过留痕。
+    """
     violations: list[RuleViolation] = []
     try:
         raw_issues = predicate(target, rule.config, context)
     except GraphDefinitionError:
         raise  # 声明错误穿透（谓词自身配置校验失败=建图期应暴露）
     except Exception as exc:
-        skipped.append((rule.id, f"谓词执行异常（fail-open 跳过）: {exc}"))
+        reason = f"谓词执行异常（fail-open 跳过）: {exc}"
+        skipped.append((rule.id, reason))
+        broken.append((rule.id, reason))
         logger.warning(
             "[rules] 谓词 %s 执行异常，规则 %s 跳过: %s",
             rule.predicate,
@@ -904,11 +920,15 @@ def _evaluate_once(
         return violations
     for raw in raw_issues or []:
         if not isinstance(raw, dict):
-            skipped.append((rule.id, f"谓词返回非 dict 违规: {type(raw).__name__}"))
+            reason = f"谓词返回非 dict 违规: {type(raw).__name__}"
+            skipped.append((rule.id, reason))
+            broken.append((rule.id, reason))
             continue
         message = raw.get("message")
         if not isinstance(message, str) or not message:
-            skipped.append((rule.id, "谓词违规缺 message"))
+            reason = "谓词违规缺 message"
+            skipped.append((rule.id, reason))
+            broken.append((rule.id, reason))
             continue
         violations.append(
             RuleViolation(
@@ -967,12 +987,14 @@ class ConstraintChecker:
             return RuleCheckResult(
                 issues=result.issues,
                 skipped=(*result.skipped, (HOOK_RULE_ID, f"钩子异常: {exc}")),
+                broken=result.broken,
                 checked=result.checked,
             )
         extra = _normalize_hook_issues(hook_issues)
         return RuleCheckResult(
             issues=result.issues + tuple(extra),
             skipped=result.skipped,
+            broken=result.broken,
             checked=result.checked,
         )
 
@@ -1141,11 +1163,14 @@ def run_fixtures(
     """样例库全量评估：规则集 × 每个用例 → 逐用例通过与否。
 
     判定语义：
-    - ``expected_pass=True``：零违规才通过；
+    - ``expected_pass=True``：零违规且零失效跳过才通过——谓词执行异常/
+      产出畸形（fail-open 跳过）的规则在干净用例上不得判定通过（静默
+      失效的规则不能骗过样例闸门；失效明细随用例结果留痕可审计）；
     - ``expected_pass=False``：至少一条违规，且 ``expected_kinds`` 中
       每个类别都至少出现一次（子集语义，允许额外类别）——声明
       ``unexpected_kinds`` 时额外类别被严格拒绝（坏规则在期望类别之外
-      产生别的违规 = 用例失败，退化防线不可绕过）。
+      产生别的违规 = 用例失败，退化防线不可绕过）；失效跳过同样判失败
+      （规则损坏 = 闸门失败，与用例方向无关）。
     """
     engine = engine or RuleEngine()
     results: list[FixtureResult] = []
@@ -1154,17 +1179,25 @@ def run_fixtures(
         kinds = {issue.kind for issue in result.issues}
         missing = tuple(kind for kind in case.expected_kinds if kind not in kinds)
         unexpected_hit = tuple(kind for kind in case.unexpected_kinds if kind in kinds)
+        broken = tuple(f"{rule_id}: {reason}" for rule_id, reason in result.broken)
         passed = (
-            not result.issues
+            not result.issues and not result.broken
             if case.expected_pass
-            else bool(result.issues) and not missing and not unexpected_hit
+            else bool(result.issues) and not missing and not unexpected_hit and not result.broken
         )
         reason = ""
         if not passed:
-            if case.expected_pass:
+            if broken:
+                reason = "规则失效（fail-open，不得视为通过）: " + "; ".join(
+                    broken[:3]
+                )
+            elif case.expected_pass:
                 reason = (
                     f"期望零违规，实际 {len(result.issues)} 条: "
-                    + "; ".join(f"{i.kind}[{i.rule_id}] {i.message}" for i in result.issues[:3])
+                    + "; ".join(
+                        f"{i.kind}[{i.rule_id}] {i.message}"
+                        for i in result.issues[:3]
+                    )
                 )
             elif not result.issues:
                 reason = "期望至少一条违规，实际零违规"

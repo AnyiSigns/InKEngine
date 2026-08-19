@@ -205,6 +205,14 @@ class ToolPipeline:
         resolved_target: str | None = None
         if operation is not None:
             for sb in self.sandboxes:
+                # 操作域过滤：沙箱只守卫自己声明的操作（多端点流水线
+                # 自动接线时各沙箱各司其职——进程调用不被文件/网络沙箱
+                # 误拒，反之亦然）；未声明守卫域 = 全量判定（旧语义）
+                if (
+                    getattr(sb, "guards_operation", None) is not None
+                    and not sb.guards_operation(operation)
+                ):
+                    continue
                 try:
                     resolved = sb.validate(operation, target)
                 except SandboxViolation as exc:

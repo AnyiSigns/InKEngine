@@ -1,6 +1,6 @@
 """工具 schema 自写转换（引擎 ToolSpec → OpenAI 兼容 tools JSON）。
 
-工具描述与 langchain 解耦：ToolSpec 携带 name/description/parameters
+工具描述自持：ToolSpec 携带 name/description/parameters
 （parameters 为 JSON Schema dict，或 pydantic BaseModel 类——检测到
 时经 model_json_schema() 转换，pydantic 为可选依赖，未安装则报错）。
 业务工具元数据（门控分级/敏感性等）不属引擎，由宿主注册表维护；

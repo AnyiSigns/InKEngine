@@ -549,6 +549,35 @@ def test_fixture_gate_catches_rule_regression():
     assert fixtures_all_green(regressed, _fixtures()) is False
 
 
+def test_fixture_gate_rejects_silently_broken_rule():
+    """静默失效防线：干净用例上谓词抛异常的规则不得骗过样例闸门。
+
+    回归：修复前 fail-open 跳过不参与判定——规则谓词在干净用例上异常
+    时无违规产出仍判通过（「样例测试非谈判项」被静默绕过）。
+    """
+    def broken_predicate(target, config, context):
+        raise RuntimeError("谓词内部错误")
+
+    registry = RuleTypeRegistry()
+    registry.register("broken", broken_predicate)
+    rule_set = RuleSet(
+        name="t",
+        rules=(
+            Rule(id="a", predicate="broken", config={"path": "x"}, kind="demo"),
+        ),
+    )
+    fixtures = FixtureSet(
+        name="demo",
+        cases=(FixtureCase(id="pass", data={"x": 1}),),
+    )
+    results = run_fixtures(rule_set, fixtures, engine=RuleEngine(registry))
+    assert results[0].passed is False  # 干净用例因规则失效而失败
+    assert "规则失效" in results[0].reason
+    assert fixtures_all_green(rule_set, fixtures, engine=RuleEngine(registry)) is False
+    with pytest.raises(FixtureGateError, match="规则失效"):
+        assert_fixtures_pass(rule_set, fixtures, engine=RuleEngine(registry))
+
+
 def test_parse_rejects_invalid_predicate_config():
     """谓词 config 形态校验在建图期暴露（非法 op/缺值/空清单 → 拒绝）。"""
     registry = RuleTypeRegistry()

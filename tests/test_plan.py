@@ -174,6 +174,50 @@ async def test_parallel_group_same_key_last_wins(memory_storage):
     assert state["shared"] == "second"
 
 
+async def test_parallel_member_terminate_keeps_overlay(memory_storage):
+    """并行组成员 terminate：自身增量随终态保留（与单节点 terminate 同语义）。
+
+    回归：修复前组级终止提前返回丢弃全部成员增量——终止成员已完成的
+    产出在终态快照中消失。被取消的未完成兄弟成员不贡献（取消语义）。
+    """
+    async def route(ctx):
+        return {PLAN_KEY: [{"parallel": ["leader", "follower"]}]}
+
+    async def leader(ctx):
+        ctx.terminate("reply")
+        return {"leader_result": "important"}
+
+    async def follower(ctx):
+        await asyncio.sleep(0.02)
+        return {"follower_result": "done"}
+
+    engine = make_engine(
+        _tracker_graph(route, nodes={"leader": leader, "follower": follower})
+    )
+    state, result = await _run(engine)
+    assert result.reason == "reply"
+    assert state["leader_result"] == "important"  # 终止成员自身增量保留
+    assert "follower_result" not in state  # 未完成成员被取消，不贡献
+
+
+async def test_parallel_member_plan_key_popped(memory_storage):
+    """并行组成员返回 __plan__：保留键弹出不落状态（重规划仅主循环执行）。"""
+    async def route(ctx):
+        return {PLAN_KEY: [{"parallel": ["member"]}]}
+
+    async def member(ctx):
+        return {"value": 1, PLAN_KEY: [{"nodes": ["x"]}]}
+
+    async def x(ctx):
+        return {}
+
+    engine = make_engine(_tracker_graph(route, nodes={"member": member, "x": x}))
+    state, result = await _run(engine)
+    assert result.reason == TerminateReason.REPLY
+    assert state["value"] == 1
+    assert PLAN_KEY not in state  # 保留键不泄漏进状态/checkpoint
+
+
 async def test_condition_gate_skips_step(memory_storage):
     """条件门：不满足的步骤跳过，满足的执行。"""
     log: list[str] = []
@@ -399,6 +443,77 @@ async def test_plan_parallel_interrupt_resume_reenters_work_step(memory_storage)
     # （首跑 gated 在完成前中断、slow 被取消，两者均未计入 done）
     assert route_calls == 1
     assert done == ["gated", "slow"]
+
+
+async def test_plan_work_step_marker_in_checkpoint(memory_storage):
+    """计划快照携带工作步标记：重入判定不依赖 checkpoint.node 的节点名猜测。
+
+    新写 checkpoint 用显式标记记录「中断发生在工作步内」——恢复时据此
+    重入计划步本身（兼容旧存档回落节点名判据）。
+    """
+    async def route(ctx):
+        return {PLAN_KEY: [{"parallel": ["gated"]}]}
+
+    async def gated(ctx):
+        await ctx.interrupt("review:parallel", {"q": "?"})
+        return {"done": True}
+
+    engine = make_engine(
+        _tracker_graph(route, nodes={"gated": gated}),
+        storage=memory_storage,
+    )
+    _, result = await _run(engine, thread_id="t1")
+    assert result.reason == "interrupted"
+    tail = await memory_storage.get_latest_checkpoint("t1")
+    assert tail is not None and tail.plan is not None
+    assert tail.plan.get("work_step") is True  # 显式标记落盘
+    # 标记随快照 round-trip：还原计划后仍可判定工作步中断
+    from ink_engine.core.executor import _plan_snapshot_is_work_step
+
+    assert _plan_snapshot_is_work_step(tail.plan) is True
+
+
+async def test_plan_disabled_on_resume_ignores_stored_plan(memory_storage):
+    """恢复时计划已禁用（max_plan_steps=0）：旧计划快照不续跑（配置优先）。"""
+    async def route(ctx):
+        return {PLAN_KEY: [{"nodes": ["x"]}]}
+
+    async def x(ctx):
+        return {"done": True}
+
+    engine = make_engine(
+        _tracker_graph(route, nodes={"x": x}),
+        storage=memory_storage,
+    )
+    _, result = await _run(engine, thread_id="t1")
+    assert result.reason == TerminateReason.REPLY
+    # 计划节点执行后的 checkpoint 携带计划快照（节点粒度，非终态）
+    cps = await memory_storage.list_checkpoints("t1")
+    plan_cp = next((c for c in cps if c.plan is not None), None)
+    assert plan_cp is not None
+
+    # 计划已禁用：恢复时忽略计划快照，按普通 checkpoint 续跑（不重跑产出节点）
+    disabled_engine = make_engine(
+        _tracker_graph(route, nodes={"x": x}),
+        storage=memory_storage,
+        max_plan_steps=0,
+    )
+    state2, result2 = await _run(
+        disabled_engine, thread_id="t1", resume_from=plan_cp.checkpoint_id
+    )
+    assert result2.reason == TerminateReason.REPLY
+    assert state2.get("done") is True
+
+
+async def test_continue_chain_and_resume_mutually_exclusive(memory_storage):
+    """入口契约：continue_chain 与 resume_from 同置显式拒绝（语义互斥）。"""
+    from ink_engine.core.exceptions import GraphDefinitionError
+
+    engine = make_engine(_tracker_graph(lambda ctx: {}), storage=memory_storage)
+    with pytest.raises(GraphDefinitionError, match="互斥"):
+        await engine.ainvoke(
+            {}, thread_id="t1", resume_from=1, continue_chain=True
+        )
 
 
 async def test_plan_spawn_step_max_spawns_guard(memory_storage):
@@ -665,6 +780,56 @@ def test_plan_parse_rejects_unknown_node():
         Plan.parse(
             [{"nodes": ["ghost"]}],
             graph=graph,
+        )
+
+
+def test_plan_parse_rejects_ghost_in_multi_node_step():
+    """顺序组中的未知节点在建期即拒绝（展开前校验，不落到执行期崩）。"""
+    from ink_engine.core.exceptions import GraphDefinitionError
+
+    graph = _tracker_graph(lambda ctx: {})
+    graph.add_node("a", lambda ctx: {})
+    with pytest.raises(GraphDefinitionError, match="未知节点"):
+        Plan.parse([{"nodes": ["a", "ghost"]}], graph=graph)
+
+
+def test_plan_parse_rejects_unregistered_condition_in_multi_node_step():
+    """顺序组的条件未注册在建期即拒绝（展开步同样过条件校验）。"""
+    from ink_engine.core.exceptions import GraphDefinitionError
+
+    graph = _tracker_graph(lambda ctx: {})
+    graph.add_node("a", lambda ctx: {})
+    graph.add_node("b", lambda ctx: {})
+    with pytest.raises(GraphDefinitionError, match="条件未注册"):
+        Plan.parse(
+            [{"nodes": ["a", "b"], "condition": "missing"}],
+            graph=graph,
+            edge_registry=_registries().edges,
+        )
+
+
+def test_plan_parse_rejects_workflow_node_not_in_graph():
+    """工作流域声明了但当前图不可执行的节点 → 建期拒绝（执行器只认图节点）。"""
+    from ink_engine.core.exceptions import GraphDefinitionError
+    from ink_engine.core.workflow import WorkflowEdgeSpec, WorkflowNodeSpec, WorkflowSpec
+
+    graph = _tracker_graph(lambda ctx: {})
+    graph.add_node("a", lambda ctx: {})
+    workflow = WorkflowSpec(
+        name="wf",
+        nodes=(
+            WorkflowNodeSpec(id="a", type="route"),
+            WorkflowNodeSpec(id="wf_only", type="route"),
+        ),
+        edges=(
+            WorkflowEdgeSpec(source="a", target="wf_only"),
+        ),
+    )
+    with pytest.raises(GraphDefinitionError, match="不在当前图"):
+        Plan.parse(
+            [{"nodes": ["wf_only"]}],
+            graph=graph,
+            workflow=workflow,
         )
 
 

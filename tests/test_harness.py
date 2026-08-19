@@ -55,7 +55,7 @@ def _harness(
                 "parameters": {},
                 "permissions": ["process:exec:git"],
                 "endpoint": "process_exec",
-                "endpoint_config": {},
+                "endpoint_config": {"allowlist": ["git"]},
             }
         ],
         schema={"channels": {"seen": None}},
@@ -194,6 +194,30 @@ def test_register_rejects_invalid_graph_data():
     data["exits"] = ["w1", "ghost"]  # 悬挂出口
     with pytest.raises(GraphDefinitionError, match="节点不存在"):
         registry.register(_harness().from_dict({**_harness().to_dict(), "graph": data}))
+
+
+def test_register_rejects_invalid_default_plan():
+    """注册即校验：默认编排模板引用未知节点在注册期拒绝（不落到执行期）。"""
+    from ink_engine.core.plan import Plan  # noqa: F401  （校验路径引用）
+
+    registry = HarnessRegistry(registries=_registry())
+    definition = _harness()
+    data = definition.to_dict()
+    data["default_plan"] = {"steps": [{"nodes": ["ghost_plan_node"]}]}
+    with pytest.raises(GraphDefinitionError, match="未知节点"):
+        registry.register(HarnessDefinition.from_dict(data))
+
+    # 无图定义却带编排模板 = 模板无处可执行，同样拒绝
+    bare = HarnessDefinition(
+        name="bare",
+        description="无图",
+        keywords=(),
+        graph=None,
+        tools=(),
+        default_plan={"steps": [{"nodes": ["w1"]}]},
+    )
+    with pytest.raises(GraphDefinitionError, match="要求 graph 定义"):
+        registry.register(bare)
 
 
 def test_build_tools_registers_definitions():

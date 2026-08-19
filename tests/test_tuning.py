@@ -164,6 +164,46 @@ def test_weight_floor_protected():
     assert result.params.weights["A"] >= 0.1
 
 
+def test_weight_cap_protected():
+    """升权上限保护（维度不因反馈失衡主导——上界与回归边界同口径）。"""
+    params = TunableParams(weights={"A": 0.9})
+    result = MetaTuner().tune(params, TurnMetrics(), feedback={"A": 1.0})
+    assert result.params.weights["A"] <= 1.0
+    # 连续高分反馈多次仍不越界
+    for _ in range(10):
+        result = MetaTuner().tune(
+            result.params, TurnMetrics(), feedback={"A": 1.0}
+        )
+    assert result.params.weights["A"] <= 1.0
+
+
+def test_out_of_bounds_weights_repaired_before_tuning():
+    """历史遗留越界权重在调参入口收敛到边界（不阻塞后续调参）。"""
+    params = TunableParams(weights={"A": 5.0, "B": 0.5})
+    result = MetaTuner().tune(params, TurnMetrics(), feedback={"B": 0.9})
+    assert result.params.weights["A"] == 1.0  # 越上限收敛
+    assert result.params.weights["B"] > 0.5  # 正常维度照常调整
+    assert any("越上限" in change for change in result.changes)
+
+
+def test_negative_llm_calls_ignored():
+    """挡位调用统计非正计数不并入（观测噪声与清零信号过滤）。"""
+    metrics = TurnMetrics()
+    metrics.record_llm_calls({"main": 5})
+    metrics.record_llm_calls({"main": -10})
+    assert metrics.llm_calls_by_tier == {"main": 5}
+
+
+def test_metrics_window_bounded():
+    """指标窗口有界：长跑留痕只保留近期窗口（防无限膨胀）。"""
+    metrics = TurnMetrics()
+    for _ in range(1200):
+        metrics.record_review(0.5)
+        metrics.record_convergence(1)
+    assert len(metrics.review_scores) <= 600
+    assert len(metrics.convergence_rounds) <= 600
+
+
 def test_unknown_dimension_feedback_ignored():
     """未知维度反馈不调整（口径漂移由配置侧修复，不静默增删）。"""
     params = TunableParams(weights={"A": 0.5})
@@ -339,6 +379,47 @@ async def test_tune_with_regression_accepts_within_bounds():
     assert result.params.weights["B"] < 0.5  # 降权生效
     assert result.snapshot is not None  # 回归通过的变更随快照落库
     assert result.note == ""
+
+
+async def test_tune_with_regression_persists_params_to_knowledge_set():
+    """调参结果回写知识集：回归通过后参数条目更新（与知识孵化闭环）。"""
+    from ink_engine.core.knowledge_set import KnowledgeSet, seed_knowledge_set
+    from ink_engine.core.seeds import GENERAL_WEIGHTS_SEED_ID, build_general_seed_entries
+
+    ks = KnowledgeSet("u1")
+    seed_knowledge_set(ks, build_general_seed_entries())
+    gate = KnowledgeGate(l2_executor=ParamRegressionExecutor())
+    tuner = MetaTuner(knowledge_set=ks)
+    params = TunableParams(
+        weights={"quality": 0.5, "consistency": 0.5},
+        thresholds={"pass": 0.6},
+    )
+    result = await tuner.tune_with_regression(
+        params,
+        TurnMetrics(),
+        _param_fixtures(),
+        feedback={"quality": 1.0},  # 高分升权
+        rule_version="rules-v9",
+        gate=gate,
+    )
+    assert result.params.weights["quality"] > 0.5
+    # 参数条目已回写：下次调参从条目读回基线
+    persisted = ks.get(GENERAL_WEIGHTS_SEED_ID)
+    assert persisted is not None
+    assert persisted.data["weights"]["quality"] > 0.5
+    loaded = MetaTuner.load_params(ks)
+    assert loaded.weights["quality"] > 0.5
+    assert loaded.thresholds == {"pass": 0.6}
+
+
+def test_load_params_falls_back_to_defaults():
+    """参数基线读回：无参数条目时回落引擎默认（缺省可开箱）。"""
+    from ink_engine.core.knowledge_set import KnowledgeSet
+
+    ks = KnowledgeSet("u1")
+    loaded = MetaTuner.load_params(ks)
+    assert loaded.divergence_width == 3
+    assert loaded.retry_budget == 1
 
 
 async def test_tune_with_regression_skips_when_no_change():

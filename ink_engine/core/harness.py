@@ -139,14 +139,15 @@ class HarnessRegistry:
     def register(self, definition: HarnessDefinition) -> None:
         if not definition.name:
             raise ValueError("harness 名不能为空")
-        # 注册即校验数据形态：图定义/工具定义必须可解析（LLM 生成图定义
-        # 的入口，非法定义在注册期暴露而非执行期静默降级）
+        # 注册即校验数据形态：图定义/工具定义/默认编排模板必须可解析
+        # （LLM 生成定义的入口，非法定义在注册期暴露而非执行期静默降级）
+        parsed_graph: Graph | None = None
         if definition.graph is not None:
             if not isinstance(definition.graph, dict):
                 raise GraphDefinitionError(
                     f"harness {definition.name} 的 graph 定义非法: 期望 dict"
                 )
-            Graph.from_dict(
+            parsed_graph = Graph.from_dict(
                 definition.graph,
                 registry=self.registries.nodes,
                 edge_registry=self.registries.edges,
@@ -154,6 +155,20 @@ class HarnessRegistry:
             )
         for tool_data in definition.tools:
             DeclarativeToolSpec.from_dict(tool_data)  # 构造即校验
+        if definition.default_plan is not None:
+            if parsed_graph is None:
+                raise GraphDefinitionError(
+                    f"harness {definition.name} 的默认编排模板要求 graph 定义"
+                    "（计划节点须落在可执行图上）"
+                )
+            from .plan import Plan
+
+            Plan.parse(
+                definition.default_plan,
+                graph=parsed_graph,
+                edge_registry=self.registries.edges,
+                policy="loose",
+            )
         self._definitions[definition.name] = definition
 
     def get(self, name: str) -> HarnessDefinition | None:

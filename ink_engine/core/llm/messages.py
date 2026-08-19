@@ -1,4 +1,4 @@
-"""自写消息数据类与工具调用增量累积（替代 langchain 消息类型）。
+"""自写消息数据类与工具调用增量累积。
 
 消息 = 单一 Message 数据类（role/content/tool_calls/tool_call_id/reasoning），
 工厂函数按角色构造；to_openai_dict 序列化为 OpenAI 兼容请求负载。
@@ -17,7 +17,7 @@ from ink_engine.core.llm.errors import LLMConfigError, LLMFormatError
 
 _ROLES = frozenset({"system", "user", "assistant", "tool"})
 
-# 历史/外部消息形态的角色别名（LangChain 系 human/ai 命名 → 引擎规范角色）
+# 历史/外部消息形态的角色别名（human/ai 命名 → 引擎规范角色）
 _ROLE_ALIASES = {"human": "user", "ai": "assistant"}
 
 
@@ -75,7 +75,7 @@ class Message:
 
     Args:
         id: 消息唯一 id（add_messages 按 id 去重/RemoveMessage 删除；None = 追加不去重，
-            构造时未显式提供则自动生成——对齐 langchain 消息 id 语义）。
+            构造时未显式提供则自动生成）。
         role: 角色（system/user/assistant/tool）。
         content: 文本内容（assistant 可为空——纯工具调用消息）。
         tool_call_id: tool 角色必填，回指 assistant 的工具调用 id。

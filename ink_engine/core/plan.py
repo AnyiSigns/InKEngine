@@ -204,6 +204,35 @@ class Plan:
         steps: list[PlanStep] = []
         for i, raw in enumerate(data):
             step = PlanStep.from_dict(raw)
+            # 校验与展开分离：展开在节点存在性/条件注册校验之后进行——
+            # 顺序组按节点逐个展开（每节点 = 一个 checkpoint 单元，恢复
+            # 续跑精确到节点；条件门随展开逐节点独立求值——与整组跳过
+            # 语义等价，且状态演化后条件可重估），展开前先校验全部引用
+            # 与条件，非法引用在建期即拒绝，不落到展开后的执行期。
+            for name in _step_node_names(step):
+                if workflow_node_ids is not None:
+                    if name not in workflow_node_ids:
+                        raise GraphDefinitionError(
+                            f"计划第 {i} 步引用工作流约束域外节点: {name}"
+                        )
+                    if name not in graph.nodes:
+                        # 工作流声明了但当前图不可执行：执行器只认图节点，
+                        # 落在工作流域内却不在图中 = 执行期必然失败，提前拒绝
+                        raise GraphDefinitionError(
+                            f"计划第 {i} 步引用工作流节点不在当前图: {name}"
+                        )
+                elif name not in graph.nodes:
+                    raise GraphDefinitionError(
+                        f"计划第 {i} 步引用未知节点: {name}"
+                    )
+            if step.condition is not None and (
+                edge_registry is None or not edge_registry.has(step.condition)
+            ):
+                raise GraphDefinitionError(
+                    f"计划第 {i} 步条件未注册: {step.condition}"
+                )
+            for item in step.spawns:
+                _validate_spawn_item(item, step_index=i)
             if step.kind == KIND_SPAWNS:
                 # 计划快照纯数据契约：Graph 对象在入计划时序列化为图定义
                 # 数据（checkpoint 计划快照/回滚必须可 JSON 落盘；无法
@@ -216,9 +245,6 @@ class Plan:
                     normalized.append(item)
                 step = replace(step, spawns=tuple(normalized))
             if step.kind == KIND_NODES and len(step.nodes) > 1:
-                # 顺序组展开为单节点步：每节点 = 一个 checkpoint 单元
-                # （恢复续跑精确到节点；条件门随展开逐节点独立求值——与
-                # 整组跳过语义等价，且状态演化后条件可重估）
                 for name in step.nodes:
                     steps.append(
                         PlanStep(
@@ -228,41 +254,19 @@ class Plan:
                         )
                     )
                 continue
-            if step.kind == KIND_NODES:
-                if workflow_node_ids is not None:
-                    if step.nodes[0] not in workflow_node_ids:
-                        raise GraphDefinitionError(
-                            f"计划第 {i} 步引用工作流约束域外节点: {step.nodes[0]}"
-                        )
-                elif step.nodes[0] not in graph.nodes:
-                    raise GraphDefinitionError(
-                        f"计划第 {i} 步引用未知节点: {step.nodes[0]}"
-                    )
-            elif step.kind == KIND_PARALLEL:
-                for name in step.nodes:
-                    if workflow_node_ids is not None:
-                        if name not in workflow_node_ids:
-                            raise GraphDefinitionError(
-                                f"计划第 {i} 步引用工作流约束域外节点: {name}"
-                            )
-                    elif name not in graph.nodes:
-                        raise GraphDefinitionError(
-                            f"计划第 {i} 步引用未知节点: {name}"
-                        )
-            if step.condition is not None and (
-                edge_registry is None or not edge_registry.has(step.condition)
-            ):
-                raise GraphDefinitionError(
-                    f"计划第 {i} 步条件未注册: {step.condition}"
-                )
-            for item in step.spawns:
-                _validate_spawn_item(item, step_index=i)
             steps.append(step)
         if policy == "strict":
             _validate_strict_order(steps, graph, workflow=workflow)
         elif policy != "loose":
             raise GraphDefinitionError(f"未知计划策略: {policy}")
         return cls(steps=tuple(steps))
+
+
+def _step_node_names(step: PlanStep) -> tuple[str, ...]:
+    """计划步引用的节点名（顺序组/并行组 = 全部成员；spawn 步 = 无）。"""
+    if step.kind in (KIND_NODES, KIND_PARALLEL):
+        return step.nodes
+    return ()
 
 
 def _validate_spawn_item(item: dict[str, Any], *, step_index: int) -> None:

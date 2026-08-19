@@ -1,4 +1,4 @@
-"""OpenAI 兼容适配器（流式 SSE 解析自写，零 langchain/openai SDK 依赖）。
+"""OpenAI 兼容适配器（流式 SSE 解析自写，零第三方 SDK 依赖）。
 
 覆盖 OpenAI/DeepSeek/Zhipu/Moonshot/Ollama 等全部 OpenAI 兼容端点
 （含 DashScope compatible-mode 端点，改 base_url 即可用）；

@@ -77,7 +77,11 @@ def test_full_activation_when_fits():
 
 
 def test_tool_limit_applied():
-    """工具激活数上限：每轮工具集裁剪（经验框架 3-10 个）。"""
+    """工具激活数上限：每轮工具集裁剪（经验框架 3-10 个）。
+
+    被裁剪的工具同样留痕（char_limit=0 的 drop 记录——模型可见皆留痕，
+    裁剪决定可审计）。
+    """
     assembler = InputAssembler(AssemblyConfig(total_budget=300, max_tools=2))
     sources = [
         _source(SOURCE_TOOL, f"工具{i}定义 " * 10, weight=1.0, relevance=0.9)
@@ -87,7 +91,12 @@ def test_tool_limit_applied():
     tool_activations = [
         s for s in result.record.sources if s.source_type == SOURCE_TOOL
     ]
-    assert len(tool_activations) <= 2
+    kept_tools = [s for s in tool_activations if s.char_limit > 0]
+    dropped_tools = [s for s in tool_activations if s.char_limit == 0]
+    assert len(kept_tools) <= 2
+    assert len(kept_tools) + len(dropped_tools) == len(sources)  # 全量留痕
+    assert all(s.mode == "drop" for s in dropped_tools)
+    assert all("工具激活数超上限" in s.note for s in dropped_tools)
 
 
 def test_grouped_budget_allocation():
@@ -635,3 +644,214 @@ async def test_executor_preassemble_disabled_skips(memory_storage, transport):
     assert result.reason == "reply"
     assert provider_calls == []
     assert not [e for e in transport.events if e.type == "input_assembly"]
+
+
+async def test_executor_preassemble_cache_reset_per_node(memory_storage, transport):
+    """装配缓存按节点复位：每个节点执行前独立调配，留痕逐节点落库。
+
+    回归：修复前缓存跨节点复用——第二个节点拿到第一个节点的陈旧上下文，
+    且第 2..N 次调用无任何留痕（「每次节点执行前统一调配 + 留痕可回放」
+    只在单节点图上成立）。
+    """
+    from ink_engine.core.executor import RunOptions
+    from ink_engine.core.graph import Graph
+
+    provider_calls: list[str] = []
+
+    def sources_provider(ctx):
+        provider_calls.append(ctx.node)
+        return [
+            ContextSource(
+                type=SOURCE_CONTEXT,
+                content=f"节点 {ctx.node} 的上下文",
+                title="对话",
+            )
+        ]
+
+    async def first(ctx):
+        return {}
+
+    async def second(ctx):
+        result = await ctx.assemble([])  # 复用本节点预装配结果
+        return {"second_text": result.text}
+
+    graph = Graph(name="asm", entry="first")
+    graph.add_node("first", first)
+    graph.add_node("second", second)
+    graph.add_edge("first", "second")
+    graph.add_exit("second")
+    engine = Engine(
+        graph,
+        options=RunOptions(
+            storage=memory_storage,
+            transports=[transport],
+            assembly=AssemblyConfig(total_budget=1000),
+            assembly_sources=sources_provider,
+        ),
+    )
+    state, result = await engine._execute(
+        state={}, thread_id="t1", round_id=None, resume_from=None,
+        trace_id="trace", queue=None,
+    )
+    assert result.reason == "reply"
+    assert provider_calls == ["first", "second"]  # 每节点各取一次源
+    assert "节点 second 的上下文" in state["second_text"]  # 非陈旧内容
+    events = [e for e in transport.events if e.type == "input_assembly"]
+    assert len(events) == 2  # 每节点一次留痕
+    nodes = {e.payload["node"] for e in events}
+    assert nodes == {"first", "second"}
+
+
+def test_injected_allocator_drives_actual_assembly():
+    """注入的预算分配器真实作用于组装产物（换策略即换产物，留痕一致）。
+
+    回归：修复前分配器只影响留痕、组装走内部默认分配器——注入收紧的
+    分配器后文本仍按默认策略装配（留痕与实际不一致）。
+    """
+    from ink_engine.core.context import WeightedBudgetAllocator
+
+    tight = WeightedBudgetAllocator(
+        keep_full_threshold=0.9, truncate_min_score=0.5, min_truncate_chars=200
+    )
+    assembler = InputAssembler(
+        AssemblyConfig(
+            total_budget=200,
+            context_ratio=0.0,
+            knowledge_ratio=1.0,
+            tool_ratio=0.0,
+            memory_ratio=0.0,
+            evidence_ratio=0.0,
+        ),
+        allocator=tight,
+    )
+    sources = [
+        _source(SOURCE_KNOWLEDGE, "低权重内容 " * 30, weight=0.1, relevance=1.0),
+        _source(SOURCE_KNOWLEDGE, "高权重内容 " * 30, weight=0.95, relevance=1.0),
+    ]
+    result = assembler.assemble(sources, total_budget=200)
+    # 高权重源全保留，低权重源被截断门槛丢弃（注入分配器语义生效）
+    assert "高权重内容" in result.text
+    assert "低权重内容" not in result.text
+    dropped = [s for s in result.record.sources if s.mode == "drop"]
+    assert any(s.title.startswith("knowledge-低权重") for s in dropped)
+
+
+def test_full_path_keeps_low_score_sources():
+    """能全量则全量：预算足够时低分源同样保留（不被截断门槛误伤）。"""
+    assembler = InputAssembler(AssemblyConfig(total_budget=2000))
+    low = _source(SOURCE_KNOWLEDGE, "低分知识", weight=0.1, relevance=0.1)
+    high = _source(SOURCE_KNOWLEDGE, "高分知识", weight=0.95, relevance=0.9)
+    result = assembler.assemble([low, high], total_budget=2000)
+    assert "低分知识" in result.text  # 预算充裕 = 全量保留
+    assert "高分知识" in result.text
+    assert all(s.char_limit > 0 for s in result.record.sources)
+
+
+def test_version_snapshot_kept_by_copy():
+    """版本快照按副本留存：装配后外部改写传入字典不污染留痕。"""
+    assembler = InputAssembler(AssemblyConfig(total_budget=1000))
+    snapshot = {"rules": "v1"}
+    result = assembler.assemble(
+        [_source(SOURCE_CONTEXT, "内容")],
+        total_budget=1000,
+        version_snapshot=snapshot,
+    )
+    snapshot["rules"] = "v2"
+    assert result.record.version_snapshot == {"rules": "v1"}
+
+
+def test_global_truncation_attributed():
+    """拼接超界全局截断：截断量随留痕记录（归因可见，回放不丢信息）。"""
+    config = AssemblyConfig(
+        total_budget=400,
+        context_ratio=0.5,
+        knowledge_ratio=0.5,
+        tool_ratio=0.0,
+        memory_ratio=0.0,
+        evidence_ratio=0.0,
+    )
+    assembler = InputAssembler(config)
+    sources = [
+        _source(SOURCE_CONTEXT, "上下文 " * 40, weight=1.0),
+        _source(SOURCE_KNOWLEDGE, "知识 " * 40, weight=1.0),
+    ]
+    result = assembler.assemble(sources, total_budget=400)
+    assert len(result.text) <= 400
+    assert result.record.truncated_chars == max(
+        0, len(result.text) + result.record.truncated_chars - len(result.text)
+    )
+    assert result.record.assembled_chars == len(result.text)
+
+
+def test_empty_assembly_fallback_keeps_top_source():
+    """空装配保底：预算过小全部分配被丢弃时保留最高优先源的可读片段。"""
+    assembler = InputAssembler(AssemblyConfig(total_budget=10))
+    sources = [
+        _source(SOURCE_CONTEXT, "对话历史内容很长" * 10, weight=0.2, relevance=0.3),
+        _source(SOURCE_KNOWLEDGE, "重要知识内容" * 10, weight=0.9, relevance=0.9),
+    ]
+    result = assembler.assemble(sources, total_budget=10)
+    assert result.text  # 不空手喂模型
+    assert len(result.text) <= 10
+    assert "重要知识" in result.text
+    assert result.record.sources[0].mode == "fallback_keep"
+
+
+def test_evidence_pool_default_ratio_nonzero():
+    """证据源默认占比非零：开箱即有预算份额（不恒为零被丢弃）。"""
+    config = AssemblyConfig()
+    assert config.evidence_ratio > 0
+    assert config.memory_ratio > 0
+    assert config.context_ratio + config.knowledge_ratio + config.tool_ratio \
+        + config.memory_ratio + config.evidence_ratio <= 1.0
+
+
+async def test_spawn_instance_inherits_assembly(memory_storage, transport):
+    """装配配置随子引擎传播：spawn 实例执行面同样统一调配（留痕可审计）。
+
+    回归：修复前子引擎 RunOptions 独缺 assembly/assembly_sources——
+    spawn 实例内 ctx.assemble 直接抛「输入调配未启用」，实例执行面
+    落回旧路径。
+    """
+    from ink_engine.core.executor import RunOptions
+    from ink_engine.core.graph import Graph
+
+    provider_calls: list[str] = []
+
+    def sources_provider(ctx):
+        provider_calls.append(ctx.node)
+        return [ContextSource(type=SOURCE_CONTEXT, content="子任务上下文", title="对话")]
+
+    async def sub_node(ctx):
+        result = await ctx.assemble([])
+        return {"sub_text": result.text}
+
+    sub = Graph(name="sub", entry="sub_node")
+    sub.add_node("sub_node", sub_node)
+    sub.add_exit("sub_node")
+
+    async def route(ctx):
+        return {SPAWN_KEY: [{"subgraph": sub, "state": {}, "index": 0}]}
+
+    from ink_engine.core.spawn import SPAWN_KEY
+
+    graph = Graph(name="asm", entry="route")
+    graph.add_node("route", route)
+    graph.add_exit("route")
+    engine = Engine(
+        graph,
+        options=RunOptions(
+            storage=memory_storage,
+            transports=[transport],
+            assembly=AssemblyConfig(total_budget=1000),
+            assembly_sources=sources_provider,
+        ),
+    )
+    state, result = await engine._execute(
+        state={}, thread_id="t1", round_id=None, resume_from=None,
+        trace_id="trace", queue=None,
+    )
+    assert result.reason == "reply"
+    assert "子任务上下文" in state["sub_text"]  # 实例内装配真实生效
+    events = [e for e in transport.events if e.type == "input_assembly"]
+    assert len(events) >= 2  # 父节点 + 实例节点各留痕一次

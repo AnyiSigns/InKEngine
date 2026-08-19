@@ -1,4 +1,4 @@
-"""知识集封装层单测：种子注入/补丁链演化/精准修正/晋升/可移植/检索/注入。
+﻿"""知识集封装层单测：种子注入/补丁链演化/精准修正/晋升/可移植/检索/注入。
 
 语义检查点：
 - 知识条目 = 补丁链数据（演化 append-only，回退可取旧版本）；
@@ -116,17 +116,17 @@ def test_default_credibility_by_source():
     from ink_engine.core.knowledge_set import default_credibility
 
     web = KnowledgeEntry.from_dict(
-        {"id": "k-web", "level": "work", "kind": "rule", "data": {}, "source": "web"}
+        {"id": "k-web", "level": "work", "kind": "demo", "data": {}, "source": "web"}
     )
     user = KnowledgeEntry.from_dict(
-        {"id": "k-user", "level": "work", "kind": "rule", "data": {}, "source": "user"}
+        {"id": "k-user", "level": "work", "kind": "demo", "data": {}, "source": "user"}
     )
     assert web.credibility == 0.3
     assert user.credibility == 0.9
     assert default_credibility("web") < default_credibility("user")
     # 显式声明的可信度优先于来源默认
     explicit = KnowledgeEntry.from_dict(
-        {"id": "k-x", "level": "work", "kind": "rule", "data": {}, "source": "web", "credibility": 0.8}
+        {"id": "k-x", "level": "work", "kind": "demo", "data": {}, "source": "web", "credibility": 0.8}
     )
     assert explicit.credibility == 0.8
 
@@ -164,14 +164,100 @@ def test_chain_is_append_only_reversible():
 
 
 def test_record_usage_tracks_failures():
-    """调用留痕：usage/fail 计数累积（进化与调参依据）。"""
+    """调用留痕：usage/fail 计数累积；失败日志留存（反思式变异的输入）。"""
     ks = KnowledgeSet("u1")
     ks.add(_entry())
     ks.record_usage("k-1")
-    ks.record_usage("k-1", failed=True)
+    ks.record_usage("k-1", failed=True, log="目标不存在: 引用悬空")
+    ks.record_usage("k-1", failed=True, log="边界校验越界")
     entry = ks.get("k-1")
-    assert entry.usage_count == 2
-    assert entry.fail_count == 1
+    assert entry.usage_count == 3
+    assert entry.fail_count == 2
+    assert entry.failure_logs == ("目标不存在: 引用悬空", "边界校验越界")
+    # 序列化往返保留失败日志（导出/导入可移植）
+    rebuilt = KnowledgeEntry.from_dict(entry.to_dict())
+    assert rebuilt.failure_logs == entry.failure_logs
+
+
+async def test_add_through_gate_rejects_fixture_violation():
+    """落库闸门：规则条目样例不绿在存储边界即被拒绝（非谈判项 fail-closed）。"""
+    from ink_engine.core.knowledge_gate import KnowledgeGate
+    from ink_engine.core.rules import FixtureCase, FixtureGateError, FixtureSet
+    from ink_engine.core.schema_validator import SchemaSpec
+
+    gate = KnowledgeGate()
+    schema = SchemaSpec.from_dict(
+        {
+            "name": "knowledge_entry",
+            "fields": [
+                {"name": "id", "required": True, "kind": "string"},
+                {"name": "level", "required": True, "kind": "string",
+                 "enum": ["work", "project", "user"]},
+                {"name": "kind", "required": True, "kind": "string"},
+                {"name": "credibility", "kind": "number", "min": 0.0, "max": 1.0},
+                {"name": "data.rule.message", "kind": "string", "required": True},
+            ],
+        }
+    )
+    fixtures = FixtureSet(
+        name="demo",
+        cases=(
+            FixtureCase(id="pass", data={"x": 1}),
+            FixtureCase(
+                id="violate",
+                data={"x": 0},
+                expected_pass=False,
+                expected_kinds=("demo",),
+            ),
+        ),
+    )
+    good_rule = KnowledgeEntry(
+        id="k-rule-ok",
+        level=LEVEL_WORK,
+        kind=KIND_RULE,
+        data={
+            "rule": {
+                "id": "r-ok",
+                "message": "x 必须为正",
+                "predicate": "truthy",
+                "config": {"path": "x"},
+                "kind": "demo",
+            }
+        },
+        source="model",
+        title="好规则",
+    )
+    bad_rule = KnowledgeEntry(
+        id="k-rule-bad",
+        level=LEVEL_WORK,
+        kind=KIND_RULE,
+        data={
+            "rule": {
+                "id": "r-bad",
+                "message": "x 必须为负（与样例矛盾）",
+                "predicate": "falsy",
+                "config": {"path": "x"},
+                "kind": "demo",
+            }
+        },
+        source="model",
+        title="坏规则",
+    )
+    ks = KnowledgeSet("u1")
+    await ks.add_gated(good_rule, gate=gate, schema=schema, fixtures=fixtures)
+    assert ks.get("k-rule-ok") is not None
+    with pytest.raises(FixtureGateError, match="未通过落库闸门"):
+        await ks.add_gated(bad_rule, gate=gate, schema=schema, fixtures=fixtures)
+    assert ks.get("k-rule-bad") is None  # 未物理落库
+
+
+def test_knowledge_sources_assembly_type():
+    """知识源装配适配：源类别为装配池键（层级留在 meta，供常驻判定消费）。"""
+    entry = _entry(entry_id="k-1")
+    sources = build_knowledge_sources([entry], relevance=0.8)
+    assert sources[0].type == "knowledge"  # 装配源类别
+    assert sources[0].meta["level"] == LEVEL_WORK  # 层级信息保留
+    assert sources[0].weight == entry.credibility
 
 
 def test_seed_idempotent():
@@ -369,7 +455,7 @@ def test_entry_as_context_source_renders_content():
                 "message": "伏笔必须先埋设后回收",
                 "predicate": "gap",
                 "config": {},
-                "kind": "rule",
+                "kind": "demo",
             }
         },
     )

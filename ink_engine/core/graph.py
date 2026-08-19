@@ -1,10 +1,9 @@
-"""图定义 DSL（数据驱动，替代 langgraph StateGraph）。
+"""图定义 DSL（数据驱动）。
 
 Graph{nodes: {name: Node}, edges: {from: [Edge]}, entry, exits}：
 - Node = async (ctx: NodeContext) -> PartialState | None（无状态副作用，返回增量）；
 - Edge = 静态边 | 条件边 (ctx) -> bool 判定向 target；
-- 嵌套图：子图 = 图实例挂为节点，执行时入路径栈（graph_path 显式记录，
-  替代 langgraph ns 三元组）；
+- 嵌套图：子图 = 图实例挂为节点，执行时入路径栈（graph_path 显式记录）；
 - 循环回路：条件边可回指图内节点（路由→监督者→域专才→回路由语义）；
 - 回合终止信号：节点经 ctx.terminate(reason) 声明，引擎结束本轮并记录
   终止原因（reply/止损/超限/异常，入轨迹与审计）。
@@ -15,6 +14,7 @@ Graph{nodes: {name: Node}, edges: {from: [Edge]}, entry, exits}：
 """
 from __future__ import annotations
 
+import copy
 import hashlib
 import json
 from collections.abc import Awaitable, Callable
@@ -299,7 +299,7 @@ class Graph:
                 )
             nodes[name] = {
                 "type": binding.type_name,
-                "config": dict(binding.config),
+                "config": copy.deepcopy(binding.config),
             }
         edges = {
             source: [edge.to_dict() for edge in edge_list]
@@ -370,7 +370,8 @@ class Graph:
                     f"节点 {node_name} 的 config 声明非法: 期望 dict，"
                     f"收到 {type(config).__name__}"
                 )
-            graph.add_node_type(node_name, spec["type"], config)
+            # 深拷贝：重建图不与输入数据共享嵌套引用（改 data 不泄漏回定义）
+            graph.add_node_type(node_name, spec["type"], copy.deepcopy(config))
         subgraphs_data = data.get("subgraphs")
         if subgraphs_data is not None and not isinstance(subgraphs_data, dict):
             raise GraphDefinitionError(
@@ -444,11 +445,19 @@ class Graph:
         def node_ref(name: str) -> str:
             binding = self.node_bindings.get(name)
             if binding is not None:
-                return json.dumps(
-                    {"type": binding.type_name, "config": binding.config},
-                    ensure_ascii=False,
-                    sort_keys=True,
-                )
+                try:
+                    return json.dumps(
+                        {"type": binding.type_name, "config": binding.config},
+                        ensure_ascii=False,
+                        sort_keys=True,
+                    )
+                except TypeError as exc:
+                    # 配置须可 JSON 序列化：不可序列化的配置 = 图定义数据
+                    # 契约破坏（checkpoint 指纹/持久化都依赖 JSON 形态），
+                    # 显式报错而非 TypeError 裸穿
+                    raise GraphDefinitionError(
+                        f"节点 {name} 的 config 不可 JSON 序列化: {exc}"
+                    ) from exc
             fn = self.nodes.get(name)
             qualname = getattr(fn, "__module__", "") + "." + getattr(
                 fn, "__qualname__", "<lambda>"

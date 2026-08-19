@@ -21,18 +21,28 @@ from typing import Any
 
 from .exceptions import GraphDefinitionError
 from .knowledge_gate import GateL2Result, KnowledgeGate
-from .knowledge_set import KIND_WEIGHT, KnowledgeEntry
+from .knowledge_set import (
+    KIND_WEIGHT,
+    SOURCE_MODEL,
+    KnowledgeEntry,
+    KnowledgeSet,
+)
 from .logging import get_logger
 from .rules import FixtureResult, FixtureSet
 
 logger = get_logger(__name__)
 
-# 权重调整的下限保护（权重不得低于该值——防降权过头让维度形同虚设）
+# 权重调整的上下限保护（降权下限防维度形同虚设；升权上限防单一维度
+# 失衡主导——超上限的越界权重在调参入口收敛到边界，防回归整条冻结）
 MIN_WEIGHT = 0.1
+MAX_WEIGHT = 1.0
 # 单次调整的权重乘数（低分反馈维度降权步长）
 WEIGHT_DECAY = 0.9
 # 单次调整的权重加成（高分反馈维度升权步长）
 WEIGHT_GAIN = 1.1
+
+# 指标聚合窗口上限（评审分/收敛轮数只留近期窗口，防长跑留痕无限膨胀）
+_METRICS_WINDOW = 500
 
 # 失败率档位（重试预算/探索宽度的调整依据）
 FAILURE_RATE_HIGH = 0.4
@@ -83,17 +93,25 @@ class TurnMetrics:
         """记录一次评审分（0-1；评审收敛循环每轮产出即记录）。"""
         if not 0 <= score <= 1:
             raise GraphDefinitionError(f"评审分必须在 [0, 1] 内: {score}")
-        self.review_scores = (*self.review_scores, score)
+        self.review_scores = (*self.review_scores[-_METRICS_WINDOW + 1 :], score)
 
     def record_convergence(self, rounds: int) -> None:
         """记录一次收敛循环的轮数（探索-收敛的收敛速度观测）。"""
         if rounds < 0:
             raise GraphDefinitionError(f"收敛轮数不能为负: {rounds}")
-        self.convergence_rounds = (*self.convergence_rounds, rounds)
+        self.convergence_rounds = (
+            *self.convergence_rounds[-_METRICS_WINDOW + 1 :],
+            rounds,
+        )
 
     def record_llm_calls(self, tier_stats: dict[str, int]) -> None:
-        """并入挡位调用统计（TierCallStats.snapshot 产物，逐挡位累加）。"""
+        """并入挡位调用统计（TierCallStats.snapshot 产物，逐挡位累加）。
+
+        与挡位统计同口径：非正计数为观测噪声（清零/非法输入），不并入。
+        """
         for tier, count in (tier_stats or {}).items():
+            if int(count) <= 0:
+                continue
             self.llm_calls_by_tier[tier] = (
                 self.llm_calls_by_tier.get(tier, 0) + int(count)
             )
@@ -197,23 +215,25 @@ class ParameterSnapshot:
     的可回放性（「标尺在动」问题：快照冻结当时标尺）。
     """
 
-    rule_version: str  # 规则集版本标识（补丁链长度/版本号）
+    rule_version: str | None = None  # 规则集版本标识（None = 未关联版本）
     params: TunableParams = field(default_factory=TunableParams)
     created_at: float = field(default_factory=time.time)
 
     def to_dict(self) -> dict[str, Any]:
-        return {
-            "rule_version": self.rule_version,
+        data: dict[str, Any] = {
             "params": self.params.to_dict(),
             "created_at": self.created_at,
         }
+        if self.rule_version is not None:
+            data["rule_version"] = self.rule_version
+        return data
 
     @classmethod
     def from_dict(cls, data: dict[str, Any]) -> ParameterSnapshot:
         if not isinstance(data, dict) or not isinstance(data.get("params"), dict):
             raise GraphDefinitionError("参数快照声明非法（缺 params 结构）")
         return cls(
-            rule_version=data.get("rule_version", ""),
+            rule_version=data.get("rule_version"),
             params=TunableParams.from_dict(data["params"]),
             created_at=float(data.get("created_at", time.time())),
         )
@@ -361,16 +381,34 @@ class MetaTuner:
         weight_decay: float = WEIGHT_DECAY,
         weight_gain: float = WEIGHT_GAIN,
         min_weight: float = MIN_WEIGHT,
+        max_weight: float = MAX_WEIGHT,
+        knowledge_set: KnowledgeSet | None = None,
         snapshot_sink: Callable[[ParameterSnapshot], Any] | None = None,
     ) -> None:
         self.feedback_threshold = feedback_threshold
         self.weight_decay = weight_decay
         self.weight_gain = weight_gain
         self.min_weight = min_weight
+        self.max_weight = max_weight
+        # 参数条目回写集成点（与知识孵化闭环：调参结果持久化进知识集的
+        # 权重/阈值条目，下次调参从条目读回基线；None = 不落知识集）
+        self.knowledge_set = knowledge_set
         # 参数快照落库集成点（随评估记录持久化——机制数据引擎存，落库
         # 实现由使用方注入；None = 不落库）。回归通过的参数快照经此
         # 回调交给存储侧，回放/审计按快照重算。
         self.snapshot_sink = snapshot_sink
+
+    def _normalize_weights(self, weights: dict[str, float]) -> list[str]:
+        """越界权重收敛到边界（调参入口：历史遗留越界不阻塞后续调参）。"""
+        changes: list[str] = []
+        for name, value in list(weights.items()):
+            if value < self.min_weight:
+                weights[name] = self.min_weight
+                changes.append(f"维度 {name} 权重越下限（{value:.2f}）收敛到 {self.min_weight}")
+            elif value > self.max_weight:
+                weights[name] = self.max_weight
+                changes.append(f"维度 {name} 权重越上限（{value:.2f}）收敛到 {self.max_weight}")
+        return changes
 
     def tune(
         self,
@@ -395,6 +433,7 @@ class MetaTuner:
         """
         changes: list[str] = []
         weights = dict(params.weights)
+        changes.extend(self._normalize_weights(weights))
         for dimension, score in (feedback or {}).items():
             if dimension not in weights:
                 continue  # 未知维度不调整（口径漂移由配置侧修复）
@@ -407,7 +446,9 @@ class MetaTuner:
                     )
                     weights[dimension] = new_weight
             elif score > self.feedback_threshold:
-                new_weight = weights[dimension] * self.weight_gain
+                new_weight = min(
+                    weights[dimension] * self.weight_gain, self.max_weight
+                )
                 if new_weight != weights[dimension]:
                     changes.append(
                         f"维度 {dimension} 高分（{score:.2f}）升权: "
@@ -520,11 +561,64 @@ class MetaTuner:
                     self.snapshot_sink(tuned.snapshot)
                 except Exception as exc:
                     logger.warning(f"参数快照落库失败（忽略）: {exc}")
+            self._persist_params(tuned.params)
             return tuned
         return TuneResult(
             params=params,
             note=f"参数回归未通过，变更被拒绝: {l2.note or '样例未全绿'}",
         )
+
+    def _persist_params(self, params: TunableParams) -> None:
+        """调参结果回写知识集（与知识孵化闭环：下次调参从条目读回基线）。
+
+        条目 id 与种子权重条目一致（幂等注入不覆盖演化——调参产物落在
+        同一位置，回退 = 补丁链回退到种子版本）。
+        """
+        if self.knowledge_set is None:
+            return
+        from .seeds import GENERAL_WEIGHTS_SEED_ID
+
+        try:
+            existing = self.knowledge_set.get(GENERAL_WEIGHTS_SEED_ID)
+            if existing is None:
+                self.knowledge_set.add(
+                    KnowledgeEntry(
+                        id=GENERAL_WEIGHTS_SEED_ID,
+                        level="work",
+                        kind=KIND_WEIGHT,
+                        data=params.to_dict(),
+                        source=SOURCE_MODEL,
+                        credibility=0.9,
+                        title="默认权重与阈值",
+                        tags=("weights", "thresholds", "tuning"),
+                    )
+                )
+            else:
+                self.knowledge_set.update(
+                    GENERAL_WEIGHTS_SEED_ID, data=params.to_dict()
+                )
+        except Exception as exc:
+            logger.warning(f"参数条目回写失败（忽略）: {exc}")
+
+    @staticmethod
+    def load_params(knowledge_set: KnowledgeSet) -> TunableParams:
+        """从知识集读回当前参数基线（权重/阈值条目；缺失 = 引擎默认）。
+
+        调参入口的前置取数：先读回上次调参/种子注入的条目，再以之为
+        基线调整——与知识孵化的「演化 = 新补丁」同构。
+        """
+        from .seeds import GENERAL_WEIGHTS_SEED_ID
+
+        entry = knowledge_set.get(GENERAL_WEIGHTS_SEED_ID)
+        if entry is None or not isinstance(entry.data, dict):
+            return TunableParams()
+        try:
+            return TunableParams.from_dict(entry.data)
+        except GraphDefinitionError:
+            logger.warning(
+                f"参数条目 {GENERAL_WEIGHTS_SEED_ID} 数据非法，回落默认基线"
+            )
+            return TunableParams()
 
 
 __all__ = [

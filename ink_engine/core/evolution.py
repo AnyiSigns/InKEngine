@@ -1,10 +1,12 @@
 """进化工厂（知识结构级进化：反思式变异 + 三层闸门防退化）。
 
-华为云进化工厂形态的引擎实现：低负载窗口批量进化——失败率高的知识
-优先入队（次之长期未调用但仍有引用/价值标记，稳定者殿后）；**反思式
-变异**（变异输入 = 该知识近期失败日志，非成功轨迹）；变异体数量按
-调用频率/失败次数动态决定；进化产物同样过三层闸门——防进化退化
-（华为云明确：迭代多轮会停滞/退化，评估管道是质量底线）。
+华为云进化工厂形态的引擎实现：失败率高的知识优先入队（次之长期未调用
+但仍有引用/价值标记，稳定者殿后）；**反思式变异**（变异输入 = 该知识
+近期失败日志，非成功轨迹）；变异体数量按调用频率/失败次数动态决定；
+进化产物同样过三层闸门——防进化退化（华为云明确：迭代多轮会停滞/
+退化，评估管道是质量底线）。批处理的调度窗口由使用方驱动
+（:meth:`EvolutionFactory.collect_candidates` 提供优先级排序），
+引擎不内置调度器——调度时机属使用方策略。
 
 变异体动态数量：调用频率与失败次数越高，变异探索越激进（更多变体），
 低活跃知识一次一个变体（控制知识膨胀）。
@@ -102,9 +104,13 @@ class DeterministicMutation:
         self.max_variants = max_variants
 
     def variant_count(self, candidate: EvolutionCandidate) -> int:
-        """变异体数量：按失败率/调用频率动态决定（高活跃多探索）。"""
+        """变异体数量：按失败率/调用频率动态决定（高活跃多探索）。
+
+        上限取实例配置（子类可覆写构造不继承时回落模块缺省）。
+        """
+        limit = getattr(self, "max_variants", _MAX_VARIANTS)
         if candidate.failure_rate >= _HIGH_FAILURE_RATE:
-            return min(self.max_variants, max(_BASE_VARIANTS, len(candidate.failure_logs)))
+            return min(limit, max(_BASE_VARIANTS, len(candidate.failure_logs)))
         return _BASE_VARIANTS
 
     def mutate(
@@ -213,11 +219,19 @@ class EvolutionFactory:
             return EvolutionOutcome(
                 rejected=(f"{candidate.entry.id}: 无失败日志（无从反思）",)
             )
+        # 变异体数量按失败率/调用频率动态决定（高活跃多探索，低活跃单
+        # 变体控膨胀）：策略实现 variant_count 时以其为准，否则全量日志
+        variant_limit = (
+            self.mutation.variant_count(candidate)
+            if hasattr(self.mutation, "variant_count")
+            else len(candidate.failure_logs)
+        )
+        failure_logs = candidate.failure_logs[:variant_limit]
         variants: list[KnowledgeEntry] = []
         rejected: list[str] = []
         gate_results: list[GateL3Result] = []
         evaluator = getattr(self.mutation, "evaluate", None)
-        for raw in self.mutation.mutate(candidate.entry, candidate.failure_logs):
+        for raw in self.mutation.mutate(candidate.entry, failure_logs):
             variant = KnowledgeEntry(
                 id=f"{candidate.entry.id}:v{len(variants) + 1}",
                 level=candidate.entry.level,

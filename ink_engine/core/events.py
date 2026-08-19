@@ -2,7 +2,7 @@
 
 事件即协议：节点经 ctx.emit 发射的事件流 = 前端协议的引擎原生形态
 （step_id/round_id 天然有序，无框架事件中间层）。事件携带 step_id/
-round_id/graph_path（嵌套图路径，替代 langgraph ns 三元组），负载为
+round_id/graph_path（嵌套图路径），负载为
 与协议同构的 dict（thinking/plan/tool/node/reply_token/review_card...）。
 
 协议演进策略：版本化结构（PROTOCOL_VERSION 常量）+ payload 增量演进

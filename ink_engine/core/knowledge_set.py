@@ -24,7 +24,7 @@ from __future__ import annotations
 import json
 import time
 import uuid
-from dataclasses import dataclass, field
+from dataclasses import dataclass, field, replace
 from typing import Any
 
 from .context import ContextSource
@@ -47,6 +47,9 @@ _LEVELS = (LEVEL_WORK, LEVEL_PROJECT, LEVEL_USER)
 
 # 层级晋升方向（工作 → 项目 → 用户，顺序固定——先沉淀后压缩）
 _LEVEL_ORDER = {LEVEL_WORK: 0, LEVEL_PROJECT: 1, LEVEL_USER: 2}
+
+# 条目失败日志留存上限（反思式变异的输入窗口：只留近期，防无限膨胀）
+_MAX_FAILURE_LOGS = 20
 
 # 来源分级（web < dialog < model < user：可信度由使用方按此基准定值）
 SOURCE_WEB = "web"
@@ -118,6 +121,8 @@ class KnowledgeEntry:
         tags: 标签（关键词检索索引）。
         usage_count: 调用次数（复用检索/进化优先级依据）。
         fail_count: 失败次数（进化工厂优先入队依据）。
+        failure_logs: 近期失败日志（反思式变异的输入——进化工厂按
+            日志定向修订；留痕截尾保留最近 ``_MAX_FAILURE_LOGS`` 条）。
         archived: 归档标记（True = 移出活跃索引，可恢复——生命周期
             = 归档不删除，见归档语义）。
         created_at: 创建时间戳（epoch 秒）。
@@ -134,6 +139,7 @@ class KnowledgeEntry:
     tags: tuple[str, ...] = ()
     usage_count: int = 0
     fail_count: int = 0
+    failure_logs: tuple[str, ...] = ()
     archived: bool = False
     created_at: float = field(default_factory=time.time)
     updated_at: float = field(default_factory=time.time)
@@ -163,6 +169,8 @@ class KnowledgeEntry:
             data["usage_count"] = self.usage_count
         if self.fail_count:
             data["fail_count"] = self.fail_count
+        if self.failure_logs:
+            data["failure_logs"] = list(self.failure_logs)
         if self.archived:
             data["archived"] = True
         data["created_at"] = self.created_at
@@ -194,6 +202,13 @@ class KnowledgeEntry:
             isinstance(tag, str) for tag in tags
         ):
             raise GraphDefinitionError(f"知识条目 {entry_id} 的 tags 须为字符串清单")
+        failure_logs = data.get("failure_logs") or ()
+        if not isinstance(failure_logs, (list, tuple)) or not all(
+            isinstance(log, str) for log in failure_logs
+        ):
+            raise GraphDefinitionError(
+                f"知识条目 {entry_id} 的 failure_logs 须为字符串清单"
+            )
         source = data.get("source", SOURCE_MODEL)
         credibility = float(
             data.get("credibility", default_credibility(source))
@@ -213,6 +228,7 @@ class KnowledgeEntry:
             tags=tuple(tags),
             usage_count=int(data.get("usage_count", 0)),
             fail_count=int(data.get("fail_count", 0)),
+            failure_logs=tuple(failure_logs)[-_MAX_FAILURE_LOGS:],
             archived=bool(data.get("archived", False)),
             created_at=float(data.get("created_at", time.time())),
             updated_at=float(data.get("updated_at", time.time())),
@@ -324,10 +340,82 @@ class KnowledgeSet:
         raw = (snapshot.get("entries") or {}).get(entry_id)
         return KnowledgeEntry.from_dict(raw) if isinstance(raw, dict) else None
 
+    async def verify_through_gate(
+        self,
+        entry: KnowledgeEntry,
+        *,
+        gate: Any = None,
+        schema: Any = None,
+        fixtures: Any = None,
+        regression: Any = None,
+        new_metrics: dict[str, float] | None = None,
+        old_metrics: dict[str, float] | None = None,
+    ) -> None:
+        """落库闸门（样例测试非谈判项的存储边界强制）。
+
+        注入三层闸门实例（KnowledgeGate）时，条目在写入前必须通过
+        L1 准入 → L2 效果评估 → L3 目标筛选——任一关不过即抛
+        :class:`~ink_engine.core.rules.FixtureGateError`，条目不落库。
+        未注入闸门 = 调用方自行把关（种子注入等已验证发布物路径），
+        机制不替策略设默认。
+
+        Args:
+            entry: 待落库条目。
+            gate: 闸门实例（None = 跳过闸门）。
+            schema: L1 schema 声明（形式合法关）。
+            fixtures: L2 完整样例库（效果关，非谈判项）。
+            regression: L2 历史回归用例（追加评估；None = 不追加）。
+            new_metrics: L3 新条目维度指标（None = 无旧版直接通过）。
+            old_metrics: L3 旧版指标（None = 首版）。
+        """
+        if gate is None:
+            return
+        from .knowledge_gate import KnowledgeGate
+        from .rules import FixtureGateError
+
+        if not isinstance(gate, KnowledgeGate):
+            raise GraphDefinitionError("落库闸门须为 KnowledgeGate 实例")
+        l1, l2, l3 = await gate.check(
+            entry,
+            schema=schema,
+            fixtures=fixtures,
+            new_metrics=new_metrics,
+            old_metrics=old_metrics,
+            regression=regression,
+        )
+        if not (l1.passed and l2.passed and l3.passed):
+            raise FixtureGateError(
+                f"知识条目 {entry.id} 未通过落库闸门"
+                f"（L1: {l1.errors or '通过'} / L2: {l2.note or '通过'} / "
+                f"L3: {l3.reason or '通过'}）"
+            )
+
+    async def add_gated(
+        self,
+        entry: KnowledgeEntry,
+        *,
+        gate: Any,
+        schema: Any = None,
+        fixtures: Any = None,
+        regression: Any = None,
+    ) -> KnowledgeEntry:
+        """带闸门落库：写入前过三层闸门（样例不绿在存储边界即被拒绝）。
+
+        闸门为异步评估（L2 含完整样例执行），与同步的 :meth:`add` 分离
+        为独立入口——种子注入等已验证发布物走同步 add（幂等且不重复
+        评估），演化产物走本入口（非谈判项 fail-closed）。
+        """
+        await self.verify_through_gate(
+            entry, gate=gate, schema=schema, fixtures=fixtures, regression=regression
+        )
+        return self.add(entry)
+
     def add(self, entry: KnowledgeEntry) -> KnowledgeEntry:
         """新增条目（补丁链 append-only：replace 到 entries/<id>）。
 
         同 id 已存在 = 重复添加（防静默覆盖既有知识，应走 update 修正）。
+        本入口为同步直落（种子注入等已验证发布物路径）；演化产物须过
+        三层闸门，走 :meth:`add_gated`（样例测试非谈判项 fail-closed）。
         """
         if self.get(entry.id) is not None:
             raise GraphDefinitionError(
@@ -452,8 +540,14 @@ class KnowledgeSet:
             return entry
         return self.update(entry_id, archived=False)
 
-    def record_usage(self, entry_id: str, *, failed: bool = False) -> None:
-        """调用留痕（usage_count/fail_count 累积——进化与调参的依据）。"""
+    def record_usage(
+        self, entry_id: str, *, failed: bool = False, log: str = ""
+    ) -> None:
+        """调用留痕（usage_count/fail_count 累积 + 失败日志留存）。
+
+        失败日志 = 反思式变异的输入（进化工厂按近期失败定向修订）——
+        留痕截尾保留最近 ``_MAX_FAILURE_LOGS`` 条，防无限膨胀。
+        """
         existing = self.get(entry_id)
         if existing is None:
             return
@@ -463,6 +557,11 @@ class KnowledgeSet:
         }
         if failed:
             changes["fail_count"] = existing.fail_count + 1
+            if log:
+                changes["failure_logs"] = (
+                    *existing.failure_logs[-_MAX_FAILURE_LOGS + 1 :],
+                    log,
+                )
         self.update(entry_id, **changes)
 
     # ── 分层晋升（先沉淀后压缩，顺序固定）──
@@ -601,14 +700,16 @@ def build_knowledge_sources(
     ttl: float | None = None,
     max_chars: int | None = None,
     injection_enabled: bool = True,
+    source_type: str = "knowledge",
 ) -> list[ContextSource]:
     """知识条目 → 上下文源清单（知识注入 = 调配器思想复用的组装入口）。
 
-    检索命中条目经此转为 :class:`ContextSource`（type=层级、weight=
-    可信度、relevance=任务相关度、ttl=时效、内容 = 条目渲染）——进入
-    调配器的预算分配（知识集不整包注入，按任务预算只组装相关条目）、
-    跨源去重、逐源留痕（模型可见皆留痕，防污染的审计基础）全由
-    context 模块承接。
+    检索命中条目经此转为 :class:`ContextSource`（type=装配源类别、
+    weight=可信度、relevance=任务相关度、ttl=时效、内容 = 条目渲染，
+    层级留在 meta——装配分级按源类别分配预算，层级供常驻基线/任务
+    激活的判定消费）——进入调配器的预算分配（知识集不整包注入，按
+    任务预算只组装相关条目）、跨源去重、逐源留痕（模型可见皆留痕，
+    防污染的审计基础）全由 context 模块承接。
 
     ``injection_enabled=False`` = 一键关闭知识注入：只保留种子条目
     （id 以 ``seed.`` 前缀）作为注入源——回退到种子基线（引擎内置
@@ -620,6 +721,8 @@ def build_knowledge_sources(
         ttl: 注入时效秒数（None = 不过期）。
         max_chars: 单条目注入字符上限（None = 不设额外上限）。
         injection_enabled: 知识注入开关（False = 回退种子基线）。
+        source_type: 装配源类别（知识池的分配键；须在输入调配管线的
+            源类别集合内——未知类别在装配处显式拒绝）。
 
     Returns:
         按可信度降序的源清单（调配器据此做预算分配与组装）。
@@ -632,6 +735,8 @@ def build_knowledge_sources(
         )
         for entry in entries
     ]
+    if source_type:
+        sources = [replace(s, type=source_type) for s in sources]
     sources.sort(key=lambda s: (s.weight, s.priority), reverse=True)
     return sources
 

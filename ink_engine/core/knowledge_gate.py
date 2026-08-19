@@ -89,11 +89,7 @@ def _normalize_injection_text(text: str) -> str:
 
 
 def _string_values(data: Any, *, depth: int = 0) -> list[str]:
-    """递归提取条目数据中的字符串值（注入检测的文本面，不含键名）。
-
-    只取值不取键：序列化配置的键名与结构噪声不参与匹配（防误伤）；
-    深度上限防畸形深层结构拖慢扫描。
-    """
+    """递归提取条目数据中的字符串值（注入检测的文本面）。"""
     if depth > 8:
         return []
     if isinstance(data, str):
@@ -107,6 +103,30 @@ def _string_values(data: Any, *, depth: int = 0) -> list[str]:
         out = []
         for item in data:
             out.extend(_string_values(item, depth=depth + 1))
+        return out
+    return []
+
+
+def _string_keys(data: Any, *, depth: int = 0) -> list[str]:
+    """递归提取条目数据中的字符串键名（指令注入的键位面）。
+
+    键名也能携带指令措辞（如把整句注入句式作为字段名）——与值同等
+    扫描；常规结构键以下划线/点号分隔，与指令句式（含空格的完整措辞）
+    天然不冲突，误伤面可忽略。
+    """
+    if depth > 8:
+        return []
+    if isinstance(data, dict):
+        out: list[str] = []
+        for key, value in data.items():
+            if isinstance(key, str):
+                out.append(key)
+            out.extend(_string_keys(value, depth=depth + 1))
+        return out
+    if isinstance(data, (list, tuple)):
+        out = []
+        for item in data:
+            out.extend(_string_keys(item, depth=depth + 1))
         return out
     return []
 
@@ -409,13 +429,15 @@ class KnowledgeGate:
     def _scan_injection(self, entry: KnowledgeEntry) -> tuple[str, ...]:
         """指令注入检测：知识可读文本中的指令型措辞命中清单。
 
-        只扫描可读文本字段（标题/标签/条目数据内的字符串值），序列化
-        配置的键名与结构噪声不参与匹配（防误伤）；匹配前归一化
-        （全角转半角、去空白、小写）——空格/全角混淆变体与英文句式
-        同样可命中。检出指令型措辞即拒绝该知识落库。
+        扫描面 = 标题/标签 + 条目数据内的字符串值与键名（键位注入与
+        值位注入同属注入载体；常规结构键以分隔符拼合，与含空格的指令
+        句式不冲突）；匹配前归一化（全角转半角、去空白、小写）——
+        空格/全角混淆变体与英文句式同样可命中。检出指令型措辞即拒绝
+        该知识落库。
         """
         texts = [entry.title, *entry.tags]
         texts.extend(_string_values(entry.data))
+        texts.extend(_string_keys(entry.data))
         normalized = _normalize_injection_text(" ".join(texts))
         hits: list[str] = []
         for pattern in self.injection_patterns:

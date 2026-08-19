@@ -40,6 +40,10 @@ class FileSandbox:
     def __post_init__(self) -> None:
         self.root = Path(self.root)
 
+    def guards_operation(self, operation: str) -> bool:
+        """是否本沙箱守卫的操作域（多端点流水线各司其职的依据）。"""
+        return operation in FS_OPERATIONS
+
     def resolve(self, path: str | Path) -> Path:
         """路径解析：绝对化 → ``Path.resolve``（跟随 symlink）→ 前缀校验。
 
@@ -121,6 +125,10 @@ class ProcessSandbox:
     cwd: str | Path | None = None
     max_output: int = 100_000
     env: dict[str, str] | None = None
+
+    def guards_operation(self, operation: str) -> bool:
+        """是否本沙箱守卫的操作域（多端点流水线各司其职的依据）。"""
+        return operation == "exec"
 
     def validate(self, operation: str, target: str) -> None:
         if operation != "exec":

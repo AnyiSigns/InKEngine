@@ -26,6 +26,12 @@ InkEngine 遵循 [语义化版本](https://semver.org/lang/zh-CN/)（`MAJOR.MINO
 
 ### 新增
 
+- **自指层观察原语（`core/introspection.py`）**：内省服务 + 五个 `inspect_*`
+  元工具（图/规则/知识/界面/工具表 JSON 快照），注册进工具表经只读流水线
+  执行——恒定信封（graph+digest）、函数节点降级视图带 degraded 标记、
+  默认严重度补全、快照深拷贝、limit 钳制；快照出口统一过敏感键剥离
+  （凭据永不进入模型上下文，与落库通道同规格）。
+
 - **运行时重规划（Planner Loop）**
   - 新保留键 `__plan__`：节点返回下一跳编排清单（节点序列/并行组/条件/
     spawn 子任务），引擎执行一段后重规划；计划 = checkpoint 快照字段

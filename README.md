@@ -53,6 +53,7 @@ pip install -e ".[test]"    # 测试与 lint 依赖（pytest/ruff）
 | `fanout.py` / `budget.py` | 发散并行原语（部分失败剔除）；执行预算钩子（步骤/轮数上限由业务注册策略） |
 | `registry.py` / `workflow.py` | 节点/边注册表（业务自定义节点）；WorkflowSpec→Graph 转换 |
 | `security.py` / `logging.py` | 敏感信息剥离；结构化 JSON 日志 + trace_id 链路追踪 |
+| `introspection.py` | 自指层观察原语（内省服务 + inspect_* 元工具：图/规则/知识/界面/工具表 JSON 快照，只读流水线 + 权限门禁 + 敏感键剥离） |
 | `state_machine.py` / `memory.py` / `tiers.py` | 通用状态机原语；记忆策略原语（MemoryStore 协议/召回策略/存储后端）；模型分层挡位（挡位配置解析/按挡位建链/调用统计钩子） |
 | `llm/` | AsyncLLM + OpenAI 兼容适配器 + 工具 schema + fallback 链 + embedding |
 

@@ -1,0 +1,42 @@
+[build-system]
+requires = ["setuptools>=68"]
+build-backend = "setuptools.build_meta"
+
+[project]
+name = "text_forge_evo"
+version = "0.1.0"
+description = "Forge：站在 AI 上的 AI——自举式全领域产品壳（对话面板/SSE 传输/审批容器）"
+readme = "README.md"
+requires-python = ">=3.11"
+license = { text = "MIT" }
+dependencies = [
+    "fastapi>=0.115",
+    "uvicorn[standard]>=0.30",
+    "aiosqlite>=0.19",
+    "httpx>=0.27",
+    "ink_engine",
+]
+
+[project.optional-dependencies]
+test = ["pytest>=8", "pytest-asyncio>=0.23", "ruff>=0.5"]
+
+[project.scripts]
+forge = "app.main:main"
+
+# 本地引擎依赖：uv 专用源解析（editable 安装，随 ink_engine 源码即时生效）
+[tool.uv.sources]
+ink_engine = { path = "../ink_engine", editable = true }
+
+[tool.setuptools]
+package-dir = {"" = "backend"}
+
+[tool.setuptools.packages.find]
+include = ["app*"]
+
+[tool.ruff]
+target-version = "py311"
+line-length = 100
+
+[tool.ruff.lint]
+select = ["E", "F", "W", "I", "UP", "B", "C4", "SIM", "RUF"]
+ignore = ["E501", "RUF001", "RUF002", "RUF003"]

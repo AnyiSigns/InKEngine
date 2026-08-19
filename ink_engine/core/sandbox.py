@@ -31,10 +31,14 @@ class FileSandbox:
     """文件系统沙箱：根目录前缀 + resolve 校验 + symlink 逃逸检测。
 
     ``validate(operation, target)`` 返回解析后的绝对路径（调用方执行
-    读写删除用解析结果，防二次拼接引入逃逸）。
+    读写删除用解析结果，防二次拼接引入逃逸）。root 接受 str 或 Path
+    （构造时归一为 Path，避免 str/Path 混用触发的属性缺失）。
     """
 
     root: Path
+
+    def __post_init__(self) -> None:
+        self.root = Path(self.root)
 
     def resolve(self, path: str | Path) -> Path:
         """路径解析：绝对化 → ``Path.resolve``（跟随 symlink）→ 前缀校验。

@@ -547,3 +547,121 @@ def test_fixture_gate_catches_rule_regression():
     )
     assert fixtures_all_green(full, _fixtures()) is True
     assert fixtures_all_green(regressed, _fixtures()) is False
+
+
+def test_parse_rejects_invalid_predicate_config():
+    """谓词 config 形态校验在建图期暴露（非法 op/缺值/空清单 → 拒绝）。"""
+    registry = RuleTypeRegistry()
+    with pytest.raises(GraphDefinitionError, match="op 非法"):
+        RuleSet.parse(
+            {
+                "name": "t",
+                "rules": [
+                    {"id": "a", "predicate": "compare", "config": {"path": "x", "op": "~", "value": 1}}
+                ],
+            },
+            registry=registry,
+        )
+    with pytest.raises(GraphDefinitionError, match="value 或 other_path"):
+        RuleSet.parse(
+            {
+                "name": "t",
+                "rules": [
+                    {"id": "a", "predicate": "compare", "config": {"path": "x", "op": "gt"}}
+                ],
+            },
+            registry=registry,
+        )
+    with pytest.raises(GraphDefinitionError, match="values"):
+        RuleSet.parse(
+            {
+                "name": "t",
+                "rules": [
+                    {"id": "a", "predicate": "in_enum", "config": {"path": "x"}}
+                ],
+            },
+            registry=registry,
+        )
+    with pytest.raises(GraphDefinitionError, match="states"):
+        RuleSet.parse(
+            {
+                "name": "t",
+                "rules": [
+                    {"id": "a", "predicate": "state_transition", "config": {}}
+                ],
+            },
+            registry=registry,
+        )
+    # 未注入注册表 = 不做 config 形态校验（向后兼容：无注册表只有数据）
+    RuleSet.parse(
+        {
+            "name": "t",
+            "rules": [{"id": "a", "predicate": "compare", "config": {"path": "x", "op": "~", "value": 1}}],
+        }
+    )
+
+
+def test_parse_config_validator_registerable_for_domain_predicates():
+    """领域谓词可登记自己的 config 校验器（建图期暴露领域声明错误）。"""
+    registry = RuleTypeRegistry()
+
+    def domain_predicate(target, config, context):
+        return []
+
+    def domain_validator(rule_id, config):
+        if config.get("mode") not in ("a", "b"):
+            raise GraphDefinitionError(f"规则 {rule_id} 的 mode 须为 a/b")
+
+    registry.register("domain_check", domain_predicate)
+    registry.register_config_validator("domain_check", domain_validator)
+
+    RuleSet.parse(
+        {
+            "name": "t",
+            "rules": [{"id": "a", "predicate": "domain_check", "config": {"mode": "a"}}],
+        },
+        registry=registry,
+    )
+    with pytest.raises(GraphDefinitionError, match="mode"):
+        RuleSet.parse(
+            {
+                "name": "t",
+                "rules": [{"id": "a", "predicate": "domain_check", "config": {"mode": "x"}}],
+            },
+            registry=registry,
+        )
+
+
+def test_fixture_unexpected_kinds_strict_mode():
+    """样例严格模式：期望类别之外出现禁止类别 = 用例失败（退化防线）。"""
+    rule_set = RuleSet(
+        name="t",
+        rules=(Rule(id="a", predicate="truthy", config={"path": "x"}, kind="demo"),),
+    )
+    # 期望 demo 类违规出现；出现其他类别（order 类）→ 拒绝
+    strict = FixtureSet(
+        name="demo-strict",
+        cases=(
+            FixtureCase(
+                id="violate",
+                data={"x": 0},
+                expected_pass=False,
+                expected_kinds=("demo",),
+                unexpected_kinds=("order",),
+            ),
+        ),
+    )
+    assert fixtures_all_green(rule_set, strict) is True
+
+    noisy = RuleSet(
+        name="t",
+        rules=(Rule(id="a", predicate="truthy", config={"path": "x"}, kind="order"),),
+    )
+    assert fixtures_all_green(noisy, strict) is False
+    result = run_fixtures(noisy, strict)[0]
+    assert result.passed is False
+    assert "禁止的违规类别" in result.reason
+
+    # 严格模式序列化往返保留
+    rebuilt = FixtureSet.from_dict(strict.to_dict())
+    assert rebuilt.cases[0].unexpected_kinds == ("order",)

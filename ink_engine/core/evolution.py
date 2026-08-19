@@ -68,11 +68,24 @@ class MutationStrategy(Protocol):
     引擎规定「输入失败日志、输出变异体数据」的契约；具体变异操作
     （结构调整/阈值修订/分支重写）由实现方决定——确定性基线见
     :class:`DeterministicMutation`，LLM 反思变异为可选扩展。
+
+    ``evaluate`` 为可选钩子：变异体的维度指标评估（L3 目标筛选的
+    new_metrics 来源；返回 None = 用 L2 样例派生默认）——不实现时
+    进化工厂按默认指标口径走 L3。
     """
 
     def mutate(
         self, entry: KnowledgeEntry, failure_logs: tuple[str, ...]
     ) -> list[dict[str, Any]]: ...
+
+    async def evaluate(
+        self,
+        variant_data: dict[str, Any],
+        schema: Any,
+        fixtures: Any,
+    ) -> dict[str, float] | None:
+        """变异体维度指标（accuracy/latency/safety…）；None = 默认口径。"""
+        return None
 
 
 class DeterministicMutation:
@@ -203,6 +216,7 @@ class EvolutionFactory:
         variants: list[KnowledgeEntry] = []
         rejected: list[str] = []
         gate_results: list[GateL3Result] = []
+        evaluator = getattr(self.mutation, "evaluate", None)
         for raw in self.mutation.mutate(candidate.entry, candidate.failure_logs):
             variant = KnowledgeEntry(
                 id=f"{candidate.entry.id}:v{len(variants) + 1}",
@@ -214,10 +228,17 @@ class EvolutionFactory:
                 title=f"{candidate.entry.title}（变异）",
                 tags=candidate.entry.tags,
             )
+            new_metrics = None
+            if evaluator is not None:
+                try:
+                    new_metrics = await evaluator(raw, schema, fixtures)
+                except Exception:
+                    new_metrics = None  # 评估钩子异常 = 回落默认口径
             l1, l2, l3 = await self.gate.check(
                 variant,
                 schema=schema,
                 fixtures=fixtures,
+                new_metrics=new_metrics,
                 old_metrics=old_metrics,
                 regression=regression,
             )

@@ -525,3 +525,113 @@ async def test_executor_ctx_assemble_then_plan_coexist(memory_storage, transport
     assert result.reason == "reply"
     assert state["done"].endswith("+after")
     assert "输入" in state["done"]
+
+
+async def test_executor_preassemble_wiring(memory_storage, transport):
+    """执行器自动预装配：节点不手动调用 assemble 也经统一调配。
+
+    源由 RunOptions.assembly_sources 提供（每节点执行前调用一次）；
+    节点内 assemble 复用预装配缓存（不重复装配、不重复留痕）。
+    """
+    from ink_engine.core.context import ContextSource as CS
+    from ink_engine.core.executor import RunOptions
+    from ink_engine.core.graph import Graph
+
+    provider_calls: list[str] = []
+
+    def sources_provider(ctx):
+        provider_calls.append(ctx.node)
+        return [
+            CS(type=SOURCE_CONTEXT, content="对话历史", title="对话"),
+            CS(
+                type=SOURCE_KNOWLEDGE,
+                content="知识条目",
+                title="知识",
+                weight=0.8,
+                meta={"entry_id": "k-1"},
+            ),
+        ], {"rules": "v3"}
+
+    async def plan(ctx):
+        result = await ctx.assemble([])  # 空源清单：预装配结果复用
+        assert "对话历史" in result.text
+        return {"assembled": result.text}
+
+    graph = Graph(name="asm", entry="plan")
+    graph.add_node("plan", plan)
+    graph.add_exit("plan")
+    engine = Engine(
+        graph,
+        options=RunOptions(
+            storage=memory_storage,
+            transports=[transport],
+            assembly=AssemblyConfig(total_budget=1000),
+            assembly_sources=sources_provider,
+        ),
+    )
+    state, result = await engine._execute(
+        state={}, thread_id="t1", round_id=None, resume_from=None,
+        trace_id="trace", queue=None,
+    )
+    assert result.reason == "reply"
+    assert "对话历史" in state["assembled"]
+    assert provider_calls == ["plan"]  # 每节点执行前调用一次
+    events = [e for e in transport.events if e.type == "input_assembly"]
+    assert len(events) == 1  # 激活留痕只落一次
+    assert events[0].payload["record"]["version_snapshot"] == {"rules": "v3"}
+    kinds = {s["source_type"] for s in events[0].payload["record"]["sources"]}
+    assert kinds == {SOURCE_CONTEXT, SOURCE_KNOWLEDGE}
+
+
+async def test_executor_preassemble_disabled_skips(memory_storage, transport):
+    """一键开关：装配禁用或无源提供者时不自动装配（不产生留痕）。"""
+    from ink_engine.core.executor import RunOptions
+    from ink_engine.core.graph import Graph
+
+    provider_calls: list[str] = []
+
+    def sources_provider(ctx):
+        provider_calls.append(ctx.node)
+        return []
+
+    async def plan(ctx):
+        return {"done": True}
+
+    graph = Graph(name="asm", entry="plan")
+    graph.add_node("plan", plan)
+    graph.add_exit("plan")
+
+    # 装配未启用（assembly=None）→ 静默跳过
+    engine = Engine(
+        graph,
+        options=RunOptions(
+            storage=memory_storage,
+            transports=[transport],
+            assembly_sources=sources_provider,
+        ),
+    )
+    _, result = await engine._execute(
+        state={}, thread_id="t1", round_id=None, resume_from=None,
+        trace_id="trace", queue=None,
+    )
+    assert result.reason == "reply"
+    assert provider_calls == []
+    assert not [e for e in transport.events if e.type == "input_assembly"]
+
+    # 开关关闭（enabled=False）→ 同样跳过
+    engine2 = Engine(
+        graph,
+        options=RunOptions(
+            storage=memory_storage,
+            transports=[transport],
+            assembly=AssemblyConfig(enabled=False),
+            assembly_sources=sources_provider,
+        ),
+    )
+    _, result = await engine2._execute(
+        state={}, thread_id="t2", round_id=None, resume_from=None,
+        trace_id="trace", queue=None,
+    )
+    assert result.reason == "reply"
+    assert provider_calls == []
+    assert not [e for e in transport.events if e.type == "input_assembly"]

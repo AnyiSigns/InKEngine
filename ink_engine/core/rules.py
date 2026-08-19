@@ -296,11 +296,15 @@ class RuleSet:
                     f"规则集 {rule_set.name} 规则 id 重复: {rule.id}"
                 )
             seen.add(rule.id)
-            if registry is not None and not registry.has(rule.predicate):
-                raise GraphDefinitionError(
-                    f"规则集 {rule_set.name} 引用了未注册的谓词: "
-                    f"{rule.predicate}（规则 {rule.id}）"
-                )
+            if registry is not None:
+                if not registry.has(rule.predicate):
+                    raise GraphDefinitionError(
+                        f"规则集 {rule_set.name} 引用了未注册的谓词: "
+                        f"{rule.predicate}（规则 {rule.id}）"
+                    )
+                # 谓词 config 形态校验（声明错误在建图期暴露，不延后到
+                # 执行期 fail-open 静默失效）
+                registry.validate_config(rule.id, rule.predicate, rule.config)
         return rule_set
 
 
@@ -319,12 +323,36 @@ class RuleTypeRegistry:
 
     def __init__(self) -> None:
         self._predicates: dict[str, RulePredicate] = dict(_BUILTIN_PREDICATES)
+        # 谓词 config 校验器（声明错误建图期暴露；未登记校验器 = 不校验）
+        self._config_validators: dict[str, PredicateConfigValidator] = dict(
+            _BUILTIN_CONFIG_VALIDATORS
+        )
 
     def register(self, name: str, predicate: RulePredicate) -> None:
         """登记谓词名 → 执行函数（重复登记抛错，防静默覆盖语义）。"""
         if name in self._predicates:
             raise GraphDefinitionError(f"谓词重复注册: {name}")
         self._predicates[name] = predicate
+
+    def register_config_validator(
+        self, name: str, validator: PredicateConfigValidator
+    ) -> None:
+        """登记谓词 config 校验器（校验规则 id + config 形态，非法抛错）。
+
+        领域谓词可随注册登记校验器；未登记 = 该谓词 config 不做建图期
+        形态校验（执行期仍由谓词自身兜底 fail-open）。
+        """
+        if name not in self._predicates:
+            raise GraphDefinitionError(f"config 校验器须先登记谓词: {name}")
+        if name in self._config_validators:
+            raise GraphDefinitionError(f"config 校验器重复登记: {name}")
+        self._config_validators[name] = validator
+
+    def validate_config(self, rule_id: str, name: str, config: dict[str, Any]) -> None:
+        """按谓词名的 config 形态校验（无登记 = 跳过；非法抛声明错误）。"""
+        validator = self._config_validators.get(name)
+        if validator is not None:
+            validator(rule_id, config)
 
     def create(self, name: str) -> RulePredicate:
         """按谓词名取执行函数（未知谓词抛错——引用即声明错误）。"""
@@ -369,7 +397,12 @@ def _get_path(obj: Any, path: str | None) -> Any:
             except (ValueError, IndexError):
                 return None
         else:
-            current = getattr(current, segment, None)
+            try:
+                current = getattr(current, segment, None)
+            except AttributeError:
+                # 属性访问器自身抛错（property getter 异常等）：按缺失
+                # 处理——取值失败不穿透破坏 fail-open 闭环
+                return None
     return current
 
 
@@ -578,6 +611,34 @@ def _pred_falsy(target: Any, config: dict[str, Any], _context: dict[str, Any] | 
     return _issue(config, f"字段 {config.get('path') or '<root>'} 应为假")
 
 
+# 状态转换谓词的状态机缓存（同一声明不重复构建——高频评估热路径；
+# 声明形态不可哈希的部分归一为 frozenset）
+_TRANSITION_MACHINES: dict[tuple, StateMachine] = {}
+
+
+def _transition_machine(config: dict[str, Any]) -> StateMachine:
+    """按 config 声明取状态机实例（缓存命中直接复用）。"""
+    states = frozenset(config.get("states") or ())
+    terminal = frozenset(config.get("terminal_states") or ())
+    allowed = config.get("allowed")
+    allowed_key = (
+        frozenset(allowed)
+        if isinstance(allowed, (list, tuple, set, frozenset))
+        else allowed
+    )
+    key = (states, terminal, allowed_key, config.get("name"))
+    machine = _TRANSITION_MACHINES.get(key)
+    if machine is None:
+        machine = StateMachine(
+            states,
+            terminal_states=terminal,
+            allowed=config.get("allowed"),
+            name=config.get("name", "rule_transition"),
+        )
+        _TRANSITION_MACHINES[key] = machine
+    return machine
+
+
 def _pred_state_transition(
     target: Any, config: dict[str, Any], _context: dict[str, Any] | None
 ):
@@ -591,12 +652,7 @@ def _pred_state_transition(
     states = config.get("states")
     if not isinstance(states, (list, tuple, set, frozenset)) or not states:
         raise ValueError("state_transition 谓词缺 states 清单")
-    machine = StateMachine(
-        states,
-        terminal_states=config.get("terminal_states", ()),
-        allowed=config.get("allowed"),
-        name=config.get("name", "rule_transition"),
-    )
+    machine = _transition_machine(config)
     from_state = _get_path(target, config.get("from_path"))
     to_state = _get_path(target, config.get("to_path"))
     if to_state is None:
@@ -625,6 +681,98 @@ _BUILTIN_PREDICATES: dict[str, RulePredicate] = {
     "truthy": _pred_truthy,
     "falsy": _pred_falsy,
     "state_transition": _pred_state_transition,
+}
+
+# 谓词 config 校验器签名：规则 id + config → None（非法抛 GraphDefinitionError，
+# 声明错误在建图期暴露，不延后到执行期 fail-open 静默失效）
+PredicateConfigValidator = Callable[[str, dict[str, Any]], None]
+
+
+def _path_field(rule_id: str, config: dict[str, Any], key: str = "path") -> None:
+    """路径字段校验：str 或省略（其余形态 = 声明错误）。"""
+    value = config.get(key)
+    if value is not None and not isinstance(value, str):
+        raise GraphDefinitionError(
+            f"规则 {rule_id} 的 {key} 须为字符串或省略: {value!r}"
+        )
+
+
+def _enum_values_field(rule_id: str, config: dict[str, Any]) -> None:
+    """枚举取值集校验：非空集合形态。"""
+    values = config.get("values")
+    if not isinstance(values, (list, tuple, set, frozenset)) or not values:
+        raise GraphDefinitionError(
+            f"规则 {rule_id} 的 values 须为非空集合（枚举取值集）"
+        )
+
+
+def _check_compare_config(rule_id: str, config: dict[str, Any]) -> None:
+    """compare 声明校验：op 合法 + 字面量/对象内字段比较至少一侧存在。"""
+    op = config.get("op")
+    if op not in _COMPARE_OPS:
+        raise GraphDefinitionError(
+            f"规则 {rule_id} 的 compare op 非法: {op!r}（仅 {_COMPARE_OPS}）"
+        )
+    _path_field(rule_id, config)
+    if "other_path" in config:
+        _path_field(rule_id, config, "other_path")
+    elif "value" not in config:
+        raise GraphDefinitionError(
+            f"规则 {rule_id} 的 compare 须声明 value 或 other_path 之一"
+        )
+
+
+def _check_enum_config(rule_id: str, config: dict[str, Any]) -> None:
+    """in_enum/not_in_enum 声明校验。"""
+    _path_field(rule_id, config)
+    _enum_values_field(rule_id, config)
+
+
+def _check_unique_pairs_config(rule_id: str, config: dict[str, Any]) -> None:
+    """unique_pairs 声明校验：keys 非空清单。"""
+    keys = config.get("keys")
+    if not isinstance(keys, (list, tuple)) or not keys:
+        raise GraphDefinitionError(f"规则 {rule_id} 的 keys 须为非空清单")
+    if not all(isinstance(key, str) for key in keys):
+        raise GraphDefinitionError(f"规则 {rule_id} 的 keys 须为字符串清单")
+
+
+def _check_state_transition_config(rule_id: str, config: dict[str, Any]) -> None:
+    """state_transition 声明校验：状态清单非空 + 取值路径合法。"""
+    states = config.get("states")
+    if not isinstance(states, (list, tuple, set, frozenset)) or not states:
+        raise GraphDefinitionError(f"规则 {rule_id} 的 states 须为非空状态清单")
+    _path_field(rule_id, config, "from_path")
+    _path_field(rule_id, config, "to_path")
+
+
+def _check_simple_path_config(rule_id: str, config: dict[str, Any]) -> None:
+    """present/absent/truthy/falsy 声明校验（仅路径字段）。"""
+    _path_field(rule_id, config)
+
+
+def _check_value_config(rule_id: str, config: dict[str, Any]) -> None:
+    """equals/not_equals/contains/not_contains 声明校验（路径 + 任意值）。"""
+    _path_field(rule_id, config)
+    if "value" not in config:
+        raise GraphDefinitionError(f"规则 {rule_id} 缺 value 取值")
+
+
+# 内置谓词的 config 校验器（注册表构造时自动注入——声明错误建图期暴露）
+_BUILTIN_CONFIG_VALIDATORS: dict[str, PredicateConfigValidator] = {
+    "present": _check_simple_path_config,
+    "absent": _check_simple_path_config,
+    "truthy": _check_simple_path_config,
+    "falsy": _check_simple_path_config,
+    "equals": _check_value_config,
+    "not_equals": _check_value_config,
+    "contains": _check_value_config,
+    "not_contains": _check_value_config,
+    "compare": _check_compare_config,
+    "in_enum": _check_enum_config,
+    "not_in_enum": _check_enum_config,
+    "unique_pairs": _check_unique_pairs_config,
+    "state_transition": _check_state_transition_config,
 }
 
 
@@ -867,6 +1015,8 @@ class FixtureCase:
         expected_pass: True = 期望零违规；False = 期望至少一条违规。
         expected_kinds: 必须出现的违规类别集合（expected_pass=False 时
             逐项断言；允许出现额外类别——子集语义）。
+        unexpected_kinds: 禁止出现的违规类别集合（出现即失败——严格
+            模式：坏规则除期望类别外不得产生额外违规）。
         description: 用例说明（覆盖的场景）。
     """
 
@@ -875,6 +1025,7 @@ class FixtureCase:
     context: dict[str, Any] = field(default_factory=dict)
     expected_pass: bool = True
     expected_kinds: tuple[str, ...] = ()
+    unexpected_kinds: tuple[str, ...] = ()
     description: str = ""
 
     def to_dict(self) -> dict[str, Any]:
@@ -885,6 +1036,8 @@ class FixtureCase:
             data["expected_pass"] = False
             if self.expected_kinds:
                 data["expected_kinds"] = list(self.expected_kinds)
+        if self.unexpected_kinds:
+            data["unexpected_kinds"] = list(self.unexpected_kinds)
         if self.description:
             data["description"] = self.description
         return data
@@ -915,6 +1068,13 @@ class FixtureCase:
             raise GraphDefinitionError(
                 f"样例用例 {case_id} 的 expected_kinds 须为字符串清单"
             )
+        unexpected = data.get("unexpected_kinds", ())
+        if not isinstance(unexpected, (list, tuple)) or not all(
+            isinstance(kind, str) for kind in unexpected
+        ):
+            raise GraphDefinitionError(
+                f"样例用例 {case_id} 的 unexpected_kinds 须为字符串清单"
+            )
         description = data.get("description", "")
         if not isinstance(description, str):
             raise GraphDefinitionError(f"样例用例 {case_id} 的 description 须为字符串")
@@ -924,6 +1084,7 @@ class FixtureCase:
             context=dict(context or {}),
             expected_pass=bool(data.get("expected_pass", True)),
             expected_kinds=tuple(kinds),
+            unexpected_kinds=tuple(unexpected),
             description=description,
         )
 
@@ -982,7 +1143,9 @@ def run_fixtures(
     判定语义：
     - ``expected_pass=True``：零违规才通过；
     - ``expected_pass=False``：至少一条违规，且 ``expected_kinds`` 中
-      每个类别都至少出现一次（子集语义，允许额外类别）。
+      每个类别都至少出现一次（子集语义，允许额外类别）——声明
+      ``unexpected_kinds`` 时额外类别被严格拒绝（坏规则在期望类别之外
+      产生别的违规 = 用例失败，退化防线不可绕过）。
     """
     engine = engine or RuleEngine()
     results: list[FixtureResult] = []
@@ -990,10 +1153,11 @@ def run_fixtures(
         result = engine.evaluate(rule_set, case.data, context=case.context)
         kinds = {issue.kind for issue in result.issues}
         missing = tuple(kind for kind in case.expected_kinds if kind not in kinds)
+        unexpected_hit = tuple(kind for kind in case.unexpected_kinds if kind in kinds)
         passed = (
             not result.issues
             if case.expected_pass
-            else bool(result.issues) and not missing
+            else bool(result.issues) and not missing and not unexpected_hit
         )
         reason = ""
         if not passed:
@@ -1004,6 +1168,8 @@ def run_fixtures(
                 )
             elif not result.issues:
                 reason = "期望至少一条违规，实际零违规"
+            elif unexpected_hit:
+                reason = f"出现禁止的违规类别: {unexpected_hit}"
             else:
                 reason = f"缺少期望违规类别: {missing}"
         results.append(

@@ -21,6 +21,7 @@ parameters/permissions/endpoint），而非编写一个执行函数——执行�
 from __future__ import annotations
 
 import inspect
+import urllib.parse
 from collections.abc import Awaitable, Callable
 from dataclasses import dataclass, field
 from enum import StrEnum
@@ -29,7 +30,7 @@ from typing import TYPE_CHECKING, Any
 from .exceptions import GraphDefinitionError
 from .llm.tools import ToolSpec
 from .logging import get_logger
-from .permissions import parse_permission
+from .permissions import NetworkPolicy, NetworkPolicySandbox, PermissionGate, parse_permission
 
 if TYPE_CHECKING:
     from .tool_pipeline import ToolPipeline
@@ -158,11 +159,17 @@ def endpoint_operation(
     """
     if endpoint is EndpointType.HTTP_FETCH:
         url = args.get("url")
-        if isinstance(url, str):
-            host = url.split("/", 3)
-            if len(host) >= 3 and "//" in url:
-                return ("connect", host[2].split(":")[0].split("?")[0])
-        return None
+        if not isinstance(url, str) or not url:
+            return None
+        try:
+            parsed = urllib.parse.urlsplit(url)
+        except ValueError:
+            return None
+        # 协议白名单 + host 形式校验：仅 http/https 可出网，凭据/非标准
+        # 协议的 host 提取一律拒绝（无法判定目标 = fail-closed）
+        if parsed.scheme not in ("http", "https") or not parsed.hostname:
+            return None
+        return ("connect", parsed.hostname)
     if endpoint is EndpointType.PROCESS_EXEC:
         command = args.get("command")
         return ("exec", command) if isinstance(command, str) else None
@@ -264,6 +271,7 @@ def build_declarative_pipeline(
     *,
     gate: Any = None,
     sandboxes: tuple[Any, ...] = (),
+    network_policy: NetworkPolicy | None = None,
     guards: tuple[Callable[..., Any], ...] = (),
     audit: Callable[..., Any] | None = None,
     max_result_chars: int = 100_000,
@@ -275,12 +283,24 @@ def build_declarative_pipeline(
     端点执行体分发（DeclarativeToolExecutors.dispatch）——声明式工具
     经此走完整流水线（门禁 → 沙箱 → 守卫 → 审批 → 审计）。
 
-    gate/sandboxes/guards 由宿主注入（白名单与资源绑定归宿主）：
-    注入的权限/沙箱按声明式权限与端点类型判定；未注入时判定目标
-    推导成功即直通执行（v4 ToolPipeline 的 gate/sandbox 可选语义），
-    但目标推导失败（非法/缺参）恒 fail-closed 拒绝。
+    门禁默认 fail-closed：未注入 gate 时按 :class:`PermissionGate`
+    默认策略（未声明权限/未命中 = 拒绝）兜底，宿主须显式传
+    ``PermissionGate(default_policy=...)`` 或 ``gate=None`` 才可放宽；
+    network_policy 传入时自动并入沙箱环节（http_fetch 经域名白名单
+    守卫，其余沙箱由宿主按端点注入）；判定目标推导失败恒 fail-closed
+    拒绝。
     """
     from .tool_pipeline import ToolPipeline
+
+    if gate is None:
+        gate = PermissionGate()
+    if network_policy is not None:
+        sandbox = (
+            network_policy
+            if isinstance(network_policy, NetworkPolicySandbox)
+            else NetworkPolicySandbox(allow_domains=network_policy.allow_domains)
+        )
+        sandboxes = (*sandboxes, sandbox)
 
     return ToolPipeline(
         gate=gate,
@@ -300,9 +320,10 @@ def make_http_fetch_executor(
 ) -> DeclarativeExecutor:
     """默认 http_fetch 执行体（httpx 可选依赖；未安装时调用即显式报错）。
 
-    仅做受控抓取：超时 + 输出截断（与 ProcessSandbox 输出截断同档防护），
-    域名白名单由 ToolPipeline 的 NetworkPolicy 沙箱环节把关——执行体
-    本身不做域名判断（守卫在前，执行在后）。
+    仅做受控抓取：超时 + 输出截断（与 ProcessSandbox 输出截断同档防护）；
+    域名白名单经 :func:`build_declarative_pipeline` 的 ``network_policy``
+    参数并入沙箱环节（NetworkPolicySandbox 在守卫层先行判定，执行体
+    不再自行判断域名——守卫在前，执行在后）。
     """
 
     async def execute(ctx: Any, definition: DeclarativeToolSpec, args: dict, approval: Any) -> str:

@@ -61,8 +61,10 @@ from .simulation import (
     SIMULATE_KEY,
     BestBranchMixer,
     BranchMixer,
+    BranchSelection,
     EvaluatedBranch,
     Evaluator,
+    ProvenanceNote,
     SimulateSpec,
     SimulationResult,
     parse_simulate,
@@ -129,8 +131,15 @@ class RunOptions:
     branch_mixer: BranchMixer | None = None  # 分支调配策略（None = BestBranchMixer 单选）
     max_simulations: int = DEFAULT_MAX_SIMULATIONS  # 推演分支数上限（成本护栏，0 = 禁用）
     simulate_concurrency: int = 2  # 推演分支并发上限
-    # 输入调配管线（执行语义：每次 LLM 调用前多源统一调配）
+    # 换选分支序号（None = 正常择优）：回溯换选时强制改选指定分支——
+    # 经 Engine.swap_branch 设置，重放期间决策点按该分支提交主线
+    branch_pick: int | None = None
+    # 输入调配管线（执行语义：每次 LLM 调用/节点执行前多源统一调配）
     assembly: AssemblyConfig | None = None  # 装配配置（None = 未启用，调用点走旧路径）
+    # 装配源提供者（None = 引擎不自动装配，节点自行经 ctx.assemble 提供
+    # 源）：节点执行前引擎自动调用一次取源并统一调配，节点内 assemble
+    # 复用预装配结果（不重复装配/不重复留痕）
+    assembly_sources: Any = None
 
 
 @dataclass(slots=True)
@@ -237,6 +246,8 @@ class _NodeContextImpl(NodeContext):
         # 轨迹树父引用：推演分支/子任务事件指向决策点/父任务步骤
         # （落选分支可据此回溯对比/换选）
         self.parent_step_id = parent_step_id
+        # 输入调配预装配结果缓存（preassemble 后节点内 assemble 复用）
+        self._assembled: AssemblyResult | None = None
 
     @property
     def state(self) -> dict:
@@ -332,10 +343,13 @@ class _NodeContextImpl(NodeContext):
         每次 LLM 调用/节点执行前经此统一调配（上下文+知识+工具+记忆+
         证据），预算合计不超调用点总预算；激活记录（源/权重/预算/版本
         快照）随 input_assembly 事件落执行日志——模型可见皆留痕，可回放
-        可审计。未启用（RunOptions.assembly=None）或关闭（enabled=False）
-        时抛 GraphDefinitionError——调用点 catch 后回退旧装配路径（一键
-        开关语义）。
+        可审计。预装配（preassemble）已装配时直接复用缓存结果——不
+        重复装配也不重复留痕。未启用（RunOptions.assembly=None）或关闭
+        （enabled=False）时抛 GraphDefinitionError——调用点 catch 后
+        回退旧装配路径（一键开关语义）。
         """
+        if self._assembled is not None:
+            return self._assembled
         assembler = self._engine._assembler
         if assembler is None:
             raise GraphDefinitionError(
@@ -346,11 +360,32 @@ class _NodeContextImpl(NodeContext):
             total_budget=total_budget,
             version_snapshot=version_snapshot,
         )
+        self._assembled = result
         await self.emit(
             "input_assembly",
             {"node": self.node, "record": result.record.to_dict()},
         )
         return result
+
+    async def preassemble(self) -> None:
+        """节点执行前的统一预装配（执行器节点循环内自动调用）。
+
+        源由 RunOptions.assembly_sources 提供（返回源清单或
+        (源清单, 版本快照) 二元组）；装配未启用/无源提供者时静默跳过
+        （调用点回退旧路径）。装配结果缓存，节点内 assemble 复用。
+        """
+        if self._assembled is not None:
+            return
+        config = self._engine.options.assembly
+        provider = self._engine.options.assembly_sources
+        if config is None or not config.enabled or provider is None:
+            return
+        supplied = provider(self)
+        if isinstance(supplied, tuple):
+            sources, version_snapshot = supplied[0], supplied[1]
+        else:
+            sources, version_snapshot = supplied, None
+        await self.assemble(sources, version_snapshot=version_snapshot)
 
     def terminate(self, reason: str, **meta: Any) -> None:
         """声明终止（校验延迟到执行器检查点：编程错误不被节点异常捕获吞掉）。"""
@@ -677,6 +712,47 @@ class Engine:
                     self._coordinator.pending_inject.pop(key, None)
             trace_id_var.reset(token)
 
+    async def swap_branch(
+        self,
+        *,
+        thread_id: str,
+        before_checkpoint_id: int,
+        branch_index: int,
+        inject: dict[str, Any] | None = None,
+        round_id: str | None = None,
+        trace_id: str | None = None,
+        transports: list[EngineTransport] | None = None,
+    ) -> RunResult:
+        """回溯换选：从决策点前锚点恢复，强制改选指定分支重放后续。
+
+        推演-回溯-换选的执行语义：决策点完成后主线提交的是择优结果；
+        对落选分支做回溯对比/换选 = 回到决策点节点执行前的 checkpoint
+        锚点（决策点自身的 checkpoint 已是选择后状态），强制指定分支
+        序号重放——重放期间各分支仍按独立子链执行，主线状态最终 =
+        目标分支的结果。目标分支在重放时不存在或未通过评估 = 显式报错。
+
+        Args:
+            thread_id: 会话/线程 id（版本链归属）。
+            before_checkpoint_id: 决策点节点执行前的 checkpoint 锚点。
+            branch_index: 目标分支序号（决策事件 branches 引用可见）。
+            inject: 中断注入值（重入语义，与 run 同口径）。
+            round_id/trace_id/transports: 透传（与 ainvoke 同语义）。
+        """
+        original = self.options.branch_pick
+        self.options.branch_pick = branch_index
+        try:
+            return await self.ainvoke(
+                {},
+                thread_id=thread_id,
+                round_id=round_id,
+                resume_from=before_checkpoint_id,
+                inject=inject,
+                trace_id=trace_id,
+                transports=transports,
+            )
+        finally:
+            self.options.branch_pick = original
+
     async def _maybe_compact_chain(self, thread_id: str) -> None:
         """链级 rebase 入口（fail-open：压缩失败不阻断执行）。
 
@@ -925,6 +1001,12 @@ class Engine:
                     reason = TerminateReason.BUDGET_EXCEEDED
                     error_msg = str(exc)
                     break
+
+            # ── 输入调配预装配（执行语义接线）：节点执行前统一走调配
+            # 管线——源由 RunOptions.assembly_sources 提供（未注入时
+            # 节点自行经 ctx.assemble 装配），装配结果节点内复用，
+            # 激活记录只留痕一次
+            await ctx.preassemble()
 
             # ── 执行节点（重试 N 次 / 终止；兼容同步/异步节点函数）──
             overlay: dict | None = None
@@ -1704,8 +1786,11 @@ class Engine:
     def _resolve_graph_data(self, data: Any) -> Graph:
         """子图数据形态解析：Graph 直通；图定义数据经注册表重建。
 
-        数据形态（spawn 清单/计划携带的 dict 子图）要求引擎注入注册表
-        （RunOptions.registries）——缺失时显式报错，不静默降级为执行错误。
+        数据形态（spawn 清单/计划/推演分支携带的 dict 子图）要求引擎
+        注入注册表（RunOptions.registries）——缺失时显式报错，不静默
+        降级为执行错误。重建走完整校验（validate=True：悬挂入口/出口/
+        边目标等结构错误在解析期暴露，与 harness 注册侧同口径——非法
+        图定义不延后到执行期）。
         """
         if isinstance(data, Graph):
             return data
@@ -1715,7 +1800,10 @@ class Engine:
         if registries is None:
             raise ValueError("图定义数据需注册表解析（RunOptions.registries 未注入）")
         return Graph.from_dict(
-            data, registry=registries.nodes, edge_registry=registries.edges
+            data,
+            registry=registries.nodes,
+            edge_registry=registries.edges,
+            validate=True,
         )
 
     def _make_instance_engine(self, subgraph: Graph) -> Engine:
@@ -1932,7 +2020,8 @@ class Engine:
                     if self._latest_event_seq is None
                     else max(self._latest_event_seq, sub_engine._latest_event_seq)
                 )
-            await self._maybe_compact_chain(branch_thread)
+            # 分支链不做链级压缩：落选分支的轨迹树引用（回溯对比/换选
+            # 锚点）依赖完整子链，压缩会削掉中间 checkpoint
             if sub_result.interrupt is not None:
                 raise InterruptSignal(
                     sub_result.interrupt.key, sub_result.interrupt.payload
@@ -1981,12 +2070,31 @@ class Engine:
             raise SimulationError("全部成功分支评估失败（无可择优候选）")
         # 分支结果调配：单选或跨分支组装（调配器思想：多个分支结果 = 源、
         # 评估分 = weight、主线预算 = 预算）；调配失败 = 策略/配置问题，
-        # 按节点失败收口（fail-fast，不静默单选）
-        mixer = self.options.branch_mixer or BestBranchMixer()
-        try:
-            selection = await mixer.mix(evaluated, budget=budget)
-        except Exception as exc:
-            raise SimulationError(f"分支调配失败: {exc}") from exc
+        # 按节点失败收口（fail-fast，不静默单选）。换选路径（branch_pick
+        # 非 None）：强制改选指定分支——目标分支不存在或未通过评估 =
+        # 无可用的换选目标，显式报错（不静默回落择优）。
+        pick = self.options.branch_pick
+        if pick is not None:
+            target = next((b for b in evaluated if b.spec.index == pick), None)
+            if target is None or not target.evaluation.passed:
+                raise SimulationError(
+                    f"换选分支不可用（不存在或未通过评估）: {pick}"
+                )
+            selection = BranchSelection(
+                selected=(pick,),
+                overlay=dict(target.overlay),
+                provenance=(
+                    (ProvenanceNote(branch_index=pick, key="*", note="换选提交"),)
+                    if target.overlay
+                    else ()
+                ),
+            )
+        else:
+            mixer = self.options.branch_mixer or BestBranchMixer()
+            try:
+                selection = await mixer.mix(evaluated, budget=budget)
+            except Exception as exc:
+                raise SimulationError(f"分支调配失败: {exc}") from exc
         return SimulationResult(
             selection=selection,
             branches=tuple(evaluated),

@@ -1,6 +1,6 @@
 """信号感知与蒸馏（轨迹 → 结构化知识的入口：五类信号分类路由 + 结构化压缩）。
 
-信号感知（借鉴他山 D5 信号体系）：任务执行轨迹中分类感知五类信号——
+信号感知（借鉴他山信号体系）：任务执行轨迹中分类感知五类信号——
 踩坑（预期外失败）/ 用户修正（卡回路 accept/edit 反例）/ 洞见（成功
 路径中的可复用经验）/ 流程缺口（缺某类能力 → 新建候选）/ 重复根因
 （同一问题 ≥3 次 → 人工确认后升级修规范）。触发条件：任务复杂度或
@@ -374,8 +374,8 @@ def resolve_distill_chain(
 ):
     """按挡位构建蒸馏模型链（router 建链，配置缺失回落 main_config）。
 
-    复用四挡位机制（router 建链语义，计划 M6 蒸馏小节）：蒸馏走
-    router 挡位的轻量模型（省成本），该挡位未配置时经
+    复用四挡位机制（router 建链语义）：蒸馏走 router 挡位的轻量模型
+    （省成本），该挡位未配置时经
     :func:`~ink_engine.core.tiers.resolve_tier_config` 回落主挡位——
     与引擎其余挡位消费方同一条回落路径，无独立配置形态。
 
@@ -432,14 +432,14 @@ class TieredDistiller:
         )
 
     def distill(self, signals: list[ExecutionSignal]) -> dict[str, Any] | None:
-        """同步蒸馏入口（确定性基线路径；模型链存在时走异步入口）。
+        """同步蒸馏入口（确定性基线路径；模型链路径走异步入口）。
 
-        开关关闭恒 None；链缺失 = 确定性蒸馏（同步路径完整可用）。
+        开关关闭恒 None；同步路径恒走确定性蒸馏（零 LLM 调用、可测试
+        可断言）——配置了模型链的蒸馏经 :meth:`distill_async` 走 LLM
+        回调，二者互不混叠。
         """
         if not self.config.enabled:
             return None
-        if self.chain is not None:
-            return self.deterministic.distill(signals)
         return self.deterministic.distill(signals)
 
     async def distill_async(

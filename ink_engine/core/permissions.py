@@ -25,6 +25,8 @@ from collections.abc import Callable
 from dataclasses import dataclass
 from fnmatch import fnmatch
 
+from .exceptions import SandboxViolation
+
 ALLOW = "allow"
 REVIEW = "review"
 DENY = "deny"
@@ -170,12 +172,30 @@ class NetworkPolicy:
         return any(network_matches(p, host) for p in self.allow_domains)
 
 
+@dataclass(frozen=True, slots=True)
+class NetworkPolicySandbox(NetworkPolicy):
+    """网络守卫的沙箱接线形态（ToolPipeline 沙箱环节消费）。
+
+    http_fetch 端点经此做域名白名单判定：操作须为 connect（其余操作
+    一律违规），域名未命中白名单抛 :class:`SandboxViolation`（默认
+    禁网）；判定通过返回原 host（守卫只做判定，不改写执行参数）。
+    """
+
+    def validate(self, operation: str, target: str) -> str | None:
+        if operation != "connect":
+            raise SandboxViolation(f"不支持的网络操作: {operation}")
+        if not self.allows(target):
+            raise SandboxViolation(f"域名不在白名单: {target}")
+        return target
+
+
 __all__ = [
     "ALLOW",
     "DENY",
     "REVIEW",
     "GateResult",
     "NetworkPolicy",
+    "NetworkPolicySandbox",
     "PermissionGate",
     "PermissionRule",
     "network_matches",

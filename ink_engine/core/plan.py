@@ -1,9 +1,9 @@
 """运行时重规划原语的数据面（``__plan__`` 保留键 / 计划清单模型 / 解析校验）。
 
 图拓扑随状态演化：节点返回下一跳计划清单（顺序节点组/并行组/条件门/
-spawn 子任务项），引擎按清单续跑、执行一段后再规划——拓扑成为可改写
+spawn 子图实例项），引擎按清单续跑、执行一段后再规划——拓扑成为可改写
 的数据，而非编译期固定。与 ``__spawn__`` 的关系：计划 = 流的结构
-（下一跳编排），spawn = 流的展开（并行子任务），两者可嵌套（计划
+（下一跳编排），spawn = 流的展开（并行子图实例），两者可嵌套（计划
 步骤可携带 spawn 清单，展开共用执行器的实例展开路径）。
 
 计划版本化（硬性要求）：计划是 checkpoint 快照字段（随版本链落盘与
@@ -35,7 +35,7 @@ PLAN_KEY = "__plan__"
 # 计划步骤类型（声明式数据，枚举化防魔法值）
 KIND_NODES = "nodes"  # 顺序节点组：按序逐个执行
 KIND_PARALLEL = "parallel"  # 并行节点组：隔离状态并发执行，结果按序合并
-KIND_SPAWNS = "spawns"  # 子任务展开：携带 spawn 清单，展开执行器与 __spawn__ 共用
+KIND_SPAWNS = "spawns"  # 子图实例展开：携带 spawn 清单，展开执行器与 __spawn__ 共用
 
 # 计划数据形态的键名
 _STEPS_KEY = "steps"
@@ -61,12 +61,12 @@ def _require_exactly_one_kind(data: dict[str, Any]) -> str:
 
 @dataclass(frozen=True, slots=True)
 class PlanStep:
-    """计划一步：顺序节点组 / 并行节点组 / spawn 子任务 + 可选条件门。
+    """计划一步：顺序节点组 / 并行节点组 / spawn 子图实例 + 可选条件门。
 
     Attributes:
         kind: 步骤类型（nodes/parallel/spawns）。
         nodes: 节点名（nodes = 顺序执行序；parallel = 并行组成员序）。
-        spawns: spawn 子任务清单（数据形态：{subgraph, state, index}，
+        spawns: spawn 子图实例清单（数据形态：{subgraph, state, index}，
             subgraph 为图定义数据 dict——Graph 对象已序列化）。
         condition: 条件名（经条件注册表解析；None = 恒真，步骤必执行）。
     """
@@ -77,10 +77,19 @@ class PlanStep:
     condition: str | None = None
 
     def to_dict(self) -> dict:
-        """序列化为纯数据（checkpoint 计划快照/回放用）。"""
+        """序列化为纯数据（checkpoint 计划快照/回放用）。
+
+        spawn 项中的 Graph 实例兜底序列化为图定义数据（Graph 不是数据，
+        入计划前即应完成序列化——此处兜底防绕过校验直构对象泄漏）。
+        """
         data: dict[str, Any] = {self.kind: list(self.nodes) if self.nodes else []}
         if self.kind == KIND_SPAWNS:
-            data[KIND_SPAWNS] = list(self.spawns)
+            spawns: list[Any] = []
+            for item in self.spawns:
+                if isinstance(item, dict) and isinstance(item.get("subgraph"), Graph):
+                    item = {**item, "subgraph": item["subgraph"].to_dict()}
+                spawns.append(item)
+            data[KIND_SPAWNS] = spawns
         if self.condition is not None:
             data["condition"] = self.condition
         return data
@@ -257,7 +266,7 @@ class Plan:
 
 
 def _validate_spawn_item(item: dict[str, Any], *, step_index: int) -> None:
-    """spawn 子任务项的形态校验（子图 = 图定义数据或 Graph 对象）。
+    """spawn 子图实例项的形态校验（子图 = 图定义数据或 Graph 对象）。
 
     Graph 对象在执行期展开前序列化为数据（计划快照必须纯数据）——此处
     只校验形态，图定义数据的注册表解析在展开时进行。

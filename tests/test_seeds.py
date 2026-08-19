@@ -207,3 +207,27 @@ async def test_seed_entries_usable_by_l2_executor():
         result = await executor.run(entry, fixtures)
         assert isinstance(result, GateL2Result)
         assert isinstance(result.accuracy, float)  # 评估指标结构化留痕
+
+
+async def test_l2_context_rules_merge_full_set_green():
+    """L2 合并评估：样例面向整套规则集设计——单条新规则须与旧集合并
+    共同判定（单条恒失败 → 与旧集合并后全绿）。"""
+    from ink_engine.core.knowledge_gate import GateL2FixtureExecutor
+
+    entries = build_novel_seed_entries()
+    rule_entries = [e for e in entries if e.kind == KIND_RULE and e.data.get("rule")]
+    assert len(rule_entries) >= 2
+    candidate = rule_entries[0]
+    context = {
+        "name": "novel.world_state.context",
+        "rules": [e.data["rule"] for e in rule_entries[1:]],
+    }
+    fixtures = novel_seed_fixtures()
+    executor = GateL2FixtureExecutor(registry=novel_seed_registry())
+
+    alone = await executor.run(candidate, fixtures)
+    assert not alone.passed  # 单条无法独立满足整套样例语义
+
+    merged = await executor.run(candidate, fixtures, context_rules=context)
+    assert merged.passed  # 与旧集合并 = 全套规则 → 样例全绿
+    assert merged.accuracy == 1.0

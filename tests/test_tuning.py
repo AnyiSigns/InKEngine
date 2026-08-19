@@ -374,3 +374,54 @@ async def test_tune_with_regression_host_gate_injected():
     )
     assert result.params.weights["A"] < 0.6  # 变更经宿主闸门生效
     assert result.note == ""
+
+
+def test_tune_no_spurious_changes_at_bounds():
+    """边界封顶不产生虚假变更说明（无实际变化不 append）。"""
+    metrics = TurnMetrics()
+    metrics.record_turn(failed=True)
+    metrics.record_turn(failed=True)  # 失败率 = 1.0（高位驱动）
+    # 重试预算已保底、web 阈值已封底 → 不再产生「变更」
+    params = TunableParams(retry_budget=2, web_verify_threshold=0.1)
+    result = MetaTuner().tune(params, metrics)
+    assert result.changes == ()  # 修复前会空转 append 两条变更说明
+    assert result.params.retry_budget == 2
+    assert result.params.web_verify_threshold == 0.1
+
+
+async def test_snapshot_sink_invoked_on_regression_pass():
+    """参数快照落库集成点：回归通过 → sink 收到快照；拒绝 → 不收。"""
+    sinks: list = []
+
+    def collector(snapshot):
+        sinks.append(snapshot)
+
+    params = TunableParams(weights={"A": 0.5, "B": 0.5}, thresholds={"pass": 0.6})
+    metrics = TurnMetrics()
+    gate = KnowledgeGate(l2_executor=ParamRegressionExecutor())
+    tuner = MetaTuner(snapshot_sink=collector)
+
+    # 回归通过 → 快照经 sink 落库（回放/审计按快照重算）
+    ok = await tuner.tune_with_regression(
+        params,
+        metrics,
+        _param_fixtures(),
+        feedback={"B": 0.1},
+        rule_version="rules-v9",
+        gate=gate,
+    )
+    assert ok.snapshot is not None
+    assert len(sinks) == 1
+    assert sinks[0].rule_version == "rules-v9"
+
+    # 回归被拒 → 变更不生效，快照不落库
+    rejected = await tuner.tune_with_regression(
+        params,
+        metrics,
+        _param_fixtures(weight_min=0.5),  # B 降权 0.45 < 0.5 → 越界拒绝
+        feedback={"B": 0.0},
+        rule_version="rules-v10",
+        gate=gate,
+    )
+    assert rejected.changes == ()
+    assert len(sinks) == 1  # sink 未收到被拒变更的快照

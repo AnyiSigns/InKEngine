@@ -37,10 +37,16 @@ from .schema_validator import SchemaSpec, SchemaValidator
 
 # L1 安全扫描：指令注入检测的命中模式（声明数据中的「指令型」措辞）。
 # 规则文本是知识不是指令：检出即拒绝——防 web 注入规则成为注入载体。
+# 中英文指令句式均收录（web 蒸馏是注入主要入口，英文形态不可漏）；
+# 匹配前做归一化（全角转半角、去空白、小写），空格/全角混淆变体
+# 同样可命中。
 _INJECTION_PATTERNS = (
+    # 中文指令型措辞
     "忽略上文",
-    "忽略之前的",
+    "忽略之前",
+    "忽略上面的所有指令",
     "无视之前",
+    "忘记所有",
     "你是助手",
     "你现在是",
     "重新定义你",
@@ -49,7 +55,60 @@ _INJECTION_PATTERNS = (
     "输出格式覆盖",
     "不要遵守",
     "绕过",
+    # 英文指令型措辞（web 来源注入的主要形态）
+    "ignore all previous instructions",
+    "ignore previous instructions",
+    "ignore above",
+    "disregard",
+    "forget all previous",
+    "you are now",
+    "from now on",
+    "system prompt",
+    "system instruction",
+    "override your",
+    "jailbreak",
+    "do not follow",
+    "new instructions",
+    "print your",
+    "reveal your",
 )
+
+
+def _normalize_injection_text(text: str) -> str:
+    """注入检测归一化：全角转半角 + 去空白 + 小写（防混淆变体绕过）。"""
+    chars: list[str] = []
+    for ch in text.lower():
+        code = ord(ch)
+        if code == 0x3000:
+            ch = " "
+        elif 0xFF01 <= code <= 0xFF5E:
+            ch = chr(code - 0xFEE0)
+        if not ch.isspace():
+            chars.append(ch)
+    return "".join(chars)
+
+
+def _string_values(data: Any, *, depth: int = 0) -> list[str]:
+    """递归提取条目数据中的字符串值（注入检测的文本面，不含键名）。
+
+    只取值不取键：序列化配置的键名与结构噪声不参与匹配（防误伤）；
+    深度上限防畸形深层结构拖慢扫描。
+    """
+    if depth > 8:
+        return []
+    if isinstance(data, str):
+        return [data]
+    if isinstance(data, dict):
+        out: list[str] = []
+        for value in data.values():
+            out.extend(_string_values(value, depth=depth + 1))
+        return out
+    if isinstance(data, (list, tuple)):
+        out = []
+        for item in data:
+            out.extend(_string_values(item, depth=depth + 1))
+        return out
+    return []
 
 
 @dataclass(frozen=True, slots=True)
@@ -125,10 +184,18 @@ class KnowledgeExecutor(Protocol):
 
     实现方负责「把知识作为规则加载并评估样例」的领域语义（如规则引擎
     加载规则集跑 fixture），引擎只规定输入输出形态与失败兜底。
+
+    context_rules：上下文规则集声明（旧集 + 候选合并评估的基底；
+    None = 仅按候选自身评估）——样例面向整套规则集设计时，单条候选
+    无法单独全绿，合并后按整套语义评估。
     """
 
     async def run(
-        self, entry: KnowledgeEntry, fixtures: FixtureSet
+        self,
+        entry: KnowledgeEntry,
+        fixtures: FixtureSet,
+        *,
+        context_rules: dict[str, Any] | None = None,
     ) -> GateL2Result: ...
 
 
@@ -139,6 +206,10 @@ class GateL2FixtureExecutor:
     全量评估——样例测试为非谈判项（fixture 全绿才可进入 L3），失败
     明细随结果留痕；非规则条目（模板/权重/工具规则）无法按规则引擎
     评估 = 显式拒绝（由使用方注入领域执行器，不静默放行）。
+
+    context_rules 提供时按「旧规则集 + 候选规则」合并评估：样例面向
+    整套规则集语义设计（如领域种子样例库），单条新规则无法独立全绿，
+    合并后旧集与候选按同一套语义共同判定。
     """
 
     def __init__(self, registry: RuleTypeRegistry | None = None) -> None:
@@ -146,7 +217,11 @@ class GateL2FixtureExecutor:
         self._registry = registry
 
     async def run(
-        self, entry: KnowledgeEntry, fixtures: FixtureSet
+        self,
+        entry: KnowledgeEntry,
+        fixtures: FixtureSet,
+        *,
+        context_rules: dict[str, Any] | None = None,
     ) -> GateL2Result:
         if entry.kind != "rule":
             return GateL2Result(
@@ -157,10 +232,17 @@ class GateL2FixtureExecutor:
         if not isinstance(raw_rule, dict):
             return GateL2Result(passed=False, note="规则条目缺 data.rule 声明")
         try:
-            rule_set = RuleSet.parse(
-                {"name": f"entry-{entry.id}", "rules": [raw_rule]},
-                registry=self._registry,
-            )
+            if context_rules is not None:
+                merged = dict(context_rules)
+                rules = list(merged.get("rules") or [])
+                rules.append(raw_rule)
+                merged["rules"] = rules
+                rule_set = RuleSet.parse(merged, registry=self._registry)
+            else:
+                rule_set = RuleSet.parse(
+                    {"name": f"entry-{entry.id}", "rules": [raw_rule]},
+                    registry=self._registry,
+                )
         except GraphDefinitionError as exc:
             return GateL2Result(passed=False, note=f"规则声明非法: {exc}")
         start = time.monotonic()
@@ -325,20 +407,21 @@ class KnowledgeGate:
         return []
 
     def _scan_injection(self, entry: KnowledgeEntry) -> tuple[str, ...]:
-        """指令注入检测：规则声明文本中的指令型措辞命中清单。
+        """指令注入检测：知识可读文本中的指令型措辞命中清单。
 
-        规则文本是声明数据——「内容」与「指令」必须可区分：检出指令型
-        措辞（忽略上文/你是助手/覆盖输出…）即拒绝该知识落库。
+        只扫描可读文本字段（标题/标签/条目数据内的字符串值），序列化
+        配置的键名与结构噪声不参与匹配（防误伤）；匹配前归一化
+        （全角转半角、去空白、小写）——空格/全角混淆变体与英文句式
+        同样可命中。检出指令型措辞即拒绝该知识落库。
         """
-        text = " ".join(
-            [
-                str(entry.data),
-                entry.title,
-                " ".join(entry.tags),
-            ]
-        ).lower()
-        hits = tuple(p for p in self.injection_patterns if p in text)
-        return hits
+        texts = [entry.title, *entry.tags]
+        texts.extend(_string_values(entry.data))
+        normalized = _normalize_injection_text(" ".join(texts))
+        hits: list[str] = []
+        for pattern in self.injection_patterns:
+            if _normalize_injection_text(pattern) in normalized:
+                hits.append(pattern)
+        return tuple(dict.fromkeys(hits))
 
     # ── L2 效果评估：完整 fixtures（非谈判项）──
 
@@ -348,6 +431,7 @@ class KnowledgeGate:
         fixtures: FixtureSet,
         *,
         regression: FixtureSet | None = None,
+        context_rules: dict[str, Any] | None = None,
     ) -> GateL2Result:
         """L2 效果评估：完整 fixtures + 历史回归用例，fixture 全绿才通过。
 
@@ -355,6 +439,8 @@ class KnowledgeGate:
             entry: 待评估知识条目。
             fixtures: 完整样例库（正常/边缘/对抗用例，合成或采集）。
             regression: 历史回归用例（追加进评估；None = 不追加）。
+            context_rules: 上下文规则集声明（旧集 + 候选合并评估；None =
+                仅按候选自身评估——样例面向整套规则集设计时传旧集合并）。
 
         Returns:
             GateL2Result：passed = 样例全绿；指标（准确率/耗时/token/
@@ -366,7 +452,9 @@ class KnowledgeGate:
                 name=f"{fixtures.name}+regression",
                 cases=fixtures.cases + regression.cases,
             )
-        result = await self.l2_executor.run(entry, combined)
+        result = await self.l2_executor.run(
+            entry, combined, context_rules=context_rules
+        )
         if result.passed and regression:
             result = GateL2Result(
                 passed=True,
@@ -456,6 +544,7 @@ class KnowledgeGate:
         old_metrics: dict[str, float] | None = None,
         new_metrics: dict[str, float] | None = None,
         regression: FixtureSet | None = None,
+        context_rules: dict[str, Any] | None = None,
         security_scan: dict[str, Any] | None = None,
         minimal_fixtures: FixtureSet | None = None,
         diversity: bool = True,
@@ -464,6 +553,9 @@ class KnowledgeGate:
 
         L3 之上的可选人工审核层：通过三层后若配置了人工审核者且开关
         开启（默认弹卡），须人工确认才放行——拒绝则 L3 结果为未通过。
+
+        context_rules：L2 合并评估的上下文规则集（旧集 + 候选；样例
+        面向整套规则集设计时传入，None = 仅按候选自身评估）。
 
         Returns:
             (l1, l2, l3)：三层结果；l1 不过时 l2/l3 为未执行占位
@@ -476,7 +568,9 @@ class KnowledgeGate:
             return l1, GateL2Result(passed=False, note="L1 未通过（短路）"), GateL3Result(
                 passed=False, reason="L1 未通过（短路）"
             )
-        l2 = await self.check_l2(entry, fixtures, regression=regression)
+        l2 = await self.check_l2(
+            entry, fixtures, regression=regression, context_rules=context_rules
+        )
         if not l2.passed:
             return l1, l2, GateL3Result(
                 passed=False, reason="L2 样例测试未全绿（非谈判项）"

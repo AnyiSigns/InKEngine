@@ -440,6 +440,10 @@ class InputAssembler:
                     )
                 )
         text = "\n\n".join(chunks)
+        # 粘合开销兜底：各分级池分别填满后拼接会超出总预算（每处边界
+        # 两个分隔符）——拼接后做全局硬截断，预算上界恒成立
+        if len(text) > budget:
+            text = text[:budget]
         return AssemblyResult(
             text=text,
             record=ActivationRecord(

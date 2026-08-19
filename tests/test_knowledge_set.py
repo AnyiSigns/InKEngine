@@ -69,6 +69,68 @@ def test_update_precise_patch_keeps_rest():
     assert updated.title == "条目 k-1"
 
 
+def test_update_nested_path_patch_touches_only_segment():
+    """嵌套精准补丁：沿路径只改对应段落，兄弟字段与顶层均不受影响。"""
+    ks = KnowledgeSet("u1")
+    ks.add(
+        _entry(
+            data={
+                "rule": {
+                    "id": "r-1",
+                    "message": "旧消息",
+                    "config": {"threshold": 0.5},
+                }
+            }
+        )
+    )
+    updated = ks.update("k-1", path=("rule", "config", "threshold"), value=0.9)
+    assert updated.data["rule"]["config"]["threshold"] == 0.9
+    assert updated.data["rule"]["message"] == "旧消息"  # 兄弟字段不受影响
+    assert updated.data["rule"]["id"] == "r-1"
+    assert updated.credibility == 0.7  # 顶层字段不受影响
+
+    # 显式写入 None 合法（哨兵区分「未传」与「传 None」）
+    cleared = ks.update("k-1", path=("rule", "config"), value=None)
+    assert cleared.data["rule"]["config"] is None
+    assert cleared.data["rule"]["message"] == "旧消息"
+
+
+def test_update_path_and_data_mutually_exclusive():
+    """data 与 path 互斥（一次修正只走一种精准语义）。"""
+    ks = KnowledgeSet("u1")
+    ks.add(_entry())
+    with pytest.raises(GraphDefinitionError, match="二选一"):
+        ks.update("k-1", data={"x": 1}, path=("rule", "message"), value="v")
+
+
+def test_update_path_requires_value():
+    """嵌套精准补丁缺 value → 拒绝（显式值语义）。"""
+    ks = KnowledgeSet("u1")
+    ks.add(_entry())
+    with pytest.raises(GraphDefinitionError, match="缺 value"):
+        ks.update("k-1", path=("rule", "message"))
+
+
+def test_default_credibility_by_source():
+    """来源可信度分级：web 最低、用户确认最高（防 web 注入污染）。"""
+    from ink_engine.core.knowledge_set import default_credibility
+
+    web = KnowledgeEntry.from_dict(
+        {"id": "k-web", "level": "work", "kind": "rule", "data": {}, "source": "web"}
+    )
+    user = KnowledgeEntry.from_dict(
+        {"id": "k-user", "level": "work", "kind": "rule", "data": {}, "source": "user"}
+    )
+    assert web.credibility == 0.3
+    assert user.credibility == 0.9
+    assert default_credibility("web") < default_credibility("user")
+    # 显式声明的可信度优先于来源默认
+    explicit = KnowledgeEntry.from_dict(
+        {"id": "k-x", "level": "work", "kind": "rule", "data": {}, "source": "web", "credibility": 0.8}
+    )
+    assert explicit.credibility == 0.8
+
+
 def test_update_identity_fields_rejected():
     """身份字段（id/created_at）不可修正。"""
     ks = KnowledgeSet("u1")
@@ -297,6 +359,29 @@ def test_entry_as_context_source():
     assert source.meta["source"] == "model"
 
 
+def test_entry_as_context_source_renders_content():
+    """知识条目正文随源注入（模型可见的正文非空，可重建可留痕）。"""
+    entry = _entry(
+        title="伏笔规则",
+        data={
+            "rule": {
+                "id": "r-1",
+                "message": "伏笔必须先埋设后回收",
+                "predicate": "gap",
+                "config": {},
+                "kind": "rule",
+            }
+        },
+    )
+    source = entry.as_context_source(relevance=0.6)
+    assert "伏笔规则" in source.content
+    assert "伏笔必须先埋设后回收" in source.content
+
+    plain = _entry("k-2", title="权重快照", data={"weights": {"a": 0.5}})
+    assert "权重快照" in plain.as_context_source().content
+    assert "weights" in plain.as_context_source().content
+
+
 def test_build_knowledge_sources_sorted():
     """注入组装：按可信度降序（高可信优先进入预算分配）。"""
     ks = KnowledgeSet("u1")
@@ -305,6 +390,20 @@ def test_build_knowledge_sources_sorted():
     sources = build_knowledge_sources(ks.search("t"), relevance=0.5)
     assert [s.meta["entry_id"] for s in sources] == ["k-2", "k-1"]
     assert all(s.relevance == 0.5 for s in sources)
+
+
+def test_build_knowledge_sources_injection_switch():
+    """一键开关：关闭知识注入 = 回退种子基线（仅种子条目进入上下文）。"""
+    ks = KnowledgeSet("u1")
+    ks.add(_entry("seed.general.template", tags=("t",)))
+    ks.add(_entry("k-1", credibility=0.9, tags=("t",)))  # 演化沉淀
+    all_sources = build_knowledge_sources(ks.search("t"), relevance=0.5)
+    assert [s.meta["entry_id"] for s in all_sources] == ["k-1", "seed.general.template"]
+
+    baseline = build_knowledge_sources(
+        ks.search("t"), relevance=0.5, injection_enabled=False
+    )
+    assert [s.meta["entry_id"] for s in baseline] == ["seed.general.template"]
 
 
 def test_invalid_credibility_rejected():

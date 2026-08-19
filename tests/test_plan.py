@@ -501,7 +501,7 @@ async def test_plan_spawn_step_error_terminates_by_default(memory_storage):
     assert state.get("sub_tag") == "ok"
 
 
-
+async def test_plan_interrupt_resume_reenters_plan(memory_storage):
     """中断恢复续跑计划：注入后从计划的剩余步骤继续（不重跑已完成节点）。"""
     log: list[str] = []
     resume_injected = False

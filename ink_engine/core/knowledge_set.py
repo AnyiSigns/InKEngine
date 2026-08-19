@@ -2,7 +2,8 @@
 
 知识集 = 在 memory 原语与补丁链之上新建的封装层：规则条目 = 补丁链
 数据（演化 = 新补丁，回退 = 旧版本，分支 = 平行版本）；晋升 = 层级
-namespace 迁移；可移植 = 补丁链导出/导入（跨部署迁移复用）。
+字段迁移（工作 → 项目 → 用户，身份 id 跨层级稳定）；可移植 = 补丁链
+导出/导入（跨部署迁移复用）。
 
 层级（AgentScope 双层记忆 + 「毕业」机制）：
 - 工作级（work）：细粒度流水账（append-only，不丢事实）；
@@ -20,6 +21,7 @@ dialog < 用户确认；L1 安全扫描见闸门模块）。
 """
 from __future__ import annotations
 
+import json
 import time
 import uuid
 from dataclasses import dataclass, field
@@ -33,7 +35,11 @@ from .storage import Storage
 
 logger = get_logger(__name__)
 
-# 知识层级（namespace 隔离语义：工作流水账 → 项目沉淀 → 用户毕业）
+# 修正方法 value 参数的空值哨兵（显式 None 与未传区分——精准补丁可
+# 合法地写入 None）
+_UNSET = object()
+
+# 知识层级（晋升方向固定：工作流水账 → 项目沉淀 → 用户毕业）
 LEVEL_WORK = "work"
 LEVEL_PROJECT = "project"
 LEVEL_USER = "user"
@@ -48,6 +54,20 @@ SOURCE_DIALOG = "dialog"
 SOURCE_MODEL = "model"
 SOURCE_USER = "user"
 
+# 来源 → 默认可信度基准（web 最低——防 web 注入污染知识集；经落库
+# 路径（from_dict）的条目按此分级定值，显式声明的可信度优先）
+_SOURCE_CREDIBILITY: dict[str, float] = {
+    SOURCE_WEB: 0.3,
+    SOURCE_DIALOG: 0.6,
+    SOURCE_MODEL: 0.7,
+    SOURCE_USER: 0.9,
+}
+
+
+def default_credibility(source: str) -> float:
+    """按来源取默认可信度（未知来源 = 模型级，保守不激进）。"""
+    return _SOURCE_CREDIBILITY.get(source, _SOURCE_CREDIBILITY[SOURCE_MODEL])
+
 # 知识条目 kind（规则/模板/权重/工具规则——集内能力的数据形态）
 KIND_RULE = "rule"
 KIND_TEMPLATE = "template"
@@ -58,6 +78,24 @@ KIND_TOOL_RULE = "tool_rule"
 _COLLECTION_PREFIX = "knowledge:"
 # 补丁链存储键（用户集内唯一链）
 _CHAIN_KEY = "chain"
+
+# 种子条目 id 前缀（回退种子基线的过滤依据：注入开关关闭时仅种子注入）
+SEED_ID_PREFIX = "seed."
+
+
+def _render_entry_content(entry: KnowledgeEntry) -> str:
+    """条目内容渲染（知识注入的模型可见形态：标题 + 结构化内容摘要）。
+
+    规则条目取声明中的 message（规则的自述），其余条目输出紧凑 JSON
+    摘要——内容随源一起进入预算分配与组装，留痕可重建。
+    """
+    parts = [entry.title] if entry.title else []
+    raw = entry.data.get("rule")
+    if isinstance(raw, dict) and raw.get("message"):
+        parts.append(str(raw["message"]))
+    else:
+        parts.append(json.dumps(entry.data, ensure_ascii=False, sort_keys=True))
+    return " ".join(p for p in parts if p)
 
 
 def knowledge_collection(user_id: str) -> str:
@@ -156,7 +194,10 @@ class KnowledgeEntry:
             isinstance(tag, str) for tag in tags
         ):
             raise GraphDefinitionError(f"知识条目 {entry_id} 的 tags 须为字符串清单")
-        credibility = float(data.get("credibility", 0.5))
+        source = data.get("source", SOURCE_MODEL)
+        credibility = float(
+            data.get("credibility", default_credibility(source))
+        )
         if not 0 <= credibility <= 1:
             raise GraphDefinitionError(
                 f"知识条目 {entry_id} 的可信度必须在 [0, 1] 内: {credibility}"
@@ -166,7 +207,7 @@ class KnowledgeEntry:
             level=level,
             kind=kind,
             data=raw_data,
-            source=data.get("source", SOURCE_MODEL),
+            source=source,
             credibility=credibility,
             title=data.get("title", ""),
             tags=tuple(tags),
@@ -186,14 +227,15 @@ class KnowledgeEntry:
         """知识条目 → 上下文源（调配器接入：type=层级、weight=可信度）。
 
         知识集注入 = 调配器思想复用：条目作为源进入预算分配（高可信
-        常驻、低可信按任务相关度裁剪），逐源留痕由调配器承接。标题/
-        内容组装由调配器格式化为块——本适配只做元数据映射。
+        常驻、低可信按任务相关度裁剪），逐源留痕由调配器承接。内容
+        = :func:`_render_entry_content` 的条目渲染（标题 + 结构化摘要），
+        与元数据一起进入组装——模型可见皆可重建。
         """
         if not 0 <= relevance <= 1:
             raise ValueError(f"任务相关度必须在 [0, 1] 内: {relevance}")
         return ContextSource(
             type=self.level,
-            content="",  # 内容由知识集检索方组装（本适配器只映射元数据）
+            content=_render_entry_content(self),
             title=self.title or self.id,
             weight=self.credibility,
             relevance=relevance,
@@ -300,16 +342,64 @@ class KnowledgeSet:
         )
         return entry
 
-    def update(self, entry_id: str, *, data: dict | None = None, **changes: Any) -> KnowledgeEntry:
+    def update(
+        self,
+        entry_id: str,
+        *,
+        data: dict | None = None,
+        path: tuple[str | int, ...] | None = None,
+        value: Any = _UNSET,
+        **changes: Any,
+    ) -> KnowledgeEntry:
         """修正条目（精准补丁：只替换变更字段，不重写整条知识）。
 
-        与蒸馏「精准补丁（replace 语义，只改对应段落）」对齐：变更经
-        data（结构化字段级替换）与关键字参数（顶层字段）合并后，以单条
-        replace 落链——旧值仍在链历史中，回退可取。
+        与蒸馏「精准补丁（replace 语义，只改对应段落）」对齐，三种
+        修正形态互不混叠：
+        - ``data``：结构化字段级替换（合并进现有 data 顶层）；
+        - ``path`` + ``value``：嵌套精准补丁（沿路径只改 data 内对应
+          段落，兄弟字段不受影响——落链为深路径 replace 补丁）；
+        - 关键字参数：顶层字段替换。
+        旧值均在链历史中，回退可取；data 与 path 互斥（一次修正只走
+        一种精准语义）。
         """
         existing = self.get(entry_id)
         if existing is None:
             raise GraphDefinitionError(f"知识条目不存在: {entry_id}")
+        if data is not None and path is not None:
+            raise GraphDefinitionError(
+                f"知识条目 {entry_id} 的修正须在 data 与 path 二选一"
+            )
+        if path is not None:
+            if not path:
+                raise GraphDefinitionError(
+                    f"知识条目 {entry_id} 的精准补丁路径不能为空"
+                )
+            if value is _UNSET:
+                raise GraphDefinitionError(
+                    f"知识条目 {entry_id} 的精准补丁缺 value"
+                )
+            # 深路径 replace 补丁：只改对应段落；updated_at 顶层时间戳
+            # 一并刷新（两条补丁同属一次修正，链历史完整保留）
+            self.chain.apply(
+                Patch(
+                    op=PatchOp.REPLACE,
+                    path=(*_entry_path(entry_id), "data", *path),
+                    value=value,
+                )
+            )
+            self.chain.apply(
+                Patch(
+                    op=PatchOp.REPLACE,
+                    path=(*_entry_path(entry_id), "updated_at"),
+                    value=time.time(),
+                )
+            )
+            entry = self.get(entry_id)
+            if entry is None:  # 链形态保证存在；兜底防御
+                raise GraphDefinitionError(
+                    f"知识条目 {entry_id} 精准补丁后不可读"
+                )
+            return entry
         updated = existing.to_dict()
         if data is not None:
             if not isinstance(data, dict):
@@ -510,23 +600,32 @@ def build_knowledge_sources(
     relevance: float = 0.5,
     ttl: float | None = None,
     max_chars: int | None = None,
+    injection_enabled: bool = True,
 ) -> list[ContextSource]:
     """知识条目 → 上下文源清单（知识注入 = 调配器思想复用的组装入口）。
 
     检索命中条目经此转为 :class:`ContextSource`（type=层级、weight=
-    可信度、relevance=任务相关度、ttl=时效）——进入调配器的预算分配
-    （知识集不整包注入，按任务预算只组装相关条目）、跨源去重、逐源
-    留痕（模型可见皆留痕，防污染的审计基础）全由 context 模块承接。
+    可信度、relevance=任务相关度、ttl=时效、内容 = 条目渲染）——进入
+    调配器的预算分配（知识集不整包注入，按任务预算只组装相关条目）、
+    跨源去重、逐源留痕（模型可见皆留痕，防污染的审计基础）全由
+    context 模块承接。
+
+    ``injection_enabled=False`` = 一键关闭知识注入：只保留种子条目
+    （id 以 ``seed.`` 前缀）作为注入源——回退到种子基线（引擎内置
+    最小可用），演化沉淀的知识不再进入上下文。
 
     Args:
         entries: 检索命中的知识条目（复用优先于生成的产物）。
         relevance: 任务相关度（0-1，本次任务的匹配度，预算分配次因子）。
         ttl: 注入时效秒数（None = 不过期）。
         max_chars: 单条目注入字符上限（None = 不设额外上限）。
+        injection_enabled: 知识注入开关（False = 回退种子基线）。
 
     Returns:
         按可信度降序的源清单（调配器据此做预算分配与组装）。
     """
+    if not injection_enabled:
+        entries = [e for e in entries if e.id.startswith(SEED_ID_PREFIX)]
     sources = [
         entry.as_context_source(
             relevance=relevance, ttl=ttl, budget_chars=max_chars
@@ -545,6 +644,7 @@ __all__ = [
     "LEVEL_PROJECT",
     "LEVEL_USER",
     "LEVEL_WORK",
+    "SEED_ID_PREFIX",
     "SOURCE_DIALOG",
     "SOURCE_MODEL",
     "SOURCE_USER",
@@ -552,6 +652,7 @@ __all__ = [
     "KnowledgeEntry",
     "KnowledgeSet",
     "build_knowledge_sources",
+    "default_credibility",
     "knowledge_collection",
     "seed_knowledge_set",
 ]

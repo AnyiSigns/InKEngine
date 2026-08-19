@@ -15,13 +15,17 @@
 from __future__ import annotations
 
 import time
+from collections.abc import Callable
 from dataclasses import dataclass, field
 from typing import Any
 
 from .exceptions import GraphDefinitionError
 from .knowledge_gate import GateL2Result, KnowledgeGate
 from .knowledge_set import KIND_WEIGHT, KnowledgeEntry
+from .logging import get_logger
 from .rules import FixtureResult, FixtureSet
+
+logger = get_logger(__name__)
 
 # 权重调整的下限保护（权重不得低于该值——防降权过头让维度形同虚设）
 MIN_WEIGHT = 0.1
@@ -33,6 +37,16 @@ WEIGHT_GAIN = 1.1
 # 失败率档位（重试预算/探索宽度的调整依据）
 FAILURE_RATE_HIGH = 0.4
 FAILURE_RATE_LOW = 0.1
+
+# 机制参数调整边界（参数级进化护栏：上下限保护防失控）
+DIVERGENCE_WIDTH_MIN = 1
+DIVERGENCE_WIDTH_MAX = 6
+RETRY_BUDGET_FLOOR = 2  # 失败率高时的重试预算保底值
+WEB_THRESHOLD_MIN = 0.1
+WEB_THRESHOLD_MAX = 0.9
+WEB_THRESHOLD_STEP = 0.1
+CONVERGENCE_AVG_HIGH = 3.0
+CONVERGENCE_AVG_LOW = 1.0
 
 # 参数回归的默认取值边界（fixture 未显式声明 bounds 时的兜底口径：
 # 权重下限 = 调参下限保护，阈值非负）
@@ -248,7 +262,11 @@ class ParamRegressionExecutor:
     """
 
     async def run(
-        self, entry: KnowledgeEntry, fixtures: FixtureSet
+        self,
+        entry: KnowledgeEntry,
+        fixtures: FixtureSet,
+        *,
+        context_rules: dict[str, Any] | None = None,
     ) -> GateL2Result:
         weights = dict(entry.data.get("weights") or {})
         thresholds = dict(entry.data.get("thresholds") or {})
@@ -343,11 +361,16 @@ class MetaTuner:
         weight_decay: float = WEIGHT_DECAY,
         weight_gain: float = WEIGHT_GAIN,
         min_weight: float = MIN_WEIGHT,
+        snapshot_sink: Callable[[ParameterSnapshot], Any] | None = None,
     ) -> None:
         self.feedback_threshold = feedback_threshold
         self.weight_decay = weight_decay
         self.weight_gain = weight_gain
         self.min_weight = min_weight
+        # 参数快照落库集成点（随评估记录持久化——机制数据引擎存，落库
+        # 实现由使用方注入；None = 不落库）。回归通过的参数快照经此
+        # 回调交给存储侧，回放/审计按快照重算。
+        self.snapshot_sink = snapshot_sink
 
     def tune(
         self,
@@ -395,33 +418,41 @@ class MetaTuner:
         failure_rate = metrics.failure_rate
         retry_budget = params.retry_budget
         if failure_rate >= FAILURE_RATE_HIGH:
-            retry_budget = max(retry_budget, 2)
-            changes.append(f"失败率 {failure_rate:.2f} 偏高，重试预算上调至 {retry_budget}")
+            new_retry = max(retry_budget, RETRY_BUDGET_FLOOR)
+            if new_retry != retry_budget:
+                retry_budget = new_retry
+                changes.append(f"失败率 {failure_rate:.2f} 偏高，重试预算上调至 {retry_budget}")
         elif metrics.turns > 0 and failure_rate <= FAILURE_RATE_LOW and retry_budget > 1:
             retry_budget -= 1
             changes.append(f"失败率 {failure_rate:.2f} 偏低，重试预算回落至 {retry_budget}")
 
         web_verify_threshold = params.web_verify_threshold
         if failure_rate >= FAILURE_RATE_HIGH:
-            web_verify_threshold = max(web_verify_threshold - 0.1, 0.1)
-            changes.append(
-                f"失败率 {failure_rate:.2f} 偏高，web 验证阈值下调至 {web_verify_threshold:.2f}"
-            )
+            new_threshold = max(web_verify_threshold - WEB_THRESHOLD_STEP, WEB_THRESHOLD_MIN)
+            if new_threshold != web_verify_threshold:
+                web_verify_threshold = new_threshold
+                changes.append(
+                    f"失败率 {failure_rate:.2f} 偏高，web 验证阈值下调至 {web_verify_threshold:.2f}"
+                )
         elif metrics.turns > 0 and failure_rate <= FAILURE_RATE_LOW:
-            web_verify_threshold = min(web_verify_threshold + 0.1, 0.9)
-            changes.append(
-                f"失败率 {failure_rate:.2f} 偏低，web 验证阈值上调至 {web_verify_threshold:.2f}"
-            )
+            new_threshold = min(web_verify_threshold + WEB_THRESHOLD_STEP, WEB_THRESHOLD_MAX)
+            if new_threshold != web_verify_threshold:
+                web_verify_threshold = new_threshold
+                changes.append(
+                    f"失败率 {failure_rate:.2f} 偏低，web 验证阈值上调至 {web_verify_threshold:.2f}"
+                )
 
         divergence_width = params.divergence_width
         if metrics.convergence_rounds:
             avg_rounds = sum(metrics.convergence_rounds) / len(metrics.convergence_rounds)
-            if avg_rounds >= 3:
-                divergence_width = min(divergence_width + 1, 6)
-                changes.append(
-                    f"平均收敛轮数 {avg_rounds:.1f} 偏高，探索宽度加宽至 {divergence_width}"
-                )
-            elif avg_rounds <= 1 and divergence_width > 1:
+            if avg_rounds >= CONVERGENCE_AVG_HIGH:
+                new_width = min(divergence_width + 1, DIVERGENCE_WIDTH_MAX)
+                if new_width != divergence_width:
+                    divergence_width = new_width
+                    changes.append(
+                        f"平均收敛轮数 {avg_rounds:.1f} 偏高，探索宽度加宽至 {divergence_width}"
+                    )
+            elif avg_rounds <= CONVERGENCE_AVG_LOW and divergence_width > DIVERGENCE_WIDTH_MIN:
                 divergence_width -= 1
                 changes.append(
                     f"平均收敛轮数 {avg_rounds:.1f} 偏低，探索宽度收窄至 {divergence_width}"
@@ -452,12 +483,12 @@ class MetaTuner:
         gate: KnowledgeGate | None = None,
         regression: FixtureSet | None = None,
     ) -> TuneResult:
-        """调参 + L2 效果评估回归（参数变更须过回归才落地——M7 接线）。
+        """调参 + L2 效果评估回归（参数变更须过回归才生效）。
 
-        分工语义（计划 M7「参数变更过 L2 效果评估回归」落地）：参数无
-        「旧版」可比（L1/L3 不适用），回归 = L2 样例闸门——新参数须让
-        回归样例全绿才允许生效；回归未通过 = 变更被拒绝，返回原参数
-        （changes 空 + note 说明原因，调用方留痕审计）。
+        分工语义（参数变更过 L2 效果评估回归）：参数无「旧版」可比
+        （L1/L3 不适用），回归 = L2 样例闸门——新参数须让回归样例全绿
+        才允许生效；回归未通过 = 变更被拒绝，返回原参数（changes 空 +
+        note 说明原因，调用方留痕审计）。
 
         Args:
             params: 当前参数（调参输入基线，也是回归失败时的回落值）。
@@ -482,6 +513,13 @@ class MetaTuner:
             _params_entry(tuned.params), fixtures, regression=regression
         )
         if l2.passed:
+            # 回归通过的参数快照经注入的落库回调持久化（回放/审计按
+            # 快照重算）；回调失败只记日志不阻断调参
+            if tuned.snapshot is not None and self.snapshot_sink is not None:
+                try:
+                    self.snapshot_sink(tuned.snapshot)
+                except Exception as exc:
+                    logger.warning(f"参数快照落库失败（忽略）: {exc}")
             return tuned
         return TuneResult(
             params=params,
@@ -490,9 +528,17 @@ class MetaTuner:
 
 
 __all__ = [
+    "CONVERGENCE_AVG_HIGH",
+    "CONVERGENCE_AVG_LOW",
+    "DIVERGENCE_WIDTH_MAX",
+    "DIVERGENCE_WIDTH_MIN",
     "FAILURE_RATE_HIGH",
     "FAILURE_RATE_LOW",
     "MIN_WEIGHT",
+    "RETRY_BUDGET_FLOOR",
+    "WEB_THRESHOLD_MAX",
+    "WEB_THRESHOLD_MIN",
+    "WEB_THRESHOLD_STEP",
     "WEIGHT_DECAY",
     "WEIGHT_GAIN",
     "MetaTuner",

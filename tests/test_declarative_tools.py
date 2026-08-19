@@ -274,3 +274,84 @@ async def test_build_declarative_pipeline_full_flow(memory_storage):
     traces = await trace_store.list(tool="my_tool")
     assert len(traces) == 1
     assert traces[0].ok is True
+
+
+async def test_pipeline_default_gate_fail_closed():
+    """未注入门禁时按默认拒绝策略兜底：权限未命中的调用不得直通执行。"""
+    definition = _declarative()  # http_fetch，权限 network:connect:*.example.com
+    executors = DeclarativeToolExecutors()
+    executors.register_definition(definition)
+    calls: list[str] = []
+
+    async def http_executor(ctx, defn, args, approval):
+        calls.append(args["url"])
+        return "body"
+
+    executors.register(EndpointType.HTTP_FETCH, http_executor)
+    pipeline = build_declarative_pipeline(executors)  # 不传 gate
+
+    class Ctx:
+        async def emit(self, *args, **kwargs):
+            pass
+
+    spec = definition.to_spec()
+    # 权限声明命中白名单 → 放行
+    allowed = await pipeline.execute(Ctx(), spec, {"url": "https://api.example.com/v1"})
+    assert allowed.ok is True
+    assert calls == ["https://api.example.com/v1"]
+    # 未命中域名 → 默认门禁拒绝（修复前 gate=None 会直通执行）
+    denied = await pipeline.execute(Ctx(), spec, {"url": "https://evil.com/x"})
+    assert denied.ok is False
+    assert denied.decision == "deny"
+    assert calls == ["https://api.example.com/v1"]
+
+
+async def test_network_policy_sandbox_wired():
+    """network_policy 并入沙箱环节：http_fetch 域名白名单真实生效。"""
+    from ink_engine.core.permissions import NetworkPolicy
+
+    definition = _declarative(
+        permissions=("network:connect:*",)  # 宽权限：沙箱层做域名收口
+    )
+    executors = DeclarativeToolExecutors()
+    executors.register_definition(definition)
+    calls: list[str] = []
+
+    async def http_executor(ctx, defn, args, approval):
+        calls.append(args["url"])
+        return "body"
+
+    executors.register(EndpointType.HTTP_FETCH, http_executor)
+    pipeline = build_declarative_pipeline(
+        executors,
+        network_policy=NetworkPolicy(allow_domains=("*.example.com",)),
+    )
+
+    class Ctx:
+        async def emit(self, *args, **kwargs):
+            pass
+
+    spec = definition.to_spec()
+    # 白名单域名 → 门禁放行、沙箱放行
+    allowed = await pipeline.execute(Ctx(), spec, {"url": "https://sub.example.com/a"})
+    assert allowed.ok is True
+    assert calls == ["https://sub.example.com/a"]
+    # 非白名单域名 → 沙箱拒绝（NetworkPolicySandbox 违规，权限层已放行）
+    denied = await pipeline.execute(Ctx(), spec, {"url": "https://other.org/a"})
+    assert denied.ok is False
+    assert denied.decision == "deny"
+    assert "域名不在白名单" in (denied.error or "")
+    assert calls == ["https://sub.example.com/a"]
+
+
+def test_endpoint_operation_scheme_whitelist():
+    """http_fetch 判定目标：仅 http/https + host 合法才产生 (connect, host)。"""
+    assert endpoint_operation(
+        EndpointType.HTTP_FETCH, {"url": "https://api.example.com:8443/v1"}
+    ) == ("connect", "api.example.com")
+    # 非白名单协议 / 无协议 / 带凭据的 URL → 无法判定（fail-closed）
+    assert endpoint_operation(EndpointType.HTTP_FETCH, {"url": "ftp://example.com/f"}) is None
+    assert endpoint_operation(EndpointType.HTTP_FETCH, {"url": "javascript:alert(1)"}) is None
+    assert endpoint_operation(
+        EndpointType.HTTP_FETCH, {"url": "https://user:pass@example.com/x"}
+    ) == ("connect", "example.com")

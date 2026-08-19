@@ -228,6 +228,7 @@ class HarnessRegistry:
         *,
         gate: Any = None,
         sandboxes: tuple[Any, ...] = (),
+        network_policy: Any = None,
         guards: tuple[Callable[..., Any], ...] = (),
         audit: Callable[..., Any] | None = None,
         max_result_chars: int = 100_000,
@@ -237,14 +238,17 @@ class HarnessRegistry:
 
         登记定义 + 装配 extractor（端点类型操作推导）与 executor（端点
         执行体分发）——声明式工具经此走全流水线（门禁 → 沙箱 → 守卫 →
-        审批 → 审计）。门禁/沙箱/守卫由宿主注入（白名单与资源绑定归
-        宿主）；判定目标推导失败恒 fail-closed 拒绝。
+        审批 → 审计）。门禁默认 fail-closed（未注入时按默认拒绝策略
+        兜底），沙箱/守卫由宿主注入（白名单与资源绑定归宿主）；传入
+        ``network_policy`` 时 http_fetch 经域名白名单守卫；判定目标
+        推导失败恒 fail-closed 拒绝。
         """
         self.build_tools(name)
         return build_declarative_pipeline(
             self.declarative,
             gate=gate,
             sandboxes=sandboxes,
+            network_policy=network_policy,
             guards=guards,
             audit=audit,
             max_result_chars=max_result_chars,

@@ -195,6 +195,100 @@ async def test_losing_branch_retained_for_swap(memory_storage, transport):
     assert losing_tail.state.get("branch_value") == 7
 
 
+async def test_swap_branch_replays_with_target_picked(memory_storage, transport):
+    """回溯换选重放：决策点前锚点恢复 → 强制改选落选分支 → 主线状态换位。"""
+    async def prepare(ctx):
+        return {"prepared": True}
+
+    async def route(ctx):
+        return {
+            SIMULATE_KEY: {
+                "step_id": "step-9",
+                "branches": [
+                    {"subgraph": _branch_subgraph(1), "state": {"seed": 5}, "index": 0},
+                    {"subgraph": _branch_subgraph(2), "state": {"seed": 5}, "index": 1},
+                ],
+            }
+        }
+
+    graph = Graph(name="decision", entry="prepare")
+    graph.add_node("prepare", prepare)
+    graph.add_node("route", route)
+    graph.add_edge("prepare", "route")
+    graph.add_exit("route")
+
+    engine = make_engine(
+        graph,
+        storage=memory_storage,
+        transports=[transport],
+        evaluator=FixedEvaluator({0: 0.9, 1: 0.4}),
+    )
+    state, _ = await _run(engine, thread_id="t1")
+    assert state["branch_value"] == 6  # 首跑择优选中分支 0
+    assert state["prepared"] is True
+
+    # 换选锚点 = 决策点节点执行前的 checkpoint（prepare 完成后、route 前）
+    cps = await memory_storage.list_checkpoints("t1")
+    before = min(c.checkpoint_id for c in cps)
+    result = await engine.swap_branch(
+        thread_id="t1",
+        before_checkpoint_id=before,
+        branch_index=1,
+    )
+    assert result.reason == TerminateReason.REPLY
+    assert result.state["prepared"] is True  # 已完成节点不重跑
+    assert result.state["branch_value"] == 7  # 换选后分支 1 的结果提交主线
+    # 换选重放期间分支仍按独立子链执行（轨迹完整，可回溯对比）
+    branch1_tail = await memory_storage.get_latest_checkpoint("t1:simulate:1")
+    assert branch1_tail is not None
+    assert branch1_tail.state.get("branch_value") == 7
+
+
+async def test_swap_branch_unavailable_rejected(memory_storage):
+    """换选目标不可用（未通过评估/不存在）显式报错，不静默回落择优。"""
+    async def prepare(ctx):
+        return {}
+
+    async def route(ctx):
+        return {
+            SIMULATE_KEY: {
+                "branches": [
+                    {"subgraph": _branch_subgraph(1), "state": {"seed": 5}, "index": 0},
+                    {"subgraph": _branch_subgraph(2), "state": {"seed": 5}, "index": 1},
+                ],
+            }
+        }
+
+    graph = Graph(name="decision", entry="prepare")
+    graph.add_node("prepare", prepare)
+    graph.add_node("route", route)
+    graph.add_edge("prepare", "route")
+    graph.add_exit("route")
+
+    engine = make_engine(
+        graph,
+        storage=memory_storage,
+        evaluator=FixedEvaluator({0: 0.9, 1: 0.4}, passed={1: False}),
+    )
+    state, _ = await _run(engine, thread_id="t1")
+    assert state["branch_value"] == 6
+
+    cps = await memory_storage.list_checkpoints("t1")
+    before = min(c.checkpoint_id for c in cps)
+    # 目标分支未通过评估 → 显式拒绝
+    result = await engine.swap_branch(
+        thread_id="t1", before_checkpoint_id=before, branch_index=1
+    )
+    assert result.reason == TerminateReason.ERROR
+    assert "换选分支不可用" in (result.error or "")
+    # 目标分支不存在 → 同样拒绝
+    result = await engine.swap_branch(
+        thread_id="t1", before_checkpoint_id=before, branch_index=9
+    )
+    assert result.reason == TerminateReason.ERROR
+    assert "换选分支不可用" in (result.error or "")
+
+
 async def test_parent_step_id_trace_tree(memory_storage, transport):
     """轨迹树字段验收：分支事件 parent_step_id = 决策点 step_id。"""
     async def route(ctx):

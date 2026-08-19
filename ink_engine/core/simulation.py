@@ -1,11 +1,12 @@
 """决策点推演原语的数据面（``__simulate__`` 保留键 / 分支规格 / 评估协议 / 择优调配）。
 
 推演-回溯-换选机制的引擎形态：关键决策点节点返回推演清单，引擎把每个
-分支作为独立子链执行（与 spawn 同构：半共享上下文 + 独立 checkpoint
-链，落选分支不销毁——保留为轨迹树引用，可回溯对比/换选），执行结果
-经评估协议（Evaluator）打分，再由调配策略（BranchMixer）择优提交主线
-——单选或跨分支组装（分支 A 的一部分 + 分支 B 的另一部分），组装留痕
-记录「哪部分来自哪个分支」。
+分支作为独立子链执行（与 spawn 同构：分支入口状态自包含 + 独立
+checkpoint 链，落选分支不销毁——保留为轨迹树引用，可回溯对比/换选，
+经 :meth:`~ink_engine.core.executor.Engine.swap_branch` 重放改选），
+执行结果经评估协议（Evaluator）打分，再由调配策略（BranchMixer）择优
+提交主线——单选或跨分支组装（分支 A 的一部分 + 分支 B 的另一部分），
+组装留痕记录「哪部分来自哪个分支」。
 
 数据形态（节点返回值携带 ``__simulate__`` 保留键）：
     {
@@ -29,6 +30,7 @@ from typing import Any, Protocol, runtime_checkable
 
 from .exceptions import GraphDefinitionError
 from .graph import Graph
+from .patch_chain import Patch, PatchChain, PatchOp
 from .scoring import DimensionScore
 
 # 数据驱动形态的保留键：节点返回值携带此键 = 推演分支清单（引擎内部
@@ -257,6 +259,48 @@ class BestBranchMixer:
         )
 
 
+class PatchChainBranchMixer:
+    """跨分支组装参考实现（补丁链 assemble 复用，来源留痕可审计）。
+
+    各分支 overlay 逐键落为 replace 补丁（后序分支覆盖同键），组装 =
+    补丁链 assemble（纯函数、可版本化）——组装形态与补丁链同构：换选/
+    回退可对组装补丁链做区间重放，留痕 = 来源标注（哪段来自哪个分支）。
+
+    与 :class:`BestBranchMixer` 的分工：单选 = 整体提交；本策略 = 跨
+    分支拼接（分支 A 的设定 + 分支 B 的走向），供需要混编的主线使用。
+    """
+
+    async def mix(
+        self, branches: Sequence[EvaluatedBranch], *, budget: int | None = None
+    ) -> BranchSelection:
+        selected: list[int] = []
+        provenance: list[ProvenanceNote] = []
+        chain = PatchChain(base={})
+        for evaluated in branches:
+            overlay = evaluated.overlay
+            if not overlay:
+                continue
+            selected.append(evaluated.spec.index)
+            for key, value in overlay.items():
+                chain.apply(
+                    Patch(op=PatchOp.REPLACE, path=(key,), value=value)
+                )
+                provenance.append(
+                    ProvenanceNote(
+                        branch_index=evaluated.spec.index,
+                        key=key,
+                        note="跨分支组装（补丁链）",
+                    )
+                )
+        if not selected:
+            raise GraphDefinitionError("无可提交的推演分支（全部 overlay 为空）")
+        return BranchSelection(
+            selected=tuple(selected),
+            overlay=chain.assemble(),
+            provenance=tuple(provenance),
+        )
+
+
 @dataclass(frozen=True, slots=True)
 class SimulationResult:
     """一次决策点推演的收口结果（择优提交 + 全分支留痕）。
@@ -371,6 +415,7 @@ __all__ = [
     "EvaluatedBranch",
     "Evaluation",
     "Evaluator",
+    "PatchChainBranchMixer",
     "ProvenanceNote",
     "SimulateSpec",
     "SimulationResult",

@@ -1,9 +1,9 @@
-"""components/review_card.py 测试：四类卡校验/截断/构造与门控分级。"""
+﻿"""components/review_card.py 测试：四类卡校验/截断/构造与门控分级。"""
 from __future__ import annotations
 
 import pytest
 
-from ink_engine.components.review_card import (
+from ink_engine.core.review_card import (
     GATING_OVERRIDE_VALUES,
     PREVIEW_LIMIT_DEFAULT,
     GatingTier,

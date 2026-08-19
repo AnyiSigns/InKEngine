@@ -74,6 +74,15 @@ class SandboxViolation(EngineError):
     """沙箱守卫拒绝（路径越界/symlink 逃逸/命令不在白名单等）。"""
 
 
+class SimulationError(EngineError):
+    """决策点推演失败（分支清单非法/评估器未注入/全部分支失败等）。
+
+    与节点执行失败（NodeExecutionError）的区分：推演失败是决策点自身的
+    机制性失败（清单形态/评估配置/调配策略问题），按节点失败收口终止，
+    不穿出异常链。
+    """
+
+
 class ProtocolVersionError(EngineError):
     """事件协议版本不兼容（增量演进范围内加字段兼容，破坏性变更需升级版本）。"""
 
@@ -93,5 +102,6 @@ __all__ = [
     "NodeNotFoundError",
     "ProtocolVersionError",
     "SandboxViolation",
+    "SimulationError",
     "StorageError",
 ]

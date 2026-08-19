@@ -1,0 +1,665 @@
+"""输入调配管线（Input Assembly：调配器升格为执行循环一等原语）。
+
+输入调配把上下文调配器（core/context）从「组件」接线为「执行语义」：
+每次 LLM 调用/节点执行前统一走输入调配——上下文片段 + 知识集注入 +
+工具集裁剪 + 记忆召回 + 证据组装多源在调用点统一调配。本模块只做
+组装与留痕（薄管线），不碰业务：
+
+- :class:`AssemblyConfig`：统一预算与分级占比（一次调用的总预算在多源
+  间分级分配——上下文/知识/工具/记忆不再各自为政）+ 行为开关（一键
+  回退旧装配路径）；
+- :class:`InputAssembler`：多源 → 预算分配 → 组装 → 激活留痕。预算
+  分配复用 :class:`~ink_engine.core.context.WeightedBudgetAllocator`
+  （机制零重复实现）；
+- :class:`ActivationRecord`：激活模式留痕（哪些源被激活 + 强度 + 版本
+  快照）——调试/审计/调参共用同一份「本次激活了什么」的记录，随调配
+  决定落库；全量原文由知识集版本快照重建（留痕最小化原则）。
+
+激活预算经验框架：agent 无算力约束，不模仿 MoE 低激活——**能全量则
+全量，放不下才裁剪**（集小 = 整集注入即最优；集大 = 常驻基线 + 任务
+相关裁剪）。占调用预算 T 的结构：对话/回合上下文 50-70% + 知识注入
+20-40% + 工具定义 5-10%；工具激活数每轮 3-10 个。
+"""
+from __future__ import annotations
+
+import time
+from collections.abc import Callable
+from dataclasses import dataclass, field, replace
+from typing import Any
+
+from .context import (
+    ContextAssembler,
+    ContextSource,
+    WeightedBudgetAllocator,
+)
+from .exceptions import GraphDefinitionError
+
+# 源类别（分级预算分配的分组标签；与使用方声明保持一致）
+SOURCE_CONTEXT = "context"  # 对话历史/回合上下文
+SOURCE_KNOWLEDGE = "knowledge"  # 知识集注入（基线 + 任务激活）
+SOURCE_TOOL = "tool"  # 工具定义（集内裁剪）
+SOURCE_MEMORY = "memory"  # 记忆召回
+SOURCE_EVIDENCE = "evidence"  # 证据组装（web 验证产物）
+
+_SOURCE_TYPES = (
+    SOURCE_CONTEXT,
+    SOURCE_KNOWLEDGE,
+    SOURCE_TOOL,
+    SOURCE_MEMORY,
+    SOURCE_EVIDENCE,
+)
+
+# 缺省总预算（字符）：对齐宿主旧静态取段 4000 上限的调用点总口径
+DEFAULT_TOTAL_BUDGET = 8000
+
+# 分级占比默认值（占调用预算 T 的结构；校验：合计 ≤ 1 防超分——
+# 上下文 50-70% + 知识 20-40% + 工具 5-10% 为经验区间，记忆/证据
+# 从知识预算内细分，默认合计 = 1.0）
+DEFAULT_CONTEXT_RATIO = 0.5
+DEFAULT_KNOWLEDGE_RATIO = 0.3
+DEFAULT_TOOL_RATIO = 0.1
+DEFAULT_MEMORY_RATIO = 0.1
+DEFAULT_EVIDENCE_RATIO = 0.0
+
+# 工具激活数上限（每轮 3-10 个的经验框架）
+DEFAULT_MAX_TOOLS = 10
+
+# 缺省装配预算（单次 assemble 未指定时的总预算）
+DEFAULT_ASSEMBLY_BUDGET = DEFAULT_TOTAL_BUDGET
+
+# 组装期条目内压缩（非破坏性摘要视图）的激活留痕模式
+MODE_COMPRESSED = "compressed"
+
+# 条目内压缩钩子：源 + 预算 → 摘要视图（非破坏性：原文不动，仅本次
+# 调用使用压缩视图；返回空串 = 不压缩，走默认截断）
+EntryCompressor = Callable[[ContextSource, int], str]
+
+# 利用率聚合默认阈值（MoE 辅助损失借鉴：过热 = 激活失衡提示，过冷 =
+# 长期零激活进归档候选；数值为经验基线，宿主可按场景注入）
+DEFAULT_OVERHEATED_RATE = 0.8
+DEFAULT_COLD_WINDOW = 10
+
+
+@dataclass(frozen=True, slots=True)
+class AssemblyConfig:
+    """输入调配配置（统一预算 + 分级占比 + 行为开关）。
+
+    Attributes:
+        enabled: 行为开关（False = 装配禁用，调用点回退旧路径）。
+        total_budget: 一次调用的总预算（字符；多源分级分配的硬上界）。
+        context_ratio: 上下文源预算占比（对话/回合历史 50-70%）。
+        knowledge_ratio: 知识注入预算占比（20-40%）。
+        tool_ratio: 工具定义预算占比（5-10%）。
+        memory_ratio: 记忆召回预算占比（从知识预算内另立池）。
+        evidence_ratio: 证据组装预算占比（web 验证产物）。
+        max_tools: 工具激活数上限（每轮 3-10 个）。
+    """
+
+    enabled: bool = True
+    total_budget: int = DEFAULT_TOTAL_BUDGET
+    context_ratio: float = DEFAULT_CONTEXT_RATIO
+    knowledge_ratio: float = DEFAULT_KNOWLEDGE_RATIO
+    tool_ratio: float = DEFAULT_TOOL_RATIO
+    memory_ratio: float = DEFAULT_MEMORY_RATIO
+    evidence_ratio: float = DEFAULT_EVIDENCE_RATIO
+    max_tools: int = DEFAULT_MAX_TOOLS
+
+    def __post_init__(self) -> None:
+        if self.total_budget <= 0:
+            raise GraphDefinitionError(f"装配总预算必须为正: {self.total_budget}")
+        ratios = [
+            self.context_ratio,
+            self.knowledge_ratio,
+            self.tool_ratio,
+            self.memory_ratio,
+            self.evidence_ratio,
+        ]
+        if any(r < 0 or r > 1 for r in ratios):
+            raise GraphDefinitionError(f"分级占比必须在 [0, 1] 内: {ratios}")
+        if sum(ratios) > 1.0:
+            raise GraphDefinitionError(
+                f"分级占比合计超限（必须 ≤ 1，防超分）: {sum(ratios):.2f}"
+            )
+        if self.max_tools < 1:
+            raise GraphDefinitionError(f"工具激活数上限必须为正: {self.max_tools}")
+
+    def pool_for(self, source_type: str) -> int:
+        """源类别 → 分级预算池（总预算 × 占比，向下取整）。"""
+        ratio = {
+            SOURCE_CONTEXT: self.context_ratio,
+            SOURCE_KNOWLEDGE: self.knowledge_ratio,
+            SOURCE_TOOL: self.tool_ratio,
+            SOURCE_MEMORY: self.memory_ratio,
+            SOURCE_EVIDENCE: self.evidence_ratio,
+        }.get(source_type)
+        if ratio is None:
+            raise GraphDefinitionError(f"未知装配源类别: {source_type}")
+        return int(self.total_budget * ratio)
+
+    def to_dict(self) -> dict[str, Any]:
+        return {
+            "enabled": self.enabled,
+            "total_budget": self.total_budget,
+            "context_ratio": self.context_ratio,
+            "knowledge_ratio": self.knowledge_ratio,
+            "tool_ratio": self.tool_ratio,
+            "memory_ratio": self.memory_ratio,
+            "evidence_ratio": self.evidence_ratio,
+            "max_tools": self.max_tools,
+        }
+
+    @classmethod
+    def from_dict(cls, data: dict[str, Any]) -> AssemblyConfig:
+        if not isinstance(data, dict):
+            raise GraphDefinitionError(
+                f"装配配置声明非法: 期望 dict，收到 {type(data).__name__}"
+            )
+        return cls(
+            enabled=bool(data.get("enabled", True)),
+            total_budget=int(data.get("total_budget", DEFAULT_TOTAL_BUDGET)),
+            context_ratio=float(data.get("context_ratio", DEFAULT_CONTEXT_RATIO)),
+            knowledge_ratio=float(data.get("knowledge_ratio", DEFAULT_KNOWLEDGE_RATIO)),
+            tool_ratio=float(data.get("tool_ratio", DEFAULT_TOOL_RATIO)),
+            memory_ratio=float(data.get("memory_ratio", DEFAULT_MEMORY_RATIO)),
+            evidence_ratio=float(data.get("evidence_ratio", DEFAULT_EVIDENCE_RATIO)),
+            max_tools=int(data.get("max_tools", DEFAULT_MAX_TOOLS)),
+        )
+
+
+@dataclass(frozen=True, slots=True)
+class SourceActivation:
+    """单个源的激活留痕（激活模式：源 + 强度 + 分配档位）。"""
+
+    source_type: str
+    title: str
+    weight: float
+    relevance: float
+    char_limit: int
+    mode: str
+    entry_ref: str = ""  # 知识条目/记忆条目的引用（版本快照外可重建）
+
+    def to_dict(self) -> dict[str, Any]:
+        return {
+            "source_type": self.source_type,
+            "title": self.title,
+            "weight": self.weight,
+            "relevance": self.relevance,
+            "char_limit": self.char_limit,
+            "mode": self.mode,
+            "entry_ref": self.entry_ref,
+        }
+
+    @classmethod
+    def from_dict(cls, data: dict[str, Any]) -> SourceActivation:
+        if not isinstance(data, dict):
+            raise GraphDefinitionError(
+                f"激活留痕声明非法: 期望 dict，收到 {type(data).__name__}"
+            )
+        return cls(
+            source_type=data.get("source_type", ""),
+            title=data.get("title", ""),
+            weight=float(data.get("weight", 0.0)),
+            relevance=float(data.get("relevance", 0.0)),
+            char_limit=int(data.get("char_limit", 0)),
+            mode=data.get("mode", ""),
+            entry_ref=data.get("entry_ref", ""),
+        )
+
+
+@dataclass(frozen=True, slots=True)
+class ActivationRecord:
+    """激活模式记录（统一留痕：本次调配激活了什么 + 版本快照）。
+
+    与留痕最小化原则衔接：记录组装决定（源/权重/预算/版本快照），全量
+    原文由知识集版本快照重建——两者合起来满足「模型可见皆可从日志重建」。
+    """
+
+    total_budget: int
+    assembled_chars: int
+    sources: tuple[SourceActivation, ...] = ()
+    version_snapshot: dict[str, Any] | None = None
+    created_at: float = field(default_factory=time.time)
+
+    def to_dict(self) -> dict[str, Any]:
+        return {
+            "total_budget": self.total_budget,
+            "assembled_chars": self.assembled_chars,
+            "sources": [s.to_dict() for s in self.sources],
+            "version_snapshot": dict(self.version_snapshot) if self.version_snapshot else None,
+            "created_at": self.created_at,
+        }
+
+    @classmethod
+    def from_dict(cls, data: dict[str, Any]) -> ActivationRecord:
+        if not isinstance(data, dict):
+            raise GraphDefinitionError(
+                f"激活记录声明非法: 期望 dict，收到 {type(data).__name__}"
+            )
+        raw_sources = data.get("sources") or ()
+        return cls(
+            total_budget=int(data.get("total_budget", 0)),
+            assembled_chars=int(data.get("assembled_chars", 0)),
+            sources=tuple(SourceActivation.from_dict(s) for s in raw_sources),
+            version_snapshot=data.get("version_snapshot"),
+            created_at=float(data.get("created_at", time.time())),
+        )
+
+
+@dataclass(frozen=True, slots=True)
+class AssemblyResult:
+    """一次输入调配的产物（组装文本 + 激活留痕）。
+
+    Attributes:
+        text: 组装后的输入文本（按源块拼接，分隔符计入预算）。
+        record: 激活模式记录（本次激活了什么 + 版本快照，可落库回放）。
+    """
+
+    text: str
+    record: ActivationRecord
+
+
+def _group_sources(
+    sources: list[ContextSource],
+) -> dict[str, list[ContextSource]]:
+    """按源类别分组（未知类别显式拒绝——类别是预算分级的键，不得漂移）。"""
+    grouped: dict[str, list[ContextSource]] = {kind: [] for kind in _SOURCE_TYPES}
+    for source in sources:
+        if source.type not in _SOURCE_TYPES:
+            raise GraphDefinitionError(f"未知装配源类别: {source.type}")
+        grouped[source.type].append(source)
+    return grouped
+
+
+def _limit_tools(
+    sources: list[ContextSource], max_tools: int
+) -> list[ContextSource]:
+    """工具激活数裁剪：按分配分（weight × relevance）取前 N（经验框架）。"""
+    if len(sources) <= max_tools:
+        return sources
+    return sorted(
+        sources, key=lambda s: (s.score(), s.priority), reverse=True
+    )[:max_tools]
+
+
+class InputAssembler:
+    """输入调配管线执行体：多源统一预算分配 → 组装 → 激活留痕。
+
+    「能全量则全量，放不下才裁剪」：全部源内容总长不超过总预算时整包
+    激活（集小无稀疏必要）；超预算才按分级池分配（常驻基线 + 任务相关
+    裁剪）。预算分配复用 WeightedBudgetAllocator（高权重全保留/中权重
+    截断/低权重丢弃），组装复用 ContextAssembler（标题块 + 逐源留痕）。
+    """
+
+    def __init__(
+        self,
+        config: AssemblyConfig | None = None,
+        *,
+        allocator: WeightedBudgetAllocator | None = None,
+        compressor: EntryCompressor | None = None,
+    ) -> None:
+        self.config = config or AssemblyConfig()
+        self._allocator = allocator or WeightedBudgetAllocator()
+        self._assembler = ContextAssembler()
+        self._compressor = compressor
+
+    def assemble(
+        self,
+        sources: list[ContextSource],
+        *,
+        total_budget: int | None = None,
+        version_snapshot: dict[str, Any] | None = None,
+    ) -> AssemblyResult:
+        """统一调配入口：多源 → 预算分配 → 组装 → 激活留痕。
+
+        Args:
+            sources: 本次调用的全部源（上下文/知识/工具/记忆/证据混列，
+                按源 type 分级分配）。
+            total_budget: 调用点总预算（None = 用配置默认——一次调用的
+                总预算在多源间分级分配，不再各自为政）。
+            version_snapshot: 知识/规则版本快照（随激活记录落库，供全量
+                原文重建与回放审计）。
+
+        Returns:
+            AssemblyResult：组装文本 + 激活记录。
+
+        Raises:
+            GraphDefinitionError: 未知源类别/配置非法。
+        """
+        if not self.config.enabled:
+            raise GraphDefinitionError("输入调配已禁用（enabled=False，调用点应走旧路径）")
+        budget = total_budget or self.config.total_budget
+        if budget <= 0:
+            raise GraphDefinitionError(f"装配总预算必须为正: {budget}")
+        grouped = _group_sources(sources)
+        all_sources = [s for group in grouped.values() for s in group]
+
+        # 能全量则全量：总内容不超过预算 → 整包激活（集小无稀疏必要）。
+        # 工具激活数上限是独立护栏（每轮 3-10 个，降模型选错工具概率）——
+        # 全量路径同样受其约束（预算宽裕不代表工具可以无限暴露）。
+        total_chars = sum(len(s.content) for s in all_sources)
+        if total_chars <= budget:
+            activated: list[ContextSource] = []
+            for kind in _SOURCE_TYPES:
+                group = grouped[kind]
+                if kind == SOURCE_TOOL:
+                    group = _limit_tools(group, self.config.max_tools)
+                activated.extend(group)
+            text = self._assembler.assemble(activated, total_chars=budget).text
+            return AssemblyResult(
+                text=text,
+                record=ActivationRecord(
+                    total_budget=budget,
+                    assembled_chars=len(text),
+                    sources=tuple(
+                        SourceActivation(
+                            source_type=s.type,
+                            title=s.title or "",
+                            weight=s.weight,
+                            relevance=s.relevance,
+                            char_limit=len(s.content),
+                            mode="keep_full",
+                            entry_ref=s.meta.get("entry_id", ""),
+                        )
+                        for s in activated
+                    ),
+                    version_snapshot=version_snapshot,
+                ),
+            )
+
+        # 放不下才裁剪：逐分级池分配（工具额外按激活数上限裁剪）
+        activations: list[SourceActivation] = []
+        chunks: list[str] = []
+        for kind in _SOURCE_TYPES:
+            pool_sources = grouped[kind]
+            if not pool_sources:
+                continue
+            pool_budget = int(budget * _ratio_for(self.config, kind))
+            if kind == SOURCE_TOOL:
+                pool_sources = _limit_tools(pool_sources, self.config.max_tools)
+            if not pool_sources:
+                continue
+            allocations = self._allocator.allocate(pool_sources, pool_budget)
+            # 组装期条目内压缩（计划「放不下」三层处置的组装期条目内层）：
+            # 被截断的源若挂了压缩钩子，用非破坏性摘要视图替代截断内容——
+            # 原文不动（v4 CompressionPolicy 语义：摘要视图/非破坏性压缩），
+            # 压缩失败（空串）走默认截断，不影响装配结果。
+            kept: list[ContextSource] = []
+            compressed_ids: set[int] = set()
+            for a in allocations:
+                if a.char_limit <= 0:
+                    continue
+                if (
+                    self._compressor is not None
+                    and len(a.source.content) > a.char_limit
+                ):
+                    compressed = self._compressor(a.source, a.char_limit) or ""
+                    if compressed:
+                        kept.append(
+                            replace(
+                                a.source,
+                                content=compressed,
+                                meta={
+                                    **a.source.meta,
+                                    "compressed": True,
+                                    "original_chars": len(a.source.content),
+                                },
+                            )
+                        )
+                        compressed_ids.add(id(a.source))
+                        continue
+                kept.append(a.source)
+            if not kept:
+                activations.extend(
+                    SourceActivation(
+                        source_type=a.source.type,
+                        title=a.source.title or "",
+                        weight=a.source.weight,
+                        relevance=a.source.relevance,
+                        char_limit=0,
+                        mode=a.mode,
+                        entry_ref=a.source.meta.get("entry_id", ""),
+                    )
+                    for a in allocations
+                )
+                continue
+            assembled = self._assembler.assemble(
+                kept, total_chars=pool_budget
+            )
+            if assembled.text:
+                chunks.append(assembled.text)
+            for a in allocations:
+                activations.append(
+                    SourceActivation(
+                        source_type=a.source.type,
+                        title=a.source.title or "",
+                        weight=a.source.weight,
+                        relevance=a.source.relevance,
+                        char_limit=a.char_limit,
+                        mode=MODE_COMPRESSED if id(a.source) in compressed_ids else a.mode,
+                        entry_ref=a.source.meta.get("entry_id", ""),
+                    )
+                )
+        text = "\n\n".join(chunks)
+        return AssemblyResult(
+            text=text,
+            record=ActivationRecord(
+                total_budget=budget,
+                assembled_chars=len(text),
+                sources=tuple(activations),
+                version_snapshot=version_snapshot,
+            ),
+        )
+
+
+def _ratio_for(config: AssemblyConfig, kind: str) -> float:
+    """源类别 → 分级占比（统一预算的分配比例，防各自为政）。"""
+    return {
+        SOURCE_CONTEXT: config.context_ratio,
+        SOURCE_KNOWLEDGE: config.knowledge_ratio,
+        SOURCE_TOOL: config.tool_ratio,
+        SOURCE_MEMORY: config.memory_ratio,
+        SOURCE_EVIDENCE: config.evidence_ratio,
+    }.get(kind, 0.0)
+
+
+@dataclass(frozen=True, slots=True)
+class EntryActivationStats:
+    """单个知识条目的激活聚合（利用率观测的最小单元）。"""
+
+    entry_ref: str
+    activations: int  # 窗口内激活次数
+    total_weight: float  # 激活强度累计（weight 求和）
+    total_chars: int  # 分配字符累计
+    last_activated_call: int  # 最近一次激活所在的调用序号
+    activation_rate: float  # 激活次数 / 窗口调用数（0-1）
+
+    def to_dict(self) -> dict[str, Any]:
+        return {
+            "entry_ref": self.entry_ref,
+            "activations": self.activations,
+            "total_weight": self.total_weight,
+            "total_chars": self.total_chars,
+            "last_activated_call": self.last_activated_call,
+            "activation_rate": self.activation_rate,
+        }
+
+    @classmethod
+    def from_dict(cls, data: dict[str, Any]) -> EntryActivationStats:
+        return cls(
+            entry_ref=data.get("entry_ref", ""),
+            activations=int(data.get("activations", 0)),
+            total_weight=float(data.get("total_weight", 0.0)),
+            total_chars=int(data.get("total_chars", 0)),
+            last_activated_call=int(data.get("last_activated_call", 0)),
+            activation_rate=float(data.get("activation_rate", 0.0)),
+        )
+
+
+@dataclass(frozen=True, slots=True)
+class ActivationSummary:
+    """激活利用率聚合快照（MoE 辅助损失借鉴：过热/过冷提示）。
+
+    Attributes:
+        calls: 聚合窗口内的调配调用数。
+        total_refs: 窗口内出现过的条目引用总数。
+        active_refs: 近期窗口内有激活的条目数。
+        utilization: 活跃条目 / 总条目（0-1；负载均衡观察）。
+        overheated: 过热条目（激活率 ≥ 阈值——激活失衡/粒度不当，
+            提示检视激活规则与预算分级）。
+        cold: 过冷条目（曾激活但窗口内长期零激活——进归档候选，
+            衔接进化工厂「长期未调用」优先级）。
+        per_entry: 逐条目聚合明细（排序稳定，可断言）。
+    """
+
+    calls: int
+    total_refs: int
+    active_refs: int
+    utilization: float
+    overheated: tuple[str, ...]
+    cold: tuple[str, ...]
+    per_entry: tuple[EntryActivationStats, ...] = ()
+
+    def to_dict(self) -> dict[str, Any]:
+        return {
+            "calls": self.calls,
+            "total_refs": self.total_refs,
+            "active_refs": self.active_refs,
+            "utilization": self.utilization,
+            "overheated": list(self.overheated),
+            "cold": list(self.cold),
+            "per_entry": [s.to_dict() for s in self.per_entry],
+        }
+
+    @classmethod
+    def from_dict(cls, data: dict[str, Any]) -> ActivationSummary:
+        return cls(
+            calls=int(data.get("calls", 0)),
+            total_refs=int(data.get("total_refs", 0)),
+            active_refs=int(data.get("active_refs", 0)),
+            utilization=float(data.get("utilization", 0.0)),
+            overheated=tuple(data.get("overheated") or ()),
+            cold=tuple(data.get("cold") or ()),
+            per_entry=tuple(
+                EntryActivationStats.from_dict(s) for s in data.get("per_entry") or ()
+            ),
+        )
+
+
+class ActivationAggregator:
+    """激活留痕利用率聚合（MoE 负载均衡借鉴的观测件）。
+
+    输入 = 逐轮激活记录（:meth:`record`，与 InputAssembler 的留痕同源），
+    输出 = 利用率快照（:meth:`snapshot`）：过热条目提示激活规则失衡/粒度
+    不当（检视预算分级），过冷条目 = 长期零激活的归档候选（衔接知识集
+    归档机制与进化工厂「长期未调用」优先级）——调试/审计/调参共用同一
+    份「本次激活了什么」的聚合视图，不新增裁剪机制。
+    """
+
+    def __init__(
+        self,
+        *,
+        overheated_rate: float = DEFAULT_OVERHEATED_RATE,
+        cold_window: int = DEFAULT_COLD_WINDOW,
+    ) -> None:
+        if not 0 < overheated_rate <= 1:
+            raise GraphDefinitionError(
+                f"过热激活率阈值必须在 (0, 1] 内: {overheated_rate}"
+            )
+        if cold_window < 1:
+            raise GraphDefinitionError(f"过冷窗口必须为正: {cold_window}")
+        self.overheated_rate = overheated_rate
+        self.cold_window = cold_window
+        self._calls = 0
+        self._stats: dict[str, list[Any]] = {}
+
+    def record(self, record: ActivationRecord) -> None:
+        """聚合一次调配留痕（逐源累积激活计数/强度/最近激活序号）。"""
+        self._calls += 1
+        for source in record.sources:
+            ref = source.entry_ref
+            if not ref:
+                continue  # 无条目引用的源（上下文/工具）不参与知识利用率
+            stats = self._stats.setdefault(ref, [0, 0.0, 0, 0])
+            stats[0] += 1  # 激活次数
+            stats[1] += source.weight  # 激活强度累计
+            stats[2] += source.char_limit  # 分配字符累计
+            stats[3] = self._calls  # 最近激活调用序号
+
+    def snapshot(self) -> ActivationSummary:
+        """汇出利用率快照（过热/过冷提示 + 逐条目明细，可落库审计）。
+
+        过热判定：激活率 ≥ 阈值（且窗口调用数 ≥ 2，单次调用不判定——
+        无失衡语义）；过冷判定：曾激活但最近 ``cold_window`` 次调用内
+        零激活（窗口调用数须超过冷窗，否则样本不足不判定）。
+        """
+        if self._calls == 0:
+            return ActivationSummary(
+                calls=0, total_refs=0, active_refs=0, utilization=0.0,
+                overheated=(), cold=(), per_entry=(),
+            )
+        stats: list[EntryActivationStats] = []
+        for ref, raw in self._stats.items():
+            activations, weight, chars, last = raw
+            stats.append(
+                EntryActivationStats(
+                    entry_ref=ref,
+                    activations=activations,
+                    total_weight=weight,
+                    total_chars=chars,
+                    last_activated_call=last,
+                    activation_rate=activations / self._calls,
+                )
+            )
+        stats.sort(key=lambda s: s.entry_ref)
+        active = [
+            s for s in stats if s.last_activated_call > self._calls - self.cold_window
+        ]
+        overheated = tuple(
+            s.entry_ref
+            for s in stats
+            if self._calls >= 2 and s.activation_rate >= self.overheated_rate
+        )
+        cold = tuple(
+            s.entry_ref
+            for s in stats
+            if self._calls > self.cold_window
+            and s.last_activated_call <= self._calls - self.cold_window
+        )
+        return ActivationSummary(
+            calls=self._calls,
+            total_refs=len(stats),
+            active_refs=len(active),
+            utilization=len(active) / len(stats) if stats else 0.0,
+            overheated=overheated,
+            cold=cold,
+            per_entry=tuple(stats),
+        )
+
+
+__all__ = [
+    "DEFAULT_ASSEMBLY_BUDGET",
+    "DEFAULT_COLD_WINDOW",
+    "DEFAULT_CONTEXT_RATIO",
+    "DEFAULT_EVIDENCE_RATIO",
+    "DEFAULT_KNOWLEDGE_RATIO",
+    "DEFAULT_MAX_TOOLS",
+    "DEFAULT_MEMORY_RATIO",
+    "DEFAULT_OVERHEATED_RATE",
+    "DEFAULT_TOOL_RATIO",
+    "DEFAULT_TOTAL_BUDGET",
+    "MODE_COMPRESSED",
+    "SOURCE_CONTEXT",
+    "SOURCE_EVIDENCE",
+    "SOURCE_KNOWLEDGE",
+    "SOURCE_MEMORY",
+    "SOURCE_TOOL",
+    "ActivationAggregator",
+    "ActivationRecord",
+    "ActivationSummary",
+    "AssemblyConfig",
+    "AssemblyResult",
+    "EntryActivationStats",
+    "EntryCompressor",
+    "InputAssembler",
+    "SourceActivation",
+]

@@ -1,4 +1,4 @@
-"""域上下文窗口投影原语单测（域上下文管理）。
+﻿"""域上下文窗口投影原语单测（域上下文管理）。
 
 覆盖：
 - 用户消息全留（跨回合），异域工具轮整轮剔除，公共集工具轮保留
@@ -11,7 +11,7 @@
 
 from __future__ import annotations
 
-from ink_engine.components.domain_window import (
+from ink_engine.core.context import (
     DEFAULT_MAX_TOOL_ROUNDS,
     archive_digest,
     build_domain_window,

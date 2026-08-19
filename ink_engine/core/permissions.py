@@ -15,7 +15,7 @@
 
 未声明权限的工具默认拒绝（fail-closed）；宿主可把 ``default_policy`` 放宽为
 review/allow（明示安全让步）。门控分级判定（L1-L3）由宿主注入
-（``components.review_card.gating_tier_of`` 经共享组件接线），本模块不 import 组件包。
+（``review_card.gating_tier_of`` 经共享机制接线），本模块不 import 审批卡。
 
 沙箱是机制、非安全边界承诺——默认拒绝兜底 + 纵深防御，宿主可叠加 OS 级隔离。
 """

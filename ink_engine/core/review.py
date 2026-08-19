@@ -16,7 +16,7 @@
 - :class:`MaxRoundsConvergencePolicy`：默认策略（达阈值收敛 + Beam 宽度 +
   轮次上限）。
 
-领域语义（评审 prompt、候选混合）在 novel_harness 包实现，
+领域语义（评审 prompt、候选混合）在种子包（seeds/）实现，
 宿主只负责注册与装配——换评审策略 / 换验证后端不改本模块。
 """
 from __future__ import annotations

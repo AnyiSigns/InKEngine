@@ -120,6 +120,22 @@ class NodeContext(Protocol):
         """
         ...
 
+    async def assemble(
+        self,
+        sources: list[Any],
+        *,
+        total_budget: int | None = None,
+        version_snapshot: dict | None = None,
+    ) -> Any:
+        """输入调配统一入口（执行语义：每次 LLM 调用前多源统一调配）。
+
+        上下文片段 + 知识集注入 + 工具集裁剪 + 记忆召回 + 证据组装在
+        调用点统一预算分配与留痕（激活记录随事件落库，模型可见皆记录）。
+        未启用调配（RunOptions.assembly=None 或 enabled=False）时抛
+        GraphDefinitionError——调用点据此回退旧装配路径（一键开关）。
+        """
+        ...
+
     def terminate(self, reason: str, **meta: Any) -> None: ...
 
     @property

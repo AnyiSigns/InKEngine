@@ -42,6 +42,8 @@ class EngineEvent:
         type: 事件类型（thinking_start/reply_token/review_card/...）。
         payload: 事件负载（与协议同构 dict，增量演进加字段）。
         step_id: 回合步骤 id（展示事件契约；系统信号为 None）。
+        parent_step_id: 父步骤 id（轨迹树引用：模拟分支/子任务事件指向
+            决策点/父任务步骤，落选分支可据此回溯对比/换选）。
         round_id: 回合 id（用户消息边界）。
         node: 发射节点名（None = 执行器自身信号）。
         graph_path: 嵌套图路径（替代 ns 三元组，空 = 顶层图）。
@@ -54,6 +56,7 @@ class EngineEvent:
     type: str
     payload: dict = field(default_factory=dict)
     step_id: str | None = None
+    parent_step_id: str | None = None
     round_id: str | None = None
     node: str | None = None
     graph_path: tuple[str, ...] = ()
@@ -69,6 +72,7 @@ class EngineEvent:
             "version": self.version,
             "payload": self.payload,
             "step_id": self.step_id,
+            "parent_step_id": self.parent_step_id,
             "round_id": self.round_id,
             "node": self.node,
             "graph_path": list(self.graph_path),
@@ -87,6 +91,7 @@ class EngineEvent:
             type=data["type"],
             payload=data.get("payload") or {},
             step_id=data.get("step_id"),
+            parent_step_id=data.get("parent_step_id"),
             round_id=data.get("round_id"),
             node=data.get("node"),
             graph_path=tuple(data.get("graph_path") or ()),

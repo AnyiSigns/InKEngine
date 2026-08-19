@@ -269,7 +269,7 @@ def build_declarative_pipeline(
     max_result_chars: int = 100_000,
     trace_sink: Callable[..., Any] | None = None,
 ) -> ToolPipeline:
-    """声明式工具执行流水线装配（M3 轻路径的引擎侧桥接）。
+    """声明式工具执行流水线装配（轻路径的引擎侧桥接）。
 
     extractor = 端点类型操作推导（endpoint_operation）、executor =
     端点执行体分发（DeclarativeToolExecutors.dispatch）——声明式工具

@@ -139,7 +139,7 @@ async def test_checkpoint_error_field_roundtrip(storage):
 
 
 async def test_checkpoint_graph_version_plan_roundtrip(storage):
-    """图版本 + 计划快照三后端持久化（M1/M2 验收：随 checkpoint 版本链落盘）。
+    """图版本 + 计划快照三后端持久化（随 checkpoint 版本链落盘）。
 
     回归 P0-1：postgres 守卫式续链 INSERT 曾发生 $14/$15 参数错位（thread_id
     喂给 checkpoint_id::bigint），常规续链第二个 checkpoint 起必然失败——

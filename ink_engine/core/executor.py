@@ -26,10 +26,20 @@ from collections.abc import AsyncGenerator
 from dataclasses import dataclass, field, replace
 from typing import Any
 
+from .assembly import (
+    AssemblyConfig,
+    AssemblyResult,
+    InputAssembler,
+)
 from .budget import BudgetManager
 from .chain_rebase import maybe_compact_chain
 from .events import EngineEvent, EngineTransport
-from .exceptions import BudgetExceededError, GraphDefinitionError, NodeExecutionError
+from .exceptions import (
+    BudgetExceededError,
+    GraphDefinitionError,
+    NodeExecutionError,
+    SimulationError,
+)
 from .fanout import fan_out
 from .graph import Graph, NodeContext, TerminateReason
 from .interrupt import InterruptCoordinator, InterruptSignal, InterruptState
@@ -46,6 +56,18 @@ from .plan import (
 from .recovery import resolve_resume, tail_checkpoint
 from .registry import GraphRegistries
 from .security import strip_sensitive
+from .simulation import (
+    DEFAULT_MAX_SIMULATIONS,
+    SIMULATE_KEY,
+    BestBranchMixer,
+    BranchMixer,
+    EvaluatedBranch,
+    Evaluator,
+    SimulateSpec,
+    SimulationResult,
+    parse_simulate,
+    simulate_thread_id,
+)
 from .spawn import (
     SPAWN_KEY,
     SpawnFailure,
@@ -96,11 +118,19 @@ class RunOptions:
     # 不入回合步骤序列（机制层默认空——不预置任何领域事件名）
     system_events: frozenset[str] = frozenset()
     # 运行时重规划（__plan__）配置
-    plan_policy: str = "loose"  # loose = 计划落在图内任意节点；strict = 计划须满足图边约束
+    plan_policy: str = "loose"  # loose = 计划落在约束域内任意节点；strict = 计划须满足约束域边序
     max_plan_steps: int = DEFAULT_MAX_PLAN_STEPS  # 计划步数上限（成本护栏，0 = 禁用计划）
+    plan_workflow: Any = None  # 工作流约束域（WorkflowSpec：计划节点/边须落在其内；None = 按图校验）
     parallel_concurrency: int = 4  # 并行节点组并发上限
     # 建图注册表（spawn 子图数据/计划条件的解析来源；None = 不启用数据形态）
     registries: GraphRegistries | None = None
+    # 决策点推演（__simulate__）配置
+    evaluator: Evaluator | None = None  # 分支评估器（None = 节点返回 __simulate__ 时拒绝）
+    branch_mixer: BranchMixer | None = None  # 分支调配策略（None = BestBranchMixer 单选）
+    max_simulations: int = DEFAULT_MAX_SIMULATIONS  # 推演分支数上限（成本护栏，0 = 禁用）
+    simulate_concurrency: int = 2  # 推演分支并发上限
+    # 输入调配管线（执行语义：每次 LLM 调用前多源统一调配）
+    assembly: AssemblyConfig | None = None  # 装配配置（None = 未启用，调用点走旧路径）
 
 
 @dataclass(slots=True)
@@ -188,6 +218,7 @@ class _NodeContextImpl(NodeContext):
         node: str | None = None,
         transports: list[EngineTransport] | None = None,
         resume_map: dict[tuple[str, ...], int] | None = None,
+        parent_step_id: str | None = None,
     ) -> None:
         self._engine = engine
         self._state = state
@@ -203,6 +234,9 @@ class _NodeContextImpl(NodeContext):
         self.resume_map = resume_map or {}
         # 命令式 spawn 收集清单（节点内 ctx.spawn 追加，返回后统一展开）
         self._spawns: list = []
+        # 轨迹树父引用：推演分支/子任务事件指向决策点/父任务步骤
+        # （落选分支可据此回溯对比/换选）
+        self.parent_step_id = parent_step_id
 
     @property
     def state(self) -> dict:
@@ -241,6 +275,7 @@ class _NodeContextImpl(NodeContext):
                 type=etype,
                 payload=payload,
                 step_id=step_id,
+                parent_step_id=self.parent_step_id,
                 round_id=self._round_id,
                 node=self.node,
                 graph_path=self._graph_path,
@@ -284,6 +319,38 @@ class _NodeContextImpl(NodeContext):
         self._spawns.append(
             SpawnSpec(subgraph=subgraph, state=dict(state), index=index if index is not None else len(self._spawns))
         )
+
+    async def assemble(
+        self,
+        sources: list,
+        *,
+        total_budget: int | None = None,
+        version_snapshot: dict | None = None,
+    ) -> AssemblyResult:
+        """输入调配统一入口（执行语义接线）：多源统一预算分配 → 组装。
+
+        每次 LLM 调用/节点执行前经此统一调配（上下文+知识+工具+记忆+
+        证据），预算合计不超调用点总预算；激活记录（源/权重/预算/版本
+        快照）随 input_assembly 事件落执行日志——模型可见皆留痕，可回放
+        可审计。未启用（RunOptions.assembly=None）或关闭（enabled=False）
+        时抛 GraphDefinitionError——调用点 catch 后回退旧装配路径（一键
+        开关语义）。
+        """
+        assembler = self._engine._assembler
+        if assembler is None:
+            raise GraphDefinitionError(
+                "输入调配未启用（RunOptions.assembly=None），调用点应走旧装配路径"
+            )
+        result = assembler.assemble(
+            sources,
+            total_budget=total_budget,
+            version_snapshot=version_snapshot,
+        )
+        await self.emit(
+            "input_assembly",
+            {"node": self.node, "record": result.record.to_dict()},
+        )
+        return result
 
     def terminate(self, reason: str, **meta: Any) -> None:
         """声明终止（校验延迟到执行器检查点：编程错误不被节点异常捕获吞掉）。"""
@@ -378,6 +445,11 @@ class Engine:
         # 链尾推进标志：嵌套子图执行后置位（子图 checkpoint 推进版本链），
         # 下次写 checkpoint 前据此查询链尾作为 parent（避免顺序执行时每节点查询）
         self._chain_advanced = False
+        # 输入调配管线执行体（RunOptions.assembly 非 None 时启用；调用点
+        # 经 ctx.assemble 统一调配，激活留痕随事件落库）
+        self._assembler = (
+            InputAssembler(self.options.assembly) if self.options.assembly is not None else None
+        )
 
     async def _publish(
         self, event: EngineEvent, *, transports: list[EngineTransport] | None = None
@@ -642,6 +714,7 @@ class Engine:
         transports: list[EngineTransport] | None = None,
         resume_map: dict[tuple[str, ...], int] | None = None,
         checkpoint_thread_id: str | None = None,
+        parent_step_id: str | None = None,
     ) -> tuple[dict, RunResult]:
         """主执行循环（顶层与嵌套子图/实例共用）。
 
@@ -655,6 +728,8 @@ class Engine:
             checkpoint_thread_id: checkpoint 版本链归属（None = 与 thread_id
                 相同）。spawn 实例借此把 checkpoint 写入独立子链、事件日志
                 仍统一落 thread_id 父链（半共享 + 独立子链）。
+            parent_step_id: 轨迹树父引用（推演分支/子任务事件指向决策点
+                步骤；None = 顶层/普通子图）。
         """
         graph = self.graph
         schema = self.options.schema
@@ -708,6 +783,7 @@ class Engine:
             thread_id=thread_id,
             transports=transports,
             resume_map=resume_map,
+            parent_step_id=parent_step_id,
         )
         # 恢复起点定位：
         # - 中断 checkpoint（reason=interrupted）：重入中断节点（节点内按注入值分支）；
@@ -731,7 +807,7 @@ class Engine:
             # 旧计划快照（新回合重新规划）。定位分流：
             # - 链尾节点在新图存在（同图续链）：从链尾节点出边继续——宿主
             #   回合语义「终止节点带出边，续链从出边继续」，不重跑终止节点；
-            # - 链尾节点在新图不存在（换图/M3 同 thread 切 harness）：从
+            # - 链尾节点在新图不存在（换图/同 thread 切 harness）：从
             #   新图入口执行（current 保持 graph.entry）——按链尾定位会因
             #   节点名缺失静默终态。
             if last_checkpoint is not None and last_checkpoint.node:
@@ -798,7 +874,7 @@ class Engine:
             # ── 计划恢复首轮：跳过节点执行，直接推进计划游标 ──
             # 普通计划 checkpoint（产出节点已完成）与工作步中断恢复（重入
             # 计划步）共用：从 checkpoint 计划快照的 index 续跑，不重跑
-            # 产出节点（重跑 = 重新规划，计划游标与 M5 回溯锚点丢失）。
+            # 产出节点（重跑 = 重新规划，计划游标与推演回溯锚点丢失）。
             if plan_pending:
                 plan_pending = False
                 assert active_plan is not None
@@ -953,6 +1029,7 @@ class Engine:
                         edge_registry=_registries.edges if _registries is not None else None,
                         policy=self.options.plan_policy,
                         max_steps=self.options.max_plan_steps,
+                        workflow=self.options.plan_workflow,
                     )
                 except (GraphDefinitionError, ValueError, TypeError) as exc:
                     node_error = f"计划清单非法: {exc}"
@@ -961,6 +1038,34 @@ class Engine:
                     error_msg = node_error
                     reason = TerminateReason.ERROR
                     break
+
+            # ── 推演清单提取（保留键不落状态；__simulate__ = 决策点标记）──
+            # 节点返回 __simulate__ = 关键决策点：引擎派生多个分支推演走向，
+            # 分支经独立子链执行（落选分支保留轨迹树引用），评估协议择优
+            # 提交主线。非法清单按节点失败终止（fail-fast 同口径）。
+            simulate_data = (
+                overlay.pop(SIMULATE_KEY, None) if overlay is not None else None
+            )
+            if simulate_data is not None:
+                try:
+                    if self.options.evaluator is None:
+                        raise ValueError("推演已启用但未注入评估器（RunOptions.evaluator）")
+                    if self.options.max_simulations <= 0:
+                        raise ValueError("推演已禁用（max_simulations=0）")
+                    step_id, budget, sim_specs = parse_simulate(
+                        simulate_data,
+                        resolve_graph=self._resolve_graph_data,
+                        max_branches=self.options.max_simulations,
+                    )
+                except (GraphDefinitionError, ValueError, TypeError) as exc:
+                    node_error = f"推演清单非法: {exc}"
+                    logger.error(f"推演清单非法 [{current}]: {exc}")
+                    await ctx.emit("error", {"node": current, "message": node_error})
+                    error_msg = node_error
+                    reason = TerminateReason.ERROR
+                    break
+                # 决策点步骤 id：分支事件 parent_step_id 指向它（轨迹树根；
+                # 清单未携带时为 None——分支仍经独立子链保留，可回溯换选）
 
             # ── 增量合并（reducer）──
             if overlay:
@@ -1031,6 +1136,79 @@ class Engine:
                             ),
                         },
                     )
+
+            # ── 推演展开（决策点：分支独立子链推演 → 评估择优 → 提交主线）──
+            # 每个分支 = 独立子链执行（与 spawn 同构：隔离状态 + 独立
+            # checkpoint 链 + 事件统一父链），执行结果经评估器打分，调配
+            # 策略（默认单选最高分，可注入跨分支组装）择优提交主线；落选
+            # 分支不销毁——checkpoint 子链与事件留痕（parent_step_id 轨迹
+            # 树引用）保留，可回溯对比/换选。分支失败按部分失败语义剔除
+            # （不阻断主线）；评估/调配异常按节点失败收口（fail-fast）。
+            if simulate_data is not None:
+                try:
+                    sim_result = await self.run_simulated(
+                        sim_specs,
+                        ctx,
+                        step_id=step_id,
+                        budget=budget,
+                        concurrency=self.options.simulate_concurrency,
+                    )
+                except InterruptSignal as sig:
+                    interrupt_state = InterruptState(
+                        key=sig.key,
+                        payload=strip_sensitive(sig.payload),
+                        node=current,
+                        graph_path=ctx.graph_path,
+                    )
+                    reason = "interrupted"
+                    break
+                except SimulationError as exc:
+                    node_error = f"推演失败: {exc}"
+                    logger.error(f"推演失败 [{current}]: {exc}")
+                    await ctx.emit("error", {"node": current, "message": node_error})
+                    error_msg = node_error
+                    reason = TerminateReason.ERROR
+                    break
+                if sim_result.selection.overlay:
+                    current_state = (
+                        schema.apply(current_state, sim_result.selection.overlay)
+                        if schema
+                        else {**current_state, **sim_result.selection.overlay}
+                    )
+                ctx._state = current_state
+                # 决策留痕事件：分支评估表 + 选中分支 + 来源留痕 + 分支子链
+                # 引用（落选分支的轨迹树锚点 = 决策事件 + 子链 thread）
+                await ctx.emit(
+                    "simulate_decision",
+                    {
+                        "node": current,
+                        "step_id": step_id,
+                        "selected": list(sim_result.selection.selected),
+                        "branches": [
+                            {
+                                "index": b.spec.index,
+                                "description": b.spec.description,
+                                "score": b.evaluation.score,
+                                "passed": b.evaluation.passed,
+                                "note": b.evaluation.note,
+                            }
+                            for b in sim_result.branches
+                        ],
+                        "provenance": [
+                            {
+                                "branch": p.branch_index,
+                                "key": p.key,
+                                "note": p.note,
+                            }
+                            for p in sim_result.selection.provenance
+                        ],
+                        "threads": {
+                            str(index): thread
+                            for index, thread in sim_result.thread_ids.items()
+                        },
+                    },
+                    step_id=step_id,
+                )
 
             # ── checkpoint 快照（每节点完成，版本链；计划激活时随附计划快照）──
             if storage is not None:
@@ -1389,6 +1567,13 @@ class Engine:
                                     )
                             if spawn_result.overlay:
                                 result = {**(result or {}), **spawn_result.overlay}
+                        if result is not None and SIMULATE_KEY in result:
+                            # 推演仅主循环支持：并行组成员返回 __simulate__
+                            # 是图设计错误（决策点不应藏在并行组内），显式
+                            # 拒绝——保留键泄漏进状态会造成静默丢失
+                            raise RuntimeError(
+                                "并行组成员不支持 __simulate__（决策点推演仅主循环执行）"
+                            )
                         results[name] = result
                         if member_ctx.terminated:
                             outcome.terminate = (
@@ -1556,7 +1741,14 @@ class Engine:
                 registries=self.options.registries,
                 plan_policy=self.options.plan_policy,
                 max_plan_steps=self.options.max_plan_steps,
+                plan_workflow=self.options.plan_workflow,
                 parallel_concurrency=self.options.parallel_concurrency,
+                # 推演配置随实例传播（嵌套决策点/分支内再推演同口径：
+                # 评估器/调配策略/分支护栏与父层一致）
+                evaluator=self.options.evaluator,
+                branch_mixer=self.options.branch_mixer,
+                max_simulations=self.options.max_simulations,
+                simulate_concurrency=self.options.simulate_concurrency,
             ),
         )
         sub_engine._coordinator = self._coordinator
@@ -1658,6 +1850,149 @@ class Engine:
                 overlay.update(results[spec.index])
         return SpawnResult(overlay=overlay, failures=failures)
 
+    async def run_simulated(
+        self,
+        specs: list[SimulateSpec],
+        parent_ctx: NodeContext,
+        *,
+        step_id: str | None = None,
+        budget: int | None = None,
+        concurrency: int,
+    ) -> SimulationResult:
+        """决策点推演：分支独立子链执行 → 评估 → 择优/调配 → 返回结果。
+
+        分支执行与 spawn 实例同构（半共享上下文 + 独立 checkpoint 子链 +
+        事件统一父链）；与 spawn 的差异在结果回收：spawn 全部结果回流，
+        推演只提交择优后的分支（或跨分支组装产物），落选分支保留为轨迹
+        树引用（checkpoint 子链 + 事件 parent_step_id）——可回溯对比/换选。
+
+        Args:
+            specs: 推演分支清单（决策点节点产出，index 全局唯一）。
+            parent_ctx: 父图节点上下文（事件透传/中断共享/版本链归属）。
+            step_id: 决策点步骤 id（分支事件 parent_step_id，轨迹树根；
+                None = 分支不挂父引用，仍可经子链回溯）。
+            budget: 主线上下文组装预算（透传给调配策略；None = 无限制）。
+            concurrency: 分支并发上限（fan_out 限流，成本护栏）。
+
+        Returns:
+            SimulationResult：择优结果（选中分支/组装增量/来源留痕）+ 全部
+            已完成评估的分支 + 分支子链 thread 引用表。
+
+        Raises:
+            InterruptSignal: 分支内中断（提升为父图挂起卡，重入语义一致）。
+            SimulationError: 评估/调配失败或全部分支失败（决策点无产出，
+                按节点失败收口，不静默提交空结果）。
+        """
+        parent: _NodeContextImpl = parent_ctx  # type: ignore[assignment]
+        results: dict[int, dict] = {}
+        branch_threads: dict[int, str] = {}
+        failures: list[str] = []
+
+        async def run_one(index: int) -> None:
+            spec = specs[index]
+            sub_engine = self._make_instance_engine(spec.subgraph)
+            sub_path = (*parent_ctx.graph_path, spec.subgraph.name, str(spec.index))
+            branch_thread = simulate_thread_id(parent._thread_id, spec.index)
+            branch_threads[spec.index] = branch_thread
+            # 分支入口状态自包含（与 spawn 实例同语义：清单 state 完整入口，
+            # 合并累加族通道归零——回流增量 = 分支内新增，防二次加和翻倍）
+            entry_state = dict(spec.state)
+            sub_schema = sub_engine.options.schema
+            if sub_schema is not None:
+                for key, channel in sub_schema.channels.items():
+                    if is_merge_reducer(channel.reducer) and key in entry_state:
+                        entry_state[key] = {}
+            # 恢复：分支从自身链尾续跑（中断/未终态 checkpoint 续跑，同
+            # spawn 实例语义）；终态链尾 = 陈旧结果，从头执行。
+            resume_from: int | None = None
+            if self.options.storage is not None:
+                tail = await tail_checkpoint(self.options.storage, branch_thread)
+                if tail is not None and tail.reason in (None, "interrupted"):
+                    resume_from = tail.checkpoint_id
+                sub_engine._chain_advanced = True
+            final_state, sub_result = await sub_engine._execute(
+                state=entry_state,
+                thread_id=parent._thread_id,
+                round_id=parent_ctx.round_id,
+                resume_from=resume_from,
+                trace_id=parent_ctx.trace_id,
+                queue=None,
+                graph_path=sub_path,
+                # 继承父传输链（含顶层 run 队列）：分支事件汇入父事件流，
+                # parent_step_id 指向决策点步骤（轨迹树引用）
+                transports=parent._transports,
+                checkpoint_thread_id=branch_thread,
+                parent_step_id=step_id,
+            )
+            # 分支事件并入父引擎计数与 seq 锚点（与 spawn 实例同口径）
+            self._event_counter += sub_engine._event_counter
+            if sub_engine._latest_event_seq is not None:
+                self._latest_event_seq = (
+                    sub_engine._latest_event_seq
+                    if self._latest_event_seq is None
+                    else max(self._latest_event_seq, sub_engine._latest_event_seq)
+                )
+            await self._maybe_compact_chain(branch_thread)
+            if sub_result.interrupt is not None:
+                raise InterruptSignal(
+                    sub_result.interrupt.key, sub_result.interrupt.payload
+                )
+            if sub_result.reason == TerminateReason.ERROR:
+                raise RuntimeError(
+                    sub_result.error or f"推演分支执行失败（index={index}）"
+                )
+            results[spec.index] = subgraph_overlay_delta(
+                entry_state, final_state, sub_schema
+            )
+
+        outcome = await fan_out(
+            [lambda i: run_one(i) for i in range(len(specs))],
+            concurrency,
+            propagate=InterruptSignal,
+        )
+        for failure in outcome.failures:
+            failures.append(
+                f"#{failure.index}: {failure.error}"
+            )
+
+        # 分支执行失败剔除（部分失败语义，同 spawn）；全部失败 = 决策点
+        # 无产出，显式报错（不静默提交空结果）
+        successful = [spec for spec in specs if spec.index in results]
+        if not successful:
+            raise SimulationError(
+                f"全部分支执行失败: {'; '.join(failures)}"
+            )
+        # 分支结果评估（Evaluator 协议：引擎规定产出，评审策略由用户集
+        # 注入）；评估失败的分支剔除（该分支无可信评分，不得参与择优）
+        evaluated: list[EvaluatedBranch] = []
+        for spec in sorted(successful, key=lambda s: s.index):
+            overlay = results[spec.index]
+            try:
+                evaluation = await self.options.evaluator.evaluate(spec, overlay)
+            except Exception as exc:
+                logger.warning(
+                    f"推演分支评估失败（剔除）index={spec.index}: {exc}"
+                )
+                continue
+            evaluated.append(
+                EvaluatedBranch(spec=spec, overlay=overlay, evaluation=evaluation)
+            )
+        if not evaluated:
+            raise SimulationError("全部成功分支评估失败（无可择优候选）")
+        # 分支结果调配：单选或跨分支组装（调配器思想：多个分支结果 = 源、
+        # 评估分 = weight、主线预算 = 预算）；调配失败 = 策略/配置问题，
+        # 按节点失败收口（fail-fast，不静默单选）
+        mixer = self.options.branch_mixer or BestBranchMixer()
+        try:
+            selection = await mixer.mix(evaluated, budget=budget)
+        except Exception as exc:
+            raise SimulationError(f"分支调配失败: {exc}") from exc
+        return SimulationResult(
+            selection=selection,
+            branches=tuple(evaluated),
+            thread_ids=dict(branch_threads),
+        )
+
 
 async def run_subgraph(subgraph: Graph, parent_ctx: NodeContext) -> dict | None:
     """嵌套图节点包装执行（graph.py _subgraph_runner 调用）。
@@ -1692,7 +2027,14 @@ async def run_subgraph(subgraph: Graph, parent_ctx: NodeContext) -> dict | None:
                 registries=engine.options.registries,
                 plan_policy=engine.options.plan_policy,
                 max_plan_steps=engine.options.max_plan_steps,
+                plan_workflow=engine.options.plan_workflow,
                 parallel_concurrency=engine.options.parallel_concurrency,
+                # 推演配置随子图传播（嵌套决策点同口径：评估器/调配策略/
+                # 分支护栏与父层一致）
+                evaluator=engine.options.evaluator,
+                branch_mixer=engine.options.branch_mixer,
+                max_simulations=engine.options.max_simulations,
+                simulate_concurrency=engine.options.simulate_concurrency,
             ),
         )
         engine._subgraph_engines[id(subgraph)] = sub_engine

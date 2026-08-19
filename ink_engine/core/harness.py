@@ -233,7 +233,7 @@ class HarnessRegistry:
         max_result_chars: int = 100_000,
         trace_sink: Callable[..., Any] | None = None,
     ) -> ToolPipeline:
-        """构建 harness 声明式工具的完整执行流水线（M3 轻路径接线）。
+        """构建 harness 声明式工具的完整执行流水线（轻路径接线）。
 
         登记定义 + 装配 extractor（端点类型操作推导）与 executor（端点
         执行体分发）——声明式工具经此走全流水线（门禁 → 沙箱 → 守卫 →

@@ -1,0 +1,557 @@
+"""知识集封装层（用户集知识：种子注入 → 演化补丁链 → 分层晋升 → 可移植）。
+
+知识集 = 在 memory 原语与补丁链之上新建的封装层：规则条目 = 补丁链
+数据（演化 = 新补丁，回退 = 旧版本，分支 = 平行版本）；晋升 = 层级
+namespace 迁移；可移植 = 补丁链导出/导入（跨部署迁移复用）。
+
+层级（AgentScope 双层记忆 + 「毕业」机制）：
+- 工作级（work）：细粒度流水账（append-only，不丢事实）；
+- 项目级（project）：常用沉淀（领域上下文中的稳定积累）；
+- 用户级（user）：通用教训「毕业」晋升（供该用户全部会话复用）。
+
+来源留痕 + 可信度分级：知识条目携带 source（web/dialog/model/user）
+与 credibility（0-1）——防 web 注入污染知识集（来源分级：web <
+dialog < 用户确认；L1 安全扫描见闸门模块）。
+
+知识集注入 = 调配器思想复用：条目可转为 :class:`ContextSource`
+（type=层级、weight=可信度、relevance=任务相关度、ttl=时效）——
+:meth:`KnowledgeEntry.as_context_source` 提供适配，知识预算分配与
+逐源留痕由 :mod:`ink_engine.core.context` 承接（本模块零重复实现）。
+"""
+from __future__ import annotations
+
+import time
+import uuid
+from dataclasses import dataclass, field
+from typing import Any
+
+from .context import ContextSource
+from .exceptions import GraphDefinitionError
+from .logging import get_logger
+from .patch_chain import Patch, PatchChain, PatchOp
+from .storage import Storage
+
+logger = get_logger(__name__)
+
+# 知识层级（namespace 隔离语义：工作流水账 → 项目沉淀 → 用户毕业）
+LEVEL_WORK = "work"
+LEVEL_PROJECT = "project"
+LEVEL_USER = "user"
+_LEVELS = (LEVEL_WORK, LEVEL_PROJECT, LEVEL_USER)
+
+# 层级晋升方向（工作 → 项目 → 用户，顺序固定——先沉淀后压缩）
+_LEVEL_ORDER = {LEVEL_WORK: 0, LEVEL_PROJECT: 1, LEVEL_USER: 2}
+
+# 来源分级（web < dialog < model < user：可信度由使用方按此基准定值）
+SOURCE_WEB = "web"
+SOURCE_DIALOG = "dialog"
+SOURCE_MODEL = "model"
+SOURCE_USER = "user"
+
+# 知识条目 kind（规则/模板/权重/工具规则——集内能力的数据形态）
+KIND_RULE = "rule"
+KIND_TEMPLATE = "template"
+KIND_WEIGHT = "weight"
+KIND_TOOL_RULE = "tool_rule"
+
+# 存储集合前缀（knowledge:<user_id>）
+_COLLECTION_PREFIX = "knowledge:"
+# 补丁链存储键（用户集内唯一链）
+_CHAIN_KEY = "chain"
+
+
+def knowledge_collection(user_id: str) -> str:
+    """用户集存储集合名（多用户隔离：一用户一集，集内条目补丁链承载）。"""
+    return f"{_COLLECTION_PREFIX}{user_id}"
+
+
+@dataclass(frozen=True, slots=True)
+class KnowledgeEntry:
+    """一条知识条目（结构化数据，随补丁链版本化）。
+
+    Attributes:
+        id: 条目 id（集内唯一，晋升不换 id——身份跨层级稳定）。
+        level: 当前层级（work/project/user）。
+        kind: 条目类别（rule/template/weight/tool_rule）。
+        data: 结构化内容（规则 = Rule 声明数据；模板 = 编排模板数据）。
+        source: 来源（web/dialog/model/user——注入污染审计基准）。
+        credibility: 可信度（0-1；来源分级 + 验证闸门产物）。
+        title: 标题（检索/展示可读）。
+        tags: 标签（关键词检索索引）。
+        usage_count: 调用次数（复用检索/进化优先级依据）。
+        fail_count: 失败次数（进化工厂优先入队依据）。
+        archived: 归档标记（True = 移出活跃索引，可恢复——生命周期
+            = 归档不删除，见归档语义）。
+        created_at: 创建时间戳（epoch 秒）。
+        updated_at: 更新时间戳（epoch 秒）。
+    """
+
+    id: str
+    level: str
+    kind: str
+    data: dict[str, Any] = field(default_factory=dict)
+    source: str = SOURCE_MODEL
+    credibility: float = 0.5
+    title: str = ""
+    tags: tuple[str, ...] = ()
+    usage_count: int = 0
+    fail_count: int = 0
+    archived: bool = False
+    created_at: float = field(default_factory=time.time)
+    updated_at: float = field(default_factory=time.time)
+
+    def __post_init__(self) -> None:
+        if self.level not in _LEVELS:
+            raise GraphDefinitionError(f"知识条目层级非法: {self.level!r}（仅 {_LEVELS}）")
+        if not 0 <= self.credibility <= 1:
+            raise GraphDefinitionError(
+                f"知识条目 {self.id} 的可信度必须在 [0, 1] 内: {self.credibility}"
+            )
+
+    def to_dict(self) -> dict[str, Any]:
+        data: dict[str, Any] = {
+            "id": self.id,
+            "level": self.level,
+            "kind": self.kind,
+            "data": self.data,
+            "source": self.source,
+            "credibility": self.credibility,
+        }
+        if self.title:
+            data["title"] = self.title
+        if self.tags:
+            data["tags"] = list(self.tags)
+        if self.usage_count:
+            data["usage_count"] = self.usage_count
+        if self.fail_count:
+            data["fail_count"] = self.fail_count
+        if self.archived:
+            data["archived"] = True
+        data["created_at"] = self.created_at
+        data["updated_at"] = self.updated_at
+        return data
+
+    @classmethod
+    def from_dict(cls, data: dict[str, Any]) -> KnowledgeEntry:
+        if not isinstance(data, dict):
+            raise GraphDefinitionError(
+                f"知识条目声明非法: 期望 dict，收到 {type(data).__name__}"
+            )
+        entry_id = data.get("id")
+        level = data.get("level")
+        kind = data.get("kind")
+        if not entry_id or not isinstance(entry_id, str):
+            raise GraphDefinitionError("知识条目缺 id（字符串）")
+        if level not in _LEVELS:
+            raise GraphDefinitionError(f"知识条目层级非法: {level!r}（仅 {_LEVELS}）")
+        if not kind or not isinstance(kind, str):
+            raise GraphDefinitionError(f"知识条目 {entry_id} 缺 kind（字符串）")
+        raw_data = data.get("data")
+        if not isinstance(raw_data, dict):
+            raise GraphDefinitionError(
+                f"知识条目 {entry_id} 的 data 须为 dict，收到 {type(raw_data).__name__}"
+            )
+        tags = data.get("tags") or ()
+        if not isinstance(tags, (list, tuple)) or not all(
+            isinstance(tag, str) for tag in tags
+        ):
+            raise GraphDefinitionError(f"知识条目 {entry_id} 的 tags 须为字符串清单")
+        credibility = float(data.get("credibility", 0.5))
+        if not 0 <= credibility <= 1:
+            raise GraphDefinitionError(
+                f"知识条目 {entry_id} 的可信度必须在 [0, 1] 内: {credibility}"
+            )
+        return cls(
+            id=entry_id,
+            level=level,
+            kind=kind,
+            data=raw_data,
+            source=data.get("source", SOURCE_MODEL),
+            credibility=credibility,
+            title=data.get("title", ""),
+            tags=tuple(tags),
+            usage_count=int(data.get("usage_count", 0)),
+            fail_count=int(data.get("fail_count", 0)),
+            archived=bool(data.get("archived", False)),
+            created_at=float(data.get("created_at", time.time())),
+            updated_at=float(data.get("updated_at", time.time())),
+        )
+
+    def as_context_source(
+        self,
+        relevance: float = 0.5,
+        ttl: float | None = None,
+        budget_chars: int | None = None,
+    ) -> ContextSource:
+        """知识条目 → 上下文源（调配器接入：type=层级、weight=可信度）。
+
+        知识集注入 = 调配器思想复用：条目作为源进入预算分配（高可信
+        常驻、低可信按任务相关度裁剪），逐源留痕由调配器承接。标题/
+        内容组装由调配器格式化为块——本适配只做元数据映射。
+        """
+        if not 0 <= relevance <= 1:
+            raise ValueError(f"任务相关度必须在 [0, 1] 内: {relevance}")
+        return ContextSource(
+            type=self.level,
+            content="",  # 内容由知识集检索方组装（本适配器只映射元数据）
+            title=self.title or self.id,
+            weight=self.credibility,
+            relevance=relevance,
+            priority=self.usage_count,
+            ttl=ttl,
+            max_chars=budget_chars,
+            dedup_key=f"knowledge:{self.id}",
+            meta={
+                "entry_id": self.id,
+                "kind": self.kind,
+                "source": self.source,
+                "level": self.level,
+            },
+            created_at=self.updated_at,
+        )
+
+
+def _make_entry_id() -> str:
+    """新条目 id 生成（uuid 短前缀，集内唯一即可）。"""
+    return f"k-{uuid.uuid4().hex[:12]}"
+
+
+def _entry_path(entry_id: str) -> tuple[str, ...]:
+    """补丁链中条目所在路径（entries/<id>，层级经条目自身字段承载）。"""
+    return ("entries", entry_id)
+
+
+class KnowledgeSet:
+    """用户知识集：种子注入 + 演化补丁链 + 分层晋升 + 可移植。
+
+    数据形态：补丁链 base = {"entries": {id: 条目数据}}，演化 = 追加
+    补丁（新增 replace、修正 replace 同路径、删除 delete）——链即全部
+    变更历史（append-only 可回退）；快照 = assemble 产物（可导出）。
+
+    Attributes:
+        user_id: 用户集 id（存储隔离键）。
+        chain: 条目补丁链（None = 尚未落库；write 后初始化）。
+        storage: 存储服务（None = 纯内存集，不持久化）。
+    """
+
+    def __init__(
+        self,
+        user_id: str,
+        *,
+        storage: Storage | None = None,
+        chain: PatchChain | None = None,
+    ) -> None:
+        self.user_id = user_id
+        self.storage = storage
+        self.chain = chain or PatchChain()
+
+    # ── 条目读写 ──
+
+    def entries(
+        self, level: str | None = None, *, include_archived: bool = False
+    ) -> list[KnowledgeEntry]:
+        """当前快照的条目清单（按层级过滤可选；升序 = 插入序稳定）。
+
+        默认只返回活跃条目（归档 = 移出活跃索引，可恢复——生命周期
+        语义：低使用归档不删除）；``include_archived=True`` 取全量。
+        """
+        if level is not None and level not in _LEVELS:
+            raise GraphDefinitionError(f"未知知识层级: {level}")
+        snapshot = self.chain.assemble()
+        raw_entries = snapshot.get("entries") or {}
+        entries = [
+            KnowledgeEntry.from_dict(record)
+            for record in raw_entries.values()
+            if isinstance(record, dict)
+        ]
+        if not include_archived:
+            entries = [e for e in entries if not e.archived]
+        if level is not None:
+            entries = [e for e in entries if e.level == level]
+        return sorted(entries, key=lambda e: e.id)
+
+    def archived_entries(self, level: str | None = None) -> list[KnowledgeEntry]:
+        """归档条目清单（低使用移出活跃索引后的可恢复视图）。"""
+        return [
+            e for e in self.entries(level, include_archived=True) if e.archived
+        ]
+
+    def get(self, entry_id: str) -> KnowledgeEntry | None:
+        """按 id 取条目（不存在返回 None）。"""
+        snapshot = self.chain.assemble()
+        raw = (snapshot.get("entries") or {}).get(entry_id)
+        return KnowledgeEntry.from_dict(raw) if isinstance(raw, dict) else None
+
+    def add(self, entry: KnowledgeEntry) -> KnowledgeEntry:
+        """新增条目（补丁链 append-only：replace 到 entries/<id>）。
+
+        同 id 已存在 = 重复添加（防静默覆盖既有知识，应走 update 修正）。
+        """
+        if self.get(entry.id) is not None:
+            raise GraphDefinitionError(
+                f"知识条目已存在（修正请用 update）: {entry.id}"
+            )
+        self.chain.apply(
+            Patch(
+                op=PatchOp.REPLACE,
+                path=_entry_path(entry.id),
+                value=entry.to_dict(),
+            )
+        )
+        return entry
+
+    def update(self, entry_id: str, *, data: dict | None = None, **changes: Any) -> KnowledgeEntry:
+        """修正条目（精准补丁：只替换变更字段，不重写整条知识）。
+
+        与蒸馏「精准补丁（replace 语义，只改对应段落）」对齐：变更经
+        data（结构化字段级替换）与关键字参数（顶层字段）合并后，以单条
+        replace 落链——旧值仍在链历史中，回退可取。
+        """
+        existing = self.get(entry_id)
+        if existing is None:
+            raise GraphDefinitionError(f"知识条目不存在: {entry_id}")
+        updated = existing.to_dict()
+        if data is not None:
+            if not isinstance(data, dict):
+                raise GraphDefinitionError(
+                    f"知识条目 {entry_id} 的修正 data 须为 dict"
+                )
+            updated["data"] = {**existing.data, **data}
+        for key, value in changes.items():
+            if key in ("id", "created_at"):
+                raise GraphDefinitionError(
+                    f"知识条目 {entry_id} 的 {key} 为身份字段，不可修正"
+                )
+            updated[key] = value
+        updated["updated_at"] = time.time()
+        self.chain.apply(
+            Patch(op=PatchOp.REPLACE, path=_entry_path(entry_id), value=updated)
+        )
+        entry = KnowledgeEntry.from_dict(updated)
+        return entry
+
+    def remove(self, entry_id: str) -> bool:
+        """删除条目（补丁链 delete，幂等：不存在返回 False）。"""
+        if self.get(entry_id) is None:
+            return False
+        self.chain.apply(Patch(op=PatchOp.DELETE, path=_entry_path(entry_id)))
+        return True
+
+    # ── 归档/淘汰（生命周期 = 归档不删除：低使用移出活跃索引，可恢复）──
+
+    def archive(self, entry_id: str) -> KnowledgeEntry:
+        """归档条目：移出活跃索引（entries/search 不再命中），不删除。
+
+        与风险表「条目归档/淘汰机制（低使用 + 低引用/价值标记 → 归档
+        不删除）」对齐：归档是生命周期管理（防规则集膨胀拖慢每次组装），
+        数据与演化历史完整保留——:meth:`unarchive` 随时可恢复。
+        """
+        entry = self.get(entry_id)
+        if entry is None:
+            raise GraphDefinitionError(f"知识条目不存在: {entry_id}")
+        if entry.archived:
+            return entry
+        return self.update(entry_id, archived=True)
+
+    def unarchive(self, entry_id: str) -> KnowledgeEntry:
+        """恢复归档条目（重新进入活跃索引，内容与计数原样保留）。"""
+        entry = self.get(entry_id)
+        if entry is None:
+            raise GraphDefinitionError(f"知识条目不存在: {entry_id}")
+        if not entry.archived:
+            return entry
+        return self.update(entry_id, archived=False)
+
+    def record_usage(self, entry_id: str, *, failed: bool = False) -> None:
+        """调用留痕（usage_count/fail_count 累积——进化与调参的依据）。"""
+        existing = self.get(entry_id)
+        if existing is None:
+            return
+        changes: dict[str, Any] = {
+            "usage_count": existing.usage_count + 1,
+            "updated_at": time.time(),
+        }
+        if failed:
+            changes["fail_count"] = existing.fail_count + 1
+        self.update(entry_id, **changes)
+
+    # ── 分层晋升（先沉淀后压缩，顺序固定）──
+
+    def promote(self, entry_id: str, *, to_level: str | None = None) -> KnowledgeEntry:
+        """晋升：条目层级 namespace 迁移（工作 → 项目 → 用户，不跳级）。
+
+        晋升是知识「毕业」：通用教训升到用户级供全部会话复用。条目 id
+        跨层级稳定（身份不变，层级字段迁移）；补丁链 replace 单点落链。
+        """
+        existing = self.get(entry_id)
+        if existing is None:
+            raise GraphDefinitionError(f"知识条目不存在: {entry_id}")
+        current_rank = _LEVEL_ORDER[existing.level]
+        if to_level is None:
+            if current_rank >= len(_LEVELS) - 1:
+                raise GraphDefinitionError(
+                    f"知识条目 {entry_id} 已处于最高层级（{existing.level}）"
+                )
+            target = _LEVELS[current_rank + 1]
+        else:
+            target = to_level
+            if target not in _LEVELS:
+                raise GraphDefinitionError(f"未知知识层级: {target}")
+            if _LEVEL_ORDER[target] != current_rank + 1:
+                raise GraphDefinitionError(
+                    f"晋升只能逐级向上（工作→项目→用户）: {existing.level} → {target}"
+                )
+        return self.update(entry_id, level=target)
+
+    # ── 可移植（导出/导入：内容永远可带走）──
+
+    def export(self) -> dict[str, Any]:
+        """导出为补丁链数据（跨部署迁移复用；链 = 全部演化历史）。
+
+        导出内容 = 机制数据（补丁链），权属使用方——「可移植」是权属
+        边界的内置承诺：引擎管机制，内容永远可带走。
+        """
+        return self.chain.to_dict()
+
+    @classmethod
+    def from_export(
+        cls, user_id: str, data: dict[str, Any], *, storage: Storage | None = None
+    ) -> KnowledgeSet:
+        """从导出数据重建知识集（round-trip：export → import 无损还原）。
+
+        非法导出数据显式拒绝（缺 base/patches 形态），不静默建空集。
+        """
+        if not isinstance(data, dict) or not isinstance(data.get("base"), dict):
+            raise GraphDefinitionError("知识集导出数据非法（缺 base 结构）")
+        chain = PatchChain.from_dict(data)
+        return cls(user_id=user_id, storage=storage, chain=chain)
+
+    # ── 持久化（存储三后端共用：knowledge:<user> 集合）──
+
+    async def save(self) -> None:
+        """落库（补丁链写入存储；storage=None 时跳过——纯内存集）。"""
+        if self.storage is None:
+            return
+        await self.storage.put_record(
+            knowledge_collection(self.user_id), _CHAIN_KEY, self.export()
+        )
+
+    @classmethod
+    async def load(
+        cls, user_id: str, *, storage: Storage | None = None
+    ) -> KnowledgeSet:
+        """从存储读回（无记录 = 空集；存储不可用 = 空集——种子注入由
+        使用方在初始化时调用 :meth:`seed`）。"""
+        if storage is None:
+            return cls(user_id=user_id)
+        data = await storage.get_record(knowledge_collection(user_id), _CHAIN_KEY)
+        if data is None:
+            return cls(user_id=user_id, storage=storage)
+        return cls.from_export(user_id, data, storage=storage)
+
+    # ── 复用检索（复用优先于生成，防知识膨胀）──
+
+    def search(
+        self,
+        query: str,
+        *,
+        level: str | None = None,
+        kind: str | None = None,
+        limit: int = 5,
+        include_archived: bool = False,
+    ) -> list[KnowledgeEntry]:
+        """相似任务检索：标题/标签/数据文本的关键词命中 + 可信度排序。
+
+        检索 = 复用优先于生成的第一步（AgentFactory 教训）：相似任务先
+        检索已有条目，命中复用而非从头蒸馏。实现为关键词子串匹配（无
+        语义检索时仍可用的确定性基线；语义检索为可选扩展，可注入）。
+
+        检索作用域 = 活跃索引（归档条目默认不参与检索——归档语义 =
+        移出活跃索引；``include_archived=True`` 可显式检索归档条目）。
+        """
+        if not query or limit <= 0:
+            return []
+        needles = [token for token in query.lower().split() if token]
+        if not needles:
+            return []
+        hits: list[KnowledgeEntry] = []
+        for entry in self.entries(level, include_archived=include_archived):
+            if kind is not None and entry.kind != kind:
+                continue
+            haystack = " ".join(
+                [entry.title, *entry.tags, entry.id, str(entry.data)]
+            ).lower()
+            if all(needle in haystack for needle in needles):
+                hits.append(entry)
+        hits.sort(key=lambda e: (e.credibility, e.usage_count), reverse=True)
+        return hits[:limit]
+
+
+def seed_knowledge_set(
+    knowledge_set: KnowledgeSet, entries: list[KnowledgeEntry]
+) -> int:
+    """种子注入：批量写入最小可用种子（幂等——同 id 跳过，不覆盖演化）。
+
+    通用种子（引擎内置）与领域种子（随引擎随带）统一经此入口注入；
+    幂等性保证「种子只读基线 + 演化补丁链」的分层语义——重复初始化
+    不会覆盖使用中沉淀的知识。
+    """
+    injected = 0
+    for entry in entries:
+        if knowledge_set.get(entry.id) is None:
+            knowledge_set.add(entry)
+            injected += 1
+    return injected
+
+
+def build_knowledge_sources(
+    entries: list[KnowledgeEntry],
+    *,
+    relevance: float = 0.5,
+    ttl: float | None = None,
+    max_chars: int | None = None,
+) -> list[ContextSource]:
+    """知识条目 → 上下文源清单（知识注入 = 调配器思想复用的组装入口）。
+
+    检索命中条目经此转为 :class:`ContextSource`（type=层级、weight=
+    可信度、relevance=任务相关度、ttl=时效）——进入调配器的预算分配
+    （知识集不整包注入，按任务预算只组装相关条目）、跨源去重、逐源
+    留痕（模型可见皆留痕，防污染的审计基础）全由 context 模块承接。
+
+    Args:
+        entries: 检索命中的知识条目（复用优先于生成的产物）。
+        relevance: 任务相关度（0-1，本次任务的匹配度，预算分配次因子）。
+        ttl: 注入时效秒数（None = 不过期）。
+        max_chars: 单条目注入字符上限（None = 不设额外上限）。
+
+    Returns:
+        按可信度降序的源清单（调配器据此做预算分配与组装）。
+    """
+    sources = [
+        entry.as_context_source(
+            relevance=relevance, ttl=ttl, budget_chars=max_chars
+        )
+        for entry in entries
+    ]
+    sources.sort(key=lambda s: (s.weight, s.priority), reverse=True)
+    return sources
+
+
+__all__ = [
+    "KIND_RULE",
+    "KIND_TEMPLATE",
+    "KIND_TOOL_RULE",
+    "KIND_WEIGHT",
+    "LEVEL_PROJECT",
+    "LEVEL_USER",
+    "LEVEL_WORK",
+    "SOURCE_DIALOG",
+    "SOURCE_MODEL",
+    "SOURCE_USER",
+    "SOURCE_WEB",
+    "KnowledgeEntry",
+    "KnowledgeSet",
+    "build_knowledge_sources",
+    "knowledge_collection",
+    "seed_knowledge_set",
+]

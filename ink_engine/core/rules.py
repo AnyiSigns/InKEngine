@@ -23,8 +23,8 @@
   承接规则覆盖不到的深度启发式，钩子异常同样 fail-open）。
 
 违规严重度与类别沿用领域约定（error/warning + 领域 kind 标签），
-与 :mod:`ink_engine.novel_harness.world_state.validate` 的
-:class:`WorldIssue` 对齐——规则化路径产出的问题可直接进入既有审核卡。
+与领域种子包（``seeds/novel``）的规则集词汇对齐——规则化路径产出的
+问题可直接进入既有审核卡。
 """
 from __future__ import annotations
 

@@ -357,7 +357,7 @@ async def test_continue_chain_switches_graph(memory_storage):
     """continue_chain 换图放行：续链不重放事件，同 thread 换 harness 合法。
 
     回归 P1-3：修复前 _assert_graph_version 对续链链尾一并校验，
-    新图 + continue_chain 被硬拒（M3 同 thread 按任务切 harness 的核心
+    新图 + continue_chain 被硬拒（同 thread 按任务切 harness 的核心
     场景）；图版本校验只作用于 resume_from 真恢复。
     """
     engine1 = make_engine(_declarative_graph(), storage=memory_storage)

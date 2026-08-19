@@ -139,7 +139,7 @@ async def resolve_resume(
     if resume_from is not None:
         # 图版本校验只作用于真恢复（resume_from 锚点）：恢复 = 快照 +
         # 事件重放，图定义变了重放语义不保证；continue_chain 不重放事件，
-        # 状态通道继承（同 thread 换图是 M3 合法场景），不校验。
+        # 状态通道继承（同 thread 换图是合法场景），不校验。
         _assert_graph_version(last_checkpoint, graph_version)
     return ResumeResolution(
         state=current_state,

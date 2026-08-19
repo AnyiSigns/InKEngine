@@ -1,15 +1,24 @@
-"""世界状态写时校验的声明式规则集（核声明式化：校验语义 = 规则数据）。
+"""novel 领域种子的规则集数据与执行语义（纯数据 + 随带谓词注册）。
 
-世界状态写时校验（因果链/伏笔链/信息差/指纹禁忌）以**规则集数据**
-（谓词名 + 参数）承载，执行语义由注册谓词承接——「核不用写」：
-规则 = 数据（可版本化/回退/导出导入），机制 = 注册谓词 + 引擎。
-校验入口为 :func:`check_world_state_rules`（确定性规则 + 可选 LLM
-钩子的混合判定，fail-open）。
+领域种子 = 引擎随带的数据资产：「核不用写」的示范——领域校验语义 =
+规则数据（谓词名 + 参数），执行语义 = 注册谓词 + 引擎规则引擎。
+本模块承载：
 
-数据契约：规则集与样例库均为 JSON 兼容数据（随补丁链版本化/导出导入）；
-评估输入 = 校验入口构造的**视图**（:func:`_build_view`），规则按视图
-字段取值，运行时参数（输入文本/目标角色/事实清单）随视图携带——规则集
-保持静态，参数走数据。
+- **数据**：世界状态写时校验规则集（10 条声明式规则）与样例库
+  （14 个用例），随补丁链版本化/导出导入，供知识集条目封装
+  （``build_novel_seed_entries``）与 L2 效果评估（``novel_seed_fixtures``）
+  使用；
+- **执行语义**：领域谓词注册（7 个领域谓词，经
+  :func:`register_world_state_predicates` 注册进引擎
+  :class:`~ink_engine.core.rules.RuleTypeRegistry`）与校验入口
+  （:func:`check_world_state_rules`）——谓词是规则执行的随带执行件，
+  与引擎规则机制（core/rules）组合成完整校验能力。
+
+世界状态以 **JSON 兼容视图**（dict）承载：校验入口接受世界状态视图
+（与样例库用例同构），不再依赖领域模型对象——世界状态即数据。
+
+状态常量（叙事状态枚举）与问题常量（类别/严重度词汇）内联于此，
+与样例库/规则声明单源维护，防双源漂移。
 """
 from __future__ import annotations
 
@@ -24,24 +33,32 @@ from ink_engine.core.rules import (
     RuleSet,
     RuleTypeRegistry,
 )
-from ink_engine.novel_harness.narrative_state import (
-    NARRATIVE_STATUSES,
-    STATUS_RESOLVED,
-)
-
-from .issues import (
-    ISSUE_CAUSAL,
-    ISSUE_FINGERPRINT,
-    ISSUE_FORESHADOWING,
-    ISSUE_KNOWLEDGE_GAP,
-    SEVERITY_ERROR,
-    SEVERITY_WARNING,
-)
-from .models import WorldState, _key
 
 # 规则集/样例库名称（知识集内引用的稳定键）
 WORLD_STATE_RULE_SET = "novel.world_state"
 WORLD_STATE_FIXTURES = "novel.world_state.fixtures"
+
+# 叙事状态枚举（规则声明 in_enum 的取值域，单源常量）
+STATUS_SET = "set"
+STATUS_ADVANCING = "advancing"
+STATUS_RESOLVED = "resolved"
+STATUS_STALLED = "stalled"
+NARRATIVE_STATUSES: tuple[str, ...] = (
+    STATUS_SET,
+    STATUS_ADVANCING,
+    STATUS_RESOLVED,
+    STATUS_STALLED,
+)
+
+# 校验问题严重度（error=硬冲突需裁决 / warning=提示级）
+SEVERITY_ERROR = "error"
+SEVERITY_WARNING = "warning"
+
+# 校验问题类别（规则违规 kind 词汇，与领域问题模型对齐）
+ISSUE_KNOWLEDGE_GAP = "knowledge_gap"
+ISSUE_CAUSAL = "causal_chain"
+ISSUE_FORESHADOWING = "foreshadowing_chain"
+ISSUE_FINGERPRINT = "fingerprint"
 
 # 视图字段（校验入口与谓词共用的数据契约键）
 _VIEW_WORLD = "world"
@@ -51,6 +68,11 @@ _VIEW_FACT_IDS = "fact_ids"
 _VIEW_AT_CHAPTER = "at_chapter"
 _VIEW_CHARACTER_NAME = "character_name"
 _VIEW_FINGERPRINT = "fingerprint"
+
+
+def _key(value: str | int) -> str:
+    """实体 id 归一化为字典键（int/str 统一，防 1 与 "1" 双键漂移）。"""
+    return str(value)
 
 
 # -- 领域谓词（注册进 RuleTypeRegistry，与内置通用谓词并存） --------------------
@@ -99,7 +121,7 @@ def _pred_causal_event_order(
     """causal_event_order：后果不得早于原因（逻辑倒置检测）。
 
     因果边 cause → effect：effect 所在章节不得早于 cause 所在章节；
-    任一端事件缺失或章节未落 = 该边不参与判定（与既有校验语义一致）。
+    任一端事件缺失或章节未落 = 该边不参与判定（与既往校验语义一致）。
     """
     if not isinstance(target, list):
         return []
@@ -484,11 +506,11 @@ def build_world_state_rule_set() -> RuleSet:
     )
 
 
-# -- 校验入口（视图构造 + 规则评估） -------------------------------------------
+# -- 校验入口（视图构造 + 规则评估；世界状态 = JSON 兼容数据） ----------------
 
 
 def _build_view(
-    world: WorldState,
+    world: dict[str, Any],
     *,
     text: str = "",
     character_id: str | int | None = None,
@@ -501,7 +523,7 @@ def _build_view(
     视图字段名 = 规则 target_path/谓词取值的契约（_VIEW_* 常量）。
     """
     view: dict[str, Any] = {
-        _VIEW_WORLD: world.to_dict(),
+        _VIEW_WORLD: world,
         _VIEW_TEXT: text,
         _VIEW_CHARACTER_ID: str(_key(character_id)) if character_id is not None else None,
         _VIEW_FACT_IDS: [str(fact) for fact in (fact_ids or [])],
@@ -510,20 +532,18 @@ def _build_view(
         _VIEW_FINGERPRINT: None,
     }
     if character_id is not None:
-        character = world.get_character(character_id)
-        if character is not None:
-            view[_VIEW_CHARACTER_NAME] = character.name
-            if character.fingerprint is not None:
-                view[_VIEW_FINGERPRINT] = {
-                    "personality": dict(character.fingerprint.personality),
-                    "catchphrases": list(character.fingerprint.catchphrases),
-                    "taboos": list(character.fingerprint.taboos),
-                }
+        characters = world.get("characters") or {}
+        character = characters.get(_key(character_id))
+        if isinstance(character, dict):
+            view[_VIEW_CHARACTER_NAME] = character.get("name") or ""
+            fingerprint = character.get("fingerprint")
+            if isinstance(fingerprint, dict):
+                view[_VIEW_FINGERPRINT] = dict(fingerprint)
     return view
 
 
 async def check_world_state_rules(
-    world: WorldState,
+    world: dict[str, Any],
     *,
     text: str = "",
     character_id: str | int | None = None,
@@ -533,13 +553,15 @@ async def check_world_state_rules(
     registry: RuleTypeRegistry | None = None,
     llm_hook: Any = None,
 ) -> RuleCheckResult:
-    """声明式规则集的写时校验（世界状态校验的唯一入口）。
+    """声明式规则集的写时校验（世界状态校验入口）。
 
-    异步、可注入 LLM 钩子、fail-open：规则引擎跑声明式规则，钩子承接
-    规则覆盖不到的深度启发式；任一环节异常跳过不阻断。
+    世界状态以 JSON 兼容视图（dict）传入——与样例库用例同构，不依赖
+    领域模型对象。异步、可注入 LLM 钩子、fail-open：规则引擎跑声明式
+    规则，钩子承接规则覆盖不到的深度启发式；任一环节异常跳过不阻断。
 
     Args:
-        world: 世界状态图。
+        world: 世界状态视图（JSON 兼容：characters/knowledge/events/
+            causal_links/foreshadowings）。
         text: 待检正文（指纹禁忌输入）。
         character_id: 信息差/指纹校验的目标角色。
         fact_ids: 正文让角色显露出知情的事实清单（信息差输入）。
@@ -566,11 +588,11 @@ async def check_world_state_rules(
     return await checker.check(rule_set or build_world_state_rule_set(), view)
 
 
-# -- 样例库（parity 场景：新规则必须先让 fixture 全绿才允许落库） ----------------
+# -- 样例库（回归基线：新规则必须先让 fixture 全绿才允许落库） ------------------
 
 
 def _char(**kw: Any) -> dict[str, Any]:
-    """样例角色视图（与 WorldState.to_dict 的 characters 条目同构）。"""
+    """样例角色视图（与世界观视图 characters 条目同构）。"""
     base = {
         "character_id": "c1",
         "name": "林晚",
@@ -937,6 +959,10 @@ def build_world_state_fixtures() -> FixtureSet:
 
 
 __all__ = [
+    "NARRATIVE_STATUSES",
+    "SEVERITY_ERROR",
+    "SEVERITY_WARNING",
+    "STATUS_RESOLVED",
     "WORLD_STATE_FIXTURES",
     "WORLD_STATE_RULE_SET",
     "build_world_state_fixtures",

@@ -73,6 +73,11 @@ class ModelChain:
         self._create = create or create_llm
         self._llms: list[AsyncLLM | None] = [None] * len(self._configs)
 
+    @property
+    def configs(self) -> tuple[LLMConfig, ...]:
+        """链上模型配置（只读：装配结果观测/审计，不含运行态实例）。"""
+        return tuple(self._configs)
+
     # ------------------------------------------------------------------
     # 模型实例（惰性构建：链上备用模型只在需要时创建）
     # ------------------------------------------------------------------

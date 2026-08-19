@@ -5,7 +5,7 @@ build-backend = "setuptools.build_meta"
 [project]
 name = "ink_engine"
 version = "0.1.0"
-description = "InkEngine 墨引擎内核：TextForge 自研小说生成引擎（图执行/checkpoint 版本链/事件流/interrupt/补丁链）"
+description = "InkEngine 墨引擎：通用 agent 机制引擎内核（图执行/checkpoint 版本链/事件流/interrupt/补丁链/运行时重规划/决策点推演/知识集孵化/输入调配管线）"
 readme = "README.md"
 requires-python = ">=3.11"
 license = { text = "MIT" }

@@ -208,7 +208,7 @@ def test_build_tools_registers_definitions():
 
 
 async def test_build_pipeline_runs_declarative_tool(memory_storage):
-    """harness 声明式工具经 build_pipeline 走完整流水线（M3 轻路径接线）。
+    """harness 声明式工具经 build_pipeline 走完整流水线（轻路径接线）。
 
     回归 P1-1：修复前 harness 工具定义无法执行（to_spec 丢端点、无生产
     注册桥）；build_pipeline 装配 extractor（端点推导）+ executor（分发）

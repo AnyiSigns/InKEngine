@@ -1,4 +1,4 @@
-"""RoundSteps 回合步骤序列累积器单元测试（回合步骤协议）。
+﻿"""RoundSteps 回合步骤序列累积器单元测试（回合步骤协议）。
 
 覆盖：
 - user：回合边界幂等
@@ -13,7 +13,7 @@
 
 from __future__ import annotations
 
-from ink_engine.components.round_steps import RoundSteps
+from ink_engine.core.round_steps import RoundSteps
 
 
 def _steps_of(rs: RoundSteps) -> list[dict]:

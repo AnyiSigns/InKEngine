@@ -741,6 +741,130 @@ def test_plan_strict_policy_rejects_unrelated_steps():
     assert len(plan.steps) == 2
 
 
+# ── 工作流约束域（__plan__ 落在 WorkflowSpec 声明的可执行计划空间内）──
+
+
+def _workflow_spec(**kw):
+    """工作流规格构造（a → b → c 链 + 孤立节点 x）。"""
+    from ink_engine.core.workflow import WorkflowEdgeSpec, WorkflowNodeSpec, WorkflowSpec
+
+    nodes = (
+        WorkflowNodeSpec(id="a", type="t"),
+        WorkflowNodeSpec(id="b", type="t"),
+        WorkflowNodeSpec(id="c", type="t"),
+        WorkflowNodeSpec(id="x", type="t"),
+    )
+    edges = (
+        WorkflowEdgeSpec(source="a", target="b"),
+        WorkflowEdgeSpec(source="b", target="c"),
+    )
+    return WorkflowSpec(name="wf", nodes=nodes, edges=edges, **kw)
+
+
+def test_plan_loose_with_workflow_domain():
+    """宽松域：提供工作流时计划节点落在工作流节点集内（自由选序）。"""
+    graph = Graph(name="g", entry="a")
+    for name in ("a", "b", "c"):
+        graph.add_node(name, lambda ctx: {})
+    graph.add_exit("c")
+    plan = Plan.parse(
+        [{"nodes": ["c"]}, {"nodes": ["a"]}],
+        graph=graph,
+        workflow=_workflow_spec(),
+    )
+    assert len(plan.steps) == 2  # 节点都在工作流域内，宽松序通过
+
+
+def test_plan_workflow_domain_rejects_outside_node():
+    """工作流约束域：计划引用域外节点 → 建期拒绝（宽松域同样生效）。"""
+    from ink_engine.core.exceptions import GraphDefinitionError
+
+    graph = Graph(name="g", entry="a")
+    for name in ("a", "ghost"):
+        graph.add_node(name, lambda ctx: {})
+    graph.add_exit("ghost")
+    with pytest.raises(GraphDefinitionError, match="工作流约束域外"):
+        Plan.parse([{"nodes": ["ghost"]}], graph=graph, workflow=_workflow_spec())
+
+
+def test_plan_strict_with_workflow_domain():
+    """严格序 + 工作流：计划步骤须与工作流边关联（按序执行）。"""
+    graph = Graph(name="g", entry="a")
+    for name in ("a", "b", "c"):
+        graph.add_node(name, lambda ctx: {})
+    graph.add_exit("c")
+    plan = Plan.parse(
+        [{"nodes": ["a"]}, {"nodes": ["b"]}, {"nodes": ["c"]}],
+        graph=graph,
+        policy="strict",
+        workflow=_workflow_spec(),
+    )
+    assert len(plan.steps) == 3
+
+
+def test_plan_strict_workflow_rejects_unlinked_steps():
+    """严格序 + 工作流：计划步骤无工作流边关联 → 拒绝（图有边也不放行）。"""
+    from ink_engine.core.exceptions import GraphDefinitionError
+
+    graph = Graph(name="g", entry="a")
+    for name in ("a", "b", "c", "x"):
+        graph.add_node(name, lambda ctx: {})
+    graph.add_edge("a", "b")
+    graph.add_edge("b", "x")  # 图里有 a→b→x 的边，但工作流约束域没有
+    graph.add_exit("x")
+    with pytest.raises(GraphDefinitionError, match="工作流约束域"):
+        Plan.parse(
+            [{"nodes": ["a"]}, {"nodes": ["b"]}, {"nodes": ["x"]}],
+            graph=graph,
+            policy="strict",
+            workflow=_workflow_spec(),
+        )
+
+
+async def test_plan_workflow_domain_via_run_options(memory_storage):
+    """执行器接线：RunOptions.plan_workflow 传入，计划落在工作流约束域内。"""
+    from ink_engine.core.workflow import WorkflowEdgeSpec, WorkflowNodeSpec, WorkflowSpec
+
+    async def route(ctx):
+        return {PLAN_KEY: [{"nodes": ["b"]}]}
+
+    graph = Graph(name="g", entry="route")
+    graph.add_node("route", route)
+    graph.add_node("a", lambda ctx: {})
+    graph.add_node("b", lambda ctx: {"b": True})
+    graph.add_exit("b")
+
+    wf = WorkflowSpec(
+        name="wf",
+        nodes=(
+            WorkflowNodeSpec(id="route", type="t"),
+            WorkflowNodeSpec(id="b", type="t"),
+        ),
+        edges=(WorkflowEdgeSpec(source="route", target="b"),),
+    )
+    engine = make_engine(
+        graph,
+        plan_policy="strict",
+        plan_workflow=wf,
+    )
+    state, result = await _run(engine)
+    assert result.reason == TerminateReason.REPLY
+    assert state.get("b") is True
+
+    # 域外计划经执行器接线同样拒绝
+    async def route2(ctx):
+        return {PLAN_KEY: [{"nodes": ["x"]}]}
+
+    graph2 = Graph(name="g2", entry="route2")
+    graph2.add_node("route2", route2)
+    graph2.add_node("x", lambda ctx: {})
+    graph2.add_exit("x")
+    engine2 = make_engine(graph2, plan_workflow=wf)
+    _, result2 = await _run(engine2)
+    assert result2.reason == TerminateReason.ERROR
+    assert "工作流约束域外" in (result2.error or "")
+
+
 async def test_plan_disabled_rejects_plan(memory_storage):
     """max_plan_steps=0：计划禁用，节点返回 __plan__ 按节点失败终止。"""
     async def route(ctx):
@@ -827,7 +951,7 @@ async def test_plan_update_state_keeps_plan_snapshot(memory_storage):
     """外部状态补丁（update_state）不得丢链尾计划快照（回归 P1-9）。
 
     修复前 update_state 写入的新链尾 plan=None——弹卡注入路径下
-    计划版本化破口（M5 回溯锚点受影响）。
+    计划版本化破口（推演回溯锚点受影响）。
     """
     async def route(ctx):
         return {PLAN_KEY: [{"nodes": ["a"]}, {"nodes": ["b"]}]}

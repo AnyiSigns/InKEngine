@@ -2,7 +2,7 @@
 
 核声明式化的打分环节：评审打分/校验判定「维度权重阈值」全部配置化——
 配置即数据（:class:`ScoringConfig` 可序列化，随补丁链版本化/回退；
-M7 自适应调优直接改写权重/阈值数据，机制不变）。
+自适应调优直接改写权重/阈值数据，机制不变）。
 
 语义：
 
@@ -154,7 +154,7 @@ class WeightedScorer:
     3. 总分门槛：total >= overall_threshold 才 passed（未配置 = 恒通过）。
 
     配置即数据（:class:`ScoringConfig`）；权重/达标线随反馈学习演化
-    （M7 调参直接换配置数据，本机制无状态不变）。
+    （调参直接换配置数据，本机制无状态不变）。
     """
 
     def __init__(self, config: ScoringConfig) -> None:

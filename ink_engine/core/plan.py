@@ -153,8 +153,15 @@ class Plan:
         edge_registry: EdgeConditionRegistry | None = None,
         policy: str = "loose",
         max_steps: int = DEFAULT_MAX_PLAN_STEPS,
+        workflow: Any = None,
     ) -> Plan:
         """解析并校验节点返回的计划清单（建期即拒绝，不等到执行期）。
+
+        工作流约束域（workflow 提供时）：工作流 = 用户预编排的「可执行的
+        计划空间」（节点/边集合）——计划节点必须落在工作流节点集内
+        （宽松域 = 节点存在即可，agent 自由选序）；严格序 = 计划步骤须
+        与工作流边关联（按序执行）。不提供工作流时按图校验（节点存在
+        性/图边 strict 语义）。
 
         Args:
             data: 节点返回值携带的 ``__plan__`` 值（步骤列表；兼容
@@ -162,11 +169,15 @@ class Plan:
             graph: 当前图（节点存在性/严格序约束校验依据）。
             edge_registry: 条件注册表（条件门按名校验；含条件步骤时必须提供）。
             policy: 工作流约束策略——loose = 节点存在即可；strict =
-                步骤节点须与上一执行节点存在图边关联（计划落在图约束域内）。
+                步骤节点须与上一执行节点存在边关联（工作流边或图边，
+                计划落在约束域内）。
             max_steps: 计划步数上限（超限即拒绝，成本护栏）。
+            workflow: 工作流规格（WorkflowSpec；提供时计划节点必须落在
+                工作流节点集内，strict 按工作流边校验）。
 
         Raises:
-            GraphDefinitionError: 形态非法/节点不存在/条件未注册/步数超限。
+            GraphDefinitionError: 形态非法/节点不存在/条件未注册/步数超限/
+                计划节点不在工作流约束域内。
         """
         if isinstance(data, dict) and _STEPS_KEY in data:
             data = data[_STEPS_KEY]
@@ -178,6 +189,9 @@ class Plan:
             raise GraphDefinitionError("计划清单为空（无下一步编排）")
         if max_steps > 0 and len(data) > max_steps:
             raise GraphDefinitionError(f"计划步数超限: {len(data)} > {max_steps}")
+        workflow_node_ids = (
+            {node.id for node in workflow.nodes} if workflow is not None else None
+        )
         steps: list[PlanStep] = []
         for i, raw in enumerate(data):
             step = PlanStep.from_dict(raw)
@@ -206,13 +220,23 @@ class Plan:
                     )
                 continue
             if step.kind == KIND_NODES:
-                if step.nodes[0] not in graph.nodes:
+                if workflow_node_ids is not None:
+                    if step.nodes[0] not in workflow_node_ids:
+                        raise GraphDefinitionError(
+                            f"计划第 {i} 步引用工作流约束域外节点: {step.nodes[0]}"
+                        )
+                elif step.nodes[0] not in graph.nodes:
                     raise GraphDefinitionError(
                         f"计划第 {i} 步引用未知节点: {step.nodes[0]}"
                     )
             elif step.kind == KIND_PARALLEL:
                 for name in step.nodes:
-                    if name not in graph.nodes:
+                    if workflow_node_ids is not None:
+                        if name not in workflow_node_ids:
+                            raise GraphDefinitionError(
+                                f"计划第 {i} 步引用工作流约束域外节点: {name}"
+                            )
+                    elif name not in graph.nodes:
                         raise GraphDefinitionError(
                             f"计划第 {i} 步引用未知节点: {name}"
                         )
@@ -226,7 +250,7 @@ class Plan:
                 _validate_spawn_item(item, step_index=i)
             steps.append(step)
         if policy == "strict":
-            _validate_strict_order(steps, graph)
+            _validate_strict_order(steps, graph, workflow=workflow)
         elif policy != "loose":
             raise GraphDefinitionError(f"未知计划策略: {policy}")
         return cls(steps=tuple(steps))
@@ -256,28 +280,45 @@ def _validate_spawn_item(item: dict[str, Any], *, step_index: int) -> None:
             ) from exc
 
 
-def _validate_strict_order(steps: tuple[PlanStep, ...], graph: Graph) -> None:
-    """严格序约束：计划步节点须与上一执行节点存在图边关联。
+def _validate_strict_order(
+    steps: tuple[PlanStep, ...], graph: Graph, *, workflow: Any = None
+) -> None:
+    """严格序约束：计划步节点须与上一执行节点存在边关联。
 
-    只校验计划内部相邻节点的可达性（上一步末节点 → 下一步首节点/并行
-    组成员）；计划首步与当前执行节点的衔接由执行器校验（当前节点与
-    计划首节点之间须有边，或当前节点即计划首节点——同节点续跑）。
+    边域 = 工作流边（提供 WorkflowSpec 时，计划落在工作流约束域内）或
+    图边（未提供时）。只校验计划内部相邻节点的可达性（上一步末节点 →
+    下一步首节点/并行组成员）；计划首步与当前执行节点的衔接由执行器
+    校验（当前节点与计划首节点之间须有边，或当前节点即计划首节点——
+    同节点续跑）。
     """
+    workflow_edges: set[tuple[str, str]] | None = None
+    if workflow is not None:
+        workflow_edges = {(edge.source, edge.target) for edge in workflow.edges}
     for prev, nxt in pairwise(steps):
         prev_tails = _step_tails(prev)
         nxt_heads = _step_heads(nxt)
         if not prev_tails:
             continue
-        if not any(
-            any(
-                edge.target == head
-                for edge in graph.edges.get(tail, ())
+        if workflow_edges is not None:
+            linked = any(
+                (tail, head) in workflow_edges
+                for tail in prev_tails
+                for head in nxt_heads
             )
-            for tail in prev_tails
-            for head in nxt_heads
-        ):
+            domain = "工作流约束域"
+        else:
+            linked = any(
+                any(
+                    edge.target == head
+                    for edge in graph.edges.get(tail, ())
+                )
+                for tail in prev_tails
+                for head in nxt_heads
+            )
+            domain = "图约束"
+        if not linked:
             raise GraphDefinitionError(
-                f"严格序计划不满足图约束: {prev_tails} -> {nxt_heads} 无边关联"
+                f"严格序计划不满足{domain}: {prev_tails} -> {nxt_heads} 无边关联"
             )
 
 

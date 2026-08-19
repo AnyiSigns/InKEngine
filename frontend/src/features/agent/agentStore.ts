@@ -79,6 +79,12 @@ export interface AgentRagRefStep extends AgentStepBase {
   refs: Array<{ docName: string; snippet: string }>;
 }
 
+export interface AgentUnknownStep extends AgentStepBase {
+  /** 未注册事件类型的折叠兜底卡（渲染端按 token 展示原始 JSON） */
+  type: 'unknown';
+  token: string;
+}
+
 export interface AgentThinkingStep extends AgentStepBase {
   type: 'thinking';
   status?: 'running' | 'completed';
@@ -100,7 +106,8 @@ export type AgentStepMessage =
   | AgentCardStep
   | AgentThinkingStep
   | AgentPlanStep
-  | AgentRagRefStep;
+  | AgentRagRefStep
+  | AgentUnknownStep;
 
 export type { AgentStepMessage as AgentMessage };
 

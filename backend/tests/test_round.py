@@ -67,7 +67,10 @@ async def _assembled_app():
 async def _run_round(llm, *, storage=None):
     app = await _assembled_app()
     graph = build_forge_graph(
-        llm, app.introspection_pipeline, app.introspection_specs
+        llm,
+        app.introspection_pipeline,
+        app.introspection_specs,
+        storage=storage or app.storage,
     )
     engine = Engine(
         graph,
@@ -199,3 +202,40 @@ async def test_introspection_pipeline_denies_unknown_permission() -> None:
     bare = ToolSpec(name="inspect_graph", description="无权限声明", parameters={})
     result = await app.introspection_pipeline.execute(None, bare, {})
     assert result.ok is False
+
+
+async def test_round_injects_ui_context_note() -> None:
+    # 用户位置感知汇入：预置位置快照 + 交互事件 → 回合 system 消息携带摘要
+    app = await _assembled_app()
+    await app.storage.put_record(
+        "ui_context",
+        "latest",
+        {
+            "active_app": "forge",
+            "active_view": "chat",
+            "current_layout": "boot.panel",
+            "focused_component": "agent_input",
+            "selection": None,
+        },
+    )
+    await app.storage.put_record(
+        "ui_events",
+        "evt-1",
+        {"type": "click", "component": "agent_input", "detail": "", "ts": 1.0},
+    )
+    captured: list[list] = []
+
+    class CapturingLLM(FakeLLM):
+        async def astream(self, messages, *, tools=None, params=None):
+            captured.append(list(messages))
+            async for chunk in super().astream(messages, tools=tools, params=params):
+                yield chunk
+
+    transport, _app = await _run_round(CapturingLLM())
+    first_turn = captured[0]
+    system_text = "".join(m.content for m in first_turn if m.role == "system")
+    assert "## 用户位置感知（ui_context）" in system_text
+    assert "当前布局" in system_text or "current_layout" in system_text
+    assert "boot.panel" in system_text
+    assert "最近交互：click agent_input" in system_text
+    assert transport.events[-1].type == "end"

@@ -30,6 +30,7 @@ from ink_engine.core.llm.messages import (
     user,
 )
 from ink_engine.core.llm.tools import ToolSpec
+from ink_engine.core.storage import Storage
 from ink_engine.core.tool_pipeline import ToolPipeline
 
 logger = logging.getLogger(__name__)
@@ -38,6 +39,12 @@ MAX_TOOL_ROUNDS = 6
 REPLY_STEP_ID = "reply:1"
 TOOL_CATEGORY = "query"
 TOOL_RESULT_MAX_CHARS = 4000
+
+# ui_context 感知：机制通道集合名与汇入窗口（与上报端点对齐）
+_UI_CONTEXT_COLLECTION = "ui_context"
+_UI_EVENTS_COLLECTION = "ui_events"
+_UI_EVENTS_WINDOW = 5
+_UI_SELECTION_MAX_CHARS = 120
 
 SYSTEM_PROMPT = """你是 Forge——一个站在 AI 上的自进化产品。引擎是骨骼，种子是基因，\
 补丁链是成长史；本回合你可以调用观察工具看清自己的形态：
@@ -58,8 +65,13 @@ def build_forge_graph(
     tool_specs: Sequence[ToolSpec],
     *,
     system_prompt: str = SYSTEM_PROMPT,
+    storage: Storage | None = None,
 ) -> Graph:
-    """装配回合图（节点闭包持有 LLM/工具流水线，状态经图通道流转）。"""
+    """装配回合图（节点闭包持有 LLM/工具流水线，状态经图通道流转）。
+
+    storage 注入 ui_context 感知数据源（位置快照 + 交互事件摘要）；
+    缺省 None = 感知禁用（回合照常执行，感知是增强不是收紧）。
+    """
 
     specs_by_name = {spec.name: spec for spec in tool_specs}
 
@@ -72,7 +84,12 @@ def build_forge_graph(
             )
             return {"done": True}
 
-        messages: list[Message] = [system(system_prompt), user(input_text)]
+        messages: list[Message] = [system(system_prompt)]
+        if storage is not None:
+            ui_note = await _build_ui_context_note(storage)
+            if ui_note:
+                messages.append(system(ui_note))
+        messages.append(user(input_text))
         reply = ""
         tools = list(tool_specs)
         # 思考段计数：每段独立推理各占一张思考卡（thinking:1/thinking:2…），
@@ -165,6 +182,38 @@ def build_forge_graph(
     g.add_edge("agent", "finish")
     g.add_exit("finish")
     return g
+
+
+async def _build_ui_context_note(storage: Storage) -> str | None:
+    """用户位置感知汇入：最近位置快照 + 最近交互事件摘要。
+
+    感知环节的最小形态（调配器源注册随能力接入后并入预算/留痕）：
+    字段白名单已由上报端点把关，此处只读取组文。读取失败静默跳过
+    ——感知是增强不是收紧，不击穿回合。
+    """
+    try:
+        snapshot = await storage.get_record(_UI_CONTEXT_COLLECTION, "latest")
+        records = await storage.list_records(_UI_EVENTS_COLLECTION)
+    except Exception as exc:
+        logger.debug("ui_context 读取失败: %s", exc)
+        return None
+    lines: list[str] = []
+    if snapshot:
+        for key in ("active_app", "active_view", "current_layout", "focused_component"):
+            value = snapshot.get(key)
+            if value:
+                lines.append(f"- {key}：{value}")
+        selection = snapshot.get("selection")
+        if selection:
+            lines.append(f"- 选中内容：{selection[:_UI_SELECTION_MAX_CHARS]}")
+    for record in records[-_UI_EVENTS_WINDOW:]:
+        etype = record.get("type")
+        component = record.get("component")
+        if etype:
+            lines.append(f"- 最近交互：{etype} {component or ''}".rstrip())
+    if not lines:
+        return None
+    return "## 用户位置感知（ui_context）\n" + "\n".join(lines)
 
 
 async def execute_tool(ctx, pipeline, specs_by_name, messages, call) -> None:

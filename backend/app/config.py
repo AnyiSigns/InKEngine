@@ -17,6 +17,9 @@ TEXTFORGE_HOME = Path(
     os.environ.get("TEXTFORGE_HOME") or Path.home() / ".textforge"
 )
 
+# Web 壳监听端口（桌面壳与 CLI 附加模式共用，单一来源）
+WEB_PORT = 8010
+
 # 用户集（当前固定 default 单集；多集为后续服务化演进）
 SET_ID = "default"
 SETS_DIR = TEXTFORGE_HOME / "sets"

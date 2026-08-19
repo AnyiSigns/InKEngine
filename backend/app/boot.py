@@ -7,7 +7,7 @@
 ② 图注册表（GraphRegistries：节点类型/条件边注册位）
 ③ 种子注入（seed_user_set 通用种子恒注；领域种子后续接入）
 ④ harness 装配（forge 领域定义 → HarnessRegistry 注册 + HarnessRepository 落库）
-⑤ 事件类型注册表（尚未接入，留空位）
+⑤ 事件类型注册表（boot 内置类型登记 + 集内演化类型加载）+ 界面描述装配
 ⑥ 工具装配（内省元工具 → 只读流水线，权限门禁/审计/截断）
 ⑦ vetting 闸门（尚未接入，留空位）
 ⑧ LLM 挡位解析（settings 模型配置，未配置 = None 由路由端拦截引导）
@@ -23,7 +23,9 @@ from __future__ import annotations
 import asyncio
 import logging
 from dataclasses import dataclass
+from typing import Any
 
+from ink_engine.core.event_types import EventTypeRegistry, EventTypeSpec
 from ink_engine.core.executor import Engine, RunOptions
 from ink_engine.core.harness import (
     HarnessDefinition,
@@ -42,15 +44,92 @@ from ink_engine.core.registry import GraphRegistries
 from ink_engine.core.seeds import seed_user_set
 from ink_engine.core.storage import Storage
 from ink_engine.core.tool_pipeline import ToolPipeline
+from ink_engine.core.ui_schema import DEFAULT_BIND_CHANNELS, UISchemaValidator
 
 from . import config
 from . import engine as engine_store
 from . import secrets as secrets_store
+from .domains.files.mounts import MountRegistry
 from .round import build_forge_graph
 
 logger = logging.getLogger(__name__)
 
 FORGE_SET_USER = "default"
+
+# boot 内置事件类型登记：协议 v2 的建卡型事件 → 前端同名渲染组件。
+# 更新型事件（*_token/*_end）不独立建卡不登记；schema 缺省不校验
+# payload 形态（发射侧保持宽松——注册表是增强不是收紧）
+BOOT_EVENT_TYPES: tuple[EventTypeSpec, ...] = (
+    EventTypeSpec(
+        name="reply_token",
+        renderer="StreamingRow",
+        meta={"source": "boot", "description": "正文流式输出"},
+    ),
+    EventTypeSpec(
+        name="thinking_start",
+        renderer="ThinkingRow",
+        meta={"source": "boot", "description": "思考卡"},
+    ),
+    EventTypeSpec(
+        name="plan_start",
+        renderer="PlanRow",
+        meta={"source": "boot", "description": "规划卡"},
+    ),
+    EventTypeSpec(
+        name="tool_start",
+        renderer="ToolRow",
+        meta={"source": "boot", "description": "工具卡"},
+    ),
+    EventTypeSpec(
+        name="node_start",
+        renderer="NodeRow",
+        meta={"source": "boot", "description": "节点卡"},
+    ),
+    EventTypeSpec(
+        name="review_card",
+        renderer="ReviewCard",
+        meta={"source": "boot", "description": "审核卡"},
+    ),
+    EventTypeSpec(
+        name="suggestions",
+        renderer="TextRow",
+        meta={"source": "boot", "description": "建议卡"},
+    ),
+    EventTypeSpec(
+        name="error",
+        renderer="ErrorRow",
+        meta={"source": "boot", "description": "错误消息"},
+    ),
+)
+
+# boot 初始界面描述（对话面板 = 数据；渲染器消费布局树即时重渲）
+BOOT_UI_SPEC: dict[str, Any] = {
+    "name": "boot.panel",
+    "version": 1,
+    "root": {
+        "kind": "container",
+        "type": "column",
+        "children": [
+            {
+                "kind": "component",
+                "type": "message_list",
+                "bind": {"channel": "state", "path": "messages"},
+            },
+            {"kind": "component", "type": "agent_input"},
+        ],
+    },
+    "theme": {"bg": "#09090b", "fg": "#e4e4e7", "accent": "#f59e0b"},
+}
+
+# boot 渲染器组件白名单（界面描述只能引用已注册组件，JSON 不能执行任意代码）
+ALLOWED_UI_COMPONENTS: tuple[str, ...] = (
+    "column",
+    "message_list",
+    "agent_input",
+    "files_panel",
+)
+# 主题 token 白名单（布局只能使用已声明的主题键）
+ALLOWED_THEME_TOKENS: tuple[str, ...] = ("bg", "fg", "accent")
 
 
 @dataclass(slots=True)
@@ -62,6 +141,8 @@ class ForgeApp:
     knowledge_set: KnowledgeSet
     harness_registry: HarnessRegistry
     harness_repository: HarnessRepository
+    event_type_registry: EventTypeRegistry
+    mount_registry: MountRegistry
     introspection_service: IntrospectionService
     introspection_specs: list
     introspection_pipeline: ToolPipeline
@@ -99,6 +180,7 @@ class ForgeApp:
             llm,
             self.introspection_pipeline,
             self.introspection_specs,
+            storage=self.storage,
         )
         engine = Engine(
             graph,
@@ -106,6 +188,7 @@ class ForgeApp:
                 storage=self.storage,
                 registries=self.graph_registries,
                 transports=[],
+                system_events=self.event_type_registry.system_events(),
             ),
         )
         self.engine = engine
@@ -147,6 +230,31 @@ async def init_app() -> ForgeApp:
             forge_definition, note="开局装配：forge 自举领域基线"
         )
 
+        # ⑤ 事件类型注册表：boot 内置类型登记 + 集内演化类型加载。
+        # 内置基线优先，集内同名校验跳过（AI 改类型走补丁链版本化，
+        # 不覆盖基线）；脏记录跳过不阻断启动
+        event_registry = EventTypeRegistry(storage=storage, set_id=FORGE_SET_USER)
+        for spec in BOOT_EVENT_TYPES:
+            event_registry.register(spec)
+        await event_registry.load()
+
+        # 本地文件访问授权（挂载点模型）：AI 只见显式授权的挂载点，
+        # 磁盘其余部分 fail-closed 不可见；注册/撤销是用户动作
+        mount_registry = MountRegistry(storage)
+
+        # 界面描述装配：初始面板布局 = 数据，装配期经三层白名单校验
+        # （组件/绑定通道/主题 token）；基线损坏回落未定形，不击穿启动
+        ui_spec: dict[str, Any] | None = BOOT_UI_SPEC
+        ui_violations = UISchemaValidator().validate(
+            BOOT_UI_SPEC,
+            allowed_components=ALLOWED_UI_COMPONENTS,
+            allowed_channels=DEFAULT_BIND_CHANNELS,
+            allowed_theme_tokens=ALLOWED_THEME_TOKENS,
+        )
+        if ui_violations:
+            logger.warning("初始界面描述校验未通过，回落未定形: %s", ui_violations)
+            ui_spec = None
+
         # ⑥ 工具装配：内省元工具（只读流水线，fail-closed 权限门禁）
         specs = introspection_tool_specs()
         introspection_service = IntrospectionService(
@@ -154,7 +262,7 @@ async def init_app() -> ForgeApp:
                 knowledge_set=knowledge_set,
                 harness_registry=harness_registry,
                 tools=specs,
-                ui_spec=None,
+                ui_spec=ui_spec,
             )
         )
         pipeline = build_introspection_pipeline(introspection_service)
@@ -166,6 +274,8 @@ async def init_app() -> ForgeApp:
             knowledge_set=knowledge_set,
             harness_registry=harness_registry,
             harness_repository=harness_repository,
+            event_type_registry=event_registry,
+            mount_registry=mount_registry,
             introspection_service=introspection_service,
             introspection_specs=specs,
             introspection_pipeline=pipeline,

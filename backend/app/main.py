@@ -18,6 +18,8 @@ from fastapi.staticfiles import StaticFiles
 
 from . import boot, config
 from .domains.agent.router import router as agent_router
+from .domains.files.router import router as files_router
+from .domains.self.router import router as self_router
 from .domains.settings.models_router import router as models_router
 from .domains.settings.router import router as settings_router
 from .engine import close_engine
@@ -54,6 +56,8 @@ app.add_middleware(
 )
 
 app.include_router(agent_router, prefix="/api")
+app.include_router(self_router, prefix="/api")
+app.include_router(files_router, prefix="/api")
 app.include_router(settings_router, prefix="/api")
 app.include_router(models_router, prefix="/api")
 
@@ -69,7 +73,9 @@ if FRONTEND_DIST.is_dir():
 
 def main() -> None:
     """`uv run forge` 入口：单端口启动（集目录随 TEXTFORGE_HOME 迁移）。"""
-    uvicorn.run("app.main:app", host="127.0.0.1", port=8010, log_level="info")
+    uvicorn.run(
+        "app.main:app", host="127.0.0.1", port=config.WEB_PORT, log_level="info"
+    )
 
 
 if __name__ == "__main__":

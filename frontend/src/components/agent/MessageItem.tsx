@@ -1,6 +1,6 @@
 
 /**
- * 消息渲染（协议 v2）：type → 组件映射字典。
+ * 消息渲染（协议 v2）：type → 组件渲染注册表。
  *
  * 统一 StepRow 视觉语言：图标/状态点 + 短文案 + 右侧指示器（✓/✗/旋转/等待）。
  * - 思考/规划卡：运行中自动展开内容、完成自动收起（历史回放一律收起），
@@ -8,13 +8,15 @@
  * - 工具卡：单行状态（运行/等待审核/完成/失败），不展开；
  * - 节点卡：行内进度 N/M + 点击展开正文；
  * - 审核卡：ReviewCard（历史回放 live:false 只读）；
- * - 消息 hover 操作栏（右下角 icon 化）：复制 / 编辑（user 消息行内编辑原位展开）。
+ * - 消息 hover 操作栏（右下角 icon 化）：复制 / 编辑（user 消息行内编辑原位展开）；
+ * - 未注册事件类型走折叠兜底卡（显示原始 JSON，回放不崩）。
  */
 
 import { useEffect, useRef, useState } from 'react';
 import { ChevronDown, Copy, FileText, Pencil, X, Check } from 'lucide-react';
 import { cn } from '@/shared/cn';
 import { PROGRESS_STEP_LABELS } from '@/features/agent/agentEvents';
+import { FoldRow, registerMessageRenderer, messageRenderer } from '@/features/agent/eventRegistry';
 import { ReviewCard } from './ReviewCard';
 import type { AgentStepMessage } from '@/features/agent/agentStore';
 import ReactMarkdown from 'react-markdown';
@@ -496,11 +498,12 @@ function RagRefRow({ msg }: { msg: Extract<AgentStepMessage, { type: 'rag-ref' }
 }
 
 /**
- * type → 组件映射字典。
- * 未匹配（普通 user/assistant 文本）走兜底 TextRow。
+ * 内置事件渲染器注册（模块加载时执行一次）：协议 v2 建卡型事件 →
+ * 渲染组件。更新型事件（*_token/*_end）不独立建卡不注册；未匹配
+ * 类型走折叠兜底（FoldRow）。
  */
-const MESSAGE_RENDERERS: Record<string, (props: MessageItemProps) => React.ReactNode> = {
-  'review-card': (props) => {
+function registerBuiltinMessageRenderers(): void {
+  registerMessageRenderer('review-card', (props) => {
     const msg = props.msg;
     if (msg.type !== 'review-card' || !msg.token) return null;
     const reviewData = safeParseJSON(msg.token);
@@ -512,47 +515,57 @@ const MESSAGE_RENDERERS: Record<string, (props: MessageItemProps) => React.React
         disabled={msg.live === false}
       />
     ) : null;
-  },
-  tool: (props) => {
+  });
+  registerMessageRenderer('tool', (props) => {
     const msg = props.msg as Extract<AgentStepMessage, { type: 'tool' }>;
     return <ToolRow msg={msg} />;
-  },
-  node: (props) => {
+  });
+  registerMessageRenderer('node', (props) => {
     const msg = props.msg as Extract<AgentStepMessage, { type: 'node' }>;
     return <NodeRow msg={msg} />;
-  },
-  streaming: (props) => {
+  });
+  registerMessageRenderer('streaming', (props) => {
     const msg = props.msg as Extract<AgentStepMessage, { type: 'streaming' }>;
     return <StreamingRow msg={msg} agentStreaming={props.agentStreaming} />;
-  },
-  error: (props) => {
+  });
+  registerMessageRenderer('error', (props) => {
     const msg = props.msg as Extract<AgentStepMessage, { type: 'error' }>;
     return <ErrorRow msg={msg} onUnlockAndRetry={props.onUnlockAndRetry} />;
-  },
-  'rag-ref': (props) => {
+  });
+  registerMessageRenderer('rag-ref', (props) => {
     const msg = props.msg as Extract<AgentStepMessage, { type: 'rag-ref' }>;
     return <RagRefRow msg={msg} />;
-  },
-  thinking: (props) => {
+  });
+  registerMessageRenderer('thinking', (props) => {
     const msg = props.msg as Extract<AgentStepMessage, { type: 'thinking' }>;
     return <ThinkingRow msg={msg} />;
-  },
-  plan: (props) => {
+  });
+  registerMessageRenderer('plan', (props) => {
     const msg = props.msg as Extract<AgentStepMessage, { type: 'plan' }>;
     return <PlanRow msg={msg} />;
-  },
+  });
   // 旧 node-output 消息已迁移到节点卡片内部，不渲染（避免与节点卡片重复）。
-  'node-output': () => null,
-};
+  registerMessageRenderer('node-output', () => null);
+}
+
+registerBuiltinMessageRenderers();
 
 export function MessageItem(props: MessageItemProps) {
   const { msg } = props;
   // 稳定 key：消息插入时生成的 id 优先，历史映射消息用后端消息 id，均稳定；
   // key 放在外层容器，保证 React 按消息身份复用/卸载而非按 index。
   const stableKey = msg.id || `i-${props.index}`;
-  const renderer = MESSAGE_RENDERERS[msg.type || ''];
-  const content = renderer
-    ? renderer(props)
-    : <TextRow msg={msg} onCopy={props.onCopy} onInlineEditSend={props.onInlineEditSend} />;
+  const renderer = messageRenderer(msg.type || '');
+  let content: React.ReactNode;
+  if (renderer) {
+    content = renderer(props);
+  } else if ('token' in msg && msg.token) {
+    // 未注册事件类型：折叠兜底展示原始 JSON（回放不崩，可审计）
+    content = <FoldRow data={msg.token} />;
+  } else {
+    content = (
+      <TextRow msg={msg} onCopy={props.onCopy} onInlineEditSend={props.onInlineEditSend} />
+    );
+  }
   return <div key={stableKey}>{content}</div>;
 }

@@ -21,7 +21,7 @@ dependencies = [
 test = ["pytest>=8", "pytest-asyncio>=0.23", "ruff>=0.5"]
 
 [project.scripts]
-forge = "app.main:main"
+forge = "app.cli:main"
 
 # 本地引擎依赖：uv 专用源解析（editable 安装，随 ink_engine 源码即时生效）
 [tool.uv.sources]

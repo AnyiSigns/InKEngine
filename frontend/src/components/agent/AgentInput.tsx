@@ -11,9 +11,11 @@ interface AgentInputProps {
   streaming: boolean;
   onSend: (text: string) => void;
   onAbort: () => void;
+  /** 外部聚焦句柄（唤起协议：Cmd+K 聚焦输入框） */
+  inputRef?: React.RefObject<HTMLTextAreaElement>;
 }
 
-export function AgentInput({ streaming, onSend, onAbort }: AgentInputProps) {
+export function AgentInput({ streaming, onSend, onAbort, inputRef }: AgentInputProps) {
   const [draft, setDraft] = useState('');
   const textareaRef = useRef<HTMLTextAreaElement>(null);
 
@@ -29,7 +31,8 @@ export function AgentInput({ streaming, onSend, onAbort }: AgentInputProps) {
     <div className="border-t border-border/60 px-3 py-2.5">
       <div className="flex items-end gap-2 rounded-lg border border-border bg-card px-3 py-2 focus-within:border-foreground/30">
         <textarea
-          ref={textareaRef}
+          ref={inputRef ?? textareaRef}
+          data-ui="agent_input"
           value={draft}
           onChange={(e) => setDraft(e.target.value)}
           onKeyDown={(e) => {

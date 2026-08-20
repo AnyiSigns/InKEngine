@@ -4,9 +4,12 @@ from __future__ import annotations
 
 import json
 
+import pytest
+from ink_engine.core.exceptions import GraphDefinitionError
 from ink_engine.core.introspection import introspection_tool_specs
 
 from app import boot
+from app.self_tools import self_tool_specs
 
 
 async def test_init_app_assembles_all_steps() -> None:
@@ -47,8 +50,8 @@ async def test_introspection_pipeline_works_after_assembly() -> None:
     result = await app.introspection_pipeline.execute(None, spec, {})
     assert result.ok is True
     data = json.loads(result.output)
-    # 工具表 = 内省 5 + 自指演化 3（提案/应用/回退）
-    assert data["count"] == 8
+    # 工具表 = 内省元工具 + 自指演化元工具（数量随元工具清单变化）
+    assert data["count"] == len(introspection_tool_specs()) + len(self_tool_specs())
     assert data["harnesses"] == ["forge"]
 
 
@@ -57,11 +60,23 @@ async def test_self_pipeline_assembled() -> None:
     app = await boot.init_app()
     assert await app.self_pipeline.chain.current_version() == 1
     assert await app.self_pipeline.audit_log() == []
-    import pytest
-    from ink_engine.core.exceptions import GraphDefinitionError
-
     with pytest.raises(GraphDefinitionError, match="旁路写拦截"):
         await app.storage.put_record("ui", "boot.panel", {"spec": {}})
+
+
+async def test_boot_metatools_contract_bidirectional() -> None:
+    """boot 元工具契约双向闭合：清单所列 = 装配实际登记（无换壳失明）。
+
+    引擎侧单测保证 introspection ⊆ 清单；此处反向收紧——清单中的每个
+    工具都必须真实落地在「内省 + 自指」装配表中，泄漏（清单虚标）即
+    契约违反。
+    """
+    from ink_engine.seeds.boot import BOOT_METATOOLS
+
+    app = await boot.init_app()
+    assembled = {spec.name for spec in [*app.introspection_specs, *app.self_specs]}
+    missing = set(BOOT_METATOOLS) - assembled
+    assert not missing, f"BOOT_METATOOLS 虚标（未真实装配）: {missing}"
 
 
 async def test_vetting_assembled() -> None:

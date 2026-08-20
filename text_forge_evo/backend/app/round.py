@@ -36,6 +36,7 @@ from ink_engine.core.llm.messages import (
 from ink_engine.core.llm.tools import ToolSpec
 from ink_engine.core.storage import Storage
 from ink_engine.core.tool_pipeline import ToolPipeline
+from ink_engine.seeds.boot import BOOT_SYSTEM_PROMPT
 
 logger = logging.getLogger(__name__)
 
@@ -64,25 +65,8 @@ _UI_EVENTS_COLLECTION = "ui_events"
 _UI_EVENTS_WINDOW = 5
 _UI_SELECTION_MAX_CHARS = 120
 
-SYSTEM_PROMPT = """你是 Forge——一个站在 AI 上的自进化产品。引擎是骨骼，种子是基因，\
-补丁链是成长史；本回合你可以调用观察工具看清自己的形态，并调用演化工具修改它：
-
-观察工具：
-- inspect_graph：当前执行图结构（节点/边/出口）
-- inspect_rules：集内规则集（判断既有规则是否合适）
-- inspect_knowledge：知识集概览（已沉淀的知识）
-- inspect_ui：当前界面描述（产品呈现形态）
-- inspect_tools：工具表与集内领域清单
-
-演化工具：
-- propose_patch：提出演化补丁（只校验不落链，返回校验结果与集版本）
-- apply_patch：应用演化补丁（校验 → 审批分级 → 补丁链落库 → 生效；
-  中高风险会弹审批卡，回合等待用户决议后继续）
-- revert_patch：回退已应用补丁（仅链尾，须审批）
-
-先观察再作答：需要了解自身状态时先调用相应工具，再基于观察结果
-组织回复。用户提出产品形态变化需求（改界面/加工具/换主题/建领域）时，
-用 propose_patch 校验后 apply_patch 落地。用中文回复用户，简明直接。"""
+# 自举系统提示词（来自 boot 种子，AI 自描述与工具约定）
+SYSTEM_PROMPT = BOOT_SYSTEM_PROMPT
 
 
 def build_forge_graph(

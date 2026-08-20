@@ -1,21 +1,24 @@
-"""自指元工具：提案/应用/回退（观察之后的演化通道）。
+"""自指元工具：提案/应用/回退/领域生成（观察之后的演化通道）。
 
-观察工具让 AI 看清自己；这三把工具让 AI 合法地修改产品形态——
+观察工具让 AI 看清自己；这套工具让 AI 合法地修改产品形态——
 提案（propose_patch）校验形态与基准版本但不落链；应用（apply_patch）
 走完整管线（校验 → 审批分级 → 补丁链落库 → 活跃态生效），L1/L2
-挂卡等待用户决议；回退（revert_patch）仅允许链尾补丁，同样须审批。
+挂卡等待用户决议；回退（revert_patch）仅允许链尾补丁，同样须审批；
+领域生成（propose_domain_manifest）从高层描述产出新领域清单并提案。
 全部输出为 JSON 文本（工具流水线结果契约），供 AI 回合内决策。
 
-权限形态：``self:propose:*``（提案）/ ``self:apply:*``（应用与回退）——
-自定义权限域，经 PermissionGate fail-closed 判定；审批分级在应用
-管线内完成（approve_before_execute），工具流水线不做二次挂卡。
+权限形态：``self:propose:*``（提案/领域生成）/ ``self:apply:*``（应用
+与回退）——自定义权限域，经 PermissionGate fail-closed 判定；审批分级
+在应用管线内完成（approve_before_execute），工具流水线不做二次挂卡。
 """
 from __future__ import annotations
 
 import json
 from typing import Any
 
+from ink_engine.core.declarative_tools import DeclarativeToolSpec
 from ink_engine.core.exceptions import GraphDefinitionError
+from ink_engine.core.harness import build_minimal_harness
 from ink_engine.core.llm.tools import ToolSpec
 from ink_engine.core.permissions import PermissionGate
 from ink_engine.core.self_application import SelfApplicationPipeline
@@ -117,12 +120,56 @@ def self_tool_specs() -> list[ToolSpec]:
             },
             permissions=(PERMISSION_APPLY,),
         ),
+        ToolSpec(
+            name="propose_domain_manifest",
+            description="领域生成器：根据自然语言领域需求生成最小可用领域清单"
+                "（harness 定义）并提案——输入领域名/描述/关键词（可选工具与图），"
+                "校验后产出 harness 补丁；经审批落地后该领域即出现在能力清单，"
+                "可被路由激活（长出新领域 = 真实产品演化）",
+            parameters={
+                "type": "object",
+                "properties": {
+                    "domain_name": {
+                        "type": "string",
+                        "description": "领域名（harness 名，全局唯一，如 novel/code）",
+                    },
+                    "description": {
+                        "type": "string",
+                        "description": "领域能力描述（能力路由/用户可见说明）",
+                    },
+                    "keywords": {
+                        "type": "array",
+                        "items": {"type": "string"},
+                        "description": "能力关键词（路由匹配依据，如 写作/推演/润色）",
+                    },
+                    "tools": {
+                        "type": "array",
+                        "items": {"type": "object"},
+                        "description": "可选声明式工具定义清单（扩展领域能力）",
+                    },
+                    "graph": {
+                        "type": "object",
+                        "description": "可选图定义数据（领域工作流；省略 = 纯能力标记）",
+                    },
+                    "rationale": {
+                        "type": "string",
+                        "description": "提案理由（审批卡展示与审计留痕）",
+                    },
+                },
+                "required": ["domain_name", "description", "keywords"],
+            },
+            permissions=(PERMISSION_PROPOSE,),
+        ),
     ]
 
 
-def _operation_of(spec: ToolSpec) -> tuple[str, str]:
-    """操作提取：按工具名定动作（propose/apply/revert × patch 目标）。"""
-    if spec.name == "propose_patch":
+def operation_of(spec: ToolSpec) -> tuple[str, str]:
+    """操作提取：按工具名定动作（propose/apply × patch 目标）。
+
+    同时供自指流水线与宿主统一流水线接线使用（单一判定来源，
+    两条管线分类一致，避免新工具只在一侧登记造成的权限误判）。
+    """
+    if spec.name in ("propose_patch", "propose_domain_manifest"):
         return (_OPERATION_PROPOSE, "patch")
     if spec.name in ("apply_patch", "revert_patch"):
         return (_OPERATION_APPLY, "patch")
@@ -138,6 +185,8 @@ def make_self_executor(
         app = app_getter()
         if spec.name == "propose_patch":
             return await _propose(ctx, app, args)
+        if spec.name == "propose_domain_manifest":
+            return await _propose_domain(ctx, app, args)
         if spec.name == "apply_patch":
             return await _apply(ctx, app, args)
         if spec.name == "revert_patch":
@@ -162,7 +211,7 @@ def build_self_pipeline(
     """
     return ToolPipeline(
         gate=gate or PermissionGate(),
-        extractor=_operation_of,
+        extractor=operation_of,
         executor=make_self_executor(pipeline, app_getter),
         max_result_chars=_MAX_RESULT_CHARS,
     )
@@ -184,6 +233,89 @@ async def _propose(ctx: Any, app: Any, args: dict) -> str:
             "violations": [],
             "current_version": await app.self_pipeline.chain.current_version(),
             "hint": "调用 apply_patch 应用本提案（base_version = 上述 current_version）",
+        }
+    )
+
+
+async def _propose_domain(ctx: Any, app: Any, args: dict) -> str:
+    """领域生成器提案：从高层输入产出最小 harness 定义并校验提案。
+
+    仅做「生成 + 校验 + 提案」，不落链（落链走 apply_patch）；回显生成的
+    harness 定义，便于调用方（AI/apply_patch）复用——开局第一回合即可
+    据此长出领域清单。所有非法输入都产出自描述违规清单（结构化拒绝），
+    不在执行期以裸异常击穿。
+    """
+    violations: list[str] = []
+    name = args.get("domain_name")
+    if not isinstance(name, str) or not name.strip():
+        violations.append("domain_name 须为非空字符串")
+    description = args.get("description") or ""
+    if not isinstance(description, str):
+        violations.append("description 须为字符串")
+    keywords = args.get("keywords")
+    if (
+        not isinstance(keywords, (list, tuple))
+        or not keywords
+        or not all(isinstance(k, str) and k.strip() for k in keywords)
+    ):
+        violations.append("keywords 须为非空字符串清单")
+    tools = args.get("tools") or []
+    if not isinstance(tools, (list, tuple)):
+        violations.append("tools 须为声明式工具定义清单（数组）")
+    graph = args.get("graph")
+    if graph is not None and not isinstance(graph, dict):
+        violations.append("graph 须为图定义 dict")
+    if violations:
+        return _json({"ok": False, "violations": violations})
+
+    # 全局唯一承诺：与既有 harness 重名即拒绝（既有领域的修改走
+    # propose_patch 的 harness 通道，生成器不承担改名覆盖职责）
+    if app.harness_registry.get(name) is not None:
+        return _json(
+            {
+                "ok": False,
+                "violations": [
+                    f"领域名已存在（harness 名全局唯一）: {name}；"
+                    "修改既有领域请用 propose_patch（kind=harness）"
+                ],
+            }
+        )
+    # 工具清单逐项做声明式定义形态预校验：非法项转化为结构化违规，
+    # 生成器的产出保证可被 apply_patch 直接复用
+    for tool in tools:
+        try:
+            DeclarativeToolSpec.from_dict(tool)
+        except Exception as exc:
+            return _json({"ok": False, "violations": [f"工具定义非法: {exc}"]})
+    try:
+        definition = build_minimal_harness(
+            name=name,
+            description=description,
+            keywords=tuple(keywords),
+            tools=tuple(tools),
+            graph=graph,
+        )
+    except GraphDefinitionError as exc:
+        return _json({"ok": False, "violations": [str(exc)]})
+    proposal = SelfProposal(
+        kind=PatchKind.HARNESS,
+        payload={"definition": definition.to_dict()},
+        base_version=1,
+        rationale=str(args.get("rationale") or ""),
+        meta={"round_id": getattr(ctx, "round_id", None), "generator": "domain_manifest"},
+    )
+    violations = app.self_pipeline.validator.validate(proposal)
+    if violations:
+        return _json({"ok": False, "violations": violations})
+    return _json(
+        {
+            "ok": True,
+            "kind": proposal.kind.value,
+            "violations": [],
+            "current_version": await app.self_pipeline.chain.current_version(),
+            "definition": definition.to_dict(),
+            "hint": "调用 apply_patch（kind=harness, payload.definition=上述 definition）"
+            "应用本提案（base_version = 上述 current_version）",
         }
     )
 
@@ -242,7 +374,7 @@ def _build_proposal(ctx: Any, args: dict, *, base_version_hint: Any) -> SelfProp
     if not isinstance(payload, dict):
         raise GraphDefinitionError("payload 须为对象（dict）")
     if base_version_hint is None:
-        base_version = 1  # propose 阶段不校验基准（仅形态校验）
+        base_version = 1  # propose 侧不校验基准（仅形态校验）
     else:
         try:
             base_version = int(base_version_hint)
@@ -266,5 +398,6 @@ __all__ = [
     "PERMISSION_PROPOSE",
     "build_self_pipeline",
     "make_self_executor",
+    "operation_of",
     "self_tool_specs",
 ]

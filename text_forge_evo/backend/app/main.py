@@ -19,6 +19,7 @@ from fastapi.staticfiles import StaticFiles
 from . import boot, config
 from .domains.agent.router import router as agent_router
 from .domains.files.router import router as files_router
+from .domains.mcp.router import router as mcp_router
 from .domains.self.router import router as self_router
 from .domains.settings.models_router import router as models_router
 from .domains.settings.router import router as settings_router
@@ -58,6 +59,7 @@ app.add_middleware(
 app.include_router(agent_router, prefix="/api")
 app.include_router(self_router, prefix="/api")
 app.include_router(files_router, prefix="/api")
+app.include_router(mcp_router, prefix="/api")
 app.include_router(settings_router, prefix="/api")
 app.include_router(models_router, prefix="/api")
 

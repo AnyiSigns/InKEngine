@@ -18,6 +18,7 @@ harness = 用户集内的能力包（图定义数据 + 工具清单 + 能力描�
 """
 from __future__ import annotations
 
+import copy
 import time
 from collections.abc import Callable
 from dataclasses import dataclass, field
@@ -100,6 +101,60 @@ class HarnessDefinition:
             default_plan=data.get("default_plan"),
             meta=data.get("meta") or {},
         )
+
+
+def build_minimal_harness(
+    name: str,
+    description: str,
+    keywords: tuple[str, ...],
+    *,
+    tools: tuple[dict, ...] = (),
+    graph: dict | None = None,
+    default_plan: dict | None = None,
+    meta: dict | None = None,
+) -> HarnessDefinition:
+    """构造最小可用 harness 定义（领域生成器的起点形态）。
+
+    领域生成器从高层输入（领域名/描述/关键词）产出可被注册与路由激活
+    的 harness：name/description/keywords 为能力标识（路由匹配依据），
+    tools/graph 可选——最小领域可只含标识而无图无工具（纯能力标记，
+    route 仍可命中），后续经 harness 补丁叠加工具与图。返回对象交
+    HarnessRegistry.register 即走注册期校验（图/工具/模板非法在注册
+    期暴露，不在执行期静默降级）。
+
+    Raises:
+        GraphDefinitionError: 输入形态非法（空名/非字符串描述/空关键词/
+            工具非 dict/图与 meta 非 dict）——生成器产出即校验，语义
+            非法不在下游注册期才暴露。
+    """
+    if not isinstance(name, str) or not name.strip():
+        raise GraphDefinitionError("harness 名须为非空字符串")
+    if not isinstance(description, str):
+        raise GraphDefinitionError("harness 描述须为字符串")
+    if not isinstance(keywords, (list, tuple)) or not keywords or not all(
+        isinstance(item, str) and item.strip() for item in keywords
+    ):
+        raise GraphDefinitionError("harness 关键词须为非空字符串清单")
+    if not isinstance(tools, (list, tuple)) or not all(
+        isinstance(item, dict) for item in tools
+    ):
+        raise GraphDefinitionError("harness 工具须为声明式工具定义 dict 清单")
+    for optional_name, optional_value, kind in (
+        ("graph", graph, dict),
+        ("default_plan", default_plan, dict),
+        ("meta", meta, dict),
+    ):
+        if optional_value is not None and not isinstance(optional_value, kind):
+            raise GraphDefinitionError(f"harness {optional_name} 须为 {kind.__name__}")
+    return HarnessDefinition(
+        name=name,
+        description=description,
+        keywords=tuple(keywords),
+        tools=tuple(tools),
+        graph=copy.deepcopy(graph) if graph is not None else None,
+        default_plan=copy.deepcopy(default_plan) if default_plan is not None else None,
+        meta=copy.deepcopy(meta) if meta else {},
+    )
 
 
 def _keyword_match(task: str, definition: HarnessDefinition) -> float:
@@ -416,4 +471,5 @@ __all__ = [
     "HarnessRepository",
     "HarnessVersion",
     "_keyword_match",
+    "build_minimal_harness",
 ]

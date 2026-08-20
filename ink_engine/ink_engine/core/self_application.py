@@ -365,6 +365,11 @@ class SelfApplicationPipeline:
         self._on_reverted = on_reverted
         self._targets: dict[PatchKind, ApplyTarget] = {}
 
+    @property
+    def validator(self) -> ProposalValidator:
+        """按类型校验器（提案校验入口；propose 阶段复用，零冗余）。"""
+        return self._validator
+
     def register_target(self, kind: PatchKind, target: ApplyTarget) -> None:
         """注册活跃态应用目标（同名覆盖 = 宿主按配置装配）。"""
         self._targets[kind] = target

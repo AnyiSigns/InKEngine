@@ -45,11 +45,14 @@ class EndpointType(StrEnum):
     HTTP_FETCH: 网络抓取/调用（NetworkPolicy 域名白名单守卫）。
     PROCESS_EXEC: 受限子进程执行（ProcessSandbox 命令白名单守卫）。
     FILE_OPS: 文件读写删除（FileSandbox 根目录守卫）。
+    MCP: 外部 MCP server 工具调用（按 server_id 路由会话；挂载须经
+        vetting 闸门与审批，会话缺失 = fail-closed 拒绝）。
     """
 
     HTTP_FETCH = "http_fetch"
     PROCESS_EXEC = "process_exec"
     FILE_OPS = "file_ops"
+    MCP = "mcp"
 
 
 # 各端点类型的判定动作（endpoint_operation 的映射依据；与权限域动作对齐）
@@ -57,14 +60,18 @@ _ENDPOINT_ACTIONS: dict[EndpointType, tuple[str, ...]] = {
     EndpointType.HTTP_FETCH: ("connect",),
     EndpointType.PROCESS_EXEC: ("exec",),
     EndpointType.FILE_OPS: ("read", "write", "delete"),
+    EndpointType.MCP: ("call",),
 }
 
 # 端点配置的必填白名单键（沙箱自动接线的声明依据：process_exec 须声明
-# 命令白名单、file_ops 须声明根目录——缺失即定义期拒绝，fail-closed）
+# 命令白名单、file_ops 须声明根目录——缺失即定义期拒绝，fail-closed）。
+# MCP 端点无本地沙箱（调用经远程 server 会话转发），不自动构造守卫；
+# server_id 是路由密钥，定义期必须声明（会话缺失 = 分发处拒绝）
 _ENDPOINT_CONFIG_REQUIREMENTS: dict[EndpointType, tuple[str, ...]] = {
     EndpointType.HTTP_FETCH: (),
     EndpointType.PROCESS_EXEC: ("allowlist",),
     EndpointType.FILE_OPS: ("root",),
+    EndpointType.MCP: ("server_id",),
 }
 
 
@@ -80,7 +87,8 @@ class DeclarativeToolSpec:
             校验在定义期完成，不等到权限判定才暴露。
         endpoint: 端点类型（分发/守卫接线）。
         endpoint_config: 端点配置（http_fetch: method/base_url；process_exec:
-            命令白名单；file_ops: 操作白名单），随定义持久化。
+            命令白名单；file_ops: 操作白名单；mcp: server_id 路由密钥），
+            随定义持久化。
         meta: 扩展元数据（宿主语义，如来源 harness/经验蒸馏标记）。
     """
 
@@ -175,14 +183,16 @@ class DeclarativeToolSpec:
 
 
 def endpoint_operation(
-    endpoint: EndpointType, args: dict[str, Any]
+    endpoint: EndpointType, args: dict[str, Any], *, config: dict | None = None
 ) -> tuple[str, str] | None:
     """按端点类型从调用参数推导 (operation, target) 判定目标。
 
     - http_fetch: ("connect", url 的 host)；
     - process_exec: ("exec", 命令名)；
     - file_ops: (参数中声明的操作, 路径)，操作非法 = None（无法判定目标，
-      由流水线按缺判定目标拒绝）。
+       由流水线按缺判定目标拒绝）；
+    - mcp: ("call", server_id)，server_id 取自定义配置（缺省无法路由
+       时返回 None = fail-closed 拒绝）。
 
     供 ToolPipeline 的 extractor 接线：声明式工具经此推导后走权限门禁
     与沙箱守卫（判定目标与执行参数一致，防二次拼接逃逸）。
@@ -209,6 +219,9 @@ def endpoint_operation(
         if operation in _ENDPOINT_ACTIONS[endpoint] and isinstance(path, str):
             return (operation, path)
         return None
+    if endpoint is EndpointType.MCP:
+        server_id = (config or {}).get("server_id") if isinstance(config, dict) else None
+        return ("call", server_id) if isinstance(server_id, str) and server_id else None
     return None
 
 
@@ -271,6 +284,10 @@ class DeclarativeToolExecutors:
         """登记声明式定义（执行体分发反查的注册来源）。"""
         self._definitions[definition.name] = definition
 
+    def unregister_definition(self, name: str) -> None:
+        """注销声明式定义（卸载挂载工具/清理失效条目用；缺失静默）。"""
+        self._definitions.pop(name, None)
+
     @property
     def definitions(self) -> dict[str, DeclarativeToolSpec]:
         return dict(self._definitions)
@@ -291,7 +308,7 @@ def make_declarative_extractor(
         definition = executors.definitions.get(spec.name)
         if definition is None:
             return None
-        return endpoint_operation(definition.endpoint, args)
+        return endpoint_operation(definition.endpoint, args, config=definition.endpoint_config)
 
     return extract
 

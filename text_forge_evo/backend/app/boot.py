@@ -30,6 +30,7 @@ from typing import Any
 
 from ink_engine.core.assembly import SOURCE_EVIDENCE, AssemblyConfig
 from ink_engine.core.context import ContextSource
+from ink_engine.core.declarative_tools import EndpointType
 from ink_engine.core.event_types import EventTypeRegistry, EventTypeSpec
 from ink_engine.core.executor import Engine, RunOptions
 from ink_engine.core.harness import (
@@ -46,12 +47,17 @@ from ink_engine.core.introspection import (
 )
 from ink_engine.core.knowledge_set import KnowledgeSet
 from ink_engine.core.llm import AsyncLLM, create_llm
+from ink_engine.core.mcp_client import (
+    McpClientManager,
+    McpServerConfig,
+    McpToolImportError,
+    register_mcp_executor,
+)
 from ink_engine.core.permissions import PermissionGate
 from ink_engine.core.registry import GraphRegistries
 from ink_engine.core.retrieval import (
     SOURCE_MODEL,
     RetrievedChunk,
-    Retriever,
     RetrieverRegistry,
 )
 from ink_engine.core.seeds import seed_user_set
@@ -62,8 +68,13 @@ from ink_engine.core.self_application import (
 from ink_engine.core.self_proposal import PatchKind, ProposalValidator
 from ink_engine.core.storage import Storage
 from ink_engine.core.tool_pipeline import ToolPipeline
-from ink_engine.core.tool_vetting import ToolManifest, ToolSource, ToolVetting
+from ink_engine.core.tool_vetting import ToolVetting
 from ink_engine.core.ui_schema import DEFAULT_BIND_CHANNELS, UISchemaValidator
+from ink_engine.seeds.boot import (
+    BOOT_EVENT_TYPES,
+    BOOT_UI_SPEC,
+    boot_harness_definition,
+)
 
 from . import config
 from . import engine as engine_store
@@ -73,77 +84,13 @@ from .round import build_forge_graph
 from .self_tools import (
     build_self_pipeline,
     make_self_executor,
+    operation_of,
     self_tool_specs,
 )
 
 logger = logging.getLogger(__name__)
 
 FORGE_SET_USER = "default"
-
-# boot 内置事件类型登记：协议 v2 的建卡型事件 → 前端同名渲染组件。
-# 更新型事件（*_token/*_end）不独立建卡不登记；schema 缺省不校验
-# payload 形态（发射侧保持宽松——注册表是增强不是收紧）
-BOOT_EVENT_TYPES: tuple[EventTypeSpec, ...] = (
-    EventTypeSpec(
-        name="reply_token",
-        renderer="StreamingRow",
-        meta={"source": "boot", "description": "正文流式输出"},
-    ),
-    EventTypeSpec(
-        name="thinking_start",
-        renderer="ThinkingRow",
-        meta={"source": "boot", "description": "思考卡"},
-    ),
-    EventTypeSpec(
-        name="plan_start",
-        renderer="PlanRow",
-        meta={"source": "boot", "description": "规划卡"},
-    ),
-    EventTypeSpec(
-        name="tool_start",
-        renderer="ToolRow",
-        meta={"source": "boot", "description": "工具卡"},
-    ),
-    EventTypeSpec(
-        name="node_start",
-        renderer="NodeRow",
-        meta={"source": "boot", "description": "节点卡"},
-    ),
-    EventTypeSpec(
-        name="review_card",
-        renderer="ReviewCard",
-        meta={"source": "boot", "description": "审核卡"},
-    ),
-    EventTypeSpec(
-        name="suggestions",
-        renderer="TextRow",
-        meta={"source": "boot", "description": "建议卡"},
-    ),
-    EventTypeSpec(
-        name="error",
-        renderer="ErrorRow",
-        meta={"source": "boot", "description": "错误消息"},
-    ),
-)
-
-# boot 初始界面描述（对话面板 = 数据；渲染器消费布局树即时重渲）
-BOOT_UI_SPEC: dict[str, Any] = {
-    "name": "boot.panel",
-    "version": 1,
-    "root": {
-        "kind": "container",
-        "type": "column",
-        "children": [
-            {
-                "kind": "component",
-                "type": "message_list",
-                "bind": {"channel": "state", "path": "messages"},
-            },
-            {"kind": "component", "type": "agent_input"},
-        ],
-    },
-    "theme": {"bg": "#09090b", "fg": "#e4e4e7", "accent": "#f59e0b"},
-}
 
 # boot 渲染器组件白名单（界面描述只能引用已注册组件，JSON 不能执行任意代码）
 ALLOWED_UI_COMPONENTS: tuple[str, ...] = (
@@ -255,6 +202,8 @@ class ForgeApp:
     self_specs: list
     self_pipeline_runner: ToolPipeline
     retriever_registry: RetrieverRegistry
+    mcp_manager: McpClientManager
+    tool_vetting: ToolVetting
     tool_pipeline: ToolPipeline
     engine: Engine | None = None
     engine_llm: AsyncLLM | None = None
@@ -315,6 +264,84 @@ class ForgeApp:
         return engine
 
 
+    async def mount_mcp_server(
+        self, server_config: McpServerConfig, *, vetting: ToolVetting | None = None
+    ) -> list[str]:
+        """挂载外部 MCP server：连接 → 导入工具（经 vetting 闸门）→ 注册
+        进声明式执行体注册表与动态工具表（可被回合调用）。
+
+        连接/导入失败抛 :class:`McpToolImportError`（宿主转拒绝，不静默
+        降级），失败时已建立的连接回滚断开；vetting 闸门过滤被拒工具
+        （fail-closed，信任靠审查证据）。工具名冲突（跨 server 同名或与
+        集内既有工具同名）显式拒绝——静默覆盖会把调用路由到错误的
+        server。挂载成功后重建回合引擎：模型立即获得新工具清单，
+        ``inspect_tools`` 可见且下一回合即可调用。
+        """
+        stale_names = self.mcp_manager.imported_tools(server_config.id)
+        await self.mcp_manager.connect(server_config)
+        try:
+            specs = await self.mcp_manager.import_tools(
+                server_config.id, source=server_config.source, vetting=vetting or self.tool_vetting
+            )
+            self._guard_name_collisions(server_config.id, specs)
+            for name in stale_names:
+                self.harness_registry.declarative.unregister_definition(name)
+                self.tool_registry.pop(name, None)
+            for spec in specs:
+                self.harness_registry.declarative.register_definition(spec)
+                self.tool_registry[spec.name] = spec.to_spec()
+        except Exception:
+            await self.mcp_manager.disconnect(server_config.id)
+            raise
+        self.introspection_service._sources.tools = _collect_specs(self)
+        await self.rebuild_engine()
+        return [spec.name for spec in specs]
+
+    def _guard_name_collisions(
+        self, server_id: str, specs: list
+    ) -> None:
+        """挂载前的工具名冲突检查（fail-closed，防调用被静默改路由）。
+
+        冲突判定：同名定义已存在且来源不同——MCP 工具属于仍在连接的
+        另一个 server，或属于集内工具/补丁链工具（非 MCP 端点）。同一
+        server 的重挂载允许覆盖（自己的工具换版）；已断开 server 的
+        陈旧定义允许接管（会话已不存在，定义本身即将失效）。
+        """
+        active_servers = set(self.mcp_manager.list_servers())
+        conflicts: list[str] = []
+        for spec in specs:
+            existing = self.harness_registry.declarative.definitions.get(spec.name)
+            if existing is None:
+                continue
+            existing_server = existing.endpoint_config.get("server_id")
+            if existing_server == server_id:
+                continue
+            if existing.endpoint is not EndpointType.MCP or existing_server in active_servers:
+                conflicts.append(spec.name)
+        if conflicts:
+            raise McpToolImportError(
+                f"MCP 工具名冲突，挂载被拒: {', '.join(sorted(conflicts))}"
+                "（同名工具已属于其他 server 或集内工具；先卸载冲突源）"
+            )
+
+    async def unmount_mcp_server(self, server_id: str) -> bool:
+        """断开并注销外部 MCP server：会话关闭，该 server 导入的工具
+        定义同步撤出动态工具表并重建回合引擎——防连线断掉后模型仍被
+        提供注定失败的调用。卸下的工具不持久化（server 非集内资产），
+        重启不会复活。"""
+        imported_names = self.mcp_manager.imported_tools(server_id)
+        removed = await self.mcp_manager.disconnect(server_id)
+        if not removed:
+            return False
+        for name in imported_names:
+            self.harness_registry.declarative.unregister_definition(name)
+            self.tool_registry.pop(name, None)
+        self.introspection_service._sources.tools = _collect_specs(self)
+        await self.rebuild_engine()
+        return True
+
+
+# 装配产物进程级单例（幂等装配/关闭的共享句柄；None = 未装配）
 _app: ForgeApp | None = None
 _lock = asyncio.Lock()
 
@@ -339,24 +366,21 @@ async def init_app() -> ForgeApp:
         # ② 图注册表：节点类型/条件边注册位（回合图经此解析）
         registries = GraphRegistries()
 
-        # ③ 种子注入：通用种子恒注（幂等基线；领域种子后续接入）。
+        # ③ 种子注入：通用种子恒注（幂等基线）；boot 领域种子按名注入
+        # 自举系统提示词（注册契约在 ink_engine.seeds.boot 模块导入时
+        # 生效，此处按名解析消费，防注册与消费脱节）。
         # 种子注入属启动装配机制路径（注入非演化），经旁路写防护的
         # 全豁免上下文放行（knowledge 集合按前缀守卫，种子写入不受
         # 演化管线约束）
         knowledge_set = KnowledgeSet(FORGE_SET_USER, storage=storage)
         with storage.allow_mechanism():
-            seed_user_set(knowledge_set)
+            seed_user_set(knowledge_set, domain="boot")
 
         # ④ harness 装配：forge 领域定义（自指元能力集）注册 + 落库。
         # 装配期写入属机制内部路径，经显式豁免上下文放行
         harness_registry = HarnessRegistry(registries=registries)
         harness_repository = HarnessRepository(storage)
-        forge_definition = HarnessDefinition(
-            name="forge",
-            description="自举领域：观察/提案/应用的元能力集",
-            keywords=("观察", "内省", "演化", "自举"),
-            meta={"set_id": "default", "role": "self"},
-        )
+        forge_definition = boot_harness_definition()
         harness_registry.register(forge_definition)
         with storage.allow_mechanism("harness"):
             await harness_repository.save(
@@ -454,22 +478,28 @@ async def init_app() -> ForgeApp:
             if spec.name in introspection_names:
                 return ("read", "*")
             if spec.name in self_names:
-                return (
-                    "propose" if spec.name == "propose_patch" else "apply",
-                    "patch",
-                )
+                return operation_of(spec)
             definition = harness_registry.declarative.definitions.get(spec.name)
             if definition is None:
                 return None
             from ink_engine.core.declarative_tools import endpoint_operation
 
-            return endpoint_operation(definition.endpoint, args)
+            return endpoint_operation(
+                definition.endpoint, args, config=definition.endpoint_config
+            )
 
         tool_pipeline = ToolPipeline(
             gate=PermissionGate(),
             extractor=unified_extractor,
             executor=unified_executor,
         )
+
+        # MCP 客户端管理器：外部 server 会话生命周期 + 工具导入 + 分发
+        # 执行器注册（端点 = MCP 的声明式工具经统一流水线转发调用）。
+        # 离线降级时本管理器为空（无任何外挂载工具），内建工具集照常
+        # 可用——MCP 是增强不是收紧
+        mcp_manager = McpClientManager()
+        register_mcp_executor(harness_registry.declarative, mcp_manager)
 
         app = ForgeApp(
             storage=storage,
@@ -486,6 +516,8 @@ async def init_app() -> ForgeApp:
             self_specs=self_specs,
             self_pipeline_runner=self_pipeline_runner,
             retriever_registry=retriever_registry,
+            mcp_manager=mcp_manager,
+            tool_vetting=vetting,
             tool_pipeline=tool_pipeline,
         )
         _app = app
@@ -773,9 +805,15 @@ def _collect_specs(app: ForgeApp) -> list:
 
 
 async def close_app() -> None:
-    """关闭装配产物（进程退出前调用，幂等）。"""
+    """关闭装配产物（进程退出前调用，幂等）。
+
+    先回收外部连接（MCP 会话/子进程传输），再清空单例与引擎存储——
+    顺序保证优雅退出时远端会话被显式关闭而非随进程悬断。
+    """
     global _app
     async with _lock:
+        if _app is not None:
+            await _app.mcp_manager.close_all()
         _app = None
         await engine_store.close_engine()
 

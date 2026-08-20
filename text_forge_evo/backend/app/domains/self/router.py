@@ -18,6 +18,8 @@ import uuid
 from fastapi import APIRouter, HTTPException
 
 from ... import boot
+from ...evolution import EvolutionMetrics
+from ...seed_store import list_seeds
 
 router = APIRouter(prefix="/self", tags=["self"])
 
@@ -169,3 +171,30 @@ async def pending_approval(thread_id: str) -> dict:
             "thread_id": thread_id,
         }
     }
+
+
+@router.get("/evolution")
+async def evolution() -> dict:
+    """演化收敛指标 + 冷却状态 + 孵化留痕（孵化面板数据源，只读）。
+
+    指标从集演化审计聚合（回退率/采纳比的口径见 EvolutionMetrics）；
+    冷却/冻结状态为收敛管制的实时视图；孵化留痕为最近沉淀日志
+    （权威审计载体仍为 set_audit，此处只是可读摘要）。
+    """
+    app = await boot.init_app()
+    records = await app.self_pipeline.audit_log(limit=1000)
+    metrics = EvolutionMetrics.compute(records)
+    cooldowns = await app.convergence.list_states() if app.convergence else []
+    incubation = await app.incubator.recent_log(limit=20) if app.incubator else []
+    return {
+        "metrics": metrics,
+        "cooldowns": cooldowns,
+        "incubation": incubation,
+    }
+
+
+@router.get("/seeds")
+async def seeds() -> dict:
+    """本地种子仓库清单（沉淀池视图：集内成熟形态的导出物，只读）。"""
+    await boot.init_app()
+    return {"seeds": list_seeds()}

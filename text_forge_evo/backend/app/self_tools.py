@@ -1,29 +1,38 @@
-"""自指元工具：提案/应用/回退/领域生成（观察之后的演化通道）。
+"""自指元工具：提案/应用/回退/领域生成/种子沉淀（观察之后的演化通道）。
 
 观察工具让 AI 看清自己；这套工具让 AI 合法地修改产品形态——
 提案（propose_patch）校验形态与基准版本但不落链；应用（apply_patch）
 走完整管线（校验 → 审批分级 → 补丁链落库 → 活跃态生效），L1/L2
 挂卡等待用户决议；回退（revert_patch）仅允许链尾补丁，同样须审批；
-领域生成（propose_domain_manifest）从高层描述产出新领域清单并提案。
-全部输出为 JSON 文本（工具流水线结果契约），供 AI 回合内决策。
-
-权限形态：``self:propose:*``（提案/领域生成）/ ``self:apply:*``（应用
-与回退）——自定义权限域，经 PermissionGate fail-closed 判定；审批分级
-在应用管线内完成（approve_before_execute），工具流水线不做二次挂卡。
+领域生成（propose_domain_manifest）从高层描述产出新领域清单并提案
+（生成时参考孵化沉淀的相关经验，复用优先于从头发明）；种子沉淀
+（harvest_seed）把集内成熟领域形态经校验导出为共享种子包（审批
+确认后落盘）。全部输出为 JSON 文本（工具流水线结果契约）。
 """
 from __future__ import annotations
 
 import json
 from typing import Any
 
+from ink_engine.core.approval import (
+    DECISION_ACCEPT,
+    DECISION_AUTO,
+    DefaultInterruptPolicy,
+    approve_before_execute,
+)
 from ink_engine.core.declarative_tools import DeclarativeToolSpec
 from ink_engine.core.exceptions import GraphDefinitionError
 from ink_engine.core.harness import build_minimal_harness
 from ink_engine.core.llm.tools import ToolSpec
 from ink_engine.core.permissions import PermissionGate
-from ink_engine.core.self_application import SelfApplicationPipeline
+from ink_engine.core.self_application import (
+    APPROVAL_TIMEOUT_SECONDS,
+    SelfApplicationPipeline,
+)
 from ink_engine.core.self_proposal import PatchKind, SelfProposal
 from ink_engine.core.tool_pipeline import ToolPipeline
+
+from .seed_store import harvest_package, save_seed_package
 
 # 权限声明（自定义域：self:propose / self:apply）
 PERMISSION_PROPOSE = "self:propose:*"
@@ -36,6 +45,8 @@ _OPERATION_REVERT = "revert"
 
 # 结果文本截断上限（与引擎工具流水线默认一致）
 _MAX_RESULT_CHARS = 100_000
+# 收敛管制评估的审计扫描上限（指标聚合有界，防大链拖慢工具调用）
+_AUDIT_SCAN_LIMIT = 1000
 
 
 def self_tool_specs() -> list[ToolSpec]:
@@ -125,7 +136,8 @@ def self_tool_specs() -> list[ToolSpec]:
             description="领域生成器：根据自然语言领域需求生成最小可用领域清单"
                 "（harness 定义）并提案——输入领域名/描述/关键词（可选工具与图），"
                 "校验后产出 harness 补丁；经审批落地后该领域即出现在能力清单，"
-                "可被路由激活（长出新领域 = 真实产品演化）",
+                "可被路由激活（长出新领域 = 真实产品演化）。生成时参考孵化沉淀"
+                "的相关经验（related_knowledge 字段），复用优先于从头发明",
             parameters={
                 "type": "object",
                 "properties": {
@@ -160,6 +172,28 @@ def self_tool_specs() -> list[ToolSpec]:
             },
             permissions=(PERMISSION_PROPOSE,),
         ),
+        ToolSpec(
+            name="harvest_seed",
+            description="种子沉淀：把集内成熟领域形态（harness+领域知识）经校验"
+                "（质量/通用性/去隐私）导出为共享种子包，写入本地种子仓库"
+                "（~/.textforge/seeds/）——审批确认后落盘，供其它集/新机器开局"
+                "注入即得（活的变死：沉淀为可复用基线）",
+            parameters={
+                "type": "object",
+                "properties": {
+                    "domain_name": {
+                        "type": "string",
+                        "description": "要沉淀的领域名（须已注册 harness）",
+                    },
+                    "note": {
+                        "type": "string",
+                        "description": "沉淀说明（用途/版本语义，入包留痕）",
+                    },
+                },
+                "required": ["domain_name"],
+            },
+            permissions=(PERMISSION_APPLY,),
+        ),
     ]
 
 
@@ -171,7 +205,7 @@ def operation_of(spec: ToolSpec) -> tuple[str, str]:
     """
     if spec.name in ("propose_patch", "propose_domain_manifest"):
         return (_OPERATION_PROPOSE, "patch")
-    if spec.name in ("apply_patch", "revert_patch"):
+    if spec.name in ("apply_patch", "revert_patch", "harvest_seed"):
         return (_OPERATION_APPLY, "patch")
     return (_OPERATION_PROPOSE, "patch")
 
@@ -191,6 +225,8 @@ def make_self_executor(
             return await _apply(ctx, app, args)
         if spec.name == "revert_patch":
             return await _revert(ctx, app, args)
+        if spec.name == "harvest_seed":
+            return await _harvest_seed(ctx, app, args)
         raise GraphDefinitionError(f"未知自指工具: {spec.name}")
 
     return executor
@@ -307,6 +343,22 @@ async def _propose_domain(ctx: Any, app: Any, args: dict) -> str:
     violations = app.self_pipeline.validator.validate(proposal)
     if violations:
         return _json({"ok": False, "violations": violations})
+    # 孵化反馈：检索集内相关沉淀（复用优先于从头发明）——生成器把
+    # 既有经验显式交给调用方参考，高质量版领域清单 = 孵化反馈的载体。
+    # 查询只取描述 + 关键词（领域名是全新词，不可能命中既有条目）
+    related = app.knowledge_set.search(
+        " ".join((description, *keywords)), limit=5
+    )
+    related_knowledge = [
+        {
+            "id": entry.id,
+            "title": entry.title,
+            "kind": entry.kind,
+            "source": entry.source,
+            "credibility": entry.credibility,
+        }
+        for entry in related
+    ]
     return _json(
         {
             "ok": True,
@@ -314,18 +366,40 @@ async def _propose_domain(ctx: Any, app: Any, args: dict) -> str:
             "violations": [],
             "current_version": await app.self_pipeline.chain.current_version(),
             "definition": definition.to_dict(),
-            "hint": "调用 apply_patch（kind=harness, payload.definition=上述 definition）"
+            "related_knowledge": related_knowledge,
+            "hint": "生成时参考 related_knowledge（孵化沉淀的相关经验），复用优先于"
+            "从头发明；调用 apply_patch（kind=harness, payload.definition=上述 definition）"
             "应用本提案（base_version = 上述 current_version）",
         }
     )
 
 
 async def _apply(ctx: Any, app: Any, args: dict) -> str:
-    """应用提案：完整管线（校验 → 审批分级 → 落链 → 活跃态生效）。"""
+    """应用提案：完整管线（校验 → 审批分级 → 落链 → 活跃态生效）。
+
+    前置收敛管制：目标处于冷却/冻结期（同目标反复折腾 = 演化不收敛）
+    时显式拒绝并说明恢复时间——AI 据此换策略，而非反复撞闸。
+    """
     try:
         proposal = _build_proposal(ctx, args, base_version_hint=args.get("base_version"))
     except GraphDefinitionError as exc:
         return _json({"ok": False, "status": "invalid", "reason": str(exc)})
+    if app.convergence is not None:
+        records = await app.self_pipeline.audit_log(limit=_AUDIT_SCAN_LIMIT)
+        assessment = await app.convergence.assess(
+            records, proposal.kind.value, proposal.payload
+        )
+        if not assessment.allowed:
+            return _json(
+                {
+                    "ok": False,
+                    "status": assessment.state,
+                    "target": assessment.target,
+                    "reason": assessment.reason,
+                    "hint": "冷却/冻结是演化收敛管制（用户行为证据触发）：请换方向"
+                    "或等恢复期后再试",
+                }
+            )
     outcome = await app.self_pipeline.apply(ctx, proposal)
     return _json(
         {
@@ -357,6 +431,62 @@ async def _revert(ctx: Any, app: Any, args: dict) -> str:
             "decision": outcome.decision,
             "patch_id": patch_id,
             "reason": outcome.reason,
+        }
+    )
+
+
+async def _harvest_seed(ctx: Any, app: Any, args: dict) -> str:
+    """种子沉淀：组装种子包（校验）→ 审批挂卡 → 落盘种子仓库。
+
+    沉淀是形态外流（导出到集外种子仓库），与集内演化同走审批闸门
+    （全挂起策略 + 超时兜底，不直过）；vetting 未通过 = 结构化拒绝
+    不落盘（隐私 fail-closed）。审批拒绝 = 只留痕（审计在集外无载体，
+    沉淀动作本身是用户确认过的，拒绝即不产出）。
+    """
+    name = args.get("domain_name")
+    if not isinstance(name, str) or not name.strip():
+        return _json({"ok": False, "violations": ["domain_name 须为非空字符串"]})
+    try:
+        package = harvest_package(app, name, note=str(args.get("note") or ""))
+    except GraphDefinitionError as exc:
+        return _json({"ok": False, "violations": [str(exc)]})
+    approval = await approve_before_execute(
+        ctx,
+        f"harvest:{name}",
+        {
+            "tool": "harvest_seed",
+            "domain": name,
+            "summary": f"沉淀领域种子 {name}",
+            "note": args.get("note") or "",
+        },
+        payload={
+            "review_type": "gate",
+            "node_id": "harvest_seed",
+            "node_label": f"沉淀种子 {name}",
+            "output_preview": (
+                f"导出 {name} 领域形态为共享种子包（"
+                f"{len(package['knowledge'])} 条领域知识）"
+            ),
+            "vetting": package["vetting"],
+        },
+        policy=DefaultInterruptPolicy(timeout=APPROVAL_TIMEOUT_SECONDS),
+    )
+    if approval.decision not in (DECISION_ACCEPT, DECISION_AUTO):
+        return _json(
+            {
+                "ok": False,
+                "status": approval.decision,
+                "reason": approval.reason or "种子沉淀未获批准",
+            }
+        )
+    path = await save_seed_package(package)
+    return _json(
+        {
+            "ok": True,
+            "seed": name,
+            "path": str(path),
+            "knowledge_count": len(package["knowledge"]),
+            "vetting": package["vetting"],
         }
     )
 

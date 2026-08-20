@@ -25,6 +25,7 @@ def textforge_home(tmp_path, monkeypatch):
     monkeypatch.setattr(config, "LOCK_PATH", set_dir / ".forge.lock")
     monkeypatch.setattr(config, "SETTINGS_PATH", set_dir / "settings.json")
     monkeypatch.setattr(config, "SECRETS_DB_PATH", home / "secrets.db")
+    monkeypatch.setattr(config, "SEEDS_DIR", home / "seeds")
     return home
 
 

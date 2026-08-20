@@ -87,6 +87,12 @@ async def _run_local_round(app: boot.ForgeApp, text: str) -> int:
         round_id=round_id,
         transports=[transport],
     )
+    # 回合尾孵化：消费本回合行为信号（游标增量幂等；失败只留痕）
+    if app.incubator is not None:
+        try:
+            await app.incubator.run_cycle()
+        except Exception as exc:
+            print(f"[孵化] 沉淀循环失败（忽略）: {exc}")
     return 0
 
 

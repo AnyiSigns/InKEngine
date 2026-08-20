@@ -28,6 +28,8 @@ SET_DIR = SETS_DIR / SET_ID
 ENGINE_DB_PATH = SET_DIR / "engine.db"
 LOCK_PATH = SET_DIR / ".forge.lock"
 SETTINGS_PATH = SET_DIR / "settings.json"
+# 种子仓库（本地共享沉淀池：集内成熟形态 harvested 导出，新集注入即得）
+SEEDS_DIR = TEXTFORGE_HOME / "seeds"
 # 凭据独立于集内数据通道（与 lite 同根：同机同用户共享模型密钥）
 SECRETS_DB_PATH = TEXTFORGE_HOME / "secrets.db"
 

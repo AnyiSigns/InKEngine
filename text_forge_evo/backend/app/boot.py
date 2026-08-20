@@ -62,6 +62,7 @@ from ink_engine.core.retrieval import (
 )
 from ink_engine.core.seeds import seed_user_set
 from ink_engine.core.self_application import (
+    ApprovalLevel,
     GuardedStorage,
     SelfApplicationPipeline,
 )
@@ -80,6 +81,7 @@ from . import config
 from . import engine as engine_store
 from . import secrets as secrets_store
 from .domains.files.mounts import MountRegistry
+from .evolution import ConvergencePolicy, IncubatorService
 from .round import build_forge_graph
 from .self_tools import (
     build_self_pipeline,
@@ -207,6 +209,11 @@ class ForgeApp:
     tool_pipeline: ToolPipeline
     engine: Engine | None = None
     engine_llm: AsyncLLM | None = None
+    # 孵化闭环：行为信号 → 蒸馏 → 知识沉淀（E 期宿主侧串联）
+    incubator: IncubatorService | None = None
+    incubation_pipeline: SelfApplicationPipeline | None = None
+    # 演化收敛管制：同目标反复折腾 → 冷却/冻结（提案前置闸门）
+    convergence: ConvergencePolicy | None = None
 
     # 宿主动态工具表（演化挂载的工具定义，重启从链组装恢复；每次
     # 重建回合图时与内省/自指工具合并进工具清单）
@@ -346,6 +353,21 @@ _app: ForgeApp | None = None
 _lock = asyncio.Lock()
 
 
+async def _on_reverted_trigger(patch_id: int, reason: str) -> None:
+    """回退后的孵化触发（回退 = 修正信号源：立即消费一次）。
+
+    回退回调由应用管线调用（链已回退、审计已留痕）；孵化循环自身
+    幂等（游标增量），失败只留痕不击穿回退流程。
+    """
+    app = _app
+    if app is None or app.incubator is None:
+        return
+    try:
+        await app.incubator.run_cycle()
+    except Exception as exc:
+        logger.warning("回退后孵化循环失败（忽略）: %s", exc)
+
+
 async def init_app() -> ForgeApp:
     """装配 Forge 实例（幂等；进程生命周期内只装配一次）。"""
     global _app
@@ -414,11 +436,23 @@ async def init_app() -> ForgeApp:
             graph_registries=registries,
         )
         vetting = ToolVetting(static_hooks=_build_static_hooks())
+        # 主应用管线（AI 提案走 L0/L1/L2 分级审批）；回退后触发孵化
+        # 循环（回退 = 行为信号源：立即消费一次，不等回合尾）
         self_pipeline = SelfApplicationPipeline(
             storage,
             validator=validator,
             guard_token=guard_token,
             l2_vetting=_build_l2_vetting(vetting),
+            on_reverted=_on_reverted_trigger,
+        )
+        # 孵化管线（E 期）：知识沉淀的专用通道——确定性蒸馏产物 +
+        # 来源留痕 + 可回退，分级 L0 直过（宿主可整表替换分级），与
+        # AI 提案共用同一链与校验器，写入路径仍唯一（应用管线）
+        incubation_pipeline = SelfApplicationPipeline(
+            storage,
+            validator=validator,
+            approval_levels={PatchKind.KNOWLEDGE: ApprovalLevel.L0},
+            guard_token=guard_token,
         )
 
         # 界面描述装配：初始面板布局 = 数据，装配期经三层白名单校验
@@ -521,6 +555,10 @@ async def init_app() -> ForgeApp:
             tool_pipeline=tool_pipeline,
         )
         _app = app
+        app.incubation_pipeline = incubation_pipeline
+        # 孵化闭环与收敛管制装配（宿主侧串联：信号源=审计/回退/审批）
+        app.convergence = ConvergencePolicy(storage)
+        app.incubator = IncubatorService(lambda: app, incubation_pipeline)
 
         # 从链恢复集状态（重启/回退后活跃态一致）：界面描述、harness、
         # 动态工具、事件类型（基线优先，不覆盖 boot 内置类型）
@@ -684,7 +722,11 @@ class _HarnessTarget:
 
 
 async def _register_apply_targets(app: ForgeApp) -> None:
-    """应用管线目标注册：补丁落链后按类型生效到运行时。"""
+    """应用管线目标注册：补丁落链后按类型生效到运行时。
+
+    孵化管线与主管线共用同一知识活跃态目标（同一条集补丁链，写入
+    路径唯一）；孵化自身不注册其它目标——只沉淀知识，不碰形态。
+    """
     pipeline = app.self_pipeline
     pipeline.register_target(PatchKind.UI, _UITarget(app))
     pipeline.register_target(PatchKind.THEME, _ThemeTarget(app))
@@ -692,6 +734,10 @@ async def _register_apply_targets(app: ForgeApp) -> None:
     pipeline.register_target(PatchKind.EVENT_TYPE, _EventTypeTarget(app))
     pipeline.register_target(PatchKind.HARNESS, _HarnessTarget(app))
     pipeline.register_target(PatchKind.KNOWLEDGE, _KnowledgeTarget(app))
+    if app.incubation_pipeline is not None:
+        app.incubation_pipeline.register_target(
+            PatchKind.KNOWLEDGE, _KnowledgeTarget(app)
+        )
 
 
 async def _restore_set_state(app: ForgeApp) -> None:

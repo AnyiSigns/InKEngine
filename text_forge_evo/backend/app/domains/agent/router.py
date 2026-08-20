@@ -72,6 +72,15 @@ async def chat(req: ChatRequest):
                 EngineEvent(type="error", payload={"message": f"回合执行失败: {exc}"})
             )
         finally:
+            # 回合尾孵化：消费本回合产生的行为信号（审计增量消费，
+            # 幂等；失败只留痕不阻断流关闭）
+            if app.incubator is not None:
+                try:
+                    await app.incubator.run_cycle()
+                except asyncio.CancelledError:
+                    pass
+                except Exception as exc:
+                    logger.warning("回合尾孵化循环失败（忽略）: %s", exc)
             bridge.close()
 
     task = asyncio.create_task(runner())
@@ -153,6 +162,14 @@ async def resume(req: ResumeRequest):
                 EngineEvent(type="error", payload={"message": f"决议重入失败: {exc}"})
             )
         finally:
+            # 决议注入也属行为信号：回合尾统一消费（游标增量幂等）
+            if app.incubator is not None:
+                try:
+                    await app.incubator.run_cycle()
+                except asyncio.CancelledError:
+                    pass
+                except Exception as exc:
+                    logger.warning("决议重入后孵化循环失败（忽略）: %s", exc)
             bridge.close()
 
     task = asyncio.create_task(runner())

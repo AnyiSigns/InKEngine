@@ -12,6 +12,7 @@ import json
 
 from ink_engine.core.events import CollectorTransport
 from ink_engine.core.executor import Engine, RunOptions
+from ink_engine.core.knowledge_set import KIND_RULE, KnowledgeEntry
 from ink_engine.core.llm import LLMChunk
 from ink_engine.core.llm.messages import ToolCallDelta
 
@@ -205,3 +206,48 @@ async def test_domain_generator_rejects_invalid_inputs() -> None:
         {"domain_name": "   ", "description": "d", "keywords": ["x"]},
         "domain_name",
     )
+
+
+async def test_domain_generator_surfaces_incubated_knowledge() -> None:
+    """领域生成器把孵化沉淀的相关经验显式交给调用方（复用优先）。
+
+    集内先有领域相关沉淀（孵化产物/演化知识），生成器检索后随提案
+    返回 related_knowledge——高质量版领域清单 = 参考既有经验生成，
+    而非凭空发明（E 期孵化反馈的载体）。
+    """
+    app = await boot.init_app()
+    app.knowledge_set.add(
+        KnowledgeEntry(
+            id="incubate.demo",
+            level="work",
+            kind=KIND_RULE,
+            data={"rule": {"message": "小说写作领域经验：先定世界观再动笔", "context": {}}},
+            source="user",
+            credibility=0.9,
+            title="小说写作经验",
+            tags=("小说写作", "novel"),
+        )
+    )
+    with app.storage.allow_mechanism():
+        await app.knowledge_set.save()
+    executor = make_self_executor(app.self_pipeline, lambda: app)
+    ctx = type("Ctx", (), {"round_id": "r-rel"})()
+    gen_spec = next(
+        s for s in self_tool_specs() if s.name == "propose_domain_manifest"
+    )
+    out = json.loads(
+        await executor(
+            ctx,
+            gen_spec,
+            {
+                "domain_name": "novel_writer",
+                "description": "小说写作",
+                "keywords": ["小说写作", "novel"],
+            },
+            None,
+        )
+    )
+    assert out["ok"] is True
+    related = out["related_knowledge"]
+    assert any(item["id"] == "incubate.demo" for item in related)
+    assert "复用优先" in out["hint"]

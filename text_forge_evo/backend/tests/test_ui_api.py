@@ -58,6 +58,27 @@ def test_knowledge_endpoint_returns_seeded_entries(client) -> None:
     assert "seed.general.weights.default" in ids
 
 
+def test_evolution_endpoint_returns_metrics_and_states(client) -> None:
+    # 演化指标 + 冷却状态 + 孵化留痕（孵化面板的收敛观测视图）
+    resp = client.get("/api/self/evolution")
+    assert resp.status_code == 200
+    data = resp.json()
+    metrics = data["metrics"]
+    assert metrics["proposals"] >= 0
+    assert metrics["adoption_ratio"] >= 0
+    assert metrics["revert_rate"] >= 0
+    assert isinstance(metrics["targets"], list)
+    assert isinstance(data["cooldowns"], list)
+    assert isinstance(data["incubation"], list)
+
+
+def test_seeds_endpoint_lists_local_store(client) -> None:
+    # 种子沉淀池视图（只读清单；空仓库返回空清单不报错）
+    resp = client.get("/api/self/seeds")
+    assert resp.status_code == 200
+    assert isinstance(resp.json()["seeds"], list)
+
+
 def test_ui_context_report_whitelist(client) -> None:
     # 字段白名单：未知字段显式拒绝（防伪造上下文）
     resp = client.post(

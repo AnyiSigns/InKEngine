@@ -48,8 +48,10 @@ logger = get_logger(__name__)
 # 集补丁链持久化集合与键（通用存储服务 records 通道）
 _SET_CHAIN_COLLECTION = "set_patch_chain"
 _SET_CHAIN_KEY = "chain"
-# 集演化审计集合（append-only，历史不撒谎）
+# 集演化审计集合（append-only，历史不撒谎）；公开别名供宿主观察侧
+# （孵化/指标聚合）复用同一权威集合名，避免双份字面量漂移
 _SET_AUDIT_COLLECTION = "set_audit"
+SET_AUDIT_COLLECTION = _SET_AUDIT_COLLECTION
 
 # 补丁落点路径段（集状态结构：组装产物即集状态全量）
 _PATH_UI = "ui"
@@ -61,6 +63,20 @@ _PATH_HARNESS = "harness"
 _PATH_EVENT_TYPES = "event_types"
 _PATH_ENVIRONMENTS = "environments"
 _PATH_ARTIFACTS = "artifacts"
+
+# 补丁路径段 → 补丁类型（回退审计的 last_patch 路径段反推类型用）。
+# 与上方落点路径段同源单一维护（宿主观察侧复用，避免第二份映射漂移）
+SEGMENT_TO_KIND: dict[str, str] = {
+    _PATH_UI: "ui",
+    _PATH_THEME: "theme",
+    _PATH_TOOLS: "tool",
+    _PATH_RULES: "rule",
+    _PATH_KNOWLEDGE: "knowledge",
+    _PATH_HARNESS: "harness",
+    _PATH_EVENT_TYPES: "event_type",
+    _PATH_ENVIRONMENTS: "environment",
+    _PATH_ARTIFACTS: "artifact",
+}
 
 # 旁路写防护的演化资产集合（唯一写入路径 = 本管线）。
 # 精确集合 + 前缀集合两类：知识/规则条目落 knowledge:<user_id> 集合
@@ -849,6 +865,8 @@ __all__ = [
     "AUDIT_STATUS_REJECTED",
     "AUDIT_STATUS_REVERTED",
     "DEFAULT_APPROVAL_LEVELS",
+    "SEGMENT_TO_KIND",
+    "SET_AUDIT_COLLECTION",
     "ApplyTarget",
     "ApprovalLevel",
     "GuardedStorage",

@@ -61,6 +61,26 @@ def _function_graph() -> Graph:
     return g
 
 
+def _conditional_graph() -> Graph:
+    """无名条件边图（函数直挂判定，边不可序列化——降级视图呈现）。"""
+
+    async def start(ctx):
+        return {"go": True}
+
+    async def want_yes(ctx):
+        return bool(ctx.state.get("go"))
+
+    g = Graph(name="cond", entry="start")
+    g.add_node("start", start)
+    g.add_node("yes", lambda ctx: {"done": True})
+    g.add_node("no", lambda ctx: {"done": True})
+    g.add_conditional_edge("start", "yes", want_yes)
+    g.add_conditional_edge("start", "no", lambda ctx: not ctx.state.get("go"))
+    g.add_exit("yes")
+    g.add_exit("no")
+    return g
+
+
 def _knowledge_set(storage) -> KnowledgeSet:
     """真实规则形态夹具：经 Rule.to_dict 产出的声明数据（默认级省略
     severity 键是引擎序列化语义，快照须补全而非呈现 null）。"""
@@ -162,6 +182,18 @@ def test_snapshot_graph_function_node_degraded(memory_storage) -> None:
     assert graph["degraded"] is True
     assert graph["degraded_reason"]
     assert snapshot["digest"]
+
+
+def test_snapshot_graph_named_condition_edge_degraded(memory_storage) -> None:
+    # 无名条件边（函数直挂判定）同样不可序列化——降级视图呈现边结构与
+    # 条件类型标记（function），观察不因序列化契约破坏而击穿
+    service = _service(memory_storage, graph=_conditional_graph())
+    snapshot = service.snapshot_graph()
+    graph = snapshot["graph"]
+    assert graph["degraded"] is True
+    edges = graph["edges"]["start"]
+    assert any(edge["target"] == "yes" and edge.get("condition") == "function" for edge in edges)
+    assert any(edge["target"] == "no" for edge in edges)
 
 
 def test_snapshot_graph_subgraph_recursive_degraded(memory_storage) -> None:

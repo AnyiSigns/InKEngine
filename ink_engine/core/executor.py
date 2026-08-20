@@ -386,10 +386,15 @@ class _NodeContextImpl(NodeContext):
         if config is None or not config.enabled or provider is None:
             return
         supplied = provider(self)
+        if inspect.isawaitable(supplied):
+            supplied = await supplied
         if isinstance(supplied, tuple):
             sources, version_snapshot = supplied[0], supplied[1]
         else:
             sources, version_snapshot = supplied, None
+        if not sources:
+            # 无源可激活 = 无事可调：跳过装配与留痕（空激活记录是噪音）
+            return
         await self.assemble(sources, version_snapshot=version_snapshot)
 
     def terminate(self, reason: str, **meta: Any) -> None:
@@ -1449,6 +1454,14 @@ class Engine:
                 current = nxt
             else:
                 break
+
+        # ── 审批挂起卡进事件流：中断负载（审批卡内容）随回合事件直出，
+        # 前端据此渲染审批卡。挂起语义住引擎——传输层/渲染器可换，换栈
+        # 不丢审批通道（事件信封不变，只加类型）。payload 与落库口径一致
+        # （敏感键已在中断状态构造处剥离）。resume 重放仅发生在队列模式，
+        # 锚点之后的增量不含本卡（checkpoint 已记录该 seq），不会重复发射
+        if interrupt_state is not None:
+            await ctx.emit("review_card", interrupt_state.payload)
 
         # ── 终态 checkpoint（携带终止原因/异常快照/计划快照，入轨迹与审计）──
         if storage is not None:

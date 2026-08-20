@@ -921,10 +921,12 @@ async def test_resume_replay_from_stale_anchor_no_duplicate(memory_storage):
     replay: list[EngineEvent] = []
     async for event in engine.run({}, thread_id="t1", resume_from=anchor_a.checkpoint_id):
         replay.append(event)
-    # 流 = 增量重放（第二轮 seq=2/3，各一次）+ 本次重入节点新产生的 seq=4；
+    # 流 = 增量重放（第二轮 seq=2/3，各一次）+ 本次重入节点新产生的
+    # tick + 挂起卡事件（审批卡进事件流：中断收尾处 emit review_card）；
     # 修复前：锚点重放两次，流为 [2,3,2,3,4]（seq=2/3 重复投递）
-    assert [e.seq for e in replay] == [2, 3, 4]
-    assert [e.payload for e in replay] == [{"n": 1}, {"n": 2}, {"n": 1}]
+    assert [e.type for e in replay] == ["tick", "tick", "tick", "review_card"]
+    ticks = [e for e in replay if e.type == "tick"]
+    assert [e.payload for e in ticks] == [{"n": 1}, {"n": 2}, {"n": 1}]
 
 
 async def test_cached_subgraph_engine_resets_seq_and_count(memory_storage):

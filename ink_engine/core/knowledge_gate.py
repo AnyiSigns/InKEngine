@@ -88,6 +88,26 @@ def _normalize_injection_text(text: str) -> str:
     return "".join(chars)
 
 
+def scan_text_injection(
+    text: str, *, patterns: tuple[str, ...] = _INJECTION_PATTERNS
+) -> tuple[str, ...]:
+    """指令注入检测（纯文本形态，公开入口）。
+
+    供检索结果/外部内容等不可信文本进入上下文前扫描（web 检索注入
+    防线）；命中清单（空 = 干净）。归一化与命中语义与知识条目扫描
+    同源——全角/空格混淆变体与英文句式同样可命中。命中即拒：检出
+    指令型措辞的文本不得进入模型上下文。
+    """
+    normalized = _normalize_injection_text(text)
+    if not normalized:
+        return ()
+    hits: list[str] = []
+    for pattern in patterns:
+        if _normalize_injection_text(pattern) in normalized:
+            hits.append(pattern)
+    return tuple(dict.fromkeys(hits))
+
+
 def _string_values(data: Any, *, depth: int = 0) -> list[str]:
     """递归提取条目数据中的字符串值（注入检测的文本面）。"""
     if depth > 8:
@@ -622,4 +642,5 @@ __all__ = [
     "KnowledgeExecutor",
     "KnowledgeGate",
     "ReviewCardPolicy",
+    "scan_text_injection",
 ]

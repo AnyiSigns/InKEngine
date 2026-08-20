@@ -65,6 +65,17 @@ class IntrospectionSources:
     ui_spec: dict | None = None
 
 
+def _edge_view(edge: Any) -> dict[str, Any]:
+    """条件边降级视图：函数直挂条件（无名条件）无法序列化——边结构
+    仍可观察（target + 条件类型标记），序列化契约破坏不击穿观察。"""
+    view: dict[str, Any] = {"target": edge.target}
+    if edge.condition is not None:
+        view["condition"] = "function"
+    else:
+        view["condition"] = edge.condition_name
+    return view
+
+
 class IntrospectionService:
     """引擎内省服务：按工具名分发快照读取（单一入口，快照互相独立）。"""
 
@@ -144,7 +155,7 @@ class IntrospectionService:
                 node["config"] = copy.deepcopy(binding.config)
             nodes[name] = node
         edges = {
-            source: [edge.to_dict() for edge in edge_list]
+            source: [_edge_view(edge) for edge in edge_list]
             for source, edge_list in (graph.edges or {}).items()
         }
         return {

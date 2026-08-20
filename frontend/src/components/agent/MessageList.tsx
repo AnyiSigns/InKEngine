@@ -16,7 +16,7 @@ interface MessageListProps {
   messages: AgentStepMessage[];
   agentStreaming: boolean;
   onReviewAction: (
-    action: 'accept' | 'retry' | 'edit' | 'terminate',
+    action: 'accept' | 'reject' | 'edit' | 'terminate',
     editedContent?: string,
     chapterId?: number,
   ) => void;

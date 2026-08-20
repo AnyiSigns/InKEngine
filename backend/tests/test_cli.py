@@ -169,8 +169,8 @@ def test_chat_loop_local_holds_lock_until_quit(monkeypatch, capsys) -> None:
     def fake_input(_prompt: str = "") -> str:
         try:
             return next(answers)
-        except StopIteration:
-            raise EOFError
+        except StopIteration as exc:
+            raise EOFError from exc
 
     monkeypatch.setattr("builtins.input", fake_input)
     code = asyncio.run(cli.chat_loop())

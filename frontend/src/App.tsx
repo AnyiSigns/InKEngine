@@ -62,7 +62,7 @@ export default function App() {
   const [uiSpec, setUiSpec] = useState<UISpec | null>(null);
   const messages = useAgentStore((s) => s.messages);
   const streaming = useAgentStore((s) => s.streaming);
-  const { sendMessage, abort } = useForgeSession();
+  const { sendMessage, resolveReview, abort } = useForgeSession();
   const messagesEndRef = useRef<HTMLDivElement>(null);
   const inputRef = useRef<HTMLTextAreaElement>(null);
 
@@ -188,7 +188,11 @@ export default function App() {
       <MessageList
         messages={messages}
         agentStreaming={streaming}
-        onReviewAction={() => undefined}
+        onReviewAction={(action, editedContent) => {
+          // 审批卡决议：accept/reject/edit/terminate 直传后端决议注入
+          // （edit 携带补丁内容 JSON 文本，后端解析为补丁对象）
+          void resolveReview(action, editedContent);
+        }}
         onSendMessage={(msg) => void sendMessage(msg)}
         onPickSuggestion={(s) => void sendMessage(s)}
         onCopy={(text) => void navigator.clipboard?.writeText(text)}

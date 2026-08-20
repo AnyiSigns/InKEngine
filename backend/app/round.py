@@ -1,28 +1,32 @@
-"""自举回合循环：图执行 + LLM 工具循环 → 事件流。
+"""自举回合循环：图级 LLM 工具循环 + 审批挂起重入。
 
-回合以引擎图承载（entry=agent → finish）：LLM 流式对话与元工具调用
-循环在 agent 节点内完成，全部事件经引擎信封（EngineEvent）发布到
-SSE 传输桥，前端按事件协议渲染。图 = 宿主装配的机制节点，回合
-状态（输入/回复）在状态通道内流转，checkpoint 版本链随引擎落库。
+回合以引擎图承载：agent（LLM 流式对话与工具决策）→ exec_tool
+（工具执行，审批挂起/注入重入在此发生）→ 条件边回 agent 或收尾。
+工具循环进度（消息流/待执行工具/回复/思考计数）全部放状态通道——
+审批挂起（interrupt）的 checkpoint 快照保留节点返回的通道更新，
+重入时从快照恢复，不丢消息流与待执行工具（节点内进度走通道、
+不依赖节点局部变量，与引擎中断语义对齐）。
 
 回合内事件（对齐前端事件协议）：
 - thinking_start/token/end：模型推理过程（reasoning_content 透传）；
-- tool_start/tool_end：元工具调用（category=query，展示「查询」类）；
+- tool_start/tool_end：工具调用（category=query，展示「查询」类）；
 - reply_token：回复正文流（按 step_id=reply:1 归属正文段）；
+- review_card：审批挂起卡（pipeline 挂卡后回合挂起，决议注入重入）；
 - end：回合收尾（携带 reply/thread_id/round_id）；
 - error：执行失败（LLM/工具异常兜底，引擎另有节点级兜底双保险）。
 """
-
 from __future__ import annotations
 
 import logging
 from collections.abc import Sequence
 from typing import Any
 
+from ink_engine.core.assembly import SOURCE_EVIDENCE
 from ink_engine.core.graph import Graph
 from ink_engine.core.llm import AsyncLLM
 from ink_engine.core.llm.messages import (
     Message,
+    ToolCall,
     accumulate_tool_calls,
     assistant,
     system,
@@ -40,6 +44,20 @@ REPLY_STEP_ID = "reply:1"
 TOOL_CATEGORY = "query"
 TOOL_RESULT_MAX_CHARS = 4000
 
+# 工具循环进度的状态通道键（节点返回的通道更新随 checkpoint 快照
+# 保留——审批挂起重入时从状态通道恢复，不丢消息流与待执行工具）
+_STATE_MESSAGES = "messages"
+_STATE_PENDING_TOOLS = "pending_tools"
+_STATE_REPLY = "reply"
+_STATE_THINKING_COUNT = "thinking_count"
+_STATE_TOOL_ROUNDS = "tool_rounds"
+_STATE_NEXT = "next"
+
+# 图路由值（条件边判定依据）
+_NEXT_AGENT = "agent"
+_NEXT_EXEC_TOOL = "exec_tool"
+_NEXT_FINISH = "finish"
+
 # ui_context 感知：机制通道集合名与汇入窗口（与上报端点对齐）
 _UI_CONTEXT_COLLECTION = "ui_context"
 _UI_EVENTS_COLLECTION = "ui_events"
@@ -47,16 +65,24 @@ _UI_EVENTS_WINDOW = 5
 _UI_SELECTION_MAX_CHARS = 120
 
 SYSTEM_PROMPT = """你是 Forge——一个站在 AI 上的自进化产品。引擎是骨骼，种子是基因，\
-补丁链是成长史；本回合你可以调用观察工具看清自己的形态：
+补丁链是成长史；本回合你可以调用观察工具看清自己的形态，并调用演化工具修改它：
 
+观察工具：
 - inspect_graph：当前执行图结构（节点/边/出口）
 - inspect_rules：集内规则集（判断既有规则是否合适）
 - inspect_knowledge：知识集概览（已沉淀的知识）
 - inspect_ui：当前界面描述（产品呈现形态）
 - inspect_tools：工具表与集内领域清单
 
+演化工具：
+- propose_patch：提出演化补丁（只校验不落链，返回校验结果与集版本）
+- apply_patch：应用演化补丁（校验 → 审批分级 → 补丁链落库 → 生效；
+  中高风险会弹审批卡，回合等待用户决议后继续）
+- revert_patch：回退已应用补丁（仅链尾，须审批）
+
 先观察再作答：需要了解自身状态时先调用相应工具，再基于观察结果
-组织回复。用中文回复用户，简明直接。"""
+组织回复。用户提出产品形态变化需求（改界面/加工具/换主题/建领域）时，
+用 propose_patch 校验后 apply_patch 落地。用中文回复用户，简明直接。"""
 
 
 def build_forge_graph(
@@ -67,7 +93,7 @@ def build_forge_graph(
     system_prompt: str = SYSTEM_PROMPT,
     storage: Storage | None = None,
 ) -> Graph:
-    """装配回合图（节点闭包持有 LLM/工具流水线，状态经图通道流转）。
+    """装配回合图（图级工具循环：agent → exec_tool ⇄ agent → finish）。
 
     storage 注入 ui_context 感知数据源（位置快照 + 交互事件摘要）；
     缺省 None = 感知禁用（回合照常执行，感知是增强不是收紧）。
@@ -75,113 +101,198 @@ def build_forge_graph(
 
     specs_by_name = {spec.name: spec for spec in tool_specs}
 
-    async def agent(ctx):
-        input_text = str(ctx.state.get("input") or "").strip()
-        thread_id = str(ctx.state.get("thread_id") or "")
-        if not input_text:
-            await ctx.emit(
-                "error", {"message": "消息为空，请重试"}, step_id="error:1"
-            )
-            return {"done": True}
-
+    async def _restore_messages(ctx) -> list[Message]:
+        """消息流恢复：状态通道优先（挂起重入/多轮工具循环续跑），
+        无则按常规路径装配（系统提示 + 用户输入 + 感知/证据汇入）。"""
+        raw = ctx.state.get(_STATE_MESSAGES)
+        if isinstance(raw, list):
+            return [Message.from_dict(item) for item in raw if isinstance(item, dict)]
         messages: list[Message] = [system(system_prompt)]
+        notes: list[str] = []
         if storage is not None:
             ui_note = await _build_ui_context_note(storage)
             if ui_note:
-                messages.append(system(ui_note))
+                notes.append(ui_note)
+        # 调配器证据汇入：检索结果经输入调配预装配（RunOptions.assembly
+        # 装配 evidence 源），此处取预装配产物拼入上下文——未启用/无
+        # 检索结果时静默跳过（感知与检索是增强不是收紧，不击穿回合）
+        assembled = await _preassembled_evidence(ctx)
+        if assembled:
+            notes.append("## 检索证据（经调配器注入）\n" + assembled)
+        for note in notes:
+            messages.append(system(note))
+        input_text = str(ctx.state.get("input") or "").strip()
         messages.append(user(input_text))
-        reply = ""
-        tools = list(tool_specs)
-        # 思考段计数：每段独立推理各占一张思考卡（thinking:1/thinking:2…），
-        # 多轮工具调用间的多次推理不互相堆叠
-        thinking_count = 0
-        for _turn in range(MAX_TOOL_ROUNDS):
-            content_part = ""
-            deltas: list[Any] = []
-            thinking_step: str | None = None
-            try:
-                stream = llm.astream(messages, tools=tools or None, params=None)
-                async for chunk in stream:
-                    if chunk.reasoning_token:
-                        if thinking_step is None:
-                            thinking_count += 1
-                            thinking_step = f"thinking:{thinking_count}"
-                            await ctx.emit(
-                                "thinking_start", {}, step_id=thinking_step
-                            )
-                        await ctx.emit(
-                            "thinking_token",
-                            {"token": chunk.reasoning_token},
-                            step_id=thinking_step,
-                        )
-                    else:
-                        # 推理段结束边界：首个非推理增量（正文/工具调用）
-                        # 出现即收尾思考卡，正文流不悬挂在思考段之后
-                        if thinking_step is not None:
-                            await ctx.emit(
-                                "thinking_end", {}, step_id=thinking_step
-                            )
-                            thinking_step = None
-                    if chunk.token:
-                        content_part += chunk.token
-                        reply += chunk.token
-                        await ctx.emit(
-                            "reply_token",
-                            {"token": chunk.token},
-                            step_id=REPLY_STEP_ID,
-                        )
-                    if chunk.tool_calls_delta:
-                        deltas.extend(chunk.tool_calls_delta)
-            except Exception as exc:
-                logger.warning("LLM 调用异常: %s", exc)
-                await ctx.emit(
-                    "error",
-                    {"message": f"模型调用失败: {exc}"},
-                    step_id="error:1",
-                )
-                # 失败也须收尾：前端以 end 事件为回合终点的唯一依据
-                await ctx.emit(
-                    "end",
-                    {
-                        "reply": reply,
-                        "thread_id": thread_id,
-                        "round_id": ctx.round_id,
-                    },
-                )
-                return {"done": True}
-            if thinking_step is not None:
-                await ctx.emit("thinking_end", {}, step_id=thinking_step)
+        return messages
 
-            calls = accumulate_tool_calls(deltas)
-            messages.append(assistant(content_part or "", tool_calls=calls or None))
-            if not calls:
-                break
-            for call in calls:
-                await execute_tool(ctx, pipeline, specs_by_name, messages, call)
-        else:
-            # 工具轮次耗尽：停止追问，把既有回复收尾
+    async def agent(ctx):
+        thread_id = str(ctx.state.get("thread_id") or "")
+        messages = await _restore_messages(ctx)
+        reply = str(ctx.state.get(_STATE_REPLY) or "")
+        thinking_count = int(ctx.state.get(_STATE_THINKING_COUNT) or 0)
+        tool_rounds = int(ctx.state.get(_STATE_TOOL_ROUNDS) or 0)
+        # 工具轮次耗尽：停止追问，把既有回复收尾
+        if tool_rounds >= MAX_TOOL_ROUNDS:
             if reply:
                 await ctx.emit(
                     "error",
                     {"message": "工具调用轮次已达上限，回复基于既有观察"},
                     step_id="error:1",
                 )
+            await ctx.emit(
+                "end",
+                {"reply": reply, "thread_id": thread_id, "round_id": ctx.round_id},
+            )
+            return {
+                _STATE_REPLY: reply,
+                _STATE_NEXT: _NEXT_FINISH,
+            }
 
-        await ctx.emit(
-            "end",
-            {"reply": reply, "thread_id": thread_id, "round_id": ctx.round_id},
-        )
-        return {"reply": reply, "done": True}
+        content_part = ""
+        deltas: list[Any] = []
+        thinking_step: str | None = None
+        try:
+            stream = llm.astream(messages, tools=list(tool_specs) or None, params=None)
+            async for chunk in stream:
+                if chunk.reasoning_token:
+                    if thinking_step is None:
+                        thinking_count += 1
+                        thinking_step = f"thinking:{thinking_count}"
+                        await ctx.emit("thinking_start", {}, step_id=thinking_step)
+                    await ctx.emit(
+                        "thinking_token",
+                        {"token": chunk.reasoning_token},
+                        step_id=thinking_step,
+                    )
+                else:
+                    # 推理段结束边界：首个非推理增量（正文/工具调用）
+                    # 出现即收尾思考卡，正文流不悬挂在思考段之后
+                    if thinking_step is not None:
+                        await ctx.emit("thinking_end", {}, step_id=thinking_step)
+                        thinking_step = None
+                if chunk.token:
+                    content_part += chunk.token
+                    reply += chunk.token
+                    await ctx.emit(
+                        "reply_token",
+                        {"token": chunk.token},
+                        step_id=REPLY_STEP_ID,
+                    )
+                if chunk.tool_calls_delta:
+                    deltas.extend(chunk.tool_calls_delta)
+        except Exception as exc:
+            logger.warning("LLM 调用异常: %s", exc)
+            await ctx.emit(
+                "error",
+                {"message": f"模型调用失败: {exc}"},
+                step_id="error:1",
+            )
+            # 失败也须收尾：前端以 end 事件为回合终点的唯一依据
+            await ctx.emit(
+                "end",
+                {"reply": reply, "thread_id": thread_id, "round_id": ctx.round_id},
+            )
+            return {_STATE_REPLY: reply, _STATE_NEXT: _NEXT_FINISH}
+        if thinking_step is not None:
+            await ctx.emit("thinking_end", {}, step_id=thinking_step)
+
+        calls = accumulate_tool_calls(deltas)
+        messages.append(assistant(content_part or "", tool_calls=calls or None))
+        if not calls:
+            await ctx.emit(
+                "end",
+                {"reply": reply, "thread_id": thread_id, "round_id": ctx.round_id},
+            )
+            return {_STATE_REPLY: reply, _STATE_NEXT: _NEXT_FINISH}
+        # 有待执行工具：进度落状态通道（快照保留），路由到工具执行节点
+        return {
+            _STATE_MESSAGES: [m.to_dict() for m in messages],
+            _STATE_PENDING_TOOLS: [_tool_call_to_dict(call) for call in calls],
+            _STATE_REPLY: reply,
+            _STATE_THINKING_COUNT: thinking_count,
+            _STATE_TOOL_ROUNDS: tool_rounds + 1,
+            _STATE_NEXT: _NEXT_EXEC_TOOL,
+        }
+
+    async def exec_tool(ctx):
+        thread_id = str(ctx.state.get("thread_id") or "")
+        reply = str(ctx.state.get(_STATE_REPLY) or "")
+        messages = await _restore_messages(ctx)
+        pending = ctx.state.get(_STATE_PENDING_TOOLS) or []
+        if not pending:
+            # 防御：无待执行工具却路由到本节点 → 直接收尾（不静默死循环）
+            await ctx.emit(
+                "end",
+                {"reply": reply, "thread_id": thread_id, "round_id": ctx.round_id},
+            )
+            return {_STATE_REPLY: reply, _STATE_NEXT: _NEXT_FINISH}
+        call = _tool_call_from_dict(pending[0])
+        # 工具执行：审批挂起（interrupt）在此发生——挂卡后回合挂起，
+        # 决议注入重入本节点（interrupt 返回注入值后按决议继续）；
+        # 挂起前把剩余待执行工具保留在状态通道（快照承载）
+        await execute_tool(ctx, pipeline, specs_by_name, messages, call)
+        remaining = pending[1:]
+        return {
+            _STATE_MESSAGES: [m.to_dict() for m in messages],
+            _STATE_PENDING_TOOLS: remaining,
+            _STATE_REPLY: reply,
+            _STATE_NEXT: _NEXT_AGENT,  # 回 agent：消息流已回填，LLM 继续决策
+        }
 
     async def finish(ctx):
         return {}
 
+    async def route_after_agent(ctx):
+        return ctx.state.get(_STATE_NEXT, _NEXT_FINISH) == _NEXT_EXEC_TOOL
+
+    def route_to_finish(ctx):
+        return ctx.state.get(_STATE_NEXT, _NEXT_FINISH) != _NEXT_EXEC_TOOL
+
     g = Graph(name="forge_round", entry="agent")
     g.add_node("agent", agent)
+    g.add_node("exec_tool", exec_tool)
     g.add_node("finish", finish)
-    g.add_edge("agent", "finish")
+    g.add_conditional_edge("agent", "exec_tool", route_after_agent)
+    g.add_conditional_edge("agent", "finish", route_to_finish)
+    g.add_edge("exec_tool", "agent")
     g.add_exit("finish")
     return g
+
+
+def _tool_call_to_dict(call: ToolCall) -> dict:
+    """工具调用 → 状态通道可序列化形态（id/name/arguments，arguments
+    为 JSON 字符串——与 ToolCall 数据契约一致）。"""
+    return {"id": call.id, "name": call.name, "arguments": call.arguments}
+
+
+def _tool_call_from_dict(data: dict) -> ToolCall:
+    """状态通道形态 → 工具调用对象（id/name/arguments 三字段契约）。"""
+    return ToolCall(
+        id=str(data.get("id") or ""),
+        name=str(data.get("name") or ""),
+        arguments=str(data.get("arguments") or ""),
+    )
+
+
+async def _preassembled_evidence(ctx) -> str:
+    """取节点预装配的检索证据文本（input_assembly 产物）。
+
+    预装配未启用（RunOptions.assembly=None）/无源提供者/装配失败 =
+    返回空（调用点静默跳过）。装配产物文本 = 激活源组装结果——
+    当前回合只注入 evidence 源，文本即检索证据块。
+    """
+    try:
+        result = await ctx.assemble([])
+    except Exception:
+        return ""
+    if not result.record.sources:
+        return ""
+    evidence = [
+        s for s in result.record.sources if s.source_type == SOURCE_EVIDENCE
+    ]
+    if not evidence:
+        return ""
+    return result.text
 
 
 async def _build_ui_context_note(storage: Storage) -> str | None:
@@ -217,7 +328,7 @@ async def _build_ui_context_note(storage: Storage) -> str | None:
 
 
 async def execute_tool(ctx, pipeline, specs_by_name, messages, call) -> None:
-    """执行一次元工具调用：事件发布 + 工具流水线 + 结果回填消息。"""
+    """执行一次工具调用：事件发布 + 工具流水线 + 结果回填消息。"""
     step_id = f"tool:{call.id}"
     await ctx.emit(
         "tool_start",

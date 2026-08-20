@@ -64,7 +64,7 @@ export interface MessageItemProps {
   msg: AgentStepMessage;
   index: number;
   agentStreaming: boolean;
-  onReviewAction: (action: 'accept' | 'retry' | 'edit' | 'terminate', editedContent?: string, chapterId?: number) => void;
+  onReviewAction: (action: 'accept' | 'reject' | 'edit' | 'terminate', editedContent?: string, chapterId?: number) => void;
   onCopy: (text: string) => void;
   /** user 消息行内编辑确认：有 roundId 的历史消息走 T6 重新生成；否则发送新回合 */
   onInlineEditSend: (text: string, roundId?: string) => void;

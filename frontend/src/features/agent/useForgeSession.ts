@@ -5,6 +5,10 @@
  * 事件分发复用 remastered 的 createSSEHandler（协议 v2 精确更新语义），
  * end 事件为回合终点（commitStreaming + 关闭流式状态），error 事件
  * 渲染为错误卡（后端兜底 end 收尾，前端不依赖 error 判定回合结束）。
+ *
+ * 审批决议（resolveReview）：回合挂起（审批卡）后 POST /api/chat/resume
+ * 注入决议重入续跑——accept/reject/edit/terminate 与引擎 approval
+ * 机制对齐；决议提交后审批卡置只读（审批记录保留，历史不撒谎）。
  */
 
 import { useCallback, useRef } from 'react';
@@ -19,6 +23,8 @@ import { useStreamBuffer } from './sse/useStreamBuffer';
 export interface UseForgeSessionResult {
   /** 发起一个回合（流式渲染直至 end 事件） */
   sendMessage: (text: string) => Promise<void>;
+  /** 审批决议注入（挂起回合重入续跑；决议后卡只读） */
+  resolveReview: (decision: string, editedContent?: string, reason?: string) => Promise<void>;
   /** 中止当前回合（abort 请求并复位流式状态） */
   abort: () => void;
 }
@@ -40,27 +46,19 @@ export function useForgeSession(): UseForgeSessionResult {
   const threadIdRef = useRef<string | null>(null);
   const abortRef = useRef<AbortController | null>(null);
 
-  const sendMessage = useCallback(
-    async (text: string) => {
-      const message = text.trim();
-      if (!message || abortRef.current) return;
-      if (threadIdRef.current === null) {
-        threadIdRef.current = crypto.randomUUID();
-      }
-      const threadId = threadIdRef.current;
-      setThreadId(threadId);
-      addMessage({ role: 'user', content: message });
+  /** 消费一个 SSE 流（发送请求 → 事件分发 → 收尾），回合共用路径。 */
+  const streamRound = useCallback(
+    async (path: string, body: Record<string, unknown>, onError: (message: string) => void) => {
       resetBuffers();
       setStreaming(true);
-
       const controller = new AbortController();
       abortRef.current = controller;
       let ended = false;
       try {
-        const response = await fetch('/api/chat', {
+        const response = await fetch(path, {
           method: 'POST',
           headers: { 'Content-Type': 'application/json' },
-          body: JSON.stringify({ message, thread_id: threadId }),
+          body: JSON.stringify(body),
           signal: controller.signal,
         });
         if (!response.ok) {
@@ -71,7 +69,7 @@ export function useForgeSession(): UseForgeSessionResult {
           } catch {
             // 非 JSON 响应，保留默认文案
           }
-          addMessage({ role: 'assistant', type: 'error', content: detail });
+          onError(detail);
           ended = true;
           return;
         }
@@ -126,7 +124,6 @@ export function useForgeSession(): UseForgeSessionResult {
     },
     [
       setStreaming,
-      setThreadId,
       addMessage,
       commitStreaming,
       flushTokens,
@@ -138,9 +135,51 @@ export function useForgeSession(): UseForgeSessionResult {
     ],
   );
 
+  const sendMessage = useCallback(
+    async (text: string) => {
+      const message = text.trim();
+      if (!message || abortRef.current) return;
+      if (threadIdRef.current === null) {
+        threadIdRef.current = crypto.randomUUID();
+      }
+      const threadId = threadIdRef.current;
+      setThreadId(threadId);
+      addMessage({ role: 'user', content: message });
+      await streamRound('/api/chat', { message, thread_id: threadId }, (detail) => {
+        addMessage({ role: 'assistant', type: 'error', content: detail });
+      });
+    },
+    [setThreadId, addMessage, streamRound],
+  );
+
+  const resolveReview = useCallback(
+    async (decision: string, editedContent?: string, reason?: string) => {
+      const threadId = useAgentStore.getState().threadId || threadIdRef.current;
+      if (!threadId || abortRef.current) return;
+      const body: Record<string, unknown> = { thread_id: threadId, decision };
+      if (editedContent !== undefined && editedContent !== '') {
+        body.edited_content = editedContent;
+      }
+      if (reason !== undefined && reason !== '') {
+        body.reason = reason;
+      }
+      await streamRound('/api/chat/resume', body, (detail) => {
+        addMessage({ role: 'assistant', type: 'error', content: detail });
+      });
+      // 决议提交后审批卡置只读（审批记录保留，历史不撒谎）
+      useAgentStore.setState((s) => ({
+        pendingReview: null,
+        messages: s.messages.map((m) =>
+          m.type === 'review-card' && m.live !== false ? { ...m, live: false } : m,
+        ),
+      }));
+    },
+    [addMessage, streamRound],
+  );
+
   const abort = useCallback(() => {
     abortRef.current?.abort();
   }, []);
 
-  return { sendMessage, abort };
+  return { sendMessage, resolveReview, abort };
 }

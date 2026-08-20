@@ -108,8 +108,16 @@ def render_frame(
         else:
             write("[建议] 回合收尾建议")
     elif etype == "review_card":
-        # 审核卡：审批通道接入前终端只读提示（不回传决议，不伪造审批）
-        write("[审核] 弹卡待确认（终端审批通道尚未接入，请经 Web 面板处理）")
+        # 审核卡：终端只读展示卡信息（补丁类型/理由等），决议经 Web
+        # 面板或后续接入的终端内联通道处理——不伪造审批
+        frame_data = frame.get("patch") if isinstance(frame.get("patch"), dict) else None
+        if frame_data:
+            kind = frame_data.get("kind") or ""
+            preview = str(frame.get("output_preview") or "")[:120]
+            write(f"[审核] {kind} 补丁待审批：{preview}")
+        else:
+            write(f"[审核] 弹卡待确认：{str(frame.get('output_preview') or '')[:120]}")
+        write("[审核] 请经 Web 面板处理该审批（终端决议通道尚未接入）")
     else:
         # 未注册/未知类型折叠兜底：终端一行摘要（不崩，可审计）
         write(f"[事件] {etype}（未渲染，原始帧 {str(frame)[:160]}…）")

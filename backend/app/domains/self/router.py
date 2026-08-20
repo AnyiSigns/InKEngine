@@ -129,3 +129,43 @@ async def report_ui_event(body: dict) -> dict:
     key = f"{record['ts']:.3f}-{uuid.uuid4().hex[:8]}"
     await app.storage.put_record(_COLLECTION_UI_EVENTS, key, record)
     return {"ok": True}
+
+
+@router.get("/set/state")
+async def set_state() -> dict:
+    """集状态快照（补丁链组装产物：界面/主题/工具/规则/知识/harness/
+    事件类型/环境/产物的权威记录视图）。"""
+    app = await boot.init_app()
+    try:
+        state = await app.self_pipeline.chain.assemble()
+    except Exception as exc:
+        raise HTTPException(status_code=500, detail=f"集状态组装失败: {exc}") from exc
+    return {
+        "version": await app.self_pipeline.chain.current_version(),
+        "state": state,
+    }
+
+
+@router.get("/set/audit")
+async def set_audit() -> dict:
+    """集演化审计日志（append-only，历史不撒谎；含拒绝/冲突/回退留痕）。"""
+    app = await boot.init_app()
+    return {"entries": await app.self_pipeline.audit_log()}
+
+
+@router.get("/pending")
+async def pending_approval(thread_id: str) -> dict:
+    """链尾挂起审批卡（回合挂起后前端据此恢复决议入口；无挂起 = null）。"""
+    app = await boot.init_app()
+    if app.engine is None:
+        return {"pending": None}
+    interrupt = await app.engine.get_latest_interrupt(thread_id)
+    if interrupt is None:
+        return {"pending": None}
+    return {
+        "pending": {
+            "key": interrupt.key,
+            "payload": copy.deepcopy(interrupt.payload),
+            "thread_id": thread_id,
+        }
+    }

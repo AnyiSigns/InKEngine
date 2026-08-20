@@ -7,8 +7,6 @@
 
 from __future__ import annotations
 
-from ink_engine.core.event_types import EventTypeSpec
-
 from app import boot
 from app import engine as engine_store
 
@@ -110,18 +108,39 @@ async def test_inspect_ui_sees_assembled_layout() -> None:
     assert snapshot["ui_spec"]["name"] == "boot.panel"
 
 
+class _FakeCtx:
+    """挂卡审批的假节点上下文（决议注入 accept，验证完整落链路径）。"""
+
+    def __init__(self) -> None:
+        self.injects: dict[str, object] = {"patch:event_type": {"decision": "accept"}}
+
+    async def interrupt(self, key: str, payload: dict):
+        if key in self.injects:
+            return self.injects.pop(key)
+        raise AssertionError(f"未预设注入值: {key}")
+
+    async def get_interrupt_payload(self, key: str):
+        return None
+
+
 async def test_event_registry_persists_set_types() -> None:
-    # 集内演化类型经 storage 落库后，重启装配仍可加载（集合级可演化资产）
+    # 集内演化类型的唯一写入路径 = 应用管线：提案 → 审批 → 落链 →
+    # 注册 + 落库；重启装配从链恢复（集合级可演化资产，回退可还原）
+    from ink_engine.core.self_proposal import PatchKind, SelfProposal
+
     app = await boot.init_app()
-    registry = app.event_type_registry
-    registry.register(
-        EventTypeSpec(
-            name="domain_event",
-            renderer="DomainRow",
-            meta={"source": "test", "description": "测试演化类型"},
-        )
+    proposal = SelfProposal(
+        kind=PatchKind.EVENT_TYPE,
+        payload={
+            "name": "domain_event",
+            "renderer": "DomainRow",
+            "meta": {"source": "test", "description": "测试演化类型"},
+        },
+        base_version=1,
+        rationale="测试注册演化事件类型",
     )
-    await registry.save()
+    outcome = await app.self_pipeline.apply(_FakeCtx(), proposal)
+    assert outcome.applied is True
 
     boot._app = None
     engine_store._storage = None

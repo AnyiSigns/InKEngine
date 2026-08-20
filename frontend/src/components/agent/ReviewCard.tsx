@@ -1,12 +1,12 @@
 
 import { useRef, useState } from 'react';
-import { Check, X, Pencil, AlertTriangle, ShieldCheck, FileText, ChevronDown, ChevronUp, ListChecks } from 'lucide-react';
+import { Check, X, Pencil, AlertTriangle, ShieldCheck, FileText, ChevronDown, ChevronUp, ListChecks, KeyRound, TerminalSquare } from 'lucide-react';
 import { cn } from '@/shared/cn';
 
-export type ReviewAction = 'accept' | 'retry' | 'edit' | 'terminate';
+export type ReviewAction = 'accept' | 'reject' | 'edit' | 'terminate';
 export type ReviewType = 'gate' | 'audit' | 'candidate' | 'body';
 
-// 编辑框长度上限（正文/候选共用，单一来源）：与后端
+// 编辑框长度上限（正文/候选/补丁共用，单一来源）：与后端
 // ReviewActionRequest.edited_content 的 max_length=50000（schema/request/common.py）
 // 绑定，任一侧调整必须同步，否则提交 422 或长正文被输入框静默截断。
 const REVIEW_EDIT_MAX_LEN = 50000;
@@ -14,7 +14,7 @@ const REVIEW_EDIT_MAX_LEN = 50000;
 interface ReviewCardProps {
   data: Record<string, unknown>;
   onAction: (action: ReviewAction, editedContent?: string, chapterId?: number, candidateId?: string) => void;
-  /** 2.12：历史回放只读（true 时不渲染操作按钮，仅展示卡内容） */
+  /** 历史回放只读（true 时不渲染操作按钮，仅展示卡内容） */
   disabled?: boolean;
 }
 
@@ -38,6 +38,7 @@ function reasonCategory(reason: string): { label: string; cls: string } {
  * - audit：质量审计拦截（工作流节点输出 FAIL），展示「输出未通过质量检查」；
  * - candidate：候选选择卡（精品通道多候选），展示候选列表 + 选择/编辑/取消；
  * - body：正文审批卡（正文类写操作/生成通道产物），正文全文 + 确认/编辑/取消。
+ * Forge 补丁卡（data.patch 存在）单独分流：补丁审批四决议。
  * 历史消息无 review_type 时按 reason 启发式回退（门控文案 ≠ 审计 FAIL 文案）。
  */
 export function resolveReviewType(data: Record<string, unknown>): ReviewType {
@@ -85,9 +86,38 @@ export function candidateList(data: Record<string, unknown>): CandidateItem[] {
   );
 }
 
+/** Forge 补丁卡判定：审批卡负载携带 patch 字段（补丁类型/内容/基准版本）。 */
+function isForgePatch(data: Record<string, unknown>): boolean {
+  const patch = data.patch;
+  return Boolean(patch) && typeof patch === 'object' && typeof (patch as Record<string, unknown>).kind === 'string';
+}
+
+/** Forge 补丁卡：编辑框预填补丁内容 JSON（提交时后端按 JSON 对象解析）。 */
+function patchPayloadText(data: Record<string, unknown>): string {
+  const patch = (data.patch ?? {}) as Record<string, unknown>;
+  const payload = patch.payload;
+  if (payload === undefined || payload === null) return '';
+  try {
+    return JSON.stringify(payload, null, 2);
+  } catch {
+    return String(payload);
+  }
+}
+
+/** Forge 补丁卡：权限声明逐项清单（工具/命令类补丁的权限确认面）。 */
+function patchPermissions(data: Record<string, unknown>): string[] {
+  const patch = (data.patch ?? {}) as Record<string, unknown>;
+  const payload = patch.payload;
+  if (!payload || typeof payload !== 'object') return [];
+  const perms = (payload as Record<string, unknown>).permissions;
+  if (!Array.isArray(perms)) return [];
+  return perms.filter((p): p is string => typeof p === 'string');
+}
+
 export function ReviewCard({ data, onAction, disabled = false }: ReviewCardProps) {
   const [editing, setEditing] = useState(false);
   const [editText, setEditText] = useState('');
+  const [editError, setEditError] = useState('');
   const [showFull, setShowFull] = useState(false);
   const [submitting, setSubmitting] = useState(false);
   // 候选卡：正在编辑的候选下标（null=未编辑）
@@ -98,6 +128,7 @@ export function ReviewCard({ data, onAction, disabled = false }: ReviewCardProps
   const nodeLabel = String(data.node_label || data.node_id || '');
   const reason = String(data.reason || '输出不符合该角色节点的写作要求');
   const reviewType = resolveReviewType(data);
+  const forgePatch = isForgePatch(data);
   const isGate = reviewType === 'gate';
   const isAudit = reviewType === 'audit';
   const isCandidate = reviewType === 'candidate';
@@ -123,6 +154,11 @@ export function ReviewCard({ data, onAction, disabled = false }: ReviewCardProps
   const hasMetrics = (tokens !== undefined && tokens > 0) || (elapsedMs !== undefined && elapsedMs > 0);
   const category = reasonCategory(reason);
   const candidates = isCandidate ? candidateList(data) : [];
+  const patchKind = forgePatch ? String((data.patch as Record<string, unknown>).kind || '') : '';
+  const patchRationale = forgePatch
+    ? String(data.action && typeof data.action === 'object' ? (data.action as Record<string, unknown>).summary || '' : '')
+    : '';
+  const permissions = forgePatch ? patchPermissions(data) : [];
 
   const handleAction = (action: ReviewAction, editedContent?: string, candidateId?: string) => {
     if (submitting || disabled) return;
@@ -131,19 +167,28 @@ export function ReviewCard({ data, onAction, disabled = false }: ReviewCardProps
       textareaRef.current?.focus();
       return;
     }
+    if (action === 'edit') {
+      // 补丁编辑提交前校验 JSON 可解析（后端按 JSON 对象解析，非法形态 422）
+      try {
+        JSON.parse(editedContent || '');
+      } catch {
+        setEditError('补丁内容须为合法 JSON（编辑框预填内容可作基准）');
+        textareaRef.current?.focus();
+        return;
+      }
+    }
     setSubmitting(true);
     onAction(action, editedContent, targetChapterId, candidateId);
   };
 
   const startEditing = () => {
-    // 写工具审核卡的 output_preview 以「章节ID=xxx」开头，那是预览前缀而非正文，
-    // 回填编辑框前剥离，避免提交修改时把前缀写进章节正文。
-    //
-    // 注意：此处与后端 gating_service 的预览格式耦合（backend 侧 _strip_preview_prefix
-    // 用同一规则做落库前的防御性清洗）。结构化的章节 id 走 data.target_chapter_id 回传，
-    // 不依赖该前缀解析；即便后端将来去掉前缀，这里也只是「无匹配、原样回填」，不会出错。
-    // 容忍 CRLF 换行，仅剥离首行前缀。
-    setEditText(fullContent.replace(/^章节ID=\d+\r?\n/, ''));
+    // Forge 补丁卡：编辑框预填补丁内容 JSON；其余卡型回填正文（剥离预览前缀）
+    setEditError('');
+    if (forgePatch) {
+      setEditText(patchPayloadText(data));
+    } else {
+      setEditText(fullContent.replace(/^章节ID=\d+\r?\n/, ''));
+    }
     setEditing(true);
   };
 
@@ -153,37 +198,44 @@ export function ReviewCard({ data, onAction, disabled = false }: ReviewCardProps
     setCandidateEditText(unescapePreview(String(c?.output || '')));
   };
 
-  const accent = isGate ? 'amber' : isCandidate ? 'sky' : isBody ? 'emerald' : 'destructive';
+  const accent = forgePatch ? 'violet' : isGate ? 'amber' : isCandidate ? 'sky' : isBody ? 'emerald' : 'destructive';
 
-  const headerIcon = isGate ? <ShieldCheck size={14} className="text-amber-500 shrink-0" />
+  const headerIcon = forgePatch ? <TerminalSquare size={14} className="text-violet-500 shrink-0" />
+    : isGate ? <ShieldCheck size={14} className="text-amber-500 shrink-0" />
     : isCandidate ? <ListChecks size={14} className="text-sky-500 shrink-0" />
     : isBody ? <FileText size={14} className="text-emerald-500 shrink-0" />
     : <AlertTriangle size={14} className="text-destructive shrink-0" />;
 
-  const headerTitle = isGate ? '操作确认'
+  const headerTitle = forgePatch ? '补丁审批'
+    : isGate ? '操作确认'
     : isCandidate ? '候选选择'
     : isBody ? '正文审批'
     : '审核请求';
 
-  const headerCls = isGate ? 'text-amber-600/90 dark:text-amber-400/90'
+  const headerCls = forgePatch ? 'text-violet-600/90 dark:text-violet-400/90'
+    : isGate ? 'text-amber-600/90 dark:text-amber-400/90'
     : isCandidate ? 'text-sky-600/90 dark:text-sky-400/90'
     : isBody ? 'text-emerald-600/90 dark:text-emerald-400/90'
     : 'text-destructive';
 
-  const descText = isGate
-    ? <>节点 &ldquo;{nodeLabel}&rdquo; 请求执行一次{reason.includes('长期记忆') ? '记忆写入' : '书籍数据修改'}</>
-    : isCandidate
-    ? data.source === 'divergent'
+  const descText = forgePatch ? (
+    <>演化补丁 <span className="font-mono">{patchKind}</span>：{patchRationale || nodeLabel}</>
+  ) : isGate ? (
+    <>节点 &ldquo;{nodeLabel}&rdquo; 请求执行一次{reason.includes('长期记忆') ? '记忆写入' : '书籍数据修改'}</>
+  ) : isCandidate ? (
+    data.source === 'divergent'
       ? <>平行起草完成，{candidates.length} 个版本，请选择其一作为本章正文（内容不进对话上下文，仅展示）</>
       : <>工作流执行完成，{candidates.length} 个候选正文节点，请选择其一作为本章正文（内容不进对话上下文，仅展示）</>
-    : isBody
-    ? <>节点 &ldquo;{nodeLabel}&rdquo; 产出正文，请确认后落库</>
-    : <>节点 &ldquo;{nodeLabel}&rdquo; 的输出未通过质量检查</>;
+  ) : isBody ? (
+    <>节点 &ldquo;{nodeLabel}&rdquo; 产出正文，请确认后落库</>
+  ) : (
+    <>节点 &ldquo;{nodeLabel}&rdquo; 的输出未通过质量检查</>
+  );
 
   return (
     // 间距统一：不再带 mx/my 额外边距，与其它消息/状态卡一致使用消息流 10px 间距；
     // 圆角与状态卡统一为 rounded-md
-    <div className={cn('p-3 rounded-md border', accent === 'amber' && 'border-amber-500/40 bg-amber-500/[0.04]', accent === 'sky' && 'border-sky-500/40 bg-sky-500/[0.04]', accent === 'emerald' && 'border-emerald-500/40 bg-emerald-500/[0.04]', accent === 'destructive' && 'border-destructive/40 bg-destructive/5')}>
+    <div className={cn('p-3 rounded-md border', accent === 'violet' && 'border-violet-500/40 bg-violet-500/[0.04]', accent === 'amber' && 'border-amber-500/40 bg-amber-500/[0.04]', accent === 'sky' && 'border-sky-500/40 bg-sky-500/[0.04]', accent === 'emerald' && 'border-emerald-500/40 bg-emerald-500/[0.04]', accent === 'destructive' && 'border-destructive/40 bg-destructive/5')}>
       <div className="flex items-center gap-2 mb-2">
         {headerIcon}
         <span className={cn('text-xs font-semibold', headerCls)}>
@@ -198,9 +250,27 @@ export function ReviewCard({ data, onAction, disabled = false }: ReviewCardProps
         )}
         {isAudit && <span className={cn('ml-auto text-[10px] px-1.5 py-px rounded-full border', category.cls)}>{category.label}</span>}
       </div>
-      <div className={cn('text-xs mb-1', isGate || isCandidate || isBody ? 'text-foreground/70' : 'text-muted-foreground')}>
+      <div className={cn('text-xs mb-1', forgePatch || isGate || isCandidate || isBody ? 'text-foreground/70' : 'text-muted-foreground')}>
         {descText}
       </div>
+
+      {/* Forge 补丁卡：权限声明逐项确认（工具/命令类补丁的权限面） */}
+      {forgePatch && permissions.length > 0 && (
+        <div className="mb-2 rounded-md border border-border/50 bg-background/60 p-2 space-y-1">
+          <div className="flex items-center gap-1.5 text-[11px] font-semibold text-foreground/80">
+            <KeyRound size={12} className="text-violet-500/80" />
+            权限声明（{permissions.length} 项）
+          </div>
+          {permissions.map((perm, i) => (
+            <div key={i} className="text-[11px] leading-relaxed text-foreground/80 font-mono">
+              {perm}
+            </div>
+          ))}
+          <div className="text-[10px] text-muted-foreground/60">
+            应用补丁 = 确认以上权限逐项声明（执行时沙箱仍强制校验）
+          </div>
+        </div>
+      )}
 
       {/* T7 写时预检冲突详情：命中冲突（同名实体/回收不匹配/状态回退）时展示，
           用户据此裁决（通过仍落库/修改/终止） */}
@@ -288,7 +358,7 @@ export function ReviewCard({ data, onAction, disabled = false }: ReviewCardProps
           })}
         </div>
       ) : (
-        <div className={cn('text-[11px] mb-2 whitespace-pre-wrap border-l-2 pl-2', isGate ? 'text-foreground/80 border-amber-500/30' : isBody ? 'text-foreground/80 border-emerald-500/30' : 'text-foreground/80 border-destructive/30')}>
+        <div className={cn('text-[11px] mb-2 whitespace-pre-wrap border-l-2 pl-2', forgePatch ? 'text-foreground/80 border-violet-500/30' : isGate ? 'text-foreground/80 border-amber-500/30' : isBody ? 'text-foreground/80 border-emerald-500/30' : 'text-foreground/80 border-destructive/30')}>
           {showFull ? (
             <div className="max-h-52 overflow-y-auto">{expandText}</div>
           ) : (
@@ -300,7 +370,7 @@ export function ReviewCard({ data, onAction, disabled = false }: ReviewCardProps
           {canExpand && (
             <button
               onClick={() => setShowFull((v) => !v)}
-              className={cn('mt-1 flex items-center gap-1 text-[10px] bg-transparent border-none cursor-pointer px-0', isGate ? 'text-amber-600/80 dark:text-amber-400/80' : isBody ? 'text-emerald-600/80 dark:text-emerald-400/80' : 'text-destructive/80')}
+              className={cn('mt-1 flex items-center gap-1 text-[10px] bg-transparent border-none cursor-pointer px-0', forgePatch ? 'text-violet-600/80 dark:text-violet-400/80' : isGate ? 'text-amber-600/80 dark:text-amber-400/80' : isBody ? 'text-emerald-600/80 dark:text-emerald-400/80' : 'text-destructive/80')}
             >
               {showFull ? <ChevronUp size={11} /> : <ChevronDown size={11} />}
               {showFull ? '收起' : '查看完整输出'}
@@ -309,12 +379,69 @@ export function ReviewCard({ data, onAction, disabled = false }: ReviewCardProps
         </div>
       )}
 
-      {!isCandidate && <div className={cn('text-[11px] mb-2 italic', isGate || isBody ? 'text-muted-foreground/80' : 'text-muted-foreground')}>{reason}</div>}
+      {!isCandidate && <div className={cn('text-[11px] mb-2 italic', forgePatch || isGate || isBody ? 'text-muted-foreground/80' : 'text-muted-foreground')}>{reason}</div>}
 
       {disabled ? (
         <div className="text-[10px] text-muted-foreground/50 border-t border-border/30 pt-1.5">
           历史审核记录（只读）
         </div>
+      ) : forgePatch ? (
+        // Forge 补丁卡：四决议——应用（accept）/ 拒绝（reject）/ 编辑（edit，JSON
+        // 补丁对象）/ 终止（terminate）。决议注入后端 /resume 走同一审批管线
+        editing ? (
+          <div className="space-y-2">
+            <textarea
+              ref={textareaRef}
+              value={editText}
+              maxLength={REVIEW_EDIT_MAX_LEN}
+              onChange={(e) => { setEditText(e.target.value); setEditError(''); }}
+              onKeyDown={(e) => {
+                // Esc 取消，Ctrl/Cmd+Enter 提交（快捷键）
+                if (e.key === 'Escape') { e.preventDefault(); setEditing(false); }
+                if ((e.ctrlKey || e.metaKey) && e.key === 'Enter') { e.preventDefault(); handleAction('edit', editText); }
+              }}
+              placeholder={'{\n  // 补丁内容（JSON 对象）\n}'}
+              className="w-full h-32 rounded-md text-xs p-2 bg-background border border-border resize-none focus:outline-none font-mono"
+            />
+            {editError && (
+              <div className="text-[10px] text-destructive">{editError}</div>
+            )}
+            <div className="flex items-center justify-between">
+              <span className="text-[10px] text-muted-foreground/60 tabular-nums">{editText.length}/{REVIEW_EDIT_MAX_LEN}</span>
+              <div className="flex gap-2">
+                <button onClick={() => handleAction('edit', editText)} disabled={!editText.trim() || submitting}
+                  className="flex-1 h-7 rounded-md bg-foreground text-background text-xs font-medium border-none cursor-pointer hover:opacity-90 disabled:opacity-40 disabled:cursor-default">
+                  {submitting ? '提交中…' : '提交修改'}
+                </button>
+                <button onClick={() => setEditing(false)} disabled={submitting}
+                  className="px-3 h-7 rounded-md border border-border text-xs cursor-pointer bg-transparent hover:bg-muted disabled:opacity-40 disabled:cursor-default">
+                  取消
+                </button>
+              </div>
+            </div>
+          </div>
+        ) : (
+          <div className="space-y-1.5">
+            <div className="flex gap-2">
+              <button onClick={() => handleAction('accept')} disabled={submitting}
+                className="flex-1 h-7 rounded-md bg-foreground text-background text-xs font-medium border-none cursor-pointer flex items-center justify-center gap-1 hover:opacity-90 disabled:opacity-40 disabled:cursor-default">
+                <Check size={12} /> {submitting ? '处理中…' : '应用'}
+              </button>
+              <button onClick={() => handleAction('reject')} disabled={submitting}
+                className="flex-1 h-7 rounded-md bg-destructive/10 text-destructive text-xs font-medium border-none cursor-pointer hover:bg-destructive/20 disabled:opacity-40 disabled:cursor-default flex items-center justify-center gap-1">
+                <X size={12} /> 拒绝
+              </button>
+              <button onClick={startEditing} disabled={submitting}
+                className="flex-1 h-7 rounded-md border border-border text-xs cursor-pointer bg-transparent hover:bg-muted disabled:opacity-40 disabled:cursor-default flex items-center justify-center gap-1">
+                <Pencil size={12} /> 编辑
+              </button>
+              <button onClick={() => handleAction('terminate')} disabled={submitting}
+                className="flex-1 h-7 rounded-md border border-destructive/40 bg-transparent text-muted-foreground text-xs cursor-pointer hover:bg-destructive/10 hover:text-destructive disabled:opacity-40 disabled:cursor-default flex items-center justify-center gap-1">
+                <X size={12} /> 终止
+              </button>
+            </div>
+          </div>
+        )
       ) : isCandidate ? (
         // 候选选择卡底部：仅取消（终止整个确认流程，重新生成走对话指令）
         <div className="space-y-1.5">
@@ -331,7 +458,7 @@ export function ReviewCard({ data, onAction, disabled = false }: ReviewCardProps
             className="flex-1 h-7 rounded-md bg-foreground text-background text-xs font-medium border-none cursor-pointer flex items-center justify-center gap-1 hover:opacity-90 disabled:opacity-40 disabled:cursor-default">
             <Check size={12} /> {submitting ? '处理中…' : '确认执行'}
           </button>
-          <button onClick={() => handleAction('terminate')} disabled={submitting}
+          <button onClick={() => handleAction('reject')} disabled={submitting}
             className="flex-1 h-7 rounded-md border border-destructive/40 text-destructive text-xs cursor-pointer bg-transparent hover:bg-destructive/10 disabled:opacity-40 disabled:cursor-default flex items-center justify-center gap-1">
             <X size={12} /> 拒绝
           </button>
@@ -377,10 +504,10 @@ export function ReviewCard({ data, onAction, disabled = false }: ReviewCardProps
               <Check size={12} /> {submitting ? '处理中…' : isBody ? '确认' : '接受'}
             </button>
             {!isBody && (
-              <button onClick={() => handleAction('retry')} disabled={submitting}
+              <button onClick={() => handleAction('reject')} disabled={submitting}
                 className="flex-1 h-7 rounded-md bg-destructive/10 text-destructive text-xs font-medium border-none cursor-pointer hover:bg-destructive/20 disabled:opacity-40 disabled:cursor-default flex items-center justify-center gap-1"
               >
-                <X size={12} /> 拒绝重试
+                <X size={12} /> 拒绝
               </button>
             )}
             <button onClick={startEditing} disabled={submitting || !canEditFull}

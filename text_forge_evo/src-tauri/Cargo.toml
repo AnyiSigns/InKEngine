@@ -1,0 +1,24 @@
+[package]
+name = "forge"
+version = "0.1.0"
+description = "Forge 桌面壳：引导壳（引擎进程 sidecar + WebView 渲染前端产物），集数据在 ~/.textforge/ 不动"
+authors = ["Forge"]
+edition = "2021"
+
+[build-dependencies]
+tauri-build = { version = "2", features = [] }
+
+[dependencies]
+tauri = { version = "2", features = ["tray-icon"] }
+tauri-plugin-global-shortcut = "2"
+
+[lib]
+name = "forge_lib"
+crate-type = ["staticlib", "cdylib", "rlib"]
+
+[profile.release]
+codegen-units = 1
+lto = true
+opt-level = "s"
+panic = "abort"
+strip = true

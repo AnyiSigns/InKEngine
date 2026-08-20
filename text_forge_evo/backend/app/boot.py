@@ -1,0 +1,787 @@
+"""开局装配：把引擎机制骨架与产品服务装配成可运行的 Forge 实例。
+
+装配顺序（机制依赖自上而下；尚未就绪的环节先留空位，随能力逐步
+接入）：
+
+① 存储（SQLite 集目录 engine.db）+ 进程锁（防双开）
+② 图注册表（GraphRegistries：节点类型/条件边注册位）
+③ 种子注入（seed_user_set 通用种子恒注；领域种子后续接入）
+④ harness 装配（forge 领域定义 → HarnessRegistry 注册 + HarnessRepository 落库）
+⑤ 事件类型注册表（boot 内置类型登记 + 集内演化类型加载）+ 界面描述装配
+⑥ 工具装配（内省元工具 → 只读流水线，权限门禁/审计/截断）
+⑦ vetting 闸门（工具可信度：静态审查钩子 + L2 沙箱验证钩子）
+⑧ LLM 挡位解析（settings 模型配置，未配置 = None 由路由端拦截引导）
+⑨ 调配器源注册（检索源 → 装配源提供者，回合内证据汇入）
+⑩ RunOptions DI → Engine 实例（按当前 LLM 配置缓存，配置变更自动重建）
+⑪ EngineTransport（SSE 桥，回合期注入）→ 前端壳渲染
+
+装配产物（ForgeApp）为进程级单例；路由/回合均经 boot 取用。
+"""
+
+from __future__ import annotations
+
+import asyncio
+import hashlib
+import logging
+import uuid
+from dataclasses import dataclass, field
+from pathlib import Path
+from typing import Any
+
+from ink_engine.core.assembly import SOURCE_EVIDENCE, AssemblyConfig
+from ink_engine.core.context import ContextSource
+from ink_engine.core.event_types import EventTypeRegistry, EventTypeSpec
+from ink_engine.core.executor import Engine, RunOptions
+from ink_engine.core.harness import (
+    HarnessDefinition,
+    HarnessRegistry,
+    HarnessRepository,
+)
+from ink_engine.core.introspection import (
+    IntrospectionService,
+    IntrospectionSources,
+    build_introspection_pipeline,
+    introspection_tool_specs,
+    make_introspection_executor,
+)
+from ink_engine.core.knowledge_set import KnowledgeSet
+from ink_engine.core.llm import AsyncLLM, create_llm
+from ink_engine.core.permissions import PermissionGate
+from ink_engine.core.registry import GraphRegistries
+from ink_engine.core.retrieval import (
+    SOURCE_MODEL,
+    RetrievedChunk,
+    Retriever,
+    RetrieverRegistry,
+)
+from ink_engine.core.seeds import seed_user_set
+from ink_engine.core.self_application import (
+    GuardedStorage,
+    SelfApplicationPipeline,
+)
+from ink_engine.core.self_proposal import PatchKind, ProposalValidator
+from ink_engine.core.storage import Storage
+from ink_engine.core.tool_pipeline import ToolPipeline
+from ink_engine.core.tool_vetting import ToolManifest, ToolSource, ToolVetting
+from ink_engine.core.ui_schema import DEFAULT_BIND_CHANNELS, UISchemaValidator
+
+from . import config
+from . import engine as engine_store
+from . import secrets as secrets_store
+from .domains.files.mounts import MountRegistry
+from .round import build_forge_graph
+from .self_tools import (
+    build_self_pipeline,
+    make_self_executor,
+    self_tool_specs,
+)
+
+logger = logging.getLogger(__name__)
+
+FORGE_SET_USER = "default"
+
+# boot 内置事件类型登记：协议 v2 的建卡型事件 → 前端同名渲染组件。
+# 更新型事件（*_token/*_end）不独立建卡不登记；schema 缺省不校验
+# payload 形态（发射侧保持宽松——注册表是增强不是收紧）
+BOOT_EVENT_TYPES: tuple[EventTypeSpec, ...] = (
+    EventTypeSpec(
+        name="reply_token",
+        renderer="StreamingRow",
+        meta={"source": "boot", "description": "正文流式输出"},
+    ),
+    EventTypeSpec(
+        name="thinking_start",
+        renderer="ThinkingRow",
+        meta={"source": "boot", "description": "思考卡"},
+    ),
+    EventTypeSpec(
+        name="plan_start",
+        renderer="PlanRow",
+        meta={"source": "boot", "description": "规划卡"},
+    ),
+    EventTypeSpec(
+        name="tool_start",
+        renderer="ToolRow",
+        meta={"source": "boot", "description": "工具卡"},
+    ),
+    EventTypeSpec(
+        name="node_start",
+        renderer="NodeRow",
+        meta={"source": "boot", "description": "节点卡"},
+    ),
+    EventTypeSpec(
+        name="review_card",
+        renderer="ReviewCard",
+        meta={"source": "boot", "description": "审核卡"},
+    ),
+    EventTypeSpec(
+        name="suggestions",
+        renderer="TextRow",
+        meta={"source": "boot", "description": "建议卡"},
+    ),
+    EventTypeSpec(
+        name="error",
+        renderer="ErrorRow",
+        meta={"source": "boot", "description": "错误消息"},
+    ),
+)
+
+# boot 初始界面描述（对话面板 = 数据；渲染器消费布局树即时重渲）
+BOOT_UI_SPEC: dict[str, Any] = {
+    "name": "boot.panel",
+    "version": 1,
+    "root": {
+        "kind": "container",
+        "type": "column",
+        "children": [
+            {
+                "kind": "component",
+                "type": "message_list",
+                "bind": {"channel": "state", "path": "messages"},
+            },
+            {"kind": "component", "type": "agent_input"},
+        ],
+    },
+    "theme": {"bg": "#09090b", "fg": "#e4e4e7", "accent": "#f59e0b"},
+}
+
+# boot 渲染器组件白名单（界面描述只能引用已注册组件，JSON 不能执行任意代码）
+ALLOWED_UI_COMPONENTS: tuple[str, ...] = (
+    "column",
+    "message_list",
+    "agent_input",
+    "files_panel",
+)
+# 主题 token 白名单（布局只能使用已声明的主题键）
+ALLOWED_THEME_TOKENS: tuple[str, ...] = ("bg", "fg", "accent")
+
+
+class KnowledgeRetriever:
+    """知识集检索源（Retriever 实现）：检索集内知识条目作证据汇入。
+
+    检索执行体 = 知识集的关键词基线（复用优先于生成：相似任务先检索
+    已有条目）；检索结果带可信度分级（集内知识条目 = 模型级沉淀，
+    非外部 web 来源），经注册表合并排序后作调配器 evidence 源注入。
+    """
+
+    name = "knowledge"
+
+    def __init__(self, knowledge_set: KnowledgeSet) -> None:
+        self._knowledge_set = knowledge_set
+
+    async def retrieve(self, query: str, *, limit: int) -> list[RetrievedChunk]:
+        hits = self._knowledge_set.search(query, limit=limit)
+        return [
+            RetrievedChunk(
+                source=self.name,
+                doc_id=entry.id,
+                text=f"{entry.title}：{entry.data}",
+                relevance=min(1.0, entry.credibility),
+                level=SOURCE_MODEL,
+                meta={"kind": entry.kind, "source": entry.source},
+            )
+            for entry in hits
+        ]
+
+
+def _build_static_hooks() -> list:
+    """默认静态审查钩子：代码形态审查（零外部依赖）。
+
+    审查面 = AI 生成代码的形态合法性：Python 语法可解析（ast 编译）、
+    文件真实存在。eslint/tsc/ruff 等重型审查由宿主按环境注入
+    （ToolVetting 接受任意钩子清单），缺省不阻塞装配。
+    """
+    import ast
+
+    def python_syntax(paths):
+        violations: list[str] = []
+        for path in paths:
+            if not str(path).endswith(".py"):
+                continue
+            try:
+                ast.parse(Path(path).read_text(encoding="utf-8"))
+            except (SyntaxError, OSError) as exc:
+                violations.append(f"Python 语法审查未通过: {path}: {exc}")
+        return violations
+
+    return [python_syntax]
+
+
+def _build_l2_vetting(vetting: ToolVetting):
+    """L2 沙箱验证钩子：构建产物引用的部署前静态门禁。
+
+    验证面（fail-closed）：产物哈希声明的每个文件须真实存在于集
+    数据目录的 artifacts 子目录且内容哈希一致（防篡改静默切换）；
+    任一文件缺失/哈希不符 = 违规（不弹卡、不落链）。
+    """
+
+    def vet(proposal) -> list[str]:
+        if proposal.kind is not PatchKind.ARTIFACT:
+            return []
+        payload = proposal.payload
+        hashes = payload.get("hashes") or {}
+        artifacts_dir = config.SET_DIR / "artifacts"
+        if not artifacts_dir.is_dir():
+            return ["构建产物目录不存在，无可部署产物"]
+        violations: list[str] = []
+        for name, digest in hashes.items():
+            source = artifacts_dir / name
+            if not source.is_file():
+                violations.append(f"产物文件缺失: {name}")
+                continue
+            actual = hashlib.sha256(source.read_bytes()).hexdigest()
+            if actual != digest:
+                violations.append(f"产物哈希不一致: {name}")
+        return violations
+
+    return vet
+
+
+@dataclass(slots=True)
+class ForgeApp:
+    """装配产物：引擎实例与集内服务视图（进程级单例）。"""
+
+    storage: Storage
+    graph_registries: GraphRegistries
+    knowledge_set: KnowledgeSet
+    harness_registry: HarnessRegistry
+    harness_repository: HarnessRepository
+    event_type_registry: EventTypeRegistry
+    mount_registry: MountRegistry
+    introspection_service: IntrospectionService
+    introspection_specs: list
+    introspection_pipeline: ToolPipeline
+    self_pipeline: SelfApplicationPipeline
+    self_specs: list
+    self_pipeline_runner: ToolPipeline
+    retriever_registry: RetrieverRegistry
+    tool_pipeline: ToolPipeline
+    engine: Engine | None = None
+    engine_llm: AsyncLLM | None = None
+
+    # 宿主动态工具表（演化挂载的工具定义，重启从链组装恢复；每次
+    # 重建回合图时与内省/自指工具合并进工具清单）
+    tool_registry: dict = field(default_factory=dict)
+
+    async def resolve_llm(self) -> AsyncLLM | None:
+        """按引擎存储的模型配置解析主模型 LLM（records 为唯一真相）。
+
+        未配置完整（base_url/model_id 必填）或配置解析失败时返回 None，
+        由路由端拦截并引导用户进入模型设置。
+        """
+        try:
+            record = await self.storage.get_record("settings", "models")
+        except Exception as exc:
+            logger.warning("模型配置读取失败: %s", exc)
+            return None
+        cfg = (record or {}).get("main") or {}
+        if not cfg.get("model_id") or not cfg.get("base_url"):
+            return None
+        cfg = dict(cfg)
+        cfg["api_key"] = await secrets_store.get_api_key("main")
+        try:
+            return create_llm(cfg)
+        except Exception as exc:  # 配置形态异常不击穿启动
+            logger.warning("模型配置解析失败: %s", exc)
+            return None
+
+    async def rebuild_engine(self, llm: AsyncLLM | None = None) -> Engine:
+        """重建回合图引擎（按当前 LLM 配置装配；配置变更后取最新）。"""
+        if llm is None:
+            llm = await self.resolve_llm()
+        self.engine_llm = llm
+        specs = _collect_specs(self)
+        graph = build_forge_graph(
+            llm,
+            self.tool_pipeline,
+            specs,
+            storage=self.storage,
+        )
+        engine = Engine(
+            graph,
+            options=RunOptions(
+                storage=self.storage,
+                registries=self.graph_registries,
+                transports=[],
+                system_events=self.event_type_registry.system_events(),
+                # 输入调配：检索结果作 evidence 源汇入（回合内每节点
+                # 预装配一次；无检索源/未启用时回合照常执行）
+                assembly=AssemblyConfig(),
+                assembly_sources=_retrieval_sources(self),
+            ),
+        )
+        self.engine = engine
+        self.introspection_service.set_graph(graph)
+        return engine
+
+
+_app: ForgeApp | None = None
+_lock = asyncio.Lock()
+
+
+async def init_app() -> ForgeApp:
+    """装配 Forge 实例（幂等；进程生命周期内只装配一次）。"""
+    global _app
+    async with _lock:
+        if _app is not None:
+            return _app
+        await engine_store.init_engine()
+        storage = engine_store.get_storage()
+
+        # ① 旁路写防护：集内可演化资产集合的唯一写入路径 = 应用管线；
+        #    引擎执行/机制通道（checkpoint/事件日志/用户位置感知/设置）
+        #    经包装透传不受限。守卫令牌只归应用管线持有（补丁链/审计
+        #    自身写入放行），宿主其余路径默认拦截
+        guard_token = uuid.uuid4().hex
+        guarded_storage = GuardedStorage(storage, guard_token=guard_token)
+        storage = guarded_storage
+
+        # ② 图注册表：节点类型/条件边注册位（回合图经此解析）
+        registries = GraphRegistries()
+
+        # ③ 种子注入：通用种子恒注（幂等基线；领域种子后续接入）。
+        # 种子注入属启动装配机制路径（注入非演化），经旁路写防护的
+        # 全豁免上下文放行（knowledge 集合按前缀守卫，种子写入不受
+        # 演化管线约束）
+        knowledge_set = KnowledgeSet(FORGE_SET_USER, storage=storage)
+        with storage.allow_mechanism():
+            seed_user_set(knowledge_set)
+
+        # ④ harness 装配：forge 领域定义（自指元能力集）注册 + 落库。
+        # 装配期写入属机制内部路径，经显式豁免上下文放行
+        harness_registry = HarnessRegistry(registries=registries)
+        harness_repository = HarnessRepository(storage)
+        forge_definition = HarnessDefinition(
+            name="forge",
+            description="自举领域：观察/提案/应用的元能力集",
+            keywords=("观察", "内省", "演化", "自举"),
+            meta={"set_id": "default", "role": "self"},
+        )
+        harness_registry.register(forge_definition)
+        with storage.allow_mechanism("harness"):
+            await harness_repository.save(
+                forge_definition, note="开局装配：forge 自举领域基线"
+            )
+
+        # ⑤ 事件类型注册表：boot 内置类型登记 + 集内演化类型加载。
+        # 内置基线优先，集内同名校验跳过（AI 改类型走补丁链版本化，
+        # 不覆盖基线）；脏记录跳过不阻断启动。装配期写入属机制内部
+        # 路径，经旁路写防护的显式豁免上下文放行
+        event_registry = EventTypeRegistry(storage=storage, set_id=FORGE_SET_USER)
+        for spec in BOOT_EVENT_TYPES:
+            event_registry.register(spec)
+        with storage.allow_mechanism("event_types"):
+            await event_registry.load()
+            await event_registry.save()
+
+        # 本地文件访问授权（挂载点模型）：AI 只见显式授权的挂载点，
+        # 磁盘其余部分 fail-closed 不可见；注册/撤销是用户动作
+        mount_registry = MountRegistry(storage)
+
+        # ⑫ 应用管线：提案 → 校验 → 分级审批 → 补丁链落库 →
+        #    活跃态生效。校验器白名单与界面渲染器同源（组件/绑定通道/
+        #    主题 token 三层）；审批分级默认 L0（界面/主题）直过、
+        #    其余 L1 弹卡、构建产物引用 L2（沙箱验证 + 人工审批，
+        #    宿主可整体替换分级表）
+        validator = ProposalValidator(
+            allowed_components=ALLOWED_UI_COMPONENTS,
+            allowed_channels=DEFAULT_BIND_CHANNELS,
+            allowed_theme_tokens=ALLOWED_THEME_TOKENS,
+            graph_registries=registries,
+        )
+        vetting = ToolVetting(static_hooks=_build_static_hooks())
+        self_pipeline = SelfApplicationPipeline(
+            storage,
+            validator=validator,
+            guard_token=guard_token,
+            l2_vetting=_build_l2_vetting(vetting),
+        )
+
+        # 界面描述装配：初始面板布局 = 数据，装配期经三层白名单校验
+        # （组件/绑定通道/主题 token）；基线损坏回落未定形，不击穿启动
+        ui_spec: dict[str, Any] | None = BOOT_UI_SPEC
+        ui_violations = UISchemaValidator().validate(
+            BOOT_UI_SPEC,
+            allowed_components=ALLOWED_UI_COMPONENTS,
+            allowed_channels=DEFAULT_BIND_CHANNELS,
+            allowed_theme_tokens=ALLOWED_THEME_TOKENS,
+        )
+        if ui_violations:
+            logger.warning("初始界面描述校验未通过，回落未定形: %s", ui_violations)
+            ui_spec = None
+
+        # ⑥ 工具装配：内省元工具（只读）+ 自指元工具（演化）+ 动态
+        #    工具表（重启从链恢复）。工具规格先于服务装配（内省快照
+        #    需要工具清单）
+        introspection_specs = introspection_tool_specs()
+        self_specs = self_tool_specs()
+        introspection_service = IntrospectionService(
+            IntrospectionSources(
+                knowledge_set=knowledge_set,
+                harness_registry=harness_registry,
+                tools=[],
+                ui_spec=ui_spec,
+            )
+        )
+        introspection_pipeline = build_introspection_pipeline(introspection_service)
+        self_pipeline_runner = build_self_pipeline(
+            self_pipeline, lambda: _app or get_app()
+        )
+
+        # ⑨ 检索原语装配：Retriever 注册表（知识集检索源注册，结果
+        #    作调配器 evidence 源注入；FTS/向量/MCP 检索源由领域层
+        #    后续注册，插拔 U 盘——注册即汇入）
+        retriever_registry = RetrieverRegistry()
+        retriever_registry.register(KnowledgeRetriever(knowledge_set))
+
+        # ⑬ 统一工具流水线：内省（只读）/ 自指（演化）/ 动态工具
+        #    （挂载定义）三路分发，同一权限门禁与审计管线
+        introspection_executor = make_introspection_executor(introspection_service)
+        self_executor = make_self_executor(self_pipeline, lambda: _app or get_app())
+        introspection_names = {spec.name for spec in introspection_specs}
+        self_names = {spec.name for spec in self_specs}
+
+        async def unified_executor(ctx, spec, args, approval):
+            if spec.name in introspection_names:
+                return await introspection_executor(ctx, spec, args, approval)
+            if spec.name in self_names:
+                return await self_executor(ctx, spec, args, approval)
+            return await harness_registry.declarative.dispatch(
+                ctx, spec, args, approval
+            )
+
+        def unified_extractor(spec, args):
+            if spec.name in introspection_names:
+                return ("read", "*")
+            if spec.name in self_names:
+                return (
+                    "propose" if spec.name == "propose_patch" else "apply",
+                    "patch",
+                )
+            definition = harness_registry.declarative.definitions.get(spec.name)
+            if definition is None:
+                return None
+            from ink_engine.core.declarative_tools import endpoint_operation
+
+            return endpoint_operation(definition.endpoint, args)
+
+        tool_pipeline = ToolPipeline(
+            gate=PermissionGate(),
+            extractor=unified_extractor,
+            executor=unified_executor,
+        )
+
+        app = ForgeApp(
+            storage=storage,
+            graph_registries=registries,
+            knowledge_set=knowledge_set,
+            harness_registry=harness_registry,
+            harness_repository=harness_repository,
+            event_type_registry=event_registry,
+            mount_registry=mount_registry,
+            introspection_service=introspection_service,
+            introspection_specs=introspection_specs,
+            introspection_pipeline=introspection_pipeline,
+            self_pipeline=self_pipeline,
+            self_specs=self_specs,
+            self_pipeline_runner=self_pipeline_runner,
+            retriever_registry=retriever_registry,
+            tool_pipeline=tool_pipeline,
+        )
+        _app = app
+
+        # 从链恢复集状态（重启/回退后活跃态一致）：界面描述、harness、
+        # 动态工具、事件类型（基线优先，不覆盖 boot 内置类型）
+        await _restore_set_state(app)
+
+        # ⑭ 活跃态应用目标：补丁落链后的运行时生效钩子（幂等可重放）
+        await _register_apply_targets(app)
+
+        # 统一工具流水线（内省 + 自指 + 动态工具经同一管线执行）
+        app.introspection_service._sources.tools = _collect_specs(app)
+        await app.rebuild_engine()
+        logger.info("Forge 装配完成（集目录: %s）", config.SET_DIR)
+        _app = app
+        return _app
+
+
+class _UITarget:
+    """界面/主题补丁的活跃态目标：更新渲染器数据源 + 落库冗余视图。
+
+    界面描述的权威记录 = 集补丁链（重启从链组装恢复）；此处只更新
+    内存活跃态（渲染器消费）并写 ui 集合作审计视图（经旁路写防护
+    的机制豁免——目标代码是应用管线的延伸）。
+    """
+
+    name = "ui"
+
+    def __init__(self, app: ForgeApp) -> None:
+        self._app = app
+
+    async def apply(self, payload: dict, patch_id: int) -> None:
+        spec = payload.get("spec")
+        if isinstance(spec, dict):
+            self._app.introspection_service._sources.ui_spec = spec
+            with self._app.storage.allow_mechanism("ui"):
+                await self._app.storage.put_record(
+                    "ui", spec.get("name") or "boot.panel", {"spec": spec, "patch_id": patch_id}
+                )
+
+
+class _ThemeTarget:
+    """主题补丁的活跃态目标：主题 token 覆盖渲染器数据源。"""
+
+    name = "theme"
+
+    def __init__(self, app: ForgeApp) -> None:
+        self._app = app
+
+    async def apply(self, payload: dict, patch_id: int) -> None:
+        tokens = payload.get("tokens")
+        if not isinstance(tokens, dict):
+            return
+        current = self._app.introspection_service._sources.ui_spec
+        if not isinstance(current, dict):
+            return
+        updated = dict(current)
+        updated["theme"] = {**dict(current.get("theme") or {}), **tokens}
+        self._app.introspection_service._sources.ui_spec = updated
+
+
+class _ToolTarget:
+    """工具补丁的活跃态目标：登记声明式定义 + 注册进宿主动态工具表。
+
+    执行体注册由宿主后续接入（未注册执行体的调用在分发处显式拒绝，
+    fail-closed）；注册后 inspect_tools 立即可见、可被后续回合调用。
+    """
+
+    name = "tool"
+
+    def __init__(self, app: ForgeApp) -> None:
+        self._app = app
+
+    async def apply(self, payload: dict, patch_id: int) -> None:
+        from ink_engine.core.declarative_tools import DeclarativeToolSpec
+
+        declarative = DeclarativeToolSpec.from_dict(payload)
+        self._app.harness_registry.declarative.register_definition(declarative)
+        self._app.tool_registry[declarative.name] = declarative.to_spec()
+        self._app.introspection_service._sources.tools = _collect_specs(self._app)
+        with self._app.storage.allow_mechanism("tool_defs"):
+            await self._app.storage.put_record(
+                "tool_defs", declarative.name, declarative.to_dict()
+            )
+
+
+class _EventTypeTarget:
+    """事件类型补丁的活跃态目标：注册进事件类型注册表并落库。
+
+    重复注册（AI 改类型）保守跳过——类型变更走「先废弃再注册」或
+    补丁链版本化，不静默覆盖既有类型。
+    """
+
+    name = "event_type"
+
+    def __init__(self, app: ForgeApp) -> None:
+        self._app = app
+
+    async def apply(self, payload: dict, patch_id: int) -> None:
+        spec = EventTypeSpec.from_dict(payload)
+        registry = self._app.event_type_registry
+        if spec.name in registry.names():
+            logger.info("事件类型已存在，跳过注册（类型变更走版本化）: %s", spec.name)
+            return
+        registry.register(spec)
+        with self._app.storage.allow_mechanism("event_types"):
+            await registry.save()
+
+
+class _KnowledgeTarget:
+    """知识补丁的活跃态目标：条目写入知识集（补丁链通道）并落库。
+
+    知识集的权威记录 = 集补丁链（knowledge 段）；此处同步内存链
+    （重启从链组装恢复），落库经旁路写防护的显式豁免——目标代码
+    是应用管线的延伸。
+    """
+
+    name = "knowledge"
+
+    def __init__(self, app: ForgeApp) -> None:
+        self._app = app
+
+    async def apply(self, payload: dict, patch_id: int) -> None:
+        from ink_engine.core.knowledge_set import KnowledgeEntry
+
+        raw = payload.get("entry")
+        if not isinstance(raw, dict):
+            return
+        entry = KnowledgeEntry.from_dict(raw)
+        ks = self._app.knowledge_set
+        if ks.get(entry.id) is None:
+            ks.add(entry)
+        else:
+            changes = {
+                key: value
+                for key, value in entry.to_dict().items()
+                if key not in ("id", "created_at")
+            }
+            ks.update(entry.id, **changes)
+        with self._app.storage.allow_mechanism():
+            await ks.save()
+
+
+class _HarnessTarget:
+    """harness 补丁的活跃态目标：注册进 harness 注册表 + 仓库落库。"""
+
+    name = "harness"
+
+    def __init__(self, app: ForgeApp) -> None:
+        self._app = app
+
+    async def apply(self, payload: dict, patch_id: int) -> None:
+        definition = payload.get("definition")
+        if not isinstance(definition, dict):
+            return
+        parsed = HarnessDefinition.from_dict(definition)
+        self._app.harness_registry.register(parsed)
+        # 目标代码是应用管线的延伸：仓库落库经旁路写防护的显式豁免
+        with self._app.storage.allow_mechanism("harness"):
+            await self._app.harness_repository.save(
+                parsed, note=f"补丁 #{patch_id}"
+            )
+
+
+async def _register_apply_targets(app: ForgeApp) -> None:
+    """应用管线目标注册：补丁落链后按类型生效到运行时。"""
+    pipeline = app.self_pipeline
+    pipeline.register_target(PatchKind.UI, _UITarget(app))
+    pipeline.register_target(PatchKind.THEME, _ThemeTarget(app))
+    pipeline.register_target(PatchKind.TOOL, _ToolTarget(app))
+    pipeline.register_target(PatchKind.EVENT_TYPE, _EventTypeTarget(app))
+    pipeline.register_target(PatchKind.HARNESS, _HarnessTarget(app))
+    pipeline.register_target(PatchKind.KNOWLEDGE, _KnowledgeTarget(app))
+
+
+async def _restore_set_state(app: ForgeApp) -> None:
+    """从集补丁链组装恢复活跃态（重启/回退后集状态一致）。
+
+    链是权威记录：界面描述/harness/动态工具/事件类型/环境/产物按
+    最新组装形态重建运行时视图；恢复失败只记日志不击穿启动（链
+    损坏时回落基线，可回退修复）。
+    """
+    try:
+        state = await app.self_pipeline.chain.assemble()
+    except Exception as exc:
+        logger.warning("集状态组装失败，回落基线: %s", exc)
+        return
+    ui_state = state.get("ui") or {}
+    if isinstance(ui_state, dict):
+        spec = ui_state.get("boot.panel") or ui_state.get(next(iter(ui_state), ""))
+        if isinstance(spec, dict) and spec.get("root"):
+            try:
+                violations = UISchemaValidator().validate(
+                    spec,
+                    allowed_components=ALLOWED_UI_COMPONENTS,
+                    allowed_channels=DEFAULT_BIND_CHANNELS,
+                    allowed_theme_tokens=ALLOWED_THEME_TOKENS,
+                )
+                if not violations:
+                    app.introspection_service._sources.ui_spec = spec
+            except Exception:
+                pass
+    for name, definition in (state.get("harness") or {}).items():
+        if not isinstance(definition, dict):
+            continue
+        try:
+            parsed = HarnessDefinition.from_dict(definition)
+            app.harness_registry.register(parsed)
+        except Exception as exc:
+            logger.warning("harness 恢复失败（跳过）: %s: %s", name, exc)
+    for name, tool_data in (state.get("tools") or {}).items():
+        if not isinstance(tool_data, dict):
+            continue
+        try:
+            from ink_engine.core.declarative_tools import DeclarativeToolSpec
+
+            declarative = DeclarativeToolSpec.from_dict(tool_data)
+            app.harness_registry.declarative.register_definition(declarative)
+            app.tool_registry[name] = declarative.to_spec()
+        except Exception as exc:
+            logger.warning("工具恢复失败（跳过）: %s: %s", name, exc)
+    for name, spec_data in (state.get("event_types") or {}).items():
+        if not isinstance(spec_data, dict) or name in app.event_type_registry.names():
+            continue
+        try:
+            spec = EventTypeSpec.from_dict(spec_data)
+            app.event_type_registry.register(spec)
+        except Exception as exc:
+            logger.warning("事件类型恢复失败（跳过）: %s: %s", name, exc)
+    knowledge_state = state.get("knowledge") or {}
+    if isinstance(knowledge_state, dict) and knowledge_state:
+        try:
+            from ink_engine.core.knowledge_set import KnowledgeSet
+
+            # 知识集内存链按集状态重建（权威 = 集补丁链；重启后
+            # 检索/内省立即反映演化产物）
+            app.knowledge_set = KnowledgeSet.from_export(
+                FORGE_SET_USER,
+                {"base": {"entries": knowledge_state}, "patches": []},
+                storage=app.storage,
+            )
+        except Exception as exc:
+            logger.warning("知识集恢复失败（跳过）: %s", exc)
+
+
+def _retrieval_sources(app: ForgeApp):
+    """调配器源提供者：检索结果 → evidence 源（回合内节点预装配消费）。
+
+    查询串取回合输入（用户原话）；检索结果按可信度分级过滤（只放行
+    集内知识/用户级来源——web 级检索注入不汇入），经注册表合并排序
+    后作 evidence 源注入。无检索源/空结果/调配未启用 = 空清单（检索
+    是增强，不阻断回合）。
+    """
+
+    async def provide(ctx) -> list[ContextSource]:
+        query = str(ctx.state.get("input") or "").strip()
+        if not query:
+            return []
+        chunks = await app.retriever_registry.retrieve(
+            query, limit=8, levels=(SOURCE_MODEL,)
+        )
+        return [
+            ContextSource(
+                type=SOURCE_EVIDENCE,
+                content=chunk.text[:1200],
+                title=f"检索：{chunk.source}/{chunk.doc_id}",
+                relevance=chunk.relevance,
+                priority=5,
+                meta={"source": chunk.source, "doc_id": chunk.doc_id},
+            )
+            for chunk in chunks
+        ]
+
+    return provide
+
+
+def _collect_specs(app: ForgeApp) -> list:
+    """工具清单汇总（内省 + 自指 + 动态工具），供内省快照与回合装配。"""
+    return [
+        *app.introspection_specs,
+        *app.self_specs,
+        *app.tool_registry.values(),
+    ]
+
+
+async def close_app() -> None:
+    """关闭装配产物（进程退出前调用，幂等）。"""
+    global _app
+    async with _lock:
+        _app = None
+        await engine_store.close_engine()
+
+
+def get_app() -> ForgeApp:
+    """访问装配产物；未装配时抛错（lifespan 之外调用即编程错误）。"""
+    if _app is None:
+        raise RuntimeError("Forge 未装配（init_app 未执行）")
+    return _app

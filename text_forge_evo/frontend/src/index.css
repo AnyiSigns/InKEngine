@@ -1,0 +1,168 @@
+@import "tailwindcss";
+
+/* ===== 主题变量（与主版 TextForge 前端同一套暖纸色 token，保持统一）===== */
+
+@custom-variant dark (&:is(.dark *));
+
+:root {
+  --background: #f4f3f0;
+  --foreground: #1c1b1a;
+  --card: #fafafa;
+  --card-foreground: #1c1b1a;
+  --popover: #fbfbfb;
+  --popover-foreground: #1c1b1a;
+  --primary: #1c1b1a;
+  --primary-foreground: #fafafa;
+  --secondary: #e7e6e4;
+  --secondary-foreground: #1c1b1a;
+  --muted: #e7e6e4;
+  --muted-foreground: #8c8884;
+  --accent: #1c1b1a;
+  --accent-foreground: #fafafa;
+  --accent-dim: rgba(28, 27, 26, 0.06);
+  --destructive: #d94646;
+  --destructive-foreground: #fafafa;
+  --border: #d8d6d2;
+  --input: #d8d6d2;
+  --ring: #8c8884;
+  --sidebar-hover: rgba(28, 27, 26, 0.05);
+  --font-sans:
+    "Inter", "Geist", -apple-system, BlinkMacSystemFont, "Segoe UI",
+    "PingFang SC", "Microsoft YaHei", sans-serif;
+  --font-mono: "Geist Mono", "Cascadia Code", "JetBrains Mono", monospace;
+  --radius: 1rem;
+
+  /* 自定义背景 + 液态玻璃（与主版前端同一套契约） */
+  --bg-image: none;
+  --bg-image-opacity: 0.3;
+  --bg-image-blur: 0px;
+  --card-rgb: 250, 250, 248;
+  --border-rgb: 216, 214, 210;
+  --glass-opacity: 0.7;
+  --glass-blur: 12px;
+}
+
+.dark {
+  --background: #1a1816;
+  --foreground: #e8e2da;
+  --card: #242120;
+  --card-foreground: #e8e2da;
+  --popover: #2a2623;
+  --popover-foreground: #e8e2da;
+  --primary: #ecebe8;
+  --primary-foreground: #161514;
+  --secondary: #2d2a27;
+  --secondary-foreground: #e8e2da;
+  --muted: #2d2a27;
+  --muted-foreground: #a09b95;
+  --accent: #ecebe8;
+  --accent-foreground: #161514;
+  --accent-dim: rgba(236, 235, 232, 0.06);
+  --destructive: #b44;
+  --destructive-foreground: #f0efed;
+  --border: #3d3834;
+  --input: #3d3834;
+  --ring: #a09b95;
+  --sidebar-hover: rgba(236, 235, 232, 0.06);
+
+  --card-rgb: 36, 33, 32;
+  --border-rgb: 61, 56, 52;
+}
+
+@theme inline {
+  --color-background: var(--background);
+  --color-foreground: var(--foreground);
+  --color-card: var(--card);
+  --color-card-foreground: var(--card-foreground);
+  --color-popover: var(--popover);
+  --color-popover-foreground: var(--popover-foreground);
+  --color-primary: var(--primary);
+  --color-primary-foreground: var(--primary-foreground);
+  --color-secondary: var(--secondary);
+  --color-secondary-foreground: var(--secondary-foreground);
+  --color-muted: var(--muted);
+  --color-muted-foreground: var(--muted-foreground);
+  --color-accent: var(--accent);
+  --color-accent-foreground: var(--accent-foreground);
+  --color-destructive: var(--destructive);
+  --color-destructive-foreground: var(--destructive-foreground);
+  --color-border: var(--border);
+  --color-input: var(--input);
+  --color-ring: var(--ring);
+  --font-sans: var(--font-sans);
+  --font-mono: var(--font-mono);
+}
+
+/* ===== 基础重置（同主版）===== */
+
+@layer base {
+  * {
+    border-color: var(--border);
+  }
+  body {
+    background: var(--background);
+    color: var(--foreground);
+    font-family: var(--font-sans);
+    -webkit-font-smoothing: antialiased;
+  }
+}
+
+::-webkit-scrollbar {
+  width: 8px;
+  height: 8px;
+}
+::-webkit-scrollbar-thumb {
+  background: var(--border);
+  border-radius: 4px;
+}
+::-webkit-scrollbar-track {
+  background: transparent;
+}
+
+/* ===== 液态玻璃（开关在设置-外观；backdrop-filter 用 Tailwind 任意值类
+   生成标准+前缀双版本，规避 Lightning CSS 压缩只保留 -webkit- 的问题）===== */
+
+.glass {
+  background: rgba(var(--card-rgb), var(--glass-opacity));
+  border-color: rgba(var(--border-rgb), 0.55);
+}
+
+/* 玻璃开启时三栏/头部等大面积容器透出背景（blur 类在组件侧条件加） */
+html[data-glass="true"] .app-pane {
+  background: rgba(var(--card-rgb), calc(var(--glass-opacity) * 0.5));
+}
+
+/* 自定义背景存在时，无论玻璃开关，三栏面板半透明透出底层背景图 */
+.has-bg .app-pane {
+  background: rgba(var(--card-rgb), var(--glass-opacity));
+}
+
+/* ===== Agent 对话面板（与 remastered 同款视觉）===== */
+
+.ide-agent-body {
+  flex: 1 1 0;
+  min-height: 0;
+  overflow-y: auto;
+  padding: 12px;
+  display: flex;
+  flex-direction: column;
+  gap: 10px;
+}
+
+@keyframes thinking-shimmer {
+  0% { background-position: -200% 0; }
+  100% { background-position: 200% 0; }
+}
+.thinking-shimmer-text {
+  background: linear-gradient(90deg,
+    color-mix(in srgb, var(--foreground) 40%, transparent) 0%,
+    color-mix(in srgb, var(--foreground) 80%, transparent) 45%,
+    color-mix(in srgb, var(--foreground) 40%, transparent) 55%,
+    color-mix(in srgb, var(--foreground) 10%, transparent) 100%
+  );
+  background-size: 200% 100%;
+  -webkit-background-clip: text;
+  -webkit-text-fill-color: transparent;
+  background-clip: text;
+  animation: thinking-shimmer 2.5s ease-in-out infinite;
+}

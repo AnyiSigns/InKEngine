@@ -90,6 +90,50 @@ async def test_vetting_assembled() -> None:
     assert app.self_pipeline._levels[PatchKind.ARTIFACT] is ApprovalLevel.L2
 
 
+async def test_artifact_vetting_rejects_path_traversal() -> None:
+    """L2 产物校验：越界文件名（穿越段/绝对路径）显式违规，不读取集外文件。
+
+    哈希声明的文件名由 AI 提案携带——段级安全判定拒绝路径分隔/穿越段/
+    绝对路径形态（fail-closed），合法文件名照常读取比对。
+    """
+    from ink_engine.core.self_proposal import PatchKind, SelfProposal
+
+    from app import config
+    from app.forge_recipe import _build_artifact_vetting
+
+    vet = _build_artifact_vetting()
+    artifacts_dir = config.SET_DIR / "artifacts"
+    artifacts_dir.mkdir(parents=True, exist_ok=True)
+    # 越界形态：穿越段 / 反斜杠路径 / 盘符绝对路径 → 文件名非法（不触碰文件）
+    malicious = SelfProposal(
+        kind=PatchKind.ARTIFACT,
+        payload={
+            "hashes": {
+                "../../outside.txt": "0" * 64,
+                "sub\\win.ini": "0" * 64,
+                "C:/Windows/win.ini": "0" * 64,
+            }
+        },
+        base_version=1,
+        rationale="",
+        meta={},
+    )
+    violations = vet(malicious)
+    assert all("文件名非法" in v for v in violations)
+    assert len(violations) == 3
+    # 合法形态：artifacts 目录内真实文件被读取并比对（内容不符 = 哈希不一致）
+    (artifacts_dir / "build.zip").write_bytes(b"payload")
+    legitimate = SelfProposal(
+        kind=PatchKind.ARTIFACT,
+        payload={"hashes": {"build.zip": "0" * 64}},
+        base_version=1,
+        rationale="",
+        meta={},
+    )
+    violations = vet(legitimate)
+    assert any("哈希不一致" in v for v in violations)
+
+
 async def test_retrieval_source_assembled() -> None:
     # 检索原语装配：知识集检索源已注册（调配器 evidence 汇入的数据源）
     app = await boot.init_app()

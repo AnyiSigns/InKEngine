@@ -1,22 +1,25 @@
 # InkEngine 墨引擎（engine-core + seeds）
 
-TextForge 自研的通用 agent 机制引擎（当前宿主领域：小说生成平台），
-以 TextForge 为基底、零反向依赖的独立 Python 包：引擎只提供执行机制，
-不约束策略；机制在内核，策略在领域/业务层。
+可嵌入的自进化运行时（Self-Evolving Runtime）：位于库之上、OS 之下的
+中间层——引擎只提供执行机制与运行时身份（Host 嵌入契约 + 装配数据 +
+生命周期），不约束策略；web/CLI/桌面/stdio 皆为宿主之一（web 只是
+宿主形态之一，不是引擎的绑定形态）。当前宿主领域：小说生成平台。
 
 **核心思想：机制是引擎，知识是数据，变化是补丁，汇入靠调配。**
 引擎只保留不可降维的机制骨架（图执行/补丁链/调配器/推演/验证闸门/
-沙箱/审批等），其余一切（图/计划/harness/工具/规则/知识/参数/分支）
-皆为数据；一切演化皆为补丁链（append-only、可回退、可分支、可审计）；
-一切多源汇入（上下文/知识/工具/记忆/证据）皆经调配器（加权、预算、
-组装、留痕）。
+沙箱/审批/运行时装配与生命周期等），其余一切（图/计划/harness/工具/
+规则/知识/参数/分支/装配配方）皆为数据；一切演化皆为补丁链
+（append-only、可回退、可分支、可审计）；一切多源汇入（上下文/知识/
+工具/记忆/证据）皆经调配器（加权、预算、组装、留痕）。
 
 - `ink_engine.core`（engine-core）：纯机制引擎内核——图执行/checkpoint/事件流/
-  interrupt/存储/补丁链/LLM/安全剥离/沙箱与审批原语（唯一 seam，API 即协议）；
+  interrupt/存储/补丁链/LLM/安全剥离/沙箱与审批原语/运行时装配与生命周期
+  （唯一 seam，API 即协议）；
 - `ink_engine.seeds`（领域种子仓库）：随引擎发布的数据资产（通用种子 +
   领域种子，如 `seeds/novel`）——规则集/样例库/schema 基座/默认编排模板，
   按需注入用户集，导入即自注册（插拔形态）；
-- `examples/`：可独立运行的示例（TextForge 为完整参考实现）；
+- `examples/`：可独立运行的示例（TextForge 为完整参考实现，stdio_host
+  为最小非 web 宿主）；
 - `docs/`：概念文档（concepts.md）+ 扩展点文档（extensions.md）。
 
 ## 安装
@@ -54,6 +57,8 @@ pip install -e ".[test]"    # 测试与 lint 依赖（pytest/ruff）
 | `registry.py` / `workflow.py` | 节点/边注册表（业务自定义节点）；WorkflowSpec→Graph 转换 |
 | `security.py` / `logging.py` | 敏感信息剥离；结构化 JSON 日志 + trace_id 链路追踪 |
 | `introspection.py` | 自指层观察原语（内省服务 + inspect_* 元工具：图/规则/知识/界面/工具表 JSON 快照，只读流水线 + 权限门禁 + 敏感键剥离） |
+| `self_tools.py` | 自指层演化原语（4 契约元工具：propose_patch/apply_patch/revert_patch/propose_domain_manifest——引擎能力，随机制层走补丁链演化、不随宿主壳漂移；宿主扩展经 SelfToolContext 钩子接入） |
+| `runtime.py` | **运行时装配与生命周期（不可演化骨架成员）**：Host 嵌入契约（存储工厂/模型解析/审批策略/传输工厂/关停钩子五件套）+ AssemblyRecipe 装配数据 + Runtime 状态机（uninitialized→running→paused→stopped + 在途 run 登记 + 审批决议重入样板）；Engine = 单次 run 执行，Runtime = 进程级装配产物与生命周期 |
 | `state_machine.py` / `memory.py` / `tiers.py` | 通用状态机原语；记忆策略原语（MemoryStore 协议/召回策略/存储后端）；模型分层挡位（挡位配置解析/按挡位建链/调用统计钩子） |
 | `llm/` | AsyncLLM + OpenAI 兼容适配器 + 工具 schema + fallback 链 + embedding |
 
@@ -104,7 +109,62 @@ asyncio.run(main())
 ```
 
 更多示例：`python examples/novel_demo.py`（图执行/事件流/interrupt/补丁链）、
-`python examples/context_mixer_demo.py`（调配器多源融合）。
+`python examples/context_mixer_demo.py`（调配器多源融合）、
+`python examples/stdio_host.py`（最小非 web 宿主：Runtime 三步挂载 +
+stdin 回合 + 终端决议回流）。
+
+## 宿主嵌入（Runtime：引擎作为系统级运行时的嵌入契约）
+
+嵌入引擎不再需要复制宿主装配配方——三步挂载（五件套 + 配方 + boot）：
+
+```python
+from ink_engine.core.runtime import AssemblyRecipe, Runtime, ToolWiring
+from ink_engine.core.self_tools import make_self_executor, operation_of, self_tool_specs
+
+class MyHost:  # Host 五件套（归属宿主：后端/路径/进程锁/配置/密钥/传输形态）
+    async def create_storage(self) -> Storage: ...      # 存储工厂（sqlite/内存/…）
+    async def resolve_llm(self) -> AsyncLLM | None: ... # 模型解析（配置/密钥归宿主）
+    def interrupt_policy(self) -> InterruptPolicy: ...  # 审批策略（直过/超时表）
+    def build_transport(self) -> EngineTransport: ...   # 传输工厂（SSE 桥/JSON 行）
+    async def close(self) -> None: ...                  # 关停钩子（资源回收）
+
+recipe = AssemblyRecipe(          # 装配决策全部数据化（可校验可替换）
+    seeds=[("boot", build_boot_seed_entries)],
+    harness_definitions=[boot_harness_definition()],
+    event_type_specs=list(BOOT_EVENT_TYPES),
+    tool_wiring=ToolWiring(self_specs=self_tool_specs,
+                           self_executor_factory=make_self_executor,
+                           self_operation_of=operation_of),
+    approval_levels={PatchKind.THEME: ApprovalLevel.L0},
+    graph_recipe=lambda ctx: build_chat_graph(ctx.llm, ctx.tool_pipeline, ctx.tool_specs),
+    # …检索源/apply 目标/vetting/收敛钩子按需注入
+)
+
+runtime = await Runtime().boot(MyHost(), recipe)   # 装配（幂等）
+ticket = runtime.begin_run()                       # 回合登记（pause 拒新、stop 排空）
+result = await runtime.engine.ainvoke({...}, transports=[host.build_transport()])
+runtime.end_run(ticket)
+await runtime.resume_run(thread_id, {"decision": "accept"})  # 审批决议重入样板
+await runtime.stop()                               # 拒新 → 排空 → 关 MCP → 关存储 → 宿主钩子
+```
+
+契约要点：
+
+- **Host 五件套**：存储工厂/模型解析/审批策略/事件传输工厂/关停钩子。
+  决议回流通道不在协议内（web 的 resume 端点、stdio 的 stdin 循环是
+  宿主自己的请求入口），Runtime 提供 `resume_run` 样板（挂起卡 → 锚点
+  → 注入重入）两宿主共用；
+- **AssemblyRecipe 是数据**：图配方/种子/harness/事件类型/界面基线/
+  工具三路分发/vetting/分级审批表/检索源/apply 目标全部数据注入——
+  换壳 = 换配方，机制层不感知宿主形态；配方字段类型只允许核心类型
+  与鸭子协议（架构门禁白名单强制，宿主类型不得进入配方）；
+- **Runtime 与 Engine 分工**：Engine = 单次 run 执行；Runtime = 进程级
+  装配产物与生命周期（boot/rebuild/pause/resume/stop + 在途 run 登记 +
+  引擎重建缓存——配置/工具表变更才重建）；
+- **自指元工具已内核化**：4 契约演化工具（propose_patch/apply_patch/
+  revert_patch/propose_domain_manifest）随机制层走补丁链演化，stdio
+  等新宿主直接复用，无需自带元工具实现；宿主扩展（如种子沉淀）经
+  `SelfToolContext` 钩子接入。
 
 ## 核心概念
 
@@ -143,6 +203,11 @@ asyncio.run(main())
 - **输入调配管线**：每次 LLM 调用前多源统一调配（上下文+知识+工具+
   记忆+证据），统一预算分级分配 + 激活模式留痕 + 一键开关回退旧路径；
   确定性层零 LLM 调用，融合钩子按需升级（失败自动回退）。
+- **运行时身份**：Runtime = 进程级装配与生命周期（Host 五件套嵌入契约 +
+  装配配方数据 + 状态机 + 在途 run 登记 + 审批决议重入样板）——web/
+  CLI/桌面/stdio 皆为宿主之一，嵌入门槛从「复制装配样板」降到「五件套
+  + 配方三步挂载」；装配动作是机制（不可被补丁链修改），装配决策是
+  数据（宿主可换）。
 - **测试时专才化**：生成 → 评审 → 校验 → 收敛（不微调权重），
   web 验证钩子按需触发。
 

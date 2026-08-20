@@ -17,6 +17,7 @@ Python 宿主，其余按需懒装。环境声明（EnvironmentSpec）是数据�
 """
 from __future__ import annotations
 
+import contextlib
 import shutil
 from collections.abc import Sequence
 from dataclasses import dataclass, field
@@ -308,10 +309,9 @@ class LocalProvider:
         if detail:
             record["detail"] = detail
         key = f"{record['ts']:.3f}-{uuid.uuid4().hex[:8]}"
-        try:
+        with contextlib.suppress(Exception):
+            # 审计失败不阻断环境动作（审计是增强不是收紧）
             await self._storage.put_record(ENV_AUDIT_COLLECTION, key, record)
-        except Exception:
-            pass  # 审计失败不阻断环境动作（审计是增强不是收紧）
 
     def _make_handle(
         self, spec: EnvironmentSpec, *, status: str = ENV_STATUS_READY

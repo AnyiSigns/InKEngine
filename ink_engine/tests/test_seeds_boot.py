@@ -46,6 +46,19 @@ def test_boot_metatools_covers_introspection():
         assert name in BOOT_METATOOLS
 
 
+def test_boot_metatools_covers_self_tool_contract():
+    """契约自指工具 ⊆ 元工具清单且 engine-resident（随机制层演化不漂移）。
+
+    内核 core/self_tools.py 的 4 个契约工具（propose_patch/apply_patch/
+    revert_patch/propose_domain_manifest）是引擎能力——契约清单与 boot
+    基线双向闭合：机制层新增演化工具须同步进清单，换壳宿主才不失明。
+    """
+    from ink_engine.core.self_tools import SELF_TOOL_CONTRACT
+
+    assert set(SELF_TOOL_CONTRACT).issubset(set(BOOT_METATOOLS))
+    assert "propose_domain_manifest" in BOOT_METATOOLS
+
+
 def test_boot_ui_spec_shape():
     """初始界面描述为对话面板布局树（含绑定通道）。"""
     assert isinstance(BOOT_UI_SPEC, dict)

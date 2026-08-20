@@ -1,8 +1,8 @@
 """对话回合域：/api/chat SSE 流端点。
 
-回合 = 引擎图一次执行：POST 进入后即返回 SSE 流，事件经
-QueueTransport 桥直出（引擎信封 → data 帧，心跳防代理超时）。
-模型未配置时返回可读错误（前端据此进入引导页）。
+回合 = 引擎图一次执行：POST 进入后即返回 SSE 流，事件经宿主传输
+工厂的队列桥直出（引擎信封 → data 帧，心跳防代理超时）。模型未
+配置时返回可读错误（前端据此进入引导页）。
 """
 
 from __future__ import annotations
@@ -18,7 +18,7 @@ from ink_engine.core.events import EngineEvent
 from pydantic import BaseModel
 
 from ... import boot
-from ...transport import QueueTransport, sse_frame
+from ...transport import sse_frame
 
 logger = logging.getLogger(__name__)
 
@@ -54,10 +54,14 @@ async def chat(req: ChatRequest):
         raise HTTPException(status_code=503, detail="引擎未装配，请稍后重试")
     thread_id = req.thread_id or uuid.uuid4().hex
     round_id = uuid.uuid4().hex
-    bridge = QueueTransport()
+    # 事件传输工厂：宿主五件套的 build_transport（web 每次 SSE 请求新建桥）
+    bridge = app.host.build_transport()
 
     async def runner() -> None:
+        ticket = None
         try:
+            # 在途 run 登记（回合粒度）：pause/stop 拒新由 begin_run 兜底
+            ticket = app.runtime.begin_run()
             await app.engine.ainvoke(
                 {"input": message, "thread_id": thread_id},
                 thread_id=thread_id,
@@ -72,6 +76,8 @@ async def chat(req: ChatRequest):
                 EngineEvent(type="error", payload={"message": f"回合执行失败: {exc}"})
             )
         finally:
+            if ticket is not None:
+                app.runtime.end_run(ticket)
             # 回合尾孵化：消费本回合产生的行为信号（审计增量消费，
             # 幂等；失败只留痕不阻断流关闭）
             if app.incubator is not None:
@@ -108,7 +114,8 @@ async def resume(req: ResumeRequest):
 
     决议语义（对齐引擎 approval 机制）：accept 执行 / reject 拒绝 /
     terminate 终止 / edit 带 edited_content 重校验后应用。注入键 =
-    链尾挂起卡的 interrupt key（与挂起时一致，防错注入）。
+    链尾挂起卡的 interrupt key（与挂起时一致，防错注入）。重入执行
+    本体走 Runtime.resume_run（挂起卡 → 锚点 → 注入样板下沉引擎）。
     """
     app = await boot.init_app()
     if app.engine is None:
@@ -141,18 +148,14 @@ async def resume(req: ResumeRequest):
         inject["edited_content"] = req.edited_content
     if req.reason:
         inject["reason"] = req.reason
-    round_id = uuid.uuid4().hex
-    bridge = QueueTransport()
+    bridge = app.host.build_transport()
 
     async def runner() -> None:
+        ticket = None
         try:
-            await app.engine.ainvoke(
-                {},
-                thread_id=req.thread_id,
-                round_id=round_id,
-                resume_from=latest.checkpoint_id,
-                inject={interrupt.key: inject},
-                transports=[bridge],
+            ticket = app.runtime.begin_run()
+            await app.runtime.resume_run(
+                req.thread_id, inject, transports=[bridge]
             )
         except asyncio.CancelledError:
             pass
@@ -162,6 +165,8 @@ async def resume(req: ResumeRequest):
                 EngineEvent(type="error", payload={"message": f"决议重入失败: {exc}"})
             )
         finally:
+            if ticket is not None:
+                app.runtime.end_run(ticket)
             # 决议注入也属行为信号：回合尾统一消费（游标增量幂等）
             if app.incubator is not None:
                 try:

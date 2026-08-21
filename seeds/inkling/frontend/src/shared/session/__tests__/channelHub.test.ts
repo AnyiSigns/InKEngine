@@ -102,9 +102,9 @@ describe('事件落位（ingest）', () => {
     expect(hub.getSnapshot().messages.at(-1)).toMatchObject({ kind: 'review_card', live: true });
   });
 
-  it('memory_hit → knowledge_hit 消息 + 来源留痕', () => {
+  it('memory_recall → knowledge_hit 消息 + 来源留痕', () => {
     const hub = new ChannelHub();
-    ingestEvent(hub, ev('memory_hit', { hits: [{ id: 'k-1', title: '条目', snippet: '片段' }] }));
+    ingestEvent(hub, ev('memory_recall', { hits: [{ id: 'k-1', title: '条目', snippet: '片段' }] }));
     const snapshot = hub.getSnapshot();
     expect(snapshot.messages.at(-1)).toMatchObject({ kind: 'knowledge_hit' });
     expect(snapshot.sourceTraces).toHaveLength(1);

@@ -1,7 +1,7 @@
 /**
  * knowledge_row 领域组件（知识/研究孵化领域包）：检索命中/孵化信号内联微卡。
  *
- * 数据源：events.memory_hit 通道（消息流内联微卡，不占独立行）。
+ * 数据源：events.memory_recall 通道（消息流内联微卡，不占独立行）。
  * 领域组件经 domains 清单加载注册（manifest contracts 渲染组件白名单），
  * 渲染器白名单解析与机制组件一致——未登记领域组件同样拒绝渲染。
  */

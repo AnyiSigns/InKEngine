@@ -53,7 +53,7 @@
                       {
                         "kind": "component",
                         "type": "knowledge_row",
-                        "bind": { "channel": "events.memory_hit", "path": "" }
+                        "bind": { "channel": "events.memory_recall", "path": "" }
                       },
                       {
                         "kind": "component",

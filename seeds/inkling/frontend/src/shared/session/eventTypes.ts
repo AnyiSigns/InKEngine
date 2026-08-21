@@ -36,7 +36,7 @@ export const EVENT_TYPE_NAMES = [
   'patch_applied',
   'patch_reverted',
   // 记忆/调优/vetting
-  'memory_hit',
+  'memory_recall',
   'tuning_applied',
   'vetting_result',
   // 设备感知/控制
@@ -79,7 +79,7 @@ export const EVENT_TYPE_SPECS: EventTypeSpec[] = [
   { name: 'patch_proposed', description: '补丁提案', bindable: true },
   { name: 'patch_applied', description: '补丁已应用', bindable: true },
   { name: 'patch_reverted', description: '补丁已回退', bindable: true },
-  { name: 'memory_hit', description: '记忆召回', bindable: true },
+  { name: 'memory_recall', description: '记忆召回', bindable: true },
   { name: 'tuning_applied', description: '调优应用', bindable: true },
   { name: 'vetting_result', description: 'vetting 结果', bindable: true },
   { name: 'device_perception', description: '设备感知留痕', bindable: true },

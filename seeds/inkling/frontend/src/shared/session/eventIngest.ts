@@ -152,7 +152,7 @@ export function ingestEvent(hub: ChannelHub, event: HubEvent): void {
     case 'error':
       messages = [...messages, { kind: 'error', content: String(payload.message ?? ''), id: nextId(), stepId: stepId || undefined, roundId }];
       break;
-    case 'memory_hit': {
+    case 'memory_recall': {
       const hits = Array.isArray(payload.hits)
         ? payload.hits.map((h) => {
             const hit = h as Record<string, unknown>;

@@ -628,3 +628,49 @@ def test_renderer_contract_same_source_with_engine_whitelist():
     # 渲染器夹具主题 token ⊆ 白名单（同源取色）
     fixture_theme = set((fixture.get("theme") or {}).keys())
     assert fixture_theme <= set(manifest["contracts"]["theme_tokens"])
+
+
+def test_renderer_channel_contract_same_source_with_engine_whitelist():
+    """渲染器通道契约同源：夹具绑定通道族 ⊆ manifest 通道清单 ⊆ 引擎白名单。
+
+    通道族归一：夹具的 ``state.<子路径>`` 绑定归一为 ``state`` 族（布局
+    通道 = 状态族下任意路径，白名单以族级放行）；``events.*`` /
+    ``inspect_*`` 为精确事件/工具名契约（未注册事件名 = 双端断链——
+    前端订阅永空，禁止静默存在）。
+    """
+    import json as _json
+
+    components, channels, _tokens = _whitelists()
+    manifest = _json.loads((SEED_ROOT / "manifest.json").read_text(encoding="utf-8"))
+    manifest_channels = set(manifest["contracts"]["bind_channels"])
+
+    # manifest 通道清单 ⊆ 引擎装配白名单（契约承诺不得超出装配放行面）
+    assert manifest_channels <= set(channels)
+
+    fixture = _json.loads(
+        (SEED_ROOT / "frontend" / "src" / "data" / "ui_spec.fixture.json").read_text(
+            encoding="utf-8"
+        )
+    )
+
+    def walk(node: Any, out: set[str]) -> None:
+        if isinstance(node, dict):
+            bind = node.get("bind")
+            if isinstance(bind, dict) and bind.get("channel"):
+                out.add(bind["channel"])
+            for child in node.get("children") or ():
+                walk(child, out)
+
+    fixture_channels: set[str] = set()
+    walk(fixture.get("root"), fixture_channels)
+    assert fixture_channels  # 夹具非空
+
+    def family(channel: str) -> str:
+        if channel.startswith("state."):
+            return "state"
+        return channel
+
+    # 渲染器契约通道族 ⊆ manifest 通道清单（前端订阅的事件名须已注册）
+    assert {family(c) for c in fixture_channels} <= manifest_channels
+    # 渲染器契约通道族 ⊆ 引擎装配白名单（双端同源口径一致）
+    assert {family(c) for c in fixture_channels} <= set(channels)

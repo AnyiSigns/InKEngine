@@ -105,7 +105,7 @@
       "events.patch_proposed",
       "events.patch_applied",
       "events.patch_reverted",
-      "events.memory_hit",
+      "events.memory_recall",
       "events.tuning_applied",
       "events.vetting_result",
       "events.device_perception",

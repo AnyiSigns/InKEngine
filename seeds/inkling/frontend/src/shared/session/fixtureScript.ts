@@ -55,7 +55,7 @@ export function runFixtureSession(hub: ChannelHub, options: FixtureScriptOptions
 
   at(8, () =>
     ingest(
-      ev('memory_hit', {
+      ev('memory_recall', {
         step_id: 'plan:1',
         hits: [
           { id: 'k-001', title: '引用质量校验：来源可追溯', snippet: '每次沉淀前校验来源标识' },

@@ -181,7 +181,9 @@ class HarnessRegistry:
     """harness 注册表（进程内运行时视图：按名取定义/能力路由/图与工具重建）。
 
     注册 = 插拔 U 盘：登记定义即可用（路由/建图/工具清单一条路径），
-    同名重复注册 = 覆盖（宿主按配置装配，配置驱动）。
+    同名重复注册 = 覆盖（宿主按配置装配，配置驱动）；注销 = 显式退役
+    （:meth:`unregister`：存在则移除、不存在静默幂等——HARNESS 回退
+    时清理运行期登记位，防只增不减）。
     """
 
     def __init__(
@@ -232,6 +234,17 @@ class HarnessRegistry:
                 policy="loose",
             )
         self._definitions[definition.name] = definition
+
+    def unregister(self, name: str) -> None:
+        """注销 harness 定义（存在则移除，不存在静默幂等）。
+
+        注销原语与注册对称：注册→注销→再注册可用（回退 = 注销当前
+        定义 + 重新登记旧版本）；重复注销不报错（幂等）。声明式工具
+        定义登记（build_tools 的副作用）由挂载/卸载路径经
+        declarative.unregister_definition 管理，本原语只退役注册表
+        条目本身。
+        """
+        self._definitions.pop(name, None)
 
     def get(self, name: str) -> HarnessDefinition | None:
         return self._definitions.get(name)

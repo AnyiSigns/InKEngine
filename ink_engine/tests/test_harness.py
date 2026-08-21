@@ -139,6 +139,35 @@ def test_route_threshold_configurable():
     assert registry.route("推演", threshold=0.8) == []  # 只命中 1/2 关键词，低于阈值
 
 
+def test_unregister_primitive_round_and_idempotent():
+    """注销原语：注册→注销→再注册可用 + 重复注销幂等（存在则移除）。
+
+    与注册对称的显式退役路径：HARNESS 回退时清理运行期登记位（防只增
+    不减）；未注册名注销静默不报错（幂等），注销后路由/建图/工具清单
+    均不再含该定义。
+    """
+    registry = HarnessRegistry(registries=_registry())
+    registry.register(_harness())
+    assert registry.get("plotter") is not None
+
+    registry.unregister("plotter")
+    assert registry.get("plotter") is None
+    assert "plotter" not in registry.names()
+    assert registry.route("推演大纲") == []
+    with pytest.raises(KeyError):
+        registry.build_graph("plotter")  # 注销后按名重建显式拒绝
+
+    # 注销后可再注册（回退 = 注销当前 + 重登记旧版本）
+    registry.register(_harness(description="回退版本"))
+    assert registry.get("plotter").description == "回退版本"
+
+    # 重复注销幂等：再注销一次不报错、状态保持已退役
+    registry.unregister("plotter")
+    registry.unregister("plotter")
+    registry.unregister("plotter")  # 未注册名静默（幂等）
+    assert registry.get("plotter") is None
+
+
 async def test_repository_versioning_and_rollback(memory_storage):
     """仓库版本链：新版本 append、历史保留、回退 = 组装到指定版本。"""
     repo = HarnessRepository(memory_storage)

@@ -16,6 +16,7 @@ from __future__ import annotations
 import asyncio
 import copy
 import json
+import os
 from contextlib import suppress
 from typing import Any
 
@@ -317,12 +318,20 @@ async def test_transport_in_memory_full_loop(storage_uri, approval_ctx):
 
 
 @pytest.mark.skipif(
-    not (SEED_ROOT / "exec" / "target" / "debug" / "inkling_exec.exe").is_file(),
+    not (
+        SEED_ROOT
+        / "exec"
+        / "target"
+        / "debug"
+        / ("inkling_exec.exe" if os.name == "nt" else "inkling_exec")
+    ).is_file(),
     reason="Rust 执行件未构建（cargo build 后重跑）",
 )
 async def test_transport_stdio_rust_exec(storage_uri, approval_ctx):
     """stdio 传输闭环：真实 Rust 执行件（inkling_exec）挂载 → 统一流水线调用。"""
-    binary = SEED_ROOT / "exec" / "target" / "debug" / "inkling_exec.exe"
+    binary = SEED_ROOT / "exec" / "target" / "debug" / (
+        "inkling_exec.exe" if os.name == "nt" else "inkling_exec"
+    )
     market = _market_with([
         {
             "id": "inkling_exec",

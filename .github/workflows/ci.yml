@@ -1,0 +1,110 @@
+name: ci
+
+on:
+  push:
+    branches: [main]
+  pull_request:
+  workflow_dispatch:
+
+env:
+  PYTHON_VERSION: "3.12"
+  NODE_VERSION: "22"
+
+jobs:
+  # ── 引擎侧三关 ──
+
+  arch-gate:
+    name: 架构门禁（机制层语义中立）
+    runs-on: ubuntu-latest
+    steps:
+      - uses: actions/checkout@v4
+      - uses: actions/setup-python@v5
+        with:
+          python-version: ${{ env.PYTHON_VERSION }}
+      - run: pip install -e "ink_engine[test]"
+      - run: python -m pytest ink_engine/tests/test_architecture_gate.py -v
+
+  engine-full:
+    name: 引擎全量（跳过 live）
+    runs-on: ubuntu-latest
+    steps:
+      - uses: actions/checkout@v4
+      - uses: actions/setup-python@v5
+        with:
+          python-version: ${{ env.PYTHON_VERSION }}
+      - run: pip install -e "ink_engine[test,sqlite,llm,mcp]"
+      - run: python -m pytest ink_engine/tests --ignore=ink_engine/tests/live -q
+
+  ruff:
+    name: ruff 静态检查
+    runs-on: ubuntu-latest
+    steps:
+      - uses: actions/checkout@v4
+      - uses: actions/setup-python@v5
+        with:
+          python-version: ${{ env.PYTHON_VERSION }}
+      - run: pip install ruff
+      - run: ruff check ink_engine seeds/inkling
+
+  # ── 种子侧四门禁（self_check.py 同源入口：命令 = manifest.json 单一事实源）──
+
+  seed-schema:
+    name: 种子 schema 校验
+    runs-on: ubuntu-latest
+    steps:
+      - uses: actions/checkout@v4
+      - uses: actions/setup-python@v5
+        with:
+          python-version: ${{ env.PYTHON_VERSION }}
+      - run: pip install -e "ink_engine[test,mcp]"
+      - run: python seeds/inkling/self_check.py --only schema
+
+  seed-cargo:
+    name: 种子 cargo test（执行件）
+    runs-on: ubuntu-latest
+    steps:
+      - uses: actions/checkout@v4
+      - uses: actions/setup-python@v5
+        with:
+          python-version: ${{ env.PYTHON_VERSION }}
+      - uses: dtolnay/rust-toolchain@stable
+      - uses: Swatinem/rust-cache@v2
+        with:
+          workspaces: seeds/inkling/exec
+      - run: python seeds/inkling/self_check.py --only cargo_test
+
+  seed-frontend:
+    name: 种子 frontend typecheck
+    runs-on: ubuntu-latest
+    steps:
+      - uses: actions/checkout@v4
+      - uses: actions/setup-node@v4
+        with:
+          node-version: ${{ env.NODE_VERSION }}
+          cache: npm
+          cache-dependency-path: seeds/inkling/frontend/package-lock.json
+      - run: npm ci --prefix seeds/inkling/frontend
+      - uses: actions/setup-python@v5
+        with:
+          python-version: ${{ env.PYTHON_VERSION }}
+      - run: pip install -e "ink_engine[test]"
+      - run: python seeds/inkling/self_check.py --only frontend
+
+  seed-e2e:
+    name: 种子 e2e 全量
+    needs: [seed-cargo]
+    runs-on: ubuntu-latest
+    steps:
+      - uses: actions/checkout@v4
+      - uses: dtolnay/rust-toolchain@stable
+      - uses: Swatinem/rust-cache@v2
+        with:
+          workspaces: seeds/inkling/exec
+      # 构建先于 e2e：真实 Rust 执行件二进制由本步产出（缓存命中即复用，
+      # 保证 stdio 闭环用例在 CI 上真实执行而非跳过）
+      - run: cargo build --manifest-path seeds/inkling/exec/Cargo.toml
+      - uses: actions/setup-python@v5
+        with:
+          python-version: ${{ env.PYTHON_VERSION }}
+      - run: pip install -e "ink_engine[test,sqlite,llm,mcp]" uvicorn
+      - run: python seeds/inkling/self_check.py --only e2e

@@ -8,6 +8,7 @@ tests/e2e/coverage_matrix.md 逐行呼应（矩阵行 → 门禁 → 落点用�
 运行（仓库根或任意目录）::
 
     python seeds/inkling/self_check.py
+    python seeds/inkling/self_check.py --only cargo_test   # 单门禁（CI 矩阵项）
 
 门禁命令来自 manifest.json ``self_check``（单一事实源，防文档-脚本
 漂移——脚本不重复声明命令，只做聚合执行与报告）；脚本零第三方依赖
@@ -268,11 +269,23 @@ def main(argv: list[str] | None = None) -> int:
         sys.stdout.reconfigure(encoding="utf-8", errors="replace")
     argv = list(sys.argv[1:] if argv is None else argv)
     show_full = "--full" in argv
+    only_key: str | None = None
+    if "--only" in argv:
+        index = argv.index("--only")
+        if index + 1 >= len(argv):
+            print("[self_check] --only 缺门禁键")
+            return 2
+        only_key = argv[index + 1]
     try:
         commands = _load_self_check()
     except (FileNotFoundError, ValueError, json.JSONDecodeError) as exc:
         print(f"[self_check] 门禁配置读取失败: {exc}")
         return 2
+    if only_key is not None:
+        if only_key not in commands:
+            print(f"[self_check] 未知门禁键: {only_key}（可用: {', '.join(commands)}）")
+            return 2
+        commands = {only_key: commands[only_key]}
 
     print(_render_header(commands))
     results: list[GateResult] = []
@@ -302,6 +315,9 @@ def main(argv: list[str] | None = None) -> int:
             print(f"  - FAIL {result.label}：{result.summary}")
             print(f"    修复方向：{GATE_HINTS.get(result.key, '见门禁输出')}")
         return 1
+    if only_key is not None:
+        print(f"\n自检全绿：门禁 {_gate_label(only_key)} PASS")
+        return 0
     print("\n自检全绿：四项门禁全部 PASS（e2e 容器/环境类用例显式 skip，"
           "不阻塞出厂门禁；明细见 coverage_matrix.md「skip 明细」节）")
     return 0

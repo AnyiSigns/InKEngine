@@ -17,6 +17,7 @@
 from __future__ import annotations
 
 import json
+import os
 from typing import Any
 
 import pytest
@@ -356,13 +357,19 @@ async def _run_tuning() -> Any:
     return result
 
 
+# Rust 执行件调试二进制（平台后缀：Windows .exe，其余无扩展）
+_RUST_EXEC_BINARY = SEED_ROOT / "exec" / "target" / "debug" / (
+    "inkling_exec.exe" if os.name == "nt" else "inkling_exec"
+)
+
+
 @pytest.mark.skipif(
-    not (SEED_ROOT / "exec" / "target" / "debug" / "inkling_exec.exe").is_file(),
+    not _RUST_EXEC_BINARY.is_file(),
     reason="Rust 执行件未构建（cargo build 后重跑）",
 )
 async def test_full_loop_stdio_rust_exec():
     """全链路（stdio 真 Rust 执行件）：注入 → 挂载 → 真实执行件调用闭环。"""
-    binary = SEED_ROOT / "exec" / "target" / "debug" / "inkling_exec.exe"
+    binary = _RUST_EXEC_BINARY
     entry = {
         "id": "inkling_exec",
         "name": "InKling Rust 执行件（本产品）",

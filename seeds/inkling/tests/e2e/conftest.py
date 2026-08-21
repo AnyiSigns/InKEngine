@@ -160,6 +160,7 @@ async def boot_runtime(
     storage_uri: str = "memory://",
     llm: AsyncLLM | None = None,
     market: dict[str, Any] | None = None,
+    data_dir: Any = None,
 ):
     """InKling 运行时装配（boot_inkling 封装：测试侧统一入口）。"""
     from host.host import boot_inkling
@@ -169,6 +170,7 @@ async def boot_runtime(
         llm=llm,
         storage_uri=storage_uri,
         market=market,
+        data_dir=data_dir,
     )
 
 

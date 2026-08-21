@@ -116,8 +116,7 @@ def make_orchestrator_factory(
 
 
 def make_tool_pipeline_factory(
-    pipeline: Any,
-    specs_holder: list[Any],
+    holder: dict[str, Any],
 ) -> Callable[[dict[str, Any]], Callable[[Any], dict | None]]:
     """工具流水线编排节点工厂：配置 → 节点执行函数。
 
@@ -127,23 +126,35 @@ def make_tool_pipeline_factory(
     - 未指定：消费 state.pending 待执行清单首项（工具调用留痕内联行）。
     ``role=terminal`` 的实例 = 图出口终态（不执行工具，直接收口）。
     执行结果经统一流水线（权限/审计/守卫机制全部生效），失败按
-    降级路径落明（不崩溃、不静默吞错）。工具规格经持有者实时读取
-    （挂载/补丁演化后重建引擎，节点拿到的是最新工具表）。
+    降级路径落明（不崩溃、不静默吞错）。流水线与工具规格经持有者
+    实时读取（挂载/补丁演化/安全层替换后重建引擎，节点拿到的是
+    最新工具表与最新流水线——不携带过期闭包）。
     """
+    pipeline = None
+
+    def resolve() -> Any:
+        """取当前流水线（持有者刷新后首次调用时缓存新实例）。"""
+        nonlocal pipeline
+        current = holder.get("pipeline")
+        if current is not None and current is not pipeline:
+            pipeline = current
+        return pipeline
 
     async def run_tool(
         ctx: Any, name: str, args: dict[str, Any], step_id: str
     ) -> tuple[str, bool]:
         """执行单个工具（统一流水线分发），返回 (结果文本, 是否成功)。"""
         await ctx.emit("tool_start", {"tool": name, "args": args}, step_id=step_id)
-        spec = next((s for s in specs_holder if s.name == name), None)
+        specs = holder.get("specs") or ()
+        spec = next((s for s in specs if s.name == name), None)
+        pipeline_now = resolve()
         if spec is None:
             text, success = f"未知或未启用工具: {name}", False
-        elif pipeline is None:
+        elif pipeline_now is None:
             text, success = "工具未启用（无分发管线）", False
         else:
             try:
-                outcome = await pipeline.execute(ctx, spec, args)
+                outcome = await pipeline_now.execute(ctx, spec, args)
                 text, success = (
                     outcome.output if outcome.ok else f"执行被拒: {outcome.error}",
                     outcome.ok,
@@ -199,19 +210,26 @@ def make_tool_pipeline_factory(
 
 # ── 回合图构建 ──
 
-# 工具表实时持有者（WeakKeyDictionary 按节点注册表实例挂载）：节点
-# 工厂只在首次建图时注册一次（注册表防重复登记），但工具表随挂载/
-# 补丁演化——持有者每次建图刷新，工厂执行时取实时工具表，跨引擎
-# 重建不携带过期闭包。
-_registry_specs: WeakKeyDictionary[Any, list[Any]] | None = None
+# 工具表/流水线实时持有者（WeakKeyDictionary 按节点注册表实例挂载）：节点
+# 工厂只在首次建图时注册一次（注册表防重复登记），但工具表与流水线随挂载/
+# 补丁演化/安全层替换而变化——持有者每次建图刷新，工厂执行时取实时值，
+# 跨引擎重建不携带过期闭包。
+_registry_specs: WeakKeyDictionary[Any, dict[str, Any]] | None = None
+
+# 持有者键（值 = 各刷新一次的快照；节点执行时现取）
+_HOLDER_SPECS = "specs"
+_HOLDER_PIPELINE = "pipeline"
 
 
-def _specs_holder(registries: Any) -> list[Any]:
-    """取（或建）注册表实例的工具表持有者（键 = 节点类型注册表）。"""
+def _specs_holder(registries: Any) -> dict[str, Any]:
+    """取（或建）注册表实例的实时持有者（键 = 节点类型注册表）。"""
     global _registry_specs
     if _registry_specs is None:
         _registry_specs = WeakKeyDictionary()
-    holder = _registry_specs.setdefault(registries.nodes, [])
+    holder = _registry_specs.get(registries.nodes)
+    if not isinstance(holder, dict):
+        holder = {}
+        _registry_specs[registries.nodes] = holder
     return holder
 
 
@@ -219,20 +237,22 @@ def register_node_types(ctx: GraphRecipeContext, workflow: WorkflowSpec) -> None
     """把两个通用节点类型登记进装配注册表（幂等：重复登记无害）。
 
     注册只发生一次（注册表对重复登记 fail-fast，防静默覆盖）；工具
-    表持有者在每次建图时刷新——Runtime 在配置/工具表变更时重建
-    引擎并重跑图配方，节点执行时取到的是实时工具表。
+    表与流水线持有者在每次建图时刷新——Runtime 在配置/工具表/安全层
+    变更时重建引擎并重跑图配方，节点执行时取到的是实时工具表与实时
+    流水线。
     """
     registries = ctx.registries
     if registries is None:
         raise ValueError("图配方需要注册表（RunOptions.registries 未注入）")
     holder = _specs_holder(registries)
-    holder[:] = list(ctx.tool_specs)
+    holder[_HOLDER_SPECS] = list(ctx.tool_specs)
+    holder[_HOLDER_PIPELINE] = ctx.tool_pipeline
     if not registries.nodes.has(TYPE_ORCHESTRATOR):
         registries.nodes.register(TYPE_ORCHESTRATOR, make_orchestrator_factory(workflow))
     if not registries.nodes.has(TYPE_TOOL_PIPELINE):
         registries.nodes.register(
             TYPE_TOOL_PIPELINE,
-            make_tool_pipeline_factory(ctx.tool_pipeline, holder),
+            make_tool_pipeline_factory(holder),
         )
 
 

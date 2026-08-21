@@ -29,7 +29,7 @@ MANIFEST_PATH = SEED_ROOT / "manifest.json"
 ENGINE_PYPROJECT = REPO_ROOT / "ink_engine" / "pyproject.toml"
 ENGINE_RUNTIME = REPO_ROOT / "ink_engine" / "ink_engine" / "core" / "runtime.py"
 
-# 必须交付的 16 个 seed_data 文件（缺一即失败，防漏交付）
+# 必须交付的 17 个 seed_data 文件（缺一即失败，防漏交付；M3-2 新增 build.json）
 EXPECTED_SEED_FILES: tuple[str, ...] = (
     "boot_prompt.json",
     "ui_spec.json",
@@ -47,6 +47,7 @@ EXPECTED_SEED_FILES: tuple[str, ...] = (
     "memory.json",
     "env.json",
     "mcp_market.json",
+    "build.json",
 )
 
 # ── 引擎事实常量（以源码为准的核对基准；与 ink_engine 源码对齐）──
@@ -114,6 +115,10 @@ OS_CONTROL_TOOLS = ("launch_app", "open_file", "set_volume", "set_brightness", "
 DEVICE_SENSE_TOOLS = ("screen_query", "file_query")
 # 挂载提案 + 文件开发工具（对话式安装入口 / 工作区沙箱端点）
 SELF_AND_FILE_TOOLS = ("propose_mcp_mount", "file_read", "file_write", "file_edit")
+# 网络抓取工具（http_fetch 端点，出厂网络策略 = 域名白名单）
+NETWORK_TOOLS = ("fetch_web",)
+# deny 档工具（三档权限契约的默认拒绝样例，须经补丁链转正才可用）
+DENY_TOOLS = ("shell_exec",)
 
 # 规则谓词（M1 Rust 谓词执行体实现清单，数据↔执行件绑定的契约面）
 DOMAIN_PREDICATES = ("has_fields", "in_enum", "max_length", "non_empty_string", "min_value", "no_injection_phrase")
@@ -334,10 +339,11 @@ def check_manifest(data: dict[str, Any], payload: dict[str, Any], issues: list[s
         issues.append("contracts.exec_mcp_id=inkling_exec 未在 tools.json 的任何 mcp 工具中被引用")
     if "inkling_shell" not in mcp_ids:
         issues.append("contracts.host_id=inkling_shell 未在 tools.json 的任何 mcp 工具中被引用")
-    if tool_names != set(DOMAIN_TOOLS) | set(SHELL_EXECUTORS) | set(DEVICE_SENSE_TOOLS) | set(SELF_AND_FILE_TOOLS):
+    if tool_names != set(DOMAIN_TOOLS) | set(SHELL_EXECUTORS) | set(DEVICE_SENSE_TOOLS) | set(SELF_AND_FILE_TOOLS) | set(NETWORK_TOOLS) | set(DENY_TOOLS):
         issues.append(
             "tools.json 工具集合与契约清单不一致"
-            f"（域工具 {DOMAIN_TOOLS} + shell 执行器 {SHELL_EXECUTORS} + 设备感知 {DEVICE_SENSE_TOOLS} + {SELF_AND_FILE_TOOLS}）"
+            f"（域工具 {DOMAIN_TOOLS} + shell 执行器 {SHELL_EXECUTORS} + 设备感知 {DEVICE_SENSE_TOOLS}"
+            f" + {SELF_AND_FILE_TOOLS} + 网络 {NETWORK_TOOLS} + deny 档 {DENY_TOOLS}）"
         )
     # 主题 token 白名单 = manifest.theme_tokens，且 ui_spec 使用的主题键必须 ⊆ 白名单
     theme_tokens = set(contracts.get("theme_tokens") or [])
@@ -471,12 +477,13 @@ def check_workflow(data: dict[str, Any], payload: dict[str, Any], issues: list[s
 
 
 def check_tools(data: dict[str, Any], _payload: dict[str, Any], issues: list[str]) -> None:
-    """工具声明：唯一性/权限非空/端点白名单必填/权限分级枚举/执行器归属。"""
+    """工具声明：唯一性/权限非空/端点白名单必填/权限分级枚举/执行器归属/端点参数枚举。"""
     names = [tool["name"] for tool in data["tools"]]
     if len(names) != len(set(names)):
         issues.append("tools.json 存在重复工具名")
     domain_seen: set[str] = set()
     shell_seen: set[str] = set()
+    deny_seen: set[str] = set()
     for tool in data["tools"]:
         if not tool["permissions"]:
             issues.append(f"工具 {tool['name']} 权限声明为空（fail-closed：未声明权限默认拒绝）")
@@ -486,14 +493,44 @@ def check_tools(data: dict[str, Any], _payload: dict[str, Any], issues: list[str
             allowlist = config.get("allowlist")
             if not isinstance(allowlist, list) or not allowlist or not all(isinstance(c, str) and c for c in allowlist):
                 issues.append(f"工具 {tool['name']} 的 process_exec 端点须声明非空命令白名单 allowlist")
+            # 参数 schema 须声明 command 固定枚举（与 M3-1 propose_mcp_mount 同款，
+            # process_exec 端点操作判定同源——缺 command 的调用无法推导判定目标）
+            command_props = ((tool.get("parameters") or {}).get("properties") or {}).get("command") or {}
+            if command_props.get("type") != "string" or command_props.get("enum") != [tool["name"]]:
+                issues.append(f"工具 {tool['name']} 的 process_exec 端点须声明 command 固定枚举 [{tool['name']}]")
+            if "command" not in ((tool.get("parameters") or {}).get("required") or []):
+                issues.append(f"工具 {tool['name']} 的 command 参数须在 required 清单内")
         elif endpoint == "file_ops":
             if not isinstance(config.get("root"), str) or not config["root"]:
                 issues.append(f"工具 {tool['name']} 的 file_ops 端点须声明非空根目录 root（沙箱端点）")
+            # 参数 schema 须声明 operation 固定枚举（file_ops 端点操作判定同源：
+            # read/write/delete 操作从参数推导，缺 operation 的调用无法判定目标）
+            operation_props = ((tool.get("parameters") or {}).get("properties") or {}).get("operation") or {}
+            expected_ops = ["read"] if tool["name"].endswith("_read") else ["write"]
+            if operation_props.get("type") != "string" or operation_props.get("enum") != expected_ops:
+                issues.append(f"工具 {tool['name']} 的 file_ops 端点须声明 operation 固定枚举 {expected_ops}")
+            if "operation" not in ((tool.get("parameters") or {}).get("required") or []):
+                issues.append(f"工具 {tool['name']} 的 operation 参数须在 required 清单内")
+            limits = (tool.get("meta") or {}).get("sandbox_limits") or {}
+            if not isinstance(limits.get("max_read_bytes"), int) or limits["max_read_bytes"] <= 0:
+                issues.append(f"工具 {tool['name']} 须声明 sandbox_limits.max_read_bytes（正整数大小上限）")
+            if not isinstance(limits.get("max_write_bytes"), int) or limits["max_write_bytes"] <= 0:
+                issues.append(f"工具 {tool['name']} 须声明 sandbox_limits.max_write_bytes（正整数大小上限）")
+        elif endpoint == "http_fetch":
+            allow_domains = (tool.get("network_policy") or {}).get("allow_domains")
+            if not isinstance(allow_domains, list) or not allow_domains:
+                issues.append(f"工具 {tool['name']} 的 http_fetch 端点须声明非空 network_policy.allow_domains（空白名单 = 禁网）")
+            if not any(perm.startswith("network:connect:") for perm in tool["permissions"]):
+                issues.append(f"工具 {tool['name']} 的权限须含 network:connect 声明（与网络策略同源）")
         elif endpoint == "mcp":
             if not isinstance(config.get("server_id"), str) or not config["server_id"]:
                 issues.append(f"工具 {tool['name']} 的 mcp 端点须声明 server_id 路由密钥")
         if tool["approval"] not in APPROVAL_TIERS:
             issues.append(f"工具 {tool['name']} 权限分级非法: {tool['approval']!r}")
+        if tool["approval"] == "deny":
+            deny_seen.add(tool["name"])
+            if (tool.get("meta") or {}).get("deny_by_default") is not True:
+                issues.append(f"deny 档工具 {tool['name']} 须声明 meta.deny_by_default=true（出厂默认拒绝契约）")
         domain = (tool.get("meta") or {}).get("domain")
         if domain == "research":
             domain_seen.add(tool["name"])
@@ -509,6 +546,8 @@ def check_tools(data: dict[str, Any], _payload: dict[str, Any], issues: list[str
     control_tools = {tool["name"] for tool in data["tools"] if (tool.get("meta") or {}).get("control") is True}
     if control_tools != set(OS_CONTROL_TOOLS):
         issues.append(f"OS 控制工具集合应为 {OS_CONTROL_TOOLS}，实际 {sorted(control_tools)}")
+    if deny_seen != set(DENY_TOOLS):
+        issues.append(f"deny 档工具集合应为 {DENY_TOOLS}，实际 {sorted(deny_seen)}（三档权限契约的拒绝档）")
 
 
 def check_rules(data: dict[str, Any], payload: dict[str, Any], issues: list[str]) -> None:
@@ -672,7 +711,7 @@ def check_memory(data: dict[str, Any], _payload: dict[str, Any], issues: list[st
 
 
 def check_env(data: dict[str, Any], _payload: dict[str, Any], issues: list[str]) -> None:
-    """环境声明：三环境齐全且 runtime 覆盖三形态。"""
+    """环境声明：三环境齐全且 runtime 覆盖三形态 + 容器镜像描述 = 数据。"""
     names = [env["name"] for env in data["environments"]]
     if len(names) != len(set(names)):
         issues.append("env.json 存在重复环境名")
@@ -682,6 +721,25 @@ def check_env(data: dict[str, Any], _payload: dict[str, Any], issues: list[str])
     for env in data["environments"]:
         if (env.get("meta") or {}).get("versioned_by_patch_chain") is not True:
             issues.append(f"环境 {env['name']} 未声明补丁链版本化（versioned_by_patch_chain 应为 true）")
+        if env["runtime"] == "container":
+            image = (env.get("meta") or {}).get("image") or {}
+            if not isinstance(image.get("name"), str) or not image["name"]:
+                issues.append(f"容器环境 {env['name']} 须声明 meta.image.name（镜像描述 = 数据，随补丁链版本化）")
+
+
+def check_build(data: dict[str, Any], _payload: dict[str, Any], issues: list[str]) -> None:
+    """构建管线声明：白名单非空 + 冒烟探针可执行 + 部署目标与环境形态对齐。"""
+    allowlist = (data.get("builder") or {}).get("allowlist") or []
+    if not allowlist:
+        issues.append("build.json builder.allowlist 为空（构建命令白名单不可空，fail-closed）")
+    if len(allowlist) != len(set(allowlist)):
+        issues.append("build.json builder.allowlist 存在重复命令")
+    default_probe = (data.get("smoke_probes") or {}).get("default") or {}
+    if default_probe.get("command") not in allowlist:
+        issues.append("build.json 缺省冒烟探针命令须在构建白名单内（探针经同一沙箱执行）")
+    target = (data.get("deploy") or {}).get("target_runtime")
+    if target not in ENV_RUNTIMES:
+        issues.append(f"build.json deploy.target_runtime 应为 {ENV_RUNTIMES} 之一，实际 {target!r}")
 
 
 def check_mcp_market(data: dict[str, Any], _payload: dict[str, Any], issues: list[str]) -> None:
@@ -774,9 +832,9 @@ def main() -> int:
     # 第四步：跨文件一致性检查（防双源漂移）
     if payload.get("manifest"):
         check_manifest(payload["manifest"], payload, problems)
-    if payload.get("boot_prompt"):
-        if payload["boot_prompt"].get("prompt") != BOOT_PROMPT_FINAL:
-            problems.append("boot_prompt.json 未使用 §5.1 定稿原文")
+    boot_prompt = payload.get("boot_prompt")
+    if boot_prompt and boot_prompt.get("prompt") != BOOT_PROMPT_FINAL:
+        problems.append("boot_prompt.json 未使用 §5.1 定稿原文")
     if payload.get("ui_spec"):
         check_ui_spec(payload["ui_spec"], payload, problems)
     if payload.get("event_types"):
@@ -805,6 +863,8 @@ def main() -> int:
         check_memory(payload["memory"], payload, problems)
     if payload.get("env"):
         check_env(payload["env"], payload, problems)
+    if payload.get("build"):
+        check_build(payload["build"], payload, problems)
     if payload.get("mcp_market"):
         check_mcp_market(payload["mcp_market"], payload, problems)
 

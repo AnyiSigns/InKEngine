@@ -1,0 +1,28 @@
+{
+  "builder": {
+    "allowlist": [
+      "cargo",
+      "npm",
+      "python",
+      "echo"
+    ],
+    "default_timeout": 120,
+    "note": "构建命令白名单（数据驱动，经 ProcessSandbox 沙箱执行，非白名单命令 fail-closed 拒绝）"
+  },
+  "smoke_probes": {
+    "default": {
+      "command": "echo",
+      "args": [
+        "smoke-ok"
+      ],
+      "timeout": 30,
+      "expect_exit": 0,
+      "note": "缺省冒烟探针（产物 promote 前的启动/回归验证；构建声明可覆盖）"
+    }
+  },
+  "deploy": {
+    "target_runtime": "container",
+    "image_prefix": "inkling/artifact",
+    "note": "产物部署目标：容器形态（镜像名 = 前缀 + 内容寻址 id，镜像描述 = 数据）"
+  }
+}

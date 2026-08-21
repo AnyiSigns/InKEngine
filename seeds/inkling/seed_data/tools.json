@@ -333,6 +333,13 @@
       "parameters": {
         "type": "object",
         "properties": {
+          "command": {
+            "type": "string",
+            "enum": [
+              "system_query"
+            ],
+            "description": "命令名（固定值；与 process_exec 端点操作判定同源，调用方恒传）"
+          },
           "scope": {
             "type": "string",
             "enum": [
@@ -344,6 +351,7 @@
           }
         },
         "required": [
+          "command",
           "scope"
         ]
       },
@@ -372,6 +380,13 @@
       "parameters": {
         "type": "object",
         "properties": {
+          "command": {
+            "type": "string",
+            "enum": [
+              "launch_app"
+            ],
+            "description": "命令名（固定值；与 process_exec 端点操作判定同源，调用方恒传）"
+          },
           "app": {
             "type": "string",
             "description": "应用名或启动标识"
@@ -385,6 +400,7 @@
           }
         },
         "required": [
+          "command",
           "app"
         ]
       },
@@ -414,12 +430,20 @@
       "parameters": {
         "type": "object",
         "properties": {
+          "command": {
+            "type": "string",
+            "enum": [
+              "open_file"
+            ],
+            "description": "命令名（固定值；与 process_exec 端点操作判定同源，调用方恒传）"
+          },
           "path": {
             "type": "string",
             "description": "待打开文件路径"
           }
         },
         "required": [
+          "command",
           "path"
         ]
       },
@@ -449,6 +473,13 @@
       "parameters": {
         "type": "object",
         "properties": {
+          "command": {
+            "type": "string",
+            "enum": [
+              "set_volume"
+            ],
+            "description": "命令名（固定值；与 process_exec 端点操作判定同源，调用方恒传）"
+          },
           "level": {
             "type": "number",
             "minimum": 0,
@@ -457,6 +488,7 @@
           }
         },
         "required": [
+          "command",
           "level"
         ]
       },
@@ -486,6 +518,13 @@
       "parameters": {
         "type": "object",
         "properties": {
+          "command": {
+            "type": "string",
+            "enum": [
+              "set_brightness"
+            ],
+            "description": "命令名（固定值；与 process_exec 端点操作判定同源，调用方恒传）"
+          },
           "level": {
             "type": "number",
             "minimum": 0,
@@ -494,6 +533,7 @@
           }
         },
         "required": [
+          "command",
           "level"
         ]
       },
@@ -523,6 +563,13 @@
       "parameters": {
         "type": "object",
         "properties": {
+          "command": {
+            "type": "string",
+            "enum": [
+              "notify"
+            ],
+            "description": "命令名（固定值；与 process_exec 端点操作判定同源，调用方恒传）"
+          },
           "title": {
             "type": "string"
           },
@@ -531,6 +578,7 @@
           }
         },
         "required": [
+          "command",
           "title",
           "body"
         ]
@@ -561,6 +609,13 @@
       "parameters": {
         "type": "object",
         "properties": {
+          "command": {
+            "type": "string",
+            "enum": [
+              "schedule"
+            ],
+            "description": "命令名（固定值；与 process_exec 端点操作判定同源，调用方恒传）"
+          },
           "when": {
             "type": "string",
             "description": "触发时刻描述"
@@ -571,6 +626,7 @@
           }
         },
         "required": [
+          "command",
           "when",
           "action"
         ]
@@ -593,6 +649,89 @@
         "control": true,
         "executor": "shell:schedule",
         "sandbox": "process_allowlist"
+      }
+    },
+    {
+      "name": "shell_exec",
+      "description": "OS 控制：任意命令执行（出厂 deny 档——默认拒绝，须经补丁链显式转正才可用；权限契约不得擅自放宽）",
+      "parameters": {
+        "type": "object",
+        "properties": {
+          "command": {
+            "type": "string",
+            "enum": [
+              "shell_exec"
+            ],
+            "description": "命令名（固定值；与 process_exec 端点操作判定同源，调用方恒传）"
+          },
+          "argv": {
+            "type": "array",
+            "items": {
+              "type": "string"
+            },
+            "description": "待执行命令参数"
+          }
+        },
+        "required": [
+          "command"
+        ]
+      },
+      "permissions": [
+        "process:exec:shell_exec"
+      ],
+      "approval": "deny",
+      "endpoint": "process_exec",
+      "endpoint_config": {
+        "allowlist": [
+          "shell_exec"
+        ]
+      },
+      "network_policy": {
+        "allow_domains": []
+      },
+      "meta": {
+        "domain": "os",
+        "control": false,
+        "deny_by_default": true,
+        "executor": "host:shell_exec_guard",
+        "sandbox": "process_allowlist",
+        "note": "三档权限契约的 deny 档样例：任何调用在门禁处拒绝，权限变更须经审批"
+      }
+    },
+    {
+      "name": "fetch_web",
+      "description": "网络抓取：经 http_fetch 端点取回网页内容（域名白名单 = 出厂网络策略，越域拒绝）",
+      "parameters": {
+        "type": "object",
+        "properties": {
+          "url": {
+            "type": "string",
+            "description": "待抓取 URL（域名须在 network_policy.allow_domains 白名单内）"
+          }
+        },
+        "required": [
+          "url"
+        ]
+      },
+      "permissions": [
+        "network:connect:arxiv.org"
+      ],
+      "approval": "review",
+      "endpoint": "http_fetch",
+      "endpoint_config": {
+        "method": "GET"
+      },
+      "network_policy": {
+        "allow_domains": [
+          "arxiv.org"
+        ],
+        "note": "出厂网络策略：研究场景仅放行 arXiv 主域（数据驱动，可经 TOOL 补丁演化）"
+      },
+      "meta": {
+        "domain": "network",
+        "executor": "host:fetch_web",
+        "sandbox": "network_policy",
+        "size_limit_bytes": 100000
       }
     },
     {
@@ -642,12 +781,20 @@
       "parameters": {
         "type": "object",
         "properties": {
+          "operation": {
+            "type": "string",
+            "enum": [
+              "read"
+            ],
+            "description": "文件操作（固定值；与 file_ops 端点操作判定同源，调用方恒传）"
+          },
           "path": {
             "type": "string",
             "description": "工作区相对路径"
           }
         },
         "required": [
+          "operation",
           "path"
         ]
       },
@@ -666,6 +813,10 @@
         "domain": "file",
         "executor": "host:file_ops",
         "sandbox": "file_root",
+        "sandbox_limits": {
+          "max_read_bytes": 1048576,
+          "max_write_bytes": 1048576
+        },
         "note": "根目录占位符 ${workspace_root} 在装配期由设置页「工作区授权」替换为实际挂载点"
       }
     },
@@ -675,6 +826,13 @@
       "parameters": {
         "type": "object",
         "properties": {
+          "operation": {
+            "type": "string",
+            "enum": [
+              "write"
+            ],
+            "description": "文件操作（固定值；与 file_ops 端点操作判定同源，调用方恒传）"
+          },
           "path": {
             "type": "string",
             "description": "工作区相对路径"
@@ -685,6 +843,7 @@
           }
         },
         "required": [
+          "operation",
           "path",
           "content"
         ]
@@ -704,6 +863,10 @@
         "domain": "file",
         "executor": "host:file_ops",
         "sandbox": "file_root",
+        "sandbox_limits": {
+          "max_read_bytes": 1048576,
+          "max_write_bytes": 1048576
+        },
         "note": "AI 开发模式：写 → 构建 → 冒烟 → 失败信号回流回合再改"
       }
     },
@@ -713,6 +876,13 @@
       "parameters": {
         "type": "object",
         "properties": {
+          "operation": {
+            "type": "string",
+            "enum": [
+              "write"
+            ],
+            "description": "文件操作（固定值；编辑属于写操作，与 file_ops 端点操作判定同源，调用方恒传）"
+          },
           "path": {
             "type": "string",
             "description": "工作区相对路径"
@@ -727,6 +897,7 @@
           }
         },
         "required": [
+          "operation",
           "path",
           "old_text",
           "new_text"
@@ -746,7 +917,11 @@
       "meta": {
         "domain": "file",
         "executor": "host:file_ops",
-        "sandbox": "file_root"
+        "sandbox": "file_root",
+        "sandbox_limits": {
+          "max_read_bytes": 1048576,
+          "max_write_bytes": 1048576
+        }
       }
     }
   ]

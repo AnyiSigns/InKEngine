@@ -162,12 +162,19 @@ def _render_entry(entry: KnowledgeEntry) -> str:
 # ── 五源输入装配源提供者 ──
 
 
+# 工具源预取上限（体积护栏：工具描述进装配文本的上界；预算级裁剪由
+# InputAssembler 按 tool_ratio 池执行——预取只防大对象循环，动态纳入
+# 的新工具不被硬上限截断出预算刷新之外）
+_MAX_TOOL_SOURCES = 32
+
+
 def build_five_source_provider(
     *,
     memory_store: MemoryStore | None = None,
     retriever_registry: RetrieverRegistry | None = None,
     knowledge_set: Any = None,
     tool_specs: list[Any] | None = None,
+    tool_specs_provider: Any = None,
     memory_namespace: str = "user:default",
     memory_limit: int = 8,
     evidence_limit: int = 8,
@@ -178,7 +185,17 @@ def build_five_source_provider(
     预算分池裁剪；提供者自身不裁剪——裁剪是引擎机制，宿主只供源。
     单源故障不阻断回合：记忆/检索/知识任一步失败，只缺该源
     （装配是增强，增强失败不能击穿执行）。
+
+    工具源实时刷新（调配器动态组装）：传 ``tool_specs_provider``
+    （如 ``runtime.collect_specs`` 的封装）时每次装配现取工具表——
+    新挂载工具在下一回合自动纳入工具源预算；传 ``tool_specs`` 静态
+    清单为兼容形态（缺省 None = 无工具源）。
     """
+
+    def _specs_now() -> list[Any]:
+        if tool_specs_provider is not None:
+            return list(tool_specs_provider())
+        return list(tool_specs or ())
 
     async def provide(ctx: Any) -> list[ContextSource]:
         query = str(ctx.state.get("input") or "").strip()
@@ -208,8 +225,9 @@ def build_five_source_provider(
                         meta={"entry_id": entry.id, "kind": entry.kind},
                     )
                 )
-        if tool_specs:
-            for spec in tool_specs[:8]:
+        specs = _specs_now()
+        if specs:
+            for spec in specs[:_MAX_TOOL_SOURCES]:
                 sources.append(
                     ContextSource(
                         type=SOURCE_TOOL,

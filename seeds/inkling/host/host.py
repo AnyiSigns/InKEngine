@@ -11,13 +11,16 @@ Host 五件套（引擎嵌入契约，见 core/runtime.Host）：
 - close：关停钩子（宿主资源回收；Runtime.stop 在存储关闭后调用）。
 
 装配动作（boot_inkling）：Runtime.boot（配方数据装配）→ 声明式工具
-进统一工具表（tools.json 数据形态）→ 宿主执行器注册（propose_mcp_mount
-对话安装入口）→ 引擎重建。装配动作是机制路径，不含产品内容。
+进统一工具表（tools.json 数据形态）→ 工具安全纵深（三档门禁/沙箱
+代理/工作区授权/影子 vetting/OS 执行器进工具表）→ 环境装配域 →
+构建管线域 → 宿主执行器注册 → 引擎重建。装配动作是机制路径，不含
+产品内容。
 """
 from __future__ import annotations
 
-import json
 import os
+import tempfile
+from collections.abc import Callable
 from pathlib import Path
 from typing import Any
 
@@ -27,17 +30,29 @@ from ink_engine.core.events import CollectorTransport, EngineTransport
 from ink_engine.core.llm import AsyncLLM, create_llm
 from ink_engine.core.runtime import Host, Runtime
 from ink_engine.core.self_application import APPROVAL_TIMEOUT_SECONDS
+from ink_engine.core.self_proposal import PatchKind
 from ink_engine.core.storage import Storage, create_storage
 
+from .build_domain import ArtifactApplyTarget, BuildDomain
+from .environment_domain import EnvironmentApplyTarget, EnvironmentDomain
 from .mcp_service import McpMountService
 from .recipe_loader import (
     SeedDataBundle,
     declarative_specs_from_tools,
     load_seed_data,
 )
+from .security_domain import (
+    SecurityDomain,
+    WorkspaceAuthorizer,
+    build_security_l2_vetting_hook,
+    make_file_ops_executor,
+    make_http_fetch_executor,
+    make_process_exec_executor,
+)
 
-# 对话式安装工具名（tools.json 声明；执行器由宿主注册）
-_MOUNT_TOOL_NAME = "propose_mcp_mount"
+# 环境/产物等运行数据目录缺省形态：进程级临时目录（可销毁重建的会话态
+# 数据；正式宿主经 data_dir 注入持久目录）
+_DEFAULT_DATA_DIR_PREFIX = "inkling-runtime-"
 
 
 class InKlingHost(Host):
@@ -58,6 +73,11 @@ class InKlingHost(Host):
         self._auto_approve_keys = auto_approve_keys
         self._timeout = timeout
         self._storage: Storage | None = None
+        # 装配域（boot 后齐备；设置页/评测侧消费的运行期入口）
+        self.security: SecurityDomain | None = None
+        self.workspaces: WorkspaceAuthorizer | None = None
+        self.environments: EnvironmentDomain | None = None
+        self.builds: BuildDomain | None = None
 
     async def create_storage(self) -> Storage:
         """存储工厂（memory/sqlite URI 由装配参数决定；幂等，重入返回同一实例）。"""
@@ -98,6 +118,190 @@ class InKlingHost(Host):
         return self._transport.events
 
 
+class InkRuntime(Runtime):
+    """InKling 运行时：引擎 Runtime 之上叠加五源实时装配源。
+
+    调配器动态组装的产品化接线：回合装配源 = 五源统一预算提供者
+    （上下文/知识/工具/记忆/证据），其中工具源按运行时工具表实时
+    读取——新挂载工具在下一回合自动纳入工具源预算（工具表变更 →
+    引擎重建 → 装配源携带最新清单）。
+    """
+
+    def __init__(
+        self, five_source_factory: Callable[[Runtime], Callable[..., Any]] | None = None
+    ) -> None:
+        super().__init__()
+        self._five_source_factory = five_source_factory
+
+    def _assembly_sources(self) -> Callable[..., Any]:
+        """回合调配源：五源统一预算（宿主注入）优先，缺省回退引擎 evidence。"""
+        if self._five_source_factory is not None:
+            return self._five_source_factory(self)
+        return super()._assembly_sources()
+
+
+async def boot_inkling(
+    root: Path,
+    *,
+    llm: AsyncLLM | None = None,
+    storage_uri: str = "memory://",
+    host: InKlingHost | None = None,
+    market: dict[str, Any] | None = None,
+    data_dir: Path | None = None,
+) -> tuple[Runtime, InKlingHost, McpMountService]:
+    """装配 InKling 运行时（配方数据装配 + 宿主装配动作）。
+
+    流程：
+    1. 装载 seed_data → 装配配方（17 字段全落值，纯数据映射）；
+    2. Runtime.boot（引擎机制装配：种子/harness/事件类型/审批管线/
+       界面基线/元工具流水线/检索源/引擎重建）；
+    3. 声明式工具进统一工具表（tools.json 数据形态，与 mcp 挂载
+       工具同一张表）；
+    4. 工具安全纵深装配（三档门禁替换流水线 gate、声明式沙箱代理、
+       文件工具占位符形态注册、OS 控制执行器 + 挂载执行器注册）；
+    5. 环境装配域（env.json 三提供器 + 链恢复）+ 构建管线域
+       （build.json 白名单 + 产物目录）+ 工作区授权恢复；
+    6. 补丁链应用目标注册（ENVIRONMENT/ARTIFACT 活跃态生效）；
+    7. 引擎重建（工具表/流水线变更触发）。
+
+    Args:
+        root: 种子根（seed_data/manifest 所在目录）。
+        llm: 模型实例（None = 宿主解析/缺配置）。
+        storage_uri: 存储后端 URI（memory:// / sqlite:///:memory:）。
+        host: 宿主实例（缺省自建）。
+        market: MCP 市场数据覆盖（缺省 = seed_data/mcp_market.json）。
+        data_dir: 运行数据目录（envs/artifacts 落盘根；缺省 = 进程级
+            临时目录——环境/产物是可销毁重建的会话态数据）。
+
+    Returns:
+        (runtime, host, mount_service)——mount_service 是挂载双入口
+        （设置页一键挂载 / 对话式安装）的共用编排入口；装配域挂在
+        host 上（host.security/host.workspaces/host.environments/
+        host.builds）。
+    """
+    bundle = load_seed_data(root)
+    data_dir = _resolve_data_dir(data_dir)
+    security = SecurityDomain(bundle.data["tools.json"])
+    hook, mark_vetted = build_security_l2_vetting_hook(security.shadow)
+    # 构建管线域先于配方构造（ARTIFACT 补丁的 L2 验证钩子需要）
+    build_domain = BuildDomain(
+        bundle.data["build.json"],
+        artifact_dir=data_dir / "artifacts",
+    )
+
+    def composed_l2_hook(proposal: Any) -> list[str]:
+        """组合 L2 验证钩子：ARTIFACT → 构建验证；TOOL → 挂载影子核对。"""
+        if getattr(proposal, "kind", None) is PatchKind.ARTIFACT:
+            return build_domain.l2_vetting_hook()(proposal)
+        return hook(proposal)
+
+    # 回退通知状态（boot 后注入：环境/产物活跃态随链回退同步——回退 =
+    # 声明回退 + 实例重建，补丁链为权威）
+    revert_state: dict[str, Any] = {}
+
+    async def _on_reverted(patch_id: int, reason: str) -> None:
+        runtime_ref = revert_state.get("runtime")
+        if runtime_ref is None:
+            return
+        assembled = await runtime_ref.self_pipeline.chain.assemble()
+        domain = revert_state.get("env_domain")
+        if domain is not None:
+            await domain.restore(assembled.get("environments") or {})
+        build_ref = revert_state.get("build_domain")
+        if build_ref is not None:
+            build_ref.sync_artifact_tools(
+                runtime_ref, assembled.get("artifacts") or {}
+            )
+
+    host = host or InKlingHost(llm=llm, storage_uri=storage_uri)
+    from .recipe_loader import build_recipe
+
+    recipe = build_recipe(
+        bundle,
+        l2_vetting_hook=composed_l2_hook,
+        on_reverted=_on_reverted,
+    )
+    runtime = await InkRuntime(_five_source_factory(bundle)).boot(host, recipe)
+    revert_state["runtime"] = runtime
+    mount_service = McpMountService(
+        runtime,
+        market=market if market is not None else bundle.data["mcp_market.json"],
+        external_mark_vetted=mark_vetted,
+    )
+    register_domain_tools(runtime, bundle)
+    register_host_executors(runtime, mount_service, security)
+    # 环境装配域（storage 在 boot 后可用：审计/恢复）
+    env_allowlist = tuple(
+        (bundle.data["build.json"].get("builder") or {}).get("allowlist") or ()
+    )
+    env_domain = EnvironmentDomain(
+        bundle.data["env.json"],
+        envs_dir=data_dir / "envs",
+        storage=runtime.storage,
+        run_allowlist=env_allowlist,
+    )
+    # 安全纵深替换运行时流水线（图配方实时持有者，替换后下一回合生效）
+    security.apply(runtime)
+    security.reregister_file_tools(root=None)
+    # 装配域挂到宿主（设置页/评测侧运行期入口）
+    host.security = security
+    host.builds = build_domain
+    host.environments = env_domain
+    revert_state["env_domain"] = env_domain
+    revert_state["build_domain"] = build_domain
+    build_domain.attach(runtime)
+    host.workspaces = WorkspaceAuthorizer(
+        runtime.storage, security=security, runtime=runtime
+    )
+    # 补丁链应用目标注册（落链即生效；链为权威记录，重启经链恢复）
+    runtime.self_pipeline.register_target(
+        PatchKind.ENVIRONMENT, EnvironmentApplyTarget(env_domain)
+    )
+    runtime.self_pipeline.register_target(
+        PatchKind.ARTIFACT, ArtifactApplyTarget(build_domain, runtime)
+    )
+    # 链恢复：环境段（声明生效）+ 产物段（声明工具注册）+ 工作区授权
+    assembled = await runtime.self_pipeline.chain.assemble()
+    await env_domain.restore(assembled.get("environments") or {})
+    build_domain.sync_artifact_tools(runtime, assembled.get("artifacts") or {})
+    await host.workspaces.load()
+    runtime.introspection_service._sources.tools = runtime.collect_specs()
+    await runtime.rebuild_engine()
+    return runtime, host, mount_service
+
+
+def _five_source_factory(
+    bundle: SeedDataBundle,
+) -> Callable[[Runtime], Callable[..., Any]]:
+    """五源实时装配源工厂（InkRuntime 回合调配源的产品化接线）。
+
+    记忆源经 runtime.storage 惰性构建（boot 后可用）；工具源按
+    ``runtime.collect_specs`` 实时读取（调配器动态组装：新挂载工具
+    下一回合纳入工具源预算）。
+    """
+    from .assembly_domain import build_five_source_provider, build_memory_store
+
+    def factory(runtime: Runtime) -> Callable[..., Any]:
+        memory_store = build_memory_store(runtime.storage)
+        return build_five_source_provider(
+            memory_store=memory_store,
+            retriever_registry=runtime.retriever_registry,
+            knowledge_set=runtime.knowledge_set,
+            tool_specs_provider=runtime.collect_specs,
+        )
+
+    return factory
+
+
+def _resolve_data_dir(data_dir: Path | None) -> Path:
+    """运行数据目录（注入优先；缺省进程级临时目录，进程结束即清理）。"""
+    if data_dir is not None:
+        data_dir = Path(data_dir)
+        data_dir.mkdir(parents=True, exist_ok=True)
+        return data_dir
+    return Path(tempfile.mkdtemp(prefix=_DEFAULT_DATA_DIR_PREFIX))
+
+
 def _model_config_from_env() -> dict[str, str]:
     """环境变量模型配置（INK_LLM_* 命名与 examples/stdio_host 同口径）。"""
     base_url = os.environ.get("INK_LLM_BASE_URL", "")
@@ -115,57 +319,6 @@ def _model_config_from_env() -> dict[str, str]:
     return config
 
 
-async def boot_inkling(
-    root: Path,
-    *,
-    llm: AsyncLLM | None = None,
-    storage_uri: str = "memory://",
-    host: InKlingHost | None = None,
-    market: dict[str, Any] | None = None,
-) -> tuple[Runtime, InKlingHost, McpMountService]:
-    """装配 InKling 运行时（配方数据装配 + 宿主装配动作）。
-
-    流程：
-    1. 装载 seed_data → 装配配方（17 字段全落值，纯数据映射）；
-    2. Runtime.boot（引擎机制装配：种子/harness/事件类型/审批管线/
-       界面基线/元工具流水线/检索源/引擎重建）；
-    3. 声明式工具进统一工具表（tools.json 数据形态，与 mcp 挂载
-       工具同一张表）；
-    4. 宿主执行器注册（propose_mcp_mount 对话式安装入口）；
-    5. 引擎重建（工具表变更触发）。
-
-    Returns:
-        (runtime, host, mount_service)——mount_service 是挂载双入口
-        （设置页一键挂载 / 对话式安装）的共用编排入口。
-    """
-    bundle = load_seed_data(root)
-    hook, mark_vetted = _l2_hook_parts(bundle)
-    host = host or InKlingHost(llm=llm, storage_uri=storage_uri)
-    from .recipe_loader import build_recipe
-
-    recipe = build_recipe(bundle, l2_vetting_hook=hook)
-    runtime = await Runtime().boot(host, recipe)
-    mount_service = McpMountService(
-        runtime,
-        market=market if market is not None else bundle.data["mcp_market.json"],
-        external_mark_vetted=mark_vetted,
-    )
-    register_domain_tools(runtime, bundle)
-    register_host_executors(runtime, mount_service)
-    runtime.introspection_service._sources.tools = runtime.collect_specs()
-    await runtime.rebuild_engine()
-    return runtime, host, mount_service
-
-
-def _l2_hook_parts(
-    bundle: SeedDataBundle,
-) -> tuple[Any, Any]:
-    """L2 验证钩子装配（recipe 默认钩子 + 放行登记器透传给挂载服务）。"""
-    from .recipe_loader import build_mcp_l2_vetting_hook
-
-    return build_mcp_l2_vetting_hook()
-
-
 def register_domain_tools(runtime: Runtime, bundle: SeedDataBundle) -> None:
     """tools.json 声明式工具进统一工具表（挂载/声明同表，机制零差异）。
 
@@ -179,45 +332,37 @@ def register_domain_tools(runtime: Runtime, bundle: SeedDataBundle) -> None:
 
 
 def register_host_executors(
-    runtime: Runtime, mount_service: McpMountService
+    runtime: Runtime, mount_service: McpMountService, security: SecurityDomain
 ) -> None:
     """宿主声明式执行器注册（机制层不代注册执行实现，宿主职责）。
 
     - process_exec：propose_mcp_mount（对话式安装入口）走挂载服务；
-      其余 OS 控制工具（launch_app/open_file 等）执行器归 shell/ 宿主
-      注册（M2 桌面壳），未接入时调用降级为明确失败文本。
+      OS 控制七件经 OS 执行器注册表分发（桌面壳/测试 stub 注入，
+      未注册时降级为明确失败文本）；deny 档（shell_exec）执行体
+      二次拒绝（纵深防御）；
+    - http_fetch：fetch_web 网络策略执行体（域名白名单二次核对，
+      取回实现可注入，缺省 httpx）；
+    - file_ops：文件开发执行体（工作区读写编辑 + 写前快照 + 大小上限）。
     """
-
-    async def process_exec_executor(
-        ctx: Any, definition: Any, args: dict[str, Any], approval: Any
-    ) -> str:
-        if definition.name == _MOUNT_TOOL_NAME:
-            address = str(args.get("address") or "").strip()
-            if not address:
-                return json.dumps(
-                    {"ok": False, "status": "resolve_failed", "error": "挂载地址为空"},
-                    ensure_ascii=False,
-                )
-            outcome = await mount_service.propose_mount(ctx, address)
-            return json.dumps(
-                {
-                    "ok": outcome.ok,
-                    "status": outcome.status,
-                    "server_id": outcome.server_id,
-                    "tools": list(outcome.tool_names),
-                    "error": outcome.error,
-                },
-                ensure_ascii=False,
-            )
-        return f"执行器未接入（shell 宿主未挂载）: {definition.name}"
-
     runtime.harness_registry.declarative.register(
-        EndpointType.PROCESS_EXEC, process_exec_executor
+        EndpointType.PROCESS_EXEC,
+        make_process_exec_executor(
+            mount_service, security.os_registry, tiers=security.tiers
+        ),
+    )
+    runtime.harness_registry.declarative.register(
+        EndpointType.HTTP_FETCH,
+        make_http_fetch_executor(),
+    )
+    runtime.harness_registry.declarative.register(
+        EndpointType.FILE_OPS,
+        make_file_ops_executor(),
     )
 
 
 __all__ = [
     "InKlingHost",
+    "InkRuntime",
     "boot_inkling",
     "register_domain_tools",
     "register_host_executors",

@@ -24,7 +24,7 @@
     },
     "contracts": {
       "type": "object",
-      "required": ["exec_mcp_id", "host_id", "renderer_components", "bind_channels", "event_types", "tools", "theme_tokens"],
+      "required": ["exec_mcp_id", "host_id", "renderer_components", "bind_channels", "event_types", "tools", "build", "theme_tokens"],
       "additionalProperties": false,
       "properties": {
         "exec_mcp_id": { "type": "string", "minLength": 1 },
@@ -38,6 +38,12 @@
           "properties": { "file": { "type": "string", "minLength": 1 } }
         },
         "tools": {
+          "type": "object",
+          "required": ["file"],
+          "additionalProperties": false,
+          "properties": { "file": { "type": "string", "minLength": 1 } }
+        },
+        "build": {
           "type": "object",
           "required": ["file"],
           "additionalProperties": false,

@@ -335,7 +335,7 @@ class McpMountService:
                 ok=False, server_id=config.id,
                 status="import_failed", error="server 未暴露任何工具",
             )
-        self.mark_vetted(config.id)
+        self.mark_vetted(config.id, specs)
         patch_ids: list[int] = []
         tool_names: list[str] = []
         base_version = await self._runtime.self_pipeline.chain.current_version()
@@ -464,11 +464,15 @@ class McpMountService:
                     ctx, patch_id, reason="挂载部分失败回滚", round_id=round_id
                 )
 
-    def mark_vetted(self, server_id: str) -> None:
-        """登记已通过 vetting 的 server（L2 钩子放行依据）。"""
+    def mark_vetted(self, server_id: str, specs: Any = None) -> None:
+        """登记已通过 vetting 的 server（L2 钩子放行依据）。
+
+        specs（导入期工具清单，可选）随登记透传——影子 vetting 的
+        比对依据（工具名/参数必填项在 L2 钩子核对，不真执行）。
+        """
         self._vetted_set.add(server_id)
         if self._external_mark_vetted is not None:
-            self._external_mark_vetted(server_id)
+            self._external_mark_vetted(server_id, specs)
 
     def _remove_server_tools(self, server_id: str) -> tuple[str, ...]:
         """移除某 server 挂载工具的活跃态（声明式定义 + 统一工具表）。"""

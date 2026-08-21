@@ -35,7 +35,7 @@ from ink_engine.core.self_tools import make_self_executor, operation_of, self_to
 from .graph_recipe import build_round_graph
 from .scoring import dimension_scorer_with_facts
 
-# seed_data 目录下的数据文件名（与 schema 校验脚本同源，16 个文件）
+# seed_data 目录下的数据文件名（与 schema 校验脚本同源，17 个文件）
 SEED_DATA_FILES: tuple[str, ...] = (
     "boot_prompt.json",
     "ui_spec.json",
@@ -53,6 +53,7 @@ SEED_DATA_FILES: tuple[str, ...] = (
     "memory.json",
     "env.json",
     "mcp_market.json",
+    "build.json",
 )
 
 # 域名种子注入清单名（稳定键，供幂等注入与回退锚点）
@@ -232,13 +233,20 @@ def declarative_specs_from_tools(bundle: SeedDataBundle) -> list[DeclarativeTool
     """tools.json → 声明式工具定义清单（挂载进统一工具表的数据形态）。
 
     工具条目的额外字段（approval/network_policy/meta）原样保留在
-    定义数据里（meta 进入规范形态；approval/network_policy 由
-    执行端点与权限分级消费）。
+    定义数据里：approval 进档位表（SecurityDomain 三档门禁消费）；
+    network_policy 折叠进 meta（DeclarativeToolSpec 无顶层字段，折叠
+    后随定义持久化，端点沙箱/执行体按声明消费）；meta 原样透传。
     """
-    return [
-        DeclarativeToolSpec.from_dict(raw)
-        for raw in bundle.data["tools.json"].get("tools") or ()
-    ]
+    specs: list[DeclarativeToolSpec] = []
+    for raw in bundle.data["tools.json"].get("tools") or ():
+        raw = dict(raw)
+        meta = dict(raw.get("meta") or {})
+        policy = raw.get("network_policy")
+        if isinstance(policy, dict) and "network_policy" not in meta:
+            meta["network_policy"] = policy
+        raw["meta"] = meta
+        specs.append(DeclarativeToolSpec.from_dict(raw))
+    return specs
 
 
 def map_approval_levels(bundle: SeedDataBundle) -> dict[PatchKind, ApprovalLevel]:
@@ -259,33 +267,23 @@ def map_approval_levels(bundle: SeedDataBundle) -> dict[PatchKind, ApprovalLevel
 
 
 def build_mcp_l2_vetting_hook() -> tuple[
-    Callable[[Any], list[str]], Callable[[str], None]
+    Callable[[Any], list[str]], Callable[..., None]
 ]:
     """L2 验证钩子（挂载类工具补丁的部署前门禁）+ 放行登记器。
 
     钩子语义（fail-closed）：TOOL 补丁若为 MCP 端点工具，server 必须
     已通过挂载 vetting（地址解析 → 配置推导 → 清单一致性/命令白名单
-    核对）并登记——未登记 = 未经过 vetting 的挂载不落链；非 MCP 工具
-    补丁不在此钩子作用域（放行，交给审批分级）。
+    核对）并登记，且声明与影子清单一致（影子 = 导入期工具清单，不真
+    执行——工具名/参数必填项比对，不一致拒绝挂载）；未登记 = 未经过
+    vetting 的挂载不落链；非 MCP 工具补丁不在此钩子作用域（放行，
+    交给审批分级）。
     登记器由挂载服务在 vetting 通过后调用（vetting → 审批 → L2 的
-    顺序在机制上被强制执行）。
+    顺序在机制上被强制执行）；登记时可携带导入期工具清单（影子记录）。
     """
-    vetted: set[str] = set()
+    from .security_domain import ShadowVettingStore, build_security_l2_vetting_hook
 
-    def mark_vetted(server_id: str) -> None:
-        vetted.add(server_id)
-
-    def hook(proposal: Any) -> list[str]:
-        if getattr(proposal, "kind", None) is not PatchKind.TOOL:
-            return []
-        payload = proposal.payload or {}
-        if payload.get("endpoint") != "mcp":
-            return []
-        server_id = (payload.get("endpoint_config") or {}).get("server_id")
-        if not isinstance(server_id, str) or server_id not in vetted:
-            return [f"MCP 挂载未经 vetting 核对（server 未登记放行: {server_id!r}）"]
-        return []
-
+    shadow = ShadowVettingStore()
+    hook, mark_vetted = build_security_l2_vetting_hook(shadow)
     return hook, mark_vetted
 
 

@@ -60,6 +60,9 @@
     "tools": {
       "file": "seed_data/tools.json"
     },
+    "build": {
+      "file": "seed_data/build.json"
+    },
     "theme_tokens": [
       "bg.base",
       "text.base",

@@ -160,7 +160,11 @@ async def test_ui_spec_survives_boot_and_inspectable(booted):
 
 
 async def test_round_default_plan_graceful(booted):
-    """回合默认研究规划：未挂载执行件时工具调用降级为明确失败（不崩溃）。"""
+    """回合默认研究规划：未挂载执行件时工具调用降级为明确失败（不崩溃）。
+
+    M3-2 工具安全纵深起效后 review 档工具（采集/评审/蒸馏）经门禁弹卡
+    审批——回合注入 accept 决议（评审档语义：人工同意后执行）。
+    """
     runtime, host, _mount_service = booted
     offset = len(host.events)
 
@@ -169,6 +173,7 @@ async def test_round_default_plan_graceful(booted):
         thread_id="boot-round-1",
         round_id="round-boot-1",
         transports=[host.build_transport()],
+        inject=_review_tool_accepts(),
     )
     events = list(host.events[offset:])
     assert result.reason == "reply"
@@ -177,6 +182,14 @@ async def test_round_default_plan_graceful(booted):
     assert len(tool_ends) == 6  # workflow 六步骤各执行一次
     assert all(e.payload["success"] is False for e in tool_ends)  # 未挂载 → 降级路径
     assert result.state.get("results")  # 六步结果回填状态通道
+
+
+def _review_tool_accepts() -> dict[str, str]:
+    """review 档工具的门禁 key → accept 决议（工作流步骤的审批注入）。"""
+    return {f"gate:{name}": "accept" for name in _REVIEW_TOOLS}
+
+
+_REVIEW_TOOLS = ("collect_material", "review_material", "distill_knowledge")
 
 
 async def test_round_with_mounted_exec_full_loop(booted, approval_ctx):
@@ -209,6 +222,7 @@ async def test_round_with_mounted_exec_full_loop(booted, approval_ctx):
         thread_id="boot-round-2",
         round_id="round-boot-2",
         transports=[host.build_transport()],
+        inject=_review_tool_accepts(),
     )
     events = list(host.events[offset:])
     assert result.reason == "reply"

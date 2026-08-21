@@ -169,7 +169,9 @@ class AssemblyRecipe:
         ui_allowed_components: 界面组件白名单（校验器与渲染器同源）。
         ui_allowed_theme_tokens: 主题 token 白名单。
         tool_wiring: 统一工具分发声明（三路 specs + 执行器/判定工厂）。
-        vetting_static_hooks: 静态审查钩子清单（工具可信度闸门）。
+        vetting_static_hooks: 静态审查钩子清单（工具可信度闸门；None = 未
+            启用，非 None 但清单为空 = 启用了但空清单——装配期 warn 提示
+            可观测性，防「以为启用了实际零钩子生效」）。
         vetting_l2_hook: L2 沙箱验证钩子（构建产物引用的部署前门禁）。
         approval_levels: 审批分级表（kind → L0/L1/L2）。
         retrieval_sources: 检索源工厂清单（接收装配产物，返回 Retriever）。
@@ -195,9 +197,7 @@ class AssemblyRecipe:
     ui_allowed_components: tuple[str, ...] = ()
     ui_allowed_theme_tokens: tuple[str, ...] = ()
     tool_wiring: ToolWiring | None = None
-    vetting_static_hooks: list[Callable[[Sequence[Path]], list[str]]] = field(
-        default_factory=list
-    )
+    vetting_static_hooks: list[Callable[[Sequence[Path]], list[str]]] | None = None
     vetting_l2_hook: Callable[[Any], list[str]] | None = None
     approval_levels: dict[PatchKind, ApprovalLevel] = field(default_factory=dict)
     retrieval_sources: list[Callable[[Any], Retriever]] = field(default_factory=list)
@@ -329,7 +329,20 @@ class Runtime:
             allowed_theme_tokens=recipe.ui_allowed_theme_tokens,
             graph_registries=self.graph_registries,
         )
-        self.vetting = ToolVetting(static_hooks=recipe.vetting_static_hooks)
+        # 钩子字段空清单可观测性：语义「未启用」= None；非 None 但清单为空
+        # = 启用了但零钩子生效——打 warn 提示（种子/宿主若确为空清单未启用，
+        # 应写 None；此处仅提示不阻断）
+        if (
+            recipe.vetting_static_hooks is not None
+            and not recipe.vetting_static_hooks
+        ):
+            logger.warning(
+                "配方 vetting_static_hooks 非 None 但清单为空——静态审查"
+                "钩子实际零生效（未启用请置 None，字段语义：None = 未启用）"
+            )
+        self.vetting = ToolVetting(
+            static_hooks=recipe.vetting_static_hooks or ()
+        )
 
         # ⑦ 应用管线：提案 → 校验 → 分级审批 → 落链 → 应用 → 审计。
         #    审批策略由管线按分级表自建（机制单一来源，宿主策略钩子

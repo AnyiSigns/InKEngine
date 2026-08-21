@@ -422,7 +422,9 @@ def build_recipe(
         ui_allowed_components=map_ui_allowed_components(bundle),
         ui_allowed_theme_tokens=map_ui_allowed_theme_tokens(bundle),
         tool_wiring=map_tool_wiring(),
-        vetting_static_hooks=[],
+        # 静态审查钩子出厂未启用（None = 未启用；空清单形态会触发引擎
+        # 装配期 warn——「启用了但零钩子生效」属配置错误信号，未启用须置 None）
+        vetting_static_hooks=None,
         vetting_l2_hook=l2_vetting_hook or hook,
         approval_levels=map_approval_levels(bundle),
         retrieval_sources=map_retrieval_sources(bundle),

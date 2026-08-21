@@ -245,6 +245,40 @@ async def test_boot_rejects_incomplete_recipe():
         )
 
 
+async def test_boot_warns_empty_vetting_hooks_list(caplog):
+    """钩子字段空清单 warn：非 None 但清单为空 = 启用了但零钩子生效。
+
+    语义：「未启用」= None（默认，不报警）；非 None 且清单为空 = 配置
+    错误信号（以为启用了实际零生效），装配期 warn 提示可观测性。
+    """
+    import logging
+
+    with caplog.at_level(logging.WARNING, logger="ink_engine.core.runtime"):
+        await Runtime().boot(
+            FakeHost(), _minimal_recipe(vetting_static_hooks=[])
+        )
+    assert any(
+        "vetting_static_hooks" in record.message and "清单为空" in record.message
+        for record in caplog.records
+    )
+
+    # 默认 None（未启用）与非空清单（真启用）都不报警
+    caplog.clear()
+    with caplog.at_level(logging.WARNING, logger="ink_engine.core.runtime"):
+        await Runtime().boot(FakeHost(), _minimal_recipe())
+    assert not any(
+        "vetting_static_hooks" in record.message for record in caplog.records
+    )
+    caplog.clear()
+    with caplog.at_level(logging.WARNING, logger="ink_engine.core.runtime"):
+        await Runtime().boot(
+            FakeHost(), _minimal_recipe(vetting_static_hooks=[lambda paths: []])
+        )
+    assert not any(
+        "vetting_static_hooks" in record.message for record in caplog.records
+    )
+
+
 async def test_state_transition_matrix():
     """状态机转换矩阵：合法转换通过，非法转换显式拒绝。"""
     runtime = await Runtime().boot(FakeHost(), _minimal_recipe())

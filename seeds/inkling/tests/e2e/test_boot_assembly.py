@@ -49,7 +49,7 @@ def test_recipe_17_fields_all_populated():
         assert value not in (None, [], (), {}), f"配方字段未落值: {name}"
     # 语义上允许为空的字段（数据无文件级静态钩子；宿主回退钩子未接——
     # boot_inkling 装配动作注入 on_reverted，配方层缺省不启用）
-    assert recipe.vetting_static_hooks == []
+    assert recipe.vetting_static_hooks is None  # None = 未启用（空清单 = 启用了但零生效）
     assert recipe.on_reverted is None
     # 收敛管制钩子已数据驱动接线（review.json max_rounds → 钩子提供者）
     assert recipe.convergence_provider is not None

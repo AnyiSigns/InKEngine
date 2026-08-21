@@ -640,7 +640,7 @@ def test_renderer_channel_contract_same_source_with_engine_whitelist():
     """
     import json as _json
 
-    components, channels, _tokens = _whitelists()
+    _components, channels, _tokens = _whitelists()
     manifest = _json.loads((SEED_ROOT / "manifest.json").read_text(encoding="utf-8"))
     manifest_channels = set(manifest["contracts"]["bind_channels"])
 

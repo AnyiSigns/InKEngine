@@ -9,10 +9,14 @@
 - harness：声明式定义/注册表路由/补丁链仓库（版本回退取旧图）/未注册
   名显式拒绝
 - 复杂图上真实 LLM 回合 + checkpoint 恢复（图深路径断言）
+- 真实 LLM 改图 → HARNESS 补丁落链（图指纹版本化）→ 回退还原（live）
 
 `real` 标记 = 真实 LLM 调用（族门禁②）；其余为确定性机制用例。
 """
 from __future__ import annotations
+
+import json
+import re
 
 import pytest
 
@@ -33,6 +37,16 @@ from ink_engine.core.registry import (  # noqa: E402
     EdgeConditionRegistry,
     GraphRegistries,
     NodeTypeRegistry,
+)
+from ink_engine.core.self_application import (  # noqa: E402
+    AUDIT_STATUS_APPLIED,
+    AUDIT_STATUS_REVERTED,
+    SelfApplicationPipeline,
+)
+from ink_engine.core.self_proposal import (  # noqa: E402
+    PatchKind,
+    ProposalValidator,
+    SelfProposal,
 )
 from ink_engine.core.state import StateSchema  # noqa: E402
 
@@ -312,3 +326,185 @@ async def test_complex_graph_real_round_and_resume(live_llm, memory_storage):
         e for e in engine1.options.transports[0].events if e.type == "llm_answer"
     ]
     assert sub_events and sub_events[0].graph_path == ("brain",)
+
+
+# ----------------------------------------------------------------------
+# 真实 LLM 改图 → HARNESS 补丁落链（图指纹版本化）→ 回退还原
+# ----------------------------------------------------------------------
+
+
+class _AcceptCtx:
+    """审批上下文：patch/revert 卡一律 accept（live 用例直过落链）。"""
+
+    def __init__(self) -> None:
+        self.cards: list = []
+
+    async def interrupt(self, key: str, payload: dict) -> str:
+        self.cards.append({"key": key, "payload": payload})
+        return "accept"
+
+    async def get_interrupt_payload(self, key: str):
+        return None
+
+
+def _parse_llm_json(text: str) -> dict:
+    """LLM 输出 → JSON 对象（容忍 ```json 代码块标记与前后杂质）。"""
+    fenced = re.search(r"```(?:json)?\s*(.+?)```", text, flags=re.DOTALL)
+    candidate = fenced.group(1) if fenced else text
+    start = candidate.find("{")
+    end = candidate.rfind("}")
+    if start < 0 or end <= start:
+        raise ValueError(f"LLM 输出不含 JSON 对象: {text[:200]}")
+    return json.loads(candidate[start : end + 1])
+
+
+async def _llm_evolve_graph(live_llm, base_graph_dict: dict, registries) -> dict:
+    """真实 LLM 按契约改造图定义（结构模板严格，产出过注册表闸门）。
+
+    至多两轮：首轮输出未过 JSON 解析或图定义校验（结构/未知节点类型）
+    时，带错误信息重试一轮；仍失败即 fail（live 口径：真实模型产出
+    须可用）。
+    """
+    template = {
+        "name": base_graph_dict["name"],
+        "entry": "a",
+        "nodes": {
+            "a": {"type": "write", "config": {"value": 5}},
+            "b": {"type": "write", "config": {"value": 9}},
+        },
+        "edges": {"a": [{"target": "b"}]},
+        "exits": ["b"],
+        "subgraphs": {},
+        "schema": None,
+    }
+    prompt = (
+        "你是图定义生成器。改造下面的回合图定义，只输出 JSON"
+        "（不要解释、不要 markdown 代码块标记）。\n\n"
+        f"基线图：\n{json.dumps(base_graph_dict, ensure_ascii=False)}\n\n"
+        "改造要求：把单节点图改为两节点图（a → b 静态边，出口 b），"
+        "结构必须与下面的模板完全一致：\n"
+        f"{json.dumps(template, ensure_ascii=False)}\n\n"
+        "只输出模板形态的 JSON。"
+    )
+    error = ""
+    last_text = ""
+    for _ in range(2):
+        result = await live_llm.ainvoke([user(prompt + error)])
+        last_text = result.content
+        try:
+            data = _parse_llm_json(last_text)
+        except ValueError as exc:
+            error = f"\n\n上次输出不是合法 JSON（{exc}），请只输出 JSON。"
+            continue
+        try:
+            Graph.from_dict(
+                data,
+                registry=registries.nodes,
+                edge_registry=registries.edges,
+                validate=True,
+            )
+        except GraphDefinitionError as exc:
+            error = f"\n\n上次图定义未过校验（{exc}），请按模板修正后只输出 JSON。"
+            continue
+        return data
+    raise AssertionError(f"LLM 两次产出均不可用: {last_text[:300]}")
+
+
+@pytest.mark.real
+async def test_harness_graph_evolved_by_real_llm_revertible(live_llm, memory_storage):
+    """真实 LLM 改图 → HARNESS 补丁落链（图指纹版本化）→ 回退还原。
+
+    M3-3 已钉 stub 口径（HARNESS 改图 → 组装态图指纹变化 → 回退还原）；
+    本用例以真实 LLM 生成改图数据补跑 live 验证——LLM 产出经图定义
+    校验闸门（节点类型须已注册），落链后组装态图指纹变化，回退后
+    回到基线（链版本还原 + 审计双留痕）。
+    """
+    registries = _registries()
+    base_graph_dict = {
+        "name": "live.evo.graph",
+        "entry": "a",
+        "nodes": {"a": {"type": "write", "config": {"value": 1}}},
+        "edges": {},
+        "exits": ["a"],
+        "subgraphs": {},
+        "schema": None,
+    }
+    base_digest = Graph.from_dict(
+        base_graph_dict,
+        registry=registries.nodes,
+        edge_registry=registries.edges,
+        validate=True,
+    ).digest()
+
+    # 真实 LLM 生成改图数据（图定义校验闸门：未知节点类型即拒绝）
+    graph_data = await _llm_evolve_graph(live_llm, base_graph_dict, registries)
+    evolved = Graph.from_dict(
+        graph_data,
+        registry=registries.nodes,
+        edge_registry=registries.edges,
+        validate=True,
+    )
+    assert evolved.digest() != base_digest  # 图定义真的变了（拓扑/配置不同）
+
+    pipeline = SelfApplicationPipeline(
+        memory_storage,
+        validator=ProposalValidator(graph_registries=registries),
+    )
+    ctx = _AcceptCtx()
+    base_version = await pipeline.chain.current_version()
+    definition = {
+        "name": "live.evo.graph",
+        "description": "真实 LLM 改图验证",
+        "keywords": ("live", "graph"),
+        "tools": (),
+        "graph": graph_data,
+        "schema": None,
+        "default_plan": None,
+        "meta": {"live": "graph_evolution"},
+    }
+    outcome = await pipeline.apply(
+        ctx,
+        SelfProposal(
+            kind=PatchKind.HARNESS,
+            payload={"definition": definition},
+            base_version=base_version,
+            rationale="真实 LLM 改图落链",
+        ),
+    )
+    assert outcome.applied, outcome.reason
+    assert await pipeline.chain.current_version() == base_version + 1
+    assert any(card["key"] == "patch:harness" for card in ctx.cards)  # 分级审批弹卡
+
+    # 组装态图数据指纹 = 落链图指纹（指纹随补丁链版本化）
+    state = await pipeline.chain.assemble()
+    assembled_graph = state["harness"]["live.evo.graph"]["graph"]
+    assert (
+        Graph.from_dict(
+            assembled_graph,
+            registry=registries.nodes,
+            edge_registry=registries.edges,
+        ).digest()
+        == evolved.digest()
+    )
+
+    # 新图可运行：改图拓扑（a → b 静态边）真实执行，产出随 LLM 决策值
+    run = await Engine(
+        evolved,
+        options=RunOptions(
+            storage=memory_storage,
+            transports=[CollectorTransport()],
+            registries=registries,
+        ),
+    ).ainvoke({}, thread_id="live-evo-run")
+    values = [assembled_graph["nodes"][n]["config"]["value"] for n in ("a", "b")]
+    assert run.state["seen"] == [f"write:{values[0]}", f"write:{values[1]}"]
+
+    # 回退（链尾折叠）：harness 段回到基线，图数据撤销
+    reverted = await pipeline.revert(ctx, outcome.patch_id, reason="真实 LLM 改图回退")
+    assert reverted.status == AUDIT_STATUS_REVERTED
+    assert await pipeline.chain.current_version() == base_version
+    restored = await pipeline.chain.assemble()
+    assert not restored.get("harness")
+    audit = await pipeline.audit_log()
+    assert audit[-1]["status"] == AUDIT_STATUS_REVERTED
+    assert any(record["status"] == AUDIT_STATUS_APPLIED for record in audit)

@@ -43,13 +43,23 @@ class InterruptError(EngineError):
 
 
 class BudgetExceededError(EngineError):
-    """执行预算超限（步骤上限/轮数上限等，触发图终止）。"""
+    """执行预算超限（步骤上限/轮数上限等，触发图终止）。
 
-    def __init__(self, kind: str, limit: int, current: int) -> None:
+    ``detail`` 携带附加说明（如预算策略自身故障的原始异常消息）——
+    缺省 None 时信息形态与早期一致，语义向后兼容。
+    """
+
+    def __init__(
+        self, kind: str, limit: int, current: int, detail: str | None = None
+    ) -> None:
         self.kind = kind
         self.limit = limit
         self.current = current
-        super().__init__(f"执行预算超限[{kind}]: {current} >= {limit}")
+        self.detail = detail
+        message = f"执行预算超限[{kind}]: {current} >= {limit}"
+        if detail:
+            message = f"{message}（原始异常: {detail}）"
+        super().__init__(message)
 
 
 class StorageError(EngineError):

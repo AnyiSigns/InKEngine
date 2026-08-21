@@ -253,6 +253,10 @@ class _NodeContextImpl(NodeContext):
         self.parent_step_id = parent_step_id
         # 输入调配预装配结果缓存（preassemble 后节点内 assemble 复用）
         self._assembled: AssemblyResult | None = None
+        # 节点边界计数（主执行循环每进入一个节点边界累加一次；预算策略
+        # 可按 ctx.step_count 按步数终止，无需策略自计数——协议示例
+        # 即真实语义。并行组/实例/子图上下文各自独立从零起算）
+        self.step_count = 0
 
     @property
     def state(self) -> dict:
@@ -1097,6 +1101,10 @@ class Engine:
                     current = nxt
                     continue
                 break
+
+            # ── 节点步数计数：与预算检查同位置的节点边界（计划推进等
+            # 非节点迭代不计入）——策略经 ctx.step_count 按步数终止
+            ctx.step_count += 1
 
             # ── 预算检查（节点边界，策略由业务注册）──
             if self.options.budget is not None:

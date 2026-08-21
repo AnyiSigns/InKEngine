@@ -165,8 +165,8 @@ async def test_edit_replay_fork_and_log_truncation():
 class _StepBudgetPolicy:
     """调用计数预算策略（节点边界检查；超限抛 BudgetExceededError）。
 
-    策略自计数（引擎 ctx 不提供 step_count 属性——协议示例中的
-    ctx.step_count 为业务侧计数约定，此处按协议真实可跑形态实现）。
+    策略自计数（按协议真实可跑形态实现；引擎 ctx 亦暴露 step_count
+    节点边界计数，两种实现均可用）。
     """
 
     def __init__(self, limit: int) -> None:

@@ -66,6 +66,39 @@ async def test_budget_manager_policy_error_wrapped():
         await manager.check(None)
 
 
+async def test_budget_policy_error_reason_preserves_original():
+    """策略故障包装的 reason 保留原始异常类型与消息（宿主可直接定位）。
+
+    回归：修复前仅断言 budget_exceeded 掩盖缺口——AttributeError（如
+    ctx.step_count 幽灵属性）被吞成 policy_error 无从定位；现在 kind
+    含原始类型名、reason 含原始消息、异常链保留原异常。
+    """
+
+    class AttributeBrokenPolicy(BudgetPolicy):
+        async def check(self, ctx) -> None:
+            _ = ctx.step_count  # 幽灵属性：修复前此处抛 AttributeError
+
+    manager = BudgetManager()
+    manager.register(AttributeBrokenPolicy())
+    with pytest.raises(BudgetExceededError) as excinfo:
+        await manager.check(None)
+    err = excinfo.value
+    assert err.kind == "policy_error:AttributeError"
+    assert "AttributeError" in str(err)
+    assert isinstance(err.__cause__, AttributeError)
+    assert "step_count" in err.detail
+
+
+def test_budget_exceeded_detail_optional():
+    """detail 缺省 None 时信息形态与早期一致（语义向后兼容）。"""
+    err = BudgetExceededError("tokens", 1000, 1200)
+    assert err.detail is None
+    assert str(err) == "执行预算超限[tokens]: 1200 >= 1000"
+    with_detail = BudgetExceededError("tokens", 1000, 1200, detail="原消息")
+    assert with_detail.detail == "原消息"
+    assert "原消息" in str(with_detail)
+
+
 def test_budget_exceeded_carries_details():
     """超限异常携带维度/上限/实际值（审计留痕可读）。"""
     err = BudgetExceededError("tokens", 1000, 1200)

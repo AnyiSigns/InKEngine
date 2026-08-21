@@ -11,8 +11,9 @@ from conftest import (
     make_engine,
 )
 
+from ink_engine.core.budget import BudgetPolicy
 from ink_engine.core.events import EngineEvent
-from ink_engine.core.exceptions import StorageError
+from ink_engine.core.exceptions import BudgetExceededError, StorageError
 from ink_engine.core.executor import Engine
 from ink_engine.core.graph import Graph, TerminateReason
 from ink_engine.core.state import StateSchema
@@ -400,6 +401,31 @@ async def test_budget_policy_normal_flow_passes():
     engine = make_engine(demo_linear_graph(), budget=budget)
     _, result = await _execute(engine)
     assert result.reason == TerminateReason.REPLY
+
+
+async def test_budget_policy_ctx_step_count_available():
+    """ctx.step_count 为真实语义（协议示例即契约）：按步数终止且非策略故障。
+
+    回归：修复前 _NodeContextImpl 无 step_count——按协议示例实现的策略
+    触发 AttributeError 被包装成 policy_error，宿主只见 budget_exceeded
+    无法定位；现在引擎按节点边界计数，超限 kind 为 steps（策略语义
+    如实呈现，不经过故障包装通道）。
+    """
+
+    class StepBudgetPolicy(BudgetPolicy):
+        def __init__(self, max_steps: int) -> None:
+            self.max_steps = max_steps
+
+        async def check(self, ctx) -> None:
+            if ctx.step_count >= self.max_steps:
+                raise BudgetExceededError("steps", self.max_steps, ctx.step_count)
+
+    budget = StepBudgetPolicy(max_steps=2)
+    engine = make_engine(demo_loop_graph(), budget=budget)
+    _, result = await _execute(engine)
+    assert result.reason == TerminateReason.BUDGET_EXCEEDED
+    assert "steps" in (result.error or "")
+    assert "policy_error" not in (result.error or "")
 
 
 async def test_truncate_log_branch(memory_storage):

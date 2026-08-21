@@ -91,8 +91,15 @@ class HarnessDefinition:
 
     @classmethod
     def from_dict(cls, data: dict) -> HarnessDefinition:
+        if not isinstance(data, dict):
+            raise GraphDefinitionError(
+                f"harness 声明非法: 期望 dict，收到 {type(data).__name__}"
+            )
+        name = data.get("name")
+        if not isinstance(name, str) or not name.strip():
+            raise GraphDefinitionError("harness 声明缺 name（非空字符串）")
         return cls(
-            name=data["name"],
+            name=name,
             description=data.get("description") or "",
             keywords=tuple(data.get("keywords") or ()),
             graph=data.get("graph"),

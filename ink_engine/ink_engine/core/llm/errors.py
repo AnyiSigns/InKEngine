@@ -27,20 +27,6 @@ _DETAIL_MAX_LEN = 200
 # 控制字符（C0 + DEL）剥离：防日志注入（伪造行/ANSI 序列）与终端干扰
 _CONTROL_CHAR_RE = re.compile(r"[\x00-\x1f\x7f]")
 
-# 上游错误响应文本关键词 → 瞬时故障分类（吸收 core/errors.classify_model_error
-# 的文本兜底：国内 MaaS 常见「服务繁忙/过载」等文案错误帧无状态码可依）
-_TRANSIENT_KEYWORDS: tuple[tuple[tuple[str, ...], type[LLMError]], ...] = (
-    (("timeout", "timed out", "读超时", "连接超时"), "LLMTimeoutError"),
-    (("quota", "rate limit", "too many", "限流", "频率", "额度"), "LLMRateLimitError"),
-    (("connection", "network", "refused", "连接失败", "网络错误", "网络异常"), "LLMNetworkError"),
-    (
-        ("overload", "server error", "server_error", "unavailable", "service busy",
-         "繁忙", "过载", "服务暂时不可用", "服务不可用", "暂时不可用", "稍后再试"),
-        "LLMServerError",
-    ),
-)
-
-
 class LLMError(EngineError):
     """LLM 调用失败基类（重试/备用策略按子类语义判定）。
 
@@ -59,6 +45,10 @@ class LLMError(EngineError):
         status_code: int | None = None,
     ) -> None:
         self.status_code = status_code if status_code is not None else type(self).status_code
+        # message 与 detail 双遮蔽（对象级不变量，与 detail 同口径）
+        if message:
+            # 先遮蔽后截断：密钥残片被边界切短（<8 字符）时遮蔽规则不失配
+            message = _CONTROL_CHAR_RE.sub(" ", redact(message))[:_DETAIL_MAX_LEN]
         if detail:
             # 先遮蔽后截断：密钥残片被边界切短（<8 字符）时遮蔽规则不失配
             detail = _CONTROL_CHAR_RE.sub(" ", redact(detail))[:_DETAIL_MAX_LEN]
@@ -136,14 +126,29 @@ class LLMUnknownError(LLMError):
     default_message = "LLM 未知错误"
 
 
+# 上游错误响应文本关键词 → 瞬时故障分类（吸收 core/errors.classify_model_error
+# 的文本兜底：国内 MaaS 常见「服务繁忙/过载」等文案错误帧无状态码可依）。
+# 直接持有异常类对象（而非字符串）以避免类名/字符串耦合，重命名类即静默失效。
+_TRANSIENT_KEYWORDS: tuple[tuple[tuple[str, ...], type[LLMError]], ...] = (
+    (("timeout", "timed out", "读超时", "连接超时"), LLMTimeoutError),
+    (("quota", "rate limit", "too many", "限流", "频率", "额度"), LLMRateLimitError),
+    (("connection", "network", "refused", "连接失败", "网络错误", "网络异常"), LLMNetworkError),
+    (
+        ("overload", "server error", "server_error", "unavailable", "service busy",
+         "繁忙", "过载", "服务暂时不可用", "服务不可用", "暂时不可用", "稍后再试"),
+        LLMServerError,
+    ),
+)
+
+
 def _status_code_by_keywords(detail: str | None) -> type[LLMError] | None:
     """按上游错误响应文本关键词判定瞬时错误类型（无状态码可依的兜底）。"""
     if not detail:
         return None
     lowered = detail.lower()
-    for keywords, class_name in _TRANSIENT_KEYWORDS:
+    for keywords, cls in _TRANSIENT_KEYWORDS:
         if any(keyword in lowered for keyword in keywords):
-            return globals()[class_name]
+            return cls
     return None
 
 

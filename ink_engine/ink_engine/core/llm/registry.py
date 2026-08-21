@@ -30,8 +30,8 @@ _OPENAI_COMPAT_ALIASES = ("openai_compat", "openai", "deepseek", "zhipu", "moons
 def register_adapter(name: str, cls: type[AsyncLLM]) -> None:
     """注册适配器类（可覆盖同名——宿主可换掉内置实现）。
 
-    入口先注册内置（setdefault 不覆盖宿主注册）：宿主先于内置注册的
-    同名适配器不被惰性内置注册静默覆盖（内置注册只补缺省名）。
+    内置注册（_ensure_builtins）用 setdefault 不覆盖宿主注册；本入口显式
+    赋值允许宿主/后注册覆盖同名适配器。
     """
     if not name:
         raise LLMConfigError("适配器注册名不能为空")

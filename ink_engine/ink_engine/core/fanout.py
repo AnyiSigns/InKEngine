@@ -95,10 +95,20 @@ async def fan_out(
                 task.cancel()
         await asyncio.gather(*wrapped, return_exceptions=True)
         raise
+    # 独立哨兵区分「任务未成功（剔除）」与「任务成功合法返回 None」：
+    # _UNSET 仅标记未成功（失败/未跑），成功值（含 None）一律保留并维持
+    # success_indices 与 successes 对齐（与 docstring「None 是合法结果」一致）
+    result_successes: list[Any] = []
+    result_indices: list[int] = []
+    for index, value in enumerate(successes):
+        if value is _UNSET:
+            continue
+        result_successes.append(value)
+        result_indices.append(index)
     return FanOutResult(
-        successes=[s for s in successes if s is not _UNSET],
+        successes=result_successes,
         failures=sorted(failures, key=lambda f: f.index),
-        success_indices=[i for i, s in enumerate(successes) if s is not _UNSET],
+        success_indices=result_indices,
     )
 
 

@@ -44,8 +44,9 @@ class BudgetManager:
             except BudgetExceededError:
                 raise
             except Exception as exc:
-                # 预算策略自身故障不能拖垮主流程：按超限终止并留痕
-                raise BudgetExceededError("policy_error", 0, 0) from exc
+                # 预算策略自身故障不能拖垮主流程：按超限终止并保留原始异常
+                # 类型信息到 kind（区分「策略执行故障」与「预算超限」），仍 fail-closed
+                raise BudgetExceededError(f"policy_error:{type(exc).__name__}", 0, 0) from exc
 
 
 __all__ = ["BudgetManager", "BudgetPolicy"]

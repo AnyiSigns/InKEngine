@@ -141,6 +141,10 @@ def build_workflow_graph(spec: WorkflowSpec, registry: NodeTypeRegistry) -> Grap
     Returns:
         未编译的 Graph（宿主可继续追加节点/边后交给 Engine 构造）。
 
+    注意：非链（分支）规格边（不在拓扑序相邻节点对上的 edge）仅作为
+    图定义数据保留，运行期不触发——执行模型为单条确定性路径（沿首个
+    静态边行走），分支边不参与路径行走，需回路/分支编排请直接用图 DSL。
+
     Raises:
         GraphDefinitionError: 规格非法（重复 id/未知类型/悬空边/回路/
             入口问题/入口不可达节点）。

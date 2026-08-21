@@ -30,9 +30,6 @@ FIELD_ARRAY = "array"
 
 _VALID_KINDS = (FIELD_STRING, FIELD_NUMBER, FIELD_BOOL, FIELD_OBJECT, FIELD_ARRAY)
 
-# 数值范围边界（声明缺失时的默认：仅类型校验，不做范围判定）
-_RANGE_UNSET = float("inf")
-
 
 @dataclass(frozen=True, slots=True)
 class SchemaField:

@@ -474,6 +474,10 @@ class FusionRegistry:
     """融合钩子注册表（新增融合策略 = 注册新钩子类，装配核心零改动）。
 
     插拔语义：同名重复注册 = 覆盖（宿主启动按配置装配，配置驱动）。
+
+    预留 API：多钩子注册表当前无消费方——运行时融合由单钩子的
+    ContextMixer 承载，本注册表与 ContextMixer 的接入或移除属决策项，
+    本次仅标注，行为不变（注册/取钩子仍可用，但不会被装配核心调用）。
     """
 
     def __init__(self) -> None:
@@ -629,14 +633,24 @@ _SHARED_GROUP = None
 
 
 def message_text(msg: Any) -> str:
-    """消息文本统一取值（Message / dict 双形态）。"""
-    if isinstance(msg, dict):
-        return str(msg.get("content") or "")
-    return str(getattr(msg, "content", None) or "")
+    """消息文本统一取值（Message / dict 双形态；list 型 content 拼接 text 段）。"""
+    content = msg.get("content") if isinstance(msg, dict) else getattr(msg, "content", None)
+    if isinstance(content, list):
+        # list 型 content（多模态/结构化段）按 text 段拼接为可读文本，
+        # 避免 str() 产出 Python repr 污染预算/摘要
+        parts = [
+            str(seg.get("text"))
+            for seg in content
+            if isinstance(seg, dict) and seg.get("text") is not None
+        ]
+        return "\n".join(parts)
+    return str(content or "")
 
 
 def _tool_calls_of(msg: Any) -> Sequence[Any]:
-    """assistant 消息的工具调用列表（无则空序列）。"""
+    """assistant 消息的工具调用列表（Message / dict 双形态，无则空序列）。"""
+    if isinstance(msg, dict):
+        return msg.get("tool_calls") or ()
     return getattr(msg, "tool_calls", None) or ()
 
 

@@ -216,6 +216,11 @@ class StorageBackedMemoryStore:
             entries = [e for e in entries if e.kind == q.kind]
         if q.source is not None:
             entries = [e for e in entries if e.source == q.source]
+        # 过期过滤与 recall 保持一致，避免返回已失效条目。规模边界：
+        # 存储层未下推过滤（全量拉取后在内存按条件过滤），条目规模受
+        # 集合大小约束；下推过滤属大改，本次仅补过期过滤
+        now = time.time()
+        entries = [e for e in entries if not e.is_expired(now)]
         entries.sort(key=lambda e: (e.priority, e.created_at), reverse=True)
         if q.limit is not None:
             entries = entries[: q.limit]

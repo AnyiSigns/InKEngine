@@ -236,6 +236,10 @@ class RoundSteps:
                 remainder = remainder[len(_REPLY_JOIN_SEPARATOR):]
             if remainder:
                 last["payload"]["content"] = remainder
+            else:
+                # 终态回复恰等于前缀（末段流式内容被前缀覆盖/冗余）：清空末段，
+                # 与单段路径「整段定型为 reply」语义一致，避免末段残留重复内容
+                last["payload"]["content"] = ""
             return
         if self.last_step() is last:
             # 末段仍是最后一步（回复段未切段）：整段定型替换

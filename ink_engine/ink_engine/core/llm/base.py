@@ -12,6 +12,7 @@ import abc
 from collections.abc import AsyncIterator, Mapping, Sequence
 from dataclasses import dataclass, field
 from typing import Any
+from urllib.parse import urlparse
 
 from ink_engine.core.llm.errors import LLMConfigError
 from ink_engine.core.llm.messages import Message, ToolCall, ToolCallDelta, accumulate_tool_calls
@@ -68,6 +69,14 @@ class LLMConfig:
                 raise LLMConfigError(f"LLM 配置缺少必填字段: {key}")
         extra = {k: v for k, v in data.items() if k not in _CONFIG_KEYS}
         return cls(**d, extra=extra or None)
+
+    def __post_init__(self) -> None:
+        # 引擎层强制 http/https scheme（SSRF 面）：私有地址 allowlist 属宿主责任
+        scheme = urlparse(self.base_url).scheme
+        if scheme not in ("http", "https"):
+            raise ValueError(
+                f"LLMConfig.base_url 必须使用 http/https 协议（非法 scheme={scheme!r}）"
+            )
 
 
 @dataclass(frozen=True, slots=True)

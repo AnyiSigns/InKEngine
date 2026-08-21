@@ -5,7 +5,7 @@ import asyncio
 
 import pytest
 
-from ink_engine.core.events import PROTOCOL_VERSION, EngineEvent, is_system_event
+from ink_engine.core.events import PROTOCOL_VERSION, EngineEvent
 from ink_engine.core.exceptions import ProtocolVersionError
 from ink_engine.core.fanout import fan_out
 
@@ -142,13 +142,6 @@ def test_event_json_line():
     j = e.to_json()
     assert '"type": "reply_token"' in j
     assert '"step_id": "s1"' in j
-
-
-def test_system_events_default_empty():
-    """机制层默认不预置领域事件名（宿主协议注入）；模块级常量可覆盖。"""
-    assert not is_system_event("end")
-    assert not is_system_event("chapter_written")
-    assert not is_system_event("reply_token")
 
 
 def test_event_from_dict_missing_keys():

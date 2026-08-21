@@ -221,6 +221,14 @@ def subgraph_overlay_delta(
         channel = schema.channels.get(key)
         reducer = channel.reducer if channel is not None else None
         if is_additive_reducer(reducer):
+            # additive 通道值必须是可迭代条目序列（list/tuple）；非序列值
+            # 是非法增量（dict 会被当迭代产出 (k,v) 元组导致错误增量），
+            # 显式报错而非静默产出脏增量（与 docstring 的 additive 条目语义对齐）
+            if value is not None and not isinstance(value, (list, tuple)):
+                raise GraphDefinitionError(
+                    f"additive 通道 {key!r} 的终态值非法：期望条目序列，"
+                    f"收到 {type(value).__name__}"
+                )
             entry_msgs = entry_state.get(key) or []
             entry_keys = {
                 k for m in entry_msgs if (k := _item_key(m)) is not None
@@ -271,6 +279,10 @@ class StateSchema:
             if isinstance(spec, Channel):
                 self.channels[name] = spec
             else:
+                # fail-fast：直接构造时也对声明的 reducer 名做存在性校验，
+                # 与 from_dict 反序列化期口径一致（None 跳过 = 裸覆盖通道），
+                # 避免未知 reducer 推迟到 apply 运行期才 KeyError
+                get_reducer(spec)
                 self.channels[name] = Channel(reducer=spec)
 
     def add(self, name: str, reducer: str | None = None) -> None:

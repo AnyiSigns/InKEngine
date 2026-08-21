@@ -78,7 +78,10 @@ def _status_hint(code: Any) -> int | None:
         return 429
     if "not_found" in lowered or ("not" in lowered and "exist" in lowered):
         return 404
-    if any(marker in lowered for marker in ("auth", "api_key", "apikey", "key invalid", "invalid key")):
+    if any(
+        marker in lowered
+        for marker in ("auth", "api_key", "apikey", "key invalid", "invalid key", "invalid_key", "key_invalid")
+    ):
         return 401
     if any(marker in lowered for marker in ("timeout", "timed")):
         return 408
@@ -219,13 +222,13 @@ class OpenAICompatibleLLM(AsyncLLM):
             tool_calls = deltas or None
         finish = choice.get("finish_reason")
         return LLMChunk(
-            token=delta.get("content") if isinstance(delta.get("content"), str) else None,
+            token=delta.get("content") or None,
             reasoning_token=reasoning,
             tool_calls_delta=tool_calls,
             finish_reason=finish if isinstance(finish, str) else None,
         )
 
-    def _parse_sse_line(self, line: str, state: dict[str, Any]) -> LLMChunk | None:
+    def _parse_sse_line(self, line: str) -> LLMChunk | None:
         """解析单条 SSE data 帧（[DONE] 忽略；usage 帧/同帧 usage 合并；error 帧抛 LLMError）。"""
         text = line.strip()
         if not text.startswith("data:"):
@@ -245,8 +248,6 @@ class OpenAICompatibleLLM(AsyncLLM):
             code = error.get("code") if isinstance(error, dict) else None
             raise classify_llm_error(_status_hint(code), detail=detail)
         usage = obj.get("usage")
-        if usage is not None:
-            state["usage"] = usage
         choices = obj.get("choices")
         if not isinstance(choices, list) or not choices:
             # 纯 usage 帧（include_usage 末帧）；无 usage 无 choices 属非法帧
@@ -347,10 +348,9 @@ class OpenAICompatibleLLM(AsyncLLM):
             # 异常/消费方取消（生成器 aclose）均走 __aexit__ → 关闭上游连接
             async with client.stream("POST", self._endpoint, json=payload, headers=self._headers()) as response:
                 await self._raise_for_status(response)
-                state: dict[str, Any] = {"usage": None}
                 emitted = False
                 async for line in response.aiter_lines():
-                    chunk = self._parse_sse_line(line, state)
+                    chunk = self._parse_sse_line(line)
                     if chunk is None:
                         continue
                     emitted = True

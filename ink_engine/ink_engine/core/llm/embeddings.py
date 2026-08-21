@@ -17,6 +17,7 @@ import json
 from collections.abc import Mapping, Sequence
 from dataclasses import dataclass, field
 from typing import Any
+from urllib.parse import urlparse
 
 import httpx
 
@@ -66,6 +67,14 @@ class EmbeddingConfig:
         extra = {k: v for k, v in data.items() if k not in _CONFIG_KEYS}
         d = {key: data.get(key) for key in _CONFIG_KEYS}
         return cls(**d, extra=extra or None)
+
+    def __post_init__(self) -> None:
+        # 引擎层强制 http/https scheme（SSRF 面）：私有地址 allowlist 属宿主责任
+        scheme = urlparse(self.base_url).scheme
+        if scheme not in ("http", "https"):
+            raise ValueError(
+                f"EmbeddingConfig.base_url 必须使用 http/https 协议（非法 scheme={scheme!r}）"
+            )
 
 
 class AsyncEmbedder(abc.ABC):

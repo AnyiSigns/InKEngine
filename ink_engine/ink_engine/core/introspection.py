@@ -87,7 +87,12 @@ class IntrospectionService:
         self._sources.graph = graph
 
     def snapshot(self, tool_name: str, args: dict[str, Any]) -> dict[str, Any]:
-        """按工具名返回对应快照；未知工具名显式拒绝（fail-closed）。"""
+        """按工具名返回对应快照；未知工具名显式拒绝（fail-closed）。
+
+        警告：本方法返回未脱敏的原始快照，禁止裸调——须经
+        :func:`build_introspection_pipeline` 出口（make_introspection_executor
+        内 strip_sensitive）脱敏后，凭据等敏感键才不进入模型上下文。
+        """
         if tool_name == "inspect_graph":
             return self.snapshot_graph()
         if tool_name == "inspect_rules":

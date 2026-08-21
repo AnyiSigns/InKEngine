@@ -465,21 +465,18 @@ class Graph:
             return qualname
 
         def edge_ref(edge: Edge) -> str:
-            if edge.condition_name is not None:
+            if edge.condition is not None or edge.condition_name is not None:
+                # 条件边统一以 condition 键参与指纹（与 to_dict 序列化形态一致）：
+                # 已按名解析的边用 condition_name（解析后必存在）；纯函数边
+                # （无名字、不可序列化）退化为函数限定名以保指纹稳定
+                key = edge.condition_name
+                if key is None:
+                    fn = edge.condition
+                    key = getattr(fn, "__module__", "") + "." + getattr(
+                        fn, "__qualname__", "<lambda>"
+                    )
                 return json.dumps(
-                    {"target": edge.target, "condition": edge.condition_name},
-                    ensure_ascii=False,
-                    sort_keys=True,
-                )
-            if edge.condition is not None:
-                fn = edge.condition
-                return json.dumps(
-                    {
-                        "target": edge.target,
-                        "condition_fn": getattr(fn, "__module__", "")
-                        + "."
-                        + getattr(fn, "__qualname__", "<lambda>"),
-                    },
+                    {"target": edge.target, "condition": key},
                     ensure_ascii=False,
                     sort_keys=True,
                 )

@@ -350,7 +350,7 @@ def _params_entry(params: TunableParams) -> KnowledgeEntry:
         level="work",
         kind=KIND_WEIGHT,
         data=params.to_dict(),
-        source="model",
+        source=SOURCE_MODEL,
         credibility=1.0,
         title="调参回归样本",
     )

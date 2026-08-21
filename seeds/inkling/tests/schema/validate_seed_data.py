@@ -50,13 +50,11 @@ EXPECTED_SEED_FILES: tuple[str, ...] = (
 )
 
 # ── 引擎事实常量（以源码为准的核对基准；与 ink_engine 源码对齐）──
-# 计划文本多处称 AssemblyRecipe 为「17 字段」，实测 runtime.py 为 16 字段
-# （set_id/seeds/harness_definitions/event_type_specs/ui_spec/
-#  ui_allowed_components/ui_allowed_theme_tokens/tool_wiring/
-#  vetting_static_hooks/vetting_l2_hook/approval_levels/
-#  retrieval_sources/apply_targets/graph_recipe/on_reverted/
-#  convergence_provider），此处以源码为准
-ASSEMBLY_RECIPE_FIELD_COUNT = 16
+# AssemblyRecipe 字段数以 runtime.py 源码为准：出厂基线 16 字段，M3 接线
+# 期新增 ui_allowed_channels（界面绑定通道白名单，装配数据扩展）后为 17
+# 字段；计划文本原写「17 字段」的表述与此计数偶合。引擎侧任何字段增删
+# 都会让本门禁失配，须同步更新本常量
+ASSEMBLY_RECIPE_FIELD_COUNT = 17
 # 引擎 pyproject 当前版本（核实失败时回落值；实际以 pyproject.toml 解析结果优先）
 ENGINE_VERSION_FALLBACK = "0.1.0"
 

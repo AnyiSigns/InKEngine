@@ -184,6 +184,44 @@ async def test_boot_assembles_all_artifacts():
     assert snapshot["ui_spec"] is not None
 
 
+async def test_ui_allowed_channels_recipe_extension():
+    """界面绑定通道白名单可由装配数据扩展（events 族绑定放行）。
+
+    出厂默认仅放行 state 通道（回合状态）；产品 ui_spec 需要事件流/
+    内省快照绑定通道时，经配方 ui_allowed_channels 放行——校验器与
+    渲染器同源，未放行通道的绑定仍整体回落未定形。
+    """
+    spec = {
+        "name": "boot.panel",
+        "root": {
+            "kind": "container",
+            "type": "column",
+            "children": [
+                {
+                    "kind": "component",
+                    "type": "message_list",
+                    "bind": {"channel": "events.reply_token", "path": ""},
+                }
+            ],
+        },
+    }
+    # 默认白名单仅 state：events 绑定被判违规，界面基线回落未定形
+    host = FakeHost()
+    runtime = await Runtime().boot(host, _minimal_recipe(ui_spec=spec))
+    assert runtime.introspection_service.snapshot_ui()["ui_spec"] is None
+    await host.close()
+    # 配方放行 events 族：界面基线存活，内省快照可查
+    host = FakeHost()
+    runtime = await Runtime().boot(
+        host,
+        _minimal_recipe(
+            ui_spec=spec, ui_allowed_channels=("state", "events.reply_token")
+        ),
+    )
+    assert runtime.introspection_service.snapshot_ui()["ui_spec"] == spec
+    await host.close()
+
+
 async def test_boot_is_idempotent():
     """boot 幂等：已装配再次调用直接返回自身（装配动作不重复执行）。"""
     host = FakeHost()

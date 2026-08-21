@@ -160,6 +160,9 @@ class AssemblyRecipe:
         harness_definitions: 自举 harness 定义清单（注册 + 落库）。
         event_type_specs: 事件类型基线（装配期登记 + 集内演化类型加载）。
         ui_spec: 界面基线（装配期经三层白名单校验；损坏回落未定形）。
+        ui_allowed_channels: 界面绑定通道白名单（默认仅回合状态通道
+            "state"；产品需事件流/内省快照绑定通道时由装配数据放行，
+            校验器与渲染器同源）。
         ui_allowed_components: 界面组件白名单（校验器与渲染器同源）。
         ui_allowed_theme_tokens: 主题 token 白名单。
         tool_wiring: 统一工具分发声明（三路 specs + 执行器/判定工厂）。
@@ -182,6 +185,7 @@ class AssemblyRecipe:
     harness_definitions: list[HarnessDefinition] = field(default_factory=list)
     event_type_specs: list[EventTypeSpec] = field(default_factory=list)
     ui_spec: dict | None = None
+    ui_allowed_channels: tuple[str, ...] = DEFAULT_BIND_CHANNELS
     ui_allowed_components: tuple[str, ...] = ()
     ui_allowed_theme_tokens: tuple[str, ...] = ()
     tool_wiring: ToolWiring | None = None
@@ -314,7 +318,7 @@ class Runtime:
         # ⑥ 校验器与工具可信度闸门（配方白名单；提案形态的第一道闸门）
         self.validator = ProposalValidator(
             allowed_components=recipe.ui_allowed_components,
-            allowed_channels=DEFAULT_BIND_CHANNELS,
+            allowed_channels=recipe.ui_allowed_channels,
             allowed_theme_tokens=recipe.ui_allowed_theme_tokens,
             graph_registries=self.graph_registries,
         )
@@ -338,7 +342,7 @@ class Runtime:
         ui_violations = UISchemaValidator().validate(
             recipe.ui_spec or {},
             allowed_components=recipe.ui_allowed_components,
-            allowed_channels=DEFAULT_BIND_CHANNELS,
+            allowed_channels=recipe.ui_allowed_channels,
             allowed_theme_tokens=recipe.ui_allowed_theme_tokens,
         )
         if ui_violations:
@@ -663,7 +667,7 @@ class Runtime:
                     violations = UISchemaValidator().validate(
                         spec,
                         allowed_components=recipe.ui_allowed_components,
-                        allowed_channels=DEFAULT_BIND_CHANNELS,
+                        allowed_channels=recipe.ui_allowed_channels,
                         allowed_theme_tokens=recipe.ui_allowed_theme_tokens,
                     )
                     if not violations:

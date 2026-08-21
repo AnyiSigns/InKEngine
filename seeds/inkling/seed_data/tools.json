@@ -6,17 +6,34 @@
       "parameters": {
         "type": "object",
         "properties": {
-          "url": { "type": "string", "description": "待取回的 URL" },
-          "text": { "type": "string", "description": "直接粘贴的文本内容" }
+          "url": {
+            "type": "string",
+            "description": "待取回的 URL"
+          },
+          "text": {
+            "type": "string",
+            "description": "直接粘贴的文本内容"
+          }
         },
         "required": []
       },
-      "permissions": ["mcp:call:inkling_exec"],
+      "permissions": [
+        "mcp:call:inkling_exec"
+      ],
       "approval": "review",
       "endpoint": "mcp",
-      "endpoint_config": { "server_id": "inkling_exec" },
-      "network_policy": { "allow_domains": [], "note": "出网行为由 inkling_exec server 侧策略约束，挂载时经 vetting 核对" },
-      "meta": { "domain": "research", "executor": "inkling_exec:collect", "sandbox": "server_session" }
+      "endpoint_config": {
+        "server_id": "inkling_exec"
+      },
+      "network_policy": {
+        "allow_domains": [],
+        "note": "出网行为由 inkling_exec server 侧策略约束，挂载时经 vetting 核对"
+      },
+      "meta": {
+        "domain": "research",
+        "executor": "inkling_exec:inkling_collect",
+        "sandbox": "server_session"
+      }
     },
     {
       "name": "parse_material",
@@ -24,16 +41,31 @@
       "parameters": {
         "type": "object",
         "properties": {
-          "material": { "type": "object", "description": "待解析的原始材料对象" }
+          "material": {
+            "type": "object",
+            "description": "待解析的原始材料对象"
+          }
         },
-        "required": ["material"]
+        "required": [
+          "material"
+        ]
       },
-      "permissions": ["mcp:call:inkling_exec"],
+      "permissions": [
+        "mcp:call:inkling_exec"
+      ],
       "approval": "allow",
       "endpoint": "mcp",
-      "endpoint_config": { "server_id": "inkling_exec" },
-      "network_policy": { "allow_domains": [] },
-      "meta": { "domain": "research", "executor": "inkling_exec:parse", "sandbox": "server_session" }
+      "endpoint_config": {
+        "server_id": "inkling_exec"
+      },
+      "network_policy": {
+        "allow_domains": []
+      },
+      "meta": {
+        "domain": "research",
+        "executor": "inkling_exec:inkling_parse",
+        "sandbox": "server_session"
+      }
     },
     {
       "name": "validate_material",
@@ -41,17 +73,38 @@
       "parameters": {
         "type": "object",
         "properties": {
-          "data": { "type": "object", "description": "待校验的数据对象（材料/知识条目）" },
-          "rules": { "type": "array", "items": { "type": "string" }, "description": "规则 id 子集（缺省全量）" }
+          "data": {
+            "type": "object",
+            "description": "待校验的数据对象（材料/知识条目）"
+          },
+          "rules": {
+            "type": "array",
+            "items": {
+              "type": "string"
+            },
+            "description": "规则 id 子集（缺省全量）"
+          }
         },
-        "required": ["data"]
+        "required": [
+          "data"
+        ]
       },
-      "permissions": ["mcp:call:inkling_exec"],
+      "permissions": [
+        "mcp:call:inkling_exec"
+      ],
       "approval": "allow",
       "endpoint": "mcp",
-      "endpoint_config": { "server_id": "inkling_exec" },
-      "network_policy": { "allow_domains": [] },
-      "meta": { "domain": "research", "executor": "inkling_exec:validate", "sandbox": "server_session" }
+      "endpoint_config": {
+        "server_id": "inkling_exec"
+      },
+      "network_policy": {
+        "allow_domains": []
+      },
+      "meta": {
+        "domain": "research",
+        "executor": "inkling_exec:inkling_validate",
+        "sandbox": "server_session"
+      }
     },
     {
       "name": "score_material",
@@ -59,17 +112,38 @@
       "parameters": {
         "type": "object",
         "properties": {
-          "material": { "type": "object", "description": "解析后的材料对象" },
-          "dimensions": { "type": "array", "items": { "type": "string" }, "description": "评分维度子集（缺省全量）" }
+          "material": {
+            "type": "object",
+            "description": "解析后的材料对象"
+          },
+          "dimensions": {
+            "type": "array",
+            "items": {
+              "type": "string"
+            },
+            "description": "评分维度子集（缺省全量）"
+          }
         },
-        "required": ["material"]
+        "required": [
+          "material"
+        ]
       },
-      "permissions": ["mcp:call:inkling_exec"],
+      "permissions": [
+        "mcp:call:inkling_exec"
+      ],
       "approval": "allow",
       "endpoint": "mcp",
-      "endpoint_config": { "server_id": "inkling_exec" },
-      "network_policy": { "allow_domains": [] },
-      "meta": { "domain": "research", "executor": "inkling_exec:score", "sandbox": "server_session" }
+      "endpoint_config": {
+        "server_id": "inkling_exec"
+      },
+      "network_policy": {
+        "allow_domains": []
+      },
+      "meta": {
+        "domain": "research",
+        "executor": "inkling_exec:inkling_score",
+        "sandbox": "server_session"
+      }
     },
     {
       "name": "review_material",
@@ -77,17 +151,38 @@
       "parameters": {
         "type": "object",
         "properties": {
-          "candidates": { "type": "array", "items": { "type": "string" }, "description": "候选输出清单" },
-          "context": { "type": "object", "description": "评审上下文" }
+          "candidates": {
+            "type": "array",
+            "items": {
+              "type": "string"
+            },
+            "description": "候选输出清单"
+          },
+          "context": {
+            "type": "object",
+            "description": "评审上下文"
+          }
         },
-        "required": ["candidates"]
+        "required": [
+          "candidates"
+        ]
       },
-      "permissions": ["mcp:call:inkling_exec"],
+      "permissions": [
+        "mcp:call:inkling_exec"
+      ],
       "approval": "review",
       "endpoint": "mcp",
-      "endpoint_config": { "server_id": "inkling_exec" },
-      "network_policy": { "allow_domains": [] },
-      "meta": { "domain": "research", "executor": "inkling_exec:review", "sandbox": "server_session" }
+      "endpoint_config": {
+        "server_id": "inkling_exec"
+      },
+      "network_policy": {
+        "allow_domains": []
+      },
+      "meta": {
+        "domain": "research",
+        "executor": "inkling_exec:inkling_review",
+        "sandbox": "server_session"
+      }
     },
     {
       "name": "distill_knowledge",
@@ -95,16 +190,34 @@
       "parameters": {
         "type": "object",
         "properties": {
-          "signals": { "type": "array", "items": { "type": "object" }, "description": "执行信号序列（五类）" }
+          "signals": {
+            "type": "array",
+            "items": {
+              "type": "object"
+            },
+            "description": "执行信号序列（五类）"
+          }
         },
-        "required": ["signals"]
+        "required": [
+          "signals"
+        ]
       },
-      "permissions": ["mcp:call:inkling_exec"],
+      "permissions": [
+        "mcp:call:inkling_exec"
+      ],
       "approval": "review",
       "endpoint": "mcp",
-      "endpoint_config": { "server_id": "inkling_exec" },
-      "network_policy": { "allow_domains": [] },
-      "meta": { "domain": "research", "executor": "inkling_exec:distill", "sandbox": "server_session" }
+      "endpoint_config": {
+        "server_id": "inkling_exec"
+      },
+      "network_policy": {
+        "allow_domains": []
+      },
+      "meta": {
+        "domain": "research",
+        "executor": "inkling_exec:inkling_distill",
+        "sandbox": "server_session"
+      }
     },
     {
       "name": "mutate_knowledge",
@@ -112,17 +225,39 @@
       "parameters": {
         "type": "object",
         "properties": {
-          "entry": { "type": "object", "description": "母体知识条目" },
-          "failure_logs": { "type": "array", "items": { "type": "string" }, "description": "近期失败日志" }
+          "entry": {
+            "type": "object",
+            "description": "母体知识条目"
+          },
+          "failure_logs": {
+            "type": "array",
+            "items": {
+              "type": "string"
+            },
+            "description": "近期失败日志"
+          }
         },
-        "required": ["entry", "failure_logs"]
+        "required": [
+          "entry",
+          "failure_logs"
+        ]
       },
-      "permissions": ["mcp:call:inkling_exec"],
+      "permissions": [
+        "mcp:call:inkling_exec"
+      ],
       "approval": "review",
       "endpoint": "mcp",
-      "endpoint_config": { "server_id": "inkling_exec" },
-      "network_policy": { "allow_domains": [] },
-      "meta": { "domain": "research", "executor": "inkling_exec:mutate", "sandbox": "server_session" }
+      "endpoint_config": {
+        "server_id": "inkling_exec"
+      },
+      "network_policy": {
+        "allow_domains": []
+      },
+      "meta": {
+        "domain": "research",
+        "executor": "inkling_exec:inkling_mutate",
+        "sandbox": "server_session"
+      }
     },
     {
       "name": "screen_query",
@@ -130,16 +265,30 @@
       "parameters": {
         "type": "object",
         "properties": {
-          "region": { "type": "string", "description": "屏幕区域/元素定位" }
+          "region": {
+            "type": "string",
+            "description": "屏幕区域/元素定位"
+          }
         },
         "required": []
       },
-      "permissions": ["mcp:call:inkling_shell"],
+      "permissions": [
+        "mcp:call:inkling_shell"
+      ],
       "approval": "review",
       "endpoint": "mcp",
-      "endpoint_config": { "server_id": "inkling_shell" },
-      "network_policy": { "allow_domains": [] },
-      "meta": { "domain": "os", "sensor": "screen", "executor": "shell:device_sense", "sandbox": "server_session" }
+      "endpoint_config": {
+        "server_id": "inkling_shell"
+      },
+      "network_policy": {
+        "allow_domains": []
+      },
+      "meta": {
+        "domain": "os",
+        "sensor": "screen",
+        "executor": "shell:device_sense",
+        "sandbox": "server_session"
+      }
     },
     {
       "name": "file_query",
@@ -147,17 +296,36 @@
       "parameters": {
         "type": "object",
         "properties": {
-          "path": { "type": "string", "description": "待查询路径" },
-          "pattern": { "type": "string", "description": "文件名过滤模式" }
+          "path": {
+            "type": "string",
+            "description": "待查询路径"
+          },
+          "pattern": {
+            "type": "string",
+            "description": "文件名过滤模式"
+          }
         },
-        "required": ["path"]
+        "required": [
+          "path"
+        ]
       },
-      "permissions": ["mcp:call:inkling_shell"],
+      "permissions": [
+        "mcp:call:inkling_shell"
+      ],
       "approval": "review",
       "endpoint": "mcp",
-      "endpoint_config": { "server_id": "inkling_shell" },
-      "network_policy": { "allow_domains": [] },
-      "meta": { "domain": "os", "sensor": "file", "executor": "shell:device_sense", "sandbox": "server_session" }
+      "endpoint_config": {
+        "server_id": "inkling_shell"
+      },
+      "network_policy": {
+        "allow_domains": []
+      },
+      "meta": {
+        "domain": "os",
+        "sensor": "file",
+        "executor": "shell:device_sense",
+        "sandbox": "server_session"
+      }
     },
     {
       "name": "system_query",
@@ -165,16 +333,38 @@
       "parameters": {
         "type": "object",
         "properties": {
-          "scope": { "type": "string", "enum": ["system", "process", "disk"], "description": "查询范围" }
+          "scope": {
+            "type": "string",
+            "enum": [
+              "system",
+              "process",
+              "disk"
+            ],
+            "description": "查询范围"
+          }
         },
-        "required": ["scope"]
+        "required": [
+          "scope"
+        ]
       },
-      "permissions": ["process:exec:system_query"],
+      "permissions": [
+        "process:exec:system_query"
+      ],
       "approval": "allow",
       "endpoint": "process_exec",
-      "endpoint_config": { "allowlist": ["system_query"] },
-      "network_policy": { "allow_domains": [] },
-      "meta": { "domain": "os", "executor": "shell:system_query", "sandbox": "process_allowlist" }
+      "endpoint_config": {
+        "allowlist": [
+          "system_query"
+        ]
+      },
+      "network_policy": {
+        "allow_domains": []
+      },
+      "meta": {
+        "domain": "os",
+        "executor": "shell:system_query",
+        "sandbox": "process_allowlist"
+      }
     },
     {
       "name": "launch_app",
@@ -182,17 +372,41 @@
       "parameters": {
         "type": "object",
         "properties": {
-          "app": { "type": "string", "description": "应用名或启动标识" },
-          "args": { "type": "array", "items": { "type": "string" }, "description": "启动参数" }
+          "app": {
+            "type": "string",
+            "description": "应用名或启动标识"
+          },
+          "args": {
+            "type": "array",
+            "items": {
+              "type": "string"
+            },
+            "description": "启动参数"
+          }
         },
-        "required": ["app"]
+        "required": [
+          "app"
+        ]
       },
-      "permissions": ["process:exec:launch_app"],
+      "permissions": [
+        "process:exec:launch_app"
+      ],
       "approval": "review",
       "endpoint": "process_exec",
-      "endpoint_config": { "allowlist": ["launch_app"] },
-      "network_policy": { "allow_domains": [] },
-      "meta": { "domain": "os", "control": true, "executor": "shell:launch_app", "sandbox": "process_allowlist" }
+      "endpoint_config": {
+        "allowlist": [
+          "launch_app"
+        ]
+      },
+      "network_policy": {
+        "allow_domains": []
+      },
+      "meta": {
+        "domain": "os",
+        "control": true,
+        "executor": "shell:launch_app",
+        "sandbox": "process_allowlist"
+      }
     },
     {
       "name": "open_file",
@@ -200,16 +414,34 @@
       "parameters": {
         "type": "object",
         "properties": {
-          "path": { "type": "string", "description": "待打开文件路径" }
+          "path": {
+            "type": "string",
+            "description": "待打开文件路径"
+          }
         },
-        "required": ["path"]
+        "required": [
+          "path"
+        ]
       },
-      "permissions": ["process:exec:open_file"],
+      "permissions": [
+        "process:exec:open_file"
+      ],
       "approval": "review",
       "endpoint": "process_exec",
-      "endpoint_config": { "allowlist": ["open_file"] },
-      "network_policy": { "allow_domains": [] },
-      "meta": { "domain": "os", "control": true, "executor": "shell:open_file", "sandbox": "process_allowlist" }
+      "endpoint_config": {
+        "allowlist": [
+          "open_file"
+        ]
+      },
+      "network_policy": {
+        "allow_domains": []
+      },
+      "meta": {
+        "domain": "os",
+        "control": true,
+        "executor": "shell:open_file",
+        "sandbox": "process_allowlist"
+      }
     },
     {
       "name": "set_volume",
@@ -217,16 +449,36 @@
       "parameters": {
         "type": "object",
         "properties": {
-          "level": { "type": "number", "minimum": 0, "maximum": 100, "description": "音量百分比" }
+          "level": {
+            "type": "number",
+            "minimum": 0,
+            "maximum": 100,
+            "description": "音量百分比"
+          }
         },
-        "required": ["level"]
+        "required": [
+          "level"
+        ]
       },
-      "permissions": ["process:exec:set_volume"],
+      "permissions": [
+        "process:exec:set_volume"
+      ],
       "approval": "review",
       "endpoint": "process_exec",
-      "endpoint_config": { "allowlist": ["set_volume"] },
-      "network_policy": { "allow_domains": [] },
-      "meta": { "domain": "os", "control": true, "executor": "shell:set_volume", "sandbox": "process_allowlist" }
+      "endpoint_config": {
+        "allowlist": [
+          "set_volume"
+        ]
+      },
+      "network_policy": {
+        "allow_domains": []
+      },
+      "meta": {
+        "domain": "os",
+        "control": true,
+        "executor": "shell:set_volume",
+        "sandbox": "process_allowlist"
+      }
     },
     {
       "name": "set_brightness",
@@ -234,16 +486,36 @@
       "parameters": {
         "type": "object",
         "properties": {
-          "level": { "type": "number", "minimum": 0, "maximum": 100, "description": "亮度百分比" }
+          "level": {
+            "type": "number",
+            "minimum": 0,
+            "maximum": 100,
+            "description": "亮度百分比"
+          }
         },
-        "required": ["level"]
+        "required": [
+          "level"
+        ]
       },
-      "permissions": ["process:exec:set_brightness"],
+      "permissions": [
+        "process:exec:set_brightness"
+      ],
       "approval": "review",
       "endpoint": "process_exec",
-      "endpoint_config": { "allowlist": ["set_brightness"] },
-      "network_policy": { "allow_domains": [] },
-      "meta": { "domain": "os", "control": true, "executor": "shell:set_brightness", "sandbox": "process_allowlist" }
+      "endpoint_config": {
+        "allowlist": [
+          "set_brightness"
+        ]
+      },
+      "network_policy": {
+        "allow_domains": []
+      },
+      "meta": {
+        "domain": "os",
+        "control": true,
+        "executor": "shell:set_brightness",
+        "sandbox": "process_allowlist"
+      }
     },
     {
       "name": "notify",
@@ -251,17 +523,37 @@
       "parameters": {
         "type": "object",
         "properties": {
-          "title": { "type": "string" },
-          "body": { "type": "string" }
+          "title": {
+            "type": "string"
+          },
+          "body": {
+            "type": "string"
+          }
         },
-        "required": ["title", "body"]
+        "required": [
+          "title",
+          "body"
+        ]
       },
-      "permissions": ["process:exec:notify"],
+      "permissions": [
+        "process:exec:notify"
+      ],
       "approval": "allow",
       "endpoint": "process_exec",
-      "endpoint_config": { "allowlist": ["notify"] },
-      "network_policy": { "allow_domains": [] },
-      "meta": { "domain": "os", "control": true, "executor": "shell:notify", "sandbox": "process_allowlist" }
+      "endpoint_config": {
+        "allowlist": [
+          "notify"
+        ]
+      },
+      "network_policy": {
+        "allow_domains": []
+      },
+      "meta": {
+        "domain": "os",
+        "control": true,
+        "executor": "shell:notify",
+        "sandbox": "process_allowlist"
+      }
     },
     {
       "name": "schedule",
@@ -269,17 +561,39 @@
       "parameters": {
         "type": "object",
         "properties": {
-          "when": { "type": "string", "description": "触发时刻描述" },
-          "action": { "type": "string", "description": "到时执行的动作" }
+          "when": {
+            "type": "string",
+            "description": "触发时刻描述"
+          },
+          "action": {
+            "type": "string",
+            "description": "到时执行的动作"
+          }
         },
-        "required": ["when", "action"]
+        "required": [
+          "when",
+          "action"
+        ]
       },
-      "permissions": ["process:exec:schedule"],
+      "permissions": [
+        "process:exec:schedule"
+      ],
       "approval": "review",
       "endpoint": "process_exec",
-      "endpoint_config": { "allowlist": ["schedule"] },
-      "network_policy": { "allow_domains": [] },
-      "meta": { "domain": "os", "control": true, "executor": "shell:schedule", "sandbox": "process_allowlist" }
+      "endpoint_config": {
+        "allowlist": [
+          "schedule"
+        ]
+      },
+      "network_policy": {
+        "allow_domains": []
+      },
+      "meta": {
+        "domain": "os",
+        "control": true,
+        "executor": "shell:schedule",
+        "sandbox": "process_allowlist"
+      }
     },
     {
       "name": "propose_mcp_mount",
@@ -287,16 +601,34 @@
       "parameters": {
         "type": "object",
         "properties": {
-          "address": { "type": "string", "description": "插件地址（市场条目 id / git 仓库 / npm 包名）" }
+          "address": {
+            "type": "string",
+            "description": "插件地址（市场条目 id / git 仓库 / npm 包名）"
+          }
         },
-        "required": ["address"]
+        "required": [
+          "address"
+        ]
       },
-      "permissions": ["process:exec:propose_mcp_mount"],
+      "permissions": [
+        "process:exec:propose_mcp_mount"
+      ],
       "approval": "review",
       "endpoint": "process_exec",
-      "endpoint_config": { "allowlist": ["propose_mcp_mount"] },
-      "network_policy": { "allow_domains": [] },
-      "meta": { "domain": "self", "executor": "host:propose_mcp_mount", "sandbox": "process_allowlist", "note": "执行器由宿主注册（M3 接线）；挂载链路 = vetting 静态钩子 → 审批卡 → L2 → 补丁链" }
+      "endpoint_config": {
+        "allowlist": [
+          "propose_mcp_mount"
+        ]
+      },
+      "network_policy": {
+        "allow_domains": []
+      },
+      "meta": {
+        "domain": "self",
+        "executor": "host:propose_mcp_mount",
+        "sandbox": "process_allowlist",
+        "note": "执行器由宿主注册（M3 接线）；挂载链路 = vetting 静态钩子 → 审批卡 → L2 → 补丁链"
+      }
     },
     {
       "name": "file_read",
@@ -304,16 +636,32 @@
       "parameters": {
         "type": "object",
         "properties": {
-          "path": { "type": "string", "description": "工作区相对路径" }
+          "path": {
+            "type": "string",
+            "description": "工作区相对路径"
+          }
         },
-        "required": ["path"]
+        "required": [
+          "path"
+        ]
       },
-      "permissions": ["filesystem:read:${workspace_root}/**"],
+      "permissions": [
+        "filesystem:read:${workspace_root}/**"
+      ],
       "approval": "allow",
       "endpoint": "file_ops",
-      "endpoint_config": { "root": "${workspace_root}" },
-      "network_policy": { "allow_domains": [] },
-      "meta": { "domain": "file", "executor": "host:file_ops", "sandbox": "file_root", "note": "根目录占位符 ${workspace_root} 在装配期由设置页「工作区授权」替换为实际挂载点" }
+      "endpoint_config": {
+        "root": "${workspace_root}"
+      },
+      "network_policy": {
+        "allow_domains": []
+      },
+      "meta": {
+        "domain": "file",
+        "executor": "host:file_ops",
+        "sandbox": "file_root",
+        "note": "根目录占位符 ${workspace_root} 在装配期由设置页「工作区授权」替换为实际挂载点"
+      }
     },
     {
       "name": "file_write",
@@ -321,17 +669,37 @@
       "parameters": {
         "type": "object",
         "properties": {
-          "path": { "type": "string", "description": "工作区相对路径" },
-          "content": { "type": "string", "description": "写入内容" }
+          "path": {
+            "type": "string",
+            "description": "工作区相对路径"
+          },
+          "content": {
+            "type": "string",
+            "description": "写入内容"
+          }
         },
-        "required": ["path", "content"]
+        "required": [
+          "path",
+          "content"
+        ]
       },
-      "permissions": ["filesystem:write:${workspace_root}/**"],
+      "permissions": [
+        "filesystem:write:${workspace_root}/**"
+      ],
       "approval": "review",
       "endpoint": "file_ops",
-      "endpoint_config": { "root": "${workspace_root}" },
-      "network_policy": { "allow_domains": [] },
-      "meta": { "domain": "file", "executor": "host:file_ops", "sandbox": "file_root", "note": "AI 开发模式：写 → 构建 → 冒烟 → 失败信号回流回合再改" }
+      "endpoint_config": {
+        "root": "${workspace_root}"
+      },
+      "network_policy": {
+        "allow_domains": []
+      },
+      "meta": {
+        "domain": "file",
+        "executor": "host:file_ops",
+        "sandbox": "file_root",
+        "note": "AI 开发模式：写 → 构建 → 冒烟 → 失败信号回流回合再改"
+      }
     },
     {
       "name": "file_edit",
@@ -339,18 +707,41 @@
       "parameters": {
         "type": "object",
         "properties": {
-          "path": { "type": "string", "description": "工作区相对路径" },
-          "old_text": { "type": "string", "description": "待替换原文" },
-          "new_text": { "type": "string", "description": "替换后文本" }
+          "path": {
+            "type": "string",
+            "description": "工作区相对路径"
+          },
+          "old_text": {
+            "type": "string",
+            "description": "待替换原文"
+          },
+          "new_text": {
+            "type": "string",
+            "description": "替换后文本"
+          }
         },
-        "required": ["path", "old_text", "new_text"]
+        "required": [
+          "path",
+          "old_text",
+          "new_text"
+        ]
       },
-      "permissions": ["filesystem:write:${workspace_root}/**"],
+      "permissions": [
+        "filesystem:write:${workspace_root}/**"
+      ],
       "approval": "review",
       "endpoint": "file_ops",
-      "endpoint_config": { "root": "${workspace_root}" },
-      "network_policy": { "allow_domains": [] },
-      "meta": { "domain": "file", "executor": "host:file_ops", "sandbox": "file_root" }
+      "endpoint_config": {
+        "root": "${workspace_root}"
+      },
+      "network_policy": {
+        "allow_domains": []
+      },
+      "meta": {
+        "domain": "file",
+        "executor": "host:file_ops",
+        "sandbox": "file_root"
+      }
     }
   ]
 }

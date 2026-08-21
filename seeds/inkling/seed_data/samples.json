@@ -1,5 +1,23 @@
 {
   "name": "inkling.baseline",
+  "facts": [
+    {
+      "id": "fact_engine_mechanisms",
+      "statement": "墨引擎是通用 agent 机制引擎内核，提供图执行/补丁链/知识孵化等机制"
+    },
+    {
+      "id": "fact_three_gates",
+      "statement": "知识条目落库须过三层闸门"
+    },
+    {
+      "id": "fact_user_correction_distill",
+      "statement": "用户对回答提出修正（反例），蒸馏为规则条目"
+    },
+    {
+      "id": "fact_source_attribution",
+      "statement": "引用网页资料时须给出来源链接"
+    }
+  ],
   "cases": [
     {
       "id": "full_loop_baseline",

@@ -102,6 +102,18 @@ class DeclarativeToolSpec:
     meta: dict[str, Any] = field(default_factory=dict)
 
     def __post_init__(self) -> None:
+        # 端点归一：宿主可传字符串形态（"file_ops"）——构造期强制转为枚举，
+        # 后续 is 比较/分发/序列化全部按枚举工作（构造成功即运行期可用，
+        # 字符串形态不再出现「校验放行但 is 全 False」的静默失效）
+        if not isinstance(self.endpoint, EndpointType):
+            endpoint = self.endpoint
+            try:
+                endpoint = EndpointType(endpoint)
+            except ValueError as exc:
+                raise GraphDefinitionError(
+                    f"工具 {self.name} 端点类型非法: {endpoint!r}"
+                ) from exc
+            object.__setattr__(self, "endpoint", endpoint)
         self.validate()
 
     def validate(self) -> None:

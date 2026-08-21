@@ -58,6 +58,73 @@ def test_invalid_endpoint_rejected():
         _declarative(endpoint="unknown_endpoint")  # type: ignore[arg-type]
 
 
+def test_string_endpoint_normalized_to_enum():
+    """字符串端点与枚举端点构造等价（构造成功即运行期可用）。
+
+    回归：修复前字符串端点经 StrEnum 值成员匹配通过校验，但
+    endpoint_operation 用 is 比较全 False——操作提取器无法判定目标，
+    调用被 fail-closed 拒绝且无从定位。现在构造期强制归一为枚举。
+    """
+    string_spec = DeclarativeToolSpec(
+        name="fs_tool",
+        description="file tool",
+        parameters={"type": "object"},
+        permissions=("filesystem:write:/book/**",),
+        endpoint="file_ops",
+        endpoint_config={"root": "/book"},
+    )
+    enum_spec = DeclarativeToolSpec(
+        name="fs_tool",
+        description="file tool",
+        parameters={"type": "object"},
+        permissions=("filesystem:write:/book/**",),
+        endpoint=EndpointType.FILE_OPS,
+        endpoint_config={"root": "/book"},
+    )
+    assert string_spec.endpoint is EndpointType.FILE_OPS
+    assert string_spec == enum_spec
+    assert string_spec.to_dict()["endpoint"] == "file_ops"
+    # 端点归一后操作推导与枚举声明完全一致（修复前此路径返回 None）
+    assert endpoint_operation(
+        string_spec.endpoint, {"operation": "write", "path": "/book/a.md"}
+    ) == ("write", "/book/a.md")
+    # 其余端点类型的字符串形态同样归一（各端点要求的配置齐全）
+    assert DeclarativeToolSpec(
+        name="t", description="d", parameters={},
+        permissions=("network:connect:*.example.com",),
+        endpoint="http_fetch",
+    ).endpoint is EndpointType.HTTP_FETCH
+    assert DeclarativeToolSpec(
+        name="t", description="d", parameters={},
+        permissions=("process:exec:git",),
+        endpoint="process_exec", endpoint_config={"allowlist": ["git"]},
+    ).endpoint is EndpointType.PROCESS_EXEC
+    assert DeclarativeToolSpec(
+        name="t", description="d", parameters={},
+        permissions=("mcp:call:s1",),
+        endpoint="mcp", endpoint_config={"server_id": "s1"},
+    ).endpoint is EndpointType.MCP
+
+
+def test_string_endpoint_flows_through_extractor():
+    """字符串端点声明的定义经桥接提取器正常推导（登记/分发不依赖枚举入参）。"""
+    executors = DeclarativeToolExecutors()
+    definition = DeclarativeToolSpec(
+        name="fs_tool",
+        description="file tool",
+        parameters={"type": "object"},
+        permissions=("filesystem:write:/book/**",),
+        endpoint="file_ops",
+        endpoint_config={"root": "/book"},
+    )
+    executors.register_definition(definition)
+    extractor = make_declarative_extractor(executors)
+    assert extractor(definition.to_spec(), {"operation": "write", "path": "/book/a.md"}) == (
+        "write",
+        "/book/a.md",
+    )
+
+
 def test_declarative_round_trip():
     """声明式定义数据往返（持久化/知识集导出形态）。"""
     definition = _declarative(

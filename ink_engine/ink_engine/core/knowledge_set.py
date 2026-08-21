@@ -71,11 +71,12 @@ def default_credibility(source: str) -> float:
     """按来源取默认可信度（未知来源 = 模型级，保守不激进）。"""
     return _SOURCE_CREDIBILITY.get(source, _SOURCE_CREDIBILITY[SOURCE_MODEL])
 
-# 知识条目 kind（规则/模板/权重/工具规则——集内能力的数据形态）
+# 知识条目 kind（规则/模板/权重/工具规则/教训——集内能力的数据形态）
 KIND_RULE = "rule"
 KIND_TEMPLATE = "template"
 KIND_WEIGHT = "weight"
 KIND_TOOL_RULE = "tool_rule"
+KIND_INSIGHT = "insight"
 
 # 存储集合前缀（knowledge:<user_id>）
 _COLLECTION_PREFIX = "knowledge:"
@@ -96,8 +97,14 @@ def _render_entry_content(entry: KnowledgeEntry) -> str:
     raw = entry.data.get("rule")
     if isinstance(raw, dict) and raw.get("message"):
         parts.append(str(raw["message"]))
-    else:
-        parts.append(json.dumps(entry.data, ensure_ascii=False, sort_keys=True))
+        return " ".join(p for p in parts if p)
+    insight = entry.data.get("insight")
+    if entry.kind == KIND_INSIGHT and isinstance(insight, dict) and insight.get("message"):
+        parts.append(str(insight["message"]))
+        if insight.get("note"):
+            parts.append(f"（教训来源：{insight['note']}）")
+        return " ".join(p for p in parts if p)
+    parts.append(json.dumps(entry.data, ensure_ascii=False, sort_keys=True))
     return " ".join(p for p in parts if p)
 
 
@@ -113,7 +120,7 @@ class KnowledgeEntry:
     Attributes:
         id: 条目 id（集内唯一，晋升不换 id——身份跨层级稳定）。
         level: 当前层级（work/project/user）。
-        kind: 条目类别（rule/template/weight/tool_rule）。
+        kind: 条目类别（rule/template/weight/tool_rule/insight）。
         data: 结构化内容（规则 = Rule 声明数据；模板 = 编排模板数据）。
         source: 来源（web/dialog/model/user——注入污染审计基准）。
         credibility: 可信度（0-1；来源分级 + 验证闸门产物）。
@@ -210,12 +217,40 @@ class KnowledgeEntry:
                 f"知识条目 {entry_id} 的 failure_logs 须为字符串清单"
             )
         source = data.get("source", SOURCE_MODEL)
-        credibility = float(
-            data.get("credibility", default_credibility(source))
-        )
+        raw_credibility = data.get("credibility", default_credibility(source))
+        if not isinstance(raw_credibility, (int, float)):
+            raise GraphDefinitionError(
+                f"知识条目 {entry_id} 的 credibility 须为数值，"
+                f"收到 {type(raw_credibility).__name__}"
+            )
+        credibility = float(raw_credibility)
         if not 0 <= credibility <= 1:
             raise GraphDefinitionError(
                 f"知识条目 {entry_id} 的可信度必须在 [0, 1] 内: {credibility}"
+            )
+        raw_usage = data.get("usage_count", 0)
+        raw_fail = data.get("fail_count", 0)
+        if not isinstance(raw_usage, int) or isinstance(raw_usage, bool):
+            raise GraphDefinitionError(
+                f"知识条目 {entry_id} 的 usage_count 须为整数，"
+                f"收到 {type(raw_usage).__name__}"
+            )
+        if not isinstance(raw_fail, int) or isinstance(raw_fail, bool):
+            raise GraphDefinitionError(
+                f"知识条目 {entry_id} 的 fail_count 须为整数，"
+                f"收到 {type(raw_fail).__name__}"
+            )
+        raw_created = data.get("created_at", time.time())
+        raw_updated = data.get("updated_at", time.time())
+        if not isinstance(raw_created, (int, float)):
+            raise GraphDefinitionError(
+                f"知识条目 {entry_id} 的 created_at 须为数值，"
+                f"收到 {type(raw_created).__name__}"
+            )
+        if not isinstance(raw_updated, (int, float)):
+            raise GraphDefinitionError(
+                f"知识条目 {entry_id} 的 updated_at 须为数值，"
+                f"收到 {type(raw_updated).__name__}"
             )
         return cls(
             id=entry_id,
@@ -226,12 +261,12 @@ class KnowledgeEntry:
             credibility=credibility,
             title=data.get("title", ""),
             tags=tuple(tags),
-            usage_count=int(data.get("usage_count", 0)),
-            fail_count=int(data.get("fail_count", 0)),
+            usage_count=raw_usage,
+            fail_count=raw_fail,
             failure_logs=tuple(failure_logs)[-_MAX_FAILURE_LOGS:],
             archived=bool(data.get("archived", False)),
-            created_at=float(data.get("created_at", time.time())),
-            updated_at=float(data.get("updated_at", time.time())),
+            created_at=float(raw_created),
+            updated_at=float(raw_updated),
         )
 
     def as_context_source(
@@ -742,6 +777,7 @@ def build_knowledge_sources(
 
 
 __all__ = [
+    "KIND_INSIGHT",
     "KIND_RULE",
     "KIND_TEMPLATE",
     "KIND_TOOL_RULE",

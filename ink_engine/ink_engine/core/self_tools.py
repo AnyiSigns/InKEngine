@@ -401,7 +401,15 @@ async def _apply(ctx: Any, context: SelfToolContext, args: dict) -> str:
     撞闸。钩子未装配（convergence=None）时不做前置判定。
     """
     try:
-        proposal = _build_proposal(ctx, args, base_version_hint=args.get("base_version"))
+        # 缺省基准 = 当前版本（与工具 schema 声明一致：省略 base_version
+        # 即按最新集状态提案，避免非空链上被误判并发冲突）
+        if args.get("base_version") is None:
+            base_version = await context.self_pipeline.chain.current_version()
+        else:
+            base_version = args.get("base_version")
+        proposal = _build_proposal(
+            ctx, args, base_version_hint=base_version
+        )
     except GraphDefinitionError as exc:
         return _json({"ok": False, "status": "invalid", "reason": str(exc)})
     if context.convergence is not None:
@@ -456,7 +464,12 @@ async def _revert(ctx: Any, context: SelfToolContext, args: dict) -> str:
 
 
 def _build_proposal(ctx: Any, args: dict, *, base_version_hint: Any) -> SelfProposal:
-    """从工具入参构造提案（类型/形态非法显式报错）。"""
+    """从工具入参构造提案（类型/形态非法显式报错）。
+
+    base_version_hint 由调用方解析：apply_patch 在省略时已取当前版本
+    （与 schema 声明一致）；propose_patch 不校验基准（仅形态校验，
+    提案只是草案，基准留待 apply 时判定）。
+    """
     raw_kind = args.get("kind")
     try:
         kind = PatchKind(raw_kind)

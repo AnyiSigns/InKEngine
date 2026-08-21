@@ -24,7 +24,7 @@ from dataclasses import dataclass
 from typing import Any, Protocol, runtime_checkable
 
 from .exceptions import FixtureGateError, GraphDefinitionError
-from .knowledge_set import KnowledgeEntry
+from .knowledge_set import KIND_INSIGHT, KnowledgeEntry
 from .rules import (
     FixtureResult,
     FixtureSet,
@@ -247,6 +247,10 @@ class GateL2FixtureExecutor:
     明细随结果留痕；非规则条目（模板/权重/工具规则）无法按规则引擎
     评估 = 显式拒绝（由使用方注入领域执行器，不静默放行）。
 
+    kind=insight（教训）条目例外：教训 = 经验文本，无谓词实现（执行件
+    不进知识集），不存在「规则效果」可测——L2 跳过规则执行（L1 注入
+    扫描 + 形式校验已覆盖其安全与结构），显式放行并在 note 留痕。
+
     context_rules 提供时按「旧规则集 + 候选规则」合并评估：样例面向
     整套规则集语义设计（如领域种子样例库），单条新规则无法独立全绿，
     合并后旧集与候选按同一套语义共同判定。
@@ -263,6 +267,12 @@ class GateL2FixtureExecutor:
         *,
         context_rules: dict[str, Any] | None = None,
     ) -> GateL2Result:
+        if entry.kind == KIND_INSIGHT:
+            return GateL2Result(
+                passed=True,
+                note="insight 教训条目（无执行语义，L2 跳过规则执行；"
+                "L1 注入扫描与形式校验已覆盖）",
+            )
         if entry.kind != "rule":
             return GateL2Result(
                 passed=False,
@@ -288,7 +298,7 @@ class GateL2FixtureExecutor:
         start = time.monotonic()
         try:
             assert_fixtures_pass(rule_set, fixtures, engine=RuleEngine(self._registry))
-        except FixtureGateError as exc:
+        except (FixtureGateError, GraphDefinitionError) as exc:
             return GateL2Result(
                 passed=False,
                 accuracy=0.0,
@@ -530,10 +540,10 @@ class KnowledgeGate:
         Returns:
             GateL3Result：passed = 通过；reason 说明判定依据。
         """
-        if old_metrics is None:
+        if old_metrics is None or not old_metrics:
             return GateL3Result(
                 passed=True,
-                reason="无旧版可比（首版直接保留）",
+                reason="无旧版可比（首版/空旧版直接保留）",
             )
         common = set(new_metrics) & set(old_metrics)
         if not common:

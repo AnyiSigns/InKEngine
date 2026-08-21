@@ -161,6 +161,10 @@ class MaxRoundsConvergencePolicy:
     1. 存在 passed 的候选 → 收敛，接受其中分数最高者（同分取靠前者）；
     2. 未收敛但已到轮次上限 → 停止（converged=False，呈交现状 + 评审意见）；
     3. 否则取分数前 K（Beam 宽度）个候选继续再生成。
+
+    轮次上限硬护栏：策略内部自增轮次计数，decide 按
+    ``max(round_no, 已用轮次)`` 判定上限——循环驱动层误传常量（如恒 0）
+    时仍有绝对硬上限兜底，不会无限再生成。
     """
 
     def __init__(
@@ -179,8 +183,19 @@ class MaxRoundsConvergencePolicy:
         self.threshold = threshold
         self.beam = beam
         self.max_rounds = max_rounds
+        self._rounds_used = 0
+
+    def _effective_round(self, round_no: int) -> int:
+        """有效轮次 = 调用方轮次与内部计数的较大者（内部计数单调自增）。
+
+        调用方按轮递增时二者一致；调用方误传常量/回退轮次时内部计数
+        保证硬上限语义（已用轮次不受调用方回拨影响）。
+        """
+        self._rounds_used = max(self._rounds_used, round_no)
+        return self._rounds_used
 
     def decide(self, reviews: list[CandidateReview], *, round_no: int) -> ConvergenceDecision:
+        round_no = self._effective_round(round_no)
         if not reviews:
             # 空评审集 = 无候选可判定，收敛失败（与评审器异常分支同语义：
             # 呈交现状，绝不把空集当「已收敛」——调用方按 converged 取

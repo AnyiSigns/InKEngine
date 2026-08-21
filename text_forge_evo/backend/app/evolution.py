@@ -35,7 +35,7 @@ from ink_engine.core.approval import (
     DECISION_TERMINATE,
 )
 from ink_engine.core.knowledge_set import (
-    KIND_RULE,
+    KIND_INSIGHT,
     KnowledgeEntry,
     default_credibility,
 )
@@ -386,7 +386,7 @@ class IncubatorService:
         entry = KnowledgeEntry(
             id=_entry_id_of(outcome.data),
             level="work",
-            kind=KIND_RULE,
+            kind=KIND_INSIGHT,
             data=outcome.data,
             source=outcome.source,
             credibility=default_credibility(outcome.source),

@@ -388,7 +388,7 @@ async def test_incubate_then_patch_base_conflict(memory_storage):
     assert distilled is not None
     rule = {
         "id": "r-1",
-        "message": distilled["rule"]["message"],
+        "message": distilled["insight"]["message"],
         "predicate": "forbid_value",
         "config": {"forbid": "bad"},
         "kind": "rule",

@@ -103,14 +103,48 @@ class RuleViolation:
 
     @classmethod
     def from_dict(cls, data: dict[str, Any]) -> RuleViolation:
-        """从存储/传输数据还原（字段缺失走默认值，兼容增量演进）。"""
+        """从存储/传输数据还原（构造即校验：字段形态非法建图期拒绝）。
+
+        与 :meth:`Rule.from_dict` 对齐——强类型校验，非法类型抛
+        :class:`GraphDefinitionError`，不以 ``str()`` 静默强转（int 5 不会
+        被吞成 "5"）。``rule_id`` / ``message`` 为必填，缺失或类型非法拒绝。
+
+        Raises:
+            GraphDefinitionError: ``rule_id`` / ``message`` 缺失或非字符串、
+                ``kind`` / ``severity`` / ``entity_type`` / ``entity_id``
+                非字符串或非法取值。
+        """
+        if not isinstance(data, dict):
+            raise GraphDefinitionError(
+                f"违规声明非法: 期望 dict，收到 {type(data).__name__}"
+            )
+        rule_id = data.get("rule_id")
+        if not rule_id or not isinstance(rule_id, str):
+            raise GraphDefinitionError("违规声明缺 rule_id（字符串）")
+        message = data.get("message")
+        if not isinstance(message, str):
+            raise GraphDefinitionError("违规声明缺 message（字符串）")
+        kind = data.get("kind", "rule")
+        if not isinstance(kind, str):
+            raise GraphDefinitionError("违规声明的 kind 须为字符串")
+        severity = data.get("severity", SEVERITY_ERROR)
+        if severity not in _VALID_SEVERITIES:
+            raise GraphDefinitionError(
+                f"违规声明的严重度非法: {severity!r}（仅 {_VALID_SEVERITIES}）"
+            )
+        entity_type = data.get("entity_type")
+        if entity_type is not None and not isinstance(entity_type, str):
+            raise GraphDefinitionError("违规声明的 entity_type 须为字符串或省略")
+        entity_id = data.get("entity_id")
+        if entity_id is not None and not isinstance(entity_id, str):
+            raise GraphDefinitionError("违规声明的 entity_id 须为字符串或省略")
         return cls(
-            rule_id=str(data["rule_id"]),
-            kind=str(data.get("kind", "rule")),
-            severity=str(data.get("severity", SEVERITY_ERROR)),
-            message=str(data["message"]),
-            entity_type=data.get("entity_type"),
-            entity_id=data.get("entity_id"),
+            rule_id=rule_id,
+            kind=kind,
+            severity=severity,
+            message=message,
+            entity_type=entity_type,
+            entity_id=entity_id,
         )
 
 
@@ -393,8 +427,15 @@ def _get_path(obj: Any, path: str | None) -> Any:
             current = current.get(segment)
         elif isinstance(current, (list, tuple)):
             try:
-                current = current[int(segment)]
-            except (ValueError, IndexError):
+                index = int(segment)
+            except ValueError:
+                return None
+            if index < 0:
+                # 负索引（items.-1 取末项）属越权访问，视作路径非法/不适用
+                return None
+            try:
+                current = current[index]
+            except IndexError:
                 return None
         else:
             try:
@@ -854,12 +895,12 @@ class RuleEngine:
                 )
                 continue
             predicate = self.registry.create(rule.predicate)
-            checked += 1
             if rule.iterate_items:
                 items = _iterable_items(target)
                 if items is None:
                     skipped.append((rule.id, "目标非集合（iterate_items 需集合形态）"))
                     continue
+                checked += 1
                 for item in items:
                     issues.extend(
                         _evaluate_once(
@@ -867,6 +908,7 @@ class RuleEngine:
                         )
                     )
             else:
+                checked += 1
                 issues.extend(
                     _evaluate_once(predicate, target, rule, merged_context, skipped, broken)
                 )

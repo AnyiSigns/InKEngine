@@ -20,7 +20,7 @@ from dataclasses import dataclass, field
 from typing import Any, ClassVar, Protocol, runtime_checkable
 
 from .exceptions import GraphDefinitionError
-from .knowledge_set import KnowledgeEntry
+from .knowledge_set import KIND_INSIGHT, KnowledgeEntry
 from .tiers import build_tier_chain
 
 # 五类信号（分类路由的枚举化标签，防魔法字符串）
@@ -195,8 +195,14 @@ class SignalClassifier:
             key = (signal.kind, signal.message.strip().lower())
             counts[key] = counts.get(key, 0) + 1
         upgraded: list[ExecutionSignal] = []
+        # 同因多次出现只产一条升级候选（按 root key 聚合，count 取最大）：
+        # 逐次各产一条会让下游拿到重复升级信号、膨胀信号流
+        seen_keys: set[tuple[str, str]] = set()
         for signal in signals:
             key = (signal.kind, signal.message.strip().lower())
+            if key in seen_keys:
+                continue
+            seen_keys.add(key)
             count = counts[key]
             if count >= self.repeat_threshold:
                 upgraded.append(
@@ -269,10 +275,12 @@ class DeterministicDistiller:
 
     压缩语义：
     - 只保留「成功路径结论」（insight 的成功经验 + user_correction 的
-      修正反例——反例是「别这么做」的规则素材）；踩坑信号作为失败原因
+      修正反例——反例是「别这么做」的教训素材）；踩坑信号作为失败原因
       汇总进 note（教训来源），不直接成为知识内容（试错分支丢弃）；
-    - 输出 data = {"rule": {message, context}}（规则条目的声明形态，
-      与规则 DSL 的 Rule 声明兼容——kind=rule 条目直接可执行）；
+    - 输出 data = {"kind": KIND_INSIGHT, "insight": {message, context,
+      note}}（insight 教训条目的声明形态——教训是经验文本而非可执行
+      规则：无谓词实现，执行件不进知识集；闸门 L1 注入扫描+形式校验
+      照常，L2 对无执行语义的教训条目跳过规则执行）；
     - 来源取信号中最可信者（user > model > dialog > web 的确定性基准）。
 
     蒸馏触发条件（按需非每回合）由使用方判定（复杂度/干预阈值），本
@@ -309,8 +317,9 @@ class DeterministicDistiller:
         """信号 → 知识数据（无可沉淀信号返回 None）。
 
         Returns:
-            知识条目 data（{"rule": {"message", "context"}} 声明形态），
-            或 None（全部为噪音/无成功路径结论——不产出空知识）。
+            知识条目 data（{"kind": "insight", "insight": {message,
+            context, note}} 教训条目声明形态），或 None（全部为噪音/
+            无成功路径结论——不产出空知识）。
         """
         usable = [
             s
@@ -328,11 +337,12 @@ class DeterministicDistiller:
             "; ".join(p.message for p in pitfalls[:3]) if pitfalls else ""
         )
         return {
-            "rule": {
+            "kind": KIND_INSIGHT,
+            "insight": {
                 "message": primary.message,
                 "context": dict(primary.context),
                 "note": note,
-            }
+            },
         }
 
 

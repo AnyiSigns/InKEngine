@@ -12,7 +12,7 @@ from __future__ import annotations
 import json
 import time
 
-from ink_engine.core.knowledge_set import KIND_RULE, KnowledgeEntry
+from ink_engine.core.knowledge_set import KIND_INSIGHT, KnowledgeEntry
 from ink_engine.core.self_proposal import PatchKind, SelfProposal
 
 from app import boot
@@ -69,10 +69,10 @@ async def test_rejected_proposal_incubates_knowledge_entry() -> None:
     assert summary["action"] == "applied"
     entries = _incubated_entries(app)
     assert len(entries) == 1
-    # 修正反例来源 = 用户（可信度取用户级），内容为规则声明形态
-    assert entries[0].kind == KIND_RULE
+    # 修正反例来源 = 用户（可信度取用户级），内容为教训条目形态
+    assert entries[0].kind == KIND_INSIGHT
     assert entries[0].source == "user"
-    assert isinstance(entries[0].data.get("rule"), dict)
+    assert isinstance(entries[0].data.get("insight"), dict)
 
     # ③ 审计有孵化记录：origin=incubation 且 L0 直过（decision=auto）
     log = await app.self_pipeline.audit_log()

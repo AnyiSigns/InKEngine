@@ -225,13 +225,13 @@ def test_distiller_deterministic_baseline():
                         context={"n": 1}),
     ]
     data = distiller.distill(signals)
-    assert data["rule"]["message"] == "成功经验"
-    assert "试错失败A" in data["rule"]["note"]  # 踩坑仅留痕，不进知识内容
+    assert data["insight"]["message"] == "成功经验"
+    assert "试错失败A" in data["insight"]["note"]  # 踩坑仅留痕，不进知识内容
     sig2 = [
         ExecutionSignal(kind=SIGNAL_INSIGHT, message="模型经验", source="model"),
         ExecutionSignal(kind=SIGNAL_USER_CORRECTION, message="用户反例", source="user"),
     ]
-    assert distiller.distill(sig2)["rule"]["message"] == "用户反例"
+    assert distiller.distill(sig2)["insight"]["message"] == "用户反例"
     assert distiller.distill(
         [ExecutionSignal(kind=SIGNAL_PITFALL, message="失败", source="model")]
     ) is None

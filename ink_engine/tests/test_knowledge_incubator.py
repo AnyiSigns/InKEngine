@@ -25,6 +25,7 @@ from ink_engine.core.knowledge_gate import (
     ReviewCardPolicy,
 )
 from ink_engine.core.knowledge_set import (
+    KIND_INSIGHT,
     KIND_RULE,
     KnowledgeEntry,
     KnowledgeSet,
@@ -119,13 +120,14 @@ def test_distill_keeps_success_discards_trial():
     ]
     data = distiller.distill(signals)
     assert data is not None
-    assert data["rule"]["message"] == "成功经验"
-    assert "试错失败A" in data["rule"]["note"]  # 失败原因仅留痕
-    assert data["rule"]["message"] != "试错失败A"
+    assert data["kind"] == KIND_INSIGHT
+    assert data["insight"]["message"] == "成功经验"
+    assert "试错失败A" in data["insight"]["note"]  # 失败原因仅留痕
+    assert data["insight"]["message"] != "试错失败A"
 
 
 def test_distill_user_correction_priority():
-    """用户修正反例优先于洞见（反例 = 最可靠规则素材）。"""
+    """用户修正反例优先于洞见（反例 = 最可靠教训素材）。"""
     distiller = DeterministicDistiller()
     signals = [
         ExecutionSignal(kind=SIGNAL_INSIGHT, message="模型经验", source="model"),
@@ -134,7 +136,7 @@ def test_distill_user_correction_priority():
         ),
     ]
     data = distiller.distill(signals)
-    assert data["rule"]["message"] == "用户反例"
+    assert data["insight"]["message"] == "用户反例"
 
 
 def test_distill_no_usable_signal_returns_none():
@@ -537,7 +539,7 @@ def test_tiered_distiller_switch_on_deterministic_fallback():
     ]
     data = distiller.distill(signals)
     assert data is not None
-    assert data["rule"]["message"] == "成功经验"
+    assert data["insight"]["message"] == "成功经验"
 
 
 async def test_tiered_distiller_async_llm_fallback():
@@ -561,11 +563,11 @@ async def test_tiered_distiller_async_llm_result():
 
     class Produce:
         async def __call__(self, chain, signals):
-            return {"rule": {"message": "LLM 蒸馏产物"}}
+            return {"kind": "insight", "insight": {"message": "LLM 蒸馏产物"}}
 
     signals = [ExecutionSignal(kind=SIGNAL_INSIGHT, message="x", source="model")]
     data = await distiller.distill_async(signals, llm_distill=Produce())
-    assert data["rule"]["message"] == "LLM 蒸馏产物"
+    assert data["insight"]["message"] == "LLM 蒸馏产物"
 
 
 # ── 复用优先于生成（检索命中 → 跳过重新蒸馏的组合断言）──
@@ -612,7 +614,7 @@ def test_reuse_or_distill_miss_then_distill():
     decision = reuse_or_distill(ks, "全新场景", signals, DeterministicDistiller())
     assert decision.reused == ()
     assert decision.distilled is not None
-    assert decision.distilled.data["rule"]["message"] == "用户反例"
+    assert decision.distilled.data["insight"]["message"] == "用户反例"
     assert decision.distilled.source == "user"  # 来源留痕贯穿蒸馏
     assert decision.distilled.tags == ("全新场景",)  # 可再检索
 

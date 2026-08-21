@@ -232,6 +232,16 @@ class ProposalValidator:
             KnowledgeEntry.from_dict(entry)
         except GraphDefinitionError as exc:
             return self._violations("knowledge 补丁非法", exc)
+        # 最小结构校验（默认层）：仅过 from_dict 结构仍允许不可信 data 写入
+        # 知识集——补齐最小形态闸门，收紧风险面。kind=rule 时 data 须含
+        # dict 形态 rule 声明；其余 kind 仅要求 data 为 dict（保持宽松，
+        # 宿主可经 _knowledge_schema 注入更强校验）。
+        entry_kind = entry.get("kind")
+        entry_data = entry.get("data")
+        if entry_kind == "rule" and not isinstance(entry_data.get("rule"), dict):
+            return ["knowledge 补丁 kind=rule 时 data 须含 dict 形态 rule 声明"]
+        if not isinstance(entry_data, dict):
+            return ["knowledge 补丁的 data 须为 dict"]
         if self._knowledge_schema is not None:
             return SchemaValidator().validate(self._knowledge_schema, entry)
         return []

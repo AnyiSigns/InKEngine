@@ -100,7 +100,6 @@ _GUARDED_PREFIXES: tuple[str, ...] = ("knowledge:",)
 _APPROVAL_KEY_PREFIX = "patch"
 
 # 审计状态（声明式枚举，防魔法字符串）
-AUDIT_STATUS_PENDING = "pending"
 AUDIT_STATUS_APPLIED = "applied"
 AUDIT_STATUS_REJECTED = "rejected"
 AUDIT_STATUS_CONFLICT = "conflict"
@@ -321,6 +320,9 @@ class PatchOutcome:
             pending）。
         reason: 拒绝/冲突/非法原因（展示与留痕）。
         applied: 是否已生效（落链且目标应用成功）。
+        apply_error: 活跃态应用失败原因（链已落但运行时未生效；None =
+            应用成功或无目标钩子）。审计载荷同步携带——「链已落」与
+            「运行时未生效」明确区分，不默认为成功。
     """
 
     patch_id: int | None = None
@@ -328,6 +330,7 @@ class PatchOutcome:
     status: str = AUDIT_STATUS_REJECTED
     reason: str | None = None
     applied: bool = False
+    apply_error: str | None = None
 
 
 @runtime_checkable
@@ -520,7 +523,30 @@ class SelfApplicationPipeline:
                     reason=reason,
                 )
             proposal = edited
-        # ④ 落链（单次存储事务）+ ⑤ 活跃态应用（幂等钩子）
+        # ④ 落链前复验并发基准：审批（L1 弹卡等）可能异步挂起，期间链
+        #    可能已被其他提案推进——基于过期基准落链会静默覆盖等待期内
+        #    已批准的变更。复验不匹配 = 拒绝并要求基于最新态重提（与
+        #    ② 的初始校验同语义，审批等待不再是并发窗口）。
+        current = await self.chain.current_version()
+        if proposal.base_version != current:
+            reason = (
+                f"并发冲突: 审批等待期间集已前进（提案基于版本 "
+                f"{proposal.base_version}，当前 {current}）——"
+                f"请基于最新集状态重提"
+            )
+            await self._audit(
+                proposal,
+                status=AUDIT_STATUS_CONFLICT,
+                reason=reason,
+                decision=approval.decision,
+                round_id=round_id,
+            )
+            return PatchOutcome(
+                decision=DECISION_REJECT,
+                status=AUDIT_STATUS_CONFLICT,
+                reason=reason,
+            )
+        # ⑤ 落链（单次存储事务）+ ⑥ 活跃态应用（幂等钩子）
         try:
             path, value = patch_path(proposal.kind, proposal.payload)
             patch_id = await self.chain.append(
@@ -541,10 +567,12 @@ class SelfApplicationPipeline:
                 reason=reason,
             )
         target = self._targets.get(proposal.kind)
+        apply_error: str | None = None
         if target is not None:
             try:
                 await target.apply(proposal.payload, patch_id)
             except Exception as exc:
+                apply_error = str(exc)
                 logger.warning(f"补丁 {patch_id} 活跃态应用失败（链已落，重启装配恢复）: {exc}")
         await self._audit(
             proposal,
@@ -552,12 +580,14 @@ class SelfApplicationPipeline:
             patch_id=patch_id,
             decision=approval.decision,
             round_id=round_id,
+            apply_error=apply_error,
         )
         return PatchOutcome(
             patch_id=patch_id,
             decision=approval.decision,
             status=AUDIT_STATUS_APPLIED,
             applied=True,
+            apply_error=apply_error,
         )
 
     async def revert(
@@ -610,6 +640,36 @@ class SelfApplicationPipeline:
                 reason=approval.reason or "回退审批未通过",
             )
         last = await self.chain.last_patch()
+        # 审批批准后、落回退前复验：审批异步挂起期间链可能已前进（他方
+        # 落链），链尾不再是我们批准的补丁——直接 revert_to 会回退到
+        # 错误的版本语义。复验失败 = 明确拒绝 + 审计留痕（批准动作不
+        # 可无记录）。
+        current = await self.chain.current_version()
+        if patch_id != current:
+            reason_msg = (
+                f"回退冲突: 审批等待期间链已前进（目标 #{patch_id}，"
+                f"当前链尾 #{current}）——请基于最新链尾重新发起回退"
+            )
+            await self._put_record(
+                _SET_AUDIT_COLLECTION,
+                self._audit_key(),
+                {
+                    "kind": "revert",
+                    "patch_id": patch_id,
+                    "reason": reason,
+                    "decision": approval.decision,
+                    "round_id": round_id,
+                    "last_patch": last,
+                    "status": AUDIT_STATUS_CONFLICT,
+                    "conflict_reason": reason_msg,
+                    "created_at": time.time(),
+                },
+            )
+            return PatchOutcome(
+                decision=DECISION_REJECT,
+                status=AUDIT_STATUS_CONFLICT,
+                reason=reason_msg,
+            )
         await self.chain.revert_to(target_version)
         if self._on_reverted is not None:
             try:
@@ -697,8 +757,14 @@ class SelfApplicationPipeline:
         decision: str = DECISION_REJECT,
         patch_id: int | None = None,
         round_id: str | None = None,
+        apply_error: str | None = None,
     ) -> None:
-        """落审计记录（append-only，历史不撒谎）。"""
+        """落审计记录（append-only，历史不撒谎）。
+
+        apply_error 非 None 时记录活跃态应用失败（链已落但运行时未
+        生效——「链已落」与「运行时生效」在审计中明确区分，不默认为
+        成功）。
+        """
         record = {
             "kind": proposal.kind.value,
             "patch_id": patch_id,
@@ -710,6 +776,7 @@ class SelfApplicationPipeline:
             "round_id": round_id,
             "payload": proposal.payload,
             "meta": dict(proposal.meta),
+            "apply_error": apply_error,
             "created_at": time.time(),
         }
         await self._put_record(_SET_AUDIT_COLLECTION, self._audit_key(), record)
@@ -861,7 +928,6 @@ __all__ = [
     "AUDIT_STATUS_APPLIED",
     "AUDIT_STATUS_CONFLICT",
     "AUDIT_STATUS_INVALID",
-    "AUDIT_STATUS_PENDING",
     "AUDIT_STATUS_REJECTED",
     "AUDIT_STATUS_REVERTED",
     "DEFAULT_APPROVAL_LEVELS",

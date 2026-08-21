@@ -451,3 +451,43 @@ async def test_unified_pipeline_routes_self_tools():
     assert '"ok": true' in result.output
     state = await runtime.self_pipeline.chain.assemble()
     assert state["theme"] == {"bg": "#123456"}
+
+
+async def test_rebuild_engine_node_factory_live_holder_sees_new_assembly():
+    """重建引擎后新装配源对既有节点可见（节点工厂实时引用契约的回归）。
+
+    图配方节点类型只注册一次（跨引擎重建存活）；按契约节点工厂以
+    registry 实例为键持有最新装配源（实时引用，非建图期快照）——
+    工具表变化触发 rebuild 后，既有节点执行读到新工具表。若工厂
+    捕获装配期快照，此断言失败（节点读旧清单）。
+    """
+    from weakref import WeakKeyDictionary
+
+    holders: WeakKeyDictionary = WeakKeyDictionary()
+
+    def live_recipe(ctx: GraphRecipeContext) -> Graph:
+        holder = holders.setdefault(ctx.registries.nodes, {})
+        holder["specs"] = list(ctx.tool_specs)
+        if not ctx.registries.nodes.has("probe_live"):
+            def factory(config: dict) -> Any:
+                async def node(ctx) -> dict:
+                    return {"visible": [s.name for s in holder["specs"]]}
+                return node
+            ctx.registries.nodes.register("probe_live", factory)
+        g = Graph(name="live_probe", entry="probe_live")
+        g.add_node("probe_live", ctx.registries.nodes.create("probe_live"))
+        g.add_exit("probe_live")
+        return g
+
+    runtime = await Runtime().boot(
+        FakeHost(), _minimal_recipe(graph_recipe=live_recipe)
+    )
+    first = await runtime.engine.ainvoke({}, thread_id="t-live", round_id="r1")
+    assert first.reason == "reply"
+    assert first.state["visible"].count("propose_patch") == 1  # 自指路一份
+
+    runtime.tool_registry["injected_tool"] = self_tool_specs()[0]
+    await runtime.rebuild_engine()
+    second = await runtime.engine.ainvoke({}, thread_id="t-live-2", round_id="r2")
+    # 动态路注入的同一 spec 对既有节点可见（实时引用而非建图期快照）
+    assert second.state["visible"].count("propose_patch") == 2

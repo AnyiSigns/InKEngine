@@ -1,0 +1,13 @@
+{
+  "dimensions": [
+    { "name": "evidence", "weight": 0.4, "threshold": 0.5 },
+    { "name": "relevance", "weight": 0.3, "threshold": 0.4 },
+    { "name": "clarity", "weight": 0.2, "threshold": 0.3 },
+    { "name": "completeness", "weight": 0.1, "threshold": 0.2 }
+  ],
+  "overall_threshold": 0.6,
+  "pass_threshold": 0.75,
+  "max_rounds": 2,
+  "beam_width": 1,
+  "web_verify_enabled": true
+}

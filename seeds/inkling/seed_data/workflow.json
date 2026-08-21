@@ -1,0 +1,19 @@
+{
+  "name": "inkling.research_workflow",
+  "nodes": [
+    { "id": "collect_material", "type": "collect_material", "config": { "note": "采集（文本/URL 取回）" } },
+    { "id": "parse_material", "type": "parse_material", "config": { "note": "解析（结构化抽取）" } },
+    { "id": "validate_material", "type": "validate_material", "config": { "note": "校验（规则谓词）" } },
+    { "id": "score_material", "type": "score_material", "config": { "note": "评分（引用质量/交叉验证）" } },
+    { "id": "review_material", "type": "review_material", "config": { "note": "评审（维度打分/阈值判定）" } },
+    { "id": "distill_knowledge", "type": "distill_knowledge", "config": { "note": "蒸馏（信号→结构化知识）" } }
+  ],
+  "edges": [
+    { "source": "collect_material", "target": "parse_material" },
+    { "source": "parse_material", "target": "validate_material" },
+    { "source": "validate_material", "target": "score_material" },
+    { "source": "score_material", "target": "review_material" },
+    { "source": "review_material", "target": "distill_knowledge" }
+  ],
+  "entry": "collect_material"
+}

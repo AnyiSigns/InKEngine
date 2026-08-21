@@ -1,0 +1,27 @@
+[package]
+name = "inkling_shell"
+version = "0.1.0"
+description = "InKling 桌面壳（宿主件）：托盘/系统通知/文件挂载授权 + process_exec 执行器注册 + 设备感知 server 挂载接线"
+authors = ["InKling"]
+edition = "2021"
+
+[build-dependencies]
+tauri-build = { version = "2", features = [] }
+
+[dependencies]
+tauri = { version = "2", features = ["tray-icon"] }
+tauri-plugin-notification = "2"
+tauri-plugin-dialog = "2"
+serde = { version = "1", features = ["derive"] }
+serde_json = "1"
+
+[lib]
+name = "inkling_shell_lib"
+crate-type = ["staticlib", "cdylib", "rlib"]
+
+[profile.release]
+codegen-units = 1
+lto = true
+opt-level = "s"
+panic = "abort"
+strip = true

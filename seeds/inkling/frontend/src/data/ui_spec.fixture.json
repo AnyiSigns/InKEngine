@@ -1,0 +1,142 @@
+{
+  "name": "inkling.ui",
+  "version": 1,
+  "theme": {
+    "bg.base": "#09090b",
+    "text.base": "#e4e4e7",
+    "accent.approval": "#f59e0b"
+  },
+  "root": {
+    "kind": "container",
+    "type": "app",
+    "children": [
+      {
+        "kind": "container",
+        "type": "topbar",
+        "props": { "hairline": true },
+        "children": [
+          {
+            "kind": "component",
+            "type": "topbar",
+            "props": { "title": "InKling", "subtitle": "知识/研究孵化" }
+          }
+        ]
+      },
+      {
+        "kind": "container",
+        "type": "views",
+        "children": [
+          {
+            "kind": "container",
+            "type": "column",
+            "props": { "view": "main" },
+            "children": [
+              {
+                "kind": "container",
+                "type": "row",
+                "children": [
+                  {
+                    "kind": "component",
+                    "type": "session_list",
+                    "props": { "collapsible": true }
+                  },
+                  {
+                    "kind": "container",
+                    "type": "column",
+                    "props": { "grow": true },
+                    "children": [
+                      {
+                        "kind": "component",
+                        "type": "message_list",
+                        "bind": { "channel": "state.messages", "path": "" }
+                      },
+                      {
+                        "kind": "component",
+                        "type": "knowledge_row",
+                        "bind": { "channel": "events.memory_hit", "path": "" }
+                      },
+                      {
+                        "kind": "component",
+                        "type": "agent_input",
+                        "bind": { "channel": "state.session", "path": "" }
+                      }
+                    ]
+                  }
+                ]
+              }
+            ]
+          },
+          {
+            "kind": "container",
+            "type": "column",
+            "props": { "view": "evolution" },
+            "children": [
+              {
+                "kind": "component",
+                "type": "incubator_panel",
+                "bind": { "channel": "state.incubation", "path": "" }
+              },
+              {
+                "kind": "component",
+                "type": "evolution_factory",
+                "bind": { "channel": "state.incubation", "path": "" }
+              },
+              {
+                "kind": "component",
+                "type": "evolution_timeline",
+                "bind": { "channel": "inspect_graph", "path": "patchChain" }
+              }
+            ]
+          },
+          {
+            "kind": "container",
+            "type": "column",
+            "props": { "view": "simulation" },
+            "children": [
+              {
+                "kind": "component",
+                "type": "simulation_tree",
+                "bind": { "channel": "state.simulations", "path": "" }
+              }
+            ]
+          },
+          {
+            "kind": "container",
+            "type": "column",
+            "props": { "view": "source" },
+            "children": [
+              {
+                "kind": "component",
+                "type": "source_trace",
+                "bind": { "channel": "state.sourceTraces", "path": "" }
+              }
+            ]
+          },
+          {
+            "kind": "container",
+            "type": "column",
+            "props": { "view": "settings" },
+            "children": [
+              {
+                "kind": "component",
+                "type": "settings_form",
+                "bind": { "channel": "state.session", "path": "" }
+              }
+            ]
+          }
+        ]
+      },
+      {
+        "kind": "container",
+        "type": "overlay",
+        "children": [
+          {
+            "kind": "component",
+            "type": "review_card",
+            "bind": { "channel": "events.review_card", "path": "" }
+          }
+        ]
+      }
+    ]
+  }
+}

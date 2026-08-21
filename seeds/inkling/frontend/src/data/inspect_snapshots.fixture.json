@@ -1,0 +1,140 @@
+{
+  "note": "inspect_* 五元工具快照夹具（演化时间线/孵化面板数据源演示形态；集成时以引擎快照为准）。",
+  "inspect_graph": {
+    "version": 3,
+    "nodes": [
+      { "id": "entry", "type": "entry", "label": "入口" },
+      { "id": "orchestrate", "type": "research_orchestrator", "label": "研究编排" },
+      { "id": "pipeline", "type": "tool_pipeline", "label": "工具流水线编排" },
+      { "id": "end", "type": "end", "label": "结束" }
+    ],
+    "edges": [
+      { "from": "entry", "to": "orchestrate" },
+      { "from": "orchestrate", "to": "pipeline" },
+      { "from": "pipeline", "to": "end" }
+    ],
+    "patchChain": [
+      {
+        "patchId": "p-001",
+        "kind": "rule",
+        "title": "补充引用质量校验规则",
+        "status": "applied",
+        "level": "L1",
+        "appliedAt": 1724208000000
+      },
+      {
+        "patchId": "p-002",
+        "kind": "knowledge",
+        "title": "沉淀：领域术语表条目 ×3",
+        "status": "applied",
+        "level": "L2",
+        "appliedAt": 1724211600000
+      },
+      {
+        "patchId": "p-003",
+        "kind": "theme",
+        "title": "皮肤试穿：审批卡换色",
+        "status": "reverted",
+        "level": "L0",
+        "appliedAt": 1724215200000,
+        "revertedAt": 1724218800000,
+        "revertReason": "朱砂与墨色底对比不足"
+      }
+    ]
+  },
+  "inspect_rules": {
+    "version": 2,
+    "rules": [
+      { "id": "r-001", "name": "引用来源必须可追溯", "level": "constraint", "description": "知识条目引用须带来源标识" },
+      { "id": "r-002", "name": "蒸馏产物长度下限", "level": "quality", "description": "蒸馏产物须超过 20 字" },
+      { "id": "r-003", "name": "跨层晋升需 L2 审批", "level": "governance", "description": "知识分层晋升须人工审批" }
+    ]
+  },
+  "inspect_knowledge": {
+    "version": 1,
+    "entries": [
+      {
+        "id": "k-001",
+        "title": "引用质量校验：来源可追溯",
+        "level": "project",
+        "credibility": 0.92,
+        "usageCount": 14,
+        "tags": ["校验", "引用"]
+      },
+      {
+        "id": "k-002",
+        "title": "蒸馏产物长度下限经验值",
+        "level": "work",
+        "credibility": 0.61,
+        "usageCount": 5,
+        "tags": ["蒸馏"]
+      }
+    ]
+  },
+  "inspect_ui": {
+    "version": 1,
+    "componentWhitelist": [
+      "topbar",
+      "session_list",
+      "message_list",
+      "knowledge_row",
+      "agent_input",
+      "review_card",
+      "incubator_panel",
+      "evolution_factory",
+      "evolution_timeline",
+      "simulation_tree",
+      "source_trace",
+      "settings_form"
+    ],
+    "bindChannelWhitelist": [
+      "state.messages",
+      "state.round_steps",
+      "state.session",
+      "events.reply_token",
+      "events.thinking_start",
+      "events.plan_start",
+      "events.spawn_start",
+      "events.simulate_decision",
+      "events.review_card",
+      "events.signal_observed",
+      "events.distill_result",
+      "events.gate_verdict",
+      "events.mutation_proposed",
+      "events.regression_guard",
+      "events.patch_proposed",
+      "events.patch_applied",
+      "events.patch_reverted",
+      "events.memory_hit",
+      "events.tuning_applied",
+      "events.vetting_result",
+      "events.device_perception",
+      "events.device_control",
+      "inspect_graph",
+      "inspect_rules",
+      "inspect_knowledge",
+      "inspect_ui",
+      "inspect_tools"
+    ],
+    "themeTokenWhitelist": ["bg.base", "text.base", "accent.approval"]
+  },
+  "inspect_tools": {
+    "version": 1,
+    "tools": [
+      { "name": "inspect_graph", "permission": "allow", "endpoint": "process_exec", "description": "图结构快照" },
+      { "name": "inspect_rules", "permission": "allow", "endpoint": "process_exec", "description": "规则集快照" },
+      { "name": "inspect_knowledge", "permission": "allow", "endpoint": "process_exec", "description": "知识集快照" },
+      { "name": "inspect_ui", "permission": "allow", "endpoint": "process_exec", "description": "界面描述快照" },
+      { "name": "inspect_tools", "permission": "allow", "endpoint": "process_exec", "description": "工具表快照" },
+      { "name": "launch_app", "permission": "review", "endpoint": "process_exec", "description": "启动应用" },
+      { "name": "open_file", "permission": "review", "endpoint": "process_exec", "description": "打开文件" },
+      { "name": "system_query", "permission": "allow", "endpoint": "process_exec", "description": "系统状态查询" },
+      { "name": "set_volume", "permission": "review", "endpoint": "process_exec", "description": "设置音量" },
+      { "name": "set_brightness", "permission": "review", "endpoint": "process_exec", "description": "设置屏幕亮度" },
+      { "name": "notify", "permission": "review", "endpoint": "process_exec", "description": "系统通知" },
+      { "name": "schedule", "permission": "review", "endpoint": "process_exec", "description": "定时任务" },
+      { "name": "screen_query", "permission": "allow", "endpoint": "device_mcp", "description": "屏幕状态感知" },
+      { "name": "file_query", "permission": "allow", "endpoint": "device_mcp", "description": "文件系统感知" }
+    ]
+  }
+}

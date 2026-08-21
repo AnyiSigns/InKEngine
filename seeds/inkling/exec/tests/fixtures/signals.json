@@ -1,0 +1,32 @@
+{
+  "signal_kinds": {
+    "pitfall": {
+      "distillable": false,
+      "description": "踩坑：预期外失败（错误轨迹的可复用教训，汇总进教训 note 而非直接成为知识内容）"
+    },
+    "user_correction": {
+      "distillable": true,
+      "description": "用户修正：卡回路 accept/edit/reject 反例（最可靠规则素材，蒸馏首选）"
+    },
+    "insight": {
+      "distillable": true,
+      "description": "洞见：成功路径中的可复用经验"
+    },
+    "gap": {
+      "distillable": false,
+      "description": "流程缺口：缺某类能力 → 新建候选（不直接沉淀知识）"
+    },
+    "repeated_root_cause": {
+      "distillable": false,
+      "description": "重复根因：同一问题 ≥ repeat_threshold 次 → 转人工确认（升级信号，非蒸馏素材）"
+    }
+  },
+  "repeat_threshold": 3,
+  "distill": {
+    "enabled": true,
+    "complexity_threshold": 5,
+    "intervention_threshold": 1,
+    "source_ranking": { "web": 1, "dialog": 2, "model": 3, "user": 4 },
+    "fallback_source": "model"
+  }
+}

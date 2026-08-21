@@ -1,0 +1,50 @@
+{
+  "$schema": "http://json-schema.org/draft-07/schema#",
+  "title": "MCP 市场目录（名称/来源/端点/凭据需求/风险档；出厂零预挂）",
+  "type": "object",
+  "required": ["premounted", "mount_policy", "servers"],
+  "additionalProperties": false,
+  "properties": {
+    "premounted": { "type": "boolean", "const": false },
+    "mount_policy": {
+      "type": "object",
+      "required": ["required"],
+      "additionalProperties": true,
+      "properties": {
+        "required": { "type": "array", "minItems": 1, "items": { "type": "string" } },
+        "note": { "type": "string" }
+      }
+    },
+    "servers": {
+      "type": "array",
+      "minItems": 2,
+      "items": {
+        "type": "object",
+        "required": ["id", "name", "source", "transport", "credentials", "risk", "premounted"],
+        "additionalProperties": false,
+        "properties": {
+          "id": { "type": "string", "minLength": 1 },
+          "name": { "type": "string", "minLength": 1 },
+          "source": { "type": "string", "minLength": 1 },
+          "transport": { "type": "string", "enum": ["http", "stdio", "in_memory"] },
+          "url": { "type": ["string", "null"] },
+          "command": { "type": ["string", "null"] },
+          "args": { "type": "array", "items": { "type": "string" } },
+          "credentials": {
+            "type": "object",
+            "required": ["required"],
+            "additionalProperties": true,
+            "properties": {
+              "required": { "type": "boolean" },
+              "note": { "type": "string" }
+            }
+          },
+          "risk": { "type": "string", "enum": ["low", "medium", "high"] },
+          "risk_note": { "type": "string" },
+          "category": { "type": "string", "minLength": 1 },
+          "premounted": { "type": "boolean", "const": false }
+        }
+      }
+    }
+  }
+}

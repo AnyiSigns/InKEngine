@@ -1,0 +1,97 @@
+{
+  "note": "OS 感知/控制工具声明夹具（= 定稿形态，与 M0 seed_data/tools.json 的 OS 工具段对齐；params 为扁平签名形态——声明 ↔ 执行器签名一致性校验的直接比对面；集成期以真实声明为准，shell 只读声明，禁硬编码）。",
+  "tools": [
+    {
+      "name": "launch_app",
+      "description": "启动白名单内应用（沙箱端点：命令白名单）",
+      "permission": "review",
+      "endpoint": "process_exec",
+      "sandbox": { "mode": "command_allowlist", "allowlist": ["notepad", "calc", "mspaint"] },
+      "params": [
+        { "name": "app", "type": "string", "required": true }
+      ]
+    },
+    {
+      "name": "open_file",
+      "description": "打开文件/目录（沙箱端点：工作区挂载根内）",
+      "permission": "review",
+      "endpoint": "process_exec",
+      "sandbox": { "mode": "path_roots", "roots": ["~/.inkling/workspace"] },
+      "params": [
+        { "name": "path", "type": "string", "required": true }
+      ]
+    },
+    {
+      "name": "system_query",
+      "description": "系统状态查询（只读感知）",
+      "permission": "allow",
+      "endpoint": "process_exec",
+      "sandbox": { "mode": "query_allowlist", "allowlist": ["os", "arch", "hostname", "home", "cwd", "uptime"] },
+      "params": [
+        { "name": "query", "type": "string", "required": true }
+      ]
+    },
+    {
+      "name": "set_volume",
+      "description": "设置系统音量（0–100）",
+      "permission": "review",
+      "endpoint": "process_exec",
+      "sandbox": { "mode": "bounds", "min": 0, "max": 100 },
+      "params": [
+        { "name": "percent", "type": "integer", "required": true }
+      ]
+    },
+    {
+      "name": "set_brightness",
+      "description": "设置屏幕亮度（0–100）",
+      "permission": "review",
+      "endpoint": "process_exec",
+      "sandbox": { "mode": "bounds", "min": 0, "max": 100 },
+      "params": [
+        { "name": "percent", "type": "integer", "required": true }
+      ]
+    },
+    {
+      "name": "notify",
+      "description": "系统通知（标题/正文，长度上限）",
+      "permission": "review",
+      "endpoint": "process_exec",
+      "sandbox": { "mode": "length_caps", "title_max": 80, "body_max": 500 },
+      "params": [
+        { "name": "title", "type": "string", "required": true },
+        { "name": "body", "type": "string", "required": true }
+      ]
+    },
+    {
+      "name": "schedule",
+      "description": "定时任务（秒级延迟，1–86400）",
+      "permission": "review",
+      "endpoint": "process_exec",
+      "sandbox": { "mode": "bounds", "min": 1, "max": 86400 },
+      "params": [
+        { "name": "seconds", "type": "integer", "required": true },
+        { "name": "action", "type": "string", "required": true }
+      ]
+    },
+    {
+      "name": "screen_query",
+      "description": "屏幕状态感知（分辨率/工作区，只读）",
+      "permission": "allow",
+      "endpoint": "device_mcp",
+      "sandbox": { "mode": "query_allowlist", "allowlist": ["resolution", "work_area"] },
+      "params": [
+        { "name": "target", "type": "string", "required": true }
+      ]
+    },
+    {
+      "name": "file_query",
+      "description": "文件系统感知（列目录，工作区挂载根内，只读）",
+      "permission": "allow",
+      "endpoint": "device_mcp",
+      "sandbox": { "mode": "path_roots", "roots": ["~/.inkling/workspace"] },
+      "params": [
+        { "name": "path", "type": "string", "required": true }
+      ]
+    }
+  ]
+}

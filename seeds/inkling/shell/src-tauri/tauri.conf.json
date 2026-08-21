@@ -1,0 +1,33 @@
+{
+  "$schema": "https://schema.tauri.app/config/2",
+  "productName": "InKling",
+  "version": "0.1.0",
+  "identifier": "com.inkling.evo",
+  "build": {
+    "frontendDist": "../frontend/dist",
+    "devUrl": "http://localhost:5176",
+    "beforeDevCommand": "",
+    "beforeBuildCommand": ""
+  },
+  "app": {
+    "windows": [
+      {
+        "label": "main",
+        "title": "InKling · 自进化认知伙伴",
+        "width": 1100,
+        "height": 760,
+        "minWidth": 720,
+        "minHeight": 480
+      }
+    ],
+    "security": {
+      "csp": null
+    }
+  },
+  "bundle": {
+    "active": true,
+    "targets": ["nsis"],
+    "icon": ["icons/icon.ico", "icons/icon.png"],
+    "shortDescription": "InKling：你用得越多，它越懂你的领域"
+  }
+}

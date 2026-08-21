@@ -1,0 +1,87 @@
+{
+  "id": "inkling",
+  "name": "InKling",
+  "positioning": "你用得越多，它越懂你的领域",
+  "domain_boot": "知识/研究孵化",
+  "version": "0.1.0",
+  "engine_version_compat": "0.1.0",
+  "theme": {
+    "bg.base": "#09090b",
+    "text.base": "#e4e4e7",
+    "accent.approval": "#f59e0b",
+    "note": "墨色系语义 token：bg.base 深墨底 / text.base 纸白字 / accent.approval 审批卡出厂默认朱砂；token 值随主题补丁（PatchKind.THEME）演化，组件一律经 token 取色"
+  },
+  "contracts": {
+    "exec_mcp_id": "inkling_exec",
+    "host_id": "inkling_shell",
+    "renderer_components": [
+      "message_list",
+      "knowledge_row",
+      "agent_input",
+      "approval_card",
+      "incubation_panel",
+      "evolution_timeline",
+      "simulation_tree",
+      "evolution_factory_panel",
+      "source_detail",
+      "settings_form"
+    ],
+    "bind_channels": [
+      "state",
+      "events.reply_token",
+      "events.thinking_start",
+      "events.plan_start",
+      "events.spawn_start",
+      "events.tool_start",
+      "events.simulate_decision",
+      "events.review_card",
+      "events.suggestions",
+      "events.error",
+      "events.signal_detected",
+      "events.distill_outcome",
+      "events.gate_verdict",
+      "events.evolution_variant",
+      "events.patch_applied",
+      "events.patch_reverted",
+      "events.memory_recall",
+      "events.tuning_update",
+      "events.vetting_result",
+      "events.device_sensed",
+      "events.device_control",
+      "inspect_graph",
+      "inspect_rules",
+      "inspect_knowledge",
+      "inspect_ui",
+      "inspect_tools"
+    ],
+    "event_types": {
+      "file": "seed_data/event_types.json"
+    },
+    "tools": {
+      "file": "seed_data/tools.json"
+    },
+    "theme_tokens": [
+      "bg.base",
+      "text.base",
+      "accent.approval"
+    ]
+  },
+  "self_check": {
+    "schema": {
+      "command": "python seeds/inkling/tests/schema/validate_seed_data.py",
+      "status": "ready"
+    },
+    "cargo_test": {
+      "command": "cargo test --manifest-path seeds/inkling/exec/Cargo.toml",
+      "status": "pending_m1"
+    },
+    "mcp_protocol": {
+      "command": "cargo test --manifest-path seeds/inkling/exec/Cargo.toml --test protocol",
+      "status": "pending_m1"
+    },
+    "e2e": {
+      "command": "pytest seeds/inkling/tests/e2e",
+      "status": "pending_m3"
+    }
+  }
+}

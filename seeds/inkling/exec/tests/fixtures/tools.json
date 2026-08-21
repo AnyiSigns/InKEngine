@@ -1,0 +1,193 @@
+{
+  "description": "InKling 起点领域（知识/研究孵化）声明式工具清单：与 exec/ 执行体一一对应，名称/schema 为绑定锚点——执行体新增 = 本文件登记 + executors/ 注册表登记，双侧缺一即绑定测试失败",
+  "tools": [
+    {
+      "name": "inkling_collect",
+      "description": "采集：文本直取或 URL 取回（http 明文 + 大小上限保护 + 超时 + 重定向上限；https 需宿主 web_bridge 代理）",
+      "inputSchema": {
+        "type": "object",
+        "properties": {
+          "source": { "type": "string", "enum": ["text", "url"], "description": "采集源类型" },
+          "text": { "type": "string", "description": "source=text 时的直取文本" },
+          "url": { "type": "string", "description": "source=url 时的取回地址（仅 http://）" },
+          "max_bytes": { "type": "integer", "description": "大小上限保护（默认 1 MiB，超出截断并标记）" },
+          "timeout_ms": { "type": "integer", "description": "读取超时毫秒（默认 5000）" },
+          "max_redirects": { "type": "integer", "description": "重定向跟随上限（默认 3）" }
+        },
+        "required": ["source"]
+      }
+    },
+    {
+      "name": "inkling_parse",
+      "description": "解析：按声明式抽取规格（between/line_prefix/count/contains）从文本中结构化抽取字段",
+      "inputSchema": {
+        "type": "object",
+        "properties": {
+          "text": { "type": "string", "description": "待解析文本" },
+          "spec": {
+            "type": "array",
+            "items": {
+              "type": "object",
+              "properties": {
+                "name": { "type": "string", "description": "字段名" },
+                "kind": { "type": "string", "enum": ["between", "line_prefix", "count", "contains"] },
+                "start": { "type": "string", "description": "between：起始标记" },
+                "end": { "type": "string", "description": "between：结束标记" },
+                "prefix": { "type": "string", "description": "line_prefix：行前缀" },
+                "include_prefix": { "type": "boolean", "description": "line_prefix：结果是否含前缀" },
+                "needle": { "type": "string", "description": "count/contains：查找串" }
+              },
+              "required": ["name", "kind"]
+            }
+          }
+        },
+        "required": ["text", "spec"]
+      }
+    },
+    {
+      "name": "inkling_validate",
+      "description": "校验：以 rules.json 规则集对数据对象执行确定性规则谓词评估（谓词名/违规形态与引擎规则引擎对齐，含样例闸门同语义的 fail-open 留痕）",
+      "inputSchema": {
+        "type": "object",
+        "properties": {
+          "data": { "type": "object", "description": "待校验的数据对象" },
+          "context": { "type": "object", "description": "评估上下文（透传谓词）" },
+          "rule_set": { "type": "string", "description": "规则集名（缺省 = 数据文件中的规则集）" }
+        },
+        "required": ["data"]
+      }
+    },
+    {
+      "name": "inkling_score",
+      "description": "评分：候选答案的引用质量（引用可验证性）+ 交叉验证（断言与样例库基准事实重叠度）确定性评分",
+      "inputSchema": {
+        "type": "object",
+        "properties": {
+          "answer": {
+            "type": "object",
+            "properties": {
+              "text": { "type": "string" },
+              "claims": { "type": "array", "items": { "type": "object", "properties": { "text": { "type": "string" } }, "required": ["text"] } },
+              "citations": {
+                "type": "array",
+                "items": {
+                  "type": "object",
+                  "properties": {
+                    "claim_index": { "type": "integer" },
+                    "source_id": { "type": "string" },
+                    "quote": { "type": "string" }
+                  },
+                  "required": ["claim_index", "source_id", "quote"]
+                }
+              }
+            },
+            "required": ["claims"]
+          },
+          "sources": {
+            "type": "array",
+            "items": {
+              "type": "object",
+              "properties": { "id": { "type": "string" }, "title": { "type": "string" }, "text": { "type": "string" } },
+              "required": ["id", "text"]
+            }
+          },
+          "weights": {
+            "type": "object",
+            "description": "四维度权重覆盖（缺省 = 出厂默认口径，总和 1.0）"
+          }
+        },
+        "required": ["answer"]
+      }
+    },
+    {
+      "name": "inkling_review",
+      "description": "评审：按 review.json 维度配置加权打分 + 阈值判定 + 收敛决策（镜像引擎 WeightedScorer 与 MaxRoundsConvergencePolicy 语义）",
+      "inputSchema": {
+        "type": "object",
+        "properties": {
+          "candidates": {
+            "type": "array",
+            "items": {
+              "type": "object",
+              "properties": {
+                "text": { "type": "string" },
+                "claims": { "type": "array", "items": { "type": "string" } },
+                "citations": { "type": "array", "items": { "type": "object", "properties": { "source_id": { "type": "string" } }, "required": ["source_id"] } },
+                "topic": { "type": "string" }
+              }
+            }
+          },
+          "dimension_scores": {
+            "type": "array",
+            "description": "显式维度得分（缺省 = 确定性启发式默认口径）；显式提供时该候选全部配置维度须齐全",
+            "items": {
+              "type": "object",
+              "properties": {
+                "candidate_index": { "type": "integer" },
+                "name": { "type": "string" },
+                "score": { "type": "number" }
+              },
+              "required": ["candidate_index", "name", "score"]
+            }
+          },
+          "round_no": { "type": "integer", "description": "当前再生成轮次（收敛决策用）" }
+        },
+        "required": ["candidates"]
+      }
+    },
+    {
+      "name": "inkling_distill",
+      "description": "蒸馏：按 signals.json 五类信号→蒸馏器映射把信号序列压缩为结构化知识（{kind: insight, insight: {message, context, note}} 引擎教训条目形态），丢弃试错分支",
+      "inputSchema": {
+        "type": "object",
+        "properties": {
+          "signals": {
+            "type": "array",
+            "items": {
+              "type": "object",
+              "properties": {
+                "kind": { "type": "string" },
+                "message": { "type": "string" },
+                "source": { "type": "string" },
+                "context": { "type": "object" },
+                "count": { "type": "integer" }
+              },
+              "required": ["kind", "message"]
+            }
+          },
+          "complexity": { "type": "integer", "description": "任务复杂度（蒸馏按需触发判定用）" },
+          "interventions": { "type": "integer", "description": "用户干预次数（蒸馏按需触发判定用）" }
+        },
+        "required": ["signals"]
+      }
+    },
+    {
+      "name": "inkling_mutate",
+      "description": "变异：反思式变体生成（失败日志 → 变异体知识数据，镜像引擎 DeterministicMutation——_mutation 留痕 + 动态变体数量），产物须过三层闸门才保留",
+      "inputSchema": {
+        "type": "object",
+        "properties": {
+          "entry": {
+            "type": "object",
+            "properties": {
+              "id": { "type": "string" },
+              "level": { "type": "string" },
+              "kind": { "type": "string" },
+              "data": { "type": "object" },
+              "source": { "type": "string" },
+              "credibility": { "type": "number" },
+              "title": { "type": "string" },
+              "tags": { "type": "array", "items": { "type": "string" } }
+            },
+            "required": ["id", "data"]
+          },
+          "failure_logs": { "type": "array", "items": { "type": "string" } },
+          "max_variants": { "type": "integer", "description": "变体数量上限（默认 3）" },
+          "failure_rate": { "type": "number", "description": "母体失败率（≥0.3 高失败率 → 多探索）" },
+          "usage_count": { "type": "integer", "description": "母体调用次数（动态数量判定用）" }
+        },
+        "required": ["entry", "failure_logs"]
+      }
+    }
+  ]
+}

@@ -1,0 +1,94 @@
+{
+  "templates": [
+    {
+      "id": "seed.inkling.template.research_incubation",
+      "level": "work",
+      "kind": "template",
+      "data": {
+        "template": {
+          "name": "research_incubation",
+          "description": "知识/研究孵化闭环模板：喂资料 → 研究 → 孵化 → 沉淀（出厂演示路径）",
+          "plan": {
+            "steps": [
+              { "nodes": ["collect_material"] },
+              { "nodes": ["parse_material"] },
+              { "nodes": ["validate_material"] },
+              { "nodes": ["score_material"] },
+              { "nodes": ["review_material"] },
+              { "nodes": ["distill_knowledge"] }
+            ]
+          }
+        }
+      },
+      "source": "model",
+      "credibility": 0.9,
+      "title": "研究孵化闭环模板",
+      "tags": ["research", "incubation", "loop"]
+    },
+    {
+      "id": "seed.inkling.template.material_analysis",
+      "level": "work",
+      "kind": "template",
+      "data": {
+        "template": {
+          "name": "material_analysis",
+          "description": "单材料深度分析：采集 → 解析 → 校验 → 评分",
+          "plan": {
+            "steps": [
+              { "nodes": ["collect_material"] },
+              { "nodes": ["parse_material"] },
+              { "nodes": ["validate_material"] },
+              { "nodes": ["score_material"] }
+            ]
+          }
+        }
+      },
+      "source": "model",
+      "credibility": 0.9,
+      "title": "材料深度分析模板",
+      "tags": ["research", "analysis"]
+    },
+    {
+      "id": "seed.inkling.template.knowledge_review",
+      "level": "work",
+      "kind": "template",
+      "data": {
+        "template": {
+          "name": "knowledge_review",
+          "description": "知识条目评审：评审打分 + 阈值判定（收敛循环入口）",
+          "plan": {
+            "steps": [
+              { "nodes": ["review_material"] },
+              { "nodes": ["score_material"] }
+            ]
+          }
+        }
+      },
+      "source": "model",
+      "credibility": 0.9,
+      "title": "知识评审模板",
+      "tags": ["research", "review"]
+    },
+    {
+      "id": "seed.inkling.template.quick_distill",
+      "level": "work",
+      "kind": "template",
+      "data": {
+        "template": {
+          "name": "quick_distill",
+          "description": "快速蒸馏：已有材料直接蒸馏为知识条目（轻路径）",
+          "plan": {
+            "steps": [
+              { "nodes": ["collect_material"] },
+              { "nodes": ["distill_knowledge"] }
+            ]
+          }
+        }
+      },
+      "source": "model",
+      "credibility": 0.9,
+      "title": "快速蒸馏模板",
+      "tags": ["distill", "quick"]
+    }
+  ]
+}

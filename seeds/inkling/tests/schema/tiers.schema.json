@@ -1,0 +1,43 @@
+{
+  "$schema": "http://json-schema.org/draft-07/schema#",
+  "title": "模型四挡位配置（router/tool/main/audit + 缺省回退）",
+  "type": "object",
+  "required": ["tiers", "default_tier", "model_config", "fallback"],
+  "additionalProperties": false,
+  "properties": {
+    "tiers": { "type": "array", "minItems": 4, "items": { "type": "string" }, "uniqueItems": true },
+    "default_tier": { "type": "string", "minLength": 1 },
+    "model_config": {
+      "type": "object",
+      "required": ["router_config", "tool_config", "main_config", "audit_config"],
+      "additionalProperties": false,
+      "properties": {
+        "router_config": { "$ref": "#/definitions/tier_config" },
+        "tool_config": { "$ref": "#/definitions/tier_config" },
+        "main_config": { "$ref": "#/definitions/tier_config" },
+        "audit_config": { "$ref": "#/definitions/tier_config" }
+      }
+    },
+    "fallback": {
+      "type": "object",
+      "required": ["unknown_tier_falls_to", "missing_tier_config_falls_to"],
+      "additionalProperties": false,
+      "properties": {
+        "unknown_tier_falls_to": { "type": "string", "minLength": 1 },
+        "missing_tier_config_falls_to": { "type": "string", "minLength": 1 },
+        "note": { "type": "string" }
+      }
+    }
+  },
+  "definitions": {
+    "tier_config": {
+      "type": "object",
+      "required": ["purpose", "requires_user_config"],
+      "additionalProperties": true,
+      "properties": {
+        "purpose": { "type": "string", "minLength": 1 },
+        "requires_user_config": { "type": "boolean" }
+      }
+    }
+  }
+}

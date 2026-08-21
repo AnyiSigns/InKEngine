@@ -1,0 +1,51 @@
+{
+  "premounted": false,
+  "mount_policy": {
+    "required": ["vetting 静态钩子核对", "审批卡预览（可 edit 改传输/命令）", "L2 人工审批", "补丁链挂载可回退"],
+    "note": "出厂零预挂：市场目录是候选清单，任何挂载都须走既有 vetting → 观察 → 审批 → 补丁链链路"
+  },
+  "servers": [
+    {
+      "id": "market.web_fetch",
+      "name": "Web 抓取（阅读器形态）",
+      "source": "社区公开 server（示例条目）",
+      "transport": "http",
+      "url": "https://r.jina.ai",
+      "command": null,
+      "args": [],
+      "credentials": { "required": false, "note": "匿名可用；高用量需自备 API Key" },
+      "risk": "medium",
+      "risk_note": "任意 URL 抓取：挂载后工具须走网络策略域名白名单 + review 审批",
+      "category": "web_fetch",
+      "premounted": false
+    },
+    {
+      "id": "market.web_search",
+      "name": "Web 搜索（DuckDuckGo 形态）",
+      "source": "社区公开 server（示例条目）",
+      "transport": "http",
+      "url": "https://api.duckduckgo.com",
+      "command": null,
+      "args": [],
+      "credentials": { "required": false, "note": "匿名搜索可用" },
+      "risk": "medium",
+      "risk_note": "搜索结果不可信：检索结果进上下文前须注入扫描（指令注入防线），蒸馏来源分级 web 最低",
+      "category": "web_search",
+      "premounted": false
+    },
+    {
+      "id": "market.fs_access",
+      "name": "文件系统（MCP 官方 filesystem 形态）",
+      "source": "MCP 官方参考实现（示例条目）",
+      "transport": "stdio",
+      "url": null,
+      "command": "npx",
+      "args": ["-y", "@modelcontextprotocol/server-filesystem", "/workspace"],
+      "credentials": { "required": false, "note": "无凭据；权限由挂载时文件沙箱根目录 + 审批分级决定" },
+      "risk": "high",
+      "risk_note": "文件读写：须文件沙箱根目录限定（file_ops 权限分级 allow/review），首次越界操作强制 L2 人工审批",
+      "category": "file_system",
+      "premounted": false
+    }
+  ]
+}

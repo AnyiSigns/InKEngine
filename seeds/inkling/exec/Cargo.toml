@@ -1,0 +1,16 @@
+[package]
+name = "inkling_exec"
+version = "0.1.0"
+edition = "2021"
+description = "InKling 产品种子机制件一：MCP stdio 执行件（零外部依赖，手写 JSON-RPC over stdio）"
+
+[lib]
+name = "inkling_exec"
+path = "src/lib.rs"
+
+[[bin]]
+name = "inkling_exec"
+path = "src/main.rs"
+
+[profile.release]
+# 零依赖二进制，默认发布档即可；无需额外裁剪

@@ -1,0 +1,257 @@
+{
+  "name": "inkling.research",
+  "description": "样例库：规则集与执行件的数据绑定验证（fixture 全绿非谈判项）——cases 镜像引擎 FixtureSet 形态（id/data/context/expected_pass/expected_kinds），facts 为评分执行体交叉验证的基准事实清单（集成时以 M0 seed_data/samples.json 定稿为准）",
+  "cases": [
+    {
+      "id": "valid_entry",
+      "data": {
+        "title": "溯源方法论",
+        "title_length": 6,
+        "kind": "insight",
+        "source": "model",
+        "evidence": "样例证据：证据字段非空",
+        "text": "自进化系统把使用中积累的理解沉淀为可信知识。",
+        "credibility": 0.8,
+        "count": 2,
+        "limit": 5,
+        "tags": [{ "tag": "方法" }, { "tag": "溯源" }],
+        "from_state": "draft",
+        "to_state": "reviewing"
+      },
+      "expected_pass": true,
+      "description": "合法条目：全部谓词通过（零违规）"
+    },
+    {
+      "id": "missing_title",
+      "data": {
+        "kind": "rule",
+        "source": "model",
+        "evidence": "样例证据：证据字段非空",
+        "text": "普通文本。",
+        "credibility": 0.6,
+        "count": 1,
+        "limit": 5,
+        "tags": [{ "tag": "机制" }],
+        "from_state": "draft",
+        "to_state": "reviewing"
+      },
+      "expected_pass": false,
+      "expected_kinds": ["completeness"],
+      "description": "标题缺失：present 谓词应报 completeness 违规"
+    },
+    {
+      "id": "short_title",
+      "data": {
+        "title": "溯源",
+        "title_length": 2,
+        "kind": "rule",
+        "source": "model",
+        "evidence": "样例证据：证据字段非空",
+        "text": "普通文本。",
+        "credibility": 0.6,
+        "count": 1,
+        "limit": 5,
+        "tags": [{ "tag": "机制" }],
+        "from_state": "draft",
+        "to_state": "reviewing"
+      },
+      "expected_pass": false,
+      "expected_kinds": ["quality"],
+      "description": "标题过短：compare gte 谓词应报 quality 违规"
+    },
+    {
+      "id": "bad_kind",
+      "data": {
+        "title": "非法类别条目",
+        "title_length": 6,
+        "kind": "hacker",
+        "source": "model",
+        "evidence": "样例证据：证据字段非空",
+        "text": "普通文本。",
+        "credibility": 0.6,
+        "count": 1,
+        "limit": 5,
+        "tags": [{ "tag": "机制" }],
+        "from_state": "draft",
+        "to_state": "reviewing"
+      },
+      "expected_pass": false,
+      "expected_kinds": ["schema"],
+      "description": "类别越出枚举：in_enum 谓词应报 schema 违规"
+    },
+    {
+      "id": "empty_evidence",
+      "data": {
+        "title": "无证据条目",
+        "title_length": 5,
+        "kind": "rule",
+        "source": "model",
+        "evidence": "",
+        "text": "普通文本。",
+        "credibility": 0.6,
+        "count": 1,
+        "limit": 5,
+        "tags": [{ "tag": "机制" }],
+        "from_state": "draft",
+        "to_state": "reviewing"
+      },
+      "expected_pass": false,
+      "expected_kinds": ["completeness"],
+      "description": "证据为空串：not_equals 谓词应报 completeness 违规"
+    },
+    {
+      "id": "pii_leak",
+      "data": {
+        "title": "泄漏条目",
+        "title_length": 4,
+        "kind": "rule",
+        "source": "user",
+        "evidence": "样例证据：证据字段非空",
+        "text": "我的 password 是秘密，请勿外传。",
+        "credibility": 0.6,
+        "count": 1,
+        "limit": 5,
+        "tags": [{ "tag": "机制" }],
+        "from_state": "draft",
+        "to_state": "reviewing"
+      },
+      "expected_pass": false,
+      "expected_kinds": ["security"],
+      "description": "正文含口令：not_contains 谓词应报 security 违规"
+    },
+    {
+      "id": "credibility_over_1",
+      "data": {
+        "title": "越界可信度",
+        "title_length": 5,
+        "kind": "rule",
+        "source": "model",
+        "evidence": "样例证据：证据字段非空",
+        "text": "普通文本。",
+        "credibility": 1.5,
+        "count": 1,
+        "limit": 5,
+        "tags": [{ "tag": "机制" }],
+        "from_state": "draft",
+        "to_state": "reviewing"
+      },
+      "expected_pass": false,
+      "expected_kinds": ["schema"],
+      "description": "可信度越界：compare lte 谓词应报 schema 违规"
+    },
+    {
+      "id": "count_exceeds_limit",
+      "data": {
+        "title": "计数超限",
+        "title_length": 4,
+        "kind": "rule",
+        "source": "model",
+        "evidence": "样例证据：证据字段非空",
+        "text": "普通文本。",
+        "credibility": 0.6,
+        "count": 7,
+        "limit": 5,
+        "tags": [{ "tag": "机制" }],
+        "from_state": "draft",
+        "to_state": "reviewing"
+      },
+      "expected_pass": false,
+      "expected_kinds": ["consistency"],
+      "description": "计数超限：compare other_path 谓词应报 consistency 违规"
+    },
+    {
+      "id": "duplicate_tags",
+      "data": {
+        "title": "重复标签",
+        "title_length": 4,
+        "kind": "rule",
+        "source": "model",
+        "evidence": "样例证据：证据字段非空",
+        "text": "普通文本。",
+        "credibility": 0.6,
+        "count": 1,
+        "limit": 5,
+        "tags": [{ "tag": "机制" }, { "tag": "机制" }],
+        "from_state": "draft",
+        "to_state": "reviewing"
+      },
+      "expected_pass": false,
+      "expected_kinds": ["schema"],
+      "description": "标签组合重复：unique_pairs 谓词应报 schema 违规"
+    },
+    {
+      "id": "terminal_escape",
+      "data": {
+        "title": "终态复活",
+        "title_length": 4,
+        "kind": "rule",
+        "source": "model",
+        "evidence": "样例证据：证据字段非空",
+        "text": "普通文本。",
+        "credibility": 0.6,
+        "count": 1,
+        "limit": 5,
+        "tags": [{ "tag": "机制" }],
+        "from_state": "archived",
+        "to_state": "reviewing"
+      },
+      "expected_pass": false,
+      "expected_kinds": ["lifecycle"],
+      "description": "终态转出：state_transition 谓词应报 lifecycle 违规"
+    },
+    {
+      "id": "unallowed_transition",
+      "data": {
+        "title": "白名单外转换",
+        "title_length": 6,
+        "kind": "rule",
+        "source": "model",
+        "evidence": "样例证据：证据字段非空",
+        "text": "普通文本。",
+        "credibility": 0.6,
+        "count": 1,
+        "limit": 5,
+        "tags": [{ "tag": "机制" }],
+        "from_state": "draft",
+        "to_state": "approved"
+      },
+      "expected_pass": false,
+      "expected_kinds": ["lifecycle"],
+      "description": "转换不在白名单：state_transition 谓词应报 lifecycle 违规"
+    },
+    {
+      "id": "unknown_tag",
+      "data": {
+        "title": "词表外标签",
+        "title_length": 5,
+        "kind": "rule",
+        "source": "model",
+        "evidence": "样例证据：证据字段非空",
+        "text": "普通文本。",
+        "credibility": 0.6,
+        "count": 1,
+        "limit": 5,
+        "tags": [{ "tag": "外来的" }],
+        "from_state": "draft",
+        "to_state": "reviewing"
+      },
+      "expected_pass": false,
+      "expected_kinds": ["schema"],
+      "description": "标签不在出厂词表：iterate_items 逐条 in_enum 应报 schema 违规"
+    }
+  ],
+  "facts": [
+    {
+      "id": "fact_knowledge_set",
+      "statement": "自进化系统把使用中积累的理解沉淀为可信的知识"
+    },
+    {
+      "id": "fact_patch_chain",
+      "statement": "数据演化走补丁链：每条变化可审批、可审计、可回退"
+    },
+    {
+      "id": "fact_engine_zero_change",
+      "statement": "产品种子机制骨架只剩 Rust 执行件与 TS 渲染器，引擎零机制改动"
+    }
+  ]
+}

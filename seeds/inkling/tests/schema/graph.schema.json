@@ -1,0 +1,41 @@
+{
+  "$schema": "http://json-schema.org/draft-07/schema#",
+  "title": "回合图声明（Graph.to_dict 数据形态；节点/边以注册名引用）",
+  "type": "object",
+  "required": ["name", "entry", "nodes", "edges", "exits", "subgraphs", "schema"],
+  "additionalProperties": false,
+  "properties": {
+    "name": { "type": "string", "minLength": 1 },
+    "entry": { "type": "string", "minLength": 1 },
+    "nodes": {
+      "type": "object",
+      "additionalProperties": {
+        "type": "object",
+        "required": ["type", "config"],
+        "additionalProperties": false,
+        "properties": {
+          "type": { "type": "string", "minLength": 1 },
+          "config": { "type": "object" }
+        }
+      }
+    },
+    "edges": {
+      "type": "object",
+      "additionalProperties": {
+        "type": "array",
+        "items": {
+          "type": "object",
+          "required": ["target"],
+          "additionalProperties": false,
+          "properties": {
+            "target": { "type": "string", "minLength": 1 },
+            "condition_name": { "type": "string", "minLength": 1 }
+          }
+        }
+      }
+    },
+    "exits": { "type": "array", "items": { "type": "string" } },
+    "subgraphs": { "type": "object" },
+    "schema": { "type": ["object", "null"] }
+  }
+}

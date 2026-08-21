@@ -1,0 +1,23 @@
+{
+  "policy": "PriorityRecallPolicy",
+  "recall": {
+    "sort": ["priority desc", "created_at desc"],
+    "default_limit": 8,
+    "note": "与引擎 PriorityRecallPolicy 对齐：过滤未过期条目，按 priority 降序、created_at 降序排序，截断 top-k"
+  },
+  "expiry": {
+    "default_window_days": 90,
+    "expires_at": "entry.expires_at（epoch 秒；None = 不过期）",
+    "forget_semantics": "标记失效而非物理擦除（非破坏性，记录可追溯）",
+    "note": "失效窗口默认 90 天：经设置页「数据与记忆」可调；forget 与引擎 Event Sourcing 哲学一致"
+  },
+  "namespaces": [
+    { "name": "user:<id>", "purpose": "用户级记忆（跨会话复用）" },
+    { "name": "object:<id>", "purpose": "对象级记忆（每对象积累）" }
+  ],
+  "kinds": ["decision", "domain_window", "self_reflection", "user_preference"],
+  "store": {
+    "backend": "storage 三后端（memory/sqlite/postgres），宿主装配时选定",
+    "collection": "memory"
+  }
+}

@@ -1,0 +1,292 @@
+{
+  "events": [
+    {
+      "name": "reply_token",
+      "schema": {
+        "name": "reply_token",
+        "fields": [
+          { "name": "text", "required": true, "kind": "string" }
+        ]
+      },
+      "renderer": "message_list",
+      "system": false,
+      "meta": { "note": "流式回复增量 token，消息流追加渲染" }
+    },
+    {
+      "name": "thinking_start",
+      "schema": {
+        "name": "thinking_start",
+        "fields": [
+          { "name": "node", "required": true, "kind": "string" },
+          { "name": "note", "kind": "string" }
+        ]
+      },
+      "renderer": "message_list",
+      "system": false,
+      "meta": { "note": "思考开始（节点级），消息流内联展示" }
+    },
+    {
+      "name": "plan_start",
+      "schema": {
+        "name": "plan_start",
+        "fields": [
+          { "name": "plan", "required": true, "kind": "object" },
+          { "name": "note", "kind": "string" }
+        ]
+      },
+      "renderer": "message_list",
+      "system": false,
+      "meta": { "note": "重规划开始（__plan__ 落点），推演轨迹树与消息流内联行消费" }
+    },
+    {
+      "name": "spawn_start",
+      "schema": {
+        "name": "spawn_start",
+        "fields": [
+          { "name": "spawn_id", "required": true, "kind": "string" },
+          { "name": "task", "required": true, "kind": "string" }
+        ]
+      },
+      "renderer": "simulation_tree",
+      "system": false,
+      "meta": { "note": "子任务展开（__spawn__ 落点），推演轨迹树分支" }
+    },
+    {
+      "name": "tool_start",
+      "schema": {
+        "name": "tool_start",
+        "fields": [
+          { "name": "tool", "required": true, "kind": "string" },
+          { "name": "permission", "required": true, "kind": "string" },
+          { "name": "summary", "kind": "string" }
+        ]
+      },
+      "renderer": "message_list",
+      "system": false,
+      "meta": { "note": "工具调用留痕（工具名·权限判定·结果摘要），内联一行" }
+    },
+    {
+      "name": "review_card",
+      "schema": {
+        "name": "review_card",
+        "fields": [
+          { "name": "key", "required": true, "kind": "string" },
+          { "name": "kind", "required": true, "kind": "string" },
+          { "name": "payload", "kind": "object" }
+        ]
+      },
+      "renderer": "approval_card",
+      "system": false,
+      "meta": { "note": "审批卡（居中弹层），朱砂 accent；kind 携带补丁类型/审批档位" }
+    },
+    {
+      "name": "suggestions",
+      "schema": {
+        "name": "suggestions",
+        "fields": [
+          { "name": "items", "required": true, "kind": "array" }
+        ]
+      },
+      "renderer": "message_list",
+      "system": false,
+      "meta": { "note": "候选建议清单（评审再生成/分支对比产物）" }
+    },
+    {
+      "name": "error",
+      "schema": {
+        "name": "error",
+        "fields": [
+          { "name": "node", "required": true, "kind": "string" },
+          { "name": "message", "required": true, "kind": "string" }
+        ]
+      },
+      "renderer": "message_list",
+      "system": false,
+      "meta": { "note": "节点执行异常（引擎 error 事件），消息流告警展示" }
+    },
+    {
+      "name": "simulate_decision",
+      "schema": {
+        "name": "simulate_decision",
+        "fields": [
+          { "name": "branch", "required": true, "kind": "object" },
+          { "name": "scores", "kind": "object" },
+          { "name": "chosen", "kind": "string" }
+        ]
+      },
+      "renderer": "simulation_tree",
+      "system": false,
+      "meta": { "note": "决策点推演（__simulate__ 落点）：分支对比 + Evaluator 评分 + 换选" }
+    },
+    {
+      "name": "signal_detected",
+      "schema": {
+        "name": "signal_detected",
+        "fields": [
+          {
+            "name": "kind",
+            "required": true,
+            "kind": "string",
+            "enum": ["pitfall", "user_correction", "insight", "gap", "repeated_root_cause"]
+          },
+          { "name": "message", "required": true, "kind": "string" },
+          { "name": "source", "kind": "string", "enum": ["web", "dialog", "model", "user"] },
+          { "name": "count", "kind": "number" }
+        ]
+      },
+      "renderer": "incubation_panel",
+      "system": false,
+      "meta": { "note": "孵化入口：五类信号检测（与 knowledge_signals 五类枚举对齐）" }
+    },
+    {
+      "name": "distill_outcome",
+      "schema": {
+        "name": "distill_outcome",
+        "fields": [
+          { "name": "data", "required": true, "kind": "object" },
+          { "name": "source", "kind": "string" },
+          { "name": "title", "kind": "string" },
+          { "name": "note", "kind": "string" }
+        ]
+      },
+      "renderer": "incubation_panel",
+      "system": false,
+      "meta": { "note": "蒸馏产物（信号→结构化知识，DistillOutcome 数据形态）" }
+    },
+    {
+      "name": "gate_verdict",
+      "schema": {
+        "name": "gate_verdict",
+        "fields": [
+          { "name": "level", "required": true, "kind": "string", "enum": ["L1", "L2", "L3"] },
+          { "name": "passed", "required": true, "kind": "boolean" },
+          { "name": "reason", "kind": "string" }
+        ]
+      },
+      "renderer": "incubation_panel",
+      "system": false,
+      "meta": { "note": "三层闸门判定留痕（放行/拦截及原因）" }
+    },
+    {
+      "name": "evolution_variant",
+      "schema": {
+        "name": "evolution_variant",
+        "fields": [
+          { "name": "entry_id", "required": true, "kind": "string" },
+          { "name": "variant_id", "kind": "string" },
+          { "name": "rejected", "kind": "boolean" },
+          { "name": "reason", "kind": "string" }
+        ]
+      },
+      "renderer": "evolution_factory_panel",
+      "system": false,
+      "meta": { "note": "进化工厂变异体产出/拒绝留痕（防退化展示）" }
+    },
+    {
+      "name": "patch_applied",
+      "schema": {
+        "name": "patch_applied",
+        "fields": [
+          {
+            "name": "kind",
+            "required": true,
+            "kind": "string",
+            "enum": ["ui", "theme", "tool", "rule", "knowledge", "harness", "event_type", "environment", "artifact"]
+          },
+          { "name": "version", "required": true, "kind": "number" },
+          { "name": "summary", "kind": "string" }
+        ]
+      },
+      "renderer": "evolution_timeline",
+      "system": false,
+      "meta": { "note": "补丁链落链事件（演化时间线推进）" }
+    },
+    {
+      "name": "patch_reverted",
+      "schema": {
+        "name": "patch_reverted",
+        "fields": [
+          {
+            "name": "kind",
+            "required": true,
+            "kind": "string",
+            "enum": ["ui", "theme", "tool", "rule", "knowledge", "harness", "event_type", "environment", "artifact"]
+          },
+          { "name": "version", "required": true, "kind": "number" },
+          { "name": "summary", "kind": "string" }
+        ]
+      },
+      "renderer": "evolution_timeline",
+      "system": false,
+      "meta": { "note": "补丁链回退事件（演化时间线还原）" }
+    },
+    {
+      "name": "memory_recall",
+      "schema": {
+        "name": "memory_recall",
+        "fields": [
+          { "name": "query", "required": true, "kind": "string" },
+          { "name": "hits", "kind": "number" }
+        ]
+      },
+      "renderer": "source_detail",
+      "system": false,
+      "meta": { "note": "记忆召回留痕（来源明细溯源）" }
+    },
+    {
+      "name": "tuning_update",
+      "schema": {
+        "name": "tuning_update",
+        "fields": [
+          { "name": "metric", "required": true, "kind": "string" },
+          { "name": "delta", "kind": "number" },
+          { "name": "snapshot", "kind": "boolean" }
+        ]
+      },
+      "renderer": "source_detail",
+      "system": false,
+      "meta": { "note": "调优留痕（指标聚合/参数快照回放）" }
+    },
+    {
+      "name": "vetting_result",
+      "schema": {
+        "name": "vetting_result",
+        "fields": [
+          { "name": "tool", "required": true, "kind": "string" },
+          { "name": "verdict", "required": true, "kind": "string", "enum": ["pass", "fail", "review"] },
+          { "name": "reason", "kind": "string" }
+        ]
+      },
+      "renderer": "source_detail",
+      "system": false,
+      "meta": { "note": "工具可信度审查留痕（静态钩子/L2 影子运行）" }
+    },
+    {
+      "name": "device_sensed",
+      "schema": {
+        "name": "device_sensed",
+        "fields": [
+          { "name": "sensor", "required": true, "kind": "string" },
+          { "name": "payload", "kind": "object" }
+        ]
+      },
+      "renderer": "message_list",
+      "system": false,
+      "meta": { "note": "OS 感知留痕（屏幕/文件/系统状态，宿主挂载设备感知 server）" }
+    },
+    {
+      "name": "device_control",
+      "schema": {
+        "name": "device_control",
+        "fields": [
+          { "name": "action", "required": true, "kind": "string" },
+          { "name": "target", "kind": "string" },
+          { "name": "result", "kind": "string" }
+        ]
+      },
+      "renderer": "message_list",
+      "system": false,
+      "meta": { "note": "OS 控制留痕（launch_app/open_file/notify 等执行器动作）" }
+    }
+  ]
+}

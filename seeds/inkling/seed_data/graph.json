@@ -1,0 +1,34 @@
+{
+  "name": "inkling.research_incubation",
+  "entry": "research_orchestrator",
+  "nodes": {
+    "research_orchestrator": {
+      "type": "research_orchestrator",
+      "config": {
+        "reserved_keys": ["__plan__", "__spawn__", "__simulate__"],
+        "workflow": "inkling.research_workflow",
+        "note": "研究编排节点：返回 __plan__（研究流程规划）/__spawn__（子任务展开）/__simulate__（决策点推演）保留键；plan 的约束域 = workflow.json 的 WorkflowSpec"
+      }
+    },
+    "tool_pipeline": {
+      "type": "tool_pipeline",
+      "config": {
+        "note": "工具流水线编排节点：统一工具分发（内省/自指/声明式三路），按子任务动态组装"
+      }
+    },
+    "end": {
+      "type": "tool_pipeline",
+      "config": {
+        "role": "terminal",
+        "note": "终止节点（图出口）：工具流水线类型的终态实例，执行完毕图即终止"
+      }
+    }
+  },
+  "edges": {
+    "research_orchestrator": [{ "target": "tool_pipeline" }],
+    "tool_pipeline": [{ "target": "end" }]
+  },
+  "exits": ["end"],
+  "subgraphs": {},
+  "schema": null
+}

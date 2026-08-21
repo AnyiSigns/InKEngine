@@ -1,0 +1,98 @@
+{
+  "name": "inkling.research",
+  "description": "知识/研究孵化起点领域的基础校验规则：与引擎内置通用谓词一一对应（present/absent/equals/not_equals/compare/in_enum/not_in_enum/contains/not_contains/unique_pairs/truthy/falsy/state_transition），谓词名是数据与执行件的绑定锚点——谓词改名必须同步改这里",
+  "rules": [
+    {
+      "id": "r_title_present",
+      "predicate": "present",
+      "config": { "path": "title" },
+      "kind": "completeness",
+      "description": "条目必须携带标题（缺失 = 无法检索/无法展示）"
+    },
+    {
+      "id": "r_title_length",
+      "predicate": "compare",
+      "config": { "path": "title_length", "op": "gte", "value": 4 },
+      "kind": "quality",
+      "description": "标题至少 4 字符（太短无法区分条目）"
+    },
+    {
+      "id": "r_kind_enum",
+      "predicate": "in_enum",
+      "config": {
+        "path": "kind",
+        "values": ["rule", "template", "weight", "tool_rule", "insight"]
+      },
+      "kind": "schema",
+      "description": "条目类别须在知识集 kind 枚举内（与引擎 KnowledgeEntry 对齐）"
+    },
+    {
+      "id": "r_source_enum",
+      "predicate": "in_enum",
+      "config": { "path": "source", "values": ["web", "dialog", "model", "user"] },
+      "kind": "schema",
+      "description": "来源须在可信度分级枚举内（防注入污染审计基准）"
+    },
+    {
+      "id": "r_evidence_not_empty",
+      "predicate": "not_equals",
+      "config": { "path": "evidence", "value": "" },
+      "kind": "completeness",
+      "description": "证据不得为空（无证据的结论不落库）"
+    },
+    {
+      "id": "r_no_pii",
+      "predicate": "not_contains",
+      "config": { "path": "text", "value": "password" },
+      "kind": "security",
+      "description": "正文不得包含明文口令（安全剥离的确定性基线）"
+    },
+    {
+      "id": "r_credibility_upper",
+      "predicate": "compare",
+      "config": { "path": "credibility", "op": "lte", "value": 1.0 },
+      "kind": "schema",
+      "description": "可信度上界 1.0（引擎可信度分级 0-1 契约）"
+    },
+    {
+      "id": "r_count_within_limit",
+      "predicate": "compare",
+      "config": { "path": "count", "op": "lte", "other_path": "limit" },
+      "kind": "consistency",
+      "description": "计数不得超限（对象内字段比较：other_path 谓词示例）"
+    },
+    {
+      "id": "r_tags_unique",
+      "predicate": "unique_pairs",
+      "config": { "keys": ["tag"] },
+      "target_path": "tags",
+      "kind": "schema",
+      "description": "标签组合不得重复登记（跨条目唯一性，非逐条谓词）"
+    },
+    {
+      "id": "r_tag_kind_enum",
+      "predicate": "in_enum",
+      "config": { "path": "tag", "values": ["方法", "溯源", "知识", "证据", "机制"] },
+      "target_path": "tags",
+      "iterate_items": true,
+      "kind": "schema",
+      "description": "每个标签须在出厂标签词表内（逐条谓词示例）"
+    },
+    {
+      "id": "r_state_lifecycle",
+      "predicate": "state_transition",
+      "config": {
+        "states": ["draft", "reviewing", "approved", "archived"],
+        "terminal_states": ["archived"],
+        "allowed": {
+          "draft": ["reviewing"],
+          "reviewing": ["approved", "draft"]
+        },
+        "from_path": "from_state",
+        "to_path": "to_state"
+      },
+      "kind": "lifecycle",
+      "description": "条目生命周期状态转换合法性（终态单向 + 转换白名单）"
+    }
+  ]
+}

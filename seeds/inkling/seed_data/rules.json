@@ -1,0 +1,127 @@
+{
+  "rules": [
+    {
+      "id": "rule.material.required_fields",
+      "predicate": "has_fields",
+      "config": {
+        "fields": ["title", "text", "source"],
+        "message": "材料必须包含 title/text/source 字段"
+      },
+      "type": "constraint",
+      "target_path": "material",
+      "iterate_items": false,
+      "severity": "error",
+      "kind": "material_shape",
+      "entity_type": "material",
+      "description": "采集材料的基础形状校验（采集/喂资料环节的第一道闸门）"
+    },
+    {
+      "id": "rule.material.source_enum",
+      "predicate": "in_enum",
+      "config": {
+        "field": "source",
+        "enum": ["web", "dialog", "model", "user"],
+        "message": "材料来源必须在来源分级内（web/dialog/model/user）"
+      },
+      "type": "constraint",
+      "target_path": "material",
+      "iterate_items": false,
+      "severity": "error",
+      "kind": "material_shape",
+      "entity_type": "material",
+      "description": "来源分级校验：防未知来源污染知识集（与引擎来源分级枚举对齐）"
+    },
+    {
+      "id": "rule.material.title_max_chars",
+      "predicate": "max_length",
+      "config": {
+        "field": "title",
+        "max": 120,
+        "message": "材料标题超长（上限 120 字符）"
+      },
+      "type": "constraint",
+      "target_path": "material",
+      "iterate_items": false,
+      "severity": "warning",
+      "kind": "material_shape",
+      "entity_type": "material",
+      "description": "标题长度上限（检索/展示可读性；边界用例见 samples.json）"
+    },
+    {
+      "id": "rule.knowledge.rule_entry_shape",
+      "predicate": "has_fields",
+      "config": {
+        "fields": ["rule.message"],
+        "message": "规则类知识条目须含 rule.message 声明"
+      },
+      "type": "constraint",
+      "target_path": "entry.data",
+      "iterate_items": false,
+      "severity": "error",
+      "kind": "knowledge_shape",
+      "entity_type": "entry",
+      "description": "知识条目落库形状校验：蒸馏产物/种子条目与规则 DSL 声明形态兼容"
+    },
+    {
+      "id": "rule.knowledge.message_non_empty",
+      "predicate": "non_empty_string",
+      "config": {
+        "field": "rule.message",
+        "message": "规则信息不能为空"
+      },
+      "type": "constraint",
+      "target_path": "entry.data",
+      "iterate_items": false,
+      "severity": "error",
+      "kind": "knowledge_shape",
+      "entity_type": "entry",
+      "description": "空值边界：空规则信息不沉淀（防蒸馏产出空知识）"
+    },
+    {
+      "id": "rule.knowledge.no_injection_phrase",
+      "predicate": "no_injection_phrase",
+      "config": {
+        "field": "rule.message",
+        "message": "规则文本含指令注入措辞，拒绝落库"
+      },
+      "type": "constraint",
+      "target_path": "entry.data",
+      "iterate_items": false,
+      "severity": "error",
+      "kind": "knowledge_shape",
+      "entity_type": "entry",
+      "description": "指令注入防线：检出「忽略上文/你是助手」等指令型措辞即拒绝（与引擎 knowledge_gate 注入扫描同款模式清单，M1 谓词实现同一枚举）"
+    },
+    {
+      "id": "rule.review.score_floor",
+      "predicate": "min_value",
+      "config": {
+        "field": "score",
+        "min": 0.75,
+        "message": "评审得分低于通过阈值（0.75）"
+      },
+      "type": "constraint",
+      "target_path": "review",
+      "iterate_items": false,
+      "severity": "error",
+      "kind": "review_quality",
+      "entity_type": "review",
+      "description": "评审通过阈值：与 review.json 的 pass_threshold 同值（跨文件一致性由校验脚本断言）"
+    },
+    {
+      "id": "rule.sample.case_shape",
+      "predicate": "has_fields",
+      "config": {
+        "fields": ["input", "expected"],
+        "message": "样例用例须含 input/expected 字段"
+      },
+      "type": "constraint",
+      "target_path": "case",
+      "iterate_items": false,
+      "severity": "error",
+      "kind": "sample_shape",
+      "entity_type": "case",
+      "description": "样例库自身形状校验：用例须可复现（输入/期望成对）"
+    }
+  ]
+}

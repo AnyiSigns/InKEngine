@@ -1,0 +1,317 @@
+{
+  "name": "boot.panel",
+  "version": 1,
+  "theme": {
+    "bg.base": "#09090b",
+    "text.base": "#e4e4e7",
+    "accent.approval": "#f59e0b"
+  },
+  "root": {
+    "kind": "container",
+    "type": "root",
+    "props": {
+      "layout": "stack",
+      "note": "主界面是干活面，深看靠独立视图，配置全进设置；机制内容全部内联进消息流/独立视图，主界面不常驻机制面板"
+    },
+    "children": [
+      {
+        "kind": "container",
+        "type": "main",
+        "props": { "role": "主界面（默认态，机制不常驻）" },
+        "children": [
+          {
+            "kind": "container",
+            "type": "topbar",
+            "props": {
+              "separator": "hairline",
+              "title": "InKling · 领域名",
+              "actions": ["演化", "设置"]
+            },
+            "children": []
+          },
+          {
+            "kind": "container",
+            "type": "sidebar",
+            "props": {
+              "role": "会话列表（窄左栏，可收起）",
+              "sections": ["今日", "历史", "搜索"]
+            },
+            "children": []
+          },
+          {
+            "kind": "container",
+            "type": "chat_main",
+            "props": { "role": "对话主区" },
+            "children": [
+              {
+                "kind": "component",
+                "type": "message_list",
+                "props": { "variant": "history", "note": "回合消息流（流式/思考/工具调用内联行）" },
+                "bind": { "channel": "state", "path": "messages" }
+              },
+              {
+                "kind": "component",
+                "type": "message_list",
+                "props": { "variant": "stream" },
+                "bind": { "channel": "events.reply_token", "path": "" }
+              },
+              {
+                "kind": "component",
+                "type": "message_list",
+                "props": { "variant": "thinking" },
+                "bind": { "channel": "events.thinking_start", "path": "" }
+              },
+              {
+                "kind": "component",
+                "type": "message_list",
+                "props": { "variant": "tool_line", "note": "工具名·权限判定·结果摘要内联一行" },
+                "bind": { "channel": "events.tool_start", "path": "" }
+              },
+              {
+                "kind": "component",
+                "type": "message_list",
+                "props": { "variant": "replan_line" },
+                "bind": { "channel": "events.plan_start", "path": "" }
+              },
+              {
+                "kind": "component",
+                "type": "message_list",
+                "props": { "variant": "device_line", "note": "OS 感知留痕内联行" },
+                "bind": { "channel": "events.device_sensed", "path": "" }
+              },
+              {
+                "kind": "component",
+                "type": "message_list",
+                "props": { "variant": "device_line", "note": "OS 控制留痕内联行" },
+                "bind": { "channel": "events.device_control", "path": "" }
+              },
+              {
+                "kind": "component",
+                "type": "knowledge_row",
+                "props": { "note": "检索命中/孵化信号内联微卡" },
+                "bind": { "channel": "events.signal_detected", "path": "" }
+              },
+              {
+                "kind": "component",
+                "type": "agent_input",
+                "props": { "note": "底部输入行，小字提示当前挡位与模式档" },
+                "bind": { "channel": "state", "path": "input_hint" }
+              }
+            ]
+          }
+        ]
+      },
+      {
+        "kind": "container",
+        "type": "views",
+        "props": { "role": "独立视图（按需打开；机制态 = 发布演示/审计时可见）" },
+        "children": [
+          {
+            "kind": "container",
+            "type": "evolution_view",
+            "props": { "role": "演化：信号→蒸馏→闸门流水 + 进化工厂 + 补丁链时间线" },
+            "children": [
+              {
+                "kind": "component",
+                "type": "incubation_panel",
+                "props": { "stage": "signal", "note": "五类信号流入" },
+                "bind": { "channel": "events.signal_detected", "path": "" }
+              },
+              {
+                "kind": "component",
+                "type": "incubation_panel",
+                "props": { "stage": "distill", "note": "信号→结构化知识" },
+                "bind": { "channel": "events.distill_outcome", "path": "" }
+              },
+              {
+                "kind": "component",
+                "type": "incubation_panel",
+                "props": { "stage": "gate", "note": "L1/L2/L3 三层闸门放行/拦截" },
+                "bind": { "channel": "events.gate_verdict", "path": "" }
+              },
+              {
+                "kind": "component",
+                "type": "evolution_factory_panel",
+                "props": { "note": "变异/防退化展示" },
+                "bind": { "channel": "events.evolution_variant", "path": "" }
+              },
+              {
+                "kind": "component",
+                "type": "evolution_timeline",
+                "props": { "source": "patch_applied" },
+                "bind": { "channel": "events.patch_applied", "path": "" }
+              },
+              {
+                "kind": "component",
+                "type": "evolution_timeline",
+                "props": { "source": "patch_reverted" },
+                "bind": { "channel": "events.patch_reverted", "path": "" }
+              },
+              {
+                "kind": "component",
+                "type": "evolution_timeline",
+                "props": { "source": "graph_snapshot", "note": "五元快照：图" },
+                "bind": { "channel": "inspect_graph", "path": "" }
+              },
+              {
+                "kind": "component",
+                "type": "evolution_timeline",
+                "props": { "source": "rule_snapshot", "note": "五元快照：规则" },
+                "bind": { "channel": "inspect_rules", "path": "" }
+              },
+              {
+                "kind": "component",
+                "type": "evolution_timeline",
+                "props": { "source": "knowledge_snapshot", "note": "五元快照：知识" },
+                "bind": { "channel": "inspect_knowledge", "path": "" }
+              },
+              {
+                "kind": "component",
+                "type": "evolution_timeline",
+                "props": { "source": "ui_snapshot", "note": "五元快照：界面" },
+                "bind": { "channel": "inspect_ui", "path": "" }
+              },
+              {
+                "kind": "component",
+                "type": "evolution_timeline",
+                "props": { "source": "tools_snapshot", "note": "五元快照：工具" },
+                "bind": { "channel": "inspect_tools", "path": "" }
+              }
+            ]
+          },
+          {
+            "kind": "container",
+            "type": "simulation_view",
+            "props": { "role": "推演：simulate_decision 分支对比 + Evaluator 评分 + swap_branch 换选" },
+            "children": [
+              {
+                "kind": "component",
+                "type": "simulation_tree",
+                "props": { "branch": "replan" },
+                "bind": { "channel": "events.plan_start", "path": "" }
+              },
+              {
+                "kind": "component",
+                "type": "simulation_tree",
+                "props": { "branch": "spawn" },
+                "bind": { "channel": "events.spawn_start", "path": "" }
+              },
+              {
+                "kind": "component",
+                "type": "simulation_tree",
+                "props": { "branch": "decision" },
+                "bind": { "channel": "events.simulate_decision", "path": "" }
+              }
+            ]
+          },
+          {
+            "kind": "container",
+            "type": "source_view",
+            "props": { "role": "来源：检索/记忆/证据留痕明细（依据链溯源，可跳到知识条目）" },
+            "children": [
+              {
+                "kind": "component",
+                "type": "source_detail",
+                "props": { "source": "round_state" },
+                "bind": { "channel": "state", "path": "round_steps" }
+              },
+              {
+                "kind": "component",
+                "type": "source_detail",
+                "props": { "source": "memory" },
+                "bind": { "channel": "events.memory_recall", "path": "" }
+              },
+              {
+                "kind": "component",
+                "type": "source_detail",
+                "props": { "source": "tuning" },
+                "bind": { "channel": "events.tuning_update", "path": "" }
+              },
+              {
+                "kind": "component",
+                "type": "source_detail",
+                "props": { "source": "vetting" },
+                "bind": { "channel": "events.vetting_result", "path": "" }
+              },
+              {
+                "kind": "component",
+                "type": "source_detail",
+                "props": { "source": "device_sensed" },
+                "bind": { "channel": "events.device_sensed", "path": "" }
+              },
+              {
+                "kind": "component",
+                "type": "source_detail",
+                "props": { "source": "device_control" },
+                "bind": { "channel": "events.device_control", "path": "" }
+              }
+            ]
+          }
+        ]
+      },
+      {
+        "kind": "container",
+        "type": "settings",
+        "props": { "role": "设置页（改一次很久不变的系统配置）" },
+        "children": [
+          {
+            "kind": "component",
+            "type": "settings_form",
+            "props": {
+              "form": "model",
+              "note": "模型：四挡位（router/tool/main/audit）配置 + fallback"
+            }
+          },
+          {
+            "kind": "component",
+            "type": "settings_form",
+            "props": {
+              "form": "approval",
+              "note": "权限与审批：kind → L0/L1/L2 审批表、默认权限档（allow/review/deny）、超时策略"
+            }
+          },
+          {
+            "kind": "component",
+            "type": "settings_form",
+            "props": {
+              "form": "connection",
+              "note": "连接：MCP 挂载管理（mcp_market.json 市场 + 手动添加 + 对话式安装记录）+ 环境管理（local/web_bridge/container 声明、运行与销毁）+ 工作区授权（桌面目录挂载点，file_ops 权限分级）"
+            }
+          },
+          {
+            "kind": "component",
+            "type": "settings_form",
+            "props": {
+              "form": "memory",
+              "note": "数据与记忆：记忆失效窗口、知识集导出/导入、存储后端与清理"
+            }
+          },
+          {
+            "kind": "component",
+            "type": "settings_form",
+            "props": {
+              "form": "appearance",
+              "note": "外观：主题 token（墨色系）+ 皮肤试穿再应用（白名单内）"
+            }
+          },
+          {
+            "kind": "component",
+            "type": "settings_form",
+            "props": {
+              "form": "about",
+              "note": "关于：版本/engine_version_compat/契约清单"
+            }
+          }
+        ]
+      },
+      {
+        "kind": "component",
+        "type": "approval_card",
+        "props": {
+          "note": "居中弹层，任何视图可弹；朱砂 accent（accent.approval token，出厂默认）"
+        },
+        "bind": { "channel": "events.review_card", "path": "" }
+      }
+    ]
+  }
+}

@@ -120,8 +120,65 @@ NETWORK_TOOLS = ("fetch_web",)
 # deny 档工具（三档权限契约的默认拒绝样例，须经补丁链转正才可用）
 DENY_TOOLS = ("shell_exec",)
 
-# 规则谓词（M1 Rust 谓词执行体实现清单，数据↔执行件绑定的契约面）
-DOMAIN_PREDICATES = ("has_fields", "in_enum", "max_length", "non_empty_string", "min_value", "no_injection_phrase")
+# ── 规则谓词绑定（数据 ↔ 执行件契约面，以源码为准的手工清单常量）──
+# 引擎内置谓词：ink_engine/ink_engine/core/rules.py `_BUILTIN_PREDICATES`
+# 键名清单（2026-08-22 核对；引擎新增/改名/删除内置谓词须同步本清单）
+ENGINE_PREDICATES: tuple[str, ...] = (
+    "present",
+    "absent",
+    "equals",
+    "not_equals",
+    "compare",
+    "in_enum",
+    "not_in_enum",
+    "contains",
+    "not_contains",
+    "unique_pairs",
+    "truthy",
+    "falsy",
+    "state_transition",
+)
+# Rust 执行件谓词：seeds/inkling/exec/src/executors/validate.rs
+# `KNOWN_PREDICATES` 清单（2026-08-22 核对；Rust 侧 binding.rs 另有
+# 数据↔执行件不漂移断言，本常量与其同源）
+RUST_PREDICATES: tuple[str, ...] = (
+    "present",
+    "absent",
+    "equals",
+    "not_equals",
+    "compare",
+    "in_enum",
+    "not_in_enum",
+    "contains",
+    "not_contains",
+    "unique_pairs",
+    "truthy",
+    "falsy",
+    "state_transition",
+)
+# 数据面声明清单（rules.json 引用谓词的白名单，保持数据自洽）：
+# 含 M1 时代遗留谓词（has_fields 等）——执行件实现清单（引擎/Rust 13
+# 谓词）中无对应实现，差异显式钉住在 LEGACY_PREDICATE_DIFF（防差异
+# 静默扩大/缩小；改写数据为引擎同构语义属遗留决策，见 docs/PLAN 遗留）
+DOMAIN_PREDICATES: tuple[str, ...] = (
+    "has_fields",
+    "in_enum",
+    "max_length",
+    "non_empty_string",
+    "min_value",
+    "no_injection_phrase",
+)
+# 数据面与执行件实现清单的已知差异（M1 遗留谓词：引擎/Rust 均无实现；
+# 新增差异须显式登记——数据↔执行件绑定面不允许静默漂移）
+LEGACY_PREDICATE_DIFF: frozenset[str] = frozenset(
+    {
+        "has_fields",
+        "max_length",
+        "non_empty_string",
+        "min_value",
+        "no_injection_phrase",
+    }
+)
 
 # 样例库边界值（与 samples.json 对应用例绑定：max_length 上限 120 的边界用例）
 TITLE_MAX_CHARS = 120
@@ -551,14 +608,35 @@ def check_tools(data: dict[str, Any], _payload: dict[str, Any], issues: list[str
 
 
 def check_rules(data: dict[str, Any], payload: dict[str, Any], issues: list[str]) -> None:
-    """规则集：id/谓词唯一性 + 谓词 ∈ M1 实现清单 + 阈值与 review.json 联动。"""
+    """规则集：id/谓词唯一性 + 谓词 ∈ 数据面清单 + 执行件绑定 + 阈值联动。
+
+    执行件绑定（F11 数据层绑定）：
+    - ENGINE_PREDICATES 与 RUST_PREDICATES 两处来源必须一致（以引擎
+      rules.py 与 Rust validate.rs 源码为准，防双源漂移）；
+    - 数据面谓词 ⊆ DOMAIN_PREDICATES（数据自洽）；
+    - 数据面超出执行件实现清单的部分必须精确等于 LEGACY_PREDICATE_DIFF
+      （M1 遗留谓词显式登记——差异不允许静默扩大/缩小）。
+    """
     rule_ids = [rule["id"] for rule in data["rules"]]
     if len(rule_ids) != len(set(rule_ids)):
         issues.append("rules.json 存在重复规则 id")
     rule_kinds = {rule["kind"] for rule in data["rules"]}
     for rule in data["rules"]:
         if rule["predicate"] not in DOMAIN_PREDICATES:
-            issues.append(f"规则 {rule['id']} 谓词 {rule['predicate']!r} 不在 M1 谓词实现清单 {DOMAIN_PREDICATES}")
+            issues.append(f"规则 {rule['id']} 谓词 {rule['predicate']!r} 不在数据面谓词清单 {DOMAIN_PREDICATES}")
+    if set(ENGINE_PREDICATES) != set(RUST_PREDICATES):
+        issues.append(
+            "执行件谓词两处来源不一致：引擎内置（rules.py）与 Rust 实现"
+            f"（validate.rs）差异 = {sorted(set(ENGINE_PREDICATES) ^ set(RUST_PREDICATES))}"
+            "（以源码为准，两处须同源）"
+        )
+    data_over_engine = set(DOMAIN_PREDICATES) - set(ENGINE_PREDICATES) - set(RUST_PREDICATES)
+    if data_over_engine != LEGACY_PREDICATE_DIFF:
+        issues.append(
+            "数据面谓词超出执行件实现清单的部分与已知遗留差异不符："
+            f"实际 {sorted(data_over_engine)}，登记 {sorted(LEGACY_PREDICATE_DIFF)}"
+            "（新谓词须进执行件实现清单或显式登记差异）"
+        )
     floor_rules = [r for r in data["rules"] if r["id"] == "rule.review.score_floor"]
     if floor_rules:
         floor = floor_rules[0]["config"].get("min")

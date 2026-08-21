@@ -377,3 +377,20 @@ def test_extract_text_handles_dict_content_items():
         )
         == "你好\n42"
     )
+
+def test_http_client_import_fallback_resolves():
+    """回归（SDK 2.x 兼容缺陷）：mcp 2.x 改名 streamable_http_client——
+    模块级兼容导入必须解析出可调用实现（1.x/2.x 任一形态）。"""
+    import inspect
+
+    from ink_engine.core import mcp_client as module
+
+    assert callable(module.streamablehttp_client)
+    assert isinstance(module._HTTP_CLIENT_2X, bool)
+    signature = inspect.signature(module.streamablehttp_client)
+    params = set(signature.parameters)
+    # 2.x 形态（当前安装）须支持 http_client 注入；1.x 形态支持 headers
+    if module._HTTP_CLIENT_2X:
+        assert "http_client" in params
+    else:
+        assert "headers" in params

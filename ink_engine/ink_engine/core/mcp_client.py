@@ -87,6 +87,20 @@ def _require_mcp():
     return mcp
 
 
+# mcp SDK 1.x 与 2.x 的 http 客户端导入名与签名差异（2.x 改名
+# streamable_http_client 且 headers 改经 http_client 注入）
+try:
+    from mcp.client.streamable_http import streamablehttp_client
+
+    _HTTP_CLIENT_2X = False
+except ImportError:
+    from mcp.client.streamable_http import (
+        streamable_http_client as streamablehttp_client,  # type: ignore[no-redef]
+    )
+
+    _HTTP_CLIENT_2X = True
+
+
 @dataclass(frozen=True, slots=True)
 class McpServerConfig:
     """MCP server 连接配置（数据形态，可持久化进集数据通道）。
@@ -303,14 +317,29 @@ class _SdkSession(McpSessionHandle):
                     raise McpToolImportError(
                         f"MCP server {config.id} 的 http 传输缺 url"
                     )
-                from mcp.client.streamable_http import streamablehttp_client
+                if _HTTP_CLIENT_2X:
+                    # mcp SDK 2.x：headers 经 httpx 客户端注入（transport 不接
+                    # headers 参数）；客户端随退出栈统一回收
+                    import httpx
 
-                client_kwargs: dict[str, Any] = {}
-                if config.headers:
-                    client_kwargs["headers"] = config.headers
-                read, write = await exit_stack.enter_async_context(
-                    streamablehttp_client(config.url, **client_kwargs)
-                )
+                    http_client = (
+                        httpx.AsyncClient(headers=dict(config.headers))
+                        if config.headers
+                        else None
+                    )
+                    if http_client is not None:
+                        exit_stack.push_async_callback(http_client.aclose)
+                    read, write = await exit_stack.enter_async_context(
+                        streamablehttp_client(config.url, http_client=http_client)
+                    )
+                else:
+                    # mcp SDK 1.x：streamablehttp_client(url, headers=...)
+                    client_kwargs: dict[str, Any] = {}
+                    if config.headers:
+                        client_kwargs["headers"] = config.headers
+                    read, write = await exit_stack.enter_async_context(
+                        streamablehttp_client(config.url, **client_kwargs)
+                    )
             elif config.transport is McpTransport.STDIO:
                 if not config.command:
                     raise McpToolImportError(

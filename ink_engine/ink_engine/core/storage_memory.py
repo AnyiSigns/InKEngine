@@ -185,9 +185,13 @@ class MemoryStorage:
             target = set(ids)
             removed = 0
             for cid in target:
-                record = self._checkpoints.pop(cid, None)
+                # 先校验归属再删除（与 SQL 后端 WHERE thread_id=? 过滤
+                # 同口径）：跨线程 id 不得被静默删除（先 pop 后校验会让
+                # 别线程的 checkpoint 丢失且链尾指针变幽灵）
+                record = self._checkpoints.get(cid)
                 if record is None or record.thread_id != thread_id:
                     continue
+                del self._checkpoints[cid]
                 removed += 1
                 # 链尾指针防退：删除行恰为链尾时重算为剩余最大 id
                 # （压缩规划恒保留叶行，此为误用兜底）

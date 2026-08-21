@@ -235,21 +235,36 @@ class SqliteStorage:
                         f"checkpoint 写入被拒绝（链尾已前进/父指针不存在/跨线程/event_seq 回退）: "
                         f"thread={data['thread_id']}"
                     )
-                return CheckpointRecord(
-                    checkpoint_id=checkpoint_id,
-                    thread_id=record.thread_id,
-                    node=record.node,
-                    graph_path=record.graph_path,
-                    state=record.state,
-                    parent_id=record.parent_id,
-                    reason=record.reason,
-                    created_at=record.created_at,
-                    version=1,
-                    event_seq=record.event_seq,
-                    error=record.error,
-                    interrupt=record.interrupt,
-                    graph_version=record.graph_version,
-                    plan=record.plan,
+                # 返回前规范化（与 _row_to_record 同口径：剥离敏感键 +
+                # 类型规范化）——插入分支此前用原始入参构造返回对象，
+                # 持久化数据已剥离但活对象未剥离，与内存端契约漂移。
+                # 传 json 文本形态（sqlite 列是 TEXT，_row_to_record 内部
+                # json.loads + _from_jsonable 还原），与读取路径完全一致。
+                return self._row_to_record(
+                    {
+                        "checkpoint_id": checkpoint_id,
+                        "thread_id": data["thread_id"],
+                        "node": data["node"],
+                        "graph_path": json.dumps(data["graph_path"]),
+                        "state": json.dumps(data["state"], ensure_ascii=False),
+                        "parent_id": data["parent_id"],
+                        "reason": data["reason"],
+                        "created_at": data["created_at"],
+                        "version": 1,
+                        "event_seq": data["event_seq"],
+                        "error": data["error"],
+                        "interrupt": (
+                            json.dumps(data["interrupt"], ensure_ascii=False)
+                            if data["interrupt"] is not None
+                            else None
+                        ),
+                        "graph_version": data["graph_version"],
+                        "plan": (
+                            json.dumps(data["plan"], ensure_ascii=False)
+                            if data["plan"] is not None
+                            else None
+                        ),
+                    }
                 )
             # 已存在：乐观锁更新（version 期望校验，冲突抛异常）
             if expected_version is None:

@@ -1998,6 +1998,9 @@ class Engine:
                 # 调配管线——与父层同一装配配置与源提供者）
                 assembly=self.options.assembly,
                 assembly_sources=self.options.assembly_sources,
+                # 系统信号/链级 rebase 窗口随实例传播：嵌套层不静默漂移
+                system_events=self.options.system_events,
+                checkpoint_keep=self.options.checkpoint_keep,
             ),
         )
         sub_engine._coordinator = self._coordinator
@@ -2091,7 +2094,8 @@ class Engine:
             propagate=InterruptSignal,
         )
         for failure in outcome.failures:
-            failures.append(SpawnFailure(failure.index, failure.error))
+            real_index = specs[failure.index].index if failure.index < len(specs) else failure.index
+            failures.append(SpawnFailure(real_index, failure.error))
 
         overlay: dict = {}
         for spec in sorted(specs, key=lambda s: s.index):
@@ -2215,9 +2219,10 @@ class Engine:
             propagate=InterruptSignal,
         )
         for failure in outcome.failures:
-            failures.append(
-                f"#{failure.index}: {failure.error}"
-            )
+            # 失败索引用真实分支/实例序号（fan_out 的 index 是任务列表
+            # 位置；换选路径只跑目标分支时二者不对齐）
+            real_index = specs[failure.index].index if failure.index < len(specs) else failure.index
+            failures.append(f"#{real_index}: {failure.error}")
 
         # 分支执行失败剔除（部分失败语义，同 spawn）；全部失败 = 决策点
         # 无产出，显式报错（不静默提交空结果）
@@ -2321,6 +2326,9 @@ async def run_subgraph(subgraph: Graph, parent_ctx: NodeContext) -> dict | None:
                 # 输入调配随子图传播（嵌套子图执行面同样统一走调配管线）
                 assembly=engine.options.assembly,
                 assembly_sources=engine.options.assembly_sources,
+                # 系统信号/链级 rebase 窗口随子图传播：嵌套层不静默漂移
+                system_events=engine.options.system_events,
+                checkpoint_keep=engine.options.checkpoint_keep,
             ),
         )
         engine._subgraph_engines[id(subgraph)] = sub_engine

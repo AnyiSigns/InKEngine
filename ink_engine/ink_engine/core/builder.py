@@ -12,6 +12,7 @@ AI 生成/挂载的代码（前端组件/任意语言工具/服务）需要编�
 """
 from __future__ import annotations
 
+import dataclasses
 import hashlib
 import shutil
 import time
@@ -247,8 +248,6 @@ class Builder:
             raise BuildError(f"构建工作目录不存在: {workdir}")
         # 构建沙箱副本：工作目录限定在构建目录（构建命令产出落在目录内），
         # 超时按声明注入（声明值与沙箱执行一致，超时 kill 归因于构建）
-        import dataclasses
-
         build_sandbox = dataclasses.replace(
             self._sandbox, cwd=workdir, timeout=spec.timeout
         )
@@ -267,7 +266,12 @@ class Builder:
         files: dict[str, str] = {}
         contents: list[bytes] = []
         for relative in spec.output_paths:
-            source = workdir / relative
+            # 产物路径越界防护：拒绝绝对路径与 `..` 片段（声明可来自
+            # 补丁链/AI 生成，路径穿越会让构建管线读取并落盘任意文件）
+            rel = Path(relative)
+            if rel.is_absolute() or any(seg == ".." for seg in rel.parts):
+                raise BuildError(f"产物路径越界（拒绝绝对路径/..）: {relative!r}")
+            source = workdir / rel
             if not source.is_file():
                 raise BuildError(f"产物缺失: {relative}")
             digest = _sha256_file(source)
@@ -296,8 +300,6 @@ class Builder:
         """
         if probe.command not in self._sandbox.allowlist:
             return SmokeResult(ok=False, output="冒烟命令不在白名单（fail-closed）")
-        import dataclasses
-
         smoke_sandbox = dataclasses.replace(
             self._sandbox,
             cwd=self.artifact_dir(artifact),

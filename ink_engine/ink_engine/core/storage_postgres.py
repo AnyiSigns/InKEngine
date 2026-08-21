@@ -20,6 +20,22 @@ from .storage import ChainLink, CheckpointRecord, _from_jsonable
 
 logger = get_logger(__name__)
 
+
+def _decode_jsonb(value: Any, default: Any = None) -> Any:
+    """JSONB 列解码（asyncpg 默认已解码为 Python 对象；str 形态兼容再解析）。
+
+    asyncpg 对 jsonb 列的默认编解码器把 JSON 文本解析为 Python 对象
+    （dict/list/标量），与 sqlite 的 TEXT 列（须手动 json.loads）不同。
+    统一封装后两后端读路径契约等价：已解码对象原样返回、str 兜底解析、
+    None 回落默认值。
+    """
+    if value is None:
+        return default
+    if isinstance(value, str):
+        return json.loads(value)
+    return value
+
+
 _SCHEMA_SQL = """
 CREATE TABLE IF NOT EXISTS checkpoints (
     checkpoint_id BIGSERIAL PRIMARY KEY,
@@ -239,21 +255,28 @@ class PostgresStorage:
                                 if data["plan"] is not None
                                 else None,
                             )
-                    return CheckpointRecord(
-                        checkpoint_id=row["checkpoint_id"],
-                        thread_id=record.thread_id,
-                        node=record.node,
-                        graph_path=record.graph_path,
-                        state=record.state,
-                        parent_id=record.parent_id,
-                        reason=record.reason,
-                        created_at=record.created_at,
-                        version=1,
-                        event_seq=record.event_seq,
-                        error=record.error,
-                        interrupt=record.interrupt,
-                        graph_version=record.graph_version,
-                        plan=record.plan,
+                    # 返回前规范化（与 _row_to_record 同口径：JSONB 解码 +
+                    # 敏感键剥离 + 类型还原）——插入分支此前用原始入参构造
+                    # 返回对象，持久化数据已剥离但活对象未剥离，与内存端
+                    # 契约漂移。传 jsonb 解码后形态（dict），_row_to_record
+                    # 经 _decode_jsonb 原样透传。
+                    return self._row_to_record(
+                        {
+                            "checkpoint_id": row["checkpoint_id"],
+                            "thread_id": data["thread_id"],
+                            "node": data["node"],
+                            "graph_path": data["graph_path"],
+                            "state": data["state"],
+                            "parent_id": data["parent_id"],
+                            "reason": data["reason"],
+                            "created_at": data["created_at"],
+                            "version": 1,
+                            "event_seq": data["event_seq"],
+                            "error": data["error"],
+                            "interrupt": data["interrupt"],
+                            "graph_version": data["graph_version"],
+                            "plan": data["plan"],
+                        }
                     )
                 if expected_version is None:
                     row = await conn.fetchrow(
@@ -334,7 +357,7 @@ class PostgresStorage:
                 checkpoint_id=row["checkpoint_id"],
                 parent_id=row["parent_id"],
                 event_seq=row["event_seq"],
-                graph_path=tuple(json.loads(row["graph_path"] or "[]")),
+                graph_path=tuple(_decode_jsonb(row["graph_path"], [])),
                 reason=row["reason"],
             )
             for row in rows
@@ -406,7 +429,8 @@ class PostgresStorage:
         except Exception as exc:
             raise StorageError(f"postgres 事件日志读取失败: {exc}") from exc
         return [
-            EngineEvent.from_dict({**json.loads(r["event"]), "seq": r["seq"]}) for r in rows
+            EngineEvent.from_dict({**_decode_jsonb(r["event"], {}), "seq": r["seq"]})
+            for r in rows
         ]
 
     async def latest_event_seq(self, thread_id: str) -> int:
@@ -472,7 +496,7 @@ class PostgresStorage:
                 )
         except Exception as exc:
             raise StorageError(f"postgres records 读取失败: {exc}") from exc
-        return json.loads(row["data"]) if row else None
+        return _decode_jsonb(row["data"]) if row else None
 
     async def list_records(self, collection: str) -> list[dict]:
         await self._connect()
@@ -483,7 +507,7 @@ class PostgresStorage:
                 )
         except Exception as exc:
             raise StorageError(f"postgres records 列出失败: {exc}") from exc
-        return [json.loads(r["data"]) for r in rows]
+        return [_decode_jsonb(r["data"]) for r in rows]
 
     async def close(self) -> None:
         self._closed = True
@@ -499,8 +523,8 @@ class PostgresStorage:
             checkpoint_id=row["checkpoint_id"],
             thread_id=row["thread_id"],
             node=row["node"],
-            graph_path=tuple(json.loads(row["graph_path"] or "[]")),
-            state=_from_jsonable(json.loads(row["state"] or "{}")),
+            graph_path=tuple(_decode_jsonb(row["graph_path"], [])),
+            state=_from_jsonable(_decode_jsonb(row["state"], {})),
             parent_id=row["parent_id"],
             reason=row["reason"],
             created_at=row["created_at"],
@@ -508,12 +532,14 @@ class PostgresStorage:
             event_seq=row["event_seq"],
             error=row["error"],
             interrupt=(
-                InterruptState.from_dict(_from_jsonable(json.loads(row["interrupt"])))
-                if row["interrupt"]
+                InterruptState.from_dict(
+                    _from_jsonable(_decode_jsonb(row["interrupt"], {}))
+                )
+                if _decode_jsonb(row["interrupt"]) is not None
                 else None
             ),
             graph_version=row["graph_version"],
-            plan=json.loads(row["plan"]) if row["plan"] else None,
+            plan=_decode_jsonb(row["plan"]),
         )
 
 

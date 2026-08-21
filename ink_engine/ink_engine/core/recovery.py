@@ -127,6 +127,13 @@ async def resolve_resume(
             if top_anchor is not None:
                 last_checkpoint = await storage.get_checkpoint(top_anchor)
                 current_state = dict(last_checkpoint.state)
+                # 顶层锚点回溯后重新应用输入覆盖层（与 resume_from 分支
+                # 同语义）：调用方注入的一次性状态（决议/清空的一次性
+                # 通道）在任何恢复基底上都须生效——直接覆盖会静默丢弃
+                if state:
+                    current_state = schema.apply(current_state, state) if schema else {
+                        **current_state, **state
+                    }
                 if replay:
                     replay_events = await storage.events_after(
                         thread_id, last_checkpoint.event_seq

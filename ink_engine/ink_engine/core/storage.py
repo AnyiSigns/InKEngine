@@ -369,7 +369,15 @@ def create_storage(conn_string: str) -> Storage:
             db_path = ":memory:"
         if db_path.startswith(":") or db_path.startswith("file:"):
             return SqliteStorage(db_path)
-        return SqliteStorage(db_path.lstrip("/"))
+        # 路径穿越防护：剥离前导 / 后仍含 `..` 片段 = 拒绝（配置来自
+        # 外部/数据通道时，穿越片段可让库文件落在任意位置）
+        clean = db_path.lstrip("/")
+        segments = clean.replace("\\", "/").split("/")
+        if ".." in segments:
+            raise ValueError(
+                f"非法 sqlite 库路径（拒绝 .. 片段）: {db_path}"
+            )
+        return SqliteStorage(clean)
     if scheme in (SCHEME_POSTGRES, "postgres"):
         from .storage_postgres import PostgresStorage
 

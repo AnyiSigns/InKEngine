@@ -218,8 +218,9 @@ class Runtime:
         # 在途 run 登记表 + 排空信号（stop 据此等待自然完成）
         self._active_runs: dict[str, RunTicket] = {}
         self._drained = asyncio.Event()
-        # 引擎重建缓存键（配置/工具表变更才重建；None = 尚未重建）
-        self._engine_cache_key: tuple[Any, ...] | None = None
+        # 引擎重建缓存身份（配置/工具表变更才重建；is 比较 + 工具表名集合）
+        self._engine_storage: Storage | None = None
+        self._engine_spec_key: tuple[str, ...] | None = None
 
         # ── 装配产物（boot 后齐备；None = 未装配）──
         self.storage: Storage | None = None
@@ -451,6 +452,9 @@ class Runtime:
     async def stop(self) -> None:
         """关停（幂等）：拒新 → 等在途完成 → 关 MCP 会话 → 关存储 →
         宿主关停钩子。顺序保证优雅退出时远端会话先于存储被显式关闭。
+
+        故障隔离：各关停步骤独立 try/except——任一步失败不跳过后续
+        清理（MCP→存储→宿主钩子全部尽力关闭），失败仅记日志。
         """
         if self._state in (RuntimeState.UNINITIALIZED, RuntimeState.STOPPED):
             return
@@ -458,11 +462,20 @@ class Runtime:
         if self._active_runs:
             await self._drained.wait()
         if self.mcp_manager is not None:
-            await self.mcp_manager.close_all()
+            try:
+                await self.mcp_manager.close_all()
+            except Exception as exc:
+                logger.warning("MCP 会话关闭失败（继续后续清理）: %s", exc)
         if self.storage is not None:
-            await self.storage.close()
+            try:
+                await self.storage.close()
+            except Exception as exc:
+                logger.warning("存储关闭失败（继续后续清理）: %s", exc)
         if self._host is not None:
-            await self._host.close()
+            try:
+                await self._host.close()
+            except Exception as exc:
+                logger.warning("宿主关停钩子失败: %s", exc)
 
     # ── 在途 run 登记（回合粒度；传输按请求注入，Runtime 不持单例传输）──
 
@@ -510,14 +523,18 @@ class Runtime:
         latest = await self.storage.get_latest_checkpoint(thread_id)
         if latest is None or latest.interrupt is None:
             raise RuntimeError("挂起卡已失效，请重新发起回合")
-        return await self.engine.ainvoke(
-            {},
-            thread_id=thread_id,
-            round_id=round_id or uuid.uuid4().hex,
-            resume_from=latest.checkpoint_id,
-            inject={interrupt.key: decision},
-            transports=transports,
-        )
+        ticket = self.begin_run()
+        try:
+            return await self.engine.ainvoke(
+                {},
+                thread_id=thread_id,
+                round_id=round_id or uuid.uuid4().hex,
+                resume_from=latest.checkpoint_id,
+                inject={interrupt.key: decision},
+                transports=transports,
+            )
+        finally:
+            self.end_run(ticket)
 
     # ── 装配产物访问器 ──
 
@@ -535,6 +552,11 @@ class Runtime:
         重建缓存键 = 模型实例身份 + 存储身份 + 工具表名集合——三者不变
         时复用既有引擎（「配置变更才重建」语义）；MCP 挂载/补丁链工具
         变化会改变名集合，自动触发重建。
+
+        身份比较用「保留引用 + is 相等」而非 id()：id() 仅在对象存活
+        期内稳定，宿主 resolve_llm 每次返回新实例时 id 不同会静默每次
+        重建（缓存失效），对象被 GC 后地址复用还可能误命中旧键——本
+        运行时持 self.engine_llm/self.storage 强引用，is 比较稳定可靠。
         """
         if self._host is None or self._recipe is None:
             raise RuntimeError("运行时未装配（rebuild_engine 须在 boot 之后）")
@@ -542,8 +564,7 @@ class Runtime:
             llm = await self._host.resolve_llm()
         specs = self.collect_specs()
         spec_key = tuple(sorted(spec.name for spec in specs))
-        cache_key = (id(llm), id(self.storage), spec_key)
-        if self.engine is not None and cache_key == self._engine_cache_key:
+        if self.engine is not None and self.engine_llm is llm and self.storage is self._engine_storage and spec_key == self._engine_spec_key:
             return self.engine
         recipe = self._recipe
         context = GraphRecipeContext(
@@ -570,7 +591,8 @@ class Runtime:
         )
         self.engine = engine
         self.engine_llm = llm
-        self._engine_cache_key = cache_key
+        self._engine_storage = self.storage
+        self._engine_spec_key = spec_key
         self.introspection_service.set_graph(graph)
         return engine
 
@@ -685,6 +707,12 @@ class Runtime:
                     {"base": {"entries": knowledge_state}, "patches": []},
                     storage=self.storage,
                 )
+                # 内省视图同步指向恢复后的集实例（替换前指向旧对象，
+                # inspect_knowledge 会返回恢复前数据）
+                if self.introspection_service is not None:
+                    self.introspection_service._sources.knowledge_set = (
+                        self.knowledge_set
+                    )
             except Exception as exc:
                 logger.warning("知识集恢复失败（跳过）: %s", exc)
 

@@ -238,7 +238,7 @@ def convert_mcp_tool(server_id: str, tool: Any) -> DeclarativeToolSpec:
     Args:
         server_id: 来源 server 标识。
         tool: MCP SDK 的 Tool 对象（鸭子类型读取 name/description/
-            inputSchema）或等价 dict。
+            inputSchema/input_schema 任一字段形态）或等价 dict。
 
     Raises:
         GraphDefinitionError: 工具缺 name（MCP 协议违规）。
@@ -247,10 +247,17 @@ def convert_mcp_tool(server_id: str, tool: Any) -> DeclarativeToolSpec:
         name = tool.get("name")
         description = tool.get("description") or ""
         schema = tool.get("inputSchema")
+        if schema is None:
+            # SDK 2.x 的字段形态是 input_schema（inputSchema 只是声明时的
+            # pydantic 别名，实例属性为 snake_case）——两形态等价读取，
+            # 避免 SDK 升级后所有参数 schema 归一为空壳
+            schema = tool.get("input_schema")
     else:
         name = getattr(tool, "name", None)
         description = getattr(tool, "description", "") or ""
         schema = getattr(tool, "inputSchema", None)
+        if schema is None:
+            schema = getattr(tool, "input_schema", None)
     if not name or not isinstance(name, str):
         raise GraphDefinitionError("MCP 工具缺 name（协议违规）")
     return DeclarativeToolSpec(

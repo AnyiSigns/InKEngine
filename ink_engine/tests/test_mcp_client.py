@@ -97,6 +97,43 @@ def test_convert_mcp_tool_accepts_object_form():
     assert spec.endpoint_config == {"server_id": "s2"}
 
 
+def test_convert_mcp_tool_reads_snake_case_schema_field():
+    """SDK 2.x 字段形态（input_schema）的参数 schema 完整保留。
+
+    回归：修复前只读 inputSchema——SDK 2.x 的 Tool 实例属性是
+    input_schema（inputSchema 只是 pydantic 字段别名），所有工具参数
+    被归一为空壳，LLM 看不到参数定义、宿主无法参数级校验。
+    """
+    schema = {
+        "type": "object",
+        "properties": {"q": {"type": "string"}},
+        "required": ["q"],
+    }
+    dict_spec = convert_mcp_tool("s1", {"name": "t", "description": "d", "input_schema": schema})
+    assert dict_spec.parameters == schema
+
+    class _Sdk2Tool:
+        name = "t"
+        description = "d"
+        input_schema = schema
+
+    object_spec = convert_mcp_tool("s1", _Sdk2Tool())
+    assert object_spec.parameters == schema
+
+
+def test_convert_mcp_tool_both_schema_shapes_equivalent():
+    """inputSchema 与 input_schema 两形态转换结果完全等价（契约文本对齐）。"""
+    schema = {
+        "type": "object",
+        "properties": {"q": {"type": "string"}},
+        "required": ["q"],
+    }
+    camel = convert_mcp_tool("s1", {"name": "t", "description": "d", "inputSchema": schema})
+    snake = convert_mcp_tool("s1", {"name": "t", "description": "d", "input_schema": schema})
+    assert camel == snake
+    assert camel.parameters == schema
+
+
 def test_convert_mcp_tool_missing_name_rejected():
     """缺 name（协议违规）→ 定义期拒绝。"""
     with pytest.raises(GraphDefinitionError, match="缺 name"):

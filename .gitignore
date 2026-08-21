@@ -41,3 +41,8 @@ src-tauri/gen/
 # 涓存椂/杩愯浜х墿
 static/
 .playwright-mcp/
+
+# live 评测运行产物（报告/冒烟笔记；证据入 gaps.md/coverage.md，不入库）
+ink_engine/tests/live/report/
+ink_engine/examples/e2e/report/
+ink_engine/examples/e2e/notes/

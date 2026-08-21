@@ -233,7 +233,10 @@ def endpoint_operation(
     """按端点类型从调用参数推导 (operation, target) 判定目标。
 
     - http_fetch: ("connect", url 的 host)；
-    - process_exec: ("exec", 命令名)；
+    - process_exec: ("exec", 命令名)——命令参数名可经 config 的
+      ``operation_param`` 声明（如声明 "cmd" 则读 args["cmd"]），缺省
+      回落现有推导（读 ``command``）；声明优先 = 工具 schema 无需为
+      判定补固定枚举参数；
     - file_ops: (参数中声明的操作, 路径)，操作非法 = None（无法判定目标，
        由流水线按缺判定目标拒绝）；
     - mcp: ("call", server_id)，server_id 取自定义配置（缺省无法路由
@@ -256,7 +259,10 @@ def endpoint_operation(
             return None
         return ("connect", parsed.hostname)
     if endpoint is EndpointType.PROCESS_EXEC:
-        command = args.get("command")
+        command_param = "command"
+        if isinstance(config, dict):
+            command_param = str(config.get("operation_param") or "command")
+        command = args.get(command_param)
         return ("exec", command) if isinstance(command, str) else None
     if endpoint is EndpointType.FILE_OPS:
         operation = args.get("operation")

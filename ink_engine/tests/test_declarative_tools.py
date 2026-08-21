@@ -201,6 +201,51 @@ def test_endpoint_operation_process():
     assert (op, target) == ("exec", "git")
 
 
+def test_endpoint_operation_process_operation_param_declared():
+    """process_exec 操作目标参数名声明：判定优先声明、缺省回落（向后兼容）。
+
+    端点配置声明 operation_param 后，判定读声明参数名（工具 schema 无需
+    补固定 command 枚举参数）；未声明时回落既有 command 推导。
+    """
+    declared = endpoint_operation(
+        EndpointType.PROCESS_EXEC,
+        {"cmd": "git", "args": ["status"]},
+        config={"allowlist": ["git"], "operation_param": "cmd"},
+    )
+    assert declared == ("exec", "git")
+    # 声明优先：声明后不再读 command 参数（防声明与既有参数双源歧义）
+    assert (
+        endpoint_operation(
+            EndpointType.PROCESS_EXEC,
+            {"cmd": "git", "command": "curl"},
+            config={"operation_param": "cmd"},
+        )
+        == ("exec", "git")
+    )
+    # 声明参数缺失 = 无法判定目标（fail-closed，不回落 command）
+    assert (
+        endpoint_operation(
+            EndpointType.PROCESS_EXEC,
+            {"command": "git"},
+            config={"operation_param": "cmd"},
+        )
+        is None
+    )
+    # 缺省回落：无声明（None config / 空 config）仍按 command 推导
+    fallback = endpoint_operation(
+        EndpointType.PROCESS_EXEC, {"command": "git"}
+    )
+    assert fallback == ("exec", "git")
+    assert (
+        endpoint_operation(
+            EndpointType.PROCESS_EXEC,
+            {"command": "git"},
+            config={"allowlist": ["git"]},
+        )
+        == ("exec", "git")
+    )
+
+
 def test_endpoint_operation_file():
     """file_ops 端点：操作 + 路径作判定目标（非法操作不产生判定目标）。"""
     op, target = endpoint_operation(

@@ -522,3 +522,121 @@ async def test_sdk_session_open_propagates_outer_cancellation(monkeypatch):
     task.cancel()
     with pytest.raises(asyncio.CancelledError):
         await task
+
+
+# 探针 server：启动时向 stderr 写结构化日志行（info/error 各一，含请求 id），
+# 最小 MCP stdio 形态完成握手——验证执行件 stderr 桥接进引擎日志通道。
+_STDERR_PROBE_SERVER = '''\
+"""stdio 探针 server：向 stderr 写结构化日志行（桥接验证用）。"""
+import asyncio
+import json
+import sys
+from typing import Any
+
+from mcp.server import Server, ServerRequestContext
+from mcp.server.stdio import stdio_server
+from mcp.types import ListToolsResult, PaginatedRequestParams, Tool
+
+
+def _log(level: str, method: str, rid: int, ok: bool) -> None:
+    payload = {
+        "level": level,
+        "event": "rpc",
+        "method": method,
+        "id": rid,
+        "duration_ms": 1,
+        "ok": ok,
+    }
+    sys.stderr.write(json.dumps(payload) + "\\n")
+    sys.stderr.flush()
+
+
+async def main() -> None:
+    _log("info", "tools/list", 41, True)
+    _log("error", "tools/call", 42, False)
+
+    async def list_tools(
+        ctx: ServerRequestContext[Any], params: PaginatedRequestParams | None
+    ) -> ListToolsResult:
+        return ListToolsResult(
+            tools=[
+                Tool(
+                    name="probe",
+                    description="探针工具",
+                    inputSchema={"type": "object"},
+                )
+            ]
+        )
+
+    server = Server("stderr_probe", on_list_tools=list_tools)
+    async with stdio_server() as (read, write):
+        await server.run(read, write, server.create_initialization_options())
+
+
+if __name__ == "__main__":
+    asyncio.run(main())
+'''
+
+
+async def test_stdio_exec_stderr_forwarded_to_log_channel(tmp_path):
+    """stdio 执行件 stderr 结构化日志收敛进引擎日志通道（请求 id + trace_id）。
+
+    执行件把 stderr 当结构化日志通道；宿主捕获后逐行转发进引擎日志——
+    执行件日志不再裸露到终端，并随引擎日志通道携带连接期 trace_id；
+    行内 level 映射日志等级（error → ERROR 级），非结构化行按 info 落明。
+    """
+    import asyncio
+    import inspect
+    import json
+    import logging
+
+    from mcp.client.stdio import stdio_client
+
+    from ink_engine.core import mcp_client as module
+    from ink_engine.core.logging import JsonFormatter, get_logger, trace_id_var
+    from ink_engine.core.mcp_client import _SdkSession
+
+    if "errlog" not in inspect.signature(stdio_client).parameters:
+        pytest.skip("mcp SDK 不支持 errlog 定向（stderr 捕获不可用）")
+
+    server_script = tmp_path / "stderr_probe_server.py"
+    server_script.write_text(_STDERR_PROBE_SERVER, encoding="utf-8")
+
+    captured: list[str] = []
+    exec_logger = get_logger(f"{module.__name__}.exec")
+    handler = logging.Handler()
+    handler.setFormatter(JsonFormatter())
+    handler.setLevel(logging.INFO)
+    handler.emit = lambda record: captured.append(handler.format(record))
+    exec_logger.addHandler(handler)
+    exec_logger.setLevel(logging.INFO)
+    token = trace_id_var.set("trace-stdio-01")
+    try:
+        config = McpServerConfig(
+            id="stderr-probe",
+            transport=McpTransport.STDIO,
+            command=sys.executable,
+            args=(str(server_script),),
+            source=ToolSource.MARKET,
+        )
+        handle = await _SdkSession.open(config)
+        try:
+            await handle.list_tools()
+        finally:
+            await handle.aclose()
+        deadline = asyncio.get_running_loop().time() + 5.0
+        while len(captured) < 2 and asyncio.get_running_loop().time() < deadline:
+            await asyncio.sleep(0.05)
+    finally:
+        exec_logger.removeHandler(handler)
+        trace_id_var.reset(token)
+
+    assert len(captured) >= 2, f"执行件 stderr 日志未进引擎日志通道: {captured}"
+    parsed = [json.loads(line) for line in captured]
+    info = next(p for p in parsed if '"method": "tools/list"' in p["msg"])
+    error = next(p for p in parsed if '"method": "tools/call"' in p["msg"])
+    assert '"id": 41' in info["msg"]
+    assert '"id": 42' in error["msg"]
+    assert info["trace_id"] == "trace-stdio-01"
+    assert error["level"] == "ERROR"
+    assert error["logger"] == "ink_engine.core.mcp_client.exec"

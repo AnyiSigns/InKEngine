@@ -20,19 +20,26 @@
 
 传输形态（Streamable HTTP 为主，stdio 次之，内存用于内嵌/测试）：
 - http：``streamablehttp_client(url)``（MCP v2 规范主传输）；
-- stdio：``StdioServerParameters(command, args, env)`` 拉起本地进程；
+- stdio：``StdioServerParameters(command, args, env)`` 拉起本地进程；执行件
+  的 stderr（结构化日志通道）捕获进引擎日志，不裸露到终端；
 - in_memory：宿主注入 ``server_factory``（返回 (read, write) 流对的异步
   上下文管理器），用于内嵌 server 或测试桩，不依赖真实网络/进程。
 """
 from __future__ import annotations
 
 import asyncio
+import contextlib
+import contextvars
 import inspect
+import json
+import logging
+import os
+import threading
 from collections.abc import Callable
 from contextlib import AsyncExitStack
 from dataclasses import dataclass, field
 from enum import StrEnum
-from typing import Any
+from typing import Any, TextIO
 
 from .declarative_tools import (
     DeclarativeToolExecutors,
@@ -332,6 +339,76 @@ async def _suppress_stack_close(exit_stack: AsyncExitStack) -> None:
         logger.warning("MCP 连接清理失败（不掩盖原始错误）: %s", exc)
 
 
+class _ExecStderrBridge:
+    """stdio 执行件 stderr → 引擎日志通道桥（结构化行逐行转发）。
+
+    执行件把 stderr 当结构化日志通道（JSON 行：事件/请求 id/耗时/成败），
+    宿主连接方捕获该流逐行转发进引擎日志——执行件日志不再裸露到终端，
+    并随引擎日志通道统一获得 trace_id 注入与敏感形态遮蔽；等级按行内
+    ``level`` 字段映射，非结构化行（告警/panic 文本）按 info 落明不丢失。
+    """
+
+    def __init__(self, log: logging.Logger) -> None:
+        self._log = log
+        self._read_fd: int | None = None
+        self._writer: TextIO | None = None
+        self._thread: threading.Thread | None = None
+
+    async def __aenter__(self) -> TextIO:
+        """创建管道与阻塞读线程，返回写端文件对象（交给 stdio_client 当 errlog）。
+
+        读线程复制进入时的上下文（含当前 trace_id），转发行与连接
+        时刻的链路语义一致。
+        """
+        read_fd, write_fd = os.pipe()
+        self._read_fd = read_fd
+        self._writer = os.fdopen(write_fd, "w", encoding="utf-8", errors="replace")
+        context = contextvars.copy_context()
+        self._thread = threading.Thread(
+            target=lambda: context.run(_drain_exec_stderr, read_fd, self._log),
+            name=f"exec-stderr-{id(self)}",
+            daemon=True,
+        )
+        self._thread.start()
+        return self._writer
+
+    async def __aexit__(self, *exc: Any) -> None:
+        """关闭写端并等待读线程退出。
+
+        子进程已随连接关闭终止 → 管道 EOF → 读线程自然结束；关闭写端
+        清理失败不掩盖退出路径。
+        """
+        writer, self._writer = self._writer, None
+        if writer is not None:
+            with contextlib.suppress(OSError):
+                writer.close()
+        thread = self._thread
+        if thread is not None:
+            self._thread = None
+            thread.join(timeout=2.0)
+
+
+def _drain_exec_stderr(read_fd: int, log: logging.Logger) -> None:
+    """阻塞读执行件 stderr 管道直到 EOF，逐行转发进引擎日志通道。
+
+    在 daemon 线程内运行：子进程死 → 管道写端全关 → EOF → 自然退出；
+    极端情况下挂住也不阻断解释器退出。
+    """
+    with os.fdopen(read_fd, "r", encoding="utf-8", errors="replace") as stream:
+        for line in stream:
+            line = line.strip()
+            if not line:
+                continue
+            try:
+                is_error = json.loads(line).get("level") == "error"
+            except ValueError:
+                is_error = False
+            if is_error:
+                log.error("执行件: %s", line)
+            else:
+                log.info("执行件: %s", line)
+
+
 class _SdkSession(McpSessionHandle):
     """基于官方 mcp SDK 的会话句柄（惰性 import，未安装即报错）。
 
@@ -399,9 +476,18 @@ class _SdkSession(McpSessionHandle):
                     args=list(config.args),
                     env=config.env,
                 )
-                read, write = await exit_stack.enter_async_context(
-                    stdio_client(params)
-                )
+                if "errlog" in inspect.signature(stdio_client).parameters:
+                    # SDK 支持 stderr 定向：执行件 stderr 捕获进引擎日志通道，
+                    # 不再继承终端（执行件把 stderr 当结构化日志通道）
+                    bridge = _ExecStderrBridge(get_logger(f"{__name__}.exec"))
+                    errlog = await exit_stack.enter_async_context(bridge)
+                    read, write = await exit_stack.enter_async_context(
+                        stdio_client(params, errlog=errlog)
+                    )
+                else:
+                    read, write = await exit_stack.enter_async_context(
+                        stdio_client(params)
+                    )
             elif config.transport is McpTransport.IN_MEMORY:
                 if config.server_factory is None:
                     raise McpToolImportError(

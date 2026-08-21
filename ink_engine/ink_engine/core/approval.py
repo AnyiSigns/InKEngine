@@ -27,6 +27,9 @@
 取消语义（打断重定向）：挂起卡随 interrupt checkpoint 持久化，与执行中
 新消息 cancel 语义互不干扰——卡保留可后批，重入仅由 inject 触发（引擎
 既有语义，本模块不引入新状态）。
+
+白名单审计：``VALID_DECISIONS``（审批决议集合）= **机制固有**——审批
+协议决议语义（注入值校验 + fail-closed 兜底方向绑定）。
 """
 
 from __future__ import annotations

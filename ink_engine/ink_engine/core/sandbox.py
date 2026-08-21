@@ -12,6 +12,9 @@
   白名单域名由宿主配置）。
 
 守卫接口：``validate(operation, target)``——违规抛 :class:`SandboxViolation`。
+
+白名单审计：``FS_OPERATIONS``（文件守卫操作域）= **机制固有**——FileSandbox
+守卫语义绑定（与权限域 filesystem 动作同源）。
 """
 from __future__ import annotations
 

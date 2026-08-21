@@ -14,6 +14,10 @@ environments 环境声明），零业务依赖、不发明第二套校验语义�
 
 校验哲学：违规清单可读可审计（闸门失败原因直接展示）；未知字段
 忽略（schema 演进宽容）；必填缺失 = 违规。
+
+白名单审计：``PatchKind``（补丁类型集合）= **机制固有**——类型集合绑定
+按类型校验分派（``_validate_{kind}``）；审批分级表 ``approval_levels``
+（PatchKind → 分级）= **装配数据化**（宿主经配方数据注入）。
 """
 from __future__ import annotations
 

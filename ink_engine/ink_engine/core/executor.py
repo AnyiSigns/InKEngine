@@ -15,6 +15,10 @@ run 并记录终止原因（入 checkpoint 轨迹与 RunResult）。"终止 vs �
 嵌套图：子图 = 图实例节点（graph.py add_subgraph），子图事件经共享
 publish 通道自然汇入父事件流（graph_path 记录路径），子图最终状态
 整体回流父图 reducer 合并（输出回流内建，绝不静默丢值）。
+
+白名单审计：``RunOptions.system_events``（系统信号集合）= **装配数据化**
+——由装配合成注入（EventTypeRegistry.system_events），模块级常量默认空，
+注册表是动态化的正式载体。
 """
 from __future__ import annotations
 

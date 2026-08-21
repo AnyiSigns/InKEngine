@@ -25,6 +25,10 @@
 违规严重度与类别沿用领域约定（error/warning + 领域 kind 标签），
 与领域种子包的规则集词汇对齐——规则化路径产出的问题可直接进入
 既有审核卡。
+
+白名单审计：``_BUILTIN_PREDICATES``（内置通用谓词）= **机制固有**（引擎
+默认实现，机制语义）；谓词集可数据化扩展——RuleTypeRegistry.register
+允许宿主/种子注册新谓词，非封闭白名单。
 """
 from __future__ import annotations
 

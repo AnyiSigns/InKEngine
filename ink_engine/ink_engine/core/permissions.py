@@ -18,6 +18,10 @@ review/allow（明示安全让步）。门控分级判定（L1-L3）由宿主注
 （``review_card.gating_tier_of`` 经共享机制接线），本模块不 import 审批卡。
 
 沙箱是机制、非安全边界承诺——默认拒绝兜底 + 纵深防御，宿主可叠加 OS 级隔离。
+
+白名单审计：``_DOMAIN_ACTIONS``（权限域动作集合）= **机制固有**——域语义
+绑定（network 后缀匹配、filesystem 路径边界），且实际判定对未知域走
+fnmatch 兜底（非收紧型：宿主自定义域不拒绝），清单仅作校验与文档。
 """
 from __future__ import annotations
 

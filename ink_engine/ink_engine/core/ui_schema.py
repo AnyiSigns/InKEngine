@@ -16,6 +16,11 @@ AI 经自指层提案界面补丁（ui 补丁类型）落地布局，渲染器�
 审计；未知字段忽略（schema 演进宽容），必填缺失 = 违规。绑定协议
 形态：{"bind": {"channel": "state", "path": "count"}}——组件数据挂到
 状态通道的指定路径，渲染器订阅通道变更重渲。
+
+白名单审计：``DEFAULT_BIND_CHANNELS`` = **装配数据化**（引擎默认仅
+state，宿主经 AssemblyRecipe.ui_allowed_channels 配方覆盖位放行扩展
+通道）；``_VALID_NODE_KINDS`` / ``RESERVED_BIND_PREFIXES`` = **机制固有**
+（布局树语法与内部数据保护语义，非可扩展清单）。
 """
 from __future__ import annotations
 

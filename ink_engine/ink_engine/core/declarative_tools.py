@@ -17,6 +17,13 @@ parameters/permissions/endpoint），而非编写一个执行函数——执行�
 端点类型只是分发/守卫的接线依据，不限定实现：http_fetch 默认执行体
 经 make_http_fetch_executor 提供（httpx 可选依赖，缺失时显式报错），
 宿主可注册自定义执行体覆盖。
+
+白名单审计：``EndpointType`` / ``_ENDPOINT_ACTIONS`` /
+``_ENDPOINT_CONFIG_REQUIREMENTS`` = **机制固有**——端点类型决定分发
+（执行体注册表 key）、守卫接线（沙箱/配置要求）与操作推导语义；
+执行体注册为数据化扩展位（宿主 register 注入）。端点类型集合封闭
+（StrEnum 运行期不可扩展）：新产品端点类型须引擎扩展（见
+docs/whitelist_audit.md 遗留 L1）。
 """
 from __future__ import annotations
 

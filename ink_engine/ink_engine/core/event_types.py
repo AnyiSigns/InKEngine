@@ -17,6 +17,10 @@ RunOptions.system_events 注入，与 events.py 的 SYSTEM_EVENTS 机制
 配额：类型数量上限（防 AI 提案失控）；超限显式拒绝，须合并/废弃
 既有类型后重提。持久化经 Storage structured records 通道随集落库
 （集合级可演化资产，写入路径由宿主接线补丁链）。
+
+白名单审计：事件渲染器名 = **装配数据化**——EventTypeSpec.renderer 是
+数据字段（前端组件引用），引擎无渲染器名清单、无白名单校验；事件
+类型经注册表数据化演化（补丁链版本化/回退）。
 """
 from __future__ import annotations
 

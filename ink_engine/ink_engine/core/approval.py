@@ -148,6 +148,7 @@ async def approve_before_execute(
     # "超时默认拒绝"永不触发（重入时 now 恒小于 now+timeout），超时后补批
     # 照样通过。链尾无挂起卡（首次挂起/无存储）时按策略写 expires_at。
     saved_expires = None
+    saved = None
     get_payload = getattr(ctx, "get_interrupt_payload", None)
     if get_payload is not None:
         saved = await get_payload(key)
@@ -156,6 +157,17 @@ async def approve_before_execute(
     if saved_expires is not None:
         card["expires_at"] = saved_expires
     elif timeout is not None:
+        # 重入但卡负载缺超时字段（宿主持久化的卡没有 expires_at，或卡
+        # 形态异常）：无法判定超时窗口 = 无法证明未超时——fail-closed
+        # 拒绝（宁拒勿放，防"超时后补批"绕过）。首次挂起（saved=None）
+        # 才允许按策略写入新的 expires_at。
+        if isinstance(saved, dict):
+            return ApprovalDecision(
+                decision=DECISION_REJECT,
+                action=action,
+                reason="审批卡负载缺 expires_at（无法判定超时窗口），fail-closed 拒绝",
+                source="invalid",
+            )
         card["expires_at"] = clock() + timeout
     injected = await ctx.interrupt(key, card)
     decision, contents, reason, source = _resolve_decision(
@@ -209,6 +221,7 @@ async def approve_batch(
     # 重入读回已挂卡的超时窗口（与 approve_before_execute 同语义：
     # 挂起时的 expires_at 才是超时判定的权威时钟）
     saved_expires = None
+    saved = None
     get_payload = getattr(ctx, "get_interrupt_payload", None)
     if get_payload is not None:
         saved = await get_payload(key)
@@ -217,6 +230,19 @@ async def approve_batch(
     if saved_expires is not None:
         card["expires_at"] = saved_expires
     elif shortest is not None:
+        # 重入但卡负载缺超时字段（宿主持久化的卡没有 expires_at，或卡
+        # 形态异常）：无法判定超时窗口 = 无法证明未超时——fail-closed
+        # 拒绝（宁拒勿放）。首次挂起（saved=None）才允许写新窗口。
+        if isinstance(saved, dict):
+            return [
+                ApprovalDecision(
+                    decision=DECISION_REJECT,
+                    action=a,
+                    reason="审批卡负载缺 expires_at（无法判定超时窗口），fail-closed 拒绝",
+                    source="invalid",
+                )
+                for a in actions
+            ]
         card["expires_at"] = clock() + shortest
     injected = await ctx.interrupt(key, card)
     decision, contents, reason, source = _resolve_decision(

@@ -329,6 +329,13 @@ class ToolVetting:
                 violations.append(
                     f"哈希声明非法（须 sha256 hex {_HASH_LENGTH} 字符）: {path!r}"
                 )
+                continue
+            try:
+                int(digest, 16)
+            except ValueError:
+                violations.append(
+                    f"哈希声明非法（非合法 hex 字符）: {path!r}"
+                )
         if not manifest.permissions:
             violations.append("未声明权限（fail-closed：无权限声明的工具拒绝挂载）")
         ok = not violations

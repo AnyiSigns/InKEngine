@@ -8,6 +8,8 @@
 """
 from __future__ import annotations
 
+import os
+
 import pytest
 
 from ink_engine.core.declarative_tools import (
@@ -157,7 +159,7 @@ async def test_pipeline_full_flow_with_declarative_tools(memory_storage):
     pipeline = ToolPipeline(
         gate=PermissionGate(),
         extractor=lambda s, a: endpoint_operation(definition.endpoint, a),
-        sandboxes=(ProcessSandbox(allowlist=("git",)),),
+        sandboxes=(ProcessSandbox(allowlist=("git",), path=os.environ.get("PATH")),),
         executor=executors.dispatch,
         trace_sink=lambda trace: trace_store.record(trace),
     )
@@ -194,7 +196,7 @@ async def test_pipeline_rejects_undeterminable_target(memory_storage):
     definition = _declarative(
         endpoint=EndpointType.PROCESS_EXEC,
         permissions=("process:exec:git",),
-        endpoint_config={"allowlist": ["git"]},
+        endpoint_config={"allowlist": ["git"], "path": os.environ.get("PATH")},
     )
     executors = DeclarativeToolExecutors()
     executors.register_definition(definition)
@@ -252,7 +254,7 @@ async def test_build_declarative_pipeline_full_flow(memory_storage):
     definition = _declarative(
         endpoint=EndpointType.PROCESS_EXEC,
         permissions=("process:exec:git",),
-        endpoint_config={"allowlist": ["git"]},
+        endpoint_config={"allowlist": ["git"], "path": os.environ.get("PATH")},
     )
     executors = DeclarativeToolExecutors()
     executors.register_definition(definition)
@@ -388,7 +390,7 @@ async def test_pipeline_auto_wires_process_and_file_sandboxes():
         name="run_tool",
         endpoint=EndpointType.PROCESS_EXEC,
         permissions=("process:exec:*",),  # 宽权限：沙箱白名单做命令收口
-        endpoint_config={"allowlist": ["git"]},
+        endpoint_config={"allowlist": ["git"], "path": os.environ.get("PATH")},
     )
     file_def = DeclarativeToolSpec(
         name="fs_tool",

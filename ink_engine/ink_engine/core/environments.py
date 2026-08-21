@@ -18,7 +18,10 @@ Python 宿主，其余按需懒装。环境声明（EnvironmentSpec）是数据�
 from __future__ import annotations
 
 import contextlib
+import dataclasses
 import shutil
+import time
+import uuid
 from collections.abc import Sequence
 from dataclasses import dataclass, field
 from enum import StrEnum
@@ -238,8 +241,6 @@ class LocalProvider:
             )
         workdir = Path(handle.workdir or ".")
         workdir.mkdir(parents=True, exist_ok=True)
-        import dataclasses
-
         run_sandbox = dataclasses.replace(self._sandbox, cwd=workdir)
         result = await run_sandbox.run(command, args)
         await self._audit(
@@ -255,8 +256,6 @@ class LocalProvider:
         self._instances[spec.name] = handle
         workdir = Path(handle.workdir or ".")
         workdir.mkdir(parents=True, exist_ok=True)
-        import dataclasses
-
         install_sandbox = dataclasses.replace(self._sandbox, cwd=workdir)
         try:
             for cmd in spec.install_cmds:
@@ -296,8 +295,6 @@ class LocalProvider:
         """环境动作留痕（append-only 审计：什么环境跑过什么命令）。"""
         if self._storage is None:
             return
-        import time
-        import uuid
 
         record = {
             "action": action,

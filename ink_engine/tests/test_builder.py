@@ -6,6 +6,9 @@
 """
 from __future__ import annotations
 
+import os
+import sys
+
 import pytest
 
 from ink_engine.core.builder import (
@@ -23,7 +26,11 @@ from ink_engine.core.sandbox import ProcessSandbox
 @pytest.fixture
 def builder(tmp_path) -> Builder:
     return Builder(
-        ProcessSandbox(allowlist=("python",), timeout=30.0),
+        ProcessSandbox(
+            allowlist=("python",),
+            timeout=30.0,
+            path=os.environ.get("PATH") or sys.executable,
+        ),
         artifact_dir=tmp_path / "artifacts",
     )
 

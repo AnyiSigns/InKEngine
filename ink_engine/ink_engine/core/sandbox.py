@@ -118,6 +118,10 @@ class ProcessSandbox:
         cwd: 工作目录限定（缺省 None = 继承引擎进程目录）。
         max_output: stdout/stderr 各自截断上限（字符）。
         env: 环境变量白名单（缺省空 = 干净环境，不含宿主变量）。
+        path: 显式 PATH 注入（None = 不注入；env 无 PATH 时裸命令名
+            无法解析——白名单用裸命令名（如 git）须注入 path 或改用
+            绝对路径）。注入值用于 create_subprocess_exec 的 PATH
+            查找，与宿主配置协同（引擎不替宿主决定平台默认值）。
     """
 
     allowlist: tuple[str, ...] = ()
@@ -125,6 +129,7 @@ class ProcessSandbox:
     cwd: str | Path | None = None
     max_output: int = 100_000
     env: dict[str, str] | None = None
+    path: str | None = None
 
     def guards_operation(self, operation: str) -> bool:
         """是否本沙箱守卫的操作域（多端点流水线各司其职的依据）。"""
@@ -135,15 +140,31 @@ class ProcessSandbox:
             raise SandboxViolation(f"不支持的进程操作: {operation}")
         if target not in self.allowlist:
             raise SandboxViolation(f"命令不在白名单: {target}")
+        # 裸命令名 + 未注入 PATH + env 无 PATH：执行必失败且报错难懂
+        # （FileNotFoundError）——在守卫期给出明确指引（fail-closed，
+        # 不自动注入平台默认值）
+        if (
+            "/" not in target
+            and "\\" not in target
+            and self.path is None
+            and not (self.env or {}).get("PATH")
+        ):
+            raise SandboxViolation(
+                f"命令 {target!r} 为裸命令名但未配置 PATH（ProcessSandbox.path "
+                f"或 env.PATH）：请注入 PATH 或改用绝对路径"
+            )
 
     async def run(self, command: str, args: Sequence[str] = ()) -> ProcessResult:
         """执行白名单命令（参数透传，默认禁 shell——不经 shell 解释）。"""
         self.validate("exec", command)
+        run_env = dict(self.env or {})
+        if self.path is not None:
+            run_env.setdefault("PATH", self.path)
         proc = await asyncio.create_subprocess_exec(
             command,
             *args,
             cwd=str(self.cwd) if self.cwd is not None else None,
-            env=dict(self.env or {}),
+            env=run_env,
             stdout=asyncio.subprocess.PIPE,
             stderr=asyncio.subprocess.PIPE,
         )

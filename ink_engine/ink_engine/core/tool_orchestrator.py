@@ -217,7 +217,13 @@ class ToolTraceStore:
         ok: bool | None = None,
         limit: int | None = None,
     ) -> list[ToolTrace]:
-        """轨迹查询：按工具名/成败过滤，时间倒序（最新在前）。"""
+        """轨迹查询：按工具名/成败过滤，时间倒序（最新在前）。
+
+        注：当前实现在行内完成全量载入后的过滤与排序（``limit`` 已生效）。
+        在高吞吐/无界增长下，全量载入会带来无界内存占用——将过滤下推到
+        存储层（查询期按 tool/ok 过滤 + 按时间分页）为规模演进项，本次
+        不重构存储层，保持查询语义不变。
+        """
         records = await self._storage.list_records(self._collection)
         traces = [ToolTrace.from_dict(r) for r in records]
         if tool is not None:

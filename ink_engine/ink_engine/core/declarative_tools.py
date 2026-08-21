@@ -27,10 +27,11 @@ from dataclasses import dataclass, field
 from enum import StrEnum
 from typing import TYPE_CHECKING, Any
 
-from .exceptions import GraphDefinitionError
+from .exceptions import GraphDefinitionError, SandboxViolation
 from .llm.tools import ToolSpec
 from .logging import get_logger
 from .permissions import NetworkPolicy, NetworkPolicySandbox, PermissionGate, parse_permission
+from .sandbox import FS_OPERATIONS as _FS_GUARDED_OPS
 from .sandbox import FileSandbox, ProcessSandbox
 
 if TYPE_CHECKING:
@@ -334,6 +335,44 @@ class _DefinitionGate:
         )
 
 
+class _AutoDefinitionSandbox:
+    """按调用时定义现取守卫的声明式沙箱（懒解析接线）。
+
+    构建期快照问题：若在构建流水线后 register_definition 新工具，快照
+    沙箱不含其守卫（file_ops 无根目录边界、process_exec 无命令白名单
+    时仅靠权限 pattern 约束，纵深防御被削弱）。本沙箱在每次校验时从
+    执行体注册表现取定义构造守卫：事后注册的定义立即获得硬边界，且
+    守卫语义与构建期接线等价（定义即权威）。
+    """
+
+    def __init__(self, executors: DeclarativeToolExecutors) -> None:
+        self._executors = executors
+
+    def guards_operation(self, operation: str) -> bool:
+        # 守卫域由定义端点决定：process_exec → exec；file_ops → FS 操作
+        return operation in ("exec",) or operation in _FS_GUARDED_OPS
+
+    def validate(self, operation: str, target: str) -> str | None:
+        for definition in self._executors.definitions.values():
+            if definition.endpoint is EndpointType.PROCESS_EXEC and operation == "exec":
+                sandbox = ProcessSandbox(
+                    allowlist=tuple(definition.endpoint_config["allowlist"]),
+                    path=definition.endpoint_config.get("path"),
+                )
+                sandbox.validate(operation, target)
+                return target
+            if (
+                definition.endpoint is EndpointType.FILE_OPS
+                and operation in _FS_GUARDED_OPS
+            ):
+                sandbox = FileSandbox(root=definition.endpoint_config["root"])
+                resolved = sandbox.validate(operation, target)
+                return resolved if resolved is not None else target
+        raise SandboxViolation(
+            f"无声明式定义守卫操作 {operation!r}（目标 {target!r} 无沙箱边界）"
+        )
+
+
 def build_declarative_pipeline(
     executors: DeclarativeToolExecutors,
     *,
@@ -355,10 +394,10 @@ def build_declarative_pipeline(
     默认策略（未声明权限/未命中 = 拒绝）兜底；判定一律按**定义声明的
     权限**（:class:`_DefinitionGate` 包装，调用方 spec 权限不参与）；
     沙箱自动接线：http_fetch 经 ``network_policy`` 并入域名白名单，
-    process_exec/file_ops 从各自 endpoint_config 自动构造
-    :class:`ProcessSandbox`/:class:`FileSandbox`（白名单/根目录在定义
-    期强制声明，缺声明注册即拒绝）——三类端点全部有对应守卫，判定
-    目标推导失败恒 fail-closed 拒绝。
+    process_exec/file_ops 由 :class:`_AutoDefinitionSandbox` 按调用时
+    定义现取守卫（白名单/根目录在定义期强制声明，缺声明注册即拒绝；
+    事后注册的新定义同样立即获得守卫）——三类端点全部有对应守卫，
+    判定目标推导失败恒 fail-closed 拒绝。
     """
     from .tool_pipeline import ToolPipeline
 
@@ -372,19 +411,7 @@ def build_declarative_pipeline(
             else NetworkPolicySandbox(allow_domains=network_policy.allow_domains)
         )
         sandboxes = (*sandboxes, sandbox)
-    auto_sandboxes: list[Any] = []
-    for definition in executors.definitions.values():
-        if definition.endpoint is EndpointType.PROCESS_EXEC:
-            auto_sandboxes.append(
-                ProcessSandbox(
-                    allowlist=tuple(definition.endpoint_config["allowlist"])
-                )
-            )
-        elif definition.endpoint is EndpointType.FILE_OPS:
-            auto_sandboxes.append(
-                FileSandbox(root=definition.endpoint_config["root"])
-            )
-    sandboxes = (*sandboxes, *auto_sandboxes)
+    sandboxes = (*sandboxes, _AutoDefinitionSandbox(executors))
 
     return ToolPipeline(
         gate=gate,

@@ -25,6 +25,7 @@ from dataclasses import dataclass
 from typing import Any
 
 from .approval import (
+    DECISION_EDIT,
     DECISION_REJECT,
     DECISION_TERMINATE,
     ApprovalDecision,
@@ -169,37 +170,77 @@ class ToolPipeline:
             operation, target = op_target
 
         # ── 调用前策略：权限门禁（review 委托挂卡审批）──
+        # edit 决议的编辑内容须重走校验链：宿主编辑可能改写工具参数
+        # （路径/命令），绕过已校验的沙箱边界——编辑内容（dict 形态）
+        # 作为新 args 重新提取判定目标并重过权限门禁，校验对象 =
+        # 执行对象。编辑轮次限 1 次（二次编辑 = 拒绝，防挂卡死循环）。
         approval: ApprovalDecision | None = None
-        if self.gate is not None and operation is not None:
-            verdict = self.gate.check(
-                spec.name, operation, target, permissions=spec.permissions
-            )
-            if verdict.decision == _ALLOW:
-                pass
-            elif verdict.decision == _REVIEW:
-                approval = await approve_before_execute(
-                    ctx,
-                    f"gate:{spec.name}",
-                    {"tool": spec.name, "args": args},
+        for _edit_round in range(2):
+            if self.gate is not None and operation is not None:
+                verdict = self.gate.check(
+                    spec.name, operation, target, permissions=spec.permissions
                 )
-                if approval.decision in (DECISION_REJECT, DECISION_TERMINATE):
+                if verdict.decision == _ALLOW:
+                    pass
+                elif verdict.decision == _REVIEW:
+                    approval = await approve_before_execute(
+                        ctx,
+                        f"gate:{spec.name}",
+                        {"tool": spec.name, "args": args},
+                    )
+                    if approval.decision in (DECISION_REJECT, DECISION_TERMINATE):
+                        await self._audit(
+                            ctx,
+                            {"tool": spec.name, "operation": operation, "decision": approval.decision, "reason": approval.reason},
+                        )
+                        return await _finish(
+                            ToolResult(ok=False, decision=approval.decision, approval=approval, error=approval.reason or "审批未通过")
+                        )
+                    if approval.decision == DECISION_EDIT:
+                        edited = approval.edited_content
+                        if not isinstance(edited, dict) or _edit_round >= 1:
+                            reason = (
+                                "edit 决议内容无法重新校验"
+                                "（须为参数对象且仅允许一次编辑），拒绝执行"
+                            )
+                            await self._audit(
+                                ctx,
+                                {"tool": spec.name, "operation": operation, "decision": "deny", "reason": reason},
+                            )
+                            return await _finish(
+                                ToolResult(ok=False, decision=DENY, approval=approval, error=reason)
+                            )
+                        # 编辑内容作为新参数重走提取器：判定目标可能改变
+                        # （改写路径/命令），沙箱守卫必须对编辑后目标生效
+                        new_args = edited
+                        op_target = (
+                            self.extractor(spec, new_args)
+                            if self.extractor is not None
+                            else None
+                        )
+                        if op_target is None:
+                            reason = "edit 决议内容无法提取判定目标，拒绝执行（fail-closed）"
+                            await self._audit(
+                                ctx,
+                                {"tool": spec.name, "operation": operation, "decision": "deny", "reason": reason},
+                            )
+                            return await _finish(
+                                ToolResult(ok=False, decision=DENY, approval=approval, error=reason)
+                            )
+                        args = new_args
+                        operation, target = op_target
+                        continue  # 重走权限门禁（编辑后目标重新判定）
+                else:
+                    # DENY 与任何未知 decision：一律拒绝（fail-closed——未知
+                    # 判定值不得静默落到"继续执行"）
                     await self._audit(
                         ctx,
-                        {"tool": spec.name, "operation": operation, "decision": approval.decision, "reason": approval.reason},
+                        {"tool": spec.name, "operation": operation, "decision": "deny", "reason": verdict.reason or f"未命中的权限判定: {verdict.decision!r}"},
                     )
                     return await _finish(
-                        ToolResult(ok=False, decision=approval.decision, approval=approval, error=approval.reason or "审批未通过")
+                        ToolResult(ok=False, decision=DENY, error=verdict.reason or "权限拒绝")
                     )
-            else:
-                # DENY 与任何未知 decision：一律拒绝（fail-closed——未知
-                # 判定值不得静默落到"继续执行"）
-                await self._audit(
-                    ctx,
-                    {"tool": spec.name, "operation": operation, "decision": "deny", "reason": verdict.reason or f"未命中的权限判定: {verdict.decision!r}"},
-                )
-                return await _finish(
-                    ToolResult(ok=False, decision=DENY, error=verdict.reason or "权限拒绝")
-                )
+            break
 
         # ── 沙箱守卫（校验结果回写执行参数：执行对象 = 校验对象）──
         resolved_target: str | None = None

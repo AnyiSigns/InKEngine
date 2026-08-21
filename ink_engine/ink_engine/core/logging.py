@@ -62,9 +62,55 @@ class JsonFormatter(logging.Formatter):
         return json.dumps(payload, ensure_ascii=False, default=str)
 
 
+class _RedactFilter(logging.Filter):
+    """logger 级强制脱敏 Filter：消息内容中的敏感形态统一遮蔽。
+
+    下沉到 logger 层（而非仅 JsonFormatter）——引擎 logger 无论宿主挂
+    何种 handler/formatter（宿主接管日志、basicConfig、自挂 StreamHandler
+    等）都强制 redact，敏感信息不因格式化差异明文落盘。filter 在 logger
+    层应用后 record.msg/record.args 已被遮蔽，下游所有 handler 看到的
+    都是脱敏文本。
+
+    对 args 逐元素脱敏（保持 % 格式化占位符与参数对齐——整体 str()
+    替换会破坏 logging 的惰性格式化）。
+    """
+
+    def filter(self, record: logging.LogRecord) -> bool:
+        try:
+            if isinstance(record.msg, str):
+                record.msg = redact(record.msg)
+            elif isinstance(record.msg, (dict, list)):
+                record.msg = redact(
+                    json.dumps(record.msg, ensure_ascii=False, default=str)
+                )
+            if record.args:
+                if isinstance(record.args, dict):
+                    record.args = {
+                        k: (redact(v) if isinstance(v, str) else v)
+                        for k, v in record.args.items()
+                    }
+                else:
+                    record.args = tuple(
+                        redact(arg) if isinstance(arg, str) else arg
+                        for arg in record.args
+                    )
+        except Exception:
+            pass  # 失败安全：遮蔽异常不阻断日志
+        return True
+
+
+_REDACT_FILTER = _RedactFilter()
+
+
 def get_logger(name: str) -> logging.Logger:
-    """获取引擎日志器（标准库语义：不抢占 handler/级别/propagate）。"""
+    """获取引擎日志器（标准库语义：不抢占 handler/级别/propagate）。
+
+    强制挂载脱敏 Filter：所有引擎 logger（含宿主接管日志路径）的消息
+    都经敏感形态遮蔽后才进入 handler 链。
+    """
     logger = logging.getLogger(name)
+    if _REDACT_FILTER not in logger.filters:
+        logger.addFilter(_REDACT_FILTER)
     if not logger.handlers:
         logger.addHandler(logging.NullHandler())
     return logger

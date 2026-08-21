@@ -30,7 +30,17 @@ SENSITIVE_KEYS: frozenset[str] = frozenset(
 # 注意：启发式为保守剥离——任何以 _key/_token/_secret/_password 结尾的
 # 非凭据字段也会被置空（当前 state 通道无此形态键；未来新增通道若属
 # 业务数据且恰以此后缀命名，须在 SENSITIVE_KEYS 之外显式豁免）。
-_SENSITIVE_SUFFIXES: tuple[str, ...] = ("_key", "_token", "_secret", "_password")
+_SENSITIVE_SUFFIXES: tuple[str, ...] = (
+    "_key",
+    "_token",
+    "_secret",
+    "_password",
+    "_keys",
+    "_tokens",
+    "_secrets",
+    "_passwords",
+    "_credentials",
+)
 
 
 def is_sensitive_key(key: Any) -> bool:
@@ -81,6 +91,8 @@ def strip_sensitive(value: Any) -> Any:
     if isinstance(value, tuple):
         out = tuple(strip_sensitive(item) for item in value)
         return out if any(o is not v for o, v in zip(out, value, strict=True)) else value
+    if isinstance(value, set):
+        return {strip_sensitive(item) for item in value}
     return value
 
 

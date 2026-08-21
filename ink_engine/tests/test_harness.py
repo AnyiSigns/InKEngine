@@ -7,6 +7,8 @@
 """
 from __future__ import annotations
 
+import os
+
 import pytest
 from conftest import make_engine
 
@@ -55,7 +57,10 @@ def _harness(
                 "parameters": {},
                 "permissions": ["process:exec:git"],
                 "endpoint": "process_exec",
-                "endpoint_config": {"allowlist": ["git"]},
+                "endpoint_config": {
+                    "allowlist": ["git"],
+                    "path": os.environ.get("PATH"),
+                },
             }
         ],
         schema={"channels": {"seen": None}},
@@ -253,7 +258,7 @@ async def test_build_pipeline_runs_declarative_tool(memory_storage):
     pipeline = registry.build_pipeline(
         "plotter",
         gate=PermissionGate(),
-        sandboxes=(ProcessSandbox(allowlist=("git",)),),
+        sandboxes=(ProcessSandbox(allowlist=("git",), path=os.environ.get("PATH")),),
     )
 
     class Ctx:

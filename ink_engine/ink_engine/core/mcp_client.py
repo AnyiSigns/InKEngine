@@ -27,6 +27,7 @@
 from __future__ import annotations
 
 import asyncio
+import inspect
 from collections.abc import Callable
 from contextlib import AsyncExitStack
 from dataclasses import dataclass, field
@@ -88,17 +89,18 @@ def _require_mcp():
 
 
 # mcp SDK 1.x 与 2.x 的 http 客户端导入名与签名差异（2.x 改名
-# streamable_http_client 且 headers 改经 http_client 注入）
+# streamable_http_client 且 headers 改经 http_client 注入）。仅解析可调用名，
+# 实际形态以运行时签名检测（http_client 参数存在与否），不依赖函数名下划线
 try:
     from mcp.client.streamable_http import streamablehttp_client
-
-    _HTTP_CLIENT_2X = False
 except ImportError:
     from mcp.client.streamable_http import (
         streamable_http_client as streamablehttp_client,  # type: ignore[no-redef]
     )
 
-    _HTTP_CLIENT_2X = True
+# 双版本兼容：以运行时签名检测 API 形态（不依赖函数名下划线）—— 含 http_client
+# 参数即 2.x（headers 经 httpx 客户端注入），否则 1.x（streamablehttp_client(url, headers=...)）
+_HTTP_CLIENT_2X = "http_client" in inspect.signature(streamablehttp_client).parameters
 
 
 @dataclass(frozen=True, slots=True)
@@ -133,7 +135,15 @@ class McpServerConfig:
     signature: str | None = None
     server_factory: ServerFactory | None = field(default=None, repr=False)
 
-    def to_dict(self) -> dict[str, Any]:
+    def to_dict(self, *, redact_credentials: bool = False) -> dict[str, Any]:
+        """序列化（可持久化进集数据通道）。
+
+        Args:
+            redact_credentials: True = 凭据字段（headers/env 中的鉴权值）
+                以 [REDACTED] 占位——持久化/审计等不恢复连接形态的落库
+                路径应显式传 True，避免鉴权 token 明文留存；配置往返
+                （需还原重连）保持 False。
+        """
         data: dict[str, Any] = {
             "id": self.id,
             "transport": self.transport.value,
@@ -142,13 +152,21 @@ class McpServerConfig:
         if self.url:
             data["url"] = self.url
         if self.headers:
-            data["headers"] = dict(self.headers)
+            data["headers"] = (
+                {k: ("[REDACTED]" if v else v) for k, v in self.headers.items()}
+                if redact_credentials
+                else dict(self.headers)
+            )
         if self.command:
             data["command"] = self.command
         if self.args:
             data["args"] = list(self.args)
         if self.env:
-            data["env"] = dict(self.env)
+            data["env"] = (
+                {k: ("[REDACTED]" if v else v) for k, v in self.env.items()}
+                if redact_credentials
+                else dict(self.env)
+            )
         if self.signature:
             data["signature"] = self.signature
         return data
@@ -317,9 +335,11 @@ class _SdkSession(McpSessionHandle):
                     raise McpToolImportError(
                         f"MCP server {config.id} 的 http 传输缺 url"
                     )
-                if _HTTP_CLIENT_2X:
-                    # mcp SDK 2.x：headers 经 httpx 客户端注入（transport 不接
-                    # headers 参数）；客户端随退出栈统一回收
+                # 双版本兼容：以运行时签名检测 API 形态（不依赖函数名下划线）
+                # —— 含 http_client 参数即 2.x（headers 经 httpx 客户端注入），
+                # 否则 1.x（streamablehttp_client(url, headers=...)）
+                sig = inspect.signature(streamablehttp_client)
+                if "http_client" in sig.parameters:
                     import httpx
 
                     http_client = (
@@ -333,7 +353,6 @@ class _SdkSession(McpSessionHandle):
                         streamablehttp_client(config.url, http_client=http_client)
                     )
                 else:
-                    # mcp SDK 1.x：streamablehttp_client(url, headers=...)
                     client_kwargs: dict[str, Any] = {}
                     if config.headers:
                         client_kwargs["headers"] = config.headers

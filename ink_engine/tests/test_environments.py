@@ -7,6 +7,8 @@
 """
 from __future__ import annotations
 
+import os
+
 import pytest
 
 from ink_engine.core.environments import (
@@ -22,6 +24,9 @@ from ink_engine.core.environments import (
 )
 from ink_engine.core.exceptions import GraphDefinitionError
 from ink_engine.core.sandbox import ProcessSandbox
+
+# 测试沙箱注入宿主 PATH：裸命令（python）须显式 PATH 才可解析
+_TEST_PATH = os.environ.get("PATH")
 
 
 def test_spec_roundtrip() -> None:
@@ -48,7 +53,7 @@ def test_spec_rejects_invalid() -> None:
 
 
 async def test_local_ensure_ready(tmp_path) -> None:
-    sandbox = ProcessSandbox(allowlist=("python",))
+    sandbox = ProcessSandbox(allowlist=("python",), path=_TEST_PATH)
     provider = LocalProvider(sandbox, envs_dir=tmp_path / "envs")
     spec = EnvironmentSpec(name="py", runtime=RuntimeKind.LOCAL, tools=("python",))
     handle = await provider.ensure(spec)
@@ -83,7 +88,7 @@ async def test_local_install_outside_allowlist_rejected(tmp_path) -> None:
 
 
 async def test_local_run_passthrough_sandbox(tmp_path) -> None:
-    sandbox = ProcessSandbox(allowlist=("python",), timeout=5.0)
+    sandbox = ProcessSandbox(allowlist=("python",), timeout=5.0, path=_TEST_PATH)
     provider = LocalProvider(sandbox, envs_dir=tmp_path / "envs")
     handle = await provider.ensure(
         EnvironmentSpec(name="py", runtime=RuntimeKind.LOCAL, tools=("python",))
@@ -119,7 +124,7 @@ async def test_local_spec_change_rebuilds_instance(tmp_path) -> None:
 
 async def test_local_run_limited_to_env_workdir(tmp_path) -> None:
     # 运行命令工作目录限定在 envs/<name>（沙箱副本 cwd 注入）
-    sandbox = ProcessSandbox(allowlist=("python",), timeout=5.0)
+    sandbox = ProcessSandbox(allowlist=("python",), timeout=5.0, path=_TEST_PATH)
     provider = LocalProvider(sandbox, envs_dir=tmp_path / "envs")
     handle = await provider.ensure(
         EnvironmentSpec(name="py", runtime=RuntimeKind.LOCAL, tools=("python",))
@@ -136,7 +141,7 @@ async def test_local_actions_audited_when_storage_injected(tmp_path) -> None:
     from ink_engine.core.storage import create_storage
 
     storage = create_storage("memory://")
-    sandbox = ProcessSandbox(allowlist=("python",), timeout=5.0)
+    sandbox = ProcessSandbox(allowlist=("python",), timeout=5.0, path=_TEST_PATH)
     provider = LocalProvider(sandbox, envs_dir=tmp_path / "envs", storage=storage)
     handle = await provider.ensure(
         EnvironmentSpec(name="py", runtime=RuntimeKind.LOCAL, tools=("python",))

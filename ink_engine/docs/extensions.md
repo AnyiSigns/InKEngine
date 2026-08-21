@@ -7,17 +7,18 @@
 
 | 扩展点 | 定义（引擎） | 实现（复用者/宿主） | 消费（引擎） |
 |---|---|---|---|
-| 自定义节点 | `graph.Node`/`NodeRegistry` | 注册节点函数/类 | 执行循环按名取节点 |
-| 自定义边 | `graph.Edge`/`EdgeRegistry` | 注册边函数 | 执行循环条件边判定 |
+| 自定义节点/边 | `graph.Node`/`NodeRegistry`/`EdgeRegistry` | 注册节点/边函数 | 执行循环按名取节点/条件判定 |
 | 执行预算策略 | `budget.BudgetPolicy` | 注册策略类 | 节点边界检查终止 |
 | LLM 厂商适配器 | `llm.registry` | `register_adapter` 注册适配器类 | 配置 adapter 字段驱动选择 |
-| 模型 fallback 链 | `llm.fallback.ModelChain` | 配置备用模型列表 | 瞬时故障重试/切换 |
+| 模型 fallback 链 | `llm.fallback.ModelChain`/`tiers.build_tier_chain` | 配置备用模型列表/挡位 | 瞬时故障重试/切换 |
 | 存储后端 | `storage.Storage` | 实现协议（memory/sqlite/postgres） | 全部持久化通道 |
 | 事件传输 | `events`（EngineTransport） | 实现传输 | 事件流产出 |
 | 记忆存储/召回 | `memory.MemoryStore`/`MemoryRecallPolicy` | 实现协议 | 记忆通道读写/召回 |
-| 建图注册表 | `registry.GraphRegistries`（NodeTypeRegistry + EdgeRegistry） | 注册节点/边类型（数据形态解析） | 图定义数据重建/计划条件解析 |
+| 建图注册表 | `registry.GraphRegistries` | 注册节点/边类型（数据形态解析） | 图定义数据重建/计划条件解析 |
 | harness 定义/仓库 | `harness.HarnessRegistry`/`HarnessRepository` | 注册/保存定义（图数据 + 工具清单） | 能力路由/建图/版本回退 |
 | 声明式工具 | `declarative_tools`/`tool_pipeline` | 声明工具定义 + 端点执行体注册 | 全流水线执行（门禁→沙箱→守卫→审批→审计） |
+| 工具可信度闸门 | `tool_vetting.ToolVetting` | 提供 ToolManifest/静态钩子/影子运行 | 外部工具导入过滤 |
+| MCP 外部生态 | `mcp_client.McpClientManager`/`McpServerConfig` | 提供 server 配置（http/stdio/in_memory） | 工具导入/调用/会话生命周期 |
 | 计划编排 | `plan.Plan` | 节点返回 `__plan__` 清单 | 执行一段后重规划 |
 | 推演评估 | `simulation.Evaluator`/`BranchMixer` | 注入评估器与调配策略 | 分支择优提交主线 |
 | 规则 DSL | `rules.RuleTypeRegistry`/`RuleEngine` | 注册谓词 + 规则集数据 | 声明式校验/状态转换执行 |
@@ -32,13 +33,19 @@
 | 输入调配 | `assembly.InputAssembler`/`AssemblyConfig` | 配置预算占比/开关；节点经 `ctx.assemble` 调用 | 多源统一调配 + 激活留痕 |
 | 上下文调配 | `context.BudgetAllocator`/`FusionHook` | 换分配策略/注册融合钩子 | `ContextMixer` 装配 |
 | 压缩策略 | `context.CompressionPolicy` | 换策略类（默认 ThresholdCompressionPolicy） | 组装时降级选择 |
-| 世界状态校验 | `seeds.novel.ruleset.check_world_state_rules` | 注入世界状态视图（JSON 数据）+ 可选 LLM 钩子 | 写时校验（规则集 + 领域谓词） |
+| 事件类型数据化 | `event_types.EventTypeSpec`/`EventTypeRegistry` | 注册事件类型（schema/renderer/system） | 发射校验/前端渲染接线 |
+| 界面描述数据化 | `ui_schema.UISpec`/`UISchemaValidator` | 声明布局树（三层白名单） | UIRenderer 契约渲染 |
+| 自指演化 | `self_proposal`/`self_application` | 宿主扩展经 `SelfToolContext` 钩子 + apply 目标注册 | 提案校验/分级审批/补丁链/审计/回退 |
+| 领域校验语义 | 产品侧规则数据 + 谓词 | 注入世界状态视图（JSON 数据）+ 可选 LLM 钩子 | 写时校验（规则集 + 注册谓词） |
 | 门控分级/卡模型 | `core.review_card` | 注册表 + 校验器 | 卡回路 |
 | 工具权限声明 | `core.permissions.PermissionGate` | `ToolSpec.permissions` + `default_policy`（宿主配置） | 流水线调用前判定 |
 | 网络策略 | `core.permissions.NetworkPolicy` | 白名单域名（宿主配置） | 权限判定 |
 | 沙箱守卫 | `core.sandbox.FileSandbox`/`ProcessSandbox` | 装配 `ToolPipeline.sandboxes` | `validate` 校验 |
 | 工具执行流水线 | `core.tool_pipeline.ToolPipeline` | extractor/guards/executor/audit 钩子 | 全环节装配执行 |
 | 审批决议策略 | `core.approval.InterruptPolicy` | 换策略类（`DefaultInterruptPolicy`） | `approve_before_execute`/`approve_batch` |
+| 环境提供器 | `environments.EnvironmentProvider` | 实现提供器（local/web_bridge） | 环境安装/运行/审计 |
+| 构建管线 | `builder.Builder`/`BuildSpec` | 提供构建命令（沙箱白名单内） | 产物构建/冒烟/验证 |
+| 运行时装配 | `runtime.Host`/`AssemblyRecipe` | 五件套 + 装配配方数据 | Runtime 生命周期/引擎重建 |
 
 ## 1. 自定义节点/边（图执行）
 
@@ -75,9 +82,12 @@ class MyVendorLLM(AsyncLLM):  # 实现 ainvoke/astream
 register_adapter("my_vendor", MyVendorLLM)  # 配置 {"adapter": "my_vendor"} 驱动选择
 ```
 
-内置：`openai_compat`（规范名）+ openai/deepseek/zhipu/moonshot/ollama 别名
-（同指 OpenAI 兼容类）；DashScope 走 compatible-mode 端点。未知适配器
-显式报错（不静默回退，防配错白跑）。
+内置：`openai_compat`（规范名）+ openai/deepseek/zhipu/moonshot/ollama
+别名（同指 OpenAI 兼容类）；DashScope 走 compatible-mode 端点
+（改 base_url，不入 chat 注册表；embeddings 注册表另含 dashscope）。
+未知适配器显式报错（不静默回退，防配错白跑）；适配器构造惰性（缺
+httpx 时才提示）。流式增量统一为 `LLMChunk`（token/reasoning_token/
+tool_calls_delta/finish_reason/usage），厂商差异收敛在适配器内。
 
 ## 3. 存储/传输后端
 
@@ -87,13 +97,17 @@ from ink_engine.core.storage import Storage, create_storage
 # 内置三后端：memory:// / sqlite:///path / postgresql://user:pass@host/db
 storage = create_storage("sqlite:///./demo.db")
 
-# 自定义后端：实现 Storage 协议（get/put/append/list_records/checkpoint 系列）
+# 自定义后端：实现 Storage 协议
+# （get_checkpoint/put_checkpoint/chain_index/append_event/events_after/
+#   put_record/list_records/trim_events/delete_checkpoints/…）
 class MyStorage(Storage): ...
 storage = MyStorage(...)
 ```
 
-checkpoint/执行事件日志/records/补丁链/审批卡五通道统一走同一存储服务；
-事件传输接口化（EngineTransport，事件流 = AsyncGenerator）。
+checkpoint 版本链/事件日志/结构化记录（含具名集合 harness/env_audit/
+event_types）统一走同一存储服务；敏感键写入前剥离；并发写保护
+（原子链尾校验 + 乐观锁）。事件传输接口化（EngineTransport，
+事件流 = AsyncGenerator）。
 
 ## 4. 记忆策略
 
@@ -111,19 +125,23 @@ recalled = PriorityRecallPolicy().recall(entries, limit=2)  # 换策略 = 换类
 ## 5. 评审-收敛
 
 ```python
-from ink_engine.core.review import MaxRoundsConvergencePolicy
+from ink_engine.core.review import (
+    ConvergenceResult, MaxRoundsConvergencePolicy,
+)
 
 # 评审器/再生成器由使用方实现协议（core.review 的 Reviewer/Regenerator），
-# 或按领域语义在用户集内以规则/打分器数据承接
-result = await run_review_convergence(
-    candidates,
-    reviewer=MyReviewer(llm=...),     # 实现 Reviewer 协议
-    regenerator=MyRegenerator(llm=...),  # 实现 Regenerator 协议
-    policy=MaxRoundsConvergencePolicy(threshold=0.75, beam=2, max_rounds=2),
-    web_verifier=MyWebVerifier(),  # 评审存疑声明时触发（博查等宿主实现）
-)
+# 或按领域语义在用户集内以规则/打分器数据承接；评审循环由使用方驱动：
+reviews = [await reviewer.review(candidates, context)]     # Reviewer 协议
+policy = MaxRoundsConvergencePolicy(threshold=0.75, beam=2, max_rounds=2)
+while not (decision := policy.decide(reviews, round_no=round_no)).converged:
+    if decision.regenerate_indexes:  # 未达标 → 取 beam 再生成
+        candidates = [await regenerator.regenerate(candidates[i], context)
+                      for i in decision.regenerate_indexes]
+        reviews = [await reviewer.review(candidates, context)]
+result = ConvergenceResult(candidates, decision.converged)
 ```
 
+web 验证钩子（评审存疑声明时触发，宿主实现 `WebVerifier`）。
 评审器/再生成器失败返回中性分/原候选（fail-open），不阻断主流程。
 
 ## 6. 规则 DSL 与样例库
@@ -262,26 +280,43 @@ async def plan(ctx):
 # 激活记录（源/权重/预算/版本快照）随 input_assembly 事件落执行日志
 ```
 
-## 11. 世界状态写时校验（领域种子）
+## 11. 领域校验语义（产品自写规则数据）
+
+领域深度归宿主产品层：领域校验语义 = 规则数据（`Rule` 条目，随知识集
+补丁链版本化）+ 领域谓词（注册进 `RuleTypeRegistry`）+ 样例库（fixture
+全绿为新规则落库的非谈判项，L2 评估基线）。产品侧以「规则集 + 谓词 +
+样例库」三件成对维护：
 
 ```python
-from ink_engine.seeds.novel import novel_seed_registry, novel_seed_fixtures
-from ink_engine.seeds.novel.ruleset import check_world_state_rules
+from ink_engine.core.rules import RuleEngine, RuleSet, RuleTypeRegistry
+from ink_engine.core.knowledge_set import KnowledgeSet, seed_knowledge_set
+from ink_engine.core.knowledge_set import KnowledgeEntry, KIND_RULE, SOURCE_MODEL
 
-# 世界状态 = JSON 兼容视图（与样例库用例同构）；校验语义 = 规则集数据
-issues = await check_world_state_rules(
-    world_view,                  # dict：characters/knowledge/events/causal_links/foreshadowings
-    text=chapter_text,
-    character_id="c1",
-    fact_ids=["f_secret"],       # 信息差输入
-    at_chapter=5,
-)
-# 新规则落库前必须过样例库（novel_seed_fixtures 全绿，非谈判项）
+# 1) 领域谓词注册（产品实现，注册进规则注册表）
+def pred_gap(target, config, context): ...      # 如：信息差校验
+registry = RuleTypeRegistry()
+registry.register("knowledge_gap", pred_gap)
+
+# 2) 领域规则 = 数据（规则条目注入知识集，可随补丁链演化/回退）
+entries = [
+    KnowledgeEntry(
+        id="seed.product.rule.knowledge_gap", kind=KIND_RULE,
+        data={"rule": {"id": "knowledge_gap", "kind": "rule",
+                       "predicate": "knowledge_gap", "target_path": "knowledge"}},
+        source=SOURCE_MODEL, credibility=0.9,
+    ),
+]
+seed_knowledge_set(ks, entries)   # 注入（幂等）
+
+# 3) 样例库（fixture 全绿才允许新规则落库，非谈判项）
+fixtures = FixtureSet(name="product", cases=(...))
+assert_fixtures_pass(rule_set, fixtures)
 ```
 
-领域谓词注册表随种子发布（`novel_seed_registry()`）；世界状态运行时
-（提取/应用/涟漪）由使用方按领域语义实现或经知识集规则承接，引擎
-只承载「规则数据 + 注册谓词 + 校验入口」。
+规则数据与谓词执行件绑定：`RuleSet.parse` 建期拒绝未知谓词（不静默），
+L1 最小功能测试要求规则可加载——谓词不注册 = 规则无法执行。世界状态
+运行时（提取/应用/涟漪）由产品按领域语义实现，引擎只承载「规则数据 +
+注册谓词 + 校验入口」机制。
 
 ## 12. 钩子与策略接口汇总
 
@@ -361,6 +396,154 @@ False = 直过，`timeout_for` 给出审批窗口）；超时后重入一律 rej
 fail-closed 兜底；挂起卡随 interrupt checkpoint 持久化，与执行中
 cancel 语义互不干扰。
 
+**声明式工具**（`core/declarative_tools.py`，端点受限 + 权限强制）：
+
+```python
+from ink_engine.core.declarative_tools import (
+    DeclarativeToolSpec, DeclarativeToolExecutors, EndpointType,
+    build_declarative_pipeline, endpoint_operation, make_http_fetch_executor,
+)
+
+spec = DeclarativeToolSpec(
+    name="fetch_docs",
+    description="受控抓取文档（域名白名单内）",
+    parameters={"type": "object", "properties": {"url": {"type": "string"}}},
+    permissions=("network:connect:*.example.com",),   # 权限强制非空（建表期）
+    endpoint=EndpointType.HTTP_FETCH,
+    endpoint_config={},              # http_fetch 无需额外声明
+    meta={"source": "host"},
+)
+executors = DeclarativeToolExecutors()
+executors.register_definition(spec)
+executors.register(EndpointType.HTTP_FETCH, make_http_fetch_executor())  # 或自写
+
+pipeline = build_declarative_pipeline(executors)  # 自动接线 NetworkPolicy 沙箱
+result = await pipeline.execute(ctx, spec.to_spec(), {"url": "https://x.example.com/a"})
+```
+
+端点类型与定义期必填：`http_fetch`（域名白名单经 NetworkPolicySandbox）、
+`process_exec`（须声明 allowlist，ProcessSandbox 白名单）、`file_ops`
+（须声明 root，FileSandbox 根目录）、`mcp`（须声明 server_id，见 16 节）。
+判定目标 `endpoint_operation(endpoint, args, config)` 返回
+`(operation, target)`，无法判定返回 None → 流水线 fail-closed 拒绝；
+**判定一律按定义声明的权限**（调用方 spec 不参与，封「伪造宽松权限」窗口）。
+
+## 14. 领域知识数据化（产品侧契约）
+
+领域深度归宿主产品层，产品以「规则数据 + 谓词 + 样例库」三件成对维护
+（见第 11 节）。数据化契约要点：
+
+- **规则条目**（kind=rule，`data.rule` 与规则 DSL 声明同构）注入知识集
+  （`seed_knowledge_set`，幂等）——校验语义 = 数据，可随补丁链版本化/
+  回退/导出导入，可被孵化机制演化（信号蒸馏 → 三层闸门 → 落库）；
+- **样例库**（fixture 全绿 = 新规则落库的非谈判项，L2 评估基线）——
+  与规则数据成对维护，数据改动不破坏契约（建期解析 + 样例可加载）；
+- **schema 基座**（L1 准入与视图校验口径）与**默认编排模板**（图定义
+  数据）按产品需要声明；
+- **谓词注册**：`RuleTypeRegistry.register`（产品实现），谓词不注册 =
+  规则无法执行（`RuleSet.parse` 建期拒绝未知谓词，不静默）。
+
+**语言无关形态**（MCP 生态实验 `examples/ts_seed_pack/` +
+`examples/ts_seed_demo.py`）：知识条目为纯 JSON 数据，执行件以 MCP
+server 形态跨语言交付——TypeScript/JavaScript 零依赖手写 JSON-RPC
+over stdio（`server.mjs`），引擎经 `McpServerConfig`（stdio 传输）挂载，
+工具进工具表走统一流水线（权限 `mcp:call:<id>` 与端点判定匹配默认
+放行 + 审计留痕）。Python 是引擎的实现语言，契约（JSON 数据形态 +
+MCP 协议）语言无关——Rust/TS 等任意语言均可交付「数据 JSON + MCP
+执行件」形态的领域能力。
+
+## 15. 自指演化扩展点（观察 → 提案 → 应用 → 回退）
+
+引擎形态 = 补丁链数据，宿主不须自带元工具实现；扩展点：
+
+```python
+from ink_engine.core.self_tools import (
+    SelfToolContext, make_self_executor, operation_of, self_tool_specs,
+)
+from ink_engine.core.self_application import (
+    ApprovalLevel, ApplyTarget, SelfApplicationPipeline,
+)
+
+# 1) 元工具契约：4 契约工具 + 5 观察工具随机制层走补丁链（无需宿主实现）
+# 2) 宿主扩展钩子（如种子沉淀）：
+class MyHarvestHook:
+    async def __call__(self, ctx: SelfToolContext, payload: dict) -> dict: ...
+
+# 3) apply 目标（活跃态应用钩子）：
+class MyApplyTarget(ApplyTarget):
+    async def apply(self, kind, payload): ...      # 重启装配恢复语义由宿主负责
+    async def revert(self, kind, patch_id): ...
+
+recipe = AssemblyRecipe(
+    tool_wiring=ToolWiring(
+        self_specs=self_tool_specs,
+        self_executor_factory=make_self_executor,
+        self_operation_of=operation_of,
+    ),
+    approval_levels={                       # 分级审批表（L0 直过/L1 弹卡/L2 沙箱）
+        PatchKind.THEME: ApprovalLevel.L0,
+        PatchKind.TOOL: ApprovalLevel.L1,
+        PatchKind.ARTIFACT: ApprovalLevel.L2,
+    },
+    apply_targets={"knowledge": my_apply_target},
+    vetting_l2_hook=my_l2_vetting_hook,     # L2 沙箱验证钩子（无则 L2 fail-closed）
+    on_reverted=my_revert_hook,             # 回退通知
+    convergence_provider=my_convergence,    # apply_patch 前置收敛闸门（Protocol 钩子）
+)
+```
+
+要点：9 类补丁 kind（ui/theme/tool/rule/knowledge/harness/event_type/
+environment/artifact）复用既有校验器；GuardedStorage 拦截演化资产集合
+直写（旁路写 fail-closed）；回退仅链尾单步（存储层强制）；审计
+append-only（`set_audit` 集合）。
+
+## 16. MCP 外部生态挂载
+
+```python
+from ink_engine.core.mcp_client import McpClientManager, McpServerConfig, McpTransport
+from ink_engine.core.tool_vetting import ToolSource
+
+manager = McpClientManager()
+config = McpServerConfig(
+    id="ts_seed",                          # 路由密钥 + 权限域 mcp:call:<id>
+    transport=McpTransport.STDIO,
+    command="node",
+    args=("examples/ts_seed_pack/server.mjs",),
+    source=ToolSource.AI_GENERATED,        # vetting 来源标记
+)
+await manager.connect(config)
+tools = await manager.import_tools(
+    "ts_seed", source=config.source, vetting=my_vetting,
+)  # vetting 仅放行 VERIFIED；REVIEW/REJECTED 不导入（fail-closed）
+```
+
+- 三传输形态：`http`（Streamable HTTP + headers）/ `stdio`（command +
+  args + env）/ `in_memory`（测试注入 server_factory）；
+- 工具权限统一 `mcp:call:<server_id>`（按 server 粒度管控，约定优于
+  配置）；工具转换纯函数（inputSchema 规范化，无 SDK 依赖）；
+- 会话生命周期：connect 重连清理/并发串行化/close_all 优雅回收/
+  register_session 防覆盖；跨 server 工具名冲突防静默改路由；
+- headers/env repr 遮蔽（凭据不进日志）；call_tool 超时与远端 isError
+  包装为结构化失败；未连接/缺 server_id 分发 fail-closed。
+
+## 17. 运行时装配扩展点（Host 契约 + 配方）
+
+完整宿主接入见 `hosts.md`；扩展点速查：
+
+| 配方字段 | 注入内容 |
+|---|---|
+| `seeds` | 种子提供器列表 `(domain, provider)`（boot/novel/…） |
+| `harness_definitions` | harness 定义（图数据 + 工具清单） |
+| `event_type_specs` | 事件类型（前端渲染接线） |
+| `ui_spec` / `ui_allowed_components` / `ui_allowed_theme_tokens` | 界面布局树 + 三层白名单 |
+| `tool_wiring` | 工具三路分发（内省/自指/声明式） |
+| `vetting_static_hooks` / `vetting_l2_hook` | 外部工具 vetting 钩子 |
+| `approval_levels` | 补丁分级审批表（PatchKind → ApprovalLevel） |
+| `retrieval_sources` | 知识检索源（Retriever 注册表） |
+| `apply_targets` | 补丁活跃态应用目标 |
+| `graph_recipe` | 图配方（装配期以 ctx 编译为可执行图） |
+| `on_reverted` / `convergence_provider` | 回退通知 / apply 前置收敛闸门 |
+
 ## 扩展纪律
 
 1. 新增能力优先走扩展点（注册/接口/配置），不改引擎核心；
@@ -368,5 +551,7 @@ cancel 语义互不干扰。
 3. 事件协议演进：payload 增量加字段不破坏（step_id/round_id/parent_step_id
    语义长期稳定）；
 4. 数据/配置 schema 演进：加字段带默认值兼容，废弃字段告警不硬删；
-5. 领域包独立 semver 版本；各包目录物理独立、可单独发布
-   （pyproject 多包布局，搬目录零重构）。
+5. 领域知识数据化形态（规则条目 + 样例库 + 谓词）由产品成对维护，
+   独立版本化；产品壳各目录物理独立、可单独发布；
+6. 机制层改动须过架构门禁（领域词/宿主词零出现、配方注解白名单），
+   并保持样例闸门（fixture 全绿）与 fail-closed 兜底不变式。

@@ -7,172 +7,185 @@ InkEngine 遵循 [语义化版本](https://semver.org/lang/zh-CN/)（`MAJOR.MINO
 - **PATCH**：向后兼容的缺陷修复。
 
 > 存储 schema 不迁移：引擎表结构随版本演进，升级后启动期自检给出删库指令。
+> 当前为 0.1.0 未发布基线（无 git tag），本文件按能力演进记录；发布时补 tag 与逐版本记录。
 
+## 未发布（0.1.0 基线）
 
-### 目录重构（v5 收尾）
+### 机制骨架：自研内核（engine-core）
 
-- **共享组件包并入 core（`ink_engine.components` 目录消亡）**：round_steps/
-  review_card/review 迁为 core 平级模块，domain_window 并入 core/context.py
-  （域窗口投影与上下文调配原语同族）；引用路径更新为 `ink_engine.core.*`。
-- **novel_harness 退役，领域种子落位 `ink_engine/seeds/novel/`**：领域代码
-  全部数据化——规则集 10 条 + 样例库 14 用例 + schema 基座（知识条目/
-  世界观视图口径）+ 默认编排模板（图定义数据）随种子包发布；校验入口
-  `check_world_state_rules` 接受 JSON 兼容世界状态视图（不再依赖领域
-  模型对象）；`domain_novel` 兼容别名层随退役路径一并移除。
-- **工作流约束域接线**：`WorkflowSpec` 成为「可执行的计划空间」——
-  `RunOptions.plan_workflow` 注入后，`__plan__` 节点须落在工作流节点集内
-  （宽松域自由选序），严格序按工作流边序校验（计划不再只看图边约束）。
+- **图定义 DSL + 执行循环**：节点/静态边/条件边/嵌套子图/循环回路/回合终止
+  信号（reply/止损/超限/异常/取消五类终止原因）；节点/边注册表开放；
+  执行预算钩子（BudgetPolicy 节点边界检查终止）。
+- **图即数据**：`Graph.to_dict()/from_dict()` 完整序列化（节点/边以注册名
+  引用，函数直挂节点序列化显式拒绝防静默丢失）；图指纹（sha256）随
+  checkpoint 落库，恢复时校验（不一致抛 GraphVersionMismatchError）。
+- **checkpoint 版本链**：每节点快照 + parent_id 链，恢复 = 快照 + 增量日志
+  重放；回合边界快照锚点；编辑重放 = 日志截断 + 新分支。
+- **通用存储服务**：memory/sqlite/postgres 三后端（连接串切换），
+  checkpoint 版本链/事件日志/结构化记录三通道统一落库，敏感键写入前
+  剥离，并发写保护（原子链尾校验 + 乐观锁）。
+- **事件流**：append-only 执行事件日志 + 传输接口化（EngineTransport）；
+  EngineEvent 含 step_id/round_id/parent_step_id（轨迹树引用）与协议版本化。
+- **interrupt 挂起/注入重入**（弹卡审批一等能力）：InterruptSignal →
+  InterruptState 随 checkpoint 持久化 → 注入值后从该节点重入。
+- **内容型补丁链**：append/replace/delete + assemble full/base_only/partial
+  + rebase/truncate/branch；状态通道 + 字段级 reducer 注册表
+  （add_messages/merge_dicts/merge_metrics/last_value/patch_chain）。
+- **发散并行原语**（部分失败剔除 + 控制流异常传播取消）、域窗口投影/归档
+  摘要、通用状态机原语（转换 = 补丁，append-only 推导）。
+- **LLM 层（可选 extra `[llm]`）**：AsyncLLM 统一协议 + 消息数据类；
+  OpenAI 兼容适配器（自写 SSE 流式解析，零第三方 SDK），
+  openai/deepseek/zhipu/moonshot/ollama 别名；工具 schema 自写转换；
+  reasoning_content 透传；适配器注册机制（未知适配器显式报错）；
+  fallback 链（重试/退避/备用切换/认证失败 fail-closed/取消穿透）；
+  embedding 接口（AsyncEmbedder + OpenAI 兼容适配器）。
+- **记忆/挡位/评审原语**：记忆策略（MemoryStore 协议 + 召回策略 + 存储
+  后端，非破坏性失效）；模型分层挡位（router/tool/main/audit 配置解析/
+  按挡位建链/调用统计钩子）；测试时专才化评审-收敛（评审器/再生成器/
+  web 验证钩子/收敛策略，阈值 + Beam + 轮次上限）。
 
+### 领域原语下沉与声明式化（v5）
 
-### 新增
+- **组件并入 core**：round_steps/review_card/review 迁为 core 平级模块，
+  domain_window 并入 core/context.py；`ink_engine.components` 目录消亡。
+- **novel_harness 退役**：领域代码全部数据化（历史沿革：
+  `ink_engine/ink_engine/seeds/novel/` → 根级 `seeds/novel/` 独立包 →
+  领域种子层整体移除，领域深度归宿主产品层，见「领域层定位收敛」）；
+  `ink_engine.domain_novel` 兼容别名层一并移除。
+- **运行时重规划（Planner Loop）**：新保留键 `__plan__`（节点序列/并行组/
+  条件/spawn 项），引擎执行一段后重规划；计划 = checkpoint 快照字段，
+  随版本链落盘与回滚；与 `__spawn__` 共存（计划 = 流的结构、spawn = 流
+  的展开，可嵌套），同受 max_spawns 护栏与 error_on_exception 配置驱动。
+- **决策点推演-回溯-换选（Simulate）**：新保留键 `__simulate__`，每个
+  分支作为独立子链执行（隔离状态 + 独立 checkpoint 链 + 事件统一父链），
+  评估器协议（Evaluator）打分 + 调配策略（BranchMixer，默认单选最高分）
+  择优提交主线；落选分支保留为轨迹树引用，可回溯对比/换选；分支失败按
+  部分失败语义剔除，全部失败按节点失败收口。
+- **核声明式化（Rules as Data）**：规则 DSL（不变式/校验规则/状态转换
+  规则的声明式数据形态 + 13 个内置谓词 + 样例库机制，fixture 全绿才允许
+  落库为非谈判项）；加权打分器（维度+权重+阈值）；Schema 声明校验器
+  （必填/类型/枚举/范围/正则）。
+- **知识集孵化**：规则条目 = 补丁链数据；五类信号感知（踩坑/用户修正/
+  洞见/流程缺口/重复根因）+ 蒸馏（复用优先于生成，精准补丁 replace 语义）；
+  三层验证闸门（L1 准入 schema+安全扫描+指令注入检测 → L2 完整样例+历史
+  回归 → L3 不差于旧版且至少一维严格优于）；进化工厂（失败率优先入队 +
+  反思式变异 + 变异体过闸门防退化）；分层晋升（工作→项目→用户）+ 可移植
+  （导出/导入）+ 来源留痕与可信度分级。
+- **自适应调优**：回合指标聚合（失败率/评审分/收敛轮数/挡位调用）+ 低分
+  反馈降权 + 参数快照随评估记录落库（调参不改变历史推演的可回放性）。
+- **输入调配管线**：调配器升格为执行循环一等原语（`ctx.assemble` 多源
+  统一调配：上下文+知识+工具+记忆+证据）；统一预算分级分配；激活模式
+  留痕（源/权重/预算/版本快照随 input_assembly 事件落库）；一键开关
+  回退旧路径；能全量则全量，放不下才裁剪。
+- **链级 rebase（checkpoint 版本链行数有界化）**：窗口化压缩（默认
+  keep=256，0 = 禁用），窗口外行删除、每叶路径窗口最旧行改写
+  parent_id=None 成为归档链头；事件日志连带裁剪；新原语
+  `Storage.chain_index`/`delete_checkpoints`/`set_checkpoint_parent`/
+  `trim_events`（三后端）+ `plan_compaction` 纯函数规划 + `maybe_compact_chain`
+  执行（改写先行、删除在后，幂等，失败 fail-open）；恢复/巡检改单次
+  chain_index 取链 + 内存回溯。
+- **harness 动态化**：`__spawn__` subgraph 放宽为「Graph 或可解析的图
+  定义数据」；harness 声明式定义/注册表/补丁链仓库（版本回退可取旧图）；
+  声明式工具创建（只声明 name/description + 参数 schema + 强制权限 +
+  端点类型，执行体经 executor 钩子注册，不生成执行代码）。
+- **工作流约束域**：WorkflowSpec 声明式工作流（节点/边集合）→ 图转换，
+  `RunOptions.plan_workflow` 注入后 `__plan__` 须落在工作流节点集内
+  （宽松域自由选序/严格序按工作流边序校验）。
+- **工具执行环境**：权限门禁（PermissionGate 判定三路 allow/review/deny，
+  默认拒绝，`domain:action:pattern` 权限声明，`..` 路径段拒绝）+
+  文件/进程沙箱（symlink 逃逸检测/写前快照还原/白名单/超时 kill/输出
+  截断/禁 shell/环境清理）+ 执行流水线（提取→门禁→沙箱→守卫→分发→
+  审计→观察）+ 挂卡审批标准姿势（approve_before_execute/approve_batch，
+  决议 accept/edit/reject/terminate/auto，超时/非法注入回落 reject
+  fail-closed）。
+- **链级安全与日志**：敏感键剥离（落库/出网/日志同规格）；结构化 JSON
+  日志 + trace_id 链路追踪（幂等挂载，不抢占宿主日志）。
 
-- **自指层观察原语（`core/introspection.py`）**：内省服务 + 五个 `inspect_*`
+### 自指层与产品壳（Forge）
+
+- **自指层观察原语（core/introspection.py）**：内省服务 + 五个 `inspect_*`
   元工具（图/规则/知识/界面/工具表 JSON 快照），注册进工具表经只读流水线
   执行——恒定信封（graph+digest）、函数节点降级视图带 degraded 标记、
-  默认严重度补全、快照深拷贝、limit 钳制；快照出口统一过敏感键剥离
-  （凭据永不进入模型上下文，与落库通道同规格）。
+  默认严重度补全、快照深拷贝、limit 钳制；快照出口统一过敏感键剥离。
+- **界面数据化（core/ui_schema.py）**：布局树 schema + 组件/绑定通道/
+  主题 token 三层白名单 + 绑定路径保留前缀防内部数据泄漏 + UIRenderer
+  契约。
+- **事件类型数据化（core/event_types.py）**：EventTypeSpec 注册表
+  （schema 校验/宽松发射折叠/随补丁链持久化），system 标记注入
+  RunOptions.system_events 接线。
+- **补丁应用管线（core/self_proposal.py + core/self_application.py）**：
+  9 类补丁类型（ui/theme/tool/rule/knowledge/harness/event_type/
+  environment/artifact）提案校验；分级审批（L0 auto_approve_keys 直过 /
+  L1 弹卡 / L2 沙箱验证 fail-closed / 7 天超时过期回滚）、补丁链
+  append-only + 并发 base 校验 + 链尾单步回退存储层强制、GuardedStorage
+  旁路写拦截（harness/knowledge 前缀全覆盖）、审计 append-only。
+- **构建与环境原语**：core/builder.py（白名单构建 + 产物内容寻址哈希 +
+  冒烟门禁 cwd 限定）；core/environments.py（环境 = 数据，提供器 = 机制：
+  local/web_bridge，安装/运行经沙箱白名单 + env_audit 补丁链留痕）；
+  core/tool_vetting.py（清单校验/静态钩子/影子运行写虚拟化独立副本）；
+  core/retrieval.py（Retriever 注册表 + 指令注入扫描 + 调配器 evidence
+  源接线）。
+- **产品壳 text_forge_evo**：Tauri 前端 + FastAPI 后端 + SSE 传输 +
+  审批容器（跨平台进程锁/11 步装配骨架/introspection 元工具流水线/
+  对话面板/模型引导/文件挂载点沙箱 fail-closed/凭据剥离）；经
+  `[tool.uv.sources]` 以 `../ink_engine` 路径依赖引擎源码，editable 开发。
 
-- **运行时重规划（Planner Loop）**
-  - 新保留键 `__plan__`：节点返回下一跳编排清单（节点序列/并行组/条件/
-    spawn 子任务），引擎执行一段后重规划；计划 = checkpoint 快照字段
-    （随版本链落盘与回滚——回溯决策点时计划与状态一起回到当时版本）；
-  - 与 `__spawn__` 共存语义：计划 = 流的结构、spawn = 流的展开，可嵌套；
-    计划 spawn 步同受 max_spawns 护栏约束、error_on_exception 统一配置驱动。
-- **决策点推演-回溯-换选（Simulate）**
-  - 新保留键 `__simulate__`：关键决策点派生分支清单，引擎把每个分支作为
-    独立子链执行（与 spawn 同构：隔离状态 + 独立 checkpoint 链 + 事件
-    统一父链），评估器协议（`Evaluator`）打分后调配策略（`BranchMixer`，
-    默认单选最高分）择优提交主线——单选或跨分支组装，组装留痕记录
-    「哪部分来自哪个分支」；
-  - 落选分支不销毁：保留为轨迹树引用（`EngineEvent` 新增 `parent_step_id`
-    字段，分支事件指向决策点步骤，协议增量演进不破坏）——可回溯对比/换选；
-  - 分支失败/评估失败按部分失败语义剔除，全部失败按节点失败收口。
-- **核声明式化（Rules as Data）**
-  - 规则 DSL：不变式/校验规则/状态转换规则的声明式数据形态（谓词 =
-    注册函数，规则 = 数据可版本化/回退/导出导入）+ 样例库机制
-    （fixture 全绿才允许落库，非谈判项）；
-  - 加权打分器（维度+权重+阈值可配置）+ Schema 声明校验器
-    （SchemaSpec/SchemaValidator，字段必填/类型/枚举/范围）；
-  - novel_harness 世界状态校验迁移为声明式规则集
-    （`novel_harness/world_state/ruleset.py`，样例库全绿）。
-- **知识集孵化（Knowledge Incubation）**
-  - 知识集封装层：规则条目 = 补丁链数据（演化 = 新补丁、回退 = 旧版本、
-    分支 = 平行版本），种子注入（幂等）+ 演化分层；
-  - 信号感知（五类信号：踩坑/用户修正/洞见/流程缺口/重复根因）+
-    蒸馏（丢弃试错分支、保留成功步骤）+ 精准补丁（replace 语义只改
-    对应段落）；
-  - 三层验证闸门：L1 准入（schema 校验 + 安全扫描 + 指令注入检测）→
-    L2 效果评估（完整样例 + 历史回归，全绿才进下一层）→ L3 目标筛选
-    （不差于旧版且至少一维严格优于才保留，多样性变体并存）；
-  - 进化工厂（失败率优先入队 + 反思式变异 + 变异体过闸门防退化）；
-  - 分层晋升（工作→项目→用户，namespace 迁移，id 跨层级稳定）+ 可移植
-    （补丁链数据导出/导入）+ 复用检索（相似任务命中优先于重新蒸馏）+
-    来源留痕与可信度分级（防 web 注入污染知识集）；
-  - 知识集注入 = 调配器思想复用：知识条目 = ContextSource
-    （type=层级、weight=可信度、relevance=任务相关度、ttl=时效）。
-- **自适应调优（Self-tuning）**
-  - 回合指标聚合纳入引擎自承载（失败率/评审分/收敛轮数/挡位调用）；
-  - 调参器：低分反馈降权（下限保护）+ 失败率/收敛轮数驱动的机制参数
-    调整（重试预算/web 验证阈值/探索宽度）；参数快照随评估记录落库
-    （规则版本 + 权重快照——调参不改变历史推演的可回放性）。
-- **输入调配管线（Input Assembly）**
-  - 调配器升格为执行循环一等原语：节点经 `ctx.assemble` 统一调配
-    （上下文 + 知识集 + 工具 + 记忆 + 证据多源）；
-  - 统一预算分级分配（合计不超调用点总预算）、激活模式留痕
-    （源/权重/预算/版本快照随 input_assembly 事件落库）、一键开关
-    回退旧装配路径；能全量则全量，放不下才裁剪。
-- **链级 rebase（checkpoint 版本链行数维度有界化）**
-  - checkpoint 版本链每节点执行 +1 行、事件日志 append-only，行数随执行
-    线性增长且与快照值大小无关——恢复回溯/巡检为 O(链长) 次逐跳查询，
-    备份/迁移/并发写冲突扫描范围随链长增长。
-  - 方案：链超窗口后压缩历史前缀——窗口外行删除、每叶路径窗口最旧行
-    改写 parent_id=None 成为归档链头（全量快照，锚点状态无丢失；
-    损失窗口外逐节点粒度），链遍历从 O(链长) 降为 O(窗口)；事件日志
-    连带裁剪（<= 归档链头 event_seq 的事件对任何保留锚点不可达）。
-  - 新原语：`Storage.chain_index`（轻量链行索引，单次查询）/`delete_checkpoints`/
-    `set_checkpoint_parent`/`trim_events`（memory/sqlite/postgres 三后端）；
-    `core/chain_rebase.py`：`plan_compaction` 纯函数规划 + `maybe_compact_chain`
-    执行（改写先行、删除在后，失败不产生悬挂父指针，幂等）。
-  - 接线：`RunOptions.checkpoint_keep`（默认 256，0 = 禁用）；顶层
-    run/ainvoke 入口触发（编辑重放 parent_checkpoint 分叉跳过——锚点
-    可能落在窗口外）；spawn 实例独立子链回合收尾同步压缩；压缩失败
-    fail-open（宿主自定义存储缺原语时跳过，功能不受损）。
-  - 恢复/巡检配套：`collect_resume_anchors`/`validate_chain` 改为单次
-    chain_index 取链 + 内存回溯（消除逐跳串行重查询）。
-- **内核（engine-core）**
-  - 图定义 DSL + 执行循环：节点/静态边/条件边/嵌套子图/循环回路/回合终止
-    信号（reply/止损/超限/异常四类终止原因）；节点/边注册表开放；
-    执行预算钩子（BudgetPolicy 节点边界检查终止）。
-  - **图即数据**：`Graph.to_dict()/from_dict()` 完整序列化（节点/边以
-    注册名引用，需节点注册表 + 边注册表）；图指纹（sha256）随 checkpoint
-    落库，恢复时校验（不一致抛 GraphVersionMismatchError）；图定义数据
-    注册路径（校验 + 编译，注册期暴露非法定义）。
-  - 状态通道 + 字段级 reducer 注册表（add_messages/merge_dicts/merge_metrics/
-    last_value/patch_chain）；内容型补丁链（append/replace/delete +
-    assemble full/base_only/partial + rebase/truncate/branch）。
-  - checkpoint 版本链：每节点快照 + parent_id 链，恢复 = 快照 + 增量日志重放；
-    回合边界快照锚点。
-  - 通用存储服务：memory/sqlite/postgres 三后端（连接串切换），
-    checkpoint/事件/records/补丁链/审批卡五通道统一落库，敏感键写入前剥离，
-    并发写保护（原子链尾校验 + 乐观锁 + postgres advisory lock）。
-  - 执行事件日志（append-only）：截断 + 新分支 = 编辑重放；事件传输接口化；
-    `EngineEvent` 支持 parent_step_id（轨迹树引用，协议增量演进）。
-  - interrupt 挂起/注入重入（弹卡审批一等能力）。
-  - 执行预算原语、发散并行原语（部分失败剔除）、域窗口投影/归档摘要、
-    通用状态机原语、挡位机制（挡位配置解析/按挡位建链/调用统计钩子）、
-    记忆策略原语（MemoryStore 协议 + 召回策略 + 存储后端实现）、
-    评审-收敛原语（评审器/再生成器/web 验证钩子/收敛策略）、
-    **上下文调配器（ContextSource 源元数据模型 + 预算分配策略接口 +
-    WeightedBudgetAllocator 确定性默认实现 + ContextAssembler 加权组装 +
-    FusionHook LLM 融合钩子注册制 + ContextMixer 门面，fail-open 回退）**。
-  - **harness 动态化**：`__spawn__` subgraph 放宽为「Graph 或可解析的图
-    定义数据」；harness 声明式定义/注册表/补丁链仓库（版本回退可取旧图）；
-    声明式工具创建（只声明 name/description + 参数 schema + 强制权限
-    声明 + 端点类型，执行体经 executor 钩子注册，不生成执行代码）——
-    声明式工具经 build_pipeline 走完整流水线（门禁 → 沙箱 → 守卫 →
-    审批 → 审计，目标判定失败恒 fail-closed 拒绝）。
-- **叙事领域包（engine-novel-harness，历史记录）**：叙事状态定义（伏笔
-  set→advancing→resolved/stalled 状态机纯函数）、四类审批卡数据模型 +
-  门控分级注册表、候选段落级混合（跨候选取段落组装 + 来源留痕）、小说
-  评审-收敛循环（逐候选段落级评审 + 再生成 + web 验证钩子注入）、世界
-  状态层（角色状态机/知识矩阵/因果链/伏笔矩阵 + 状态更新提取 + 写时
-  校验原语 + 涟漪扫描 + What-if 分支，补丁链统一；校验语义 = 声明式
-  规则集）、上下文调配器源构建器（章节摘要/角色卡/最近正文/支线素材/
-  记忆/风格/读者反馈/世界状态 → ContextSource 纯函数化）——**v5 收尾
-  已退役**（见顶部「目录重构」）：通用原语并入 core，领域校验语义数据化
-  为 `seeds/novel` 规则集，候选混合/域源构建器等叙事专属能力不再随引擎
-  发布。
-- **LLM 层（`ink_engine.core.llm`，可选 extra `[llm]`）**
-  - AsyncLLM 统一接口 + 消息数据类；OpenAI 兼容适配器（SSE 流式解析自写，
-    零第三方 SDK），DeepSeek/OpenAI/Zhipu/Moonshot/Ollama/DashScope
-    compatible-mode 别名；工具 schema 自写转换；reasoning_content 透传；
-    适配器注册机制；fallback 链与容错（重试/退避/备用切换/取消穿透）；
-    embedding 接口（AsyncEmbedder + OpenAI 兼容适配器）。
-- **开源交付**：MIT License、CHANGELOG（本文件）、概念文档
-  （docs/concepts.md）、扩展点文档（docs/extensions.md）、examples/
-  （novel_demo.py + context_mixer_demo.py）、CI 门禁（GitHub Actions：
-  lint + 单测 + 性能基准）。
+### 外部生态与孵化闭环
 
-- **共享组件包（`ink_engine.components`，历史记录）**：回合步骤
-  （round_steps）/ 审批卡（review_card）/ 域窗口（domain_window）/ 评审
-  收敛（review）曾重归类为共享组件——通用原语从 core 与领域包归拢到
-  组件包，只依赖 core，可选引入、可组合可替换；**v5 收尾已消亡**：
-  round_steps/review_card/review 迁为 core 平级模块，domain_window 并入
-  core/context.py。
-- **叙事领域包（`ink_engine.novel_harness`，历史记录）**：叙事状态定义 /
-  世界状态层 / 候选段落级混合 / 小说评审-收敛（叙事实现）/ 上下文源
-  构建器（域侧）曾归入叙事领域包；旧路径 `ink_engine.domain_novel` 曾
-  保留为兼容别名（re-export），新代码曾使用 `ink_engine.components` /
-  `ink_engine.novel_harness`——**v5 收尾已一并退役**（见顶部「目录重构」）。
+- **MCP 生态接入（core/mcp_client.py）**：McpClientManager 会话生命周期
+  （connect 重连清理/并发串行化/close_all 优雅回收/register_session 防覆盖），
+  三传输形态 http/stdio/in_memory + HTTP headers；工具转换纯函数无 SDK
+  依赖；vetting 闸门仅放行 certified（review 待确认不进入工具表）；call_tool
+  识别远端 isError 与超时包装结构化失败；跨 server 工具名冲突防静默改路由；
+  env/headers repr 遮蔽防凭据泄漏；MCP 端点接入声明式工具（endpoint_operation
+  按 server_id 路由，定义期必填）。
+- **自举种子（seeds/boot）**：自举提示词/界面基线/事件类型/自举 harness/
+  元工具契约清单种子化，导入即自注册。
+- **孵化闭环与演化收敛管制（宿主侧 Forge evolution + 引擎自指钩子）**：
+  行为信号 → 蒸馏 → 知识沉淀（审计增量消费 + 锚点身份集合游标 + 新鲜度
+  窗口 + origin=incubation 防自我强化 + 内容哈希幂等）；收敛管制
+  （拒批/回退/重写近窗口冷却、连续触发升级冻结、状态持久化）；种子沉淀池
+  （vetting 质量/通用性/去隐私键值双防线 fail-closed、路径穿越防护、
+  原子写清单）；harvest_seed 元工具（审批挂卡后落盘）+ apply_patch 收敛
+  前置闸门 + 领域生成器 related_knowledge 孵化反馈。
+- **领域层定位收敛（领域深度归产品）**：移除领域种子层——领域注册
+  机制（register_seed_provider/seed_domains/seed_user_set）从 core
+  删除（装配配方直注 provider 已覆盖），根级 `seeds/novel/` 包与
+  examples/novel_seed_demo.py 删除，seeds/ 仓库收窄为产品种子登记；
+  领域规则/样例/谓词改由宿主产品自写并成对维护（样例闸门 fixture
+  全绿语义不变）；跨语言实验（examples/ts_seed_pack/：数据 = 纯 JSON，
+  执行件 = 手写 JSON-RPC over stdio 的 MCP server）重定位为 MCP 生态
+  演示，契约语言无关。
+
+### 可嵌入自进化运行时
+
+- **运行时装配与生命周期（core/runtime.py）**：Host 嵌入契约五件套
+  （存储工厂/模型解析/审批策略/传输工厂/关停钩子）+ AssemblyRecipe 装配
+  数据（17 字段：种子/harness/事件类型/界面基线/工具三路分发/vetting/
+  分级审批表/检索源/apply 目标/收敛钩子/回退钩子，字段注解核心类型白名单
+  架构门禁强制）+ Runtime 状态机（uninitialized→running→paused→stopped，
+  非法转换显式拒绝，stop 幂等按序关停 MCP→存储→宿主钩子）+ 在途 run 登记
+  （begin_run/end_run，pause 拒新不打断）+ resume_run 审批决议重入样板 +
+  rebuild_engine 重建缓存（配置/工具表变更才重建）+ 从链恢复集状态 +
+  apply 目标注册。
+- **契约自指元工具内核化（core/self_tools.py）**：4 契约演化工具
+  （propose_patch/apply_patch/revert_patch/propose_domain_manifest）下沉
+  引擎能力，随机制层走补丁链演化、不随宿主壳漂移；SELF_TOOL_CONTRACT
+  契约清单 + SelfToolContext（convergence 前置闸门 + 宿主审批策略透传）；
+  宿主扩展经钩子接入（harvest_seed 等）。
+- **stdio 第二宿主（examples/stdio_host.py）**：最小非 web 宿主——Runtime
+  三步挂载 + stdin 回合 + 终端 y/n/e/d 决议回流；真模型冒烟跑通内省快照
+  →结构化拒绝→inspect_ui→L0 主题补丁 auto 落链。
+- **架构门禁扩展**：core 全目录零宿主框架字样（含字符串内出现 +
+  AssemblyRecipe 注解白名单文本级检查）——机制层不认识宿主。
 
 ### 变更
 
-- 引擎包零业务依赖（仅标准库；sqlite/postgres/llm 为可选 extra）。
+- 引擎包零业务依赖（仅标准库；sqlite/postgres/llm/mcp 为可选 extra）。
 - 存储 schema 与旧引擎时代不兼容（新表，旧库删表重建）。
-- harness 分层演进（历史）：包归属曾重划为 core 纯机制 / components
-  共享组件 / novel_harness 叙事领域，import 路径迁移属破坏性变更，旧路径
-  由 `domain_novel` 兼容别名层承接；v5 收尾再次收敛——当前仅 core
-  （机制层）+ seeds（领域种子），见顶部「目录重构」。
+- 包结构收敛（历史沿革）：包归属曾重划为 core / components / novel_harness，
+  后收敛为 core（机制层）+ seeds（通用种子 + boot 自举），领域种子层
+  整体移除——领域深度归宿主产品层，机制层零领域内容。
 
 ### 修复
 
@@ -182,10 +195,17 @@ InkEngine 遵循 [语义化版本](https://semver.org/lang/zh-CN/)（`MAJOR.MINO
 
 | 版本 | 变更 | 影响 |
 |---|---|---|
-| 0.1.0 | 首版发布 | 无历史兼容负担 |
+| 0.1.0 | 首版基线 | 无历史兼容负担 |
 
 ## 发布形态
 
-- 引擎随 TextForge 仓库发布；各包目录物理独立（pyproject 多包布局），
-  搬目录零重构。
+- 引擎为独立仓库包（本仓库为 ink_engine 与 text_forge_evo 双根仓库，
+  各自完整历史保留）；`pip install -e .` 本地开发，
+  text_forge_evo 经 `[tool.uv.sources]` 路径依赖引擎源码。
+- sdist 含 docs/ 与 examples/（MANIFEST.in）；文档集五篇：概念/扩展点/
+  架构/宿主接入/安全模型。
+- 质量门禁：pytest 单测（默认 1182 项，全量 1191）+ 性能门禁
+  （checkpoint 写入 <10ms / 事件吞吐 ≥500 事件/s / 100 补丁组装 <5ms /
+  rebase <10ms）+ 架构门禁（领域词零出现/宿主框架零出现/配方注解白名单）
+  + ruff lint——均为本地命令，仓库未接入 CI 编排。
 - license 字段已标 MIT（见 LICENSE）。

@@ -1,9 +1,13 @@
-# InkEngine 墨引擎（engine-core + seeds）
+# InkEngine 墨引擎
 
-可嵌入的自进化运行时（Self-Evolving Runtime）：位于库之上、OS 之下的
-中间层——引擎只提供执行机制与运行时身份（Host 嵌入契约 + 装配数据 +
-生命周期），不约束策略；web/CLI/桌面/stdio 皆为宿主之一（web 只是
-宿主形态之一，不是引擎的绑定形态）。当前宿主领域：小说生成平台。
+可嵌入的自进化运行时（Self-Evolving Runtime）：进程内中间层——
+位于宿主应用之下、OS 之上，宿主（web/CLI/桌面/stdio）嵌入引擎并实现
+五件套嵌入契约，引擎不依赖任何应用框架、也不直接触碰平台细节
+（托盘/沙箱实现/安装器等隔离在宿主适配侧）。引擎只提供执行机制与
+运行时身份（Host 嵌入契约 + 装配数据 + 生命周期），不约束策略；web
+只是宿主形态之一，不是引擎的绑定形态。当前宿主生态：Forge 自举产品壳
+（text_forge_evo）+ stdio 最小宿主。领域深度归宿主产品层：领域规则/
+样例/谓词由产品自写并成对维护，机制层零领域内容。
 
 **核心思想：机制是引擎，知识是数据，变化是补丁，汇入靠调配。**
 引擎只保留不可降维的机制骨架（图执行/补丁链/调配器/推演/验证闸门/
@@ -12,71 +16,63 @@
 （append-only、可回退、可分支、可审计）；一切多源汇入（上下文/知识/
 工具/记忆/证据）皆经调配器（加权、预算、组装、留痕）。
 
-- `ink_engine.core`（engine-core）：纯机制引擎内核——图执行/checkpoint/事件流/
-  interrupt/存储/补丁链/LLM/安全剥离/沙箱与审批原语/运行时装配与生命周期
-  （唯一 seam，API 即协议）；
-- `ink_engine.seeds`（领域种子仓库）：随引擎发布的数据资产（通用种子 +
-  领域种子，如 `seeds/novel`）——规则集/样例库/schema 基座/默认编排模板，
-  按需注入用户集，导入即自注册（插拔形态）；
-- `examples/`：可独立运行的示例（TextForge 为完整参考实现，stdio_host
-  为最小非 web 宿主）；
-- `docs/`：概念文档（concepts.md）+ 扩展点文档（extensions.md）。
+## 包结构
+
+- `ink_engine.core`：纯机制引擎内核——图执行/checkpoint 版本链/事件流/
+  interrupt/存储/补丁链/LLM/安全剥离/沙箱与审批/自指演化/运行时装配
+  与生命周期（唯一 seam，API 即协议）；
+- `ink_engine.seeds`：种子机制——通用种子恒注（机制基线）+ boot 自举
+  种子（随带引导数据，装配配方直注）；
+- `examples/`：可独立运行的示例（stdio_host 为最小非 web 宿主，
+  另有调配/审批/沙箱/MCP 生态实验演示）；
+- `docs/`：文档集（概念/扩展点/架构/宿主接入/安全模型）；
+- `tests/`：测试（默认 1182 项，全量 1191 项，含性能门禁与架构门禁）。
 
 ## 安装
 
 ```bash
-# 引擎零业务依赖；可选存储后端驱动
-pip install -e .            # 内核（纯标准库）
-pip install -e ".[sqlite]"  # sqlite 存储后端
-pip install -e ".[postgres]"  # postgres 存储后端
-pip install -e ".[llm]"     # LLM 层（AsyncLLM/厂商适配，httpx）
-pip install -e ".[test]"    # 测试与 lint 依赖（pytest/ruff）
+# 引擎零业务依赖；可选驱动与层
+pip install -e .             # 内核（纯标准库）
+pip install -e ".[sqlite]"   # sqlite 存储后端
+pip install -e ".[postgres]" # postgres 存储后端
+pip install -e ".[llm]"      # LLM 层（AsyncLLM/厂商适配，httpx）
+pip install -e ".[mcp]"      # MCP 客户端会话（mcp SDK，惰性导入）
+pip install -e ".[test]"     # 测试与 lint 依赖（pytest/ruff）
 ```
 
-## 模块总览
-
-### 内核（ink_engine.core）
+## 模块总览（ink_engine.core）
 
 | 模块 | 职责 |
 |---|---|
-| `graph.py` / `executor.py` | 图定义 DSL + 执行循环（checkpoint 版本链/恢复重放/interrupt 注入/预算钩子/异常策略）；图 = 可序列化数据（round-trip + 指纹版本） |
-| `plan.py` / `spawn.py` | 运行时重规划（`__plan__` 保留键：下一跳编排，随 checkpoint 版本化）；子任务展开（`__spawn__`，独立子链 + 数据形态子图） |
-| `simulation.py` | 决策点推演-回溯-换选（`__simulate__` 保留键：分支独立子链 + 评估协议 + 择优调配 + 轨迹树引用） |
-| `rules.py` / `scoring.py` / `schema_validator.py` | 规则 DSL（声明式校验/状态转换规则 + 样例库机制）；加权打分器（维度+权重+阈值配置）；Schema 声明校验（L1 准入机制件） |
-| `knowledge_set.py` / `knowledge_signals.py` / `knowledge_gate.py` / `evolution.py` | 知识集封装（条目/补丁链演化/分层晋升/可移植/检索/注入适配）；信号感知与蒸馏；三层验证闸门（L1 准入/L2 样例/L3 目标筛选）；进化工厂（反思式变异/防退化） |
-| `tuning.py` | 自适应调优（回合指标聚合/参数快照/低分反馈降权） |
-| `assembly.py` / `context.py` | **输入调配管线（多源统一预算/激活留痕/一键开关）**；上下文调配器（源元数据/预算分配/加权组装/融合钩子） |
-| `state.py` / `patch_chain.py` | 状态通道 + reducer 注册表；内容型补丁链（append/replace/delete + assemble/rebase/branch） |
-| `events.py` | 事件信封（协议版本化 + 传输接口化，负载对齐前端协议，增量演进） |
-| `storage.py` / `chain_rebase.py` | 通用存储服务（checkpoint/事件/records，内存/sqlite/postgres）；checkpoint 版本链压缩（窗口化有界化） |
-| `recovery.py` | 断线续流恢复（恢复锚点收集/图版本指纹校验/状态通道继承） |
-| `harness.py` / `declarative_tools.py` / `tool_orchestrator.py` | harness 声明式定义/注册表/补丁链仓库；声明式工具创建（端点受限 + 强制权限）；工具编排 |
-| `interrupt.py` / `approval.py` | interrupt 挂起/注入重入（弹卡审批一等能力）；工具调用前挂卡审批标准姿势 |
-| `permissions.py` / `sandbox.py` / `tool_pipeline.py` | 工具执行环境：权限门禁（默认拒绝）+ fs/进程沙箱 + 执行流水线 |
-| `fanout.py` / `budget.py` | 发散并行原语（部分失败剔除）；执行预算钩子（步骤/轮数上限由业务注册策略） |
-| `registry.py` / `workflow.py` | 节点/边注册表（业务自定义节点）；WorkflowSpec→Graph 转换 |
-| `security.py` / `logging.py` | 敏感信息剥离；结构化 JSON 日志 + trace_id 链路追踪 |
-| `introspection.py` | 自指层观察原语（内省服务 + inspect_* 元工具：图/规则/知识/界面/工具表 JSON 快照，只读流水线 + 权限门禁 + 敏感键剥离） |
-| `self_tools.py` | 自指层演化原语（4 契约元工具：propose_patch/apply_patch/revert_patch/propose_domain_manifest——引擎能力，随机制层走补丁链演化、不随宿主壳漂移；宿主扩展经 SelfToolContext 钩子接入） |
-| `runtime.py` | **运行时装配与生命周期（不可演化骨架成员）**：Host 嵌入契约（存储工厂/模型解析/审批策略/传输工厂/关停钩子五件套）+ AssemblyRecipe 装配数据 + Runtime 状态机（uninitialized→running→paused→stopped + 在途 run 登记 + 审批决议重入样板）；Engine = 单次 run 执行，Runtime = 进程级装配产物与生命周期 |
-| `state_machine.py` / `memory.py` / `tiers.py` | 通用状态机原语；记忆策略原语（MemoryStore 协议/召回策略/存储后端）；模型分层挡位（挡位配置解析/按挡位建链/调用统计钩子） |
-| `llm/` | AsyncLLM + OpenAI 兼容适配器 + 工具 schema + fallback 链 + embedding |
+| `graph.py` / `executor.py` | 图定义 DSL + 执行循环（checkpoint 版本链/恢复重放/interrupt 注入/预算钩子/异常策略/编辑重放）；图 = 可序列化数据（round-trip + 指纹版本）；`Engine`/`RunOptions`（checkpoint_keep/plan_workflow/预算/护栏/装配） |
+| `plan.py` / `spawn.py` / `simulation.py` | 运行时重规划（`__plan__` 下一跳编排，随 checkpoint 版本化）；子任务展开（`__spawn__`，独立子链 + 数据形态子图）；决策点推演-回溯-换选（`__simulate__` 分支独立子链 + Evaluator 评估 + BranchMixer 择优 + 轨迹树引用） |
+| `rules.py` / `scoring.py` / `schema_validator.py` | 规则 DSL（约束/状态转换 + 内置谓词 + 样例库机制）；加权打分器（维度+权重+阈值）；Schema 声明校验（L1 准入机制件） |
+| `knowledge_set.py` / `knowledge_signals.py` / `knowledge_gate.py` / `evolution.py` | 知识集封装（条目/补丁链演化/分层晋升/可移植/检索/注入适配）；五类信号感知与蒸馏（复用优先于生成）；三层验证闸门（L1 准入/L2 样例/L3 目标筛选）；进化工厂（反思式变异/防退化） |
+| `tuning.py` | 自适应调优（回合指标聚合/参数快照/低分反馈降权/L2 回归） |
+| `assembly.py` / `context.py` | 输入调配管线（多源统一预算/激活留痕/一键开关）；上下文调配器（源元数据/预算分配/加权组装/融合钩子/域窗口投影与归档摘要） |
+| `state.py` / `patch_chain.py` | 状态通道 + reducer 注册表；内容型补丁链（append/replace/delete + assemble/rebase/branch/truncate） |
+| `events.py` / `event_types.py` | 事件信封（协议版本化 + 传输接口化 + 轨迹树 parent_step_id）；事件类型注册表（类型 = 数据，schema 校验 + 宽松发射折叠 + system 标记） |
+| `ui_schema.py` | 界面描述数据原语（布局树 + 组件/绑定通道/主题 token 三层白名单 + UIRenderer 契约） |
+| `storage.py` / `chain_rebase.py` | 通用存储服务（checkpoint 版本链/事件日志/结构化记录，内存/sqlite/postgres 三后端）；checkpoint 版本链压缩（窗口化有界化，rebase 非破坏性） |
+| `recovery.py` | 断线续流恢复（恢复锚点收集/图版本指纹校验/状态通道继承/重放纪律） |
+| `harness.py` / `declarative_tools.py` / `tool_orchestrator.py` | harness 声明式定义/注册表/补丁链仓库（版本回退可取旧图）；声明式工具（name/description/参数 schema + 强制权限 + 端点受限，执行体经 executor 钩子注册）；工具调配（确定性评分/跨工具去重/轨迹留痕） |
+| `tool_pipeline.py` / `permissions.py` / `sandbox.py` | 工具执行流水线（提取→门禁→沙箱→守卫→分发→审计→观察）；权限门禁（默认拒绝/判定三路 allow/review/deny/网络策略）；文件/进程沙箱（逃逸检测/写前快照/超时 kill/禁 shell） |
+| `tool_vetting.py` / `mcp_client.py` | 工具可信度闸门（清单校验/静态钩子/影子运行观察模式）；MCP 会话管理（http/stdio/in_memory 三传输，工具转换纯函数，vetting 仅放行 verified，按 server 粒度权限路由） |
+| `builder.py` / `environments.py` | 构建管线（白名单沙箱 + 内容寻址产物 + 冒烟门禁）；环境管理（环境 = 数据，提供器 = 机制：local/web_bridge，安装/运行经沙箱白名单 + 审计链） |
+| `interrupt.py` / `approval.py` / `review_card.py` | interrupt 挂起/注入重入（弹卡审批一等能力）；挂卡审批标准姿势（单动作/合并卡/策略直过/超时 fail-closed）；四类审批卡数据模型 + 门控分级注册表 |
+| `registry.py` / `workflow.py` | 节点/边类型注册表（数据形态解析建图）；WorkflowSpec 声明式工作流 → 图转换（可执行的计划空间） |
+| `security.py` / `logging.py` | 敏感信息剥离（递归置空保留键，落库/出网/日志同规格）；结构化 JSON 日志 + trace_id 链路追踪 |
+| `introspection.py` / `self_tools.py` | 自指层观察原语（五个 inspect_* 元工具：图/规则/知识/界面/工具表 JSON 快照，只读流水线 + 权限门禁 + 敏感键剥离）；自指层演化原语（4 契约元工具：propose_patch/apply_patch/revert_patch/propose_domain_manifest，随机制层走补丁链演化） |
+| `self_proposal.py` / `self_application.py` | 自指层提案协议（9 类补丁 kind：ui/theme/tool/rule/knowledge/harness/event_type/environment/artifact，复用既有校验器）；应用管线（分级审批 L0/L1/L2 + 补丁链 append + 审计 append-only + GuardedStorage 旁路写防护 + 链尾回退） |
+| `runtime.py` | 运行时装配与生命周期（不可演化骨架成员）：Host 嵌入契约（存储工厂/模型解析/审批策略/传输工厂/关停钩子五件套）+ AssemblyRecipe 装配数据（17 字段，全核心类型白名单）+ Runtime 状态机（uninitialized→running→paused→stopped + 在途 run 登记 + 审批决议重入样板 + 引擎重建缓存） |
+| `state_machine.py` / `memory.py` / `tiers.py` | 通用状态机原语（转换 = 补丁，append-only 推导）；记忆策略原语（MemoryStore 协议/召回策略/非破坏性失效）；模型分层挡位（router/tool/main/audit 配置解析/按挡位建链/调用统计钩子） |
+| `seeds.py` / `seeds/boot` | 通用种子恒注（模板 + 权重基线）；boot 自举种子（系统提示词/界面基线/事件类型/自举 harness/元工具契约清单，装配配方直注） |
+| `llm/` | AsyncLLM 统一协议 + OpenAI 兼容适配器（自写 SSE 流式解析，零第三方 SDK，reasoning_content 透传）+ 工具 schema 转换 + fallback 链（重试/退避/备用切换/认证 fail-closed/取消穿透）+ embedding 接口（可选 extra `[llm]`） |
 
-### 通用机制件（core 平级模块，原共享组件包并入）
-
-| 模块 | 职责 |
-|---|---|
-| `round_steps.py` | 回合步骤协议（step_id 累积/重放，断线续流种子） |
-| `review_card.py` | 四类审批卡数据模型 + 门控分级注册表 |
-| `context.py`（域窗口投影段） | 域上下文窗口投影/归档摘要 |
-| `review.py` | 测试时专才化评审-收敛原语（评审器/收敛策略/web 验证钩子） |
-
-### 领域种子仓库（ink_engine.seeds，随引擎发布的数据资产）
-
-| 包 | 内容 |
-|---|---|
-| `seeds/novel/` | novel 领域种子（第一个领域种子，未来平行扩展）：规则集 10 条封装为规则条目 + 样例库 14 用例 + schema 基座（知识条目/世界观视图口径）+ 默认编排模板（图定义数据）；导入即自注册，`seed_user_set(domain="novel")` 按名注入用户集 |
-| `seeds/__init__.py` | 种子机制转发（通用种子注入 + 领域种子注册契约） |
+领域深度归宿主产品层：领域规则集/样例库/谓词由产品自写并成对维护
+（样例库 fixture 全绿 = 新规则落库的非谈判项），以知识条目直接注入
+（`seed_knowledge_set`）或经装配配方 `seeds` 直注；引擎只提供种子
+机制（通用种子恒注 + boot 自举），零领域内容。
 
 ## 快速开始
 
@@ -108,10 +104,22 @@ async def main():
 asyncio.run(main())
 ```
 
-更多示例：`python examples/novel_demo.py`（图执行/事件流/interrupt/补丁链）、
-`python examples/context_mixer_demo.py`（调配器多源融合）、
-`python examples/stdio_host.py`（最小非 web 宿主：Runtime 三步挂载 +
-stdin 回合 + 终端决议回流）。
+这是最小 Engine 演示（单次 run）；完整宿主嵌入见下文 Runtime 契约。
+
+## 更多示例
+
+`python examples/novel_demo.py`（图执行/事件流/interrupt/补丁链）、
+`python examples/context_mixer_demo.py`（调配器多源融合，零 LLM）、
+`python examples/approval_demo.py`（挂卡审批标准姿势：单动作/合并卡/
+策略直过）、`python examples/sandbox_demo.py`（文件/进程沙箱 +
+工具流水线 + 审计）、`python examples/stdio_host.py`（最小非 web 宿主：
+Runtime 三步挂载 + stdin 回合 + 终端决议回流，需 INK_LLM_* 环境变量）、
+`python -X utf8 examples/ts_seed_demo.py`（MCP 生态演示：
+Python 引擎 + TypeScript 执行件——JSON 知识条目注入 + MCP server
+挂载调用，需 node）、`python -X utf8 examples/market_seed_demo.py`
+（Cordis 插件市场挂载实验：市场取数 → apply_patch 写知识集，需 node）、
+`python -X utf8 examples/mcp_real_demo.py`（真实第三方 MCP server
+挂载：官方 server-everything，需 npm install）。
 
 ## 宿主嵌入（Runtime：引擎作为系统级运行时的嵌入契约）
 
@@ -129,15 +137,19 @@ class MyHost:  # Host 五件套（归属宿主：后端/路径/进程锁/配置/
     async def close(self) -> None: ...                  # 关停钩子（资源回收）
 
 recipe = AssemblyRecipe(          # 装配决策全部数据化（可校验可替换）
+    set_id="default",
     seeds=[("boot", build_boot_seed_entries)],
     harness_definitions=[boot_harness_definition()],
     event_type_specs=list(BOOT_EVENT_TYPES),
+    ui_spec=BOOT_UI_SPEC,
+    ui_allowed_components=frozenset({...}),        # 界面三层白名单
+    ui_allowed_theme_tokens=frozenset({...}),
     tool_wiring=ToolWiring(self_specs=self_tool_specs,
                            self_executor_factory=make_self_executor,
                            self_operation_of=operation_of),
     approval_levels={PatchKind.THEME: ApprovalLevel.L0},
     graph_recipe=lambda ctx: build_chat_graph(ctx.llm, ctx.tool_pipeline, ctx.tool_specs),
-    # …检索源/apply 目标/vetting/收敛钩子按需注入
+    # …vetting 钩子/检索源/apply 目标/收敛钩子/回退钩子按需注入
 )
 
 runtime = await Runtime().boot(MyHost(), recipe)   # 装配（幂等）
@@ -154,17 +166,19 @@ await runtime.stop()                               # 拒新 → 排空 → 关 M
   决议回流通道不在协议内（web 的 resume 端点、stdio 的 stdin 循环是
   宿主自己的请求入口），Runtime 提供 `resume_run` 样板（挂起卡 → 锚点
   → 注入重入）两宿主共用；
-- **AssemblyRecipe 是数据**：图配方/种子/harness/事件类型/界面基线/
-  工具三路分发/vetting/分级审批表/检索源/apply 目标全部数据注入——
-  换壳 = 换配方，机制层不感知宿主形态；配方字段类型只允许核心类型
-  与鸭子协议（架构门禁白名单强制，宿主类型不得进入配方）；
+- **AssemblyRecipe 是数据**（17 字段）：图配方/种子/harness/事件类型/
+  界面基线（spec + 组件/主题白名单）/工具三路分发（内省/自指/声明式）/
+  vetting 钩子/分级审批表/检索源/apply 目标/收敛钩子/回退钩子全部数据
+  注入——换壳 = 换配方，机制层不感知宿主形态；配方字段类型只允许核心
+  类型与鸭子协议（架构门禁白名单强制，宿主类型不得进入配方）；
 - **Runtime 与 Engine 分工**：Engine = 单次 run 执行；Runtime = 进程级
-  装配产物与生命周期（boot/rebuild/pause/resume/stop + 在途 run 登记 +
-  引擎重建缓存——配置/工具表变更才重建）；
-- **自指元工具已内核化**：4 契约演化工具（propose_patch/apply_patch/
-  revert_patch/propose_domain_manifest）随机制层走补丁链演化，stdio
-  等新宿主直接复用，无需自带元工具实现；宿主扩展（如种子沉淀）经
-  `SelfToolContext` 钩子接入。
+  装配产物与生命周期（boot/pause/resume/stop + 在途 run 登记 + 引擎
+  重建缓存——配置/工具表变更才重建）；
+- **自指元工具已内核化**：4 契约演化工具随机制层走补丁链演化，stdio
+  等新宿主直接复用；宿主扩展（如种子沉淀）经 `SelfToolContext` 钩子接入；
+- **外部生态只经 MCP 消费**：MCP server（含 Cursor 风格插件经标准
+  MCP 服务器包装）以 `McpServerConfig` 挂载，工具进工具表走统一流水线；
+  纯 Cordis 风格 TypeScript 插件需 MCP 适配包装后才能加载。
 
 ## 核心概念
 
@@ -186,11 +200,12 @@ await runtime.stop()                               # 拒新 → 排空 → 关 M
   声明），执行机制 = 注册谓词 + 引擎；新知识必须过三层验证闸门
   （形式/安全准入 → 完整样例 → 目标筛选）才允许落库。
 - **知识集孵化**：知识 = 补丁链数据（append-only 可回退），信号感知
-  蒸馏沉淀新规则，进化工厂反思式变异防退化，工作→项目→用户分层
-  晋升，导出/导入可移植，相似任务检索复用优先于生成。
-- **领域种子**：引擎随带数据资产（`seeds/novel`：规则集/样例库/schema
-  基座/默认编排模板），初始化注入用户集（幂等、只读基线），随使用
-  继续成长——领域深度交给孵化机制，机制层零领域内容。
+  蒸馏沉淀新规则（复用优先于生成），进化工厂反思式变异防退化，
+  工作→项目→用户分层晋升，导出/导入可移植。
+- **种子基线**：通用种子恒注（默认模板 + 调参权重，最小可用空壳，
+  幂等、只读基线）+ boot 自举种子（系统提示词/界面/事件类型/harness，
+  装配配方直注）——机制基线随引擎，领域深度归宿主产品，随使用继续
+  成长（知识集孵化）。
 - **工作流约束域**：`WorkflowSpec` = 用户预编排的「可执行的计划空间」
   （节点/边集合）；`__plan__` 须落在工作流约束域内（宽松域自由选序 /
   严格序按工作流边序执行，RunOptions.plan_workflow 注入）。
@@ -199,52 +214,78 @@ await runtime.stop()                               # 拒新 → 排空 → 关 M
 - **interrupt**：节点内 `await ctx.interrupt(key, payload)` 声明中断点，
   引擎持久化中断状态并挂起；外部注入值后从该节点重入（弹卡审批）。
 - **事件即协议**：节点 `ctx.emit(type, payload)` 产出事件流，负载直接
-  对齐前端协议（step_id/round_id/parent_step_id），无框架事件中间层。
+  对齐前端协议（step_id/round_id/parent_step_id），无框架事件中间层；
+  事件类型本身 = 数据（EventTypeSpec 注册表，schema 校验 + 宽松发射）。
+- **界面即数据**：界面描述 = 布局树数据（组件/绑定通道/主题 token
+  三层白名单），随装配配方注入，前端同名渲染组件消费。
 - **输入调配管线**：每次 LLM 调用前多源统一调配（上下文+知识+工具+
   记忆+证据），统一预算分级分配 + 激活模式留痕 + 一键开关回退旧路径；
   确定性层零 LLM 调用，融合钩子按需升级（失败自动回退）。
-- **运行时身份**：Runtime = 进程级装配与生命周期（Host 五件套嵌入契约 +
-  装配配方数据 + 状态机 + 在途 run 登记 + 审批决议重入样板）——web/
-  CLI/桌面/stdio 皆为宿主之一，嵌入门槛从「复制装配样板」降到「五件套
-  + 配方三步挂载」；装配动作是机制（不可被补丁链修改），装配决策是
-  数据（宿主可换）。
+- **运行时身份**：Runtime = 进程级装配与生命周期（Host 五件套嵌入
+  契约 + 装配配方数据 + 状态机 + 在途 run 登记 + 审批决议重入样板）——
+  web/CLI/桌面/stdio 皆为宿主之一，嵌入门槛从「复制装配样板」降到
+  「五件套 + 配方三步挂载」；装配动作是机制（不可被补丁链修改），
+  装配决策是数据（宿主可换）。
+- **自指演化**：观察（inspect_* 五元工具）→ 提案（propose_patch 9 类
+  补丁）→ 应用（分级审批 L0/L1/L2 + 补丁链 append + 审计）→ 回退
+  （链尾回退）——引擎自身形态随机制层走补丁链演化，不随宿主壳漂移；
+  GuardedStorage 拦截演化资产直写，旁路写 fail-closed。
+- **工具安全纵深**：权限门禁（默认拒绝）→ 沙箱守卫（逃逸检测/写前
+  快照）→ 挂卡审批 → 执行 → 审计 → 观察，全环节机制化装配；声明式
+  工具强制权限声明、端点受限（http_fetch/process_exec/file_ops/mcp）；
+  外部工具经 vetting 闸门（清单/静态钩子/影子运行）后才进工具表。
 - **测试时专才化**：生成 → 评审 → 校验 → 收敛（不微调权重），
   web 验证钩子按需触发。
 
-详见 `docs/concepts.md`（概念体系）与 `docs/extensions.md`（扩展点目录）。
+详见 `docs/concepts.md`（概念体系）、`docs/extensions.md`（扩展点目录）、
+`docs/architecture.md`（架构）、`docs/hosts.md`（宿主接入）、
+`docs/api.md`（公开 API 速查）、`docs/security.md`（安全模型）。
 
-## 测试
+## 测试与质量门禁
 
 ```bash
-pytest                     # 单测全绿（性能门禁/精确基准默认排除，防 CI 抖动误报）
+pytest                     # 单测全绿（默认 1182 项；含架构门禁，排除基准/冒烟）
 pytest -m benchmark        # 性能门禁断言（checkpoint 写入/事件吞吐/补丁组装/压扁）
 pytest --benchmark-only -m benchmark  # 精确基准统计（pytest-benchmark）
 POSTGRES_TEST_URL=... pytest -m postgres  # 真实 postgres 后端冒烟
+ruff check .               # lint（E/F/W/I/UP/B/C4/SIM/RUF 规则集）
 ```
 
 验收基准：checkpoint 写入 <10ms、事件流吞吐 ≥500 事件/s、
 100 补丁组装 <5ms、rebase <10ms（本地实测：0.94ms / 千级 eps / 90µs）。
 
+架构门禁（tests/test_architecture_gate.py，随 pytest 执行）：机制层
+core/ 零领域词（12 个词含注释与字符串）、零宿主框架字样（6 个词，
+大小写不敏感防绕行）、AssemblyRecipe 注解类型白名单（23 项文本级
+检查）。门禁当前为本地命令，仓库未接入 CI 编排（无 .github 配置）。
+
 ## 运维说明
 
-- **存储 schema 不迁移**：引擎表结构随版本演进，既有库升级后启动期自检会给出
-  明确指令——删除库/表后重启（`DROP TABLE checkpoints, event_log, records;`
-  或删除 db 文件），历史数据不保留（引擎定位：不承诺存量数据兼容）。
-- **日志**：引擎遵循标准 logging 语义（不抢占宿主日志体系）；需要开箱即用的
-  JSON 日志时由宿主显式调用 `configure_engine_logging()`（examples/ 已调用）。
+- **存储 schema 不迁移**：引擎表结构随版本演进，既有库升级后启动期
+  自检会给出明确指令——删除库/表后重启（`DROP TABLE checkpoints,
+  event_log, records;` 或删除 db 文件），历史数据不保留（引擎定位：
+  不承诺存量数据兼容）。
+- **日志**：引擎遵循标准 logging 语义（不抢占宿主日志体系）；需要
+  开箱即用的 JSON 日志时由宿主显式调用 `configure_engine_logging()`
+  （examples/ 已调用）；trace_id 经 contextvars 贯穿单次 run 全链路。
+- **凭据**：敏感键（api_key/token/secret/password 等）在落库/出网/
+  日志三处统一剥离（置空保留键结构），LLM 配置与 MCP 会话的
+  headers/env 不出现在 repr 中。
 
 ## 边界（引擎不做）
 
-- 不含业务逻辑（路由/域专才/门控分级配置在 TextForge 业务层注册挂载；
+- 不含业务逻辑（路由/域专才/门控分级配置在宿主业务层注册挂载；
   沙箱/审批为机制原语，规则与策略配置属业务层）；
-- 评审/评估/调参策略在用户集注入（规则集/打分器/蒸馏器/变异策略由
+- 评审/评估/调参策略在使用方注入（规则集/打分器/蒸馏器/变异策略由
   使用方提供，引擎只规定协议形态与验证闸门）；
 - 声明式工具不生成执行代码（只声明 name/description + 参数 schema +
   权限 + 端点类型，执行体经 executor 钩子注册，重路径边界不变）；
-- 不做通用进程管理器与 MCP（进程型工具以受限沙箱形态进内核：
+- 不做通用进程管理器（进程型工具以受限沙箱形态进内核：白名单 +
   超时 kill/退出码/输出截断/环境清理，默认拒绝兜底）；
+- 不做 MCP 服务器与外部生态实现（引擎经 mcp_client 消费 MCP 生态；
+  纯 Cordis 风格 TypeScript 插件需 MCP 适配包装）；
 - 不做多 worker 分布式执行（单进程 asyncio，部署层负责扩展）。
 
 ## License
 
-MIT（见 LICENSE；pyproject license 字段同标；拆独立仓库时随带）。
+MIT（见 LICENSE；pyproject license 字段同标）。

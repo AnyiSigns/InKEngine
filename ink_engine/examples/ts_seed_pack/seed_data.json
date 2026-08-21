@@ -1,0 +1,34 @@
+{
+  "domain": "ts_seed",
+  "description": "跨语言种子包数据资产（语言无关 JSON）",
+  "entries": [
+    {
+      "id": "seed.ts_seed.intro",
+      "level": "work",
+      "kind": "note",
+      "data": {
+        "note": "TypeScript 种子包：数据 = JSON，执行件 = MCP server（零依赖手写协议）"
+      },
+      "source": "model",
+      "credibility": 0.9,
+      "title": "TS 种子包说明",
+      "tags": ["ts_seed", "cross_language"]
+    },
+    {
+      "id": "seed.ts_seed.template",
+      "level": "work",
+      "kind": "template",
+      "data": {
+        "template": {
+          "name": "ts_default",
+          "description": "TS 种子默认编排（跨语言工具调用）",
+          "plan": { "steps": [{ "nodes": ["invoke_ts"] }] }
+        }
+      },
+      "source": "model",
+      "credibility": 0.9,
+      "title": "TS 默认编排模板",
+      "tags": ["ts_seed", "template"]
+    }
+  ]
+}

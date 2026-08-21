@@ -1,15 +1,14 @@
-"""boot 种子单测：种子注册 / 提示词条目 / 元工具契约 / 界面与事件与自举 harness。
+"""boot 种子单测：提示词条目 / 元工具契约 / 界面与事件与自举 harness。
 
-覆盖：boot 领域种子按名注册可注入；系统提示词知识条目结构合法；
-BOOT_METATOOLS 契约基线包含 engine-resident 的 introspection 元工具
-（换壳不失明：机制层新增观察工具须同步进清单，单测强制）；初始界面
-描述 / 事件类型 / 自举 harness 定义形态正确。
+覆盖：boot 种子条目结构合法（装配配方直注用）；BOOT_METATOOLS 契约
+基线包含 engine-resident 的 introspection 元工具（换壳不失明：机制层
+新增观察工具须同步进清单，单测强制）；初始界面描述 / 事件类型 / 自举
+harness 定义形态正确。
 """
 from __future__ import annotations
 
 from ink_engine.core.harness import HarnessDefinition
 from ink_engine.core.introspection import introspection_tool_specs
-from ink_engine.core.seeds import seed_domains
 from ink_engine.seeds.boot import (
     BOOT_EVENT_TYPES,
     BOOT_METATOOLS,
@@ -20,13 +19,8 @@ from ink_engine.seeds.boot import (
 )
 
 
-def test_boot_seed_provider_registered():
-    """boot 领域种子按名注册（import 即自注册，seed_domains 可见）。"""
-    assert "boot" in seed_domains()
-
-
 def test_boot_seed_entries_valid():
-    """系统提示词知识条目结构合法（id/来源/数据形态）。"""
+    """boot 提示词知识条目结构合法（id/来源/数据形态，配方直注用）。"""
     entries = build_boot_seed_entries()
     assert entries
     assert all(entry.id and entry.data.get("prompt") for entry in entries)

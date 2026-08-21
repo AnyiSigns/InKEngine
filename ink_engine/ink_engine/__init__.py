@@ -1,1 +1,3 @@
 ﻿# InkEngine 墨引擎顶层包：from ink_engine.core import ...
+
+__version__ = "0.1.0"

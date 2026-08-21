@@ -1,12 +1,11 @@
 """boot 种子（自举引导数据资产）：系统提示词 / 初始界面描述 / 事件类型 /
-自举 harness 定义——Forge 开局注入的只读基线。
+自举 harness 定义——宿主装配开局注入的只读基线。
 
 boot 种子 = 引擎随带的引导发布物（非领域成品）：开局即提供「AI 自描述
-+ 自举面板 + 元工具能力」的初始形态。模块导入即经
-:func:`~ink_engine.core.seeds.register_seed_provider` 自注册——宿主
-装配时 ``import ink_engine.seeds.boot``，``seed_user_set(domain="boot")``
-按名注入系统提示词知识条目；其余描述（界面/事件/自举 harness）供装配
-直接消费（非知识条目，是装配期数据）。
++ 自举面板 + 元工具能力」的初始形态。宿主装配时经配方直注——
+``AssemblyRecipe(seeds=[("boot", build_boot_seed_entries)])`` 注入系统
+提示词知识条目；其余描述（界面/事件/自举 harness）供装配直接消费
+（非知识条目，是装配期数据）。
 
 数据与机制分离：本模块只持有 boot 引导的数据形态，不引入任何机制依赖；
 宿主（text_forge_evo）从本模块取用，保持机制层零领域/产品内容。
@@ -18,7 +17,6 @@ from typing import Any
 from ink_engine.core.event_types import EventTypeSpec
 from ink_engine.core.harness import HarnessDefinition
 from ink_engine.core.knowledge_set import SOURCE_MODEL, KnowledgeEntry
-from ink_engine.core.seeds import register_seed_provider
 
 # 自举系统提示词（AI 自描述：观察工具 + 演化工具 + 先观察再作答的约定）。
 # 作为种子知识条目注入，AI 回合内可被检索/引用，而非硬编码进图装配
@@ -163,10 +161,6 @@ BOOT_METATOOLS: tuple[str, ...] = (
     "revert_patch",
     "propose_domain_manifest",
 )
-
-
-# 模块导入即自注册（插拔形态：装配 = import 本模块即可按名注入）
-register_seed_provider("boot", build_boot_seed_entries)
 
 
 __all__ = [

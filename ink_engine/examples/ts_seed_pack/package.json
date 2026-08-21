@@ -1,0 +1,7 @@
+{
+  "name": "ts-seed-pack",
+  "version": "0.1.0",
+  "description": "跨语言种子包最小实现：数据 JSON + TypeScript MCP 执行件（零 npm 依赖）",
+  "private": true,
+  "type": "module"
+}

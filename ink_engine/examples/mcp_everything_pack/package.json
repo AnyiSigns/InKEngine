@@ -1,0 +1,5 @@
+{
+  "dependencies": {
+    "@modelcontextprotocol/server-everything": "^2026.8.18"
+  }
+}

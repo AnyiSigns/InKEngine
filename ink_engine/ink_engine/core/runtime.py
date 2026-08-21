@@ -156,7 +156,7 @@ class AssemblyRecipe:
 
     Attributes:
         set_id: 用户集 id（存储隔离键）。
-        seeds: 领域种子注入清单 [(domain, entries_provider)]（通用基线恒注）。
+        seeds: 种子注入清单 [(name, entries_provider)]（通用基线恒注）。
         harness_definitions: 自举 harness 定义清单（注册 + 落库）。
         event_type_specs: 事件类型基线（装配期登记 + 集内演化类型加载）。
         ui_spec: 界面基线（装配期经三层白名单校验；损坏回落未定形）。

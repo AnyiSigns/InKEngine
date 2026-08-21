@@ -1,0 +1,13 @@
+{
+  "id": "d05",
+  "title": "技术方案对比",
+  "description": "领域样例（simulate 场景提炼）：对比两种技术方案的取舍，回复非空。",
+  "group": "domain",
+  "mode": "chat",
+  "input": "对比 SQLite 与 PostgreSQL 在单机小工具中的取舍，两句话以内。",
+  "mechanisms": ["llm", "graph", "events", "simulation"],
+  "assertions": [
+    {"type": "terminate", "reason": "reply"},
+    {"type": "state", "key": "reply"}
+  ]
+}

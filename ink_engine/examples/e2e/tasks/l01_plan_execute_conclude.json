@@ -1,0 +1,14 @@
+{
+  "id": "l01",
+  "title": "长链：规划→执行→收口",
+  "description": "长链任务：先规划再执行再总结（plan+spawn+simulate 组合场景的任务输入；参考宿主按 chat 回合执行，事件流/回复契约断言）。",
+  "group": "long_chain",
+  "mode": "chat",
+  "input": "请规划一个三步任务：1）总结要点 2）给出建议 3）输出最终结论。逐步完成并给出最终结论。",
+  "mechanisms": ["plan", "spawn", "simulate", "graph", "events", "checkpoint"],
+  "assertions": [
+    {"type": "terminate", "reason": "reply"},
+    {"type": "state", "key": "reply"},
+    {"type": "event", "name": "reply_token"}
+  ]
+}

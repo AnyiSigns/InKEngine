@@ -1,0 +1,14 @@
+{
+  "id": "l03",
+  "title": "长链：工具循环任务",
+  "description": "长链任务：多轮工具循环写盘 + 总结（工具链与长回复叠加）。",
+  "group": "long_chain",
+  "mode": "chat",
+  "input": "请分三次用 write_note 写入内容为 '第一点''第二点''第三点' 的文件 seq1.txt、seq2.txt、seq3.txt，然后一句话总结。",
+  "mechanisms": ["declarative_tools", "events", "audit", "checkpoint", "llm_tools"],
+  "assertions": [
+    {"type": "terminate", "reason": "reply"},
+    {"type": "state", "key": "reply"},
+    {"type": "event", "name": "tool_start"}
+  ]
+}

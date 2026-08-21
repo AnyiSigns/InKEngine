@@ -1,0 +1,13 @@
+{
+  "id": "d07",
+  "title": "邮件回复草拟",
+  "description": "领域样例（workflow 场景提炼）：草拟一封邮件回复，回复非空。",
+  "group": "domain",
+  "mode": "chat",
+  "input": "对方邮件：'周五会议取消，改到下周一上午。' 请草拟一句简短回复。",
+  "mechanisms": ["llm", "graph", "events", "workflow"],
+  "assertions": [
+    {"type": "terminate", "reason": "reply"},
+    {"type": "state", "key": "reply"}
+  ]
+}

@@ -1,0 +1,14 @@
+{
+  "id": "t02",
+  "title": "笔记写入后总结",
+  "description": "工具调用任务：模型先调用 write_note 写盘，再对结果收口总结（多轮工具循环）。",
+  "group": "tool",
+  "mode": "chat",
+  "input": "请用 write_note 工具把 '要点 A；要点 B' 写入 notes/note02.txt，然后用一句话总结你做了什么。",
+  "mechanisms": ["declarative_tools", "sandbox", "permissions", "audit", "events", "llm_tools"],
+  "assertions": [
+    {"type": "terminate", "reason": "reply"},
+    {"type": "event", "name": "tool_start"},
+    {"type": "state", "key": "reply"}
+  ]
+}

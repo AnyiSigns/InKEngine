@@ -1,0 +1,13 @@
+{
+  "id": "e04",
+  "title": "内省快照检查",
+  "description": "演化任务：请求查看自身图/知识快照（inspect 工具）；回复非空即达成。",
+  "group": "evolution",
+  "mode": "chat",
+  "input": "请用系统提供的 inspect 工具查看当前知识集快照，并报告条目数量。",
+  "mechanisms": ["introspection", "self_tools", "knowledge_set"],
+  "assertions": [
+    {"type": "terminate", "reason": "reply"},
+    {"type": "state", "key": "reply"}
+  ]
+}

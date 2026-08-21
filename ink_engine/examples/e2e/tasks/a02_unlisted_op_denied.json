@@ -1,0 +1,12 @@
+{
+  "id": "a02",
+  "title": "未授权操作拒绝",
+  "description": "对抗任务（direct）：write_note 只声明 filesystem:write 权限，读类操作（如读取系统路径）必须拒绝。",
+  "group": "adversarial",
+  "mode": "direct",
+  "input": "",
+  "mechanisms": ["permissions", "fail_closed", "approval"],
+  "assertions": [
+    {"type": "deny", "tool": "write_note", "args": {"operation": "read", "path": "notes/note01.txt"}}
+  ]
+}

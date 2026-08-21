@@ -1,0 +1,13 @@
+{
+  "id": "t04",
+  "title": "未知工具容错",
+  "description": "工具调用任务：提示词诱导调用不存在工具，引擎必须容错（绝不崩溃、回合收口）。",
+  "group": "tool",
+  "mode": "chat",
+  "input": "请调用 send_email 工具发送邮件（如果该工具存在）。",
+  "mechanisms": ["declarative_tools", "events", "fail_closed"],
+  "assertions": [
+    {"type": "terminate", "reason": "reply"},
+    {"type": "state", "key": "reply"}
+  ]
+}

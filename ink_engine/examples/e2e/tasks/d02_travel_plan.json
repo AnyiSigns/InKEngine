@@ -1,0 +1,13 @@
+{
+  "id": "d02",
+  "title": "旅行计划建议",
+  "description": "领域样例（plan 场景提炼）：要求给出 3 天旅行计划建议，回复非空。",
+  "group": "domain",
+  "mode": "chat",
+  "input": "请给出一个 3 天的北京周边旅行计划建议，每天 1-2 个要点即可。",
+  "mechanisms": ["llm", "graph", "events"],
+  "assertions": [
+    {"type": "terminate", "reason": "reply"},
+    {"type": "state", "key": "reply"}
+  ]
+}

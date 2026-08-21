@@ -1,0 +1,14 @@
+{
+  "id": "e01",
+  "title": "主题修改提案",
+  "description": "演化任务：请求修改界面主题色，模型应产出自指提案（propose/apply 链路；审计落链为可选信号——模型行为方差容忍）。",
+  "group": "evolution",
+  "mode": "chat",
+  "input": "请把界面主题背景色改成 #112233（用系统提供的自指工具完成）。",
+  "mechanisms": ["self_proposal", "self_application", "approval", "audit", "patch_chain"],
+  "assertions": [
+    {"type": "terminate", "reason": "reply"},
+    {"type": "state", "key": "reply"},
+    {"type": "audit_applied", "min": 1, "optional": true}
+  ]
+}

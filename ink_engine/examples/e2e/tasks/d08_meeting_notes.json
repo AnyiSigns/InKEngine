@@ -1,0 +1,13 @@
+{
+  "id": "d08",
+  "title": "会议纪要整理",
+  "description": "领域样例（memory/round_steps 场景提炼）：整理会议要点，回复非空。",
+  "group": "domain",
+  "mode": "chat",
+  "input": "会议要点：1）下季度目标确定；2）接口方案待评审；3）人员分工周四前确认。请整理成三条纪要。",
+  "mechanisms": ["llm", "graph", "events", "memory", "round_steps"],
+  "assertions": [
+    {"type": "terminate", "reason": "reply"},
+    {"type": "state", "key": "reply"}
+  ]
+}

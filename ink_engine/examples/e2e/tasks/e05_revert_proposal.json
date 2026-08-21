@@ -1,0 +1,14 @@
+{
+  "id": "e05",
+  "title": "回退提议",
+  "description": "演化任务：请求回退最近一次自指补丁（revert 语义）；回复非空即达成。",
+  "group": "evolution",
+  "mode": "chat",
+  "input": "请通过自指工具回退最近一次主题补丁（如果存在），并说明结果。",
+  "mechanisms": ["self_application", "patch_chain", "audit", "approval"],
+  "assertions": [
+    {"type": "terminate", "reason": "reply"},
+    {"type": "state", "key": "reply"},
+    {"type": "audit_applied", "min": 1, "optional": true}
+  ]
+}

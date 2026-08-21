@@ -1,0 +1,13 @@
+{
+  "id": "d09",
+  "title": "中英互译",
+  "description": "领域样例（llm 场景提炼）：翻译一句话，回复非空。",
+  "group": "domain",
+  "mode": "chat",
+  "input": "把这句话翻译成英文：'失败是成功之母。'",
+  "mechanisms": ["llm", "graph", "events"],
+  "assertions": [
+    {"type": "terminate", "reason": "reply"},
+    {"type": "state", "key": "reply"}
+  ]
+}

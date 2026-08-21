@@ -1,0 +1,13 @@
+{
+  "id": "d03",
+  "title": "代码审查意见",
+  "description": "领域样例（approval/review 场景提炼）：对一段代码给出审查意见，回复非空。",
+  "group": "domain",
+  "mode": "chat",
+  "input": "def f(x): return x / 0 —— 请给出这段代码的审查意见（一条即可）。",
+  "mechanisms": ["llm", "graph", "events", "review"],
+  "assertions": [
+    {"type": "terminate", "reason": "reply"},
+    {"type": "state", "key": "reply"}
+  ]
+}

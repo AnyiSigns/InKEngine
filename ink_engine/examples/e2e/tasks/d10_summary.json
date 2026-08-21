@@ -1,0 +1,13 @@
+{
+  "id": "d10",
+  "title": "文本摘要生成",
+  "description": "领域样例（llm 场景提炼）：对一段文本做一句话摘要，回复非空。",
+  "group": "domain",
+  "mode": "chat",
+  "input": "摘要下面这段话（一句话）：'引擎通过图执行、checkpoint 版本链、事件流与补丁链支撑可恢复的 agent 回合。'",
+  "mechanisms": ["llm", "graph", "events"],
+  "assertions": [
+    {"type": "terminate", "reason": "reply"},
+    {"type": "state", "key": "reply"}
+  ]
+}

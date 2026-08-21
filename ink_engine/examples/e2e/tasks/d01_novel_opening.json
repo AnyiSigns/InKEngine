@@ -1,0 +1,14 @@
+{
+  "id": "d01",
+  "title": "小说开场白生成",
+  "description": "领域样例（novel 场景提炼）：要求生成一段小说开场白，行为契约 = 回合有回复且回复非空。",
+  "group": "domain",
+  "mode": "chat",
+  "input": "请写一段 50 字以内的悬疑小说开场白。",
+  "mechanisms": ["llm", "graph", "events"],
+  "assertions": [
+    {"type": "terminate", "reason": "reply"},
+    {"type": "state", "key": "reply"},
+    {"type": "event", "name": "reply_token"}
+  ]
+}

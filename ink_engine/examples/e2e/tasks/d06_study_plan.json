@@ -1,0 +1,13 @@
+{
+  "id": "d06",
+  "title": "学习计划制定",
+  "description": "领域样例（plan+spawn 场景提炼）：制定一周 Python 学习计划，回复非空。",
+  "group": "domain",
+  "mode": "chat",
+  "input": "请制定一个 5 天的 Python 入门学习计划，每天一句话。",
+  "mechanisms": ["llm", "graph", "events", "plan", "spawn"],
+  "assertions": [
+    {"type": "terminate", "reason": "reply"},
+    {"type": "state", "key": "reply"}
+  ]
+}

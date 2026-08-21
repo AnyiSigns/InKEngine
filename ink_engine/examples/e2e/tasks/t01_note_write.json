@@ -1,0 +1,14 @@
+{
+  "id": "t01",
+  "title": "笔记写入",
+  "description": "工具调用任务（声明式 file_ops）：模型调用 write_note 工具真实写盘，事件含 tool_start/tool_end。",
+  "group": "tool",
+  "mode": "chat",
+  "input": "请用 write_note 工具把 'e2e 笔记第一条' 写入文件 note01.txt。",
+  "mechanisms": ["declarative_tools", "sandbox", "permissions", "audit", "events"],
+  "assertions": [
+    {"type": "terminate", "reason": "reply"},
+    {"type": "event", "name": "tool_start"},
+    {"type": "event", "name": "tool_end"}
+  ]
+}

@@ -1,0 +1,13 @@
+{
+  "id": "t03",
+  "title": "多轮工具调用",
+  "description": "工具调用任务：连续写两个文件（两轮工具循环），回合不崩溃且收口。",
+  "group": "tool",
+  "mode": "chat",
+  "input": "请用 write_note 依次写入文件 f1.txt 内容 '一' 和 f2.txt 内容 '二'，完成后报告。",
+  "mechanisms": ["declarative_tools", "sandbox", "audit", "events"],
+  "assertions": [
+    {"type": "terminate", "reason": "reply"},
+    {"type": "state", "key": "reply"}
+  ]
+}

@@ -1,0 +1,13 @@
+{
+  "id": "l02",
+  "title": "长链：多轮细化",
+  "description": "长链任务：多轮细化同一主题（上下文累积，回复非空）。",
+  "group": "long_chain",
+  "mode": "chat",
+  "input": "请逐步细化这个主题：'如何搭建个人知识库'。先给目录框架，再展开第一部分的要点。",
+  "mechanisms": ["graph", "events", "context", "memory"],
+  "assertions": [
+    {"type": "terminate", "reason": "reply"},
+    {"type": "state", "key": "reply"}
+  ]
+}

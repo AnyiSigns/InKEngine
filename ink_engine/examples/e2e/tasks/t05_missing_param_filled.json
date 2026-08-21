@@ -1,0 +1,13 @@
+{
+  "id": "t05",
+  "title": "参数缺失补全",
+  "description": "工具调用任务：write_note 缺 content 参数，模型应补全参数（strict 解析语义）。",
+  "group": "tool",
+  "mode": "chat",
+  "input": "请用 write_note 写入 note05.txt（内容请自行合理拟定）。",
+  "mechanisms": ["declarative_tools", "sandbox", "audit", "events"],
+  "assertions": [
+    {"type": "terminate", "reason": "reply"},
+    {"type": "event", "name": "tool_start"}
+  ]
+}

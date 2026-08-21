@@ -1,0 +1,14 @@
+{
+  "id": "e02",
+  "title": "工具注册提案",
+  "description": "演化任务：请求注册一个新工具（TOOL 提案 → L1 审批挂卡；审计落链可选）。",
+  "group": "evolution",
+  "mode": "chat",
+  "input": "请通过自指工具注册一个名为 list_notes 的文件工具（用途：列出笔记，权限 filesystem:read）。",
+  "mechanisms": ["self_proposal", "self_application", "approval", "audit", "declarative_tools"],
+  "assertions": [
+    {"type": "terminate", "reason": "reply"},
+    {"type": "state", "key": "reply"},
+    {"type": "audit_applied", "min": 1, "optional": true}
+  ]
+}

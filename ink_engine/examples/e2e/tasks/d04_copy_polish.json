@@ -1,0 +1,13 @@
+{
+  "id": "d04",
+  "title": "产品文案润色",
+  "description": "领域样例（context mixer 场景提炼）：润色产品文案，回复非空。",
+  "group": "domain",
+  "mode": "chat",
+  "input": "请润色这句产品文案：'这个软件很好用，功能很多。' 输出一句话即可。",
+  "mechanisms": ["llm", "graph", "events", "context"],
+  "assertions": [
+    {"type": "terminate", "reason": "reply"},
+    {"type": "state", "key": "reply"}
+  ]
+}

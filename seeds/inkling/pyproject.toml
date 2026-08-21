@@ -1,0 +1,18 @@
+[tool.pytest.ini_options]
+# InKling 种子 e2e 的 pytest 环境（引擎 pytest 环境同口径，仓库根运行）：
+# - asyncio_mode=auto：async 用例免装饰器（与 ink_engine/pyproject 对齐）；
+# - pythonpath：仓库根（import ink_engine）+ 本目录（import host）
+#   （相对 rootdir = seeds/inkling 解析）。
+asyncio_mode = "auto"
+pythonpath = [".", "tests/e2e", "../../.."]
+testpaths = ["tests/e2e"]
+
+[tool.ruff]
+target-version = "py311"
+line-length = 100
+
+[tool.ruff.lint]
+# 与 ink_engine/pyproject.toml 同口径（种子 Python 代码同一质量门禁）
+select = ["E", "F", "W", "I", "UP", "B", "C4", "SIM", "RUF"]
+# 中文项目必需：全角字符（括号/逗号）是正常书写，不视为歧义字符
+ignore = ["E501", "RUF001", "RUF002", "RUF003"]

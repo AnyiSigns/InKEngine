@@ -601,12 +601,18 @@
       "parameters": {
         "type": "object",
         "properties": {
+          "command": {
+            "type": "string",
+            "enum": ["propose_mcp_mount"],
+            "description": "命令名（固定值；与 process_exec 端点操作判定同源，调用方恒传）"
+          },
           "address": {
             "type": "string",
             "description": "插件地址（市场条目 id / git 仓库 / npm 包名）"
           }
         },
         "required": [
+          "command",
           "address"
         ]
       },

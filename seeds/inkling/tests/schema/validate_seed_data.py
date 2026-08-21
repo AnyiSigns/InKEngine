@@ -53,9 +53,9 @@ EXPECTED_SEED_FILES: tuple[str, ...] = (
 # ── 引擎事实常量（以源码为准的核对基准；与 ink_engine 源码对齐）──
 # AssemblyRecipe 字段数以 runtime.py 源码为准：出厂基线 16 字段，M3 接线
 # 期新增 ui_allowed_channels（界面绑定通道白名单，装配数据扩展）后为 17
-# 字段；计划文本原写「17 字段」的表述与此计数偶合。引擎侧任何字段增删
-# 都会让本门禁失配，须同步更新本常量
-ASSEMBLY_RECIPE_FIELD_COUNT = 17
+# 字段；M4 设计期新增 run_options（宿主注入位，装配产物字段覆盖）后为
+# 18 字段。引擎侧任何字段增删都会让本门禁失配，须同步更新本常量
+ASSEMBLY_RECIPE_FIELD_COUNT = 18
 # 引擎 pyproject 当前版本（核实失败时回落值；实际以 pyproject.toml 解析结果优先）
 ENGINE_VERSION_FALLBACK = "0.1.0"
 
@@ -265,7 +265,7 @@ class MiniSchemaValidator:
 def count_assembly_recipe_fields() -> int | None:
     """统计 runtime.py 中 AssemblyRecipe dataclass 的字段数（AST 解析）。
 
-    计划文本写「17 字段」，验收要求以源码为准：此函数从源码类体提取
+    验收以源码为准：此函数从源码类体提取
     注解赋值语句（AnnAssign）计数，引擎侧任何字段增删都会让本门禁
     与常量 ASSEMBLY_RECIPE_FIELD_COUNT 失配而失败（防口径漂移）。
     """
@@ -817,7 +817,7 @@ def main() -> int:
     elif recipe_field_count != ASSEMBLY_RECIPE_FIELD_COUNT:
         problems.append(
             f"AssemblyRecipe 实际 {recipe_field_count} 字段，与常量 {ASSEMBLY_RECIPE_FIELD_COUNT} 不符"
-            "（计划文本写 17 字段，以 runtime.py 源码为准；若引擎字段已增删请更新本常量）"
+            "（以 runtime.py 源码为准；若引擎字段已增删请更新本常量）"
         )
     engine_version = read_engine_version()
     if engine_version is None:

@@ -7,7 +7,11 @@
 >
 > 运行口径：`pytest seeds/inkling/tests/e2e`（引擎 pytest 环境，仓库根
 > 运行；stub AsyncLLM 离线确定性，真实模型 live 评测不入出厂门禁）。
-> 当前全量：198 passed + 3 skipped（skip 明细见各行）。
+> M4 出厂终态：四项门禁一键聚合入口 = `seeds/inkling/self_check.py`
+> （schema / cargo test / frontend typecheck / e2e，命令以
+> manifest.json self_check 为单一事实源），本矩阵行 ↔ 门禁 ↔ 用例
+> 逐行呼应。
+> 当前全量：198 passed + 3 skipped（skip 明细见文末）。
 
 ## 一、身份与数据基线
 
@@ -17,14 +21,14 @@
 | 自举提示词定稿（逐字比对 §5.1 原文） | tests/schema/validate_seed_data.py（boot_prompt 定稿断言）+ test_full_loop.py 注入步骤（host.boot_prompt == 定稿形态） | 绿 |
 | seed_data 17 文件 schema 全量校验（缺失/多余/类型/空值边界） | validate_seed_data.py 逐文件 schema 校验（17 schema + manifest schema） | 绿 |
 | 跨文件一致性（graph↔workflow、ui_spec↔event_types↔manifest、rules↔review、tools↔workflow、samples↔rules） | validate_seed_data.py 第四步 + exec/tests/binding.rs（谓词↔样例绑定） | 绿 |
-| 自检矩阵四项门禁命令真实可执行 | manifest.json self_check（schema/cargo_test/frontend/e2e，状态全 ready） | 绿 |
+| 自检矩阵四项门禁命令真实可执行（一键聚合入口） | manifest.json self_check（schema/cargo_test/frontend/e2e，状态全 ready）+ `seeds/inkling/self_check.py`（M4 出厂门禁入口：命令/状态/耗时/摘要矩阵化报告，失败非零退出） | 绿（M4 落点） |
 | 引擎零改动（种子侧装配无引擎源码变更） | git diff 仅 seeds/（本阶段提交范围） | 绿 |
 
 ## 二、装配与界面
 
 | 检查 | 落点（用例/校验） | 状态 |
 |---|---|---|
-| AssemblyRecipe 17 字段全落值 | test_boot_assembly.py test_recipe_17_fields_all_populated | 绿 |
+| AssemblyRecipe 18 字段全落值 | test_boot_assembly.py test_recipe_17_fields_all_populated（用例名沿用历史命名，断言按源码字段数自省） | 绿 |
 | UI 三层白名单与 seed_data 同源推导 | test_boot_assembly.py test_three_layer_whitelists_derived_from_seed_data | 绿 |
 | 基线 ui_spec 过三层白名单校验 | test_boot_assembly.py test_ui_spec_passes_three_layer_validation | 绿 |
 | 渲染器契约同源（前端注册组件集 = manifest 白名单） | test_execution_depth.py test_renderer_contract_same_source_with_engine_whitelist（夹具组件集 ⊆ 白名单 + 主题 token 同源） | 绿 |
@@ -148,6 +152,8 @@
 |---|---|---|
 | 喂资料 → 研究 → 孵化 → 沉淀闭环（注入→挂载→回合→推演→孵化→补丁→回退→续流→压缩→调优→领域长出） | test_full_loop.py test_full_loop_incubate_chain | 绿 |
 | 全链路 stdio 真执行件形态（注入→挂载→真实调用→卸载撤销） | test_full_loop.py test_full_loop_stdio_rust_exec；执行件未构建时显式 skipif | 绿（本机 cargo build 后跑绿） |
+| 领域长出 live 验证（真实运行路径：新规则经样例闸门放行 → 自指 KNOWLEDGE 补丁挂载 → 活跃态生效 → 链尾回退撤销） | `seeds/inkling/examples/factory_demo.py` 步骤七（M4 出厂演示脚本）+ test_full_loop.py ⑪——演示「机制被使用」而非仅「机制能跑」 | 绿（M4 落点） |
+| 出厂演示脚本全链（StubLLM：注入→挂载→回合→孵化→补丁→回退→领域长出，人类可读中文分步 + 事件留痕 + 失败指引） | `seeds/inkling/examples/factory_demo.py`（`python seeds/inkling/examples/factory_demo.py`；stdio 真执行件已构建时走真实路径，未构建降级说明不中断） | 绿（M4 落点，本机全链跑通） |
 
 ## 十三、执行深度
 
@@ -162,7 +168,7 @@
 | 脱敏与 trace_id（日志 redact + trace_id 贯穿回合 + 存储剥离敏感值） | test_execution_depth.py test_log_redaction_and_structured_trace_id / test_trace_id_threads_round_and_storage_strips_sensitive | 绿 |
 | 存储三后端（memory / sqlite 内存 / sqlite 文件落盘 + 重启链延续） | test_execution_depth.py test_storage_three_backends | 绿 |
 | UI 三层白名单深度（拒绝/回落/同源） | test_execution_depth.py test_ui_three_layer_whitelist_rejects_undeclared / test_damaged_ui_spec_falls_back_unformed / test_renderer_contract_same_source_with_engine_whitelist | 绿 |
-| 宿主件执行器注册契约（声明↔签名一致 + 权限/沙箱断言） | shell/tests（cargo test，免真实桌面） | 绿（随 shell 构建门禁） |
+| 宿主件执行器注册契约（声明↔签名一致 + 权限/沙箱断言） | shell/tests（cargo test --manifest-path seeds/inkling/shell/src-tauri/Cargo.toml，免真实桌面） | 绿（M4 本机 27 例全过：17 执行器契约 + 9 MCP 协议 + 1 lib；真实桌面冒烟为遗留可选） |
 
 ## skip 明细（当前环境）
 

@@ -1,5 +1,5 @@
 /**
- * 领域组件包加载器：按 manifest 清单（contracts.renderComponentWhitelist）
+ * 领域组件包加载器：按 manifest 清单（contracts.renderer_components）
  * 注册领域组件进渲染器注册表。
  *
  * 清单 = 种子 manifest.json 的 contracts 段（夹具见 contracts.fixture.json，
@@ -14,7 +14,7 @@ import { KnowledgeRow } from './knowledge/knowledge_row';
 export interface DomainManifest {
   id?: string;
   contracts?: {
-    renderComponentWhitelist?: string[];
+    renderer_components?: string[];
   };
 }
 
@@ -35,7 +35,7 @@ export function loadDomainComponents(manifest: DomainManifest | null): string[] 
   if (loaded) return [...registeredSoFar];
   loaded = true;
 
-  const whitelist = manifest?.contracts?.renderComponentWhitelist ?? [];
+  const whitelist = manifest?.contracts?.renderer_components ?? [];
   for (const name of whitelist) {
     const factory = DOMAIN_COMPONENTS[name];
     if (!factory) {

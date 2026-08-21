@@ -67,6 +67,7 @@ _RECIPE_TYPE_WHITELIST: frozenset[str] = frozenset(
         "PatchKind",
         "Path",
         "Retriever",
+        "RunOptions",
         "Sequence",
         "ToolSpec",
         "ToolWiring",
@@ -114,6 +115,7 @@ _ASSEMBLY_RECIPE_FIELDS: tuple[str, ...] = (
     "graph_recipe",
     "on_reverted",
     "convergence_provider",
+    "run_options",
 )
 
 _ENGINE_ROOT = Path(__file__).resolve().parents[1] / "ink_engine"

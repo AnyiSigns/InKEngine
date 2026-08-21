@@ -17,6 +17,7 @@ import pytest
 
 from ink_engine.core.approval import DefaultInterruptPolicy
 from ink_engine.core.event_types import EventTypeSpec
+from ink_engine.core.executor import RunOptions
 from ink_engine.core.graph import Graph
 from ink_engine.core.harness import HarnessDefinition
 from ink_engine.core.llm import AsyncLLM
@@ -374,6 +375,25 @@ async def test_rebuild_engine_caches_by_config():
     assert rebuilt3 is not rebuilt2
     # 再次同配置调用 → 复用
     assert await runtime.rebuild_engine(new_llm) is rebuilt3
+
+
+async def test_recipe_run_options_override_applied():
+    """配方 run_options 执行域覆盖：非 None 字段生效，装配产物保持注入。
+
+    产品级 Runtime 装配经此带上执行约束（plan_policy/budget/evaluator
+    等）；未声明字段保持引擎默认，装配产物字段（存储/注册表）由
+    Runtime 注入不被覆盖清空。
+    """
+    recipe = _minimal_recipe(
+        run_options=RunOptions(plan_policy="strict", max_plan_steps=3)
+    )
+    runtime = await Runtime().boot(FakeHost(), recipe)
+    engine = runtime.engine
+    assert engine.options.plan_policy == "strict"
+    assert engine.options.max_plan_steps == 3
+    assert engine.options.storage is runtime.storage
+    assert engine.options.registries is runtime.graph_registries
+    assert engine.options.error_on_exception is True
 
 
 async def test_collect_specs_merges_three_routes():

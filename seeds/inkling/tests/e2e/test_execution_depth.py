@@ -498,6 +498,14 @@ async def test_storage_three_backends(depth_storage_uri):
             )  # 重启链版本延续
             ui = runtime2.introspection_service.snapshot_ui()["ui_spec"]
             assert ui["theme"]["bg.base"] == "#123456"  # 链态恢复（含回退前的补丁）
+            # 种子条目重注入：链恢复整体替换知识集后，出厂基线条目
+            # （内存态、不在链上）由宿主重注入恢复
+            assert runtime2.knowledge_set.get("seed.inkling.domain_guide") is not None
+            # 出厂基线层级随重注入恢复（种子 = 启动注入基线，链只承载演化）
+            assert (
+                runtime2.knowledge_set.get("seed.inkling.domain_guide").level
+                == "project"
+            )
         finally:
             await runtime2.stop()
 

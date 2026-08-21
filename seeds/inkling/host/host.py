@@ -308,6 +308,14 @@ async def boot_inkling(
         base_event_names=revert_state.get("base_event_names") or (),
         base_ui_spec=revert_state.get("base_ui_spec"),
     )
+    # 种子条目重注入：引擎链恢复在种子注入之后整体替换知识集实例，
+    # 出厂基线条目（内存态、不在链上）随之丢失——按既定语义「种子 =
+    # 启动注入基线，链只承载演化」，此处重注入并与链段条目按 id 去重
+    # （晋升过的条目已上链，以链态为准不覆盖）
+    for _seed_name, seed_provider in recipe.seeds:
+        for seed_entry in seed_provider():
+            if runtime.knowledge_set.get(seed_entry.id) is None:
+                runtime.knowledge_set.add(seed_entry)
     runtime.introspection_service._sources.tools = runtime.collect_specs()
     await runtime.rebuild_engine()
     return runtime, host, mount_service

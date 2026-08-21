@@ -24,7 +24,7 @@ from __future__ import annotations
 import asyncio
 import uuid
 from collections.abc import Callable, Sequence
-from dataclasses import dataclass, field
+from dataclasses import dataclass, field, fields
 from enum import StrEnum
 from pathlib import Path
 from typing import Any, Protocol, runtime_checkable
@@ -157,6 +157,9 @@ class AssemblyRecipe:
     Attributes:
         set_id: 用户集 id（存储隔离键）。
         seeds: 种子注入清单 [(name, entries_provider)]（通用基线恒注）。
+            种子条目为内存态启动注入基线（不在补丁链上），带补丁重启后
+            由宿主重注入并与链段恢复条目按 id 去重——链只承载演化，
+            种子是出厂数据不是演化。
         harness_definitions: 自举 harness 定义清单（注册 + 落库）。
         event_type_specs: 事件类型基线（装配期登记 + 集内演化类型加载）。
         ui_spec: 界面基线（装配期经三层白名单校验；损坏回落未定形）。
@@ -176,6 +179,9 @@ class AssemblyRecipe:
         on_reverted: 回退通知钩子（宿主行为信号触发点）。
         convergence_provider: 演化收敛管制钩子提供者（可选前置闸门；
             None = 不启用）。
+        run_options: 执行域选项覆盖（None = 引擎默认；非 None 时按字段
+            级覆盖装配默认——plan_policy/plan_workflow/budget/evaluator
+            等执行约束经此注入，装配产物字段由 Runtime 注入不建议覆盖）。
     """
 
     set_id: str = "default"
@@ -201,6 +207,7 @@ class AssemblyRecipe:
     graph_recipe: Callable[[GraphRecipeContext], Graph] | None = None
     on_reverted: Callable[[int, str], Any] | None = None
     convergence_provider: Callable[[], ConvergenceHook | None] | None = None
+    run_options: RunOptions | None = None
 
 
 class Runtime:
@@ -582,16 +589,25 @@ class Runtime:
             assembly_sources=self._assembly_sources(),
         )
         graph = recipe.graph_recipe(context)
+        options = RunOptions(
+            storage=self.storage,
+            registries=self.graph_registries,
+            transports=[],
+            system_events=context.system_events,
+            assembly=context.assembly,
+            assembly_sources=context.assembly_sources,
+        )
+        recipe_run_options = recipe.run_options
+        if recipe_run_options is not None:
+            # 配方执行域覆盖：非 None 字段覆盖装配默认（装配产物字段由
+            # Runtime 注入，宿主覆盖即替换装配态——声明即权威）
+            for rf in fields(recipe_run_options):
+                value = getattr(recipe_run_options, rf.name)
+                if value is not None:
+                    setattr(options, rf.name, value)
         engine = Engine(
             graph,
-            options=RunOptions(
-                storage=self.storage,
-                registries=self.graph_registries,
-                transports=[],
-                system_events=context.system_events,
-                assembly=context.assembly,
-                assembly_sources=context.assembly_sources,
-            ),
+            options=options,
         )
         self.engine = engine
         self.engine_llm = llm

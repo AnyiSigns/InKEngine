@@ -63,6 +63,7 @@ _RECIPE_TYPE_WHITELIST: frozenset[str] = frozenset(
         "HarnessDefinition",
         "InterruptPolicy",
         "KnowledgeEntry",
+        "NetworkPolicy",
         "None",
         "PatchKind",
         "Path",

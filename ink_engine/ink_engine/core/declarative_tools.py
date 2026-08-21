@@ -98,6 +98,9 @@ class DeclarativeToolSpec:
             命令白名单；file_ops: 操作白名单；mcp: server_id 路由密钥），
             随定义持久化。
         meta: 扩展元数据（宿主语义，如来源 harness/经验蒸馏标记）。
+        network_policy: 定义级网络策略（http_fetch 端点的域名白名单声明；
+            None = 不声明，走流水线全局策略）——宿主顶层 policy 经此字段
+            承载，不再折叠进 meta。
     """
 
     name: str
@@ -107,6 +110,7 @@ class DeclarativeToolSpec:
     endpoint: EndpointType = EndpointType.HTTP_FETCH
     endpoint_config: dict[str, Any] = field(default_factory=dict)
     meta: dict[str, Any] = field(default_factory=dict)
+    network_policy: NetworkPolicy | None = None
 
     def __post_init__(self) -> None:
         # 端点归一：宿主可传字符串形态（"file_ops"）——构造期强制转为枚举，
@@ -174,7 +178,7 @@ class DeclarativeToolSpec:
         )
 
     def to_dict(self) -> dict:
-        return {
+        data: dict = {
             "name": self.name,
             "description": self.description,
             "parameters": self.parameters,
@@ -183,6 +187,11 @@ class DeclarativeToolSpec:
             "endpoint_config": self.endpoint_config,
             "meta": self.meta,
         }
+        if self.network_policy is not None:
+            data["network_policy"] = {
+                "allow_domains": sorted(self.network_policy.allow_domains)
+            }
+        return data
 
     @classmethod
     def from_dict(cls, data: dict) -> DeclarativeToolSpec:
@@ -191,6 +200,21 @@ class DeclarativeToolSpec:
             endpoint_enum = EndpointType(endpoint)
         except ValueError as exc:
             raise GraphDefinitionError(f"端点类型非法: {endpoint!r}") from exc
+        network_policy: NetworkPolicy | None = None
+        raw_policy = data.get("network_policy")
+        if raw_policy is not None:
+            if not isinstance(raw_policy, dict):
+                raise GraphDefinitionError("network_policy 声明须为 dict")
+            domains = raw_policy.get("allow_domains") or ()
+            if not isinstance(domains, (list, tuple)) or not all(
+                isinstance(domain, str) and domain for domain in domains
+            ):
+                raise GraphDefinitionError(
+                    "network_policy.allow_domains 须为非空域名白名单清单"
+                )
+            network_policy = NetworkPolicy(
+                allow_domains=frozenset(domains)
+            )
         return cls(
             name=data["name"],
             description=data.get("description") or "",
@@ -199,6 +223,7 @@ class DeclarativeToolSpec:
             endpoint=endpoint_enum,
             endpoint_config=data.get("endpoint_config") or {},
             meta=data.get("meta") or {},
+            network_policy=network_policy,
         )
 
 

@@ -140,6 +140,41 @@ def test_declarative_round_trip():
     assert rebuilt.permissions == ("network:connect:*.example.com",)
 
 
+def test_network_policy_field_round_trip():
+    """定义级网络策略字段往返（宿主顶层 policy 不再折叠进 meta）。"""
+    from ink_engine.core.permissions import NetworkPolicy
+
+    definition = _declarative(
+        endpoint=EndpointType.HTTP_FETCH,
+        network_policy=NetworkPolicy(allow_domains=frozenset({"*.example.com", "api.demo"})),
+        meta={"source": "seed"},
+    )
+    data = definition.to_dict()
+    assert data["network_policy"] == {
+        "allow_domains": ["*.example.com", "api.demo"]
+    }
+    assert "network_policy" not in data["meta"]  # 顶层字段承载，不折叠进 meta
+    rebuilt = DeclarativeToolSpec.from_dict(data)
+    assert rebuilt.network_policy == definition.network_policy
+    assert rebuilt.network_policy.allow_domains == frozenset(
+        {"*.example.com", "api.demo"}
+    )
+    # 缺省 None 往返：键省略 + 解析回落 None
+    plain = _declarative()
+    plain_data = plain.to_dict()
+    assert "network_policy" not in plain_data
+    assert DeclarativeToolSpec.from_dict(plain_data).network_policy is None
+
+
+def test_network_policy_declaration_rejects_malformed():
+    """network_policy 声明形态非法 = 定义期拒绝（fail-fast）。"""
+    base = _declarative().to_dict()
+    with pytest.raises(GraphDefinitionError):
+        DeclarativeToolSpec.from_dict({**base, "network_policy": {"allow_domains": "x"}})
+    with pytest.raises(GraphDefinitionError):
+        DeclarativeToolSpec.from_dict({**base, "network_policy": "http"})
+
+
 def test_declarative_to_spec():
     """声明式定义 → 引擎工具描述（参数 schema 与权限声明透传）。"""
     spec = _declarative().to_spec()

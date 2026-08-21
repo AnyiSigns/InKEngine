@@ -31,11 +31,9 @@ from dataclasses import dataclass, field, replace
 from typing import Any
 
 from .assembly import (
-    AssemblyConfig,
     AssemblyResult,
     InputAssembler,
 )
-from .budget import BudgetManager
 from .chain_rebase import maybe_compact_chain
 from .events import EngineEvent, EngineTransport
 from .exceptions import (
@@ -49,7 +47,6 @@ from .graph import Graph, NodeContext, TerminateReason
 from .interrupt import InterruptCoordinator, InterruptSignal, InterruptState
 from .logging import get_logger, trace_id_var
 from .plan import (
-    DEFAULT_MAX_PLAN_STEPS,
     KIND_NODES,
     KIND_PARALLEL,
     KIND_SPAWNS,
@@ -58,16 +55,13 @@ from .plan import (
     PlanStep,
 )
 from .recovery import resolve_resume, tail_checkpoint
-from .registry import GraphRegistries
+from .run_result import RunOptions, RunResult  # 结果契约/执行选项（独立模块）
 from .security import strip_sensitive
 from .simulation import (
-    DEFAULT_MAX_SIMULATIONS,
     SIMULATE_KEY,
     BestBranchMixer,
-    BranchMixer,
     BranchSelection,
     EvaluatedBranch,
-    Evaluator,
     ProvenanceNote,
     SimulateSpec,
     SimulationResult,
@@ -85,92 +79,8 @@ from .spawn import (
 )
 from .state import StateSchema, is_merge_reducer, subgraph_overlay_delta
 from .storage import ChainLink, CheckpointRecord, Storage
-from .tuning import TurnMetrics
 
 logger = get_logger(__name__)
-
-
-@dataclass(slots=True)
-class RunOptions:
-    """单次 run 的引擎配置（DI：存储/传输/预算/状态 schema 均注入）。
-
-    Attributes:
-        storage: 存储服务（None = 纯内存执行，不持久化）。
-        schema: 状态通道 schema（None = 全部裸通道覆盖语义）。
-        budget: 预算管理器（None = 不检查）。
-        transports: 事件传输列表（None = 仅执行不消费）。
-        max_node_retries: 节点异常重试次数（0 = 不重试，直接终止）。
-        error_on_exception: True = 节点异常终止本轮（reason=error）；
-            False = 跳过异常节点继续（reason=stop 语义由业务边决定）。
-        max_spawns: 单次展开的子任务清单数量上限（成本护栏：清单
-            超限即节点失败，防拆解爆炸）。
-        spawn_concurrency: spawn 实例并发上限（fan_out 限流）。
-        checkpoint_keep: 版本链每叶路径保留行数（链级 rebase 窗口；
-            0 = 禁用压缩，历史逐节点全量保留，链长随执行线性增长）。
-    """
-
-    storage: Storage | None = None
-    schema: StateSchema | None = None
-    budget: BudgetManager | None = None
-    transports: list[EngineTransport] = field(default_factory=list)
-    max_node_retries: int = 0
-    error_on_exception: bool = True
-    max_spawns: int = 16
-    spawn_concurrency: int = 4
-    # 链级 rebase 窗口：链长超出后压缩历史前缀（窗口外行删除、窗口最旧
-    # 行改链头、事件日志连带裁剪）——恢复/巡检从 O(链长) 降为 O(窗口)。
-    # 编辑重放（parent_checkpoint 分叉）期间跳过：分叉锚点可能落在窗口外。
-    checkpoint_keep: int = 256
-    # 系统信号事件集合（宿主协议注入）：命中的事件类型强制 step_id=None、
-    # 不入回合步骤序列（机制层默认空——不预置任何领域事件名）
-    system_events: frozenset[str] = frozenset()
-    # 运行时重规划（__plan__）配置
-    plan_policy: str = "loose"  # loose = 计划落在约束域内任意节点；strict = 计划须满足约束域边序
-    max_plan_steps: int = DEFAULT_MAX_PLAN_STEPS  # 计划步数上限（成本护栏，0 = 禁用计划）
-    plan_workflow: Any = None  # 工作流约束域（WorkflowSpec：计划节点/边须落在其内；None = 按图校验）
-    parallel_concurrency: int = 4  # 并行节点组并发上限
-    # 建图注册表（spawn 子图数据/计划条件的解析来源；None = 不启用数据形态）
-    registries: GraphRegistries | None = None
-    # 决策点推演（__simulate__）配置
-    evaluator: Evaluator | None = None  # 分支评估器（None = 节点返回 __simulate__ 时拒绝）
-    branch_mixer: BranchMixer | None = None  # 分支调配策略（None = BestBranchMixer 单选）
-    max_simulations: int = DEFAULT_MAX_SIMULATIONS  # 推演分支数上限（成本护栏，0 = 禁用）
-    simulate_concurrency: int = 2  # 推演分支并发上限
-    # 换选分支序号（None = 正常择优）：回溯换选时强制改选指定分支——
-    # 经 Engine.swap_branch 设置，重放期间决策点按该分支提交主线
-    branch_pick: int | None = None
-    # 输入调配管线（执行语义：每次 LLM 调用/节点执行前多源统一调配）
-    assembly: AssemblyConfig | None = None  # 装配配置（None = 未启用，调用点走旧路径）
-    # 装配源提供者（None = 引擎不自动装配，节点自行经 ctx.assemble 提供
-    # 源）：节点执行前引擎自动调用一次取源并统一调配，节点内 assemble
-    # 复用预装配结果（不重复装配/不重复留痕）
-    assembly_sources: Any = None
-    # 回合指标聚合（引擎自承载的观测件）：注入后顶层 run 收尾时自动
-    # 记录回合成败与错误摘要（评审分/收敛轮数/挡位调用由使用方按事件
-    # 语义填报——引擎只采集自身可见的执行事实）；None = 不采集
-    metrics: TurnMetrics | None = None
-
-
-@dataclass(slots=True)
-class RunResult:
-    """run 执行结果（最终状态 + 终止原因 + 中断点 + 事件统计）。"""
-
-    state: dict
-    reason: str
-    checkpoint_id: int | None = None
-    interrupt: InterruptState | None = None
-    events_emitted: int = 0
-    error: str | None = None
-
-    def to_dict(self) -> dict:
-        return {
-            "state": self.state,
-            "reason": self.reason,
-            "checkpoint_id": self.checkpoint_id,
-            "interrupt": self.interrupt.to_dict() if self.interrupt else None,
-            "events_emitted": self.events_emitted,
-            "error": self.error,
-        }
 
 
 class _QueueTransport:

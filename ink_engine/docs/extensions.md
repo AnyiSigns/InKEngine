@@ -36,7 +36,7 @@
 | 事件类型数据化 | `event_types.EventTypeSpec`/`EventTypeRegistry` | 注册事件类型（schema/renderer/system） | 发射校验/前端渲染接线 |
 | 界面描述数据化 | `ui_schema.UISpec`/`UISchemaValidator` | 声明布局树（三层白名单） | UIRenderer 契约渲染 |
 | 自指演化 | `self_proposal`/`self_application` | 宿主扩展经 `SelfToolContext` 钩子 + apply 目标注册 | 提案校验/分级审批/补丁链/审计/回退 |
-| 领域校验语义 | 产品侧规则数据 + 谓词 | 注入世界状态视图（JSON 数据）+ 可选 LLM 钩子 | 写时校验（规则集 + 注册谓词） |
+| 领域校验语义 | 产品侧规则数据 + 谓词 | 注入领域状态视图（JSON 数据）+ 可选 LLM 钩子 | 写时校验（规则集 + 注册谓词） |
 | 门控分级/卡模型 | `core.review_card` | 注册表 + 校验器 | 卡回路 |
 | 工具权限声明 | `core.permissions.PermissionGate` | `ToolSpec.permissions` + `default_policy`（宿主配置） | 流水线调用前判定 |
 | 网络策略 | `core.permissions.NetworkPolicy` | 白名单域名（宿主配置） | 权限判定 |
@@ -119,7 +119,7 @@ entries = await store.query(MemoryQuery(namespace="book:1", kind="style"))
 recalled = PriorityRecallPolicy().recall(entries, limit=2)  # 换策略 = 换类
 ```
 
-分层语义（工作/书级/风格）由宿主经 namespace/kind 区分；删除走
+分层语义（工作/卷级/风格）由宿主经 namespace/kind 区分；删除走
 非破坏性失效语义（forget = 标记失效，记录仍可追溯）。
 
 ## 5. 评审-收敛
@@ -229,7 +229,7 @@ from ink_engine.core.context import ContextAssembler, ContextMixer, ContextSourc
 from ink_engine.core.context import FusionRegistry, WeightedBudgetAllocator
 
 sources = [
-    ContextSource(type="chapter", content="第3章摘要...", weight=1.0, relevance=0.9),
+    ContextSource(type="doc", content="第3章摘要...", weight=1.0, relevance=0.9),
     ContextSource(type="memory", content="先抑后扬", weight=0.7, relevance=0.6, ttl=86400),
 ]
 
@@ -238,8 +238,8 @@ result = await mixer.mix(sources)          # 确定性组装（零 LLM 调用）
 print(result.text, result.included, result.dropped)  # 留痕可审计
 
 registry = FusionRegistry()
-registry.register("novel_fusion", MyFusionHook())   # LLM 调酒师（按需）
-mixer.attach_fusion(registry.get("novel_fusion"), instruction="深度融合")
+registry.register("deep_fusion", MyFusionHook())      # LLM 调酒师（按需）
+mixer.attach_fusion(registry.get("deep_fusion"), instruction="深度融合")
 result = await mixer.mix(sources)          # 融合失败自动回退确定性组装
 ```
 
@@ -314,8 +314,8 @@ assert_fixtures_pass(rule_set, fixtures)
 ```
 
 规则数据与谓词执行件绑定：`RuleSet.parse` 建期拒绝未知谓词（不静默），
-L1 最小功能测试要求规则可加载——谓词不注册 = 规则无法执行。世界状态
-运行时（提取/应用/涟漪）由产品按领域语义实现，引擎只承载「规则数据 +
+L1 最小功能测试要求规则可加载——谓词不注册 = 规则无法执行。领域状态
+运行时（提取/应用/演进）由产品按领域语义实现，引擎只承载「规则数据 +
 注册谓词 + 校验入口」机制。
 
 ## 12. 钩子与策略接口汇总
@@ -349,7 +349,7 @@ from ink_engine.core.llm.tools import ToolSpec
 
 spec = ToolSpec(
     name="write_file",
-    description="写入小说正文文件",
+    description="写入草稿文件",
     permissions=("filesystem:write:/book/**",),   # 未声明权限的工具默认拒绝
 )
 ```
@@ -382,7 +382,7 @@ from ink_engine.core.approval import (
 )
 
 decision = await approve_before_execute(
-    ctx, "gate", {"tool": "write_file", "summary": "写入卷1正文"},
+    ctx, "gate", {"tool": "write_file", "summary": "写入卷1内容"},
     policy=DefaultInterruptPolicy(auto_approve_tools=frozenset({"list_dir"})),
 )
 # 决议: accept/edit/reject/terminate/auto；宿主按决议执行/跳过/终止
@@ -532,7 +532,7 @@ tools = await manager.import_tools(
 
 | 配方字段 | 注入内容 |
 |---|---|
-| `seeds` | 种子提供器列表 `(domain, provider)`（boot/novel/…） |
+| `seeds` | 种子提供器列表 `(domain, provider)`（boot/domain_a/…） |
 | `harness_definitions` | harness 定义（图数据 + 工具清单） |
 | `event_type_specs` | 事件类型（前端渲染接线） |
 | `ui_spec` / `ui_allowed_components` / `ui_allowed_theme_tokens` | 界面布局树 + 三层白名单 |

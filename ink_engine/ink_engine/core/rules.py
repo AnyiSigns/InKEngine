@@ -23,8 +23,8 @@
   承接规则覆盖不到的深度启发式，钩子异常同样 fail-open）。
 
 违规严重度与类别沿用领域约定（error/warning + 领域 kind 标签），
-与领域种子包（``seeds/novel``）的规则集词汇对齐——规则化路径产出的
-问题可直接进入既有审核卡。
+与领域种子包的规则集词汇对齐——规则化路径产出的问题可直接进入
+既有审核卡。
 """
 from __future__ import annotations
 
@@ -271,7 +271,7 @@ class RuleSet:
     """规则集（知识集内规则的载体，纯数据可随补丁链版本化/回退）。
 
     Attributes:
-        name: 规则集名（如 novel.world_state）。
+        name: 规则集名（如 domain.main）。
         rules: 规则序列（按声明序执行）。
         description: 规则集说明。
     """

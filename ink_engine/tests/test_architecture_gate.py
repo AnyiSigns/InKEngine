@@ -1,8 +1,10 @@
 """架构门禁：机制层语义中立（领域词零出现）+ 零宿主绑定 + 配方类型白名单。
 
-core/ 源码（含 docstring/注释/字符串）不得出现创作领域词
-（章节/小说/叙事/伏笔/读者/书级/平行起草/世界状态/情节/创作/发散/正文）；
+core/ 源码与机制文档（docs/ 概念/扩展点/宿主/安全/API/架构）不得出现
+创作领域词（中文形态 + 已实证的英文标识符形态：novel/world_state）；
 领域种子包（seeds/）与宿主为领域词豁免，宿主语义只允许出现在领域层与宿主。
+注：「发散」不在词表——其为引擎机制术语（fan_out 发散-收敛）中文译名，
+字面扫描无法与创作语境区分，故豁免并依赖文档语义审查。
 
 与「零宿主绑定」门禁同族：让领域词与宿主框架词在 CI 上报错，防止宿主
 业务词汇/框架绑定静默回渗机制层——机制层 API 语义中立、不留领域默认值，
@@ -14,6 +16,7 @@ core/ 源码（含 docstring/注释/字符串）不得出现创作领域词
 """
 from __future__ import annotations
 
+import ast
 import re
 from pathlib import Path
 
@@ -28,8 +31,10 @@ _DOMAIN_TERMS: tuple[str, ...] = (
     "世界状态",
     "情节",
     "创作",
-    "发散",
     "正文",
+    # 英文标识符形态（证据驱动：曾以英文形态逃过中文词表，如 novel.world_state）
+    "novel",
+    "world_state",
 )
 
 # 零宿主绑定门禁词表（web 框架与宿主包名；含字符串内出现一并拦截——
@@ -78,6 +83,39 @@ _RECIPE_TYPE_WHITELIST: frozenset[str] = frozenset(
 # 门禁覆盖目录（机制层）
 _GATED_DIRS: tuple[str, ...] = ("core",)
 
+# 机制文档（docs/ 下与门禁同权的文档；README 为门面、CHANGELOG 为历史
+# 沿革记录，均豁免——门面与历史不是机制契约的载体）
+_GATED_DOCS: tuple[str, ...] = (
+    "api",
+    "architecture",
+    "concepts",
+    "extensions",
+    "hosts",
+    "security",
+)
+
+# 装配数据字段文档化清单（与 runtime.py AssemblyRecipe 声明逐一对应；
+# 新增/改名/删除字段须同步更新，防「文档-源码漂移」——引擎侧自省防线）
+_ASSEMBLY_RECIPE_FIELDS: tuple[str, ...] = (
+    "set_id",
+    "seeds",
+    "harness_definitions",
+    "event_type_specs",
+    "ui_spec",
+    "ui_allowed_channels",
+    "ui_allowed_components",
+    "ui_allowed_theme_tokens",
+    "tool_wiring",
+    "vetting_static_hooks",
+    "vetting_l2_hook",
+    "approval_levels",
+    "retrieval_sources",
+    "apply_targets",
+    "graph_recipe",
+    "on_reverted",
+    "convergence_provider",
+)
+
 _ENGINE_ROOT = Path(__file__).resolve().parents[1] / "ink_engine"
 
 
@@ -108,6 +146,58 @@ def test_mechanism_layer_is_domain_neutral():
     assert not hits, (
         "机制层混入领域词（领域词只允许出现在 seeds/ 与宿主，机制层 API "
         "须语义中立）:\n" + "\n".join(hits)
+    )
+
+
+def test_mechanism_docs_are_domain_neutral():
+    """机制文档零领域词（文档与源码同权；README/CHANGELOG 豁免）。
+
+    领域词曾以「机制章节」形态渗入概念文档（世界状态层整节）而门禁
+    只扫源码未覆盖——docs/ 与 core/ 同为机制契约载体，一并拦截。
+    """
+    hits: list[str] = []
+    for term in _DOMAIN_TERMS:
+        needle = term.lower()
+        for doc in _GATED_DOCS:
+            path = _ENGINE_ROOT.parent / "docs" / f"{doc}.md"
+            for lineno, line in enumerate(
+                path.read_text(encoding="utf-8").splitlines(), 1
+            ):
+                if needle in line.lower():
+                    hits.append(
+                        f"{doc}.md:{lineno} 命中「{term}」: {line.strip()[:60]}"
+                    )
+    assert not hits, (
+        "机制文档混入领域词（领域词只允许出现在 seeds/ 与宿主，机制文档 "
+        "与机制源码同权）:\n" + "\n".join(hits)
+    )
+
+
+def test_assembly_recipe_documented_fields():
+    """装配数据字段与文档化清单一致（AST 提取 vs 声明清单）。
+
+    文档化清单是「文档-源码漂移」防线的引擎侧版本：字段改名/删除/新增
+    未登记都会失配（与种子侧 AST 计数门禁同族但名字级更严），防止数据
+    基线按错误口径落盘。
+    """
+    source = (_ENGINE_ROOT / "core" / "runtime.py").read_text(encoding="utf-8")
+    tree = ast.parse(source)
+    fields: list[str] = []
+    for node in tree.body:
+        if not (isinstance(node, ast.ClassDef) and node.name == "AssemblyRecipe"):
+            continue
+        for stmt in node.body:
+            if isinstance(stmt, ast.AnnAssign) and isinstance(stmt.target, ast.Name):
+                fields.append(stmt.target.id)
+            elif isinstance(stmt, ast.Assign):
+                for target in stmt.targets:
+                    if isinstance(target, ast.Name):
+                        fields.append(target.id)
+        break
+    assert tuple(fields) == _ASSEMBLY_RECIPE_FIELDS, (
+        "AssemblyRecipe 字段与文档化清单失配（字段变更须同步更新 "
+        f"_ASSEMBLY_RECIPE_FIELDS；实际={tuple(fields)} "
+        f"期望={_ASSEMBLY_RECIPE_FIELDS}）"
     )
 
 

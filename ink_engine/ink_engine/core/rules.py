@@ -662,11 +662,17 @@ def _transition_machine(config: dict[str, Any]) -> StateMachine:
     states = frozenset(config.get("states") or ())
     terminal = frozenset(config.get("terminal_states") or ())
     allowed = config.get("allowed")
-    allowed_key = (
-        frozenset(allowed)
-        if isinstance(allowed, (list, tuple, set, frozenset))
-        else allowed
-    )
+    # 缓存键须可哈希：allowed 的声明形态是「前态 → 后态集合」映射——
+    # 字典不可直接入键，折叠为 (前态, frozenset(后态)) 对集（声明错误
+    # 经 config 校验器建图期拦截，此处只做形态折叠不做校验）
+    if isinstance(allowed, dict):
+        allowed_key = frozenset(
+            (src, frozenset(dsts)) for src, dsts in allowed.items()
+        )
+    elif isinstance(allowed, (list, tuple, set, frozenset)):
+        allowed_key = frozenset(allowed)
+    else:
+        allowed_key = allowed
     key = (states, terminal, allowed_key, config.get("name"))
     machine = _TRANSITION_MACHINES.get(key)
     if machine is None:
@@ -779,10 +785,49 @@ def _check_unique_pairs_config(rule_id: str, config: dict[str, Any]) -> None:
 
 
 def _check_state_transition_config(rule_id: str, config: dict[str, Any]) -> None:
-    """state_transition 声明校验：状态清单非空 + 取值路径合法。"""
+    """state_transition 声明校验：状态清单非空 + 引用合法性 + 取值路径合法。
+
+    terminal_states 与 allowed 白名单引用的状态必须声明在 states 内——
+    引用越界是声明错误，建图期拒绝（对照 unique_pairs 的 keys 形态
+    校验器）；不延后到执行期：StateMachine 构造期的 ValueError 会被
+    谓词 fail-open 吞掉，规则静默失效且无从定位。
+    """
     states = config.get("states")
     if not isinstance(states, (list, tuple, set, frozenset)) or not states:
         raise GraphDefinitionError(f"规则 {rule_id} 的 states 须为非空状态清单")
+    states_set = frozenset(states)
+    terminal = config.get("terminal_states")
+    if terminal is not None:
+        if not isinstance(terminal, (list, tuple, set, frozenset)):
+            raise GraphDefinitionError(
+                f"规则 {rule_id} 的 terminal_states 须为集合形态"
+            )
+        unknown = frozenset(terminal) - states_set
+        if unknown:
+            raise GraphDefinitionError(
+                f"规则 {rule_id} 的 terminal_states 引用了未声明状态: "
+                f"{sorted(unknown)}"
+            )
+    allowed = config.get("allowed")
+    if allowed is not None:
+        if not isinstance(allowed, dict):
+            raise GraphDefinitionError(
+                f"规则 {rule_id} 的 allowed 须为前态 → 后态集合映射"
+            )
+        for src, dsts in allowed.items():
+            if src not in states_set:
+                raise GraphDefinitionError(
+                    f"规则 {rule_id} 的 allowed 引用了未声明前态: {src!r}"
+                )
+            if not isinstance(dsts, (list, tuple, set, frozenset)):
+                raise GraphDefinitionError(
+                    f"规则 {rule_id} 的 allowed 对前态 {src!r} 的后态须为集合形态"
+                )
+            unknown = frozenset(dsts) - states_set
+            if unknown:
+                raise GraphDefinitionError(
+                    f"规则 {rule_id} 的 allowed 引用了未声明后态: {sorted(unknown)}"
+                )
     _path_field(rule_id, config, "from_path")
     _path_field(rule_id, config, "to_path")
 

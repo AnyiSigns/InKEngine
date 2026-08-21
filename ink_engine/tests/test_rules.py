@@ -630,6 +630,86 @@ def test_parse_rejects_invalid_predicate_config():
     )
 
 
+def _transition_decl(config: dict) -> dict:
+    """state_transition 规则声明（config 按参数覆盖，其余字段固定合法）。"""
+    base = {
+        "states": ["draft", "paid", "done"],
+        "terminal_states": ["done"],
+        "from_path": "from_state",
+        "to_path": "to_state",
+    }
+    base.update(config)
+    return {"id": "a", "predicate": "state_transition", "config": base}
+
+
+def test_parse_state_transition_rejects_unknown_terminal():
+    """terminal_states 引用未声明状态 → 建图期拒绝。
+
+    回归：修复前引用合法性不校验——执行期 StateMachine 构造 ValueError
+    被谓词 fail-open 吞进 broken 静默失效，声明错误不在建图期暴露。
+    """
+    registry = RuleTypeRegistry()
+    with pytest.raises(GraphDefinitionError, match="terminal_states"):
+        RuleSet.parse(
+            {"name": "t", "rules": [_transition_decl({"terminal_states": ["finished"]})]},
+            registry=registry,
+        )
+
+
+def test_parse_state_transition_rejects_unknown_allowed_refs():
+    """allowed 白名单引用未声明状态（前态/后态）→ 建图期拒绝。"""
+    registry = RuleTypeRegistry()
+    with pytest.raises(GraphDefinitionError, match="前态"):
+        RuleSet.parse(
+            {"name": "t", "rules": [_transition_decl({"allowed": {"ghost": ["done"]}})]},
+            registry=registry,
+        )
+    with pytest.raises(GraphDefinitionError, match="后态"):
+        RuleSet.parse(
+            {"name": "t", "rules": [_transition_decl({"allowed": {"draft": ["ghost"]}})]},
+            registry=registry,
+        )
+    with pytest.raises(GraphDefinitionError, match="allowed"):
+        RuleSet.parse(
+            {"name": "t", "rules": [_transition_decl({"allowed": ["draft"]})]},
+            registry=registry,
+        )
+
+
+def test_parse_state_transition_legal_references_pass():
+    """terminal/allowed 引用合法 → 解析通过且状态机判定可用（不误伤）。"""
+    registry = RuleTypeRegistry()
+    rule_set = RuleSet.parse(
+        {
+            "name": "t",
+            "rules": [
+                _transition_decl(
+                    {"allowed": {"draft": ["paid", "done"], "paid": ["done"]}}
+                )
+            ],
+        },
+        registry=registry,
+    )
+    rule = rule_set.rules[0]
+    # 白名单约束真实生效：合法转换通过、白名单外转换判违规
+    result = RuleEngine(registry).evaluate(
+        RuleSet(
+            name="t",
+            rules=(rule,),
+        ),
+        {"from_state": "draft", "to_state": "paid"},
+    )
+    assert result.issues == ()
+    result = RuleEngine(registry).evaluate(
+        RuleSet(
+            name="t",
+            rules=(rule,),
+        ),
+        {"from_state": "paid", "to_state": "draft"},
+    )
+    assert len(result.issues) == 1
+
+
 def test_parse_config_validator_registerable_for_domain_predicates():
     """领域谓词可登记自己的 config 校验器（建图期暴露领域声明错误）。"""
     registry = RuleTypeRegistry()

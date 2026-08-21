@@ -313,6 +313,25 @@ class McpSessionHandle:
         return None
 
 
+def _outer_cancellation_requested() -> bool:
+    """当前任务是否正被外部取消（真取消 vs SDK 内部取消的区分判据）。
+
+    SDK 内部取消只会把 CancelledError 抛进本协程，不会改变本任务的
+    取消计数；外部 ``task.cancel()`` 会先增加计数再投递异常——计数
+    归零的 CancelledError 属 SDK 内部失败路径，收敛为导入错误。
+    """
+    task = asyncio.current_task()
+    return task is not None and task.cancelling() > 0
+
+
+async def _suppress_stack_close(exit_stack: AsyncExitStack) -> None:
+    """清理路径：资源回收失败不掩盖原始失败（原始异常优先，仅记日志）。"""
+    try:
+        await exit_stack.aclose()
+    except BaseException as exc:
+        logger.warning("MCP 连接清理失败（不掩盖原始错误）: %s", exc)
+
+
 class _SdkSession(McpSessionHandle):
     """基于官方 mcp SDK 的会话句柄（惰性 import，未安装即报错）。
 
@@ -332,7 +351,8 @@ class _SdkSession(McpSessionHandle):
         Raises:
             McpToolImportError: 配置与传输形态不匹配（如 http 缺 url）、
                 SDK 缺失、连接/初始化异常——全部统一包装为导入错误，
-                宿主只处理一个失败类型。
+                宿主只处理一个失败类型；SDK 内部取消（连接拒绝等失败
+                路径的表达方式）同样收敛；外层任务真被取消时原样传播。
         """
         exit_stack: AsyncExitStack = AsyncExitStack()
         try:
@@ -400,10 +420,20 @@ class _SdkSession(McpSessionHandle):
             await asyncio.wait_for(session.initialize(), timeout=_CONNECT_TIMEOUT)
             return cls(session, exit_stack)
         except McpToolImportError:
-            await exit_stack.aclose()
+            await _suppress_stack_close(exit_stack)
             raise
-        except Exception as exc:
-            await exit_stack.aclose()
+        except BaseException as exc:
+            await _suppress_stack_close(exit_stack)
+            if isinstance(exc, asyncio.CancelledError):
+                if _outer_cancellation_requested():
+                    # 外层任务真被取消：清理后原样传播（取消是宿主发起的
+                    # 终止，不包装成导入错误）
+                    raise
+            elif isinstance(exc, (KeyboardInterrupt, SystemExit)):
+                # 宿主中断信号：原样传播（不包装，与终止信号同语义）
+                raise
+            # 连接/初始化失败（含 SDK 内部取消表达）：统一收敛为导入错误，
+            # 宿主只处理一个失败类型
             raise McpToolImportError(
                 f"MCP server {config.id} 连接失败: {exc}"
             ) from exc

@@ -431,3 +431,94 @@ def test_http_client_import_fallback_resolves():
         assert "http_client" in params
     else:
         assert "headers" in params
+
+
+async def test_sdk_session_open_wraps_internal_cancellation(monkeypatch):
+    """连接被拒的 SDK 内部取消 → 收敛为 McpToolImportError。
+
+    回归：SDK 把连接失败表达为 CancelledError（BaseException，旧
+    except Exception 抓不住）——修复前直接穿出宿主，文档承诺「宿主
+    只处理一个失败类型」漏出至少两种；现在除外层任务真被取消外一律
+    收敛为导入错误。
+    """
+    import asyncio
+
+    from ink_engine.core import mcp_client as module
+    from ink_engine.core.mcp_client import _SdkSession
+
+    class _RefusingClient:
+        async def __aenter__(self):
+            raise asyncio.CancelledError("连接被拒（SDK 内部取消）")
+
+        async def __aexit__(self, *exc):
+            return None
+
+    monkeypatch.setattr(module, "streamablehttp_client", lambda url, **kw: _RefusingClient())
+    config = McpServerConfig(
+        id="refused", transport=McpTransport.HTTP, url="https://mcp.example"
+    )
+    with pytest.raises(McpToolImportError, match="连接失败"):
+        await _SdkSession.open(config)
+
+
+async def test_sdk_session_open_cleanup_failure_does_not_mask(monkeypatch):
+    """清理路径自身抛错不掩盖原始连接失败（原始失败优先，仅记日志）。"""
+    import mcp
+
+    from ink_engine.core import mcp_client as module
+    from ink_engine.core.mcp_client import _SdkSession
+
+    class _CleanupExplodes:
+        async def __aenter__(self):
+            return (object(), object())
+
+        async def __aexit__(self, *exc):
+            raise RuntimeError("清理失败")
+
+    class _FailingSession:
+        def __init__(self, *args, **kwargs) -> None:
+            pass
+
+        async def __aenter__(self):
+            raise RuntimeError("连接被拒")
+
+        async def __aexit__(self, *exc):
+            return None
+
+    monkeypatch.setattr(module, "streamablehttp_client", lambda url, **kw: _CleanupExplodes())
+    monkeypatch.setattr(mcp, "ClientSession", _FailingSession)
+    config = McpServerConfig(
+        id="cleanup", transport=McpTransport.HTTP, url="https://mcp.example"
+    )
+    with pytest.raises(McpToolImportError, match="连接被拒"):
+        await _SdkSession.open(config)
+
+
+async def test_sdk_session_open_propagates_outer_cancellation(monkeypatch):
+    """外层任务真被取消：CancelledError 原样传播（不包装为导入错误）。"""
+    import asyncio
+
+    from ink_engine.core import mcp_client as module
+    from ink_engine.core.mcp_client import _SdkSession
+
+    started = asyncio.Event()
+    release = asyncio.Event()
+
+    class _HangingClient:
+        async def __aenter__(self):
+            started.set()
+            await release.wait()
+            return (object(), object())
+
+        async def __aexit__(self, *exc):
+            return None
+
+    monkeypatch.setattr(module, "streamablehttp_client", lambda url, **kw: _HangingClient())
+    config = McpServerConfig(
+        id="hang", transport=McpTransport.HTTP, url="https://mcp.example"
+    )
+    task = asyncio.create_task(_SdkSession.open(config))
+    await started.wait()
+    task.cancel()
+    with pytest.raises(asyncio.CancelledError):
+        await task

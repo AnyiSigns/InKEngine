@@ -393,6 +393,7 @@ def build_recipe(
     *,
     l2_vetting_hook: Callable[[Any], list[str]] | None = None,
     on_reverted: Callable[[int, str], Any] | None = None,
+    convergence_provider: Callable[[], Any] | None = None,
 ) -> AssemblyRecipe:
     """把 seed_data 数据映射为完整装配配方（17 字段全落值）。
 
@@ -401,8 +402,16 @@ def build_recipe(
         l2_vetting_hook: L2 验证钩子覆盖（缺省 = build_mcp_l2_vetting_hook
             产出的挂载放行钩子；宿主可用挂载服务的钩子替换）。
         on_reverted: 回退通知钩子（宿主行为信号；缺省不启用）。
+        convergence_provider: 演化收敛管制钩子提供者（缺省 = review.json
+            收敛配置数据驱动，见 host.convergence_domain）。
     """
     hook, _mark = build_mcp_l2_vetting_hook()
+    if convergence_provider is None:
+        from .convergence_domain import build_convergence_provider
+
+        convergence_provider = build_convergence_provider(
+            bundle.data["review.json"]
+        )
     return AssemblyRecipe(
         set_id=_set_id(bundle),
         seeds=map_seed_providers(bundle),
@@ -420,7 +429,7 @@ def build_recipe(
         apply_targets=map_apply_targets(),
         graph_recipe=map_graph_recipe(bundle),
         on_reverted=on_reverted,
-        convergence_provider=None,
+        convergence_provider=convergence_provider,
     )
 
 

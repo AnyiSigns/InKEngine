@@ -75,7 +75,7 @@
           { "name": "payload", "kind": "object" }
         ]
       },
-      "renderer": "approval_card",
+      "renderer": "review_card",
       "system": false,
       "meta": { "note": "审批卡（居中弹层），朱砂 accent；kind 携带补丁类型/审批档位" }
     },
@@ -134,7 +134,7 @@
           { "name": "count", "kind": "number" }
         ]
       },
-      "renderer": "incubation_panel",
+      "renderer": "incubator_panel",
       "system": false,
       "meta": { "note": "孵化入口：五类信号检测（与 knowledge_signals 五类枚举对齐）" }
     },
@@ -149,7 +149,7 @@
           { "name": "note", "kind": "string" }
         ]
       },
-      "renderer": "incubation_panel",
+      "renderer": "incubator_panel",
       "system": false,
       "meta": { "note": "蒸馏产物（信号→结构化知识，DistillOutcome 数据形态）" }
     },
@@ -163,7 +163,7 @@
           { "name": "reason", "kind": "string" }
         ]
       },
-      "renderer": "incubation_panel",
+      "renderer": "incubator_panel",
       "system": false,
       "meta": { "note": "三层闸门判定留痕（放行/拦截及原因）" }
     },
@@ -178,7 +178,7 @@
           { "name": "reason", "kind": "string" }
         ]
       },
-      "renderer": "evolution_factory_panel",
+      "renderer": "evolution_factory",
       "system": false,
       "meta": { "note": "进化工厂变异体产出/拒绝留痕（防退化展示）" }
     },
@@ -229,7 +229,7 @@
           { "name": "hits", "kind": "number" }
         ]
       },
-      "renderer": "source_detail",
+      "renderer": "source_trace",
       "system": false,
       "meta": { "note": "记忆召回留痕（来源明细溯源）" }
     },
@@ -243,7 +243,7 @@
           { "name": "snapshot", "kind": "boolean" }
         ]
       },
-      "renderer": "source_detail",
+      "renderer": "source_trace",
       "system": false,
       "meta": { "note": "调优留痕（指标聚合/参数快照回放）" }
     },
@@ -257,7 +257,7 @@
           { "name": "reason", "kind": "string" }
         ]
       },
-      "renderer": "source_detail",
+      "renderer": "source_trace",
       "system": false,
       "meta": { "note": "工具可信度审查留痕（静态钩子/L2 影子运行）" }
     },

@@ -54,12 +54,12 @@
     },
     "self_check": {
       "type": "object",
-      "required": ["schema", "cargo_test", "mcp_protocol", "e2e"],
+      "required": ["schema", "cargo_test", "frontend", "e2e"],
       "additionalProperties": false,
       "properties": {
         "schema": { "$ref": "#/definitions/gate" },
         "cargo_test": { "$ref": "#/definitions/gate" },
-        "mcp_protocol": { "$ref": "#/definitions/gate" },
+        "frontend": { "$ref": "#/definitions/gate" },
         "e2e": { "$ref": "#/definitions/gate" }
       }
     }

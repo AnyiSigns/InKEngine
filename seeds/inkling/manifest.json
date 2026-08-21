@@ -15,16 +15,18 @@
     "exec_mcp_id": "inkling_exec",
     "host_id": "inkling_shell",
     "renderer_components": [
-      "message_list",
-      "knowledge_row",
       "agent_input",
-      "approval_card",
-      "incubation_panel",
+      "evolution_factory",
       "evolution_timeline",
+      "incubator_panel",
+      "knowledge_row",
+      "message_list",
+      "review_card",
+      "session_list",
+      "settings_form",
       "simulation_tree",
-      "evolution_factory_panel",
-      "source_detail",
-      "settings_form"
+      "source_trace",
+      "topbar"
     ],
     "bind_channels": [
       "state",
@@ -76,15 +78,15 @@
     },
     "cargo_test": {
       "command": "cargo test --manifest-path seeds/inkling/exec/Cargo.toml",
-      "status": "pending_m1"
+      "status": "ready"
     },
-    "mcp_protocol": {
-      "command": "cargo test --manifest-path seeds/inkling/exec/Cargo.toml --test protocol",
-      "status": "pending_m1"
+    "frontend": {
+      "command": "npm --prefix seeds/inkling/frontend run typecheck",
+      "status": "ready"
     },
     "e2e": {
       "command": "pytest seeds/inkling/tests/e2e",
-      "status": "pending_m3"
+      "status": "ready"
     }
   }
 }

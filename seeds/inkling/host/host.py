@@ -35,6 +35,12 @@ from ink_engine.core.storage import Storage, create_storage
 
 from .build_domain import ArtifactApplyTarget, BuildDomain
 from .environment_domain import EnvironmentApplyTarget, EnvironmentDomain
+from .knowledge_domain import IncubationDomain
+from .live_apply import (
+    rebuild_declarative_tools,
+    register_live_targets,
+    restore_live_views,
+)
 from .mcp_service import McpMountService
 from .recipe_loader import (
     SeedDataBundle,
@@ -78,6 +84,8 @@ class InKlingHost(Host):
         self.workspaces: WorkspaceAuthorizer | None = None
         self.environments: EnvironmentDomain | None = None
         self.builds: BuildDomain | None = None
+        self.incubation: IncubationDomain | None = None
+        self.boot_prompt: dict[str, Any] | None = None
 
     async def create_storage(self) -> Storage:
         """存储工厂（memory/sqlite URI 由装配参数决定；幂等，重入返回同一实例）。"""
@@ -196,7 +204,8 @@ async def boot_inkling(
         return hook(proposal)
 
     # 回退通知状态（boot 后注入：环境/产物活跃态随链回退同步——回退 =
-    # 声明回退 + 实例重建，补丁链为权威）
+    # 声明回退 + 实例重建，补丁链为权威；界面/主题/工具表/知识集等
+    # 其余活跃态经 restore_live_views 整体还原到最新链态）
     revert_state: dict[str, Any] = {}
 
     async def _on_reverted(patch_id: int, reason: str) -> None:
@@ -212,6 +221,15 @@ async def boot_inkling(
             build_ref.sync_artifact_tools(
                 runtime_ref, assembled.get("artifacts") or {}
             )
+        restore_live_views(
+            runtime_ref,
+            assembled,
+            base_event_names=revert_state.get("base_event_names") or (),
+            base_ui_spec=revert_state.get("base_ui_spec"),
+        )
+        base_tools = revert_state.get("base_tools") or []
+        rebuild_declarative_tools(runtime_ref, base_tools, assembled)
+        await runtime_ref.rebuild_engine()
 
     host = host or InKlingHost(llm=llm, storage_uri=storage_uri)
     from .recipe_loader import build_recipe
@@ -260,11 +278,36 @@ async def boot_inkling(
     runtime.self_pipeline.register_target(
         PatchKind.ARTIFACT, ArtifactApplyTarget(build_domain, runtime)
     )
+    # 活跃态目标补全（UI/THEME/HARNESS/RULE/KNOWLEDGE——落链即生效）
+    register_live_targets(runtime)
+    # 孵化域（信号 → 蒸馏 → 闸门 → 落库 → 自指挂载的产品化入口）
+    host.incubation = IncubationDomain(
+        runtime,
+        signals_data=bundle.data["signals.json"],
+        samples_data=bundle.data["samples.json"],
+        review_data=bundle.data["review.json"],
+    )
+    # 自举提示词（boot_prompt 定稿形态，注入侧产品数据入口）
+    host.boot_prompt = bundle.data["boot_prompt.json"]
+    revert_state["base_tools"] = bundle.data["tools.json"].get("tools") or ()
+    revert_state["base_event_names"] = tuple(
+        spec["name"] for spec in bundle.data["event_types.json"].get("events") or ()
+    )
+    revert_state["base_ui_spec"] = dict(bundle.data["ui_spec.json"])
+    # 补丁来源知识条目登记位（回退恢复的撤销清单；宿主 boot 初始化）
+    runtime.patch_entries: set[str] = set()
     # 链恢复：环境段（声明生效）+ 产物段（声明工具注册）+ 工作区授权
+    # + 活跃态整体还原（界面/主题/知识/事件类型——重启装配从链恢复）
     assembled = await runtime.self_pipeline.chain.assemble()
     await env_domain.restore(assembled.get("environments") or {})
     build_domain.sync_artifact_tools(runtime, assembled.get("artifacts") or {})
     await host.workspaces.load()
+    restore_live_views(
+        runtime,
+        assembled,
+        base_event_names=revert_state.get("base_event_names") or (),
+        base_ui_spec=revert_state.get("base_ui_spec"),
+    )
     runtime.introspection_service._sources.tools = runtime.collect_specs()
     await runtime.rebuild_engine()
     return runtime, host, mount_service

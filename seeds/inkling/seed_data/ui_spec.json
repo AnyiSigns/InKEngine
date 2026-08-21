@@ -113,25 +113,25 @@
             "children": [
               {
                 "kind": "component",
-                "type": "incubation_panel",
+                "type": "incubator_panel",
                 "props": { "stage": "signal", "note": "五类信号流入" },
                 "bind": { "channel": "events.signal_detected", "path": "" }
               },
               {
                 "kind": "component",
-                "type": "incubation_panel",
+                "type": "incubator_panel",
                 "props": { "stage": "distill", "note": "信号→结构化知识" },
                 "bind": { "channel": "events.distill_outcome", "path": "" }
               },
               {
                 "kind": "component",
-                "type": "incubation_panel",
+                "type": "incubator_panel",
                 "props": { "stage": "gate", "note": "L1/L2/L3 三层闸门放行/拦截" },
                 "bind": { "channel": "events.gate_verdict", "path": "" }
               },
               {
                 "kind": "component",
-                "type": "evolution_factory_panel",
+                "type": "evolution_factory",
                 "props": { "note": "变异/防退化展示" },
                 "bind": { "channel": "events.evolution_variant", "path": "" }
               },
@@ -211,37 +211,37 @@
             "children": [
               {
                 "kind": "component",
-                "type": "source_detail",
+                "type": "source_trace",
                 "props": { "source": "round_state" },
                 "bind": { "channel": "state", "path": "round_steps" }
               },
               {
                 "kind": "component",
-                "type": "source_detail",
+                "type": "source_trace",
                 "props": { "source": "memory" },
                 "bind": { "channel": "events.memory_recall", "path": "" }
               },
               {
                 "kind": "component",
-                "type": "source_detail",
+                "type": "source_trace",
                 "props": { "source": "tuning" },
                 "bind": { "channel": "events.tuning_update", "path": "" }
               },
               {
                 "kind": "component",
-                "type": "source_detail",
+                "type": "source_trace",
                 "props": { "source": "vetting" },
                 "bind": { "channel": "events.vetting_result", "path": "" }
               },
               {
                 "kind": "component",
-                "type": "source_detail",
+                "type": "source_trace",
                 "props": { "source": "device_sensed" },
                 "bind": { "channel": "events.device_sensed", "path": "" }
               },
               {
                 "kind": "component",
-                "type": "source_detail",
+                "type": "source_trace",
                 "props": { "source": "device_control" },
                 "bind": { "channel": "events.device_control", "path": "" }
               }
@@ -306,7 +306,7 @@
       },
       {
         "kind": "component",
-        "type": "approval_card",
+        "type": "review_card",
         "props": {
           "note": "居中弹层，任何视图可弹；朱砂 accent（accent.approval token，出厂默认）"
         },

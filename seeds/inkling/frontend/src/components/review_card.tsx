@@ -72,12 +72,12 @@ export function ReviewCard({ bindValue, onResolve }: ReviewCardProps) {
       <div
         role="dialog"
         aria-label="审批卡"
-        className="ink-accent-bg w-[420px] max-w-[90vw] rounded-lg p-4 shadow-lg"
+        className="ink-accent-bg w-[420px] max-w-[90vw] p-4"
       >
         <div className="flex items-center gap-2">
           <span className="ink-accent text-xs font-semibold">{title}</span>
           {data.kind ? (
-            <span className="rounded px-1.5 py-px text-[9px] ink-accent-bg ink-accent">{data.kind}</span>
+            <span className="border border-[var(--ink-accent-border)] px-1.5 py-px text-[9px] ink-accent">{data.kind}</span>
           ) : null}
           {data.level ? <span className="text-[9px] ink-text-faint">审批档 {data.level}</span> : null}
           {data.tool ? (
@@ -87,7 +87,7 @@ export function ReviewCard({ bindValue, onResolve }: ReviewCardProps) {
               onClick={() => resolve('terminate')}
               title="关闭"
               data-ui="review_close"
-              className="ml-auto flex h-5 w-5 items-center justify-center rounded ink-text-faint hover:bg-[var(--ink-bg-elevated)] cursor-pointer bg-transparent border-none"
+              className="ml-auto flex h-5 w-5 items-center justify-center ink-text-faint hover:bg-[var(--ink-bg-elevated)] cursor-pointer bg-transparent border-none"
             >
               <X size={11} strokeWidth={1.6} aria-hidden />
             </button>
@@ -103,17 +103,17 @@ export function ReviewCard({ bindValue, onResolve }: ReviewCardProps) {
               onChange={(e) => setEditText(e.target.value)}
               rows={5}
               data-ui="review_edit"
-              className="h-28 w-full resize-none rounded-md border p-2 text-[11px] ink-panel focus:outline-none focus:border-[var(--ink-border-strong)]"
+              className="h-28 w-full resize-none border p-2 text-[11px] ink-panel focus:outline-none focus:border-[var(--ink-border-strong)]"
             />
             <div className="flex justify-end gap-2">
-              <button onClick={() => setEditing(false)} className="ink-btn-secondary h-6 rounded px-2 text-[11px] cursor-pointer">
+              <button onClick={() => setEditing(false)} className="ink-btn-secondary h-6 px-2 text-[11px] cursor-pointer">
                 取消
               </button>
               <button
                 onClick={() => resolve('edit', editText)}
                 disabled={!editText.trim()}
                 data-ui="review_edit_submit"
-                className="ink-btn-primary h-6 rounded px-2 text-[11px] cursor-pointer disabled:opacity-40"
+                className="ink-btn-primary h-6 px-2 text-[11px] cursor-pointer disabled:opacity-40"
               >
                 提交修改
               </button>
@@ -122,7 +122,7 @@ export function ReviewCard({ bindValue, onResolve }: ReviewCardProps) {
         ) : (
           <>
             {data.content && (
-              <div className="mt-3 max-h-40 overflow-y-auto rounded border px-2.5 py-2 text-[11px] whitespace-pre-wrap ink-border">
+              <div className="mt-3 max-h-40 overflow-y-auto border px-2.5 py-2 text-[11px] whitespace-pre-wrap ink-border">
                 {data.content}
               </div>
             )}
@@ -130,14 +130,14 @@ export function ReviewCard({ bindValue, onResolve }: ReviewCardProps) {
               <button
                 onClick={() => resolve('accept')}
                 data-ui="review_accept"
-                className="ink-btn-primary flex h-7 flex-1 items-center justify-center gap-1 rounded-md text-[11px] cursor-pointer"
+                className="ink-btn-primary flex h-7 flex-1 items-center justify-center gap-1 text-[11px] cursor-pointer"
               >
                 <Check size={11} strokeWidth={1.8} aria-hidden /> 确认
               </button>
               <button
                 onClick={() => resolve('reject')}
                 data-ui="review_reject"
-                className="flex h-7 flex-1 items-center justify-center gap-1 rounded-md border border-[var(--ink-accent-border)] text-[11px] ink-accent cursor-pointer"
+                className="flex h-7 flex-1 items-center justify-center gap-1 border border-[var(--ink-accent-border)] text-[11px] ink-accent cursor-pointer"
               >
                 <X size={11} strokeWidth={1.8} aria-hidden /> 拒绝
               </button>
@@ -147,7 +147,7 @@ export function ReviewCard({ bindValue, onResolve }: ReviewCardProps) {
                   setEditText(data.content ?? reason);
                 }}
                 data-ui="review_edit_start"
-                className="ink-btn-secondary flex h-7 flex-1 items-center justify-center gap-1 rounded-md text-[11px] cursor-pointer"
+                className="ink-btn-secondary flex h-7 flex-1 items-center justify-center gap-1 text-[11px] cursor-pointer"
               >
                 <Pencil size={11} strokeWidth={1.8} aria-hidden /> 编辑
               </button>

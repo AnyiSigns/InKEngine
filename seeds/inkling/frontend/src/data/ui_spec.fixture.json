@@ -1,76 +1,80 @@
 {
   "name": "inkling.ui",
-  "version": 1,
-  "theme": {
-    "bg.base": "#09090b",
-    "text.base": "#e4e4e7",
-    "accent.approval": "#f59e0b"
-  },
+  "version": 2,
   "root": {
     "kind": "container",
     "type": "app",
     "children": [
       {
         "kind": "container",
-        "type": "topbar",
-        "props": { "hairline": true },
-        "children": [
-          {
-            "kind": "component",
-            "type": "topbar",
-            "props": { "title": "InKling", "subtitle": "知识/研究孵化" }
-          }
-        ]
-      },
-      {
-        "kind": "container",
         "type": "views",
         "children": [
           {
             "kind": "container",
-            "type": "column",
-            "props": { "view": "main" },
+            "type": "row",
+            "props": { "view": "main", "gap": 0 },
             "children": [
               {
+                "kind": "component",
+                "type": "file_tree",
+                "props": { "collapsible": true }
+              },
+              {
                 "kind": "container",
-                "type": "row",
+                "type": "column",
+                "props": { "grow": true },
                 "children": [
                   {
                     "kind": "component",
-                    "type": "session_list",
-                    "props": { "collapsible": true }
+                    "type": "message_list",
+                    "bind": { "channel": "state.messages", "path": "" }
                   },
                   {
-                    "kind": "container",
-                    "type": "column",
-                    "props": { "grow": true },
-                    "children": [
-                      {
-                        "kind": "component",
-                        "type": "message_list",
-                        "bind": { "channel": "state.messages", "path": "" }
-                      },
-                      {
-                        "kind": "component",
-                        "type": "knowledge_row",
-                        "bind": { "channel": "events.memory_recall", "path": "" }
-                      },
-                      {
-                        "kind": "component",
-                        "type": "agent_input",
-                        "bind": { "channel": "state.session", "path": "" }
-                      }
-                    ]
+                    "kind": "component",
+                    "type": "knowledge_row",
+                    "bind": { "channel": "events.memory_recall", "path": "" }
+                  },
+                  {
+                    "kind": "component",
+                    "type": "agent_input",
+                    "bind": { "channel": "state.session", "path": "" }
                   }
                 ]
+              },
+              {
+                "kind": "component",
+                "type": "session_list",
+                "props": { "collapsible": true }
               }
             ]
           },
           {
             "kind": "container",
             "type": "column",
-            "props": { "view": "evolution" },
+            "props": { "view": "settings" },
             "children": [
+              {
+                "kind": "component",
+                "type": "view_header",
+                "props": { "title": "设置", "hint": "入口 + 系统配置" }
+              },
+              {
+                "kind": "component",
+                "type": "settings_form",
+                "bind": { "channel": "state.session", "path": "" }
+              }
+            ]
+          },
+          {
+            "kind": "container",
+            "type": "column",
+            "props": { "view": "evolution", "scroll": true },
+            "children": [
+              {
+                "kind": "component",
+                "type": "view_header",
+                "props": { "title": "演化", "hint": "孵化 · 进化 · 补丁链" }
+              },
               {
                 "kind": "component",
                 "type": "incubator_panel",
@@ -91,8 +95,13 @@
           {
             "kind": "container",
             "type": "column",
-            "props": { "view": "simulation" },
+            "props": { "view": "simulation", "scroll": true },
             "children": [
+              {
+                "kind": "component",
+                "type": "view_header",
+                "props": { "title": "推演", "hint": "simulate_decision · 分支对比" }
+              },
               {
                 "kind": "component",
                 "type": "simulation_tree",
@@ -103,24 +112,17 @@
           {
             "kind": "container",
             "type": "column",
-            "props": { "view": "source" },
+            "props": { "view": "source", "scroll": true },
             "children": [
+              {
+                "kind": "component",
+                "type": "view_header",
+                "props": { "title": "来源", "hint": "依据链溯源" }
+              },
               {
                 "kind": "component",
                 "type": "source_trace",
                 "bind": { "channel": "state.sourceTraces", "path": "" }
-              }
-            ]
-          },
-          {
-            "kind": "container",
-            "type": "column",
-            "props": { "view": "settings" },
-            "children": [
-              {
-                "kind": "component",
-                "type": "settings_form",
-                "bind": { "channel": "state.session", "path": "" }
               }
             ]
           }

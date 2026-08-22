@@ -26,10 +26,10 @@ const MAX_LAYOUT_DEPTH = 64;
 function BaselineLayout() {
   return (
     <div className="flex h-full flex-col gap-2 p-3">
-      <div className="rounded-md border border-dashed px-4 py-3 text-[11px] ink-border ink-text-muted">
+      <div className="border border-dashed px-4 py-3 text-[11px] ink-border ink-text-muted">
         界面描述损坏或缺失，已回落基线布局
       </div>
-      <div className="ink-panel flex-1 rounded-md p-2">
+      <div className="ink-panel flex-1 p-2">
         <DynamicComponent name="message_list" />
       </div>
       <DynamicComponent name="agent_input" />
@@ -37,23 +37,36 @@ function BaselineLayout() {
   );
 }
 
-/** 布局节点递归渲染：容器组织层级，组件经注册表解析（bind 随节点透传）。 */
+/** 容器间隙（静态类映射：Tailwind 静态扫描无法识别动态拼接类名）。 */
+const GAP_CLASSES = ['gap-0', 'gap-1', 'gap-2', 'gap-3'] as const;
+
+/**
+ * 布局节点递归渲染：容器组织层级，组件经注册表解析（bind 随节点透传）。
+ *
+ * 高度传播纪律（线性三栏布局铺满窗口的关键）：
+ * - 容器一律 min-h-0（允许收缩，内部滚动区才能生效）；
+ * - grow（props.grow 或 views 直接子级）→ flex-1（沿主轴扩展铺满）；
+ * - props.gap 控制子级间隙（0 = 无缝 hairline 分隔，Linear 风格）；
+ * - props.scroll 的列容器 → overflow-y-auto（视图内容独立滚动）。
+ */
 function UINodeView({
   node,
   path,
   activeView,
   depth,
   chromeProps,
+  grow = false,
 }: {
   node: UINode;
   path: string;
   activeView?: ViewId;
   depth: number;
   chromeProps: Record<string, unknown>;
+  grow?: boolean;
 }) {
   if (depth > MAX_LAYOUT_DEPTH) {
     return (
-      <div className="rounded-md border border-dashed px-3 py-2 text-[11px] ink-border ink-text-faint">
+      <div className="border border-dashed px-3 py-2 text-[11px] ink-border ink-text-faint">
         布局层级过深（{path}），跳过渲染
       </div>
     );
@@ -65,7 +78,7 @@ function UINodeView({
     if (node.type === 'views' && activeView) {
       const filtered = children.filter((child) => (child.props?.view as string | undefined) === activeView);
       return (
-        <div className="flex h-full flex-col">
+        <div className="flex min-h-0 flex-1 flex-col">
           {filtered.map((child, index) => (
             <UINodeView
               key={`${path}.${index}`}
@@ -74,13 +87,18 @@ function UINodeView({
               activeView={activeView}
               depth={depth + 1}
               chromeProps={chromeProps}
+              grow
             />
           ))}
         </div>
       );
     }
+    const isRow = node.type === 'row';
+    const gap = typeof node.props?.gap === 'number' ? Math.min(Math.max(node.props.gap, 0), 3) : 2;
+    const growClass = grow || node.props?.grow === true ? 'flex-1 min-h-0' : 'min-h-0';
+    const scrollClass = !isRow && node.props?.scroll === true ? 'overflow-y-auto' : '';
     return (
-      <div className={`flex ${node.type === 'row' ? 'flex-row' : 'flex-col'} gap-2`}>
+      <div className={`flex ${isRow ? 'flex-row' : 'flex-col'} ${GAP_CLASSES[gap]} ${growClass} ${scrollClass}`}>
         {children.map((child, index) => (
           <UINodeView
             key={`${path}.${index}`}
@@ -146,7 +164,7 @@ export function UIRenderer({
     <BindSourceProvider value={hub ? { hub } : null}>
       <div className="flex h-full flex-col">
         {clean.root ? (
-          <UINodeView node={clean.root} path="root" activeView={activeView} depth={0} chromeProps={chromeProps} />
+          <UINodeView node={clean.root} path="root" activeView={activeView} depth={0} chromeProps={chromeProps} grow />
         ) : (
           <BaselineLayout />
         )}

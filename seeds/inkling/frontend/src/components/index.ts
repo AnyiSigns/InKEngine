@@ -3,10 +3,16 @@
  *
  * 注册即白名单放行；组件全部为纯渲染（props 注入 + bindValue 消费），
  * 无领域耦合。布局树引用未注册组件 = 渲染占位拒绝。
+ *
+ * 三栏布局组件集：file_tree（左）· 会话面板（message_list/knowledge_row/
+ * agent_input）· session_list（右）；view_header 为设置页进入视图的返回条；
+ * 其它功能视图组件（incubator/evolution/simulation/source）仍注册，
+ * 入口统一收进设置页。
  */
 
 import { registerComponent } from '@/renderer/componentRegistry';
-import { Topbar } from './topbar';
+import { FileTree } from './file_tree';
+import { ViewHeader } from './view_header';
 import { SessionList } from './session_list';
 import { MessageList } from './message_list';
 import { AgentInput } from './agent_input';
@@ -20,7 +26,8 @@ import { SettingsForm } from './settings_form';
 
 /** 装配所有机制通用组件（幂等：注册表同名覆盖语义天然幂等）。 */
 export function registerBuiltinComponents(): void {
-  registerComponent('topbar', Topbar);
+  registerComponent('file_tree', FileTree);
+  registerComponent('view_header', ViewHeader);
   registerComponent('session_list', SessionList);
   registerComponent('message_list', MessageList);
   registerComponent('agent_input', AgentInput);

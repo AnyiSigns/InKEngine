@@ -74,7 +74,8 @@
   "inspect_ui": {
     "version": 1,
     "componentWhitelist": [
-      "topbar",
+      "file_tree",
+      "view_header",
       "session_list",
       "message_list",
       "knowledge_row",

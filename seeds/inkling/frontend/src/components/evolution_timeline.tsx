@@ -33,7 +33,7 @@ export function EvolutionTimeline({ bindValue }: EvolutionTimelineProps) {
   const chain = (bindValue as PatchChainEntry[] | undefined) ?? [];
 
   return (
-    <section className="ink-panel rounded-md p-3">
+    <section className="ink-panel p-3">
       <div className="flex items-center gap-1.5">
         <History size={12} strokeWidth={1.6} className="ink-text-faint" aria-hidden />
         <span className="text-[11px] font-medium">演化时间线</span>
@@ -41,7 +41,7 @@ export function EvolutionTimeline({ bindValue }: EvolutionTimelineProps) {
       </div>
 
       {chain.length === 0 ? (
-        <div className="mt-2 rounded-md border border-dashed px-3 py-4 text-center text-[11px] ink-border ink-text-faint">
+        <div className="mt-2 border border-dashed px-3 py-4 text-center text-[11px] ink-border ink-text-faint">
           补丁链为空（变化经 propose_patch → 分级审批 → append 沉淀于此）
         </div>
       ) : (
@@ -52,16 +52,16 @@ export function EvolutionTimeline({ bindValue }: EvolutionTimelineProps) {
                 <span className="absolute left-[5px] top-3 h-[calc(100%-8px)] w-px bg-[var(--ink-border)]" aria-hidden />
               )}
               <span
-                className="absolute left-0 top-1.5 h-2.5 w-2.5 rounded-full border"
+                className="absolute left-0 top-1.5 h-2.5 w-2.5 border"
                 aria-hidden
               />
               <div className="min-w-0 flex-1">
                 <div className="flex items-center gap-2">
                   <span className="truncate text-[11px]">{entry.title}</span>
-                  <span className="rounded bg-[var(--ink-bg-elevated)] px-1 py-px text-[9px] font-mono ink-text-faint">
+                  <span className="bg-[var(--ink-bg-elevated)] px-1 py-px text-[9px] font-mono ink-text-faint">
                     {entry.kind}
                   </span>
-                  <span className={cn('ml-auto shrink-0 rounded px-1 py-px text-[9px]', statusTone(entry.status))}>
+                  <span className={cn('ml-auto shrink-0 px-1 py-px text-[9px]', statusTone(entry.status))}>
                     {STATUS_LABELS[entry.status]}
                   </span>
                 </div>

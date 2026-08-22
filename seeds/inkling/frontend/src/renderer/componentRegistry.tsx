@@ -64,7 +64,7 @@ class ComponentErrorBoundary extends Component<ErrorBoundaryProps, ErrorBoundary
   render(): ReactNode {
     if (this.state.hasError) {
       return (
-        <div className="rounded-md border border-dashed px-3 py-2 text-[11px] ink-border ink-text-faint">
+        <div className="border border-dashed px-3 py-2 text-[11px] ink-border ink-text-faint">
           {this.props.name} 渲染失败，已回退占位
         </div>
       );
@@ -75,7 +75,7 @@ class ComponentErrorBoundary extends Component<ErrorBoundaryProps, ErrorBoundary
 
 function rejectPlaceholder(message: string): ReactNode {
   return (
-    <div className="rounded-md border border-dashed px-3 py-2 text-[11px] ink-border ink-text-faint">
+    <div className="border border-dashed px-3 py-2 text-[11px] ink-border ink-text-faint">
       {message}
     </div>
   );

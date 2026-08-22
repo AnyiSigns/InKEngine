@@ -56,8 +56,11 @@ export function AgentInput({ bindValue, placeholder = '向 InKling 提问，或�
   };
 
   return (
-    <div className="shrink-0 border-t px-3 py-2 ink-border">
-      <div className="flex items-end gap-2 ink-elevated rounded-lg px-3 py-2 focus-within:border-[var(--ink-border-strong)]">
+    <div className="shrink-0 border-t px-3 pb-2.5 pt-2 ink-border">
+      <div className="mx-auto flex w-full max-w-3xl items-end gap-2 border px-3 py-1.5 ink-border">
+        <span className="select-none pb-2 text-[12px] leading-none ink-text-faint" aria-hidden>
+          ❯
+        </span>
         <textarea
           ref={textareaRef}
           data-ui="agent_input"
@@ -71,16 +74,16 @@ export function AgentInput({ bindValue, placeholder = '向 InKling 提问，或�
           }}
           rows={Math.min(Math.max(draft.split('\n').length, 1), 6)}
           placeholder={streaming ? '正在思考…' : placeholder}
-          className="min-h-9 max-h-36 flex-1 resize-none bg-transparent text-[13px] leading-relaxed outline-none placeholder:text-[var(--ink-text-faint)]"
+          className="min-h-5 max-h-36 flex-1 resize-none bg-transparent text-[12px] leading-relaxed outline-none placeholder:text-[var(--ink-text-faint)]"
         />
         {streaming ? (
           <button
             onClick={onAbort}
             title="停止生成"
             data-ui="btn_abort"
-            className="flex h-7 w-7 shrink-0 items-center justify-center rounded-md border ink-btn-secondary cursor-pointer"
+            className="flex h-6 w-6 shrink-0 items-center justify-center border ink-btn-secondary cursor-pointer"
           >
-            <Square size={11} strokeWidth={1.8} aria-hidden />
+            <Square size={10} strokeWidth={1.8} aria-hidden />
           </button>
         ) : (
           <button
@@ -88,14 +91,14 @@ export function AgentInput({ bindValue, placeholder = '向 InKling 提问，或�
             disabled={!canSend}
             title="发送"
             data-ui="btn_send"
-            className="ink-btn-primary flex h-7 w-7 shrink-0 items-center justify-center rounded-md cursor-pointer disabled:opacity-40"
+            className="ink-btn-primary flex h-6 w-6 shrink-0 items-center justify-center cursor-pointer disabled:opacity-40"
           >
-            <Send size={11} strokeWidth={1.8} aria-hidden />
+            <Send size={10} strokeWidth={1.8} aria-hidden />
           </button>
         )}
       </div>
-      <div className="mt-1 px-1 text-[9px] ink-text-faint">
-        挡位：{GEAR_LABELS[gear]}（{gear}）· 模式档：{MODE_LABELS[mode]}（{mode}）
+      <div className="mx-auto mt-1 w-full max-w-3xl px-0.5 font-mono text-[9px] tracking-wide ink-text-faint">
+        挡位:{gear}({GEAR_LABELS[gear]}) · 模式:{mode}({MODE_LABELS[mode]})
       </div>
     </div>
   );

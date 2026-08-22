@@ -48,9 +48,9 @@ const MessageRow = memo(function MessageRow({ message }: { message: InkMessage }
       return (
         <div className="flex gap-2">
           <span className="mt-0.5 shrink-0 text-[10px] ink-text-faint" aria-hidden>
-            {message.role === 'user' ? '你' : 'InKling'}
+            [{message.role === 'user' ? '你' : 'InKling'}]
           </span>
-          <div className={cn('min-w-0 flex-1 whitespace-pre-wrap break-words text-[13px] leading-relaxed', message.role === 'user' && 'ink-text-muted')}>
+          <div className={cn('min-w-0 flex-1 whitespace-pre-wrap break-words text-[12px] leading-relaxed', message.role === 'user' && 'ink-text-muted')}>
             {message.content}
           </div>
         </div>
@@ -59,9 +59,9 @@ const MessageRow = memo(function MessageRow({ message }: { message: InkMessage }
       return (
         <div className="flex gap-2">
           <span className="mt-0.5 shrink-0 text-[10px] ink-text-faint" aria-hidden>
-            InKling
+            [InKling]
           </span>
-          <div className="min-w-0 flex-1 whitespace-pre-wrap break-words text-[13px] leading-relaxed">
+          <div className="min-w-0 flex-1 whitespace-pre-wrap break-words text-[12px] leading-relaxed">
             {message.content}
             <span className="ink-caret" aria-hidden />
           </div>
@@ -79,19 +79,19 @@ const MessageRow = memo(function MessageRow({ message }: { message: InkMessage }
       return <InlineRow icon={KIND_ICON.device} text={`设备：${message.action}${message.detail ? ` · ${message.detail}` : ''}`} status="done" />;
     case 'knowledge_hit':
       return (
-        <div className="ink-panel rounded-md px-2.5 py-1.5">
+        <div className="ink-panel px-2.5 py-1.5">
           <div className="text-[10px] ink-text-faint">检索命中</div>
           {message.hits.map((hit) => (
-            <div key={hit.id} className="mt-0.5 flex items-center gap-1.5 text-[11px]">
+            <div key={hit.id} className="mt-0.5 flex items-center gap-1.5 text-[10px]">
               <span className="truncate">{hit.title}</span>
-              <span className="truncate text-[10px] ink-text-faint">{hit.snippet}</span>
+              <span className="truncate text-[9px] ink-text-faint">{hit.snippet}</span>
             </div>
           ))}
         </div>
       );
     case 'review_card':
       return (
-        <div className="ink-accent-bg rounded-md px-2.5 py-1.5">
+        <div className="ink-accent-bg px-2.5 py-1.5">
           <div className="text-[11px]">审批卡已弹出（历史回放只读）</div>
           <div className="mt-0.5 truncate text-[10px] ink-text-faint">
             {String(message.payload.reason ?? message.payload.title ?? '')}
@@ -102,8 +102,8 @@ const MessageRow = memo(function MessageRow({ message }: { message: InkMessage }
       return (
         <div className="flex flex-wrap gap-1.5">
           {message.items.map((item) => (
-            <span key={item} className="rounded-full border px-2 py-0.5 text-[10px] ink-border ink-text-muted">
-              {item}
+            <span key={item} className="border px-1.5 py-px text-[9px] ink-border ink-text-muted">
+              #{item}
             </span>
           ))}
         </div>
@@ -112,7 +112,7 @@ const MessageRow = memo(function MessageRow({ message }: { message: InkMessage }
       return <InlineRow icon={KIND_ICON.error} text={message.content || '发生错误'} status="error" />;
     case 'unknown':
       return (
-        <div className="rounded-md border border-dashed px-2.5 py-1.5 text-[10px] ink-border ink-text-faint">
+        <div className="border border-dashed px-2.5 py-1.5 text-[10px] ink-border ink-text-faint">
           未登记事件（折叠展示）：{message.token}
         </div>
       );
@@ -122,17 +122,17 @@ const MessageRow = memo(function MessageRow({ message }: { message: InkMessage }
 });
 
 function statusTone(status: string): string {
-  if (status === 'error' || status === 'failed' || status === 'blocked') return 'ink-accent-bg ink-accent';
-  if (status === 'running' || status === 'pending') return 'ink-panel';
+  if (status === 'error' || status === 'failed' || status === 'blocked') return 'ink-accent';
+  if (status === 'running' || status === 'pending') return 'ink-text-muted';
   return 'ink-text-faint';
 }
 
 function InlineRow({ icon: Icon, text, status }: { icon: typeof Bot; text: string; status: string }) {
   return (
     <div className="flex items-center gap-1.5 text-[11px]">
-      <Icon size={11} strokeWidth={1.6} className="shrink-0 ink-text-faint" aria-hidden />
+      <Icon size={10} strokeWidth={1.6} className="shrink-0 ink-text-faint" aria-hidden />
       <span className="min-w-0 flex-1 truncate">{text}</span>
-      <span className={cn('shrink-0 rounded px-1 py-px text-[9px]', statusTone(status))}>{status}</span>
+      <span className={cn('shrink-0 text-[9px]', statusTone(status))}>· {status}</span>
     </div>
   );
 }
@@ -140,19 +140,19 @@ function InlineRow({ icon: Icon, text, status }: { icon: typeof Bot; text: strin
 function CollapsibleRow({ label, status, body, icon: Icon, shimmer }: { label: string; status: string; body: string; icon: typeof Bot; shimmer?: boolean }) {
   const [open, setOpen] = useState(false);
   return (
-    <div className="ink-panel rounded-md">
+    <div className="ink-panel">
       <button
         data-ui={`row_${label}`}
         onClick={() => setOpen((v) => !v)}
         className="flex w-full items-center gap-1.5 px-2.5 py-1.5 text-left cursor-pointer bg-transparent border-none"
       >
-        <Icon size={11} strokeWidth={1.6} className="shrink-0 ink-text-faint" aria-hidden />
+        <Icon size={10} strokeWidth={1.6} className="shrink-0 ink-text-faint" aria-hidden />
         <span className="text-[11px]">{label}</span>
-        <span className="rounded px-1 py-px text-[9px] ink-text-faint">{status}</span>
+        <span className="text-[9px] ink-text-faint">· {status}</span>
         {open ? <ChevronDown size={11} strokeWidth={1.6} className="ml-auto ink-text-faint" /> : <ChevronRight size={11} strokeWidth={1.6} className="ml-auto ink-text-faint" />}
       </button>
       {open && (
-        <div className={cn('border-t px-2.5 py-2 text-[11px] leading-relaxed whitespace-pre-wrap ink-border', shimmer && 'ink-shimmer')}>
+        <div className={cn('border-t px-2.5 py-2 text-[10px] leading-relaxed whitespace-pre-wrap ink-border', shimmer && 'ink-shimmer')}>
           {body || '（空）'}
         </div>
       )}
@@ -194,17 +194,17 @@ export function MessageList({ bindValue, tailWindow = TAIL_WINDOW, streaming = f
   if (messages.length === 0) {
     return (
       <div className="ink-scroll-auto flex-1 p-3">
-        <div className="flex h-full flex-col items-center justify-center gap-2 text-center">
-          <Bot size={16} strokeWidth={1.4} className="ink-text-faint" aria-hidden />
-          <div className="text-[11px] ink-text-muted">消息流为空（等待回合事件）</div>
+        <div className="mx-auto flex h-full max-w-3xl flex-col items-center justify-center gap-2 text-center">
+          <Bot size={16} strokeWidth={1.2} className="ink-text-faint" aria-hidden />
+          <div className="text-[11px] tracking-wide ink-text-faint">消息流为空（等待回合事件）</div>
         </div>
       </div>
     );
   }
 
   return (
-    <div ref={scrollRef} className="ink-scroll-auto flex-1 p-3">
-      <div className="flex flex-col gap-2">
+    <div ref={scrollRef} className="ink-scroll-auto flex-1 px-3 py-3">
+      <div className="mx-auto flex w-full max-w-3xl flex-col gap-2.5">
         {truncated > 0 && (
           <div className="text-center text-[9px] ink-text-faint">
             仅显示最近 {tail.length} 条消息（共 {messages.length} 条）

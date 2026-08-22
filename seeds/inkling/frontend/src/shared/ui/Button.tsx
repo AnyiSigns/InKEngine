@@ -18,9 +18,9 @@ export function Button({ variant = 'secondary', size = 'sm', className, children
     accent: 'ink-accent-bg ink-accent',
   } as const;
   const sizes = {
-    xs: 'h-6 px-2 text-[11px] rounded',
-    sm: 'h-7 px-2.5 text-[11px] rounded-md',
-    md: 'h-8 px-3 text-xs rounded-md',
+    xs: 'h-6 px-2 text-[11px]',
+    sm: 'h-7 px-2.5 text-[11px]',
+    md: 'h-8 px-3 text-xs',
   } as const;
   return (
     <button

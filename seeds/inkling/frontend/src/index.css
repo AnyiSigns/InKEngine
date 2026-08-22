@@ -1,34 +1,48 @@
 @import "tailwindcss";
 
-/* ===== InKling 墨色系主题 token =====
+/* ===== InKling 黑白主题 token（跟随系统） =====
  *
  * 主题 token 白名单（与 renderer/themeTokens.ts 同源，来自 ui_spec.theme）：
- *   --ink-bg-base       深墨底  bg.base        出厂默认 #09090b
- *   --ink-text-base     纸白字  text.base      出厂默认 #e4e4e7
- *   --ink-accent-approval 朱砂 accent.approval 出厂默认 #f59e0b（仅审批/决策点）
+ *   --ink-bg-base       底色  bg.base       出厂默认跟随系统：亮=白 / 暗=墨
+ *   --ink-text-base     字色  text.base     出厂默认跟随系统：亮=墨 / 暗=纸白
+ *   --ink-accent-approval 朱砂 accent.approval（仅审批/决策点）
  * 其余 --ink-* 均为以上白名单 token 的派生值（color-mix 计算，非硬编码颜色），
  * 随白名单 token 演化而演化。组件一律经语义类取色，不直接书写颜色值。
+ *
+ * 跟随系统：ui_spec.theme 不声明白名单 token 时，CSS 默认值由
+ * prefers-color-scheme 决定（亮/暗两套）；设置页外观试穿经
+ * applyThemeTokens 以 inline 变量覆盖（白名单内，可还原回跟随系统）。
  */
 
 :root {
-  --ink-bg-base: #09090b;
-  --ink-text-base: #e4e4e7;
+  --ink-bg-base: #ffffff;
+  --ink-text-base: #18181b;
 
-  --ink-bg-surface: color-mix(in srgb, var(--ink-text-base) 4%, var(--ink-bg-base));
-  --ink-bg-elevated: color-mix(in srgb, var(--ink-text-base) 8%, var(--ink-bg-base));
-  --ink-border: color-mix(in srgb, var(--ink-text-base) 16%, transparent);
-  --ink-border-strong: color-mix(in srgb, var(--ink-text-base) 30%, transparent);
+  --ink-bg-surface: color-mix(in srgb, var(--ink-text-base) 3.5%, var(--ink-bg-base));
+  --ink-bg-elevated: color-mix(in srgb, var(--ink-text-base) 6%, var(--ink-bg-base));
+  --ink-border: color-mix(in srgb, var(--ink-text-base) 13%, transparent);
+  --ink-border-strong: color-mix(in srgb, var(--ink-text-base) 28%, transparent);
   --ink-text-muted: color-mix(in srgb, var(--ink-text-base) 62%, var(--ink-bg-base));
   --ink-text-faint: color-mix(in srgb, var(--ink-text-base) 38%, var(--ink-bg-base));
 
-  --ink-accent-approval: #f59e0b;
-  --ink-accent-soft: color-mix(in srgb, var(--ink-accent-approval) 14%, transparent);
-  --ink-accent-border: color-mix(in srgb, var(--ink-accent-approval) 40%, transparent);
+  --ink-accent-approval: #b45309;
+  --ink-accent-soft: color-mix(in srgb, var(--ink-accent-approval) 12%, transparent);
+  --ink-accent-border: color-mix(in srgb, var(--ink-accent-approval) 45%, transparent);
 
+  /* 终端 harness 美学（Codex CLI / DeepSeek harness 参照）：
+   * 等宽字体主导、直角、低对比细边框、无阴影、高信息密度。 */
   --font-sans:
-    "Inter", "Geist", -apple-system, BlinkMacSystemFont, "Segoe UI",
-    "PingFang SC", "Microsoft YaHei", sans-serif;
-  --font-mono: "Geist Mono", "Cascadia Code", "JetBrains Mono", monospace;
+    "Geist Mono", "Cascadia Code", "JetBrains Mono", "SFMono-Regular",
+    Consolas, "Microsoft YaHei", monospace;
+  --font-mono: "Geist Mono", "Cascadia Code", "JetBrains Mono", "SFMono-Regular", Consolas, monospace;
+}
+
+@media (prefers-color-scheme: dark) {
+  :root {
+    --ink-bg-base: #0a0a0b;
+    --ink-text-base: #e4e4e7;
+    --ink-accent-approval: #f59e0b;
+  }
 }
 
 /* ===== 语义类（组件取色唯一通道，禁硬编码颜色） ===== */
@@ -81,7 +95,7 @@
 }
 
 .ink-btn-primary:hover {
-  opacity: 0.9;
+  opacity: 0.85;
 }
 
 .ink-btn-secondary {
@@ -98,26 +112,58 @@
 
 * {
   border-color: var(--ink-border);
+  border-radius: 0;
 }
 
 body {
   margin: 0;
   background: var(--ink-bg-base);
   color: var(--ink-text-base);
+  font-family: var(--font-sans);
+}
+
+/* 终端式选区（harness 常用反向色块） */
+::selection {
+  background: var(--ink-text-base);
+  color: var(--ink-bg-base);
 }
 
 ::-webkit-scrollbar {
-  width: 8px;
-  height: 8px;
+  width: 4px;
+  height: 4px;
 }
 
 ::-webkit-scrollbar-thumb {
-  background: var(--ink-border);
-  border-radius: 4px;
+  background: var(--ink-border-strong);
 }
 
 ::-webkit-scrollbar-track {
   background: transparent;
+}
+
+input,
+textarea,
+select,
+button {
+  font-family: inherit;
+}
+
+/* 线性美学统一动效与焦点：交互一律轻过渡，键盘焦点用 hairline 描边。 */
+button,
+a,
+input,
+textarea,
+select {
+  transition:
+    background-color 150ms ease,
+    border-color 150ms ease,
+    color 150ms ease,
+    opacity 150ms ease;
+}
+
+:focus-visible {
+  outline: 1px solid var(--ink-border-strong);
+  outline-offset: 1px;
 }
 
 /* ===== 消息流增量渲染与流式动效 ===== */

@@ -27,7 +27,7 @@ export function SourceTrace({ bindValue }: SourceTraceProps) {
   const traces = (bindValue as SourceTraceEntry[] | undefined) ?? [];
 
   return (
-    <section className="ink-panel rounded-md p-3">
+    <section className="ink-panel p-3">
       <div className="flex items-center gap-1.5">
         <Fingerprint size={12} strokeWidth={1.6} className="ink-text-faint" aria-hidden />
         <span className="text-[11px] font-medium">来源明细</span>
@@ -35,7 +35,7 @@ export function SourceTrace({ bindValue }: SourceTraceProps) {
       </div>
 
       {traces.length === 0 ? (
-        <div className="mt-2 rounded-md border border-dashed px-3 py-4 text-center text-[11px] ink-border ink-text-faint">
+        <div className="mt-2 border border-dashed px-3 py-4 text-center text-[11px] ink-border ink-text-faint">
           暂无来源留痕（回合中的检索/记忆召回/证据校验在此留痕）
         </div>
       ) : (
@@ -44,10 +44,10 @@ export function SourceTrace({ bindValue }: SourceTraceProps) {
             const meta = SOURCE_META[trace.sourceType] ?? SOURCE_META.retrieval;
             const Icon = meta.icon;
             return (
-              <li key={trace.id} className="ink-elevated rounded-md px-2.5 py-1.5">
+              <li key={trace.id} className="ink-elevated px-2.5 py-1.5">
                 <div className="flex items-center gap-2">
                   <Icon size={11} strokeWidth={1.6} className="shrink-0 ink-text-faint" aria-hidden />
-                  <span className={cn('rounded px-1 py-px text-[9px]', 'ink-text-faint')}>{meta.label}</span>
+                  <span className={cn('px-1 py-px text-[9px]', 'ink-text-faint')}>{meta.label}</span>
                   <span className="min-w-0 flex-1 truncate text-[11px]">{trace.title}</span>
                   <span className="shrink-0 text-[9px] ink-text-faint">
                     {new Date(trace.createdAt).toLocaleTimeString()}

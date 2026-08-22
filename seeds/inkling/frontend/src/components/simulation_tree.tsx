@@ -20,7 +20,7 @@ export function SimulationTree({ bindValue, onSwapBranch }: SimulationTreeProps)
   const branches = (bindValue as SimulationBranch[] | undefined) ?? [];
 
   return (
-    <section className="ink-panel rounded-md p-3">
+    <section className="ink-panel p-3">
       <div className="flex items-center gap-1.5">
         <GitBranch size={12} strokeWidth={1.6} className="ink-text-faint" aria-hidden />
         <span className="text-[11px] font-medium">推演轨迹树</span>
@@ -28,7 +28,7 @@ export function SimulationTree({ bindValue, onSwapBranch }: SimulationTreeProps)
       </div>
 
       {branches.length === 0 ? (
-        <div className="mt-2 rounded-md border border-dashed px-3 py-4 text-center text-[11px] ink-border ink-text-faint">
+        <div className="mt-2 border border-dashed px-3 py-4 text-center text-[11px] ink-border ink-text-faint">
           暂无推演（决策点经 simulate_decision 展开分支，Evaluator 评分后换选）
         </div>
       ) : (
@@ -37,14 +37,14 @@ export function SimulationTree({ bindValue, onSwapBranch }: SimulationTreeProps)
             <div
               key={branch.branchId}
               className={cn(
-                'ink-elevated rounded-md px-2.5 py-2',
+                'ink-elevated px-2.5 py-2',
                 branch.selected && 'border-[var(--ink-border-strong)]',
               )}
             >
               <div className="flex items-center gap-2">
                 <span
                   className={cn(
-                    'rounded px-1.5 py-px text-[9px]',
+                    'px-1.5 py-px text-[9px]',
                     branch.selected ? 'ink-panel' : 'ink-text-faint',
                   )}
                 >
@@ -58,7 +58,7 @@ export function SimulationTree({ bindValue, onSwapBranch }: SimulationTreeProps)
                   <button
                     onClick={() => onSwapBranch?.(branch.branchId)}
                     data-ui={`swap_${branch.branchId}`}
-                    className="ink-btn-secondary h-5 shrink-0 rounded px-1.5 text-[9px] cursor-pointer"
+                    className="ink-btn-secondary h-5 shrink-0 px-1.5 text-[9px] cursor-pointer"
                   >
                     换选
                   </button>
@@ -73,7 +73,7 @@ export function SimulationTree({ bindValue, onSwapBranch }: SimulationTreeProps)
                     <li key={`${branch.branchId}-${index}`} className="flex items-center gap-1.5 text-[10px]">
                       <span
                         className={cn(
-                          'h-1.5 w-1.5 shrink-0 rounded-full',
+                          'h-1.5 w-1.5 shrink-0',
                           step.status === 'completed' ? 'bg-[var(--ink-border-strong)]' : step.status === 'failed' ? 'ink-accent' : 'bg-[var(--ink-border)]',
                         )}
                         aria-hidden

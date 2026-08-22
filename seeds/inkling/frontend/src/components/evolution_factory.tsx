@@ -20,7 +20,7 @@ export function EvolutionFactory({ bindValue }: EvolutionFactoryProps) {
   const mutations = entries.filter((e) => e.signalType === 'mutation');
 
   return (
-    <section className="ink-panel rounded-md p-3">
+    <section className="ink-panel p-3">
       <div className="flex items-center gap-1.5">
         <FlaskConical size={12} strokeWidth={1.6} className="ink-text-faint" aria-hidden />
         <span className="text-[11px] font-medium">进化工厂</span>
@@ -28,7 +28,7 @@ export function EvolutionFactory({ bindValue }: EvolutionFactoryProps) {
       </div>
 
       {mutations.length === 0 ? (
-        <div className="mt-2 rounded-md border border-dashed px-3 py-4 text-center text-[11px] ink-border ink-text-faint">
+        <div className="mt-2 border border-dashed px-3 py-4 text-center text-[11px] ink-border ink-text-faint">
           暂无变异提案（反思式变体经防退化守卫后才可沉淀）
         </div>
       ) : (
@@ -37,7 +37,7 @@ export function EvolutionFactory({ bindValue }: EvolutionFactoryProps) {
             const passed = entry.stage === 'passed';
             const blocked = entry.stage === 'blocked';
             return (
-              <div key={entry.id} className="ink-elevated rounded-md px-2.5 py-1.5">
+              <div key={entry.id} className="ink-elevated px-2.5 py-1.5">
                 <div className="flex items-center gap-2">
                   <ShieldCheck
                     size={11}
@@ -48,7 +48,7 @@ export function EvolutionFactory({ bindValue }: EvolutionFactoryProps) {
                   <span className="text-[11px]">{entry.signal}</span>
                   <span
                     className={cn(
-                      'ml-auto shrink-0 rounded px-1 py-px text-[9px]',
+                      'ml-auto shrink-0 px-1 py-px text-[9px]',
                       blocked ? 'ink-accent-bg ink-accent' : 'ink-panel',
                     )}
                   >

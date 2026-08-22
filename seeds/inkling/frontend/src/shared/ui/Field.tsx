@@ -2,20 +2,19 @@ import type { ReactNode } from 'react';
 
 import { cn } from '../cn';
 
-/** 表单字段：标签 + 控件（设置页表单统一形态）。 */
+/** 表单字段：标签 + 控件（设置页表单统一形态，留白从容）。 */
 export function Field({ label, hint, children, className }: { label: string; hint?: string; children: ReactNode; className?: string }) {
   return (
-    <label className={cn('block space-y-1', className)}>
-      <span className="block text-[11px] ink-text-muted">{label}</span>
+    <label className={cn('block space-y-1.5', className)}>
+      <span className="block text-[11px] font-medium tracking-wide ink-text-muted">{label}</span>
       {children}
-      {hint ? <span className="block text-[10px] ink-text-faint">{hint}</span> : null}
+      {hint ? <span className="block text-[10px] leading-relaxed ink-text-faint">{hint}</span> : null}
     </label>
   );
 }
 
 /** 表单控件统一样式（语义类取色，禁硬编码颜色）。 */
-export const inputCls =
-  'h-7 w-full rounded-md border px-2 text-xs bg-[var(--ink-bg-base)] focus:outline-none focus:border-[var(--ink-border-strong)]';
+export const inputCls = 'ink-input w-full';
 
 export function TextInput(props: React.InputHTMLAttributes<HTMLInputElement>) {
   const { className, ...rest } = props;

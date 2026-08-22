@@ -20,28 +20,30 @@ export function SimulationTree({ bindValue, onSwapBranch }: SimulationTreeProps)
   const branches = (bindValue as SimulationBranch[] | undefined) ?? [];
 
   return (
-    <section className="ink-panel p-3">
-      <div className="flex items-center gap-1.5">
-        <GitBranch size={12} strokeWidth={1.6} className="ink-text-faint" aria-hidden />
-        <span className="text-[11px] font-medium">推演轨迹树</span>
+    <section className="ink-panel p-4">
+      <div className="flex items-center gap-2.5">
+        <span className="ink-icon-chip">
+          <GitBranch size={12} strokeWidth={1.6} className="ink-text-faint" aria-hidden />
+        </span>
+        <span className="text-[12px] font-semibold tracking-tight">推演轨迹树</span>
         <span className="ml-auto text-[10px] ink-text-faint">simulate_decision · 分支对比</span>
       </div>
 
       {branches.length === 0 ? (
-        <div className="mt-2 rounded-xl border border-dashed px-3 py-4 text-center text-[11px] ink-border ink-text-faint">
+        <div className="mt-3 rounded-xl border border-dashed px-3 py-5 text-center text-[11px] leading-relaxed ink-border ink-text-faint">
           暂无推演（决策点经 simulate_decision 展开分支，Evaluator 评分后换选）
         </div>
       ) : (
-        <div className="mt-2 space-y-2">
+        <div className="mt-3 space-y-2.5">
           {branches.map((branch) => (
             <div
               key={branch.branchId}
               className={cn(
-                'ink-elevated px-3 py-2',
+                'ink-elevated px-3.5 py-2.5',
                 branch.selected && 'border-[var(--ink-border-strong)]',
               )}
             >
-              <div className="flex items-center gap-2">
+              <div className="flex items-center gap-2.5">
                 <span
                   className={cn(
                     'rounded-md px-1.5 py-px text-[9px]',
@@ -51,7 +53,7 @@ export function SimulationTree({ bindValue, onSwapBranch }: SimulationTreeProps)
                   {branch.selected ? '已选中' : '候选'}
                 </span>
                 <span className="truncate text-[11px]">{branch.label}</span>
-                <span className="ml-auto shrink-0 text-[10px] tabular-nums ink-text-faint">
+                <span className="ml-auto shrink-0 font-mono text-[10px] tabular-nums ink-text-faint">
                   评分 {branch.score.toFixed(2)}
                 </span>
                 {!branch.selected && (
@@ -65,10 +67,10 @@ export function SimulationTree({ bindValue, onSwapBranch }: SimulationTreeProps)
                 )}
               </div>
               {branch.rationale && (
-                <div className="mt-1 text-[10px] leading-relaxed ink-text-muted">{branch.rationale}</div>
+                <div className="mt-1.5 text-[10px] leading-relaxed ink-text-muted">{branch.rationale}</div>
               )}
               {branch.steps.length > 0 && (
-                <ul className="mt-1.5 space-y-0.5 border-l pl-2 ink-border">
+                <ul className="mt-2 space-y-1 border-l pl-3 ink-border">
                   {branch.steps.map((step, index) => (
                     <li key={`${branch.branchId}-${index}`} className="flex items-center gap-1.5 text-[10px]">
                       <span

@@ -4,10 +4,13 @@
  * 挡位 = 模型四挡位（router/tool/main/audit），模式档 = 会话模式
  * （default/observe/review/sandbox）；提示行数据来自 state.session 通道
  * （activeGear/modeTier），发送动作经 props 注入（宿主接线，组件无传输耦合）。
+ *
+ * 外壳：纸面渐变 + 聚焦光晕（ink-input-shell），发送钮朱砂？——否，
+ * 发送为主模型动作（primary 墨/纸），朱砂仅审批/决策点。
  */
 
 import { useRef, useState } from 'react';
-import { Send, Square } from 'lucide-react';
+import { Cpu, Send, Square } from 'lucide-react';
 
 import type { GearTier, ModeTier } from '@/shared/session/types';
 
@@ -57,8 +60,8 @@ export function AgentInput({ bindValue, placeholder = '向 InKling 提问，或�
   };
 
   return (
-    <div className="shrink-0 px-4 pb-4 pt-1">
-      <div className="ink-input-shell mx-auto w-full max-w-3xl rounded-2xl border bg-[var(--ink-bg-surface)] ink-shadow-soft transition-colors focus-within:border-[var(--ink-border-strong)]">
+    <div className="shrink-0 px-5 pb-4 pt-1">
+      <div className="ink-input-shell mx-auto w-full max-w-3xl rounded-2xl border bg-[var(--ink-bg-surface)] transition-colors focus-within:border-[var(--ink-border-strong)]">
         <textarea
           ref={textareaRef}
           data-ui="agent_input"
@@ -72,22 +75,21 @@ export function AgentInput({ bindValue, placeholder = '向 InKling 提问，或�
           }}
           rows={Math.min(Math.max(draft.split('\n').length, 1), 6)}
           placeholder={streaming ? '正在思考…' : placeholder}
-          className="min-h-7 max-h-36 w-full resize-none bg-transparent px-3.5 pt-3 pb-1 text-[13px] leading-relaxed focus:outline-none placeholder:text-[var(--ink-text-faint)]"
+          className="min-h-7 max-h-36 w-full resize-none bg-transparent px-4 pt-3.5 pb-1 text-[13px] leading-relaxed focus:outline-none placeholder:text-[var(--ink-text-faint)]"
         />
-        <div className="flex items-center gap-1.5 px-2.5 pb-2.5 pt-1">
-          <span className="rounded-full bg-[var(--ink-bg-elevated)] px-2 py-0.5 text-[10px] ink-text-muted">
+        <div className="flex items-center gap-1.5 px-3 pb-3 pt-1">
+          <span className="ink-chip ink-text-muted">
+            <Cpu size={9} strokeWidth={1.8} aria-hidden />
             挡位 {GEAR_LABELS[gear]}
           </span>
-          <span className="rounded-full bg-[var(--ink-bg-elevated)] px-2 py-0.5 text-[10px] ink-text-muted">
-            模式 {MODE_LABELS[mode]}
-          </span>
+          <span className="ink-chip ink-text-muted">模式 {MODE_LABELS[mode]}</span>
           <span className="ml-auto" />
           {streaming ? (
             <button
               onClick={onAbort}
               title="停止生成"
               data-ui="btn_abort"
-              className="flex h-8 w-8 shrink-0 items-center justify-center rounded-full border ink-btn-secondary cursor-pointer"
+              className="ink-btn-secondary flex h-8 w-8 shrink-0 items-center justify-center rounded-full cursor-pointer"
             >
               <Square size={12} strokeWidth={1.8} aria-hidden />
             </button>
@@ -104,7 +106,7 @@ export function AgentInput({ bindValue, placeholder = '向 InKling 提问，或�
           )}
         </div>
       </div>
-      <div className="mx-auto mt-1.5 w-full max-w-3xl px-1 font-mono text-[9px] tracking-wide ink-text-faint">
+      <div className="mx-auto mt-2 w-full max-w-3xl px-1 font-mono text-[9px] tracking-wide ink-text-faint">
         挡位:{gear}({GEAR_LABELS[gear]}) · 模式:{mode}({MODE_LABELS[mode]})
       </div>
     </div>

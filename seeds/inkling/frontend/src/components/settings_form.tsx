@@ -1,10 +1,9 @@
 /**
- * 设置页（三栏布局的其它入口统一收进本页）：入口导航 + 系统配置。
+ * 设置页（双栏形态）：左侧导航轨 + 右侧分区内容。
  *
- * 区块：
- * 入口（演化/推演/来源/返回主界面）/
- * 模型 / 权限与审批 / 连接（MCP 挂载管理 + 环境管理 + 工作区授权）/
- * 数据与记忆 / 外观（主题 token 试穿再应用，白名单内，空 = 跟随系统）/ 关于。
+ * 布局：入口（演化/推演/来源）+ 分区导航（模型/权限与审批/连接/
+ * 环境与工作区/数据与记忆/外观/关于）驻左轨，主打分区一次一屏、
+ * 留白从容；返回主界面按钮固定在左轨底部，应用条粘性驻内容区底部。
  *
  * 表单状态为组件本地态（设置页语义 = 本地草稿 + 应用动作经 props 注入）；
  * 主题试穿直接经白名单 applyThemeTokens 落地 CSS 变量（不持久化，
@@ -14,20 +13,21 @@
 
 import { useEffect, useState } from 'react';
 import {
-  AppWindow, Boxes, Check, ChevronDown, Database, Download, Eye, FolderOpen,
-  FlaskConical, GitBranch, Info, KeyRound, Paintbrush, PlugZap, RotateCcw, ScrollText, Upload,
+  AppWindow, Check, ChevronDown, Cpu, Database, Download, Eye, FileText,
+  FlaskConical, FolderOpen, GitBranch, Info, KeyRound, Paintbrush, PlugZap,
+  RotateCcw, ScrollText, Upload,
 } from 'lucide-react';
 
 import { applyThemeTokens, rejectedThemeTokens, THEME_TOKEN_WHITELIST } from '@/renderer/themeTokens';
 import type { GearTier } from '@/shared/session/types';
 import type { ViewId } from '@/renderer/uiSpecTypes';
 import { Button } from '@/shared/ui/Button';
-import { Card } from '@/shared/ui/Card';
 import { Field, Select, TextInput } from '@/shared/ui/Field';
 import { cn } from '@/shared/cn';
 
 interface SettingsFormProps {
   bindValue?: unknown;
+  onNavigate?: (view: ViewId) => void;
   onApplySettings?: (settings: Record<string, unknown>) => void;
 }
 
@@ -66,14 +66,21 @@ const ENTRY_ITEMS: Array<{ view: ViewId; label: string; icon: typeof FlaskConica
   { view: 'source', label: '来源', icon: ScrollText, hint: '依据链溯源' },
 ];
 
-interface SettingsFormProps {
-  bindValue?: unknown;
-  onNavigate?: (view: ViewId) => void;
-  onApplySettings?: (settings: Record<string, unknown>) => void;
-}
+type SectionId = 'model' | 'approval' | 'connect' | 'environment' | 'data' | 'appearance' | 'about';
+
+const SECTION_NAV: Array<{ id: SectionId; label: string; icon: typeof Cpu; desc: string }> = [
+  { id: 'model', label: '模型', icon: Cpu, desc: '四挡位配置 · fallback' },
+  { id: 'approval', label: '权限与审批', icon: KeyRound, desc: '审批表 · 默认档 · 超时' },
+  { id: 'connect', label: '连接', icon: PlugZap, desc: 'MCP 市场 · 手动挂载' },
+  { id: 'environment', label: '环境与工作区', icon: AppWindow, desc: '环境声明 · 工作区授权' },
+  { id: 'data', label: '数据与记忆', icon: Database, desc: '记忆窗口 · 知识集存取' },
+  { id: 'appearance', label: '外观', icon: Paintbrush, desc: '主题 token 试穿' },
+  { id: 'about', label: '关于', icon: Info, desc: '版本 · 契约清单' },
+];
 
 export function SettingsForm({ bindValue, onNavigate, onApplySettings }: SettingsFormProps) {
   void bindValue;
+  const [active, setActive] = useState<SectionId>('model');
   const [gear, setGear] = useState<Record<GearTier, { modelId: string; fallback: boolean }>>({
     router: { modelId: '', fallback: true },
     tool: { modelId: '', fallback: true },
@@ -130,307 +137,380 @@ export function SettingsForm({ bindValue, onNavigate, onApplySettings }: Setting
     });
   };
 
+  const activeMeta = SECTION_NAV.find((s) => s.id === active) ?? SECTION_NAV[0];
+  const ActiveIcon = activeMeta.icon;
+
   return (
-    <div className="min-h-0 flex-1 overflow-y-auto">
-      <div className="mx-auto w-full max-w-3xl space-y-4 p-5">
-        <SettingsSection icon={Boxes} title="入口" hint="三栏布局下其它功能统一经设置页进入">
-          <div className="flex flex-wrap gap-1.5">
-            {ENTRY_ITEMS.map((item) => {
-              const Icon = item.icon;
-              return (
-                <button
-                  key={item.view}
-                  data-ui={`entry_${item.view}`}
-                  onClick={() => onNavigate?.(item.view)}
-                  className="ink-btn-secondary flex items-center gap-1.5 px-3 py-2 text-[12px] cursor-pointer hover:bg-[var(--ink-bg-elevated)]"
-                >
-                  <Icon size={12} strokeWidth={1.6} aria-hidden />
-                  {item.label}
-                  <span className="text-[10px] ink-text-faint">{item.hint}</span>
-                </button>
-              );
-            })}
-            <button
-              data-ui="entry_main"
-              onClick={() => onNavigate?.('main')}
-              className="ink-btn-primary flex items-center gap-1.5 px-3 py-2 text-[12px] cursor-pointer"
-            >
-              返回主界面
-            </button>
-          </div>
-        </SettingsSection>
+    <div className="flex min-h-0 flex-1">
+      {/* 左导航轨：入口 + 分区 */}
+      <nav className="ink-rail flex w-52 shrink-0 flex-col border-r px-2 py-3 ink-border">
+        <div className="space-y-0.5">
+          <div className="px-2 pb-1 text-[9px] font-medium tracking-[0.14em] uppercase ink-text-faint">入口</div>
+          {ENTRY_ITEMS.map((item) => {
+            const Icon = item.icon;
+            return (
+              <button
+                key={item.view}
+                data-ui={`entry_${item.view}`}
+                onClick={() => onNavigate?.(item.view)}
+                className="group flex w-full items-center gap-2 rounded-lg px-2 py-1.5 text-left cursor-pointer hover:bg-[var(--ink-bg-elevated)]"
+              >
+                <span className="ink-icon-chip h-6 w-6 group-hover:bg-[var(--ink-bg-base)]">
+                  <Icon size={11} strokeWidth={1.6} aria-hidden />
+                </span>
+                <span className="min-w-0">
+                  <span className="block truncate text-[11px]">{item.label}</span>
+                  <span className="block truncate text-[9px] ink-text-faint">{item.hint}</span>
+                </span>
+              </button>
+            );
+          })}
+        </div>
 
-        <SettingsSection icon={Boxes} title="模型" hint="四挡位配置 + fallback（留空回落主模型）">
-          <div className="space-y-2">
-            {TIER_KEYS.map((tier) => (
-              <div key={tier} className="flex items-center gap-2">
-                <span className="w-28 shrink-0 text-[12px] ink-text-muted">{TIER_LABELS[tier]}</span>
-                <TextInput
-                  value={gear[tier].modelId}
-                  placeholder="model_id"
-                  aria-label={`${tier} 模型`}
-                  onChange={(e) => setGear((prev) => ({ ...prev, [tier]: { ...prev[tier], modelId: e.target.value } }))}
+        <div className="my-2.5 h-px bg-[var(--ink-border)]" />
+
+        <div className="min-h-0 flex-1 space-y-0.5 overflow-y-auto">
+          <div className="px-2 pb-1 text-[9px] font-medium tracking-[0.14em] uppercase ink-text-faint">系统配置</div>
+          {SECTION_NAV.map((item) => {
+            const Icon = item.icon;
+            const isActive = active === item.id;
+            return (
+              <button
+                key={item.id}
+                data-ui={`settings_nav_${item.id}`}
+                data-active={isActive}
+                onClick={() => setActive(item.id)}
+                className={cn(
+                  'relative flex w-full items-center gap-2 rounded-lg px-2 py-1.5 text-left cursor-pointer transition-colors',
+                  isActive ? 'bg-[var(--ink-bg-elevated)]' : 'hover:bg-[var(--ink-bg-elevated)]',
+                )}
+              >
+                {isActive && (
+                  <span className="ink-active-bar" aria-hidden />
+                )}
+                <Icon
+                  size={13}
+                  strokeWidth={1.6}
+                  className={cn('shrink-0', isActive ? '' : 'ink-text-faint')}
+                  aria-hidden
                 />
-                <label className="flex shrink-0 items-center gap-1 text-[10px] ink-text-muted">
-                  <input
-                    type="checkbox"
-                    checked={gear[tier].fallback}
-                    onChange={(e) => setGear((prev) => ({ ...prev, [tier]: { ...prev[tier], fallback: e.target.checked } }))}
-                  />
-                  fallback
-                </label>
-              </div>
-            ))}
-          </div>
-        </SettingsSection>
+                <span className={cn('min-w-0 flex-1 truncate text-[11px]', isActive && 'font-medium')}>{item.label}</span>
+                <span className="truncate text-[9px] ink-text-faint">{item.desc}</span>
+              </button>
+            );
+          })}
+        </div>
 
-        <SettingsSection icon={KeyRound} title="权限与审批" hint="kind → L0/L1/L2 审批表 · 默认权限档 · 超时策略">
-          <div className="space-y-1.5">
-            {APPROVAL_KINDS.map((kind) => (
-              <div key={kind} className="flex items-center gap-2">
-                <span className="w-24 shrink-0 font-mono text-[10px] ink-text-muted">{kind}</span>
-                <div className="flex gap-1">
-                  {APPROVAL_LEVELS.map((level) => (
-                    <button
-                      key={level}
-                      onClick={() => setApprovals((prev) => ({ ...prev, [kind]: level }))}
-                      className={cn(
-                        'h-6 px-2 text-[10px] cursor-pointer',
-                        approvals[kind] === level ? 'ink-btn-primary' : 'ink-btn-secondary',
-                      )}
-                    >
-                      {level}
-                    </button>
+        <div className="pt-2">
+          <Button
+            data-ui="entry_main"
+            variant="primary"
+            className="w-full"
+            onClick={() => onNavigate?.('main')}
+          >
+            返回主界面
+          </Button>
+        </div>
+      </nav>
+
+      {/* 右内容区：一屏一分区，留白从容 */}
+      <div className="ink-scroll-auto min-w-0 flex-1">
+        <div className="mx-auto w-full max-w-xl px-6 py-6">
+          {/* 分区头 */}
+          <div className="mb-6 flex items-start gap-3">
+            <span className="ink-icon-chip h-9 w-9 rounded-xl">
+              <ActiveIcon size={15} strokeWidth={1.6} aria-hidden />
+            </span>
+            <div className="min-w-0">
+              <h2 className="text-[15px] font-semibold tracking-tight">{activeMeta.label}</h2>
+              <p className="mt-0.5 text-[11px] leading-relaxed ink-text-faint">{activeMeta.desc}</p>
+            </div>
+          </div>
+
+          {active === 'model' && (
+            <div className="space-y-2.5">
+              {TIER_KEYS.map((tier) => (
+                <div key={tier} className="ink-elevated flex items-center gap-3 px-3.5 py-2.5">
+                  <span className="w-24 shrink-0 text-[12px] font-medium">{TIER_LABELS[tier]}</span>
+                  <TextInput
+                    value={gear[tier].modelId}
+                    placeholder="model_id"
+                    aria-label={`${tier} 模型`}
+                    className="flex-1"
+                    onChange={(e) => setGear((prev) => ({ ...prev, [tier]: { ...prev[tier], modelId: e.target.value } }))}
+                  />
+                  <label className="flex shrink-0 items-center gap-1.5 pl-1 cursor-pointer" title="留空回落主模型">
+                    <input
+                      type="checkbox"
+                      className="ink-check"
+                      checked={gear[tier].fallback}
+                      onChange={(e) => setGear((prev) => ({ ...prev, [tier]: { ...prev[tier], fallback: e.target.checked } }))}
+                    />
+                    <span className="text-[10px] ink-text-muted">fallback</span>
+                  </label>
+                </div>
+              ))}
+              <p className="pt-1 text-[10px] leading-relaxed ink-text-faint">四挡位分工：制片人决策 / 工具挡 / 主模型 / 质量校验；某挡位留空时回落主模型。</p>
+            </div>
+          )}
+
+          {active === 'approval' && (
+            <div className="space-y-4">
+              <div className="space-y-1">
+                <div className="text-[11px] font-medium tracking-wide ink-text-muted">审批表（kind → L0/L1/L2）</div>
+                <div className="ink-elevated divide-y divide-[var(--ink-border)] overflow-hidden">
+                  {APPROVAL_KINDS.map((kind) => (
+                    <div key={kind} className="flex items-center gap-3 px-3.5 py-2">
+                      <span className="w-32 shrink-0 truncate font-mono text-[10px] ink-text-muted">{kind}</span>
+                      <div className="flex gap-0.5">
+                        {APPROVAL_LEVELS.map((level) => (
+                          <button
+                            key={level}
+                            onClick={() => setApprovals((prev) => ({ ...prev, [kind]: level }))}
+                            data-active={approvals[kind] === level}
+                            className="ink-seg-item"
+                          >
+                            {level}
+                          </button>
+                        ))}
+                      </div>
+                    </div>
                   ))}
                 </div>
               </div>
-            ))}
-            <div className="flex items-center gap-2 pt-1">
-              <span className="w-24 shrink-0 text-[10px] ink-text-muted">默认权限档</span>
-              <div className="flex gap-1">
-                {DEFAULT_PERMISSIONS.map((permission) => (
-                  <button
-                    key={permission}
-                    onClick={() => setDefaultPermission(permission)}
-                    className={cn(
-                      'h-6 px-2 text-[10px] cursor-pointer',
-                      defaultPermission === permission ? 'ink-btn-primary' : 'ink-btn-secondary',
-                    )}
-                  >
-                    {permission}
-                  </button>
+              <div className="ink-elevated space-y-3 px-3.5 py-3">
+                <div className="flex items-center gap-3">
+                  <span className="w-32 shrink-0 text-[11px] ink-text-muted">默认权限档</span>
+                  <div className="ink-seg">
+                    {DEFAULT_PERMISSIONS.map((permission) => (
+                      <button
+                        key={permission}
+                        onClick={() => setDefaultPermission(permission)}
+                        data-active={defaultPermission === permission}
+                        className="ink-seg-item"
+                      >
+                        {permission}
+                      </button>
+                    ))}
+                  </div>
+                </div>
+                <div className="flex items-center gap-2">
+                  <span className="w-32 shrink-0 text-[11px] ink-text-muted">审批超时</span>
+                  <TextInput
+                    className="w-24"
+                    value={timeoutSecs}
+                    onChange={(e) => setTimeoutSecs(e.target.value)}
+                    aria-label="审批超时秒数"
+                  />
+                  <span className="text-[10px] ink-text-faint">秒 · fail-closed</span>
+                </div>
+              </div>
+            </div>
+          )}
+
+          {active === 'connect' && (
+            <div className="space-y-2.5">
+              <div className="ink-elevated divide-y divide-[var(--ink-border)] overflow-hidden">
+                {MCP_MARKET.map((entry) => {
+                  const mounted = mcpMounted.includes(entry.name);
+                  return (
+                    <div key={entry.name} className="flex items-center gap-3 px-3.5 py-2.5">
+                      <span className="min-w-0 flex-1">
+                        <span className="flex items-center gap-1.5">
+                          <span className="truncate text-[12px] font-medium">{entry.name}</span>
+                          <span className="ink-chip font-mono text-[9px] ink-text-faint">{entry.risk}</span>
+                        </span>
+                        <span className="mt-0.5 block truncate font-mono text-[9px] ink-text-faint">{entry.endpoint}</span>
+                      </span>
+                      <Button
+                        size="xs"
+                        variant={mounted ? 'secondary' : 'accent'}
+                        onClick={() =>
+                          setMcpMounted((prev) => (mounted ? prev.filter((n) => n !== entry.name) : [...prev, entry.name]))
+                        }
+                      >
+                        {mounted ? '已挂载' : '挂载'}
+                      </Button>
+                    </div>
+                  );
+                })}
+              </div>
+              <div className="flex items-center gap-2">
+                <TextInput
+                  value={manualMcp}
+                  placeholder="手动添加：npx -y <pkg> 或 http(s)://<endpoint>"
+                  onChange={(e) => setManualMcp(e.target.value)}
+                  aria-label="手动添加 MCP"
+                />
+                <Button
+                  size="md"
+                  onClick={() => {
+                    if (manualMcp.trim() && !mcpMounted.includes(manualMcp.trim())) {
+                      setMcpMounted((prev) => [...prev, manualMcp.trim()]);
+                      setManualMcp('');
+                    }
+                  }}
+                >
+                  添加
+                </Button>
+              </div>
+              <p className="text-[10px] leading-relaxed ink-text-faint">mcp_market 市场（出厂零预挂，一键挂载走 vetting → 观察 → L2 审批转正）</p>
+              {mcpMounted.length > 0 && (
+                <div className="ink-chip ink-text-muted">
+                  <Check size={9} strokeWidth={2} aria-hidden />
+                  已挂载：{mcpMounted.join('、')}（可回退）
+                </div>
+              )}
+            </div>
+          )}
+
+          {active === 'environment' && (
+            <div className="space-y-4">
+              <div className="space-y-1">
+                <div className="text-[11px] font-medium tracking-wide ink-text-muted">环境声明</div>
+                <div className="flex flex-wrap gap-1.5">
+                  {ENVIRONMENTS.map((env) => (
+                    <span key={env} className="ink-chip font-mono ink-text-muted">{env}</span>
+                  ))}
+                </div>
+              </div>
+              <div className="space-y-1">
+                <div className="text-[11px] font-medium tracking-wide ink-text-muted">工作区授权（桌面目录挂载点）</div>
+                <div className="ink-elevated divide-y divide-[var(--ink-border)] overflow-hidden">
+                  {workspaceMounts.map((mount, index) => (
+                    <div key={`${mount}-${index}`} className="flex items-center gap-2 px-3.5 py-2">
+                      <FolderOpen size={12} strokeWidth={1.6} className="shrink-0 ink-text-faint" aria-hidden />
+                      <span className="min-w-0 flex-1 truncate font-mono text-[10px]">{mount}</span>
+                      <Button
+                        size="xs"
+                        variant="ghost"
+                        onClick={() => setWorkspaceMounts((prev) => prev.filter((_, i) => i !== index))}
+                      >
+                        移除
+                      </Button>
+                    </div>
+                  ))}
+                </div>
+                <div className="flex items-center gap-2">
+                  <TextInput
+                    placeholder="添加桌面目录挂载点（~/…）"
+                    aria-label="工作区挂载点"
+                    onKeyDown={(e) => {
+                      if (e.key === 'Enter') {
+                        const value = (e.target as HTMLInputElement).value.trim();
+                        if (value) setWorkspaceMounts((prev) => [...prev, value]);
+                        (e.target as HTMLInputElement).value = '';
+                      }
+                    }}
+                  />
+                  <Select value={fileOpsLevel} onChange={(e) => setFileOpsLevel(e.target.value as 'allow' | 'review')} className="w-24">
+                    <option value="allow">allow</option>
+                    <option value="review">review</option>
+                  </Select>
+                  <span className="text-[10px] ink-text-faint">file_ops</span>
+                </div>
+              </div>
+            </div>
+          )}
+
+          {active === 'data' && (
+            <div className="space-y-4">
+              <Field label="记忆失效窗口（天）" hint="过去 N 天内的记忆条目参与召回检索，过期条目降权。">
+                <TextInput
+                  className="w-28"
+                  value={memoryWindow}
+                  onChange={(e) => setMemoryWindow(e.target.value)}
+                  aria-label="记忆失效窗口"
+                />
+              </Field>
+              <div className="space-y-1">
+                <div className="text-[11px] font-medium tracking-wide ink-text-muted">知识集存取</div>
+                <div className="flex flex-wrap gap-2">
+                  <Button size="sm" variant="secondary"><Download size={11} strokeWidth={1.6} /> 导出知识集</Button>
+                  <Button size="sm" variant="secondary"><Upload size={11} strokeWidth={1.6} /> 导入知识集</Button>
+                  <Button size="sm" variant="ghost">清理存储</Button>
+                </div>
+              </div>
+            </div>
+          )}
+
+          {active === 'appearance' && (
+            <div className="space-y-2.5">
+              <div className="ink-elevated divide-y divide-[var(--ink-border)] overflow-hidden">
+                {THEME_TOKEN_WHITELIST.map((token) => (
+                  <div key={token} className="flex items-center gap-3 px-3.5 py-2.5">
+                    <span className="w-28 shrink-0 font-mono text-[10px] ink-text-muted">{token}</span>
+                    <span
+                      className="h-5 w-5 shrink-0 rounded-md border border-[var(--ink-border-strong)] ink-shadow-soft"
+                      style={{ background: themeDraft[token] ?? 'var(--ink-bg-surface)' }}
+                      aria-hidden
+                    />
+                    <TextInput
+                      value={themeDraft[token] ?? ''}
+                      placeholder="跟随系统"
+                      aria-label={`${token} 色值`}
+                      onChange={(e) => updateThemeToken(token, e.target.value)}
+                    />
+                    <Button
+                      size="xs"
+                      variant="ghost"
+                      onClick={() =>
+                        setThemeDraft((prev) => {
+                          const next = { ...prev };
+                          delete next[token];
+                          return next;
+                        })
+                      }
+                    >
+                      还原跟随系统
+                    </Button>
+                  </div>
                 ))}
               </div>
-              <TextInput
-                className="w-20"
-                value={timeoutSecs}
-                onChange={(e) => setTimeoutSecs(e.target.value)}
-                aria-label="审批超时秒数"
-              />
-              <span className="text-[10px] ink-text-faint">秒超时（fail-closed）</span>
+              <p className="flex items-center gap-1.5 text-[10px] leading-relaxed ink-text-faint">
+                <Eye size={10} strokeWidth={1.6} className="shrink-0" aria-hidden />
+                试穿即时生效（白名单内）；留空 = 跟随系统；「应用设置」持久化
+              </p>
             </div>
-          </div>
-        </SettingsSection>
+          )}
 
-        <SettingsSection icon={PlugZap} title="连接" hint="MCP 挂载管理（市场 + 手动添加）">
-          <div className="space-y-2">
-            <div className="text-[10px] ink-text-faint">mcp_market 市场（出厂零预挂，一键挂载走 vetting → 观察 → L2 审批转正）</div>
-            {MCP_MARKET.map((entry) => {
-              const mounted = mcpMounted.includes(entry.name);
-              return (
-                <div key={entry.name} className="ink-elevated flex items-center gap-2 px-2.5 py-1.5">
-                  <span className="min-w-0 flex-1 truncate">
-                    <span className="text-[11px]">{entry.name}</span>
-                    <span className="ml-1.5 text-[9px] ink-text-faint">{entry.source} · {entry.risk}</span>
-                  </span>
-                  <Button
-                    size="xs"
-                    variant={mounted ? 'secondary' : 'accent'}
-                    onClick={() =>
-                      setMcpMounted((prev) => (mounted ? prev.filter((n) => n !== entry.name) : [...prev, entry.name]))
-                    }
-                  >
-                    {mounted ? '已挂载' : '挂载'}
-                  </Button>
+          {active === 'about' && (
+            <div className="space-y-2.5">
+              <div className="ink-elevated space-y-2 px-3.5 py-3">
+                <div className="flex items-center gap-2">
+                  <span className="text-[12px] font-semibold">InKling 0.1.0</span>
+                  <span className="ink-chip ink-text-faint">自进化认知伙伴</span>
                 </div>
-              );
-            })}
-            <div className="flex items-center gap-2">
-              <TextInput
-                value={manualMcp}
-                placeholder="手动添加：npx -y <pkg> 或 http(s)://<endpoint>"
-                onChange={(e) => setManualMcp(e.target.value)}
-                aria-label="手动添加 MCP"
-              />
-              <Button
-                size="sm"
-                onClick={() => {
-                  if (manualMcp.trim() && !mcpMounted.includes(manualMcp.trim())) {
-                    setMcpMounted((prev) => [...prev, manualMcp.trim()]);
-                    setManualMcp('');
-                  }
-                }}
+                <div className="text-[10px] leading-relaxed ink-text-muted">engine_version_compat：按当前 ink_engine 锁定</div>
+                <div className="text-[10px] leading-relaxed ink-text-faint">契约：inkling_exec（执行件）· inkling_shell（宿主件）· 渲染组件白名单 · 事件类型清单 · 工具清单</div>
+              </div>
+              <button
+                onClick={() => setAboutOpen((v) => !v)}
+                className="flex items-center gap-1 ink-text-muted hover:text-[var(--ink-text-base)] cursor-pointer bg-transparent border-none text-[10px]"
               >
-                添加
-              </Button>
+                <ChevronDown size={10} strokeWidth={1.6} className={cn('transition-transform', aboutOpen && 'rotate-180')} aria-hidden />
+                白名单详情
+              </button>
+              {aboutOpen && (
+                <div className="ink-feed ink-panel px-3 py-2.5 font-mono text-[9px] ink-text-faint">
+                  <FileText size={9} strokeWidth={1.6} className="mr-1 inline" aria-hidden />
+                  主题 token：bg.base / text.base / accent.approval
+                </div>
+              )}
             </div>
-            {mcpMounted.length > 0 && (
-              <div className="text-[10px] ink-text-muted">
-                已挂载：{mcpMounted.join('、')}（可回退）
-              </div>
-            )}
-          </div>
-        </SettingsSection>
+          )}
 
-        <SettingsSection icon={AppWindow} title="环境与工作区" hint="环境声明（local/web_bridge/container）+ 工作区授权 + file_ops 分级">
-          <div className="flex gap-1.5">
-            {ENVIRONMENTS.map((env) => (
-              <span key={env} className="ink-elevated px-2 py-1 text-[10px] font-mono ink-text-muted">
-                {env}
-              </span>
-            ))}
+          {/* 应用条（粘性底部） */}
+          <div className="ink-sticky-bar mt-8 -mx-6 flex items-center justify-end gap-2 px-6 py-3">
+            <Button size="sm" variant="ghost" onClick={() => setThemeDraft({})}>
+              <RotateCcw size={11} strokeWidth={1.6} /> 还原跟随系统
+            </Button>
+            <Button size="sm" variant="primary" onClick={applyAll} data-ui="btn_apply_settings">
+              <Check size={11} strokeWidth={1.8} /> 应用设置
+            </Button>
           </div>
-          <div className="mt-2 space-y-1.5">
-            {workspaceMounts.map((mount, index) => (
-              <div key={`${mount}-${index}`} className="flex items-center gap-2">
-                <FolderOpen size={11} strokeWidth={1.6} className="ink-text-faint" aria-hidden />
-                <span className="flex-1 truncate font-mono text-[10px]">{mount}</span>
-                <Button
-                  size="xs"
-                  variant="ghost"
-                  onClick={() => setWorkspaceMounts((prev) => prev.filter((_, i) => i !== index))}
-                >
-                  移除
-                </Button>
-              </div>
-            ))}
-            <div className="flex items-center gap-2">
-              <TextInput
-                placeholder="添加桌面目录挂载点（~/…）"
-                aria-label="工作区挂载点"
-                onKeyDown={(e) => {
-                  if (e.key === 'Enter') {
-                    const value = (e.target as HTMLInputElement).value.trim();
-                    if (value) setWorkspaceMounts((prev) => [...prev, value]);
-                    (e.target as HTMLInputElement).value = '';
-                  }
-                }}
-              />
-              <span className="text-[10px] ink-text-faint">file_ops</span>
-              <Select value={fileOpsLevel} onChange={(e) => setFileOpsLevel(e.target.value as 'allow' | 'review')} className="w-24">
-                <option value="allow">allow</option>
-                <option value="review">review</option>
-              </Select>
-            </div>
-          </div>
-        </SettingsSection>
-
-        <SettingsSection icon={Database} title="数据与记忆" hint="记忆失效窗口 · 知识集导出/导入 · 存储与清理">
-          <Field label="记忆失效窗口（天）">
-            <TextInput
-              className="w-28"
-              value={memoryWindow}
-              onChange={(e) => setMemoryWindow(e.target.value)}
-              aria-label="记忆失效窗口"
-            />
-          </Field>
-          <div className="flex gap-2 pt-1">
-            <Button size="sm" variant="secondary"><Download size={11} strokeWidth={1.6} /> 导出知识集</Button>
-            <Button size="sm" variant="secondary"><Upload size={11} strokeWidth={1.6} /> 导入知识集</Button>
-            <Button size="sm" variant="ghost">清理存储</Button>
-          </div>
-        </SettingsSection>
-
-        <SettingsSection icon={Paintbrush} title="外观" hint="主题 token（白名单内试穿；空 = 跟随系统亮/暗）">
-          <div className="space-y-2">
-            {THEME_TOKEN_WHITELIST.map((token) => (
-              <div key={token} className="flex items-center gap-2">
-                <span className="w-28 shrink-0 font-mono text-[10px] ink-text-muted">{token}</span>
-                <div
-                  className="h-5 w-5 shrink-0 border"
-                  style={{ background: themeDraft[token] ?? 'var(--ink-bg-surface)' }}
-                  aria-hidden
-                />
-                <TextInput
-                  value={themeDraft[token] ?? ''}
-                  placeholder="跟随系统"
-                  aria-label={`${token} 色值`}
-                  onChange={(e) => updateThemeToken(token, e.target.value)}
-                />
-                <Button
-                  size="xs"
-                  variant="ghost"
-                  onClick={() =>
-                    setThemeDraft((prev) => {
-                      const next = { ...prev };
-                      delete next[token];
-                      return next;
-                    })
-                  }
-                >
-                  还原跟随系统
-                </Button>
-              </div>
-            ))}
-            <div className="flex items-center gap-2 pt-1">
-              <Eye size={11} strokeWidth={1.6} className="ink-text-faint" aria-hidden />
-              <span className="text-[10px] ink-text-muted">试穿即时生效（白名单内）；留空 = 跟随系统；「应用设置」持久化</span>
-            </div>
-          </div>
-        </SettingsSection>
-
-        <SettingsSection icon={Info} title="关于" hint="版本 / engine_version_compat / 契约清单">
-          <div className="space-y-1 text-[10px] ink-text-muted">
-            <div>InKling 0.1.0 · 自进化认知伙伴</div>
-            <div>engine_version_compat：按当前 ink_engine 锁定</div>
-            <div>契约：inkling_exec（执行件）· inkling_shell（宿主件）· 渲染组件白名单 · 事件类型清单 · 工具清单</div>
-            <button
-              onClick={() => setAboutOpen((v) => !v)}
-              className="flex items-center gap-1 ink-text-faint hover:text-[var(--ink-text-base)] cursor-pointer bg-transparent border-none"
-            >
-              <ChevronDown size={10} strokeWidth={1.6} className={cn('transition-transform', aboutOpen && 'rotate-180')} aria-hidden />
-              白名单详情
-            </button>
-            {aboutOpen && (
-              <div className="rounded-md border px-2 py-1.5 font-mono text-[9px] ink-border ink-text-faint">
-                主题 token：bg.base / text.base / accent.approval
-              </div>
-            )}
-          </div>
-        </SettingsSection>
-
-        <div className="flex justify-end gap-2">
-          <Button size="sm" variant="ghost" onClick={() => setThemeDraft({})}>
-            <RotateCcw size={11} strokeWidth={1.6} /> 还原跟随系统
-          </Button>
-          <Button size="sm" variant="primary" onClick={applyAll} data-ui="btn_apply_settings">
-            <Check size={11} strokeWidth={1.8} /> 应用设置
-          </Button>
         </div>
       </div>
     </div>
-  );
-}
-
-function SettingsSection({
-  icon: Icon,
-  title,
-  hint,
-  children,
-}: {
-  icon: typeof Boxes;
-  title: string;
-  hint: string;
-  children: React.ReactNode;
-}) {
-  return (
-    <Card className="space-y-3">
-      <div className="flex items-center gap-1.5">
-        <Icon size={13} strokeWidth={1.6} className="ink-text-faint" aria-hidden />
-        <span className="text-[12px] font-semibold">{title}</span>
-        <span className="ml-auto text-[10px] ink-text-faint">{hint}</span>
-      </div>
-      {children}
-    </Card>
   );
 }

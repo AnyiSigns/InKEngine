@@ -40,7 +40,9 @@ describe('message_list：流式/思考/工具内联行', () => {
       { id: 't1', kind: 'tool' as const, tool: 'inspect_knowledge', permission: 'allow', toolStatus: 'done' as const, summary: '2 条知识' },
     ];
     render(<MessageList bindValue={messages} />);
-    expect(screen.getByText(/inspect_knowledge · allow · 2 条知识/)).toBeInTheDocument();
+    expect(screen.getByText(/inspect_knowledge · allow/)).toBeInTheDocument();
+    expect(screen.getByText('2 条知识')).toBeInTheDocument();
+    expect(screen.getByText('done')).toBeInTheDocument();
   });
 
   it('思考卡可折叠展开', async () => {
@@ -117,10 +119,11 @@ describe('simulation_tree：分支对比 + 换选', () => {
   });
 });
 
-describe('settings_form：主题 token 试穿再应用（白名单内）', () => {
+describe('settings_form：双栏导航 + 主题 token 试穿再应用（白名单内）', () => {
   it('白名单 token 可编辑，试穿即时落地 CSS 变量', async () => {
     const user = userEvent.setup();
     render(<SettingsForm />);
+    await user.click(screen.getByRole('button', { name: /外观/ }));
     const input = screen.getByLabelText('bg.base 色值');
     await user.clear(input);
     await user.type(input, '#101014');
@@ -128,7 +131,7 @@ describe('settings_form：主题 token 试穿再应用（白名单内）', () =>
     expect(document.documentElement.style.getPropertyValue('--ink-bg-base')).toBe('#101014');
   });
 
-  it('四挡位模型配置表单渲染', () => {
+  it('四挡位模型配置表单渲染（默认分区）', () => {
     render(<SettingsForm />);
     expect(screen.getByText('制片人决策')).toBeInTheDocument();
     expect(screen.getByText('主模型')).toBeInTheDocument();
@@ -138,6 +141,7 @@ describe('settings_form：主题 token 试穿再应用（白名单内）', () =>
   it('MCP 市场挂载管理（出厂零预挂 → 一键挂载）', async () => {
     const user = userEvent.setup();
     render(<SettingsForm />);
+    await user.click(screen.getByRole('button', { name: /连接/ }));
     expect(screen.getByText(/mcp_market 市场（出厂零预挂/)).toBeInTheDocument();
     const mountButtons = screen.getAllByText('挂载');
     await user.click(mountButtons[0]);

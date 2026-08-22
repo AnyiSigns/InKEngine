@@ -39,19 +39,21 @@ export function IncubatorPanel({ bindValue }: IncubatorPanelProps) {
   const entries = (bindValue as IncubationEntry[] | undefined) ?? [];
 
   return (
-    <section className="ink-panel p-3">
-      <div className="flex items-center gap-1.5">
-        <FlaskConical size={12} strokeWidth={1.6} className="ink-text-faint" aria-hidden />
-        <span className="text-[11px] font-medium">孵化面板</span>
+    <section className="ink-panel p-4">
+      <div className="flex items-center gap-2.5">
+        <span className="ink-icon-chip">
+          <FlaskConical size={12} strokeWidth={1.6} className="ink-text-faint" aria-hidden />
+        </span>
+        <span className="text-[12px] font-semibold tracking-tight">孵化面板</span>
         <span className="ml-auto text-[10px] ink-text-faint">信号 → 蒸馏 → 闸门</span>
       </div>
 
       {entries.length === 0 ? (
-        <div className="mt-2 rounded-xl border border-dashed px-3 py-4 text-center text-[11px] ink-border ink-text-faint">
+        <div className="mt-3 rounded-xl border border-dashed px-3 py-5 text-center text-[11px] leading-relaxed ink-border ink-text-faint">
           暂无孵化信号（使用中积累的行为信号会在此沉淀）
         </div>
       ) : (
-        <div className="mt-2 space-y-1.5">
+        <div className="mt-3 space-y-2">
           {entries.map((entry) => (
             <IncubatorRow key={entry.id} entry={entry} />
           ))}
@@ -72,7 +74,7 @@ function IncubatorRow({ entry }: { entry: IncubationEntry }) {
         : 'ink-text-faint';
 
   return (
-    <div className="ink-elevated px-3 py-2">
+    <div className="ink-elevated px-3.5 py-2.5">
       <div className="flex items-center gap-2">
         <span className={cn('rounded-md px-1.5 py-px text-[9px]', tone)}>
           {signalLabel} · {stage}
@@ -82,15 +84,15 @@ function IncubatorRow({ entry }: { entry: IncubationEntry }) {
           {new Date(entry.createdAt).toLocaleTimeString()}
         </span>
       </div>
-      <div className="mt-1 text-[11px] leading-relaxed">{entry.signal}</div>
+      <div className="mt-1.5 text-[11px] leading-relaxed">{entry.signal}</div>
       {entry.distilled && (
-        <div className="mt-1 flex items-start gap-1 text-[10px] ink-text-muted">
+        <div className="mt-1.5 flex items-start gap-1.5 text-[10px] leading-relaxed ink-text-muted">
           <ArrowDown size={10} strokeWidth={1.6} className="mt-0.5 shrink-0" aria-hidden />
           <span className="min-w-0">{entry.distilled}</span>
         </div>
       )}
       {entry.verdict && (
-        <div className={cn('mt-1 text-[10px]', entry.stage === 'blocked' ? 'ink-accent' : 'ink-text-muted')}>
+        <div className={cn('mt-1.5 text-[10px]', entry.stage === 'blocked' ? 'ink-accent' : 'ink-text-muted')}>
           判定：{entry.verdict}
         </div>
       )}

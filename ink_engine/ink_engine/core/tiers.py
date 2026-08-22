@@ -1,7 +1,7 @@
 """模型分层挡位原语（挡位配置模型 / 按挡位建链 / 调用统计钩子）。
 
-模型分层：router/tool/main/audit 四挡位（轻量/中等/主/审计）按场景分配——
-路由决策用轻量挡，内容生成用主挡，审计用审计挡。**组 → 挡位映射**属宿主
+模型分层：router/main 双挡位（轻量/主）按场景分配——
+路由决策用轻量挡，内容生成用主挡。**组 → 挡位映射**属宿主
 业务语义（TextForge 的 ``GROUP_MODEL_TIER``），引擎只提供机制：
 
 - :func:`tier_key`：挡位名 → 配置键前缀（未知/缺省回落 main）；
@@ -21,8 +21,8 @@ from __future__ import annotations
 from dataclasses import dataclass
 from typing import Any
 
-# 挡位枚举（与 ModelFactory 实例属性名对齐：main/router/tool/audit）
-TIER_NAMES: tuple[str, ...] = ("main", "router", "tool", "audit")
+# 挡位枚举（与 ModelFactory 实例属性名对齐：main/router）
+TIER_NAMES: tuple[str, ...] = ("main", "router")
 
 # 未知挡位的回落：任何未知/None 挡位按主挡位处理（配置兜底语义）
 _DEFAULT_TIER = "main"

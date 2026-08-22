@@ -21,12 +21,13 @@ from __future__ import annotations
 import os
 import tempfile
 from collections.abc import Callable
+from dataclasses import dataclass
 from pathlib import Path
 from typing import Any
 
 from ink_engine.core.approval import DefaultInterruptPolicy, InterruptPolicy
 from ink_engine.core.declarative_tools import EndpointType
-from ink_engine.core.events import CollectorTransport, EngineTransport
+from ink_engine.core.events import CollectorTransport, EngineEvent, EngineTransport
 from ink_engine.core.llm import AsyncLLM, create_llm
 from ink_engine.core.runtime import Host, Runtime
 from ink_engine.core.self_application import APPROVAL_TIMEOUT_SECONDS
@@ -47,6 +48,8 @@ from .recipe_loader import (
     declarative_specs_from_tools,
     load_seed_data,
 )
+from .review_pipeline import build_review_pipeline
+from .round_steps_feed import RoundStepsTransport
 from .security_domain import (
     SecurityDomain,
     WorkspaceAuthorizer,
@@ -59,6 +62,18 @@ from .security_domain import (
 # 环境/产物等运行数据目录缺省形态：进程级临时目录（可销毁重建的会话态
 # 数据；正式宿主经 data_dir 注入持久目录）
 _DEFAULT_DATA_DIR_PREFIX = "inkling-runtime-"
+
+
+@dataclass(slots=True)
+class _RecordedTransport:
+    """回合步骤记录包裹：事件先喂 RoundSteps 累积，再转发下游传输。"""
+
+    recorder: RoundStepsTransport
+    inner: EngineTransport
+
+    async def send(self, event: EngineEvent) -> None:
+        self.recorder.feed(event)
+        await self.inner.send(event)
 
 
 class InKlingHost(Host):
@@ -79,12 +94,17 @@ class InKlingHost(Host):
         self._auto_approve_keys = auto_approve_keys
         self._timeout = timeout
         self._storage: Storage | None = None
+        # 回合步骤记录器（core.round_steps 原语：事件流 → 步骤序列）
+        self.round_recorder = RoundStepsTransport()
         # 装配域（boot 后齐备；设置页/评测侧消费的运行期入口）
         self.security: SecurityDomain | None = None
         self.workspaces: WorkspaceAuthorizer | None = None
         self.environments: EnvironmentDomain | None = None
         self.builds: BuildDomain | None = None
         self.incubation: IncubationDomain | None = None
+        self.review_pipeline: Callable | None = None
+        self.tier_chains: dict[str, Any] = {}
+        self.tier_stats: Any | None = None
         self.boot_prompt: dict[str, Any] | None = None
 
     async def create_storage(self) -> Storage:
@@ -113,8 +133,20 @@ class InKlingHost(Host):
         )
 
     def build_transport(self) -> EngineTransport:
-        """事件传输工厂（回合事件收集；web/stdio 宿主按形态换实现）。"""
-        return self._transport
+        """事件传输工厂（回合事件收集；web/stdio 宿主按形态换实现）。
+
+        返回传输经回合步骤记录器包裹：事件流同时喂入 RoundSteps
+        （步骤序列累积/checkpoint 恢复形态），记录失败零噪声。
+        """
+        return _RecordedTransport(self.round_recorder, self._transport)
+
+    def begin_round(self, round_id: str) -> None:
+        """回合边界（host 驱动：round_id 下文事件进入新累积器）。"""
+        self.round_recorder.begin_round(round_id)
+
+    def round_snapshot(self) -> list[dict]:
+        """当前回合步骤序列快照（checkpoint/回放形态；host 消费）。"""
+        return self.round_recorder.snapshot()
 
     async def close(self) -> None:
         """关停钩子（宿主资源回收；Runtime.stop 在存储关闭后调用）。"""
@@ -280,15 +312,36 @@ async def boot_inkling(
     )
     # 活跃态目标补全（UI/THEME/HARNESS/RULE/KNOWLEDGE——落链即生效）
     register_live_targets(runtime)
+    # 模型层挡位装配（tiers.json 双挡位链 + 回合级调用统计钩子）：
+    # 环境配置投影为主挡配置（router 缺省经 resolve_tier_chain 回落 main）
+    from .model_layers import build_tier_chains, make_tier_stats, resolve_tier_chain
+
+    _env_config = _model_config_from_env()
+    host.tier_chains = build_tier_chains(
+        bundle.data["tiers.json"],
+        {"main_config": dict(_env_config)} if _env_config else {},
+    )
+    host.tier_stats = make_tier_stats()
     # 孵化域（信号 → 蒸馏 → 闸门 → 落库 → 自指挂载的产品化入口）
     host.incubation = IncubationDomain(
         runtime,
         signals_data=bundle.data["signals.json"],
         samples_data=bundle.data["samples.json"],
         review_data=bundle.data["review.json"],
+        on_llm_call=host.tier_stats.record,
     )
+    # 蒸馏链接线：router 挡（缺失回落 main；全缺 = 确定性蒸馏基线，不静默降级）
+    host.incubation.distiller.chain = resolve_tier_chain(host.tier_chains, "router")
     # 自举提示词（boot_prompt 定稿形态，注入侧产品数据入口）
     host.boot_prompt = bundle.data["boot_prompt.json"]
+    # 评审-收敛管线（引擎 core.review 机制：review.json 数据驱动；
+    # 模型缺省 = 无评审 fail-open，不阻断主流程）；LLM 调用归因主挡位
+    host.review_pipeline = build_review_pipeline(
+        await host.resolve_llm(),
+        bundle.data["review.json"],
+        tier="main",
+        on_llm_call=host.tier_stats.record,
+    )
     revert_state["base_tools"] = bundle.data["tools.json"].get("tools") or ()
     revert_state["base_event_names"] = tuple(
         spec["name"] for spec in bundle.data["event_types.json"].get("events") or ()

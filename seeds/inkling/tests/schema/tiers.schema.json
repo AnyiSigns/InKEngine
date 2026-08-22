@@ -1,21 +1,19 @@
 {
   "$schema": "http://json-schema.org/draft-07/schema#",
-  "title": "模型四挡位配置（router/tool/main/audit + 缺省回退）",
+  "title": "模型双挡位配置（main/router + 缺省回退）",
   "type": "object",
   "required": ["tiers", "default_tier", "model_config", "fallback"],
   "additionalProperties": false,
   "properties": {
-    "tiers": { "type": "array", "minItems": 4, "items": { "type": "string" }, "uniqueItems": true },
+    "tiers": { "type": "array", "minItems": 2, "items": { "type": "string" }, "uniqueItems": true },
     "default_tier": { "type": "string", "minLength": 1 },
     "model_config": {
       "type": "object",
-      "required": ["router_config", "tool_config", "main_config", "audit_config"],
+      "required": ["main_config", "router_config"],
       "additionalProperties": false,
       "properties": {
-        "router_config": { "$ref": "#/definitions/tier_config" },
-        "tool_config": { "$ref": "#/definitions/tier_config" },
         "main_config": { "$ref": "#/definitions/tier_config" },
-        "audit_config": { "$ref": "#/definitions/tier_config" }
+        "router_config": { "$ref": "#/definitions/tier_config" }
       }
     },
     "fallback": {

@@ -87,7 +87,7 @@ KNOWLEDGE_KINDS = ("rule", "template", "weight", "tool_rule")
 PATCH_KINDS = ("ui", "theme", "tool", "rule", "knowledge", "harness", "event_type", "environment", "artifact")
 ENDPOINT_TYPES = ("http_fetch", "process_exec", "file_ops", "mcp")
 APPROVAL_TIERS = ("allow", "review", "deny")
-TIER_NAMES = ("router", "tool", "main", "audit")
+TIER_NAMES = ("main", "router")
 ENV_RUNTIMES = ("local", "web_bridge", "container")
 MCP_TRANSPORTS = ("http", "stdio", "in_memory")
 RISK_LEVELS = ("low", "medium", "high")
@@ -752,13 +752,13 @@ def check_signals(data: dict[str, Any], _payload: dict[str, Any], issues: list[s
 
 
 def check_tiers(data: dict[str, Any], _payload: dict[str, Any], issues: list[str]) -> None:
-    """四挡位：挡位清单/缺省回退与引擎 tiers 语义一致。"""
+    """双挡位：挡位清单/缺省回退与引擎 tiers 语义一致。"""
     if tuple(data["tiers"]) != TIER_NAMES:
         issues.append(f"挡位清单应恰好为 {TIER_NAMES}，实际 {data['tiers']}")
     if data["default_tier"] != "main":
         issues.append("缺省挡位应为 main（引擎 tier_key 未知回落语义）")
-    if set(data["model_config"]) != {"router_config", "tool_config", "main_config", "audit_config"}:
-        issues.append("model_config 应恰好包含四挡位配置键")
+    if set(data["model_config"]) != {"main_config", "router_config"}:
+        issues.append("model_config 应恰好包含双挡位配置键（main/router）")
     if data["fallback"]["unknown_tier_falls_to"] != "main":
         issues.append("未知挡位应回落 main")
     if data["fallback"]["missing_tier_config_falls_to"] != "main_config":

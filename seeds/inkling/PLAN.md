@@ -1,4 +1,4 @@
-# InKling 产品种子实施计划（开山之作）
+﻿# InKling 产品种子实施计划（开山之作）
 
 > ink_engine 的第二个产品种子，第一个纯 TypeScript/Rust 产品种子。
 > 引擎零机制改动。本文档是 seeds/inkling/ 的第一个工件。
@@ -54,7 +54,7 @@ seeds/inkling/
     knowledge.json            # 冷启动知识条目
     workflow.json             # WorkflowSpec 研究流程约束域（__plan__ 落点）
     signals.json              # 五类信号→蒸馏器映射（孵化入口）
-    tiers.json                # 模型四挡位（router/tool/main/audit）配置
+    tiers.json                # 模型双挡位（main/router）配置
     review.json               # 评审/收敛配置（维度/阈值/轮次上限）
     memory.json               # 记忆策略声明（召回策略/失效窗口）
     env.json                  # 环境声明（local/web_bridge/container——容器形态出厂落地）
@@ -120,7 +120,7 @@ root（theme: ink 墨色系）
 │   ├─ 推演：simulate_decision 分支对比 + Evaluator 评分 + swap_branch 换选
 │   └─ 来源：检索/记忆/证据留痕明细（依据链溯源，可跳到知识条目）
 └─ 设置页（改一次很久不变的系统配置）
-    ├─ 模型：四挡位（router/tool/main/audit）配置 + fallback
+    ├─ 模型：双挡位（main/router）配置 + fallback
     ├─ 权限与审批：kind → L0/L1/L2 审批表、默认权限档（allow/review/deny）、超时策略
     ├─ 连接：MCP 挂载管理（mcp_market.json 市场 + 手动添加 + 对话式安装记录）+ 环境管理（local/web_bridge/container 声明、运行与销毁）+ 工作区授权（桌面目录挂载点，file_ops 权限分级）
     ├─ 数据与记忆：记忆失效窗口、知识集导出/导入、存储后端与清理
@@ -173,7 +173,7 @@ root（theme: ink 墨色系）
 - [ ] `seed_data/rules.json` / `samples.json` / `templates.json` / `knowledge.json`：冷启动基线（基础校验规则 + 样例 + 模板 + 知识条目）
 - [ ] `seed_data/workflow.json`：研究流程 WorkflowSpec（约束域声明）
 - [ ] `seed_data/signals.json`：五类信号（pitfall/user_correction/insight/gap/repeated_root_cause）→ 蒸馏器映射
-- [ ] `seed_data/tiers.json`：模型四挡位配置（router/tool/main/audit + 缺省回退）
+- [ ] `seed_data/tiers.json`：模型双挡位配置（main/router + 缺省回退）
 - [ ] `seed_data/review.json`：评审/收敛配置（维度/阈值/轮次上限/web 验证钩子开关）
 - [ ] `seed_data/memory.json`：记忆策略声明（PriorityRecallPolicy + 失效窗口）
 - [ ] `seed_data/env.json`：环境声明（local/web_bridge/container——镜像描述 = 数据，含补丁链版本化形态）
@@ -208,7 +208,7 @@ root（theme: ink 墨色系）
 - [ ] MCP 挂载双入口：①设置页「连接」一键挂载（`mcp_market.json` 目录数据源）②对话式安装——声明式工具 `propose_mcp_mount`（"帮我装个插件 <地址>" → 地址解析 → McpServerConfig 数据推导（市场内落市场配置；Git/npm 推导 stdio 命令如 `npx -y <pkg>`，仅作提案不直接执行）→ vetting 静态钩子核对（清单一致性/命令白名单守卫）→ 审批卡预览（可 edit 改传输/命令，重走校验链）→ L2 批准 → 补丁链挂载可回退）；三传输闭环（http/stdio/in_memory——in_memory 嵌入式 server 工厂供宿主/开发者注入）；出厂零预挂；e2e 各一条 挂载/拒绝/回退/对话安装 用例
 - [ ] 执行域装配：`RunOptions` 注入 plan_policy（loose/strict 两档各一用例）/max_plan_steps/plan_workflow（WorkflowSpec 约束域，越域失败断言）+ max_spawns/spawn_concurrency + evaluator（WeightedScorerEvaluator + review.json 打分配置）/branch_mixer/max_simulations/simulate_concurrency + checkpoint_keep 链压缩窗口 + budget（回合预算钩子：超限自动终止断言）+ max_node_retries/error_on_exception（异常策略：重试/跳过/终止三态断言）+ state schema（StateSchema reducer 注册表）
 - [ ] 调配域装配：AssemblyConfig 五源统一预算（上下文/知识/工具/记忆/证据）+ 记忆源（MemoryStore + PriorityRecallPolicy + 失效窗口）+ 检索源（Retriever 注册表注入 retrieval_sources，可挂 embedding 向量化，可选 [llm]）+ 上下文融合钩子（失败自动回退断言）+ 域窗口投影/归档摘要
-- [ ] 模型层装配：tiers 四挡位按挡位建链（router/tool/main/audit）+ fallback 链
+- [ ] 模型层装配：tiers 双挡位按挡位建链（main/router）+ fallback 链
 - [ ] 工具安全纵深：权限分级判定（allow/review/deny + 网络策略）+ 文件/进程沙箱（写前快照/超时 kill）+ vetting（静态钩子 + L2 影子运行观察）+ 工具调配器按子任务动态组装（去重/轨迹留痕）+ `shell/` 执行器注册进工具表（走统一流水线 + 审批分级，首次越界强制 L2）+ 审批策略全姿势（单动作/合并卡/策略直过/超时 fail-closed）+ 决议经 interrupt 锚点重入（resume_run 样板）
 - [ ] 环境装配：env.json → EnvironmentSpec → 提供器注册（local/web_bridge + `container_provider` **出厂落地**：ensure 幂等/run/destroy 幂等、镜像描述 = 数据走补丁链版本化与回退、安装经沙箱白名单 + 审计链、可销毁重建）+ PatchKind.ENVIRONMENT 补丁演化 + container e2e（声明 → 构建镜像 → 运行 → 销毁；无 Docker 机器显式标记跳过，实现仍出厂）
 - [ ] 知识域深度：知识分层晋升（work→project→user 毕业机制，id 跨层稳定）+ 导出/导入可移植（跨部署迁移，与种子文件无关）+ 补丁链分支/rebase/截断用例 + 图指纹随 checkpoint 版本化断言（HARNESS 改图指纹变化/回退还原）

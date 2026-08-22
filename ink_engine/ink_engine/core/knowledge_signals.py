@@ -384,7 +384,7 @@ def resolve_distill_chain(
 ):
     """按挡位构建蒸馏模型链（router 建链，配置缺失回落 main_config）。
 
-    复用四挡位机制（router 建链语义）：蒸馏走 router 挡位的轻量模型
+    复用双挡位机制（router 建链语义）：蒸馏走 router 挡位的轻量模型
     （省成本），该挡位未配置时经
     :func:`~ink_engine.core.tiers.resolve_tier_config` 回落主挡位——
     与引擎其余挡位消费方同一条回落路径，无独立配置形态。
@@ -406,7 +406,7 @@ def resolve_distill_chain(
 class TieredDistiller:
     """挡位蒸馏器：distill_enabled 开关 + router 挡位建链 + 确定性回落。
 
-    组装语义（计划「复用四挡位（router 建链，router_config 缺失回落
+    组装语义（计划「复用双挡位（router 建链，router_config 缺失回落
     main_config，distill_enabled 为引擎配置开关）」落地）：
     - 开关关闭（enabled=False）→ 蒸馏整体停用（触发判定恒 False、
       蒸馏恒无产物）——一键回退「无蒸馏」基线；

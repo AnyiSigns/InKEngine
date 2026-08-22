@@ -50,6 +50,7 @@ from ink_engine.core.permissions import (
     NetworkPolicySandbox,
     PermissionGate,
 )
+from ink_engine.core.review_card import GatingTier, gating_tier_of, validate_card
 from ink_engine.core.sandbox import FileSandbox
 from ink_engine.core.self_proposal import PatchKind
 from ink_engine.core.tool_pipeline import ToolPipeline
@@ -110,6 +111,11 @@ class TieredGate:
     窗口）→ 命中且 review 档 = 弹卡审批 / allow 档 = 直过 / 未命中 =
     默认拒绝（fail-closed）。未在档位表的工具（挂载/补丁新增）= 按
     声明权限直过（与 M3-1 行为一致，档位表是出厂契约）。
+
+    门控分级（引擎 review_card.GatingTier）共享机制接线：档位表
+    allow/review → ``_gating_registry``（allow=l1 直落库 / review=l2
+    弹卡），宿主设置经 ``gating_overrides`` 逐工具覆盖（白名单校验），
+    未登记工具保持出厂直过语义。
     """
 
     def __init__(
@@ -118,13 +124,32 @@ class TieredGate:
         *,
         executors: DeclarativeToolExecutors | None = None,
         default_policy: str = DENY,
+        gating_overrides: Mapping[str, str] | None = None,
     ) -> None:
         self._tiers = dict(tiers)
         self._executors = executors
+        self._gating_overrides = dict(gating_overrides or {})
+        # allow 档 = l1（直落库，事后留痕）/ review 档 = l2（弹卡审批）
+        self._gating_registry: dict[str, str] = {
+            tool: (GatingTier.L2.value if tier == REVIEW else GatingTier.L1.value)
+            for tool, tier in self._tiers.items()
+            if tier in ("allow", "review") and tier != DENY
+        }
         self._inner = PermissionGate(
             default_policy=default_policy,
-            review_tier=lambda tool: self._tiers.get(tool) == REVIEW,
+            review_tier=lambda tool: self._review_needed(tool),
         )
+
+    def _review_needed(self, tool: str) -> bool:
+        """弹卡判定（引擎门控分级为判据；未登记工具保持出厂直过语义）。"""
+        if tool not in self._tiers and tool not in self._gating_overrides:
+            return False  # 出厂契约：挂载/补丁新增工具按声明权限直过
+        tier = gating_tier_of(
+            tool,
+            overrides=self._gating_overrides,
+            registry=self._gating_registry,
+        )
+        return tier is GatingTier.L2
 
     def check(
         self,
@@ -353,12 +378,14 @@ class WorkspaceAuthorizer:
             ctx,
             "workspace:authorize",
             {"tool": "workspace_authorize", "root": str(root), "reason": reason},
-            payload={
-                "review_type": "gate",
-                "node_id": "workspace_authorize",
-                "node_label": "工作区授权确认",
-                "output_preview": f"授权工作区 {root}（文件工具将可读/写/编辑该目录）",
-            },
+            payload=validate_card(
+                {
+                    "review_type": "gate",
+                    "node_id": "workspace_authorize",
+                    "node_label": "工作区授权确认",
+                    "output_preview": f"授权工作区 {root}（文件工具将可读/写/编辑该目录）",
+                }
+            ),
         )
         if approval.decision in (DECISION_REJECT, DECISION_TERMINATE):
             return {
@@ -387,12 +414,14 @@ class WorkspaceAuthorizer:
             ctx,
             "workspace:revoke",
             {"tool": "workspace_revoke", "reason": reason},
-            payload={
-                "review_type": "gate",
-                "node_id": "workspace_revoke",
-                "node_label": "工作区撤销确认",
-                "output_preview": f"撤销工作区授权（{reason or '未说明原因'}）",
-            },
+            payload=validate_card(
+                {
+                    "review_type": "gate",
+                    "node_id": "workspace_revoke",
+                    "node_label": "工作区撤销确认",
+                    "output_preview": f"撤销工作区授权（{reason or '未说明原因'}）",
+                }
+            ),
         )
         if approval.decision in (DECISION_REJECT, DECISION_TERMINATE):
             return {

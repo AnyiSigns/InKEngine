@@ -83,7 +83,7 @@
 
 | 检查 | 落点（用例/校验） | 状态 |
 |---|---|---|
-| 四挡位建链（router/tool/main/audit） | test_model_layers.py（按挡位建链用例） | 绿 |
+| 双挡位建链（main/router） | test_model_layers.py（按挡位建链用例） | 绿 |
 | 缺省回退链（挡位配置缺失回落主挡位） | test_model_layers.py（回退链用例）+ test_knowledge_depth.py test_review_threshold_and_tier_semantics_linked | 绿 |
 
 ## 七、工具安全纵深

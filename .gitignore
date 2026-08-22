@@ -42,6 +42,9 @@ src-tauri/gen/
 static/
 .playwright-mcp/
 
+# 内嵌模型资产（随安装包分发，不进 git——体积约 100MB+，构建时从 HF 获取）
+seeds/inkling/models/
+
 # live 评测运行产物（报告/冒烟笔记；证据入 gaps.md/coverage.md，不入库）
 ink_engine/tests/live/report/
 ink_engine/examples/e2e/report/

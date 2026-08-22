@@ -31,12 +31,10 @@ interface SettingsFormProps {
   onApplySettings?: (settings: Record<string, unknown>) => void;
 }
 
-const TIER_KEYS: GearTier[] = ['router', 'tool', 'main', 'audit'];
+const TIER_KEYS: GearTier[] = ['router', 'main'];
 const TIER_LABELS: Record<GearTier, string> = {
   router: '制片人决策',
-  tool: '工具挡',
   main: '主模型',
-  audit: '质量校验',
 };
 
 const APPROVAL_LEVELS = ['L0', 'L1', 'L2'] as const;
@@ -69,7 +67,7 @@ const ENTRY_ITEMS: Array<{ view: ViewId; label: string; icon: typeof FlaskConica
 type SectionId = 'model' | 'approval' | 'connect' | 'environment' | 'data' | 'appearance' | 'about';
 
 const SECTION_NAV: Array<{ id: SectionId; label: string; icon: typeof Cpu; desc: string }> = [
-  { id: 'model', label: '模型', icon: Cpu, desc: '四挡位配置 · fallback' },
+  { id: 'model', label: '模型', icon: Cpu, desc: '双挡位配置 · fallback' },
   { id: 'approval', label: '权限与审批', icon: KeyRound, desc: '审批表 · 默认档 · 超时' },
   { id: 'connect', label: '连接', icon: PlugZap, desc: 'MCP 市场 · 手动挂载' },
   { id: 'environment', label: '环境与工作区', icon: AppWindow, desc: '环境声明 · 工作区授权' },
@@ -83,9 +81,7 @@ export function SettingsForm({ bindValue, onNavigate, onApplySettings }: Setting
   const [active, setActive] = useState<SectionId>('model');
   const [gear, setGear] = useState<Record<GearTier, { modelId: string; fallback: boolean }>>({
     router: { modelId: '', fallback: true },
-    tool: { modelId: '', fallback: true },
     main: { modelId: 'deepseek-chat', fallback: false },
-    audit: { modelId: '', fallback: true },
   });
   const [defaultPermission, setDefaultPermission] = useState<(typeof DEFAULT_PERMISSIONS)[number]>('review');
   const [approvals, setApprovals] = useState<Record<string, (typeof APPROVAL_LEVELS)[number]>>({
@@ -250,7 +246,7 @@ export function SettingsForm({ bindValue, onNavigate, onApplySettings }: Setting
                   </label>
                 </div>
               ))}
-              <p className="pt-1 text-[10px] leading-relaxed ink-text-faint">四挡位分工：制片人决策 / 工具挡 / 主模型 / 质量校验；某挡位留空时回落主模型。</p>
+              <p className="pt-1 text-[10px] leading-relaxed ink-text-faint">双挡位分工：制片人决策 / 主模型；某挡位留空时回落主模型。</p>
             </div>
           )}
 

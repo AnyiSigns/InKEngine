@@ -127,7 +127,7 @@ export interface RoundStep {
 }
 
 /** 模型挡位（router/tool/main/audit）与模式档提示（agent_input 底部小字）。 */
-export type GearTier = 'router' | 'tool' | 'main' | 'audit';
+export type GearTier = 'main' | 'router';
 export type ModeTier = 'default' | 'observe' | 'review' | 'sandbox';
 
 /** 推演轨迹（simulate_decision 分支对比 + swap_branch 换选）。 */

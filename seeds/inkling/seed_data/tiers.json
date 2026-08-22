@@ -1,21 +1,13 @@
 {
-  "tiers": ["router", "tool", "main", "audit"],
+  "tiers": ["main", "router"],
   "default_tier": "main",
   "model_config": {
-    "router_config": {
-      "purpose": "路由/蒸馏等轻量决策（省成本）；配置缺失回落 main_config",
-      "requires_user_config": true
-    },
-    "tool_config": {
-      "purpose": "工具参数生成（中等挡位）",
-      "requires_user_config": true
-    },
     "main_config": {
       "purpose": "内容生成主挡位（默认回落目标）",
       "requires_user_config": true
     },
-    "audit_config": {
-      "purpose": "评审/审计挡位（质量把关）",
+    "router_config": {
+      "purpose": "路由/蒸馏等轻量决策（省成本）；配置缺失回落 main_config",
       "requires_user_config": true
     }
   },

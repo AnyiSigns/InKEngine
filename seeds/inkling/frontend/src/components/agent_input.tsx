@@ -1,7 +1,7 @@
 /**
  * 输入框（对话主区底部）：发送/停止 + 底部一行小字挡位/模式档提示。
  *
- * 挡位 = 模型四挡位（router/tool/main/audit），模式档 = 会话模式
+ * 挡位 = 模型双挡位（main/router），模式档 = 会话模式
  * （default/observe/review/sandbox）；提示行数据来自 state.session 通道
  * （activeGear/modeTier），发送动作经 props 注入（宿主接线，组件无传输耦合）。
  *
@@ -23,9 +23,7 @@ export interface AgentInputBindValue {
 
 const GEAR_LABELS: Record<GearTier, string> = {
   router: '制片人决策',
-  tool: '工具挡',
   main: '主模型',
-  audit: '质量校验',
 };
 
 const MODE_LABELS: Record<ModeTier, string> = {

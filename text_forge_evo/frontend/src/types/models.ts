@@ -11,7 +11,6 @@ export interface ModelTierConfig {
 export interface ModelsState {
   main: ModelTierConfig;
   router: ModelTierConfig | null;
-  audit: ModelTierConfig | null;
 }
 
 export const ADAPTERS = [

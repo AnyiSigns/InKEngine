@@ -51,3 +51,13 @@ async def set_api_key(tier: str, api_key: str) -> None:
         await conn.commit()
     finally:
         await conn.close()
+
+
+async def delete_api_key(tier: str) -> None:
+    """删除某挡位的密钥行（挡位裁剪迁移/清理孤儿行用；幂等）。"""
+    conn = await _connect()
+    try:
+        await conn.execute("DELETE FROM model_secrets WHERE tier = ?", (tier,))
+        await conn.commit()
+    finally:
+        await conn.close()

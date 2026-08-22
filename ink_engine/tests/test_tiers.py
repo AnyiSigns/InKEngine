@@ -21,7 +21,7 @@ def _model_config(**kw) -> dict:
 
 class TestTierKey:
     def test_known_tiers_passthrough(self):
-        for tier in ("main", "router", "tool", "audit"):
+        for tier in ("main", "router"):
             assert tier_key(tier) == tier
 
     def test_unknown_and_none_fall_back_to_main(self):
@@ -29,7 +29,7 @@ class TestTierKey:
         assert tier_key(None) == "main"
 
     def test_tier_names(self):
-        assert TIER_NAMES == ("main", "router", "tool", "audit")
+        assert TIER_NAMES == ("main", "router")
 
 
 class TestResolveTierConfig:
@@ -39,7 +39,7 @@ class TestResolveTierConfig:
         assert tc.config == _model_config()["router_config"]
 
     def test_falls_back_to_main_when_tier_missing(self):
-        tc = resolve_tier_config(_model_config(), "tool")
+        tc = resolve_tier_config(_model_config(), "router_typo")
         assert tc.config == _model_config()["main_config"]
 
     def test_unknown_tier_resolves_to_main(self):
@@ -47,21 +47,21 @@ class TestResolveTierConfig:
         assert tc.tier == "main"
 
     def test_top_level_fallbacks(self):
-        cfg = _model_config(tool_fallback_configs=[{"model_id": "fb1"}])
-        tc = resolve_tier_config(cfg, "tool")
+        cfg = _model_config(router_fallback_configs=[{"model_id": "fb1"}])
+        tc = resolve_tier_config(cfg, "router")
         assert tc.fallbacks == ({"model_id": "fb1"},)
 
     def test_legacy_nested_fallbacks(self):
         cfg = _model_config(
-            tool_config={
+            router_config={
                 "adapter": "openai_compat",
-                "model_id": "tool",
+                "model_id": "router",
                 "base_url": "http://t",
                 "fallback_configs": [{"model_id": "fb1"}],
             }
         )
-        tc = resolve_tier_config(cfg, "tool")
-        assert tc.config["model_id"] == "tool"
+        tc = resolve_tier_config(cfg, "router")
+        assert tc.config["model_id"] == "router"
         assert tc.fallbacks == ({"model_id": "fb1"},)
 
     def test_no_config_returns_none(self):
@@ -86,8 +86,8 @@ class TestTierCallStats:
         stats = TierCallStats()
         stats.record("router")
         stats.record("main", 3)
-        stats.record("tool")
-        assert stats.snapshot() == {"router": 1, "main": 3, "tool": 1}
+        stats.record("router")
+        assert stats.snapshot() == {"router": 2, "main": 3}
 
     def test_unknown_tier_normalized(self):
         stats = TierCallStats()

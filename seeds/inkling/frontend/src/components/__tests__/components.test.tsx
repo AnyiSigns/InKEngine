@@ -131,11 +131,10 @@ describe('settings_form：双栏导航 + 主题 token 试穿再应用（白名�
     expect(document.documentElement.style.getPropertyValue('--ink-bg-base')).toBe('#101014');
   });
 
-  it('四挡位模型配置表单渲染（默认分区）', () => {
+  it('双挡位模型配置表单渲染（默认分区）', () => {
     render(<SettingsForm />);
     expect(screen.getByText('制片人决策')).toBeInTheDocument();
     expect(screen.getByText('主模型')).toBeInTheDocument();
-    expect(screen.getByText('质量校验')).toBeInTheDocument();
   });
 
   it('MCP 市场挂载管理（出厂零预挂 → 一键挂载）', async () => {

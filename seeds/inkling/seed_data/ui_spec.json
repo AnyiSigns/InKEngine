@@ -259,7 +259,7 @@
             "type": "settings_form",
             "props": {
               "form": "model",
-              "note": "模型：四挡位（router/tool/main/audit）配置 + fallback"
+              "note": "模型：双挡位（main/router）配置 + fallback"
             }
           },
           {

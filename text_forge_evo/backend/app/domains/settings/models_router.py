@@ -1,6 +1,6 @@
-"""模型三挡配置域：配置存引擎存储 records（key 独立存 secrets.db）。
+"""模型双挡配置域：配置存引擎存储 records（key 独立存 secrets.db）。
 
-挡位：main / router / audit（去 tool 挡）。router/audit 为 null = 回落 main。
+挡位：main / router（audit 已随引擎合并为双挡）。router 为 null = 回落 main。
 引擎存储对全部通道剥离敏感键（api_key 落库即置空），故 api_key 单独存
 secrets.db（集外），读取时合并。
 """
@@ -21,11 +21,10 @@ router = APIRouter(prefix="/settings/models", tags=["models"])
 MODELS_COLLECTION = "settings"
 MODELS_KEY = "models"
 
-TIERS = ("main", "router", "audit")
+TIERS = ("main", "router")
 TIER_LABELS = {
     "main": "主模型（域专才/生成/模拟）",
     "router": "制片人决策（留空回落 main）",
-    "audit": "质量校验（留空回落 main）",
 }
 
 DEFAULT_TIER: dict[str, Any] = {
@@ -46,12 +45,19 @@ async def _read_models() -> dict[str, Any]:
         models: dict[str, Any] = {
             "main": dict(DEFAULT_TIER),
             "router": None,
-            "audit": None,
         }
     else:
         models = dict(record)
         for tier in TIERS:
             models.setdefault(tier, dict(DEFAULT_TIER) if tier == "main" else None)
+    # 挡位裁剪迁移：剥离契约外遗留键（如旧三挡的 audit），并清理
+    # secrets.db 的孤儿密钥行——不返回契约外配置，不留无人引用的凭据
+    legacy = [key for key in models if key not in TIERS]
+    if legacy:
+        for key in legacy:
+            await secrets_store.delete_api_key(key)
+            del models[key]
+        await storage.put_record(MODELS_COLLECTION, MODELS_KEY, models)
     for tier in TIERS:
         cfg = models.get(tier)
         if cfg:
@@ -76,7 +82,7 @@ async def _write_models(models: dict[str, Any]) -> None:
 
 
 def _resolve_config(models: dict[str, Any], tier: str) -> dict[str, Any]:
-    """挡位配置解析：router/audit 为 None 时回落 main。"""
+    """挡位配置解析：router 为 None 时回落 main。"""
     if tier not in TIERS:
         raise HTTPException(status_code=400, detail=f"未知挡位: {tier}")
     cfg = models.get(tier) or models.get("main")

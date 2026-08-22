@@ -1,4 +1,4 @@
-"""知识域深度 e2e：分层晋升 + 闸门生命周期 + 导出/导入 + rebase/截断 + 图指纹。
+﻿"""知识域深度 e2e：分层晋升 + 闸门生命周期 + 导出/导入 + rebase/截断 + 图指纹。
 
 引擎机制（core.knowledge_set / knowledge_signals / knowledge_gate /
 chain_rebase / patch_chain）的种子侧深度用例：
@@ -264,7 +264,7 @@ def test_review_threshold_and_tier_semantics_linked():
         {"main_config": {"purpose": "主挡位"}}, "router"
     )
     assert fallback_cfg.config == {"purpose": "主挡位"}
-    assert set(tiers["tiers"]) == {"router", "tool", "main", "audit"}
+    assert set(tiers["tiers"]) == {"main", "router"}
 
 
 # ── 导出/导入（可移植：跨部署迁移，与种子文件无关）──
@@ -510,3 +510,84 @@ async def test_round_graph_digest_stable_across_boot(booted):
     assert snapshot["digest"] is not None
     again = runtime.introspection_service.snapshot_graph()
     assert again["digest"] == snapshot["digest"]
+
+
+# ── 进化工厂（引擎 core.evolution 的产品化接线）──
+
+
+def _evo_rule_entry(entry_id: str = "k.evomother") -> KnowledgeEntry:
+    """进化母体（规则类，data 形态与领域样例对齐——L2 样例全绿形态）。"""
+    return KnowledgeEntry(
+        id=entry_id,
+        level=LEVEL_WORK,
+        kind=KIND_RULE,
+        data={
+            "rule": {
+                "id": f"rule.{entry_id}",
+                "predicate": "present",
+                "config": {"path": "title", "message": "材料须含标题字段"},
+                "type": "constraint",
+                "target_path": "material",
+                "severity": "error",
+            }
+        },
+        source="model",
+        title="进化母体",
+        tags=("evolution",),
+    )
+
+
+async def test_evolution_incubate_variant_lands_on_chain():
+    """进化闭环：失败留痕 → 候选入队 → 反思式变异 → 三层闸门 → 补丁落链。
+
+    确定性变异基线（零 LLM）：失败日志驱动的定向修订变体（同构 data +
+    _mutation 留痕）；变异体过闸门经 KNOWLEDGE 补丁落链（审计/可回退）。
+    """
+    runtime, host, _mount = await boot_inkling(SEED_ROOT, llm=StubLLM())
+    try:
+        ctx = ScriptedApprovalCtx()
+        incubation = host.incubation
+        mother = runtime.knowledge_set.add(_evo_rule_entry())
+        # 失败留痕（反思式变异的输入）：一次失败 → usage=1/fail=1
+        incubation.record_usage(mother.id, failed=True, log="近期失败: 语义偏差")
+        candidates = incubation.evolution_candidates()
+        assert [c.entry.id for c in candidates] == [mother.id]
+        assert candidates[0].failure_rate == 1.0
+
+        # 进化批次（限定 1 条）：变异体过三层闸门 → KNOWLEDGE 补丁落链
+        outcomes = await incubation.evolve(ctx, limit=1, round_id="evo-round")
+        assert len(outcomes) == 1
+        outcome = outcomes[0]
+        assert outcome.kept >= 1, f"变体应过闸门: {outcome.rejected}"
+        variant = outcome.variants[0]
+        assert variant.id == f"{mother.id}:v1"
+        assert variant.data.get("_mutation", {}).get("variant_of") == mother.id
+        # 变体经补丁链落库（审计留痕）
+        assert runtime.knowledge_set.get(variant.id) is not None
+        audit = await runtime.self_pipeline.audit_log()
+        assert any(
+            record["status"] == "applied" and "knowledge" in record.get("kind", "")
+            for record in audit
+        )
+    finally:
+        await runtime.stop()
+        await host.close()
+
+
+async def test_evolution_skips_never_used_and_stable_entries():
+    """进化候选过滤：从未调用（无从评估失败率）与稳定活跃者不入队。"""
+    runtime, host, _mount = await boot_inkling(SEED_ROOT, llm=StubLLM())
+    try:
+        incubation = host.incubation
+        never = runtime.knowledge_set.add(_evo_rule_entry("k.evo.never"))
+        stable = runtime.knowledge_set.add(_evo_rule_entry("k.evo.stable"))
+        for _ in range(3):
+            incubation.record_usage(stable.id, failed=False)  # 稳定活跃（usage > idle 阈值）
+        candidates = {c.entry.id: c for c in incubation.evolution_candidates()}
+        assert "k.evo.never" not in candidates
+        # 稳定活跃者殿后（不优先入队，防知识膨胀）
+        assert "k.evo.stable" in candidates
+        assert candidates["k.evo.stable"].priority == 0.0
+    finally:
+        await runtime.stop()
+        await host.close()

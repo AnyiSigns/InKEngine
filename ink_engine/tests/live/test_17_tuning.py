@@ -36,8 +36,6 @@ def _model_config(**kw) -> dict:
     cfg = {
         "main_config": {"adapter": "openai_compat", "model_id": "main", "base_url": "http://m"},
         "router_config": {"adapter": "openai_compat", "model_id": "router", "base_url": "http://r"},
-        "tool_config": {"adapter": "openai_compat", "model_id": "tool", "base_url": "http://t"},
-        "audit_config": {"adapter": "openai_compat", "model_id": "audit", "base_url": "http://a"},
     }
     cfg.update(kw)
     return cfg

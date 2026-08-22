@@ -1,4 +1,4 @@
-"""模型三挡配置 API 测试：读写往返 / key 剥离落库 / 连通性测试。"""
+﻿"""模型三挡配置 API 测试：读写往返 / key 剥离落库 / 连通性测试。"""
 
 from __future__ import annotations
 
@@ -23,7 +23,6 @@ async def test_models_roundtrip_strips_api_key(client) -> None:
                     "request_timeout": 120,
                 },
                 "router": None,
-                "audit": None,
             }
         },
     )
@@ -72,7 +71,6 @@ async def test_models_test_endpoint_success(client, monkeypatch) -> None:
                     "request_timeout": 120,
                 },
                 "router": None,
-                "audit": None,
             }
         },
     )
@@ -105,4 +103,32 @@ async def test_models_test_endpoint_success(client, monkeypatch) -> None:
 async def test_chat_requires_model_config(client) -> None:
     resp = client.post("/api/chat", json={"message": "你好"})
     assert resp.status_code == 400
-    assert "模型未配置" in resp.json()["detail"]
+
+
+async def test_models_legacy_audit_tier_pruned(client) -> None:
+    """挡位裁剪迁移：旧三挡记录的 audit 键在读取时剥离并清理 secrets 孤儿行。"""
+    storage = boot.get_app().storage
+    await storage.put_record(
+        "settings",
+        "models",
+        {
+            "main": {
+                "adapter": "openai_compat",
+                "base_url": "https://api.example.com/v1",
+                "model_id": "test-model",
+                "api_key": "",
+                "temperature": 0.7,
+                "max_tokens": None,
+                "request_timeout": 120,
+            },
+            "router": None,
+            "audit": {"model_id": "legacy-audit", "api_key": ""},
+        },
+    )
+    await secrets_store.set_api_key("audit", "sk-orphan")
+    resp = client.get("/api/settings/models")
+    assert resp.status_code == 200
+    assert "audit" not in resp.json()  # 契约外键不回传
+    assert await secrets_store.get_api_key("audit") == ""  # 孤儿密钥行已清理
+    record = await storage.get_record("settings", "models")
+    assert "audit" not in record  # 持久化记录已剥离

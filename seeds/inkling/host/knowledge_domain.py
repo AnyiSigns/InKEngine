@@ -19,9 +19,11 @@
 """
 from __future__ import annotations
 
+from collections.abc import Callable
 from typing import Any
 
 from ink_engine.core.exceptions import GraphDefinitionError
+from ink_engine.core.evolution import EvolutionFactory, EvolutionOutcome
 from ink_engine.core.knowledge_gate import GateL2FixtureExecutor, KnowledgeGate
 from ink_engine.core.knowledge_set import (
     KIND_INSIGHT,
@@ -107,9 +109,12 @@ class IncubationDomain:
         signals_data: dict[str, Any],
         samples_data: dict[str, Any],
         review_data: dict[str, Any],
+        on_llm_call: Callable[[str], None] | None = None,
     ) -> None:
         self._runtime = runtime
         self.review_data = review_data
+        # 挡位调用统计钩子（回合级观测：llm_calls_by_tier；None = 无挂接）
+        self._on_llm_call = on_llm_call
         self.samples = fixture_set_from_samples(samples_data)
         self.gate_fixtures = FixtureSet(
             name=f"{self.samples.name}.positive",
@@ -130,6 +135,9 @@ class IncubationDomain:
         )
         self.schema = build_entry_schema()
         self.gate = KnowledgeGate(l2_executor=GateL2FixtureExecutor())
+        # 进化工厂（失败驱动反思式变异 + 三层闸门防退化；变异策略
+        # 缺省确定性基线，LLM 反思变异为宿主注入扩展点）
+        self.evolution = EvolutionFactory(gate=self.gate)
 
     # ── 信号感知 ──
 
@@ -222,6 +230,51 @@ class IncubationDomain:
             raise GraphDefinitionError(f"知识条目不存在: {entry_id}")
         return entry.to_dict()
 
+    # ── 评审-收敛（引擎 core.review 机制：review.json 数据驱动）──
+
+    async def review_and_converge(
+        self,
+        llm: Any,
+        candidates: list[str],
+        *,
+        context: dict[str, Any] | None = None,
+    ) -> Any:
+        """评审-收敛循环（候选文稿 → 质量分 → 再生成 → 收敛/超限呈交）。
+
+        review.json（pass_threshold/max_rounds/beam_width/neutral_score/
+        dimensions）数据驱动；LLM 缺省/评审失败 = fail-open 中性分
+        （评审是 best-effort 增强，不阻断主流程）。
+        """
+        from .review_pipeline import converge_candidates
+
+        return await converge_candidates(
+            llm,
+            self.review_data,
+            candidates,
+            dimensions=list(self.review_data.get("dimensions") or []),
+            context=context,
+            tier="main",
+            on_llm_call=self._on_llm_call,
+        )
+
+    async def distill_llm(
+        self,
+        signals: list[ExecutionSignal],
+        *,
+        llm_distill: Any = None,
+    ) -> dict[str, Any] | None:
+        """LLM 蒸馏入口（router 挡链；失败回落确定性基线 fail-open）。
+
+        领域蒸馏 prompt 由宿主经 ``llm_distill``（签名
+        ``(chain, signals) -> dict | None``）注入；chain = host
+        挡位链的 router 挡（缺失回落 main；全缺 = 确定性蒸馏基线）。
+        """
+        if self.distiller.chain is None:
+            return await self.distiller.distill(signals)
+        if self._on_llm_call is not None:
+            self._on_llm_call("router")
+        return await self.distiller.distill_async(signals, llm_distill=llm_distill)
+
     # ── 自指挂载（知识补丁走集补丁链：审批 → 审计 → 可回退）──
 
     async def propose_knowledge_patch(
@@ -243,6 +296,62 @@ class IncubationDomain:
         return await self._runtime.self_pipeline.apply(
             ctx, proposal, round_id=round_id
         )
+
+    # ── 进化工厂（失败驱动反思式变异 + 三层闸门防退化）──
+
+    def record_usage(
+        self, entry_id: str, *, failed: bool = False, log: str = ""
+    ) -> None:
+        """知识调用留痕（usage_count/fail_count + 失败日志）。
+
+        失败日志 = 反思式变异的输入（进化工厂按近期失败定向修订）；
+        知识利用点（复用命中/失败）由宿主调用。
+        """
+        self._runtime.knowledge_set.record_usage(entry_id, failed=failed, log=log)
+
+    def evolution_candidates(self) -> list:
+        """进化候选：失败率优先入队（次之长期未调用，稳定者不入队）。
+
+        失败日志取条目自身留痕（record_usage 的反思式变异输入汇集）。
+        """
+        entries = self._runtime.knowledge_set.entries()
+        return EvolutionFactory.rank(
+            EvolutionFactory.collect_candidates(
+                entries,
+                failure_logs={e.id: e.failure_logs for e in entries if e.failure_logs},
+            )
+        )
+
+    async def evolve(
+        self,
+        ctx: Any,
+        *,
+        limit: int = 1,
+        round_id: str | None = None,
+    ) -> list[EvolutionOutcome]:
+        """进化批次：候选按优先级逐条变异 → 三层闸门（防退化）→ 落补丁链。
+
+        变异体落库 = KNOWLEDGE 补丁（审批分级 → 审计 → 可回退，链为
+        权威）；变异策略缺省确定性基线（零 LLM 可断言），LLM 反思变异
+        经 ``self.evolution`` 的 mutation 注入（宿主扩展点）。
+        """
+        outcomes: list[EvolutionOutcome] = []
+        for candidate in self.evolution_candidates()[:limit]:
+            outcome = await self.evolution.evolve(
+                candidate,
+                schema=self.schema,
+                fixtures=self.gate_fixtures,
+            )
+            for variant in outcome.variants:
+                await self.propose_knowledge_patch(
+                    ctx,
+                    variant,
+                    rationale=f"进化变异：基于 {candidate.entry.id}"
+                    f"（失败率 {candidate.failure_rate:.2f}）",
+                    round_id=round_id,
+                )
+            outcomes.append(outcome)
+        return outcomes
 
 
 def entry_from_distill(outcome: DistillOutcome, entry_id: str) -> KnowledgeEntry:

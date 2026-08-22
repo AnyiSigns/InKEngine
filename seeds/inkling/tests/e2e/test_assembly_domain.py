@@ -30,6 +30,8 @@ from ink_engine.core.retrieval import RetrieverRegistry
 from ink_engine.core.storage import create_storage
 
 from host.assembly_domain import (
+    EngineEmbedderBridge,
+    EmbeddingRetriever,
     KnowledgeSetRetriever,
     archive_digest,
     build_five_source_provider,
@@ -362,3 +364,96 @@ async def test_assembly_single_source_failure_does_not_block():
     result = assembler.assemble(sources)
     assert result.record.sources  # 记忆/检索故障下仍装配出源
     assert any(s.source_type == SOURCE_KNOWLEDGE for s in result.record.sources)
+
+
+# ── 引擎 embedding 适配器桥（可选 [llm] 向量化检索源）──
+
+
+class _StubEmbedder:
+    """AsyncEmbedder 形态 stub（按文本包含映射向量，零网络）。"""
+
+    def __init__(self, mapping: dict[str, list[float]]) -> None:
+        self._mapping = mapping
+        self.queries: list[str] = []
+
+    @staticmethod
+    def _vector_for(text: str, mapping: dict[str, list[float]]) -> list[float]:
+        for key, vector in mapping.items():
+            if key in text:
+                return vector
+        return [0.0, 0.0, 0.0]
+
+    async def aembed_query(self, text: str) -> list[float]:
+        self.queries.append(text)
+        return self._vector_for(text, self._mapping)
+
+    async def aembed_documents(self, texts) -> list[list[float]]:
+        return [self._vector_for(t, self._mapping) for t in texts]
+
+
+async def test_engine_embedder_bridge_cosine_relevance_and_fail_open():
+    """桥接：查询/条目向量预编码 + cosine 相似度；嵌入失败 fail-open 0.0。"""
+    from ink_engine.core.knowledge_set import KnowledgeEntry
+
+    mapping = {"进化": [1.0, 0.0, 0.0], "无关": [0.0, 1.0, 0.0]}
+    embedder = _StubEmbedder(mapping)
+    bridge = EngineEmbedderBridge(embedder)
+    entry = KnowledgeEntry(
+        id="k.evo", level="work", kind="rule",
+        data={"rule": {"message": "..."}}, title="进化机制条目",
+    )
+    assert (await bridge.score("进化的策略", entry)) > 0.9
+    entry_miss = KnowledgeEntry(
+        id="k.other", level="work", kind="rule", data={}, title="无关条目",
+    )
+    assert await bridge.score("进化的策略", entry_miss) < 0.1
+
+    class _BrokenEmbedder(_StubEmbedder):
+        async def aembed_query(self, text: str) -> list[float]:
+            raise RuntimeError("嵌入端点故障")
+
+    await assert_bridge_fail_open(_BrokenEmbedder(mapping), entry)
+
+
+async def assert_bridge_fail_open(embedder: Any, entry: Any) -> None:
+    bridge = EngineEmbedderBridge(embedder)
+    assert await bridge.score("进化的策略", entry) == 0.0
+
+
+async def test_embedding_retriever_async_score_source():
+    """EmbeddingRetriever 挂引擎桥：score 协程净化 + semantic 标位 + 排序。"""
+    from ink_engine.core.knowledge_set import KnowledgeEntry, KnowledgeSet
+
+    mapping = {"进化": [1.0, 0.0, 0.0], "无关": [0.0, 1.0, 0.0]}
+    knowledge_set = KnowledgeSet("u-embed")
+    knowledge_set.add(KnowledgeEntry(
+        id="k.evo", level="work", kind="rule",
+        data={"rule": {"message": "..."}}, title="进化机制条目",
+    ))
+    knowledge_set.add(KnowledgeEntry(
+        id="k.other", level="work", kind="rule", data={}, title="无关条目",
+    ))
+    retriever = EmbeddingRetriever(
+        knowledge_set, embedder=EngineEmbedderBridge(_StubEmbedder(mapping)), limit=8
+    )
+    chunks = await retriever.retrieve("进化机制", limit=8)
+    assert chunks
+    assert all(c.meta.get("semantic") for c in chunks)  # 语义层已挂载
+    assert chunks[0].doc_id == "k.evo"  # 相似度排序：命中在前
+    assert chunks[0].relevance > 0.9
+
+
+async def test_retrieval_sources_factory_embedding_env_gated(monkeypatch):
+    """检索源工厂：INK_EMBEDDING_* 未配置 = 单源；配置后追加 embedding 源。"""
+    import os
+
+    from host.recipe_loader import map_retrieval_sources
+
+    bundle = type("Bundle", (), {"data": {"memory.json": {"recall": {"default_limit": 8}}}})()
+    for key in ("INK_EMBEDDING_BASE_URL", "INK_EMBEDDING_MODEL"):
+        monkeypatch.delenv(key, raising=False)
+    assert len(map_retrieval_sources(bundle)) == 1  # 纯关键词基线
+
+    monkeypatch.setenv("INK_EMBEDDING_BASE_URL", "http://embed.local/v1")
+    monkeypatch.setenv("INK_EMBEDDING_MODEL", "text-embedding-3-small")
+    assert len(map_retrieval_sources(bundle)) == 2  # + embedding 源

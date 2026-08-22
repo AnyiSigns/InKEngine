@@ -294,18 +294,56 @@ def map_retrieval_sources(bundle: SeedDataBundle) -> list[Callable[[Any], Any]]:
     """检索源工厂清单（装配期注册进 RetrieverRegistry）。
 
     数据来源：memory.json recall 配置（default_limit）→ 知识集检索源
-    的召回上限；知识集条目按可信度分级注入（检索源工厂接收装配产物
+    的召回上限；知识条目按可信度分级注入（检索源工厂接收装配产物
     = Runtime，装配期取用 knowledge_set）。
+
+    embedding 源（可选）：INK_EMBEDDING_* 环境配置 → 引擎
+    core.llm.embeddings 适配器（create_embedder）→ 桥接为
+    EmbeddingRetriever；缺省 None = 纯关键词基线（语义层不降级）。
     """
-    from .assembly_domain import KnowledgeSetRetriever
+    from .assembly_domain import EmbeddingRetriever, EngineEmbedderBridge, KnowledgeSetRetriever
 
     recall = bundle.data["memory.json"].get("recall") or {}
     limit = int(recall.get("default_limit", 8))
 
-    def factory(runtime: Any) -> KnowledgeSetRetriever:
+    def knowledge_factory(runtime: Any) -> KnowledgeSetRetriever:
         return KnowledgeSetRetriever(runtime.knowledge_set, limit=limit)
 
-    return [factory]
+    factories: list[Callable[[Any], Any]] = [knowledge_factory]
+
+    embedder = _embedder_from_env()
+    if embedder is not None:
+        bridge = EngineEmbedderBridge(embedder)
+
+        def embedding_factory(runtime: Any) -> EmbeddingRetriever:
+            return EmbeddingRetriever(runtime.knowledge_set, embedder=bridge, limit=limit)
+
+        factories.append(embedding_factory)
+    return factories
+
+
+def _embedder_from_env() -> Any | None:
+    """INK_EMBEDDING_* 环境配置 → 引擎 embedding 适配器（None = 关键词基线）。"""
+    import os
+
+    base_url = os.environ.get("INK_EMBEDDING_BASE_URL", "")
+    model_id = os.environ.get("INK_EMBEDDING_MODEL", "")
+    if not base_url or not model_id:
+        return None
+    from ink_engine.core.llm.embeddings import create_embedder
+
+    config: dict[str, str] = {
+        "adapter": os.environ.get("INK_EMBEDDING_ADAPTER", "openai_compat"),
+        "base_url": base_url,
+        "model_id": model_id,
+    }
+    api_key = os.environ.get("INK_EMBEDDING_API_KEY")
+    if api_key:
+        config["api_key"] = api_key
+    try:
+        return create_embedder(config)
+    except Exception:
+        return None
 
 
 class ToolApplyTarget(ApplyTarget):

@@ -10,7 +10,6 @@ import { ADAPTERS, type ModelTierConfig, type ModelsState, type TierMeta } from 
 const TIERS: TierMeta[] = [
   { key: 'main', label: '主模型', desc: '域专才 / 生成 / 模拟' },
   { key: 'router', label: '制片人决策', desc: '留空回落主模型' },
-  { key: 'audit', label: '质量校验', desc: '留空回落主模型' },
 ];
 
 const EMPTY_FORM: ModelTierConfig = {

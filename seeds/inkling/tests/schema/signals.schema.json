@@ -27,7 +27,7 @@
       "additionalProperties": false,
       "properties": {
         "enabled": { "type": "boolean" },
-        "tier": { "type": "string", "enum": ["router", "tool", "main", "audit"] },
+        "tier": { "type": "string", "enum": ["main", "router"] },
         "complexity_threshold": { "type": "integer", "minimum": 0 },
         "intervention_threshold": { "type": "integer", "minimum": 0 },
         "repeat_threshold": { "type": "integer", "minimum": 2 },

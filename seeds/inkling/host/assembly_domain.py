@@ -14,6 +14,7 @@
 """
 from __future__ import annotations
 
+import inspect
 import json
 from typing import Any
 
@@ -109,6 +110,10 @@ class EmbeddingRetriever:
     挂载 embedding 后，命中条目按向量相似度排序（relevance 由
     embedder 提供）；未挂载时语义层不降级——relevance 中性，
     排序交给知识集可信度（与 KnowledgeSetRetriever 同语义）。
+
+    embedder.score 支持同步或协程（引擎 AsyncEmbedder 经
+    :class:`EngineEmbedderBridge` 挂载时 score 为协程——awaitable
+    统一净化）。
     """
 
     name = "embedding"
@@ -123,6 +128,12 @@ class EmbeddingRetriever:
         self._knowledge_set = knowledge_set
         self._embedder = embedder
         self._limit = max(limit, 1)
+
+    async def _score(self, query: str, entry: Any) -> float:
+        score = self._embedder.score(query, entry)
+        if inspect.isawaitable(score):
+            score = await score
+        return float(score)
 
     async def retrieve(self, query: str, *, limit: int) -> list[RetrievedChunk]:
         entries = self._knowledge_set.search(query, limit=self._limit)
@@ -144,13 +155,65 @@ class EmbeddingRetriever:
                     source=self.name,
                     doc_id=entry.id,
                     text=_render_entry(entry),
-                    relevance=min(self._embedder.score(query, entry), 1.0),
+                    relevance=min(await self._score(query, entry), 1.0),
                     level=SOURCE_MODEL,
                     meta={"kind": entry.kind, "semantic": True},
                 )
                 for entry in entries
             ]
         return chunks[:limit]
+
+
+class EngineEmbedderBridge:
+    """引擎 AsyncEmbedder → 种子检索源 score 接口桥（向量预编码 + cosine）。
+
+    引擎 embedding 适配器（core.llm.embeddings：OpenAI 兼容 /embeddings，
+    create_embedder 配置驱动）是异步向量接口；种子 EmbeddingRetriever 的
+    score 需与查询语义共空间。本桥做：查询/条目向量预编码缓存（同轮多
+    query 免重编）+ cosine 相似度（0-1 归一）；嵌入失败 = fail-open 返回
+    0.0（该条目不因语义分排前——纯关键词基线兜底，不击穿检索）。
+    """
+
+    def __init__(self, embedder: Any, *, cache_limit: int = 512) -> None:
+        self._embedder = embedder
+        self._cache_limit = max(cache_limit, 1)
+        self._doc_cache: dict[str, list[float]] = {}
+        self._query_cache: dict[str, list[float]] = {}
+
+    async def score(self, query: str, entry: Any) -> float:
+        try:
+            qvec = self._query_cache.get(query)
+            if qvec is None:
+                qvec = await self._embedder.aembed_query(query)
+                if len(self._query_cache) >= self._cache_limit:
+                    self._query_cache.clear()
+                self._query_cache[query] = qvec
+            doc_id = str(getattr(entry, "id", ""))
+            evec = self._doc_cache.get(doc_id)
+            if evec is None:
+                text = _render_entry(entry)
+                docs = await self._embedder.aembed_documents([text])
+                if not docs:
+                    return 0.0
+                evec = docs[0]
+                if len(self._doc_cache) >= self._cache_limit:
+                    self._doc_cache.clear()
+                self._doc_cache[doc_id] = evec
+            return _cosine(qvec, evec)
+        except Exception:
+            return 0.0
+
+
+def _cosine(a: list[float], b: list[float]) -> float:
+    """cosine 相似度（0-1：同向 1 / 正交 0 / 反向 0；零向量回 0.0）。"""
+    if not a or not b or len(a) != len(b):
+        return 0.0
+    dot = sum(x * y for x, y in zip(a, b))
+    na = (sum(x * x for x in a)) ** 0.5
+    nb = (sum(y * y for y in b)) ** 0.5
+    if na == 0.0 or nb == 0.0:
+        return 0.0
+    return max(0.0, min(dot / (na * nb), 1.0))
 
 
 def _render_entry(entry: KnowledgeEntry) -> str:

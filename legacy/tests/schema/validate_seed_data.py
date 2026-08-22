@@ -21,8 +21,8 @@ from pathlib import Path
 from typing import Any
 
 # ── 路径与文件清单（脚本所在 tests/schema/ 向上四级 = 仓库根）──
-REPO_ROOT = Path(__file__).resolve().parents[4]
-SEED_ROOT = REPO_ROOT / "seeds" / "inkling"
+REPO_ROOT = Path(__file__).resolve().parents[3]
+SEED_ROOT = REPO_ROOT / "inkling"
 SEED_DATA_DIR = SEED_ROOT / "seed_data"
 SCHEMA_DIR = Path(__file__).resolve().parent
 MANIFEST_PATH = SEED_ROOT / "manifest.json"
@@ -138,7 +138,7 @@ ENGINE_PREDICATES: tuple[str, ...] = (
     "falsy",
     "state_transition",
 )
-# Rust 执行件谓词：seeds/inkling/exec/src/executors/validate.rs
+# Rust 执行件谓词：inkling/exec/src/executors/validate.rs
 # `KNOWN_PREDICATES` 清单（2026-08-22 核对；Rust 侧 binding.rs 另有
 # 数据↔执行件不漂移断言，本常量与其同源）
 RUST_PREDICATES: tuple[str, ...] = (

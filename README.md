@@ -13,14 +13,13 @@
   （text_forge_evo 等产品形态保持独立应用目录，在此登记）；领域深度
   归宿主产品层（领域规则/样例/谓词由产品自写并成对维护），引擎只带
   通用种子与 boot 自举基线。登记明细见 `seeds/README.md`。
-  - **InKling**（`seeds/inkling/`）— 自进化认知伙伴：你用得越多，它
-    越懂你的领域。领域深度产品种子（数据 JSON / Rust 执行件 / TS
-    前端 / 桌面壳 / Python 接线五件套）。快速上手（出厂演示，stub
-    全链离线可跑，配置 `INK_LLM_*` 环境变量切换真实模型）：
-    `python seeds/inkling/examples/factory_demo.py`；出厂自检（PLAN
-    §7 四项门禁一键聚合）：`python seeds/inkling/self_check.py`；
-    文档与身份登记：`seeds/inkling/PLAN.md` 与
-    `seeds/inkling/manifest.json`。
+  - 登记明细见 `seeds/README.md`。
+- **inkling/** — InKling：自进化认知伙伴（本地单机桌面产品）。你用得
+  越多，它越懂你的领域：数据 JSON / Rust 执行件 / TS 前端 / Tauri
+  桌面壳。快速上手（出厂演示，stub 全链离线可跑，配置 `INK_LLM_*`
+  环境变量切换真实模型）：`python legacy/examples/factory_demo.py`；
+  出厂自检（四项门禁一键聚合）：`python legacy/self_check.py`；文档与
+  身份登记：`inkling/PLAN.md` 与 `inkling/manifest.json`。
 - **text_forge_evo/** — Forge：AI 桌面壳（Tauri 前端 + FastAPI 后端 +
   SSE 传输 + 审批容器）。通过 `[tool.uv.sources]` 以 `../ink_engine`
   路径依赖本仓库的引擎源码，editable 开发。

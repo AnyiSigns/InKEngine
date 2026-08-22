@@ -26,9 +26,9 @@ import time
 from dataclasses import dataclass
 from pathlib import Path
 
-# 仓库根（self_check.py 位于 seeds/inkling/，上级两级 = 仓库根）
-REPO_ROOT = Path(__file__).resolve().parents[2]
-SEED_ROOT = REPO_ROOT / "seeds" / "inkling"
+# 仓库根（self_check.py 位于 legacy/，上级一级 = 仓库根；产品根 = inkling/）
+REPO_ROOT = Path(__file__).resolve().parents[1]
+SEED_ROOT = REPO_ROOT / "inkling"
 MANIFEST = SEED_ROOT / "manifest.json"
 
 # 门禁超时（秒）：cargo 首次构建/e2e 全量耗时较长，超时按失败结构化
@@ -44,7 +44,7 @@ GATE_TIMEOUTS: dict[str, float] = {
 GATE_HINTS: dict[str, str] = {
     "schema": "seed_data 或 schema 定义问题：修复后重跑；检查 validate_seed_data.py 输出定位",
     "cargo_test": "Rust 执行件问题：按 cargo 输出定位（编译/断言）；首次运行会自动构建",
-    "frontend": "TS 前端问题：npm --prefix seeds/inkling/frontend install 后重跑",
+    "frontend": "TS 前端问题：npm --prefix inkling/frontend install 后重跑",
     "e2e": "装配 e2e 问题：按 pytest 输出定位；引擎环境依赖 .venv 安装 ink_engine",
 }
 
@@ -252,8 +252,8 @@ def _render_matrix(results: list[GateResult]) -> str:
 def _render_header(commands: dict[str, str]) -> str:
     """报告头部：门禁 ↔ PLAN §7 矩阵行 ↔ coverage_matrix 节呼应。"""
     out = [
-        "InKling 出厂自检矩阵（PLAN §7 终态）",
-        f"入口：seeds/inkling/self_check.py ｜ manifest: {MANIFEST.relative_to(REPO_ROOT)}",
+"InKling 出厂自检矩阵（PLAN §7 终态）",
+f"入口：legacy/self_check.py ｜ manifest: {MANIFEST.relative_to(REPO_ROOT)}",
         "门禁命令 = manifest.json self_check（单一事实源）；矩阵行呼应：",
     ]
     for key, (layer, matrix_section) in GATE_RECIPES.items():

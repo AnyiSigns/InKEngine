@@ -15,9 +15,9 @@ from ink_engine.core.llm import AsyncLLM, LLMChunk
 from ink_engine.core.llm.base import LLMConfig, LLMResult
 from ink_engine.core.llm.tools import ToolSpec
 
-# 仓库根（seeds/inkling/ 的上级两级；e2e 从仓库根以 pytest 运行）
-REPO_ROOT = Path(__file__).resolve().parents[4]
-SEED_ROOT = REPO_ROOT / "seeds" / "inkling"
+# 仓库根（inkling/ 的上级二级；e2e 从仓库根以 pytest 运行）
+REPO_ROOT = Path(__file__).resolve().parents[3]
+SEED_ROOT = REPO_ROOT / "inkling"
 
 
 class StubLLM(AsyncLLM):

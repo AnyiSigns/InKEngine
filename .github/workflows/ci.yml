@@ -44,7 +44,7 @@ jobs:
         with:
           python-version: ${{ env.PYTHON_VERSION }}
       - run: pip install ruff
-      - run: ruff check ink_engine seeds/inkling
+      - run: ruff check ink_engine legacy
 
   # ── 种子侧四门禁（self_check.py 同源入口：命令 = manifest.json 单一事实源）──
 
@@ -57,7 +57,7 @@ jobs:
         with:
           python-version: ${{ env.PYTHON_VERSION }}
       - run: pip install -e "ink_engine[test,mcp]"
-      - run: python seeds/inkling/self_check.py --only schema
+      - run: python legacy/self_check.py --only schema
 
   seed-cargo:
     name: 种子 cargo test（执行件）
@@ -70,8 +70,8 @@ jobs:
       - uses: dtolnay/rust-toolchain@stable
       - uses: Swatinem/rust-cache@v2
         with:
-          workspaces: seeds/inkling/exec
-      - run: python seeds/inkling/self_check.py --only cargo_test
+          workspaces: inkling/exec
+      - run: python legacy/self_check.py --only cargo_test
 
   seed-frontend:
     name: 种子 frontend typecheck
@@ -82,13 +82,13 @@ jobs:
         with:
           node-version: ${{ env.NODE_VERSION }}
           cache: npm
-          cache-dependency-path: seeds/inkling/frontend/package-lock.json
-      - run: npm ci --prefix seeds/inkling/frontend
+          cache-dependency-path: inkling/frontend/package-lock.json
+      - run: npm ci --prefix inkling/frontend
       - uses: actions/setup-python@v5
         with:
           python-version: ${{ env.PYTHON_VERSION }}
       - run: pip install -e "ink_engine[test]"
-      - run: python seeds/inkling/self_check.py --only frontend
+      - run: python legacy/self_check.py --only frontend
 
   seed-e2e:
     name: 种子 e2e 全量
@@ -99,12 +99,12 @@ jobs:
       - uses: dtolnay/rust-toolchain@stable
       - uses: Swatinem/rust-cache@v2
         with:
-          workspaces: seeds/inkling/exec
+          workspaces: inkling/exec
       # 构建先于 e2e：真实 Rust 执行件二进制由本步产出（缓存命中即复用，
       # 保证 stdio 闭环用例在 CI 上真实执行而非跳过）
-      - run: cargo build --manifest-path seeds/inkling/exec/Cargo.toml
+      - run: cargo build --manifest-path inkling/exec/Cargo.toml
       - uses: actions/setup-python@v5
         with:
           python-version: ${{ env.PYTHON_VERSION }}
       - run: pip install -e "ink_engine[test,sqlite,llm,mcp]" uvicorn
-      - run: python seeds/inkling/self_check.py --only e2e
+      - run: python legacy/self_check.py --only e2e

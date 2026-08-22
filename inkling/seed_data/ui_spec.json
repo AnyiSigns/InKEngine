@@ -88,7 +88,7 @@
               {
                 "kind": "component",
                 "type": "knowledge_row",
-                "props": { "note": "检索命中/孵化信号内联微卡" },
+                "props": { "note": "检索命中/孵化信号内联微卡（领域组件经 domains 加载器注册）" },
                 "bind": { "channel": "events.signal_detected", "path": "" }
               },
               {

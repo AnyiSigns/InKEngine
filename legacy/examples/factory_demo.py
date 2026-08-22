@@ -7,7 +7,7 @@
 
 运行（任意目录）::
 
-    python seeds/inkling/examples/factory_demo.py
+    python inkling/examples/factory_demo.py
 
 演示步骤：
 1. 注入：boot_prompt 定稿形态 + 种子基线（知识集/界面）注入；
@@ -21,7 +21,7 @@
 7. 领域长出：新规则经样例闸门放行 → 自指挂载生效 → 可回退。
 
 桌面形态（第二种形态，真实桌面冒烟可选）：frontend 开发服务器
-（``npm --prefix seeds/inkling/frontend run dev``）+ shell 桌面壳
+（``npm --prefix inkling/frontend run dev``）+ shell 桌面壳
 （``cargo tauri dev``，见 PLAN §6 M4 遗留说明）。
 
 任何一步失败均输出修复方向指引（不裸抛），并以非零退出码结束。
@@ -267,7 +267,7 @@ async def step_mount_rust(runtime: Any, mount_service: Any, ctx: Any) -> None:
     header(2, 7, "挂载执行件（stdio 真 Rust 执行件）")
     if not RUST_BINARY.is_file():
         warn("Rust 执行件未构建：跳过真实执行件路径（降级说明）")
-        warn("构建指引：cargo build --manifest-path seeds/inkling/exec/Cargo.toml"
+        warn("构建指引：cargo build --manifest-path inkling/exec/Cargo.toml"
              "（构建后本步骤自动走真实执行件）")
         return
     outcome = await mount_service.propose_mount(ctx, "inkling_exec_rust")
@@ -462,7 +462,7 @@ async def main() -> int:
     except Exception as exc:
         fail(f"运行时装配失败: {exc}")
         fail("修复方向：确认 .venv 已安装引擎依赖（pip install -e .）且自检门禁全绿："
-             "python seeds/inkling/self_check.py")
+             "python inkling/self_check.py")
         return 1
 
     ctx = DemoApprovalCtx()
@@ -479,8 +479,8 @@ async def main() -> int:
         except Exception as exc:
             fail(f"演示中断于步骤: {exc}")
             fail("修复方向：定位上一步输出；常见原因——引擎依赖缺失"
-                 "（python seeds/inkling/self_check.py 定位）、执行件未构建"
-                 "（cargo build --manifest-path seeds/inkling/exec/Cargo.toml）")
+                 "（python inkling/self_check.py 定位）、执行件未构建"
+                 "（cargo build --manifest-path inkling/exec/Cargo.toml）")
             return 1
         finally:
             await runtime.stop()
@@ -491,9 +491,9 @@ async def main() -> int:
     print("\n" + "=" * 68)
     print("演示完成：冷启动 → 挂载 → 回合 → 孵化 → 补丁 → 回退 → 领域长出 全链通过")
     flag(f"审批卡轨迹 {len(ctx.cards)} 张：{', '.join(card['key'] for card in ctx.cards[:6])}…")
-    flag("出厂自检：python seeds/inkling/self_check.py（四项门禁一键聚合）")
-    flag("文档：seeds/inkling/PLAN.md ｜ manifest：seeds/inkling/manifest.json")
-    flag("桌面形态：npm --prefix seeds/inkling/frontend run dev（前端）"
+    flag("出厂自检：python inkling/self_check.py（四项门禁一键聚合）")
+    flag("文档：inkling/PLAN.md ｜ manifest：inkling/manifest.json")
+    flag("桌面形态：npm --prefix inkling/frontend run dev（前端）"
          "＋ shell 桌面壳（真实桌面冒烟可选）")
     print("=" * 68)
     return 0

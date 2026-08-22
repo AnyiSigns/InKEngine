@@ -16,7 +16,7 @@
 
 运行（任意目录）::
 
-    python seeds/inkling/examples/ab_validation.py
+    python inkling/examples/ab_validation.py
 """
 from __future__ import annotations
 

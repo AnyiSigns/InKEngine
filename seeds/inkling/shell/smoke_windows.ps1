@@ -32,6 +32,21 @@ Add-Type -Namespace InkSmoke -Name Native -MemberDefinition @'
 
 Add-Type -AssemblyName System.Drawing
 
+function Get-DarkRatio([string]$imagePath) {
+    $bmp = New-Object System.Drawing.Bitmap($imagePath)
+    $dark = 0
+    $total = 0
+    for ($y = 0; $y -lt $bmp.Height; $y += 4) {
+        for ($x = 0; $x -lt $bmp.Width; $x += 4) {
+            $c = $bmp.GetPixel($x, $y)
+            $total++
+            if ($c.R -lt 60 -and $c.G -lt 60 -and $c.B -lt 60) { $dark++ }
+        }
+    }
+    $bmp.Dispose()
+    return [math]::Round($dark / $total, 3)
+}
+
 if (-not (Test-Path $ExePath)) {
     Log "FAIL 壳二进制不存在: $ExePath（先 cargo build --manifest-path src-tauri/Cargo.toml）"
     exit 1
@@ -64,10 +79,14 @@ if ($hwnd -eq [IntPtr]::Zero) {
 }
 Log "主窗口句柄=0x$($hwnd.ToString('X'))"
 
+# 内容加载窗口：WebView 需要时间渲染前端产物，过早截图只能拍到空白
+# 或错误页（连接失败），无法证明界面真实加载
+Start-Sleep -Seconds 3
+
 # 前台置顶后截图（窗口矩形 → CopyFromScreen）
 [InkSmoke.Native+RECT]$rect = New-Object InkSmoke.Native+RECT
 if (-not [InkSmoke.Native]::GetWindowRect($hwnd, [ref]$rect)) {
-    Log "WARN GetWindowRect 失败，跳过截图"
+    Log "WARN GetWindowRect 失败，跳过截图与内容断言"
 } else {
     [InkSmoke.Native]::SetForegroundWindow($hwnd) | Out-Null
     Start-Sleep -Milliseconds 500
@@ -82,6 +101,17 @@ if (-not [InkSmoke.Native]::GetWindowRect($hwnd, [ref]$rect)) {
         $gfx.Dispose()
         $bmp.Dispose()
         Log "截图保存: $shot（${w}x$h @ $($rect.Left),$($rect.Top)）"
+
+        # 内容级断言：InKling 前端为深色主题——真实界面深色像素占比应
+        # 显著（>50%）；WebView 错误页（连接失败/空白）为白底（深色
+        # 占比 <10%）。二者可区分，杜绝「窗口出现但界面没加载」漏检。
+        $ratio = Get-DarkRatio $shot
+        Log "深色占比=${ratio}（断言 > 0.5；白底错误页 < 0.1）"
+        if ($ratio -le 0.5) {
+            Log "FAIL 窗口内容未加载（深色占比过低，疑似 WebView 错误页/空白）"
+            if (-not $proc.HasExited) { $proc.Kill() }
+            exit 1
+        }
     }
 }
 

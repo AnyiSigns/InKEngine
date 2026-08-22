@@ -53,51 +53,58 @@ export function AgentInput({ bindValue, placeholder = '向 InKling 提问，或�
     if (!text || streaming) return;
     setDraft('');
     onSend?.(text);
+    textareaRef.current?.focus();
   };
 
   return (
-    <div className="shrink-0 border-t px-3 pb-2.5 pt-2 ink-border">
-      <div className="mx-auto flex w-full max-w-3xl items-end gap-2 border px-3 py-1.5 ink-border">
-        <span className="select-none pb-2 text-[12px] leading-none ink-text-faint" aria-hidden>
-          ❯
-        </span>
+    <div className="shrink-0 px-4 pb-4 pt-1">
+      <div className="ink-input-shell mx-auto w-full max-w-3xl rounded-2xl border bg-[var(--ink-bg-surface)] ink-shadow-soft transition-colors focus-within:border-[var(--ink-border-strong)]">
         <textarea
           ref={textareaRef}
           data-ui="agent_input"
           value={draft}
           onChange={(e) => setDraft(e.target.value)}
           onKeyDown={(e) => {
-            if (e.key === 'Enter' && !e.shiftKey) {
+            if (e.key === 'Enter' && !e.shiftKey && !e.nativeEvent.isComposing) {
               e.preventDefault();
               submit();
             }
           }}
           rows={Math.min(Math.max(draft.split('\n').length, 1), 6)}
           placeholder={streaming ? '正在思考…' : placeholder}
-          className="min-h-5 max-h-36 flex-1 resize-none bg-transparent text-[12px] leading-relaxed outline-none placeholder:text-[var(--ink-text-faint)]"
+          className="min-h-7 max-h-36 w-full resize-none bg-transparent px-3.5 pt-3 pb-1 text-[13px] leading-relaxed focus:outline-none placeholder:text-[var(--ink-text-faint)]"
         />
-        {streaming ? (
-          <button
-            onClick={onAbort}
-            title="停止生成"
-            data-ui="btn_abort"
-            className="flex h-6 w-6 shrink-0 items-center justify-center border ink-btn-secondary cursor-pointer"
-          >
-            <Square size={10} strokeWidth={1.8} aria-hidden />
-          </button>
-        ) : (
-          <button
-            onClick={submit}
-            disabled={!canSend}
-            title="发送"
-            data-ui="btn_send"
-            className="ink-btn-primary flex h-6 w-6 shrink-0 items-center justify-center cursor-pointer disabled:opacity-40"
-          >
-            <Send size={10} strokeWidth={1.8} aria-hidden />
-          </button>
-        )}
+        <div className="flex items-center gap-1.5 px-2.5 pb-2.5 pt-1">
+          <span className="rounded-full bg-[var(--ink-bg-elevated)] px-2 py-0.5 text-[10px] ink-text-muted">
+            挡位 {GEAR_LABELS[gear]}
+          </span>
+          <span className="rounded-full bg-[var(--ink-bg-elevated)] px-2 py-0.5 text-[10px] ink-text-muted">
+            模式 {MODE_LABELS[mode]}
+          </span>
+          <span className="ml-auto" />
+          {streaming ? (
+            <button
+              onClick={onAbort}
+              title="停止生成"
+              data-ui="btn_abort"
+              className="flex h-8 w-8 shrink-0 items-center justify-center rounded-full border ink-btn-secondary cursor-pointer"
+            >
+              <Square size={12} strokeWidth={1.8} aria-hidden />
+            </button>
+          ) : (
+            <button
+              onClick={submit}
+              disabled={!canSend}
+              title="发送"
+              data-ui="btn_send"
+              className="ink-btn-primary flex h-8 w-8 shrink-0 items-center justify-center rounded-full cursor-pointer disabled:opacity-35"
+            >
+              <Send size={12} strokeWidth={1.8} aria-hidden />
+            </button>
+          )}
+        </div>
       </div>
-      <div className="mx-auto mt-1 w-full max-w-3xl px-0.5 font-mono text-[9px] tracking-wide ink-text-faint">
+      <div className="mx-auto mt-1.5 w-full max-w-3xl px-1 font-mono text-[9px] tracking-wide ink-text-faint">
         挡位:{gear}({GEAR_LABELS[gear]}) · 模式:{mode}({MODE_LABELS[mode]})
       </div>
     </div>

@@ -68,54 +68,53 @@ export function FileTree({ collapsible = false, files = DEMO_FILES, activeFile =
 
   if (collapsed) {
     return (
-      <div className="flex w-8 shrink-0 flex-col items-center border-r py-2 ink-border">
+      <div className="flex w-9 shrink-0 flex-col items-center py-2">
         <button
           data-ui="btn_tree_expand"
           title="展开文件树"
           onClick={() => setCollapsed(false)}
-          className="flex h-6 w-6 items-center justify-center ink-text-faint hover:bg-[var(--ink-bg-elevated)] cursor-pointer"
+          className="flex h-7 w-7 items-center justify-center rounded-md ink-text-faint hover:bg-[var(--ink-bg-elevated)] cursor-pointer"
         >
-          <ChevronRight size={12} strokeWidth={1.6} />
+          <ChevronRight size={13} strokeWidth={1.6} />
         </button>
         <button
           data-ui="btn_settings_rail"
           title="设置"
           onClick={() => onNavigate?.('settings')}
-          className="mt-auto flex h-6 w-6 items-center justify-center ink-text-faint hover:bg-[var(--ink-bg-elevated)] cursor-pointer"
+          className="mt-auto flex h-7 w-7 items-center justify-center rounded-md ink-text-faint hover:bg-[var(--ink-bg-elevated)] cursor-pointer"
         >
-          <Settings size={12} strokeWidth={1.6} />
+          <Settings size={13} strokeWidth={1.6} />
         </button>
       </div>
     );
   }
 
   return (
-    <div className="flex w-56 shrink-0 flex-col border-r ink-border">
-      <div className="flex h-9 items-center gap-1 border-b px-3 ink-border">
-        <span className="min-w-0 flex-1 truncate font-mono text-[10px] tracking-wider uppercase ink-text-faint">
-          ~/inkling
-        </span>
+    <div className="flex w-60 shrink-0 flex-col bg-[var(--ink-bg-surface)]">
+      <div className="flex h-10 items-center gap-1 px-3">
+        <span className="min-w-0 flex-1 truncate text-[12px] font-semibold">工作区</span>
+        <span className="shrink-0 font-mono text-[9px] ink-text-faint">~/inkling</span>
         {collapsible && (
           <button
             data-ui="btn_tree_collapse"
             title="收起文件树"
             onClick={() => setCollapsed(true)}
-            className="flex h-6 w-6 shrink-0 items-center justify-center ink-text-faint hover:bg-[var(--ink-bg-elevated)] cursor-pointer"
+            className="flex h-7 w-6 shrink-0 items-center justify-center rounded-md ink-text-faint hover:bg-[var(--ink-bg-elevated)] cursor-pointer"
           >
-            <ChevronLeft size={12} strokeWidth={1.6} />
+            <ChevronLeft size={13} strokeWidth={1.6} />
           </button>
         )}
       </div>
-      <div className="flex-1 overflow-y-auto px-1.5 py-1">
+      <div className="min-h-0 flex-1 overflow-y-auto px-1.5 pb-1">
         {files.map((node) => (
           <FileRow key={node.name} node={node} depth={0} activeFile={activeFile} />
         ))}
       </div>
-      <div className="border-t ink-border">
+      <div className="border-t p-1.5 ink-border">
         <button
           data-ui="btn_settings"
           onClick={() => onNavigate?.('settings')}
-          className="flex w-full items-center gap-1.5 px-3 py-2 text-left cursor-pointer ink-text-muted hover:bg-[var(--ink-bg-elevated)] hover:text-[var(--ink-text-base)]"
+          className="flex w-full items-center gap-1.5 rounded-md px-2 py-1.5 text-left cursor-pointer ink-text-muted hover:bg-[var(--ink-bg-elevated)] hover:text-[var(--ink-text-base)]"
         >
           <Settings size={11} strokeWidth={1.6} aria-hidden />
           <span className="text-[11px]">设置</span>
@@ -137,7 +136,7 @@ function FileRow({ node, depth, activeFile }: { node: FileNode; depth: number; a
           data-ui={`tree_dir_${node.name}`}
           onClick={() => setOpen((v) => !v)}
           style={{ paddingLeft: depth * 12 + 6 }}
-          className="flex w-full items-center gap-1 py-1 pr-2 text-left cursor-pointer hover:bg-[var(--ink-bg-elevated)]"
+          className="flex w-full items-center gap-1 rounded-md py-1 pr-2 text-left cursor-pointer hover:bg-[var(--ink-bg-elevated)]"
         >
           {open ? (
             <ChevronDown size={10} strokeWidth={1.6} className="shrink-0 ink-text-faint" aria-hidden />
@@ -164,14 +163,14 @@ function FileRow({ node, depth, activeFile }: { node: FileNode; depth: number; a
       data-ui={`tree_file_${node.name}`}
       style={{ paddingLeft: depth * 12 + 6 }}
       className={cn(
-        'flex w-full items-center gap-1 border-l-2 py-1 pr-2 text-left cursor-pointer',
+        'flex w-full items-center gap-1 rounded-md py-1 pr-2 text-left cursor-pointer',
         active
-          ? 'border-[var(--ink-text-base)] bg-[var(--ink-bg-elevated)]'
-          : 'border-transparent hover:bg-[var(--ink-bg-elevated)]',
+          ? 'bg-[var(--ink-bg-elevated)]'
+          : 'hover:bg-[var(--ink-bg-elevated)]',
       )}
     >
       <FileText size={11} strokeWidth={1.6} className="shrink-0 ink-text-faint" aria-hidden />
-      <span className={cn('min-w-0 flex-1 truncate text-[11px]', active ? 'ink-text-base' : 'ink-text-muted')}>
+      <span className={cn('min-w-0 flex-1 truncate text-[11px]', active ? 'font-medium' : 'ink-text-muted')}>
         {node.name}
       </span>
     </button>

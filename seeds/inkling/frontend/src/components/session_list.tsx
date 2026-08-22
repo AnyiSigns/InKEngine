@@ -34,14 +34,14 @@ export function SessionList({ collapsible = false, sessions = DEMO_SESSIONS, act
 
   if (collapsed) {
     return (
-      <div className="flex w-8 shrink-0 flex-col items-center border-l py-2 ink-border">
+      <div className="flex w-9 shrink-0 flex-col items-center py-2">
         <button
           data-ui="btn_session_expand"
           title="展开会话列表"
           onClick={() => setCollapsed(false)}
-          className="flex h-6 w-6 items-center justify-center ink-text-faint hover:bg-[var(--ink-bg-elevated)] cursor-pointer"
+          className="flex h-7 w-7 items-center justify-center rounded-md ink-text-faint hover:bg-[var(--ink-bg-elevated)] cursor-pointer"
         >
-          <ChevronLeft size={12} strokeWidth={1.6} />
+          <ChevronLeft size={13} strokeWidth={1.6} />
         </button>
       </div>
     );
@@ -54,36 +54,38 @@ export function SessionList({ collapsible = false, sessions = DEMO_SESSIONS, act
   const history = filtered.filter((s) => s.bucket === 'history');
 
   return (
-    <div className="flex w-56 shrink-0 flex-col border-l ink-border">
-      <div className="flex h-9 items-center gap-1.5 border-b px-2 ink-border">
+    <div className="flex w-60 shrink-0 flex-col bg-[var(--ink-bg-surface)]">
+      <div className="flex items-center gap-1.5 p-2.5">
         {collapsible && (
           <button
             data-ui="btn_session_collapse"
             title="收起会话列表"
             onClick={() => setCollapsed(true)}
-            className="flex h-6 w-5 shrink-0 items-center justify-center ink-text-faint hover:bg-[var(--ink-bg-elevated)] cursor-pointer"
+            className="flex h-7 w-6 shrink-0 items-center justify-center rounded-md ink-text-faint hover:bg-[var(--ink-bg-elevated)] cursor-pointer"
           >
-            <ChevronRight size={12} strokeWidth={1.6} />
+            <ChevronRight size={13} strokeWidth={1.6} />
           </button>
         )}
         <button
           data-ui="btn_new_session"
-          className="ink-btn-primary flex h-6 w-full items-center justify-center gap-1 text-[11px] cursor-pointer"
+          className="ink-btn-secondary flex h-7 flex-1 items-center justify-center gap-1 text-[12px] font-medium bg-[var(--ink-bg-base)] ink-shadow-soft cursor-pointer"
         >
-          <Plus size={12} strokeWidth={1.8} aria-hidden />
-          新建会话
+          <Plus size={12} strokeWidth={2} aria-hidden />
+          新会话
         </button>
       </div>
-      <div className="flex h-8 items-center gap-1.5 border-b px-3 ink-border">
-        <Search size={11} strokeWidth={1.6} className="ink-text-faint" aria-hidden />
-        <input
-          value={query}
-          onChange={(e) => setQuery(e.target.value)}
-          placeholder="搜索会话"
-          className="h-full w-full bg-transparent text-[11px] outline-none placeholder:text-[var(--ink-text-faint)]"
-        />
+      <div className="px-2.5 pb-1.5">
+        <div className="flex h-7 items-center gap-1.5 rounded-md border bg-[var(--ink-bg-base)] px-2 ink-border">
+          <Search size={11} strokeWidth={1.6} className="ink-text-faint" aria-hidden />
+          <input
+            value={query}
+            onChange={(e) => setQuery(e.target.value)}
+            placeholder="搜索会话"
+            className="h-full w-full bg-transparent text-[11px] outline-none placeholder:text-[var(--ink-text-faint)]"
+          />
+        </div>
       </div>
-      <div className="flex-1 overflow-y-auto px-1.5 py-1">
+      <div className="min-h-0 flex-1 overflow-y-auto px-1.5 pb-1">
         {filtered.length === 0 && (
           <div className="px-2 py-3 text-center text-[10px] ink-text-faint">无匹配会话</div>
         )}
@@ -113,14 +115,14 @@ function SessionRow({ item, active }: { item: SessionItem; active: boolean }) {
   return (
     <button
       data-ui={`session_${item.id}`}
-      className={`flex w-full items-center gap-1.5 px-2 py-1.5 text-left cursor-pointer ${
+      className={`flex w-full items-center gap-1.5 rounded-md px-2 py-1.5 text-left cursor-pointer ${
         active
-          ? 'bg-[var(--ink-bg-elevated)] border-l-2 border-[var(--ink-text-base)]'
-          : 'border-l-2 border-transparent hover:bg-[var(--ink-bg-elevated)]'
+          ? 'bg-[var(--ink-bg-elevated)]'
+          : 'bg-transparent hover:bg-[var(--ink-bg-elevated)]'
       }`}
     >
-      <Icon size={10} strokeWidth={1.6} className="shrink-0 ink-text-faint" aria-hidden />
-      <span className="min-w-0 flex-1 truncate text-[11px]">{item.title}</span>
+      <Icon size={10} strokeWidth={1.6} className={`shrink-0 ${active ? '' : 'ink-text-faint'}`} aria-hidden />
+      <span className={`min-w-0 flex-1 truncate text-[11px] ${active ? 'font-medium' : ''}`}>{item.title}</span>
       <span className="shrink-0 font-mono text-[9px] ink-text-faint">{item.time}</span>
     </button>
   );

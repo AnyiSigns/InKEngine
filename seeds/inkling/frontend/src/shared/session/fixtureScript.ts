@@ -7,7 +7,7 @@
  */
 
 import type { ChannelHub, HubEvent } from './channelHub';
-import { setStreaming, createIngester } from './eventIngest';
+import { setStreaming, createIngester, commitStreaming } from './eventIngest';
 import type { EventTypeName } from './eventTypes';
 
 export interface FixtureScriptOptions {
@@ -125,6 +125,8 @@ export function runFixtureSession(hub: ChannelHub, options: FixtureScriptOptions
   at(34, () => {
     ingest(ev('end'));
     setStreaming(hub, false);
+    // 回合结束：残留 streaming 行定型为正式回复（消除永久闪烁光标）
+    commitStreaming(hub);
     onDone?.();
   });
 

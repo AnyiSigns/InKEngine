@@ -28,7 +28,7 @@ export function SimulationTree({ bindValue, onSwapBranch }: SimulationTreeProps)
       </div>
 
       {branches.length === 0 ? (
-        <div className="mt-2 border border-dashed px-3 py-4 text-center text-[11px] ink-border ink-text-faint">
+        <div className="mt-2 rounded-xl border border-dashed px-3 py-4 text-center text-[11px] ink-border ink-text-faint">
           暂无推演（决策点经 simulate_decision 展开分支，Evaluator 评分后换选）
         </div>
       ) : (
@@ -37,14 +37,14 @@ export function SimulationTree({ bindValue, onSwapBranch }: SimulationTreeProps)
             <div
               key={branch.branchId}
               className={cn(
-                'ink-elevated px-2.5 py-2',
+                'ink-elevated px-3 py-2',
                 branch.selected && 'border-[var(--ink-border-strong)]',
               )}
             >
               <div className="flex items-center gap-2">
                 <span
                   className={cn(
-                    'px-1.5 py-px text-[9px]',
+                    'rounded-md px-1.5 py-px text-[9px]',
                     branch.selected ? 'ink-panel' : 'ink-text-faint',
                   )}
                 >
@@ -73,7 +73,7 @@ export function SimulationTree({ bindValue, onSwapBranch }: SimulationTreeProps)
                     <li key={`${branch.branchId}-${index}`} className="flex items-center gap-1.5 text-[10px]">
                       <span
                         className={cn(
-                          'h-1.5 w-1.5 shrink-0',
+                          'h-1.5 w-1.5 shrink-0 rounded-full',
                           step.status === 'completed' ? 'bg-[var(--ink-border-strong)]' : step.status === 'failed' ? 'ink-accent' : 'bg-[var(--ink-border)]',
                         )}
                         aria-hidden

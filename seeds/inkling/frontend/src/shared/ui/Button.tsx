@@ -26,7 +26,7 @@ export function Button({ variant = 'secondary', size = 'sm', className, children
     <button
       type="button"
       className={cn(
-        'inline-flex items-center justify-center gap-1 font-medium transition-colors cursor-pointer disabled:opacity-40 disabled:cursor-default',
+        'inline-flex items-center justify-center gap-1 rounded-md font-medium transition-colors cursor-pointer disabled:opacity-40 disabled:cursor-default',
         variants[variant],
         sizes[size],
         className,

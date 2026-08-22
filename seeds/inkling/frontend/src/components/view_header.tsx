@@ -18,16 +18,16 @@ interface ViewHeaderProps {
 
 export function ViewHeader({ title = '', hint = '', onNavigate }: ViewHeaderProps) {
   return (
-    <header className="flex h-9 shrink-0 items-center gap-2 border-b px-2 ink-border">
+    <header className="flex h-11 shrink-0 items-center gap-2 border-b px-3 ink-border">
       <button
         data-ui="btn_back_main"
         onClick={() => onNavigate?.('main')}
-        className="flex items-center gap-1 px-1.5 py-0.5 text-[10px] cursor-pointer ink-text-muted hover:bg-[var(--ink-bg-elevated)] hover:text-[var(--ink-text-base)]"
+        className="flex items-center gap-1 rounded-md px-2 py-1 text-[11px] cursor-pointer ink-text-muted hover:bg-[var(--ink-bg-elevated)] hover:text-[var(--ink-text-base)]"
       >
-        <ArrowLeft size={10} strokeWidth={1.6} aria-hidden />
+        <ArrowLeft size={11} strokeWidth={1.6} aria-hidden />
         返回
       </button>
-      <span className="text-xs font-medium">{title}</span>
+      <span className="text-[13px] font-medium">{title}</span>
       {hint ? <span className="ml-auto text-[10px] ink-text-faint">{hint}</span> : null}
     </header>
   );

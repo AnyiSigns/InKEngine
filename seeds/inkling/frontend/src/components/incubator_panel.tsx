@@ -47,7 +47,7 @@ export function IncubatorPanel({ bindValue }: IncubatorPanelProps) {
       </div>
 
       {entries.length === 0 ? (
-        <div className="mt-2 border border-dashed px-3 py-4 text-center text-[11px] ink-border ink-text-faint">
+        <div className="mt-2 rounded-xl border border-dashed px-3 py-4 text-center text-[11px] ink-border ink-text-faint">
           暂无孵化信号（使用中积累的行为信号会在此沉淀）
         </div>
       ) : (
@@ -72,9 +72,9 @@ function IncubatorRow({ entry }: { entry: IncubationEntry }) {
         : 'ink-text-faint';
 
   return (
-    <div className="ink-elevated px-2.5 py-1.5">
+    <div className="ink-elevated px-3 py-2">
       <div className="flex items-center gap-2">
-        <span className={cn('px-1 py-px text-[9px]', tone)}>
+        <span className={cn('rounded-md px-1.5 py-px text-[9px]', tone)}>
           {signalLabel} · {stage}
         </span>
         {entry.gateLevel ? <span className="text-[9px] ink-text-faint">闸门 {entry.gateLevel}</span> : null}

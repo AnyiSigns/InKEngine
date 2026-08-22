@@ -358,6 +358,39 @@ export function setStreaming(hub: ChannelHub, streaming: boolean): void {
   hub.setState({ streaming });
 }
 
+/**
+ * 流式回复定型（回合 end 时驱动侧调用）：把回合内残留的 streaming 行
+ * 提交为正式 text/assistant 消息——消除永久闪烁光标（流式中途离开的语义）。
+ */
+export function commitStreaming(hub: ChannelHub, at = Date.now()): void {
+  void at;
+  const snapshot = hub.getSnapshot();
+  if (!snapshot.messages.some((m) => m.kind === 'streaming')) return;
+  const messages = snapshot.messages.map((m) =>
+    m.kind === 'streaming' ? { ...m, kind: 'text' as const, role: 'assistant' as const } : m,
+  );
+  hub.setState({ ...snapshot, messages, streaming: false });
+}
+
+/**
+ * 用户输入提交（会话驱动侧本地动作）：message_list 的用户气泡 + 演示占位回复。
+ * 集成期此处由引擎回合接管（该路径不产生引擎事件，仅落位本地面）。
+ */
+export function submitUserMessage(hub: ChannelHub, text: string, at = Date.now()): void {
+  const snapshot = hub.getSnapshot();
+  if (snapshot.streaming) return;
+  const roundId = snapshot.roundId ?? `round-${at}`;
+  const userMsg: InkMessage = { kind: 'text', role: 'user', content: text, id: nextId(), roundId };
+  const reply: InkMessage = {
+    kind: 'text',
+    role: 'assistant',
+    content: `收到：「${text}」。演示形态下回合由夹具事件驱动；集成期此处为引擎回合入口（route → tools → review → reply）。`,
+    id: nextId(),
+    roundId,
+  };
+  hub.setState({ ...snapshot, messages: [...snapshot.messages, userMsg, reply], roundId });
+}
+
 export function setGear(hub: ChannelHub, activeGear: Parameters<ChannelHub['setState']>[0]['activeGear']): void {
   hub.setState({ activeGear });
 }

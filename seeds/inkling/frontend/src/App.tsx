@@ -19,6 +19,7 @@ import { UIRenderer } from '@/renderer/bootRenderer';
 import { loadDomainComponents } from '@/domains/loader';
 import { ChannelHub } from '@/shared/session/channelHub';
 import { runFixtureSession } from '@/shared/session/fixtureScript';
+import { submitUserMessage } from '@/shared/session/eventIngest';
 import { logger } from '@/shared/logger';
 
 import uiSpecFixture from './data/ui_spec.fixture.json';
@@ -53,18 +54,24 @@ export default function App() {
 
   // 夹具会话驱动（演示形态；集成期替换为真实事件源）
   useEffect(() => {
-    const stop = runFixtureSession(hubRef.current as ChannelHub, { baseDelayMs: 500 });
+    const stop = runFixtureSession(hubRef.current as ChannelHub, { baseDelayMs: 250 });
     logger.info('app', '夹具会话已启动（演示形态，集成期换 M0 真实数据）');
     return stop;
   }, []);
 
   return (
-    <div className="ink-app flex h-screen flex-col overflow-hidden">
+    // .ink-app 由 index.css 布局：html/body/#root 100% 高度链 + 100% 高度，
+    // 文档流满铺，不依赖 100vh/100dvh/position:fixed——任何窗口下底部无杂色带。
+    <div className="ink-app">
       <UIRenderer
         spec={uiSpecFixture as Parameters<typeof UIRenderer>[0]['spec']}
         hub={hubRef.current}
         activeView={view}
         onNavigate={setView}
+        onSend={(text) => {
+          submitUserMessage(hubRef.current as ChannelHub, text);
+          logger.info('app', '用户输入提交（演示形态本地回执；集成期接引擎回合入口）', { length: text.length });
+        }}
         onResolveReview={(resolution) => {
           const hub = hubRef.current as ChannelHub;
           if (!hub) return;

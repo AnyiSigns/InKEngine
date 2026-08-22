@@ -15,7 +15,7 @@ export function Field({ label, hint, children, className }: { label: string; hin
 
 /** 表单控件统一样式（语义类取色，禁硬编码颜色）。 */
 export const inputCls =
-  'h-7 w-full border px-2 text-xs ink-panel focus:outline-none focus:border-[var(--ink-border-strong)]';
+  'h-7 w-full rounded-md border px-2 text-xs bg-[var(--ink-bg-base)] focus:outline-none focus:border-[var(--ink-border-strong)]';
 
 export function TextInput(props: React.InputHTMLAttributes<HTMLInputElement>) {
   const { className, ...rest } = props;

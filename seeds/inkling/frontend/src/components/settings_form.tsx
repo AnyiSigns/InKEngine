@@ -132,7 +132,7 @@ export function SettingsForm({ bindValue, onNavigate, onApplySettings }: Setting
 
   return (
     <div className="min-h-0 flex-1 overflow-y-auto">
-      <div className="mx-auto w-full max-w-3xl space-y-3 p-4">
+      <div className="mx-auto w-full max-w-3xl space-y-4 p-5">
         <SettingsSection icon={Boxes} title="入口" hint="三栏布局下其它功能统一经设置页进入">
           <div className="flex flex-wrap gap-1.5">
             {ENTRY_ITEMS.map((item) => {
@@ -142,18 +142,18 @@ export function SettingsForm({ bindValue, onNavigate, onApplySettings }: Setting
                   key={item.view}
                   data-ui={`entry_${item.view}`}
                   onClick={() => onNavigate?.(item.view)}
-                  className="ink-btn-secondary flex items-center gap-1.5 px-2.5 py-1.5 text-[11px] cursor-pointer hover:bg-[var(--ink-bg-elevated)]"
+                  className="ink-btn-secondary flex items-center gap-1.5 px-3 py-2 text-[12px] cursor-pointer hover:bg-[var(--ink-bg-elevated)]"
                 >
-                  <Icon size={11} strokeWidth={1.6} aria-hidden />
+                  <Icon size={12} strokeWidth={1.6} aria-hidden />
                   {item.label}
-                  <span className="text-[9px] ink-text-faint">{item.hint}</span>
+                  <span className="text-[10px] ink-text-faint">{item.hint}</span>
                 </button>
               );
             })}
             <button
               data-ui="entry_main"
               onClick={() => onNavigate?.('main')}
-              className="ink-btn-primary flex items-center gap-1.5 px-2.5 py-1.5 text-[11px] cursor-pointer"
+              className="ink-btn-primary flex items-center gap-1.5 px-3 py-2 text-[12px] cursor-pointer"
             >
               返回主界面
             </button>
@@ -164,7 +164,7 @@ export function SettingsForm({ bindValue, onNavigate, onApplySettings }: Setting
           <div className="space-y-2">
             {TIER_KEYS.map((tier) => (
               <div key={tier} className="flex items-center gap-2">
-                <span className="w-24 shrink-0 text-[11px] ink-text-muted">{TIER_LABELS[tier]}</span>
+                <span className="w-28 shrink-0 text-[12px] ink-text-muted">{TIER_LABELS[tier]}</span>
                 <TextInput
                   value={gear[tier].modelId}
                   placeholder="model_id"
@@ -392,7 +392,7 @@ export function SettingsForm({ bindValue, onNavigate, onApplySettings }: Setting
               白名单详情
             </button>
             {aboutOpen && (
-              <div className="border px-2 py-1.5 font-mono text-[9px] ink-border ink-text-faint">
+              <div className="rounded-md border px-2 py-1.5 font-mono text-[9px] ink-border ink-text-faint">
                 主题 token：bg.base / text.base / accent.approval
               </div>
             )}
@@ -424,11 +424,11 @@ function SettingsSection({
   children: React.ReactNode;
 }) {
   return (
-    <Card className="space-y-2">
+    <Card className="space-y-3">
       <div className="flex items-center gap-1.5">
-        <Icon size={12} strokeWidth={1.6} className="ink-text-faint" aria-hidden />
-        <span className="text-[11px] font-medium">{title}</span>
-        <span className="ml-auto text-[9px] ink-text-faint">{hint}</span>
+        <Icon size={13} strokeWidth={1.6} className="ink-text-faint" aria-hidden />
+        <span className="text-[12px] font-semibold">{title}</span>
+        <span className="ml-auto text-[10px] ink-text-faint">{hint}</span>
       </div>
       {children}
     </Card>

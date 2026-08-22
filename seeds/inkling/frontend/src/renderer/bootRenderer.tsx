@@ -73,6 +73,28 @@ function UINodeView({
   }
 
   if (node.kind === 'container') {
+    // overlay 容器：不占布局盒位（display:contents 等价语义，用 Fragment
+    // 直渲）。弹层组件自带 position:fixed 蒙层，若无盒位则不会在布局树中
+    // 留下空隙——此前 overlay 被当作普通 flex 子项（0 高）渲染，根容器
+    // gap-2 的间隙在 views 容器下方露出 8px 底色带（"上灰下白"）。
+    if (node.type === 'overlay') {
+      const layerChildren = node.children ?? [];
+      return (
+        <>
+          {layerChildren.map((child, index) => (
+            <UINodeView
+              key={`${path}.${index}`}
+              node={child}
+              path={`${path}.${index}`}
+              activeView={activeView}
+              depth={depth + 1}
+              chromeProps={chromeProps}
+              grow={grow}
+            />
+          ))}
+        </>
+      );
+    }
     // views 容器：按 activeView 过滤（未指定 = 全部渲染，直渲语义）
     const children = node.children ?? [];
     if (node.type === 'views' && activeView) {
@@ -95,7 +117,7 @@ function UINodeView({
     }
     const isRow = node.type === 'row';
     const gap = typeof node.props?.gap === 'number' ? Math.min(Math.max(node.props.gap, 0), 3) : 2;
-    const growClass = grow || node.props?.grow === true ? 'flex-1 min-h-0' : 'min-h-0';
+    const growClass = grow || node.props?.grow === true ? 'flex-1 min-h-0 min-w-0' : 'min-h-0 min-w-0';
     const scrollClass = !isRow && node.props?.scroll === true ? 'overflow-y-auto' : '';
     return (
       <div className={`flex ${isRow ? 'flex-row' : 'flex-col'} ${GAP_CLASSES[gap]} ${growClass} ${scrollClass}`}>
@@ -121,6 +143,8 @@ export interface RendererChrome {
   onNavigate?: (view: ViewId) => void;
   /** 审批卡决议（accept/reject/edit/terminate） */
   onResolveReview?: (resolution: 'accept' | 'reject' | 'edit' | 'terminate', editedContent?: string) => void;
+  /** 输入提交（宿主接线：引擎回合入口） */
+  onSend?: (text: string) => void;
 }
 
 /**
@@ -134,6 +158,7 @@ export function UIRenderer({
   activeView,
   onNavigate,
   onResolveReview,
+  onSend,
 }: {
   spec: UISpec | null;
   hub: ChannelHub | null;
@@ -150,6 +175,7 @@ export function UIRenderer({
   const chromeProps: Record<string, unknown> = {};
   if (onNavigate) chromeProps.onNavigate = onNavigate;
   if (onResolveReview) chromeProps.onResolveReview = onResolveReview;
+  if (onSend) chromeProps.onSend = onSend;
 
   if (!clean) {
     logSpecDamage(spec?.name ?? '(null)', validation.reason ?? '未知损坏');

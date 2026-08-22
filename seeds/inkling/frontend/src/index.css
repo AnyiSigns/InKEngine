@@ -1,10 +1,10 @@
 @import "tailwindcss";
 
-/* ===== InKling 黑白主题 token（跟随系统） =====
+/* ===== InKling 主题 token（跟随系统） =====
  *
  * 主题 token 白名单（与 renderer/themeTokens.ts 同源，来自 ui_spec.theme）：
- *   --ink-bg-base       底色  bg.base       出厂默认跟随系统：亮=白 / 暗=墨
- *   --ink-text-base     字色  text.base     出厂默认跟随系统：亮=墨 / 暗=纸白
+ *   --ink-bg-base         底色  bg.base       出厂默认跟随系统：亮=纸白 / 暗=墨
+ *   --ink-text-base       字色  text.base     出厂默认跟随系统：亮=墨 / 暗=纸白
  *   --ink-accent-approval 朱砂 accent.approval（仅审批/决策点）
  * 其余 --ink-* 均为以上白名单 token 的派生值（color-mix 计算，非硬编码颜色），
  * 随白名单 token 演化而演化。组件一律经语义类取色，不直接书写颜色值。
@@ -12,56 +12,81 @@
  * 跟随系统：ui_spec.theme 不声明白名单 token 时，CSS 默认值由
  * prefers-color-scheme 决定（亮/暗两套）；设置页外观试穿经
  * applyThemeTokens 以 inline 变量覆盖（白名单内，可还原回跟随系统）。
+ *
+ * 设计语言（DeepSeek harness 参照，不照搬）：
+ * 无衬线正文、低对比中性灰、圆角、宽裕留白、气泡式消息；保留墨/纸
+ * identity——等宽仅用于代码/元信息，朱砂仅出现在审批/决策点。
  */
 
 :root {
-  --ink-bg-base: #ffffff;
-  --ink-text-base: #18181b;
+  --ink-bg-base: #f9f9fb;
+  --ink-text-base: #21242c;
 
   --ink-bg-surface: color-mix(in srgb, var(--ink-text-base) 3.5%, var(--ink-bg-base));
-  --ink-bg-elevated: color-mix(in srgb, var(--ink-text-base) 6%, var(--ink-bg-base));
-  --ink-border: color-mix(in srgb, var(--ink-text-base) 13%, transparent);
-  --ink-border-strong: color-mix(in srgb, var(--ink-text-base) 28%, transparent);
-  --ink-text-muted: color-mix(in srgb, var(--ink-text-base) 62%, var(--ink-bg-base));
-  --ink-text-faint: color-mix(in srgb, var(--ink-text-base) 38%, var(--ink-bg-base));
+  --ink-bg-elevated: color-mix(in srgb, var(--ink-text-base) 7%, var(--ink-bg-base));
+  --ink-border: color-mix(in srgb, var(--ink-text-base) 10%, transparent);
+  --ink-border-strong: color-mix(in srgb, var(--ink-text-base) 24%, transparent);
+  --ink-text-muted: color-mix(in srgb, var(--ink-text-base) 58%, var(--ink-bg-base));
+  --ink-text-faint: color-mix(in srgb, var(--ink-text-base) 34%, var(--ink-bg-base));
 
-  --ink-accent-approval: #b45309;
+  --ink-accent-approval: #c2410c;
   --ink-accent-soft: color-mix(in srgb, var(--ink-accent-approval) 12%, transparent);
-  --ink-accent-border: color-mix(in srgb, var(--ink-accent-approval) 45%, transparent);
+  --ink-accent-border: color-mix(in srgb, var(--ink-accent-approval) 40%, transparent);
 
-  /* 终端 harness 美学（Codex CLI / DeepSeek harness 参照）：
-   * 等宽字体主导、直角、低对比细边框、无阴影、高信息密度。 */
   --font-sans:
-    "Geist Mono", "Cascadia Code", "JetBrains Mono", "SFMono-Regular",
-    Consolas, "Microsoft YaHei", monospace;
+    "Inter", "Segoe UI Variable", "Segoe UI", system-ui, -apple-system,
+    "PingFang SC", "HarmonyOS Sans SC", "Microsoft YaHei", sans-serif;
   --font-mono: "Geist Mono", "Cascadia Code", "JetBrains Mono", "SFMono-Regular", Consolas, monospace;
 }
 
 @media (prefers-color-scheme: dark) {
   :root {
-    --ink-bg-base: #0a0a0b;
-    --ink-text-base: #e4e4e7;
+    --ink-bg-base: #0c0d10;
+    --ink-text-base: #e8e9ed;
     --ink-accent-approval: #f59e0b;
   }
 }
 
 /* ===== 语义类（组件取色唯一通道，禁硬编码颜色） ===== */
 
+/* ---------------------------------------------------------------
+ * 高度链：html/body/#root 全高 + .ink-app 100%——布局完全由文档流
+ * 决定，视口「可视区」不再作为隐含前提（position:fixed 的
+ * inset:0 依赖浏览器对 fixed 定位的合成，DPI/缩放/窗口尺寸
+ * 变化下可能留下未渲染带）。
+ * --------------------------------------------------------------- */
+html,
+body,
+#root {
+  height: 100%;
+}
+
+/* ---------------------------------------------------------------
+ * .ink-app：根容器，占满 #root（即窗口可视区）。
+ * --------------------------------------------------------------- */
 .ink-app {
+  display: flex;
+  flex-direction: column;
+  height: 100%;
+  min-height: 100%;
+  overflow: hidden;
   background: var(--ink-bg-base);
   color: var(--ink-text-base);
   font-family: var(--font-sans);
   -webkit-font-smoothing: antialiased;
+  text-rendering: optimizeLegibility;
 }
 
 .ink-panel {
   background: var(--ink-bg-surface);
   border: 1px solid var(--ink-border);
+  border-radius: 0.75rem;
 }
 
 .ink-elevated {
   background: var(--ink-bg-elevated);
   border: 1px solid var(--ink-border);
+  border-radius: 0.75rem;
 }
 
 .ink-border {
@@ -86,33 +111,48 @@
 
 .ink-accent-bg {
   background: var(--ink-accent-soft);
-  border-color: var(--ink-accent-border);
+  border: 1px solid var(--ink-accent-border);
 }
 
 .ink-btn-primary {
   background: var(--ink-text-base);
   color: var(--ink-bg-base);
+  border: 1px solid transparent;
+  border-radius: 0.5rem;
 }
 
 .ink-btn-primary:hover {
-  opacity: 0.85;
+  opacity: 0.88;
 }
 
 .ink-btn-secondary {
   background: transparent;
   border: 1px solid var(--ink-border);
   color: var(--ink-text-base);
+  border-radius: 0.5rem;
 }
 
 .ink-btn-secondary:hover {
   background: var(--ink-bg-elevated);
 }
 
+/* 软阴影（输入区/弹层等单点使用，浅而弥散） */
+.ink-shadow-soft {
+  box-shadow: 0 1px 2px color-mix(in srgb, var(--ink-text-base) 6%, transparent);
+}
+
+.ink-shadow-pop {
+  box-shadow: 0 12px 40px color-mix(in srgb, var(--ink-text-base) 18%, transparent);
+}
+
 /* ===== 基础重置 ===== */
 
 * {
   border-color: var(--ink-border);
-  border-radius: 0;
+}
+
+html {
+  background: var(--ink-bg-base);
 }
 
 body {
@@ -120,21 +160,25 @@ body {
   background: var(--ink-bg-base);
   color: var(--ink-text-base);
   font-family: var(--font-sans);
+  overflow: hidden;
+  overscroll-behavior: none;
 }
 
-/* 终端式选区（harness 常用反向色块） */
 ::selection {
   background: var(--ink-text-base);
   color: var(--ink-bg-base);
 }
 
 ::-webkit-scrollbar {
-  width: 4px;
-  height: 4px;
+  width: 8px;
+  height: 8px;
 }
 
 ::-webkit-scrollbar-thumb {
   background: var(--ink-border-strong);
+  border-radius: 9999px;
+  border: 2px solid transparent;
+  background-clip: padding-box;
 }
 
 ::-webkit-scrollbar-track {
@@ -148,7 +192,7 @@ button {
   font-family: inherit;
 }
 
-/* 线性美学统一动效与焦点：交互一律轻过渡，键盘焦点用 hairline 描边。 */
+/* 交互统一轻过渡与焦点：焦点用圆角描边 */
 button,
 a,
 input,
@@ -158,12 +202,24 @@ select {
     background-color 150ms ease,
     border-color 150ms ease,
     color 150ms ease,
-    opacity 150ms ease;
+    opacity 150ms ease,
+    box-shadow 150ms ease;
 }
 
 :focus-visible {
-  outline: 1px solid var(--ink-border-strong);
+  outline: 1.5px solid var(--ink-border-strong);
   outline-offset: 1px;
+}
+
+/* 输入外壳（ink-input-shell · focus-within 容器）：焦点由壳层边框表达，
+   内部表单元素自带 outline 关闭——避免「两个框」叠框。 */
+.ink-input-shell:focus-within {
+  border-color: var(--ink-border-strong);
+}
+
+.ink-input-shell input:focus,
+.ink-input-shell textarea:focus {
+  outline: none;
 }
 
 /* ===== 消息流增量渲染与流式动效 ===== */
@@ -171,6 +227,7 @@ select {
 .ink-scroll-auto {
   overflow-y: auto;
   scrollbar-width: thin;
+  min-height: 0;
 }
 
 @keyframes ink-shimmer {
@@ -203,6 +260,18 @@ select {
   50% { opacity: 0; }
 }
 
+/* 消息气泡（用户侧浅灰底，assistant 侧纸面；勿与朱砂混用） */
+.ink-bubble-user {
+  background: var(--ink-bg-elevated);
+  border-radius: 1rem;
+  border-bottom-right-radius: 0.375rem;
+}
+
+.ink-bubble-assistant {
+  background: transparent;
+  border-radius: 0;
+}
+
 /* 审批卡弹层遮罩（朱砂 accent，居中） */
 .ink-modal-mask {
   position: fixed;
@@ -211,6 +280,6 @@ select {
   display: flex;
   align-items: center;
   justify-content: center;
-  background: color-mix(in srgb, var(--ink-bg-base) 55%, transparent);
-  backdrop-filter: blur(2px);
+  background: color-mix(in srgb, var(--ink-bg-base) 60%, transparent);
+  backdrop-filter: blur(3px);
 }

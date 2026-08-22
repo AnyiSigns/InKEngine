@@ -41,7 +41,7 @@ export function EvolutionTimeline({ bindValue }: EvolutionTimelineProps) {
       </div>
 
       {chain.length === 0 ? (
-        <div className="mt-2 border border-dashed px-3 py-4 text-center text-[11px] ink-border ink-text-faint">
+        <div className="mt-2 rounded-xl border border-dashed px-3 py-4 text-center text-[11px] ink-border ink-text-faint">
           补丁链为空（变化经 propose_patch → 分级审批 → append 沉淀于此）
         </div>
       ) : (
@@ -52,16 +52,16 @@ export function EvolutionTimeline({ bindValue }: EvolutionTimelineProps) {
                 <span className="absolute left-[5px] top-3 h-[calc(100%-8px)] w-px bg-[var(--ink-border)]" aria-hidden />
               )}
               <span
-                className="absolute left-0 top-1.5 h-2.5 w-2.5 border"
+                className="absolute left-0 top-1.5 h-2.5 w-2.5 rounded-full border border-[var(--ink-border-strong)] bg-[var(--ink-bg-elevated)]"
                 aria-hidden
               />
               <div className="min-w-0 flex-1">
                 <div className="flex items-center gap-2">
                   <span className="truncate text-[11px]">{entry.title}</span>
-                  <span className="bg-[var(--ink-bg-elevated)] px-1 py-px text-[9px] font-mono ink-text-faint">
+                  <span className="rounded-md bg-[var(--ink-bg-elevated)] px-1.5 py-px text-[9px] font-mono ink-text-faint">
                     {entry.kind}
                   </span>
-                  <span className={cn('ml-auto shrink-0 px-1 py-px text-[9px]', statusTone(entry.status))}>
+                  <span className={cn('ml-auto shrink-0 rounded-md px-1.5 py-px text-[9px]', statusTone(entry.status))}>
                     {STATUS_LABELS[entry.status]}
                   </span>
                 </div>

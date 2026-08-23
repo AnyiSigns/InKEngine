@@ -71,6 +71,23 @@ fn cosine(a: &[f64], b: &[f64]) -> f64 {
     dot / (na.sqrt() * nb.sqrt() + 1e-12)
 }
 
+/// 余弦相似度（查询向量 × BLOB 原始字节：不落地解码分配，检索热路径用）。
+///
+/// 调用方保证 blob 长度 = `query.len() * 8`（维数不符走损坏行跳过，
+/// 不在这里截断对账——对账一次在检索循环里做，语义集中）。
+fn cosine_blob(query: &[f64], blob: &[u8]) -> f64 {
+    let mut dot = 0.0;
+    let mut na = 0.0;
+    let mut nb = 0.0;
+    for (x, chunk) in query.iter().zip(blob.chunks_exact(8)) {
+        let y = f64::from_le_bytes(chunk.try_into().expect("8 字节块"));
+        dot += x * y;
+        na += x * x;
+        nb += y * y;
+    }
+    dot / (na.sqrt() * nb.sqrt() + 1e-12)
+}
+
 /// 单条检索命中（分数为余弦相似度，取值 [-1, 1]，降序）。
 #[derive(Debug, Clone, PartialEq)]
 pub struct VectorHit {
@@ -279,6 +296,9 @@ impl VectorCatalog {
     ///
     /// 只比对与查询同维的条目（dim 列过滤），不同维度的旧版本向量
     /// 天然不会串扰——维度变更只影响该条目，不影响整库语义。
+    ///
+    /// 热路径不逐行解码分配（余弦直接在 BLOB 上计算）：千级 × 384 维
+    /// 单查询保持毫秒级，维数不符的行先判跳过。
     pub fn search(&self, query: &[f64], limit: usize) -> Result<Vec<VectorHit>, DomainError> {
         if query.is_empty() {
             return Err(DomainError::InvalidData("查询向量不能为空".to_string()));
@@ -287,6 +307,10 @@ impl VectorCatalog {
             .conn
             .prepare("SELECT entry_id, dim, vector FROM entry_vectors WHERE dim = ?1")
             .map_err(|e| DomainError::Storage(format!("检索语句准备失败: {e}")))?;
+        let expected_blob = query
+            .len()
+            .checked_mul(8)
+            .ok_or_else(|| DomainError::InvalidData("查询向量维度溢出".to_string()))?;
         let rows = stmt
             .query_map([query.len() as i64], |row| {
                 let entry_id: String = row.get(0)?;
@@ -300,12 +324,12 @@ impl VectorCatalog {
             let (entry_id, dim, blob) =
                 row.map_err(|e| DomainError::Storage(format!("检索行读取失败: {e}")))?;
             // 数据损坏行跳过（BLOB 截断/异常维度），不因单条坏数据拖垮检索
-            let Ok(vector) = decode_vec(&blob, dim) else {
+            if dim != query.len() || blob.len() != expected_blob {
                 continue;
-            };
+            }
             hits.push(VectorHit {
                 entry_id,
-                score: cosine(query, &vector),
+                score: cosine_blob(query, &blob),
             });
         }
         hits.sort_by(|a, b| {

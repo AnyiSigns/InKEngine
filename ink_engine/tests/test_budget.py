@@ -11,7 +11,14 @@ from __future__ import annotations
 
 import pytest
 
-from ink_engine.core.budget import BudgetManager, BudgetPolicy
+from ink_engine.core.budget import (
+    BudgetManager,
+    BudgetPolicy,
+    BudgetQuery,
+    BudgetRemaining,
+    can_afford,
+    remaining_after,
+)
 from ink_engine.core.exceptions import BudgetExceededError
 
 
@@ -105,3 +112,85 @@ def test_budget_exceeded_carries_details():
     assert "tokens" in str(err)
     assert "1000" in str(err)
     assert "1200" in str(err)
+
+
+# ── 预算余量只读查询（预检 fail-closed）──
+
+
+class QueryPolicy(BudgetPolicy, BudgetQuery):
+    """同时实现终止式检查与余量查询的预算策略。"""
+
+    def __init__(self, limit: float, used: float = 0.0, name: str = "tokens"):
+        self.limit = limit
+        self.used = used
+        self.name = name
+
+    async def check(self, ctx) -> None:
+        if self.used >= self.limit:
+            raise BudgetExceededError(self.name, self.limit, self.used)
+
+    async def remaining(self, ctx) -> BudgetRemaining:
+        return BudgetRemaining(
+            policy=self.name,
+            limit=self.limit,
+            used=self.used,
+            remaining=max(0.0, self.limit - self.used),
+        )
+
+
+async def test_query_remaining_readonly():
+    """余量只读查询：不抛异常、不影响 check 语义（预检与终止解耦）。"""
+    manager = BudgetManager()
+    manager.register(QueryPolicy(limit=100.0, used=30.0))
+    results = await manager.query_remaining(None)
+    assert len(results) == 1
+    assert results[0].remaining == 70.0
+    assert not results[0].unavailable
+    # check 语义不变（超限仍抛）
+    await manager.check(None)
+
+
+async def test_query_remaining_multiple_dimensions_min():
+    """多维度余量 = 取各维最小值（最紧维度约束预检）。"""
+    manager = BudgetManager()
+    manager.register(QueryPolicy(limit=100.0, used=10.0, name="tokens"))
+    manager.register(QueryPolicy(limit=50.0, used=40.0, name="steps"))
+    results = await manager.query_remaining(None)
+    assert remaining_after(results) == 10.0
+    assert can_afford(results, 5.0)
+    assert not can_afford(results, 11.0)
+
+
+async def test_query_remaining_policy_error_fail_closed():
+    """查询故障维度 = 标记不可用（fail-closed：余量视为 0，不得放行）。"""
+
+    class BrokenQuery(BudgetPolicy, BudgetQuery):
+        async def check(self, ctx) -> None:
+            return None
+
+        async def remaining(self, ctx) -> BudgetRemaining:
+            raise RuntimeError("查询故障")
+
+    manager = BudgetManager()
+    manager.register(BrokenQuery())
+    results = await manager.query_remaining(None)
+    assert len(results) == 1
+    assert results[0].unavailable is True
+    assert results[0].remaining == 0.0
+    assert not can_afford(results, 0.0)  # 无法确认余量 = 拒绝放行
+
+
+async def test_query_remaining_no_policies_unlimited():
+    """无预算维度 = 不限（未启用预算语义时预检放行）。"""
+    manager = BudgetManager()
+    results = await manager.query_remaining(None)
+    assert results == ()
+    assert remaining_after(results) is None
+    assert can_afford(results, 1e9)
+
+
+def test_budget_remaining_dataclass():
+    """余量结果纯数据形态（可落库可断言）。"""
+    r = BudgetRemaining(policy="tokens", limit=100, used=30, remaining=70)
+    assert r.remaining == 70
+    assert r.unavailable is False

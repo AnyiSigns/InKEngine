@@ -57,6 +57,13 @@ from .plan import (
 from .recovery import resolve_resume, tail_checkpoint
 from .run_result import RunOptions, RunResult  # 结果契约/执行选项（独立模块）
 from .security import strip_sensitive
+from .settle import (
+    TRACE_FAILED,
+    TRACE_SKIPPED,
+    TRACE_SUCCESS,
+    SettleContext,
+    TraceStep,
+)
 from .simulation import (
     SIMULATE_KEY,
     BestBranchMixer,
@@ -319,6 +326,28 @@ class _NodeContextImpl(NodeContext):
         """声明终止（校验延迟到执行器检查点：编程错误不被节点异常捕获吞掉）。"""
         self._terminated = reason
 
+    def account_usage(self, usage: dict | None) -> None:
+        """结点执行边界 token 计账（LLM usage 帧 → 当前结点，纯算法）。
+
+        usage 帧形态与 LLMChunk.usage 对齐（total_tokens 或
+        prompt_tokens + completion_tokens）；记入本 run 的成本账，
+        随沉淀钩子按边归集 avg_cost。未调用 = 无成本记录，零影响。
+        """
+        if not usage or not isinstance(usage, dict):
+            return
+        tokens = usage.get("total_tokens")
+        if tokens is None:
+            prompt = usage.get("prompt_tokens")
+            completion = usage.get("completion_tokens")
+            tokens = (prompt or 0) + (completion or 0)
+        try:
+            tokens = int(tokens)
+        except (TypeError, ValueError):
+            return
+        if tokens <= 0:
+            return
+        self._engine._trace_add_tokens(self.graph_path, self.node, tokens)
+
 async def _select_next_node(graph: Graph, ctx: NodeContext, current: str) -> str | None:
     """选择下一节点：静态边直接取；条件边逐条判定（首个为真生效）。
 
@@ -419,6 +448,14 @@ class Engine:
         self._assembler = (
             InputAssembler(self.options.assembly) if self.options.assembly is not None else None
         )
+        # 结点级成败留痕（沉淀钩子输入）：本 run 的执行轨迹与成本账，
+        # 不发射事件（观测侧零影响）。_execute 入口复位；嵌套引擎
+        # （子图/实例/分支）执行完经合并点并入父引擎。
+        self._run_trace: list[TraceStep] = []
+        self._node_tokens: dict[tuple[tuple[str, ...], str], int] = {}
+        self._trace_graphs: dict[tuple[str, ...], Graph] = {}
+        self._pending_step: TraceStep | None = None
+        self._trace_lock = asyncio.Lock()
 
     async def _publish(
         self, event: EngineEvent, *, transports: list[EngineTransport] | None = None
@@ -581,6 +618,9 @@ class Engine:
                 yield event
             _, run_result = await task
             self._record_run_metrics(run_result)
+            await self._settle_run(
+                run_result, thread_id=thread_id, round_id=round_id, trace_id=trace_id
+            )
         finally:
             # 消费方提前退出（断连/break）：取消后台执行任务并等待其真正停止
             # （否则任务继续调 LLM/写 checkpoint，成本与数据泄漏）
@@ -643,6 +683,9 @@ class Engine:
                 transports=[*self.options.transports, *(transports or [])],
             )
             self._record_run_metrics(result)
+            await self._settle_run(
+                result, thread_id=thread_id, round_id=round_id, trace_id=trace_id
+            )
             return result
         finally:
             if inject:
@@ -678,6 +721,98 @@ class Engine:
             return
         failed = result.reason == TerminateReason.ERROR
         metrics.record_turn(failed=failed, error=result.error or "")
+
+    # ── 结点级成败留痕（沉淀钩子输入；只记录不裁决，观测侧零影响）──
+
+    def _trace_reset(self, graph: Graph, graph_path: tuple[str, ...]) -> None:
+        """复位本引擎的轨迹（_execute 入口调用；嵌套引擎各自独立）。"""
+        self._run_trace.clear()
+        self._node_tokens.clear()
+        self._trace_graphs.clear()
+        self._pending_step = None
+        self._trace_graphs[graph_path] = graph
+
+    def _trace_open(self, graph_path: tuple[str, ...], node: str) -> None:
+        """打开当前结点的步骤（成败在收尾前经标记定型）。"""
+        self._pending_step = TraceStep(
+            graph_path=graph_path, node=node, status=TRACE_SUCCESS
+        )
+
+    def _trace_mark_failed(self) -> None:
+        if self._pending_step is not None:
+            self._pending_step.status = TRACE_FAILED
+
+    def _trace_mark_skipped(self) -> None:
+        if self._pending_step is not None:
+            self._pending_step.status = TRACE_SKIPPED
+
+    async def _trace_close_pending(self) -> None:
+        """收尾当前结点的步骤（成本归集 + 入轨迹；无待收尾 = 空操作）。"""
+        step = self._pending_step
+        if step is None:
+            return
+        self._pending_step = None
+        step.tokens = self._node_tokens.get((step.graph_path, step.node), 0)
+        async with self._trace_lock:
+            self._run_trace.append(step)
+
+    def _trace_add_tokens(
+        self, graph_path: tuple[str, ...], node: str, tokens: int
+    ) -> None:
+        """结点执行边界 token 计账（usage 帧纯算法归集；不发射事件）。"""
+        key = (graph_path, node)
+        self._node_tokens[key] = self._node_tokens.get(key, 0) + tokens
+
+    async def _trace_append_member(
+        self, graph_path: tuple[str, ...], node: str, status: str
+    ) -> None:
+        """并行组成员步骤直入轨迹（member 标记：不参与边遍历推导）。"""
+        step = TraceStep(
+            graph_path=graph_path,
+            node=node,
+            status=status,
+            tokens=self._node_tokens.get((graph_path, node), 0),
+            member=True,
+        )
+        async with self._trace_lock:
+            self._run_trace.append(step)
+
+    def _trace_merge_from(self, sub_engine: Engine) -> None:
+        """并入嵌套引擎（子图/实例/分支）的轨迹、图映射与成本账。"""
+        self._run_trace.extend(sub_engine._run_trace)
+        self._trace_graphs.update(sub_engine._trace_graphs)
+        for key, tokens in sub_engine._node_tokens.items():
+            self._node_tokens[key] = self._node_tokens.get(key, 0) + tokens
+
+    async def _settle_run(
+        self,
+        result: RunResult,
+        *,
+        thread_id: str,
+        round_id: str | None,
+        trace_id: str,
+    ) -> None:
+        """沉淀钩子触发（run 收尾、指标采集之后；注册式扩展）。
+
+        只记录不裁决：钩子异常在注册体内捕获记日志，不阻断 run 结果
+        交付；未注入沉淀钩子（RunOptions.settle=None）= 关闭，零影响。
+        """
+        hooks = self.options.settle
+        if hooks is None:
+            return
+        from .settle import DEFAULT_DOMAIN
+
+        ctx = SettleContext(
+            thread_id=thread_id,
+            round_id=round_id,
+            trace_id=trace_id,
+            domain=self.options.domain or DEFAULT_DOMAIN,
+            steps=tuple(self._run_trace),
+            node_tokens=dict(self._node_tokens),
+            graphs=dict(self._trace_graphs),
+            result=result,
+        )
+        await hooks.run(ctx)
 
     @staticmethod
     async def decision_anchor(
@@ -831,6 +966,9 @@ class Engine:
         # 首写跟随父链尾），不复位。
         self._event_counter = 0
         self._latest_event_seq = None
+        # 结点级成败留痕复位（本引擎每轮独立；嵌套引擎执行完经合并点
+        # 并入父引擎，不在此跨轮残留）
+        self._trace_reset(graph, graph_path)
 
         # ── 恢复：checkpoint 快照 + 增量日志重放（断线续流，解析在 recovery 模块）──
         current: str = graph.entry
@@ -954,6 +1092,8 @@ class Engine:
             # 复用会让后续节点拿到上一节点的陈旧上下文且无留痕（每次节点
             # 执行前统一调配 + 留痕可回放的前提）
             ctx._assembled = None
+            # 上一结点步骤收尾（成败已在结点块内标记定型；成本此刻归集）
+            await self._trace_close_pending()
 
             # ── 恢复终点：已完成节点无出边，直接进入终态收尾 ──
             if skip_first_node:
@@ -1035,6 +1175,10 @@ class Engine:
             # 激活记录只留痕一次
             await ctx.preassemble()
 
+            # 结点级成败留痕：打开当前结点步骤（成败在结点块内标记，
+            # 收尾在下一循环头或循环出口；不发射事件）
+            self._trace_open(graph_path=ctx.graph_path, node=current)
+
             # ── 执行节点（重试 N 次 / 终止；兼容同步/异步节点函数）──
             overlay: dict | None = None
             node_error: str | None = None
@@ -1078,7 +1222,10 @@ class Engine:
                         # 跳过语义：节点异常忽略（无增量），图继续按边走
                         logger.warning(f"节点异常跳过（error_on_exception=False）[{current}]: {exc}")
                     break
+            if node_error is not None:
+                self._trace_mark_failed()
             if interrupt_state is not None:
+                self._trace_mark_skipped()
                 break
             if reason in (TerminateReason.ERROR, TerminateReason.STOP):
                 break
@@ -1088,6 +1235,7 @@ class Engine:
                 node_error = f"节点返回非法增量类型: {type(overlay).__name__}（须为 dict 或 None）"
                 logger.error(f"节点返回非法增量类型 [{current}]: {type(overlay).__name__}")
                 await ctx.emit("error", {"node": current, "message": node_error})
+                self._trace_mark_failed()
                 error_msg = node_error
                 reason = TerminateReason.ERROR
                 break
@@ -1111,6 +1259,7 @@ class Engine:
                     node_error = f"spawn 清单非法: {exc}"
                     logger.error(f"spawn 清单非法 [{current}]: {exc}")
                     await ctx.emit("error", {"node": current, "message": node_error})
+                    self._trace_mark_failed()
                     error_msg = node_error
                     reason = TerminateReason.ERROR
                     break
@@ -1144,6 +1293,7 @@ class Engine:
                     node_error = f"计划清单非法: {exc}"
                     logger.error(f"计划清单非法 [{current}]: {exc}")
                     await ctx.emit("error", {"node": current, "message": node_error})
+                    self._trace_mark_failed()
                     error_msg = node_error
                     reason = TerminateReason.ERROR
                     break
@@ -1170,6 +1320,7 @@ class Engine:
                     node_error = f"推演清单非法: {exc}"
                     logger.error(f"推演清单非法 [{current}]: {exc}")
                     await ctx.emit("error", {"node": current, "message": node_error})
+                    self._trace_mark_failed()
                     error_msg = node_error
                     reason = TerminateReason.ERROR
                     break
@@ -1198,6 +1349,7 @@ class Engine:
                     )
                     logger.error(f"spawn 清单超限 [{current}]: {node_error}")
                     await ctx.emit("error", {"node": current, "message": node_error})
+                    self._trace_mark_failed()
                     error_msg = node_error
                     reason = TerminateReason.ERROR
                     break
@@ -1216,6 +1368,7 @@ class Engine:
                         node=current,
                         graph_path=ctx.graph_path,
                     )
+                    self._trace_mark_skipped()
                     reason = "interrupted"
                     break
                 if spawn_result.overlay:
@@ -1269,12 +1422,14 @@ class Engine:
                         node=current,
                         graph_path=ctx.graph_path,
                     )
+                    self._trace_mark_skipped()
                     reason = "interrupted"
                     break
                 except SimulationError as exc:
                     node_error = f"推演失败: {exc}"
                     logger.error(f"推演失败 [{current}]: {exc}")
                     await ctx.emit("error", {"node": current, "message": node_error})
+                    self._trace_mark_failed()
                     error_msg = node_error
                     reason = TerminateReason.ERROR
                     break
@@ -1376,6 +1531,9 @@ class Engine:
                 current = nxt
             else:
                 break
+
+        # 收尾：最后一个结点的步骤留痕（成败已在退出路径标记定型）
+        await self._trace_close_pending()
 
         # ── 审批挂起卡进事件流：中断负载（审批卡内容）随回合事件直出，
         # 前端据此渲染审批卡。挂起语义住引擎——传输层/渲染器可换，换栈
@@ -1729,6 +1887,10 @@ class Engine:
                             outcome.terminate = (
                                 member_ctx.terminate_reason or TerminateReason.REPLY
                             )
+                        # 成员步骤留痕（与主循环同口径；成败定型后直入轨迹）
+                        await self._trace_append_member(
+                            member_ctx.graph_path, name, TRACE_SUCCESS
+                        )
                         return
                     except InterruptSignal as sig:
                         outcome.interrupt = InterruptState(
@@ -1737,6 +1899,9 @@ class Engine:
                             node=name,
                             graph_path=ctx.graph_path,
                         )
+                        await self._trace_append_member(
+                            member_ctx.graph_path, name, TRACE_SKIPPED
+                        )
                         return
                     except Exception as exc:
                         if attempt < self.options.max_node_retries:
@@ -1744,6 +1909,9 @@ class Engine:
                         errors[name] = f"节点执行失败: {name}"
                         logger.error(
                             f"并行组成员执行失败 [{name}]: {exc}", exc_info=exc
+                        )
+                        await self._trace_append_member(
+                            member_ctx.graph_path, name, TRACE_FAILED
                         )
                         return
 
@@ -1984,6 +2152,8 @@ class Engine:
             # 实例事件并入父引擎计数与 seq 锚点（事件统一落父链日志，父引擎
             # 后续 checkpoint 须以含实例事件的最新 seq 为锚，防恢复重放重复）
             self._event_counter += sub_engine._event_counter
+            # 实例轨迹并入父引擎（结点级成败留痕跨层连续）
+            self._trace_merge_from(sub_engine)
             if sub_engine._latest_event_seq is not None:
                 self._latest_event_seq = (
                     sub_engine._latest_event_seq
@@ -2101,6 +2271,8 @@ class Engine:
             )
             # 分支事件并入父引擎计数与 seq 锚点（与 spawn 实例同口径）
             self._event_counter += sub_engine._event_counter
+            # 分支轨迹并入父引擎（结点级成败留痕跨层连续）
+            self._trace_merge_from(sub_engine)
             if sub_engine._latest_event_seq is not None:
                 self._latest_event_seq = (
                     sub_engine._latest_event_seq
@@ -2293,6 +2465,8 @@ async def run_subgraph(subgraph: Graph, parent_ctx: NodeContext) -> dict | None:
         engine._chain_advanced = True
     # 子图事件并入父引擎计数（父结果 events_emitted 含子图发射量）
     engine._event_counter += sub_engine._event_counter
+    # 子图轨迹并入父引擎（结点级成败留痕跨层连续，沉淀回放同源）
+    engine._trace_merge_from(sub_engine)
     # 子图事件 seq 同步回父引擎：子图事件已落父 thread 日志，父引擎
     # 后续 checkpoint 锚点须含子图事件 seq（否则恢复时子图事件被重复
     # 重放）。子图引擎 _latest_event_seq 与父引擎同读父日志，取大者。

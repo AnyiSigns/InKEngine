@@ -13,7 +13,7 @@ executor 执行语义——供 engine 重建装配（runtime.py）、测试与�
 from __future__ import annotations
 
 from dataclasses import dataclass, field
-from typing import Any
+from typing import TYPE_CHECKING, Any
 
 from .assembly import AssemblyConfig
 from .budget import BudgetManager
@@ -25,6 +25,9 @@ from .simulation import DEFAULT_MAX_SIMULATIONS, BranchMixer, Evaluator
 from .state import StateSchema
 from .storage import Storage
 from .tuning import TurnMetrics
+
+if TYPE_CHECKING:
+    from .settle import SettleHooks
 
 
 @dataclass(slots=True)
@@ -86,6 +89,11 @@ class RunOptions:
     # 记录回合成败与错误摘要（评审分/收敛轮数/挡位调用由使用方按事件
     # 语义填报——引擎只采集自身可见的执行事实）；None = 不采集
     metrics: TurnMetrics | None = None
+    # 上下文域（证据归因的聚合键：边证据永远按域分组，不做跨域平均；
+    # None = 登记到缺省域）
+    domain: str | None = None
+    # 沉淀钩子注册体（run 收尾触发；None = 关闭沉淀，运行侧零影响）
+    settle: SettleHooks | None = None
 
 
 @dataclass(slots=True)

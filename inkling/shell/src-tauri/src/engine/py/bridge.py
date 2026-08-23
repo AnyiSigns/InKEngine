@@ -1140,8 +1140,15 @@ async def execute_round_to_reply(
 
 
 async def stop_runtime(runtime) -> None:
-    """关停运行时（幂等；排队等完成/关 MCP/关存储/宿主钩子由引擎保证）。"""
+    """关停运行时（幂等；排队等完成/关 MCP/关存储/宿主钩子由引擎保证）。
+
+    关停同时解绑模块级运行时句柄——装配期外的操作通道回到
+    「未装配」显式报错态（进程级单例语义：宿主回收后不得再被
+    误用；测试环境依赖此语义恢复前置条件）。
+    """
     await runtime.stop()
+    bind_runtime(None, None)
+    bind_callback_host(None)
 
 
 def boot_summary(runtime):

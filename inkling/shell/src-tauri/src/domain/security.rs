@@ -36,7 +36,7 @@ use serde_json::Value as JsonValue;
 
 use super::common::{resolve_non_strict, DomainError, WORKSPACE_ROOT_PLACEHOLDER};
 use crate::engine::bridge::register_callback;
-use crate::engine::host::call_engine_op;
+use crate::engine::host::{call_engine_op, call_engine_op_async};
 
 // ── 结构化错误码（拒绝路径统一携带，防魔法字符串）──
 
@@ -1530,10 +1530,11 @@ pub fn authorization_record(
 /// （approval.gate_card_request 已注册：卡请求 + 决议注入两步形态），
 /// 记录/生效导流在本模块。
 pub async fn load_authorization(security: &SecurityDomain) -> Result<Option<String>, String> {
-    let record = call_engine_op(
+    let record = call_engine_op_async(
         "engine.records_get",
         serde_json::json!({ "collection": AUTH_COLLECTION, "key": AUTH_KEY }),
-    )?;
+    )
+    .await?;
     let root = record
         .get("root")
         .and_then(|v| v.as_str())
@@ -1543,7 +1544,7 @@ pub async fn load_authorization(security: &SecurityDomain) -> Result<Option<Stri
         if Path::new(root).is_dir() {
             security.workspace.authorize(Path::new(root));
             security.reregister_file_tools(Some(Path::new(root))).await?;
-            call_engine_op("engine.rebuild", JsonValue::Object(Default::default()))?;
+            call_engine_op_async("engine.rebuild", JsonValue::Object(Default::default())).await?;
         }
     }
     Ok(root)
@@ -1551,14 +1552,15 @@ pub async fn load_authorization(security: &SecurityDomain) -> Result<Option<Stri
 
 /// 授权结果持久化（经引擎操作通道 engine.records_put——薄包装已注册）。
 pub async fn persist_authorization(record: JsonValue) -> Result<(), String> {
-    call_engine_op(
+    call_engine_op_async(
         "engine.records_put",
         serde_json::json!({
             "collection": AUTH_COLLECTION,
             "key": AUTH_KEY,
             "data": record,
         }),
-    )?;
+    )
+    .await?;
     Ok(())
 }
 

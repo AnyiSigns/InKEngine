@@ -48,6 +48,7 @@ pub struct AssemblyReport {
     pub event_types: Vec<String>,
     pub chain_version: i64,
     pub seeds_injected: usize,
+    pub seeds_present: usize,
     pub target_kinds: Vec<String>,
 }
 
@@ -338,12 +339,15 @@ pub fn plan_seed_injection(
     Ok(plans)
 }
 
-/// 种子重注入执行：逐条目查重（knowledge_get）→ 缺失补挂（knowledge_add），
-/// 返回实际注入数。
-async fn reinject_seeds(bundle: &recipe::SeedDataBundle) -> Result<usize, String> {
+/// 种子重注入执行：逐条目查重（knowledge_get）→ 缺失补挂（knowledge_add）。
+///
+/// 返回 (已补挂数, 查重已存在数)——两者之和 = 种子清单总量；机制装配
+/// 已注入时补挂为 0（安全网不重复），链恢复吞掉出厂基线时补挂补齐。
+async fn reinject_seeds(bundle: &recipe::SeedDataBundle) -> Result<(usize, usize), String> {
     let plans =
         plan_seed_injection(bundle).map_err(|err| fail("种子注入规划", err.to_string()))?;
     let mut injected = 0usize;
+    let mut present = 0usize;
     for plan in plans {
         let existing = call_engine_op("engine.knowledge_get", plan.get_args)
             .map_err(|err| fail("种子重注入（查重）", err))?;
@@ -351,9 +355,11 @@ async fn reinject_seeds(bundle: &recipe::SeedDataBundle) -> Result<usize, String
             call_engine_op("engine.knowledge_add", plan.add_args)
                 .map_err(|err| fail("种子重注入（补挂）", err))?;
             injected += 1;
+        } else {
+            present += 1;
         }
     }
-    Ok(injected)
+    Ok((injected, present))
 }
 
 // ── 收尾与装配报告 ──
@@ -391,14 +397,15 @@ pub fn target_kinds_declaration() -> Vec<String> {
 fn build_report(
     host: &EngineHost,
     chain_record: &JsonValue,
-    seeds_injected: usize,
+    seeds: (usize, usize),
 ) -> Result<AssemblyReport, String> {
     let report = host.report().map_err(|err| fail("装配报告", err))?;
     Ok(AssemblyReport {
         tool_names: report.tool_names,
         event_types: report.event_types,
         chain_version: chain_version(chain_record),
-        seeds_injected,
+        seeds_injected: seeds.0,
+        seeds_present: seeds.1,
         target_kinds: target_kinds_declaration(),
     })
 }
@@ -435,7 +442,7 @@ pub async fn assemble_runtime(options: &BootOptions) -> Result<AssemblyReport, S
     restore_mcp_mounts(&mount_service, &assembled)?;
     let _ = replay_live_views(&assembled).await;
 
-    let seeds_injected = reinject_seeds(&bundle).await?;
+    let seeds = reinject_seeds(&bundle).await?;
     finish_assembly().await?;
 
     // 链版本号：链组装结果本身无版本字段，按链记录补丁段长度 + 1；
@@ -447,7 +454,7 @@ pub async fn assemble_runtime(options: &BootOptions) -> Result<AssemblyReport, S
     .await
     .unwrap_or(JsonValue::Null);
 
-    build_report(&host, &chain_record, seeds_injected)
+    build_report(&host, &chain_record, seeds)
 }
 
 // ── 接线探测（诊断用）──
@@ -548,7 +555,9 @@ pub async fn wiring_probe(options: &BootOptions) -> Result<Vec<String>, String> 
     let skipped = replay_live_views(&assembled).await;
     lines.push(format!("ok 活跃态重放（跳过 {skipped} 条坏段）"));
     match reinject_seeds(&bundle).await {
-        Ok(injected) => lines.push(format!("ok 种子重注入（补挂 {injected} 条）")),
+        Ok((injected, present)) => lines.push(format!(
+            "ok 种子重注入（补挂 {injected} 条，查重已存在 {present} 条）"
+        )),
         Err(err) => lines.push(format!("error 种子重注入: {err}")),
     }
     probe_line(&mut lines, "收尾重建", finish_assembly().await);
@@ -728,13 +737,15 @@ mod tests {
             tool_names: vec!["collect_material".to_string(), "inspect_knowledge".to_string()],
             event_types: vec!["reply_token".to_string()],
             chain_version: 3,
-            seeds_injected: 7,
+            seeds_injected: 2,
+            seeds_present: 5,
             target_kinds: target_kinds_declaration(),
         };
         assert_eq!(report.tool_names.len(), 2);
         assert_eq!(report.event_types.len(), 1);
         assert_eq!(report.chain_version, 3);
-        assert_eq!(report.seeds_injected, 7);
+        assert_eq!(report.seeds_injected, 2);
+        assert_eq!(report.seeds_present, 5);
         assert_eq!(report.target_kinds.len(), 7, "五类配方目标 + 两类引擎内置");
         assert!(report.target_kinds.contains(&"ui".to_string()));
         assert!(report.target_kinds.contains(&"knowledge".to_string()));
@@ -761,22 +772,25 @@ mod tests {
     // ── 触碰桥的测试（引擎 boot；串行执行）──
 
     #[test]
-    fn assemble_fails_closed_on_wiring_placeholders() {
+    fn assemble_replays_idempotently() {
         let _serial = serial();
         let options = BootOptions {
             repo_root: repo_root(),
             ..BootOptions::default()
         };
-        // 接线点尚未合入（占位错误体）：装配须在首个未就绪步骤 fail-closed，
-        // 返回结构化错误（含步骤名与原因），不 panic
-        let err = block_on(assemble_runtime(&options)).expect_err("装配应在接线占位下失败");
-        assert!(err.starts_with("装配失败：步骤「"), "错误应为结构化形态: {err}");
-        assert!(err.contains("安全流水线接线"), "错误应含未就绪步骤名: {err}");
+        // 装配层幂等可重放：同一宿主重复装配产出等价报告（回调重复注册
+        // 覆盖、目标重注册覆盖、种子按 id 去重——重放不放大状态）
+        let first = block_on(assemble_runtime(&options)).expect("首次装配失败");
+        let second = block_on(assemble_runtime(&options)).expect("重放装配失败");
+        assert_eq!(first.tool_names, second.tool_names, "重放后工具清单漂移");
+        assert_eq!(first.event_types, second.event_types, "重放后事件类型清单漂移");
+        assert_eq!(first.seeds_injected, second.seeds_injected, "重放后种子注入量漂移");
+        assert_eq!(first.target_kinds, second.target_kinds, "重放后目标登记漂移");
+        assert_eq!(first.chain_version, second.chain_version, "重放后链版本漂移");
     }
 
     #[test]
-    #[ignore = "依赖接线代理合入后启用（主会话合并时移除 ignore）"]
-    fn assemble_succeeds_when_wiring_ready() {
+    fn assemble_succeeds_with_ready_wiring() {
         let _serial = serial();
         let options = BootOptions {
             repo_root: repo_root(),
@@ -785,8 +799,18 @@ mod tests {
         let report = block_on(assemble_runtime(&options)).expect("装配应成功");
         assert!(!report.tool_names.is_empty(), "工具清单为空");
         assert!(!report.event_types.is_empty(), "事件类型清单为空");
-        assert!(report.seeds_injected >= 1, "种子重注入为零");
         assert!(report.chain_version >= 1, "链版本异常");
         assert_eq!(report.target_kinds.len(), 7, "活跃态目标种类应齐备");
+        // 种子不丢不重：机制装配已注入时补挂为 0（安全网不重复），链恢复
+        // 吞掉出厂基线时补挂补齐——无论哪种形态，补挂 + 已存在 = 清单总量
+        let bundle = test_bundle();
+        let plans = plan_seed_injection(&bundle).expect("注入规划失败");
+        assert!(!plans.is_empty(), "种子清单为空");
+        assert_eq!(
+            report.seeds_injected + report.seeds_present,
+            plans.len(),
+            "种子总量不守恒（注入 + 已存在 ≠ 清单）"
+        );
+        assert!(report.seeds_present >= 1, "种子均不可达（查重全落空）");
     }
 }

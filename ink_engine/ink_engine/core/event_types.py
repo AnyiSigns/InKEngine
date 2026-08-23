@@ -148,6 +148,8 @@ def attachment_event_spec(
 
 # 组装留痕（候选边/选中路径/评分证据的登记）
 EVENT_AUDIT_ASSEMBLY = "assembly_audit"
+# 组装候选留痕（只读组装产出的候选计划登记——观察出口：出候选供观察/审计）
+EVENT_ASSEMBLY_CANDIDATE = "assembly_candidate"
 # 汇流裁决留痕（胜者/败者/裁决理由）
 EVENT_AUDIT_JUNCTION = "junction_verdict_audit"
 # 指纹顶替留痕（旧条目失效与新条目落位）
@@ -207,6 +209,28 @@ def register_audit_event_types(registry: EventTypeRegistry) -> None:
     """把四类审计事件类型注册进注册表（重复注册显式拒绝语义由注册表保证）。"""
     for spec in audit_event_specs():
         registry.register(spec)
+
+
+def assembly_candidate_event_spec() -> EventTypeSpec:
+    """组装候选留痕事件类型声明（观察出口：候选计划登记；类型是数据）。
+
+    只读组装的产物 = 候选计划（只观察不执行）；事件负载 = 审计记录
+    （时间戳/域/指纹 + 候选清单，历史图定义快照随记录落库——类型只
+    登记约束骨架，extras 字段由 SchemaValidator 宽容放行）。
+    """
+    return EventTypeSpec(
+        name=EVENT_ASSEMBLY_CANDIDATE,
+        schema=SchemaSpec(
+            name="audit.assembly_candidate",
+            fields=(_AUDIT_TS, _AUDIT_DOMAIN, _AUDIT_FINGERPRINT),
+        ),
+        meta={"purpose": "audit"},
+    )
+
+
+def register_path_assembly_event_types(registry: EventTypeRegistry) -> None:
+    """把组装候选留痕事件类型注册进注册表（重复注册由注册表显式拒绝）。"""
+    registry.register(assembly_candidate_event_spec())
 
 
 class EventTypeRegistry:
@@ -318,6 +342,7 @@ __all__ = [
     "DEFAULT_ATTACHMENT_EVENT_NAME",
     "DEFAULT_ATTACHMENT_RENDERER",
     "DEFAULT_MAX_EVENT_TYPES",
+    "EVENT_ASSEMBLY_CANDIDATE",
     "EVENT_AUDIT_ASSEMBLY",
     "EVENT_AUDIT_FINGERPRINT_REPLACE",
     "EVENT_AUDIT_JUNCTION",
@@ -327,7 +352,9 @@ __all__ = [
     "EventTypeRegistry",
     "EventTypeSpec",
     "EventVerdict",
+    "assembly_candidate_event_spec",
     "attachment_event_spec",
     "audit_event_specs",
     "register_audit_event_types",
+    "register_path_assembly_event_types",
 ]

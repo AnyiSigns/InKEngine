@@ -1,0 +1,718 @@
+"""路径组装器单测：三层产出 + 修复算子矩阵 + 负面草稿矩阵 + 集成闭环。
+
+覆盖（按任务矩阵）：
+- 单元：schema 反推 goal→候选链（多源汇聚合法）、beam 排序目标相关度
+  优先（实验定稿）、安全档剪枝、top-k 确定性序、多径判据复用
+  edge_evidence（信号只读）、冷启动指数与探索模式判定；
+- 修复算子：replace_node / add_branch / remove_node / reroute_edge 各自
+  可达性，修复驱动轮序与不可达返回 None（→ 全量重组装兜底）；
+- 负面草稿矩阵：不可达收尾结点 → 算法修复替换断言；修复也不可达 → 全量
+  算法兜底；固执 stub 连续 3 次同一非法草稿 → 重试上限 2 后强制兜底；
+  空响应/非 JSON → 不重试直接兜底；
+- 集成（stub 草稿源）：组装 → 校验通过 → 产物 to_dict/from_dict 合法 +
+  canary 试跑走通 + 候选事件类型注册 + 审计记录落库断言；
+- 开关：enabled=False 零生效（无候选/无回调/无草稿调用）。
+"""
+from __future__ import annotations
+
+from typing import Any
+
+from conftest import make_engine
+
+from ink_engine.core.contracts import PathAssemblyConfig
+from ink_engine.core.edge_evidence import (
+    EdgeEvidence,
+    EdgeEvidenceStore,
+    EdgeKey,
+)
+from ink_engine.core.event_types import (
+    EVENT_ASSEMBLY_CANDIDATE,
+    EVENT_STATUS_REGISTERED,
+    EventTypeRegistry,
+    assembly_candidate_event_spec,
+    register_path_assembly_event_types,
+)
+from ink_engine.core.fingerprint import graph_fingerprint
+from ink_engine.core.graph import Graph, TerminateReason
+from ink_engine.core.path_assembler import (
+    CANDIDATE_SOURCE_ALGORITHM,
+    InMemoryPoolRetriever,
+    PathAssembler,
+    add_branch,
+    parse_draft_chain,
+    remove_node,
+    repair_chain,
+    replace_node,
+    reroute_edge,
+    validate_chain,
+)
+from ink_engine.core.registry import NodeTypeRegistry
+from ink_engine.core.schema_validator import (
+    FIELD_STRING,
+    SchemaField,
+    SchemaSpec,
+)
+from ink_engine.core.state import StateSchema
+
+ENTRY = ("user_query",)
+DUMMY_NOW = 1_800_000_000.0
+
+
+def _field(name: str, required: bool = False, kind: str = FIELD_STRING) -> SchemaField:
+    return SchemaField(name=name, required=required, kind=kind)
+
+
+def _spec(name: str, *fields: SchemaField) -> SchemaSpec:
+    return SchemaSpec(name=name, fields=tuple(fields))
+
+
+def _contract(inputs: tuple[str, ...] = (), outputs: tuple[str, ...] = (),
+              *, safety_tier: int = 0, version: int = 1):
+    input_schema = _spec("in", *(_field(n, required=True) for n in inputs))
+    output_schema = _spec("out", *(_field(n) for n in outputs))
+    from ink_engine.core.contracts import NodeContract
+
+    return NodeContract(
+        input_schema=input_schema,
+        output_schema=output_schema,
+        safety_tier=safety_tier,
+        version=version,
+    )
+
+
+# ── 结点池（实验同源：10 结点，多源汇聚 + 双答案收尾）─────────────
+
+POOL_SPECS: tuple[tuple[str, tuple[str, ...], tuple[str, ...]], ...] = (
+    ("intent_parse", (), ("intent", "domains")),
+    ("domain_router", ("intent",), ("spec", "query")),
+    ("web_search", ("query",), ("search_results",)),
+    ("code_gen", ("spec",), ("code",)),
+    ("code_gen_v2", ("spec",), ("code",)),
+    ("test_gen", ("code",), ("tests",)),
+    ("doc_gen", ("spec", "code"), ("doc",)),
+    ("qa_check", ("code", "tests"), ("quality_report",)),
+    ("report_assemble", ("search_results", "quality_report", "doc"), ("answer",)),
+    ("answer_direct", ("search_results",), ("answer",)),
+)
+
+DEFAULT_VERSIONS: dict[str, int] = {}
+
+
+def _stub_node(config: dict[str, Any] | None = None):
+    async def node(ctx):
+        return {}
+
+    return node
+
+
+def make_registry(
+    pool_specs: tuple[tuple[str, tuple[str, ...], tuple[str, ...]], ...] = POOL_SPECS,
+    *,
+    safety_tier: dict[str, int] | None = None,
+    versions: dict[str, int] | None = None,
+) -> NodeTypeRegistry:
+    """测试注册表（契约随类型登记；工厂为无副作用 stub——canary 可跑通）。"""
+    registry = NodeTypeRegistry()
+    tiers = safety_tier or {}
+    vers = versions or {}
+    for type_name, inputs, outputs in pool_specs:
+        registry.register(
+            type_name,
+            lambda config, _t=type_name: _stub_node(config),
+            contract=_contract(
+                inputs, outputs,
+                safety_tier=tiers.get(type_name, 0),
+                version=vers.get(type_name, 1),
+            ),
+        )
+    return registry
+
+
+def pool_of(registry: NodeTypeRegistry) -> dict[str, Any]:
+    return {name: registry.contract_for(name) for name in registry.types()}
+
+
+def _request(
+    goal_fields: tuple[str, ...],
+    *,
+    entry: tuple[str, ...] = ENTRY,
+    domain: str = "code",
+    tier: int = 0,
+    provider: Any = None,
+    top_k: int = 2,
+    state_schema: StateSchema | None = None,
+) -> Any:
+    from ink_engine.core.path_assembler import AssemblyRequest
+
+    return AssemblyRequest(
+        goal_schema=_spec("goal", *(_field(f, required=True) for f in goal_fields)),
+        entry_fields=entry,
+        domain=domain,
+        max_safety_tier=tier,
+        draft_provider=provider,
+        top_k=top_k,
+        state_schema=state_schema,
+    )
+
+
+class FixedDraftProvider:
+    """固定文本草稿源（模拟模型行为：计调用次数，可断言重试/兜底）。"""
+
+    def __init__(self, *texts: str) -> None:
+        self._texts = list(texts)
+        self.calls: list[Any] = []
+
+    async def draft(self, context: Any) -> str:
+        self.calls.append(context)
+        return self._texts[min(len(self.calls) - 1, len(self._texts) - 1)]
+
+
+def make_assembler(
+    registry: NodeTypeRegistry | None = None,
+    *,
+    store: EdgeEvidenceStore | None = None,
+    retriever: Any = None,
+    config: PathAssemblyConfig | None = None,
+    sink: Any = None,
+    now: float | None = DUMMY_NOW,
+) -> PathAssembler:
+    return PathAssembler(
+        registry=registry or make_registry(),
+        evidence_store=store,
+        retriever=retriever,
+        config=config,
+        sink=sink,
+        now=now,
+    )
+
+
+# ── 单元：schema 反推 / 目标字段 ──────────────────────────────────
+
+def test_goal_fields_prefer_required_then_declared():
+    """目标字段 = 必填字段优先；无必填 = 全部声明字段；空 = 无字段。"""
+    from ink_engine.core.path_assembler import AssemblyRequest
+
+    required_only = AssemblyRequest(
+        goal_schema=_spec("g", _field("a", required=True), _field("b"))
+    )
+    assert required_only.goal_fields() == ("a",)
+    all_declared = AssemblyRequest(
+        goal_schema=_spec("g", _field("a"), _field("b"))
+    )
+    assert all_declared.goal_fields() == ("a", "b")
+    assert AssemblyRequest().goal_fields() == ()
+
+
+async def test_assemble_empty_goal_returns_empty_with_reason():
+    """目标 schema 未声明字段 = 空结果 + 原因（不误组装）。"""
+    registry = make_registry()
+    result = await make_assembler(registry).assemble(
+        _request(())
+    )
+    assert result.is_empty
+    assert "未声明字段" in (result.fallback_reason or "")
+
+
+async def test_algorithm_solves_goal_with_multi_source_convergence():
+    """schema 反推：goal → 候选链；qa_check 多源汇聚（code+tests）合法。"""
+    result = await make_assembler().assemble(
+        _request(("code", "tests", "quality_report"))
+    )
+    assert not result.is_empty
+    top = result.candidates[0]
+    assert "qa_check" in top.chain
+    assert "code_gen" in top.chain
+    assert "test_gen" in top.chain
+    ok, reasons = validate_chain(
+        top.chain,
+        pool=pool_of(make_registry()),
+        goal_fields=("code", "tests", "quality_report"),
+        entry_fields=ENTRY,
+    )
+    assert ok, reasons
+
+
+async def test_candidates_ranked_deterministically():
+    """排序确定性：同输入两次组装同序（证据分 → 链长 → 链序）。"""
+    result_a = await make_assembler().assemble(_request(("answer",)))
+    result_b = await make_assembler().assemble(_request(("answer",)))
+    assert [c.chain for c in result_a.candidates] == [c.chain for c in result_b.candidates]
+    # 零证据并列时链长升序（便宜路径优先的确定性体现）
+    assert result_a.candidates[0].chain[-1] == "answer_direct"
+
+
+async def test_safety_tier_clips_high_tier_nodes():
+    """安全档剪枝：目标安全档 2 的结点不进低档路径（默认 0 最严）。"""
+    registry = make_registry(safety_tier={"answer_direct": 0, "report_assemble": 2})
+    strict = await make_assembler(registry).assemble(
+        _request(("answer",), tier=0, top_k=3)
+    )
+    loose = await make_assembler(registry).assemble(
+        _request(("answer",), tier=2, top_k=20)
+    )
+    assert all("report_assemble" not in c.chain for c in strict.candidates)
+    assert "answer_direct" in strict.candidates[0].chain
+    # 放行档位抬高后高安全结点可入链（高安全结点不可进低信任路径）
+    assert any("report_assemble" in c.chain for c in loose.candidates)
+    ok, _ = validate_chain(
+        strict.candidates[0].chain,
+        pool=pool_of(registry),
+        goal_fields=("answer",),
+        entry_fields=ENTRY,
+        max_safety_tier=0,
+    )
+    assert ok
+
+
+async def test_stats_reported():
+    """统计口径：beam 扩展/评分计算量/修复/草稿调用次数随结果携带。"""
+    result = await make_assembler().assemble(_request(("answer",)))
+    assert result.stats["beam_extensions"] > 0
+    assert result.stats["edge_score_calls"] > 0
+    assert result.stats["repair_attempts"] == 0
+    assert result.stats["llm_attempts"] == 0
+
+
+async def test_cold_start_triggers_exploration():
+    """冷启动：零证据 = 指数 0 → 探索模式。"""
+    result = await make_assembler().assemble(_request(("answer",)))
+    assert result.cold_start_index == 0.0
+    assert result.exploration_mode is True
+
+
+# ── 单元：beam 排序目标相关度优先（实验定稿）─────────────────────
+
+def test_beam_order_goal_relevance_first():
+    """beam 排序 = 目标相关度优先：字段多但零目标相关的分支被挤出 beam。
+
+    对照实验发现 1（v2 贪婪按覆盖字段数排序的 deadlock）：字段丰富的
+    无关分支会抢占 beam，目标相关分支被挤出——排序必须目标相关度优先。
+    """
+    from ink_engine.core.path_assembler import _forward_search
+
+    tiny_pool = {
+        "rich": _contract((), ("x", "y")),  # 产出 2 字段但零目标相关
+        "goal_provider": _contract((), ("dz",)),
+        "plain": _contract((), ("a_out",)),
+    }
+    found = _forward_search(
+        ("dz",), (), tiny_pool, beam_width=1, max_depth=4
+    )
+    assert found and found[0] == ("goal_provider",)  # 目标相关分支先在 beam 中胜出
+    assert any(chain[0] == "goal_provider" for chain in found)  # 解未因字段多分支挤没
+    assert not any(chain == ("rich",) or chain == ("plain",) for chain in found)
+
+
+async def test_beam_keeps_parallel_branch_competitor_search():
+    """beam 保活并行分支：market_report 目标下 competitor 链不被挤出。"""
+    v3_like = make_registry(
+        (
+            ("intent_parse", ("user_query",), ("intent", "domains")),
+            ("task_planner", ("intent",), ("spec", "query")),
+            ("frontend_gen", ("spec",), ("frontend_code",)),
+            ("backend_gen", ("spec",), ("backend_code",)),
+            ("api_design", ("spec",), ("api_spec",)),
+            ("unit_tests", ("frontend_code", "backend_code"), ("unit_tests",)),
+            (
+                "integration_tests",
+                ("frontend_code", "backend_code", "api_spec"),
+                ("integration_tests",),
+            ),
+            (
+                "security_review",
+                ("frontend_code", "backend_code", "api_spec"),
+                ("security_report",),
+            ),
+            ("competitor_search", ("query",), ("competitor_data",)),
+            ("market_analysis", ("competitor_data", "domains"), ("market_report",)),
+            ("quality_check", ("unit_tests", "integration_tests", "security_report"),
+             ("quality_report",)),
+            ("report_assemble", ("market_report", "quality_report"), ("answer",)),
+            ("answer_direct", ("competitor_data",), ("answer",)),
+        )
+    )
+    result = await make_assembler(v3_like).assemble(
+        _request(("market_report", "answer"), entry=("user_query",), top_k=3)
+    )
+    assert not result.is_empty
+    chains = [c.chain for c in result.candidates]
+    assert any("competitor_search" in c for c in chains)
+    assert any("market_analysis" in c for c in chains)
+    # 每个候选都合法（分支链没有被挤掉导致目标覆盖失败）
+    for chain in chains:
+        ok, reasons = validate_chain(
+            chain,
+            pool=pool_of(v3_like),
+            goal_fields=("market_report", "answer"),
+            entry_fields=("user_query",),
+        )
+        assert ok, reasons
+
+
+# ── 单元：修复算子各算子可达性 ────────────────────────────────────
+
+def test_replace_node_replaces_unreachable_tail():
+    """替换算子（T2 型）：report_assemble 不可达收尾 → 替换为 answer_direct。"""
+    pool = pool_of(make_registry())
+    chain = ("intent_parse", "domain_router", "web_search", "report_assemble")
+    ok, reasons = validate_chain(chain, pool=pool, goal_fields=("answer",),
+                                 entry_fields=ENTRY)
+    assert not ok  # 前置前置——草稿确实非法
+    assert any("输入字段不可达" in r for r in reasons)
+    repaired = replace_node(chain, pool=pool, goal_fields=("answer",), entry_fields=ENTRY)
+    assert repaired == ("intent_parse", "domain_router", "web_search", "answer_direct")
+    ok, reasons = validate_chain(repaired, pool=pool, goal_fields=("answer",),
+                                 entry_fields=ENTRY)
+    assert ok, reasons
+
+
+def test_add_branch_fills_gap():
+    """补链算子：qa_check 缺 tests 前置 → 补 test_gen 链（多源汇聚）。"""
+    pool = pool_of(make_registry())
+    chain = ("intent_parse", "domain_router", "code_gen", "qa_check")
+    repaired = add_branch(chain, pool=pool, goal_fields=("quality_report",),
+                          entry_fields=ENTRY)
+    assert repaired == ("intent_parse", "domain_router", "code_gen", "test_gen", "qa_check")
+    assert validate_chain(repaired, pool=pool,
+                          goal_fields=("quality_report",), entry_fields=ENTRY)[0]
+
+
+def test_add_branch_appends_goal_producer():
+    """补链算子（目标缺口）：目标字段无生产者 → 链尾追加生产链；无法生产 = None。"""
+    pool = pool_of(make_registry())
+    chain = ("intent_parse", "domain_router", "web_search")
+    repaired = add_branch(chain, pool=pool, goal_fields=("answer",), entry_fields=ENTRY)
+    assert repaired == ("intent_parse", "domain_router", "web_search", "answer_direct")
+    # 池中无 answer 生产者模拟：goal 字段不可生产 → None
+    missing_pool = {
+        "intent_parse": pool["intent_parse"],
+        "domain_router": pool["domain_router"],
+    }
+    assert add_branch(chain, pool=missing_pool, goal_fields=("answer",),
+                      entry_fields=ENTRY) is None
+
+
+def test_remove_node_prunes_redundant_tail():
+    """剪枝算子：冗余尾结点（产出无后继需求也不补目标）删除。"""
+    pool = pool_of(make_registry())
+    chain = ("intent_parse", "domain_router", "code_gen", "test_gen", "qa_check",
+             "web_search")
+    # 校验链合法（web_search 冗余但可达）
+    assert validate_chain(chain, pool=pool, goal_fields=("quality_report",),
+                          entry_fields=ENTRY)[0]
+    repaired = remove_node(chain, pool=pool, goal_fields=("quality_report",),
+                           entry_fields=ENTRY)
+    assert repaired == ("intent_parse", "domain_router", "code_gen", "test_gen",
+                        "qa_check")
+
+
+def test_reroute_edge_reorders_producer_before_consumer():
+    """改接算子：生产者后置错位 → 移动结点使覆盖顺序成立。"""
+    pool = pool_of(make_registry())
+    chain = ("intent_parse", "domain_router", "test_gen", "code_gen")
+    assert validate_chain(chain, pool=pool, goal_fields=("tests",),
+                          entry_fields=ENTRY)[0] is False
+    repaired = reroute_edge(chain, pool=pool, goal_fields=("tests",),
+                            entry_fields=ENTRY)
+    assert repaired == ("intent_parse", "domain_router", "code_gen", "test_gen")
+    assert validate_chain(repaired, pool=pool, goal_fields=("tests",),
+                          entry_fields=ENTRY)[0]
+
+
+def test_repair_driver_fixes_and_keeps_valid():
+    """修复驱动：不可达草稿 → 修复到合法；已合法链 = 原样返回（不动手）。"""
+    pool = pool_of(make_registry())
+    broken = ("intent_parse", "domain_router", "web_search", "report_assemble")
+    fixed = repair_chain(broken, pool=pool, goal_fields=("answer",), entry_fields=ENTRY)
+    assert fixed == ("intent_parse", "domain_router", "web_search", "answer_direct")
+    valid = ("intent_parse", "domain_router", "web_search", "answer_direct")
+    assert repair_chain(valid, pool=pool, goal_fields=("answer",),
+                        entry_fields=ENTRY) == valid
+
+
+def test_repair_driver_unfixable_returns_none():
+    """修复也不可达 → None（调用方走全量算法重组装兜底）。"""
+    pool = pool_of(make_registry())
+    broken = ("intent_parse", "bogus_node", "answer_direct")
+    assert repair_chain(broken, pool=pool, goal_fields=("answer",),
+                        entry_fields=ENTRY) is None
+
+
+# ── 单元：草稿解析 ───────────────────────────────────────────────
+
+def test_parse_draft_chain_variants():
+    """草稿解析：json/fence/空白/字符串数组；空或非 JSON = None。"""
+    assert parse_draft_chain('["a","b"]') == ("a", "b")
+    assert parse_draft_chain('```json\n["a"]\n```') == ("a",)
+    assert parse_draft_chain(None) is None
+    assert parse_draft_chain("") is None
+    assert parse_draft_chain("这是计划文字") is None
+    assert parse_draft_chain('{"main": ["a"]}') is None
+    assert parse_draft_chain('["a", 3]') is None
+
+
+# ── 单元：多径判据复用 edge_evidence ──────────────────────────────
+
+async def test_multipath_signal_cold_start_triggers():
+    """多径信号：零证据（样本不足）→ 触发（冷启动自然落入触发分支）。"""
+    result = await make_assembler().assemble(_request(("answer",)))
+    assert result.multipath_signal is True
+
+
+async def test_multipath_signal_strong_evidence_no_trigger():
+    """多径信号：证据强（N≥5 且分差≥0.15）绝不触发。"""
+    registry = make_registry()
+    store = EdgeEvidenceStore(":memory:")
+    await store.put(
+        EdgeEvidence(
+            key=EdgeKey(src_type="web_search", dst_type="answer_direct",
+                        context_domain="code"),
+            success_count=30, fail_count=0, avg_cost=1.0,
+            last_used_at=DUMMY_NOW, created_at=DUMMY_NOW,
+        )
+    )
+    await store.put(
+        EdgeEvidence(
+            key=EdgeKey(src_type="qa_check", dst_type="report_assemble",
+                        context_domain="code"),
+            success_count=5, fail_count=0, avg_cost=9.0,
+            last_used_at=DUMMY_NOW, created_at=DUMMY_NOW,
+        )
+    )
+    result = await make_assembler(registry, store=store).assemble(
+        _request(("answer",))
+    )
+    assert result.candidates[0].chain[-1] == "answer_direct"  # 证据分高者优先
+    assert result.multipath_signal is False
+    await store.close()
+
+
+async def test_cold_start_index_with_evidence():
+    """冷启动指数：部分边有证据 → 指数 > 0；全证据 → 探索模式判定关闭。"""
+    registry = make_registry()
+    store = EdgeEvidenceStore(":memory:")
+    await store.put(
+        EdgeEvidence(
+            key=EdgeKey(src_type="web_search", dst_type="answer_direct",
+                        context_domain="code"),
+            success_count=40, fail_count=0,
+            last_used_at=DUMMY_NOW, created_at=DUMMY_NOW,
+        )
+    )
+    result = await make_assembler(registry, store=store).assemble(
+        _request(("answer",))
+    )
+    assert result.cold_start_index > 0.0
+    assert result.cold_start_index < 1.0  # 未全证据
+    assert result.exploration_mode is True  # 指数仍 < 0.3
+    await store.close()
+
+
+# ── 负面草稿矩阵（stub 草稿源驱动全链路）─────────────────────────
+
+def _draft_envelope(**overrides):
+    from ink_engine.core.path_assembler import AssemblyEnvelope
+
+    return AssemblyEnvelope(llm_draft=True, **overrides)
+
+
+async def test_draft_valid_chain_used_and_audited():
+    """草稿合法：校验通过 → 进候选；审计记录落库（候选清单 + 指纹）。"""
+    records: list[dict[str, Any]] = []
+    provider = FixedDraftProvider(
+        '["intent_parse","domain_router","code_gen","test_gen","qa_check"]'
+    )
+    result = await make_assembler(sink=records.append).assemble(
+        _request(("code", "tests", "quality_report"), provider=provider),
+        envelope=_draft_envelope(),
+    )
+    assert result.llm_attempts == 1
+    assert not result.is_empty
+    assert len(records) == 1
+    record = records[0]
+    assert record["domain"] == "code"
+    assert record["fingerprint"] == result.fingerprint
+    # 目标字段 = 必填字段（按名排序的确定性序）
+    assert record["goal_fields"] == ["code", "quality_report", "tests"]
+    assert record["candidates"]
+    assert record["candidates"][0]["rank"] == 1
+    assert record["llm_attempts"] == 1
+    assert result.fingerprint == graph_fingerprint(result.candidates[0].graph)
+
+
+async def test_draft_t2_unreachable_tail_repaired_by_algorithm():
+    """T2 型不可达收尾结点 → 算法修复替换（report_assemble → answer_direct）。"""
+    provider = FixedDraftProvider(
+        '["intent_parse","domain_router","web_search","report_assemble"]'
+    )
+    result = await make_assembler().assemble(
+        _request(("answer",), provider=provider, top_k=3),
+        envelope=_draft_envelope(),
+    )
+    assert result.llm_attempts == 1
+    assert result.fallback_reason is None
+    # 修复发生过（修复器替换不可达收尾结点），且没有任何候选因草稿而非法
+    assert result.stats["repair_attempts"] == 1
+    assert any(c.chain[-1] == "answer_direct" for c in result.candidates)
+    for candidate in result.candidates:
+        ok, reasons = validate_chain(
+            candidate.chain,
+            pool=pool_of(make_registry()),
+            goal_fields=("answer",),
+            entry_fields=ENTRY,
+        )
+        assert ok, reasons
+
+
+async def test_draft_unfixable_falls_back_to_full_algorithm():
+    """修复也不可达 → 全量算法重组装兜底（草稿路径不产出候选）。"""
+    provider = FixedDraftProvider('["intent_parse","bogus_node"]')
+    result = await make_assembler().assemble(
+        _request(("answer",), provider=provider),
+        envelope=_draft_envelope(),
+    )
+    assert not result.is_empty
+    assert all(
+        c.source == CANDIDATE_SOURCE_ALGORITHM for c in result.candidates
+    )
+    assert result.candidates[0].repaired is False
+    assert "重试耗尽" in (result.fallback_reason or "")
+
+
+async def test_draft_stubborn_same_invalid_three_times_force_fallback():
+    """固执 stub 连续 3 次同一非法草稿 → 重试上限 2 后强制算法兜底（不无限循环）。"""
+    provider = FixedDraftProvider('["intent_parse","stubborn_node"]')
+    result = await make_assembler().assemble(
+        _request(("answer",), provider=provider),
+        envelope=_draft_envelope(),
+    )
+    assert len(provider.calls) == 3  # 首次 + 重试上限 2 次
+    assert result.llm_attempts == 3
+    assert result.stats["repair_attempts"] == 3  # 每次非法草稿都先试算法修复
+    assert not result.is_empty
+    assert "重试耗尽" in (result.fallback_reason or "")
+
+
+async def test_draft_empty_response_no_retry_direct_fallback():
+    """空响应 → 不重试直接兜底（仅 1 次调用）。"""
+    provider = FixedDraftProvider("")
+    result = await make_assembler().assemble(
+        _request(("answer",), provider=provider),
+        envelope=_draft_envelope(),
+    )
+    assert len(provider.calls) == 1
+    assert result.llm_attempts == 1
+    assert "解析失败" in (result.fallback_reason or "")
+    assert not result.is_empty
+
+
+async def test_draft_non_json_no_retry_direct_fallback():
+    """非 JSON 草稿 → 不重试直接兜底（仅 1 次调用）。"""
+    provider = FixedDraftProvider("我觉得可以先检索再做答……")
+    result = await make_assembler().assemble(
+        _request(("answer",), provider=provider),
+        envelope=_draft_envelope(),
+    )
+    assert len(provider.calls) == 1
+    assert result.llm_attempts == 1
+    assert "解析失败" in (result.fallback_reason or "")
+
+
+# ── 集成：产物序列化 + canary 试跑 + 事件类型注册 ────────────────
+
+async def test_integration_candidate_roundtrip_and_canary_run():
+    """集成：组装 → 产物 to_dict/from_dict(validate=True) 合法 → canary 试跑走通。"""
+    provider = FixedDraftProvider(
+        '["intent_parse","domain_router","code_gen","test_gen","qa_check"]'
+    )
+    registry = make_registry()
+    result = await make_assembler(registry).assemble(
+        _request(("code", "tests", "quality_report"), provider=provider),
+        envelope=_draft_envelope(),
+    )
+    assert not result.is_empty
+    candidate = result.candidates[0]
+    data = candidate.to_dict()["graph"]
+    rebuilt = Graph.from_dict(data, registry=registry, validate=True)
+    assert rebuilt.digest() == candidate.graph.digest()
+    assert rebuilt.entry == candidate.chain[0]
+    assert rebuilt.exits == {candidate.chain[-1]}
+    engine = make_engine(rebuilt)
+    _state, run_result = await engine._execute(
+        state={},
+        thread_id="t-assembly",
+        round_id=None,
+        resume_from=None,
+        trace_id="trace-assembly",
+        queue=None,
+    )
+    assert run_result.reason == TerminateReason.REPLY
+
+
+async def test_integration_candidate_event_type_registered():
+    """观察出口：组装候选事件类型注册进注册表并可判定（宽松校验）。"""
+    registry = EventTypeRegistry()
+    spec = assembly_candidate_event_spec()
+    assert spec.name == EVENT_ASSEMBLY_CANDIDATE
+    register_path_assembly_event_types(registry)
+    registered = registry.get(EVENT_ASSEMBLY_CANDIDATE)
+    assert registered is not None
+    assert registered == spec
+    verdict = registry.classify(
+        EVENT_ASSEMBLY_CANDIDATE,
+        {"domain": "code", "ts": DUMMY_NOW, "fingerprint": "abc"},
+    )
+    assert verdict.status == EVENT_STATUS_REGISTERED
+    assert verdict.violations == ()
+    missing_domain = registry.classify(EVENT_ASSEMBLY_CANDIDATE, {"ts": DUMMY_NOW})
+    assert any("domain" in v for v in missing_domain.violations)
+
+
+async def test_flag_disabled_zero_effect():
+    """开关关闭（enabled=False）零生效：无候选/无草稿调用/无审计回调。"""
+    provider = FixedDraftProvider('["intent_parse"]')
+    records: list[dict[str, Any]] = []
+    assembler = make_assembler(
+        config=PathAssemblyConfig(),  # enabled=False（默认关）
+        sink=records.append,
+    )
+    result = await assembler.assemble(
+        _request(("answer",), provider=provider),
+        envelope=_draft_envelope(),
+    )
+    assert result.is_empty
+    assert provider.calls == []
+    assert records == []
+    assert result.stats == {}
+    assert result.llm_attempts == 0
+
+
+async def test_flag_enabled_round_trip():
+    """开关形态序列化往返后 enabled 语义一致（与装配开关对齐）。"""
+    config = PathAssemblyConfig.from_dict(PathAssemblyConfig(enabled=True).to_dict())
+    assert config.enabled is True
+    result = await make_assembler(config=config).assemble(
+        _request(("answer",)),
+    )
+    assert not result.is_empty
+
+
+async def test_integration_retriever_protocol_injected():
+    """候选缩小消费 Retriever 协议：注入内存检索器与默认兜底等价可用。"""
+    registry = make_registry()
+    retriever = InMemoryPoolRetriever(pool_of(registry))
+    result = await make_assembler(registry, retriever=retriever).assemble(
+        _request(("answer",)),
+    )
+    assert not result.is_empty
+    # 草稿层窗口经检索器缩小（草稿源可见摘要 = 检索 top-N）
+    provider = FixedDraftProvider('["intent_parse","domain_router","web_search","answer_direct"]')
+    draft_result = await make_assembler(registry, retriever=retriever).assemble(
+        _request(("answer",), provider=provider),
+        envelope=_draft_envelope(),
+    )
+    assert draft_result.llm_attempts == 1
+    seen = provider.calls[0].node_summaries
+    assert len(seen) > 0  # 窗口非空且为契约摘要形态
+    assert seen[0].type_name
+    assert seen[0].outputs is not None

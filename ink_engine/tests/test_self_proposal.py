@@ -120,7 +120,7 @@ def test_validate_tool() -> None:
     ok = _proposal(
         PatchKind.TOOL,
         {
-            "name": "list_files",
+            "name": "listfiles",
             "description": "列出文件",
             "permissions": ["filesystem:read:/workspace"],
             "endpoint": "file_ops",
@@ -144,6 +144,57 @@ def test_validate_tool() -> None:
         },
     )
     assert any("root" in v for v in validator.validate(bad_endpoint))
+
+
+def test_validate_tool_name_naming_rule_enforced() -> None:
+    """命名规范断言（新增/自写工具统一执行）：TOOL 补丁名违规 → 提案期拒绝。
+
+    断言驻留提案/自写边界（ProposalValidator._validate_tool）而非共享
+    构造面：出厂基线工具（历史下划线名）经装配路径注册不受影响，命名
+    整改由产品层决策后统一执行。
+    """
+    validator = _validator()
+    snake = _proposal(
+        PatchKind.TOOL,
+        {
+            "name": "list_files",
+            "description": "列出文件",
+            "permissions": ["filesystem:read:/workspace"],
+            "endpoint": "file_ops",
+            "endpoint_config": {"root": "/workspace"},
+        },
+    )
+    violations = validator.validate(snake)
+    assert any("违反命名规范" in v and "禁用字符" in v for v in violations)
+    overlong = _proposal(
+        PatchKind.TOOL,
+        {
+            "name": "x" * 25,
+            "description": "x",
+            "permissions": ["filesystem:read:/workspace"],
+            "endpoint": "file_ops",
+            "endpoint_config": {"root": "/workspace"},
+        },
+    )
+    assert any("长度超限" in v for v in validator.validate(overlong))
+
+
+def test_validate_tool_name_rule_waived_for_mcp_remote() -> None:
+    """MCP 远程工具豁免命名断言：名字来自第三方服务器清单，不由产品
+    行为词典管控；豁免由声明数据（endpoint=mcp）推导，序列化往返不丢。
+    """
+    validator = _validator()
+    mcp_tool = _proposal(
+        PatchKind.TOOL,
+        {
+            "name": "web_search",
+            "description": "远程搜索工具",
+            "permissions": ["mcp:call:search_provider"],
+            "endpoint": "mcp",
+            "endpoint_config": {"server_id": "search_provider"},
+        },
+    )
+    assert validator.validate(mcp_tool) == []
 
 
 def test_validate_rule() -> None:

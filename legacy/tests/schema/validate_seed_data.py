@@ -115,8 +115,21 @@ OS_CONTROL_TOOLS = ("launch_app", "open_file", "set_volume", "set_brightness", "
 DEVICE_SENSE_TOOLS = ("screen_query", "file_query")
 # 挂载提案 + 文件开发工具（对话式安装入口 / 工作区沙箱端点）
 SELF_AND_FILE_TOOLS = ("propose_mcp_mount", "file_read", "file_write", "file_edit")
-# 网络抓取工具（http_fetch 端点，出厂网络策略 = 域名白名单）
-NETWORK_TOOLS = ("fetch_web",)
+# 文件族检索工具（工作区内容/路径检索，file_ops 端点只读沙箱）
+FILE_SEARCH_TOOLS = ("grep", "glob")
+# 各 file_ops 工具的 operation 固定枚举（与声明参数 enum 逐一对齐）
+FILE_OPS_TOOL_OPERATIONS: dict[str, tuple[str, ...]] = {
+    "file_read": ("read",),
+    "file_write": ("write",),
+    "file_edit": ("write",),
+    "grep": ("search",),
+    "glob": ("search_paths",),
+}
+# 网络抓取/检索工具（http_fetch 端点，出厂网络策略 = 域名白名单）
+NETWORK_TOOLS = ("fetch_web", "web_search")
+# 网络工具中允许空白名单的成员（出厂域名条目数据驱动补齐前 = 禁网契约，
+# 与 deny 档同哲学：宁缺勿滥；须在声明 note 中写明补齐语义）
+NETWORK_TOOLS_EMPTY_WHITELIST = ("web_search",)
 # deny 档工具（三档权限契约的默认拒绝样例，须经补丁链转正才可用）
 DENY_TOOLS = ("shell_exec",)
 
@@ -396,11 +409,12 @@ def check_manifest(data: dict[str, Any], payload: dict[str, Any], issues: list[s
         issues.append("contracts.exec_mcp_id=inkling_exec 未在 tools.json 的任何 mcp 工具中被引用")
     if "inkling_shell" not in mcp_ids:
         issues.append("contracts.host_id=inkling_shell 未在 tools.json 的任何 mcp 工具中被引用")
-    if tool_names != set(DOMAIN_TOOLS) | set(SHELL_EXECUTORS) | set(DEVICE_SENSE_TOOLS) | set(SELF_AND_FILE_TOOLS) | set(NETWORK_TOOLS) | set(DENY_TOOLS):
+    if tool_names != set(DOMAIN_TOOLS) | set(SHELL_EXECUTORS) | set(DEVICE_SENSE_TOOLS) | set(SELF_AND_FILE_TOOLS) | set(FILE_SEARCH_TOOLS) | set(NETWORK_TOOLS) | set(DENY_TOOLS):
         issues.append(
             "tools.json 工具集合与契约清单不一致"
             f"（域工具 {DOMAIN_TOOLS} + shell 执行器 {SHELL_EXECUTORS} + 设备感知 {DEVICE_SENSE_TOOLS}"
-            f" + {SELF_AND_FILE_TOOLS} + 网络 {NETWORK_TOOLS} + deny 档 {DENY_TOOLS}）"
+            f" + {SELF_AND_FILE_TOOLS} + 文件检索 {FILE_SEARCH_TOOLS} + 网络 {NETWORK_TOOLS}"
+            f" + deny 档 {DENY_TOOLS}）"
         )
     # 主题 token 白名单 = manifest.theme_tokens，且 ui_spec 使用的主题键必须 ⊆ 白名单
     theme_tokens = set(contracts.get("theme_tokens") or [])
@@ -561,9 +575,11 @@ def check_tools(data: dict[str, Any], _payload: dict[str, Any], issues: list[str
             if not isinstance(config.get("root"), str) or not config["root"]:
                 issues.append(f"工具 {tool['name']} 的 file_ops 端点须声明非空根目录 root（沙箱端点）")
             # 参数 schema 须声明 operation 固定枚举（file_ops 端点操作判定同源：
-            # read/write/delete 操作从参数推导，缺 operation 的调用无法判定目标）
+            # read/write/delete 操作从参数推导，缺 operation 的调用无法判定目标；
+            # 检索工具 grep/glob 以 search/search_paths 作判定操作，枚举与
+            # FILE_OPS_TOOL_OPERATIONS 契约常量逐一对齐）
             operation_props = ((tool.get("parameters") or {}).get("properties") or {}).get("operation") or {}
-            expected_ops = ["read"] if tool["name"].endswith("_read") else ["write"]
+            expected_ops = list(FILE_OPS_TOOL_OPERATIONS.get(tool["name"]) or ("write",))
             if operation_props.get("type") != "string" or operation_props.get("enum") != expected_ops:
                 issues.append(f"工具 {tool['name']} 的 file_ops 端点须声明 operation 固定枚举 {expected_ops}")
             if "operation" not in ((tool.get("parameters") or {}).get("required") or []):
@@ -576,7 +592,17 @@ def check_tools(data: dict[str, Any], _payload: dict[str, Any], issues: list[str
         elif endpoint == "http_fetch":
             allow_domains = (tool.get("network_policy") or {}).get("allow_domains")
             if not isinstance(allow_domains, list) or not allow_domains:
-                issues.append(f"工具 {tool['name']} 的 http_fetch 端点须声明非空 network_policy.allow_domains（空白名单 = 禁网）")
+                if tool["name"] in NETWORK_TOOLS_EMPTY_WHITELIST:
+                    # 空白名单成员：出厂域名条目数据驱动补齐前 = 禁网（fail-closed），
+                    # 声明须带 note 写明补齐语义（与 fetch_web 的既有 note 同哲学）
+                    note = (tool.get("network_policy") or {}).get("note")
+                    if not isinstance(note, str) or not note:
+                        issues.append(
+                            f"工具 {tool['name']} 的空白名单须在 network_policy.note 写明"
+                            "域名数据驱动补齐语义（禁网契约的显式声明）"
+                        )
+                else:
+                    issues.append(f"工具 {tool['name']} 的 http_fetch 端点须声明非空 network_policy.allow_domains（空白名单 = 禁网）")
             if not any(perm.startswith("network:connect:") for perm in tool["permissions"]):
                 issues.append(f"工具 {tool['name']} 的权限须含 network:connect 声明（与网络策略同源）")
         elif endpoint == "mcp":

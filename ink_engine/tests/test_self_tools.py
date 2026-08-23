@@ -173,7 +173,7 @@ async def test_apply_l1_suspends_then_inject_applies(memory_storage):
     args = {
         "kind": "tool",
         "payload": {
-            "name": "list_workspace",
+            "name": "listworkspace",
             "description": "列出工作区文件",
             "permissions": ["filesystem:read:/workspace"],
             "endpoint": "file_ops",
@@ -189,12 +189,12 @@ async def test_apply_l1_suspends_then_inject_applies(memory_storage):
     assert card["review_type"] == "gate"
     assert card["patch"]["kind"] == "tool"
     # 挂起期间未落链
-    assert "list_workspace" not in (await pipeline.chain.assemble()).get("tools", {})
+    assert "listworkspace" not in (await pipeline.chain.assemble()).get("tools", {})
     # 决议注入重入
     ctx2 = _StubCtx(injections={"patch:tool": "accept"})
     result = await executor(ctx2, specs["apply_patch"], args, None)
     assert '"ok": true' in result and '"patch_id": 2' in result
-    assert (await pipeline.chain.assemble())["tools"]["list_workspace"]["name"] == "list_workspace"
+    assert (await pipeline.chain.assemble())["tools"]["listworkspace"]["name"] == "listworkspace"
 
 
 async def test_apply_reject_leaves_chain_untouched(memory_storage):
@@ -206,7 +206,7 @@ async def test_apply_reject_leaves_chain_untouched(memory_storage):
     args = {
         "kind": "tool",
         "payload": {
-            "name": "list_workspace",
+            "name": "listworkspace",
             "description": "列出工作区文件",
             "permissions": ["filesystem:read:/workspace"],
             "endpoint": "file_ops",
@@ -216,7 +216,7 @@ async def test_apply_reject_leaves_chain_untouched(memory_storage):
     ctx = _StubCtx(injections={"patch:tool": DECISION_REJECT})
     result = await executor(ctx, specs["apply_patch"], args, None)
     assert '"ok": false' in result and '"status": "rejected"' in result
-    assert "list_workspace" not in (await pipeline.chain.assemble()).get("tools", {})
+    assert "listworkspace" not in (await pipeline.chain.assemble()).get("tools", {})
     assert (await pipeline.audit_log())[-1]["status"] == "rejected"
 
 

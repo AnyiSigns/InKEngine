@@ -227,8 +227,13 @@ def _render_entry(entry: KnowledgeEntry) -> str:
 
 # 工具源预取上限（体积护栏：工具描述进装配文本的上界；预算级裁剪由
 # InputAssembler 按 tool_ratio 池执行——预取只防大对象循环，动态纳入
-# 的新工具不被硬上限截断出预算刷新之外）
-_MAX_TOOL_SOURCES = 32
+# 的新工具不被硬上限截断出预算刷新之外）。
+# 取值基准：出厂工具集 = 种子 25（含文件检索 grep/glob 与网络检索
+# web_search）+ 引擎驻留观察 5 + 自指 4 ≈ 34，叠加挂载工具的纳入
+# 余量——上限须大于「基线 + 首批动态挂载」之和，否则新挂载工具
+# 在预取处被截断、下一回合预算刷不出（回归：出厂 22 → 25 时 32
+# 上限溢出，动态组装用例失败）。
+_MAX_TOOL_SOURCES = 48
 
 
 def build_five_source_provider(

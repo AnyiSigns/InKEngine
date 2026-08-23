@@ -111,7 +111,7 @@ async def test_http_fetch_whitelist_real(fault_server, live_tmp):
     executors = DeclarativeToolExecutors()
     executors.register(EndpointType.HTTP_FETCH, make_http_fetch_executor(timeout=10.0, max_chars=100_000))
     spec = DeclarativeToolSpec(
-        name="fetch_docs",
+        name="fetchdocs",
         description="抓取文档",
         parameters={"type": "object", "properties": {"url": {"type": "string"}}, "required": ["url"]},
         permissions=(f"network:connect:{host}",),
@@ -371,7 +371,7 @@ async def test_real_llm_tool_loop_declarative_file(live_llm, live_tmp):
 
     executors = DeclarativeToolExecutors()
     defn = DeclarativeToolSpec(
-        name="write_note",
+        name="writenote",
         description="写入笔记文件（参数 path/content）",
         parameters={
             "type": "object",
@@ -389,7 +389,7 @@ async def test_real_llm_tool_loop_declarative_file(live_llm, live_tmp):
     )
 
     tool_spec = defn.to_spec()
-    messages = [user("请调用 write_note 工具写入文件 note.txt，内容为 hello-live")]
+    messages = [user("请调用 writenote 工具写入文件 note.txt，内容为 hello-live")]
     result = await live_llm.ainvoke(messages, tools=[tool_spec])
     assert result.tool_calls, "模型未产出工具调用"
     call = result.tool_calls[0]

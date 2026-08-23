@@ -222,7 +222,7 @@ def _nine_valid_proposals() -> list[SelfProposal]:
             "children": [{"kind": NODE_KIND_COMPONENT, "type": "message_list",
                           BIND_KEY: {"channel": "state", "path": "messages"}}]}}}),
         SelfProposal(PatchKind.THEME, {"tokens": {"bg": "#111", "fg": "#eee"}}),
-        SelfProposal(PatchKind.TOOL, {"name": "list_files", "description": "x",
+        SelfProposal(PatchKind.TOOL, {"name": "listfiles", "description": "x",
                                       "permissions": ["filesystem:read:/workspace"],
                                       "endpoint": "file_ops",
                                       "endpoint_config": {"root": "/workspace"}}),
@@ -316,7 +316,7 @@ async def test_apply_l0_l1_l2_graded_and_audit(memory_storage) -> None:
     ctx1.preset("patch:tool", {"decision": "accept"})
     tool_proposal = SelfProposal(
         PatchKind.TOOL,
-        {"name": "list_files", "description": "x",
+        {"name": "listfiles", "description": "x",
          "permissions": ["filesystem:read:/workspace"], "endpoint": "file_ops",
          "endpoint_config": {"root": "/workspace"}},
         base_version=2,

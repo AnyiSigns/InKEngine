@@ -2,7 +2,7 @@
   "tools": [
     {
       "name": "collect_material",
-      "description": "采集研究材料（文本/URL 取回），输出原始材料（title/text/source）",
+      "description": "行为意图：把研究素材采集回来——文本直取或 URL 取回，产物是未经解析的原始材料（title/text/source），只入料不加工。\n\n使用时机：研究课题/知识沉淀需要素材时；用户直接粘贴长文本、或给出一个待研究的 URL 时。\n\n取舍与替代选项：粘贴的文本走 text，URL 取回走 url，一次调用只采一个来源；与 fetch_web 的分工——fetch_web 是即时抓取单个网页原文直接支撑回答（出厂域名白名单），collect_material 是研究流程的入料环节（走 inkling_exec 会话）；判断标准是「是否要进知识沉淀链」，要进链用本工具。\n\n参数语义：url=待取回的 URL（与 text 二选一）；text=直接粘贴的文本内容。\n\n边界与协作：出网行为由 inkling_exec server 侧策略约束，挂载时经 vetting 核对；原始材料不得直接作为知识条目，须经 parse_material 结构化、validate_material 校验后才有资格沉淀；多个来源分别调用，一次一料。",
       "parameters": {
         "type": "object",
         "properties": {
@@ -37,7 +37,7 @@
     },
     {
       "name": "parse_material",
-      "description": "解析材料：结构化抽取（标题/正文/要点/来源引用）",
+      "description": "行为意图：把原始材料结构化——按声明式抽取规格从文本中抽出标题/正文/要点/来源引用，是「采集→知识」之间的整形环节。\n\n使用时机：collect_material 产出原始材料后、做校验/评分/评审之前；材料是纯文本、后续要复用其内容时。\n\n取舍与替代选项：一次性问答场景直接用原始文本即可，不必 parse；需要内容化沉淀时再结构化；与 validate_material 的分工——本工具只整形不管好坏，校验管「合规与否」，评分管「证据强弱」。\n\n参数语义：material=待解析的原始材料对象（collect_material 产物，含 title/text/source）。\n\n边界与协作：纯计算无副作用、无出网（allow 档）；解析产物被 score_material/review_material 消费；关键字段缺失时回落原文，不以空壳数据进下游链。",
       "parameters": {
         "type": "object",
         "properties": {
@@ -69,7 +69,7 @@
     },
     {
       "name": "validate_material",
-      "description": "校验材料/知识条目：按 rules.json 规则谓词评估，输出违规清单",
+      "description": "行为意图：按规则集（rules.json）对数据对象做确定性违规评估——输出违规清单（每项含规则/类别/原因），是知识链的合规闸门执行体。\n\n使用时机：材料/知识条目/蒸馏变异产物入库前；任何要进知识集的数据对象，先过一遍本工具。\n\n取舍与替代选项：只要「合规与否」的裁决——本工具；需要加权分与收敛判定——review_material；需要交叉验证评分——score_material；选择取决于「要的是违规裁决，还是质量与取舍建议」。\n\n参数语义：data=待校验的数据对象（材料/知识条目）；rules=规则 id 子集（缺省按全量规则评估）。\n\n边界与协作：纯只读、无副作用；评估语义与样例闸门同源（fail-open 留痕：规则不命中不拦但记痕）；违规清单是知识闸门拦截的留痕依据，规则集数据驱动、可经补丁链演化。",
       "parameters": {
         "type": "object",
         "properties": {
@@ -108,7 +108,7 @@
     },
     {
       "name": "score_material",
-      "description": "评分：引用质量/交叉验证维度打分（0-1），供评审与收敛使用",
+      "description": "行为意图：对解析后材料做引用质量/交叉验证等维度的确定性评分（0-1），给「这份材料证据多硬」一个量化读数。\n\n使用时机：材料齐备、需要量化证据强度时；评审收敛循环里给候选打明细分时。\n\n取舍与替代选项：只看违规——validate_material；要多维度加权与收敛决策——review_material；本工具是维度明细打分，供收敛判定消费；若只是问「这材料行不行」，直接读原文往往更快。\n\n参数语义：material=解析后的材料对象；dimensions=评分维度子集（缺省全量）。\n\n边界与协作：评分不改材料本身；交叉验证比对样例库基准事实；打分结果喂给 review_material 做加权判定，不直接决定取舍。",
       "parameters": {
         "type": "object",
         "properties": {
@@ -147,7 +147,7 @@
     },
     {
       "name": "review_material",
-      "description": "评审：按 review.json 维度/阈值对候选输出打分与给出改进意见（收敛循环的评审执行体）",
+      "description": "行为意图：评审收敛循环的执行体——按 review.json 的维度/阈值/轮次上限对候选输出打分、给出 failing_dimensions 与改进意见，并输出收敛决策（接受/再生成/呈交现状）。\n\n使用时机：候选输出定稿前必须过一遍；「生成→评审→再生成」循环每轮调用。\n\n取舍与替代选项：单项内容检查——score_material；合规性裁决——validate_material；「该不该收、要不要再改」的加权总评与轮次判定——只有本工具。\n\n参数语义：candidates=候选输出清单（文本与引用声明）；context=评审上下文（问题/材料基线）。\n\n边界与协作：维度/阈值/轮次上限全部数据驱动（review.json）；达到轮次上限呈交现状并附 notes，不无限循环；评审卡经审批管线对用户可见，评审通过后方可沉淀。",
       "parameters": {
         "type": "object",
         "properties": {
@@ -186,7 +186,7 @@
     },
     {
       "name": "distill_knowledge",
-      "description": "蒸馏：信号序列 → 结构化知识数据（丢弃试错分支，产出 rule 形态声明）",
+      "description": "行为意图：把执行信号序列（五类）蒸馏成结构化知识数据（rule 形态声明）——丢弃试错分支，只保留可落库的心得。\n\n使用时机：一轮执行产生了信号（gap/insight/pitfall/repeated_root_cause/user_correction）需要沉淀时；失败/纠正经验入库前。\n\n取舍与替代选项：只要归档单条事实——直接记知识条目；要从信号归纳「规则形态」的教训——本工具；已有条目要进化——mutate_knowledge；先蒸馏得到母体，再谈变异，两者是先后关系。\n\n参数语义：signals=执行信号序列（每条含 kind/message/context）。\n\n边界与协作：产物为 rule 形态声明，须过校验闸门（validate_material/样例闸门）才可入集；蒸馏先于变异；不产证据支持的教训会被拦截（无依据不落库）。",
       "parameters": {
         "type": "object",
         "properties": {
@@ -221,7 +221,7 @@
     },
     {
       "name": "mutate_knowledge",
-      "description": "变异：按失败日志反思式生成知识条目变体（进化工厂的变异执行体）",
+      "description": "行为意图：按失败日志对母体知识条目做反思式变异——产出携 _mutation 留痕（variant_of/based_on）的变体，数量随失败信号动态，是进化工厂的变异执行体。\n\n使用时机：某条知识实际使用失败率偏高、需要候选变体时；failure_logs 是必须输入（无失败日志=零变异，不做无依据变异）。\n\n取舍与替代选项：从信号做全新归纳——distill_knowledge；只是略改文案——直接改，不必变异；本工具=「失败反思驱动」的规则进化入口。\n\n参数语义：entry=母体知识条目；failure_logs=近期失败日志清单。\n\n边界与协作：变体不自动替换母体，须过三层验证闸门与评审筛选取舍；变异留痕保证可追溯回母体与失败日志；与 distill_knowledge 的分工：前者造新、本工具改旧。",
       "parameters": {
         "type": "object",
         "properties": {
@@ -261,7 +261,7 @@
     },
     {
       "name": "screen_query",
-      "description": "OS 感知：屏幕状态查询（设备感知 server，宿主件挂载接线）",
+      "description": "行为意图：设备感知——只读查询屏幕状态（分辨率/布局/元素定位等），给对话提供「屏幕上有什么」的依据。\n\n使用时机：任务需要知道屏幕内容/布局元素时；用户问「界面上…」而模型无视觉信息时。\n\n取舍与替代选项：只读感知，不能改任何东西——要改请 launch_app/open_file 或更具体的控制工具；与 file_query 的分工：本工具看屏幕，file_query 看工作区外文件状态；感知结果仅作指路依据，不代用户操作。\n\n参数语义：region=屏幕区域/元素定位（缺省=整屏概览）。\n\n边界与协作：只读、无控制权；越权感知（摄像头/他窗口内容）被传感器白名单拒绝；宿主件挂载接线后才可用，感知面随挂载核对。",
       "parameters": {
         "type": "object",
         "properties": {
@@ -292,7 +292,7 @@
     },
     {
       "name": "file_query",
-      "description": "OS 感知：文件状态查询（工作区外只读扫描，宿主件挂载接线）",
+      "description": "行为意图：设备感知——对工作区外路径做只读状态扫描（存在性/大小/时间戳/目录结构/文件名过滤），不读内容不写。\n\n使用时机：任务涉及工作区外路径（桌面/下载/系统目录）需要先摸清状态时；移动/打开前先确认存在与位置时。\n\n取舍与替代选项：要读工作区内容——file_read；要按内容找——grep；要按文件名找——glob；本工具=文件状态与边界（不含内容）；工作区内的内容操作全部交给 file 家族专用工具，本工具只补「工作区外看一眼」的空位。\n\n参数语义：path=待查询路径；pattern=文件名过滤模式。\n\n边界与协作：只读扫描，绝不写；工作区外敏感目录受限，越界被拒；查到路径后的打开动作另行走 open_file/launch_app，本工具不代行。",
       "parameters": {
         "type": "object",
         "properties": {
@@ -329,7 +329,7 @@
     },
     {
       "name": "system_query",
-      "description": "OS 感知/状态：系统状态查询（CPU/内存/进程概览；shell 执行器注册）",
+      "description": "行为意图：系统状态查询——CPU/内存/进程概览/磁盘，只读快照，无副作用。\n\n使用时机：排障/性能判断前先取一次基线；用户问「机器怎么样/进程情况」时。\n\n取舍与替代选项：只看状态——本工具；要控制——用具体控制工具（launch_app 等）；与 screen_query 的分工：那边看屏幕，本工具看系统；进程细节敏感，展示即受限。\n\n参数语义：command=固定值 system_query（端点操作判定同源，调用方恒传）；scope=查询范围（system/process/disk）。\n\n边界与协作：只读（allow 档，不挂审批卡）；经 process_exec 端点白名单收口；查询结果供分析，不自动执行任何动作。",
       "parameters": {
         "type": "object",
         "properties": {
@@ -376,7 +376,7 @@
     },
     {
       "name": "launch_app",
-      "description": "OS 控制：启动应用（shell 执行器注册；首次越界操作强制 L2 人工审批）",
+      "description": "行为意图：启动应用——经命令白名单的 shell 执行器拉起用户指定应用（含参数），是「用户要求打开某个应用」的执行体。\n\n使用时机：用户说「打开 微信/浏览器/VSCode」等具体应用时；带参数启动（如带 URL 打开浏览器）时。\n\n取舍与替代选项：打开文件（默认程序）——open_file；跑任意命令——shell_exec（出厂 deny 档，须显式转正）；本工具=应用级白名单入口，白名单外应用直接拒绝而非静默失败；首次越界操作强制 L2 人工审批。\n\n参数语义：command=固定值 launch_app（端点操作判定同源，调用方恒传）；app=应用名或启动标识；args=启动参数（可选）。\n\n边界与协作：命令白名单收口；审批档 review；启动后的应用行为超出工具管辖；与 open_file 的分工：本工具拉起「应用」，open_file 交付「文件」。",
       "parameters": {
         "type": "object",
         "properties": {
@@ -426,7 +426,7 @@
     },
     {
       "name": "open_file",
-      "description": "OS 控制：以默认程序打开文件（shell 执行器注册；工作区外路径须审批）",
+      "description": "行为意图：以系统默认程序打开指定文件——把文件交付给用户/宿主环境，是「打开这个文件」的执行体。\n\n使用时机：用户要求打开某文件/文档时；输出需要「用户亲眼看到」而不仅是文本回答时。\n\n取舍与替代选项：只是读内容分析——file_read（不触发宿主程序）；要编辑——file_edit；本工具=系统级打开动作；工作区外路径须审批。\n\n参数语义：command=固定值 open_file（端点操作判定同源，调用方恒传）；path=待打开文件路径。\n\n边界与协作：工作区外路径经审批放行；被打开程序的行为不受本工具约束；打开失败（文件不存在/无默认程序）由结果回执反馈，不静默。",
       "parameters": {
         "type": "object",
         "properties": {
@@ -469,7 +469,7 @@
     },
     {
       "name": "set_volume",
-      "description": "OS 控制：音量调节（shell 执行器注册）",
+      "description": "行为意图：调节系统音量——shell 执行器按 0-100 数值设置音量档位。\n\n使用时机：用户明确要求「调大/调小/静音/音量到 x」时。\n\n取舍与替代选项：亮度——set_brightness；通知——notify；本工具只改音量，播放控制等其它音频行为不在本工具范围。\n\n参数语义：command=固定值 set_volume（端点操作判定同源，调用方恒传）；level=音量百分比（0-100）。\n\n边界与协作：越界取值被参数 schema 拒绝；实际音量受系统硬件/策略限制，以系统反馈为准；无副作用于文件/网络。",
       "parameters": {
         "type": "object",
         "properties": {
@@ -514,7 +514,7 @@
     },
     {
       "name": "set_brightness",
-      "description": "OS 控制：屏幕亮度调节（shell 执行器注册）",
+      "description": "行为意图：调节屏幕亮度——shell 执行器按 0-100 数值设置亮度档位。\n\n使用时机：用户要求「调亮/调暗」等亮度操作时；夜间用眼前降低亮度时。\n\n取舍与替代选项：音量——set_volume；屏幕感知——screen_query；本工具只改亮度。\n\n参数语义：command=固定值 set_brightness（端点操作判定同源，调用方恒传）；level=亮度百分比（0-100）。\n\n边界与协作：越界取值被 schema 拒绝；硬件/系统策略不支持的档位以系统反馈为准；笔记本与显示器差异由执行器适配。",
       "parameters": {
         "type": "object",
         "properties": {
@@ -559,7 +559,7 @@
     },
     {
       "name": "notify",
-      "description": "OS 控制：系统通知（托盘/通知中心，shell 执行器注册）",
+      "description": "行为意图：发送系统通知——通知中心/托盘提示，是对话之外的提醒通道（长任务完成、定时触达）。\n\n使用时机：用户离开对话、任务需异步同步时；schedule 到点动作组合本工具实现「到点提醒」时。\n\n取舍与替代选项：对话内反馈——直接文本回复（更快）；需要独立可见提醒——本工具；定时触达——schedule（编排）+ notify（出口）；本工具不做定时。\n\n参数语义：command=固定值 notify（端点操作判定同源，调用方恒传）；title=通知标题；body=通知正文。\n\n边界与协作：无副作用、allow 档；通知不自动确认、不读回执；与 schedule 组合是「定时→提醒」的完成路径。",
       "parameters": {
         "type": "object",
         "properties": {
@@ -605,7 +605,7 @@
     },
     {
       "name": "schedule",
-      "description": "OS 控制：定时任务编排（shell 执行器注册；计划任务须审批）",
+      "description": "行为意图：登记定时任务——触发时刻+到时动作，由 shell 执行器编排，是「未来发生」的执行体。\n\n使用时机：用户要求「明天 9 点提醒/定时执行某动作」等未来动作时；任何超出当前回合的时间维度操作。\n\n取舍与替代选项：立等可做的动作——直接执行，不该排期；周期任务——多个 schedule 或宿主侧策略；提醒出口——组合 notify；本工具管「何时」，notify 管「怎么提醒」。\n\n参数语义：command=固定值 schedule（端点操作判定同源，调用方恒传）；when=触发时刻描述；action=到时执行的动作。\n\n边界与协作：计划任务须审批（后台驻留是越界风险点）；调度器生命周期归宿主；到点动作仍受其自身权限约束。",
       "parameters": {
         "type": "object",
         "properties": {
@@ -653,7 +653,7 @@
     },
     {
       "name": "shell_exec",
-      "description": "OS 控制：任意命令执行（出厂 deny 档——默认拒绝，须经补丁链显式转正才可用；权限契约不得擅自放宽）",
+      "description": "行为意图：任意命令执行——出厂三档权限契约的 deny 档样例：任何调用在门禁处拒绝，不得静默绕过。\n\n使用时机：理论上覆盖「想跑什么命令」；但出厂不可用——须经补丁链显式转正（如放开特定命令）后才是可用工具，转正属产品演化决策。\n\n取舍与替代选项：受控的常见操作——各专用工具（launch_app/open_file/system_query/…，白名单+审批档齐备）；「万能执行」——本工具但必须先转正；能不改权限解决就先不用它。\n\n参数语义：command=固定值 shell_exec（端点操作判定同源，调用方恒传）；argv=待执行命令参数。\n\n边界与协作：权限契约不得擅自放宽；转正须人工审批+补丁链留痕；未转正时调用被拒绝属预期行为，请勿绕过门禁。",
       "parameters": {
         "type": "object",
         "properties": {
@@ -700,7 +700,7 @@
     },
     {
       "name": "fetch_web",
-      "description": "网络抓取：经 http_fetch 端点取回网页内容（域名白名单 = 出厂网络策略，越域拒绝）",
+      "description": "行为意图：网络抓取——经 http_fetch 端点以 GET 取回网页原文，域名白名单=出厂网络策略，越域拒绝，超限截断。\n\n使用时机：回答需要「某个网页当前原文」时（事实核查/取原文引文）；web_search 定位出 URL 之后的抓取步骤。\n\n取舍与替代选项：找网页——web_search（检索定位）；研究链批量入料——collect_material；本工具=检索后的单页抓取；只抓不存，结果直接支撑回答。\n\n参数语义：url=待抓取 URL（域名须在 network_policy.allow_domains 白名单内）。\n\n边界与协作：白名单数据驱动（可经 TOOL 补丁演化）；仅 http/https、超限截断（size_limit_bytes）；结果不自动进知识集；与 web_search 串行使用是「先定位后取证」的标准顺序。",
       "parameters": {
         "type": "object",
         "properties": {
@@ -736,13 +736,15 @@
     },
     {
       "name": "propose_mcp_mount",
-      "description": "对话式安装入口：挂载提案（地址解析 → McpServerConfig 数据推导 → vetting 核对 → 审批卡预览 → L2 批准 → 补丁链挂载可回退；仅作提案不直接执行）",
+      "description": "行为意图：对话式安装入口——地址解析→McpServerConfig 推导→vetting 核对→审批卡预览→L2 批准→补丁链挂载（可回退）；只做提案，不直接执行。\n\n使用时机：用户要求安装市场条目/git 仓库/npm 包形式的 MCP/插件时；浏览 mcp_market.json 之后决定挂载时。\n\n取舍与替代选项：直接执行挂载——不存在此路径（挂载必须经审批链，防匿名插件注入）；卸载——补丁链回退；本工具=唯一「走流程」入口，提案卡由用户拍板。\n\n参数语义：command=固定值 propose_mcp_mount（端点操作判定同源，调用方恒传）；address=插件地址（市场条目 id/git 仓库/npm 包名）。\n\n边界与协作：挂载后走 vetting→观察→L2 审批转正→补丁链可回退；出厂零预挂第三方；执行器由宿主注册（挂载接线）；提案不落链，批准后才挂载。",
       "parameters": {
         "type": "object",
         "properties": {
           "command": {
             "type": "string",
-            "enum": ["propose_mcp_mount"],
+            "enum": [
+              "propose_mcp_mount"
+            ],
             "description": "命令名（固定值；与 process_exec 端点操作判定同源，调用方恒传）"
           },
           "address": {
@@ -772,12 +774,12 @@
         "domain": "self",
         "executor": "host:propose_mcp_mount",
         "sandbox": "process_allowlist",
-        "note": "执行器由宿主注册（M3 接线）；挂载链路 = vetting 静态钩子 → 审批卡 → L2 → 补丁链"
+        "note": "执行器由宿主注册（挂载接线）；挂载链路 = vetting 静态钩子 → 审批卡 → L2 → 补丁链"
       }
     },
     {
       "name": "file_read",
-      "description": "文件开发：读取工作区文件（工作区目录沙箱端点，只读）",
+      "description": "行为意图：读取工作区文件内容——file_ops 端点、工作区根沙箱、只读，返回文件文本供分析。\n\n使用时机：需要查看/分析项目内文件内容时；写或改之前先读上下文时。\n\n取舍与替代选项：找文件名——glob；按内容检索——grep；文件状态——file_query；写——file_write；精准改——file_edit；本工具=读内容（只读，allow 档无审批负担）；工作区外读取走 file_query（只读扫描，不含内容）。\n\n参数语义：operation=固定值 read（与 file_ops 端点操作判定同源，调用方恒传）；path=工作区相对路径。\n\n边界与协作：根目录占位符 ${workspace_root} 在装配期由设置页「工作区授权」替换；大小超限截断（sandbox_limits）；「内容是什么」找本工具，「内容在哪」找 grep/glob。",
       "parameters": {
         "type": "object",
         "properties": {
@@ -822,7 +824,7 @@
     },
     {
       "name": "file_write",
-      "description": "文件开发：写入工作区文件（写前快照，可回退）",
+      "description": "行为意图：写入/覆盖工作区文件——写前快照可回退；AI 开发模式的「写→构建→冒烟→失败信号回流」的写执行体。\n\n使用时机：新建文件或整体重写内容时；与 file_edit 的分工：整文件/大段→write，小段精准→edit。\n\n取舍与替代选项：小段替换——file_edit；只读——file_read；本工具=整文件写；修改前先 file_read 了解现状，避免覆盖盲写。\n\n参数语义：operation=固定值 write（与 file_ops 端点操作判定同源，调用方恒传）；path=工作区相对路径；content=写入内容。\n\n边界与协作：工作区根沙箱+review 审批；写前快照支持回退；构建失败信号回流供 round 学习（失败信号→知识沉淀→下次避坑）。",
       "parameters": {
         "type": "object",
         "properties": {
@@ -872,7 +874,7 @@
     },
     {
       "name": "file_edit",
-      "description": "文件开发：精准编辑工作区文件（替换段落，写前快照，可回退）",
+      "description": "行为意图：精准编辑工作区文件——按 old_text 定位、替换为 new_text，写前快照可回退。\n\n使用时机：对既有文件做小段修改时；比整文件重写更省更准：只需给出最少上下文即可命中。\n\n取舍与替代选项：整文件重写——file_write；只读——file_read；本工具=替换段落；old_text 不唯一时先 file_read 取上下文再定位，不猜测命中位置。\n\n参数语义：operation=固定值 write（编辑属于写操作，与 file_ops 端点操作判定同源，调用方恒传）；path=工作区相对路径；old_text=待替换原文；new_text=替换后文本。\n\n边界与协作：同 file_write 沙箱/审批/快照回退；编辑后构建冒烟验证；「失败信号→改一行」的闭环入口。",
       "parameters": {
         "type": "object",
         "properties": {
@@ -905,6 +907,165 @@
       },
       "permissions": [
         "filesystem:write:${workspace_root}/**"
+      ],
+      "approval": "review",
+      "endpoint": "file_ops",
+      "endpoint_config": {
+        "root": "${workspace_root}"
+      },
+      "network_policy": {
+        "allow_domains": []
+      },
+      "meta": {
+        "domain": "file",
+        "executor": "host:file_ops",
+        "sandbox": "file_root",
+        "sandbox_limits": {
+          "max_read_bytes": 1048576,
+          "max_write_bytes": 1048576
+        }
+      }
+    },
+    {
+      "name": "web_search",
+      "description": "行为意图：网络搜索——把自然语言查询发往搜索聚合源，返回结果清单（标题/摘要/链接），是「先找到网页」的入口。\n\n使用时机：问题涉及最新/外部事实、需要先定位信息源再读原文时；与 fetch_web 的分工——本工具检索定位，fetch_web 抓取单页原文，两者常串行使用（先检索后取证）。\n\n取舍与替代选项：已知确切 URL——直接用 fetch_web；研究链批量采集——collect_material；本工具=检索层，结果不是原文，引用前须经 fetch_web 校验原文。\n\n参数语义：query=查询语句（必填）；limit=返回条数（缺省 5，范围 1-20）；domains=域名过滤子集（可选，收窄检索面）。\n\n边界与协作：默认走本地聚合源（metasearch 类免费无 key）；用户自配 Exa/parallel/bocha 任一 key 后降级到厂商源（键在设置页配置，数据驱动）；失败时提示可重试（瞬时错误/超时），不静默重放；域名白名单语义同 fetch_web（allow_domains 越域拒绝），出厂白名单条目由装配/TOOL 补丁数据驱动补齐；sandbox=network_policy。",
+      "parameters": {
+        "type": "object",
+        "properties": {
+          "query": {
+            "type": "string",
+            "description": "查询语句"
+          },
+          "limit": {
+            "type": "number",
+            "minimum": 1,
+            "maximum": 20,
+            "description": "返回条数（缺省 5）"
+          },
+          "domains": {
+            "type": "array",
+            "items": {
+              "type": "string"
+            },
+            "description": "域名过滤子集（可选，收窄检索面）"
+          }
+        },
+        "required": [
+          "query"
+        ]
+      },
+      "permissions": [
+        "network:connect:*"
+      ],
+      "approval": "review",
+      "endpoint": "http_fetch",
+      "endpoint_config": {
+        "method": "GET"
+      },
+      "network_policy": {
+        "allow_domains": [],
+        "note": "域名白名单语义同 fetch_web：越域拒绝；出厂本地聚合源与用户自配厂商（Exa/parallel/bocha）的域名条目由装配/TOOL 补丁数据驱动补齐"
+      },
+      "meta": {
+        "domain": "network",
+        "executor": "host:web_search",
+        "sandbox": "network_policy",
+        "size_limit_bytes": 200000
+      }
+    },
+    {
+      "name": "grep",
+      "description": "行为意图：工作区文本内容检索——glob 模式限定文件路径范围、正则匹配文件内容、文件类型过滤、超限截断；只读。\n\n使用时机：记得内容/模式、不知道在哪个文件时；「哪些文件里出现了 xx」的定位问题；批量确认改点覆盖情况时。\n\n取舍与替代选项：文件名定位——glob；文件状态——file_query；文件内容——file_read；三方分工：grep=内容、glob=文件名/路径、file_query=文件状态与边界；命中过多时收紧 glob/include 再查。\n\n参数语义：operation=固定值 search（与 file_ops 端点操作判定同源，调用方恒传）；pattern=检索正则（必填）；glob=文件路径 glob 模式（可选，如 **/*.py）；include=文件类型过滤（可选）；max_results=结果条数上限（超限截断）。\n\n边界与协作：permissions=filesystem:read:${workspace_root}/**（同 file_read 只读权限）；approval=review（只读但结果可能大）；sandbox=file_root；截断后结果不完整——收紧条件重查，不要基于截断结果下结论。",
+      "parameters": {
+        "type": "object",
+        "properties": {
+          "operation": {
+            "type": "string",
+            "enum": [
+              "search"
+            ],
+            "description": "文件操作（固定值；与 file_ops 端点操作判定同源，调用方恒传）"
+          },
+          "pattern": {
+            "type": "string",
+            "description": "检索正则（必填）"
+          },
+          "glob": {
+            "type": "string",
+            "description": "文件路径 glob 模式（可选，如 **/*.py）"
+          },
+          "include": {
+            "type": "string",
+            "description": "文件类型过滤（可选）"
+          },
+          "max_results": {
+            "type": "number",
+            "minimum": 1,
+            "maximum": 1000,
+            "description": "结果条数上限（超限截断）"
+          }
+        },
+        "required": [
+          "operation",
+          "pattern"
+        ]
+      },
+      "permissions": [
+        "filesystem:read:${workspace_root}/**"
+      ],
+      "approval": "review",
+      "endpoint": "file_ops",
+      "endpoint_config": {
+        "root": "${workspace_root}"
+      },
+      "network_policy": {
+        "allow_domains": []
+      },
+      "meta": {
+        "domain": "file",
+        "executor": "host:file_ops",
+        "sandbox": "file_root",
+        "sandbox_limits": {
+          "max_read_bytes": 1048576,
+          "max_write_bytes": 1048576
+        }
+      }
+    },
+    {
+      "name": "glob",
+      "description": "行为意图：工作区路径递归检索（目录树）——按 glob 模式列出匹配的路径，只读；是「按名字找文件/目录」的定位工具。\n\n使用时机：记得文件名/目录结构、需要路径时；先 glob 定位、后 file_read 读取的常见组合。\n\n取舍与替代选项：内容检索——grep；状态——file_query；读内容——file_read；三方分工：glob=文件名/路径、grep=内容、file_query=文件状态与边界；本工具不返回文件内容。\n\n参数语义：operation=固定值 search_paths（与 file_ops 端点操作判定同源，调用方恒传）；pattern=glob 路径模式（必填，如 **/*.json）；path=检索起点（可选，缺省工作区根）；max_results=结果条数上限（超限截断）。\n\n边界与协作：permissions=filesystem:read:${workspace_root}/**（同 file_read）；approval=review；sandbox=file_root；截断后收紧模式重查；只列路径不读内容（内容用 file_read）。",
+      "parameters": {
+        "type": "object",
+        "properties": {
+          "operation": {
+            "type": "string",
+            "enum": [
+              "search_paths"
+            ],
+            "description": "文件操作（固定值；与 file_ops 端点操作判定同源，调用方恒传）"
+          },
+          "pattern": {
+            "type": "string",
+            "description": "glob 路径模式（必填，如 **/*.json）"
+          },
+          "path": {
+            "type": "string",
+            "description": "检索起点（可选，缺省工作区根）"
+          },
+          "max_results": {
+            "type": "number",
+            "minimum": 1,
+            "maximum": 1000,
+            "description": "结果条数上限（超限截断）"
+          }
+        },
+        "required": [
+          "operation",
+          "pattern"
+        ]
+      },
+      "permissions": [
+        "filesystem:read:${workspace_root}/**"
       ],
       "approval": "review",
       "endpoint": "file_ops",

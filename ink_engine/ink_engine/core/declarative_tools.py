@@ -129,7 +129,12 @@ class DeclarativeToolSpec:
 
     def validate(self) -> None:
         """定义期校验（fail-fast：权限缺失/权限声明非法/参数 schema 非法/
-        端点白名单缺失——缺声明即拒绝，不延后到执行期）。"""
+        端点白名单缺失——缺声明即拒绝，不延后到执行期）。
+        命名规范断言不在此层：工具名规则在提案/自写边界执行
+        （self_proposal 的 TOOL 补丁校验），本层承载的是通用定义形态
+        校验——出厂基线工具（含历史下划线名）经装配路径注册不受影响，
+        命名整改由产品层决策后统一执行。
+        """
         if not self.name:
             raise GraphDefinitionError("工具名不能为空")
         if not self.permissions:

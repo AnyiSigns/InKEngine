@@ -28,7 +28,7 @@ from ink_engine.core.tool_pipeline import ToolPipeline
 
 def _declarative(endpoint: EndpointType = EndpointType.HTTP_FETCH, **kw) -> DeclarativeToolSpec:
     base = {
-        "name": "my_tool",
+        "name": "mytool",
         "description": "声明式工具",
         "parameters": {"type": "object", "properties": {"url": {"type": "string"}}},
         "permissions": ("network:connect:*.example.com",),
@@ -66,7 +66,7 @@ def test_string_endpoint_normalized_to_enum():
     调用被 fail-closed 拒绝且无从定位。现在构造期强制归一为枚举。
     """
     string_spec = DeclarativeToolSpec(
-        name="fs_tool",
+        name="fstool",
         description="file tool",
         parameters={"type": "object"},
         permissions=("filesystem:write:/book/**",),
@@ -74,7 +74,7 @@ def test_string_endpoint_normalized_to_enum():
         endpoint_config={"root": "/book"},
     )
     enum_spec = DeclarativeToolSpec(
-        name="fs_tool",
+        name="fstool",
         description="file tool",
         parameters={"type": "object"},
         permissions=("filesystem:write:/book/**",),
@@ -110,7 +110,7 @@ def test_string_endpoint_flows_through_extractor():
     """字符串端点声明的定义经桥接提取器正常推导（登记/分发不依赖枚举入参）。"""
     executors = DeclarativeToolExecutors()
     definition = DeclarativeToolSpec(
-        name="fs_tool",
+        name="fstool",
         description="file tool",
         parameters={"type": "object"},
         permissions=("filesystem:write:/book/**",),
@@ -133,7 +133,7 @@ def test_declarative_round_trip():
         meta={"source": "seed"},
     )
     rebuilt = DeclarativeToolSpec.from_dict(definition.to_dict())
-    assert rebuilt.name == "my_tool"
+    assert rebuilt.name == "mytool"
     assert rebuilt.endpoint is EndpointType.PROCESS_EXEC
     assert rebuilt.endpoint_config == {"allowlist": ["git"]}
     assert rebuilt.meta == {"source": "seed"}
@@ -179,7 +179,7 @@ def test_declarative_to_spec():
     """声明式定义 → 引擎工具描述（参数 schema 与权限声明透传）。"""
     spec = _declarative().to_spec()
     assert isinstance(spec, ToolSpec)
-    assert spec.name == "my_tool"
+    assert spec.name == "mytool"
     assert spec.permissions == ("network:connect:*.example.com",)
 
 
@@ -318,7 +318,7 @@ async def test_pipeline_full_flow_with_declarative_tools(memory_storage):
     result = await pipeline.execute(Ctx(), spec, {"command": "git", "args": ["status"]})
     assert result.ok is True
     assert result.output == "git status"
-    traces = await trace_store.list(tool="my_tool")
+    traces = await trace_store.list(tool="mytool")
     assert len(traces) == 1
     assert traces[0].ok is True
 
@@ -326,7 +326,7 @@ async def test_pipeline_full_flow_with_declarative_tools(memory_storage):
     denied = await pipeline.execute(Ctx(), spec, {"command": "rm"})
     assert denied.ok is False
     assert denied.decision == "deny"
-    traces = await trace_store.list(tool="my_tool")
+    traces = await trace_store.list(tool="mytool")
     assert len(traces) == 2
     assert traces[0].ok is False
 
@@ -372,7 +372,7 @@ def test_make_declarative_extractor_resolves_by_endpoint():
     """桥接提取器：spec.name 反查声明式定义 → 端点类型推导判定目标。"""
     executors = DeclarativeToolExecutors()
     file_def = DeclarativeToolSpec(
-        name="fs_tool",
+        name="fstool",
         description="file tool",
         parameters={"type": "object"},
         permissions=("filesystem:write:/book/**",),
@@ -426,7 +426,7 @@ async def test_build_declarative_pipeline_full_flow(memory_storage):
     result = await pipeline.execute(Ctx(), spec, {"command": "git"})
     assert result.ok is True
     assert result.output == "ok"
-    traces = await trace_store.list(tool="my_tool")
+    traces = await trace_store.list(tool="mytool")
     assert len(traces) == 1
     assert traces[0].ok is True
 
@@ -534,13 +534,13 @@ async def test_pipeline_auto_wires_process_and_file_sandboxes():
 
     executors = DeclarativeToolExecutors()
     process_def = _declarative(
-        name="run_tool",
+        name="runtool",
         endpoint=EndpointType.PROCESS_EXEC,
         permissions=("process:exec:*",),  # 宽权限：沙箱白名单做命令收口
         endpoint_config={"allowlist": ["git"], "path": os.environ.get("PATH")},
     )
     file_def = DeclarativeToolSpec(
-        name="fs_tool",
+        name="fstool",
         description="file tool",
         parameters={"type": "object"},
         permissions=("filesystem:write:*",),  # 宽权限：沙箱根目录做路径收口
@@ -608,7 +608,7 @@ async def test_gate_judges_by_definition_permissions():
 
     # 伪造宽松权限的 spec：定义只允许 *.example.com
     forged = ToolSpec(
-        name="my_tool",
+        name="mytool",
         description="伪造",
         parameters={},
         permissions=("network:connect:*",),

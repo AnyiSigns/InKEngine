@@ -83,21 +83,21 @@ def _theme_tokens() -> dict[str, Any]:
 def _tool_spec() -> dict[str, Any]:
     """TOOL 补丁负载（非 MCP 端点声明式工具；L2 验证钩子放行）。"""
     return {
-        "name": "e2e.hook_tool",
+        "name": "e2e.hooktool",
         "description": "自指全钩子 e2e 工具",
         "parameters": {
             "type": "object",
             "properties": {
                 "command": {
                     "type": "string",
-                    "enum": ["e2e.hook_tool"],
+                    "enum": ["e2e.hooktool"],
                 }
             },
             "required": ["command"],
         },
-        "permissions": ["process:exec:e2e.hook_tool"],
+        "permissions": ["process:exec:e2e.hooktool"],
         "endpoint": "process_exec",
-        "endpoint_config": {"allowlist": ["e2e.hook_tool"]},
+        "endpoint_config": {"allowlist": ["e2e.hooktool"]},
         "meta": {"e2e": "self_hooks"},
     }
 
@@ -229,13 +229,13 @@ async def test_hook_tool_roundtrip(booted):
     outcome = await _apply_patch(runtime, ctx, PatchKind.TOOL, _tool_spec())
     assert outcome.applied
     assert outcome.decision == "accept"  # L2：vetting 通过后弹卡
-    assert "e2e.hook_tool" in runtime.tool_registry  # apply_targets 即时生效
+    assert "e2e.hooktool" in runtime.tool_registry  # apply_targets 即时生效
     assert "patch:tool" in ctx.card_keys  # 审批卡留痕
     await _last_audit(runtime, AUDIT_STATUS_APPLIED)
 
     reverted = await runtime.self_pipeline.revert(ctx, outcome.patch_id, reason="e2e 回退")
     assert reverted.status == AUDIT_STATUS_REVERTED
-    assert "e2e.hook_tool" not in runtime.tool_registry  # 回退撤销（工具表重建）
+    assert "e2e.hooktool" not in runtime.tool_registry  # 回退撤销（工具表重建）
     await _last_audit(runtime, AUDIT_STATUS_REVERTED)
 
 
@@ -514,7 +514,7 @@ async def test_multi_kind_same_chain_semantics(booted):
     # 版本连续递增（同一补丁链，无类型分链）
     assert [tool.patch_id, env.patch_id, know.patch_id] == [2, 3, 4]
     state = await runtime.self_pipeline.chain.assemble()
-    assert set(state["tools"]) == {"e2e.hook_tool"}
+    assert set(state["tools"]) == {"e2e.hooktool"}
     assert set(state["environments"]) == {"e2e.hook_env"}
     assert set(state["knowledge"]) == {"k.e2e.hook_knowledge"}
 
@@ -524,7 +524,7 @@ async def test_multi_kind_same_chain_semantics(booted):
     assert await runtime.self_pipeline.chain.current_version() == 1  # 链长收敛
     state = await runtime.self_pipeline.chain.assemble()
     assert not state.get("knowledge")  # 链尾补丁撤销
-    assert set(state["tools"]) == {"e2e.hook_tool"}  # 前置补丁效果保留
+    assert set(state["tools"]) == {"e2e.hooktool"}  # 前置补丁效果保留
     assert set(state["environments"]) == {"e2e.hook_env"}
     audit = await runtime.self_pipeline.audit_log()
     assert [r["status"] for r in audit] == [

@@ -115,7 +115,7 @@ async def test_apply_l1_gate_card(pipeline) -> None:
     proposal = SelfProposal(
         kind=PatchKind.TOOL,
         payload={
-            "name": "list_files",
+            "name": "listfiles",
             "description": "列出文件",
             "permissions": ["filesystem:read:/workspace"],
             "endpoint": "file_ops",
@@ -133,7 +133,7 @@ async def test_apply_l1_gate_card(pipeline) -> None:
     assert card["review_type"] == "gate"
     assert card["patch"]["kind"] == "tool"
     state = await pipeline.chain.assemble()
-    assert state["tools"]["list_files"]["name"] == "list_files"
+    assert state["tools"]["listfiles"]["name"] == "listfiles"
 
 
 async def test_apply_reject_decision(pipeline) -> None:
@@ -161,7 +161,7 @@ async def test_apply_edit_revalidates(pipeline) -> None:
     ctx = FakeCtx()
     # 编辑决议：把合法提案替换为另一合法工具（重新过校验）→ 落链新内容
     ctx.preset("patch:tool", {"decision": "edit", "edited_content": {
-        "name": "fixed_tool",
+        "name": "fixedtool",
         "description": "x",
         "permissions": ["filesystem:read:/workspace"],
         "endpoint": "file_ops",
@@ -170,7 +170,7 @@ async def test_apply_edit_revalidates(pipeline) -> None:
     proposal = SelfProposal(
         kind=PatchKind.TOOL,
         payload={
-            "name": "orig_tool",
+            "name": "origtool",
             "description": "x",
             "permissions": ["filesystem:read:/workspace"],
             "endpoint": "file_ops",
@@ -181,8 +181,8 @@ async def test_apply_edit_revalidates(pipeline) -> None:
     outcome = await pipeline.apply(ctx, proposal)
     assert outcome.applied is True
     state = await pipeline.chain.assemble()
-    assert "fixed_tool" in state["tools"]
-    assert "orig_tool" not in state["tools"]
+    assert "fixedtool" in state["tools"]
+    assert "origtool" not in state["tools"]
 
 
 async def test_apply_edit_invalid_never_applies(pipeline) -> None:
@@ -192,7 +192,7 @@ async def test_apply_edit_invalid_never_applies(pipeline) -> None:
     proposal = SelfProposal(
         kind=PatchKind.TOOL,
         payload={
-            "name": "orig_tool",
+            "name": "origtool",
             "description": "x",
             "permissions": ["filesystem:read:/workspace"],
             "endpoint": "file_ops",

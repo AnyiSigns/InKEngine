@@ -25,14 +25,14 @@ from dataclasses import dataclass, field
 from enum import StrEnum
 from typing import TYPE_CHECKING, Any
 
-from .declarative_tools import DeclarativeToolSpec
+from .declarative_tools import DeclarativeToolSpec, EndpointType
 from .event_types import EventTypeSpec
 from .exceptions import GraphDefinitionError
 from .harness import HarnessDefinition
 from .knowledge_set import KnowledgeEntry
 from .registry import GraphRegistries
 from .rules import Rule
-from .schema_validator import SchemaSpec, SchemaValidator
+from .schema_validator import SchemaSpec, SchemaValidator, validate_tool_name
 from .ui_schema import DEFAULT_BIND_CHANNELS, UISchemaValidator
 
 if TYPE_CHECKING:
@@ -213,10 +213,24 @@ class ProposalValidator:
 
     def _validate_tool(self, payload: dict[str, Any]) -> list[str]:
         try:
-            DeclarativeToolSpec.from_dict(payload)
+            parsed = DeclarativeToolSpec.from_dict(payload)
         except GraphDefinitionError as exc:
             return self._violations("tool 补丁非法", exc)
-        return []
+        violations: list[str] = []
+        # 命名规范断言（新增/自写工具统一执行）：工具名是行为词典的词汇
+        # 键，TOOL 补丁即「新增/自写」的声明面——下划线/超长命名在此
+        # 拦截（fail-closed 于提案期，不落到审批卡）。豁免面 = MCP 远程
+        # 工具（endpoint=mcp）：名字来自第三方服务器清单，不由产品行为
+        # 词典管控；豁免由声明数据本身推导，序列化往返不丢。
+        if parsed.endpoint is not EndpointType.MCP:
+            name_violations = validate_tool_name(parsed.name)
+            if name_violations:
+                violations.extend(
+                    self._violations("tool 补丁非法", GraphDefinitionError(
+                        f"工具名 {parsed.name} 违反命名规范: {'；'.join(name_violations)}"
+                    ))
+                )
+        return violations
 
     def _validate_rule(self, payload: dict[str, Any]) -> list[str]:
         rule = payload.get("rule")

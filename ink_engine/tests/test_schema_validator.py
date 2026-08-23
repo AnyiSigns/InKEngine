@@ -10,9 +10,11 @@ import pytest
 
 from ink_engine.core.exceptions import GraphDefinitionError
 from ink_engine.core.schema_validator import (
+    TOOL_NAME_MAX_LENGTH,
     SchemaField,
     SchemaSpec,
     SchemaValidator,
+    validate_tool_name,
 )
 
 
@@ -196,3 +198,30 @@ def test_validator_all_kinds():
         schema, {"a": "s", "b": 1.5, "c": True, "d": {}, "e": []}
     )
     assert validator.validate(schema, {"a": 1, "b": "x", "c": 1, "d": [], "e": {}})
+
+
+# -- 工具名命名规范断言 -----------------------------------------------------
+
+
+def test_tool_name_compliant():
+    """合规工具名（短词自然语言）零违规。"""
+    for name in ("webquery", "grep", "glob", "notify", "schedule", "a" * TOOL_NAME_MAX_LENGTH):
+        assert validate_tool_name(name) == [], name
+
+
+def test_tool_name_underscore_rejected():
+    """下划线工具名违规（行为词典词汇约束：短词自然语言，禁程序化标识）。"""
+    violations = validate_tool_name("web_search")
+    assert any("禁用字符" in v for v in violations)
+
+
+def test_tool_name_too_long_rejected():
+    """长度超限工具名违规（上限 = TOOL_NAME_MAX_LENGTH 常量，非魔法数字）。"""
+    assert validate_tool_name("x" * (TOOL_NAME_MAX_LENGTH + 1))
+    assert not validate_tool_name("x" * TOOL_NAME_MAX_LENGTH)
+
+
+def test_tool_name_empty_rejected():
+    """空工具名违规。"""
+    violations = validate_tool_name("")
+    assert any("不能为空" in v for v in violations)

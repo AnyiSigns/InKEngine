@@ -1,7 +1,7 @@
 """MCP 集成层 conformance 基线：种子工具声明 ↔ MCP 工具清单形态对账。
 
-跨语言契约文本对齐：``seeds/inkling/seed_data/tools.json`` 是工具声明
-的单一事实源（宿主侧清单）；外部 MCP server 列出的工具清单以
+跨语言契约文本对齐：``inkling/seed_data/tools.json`` 是工具声明的
+单一事实源（宿主侧清单）；外部 MCP server 列出的工具清单以
 ``inputSchema``（SDK 1.x 字段）或 ``input_schema``（SDK 2.x 字段）
 任一形态呈现——引擎转换后参数 schema 必须逐字保留声明，不得归一为
 空壳（参数定义是 LLM 选工具与宿主参数级校验的依据）。
@@ -9,7 +9,10 @@
 本基线钉住两层契约：
 1. 两种字段形态对同一声明产出完全等价的引擎定义（SDK 字段改名不
    能改变契约文本）；
-2. 声明的参数 schema 经清单往返逐字保留（跨语言实现的文本对齐）。
+2. 声明的参数 schema 经清单往返逐字保留（跨语言实现的文本对齐）；
+3. 行为手册形态门禁：每个工具的描述都是五段式行为说明书（含
+   「使用时机」段、≥5 行）——行为词典全驻留描述层，系统提示/准则
+   层不得再出现工具名（后者是装配纪律，另由门禁核对）。
 """
 from __future__ import annotations
 
@@ -20,9 +23,9 @@ import pytest
 
 from ink_engine.core.mcp_client import convert_mcp_tool
 
-# 种子工具声明（仓库布局：ink_engine/ 与 seeds/ 同级的单一事实源）
+# 种子工具声明（仓库布局：ink_engine/ 与 inkling/ 同级的单一事实源）
 _SEED_TOOLS_JSON = (
-    Path(__file__).resolve().parents[2] / "seeds" / "inkling" / "seed_data" / "tools.json"
+    Path(__file__).resolve().parents[2] / "inkling" / "seed_data" / "tools.json"
 )
 
 
@@ -86,4 +89,23 @@ def test_seed_tool_declarations_are_well_formed_schemas():
         assert isinstance(params, dict) and params.get("type") == "object"
         assert isinstance(params.get("properties"), dict) and params["properties"], (
             f"工具 {tool['name']} 参数 schema 为空壳（契约基线须为非空参数定义）"
+        )
+
+
+def test_seed_tool_descriptions_are_behavior_handbooks():
+    """行为手册门禁：描述 = 五段式行为说明书（≥5 行、含「使用时机」段）。
+
+    行为词典全驻留描述层——描述是 LLM 选工具的完整依据（意图/时机/
+    取舍/参数/边界），一句话简介不足以承载行为纪律；本门禁钉住
+    描述形态的最低线（行数与「使用时机」段），防止退化回一句概述。
+    """
+    for tool in _declared_tools():
+        desc = tool.get("description") or ""
+        lines = [ln for ln in desc.splitlines() if ln.strip()]
+        assert len(lines) >= 5, (
+            f"工具 {tool['name']} 描述不足 5 行（行为手册门禁）："
+            f"当前 {len(lines)} 行"
+        )
+        assert "使用时机" in desc, (
+            f"工具 {tool['name']} 描述缺「使用时机」段（行为手册门禁）"
         )

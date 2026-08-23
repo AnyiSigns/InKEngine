@@ -330,7 +330,7 @@ async def test_s2_knowledge_seeds_retrieval(memory_storage):
 async def test_s3_tools_permissions_audit(memory_storage):
     """声明式工具过完整流水线 → 权限门禁 fail-closed → 审计 + 轨迹留痕。"""
     definition = DeclarativeToolSpec(
-        name="fs_tool",
+        name="fstool",
         description="文件工具",
         parameters={"type": "object"},
         permissions=("filesystem:write:/book/**",),
@@ -357,7 +357,7 @@ async def test_s3_tools_permissions_audit(memory_storage):
     denied = await pipeline.execute(ctx, definition.to_spec(), {"operation": "write", "path": "/etc/passwd"})
     assert denied.ok is False and denied.decision == DENY
 
-    traces = await trace_store.list(tool="fs_tool")
+    traces = await trace_store.list(tool="fstool")
     assert len(traces) >= 2  # 轨迹留痕存在
     assert _has(ctx.events, "tool_audit")  # 审计事件探针
 
@@ -542,7 +542,7 @@ async def test_s7_declarative_sandbox_permission_vetting_mcp_audit_event_approva
     """十机制同场：声明式工具 / 沙箱 / 权限 / vetting / MCP / 审计 / 事件 / 审批 / 图 / 轨迹。"""
     # 声明式工具 + 沙箱（越界拒绝）+ 权限 + 审计 + 轨迹
     fs_def = DeclarativeToolSpec(
-        name="fs_tool", description="文件工具", parameters={"type": "object"},
+        name="fstool", description="文件工具", parameters={"type": "object"},
         permissions=("filesystem:write:/book/**",), endpoint=EndpointType.FILE_OPS,
         endpoint_config={"root": "/book"},
     )
@@ -567,7 +567,7 @@ async def test_s7_declarative_sandbox_permission_vetting_mcp_audit_event_approva
     )
     oob = await auto.execute(_PipeCtx(), fs_def.to_spec(), {"operation": "write", "path": "/etc/passwd"})
     assert oob.ok is False and oob.decision == DENY
-    assert len(await trace_store.list(tool="fs_tool")) >= 2  # 轨迹留痕
+    assert len(await trace_store.list(tool="fstool")) >= 2  # 轨迹留痕
     assert _has(ctx.events, "tool_audit")  # 审计事件
 
     # 权限门禁 fail-closed（独立判定）
@@ -803,7 +803,7 @@ async def test_s9_introspect_propose_apply_levels_patch_knowledge_tuning_distill
     assert await sa.chain.current_version() == 2  # 补丁链版本前进
 
     tool_proposal = SelfProposal(kind=PatchKind.TOOL, payload={
-        "name": "list_files", "description": "列出文件",
+        "name": "listfiles", "description": "列出文件",
         "permissions": ["filesystem:read:/workspace"], "endpoint": "file_ops",
         "endpoint_config": {"root": "/workspace"},
     }, base_version=2, rationale="注册文件工具")
@@ -817,7 +817,7 @@ async def test_s9_introspect_propose_apply_levels_patch_knowledge_tuning_distill
     assert [e["status"] for e in log] == [AUDIT_STATUS_APPLIED, AUDIT_STATUS_APPLIED]
     # 拒绝留痕：L1 拒绝不落链但留痕（base_version 对齐当前版本，避免并发冲突）
     reject_proposal = SelfProposal(kind=PatchKind.TOOL, payload={
-        "name": "list_files", "description": "列出文件",
+        "name": "listfiles", "description": "列出文件",
         "permissions": ["filesystem:read:/workspace"], "endpoint": "file_ops",
         "endpoint_config": {"root": "/workspace"},
     }, base_version=3, rationale="注册文件工具")

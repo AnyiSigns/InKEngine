@@ -30,6 +30,42 @@ FIELD_ARRAY = "array"
 
 _VALID_KINDS = (FIELD_STRING, FIELD_NUMBER, FIELD_BOOL, FIELD_OBJECT, FIELD_ARRAY)
 
+# 工具名规范（行为词典词汇约束：短词自然语言，命名声明为声明式数据）。
+# 工具名是 LLM 选工具/宿主协议路由的关键字，也是行为词典的词汇键——
+# 约束入口在声明式工具定义期检查（DeclarativeToolSpec），本函数是
+# 命名规则的事实来源（单一判定点，规则演化只改这里）。
+TOOL_NAME_MAX_LENGTH = 24
+# 工具名禁止的词汇字符（下划线 = 程序化标识习惯，非自然语言短词）
+TOOL_NAME_FORBIDDEN_CHARS = ("_",)
+
+
+def validate_tool_name(name: str) -> list[str]:
+    """工具名形态校验（命名规范断言）。
+
+    判定规则：非空；长度 ≤ :data:`TOOL_NAME_MAX_LENGTH`；不含
+    :data:`TOOL_NAME_FORBIDDEN_CHARS` 中的任何字符（下划线）。
+
+    Args:
+        name: 工具名。
+
+    Returns:
+        违规消息清单（空 = 合规，消息可审计可展示——与
+        :class:`SchemaValidator` 的违规清单同语义）。
+    """
+    if not name:
+        return ["工具名不能为空"]
+    violations: list[str] = []
+    if len(name) > TOOL_NAME_MAX_LENGTH:
+        violations.append(
+            f"工具名长度超限: {len(name)} > {TOOL_NAME_MAX_LENGTH}"
+        )
+    for forbidden in TOOL_NAME_FORBIDDEN_CHARS:
+        if forbidden in name:
+            violations.append(
+                f"工具名含禁用字符 {forbidden!r}（命名规范要求短词自然语言）"
+            )
+    return violations
+
 
 @dataclass(frozen=True, slots=True)
 class SchemaField:
@@ -258,4 +294,7 @@ __all__ = [
     "SchemaField",
     "SchemaSpec",
     "SchemaValidator",
+    "TOOL_NAME_FORBIDDEN_CHARS",
+    "TOOL_NAME_MAX_LENGTH",
+    "validate_tool_name",
 ]

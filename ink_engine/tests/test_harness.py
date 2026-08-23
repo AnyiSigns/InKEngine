@@ -52,7 +52,7 @@ def _harness(
         graph=graph.to_dict(),
         tools=[
             {
-                "name": f"{name}_tool",
+                "name": f"{name}tool",
                 "description": "工具",
                 "parameters": {},
                 "permissions": ["process:exec:git"],
@@ -88,7 +88,7 @@ def test_registry_builds_graph_and_tools():
     graph = registry.build_graph("plotter")
     assert graph is not None and graph.entry == "w1"
     tools = registry.build_tools("plotter")
-    assert [t.name for t in tools] == ["plotter_tool"]
+    assert [t.name for t in tools] == ["plottertool"]
     assert isinstance(tools[0], ToolSpec)
     schema = registry.build_schema("plotter")
     assert schema is not None and "seen" in schema.channels
@@ -260,9 +260,9 @@ def test_build_tools_registers_definitions():
     registry.register(_harness())
     registry.build_tools("plotter")
     registered = registry.declarative.definitions
-    assert "plotter_tool" in registered
-    assert isinstance(registered["plotter_tool"], DeclarativeToolSpec)
-    assert registered["plotter_tool"].endpoint.value == "process_exec"
+    assert "plottertool" in registered
+    assert isinstance(registered["plottertool"], DeclarativeToolSpec)
+    assert registered["plottertool"].endpoint.value == "process_exec"
 
 
 async def test_build_pipeline_runs_declarative_tool(memory_storage):
@@ -295,14 +295,14 @@ async def test_build_pipeline_runs_declarative_tool(memory_storage):
             pass
 
     spec = ToolSpec(
-        name="plotter_tool",
+        name="plottertool",
         permissions=("process:exec:git",),
         parameters={"type": "object", "properties": {"command": {"type": "string"}}},
     )
     result = await pipeline.execute(Ctx(), spec, {"command": "git"})
     assert result.ok is True
     assert result.output == "git status"
-    assert calls == ["plotter_tool"]
+    assert calls == ["plottertool"]
     # 目标推导失败（缺 command）→ fail-closed 拒绝（P0-4 语义贯通）
     denied = await pipeline.execute(Ctx(), spec, {})
     assert denied.ok is False

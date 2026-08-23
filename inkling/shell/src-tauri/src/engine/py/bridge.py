@@ -118,6 +118,341 @@ async def invoke_async(name: str, args_json: str) -> str:
     return json.dumps(_jsonable(result))
 
 
+# ── JSON 回调桥（引擎执行路径上 Rust 域逻辑的受控接入点）──
+
+_CALLBACK_HOST: Any = None
+
+
+def bind_callback_host(host) -> None:
+    """绑定回调宿主（Rust 侧注册的回调经此被引擎侧消费；进程级单实例）。"""
+    global _CALLBACK_HOST
+    _CALLBACK_HOST = host
+
+
+def callback_host() -> Any:
+    """当前回调宿主实例（未装配显式报错；Rust 侧注册的定位出口）。"""
+    if _CALLBACK_HOST is None:
+        raise RuntimeError("回调桥未装配（先经 register_objects 绑定）")
+    return _CALLBACK_HOST
+
+
+def _callback(name: str, payload: dict) -> Any:
+    """调用 Rust 侧回调（JSON 进/JSON 出；未注册显式报错，不静默回退）。"""
+    if _CALLBACK_HOST is None:
+        raise RuntimeError(f"回调桥未装配（回调: {name}）")
+    raw = _CALLBACK_HOST.invoke(name, json.dumps(payload, ensure_ascii=False))
+    return json.loads(raw)
+
+
+# ── 回合外的审批决议（宿主侧动作经审批卡请求预注入决议）──
+
+_APPROVAL_DECISIONS: dict[str, Any] = {}
+_PENDING_CARDS: dict[str, dict] = {}
+
+
+class StandaloneApprovalContext:
+    """回合外的审批上下文：决议经审批卡请求预注入，未知卡按拒绝处理。
+
+    引擎的挂卡审批原语在回合内经中断键持久化；宿主侧动作（补丁应用/
+    回退等）不在回合内执行，本上下文以「先请求审批卡再注入决议」
+    的两步形态提供同一语义——未提供决议 = fail-closed 拒绝并留痕。
+    """
+
+    def __init__(self, thread_id: str | None = None) -> None:
+        self._scope = thread_id or "host"
+
+    def _key(self, key: str) -> str:
+        return f"{self._scope}:{key}"
+
+    async def interrupt(self, key: str, card: dict) -> Any:
+        full = self._key(key)
+        decision = _APPROVAL_DECISIONS.pop(full, None)
+        if decision is not None:
+            return decision
+        _PENDING_CARDS[full] = card
+        return {
+            "decision": "reject",
+            "reason": "审批决议未提供（须先经审批卡请求注入）",
+        }
+
+    async def get_interrupt_payload(self, key: str) -> dict | None:
+        return _PENDING_CARDS.get(self._key(key))
+
+
+# ── 安全流水线的引擎侧适配（判定语义在 Rust；此处仅协议桥接）──
+
+_CURRENT_TOOL: Any = None
+try:
+    import contextvars as _contextvars
+
+    _CURRENT_TOOL = _contextvars.ContextVar("bridge_current_tool", default="")
+except ImportError:  # pragma: no cover - contextvars 为内置模块，兜底防空
+    _CURRENT_TOOL = None
+
+
+def _tool_name() -> str:
+    if _CURRENT_TOOL is None:
+        return ""
+    return _CURRENT_TOOL.get()
+
+
+class CallbackSandbox:
+    """声明式沙箱守卫的引擎侧协议适配：判定委托 Rust 回调。
+
+    ToolPipeline 的沙箱环节只消费 ``(operation, target)`` 并需要知道
+    调用方工具——工具名经上下文变量透传（本类执行前由流水线包装类
+    设置），守卫语义（定义即权威）在 Rust 侧实现。
+    """
+
+    def guards_operation(self, operation: str) -> bool:
+        verdict = _callback(
+            "security.guards_operation", {"operation": str(operation)}
+        )
+        return bool(verdict.get("guarded", False))
+
+    def validate(self, operation: str, target: str) -> str:
+        from ink_engine.core.exceptions import SandboxViolation
+
+        verdict = _callback(
+            "security.sandbox_validate",
+            {
+                "tool": _tool_name(),
+                "operation": str(operation),
+                "target": str(target),
+            },
+        )
+        if not verdict.get("pass", False):
+            raise SandboxViolation(str(verdict.get("reason") or "沙箱守卫拒绝"))
+        return target
+
+
+_SECURITY_PIPELINE_CLASS: Any = None
+
+
+def _security_pipeline_class():
+    """安全流水线子类（懒构造）：当前工具名经上下文变量透传沙箱守卫。"""
+    from ink_engine.core.tool_pipeline import ToolPipeline
+
+    global _SECURITY_PIPELINE_CLASS
+    if _SECURITY_PIPELINE_CLASS is None:
+
+        class _SecurityPipeline(ToolPipeline):
+            async def execute(self, ctx: Any, spec: Any, args: dict) -> Any:
+                token = (
+                    _CURRENT_TOOL.set(spec.name)
+                    if _CURRENT_TOOL is not None
+                    else None
+                )
+                try:
+                    return await super().execute(ctx, spec, args)
+                finally:
+                    if token is not None:
+                        _CURRENT_TOOL.reset(token)
+
+        _SECURITY_PIPELINE_CLASS = _SecurityPipeline
+    return _SECURITY_PIPELINE_CLASS
+
+
+# ── 活跃态应用目标（补丁落链后的运行时生效钩子；引擎侧薄实现）──
+
+class _UiLiveTarget:
+    """UI 补丁生效：布局描述即时切入内省界面快照（渲染器数据源）。"""
+
+    name = "inkling.ui"
+
+    def __init__(self, runtime: Any) -> None:
+        self._runtime = runtime
+
+    async def apply(self, payload: dict, patch_id: int) -> None:
+        spec = payload.get("spec")
+        if isinstance(spec, dict) and spec.get("root"):
+            self._runtime.introspection_service._sources.ui_spec = spec
+
+
+class _ThemeLiveTarget:
+    """THEME 补丁生效：token 增量合并进界面快照的 theme 段。"""
+
+    name = "inkling.theme"
+
+    def __init__(self, runtime: Any) -> None:
+        self._runtime = runtime
+
+    async def apply(self, payload: dict, patch_id: int) -> None:
+        tokens = payload.get("tokens")
+        if not isinstance(tokens, dict):
+            return
+        sources = self._runtime.introspection_service._sources
+        spec = dict(sources.ui_spec or {})
+        theme = dict(spec.get("theme") or {})
+        theme.update(tokens)
+        spec["theme"] = theme
+        sources.ui_spec = spec
+
+
+class _HarnessLiveTarget:
+    """HARNESS 补丁生效：领域定义即时登记（同名覆盖 = 配置驱动）。"""
+
+    name = "inkling.harness"
+
+    def __init__(self, runtime: Any) -> None:
+        self._runtime = runtime
+
+    async def apply(self, payload: dict, patch_id: int) -> None:
+        from ink_engine.core.harness import HarnessDefinition
+
+        definition = payload.get("definition")
+        if not isinstance(definition, dict):
+            return
+        parsed = HarnessDefinition.from_dict(definition)
+        self._runtime.harness_registry.register(parsed)
+
+
+class _KnowledgeLiveTarget:
+    """KNOWLEDGE 补丁生效：条目即时 upsert 进知识集（调配器下回合可见）。"""
+
+    name = "inkling.knowledge"
+
+    def __init__(self, runtime: Any) -> None:
+        self._runtime = runtime
+
+    async def apply(self, payload: dict, patch_id: int) -> None:
+        _upsert_knowledge(self._runtime, payload.get("entry"))
+
+
+class _RuleLiveTarget:
+    """RULE 补丁生效：规则声明即时进知识集（kind=rule 条目）。"""
+
+    name = "inkling.rule"
+
+    def __init__(self, runtime: Any) -> None:
+        self._runtime = runtime
+
+    async def apply(self, payload: dict, patch_id: int) -> None:
+        from ink_engine.core.knowledge_set import KIND_RULE, KnowledgeEntry
+
+        rule = payload.get("rule")
+        if not isinstance(rule, dict):
+            return
+        rule_id = str(rule.get("id") or payload.get("rule_id") or "rule")
+        entry = KnowledgeEntry(
+            id=rule_id,
+            level="project",
+            kind=KIND_RULE,
+            data={"rule": rule},
+            source="model",
+            title=str(rule.get("message") or rule_id)[:80],
+        )
+        _register_patch_entry(self._runtime, entry.id)
+        knowledge_set = self._runtime.knowledge_set
+        if knowledge_set.get(entry.id) is None:
+            knowledge_set.add(entry)
+        else:
+            knowledge_set.update(entry.id, data={"rule": rule}, title=entry.title)
+
+
+class _ToolApplyTarget:
+    """TOOL 补丁生效：声明式定义进注册表 + 统一工具表（挂载工具即刻可调）。"""
+
+    name = "inkling.tool"
+
+    def __init__(self, runtime: Any) -> None:
+        self._runtime = runtime
+
+    async def apply(self, payload: dict, patch_id: int) -> None:
+        from ink_engine.core.declarative_tools import DeclarativeToolSpec
+
+        spec = DeclarativeToolSpec.from_dict(payload)
+        self._runtime.harness_registry.declarative.register_definition(spec)
+        self._runtime.tool_registry[spec.name] = spec.to_spec()
+
+
+class _EventTypeApplyTarget:
+    """EVENT_TYPE 补丁生效：事件类型注册表即时登记（新类型可渲染/校验）。"""
+
+    name = "inkling.event_type"
+
+    def __init__(self, runtime: Any) -> None:
+        self._runtime = runtime
+
+    async def apply(self, payload: dict, patch_id: int) -> None:
+        from ink_engine.core.event_types import EventTypeSpec
+
+        spec = EventTypeSpec.from_dict(payload)
+        self._runtime.event_type_registry.register(spec)
+
+
+class _CallbackApplyTarget:
+    """回调委托型应用目标：apply 语义在 Rust 域层（经 JSON 回调执行）。"""
+
+    def __init__(self, kind: str, callback: str) -> None:
+        self.name = f"callback.{kind}"
+        self._callback_name = callback
+
+    async def apply(self, payload: dict, patch_id: int) -> None:
+        response = _callback(self._callback_name, {
+            "payload": payload,
+            "patch_id": patch_id,
+        })
+        if not response.get("ok", True):
+            raise RuntimeError(str(response.get("reason") or "活跃态应用失败"))
+
+
+def _register_patch_entry(runtime: Any, entry_id: str) -> None:
+    """登记补丁来源条目 id（回退恢复的撤销清单；宿主装配时初始化）。"""
+    registry = getattr(runtime, "patch_entries", None)
+    if registry is None:
+        registry = set()
+        runtime.patch_entries = registry
+    registry.add(entry_id)
+
+
+def _upsert_knowledge(runtime: Any, entry: Any) -> None:
+    """知识条目 upsert（身份字段不可修正——整体字段替换除外，见目标语义）。"""
+    from ink_engine.core.knowledge_set import KnowledgeEntry
+
+    if not isinstance(entry, dict):
+        return
+    parsed = KnowledgeEntry.from_dict(entry)
+    _register_patch_entry(runtime, parsed.id)
+    knowledge_set = runtime.knowledge_set
+    if knowledge_set.get(parsed.id) is None:
+        knowledge_set.add(parsed)
+    else:
+        changes = {
+            key: value
+            for key, value in parsed.to_dict().items()
+            if key not in ("id", "created_at")
+        }
+        knowledge_set.update(parsed.id, **changes)
+
+
+class _CollectingTransport:
+    """回合事件收集传输（试跑/观察场景：事件留驻本对象，随结果返回）。"""
+
+    def __init__(self) -> None:
+        self.events: list[dict] = []
+
+    async def send(self, event: Any) -> None:
+        self.events.append(_jsonable(event))
+
+
+def _runtime_recipe_context(runtime: Any) -> Any:
+    """按运行时装配产物构造图配方上下文（装配期调用，组件实时引用）。"""
+    from ink_engine.core.assembly import AssemblyConfig
+    from ink_engine.core.runtime import GraphRecipeContext
+
+    return GraphRecipeContext(
+        llm=None,
+        tool_pipeline=runtime.tool_pipeline,
+        tool_specs=runtime.collect_specs(),
+        storage=runtime.storage,
+        registries=runtime.graph_registries,
+        system_events=runtime.event_type_registry.system_events(),
+        assembly=AssemblyConfig(),
+        assembly_sources=runtime._assembly_sources(),
+    )
+
+
 def register_builtin_ops() -> None:
     """注册出厂引擎操作（薄包装集合；随域模块拓展增量注册）。"""
 
@@ -203,6 +538,511 @@ def register_builtin_ops() -> None:
     async def _event_types_names(args: dict) -> Any:
         runtime = runtime_handle()
         return list(runtime.event_type_registry.names())
+
+    # ── 补丁链（应用/回退/提案/目标注册）──
+
+    @op_async("patch.apply")
+    async def _patch_apply(args: dict) -> Any:
+        from ink_engine.core.self_proposal import SelfProposal
+
+        runtime = runtime_handle()
+        proposal = SelfProposal.from_dict(
+            {
+                "kind": args["kind"],
+                "payload": args["payload"],
+                "base_version": int(args.get("base_version") or 1),
+                "rationale": args.get("rationale") or "",
+                "meta": args.get("meta") or {},
+            }
+        )
+        ctx = StandaloneApprovalContext(args.get("thread_id"))
+        outcome = await runtime.self_pipeline.apply(
+            ctx, proposal, round_id=args.get("round_id")
+        )
+        return {"outcome": _jsonable(outcome)}
+
+    @op_async("patch.revert")
+    async def _patch_revert(args: dict) -> Any:
+        runtime = runtime_handle()
+        patch_id = int(args["patch_id"])
+        ctx = StandaloneApprovalContext(args.get("thread_id"))
+        decision = args.get("decision")
+        if decision is not None:
+            _APPROVAL_DECISIONS[
+                f"{ctx._key('revert:' + str(patch_id))}"
+            ] = {"decision": decision, "reason": args.get("reason")}
+        outcome = await runtime.self_pipeline.revert(
+            ctx,
+            patch_id,
+            reason=args.get("reason") or "",
+            round_id=args.get("round_id"),
+        )
+        return {"outcome": _jsonable(outcome)}
+
+    @op_async("patch.propose_knowledge")
+    async def _patch_propose_knowledge(args: dict) -> Any:
+        from ink_engine.core.self_proposal import PatchKind, SelfProposal
+
+        runtime = runtime_handle()
+        base_version = int(
+            args.get("base_version")
+            or await runtime.self_pipeline.chain.current_version()
+        )
+        proposal = SelfProposal(
+            kind=PatchKind.KNOWLEDGE,
+            payload={"entry": args["entry"]},
+            base_version=base_version,
+            rationale=args.get("rationale") or "",
+            meta=dict(args.get("meta") or {}),
+        )
+        ctx = StandaloneApprovalContext(args.get("thread_id"))
+        decision = args.get("decision")
+        if decision is not None:
+            _APPROVAL_DECISIONS[ctx._key(runtime.self_pipeline.approval_key(PatchKind.KNOWLEDGE))] = {
+                "decision": decision,
+                "reason": args.get("reason"),
+            }
+        outcome = await runtime.self_pipeline.apply(
+            ctx, proposal, round_id=args.get("round_id")
+        )
+        return {"outcome": _jsonable(outcome)}
+
+    @op_sync("patch.apply_target_register")
+    def _patch_apply_target_register(args: dict) -> Any:
+        from ink_engine.core.self_proposal import PatchKind
+
+        runtime = runtime_handle()
+        kind = args["kind"]
+        callback = args.get("callback")
+        if callback:
+            target = _CallbackApplyTarget(kind, callback)
+        elif kind == "tool":
+            target = _ToolApplyTarget(runtime)
+        elif kind == "event_type":
+            target = _EventTypeApplyTarget(runtime)
+        else:
+            raise ValueError(
+                f"未知活跃态目标类型: {kind}（callback 受托或 tool/event_type 引擎内置）"
+            )
+        runtime.self_pipeline.register_target(PatchKind(kind), target)
+        return {"registered": kind, "target": target.name}
+
+    @op_sync("patch.register_live_targets")
+    def _patch_register_live_targets(args: dict) -> Any:
+        from ink_engine.core.self_proposal import PatchKind
+
+        runtime = runtime_handle()
+        targets = {
+            PatchKind.UI: _UiLiveTarget(runtime),
+            PatchKind.THEME: _ThemeLiveTarget(runtime),
+            PatchKind.HARNESS: _HarnessLiveTarget(runtime),
+            PatchKind.RULE: _RuleLiveTarget(runtime),
+            PatchKind.KNOWLEDGE: _KnowledgeLiveTarget(runtime),
+        }
+        for kind, target in targets.items():
+            runtime.self_pipeline.register_target(kind, target)
+        return {"registered": [target.name for target in targets.values()]}
+
+    # ── 工具表/流水线/审批──
+
+    @op_sync("engine.tool_registry_remove")
+    def _tool_registry_remove(args: dict) -> Any:
+        runtime = runtime_handle()
+        removed = runtime.tool_registry.pop(args["name"], None)
+        return {"removed": removed is not None}
+
+    @op_sync("pipeline.install_security_pipeline")
+    def _install_security_pipeline(args: dict) -> Any:
+        from ink_engine.core.permissions import DENY, PermissionGate
+
+        runtime = runtime_handle()
+        old = runtime.tool_pipeline
+        pipeline = _security_pipeline_class()(
+            gate=PermissionGate(
+                default_policy=DENY,
+                review_tier=lambda tool: bool(
+                    _callback(
+                        "security.gating_tier", {"tool": str(tool)}
+                    ).get("review", False)
+                ),
+            ),
+            extractor=old.extractor,
+            executor=old.executor,
+            sandboxes=(CallbackSandbox(),),
+            guards=tuple(getattr(old, "guards", ()) or ()),
+            audit=getattr(old, "audit", None),
+            max_result_chars=getattr(old, "max_result_chars", 100_000),
+            allow_unchecked=getattr(old, "allow_unchecked", False),
+            trace_sink=getattr(old, "trace_sink", None),
+        )
+        runtime.tool_pipeline = pipeline
+        return {"installed": True}
+
+    @op_async("approval.gate_card_request")
+    async def _gate_card_request(args: dict) -> Any:
+        from ink_engine.core.approval import approve_before_execute
+
+        runtime = runtime_handle()
+        ctx = StandaloneApprovalContext(args.get("thread_id"))
+        key = str(args["key"])
+        decision = args.get("decision")
+        if decision is not None:
+            _APPROVAL_DECISIONS[ctx._key(key)] = {
+                "decision": decision,
+                "edited_content": args.get("edited_content"),
+                "reason": args.get("reason"),
+            }
+        pipeline = runtime.self_pipeline
+        policy = getattr(pipeline, "_policy", None)
+        approval = await approve_before_execute(
+            ctx,
+            key,
+            args.get("action") or {},
+            payload=args.get("payload"),
+            policy=policy,
+        )
+        return {
+            "decision": approval.decision,
+            "reason": approval.reason,
+            "source": approval.source,
+        }
+
+    # ── 图配方（节点类型登记 + 回合图构造）──
+
+    @op_sync("graph.register_node_types")
+    def _graph_register_node_types(args: dict) -> Any:
+        from legacy.host.graph_recipe import (
+            register_node_types,
+            workflow_spec_from_data,
+        )
+
+        runtime = runtime_handle()
+        workflow = workflow_spec_from_data(args["workflow"])
+        register_node_types(_runtime_recipe_context(runtime), workflow)
+        return {"registered": True}
+
+    @op_sync("graph.build_round_graph")
+    def _graph_build_round_graph(args: dict) -> Any:
+        from legacy.host.graph_recipe import build_round_graph
+
+        runtime = runtime_handle()
+        graph = build_round_graph(
+            _runtime_recipe_context(runtime),
+            graph_data=args["graph"],
+            workflow_data=args["workflow"],
+        )
+        return {"graph": graph.to_dict()}
+
+    # ── MCP 挂载（连接/工具导入/断开）──
+
+    @op_async("mcp.connect")
+    async def _mcp_connect(args: dict) -> Any:
+        from ink_engine.core.mcp_client import McpServerConfig
+
+        runtime = runtime_handle()
+        config = McpServerConfig.from_dict(args["config"])
+        await runtime.mcp_manager.connect(config)
+        return {"connected": True, "server_id": config.id}
+
+    @op_async("mcp.import_tools")
+    async def _mcp_import_tools(args: dict) -> Any:
+        runtime = runtime_handle()
+        specs = await runtime.mcp_manager.import_tools(args["server_id"])
+        return {"tools": [_jsonable(spec) for spec in specs]}
+
+    @op_async("mcp.disconnect")
+    async def _mcp_disconnect(args: dict) -> Any:
+        runtime = runtime_handle()
+        closed = await runtime.mcp_manager.disconnect(args["server_id"])
+        return {"closed": closed}
+
+    @op_sync("engine.mcp_process_registry")
+    def _mcp_process_registry(args: dict) -> Any:
+        runtime = runtime_handle()
+        manager = runtime.mcp_manager
+        rows: list[dict] = []
+        for server_id in manager.list_servers():
+            handle = manager._sessions.get(server_id)
+            row: dict = {
+                "server_id": server_id,
+                "tools": len(manager.imported_tools(server_id)),
+            }
+            if handle is not None:
+                row["supervised"] = callable(getattr(handle, "health_check", None))
+                if row["supervised"]:
+                    failures = getattr(handle, "consecutive_failures", None)
+                    row["consecutive_failures"] = (
+                        failures() if callable(failures) else 0
+                    )
+                    broke = getattr(handle, "circuit_open", None)
+                    row["circuit_open"] = broke() if callable(broke) else False
+            rows.append(row)
+        return {"servers": rows}
+
+    # ── 会话/版本链（记录删除、会话删除、分支/续跑/回退）──
+
+    @op_async("engine.records_delete")
+    async def _records_delete(args: dict) -> Any:
+        import time as _time
+
+        runtime = runtime_handle()
+        existing = await runtime.storage.get_record(
+            args["collection"], args["key"]
+        )
+        data = dict(existing or {})
+        data["deleted"] = True
+        data["deleted_at"] = _time.time()
+        await runtime.storage.put_record(args["collection"], args["key"], data)
+        return {"deleted": True}
+
+    @op_async("engine.storage_delete_thread")
+    async def _storage_delete_thread(args: dict) -> Any:
+        runtime = runtime_handle()
+        storage = runtime.storage
+        thread_id = args["thread_id"]
+        links = await storage.chain_index(thread_id)
+        ids = [link.checkpoint_id for link in links]
+        removed = await storage.delete_checkpoints(thread_id, ids)
+        latest = await storage.latest_event_seq(thread_id)
+        trimmed = 0
+        if latest:
+            trimmed = await storage.trim_events(thread_id, latest)
+        return {
+            "checkpoints_removed": removed,
+            "events_trimmed": trimmed,
+        }
+
+    @op_async("engine.thread_branch")
+    async def _thread_branch(args: dict) -> Any:
+        from ink_engine.core.storage import CheckpointRecord
+
+        runtime = runtime_handle()
+        storage = runtime.storage
+        thread_id = args["thread_id"]
+        parent = await storage.get_checkpoint(int(args["parent_id"]))
+        if parent is None:
+            raise RuntimeError(f"分支锚点检查点不存在: {args['parent_id']}")
+        patch = args.get("state_patch") or {}
+        merged = dict(parent.state)
+        merged.update(patch)
+        await storage.truncate_events(thread_id, parent.event_seq)
+        created = await storage.put_checkpoint(
+            CheckpointRecord(
+                checkpoint_id=0,
+                thread_id=thread_id,
+                node=None,
+                state=merged,
+                parent_id=parent.checkpoint_id,
+                event_seq=parent.event_seq,
+                graph_version=parent.graph_version,
+                plan=parent.plan,
+            ),
+            fork=True,
+        )
+        return {"checkpoint_id": created.checkpoint_id}
+
+    @op_async("engine.thread_resume")
+    async def _thread_resume(args: dict) -> Any:
+        import uuid as _uuid
+
+        runtime = runtime_handle()
+        storage = runtime.storage
+        anchor = await storage.get_checkpoint(int(args["checkpoint_id"]))
+        if anchor is None:
+            raise RuntimeError(f"续跑锚点检查点不存在: {args['checkpoint_id']}")
+        result = await runtime.engine.ainvoke(
+            {"input": args.get("input") or ""},
+            thread_id=args["thread_id"],
+            round_id=args.get("round_id") or _uuid.uuid4().hex,
+            resume_from=anchor.checkpoint_id,
+            inject=args.get("inject") or None,
+            transports=[host_handle().build_transport()],
+        )
+        return {
+            "reason": getattr(result, "reason", None),
+            "state": dict(getattr(result, "state", {}) or {}),
+            "error": getattr(result, "error", None),
+        }
+
+    @op_async("engine.thread_revert")
+    async def _thread_revert(args: dict) -> Any:
+        runtime = runtime_handle()
+        storage = runtime.storage
+        thread_id = args["thread_id"]
+        target = int(args["target_id"])
+        links = await storage.chain_index(thread_id)
+        ids = [
+            link.checkpoint_id
+            for link in links
+            if link.checkpoint_id > target
+        ]
+        removed = await storage.delete_checkpoints(thread_id, ids)
+        return {"reverted_to": target, "checkpoints_removed": removed}
+
+    @op_async("engine.thread_latest_checkpoint")
+    async def _thread_latest_checkpoint(args: dict) -> Any:
+        runtime = runtime_handle()
+        latest = await runtime.storage.get_latest_checkpoint(args["thread_id"])
+        return latest.to_dict() if latest is not None else None
+
+    @op_async("engine.thread_chain_index")
+    async def _thread_chain_index(args: dict) -> Any:
+        runtime = runtime_handle()
+        links = await runtime.storage.chain_index(args["thread_id"])
+        return [
+            {
+                "checkpoint_id": link.checkpoint_id,
+                "parent_id": link.parent_id,
+                "event_seq": link.event_seq,
+                "reason": link.reason,
+            }
+            for link in links
+        ]
+
+    # ── 记忆/检索──
+
+    @op_async("engine.memory_query")
+    async def _memory_query(args: dict) -> Any:
+        from ink_engine.core.memory import MemoryQuery
+        from legacy.host.assembly_domain import build_memory_store
+
+        runtime = runtime_handle()
+        store = build_memory_store(runtime.storage)
+        rows = await store.query(
+            MemoryQuery(
+                namespace=args.get("namespace"),
+                kind=args.get("kind"),
+                limit=args.get("limit"),
+            )
+        )
+        return {"entries": [_jsonable(entry) for entry in rows]}
+
+    @op_async("engine.storage_snapshot")
+    async def _storage_snapshot(args: dict) -> Any:
+        runtime = runtime_handle()
+        storage = getattr(runtime.storage, "inner", runtime.storage)
+        await storage.snapshot(args["dest"])
+        return {"snapshotted": True}
+
+    @op_async("engine.storage_restore")
+    async def _storage_restore(args: dict) -> Any:
+        runtime = runtime_handle()
+        storage = getattr(runtime.storage, "inner", runtime.storage)
+        await storage.restore(args["src"])
+        return {"restored": True}
+
+    # ── 活跃态生效（界面/主题/harness/知识/试跑/路由轻调用）──
+
+    @op_sync("engine.introspection_ui_apply")
+    def _introspection_ui_apply(args: dict) -> Any:
+        runtime = runtime_handle()
+        sources = runtime.introspection_service._sources
+        if "ui_spec" in args:
+            sources.ui_spec = args["ui_spec"]
+        elif "tokens" in args:
+            spec = dict(sources.ui_spec or {})
+            theme = dict(spec.get("theme") or {})
+            theme.update(args["tokens"] or {})
+            spec["theme"] = theme
+            sources.ui_spec = spec
+        else:
+            raise ValueError("界面补丁缺 ui_spec 或 tokens")
+        return {"applied": True}
+
+    @op_sync("engine.harness_register")
+    def _harness_register(args: dict) -> Any:
+        from ink_engine.core.harness import HarnessDefinition
+
+        runtime = runtime_handle()
+        parsed = HarnessDefinition.from_dict(args["definition"])
+        runtime.harness_registry.register(parsed)
+        return {"registered": parsed.name}
+
+    @op_sync("engine.knowledge_upsert")
+    def _knowledge_upsert(args: dict) -> Any:
+        runtime = runtime_handle()
+        _upsert_knowledge(runtime, args.get("entry"))
+        return {"upserted": True}
+
+    @op_async("engine.router_light_complete")
+    async def _router_light_complete(args: dict) -> Any:
+        from ink_engine.core.llm import messages as llm_messages
+
+        runtime = runtime_handle()
+        host = host_handle()
+        llm = None
+        chains = getattr(host, "tier_chains", None)
+        if chains:
+            from legacy.host.model_layers import resolve_tier_chain
+
+            llm = resolve_tier_chain(chains, "router") or resolve_tier_chain(
+                chains, "main"
+            )
+        if llm is None:
+            llm = runtime.engine_llm
+        if llm is None:
+            raise RuntimeError("无可用模型（路由器不可用）")
+        converted = []
+        for item in args.get("messages") or []:
+            role = str(item.get("role") or "user")
+            if role == "system":
+                converted.append(llm_messages.system(str(item.get("content") or "")))
+            elif role == "assistant":
+                converted.append(llm_messages.assistant(str(item.get("content") or "")))
+            elif role == "tool":
+                converted.append(
+                    llm_messages.tool_result(
+                        str(item.get("content") or ""),
+                        str(item.get("tool_call_id") or ""),
+                    )
+                )
+            else:
+                converted.append(llm_messages.user(str(item.get("content") or "")))
+        result = await llm.ainvoke(converted)
+        return {"content": getattr(result, "content", None)}
+
+    @op_async("engine.canary_stub_round")
+    async def _canary_stub_round(args: dict) -> Any:
+        import uuid as _uuid
+
+        from ink_engine.core.assembly import AssemblyConfig
+        from ink_engine.core.executor import Engine, RunOptions
+        from legacy.host.graph_recipe import build_round_graph
+
+        runtime = runtime_handle()
+        if runtime.storage is None or runtime.engine is None:
+            raise RuntimeError("运行时未装配（试跑须在装配之后）")
+        graph = build_round_graph(
+            _runtime_recipe_context(runtime),
+            graph_data=args["graph"],
+            workflow_data=args["workflow"],
+        )
+        collector = _CollectingTransport()
+        options = RunOptions(
+            storage=runtime.storage,
+            registries=runtime.graph_registries,
+            transports=[collector],
+            system_events=runtime.event_type_registry.system_events(),
+            assembly=AssemblyConfig(),
+            assembly_sources=runtime._assembly_sources(),
+        )
+        test_engine = Engine(graph, options=options)
+        stub = StubLLM(
+            script=args.get("stub_script") or {},
+            default_reply=args.get("default_reply") or "（stub 缺省回复）",
+        )
+        result = await test_engine.ainvoke(
+            {"input": args.get("input") or "试跑"},
+            thread_id=args.get("thread_id") or f"canary-{_uuid.uuid4().hex[:8]}",
+            round_id=args.get("round_id") or _uuid.uuid4().hex,
+            inject=args.get("inject") or None,
+        )
+        return {
+            "reason": getattr(result, "reason", None),
+            "state": dict(getattr(result, "state", {}) or {}),
+            "error": getattr(result, "error", None),
+            "events": collector.events,
+        }
 
 
 # ── 协议注入验证助手（Rust 侧实现的嵌入/记忆协议对象经此被消费验证）──

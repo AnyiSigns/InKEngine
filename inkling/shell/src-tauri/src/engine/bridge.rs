@@ -287,14 +287,79 @@ impl RustMemoryStore {
     }
 }
 
+// ── JSON 回调桥（Python 引擎侧回拉 Rust 域逻辑的受控形态）──
+
+/// 回调处理函数（JSON 进/JSON 出；在 Python 调用线程内同步执行）。
+pub type JsonCallback = Box<dyn Fn(String) -> PyResult<String> + Send + Sync>;
+
+/// JSON 回调宿主：Python 桥模块经 `invoke(name, payload)` 调用 Rust 侧
+/// 注册的回调（域逻辑归属 Rust，桥侧仅做 JSON 往返）。
+///
+/// 注册入口是 Rust（`register_callback`）——回调闭包不跨语言边界暴露
+/// 为 Python 对象；Python 只按名字 invoke。实例由桥模块持有（模块全
+/// 局强引用），Rust 侧每次注册经模块属性定位实例。
+#[pyclass]
+pub struct JsonCallbackHost {
+    registry: Mutex<HashMap<String, JsonCallback>>,
+}
+
+impl JsonCallbackHost {
+    fn new() -> Self {
+        Self {
+            registry: Mutex::new(HashMap::new()),
+        }
+    }
+}
+
+/// 注册 Rust 侧回调（实例经桥模块定位；重复注册同名 = 覆盖）。
+pub fn register_callback(name: &str, callback: JsonCallback) -> PyResult<()> {
+    Python::attach(|py| {
+        let host = py.import("inkling_bridge")?.call_method0("callback_host")?;
+        let downcast = host.cast::<JsonCallbackHost>()?;
+        downcast.borrow().registry.lock().unwrap().insert(
+            name.to_string(),
+            callback,
+        );
+        Ok(())
+    })
+}
+
+#[pymethods]
+impl JsonCallbackHost {
+    /// 调用已注册回调（未注册 = 显式报错，不静默回退）。
+    fn invoke(&self, name: String, payload: String) -> PyResult<String> {
+        let registry = self.registry.lock().unwrap();
+        let callback = registry.get(&name).ok_or_else(|| {
+            PyValueError::new_err(format!("回调未注册: {name}"))
+        })?;
+        callback(payload)
+    }
+
+    /// 已注册回调名单（诊断/审计用）。
+    fn names(&self) -> Vec<String> {
+        self.registry.lock().unwrap().keys().cloned().collect()
+    }
+
+    /// 注销回调（重装/替换注册表时清理；返回是否命中）。
+    fn unregister(&self, name: String) -> bool {
+        self.registry.lock().unwrap().remove(&name).is_some()
+    }
+}
+
 /// 向 Python 侧注册协议对象（供内嵌桥模块导入，以及注入点引用）。
+/// 回调宿主实例同时绑定到桥模块（Python 侧经 invoke 调用 Rust 回调）。
 pub fn register_objects(py: Python<'_>) -> PyResult<()> {
     let module = PyModule::new(py, "inkling_bridge_objects")?;
     module.add_class::<RustTransport>()?;
     module.add_class::<RustEmbedder>()?;
     module.add_class::<RustMemoryStore>()?;
+    module.add_class::<JsonCallbackHost>()?;
     py.import("sys")?
         .getattr("modules")?
         .set_item("inkling_bridge_objects", module)?;
+    // 回调宿主实例：绑定进桥模块（模块强引用；Rust 侧注册经模块定位）
+    let callback_host = Py::new(py, JsonCallbackHost::new())?;
+    py.import("inkling_bridge")?
+        .call_method1("bind_callback_host", (callback_host,))?;
     Ok(())
 }

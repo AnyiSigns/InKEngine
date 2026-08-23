@@ -581,12 +581,4 @@ mod tests {
         assert!(path_within_target("memory/main.md"));
         assert!(path_within_target("a/b/c.txt"));
     }
-
-    #[test]
-    fn engine_snapshot_ops_declare_unregistered_channel() {
-        let runtime = tokio::runtime::Runtime::new().unwrap();
-        let result = runtime.block_on(engine_storage_snapshot("C:/tmp/x.sqlite"));
-        assert!(result.is_err());
-        assert!(result.unwrap_err().contains("需 op"));
-    }
 }

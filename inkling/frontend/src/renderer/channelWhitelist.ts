@@ -1,9 +1,9 @@
 /**
  * 绑定通道白名单（渲染器二层防线，与引擎侧同源语义）。
  *
- * 白名单构成（按 PLAN §5.2 通道表 + 会话状态契约 + 事件类型注册表）：
+ * 白名单构成（与引擎侧同源语义）：
  * - state.<字段>：回合状态通道——字段 = 会话快照声明键（messages / round_steps
- *   为 §5.2 文档化主用法，session 为整快照通道）；bind.path 进一步细选；
+ *   为主用法，session 为整快照通道）；bind.path 进一步细选；
  * - events.<type>：事件流通道，type 必须是事件类型注册表登记名（细粒度订阅）；
  * - inspect_graph / inspect_rules / inspect_knowledge / inspect_ui / inspect_tools：五元快照。
  *

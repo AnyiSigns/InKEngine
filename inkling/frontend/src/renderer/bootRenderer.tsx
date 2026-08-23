@@ -145,6 +145,24 @@ export interface RendererChrome {
   onResolveReview?: (resolution: 'accept' | 'reject' | 'edit' | 'terminate', editedContent?: string) => void;
   /** 输入提交（宿主接线：引擎回合入口） */
   onSend?: (text: string) => void;
+  /** 附件提交（宿主接线：媒体资产落位消息流） */
+  onAttachments?: (assets: unknown[]) => void;
+  /** 编辑重发（宿主接线：替换原消息并重发回合） */
+  onResendMessage?: (messageId: string, newText: string) => void;
+  /** 由此分支（宿主接线：以消息为起点开新分支） */
+  onBranchFromMessage?: (messageId: string, branchLabel: string) => void;
+  /** 会话激活（宿主接线：装入会话消息） */
+  onActivateSession?: (sessionId: string) => void;
+  /** 界面树应用（宿主接线：替换活动界面描述） */
+  onApplyUiSpec?: (spec: UISpec) => void;
+  /** 活动界面描述（界面树编辑器的读入面） */
+  uiSpec?: UISpec | null;
+  /** 会话存储（会话侧栏的数据面；宿主接线注入） */
+  sessionStore?: unknown;
+  /** 当前活动会话（会话侧栏高亮） */
+  activeSessionId?: string;
+  /** 架构视图基线快照（视觉 diff 的面） */
+  architectureBaseline?: unknown;
 }
 
 /**
@@ -159,6 +177,15 @@ export function UIRenderer({
   onNavigate,
   onResolveReview,
   onSend,
+  onAttachments,
+  onResendMessage,
+  onBranchFromMessage,
+  onActivateSession,
+  onApplyUiSpec,
+  uiSpec,
+  sessionStore,
+  activeSessionId,
+  architectureBaseline,
 }: {
   spec: UISpec | null;
   hub: ChannelHub | null;
@@ -176,6 +203,15 @@ export function UIRenderer({
   if (onNavigate) chromeProps.onNavigate = onNavigate;
   if (onResolveReview) chromeProps.onResolveReview = onResolveReview;
   if (onSend) chromeProps.onSend = onSend;
+  if (onAttachments) chromeProps.onAttachments = onAttachments;
+  if (onResendMessage) chromeProps.onResendMessage = onResendMessage;
+  if (onBranchFromMessage) chromeProps.onBranchFromMessage = onBranchFromMessage;
+  if (onActivateSession) chromeProps.onActivateSession = onActivateSession;
+  if (onApplyUiSpec) chromeProps.onApplyUiSpec = onApplyUiSpec;
+  if (uiSpec !== undefined) chromeProps.uiSpec = uiSpec;
+  if (sessionStore !== undefined) chromeProps.sessionStore = sessionStore;
+  if (activeSessionId !== undefined) chromeProps.activeSessionId = activeSessionId;
+  if (architectureBaseline !== undefined) chromeProps.architectureBaseline = architectureBaseline;
 
   if (!clean) {
     logSpecDamage(spec?.name ?? '(null)', validation.reason ?? '未知损坏');

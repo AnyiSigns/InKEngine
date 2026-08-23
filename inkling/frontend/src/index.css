@@ -1,25 +1,31 @@
 @import "tailwindcss";
 
-/* ===== InKling 主题 token（跟随系统） =====
+/* ===== InKling 主题 token（三档：light / dark / system） =====
  *
  * 主题 token 白名单（与 renderer/themeTokens.ts 同源，来自 ui_spec.theme）：
- *   --ink-bg-base         底色  bg.base       出厂默认跟随系统：亮=纸白 / 暗=墨
- *   --ink-text-base       字色  text.base     出厂默认跟随系统：亮=墨 / 暗=纸白
- *   --ink-accent-approval 朱砂 accent.approval（仅审批/决策点）
+ *   基底组
+ *     --ink-bg-base         底色  bg.base
+ *     --ink-text-base       字色  text.base
+ *     --ink-accent-approval 朱砂  accent.approval（仅审批/决策点）
+ *   透明组（alpha ≤ 0.5，状态层专用）
+ *     --ink-status-bubble-fill  状态气泡底    status.bubble.fill
+ *     --ink-status-bubble-edge  状态气泡描边  status.bubble.edge
+ *     --ink-status-card-edge    状态卡片细描边 status.card.edge
  * 其余 --ink-* 均为以上白名单 token 的派生值（color-mix 计算，非硬编码颜色），
  * 随白名单 token 演化而演化。组件一律经语义类取色，不直接书写颜色值。
  *
- * 跟随系统：ui_spec.theme 不声明白名单 token 时，CSS 默认值由
- * prefers-color-scheme 决定（亮/暗两套）；设置页外观试穿经
- * applyThemeTokens 以 inline 变量覆盖（白名单内，可还原回跟随系统）。
+ * 三档机制：无 data-theme 时按 prefers-color-scheme（system 档）；
+ * data-theme="light|dark" 显式钉住；index.html 内联脚本在首屏前
+ * 解析持久档位并预挂 data-theme（防闪屏），本文件仅负责按属性分档。
+ * ui_spec.theme 试穿经 applyThemeTokens 以 inline 变量覆盖（可还原）。
  *
- * 设计语言（DeepSeek harness 参照，不照搬；层次/呼吸/生命三向量）：
- * - 层次感：三级表面（base → surface → elevated）+ 多层软阴影 + hairline
- *   分割 + 微渐变光泽，空间向前景“浮起”；朱砂只出现在审批/决策点。
- * - 呼吸感：宽松留白、圆角分级、宽松行高与字距、区段节奏
- *   （space-y-6 / p-6 级），控件内边距从容。
- * - 生命感：消息流入场上浮、运行态呼吸点、按钮按压缩放/悬停抬升、
- *   焦点光晕、流式 shimmer——动效统一克制（150–300ms 缓动）。
+ * 设计语言（层次/呼吸/生命三向量）：
+ * - 层次感：三级表面（base → surface → elevated）+ 阴影 0/1/2 + hairline
+ *   分割 + 微渐变光泽；朱砂只出现在审批/决策点。
+ * - 呼吸感：8pt 栅格留白（4/8/12/16/24/32）、圆角 4/8/12、宽松行高 1.6、
+ *   区段节奏（space-y-6 / p-6 级）。
+ * - 生命感：流式呼吸光标、骨架屏、三态反馈（loading/成功/失败无静默变化）、
+ *   入场上浮——动效统一 150–250ms 且进入动效 180ms ease-out。
  */
 
 :root {
@@ -37,7 +43,12 @@
   --ink-accent-soft: color-mix(in srgb, var(--ink-accent-approval) 12%, transparent);
   --ink-accent-border: color-mix(in srgb, var(--ink-accent-approval) 40%, transparent);
 
-  /* 多层软阴影（elev-1 静置 / elev-2 悬停 / elev-3 弹层），单点使用 */
+  /* 透明组（状态层）：alpha 全部 ≤ 0.5 */
+  --ink-status-bubble-fill: color-mix(in srgb, var(--ink-text-base) 18%, transparent);
+  --ink-status-bubble-edge: color-mix(in srgb, var(--ink-text-base) 30%, transparent);
+  --ink-status-card-edge: color-mix(in srgb, var(--ink-text-base) 22%, transparent);
+
+  /* 多层软阴影（0 = 无 / 1 = 静置 / 2 = 弹层），单点使用 */
   --ink-elev-1:
     0 1px 2px color-mix(in srgb, var(--ink-text-base) 6%, transparent),
     0 3px 10px color-mix(in srgb, var(--ink-text-base) 6%, transparent);
@@ -48,14 +59,43 @@
     0 4px 14px color-mix(in srgb, var(--ink-text-base) 12%, transparent),
     0 20px 56px color-mix(in srgb, var(--ink-text-base) 18%, transparent);
 
+  /* 设计 token（几何/节奏/层级；单一事实源见 renderer/designTokens.ts） */
+  --ink-space-1: 4px;
+  --ink-space-2: 8px;
+  --ink-space-3: 12px;
+  --ink-space-4: 16px;
+  --ink-space-5: 24px;
+  --ink-space-6: 32px;
+  --ink-radius-sm: 4px;
+  --ink-radius-md: 8px;
+  --ink-radius-lg: 12px;
+  --ink-shadow-soft: var(--ink-elev-1);
+  --ink-shadow-pop: var(--ink-elev-2);
+  --ink-motion-fast: 150ms;
+  --ink-motion-base: 180ms;
+  --ink-motion-slow: 250ms;
+  --ink-ease-out: ease-out;
+  --ink-font-xs: 12px;
+  --ink-font-sm: 13px;
+  --ink-font-md: 15px;
+  --ink-font-lg: 17px;
+  --ink-font-xl: 20px;
+  --ink-lh-body: 1.6;
+  /* 层级策略：正文 < 底栏 < 卡片 < 悬浮窗（组件经 .ink-z-* 语义类取用） */
+  --ink-z-base: 0;
+  --ink-z-bar: 10;
+  --ink-z-card: 30;
+  --ink-z-floater: 40;
+
   --font-sans:
     "Inter", "Segoe UI Variable", "Segoe UI", system-ui, -apple-system,
     "PingFang SC", "HarmonyOS Sans SC", "Microsoft YaHei", sans-serif;
   --font-mono: "Geist Mono", "Cascadia Code", "JetBrains Mono", "SFMono-Regular", Consolas, monospace;
 }
 
+/* system 档暗色（无显式 data-theme 时跟随 OS；light 钉住时被 :not 排除） */
 @media (prefers-color-scheme: dark) {
-  :root {
+  :root:not([data-theme="light"]) {
     --ink-bg-base: #0c0d10;
     --ink-text-base: #e8e9ed;
     --ink-accent-approval: #f59e0b;
@@ -70,6 +110,23 @@
       0 6px 18px rgb(0 0 0 / 0.55),
       0 24px 64px rgb(0 0 0 / 0.6);
   }
+}
+
+/* 显式暗色钉住（light OS 下同样生效） */
+:root[data-theme="dark"] {
+  --ink-bg-base: #0c0d10;
+  --ink-text-base: #e8e9ed;
+  --ink-accent-approval: #f59e0b;
+
+  --ink-elev-1:
+    0 1px 2px rgb(0 0 0 / 0.4),
+    0 4px 12px rgb(0 0 0 / 0.35);
+  --ink-elev-2:
+    0 2px 8px rgb(0 0 0 / 0.45),
+    0 12px 32px rgb(0 0 0 / 0.45);
+  --ink-elev-3:
+    0 6px 18px rgb(0 0 0 / 0.55),
+    0 24px 64px rgb(0 0 0 / 0.6);
 }
 
 /* ===== 语义类（组件取色唯一通道，禁硬编码颜色） ===== */
@@ -178,6 +235,40 @@ body,
     ),
     var(--ink-accent-soft);
   border: 1px solid var(--ink-accent-border);
+}
+
+/* ===== 层级语义类（z-index 策略：正文 < 底栏 < 卡片 < 悬浮窗） ===== */
+.ink-z-base {
+  z-index: var(--ink-z-base);
+}
+
+.ink-z-bar {
+  z-index: var(--ink-z-bar);
+}
+
+.ink-z-card {
+  z-index: var(--ink-z-card);
+}
+
+.ink-z-floater {
+  z-index: var(--ink-z-floater);
+}
+
+/* ===== 三级视觉层（消息流呈现规范） =====
+ * 正文消息：完全不透明（实底，走 ink-bubble-user / 纸面正文）；
+ * 状态消息：气泡半透明（alpha ≤ 0.5，走透明组 token）；
+ * 状态卡片：透明底（无实底填充，仅细描边与留白）。
+ */
+.ink-status-bubble {
+  background: var(--ink-status-bubble-fill);
+  border: 1px solid var(--ink-status-bubble-edge);
+  border-radius: var(--ink-radius-md);
+}
+
+.ink-status-card {
+  background: transparent;
+  border: 1px solid var(--ink-status-card-edge);
+  border-radius: var(--ink-radius-md);
 }
 
 /* ===== 按钮（ink-btn-*，统一圆角/粗细/过渡） ===== */
@@ -383,13 +474,13 @@ input.ink-check:checked::after {
   color: var(--ink-text-muted);
 }
 
-/* 软阴影类（原有语义保留） */
+/* 软阴影类（阴影 0/1/2 策略：soft = 静置 / pop = 弹层） */
 .ink-shadow-soft {
-  box-shadow: var(--ink-elev-1);
+  box-shadow: var(--ink-shadow-soft);
 }
 
 .ink-shadow-pop {
-  box-shadow: var(--ink-elev-3);
+  box-shadow: var(--ink-shadow-pop);
 }
 
 /* ===== 基础重置 ===== */
@@ -407,6 +498,7 @@ body {
   background: var(--ink-bg-base);
   color: var(--ink-text-base);
   font-family: var(--font-sans);
+  line-height: var(--ink-lh-body);
   overflow: hidden;
   overscroll-behavior: none;
 }
@@ -464,7 +556,7 @@ select {
   outline-offset: 1px;
 }
 
-/* ===== 生命感动效（入场/呼吸/悬停抬升） ===== */
+/* ===== 生命感动效（入场/呼吸/悬停抬升；进入动效 180ms ease-out） ===== */
 
 .ink-scroll-auto {
   overflow-y: auto;
@@ -485,7 +577,7 @@ select {
 }
 
 .ink-enter {
-  animation: ink-rise 320ms cubic-bezier(0.21, 1.02, 0.73, 1) both;
+  animation: ink-rise var(--ink-motion-base) var(--ink-ease-out) both;
 }
 
 /* 弹层入场：缩放上浮 */
@@ -501,7 +593,7 @@ select {
 }
 
 .ink-pop-in {
-  animation: ink-pop 260ms cubic-bezier(0.2, 1, 0.3, 1) both;
+  animation: ink-pop var(--ink-motion-base) var(--ink-ease-out) both;
 }
 
 /* 遮罩淡入 */
@@ -515,7 +607,7 @@ select {
 }
 
 .ink-mask-fade {
-  animation: ink-fade 200ms ease-out both;
+  animation: ink-fade var(--ink-motion-base) var(--ink-ease-out) both;
 }
 
 /* 运行态呼吸点（currentColor 取色，类上自定色） */
@@ -570,6 +662,7 @@ select {
   animation: ink-shimmer 2.5s ease-in-out infinite;
 }
 
+/* 流式呼吸光标（朱砂，仅审批/决策点同款语义；此处为进行中标识） */
 .ink-caret::after {
   content: "▍";
   color: var(--ink-accent-approval);
@@ -578,6 +671,13 @@ select {
 
 @keyframes ink-blink {
   50% { opacity: 0; }
+}
+
+/* 流式呼吸光标变体：走文字色（正文进行中，不占用朱砂语义） */
+.ink-caret-muted::after {
+  content: "▍";
+  color: var(--ink-text-muted);
+  animation: ink-blink 1s step-end infinite;
 }
 
 /* 空态呼吸（图标微缩放） */
@@ -593,6 +693,62 @@ select {
   50% {
     transform: scale(1.045);
   }
+}
+
+/* 骨架屏（加载占位）：base 底 + 扫描高光，无静默空白 */
+.ink-skeleton {
+  position: relative;
+  overflow: hidden;
+  border-radius: var(--ink-radius-sm);
+  background: color-mix(in srgb, var(--ink-text-base) 8%, var(--ink-bg-base));
+}
+
+.ink-skeleton::after {
+  content: "";
+  position: absolute;
+  inset: 0;
+  transform: translateX(-100%);
+  background: linear-gradient(
+    90deg,
+    transparent 0%,
+    color-mix(in srgb, var(--ink-bg-base) 70%, transparent) 46%,
+    transparent 92%
+  );
+  animation: ink-sweep var(--ink-motion-slow) var(--ink-ease-out) infinite;
+}
+
+@keyframes ink-sweep {
+  from {
+    transform: translateX(-100%);
+  }
+  to {
+    transform: translateX(100%);
+  }
+}
+
+/* 三态反馈（loading / success / failed 无静默变化） */
+.ink-spinner {
+  width: 10px;
+  height: 10px;
+  border-radius: 999px;
+  border: 1.5px solid color-mix(in srgb, var(--ink-text-base) 25%, transparent);
+  border-top-color: var(--ink-text-muted);
+  animation: ink-spin 800ms linear infinite;
+  flex-shrink: 0;
+}
+
+@keyframes ink-spin {
+  to {
+    transform: rotate(360deg);
+  }
+}
+
+.ink-feedback-ok {
+  color: var(--ink-text-muted);
+}
+
+.ink-feedback-fail {
+  color: var(--ink-text-base);
 }
 
 /* 消息气泡（用户侧：深色渐变 + 软影；assistant 侧：纸面居左） */
@@ -629,7 +785,7 @@ select {
 }
 
 .ink-feed {
-  animation: ink-feed 240ms cubic-bezier(0.2, 1, 0.3, 1) both;
+  animation: ink-feed var(--ink-motion-base) var(--ink-ease-out) both;
   overflow: hidden;
 }
 
@@ -638,7 +794,7 @@ select {
 .ink-modal-mask {
   position: fixed;
   inset: 0;
-  z-index: 50;
+  z-index: var(--ink-z-card);
   display: flex;
   align-items: center;
   justify-content: center;
@@ -650,6 +806,7 @@ select {
 .ink-sticky-bar {
   position: sticky;
   bottom: 0;
+  z-index: var(--ink-z-bar);
   background: color-mix(in srgb, var(--ink-bg-base) 97%, transparent);
   border-top: 1px solid var(--ink-border);
 }
@@ -673,6 +830,94 @@ select {
   background: var(--ink-text-base);
 }
 
+/* ===== Markdown 正文（消毒后 HTML；whitespace-pre-wrap 回退） ===== */
+
+.ink-markdown {
+  white-space: pre-wrap;
+  overflow-wrap: break-word;
+}
+
+.ink-markdown > *:first-child {
+  margin-top: 0;
+}
+
+.ink-markdown > *:last-child {
+  margin-bottom: 0;
+}
+
+.ink-markdown p {
+  margin: 0 0 0.5em;
+}
+
+.ink-markdown ul,
+.ink-markdown ol {
+  margin: 0.5em 0;
+  padding-left: 1.5em;
+}
+
+.ink-markdown ul {
+  list-style: disc;
+}
+
+.ink-markdown ol {
+  list-style: decimal;
+}
+
+.ink-markdown code {
+  font-family: var(--font-mono);
+  font-size: 0.92em;
+  padding: 0.1em 0.35em;
+  border-radius: var(--ink-radius-sm);
+  background: var(--ink-bg-elevated);
+}
+
+.ink-markdown pre {
+  margin: 0.5em 0;
+  padding: var(--ink-space-3);
+  border-radius: var(--ink-radius-md);
+  border: 1px solid var(--ink-border);
+  background: var(--ink-bg-surface);
+  overflow-x: auto;
+}
+
+.ink-markdown pre code {
+  padding: 0;
+  background: transparent;
+}
+
+.ink-markdown blockquote {
+  margin: 0.5em 0;
+  padding: 0.1em 0.9em;
+  border-left: 2px solid var(--ink-border-strong);
+  color: var(--ink-text-muted);
+}
+
+.ink-markdown a {
+  color: var(--ink-text-base);
+  text-decoration: underline;
+  text-underline-offset: 2px;
+}
+
+.ink-markdown h1,
+.ink-markdown h2,
+.ink-markdown h3,
+.ink-markdown h4 {
+  margin: 0.6em 0 0.3em;
+  font-weight: 600;
+  line-height: 1.35;
+}
+
+.ink-markdown table {
+  border-collapse: collapse;
+  margin: 0.5em 0;
+}
+
+.ink-markdown th,
+.ink-markdown td {
+  border: 1px solid var(--ink-border);
+  padding: 0.3em 0.6em;
+}
+
 /* 动态减少：关闭装饰动画，保留功能 */
 @media (prefers-reduced-motion: reduce) {
   .ink-enter,
@@ -682,7 +927,8 @@ select {
   .ink-breathe,
   .ink-feed,
   .ink-live-dot::after,
-  .ink-caret::after {
+  .ink-caret::after,
+  .ink-caret-muted::after {
     animation: none;
   }
 }

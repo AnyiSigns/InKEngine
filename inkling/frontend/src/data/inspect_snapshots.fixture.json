@@ -4,14 +4,16 @@
     "version": 3,
     "nodes": [
       { "id": "entry", "type": "entry", "label": "入口" },
-      { "id": "orchestrate", "type": "research_orchestrator", "label": "研究编排" },
+      { "id": "orchestrate", "type": "research_orchestrator", "label": "研究编排（强化）" },
       { "id": "pipeline", "type": "tool_pipeline", "label": "工具流水线编排" },
+      { "id": "gate", "type": "gate", "label": "闸门判定" },
       { "id": "end", "type": "end", "label": "结束" }
     ],
     "edges": [
       { "from": "entry", "to": "orchestrate" },
       { "from": "orchestrate", "to": "pipeline" },
-      { "from": "pipeline", "to": "end" }
+      { "from": "pipeline", "to": "gate" },
+      { "from": "gate", "to": "end" }
     ],
     "patchChain": [
       {
@@ -135,7 +137,10 @@
       { "name": "notify", "permission": "review", "endpoint": "process_exec", "description": "系统通知" },
       { "name": "schedule", "permission": "review", "endpoint": "process_exec", "description": "定时任务" },
       { "name": "screen_query", "permission": "allow", "endpoint": "device_mcp", "description": "屏幕状态感知" },
-      { "name": "file_query", "permission": "allow", "endpoint": "device_mcp", "description": "文件系统感知" }
+      { "name": "file_query", "permission": "allow", "endpoint": "device_mcp", "description": "文件系统感知" },
+      { "name": "fetch_web", "permission": "review", "endpoint": "http_fetch", "description": "按 URL 抓取网页正文" },
+      { "name": "file_read", "permission": "allow", "endpoint": "file_ops", "description": "读取工作区文件（路径白名单内）" },
+      { "name": "file_write", "permission": "review", "endpoint": "file_ops", "description": "写入工作区文件（路径白名单内）" }
     ]
   }
 }

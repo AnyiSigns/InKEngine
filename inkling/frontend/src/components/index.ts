@@ -6,8 +6,8 @@
  *
  * 三栏布局组件集：file_tree（左）· 会话面板（message_list/knowledge_row/
  * agent_input）· session_list（右）；view_header 为设置页进入视图的返回条；
- * 其它功能视图组件（incubator/evolution/simulation/source）仍注册，
- * 入口统一收进设置页。
+ * 功能视图组件（incubator/evolution/simulation/source/admin/architecture/
+ * ui_spec_editor）入口统一收进设置页。
  */
 
 import { registerComponent } from '@/renderer/componentRegistry';
@@ -23,6 +23,10 @@ import { EvolutionTimeline } from './evolution_timeline';
 import { SimulationTree } from './simulation_tree';
 import { SourceTrace } from './source_trace';
 import { SettingsForm } from './settings_form';
+import { AdminConsole } from './admin_console';
+import { AdminTools } from './admin_tools';
+import { ArchitectureView } from './architecture_view';
+import { UiSpecEditor } from './ui_spec_editor';
 
 /** 装配所有机制通用组件（幂等：注册表同名覆盖语义天然幂等）。 */
 export function registerBuiltinComponents(): void {
@@ -38,4 +42,8 @@ export function registerBuiltinComponents(): void {
   registerComponent('simulation_tree', SimulationTree);
   registerComponent('source_trace', SourceTrace);
   registerComponent('settings_form', SettingsForm);
+  registerComponent('admin_console', AdminConsole);
+  registerComponent('admin_tools', AdminTools);
+  registerComponent('architecture_view', ArchitectureView);
+  registerComponent('ui_spec_editor', UiSpecEditor);
 }

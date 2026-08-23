@@ -16,6 +16,17 @@ function nextId(): string {
   return `m-${Date.now()}-${messageSeq}`;
 }
 
+/** 工具原始参数整理：对象/数组 → 格式化 JSON 文本（供展开查看，不裸 JSON）。 */
+function normalizeToolArgs(raw: unknown): string | undefined {
+  if (raw === undefined || raw === null) return undefined;
+  if (typeof raw === 'string') return raw.trim() || undefined;
+  try {
+    return JSON.stringify(raw, null, 2);
+  } catch {
+    return undefined;
+  }
+}
+
 /** 查找消息流中 (stepId, roundId) 精确匹配的消息（roundId 空则仅匹配 stepId）。 */
 function findStep(
   messages: InkMessage[],
@@ -62,12 +73,23 @@ export function ingestEvent(hub: ChannelHub, event: HubEvent): void {
       }
       break;
     }
-    case 'thinking_start':
-      upsert(
-        { kind: 'thinking', content: '', status: 'running', id: nextId() },
-        (m) => (m.kind === 'thinking' ? { ...m, status: 'running' as const } : m),
-      );
+    case 'thinking_start': {
+      // 思考流式：同 stepId 的 thinking_start 携带 content 分片时在正在
+      // 进行的思考条目上逐片追加（中途逐步可见）；无分片 = 仅开启条目。
+      const chunk = String(payload.content ?? '');
+      const found = findStep(messages, stepId, roundId);
+      if (found && found.kind === 'thinking') {
+        messages = messages.map((m) =>
+          m === found ? { ...m, content: m.content + chunk, status: 'running' as const } : m,
+        );
+      } else {
+        upsert(
+          { kind: 'thinking', content: chunk, status: 'running', id: nextId() },
+          (m) => (m.kind === 'thinking' ? { ...m, content: chunk ? m.content + chunk : m.content, status: 'running' as const } : m),
+        );
+      }
       break;
+    }
     case 'thinking_end':
       upsert(
         { kind: 'thinking', content: String(payload.content ?? ''), status: 'completed', id: nextId() },
@@ -89,11 +111,18 @@ export function ingestEvent(hub: ChannelHub, event: HubEvent): void {
     case 'tool_start': {
       const tool = String(payload.tool ?? payload.tool_name ?? '');
       if (!tool) break;
+      const args = normalizeToolArgs(payload.args ?? payload.parameters);
       upsert(
-        { kind: 'tool', tool, permission: String(payload.permission ?? ''), toolStatus: 'running', id: nextId() },
+        { kind: 'tool', tool, permission: String(payload.permission ?? ''), toolStatus: 'running', id: nextId(), args },
         (m) =>
           m.kind === 'tool'
-            ? { ...m, tool, permission: String(payload.permission ?? m.permission), toolStatus: 'running' as const }
+            ? {
+                ...m,
+                tool,
+                permission: String(payload.permission ?? m.permission),
+                toolStatus: 'running' as const,
+                args: args || m.args,
+              }
             : m,
       );
       break;
@@ -397,4 +426,36 @@ export function setGear(hub: ChannelHub, activeGear: Parameters<ChannelHub['setS
 
 export function setModeTier(hub: ChannelHub, modeTier: Parameters<ChannelHub['setState']>[0]['modeTier']): void {
   hub.setState({ modeTier });
+}
+
+/** 附件资产（经媒体策略分发后的形态：图片/视频/文档三类可落位）。 */
+export interface AttachmentAsset {
+  kind: 'image' | 'video' | 'document';
+  name: string;
+  mime: string;
+  size: number;
+  url?: string;
+  width?: number;
+  height?: number;
+}
+
+/**
+ * 附件落位：文件选择入口分发出的媒体资产 → 消息流条目（独立条目，不拼接）。
+ * 资产已经媒体策略校验（类型/大小/路径），此处只负责落位。
+ */
+export function submitAttachments(hub: ChannelHub, assets: AttachmentAsset[], at = Date.now()): void {
+  if (assets.length === 0) return;
+  const snapshot = hub.getSnapshot();
+  const roundId = snapshot.roundId ?? `round-${at}`;
+  const created: InkMessage[] = assets.map((asset) => {
+    const base = { id: nextId(), roundId };
+    if (asset.kind === 'image') {
+      return { ...base, kind: 'image', url: asset.url ?? asset.name, mime: asset.mime, width: asset.width, height: asset.height };
+    }
+    if (asset.kind === 'video') {
+      return { ...base, kind: 'video', url: asset.url ?? asset.name, mime: asset.mime, size: asset.size };
+    }
+    return { ...base, kind: 'document', name: asset.name, size: asset.size, url: asset.url };
+  });
+  hub.setState({ ...snapshot, messages: [...snapshot.messages, ...created] });
 }

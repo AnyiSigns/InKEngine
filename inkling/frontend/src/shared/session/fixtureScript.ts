@@ -41,7 +41,10 @@ export function runFixtureSession(hub: ChannelHub, options: FixtureScriptOptions
 
   setStreaming(hub, true);
 
+  // 推理流式：thinking_start 分片逐片追加（中途逐步可见），thinking_end 定型
   at(0, () => ingest(ev('thinking_start', { step_id: 'think:1', content: '' })));
+  at(0.4, () => ingest(ev('thinking_start', { step_id: 'think:1', content: '观察当前领域的' })));
+  at(0.8, () => ingest(ev('thinking_start', { step_id: 'think:1', content: '知识缺口：引用质量校验规则' })));
   at(1, () => ingest(ev('thinking_end', { step_id: 'think:1', content: '观察当前领域的知识缺口：引用质量校验规则尚未沉淀为可复用条目。' })));
 
   at(2, () => ingest(ev('plan_start', { step_id: 'plan:1', workflow: 'research_orchestrator' })));

@@ -34,6 +34,7 @@ const HOST_PACKAGE_SOURCES: &[(&str, &str)] = &[
     ("live_apply", include_str!("py/inkling_host/live_apply.py")),
     ("mcp_service", include_str!("py/inkling_host/mcp_service.py")),
     ("model_layers", include_str!("py/inkling_host/model_layers.py")),
+    ("quality", include_str!("py/quality.py")),
     ("review_pipeline", include_str!("py/inkling_host/review_pipeline.py")),
     ("round_steps_feed", include_str!("py/inkling_host/round_steps_feed.py")),
     ("scoring", include_str!("py/inkling_host/scoring.py")),

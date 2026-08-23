@@ -1045,6 +1045,314 @@ def register_builtin_ops() -> None:
         }
 
 
+# ── 路径组装机制（使用方接线：闸门/档位映射/草稿桥/桥 op 注册）──
+
+# 机制开关（默认关闭；装配尾段按装配开关值透传——关闭即 op fail-closed）
+_PATH_ASSEMBLER_ENABLED = False
+
+
+class _DraftBridge:
+    """草稿源桥（轻量默认）：策略模板 + 模型调用，只输出原始文本。
+
+    默认形态只做「可用性桥」：草稿模型可解析（宿主挡位链 → 运行时
+    模型）且策略模板可读时，按模板组织上下文并以「关闭推理」参数
+    调用（深推理会吃满输出，草稿层要直出 JSON——该参数见策略模板
+    注记）；任一前提不满足 = 返回 None——引擎按空响应语义直接走
+    算法兜底，不重试（重试闭环已被证明不可靠，机制在系统层兜底）。
+    """
+
+    def __init__(self, host: Any, runtime: Any) -> None:
+        self._host = host
+        self._runtime = runtime
+
+    def _draft_llm(self) -> Any | None:
+        chains = getattr(self._host, "tier_chains", None)
+        if chains:
+            from inkling_host.model_layers import resolve_tier_chain
+
+            llm = resolve_tier_chain(chains, "main")
+            if llm is not None:
+                return llm
+        runtime = self._runtime
+        if runtime is not None:
+            llm = getattr(runtime, "engine_llm", None)
+            if llm is not None:
+                return llm
+        return None
+
+    def _prompt_assets(self) -> dict[str, Any] | None:
+        """组装草稿策略模板（seed_data/path_prompts.json；读不到 = 不可用）。"""
+        root = _REPO_ROOT
+        if not root:
+            return None
+        try:
+            with open(
+                os.path.join(root, "inkling", "seed_data", "path_prompts.json"),
+                encoding="utf-8",
+            ) as fh:
+                data = json.load(fh)
+        except (OSError, ValueError):
+            return None
+        for entry in data.get("prompts") or []:
+            if entry.get("id") == "seed.inkling.prompt.assembly_draft":
+                payload = entry.get("data") or {}
+                if isinstance(payload, dict):
+                    return payload
+        return None
+
+    def _draft_text(self, context: Any) -> str:
+        """草稿上下文 → 用户提示词（目标/入口/结点契约摘要/反馈）。"""
+        goal = "、".join(context.goal_fields) or "（无）"
+        entry = "、".join(context.entry_fields) or "（无）"
+        lines = [
+            f"目标字段：{goal}",
+            f"入口字段：{entry}",
+            "可用结点（只列出类型名，不得编造不存在的结点）：",
+        ]
+        for summary in context.node_summaries:
+            inputs = "、".join(summary.inputs) or "无"
+            outputs = "、".join(summary.outputs) or "无"
+            lines.append(
+                f"- {summary.type_name} 输入={inputs} 输出={outputs}"
+                f" 安全档={summary.safety_tier}"
+            )
+        if getattr(context, "feedback", ""):
+            lines.append(f"上一次校验反馈（须修正）：{context.feedback}")
+        return "\n".join(lines)
+
+    async def draft(self, context: Any) -> str | None:
+        """按策略模板组织草稿调用；任一前提不满足返回 None（算法兜底）。"""
+        llm = self._draft_llm()
+        if llm is None:
+            return None
+        assets = self._prompt_assets()
+        if assets is None:
+            return None
+        prompt = assets.get("prompt") or {}
+        system = str(prompt.get("system") or "")
+        if not system:
+            return None
+        from ink_engine.core.llm import LLMParams, messages as llm_messages
+
+        try:
+            result = await llm.ainvoke(
+                [llm_messages.system(system), llm_messages.user(self._draft_text(context))],
+                params=LLMParams(extra_body={"enable_thinking": False}),
+            )
+        except Exception:
+            return None
+        return getattr(result, "content", None)
+
+
+def _pool_from_specs(specs: list[Any]) -> dict[str, Any]:
+    """结点池覆写声明 → 契约池（字段形态：type_name/input_fields/
+    output_fields/safety_tier/version；编译为输入必填/产出声明形）。"""
+    from ink_engine.core.contracts import NodeContract
+    from ink_engine.core.schema_validator import FIELD_STRING, SchemaField, SchemaSpec
+
+    pool: dict[str, Any] = {}
+    for raw in specs:
+        if not isinstance(raw, dict):
+            raise ValueError(f"结点池条目须为对象: {raw!r}")
+        type_name = str(raw.get("type_name") or "")
+        if not type_name:
+            raise ValueError("结点池条目缺 type_name")
+        input_fields = [str(n) for n in (raw.get("input_fields") or ())]
+        output_fields = [str(n) for n in (raw.get("output_fields") or ())]
+        pool[type_name] = NodeContract(
+            input_schema=SchemaSpec(
+                name=f"{type_name}.in",
+                fields=tuple(
+                    SchemaField(name=n, required=True, kind=FIELD_STRING)
+                    for n in input_fields
+                ),
+            ),
+            output_schema=SchemaSpec(
+                name=f"{type_name}.out",
+                fields=tuple(
+                    SchemaField(name=n, required=False, kind=FIELD_STRING)
+                    for n in output_fields
+                ),
+            ),
+            safety_tier=max(0, min(2, int(raw.get("safety_tier") or 0))),
+            version=max(1, int(raw.get("version") or 1)),
+        )
+    return pool
+
+
+def _pool_registry(pool: dict[str, Any]) -> Any:
+    """契约池 → 结点类型注册表（stub 工厂：桥只组装不执行，结点不实例化）。"""
+    from ink_engine.core.registry import NodeTypeRegistry
+
+    def stub_factory(config: dict[str, Any]) -> Any:
+        async def node(ctx: Any) -> dict[str, Any]:
+            return {}
+
+        return node
+
+    registry = NodeTypeRegistry()
+    for type_name, contract in pool.items():
+        registry.register(type_name, stub_factory, contract=contract)
+    return registry
+
+
+def _run_path_assembly(
+    request: Any,
+    envelope: Any,
+    registry: Any,
+    retriever: Any,
+    audit_sink: Callable[[dict[str, Any]], Any],
+    *, prefer_direct: bool,
+) -> Any:
+    """组装结果负载（记录落库回调收集；对象全部在 Python 侧构造）。"""
+    from ink_engine.core.contracts import PathAssemblyConfig
+    from ink_engine.core.path_assembler import PathAssembler
+
+    async def direct() -> Any:
+        assembler = PathAssembler(
+            registry=registry,
+            retriever=retriever,
+            config=PathAssemblyConfig(enabled=True),
+            sink=audit_sink,
+        )
+        return await assembler.assemble(request, envelope)
+
+    if prefer_direct:
+        return direct()
+    try:
+        from ink_engine.core.path_assembler import assemble_plan
+    except ImportError:
+        return direct()
+    return assemble_plan(request, audit_sink=audit_sink)
+
+
+@op_async("path.assemble")
+async def _path_assemble(args: dict) -> dict[str, Any]:
+    """路径组装 op：请求参数 → 引擎侧组装 → 候选/统计/审计（JSON 进出）。
+
+    输入（全部可选按缺省）：
+    - ``goal_schema``：目标 schema（SchemaSpec 数据形态）；
+    - ``entry_fields``：入口字段清单；
+    - ``domain``：上下文域（证据按域聚合）；
+    - ``top_k``：候选条数上限（缺省 2）；
+    - ``max_safety_tier`` 或 ``approval_tier``：放行档（后者经档位映射）；
+    - ``use_draft``：启用草稿层（草稿桥不可用 = 算法兜底）；
+    - ``pool``：结点池覆写声明（未提供 = 用运行时契约注册表登记池）。
+    """
+    if not _PATH_ASSEMBLER_ENABLED:
+        return {
+            "ok": False,
+            "enabled": False,
+            "reason": "路径组装未启用（机制开关关闭，fail-closed）",
+        }
+    from inkling_host.quality import (
+        DomainQualityGate,
+        approval_tier_to_max_safety_tier,
+    )
+    from ink_engine.core.path_assembler import (
+        AssemblyEnvelope,
+        AssemblyRequest,
+        InMemoryPoolRetriever,
+    )
+    from ink_engine.core.schema_validator import SchemaSpec
+
+    runtime = runtime_handle()
+    host = host_handle()
+
+    goal_schema = None
+    if isinstance(args.get("goal_schema"), dict):
+        goal_schema = SchemaSpec.from_dict(args["goal_schema"])
+    entry_fields = tuple(str(f) for f in (args.get("entry_fields") or ()))
+    domain = str(args.get("domain") or "default")
+    top_k = max(1, int(args.get("top_k") or 2))
+    if args.get("max_safety_tier") is not None:
+        max_safety_tier = max(0, min(2, int(args["max_safety_tier"])))
+    else:
+        max_safety_tier = approval_tier_to_max_safety_tier(args.get("approval_tier"))
+    use_draft = bool(args.get("use_draft"))
+
+    registry: Any = None
+    retriever: Any = None
+    use_pool_override = isinstance(args.get("pool"), list) and bool(args["pool"])
+    if use_pool_override:
+        pool = _pool_from_specs(args["pool"])
+        registry = _pool_registry(pool)
+        retriever = InMemoryPoolRetriever(pool)
+    else:
+        registries = getattr(runtime, "graph_registries", None)
+        registry = getattr(registries, "nodes", None) if registries is not None else None
+
+    request = AssemblyRequest(
+        goal_schema=goal_schema,
+        entry_fields=entry_fields,
+        domain=domain,
+        max_safety_tier=max_safety_tier,
+        quality_gate=DomainQualityGate(),
+        draft_provider=(
+            _DraftBridge(host, runtime) if use_draft else None
+        ),
+        top_k=top_k,
+        graph_name=args.get("graph_name"),
+    )
+    envelope = AssemblyEnvelope(llm_draft=use_draft)
+    audit_records: list[dict[str, Any]] = []
+    result = await _run_path_assembly(
+        request,
+        envelope,
+        registry,
+        retriever,
+        audit_records.append,
+        prefer_direct=use_pool_override,
+    )
+    data = result.to_dict()
+    audit = list(audit_records)
+    if not audit and isinstance(data.get("audit"), list):
+        audit = data["audit"]
+    return _jsonable(
+        {
+            "ok": True,
+            "enabled": True,
+            "domain": domain,
+            "max_safety_tier": max_safety_tier,
+            "candidates": list(data.get("candidates") or []),
+            "stats": dict(data.get("stats") or {}),
+            "audit": audit,
+            "fingerprint": data.get("fingerprint", ""),
+            "exploration_mode": bool(data.get("exploration_mode", False)),
+            "multipath_signal": bool(data.get("multipath_signal", False)),
+            "fallback_reason": data.get("fallback_reason"),
+            "llm_attempts": int(data.get("llm_attempts") or 0),
+        }
+    )
+
+
+@op_async("path.import_seed_paths")
+async def _path_import_seed_paths(args: dict) -> dict[str, Any]:
+    """种子路径导入：出厂路径语料 → 边证据初始化（同键不覆盖——运行
+    统计是事实，种子只补空白；幂等，装配重放不放大状态）。"""
+    if not _PATH_ASSEMBLER_ENABLED:
+        return {"imported": 0, "enabled": False, "reason": "未启用（fail-closed）"}
+    seed_edges = args.get("seed_edges") or []
+    if not isinstance(seed_edges, list):
+        return {"imported": 0, "enabled": True, "reason": "seed_edges 须为数组"}
+    from ink_engine.core.edge_evidence import EdgeEvidenceStore, import_seed_paths
+
+    store = EdgeEvidenceStore(db_path=str(args.get("db_path") or ":memory:"))
+    try:
+        written = await import_seed_paths(store, seed_edges)
+    finally:
+        await store.close()
+    return {"imported": int(written), "enabled": True}
+
+
+@op_sync("path.set_assembler_enabled")
+def _path_set_assembler_enabled(args: dict) -> dict[str, Any]:
+    """机制开关透传（装配尾段按装配开关值写入；默认关闭）。"""
+    global _PATH_ASSEMBLER_ENABLED
+    _PATH_ASSEMBLER_ENABLED = bool(args.get("enabled", False))
+    return {"enabled": _PATH_ASSEMBLER_ENABLED}
+
+
 # ── 协议注入验证助手（Rust 侧实现的嵌入/记忆协议对象经此被消费验证）──
 
 def _split_tokens(text: str) -> list[str]:

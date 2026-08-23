@@ -17,6 +17,7 @@ use tauri::menu::{Menu, MenuItem};
 use tauri::tray::TrayIconBuilder;
 use tauri::{AppHandle, Manager, RunEvent};
 
+pub mod engine;
 pub mod executors;
 pub mod mcp;
 
@@ -162,6 +163,8 @@ pub fn run() {
         .plugin(tauri_plugin_notification::init())
         .plugin(tauri_plugin_dialog::init())
         .setup(move |app| {
+            // 嵌入解释器就绪（引擎桥前置；进程内一次）
+            engine::host::ensure_python();
             // 声明加载 + 执行器注册 + 签名自检（不一致 = 启动失败，fail-closed）
             let declarations: ToolDeclarations = load_tool_declarations(TOOLS_DECL_JSON)
                 .expect("工具声明解析失败（声明损坏，壳拒绝启动）");

@@ -1,0 +1,4 @@
+# 开发构建使用仓库根 .venv 的解释器（relative = 相对本配置目录解析）；
+# 发行版打包时由各平台构建脚本以捆绑运行时覆盖 PYO3_PYTHON。
+[env]
+PYO3_PYTHON = { value = "../../../.venv/Scripts/python.exe", relative = true }

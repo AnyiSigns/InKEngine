@@ -33,6 +33,8 @@ use std::time::{SystemTime, UNIX_EPOCH};
 use serde_json::Value as JsonValue;
 
 use super::common::{run_command, DomainError, ProcessResult};
+use crate::engine::bridge::register_callback;
+use crate::engine::host::call_engine_op;
 
 // ── 环境状态（声明式枚举，防魔法字符串）──
 
@@ -236,11 +238,12 @@ async fn emit_audit(audit: &Option<AuditSink>, record: JsonValue) {
 /// ensure 幂等（已就绪且声明一致 = 复用既有实例；声明变更 = 旧实例
 /// 销毁重建——环境形态跟随声明）；run 时把 spec.meta.env_vars 并入
 /// 运行沙箱环境，并注入宿主 PATH（裸命令名才能解析）；destroy 幂等。
+#[derive(Clone)]
 pub struct InkLocalProvider {
     allowlist: Vec<String>,
     envs_dir: PathBuf,
     audit: Option<AuditSink>,
-    instances: RwLock<HashMap<String, Arc<EnvironmentHandle>>>,
+    instances: Arc<RwLock<HashMap<String, Arc<EnvironmentHandle>>>>,
 }
 
 impl InkLocalProvider {
@@ -249,7 +252,7 @@ impl InkLocalProvider {
             allowlist,
             envs_dir,
             audit,
-            instances: RwLock::new(HashMap::new()),
+            instances: Arc::new(RwLock::new(HashMap::new())),
         }
     }
 
@@ -408,6 +411,7 @@ impl InkLocalProvider {
 /// 浏览器天然隔离（sandbox 属性 + postMessage 协议），无安装/运行
 /// 概念——ensure 恒就绪；run 显式不支持（浏览器端执行体由前端桥承载，
 /// 不经后端子进程）。
+#[derive(Clone)]
 pub struct WebBridgeProvider;
 
 impl WebBridgeProvider {
@@ -461,11 +465,12 @@ pub type DockerProbe = Arc<
 /// Docker 不可用（客户端缺失/守护进程不可达）= 结构化错误
 /// （[`ContainerUnavailable`]），所有动作 fail-closed 不假装可用；
 /// 守护进程探测结果缓存（不可达后不再重复探测）。
+#[derive(Clone)]
 pub struct SeedContainerProvider {
     docker_binary: Option<String>,
-    daemon_ok: RwLock<Option<bool>>,
+    daemon_ok: Arc<RwLock<Option<bool>>>,
     probe: DockerProbe,
-    instances: RwLock<HashMap<String, String>>,
+    instances: Arc<RwLock<HashMap<String, String>>>,
     audit: Option<AuditSink>,
 }
 
@@ -479,9 +484,9 @@ impl SeedContainerProvider {
         Self {
             // 测试形态固定用 docker 名义（探测通道已桩化，二进制名不参与判定）
             docker_binary: Some("docker".to_string()),
-            daemon_ok: RwLock::new(None),
+            daemon_ok: Arc::new(RwLock::new(None)),
             probe,
-            instances: RwLock::new(HashMap::new()),
+            instances: Arc::new(RwLock::new(HashMap::new())),
             audit,
         }
     }
@@ -700,6 +705,7 @@ pub fn docker_available() -> bool {
 
 /// 环境提供器集合（出厂三形态枚举；按运行时类别分发，插拔替换由
 /// boot 装配负责——域内零动态注册，默认形态语义不被覆盖）。
+#[derive(Clone)]
 pub struct ProviderSet {
     local: InkLocalProvider,
     container: SeedContainerProvider,
@@ -767,12 +773,14 @@ impl ProviderSet {
 ///
 /// 装配：三形态提供器注册；按环境名选择提供器 ensure/run/destroy。
 /// 环境动作落审计（注入时）；补丁链应用目标 = 声明 → ensure（幂等），
-/// 回退由补丁链驱动（声明回退 + 实例重建）。
+/// 回退由补丁链驱动（声明回退 + 实例重建）。Clone 形态供应用目标
+/// 回调闭包捕获（'static 跨调用保持，共享登记表状态）。
+#[derive(Clone)]
 pub struct EnvironmentDomain {
     baseline: HashMap<String, EnvironmentSpec>,
-    specs: RwLock<HashMap<String, EnvironmentSpec>>,
+    specs: Arc<RwLock<HashMap<String, EnvironmentSpec>>>,
     providers: ProviderSet,
-    handles: RwLock<HashMap<String, Arc<EnvironmentHandle>>>,
+    handles: Arc<RwLock<HashMap<String, Arc<EnvironmentHandle>>>>,
 }
 
 impl EnvironmentDomain {
@@ -790,10 +798,10 @@ impl EnvironmentDomain {
             baseline.insert(spec.name.clone(), spec);
         }
         Ok(Self {
-            specs: RwLock::new(baseline.clone()),
+            specs: Arc::new(RwLock::new(baseline.clone())),
             baseline,
             providers: ProviderSet::new(envs_dir, run_allowlist, audit, container_probe),
-            handles: RwLock::new(HashMap::new()),
+            handles: Arc::new(RwLock::new(HashMap::new())),
         })
     }
 
@@ -896,6 +904,51 @@ impl EnvironmentDomain {
             error: Some(error.to_string()),
         })
     }
+
+    /// ENVIRONMENT 补丁链自应用目标注册（回调桥 + 目标登记两步）。
+    ///
+    /// 应用回调（live.environment_apply）实现声明 ensure 语义——补丁
+    /// 落链时引擎侧回调委托 Rust 侧生效（解析声明 → 登记 → 确保就绪，
+    /// 与 [`apply_environment_patch`] 同语义；回调桥为同步形态，ensure
+    /// 的异步动作经独立当前线程运行时驱动）；目标登记经
+    /// patch.apply_target_register 挂进补丁链自应用目标注册表
+    /// （kind = environment，callback = live.environment_apply）。
+    /// 重复注册同名 = 覆盖（幂等）。无引擎环境 = 回调桥/运行时未装配
+    /// 的结构化错误（fail-closed，不静默假装已注册）。
+    pub async fn register_apply_target(&self) -> Result<JsonValue, String> {
+        let domain = self.clone();
+        register_callback(
+            "live.environment_apply",
+            Box::new(move |payload: String| -> pyo3::PyResult<String> {
+                let args: JsonValue = serde_json::from_str(&payload)
+                    .map_err(|err| pyo3::exceptions::PyValueError::new_err(err.to_string()))?;
+                let patch_payload = args
+                    .get("payload")
+                    .cloned()
+                    .unwrap_or_else(|| serde_json::json!({}));
+                // 回调桥同步执行：ensure 的异步动作（本地/容器进程通道）
+                // 在独立当前线程运行时内驱动——声明解析失败 = 结构化
+                // 拒绝（fail-closed），不 panic
+                let runtime = tokio::runtime::Builder::new_current_thread()
+                    .enable_all()
+                    .build()
+                    .map_err(|err| {
+                        pyo3::exceptions::PyRuntimeError::new_err(format!(
+                            "环境 ensure 运行时构造失败: {err}"
+                        ))
+                    })?;
+                match runtime.block_on(apply_environment_patch(&domain, &patch_payload)) {
+                    Ok(name) => Ok(serde_json::json!({ "ok": true, "name": name }).to_string()),
+                    Err(err) => Ok(serde_json::json!({ "ok": false, "reason": err.to_string() }).to_string()),
+                }
+            }),
+        )
+        .map_err(|err| format!("环境应用回调注册失败: {err}"))?;
+        call_engine_op(
+            "patch.apply_target_register",
+            serde_json::json!({ "kind": "environment", "callback": "live.environment_apply" }),
+        )
+    }
 }
 
 /// 声明全景合并（基线 + 链补丁增量；链为权威，链值覆盖基线；非法
@@ -919,7 +972,8 @@ pub fn merge_environment_specs(
 ///
 /// 补丁链是权威记录，本钩子只做当前进程的活跃态同步（声明变更 =
 /// 旧实例销毁重建由提供器 ensure 语义覆盖；重启经链组装恢复）。
-/// 钩子注册由补丁链自应用目标承担：需 op: patch.apply_target_register。
+/// 钩子本体经 [`EnvironmentDomain::register_apply_target`] 注册进补丁
+/// 链自应用目标表（kind = environment，callback 委托本函数语义）。
 pub async fn apply_environment_patch(
     domain: &EnvironmentDomain,
     payload: &JsonValue,
@@ -1355,6 +1409,22 @@ mod tests {
         let domain = EnvironmentDomain::new(&seed_env(), dir.join("envs"), vec![], None, None).unwrap();
         let err = domain.ensure("inkling.ghost").await.unwrap_err();
         assert!(err.to_string().contains("环境未声明"));
+    }
+
+    #[test]
+    fn register_apply_target_fails_closed_without_engine() {
+        // 无引擎环境（回调桥/运行时未装配）：回调注册或目标登记结构化
+        // 失败，不返回占位文案、不静默假装已注册
+        let _serial = crate::engine::host::bridge_guard();
+        let (dir, _keep) = envs_dir("apply-target");
+        let domain = EnvironmentDomain::new(&seed_env(), dir.join("envs"), vec![], None, None).unwrap();
+        let rt = tokio::runtime::Builder::new_current_thread()
+            .enable_all()
+            .build()
+            .unwrap();
+        let err = rt.block_on(domain.register_apply_target());
+        assert!(err.is_err());
+        assert!(!err.unwrap_err().contains("需 op"));
     }
 
     // ── 审计形态 ──

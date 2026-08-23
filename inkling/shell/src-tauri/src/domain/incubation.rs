@@ -23,6 +23,7 @@ use std::pin::Pin;
 use serde_json::{json, Value as JsonValue};
 
 use super::common::DomainError;
+use crate::engine::host::call_engine_op_async;
 
 // ── 五类信号（分类路由的枚举化标签，防魔法字符串）──
 
@@ -636,7 +637,7 @@ pub fn check_l2_shape(entry: &JsonValue) -> GateL2Result {
     GateL2Result {
         passed: true,
         accuracy: 1.0,
-        note: "规则条目形态检查通过；完整样例评估绑定执行件侧（需 op: gate.l2_fixture_execution）"
+        note: "规则条目形态检查通过；完整样例评估绑定执行件侧（经 GateL2Executor 钩子接线）"
             .to_string(),
         ..Default::default()
     }
@@ -1042,15 +1043,28 @@ pub fn knowledge_patch_proposal(
 /// 知识条目 → KNOWLEDGE 补丁提案（集补丁链自指挂载接线点）。
 ///
 /// 提案经操作通道送引擎自指管线（审批分级 → 审计 → 可回退）：
-/// 需 op: patch.propose_knowledge（知识补丁提案待通道扩展）。
+/// patch.propose_knowledge——entry/rationale/base_version 从提案数据
+/// 形态（[`knowledge_patch_proposal`]）取；决议以接受注入：提案方已
+/// 完成三层闸门评估，执行侧经决议注入落链（未注入决议 = 引擎侧
+/// fail-closed 拒绝，知识晋升无法走通）。
 pub async fn propose_knowledge_patch(
     proposal: JsonValue,
 ) -> Result<JsonValue, String> {
-    let _ = proposal;
-    Err(
-        "需 op: patch.propose_knowledge —— 知识补丁提案待引擎操作通道扩展后接线（boot.rs 装配）"
-            .to_string(),
+    let entry = proposal
+        .get("payload")
+        .and_then(|p| p.get("entry"))
+        .cloned()
+        .ok_or_else(|| "知识补丁提案缺 payload.entry".to_string())?;
+    call_engine_op_async(
+        "patch.propose_knowledge",
+        json!({
+            "entry": entry,
+            "rationale": proposal.get("rationale").cloned().unwrap_or_else(|| json!("")),
+            "base_version": proposal.get("base_version").cloned().unwrap_or_else(|| json!(1)),
+            "decision": "accept",
+        }),
     )
+    .await
 }
 
 // ── L1 形式校验 + 注入扫描 ──
@@ -1521,7 +1535,10 @@ mod tests {
     }
 
     #[test]
-    fn propose_knowledge_patch_is_wiring_point() {
+    fn propose_knowledge_patch_fails_closed_without_engine() {
+        // 无引擎环境：知识补丁提案经操作通道失败 = 结构化错误（运行时
+        // 未装配），不再返回占位文案
+        let _serial = crate::engine::host::bridge_guard();
         let proposal = knowledge_patch_proposal(&rule_entry("k.x", "x"), "r", 1.0);
         let rt = tokio::runtime::Builder::new_current_thread()
             .enable_all()
@@ -1529,6 +1546,10 @@ mod tests {
             .unwrap();
         let err = rt.block_on(propose_knowledge_patch(proposal));
         assert!(err.is_err());
-        assert!(err.unwrap_err().contains("需 op"));
+        assert!(!err.unwrap_err().contains("需 op"));
+        // 缺 payload.entry = 域侧结构化错误（不触碰通道）
+        let malformed = rt.block_on(propose_knowledge_patch(json!({"kind": "knowledge"})));
+        assert!(malformed.is_err());
+        assert!(malformed.unwrap_err().contains("payload.entry"));
     }
 }

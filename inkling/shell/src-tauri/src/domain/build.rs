@@ -24,7 +24,7 @@
 use std::collections::{HashMap, HashSet};
 use std::path::{Path, PathBuf};
 use std::pin::Pin;
-use std::sync::RwLock;
+use std::sync::{Arc, RwLock};
 use std::time::{SystemTime, UNIX_EPOCH};
 
 use serde_json::Value as JsonValue;
@@ -210,15 +210,17 @@ pub struct SmokeResult {
 /// 构建管线域（build.json 数据 + 宿主侧 Builder + 补丁链/部署接线）。
 ///
 /// 构建/冒烟/哈希校验/补丁验证均为宿主侧纯逻辑（经受限进程通道执行
-/// 白名单命令）；补丁提案与应用目标经引擎操作通道挂接。
+/// 白名单命令）；补丁提案与应用目标经引擎操作通道挂接。Clone 形态供
+/// 应用目标回调闭包捕获（'static 跨调用保持，共享登记表状态）。
+#[derive(Clone)]
 pub struct BuildDomain {
     allowlist: Vec<String>,
     default_timeout: f64,
     artifact_dir: PathBuf,
     default_probe: SmokeProbe,
     deploy: HashMap<String, JsonValue>,
-    artifacts: RwLock<HashMap<String, BuildArtifact>>,
-    declared_tools: RwLock<HashMap<String, String>>,
+    artifacts: Arc<RwLock<HashMap<String, BuildArtifact>>>,
+    declared_tools: Arc<RwLock<HashMap<String, String>>>,
 }
 
 impl BuildDomain {
@@ -250,8 +252,8 @@ impl BuildDomain {
             artifact_dir,
             default_probe: SmokeProbe::from_json(probe_cfg),
             deploy,
-            artifacts: RwLock::new(HashMap::new()),
-            declared_tools: RwLock::new(HashMap::new()),
+            artifacts: Arc::new(RwLock::new(HashMap::new())),
+            declared_tools: Arc::new(RwLock::new(HashMap::new())),
         })
     }
 
@@ -541,7 +543,7 @@ impl BuildDomain {
     ///
     /// 域间不直接互调：环境动作经 [`EnvHost`] 钩子、补丁落链经
     /// [`PatchApplier`] 钩子注入（boot.rs 装配接线；引擎侧操作通道
-    /// 需 op: patch.apply —— 补丁提案应用待通道扩展）。
+    /// patch.apply 已注册，环境补丁经 [`super::env`] 的应用目标生效）。
     /// 容器不可用 = 结构化失败（不崩溃不假部署）。
     pub async fn deploy_to_container(
         &self,
@@ -647,9 +649,9 @@ impl BuildDomain {
     ///
     /// 补丁链是权威记录：链内产物的声明工具注册进工具表（幂等），此前
     /// 已注册但已不在链内的声明工具移除（回退 = 挂载撤销）。注册经
-    /// 引擎操作通道（declarative_register_definition / tool_registry_put
-    /// 已注册）；链外移除的工具表条目删除待通道扩展：
-    /// 需 op: engine.tool_registry_remove。
+    /// 引擎操作通道（declarative_register_definition / tool_registry_put）；
+    /// 链外移除 = 声明式定义表（declarative_unregister_definition）与
+    /// 统一工具表（engine.tool_registry_remove）双表同步移除。
     pub async fn sync_artifact_tools(
         &self,
         artifacts: &HashMap<String, JsonValue>,
@@ -691,6 +693,10 @@ impl BuildDomain {
                 "engine.declarative_unregister_definition",
                 serde_json::json!({ "name": name }),
             )?;
+            call_engine_op(
+                "engine.tool_registry_remove",
+                serde_json::json!({ "name": name }),
+            )?;
             self.declared_tools.write().unwrap().remove(&name);
         }
         Ok(())
@@ -700,10 +706,13 @@ impl BuildDomain {
     ///
     /// 补丁链是权威记录（重启经链恢复：宿主 boot 从链组装注册声明工具）；
     /// 本钩子只做当前进程的活跃态同步——产物挂载引擎 = 工具表出现新声明。
-    /// 经引擎操作通道（declarative_register_definition / tool_registry_put
-    /// 已注册）；钩子本体的注册由补丁链自应用目标承担：
-    /// 需 op: patch.apply_target_register。
+    /// 经引擎操作通道（declarative_register_definition / tool_registry_put）。
     pub async fn apply_artifact_payload(&self, payload: &JsonValue) -> Result<(), String> {
+        self.apply_artifact_payload_sync(payload)
+    }
+
+    /// ARTIFACT 补丁活跃态生效的同步形态（回调桥内同步执行用）。
+    fn apply_artifact_payload_sync(&self, payload: &JsonValue) -> Result<(), String> {
         let artifact_id = payload.get("artifact_id").and_then(|v| v.as_str()).unwrap_or("");
         let Some(tool_json) = payload
             .get("meta")
@@ -725,6 +734,38 @@ impl BuildDomain {
                 .insert(name.to_string(), artifact_id.to_string());
         }
         Ok(())
+    }
+
+    /// ARTIFACT 补丁链自应用目标注册（回调桥 + 目标登记两步）。
+    ///
+    /// 应用回调（live.artifact_apply）实现 [`Self::apply_artifact_payload`]
+    /// 语义——补丁落链时引擎侧回调委托 Rust 侧生效；目标登记经
+    /// patch.apply_target_register 挂进补丁链自应用目标注册表
+    /// （kind = artifact，callback = live.artifact_apply）。重复注册
+    /// 同名 = 覆盖（幂等）。无引擎环境 = 回调桥/运行时未装配的结构化
+    /// 错误（fail-closed，不静默假装已注册）。
+    pub async fn register_apply_target(&self) -> Result<JsonValue, String> {
+        let domain = self.clone();
+        crate::engine::bridge::register_callback(
+            "live.artifact_apply",
+            Box::new(move |payload: String| -> pyo3::PyResult<String> {
+                let args: JsonValue = serde_json::from_str(&payload)
+                    .map_err(|err| pyo3::exceptions::PyValueError::new_err(err.to_string()))?;
+                let patch_payload = args
+                    .get("payload")
+                    .cloned()
+                    .unwrap_or_else(|| serde_json::json!({}));
+                match domain.apply_artifact_payload_sync(&patch_payload) {
+                    Ok(()) => Ok(serde_json::json!({ "ok": true }).to_string()),
+                    Err(reason) => Ok(serde_json::json!({ "ok": false, "reason": reason }).to_string()),
+                }
+            }),
+        )
+        .map_err(|err| format!("产物应用回调注册失败: {err}"))?;
+        call_engine_op(
+            "patch.apply_target_register",
+            serde_json::json!({ "kind": "artifact", "callback": "live.artifact_apply" }),
+        )
     }
 
     /// 活跃产物登记（补丁/部署/校验取用）。
@@ -1156,5 +1197,26 @@ mod tests {
             .is_err());
         let bad_path = domain.build_spec(BuildKind::Service, "python", vec![], PathBuf::from("."), vec!["".to_string()], HashMap::new());
         assert!(bad_path.is_err());
+    }
+
+    #[test]
+    fn register_apply_target_fails_closed_without_engine() {
+        // 无引擎环境（回调桥/运行时未装配）：回调注册或目标登记结构化
+        // 失败，不返回占位文案、不静默假装已注册
+        let _serial = crate::engine::host::bridge_guard();
+        let ws = scratch("apply-target");
+        let _keep = Scratch(ws.clone());
+        let domain = BuildDomain::new(
+            &json!({"builder": {"allowlist": ["python"]}}),
+            ws.join("artifacts"),
+        )
+        .unwrap();
+        let rt = tokio::runtime::Builder::new_current_thread()
+            .enable_all()
+            .build()
+            .unwrap();
+        let err = rt.block_on(domain.register_apply_target());
+        assert!(err.is_err());
+        assert!(!err.unwrap_err().contains("需 op"));
     }
 }

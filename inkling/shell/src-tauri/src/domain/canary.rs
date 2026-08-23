@@ -13,14 +13,16 @@
 //! [`CanaryVerdict`]；判定不通过即拒绝（不落链）+ 原因留痕。
 //!
 //! 依赖纪律：本模块不直接调用其它域模块；stub 回合的引擎交互经
-//! [`CanaryRoundDriver`] 钩子注入（装配接线），弃用断言只依赖
-//! 事件协议形态（event_types.json 的字段契约）。
+//! [`CanaryRoundDriver`] 钩子注入（装配接线），引擎直调形态 =
+//! [`run_canary_via_engine`]（经 engine.canary_stub_round 操作通道）；
+//! 试跑断言只依赖事件协议形态（event_types.json 的字段契约）。
 
 use std::pin::Pin;
 
 use serde_json::Value as JsonValue;
 
 use super::common::DomainError;
+use crate::engine::host::call_engine_op_async;
 
 /// 试跑判定视作「达到终态」的终止原因（与引擎回合终止原语对齐）。
 pub const STUB_TERMINAL_REASONS: [&str; 3] = ["reply", "done", "terminate"];
@@ -39,6 +41,10 @@ pub struct CanarySpec {
     pub key_path: Vec<String>,
     /// stub 模型回复（确定性试跑的物质化形态）。
     pub stub_reply: String,
+    /// 工作流规格（workflow.json 形态：引擎侧 stub 回合按 graph +
+    /// workflow 建图实例化）。graph.json 只引用工作流名（config 段），
+    /// 不携带规格数据，故由装配侧显式注入；缺省 None = 未装配。
+    pub workflow: Option<JsonValue>,
 }
 
 /// 图状态检查结果（违规清单；空 = 图合法可实例化）。
@@ -156,6 +162,7 @@ pub fn canary_spec_from(graph: JsonValue, key_path: Option<Vec<String>>, stub_re
         entry,
         key_path,
         stub_reply: stub_reply.to_string(),
+        workflow: None,
     })
 }
 
@@ -330,14 +337,27 @@ pub struct CanaryRunOutcome {
 ///
 /// 引擎侧 stub 回合 = stub LLM + 候选图实例化，复用
 /// `execute_round_to_reply` 的回合驱动；接线名称：
-/// 需 op: engine.canary_stub_round（候选图 stub 试跑待注册，
-/// 注册后本函数直接可用；未注册返回结构化错误）。
+/// engine.canary_stub_round（graph + workflow 建图实例化，入参从
+/// CanarySpec 取：graph/entry（试跑输入）/stub_reply（缺省回复））。
+/// workflow 未注入（CanarySpec.workflow = None）= 结构化错误——图数据
+/// 不含工作流规格，无法实例化步骤节点，不静默降级。
 pub async fn run_canary_via_engine(
     spec: &CanarySpec,
 ) -> Result<JsonValue, String> {
-    let _ = spec;
-    Err("需 op: engine.canary_stub_round —— 候选图 stub 试跑经引擎操作通道待注册（装配侧接线后再驱动）"
-        .to_string())
+    let workflow = spec
+        .workflow
+        .clone()
+        .ok_or_else(|| "试跑声明缺 workflow 数据（stub 回合须携带工作流规格）".to_string())?;
+    call_engine_op_async(
+        "engine.canary_stub_round",
+        serde_json::json!({
+            "graph": spec.graph.clone(),
+            "workflow": workflow,
+            "input": spec.entry.clone(),
+            "default_reply": spec.stub_reply.clone(),
+        }),
+    )
+    .await
 }
 
 #[cfg(test)]
@@ -411,6 +431,7 @@ mod tests {
             entry: "research_orchestrator".to_string(),
             key_path: vec!["research_orchestrator".to_string(), "tool_pipeline".to_string()],
             stub_reply: "ok".to_string(),
+            workflow: None,
         };
         let events = vec![
             event("plan_start", serde_json::json!({"plan": {"entry": "research_orchestrator", "steps": [{"node": "research_orchestrator"}, {"node": "tool_pipeline"}]}})),
@@ -431,6 +452,7 @@ mod tests {
             entry: "research_orchestrator".to_string(),
             key_path: vec!["research_orchestrator".to_string()],
             stub_reply: "ok".to_string(),
+            workflow: None,
         };
         let events = vec![
             event("plan_start", serde_json::json!({"plan": {"entry": "research_orchestrator", "steps": [{"node": "research_orchestrator"}], "nodes": []}})),
@@ -449,6 +471,7 @@ mod tests {
             entry: "research_orchestrator".to_string(),
             key_path: vec!["research_orchestrator".to_string()],
             stub_reply: "ok".to_string(),
+            workflow: None,
         };
         let events = vec![event(
             "thinking_start",
@@ -467,6 +490,7 @@ mod tests {
             entry: "research_orchestrator".to_string(),
             key_path: vec!["end".to_string(), "tool_pipeline".to_string()],
             stub_reply: "ok".to_string(),
+            workflow: None,
         };
         let events = vec![
             event("plan_start", serde_json::json!({"plan": {"entry": "research_orchestrator", "steps": [{"node": "tool_pipeline"}], "nodes": []}})),
@@ -485,6 +509,7 @@ mod tests {
             entry: "research_orchestrator".to_string(),
             key_path: vec!["research_orchestrator".to_string()],
             stub_reply: "ok".to_string(),
+            workflow: None,
         };
         let gang = vec!["节点集空".to_string()];
         let verdict = judge_canary_outcome("reply", &[], &spec, &gang);
@@ -513,6 +538,7 @@ mod tests {
             entry: "research_orchestrator".to_string(),
             key_path: vec!["tool_pipeline".to_string()],
             stub_reply: "ok".to_string(),
+            workflow: None,
         };
         let driver = FakeDriver {
             outcome: Ok(serde_json::json!({
@@ -536,6 +562,7 @@ mod tests {
             entry: "research_orchestrator".to_string(),
             key_path: vec!["tool_pipeline".to_string()],
             stub_reply: "ok".to_string(),
+            workflow: None,
         };
         let driver = FakeDriver {
             outcome: Err("引擎未装配".to_string()),
@@ -557,6 +584,7 @@ mod tests {
             entry: "ghost".to_string(),
             key_path: vec!["collect".to_string()],
             stub_reply: "ok".to_string(),
+            workflow: None,
         };
         let driver = FakeDriver {
             outcome: Ok(serde_json::json!({"reason": "reply", "events": []})),
@@ -569,16 +597,28 @@ mod tests {
     }
 
     #[test]
-    fn op_channel_declaration_reports_not_registered() {
+    fn op_channel_fails_closed_without_engine() {
+        // 无引擎环境：stub 回合经操作通道失败 = 结构化错误（运行时
+        // 未装配），不再返回占位文案
+        let _serial = crate::engine::host::bridge_guard();
         let spec = CanarySpec {
             graph: research_graph(),
             entry: "research_orchestrator".to_string(),
             key_path: vec!["tool_pipeline".to_string()],
             stub_reply: "ok".to_string(),
+            workflow: Some(seed_file("workflow.json")),
         };
         let runtime = tokio::runtime::Runtime::new().unwrap();
         let result = runtime.block_on(run_canary_via_engine(&spec));
         assert!(result.is_err());
-        assert!(result.unwrap_err().contains("需 op"));
+        assert!(!result.unwrap_err().contains("需 op"));
+        // 缺 workflow = 域侧结构化错误（图数据不含工作流规格，不静默降级）
+        let bare = CanarySpec {
+            workflow: None,
+            ..spec.clone()
+        };
+        let err = runtime.block_on(run_canary_via_engine(&bare));
+        assert!(err.is_err());
+        assert!(err.unwrap_err().contains("workflow"));
     }
 }

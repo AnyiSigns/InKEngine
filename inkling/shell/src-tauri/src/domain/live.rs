@@ -18,6 +18,8 @@ use std::collections::{BTreeMap, HashSet};
 
 use serde_json::{json, Value as JsonValue};
 
+use crate::engine::host::call_engine_op;
+
 // ── 补丁类型与自应用目标名（与引擎 PatchKind/ApplyTarget 约定同源）──
 
 pub const PATCH_KIND_UI: &str = "ui";
@@ -453,29 +455,70 @@ pub fn live_target_declarations() -> Vec<JsonValue> {
 /// 恢复，不依赖钩子重放（补丁链是权威记录）。
 ///
 /// 接线点：目标注册经操作通道进补丁链自应用目标注册表——
-/// 需 op: patch.register_live_targets（活跃态目标注册待通道扩展）。
+/// patch.register_live_targets（五类目标引擎侧内置，注册即生效）。
 pub async fn register_live_targets() -> Result<JsonValue, String> {
-    Err(
-        "需 op: patch.register_live_targets —— 活跃态目标注册待引擎操作通道扩展后接线（boot.rs 装配）"
-            .to_string(),
+    call_engine_op(
+        "patch.register_live_targets",
+        JsonValue::Object(Default::default()),
     )
 }
 
 /// 补丁落链后的活跃态生效（按 kind 分派到五目标 apply 语义）。
 ///
 /// 接线点：各目标的引擎侧生效动作经操作通道——
-/// （ui/theme 需 op: engine.introspection_ui_apply；harness 需 op:
-/// engine.harness_register；rule/knowledge 需 op: engine.knowledge_upsert）
+/// ui/theme → engine.introspection_ui_apply（归一后按 ui_spec/tokens
+/// 形态下发）；harness → engine.harness_register；rule/knowledge →
+/// engine.knowledge_upsert。载荷归一不过（坏条目）= 结构化错误返回，
+/// 不 panic。
 pub async fn apply_live_patch(
     kind: &str,
     payload: &JsonValue,
     current_ui: Option<&JsonValue>,
 ) -> Result<JsonValue, String> {
-    let _ = payload;
-    let _ = current_ui;
-    Err(format!(
-        "需 op: 活跃态目标生效待通道扩展（kind={kind}）——UI/THEME/HARNESS/RULE/KNOWLEDGE 接线点（boot.rs 装配）"
-    ))
+    match kind {
+        PATCH_KIND_UI => {
+            let spec = apply_ui_payload(payload, current_ui)
+                .ok_or_else(|| "UI 补丁载荷非法（缺合法 spec.root 布局）".to_string())?;
+            call_engine_op("engine.introspection_ui_apply", json!({ "ui_spec": spec }))
+        }
+        PATCH_KIND_THEME => {
+            // 归一校验：tokens 增量经 apply_theme_payload 与当前快照合并
+            // 确认形态合法；下发 tokens 增量（引擎侧并入其当前快照 theme
+            // 段，不覆盖布局根）
+            apply_theme_payload(payload, current_ui)
+                .ok_or_else(|| "主题补丁载荷非法（缺 tokens 对象）".to_string())?;
+            let tokens = payload
+                .get("tokens")
+                .cloned()
+                .unwrap_or_else(|| json!({}));
+            call_engine_op(
+                "engine.introspection_ui_apply",
+                json!({ "tokens": tokens }),
+            )
+        }
+        PATCH_KIND_HARNESS => {
+            let definition = apply_harness_payload(payload)
+                .ok_or_else(|| "harness 补丁载荷非法（缺合法定义 name）".to_string())?;
+            call_engine_op(
+                "engine.harness_register",
+                json!({ "definition": definition }),
+            )
+        }
+        PATCH_KIND_RULE => {
+            let entry = apply_rule_payload(payload)
+                .and_then(|entry| parse_knowledge_entry(&entry))
+                .ok_or_else(|| "规则补丁载荷非法（缺合法 rule 声明）".to_string())?;
+            call_engine_op("engine.knowledge_upsert", json!({ "entry": entry }))
+        }
+        PATCH_KIND_KNOWLEDGE => {
+            let entry = payload
+                .get("entry")
+                .and_then(parse_knowledge_entry)
+                .ok_or_else(|| "知识补丁条目非法（缺 id/level/kind 契约）".to_string())?;
+            call_engine_op("engine.knowledge_upsert", json!({ "entry": entry }))
+        }
+        other => Err(format!("未知补丁类型: {other}")),
+    }
 }
 
 // ── 工具函数 ──
@@ -849,16 +892,30 @@ mod tests {
     }
 
     #[test]
-    fn register_live_targets_is_wiring_point() {
+    fn register_live_targets_and_apply_fail_closed_without_engine() {
+        // 无引擎环境：目标注册经操作通道失败 = 结构化错误（回调桥/运行时
+        // 未装配），不再返回占位文案；载荷归一不过的补丁 = 域侧结构化错误
+        let _serial = crate::engine::host::bridge_guard();
         let rt = tokio::runtime::Builder::new_current_thread()
             .enable_all()
             .build()
             .unwrap();
         let err = rt.block_on(register_live_targets());
         assert!(err.is_err());
-        assert!(err.unwrap_err().contains("需 op"));
+        let message = err.unwrap_err();
+        assert!(!message.contains("需 op"), "接线后不再返回占位文案: {message}");
+        // 非法 UI 载荷（无 root）= 归一拒绝（域侧错误，不触碰通道）
         let err = rt.block_on(apply_live_patch(PATCH_KIND_UI, &json!({"spec": {}}), None));
         assert!(err.is_err());
+        assert!(!err.unwrap_err().contains("需 op"));
+        // 非法知识条目（缺 id/kind/level 契约）= 归一拒绝
+        let err = rt.block_on(apply_live_patch(
+            PATCH_KIND_KNOWLEDGE,
+            &json!({"entry": {"level": "work"}}),
+            None,
+        ));
+        assert!(err.is_err());
+        assert!(!err.unwrap_err().contains("需 op"));
     }
 
     #[test]

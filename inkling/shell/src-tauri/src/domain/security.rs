@@ -23,15 +23,19 @@
 //!
 //! 依赖纪律：本模块不直接调用其它域模块；与引擎的交互经
 //! [`crate::engine::host::call_engine_op`] / `call_engine_op_async`
-//! 操作通道（薄包装在 engine/py/bridge.py），装配编排发生在 [`super::boot`]。
+//! 操作通道与 [`crate::engine::bridge::register_callback`] 回调桥
+//! （薄包装在 engine/py/bridge.py），装配编排发生在 [`super::boot`]。
 
 use std::collections::{HashMap, HashSet};
 use std::path::{Path, PathBuf};
 use std::sync::{Arc, Mutex, RwLock};
 
+use pyo3::exceptions::PyValueError;
+use pyo3::prelude::*;
 use serde_json::Value as JsonValue;
 
 use super::common::{resolve_non_strict, DomainError, WORKSPACE_ROOT_PLACEHOLDER};
+use crate::engine::bridge::register_callback;
 use crate::engine::host::call_engine_op;
 
 // ── 结构化错误码（拒绝路径统一携带，防魔法字符串）──
@@ -1310,20 +1314,7 @@ impl SecurityDomain {
     /// 从引擎操作通道现取声明式定义登记表（apply 时装配门禁/沙箱）。
     pub async fn load_definitions(&self) -> Result<HashMap<String, DeclarativeSpec>, String> {
         let specs = call_engine_op("engine.collect_specs", JsonValue::Object(Default::default()))?;
-        let items = specs
-            .as_array()
-            .ok_or_else(|| "引擎工具清单不可解析（须为数组）".to_string())?;
-        let mut definitions = HashMap::new();
-        for item in items {
-            // 只有携带端点声明的条目才是声明式定义（引擎 ToolSpec 无端点字段）
-            if item.get("endpoint").is_none() {
-                continue;
-            }
-            if let Ok(spec) = DeclarativeSpec::from_dict(item) {
-                definitions.insert(spec.name.clone(), spec);
-            }
-        }
-        Ok(definitions)
+        parse_engine_specs(&specs)
     }
 
     /// 门禁装配形态（档位表 + 现取定义登记表 → 三档门禁；纯装配可测）。
@@ -1394,13 +1385,108 @@ impl SecurityDomain {
 
     /// 把安全流水线替换进运行时（gate + 沙箱代理；机制环节沿用引擎）。
     ///
-    /// 引擎操作通道的流水线安装点尚未注册（桥模块只承载引擎公开 API
-    /// 薄包装；ToolPipeline 替换属宿主装配面），经 boot.rs 装配后接线：
-    /// 需 op: pipeline.install_security_pipeline。
+    /// 回调先行：三个安全判定回调（sandbox_validate / guards_operation /
+    /// gating_tier）必须先于流水线安装注册——引擎侧流水线安装点
+    /// （pipeline.install_security_pipeline）直接消费这些回调做判定，
+    /// 回调未注册 = 安装失败（fail-closed，不装半截流水线）。回调闭包
+    /// 捕获本域的克隆数据（档位表/工作区态），'static 跨调用保持，
+    /// 重复注册同名 = 覆盖（幂等，重装配无害）。
     pub async fn apply_to_runtime(&self) -> Result<(), String> {
-        Err("需 op: pipeline.install_security_pipeline —— 安全流水线替换待引擎操作通道扩展后接线（boot.rs 装配）"
-            .to_string())
+        let proxy = self.assemble_sandbox();
+        let tiers = self.tiers.clone();
+        register_callback(
+            "security.sandbox_validate",
+            Box::new(move |payload: String| -> PyResult<String> {
+                let args: JsonValue =
+                    serde_json::from_str(&payload).map_err(|err| PyValueError::new_err(err.to_string()))?;
+                let tool = args.get("tool").and_then(JsonValue::as_str).unwrap_or("");
+                let operation = args
+                    .get("operation")
+                    .and_then(JsonValue::as_str)
+                    .unwrap_or("");
+                let target = args.get("target").and_then(JsonValue::as_str).unwrap_or("");
+                // 档位判定先行：出厂 deny 档工具无条件拒绝（与权限命中与否无关）
+                if tiers.get(tool).map(|t| t == DENY).unwrap_or(false) {
+                    return Ok(serde_json::json!({
+                        "pass": false,
+                        "reason": "出厂 deny 档工具默认拒绝（权限变更须经补丁链审批转正）",
+                    })
+                    .to_string());
+                }
+                // 声明式定义现取（引擎工具清单同步通道）：取不到 = 按空登记表
+                // 处理——非声明式工具无本地沙箱语义，交给门禁层判定
+                let definitions = call_engine_op(
+                    "engine.collect_specs",
+                    JsonValue::Object(Default::default()),
+                )
+                .ok()
+                .and_then(|specs| parse_engine_specs(&specs).ok())
+                .unwrap_or_default();
+                match proxy.validate(operation, target, tool, &definitions) {
+                    Ok(_) => Ok(serde_json::json!({ "pass": true, "reason": "" }).to_string()),
+                    Err(violation) => Ok(serde_json::json!({
+                        "pass": false,
+                        "reason": violation.0,
+                    })
+                    .to_string()),
+                }
+            }),
+        )
+        .map_err(|err| format!("安全回调注册失败（sandbox_validate）: {err}"))?;
+
+        let proxy = self.assemble_sandbox();
+        register_callback(
+            "security.guards_operation",
+            Box::new(move |payload: String| -> PyResult<String> {
+                let args: JsonValue =
+                    serde_json::from_str(&payload).map_err(|err| PyValueError::new_err(err.to_string()))?;
+                let operation = args
+                    .get("operation")
+                    .and_then(JsonValue::as_str)
+                    .unwrap_or("");
+                Ok(serde_json::json!({ "guarded": proxy.guards_operation(operation) }).to_string())
+            }),
+        )
+        .map_err(|err| format!("安全回调注册失败（guards_operation）: {err}"))?;
+
+        let tiers = self.tiers.clone();
+        register_callback(
+            "security.gating_tier",
+            Box::new(move |payload: String| -> PyResult<String> {
+                let args: JsonValue =
+                    serde_json::from_str(&payload).map_err(|err| PyValueError::new_err(err.to_string()))?;
+                let tool = args.get("tool").and_then(JsonValue::as_str).unwrap_or("");
+                // 档位表语义：review 档 = 弹卡审批，allow/deny = 不弹卡
+                let review = tiers.get(tool).map(|t| t == REVIEW).unwrap_or(false);
+                Ok(serde_json::json!({ "review": review }).to_string())
+            }),
+        )
+        .map_err(|err| format!("安全回调注册失败（gating_tier）: {err}"))?;
+
+        call_engine_op(
+            "pipeline.install_security_pipeline",
+            JsonValue::Object(Default::default()),
+        )?;
+        Ok(())
     }
+}
+
+/// 引擎工具清单 → 声明式定义登记表（携带端点声明的条目才是声明式定义，
+/// 引擎 ToolSpec 无端点字段）。
+fn parse_engine_specs(specs: &JsonValue) -> Result<HashMap<String, DeclarativeSpec>, String> {
+    let items = specs
+        .as_array()
+        .ok_or_else(|| "引擎工具清单不可解析（须为数组）".to_string())?;
+    let mut definitions = HashMap::new();
+    for item in items {
+        if item.get("endpoint").is_none() {
+            continue;
+        }
+        if let Ok(spec) = DeclarativeSpec::from_dict(item) {
+            definitions.insert(spec.name.clone(), spec);
+        }
+    }
+    Ok(definitions)
 }
 
 // ── 工作区授权器（授权确认卡形态的持久化/生效导流）──
@@ -1441,8 +1527,8 @@ pub fn authorization_record(
 /// 执行 authorize + 文件工具重注册 + 引擎重建（下一回合生效）。
 ///
 /// 授权确认卡（review 档语义）流程由宿主交互层经审批卡发起
-/// （需 op: approval.gate_card_request —— 审批卡发卡经引擎操作通道
-/// 待注册），记录/生效导流在本模块。
+/// （approval.gate_card_request 已注册：卡请求 + 决议注入两步形态），
+/// 记录/生效导流在本模块。
 pub async fn load_authorization(security: &SecurityDomain) -> Result<Option<String>, String> {
     let record = call_engine_op(
         "engine.records_get",
@@ -2119,6 +2205,26 @@ mod tests {
         let revoked = domain.rebuilt_file_specs(None);
         assert!(revoked[0].permissions[0].contains("${workspace_root}"));
         assert!(revoked[0].endpoint_config.get("root").unwrap().as_str().unwrap().contains("workspace_root"));
+    }
+
+    #[test]
+    fn apply_to_runtime_fails_closed_without_engine() {
+        // 无引擎环境（回调桥未装配）：回调注册即结构化失败——不返回占位
+        // 文案、不静默假装流水线已安装（fail-closed 可测）
+        let _serial = crate::engine::host::bridge_guard();
+        let data = json!({"tools": [
+            {"name": "notify", "approval": "allow", "endpoint": "process_exec"},
+        ]});
+        let domain = SecurityDomain::from_tool_data(&data).unwrap();
+        let rt = tokio::runtime::Builder::new_current_thread()
+            .enable_all()
+            .build()
+            .unwrap();
+        let err = rt.block_on(domain.apply_to_runtime());
+        assert!(err.is_err());
+        let message = err.unwrap_err();
+        assert!(!message.contains("需 op"), "接线后不再返回占位文案: {message}");
+        assert!(message.contains("回调注册失败"), "失败点应定位在回调注册: {message}");
     }
 
     #[test]

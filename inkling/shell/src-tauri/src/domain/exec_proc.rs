@@ -16,6 +16,7 @@ use std::path::{Path, PathBuf};
 use serde_json::Value as JsonValue;
 
 use super::common::{run_command, DomainError};
+use crate::engine::host::call_engine_op_async;
 
 /// 随包二进制定位文件名前缀（tools.json 的 inkling_exec server 名）。
 pub const EXEC_BINARY_PREFIX: &str = "inkling_exec";
@@ -267,11 +268,47 @@ pub fn exit_code_diag(exit_code: i32) -> String {
 
 /// 拉取进程注册表数据（引擎侧 stdio 传输监督的心跳/崩溃观测）。
 ///
-/// 需 op: engine.mcp_process_registry（mcp_client stdio 传输监督的
-/// 观测数据经引擎操作通道待注册；注册后本函数直接可用，未注册
-/// 返回结构化错误——UI 行由引擎事件回流兜底）。
+/// 经 engine.mcp_process_registry 获取观测行（server_id/tools 数/
+/// supervised/连续失败数/熔断态），行变换为 [`ProcessEntry`] 形态：
+/// server_id → server_name；熔断 = crashed、受监督运行中 = running、
+/// 无监督句柄 = unknown；连续失败数 → crash_count。变换复用既有纯
+/// 函数（process_entry_from_record / registry_from_records）。
 pub async fn fetch_process_registry() -> Result<Vec<ProcessEntry>, String> {
-    Err("需 op: engine.mcp_process_registry —— 进程注册表引擎观测经操作通道待注册".to_string())
+    let registry =
+        call_engine_op_async("engine.mcp_process_registry", JsonValue::Object(Default::default()))
+            .await?;
+    let rows = registry
+        .get("servers")
+        .and_then(JsonValue::as_array)
+        .cloned()
+        .unwrap_or_default();
+    let records: Vec<JsonValue> = rows
+        .into_iter()
+        .map(|row| {
+            let server_name = row.get("server_id").and_then(JsonValue::as_str).unwrap_or("");
+            let circuit_open = row
+                .get("circuit_open")
+                .and_then(JsonValue::as_bool)
+                .unwrap_or(false);
+            let supervised = row
+                .get("supervised")
+                .and_then(JsonValue::as_bool)
+                .unwrap_or(false);
+            let status = if circuit_open {
+                PROCESS_STATUS_CRASHED
+            } else if supervised {
+                PROCESS_STATUS_RUNNING
+            } else {
+                PROCESS_STATUS_UNKNOWN
+            };
+            serde_json::json!({
+                "server_name": server_name,
+                "status": status,
+                "crash_count": row.get("consecutive_failures").and_then(JsonValue::as_u64).unwrap_or(0),
+            })
+        })
+        .collect();
+    Ok(registry_from_records(&records))
 }
 
 #[cfg(test)]
@@ -389,10 +426,13 @@ mod tests {
     }
 
     #[test]
-    fn registry_op_facade_reports_unregistered() {
+    fn registry_op_facade_fails_closed_without_engine() {
+        // 无引擎环境：进程注册表经操作通道失败 = 结构化错误（运行时
+        // 未装配），不再返回占位文案
+        let _serial = crate::engine::host::bridge_guard();
         let runtime = tokio::runtime::Runtime::new().unwrap();
         let result = runtime.block_on(fetch_process_registry());
         assert!(result.is_err());
-        assert!(result.unwrap_err().contains("需 op"));
+        assert!(!result.unwrap_err().contains("需 op"));
     }
 }

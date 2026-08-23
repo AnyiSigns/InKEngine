@@ -21,6 +21,7 @@ use std::collections::HashSet;
 use serde_json::{json, Value as JsonValue};
 
 use super::common::DomainError;
+use crate::engine::host::call_engine_op;
 
 // ── 图节点类型名（graph.json 引用；与引擎注册表约定同源）──
 
@@ -429,27 +430,26 @@ pub fn build_round_graph(
 /// 与流水线持有者在每次建图时刷新——节点执行时取到的是实时工具表与
 /// 实时流水线。
 ///
-/// 接线点：引擎侧节点类型注册经操作通道完成——
-/// 需 op: graph.register_node_types（节点类型注册待通道扩展）。
+/// 接线点：引擎侧节点类型注册经操作通道完成——graph.register_node_types
+/// （workflow 规格经 WorkflowSpec::to_json 归一为 workflow.json 形态）。
 pub async fn register_node_types(recipe: &RoundGraphRecipe) -> Result<JsonValue, String> {
-    let _ = recipe;
-    // 操作通道注册后经 call_engine_op 转发：
-    // call_engine_op("graph.register_node_types", node_type_definitions(&recipe.workflow))
-    Err(
-        "需 op: graph.register_node_types —— 节点类型注册待引擎操作通道扩展后接线（boot.rs 装配）"
-            .to_string(),
+    call_engine_op(
+        "graph.register_node_types",
+        json!({ "workflow": recipe.workflow.to_json() }),
     )
 }
 
 /// 按图配方描述数据在引擎侧构造回合图。
 ///
-/// 图构造经操作通道（建图校验在引擎侧触发完整编译校验）：
-/// 需 op: graph.build_round_graph（引擎 Graph 构造待通道扩展）。
+/// 图构造经操作通道——graph.build_round_graph（graph + workflow 原样
+/// 下发，建图校验在引擎侧触发完整编译校验）。
 pub async fn build_round_graph_engine(recipe: &RoundGraphRecipe) -> Result<JsonValue, String> {
-    let _ = recipe;
-    Err(
-        "需 op: graph.build_round_graph —— 引擎 Graph 构造待操作通道扩展后接线（boot.rs 装配）"
-            .to_string(),
+    call_engine_op(
+        "graph.build_round_graph",
+        json!({
+            "graph": recipe.graph,
+            "workflow": recipe.workflow.to_json(),
+        }),
     )
 }
 
@@ -662,8 +662,10 @@ mod tests {
     }
 
     #[test]
-    fn register_node_types_is_wiring_point_not_implemented() {
-        // 接线点语义：操作通道扩展前显式失败（不静默假装已注册）
+    fn register_and_build_fail_closed_without_engine() {
+        // 无引擎环境：节点注册/建图经操作通道失败 = 结构化错误（运行时
+        // 未装配），不再返回占位文案
+        let _serial = crate::engine::host::bridge_guard();
         let recipe = build_round_graph(&seed_graph(), &seed_workflow()).unwrap();
         let rt = tokio::runtime::Builder::new_current_thread()
             .enable_all()
@@ -671,8 +673,10 @@ mod tests {
             .unwrap();
         let err = rt.block_on(register_node_types(&recipe));
         assert!(err.is_err());
+        assert!(!err.unwrap_err().contains("需 op"));
         let err = rt.block_on(build_round_graph_engine(&recipe));
         assert!(err.is_err());
+        assert!(!err.unwrap_err().contains("需 op"));
     }
 
     #[test]

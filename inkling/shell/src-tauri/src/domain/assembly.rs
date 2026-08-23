@@ -99,7 +99,8 @@ pub trait MemoryStore: Send + Sync {
 
 /// 记忆存储装配描述（collection 与 memory.json store.collection 对齐）。
 ///
-/// 存储实例经契约接线：需 op: engine.memory_query（记忆查询待通道扩展）。
+/// 存储实例经契约接线：engine.memory_query 已注册，装配层把引擎存储
+/// 接进 [`MemoryStore`] 契约钩子（域侧零存储后端耦合）。
 #[derive(Debug, Clone, PartialEq)]
 pub struct MemoryStoreSpec {
     pub collection: String,
@@ -168,11 +169,11 @@ pub async fn recall_memory(
     Ok(PriorityRecallPolicy.recall(entries, Some(limit)))
 }
 
-/// 记忆存储经操作通道的默认接线提示（供 boot 读取的声明形态）。
+/// 记忆存储经操作通道的接线声明（供 boot 读取的声明形态）。
 pub fn memory_store_wiring() -> JsonValue {
     json!({
         "op": "engine.memory_query",
-        "note": "需 op: engine.memory_query —— 记忆查询待引擎操作通道扩展后接线（boot.rs 装配）",
+        "note": "engine.memory_query 已注册：装配层经操作通道把引擎存储接进记忆契约钩子（MemoryStore trait）",
     })
 }
 
@@ -1160,6 +1161,7 @@ fn domain_window_projection_slices_groups_and_keeps_body() {
     fn memory_store_wiring_declares_op_boundary() {
         let wiring = memory_store_wiring();
         assert_eq!(wiring["op"], "engine.memory_query");
-        assert!(wiring["note"].as_str().unwrap().contains("需 op"));
+        // 事实描述：op 已注册，装配层接线（不再是待扩展占位文案）
+        assert!(wiring["note"].as_str().unwrap().contains("已注册"));
     }
 }

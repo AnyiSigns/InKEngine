@@ -22,6 +22,7 @@
 use serde_json::Value as JsonValue;
 
 use super::common::DomainError;
+use crate::engine::host::call_engine_op_async;
 
 /// 任务类别（确定性分类的输出形态）。
 #[derive(Debug, Clone, Copy, PartialEq, Eq)]
@@ -567,11 +568,28 @@ pub fn plan_json(plan: &Plan) -> JsonValue {
 /// 计划文本 → 计划（装配侧经 router 挡位执行调用后的收敛入口）。
 ///
 /// router 轻挡的调用（任务文本 + 节点集 → 计划 JSON）是产品侧的
-/// 装配决策：把 router 挡模型经引擎模型链发起单次轻调用，回复文本
-/// 喂回本函数。装配侧接线见 boot.rs；引擎侧直调路径：
-/// 需 op: engine.router_light_complete（router 挡位单次轻调用待注册）。
+/// 装配决策：把 router 挡模型经引擎模型链发起单次轻调用
+/// （[`router_light_complete`]），回复文本喂回本函数。
 pub fn converge_plan(task_text: &str, nodes: &[WorkflowNode], router_reply: Option<&str>) -> Plan {
     plan_for_task(task_text, nodes, router_reply)
+}
+
+/// router 挡位单次轻调用（消息清单 → 模型轻回复）。
+///
+/// 轻调用经操作通道 engine.router_light_complete 发起（messages 为
+/// role/content 形态消息清单，system 提示词 + 任务文本组合由调用方
+/// 组装）；回复文本喂回 [`converge_plan`] 收敛为受控计划。
+pub async fn router_light_complete(messages: Vec<JsonValue>) -> Result<String, String> {
+    let reply = call_engine_op_async(
+        "engine.router_light_complete",
+        serde_json::json!({ "messages": messages }),
+    )
+    .await?;
+    reply
+        .get("content")
+        .and_then(JsonValue::as_str)
+        .map(str::to_string)
+        .ok_or_else(|| "路由轻调用未返回回复文本".to_string())
 }
 
 /// 策略层计划的 spawn 分组标注（子任务展开的可见形态）。
@@ -814,5 +832,20 @@ mod tests {
         assert!(plan.steps.is_empty());
         let task_plan = plan_for_task("调研…", &nodes, None);
         assert_eq!(task_plan.source, PlanSource::Deterministic);
+    }
+
+    #[test]
+    fn router_light_call_fails_closed_without_engine() {
+        // 无引擎环境：路由轻调用经操作通道失败 = 结构化错误（运行时
+        // 未装配），不再返回占位文案
+        let _serial = crate::engine::host::bridge_guard();
+        let messages = vec![serde_json::json!({"role": "user", "content": "调研"})];
+        let rt = tokio::runtime::Builder::new_current_thread()
+            .enable_all()
+            .build()
+            .unwrap();
+        let err = rt.block_on(router_light_complete(messages));
+        assert!(err.is_err());
+        assert!(!err.unwrap_err().contains("需 op"));
     }
 }

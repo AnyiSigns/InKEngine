@@ -43,6 +43,41 @@ pub fn ensure_python() {
     });
 }
 
+/// 经桥模块调用引擎同步操作（JSON 进/JSON 出；域模块访问引擎公开 API
+/// 的统一通道，薄包装在 bridge.py 的 op 注册表中）。
+pub fn call_engine_op(op: &str, args: JsonValue) -> Result<JsonValue, String> {
+    ensure_python();
+    let args_json = args.to_string();
+    let result_json = Python::attach(|py| -> PyResult<String> {
+        let bridge = py.import("inkling_bridge")?;
+        let outcome = bridge.call_method1("invoke", (op, args_json))?;
+        outcome.extract()
+    })
+    .map_err(|err: PyErr| err.to_string())?;
+    serde_json::from_str(&result_json).map_err(|err| format!("引擎操作返回不可解析: {err}"))
+}
+
+/// 经桥模块调用引擎异步操作（JSON 进/JSON 出；awaitable 经异步桥贯通）。
+pub async fn call_engine_op_async(op: &str, args: JsonValue) -> Result<JsonValue, String> {
+    ensure_python();
+    let args_json = args.to_string();
+    let result_json = Python::attach(|py| -> PyResult<String> {
+        let bridge = py.import("inkling_bridge")?.unbind();
+        let fut = Python::attach(|py| -> PyResult<_> {
+            let coro = bridge
+                .bind(py)
+                .call_method1("invoke_async", (op, args_json))?;
+            pyo3_async_runtimes::tokio::into_future(coro)
+        })?;
+        pyo3_async_runtimes::tokio::run(py, async move {
+            let value = fut.await?;
+            Python::attach(|py| value.bind(py).extract::<String>())
+        })
+    })
+    .map_err(|err: PyErr| err.to_string())?;
+    serde_json::from_str(&result_json).map_err(|err| format!("引擎操作返回不可解析: {err}"))
+}
+
 /// 装配选项：仓库根（引擎/legacy 包加载路径）、存储 URI、运行数据目录、
 /// 离线模型桩脚本（按消息子串匹配回复）。
 #[derive(Clone)]
@@ -215,6 +250,9 @@ impl EngineHost {
                             })
                         },
                     )?;
+                // 模块级运行时句柄绑定（引擎操作通道的出口；桥模块持有）
+                py.import("inkling_bridge")?
+                    .call_method1("bind_runtime", (runtime_py.clone_ref(py), host_py.clone_ref(py)))?;
                 Ok((runtime_py, host_py, transport))
             })
             .map_err(|err: PyErr| err.to_string())?;
@@ -462,6 +500,24 @@ mod tests {
         let check = host.check_protocol_injection().expect("协议验证失败");
         assert!(check.embedding_score >= 0.0, "嵌入协议异常");
         assert_eq!(check.memory_remaining, 0, "记忆回路残留条目");
+
+        host.stop().expect("关停失败");
+    }
+
+    #[test]
+    fn op_channel_reads_boot_summary_and_knowledge() {
+        let options = BootOptions {
+            repo_root: repo_root(),
+            ..BootOptions::default()
+        };
+        let host = EngineHost::boot(options).expect("装配失败");
+
+        let specs = call_engine_op("engine.collect_specs", serde_json::json!({}))
+            .expect("操作通道调用失败");
+        assert!(specs.is_array(), "工具清单应为数组");
+
+        let summary = host.report().expect("摘要失败");
+        assert!(!summary.tool_names.is_empty(), "操作通道与装配摘要口径不一致");
 
         host.stop().expect("关停失败");
     }

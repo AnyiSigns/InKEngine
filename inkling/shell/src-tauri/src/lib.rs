@@ -17,6 +17,7 @@ use tauri::menu::{Menu, MenuItem};
 use tauri::tray::TrayIconBuilder;
 use tauri::{AppHandle, Manager, RunEvent};
 
+pub mod domain;
 pub mod engine;
 pub mod executors;
 pub mod mcp;

@@ -19,6 +19,15 @@ pyo3 = { version = "0.29.2", features = ["auto-initialize"] }
 # Python asyncio ↔ tokio 双向桥（引擎异步 API 的跨语言执行形态）
 pyo3-async-runtimes = { version = "0.29.0", features = ["tokio-runtime"] }
 tokio = { version = "1", features = ["full"] }
+# 接线层域模块共享依赖（数据映射/内容寻址/路径检索/网络策略）
+reqwest = { version = "0.12", default-features = false, features = ["rustls-tls", "json"] }
+rusqlite = { version = "0.31", features = ["bundled"] }
+sha2 = "0.10"
+hex = "0.4"
+regex = "1"
+walkdir = "2"
+url = "2"
+thiserror = "1"
 
 # 生产形态开关：开启后加载 frontend/dist（内嵌资产），不依赖 dev server。
 # 缺省（不带该 feature 构建）= dev 形态连 devUrl——Tauri 的 dev 判定

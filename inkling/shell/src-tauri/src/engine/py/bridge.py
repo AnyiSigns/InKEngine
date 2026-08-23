@@ -3,19 +3,209 @@
 本模块持有嵌入环境中「用 Python 表达最自然」的少量宿主件：
 - 离线模型桩（确定性回复，离线装配与回合验证共用，不发起网络请求）；
 - 装配助手（宿主五件套构造、回合执行到完成、协议检查助手）；
-- 协议检查助手（Rust 侧实现的嵌入/记忆协议对象经本模块被引擎侧消费的验证入口）。
+- 引擎操作通道（Rust 域模块经此调用引擎公开 API：为薄包装，
+  只做事先约定 JSON 字典与引擎对象形态转换，不含领域逻辑）；
+- JSON 回调桥（Rust 侧闭包以 json 往返方式注入引擎作为回调的受控形态）。
 
 Rust 接线层对引擎的所有调用都经本模块，避免跨语言边界直接触碰引擎内部。
 """
 from __future__ import annotations
 
+import inspect
+import json
 import os
 import sys
+from typing import Any, Callable
 
 _REPO_ROOT = os.environ.get("INK_ENGINE_REPO_ROOT", "")
 if _REPO_ROOT and _REPO_ROOT not in sys.path:
     sys.path.insert(0, _REPO_ROOT)
 
+# 当前运行时句柄（boot 后由 Rust 侧绑定；装配期外的引擎对象访问出口）
+_RUNTIME: Any = None
+_HOST: Any = None
+
+
+def bind_runtime(runtime, host) -> None:
+    """装配完成后绑定运行时句柄（模块级；进程内单实例语义）。"""
+    global _RUNTIME, _HOST
+    _RUNTIME = runtime
+    _HOST = host
+
+
+def runtime_handle() -> Any:
+    """当前运行时（未装配时显式报错，不静默回退）。"""
+    if _RUNTIME is None:
+        raise RuntimeError("运行时未装配（先经 boot 绑定）")
+    return _RUNTIME
+
+
+def host_handle() -> Any:
+    if _HOST is None:
+        raise RuntimeError("宿主未装配（先经 boot 绑定）")
+    return _HOST
+
+
+# ── 引擎操作通道（op 注册表：薄包装；域逻辑在 Rust 侧）──
+
+_OPS_SYNC: dict[str, Callable[[dict], Any]] = {}
+_OPS_ASYNC: dict[str, Callable[[dict], Any]] = {}
+
+
+def op_sync(name: str, fn: Callable[[dict], Any] | None = None):
+    """同步 op 注册（装饰器或直接调用双形态）。"""
+    def register(func: Callable[[dict], Any]) -> Callable[[dict], Any]:
+        _OPS_SYNC[name] = func
+        return func
+    if fn is not None:
+        return register(fn)
+    return register
+
+
+def op_async(name: str, fn: Callable[[dict], Any] | None = None):
+    """异步 op 注册（装饰器或直接调用双形态）。"""
+    def register(func: Callable[[dict], Any]) -> Callable[[dict], Any]:
+        _OPS_ASYNC[name] = func
+        return func
+    if fn is not None:
+        return register(fn)
+    return register
+
+
+def _jsonable(value: Any) -> Any:
+    """引擎对象序列化兜底（dataclass/枚举 → dict；其余保底 JSON 直转）。"""
+    if value is None or isinstance(value, (bool, int, float, str)):
+        return value
+    if isinstance(value, (list, tuple)):
+        return [_jsonable(item) for item in value]
+    if isinstance(value, dict):
+        return {str(key): _jsonable(item) for key, item in value.items()}
+    for attr in ("to_dict", "to_json"):
+        method = getattr(value, attr, None)
+        if callable(method):
+            try:
+                return _jsonable(method())
+            except Exception:
+                pass
+    if hasattr(value, "__dataclass_fields__"):
+        return {
+            str(field): _jsonable(getattr(value, field))
+            for field in getattr(value, "__dataclass_fields__")
+        }
+    try:
+        return json.loads(json.dumps(value, default=str))
+    except (TypeError, ValueError):
+        return str(value)
+
+
+def invoke(name: str, args_json: str) -> str:
+    """同步操作通道：JSON 进、JSON 出（域模块调用引擎公开 API 的薄包装）。"""
+    fn = _OPS_SYNC.get(name)
+    if fn is None:
+        raise KeyError(f"未注册的同步引擎操作: {name}")
+    args = json.loads(args_json)
+    result = fn(args)
+    return json.dumps(_jsonable(result))
+
+
+async def invoke_async(name: str, args_json: str) -> str:
+    """异步操作通道：JSON 进、JSON 出（引擎异步 API 的薄包装）。"""
+    fn = _OPS_ASYNC.get(name)
+    if fn is None:
+        raise KeyError(f"未注册的异步引擎操作: {name}")
+    args = json.loads(args_json)
+    result = await fn(args)
+    return json.dumps(_jsonable(result))
+
+
+def register_builtin_ops() -> None:
+    """注册出厂引擎操作（薄包装集合；随域模块拓展增量注册）。"""
+
+    @op_async("engine.chain_assemble")
+    async def _chain_assemble(args: dict) -> Any:
+        runtime = runtime_handle()
+        assembled = await runtime.self_pipeline.chain.assemble()
+        return _jsonable(assembled)
+
+    @op_async("engine.rebuild")
+    async def _rebuild(args: dict) -> Any:
+        runtime = runtime_handle()
+        await runtime.rebuild_engine()
+        return None
+
+    @op_sync("engine.collect_specs")
+    def _collect_specs(args: dict) -> Any:
+        runtime = runtime_handle()
+        return [_jsonable(spec) for spec in runtime.collect_specs()]
+
+    @op_async("engine.records_put")
+    async def _records_put(args: dict) -> Any:
+        runtime = runtime_handle()
+        await runtime.storage.put_record(args["collection"], args["key"], args["data"])
+        return None
+
+    @op_async("engine.records_get")
+    async def _records_get(args: dict) -> Any:
+        runtime = runtime_handle()
+        return await runtime.storage.get_record(args["collection"], args["key"])
+
+    @op_async("engine.records_list")
+    async def _records_list(args: dict) -> Any:
+        runtime = runtime_handle()
+        return [_jsonable(rec) for rec in await runtime.storage.list_records(args["collection"])]
+
+    @op_sync("engine.knowledge_add")
+    def _knowledge_add(args: dict) -> Any:
+        from ink_engine.core.knowledge_set import KnowledgeEntry
+
+        runtime = runtime_handle()
+        entry = KnowledgeEntry.from_dict(args["entry"])
+        runtime.knowledge_set.add(entry)
+        return entry.id
+
+    @op_sync("engine.knowledge_get")
+    def _knowledge_get(args: dict) -> Any:
+        runtime = runtime_handle()
+        entry = runtime.knowledge_set.get(args["id"])
+        return _jsonable(entry) if entry is not None else None
+
+    @op_sync("engine.declarative_register_definition")
+    def _decl_register_definition(args: dict) -> Any:
+        from ink_engine.core.declarative_tools import DeclarativeToolSpec
+
+        runtime = runtime_handle()
+        spec = DeclarativeToolSpec.from_dict(args["spec"])
+        runtime.harness_registry.declarative.register_definition(spec)
+        return None
+
+    @op_sync("engine.declarative_unregister_definition")
+    def _decl_unregister_definition(args: dict) -> Any:
+        runtime = runtime_handle()
+        runtime.harness_registry.declarative.unregister_definition(args["name"])
+        return None
+
+    @op_sync("engine.tool_registry_put")
+    def _tool_registry_put(args: dict) -> Any:
+        from ink_engine.core.declarative_tools import DeclarativeToolSpec
+
+        runtime = runtime_handle()
+        spec = DeclarativeToolSpec.from_dict(args["spec"])
+        runtime.tool_registry[spec.name] = spec.to_spec()
+        return None
+
+    @op_sync("engine.introspection_refresh_tool_sources")
+    def _introspection_refresh(args: dict) -> Any:
+        runtime = runtime_handle()
+        runtime.introspection_service._sources.tools = runtime.collect_specs()
+        return None
+
+    @op_async("engine.event_types_names")
+    async def _event_types_names(args: dict) -> Any:
+        runtime = runtime_handle()
+        return list(runtime.event_type_registry.names())
+
+
+# ── 协议注入验证助手（Rust 侧实现的嵌入/记忆协议对象经此被消费验证）──
 
 def _split_tokens(text: str) -> list[str]:
     """确定性分片（按字符切分，保证离线流式可断言）。"""
@@ -156,4 +346,7 @@ async def check_memory_protocol(store) -> int:
     if not deleted:
         return -5
     rows = await store.query(MemoryQuery(namespace="user:bridge"))
-    return len(rows)  # 期望 0（遗忘后召回不可见）
+    return len(rows)  # 期望 0（遗忘后召回不可见)
+
+
+register_builtin_ops()

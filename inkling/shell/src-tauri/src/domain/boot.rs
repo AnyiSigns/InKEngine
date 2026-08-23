@@ -9,6 +9,8 @@
 //! - 链段恢复重放（环境声明、产物声明工具、MCP 挂载登记、界面/主题/
 //!   harness/知识活跃态）；
 //! - 种子重注入（链恢复整体替换知识集实例后，出厂基线按 id 查重补挂）；
+//! - 引擎路径装配机制开关透传（七块 feature flag 随 BootOptions 携带，
+//!   默认全关；装配层收敛为按名 JSON 装配数据，引擎侧按名读取）；
 //! - 内省源刷新与引擎重建收尾。
 //!
 //! 全部接线动作幂等可重放：重复执行不改变最终状态；引擎侧 legacy 移除
@@ -25,7 +27,9 @@ use serde_json::{json, Value as JsonValue};
 
 use super::common::{readable_path, DomainError};
 use super::{build, env, live, mcp, recipe, security};
-use crate::engine::host::{call_engine_op, call_engine_op_async, BootOptions, EngineHost};
+use crate::engine::host::{
+    call_engine_op, call_engine_op_async, BootOptions, EngineHost, PathAssemblyFlags,
+};
 
 /// 种子根目录名（seed_data/manifest 所在目录；与引擎桥装配口径一致）。
 const SEED_DIR_NAME: &str = "inkling";
@@ -410,6 +414,25 @@ fn build_report(
     })
 }
 
+// ── 引擎路径装配机制装配参数透传 ──
+
+/// 引擎路径装配机制 feature flag 的按名 JSON 装配数据形态（透传契约）。
+///
+/// 七块开关随 [`BootOptions`] 携带（默认全关），装配层此处收敛为引擎
+/// 侧按名读取的键值形态——键名 = 机制语义名（禁计划编号/阶段字眼），
+/// 引擎侧装配入口按同名键消费；开关逐位独立，单块可关闭即回滚路径。
+pub fn path_assembly_data(flags: &PathAssemblyFlags) -> JsonValue {
+    json!({
+        "path_assembly_contract_enabled": flags.contract_enabled,
+        "path_assembly_edge_evidence_enabled": flags.edge_evidence_enabled,
+        "path_assembly_settle_hooks_enabled": flags.settle_hooks_enabled,
+        "path_assembly_pool_governance_enabled": flags.pool_governance_enabled,
+        "path_assembly_assembler_enabled": flags.assembler_enabled,
+        "path_assembly_multipath_enabled": flags.multipath_enabled,
+        "path_assembly_fingerprint_cache_enabled": flags.fingerprint_cache_enabled,
+    })
+}
+
 // ── 装配入口 ──
 
 /// 装配 InKling 运行时：机制装配 + 宿主接线（一次性调用；重复装配由
@@ -767,6 +790,54 @@ mod tests {
         assert!(object_map(assembled.get("missing")).is_empty());
         assert!(object_map(Some(&json!("nope"))).is_empty());
         assert!(object_map(Some(&JsonValue::Null)).is_empty());
+    }
+
+    #[test]
+    fn path_assembly_defaults_all_off_and_by_name_json() {
+        let flags = PathAssemblyFlags::default();
+        let data = path_assembly_data(&flags);
+        let map = data.as_object().expect("装配数据须为 JSON 对象");
+        assert_eq!(map.len(), 7, "七块开关齐备");
+        for key in [
+            "path_assembly_contract_enabled",
+            "path_assembly_edge_evidence_enabled",
+            "path_assembly_settle_hooks_enabled",
+            "path_assembly_pool_governance_enabled",
+            "path_assembly_assembler_enabled",
+            "path_assembly_multipath_enabled",
+            "path_assembly_fingerprint_cache_enabled",
+        ] {
+            assert!(map.contains_key(key), "缺键 {key}");
+            assert_eq!(map[key], json!(false), "{key} 默认应全关");
+        }
+        // 键名 = 机制语义名：禁计划编号/阶段字眼（引擎侧按名读取的契约）
+        for key in map.keys() {
+            let lower = key.to_ascii_lowercase();
+            for banned in ["step", "batch", "phase", "stage", "d3"] {
+                assert!(!lower.contains(banned), "键名含阶段字眼: {key}");
+            }
+        }
+    }
+
+    #[test]
+    fn path_assembly_flags_toggle_individually() {
+        let mut flags = PathAssemblyFlags::default();
+        flags.multipath_enabled = true;
+        flags.fingerprint_cache_enabled = true;
+        let data = path_assembly_data(&flags);
+        assert_eq!(data["path_assembly_multipath_enabled"], json!(true));
+        assert_eq!(data["path_assembly_fingerprint_cache_enabled"], json!(true));
+        assert_eq!(data["path_assembly_contract_enabled"], json!(false));
+        assert_eq!(data["path_assembly_assembler_enabled"], json!(false));
+    }
+
+    #[test]
+    fn boot_options_default_carries_all_off_flags() {
+        let data = path_assembly_data(&BootOptions::default().path_assembly);
+        assert!(
+            data.as_object().unwrap().values().all(|v| v == &json!(false)),
+            "BootOptions 缺省携带的开关应全部关闭"
+        );
     }
 
     // ── 触碰桥的测试（引擎 boot；串行执行）──

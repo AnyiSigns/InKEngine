@@ -32,6 +32,15 @@ serde_yaml = "0.9"
 globset = "0.4"
 chrono = { version = "0.4", default-features = false, features = ["clock"] }
 uuid = { version = "1", features = ["v4"] }
+# 本地嵌入真实推理（granite-97m ONNX；ort 2.x rc 形态：默认 feature 即
+# ndarray + download-binaries + std，构建期自动下载 ONNX Runtime 二进制；
+# rc.10 为钉死版本——rc 序列存在 API 漂移（如 outputs 字段可见性），
+# 升级需重新过编译与真实模型断言）
+ort = "=2.0.0-rc.10"
+# ModernBERT BPE 分词（tokenizer.json 直接载入；default-features=off 且
+# 不带 esaxx_fast：esaxx-rs 仅 unigram 训练器用、推理不触碰，且其强制
+# 静态 CRT 与 ort 预编译库（动态 CRT）链接冲突——本壳只需推理）
+tokenizers = { version = "0.20", default-features = false, features = ["onig"] }
 
 # 生产形态开关：开启后加载 frontend/dist（内嵌资产），不依赖 dev server。
 # 缺省（不带该 feature 构建）= dev 形态连 devUrl——Tauri 的 dev 判定

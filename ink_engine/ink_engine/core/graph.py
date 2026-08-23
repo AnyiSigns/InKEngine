@@ -21,6 +21,7 @@ from collections.abc import Awaitable, Callable
 from dataclasses import dataclass, field
 from typing import TYPE_CHECKING, Any, Protocol
 
+from .contracts import NodeContract
 from .exceptions import EngineError, GraphDefinitionError, NodeNotFoundError
 
 if TYPE_CHECKING:
@@ -76,14 +77,19 @@ class Edge:
 
 @dataclass(frozen=True, slots=True)
 class NodeBinding:
-    """声明式节点的类型绑定（节点名 → 注册类型名 + 配置）。
+    """声明式节点的类型绑定（节点名 → 注册类型名 + 配置 + 契约）。
 
     经 :meth:`Graph.add_node_type` 登记；序列化/重建时按类型名引用，
     函数实例化发生在类型解析（:meth:`Graph.resolve_types`）阶段。
+
+    contract: 结点契约数据（图定义数据的一部分，随 checkpoint/harness
+        持久化；None = 无契约结点，不参与组装，仅可被手绘图引用——
+        旧图数据缺省 = None，零行为破坏）。
     """
 
     type_name: str
     config: dict[str, Any]
+    contract: NodeContract | None = None
 
 
 class NodeContext(Protocol):
@@ -181,19 +187,32 @@ class Graph:
         self.nodes[name] = fn
 
     def add_node_type(
-        self, name: str, type_name: str, config: dict[str, Any] | None = None
+        self,
+        name: str,
+        type_name: str,
+        config: dict[str, Any] | None = None,
+        contract: NodeContract | None = None,
     ) -> None:
         """声明式节点：按注册表类型名引用（可序列化/重建，图定义数据形态）。
 
         函数实例化延迟到 :meth:`resolve_types`（传入节点注册表）或
         :meth:`from_dict`（重建路径）；绑定记录随图序列化持久化。
+
+        Args:
+            name: 节点名。
+            type_name: 注册表类型名。
+            config: 节点配置（透传工厂实例化）。
+            contract: 结点契约（可选；缺省 = 无契约结点，不参与组装，
+                仅可被手绘图引用——旧调用形态完全不变）。
         """
         if name in self.nodes or name in self.subgraphs:
             raise GraphDefinitionError(f"节点名冲突: {name}")
         if not type_name:
             raise GraphDefinitionError(f"节点 {name} 的类型名不能为空")
         self.node_bindings[name] = NodeBinding(
-            type_name=type_name, config=dict(config or {})
+            type_name=type_name,
+            config=dict(config or {}),
+            contract=contract,
         )
 
     def resolve_types(self, registry: NodeTypeRegistry | None = None) -> None:
@@ -301,6 +320,10 @@ class Graph:
                 "type": binding.type_name,
                 "config": copy.deepcopy(binding.config),
             }
+            if binding.contract is not None:
+                # 契约随图定义数据落库（契约即数据）：重建/审计/回退
+                # 不依赖注册表现状
+                nodes[name]["contract"] = binding.contract.to_dict()
         edges = {
             source: [edge.to_dict() for edge in edge_list]
             for source, edge_list in self.edges.items()
@@ -370,8 +393,21 @@ class Graph:
                     f"节点 {node_name} 的 config 声明非法: 期望 dict，"
                     f"收到 {type(config).__name__}"
                 )
+            contract_data = spec.get("contract")
+            if contract_data is not None and not isinstance(contract_data, dict):
+                raise GraphDefinitionError(
+                    f"节点 {node_name} 的 contract 声明非法: 期望 dict，"
+                    f"收到 {type(contract_data).__name__}"
+                )
+            contract = (
+                NodeContract.from_dict(contract_data)
+                if contract_data is not None
+                else None
+            )
             # 深拷贝：重建图不与输入数据共享嵌套引用（改 data 不泄漏回定义）
-            graph.add_node_type(node_name, spec["type"], copy.deepcopy(config))
+            graph.add_node_type(
+                node_name, spec["type"], copy.deepcopy(config), contract=contract
+            )
         subgraphs_data = data.get("subgraphs")
         if subgraphs_data is not None and not isinstance(subgraphs_data, dict):
             raise GraphDefinitionError(
@@ -446,10 +482,15 @@ class Graph:
             binding = self.node_bindings.get(name)
             if binding is not None:
                 try:
+                    payload: dict[str, Any] = {
+                        "type": binding.type_name,
+                        "config": binding.config,
+                    }
+                    if binding.contract is not None:
+                        # 契约是绑定数据的一部分：契约变更 = 图定义身份变更
+                        payload["contract"] = binding.contract.to_dict()
                     return json.dumps(
-                        {"type": binding.type_name, "config": binding.config},
-                        ensure_ascii=False,
-                        sort_keys=True,
+                        payload, ensure_ascii=False, sort_keys=True
                     )
                 except TypeError as exc:
                     # 配置须可 JSON 序列化：不可序列化的配置 = 图定义数据

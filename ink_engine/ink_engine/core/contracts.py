@@ -1,0 +1,171 @@
+"""结点契约与机制装配开关（声明式数据形态：类型化原子的输入/输出声明）。
+
+结点契约把「某类型结点做什么」从代码提升为可序列化数据：输入/输出
+schema（复用状态通道的 SchemaSpec 声明语言）声明结点消费与产出的状态
+通道字段；安全档与版本随契约落库——契约即数据，随图定义数据
+（checkpoint/harness）持久化，旧版本契约快照服务审计复现与回退。
+
+本模块只定义数据形态与窄接口，不含任何执行逻辑：
+
+- :class:`NodeContract`：结点契约（schema 声明 + 安全档 + 版本）；
+- :class:`PathAssemblyConfig`：机制装配配置开关（默认全关，读取形态与
+  既有装配配置一致：enabled 标志 + 可序列化）；
+- :class:`QualityGate`：产出质量判定窄协议（只定义接口，实现归使用方）。
+
+契约可缺省：无契约结点不参与组装、仅可被手绘图引用（旧行为零破坏）。
+"""
+from __future__ import annotations
+
+from collections.abc import Awaitable
+from dataclasses import dataclass
+from typing import Any, Protocol
+
+from .exceptions import GraphDefinitionError
+from .schema_validator import SchemaSpec
+
+# 安全档三档（0 最严，与审批档 L0-L2 同阶）
+SAFETY_TIER_MIN = 0
+SAFETY_TIER_MAX = 2
+# 契约版本下限（行为变更 = 升版，版本从 1 起）
+CONTRACT_VERSION_MIN = 1
+
+
+@dataclass(frozen=True, slots=True)
+class NodeContract:
+    """结点契约：类型化原子的输入/输出声明 + 安全档 + 版本。
+
+    Attributes:
+        input_schema: 本结点消费的状态通道字段声明（None = 不消费字段）。
+        output_schema: 本结点产出的状态通道字段声明（None = 不产出字段）。
+        safety_tier: 安全档 0/1/2（默认 0 最严；与审批档同阶，组装请求
+            按任务审批档映射放行档位，映射策略归使用方）。
+        version: 契约版本（结点行为变更 = 契约升版；旧版本契约随图定义
+            快照落库保留，服务审计复现与回退）。
+    """
+
+    input_schema: SchemaSpec | None = None
+    output_schema: SchemaSpec | None = None
+    safety_tier: int = 0
+    version: int = 1
+
+    def __post_init__(self) -> None:
+        if isinstance(self.safety_tier, bool) or not isinstance(self.safety_tier, int):
+            raise GraphDefinitionError(
+                f"契约安全档须为整数: {self.safety_tier!r}"
+            )
+        if not SAFETY_TIER_MIN <= self.safety_tier <= SAFETY_TIER_MAX:
+            raise GraphDefinitionError(
+                f"契约安全档越界: {self.safety_tier}"
+                f"（仅 {SAFETY_TIER_MIN}-{SAFETY_TIER_MAX} 三档）"
+            )
+        if isinstance(self.version, bool) or not isinstance(self.version, int):
+            raise GraphDefinitionError(f"契约版本须为整数: {self.version!r}")
+        if self.version < CONTRACT_VERSION_MIN:
+            raise GraphDefinitionError(
+                f"契约版本须 ≥ {CONTRACT_VERSION_MIN}: {self.version}"
+            )
+        for label, schema in (
+            ("input_schema", self.input_schema),
+            ("output_schema", self.output_schema),
+        ):
+            if schema is not None and not isinstance(schema, SchemaSpec):
+                raise GraphDefinitionError(
+                    f"契约 {label} 须为 SchemaSpec: {type(schema).__name__}"
+                )
+
+    def to_dict(self) -> dict[str, Any]:
+        """序列化为数据形态（schema 声明内联，随图定义数据落库）。"""
+        return {
+            "input_schema": (
+                self.input_schema.to_dict() if self.input_schema is not None else None
+            ),
+            "output_schema": (
+                self.output_schema.to_dict() if self.output_schema is not None else None
+            ),
+            "safety_tier": self.safety_tier,
+            "version": self.version,
+        }
+
+    @classmethod
+    def from_dict(cls, data: dict[str, Any]) -> NodeContract:
+        """反序列化（缺省键 = 默认值；旧数据无契约形态时由调用方传 None）。"""
+        if not isinstance(data, dict):
+            raise GraphDefinitionError(
+                f"契约声明非法: 期望 dict，收到 {type(data).__name__}"
+            )
+        for key in ("input_schema", "output_schema"):
+            raw = data.get(key)
+            if raw is not None and not isinstance(raw, dict):
+                raise GraphDefinitionError(
+                    f"契约 {key} 声明非法: 期望 dict 或缺省，"
+                    f"收到 {type(raw).__name__}"
+                )
+        safety_tier = data.get("safety_tier", 0)
+        version = data.get("version", 1)
+        if isinstance(safety_tier, bool) or isinstance(version, bool):
+            raise GraphDefinitionError("契约安全档/版本不接受布尔值")
+        try:
+            tier = int(safety_tier)
+            ver = int(version)
+        except (TypeError, ValueError) as exc:
+            raise GraphDefinitionError(
+                f"契约安全档/版本须为整数: {safety_tier!r}/{version!r}"
+            ) from exc
+        input_data = data.get("input_schema")
+        output_data = data.get("output_schema")
+        return cls(
+            input_schema=(
+                SchemaSpec.from_dict(input_data) if input_data is not None else None
+            ),
+            output_schema=(
+                SchemaSpec.from_dict(output_data) if output_data is not None else None
+            ),
+            safety_tier=tier,
+            version=ver,
+        )
+
+
+@dataclass(frozen=True, slots=True)
+class PathAssemblyConfig:
+    """机制装配配置开关（默认全关；读取形态与既有装配配置一致）。
+
+    Attributes:
+        enabled: 机制入口开关（False = 机制不参与任何运行路径；默认全关
+            的增量接入——本模块只定义开关形态与序列化，读取点由机制
+            入口接入时挂接，不改动引擎既有行为基线）。
+    """
+
+    enabled: bool = False
+
+    def to_dict(self) -> dict[str, Any]:
+        return {"enabled": self.enabled}
+
+    @classmethod
+    def from_dict(cls, data: dict[str, Any]) -> PathAssemblyConfig:
+        if not isinstance(data, dict):
+            raise GraphDefinitionError(
+                f"装配配置声明非法: 期望 dict，收到 {type(data).__name__}"
+            )
+        return cls(enabled=bool(data.get("enabled", False)))
+
+
+class QualityGate(Protocol):
+    """产出质量判定窄协议（组装请求注入；只定义接口，实现归使用方）。
+
+    按域提供产出质量判定（领域名 + 产出物 → 布尔结论）；布尔结论随
+    沉淀钩子落库（settle 只记录布尔值，不做判定本身）。未注入闸门时
+    使用方走 fail-closed 降级链。判定可同步或异步——调用点按引擎既有
+    协议惯例检测 awaitable。
+    """
+
+    def judge(self, domain: str, artifact: Any) -> bool | Awaitable[bool]: ...
+
+
+__all__ = [
+    "CONTRACT_VERSION_MIN",
+    "SAFETY_TIER_MAX",
+    "SAFETY_TIER_MIN",
+    "NodeContract",
+    "PathAssemblyConfig",
+    "QualityGate",
+]

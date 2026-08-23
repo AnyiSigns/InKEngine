@@ -93,8 +93,46 @@ pub async fn call_engine_op_async(op: &str, args: JsonValue) -> Result<JsonValue
     serde_json::from_str(&result_json).map_err(|err| format!("引擎操作返回不可解析: {err}"))
 }
 
+/// 引擎路径装配机制的七块 feature flag（装配参数，默认全关）。
+///
+/// 引擎侧按名读取的渐进灰度开关：每块独立开启、独立关闭（= 单块回滚
+/// 路径）；本壳只负责携带与透传（按名 JSON 装配数据形态见
+/// [`crate::domain::boot::path_assembly_data`]），引擎读取方由引擎侧
+/// 装配入口按名消费。
+#[derive(Debug, Clone, Copy, PartialEq, Eq)]
+pub struct PathAssemblyFlags {
+    /// 结点契约 + 链接校验器（contract + LinkValidator）。
+    pub contract_enabled: bool,
+    /// 边证据存储（EdgeEvidenceStore 评分与统计）。
+    pub edge_evidence_enabled: bool,
+    /// 沉淀钩子（SettleHooks：成败/成本归集、失败点提案）。
+    pub settle_hooks_enabled: bool,
+    /// 结点池治理（容量/淘汰/合并/提案预算）。
+    pub pool_governance_enabled: bool,
+    /// 路径组装器（PathAssembler：schema 反推/LLM 草稿/证据评分）。
+    pub assembler_enabled: bool,
+    /// 多径执行 + 汇流裁决（MultiPath + Junction）。
+    pub multipath_enabled: bool,
+    /// 指纹缓存（上下文指纹 → 组装结果复用与顶替）。
+    pub fingerprint_cache_enabled: bool,
+}
+
+impl Default for PathAssemblyFlags {
+    fn default() -> Self {
+        Self {
+            contract_enabled: false,
+            edge_evidence_enabled: false,
+            settle_hooks_enabled: false,
+            pool_governance_enabled: false,
+            assembler_enabled: false,
+            multipath_enabled: false,
+            fingerprint_cache_enabled: false,
+        }
+    }
+}
+
 /// 装配选项：仓库根（引擎/legacy 包加载路径）、存储 URI、运行数据目录、
-/// 离线模型桩脚本（按消息子串匹配回复）。
+/// 离线模型桩脚本（按消息子串匹配回复）、引擎路径装配机制开关。
 #[derive(Clone)]
 pub struct BootOptions {
     pub repo_root: PathBuf,
@@ -102,6 +140,9 @@ pub struct BootOptions {
     pub data_dir: Option<PathBuf>,
     pub stub_script: Option<JsonValue>,
     pub default_reply: String,
+    /// 引擎路径装配机制 feature flag（默认全关；随装配透传为按名
+    /// JSON 装配数据，见 [`crate::domain::boot::path_assembly_data`]）。
+    pub path_assembly: PathAssemblyFlags,
 }
 
 impl Default for BootOptions {
@@ -112,6 +153,7 @@ impl Default for BootOptions {
             data_dir: None,
             stub_script: None,
             default_reply: DEFAULT_STUB_REPLY.to_string(),
+            path_assembly: PathAssemblyFlags::default(),
         }
     }
 }
@@ -505,6 +547,7 @@ mod tests {
                 "研究": {"reply": "研究计划已展开：采集 → 解析 → 评审。"}
             })),
             default_reply: DEFAULT_STUB_REPLY.to_string(),
+            path_assembly: PathAssemblyFlags::default(),
         };
         let host = EngineHost::boot(options).expect("装配失败");
         let report = host.report().expect("摘要失败");

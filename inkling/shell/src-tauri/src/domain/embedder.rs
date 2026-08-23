@@ -12,7 +12,15 @@
 //!   目录内这份文件名探测）；
 //! - `tokenizer.json`：ModernBERT BPE 分词器（transformers 4.56 导出）；
 //! - `config.json` / `1_Pooling_config.json`：hidden_size=384 与
-//!   pooling_mode_cls_token=true 的机器可读声明（共振载入时从此读维度）。
+//!   pooling_mode_cls_token=true 的机器可读声明（共振载入时从此读维度，
+//!   池化锚点 bos_token_id 也从此读——ModernBERT 的 bos 是
+//!   `<|startoftext|>`，token id 179934，与 BERT「[CLS]=1」假设不同，
+//!   不得硬编码）。
+//!
+//! 真实推理链路（懒加载单体，首次检索才载入）：tokenizer encode →
+//! ONNX 会话跑 hidden_state → 按 `config.json` 的 bos_token_id 取该位置
+//! 行（CLS 池化）→ L2 归一 → 384 维向量。推理经 ONNX Runtime 自身线程
+//! 池异步执行（`run_async`），不阻塞 tokio 运行时；会话串行互斥。
 //!
 //! 环境变量显式覆盖（读于首次检索的解析期，模拟远端或跳过本地）：
 //! - `INK_EMBEDDING_BASE_URL` + `INK_EMBEDDING_MODEL`：配齐即走远端
@@ -25,13 +33,10 @@
 //!   `inkling/models/granite-97m`）。
 //!
 //! 降级回退（永不明返回空向量）：加载失败（目录缺失/配置不可读/维度
-//! 断言不一致/ONNX 文件缺失）→ 确定性向量保底（语义同桥层 fake_vector：
-//! FNV-1a + sin 散射，经 L2 归一），来源与原因经 [`EmbedderPlan`] 可观测。
-//!
-//! 本地真实推理接线：本模块暂不含 ONNX 运行时链接（`ort` 与
-//! `tokenizers` 依赖尚未加入 Cargo.toml，见模块底部「接线清单」）。
-//! 当前代码路径在 [`ONNX_RUNTIME_AVAILABLE`] 关闭时以确定性向量保底
-//! （维度仍按模型配置断言 = 384），接口与懒加载/降级语义完整可验证。
+//! 断言不一致/ONNX 文件缺失/分词器或会话加载失败/推理异常）→ 确定性
+//! 向量保底（语义同桥层 fake_vector：FNV-1a + sin 散射，经 L2 归一），
+//! 来源与原因经 [`EmbedderPlan`] 与 [`LocalOnnxEmbedder::note`] 可观测
+//! （结构化错误，不 panic）。
 
 use std::path::{Path, PathBuf};
 use std::sync::{Mutex, OnceLock};
@@ -51,7 +56,7 @@ pub const LOCAL_ONNX_FILE: &str = "model_quint8_avx2.onnx";
 /// 本地分词器文件名（ModernBERT BPE）。
 pub const LOCAL_TOKENIZER_FILE: &str = "tokenizer.json";
 
-/// 本地模型配置文件名（维度机器可读声明）。
+/// 本地模型配置文件名（维度/池化锚点机器可读声明）。
 pub const LOCAL_MODEL_CONFIG_FILE: &str = "config.json";
 
 /// 远端适配器注册名默认值（与引擎注册表口径一致）。
@@ -60,18 +65,22 @@ pub const REMOTE_ADAPTER_DEFAULT: &str = "openai_compat";
 /// 远端调用超时默认值（秒）。
 pub const REMOTE_TIMEOUT_DEFAULT_SECS: f64 = 60.0;
 
-// ── 真实 ONNX 推理接线清单（需新增 Cargo 依赖；文件其余部分不依赖它们）──
-// ort       = "2.0.0-rc.10"   （ONNX Runtime 绑定；正式发布后可用 ort = "2"）
-// tokenizers = "0.20"         （ModernBERT BPE 分词；tokenizer.json 直接载入）
-// 接线步骤：把下方常量翻真 → 实现 local_inference（tokenizer encode →
-//   ONNX 会话跑 hidden_state → 取 [CLS] 行 → L2 归一 → 384 维），
-//   并把 EmbedderPlan.note 里的「运行时未接线」措辞收敛。
-const ONNX_RUNTIME_AVAILABLE: bool = false;
+/// 单条输入最大序列长度（ModernBERT 训练序列长；超出截断——分词器
+/// 自身截断上限 32768 属理论值，推理实用档取 2048，防超长输入拖慢）。
+pub const MAX_SEQUENCE_LEN: usize = 2048;
+
+/// ONNX 会话 intra-op 线程数（异步推理在会话线程池执行，须多于 1）。
+const SESSION_INTRA_THREADS: usize = 2;
+
+/// 模型输出名优先序（sentence-transformers 导出形态名；按名取 hidden
+/// state 输出，避免依赖输出顺序——无命中时取首个输出）。
+const HIDDEN_STATE_OUTPUT_PRIORITY: [&str; 3] =
+    ["last_hidden_state", "hidden_states", "output"];
 
 /// 嵌入来源（计划解析结果；向量产出按此路由）。
 #[derive(Debug, Clone, Copy, PartialEq, Eq)]
 pub enum EmbedSource {
-    /// 本地 ONNX 模型（当前运行时未接线，以确定性向量保底）。
+    /// 本地 ONNX 模型（真实推理；加载/推理失败时以确定性向量保底）。
     LocalOnnx,
     /// 远端 OpenAI 兼容端点。
     Remote,
@@ -178,12 +187,15 @@ where
     }
 
     // 维度从模型配置断言（本地模型信息是权威：缺失/不一致不得静默猜测）
-    let dim = match read_model_dim(model_dir) {
-        Ok(d) if d == GRANITE_97M_DIM => d,
-        Ok(d) => {
+    let dim = match read_model_config(model_dir) {
+        Ok(config) if config.hidden_size == GRANITE_97M_DIM => config.hidden_size,
+        Ok(config) => {
             return EmbedderPlan::deterministic(
                 default_dim,
-                format!("模型维度 {} 与预期 {} 不一致（配置文件声明）", d, GRANITE_97M_DIM),
+                format!(
+                    "模型维度 {} 与预期 {} 不一致（配置文件声明）",
+                    config.hidden_size, GRANITE_97M_DIM
+                ),
             );
         }
         Err(reason) => {
@@ -199,34 +211,42 @@ where
         }
     }
 
-    let note = if ONNX_RUNTIME_AVAILABLE {
-        None
-    } else {
-        Some(format!(
-            "ONNX 推理运行时未接线（本模块以确定性向量保底，维度 {} 按模型配置断言）",
-            dim
-        ))
-    };
     EmbedderPlan {
         source: EmbedSource::LocalOnnx,
         dim,
-        note,
+        note: None,
         remote: None,
     }
 }
 
-/// 从 `config.json` 读取 hidden_size（现代 BERT 配置形态的维度声明）。
-fn read_model_dim(model_dir: &Path) -> Result<usize, String> {
+/// 模型配置的机器可读声明（维度 + 池化锚点；从 `config.json` 读取）。
+struct ModelConfig {
+    hidden_size: usize,
+    /// bos token id（ModernBERT 的 `<|startoftext|>`；CLS 池化的取行位置）。
+    bos_token_id: u32,
+}
+
+/// 从 `config.json` 读取模型配置（现代 BERT 配置形态的声明）。
+fn read_model_config(model_dir: &Path) -> Result<ModelConfig, String> {
     let config = model_dir.join(LOCAL_MODEL_CONFIG_FILE);
     let raw = std::fs::read_to_string(&config)
         .map_err(|e| format!("模型配置读取失败 ({}): {e}", config.display()))?;
     let value: serde_json::Value = serde_json::from_str(&raw)
         .map_err(|e| format!("模型配置解析失败 ({}): {e}", config.display()))?;
-    value
+    let hidden_size = value
         .get("hidden_size")
         .and_then(|v| v.as_u64())
         .map(|n| n as usize)
-        .ok_or_else(|| format!("模型配置缺 hidden_size 字段 ({}): {raw}", config.display()))
+        .ok_or_else(|| format!("模型配置缺 hidden_size 字段 ({}): {raw}", config.display()))?;
+    let bos_token_id = value
+        .get("bos_token_id")
+        .and_then(|v| v.as_u64())
+        .map(|n| n as u32)
+        .ok_or_else(|| format!("模型配置缺 bos_token_id 字段 ({}): {raw}", config.display()))?;
+    Ok(ModelConfig {
+        hidden_size,
+        bos_token_id,
+    })
 }
 
 /// 确定性向量（桥层 fake_vector 语义：FNV-1a 种子 + sin 散射），
@@ -257,12 +277,137 @@ pub fn l2_normalize(vector: &mut [f64]) {
     }
 }
 
+// ── 本地真实推理运行时（ort + tokenizers；懒加载单例）──
+
+/// 本地推理运行时：分词器 + ONNX 会话 + 维度/池化锚点。
+///
+/// 会话经 Mutex 串行（`run_async` 需要 `&mut`，单实例推理本就串行）。
+/// 本结构由 [`LocalOnnxEmbedder`] 的 OnceLock 懒装载：成功装载一次即
+/// 常驻；装载失败记录原因，此后以确定性向量保底（不重试装载）。
+struct LocalRuntime {
+    tokenizer: tokenizers::Tokenizer,
+    session: Mutex<ort::session::Session>,
+    dim: usize,
+    bos_token_id: u32,
+}
+
+/// 装载本地推理运行时：配置断言 → 分词器解析 → ONNX 会话提交。
+/// 任何一步失败返回带原因的 Err（调用方落确定性保底，不 panic）。
+fn load_local_runtime(model_dir: &Path) -> Result<LocalRuntime, String> {
+    let config = read_model_config(model_dir)?;
+    if config.hidden_size != GRANITE_97M_DIM {
+        return Err(format!(
+            "模型维度 {} 与预期 {} 不一致（配置文件声明）",
+            config.hidden_size, GRANITE_97M_DIM
+        ));
+    }
+    let tokenizer_path = model_dir.join(LOCAL_TOKENIZER_FILE);
+    let tokenizer = tokenizers::Tokenizer::from_file(&tokenizer_path)
+        .map_err(|e| format!("分词器加载失败 ({}): {e}", tokenizer_path.display()))?;
+    let session = ort::session::Session::builder()
+        .map_err(|e| format!("ONNX 会话构建器初始化失败: {e}"))?
+        .with_intra_threads(SESSION_INTRA_THREADS)
+        .map_err(|e| format!("ONNX 会话线程配置失败: {e}"))?
+        .commit_from_file(model_dir.join(LOCAL_ONNX_FILE))
+        .map_err(|e| format!("ONNX 会话提交失败 ({}): {e}", model_dir.join(LOCAL_ONNX_FILE).display()))?;
+    Ok(LocalRuntime {
+        tokenizer,
+        session: Mutex::new(session),
+        dim: config.hidden_size,
+        bos_token_id: config.bos_token_id,
+    })
+}
+
+/// 会话输出名 → hidden state 输出下标（按声明优先序；无命中取首个）。
+fn select_hidden_state_output(session: &ort::session::Session) -> usize {
+    HIDDEN_STATE_OUTPUT_PRIORITY
+        .iter()
+        .filter_map(|name| session.outputs.iter().position(|o| &o.name == name))
+        .next()
+        .unwrap_or(0)
+}
+
+/// 单条文本 → 向量（真实推理：分词 → ONNX 编码 → CLS 行 → L2 归一）。
+///
+/// CLS 池化取「token id == config bos_token_id 的首个位置」行——ModernBERT
+/// 的 bos 是 `<|startoftext|>`（179934），由分词器模板加在序列首，按 id
+/// 定位不依赖「[CLS]=1」式硬编码；找不到时取首位置（bos 恒为序列首）。
+/// 推理经会话线程池异步执行，不阻塞 tokio 运行时。
+async fn infer_vector(runtime: &LocalRuntime, text: &str) -> Result<Vec<f64>, String> {
+    let encoding = runtime
+        .tokenizer
+        .encode(text, true)
+        .map_err(|e| format!("分词失败: {e}"))?;
+    let mut ids: Vec<i64> = encoding.get_ids().iter().map(|&id| id as i64).collect();
+    let mut mask: Vec<i64> = encoding
+        .get_attention_mask()
+        .iter()
+        .map(|&m| m as i64)
+        .collect();
+    if ids.len() > MAX_SEQUENCE_LEN {
+        ids.truncate(MAX_SEQUENCE_LEN);
+        mask.truncate(MAX_SEQUENCE_LEN);
+    }
+    let seq_len = ids.len();
+    if seq_len == 0 {
+        return Err("分词结果为空".to_string());
+    }
+
+    let input_ids = ort::value::Tensor::from_array(([1usize, seq_len], ids.clone()))
+        .map_err(|e| format!("输入张量构建失败: {e}"))?;
+    let attention_mask = ort::value::Tensor::from_array(([1usize, seq_len], mask))
+        .map_err(|e| format!("注意力掩码张量构建失败: {e}"))?;
+    let inputs = ort::inputs! {
+        "input_ids" => input_ids,
+        "attention_mask" => attention_mask,
+    };
+    let run_options = ort::session::run_options::RunOptions::new()
+        .map_err(|e| format!("ONNX 运行选项创建失败: {e}"))?;
+
+    let mut session = runtime.session.lock().unwrap();
+    let output_idx = select_hidden_state_output(&session);
+    let outputs = session
+        .run_async(inputs, &run_options)
+        .map_err(|e| format!("ONNX 推理启动失败: {e}"))?
+        .await
+        .map_err(|e| format!("ONNX 推理失败: {e}"))?;
+    if outputs.len() <= output_idx {
+        return Err(format!("模型输出缺 {} 号输出（共 {})", output_idx, outputs.len()));
+    }
+    let (shape, data) = outputs[output_idx]
+        .try_extract_tensor::<f32>()
+        .map_err(|e| format!("模型输出提取失败: {e}"))?;
+    let dims: Vec<usize> = shape.iter().map(|&d| d as usize).collect();
+    let hidden_dim = dims.last().copied().unwrap_or(0);
+    let row_count = dims.iter().rev().nth(1).copied().unwrap_or(0);
+    if hidden_dim != runtime.dim || row_count != seq_len {
+        return Err(format!(
+            "模型输出形态不符: {dims:?}（期望 [1, {seq_len}, {}]）",
+            runtime.dim
+        ));
+    }
+
+    let bos_pos = ids
+        .iter()
+        .position(|&id| id as u32 == runtime.bos_token_id)
+        .unwrap_or(0);
+    let start = bos_pos * runtime.dim;
+    let mut vector: Vec<f64> = data[start..start + runtime.dim]
+        .iter()
+        .map(|&v| v as f64)
+        .collect();
+    l2_normalize(&mut vector);
+    Ok(vector)
+}
+
 /// 本地嵌入器：懒加载单体——首次检索才解析计划（环境覆盖 + 文件检查），
-/// 此后结果固定（OnceLock）；远端 client 惰性构建、aclose 释放。
+/// 此后结果固定（OnceLock）；本地推理运行时同样首次需要时才装载
+/// （OnceLock<Result>：失败原因可观测，不 panic 不重试）。
 pub struct LocalOnnxEmbedder {
     model_dir: PathBuf,
     default_dim: usize,
     plan: OnceLock<EmbedderPlan>,
+    runtime: OnceLock<Result<LocalRuntime, String>>,
     client: Mutex<Option<reqwest::Client>>,
 }
 
@@ -295,6 +440,7 @@ impl LocalOnnxEmbedder {
             model_dir: PathBuf::from(GRANITE_MODEL_DIR_DEFAULT),
             default_dim: GRANITE_97M_DIM,
             plan: cell,
+            runtime: OnceLock::new(),
             client: Mutex::new(None),
         }
     }
@@ -304,6 +450,7 @@ impl LocalOnnxEmbedder {
             model_dir: model_dir.into(),
             default_dim,
             plan: OnceLock::new(),
+            runtime: OnceLock::new(),
             client: Mutex::new(None),
         }
     }
@@ -329,9 +476,22 @@ impl LocalOnnxEmbedder {
         self.plan().dim
     }
 
-    /// 降级原因（计划 note）。
+    /// 降级原因（计划 note；本地推理运行时装载失败时返回该失败原因）。
     pub fn note(&self) -> Option<&str> {
+        if let Some(runtime) = self.runtime.get() {
+            if let Err(reason) = runtime {
+                return Some(reason);
+            }
+        }
         self.plan().note.as_deref()
+    }
+
+    /// 本地推理运行时（懒装载并缓存；失败原因经 [`Self::note`] 可观测）。
+    fn runtime(&self) -> Result<&LocalRuntime, String> {
+        self.runtime
+            .get_or_init(|| load_local_runtime(&self.model_dir))
+            .as_ref()
+            .map_err(Clone::clone)
     }
 
     /// 单条文本 → 向量（协议同位件 aembed_query）。
@@ -345,7 +505,7 @@ impl LocalOnnxEmbedder {
                     .next()
                     .ok_or_else(|| DomainError::External("远端 embedding 未返回向量".to_string()))
             }
-            _ => Ok(self.local_or_deterministic(plan, text)),
+            _ => Ok(self.local_or_deterministic(plan, text).await),
         }
     }
 
@@ -354,10 +514,13 @@ impl LocalOnnxEmbedder {
         let plan = self.plan();
         match plan.source {
             EmbedSource::Remote => self.remote_embed(texts.to_vec()).await,
-            _ => Ok(texts
-                .iter()
-                .map(|t| self.local_or_deterministic(plan, t))
-                .collect()),
+            _ => {
+                let mut vectors = Vec::with_capacity(texts.len());
+                for text in texts {
+                    vectors.push(self.local_or_deterministic(plan, text).await);
+                }
+                Ok(vectors)
+            }
         }
     }
 
@@ -367,10 +530,15 @@ impl LocalOnnxEmbedder {
         Ok(())
     }
 
-    fn local_or_deterministic(&self, plan: &EmbedderPlan, text: &str) -> Vec<f64> {
-        if ONNX_RUNTIME_AVAILABLE && plan.source == EmbedSource::LocalOnnx {
-            // 接线点位：真实推理（tokenizer encode + CLS 行 + L2 归一），
-            // 见模块头「真实 ONNX 推理接线清单」。当前恒走确定性保底。
+    /// 本地嵌入（真实推理优先）：运行时可用走 ONNX；装载失败/推理异常
+    /// 一律落确定性保底（结构化原因经 [`Self::note`] 可观测，不 panic）。
+    async fn local_or_deterministic(&self, plan: &EmbedderPlan, text: &str) -> Vec<f64> {
+        if plan.source == EmbedSource::LocalOnnx {
+            if let Ok(runtime) = self.runtime() {
+                if let Ok(vector) = infer_vector(runtime, text).await {
+                    return vector;
+                }
+            }
         }
         deterministic_vector(text, plan.dim)
     }
@@ -504,30 +672,42 @@ mod tests {
     }
 
     /// 写入一个「配置齐全」的模型目录（config.json 声明 384 维 + 占位
-    /// onnx/tokenizer 文件；本模块不依赖 ONNX 能真正跑起来，只依赖约定文件名）。
+    /// onnx/tokenizer 文件——文件存在性通过计划校验，但内容不是合法
+    /// 模型：加载阶段必然失败，用于装载失败降级断言）。
     fn write_fake_model_dir(dir: &Path, hidden_size: usize) {
         std::fs::create_dir_all(dir).unwrap();
         std::fs::write(
             dir.join(LOCAL_MODEL_CONFIG_FILE),
-            format!(r#"{{"hidden_size": {hidden_size}, "model_type": "modernbert"}}"#),
+            format!(
+                r#"{{"hidden_size": {hidden_size}, "bos_token_id": 179934, "model_type": "modernbert"}}"#
+            ),
         )
         .unwrap();
         std::fs::write(dir.join(LOCAL_ONNX_FILE), b"onnx-placeholder").unwrap();
         std::fs::write(dir.join(LOCAL_TOKENIZER_FILE), b"tokenizer-placeholder").unwrap();
     }
 
+    /// 真实模型目录（工作区缺模型时静默跳过——本地资产，非外部 key，
+    /// 模型文件存在于工作区即可直接跑）。
+    fn real_model_dir() -> Option<PathBuf> {
+        let dir = Path::new(env!("CARGO_MANIFEST_DIR")).join("../../../inkling/models/granite-97m");
+        dir.is_dir().then_some(dir)
+    }
+
     fn no_env(_: &str) -> Option<String> {
         None
+    }
+
+    /// 测试用 tokio 多线程运行时（真实推理经 ONNX 线程池异步执行）。
+    fn tokio_rt() -> tokio::runtime::Runtime {
+        tokio::runtime::Runtime::new().unwrap()
     }
 
     #[test]
     fn deterministic_vectors_are_stable_and_unit_norm() {
         let plan = EmbedderPlan::deterministic(384, "测试保底");
         let embedder = LocalOnnxEmbedder::with_plan(plan);
-        let v1 = tokio::runtime::Runtime::new()
-            .unwrap()
-            .block_on(embedder.aembed_query("测试输入"))
-            .unwrap();
+        let v1 = tokio_rt().block_on(embedder.aembed_query("测试输入")).unwrap();
         assert_eq!(v1.len(), 384);
         let norm: f64 = v1.iter().map(|x| x * x).sum::<f64>().sqrt();
         assert!((norm - 1.0).abs() < 1e-6, "输出须为单位向量, norm={norm}");
@@ -546,16 +726,29 @@ mod tests {
         let plan = resolve_plan(no_env, dir.path(), GRANITE_97M_DIM);
         assert_eq!(plan.source, EmbedSource::LocalOnnx);
         assert_eq!(plan.dim, GRANITE_97M_DIM);
-        // 运行时未接线 → 有保底说明，但维度断言仍成立
-        assert!(plan.note.is_some());
+        // 计划期无降级原因（真实推理已接线；装载失败在运行时阶段观测）
+        assert!(plan.note.is_none());
 
         let embedder = LocalOnnxEmbedder::with_plan(plan);
-        let vectors = tokio::runtime::Runtime::new()
-            .unwrap()
+        let vectors = tokio_rt()
             .block_on(embedder.aembed_documents(&["a".to_string(), "b".to_string()]))
             .unwrap();
         assert_eq!(vectors.len(), 2);
         assert!(vectors.iter().all(|v| v.len() == GRANITE_97M_DIM));
+    }
+
+    #[test]
+    fn corrupt_runtime_falls_back_deterministic_with_note() {
+        // 计划通过（文件齐备/维度一致）但加载必然失败（占位文件非合法
+        // 模型）→ 推理落确定性保底，失败原因经 note 可观测
+        let dir = TestDir::new("corrupt");
+        write_fake_model_dir(dir.path(), GRANITE_97M_DIM);
+        let embedder = LocalOnnxEmbedder::with_model_dir(dir.path());
+        assert_eq!(embedder.source(), EmbedSource::LocalOnnx);
+        let v = tokio_rt().block_on(embedder.aembed_query("测试输入")).unwrap();
+        assert_eq!(v, deterministic_vector("测试输入", GRANITE_97M_DIM));
+        let note = embedder.note().expect("装载失败原因应可观测");
+        assert!(note.contains("分词器") || note.contains("ONNX"), "note={note}");
     }
 
     #[test]
@@ -656,5 +849,61 @@ mod tests {
         let plan = resolve_plan(no_env, &dir, 384);
         assert_eq!(plan.source, EmbedSource::LocalOnnx);
         assert_eq!(plan.dim, GRANITE_97M_DIM);
+    }
+
+    // ── 真实模型推理测试（模型文件存在于工作区即可直接跑）──
+
+    #[test]
+    fn real_onnx_embeds_384_dim_unit_norm() {
+        let Some(dir) = real_model_dir() else { return; };
+        let embedder = LocalOnnxEmbedder::with_model_dir(dir);
+        assert_eq!(embedder.source(), EmbedSource::LocalOnnx);
+        assert!(embedder.note().is_none(), "计划期不应有降级原因");
+        let vector = tokio_rt().block_on(embedder.aembed_query("写一个函数计算斐波那契数列")).unwrap();
+        assert_eq!(vector.len(), GRANITE_97M_DIM, "真实推理维度 = 模型配置 384");
+        let norm: f64 = vector.iter().map(|x| x * x).sum::<f64>().sqrt();
+        assert!((norm - 1.0).abs() < 1e-6, "输出须为单位向量, norm={norm}");
+    }
+
+    #[test]
+    fn real_onnx_similar_texts_cosine_above_dissimilar() {
+        let Some(dir) = real_model_dir() else { return; };
+        let embedder = LocalOnnxEmbedder::with_model_dir(dir);
+        let rt = tokio_rt();
+        let similar_a = rt.block_on(embedder.aembed_query("写一个函数计算斐波那契数列")).unwrap();
+        let similar_b = rt.block_on(embedder.aembed_query("实现一个计算斐波那契数列的函数")).unwrap();
+        let dissimilar = rt.block_on(embedder.aembed_query("今天天气怎么样")).unwrap();
+        let cosine = |a: &[f64], b: &[f64]| a.iter().zip(b.iter()).map(|(x, y)| x * y).sum::<f64>();
+        let similar = cosine(&similar_a, &similar_b);
+        let unrelated = cosine(&similar_a, &dissimilar);
+        assert!(
+            similar > unrelated,
+            "相似文本余弦应高于不相似文本（similar={similar:.3}, unrelated={unrelated:.3}）"
+        );
+        // 语义锚点：同义改写应显著高于无关文本（真实模型下此差距稳定）
+        assert!(similar > 0.8, "同义改写余弦应显著（{similar:.3}）");
+        assert!(unrelated < 0.9, "无关文本余弦不应虚高（{unrelated:.3}）");
+    }
+
+    #[test]
+    fn real_onnx_is_deterministic_across_calls() {
+        let Some(dir) = real_model_dir() else { return; };
+        let embedder = LocalOnnxEmbedder::with_model_dir(dir);
+        let rt = tokio_rt();
+        let first = rt.block_on(embedder.aembed_query("同一段输入")).unwrap();
+        let second = rt.block_on(embedder.aembed_query("同一段输入")).unwrap();
+        assert_eq!(first, second, "同一模型同文应产出同一向量");
+        assert_ne!(first, deterministic_vector("同一段输入", GRANITE_97M_DIM), "真实向量应不同于保底向量");
+    }
+
+    #[test]
+    fn real_onnx_long_text_truncates_to_max_sequence() {
+        let Some(dir) = real_model_dir() else { return; };
+        let embedder = LocalOnnxEmbedder::with_model_dir(dir);
+        let long = "长文本".repeat(MAX_SEQUENCE_LEN * 2);
+        let vector = tokio_rt().block_on(embedder.aembed_query(&long)).unwrap();
+        assert_eq!(vector.len(), GRANITE_97M_DIM);
+        let norm: f64 = vector.iter().map(|x| x * x).sum::<f64>().sqrt();
+        assert!((norm - 1.0).abs() < 1e-6);
     }
 }

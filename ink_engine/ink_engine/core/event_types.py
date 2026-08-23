@@ -40,6 +40,10 @@ EVENT_STATUS_UNKNOWN = "unknown"
 # 事件类型数量配额默认值（防 AI 提案失控；宿主可参数化）
 DEFAULT_MAX_EVENT_TYPES = 200
 
+# 附件事件类别默认名（宿主装配引用；渲染器为数据字段，宿主端映射）
+DEFAULT_ATTACHMENT_EVENT_NAME = "attachment"
+DEFAULT_ATTACHMENT_RENDERER = "AttachmentRow"
+
 # 集合级持久化通道（structured records 集合名）
 _COLLECTION_EVENT_TYPES = "event_types"
 
@@ -111,6 +115,26 @@ class EventVerdict:
     status: str
     violations: tuple[str, ...] = ()
     fold: bool = False
+
+
+def attachment_event_spec(
+    *,
+    name: str = DEFAULT_ATTACHMENT_EVENT_NAME,
+    renderer: str = DEFAULT_ATTACHMENT_RENDERER,
+) -> EventTypeSpec:
+    """附件事件类别声明（宿主装配配方可直接引用；纯新增类别）。
+
+    附件事件负载为宿主/前端协商形态（元数据 dict，随消息附件一起
+    出现），不作 schema 约束——事件类型是数据（AI 可演化），基线
+    只登记类别与渲染器引用；宿主可按产品需要以同名注册自定义 schema。
+    """
+    return EventTypeSpec(
+        name=name,
+        schema=None,
+        renderer=renderer,
+        system=False,
+        meta={"purpose": "attachment"},
+    )
 
 
 class EventTypeRegistry:
@@ -219,10 +243,13 @@ class EventTypeRegistry:
 
 
 __all__ = [
+    "DEFAULT_ATTACHMENT_EVENT_NAME",
+    "DEFAULT_ATTACHMENT_RENDERER",
     "DEFAULT_MAX_EVENT_TYPES",
     "EVENT_STATUS_REGISTERED",
     "EVENT_STATUS_UNKNOWN",
     "EventTypeRegistry",
     "EventTypeSpec",
     "EventVerdict",
+    "attachment_event_spec",
 ]

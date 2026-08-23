@@ -22,6 +22,7 @@
 from __future__ import annotations
 
 import asyncio
+import contextlib
 import uuid
 from collections.abc import Callable, Sequence
 from dataclasses import dataclass, field, fields
@@ -36,7 +37,7 @@ from .declarative_tools import endpoint_operation
 from .event_types import EventTypeRegistry, EventTypeSpec
 from .events import EngineTransport
 from .executor import Engine, RunOptions
-from .graph import Graph
+from .graph import Graph, TerminateReason
 from .harness import HarnessDefinition, HarnessRegistry, HarnessRepository
 from .introspection import (
     IntrospectionService,
@@ -62,7 +63,7 @@ from .self_application import (
 )
 from .self_proposal import PatchKind, ProposalValidator
 from .self_tools import ConvergenceHook, SelfToolContext
-from .storage import Storage
+from .storage import CheckpointRecord, Storage
 from .tool_pipeline import ToolPipeline
 from .tool_vetting import ToolVetting
 from .ui_schema import DEFAULT_BIND_CHANNELS, UISchemaValidator
@@ -239,6 +240,13 @@ class Runtime:
         # 在途 run 登记表 + 排空信号（stop 据此等待自然完成）
         self._active_runs: dict[str, RunTicket] = {}
         self._drained = asyncio.Event()
+        # 中止追踪（abort_current_run 的依据）：最近一个在途 run 的任务
+        # 句柄与回合线程（begin_run 时登记，end_run 时注销）。中止语义
+        # 以「当前 run」为粒度——业务并发表是多 run 场景时，中止动作
+        # 指向最近登记的 run（多任务并发路由主机自行管理各自任务的取消）。
+        self._active_ticket_id: str | None = None
+        self._active_run_task: asyncio.Task | None = None
+        self._active_run_thread: str | None = None
         # 引擎重建缓存身份（配置/工具表变更才重建；is 比较 + 工具表名集合）
         self._engine_storage: Storage | None = None
         self._engine_spec_key: tuple[str, ...] | None = None
@@ -513,8 +521,14 @@ class Runtime:
 
     # ── 在途 run 登记（回合粒度；传输按请求注入，Runtime 不持单例传输）──
 
-    def begin_run(self) -> RunTicket:
-        """登记一个在途 run（拒绝新 run 的判据：非 running 状态显式报错）。"""
+    def begin_run(self, thread_id: str | None = None) -> RunTicket:
+        """登记一个在途 run（拒绝新 run 的判据：非 running 状态显式报错）。
+
+        Args:
+            thread_id: 回合归属线程 id（提供给 abort_current_run 落
+                CANCELLED 终止快照的锚点线索；None = 只登记不落快照，
+                中止仍取消在途任务）。
+        """
         if self._state is not RuntimeState.RUNNING:
             raise RuntimeError(
                 f"运行时状态不允许开始新 run: {self._state.value}"
@@ -522,6 +536,9 @@ class Runtime:
             )
         ticket = RunTicket(id=uuid.uuid4().hex)
         self._active_runs[ticket.id] = ticket
+        self._active_ticket_id = ticket.id
+        self._active_run_task = asyncio.current_task()
+        self._active_run_thread = thread_id
         self._drained.clear()
         return ticket
 
@@ -529,8 +546,98 @@ class Runtime:
         """注销一个在途 run（幂等；全部注销后 stop 的排空等待解除）。"""
         if ticket.id in self._active_runs:
             del self._active_runs[ticket.id]
+            if ticket.id == self._active_ticket_id:
+                self._active_ticket_id = None
+                self._active_run_task = None
+                self._active_run_thread = None
             if not self._active_runs:
                 self._drained.set()
+
+    async def abort_current_run(self) -> bool:
+        """中止当前在途 run（取消 → CANCELLED 终止快照 → 可续跑）。
+
+        语义（与 pause 只拒新不打断、stop 全停排空正交）：
+        1. 取消在途 run 任务：CancelledError 投递到在途节点当前 await 点
+           （节点/适配器退出路径收尾；引擎取消语义 = BaseException 原样
+           穿透，不归节点异常重试路径）；
+        2. 取消完成后按线程链尾 checkpoint 写入 CANCELLED 终态快照
+           （复用既有 checkpoint 写入路径——链写入不变量在存储层）；
+        3. 后续续跑：以该快照为锚点 resume（从已完成节点的下一节点继续，
+           被中止节点重新执行——其状态从未提交）。
+
+        Returns:
+            True = 有在途 run 且已中止；False = 无在途 run（幂等 no-op）
+            或任务已自然完成。
+
+        Raises:
+            RuntimeError: 从被中止的 run 自身发起中止（自取消无意义）。
+        """
+        if not self._active_runs:
+            return False
+        task = self._active_run_task
+        if task is None or task.done():
+            return False
+        if task is asyncio.current_task():
+            raise RuntimeError(
+                "不能从被中止的 run 自身发起中止（自取消无意义）"
+            )
+        # 线程 id 先取用：任务收尾时 end_run 会清空登记（快照锚点须
+        # 在取消前读取，任务取消期间登记表注销是预期路径）
+        thread_id = self._active_run_thread
+        task.cancel()
+        # 等待任务真正停止（取消只是投递，底层资源/上游请求须等其收尾）；
+        # CancelledError 属预期终止路径，吞掉即可——当前任务不受影响
+        with contextlib.suppress(BaseException):
+            await task
+        await self._write_abort_checkpoint(thread_id)
+        return True
+
+    async def _write_abort_checkpoint(self, thread_id: str | None) -> None:
+        """取消后的 CANCELLED 终止快照（链尾续接，恢复锚点语义与中断卡一致）。
+
+        快照 = 链尾 checkpoint 的副本 + reason=cancelled：中止发生在
+        节点执行中途，节点的增量从未提交——链尾快照即「已完成节点
+        边界」的一致状态，后续 resume 从该边界继续（被中止节点重跑）。
+        快照写入失败只记日志：中止本身已完成（任务已取消），快照是
+        续跑的恢复锚点而非中止动作的组成部分。
+        """
+        if self.storage is None or thread_id is None:
+            if thread_id is None:
+                logger.warning(
+                    "中止未登记线程 id（begin_run(thread_id=...)），"
+                    "跳过 CANCELLED 终止快照（恢复锚点缺失，宿主请从链重查）"
+                )
+            return
+        try:
+            latest = await self.storage.get_latest_checkpoint(
+                thread_id
+            )
+            if latest is None:
+                logger.warning(
+                    "中止快照跳过：线程 %s 尚无 checkpoint（无已提交状态可快照）",
+                    thread_id,
+                )
+                return
+            await self.storage.put_checkpoint(
+                CheckpointRecord(
+                    checkpoint_id=0,
+                    thread_id=thread_id,
+                    node=latest.node,
+                    graph_path=latest.graph_path,
+                    state=latest.state,
+                    parent_id=latest.checkpoint_id,
+                    reason=TerminateReason.CANCELLED,
+                    event_seq=latest.event_seq,
+                    graph_version=latest.graph_version,
+                    plan=latest.plan,
+                )
+            )
+            logger.info(
+                "run 已中止，CANCELLED 终态快照落链: thread=%s",
+                thread_id,
+            )
+        except Exception as exc:
+            logger.warning("中止快照写入失败（不影响中止本身）: %s", exc)
 
     # ── 审批决议重入样板（宿主请求入口之外的引擎通用方法）──
 
@@ -557,7 +664,7 @@ class Runtime:
         latest = await self.storage.get_latest_checkpoint(thread_id)
         if latest is None or latest.interrupt is None:
             raise RuntimeError("挂起卡已失效，请重新发起回合")
-        ticket = self.begin_run()
+        ticket = self.begin_run(thread_id)
         try:
             return await self.engine.ainvoke(
                 {},

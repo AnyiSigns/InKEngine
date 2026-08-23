@@ -509,6 +509,30 @@ class PostgresStorage:
             raise StorageError(f"postgres records 列出失败: {exc}") from exc
         return [_decode_jsonb(r["data"]) for r in rows]
 
+    # ── 全量快照（显式不支持：服务器级备份归 pg_dump/归档基础设施）──
+    async def snapshot(self, dest: str) -> None:
+        """不支持（显式 NotImplementedError）。
+
+        Postgres 的引擎侧连接是应用会话（不是文件），引擎无权也不应
+        直接复制服务器数据文件——服务器级全量备份是运维基础设施
+        （pg_dump/文件系统归档/流式复制）的职责，由宿主在应用之外
+        编排；需要引擎内快照的能力（连点导出/迁移引子）时，应走
+        structured records 逐集合导出，而非伪造文件级快照。
+        """
+
+        raise NotImplementedError(
+            "Postgres 后端不支持文件级快照（服务器备份归 pg_dump/"
+            "归档基础设施；需要应用内导出请走 records 逐集合或日志流）"
+        )
+
+    async def restore(self, src: str) -> None:
+        """不支持（显式 NotImplementedError，语义同 :meth:`snapshot`）。"""
+
+        raise NotImplementedError(
+            "Postgres 后端不支持文件级恢复（恢复归 pg_restore/归档流程；"
+            "请勿把任意文件内容写进线上数据库文件）"
+        )
+
     async def close(self) -> None:
         self._closed = True
         if self._pool is not None:

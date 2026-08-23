@@ -15,11 +15,14 @@
   通用种子与 boot 自举基线。登记明细见 `seeds/README.md`。
   - 登记明细见 `seeds/README.md`。
 - **inkling/** — InKling：自进化认知伙伴（本地单机桌面产品）。你用得
-  越多，它越懂你的领域：数据 JSON / Rust 执行件 / TS 前端 / Tauri
-  桌面壳。快速上手（出厂演示，stub 全链离线可跑，配置 `INK_LLM_*`
-  环境变量切换真实模型）：`python legacy/examples/factory_demo.py`；
-  出厂自检（四项门禁一键聚合）：`python legacy/self_check.py`；文档与
-  身份登记：`inkling/PLAN.md` 与 `inkling/manifest.json`。
+  越多，它越懂你的领域：种子数据 JSON（`inkling/seed_data/`）/
+  Rust 执行件（`inkling/exec/`）/ TS 前端（`inkling/frontend/`）/
+  Tauri 桌面壳（`inkling/shell/`，嵌入式 Python 引擎桥 + Rust 域层）。
+  出厂自检命令以 `inkling/manifest.json` 的 `self_check` 为单一事实源
+  （cargo 执行件与 frontend typecheck 已就绪；schema 数据校验与接线
+  e2e 门禁随 Rust 自检编排落地）。机制覆盖审计见
+  `inkling/docs/mechanism_coverage_matrix.md`，身份登记见
+  `inkling/manifest.json`。
 - **text_forge_evo/** — Forge：AI 桌面壳（Tauri 前端 + FastAPI 后端 +
   SSE 传输 + 审批容器）。通过 `[tool.uv.sources]` 以 `../ink_engine`
   路径依赖本仓库的引擎源码，editable 开发。

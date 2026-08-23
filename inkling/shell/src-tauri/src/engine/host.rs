@@ -1,9 +1,10 @@
 //! 引擎装配与回合驱动：壳进程侧嵌入式运行时的封装。
 //!
-//! 装配语义与 legacy 宿主装配一致（配方数据装配 + 宿主五件套），区分仅在
-//! 装配的发起方：本模块从 Rust 侧发起，Python 侧只持有「用 Python 表达最
-//! 自然」的部分（离线模型桩/装配助手）。Rust 接线层后续各域模块经此入口
-//! 驱动回合与读取事件流。
+//! 装配语义 = 配方数据装配 + 宿主五件套，装配的发起方在 Rust 侧；Python
+//! 侧持有「用 Python 表达最自然」的部分（离线模型桩/装配助手/宿主装配
+//! 域包），全部经 include_str 内嵌进二进制，运行时以模块形态注册进
+//! 解释器（不依赖磁盘源码路径）。Rust 接线层各域模块经本入口驱动回合
+//! 与读取事件流。
 
 use std::collections::HashMap;
 use std::path::PathBuf;
@@ -16,6 +17,59 @@ use serde_json::Value as JsonValue;
 use super::bridge::{register_objects, RustEmbedder, RustMemoryStore, RustTransport};
 
 const BRIDGE_MODULE_SOURCE: &str = include_str!("py/bridge.py");
+
+/// 嵌入式宿主装配域包（模块名 = 文件基名；包内相对导入自洽）。
+///
+/// 机制装配的宿主侧实现（配方构造/装配域/图配方/安全纵深等）：随壳进程
+/// 内嵌执行，装配期注册为 ``inkling_host`` 包后即可被桥模块与装配入口
+/// 按名导入。注册顺序按包内相对导入的依赖序（叶子在前，`host` 汇总，
+/// `__init__` 最后执行——其顶层导入须等全部子模块就位）。
+const HOST_PACKAGE_SOURCES: &[(&str, &str)] = &[
+    ("assembly_domain", include_str!("py/inkling_host/assembly_domain.py")),
+    ("build_domain", include_str!("py/inkling_host/build_domain.py")),
+    ("convergence_domain", include_str!("py/inkling_host/convergence_domain.py")),
+    ("environment_domain", include_str!("py/inkling_host/environment_domain.py")),
+    ("graph_recipe", include_str!("py/inkling_host/graph_recipe.py")),
+    ("knowledge_domain", include_str!("py/inkling_host/knowledge_domain.py")),
+    ("live_apply", include_str!("py/inkling_host/live_apply.py")),
+    ("mcp_service", include_str!("py/inkling_host/mcp_service.py")),
+    ("model_layers", include_str!("py/inkling_host/model_layers.py")),
+    ("review_pipeline", include_str!("py/inkling_host/review_pipeline.py")),
+    ("round_steps_feed", include_str!("py/inkling_host/round_steps_feed.py")),
+    ("scoring", include_str!("py/inkling_host/scoring.py")),
+    ("security_domain", include_str!("py/inkling_host/security_domain.py")),
+    ("recipe_loader", include_str!("py/inkling_host/recipe_loader.py")),
+    ("host", include_str!("py/inkling_host/host.py")),
+    ("__init__", include_str!("py/inkling_host/__init__.py")),
+];
+
+/// 注册嵌入式宿主装配域包：包根 + 各子模块全部预注册进 ``sys.modules``，
+/// 包内相对导入（``from .x import y``）经各模块的 ``__package__`` 解析。
+fn register_host_package(py: Python<'_>) -> PyResult<()> {
+    let package = PyModule::new(py, "inkling_host")?;
+    package.setattr("__path__", Vec::<String>::new())?;
+    package.setattr("__package__", "")?;
+    py.import("sys")?
+        .getattr("modules")?
+        .set_item("inkling_host", package.unbind())?;
+    for (name, source) in HOST_PACKAGE_SOURCES {
+        let code = std::ffi::CString::new(*source).expect("内嵌宿主模块源码含 NUL 字节");
+        let full_name = format!("inkling_host.{name}");
+        let module_name =
+            std::ffi::CString::new(full_name.as_str()).expect("模块名含 NUL 字节");
+        let module = PyModule::from_code(
+            py,
+            code.as_c_str(),
+            c"py/inkling_host/<module>.py",
+            module_name.as_c_str(),
+        )?;
+        module.setattr("__package__", "inkling_host")?;
+        py.import("sys")?
+            .getattr("modules")?
+            .set_item(full_name, module.unbind())?;
+    }
+    Ok(())
+}
 
 const DEFAULT_STUB_REPLY: &str = "（stub 缺省回复）";
 
@@ -131,7 +185,7 @@ impl Default for PathAssemblyFlags {
     }
 }
 
-/// 装配选项：仓库根（引擎/legacy 包加载路径）、存储 URI、运行数据目录、
+/// 装配选项：仓库根（种子/引擎包解析基准）、存储 URI、运行数据目录、
 /// 离线模型桩脚本（按消息子串匹配回复）、引擎路径装配机制开关。
 #[derive(Clone)]
 pub struct BootOptions {
@@ -221,16 +275,14 @@ impl EngineHost {
 
         let (runtime, host_out, transport) =
             Python::attach(|py| -> PyResult<(Py<PyAny>, Py<PyAny>, Py<RustTransport>)> {
-                // 仓库根置前：legacy/种子包从仓库代码加载；引擎包目录紧随其后
-                // （repo/ink_engine 为包外层）；开发形态再补 venv 站点包
-                // （发行形态由捆绑运行时自带依赖，此步无副作用）。
+                // 引擎包目录置前（repo/ink_engine 为包外层）；开发形态再补
+                // venv 站点包（发行形态由捆绑运行时自带依赖，此步无副作用）。
                 let sys = py.import("sys")?;
                 let path = sys.getattr("path")?;
                 path.call_method1(
                     pyo3::intern!(py, "insert"),
                     (0, format!("{repo_root}/ink_engine")),
                 )?;
-                path.call_method1(pyo3::intern!(py, "insert"), (1, repo_root.clone()))?;
                 let venv_site = PathBuf::from(&repo_root).join(".venv/Lib/site-packages");
                 if venv_site.is_dir() {
                     // .pth 机制注册（pywintypes 等按 venv 布局的依赖须经此处）
@@ -252,6 +304,8 @@ impl EngineHost {
                     .getattr("modules")?
                     .set_item("inkling_bridge", bridge.clone())?;
                 register_objects(py)?;
+                // 宿主装配域包注册（桥 op 与装配入口按包名导入）
+                register_host_package(py)?;
 
                 // 事件传输回桥（回合事件流终点）
                 let transport = Py::new(py, RustTransport::new())?;
@@ -284,7 +338,7 @@ impl EngineHost {
                         py,
                         async move {
                             let fut = Python::attach(|py| -> PyResult<_> {
-                                let legacy_host = py.import("legacy.host.host")?;
+                                let host_module = py.import("inkling_host.host")?;
                                 let boot_kwargs = boot_kwargs
                                     .bind(py)
                                     .cast::<PyDict>()?
@@ -292,7 +346,7 @@ impl EngineHost {
                                 let root_path = py
                                     .import("pathlib")?
                                     .call_method1("Path", (seed_root.clone(),))?;
-                                let coro = legacy_host.call_method(
+                                let coro = host_module.call_method(
                                     "boot_inkling",
                                     (root_path,),
                                     Some(&boot_kwargs),

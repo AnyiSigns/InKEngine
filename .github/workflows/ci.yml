@@ -44,34 +44,22 @@ jobs:
         with:
           python-version: ${{ env.PYTHON_VERSION }}
       - run: pip install ruff
-      - run: ruff check ink_engine legacy
+      - run: ruff check ink_engine
 
-  # ── 种子侧四门禁（self_check.py 同源入口：命令 = manifest.json 单一事实源）──
-
-  seed-schema:
-    name: 种子 schema 校验
-    runs-on: ubuntu-latest
-    steps:
-      - uses: actions/checkout@v4
-      - uses: actions/setup-python@v5
-        with:
-          python-version: ${{ env.PYTHON_VERSION }}
-      - run: pip install -e "ink_engine[test,mcp]"
-      - run: python legacy/self_check.py --only schema
+  # ── 种子侧门禁（命令 = manifest.json self_check 单一事实源）──
+  # schema 数据校验与接线 e2e 门禁随 Rust 自检编排落地后在此恢复；
+  # 当前保留 cargo 执行件与 frontend 类型检查两道可独立执行的出厂门禁。
 
   seed-cargo:
     name: 种子 cargo test（执行件）
     runs-on: ubuntu-latest
     steps:
       - uses: actions/checkout@v4
-      - uses: actions/setup-python@v5
-        with:
-          python-version: ${{ env.PYTHON_VERSION }}
       - uses: dtolnay/rust-toolchain@stable
       - uses: Swatinem/rust-cache@v2
         with:
           workspaces: inkling/exec
-      - run: python legacy/self_check.py --only cargo_test
+      - run: cargo test --manifest-path inkling/exec/Cargo.toml
 
   seed-frontend:
     name: 种子 frontend typecheck
@@ -84,27 +72,4 @@ jobs:
           cache: npm
           cache-dependency-path: inkling/frontend/package-lock.json
       - run: npm ci --prefix inkling/frontend
-      - uses: actions/setup-python@v5
-        with:
-          python-version: ${{ env.PYTHON_VERSION }}
-      - run: pip install -e "ink_engine[test]"
-      - run: python legacy/self_check.py --only frontend
-
-  seed-e2e:
-    name: 种子 e2e 全量
-    needs: [seed-cargo]
-    runs-on: ubuntu-latest
-    steps:
-      - uses: actions/checkout@v4
-      - uses: dtolnay/rust-toolchain@stable
-      - uses: Swatinem/rust-cache@v2
-        with:
-          workspaces: inkling/exec
-      # 构建先于 e2e：真实 Rust 执行件二进制由本步产出（缓存命中即复用，
-      # 保证 stdio 闭环用例在 CI 上真实执行而非跳过）
-      - run: cargo build --manifest-path inkling/exec/Cargo.toml
-      - uses: actions/setup-python@v5
-        with:
-          python-version: ${{ env.PYTHON_VERSION }}
-      - run: pip install -e "ink_engine[test,sqlite,llm,mcp]" uvicorn
-      - run: python legacy/self_check.py --only e2e
+      - run: npm --prefix inkling/frontend run typecheck

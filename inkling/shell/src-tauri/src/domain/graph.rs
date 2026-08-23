@@ -8,7 +8,7 @@
 //! 或由 boot.rs 装配接线，本模块只产出图配方描述数据与校验结论，
 //! 不在本侧构造引擎对象。
 //!
-//! 装配侧回合图形态（与 legacy graph_recipe.build_round_graph 同语义）：
+//! 装配侧回合图形态（与装配域包 graph_recipe.build_round_graph 同语义）：
 //! graph.json（入口/边/出口）+ workflow.json 节点实例化——工作流步骤
 //! 以 tool_pipeline 类型物化（节点 id = 工具名），末步骤连到图出口，
 //! 计划步引用这些节点名即可执行。
@@ -362,7 +362,7 @@ impl RoundGraphRecipe {
 
 /// 按 graph.json 建回合图 + workflow.json 节点实例化的装配侧描述。
 ///
-/// 建图步骤（与 legacy build_round_graph 同语义）：
+/// 建图步骤（与装配域包 build_round_graph 同语义）：
 /// 1. graph.json 数据形态确认（入口/边/出口，类型按注册表解析）；
 /// 2. workflow.json 每个步骤节点以 tool_pipeline 类型物化
 ///    （config.tool = 节点 id，即领域工具名），步骤链边按工作流边序

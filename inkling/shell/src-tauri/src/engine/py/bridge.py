@@ -711,7 +711,7 @@ def register_builtin_ops() -> None:
 
     @op_sync("graph.register_node_types")
     def _graph_register_node_types(args: dict) -> Any:
-        from legacy.host.graph_recipe import (
+        from inkling_host.graph_recipe import (
             register_node_types,
             workflow_spec_from_data,
         )
@@ -723,7 +723,7 @@ def register_builtin_ops() -> None:
 
     @op_sync("graph.build_round_graph")
     def _graph_build_round_graph(args: dict) -> Any:
-        from legacy.host.graph_recipe import build_round_graph
+        from inkling_host.graph_recipe import build_round_graph
 
         runtime = runtime_handle()
         graph = build_round_graph(
@@ -904,7 +904,7 @@ def register_builtin_ops() -> None:
     @op_async("engine.memory_query")
     async def _memory_query(args: dict) -> Any:
         from ink_engine.core.memory import MemoryQuery
-        from legacy.host.assembly_domain import build_memory_store
+        from inkling_host.assembly_domain import build_memory_store
 
         runtime = runtime_handle()
         store = build_memory_store(runtime.storage)
@@ -973,7 +973,7 @@ def register_builtin_ops() -> None:
         llm = None
         chains = getattr(host, "tier_chains", None)
         if chains:
-            from legacy.host.model_layers import resolve_tier_chain
+            from inkling_host.model_layers import resolve_tier_chain
 
             llm = resolve_tier_chain(chains, "router") or resolve_tier_chain(
                 chains, "main"
@@ -1007,7 +1007,7 @@ def register_builtin_ops() -> None:
 
         from ink_engine.core.assembly import AssemblyConfig
         from ink_engine.core.executor import Engine, RunOptions
-        from legacy.host.graph_recipe import build_round_graph
+        from inkling_host.graph_recipe import build_round_graph
 
         runtime = runtime_handle()
         if runtime.storage is None or runtime.engine is None:
@@ -1095,7 +1095,7 @@ class StubLLM:
 
 def make_host(*, storage_uri: str, transport, llm=None):
     """构造宿主五件套：存储 URI/事件传输（Rust 回桥）/模型实例注入。"""
-    from legacy.host.host import InKlingHost
+    from inkling_host.host import InKlingHost
 
     return InKlingHost(storage_uri=storage_uri, llm=llm, transport=transport)
 
@@ -1160,7 +1160,7 @@ def boot_summary(runtime):
 
 async def check_embedding_protocol(runtime, embedder, query: str = "墨引擎") -> float:
     """嵌入协议验证：Rust 嵌入器引擎适配桥评分一轮（可等待对象双向桥）。"""
-    from legacy.host.assembly_domain import EngineEmbedderBridge
+    from inkling_host.assembly_domain import EngineEmbedderBridge
 
     entries = list(runtime.knowledge_set.entries())
     if not entries:

@@ -152,6 +152,15 @@ class NodeContext(Protocol):
         """
         ...
 
+    def account_usage(self, usage: dict | None) -> None:
+        """结点执行边界 token 计账（LLM usage 帧 → 当前结点，纯算法）。
+
+        宿主 LLM 接线在结点内调用：把 usage 帧（total_tokens 或
+        prompt+completion）记入当前结点执行边界的成本账——随沉淀钩子
+        按边归集 avg_cost。未调用 = 无成本记录，观测侧零影响。
+        """
+        ...
+
     def terminate(self, reason: str, **meta: Any) -> None: ...
 
     @property

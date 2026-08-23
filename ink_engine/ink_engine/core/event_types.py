@@ -28,7 +28,13 @@ from dataclasses import dataclass, field
 from typing import TYPE_CHECKING, Any
 
 from .exceptions import GraphDefinitionError
-from .schema_validator import SchemaSpec, SchemaValidator
+from .schema_validator import (
+    FIELD_NUMBER,
+    FIELD_STRING,
+    SchemaField,
+    SchemaSpec,
+    SchemaValidator,
+)
 
 if TYPE_CHECKING:
     from .storage import Storage
@@ -135,6 +141,72 @@ def attachment_event_spec(
         system=False,
         meta={"purpose": "attachment"},
     )
+
+
+# ── 审计事件类型（append-only 审计统一出口；类型是数据，随补丁链
+# 版本化。本模块只注册类型声明，事件由使用方在对应时机产出）──
+
+# 组装留痕（候选边/选中路径/评分证据的登记）
+EVENT_AUDIT_ASSEMBLY = "assembly_audit"
+# 汇流裁决留痕（胜者/败者/裁决理由）
+EVENT_AUDIT_JUNCTION = "junction_verdict_audit"
+# 指纹顶替留痕（旧条目失效与新条目落位）
+EVENT_AUDIT_FINGERPRINT_REPLACE = "fingerprint_replace_audit"
+# 策略边复审留痕（对抗证据触发复审/降级）
+EVENT_AUDIT_POLICY_REVIEW = "policy_edge_review_audit"
+
+# 审计事件负载的公共字段（schema 声明复用：时间戳/域/指纹等）
+_AUDIT_TS = SchemaField(name="ts", required=False, kind=FIELD_NUMBER)
+_AUDIT_DOMAIN = SchemaField(name="domain", required=True, kind=FIELD_STRING)
+_AUDIT_FINGERPRINT = SchemaField(name="fingerprint", required=False, kind=FIELD_STRING)
+
+
+def audit_event_specs() -> tuple[EventTypeSpec, ...]:
+    """四类审计事件类型声明（注册表注册用；类型是数据可演化）。
+
+    组装/汇流裁决/指纹顶替/策略边复审四类留痕入 ``event_types`` 注册
+    表——append-only 审计统一出口，不散落宿主自造事件。
+    """
+    return (
+        EventTypeSpec(
+            name=EVENT_AUDIT_ASSEMBLY,
+            schema=SchemaSpec(
+                name="audit.assembly",
+                fields=(_AUDIT_TS, _AUDIT_DOMAIN, _AUDIT_FINGERPRINT),
+            ),
+            meta={"purpose": "audit"},
+        ),
+        EventTypeSpec(
+            name=EVENT_AUDIT_JUNCTION,
+            schema=SchemaSpec(
+                name="audit.junction",
+                fields=(_AUDIT_TS, _AUDIT_DOMAIN),
+            ),
+            meta={"purpose": "audit"},
+        ),
+        EventTypeSpec(
+            name=EVENT_AUDIT_FINGERPRINT_REPLACE,
+            schema=SchemaSpec(
+                name="audit.fingerprint_replace",
+                fields=(_AUDIT_TS, _AUDIT_DOMAIN, _AUDIT_FINGERPRINT),
+            ),
+            meta={"purpose": "audit"},
+        ),
+        EventTypeSpec(
+            name=EVENT_AUDIT_POLICY_REVIEW,
+            schema=SchemaSpec(
+                name="audit.policy_review",
+                fields=(_AUDIT_TS, _AUDIT_DOMAIN),
+            ),
+            meta={"purpose": "audit"},
+        ),
+    )
+
+
+def register_audit_event_types(registry: EventTypeRegistry) -> None:
+    """把四类审计事件类型注册进注册表（重复注册显式拒绝语义由注册表保证）。"""
+    for spec in audit_event_specs():
+        registry.register(spec)
 
 
 class EventTypeRegistry:
@@ -246,10 +318,16 @@ __all__ = [
     "DEFAULT_ATTACHMENT_EVENT_NAME",
     "DEFAULT_ATTACHMENT_RENDERER",
     "DEFAULT_MAX_EVENT_TYPES",
+    "EVENT_AUDIT_ASSEMBLY",
+    "EVENT_AUDIT_FINGERPRINT_REPLACE",
+    "EVENT_AUDIT_JUNCTION",
+    "EVENT_AUDIT_POLICY_REVIEW",
     "EVENT_STATUS_REGISTERED",
     "EVENT_STATUS_UNKNOWN",
     "EventTypeRegistry",
     "EventTypeSpec",
     "EventVerdict",
     "attachment_event_spec",
+    "audit_event_specs",
+    "register_audit_event_types",
 ]

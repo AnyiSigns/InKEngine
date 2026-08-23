@@ -188,3 +188,65 @@ async def test_persistence_without_storage_skips() -> None:
     assert await registry.load() == 0
     await registry.save()  # 无存储 = 静默跳过，不抛错
     assert registry.names() == ("a",)
+
+
+# ── 审计事件类型注册（四类留痕；只注册类型不产出事件）──
+
+
+def test_audit_event_specs_registered():
+    from ink_engine.core.event_types import (
+        EVENT_AUDIT_ASSEMBLY,
+        EVENT_AUDIT_FINGERPRINT_REPLACE,
+        EVENT_AUDIT_JUNCTION,
+        EVENT_AUDIT_POLICY_REVIEW,
+        audit_event_specs,
+    )
+
+    specs = audit_event_specs()
+    names = {s.name for s in specs}
+    assert names == {
+        EVENT_AUDIT_ASSEMBLY,
+        EVENT_AUDIT_JUNCTION,
+        EVENT_AUDIT_FINGERPRINT_REPLACE,
+        EVENT_AUDIT_POLICY_REVIEW,
+    }
+    # 全部为审计用途声明，schema 可序列化往返
+    for spec in specs:
+        assert spec.meta.get("purpose") == "audit"
+        restored = EventTypeSpec.from_dict(spec.to_dict())
+        assert restored == spec
+
+
+def test_register_audit_event_types():
+    from ink_engine.core.event_types import (
+        EVENT_AUDIT_ASSEMBLY,
+        register_audit_event_types,
+    )
+
+    registry = EventTypeRegistry()
+    register_audit_event_types(registry)
+    assert len(registry.names()) == 4
+    assert registry.get(EVENT_AUDIT_ASSEMBLY) is not None
+    # 重复注册 = 显式拒绝（注册表既有语义）
+    with pytest.raises(GraphDefinitionError, match="重复注册"):
+        register_audit_event_types(registry)
+
+
+def test_audit_event_payload_schema():
+    from ink_engine.core.event_types import (
+        EVENT_AUDIT_ASSEMBLY,
+        EVENT_AUDIT_FINGERPRINT_REPLACE,
+        audit_event_specs,
+    )
+
+    specs = {s.name: s for s in audit_event_specs()}
+    registry = EventTypeRegistry()
+    for spec in specs.values():
+        registry.register(spec)
+    # 已注册类型按 schema 校验负载（宽松标记不阻断）
+    verdict = registry.classify(EVENT_AUDIT_ASSEMBLY, {"domain": "code"})
+    assert verdict.status == EVENT_STATUS_REGISTERED
+    assert verdict.violations == ()
+    verdict = registry.classify(EVENT_AUDIT_FINGERPRINT_REPLACE, {"domain": "code"})
+    assert verdict.status == EVENT_STATUS_REGISTERED
+    assert verdict.violations == ()

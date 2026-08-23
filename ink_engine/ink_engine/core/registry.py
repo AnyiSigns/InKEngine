@@ -23,6 +23,7 @@ from collections.abc import Callable
 from dataclasses import dataclass, field
 from typing import Any
 
+from .contracts import NodeContract
 from .exceptions import GraphDefinitionError
 from .graph import EdgeCondition, NodeFn
 
@@ -39,27 +40,72 @@ class NodeTypeRegistry:
     线程安全说明：注册通常发生在启动装配期（单线程），解析发生在建图期
     （可并发）；解析只读 dict 无写冲突，无需加锁。注册表支持多个实例
     （宿主可为不同图域各自建表，互不干扰），模块级单例只是惯例用法。
+
+    契约登记：类型可随注册携带结点契约（可选参数，旧调用形态不变）；
+    契约是数据（随类型登记，供契约查询与链接校验的版本存在性判定），
+    不参与节点实例化——无契约类型 = 无契约结点（不参与组装，仅可被
+    手绘图引用，旧行为零破坏）。
     """
 
     def __init__(self) -> None:
         self._factories: dict[str, NodeFactory] = {}
+        self._contracts: dict[str, NodeContract] = {}
 
-    def register(self, type_name: str, factory: NodeFactory) -> None:
-        """登记类型 → 工厂（重复登记抛 GraphDefinitionError，防静默覆盖）。"""
+    def register(
+        self,
+        type_name: str,
+        factory: NodeFactory,
+        contract: NodeContract | None = None,
+    ) -> None:
+        """登记类型 → 工厂（重复登记抛 GraphDefinitionError，防静默覆盖）。
+
+        Args:
+            type_name: 类型名（不透明字符串，注册表不解释含义）。
+            factory: 节点工厂（配置 → 节点执行函数）。
+            contract: 结点契约（可选；缺省 = 无契约结点，不参与组装，
+                仅可被手绘图引用——旧调用形态完全不变）。
+        """
         if type_name in self._factories:
             raise GraphDefinitionError(f"节点类型重复注册: {type_name}")
         self._factories[type_name] = factory
+        if contract is not None:
+            self._contracts[type_name] = contract
 
     def create(self, type_name: str, config: dict[str, Any] | None = None) -> NodeFn:
         """按类型名实例化节点执行函数（未知类型抛 GraphDefinitionError）。
 
         配置经浅拷贝透传工厂：同一工厂被多个节点引用时，节点内对配置
         的就地改写不会互相污染（建图期一次性调用，拷贝开销可忽略）。
+        契约不参与实例化——契约是数据，执行体仍是工厂产出的函数。
         """
         factory = self._factories.get(type_name)
         if factory is None:
             raise GraphDefinitionError(f"未知节点类型: {type_name}")
         return factory(dict(config or {}))
+
+    def contract_for(self, type_name: str) -> NodeContract | None:
+        """按类型名取已登记契约（未登记契约/未知类型 = None）。
+
+        契约随类型登记（register 的 contract 参数）；查询供组装期
+        候选收集与链接校验使用。契约与工厂同表同生命周期——类型
+        是唯一集，契约是类型声明的数据部分。
+        """
+        return self._contracts.get(type_name)
+
+    def contract_versions(self, type_name: str) -> frozenset[int]:
+        """该类型已登记的契约版本集（无契约/未知类型 = 空集）。
+
+        供链接校验的契约版本存在性判定（引用的契约版本须已登记——
+        旧图定义可解析）；当前登记形态只保留最新契约版本，补丁链
+        版本快照接入后由调用方合并历史版本集传入校验器。
+        """
+        contract = self._contracts.get(type_name)
+        if contract is None:
+            return frozenset()
+        return frozenset({contract.version})
+
+    def has_contract(self, type_name: str) -> bool:
+        return type_name in self._contracts
 
     def has(self, type_name: str) -> bool:
         return type_name in self._factories

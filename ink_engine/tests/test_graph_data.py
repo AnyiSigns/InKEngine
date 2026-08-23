@@ -10,6 +10,7 @@ from __future__ import annotations
 import pytest
 from conftest import make_engine
 
+from ink_engine.core.contracts import NodeContract
 from ink_engine.core.exceptions import (
     GraphDefinitionError,
     GraphVersionMismatchError,
@@ -20,6 +21,7 @@ from ink_engine.core.registry import (
     GraphRegistries,
     NodeTypeRegistry,
 )
+from ink_engine.core.schema_validator import FIELD_STRING, SchemaField, SchemaSpec
 from ink_engine.core.state import StateSchema
 from ink_engine.core.workflow import (
     WorkflowEdgeSpec,
@@ -549,3 +551,93 @@ def test_from_dict_validate_rejects_dangling_refs():
         edge_registry=_registries().edges,
     )
     assert "ghost" in rebuilt.exits
+
+
+# ── 结点契约随图定义数据（绑定契约：序列化/重建/旧数据缺省）──
+
+
+def _contract_graph() -> Graph:
+    """带契约绑定的声明式图（契约即数据，随图定义序列化）。"""
+    contract = NodeContract(
+        input_schema=SchemaSpec(
+            name="in", fields=(SchemaField(name="x", required=True),)
+        ),
+        output_schema=SchemaSpec(
+            name="out", fields=(SchemaField(name="y", kind=FIELD_STRING),)
+        ),
+        safety_tier=1,
+        version=2,
+    )
+    graph = Graph(name="contract", entry="start")
+    graph.add_node_type("start", "write", {"value": 1}, contract=contract)
+    graph.add_node_type("end", "audit", {"value": 2})
+    graph.add_edge("start", "end")
+    graph.add_exit("end")
+    return graph
+
+
+def test_binding_contract_round_trip():
+    """绑定契约随图定义数据往返：序列化内联契约，重建完整还原。"""
+    graph = _contract_graph()
+    data = graph.to_dict()
+    assert data["nodes"]["start"]["contract"] == graph.node_bindings[
+        "start"
+    ].contract.to_dict()
+    rebuilt = Graph.from_dict(data, registry=_registries().nodes)
+    assert rebuilt.node_bindings["start"].contract == graph.node_bindings[
+        "start"
+    ].contract
+    # 无契约绑定不携带 contract 键
+    assert "contract" not in data["nodes"]["end"]
+    assert rebuilt.node_bindings["end"].contract is None
+
+
+def test_binding_contract_participates_in_digest():
+    """契约是绑定数据的一部分：契约不同 → 图内容指纹不同。"""
+    plain = _contract_graph()
+    upgraded = Graph.from_dict(
+        plain.to_dict(), registry=_registries().nodes
+    )
+    # 升版契约后重建（改数据形态的图定义，身份须变化）
+    data = plain.to_dict()
+    contract = data["nodes"]["start"]["contract"]
+    contract["version"] = 3
+    changed = Graph.from_dict(data, registry=_registries().nodes)
+    assert plain.digest() == upgraded.digest()
+    assert changed.digest() != plain.digest()
+
+
+def test_old_graph_data_without_contract_defaults_none():
+    """旧图数据（无 contract 字段）反序列化：绑定契约缺省 = None。"""
+    data = _declarative_graph().to_dict()
+    assert all("contract" not in spec for spec in data["nodes"].values())
+    rebuilt = Graph.from_dict(
+        data,
+        registry=_registries().nodes,
+        edge_registry=_registries().edges,
+    )
+    assert all(binding.contract is None for binding in rebuilt.node_bindings.values())
+
+
+def test_no_contract_old_form_round_trip_unchanged():
+    """无契约旧形态零破坏：to_dict/from_dict 往返后结构逐项不变。"""
+    data = _declarative_graph().to_dict()
+    rebuilt = Graph.from_dict(
+        data,
+        registry=_registries().nodes,
+        edge_registry=_registries().edges,
+    )
+    assert rebuilt.name == "decl"
+    assert rebuilt.to_dict()["nodes"] == data["nodes"]
+
+
+def test_binding_contract_invalid_declaration_rejected():
+    """绑定契约声明非 dict → from_dict 显式拒绝（防脏数据静默落库）。"""
+    data = _declarative_graph().to_dict()
+    data["nodes"]["start"]["contract"] = "oops"
+    with pytest.raises(GraphDefinitionError, match="contract"):
+        Graph.from_dict(
+            data,
+            registry=_registries().nodes,
+            edge_registry=_registries().edges,
+        )

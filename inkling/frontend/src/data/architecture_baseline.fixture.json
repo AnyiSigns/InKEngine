@@ -1,0 +1,17 @@
+{
+  "version": 2,
+  "nodes": [
+    { "id": "entry", "type": "entry", "label": "入口" },
+    { "id": "orchestrate", "type": "research_orchestrator", "label": "研究编排" },
+    { "id": "collect", "type": "tool", "label": "采集材料" },
+    { "id": "pipeline", "type": "tool_pipeline", "label": "工具流水线编排" },
+    { "id": "end", "type": "end", "label": "结束" }
+  ],
+  "edges": [
+    { "from": "entry", "to": "orchestrate" },
+    { "from": "orchestrate", "to": "collect" },
+    { "from": "collect", "to": "pipeline" },
+    { "from": "pipeline", "to": "end" }
+  ],
+  "patchChain": []
+}

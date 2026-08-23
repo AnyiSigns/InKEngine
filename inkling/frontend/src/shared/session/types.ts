@@ -43,6 +43,7 @@ export interface InkPlanMessage extends InkMessageBase {
 /**
  * 工具调用内联行（tool_start/tool_end）——消息流机制内联形态：
  * 工具名 · 权限判定 · 结果摘要，单行展示不展开。
+ * args 为原始参数（可展开，不裸 JSON 呈现为格式化区块）。
  */
 export interface InkToolMessage extends InkMessageBase {
   kind: 'tool';
@@ -50,6 +51,8 @@ export interface InkToolMessage extends InkMessageBase {
   permission: string;
   toolStatus: 'running' | 'done' | 'error' | 'pending';
   summary?: string;
+  /** 原始参数（工具调用负载；经换行/缩进整理后供展开查看） */
+  args?: string;
 }
 
 /** 子任务展开（spawn_start/spawn_end）。 */
@@ -93,6 +96,39 @@ export interface InkErrorMessage extends InkMessageBase {
   content: string;
 }
 
+/**
+ * 图片消息（用户附件 / 引擎产出）：url/尺寸/alt 三个展示面；
+ * 渲染器经媒体渲染器白名单注册（未注册渲染器拒绝渲染）。
+ */
+export interface InkImageMessage extends InkMessageBase {
+  kind: 'image';
+  url: string;
+  alt?: string;
+  width?: number;
+  height?: number;
+  mime?: string;
+}
+
+/**
+ * 视频消息：类型白名单（mp4/webm 等）+ 大小限制 + 路径白名单；
+ * 超限/未知类型/越权路径均输出拒绝占位（不渲染播放器）。
+ */
+export interface InkVideoMessage extends InkMessageBase {
+  kind: 'video';
+  url: string;
+  mime?: string;
+  size?: number;
+  title?: string;
+}
+
+/** 文档附件消息（文件选择分发的文档类：名称/大小/来源）。 */
+export interface InkDocumentMessage extends InkMessageBase {
+  kind: 'document';
+  name: string;
+  size?: number;
+  url?: string;
+}
+
 /** 未注册事件类型的折叠兜底（展示原始 JSON，回放不崩）。 */
 export interface InkUnknownMessage extends InkMessageBase {
   kind: 'unknown';
@@ -111,6 +147,9 @@ export type InkMessage =
   | InkReviewCardMessage
   | InkSuggestionsMessage
   | InkErrorMessage
+  | InkImageMessage
+  | InkVideoMessage
+  | InkDocumentMessage
   | InkUnknownMessage;
 
 /** 回合步骤快照（state.round_steps 通道：来源明细/演化时间线消费）。 */

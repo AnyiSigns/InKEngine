@@ -125,6 +125,60 @@
                 "bind": { "channel": "state.sourceTraces", "path": "" }
               }
             ]
+          },
+          {
+            "kind": "container",
+            "type": "column",
+            "props": { "view": "admin", "scroll": true },
+            "children": [
+              {
+                "kind": "component",
+                "type": "view_header",
+                "props": { "title": "管理台", "hint": "应用注册表 · 工具注册表" }
+              },
+              {
+                "kind": "component",
+                "type": "admin_console"
+              },
+              {
+                "kind": "component",
+                "type": "admin_tools",
+                "bind": { "channel": "inspect_tools", "path": "" }
+              }
+            ]
+          },
+          {
+            "kind": "container",
+            "type": "column",
+            "props": { "view": "architecture", "scroll": true },
+            "children": [
+              {
+                "kind": "component",
+                "type": "view_header",
+                "props": { "title": "架构", "hint": "agent_graph DAG · 视觉 diff" }
+              },
+              {
+                "kind": "component",
+                "type": "architecture_view",
+                "bind": { "channel": "inspect_graph", "path": "" }
+              }
+            ]
+          },
+          {
+            "kind": "container",
+            "type": "column",
+            "props": { "view": "edit_ui", "scroll": true },
+            "children": [
+              {
+                "kind": "component",
+                "type": "view_header",
+                "props": { "title": "界面树", "hint": "ui_spec 编辑（悬浮窗承载）" }
+              },
+              {
+                "kind": "component",
+                "type": "ui_spec_editor"
+              }
+            ]
           }
         ]
       },

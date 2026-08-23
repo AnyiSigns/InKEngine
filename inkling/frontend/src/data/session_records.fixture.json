@@ -1,0 +1,26 @@
+[
+  {
+    "id": "session-1",
+    "title": "喂资料：领域术语表整理",
+    "titleSource": "generated",
+    "createdAt": 1724120400000,
+    "lastActiveAt": 1724124000000,
+    "messages": []
+  },
+  {
+    "id": "session-2",
+    "title": "研究：引用质量校验规则",
+    "titleSource": "generated",
+    "createdAt": 1724112000000,
+    "lastActiveAt": 1724118600000,
+    "messages": []
+  },
+  {
+    "id": "session-3",
+    "title": "孵化：蒸馏产物长度阈值",
+    "titleSource": "manual",
+    "createdAt": 1724054400000,
+    "lastActiveAt": 1724061600000,
+    "messages": []
+  }
+]

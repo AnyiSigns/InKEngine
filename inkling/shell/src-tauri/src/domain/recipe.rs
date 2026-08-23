@@ -592,6 +592,24 @@ mod tests {
     }
 
     #[test]
+    fn manifest_identity_fields_are_frozen() {
+        let manifest = load_manifest(&bundle()).expect("manifest 读取失败");
+        assert_eq!(manifest["id"], "inkling");
+        assert_eq!(manifest["name"], "InKling");
+        assert_eq!(manifest["positioning"], "你用得越多，它越懂你的领域");
+        assert_eq!(manifest["domain_boot"], "知识/研究孵化");
+        assert_eq!(manifest["version"], "0.1.0");
+        assert_eq!(manifest["engine_version_compat"], "0.1.0");
+        // 主题 token 为装配基线的取色声明（渲染器/补丁演化同源）
+        let tokens = manifest["contracts"]["theme_tokens"]
+            .as_array()
+            .expect("theme_tokens 应为数组");
+        assert!(tokens.iter().any(|t| t == "bg.base"));
+        assert!(tokens.iter().any(|t| t == "text.base"));
+        assert!(tokens.iter().any(|t| t == "accent.approval"));
+    }
+
+    #[test]
     fn load_seed_data_errors_on_missing_file() {
         let missing = std::env::temp_dir().join("inkling-no-such-seed-dir");
         let err = load_seed_data(&missing).expect_err("缺目录应报错");

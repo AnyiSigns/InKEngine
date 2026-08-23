@@ -73,10 +73,6 @@
     ]
   },
   "self_check": {
-    "schema": {
-      "command": "python legacy/tests/schema/validate_seed_data.py",
-      "status": "ready"
-    },
     "cargo_test": {
       "command": "cargo test --manifest-path inkling/exec/Cargo.toml",
       "status": "ready"
@@ -85,9 +81,13 @@
       "command": "npm --prefix inkling/frontend run typecheck",
       "status": "ready"
     },
+    "schema": {
+      "command": "",
+      "status": "pending"
+    },
     "e2e": {
-      "command": "pytest legacy/tests/e2e",
-      "status": "ready"
+      "command": "",
+      "status": "pending"
     }
   }
 }

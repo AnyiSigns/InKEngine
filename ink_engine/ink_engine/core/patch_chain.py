@@ -14,7 +14,8 @@
 """
 from __future__ import annotations
 
-from collections.abc import Sequence
+import logging
+from collections.abc import Callable, Sequence
 from dataclasses import dataclass, field
 from enum import StrEnum
 from typing import Any
@@ -129,10 +130,23 @@ class PatchChain:
 
     组装（assemble）为纯函数；rebase 返回压扁后的新链；truncate 就地截断
     （编辑重放 = 截断 + 新分支）；branch 派生共享前缀的新链（What-if 分支）。
+
+    版本与失效钩子：``version`` 随链内容变更单调递增（apply/apply_many/
+    truncate 即变更），``on_change`` 在每次内容变更后调用——观察方
+    （如 LLM 缓存层）以此为失效信号，链内容变了 → 依赖链内容的缓存
+    不再可信。rebase/branch 返回的是新链实例（版本从 0 起），各自持有
+    独立演化历史，不途经原链。
     """
 
     base: dict = field(default_factory=dict)
     patches: list[Patch] = field(default_factory=list)
+    on_change: Callable[[], None] | None = field(default=None, repr=False)
+    _version: int = field(default=0, init=False, repr=False)
+
+    @property
+    def version(self) -> int:
+        """链内容版本（0 起；每次内容变更 +1，观察方据此失效依赖）。"""
+        return self._version
 
     @property
     def length(self) -> int:
@@ -141,9 +155,32 @@ class PatchChain:
     def apply(self, patch: Patch) -> None:
         """追加一条补丁（append-only）。"""
         self.patches.append(patch)
+        self._bump()
 
     def apply_many(self, patches: list[Patch]) -> None:
         self.patches.extend(patches)
+        self._bump()
+
+    def truncate(self, keep: int) -> None:
+        """就地截断：仅保留前 keep 条补丁（编辑重放 = 截断 + 新分支）。"""
+        if keep < 0:
+            raise ValueError(f"截断数量不能为负: {keep}")
+        del self.patches[keep:]
+        self._bump()
+
+    def _bump(self) -> None:
+        """内容变更登记：版本 +1 并触发失效钩子（钩子异常不打断链演化）。"""
+        self._version += 1
+        callback = self.on_change
+        if callback is not None:
+            try:
+                callback()
+            except Exception as exc:
+                # 失效钩子是观察方（缓存层等）的副作用路径：链的内容变更
+                # 已经完成，钩子失败不得回滚或阻断演化，仅留痕
+                logging.getLogger(__name__).warning(
+                    "补丁链失效钩子执行失败: %s", exc
+                )
 
     def assemble(
         self,
@@ -177,12 +214,6 @@ class PatchChain:
         Complexity: O(n × depth)（100 补丁压扁基准 <10ms）。
         """
         return PatchChain(base=self.assemble(), patches=[])
-
-    def truncate(self, keep: int) -> None:
-        """就地截断：仅保留前 keep 条补丁（编辑重放 = 截断 + 新分支）。"""
-        if keep < 0:
-            raise ValueError(f"截断数量不能为负: {keep}")
-        del self.patches[keep:]
 
     def branch(self, at: int | None = None) -> PatchChain:
         """派生分支：共享 base 与 [0:at] 前缀补丁的新链（What-if 平行宇宙/重放分叉）。

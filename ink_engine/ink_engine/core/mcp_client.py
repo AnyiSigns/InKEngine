@@ -56,6 +56,13 @@ logger = get_logger(__name__)
 _CONNECT_TIMEOUT = 30.0
 _CALL_TIMEOUT = 60.0
 
+# stdio 进程监督的保守缺省值（重启策略是数据字段，缺省取此处）：
+# 重启尝试 2 次、间隔 1s、连续 3 次「重试耗尽」即熔断（进程反复
+# 秒崩是环境性故障，持续拉起只会拖垮回合——fail-closed 上报）。
+_DEFAULT_STDIO_RESTART_RETRIES = 2
+_DEFAULT_STDIO_RESTART_BACKOFF = 1.0
+_DEFAULT_STDIO_CIRCUIT_BREAK_THRESHOLD = 3
+
 # 工具调用结果文本截断上限（与引擎工具流水线默认一致，防大对象挤爆上下文）
 _MAX_RESULT_CHARS = 100_000
 
@@ -69,6 +76,54 @@ class McpTransport(StrEnum):
     HTTP = "http"
     STDIO = "stdio"
     IN_MEMORY = "in_memory"
+
+
+@dataclass(frozen=True, slots=True)
+class StdioRestartPolicy:
+    """stdio 进程重启策略（数据化声明；缺省 = 保守安全值）。
+
+    Attributes:
+        max_retries: 单次崩溃后的重启尝试上限（0 = 不拉起，fail-fast）。
+        backoff: 相邻重启尝试的等待秒数（秒；固定退避，节奏可预期）。
+        circuit_break_threshold: 连续「重试耗尽」事件次数达到阈值 =
+            熔断打开——不再尝试拉起，调用直接 fail-closed（错误上报，
+            进程反复崩溃是环境性问题，持续拉起徒增噪声与成本）。
+    """
+
+    max_retries: int = _DEFAULT_STDIO_RESTART_RETRIES
+    backoff: float = _DEFAULT_STDIO_RESTART_BACKOFF
+    circuit_break_threshold: int = _DEFAULT_STDIO_CIRCUIT_BREAK_THRESHOLD
+
+    def __post_init__(self) -> None:
+        if self.max_retries < 0:
+            raise ValueError(f"重启尝试次数不能为负: {self.max_retries}")
+        if self.backoff < 0:
+            raise ValueError(f"重启退避秒数不能为负: {self.backoff}")
+        if self.circuit_break_threshold < 1:
+            raise ValueError(
+                f"熔断阈值须 >= 1: {self.circuit_break_threshold}"
+            )
+
+    def to_dict(self) -> dict[str, Any]:
+        return {
+            "max_retries": self.max_retries,
+            "backoff": self.backoff,
+            "circuit_break_threshold": self.circuit_break_threshold,
+        }
+
+    @classmethod
+    def from_dict(cls, data: Any) -> StdioRestartPolicy:
+        if not isinstance(data, dict):
+            raise GraphDefinitionError(
+                f"stdio 重启策略非法: 期望 dict，收到 {type(data).__name__}"
+            )
+        return cls(
+            max_retries=data.get("max_retries", _DEFAULT_STDIO_RESTART_RETRIES),
+            backoff=float(data.get("backoff", _DEFAULT_STDIO_RESTART_BACKOFF)),
+            circuit_break_threshold=data.get(
+                "circuit_break_threshold", _DEFAULT_STDIO_CIRCUIT_BREAK_THRESHOLD
+            ),
+        )
 
 
 class McpToolImportError(GraphDefinitionError):
@@ -129,6 +184,9 @@ class McpServerConfig:
             vetting 清单使用真签名，缺省由 server id 派生连接身份）。
         server_factory: 内存传输的 server 工厂（transport=in_memory 时必填）；
             非序列化字段，持久化时忽略。
+        restart_policy: stdio 进程监督的重启策略（仅 stdio 生效；None =
+            缺省保守值）。http 传输的会话重建由协议层（reconnect）承担，
+            内存传输无进程可监督——两者不受此字段影响。
     """
 
     id: str
@@ -141,6 +199,7 @@ class McpServerConfig:
     source: ToolSource = ToolSource.UNKNOWN
     signature: str | None = None
     server_factory: ServerFactory | None = field(default=None, repr=False)
+    restart_policy: StdioRestartPolicy | None = None
 
     def to_dict(self, *, redact_credentials: bool = False) -> dict[str, Any]:
         """序列化（可持久化进集数据通道）。
@@ -176,6 +235,8 @@ class McpServerConfig:
             )
         if self.signature:
             data["signature"] = self.signature
+        if self.restart_policy is not None:
+            data["restart_policy"] = self.restart_policy.to_dict()
         return data
 
     @classmethod
@@ -205,6 +266,11 @@ class McpServerConfig:
         env = data.get("env")
         if env is not None and not isinstance(env, dict):
             raise GraphDefinitionError("MCP 配置 env 须为 dict（环境变量映射）")
+        restart_policy = data.get("restart_policy")
+        if restart_policy is not None and not isinstance(restart_policy, dict):
+            raise GraphDefinitionError(
+                "MCP 配置 restart_policy 须为 dict（重启策略声明）"
+            )
         return cls(
             id=server_id,
             transport=transport,
@@ -215,6 +281,11 @@ class McpServerConfig:
             env=dict(env) if env else None,
             source=source,
             signature=data.get("signature"),
+            restart_policy=(
+                StdioRestartPolicy.from_dict(restart_policy)
+                if restart_policy is not None
+                else None
+            ),
         )
 
 
@@ -555,6 +626,210 @@ class _SdkSession(McpSessionHandle):
         await self._exit_stack.aclose()
 
 
+class _SupervisedStdioSession(McpSessionHandle):
+    """stdio 进程会话的受监督句柄：崩溃探测 + 按重启策略拉起。
+
+    在既有 spawn/退出清理/stderr 桥（``_SdkSession.open``）之上只补
+    监督，不重写底层：本句柄持有当前 ``_SdkSession``，调用失败视为
+    进程崩溃（stdio 传输 = 进程生命周期绑定，协议失败即进程死了），
+    走「拉起 → 回到服务」路径——拉起成功后**不透传重试原操作**：
+    失败的工具调用可能已在崩溃前被部分执行，重试有非幂等副作用
+    风险（fail-safe：诚实失败，下个调用命中新会话）。
+
+    失败路径（重试耗尽 → 熔断打开 → 错误上报）：
+    - 拉起尝试有界（``max_retries``，间隔 ``backoff`` 秒）；
+    - 一次「重试耗尽」事件计 1 分，连续到达
+      ``circuit_break_threshold`` 分 = 熔断打开（fail-closed 直接
+      拒绝调用直到重连/换会话——进程反复秒崩是环境性问题，不再
+      持续拉起）；
+    - 拉起成功清零连续失败分（熔断随之解除，只凭健康度判定）。
+    Send 失败/取消例外：CancelledError 原样穿透（与外层取消语义
+    一致，不误判为进程崩溃）。
+    """
+
+    def __init__(
+        self,
+        config: McpServerConfig,
+        *,
+        initial: _SdkSession | None = None,
+        opener: Callable[[McpServerConfig], Any] | None = None,
+    ) -> None:
+        self._config = config
+        self._policy = config.restart_policy or StdioRestartPolicy()
+        self._opener = opener
+        self._session: _SdkSession | None = initial
+        self._circuit_open = False
+        self._consecutive_failures = 0
+        self._lock = asyncio.Lock()
+
+    @property
+    def circuit_open(self) -> bool:
+        """熔断状态（熔断打开 = 不再拉起 + 调用 fail-closed）。"""
+        return self._circuit_open
+
+    @property
+    def consecutive_failures(self) -> int:
+        """连续失败计数（「重试耗尽」次数；拉起成功即清零）。"""
+        return self._consecutive_failures
+
+    async def _open_fresh(self) -> _SdkSession:
+        opener = self._opener
+        if opener is None:
+            return await _SdkSession.open(self._config)
+        return await opener(self._config)
+
+    async def _ensure_open(self) -> _SdkSession:
+        if self._circuit_open:
+            raise McpToolImportError(
+                f"MCP server {self._config.id} 的 stdio 进程熔断已打开"
+                "（连续拉起失败），回调被拒——请重连/检查进程环境"
+            )
+        if self._session is None:
+            self._session = await self._open_fresh()
+            # 建立成功 = 进程可用：连续失败分清零（熔断只凭健康度判定）
+            self._consecutive_failures = 0
+        return self._session
+
+    async def _teardown(self) -> None:
+        """关闭当前会话句柄（失败只记日志：清理不掩盖崩溃路径）。"""
+        session, self._session = self._session, None
+        if session is not None:
+            try:
+                await session.aclose()
+            except Exception as exc:
+                logger.warning(
+                    "MCP server %s 会话清理失败: %s", self._config.id, exc
+                )
+
+    async def _respawn(self, cause: Exception) -> _SdkSession:
+        """崩溃拉起：按策略尝试有限次，重试耗尽上报并计数/熔断。
+
+        Returns:
+            新会话（拉起成功）。
+
+        Raises:
+            McpToolImportError: 重试耗尽（附带原始崩溃原因与熔断状态）。
+        """
+        attempts = self._policy.max_retries
+        last_error = cause
+        # 崩溃会话先清除（无论是否重启：僵死句柄不得继续承接调用——
+        # 不重启时后续调用经 _ensure_open 重新建立）
+        await self._teardown()
+        for n in range(attempts):
+            await asyncio.sleep(self._policy.backoff)
+            try:
+                session = await self._open_fresh()
+            except Exception as exc:
+                last_error = exc
+                logger.warning(
+                    "MCP server %s stdio 拉起第 %d/%d 次失败: %s",
+                    self._config.id, n + 1, attempts, exc,
+                )
+                continue
+            self._session = session
+            self._consecutive_failures = 0
+            logger.info(
+                "MCP server %s stdio 进程已拉起（第 %d 次尝试成功）",
+                self._config.id, n + 1,
+            )
+            return session
+        self._consecutive_failures += 1
+        if self._consecutive_failures >= self._policy.circuit_break_threshold:
+            self._circuit_open = True
+            logger.error(
+                "MCP server %s stdio 连续 %d 次拉起失败，熔断打开（fail-closed）",
+                self._config.id, self._consecutive_failures,
+            )
+        raise self._failure_report(last_error, attempts)
+
+    def _failure_report(self, cause: Exception, attempts: int) -> McpToolImportError:
+        return McpToolImportError(
+            f"MCP server {self._config.id} 的 stdio 进程崩溃且重启失败"
+            f"（{attempts} 次尝试，熔断={self._circuit_open}）: {cause}"
+        )
+
+    async def _invoke(self, op: Callable[[_SdkSession], Any], op_name: str) -> Any:
+        """会话调用 + 崩溃拉起（失败不上抛原操作重试——见类注释）。
+
+        按进程粒度串行（会话即进程：监督路径需要单一所有者，并发
+        崩溃会双重拉起且失败互踩）。会话建立失败（进程秒崩）与
+        调用期失败同走拉起路径——两者都是「进程不可用」。
+        """
+        async with self._lock:
+            try:
+                session = await self._ensure_open()
+                try:
+                    return await op(session)
+                except asyncio.CancelledError:
+                    raise
+                except Exception as exc:
+                    await self._respawn(exc)
+                    raise McpToolImportError(
+                        f"MCP server {self._config.id} 的 stdio 进程在 {op_name} 期间崩溃"
+                        f"（已按策略拉起，本次调用未重试——防非幂等副作用）: {exc}"
+                    ) from exc
+            except McpToolImportError:
+                raise  # 熔断打开：直接拒绝
+            except asyncio.CancelledError:
+                raise  # 外层取消原样穿透（不误判为进程崩溃）
+            except Exception as exc:
+                # 会话建立失败（首次拉起/进程秒崩）→ 走重试耗尽路径
+                await self._respawn(exc)
+                raise McpToolImportError(
+                    f"MCP server {self._config.id} 的 stdio 会话在 {op_name} 期间失效"
+                    f"（已按策略拉起，本次调用未重试）: {exc}"
+                ) from exc
+
+    async def list_tools(self) -> list[Any]:
+        return await self._invoke(
+            lambda session: session.list_tools(), "list_tools"
+        )
+
+    async def call_tool(self, name: str, args: dict[str, Any]) -> str:
+        return await self._invoke(
+            lambda session: session.call_tool(name, args), "call_tool"
+        )
+
+    async def health_check(self) -> bool:
+        """存活探测：协议级 ping（SDK 无 ping 能力时按可用会话判定）。
+
+        探测失败 = 进程崩溃 → 尝试拉起（拉起成功返回 True）；熔断
+        打开或拉起耗尽返回 False。宿主可按节奏调用（备用健康探查/
+        环境巡检），默认不自动轮询（无额外后台任务，生命周期简单）。
+        """
+        if self._circuit_open:
+            return False
+        async with self._lock:
+            try:
+                session = await self._ensure_open()
+                await self._probe(session)
+                return True
+            except asyncio.CancelledError:
+                raise
+            except McpToolImportError:
+                return False
+            except Exception as exc:
+                try:
+                    await self._respawn(exc)
+                    return True
+                except McpToolImportError:
+                    return False
+
+    async def _probe(self, session: _SdkSession) -> None:
+        client = getattr(session, "_session", None)
+        ping = getattr(client, "send_ping", None)
+        if ping is None:
+            return  # SDK 该版本无 ping 能力 → 无法探测，按存活判定
+        await asyncio.wait_for(ping(), timeout=_CALL_TIMEOUT)
+
+    async def aclose(self) -> None:
+        """释放句柄（切断监督：后续访问按 ensure_open 重新拉起）。"""
+        async with self._lock:
+            self._circuit_open = False
+            self._consecutive_failures = 0
+            await self._teardown()
+
+
 def _extract_text(result: Any) -> str:
     """从 MCP 调用结果提取文本（兼容 TextContent 与结构化内容）。
 
@@ -633,6 +908,10 @@ class McpClientManager:
                 self._sessions.pop(config.id, None)
             try:
                 handle = await _SdkSession.open(config)
+                if config.transport is McpTransport.STDIO:
+                    # stdio 传输 = 进程生命周期绑定：包一层进程监督
+                    # （崩溃探测 + 按重启策略拉起；http/内存不受影响）
+                    handle = _SupervisedStdioSession(config, initial=handle)
             except Exception:
                 self._sessions.pop(config.id, None)
                 raise
@@ -756,6 +1035,7 @@ __all__ = [
     "McpSessionHandle",
     "McpToolImportError",
     "McpTransport",
+    "StdioRestartPolicy",
     "build_mcp_manifest",
     "convert_mcp_tool",
     "register_mcp_executor",

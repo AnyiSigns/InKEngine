@@ -20,6 +20,89 @@ _ROLES = frozenset({"system", "user", "assistant", "tool"})
 # 历史/外部消息形态的角色别名（human/ai 命名 → 引擎规范角色）
 _ROLE_ALIASES = {"human": "user", "ai": "assistant"}
 
+# 支持的附件类型（多模态消息的附件类别；kind 枚举化防魔法字符串）
+_ATTACHMENT_KINDS = frozenset({"image", "video", "document"})
+
+# 附件序列化段类型映射：OpenAI 兼容请求只原生定义 image_url 段；
+# video/document 按同族收敛形态（<kind>_url，与 Qwen/GLM 等多模态
+# 端点惯例一致），适配器按后端支持裁剪（附件由宿主显式声明，
+# 声明方负责后端兼容性）。
+_ATTACHMENT_SEGMENT_TYPES = {
+    "image": "image_url",
+    "video": "video_url",
+    "document": "document_url",
+}
+
+
+@dataclass(frozen=True, slots=True)
+class Attachment:
+    """多模态附件元数据（附加在 user 消息上的附件段）。
+
+    Attributes:
+        kind: 附件类型（image/video/document）。
+        url: 附件远端地址（http/https/data URI；适配器可直接请求的形态）。
+        path: 附件本地路径（宿主/本地端点可解析；url 缺省时作为回退引用）。
+        mime_type: MIME 类型（如 image/png）。
+        alt: 替代文本（辅助功能与降级展示）。
+        width/height: 像素尺寸（image 类型）。
+        duration: 时长（秒，video 类型）。
+        name: 原始文件名（展示/诊断）。
+    """
+
+    kind: str = "image"
+    url: str | None = None
+    path: str | None = None
+    mime_type: str | None = None
+    alt: str | None = None
+    width: int | None = None
+    height: int | None = None
+    duration: float | None = None
+    name: str | None = None
+
+    def __post_init__(self) -> None:
+        if self.kind not in _ATTACHMENT_KINDS:
+            raise LLMConfigError(f"非法附件类型: {self.kind!r}")
+        if not self.url and not self.path:
+            raise LLMConfigError("附件必须携带 url 或 path（引用缺失无法发送）")
+
+    @property
+    def ref(self) -> str:
+        """引用值：url 优先，缺省回落 path（本地端点场景）。"""
+        return self.url or self.path or ""
+
+    def to_openai_segment(self) -> dict[str, Any]:
+        """序列化为 OpenAI 兼容多模态内容段（{type: <segment>, <segment>: {url}}）。"""
+        segment = _ATTACHMENT_SEGMENT_TYPES[self.kind]
+        return {"type": segment, segment: {"url": self.ref}}
+
+    def to_dict(self) -> dict[str, Any]:
+        return {
+            "kind": self.kind,
+            "url": self.url,
+            "path": self.path,
+            "mime_type": self.mime_type,
+            "alt": self.alt,
+            "width": self.width,
+            "height": self.height,
+            "duration": self.duration,
+            "name": self.name,
+        }
+
+    @classmethod
+    def from_dict(cls, data: dict[str, Any]) -> Attachment:
+        fields = (
+            "kind",
+            "url",
+            "path",
+            "mime_type",
+            "alt",
+            "width",
+            "height",
+            "duration",
+            "name",
+        )
+        return cls(**{f: data.get(f) for f in fields})
+
 
 @dataclass(frozen=True, slots=True)
 class ToolCallDelta:
@@ -82,6 +165,8 @@ class Message:
         tool_calls: assistant 角色的工具调用列表（历史消息回传用）。
         reasoning: assistant 的推理文本（历史消息回传时可选携带，
             当前轮推理以流式 reasoning_token 增量产出，不入此字段）。
+        attachments: user 角色的多模态附件（默认空元组；携带时
+            to_openai_dict 以内容段数组形态序列化）。
     """
 
     role: str
@@ -90,6 +175,7 @@ class Message:
     tool_calls: list[ToolCall] | None = None
     reasoning: str | None = None
     id: str | None = None
+    attachments: tuple[Attachment, ...] = ()
 
     def __post_init__(self) -> None:
         if self.role not in _ROLES:
@@ -98,11 +184,28 @@ class Message:
             raise LLMConfigError("tool 角色消息必须携带 tool_call_id")
         if self.id is None:
             self.id = uuid.uuid4().hex
+        # 归一为不可变元组（list/dict 形态的宽容入参 → 规范形态），
+        # 保持消息可哈希引用语义（tuple 字段冻结，序列化确定性）
+        self.attachments = tuple(
+            a if isinstance(a, Attachment) else Attachment.from_dict(a)
+            for a in self.attachments
+        )
 
     def to_openai_dict(self) -> dict[str, Any]:
-        """序列化为 OpenAI 兼容请求负载。"""
+        """序列化为 OpenAI 兼容请求负载。
+
+        user 消息携带附件时 content 序列化为多模态内容段数组
+        （[{"type": "text", ...}, {"type": "image_url", ...}, ...]）；
+        无附件时输出形态与既往逐字段一致（回归零影响）。
+        """
         if self.role == "tool":
             return {"role": "tool", "content": self.content, "tool_call_id": self.tool_call_id}
+        if self.role == "user" and self.attachments:
+            content: list[dict[str, Any]] = []
+            if self.content:
+                content.append({"type": "text", "text": self.content})
+            content.extend(a.to_openai_segment() for a in self.attachments)
+            return {"role": "user", "content": content}
         payload: dict[str, Any] = {"role": self.role, "content": self.content}
         if self.role == "assistant" and self.tool_calls:
             payload["tool_calls"] = [
@@ -130,11 +233,15 @@ class Message:
             ),
             "reasoning": self.reasoning,
             "id": self.id,
+            "attachments": (
+                [a.to_dict() for a in self.attachments] if self.attachments else None
+            ),
         }
 
     @classmethod
     def from_dict(cls, data: dict[str, Any]) -> Message:
         tool_calls = data.get("tool_calls")
+        attachments = data.get("attachments")
         return cls(
             role=data["role"],
             content=data.get("content", ""),
@@ -144,6 +251,11 @@ class Message:
             ),
             reasoning=data.get("reasoning"),
             id=data.get("id"),
+            attachments=(
+                tuple(Attachment.from_dict(a) for a in attachments)
+                if attachments
+                else ()
+            ),
         )
 
 
@@ -151,8 +263,16 @@ def system(text: str) -> Message:
     return Message(role="system", content=text)
 
 
-def user(text: str) -> Message:
-    return Message(role="user", content=text)
+def user(
+    text: str,
+    *,
+    attachments: Iterable[Attachment] | None = None,
+) -> Message:
+    return Message(
+        role="user",
+        content=text,
+        attachments=tuple(attachments or ()),
+    )
 
 
 def assistant(text: str = "", *, tool_calls: list[ToolCall] | None = None, reasoning: str | None = None) -> Message:
@@ -216,6 +336,7 @@ def accumulate_tool_calls(deltas: Iterable[ToolCallDelta]) -> list[ToolCall]:
 
 
 __all__ = [
+    "Attachment",
     "Message",
     "ToolCall",
     "ToolCallDelta",

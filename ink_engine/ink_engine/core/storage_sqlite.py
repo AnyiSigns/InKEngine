@@ -505,6 +505,55 @@ class SqliteStorage:
             raise StorageError(f"sqlite records 列出失败: {exc}") from exc
         return [json.loads(r["data"]) for r in rows]
 
+    # ── 全量快照（sqlite backup API：目标库 = 源库一致副本）──
+    async def snapshot(self, dest: str) -> None:
+        """全量备份：把当前库复制到 dest 路径（打开目标连接作备份目标）。
+
+        backup API 为事务级复制（源可并发读），与源自身路径相同时
+        显式拒绝（防误覆盖——备份目标须是另一个位置）。
+        """
+        await self._connect()
+        if dest == self._db_path:
+            raise StorageError(
+                f"快照目标与源相同: {dest}（备份须写入不同位置）"
+            )
+        import aiosqlite
+
+        dest_conn: Any = None
+        try:
+            dest_conn = await aiosqlite.connect(dest)
+            await self._conn.backup(dest_conn)
+            await dest_conn.commit()
+        except Exception as exc:
+            raise StorageError(f"sqlite 快照失败: {exc}") from exc
+        finally:
+            if dest_conn is not None:
+                await dest_conn.close()
+
+    async def restore(self, src: str) -> None:
+        """全量恢复：src 库内容替换当前库（源连接复制进当前连接）。
+
+        backup API 整体替换目标内容（含 schema——源即权威）；与源
+        路径相同时 no-op 拒绝（无意义且浪费）。
+        """
+        await self._connect()
+        if src == self._db_path:
+            raise StorageError(
+                f"恢复源与当前库相同: {src}（当前库已是待恢复内容）"
+            )
+        import aiosqlite
+
+        src_conn: Any = None
+        try:
+            src_conn = await aiosqlite.connect(src)
+            await src_conn.backup(self._conn)
+            await self._conn.commit()
+        except Exception as exc:
+            raise StorageError(f"sqlite 恢复失败: {exc}") from exc
+        finally:
+            if src_conn is not None:
+                await src_conn.close()
+
     async def close(self) -> None:
         self._closed = True
         if self._conn is not None:

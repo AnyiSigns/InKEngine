@@ -17,6 +17,7 @@ from ink_engine.core.llm.base import (
     ToolCallDelta,
     collect_result,
 )
+from ink_engine.core.llm.cache import CACHE_COLLECTION, DEFAULT_CACHE_TTL, CachingLLM
 from ink_engine.core.llm.errors import (
     LLMAuthError,
     LLMBadRequestError,
@@ -87,8 +88,11 @@ def __getattr__(name: str):
     raise AttributeError(f"module {__name__!r} has no attribute {name!r}")
 
 __all__ = [
+    "CACHE_COLLECTION",
+    "DEFAULT_CACHE_TTL",
     "AsyncEmbedder",
     "AsyncLLM",
+    "CachingLLM",
     "EmbeddingConfig",
     "LLMAuthError",
     "LLMBadRequestError",

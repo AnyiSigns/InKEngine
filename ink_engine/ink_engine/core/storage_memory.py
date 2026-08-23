@@ -9,8 +9,11 @@ from_dict 精确还原类型），事件负载走 strip + JSON 往返——杜�
 from __future__ import annotations
 
 import asyncio
+import contextlib
 import copy
 import json
+import os
+import tempfile
 
 from .events import EngineEvent
 from .exceptions import CheckpointConflictError, StorageError
@@ -276,6 +279,76 @@ class MemoryStorage:
 
     async def list_records(self, collection: str) -> list[dict]:
         return [copy.deepcopy(r) for r in self._records.get(collection, {}).values()]
+
+    # ── 全量快照（序列化往返：与 checkpoint/records 的 JSON 契约同口径）──
+    async def snapshot(self, dest: str) -> None:
+        """全量导出到 dest（JSON 文件；原子落盘——临时文件 + 替换）。
+
+        快照形态即存储契约形态（CheckpointRecord.to_dict / 事件
+        to_json / records 原样），可被任意后端恢复语义消费（对
+        sqlite 而言是迁移引子，不是同构恢复——后端形态不同）。
+        """
+        async with self._lock:
+            events_payload = {
+                thread: [e.to_json() for e in events]
+                for thread, events in self._events.items()
+            }
+            payload = {
+                "checkpoints": [
+                    c.to_dict() for c in self._checkpoints.values()
+                ],
+                "events": events_payload,
+                "records": copy.deepcopy(self._records),
+                "next_checkpoint_id": self._next_checkpoint_id,
+                "next_event_seq": self._next_event_seq,
+                "latest_checkpoint_by_thread": dict(
+                    self._latest_checkpoint_by_thread
+                ),
+            }
+        directory = os.path.dirname(os.path.abspath(dest))
+        fd, tmp_path = tempfile.mkstemp(
+            dir=directory, prefix=".snapshot-", suffix=".json"
+        )
+        try:
+            with os.fdopen(fd, "w", encoding="utf-8") as stream:
+                json.dump(payload, stream, ensure_ascii=False)
+            os.replace(tmp_path, dest)
+        except Exception as exc:
+            with contextlib.suppress(OSError):
+                os.unlink(tmp_path)
+            raise StorageError(f"内存存储快照失败: {exc}") from exc
+
+    async def restore(self, src: str) -> None:
+        """从快照文件全量替换当前存储（逐字段校验，损坏数据显式拒绝）。"""
+        try:
+            with open(src, encoding="utf-8") as stream:
+                payload = json.load(stream)
+            checkpoints = payload["checkpoints"]
+            events_payload = payload["events"]
+            records = payload["records"]
+            next_checkpoint_id = int(payload["next_checkpoint_id"])
+            next_event_seq = int(payload["next_event_seq"])
+        except Exception as exc:
+            raise StorageError(f"内存存储恢复失败（快照损坏/非法）: {exc}") from exc
+        normalized: dict[int, CheckpointRecord] = {}
+        for data in checkpoints:
+            record = _normalize_record(CheckpointRecord.from_dict(data))
+            if record.checkpoint_id in normalized:
+                raise StorageError(
+                    f"快照含重复 checkpoint id: {record.checkpoint_id}"
+                )
+            normalized[record.checkpoint_id] = record
+        events = {
+            thread: [EngineEvent.from_dict(json.loads(raw)) for raw in raw_list]
+            for thread, raw_list in events_payload.items()
+        }
+        async with self._lock:
+            self._checkpoints = normalized
+            self._events = events
+            self._records = copy.deepcopy(records)
+            self._next_checkpoint_id = next_checkpoint_id
+            self._next_event_seq = next_event_seq
+            self._latest_checkpoint_by_thread = dict(payload.get("latest_checkpoint_by_thread") or {})
 
     async def close(self) -> None:
         pass

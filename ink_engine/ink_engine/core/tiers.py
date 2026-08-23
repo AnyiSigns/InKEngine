@@ -21,16 +21,52 @@ from __future__ import annotations
 from dataclasses import dataclass
 from typing import Any
 
-# 挡位枚举（与 ModelFactory 实例属性名对齐：main/router）
+# 默认挡位声明（装配注入前的出厂形态：main/router 双挡；tiers.json
+# 等外部声明经 set_tier_names 装配注入——策略选择随数据声明演化）
 TIER_NAMES: tuple[str, ...] = ("main", "router")
+
+# 生效中的挡位声明（数据驱动：tier_key/resolve_tier_config/统计
+# 全部读此值；默认 = 出厂双挡，未知挡位回落 main 行为不变）
+_ACTIVE_TIER_NAMES: tuple[str, ...] = TIER_NAMES
 
 # 未知挡位的回落：任何未知/None 挡位按主挡位处理（配置兜底语义）
 _DEFAULT_TIER = "main"
 
 
+def current_tier_names() -> tuple[str, ...]:
+    """当前生效的挡位声明（观察侧；装配注入后立即反映）。"""
+    return _ACTIVE_TIER_NAMES
+
+
+def set_tier_names(names: Any) -> None:
+    """装配注入：以数据声明挡位集合（tiers.json 等外部配置读取后调用）。
+
+    声明即权威（整组替换，不做增量追加——配置方看到的就是生效的）；
+    ``main`` 必须存在（未知挡位回落锚点，缺失会被坏配置静默换挡）；
+    校验直过，非法声明显式拒绝。
+
+    Args:
+        names: 挡位名序列（如 ("main", "router", "audit")）。
+
+    Raises:
+        ValueError: 空/重复/空字符串/缺 main。
+    """
+    global _ACTIVE_TIER_NAMES
+    normalized = tuple(str(name) for name in names)
+    if not normalized:
+        raise ValueError("挡位声明不能为空（至少须含 main）")
+    if len(set(normalized)) != len(normalized):
+        raise ValueError(f"挡位声明含重复项: {normalized}")
+    if any(not name for name in normalized):
+        raise ValueError("挡位名不能为空字符串")
+    if _DEFAULT_TIER not in normalized:
+        raise ValueError(f"挡位声明缺回落锚点 {_DEFAULT_TIER!r}: {normalized}")
+    _ACTIVE_TIER_NAMES = normalized
+
+
 def tier_key(tier: str | None) -> str:
     """挡位名 → 配置键前缀；未知或 None 回落 main（防拼写错误静默换挡）。"""
-    return tier if tier in TIER_NAMES else _DEFAULT_TIER
+    return tier if tier in _ACTIVE_TIER_NAMES else _DEFAULT_TIER
 
 
 @dataclass(frozen=True, slots=True)
@@ -147,6 +183,8 @@ __all__ = [
     "TierCallStats",
     "TierConfig",
     "build_tier_chain",
+    "current_tier_names",
     "resolve_tier_config",
+    "set_tier_names",
     "tier_key",
 ]

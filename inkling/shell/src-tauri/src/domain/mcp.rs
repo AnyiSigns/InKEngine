@@ -24,6 +24,7 @@ use regex::Regex;
 use serde_json::{json, Value as JsonValue};
 
 use super::common::DomainError;
+use crate::engine::host::call_engine_op_async;
 
 // ── 地址形态前缀（resolve_address 的推导分支；npm/git 均只作提案）──
 
@@ -164,6 +165,8 @@ pub struct McpMountService {
     allowed_commands: HashSet<String>,
     vetted: RwLock<HashSet<String>>,
     mount_log: RwLock<HashMap<String, Vec<i64>>>,
+    /// 挂载工具名登记（卸载时工具表移除的清单；与 mount_log 同生命周期）。
+    mounted_tools: RwLock<HashMap<String, Vec<String>>>,
     server_factories: RwLock<HashMap<String, String>>,
 }
 
@@ -187,6 +190,7 @@ impl McpMountService {
             allowed_commands,
             vetted: RwLock::new(HashSet::new()),
             mount_log: RwLock::new(HashMap::new()),
+            mounted_tools: RwLock::new(HashMap::new()),
             server_factories: RwLock::new(HashMap::new()),
         })
     }
@@ -534,13 +538,13 @@ impl McpMountService {
     /// 1. 提案阶段：vetting 静态核对 → 挂载审批卡预览（可 edit 改
     ///    传输/命令，重走校验链）——Git/npm 推导的 stdio 命令在此
     ///    阶段不产生任何进程；
-    /// 2. 执行阶段：connect → 工具导入 → 逐工具 TOOL 提案（L2 审批）
-    ///    → 补丁链落链 → 引擎重建——经操作通道：
-    ///    需 op: mcp.connect（连接待通道扩展）。
-    ///    需 op: mcp.import_tools（工具导入待通道扩展）。
-    ///    需 op: patch.apply（TOOL 补丁提案应用待通道扩展）。
+    /// 2. 执行阶段（[`Self::mount_execute`]）：connect → 工具导入 →
+    ///    逐工具 TOOL 提案（L1 弹卡，经 gate_card_request 两步形态
+    ///    注入决议）→ 补丁链落链 → 引擎重建。
     ///
-    /// 执行未接线时 = 结构化降级（connect_failed，通知仍可读）。
+    /// 执行失败 = 结构化 MountOutcome（status 区分 connect_failed /
+    /// import_failed / patch_failed），已落补丁链尾倒序回滚 + 会话断开
+    /// （不 panic、不留半挂载记录）。
     pub async fn mount_config(
         &self,
         config: &McpServerConfig,
@@ -551,13 +555,192 @@ impl McpMountService {
             Err(outcome) => return outcome,
         };
         self.mark_vetted(&prepared.id);
-        let card = self.mount_approval_card(&prepared);
-        let _ = card;
-        MountOutcome::failed(
-            &prepared.id,
-            "connect_failed",
-            "需 op: mcp.connect / mcp.import_tools / patch.apply —— 挂载执行阶段待引擎操作通道扩展后接线（boot.rs 装配）",
+        self.mount_execute(&prepared).await
+    }
+
+    /// 挂载执行段：connect → 工具导入 → 逐工具决议注入 + 落链 →
+    /// 登记 → 引擎重建（任一失败结构化返回，不半挂载）。
+    ///
+    /// 审批语义对齐 legacy 挂载链：挂载审批卡预览（可 edit）已在提案
+    /// 阶段产出；执行段对逐工具 TOOL 补丁（L1 弹卡）经
+    /// approval.gate_card_request 两步形态注入接受决议——卡先行
+    /// （gate_card_request 落卡 + 决议入注）→ 决议注入后落链
+    /// （patch.apply 消费预注入决议）。决议作用域经独立 thread_id
+    /// 隔离（挂载尝试唯一，防陈旧决议跨尝试泄漏）。
+    async fn mount_execute(&self, prepared: &McpServerConfig) -> MountOutcome {
+        let server_id = prepared.id.clone();
+        let thread_id = format!(
+            "mount:{}:{}",
+            server_id,
+            &uuid::Uuid::new_v4().simple().to_string()[..8]
+        );
+        // ① 连接（连接失败 = connect_failed，无任何残留）
+        if let Err(err) =
+            call_engine_op_async("mcp.connect", json!({ "config": prepared.to_json() })).await
+        {
+            return MountOutcome::failed(&server_id, "connect_failed", &format!("连接失败: {err}"));
+        }
+        // ② 工具导入（导入失败 = 断开会话 + import_failed）
+        let imported =
+            match call_engine_op_async("mcp.import_tools", json!({ "server_id": server_id })).await
+            {
+                Ok(value) => value,
+                Err(err) => {
+                    self.disconnect_server(&server_id).await;
+                    return MountOutcome::failed(
+                        &server_id,
+                        "import_failed",
+                        &format!("工具导入失败: {err}"),
+                    );
+                }
+            };
+        let tools: Vec<JsonValue> = imported
+            .get("tools")
+            .and_then(JsonValue::as_array)
+            .cloned()
+            .unwrap_or_default();
+        if tools.is_empty() {
+            self.disconnect_server(&server_id).await;
+            return MountOutcome::failed(&server_id, "import_failed", "server 未暴露任何工具");
+        }
+        // ③ 逐工具 TOOL 补丁：决议注入 + 落链（失败回滚已落补丁 + 断开）
+        let mut patch_ids: Vec<i64> = Vec::new();
+        let mut tool_names: Vec<String> = Vec::new();
+        for spec in &tools {
+            let name = spec
+                .get("name")
+                .and_then(JsonValue::as_str)
+                .unwrap_or("")
+                .to_string();
+            // 卡先行 + 决议注入（两步形态）：TOOL 补丁 L1 弹卡，挂载
+            // 审批已在提案阶段产出，此处注入接受决议供 patch.apply 消费
+            if let Err(err) = call_engine_op_async(
+                "approval.gate_card_request",
+                json!({
+                    "key": "patch:tool",
+                    "action": {"tool": name},
+                    "payload": {"review_type": "patch", "kind": "tool", "tool": name},
+                    "decision": "accept",
+                    "thread_id": thread_id,
+                }),
+            )
+            .await
+            {
+                self.rollback_mount(&server_id, &patch_ids, &thread_id).await;
+                return MountOutcome::failed(
+                    &server_id,
+                    "patch_failed",
+                    &format!("审批决议注入失败: {err}"),
+                );
+            }
+            // 落链（meta 携带挂载归属：卸载时链尾归属判定的依据）
+            let applied = call_engine_op_async(
+                "patch.apply",
+                json!({
+                    "kind": "tool",
+                    "payload": spec,
+                    "base_version": self.chain_base_version().await,
+                    "rationale": format!("MCP 挂载：{server_id}"),
+                    "meta": {"mcp_server": server_id, "mcp_tool": name},
+                    "thread_id": thread_id,
+                }),
+            )
+            .await;
+            match applied {
+                Ok(value) => {
+                    let outcome = value
+                        .get("outcome")
+                        .cloned()
+                        .unwrap_or_else(|| json!({}));
+                    let status = outcome
+                        .get("status")
+                        .and_then(JsonValue::as_str)
+                        .unwrap_or("");
+                    if status != "applied" {
+                        let reason = outcome
+                            .get("reason")
+                            .and_then(JsonValue::as_str)
+                            .unwrap_or("审批未通过");
+                        self.rollback_mount(&server_id, &patch_ids, &thread_id).await;
+                        return MountOutcome::failed(&server_id, "patch_failed", reason);
+                    }
+                    patch_ids.push(
+                        outcome
+                            .get("patch_id")
+                            .and_then(JsonValue::as_i64)
+                            .unwrap_or(0),
+                    );
+                    tool_names.push(name);
+                }
+                Err(err) => {
+                    self.rollback_mount(&server_id, &patch_ids, &thread_id).await;
+                    return MountOutcome::failed(
+                        &server_id,
+                        "patch_failed",
+                        &format!("补丁落链失败: {err}"),
+                    );
+                }
+            }
+        }
+        // ④ 登记 + 引擎重建（重建失败 = 结构化失败，登记已留可查）
+        self.record_mount(&server_id, patch_ids.clone());
+        self.mounted_tools
+            .write()
+            .unwrap()
+            .insert(server_id.clone(), tool_names.clone());
+        if let Err(err) = call_engine_op_async("engine.rebuild", json!({})).await {
+            return MountOutcome::failed(&server_id, "rebuild_failed", &format!("引擎重建失败: {err}"));
+        }
+        MountOutcome {
+            ok: true,
+            server_id,
+            patch_ids,
+            tool_names,
+            status: "mounted".to_string(),
+            error: None,
+        }
+    }
+
+    /// 集补丁链当前版本（= 补丁数 + 1；链记录缺失/读取失败 = 版本 1，
+    /// 并发冲突由引擎落链前复验兜底）。
+    async fn chain_base_version(&self) -> i64 {
+        match call_engine_op_async(
+            "engine.records_get",
+            json!({ "collection": "set_patch_chain", "key": "chain" }),
         )
+        .await
+        {
+            Ok(value) => value
+                .get("patches")
+                .and_then(JsonValue::as_array)
+                .map(|patches| patches.len() as i64 + 1)
+                .unwrap_or(1),
+            Err(_) => 1,
+        }
+    }
+
+    /// 会话断开（尽力而为：断开失败不阻断挂载失败路径的清理）。
+    async fn disconnect_server(&self, server_id: &str) {
+        let _ =
+            call_engine_op_async("mcp.disconnect", json!({ "server_id": server_id })).await;
+    }
+
+    /// 部分失败回滚：已落补丁按链尾倒序还原（revert 只支持链尾单步），
+    /// 然后断开会话——尽力而为不抛错（失败路径的清理不留半挂载）。
+    async fn rollback_mount(&self, server_id: &str, patch_ids: &[i64], thread_id: &str) {
+        for patch_id in patch_ids.iter().rev() {
+            let _ = call_engine_op_async(
+                "patch.revert",
+                json!({
+                    "patch_id": patch_id,
+                    "decision": "accept",
+                    "reason": "挂载部分失败回滚",
+                    "thread_id": thread_id,
+                }),
+            )
+            .await;
+        }
+        self.disconnect_server(server_id).await;
     }
 
     /// 挂载登记（server_id → 补丁 id 序；卸载/回退按链尾倒序还原）。
@@ -604,14 +787,17 @@ impl McpMountService {
         Ok(patch_ids)
     }
 
-    /// 卸载（补丁链回退）：回退该 server 的挂载补丁 → 活跃态移除 → 会话断开。
+    /// 卸载（补丁链回退）：回退该 server 的挂载补丁 → 会话断开 →
+    /// 工具表移除。
     ///
     /// 引擎链回退语义：revert 只支持链尾单步，且回退后剩余补丁折叠
     /// 进新 base（版本复位）——一次卸载 = 回退链尾补丁（须属于该
     /// server，否则拒绝并要求先回退后继）。回退经操作通道：
-    /// 需 op: patch.revert（链尾回退待通道扩展）；
-    /// 活跃态移除（声明式定义/统一工具表）与会话断开经：
-    /// 需 op: mcp.disconnect / engine.tool_registry_remove。
+    /// patch.revert（链尾回退，决议随调用注入）；
+    /// 会话断开经 mcp.disconnect；工具表移除经
+    /// engine.tool_registry_remove（工具名 = 挂载时导入的 spec 名，
+    /// 登记缺失时从链尾补丁 payload 提取）。成功 = ok=true、
+    /// status="unmounted"；失败 = 结构化 MountOutcome。
     pub async fn unmount(
         &self,
         server_id: &str,
@@ -621,17 +807,73 @@ impl McpMountService {
             Ok(ids) => ids,
             Err(outcome) => return outcome,
         };
+        let thread_id = format!(
+            "unmount:{}:{}",
+            server_id,
+            &uuid::Uuid::new_v4().simple().to_string()[..8]
+        );
+        if let Some(&tail_id) = patch_ids.last() {
+            let reverted = call_engine_op_async(
+                "patch.revert",
+                json!({
+                    "patch_id": tail_id,
+                    "decision": "accept",
+                    "reason": "卸载",
+                    "thread_id": thread_id,
+                }),
+            )
+            .await;
+            match reverted {
+                Ok(value) => {
+                    let outcome = value
+                        .get("outcome")
+                        .cloned()
+                        .unwrap_or_else(|| json!({}));
+                    let status = outcome
+                        .get("status")
+                        .and_then(JsonValue::as_str)
+                        .unwrap_or("revert_failed");
+                    if status != "reverted" {
+                        let reason = outcome
+                            .get("reason")
+                            .and_then(JsonValue::as_str)
+                            .unwrap_or("回退未完成");
+                        return MountOutcome::failed(server_id, status, reason);
+                    }
+                }
+                Err(err) => {
+                    return MountOutcome::failed(
+                        server_id,
+                        "revert_failed",
+                        &format!("回退失败: {err}"),
+                    );
+                }
+            }
+        }
+        self.disconnect_server(server_id).await;
+        let tool_names = self
+            .mounted_tools
+            .read()
+            .unwrap()
+            .get(server_id)
+            .cloned()
+            .unwrap_or_else(|| tool_names_from_tail(tail_patch));
+        for name in &tool_names {
+            let _ = call_engine_op_async(
+                "engine.tool_registry_remove",
+                json!({ "name": name }),
+            )
+            .await;
+        }
         self.mount_log.write().unwrap().remove(server_id);
+        self.mounted_tools.write().unwrap().remove(server_id);
         MountOutcome {
-            ok: false,
+            ok: true,
             server_id: server_id.to_string(),
             patch_ids,
-            tool_names: Vec::new(),
-            status: "unmounted_pending".to_string(),
-            error: Some(
-                "需 op: patch.revert / mcp.disconnect —— 卸载执行阶段待引擎操作通道扩展后接线（boot.rs 装配）"
-                    .to_string(),
-            ),
+            tool_names,
+            status: "unmounted".to_string(),
+            error: None,
         }
     }
 
@@ -688,6 +930,28 @@ pub fn patch_belongs_to_server(tail: &JsonValue, server_id: &str) -> bool {
         .and_then(|v| v.get("mcp_server"))
         .and_then(JsonValue::as_str)
         == Some(server_id)
+}
+
+/// 从链尾补丁提取挂载工具名（meta.mcp_tool 优先，payload.name 兜底）。
+///
+/// 卸载时工具表移除的清单回退来源：挂载登记缺失工具名（如登记早于
+/// 本登记引入）时按链尾补丁 payload 提取——卸载只回退链尾单步，
+/// 链尾工具名即本次移除的对象。
+fn tool_names_from_tail(tail_patch: Option<&JsonValue>) -> Vec<String> {
+    let Some(value) = tail_patch.and_then(|tail| tail.get("value")) else {
+        return Vec::new();
+    };
+    let name = value
+        .get("meta")
+        .and_then(|m| m.get("mcp_tool"))
+        .and_then(JsonValue::as_str)
+        .or_else(|| {
+            value
+                .get("payload")
+                .and_then(|p| p.get("name"))
+                .and_then(JsonValue::as_str)
+        });
+    name.map(|name| vec![name.to_string()]).unwrap_or_default()
 }
 
 // ── 工具函数 ──
@@ -959,7 +1223,7 @@ mod tests {
     }
 
     #[test]
-    fn mount_config_degrades_structurally_before_ops_ready() {
+    fn mount_config_fails_structurally_without_engine() {
         let market = market_with(&in_memory_entry());
         let service = McpMountService::new(&market).unwrap();
         service.register_server_factory("test.echo", "factory".to_string());
@@ -971,7 +1235,8 @@ mod tests {
         let outcome = rt.block_on(service.mount_config(&config, None));
         assert!(!outcome.ok);
         assert_eq!(outcome.status, "connect_failed");
-        assert!(outcome.error.as_deref().unwrap().contains("需 op"));
+        // 无引擎环境：连接失败透传真实错误，不再返回占位文案
+        assert!(!outcome.error.as_deref().unwrap().contains("需 op"));
         // 挂载登记按结果保持干净（fail-closed：失败无半挂载记录）
         assert!(service.mounted_servers().is_empty());
     }

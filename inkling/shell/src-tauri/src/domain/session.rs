@@ -321,37 +321,100 @@ pub async fn save_session(meta: &SessionMeta) -> Result<(), String> {
 
 /// 删除会话（记录移除 + 版本链清理）。
 ///
-/// records 通道目前只有 put/get/list（无删除原语）：
-/// 需 op: engine.records_delete（会话记录删除待注册）+
-/// 需 op: engine.storage_delete_thread（版本链清理待注册，
-/// 已注册前不静默假装删除）。
-pub async fn delete_session(_thread_id: &str) -> Result<(), String> {
-    Err("需 op: engine.records_delete / engine.storage_delete_thread —— 会话删除经引擎操作通道待注册"
-        .to_string())
+/// 记录移除经 engine.records_delete（墓碑标记：删除留痕可追溯），
+/// 版本链清理经 engine.storage_delete_thread（checkpoint + 事件裁剪）。
+pub async fn delete_session(thread_id: &str) -> Result<(), String> {
+    call_engine_op_async(
+        "engine.records_delete",
+        serde_json::json!({
+            "collection": SESSION_COLLECTION,
+            "key": thread_id,
+        }),
+    )
+    .await?;
+    call_engine_op_async(
+        "engine.storage_delete_thread",
+        serde_json::json!({ "thread_id": thread_id }),
+    )
+    .await?;
+    Ok(())
 }
 
-/// 分支动作（叶切换/切回原叶/回退）经 op 通道下发。
+/// 分支动作（叶切换/切回原叶/回退/fork 新叶）经 op 通道下发。
 ///
-/// 需 op: engine.thread_branch（fork 新叶：编辑重发/由此分支，
-/// truncate_log_after + parent_checkpoint 语义）+ engine.thread_resume
-/// （叶切换/切回原叶：按叶 checkpoint 恢复）+ engine.thread_revert
-/// （回退：切回父叶）。动作下发前经本模块的纯逻辑判定
-/// （[`switch_leaf`] / [`revert_leaf`]）——判定通过才发起。
+/// 动作下发前经本模块的纯逻辑判定（[`switch_leaf`] / [`revert_leaf`]）
+/// ——判定通过才发起：
+/// - switch → engine.thread_resume（按目标叶 checkpoint 续跑）；
+/// - revert → engine.thread_revert（回退到父叶，删除其后检查点）；
+/// - branch → engine.thread_branch（以目标叶为父 fork 新叶，空状态
+///   增量；带编辑内容的 fork 形态见 [`fork_branch`]）。
 pub async fn branch_action(
     tree: &BranchTree,
     action: &str,
     target_leaf: Option<i64>,
 ) -> Result<i64, String> {
-    let resolved = match action {
-        "switch" => target_leaf
-            .ok_or_else(|| "切换动作缺目标叶".to_string())
-            .and_then(|leaf| switch_leaf(tree, leaf).map_err(|err| err.to_string()))?,
-        "revert" => revert_leaf(tree).map_err(|err| err.to_string())?,
-        other => return Err(format!("未知分支动作: {other}")),
-    };
-    Err(format!(
-        "需 op: engine.thread_branch/resume/revert —— 分支动作 {action}（目标叶 {resolved}）经引擎操作通道待注册"
-    ))
+    match action {
+        "switch" => {
+            let leaf = target_leaf
+                .ok_or_else(|| "切换动作缺目标叶".to_string())
+                .and_then(|leaf| switch_leaf(tree, leaf).map_err(|err| err.to_string()))?;
+            call_engine_op_async(
+                "engine.thread_resume",
+                serde_json::json!({
+                    "thread_id": tree.session_id,
+                    "checkpoint_id": leaf,
+                    "input": "",
+                }),
+            )
+            .await?;
+            Ok(leaf)
+        }
+        "revert" => {
+            let target = revert_leaf(tree).map_err(|err| err.to_string())?;
+            call_engine_op_async(
+                "engine.thread_revert",
+                serde_json::json!({
+                    "thread_id": tree.session_id,
+                    "target_id": target,
+                }),
+            )
+            .await?;
+            Ok(target)
+        }
+        "branch" => {
+            let parent = target_leaf
+                .ok_or_else(|| "分支动作缺父叶".to_string())
+                .and_then(|leaf| switch_leaf(tree, leaf).map_err(|err| err.to_string()))?;
+            fork_branch(tree, parent, serde_json::json!({})).await
+        }
+        other => Err(format!("未知分支动作: {other}")),
+    }
+}
+
+/// 分支（fork 新叶）：以树内父叶为锚点 fork 出新叶，携带状态增量
+/// （编辑重发/由此分支产出的编辑内容随 state_patch 注入）。
+///
+/// 父叶须在树内（[`switch_leaf`] 校验）；引擎侧以父叶检查点状态为
+/// 基底合并增量，返回新叶 checkpoint_id。
+pub async fn fork_branch(
+    tree: &BranchTree,
+    parent_leaf: i64,
+    state_patch: serde_json::Value,
+) -> Result<i64, String> {
+    switch_leaf(tree, parent_leaf).map_err(|err| err.to_string())?;
+    let created = call_engine_op_async(
+        "engine.thread_branch",
+        serde_json::json!({
+            "thread_id": tree.session_id,
+            "parent_id": parent_leaf,
+            "state_patch": state_patch,
+        }),
+    )
+    .await?;
+    created
+        .get("checkpoint_id")
+        .and_then(JsonValue::as_i64)
+        .ok_or_else(|| "分支未返回新叶 checkpoint_id".to_string())
 }
 
 #[cfg(test)]
@@ -474,7 +537,10 @@ mod tests {
     }
 
     #[test]
-    fn op_facades_report_unregistered_channels() {
+    fn op_facades_fail_closed_without_engine() {
+        // 无引擎环境：分支动作/会话删除经操作通道失败 = 结构化错误
+        // （运行时未装配），不再返回占位文案
+        let _serial = crate::engine::host::bridge_guard();
         let runtime = tokio::runtime::Runtime::new().unwrap();
         let chain = serde_json::json!([
             {"checkpoint_id": 3, "parent_id": 1, "reason": "reply"},
@@ -483,9 +549,16 @@ mod tests {
         let tree = branch_tree_from_chain_index(chain.as_array().unwrap(), "t-4").unwrap();
         let result = runtime.block_on(branch_action(&tree, "switch", Some(3)));
         assert!(result.is_err());
-        assert!(result.unwrap_err().contains("需 op"));
+        assert!(!result.unwrap_err().contains("需 op"));
         let deleted = runtime.block_on(delete_session("t-4"));
         assert!(deleted.is_err());
-        assert!(deleted.unwrap_err().contains("需 op"));
+        assert!(!deleted.unwrap_err().contains("需 op"));
+        // fork 新叶（追加式接线）：同样结构化失败，不含占位文案
+        let forked = runtime.block_on(fork_branch(&tree, 1, serde_json::json!({"note": "x"})));
+        assert!(forked.is_err());
+        assert!(!forked.unwrap_err().contains("需 op"));
+        // 父叶不在树内 = 域侧拒绝（不触碰通道）
+        let rejected = runtime.block_on(fork_branch(&tree, 99, serde_json::json!({})));
+        assert!(rejected.is_err());
     }
 }

@@ -9,7 +9,8 @@
 //! 编码，同一容器形态不破坏既有包）。
 //!
 //! 引擎存储契约（snapshot/restore）经 op 通道调用：引擎侧存储快照
-//! 落在受控路径后，宿主以本模块容器打包/校验；未注册 op 显式声明。
+//! 落在受控路径后，宿主以本模块容器打包/校验；失败透传引擎侧真实
+//! 错误（不做本地回退包装）。
 //!
 //! 依赖纪律：本模块不直接调用其它域模块；引擎交互经
 //! [`crate::engine::host::call_engine_op_async`] 操作通道。
@@ -428,44 +429,33 @@ pub fn execute_restore(
     Ok((preview, snapshot))
 }
 
-// ── 引擎存储契约（op 通道；未注册 op 显式声明）──
+// ── 引擎存储契约（op 通道）──
 
 /// 引擎存储快照（引擎侧 storage.snapshot 的薄包装；sqlite 后端
 /// backup API 一致性快照）。
 ///
-/// 需 op: engine.storage_snapshot（引擎存储快照待注册；未注册返回
-/// 结构化错误，本地文件打包路径不依赖它——引擎快照是补丁链完整
-/// 性的增强形态）。
+/// 经 engine.storage_snapshot 调用；失败直接透传引擎侧真实错误
+/// （运行时未装配/存储不可用等），不做本地回退包装。
 pub async fn engine_storage_snapshot(dest: &str) -> Result<(), String> {
-    let outcome = call_engine_op_async(
+    call_engine_op_async(
         "engine.storage_snapshot",
         serde_json::json!({ "dest": dest }),
     )
-    .await;
-    match outcome {
-        Ok(_) => Ok(()),
-        Err(err) => Err(format!(
-            "需 op: engine.storage_snapshot —— 引擎存储快照经操作通道待注册（{err}）"
-        )),
-    }
+    .await?;
+    Ok(())
 }
 
-/// 引擎存储恢复（引擎侧 storage.restore 的薄包装）。
+/// 引擎存储恢复（引擎侧 storage.restore 的薄包装；恢复执行由宿主
+/// 向导先经本地容器校验后调用）。
 ///
-/// 需 op: engine.storage_restore（引擎存储恢复待注册；恢复执行由
-/// 宿主向导先经本地容器校验后调用，未注册时由本地解包覆盖）。
+/// 经 engine.storage_restore 调用；失败直接透传引擎侧真实错误。
 pub async fn engine_storage_restore(src: &str) -> Result<(), String> {
-    let outcome = call_engine_op_async(
+    call_engine_op_async(
         "engine.storage_restore",
         serde_json::json!({ "src": src }),
     )
-    .await;
-    match outcome {
-        Ok(_) => Ok(()),
-        Err(err) => Err(format!(
-            "需 op: engine.storage_restore —— 引擎存储恢复经操作通道待注册（{err}）"
-        )),
-    }
+    .await?;
+    Ok(())
 }
 
 #[cfg(test)]

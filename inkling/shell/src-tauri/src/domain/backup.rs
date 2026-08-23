@@ -68,10 +68,14 @@ fn sha256_bytes(data: &[u8]) -> String {
 }
 
 fn now_epoch() -> f64 {
-    std::time::SystemTime::now()
+    // 毫秒精度：秒级浮点在 JSON 往返中经 serde_json 解析可能产生
+    // 末位 ulp 偏差（快慢路径双舍入），毫秒截断保证往返恒等且精度
+    // 足够产品语义（时间戳排序/展示）。
+    let secs = std::time::SystemTime::now()
         .duration_since(std::time::UNIX_EPOCH)
         .map(|d| d.as_secs_f64())
-        .unwrap_or(0.0)
+        .unwrap_or(0.0);
+    (secs * 1000.0).round() / 1000.0
 }
 
 fn manifest_json(manifest: &BackupManifest) -> Vec<u8> {

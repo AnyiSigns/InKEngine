@@ -57,6 +57,17 @@ pub fn call_engine_op(op: &str, args: JsonValue) -> Result<JsonValue, String> {
     serde_json::from_str(&result_json).map_err(|err| format!("引擎操作返回不可解析: {err}"))
 }
 
+/// 桥模块状态是进程级单例（装配句柄/回调注册表）：触碰桥的测试
+/// 必须串行执行，否则并行装配互相覆盖句柄，跨测试串链。
+///
+/// 全 crate 共用此护栏（域模块装配/接线测试同样触碰桥）——测试间
+/// 的串行化以本锁为唯一权威，禁止另起并行装配入口。
+pub fn bridge_guard() -> std::sync::MutexGuard<'static, ()> {
+    static LOCK: std::sync::Mutex<()> = std::sync::Mutex::new(());
+    LOCK.lock()
+        .unwrap_or_else(std::sync::PoisonError::into_inner)
+}
+
 /// 经桥模块调用引擎异步操作（JSON 进/JSON 出；awaitable 经异步桥贯通）。
 pub async fn call_engine_op_async(op: &str, args: JsonValue) -> Result<JsonValue, String> {
     ensure_python();
@@ -481,14 +492,6 @@ mod tests {
             .build()
             .expect("tokio 运行时创建失败")
             .block_on(call_engine_op_async(op, args))
-    }
-
-    /// 桥模块状态是进程级单例（装配句柄/回调注册表）：触碰桥的测试
-    /// 必须串行执行，否则并行装配互相覆盖句柄，跨测试串链。
-    fn bridge_guard() -> std::sync::MutexGuard<'static, ()> {
-        static LOCK: std::sync::Mutex<()> = std::sync::Mutex::new(());
-        LOCK.lock()
-            .unwrap_or_else(std::sync::PoisonError::into_inner)
     }
 
     #[test]

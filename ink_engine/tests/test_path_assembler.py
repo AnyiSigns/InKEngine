@@ -716,3 +716,140 @@ async def test_integration_retriever_protocol_injected():
     assert len(seen) > 0  # 窗口非空且为契约摘要形态
     assert seen[0].type_name
     assert seen[0].outputs is not None
+
+
+# ── 组装指令入口（assemble_plan + canary 兼容验证链路）────────────
+
+async def test_assemble_plan_unwired_default_zero_effect():
+    """未挂载默认运行期 = 机制未装配：返回空结果，零候选零审计。"""
+    from ink_engine.core.path_assembler import (
+        assemble_plan,
+        get_default_assembly_runtime,
+        set_default_assembly_runtime,
+    )
+
+    previous = get_default_assembly_runtime()
+    set_default_assembly_runtime(None)
+    try:
+        records: list[dict[str, Any]] = []
+        result = await assemble_plan(
+            _request(("answer",)), audit_sink=records.append
+        )
+        assert result.is_empty
+        assert result.audit == ()
+        assert records == []
+    finally:
+        set_default_assembly_runtime(previous)
+
+
+async def test_assemble_plan_runtime_canary_and_audit():
+    """指令入口：组装 + canary 验证链路（重建 + 单回合）+ 审计留痕。"""
+    from ink_engine.core.path_assembler import (
+        PathAssemblyRuntime,
+        assemble_plan,
+        get_default_assembly_runtime,
+        set_default_assembly_runtime,
+    )
+
+    previous = get_default_assembly_runtime()
+    runtime = PathAssemblyRuntime(
+        registry=make_registry(),
+        config=PathAssemblyConfig(enabled=True),
+        canary=True,
+        now=DUMMY_NOW,
+    )
+    set_default_assembly_runtime(runtime)
+    try:
+        records: list[dict[str, Any]] = []
+        result = await assemble_plan(
+            _request(("answer",)), audit_sink=records.append
+        )
+        assert not result.is_empty
+        assert len(result.canary) == len(result.candidates)
+        for verdict in result.canary:
+            assert verdict.ok is True, verdict
+            assert verdict.executed is True
+            assert verdict.terminal == TerminateReason.REPLY
+        # 审计留痕：组装记录 + 每条候选 canary 结论
+        assert len(records) == 1 + len(result.candidates)
+        assert records[0]["domain"] == "code"
+        assert records[0]["fingerprint"] == result.fingerprint
+        for record in records[1:]:
+            assert record["verdict"]["ok"] is True
+    finally:
+        set_default_assembly_runtime(previous)
+
+
+async def test_assemble_plan_runtime_disabled_zero_effect():
+    """指令入口开关关闭：零候选/零验证/零审计回调（与只读组装同语义）。"""
+    from ink_engine.core.path_assembler import (
+        PathAssemblyRuntime,
+        assemble_plan,
+        get_default_assembly_runtime,
+        set_default_assembly_runtime,
+    )
+
+    previous = get_default_assembly_runtime()
+    runtime = PathAssemblyRuntime(
+        registry=make_registry(),
+        config=PathAssemblyConfig(),  # enabled=False
+        now=DUMMY_NOW,
+    )
+    set_default_assembly_runtime(runtime)
+    try:
+        records: list[dict[str, Any]] = []
+        result = await assemble_plan(
+            _request(("answer",)), audit_sink=records.append
+        )
+        assert result.is_empty
+        assert result.canary == ()
+        assert records == []
+    finally:
+        set_default_assembly_runtime(previous)
+
+
+async def test_assembly_request_json_roundtrip():
+    """请求数据形态：to_dict/from_dict 往返（运行态注入件分列补挂）。"""
+    from ink_engine.core.path_assembler import AssemblyRequest
+
+    request = _request(
+        ("answer",), entry=("user_query",), domain="code", tier=2, top_k=3
+    )
+    data = request.to_dict()
+    assert data["domain"] == "code"
+    assert data["max_safety_tier"] == 2
+    assert data["entry_fields"] == ["user_query"]
+    rebuilt = AssemblyRequest.from_dict(data)
+    assert rebuilt.goal_fields() == tuple(sorted(request.goal_fields()))
+    assert rebuilt.entry_fields == request.entry_fields
+    assert rebuilt.max_safety_tier == 2
+    assert rebuilt.top_k == 3
+    roundtrip = AssemblyRequest.from_dict(rebuilt.to_dict())
+    assert roundtrip.goal_fields() == rebuilt.goal_fields()
+
+
+async def test_canary_round_rejects_broken_execution():
+    """canary 单回合：结点异常收尾（error）= 验证失败（执行前风险前置）。"""
+    from ink_engine.core.path_assembler import canary_round
+
+    graph = Graph(name="broken", entry="boom")
+
+    async def boom(ctx):
+        raise RuntimeError("测试注入的结点故障")
+
+    graph.add_node("boom", boom)
+    graph.add_exit("boom")
+    round_result = await canary_round(graph)
+    assert round_result.ok is False
+    assert round_result.reason == TerminateReason.ERROR
+
+
+async def test_canary_instantiate_rebuilds_candidate():
+    """canary 重建级验证：候选产物 to_dict → from_dict(validate=True) 同指纹。"""
+    from ink_engine.core.path_assembler import canary_instantiate
+
+    registry = make_registry()
+    result = await make_assembler(registry).assemble(_request(("answer",)))
+    data = result.candidates[0].to_dict()["graph"]
+    rebuilt = canary_instantiate(data, registry=registry)
+    assert rebuilt.digest() == result.candidates[0].graph.digest()

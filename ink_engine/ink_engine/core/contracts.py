@@ -16,7 +16,7 @@ schema（复用状态通道的 SchemaSpec 声明语言）声明结点消费与�
 """
 from __future__ import annotations
 
-from collections.abc import Awaitable
+from collections.abc import Awaitable, Mapping
 from dataclasses import dataclass
 from typing import Any, Protocol
 
@@ -28,6 +28,89 @@ SAFETY_TIER_MIN = 0
 SAFETY_TIER_MAX = 2
 # 契约版本下限（行为变更 = 升版，版本从 1 起）
 CONTRACT_VERSION_MIN = 1
+
+# ── 机制装配开关的按名透传键（装配入口按名消费，缺省全关）──────────
+# 宿主装配参数（rust 侧 BootOptions 透传的 JSON 键名，见壳侧
+# path_assembly_data）按此键名接入：本模块只定义「按名读取」，
+# 每个开关键对应一块机制（contract/edge_evidence/settle_hooks/
+# pool_governance/assembler/multipath/fingerprint_cache），键名
+# 保持不变——键名是装配协议的一部分。
+BOOT_KEY_CONTRACT_ENABLED = "path_assembly_contract_enabled"
+BOOT_KEY_EDGE_EVIDENCE_ENABLED = "path_assembly_edge_evidence_enabled"
+BOOT_KEY_SETTLE_HOOKS_ENABLED = "path_assembly_settle_hooks_enabled"
+BOOT_KEY_POOL_GOVERNANCE_ENABLED = "path_assembly_pool_governance_enabled"
+BOOT_KEY_ASSEMBLER_ENABLED = "path_assembly_assembler_enabled"
+BOOT_KEY_MULTIPATH_ENABLED = "path_assembly_multipath_enabled"
+BOOT_KEY_FINGERPRINT_CACHE_ENABLED = "path_assembly_fingerprint_cache_enabled"
+
+# 透传键 → 开关字段（键名不改；装配入口按名读取后构造各块配置）
+_BOOT_KEY_TO_FLAG: dict[str, str] = {
+    BOOT_KEY_CONTRACT_ENABLED: "contract_enabled",
+    BOOT_KEY_EDGE_EVIDENCE_ENABLED: "edge_evidence_enabled",
+    BOOT_KEY_SETTLE_HOOKS_ENABLED: "settle_hooks_enabled",
+    BOOT_KEY_POOL_GOVERNANCE_ENABLED: "pool_governance_enabled",
+    BOOT_KEY_ASSEMBLER_ENABLED: "assembler_enabled",
+    BOOT_KEY_MULTIPATH_ENABLED: "multipath_enabled",
+    BOOT_KEY_FINGERPRINT_CACHE_ENABLED: "fingerprint_cache_enabled",
+}
+
+
+@dataclass(frozen=True, slots=True)
+class PathAssemblyFlags:
+    """机制装配开关（七块独立 feature flag，默认全关）。
+
+    读取形态：与壳侧装配参数按名对齐（``path_assembly_*_enabled``），
+    未出现的键按 False 处理（缺省全关）；每块独立开启、独立关闭
+    （= 单块回滚路径）。本数据形态是装配入口的读取结果，各块机制的
+    运行时配置由对应模块按该结果构造。
+
+    Attributes:
+        contract_enabled: 结点契约 + 链接校验器。
+        edge_evidence_enabled: 边证据存储（评分与统计）。
+        settle_hooks_enabled: 沉淀钩子（成败/成本归集、失败点提案）。
+        pool_governance_enabled: 结点池治理（容量/淘汰/合并/提案预算）。
+        assembler_enabled: 路径组装器（schema 反推/草稿/证据评分）。
+        multipath_enabled: 多径执行 + 汇流裁决。
+        fingerprint_cache_enabled: 指纹缓存。
+    """
+
+    contract_enabled: bool = False
+    edge_evidence_enabled: bool = False
+    settle_hooks_enabled: bool = False
+    pool_governance_enabled: bool = False
+    assembler_enabled: bool = False
+    multipath_enabled: bool = False
+    fingerprint_cache_enabled: bool = False
+
+    def to_dict(self) -> dict[str, Any]:
+        return {
+            "contract_enabled": self.contract_enabled,
+            "edge_evidence_enabled": self.edge_evidence_enabled,
+            "settle_hooks_enabled": self.settle_hooks_enabled,
+            "pool_governance_enabled": self.pool_governance_enabled,
+            "assembler_enabled": self.assembler_enabled,
+            "multipath_enabled": self.multipath_enabled,
+            "fingerprint_cache_enabled": self.fingerprint_cache_enabled,
+        }
+
+    @classmethod
+    def from_boot(cls, data: Mapping[str, Any] | None) -> PathAssemblyFlags:
+        """按名读取装配参数（未知键忽略；缺省键 = False = 默认全关）。
+
+        装配入口把壳侧透传的装配参数数据（JSON dict 形态）传入本方法，
+        返回逐块开关；各机制运行时配置按该结果构造，未启用块不参与
+        任何运行路径。
+        """
+        if data is None:
+            return cls()
+        values: dict[str, bool] = {}
+        for key, flag in _BOOT_KEY_TO_FLAG.items():
+            values[flag] = bool(data.get(key, False))
+        return cls(**values)
+
+    def as_path_assembly_config(self) -> PathAssemblyConfig:
+        """组装器块开关形态（装配入口接线用；默认全关）。"""
+        return PathAssemblyConfig(enabled=self.assembler_enabled)
 
 
 @dataclass(frozen=True, slots=True)
@@ -162,10 +245,18 @@ class QualityGate(Protocol):
 
 
 __all__ = [
+    "BOOT_KEY_ASSEMBLER_ENABLED",
+    "BOOT_KEY_CONTRACT_ENABLED",
+    "BOOT_KEY_EDGE_EVIDENCE_ENABLED",
+    "BOOT_KEY_FINGERPRINT_CACHE_ENABLED",
+    "BOOT_KEY_MULTIPATH_ENABLED",
+    "BOOT_KEY_POOL_GOVERNANCE_ENABLED",
+    "BOOT_KEY_SETTLE_HOOKS_ENABLED",
     "CONTRACT_VERSION_MIN",
     "SAFETY_TIER_MAX",
     "SAFETY_TIER_MIN",
     "NodeContract",
     "PathAssemblyConfig",
+    "PathAssemblyFlags",
     "QualityGate",
 ]

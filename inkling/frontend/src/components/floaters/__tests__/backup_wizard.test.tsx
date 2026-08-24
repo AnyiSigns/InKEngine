@@ -11,7 +11,7 @@ import { BackupWizard, backupOpsFrom, type BackupOps } from '../backup_wizard';
 import type { BackendAdapter } from '@/shared/backend/backendAdapter';
 
 const ops: BackupOps = {
-  exportTo: vi.fn(async (dest) => ({ entries: 5, size: 2048, has_db: true })),
+  exportTo: vi.fn(async () => ({ entries: 5, size: 2048, has_db: true })),
   preview: vi.fn(async () => ({ entries_total: 5, will_overwrite: 3, total_size: 2048, has_db: true, created_at: 1000 })),
   restore: vi.fn(async () => ({ restored_entries: 5, snapshot: 'C:\\snap\\pre-restore-1' })),
 };

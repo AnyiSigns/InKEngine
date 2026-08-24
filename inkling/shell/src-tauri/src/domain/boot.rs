@@ -434,6 +434,164 @@ pub fn path_assembly_data(flags: &PathAssemblyFlags) -> JsonValue {
     })
 }
 
+// ── 路径组装机制宿主接线（尾部挂载：开关透传 + 种子路径语料导入）──
+
+/// 边证据库文件名（随数据目录落盘；派生数据可由运行历史重建）。
+const EVIDENCE_DB_NAME: &str = "edge_evidence.sqlite";
+
+/// 种子路径语料 → 边证据导入条目（逐条边；同键行不覆盖运行统计）。
+///
+/// 语料形态 = path_seeds.json 的 seed_paths 数组（id/domain/title/
+/// description/chain/edge_stats）；逐条路径的相邻结点对展开为边证据
+/// 条目（src/dst/成败计数/域/契约版本），计数缺省取 edge_defaults。
+/// 纯数据变换（可独立单测）：链长 <2 / 缺字段 / 结点名为空 = 显式报错。
+pub fn plan_seed_path_edges(value: &JsonValue) -> Result<Vec<JsonValue>, DomainError> {
+    let paths = value
+        .get("seed_paths")
+        .and_then(JsonValue::as_array)
+        .ok_or_else(|| DomainError::InvalidData("缺 seed_paths（数组）".into()))?;
+    let defaults = value.get("edge_defaults").and_then(JsonValue::as_object);
+
+    fn count_or_default(
+        stats: Option<&serde_json::Map<String, JsonValue>>,
+        defaults: Option<&serde_json::Map<String, JsonValue>>,
+        key: &str,
+        path_id: &str,
+    ) -> Result<u64, DomainError> {
+        stats
+            .and_then(|s| s.get(key))
+            .and_then(JsonValue::as_u64)
+            .or_else(|| {
+                defaults
+                    .and_then(|d| d.get(key))
+                    .and_then(JsonValue::as_u64)
+            })
+            .ok_or_else(|| {
+                DomainError::InvalidData(format!(
+                    "种子路径 {path_id} 缺 {key}（条目或 edge_defaults 须提供）"
+                ))
+            })
+    }
+
+    let mut edges: Vec<JsonValue> = Vec::new();
+    for raw in paths {
+        let Some(path) = raw.as_object() else {
+            return Err(DomainError::InvalidData(format!(
+                "种子路径条目须为对象: {raw}"
+            )));
+        };
+        let id = path.get("id").and_then(JsonValue::as_str).unwrap_or("(未命名)");
+        let domain = path
+            .get("domain")
+            .and_then(JsonValue::as_str)
+            .unwrap_or("default");
+        let chain = path
+            .get("chain")
+            .and_then(JsonValue::as_array)
+            .ok_or_else(|| {
+                DomainError::InvalidData(format!("种子路径 {id} 缺 chain（数组）"))
+            })?;
+        if chain.len() < 2 {
+            return Err(DomainError::InvalidData(format!(
+                "种子路径 {id} 的 chain 须 ≥2 结点"
+            )));
+        }
+        let success = count_or_default(path.get("edge_stats").and_then(JsonValue::as_object), defaults, "success_count", id)?;
+        let fail = count_or_default(path.get("edge_stats").and_then(JsonValue::as_object), defaults, "fail_count", id)?;
+        for pair in chain.windows(2) {
+            let (src, dst) = (pair[0].as_str(), pair[1].as_str());
+            let (Some(src), Some(dst)) = (src, dst) else {
+                return Err(DomainError::InvalidData(format!(
+                    "种子路径 {id} 的 chain 结点名须为字符串"
+                )));
+            };
+            if src.is_empty() || dst.is_empty() {
+                return Err(DomainError::InvalidData(format!(
+                    "种子路径 {id} 的 chain 含空结点名"
+                )));
+            }
+            let avg_cost = path
+                .get("edge_stats")
+                .and_then(JsonValue::as_object)
+                .and_then(|s| s.get("avg_cost"))
+                .and_then(JsonValue::as_f64)
+                .or_else(|| {
+                    defaults
+                        .and_then(|d| d.get("avg_cost"))
+                        .and_then(JsonValue::as_f64)
+                })
+                .unwrap_or(0.0);
+            edges.push(json!({
+                "src_type": src,
+                "dst_type": dst,
+                "success_count": success,
+                "fail_count": fail,
+                "avg_cost": avg_cost,
+                "context_domain": domain,
+                "src_contract_version": "1",
+                "dst_contract_version": "1",
+            }));
+        }
+    }
+    Ok(edges)
+}
+
+/// 种子路径挂载：出厂路径语料 → 边证据初始化（幂等：同键行不覆盖）。
+///
+/// 语料文件 = seed_data/path_seeds.json（缺文件/坏 JSON fail-closed）
+/// → 经 op 通道导入边证据库；导入条数随结果返回（重放 = 0 不打翻状态）。
+async fn mount_seed_paths(
+    bundle: &recipe::SeedDataBundle,
+    data_dir: &std::path::Path,
+) -> Result<usize, String> {
+    let seed_path = bundle.root.join("seed_data").join("path_seeds.json");
+    let text = std::fs::read_to_string(&seed_path)
+        .map_err(|err| fail("种子路径挂载", format!("读取 path_seeds.json: {err}")))?;
+    let value: JsonValue = serde_json::from_str(&text)
+        .map_err(|err| fail("种子路径挂载", format!("path_seeds.json 非法 JSON: {err}")))?;
+    let edges = plan_seed_path_edges(&value)
+        .map_err(|err| fail("种子路径挂载", err.to_string()))?;
+    if edges.is_empty() {
+        return Ok(0);
+    }
+    let db_path = data_dir.join(EVIDENCE_DB_NAME);
+    let outcome = call_engine_op_async(
+        "path.import_seed_paths",
+        json!({
+            "db_path": db_path.to_string_lossy(),
+            "seed_edges": edges,
+        }),
+    )
+    .await
+    .map_err(|err| fail("种子路径挂载", err))?;
+    Ok(outcome
+        .get("imported")
+        .and_then(JsonValue::as_u64)
+        .map(|n| n as usize)
+        .unwrap_or(0))
+}
+
+/// 路径组装机制宿主接线：开关透传 + 种子路径挂载（flag 关 = 零生效）。
+///
+/// 机制开关值写入桥模块（op fail-closed 的判定依据）；开启时才导入
+/// 种子路径语料（关闭时 op 内部同样拒绝，双保险不产生任何状态）。
+async fn wire_path_assembly(
+    options: &BootOptions,
+    bundle: &recipe::SeedDataBundle,
+    data_dir: &std::path::Path,
+) -> Result<(), String> {
+    call_engine_op(
+        "path.set_assembler_enabled",
+        json!({ "enabled": options.path_assembly.assembler_enabled }),
+    )
+    .map_err(|err| fail("路径组装开关透传", err))?;
+    if options.path_assembly.assembler_enabled {
+        // 导入条数为观测值（首启 ≠ 0；重放 = 0 = 同键已存在不打翻状态）
+        let _imported = mount_seed_paths(bundle, data_dir).await?;
+    }
+    Ok(())
+}
+
 // ── 装配入口 ──
 
 /// 装配 InKling 运行时：机制装配 + 宿主接线（一次性调用；重复装配由
@@ -468,6 +626,10 @@ pub async fn assemble_runtime(options: &BootOptions) -> Result<AssemblyReport, S
 
     let seeds = reinject_seeds(&bundle).await?;
     finish_assembly().await?;
+
+    // 路径组装机制宿主接线（尾部挂载：开关透传 + 种子路径语料导入；
+    // 机制开关关闭时零生效——op fail-closed + 导入跳过，重放幂等）
+    wire_path_assembly(options, &bundle, &data_dir).await?;
 
     // 链版本号：链组装结果本身无版本字段，按链记录补丁段长度 + 1；
     // 记录读取失败只影响报告字段（回落 1），不阻断装配完成
@@ -615,6 +777,15 @@ mod tests {
             .build()
             .expect("tokio 运行时创建失败")
             .block_on(future)
+    }
+
+    /// 异步 op 在单线程运行时内完成（与装配同一线程纪律）。
+    fn block_on_op(op: &str, args: JsonValue) -> Result<JsonValue, String> {
+        tokio::runtime::Builder::new_current_thread()
+            .enable_all()
+            .build()
+            .expect("tokio 运行时创建失败")
+            .block_on(call_engine_op_async(op, args))
     }
 
     // ── 纯逻辑测试（不触碰桥）──
@@ -884,5 +1055,287 @@ mod tests {
             "种子总量不守恒（注入 + 已存在 ≠ 清单）"
         );
         assert!(report.seeds_present >= 1, "种子均不可达（查重全落空）");
+    }
+
+    // ── 路径组装机制宿主接线测试 ──
+
+    /// 读取出厂路径语料（与实际装配同一文件；纯逻辑测试不触碰桥）。
+    fn seed_paths_file() -> JsonValue {
+        let text = std::fs::read_to_string(
+            repo_root().join("inkling").join("seed_data").join("path_seeds.json"),
+        )
+        .expect("path_seeds.json 读取失败");
+        serde_json::from_str(&text).expect("path_seeds.json JSON 非法")
+    }
+
+    #[test]
+    fn seed_path_edges_plan_converts_and_validates() {
+        let value = seed_paths_file();
+        let edges = plan_seed_path_edges(&value).expect("语料规划失败");
+        // 逐条路径的相邻结点对展开：3+4+4+1+3 = 15 条边
+        let paths = value["seed_paths"].as_array().unwrap();
+        let expected: usize = paths
+            .iter()
+            .map(|p| p["chain"].as_array().unwrap().len() - 1)
+            .sum();
+        assert_eq!(edges.len(), expected, "边数 = 各路径链长减一之和");
+        let first = &edges[0];
+        assert_eq!(first["src_type"], "intent_parse");
+        assert_eq!(first["dst_type"], "retrieval_search");
+        assert_eq!(first["context_domain"], "default");
+        assert_eq!(first["success_count"], 5);
+        assert_eq!(first["fail_count"], 1);
+        assert_eq!(first["src_contract_version"], "1");
+        // 全部条目字段形态齐备（导入 API 契约）
+        for edge in &edges {
+            assert!(edge.get("src_type").and_then(JsonValue::as_str).is_some());
+            assert!(edge.get("dst_type").and_then(JsonValue::as_str).is_some());
+            assert!(edge.get("success_count").and_then(JsonValue::as_u64).is_some());
+            assert!(edge.get("fail_count").and_then(JsonValue::as_u64).is_some());
+            assert!(edge.get("context_domain").and_then(JsonValue::as_str).is_some());
+        }
+        // 无环自洽：每条边的产出链方向一致（src 在前、dst 在后）
+        for (i, edge) in edges.iter().enumerate() {
+            let src = edge["src_type"].as_str().unwrap();
+            let dst = edge["dst_type"].as_str().unwrap();
+            assert_ne!(src, dst, "自环不应出现（边 {i}）");
+        }
+    }
+
+    #[test]
+    fn seed_path_edges_plan_rejects_bad_shapes() {
+        // 缺 seed_paths 数组
+        assert!(
+            plan_seed_path_edges(&json!({})).is_err(),
+            "缺 seed_paths 应报错"
+        );
+        // 单结点链
+        assert!(
+            plan_seed_path_edges(&json!({
+                "seed_paths": [{"id": "p1", "chain": ["a"], "edge_stats": {"success_count": 1, "fail_count": 0}}],
+                "edge_defaults": {"success_count": 1, "fail_count": 0},
+            }))
+            .is_err(),
+            "链长 <2 应报错"
+        );
+        // 缺计数且 defaults 缺
+        assert!(
+            plan_seed_path_edges(&json!({
+                "seed_paths": [{"id": "p1", "chain": ["a", "b"]}],
+            }))
+            .is_err(),
+            "计数缺失应报错"
+        );
+        // 计数经 edge_defaults 补齐
+        let ok = plan_seed_path_edges(&json!({
+            "seed_paths": [{"id": "p1", "chain": ["a", "b"], "edge_stats": {"success_count": 2, "fail_count": 1}}],
+            "edge_defaults": {"success_count": 9, "fail_count": 9},
+        }))
+        .expect("合法语料应通过");
+        assert_eq!(ok.len(), 1);
+        assert_eq!(ok[0]["success_count"], 2, "条目计数优先于 defaults");
+        // 空链/坏结点名
+        assert!(
+            plan_seed_path_edges(&json!({
+                "seed_paths": [{"id": "p1", "chain": ["a", 7]}],
+                "edge_defaults": {"success_count": 1, "fail_count": 0},
+            }))
+            .is_err(),
+            "结点名非字符串应报错"
+        );
+    }
+
+    #[test]
+    fn path_assemble_op_fail_closed_when_flag_off() {
+        let _serial = serial();
+        let options = BootOptions {
+            repo_root: repo_root(),
+            ..BootOptions::default()
+        };
+        block_on(assemble_runtime(&options)).expect("装配应成功（开关全关默认形态）");
+        let outcome = block_on_op(
+            "path.assemble",
+            json!({
+                "goal_schema": {"name": "goal", "fields": [{"name": "answer", "required": true, "kind": "string"}]},
+                "entry_fields": [],
+                "domain": "default",
+            }),
+        )
+        .expect("op 调用失败");
+        assert_eq!(outcome.get("ok").and_then(JsonValue::as_bool), Some(false));
+        assert_eq!(
+            outcome.get("enabled").and_then(JsonValue::as_bool),
+            Some(false),
+            "开关关闭 = fail-closed 结构化「未启用」"
+        );
+        assert!(
+            outcome.get("reason").and_then(JsonValue::as_str).is_some(),
+            "拒绝须带可读原因"
+        );
+    }
+
+    #[test]
+    fn path_assemble_op_stub_pool_roundtrip_and_tier_mapping() {
+        let _serial = serial();
+        let options = BootOptions {
+            repo_root: repo_root(),
+            path_assembly: PathAssemblyFlags {
+                assembler_enabled: true,
+                ..PathAssemblyFlags::default()
+            },
+            ..BootOptions::default()
+        };
+        // 直连形态：宿主句柄持有期间开关经 op 透传（装配编排出厂路径在
+        // assemble_runtime 尾段完成；此处复刻其开关值以覆盖桥 op 本体）
+        let host = EngineHost::boot(options).expect("装配失败");
+        call_engine_op("path.set_assembler_enabled", json!({ "enabled": true }))
+            .expect("开关透传失败");
+
+        let goal = json!({
+            "name": "goal",
+            "fields": [{"name": "answer", "required": true, "kind": "string"}],
+        });
+
+        // 常规池：意图解析 → 回答生成（两结点 = 一条合法路径）
+        let pool = json!([
+            {"type_name": "intent_parse", "input_fields": [], "output_fields": ["query"], "safety_tier": 0},
+            {"type_name": "answer_generate", "input_fields": ["query"], "output_fields": ["answer"], "safety_tier": 0},
+        ]);
+        let outcome = block_on_op(
+            "path.assemble",
+            json!({
+                "goal_schema": goal.clone(),
+                "entry_fields": [],
+                "domain": "default",
+                "pool": pool.clone(),
+                "approval_tier": "L0",
+            }),
+        )
+        .expect("op 调用失败");
+        assert_eq!(outcome.get("ok").and_then(JsonValue::as_bool), Some(true));
+        assert_eq!(outcome.get("enabled").and_then(JsonValue::as_bool), Some(true));
+        let candidates = outcome["candidates"].as_array().expect("候选须为数组");
+        assert!(!candidates.is_empty(), "目标可解应出候选");
+        let first_chain = candidates[0]["chain"].as_array().expect("候选链须为数组");
+        assert_eq!(
+            serde_json::to_string(&first_chain).unwrap(),
+            r#"["intent_parse","answer_generate"]"#,
+            "候选链 = 意图解析 → 回答生成"
+        );
+        // 候选 = 图定义数据（可序列化断言：JSON 往返不丢字段）
+        assert!(candidates[0].get("graph").and_then(JsonValue::as_object).is_some());
+        let serialized = serde_json::to_string(&outcome).expect("结果应可序列化");
+        let back: JsonValue = serde_json::from_str(&serialized).expect("序列化往返失败");
+        assert!(back["candidates"].is_array());
+        assert_eq!(back["stats"]["beam_extensions"].as_u64().map(|n| n > 0), Some(true));
+        let audit = outcome["audit"].as_array().expect("审计记录须为数组");
+        assert!(!audit.is_empty(), "组装审计应落记录");
+        assert_eq!(audit[0]["domain"], "default");
+        assert_eq!(outcome["max_safety_tier"], 0, "审批档 L0 → 放行档 0");
+
+        // 档位映射：高安全结点（安全档 2）在 L0 下被剪枝（无候选），
+        // 审批档 L2 → 放行档 2 后可入候选
+        let gated_pool = json!([
+            {"type_name": "intent_parse", "input_fields": [], "output_fields": ["intent"], "safety_tier": 0},
+            {"type_name": "deep_analysis", "input_fields": [], "output_fields": ["answer"], "safety_tier": 2},
+        ]);
+        let strict = block_on_op(
+            "path.assemble",
+            json!({
+                "goal_schema": goal.clone(),
+                "entry_fields": [],
+                "approval_tier": "L0",
+                "pool": gated_pool,
+            }),
+        )
+        .expect("op 调用失败");
+        assert!(
+            strict["candidates"].as_array().unwrap().is_empty(),
+            "L0 下高安全结点应被剪枝"
+        );
+        assert!(strict["fallback_reason"].as_str().is_some());
+        let permissive = block_on_op(
+            "path.assemble",
+            json!({
+                "goal_schema": goal.clone(),
+                "entry_fields": [],
+                "approval_tier": "L2",
+                "pool": gated_pool,
+            }),
+        )
+        .expect("op 调用失败");
+        assert_eq!(permissive["max_safety_tier"], 2, "审批档 L2 → 放行档 2");
+        let chains: Vec<Vec<&str>> = permissive["candidates"]
+            .as_array()
+            .unwrap()
+            .iter()
+            .map(|c| {
+                c["chain"]
+                    .as_array()
+                    .unwrap()
+                    .iter()
+                    .map(|n| n.as_str().unwrap())
+                    .collect()
+            })
+            .collect();
+        assert!(
+            chains.iter().any(|c| c.contains(&"deep_analysis")),
+            "L2 下高安全结点应可入候选"
+        );
+
+        host.stop().expect("关停失败");
+    }
+
+    #[test]
+    fn seed_path_import_op_is_idempotent_and_boot_mount_replays() {
+        let _serial = serial();
+        let options = BootOptions {
+            repo_root: repo_root(),
+            path_assembly: PathAssemblyFlags {
+                assembler_enabled: true,
+                ..PathAssemblyFlags::default()
+            },
+            ..BootOptions::default()
+        };
+        let dir = std::env::temp_dir().join(format!(
+            "inkling-seed-paths-{}",
+            uuid::Uuid::new_v4()
+        ));
+        std::fs::create_dir_all(&dir).unwrap();
+        let db_path = dir.join("edge_evidence.sqlite");
+        let edges = plan_seed_path_edges(&seed_paths_file()).expect("语料规划失败");
+
+        // 导入幂等：首导写入全部，重放同键跳过（imported = 0）
+        let first = block_on_op(
+            "path.import_seed_paths",
+            json!({
+                "db_path": db_path.to_string_lossy(),
+                "seed_edges": edges.clone(),
+            }),
+        )
+        .expect("导入失败");
+        let n = first["imported"].as_u64().expect("缺 imported");
+        assert!(n > 0, "首导应写入种子边");
+        let second = block_on_op(
+            "path.import_seed_paths",
+            json!({
+                "db_path": db_path.to_string_lossy(),
+                "seed_edges": edges,
+            }),
+        )
+        .expect("重放导入失败");
+        assert_eq!(
+            second["imported"].as_u64(),
+            Some(0),
+            "同键已存在 = 运行统计优先，种子不覆盖"
+        );
+
+        // 装配重放幂等：开关开启下重复装配（含尾部挂载段）不放大状态
+        let first_boot = block_on(assemble_runtime(&options)).expect("首次装配失败");
+        let second_boot = block_on(assemble_runtime(&options)).expect("重放装配失败");
+        assert_eq!(first_boot.tool_names, second_boot.tool_names);
+        assert_eq!(first_boot.event_types, second_boot.event_types);
+        assert_eq!(first_boot.seeds_injected, second_boot.seeds_injected);
+        let _ = std::fs::remove_dir_all(&dir);
     }
 }

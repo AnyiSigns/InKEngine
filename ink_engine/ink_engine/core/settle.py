@@ -371,7 +371,13 @@ class QualityGate(Protocol):
 
 @runtime_checkable
 class FingerprintCache(Protocol):
-    """指纹缓存接口（接口先行；缓存本体与顶替机制后置）。"""
+    """指纹缓存接口（接口先行；缓存本体与顶替机制后置）。
+
+    ``fingerprint`` = 缓存主键：注入上下文指纹（组装请求侧纯函数产出）
+    时与查找侧键一致；未注入时退化为图摘要（旧调用形态向后兼容）。
+    ``path_fingerprint`` = 路径图指纹（Graph.digest）；``domain`` = 上下文
+    域（容量淘汰按域分组）。两键为可选扩展参数，既有实现零破坏。
+    """
 
     async def upsert(
         self,
@@ -381,6 +387,8 @@ class FingerprintCache(Protocol):
         evidence_snapshot: list[dict[str, Any]],
         model_id: str,
         gate_passed: bool,
+        path_fingerprint: str = "",
+        domain: str = "",
     ) -> None: ...
 
 
@@ -388,7 +396,9 @@ class FingerprintSettleHook:
     """成功组合 → 指纹缓存 upsert（接口先行；缓存本体后置）。
 
     fail-closed：未注入缓存或未注入质量闸门 = 不入缓存；闸门结论只
-    记录布尔值（闸门评估发生在执行期宿主侧，本钩子零 LLM）。
+    记录布尔值（闸门评估发生在执行期宿主侧，本钩子零 LLM）。注入
+    ``context_fingerprint``（组装请求侧纯函数产出）时以之为缓存主键，
+    与组装查找侧键一致——未注入保持旧形态（图摘要作键，向后兼容）。
     """
 
     def __init__(
@@ -398,11 +408,13 @@ class FingerprintSettleHook:
         store: EdgeEvidenceStore | None = None,
         *,
         model_id: str = "",
+        context_fingerprint: str | None = None,
     ) -> None:
         self._cache = cache
         self._gate = gate
         self._store = store
         self._model_id = model_id
+        self._context_fingerprint = context_fingerprint
         # 本次 run 是否尝试了入库（供测试断言 fail-closed 语义）
         self.attempts: list[dict[str, Any]] = []
 
@@ -428,12 +440,16 @@ class FingerprintSettleHook:
             path_data = top.to_dict()
         except GraphDefinitionError:
             path_data = {"fingerprint": top.digest()}
+        # 缓存主键：注入上下文指纹时与组装查找侧一致；未注入退化为图摘要
+        key = self._context_fingerprint or top.digest()
         await self._cache.upsert(
-            top.digest(),
+            key,
             path=path_data,
             evidence_snapshot=snapshot,
             model_id=self._model_id,
             gate_passed=True,
+            path_fingerprint=top.digest(),
+            domain=ctx.domain,
         )
 
 

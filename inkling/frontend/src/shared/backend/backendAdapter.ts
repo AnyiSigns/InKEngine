@@ -1,0 +1,216 @@
+/**
+ * 后端适配器（可注入）：会话/回合/授权/审批/设置/备份/工具快照的宿主面。
+ *
+ * 前端不直接感知 IPC：所有宿主交互经本适配器接口，生产 = Tauri 宿主桥
+ * （invoke 直调），测试 = mock 后端注入（同一契约）；宿主不可用时
+ * `available=false`，应用回落夹具路径（浏览器 dev / 无壳环境）。
+ */
+
+import { createTauriInvoker, type TauriInvoker } from './tauriBridge';
+
+/** 会话记录（引擎 records 通道的会话集合数据形态）。 */
+export interface SessionRemoteRecord {
+  thread_id: string;
+  title: string;
+  created_at: number;
+  updated_at: number;
+  message_count: number;
+  current_leaf: number | null;
+  rename_count: number;
+  deleted?: boolean;
+}
+
+/** 分支树（checkpoint 链的多叶映射）。 */
+export interface SessionBranchTree {
+  session_id: string;
+  nodes: Array<{ leaf: number; parent: number | null; reason?: string | null }>;
+  current_leaf: number | null;
+}
+
+/** 回合结果（引擎事件流 + 步骤序列）。 */
+export interface RoundResult {
+  round_id: string;
+  thread_id: string;
+  reason: string;
+  output: string | null;
+  events: Array<Record<string, unknown>>;
+  steps: Array<unknown>;
+}
+
+/** 策略层路由预览（分类/链/计划/档位/守门）。 */
+export interface RoutePlanResult {
+  kind: string;
+  chain_id: string | null;
+  plan: Record<string, unknown>;
+  policy: { tier: string; max_simulations: number; quota_per_round: number };
+  quota_guarded: boolean;
+}
+
+/** 备份清单预览（恢复向导的面）。 */
+export interface BackupPreview {
+  entries_total: number;
+  will_overwrite: number;
+  total_size: number;
+  has_db: boolean;
+  created_at: number;
+}
+
+/** 组件构建产物清单条目（挂载后注册表刷新）。 */
+export interface ArtifactManifestEntry {
+  name: string;
+  url: string;
+  hash: string;
+  version: string;
+  view_forms?: string[];
+}
+
+/** 工具快照条目（四层兜底标签 + 工具族）。 */
+export interface ToolSnapshotEntry {
+  tool: string;
+  zh: string;
+  group: string;
+}
+
+/** 后端适配器接口（生产 = 宿主桥；测试 = mock）。 */
+export interface BackendAdapter {
+  /** 宿主可用性（false = 回落夹具路径）。 */
+  available: boolean;
+  status(): Promise<{ engine_ready: boolean; tool_count: number }>;
+  engineBoot(): Promise<{ snapshot: Record<string, unknown> }>;
+  roundSend(threadId: string, roundId: string, text: string, autoAccept?: boolean): Promise<RoundResult>;
+  roundAbort(roundId: string): Promise<{ aborted: boolean }>;
+  roundResume(
+    threadId: string,
+    key: string,
+    decision: string,
+    reason?: string,
+    editedContent?: unknown,
+  ): Promise<{ reason: string | null; state: Record<string, unknown> }>;
+  routePlan(text: string, tier: string): Promise<RoutePlanResult>;
+  sessionList(): Promise<SessionRemoteRecord[]>;
+  sessionCreate(): Promise<SessionRemoteRecord>;
+  sessionRename(threadId: string, title: string): Promise<SessionRemoteRecord>;
+  sessionDelete(threadId: string): Promise<unknown>;
+  sessionRefresh(threadId: string): Promise<SessionRemoteRecord>;
+  sessionTree(threadId: string): Promise<SessionBranchTree>;
+  sessionBranch(
+    threadId: string,
+    action: string,
+    targetLeaf: number | null,
+    editText?: string,
+  ): Promise<{ leaf: number; action: string }>;
+  authorizationState(): Promise<{ authorized: boolean; root: string | null }>;
+  workspaceAuthorize(path: string): Promise<{ authorized: boolean; root: string }>;
+  workspaceRevoke(): Promise<{ authorized: boolean }>;
+  approvalRequest(
+    threadId: string | null,
+    key: string,
+    action: Record<string, unknown>,
+    payload: Record<string, unknown> | null,
+  ): Promise<unknown>;
+  approvalResolve(
+    threadId: string | null,
+    key: string,
+    decision: string,
+    reason?: string,
+    editedContent?: unknown,
+  ): Promise<unknown>;
+  capabilityGet(): Promise<{ simulation_tier?: string }>;
+  capabilityPut(record: Record<string, unknown>): Promise<unknown>;
+  backupExport(dest: string): Promise<{ entries: number; size: number; has_db: boolean }>;
+  backupPreview(path: string): Promise<BackupPreview>;
+  backupRestore(path: string): Promise<{ restored_entries: number; snapshot: string }>;
+  toolsSnapshot(): Promise<{ tools: ToolSnapshotEntry[] }>;
+  componentsManifest(): Promise<{ artifacts: ArtifactManifestEntry[] }>;
+}
+
+/** 宿主不可用的空适配器（夹具回落的显式形态）。 */
+export function createUnavailableBackend(): BackendAdapter {
+  const unavailable = (): never => {
+    throw new Error('宿主后端不可用（请经桌面壳运行）');
+  };
+  return {
+    available: false,
+    status: unavailable as never,
+    engineBoot: unavailable as never,
+    roundSend: unavailable as never,
+    roundAbort: unavailable as never,
+    roundResume: unavailable as never,
+    routePlan: unavailable as never,
+    sessionList: unavailable as never,
+    sessionCreate: unavailable as never,
+    sessionRename: unavailable as never,
+    sessionDelete: unavailable as never,
+    sessionRefresh: unavailable as never,
+    sessionTree: unavailable as never,
+    sessionBranch: unavailable as never,
+    authorizationState: unavailable as never,
+    workspaceAuthorize: unavailable as never,
+    workspaceRevoke: unavailable as never,
+    approvalRequest: unavailable as never,
+    approvalResolve: unavailable as never,
+    capabilityGet: unavailable as never,
+    capabilityPut: unavailable as never,
+    backupExport: unavailable as never,
+    backupPreview: unavailable as never,
+    backupRestore: unavailable as never,
+    toolsSnapshot: unavailable as never,
+    componentsManifest: unavailable as never,
+  };
+}
+
+/** 宿主桥适配器（Tauri invoke 直调；缺宿主 = 不可用适配器）。 */
+export function createTauriBackend(invoker?: TauriInvoker): BackendAdapter {
+  const transport = invoker ?? createTauriInvoker();
+  if (!transport) return createUnavailableBackend();
+  const call = async <T>(cmd: string, args?: Record<string, unknown>): Promise<T> => {
+    const raw = await transport.invoke(cmd, args);
+    return raw as T;
+  };
+  return {
+    available: true,
+    status: () => call('backend_status'),
+    engineBoot: () => call('engine_boot'),
+    roundSend: (threadId, roundId, text, autoAccept) =>
+      call('round_send', { threadId, roundId, text, autoAccept }),
+    roundAbort: (roundId) => call('round_abort', { roundId }),
+    roundResume: (threadId, key, decision, reason, editedContent) =>
+      call('round_resume', { threadId, key, decision, reason, editedContent }),
+    routePlan: (text, tier) => call('route_plan', { text, tier }),
+    sessionList: async () => {
+      const result = await call<{ sessions: SessionRemoteRecord[] }>('session_list');
+      return result.sessions ?? [];
+    },
+    sessionCreate: () => call('session_create'),
+    sessionRename: (threadId, title) =>
+      call('session_rename', { threadId, title }),
+    sessionDelete: (threadId) => call('session_delete', { threadId }),
+    sessionRefresh: (threadId) => call('session_refresh', { threadId }),
+    sessionTree: (threadId) => call('session_tree', { threadId }),
+    sessionBranch: (threadId, action, targetLeaf, editText) =>
+      call('session_branch', { threadId, action, targetLeaf, editText }),
+    authorizationState: () => call('authorization_state'),
+    workspaceAuthorize: (path) => call('workspace_authorize', { path }),
+    workspaceRevoke: () => call('workspace_revoke'),
+    approvalRequest: (threadId, key, action, payload) =>
+      call('approval_request', { threadId, key, action, payload }),
+    approvalResolve: (threadId, key, decision, reason, editedContent) =>
+      call('approval_resolve', { threadId, key, decision, reason, editedContent }),
+    capabilityGet: () => call('capability_get'),
+    capabilityPut: (record) => call('capability_put', { record }),
+    backupExport: (dest) => call('backup_export', { dest }),
+    backupPreview: (path) => call('backup_preview', { path }),
+    backupRestore: (path) => call('backup_restore', { path }),
+    toolsSnapshot: () => call('tools_snapshot'),
+    componentsManifest: () => call('components_manifest'),
+  };
+}
+
+/** 后端选择（生产 = 宿主桥；无宿主 = 不可用适配器，调用方回落夹具）。 */
+export function createBackend(): BackendAdapter {
+  // 允许测试注入（window.__INKLING_TEST_BACKEND__ 形态由测试桩设置）
+  const testBackend = (window as unknown as { __INKLING_TEST_BACKEND__?: BackendAdapter })
+    .__INKLING_TEST_BACKEND__;
+  if (testBackend) return testBackend;
+  return createTauriBackend();
+}

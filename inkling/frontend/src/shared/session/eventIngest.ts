@@ -112,13 +112,17 @@ export function ingestEvent(hub: ChannelHub, event: HubEvent): void {
       const tool = String(payload.tool ?? payload.tool_name ?? '');
       if (!tool) break;
       const args = normalizeToolArgs(payload.args ?? payload.parameters);
+      const title = typeof payload.title === 'string' && payload.title.trim() !== ''
+        ? payload.title
+        : undefined;
       upsert(
-        { kind: 'tool', tool, permission: String(payload.permission ?? ''), toolStatus: 'running', id: nextId(), args },
+        { kind: 'tool', tool, title, permission: String(payload.permission ?? ''), toolStatus: 'running', id: nextId(), args },
         (m) =>
           m.kind === 'tool'
             ? {
                 ...m,
                 tool,
+                title: title ?? m.title,
                 permission: String(payload.permission ?? m.permission),
                 toolStatus: 'running' as const,
                 args: args || m.args,

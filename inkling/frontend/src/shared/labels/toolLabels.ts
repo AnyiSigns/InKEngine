@@ -73,12 +73,13 @@ export function lookupToolLabel(toolName: string): string | null {
 
 /**
  * 四层兜底解析工具展示名：
- * ① 内置词典 → ② title → ③ label → ④ 原始机器名（兜底保底，绝不出空）。
+ * ① title（宿主侧解析的 tool_start 载荷标题）→ ② 内置词典 →
+ * ③ label → ④ 原始机器名（兜底保底，绝不出空）。
  */
 export function resolveToolLabel(source: { tool: string; title?: unknown; label?: unknown }): string {
+  if (typeof source.title === 'string' && source.title.trim() !== '') return source.title.trim();
   const byDictionary = lookupToolLabel(source.tool);
   if (byDictionary) return byDictionary;
-  if (typeof source.title === 'string' && source.title.trim() !== '') return source.title.trim();
   if (typeof source.label === 'string' && source.label.trim() !== '') return source.label.trim();
   return source.tool;
 }
@@ -203,12 +204,13 @@ export interface ToolSemantics {
  */
 export function describeToolSemantics(message: {
   tool: string;
+  title?: string;
   permission?: string;
   summary?: string;
   args?: string;
 }): ToolSemantics {
   const family = classifyToolFamily(message.tool);
-  const label = resolveToolLabel({ tool: message.tool });
+  const label = resolveToolLabel({ tool: message.tool, title: message.title });
   const summary = message.summary ?? '';
   let args: Record<string, unknown> | null = null;
   if (message.args) {

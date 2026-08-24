@@ -7,7 +7,7 @@
  * 试穿与主题档切换即时生效、不动会话/草稿/折叠状态（独立存储面）。
  */
 
-import { useState } from 'react';
+import { useEffect, useState } from 'react';
 import {
   AppWindow, Check, ChevronDown, Cpu, FileText, FlaskConical, GitBranch, Info,
   KeyRound, Paintbrush, PlugZap, RotateCcw, ScrollText, ShieldCheck, Sparkles,
@@ -33,6 +33,10 @@ interface SettingsFormProps {
   bindValue?: unknown;
   onNavigate?: (view: ViewId) => void;
   onApplySettings?: (settings: Record<string, unknown>) => void;
+  /** 宿主能力档（启动时从后端装载：推演档位/推理档初值） */
+  initialCapability?: Partial<CapabilityValue>;
+  /** 备份/恢复向导入口（安全信任节接线） */
+  onOpenBackupWizard?: (mode: 'export' | 'restore') => void;
 }
 
 type SectionId = 'environment' | 'capability' | 'growth' | 'security' | 'connect' | 'appearance' | 'about';
@@ -56,16 +60,28 @@ const ENTRY_ITEMS: Array<{ view: ViewId; label: string; icon: typeof FlaskConica
   { view: 'edit_ui', label: '界面树', icon: Paintbrush, hint: 'ui_spec 编辑（悬浮窗）' },
 ];
 
-export function SettingsForm({ bindValue, onNavigate, onApplySettings }: SettingsFormProps) {
+export function SettingsForm({
+  bindValue,
+  onNavigate,
+  onApplySettings,
+  initialCapability,
+  onOpenBackupWizard,
+}: SettingsFormProps) {
   void bindValue;
   const [active, setActive] = useState<SectionId>('capability');
-  const [capability, setCapability] = useState<CapabilityValue>(DEFAULT_CAPABILITY);
+  const [capability, setCapability] = useState<CapabilityValue>({ ...DEFAULT_CAPABILITY, ...initialCapability });
   const [environment, setEnvironment] = useState<EnvironmentValue>(DEFAULT_ENVIRONMENT);
   const [growth, setGrowth] = useState<GrowthValue>(DEFAULT_GROWTH);
   const [security, setSecurity] = useState<SecurityValue>(DEFAULT_SECURITY);
   const [connect, setConnect] = useState<ConnectValue>(DEFAULT_CONNECT);
   const [appearance, setAppearance] = useState<AppearanceValue>(DEFAULT_APPEARANCE);
   const [aboutOpen, setAboutOpen] = useState(false);
+
+  // 宿主能力档装载（启动后异步到达：合并覆盖缺省档，不覆盖用户已编辑）
+  useEffect(() => {
+    if (!initialCapability) return;
+    setCapability((prev) => ({ ...prev, ...initialCapability }));
+  }, [initialCapability]);
 
   const patchSection = <T,>(setter: React.Dispatch<React.SetStateAction<T>>, patch: Partial<T>): void => {
     setter((prev) => ({ ...prev, ...patch }));
@@ -180,7 +196,7 @@ export function SettingsForm({ bindValue, onNavigate, onApplySettings }: Setting
             <GrowthGovernance value={growth} patch={(next) => patchSection(setGrowth, next)} />
           )}
           {active === 'security' && (
-            <SecurityTrust value={security} patch={(next) => patchSection(setSecurity, next)} />
+            <SecurityTrust value={security} patch={(next) => patchSection(setSecurity, next)} onOpenBackupWizard={onOpenBackupWizard} />
           )}
           {active === 'connect' && (
             <ConnectSection value={connect} patch={(next) => patchSection(setConnect, next)} />

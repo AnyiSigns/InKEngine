@@ -1,5 +1,5 @@
 /**
- * InKling 前端壳层：组件装配 + 夹具驱动 + UIRenderer 直渲。
+ * InKling 前端壳层：组件装配 + 宿主接线（可注入后端适配器）。
  *
  * 三栏布局：
  *   左 = 文件树工作区（可收缩，底部设置入口）
@@ -8,12 +8,12 @@
  * 功能入口（演化/推演/来源/管理台/架构/界面树）统一收进设置页。
  *
  * 分层纪律：App 只做装配（注册组件/领域包/通道注入/视图切换/
- * 宿主接线回调），不持有产品逻辑；布局树（ui_spec 夹具）即产品形态，
- * 集成期换 M0 真实数据。所有宿主接口以可注入回调/夹具表达，不接
- * 真实 IPC（桌面壳/Rust 后端就绪后替换接线点）。
+ * 宿主接线回调），不持有产品逻辑。宿主接口经可注入后端适配器
+ * （生产 = Tauri 宿主桥；测试 = mock 后端；浏览器 dev = 夹具路径），
+ * 适配器不可用时回落夹具会话（既有行为不崩）。
  */
 
-import { useEffect, useMemo, useRef, useState } from 'react';
+import { useCallback, useEffect, useMemo, useRef, useState } from 'react';
 
 import { registerBuiltinComponents } from '@/components';
 import type { ViewId } from '@/renderer/uiSpecTypes';
@@ -21,11 +21,23 @@ import type { UISpec } from '@/renderer/uiSpecTypes';
 import { UIRenderer } from '@/renderer/bootRenderer';
 import { loadDomainComponents } from '@/domains/loader';
 import { ChannelHub } from '@/shared/session/channelHub';
+import { isEventTypeName } from '@/shared/session/eventTypes';
 import { runFixtureSession } from '@/shared/session/fixtureScript';
-import { submitUserMessage, submitAttachments } from '@/shared/session/eventIngest';
-import type { AttachmentAsset } from '@/shared/session/eventIngest';
+import {
+  submitUserMessage,
+  submitAttachments,
+  ingestEvent,
+  setStreaming,
+  commitStreaming,
+  type AttachmentAsset,
+} from '@/shared/session/eventIngest';
 import { MemorySessionStore } from '@/shared/session/sessionStore';
-import type { SessionRecord } from '@/shared/session/sessionStore';
+import type { SessionRecord, SessionStore } from '@/shared/session/sessionStore';
+import { RemoteSessionStore, createSessionStoreFrom } from '@/shared/backend/remoteSessionStore';
+import { createBackend } from '@/shared/backend/backendAdapter';
+import type { BackendAdapter } from '@/shared/backend/backendAdapter';
+import { refreshArtifactManifest } from '@/renderer/artifactLoader.tsx';
+import { BackupWizard, backupOpsFrom, type BackupMode } from '@/components/floaters/backup_wizard';
 import { logger } from '@/shared/logger';
 
 import uiSpecFixture from './data/ui_spec.fixture.json';
@@ -38,27 +50,36 @@ import type { GraphSnapshot } from './shared/session/inspectTypes';
 
 function bootChannelHub(): ChannelHub {
   const snapshots = inspectSnapshotsFixture as unknown as InspectSnapshots;
-  const hub = new ChannelHub({
+  return new ChannelHub({
     inspect_graph: snapshots.inspect_graph,
     inspect_rules: snapshots.inspect_rules,
     inspect_knowledge: snapshots.inspect_knowledge,
     inspect_ui: snapshots.inspect_ui,
     inspect_tools: snapshots.inspect_tools,
   });
-  return hub;
+}
+
+/** 夹具会话存储（无宿主回落形态：内存 + 夹具种子）。 */
+function fixtureSessionStore(): SessionStore {
+  return new MemorySessionStore(sessionRecordsFixture as unknown as SessionRecord[]);
 }
 
 export default function App() {
   const [view, setView] = useState<ViewId>('main');
   const [liveSpec, setLiveSpec] = useState<UISpec>(() => uiSpecFixture as unknown as UISpec);
   const hubRef = useRef<ChannelHub | null>(null);
-  const sessionStoreRef = useRef<MemorySessionStore | null>(null);
   const [activeSessionId, setActiveSessionId] = useState('');
+  const [backupMode, setBackupMode] = useState<BackupMode | null>(null);
+  const [capabilityRecord, setCapabilityRecord] = useState<Record<string, unknown> | null>(null);
   if (!hubRef.current) {
     hubRef.current = bootChannelHub();
   }
+
+  // 宿主适配器（生产 = Tauri 宿主桥；测试 = mock；浏览器 = 不可用）
+  const [backend] = useState<BackendAdapter>(() => createBackend());
+  const sessionStoreRef = useRef<SessionStore | null>(null);
   if (!sessionStoreRef.current) {
-    sessionStoreRef.current = new MemorySessionStore(sessionRecordsFixture as unknown as SessionRecord[]);
+    sessionStoreRef.current = createSessionStoreFrom(backend, fixtureSessionStore);
   }
   const sessionStore = sessionStoreRef.current;
 
@@ -68,46 +89,177 @@ export default function App() {
     loadDomainComponents(domainManifestFixture as Parameters<typeof loadDomainComponents>[0]);
   }, []);
 
-  // 夹具会话驱动（演示形态；集成期替换为真实事件源）
+  // 产物组件清单刷新（挂载后注册表刷新；宿主可用才拉取）
   useEffect(() => {
+    void refreshArtifactManifest(backend.available ? backend : null);
+  }, [backend]);
+
+  // 宿主就绪时：装配引擎 + 会话列表重载 + 能力档初始化
+  useEffect(() => {
+    if (!backend.available) return;
+    void backend
+      .engineBoot()
+      .then(() => logger.info('app', '引擎装配完成'))
+      .catch((err) => logger.warn('app', '引擎装配失败（通知后续回合操作）', { err: String(err) }));
+    const store = sessionStore instanceof RemoteSessionStore ? sessionStore : null;
+    void store?.reload();
+    void backend
+      .capabilityGet()
+      .then((value) => setCapabilityRecord(value as Record<string, unknown>))
+      .catch(() => undefined);
+  }, [backend, sessionStore]);
+
+  // 夹具会话驱动（无宿主演示形态；宿主可用时关闭）
+  useEffect(() => {
+    if (backend.available) return undefined;
     const stop = runFixtureSession(hubRef.current as ChannelHub, { baseDelayMs: 250 });
-    logger.info('app', '夹具会话已启动（演示形态，集成期换 M0 真实数据）');
+    logger.info('app', '夹具会话已启动（演示形态，无宿主环境回落）');
     return stop;
-  }, []);
+  }, [backend]);
+
+  const activationRound = (sessionId: string): void => {
+    const hub = hubRef.current as ChannelHub;
+    const record = sessionStore.get(sessionId);
+    hub.setState({ messages: record?.messages ?? [], roundId: null, streaming: false });
+    setActiveSessionId(sessionId);
+  };
 
   const activateSession = (sessionId: string): void => {
-    const record = sessionStore.get(sessionId);
-    if (!record) return;
     sessionStore.touch(sessionId);
-    setActiveSessionId(sessionId);
-    // 切换 = 装入会话消息（夹具记录消息为空时保留现有流，演示不崩）
-    if (record.messages.length > 0) {
-      hubRef.current?.setState({ messages: record.messages, roundId: null, streaming: false });
-    }
+    activationRound(sessionId);
   };
+
+  const sendToEngine = useCallback((text: string): void => {
+    const hub = hubRef.current as ChannelHub;
+    if (!backend.available || !activeSessionId) {
+      submitUserMessage(hub, text);
+      return;
+    }
+    const roundId = `round-${Date.now()}`;
+    setStreaming(hub, true);
+    void backend
+      .roundSend(activeSessionId, roundId, text, false)
+      .then((outcome) => {
+        for (const event of outcome.events ?? []) {
+          const type = String(event.type ?? '');
+          if (isEventTypeName(type)) {
+            ingestEvent(hub, { type, payload: (event.payload ?? {}) as Record<string, unknown>, at: Date.now() });
+          }
+        }
+        commitStreaming(hub);
+        // 回合后刷新：消息计数 + 首回合标题生成
+        void backend.sessionRefresh(activeSessionId).then((record) => {
+          if (sessionStore instanceof RemoteSessionStore) sessionStore.applyRemote(record);
+        }).catch(() => undefined);
+      })
+      .catch((err: unknown) => {
+        setStreaming(hub, false);
+        ingestEvent(hub, { type: 'error', payload: { message: String(err) }, at: Date.now() });
+      });
+  }, [backend, activeSessionId, sessionStore]);
+
+  const abortRound = useCallback((): void => {
+    const hub = hubRef.current as ChannelHub;
+    const roundId = (hub.getSnapshot().roundId as string | null) ?? '';
+    if (backend.available && roundId) {
+      void backend.roundAbort(roundId).catch(() => undefined);
+    }
+    setStreaming(hub, false);
+    hub.setState({ roundId: null });
+    logger.info('app', '回合已中止（事件弧关断；可重试/换方向）', { roundId });
+  }, [backend]);
+
+  const resolveReview = useCallback(
+    (resolution: 'accept' | 'reject' | 'edit' | 'terminate', editedContent?: string): void => {
+      const hub = hubRef.current as ChannelHub;
+      if (!backend.available || !activeSessionId) {
+        hub.setState({ pendingReview: null });
+        return;
+      }
+      const pending = (hub.getSnapshot().pendingReview ?? {}) as Record<string, unknown>;
+      const key = typeof pending.key === 'string' && pending.key ? pending.key : null;
+      if (!key) {
+        hub.setState({ pendingReview: null });
+        return;
+      }
+      const decision = resolution === 'accept' ? 'accept' : resolution === 'reject' ? 'reject' : resolution === 'edit' ? 'edit' : 'accept';
+      void backend
+        .roundResume(activeSessionId, key, decision, undefined, editedContent)
+        .then(() => {
+          hub.setState({ pendingReview: null });
+          setStreaming(hub, false);
+        })
+        .catch((err: unknown) => {
+          hub.setState({ pendingReview: null });
+          ingestEvent(hub, { type: 'error', payload: { message: `审批续跑失败: ${String(err)}` }, at: Date.now() });
+        });
+    },
+    [backend, activeSessionId],
+  );
 
   const resendMessage = (messageId: string, newText: string): void => {
     const hub = hubRef.current as ChannelHub;
-    const snapshot = hub.getSnapshot();
-    const messages = snapshot.messages.map((message) =>
-      message.id === messageId && message.kind === 'text' ? { ...message, content: newText } : message,
-    );
-    hub.setState({ ...snapshot, messages });
-    logger.info('app', '消息编辑重发（夹具态本地回执；集成期接引擎回合入口）', { messageId, newText });
+    if (!backend.available || !activeSessionId) {
+      const snapshot = hub.getSnapshot();
+      const messages = snapshot.messages.map((message) =>
+        message.id === messageId && message.kind === 'text' ? { ...message, content: newText } : message,
+      );
+      hub.setState({ ...snapshot, messages });
+      return;
+    }
+    void backend
+      .sessionTree(activeSessionId)
+      .then((tree) => backend.sessionBranch(activeSessionId, 'branch', tree.current_leaf, newText))
+      .then((result) => {
+        logger.info('app', '编辑重发已分支（新叶接管续跑）', { messageId, leaf: result.leaf });
+      })
+      .catch((err: unknown) => ingestEvent(hub, { type: 'error', payload: { message: `分支失败: ${String(err)}` }, at: Date.now() }));
   };
 
   const branchFromMessage = (messageId: string, branchLabel: string): void => {
     const hub = hubRef.current as ChannelHub;
-    const snapshot = hub.getSnapshot();
-    hub.setState({
-      ...snapshot,
-      sourceTraces: [
-        ...snapshot.sourceTraces,
-        { id: `trace-b-${Date.now()}`, sourceType: 'evidence', title: `分支已创建：${branchLabel}`, detail: `源自消息 ${messageId}`, createdAt: Date.now() },
-      ],
-    });
-    logger.info('app', '由此分支（夹具态本地留痕；集成期接引擎 branch 入口）', { messageId, branchLabel });
+    if (!backend.available || !activeSessionId) {
+      const snapshot = hub.getSnapshot();
+      hub.setState({
+        ...snapshot,
+        sourceTraces: [
+          ...snapshot.sourceTraces,
+          { id: `trace-b-${Date.now()}`, sourceType: 'evidence', title: `分支已创建：${branchLabel}`, detail: `源自消息 ${messageId}`, createdAt: Date.now() },
+        ],
+      });
+      logger.info('app', '由此分支（夹具态本地留痕；无宿主回落）', { messageId, branchLabel });
+      return;
+    }
+    void backend
+      .sessionTree(activeSessionId)
+      .then((tree) => backend.sessionBranch(activeSessionId, 'branch', tree.current_leaf, undefined))
+      .then((result) => {
+        logger.info('app', '由此分支（新叶已生成）', { messageId, branchLabel, leaf: result.leaf });
+      })
+      .catch((err: unknown) => ingestEvent(hub, { type: 'error', payload: { message: `分支失败: ${String(err)}` }, at: Date.now() }));
   };
+
+  const backupOps = backupOpsFrom(backend);
+
+  const applySettings = useCallback(
+    (settings: Record<string, unknown>): void => {
+      const capability = (settings.capability ?? {}) as { simulationTier?: string; reasoningProfileId?: string };
+      if (!backend.available) return;
+      const record: Record<string, unknown> = {
+        simulation_tier: capability.simulationTier ?? 'light',
+      };
+      if (capability.reasoningProfileId) record.reasoning_profile = capability.reasoningProfileId;
+      void backend.capabilityPut(record).catch(() => undefined);
+    },
+    [backend],
+  );
+
+  const initialCapability = capabilityRecord
+    ? {
+        simulationTier: (capabilityRecord.simulation_tier as 'off' | 'light' | 'full' | undefined) ?? undefined,
+        reasoningProfileId: (capabilityRecord.reasoning_profile as string | undefined) ?? undefined,
+      }
+    : undefined;
 
   return (
     // .ink-app 由 index.css 布局：html/body/#root 100% 高度链 + 100% 高度，
@@ -118,10 +270,8 @@ export default function App() {
         hub={hubRef.current}
         activeView={view}
         onNavigate={setView}
-        onSend={(text) => {
-          submitUserMessage(hubRef.current as ChannelHub, text);
-          logger.info('app', '用户输入提交（演示形态本地回执；集成期接引擎回合入口）', { length: text.length });
-        }}
+        onSend={sendToEngine}
+        onAbort={abortRound}
         onAttachments={(assets) => {
           submitAttachments(hubRef.current as ChannelHub, assets as AttachmentAsset[]);
           logger.info('app', '附件提交（媒体策略分发后落位）', { count: assets.length });
@@ -137,19 +287,14 @@ export default function App() {
         sessionStore={sessionStore}
         activeSessionId={activeSessionId}
         architectureBaseline={architectureBaselineFixture as unknown as GraphSnapshot}
-        onResolveReview={(resolution) => {
-          const hub = hubRef.current as ChannelHub;
-          if (!hub) return;
-          hub.setState({ pendingReview: null });
-          hub.setState({
-            reviewHistory: [
-              ...hub.getSnapshot().reviewHistory,
-              { id: `r-${Date.now()}`, title: '审批卡决议', verdict: resolution, at: Date.now() },
-            ],
-          });
-          logger.info('app', '审批卡决议（夹具态本地落位，集成期对接 resume 管线）', { resolution });
-        }}
+        onResolveReview={resolveReview}
+        onOpenBackupWizard={(mode) => setBackupMode(mode)}
+        onApplySettings={applySettings}
+        initialCapability={initialCapability}
       />
+      {backupMode && (
+        <BackupWizard mode={backupMode} ops={backupOps} onClose={() => setBackupMode(null)} />
+      )}
     </div>
   );
 }

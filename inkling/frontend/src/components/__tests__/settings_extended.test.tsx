@@ -99,8 +99,9 @@ describe('安全信任节', () => {
     expect((screen.getByLabelText('网络域名白名单') as HTMLInputElement).value).toBe('docs.example.org');
     await user.click(screen.getByText('导出审计日志'));
     expect(await screen.findByText('审计日志已导出')).toBeInTheDocument();
-    expect(screen.getByText('导出配置')).toBeInTheDocument();
-    expect(screen.getByText('恢复配置')).toBeInTheDocument();
+    expect(screen.getByText('一键导出')).toBeInTheDocument();
+    expect(screen.getByText('恢复向导')).toBeInTheDocument();
+    expect(screen.getByText(/导出 = 数据目录一键打包/)).toBeInTheDocument();
   });
 });
 

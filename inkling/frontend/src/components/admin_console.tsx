@@ -22,16 +22,18 @@ import type { FeedbackPhase } from '@/components/floaters/feedback';
 interface AdminConsoleProps {
   bindValue?: unknown;
   registryStore?: AppRegistryStore;
+  /** 备份/恢复向导入口（管理台导出/恢复入口接线） */
+  onOpenBackupWizard?: (mode: 'export' | 'restore') => void;
 }
 
 const seededStore = new MemoryAppRegistryStore(registryFixture as unknown as AppRegistryEntry[]);
 
-export function AdminConsole({ registryStore = seededStore }: AdminConsoleProps) {
+export function AdminConsole({ registryStore = seededStore, onOpenBackupWizard }: AdminConsoleProps) {
   const store = registryStore;
-  return <AdminConsoleInner store={store} />;
+  return <AdminConsoleInner store={store} onOpenBackupWizard={onOpenBackupWizard} />;
 }
 
-function AdminConsoleInner({ store }: { store: AppRegistryStore }) {
+function AdminConsoleInner({ store, onOpenBackupWizard }: { store: AppRegistryStore; onOpenBackupWizard?: (mode: 'export' | 'restore') => void }) {
   const [phase, setPhase] = useState<FeedbackPhase>('idle');
   const entries = store.list();
   const groupsBySource = (['baseline', 'mcp', 'ai'] as const)
@@ -49,6 +51,9 @@ function AdminConsoleInner({ store }: { store: AppRegistryStore }) {
       <div className="flex items-center gap-3">
         <div className="text-[11px] ink-text-muted">应用注册表（{entries.length} 条）</div>
         <Feedback phase={phase} okText="已应用" failText="操作失败" className="ml-auto" />
+        <Button size="sm" variant="secondary" data-ui="admin_backup_entry" onClick={() => onOpenBackupWizard?.('export')}>
+          <Archive size={11} strokeWidth={1.6} /> 导出数据
+        </Button>
       </div>
       {groupsBySource.map((group) => (
         <section key={group.source} data-ui={`registry_group_${group.source}`}>

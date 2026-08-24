@@ -40,9 +40,11 @@ export const DEFAULT_SECURITY: SecurityValue = {
 interface SecurityTrustProps {
   value: SecurityValue;
   patch: (next: Partial<SecurityValue>) => void;
+  /** 备份/恢复向导入口（宿主接线：导出 = 一键打包；恢复 = 校验预览 + 快照） */
+  onOpenBackupWizard?: (mode: 'export' | 'restore') => void;
 }
 
-export function SecurityTrust({ value, patch }: SecurityTrustProps) {
+export function SecurityTrust({ value, patch, onOpenBackupWizard }: SecurityTrustProps) {
   const [auditPhase, setAuditPhase] = useState<FeedbackPhase>('idle');
 
   return (
@@ -138,13 +140,27 @@ export function SecurityTrust({ value, patch }: SecurityTrustProps) {
           <Feedback phase={auditPhase} okText="审计日志已导出" failText="导出失败" />
         </div>
         <div className="flex flex-wrap gap-2">
-          <Button size="sm" variant="secondary"><Download size={11} strokeWidth={1.6} /> 导出配置</Button>
-          <Button size="sm" variant="secondary"><Upload size={11} strokeWidth={1.6} /> 恢复配置</Button>
+          <Button
+            size="sm"
+            variant="secondary"
+            data-ui="backup_export_entry"
+            onClick={() => onOpenBackupWizard?.('export')}
+          >
+            <Download size={11} strokeWidth={1.6} /> 一键导出
+          </Button>
+          <Button
+            size="sm"
+            variant="secondary"
+            data-ui="backup_restore_entry"
+            onClick={() => onOpenBackupWizard?.('restore')}
+          >
+            <Upload size={11} strokeWidth={1.6} /> 恢复向导
+          </Button>
           <Button size="sm" variant="ghost">清除本地配置</Button>
         </div>
         <p className="flex items-center gap-1.5 text-[10px] leading-relaxed ink-text-faint">
           <ShieldCheck size={10} strokeWidth={1.6} className="shrink-0" aria-hidden />
-          导出恢复 = 配置快照（不含搜索 key 明文）；恢复走二次确认。
+          导出 = 数据目录一键打包（含会话/记忆/补丁链快照）；恢复前自动快照当前态（防误恢复）。
         </p>
       </div>
     </div>

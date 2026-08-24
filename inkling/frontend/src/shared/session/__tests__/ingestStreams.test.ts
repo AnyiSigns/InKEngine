@@ -74,3 +74,24 @@ describe('附件落位（submitAttachments）', () => {
     expect(hub.getSnapshot().messages).toHaveLength(0);
   });
 });
+
+describe('tool_start title 通道', () => {
+  it('事件载荷 title 落位工具消息（渲染以 title 为准）', () => {
+    const hub = new ChannelHub();
+    ingestEvent(hub, ev('tool_start', { step_id: 'tool:1', tool: 'fetch_web', permission: 'allow', title: '网络抓取' }));
+    expect(hub.getSnapshot().messages[0]).toMatchObject({ kind: 'tool', tool: 'fetch_web', title: '网络抓取' });
+  });
+
+  it('无 title 载荷 = 不落 title 字段（渲染走本地兜底链）', () => {
+    const hub = new ChannelHub();
+    ingestEvent(hub, ev('tool_start', { step_id: 'tool:1', tool: 'inspect_graph', permission: 'allow' }));
+    expect(hub.getSnapshot().messages[0]).toMatchObject({ title: undefined });
+  });
+
+  it('空字符串 title 视为缺省（不覆盖既有 title）', () => {
+    const hub = new ChannelHub();
+    ingestEvent(hub, ev('tool_start', { step_id: 'tool:1', tool: 'fetch_web', permission: 'allow', title: '网络抓取' }));
+    ingestEvent(hub, ev('tool_start', { step_id: 'tool:1', tool: 'fetch_web', permission: 'allow', title: '' }));
+    expect(hub.getSnapshot().messages[0]).toMatchObject({ title: '网络抓取' });
+  });
+});

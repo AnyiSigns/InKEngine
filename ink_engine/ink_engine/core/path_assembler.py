@@ -46,7 +46,7 @@ import json
 import re
 import time
 from collections.abc import Callable, Collection, Mapping, Sequence
-from dataclasses import dataclass, field
+from dataclasses import dataclass, field, replace
 from typing import Any, Protocol, runtime_checkable
 
 from .contracts import (
@@ -63,7 +63,7 @@ from .edge_evidence import (
     multi_path_trigger,
 )
 from .fingerprint import graph_fingerprint
-from .graph import Graph
+from .graph import Graph, TerminateReason
 from .link_validator import (
     produced_field_names,
     required_field_names,
@@ -72,6 +72,7 @@ from .link_validator import (
 from .logging import get_logger
 from .registry import NodeTypeRegistry
 from .retrieval import RetrievedChunk, Retriever
+from .run_result import RunOptions
 from .schema_validator import SchemaSpec
 from .state import StateSchema
 
@@ -209,6 +210,54 @@ class AssemblyRequest:
             return tuple(sorted(required))
         return tuple(sorted(produced_field_names(self.goal_schema)))
 
+    def to_dict(self) -> dict[str, Any]:
+        """序列化为数据形态（供 JSON 通道传递；运行态注入件不入键）。
+
+        闸门与草稿源为运行态对象（协议实现），不随数据形态走——通道
+        侧在重建时按注入点补挂（``from_dict`` 的注入参数）。
+        """
+        data: dict[str, Any] = {
+            "domain": self.domain,
+            "max_safety_tier": self.max_safety_tier,
+            "top_k": self.top_k,
+            "entry_fields": list(self.entry_fields),
+        }
+        if self.goal_schema is not None:
+            data["goal_schema"] = self.goal_schema.to_dict()
+        if self.state_schema is not None:
+            data["state_schema"] = self.state_schema.to_dict()
+        if self.graph_name is not None:
+            data["graph_name"] = self.graph_name
+        return data
+
+    @classmethod
+    def from_dict(
+        cls,
+        data: Mapping[str, Any],
+        *,
+        quality_gate: QualityGate | None = None,
+        draft_provider: DraftProvider | None = None,
+        state_schema: StateSchema | None = None,
+    ) -> AssemblyRequest:
+        """从数据形态重建（数据键 + 运行态注入件分列；缺省键 = 默认值）。"""
+        raw_goal = data.get("goal_schema")
+        raw_state = data.get("state_schema")
+        if raw_state is not None:
+            state_schema = StateSchema.from_dict(raw_state)
+        return cls(
+            goal_schema=(
+                SchemaSpec.from_dict(raw_goal) if raw_goal is not None else None
+            ),
+            entry_fields=tuple(data.get("entry_fields") or ()),
+            domain=str(data.get("domain", DEFAULT_DOMAIN)),
+            max_safety_tier=int(data.get("max_safety_tier", DEFAULT_MAX_SAFETY_TIER)),
+            quality_gate=quality_gate,
+            state_schema=state_schema,
+            draft_provider=draft_provider,
+            top_k=int(data.get("top_k", DEFAULT_TOP_K)),
+            graph_name=data.get("graph_name"),
+        )
+
 
 @dataclass(frozen=True, slots=True)
 class AssemblyEnvelope:
@@ -267,8 +316,39 @@ class AssemblyCandidate:
 
 
 @dataclass(frozen=True, slots=True)
+class CanaryVerdict:
+    """候选图的 canary 验证结论（重建 + 单回合执行；风险前置校验）。
+
+    Attributes:
+        rank: 对应候选序号（从 1 起）。
+        digest: 图定义指纹（重建后重算，校验定义身份）。
+        ok: 重建/编译/单回合收尾全部通过（False = 校验失败留痕）。
+        executed: 是否执行了单回合（False = 仅重建级校验）。
+        terminal: 单回合终止原因（执行过时；重建级 = None）。
+        error: 失败原因（重建失败/执行失败/异常收尾；None = 通过）。
+    """
+
+    rank: int
+    digest: str
+    ok: bool
+    executed: bool = False
+    terminal: str | None = None
+    error: str | None = None
+
+    def to_dict(self) -> dict[str, Any]:
+        return {
+            "rank": self.rank,
+            "digest": self.digest,
+            "ok": self.ok,
+            "executed": self.executed,
+            "terminal": self.terminal,
+            "error": self.error,
+        }
+
+
+@dataclass(frozen=True, slots=True)
 class AssemblyResult:
-    """组装结果（只读候选清单 + 观测统计，供观察/审计）。
+    """组装结果（只读候选清单 + 观测统计 + 验证/审计留痕）。
 
     Attributes:
         candidates: 候选路径（按证据分降序；空 = 无解或零生效）。
@@ -281,6 +361,10 @@ class AssemblyResult:
         llm_attempts: 草稿源调用次数（0 = 未启用草稿层）。
         stats: 统计口径（beam_extensions / edge_score_calls /
             repair_attempts / llm_attempts）——规模基准与审计用。
+        canary: 各候选的 canary 验证结论（重建 + 单回合；指令入口
+            装配时产出，只读组装不产出——观测侧零影响）。
+        audit: 本结果随附的审计留痕（append-only 记录；落库归
+            sink/audit_sink 回调，本字段只携带不落库）。
     """
 
     candidates: tuple[AssemblyCandidate, ...] = ()
@@ -291,6 +375,8 @@ class AssemblyResult:
     fallback_reason: str | None = None
     llm_attempts: int = 0
     stats: dict[str, int] = field(default_factory=dict)
+    canary: tuple[CanaryVerdict, ...] = ()
+    audit: tuple[dict[str, Any], ...] = ()
 
     @property
     def is_empty(self) -> bool:
@@ -306,6 +392,8 @@ class AssemblyResult:
             "fallback_reason": self.fallback_reason,
             "llm_attempts": self.llm_attempts,
             "stats": dict(self.stats),
+            "canary": [v.to_dict() for v in self.canary],
+            "audit": [dict(r) for r in self.audit],
         }
 
 
@@ -1237,17 +1325,270 @@ class PathAssembler:
         result: AssemblyResult,
     ) -> dict[str, Any]:
         """组装审计记录（append-only 留痕；历史图定义快照随记录落库）。"""
+        return assembly_audit_record(
+            request,
+            goal,
+            result,
+            ts=self._now if self._now is not None else time.time(),
+        )
+
+
+def assembly_audit_record(
+    request: AssemblyRequest,
+    goal: tuple[str, ...],
+    result: AssemblyResult,
+    *,
+    ts: float,
+) -> dict[str, Any]:
+    """组装审计记录构建（纯函数；指令入口与只读组装共用同一形态）。"""
+    return {
+        "ts": ts,
+        "domain": request.domain,
+        "fingerprint": result.fingerprint,
+        "goal_fields": list(goal),
+        "entry_fields": list(request.entry_fields),
+        "candidates": [c.to_dict() for c in result.candidates],
+        "llm_attempts": result.llm_attempts,
+        "fallback_reason": result.fallback_reason,
+        "stats": dict(result.stats),
+    }
+
+
+# ── canary 兼容验证链路（重建 + 单回合；产物执行前的风险前置）──────
+
+def canary_instantiate(
+    graph_data: Mapping[str, Any],
+    *,
+    registry: NodeTypeRegistry,
+    edge_registry: Any = None,
+) -> Graph:
+    """候选图定义数据 → 重建实例（``from_dict(validate=True)`` 口径）。
+
+    重建即校验：结构非法（悬挂入口/未知类型引用/边解析失败）在建图期
+    暴露，不延后到执行期。重建图与组装产物同指纹（契约快照随图定义
+    数据落库，注册表现状变化不影响重建语义）。
+    """
+    return Graph.from_dict(
+        dict(graph_data), registry=registry, edge_registry=edge_registry, validate=True
+    )
+
+
+@dataclass(frozen=True, slots=True)
+class CanaryResult:
+    """单回合执行结果（无存储、无预算约束；stub 模型由使用方 RunOptions 注入）。"""
+
+    ok: bool
+    reason: str
+    final_state: dict[str, Any]
+    events_emitted: int
+
+    def to_dict(self) -> dict[str, Any]:
         return {
-            "ts": self._now if self._now is not None else time.time(),
-            "domain": request.domain,
-            "fingerprint": result.fingerprint,
-            "goal_fields": list(goal),
-            "entry_fields": list(request.entry_fields),
-            "candidates": [c.to_dict() for c in result.candidates],
-            "llm_attempts": result.llm_attempts,
-            "fallback_reason": result.fallback_reason,
-            "stats": dict(result.stats),
+            "ok": self.ok,
+            "reason": self.reason,
+            "final_state": self.final_state,
+            "events_emitted": self.events_emitted,
         }
+
+
+async def canary_round(
+    graph: Graph,
+    *,
+    entry_state: Mapping[str, Any] | None = None,
+    options: RunOptions | None = None,
+) -> CanaryResult:
+    """stub 一回合执行：图合法 + 单回合走通（无存储、无预算约束）。
+
+    校验语义：正常收尾（reply/stop）且无挂起卡 = 可以通过；异常收尾
+    （error/budget_exceeded/cancelled）或挂起 = 失败。stub 模型注入归
+    使用方（RunOptions 承载——样例模型/传输出口均直接替换）。执行不发
+    checkpoint（storage=None）；规模可控（一级图单回合）。
+    """
+    from .executor import Engine
+
+    engine = Engine(graph, options=options or RunOptions())
+    result = await engine.ainvoke(dict(entry_state or {}))
+    ok = result.reason in (TerminateReason.REPLY, TerminateReason.STOP) and (
+        result.interrupt is None
+    )
+    return CanaryResult(
+        ok=ok,
+        reason=result.reason,
+        final_state=dict(result.state),
+        events_emitted=result.events_emitted,
+    )
+
+
+# ── 组装指令入口（组装产物执行入口；壳侧 op 与策略层调用）──────────
+
+@dataclass(frozen=True, slots=True)
+class PathAssemblyRuntime:
+    """指令运行期：注册表/证据/开关的持有者，提供组装指令执行入口。
+
+    Args:
+        registry: 结点类型注册表（池子底座；带契约类型参与组装）。
+        evidence_store: 边证据存储（只读；None = 零证据口径）。
+        retriever: 候选缩小检索器（None = 默认注入内存暴力 top-N）。
+        config: 机制装配开关（None = 直连可用；enabled=False = 零生效）。
+        sink: 审计落库回调（boot 级装配注入；append-only）。
+        now: 当前时间戳（确定性注入；None = 实时）。
+        canary: 是否执行单回合验证（False = 仅重建级校验；默认 True）。
+    """
+
+    registry: NodeTypeRegistry
+    evidence_store: EdgeEvidenceStore | None = None
+    retriever: Retriever | None = None
+    config: PathAssemblyConfig | None = None
+    sink: Callable[[dict[str, Any]], Any] | None = None
+    now: float | None = None
+    canary: bool = True
+
+    def bind(self) -> PathAssembler:
+        """构造只读组装器（同源配置；单次绑定复用）。"""
+        return PathAssembler(
+            registry=self.registry,
+            evidence_store=self.evidence_store,
+            retriever=self.retriever,
+            config=self.config,
+            sink=self.sink,
+            now=self.now,
+        )
+
+    async def assemble_plan(
+        self,
+        request: AssemblyRequest,
+        *,
+        audit_sink: Callable[[dict[str, Any]], Any] | None = None,
+    ) -> AssemblyResult:
+        """组装指令：组装 + canary 验证链路 + 审计留痕。
+
+        产物（AssemblyResult.to_dict）= 候选图定义数据 + 统计 + canary
+        结论 + 审计记录；候选图经 :func:`canary_instantiate` 重建后即可
+        走既有 run 通道（Graph.from_dict(validate=True) 语义）。
+
+        审计留痕（每条记录调用 audit_sink 一次；落库归回调）：
+        1. 组装记录（候选清单 + 指纹 + 统计，形状与只读组装一致）；
+        2. 各候选 canary 结论（重建指纹 + 单回合收尾原因）。
+
+        机制开关关闭（config.enabled=False）时零生效：无候选、无验证、
+        无审计回调；无默认装配时不产出任何审计（模块级入口语义）。
+        """
+        if self.config is not None and not self.config.enabled:
+            return AssemblyResult()
+        assembler = self.bind()
+        result = await assembler.assemble(request)
+        goal = request.goal_fields()
+        ts = self.now if self.now is not None else time.time()
+        records: list[dict[str, Any]] = [
+            assembly_audit_record(request, goal, result, ts=ts)
+        ]
+        if not result.candidates:
+            result = replace(result, audit=tuple(records))
+            self._emit_audit(records, audit_sink)
+            return result
+        verdicts: list[CanaryVerdict] = []
+        for candidate in result.candidates:
+            verdict = await self._verify_candidate(candidate, ts=ts)
+            verdicts.append(verdict)
+            records.append(
+                {
+                    "ts": ts,
+                    "domain": request.domain,
+                    "fingerprint": verdict.digest,
+                    "verdict": verdict.to_dict(),
+                }
+            )
+        result = replace(result, canary=tuple(verdicts), audit=tuple(records))
+        self._emit_audit(records, audit_sink)
+        return result
+
+    async def _verify_candidate(
+        self, candidate: AssemblyCandidate, *, ts: float
+    ) -> CanaryVerdict:
+        """单候选验证：重建（结构校验）→ 可选单回合（stub 执行）。"""
+        try:
+            rebuilt = canary_instantiate(
+                candidate.to_dict()["graph"], registry=self.registry
+            )
+        except Exception as exc:
+            return CanaryVerdict(
+                rank=candidate.rank,
+                digest=candidate.graph.digest(),
+                ok=False,
+                error=f"重建失败: {exc}",
+            )
+        if not self.canary:
+            return CanaryVerdict(
+                rank=candidate.rank, digest=rebuilt.digest(), ok=True, executed=False
+            )
+        try:
+            round_result = await canary_round(rebuilt)
+        except Exception as exc:
+            return CanaryVerdict(
+                rank=candidate.rank,
+                digest=rebuilt.digest(),
+                ok=False,
+                executed=True,
+                error=f"单回合执行失败: {exc}",
+            )
+        return CanaryVerdict(
+            rank=candidate.rank,
+            digest=rebuilt.digest(),
+            ok=round_result.ok,
+            executed=True,
+            terminal=round_result.reason,
+            error=None if round_result.ok else f"异常收尾（{round_result.reason}）",
+        )
+
+    @staticmethod
+    def _emit_audit(
+        records: Sequence[dict[str, Any]],
+        audit_sink: Callable[[dict[str, Any]], Any] | None,
+    ) -> None:
+        if audit_sink is None:
+            return
+        for record in records:
+            audit_sink(dict(record))
+
+
+# 模块级默认运行期（装配入口 set_default_assembly_runtime 挂载；
+# 未挂载 = 未装配 = 默认全关零生效）
+_DEFAULT_ASSEMBLY_RUNTIME: PathAssemblyRuntime | None = None
+
+
+def set_default_assembly_runtime(runtime: PathAssemblyRuntime | None) -> None:
+    """挂载/替换默认组装运行期（boot 装配处调用；None = 卸载）。"""
+    global _DEFAULT_ASSEMBLY_RUNTIME
+    _DEFAULT_ASSEMBLY_RUNTIME = runtime
+
+
+def get_default_assembly_runtime() -> PathAssemblyRuntime | None:
+    """取默认组装运行期（未挂载 = None）。"""
+    return _DEFAULT_ASSEMBLY_RUNTIME
+
+
+async def assemble_plan(
+    request: AssemblyRequest,
+    *,
+    audit_sink: Callable[[dict[str, Any]], Any] | None = None,
+) -> AssemblyResult:
+    """组装产物执行入口（默认运行期挂载后可用；壳侧 op 与策略层调用）。
+
+    Args:
+        request: 组装请求（目标 schema + 域 + 安全档 + 闸门 + 草稿源）。
+        audit_sink: 审计记录回调（接受事件 dict；失败留痕也经此回调）。
+
+    Returns:
+        AssemblyResult：候选图定义数据 + stats + canary 结论 + 审计记录。
+
+    未挂载默认运行期 = 机制未装配（默认全关）：返回空结果，无候选、
+    无审计——零运行影响。装配处（boot）经 :func:`set_default_assembly_runtime`
+    绑定注册表/证据/开关后本入口生效。
+    """
+    runtime = _DEFAULT_ASSEMBLY_RUNTIME
+    if runtime is None:
+        return AssemblyResult(fallback_reason="组装运行期未装配（默认关闭）")
+    return await runtime.assemble_plan(request, audit_sink=audit_sink)
 
 
 __all__ = [
@@ -1270,15 +1611,24 @@ __all__ = [
     "AssemblyEnvelope",
     "AssemblyRequest",
     "AssemblyResult",
+    "CanaryResult",
+    "CanaryVerdict",
     "DraftProvider",
     "InMemoryPoolRetriever",
     "NodeSummary",
     "PathAssembler",
+    "PathAssemblyRuntime",
     "add_branch",
+    "assemble_plan",
+    "assembly_audit_record",
+    "canary_instantiate",
+    "canary_round",
+    "get_default_assembly_runtime",
     "parse_draft_chain",
     "remove_node",
     "repair_chain",
     "replace_node",
     "reroute_edge",
+    "set_default_assembly_runtime",
     "validate_chain",
 ]

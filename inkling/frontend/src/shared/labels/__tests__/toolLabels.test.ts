@@ -45,7 +45,7 @@ describe('工具族判定 + 语义化渲染', () => {
   it('族判定：os/file/network/research/mcp/generic', () => {
     expect(classifyToolFamily('launch_app')).toBe('os');
     expect(classifyToolFamily('file_write')).toBe('file');
-    expect(classifyToolFamily('fetch_web')).toBe('network');
+    expect(classifyToolFamily('fetch')).toBe('network');
     expect(classifyToolFamily('inspect_graph')).toBe('research');
     expect(classifyToolFamily('mcp_call')).toBe('mcp');
     expect(classifyToolFamily('something_else')).toBe('generic');
@@ -78,7 +78,7 @@ describe('工具族判定 + 语义化渲染', () => {
 
   it('网络族：域 + 结果', () => {
     const semantics = describeToolSemantics({
-      tool: 'fetch_web',
+      tool: 'fetch',
       permission: 'review',
       summary: '已取回 12KB',
       args: '{"url": "https://docs.example.org/guide"}',

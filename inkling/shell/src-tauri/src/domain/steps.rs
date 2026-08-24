@@ -1125,13 +1125,13 @@ mod tests {
         let mut recorder = RoundStepsTransport::new("round-3", None, None);
         recorder.feed(&event(
             "tool_start",
-            json!({ "tool": "fetch_web", "tool_call_id": "tc-9" }),
+            json!({ "tool": "fetch", "tool_call_id": "tc-9" }),
         ));
         recorder.feed(&event("tool_end", json!({ "tool_call_id": "tc-9", "success": false })));
         // 审批 resume 重发同一工具调用 → 复用卡并复位 running
         recorder.feed(&event(
             "tool_start",
-            json!({ "tool": "fetch_web", "tool_call_id": "tc-9" }),
+            json!({ "tool": "fetch", "tool_call_id": "tc-9" }),
         ));
         let steps = recorder.snapshot();
         assert_eq!(by_type(&steps, "tool").len(), 1, "同 tool_call_id 不产生重复卡");
@@ -1290,7 +1290,7 @@ mod tests {
     #[test]
     fn tool_title_resolver_fills_payload_title() {
         let resolver: ToolTitleResolver = Arc::new(|name| {
-            if name == "fetch_web" {
+            if name == "fetch" {
                 Some("网络抓取".to_string())
             } else {
                 None
@@ -1305,7 +1305,7 @@ mod tests {
         );
         recorder.feed(&event(
             "tool_start",
-            json!({ "tool": "fetch_web", "tool_call_id": "call-1" }),
+            json!({ "tool": "fetch", "tool_call_id": "call-1" }),
         ));
         recorder.feed(&event(
             "tool_start",

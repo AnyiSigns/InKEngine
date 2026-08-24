@@ -69,7 +69,7 @@ describe('管理台：工具注册表分组（OS 控制/文件/网络/研究自�
     tools: [
       { name: 'launch_app', permission: 'review', endpoint: 'process_exec', description: '启动应用（会话焦点切换）' },
       { name: 'file_read', permission: 'allow', endpoint: 'file_ops', description: '读取工作区文件（路径白名单内）' },
-      { name: 'fetch_web', permission: 'review', endpoint: 'http_fetch', description: '按 URL 抓取网页正文' },
+      { name: 'fetch', permission: 'review', endpoint: 'http_fetch', description: '按 URL 抓取网页正文' },
       { name: 'inspect_knowledge', permission: 'allow', endpoint: 'process_exec', description: '知识集快照' },
       { name: 'propose_patch', permission: 'review', endpoint: 'process_exec', description: '提议补丁（自进化提案）' },
       { name: 'mcp_call', permission: 'deny', endpoint: 'mcp', description: 'MCP 调用' },

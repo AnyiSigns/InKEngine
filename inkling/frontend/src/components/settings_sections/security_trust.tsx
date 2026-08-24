@@ -195,7 +195,7 @@ export function SecurityTrust({ value, patch, onOpenBackupWizard, recovery }: Se
             onChange={(e) => patch({ networkEnabled: e.target.checked })}
             data-ui="net_enabled"
           />
-          <span className="text-[11px]">允许联网工具（fetch_web / MCP 网络端点）</span>
+          <span className="text-[11px]">允许联网工具（fetch / MCP 网络端点）</span>
         </label>
         <div className="flex items-center gap-2">
           <span className="w-32 shrink-0 text-[11px] ink-text-muted">域名白名单</span>

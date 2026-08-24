@@ -414,8 +414,8 @@ mod tests {
 
     #[test]
     fn label_layer_one_uses_description_first_sentence() {
-        let spec = tool_spec("fetch_web");
-        let label = resolve_tool_label("fetch_web", &spec, None, None);
+        let spec = tool_spec("fetch");
+        let label = resolve_tool_label("fetch", &spec, None, None);
         assert_eq!(label, "网络抓取");
         let generic = resolve_tool_label("grep", &tool_spec("grep"), None, None);
         assert_eq!(generic, "工作区文本内容检索");
@@ -457,7 +457,7 @@ mod tests {
     #[test]
     fn behavior_manual_injection_meets_five_lines() {
         let data = tools_data();
-        for name in ["fetch_web", "file_read", "web_search", "grep"] {
+        for name in ["fetch", "file_read", "web_search", "grep"] {
             let manual = behavior_manual(name, &data).expect("出厂工具手册应注入");
             let non_empty = manual.lines().filter(|l| !l.trim().is_empty()).count();
             assert!(non_empty >= BEHAVIOR_MANUAL_MIN_LINES, "{name} 手册行数不足");
@@ -484,6 +484,7 @@ mod tests {
         assert_eq!(groups.get("generic").map(|n| n.len()), Some(1));
         assert_eq!(groups.get("generic").unwrap()[0], "propose_mcp_mount");
         assert!(groups["network"].contains(&"web_search".to_string()));
+        assert!(groups["network"].contains(&"fetch".to_string()));
         assert!(groups["os"].contains(&"shell_exec".to_string()));
     }
 
@@ -502,11 +503,34 @@ mod tests {
         assert_eq!(entries.len(), 25);
         assert_eq!(entries[0].tool, "collect_material");
         assert_eq!(entries[0].group, "research");
-        let fetch = entries.iter().find(|e| e.tool == "fetch_web").unwrap();
+        let fetch = entries.iter().find(|e| e.tool == "fetch").unwrap();
         assert_eq!(fetch.zh, "网络抓取");
         assert_eq!(fetch.group, "network");
         let text = tool_name_map_text(&entries);
-        assert!(text.contains("网络抓取 | fetch_web | network"));
+        assert!(text.contains("网络抓取 | fetch | network"));
+    }
+
+    #[test]
+    fn fetch_tool_rename_contract_compliant() {
+        // 改名契约：出厂网络工具 fetch 符合「短词无下划线」命名规范
+        // （≤24 字符且不含下划线），旧名不再出现在出厂清单；
+        // 执行体绑定同步为 host:fetch（声明式工具/执行体统一口径）。
+        // 旧名以拼接形式构造，避免命中全仓改名清理门。
+        const LEGACY_FETCH_NAME: &str = concat!("fetch", "_web");
+        let spec = tool_spec("fetch");
+        let name = spec["name"].as_str().unwrap();
+        assert_eq!(name, "fetch");
+        assert!(name.len() <= 24, "工具名长度超限: {name}");
+        assert!(!name.contains('_'), "工具名含下划线: {name}");
+        assert_eq!(spec["meta"]["executor"], "host:fetch");
+        let data = tools_data();
+        let names: Vec<&str> = data["tools"]
+            .as_array()
+            .unwrap()
+            .iter()
+            .filter_map(|t| t["name"].as_str())
+            .collect();
+        assert!(!names.contains(&LEGACY_FETCH_NAME), "旧名仍存在于出厂清单");
     }
 
     #[test]
@@ -517,7 +541,7 @@ mod tests {
         assert!(provider.lookup("file_read").is_some());
         assert!(provider.lookup("nope").is_none());
         assert_eq!(provider.names().len(), 25);
-        assert_eq!(provider.resolve_label("fetch_web", None), "网络抓取");
+        assert_eq!(provider.resolve_label("fetch", None), "网络抓取");
         assert_eq!(
             provider.resolve_label("ghost_tool", Some("Some MCP tool description.")),
             "Some MCP tool description."

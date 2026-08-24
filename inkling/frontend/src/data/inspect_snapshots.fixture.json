@@ -138,7 +138,7 @@
       { "name": "schedule", "permission": "review", "endpoint": "process_exec", "description": "定时任务" },
       { "name": "screen_query", "permission": "allow", "endpoint": "device_mcp", "description": "屏幕状态感知" },
       { "name": "file_query", "permission": "allow", "endpoint": "device_mcp", "description": "文件系统感知" },
-      { "name": "fetch_web", "permission": "review", "endpoint": "http_fetch", "description": "按 URL 抓取网页正文" },
+      { "name": "fetch", "permission": "review", "endpoint": "http_fetch", "description": "按 URL 抓取网页正文" },
       { "name": "file_read", "permission": "allow", "endpoint": "file_ops", "description": "读取工作区文件（路径白名单内）" },
       { "name": "file_write", "permission": "review", "endpoint": "file_ops", "description": "写入工作区文件（路径白名单内）" }
     ]

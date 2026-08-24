@@ -488,7 +488,7 @@ def register_host_executors(
       OS 控制七件经 OS 执行器注册表分发（桌面壳/测试 stub 注入，
       未注册时降级为明确失败文本）；deny 档（shell_exec）执行体
       二次拒绝（纵深防御）；
-    - http_fetch：fetch_web 网络策略执行体（域名白名单二次核对，
+    - http_fetch：fetch 网络策略执行体（域名白名单二次核对，
       取回实现可注入，缺省 httpx）；
     - file_ops：文件开发执行体（工作区读写编辑 + 写前快照 + 大小上限）。
     """

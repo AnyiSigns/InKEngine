@@ -412,10 +412,10 @@ mod tests {
         assert_eq!(pairs[0].tool, "collect_material");
         let collect = pairs.iter().find(|p| p.tool == "collect_material").unwrap();
         assert_eq!(collect.zh, "把研究素材采集回来");
-        let fetch = pairs.iter().find(|p| p.tool == "fetch_web").unwrap();
+        let fetch = pairs.iter().find(|p| p.tool == "fetch").unwrap();
         assert_eq!(fetch.zh, "网络抓取");
         let text = tool_name_map_text(&pairs);
-        assert!(text.contains("fetch_web"));
+        assert!(text.contains("fetch"));
         assert!(text.contains("网络抓取"));
     }
 
@@ -474,7 +474,7 @@ mod tests {
     fn interleaved_line_mentions_no_tool_identifiers() {
         let line = interleaved_reasoning_guide();
         assert!(!line.is_empty());
-        for forbidden in ["grep", "fetch_web", "call_engine", "tool", "工具名", "spawn"] {
+        for forbidden in ["grep", "fetch", "call_engine", "tool", "工具名", "spawn"] {
             assert!(!line.contains(forbidden), "引导语不得引用工具标识符: {forbidden}");
         }
         assert!(line.contains("推理"));

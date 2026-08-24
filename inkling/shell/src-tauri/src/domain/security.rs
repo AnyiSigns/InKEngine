@@ -1754,10 +1754,10 @@ mod tests {
     #[test]
     fn gate_miss_denies_with_actionable_reason() {
         let mut tiers = HashMap::new();
-        tiers.insert("fetch_web".to_string(), REVIEW.to_string());
+        tiers.insert("fetch".to_string(), REVIEW.to_string());
         let gate = TieredGate::new(tiers, DENY, HashMap::new());
         let miss = gate.check(
-            "fetch_web",
+            "fetch",
             "connect",
             "evil.example.com",
             &["network:connect:arxiv.org".to_string()],
@@ -1766,7 +1766,7 @@ mod tests {
         assert_eq!(miss.decision, DENY);
         assert!(miss.reason.contains("权限未命中"));
 
-        let empty = gate.check("fetch_web", "connect", "evil.example.com", &[], None);
+        let empty = gate.check("fetch", "connect", "evil.example.com", &[], None);
         assert!(empty.reason.contains("默认拒绝"));
     }
 
@@ -1803,16 +1803,16 @@ mod tests {
     #[test]
     fn gate_definition_permissions_are_authoritative() {
         let mut tiers = HashMap::new();
-        tiers.insert("fetch_web".to_string(), REVIEW.to_string());
+        tiers.insert("fetch".to_string(), REVIEW.to_string());
         let gate = TieredGate::new(tiers, DENY, HashMap::new());
         let mut definitions = HashMap::new();
         definitions.insert(
-            "fetch_web".to_string(),
-            spec_of("fetch_web", "http_fetch", json!({"method": "GET"}), vec!["network:connect:arxiv.org"]),
+            "fetch".to_string(),
+            spec_of("fetch", "http_fetch", json!({"method": "GET"}), vec!["network:connect:arxiv.org"]),
         );
         // 调用方伪造宽松权限（network:connect:*）+ 定义权限只允许 arxiv.org
         let rogue = gate.check(
-            "fetch_web",
+            "fetch",
             "connect",
             "evil.example.com",
             &["network:connect:*".to_string()],
@@ -1820,7 +1820,7 @@ mod tests {
         );
         assert_eq!(rogue.decision, DENY, "定义权限应覆盖调用方 spec 权限");
         let inside = gate.check(
-            "fetch_web",
+            "fetch",
             "connect",
             "arxiv.org",
             &["network:connect:*".to_string()],
@@ -1915,8 +1915,8 @@ mod tests {
             spec_of("notify", "process_exec", json!({"allowlist": ["notify"]}), vec![]),
         );
         definitions.insert(
-            "fetch_web".to_string(),
-            spec_of("fetch_web", "http_fetch", json!({"method": "GET"}), vec![]),
+            "fetch".to_string(),
+            spec_of("fetch", "http_fetch", json!({"method": "GET"}), vec![]),
         );
         definitions.insert(
             "file_read".to_string(),
@@ -1925,8 +1925,8 @@ mod tests {
         assert!(proxy.validate("exec", "notify", "notify", &definitions).is_ok());
         let blocked = proxy.validate("exec", "evil", "notify", &definitions).unwrap_err();
         assert!(blocked.0.contains("SEC_007"), "错误码缺失: {}", blocked.0);
-        assert!(proxy.validate("connect", "arxiv.org", "fetch_web", &definitions).is_ok());
-        assert!(proxy.validate("connect", "evil.example.com", "fetch_web", &definitions).is_err());
+        assert!(proxy.validate("connect", "arxiv.org", "fetch", &definitions).is_ok());
+        assert!(proxy.validate("connect", "evil.example.com", "fetch", &definitions).is_err());
         // 文件工具 + 未授权工作区 → 拒绝
         let unauth = proxy.validate("read", "note.txt", "file_read", &definitions).unwrap_err();
         assert!(unauth.0.contains("工作区未授权"));
@@ -2056,7 +2056,7 @@ mod tests {
 
     #[tokio::test]
     async fn http_fetch_executor_network_policy_second_layer() {
-        let mut definition = spec_of("fetch_web", "http_fetch", json!({"method": "GET"}), vec![]);
+        let mut definition = spec_of("fetch", "http_fetch", json!({"method": "GET"}), vec![]);
         // 定义级网络策略（折叠进 meta 的形态）
         definition.meta.insert(
             "network_policy".to_string(),

@@ -52,7 +52,7 @@ const TOOL_DICTIONARY: Record<string, string> = {
   notify: '发送通知',
   schedule: '设置定时任务',
   // 网络域
-  fetch_web: '抓取网页',
+  fetch: '抓取网页',
   web_search: '网页搜索',
   web_crawl: '网页爬取',
   // 文件域
@@ -118,7 +118,7 @@ export function classifyToolFamily(toolName: string): ToolFamily {
     name.startsWith('web_') ||
     name.startsWith('http') ||
     name.startsWith('url_') ||
-    name.startsWith('fetch_') ||
+    name.startsWith('fetch') ||
     name.startsWith('search')
   ) {
     return 'network';

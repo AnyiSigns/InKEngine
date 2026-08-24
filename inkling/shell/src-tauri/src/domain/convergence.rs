@@ -312,8 +312,8 @@ mod tests {
     #[test]
     fn target_key_covers_all_patch_kinds() {
         assert_eq!(
-            target_key("tool", &serde_json::json!({ "name": "fetch_web" })),
-            "tools/fetch_web"
+            target_key("tool", &serde_json::json!({ "name": "fetch" })),
+            "tools/fetch"
         );
         assert_eq!(
             target_key("knowledge", &serde_json::json!({ "entry": { "id": "k1" } })),

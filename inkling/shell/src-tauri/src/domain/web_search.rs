@@ -636,6 +636,68 @@ pub fn limit_clamp(limit: usize) -> usize {
     limit.clamp(1, 20)
 }
 
+/// 工具调用参数 → 结构化结果 JSON（执行体形态：查询/限条/域名 →
+/// 结果清单或结构化失败；失败分型 + retryable 标记供提示可重试）。
+///
+/// keys 由装配/设置侧注入（SearchKeys 数据形态；缺省 = 本地聚合源）。
+pub async fn search_tool(
+    client: &reqwest::Client,
+    args: &JsonValue,
+    keys: &SearchKeys,
+) -> String {
+    let query = args.get("query").and_then(JsonValue::as_str).unwrap_or("");
+    let limit = args
+        .get("limit")
+        .and_then(JsonValue::as_u64)
+        .map(|n| n as usize)
+        .unwrap_or(DEFAULT_LIMIT);
+    let domains: Vec<String> = args
+        .get("domains")
+        .and_then(JsonValue::as_array)
+        .map(|items| {
+            items
+                .iter()
+                .filter_map(|v| v.as_str().map(str::to_string))
+                .collect()
+        })
+        .unwrap_or_default();
+    match search_with_retry(
+        client,
+        query,
+        limit,
+        &domains,
+        keys,
+        2,
+        Duration::from_millis(300),
+    )
+    .await
+    {
+        Ok(response) => serde_json::json!({
+            "ok": true,
+            "items": response
+                .items
+                .iter()
+                .map(|item| serde_json::json!({
+                    "title": item.title,
+                    "url": item.url,
+                    "snippet": item.snippet,
+                    "source": item.source,
+                }))
+                .collect::<Vec<_>>(),
+            "truncated": response.truncated,
+            "took_ms": response.took_ms,
+        })
+        .to_string(),
+        Err(err) => serde_json::json!({
+            "ok": false,
+            "status": err.kind_label(),
+            "retryable": err.retryable,
+            "error": err.message,
+        })
+        .to_string(),
+    }
+}
+
 #[cfg(test)]
 mod tests {
     use std::path::PathBuf;
@@ -765,6 +827,26 @@ mod tests {
         let err = result.unwrap_err();
         assert_eq!(err.kind, SearchErrorKind::Policy);
         assert!(!err.retryable);
+    }
+
+    #[test]
+    fn search_tool_formats_structured_result() {
+        let runtime = tokio::runtime::Runtime::new().unwrap();
+        let result = runtime.block_on(async {
+            let client = reqwest::Client::new();
+            // 空查询 = Policy 失败：结构化 JSON（ok=false/status/retryable/error）
+            search_tool(
+                &client,
+                &serde_json::json!({"query": "", "limit": 5, "domains": []}),
+                &SearchKeys::default(),
+            )
+            .await
+        });
+        let parsed: JsonValue = serde_json::from_str(&result).unwrap();
+        assert_eq!(parsed["ok"], false);
+        assert_eq!(parsed["status"], "policy");
+        assert_eq!(parsed["retryable"], false);
+        assert!(parsed["error"].as_str().unwrap().contains("查询语句为空"));
     }
 
     #[test]

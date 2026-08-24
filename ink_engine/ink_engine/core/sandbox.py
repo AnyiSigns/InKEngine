@@ -25,8 +25,8 @@ from pathlib import Path
 
 from .exceptions import SandboxViolation
 
-# FileSandbox 支持的操作（三类守卫）
-FS_OPERATIONS = ("read", "write", "delete")
+# FileSandbox 支持的操作（三类守卫 + 两类只读检索）
+FS_OPERATIONS = ("read", "write", "delete", "search", "search_paths")
 
 
 @dataclass(slots=True)

@@ -18,6 +18,7 @@ Host 五件套（引擎嵌入契约，见 core/runtime.Host）：
 """
 from __future__ import annotations
 
+import asyncio
 import os
 import tempfile
 from collections.abc import Callable
@@ -58,6 +59,7 @@ from .security_domain import (
     make_http_fetch_executor,
     make_process_exec_executor,
 )
+from .web_search_domain import make_web_search_executor
 
 
 class BehaviorLLM:
@@ -184,6 +186,8 @@ class InKlingHost(Host):
         self.tier_chains: dict[str, Any] = {}
         self.tier_stats: Any | None = None
         self.boot_prompt: dict[str, Any] | None = None
+        # 路径装配机制的持久化存储（装配期接线；关停时统一关闭）
+        self.assembly_stores: list[Any] = []
 
     async def create_storage(self) -> Storage:
         """存储工厂（memory/sqlite URI 由装配参数决定；幂等，重入返回同一实例）。"""
@@ -235,6 +239,15 @@ class InKlingHost(Host):
 
     async def close(self) -> None:
         """关停钩子（宿主资源回收；Runtime.stop 在存储关闭后调用）。"""
+        for store in self.assembly_stores:
+            closer = getattr(store, "close", None)
+            if closer is not None:
+                try:
+                    result = closer()
+                    if asyncio.iscoroutine(result):
+                        await result
+                except Exception:
+                    pass
         return
 
     @property
@@ -276,6 +289,7 @@ async def boot_inkling(
     safe_mode: bool = False,
     embedder: Any | None = None,
     behavior: str | None = None,
+    path_assembly: dict[str, Any] | None = None,
 ) -> tuple[Runtime, InKlingHost, McpMountService]:
     """装配 InKling 运行时（配方数据装配 + 宿主装配动作）。
 
@@ -302,6 +316,12 @@ async def boot_inkling(
             临时目录——环境/产物是可销毁重建的会话态数据）。
         safe_mode: 安全模式（缺省 False）——崩溃循环下宿主自动转入：
             链内容（自写资产载体）整体不参与装配，出厂基线启动。
+        path_assembly: 引擎路径装配机制开关数据（键名 = 引擎
+            ``PathAssemblyFlags.from_boot`` 的 BOOT_KEY_* 同源；缺省
+            None = 全关零生效）。开启的机制块在装配期接线：沉淀钩子
+            （成败/成本归集、失败点提案、指纹入库线、推荐先验晋升线、
+            策略边复审线）注入执行选项；组装指令运行期挂载默认运行期
+            （注册表/证据/缓存/闸门）。
 
     Returns:
         (runtime, host, mount_service)——mount_service 是挂载双入口
@@ -311,6 +331,9 @@ async def boot_inkling(
     """
     bundle = load_seed_data(root)
     data_dir = _resolve_data_dir(data_dir)
+    from ink_engine.core.contracts import PathAssemblyFlags
+
+    path_flags = PathAssemblyFlags.from_boot(path_assembly)
     security = SecurityDomain(bundle.data["tools.json"])
     hook, mark_vetted = build_security_l2_vetting_hook(security.shadow)
     # 构建管线域先于配方构造（ARTIFACT 补丁的 L2 验证钩子需要）
@@ -318,6 +341,91 @@ async def boot_inkling(
         bundle.data["build.json"],
         artifact_dir=data_dir / "artifacts",
     )
+
+    # ── 路径装配机制装配期接线（flag 关 = 零生效；全部零 LLM）──
+    # 边证据库/指纹缓存随数据目录落盘（派生数据，可由运行历史重建）；
+    # 审计 sink 经 storage 落 append-only 审计集合（storage 在 boot 后
+    # 可用，经 holder 惰性取用）。
+    runtime_holder: dict[str, Any] = {}
+    evidence_store: Any = None
+    fingerprint_store: Any = None
+    settle_hooks: Any = None
+
+    def _audit_sink(record: dict[str, Any]) -> None:
+        import uuid as _uuid
+
+        runtime = runtime_holder.get("runtime")
+        if runtime is None:
+            return
+        storage = getattr(runtime, "storage", None)
+        if storage is None:
+            return
+        try:
+            asyncio.ensure_future(
+                storage.put_record(
+                    "set_audit",
+                    f"settle-{_uuid.uuid4().hex[:12]}",
+                    {**record, "kind": record.get("type") or "settle"},
+                )
+            )
+        except Exception as exc:  # 审计落库失败只记日志，不阻断沉淀
+            logger.warning("路径装配审计落库失败（忽略）: %s", exc)
+
+    if (
+        path_flags.edge_evidence_enabled
+        or path_flags.settle_hooks_enabled
+        or path_flags.assembler_enabled
+    ):
+        from ink_engine.core.edge_evidence import EdgeEvidenceStore
+
+        evidence_store = EdgeEvidenceStore(
+            db_path=str(data_dir / "edge_evidence.sqlite")
+        )
+    if path_flags.fingerprint_cache_enabled:
+        from ink_engine.core.fingerprint_cache import FingerprintCacheStore
+
+        fingerprint_store = FingerprintCacheStore(
+            db_path=str(data_dir / "fingerprint_cache.sqlite")
+        )
+    from ink_engine.core.run_result import RunOptions
+
+    if path_flags.settle_hooks_enabled:
+        from ink_engine.core.settle import (
+            EdgeEvidenceSettleHook,
+            FailureAuditSettleHook,
+            FingerprintSettleHook,
+            NodeProposalSettleHook,
+            PolicyEdgeReviewSettleHook,
+            RecommendedPriorSettleHook,
+            SettleHooks,
+        )
+        from inkling_host.quality import SettleQualityGate
+
+        hooks = SettleHooks()
+        hooks.register(EdgeEvidenceSettleHook(evidence_store))
+        hooks.register(FailureAuditSettleHook(sink=_audit_sink))
+        hooks.register(
+            NodeProposalSettleHook(evidence_store, proposal_sink=_audit_sink)
+        )
+        settle_gate = SettleQualityGate()
+        hooks.register(
+            FingerprintSettleHook(
+                fingerprint_store,
+                gate=settle_gate,
+                store=evidence_store,
+                model_id=os.environ.get("INK_LLM_MODEL", ""),
+            )
+        )
+        hooks.register(
+            RecommendedPriorSettleHook(
+                evidence_store,
+                gate=settle_gate,
+                sink=_audit_sink,
+                model_id=os.environ.get("INK_LLM_MODEL", ""),
+            )
+        )
+        hooks.register(PolicyEdgeReviewSettleHook(evidence_store, sink=_audit_sink))
+        settle_hooks = hooks
 
     def composed_l2_hook(proposal: Any) -> list[str]:
         """组合 L2 验证钩子：ARTIFACT → 构建验证；TOOL → 挂载影子核对。"""
@@ -359,6 +467,10 @@ async def boot_inkling(
         embedder=embedder,
         behavior=behavior,
     )
+    if fingerprint_store is not None:
+        host.assembly_stores.append(fingerprint_store)
+    if evidence_store is not None:
+        host.assembly_stores.append(evidence_store)
     from .recipe_loader import build_recipe
 
     recipe = build_recipe(
@@ -366,9 +478,40 @@ async def boot_inkling(
         l2_vetting_hook=composed_l2_hook,
         on_reverted=_on_reverted,
         embedder=embedder,
+        run_options=(
+            RunOptions(settle=settle_hooks) if settle_hooks is not None else None
+        ),
     )
     runtime = await InkRuntime(_five_source_factory(bundle)).boot(host, recipe)
+    runtime_holder["runtime"] = runtime
     revert_state["runtime"] = runtime
+    # 组装指令运行期挂载（flag 开 = 默认运行期生效；关 = 显式卸载零生效）
+    if path_flags.assembler_enabled:
+        from ink_engine.core.path_assembler import (
+            PathAssemblyRuntime,
+            set_default_assembly_runtime,
+        )
+        from inkling_host.quality import SettleQualityGate
+
+        registries = getattr(runtime, "graph_registries", None)
+        registry = getattr(registries, "nodes", None) if registries is not None else None
+        if registry is not None:
+            from ink_engine.core.contracts import PathAssemblyConfig
+
+            set_default_assembly_runtime(
+                PathAssemblyRuntime(
+                    registry=registry,
+                    evidence_store=evidence_store,
+                    config=PathAssemblyConfig(enabled=True),
+                    sink=_audit_sink,
+                    cache=fingerprint_store,
+                    model_id=os.environ.get("INK_LLM_MODEL", ""),
+                )
+            )
+    else:
+        from ink_engine.core.path_assembler import set_default_assembly_runtime
+
+        set_default_assembly_runtime(None)
     mount_service = McpMountService(
         runtime,
         market=market if market is not None else bundle.data["mcp_market.json"],
@@ -561,6 +704,10 @@ def register_host_executors(
     runtime.harness_registry.declarative.register(
         EndpointType.FILE_OPS,
         make_file_ops_executor(),
+    )
+    runtime.harness_registry.declarative.register(
+        EndpointType.WEB_SEARCH,
+        make_web_search_executor(),
     )
 
 

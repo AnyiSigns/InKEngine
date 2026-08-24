@@ -26,13 +26,18 @@ from typing import Any, Protocol, runtime_checkable
 
 from .edge_evidence import (
     DEFAULT_CONTRACT_VERSION,
+    EdgeEvidence,
     EdgeEvidenceStore,
     EdgeKey,
+    TIER_PROMOTE_N,
+    TIER_PROMOTE_P,
+    laplace_success,
 )
 from .edge_evidence import (
     import_seed_paths as _import_seed_paths,
 )
 from .exceptions import GraphDefinitionError
+from .event_types import EVENT_AUDIT_POLICY_REVIEW, EVENT_AUDIT_PROMOTION
 from .graph import Graph, TerminateReason
 from .logging import get_logger
 from .run_result import RunResult
@@ -57,6 +62,17 @@ UPDATE_FAIL = "fail"
 
 # 默认上下文域（未注入域时的登记归属）
 DEFAULT_DOMAIN = "default"
+
+# 推荐先验自动晋升（评审 §13-7：高强度证据路径自动晋升为「推荐先验」，
+# 晋升不需人工拍板——与信任档推导式同一组常数，见 edge_evidence）
+PROMOTION_MIN_N = TIER_PROMOTE_N  # 30
+PROMOTION_MIN_P = TIER_PROMOTE_P  # 0.9
+
+# 策略边对抗复审（评审 §13-坑6：刚性堤坝冻死系统——对抗证据可触发
+# 复审，复审前该边降级为普通统计边）
+POLICY_REVIEW_FAIL_THRESHOLD = 5  # 失败累计超阈值（默认 5 次）
+# 域证据均值反超判定所需非策略边最小样本（样本不足只按失败累计判定）
+POLICY_REVIEW_DOMAIN_MIN_EDGES = 2
 
 
 @dataclass(slots=True)
@@ -231,6 +247,46 @@ def should_propose(fail_count: int, success_count: int) -> bool:
     if n < PROPOSAL_RATE_MIN_N:
         return False
     return fail_count / n > PROPOSAL_FAIL_RATE
+
+
+def recommended_prior_eligible(success_count: int, fail_count: int) -> bool:
+    """推荐先验晋升证据判据：N≥30 且成功率≥0.9（拉普拉斯口径）。
+
+    与信任档推导式（转正档）同一组常数——纯算法自动晋升，零审批；
+    路径级晋升 = 每条遍历边均达此线 + 闸门 + canary（见钩子）。
+    """
+    n = success_count + fail_count
+    return n >= PROMOTION_MIN_N and laplace_success(success_count, fail_count) >= PROMOTION_MIN_P
+
+
+def policy_edge_needs_review(
+    evidence: Any, *, domain_average_p: float | None
+) -> tuple[bool, str]:
+    """策略边对抗复审判据：失败累计≥5，或所在域证据均值反超其承诺。
+
+    - 失败累计超阈值（默认 5 次）：对抗证据直接触发；
+    - 域证据均值反超：该策略边成功率低于同域非策略边均值——普通统计
+      边已比「人工堤坝」更可靠，承诺失去优先依据；
+    - domain_average_p 为 None（非策略边样本不足）= 只按失败累计判定。
+    返回 (是否复审, 原因)；复审动作（L2 提请 + 降级）由钩子执行。
+    """
+    if not getattr(evidence, "policy", False):
+        return False, ""
+    if evidence.fail_count >= POLICY_REVIEW_FAIL_THRESHOLD:
+        return (
+            True,
+            f"策略边失败累计 {evidence.fail_count} 次"
+            f" ≥ 阈值 {POLICY_REVIEW_FAIL_THRESHOLD}（对抗证据触发复审）",
+        )
+    if domain_average_p is not None:
+        p = laplace_success(evidence.success_count, evidence.fail_count)
+        if p < domain_average_p:
+            return (
+                True,
+                f"策略边成功率 {p:.2f} 低于域证据均值 {domain_average_p:.2f}"
+                "（域均值反超承诺，触发复审）",
+            )
+    return False, ""
 
 
 def draft_node_contract(
@@ -511,8 +567,158 @@ async def import_seed_paths(store: EdgeEvidenceStore, seed_edges: Sequence[dict]
     return await _import_seed_paths(store, seed_edges)
 
 
+class RecommendedPriorSettleHook:
+    """推荐先验自动晋升钩子（高强度证据路径 → 晋升登记 + 审计留痕）。
+
+    判据（与信任档推导同一组常数）：路径全通（成功归因）+ 每条遍历边
+    N≥30 且成功率≥0.9 + 注入的 QualityGate 通过 + canary 通过——自动
+    晋升为「推荐先验」（workflow 同等的组装先验待遇），**晋升不需人工
+    拍板**；登记 = 推荐先验记录（随审计 append-only），供组装先验消费。
+    缺闸门注入 = fail-closed 不晋升（高质量归纳前提不满足）；零 LLM。
+    """
+
+    def __init__(
+        self,
+        store: EdgeEvidenceStore,
+        gate: QualityGate | None = None,
+        *,
+        canary_ok: Callable[[SettleContext], bool] | None = None,
+        sink: Callable[[dict[str, Any]], Any] | None = None,
+        model_id: str = "",
+    ) -> None:
+        self._store = store
+        self._gate = gate
+        self._canary_ok = canary_ok
+        self._sink = sink
+        self._model_id = model_id
+        self.promotions: list[dict[str, Any]] = []
+        # 已晋升路径签名（去重：同一路径不重复登记）
+        self._promoted: set[tuple[tuple[str, ...], ...]] = set()
+
+    async def settle(self, ctx: SettleContext) -> None:
+        if self._gate is None:
+            return  # 无闸门 = fail-closed 不晋升
+        if run_verdict(ctx) != UPDATE_SUCCESS:
+            return
+        traversals = derive_traversals(ctx)
+        if not traversals:
+            return
+        keys = tuple(
+            dict.fromkeys(
+                EdgeKey(
+                    src_type=tr.src_type,
+                    dst_type=tr.dst_type,
+                    src_contract_version=tr.src_contract_version,
+                    dst_contract_version=tr.dst_contract_version,
+                    context_domain=ctx.domain,
+                )
+                for tr in traversals
+            )
+        )
+        rows = [await self._store.get(key) for key in keys]
+        if any(
+            row is None
+            or not recommended_prior_eligible(row.success_count, row.fail_count)
+            for row in rows
+        ):
+            return
+        if self._canary_ok is not None and not self._canary_ok(ctx):
+            return
+        gate_passed = bool(await self._gate.evaluate(ctx))
+        if not gate_passed:
+            return
+        signature = tuple(sorted(k.key() for k in keys))
+        if signature in self._promoted:
+            return
+        self._promoted.add(signature)
+        record: dict[str, Any] = {
+            "type": EVENT_AUDIT_PROMOTION,
+            "ts": time.time(),
+            "domain": ctx.domain,
+            "edges": [k.to_dict() for k in keys],
+            "evidence": [e.to_dict() for e in rows],
+            "gate_passed": gate_passed,
+            "model_id": self._model_id,
+            "trace_id": ctx.trace_id,
+        }
+        self.promotions.append(record)
+        if self._sink is not None:
+            self._sink(record)
+
+
+class PolicyEdgeReviewSettleHook:
+    """策略边对抗复审钩子（对抗证据 → 自动提请 L2 复审 + 复审前降级）。
+
+    判据（评审 §13-坑6）：策略边失败累计≥5，或所在域非策略边证据均值
+    反超其承诺 → 自动提请人工复审（L2 审批）并把该边降级为普通统计边
+    （复审前不再享受 τ=1.0/豁免时间衰减的先验待遇）。零 LLM：复审请求
+    经审计事件（policy_edge_review_audit）留痕，审批裁决归宿主通道。
+    """
+
+    def __init__(
+        self,
+        store: EdgeEvidenceStore,
+        *,
+        sink: Callable[[dict[str, Any]], Any] | None = None,
+    ) -> None:
+        self._store = store
+        self._sink = sink
+        self.reviews: list[dict[str, Any]] = []
+        # 已降级边签名（去重：降级后不再重复提请）
+        self._downgraded: set[tuple[str, ...]] = set()
+
+    async def settle(self, ctx: SettleContext) -> None:
+        domain_edges = await self._store.list_edges(ctx.domain)
+        non_policy = [e for e in domain_edges if not e.policy]
+        domain_average_p: float | None = None
+        if len(non_policy) >= POLICY_REVIEW_DOMAIN_MIN_EDGES:
+            domain_average_p = sum(
+                laplace_success(e.success_count, e.fail_count) for e in non_policy
+            ) / len(non_policy)
+        for edge in domain_edges:
+            needs, reason = policy_edge_needs_review(
+                edge, domain_average_p=domain_average_p
+            )
+            if not needs:
+                continue
+            signature = edge.key.key()
+            if signature in self._downgraded:
+                continue
+            self._downgraded.add(signature)
+            # 复审前降级为普通统计边（policy=False：不再 τ=1.0/豁免衰减）
+            await self._store.put(
+                EdgeEvidence(
+                    key=edge.key,
+                    success_count=edge.success_count,
+                    fail_count=edge.fail_count,
+                    avg_cost=edge.avg_cost,
+                    policy=False,
+                    last_used_at=edge.last_used_at,
+                    created_at=edge.created_at,
+                )
+            )
+            record: dict[str, Any] = {
+                "type": EVENT_AUDIT_POLICY_REVIEW,
+                "ts": time.time(),
+                "domain": ctx.domain,
+                "src_type": edge.src_type,
+                "dst_type": edge.dst_type,
+                "reason": reason,
+                "action": "downgraded_to_statistical",
+                "review_tier": "l2",
+                "trace_id": ctx.trace_id,
+            }
+            self.reviews.append(record)
+            if self._sink is not None:
+                self._sink(record)
+
+
 __all__ = [
     "DEFAULT_DOMAIN",
+    "POLICY_REVIEW_DOMAIN_MIN_EDGES",
+    "POLICY_REVIEW_FAIL_THRESHOLD",
+    "PROMOTION_MIN_N",
+    "PROMOTION_MIN_P",
     "PROPOSAL_FAIL_RATE",
     "PROPOSAL_MIN_FAILS",
     "PROPOSAL_RATE_MIN_N",
@@ -527,7 +733,9 @@ __all__ = [
     "FingerprintCache",
     "FingerprintSettleHook",
     "NodeProposalSettleHook",
+    "PolicyEdgeReviewSettleHook",
     "QualityGate",
+    "RecommendedPriorSettleHook",
     "SettleContext",
     "SettleHook",
     "SettleHooks",
@@ -538,6 +746,8 @@ __all__ = [
     "draft_node_contract",
     "import_seed_paths",
     "node_identity",
+    "policy_edge_needs_review",
+    "recommended_prior_eligible",
     "run_verdict",
     "should_propose",
 ]

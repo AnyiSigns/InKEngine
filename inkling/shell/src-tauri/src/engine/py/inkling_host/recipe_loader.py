@@ -435,6 +435,7 @@ def build_recipe(
     on_reverted: Callable[[int, str], Any] | None = None,
     convergence_provider: Callable[[], Any] | None = None,
     embedder: Any | None = None,
+    run_options: Any | None = None,
 ) -> AssemblyRecipe:
     """把 seed_data 数据映射为完整装配配方（17 字段全落值）。
 
@@ -447,6 +448,8 @@ def build_recipe(
             收敛配置数据驱动，见 host.convergence_domain）。
         embedder: 本地语义嵌入器（Rust 协议注入；None = 回落环境/关键词
             基线，见 map_retrieval_sources）。
+        run_options: 执行域选项覆盖（None = 引擎默认；沉淀钩子等运行期
+            扩展经此注入——引擎按字段级覆盖装配默认）。
     """
     hook, _mark = build_mcp_l2_vetting_hook()
     if convergence_provider is None:
@@ -475,6 +478,7 @@ def build_recipe(
         graph_recipe=map_graph_recipe(bundle),
         on_reverted=on_reverted,
         convergence_provider=convergence_provider,
+        run_options=run_options,
     )
 
 

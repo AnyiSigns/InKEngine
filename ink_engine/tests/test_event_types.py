@@ -199,6 +199,7 @@ def test_audit_event_specs_registered():
         EVENT_AUDIT_FINGERPRINT_REPLACE,
         EVENT_AUDIT_JUNCTION,
         EVENT_AUDIT_POLICY_REVIEW,
+        EVENT_AUDIT_PROMOTION,
         audit_event_specs,
     )
 
@@ -209,6 +210,7 @@ def test_audit_event_specs_registered():
         EVENT_AUDIT_JUNCTION,
         EVENT_AUDIT_FINGERPRINT_REPLACE,
         EVENT_AUDIT_POLICY_REVIEW,
+        EVENT_AUDIT_PROMOTION,
     }
     # 全部为审计用途声明，schema 可序列化往返
     for spec in specs:
@@ -225,7 +227,7 @@ def test_register_audit_event_types():
 
     registry = EventTypeRegistry()
     register_audit_event_types(registry)
-    assert len(registry.names()) == 4
+    assert len(registry.names()) == 5
     assert registry.get(EVENT_AUDIT_ASSEMBLY) is not None
     # 重复注册 = 显式拒绝（注册表既有语义）
     with pytest.raises(GraphDefinitionError, match="重复注册"):

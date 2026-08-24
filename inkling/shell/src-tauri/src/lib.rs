@@ -135,6 +135,17 @@ fn boot_options(
         safe_mode,
         bundled: engine::runtime::bundled_mode(),
         embedder_model_dir: embedder_model_dir(&data_dir),
+        // 引擎路径装配机制出厂全开（批 4 全开验收：契约/证据/沉淀/池/
+        // 组装/多径/指纹七块启用；逐块独立，单块异常可关闭回滚）
+        path_assembly: engine::host::PathAssemblyFlags {
+            contract_enabled: true,
+            edge_evidence_enabled: true,
+            settle_hooks_enabled: true,
+            pool_governance_enabled: true,
+            assembler_enabled: true,
+            multipath_enabled: true,
+            fingerprint_cache_enabled: true,
+        },
         ..Default::default()
     }
 }

@@ -1,4 +1,4 @@
-﻿[package]
+[package]
 name = "inkling_shell"
 version = "0.1.0"
 description = "InKling 桌面壳（宿主件）：托盘/系统通知/文件挂载授权 + process_exec 执行器注册 + 设备感知 server 挂载接线"

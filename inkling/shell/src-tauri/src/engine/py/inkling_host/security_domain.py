@@ -30,6 +30,7 @@ from __future__ import annotations
 import asyncio
 import contextvars
 import json
+import os
 import time
 from collections.abc import Callable, Mapping, Sequence
 from pathlib import Path
@@ -285,7 +286,7 @@ class DeclarativeSandboxProxy:
     沙箱语义（会话/装配边界），不误伤。
     """
 
-    _FS_OPS = frozenset(("read", "write", "delete"))
+    _FS_OPS = frozenset(("read", "write", "delete", "search", "search_paths"))
 
     def __init__(
         self,
@@ -315,11 +316,17 @@ class DeclarativeSandboxProxy:
                 )
             return target
         if definition.endpoint is EndpointType.FILE_OPS and operation in self._FS_OPS:
-            max_bytes = (
-                _size_limit(definition, "max_read_bytes", _DEFAULT_MAX_READ_BYTES)
-                if operation == "read"
-                else _size_limit(definition, "max_write_bytes", _DEFAULT_MAX_WRITE_BYTES)
-            )
+            if operation == "read":
+                max_bytes = _size_limit(
+                    definition, "max_read_bytes", _DEFAULT_MAX_READ_BYTES
+                )
+            elif operation == "write":
+                max_bytes = _size_limit(
+                    definition, "max_write_bytes", _DEFAULT_MAX_WRITE_BYTES
+                )
+            else:
+                # 检索操作只读不取整文件：仅解析边界，不做单文件大小上限
+                max_bytes = None
             return self._workspace.validate_file(operation, target, max_bytes=max_bytes)
         if definition.endpoint is EndpointType.HTTP_FETCH and operation == "connect":
             policy = (definition.meta or {}).get("network_policy") or {}
@@ -572,6 +579,10 @@ class FileOpsExecutor:
         try:
             if operation == "read":
                 return self._read(path_text, definition)
+            if operation == "search":
+                return self._search(args, definition)
+            if operation == "search_paths":
+                return self._search_paths(args, definition)
             if operation == "write":
                 if "old_text" in args:
                     return self._edit(
@@ -608,6 +619,174 @@ class FileOpsExecutor:
                 "status": "invalid_operation",
                 "error": f"不支持的文件操作: {operation!r}",
             },
+            ensure_ascii=False,
+        )
+
+    def _search_base(self, definition: Any) -> Path:
+        """检索根目录（端点配置 root；沙箱已先行解析校验，此处防御归一）。"""
+        root = Path(str((definition.endpoint_config or {}).get("root") or ""))
+        return root
+
+    def _search(self, args: dict, definition: Any) -> str:
+        """grep：工作区文本内容检索（正则 + 路径 glob 过滤 + 类型过滤 +
+        超限截断；只读，结果 = 命中文件/行号/摘要）。"""
+        import fnmatch
+        import re
+
+        root = self._search_base(definition)
+        if not root or not root.is_dir():
+            return json.dumps(
+                {"ok": False, "status": "no_root", "error": f"检索根不可用: {root}"},
+                ensure_ascii=False,
+            )
+        pattern = str(args.get("pattern") or "")
+        if not pattern:
+            return json.dumps(
+                {"ok": False, "status": "missing_pattern", "error": "检索正则不能为空"},
+                ensure_ascii=False,
+            )
+        try:
+            regex = re.compile(pattern)
+        except re.error as exc:
+            return json.dumps(
+                {"ok": False, "status": "invalid_pattern", "error": f"检索正则非法: {exc}"},
+                ensure_ascii=False,
+            )
+        glob_pattern = str(args.get("glob") or "")
+        include = str(args.get("include") or "")
+        try:
+            max_results = max(1, min(1000, int(args.get("max_results") or 100)))
+        except (TypeError, ValueError):
+            max_results = 100
+        max_read = _size_limit(definition, "max_read_bytes", _DEFAULT_MAX_READ_BYTES)
+        matches: list[dict[str, Any]] = []
+        truncated = False
+        try:
+            for dirpath, dirnames, filenames in os.walk(root):
+                if truncated:
+                    break
+                for name in sorted(filenames):
+                    if len(matches) >= max_results:
+                        truncated = True
+                        break
+                    full = Path(dirpath) / name
+                    try:
+                        rel = full.relative_to(root).as_posix()
+                    except ValueError:
+                        continue
+                    if glob_pattern and not fnmatch.fnmatch(rel, glob_pattern):
+                        continue
+                    if include:
+                        if include.startswith("."):
+                            if not name.endswith(include):
+                                continue
+                        else:
+                            inc = (
+                                include
+                                if include.startswith("*")
+                                else ("*" + include if "." not in include else include)
+                            )
+                            if not fnmatch.fnmatch(name, inc):
+                                continue
+                    try:
+                        size = full.stat().st_size
+                    except OSError:
+                        continue
+                    if size > max_read:
+                        continue  # 超限文件跳过（不读整文件，检索域受大小上限约束）
+                    try:
+                        text = full.read_text(encoding="utf-8", errors="replace")
+                    except OSError:
+                        continue
+                    hit = regex.search(text)
+                    if hit is None:
+                        continue
+                    line = text.count("\n", 0, hit.start()) + 1
+                    line_start = text.rfind("\n", 0, hit.start()) + 1
+                    line_end = text.find("\n", hit.start())
+                    if line_end == -1:
+                        line_end = len(text)
+                    matches.append(
+                        {
+                            "path": rel,
+                            "line": line,
+                            "snippet": text[line_start:line_end].strip()[:200],
+                        }
+                    )
+        except OSError as exc:
+            return json.dumps(
+                {"ok": False, "status": "search_failed", "error": f"检索失败: {exc}"},
+                ensure_ascii=False,
+            )
+        if len(matches) >= max_results:
+            truncated = True
+        return json.dumps(
+            {
+                "ok": True,
+                "matches": matches,
+                "truncated": truncated,
+                "total": len(matches),
+            },
+            ensure_ascii=False,
+        )
+
+    def _search_paths(self, args: dict, definition: Any) -> str:
+        """glob：工作区路径检索（递归匹配；pattern 相对检索起点匹配，
+        支持 ** 跨目录；只列路径不读内容）。"""
+        import fnmatch
+
+        root = self._search_base(definition)
+        if not root or not root.is_dir():
+            return json.dumps(
+                {"ok": False, "status": "no_root", "error": f"检索根不可用: {root}"},
+                ensure_ascii=False,
+            )
+        pattern = str(args.get("pattern") or "")
+        if not pattern:
+            return json.dumps(
+                {"ok": False, "status": "missing_pattern", "error": "路径模式不能为空"},
+                ensure_ascii=False,
+            )
+        base = Path(str(args.get("path") or "")).resolve() if args.get("path") else root
+        if not base.is_relative_to(root):
+            return json.dumps(
+                {"ok": False, "status": "out_of_root", "error": f"检索起点越界: {base}"},
+                ensure_ascii=False,
+            )
+        try:
+            max_results = max(1, min(1000, int(args.get("max_results") or 100)))
+        except (TypeError, ValueError):
+            max_results = 100
+        pattern_norm = pattern.replace("\\", "/")
+        matches: list[str] = []
+        truncated = False
+        try:
+            for dirpath, dirnames, filenames in os.walk(base):
+                if truncated:
+                    break
+                entries = sorted(
+                    [Path(dirpath) / name for name in filenames]
+                    + [Path(dirpath) / name for name in dirnames]
+                )
+                for entry in entries:
+                    if len(matches) >= max_results:
+                        truncated = True
+                        break
+                    try:
+                        rel = entry.relative_to(base).as_posix()
+                    except ValueError:
+                        continue
+                    if rel and _glob_match(pattern_norm, rel):
+                        matches.append(entry.as_posix())
+        except OSError as exc:
+            return json.dumps(
+                {"ok": False, "status": "search_failed", "error": f"检索失败: {exc}"},
+                ensure_ascii=False,
+            )
+        if len(matches) >= max_results:
+            truncated = True
+        return json.dumps(
+            {"ok": True, "paths": matches, "truncated": truncated, "total": len(matches)},
             ensure_ascii=False,
         )
 
@@ -931,6 +1110,68 @@ class SecurityDomain:
 def _substitute_root(pattern: str, root: str) -> str:
     """权限模式占位符替换（路径统一正斜杠，与 rule_matches 归一一致）。"""
     return pattern.replace(WORKSPACE_ROOT_PLACEHOLDER, root.replace("\\", "/"))
+
+
+def _glob_translate(pattern: str) -> str:
+    """fnmatch 通配翻译（与 Rust 侧 translate_pattern 同语义；``*`` →
+    ``.*`` / ``?`` → ``.`` / ``[seq]`` 字符类）。``**`` 段间拼接用。"""
+    import re
+
+    res: list[str] = []
+    i, n = 0, len(pattern)
+    while i < n:
+        c = pattern[i]
+        i += 1
+        if c == "*":
+            res.append(".*")
+        elif c == "?":
+            res.append(".")
+        elif c == "[":
+            j = i
+            if j < n and pattern[j] == "!":
+                j += 1
+            if j < n and pattern[j] == "]":
+                j += 1
+            while j < n and pattern[j] != "]":
+                j += 1
+            if j >= n:
+                res.append(r"\[")
+            else:
+                stuff = pattern[i:j]
+                if stuff.startswith("!"):
+                    stuff = "^" + stuff[1:]
+                elif stuff.startswith("^"):
+                    stuff = "\\" + stuff
+                res.append("[" + stuff + "]")
+                i = j + 1
+        else:
+            res.append(re.escape(c))
+    return "".join(res)
+
+
+def _glob_match(pattern: str, text: str) -> bool:
+    """glob 路径匹配（``**`` 跨目录分隔符；无 ``**`` 时与 fnmatch 等价）。
+
+    路径统一正斜杠后匹配：``**/*.json`` 匹配任意深度 json（含基址直下
+    文件），``src/**`` 匹配 src 下任意路径；段内 ``*``/``?`` 通配与
+    fnmatch 同语义。
+    """
+    import fnmatch
+    import re
+
+    if "**" not in pattern:
+        return fnmatch.fnmatch(text, pattern)
+    regex = ""
+    for idx, part in enumerate(pattern.split("**")):
+        if not idx:
+            regex += _glob_translate(part)
+        elif part.startswith("/"):
+            regex += "(?:.*/)?"
+            regex += _glob_translate(part[1:])
+        else:
+            regex += ".*"
+            regex += _glob_translate(part)
+    return re.fullmatch(regex, text) is not None
 
 
 __all__ = [

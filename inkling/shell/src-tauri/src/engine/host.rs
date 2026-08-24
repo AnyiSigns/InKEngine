@@ -34,11 +34,12 @@ const HOST_PACKAGE_SOURCES: &[(&str, &str)] = &[
     ("live_apply", include_str!("py/inkling_host/live_apply.py")),
     ("mcp_service", include_str!("py/inkling_host/mcp_service.py")),
     ("model_layers", include_str!("py/inkling_host/model_layers.py")),
-    ("quality", include_str!("py/quality.py")),
+    ("quality", include_str!("py/inkling_host/quality.py")),
     ("review_pipeline", include_str!("py/inkling_host/review_pipeline.py")),
     ("round_steps_feed", include_str!("py/inkling_host/round_steps_feed.py")),
     ("scoring", include_str!("py/inkling_host/scoring.py")),
     ("security_domain", include_str!("py/inkling_host/security_domain.py")),
+    ("web_search_domain", include_str!("py/inkling_host/web_search_domain.py")),
     ("recipe_loader", include_str!("py/inkling_host/recipe_loader.py")),
     ("host", include_str!("py/inkling_host/host.py")),
     ("__init__", include_str!("py/inkling_host/__init__.py")),
@@ -427,6 +428,16 @@ impl EngineHost {
                 if let Some(embedder) = local_embedder.as_ref() {
                     boot_kwargs.set_item("embedder", embedder.clone_ref(py))?;
                 }
+                // 路径装配机制开关透传（七块按名；引擎侧 from_boot 同源消费）
+                let flags_py = PyDict::new(py);
+                if let Some(flags_obj) =
+                    crate::domain::boot::path_assembly_data(&options.path_assembly).as_object()
+                {
+                    for (key, value) in flags_obj {
+                        flags_py.set_item(key, value.as_bool())?;
+                    }
+                }
+                boot_kwargs.set_item("path_assembly", flags_py)?;
                 let boot_kwargs = boot_kwargs.unbind();
                 let (runtime_py, host_py) =
                     pyo3_async_runtimes::tokio::run(

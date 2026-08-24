@@ -24,6 +24,7 @@
 
 use std::collections::{HashMap, HashSet};
 
+use pyo3::PyResult;
 use serde_json::{json, Value as JsonValue};
 
 use super::common::{readable_path, DomainError};
@@ -97,6 +98,42 @@ async fn wire_security(bundle: &recipe::SeedDataBundle) -> Result<(), String> {
     security::load_authorization(&security)
         .await
         .map_err(|err| fail("工作区授权恢复", err))?;
+    Ok(())
+}
+
+// ── 联网搜索接线 ──
+
+/// 联网搜索执行体回调注册（web_search 工具的宿主执行路径）。
+///
+/// Python 宿主执行体经 JSON 回调桥调用本回调；搜索实现 = 壳侧域
+/// （本地聚合源默认 / 用户自配厂商 key 降级），回调按调用参数执行
+/// 并返回结构化结果 JSON。key 缺省 = 本地聚合源（免费无 key）。
+async fn wire_web_search() -> Result<(), String> {
+    crate::engine::bridge::register_callback(
+        "host.web_search",
+        Box::new(|payload: String| -> PyResult<String> {
+            let args: JsonValue = serde_json::from_str(&payload)
+                .map_err(|err| pyo3::exceptions::PyValueError::new_err(err.to_string()))?;
+            let keys = args
+                .get("keys")
+                .map(super::web_search::parse_search_keys)
+                .unwrap_or_default();
+            let rt = tokio::runtime::Builder::new_current_thread()
+                .enable_all()
+                .build()
+                .map_err(|err| pyo3::exceptions::PyRuntimeError::new_err(err.to_string()))?;
+            let client = reqwest::Client::builder()
+                .timeout(std::time::Duration::from_secs(super::web_search::SEARCH_TIMEOUT_SECS))
+                .build()
+                .map_err(|err| pyo3::exceptions::PyRuntimeError::new_err(err.to_string()))?;
+            Ok(rt.block_on(super::web_search::search_tool(
+                &client,
+                &args,
+                &keys,
+            )))
+        }),
+    )
+    .map_err(|err| fail("联网搜索回调注册", err.to_string()))?;
     Ok(())
 }
 
@@ -573,16 +610,18 @@ async fn mount_seed_paths(
 
 /// 路径组装机制宿主接线：开关透传 + 种子路径挂载（flag 关 = 零生效）。
 ///
-/// 机制开关值写入桥模块（op fail-closed 的判定依据）；开启时才导入
-/// 种子路径语料（关闭时 op 内部同样拒绝，双保险不产生任何状态）。
+/// 七块机制开关值整体写入桥模块（op fail-closed 的判定依据；与装配期
+/// boot_inkling 的 path_assembly 参数同源同值——装配内接线在宿主侧，
+/// 此处为运行期开关通道）；开启时才导入种子路径语料（关闭时 op 内部
+/// 同样拒绝，双保险不产生任何状态）。
 async fn wire_path_assembly(
     options: &BootOptions,
     bundle: &recipe::SeedDataBundle,
     data_dir: &std::path::Path,
 ) -> Result<(), String> {
     call_engine_op(
-        "path.set_assembler_enabled",
-        json!({ "enabled": options.path_assembly.assembler_enabled }),
+        "path.set_flags",
+        path_assembly_data(&options.path_assembly),
     )
     .map_err(|err| fail("路径组装开关透传", err))?;
     if options.path_assembly.assembler_enabled {
@@ -600,6 +639,7 @@ pub async fn assemble_runtime(options: &BootOptions) -> Result<AssemblyReport, S
     let bundle = load_seed(options)?;
     let host = boot_host(options)?;
     wire_security(&bundle).await?;
+    wire_web_search().await?;
     wire_live_targets().await?;
 
     // 运行数据目录（envs/artifacts 落盘根）：注入优先，缺省进程级临时目录
@@ -660,6 +700,7 @@ pub async fn wiring_probe(options: &BootOptions) -> Result<Vec<String>, String> 
     }
 
     probe_line(&mut lines, "安全域接线", wire_security(&bundle).await.map(|_| ()));
+    probe_line(&mut lines, "联网搜索回调注册", wire_web_search().await.map(|_| ()));
     probe_line(&mut lines, "活跃态目标注册", wire_live_targets().await);
     let assembled = match assemble_chain().await {
         Ok(value) => {

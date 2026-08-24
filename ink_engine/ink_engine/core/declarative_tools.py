@@ -55,20 +55,26 @@ class EndpointType(StrEnum):
     FILE_OPS: 文件读写删除（FileSandbox 根目录守卫）。
     MCP: 外部 MCP server 工具调用（按 server_id 路由会话；挂载须经
         vetting 闸门与审批，会话缺失 = fail-closed 拒绝）。
+    WEB_SEARCH: 联网搜索（本地聚合源/厂商降级；结果域名过滤在实现内，
+        不设本地域名沙箱——与 fetch 的单 URL 出网语义不同）。
     """
 
     HTTP_FETCH = "http_fetch"
     PROCESS_EXEC = "process_exec"
     FILE_OPS = "file_ops"
     MCP = "mcp"
+    WEB_SEARCH = "web_search"
 
 
 # 各端点类型的判定动作（endpoint_operation 的映射依据；与权限域动作对齐）
 _ENDPOINT_ACTIONS: dict[EndpointType, tuple[str, ...]] = {
     EndpointType.HTTP_FETCH: ("connect",),
     EndpointType.PROCESS_EXEC: ("exec",),
-    EndpointType.FILE_OPS: ("read", "write", "delete"),
+    # search = 工作区文本内容检索（grep）/ search_paths = 工作区路径检索
+    # （glob）——同属只读文件操作域，权限动作与沙箱守卫按操作名对齐
+    EndpointType.FILE_OPS: ("read", "write", "delete", "search", "search_paths"),
     EndpointType.MCP: ("call",),
+    EndpointType.WEB_SEARCH: ("connect",),
 }
 
 # 端点配置的必填白名单键（沙箱自动接线的声明依据：process_exec 须声明
@@ -271,13 +277,28 @@ def endpoint_operation(
         return ("exec", command) if isinstance(command, str) else None
     if endpoint is EndpointType.FILE_OPS:
         operation = args.get("operation")
+        if operation not in _ENDPOINT_ACTIONS[endpoint]:
+            return None
         path = args.get("path")
-        if operation in _ENDPOINT_ACTIONS[endpoint] and isinstance(path, str):
-            return (operation, path)
-        return None
+        # 检索操作（search/search_paths）无 path 参数 = 全域检索：判定目标
+        # 回落端点配置根目录（权限模式与沙箱按根目录校验，检索域 = 整个
+        # 工作区根；带 path 时目标 = 该路径，检索域 = 路径内）
+        if operation in ("search", "search_paths") and (
+            not isinstance(path, str) or not path
+        ):
+            if isinstance(config, dict):
+                path = config.get("root")
+        if not isinstance(path, str) or not path:
+            return None
+        return (operation, path)
     if endpoint is EndpointType.MCP:
         server_id = (config or {}).get("server_id") if isinstance(config, dict) else None
         return ("call", server_id) if isinstance(server_id, str) and server_id else None
+    if endpoint is EndpointType.WEB_SEARCH:
+        # 联网搜索：判定目标 = 查询语句（网络权限按 connect 白名单语义，
+        # 结果域名过滤在实现内完成——与 fetch 的单 URL 出网语义不同）
+        query = args.get("query")
+        return ("connect", query) if isinstance(query, str) and query else None
     return None
 
 

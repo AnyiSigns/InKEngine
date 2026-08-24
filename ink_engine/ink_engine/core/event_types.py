@@ -156,6 +156,8 @@ EVENT_AUDIT_JUNCTION = "junction_verdict_audit"
 EVENT_AUDIT_FINGERPRINT_REPLACE = "fingerprint_replace_audit"
 # 策略边复审留痕（对抗证据触发复审/降级）
 EVENT_AUDIT_POLICY_REVIEW = "policy_edge_review_audit"
+# 推荐先验自动晋升留痕（高强度证据路径自动晋升为推荐先验，免人工拍板）
+EVENT_AUDIT_PROMOTION = "recommended_prior_promotion"
 
 # 审计事件负载的公共字段（schema 声明复用：时间戳/域/指纹等）
 _AUDIT_TS = SchemaField(name="ts", required=False, kind=FIELD_NUMBER)
@@ -164,10 +166,11 @@ _AUDIT_FINGERPRINT = SchemaField(name="fingerprint", required=False, kind=FIELD_
 
 
 def audit_event_specs() -> tuple[EventTypeSpec, ...]:
-    """四类审计事件类型声明（注册表注册用；类型是数据可演化）。
+    """审计事件类型声明（注册表注册用；类型是数据可演化）。
 
-    组装/汇流裁决/指纹顶替/策略边复审四类留痕入 ``event_types`` 注册
-    表——append-only 审计统一出口，不散落宿主自造事件。
+    组装/汇流裁决/指纹顶替/策略边复审 + 推荐先验晋升五类留痕入
+    ``event_types`` 注册表——append-only 审计统一出口，不散落宿主
+    自造事件（晋升通道为 §11.6 自动生长机制新增的第五类）。
     """
     return (
         EventTypeSpec(
@@ -198,6 +201,14 @@ def audit_event_specs() -> tuple[EventTypeSpec, ...]:
             name=EVENT_AUDIT_POLICY_REVIEW,
             schema=SchemaSpec(
                 name="audit.policy_review",
+                fields=(_AUDIT_TS, _AUDIT_DOMAIN),
+            ),
+            meta={"purpose": "audit"},
+        ),
+        EventTypeSpec(
+            name=EVENT_AUDIT_PROMOTION,
+            schema=SchemaSpec(
+                name="audit.promotion",
                 fields=(_AUDIT_TS, _AUDIT_DOMAIN),
             ),
             meta={"purpose": "audit"},

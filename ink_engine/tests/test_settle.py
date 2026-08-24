@@ -14,7 +14,7 @@ from __future__ import annotations
 
 import pytest
 
-from ink_engine.core.edge_evidence import EdgeEvidenceStore, EdgeKey
+from ink_engine.core.edge_evidence import EdgeEvidence, EdgeEvidenceStore, EdgeKey
 from ink_engine.core.graph import Graph
 from ink_engine.core.run_result import RunResult
 from ink_engine.core.settle import (
@@ -42,6 +42,16 @@ from ink_engine.core.settle import (
 from tests.conftest import demo_linear_graph, make_engine
 
 NOW = 1_800_000_000.0
+
+
+class _StubGate:
+    """闸门桩（QualityGate 协议形态：evaluate(ctx) -> bool）。"""
+
+    def __init__(self, verdict: bool = True) -> None:
+        self._verdict = verdict
+
+    async def evaluate(self, ctx) -> bool:
+        return self._verdict
 
 
 def _steps(*items: tuple[str, str]) -> tuple[TraceStep, ...]:
@@ -529,4 +539,261 @@ async def test_engine_spawn_instance_trace_merges():
         EdgeKey(src_type="sub_start", dst_type="sub_end", context_domain="code")
     )
     assert sub_edge is not None and sub_edge.success_count == 1
+    await store.close()
+
+
+# ── 推荐先验自动晋升 + 策略边对抗复审（§11.6 双通道触发）──
+
+def test_recommended_prior_eligible_thresholds():
+    """晋升证据判据：N≥30 且成功率≥0.9（与信任档推导同一组常数）。"""
+    from ink_engine.core.settle import recommended_prior_eligible
+
+    assert recommended_prior_eligible(30, 0) is True  # p̂=(31/32)=0.969 ≥0.9
+    assert recommended_prior_eligible(29, 0) is False  # N=29 不足
+    assert recommended_prior_eligible(30, 10) is False  # p̂ 不足
+    assert recommended_prior_eligible(27, 3) is False  # p̂=28/32=0.875 低于 0.9
+    assert recommended_prior_eligible(28, 2) is True  # p̂=29/32=0.906 ≥0.9
+
+
+async def test_recommended_prior_hook_promotes_and_dedupes():
+    """晋升钩子：路径全通 + 全边达线 + 闸门 + canary → 晋升登记 + 审计。"""
+    from ink_engine.core.settle import RecommendedPriorSettleHook
+
+    store = EdgeEvidenceStore()
+    # 预置两条边的高强度证据（N=30 全成功）
+    for src, dst in (("start", "mid"), ("mid", "end")):
+        await store.put(
+            EdgeEvidence(
+                key=EdgeKey(src_type=src, dst_type=dst, context_domain="code"),
+                success_count=30,
+                fail_count=0,
+                created_at=NOW,
+                last_used_at=NOW,
+            )
+        )
+    gate = _StubGate(verdict=True)
+    records: list[dict] = []
+    hook = RecommendedPriorSettleHook(
+        store, gate=gate, canary_ok=lambda ctx: True, sink=records.append
+    )
+    ctx = _ctx(
+        _steps(
+            ("start", TRACE_SUCCESS),
+            ("mid", TRACE_SUCCESS),
+            ("end", TRACE_SUCCESS),
+        )
+    )
+    await hook.settle(ctx)
+    assert len(hook.promotions) == 1
+    promotion = hook.promotions[0]
+    assert promotion["type"] == "recommended_prior_promotion"
+    assert promotion["domain"] == "code"
+    assert promotion["gate_passed"] is True
+    assert len(promotion["edges"]) == 2
+    assert records == [promotion]
+    # 重复触发去重（同一路径不重复登记）
+    await hook.settle(ctx)
+    assert len(hook.promotions) == 1
+    await store.close()
+
+
+async def test_recommended_prior_hook_fail_closed_without_gate():
+    """晋升钩子 fail-closed：无闸门注入 = 不晋升（高质量归纳前提不满足）。"""
+    from ink_engine.core.settle import RecommendedPriorSettleHook
+
+    store = EdgeEvidenceStore()
+    for src, dst in (("start", "mid"), ("mid", "end")):
+        await store.put(
+            EdgeEvidence(
+                key=EdgeKey(src_type=src, dst_type=dst, context_domain="code"),
+                success_count=30,
+                fail_count=0,
+                created_at=NOW,
+                last_used_at=NOW,
+            )
+        )
+    hook = RecommendedPriorSettleHook(store, gate=None)
+    ctx = _ctx(
+        _steps(
+            ("start", TRACE_SUCCESS),
+            ("mid", TRACE_SUCCESS),
+            ("end", TRACE_SUCCESS),
+        )
+    )
+    await hook.settle(ctx)
+    assert hook.promotions == []
+    # 闸门拒绝同样不晋升
+    gated = RecommendedPriorSettleHook(
+        store, gate=_StubGate(verdict=False), canary_ok=lambda ctx: True
+    )
+    await gated.settle(ctx)
+    assert gated.promotions == []
+    await store.close()
+
+
+async def test_recommended_prior_hook_rejects_weak_edges():
+    """晋升钩子：任一遍历边未达晋升线 = 整条路径不晋升。"""
+    from ink_engine.core.settle import RecommendedPriorSettleHook
+
+    store = EdgeEvidenceStore()
+    await store.put(
+        EdgeEvidence(
+            key=EdgeKey(src_type="start", dst_type="mid", context_domain="code"),
+            success_count=30,
+            fail_count=0,
+            created_at=NOW,
+            last_used_at=NOW,
+        )
+    )
+    await store.put(
+        EdgeEvidence(
+            key=EdgeKey(src_type="mid", dst_type="end", context_domain="code"),
+            success_count=3,
+            fail_count=2,  # N=5 未达晋升线
+            created_at=NOW,
+            last_used_at=NOW,
+        )
+    )
+    hook = RecommendedPriorSettleHook(store, gate=_StubGate(verdict=True))
+    ctx = _ctx(
+        _steps(
+            ("start", TRACE_SUCCESS),
+            ("mid", TRACE_SUCCESS),
+            ("end", TRACE_SUCCESS),
+        )
+    )
+    await hook.settle(ctx)
+    assert hook.promotions == []
+    await store.close()
+
+
+def test_policy_edge_needs_review_predicates():
+    """策略边复审判据：失败累计≥5 或域均值反超承诺（样本不足只按失败判）。"""
+    from ink_engine.core.settle import policy_edge_needs_review
+    from ink_engine.core.edge_evidence import EdgeEvidence, EdgeKey
+
+    def edge(fail: int, success: int = 0, policy: bool = True) -> EdgeEvidence:
+        return EdgeEvidence(
+            key=EdgeKey(src_type="a", dst_type="b", context_domain="code"),
+            success_count=success,
+            fail_count=fail,
+            policy=policy,
+            created_at=NOW,
+        )
+
+    assert policy_edge_needs_review(edge(5), domain_average_p=None) == (
+        True,
+        "策略边失败累计 5 次 ≥ 阈值 5（对抗证据触发复审）",
+    )
+    assert policy_edge_needs_review(edge(4), domain_average_p=None)[0] is False
+    # 域均值反超：策略边 p̂=9/10=0.833 < 域均值 0.9
+    overtake = policy_edge_needs_review(edge(1, 9), domain_average_p=0.9)
+    assert overtake[0] is True
+    assert "域均值反超" in overtake[1]
+    # 非策略边不触发（降级后不再重复提请）
+    assert policy_edge_needs_review(edge(99, policy=False), domain_average_p=None)[0] is False
+
+
+async def test_policy_edge_review_hook_downgrades():
+    """复审钩子：失败累计超阈值 → 提请 L2 复审 + 复审前降级普通统计边。"""
+    from ink_engine.core.settle import PolicyEdgeReviewSettleHook
+
+    store = EdgeEvidenceStore()
+    await store.put(
+        EdgeEvidence(
+            key=EdgeKey(src_type="start", dst_type="mid", context_domain="code"),
+            success_count=30,
+            fail_count=0,
+            policy=True,
+            created_at=NOW,
+            last_used_at=NOW,
+        )
+    )
+    await store.put(
+        EdgeEvidence(
+            key=EdgeKey(src_type="mid", dst_type="end", context_domain="code"),
+            success_count=0,
+            fail_count=6,  # 超阈值 5
+            policy=True,
+            created_at=NOW,
+            last_used_at=NOW,
+        )
+    )
+    records: list[dict] = []
+    hook = PolicyEdgeReviewSettleHook(store, sink=records.append)
+    ctx = _ctx(
+        _steps(
+            ("start", TRACE_SUCCESS),
+            ("mid", TRACE_SUCCESS),
+            ("end", TRACE_SUCCESS),
+        )
+    )
+    await hook.settle(ctx)
+    assert len(hook.reviews) == 1
+    review = hook.reviews[0]
+    assert review["type"] == "policy_edge_review_audit"
+    assert review["review_tier"] == "l2"
+    assert review["action"] == "downgraded_to_statistical"
+    assert (review["src_type"], review["dst_type"]) == ("mid", "end")
+    # 降级已落库：policy=False（不再 τ=1.0/豁免衰减）
+    downgraded = await store.get(
+        EdgeKey(src_type="mid", dst_type="end", context_domain="code")
+    )
+    assert downgraded is not None and downgraded.policy is False
+    assert records == [review]
+    # 未超阈值的策略边保持原状
+    kept = await store.get(
+        EdgeKey(src_type="start", dst_type="mid", context_domain="code")
+    )
+    assert kept is not None and kept.policy is True
+    # 重复触发去重（降级后不再重复提请）
+    await hook.settle(ctx)
+    assert len(hook.reviews) == 1
+    await store.close()
+
+
+async def test_policy_edge_review_hook_domain_mean_overtake():
+    """复审钩子：域证据均值反超策略边承诺 → 复审 + 降级。"""
+    from ink_engine.core.settle import PolicyEdgeReviewSettleHook
+
+    store = EdgeEvidenceStore()
+    # 策略边成功率 0.5（1 成 1 败）
+    await store.put(
+        EdgeEvidence(
+            key=EdgeKey(src_type="start", dst_type="mid", context_domain="code"),
+            success_count=1,
+            fail_count=1,
+            policy=True,
+            created_at=NOW,
+            last_used_at=NOW,
+        )
+    )
+    # 两条非策略边高成功率（域均值 = 0.92）
+    for idx in range(2):
+        await store.put(
+            EdgeEvidence(
+                key=EdgeKey(
+                    src_type=f"s{idx}", dst_type=f"t{idx}", context_domain="code"
+                ),
+                success_count=30,
+                fail_count=0,
+                policy=False,
+                created_at=NOW,
+                last_used_at=NOW,
+            )
+        )
+    hook = PolicyEdgeReviewSettleHook(store)
+    ctx = _ctx(
+        _steps(
+            ("start", TRACE_SUCCESS),
+            ("mid", TRACE_SUCCESS),
+        )
+    )
+    await hook.settle(ctx)
+    assert len(hook.reviews) == 1
+    assert "域均值反超" in hook.reviews[0]["reason"]
+    downgraded = await store.get(
+        EdgeKey(src_type="start", dst_type="mid", context_domain="code")
+    )
+    assert downgraded is not None and downgraded.policy is False
     await store.close()

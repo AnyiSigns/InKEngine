@@ -1124,8 +1124,10 @@ def register_builtin_ops() -> None:
 
 # ── 路径组装机制（使用方接线：闸门/档位映射/草稿桥/桥 op 注册）──
 
-# 机制开关（默认关闭；装配尾段按装配开关值透传——关闭即 op fail-closed）
+# 机制开关（默认关闭；装配按装配开关值透传——关闭即 op fail-closed）
 _PATH_ASSEMBLER_ENABLED = False
+# 七块机制开关全量（装配尾段按名写入；键名 = 引擎 BOOT_KEY_* 同源）
+_PATH_FLAGS: dict[str, bool] = {}
 
 
 class _DraftBridge:
@@ -1422,12 +1424,29 @@ async def _path_import_seed_paths(args: dict) -> dict[str, Any]:
     return {"imported": int(written), "enabled": True}
 
 
+@op_sync("path.set_flags")
+def _path_set_flags(args: dict) -> dict[str, Any]:
+    """七块机制开关透传（装配尾段按装配开关值写入；缺省全关）。
+
+    键名与引擎 ``PathAssemblyFlags.from_boot`` 的 BOOT_KEY_* 同源
+    （path_assembly_*_enabled）；逐位独立，单块可关闭即回滚路径。
+    兼容旧形态：`path.set_assembler_enabled` 只写 assembler 位。
+    """
+    from ink_engine.core.contracts import PathAssemblyFlags
+
+    global _PATH_FLAGS, _PATH_ASSEMBLER_ENABLED
+    flags = PathAssemblyFlags.from_boot(args)
+    _PATH_FLAGS = dict(flags.to_dict())
+    _PATH_ASSEMBLER_ENABLED = flags.assembler_enabled
+    return {"enabled": _PATH_ASSEMBLER_ENABLED, "flags": dict(_PATH_FLAGS)}
+
+
 @op_sync("path.set_assembler_enabled")
 def _path_set_assembler_enabled(args: dict) -> dict[str, Any]:
-    """机制开关透传（装配尾段按装配开关值写入；默认关闭）。"""
-    global _PATH_ASSEMBLER_ENABLED
-    _PATH_ASSEMBLER_ENABLED = bool(args.get("enabled", False))
-    return {"enabled": _PATH_ASSEMBLER_ENABLED}
+    """组装器单块开关透传（兼容旧调用形态；语义 = set_flags 的 assembler 位）。"""
+    return _path_set_flags(
+        {"path_assembly_assembler_enabled": bool(args.get("enabled", False))}
+    )
 
 
 # ── 协议注入验证助手（Rust 侧实现的嵌入/记忆协议对象经此被消费验证）──

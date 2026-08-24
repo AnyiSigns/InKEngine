@@ -255,6 +255,48 @@ def test_endpoint_operation_file():
     assert endpoint_operation(EndpointType.FILE_OPS, {"operation": "chmod", "path": "/x"}) is None
 
 
+def test_endpoint_operation_file_search_ops():
+    """file_ops 检索操作：search/search_paths 判定目标（无 path 回落端点根）。
+
+    检索操作 = 只读文件操作域的新成员：权限动作与沙箱守卫按操作名对齐
+    （filesystem:search / filesystem:search_paths）；无 path 参数时全域
+    检索，判定目标 = 端点配置根目录（检索域 = 整个工作区根）。
+    """
+    op, target = endpoint_operation(
+        EndpointType.FILE_OPS,
+        {"operation": "search", "pattern": "foo"},
+        config={"root": "/ws"},
+    )
+    assert (op, target) == ("search", "/ws")
+    op, target = endpoint_operation(
+        EndpointType.FILE_OPS,
+        {"operation": "search_paths", "pattern": "**/*.py", "path": "/ws/src"},
+        config={"root": "/ws"},
+    )
+    assert (op, target) == ("search_paths", "/ws/src")
+    # 无根回落（未注入 config）= 无法判定目标（fail-closed）
+    assert (
+        endpoint_operation(EndpointType.FILE_OPS, {"operation": "search", "pattern": "x"})
+        is None
+    )
+    # 非法操作仍无法判定（fail-closed）
+    assert endpoint_operation(EndpointType.FILE_OPS, {"operation": "chmod", "path": "/x"}) is None
+
+
+def test_endpoint_operation_web_search():
+    """web_search 端点：查询语句作判定目标（connect 语义；空查询无法判定）。
+
+    联网搜索与 fetch 的单 URL 出网不同：结果域名过滤在实现内完成，
+    权限动作按 connect 白名单语义判定（network:connect:* 命中任意查询）。
+    """
+    op, target = endpoint_operation(
+        EndpointType.WEB_SEARCH, {"query": "最新研究", "limit": 5}
+    )
+    assert (op, target) == ("connect", "最新研究")
+    assert endpoint_operation(EndpointType.WEB_SEARCH, {}) is None
+    assert endpoint_operation(EndpointType.WEB_SEARCH, {"query": ""}) is None
+
+
 async def test_executor_dispatch_routes_by_endpoint():
     """执行体分发：按端点类型路由；未注册端点/未登记定义 → 显式拒绝。"""
     executors = DeclarativeToolExecutors()
@@ -497,6 +539,54 @@ async def test_network_policy_sandbox_wired():
     assert denied.decision == "deny"
     assert "域名不在白名单" in (denied.error or "")
     assert calls == ["https://sub.example.com/a"]
+
+
+async def test_file_search_ops_pipeline_gate_and_sandbox():
+    """检索操作走完整流水线：权限动作命中 → 沙箱边界解析 → 执行体分发。
+
+    全域检索（无 path）判定目标 = 根目录本身：权限模式含根目录条目
+    （``filesystem:search:root|root/**``）才放行——越界 path 由沙箱拒绝。
+    """
+    definition = _declarative(
+        name="grep",
+        endpoint=EndpointType.FILE_OPS,
+        endpoint_config={"root": "/ws"},
+        permissions=("filesystem:search:/ws|/ws/**",),
+        parameters={
+            "type": "object",
+            "properties": {
+                "operation": {"enum": ["search"]},
+                "pattern": {"type": "string"},
+            },
+        },
+    )
+    executors = DeclarativeToolExecutors()
+    executors.register_definition(definition)
+    calls: list[dict] = []
+
+    async def file_executor(ctx, defn, args, approval):
+        calls.append(args)
+        return "ok"
+
+    executors.register(EndpointType.FILE_OPS, file_executor)
+    pipeline = build_declarative_pipeline(executors)
+
+    class Ctx:
+        async def emit(self, *args, **kwargs):
+            pass
+
+    spec = definition.to_spec()
+    # 全域检索：目标回落根目录 → 权限命中 + 沙箱解析通过
+    allowed = await pipeline.execute(
+        Ctx(), spec, {"operation": "search", "pattern": "foo"}
+    )
+    assert allowed.ok is True
+    assert calls[-1]["pattern"] == "foo"
+    # 非法操作（chmod）→ 提取器无法判定目标 → fail-closed 拒绝
+    denied = await pipeline.execute(Ctx(), spec, {"operation": "chmod", "path": "/ws/x"})
+    assert denied.ok is False
+    assert denied.decision == "deny"
+    assert "无法判定" in (denied.error or "")
 
 
 def test_endpoint_operation_scheme_whitelist():

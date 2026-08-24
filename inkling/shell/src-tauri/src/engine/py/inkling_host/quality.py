@@ -140,6 +140,25 @@ class DomainQualityGate:
             return False
 
 
+class SettleQualityGate:
+    """沉淀钩子闸门适配：域质量判定（judge）→ 沉淀 QualityGate（evaluate）。
+
+    沉淀钩子（指纹入库线/推荐先验晋升线）消费的闸门协议 = 
+    ``evaluate(ctx) -> bool``（SettleContext 形态）；本适配把运行期
+    产出（顶层图最终状态）喂给域硬规则判定——零模型调用，与组装请求
+    侧同源同判。
+    """
+
+    def __init__(self, gate: DomainQualityGate | None = None) -> None:
+        self._gate = gate or DomainQualityGate()
+
+    async def evaluate(self, ctx: Any) -> bool:
+        return self._gate.judge(
+            getattr(ctx, "domain", "default"),
+            getattr(getattr(ctx, "result", None), "state", {}) or {},
+        )
+
+
 __all__ = [
     "APPROVAL_TIER_TO_MAX_SAFETY_TIER",
     "DEFAULT_MAX_SAFETY_TIER",
@@ -148,5 +167,6 @@ __all__ = [
     "MIN_TOOL_DESCRIPTION_CHARS",
     "TOOL_NAME_MAX_CHARS",
     "DomainQualityGate",
+    "SettleQualityGate",
     "approval_tier_to_max_safety_tier",
 ]

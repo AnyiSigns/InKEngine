@@ -430,6 +430,7 @@ pub enum Endpoint {
     ProcessExec,
     FileOps,
     Mcp,
+    WebSearch,
 }
 
 impl Endpoint {
@@ -439,6 +440,7 @@ impl Endpoint {
             "process_exec" => Ok(Self::ProcessExec),
             "file_ops" => Ok(Self::FileOps),
             "mcp" => Ok(Self::Mcp),
+            "web_search" => Ok(Self::WebSearch),
             other => Err(DomainError::InvalidData(format!("工具端点类型非法: {other:?}"))),
         }
     }
@@ -449,6 +451,7 @@ impl Endpoint {
             Self::ProcessExec => "process_exec",
             Self::FileOps => "file_ops",
             Self::Mcp => "mcp",
+            Self::WebSearch => "web_search",
         }
     }
 }
@@ -697,7 +700,9 @@ impl DeclarativeSandboxProxy {
     }
 
     pub fn guards_operation(&self, operation: &str) -> bool {
-        operation == "exec" || matches!(operation, "read" | "write" | "delete") || operation == "connect"
+        operation == "exec"
+            || matches!(operation, "read" | "write" | "delete" | "search" | "search_paths")
+            || operation == "connect"
     }
 
     /// 按调用工具反查定义并执行对应端点守卫；返回回写参数（解析后目标）。
@@ -728,14 +733,19 @@ impl DeclarativeSandboxProxy {
                 }
                 Ok(target.to_string())
             }
-            Endpoint::FileOps if matches!(operation, "read" | "write" | "delete") => {
-                let max_bytes = if operation == "read" {
-                    definition.size_limit("max_read_bytes", DEFAULT_MAX_READ_BYTES)
-                } else {
-                    definition.size_limit("max_write_bytes", DEFAULT_MAX_WRITE_BYTES)
+            Endpoint::FileOps if matches!(operation, "read" | "write" | "delete" | "search" | "search_paths") => {
+                // 检索操作只读不取整文件：仅解析边界，不做单文件大小上限
+                let max_bytes = match operation {
+                    "read" => Some(
+                        definition.size_limit("max_read_bytes", DEFAULT_MAX_READ_BYTES)
+                    ),
+                    "write" => Some(
+                        definition.size_limit("max_write_bytes", DEFAULT_MAX_WRITE_BYTES)
+                    ),
+                    _ => None,
                 };
                 self.workspace
-                    .validate_file(operation, target, Some(max_bytes))
+                    .validate_file(operation, target, max_bytes)
             }
             Endpoint::HttpFetch if operation == "connect" => {
                 let domains = definition.allow_domains();
@@ -907,12 +917,15 @@ impl FileOpsExecutor {
         std::fs::write(path, snapshot).is_ok()
     }
 
-    /// 执行一次文件操作（参数形态：operation/path/content/old_text/new_text）。
+    /// 执行一次文件操作（参数形态：operation/path/content/old_text/new_text；
+    /// 检索操作另读 pattern/glob/include/max_results/root）。
     pub fn call(&mut self, args: &JsonValue, limits: &SizeLimits) -> String {
         let operation = args.get("operation").and_then(|v| v.as_str()).unwrap_or("");
         let path_text = args.get("path").and_then(|v| v.as_str()).unwrap_or("");
         match operation {
             "read" => self.read(path_text, limits),
+            "search" => self.search(args, limits),
+            "search_paths" => self.search_paths(args),
             "write" => {
                 if args.get("old_text").is_some() {
                     let old_text = args.get("old_text").and_then(|v| v.as_str()).unwrap_or("");
@@ -939,6 +952,209 @@ impl FileOpsExecutor {
             })
             .to_string(),
         }
+    }
+
+    /// grep：工作区文本内容检索（正则 + 路径 glob 过滤 + 类型过滤 + 超限
+    /// 截断；只读，结果 = 命中文件/行号/摘要）。检索根取参数 root
+    /// （沙箱已先行解析，防御归一）。
+    fn search(&self, args: &JsonValue, limits: &SizeLimits) -> String {
+        let root = PathBuf::from(
+            args.get("root").and_then(|v| v.as_str()).unwrap_or(""),
+        );
+        if !root.is_dir() {
+            return serde_json::json!({
+                "ok": false,
+                "status": "no_root",
+                "error": format!("检索根不可用: {}", root.display()),
+            })
+            .to_string();
+        }
+        let pattern = args.get("pattern").and_then(|v| v.as_str()).unwrap_or("");
+        if pattern.is_empty() {
+            return serde_json::json!({
+                "ok": false,
+                "status": "missing_pattern",
+                "error": "检索正则不能为空",
+            })
+            .to_string();
+        }
+        let regex = match regex::Regex::new(pattern) {
+            Ok(regex) => regex,
+            Err(err) => {
+                return serde_json::json!({
+                    "ok": false,
+                    "status": "invalid_pattern",
+                    "error": format!("检索正则非法: {err}"),
+                })
+                .to_string();
+            }
+        };
+        let glob_pattern = args.get("glob").and_then(|v| v.as_str()).unwrap_or("");
+        let include = args.get("include").and_then(|v| v.as_str()).unwrap_or("");
+        let max_results = args
+            .get("max_results")
+            .and_then(JsonValue::as_u64)
+            .map(|n| n as usize)
+            .unwrap_or(100)
+            .clamp(1, 1000);
+        let mut matches: Vec<JsonValue> = Vec::new();
+        let mut truncated = false;
+        let mut stack: Vec<PathBuf> = vec![root.clone()];
+        while let Some(dir) = stack.pop() {
+            if truncated {
+                break;
+            }
+            let Ok(entries) = std::fs::read_dir(&dir) else {
+                continue;
+            };
+            let mut names: Vec<PathBuf> = entries.flatten().map(|e| e.path()).collect();
+            names.sort();
+            let mut subdirs: Vec<PathBuf> = Vec::new();
+            for path in names {
+                if path.is_dir() {
+                    subdirs.push(path);
+                    continue;
+                }
+                if matches.len() >= max_results {
+                    truncated = true;
+                    break;
+                }
+                let rel = path
+                    .strip_prefix(&root)
+                    .map(|p| p.to_string_lossy().replace('\\', "/"))
+                    .unwrap_or_default();
+                if !glob_pattern.is_empty() && !fn_match(glob_pattern, &rel) {
+                    continue;
+                }
+                if !include.is_empty() && !include_matches(include, &path) {
+                    continue;
+                }
+                let Ok(meta) = std::fs::metadata(&path) else {
+                    continue;
+                };
+                if meta.len() > limits.max_read {
+                    continue; // 超限文件跳过（检索域受大小上限约束）
+                }
+                let Ok(text) = std::fs::read_to_string(&path) else {
+                    continue;
+                };
+                let Some(hit) = regex.find(&text) else {
+                    continue;
+                };
+                let line = text[..hit.start()].matches('\n').count() + 1;
+                let line_start = text[..hit.start()].rfind('\n').map(|i| i + 1).unwrap_or(0);
+                let line_end = text[hit.start()..]
+                    .find('\n')
+                    .map(|i| hit.start() + i)
+                    .unwrap_or(text.len());
+                let snippet: String = text[line_start..line_end]
+                    .trim()
+                    .chars()
+                    .take(200)
+                    .collect();
+                matches.push(serde_json::json!({
+                    "path": rel,
+                    "line": line,
+                    "snippet": snippet,
+                }));
+            }
+            stack.extend(subdirs);
+        }
+        if matches.len() >= max_results {
+            truncated = true;
+        }
+        serde_json::json!({
+            "ok": true,
+            "matches": matches,
+            "truncated": truncated,
+            "total": matches.len(),
+        })
+        .to_string()
+    }
+
+    /// glob：工作区路径检索（递归匹配；pattern 相对检索起点匹配，支持
+    /// ``**`` 跨目录；只列路径不读内容）。
+    fn search_paths(&self, args: &JsonValue) -> String {
+        let root = PathBuf::from(
+            args.get("root").and_then(|v| v.as_str()).unwrap_or(""),
+        );
+        if !root.is_dir() {
+            return serde_json::json!({
+                "ok": false,
+                "status": "no_root",
+                "error": format!("检索根不可用: {}", root.display()),
+            })
+            .to_string();
+        }
+        let pattern = args.get("pattern").and_then(|v| v.as_str()).unwrap_or("");
+        if pattern.is_empty() {
+            return serde_json::json!({
+                "ok": false,
+                "status": "missing_pattern",
+                "error": "路径模式不能为空",
+            })
+            .to_string();
+        }
+        let base = args
+            .get("path")
+            .and_then(|v| v.as_str())
+            .map(PathBuf::from)
+            .map(|p| if p.is_absolute() { p } else { root.join(p) })
+            .unwrap_or_else(|| root.clone());
+        if !base.starts_with(&root) {
+            return serde_json::json!({
+                "ok": false,
+                "status": "out_of_root",
+                "error": format!("检索起点越界: {}", base.display()),
+            })
+            .to_string();
+        }
+        let max_results = args
+            .get("max_results")
+            .and_then(JsonValue::as_u64)
+            .map(|n| n as usize)
+            .unwrap_or(100)
+            .clamp(1, 1000);
+        let pattern_norm = pattern.replace('\\', "/");
+        let mut paths: Vec<String> = Vec::new();
+        let mut truncated = false;
+        let mut stack: Vec<PathBuf> = vec![base.clone()];
+        while let Some(dir) = stack.pop() {
+            if truncated {
+                break;
+            }
+            let Ok(entries) = std::fs::read_dir(&dir) else {
+                continue;
+            };
+            let mut names: Vec<PathBuf> = entries.flatten().map(|e| e.path()).collect();
+            names.sort();
+            for path in names {
+                if paths.len() >= max_results {
+                    truncated = true;
+                    break;
+                }
+                let rel = path
+                    .strip_prefix(&base)
+                    .map(|p| p.to_string_lossy().replace('\\', "/"))
+                    .unwrap_or_default();
+                if !rel.is_empty() && glob_match(&pattern_norm, &rel) {
+                    paths.push(path.to_string_lossy().into_owned());
+                }
+                if path.is_dir() {
+                    stack.push(path);
+                }
+            }
+        }
+        if paths.len() >= max_results {
+            truncated = true;
+        }
+        serde_json::json!({
+            "ok": true,
+            "paths": paths,
+            "truncated": truncated,
+            "total": paths.len(),
+        })
+        .to_string()
     }
 
     fn read(&self, path_text: &str, limits: &SizeLimits) -> String {
@@ -1253,6 +1469,55 @@ fn truncate_chars(text: &str, max: usize) -> String {
         head.truncate(max);
         head
     }
+}
+
+/// 文件类型过滤匹配（include 语义：``.py`` 按后缀、``*.py``/``py`` 按
+/// fnmatch 通配——与 Python 宿主执行体同口径）。
+fn include_matches(include: &str, path: &std::path::Path) -> bool {
+    let name = path
+        .file_name()
+        .map(|n| n.to_string_lossy())
+        .unwrap_or_default();
+    if include.starts_with('.') {
+        return name.ends_with(include);
+    }
+    let pattern = if include.starts_with('*') {
+        include.to_string()
+    } else if include.contains('.') {
+        include.to_string()
+    } else {
+        format!("*{include}")
+    };
+    fn_match(&pattern, &name)
+}
+
+/// glob 路径匹配（``**`` 跨目录分隔符；无 ``**`` 时与 fn_match 等价）。
+///
+/// ``**`` 段之间复用 fnmatch 通配翻译（``*``/``?``/``[seq]``）；
+/// ``**/`` 前缀为可选段（``**/*.rs`` 同时匹配基址下的 ``main.rs`` 与
+/// 任意深度的 ``sub/lib.rs``）。
+fn glob_match(pattern: &str, text: &str) -> bool {
+    if !pattern.contains("**") {
+        return fn_match(pattern, text);
+    }
+    let mut regex = String::from("^(?:");
+    let mut parts = pattern.split("**");
+    if let Some(first) = parts.next() {
+        regex.push_str(&translate_pattern(first));
+    }
+    for part in parts {
+        if let Some(rest) = part.strip_prefix('/') {
+            regex.push_str("(?:.*/)?");
+            regex.push_str(&translate_pattern(rest));
+        } else {
+            regex.push_str(".*");
+            regex.push_str(&translate_pattern(part));
+        }
+    }
+    regex.push_str(")\\z");
+    regex::Regex::new(&regex)
+        .map(|re| re.is_match(text))
+        .unwrap_or(false)
 }
 
 // ── 域装配门面 ──
@@ -2050,6 +2315,66 @@ mod tests {
 
         let invalid = executor.call(&json!({"operation": "chmod", "path": "x"}), &limits);
         assert_eq!(serde_json::from_str::<JsonValue>(&invalid).unwrap()["status"], "invalid_operation");
+    }
+
+    #[test]
+    fn file_ops_executor_search_and_search_paths() {
+        let ws = scratch("executor-search");
+        let _keep = Scratch(ws.clone());
+        std::fs::create_dir_all(ws.join("src").join("sub")).unwrap();
+        std::fs::write(ws.join("src").join("main.rs"), "fn main() { println!(\"墨引擎\"); }").unwrap();
+        std::fs::write(ws.join("src").join("sub").join("lib.rs"), "// 墨引擎注释\npub fn lib() {}").unwrap();
+        std::fs::write(ws.join("src").join("notes.txt"), "plain text").unwrap();
+        let limits = SizeLimits { max_read: 1 << 20, max_write: 1 << 20 };
+        let mut executor = FileOpsExecutor::default();
+
+        // grep：正则 + 路径 glob 过滤 + 行号/摘要
+        let searched = executor.call(
+            &json!({"operation": "search", "root": ws.to_string_lossy(), "pattern": "墨引擎", "glob": "**/*.rs"}),
+            &limits,
+        );
+        let parsed: JsonValue = serde_json::from_str(&searched).unwrap();
+        assert_eq!(parsed["ok"], true);
+        let matches = parsed["matches"].as_array().unwrap();
+        assert_eq!(matches.len(), 2);
+        assert_eq!(matches[0]["path"], "src/main.rs");
+        assert_eq!(matches[0]["line"], 1);
+        assert!(matches[0]["snippet"].as_str().unwrap().contains("墨引擎"));
+
+        // include 类型过滤（.txt 后缀语义）
+        let typed = executor.call(
+            &json!({"operation": "search", "root": ws.to_string_lossy(), "pattern": "plain", "include": ".txt"}),
+            &limits,
+        );
+        let typed_parsed: JsonValue = serde_json::from_str(&typed).unwrap();
+        assert_eq!(typed_parsed["matches"].as_array().unwrap().len(), 1);
+
+        // 非法正则结构化失败
+        let invalid = executor.call(
+            &json!({"operation": "search", "root": ws.to_string_lossy(), "pattern": "("}),
+            &limits,
+        );
+        assert_eq!(serde_json::from_str::<JsonValue>(&invalid).unwrap()["status"], "invalid_pattern");
+
+        // glob：** 跨目录递归匹配；只列路径不读内容
+        let globbed = executor.call(
+            &json!({"operation": "search_paths", "root": ws.to_string_lossy(), "pattern": "**/*.rs"}),
+            &limits,
+        );
+        let globbed_parsed: JsonValue = serde_json::from_str(&globbed).unwrap();
+        assert_eq!(globbed_parsed["ok"], true);
+        let paths = globbed_parsed["paths"].as_array().unwrap();
+        assert_eq!(paths.len(), 2);
+        assert!(paths.iter().any(|p| p.as_str().unwrap().ends_with("main.rs")));
+        assert!(paths.iter().any(|p| p.as_str().unwrap().ends_with("lib.rs")));
+        // 检索起点收敛（path 子目录）
+        let narrowed = executor.call(
+            &json!({"operation": "search_paths", "root": ws.to_string_lossy(),
+                    "path": ws.join("src").to_string_lossy(), "pattern": "**/*.rs"}),
+            &limits,
+        );
+        let narrowed_parsed: JsonValue = serde_json::from_str(&narrowed).unwrap();
+        assert_eq!(narrowed_parsed["paths"].as_array().unwrap().len(), 2);
     }
 
     // ── http_fetch 执行体 ──

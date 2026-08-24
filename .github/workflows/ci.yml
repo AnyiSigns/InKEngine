@@ -47,22 +47,63 @@ jobs:
       - run: ruff check ink_engine
 
   # ── 种子侧门禁（命令 = manifest.json self_check 单一事实源）──
-  # schema 数据校验与接线 e2e 门禁随 Rust 自检编排落地后在此恢复；
-  # 当前保留 cargo 执行件与 frontend 类型检查两道可独立执行的出厂门禁。
+  # 七关矩阵：schema 数据一致性 / cargo 执行件 / 接线 e2e / frontend。
+  # schema 与 e2e 经 Rust 自检编排（inkling/self_check）统一执行；
+  # 壳 crate 测试（tauri/pyo3/ort，编译重且需 Python 环境）并入
+  # seed-e2e 执行，seed-cargo 覆盖 exec 与自检编排两个轻量 crate。
 
-  seed-cargo:
-    name: 种子 cargo test（执行件）
+  seed-schema:
+    name: 种子 schema 数据一致性
     runs-on: ubuntu-latest
     steps:
       - uses: actions/checkout@v4
       - uses: dtolnay/rust-toolchain@stable
       - uses: Swatinem/rust-cache@v2
         with:
-          workspaces: inkling/exec
+          workspaces: inkling/self_check
+      # schema 门禁为纯 Rust 校验（schema 定义内嵌二进制；引擎事实核对
+      # 读仓库内 runtime.py/pyproject.toml 源码），无需 Python 环境
+      - run: cargo run --release --manifest-path inkling/self_check/Cargo.toml -- schema
+
+  seed-cargo:
+    name: 种子 cargo test（执行件 + 自检编排）
+    runs-on: ubuntu-latest
+    steps:
+      - uses: actions/checkout@v4
+      - uses: dtolnay/rust-toolchain@stable
+      - uses: Swatinem/rust-cache@v2
+        with:
+          workspaces: |
+            inkling/exec
+            inkling/self_check
+      # 壳 crate 测试（重编译 + Python 环境）在 seed-e2e 执行
       - run: cargo test --manifest-path inkling/exec/Cargo.toml
+      - run: cargo test --manifest-path inkling/self_check/Cargo.toml
+
+  seed-e2e:
+    name: 种子接线 e2e（壳 crate 全量）
+    needs: [seed-cargo]
+    runs-on: ubuntu-latest
+    steps:
+      - uses: actions/checkout@v4
+      - uses: actions/setup-python@v5
+        with:
+          python-version: ${{ env.PYTHON_VERSION }}
+      # 壳测试内嵌 Python 引擎：引擎包与依赖装入 setup-python 的 venv；
+      # PYO3_PYTHON 指向该解释器（setup-python 自带头文件与共享库，
+      # pyo3 构建期链接 libpython 走此路径；如遇链接失败，备选方案为
+      # apt-get install python3-dev 补系统头文件后重试）
+      - run: pip install -e "ink_engine[test,sqlite,llm,mcp]"
+      - uses: dtolnay/rust-toolchain@stable
+      - uses: Swatinem/rust-cache@v2
+        with:
+          workspaces: inkling/shell/src-tauri
+      - run: cargo run --release --manifest-path inkling/self_check/Cargo.toml -- e2e
+        env:
+          PYO3_PYTHON: ${{ env.pythonLocation }}/bin/python
 
   seed-frontend:
-    name: 种子 frontend typecheck
+    name: 种子 frontend typecheck + vitest
     runs-on: ubuntu-latest
     steps:
       - uses: actions/checkout@v4
@@ -73,3 +114,4 @@ jobs:
           cache-dependency-path: inkling/frontend/package-lock.json
       - run: npm ci --prefix inkling/frontend
       - run: npm --prefix inkling/frontend run typecheck
+      - run: npm --prefix inkling/frontend run test

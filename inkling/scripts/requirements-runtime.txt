@@ -1,0 +1,12 @@
+# 出厂运行时第三方依赖（随包安装进内嵌运行时 site-packages）
+#
+# 引擎核心为零运行时依赖（标准库）；产品面仅三件：
+# - aiosqlite：sqlite 存储后端（唯一集数据底座）
+# - httpx：LLM 调用（openai_compat 传输）+ 网络工具执行体
+# - mcp：MCP 挂载通道（引擎 mcp_client 模块级导入，出厂能力必须）
+#
+# 版本与开发环境 .venv 对齐（钉死，避免随 pip 解析漂移）；
+# 打包脚本以 pip install --target 产出纯 wheel 形态（仅二进制安全）。
+aiosqlite==0.22.1
+httpx==0.28.1
+mcp==2.0.0

@@ -27,12 +27,25 @@
   "bundle": {
     "active": true,
     "targets": [
-      "nsis"
+      "nsis",
+      "dmg"
     ],
     "icon": [
       "icons/icon.ico",
       "icons/icon.png"
     ],
-    "shortDescription": "InKling：你用得越多，它越懂你的领域"
+    "shortDescription": "InKling：你用得越多，它越懂你的领域",
+    "windows": {
+      "nsis": {
+        "installerHooks": "./windows/hooks.nsh"
+      }
+    },
+    "resources": [
+      "resources/python/",
+      "resources/granite-97m/",
+      "resources/ink_engine/",
+      "resources/inkling/",
+      "resources/exec/"
+    ]
   }
 }

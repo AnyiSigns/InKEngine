@@ -59,6 +59,41 @@ from .security_domain import (
     make_process_exec_executor,
 )
 
+
+class BehaviorLLM:
+    """行为准则层协议代理（AsyncLLM 鸭子类型包装）。
+
+    每个 LLM 调用的消息流前置系统消息 = 行为准则层（soul + 行为准则 +
+    产品事实 + 目标设定 + 打标分类准则 + 推演档位 + 交错推理引导语 +
+    工具名对照表）——「系统提示谈意图、工具描述谈动作」的纪律执行点：
+    行为块不引用任何工具标识符，模型推理词汇 = 行为词。包装发生在
+    resolve_llm 出口，覆盖全部宿主 LLM 调用路径（评审/蒸馏/路由），
+    引擎侧零改动（协议代理形态与推理档位注入同构）。
+    """
+
+    def __init__(self, inner: AsyncLLM, behavior: str) -> None:
+        self._inner = inner
+        self._behavior = behavior
+
+    def _with_behavior(self, messages: list[Any]) -> list[Any]:
+        from ink_engine.core.llm.messages import system
+
+        return [system(self._behavior), *list(messages)]
+
+    async def ainvoke(self, messages, *, tools=None, params=None):
+        return await self._inner.ainvoke(
+            self._with_behavior(messages), tools=tools, params=params
+        )
+
+    async def astream(self, messages, *, tools=None, params=None):
+        async for chunk in self._inner.astream(
+            self._with_behavior(messages), tools=tools, params=params
+        ):
+            yield chunk
+
+    async def aclose(self) -> None:
+        return await self._inner.aclose()
+
 # 环境/产物等运行数据目录缺省形态：进程级临时目录（可销毁重建的会话态
 # 数据；正式宿主经 data_dir 注入持久目录）
 _DEFAULT_DATA_DIR_PREFIX = "inkling-runtime-"
@@ -124,6 +159,8 @@ class InKlingHost(Host):
         transport: EngineTransport | None = None,
         auto_approve_keys: frozenset[str] = frozenset(),
         timeout: float | None = APPROVAL_TIMEOUT_SECONDS,
+        embedder: Any | None = None,
+        behavior: str | None = None,
     ) -> None:
         self._storage_uri = storage_uri
         self._llm = llm
@@ -131,6 +168,10 @@ class InKlingHost(Host):
         self._auto_approve_keys = auto_approve_keys
         self._timeout = timeout
         self._storage: Storage | None = None
+        # 本地语义嵌入器（Rust 协议注入形态；None = 关键词基线检索）
+        self._embedder = embedder
+        # 行为准则层文本（装配期组成；None = 不注入——离线单元形态）
+        self._behavior = behavior
         # 回合步骤记录器（core.round_steps 原语：事件流 → 步骤序列）
         self.round_recorder = RoundStepsTransport()
         # 装配域（boot 后齐备；设置页/评测侧消费的运行期入口）
@@ -151,16 +192,23 @@ class InKlingHost(Host):
         return self._storage
 
     async def resolve_llm(self) -> AsyncLLM | None:
-        """模型解析：注入实例优先，否则环境变量配置；缺配置返回 None。"""
-        if self._llm is not None:
-            return self._llm
-        config = _model_config_from_env()
-        if not config:
-            return None
-        try:
-            return create_llm(config)
-        except Exception:
-            return None
+        """模型解析：注入实例优先，否则环境变量配置；缺配置返回 None。
+
+        返回实例统一经行为准则层包装（BehaviorLLM）——行为块前置为
+        系统消息，覆盖全部宿主 LLM 调用路径。
+        """
+        llm = self._llm
+        if llm is None:
+            config = _model_config_from_env()
+            if not config:
+                return None
+            try:
+                llm = create_llm(config)
+            except Exception:
+                return None
+        if self._behavior is not None:
+            return BehaviorLLM(llm, self._behavior)
+        return llm
 
     def interrupt_policy(self) -> InterruptPolicy:
         """审批策略（直过白名单 + 审批超时窗口；缺省走引擎默认超时）。"""
@@ -226,6 +274,8 @@ async def boot_inkling(
     market: dict[str, Any] | None = None,
     data_dir: Path | None = None,
     safe_mode: bool = False,
+    embedder: Any | None = None,
+    behavior: str | None = None,
 ) -> tuple[Runtime, InKlingHost, McpMountService]:
     """装配 InKling 运行时（配方数据装配 + 宿主装配动作）。
 
@@ -303,13 +353,19 @@ async def boot_inkling(
         rebuild_declarative_tools(runtime_ref, base_tools, assembled)
         await runtime_ref.rebuild_engine()
 
-    host = host or InKlingHost(llm=llm, storage_uri=storage_uri)
+    host = host or InKlingHost(
+        llm=llm,
+        storage_uri=storage_uri,
+        embedder=embedder,
+        behavior=behavior,
+    )
     from .recipe_loader import build_recipe
 
     recipe = build_recipe(
         bundle,
         l2_vetting_hook=composed_l2_hook,
         on_reverted=_on_reverted,
+        embedder=embedder,
     )
     runtime = await InkRuntime(_five_source_factory(bundle)).boot(host, recipe)
     revert_state["runtime"] = runtime

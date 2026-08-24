@@ -112,6 +112,107 @@ impl RustEmbedder {
     }
 }
 
+/// 出厂本地嵌入器（granite-97m ONNX 的协议注入形态）：引擎侧消费的
+/// AsyncEmbedder 协议对象——`aembed_query`/`aembed_documents`/`aclose`
+/// 三个可等待方法，与确定性 [`RustEmbedder`] 同位（后者供离线验证）。
+///
+/// 内嵌真实推理（ort + tokenizers，懒加载单体）：模型目录经构造参数
+/// 显式传入（发行 = 数据目录 assets/ 解包位；开发 = 仓库 models/），
+/// 计划解析/降级语义全部归接线层 [`crate::domain::embedder`]，本类
+/// 只做跨语言边界的异步形态适配。
+#[pyclass]
+pub struct LocalOnnx {
+    inner: std::sync::Arc<crate::domain::embedder::LocalOnnxEmbedder>,
+}
+
+impl LocalOnnx {
+    /// 显式模型目录构造（装配注入形态；None = 环境默认解析）。
+    pub fn with_model_dir(model_dir: std::path::PathBuf) -> Self {
+        Self {
+            inner: std::sync::Arc::new(
+                crate::domain::embedder::LocalOnnxEmbedder::with_model_dir(model_dir),
+            ),
+        }
+    }
+}
+
+fn to_py_value_err(err: crate::domain::common::DomainError) -> PyErr {
+    PyValueError::new_err(err.to_string())
+}
+
+#[pymethods]
+impl LocalOnnx {
+    /// 构造（model_dir = None 时走环境默认：`INK_EMBEDDING_MODEL_DIR`）。
+    #[new]
+    fn new(model_dir: Option<String>) -> Self {
+        let inner = match model_dir {
+            Some(dir) => crate::domain::embedder::LocalOnnxEmbedder::with_model_dir(dir),
+            None => crate::domain::embedder::LocalOnnxEmbedder::new(),
+        };
+        Self {
+            inner: std::sync::Arc::new(inner),
+        }
+    }
+
+    fn aembed_query<'py>(
+        &self,
+        py: Python<'py>,
+        text: String,
+    ) -> PyResult<Bound<'py, PyAny>> {
+        let inner = self.inner.clone();
+        pyo3_async_runtimes::tokio::future_into_py(py, async move {
+            let vector = inner
+                .aembed_query(&text)
+                .await
+                .map_err(to_py_value_err)?;
+            Python::attach(|py| vector.into_py_any(py))
+        })
+    }
+
+    fn aembed_documents<'py>(
+        &self,
+        py: Python<'py>,
+        texts: Vec<String>,
+    ) -> PyResult<Bound<'py, PyAny>> {
+        let inner = self.inner.clone();
+        pyo3_async_runtimes::tokio::future_into_py(py, async move {
+            let vectors = inner
+                .aembed_documents(&texts)
+                .await
+                .map_err(to_py_value_err)?;
+            Python::attach(|py| vectors.into_py_any(py))
+        })
+    }
+
+    fn aclose<'py>(&self, py: Python<'py>) -> PyResult<Bound<'py, PyAny>> {
+        let inner = self.inner.clone();
+        pyo3_async_runtimes::tokio::future_into_py(py, async move {
+            inner.aclose().await.map_err(to_py_value_err)?;
+            Ok(())
+        })
+    }
+
+    /// 当前嵌入来源（观测：local/remote/deterministic）。
+    fn source(&self) -> String {
+        format!("{:?}", self.inner.source())
+    }
+
+    /// 降级原因（本地推理不可用时的可观测说明）。
+    fn note(&self) -> Option<String> {
+        self.inner.note().map(|note| note.to_string())
+    }
+
+    /// 当前维度（模型配置声明；保底 = 默认 384）。
+    fn dim(&self) -> usize {
+        self.inner.dim()
+    }
+
+    /// 计划是否已解析（懒加载状态可观测）。
+    fn resolved(&self) -> bool {
+        self.inner.resolved()
+    }
+}
+
 const MEMORY_RECORD_DELETED: &str = "_deleted";
 const MEMORY_PROTECTED_KEYS: [&str; 4] = ["id", "namespace", "created_at", "_deleted"];
 
@@ -352,6 +453,7 @@ pub fn register_objects(py: Python<'_>) -> PyResult<()> {
     let module = PyModule::new(py, "inkling_bridge_objects")?;
     module.add_class::<RustTransport>()?;
     module.add_class::<RustEmbedder>()?;
+    module.add_class::<LocalOnnx>()?;
     module.add_class::<RustMemoryStore>()?;
     module.add_class::<JsonCallbackHost>()?;
     py.import("sys")?

@@ -46,6 +46,22 @@ def host_handle() -> Any:
     return _HOST
 
 
+# 离线模型桩句柄（Rust 侧 boot 时绑定；可观测 = 提示词生效断言取用）
+_STUB_LLM: Any = None
+
+
+def bind_stub_llm(llm) -> None:
+    """绑定离线模型桩（模块级；最近一次调用的消息流可观测）。"""
+    global _STUB_LLM
+    _STUB_LLM = llm
+
+
+def stub_llm_handle() -> Any:
+    if _STUB_LLM is None:
+        raise RuntimeError("模型桩未绑定（先经 boot 绑定）")
+    return _STUB_LLM
+
+
 # ── 引擎操作通道（op 注册表：薄包装；域逻辑在 Rust 侧）──
 
 _OPS_SYNC: dict[str, Callable[[dict], Any]] = {}
@@ -490,6 +506,17 @@ def register_builtin_ops() -> None:
     def _collect_specs(args: dict) -> Any:
         runtime = runtime_handle()
         return [_jsonable(spec) for spec in runtime.collect_specs()]
+
+    @op_sync("engine.retrieval_source_names")
+    def _retrieval_source_names(args: dict) -> Any:
+        runtime = runtime_handle()
+        return {"sources": list(retrieval_source_names(runtime))}
+
+    @op_sync("engine.stub_llm_last_messages")
+    def _stub_llm_last_messages(args: dict) -> Any:
+        """离线模型桩最近一次调用的消息流（提示词生效断言/门禁核对）。"""
+        llm = stub_llm_handle()
+        return {"messages": getattr(llm, "last_messages", [])}
 
     @op_async("engine.records_put")
     async def _records_put(args: dict) -> Any:
@@ -1423,9 +1450,13 @@ class StubLLM:
         self.script = dict(script or {})
         self.default_reply = default_reply
         self.call_count = 0
+        # 最近一次调用的消息流（可观测：提示词生效断言/门禁核对取用）
+        self.last_messages = []
 
     def _reply_for(self, messages) -> str:
         self.call_count += 1
+        self.last_messages = [dict(getattr(m, "to_dict", lambda: {"role": "?", "content": ""})())
+                              for m in messages]
         for message in reversed(list(messages)):
             content = getattr(message, "content", "")
             if not isinstance(content, str):
@@ -1451,11 +1482,19 @@ class StubLLM:
         return None
 
 
-def make_host(*, storage_uri: str, transport, llm=None):
-    """构造宿主五件套：存储 URI/事件传输（Rust 回桥）/模型实例注入。"""
+def make_host(*, storage_uri: str, transport, llm=None, embedder=None, behavior=None):
+    """构造宿主五件套：存储 URI/事件传输（Rust 回桥）/模型实例注入/
+    本地语义嵌入器注入（None = 检索回落关键词基线）/行为准则层文本
+    （None = 不注入）。"""
     from inkling_host.host import InKlingHost
 
-    return InKlingHost(storage_uri=storage_uri, llm=llm, transport=transport)
+    return InKlingHost(
+        storage_uri=storage_uri,
+        llm=llm,
+        transport=transport,
+        embedder=embedder,
+        behavior=behavior,
+    )
 
 
 async def execute_round_to_reply(
@@ -1514,6 +1553,14 @@ def boot_summary(runtime):
     names = sorted({spec.name for spec in runtime.collect_specs()})
     events = sorted(runtime.event_type_registry.names())
     return {"tool_names": names, "event_types": events}
+
+
+def retrieval_source_names(runtime):
+    """装配期检索源清单（来源名；断言 embedding 出厂注入/关键词基线）。"""
+    try:
+        return sorted(runtime.retriever_registry.names())
+    except Exception:
+        return []
 
 
 async def check_embedding_protocol(runtime, embedder, query: str = "墨引擎") -> float:

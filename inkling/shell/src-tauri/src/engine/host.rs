@@ -74,6 +74,28 @@ fn register_host_package(py: Python<'_>) -> PyResult<()> {
 
 const DEFAULT_STUB_REPLY: &str = "（stub 缺省回复）";
 
+/// 读取行为准则层源文本（seed_data/boot_prompt.json 的 prompt 字段）。
+fn load_behavior_prompt(seed_root: &str) -> Result<String, String> {
+    let path = std::path::Path::new(seed_root).join("seed_data").join("boot_prompt.json");
+    let text = std::fs::read_to_string(&path)
+        .map_err(|err| format!("行为准则层源缺失 {}: {err}", path.display()))?;
+    let value: serde_json::Value = serde_json::from_str(&text)
+        .map_err(|err| format!("行为准则层源 JSON 非法: {err}"))?;
+    value
+        .get("prompt")
+        .and_then(serde_json::Value::as_str)
+        .map(|prompt| prompt.to_string())
+        .ok_or_else(|| "行为准则层源缺 prompt 字段".to_string())
+}
+
+/// 读取行为准则层工具清单（seed_root/seed_data/tools.json）。
+fn load_behavior_tools(seed_root: &str) -> Result<serde_json::Value, String> {
+    let path = std::path::Path::new(seed_root).join("seed_data").join("tools.json");
+    let text = std::fs::read_to_string(&path)
+        .map_err(|err| format!("行为准则层工具清单缺失 {}: {err}", path.display()))?;
+    serde_json::from_str(&text).map_err(|err| format!("行为准则层工具清单 JSON 非法: {err}"))
+}
+
 /// 归一化目录路径：Windows canonicalize 产出 `\\?\` 前缀的 verbatim 路径，
 /// Python 导入器无法可靠处理该类路径——统一转换为普通路径形态。
 fn readable_path(path: PathBuf) -> PathBuf {
@@ -202,6 +224,15 @@ pub struct BootOptions {
     /// 安全模式：链内容（自写资产载体）不参与装配，出厂基线启动；
     /// 由崩溃计数触发（见 [`crate::domain::recovery`]）。
     pub safe_mode: bool,
+    /// 捆绑形态：装配前自动完成资源解包（resources → 数据目录）与
+    /// 内嵌解释器路径准备（发行包用户零 Python 前置；debug 构建可经
+    /// `INKLING_BUNDLED=1` 模拟）。捆绑形态下 repo_root = 数据目录
+    /// （引擎包/种子根随解包落位）。
+    pub bundled: bool,
+    /// 本地语义嵌入模型目录（granite-97m）：注入后引擎检索源默认挂
+    /// 本地语义召回（懒加载 + 缺失降级确定性保底）；None = 不注入，
+    /// 检索回落关键词基线（离线测试形态）。
+    pub embedder_model_dir: Option<PathBuf>,
 }
 
 impl Default for BootOptions {
@@ -214,6 +245,8 @@ impl Default for BootOptions {
             default_reply: DEFAULT_STUB_REPLY.to_string(),
             path_assembly: PathAssemblyFlags::default(),
             safe_mode: false,
+            bundled: false,
+            embedder_model_dir: None,
         }
     }
 }
@@ -266,6 +299,17 @@ pub struct EngineHost {
 impl EngineHost {
     /// 装配嵌入式引擎运行时（重复装配由引擎幂等语义兜底）。
     pub fn boot(options: BootOptions) -> Result<EngineHost, String> {
+        // 捆绑形态前置：资源解包（首启）→ 内嵌解释器路径准备，均在
+        // 任何 Python API 触碰之前完成（pyo3 首次 attach 即初始化）。
+        if options.bundled {
+            let data_dir = options
+                .data_dir
+                .clone()
+                .ok_or_else(|| "捆绑形态装配缺数据目录".to_string())?;
+            let report = super::runtime::provision(&data_dir)?;
+            super::runtime::prepare_bundled_python(&data_dir)?;
+            let _ = report;
+        }
         ensure_python();
         let repo_root = readable_path(options.repo_root.clone())
             .to_string_lossy()
@@ -275,12 +319,37 @@ impl EngineHost {
             .to_string_lossy()
             .into_owned();
         let storage_uri = options.storage_uri.clone();
-        let data_dir = options.data_dir.map(|p| readable_path(p).to_string_lossy().into_owned());
+        let data_dir_path = options.data_dir.clone();
+        let data_dir = data_dir_path
+            .as_ref()
+            .map(|p| readable_path(p.clone()).to_string_lossy().into_owned());
         let script_json = options.stub_script.map(|v| v.to_string());
         let default_reply = options.default_reply.clone();
+        // 回合行为层（行为准则层注入）：boot_prompt + 工具清单 → 纯函数
+        // 组成（soul/准则/事实 + 打标准则 + 档位说明 + 交错引导语 + 工具名
+        // 对照表），随宿主注入为每次 LLM 调用的系统消息。种子根齐备是
+        // 装配前提（缺文件 = 显式失败，行为准则层为生产级必做项）。
+        let behavior = crate::domain::prompt::compose_round_behavior(
+            &load_behavior_prompt(&seed_root)?,
+            &load_behavior_tools(&seed_root)?,
+            crate::domain::prompt::ReasoningTier::LiteProbe,
+        );
+        let behavior_text = behavior;
 
         let (runtime, host_out, transport) =
             Python::attach(|py| -> PyResult<(Py<PyAny>, Py<PyAny>, Py<RustTransport>)> {
+                // 捆绑形态：运行时目录登记为扩展模块 DLL 搜索位
+                // （os.add_dll_directory：pyd 依赖解析的确定途径，
+                // 覆盖 vcruntime/pywintypes 等随包原生依赖）
+                if let Some(data) = data_dir_path.as_ref() {
+                    let runtime_dir = super::runtime::runtime_dir_in(data);
+                    if runtime_dir.is_dir() {
+                        py.import("os")?.call_method1(
+                            "add_dll_directory",
+                            (runtime_dir.to_string_lossy().into_owned(),),
+                        )?;
+                    }
+                }
                 // 引擎包目录置前（repo/ink_engine 为包外层）；开发形态再补
                 // venv 站点包（发行形态由捆绑运行时自带依赖，此步无副作用）。
                 let sys = py.import("sys")?;
@@ -324,12 +393,28 @@ impl EngineHost {
                 }
                 llm_kwargs.set_item("default_reply", &default_reply)?;
                 let llm = bridge.call_method("StubLLM", (), Some(&llm_kwargs))?;
+                // 离线模型桩句柄绑定（提示词生效断言的可观测出口）
+                bridge.call_method1("bind_stub_llm", (llm.clone(),))?;
 
                 // 宿主五件套（存储 URI + 模型桩 + Rust 传输回桥）
                 let host_kwargs = PyDict::new(py);
                 host_kwargs.set_item("storage_uri", &storage_uri)?;
                 host_kwargs.set_item("llm", llm.clone())?;
                 host_kwargs.set_item("transport", transport.clone_ref(py))?;
+                // 本地语义嵌入器注入（模型目录显式传入；懒加载 + 缺失
+                // 降级确定性保底由接线层嵌入器保证）——引擎检索源默认
+                // 挂语义召回（出厂形态）；不注入 = 关键词基线
+                let local_embedder = match options.embedder_model_dir.as_ref() {
+                    Some(model_dir) => Some(Py::new(
+                        py,
+                        super::bridge::LocalOnnx::with_model_dir(model_dir.clone()),
+                    )?),
+                    None => None,
+                };
+                if let Some(embedder) = local_embedder.as_ref() {
+                    host_kwargs.set_item("embedder", embedder.clone_ref(py))?;
+                }
+                host_kwargs.set_item("behavior", behavior_text.clone())?;
                 let host = bridge.call_method("make_host", (), Some(&host_kwargs))?;
 
                 // 装配（异步发起：在运行环内创建协程并等待完成）
@@ -339,6 +424,9 @@ impl EngineHost {
                     boot_kwargs.set_item("data_dir", data)?;
                 }
                 boot_kwargs.set_item("safe_mode", options.safe_mode)?;
+                if let Some(embedder) = local_embedder.as_ref() {
+                    boot_kwargs.set_item("embedder", embedder.clone_ref(py))?;
+                }
                 let boot_kwargs = boot_kwargs.unbind();
                 let (runtime_py, host_py) =
                     pyo3_async_runtimes::tokio::run(
@@ -610,6 +698,7 @@ mod tests {
             default_reply: DEFAULT_STUB_REPLY.to_string(),
             path_assembly: PathAssemblyFlags::default(),
             safe_mode: false,
+            ..BootOptions::default()
         };
         let host = EngineHost::boot(options).expect("装配失败");
         let report = host.report().expect("摘要失败");
@@ -1098,5 +1187,239 @@ mod tests {
         );
         safe.stop().expect("关停失败");
         let _ = std::fs::remove_dir_all(&data_dir);
+    }
+
+    /// 仓库内向量模型目录（出厂接通测试的真实模型位）。
+    fn repo_model_dir() -> PathBuf {
+        PathBuf::from(env!("CARGO_MANIFEST_DIR")).join("../../../inkling/models/granite-97m")
+    }
+
+    /// 本地语义嵌入器注入装配：检索源清单应含 embedding（出厂接通）；
+    /// 无注入装配回落关键词基线（离线测试形态）。
+    #[test]
+    fn boot_injects_local_embedder_into_retrieval_sources() {
+        let _serial = bridge_guard();
+        let root = repo_root();
+        let model_dir = repo_model_dir();
+        let options = BootOptions {
+            repo_root: root.clone(),
+            embedder_model_dir: Some(model_dir),
+            ..BootOptions::default()
+        };
+        let host = EngineHost::boot(options).expect("装配失败");
+
+        let sources = call_engine_op(
+            "engine.retrieval_source_names",
+            serde_json::json!({}),
+        )
+        .expect("检索源清单读取失败");
+        let names: Vec<String> = sources
+            .get("sources")
+            .and_then(serde_json::Value::as_array)
+            .map(|rows| {
+                rows.iter()
+                    .filter_map(|v| v.as_str().map(|s| s.to_string()))
+                    .collect()
+            })
+            .unwrap_or_default();
+        assert!(
+            names.contains(&"embedding".to_string()),
+            "出厂接通：注入本地嵌入器后检索源应含 embedding（实际 {names:?}）"
+        );
+        assert!(names.contains(&"knowledge_set".to_string()));
+
+        // 回合正常（检索源携带真实语义嵌入不影响 stub 回合闭环）
+        let outcome = host
+            .round(RoundRequest {
+                input_text: "研究墨引擎机制".to_string(),
+                thread_id: "embed-t1".to_string(),
+                round_id: "embed-r1".to_string(),
+                step_args: None,
+                inject: None,
+                auto_accept_review: true,
+            })
+            .expect("回合失败");
+        assert_eq!(outcome.reason, "reply", "回合未完成到回复");
+
+        host.stop().expect("关停失败");
+    }
+
+    /// 无注入装配 = 关键词基线（embedding 源不出现，离线测试零模型依赖）。
+    #[test]
+    fn boot_without_embedder_stays_keyword_baseline() {
+        let _serial = bridge_guard();
+        let root = repo_root();
+        let options = BootOptions {
+            repo_root: root.clone(),
+            ..BootOptions::default()
+        };
+        let host = EngineHost::boot(options).expect("装配失败");
+        let sources = call_engine_op(
+            "engine.retrieval_source_names",
+            serde_json::json!({}),
+        )
+        .expect("检索源清单读取失败");
+        let names: Vec<String> = sources
+            .get("sources")
+            .and_then(serde_json::Value::as_array)
+            .map(|rows| {
+                rows.iter()
+                    .filter_map(|v| v.as_str().map(|s| s.to_string()))
+                    .collect()
+            })
+            .unwrap_or_default();
+        assert!(
+            !names.contains(&"embedding".to_string()),
+            "未注入 = 关键词基线（实际 {names:?}）"
+        );
+        host.stop().expect("关停失败");
+    }
+
+    /// 本地嵌入器真实推理（granite-97m ONNX）：384 维向量 + 计划来源
+    /// LocalOnnx（真实模型位存在）；模型缺失机器回落确定性保底可观测。
+    #[test]
+    fn local_onnx_bridge_embeds_with_real_model() {
+        let _serial = bridge_guard();
+        let model_dir = repo_model_dir();
+        let embedder = crate::engine::bridge::LocalOnnx::with_model_dir(model_dir.clone());
+        Python::attach(|py| {
+            let obj = Py::new(py, embedder).expect("嵌入器对象创建失败");
+            // 计划解析（懒加载触发）：模型在位 → 本地真实推理
+            let source: String = obj
+                .bind(py)
+                .call_method0(pyo3::intern!(py, "source"))
+                .expect("来源读取失败")
+                .extract()
+                .expect("来源类型不符");
+            assert_eq!(source, "LocalOnnx", "模型在位应走本地真实推理");
+
+            // 异步推理（跨语言 awaitable 双向桥，与回合驱动同形态）
+            let runtime = tokio::runtime::Builder::new_current_thread()
+                .enable_all()
+                .build()
+                .expect("tokio 运行时创建失败");
+            let handle = obj.clone_ref(py);
+            let vector: Vec<f64> = runtime
+                .block_on(async {
+                    pyo3_async_runtimes::tokio::run(py, async move {
+                        let fut = Python::attach(|py| -> PyResult<_> {
+                            let bound = handle.bind(py);
+                            let coro = bound
+                                .call_method1("aembed_query", ("墨引擎检索测试",))?;
+                            pyo3_async_runtimes::tokio::into_future(coro)
+                        })?;
+                        let value = fut.await?;
+                        Python::attach(|py| value.bind(py).extract::<Vec<f64>>())
+                    })
+                })
+                .expect("嵌入推理失败");
+            assert_eq!(vector.len(), 384, "granite-97m 输出维度");
+            let norm: f64 = vector.iter().map(|v| v * v).sum::<f64>().sqrt();
+            assert!((norm - 1.0).abs() < 1e-3, "L2 归一向量");
+
+            // 文档批量 + 关闭（协议方法全回路）
+            let handle = obj.clone_ref(py);
+            let docs: Vec<Vec<f64>> = runtime
+                .block_on(async {
+                    pyo3_async_runtimes::tokio::run(py, async move {
+                        let fut = Python::attach(|py| -> PyResult<_> {
+                            let bound = handle.bind(py);
+                            let coro = bound.call_method1(
+                                "aembed_documents",
+                                (vec!["条目一".to_string(), "条目二".to_string()],),
+                            )?;
+                            pyo3_async_runtimes::tokio::into_future(coro)
+                        })?;
+                        let value = fut.await?;
+                        Python::attach(|py| value.bind(py).extract::<Vec<Vec<f64>>>())
+                    })
+                })
+                .expect("批量嵌入失败");
+            assert_eq!(docs.len(), 2, "批量顺序与输入一致");
+            assert_eq!(docs[0].len(), 384);
+            let handle = obj.clone_ref(py);
+            runtime.block_on(async {
+                pyo3_async_runtimes::tokio::run(py, async move {
+                    let fut = Python::attach(|py| -> PyResult<_> {
+                        let bound = handle.bind(py);
+                        let coro = bound.call_method0("aclose")?;
+                        pyo3_async_runtimes::tokio::into_future(coro)
+                    })?;
+                    fut.await?;
+                    Ok(())
+                })
+            })
+            .expect("关闭失败");
+        });
+    }
+
+    /// 提示词生效断言：宿主 LLM 调用消息流含行为准则层
+    /// （boot_prompt 引导语 + 打标分类准则）——行为块经协议代理作为
+    /// 系统消息前置（路由轻调用为代表路径；覆盖评审/蒸馏/路由全调用
+    /// 点），经离线模型桩的消息流可观测出口核对。
+    #[test]
+    fn stub_llm_messages_contain_behavior_guidance() {
+        let _serial = bridge_guard();
+        let root = repo_root();
+        let options = BootOptions {
+            repo_root: root.clone(),
+            stub_script: Some(serde_json::json!({
+                "研究": {"reply": "研究计划已展开：采集 → 解析 → 评审。"}
+            })),
+            ..BootOptions::default()
+        };
+        let host = EngineHost::boot(options).expect("装配失败");
+
+        // 路由轻调用（策略层代表性 LLM 路径；离线桩回落主挡）
+        let router = block_on_op(
+            "engine.router_light_complete",
+            serde_json::json!({
+                "messages": [
+                    {"role": "system", "content": "标题生成：一句话 ≤12 字"},
+                    {"role": "user", "content": "研究墨引擎机制"},
+                ]
+            }),
+        )
+        .expect("路由轻调用失败");
+        assert!(router.get("content").and_then(serde_json::Value::as_str).is_some());
+
+        // 模型桩最近一次调用：系统消息应含行为准则层（引导语 + 打标准则）
+        let recorded = call_engine_op(
+            "engine.stub_llm_last_messages",
+            serde_json::json!({}),
+        )
+        .expect("模型桩消息流读取失败");
+        let messages = recorded
+            .get("messages")
+            .and_then(serde_json::Value::as_array)
+            .cloned()
+            .unwrap_or_default();
+        assert!(!messages.is_empty(), "模型桩应有调用记录");
+        let system_texts: Vec<String> = messages
+            .iter()
+            .filter(|m| m.get("role").and_then(serde_json::Value::as_str) == Some("system"))
+            .filter_map(|m| m.get("content").and_then(serde_json::Value::as_str))
+            .map(|s| s.to_string())
+            .collect();
+        assert!(
+            !system_texts.is_empty(),
+            "行为准则层应作为系统消息注入（实际角色: {:?}）",
+            messages.iter().map(|m| m.get("role").cloned()).collect::<Vec<_>>()
+        );
+        let joined = system_texts.join("\n");
+        assert!(
+            joined.contains("【身份与立场】") && joined.contains("【行为准则】"),
+            "系统消息应含 boot_prompt 引导语三段结构"
+        );
+        assert!(
+            joined.contains("打标分类准则") || joined.contains("spawn"),
+            "系统消息应含打标分类准则"
+        );
+        assert!(
+            joined.contains("推理过程中"),
+            "系统消息应含交错推理引导语"
+        );
+
+        host.stop().expect("关停失败");
     }
 }

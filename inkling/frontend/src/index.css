@@ -932,3 +932,78 @@ select {
     animation: none;
   }
 }
+
+/* ── 首启引导（全屏覆盖浮层：数据目录/模型配置/权限默认档三点说明）── */
+.first-run-guide {
+  position: fixed;
+  inset: 0;
+  z-index: 60;
+  display: flex;
+  align-items: center;
+  justify-content: center;
+  background: color-mix(in srgb, var(--ink-bg-base) 72%, transparent);
+  backdrop-filter: blur(3px);
+  animation: ink-mask-fade 180ms ease-out;
+}
+
+.first-run-guide__card {
+  width: min(560px, calc(100vw - 48px));
+  padding: 32px;
+  border: 1px solid var(--ink-border-strong);
+  border-radius: 12px;
+  background: var(--ink-bg-surface);
+  box-shadow: var(--ink-shadow-2);
+  animation: ink-pop-in 180ms ease-out;
+}
+
+.first-run-guide__title {
+  margin: 0 0 8px;
+  font-size: 20px;
+  line-height: 1.6;
+  color: var(--ink-text-base);
+}
+
+.first-run-guide__subtitle {
+  margin: 0 0 24px;
+  font-size: 13px;
+  line-height: 1.6;
+  color: var(--ink-text-muted);
+}
+
+.first-run-guide__points {
+  display: flex;
+  flex-direction: column;
+  gap: 20px;
+  margin-bottom: 28px;
+}
+
+.first-run-guide__point {
+  display: flex;
+  gap: 12px;
+  align-items: flex-start;
+}
+
+.first-run-guide__point-icon {
+  flex-shrink: 0;
+  margin-top: 2px;
+  color: var(--ink-accent-approval);
+}
+
+.first-run-guide__point-title {
+  margin-bottom: 4px;
+  font-size: 15px;
+  font-weight: 600;
+  line-height: 1.6;
+  color: var(--ink-text-base);
+}
+
+.first-run-guide__point-body {
+  font-size: 13px;
+  line-height: 1.6;
+  color: var(--ink-text-muted);
+}
+
+.first-run-guide__actions {
+  display: flex;
+  justify-content: flex-end;
+}

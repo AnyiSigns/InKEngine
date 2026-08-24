@@ -2,9 +2,11 @@
 //!
 //! - [`host`]：装配（boot）与回合驱动封装（引擎宿主句柄）；
 //! - [`bridge`]：经 PyO3 注入引擎消费的 Rust 侧协议对象
-//!   （事件传输回桥/内嵌嵌入器/记忆存储）。
+//!   （事件传输回桥/内嵌嵌入器/记忆存储）；
+//! - [`runtime`]：捆绑运行时装配准备（首启解包 + 内嵌解释器定位）。
 
 pub mod bridge;
 pub mod host;
+pub mod runtime;
 
 pub use host::{BootOptions, BootReport, EngineHost, ProtocolCheck, RoundOutcome, RoundRequest};

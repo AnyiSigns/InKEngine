@@ -169,3 +169,23 @@
 | 存储三后端（memory / sqlite 内存 / sqlite 文件落盘 + 重启链延续） | 引擎存储 retain（test_storage 三后端）；壳侧装配参数 storage_uri 透传（engine host.rs BootOptions） | 绿（等价降级：三后端 = 引擎 retain 覆盖） |
 | UI 三层白名单深度（拒绝/回落/同源） | live.rs `validate_ui_spec_enforces_three_whitelists` / `restore_ui_theme_falls_back_to_baseline_and_validates` / recipe.rs 同源推导 | 绿 |
 | 宿主件执行器注册契约（声明↔签名一致 + 权限/沙箱断言） | 壳 crate 集成测试（`tests/executor_contract.rs` 17 例：声明↔执行器签名契约 + 权限/沙箱断言；`tests/mcp_protocol.rs` 9 例；lib 1 例） | 绿 |
+
+## 十四、决策 21/22 专项验收（D7 发行前核对）
+
+| 检查 | Rust 侧落点 | 状态 |
+|---|---|---|
+| canary 合法图通过（种子图可试跑 → 关键路径走通） | canary.rs `seed_graph_is_valid_and_maps_to_spec` / `clean_run_reaches_terminal_and_key_path` + engine host.rs `op_channel_canary_rounds_on_seed_graph`（种子图试跑回合） | 绿 |
+| canary 非法图拒绝（结构非法/悬空边/缺入口 → 拒绝 + 留痕） | canary.rs `dangling_edge_and_missing_entry_are_rejected` / `graph_without_nodes_is_invalid_structurally` / `graph_violations_reject_even_with_clean_run` | 绿 |
+| canary 关键路径崩溃拒绝（崩溃事件/非终态原因/关键路径节点缺失 → 拒绝） | canary.rs `crash_event_rejects_run` / `non_terminal_reason_rejects_even_without_crash` / `missing_key_path_node_rejects_clean_run` | 绿 |
+| 提示词生效断言（LLM 调用消息流含 boot_prompt 引导语 + 打标分类准则） | prompt.rs `boot_prompt_seed_loads_and_layers_split` / `injection_meets_tenfold_ratio_with_real_seed` / `strategy_variants_cover_both_kinds`（组成）+ engine host.rs `stub_llm_messages_contain_behavior_guidance`（端到端：行为准则层经协议代理前置为系统消息，模型桩消息流可观测断言） | 绿 |
+| 行为准则层注入（soul/准则/事实 + 目标设定 10× 工具清单 + 交错引导语 + 工具名对照表） | prompt.rs `compose_round_behavior`（装配期组成）+ BehaviorLLM 协议代理（resolve_llm 出口包装，覆盖评审/蒸馏/路由全部调用点） | 绿（D7 落地：此前为尸体态——boot_prompt 只装载未注入，本轮接线闭环） |
+
+## 十五、发行形态（D7）
+
+| 检查 | Rust 侧落点 | 状态 |
+|---|---|---|
+| 全新机器路径（无仓库/无 Python 环境：资源解包 → 内嵌解释器 → 装配 → 回合 → 会话持久 → 导出校验 → 执行件就位） | engine runtime.rs `provision`/`prepare_bundled_python`（捆绑形态资源与解释器准备）+ `--selftest` 双阶段自检（release 实测 phase1/phase2 全过：bundled=true、LocalOnnx、36 事件、会话持久、导出含库、exec_ready） | 绿 |
+| 嵌入式 Python runtime 打包（embed 发行包 + 出厂第三方依赖 site-packages + 自定义 PyConfig 确定性路径） | 打包脚本 `inkling/scripts/package_windows.ps1` + engine runtime.rs `init_embedded_interpreter`（显式 module_search_paths，环境不参与）+ 解释器 DLL 装载位（exe 同目录 + NSIS hooks.nsh POSTINSTALL） | 绿（本机 release 实测通过；NSIS 安装器产出受本机 GitHub 下载超时限制，脚本与 hooks 就绪） |
+| 向量检索出厂接通（无环境变量 = 本地内嵌语义检索；懒加载/降级保底可观测） | engine host.rs 注入 LocalOnnx（granite-97m）→ 检索源清单含 embedding（`boot_injects_local_embedder_into_retrieval_sources`）+ 真实推理断言（`local_onnx_bridge_embeds_with_real_model`：384 维 L2 归一）；无注入回落关键词基线（`boot_without_embedder_stays_keyword_baseline`） | 绿 |
+| 首启引导（数据目录/模型配置/权限默认档三点 + 标记落位） | lib.rs `backend_status.first_run` + `first_run_dismiss`（标记文件）+ 前端 `FirstRunGuide` 浮层（vitest 3 例） | 绿 |
+| 执行件随包就位检查（数据目录解包位定位 + 可执行校验 + 版本探测） | exec_proc.rs `locate_exec_binary` / `probe_version` + selftest `exec_ready` 断言 | 绿 |

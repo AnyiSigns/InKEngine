@@ -38,6 +38,7 @@ import { createBackend } from '@/shared/backend/backendAdapter';
 import type { BackendAdapter } from '@/shared/backend/backendAdapter';
 import { refreshArtifactManifest } from '@/renderer/artifactLoader.tsx';
 import { BackupWizard, backupOpsFrom, type BackupMode } from '@/components/floaters/backup_wizard';
+import { FirstRunGuide } from '@/components/floaters/first_run_guide';
 import { recoveryOpsFrom } from '@/components/settings_sections/security_trust';
 import { logger } from '@/shared/logger';
 
@@ -72,6 +73,7 @@ export default function App() {
   const [activeSessionId, setActiveSessionId] = useState('');
   const [backupMode, setBackupMode] = useState<BackupMode | null>(null);
   const [capabilityRecord, setCapabilityRecord] = useState<Record<string, unknown> | null>(null);
+  const [firstRun, setFirstRun] = useState(false);
   if (!hubRef.current) {
     hubRef.current = bootChannelHub();
   }
@@ -95,9 +97,15 @@ export default function App() {
     void refreshArtifactManifest(backend.available ? backend : null);
   }, [backend]);
 
-  // 宿主就绪时：装配引擎 + 会话列表重载 + 能力档初始化
+  // 宿主就绪时：装配引擎 + 会话列表重载 + 能力档初始化 + 首启引导判定
   useEffect(() => {
     if (!backend.available) return;
+    void backend
+      .status()
+      .then((status) => {
+        if (status.first_run) setFirstRun(true);
+      })
+      .catch(() => undefined);
     void backend
       .engineBoot()
       .then(() => logger.info('app', '引擎装配完成'))
@@ -297,6 +305,9 @@ export default function App() {
       />
       {backupMode && (
         <BackupWizard mode={backupMode} ops={backupOps} onClose={() => setBackupMode(null)} />
+      )}
+      {firstRun && (
+        <FirstRunGuide backend={backend} onDismissed={() => setFirstRun(false)} />
       )}
     </div>
   );

@@ -1,3 +1,23 @@
 # Rust 构建产物不入库（shell 契约测试免真实桌面，产物本地可重建）
 /target/
 /gen/
+
+# 随包资源（打包脚本生成：嵌入式 Python runtime/向量模型/引擎包/
+# 种子快照/exec 二进制；体积大且可重建，不入库；仅保留占位标记）
+/resources/*
+!/resources/.gitkeep
+!/resources/python/
+/resources/python/*
+!/resources/python/.gitkeep
+!/resources/granite-97m/
+/resources/granite-97m/*
+!/resources/granite-97m/.gitkeep
+!/resources/ink_engine/
+/resources/ink_engine/*
+!/resources/ink_engine/.gitkeep
+!/resources/inkling/
+/resources/inkling/*
+!/resources/inkling/.gitkeep
+!/resources/exec/
+/resources/exec/*
+!/resources/exec/.gitkeep

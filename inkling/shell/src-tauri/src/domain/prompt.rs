@@ -321,6 +321,33 @@ fn total_len(lines: &[String]) -> usize {
     lines.iter().map(|l| l.chars().count()).sum()
 }
 
+/// 回合行为层（行为准则层注入的完整形态）：soul + 行为准则 + 产品事实
+/// + 目标设定展开 + 打标分类准则（确定性/不确定性双变体）+ 推演档位
+/// 说明 + 交错推理引导语 + 工具名映射表。
+///
+/// 装配期一次性组成（纯函数），随五源装配进每回合上下文（行为源
+/// 高权重全保留，不被预算裁剪）——「系统提示谈意图、工具描述谈动作」
+/// 的纪律落点：本块不引用任何工具标识符，工具名映射表仅作对照。
+pub fn compose_round_behavior(
+    prompt: &str,
+    tools_data: &serde_json::Value,
+    tier: ReasoningTier,
+) -> String {
+    let layers = behavior_layers(prompt);
+    let pairs = tool_name_map(tools_data);
+    let catalog = tool_name_map_text(&pairs);
+    let injection = compose_behavior_injection(&layers, &catalog);
+    let mut parts: Vec<String> = vec![injection.render()];
+    parts.push(strategy_prompt_variant(false).to_string());
+    parts.push(strategy_prompt_variant(true).to_string());
+    parts.push(reasoning_tier_prompt(tier).to_string());
+    parts.push(interleaved_reasoning_guide().to_string());
+    if !pairs.is_empty() {
+        parts.push(format!("工具名对照表（用于理解对话中提到的工具，行动请按行为准则执行）：\n{}", catalog));
+    }
+    parts.join("\n\n")
+}
+
 /// 策略层提示词变体（打标分类准则；按任务确定性选择）。
 pub fn strategy_prompt_variant(uncertain: bool) -> &'static str {
     if uncertain {

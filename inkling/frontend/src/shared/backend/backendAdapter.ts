@@ -78,12 +78,23 @@ export interface ToolSnapshotEntry {
   group: string;
 }
 
+/** 后端状态（引擎就绪/工具面/安全模式/首启引导/执行件随包/运行形态）。 */
+export interface BackendStatus {
+  engine_ready: boolean;
+  tool_count: number;
+  safe_mode?: boolean;
+  first_run?: boolean;
+  exec_ready?: boolean;
+  bundled?: boolean;
+}
+
 /** 后端适配器接口（生产 = 宿主桥；测试 = mock）。 */
 export interface BackendAdapter {
   /** 宿主可用性（false = 回落夹具路径）。 */
   available: boolean;
-  status(): Promise<{ engine_ready: boolean; tool_count: number; safe_mode?: boolean }>;
+  status(): Promise<BackendStatus>;
   engineBoot(): Promise<{ snapshot: Record<string, unknown> }>;
+  firstRunDismiss(): Promise<{ dismissed: boolean }>;
   roundSend(threadId: string, roundId: string, text: string, autoAccept?: boolean): Promise<RoundResult>;
   roundAbort(roundId: string): Promise<{ aborted: boolean }>;
   roundResume(
@@ -143,6 +154,7 @@ export function createUnavailableBackend(): BackendAdapter {
     available: false,
     status: unavailable as never,
     engineBoot: unavailable as never,
+    firstRunDismiss: unavailable as never,
     roundSend: unavailable as never,
     roundAbort: unavailable as never,
     roundResume: unavailable as never,
@@ -184,6 +196,7 @@ export function createTauriBackend(invoker?: TauriInvoker): BackendAdapter {
     available: true,
     status: () => call('backend_status'),
     engineBoot: () => call('engine_boot'),
+    firstRunDismiss: () => call('first_run_dismiss'),
     roundSend: (threadId, roundId, text, autoAccept) =>
       call('round_send', { threadId, roundId, text, autoAccept }),
     roundAbort: (roundId) => call('round_abort', { roundId }),

@@ -281,12 +281,14 @@ pub fn l2_normalize(vector: &mut [f64]) {
 
 /// 本地推理运行时：分词器 + ONNX 会话 + 维度/池化锚点。
 ///
-/// 会话经 Mutex 串行（`run_async` 需要 `&mut`，单实例推理本就串行）。
-/// 本结构由 [`LocalOnnxEmbedder`] 的 OnceLock 懒装载：成功装载一次即
-/// 常驻；装载失败记录原因，此后以确定性向量保底（不重试装载）。
+/// 会话经 tokio Mutex 串行（`run_async` 需要独占访问，单实例推理本就
+/// 串行；跨 await 持有 guard 要求其 Send——推理 future 经异步桥
+/// 注入引擎侧执行，须满足跨线程传递约束）。本结构由
+/// [`LocalOnnxEmbedder`] 的 OnceLock 懒装载：成功装载一次即常驻；
+/// 装载失败记录原因，此后以确定性向量保底（不重试装载）。
 struct LocalRuntime {
     tokenizer: tokenizers::Tokenizer,
-    session: Mutex<ort::session::Session>,
+    session: tokio::sync::Mutex<ort::session::Session>,
     dim: usize,
     bos_token_id: u32,
 }
@@ -312,7 +314,7 @@ fn load_local_runtime(model_dir: &Path) -> Result<LocalRuntime, String> {
         .map_err(|e| format!("ONNX 会话提交失败 ({}): {e}", model_dir.join(LOCAL_ONNX_FILE).display()))?;
     Ok(LocalRuntime {
         tokenizer,
-        session: Mutex::new(session),
+        session: tokio::sync::Mutex::new(session),
         dim: config.hidden_size,
         bos_token_id: config.bos_token_id,
     })
@@ -364,7 +366,10 @@ async fn infer_vector(runtime: &LocalRuntime, text: &str) -> Result<Vec<f64>, St
     let run_options = ort::session::run_options::RunOptions::new()
         .map_err(|e| format!("ONNX 运行选项创建失败: {e}"))?;
 
-    let mut session = runtime.session.lock().unwrap();
+    // 会话持锁跨 await（run_async 的 future 借用会话本体，guard 须在
+    // 等待结束后才释——tokio guard 为 Send，推理 future 可跨线程传递，
+    // 见结构注释）
+    let mut session = runtime.session.lock().await;
     let output_idx = select_hidden_state_output(&session);
     let outputs = session
         .run_async(inputs, &run_options)

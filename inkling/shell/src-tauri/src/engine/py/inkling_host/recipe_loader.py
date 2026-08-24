@@ -290,16 +290,18 @@ def build_mcp_l2_vetting_hook() -> tuple[
 # ── 调配域映射 ──
 
 
-def map_retrieval_sources(bundle: SeedDataBundle) -> list[Callable[[Any], Any]]:
+def map_retrieval_sources(
+    bundle: SeedDataBundle, *, embedder: Any | None = None
+) -> list[Callable[[Any], Any]]:
     """检索源工厂清单（装配期注册进 RetrieverRegistry）。
 
     数据来源：memory.json recall 配置（default_limit）→ 知识集检索源
     的召回上限；知识条目按可信度分级注入（检索源工厂接收装配产物
     = Runtime，装配期取用 knowledge_set）。
 
-    embedding 源（可选）：INK_EMBEDDING_* 环境配置 → 引擎
-    core.llm.embeddings 适配器（create_embedder）→ 桥接为
-    EmbeddingRetriever；缺省 None = 纯关键词基线（语义层不降级）。
+    embedding 源（优先级）：显式注入的本地语义嵌入器（Rust 协议形态，
+    出厂默认）→ `INK_EMBEDDING_*` 环境配置的远端适配器（用户自配
+    覆盖）→ 缺省 None = 纯关键词基线（语义层不降级）。
     """
     from .assembly_domain import EmbeddingRetriever, EngineEmbedderBridge, KnowledgeSetRetriever
 
@@ -311,7 +313,7 @@ def map_retrieval_sources(bundle: SeedDataBundle) -> list[Callable[[Any], Any]]:
 
     factories: list[Callable[[Any], Any]] = [knowledge_factory]
 
-    embedder = _embedder_from_env()
+    embedder = embedder or _embedder_from_env()
     if embedder is not None:
         bridge = EngineEmbedderBridge(embedder)
 
@@ -432,6 +434,7 @@ def build_recipe(
     l2_vetting_hook: Callable[[Any], list[str]] | None = None,
     on_reverted: Callable[[int, str], Any] | None = None,
     convergence_provider: Callable[[], Any] | None = None,
+    embedder: Any | None = None,
 ) -> AssemblyRecipe:
     """把 seed_data 数据映射为完整装配配方（17 字段全落值）。
 
@@ -442,6 +445,8 @@ def build_recipe(
         on_reverted: 回退通知钩子（宿主行为信号；缺省不启用）。
         convergence_provider: 演化收敛管制钩子提供者（缺省 = review.json
             收敛配置数据驱动，见 host.convergence_domain）。
+        embedder: 本地语义嵌入器（Rust 协议注入；None = 回落环境/关键词
+            基线，见 map_retrieval_sources）。
     """
     hook, _mark = build_mcp_l2_vetting_hook()
     if convergence_provider is None:
@@ -465,7 +470,7 @@ def build_recipe(
         vetting_static_hooks=None,
         vetting_l2_hook=l2_vetting_hook or hook,
         approval_levels=map_approval_levels(bundle),
-        retrieval_sources=map_retrieval_sources(bundle),
+        retrieval_sources=map_retrieval_sources(bundle, embedder=embedder),
         apply_targets=map_apply_targets(),
         graph_recipe=map_graph_recipe(bundle),
         on_reverted=on_reverted,

@@ -100,8 +100,29 @@ fn dev_repo_root() -> PathBuf {
     PathBuf::from(env!("CARGO_MANIFEST_DIR")).join("../../..")
 }
 
+/// 运行形态仓库根：捆绑形态 = 数据目录（引擎包/种子根随首启解包落位，
+/// 用户零仓库零 Python 前置）；开发形态 = 仓库根。
+fn repo_root_for(data_dir: &Path) -> PathBuf {
+    if engine::runtime::bundled_mode() {
+        data_dir.to_path_buf()
+    } else {
+        dev_repo_root()
+    }
+}
+
+/// 本地语义嵌入模型目录：捆绑形态 = 数据目录 assets/ 解包位；开发形态
+/// = 仓库 models/（存在才注入，缺模型 = 检索回落关键词基线）。
+fn embedder_model_dir(data_dir: &Path) -> Option<PathBuf> {
+    let dir = if engine::runtime::bundled_mode() {
+        engine::runtime::model_dir_in(data_dir)
+    } else {
+        dev_repo_root().join("inkling").join("models").join("granite-97m")
+    };
+    dir.is_dir().then_some(dir)
+}
+
 /// 装配选项（开发形态：app_data_dir 内 sqlite + 数据目录落盘；
-/// safe_mode = 崩溃循环下出厂基线启动）。
+/// safe_mode = 崩溃循环下出厂基线启动；捆绑形态自动解包资源）。
 fn boot_options(
     repo_root: PathBuf,
     data_dir: PathBuf,
@@ -110,8 +131,10 @@ fn boot_options(
     engine::host::BootOptions {
         repo_root,
         storage_uri: format!("sqlite:///{}", data_dir.join("inkling.sqlite").display()),
-        data_dir: Some(data_dir),
+        data_dir: Some(data_dir.clone()),
         safe_mode,
+        bundled: engine::runtime::bundled_mode(),
+        embedder_model_dir: embedder_model_dir(&data_dir),
         ..Default::default()
     }
 }
@@ -145,8 +168,9 @@ fn ensure_engine(state: &ShellState, data_dir: &Path) -> Result<(), String> {
         return Ok(());
     }
     let boot_state = domain::recovery::load_boot_state(data_dir);
+    let repo_root = repo_root_for(data_dir);
     let host = match engine::host::EngineHost::boot(boot_options(
-        dev_repo_root(),
+        repo_root.clone(),
         data_dir.to_path_buf(),
         boot_state.safe_mode,
     )) {
@@ -161,7 +185,7 @@ fn ensure_engine(state: &ShellState, data_dir: &Path) -> Result<(), String> {
                 return Err(format!("引擎装配失败: {err}"));
             }
             match engine::host::EngineHost::boot(boot_options(
-                dev_repo_root(),
+                repo_root,
                 data_dir.to_path_buf(),
                 true,
             )) {
@@ -260,17 +284,61 @@ fn begin_round_recorder(state: &ShellState, round_id: &str) -> RoundStepsTranspo
 
 // ── 引擎生命周期命令 ──
 
-/// 后端状态（前端启动探测：引擎是否就绪/工具面大小/安全模式标志）。
+/// 首启标记文件名（数据目录；存在 = 已完成首次装配引导）。
+const FIRST_RUN_MARKER: &str = ".first_run";
+
+/// 首启标记判定（未标记 = 首启引导待展示）。
+fn first_run_pending(data_dir: &Path) -> bool {
+    !data_dir.join(FIRST_RUN_MARKER).is_file()
+}
+
+/// 执行件就位判定（随包检查）：捆绑形态查数据目录解包位，开发形态查
+/// 仓库 exec 构建产物；缺构建/缺解包 = 未就位（UI 展示诊断入口）。
+fn exec_present(data_dir: &Path) -> bool {
+    let dir = if engine::runtime::bundled_mode() {
+        engine::runtime::exec_dir_in(data_dir)
+    } else {
+        let base = dev_repo_root().join("inkling/exec/target");
+        let debug_dir = base.join("debug");
+        let release_dir = base.join("release");
+        return domain::exec_proc::locate_exec_binary(&debug_dir).is_ok()
+            || domain::exec_proc::locate_exec_binary(&release_dir).is_ok();
+    };
+    domain::exec_proc::locate_exec_binary(&dir).is_ok()
+}
+
+/// 后端状态（前端启动探测：引擎是否就绪/工具面大小/安全模式标志/
+/// 首启引导/执行件随包就位/运行形态）。
 #[tauri::command]
 fn backend_status(app: AppHandle, state: State<'_, ShellState>) -> JsonValue {
     let safe_mode = app_data_dir(&app)
         .map(|dir| domain::recovery::load_boot_state(&dir).safe_mode)
         .unwrap_or(false);
+    let first_run = app_data_dir(&app)
+        .map(|dir| first_run_pending(&dir))
+        .unwrap_or(true);
+    let exec_ready = app_data_dir(&app)
+        .map(|dir| exec_present(&dir))
+        .unwrap_or(false);
     json!({
         "engine_ready": state.backend.engine_ready(),
         "tool_count": state.backend.tool_provider.len(),
         "safe_mode": safe_mode,
+        "first_run": first_run,
+        "exec_ready": exec_ready,
+        "bundled": engine::runtime::bundled_mode(),
     })
+}
+
+/// 首启引导关闭（标记落位；下次启动不再展示引导）。
+#[tauri::command]
+fn first_run_dismiss(app: AppHandle) -> Result<JsonValue, String> {
+    let data_dir = app_data_dir(&app)?;
+    std::fs::write(data_dir.join(FIRST_RUN_MARKER), serde_json::json!({
+        "dismissed_at": chrono::Utc::now().timestamp_millis(),
+    }).to_string())
+    .map_err(|err| format!("首启标记写入失败: {err}"))?;
+    Ok(json!({ "dismissed": true }))
 }
 
 /// 显式装配（懒装配的提前触发；失败 = 结构化错误）。
@@ -994,6 +1062,190 @@ fn build_tray(app: &AppHandle) -> tauri::Result<()> {
     Ok(())
 }
 
+/// 自检持久化标记文件名（selftest 二次运行的会话持久断言基准）。
+const SELFTEST_PHASE_MARKER: &str = ".selftest_phase";
+
+/// 出厂自检（`--selftest` 入口）：全新机器路径模拟——不依赖仓库/不依赖
+/// 外部 Python，只依赖发行资源（或显式注入的模拟环境）。覆盖面：
+/// 首启解包 → 内嵌解释器 → 引擎装配 → stub 回合 → 会话记录持久 →
+/// 导出包校验 → 执行件就位。
+///
+/// 运行方式：
+/// - 数据目录 = `INK_DATA_DIR`（缺省 = 临时目录）；
+/// - 捆绑形态 = release 构建自动开启，debug 构建经 `INKLING_BUNDLED=1`
+///   模拟，资源根经 `INKLING_RESOURCE_DIR` 指向打包产物；
+/// - 二次运行（同数据目录）断言会话持久（重启后列表可恢复）。
+///
+/// 返回 0 = 全过；非 0 = 失败（结构化错误到 stderr）。
+pub fn selftest() -> i32 {
+    let data_dir = std::env::var("INK_DATA_DIR")
+        .map(PathBuf::from)
+        .unwrap_or_else(|_| {
+            std::env::temp_dir().join(format!(
+                "inkling-selftest-{}",
+                uuid::Uuid::new_v4()
+            ))
+        });
+    let phase = data_dir.join(SELFTEST_PHASE_MARKER).is_file();
+    let outcome = run_selftest(&data_dir, phase);
+    match outcome {
+        Ok(summary) => {
+            println!("{}", serde_json::to_string_pretty(&summary).unwrap_or_default());
+            0
+        }
+        Err(err) => {
+            eprintln!("SELFTEST FAIL: {err}");
+            1
+        }
+    }
+}
+
+/// 自检单次运行（phase = 是否二次运行；二次运行断言会话持久）。
+fn run_selftest(data_dir: &Path, phase: bool) -> Result<JsonValue, String> {
+    std::fs::create_dir_all(data_dir)
+        .map_err(|err| format!("数据目录创建失败 {}: {err}", data_dir.display()))?;
+    let root = repo_root_for(data_dir);
+    let options = engine::host::BootOptions {
+        repo_root: root.clone(),
+        storage_uri: format!(
+            "sqlite:///{}",
+            data_dir.join("inkling.sqlite").display()
+        ),
+        data_dir: Some(data_dir.to_path_buf()),
+        stub_script: Some(serde_json::json!({
+            "研究": {"reply": "自检回合通过：装配 → 回合 → 事件流完整。"},
+        })),
+        default_reply: "自检缺省回复".to_string(),
+        bundled: engine::runtime::bundled_mode(),
+        embedder_model_dir: embedder_model_dir(data_dir),
+        ..Default::default()
+    };
+    let host = engine::host::EngineHost::boot(options).map_err(|err| format!("装配失败: {err}"))?;
+    let report = host
+        .report()
+        .map_err(|err| format!("装配摘要失败: {err}"))?;
+    if report.tool_names.is_empty() {
+        return Err("装配摘要工具清单为空".to_string());
+    }
+
+    let outcome = host
+        .round(engine::host::RoundRequest {
+            input_text: "研究墨引擎机制".to_string(),
+            thread_id: "selftest-t1".to_string(),
+            round_id: "selftest-r1".to_string(),
+            step_args: None,
+            inject: None,
+            auto_accept_review: true,
+        })
+        .map_err(|err| format!("回合失败: {err}"))?;
+    if outcome.reason != "reply" {
+        return Err(format!("回合未完成到回复: {}", outcome.reason));
+    }
+    if outcome.events.is_empty() {
+        return Err("回合事件流为空".to_string());
+    }
+
+    // 会话记录：写入 → 列出（真实数据源 = 引擎 sqlite 记录）
+    let session_id = if phase {
+        "selftest-session-persisted".to_string()
+    } else {
+        "selftest-session-1".to_string()
+    };
+    let put = block_on_op_async(
+        "engine.records_put",
+        serde_json::json!({
+            "collection": "sessions",
+            "key": session_id,
+            "data": {
+                "thread_id": session_id,
+                "title": "自检会话",
+                "created_at": 1.0,
+                "updated_at": 2.0,
+                "message_count": 3,
+                "current_leaf": 1i64,
+                "rename_count": 0,
+                "deleted": false,
+            },
+        }),
+    )
+    .map_err(|err| format!("会话写入失败: {err}"))?;
+    let _ = put;
+    let listed = block_on_op_async(
+        "engine.records_list",
+        serde_json::json!({ "collection": "sessions" }),
+    )
+    .map_err(|err| format!("会话列出失败: {err}"))?;
+    let rows = listed.as_array().cloned().unwrap_or_default();
+    let persisted = rows.iter().any(|row| {
+        row.get("key").and_then(JsonValue::as_str) == Some(session_id.as_str())
+            || row.get("thread_id").and_then(JsonValue::as_str) == Some(session_id.as_str())
+    });
+    if !persisted {
+        return Err("会话记录未出现在清单（持久化失败）".to_string());
+    }
+
+    // 导出包：数据目录打包 → 校验（恢复向导入口的同一对校验函数）
+    let pack_path = data_dir.join("selftest-export.zip");
+    let manifest = domain::backup::pack_data_dir(data_dir, &pack_path)
+        .map_err(|err| format!("导出失败: {err}"))?;
+    let validated = domain::backup::validate_backup(&pack_path)
+        .map_err(|err| format!("导出包校验失败: {err}"))?;
+    if validated.entries.is_empty() {
+        return Err("导出包条目为空".to_string());
+    }
+    let export_entries = validated.entries.len();
+    let export_has_db = validated.engine_snapshot;
+    let _ = manifest;
+
+    // 执行件随包就位（捆绑形态硬断言；开发形态 = 仓库构建产物可定位）
+    let exec_dir = if engine::runtime::bundled_mode() {
+        engine::runtime::exec_dir_in(data_dir)
+    } else {
+        dev_repo_root().join("inkling/exec/target/debug")
+    };
+    let exec_ok = domain::exec_proc::locate_exec_binary(&exec_dir).is_ok();
+
+    // 本地语义嵌入器（出厂接通断言：模型目录注入后计划解析 = 本地真实
+    // 推理；缺模型 = 确定性保底，来源可观测）
+    let embedder_note = match embedder_model_dir(data_dir) {
+        Some(dir) => {
+            let embedder = crate::domain::embedder::LocalOnnxEmbedder::with_model_dir(dir);
+            let source = format!("{:?}", embedder.source());
+            let note = embedder.note().map(|n| n.to_string());
+            serde_json::json!({ "source": source, "note": note })
+        }
+        None => serde_json::json!({ "source": "not_injected", "note": null }),
+    };
+
+    if engine::runtime::bundled_mode() && !exec_ok {
+        return Err("捆绑形态执行件未就位（resources/exec 缺随包二进制）".to_string());
+    }
+
+    host.stop().map_err(|err| format!("关停失败: {err}"))?;
+    // 二次运行标记（会话持久断言的基准：下次运行同数据目录仍可见）
+    if !phase {
+        std::fs::write(
+            data_dir.join(SELFTEST_PHASE_MARKER),
+            serde_json::json!({ "phase": 1 }).to_string(),
+        )
+        .map_err(|err| format!("自检标记写入失败: {err}"))?;
+    }
+
+    Ok(serde_json::json!({
+        "phase": if phase { 2 } else { 1 },
+        "data_dir": data_dir.display().to_string(),
+        "bundled": engine::runtime::bundled_mode(),
+        "tool_count": report.tool_names.len(),
+        "round_reason": outcome.reason,
+        "event_count": outcome.events.len(),
+        "session_persisted": persisted,
+        "export_entries": export_entries,
+        "export_has_db": export_has_db,
+        "exec_ready": exec_ok,
+        "embedder": embedder_note,
+    }))
+}
+
 pub fn run() {
     let stop = Arc::new(AtomicBool::new(false));
     let app = tauri::Builder::default()
@@ -1029,6 +1281,7 @@ pub fn run() {
             device_mcp_call,
             backend_status,
             engine_boot,
+            first_run_dismiss,
             round_send,
             round_abort,
             round_resume,

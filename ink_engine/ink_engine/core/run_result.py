@@ -57,6 +57,15 @@ class RunOptions:
     error_on_exception: bool = True
     max_spawns: int = 16
     spawn_concurrency: int = 4
+    # 子链嵌套深度上限（成本护栏：子图/实例/分支外再展开子单元时校验，
+    # 超限即节点失败——fail-closed，防递归嵌套成本爆炸）。0 = 允许任意深度。
+    spawn_max_depth: int = 2
+    # 子链执行步数上限（成本护栏：推演分支/多径支流执行步数超限 = 该
+    # 分支失败记入评估（剔除，不静默提交）——fail-closed）。0 = 不校验。
+    simulate_max_branch_steps: int = 16
+    # 当前子链深度（内部传播字段：子图/实例/分支执行引擎经构造继承，
+    # 作为嵌套校验的基准；非用户配置，由装配默认 0 = 根图）。
+    spawn_depth: int = 0
     # 链级 rebase 窗口：链长超出后压缩历史前缀（窗口外行删除、窗口最旧
     # 行改链头、事件日志连带裁剪）——恢复/巡检从 O(链长) 降为 O(窗口)。
     # 编辑重放（parent_checkpoint 分叉）期间跳过：分叉锚点可能落在窗口外。

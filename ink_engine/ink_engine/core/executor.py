@@ -443,6 +443,9 @@ class Engine:
         # 链尾推进标志：嵌套子图执行后置位（子图 checkpoint 推进版本链），
         # 下次写 checkpoint 前据此查询链尾作为 parent（避免顺序执行时每节点查询）
         self._chain_advanced = False
+        # 已执行节点步数（本引擎累计；子链步数截止护栏的判据——结点边界
+        # 计数与 ctx.step_count 同位置，计划推进等非节点迭代不计入）
+        self.executed_node_steps = 0
         # 输入调配管线执行体（RunOptions.assembly 非 None 时启用；调用点
         # 经 ctx.assemble 统一调配，激活留痕随事件落库）
         self._assembler = (
@@ -1159,6 +1162,8 @@ class Engine:
             # ── 节点步数计数：与预算检查同位置的节点边界（计划推进等
             # 非节点迭代不计入）——策略经 ctx.step_count 按步数终止
             ctx.step_count += 1
+            # 引擎级步数累计（子链步数截止：分支/支流引擎执行后按此判超限）
+            self.executed_node_steps += 1
 
             # ── 预算检查（节点边界，策略由业务注册）──
             if self.options.budget is not None:
@@ -1343,6 +1348,23 @@ class Engine:
 
             # ── spawn 展开（子任务清单并发展开为子图实例，结果回流）──
             if spawn_specs:
+                # 嵌套深度护栏（fail-closed，与清单超限同口径节点失败）：
+                # 子单元深度 = 当前子链深度 + 1；0 = 按数据声明不校验；
+                # 递归嵌套是成本爆炸的高发点，宁可显式失败不可静默放行
+                if (
+                    self.options.spawn_max_depth > 0
+                    and self.options.spawn_depth + 1 > self.options.spawn_max_depth
+                ):
+                    node_error = (
+                        f"spawn 嵌套深度超限: {self.options.spawn_depth + 1} "
+                        f"> {self.options.spawn_max_depth}"
+                    )
+                    logger.error(f"spawn 嵌套深度超限 [{current}]: {node_error}")
+                    await ctx.emit("error", {"node": current, "message": node_error})
+                    self._trace_mark_failed()
+                    error_msg = node_error
+                    reason = TerminateReason.ERROR
+                    break
                 if len(spawn_specs) > self.options.max_spawns:
                     node_error = (
                         f"spawn 清单超限: {len(spawn_specs)} > {self.options.max_spawns}"
@@ -2050,7 +2072,7 @@ class Engine:
             validate=True,
         )
 
-    def _make_instance_engine(self, subgraph: Graph) -> Engine:
+    def _make_instance_engine(self, subgraph: Graph, spawn_depth: int) -> Engine:
         """实例引擎：独立实例（并发安全，不复用图级缓存——实例间互不干扰）。
 
         共享父引擎存储/schema/预算/传输配置；coordinator 共享（实例内
@@ -2058,6 +2080,9 @@ class Engine:
         子图自身指纹：跨引擎同源漂移由实例链自身的恢复校验覆盖（父链
         不重放实例事件，无需并入父指纹——图版本校验作用域 = 各自引擎
         的恢复锚点）。
+
+        spawn_depth：子单元所在子链深度（子图/实例/分支执行引擎携带；
+        嵌套校验基准 = 该深度，超限拒绝由展开入口执行）。
         """
         sub_engine = Engine(
             subgraph,
@@ -2071,6 +2096,11 @@ class Engine:
                 # 成本护栏整体继承：父层显式禁用/收紧的 spawn 限制在实例层不旁落
                 max_spawns=self.options.max_spawns,
                 spawn_concurrency=self.options.spawn_concurrency,
+                # 子链护栏随实例传播：嵌套深度上限与分支步数上限同口径，
+                # 且子链深度 = 父深度 + 1（嵌套校验基准递进）
+                spawn_max_depth=self.options.spawn_max_depth,
+                simulate_max_branch_steps=self.options.simulate_max_branch_steps,
+                spawn_depth=spawn_depth,
                 # 建图注册表与计划配置随实例传播（数据形态子图/计划条件在
                 # 实例层同样可解析；计划策略/护栏口径与父层一致）
                 registries=self.options.registries,
@@ -2120,9 +2150,21 @@ class Engine:
         results: dict[int, dict] = {}
         failures: list[SpawnFailure] = []
 
+        # 嵌套深度护栏（fail-closed）：子单元深度 = 当前子链深度 + 1；
+        # 0 = 任意深度（按数据声明关闭校验）；超限直接拒绝展开——递归
+        # 嵌套是成本爆炸的高发点，宁可显式失败不可静默放行
+        child_depth = self.options.spawn_depth + 1
+        if (
+            self.options.spawn_max_depth > 0
+            and child_depth > self.options.spawn_max_depth
+        ):
+            raise ValueError(
+                f"spawn 嵌套深度超限: {child_depth} > {self.options.spawn_max_depth}"
+            )
+
         async def run_one(index: int) -> None:
             spec = specs[index]
-            sub_engine = self._make_instance_engine(spec.subgraph)
+            sub_engine = self._make_instance_engine(spec.subgraph, child_depth)
             sub_path = (*parent_ctx.graph_path, spec.subgraph.name, str(spec.index))
             instance_thread = instance_thread_id(parent._thread_id, spec.index)
             # 恢复：实例从自身链尾续跑（中断/未终态 checkpoint 续跑，同回合
@@ -2232,10 +2274,12 @@ class Engine:
         results: dict[int, dict] = {}
         branch_threads: dict[int, str] = {}
         failures: list[str] = []
+        # 子单元深度 = 当前子链深度 + 1（分支引擎链内再展开子单元时按此基准校验）
+        child_depth = self.options.spawn_depth + 1
 
         async def run_one(index: int) -> None:
             spec = specs[index]
-            sub_engine = self._make_instance_engine(spec.subgraph)
+            sub_engine = self._make_instance_engine(spec.subgraph, child_depth)
             sub_path = (*parent_ctx.graph_path, spec.subgraph.name, str(spec.index))
             branch_thread = simulate_thread_id(parent._thread_id, spec.index)
             branch_threads[spec.index] = branch_thread
@@ -2284,6 +2328,14 @@ class Engine:
             if sub_result.interrupt is not None:
                 raise InterruptSignal(
                     sub_result.interrupt.key, sub_result.interrupt.payload
+                )
+            # 分支步数截止护栏（fail-closed）：分支子链执行步数超限 = 该
+            # 分支失败（剔除出评估，不静默提交）——探测分支失控的成本
+            # 截止点；0 = 按数据声明不校验
+            step_limit = self.options.simulate_max_branch_steps
+            if step_limit > 0 and sub_engine.executed_node_steps > step_limit:
+                raise RuntimeError(
+                    f"推演分支步数超限: {sub_engine.executed_node_steps} > {step_limit}"
                 )
             if sub_result.reason == TerminateReason.ERROR:
                 raise RuntimeError(

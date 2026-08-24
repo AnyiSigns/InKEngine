@@ -1346,7 +1346,9 @@ class MultipathRunner:
         async def run_one(position: int) -> None:
             index = position
             candidate = candidates[position]
-            sub_engine = self._engine._make_instance_engine(candidate.graph)
+            sub_engine = self._engine._make_instance_engine(
+                candidate.graph, self._engine.options.spawn_depth + 1
+            )
             sub_path = multipath_branch_path(index)
             branch_thread = multipath_branch_thread(thread_id, index)
             try:
@@ -1396,6 +1398,26 @@ class MultipathRunner:
                 raise InterruptSignal(
                     sub_result.interrupt.key, sub_result.interrupt.payload
                 )
+            # 支流步数截止（同推演分支护栏口径）：执行步数超限 = 支流
+            # 失败（terminal=error，汇流裁决按失败支流处理并记负样例）
+            step_limit = self._engine.options.simulate_max_branch_steps
+            if step_limit > 0 and sub_engine.executed_node_steps > step_limit:
+                results[index] = MultiPathBranchResult(
+                    index=index,
+                    chain=candidate.chain,
+                    digest=candidate.graph.digest(),
+                    overlay={},
+                    final_state=dict(final_state),
+                    terminal="error",
+                    error=f"支流步数超限: {sub_engine.executed_node_steps} > {step_limit}",
+                    interrupt=None,
+                    evidence=chain_evidence(candidate, evidence_index),
+                    thread_id=branch_thread,
+                    graph_path=sub_path,
+                    terminal_fields=chain_terminal_fields(candidate),
+                    edge_refs=chain_edge_refs(candidate),
+                )
+                return
             if sub_result.reason == TerminateReason.ERROR:
                 results[index] = MultiPathBranchResult(
                     index=index,

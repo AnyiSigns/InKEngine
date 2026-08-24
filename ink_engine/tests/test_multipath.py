@@ -915,3 +915,38 @@ async def _evidence_map(store: EdgeEvidenceStore):
     from ink_engine.core.multipath import evidence_index_of
 
     return evidence_index_of(rows)
+
+
+async def test_branch_steps_limit_overrun_marks_branch_failed(memory_storage):
+    """支流步数截止：执行步数超限的支流 terminal=error（裁决按失败处理）。
+
+    子链护栏覆盖多径分支（同构子链执行机制）：支流引擎执行步数超过
+    simulate_max_branch_steps 上限 = 该支流失败（不静默提交结果）。
+    """
+    registry = make_behavior_registry()
+    store = EdgeEvidenceStore(":memory:")
+    candidates = await make_candidates(registry, store, top_k=2)
+    from ink_engine.core.events import CollectorTransport
+
+    collector = CollectorTransport()
+    engine = make_engine(
+        demo_linear_graph(),
+        storage=memory_storage,
+        transports=[collector],
+        registries=GraphRegistries(nodes=registry),
+        simulate_max_branch_steps=1,
+    )
+    runner = make_runner(engine, store=store)
+    result = await runner.run(
+        make_request(top_k=2),
+        candidates,
+        entry_state={"user_query": "q"},
+        thread_id="t-mp-guard",
+        round_id="r1",
+        trace_id="trace-mp-guard",
+    )
+    assert result.triggered is True
+    assert result.branches
+    assert all(b.terminal == "error" for b in result.branches)
+    assert any("步数超限" in (b.error or "") for b in result.branches)
+    assert result.verdict is not None and result.verdict.mode == MODE_NONE

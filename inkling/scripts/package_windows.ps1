@@ -20,12 +20,22 @@
 param(
     [string]$PythonVersion = "3.14.0",
     [switch]$SkipRuntimeDownload,
-    [switch]$SkipNsis
+    [switch]$SkipNsis,
+    [string]$Proxy = ""
 )
 
 $ErrorActionPreference = "Stop"
 $root = Split-Path -Parent (Split-Path -Parent $PSScriptRoot)   # 仓库根
 $res = Join-Path $root "inkling\shell\src-tauri\resources"
+
+# 代理透传（tauri-cli 的下载客户端不走浏览器系统代理；本机 Clash 类
+# 场景须显式给 HTTPS_PROXY/HTTP_PROXY，否则 GitHub 工具链下载超时）
+if ($Proxy) {
+    $env:HTTPS_PROXY = $Proxy
+    $env:HTTP_PROXY = $Proxy
+    $env:ALL_PROXY = $Proxy
+    Log "代理已启用: $Proxy"
+}
 
 function Log([string]$msg) {
     Write-Host "[package] $msg"

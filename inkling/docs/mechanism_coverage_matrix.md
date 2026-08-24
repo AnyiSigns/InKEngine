@@ -184,8 +184,8 @@
 
 | 检查 | Rust 侧落点 | 状态 |
 |---|---|---|
-| 全新机器路径（无仓库/无 Python 环境：资源解包 → 内嵌解释器 → 装配 → 回合 → 会话持久 → 导出校验 → 执行件就位） | engine runtime.rs `provision`/`prepare_bundled_python`（捆绑形态资源与解释器准备）+ `--selftest` 双阶段自检（release 实测 phase1/phase2 全过：bundled=true、LocalOnnx、36 事件、会话持久、导出含库、exec_ready） | 绿 |
-| 嵌入式 Python runtime 打包（embed 发行包 + 出厂第三方依赖 site-packages + 自定义 PyConfig 确定性路径） | 打包脚本 `inkling/scripts/package_windows.ps1` + engine runtime.rs `init_embedded_interpreter`（显式 module_search_paths，环境不参与）+ 解释器 DLL 装载位（exe 同目录 + NSIS hooks.nsh POSTINSTALL） | 绿（本机 release 实测通过；NSIS 安装器产出受本机 GitHub 下载超时限制，脚本与 hooks 就绪） |
+| 全新机器路径（无仓库/无 Python 环境：资源解包 → 内嵌解释器 → 装配 → 回合 → 会话持久 → 导出校验 → 执行件就位） | engine runtime.rs `provision`/`prepare_bundled_python`（捆绑形态资源与解释器准备）+ `--selftest` 双阶段自检（release 实测 phase1/phase2 全过：bundled=true、LocalOnnx、36 事件、会话持久、导出含库、exec_ready）+ **真安装形态**（NSIS 静默安装 → 安装目录二进制 selftest 双阶段全过，hooks.nsh DLL 装载位验证） | 绿 |
+| 嵌入式 Python runtime 打包（embed 发行包 + 出厂第三方依赖 site-packages + 自定义 PyConfig 确定性路径） | 打包脚本 `inkling/scripts/package_windows.ps1`（含 `-Proxy` 参数透传，规避 tauri-cli 下载不走系统代理的坑）+ engine runtime.rs `init_embedded_interpreter`（显式 module_search_paths，环境不参与）+ 解释器 DLL 装载位（exe 同目录 + NSIS hooks.nsh POSTINSTALL） | 绿（NSIS 安装器本机产出并通过安装验收） |
 | 向量检索出厂接通（无环境变量 = 本地内嵌语义检索；懒加载/降级保底可观测） | engine host.rs 注入 LocalOnnx（granite-97m）→ 检索源清单含 embedding（`boot_injects_local_embedder_into_retrieval_sources`）+ 真实推理断言（`local_onnx_bridge_embeds_with_real_model`：384 维 L2 归一）；无注入回落关键词基线（`boot_without_embedder_stays_keyword_baseline`） | 绿 |
 | 首启引导（数据目录/模型配置/权限默认档三点 + 标记落位） | lib.rs `backend_status.first_run` + `first_run_dismiss`（标记文件）+ 前端 `FirstRunGuide` 浮层（vitest 3 例） | 绿 |
 | 执行件随包就位检查（数据目录解包位定位 + 可执行校验 + 版本探测） | exec_proc.rs `locate_exec_binary` / `probe_version` + selftest `exec_ready` 断言 | 绿 |

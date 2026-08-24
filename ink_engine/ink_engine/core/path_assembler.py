@@ -43,6 +43,7 @@ from __future__ import annotations
 
 import itertools
 import json
+import random
 import re
 import time
 from collections.abc import Callable, Collection, Mapping, Sequence
@@ -55,6 +56,7 @@ from .contracts import (
     QualityGate,
 )
 from .edge_evidence import (
+    DEFAULT_CONTRACT_VERSION,
     EdgeEvidence,
     EdgeEvidenceStore,
     cold_start_index,
@@ -62,7 +64,16 @@ from .edge_evidence import (
     is_exploration_mode,
     multi_path_trigger,
 )
-from .fingerprint import graph_fingerprint
+from .exceptions import GraphDefinitionError
+from .fingerprint import graph_fingerprint, request_fingerprint
+from .fingerprint_cache import (
+    REPLACE_REASON_DRIFT,
+    REPLACE_REASON_SAMPLE,
+    FingerprintCacheEntry,
+    FingerprintCacheStore,
+    evidence_drifted,
+    fingerprint_replace_audit_record,
+)
 from .graph import Graph, TerminateReason
 from .link_validator import (
     produced_field_names,
@@ -89,16 +100,24 @@ MAX_REPAIR_ROUNDS = 4  # 自动修复最大轮数（防算子组合全枚举）
 DEFAULT_DOMAIN = "default"
 # 默认放行档位（默认 0 最严；映射策略归使用方）
 DEFAULT_MAX_SAFETY_TIER = 0
+# 缓存抽样重装概率（命中时以 ε 概率绕过缓存重新组装对比；轻任务由
+# 使用方注入 ε≈0 关闭——执行成本 ≤ 组装成本时收益不对称前提不成立）
+DEFAULT_CACHE_EPSILON = 0.05
 
 # 候选来源标记（声明式枚举，防魔法字符串）
 CANDIDATE_SOURCE_ALGORITHM = "algorithm"
 CANDIDATE_SOURCE_DRAFT = "draft"
+CANDIDATE_SOURCE_CACHE = "cache"
 
 # 统计口径键（声明式枚举）
 STATS_BEAM_EXTENSIONS = "beam_extensions"
 STATS_EDGE_SCORE_CALLS = "edge_score_calls"
 STATS_REPAIR_ATTEMPTS = "repair_attempts"
 STATS_LLM_ATTEMPTS = "llm_attempts"
+STATS_CACHE_HITS = "cache_hits"
+STATS_CACHE_MISSES = "cache_misses"
+STATS_CACHE_INVALIDATIONS = "cache_invalidations"
+STATS_CACHE_REPLACEMENTS = "cache_replacements"
 
 
 @dataclass(frozen=True, slots=True)
@@ -881,6 +900,32 @@ def _node_text(type_name: str, contract: NodeContract) -> str:
     )
 
 
+def _snapshot_edge(
+    rows: Sequence[Mapping[str, Any]], src: str, dst: str
+) -> EdgeEvidence | None:
+    """快照行 → 边证据（按类型对匹配；未命中 = 零证据先验下界）。"""
+    for row in rows:
+        if row.get("src_type") == src and row.get("dst_type") == dst:
+            return EdgeEvidence.from_dict(row)
+    return None
+
+
+def _graph_chain(graph: Graph) -> tuple[str, ...]:
+    """线性链图 → 节点名序（入口起沿边走；图定义数据序列化不保节点序，
+    命中重建后必须按结构还原链序——评分/展示依赖链序）。"""
+    chain: list[str] = []
+    current = graph.entry
+    for _ in range(len(graph.node_bindings)):
+        if current is None or current in chain:
+            break
+        chain.append(current)
+        edge_list = graph.edges.get(current, ())
+        if not edge_list:
+            break
+        current = edge_list[0].target
+    return tuple(chain)
+
+
 # ── 组装器 ───────────────────────────────────────────────────────
 
 @dataclass(frozen=True, slots=True)
@@ -906,6 +951,12 @@ class PathAssembler:
             与增量接入的开关语义对齐，默认关）。
         sink: 审计记录落库回调（append-only；本模块只产出记录不落库）。
         now: 当前时间戳（确定性注入；None = 实时）。
+        cache: 指纹缓存存储（flag 开启时构造/注入；None = 缓存零参与——
+            无查找无写入，先例层不生效）。
+        model_id: 模型标识（组装请求上下文指纹入键；与沉淀侧同一标识，
+            变化 = 旧条目降级不命中）。
+        cache_epsilon: 抽样重装概率（命中时以 ε 概率绕过缓存重新组装
+            对比；ε≈0 = 关闭，默认引擎钉死，使用方仅覆盖权）。
     """
 
     def __init__(
@@ -917,6 +968,9 @@ class PathAssembler:
         config: PathAssemblyConfig | None = None,
         sink: Callable[[dict[str, Any]], Any] | None = None,
         now: float | None = None,
+        cache: FingerprintCacheStore | None = None,
+        model_id: str = "",
+        cache_epsilon: float = DEFAULT_CACHE_EPSILON,
     ) -> None:
         self._registry = registry
         self._evidence = evidence_store
@@ -924,6 +978,9 @@ class PathAssembler:
         self._config = config
         self._sink = sink
         self._now = now
+        self._cache = cache
+        self._model_id = model_id
+        self._cache_epsilon = max(0.0, float(cache_epsilon))
 
     def contract_pool(self) -> dict[str, NodeContract]:
         """池子快照：注册表内全部带契约的类型（类型名 → 契约）。"""
@@ -959,6 +1016,208 @@ class PathAssembler:
             ): row
             for row in rows
         }
+
+    def _cache_key(self, request: AssemblyRequest, goal: tuple[str, ...]) -> str:
+        """缓存主键：请求侧纯函数（目标/入口字段序无关 + 域 + 档位 + 模型）。"""
+        return request_fingerprint(
+            goal_fields=goal,
+            entry_fields=request.entry_fields,
+            domain=request.domain,
+            max_safety_tier=request.max_safety_tier,
+            model_id=self._model_id,
+        )
+
+    async def _invalidate_cache(
+        self, cache_key: str, *, reason: str, stats: dict[str, int]
+    ) -> None:
+        cache = self._cache
+        if cache is None:
+            return
+        await cache.invalidate(cache_key, reason=reason)
+        stats[STATS_CACHE_INVALIDATIONS] = stats.get(STATS_CACHE_INVALIDATIONS, 0) + 1
+
+    async def _validate_cache_entry(
+        self,
+        cache_key: str,
+        entry: FingerprintCacheEntry,
+        pool: Mapping[str, NodeContract],
+        evidence_rows: Sequence[Mapping[str, Any]],
+        stats: dict[str, int],
+    ) -> str:
+        """缓存条目三钉校验：契约版本快照 / 模型 id / 证据漂移。
+
+        返回三态：hit=可命中；drift=证据漂移失效（条目保留供顶替对比）；
+        stale=版本/模型钉死失效（降级不命中，不参与顶替）。
+        """
+        if entry.model_id != self._model_id:
+            await self._invalidate_cache(cache_key, reason="模型变更", stats=stats)
+            return "stale"
+        for type_name, version in entry.contract_snapshot:
+            contract = pool.get(type_name)
+            if contract is not None and str(contract.version) != version:
+                await self._invalidate_cache(
+                    cache_key, reason="契约版本漂移", stats=stats
+                )
+                return "stale"
+            if contract is None and version != DEFAULT_CONTRACT_VERSION:
+                await self._invalidate_cache(cache_key, reason="类型已移除", stats=stats)
+                return "stale"
+        if self._evidence is not None and evidence_drifted(
+            entry.evidence_snapshot, evidence_rows
+        ):
+            await self._invalidate_cache(cache_key, reason="证据漂移", stats=stats)
+            return "drift"
+        return "hit"
+
+    @staticmethod
+    def _cached_chain(entry: FingerprintCacheEntry) -> tuple[str, ...]:
+        """缓存路径类型链（入口起沿边走还原链序；退化条目仅携指纹 = 空链）。"""
+        path = entry.path if isinstance(entry.path, dict) else {}
+        nodes = path.get("nodes")
+        edges = path.get("edges")
+        start = path.get("entry")
+        if not isinstance(nodes, dict) or not isinstance(edges, dict):
+            return ()
+        chain: list[str] = []
+        current = start
+        for _ in range(len(nodes)):
+            spec = nodes.get(current) if isinstance(current, str) else None
+            if not isinstance(spec, dict):
+                break
+            chain.append(str(spec.get("type", current)))
+            edge_list = edges.get(current)
+            target = (
+                edge_list[0].get("target")
+                if isinstance(edge_list, list) and edge_list
+                and isinstance(edge_list[0], dict)
+                else None
+            )
+            if not isinstance(target, str) or target in chain:
+                break
+            current = target
+        return tuple(chain)
+
+    def _score_from_snapshot(
+        self,
+        chain: Sequence[str],
+        snapshot_rows: Sequence[Mapping[str, Any]],
+    ) -> float:
+        """缓存路径证据分：按快照各边 s/f 计数重算（与组装评分同口径）。"""
+        total = 0.0
+        edge_count = 0
+        for src, dst in itertools.pairwise(chain):
+            evidence = _snapshot_edge(snapshot_rows, src, dst)
+            total += edge_score(evidence, now=self._now).score
+            edge_count += 1
+        return total / max(edge_count, 1) if edge_count else 0.0
+
+    def _cold_index_from_snapshot(
+        self,
+        chain: Sequence[str],
+        snapshot_rows: Sequence[Mapping[str, Any]],
+    ) -> float:
+        """冷启动指数（命中口径）：有快照证据的边数 / 候选边数。"""
+        candidate_edges: set[tuple[str, str]] = set()
+        evidenced = 0
+        for src, dst in itertools.pairwise(chain):
+            if (src, dst) in candidate_edges:
+                continue
+            candidate_edges.add((src, dst))
+            if _snapshot_edge(snapshot_rows, src, dst) is not None:
+                evidenced += 1
+        return cold_start_index(evidenced, len(candidate_edges))
+
+    async def _result_from_cache(
+        self,
+        entry: FingerprintCacheEntry,
+        stats: dict[str, int],
+    ) -> AssemblyResult | None:
+        """命中构造：缓存路径图定义重建 → 单候选结果（含图定义，可走 canary）。
+
+        重建失败（退化条目仅携指纹/结构损坏）＝ 按未命中处理，不静默
+        返回残缺产物。
+        """
+        try:
+            graph = Graph.from_dict(
+                dict(entry.path), registry=self._registry, validate=True
+            )
+        except GraphDefinitionError as exc:
+            logger.warning(f"缓存路径重建失败（按未命中处理）: {exc}")
+            return None
+        # 图定义数据序列化不保节点序：按入口→边序还原绑定序（链序一致）
+        chain = _graph_chain(graph)
+        if len(chain) == len(graph.node_bindings):
+            ordered = {name: graph.node_bindings[name] for name in chain}
+            graph.node_bindings.clear()
+            graph.node_bindings.update(ordered)
+        type_chain = tuple(
+            graph.node_bindings[name].type_name for name in chain if name in graph.node_bindings
+        )
+        score = self._score_from_snapshot(type_chain, entry.evidence_snapshot)
+        cold_index = self._cold_index_from_snapshot(type_chain, entry.evidence_snapshot)
+        candidate = AssemblyCandidate(
+            rank=1,
+            source=CANDIDATE_SOURCE_CACHE,
+            repaired=False,
+            graph=graph,
+            score=score,
+        )
+        stats[STATS_CACHE_HITS] = stats.get(STATS_CACHE_HITS, 0) + 1
+        return AssemblyResult(
+            candidates=(candidate,),
+            fingerprint=graph_fingerprint(graph),
+            cold_start_index=cold_index,
+            exploration_mode=is_exploration_mode(cold_index),
+            multipath_signal=False,
+            llm_attempts=0,
+            stats=stats,
+        )
+
+    async def _maybe_replace_cache_entry(
+        self,
+        cache: FingerprintCacheStore,
+        cache_key: str,
+        entry: FingerprintCacheEntry,
+        request: AssemblyRequest,
+        result: AssemblyResult,
+        evidence_rows: Sequence[Mapping[str, Any]],
+        replace_reason: str,
+        stats: dict[str, int],
+    ) -> None:
+        """顶替对比：失效/抽样重装后的重组装结果与缓存条目标的分比较，
+        更高才顶替（fingerprint_replace 审计留痕；分不高 = 顶替不成立）。
+        顶替写入 = 缓存维护写（新路径 + 当前证据快照，计数清零重新起算）。"""
+        if result.is_empty:
+            return
+        new_score = result.candidates[0].score
+        cached_score = self._score_from_snapshot(
+            self._cached_chain(entry), entry.evidence_snapshot
+        )
+        if new_score <= cached_score:
+            return
+        new_graph = result.candidates[0].graph
+        stats[STATS_CACHE_REPLACEMENTS] = stats.get(STATS_CACHE_REPLACEMENTS, 0) + 1
+        if self._sink is not None:
+            self._sink(
+                fingerprint_replace_audit_record(
+                    domain=request.domain,
+                    fingerprint=graph_fingerprint(new_graph),
+                    old_fingerprint=entry.path_fingerprint,
+                    reason=replace_reason,
+                    old_score=cached_score,
+                    new_score=new_score,
+                    ts=self._now if self._now is not None else time.time(),
+                )
+            )
+        await cache.upsert(
+            cache_key,
+            path=new_graph.to_dict(),
+            evidence_snapshot=evidence_rows,
+            model_id=self._model_id,
+            gate_passed=True,
+            path_fingerprint=graph_fingerprint(new_graph),
+            domain=request.domain,
+        )
 
     def _edge_score_of(
         self,
@@ -1206,6 +1465,10 @@ class PathAssembler:
 
         约束：机制开关关闭（config.enabled=False）时零生效——无候选、
         无统计、无回调；池子无带契约结点或目标无字段 = 空结果 + 原因。
+        缓存参与（注入缓存实例时）：先例层命中最优先——命中直接返回
+        缓存路径候选（含图定义）；未命中走既有组装三产出层。组装完成
+        后不入缓存（入库 = 沉淀侧）；仅顶替机制（证据漂移/抽样重装后
+        重组装比分更高）写缓存维护条目并留 fingerprint_replace 审计。
         """
         if self._config is not None and not self._config.enabled:
             return AssemblyResult()
@@ -1222,6 +1485,56 @@ class PathAssembler:
             STATS_REPAIR_ATTEMPTS: 0,
             STATS_LLM_ATTEMPTS: 0,
         }
+        # ── 先例层：缓存命中（注入缓存实例时参与；未注入 = 零查找零写入）──
+        cache = self._cache
+        cache_key: str | None = None
+        entry: FingerprintCacheEntry | None = None
+        comparable = False
+        replace_reason: str | None = None
+        evidence_rows: list[dict[str, Any]] = []
+        if cache is not None:
+            stats.update(
+                {
+                    STATS_CACHE_HITS: 0,
+                    STATS_CACHE_MISSES: 0,
+                    STATS_CACHE_INVALIDATIONS: 0,
+                    STATS_CACHE_REPLACEMENTS: 0,
+                }
+            )
+            if self._evidence is not None:
+                evidence_rows = [
+                    e.to_dict() for e in await self._evidence.list_edges(request.domain)
+                ]
+            cache_key = self._cache_key(request, goal)
+            entry = await cache.lookup(cache_key)
+            if entry is None:
+                stats[STATS_CACHE_MISSES] = 1
+            else:
+                status = await self._validate_cache_entry(
+                    cache_key, entry, pool, evidence_rows, stats
+                )
+                if status == "drift":
+                    # 证据漂移失效：重组装后与缓存条目标的分比较，更高则顶替
+                    comparable = True
+                    replace_reason = REPLACE_REASON_DRIFT
+                    stats[STATS_CACHE_MISSES] = 1
+                elif status == "stale":
+                    # 契约版本/模型钉死失效：降级不命中，不参与顶替
+                    entry = None
+                    stats[STATS_CACHE_MISSES] = 1
+                elif self._cache_epsilon > 0 and random.random() < self._cache_epsilon:
+                    # ε 抽样重装：绕过缓存重新组装对比（条目保留供顶替对比）
+                    comparable = True
+                    replace_reason = REPLACE_REASON_SAMPLE
+                    stats[STATS_CACHE_MISSES] = 1
+                else:
+                    hit = await self._result_from_cache(entry, stats)
+                    if hit is not None:
+                        if self._sink is not None:
+                            self._sink(self._audit_record(request, goal, hit))
+                        return hit
+                    entry = None
+                    stats[STATS_CACHE_MISSES] = 1
         index = self._index_pool(pool)
         evidence_index = await self._evidence_index(request.domain)
         # ① schema 反推（纯算法，全量搜索——无需上下文，池子规模解耦）
@@ -1314,6 +1627,17 @@ class PathAssembler:
             llm_attempts=llm_attempts,
             stats=stats,
         )
+        if cache is not None and cache_key is not None and entry is not None and comparable:
+            await self._maybe_replace_cache_entry(
+                cache,
+                cache_key,
+                entry,
+                request,
+                result,
+                evidence_rows,
+                replace_reason or "",
+                stats,
+            )
         if self._sink is not None:
             self._sink(self._audit_record(request, goal, result))
         return result
@@ -1433,6 +1757,10 @@ class PathAssemblyRuntime:
         sink: 审计落库回调（boot 级装配注入；append-only）。
         now: 当前时间戳（确定性注入；None = 实时）。
         canary: 是否执行单回合验证（False = 仅重建级校验；默认 True）。
+        cache: 指纹缓存存储（flag 开启时构造/注入；None = 缓存零参与）。
+        model_id: 模型标识（组装请求上下文指纹入键；与沉淀侧同一标识）。
+        cache_epsilon: 抽样重装概率（命中时以 ε 概率绕过缓存重新组装
+            对比；轻任务注入 ε≈0 关闭，默认引擎钉死）。
     """
 
     registry: NodeTypeRegistry
@@ -1442,6 +1770,9 @@ class PathAssemblyRuntime:
     sink: Callable[[dict[str, Any]], Any] | None = None
     now: float | None = None
     canary: bool = True
+    cache: FingerprintCacheStore | None = None
+    model_id: str = ""
+    cache_epsilon: float = DEFAULT_CACHE_EPSILON
 
     def bind(self) -> PathAssembler:
         """构造只读组装器（同源配置；单次绑定复用）。"""
@@ -1452,7 +1783,28 @@ class PathAssemblyRuntime:
             config=self.config,
             sink=self.sink,
             now=self.now,
+            cache=self.cache,
+            model_id=self.model_id,
+            cache_epsilon=self.cache_epsilon,
         )
+
+    async def report_cache_execution(self, request: AssemblyRequest, *, ok: bool) -> bool:
+        """缓存路径执行结果回馈（执行失败强失效信号接线口）。
+
+        命中成功执行 → 命中数+1 并刷新时间戳；命中失败 → 失败数+1 且
+        条目立即失效（不命中），调用方重组装。未注入缓存（flag 关闭）
+        时零参与返回 False。
+        """
+        if self.cache is None:
+            return False
+        key = request_fingerprint(
+            goal_fields=request.goal_fields(),
+            entry_fields=request.entry_fields,
+            domain=request.domain,
+            max_safety_tier=request.max_safety_tier,
+            model_id=self.model_id,
+        )
+        return await self.cache.report(key, ok=ok)
 
     async def assemble_plan(
         self,
@@ -1470,6 +1822,10 @@ class PathAssemblyRuntime:
         1. 组装记录（候选清单 + 指纹 + 统计，形状与只读组装一致）；
         2. 各候选 canary 结论（重建指纹 + 单回合收尾原因）。
 
+        缓存命中候选须过 canary 验证：命中路径验证失败（执行失败）=
+        强失效——失败数+1 且条目立即失效（不命中），随后本入口代调用方
+        重组装（失效后自然走 miss 路径）。
+
         机制开关关闭（config.enabled=False）时零生效：无候选、无验证、
         无审计回调；无默认装配时不产出任何审计（模块级入口语义）。
         """
@@ -1477,8 +1833,17 @@ class PathAssemblyRuntime:
             return AssemblyResult()
         assembler = self.bind()
         result = await assembler.assemble(request)
-        goal = request.goal_fields()
         ts = self.now if self.now is not None else time.time()
+        if self.cache is not None and result.stats.get(STATS_CACHE_HITS, 0) > 0:
+            # 命中候选先行验证：失败 = 强失效 + 立即重组装（缓存路径执行失败路径）
+            hit_verdicts = [
+                await self._verify_candidate(candidate, ts=ts)
+                for candidate in result.candidates
+            ]
+            if any(not verdict.ok for verdict in hit_verdicts):
+                await self.report_cache_execution(request, ok=False)
+                result = await assembler.assemble(request)
+        goal = request.goal_fields()
         records: list[dict[str, Any]] = [
             assembly_audit_record(request, goal, result, ts=ts)
         ]
@@ -1593,8 +1958,10 @@ async def assemble_plan(
 
 __all__ = [
     "CANDIDATE_SOURCE_ALGORITHM",
+    "CANDIDATE_SOURCE_CACHE",
     "CANDIDATE_SOURCE_DRAFT",
     "DEFAULT_BEAM_WIDTH",
+    "DEFAULT_CACHE_EPSILON",
     "DEFAULT_DOMAIN",
     "DEFAULT_LLM_WINDOW",
     "DEFAULT_MAX_PATH_LENGTH",
@@ -1603,6 +1970,10 @@ __all__ = [
     "LLM_RETRY_LIMIT",
     "MAX_REPAIR_ROUNDS",
     "STATS_BEAM_EXTENSIONS",
+    "STATS_CACHE_HITS",
+    "STATS_CACHE_INVALIDATIONS",
+    "STATS_CACHE_MISSES",
+    "STATS_CACHE_REPLACEMENTS",
     "STATS_EDGE_SCORE_CALLS",
     "STATS_LLM_ATTEMPTS",
     "STATS_REPAIR_ATTEMPTS",

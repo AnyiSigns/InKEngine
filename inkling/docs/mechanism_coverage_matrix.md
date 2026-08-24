@@ -21,7 +21,7 @@
 | 自举提示词定稿（逐字比对 §5.1 原文） | prompt.rs `boot_prompt_seed_loads_and_layers_split` / `injection_meets_tenfold_ratio_with_real_seed`（结构 + 关键段 + 注入比例） | 绿（等价降级：定稿全文逐字比对属数据规格校验，随 Python 校验脚本退场，由出厂自检 schema 门禁恢复；Rust 断言结构/段/比例不变式） |
 | seed_data 17 文件 schema 全量校验（缺失/多余/类型/空值边界） | recipe.rs `load_seed_data_reads_all_17_files` / `load_seed_data_errors_on_missing_file`（17 文件齐备 + 对象形态 + 缺文件报错） | 绿（等价降级：JSON-schema 类型/空值深度校验随 Python 校验脚本退场，由出厂自检恢复；Rust 断言装载完整性 + 各域字段契约） |
 | 跨文件一致性（graph↔workflow、ui_spec↔event_types↔manifest、rules↔review、tools↔workflow、samples↔rules） | recipe.rs `ui_channels_union_of_three_sources` / `ui_components_match_manifest_contracts` / `ui_theme_tokens_from_ui_spec_theme` / `event_type_specs_mirror_seed_data`；graph.rs `workflow_spec_parses_seed_data_generically`；tools.rs `domain_groups_match_seed_tool_families`；prompt.rs `tool_name_map_from_seed_is_sorted_and_labeled`；exec `tests/binding.rs`（谓词↔样例绑定） | 绿 |
-| 自检矩阵四项门禁命令真实可执行（一键聚合入口） | 出厂自检编排（Rust 自检：schema/data 一致性 / cargo 三 crate / frontend / 接线 e2e） | 绿（等价降级：Python 聚合入口已退场，Rust 自检编排在建，本批保留 cargo/frontend 两门禁于 manifest，schema/e2e 门禁随自检编排恢复） |
+| 自检矩阵四项门禁命令真实可执行（一键聚合入口） | 出厂自检编排（Rust 自检：schema/data 一致性 / cargo 三 crate / frontend / 接线 e2e，`inkling/self_check/` 二进制，manifest.json self_check 为命令单一事实源） | 绿（Rust 自检编排已落地：四门禁一键矩阵化报告，本机全量 all 全 PASS；schema/e2e 门禁随编排恢复） |
 | 引擎零改动（种子侧装配无引擎源码变更） | git diff 仅壳/文档（本阶段提交范围） | 绿（等价降级：工作流约束，经 git diff 审计，非断言落点） |
 
 ## 二、装配与界面

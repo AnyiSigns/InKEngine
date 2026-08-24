@@ -17,11 +17,13 @@
 - **inkling/** — InKling：自进化认知伙伴（本地单机桌面产品）。你用得
   越多，它越懂你的领域：种子数据 JSON（`inkling/seed_data/`）/
   Rust 执行件（`inkling/exec/`）/ TS 前端（`inkling/frontend/`）/
-  Tauri 桌面壳（`inkling/shell/`，嵌入式 Python 引擎桥 + Rust 域层）。
-  出厂自检命令以 `inkling/manifest.json` 的 `self_check` 为单一事实源
-  （cargo 执行件与 frontend typecheck 已就绪；schema 数据校验与接线
-  e2e 门禁随 Rust 自检编排落地）。机制覆盖审计见
-  `inkling/docs/mechanism_coverage_matrix.md`，身份登记见
+  Tauri 桌面壳（`inkling/shell/`，嵌入式 Python 引擎桥 + Rust 域层）/
+  出厂自检编排（`inkling/self_check/`，四门禁一键矩阵化报告）。
+  出厂自检命令以 `inkling/manifest.json` 的 `self_check` 为单一事实源，
+  全部四门禁（schema 数据一致性 / cargo 三 crate / frontend
+  typecheck+vitest / 接线 e2e）经自检编排统一执行：
+  `cargo run --release --manifest-path inkling/self_check/Cargo.toml -- all`。
+  机制覆盖审计见 `inkling/docs/mechanism_coverage_matrix.md`，身份登记见
   `inkling/manifest.json`。
 - **text_forge_evo/** — Forge：AI 桌面壳（Tauri 前端 + FastAPI 后端 +
   SSE 传输 + 审批容器）。通过 `[tool.uv.sources]` 以 `../ink_engine`

@@ -1,0 +1,56 @@
+{
+  "$schema": "http://json-schema.org/draft-07/schema#",
+  "title": "构建管线声明（builder 白名单 + 冒烟探针 + 部署目标；数据驱动）",
+  "type": "object",
+  "required": ["builder", "smoke_probes", "deploy"],
+  "additionalProperties": false,
+  "properties": {
+    "builder": {
+      "type": "object",
+      "required": ["allowlist", "default_timeout"],
+      "additionalProperties": false,
+      "properties": {
+        "allowlist": {
+          "type": "array",
+          "minItems": 1,
+          "uniqueItems": true,
+          "items": { "type": "string", "minLength": 1 }
+        },
+        "default_timeout": { "type": "number", "minimum": 1 },
+        "note": { "type": "string" }
+      }
+    },
+    "smoke_probes": {
+      "type": "object",
+      "required": ["default"],
+      "additionalProperties": false,
+      "properties": {
+        "default": { "$ref": "#/definitions/probe" }
+      }
+    },
+    "deploy": {
+      "type": "object",
+      "required": ["target_runtime", "image_prefix"],
+      "additionalProperties": false,
+      "properties": {
+        "target_runtime": { "type": "string", "enum": ["local", "web_bridge", "container"] },
+        "image_prefix": { "type": "string", "minLength": 1 },
+        "note": { "type": "string" }
+      }
+    }
+  },
+  "definitions": {
+    "probe": {
+      "type": "object",
+      "required": ["command", "args", "timeout", "expect_exit"],
+      "additionalProperties": false,
+      "properties": {
+        "command": { "type": "string", "minLength": 1 },
+        "args": { "type": "array", "items": { "type": "string" } },
+        "timeout": { "type": "number", "minimum": 1 },
+        "expect_exit": { "type": "integer" },
+        "note": { "type": "string" }
+      }
+    }
+  }
+}

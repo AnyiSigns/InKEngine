@@ -1,0 +1,12 @@
+{
+  "$schema": "http://json-schema.org/draft-07/schema#",
+  "title": "自举系统提示词（§5.1 定稿）",
+  "type": "object",
+  "required": ["name", "version", "prompt"],
+  "additionalProperties": false,
+  "properties": {
+    "name": { "type": "string", "minLength": 1 },
+    "version": { "type": "integer", "minimum": 1 },
+    "prompt": { "type": "string", "minLength": 1 }
+  }
+}

@@ -73,21 +73,21 @@
     ]
   },
   "self_check": {
+    "schema": {
+      "command": "cargo run --release --manifest-path inkling/self_check/Cargo.toml -- schema",
+      "status": "ready"
+    },
     "cargo_test": {
-      "command": "cargo test --manifest-path inkling/exec/Cargo.toml",
+      "command": "cargo run --release --manifest-path inkling/self_check/Cargo.toml -- cargo",
       "status": "ready"
     },
     "frontend": {
-      "command": "npm --prefix inkling/frontend run typecheck",
+      "command": "cargo run --release --manifest-path inkling/self_check/Cargo.toml -- frontend",
       "status": "ready"
     },
-    "schema": {
-      "command": "",
-      "status": "pending"
-    },
     "e2e": {
-      "command": "",
-      "status": "pending"
+      "command": "cargo run --release --manifest-path inkling/self_check/Cargo.toml -- e2e",
+      "status": "ready"
     }
   }
 }

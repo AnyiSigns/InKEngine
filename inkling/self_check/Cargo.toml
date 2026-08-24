@@ -1,0 +1,16 @@
+[package]
+name = "inkling_self_check"
+version = "0.1.0"
+edition = "2021"
+description = "InKling 出厂自检编排：四门禁一键矩阵化报告（schema 数据一致性 / cargo 三 crate / frontend typecheck+vitest / 接线 e2e）"
+license = "MIT"
+
+[[bin]]
+name = "inkling_self_check"
+path = "src/main.rs"
+
+[dependencies]
+# 自检编排刻意零重依赖：仅 serde/serde_json + std 进程 spawn；
+# 不依赖壳 crate（避免 tauri/pyo3/ort 编译地狱）。
+serde = { version = "1", features = ["derive"] }
+serde_json = "1"

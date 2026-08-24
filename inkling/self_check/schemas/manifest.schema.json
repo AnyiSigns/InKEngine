@@ -1,0 +1,78 @@
+{
+  "$schema": "http://json-schema.org/draft-07/schema#",
+  "title": "InKling 身份登记（§5 字段定稿值）",
+  "type": "object",
+  "required": ["id", "name", "positioning", "domain_boot", "version", "engine_version_compat", "theme", "contracts", "self_check"],
+  "additionalProperties": false,
+  "properties": {
+    "id": { "type": "string", "minLength": 1, "pattern": "^[a-z][a-z0-9_-]*$" },
+    "name": { "type": "string", "minLength": 1 },
+    "positioning": { "type": "string", "minLength": 1 },
+    "domain_boot": { "type": "string", "minLength": 1 },
+    "version": { "type": "string", "pattern": "^[0-9]+\\.[0-9]+\\.[0-9]+$" },
+    "engine_version_compat": { "type": "string", "pattern": "^[0-9]+\\.[0-9]+\\.[0-9]+$" },
+    "theme": {
+      "type": "object",
+      "required": ["bg.base", "text.base", "accent.approval"],
+      "additionalProperties": true,
+      "properties": {
+        "bg.base": { "type": "string", "pattern": "^#[0-9a-fA-F]{6}$" },
+        "text.base": { "type": "string", "pattern": "^#[0-9a-fA-F]{6}$" },
+        "accent.approval": { "type": "string", "pattern": "^#[0-9a-fA-F]{6}$" },
+        "note": { "type": "string" }
+      }
+    },
+    "contracts": {
+      "type": "object",
+      "required": ["exec_mcp_id", "host_id", "renderer_components", "bind_channels", "event_types", "tools", "build", "theme_tokens"],
+      "additionalProperties": false,
+      "properties": {
+        "exec_mcp_id": { "type": "string", "minLength": 1 },
+        "host_id": { "type": "string", "minLength": 1 },
+        "renderer_components": { "type": "array", "items": { "type": "string", "minLength": 1 }, "minItems": 1, "uniqueItems": true },
+        "bind_channels": { "type": "array", "items": { "type": "string", "minLength": 1 }, "minItems": 1, "uniqueItems": true },
+        "event_types": {
+          "type": "object",
+          "required": ["file"],
+          "additionalProperties": false,
+          "properties": { "file": { "type": "string", "minLength": 1 } }
+        },
+        "tools": {
+          "type": "object",
+          "required": ["file"],
+          "additionalProperties": false,
+          "properties": { "file": { "type": "string", "minLength": 1 } }
+        },
+        "build": {
+          "type": "object",
+          "required": ["file"],
+          "additionalProperties": false,
+          "properties": { "file": { "type": "string", "minLength": 1 } }
+        },
+        "theme_tokens": { "type": "array", "items": { "type": "string", "minLength": 1 }, "minItems": 1, "uniqueItems": true }
+      }
+    },
+    "self_check": {
+      "type": "object",
+      "required": ["schema", "cargo_test", "frontend", "e2e"],
+      "additionalProperties": false,
+      "properties": {
+        "schema": { "$ref": "#/definitions/gate" },
+        "cargo_test": { "$ref": "#/definitions/gate" },
+        "frontend": { "$ref": "#/definitions/gate" },
+        "e2e": { "$ref": "#/definitions/gate" }
+      }
+    }
+  },
+  "definitions": {
+    "gate": {
+      "type": "object",
+      "required": ["command", "status"],
+      "additionalProperties": false,
+      "properties": {
+        "command": { "type": "string", "minLength": 1 },
+        "status": { "type": "string", "enum": ["ready", "pending"] }
+      }
+    }
+  }
+}

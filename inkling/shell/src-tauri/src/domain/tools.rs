@@ -277,6 +277,24 @@ impl ToolSpecsProvider {
         }
     }
 
+    /// 出厂快照整体替换（装配后按 seed 声明重建快照）。
+    ///
+    /// 与 [`refresh`] 区分：refresh 以引擎内省实时表为源（挂载/补丁后
+    /// 同步），本方法以 seed 声明为唯一源（装配期先落出厂基线）。
+    pub fn replace_from_seed(&self, tools_data: &JsonValue) {
+        let mut specs = HashMap::new();
+        if let Some(list) = tools_data.get("tools").and_then(JsonValue::as_array) {
+            for tool in list {
+                if let Some(name) = tool.get("name").and_then(JsonValue::as_str) {
+                    if let Some(value) = tool.as_object() {
+                        specs.insert(name.to_string(), JsonValue::Object(value.clone()));
+                    }
+                }
+            }
+        }
+        *self.specs.write().unwrap() = specs;
+    }
+
     /// 按名取工具声明（快照内不存在 = None）。
     pub fn lookup(&self, name: &str) -> Option<JsonValue> {
         self.specs.read().unwrap().get(name).cloned()

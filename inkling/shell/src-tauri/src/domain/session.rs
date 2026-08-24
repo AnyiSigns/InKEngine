@@ -27,6 +27,15 @@ pub const SESSION_TITLE_MAX_CHARS: usize = 12;
 /// 标题生成触发条件（首回合消息数下限）。
 pub const TITLE_TRIGGER_MESSAGE_COUNT: usize = 2;
 
+/// 标题候选截断上限（候选超长时按字截断，字符计数不按字节）。
+pub const TITLE_CANDIDATE_MAX_CHARS: usize = 12;
+
+/// 标题生成提示词（系统面：中文 ≤12 字、禁用标点枝蔓、失败降级）。
+pub const TITLE_PROMPT_SYSTEM: &str = "你是会话标题编辑。为这段对话生成一个中文标题：不超过 12 字，描述会话主题，不加引号标点，不重复用户原话，不出现工具名。";
+
+/// 标题生成的采样温度（低值稳，标题重确定性不重发散）。
+pub const TITLE_TEMPERATURE: f64 = 0.5;
+
 /// 会话元数据（records 通道的数据形态）。
 #[derive(Debug, Clone, PartialEq)]
 pub struct SessionMeta {
@@ -417,6 +426,155 @@ pub async fn fork_branch(
         .ok_or_else(|| "分支未返回新叶 checkpoint_id".to_string())
 }
 
+// ── 分支树拉取 / 标题生成（回合后宿主动作）──
+
+/// 新会话线程 id（引擎线程标识的宿主生成形态；前缀可读 + 随机后缀）。
+pub fn new_thread_id() -> String {
+    format!("thread-{}", uuid::Uuid::new_v4().simple())
+}
+
+/// 拉取会话分支树（engine.thread_chain_index → [`BranchTree`]）。
+///
+/// 无链记录 = 空树（新建会话的初始形态，可安全切换/回退判定）。
+pub async fn fetch_branch_tree(thread_id: &str) -> Result<BranchTree, String> {
+    let chain = call_engine_op_async(
+        "engine.thread_chain_index",
+        serde_json::json!({ "thread_id": thread_id }),
+    )
+    .await?;
+    let rows = chain
+        .as_array()
+        .ok_or_else(|| "分支树数据非数组".to_string())?;
+    branch_tree_from_chain_index(rows, thread_id).map_err(|err| err.to_string())
+}
+
+/// 从最新检查点提取回合消息（角色/内容形态；无检查点 = 空清单）。
+///
+/// 标题生成与消息计数共用同一数据源（检查点状态是消息的持久化形态）。
+pub fn checkpoint_messages(checkpoint: &JsonValue) -> Vec<JsonValue> {
+    checkpoint
+        .get("state")
+        .and_then(|state| state.get("messages"))
+        .and_then(JsonValue::as_array)
+        .cloned()
+        .unwrap_or_default()
+}
+
+/// 拉取会话最新检查点（engine.thread_latest_checkpoint；无记录 = None）。
+pub async fn fetch_latest_checkpoint(thread_id: &str) -> Result<Option<JsonValue>, String> {
+    let latest = call_engine_op_async(
+        "engine.thread_latest_checkpoint",
+        serde_json::json!({ "thread_id": thread_id }),
+    )
+    .await?;
+    if latest.is_null() {
+        Ok(None)
+    } else {
+        Ok(Some(latest))
+    }
+}
+
+/// 标题生成消息清单（router 轻挡输入形态：系统 + 用户消息）。
+///
+/// 用户消息 = 会话消息压缩面（首条/末条上下文 + 消息条数锚点），
+/// 逐条消息不整体灌入（标题只需要主题，不需要全文）。
+pub fn title_messages(messages: &[JsonValue]) -> Vec<JsonValue> {
+    let mut user_parts: Vec<String> = Vec::new();
+    if let Some(first) = messages.iter().find(|m| {
+        m.get("role").and_then(JsonValue::as_str) == Some("user")
+    }) {
+        if let Some(content) = first.get("content").and_then(JsonValue::as_str) {
+            user_parts.push(content.chars().take(60).collect::<String>());
+        }
+    }
+    if let Some(content) = messages
+        .iter()
+        .rev()
+        .find(|m| m.get("role").and_then(JsonValue::as_str) == Some("user"))
+        .and_then(|m| m.get("content"))
+        .and_then(JsonValue::as_str)
+    {
+        user_parts.push(content.chars().take(60).collect::<String>());
+    }
+    let unique: Vec<&str> = user_parts
+        .iter()
+        .map(String::as_str)
+        .collect::<std::collections::BTreeSet<_>>()
+        .into_iter()
+        .collect();
+    let body = format!(
+        "本次会话共 {} 条消息。开头：{}。最近：{}。",
+        messages.len(),
+        unique.first().map(|s| s.to_string()).unwrap_or_default(),
+        unique.last().map(|s| s.to_string()).unwrap_or_default()
+    );
+    vec![
+        serde_json::json!({ "role": "system", "content": TITLE_PROMPT_SYSTEM }),
+        serde_json::json!({ "role": "user", "content": body }),
+    ]
+}
+
+/// 生成标题候选（router 轻挡 + 标题提示词 → ≤12 字中文候选）。
+///
+/// 候选来源：router 模型经 [`title_messages`] 轻调；无候选/解析失败 →
+/// None（调用方降级时间戳，标题生成失败不阻塞回合）。
+pub async fn title_candidate(messages: &[JsonValue]) -> Result<Option<String>, String> {
+    let prompt_messages = title_messages(messages);
+    let reply = crate::engine::host::call_engine_op_async(
+        "engine.router_light_complete",
+        serde_json::json!({ "messages": prompt_messages }),
+    )
+    .await?;
+    let content = reply
+        .get("content")
+        .and_then(JsonValue::as_str)
+        .map(str::trim)
+        .filter(|text| !text.is_empty());
+    Ok(content
+        .and_then(|text| normalize_title(text, ""))
+        .filter(|text| !text.is_empty()))
+}
+
+/// 回合后刷新：消息计数/更新时间落库 + 首回合标题生成。
+///
+/// 触发条件（标题生成）：会话无标题（未手动重命名）且最新检查点消息
+/// ≥ 2 条；候选成功 → 落库；失败 → 时间戳降级（不阻塞，不重试）。
+pub async fn refresh_session_after_round(thread_id: &str) -> Result<JsonValue, String> {
+    let checkpoint = fetch_latest_checkpoint(thread_id).await?;
+    let messages = checkpoint
+        .as_ref()
+        .map(checkpoint_messages)
+        .unwrap_or_default();
+    let meta = fetch_session_meta(thread_id).await?;
+
+    let mut updated = meta.unwrap_or_else(|| new_session(thread_id));
+    updated.message_count = messages.len();
+    updated.updated_at = now_epoch();
+    if !updated.deleted {
+        if updated.title.is_empty() && messages.len() >= TITLE_TRIGGER_MESSAGE_COUNT {
+            let candidate = title_candidate(&messages).await.unwrap_or(None);
+            let title = candidate.unwrap_or_else(fallback_title);
+            updated.title = normalize_title(&title, "").unwrap_or_else(fallback_title);
+        }
+        save_session(&updated).await?;
+    }
+    Ok(session_meta_to_record(&updated))
+}
+
+/// 读取单条会话记录（补丁链/重命名前读取；无记录 = None）。
+pub async fn fetch_session_meta(thread_id: &str) -> Result<Option<SessionMeta>, String> {
+    let record = call_engine_op_async(
+        "engine.records_get",
+        serde_json::json!({ "collection": SESSION_COLLECTION, "key": thread_id }),
+    )
+    .await?;
+    if record.is_null() {
+        Ok(None)
+    } else {
+        session_meta_from_record(&record).map(Some).map_err(|err| err.to_string())
+    }
+}
+
 #[cfg(test)]
 mod tests {
     use super::*;
@@ -560,5 +718,85 @@ mod tests {
         // 父叶不在树内 = 域侧拒绝（不触碰通道）
         let rejected = runtime.block_on(fork_branch(&tree, 99, serde_json::json!({})));
         assert!(rejected.is_err());
+    }
+
+    #[test]
+    fn checkpoint_messages_extract_state_messages() {
+        let checkpoint = serde_json::json!({
+            "checkpoint_id": 3,
+            "state": {
+                "messages": [
+                    {"role": "user", "content": "调研墨引擎"},
+                    {"role": "assistant", "content": "好的"},
+                ],
+                "reply": "好的",
+            },
+        });
+        let messages = checkpoint_messages(&checkpoint);
+        assert_eq!(messages.len(), 2);
+        assert_eq!(messages[0]["content"], "调研墨引擎");
+        let bare = checkpoint_messages(&serde_json::json!({}));
+        assert!(bare.is_empty(), "缺 state.messages = 空清单");
+    }
+
+    #[test]
+    fn title_candidate_normalizes_and_truncates() {
+        // normalize_title 已收敛：此处验证候选 → ≤12 字 + 空候选降级链路
+        let candidate = normalize_title("这个标题超长超过了十二个字啊", "");
+        assert_eq!(candidate.unwrap().chars().count(), SESSION_TITLE_MAX_CHARS);
+        assert_eq!(normalize_title("  ", ""), None, "空白候选 = None");
+        assert_eq!(
+            normalize_title("墨引擎调研", "2026-08-23 12:00"),
+            Some("墨引擎调研".to_string())
+        );
+        let messages = checkpoint_messages(&serde_json::json!({
+            "state": {"messages": [{"role": "user", "content": "a"}, {"role": "assistant", "content": "b"}]}
+        }));
+        assert_eq!(
+            title_from_messages(&messages, Some("墨引擎调研"), "fallback"),
+            Some("墨引擎调研".to_string()),
+            "候选命中用候选（fallback 只在候选缺失时生效）"
+        );
+        // 引擎通道未装配：标题候选 fail-closed（不 stub、不占位）
+        let _serial = crate::engine::host::bridge_guard();
+        let runtime = tokio::runtime::Runtime::new().unwrap();
+        let messages = checkpoint_messages(&serde_json::json!({
+            "state": {"messages": [{"role": "user", "content": "a"}, {"role": "assistant", "content": "b"}]}
+        }));
+        let result = runtime.block_on(title_candidate(&messages));
+        assert!(result.is_err(), "router 通道未装配 = 显式报错");
+        let refreshed = runtime.block_on(refresh_session_after_round("t-none"));
+        assert!(refreshed.is_err(), "回合后刷新未装配 = 显式报错");
+    }
+
+    #[test]
+    fn new_thread_id_is_unique_and_prefixed() {
+        let a = new_thread_id();
+        let b = new_thread_id();
+        assert!(a.starts_with("thread-"));
+        assert_ne!(a, b);
+    }
+
+    #[test]
+    fn title_messages_carry_system_prompt_and_compressed_context() {
+        let messages = vec![
+            serde_json::json!({ "role": "user", "content": "帮我调研墨引擎的引用质量校验" }),
+            serde_json::json!({ "role": "assistant", "content": "好的，开始调研" }),
+            serde_json::json!({ "role": "user", "content": "重点看看取证评分公式" }),
+        ];
+        let list = title_messages(&messages);
+        assert_eq!(list.len(), 2);
+        assert_eq!(list[0]["role"], "system");
+        assert!(list[0]["content"].as_str().unwrap().contains("12 字"));
+        assert_eq!(list[1]["role"], "user");
+        let content = list[1]["content"].as_str().unwrap();
+        assert!(content.contains("共 3 条消息"), "条数锚点在压缩面内: {content}");
+        assert!(content.contains("调研墨引擎的引用质量校验"), "首条用户消息入压缩面");
+        assert!(content.contains("取证评分公式"), "末条用户消息入压缩面");
+        assert!(TITLE_TEMPERATURE > 0.0 && TITLE_TEMPERATURE <= 1.0);
+        assert_eq!(TITLE_CANDIDATE_MAX_CHARS, 12);
+        let empty = title_messages(&[]);
+        assert_eq!(empty.len(), 2, "空会话也给骨架（降级路径）");
+        assert!(empty[1]["content"].as_str().unwrap().contains("开头："));
     }
 }

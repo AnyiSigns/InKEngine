@@ -21,10 +21,19 @@
 //! 通道由装配侧接线），本模块只负责事件形态与步骤记录。
 
 use std::collections::{BTreeMap, HashMap};
+use std::sync::atomic::{AtomicBool, AtomicU64, Ordering};
+use std::sync::Arc;
 
 use serde_json::{json, Value as JsonValue};
 
 use super::common::DomainError;
+use crate::engine::host::call_engine_op_async;
+
+/// 工具展示名解析器（tool 名 → 中文展示标题的可注入挂点）。
+///
+/// 解析规则装配侧注入（工具表快照的四层兜底标签解析）；本模块只消费
+/// 挂点，不持有工具表——步骤记录对工具行的展示语义零耦合。
+pub type ToolTitleResolver = Arc<dyn Fn(&str) -> Option<String> + Send + Sync>;
 
 /// step_id 长度上限：超长 node_id / tool_call_id 会撑爆存储行与前端
 /// 渲染 key，统一在追加时截断（回合内唯一性由前缀 + 计数/调用 id 保证）。
@@ -453,7 +462,10 @@ impl RoundSteps {
 
     /// 工具卡开始。同 tool_call_id 复用既有卡并复位 running（审批
     /// resume 重发同一工具调用时不产生重复卡）。
-    pub fn tool_start(&mut self, category: &str, tool_call_id: &str) -> String {
+    ///
+    /// `title` = 工具展示名（经可注入解析器解析的标题；None = 不落
+    /// title 字段，展示层按既有兜底链渲染）。
+    pub fn tool_start(&mut self, category: &str, tool_call_id: &str, title: Option<&str>) -> String {
         self.close_reply();
         if !tool_call_id.is_empty() {
             if let Some(pos) = self.last_by_type("tool") {
@@ -463,14 +475,15 @@ impl RoundSteps {
                     .and_then(JsonValue::as_str)
                     == Some(tool_call_id);
                 if same_call {
-                    let merged = merge_payload(
-                        &self.steps[pos],
-                        json!({
-                            "category": category,
-                            "status": "running",
-                            "success": null,
-                        }),
-                    );
+                    let mut patch = json!({
+                        "category": category,
+                        "status": "running",
+                        "success": null,
+                    });
+                    if let Some(title) = title {
+                        patch["title"] = json!(title);
+                    }
+                    let merged = merge_payload(&self.steps[pos], patch);
                     self.steps[pos] = merged;
                     return self.steps[pos]
                         .get("step_id")
@@ -480,26 +493,26 @@ impl RoundSteps {
                 }
             }
             let step_id = format!("tool:{tool_call_id}");
-            return self.append(
-                "tool",
-                &step_id,
-                json!({
-                    "category": category,
-                    "tool_call_id": tool_call_id,
-                    "status": "running",
-                }),
-            );
+            let mut payload = json!({
+                "category": category,
+                "tool_call_id": tool_call_id,
+                "status": "running",
+            });
+            if let Some(title) = title {
+                payload["title"] = json!(title);
+            }
+            return self.append("tool", &step_id, payload);
         }
         let step_id = format!("tool:{}", self.next_count("tool"));
-        self.append(
-            "tool",
-            &step_id,
-            json!({
-                "category": category,
-                "tool_call_id": "",
-                "status": "running",
-            }),
-        )
+        let mut payload = json!({
+            "category": category,
+            "tool_call_id": "",
+            "status": "running",
+        });
+        if let Some(title) = title {
+            payload["title"] = json!(title);
+        }
+        self.append("tool", &step_id, payload)
     }
 
     /// 工具卡收尾。返回命中的 step_id（供事件层配对更新），未命中返回 ""。
@@ -686,6 +699,23 @@ fn truncate_id(step_id: &str) -> String {
     step_id.chars().take(STEP_ID_MAX_CHARS).collect()
 }
 
+/// 引擎侧中止（在途 run 取消 → CANCELLED 快照 → checkpoint 可续跑）。
+///
+/// 经引擎操作通道下达中止请求（`engine.abort_current_run`）：无在途
+/// run = 幂等（返回 Ok(false)）；操作通道未注册 = fail-closed 显式报错
+/// （中止语义不可静默跳过——停止按钮必须给出确定性结果）。
+pub async fn abort_engine_run() -> Result<bool, String> {
+    let outcome = call_engine_op_async(
+        "engine.abort_current_run",
+        JsonValue::Object(Default::default()),
+    )
+    .await?;
+    Ok(outcome
+        .get("aborted")
+        .and_then(JsonValue::as_bool)
+        .unwrap_or(true))
+}
+
 /// payload 浅合并（新值覆盖旧值；旧 payload 保底为空对象）。
 fn merge_payload(record: &JsonValue, patch: JsonValue) -> JsonValue {
     let mut payload = record
@@ -705,16 +735,70 @@ fn merge_payload(record: &JsonValue, patch: JsonValue) -> JsonValue {
     record
 }
 
+/// 回合中止信号（宿主回合驱动与步骤记录层共享的原子握手）。
+///
+/// 中止 = 当前回合的「撕票」：前端停止按钮 → 信号置位（停止接收新
+/// 步骤/新事件）+ 引擎侧在途 run 取消（经操作通道）；信号跨回合复用
+/// （换新回合时重置），中止的回合边界对后续回合零影响。
+#[derive(Debug, Default, Clone)]
+pub struct RoundAbortSignal {
+    aborted: Arc<AtomicBool>,
+    epoch: Arc<AtomicU64>,
+}
+
+impl RoundAbortSignal {
+    /// 新建信号（未中止态）。
+    pub fn new() -> Self {
+        Self::default()
+    }
+
+    /// 中止当前回合（置位 + 回合闸门自增）。
+    pub fn abort(&self) {
+        self.aborted.store(true, Ordering::SeqCst);
+        self.epoch.fetch_add(1, Ordering::SeqCst);
+    }
+
+    /// 是否处于中止态。
+    pub fn is_aborted(&self) -> bool {
+        self.aborted.load(Ordering::SeqCst)
+    }
+
+    /// 新回合边界（清中止态；epoch 单调不减）。
+    pub fn begin_round(&self) {
+        self.aborted.store(false, Ordering::SeqCst);
+    }
+
+    /// 当前回合闸门（中止次数的单调计数；供诊断/审计）。
+    pub fn epoch(&self) -> u64 {
+        self.epoch.load(Ordering::SeqCst)
+    }
+}
+
 /// 回合步骤传输：引擎事件流 → 步骤序列（回合记录器；种子由 checkpoint 提供）。
 ///
 /// 事件类型未命中 = 不记录；累积异常零噪声（记录失败不影响主流程，
 /// 观测不影响执行）。
-#[derive(Debug, Clone)]
+#[derive(Clone)]
 pub struct RoundStepsTransport {
     round_id: String,
     steps: RoundSteps,
     /// 事件弧关断标记：中止后本传输不再累积新步骤（后续事件透传不记录）。
     aborted: bool,
+    /// 工具展示名解析挂点（tool_start 载荷的 title 字段来源）。
+    title_source: Option<ToolTitleResolver>,
+    /// 回合中止信号（与宿主回合驱动共享；None = 无信号握手）。
+    abort_signal: Option<RoundAbortSignal>,
+}
+
+impl std::fmt::Debug for RoundStepsTransport {
+    fn fmt(&self, f: &mut std::fmt::Formatter<'_>) -> std::fmt::Result {
+        f.debug_struct("RoundStepsTransport")
+            .field("round_id", &self.round_id)
+            .field("aborted", &self.aborted)
+            .field("title_source", &self.title_source.is_some())
+            .field("abort_signal", &self.abort_signal)
+            .finish_non_exhaustive()
+    }
 }
 
 impl RoundStepsTransport {
@@ -724,10 +808,26 @@ impl RoundStepsTransport {
         seed: Option<Vec<JsonValue>>,
         node_labels: Option<BTreeMap<String, String>>,
     ) -> Self {
+        Self::with_engine_handles(round_id, seed, node_labels, None, None)
+    }
+
+    /// 新建传输并装配引擎互动挂件（title 解析挂点 + 回合中止信号）。
+    ///
+    /// `title_source` = 工具展示名解析器（None = 不落 title 字段）；
+    /// `abort_signal` = 中止信号（None = 仅本地事件弧，不握手）。
+    pub fn with_engine_handles(
+        round_id: &str,
+        seed: Option<Vec<JsonValue>>,
+        node_labels: Option<BTreeMap<String, String>>,
+        title_source: Option<ToolTitleResolver>,
+        abort_signal: Option<RoundAbortSignal>,
+    ) -> Self {
         Self {
             round_id: round_id.to_string(),
             steps: RoundSteps::new(round_id, seed, node_labels),
             aborted: false,
+            title_source,
+            abort_signal,
         }
     }
 
@@ -736,6 +836,9 @@ impl RoundStepsTransport {
         self.round_id = round_id.to_string();
         self.steps = RoundSteps::new(round_id, None, None);
         self.aborted = false;
+        if let Some(signal) = &self.abort_signal {
+            signal.begin_round();
+        }
     }
 
     /// 当前回合步骤序列（checkpoint/回放形态的边界快照）。
@@ -760,7 +863,15 @@ impl RoundStepsTransport {
     /// 快照 → checkpoint 续跑）经操作通道由装配侧接线调用。
     pub fn abort_current_round(&mut self) -> Result<(), DomainError> {
         self.aborted = true;
+        if let Some(signal) = &self.abort_signal {
+            signal.abort();
+        }
         Ok(())
+    }
+
+    /// 当前回合中止信号（中止通知/恢复锚点引用；无信号 = None）。
+    pub fn abort_signal(&self) -> Option<&RoundAbortSignal> {
+        self.abort_signal.as_ref()
     }
 
     /// 协议事件 → 步骤累积（事件类型未命中 = 不记录）。
@@ -814,7 +925,18 @@ impl RoundStepsTransport {
                     .get("tool_call_id")
                     .and_then(JsonValue::as_str)
                     .unwrap_or("");
-                self.steps.tool_start(source, call_id);
+                let title = self
+                    .title_source
+                    .as_ref()
+                    .and_then(|resolver| resolver(source))
+                    .or_else(|| {
+                        payload
+                            .get("title")
+                            .and_then(JsonValue::as_str)
+                            .filter(|t| !t.trim().is_empty())
+                            .map(str::to_string)
+                    });
+                self.steps.tool_start(source, call_id, title.as_deref());
             }
             "tool_end" => {
                 let call_id = payload
@@ -1163,5 +1285,84 @@ mod tests {
         recorder.begin_round("round-15");
         assert_eq!(recorder.round_id(), "round-15");
         assert!(recorder.snapshot().is_empty(), "新回合换累积器");
+    }
+
+    #[test]
+    fn tool_title_resolver_fills_payload_title() {
+        let resolver: ToolTitleResolver = Arc::new(|name| {
+            if name == "fetch_web" {
+                Some("网络抓取".to_string())
+            } else {
+                None
+            }
+        });
+        let mut recorder = RoundStepsTransport::with_engine_handles(
+            "round-16",
+            None,
+            None,
+            Some(resolver),
+            None,
+        );
+        recorder.feed(&event(
+            "tool_start",
+            json!({ "tool": "fetch_web", "tool_call_id": "call-1" }),
+        ));
+        recorder.feed(&event(
+            "tool_start",
+            json!({ "tool": "grep", "tool_call_id": "call-2" }),
+        ));
+        let steps = recorder.snapshot();
+        assert_eq!(steps.len(), 2);
+        assert_eq!(steps[0]["payload"]["title"], "网络抓取", "解析命中落 title");
+        assert!(
+            steps[1]["payload"].get("title").is_none(),
+            "解析未命中不落 title（展示层走兜底链）"
+        );
+    }
+
+    #[test]
+    fn tool_title_prefers_resolver_over_inline_title() {
+        let resolver: ToolTitleResolver = Arc::new(|_name| Some("解析器标题".to_string()));
+        let mut recorder = RoundStepsTransport::with_engine_handles(
+            "round-17",
+            None,
+            None,
+            Some(resolver),
+            None,
+        );
+        recorder.feed(&event(
+            "tool_start",
+            json!({ "tool": "grep", "tool_call_id": "", "title": "载荷标题" }),
+        ));
+        let steps = recorder.snapshot();
+        assert_eq!(steps[0]["payload"]["title"], "解析器标题");
+    }
+
+    #[test]
+    fn abort_signal_handshake_resets_on_new_round() {
+        let signal = RoundAbortSignal::new();
+        let mut recorder = RoundStepsTransport::with_engine_handles(
+            "round-18",
+            None,
+            None,
+            None,
+            Some(signal.clone()),
+        );
+        recorder.abort_current_round().expect("中止应成功");
+        assert!(signal.is_aborted(), "信号与记录层同步握手");
+        assert_eq!(signal.epoch(), 1);
+        recorder.begin_round("round-19");
+        assert!(!signal.is_aborted(), "换回合清中止态");
+        assert_eq!(signal.epoch(), 1, "闸门计数单调");
+        recorder.abort_current_round().unwrap();
+        assert_eq!(signal.epoch(), 2);
+    }
+
+    #[test]
+    fn engine_abort_facade_fails_closed_without_engine() {
+        let _serial = crate::engine::host::bridge_guard();
+        let runtime = tokio::runtime::Runtime::new().unwrap();
+        let result = runtime.block_on(abort_engine_run());
+        assert!(result.is_err(), "中止操作通道未装配 = 显式报错");
     }
 }

@@ -14,18 +14,19 @@ import {
 } from '@/shared/labels/toolLabels';
 
 describe('resolve_tool_label 四层兜底', () => {
-  it('① 内置词典直查优先', () => {
+  it('title 通道（宿主解析载荷）优先于内置词典', () => {
+    expect(resolveToolLabel({ tool: 'inspect_knowledge', title: '挂载后新名' })).toBe('挂载后新名');
     expect(resolveToolLabel({ tool: 'inspect_knowledge' })).toBe('观察知识集');
   });
 
-  it('② title 兜底 → ③ label 兜底 → ④ 原始名保底', () => {
+  it('title 兜底 → 词典 → label 兜底 → 原始名保底', () => {
     expect(resolveToolLabel({ tool: 'custom_tool_x', title: '标题甲' })).toBe('标题甲');
     expect(resolveToolLabel({ tool: 'custom_tool_x', title: '', label: '标签乙' })).toBe('标签乙');
     expect(resolveToolLabel({ tool: 'custom_tool_x', title: 42, label: null })).toBe('custom_tool_x');
     expect(resolveToolLabel({ tool: 'custom_tool_x' })).toBe('custom_tool_x');
   });
 
-  it('title 优先于 label（词典 > title > label 顺序）', () => {
+  it('title 优先于 label（title > 词典 > label 顺序）', () => {
     expect(resolveToolLabel({ tool: 'custom_tool_x', title: '标题', label: '标签' })).toBe('标题');
   });
 });

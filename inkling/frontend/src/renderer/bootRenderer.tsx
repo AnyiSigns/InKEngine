@@ -145,6 +145,8 @@ export interface RendererChrome {
   onResolveReview?: (resolution: 'accept' | 'reject' | 'edit' | 'terminate', editedContent?: string) => void;
   /** 输入提交（宿主接线：引擎回合入口） */
   onSend?: (text: string) => void;
+  /** 回合中止（宿主接线：停止按钮 → 中止当前回合） */
+  onAbort?: () => void;
   /** 附件提交（宿主接线：媒体资产落位消息流） */
   onAttachments?: (assets: unknown[]) => void;
   /** 编辑重发（宿主接线：替换原消息并重发回合） */
@@ -155,6 +157,12 @@ export interface RendererChrome {
   onActivateSession?: (sessionId: string) => void;
   /** 界面树应用（宿主接线：替换活动界面描述） */
   onApplyUiSpec?: (spec: UISpec) => void;
+  /** 备份/恢复向导（宿主接线：安全信任节/管理台入口） */
+  onOpenBackupWizard?: (mode: 'export' | 'restore') => void;
+  /** 设置应用（宿主接线：能力档持久化） */
+  onApplySettings?: (settings: Record<string, unknown>) => void;
+  /** 宿主能力档初值（启动时从后端装载） */
+  initialCapability?: Record<string, unknown> | undefined;
   /** 活动界面描述（界面树编辑器的读入面） */
   uiSpec?: UISpec | null;
   /** 会话存储（会话侧栏的数据面；宿主接线注入） */
@@ -177,11 +185,15 @@ export function UIRenderer({
   onNavigate,
   onResolveReview,
   onSend,
+  onAbort,
   onAttachments,
   onResendMessage,
   onBranchFromMessage,
   onActivateSession,
   onApplyUiSpec,
+  onOpenBackupWizard,
+  onApplySettings,
+  initialCapability,
   uiSpec,
   sessionStore,
   activeSessionId,
@@ -203,11 +215,15 @@ export function UIRenderer({
   if (onNavigate) chromeProps.onNavigate = onNavigate;
   if (onResolveReview) chromeProps.onResolveReview = onResolveReview;
   if (onSend) chromeProps.onSend = onSend;
+  if (onAbort) chromeProps.onAbort = onAbort;
   if (onAttachments) chromeProps.onAttachments = onAttachments;
   if (onResendMessage) chromeProps.onResendMessage = onResendMessage;
   if (onBranchFromMessage) chromeProps.onBranchFromMessage = onBranchFromMessage;
   if (onActivateSession) chromeProps.onActivateSession = onActivateSession;
   if (onApplyUiSpec) chromeProps.onApplyUiSpec = onApplyUiSpec;
+  if (onOpenBackupWizard) chromeProps.onOpenBackupWizard = onOpenBackupWizard;
+  if (onApplySettings) chromeProps.onApplySettings = onApplySettings;
+  if (initialCapability !== undefined) chromeProps.initialCapability = initialCapability;
   if (uiSpec !== undefined) chromeProps.uiSpec = uiSpec;
   if (sessionStore !== undefined) chromeProps.sessionStore = sessionStore;
   if (activeSessionId !== undefined) chromeProps.activeSessionId = activeSessionId;

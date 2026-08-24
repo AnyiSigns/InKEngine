@@ -48,6 +48,11 @@ export interface InkPlanMessage extends InkMessageBase {
 export interface InkToolMessage extends InkMessageBase {
   kind: 'tool';
   tool: string;
+  /**
+   * 工具展示名（宿主侧经 title 通道解析：tool_start 事件载荷 title
+   * 字段；渲染优先级 title → 本地词典 → label → 原始名）。
+   */
+  title?: string;
   permission: string;
   toolStatus: 'running' | 'done' | 'error' | 'pending';
   summary?: string;

@@ -23,7 +23,7 @@ import type { EnvironmentValue } from './settings_sections/environment_container
 import { DEFAULT_GROWTH, GrowthGovernance } from './settings_sections/growth_governance';
 import type { GrowthValue } from './settings_sections/growth_governance';
 import { DEFAULT_SECURITY, SecurityTrust } from './settings_sections/security_trust';
-import type { SecurityValue } from './settings_sections/security_trust';
+import type { SecurityValue, RecoveryOps as SecurityTrustRecovery } from './settings_sections/security_trust';
 import { ConnectSection, DEFAULT_CONNECT } from './settings_sections/connect_section';
 import type { ConnectValue } from './settings_sections/connect_section';
 import { AppearanceSection, DEFAULT_APPEARANCE } from './settings_sections/appearance_section';
@@ -37,6 +37,8 @@ interface SettingsFormProps {
   initialCapability?: Partial<CapabilityValue>;
   /** 备份/恢复向导入口（安全信任节接线） */
   onOpenBackupWizard?: (mode: 'export' | 'restore') => void;
+  /** 崩溃回退操作面（安全信任节接线：回上一稳定版本 / 出厂重置） */
+  recovery?: SecurityTrustRecovery | null;
 }
 
 type SectionId = 'environment' | 'capability' | 'growth' | 'security' | 'connect' | 'appearance' | 'about';
@@ -66,6 +68,7 @@ export function SettingsForm({
   onApplySettings,
   initialCapability,
   onOpenBackupWizard,
+  recovery,
 }: SettingsFormProps) {
   void bindValue;
   const [active, setActive] = useState<SectionId>('capability');
@@ -196,7 +199,7 @@ export function SettingsForm({
             <GrowthGovernance value={growth} patch={(next) => patchSection(setGrowth, next)} />
           )}
           {active === 'security' && (
-            <SecurityTrust value={security} patch={(next) => patchSection(setSecurity, next)} onOpenBackupWizard={onOpenBackupWizard} />
+            <SecurityTrust value={security} patch={(next) => patchSection(setSecurity, next)} onOpenBackupWizard={onOpenBackupWizard} recovery={recovery} />
           )}
           {active === 'connect' && (
             <ConnectSection value={connect} patch={(next) => patchSection(setConnect, next)} />

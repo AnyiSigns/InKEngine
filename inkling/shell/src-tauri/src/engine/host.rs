@@ -187,7 +187,8 @@ impl Default for PathAssemblyFlags {
 }
 
 /// 装配选项：仓库根（种子/引擎包解析基准）、存储 URI、运行数据目录、
-/// 离线模型桩脚本（按消息子串匹配回复）、引擎路径装配机制开关。
+/// 离线模型桩脚本（按消息子串匹配回复）、引擎路径装配机制开关、
+/// 安全模式（崩溃循环下出厂基线启动，链内容不参与装配）。
 #[derive(Clone)]
 pub struct BootOptions {
     pub repo_root: PathBuf,
@@ -198,6 +199,9 @@ pub struct BootOptions {
     /// 引擎路径装配机制 feature flag（默认全关；随装配透传为按名
     /// JSON 装配数据，见 [`crate::domain::boot::path_assembly_data`]）。
     pub path_assembly: PathAssemblyFlags,
+    /// 安全模式：链内容（自写资产载体）不参与装配，出厂基线启动；
+    /// 由崩溃计数触发（见 [`crate::domain::recovery`]）。
+    pub safe_mode: bool,
 }
 
 impl Default for BootOptions {
@@ -209,6 +213,7 @@ impl Default for BootOptions {
             stub_script: None,
             default_reply: DEFAULT_STUB_REPLY.to_string(),
             path_assembly: PathAssemblyFlags::default(),
+            safe_mode: false,
         }
     }
 }
@@ -333,6 +338,7 @@ impl EngineHost {
                 if let Some(data) = data_dir.as_deref() {
                     boot_kwargs.set_item("data_dir", data)?;
                 }
+                boot_kwargs.set_item("safe_mode", options.safe_mode)?;
                 let boot_kwargs = boot_kwargs.unbind();
                 let (runtime_py, host_py) =
                     pyo3_async_runtimes::tokio::run(
@@ -603,6 +609,7 @@ mod tests {
             })),
             default_reply: DEFAULT_STUB_REPLY.to_string(),
             path_assembly: PathAssemblyFlags::default(),
+            safe_mode: false,
         };
         let host = EngineHost::boot(options).expect("装配失败");
         let report = host.report().expect("摘要失败");
@@ -975,5 +982,121 @@ mod tests {
         );
 
         host.stop().expect("关停失败");
+    }
+
+    /// 坏链注入（sqlite 存储，跨装配持久）：内容型损坏——补丁路径指向
+    /// 字符串节点（组装即抛错），但链记录可解析（回退路径可达）。
+    ///
+    /// 引擎侧旁路写拦截（演化资产唯一写入路径 = 自指应用管线），测试
+    /// 直写 records 表模拟「已落链的坏补丁」（产品代码无旁路）。
+    fn corrupt_chain_record(data_dir: &std::path::Path) {
+        let db_path = data_dir.join("inkling.sqlite");
+        let conn = rusqlite::Connection::open(&db_path).expect("坏链注入：打开存储库失败");
+        conn.execute(
+            "INSERT OR REPLACE INTO records (collection, key, data) VALUES (?1, ?2, ?3)",
+            rusqlite::params![
+                "set_patch_chain",
+                "chain",
+                r##"{"base": {"theme": "broken"}, "patches": [{"op": "replace", "path": ["theme", "tokens"], "value": {"bg": "#000000"}}]}"##,
+            ],
+        )
+        .expect("坏链注入：写入记录失败");
+    }
+
+    fn chain_version_now() -> i64 {
+        let record = block_on_op(
+            "engine.records_get",
+            serde_json::json!({ "collection": "set_patch_chain", "key": "chain" }),
+        )
+        .expect("链记录读取失败");
+        crate::domain::boot::chain_version(&record)
+    }
+
+    #[test]
+    fn boot_fallback_reverts_corrupt_chain_tail_and_audits() {
+        let _serial = bridge_guard();
+        let root = repo_root();
+        let data_dir = std::env::temp_dir().join(format!(
+            "inkling-fallback-{}",
+            uuid::Uuid::new_v4()
+        ));
+        std::fs::create_dir_all(&data_dir).unwrap();
+        let options = BootOptions {
+            repo_root: root,
+            storage_uri: format!(
+                "sqlite:///{}",
+                data_dir.join("inkling.sqlite").display()
+            ),
+            data_dir: Some(data_dir.clone()),
+            ..BootOptions::default()
+        };
+        let host = EngineHost::boot(options.clone()).expect("首次装配失败");
+        host.stop().expect("关停失败");
+        drop(host);
+        // 引擎停机后注入坏链（持有连接期间直写会被库锁阻塞）
+        corrupt_chain_record(&data_dir);
+
+        // 二次装配：链引导回退应自动逐尾回退 → 装配成功、链回基线
+        let second = EngineHost::boot(options).expect("引导回退后装配应成功");
+        let report = second.report().expect("摘要失败");
+        assert!(!report.tool_names.is_empty(), "回退后工具清单为空");
+        assert_eq!(chain_version_now(), 1, "坏补丁应被引导回退移除");
+        // 回退动作落审计（append-only）：集审计集合含 kind=revert 记录
+        let audit = block_on_op(
+            "engine.records_list",
+            serde_json::json!({ "collection": "set_audit" }),
+        )
+        .expect("审计记录读取失败");
+        assert!(
+            audit
+                .as_array()
+                .unwrap()
+                .iter()
+                .any(|r| r.get("kind").and_then(|v| v.as_str()) == Some("revert")),
+            "引导回退应落审计记录"
+        );
+        second.stop().expect("关停失败");
+        let _ = std::fs::remove_dir_all(&data_dir);
+    }
+
+    #[test]
+    fn safe_mode_boot_leaves_chain_intact() {
+        let _serial = bridge_guard();
+        let root = repo_root();
+        let data_dir = std::env::temp_dir().join(format!(
+            "inkling-safemode-{}",
+            uuid::Uuid::new_v4()
+        ));
+        std::fs::create_dir_all(&data_dir).unwrap();
+        let options = BootOptions {
+            repo_root: root.clone(),
+            storage_uri: format!(
+                "sqlite:///{}",
+                data_dir.join("inkling.sqlite").display()
+            ),
+            data_dir: Some(data_dir.clone()),
+            ..BootOptions::default()
+        };
+        let host = EngineHost::boot(options.clone()).expect("首次装配失败");
+        host.stop().expect("关停失败");
+        drop(host);
+        // 引擎停机后注入坏链（持有连接期间直写会被库锁阻塞）
+        corrupt_chain_record(&data_dir);
+
+        // 安全模式装配：链内容（自写资产载体）不参与启动、原样保留
+        let safe = EngineHost::boot(BootOptions {
+            safe_mode: true,
+            ..options
+        })
+        .expect("安全模式装配应成功（出厂基线启动）");
+        let report = safe.report().expect("摘要失败");
+        assert!(!report.tool_names.is_empty(), "安全模式工具清单为空");
+        assert_eq!(
+            chain_version_now(),
+            2,
+            "安全模式不触碰链内容（坏补丁原样保留）"
+        );
+        safe.stop().expect("关停失败");
+        let _ = std::fs::remove_dir_all(&data_dir);
     }
 }

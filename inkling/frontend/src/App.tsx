@@ -38,6 +38,7 @@ import { createBackend } from '@/shared/backend/backendAdapter';
 import type { BackendAdapter } from '@/shared/backend/backendAdapter';
 import { refreshArtifactManifest } from '@/renderer/artifactLoader.tsx';
 import { BackupWizard, backupOpsFrom, type BackupMode } from '@/components/floaters/backup_wizard';
+import { recoveryOpsFrom } from '@/components/settings_sections/security_trust';
 import { logger } from '@/shared/logger';
 
 import uiSpecFixture from './data/ui_spec.fixture.json';
@@ -240,6 +241,7 @@ export default function App() {
   };
 
   const backupOps = backupOpsFrom(backend);
+  const recoveryOps = recoveryOpsFrom(backend);
 
   const applySettings = useCallback(
     (settings: Record<string, unknown>): void => {
@@ -289,6 +291,7 @@ export default function App() {
         architectureBaseline={architectureBaselineFixture as unknown as GraphSnapshot}
         onResolveReview={resolveReview}
         onOpenBackupWizard={(mode) => setBackupMode(mode)}
+        recovery={recoveryOps}
         onApplySettings={applySettings}
         initialCapability={initialCapability}
       />

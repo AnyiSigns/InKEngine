@@ -179,6 +179,24 @@ class StandaloneApprovalContext:
         return _PENDING_CARDS.get(self._key(key))
 
 
+def prefill_approval_decision(
+    scope: str | None,
+    key: str,
+    *,
+    decision: str,
+    reason: str = "",
+    edited_content: Any = None,
+) -> None:
+    """审批决议预填：回合外宿主动作（启动引导回退等宿主纪律路径）经此
+    注入决议，不弹卡不挂起——与 `approval.gate_card_request` 同键语义
+    （`{scope}:{key}`），供审批发起方（补丁回退等）按同键消费。"""
+    _APPROVAL_DECISIONS[StandaloneApprovalContext(scope)._key(key)] = {
+        "decision": decision,
+        "edited_content": edited_content,
+        "reason": reason,
+    }
+
+
 # ── 安全流水线的引擎侧适配（判定语义在 Rust；此处仅协议桥接）──
 
 _CURRENT_TOOL: Any = None
@@ -930,6 +948,38 @@ def register_builtin_ops() -> None:
         storage = getattr(runtime.storage, "inner", runtime.storage)
         await storage.restore(args["src"])
         return {"restored": True}
+
+    @op_async("engine.chain_reset_to_base")
+    async def _chain_reset_to_base(args: dict) -> Any:
+        """出厂重置：补丁链清空回基线（宿主纪律操作，审计留痕）。
+
+        清空 = 链记录整体写回空补丁（经机制豁免上下文——演化资产的
+        唯一写入路径是自指应用管线，出厂重置是宿主显式纪律操作，与
+        管线写入同语义）；被清空的补丁数随审计记录保留（恢复动作
+        可查，旧链数据在审计中完整留痕）。
+        """
+        import time as _time
+        import uuid as _uuid
+
+        runtime = runtime_handle()
+        record = await runtime.storage.get_record("set_patch_chain", "chain")
+        patches = len((record or {}).get("patches") or [])
+        async with runtime.storage.allow_mechanism("set_patch_chain"):
+            await runtime.storage.put_record(
+                "set_patch_chain", "chain", {"base": {}, "patches": []}
+            )
+        async with runtime.storage.allow_mechanism("set_audit"):
+            await runtime.storage.put_record(
+                "set_audit",
+                f"factory-reset-{_uuid.uuid4().hex[:12]}",
+                {
+                    "kind": "factory_reset",
+                    "reason": args.get("reason") or "出厂重置：清空补丁链至基线",
+                    "patches_cleared": patches,
+                    "created_at": _time.time(),
+                },
+            )
+        return {"cleared_patches": patches}
 
     # ── 活跃态生效（界面/主题/harness/知识/试跑/路由轻调用）──
 

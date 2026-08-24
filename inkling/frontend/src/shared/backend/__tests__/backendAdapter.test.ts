@@ -79,7 +79,7 @@ describe('Tauri 桥适配器', () => {
     expect(calls[6].args).toEqual({ threadId: 'thread-a', action: 'branch', targetLeaf: 5, editText: '编辑文本' });
   });
 
-  it('回合/审批/能力档/备份命令参数对齐宿主', async () => {
+  it('回合/审批/能力档/备份/崩溃回退命令参数对齐宿主', async () => {
     const { invoker, calls } = mockInvoker();
     const backend = createTauriBackend(invoker);
     await backend.roundSend('thread-a', 'round-1', '调研', false);
@@ -90,6 +90,9 @@ describe('Tauri 桥适配器', () => {
     await backend.backupExport('C:\\backup.inkbk');
     await backend.backupPreview('C:\\backup.inkbk');
     await backend.backupRestore('C:\\backup.inkbk');
+    await backend.recoverySnapshots();
+    await backend.recoveryRestoreSnapshot('chain-v3-1720000000000-abc.sqlite');
+    await backend.recoveryFactoryReset();
     await backend.componentsManifest();
     expect(calls.map((call) => call.cmd)).toEqual([
       'round_send',
@@ -100,10 +103,14 @@ describe('Tauri 桥适配器', () => {
       'backup_export',
       'backup_preview',
       'backup_restore',
+      'recovery_snapshots',
+      'recovery_restore_snapshot',
+      'recovery_factory_reset',
       'components_manifest',
     ]);
     expect(calls[0].args).toEqual({ threadId: 'thread-a', roundId: 'round-1', text: '调研', autoAccept: false });
     expect(calls[2].args).toEqual({ threadId: 'thread-a', key: 'patch.rule', decision: 'accept' });
+    expect(calls[9].args).toEqual({ name: 'chain-v3-1720000000000-abc.sqlite' });
   });
 });
 
@@ -142,6 +149,9 @@ describe('远端会话存储（真实数据源注入 mock 后端）', () => {
       backupExport: vi.fn(),
       backupPreview: vi.fn(),
       backupRestore: vi.fn(),
+      recoverySnapshots: vi.fn(),
+      recoveryRestoreSnapshot: vi.fn(),
+      recoveryFactoryReset: vi.fn(),
       toolsSnapshot: vi.fn(),
       componentsManifest: vi.fn(async () => ({ artifacts: [] })),
       ...overrides,

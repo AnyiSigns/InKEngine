@@ -100,12 +100,18 @@ fn dev_repo_root() -> PathBuf {
     PathBuf::from(env!("CARGO_MANIFEST_DIR")).join("../../..")
 }
 
-/// 装配选项（开发形态：app_data_dir 内 sqlite + 数据目录落盘）。
-fn boot_options(repo_root: PathBuf, data_dir: PathBuf) -> engine::host::BootOptions {
+/// 装配选项（开发形态：app_data_dir 内 sqlite + 数据目录落盘；
+/// safe_mode = 崩溃循环下出厂基线启动）。
+fn boot_options(
+    repo_root: PathBuf,
+    data_dir: PathBuf,
+    safe_mode: bool,
+) -> engine::host::BootOptions {
     engine::host::BootOptions {
         repo_root,
         storage_uri: format!("sqlite:///{}", data_dir.join("inkling.sqlite").display()),
         data_dir: Some(data_dir),
+        safe_mode,
         ..Default::default()
     }
 }
@@ -127,16 +133,48 @@ fn load_workflow_data() -> Result<JsonValue, String> {
 /// 懒装配（幂等）：首次调用执行引擎机制装配 + 工具快照刷新。
 ///
 /// 装配 = 嵌入装配域包的 `boot_inkling`（机制装配 + 安全纵深 + 活跃态
-/// 目标 + 链恢复全在装配域包内）；装配后工具快照供 label 解析/工具名
-/// 映射产出共用。装配失败 = 结构化错误（透传引擎侧真实错误）。
+/// 目标 + 链恢复全在装配域包内）；装配失败 = 结构化错误（透传引擎侧
+/// 真实错误）。崩溃回退（红线二）编排在此完成：
+/// - 启动状态跟踪：失败计数 → 达阈值自动转入安全模式重试（出厂基线
+///   启动，链内容不参与装配）；成功启动计数归零；
+/// - 启动快照轮换：装配成功后按链版本落一份存储快照（N 份轮换，绑定
+///   链版本号），供「回到上一稳定版本」一键回落取用。
 fn ensure_engine(state: &ShellState, data_dir: &Path) -> Result<(), String> {
     let mut engine = state.backend.engine.lock().unwrap();
     if engine.is_some() {
         return Ok(());
     }
-    let options = boot_options(dev_repo_root(), data_dir.to_path_buf());
-    let host = engine::host::EngineHost::boot(options.clone())
-        .map_err(|err| format!("引擎机制装配失败: {err}"))?;
+    let boot_state = domain::recovery::load_boot_state(data_dir);
+    let host = match engine::host::EngineHost::boot(boot_options(
+        dev_repo_root(),
+        data_dir.to_path_buf(),
+        boot_state.safe_mode,
+    )) {
+        Ok(host) => host,
+        Err(err) if boot_state.safe_mode => {
+            return Err(format!("引擎装配失败（安全模式）: {err}"));
+        }
+        Err(err) => {
+            // 崩溃计数 +1；达到阈值自动转入安全模式重试（出厂基线启动）
+            let state = domain::recovery::record_boot_failure(data_dir);
+            if !state.safe_mode {
+                return Err(format!("引擎装配失败: {err}"));
+            }
+            match engine::host::EngineHost::boot(boot_options(
+                dev_repo_root(),
+                data_dir.to_path_buf(),
+                true,
+            )) {
+                Ok(host) => host,
+                Err(safe_err) => {
+                    return Err(format!(
+                        "引擎装配失败（自动安全模式亦失败）: {err} / {safe_err}"
+                    ));
+                }
+            }
+        }
+    };
+    domain::recovery::record_boot_success(data_dir);
     // 工具快照：出厂清单 + 装配后实时表（内省源同步 + 重取）
     if let Ok(bundle) = domain::recipe::load_seed_data(&seed_root()) {
         state
@@ -146,7 +184,56 @@ fn ensure_engine(state: &ShellState, data_dir: &Path) -> Result<(), String> {
         let _ = state.backend.tool_provider.refresh();
     }
     *engine = Some(host);
+    // 启动快照轮换（非安全模式：安全模式下存储为崩溃前形态，不覆盖
+    // 既有稳定快照；失败仅留观测日志，不阻断装配）
+    if !domain::recovery::load_boot_state(data_dir).safe_mode {
+        if let Err(snap_err) = take_startup_snapshot(data_dir) {
+            eprintln!("[recovery] 启动快照失败: {snap_err}");
+        }
+    }
     Ok(())
+}
+
+/// 启动快照轮换：引擎存储快照（存储契约）→ 版本化落位 → N 份轮换。
+///
+/// 快照绑定链版本号（快照时刻的补丁链版本；回上一稳定版本 = 从最新
+/// 快照恢复）；快照为崩溃回退的稳定态备份——恢复后重启即回到快照
+/// 时刻形态。
+fn take_startup_snapshot(data_dir: &Path) -> Result<(), String> {
+    let snap_dir = domain::recovery::snapshot_dir(data_dir);
+    std::fs::create_dir_all(&snap_dir)
+        .map_err(|err| format!("快照目录创建失败: {err}"))?;
+    let fresh = snap_dir.join(format!(
+        ".incoming-{}.sqlite",
+        uuid::Uuid::new_v4().simple()
+    ));
+    let fresh_text = fresh.to_string_lossy().into_owned();
+    let outcome = block_on_op_async("engine.storage_snapshot", serde_json::json!({ "dest": fresh_text }))
+        .map_err(|err| format!("引擎快照失败: {err}"))?;
+    if outcome.get("snapshotted").and_then(serde_json::Value::as_bool) != Some(true) {
+        let _ = std::fs::remove_file(&fresh);
+        return Err("引擎快照未确认落位".to_string());
+    }
+    // 链版本绑定：链记录补丁段长度 + 1（记录读取失败回落 1，不阻断）
+    let chain_record = block_on_op_async(
+        "engine.records_get",
+        serde_json::json!({ "collection": "set_patch_chain", "key": "chain" }),
+    )
+    .unwrap_or(serde_json::Value::Null);
+    let chain_version = domain::boot::chain_version(&chain_record);
+    domain::recovery::rotate_snapshot(data_dir, &fresh, chain_version)
+        .map(|_| ())
+        .map_err(|err| err.to_string())
+}
+
+/// 同步驱动异步引擎操作（装配/恢复路径无 tokio 上下文时使用；
+/// 单线程运行时内完成，与引擎线程亲和纪律一致）。
+fn block_on_op_async(op: &str, args: serde_json::Value) -> Result<serde_json::Value, String> {
+    tokio::runtime::Builder::new_current_thread()
+        .enable_all()
+        .build()
+        .map_err(|err| format!("操作运行时创建失败: {err}"))?
+        .block_on(engine::host::call_engine_op_async(op, args))
 }
 
 /// 回合记录器（事件弧 + 中止信号 + 工具标题解析挂点）。
@@ -173,12 +260,16 @@ fn begin_round_recorder(state: &ShellState, round_id: &str) -> RoundStepsTranspo
 
 // ── 引擎生命周期命令 ──
 
-/// 后端状态（前端启动探测：引擎是否就绪/工具面大小）。
+/// 后端状态（前端启动探测：引擎是否就绪/工具面大小/安全模式标志）。
 #[tauri::command]
-fn backend_status(state: State<'_, ShellState>) -> JsonValue {
+fn backend_status(app: AppHandle, state: State<'_, ShellState>) -> JsonValue {
+    let safe_mode = app_data_dir(&app)
+        .map(|dir| domain::recovery::load_boot_state(&dir).safe_mode)
+        .unwrap_or(false);
     json!({
         "engine_ready": state.backend.engine_ready(),
         "tool_count": state.backend.tool_provider.len(),
+        "safe_mode": safe_mode,
     })
 }
 
@@ -618,6 +709,126 @@ async fn backup_restore(app: AppHandle, path: String) -> Result<JsonValue, Strin
     }))
 }
 
+// ── 崩溃回退（红线二：启动快照 / 一键回落）──
+
+/// 启动快照清单（「回到上一稳定版本」的取用入口：绑定链版本 + 时间序）。
+#[tauri::command]
+fn recovery_snapshots(app: AppHandle) -> Result<JsonValue, String> {
+    let data_dir = app_data_dir(&app)?;
+    let snapshots: Vec<JsonValue> = domain::recovery::list_snapshots(&data_dir)
+        .into_iter()
+        .map(|meta| {
+            json!({
+                "name": meta.name,
+                "chain_version": meta.chain_version,
+                "created_at": meta.created_at,
+            })
+        })
+        .collect();
+    Ok(json!({ "snapshots": snapshots }))
+}
+
+/// 回到上一稳定版本：从指定启动快照恢复（引擎存储契约 restore）→
+/// 引擎停机重挂（下次命令触发重新装配 = 快照时刻形态）→ 退出安全模式。
+///
+/// 快照名只接受既有清单条目（防路径穿越：不拼接用户输入路径）。
+#[tauri::command]
+async fn recovery_restore_snapshot(
+    app: AppHandle,
+    state: State<'_, ShellState>,
+    name: String,
+) -> Result<JsonValue, String> {
+    let data_dir = app_data_dir(&app)?;
+    let metas = domain::recovery::list_snapshots(&data_dir);
+    let meta = metas
+        .iter()
+        .find(|m| m.name == name)
+        .ok_or_else(|| format!("快照不存在: {name}"))?;
+    ensure_engine(&state, &data_dir)?;
+    let src = meta.path.to_string_lossy().into_owned();
+    let outcome = engine::host::call_engine_op_async(
+        "engine.storage_restore",
+        serde_json::json!({ "src": src }),
+    )
+    .await
+    .map_err(|err| format!("快照恢复失败: {err}"))?;
+    if outcome.get("restored").and_then(JsonValue::as_bool) != Some(true) {
+        return Err("快照恢复未确认落位".to_string());
+    }
+    // 引擎停机重挂：恢复后一致态由下次装配保证（会话/记忆/链回到快照时刻）
+    if let Some(host) = state.backend.engine.lock().unwrap().take() {
+        let _ = host.stop();
+    }
+    domain::recovery::clear_safe_mode(&data_dir);
+    Ok(json!({
+        "restored": meta.name,
+        "chain_version": meta.chain_version,
+    }))
+}
+
+/// 出厂重置：补丁链逐尾回退至基线（每条回退走既有回退路径、逐条落
+/// 审计）；链记录损坏（回退不可用）时回落为链记录整体清空 + 审计
+/// 留痕。完成后引擎停机重挂（下次装配 = 出厂基线 + 种子重注入），
+/// 并退出安全模式。
+#[tauri::command]
+async fn recovery_factory_reset(
+    app: AppHandle,
+    state: State<'_, ShellState>,
+) -> Result<JsonValue, String> {
+    let data_dir = app_data_dir(&app)?;
+    ensure_engine(&state, &data_dir)?;
+    let mut reverted: Vec<i64> = Vec::new();
+    let mut overwritten = false;
+    loop {
+        let record = engine::host::call_engine_op_async(
+            "engine.records_get",
+            serde_json::json!({ "collection": "set_patch_chain", "key": "chain" }),
+        )
+        .await
+        .unwrap_or(JsonValue::Null);
+        let version = domain::boot::chain_version(&record);
+        if version <= 1 {
+            break;
+        }
+        let outcome = engine::host::call_engine_op_async(
+            "patch.revert",
+            serde_json::json!({
+                "patch_id": version,
+                "decision": "accept",
+                "reason": "出厂重置：逐尾回退至基线",
+                "thread_id": "recovery",
+            }),
+        )
+        .await;
+        let status = match &outcome {
+            Ok(value) => value["outcome"].get("status").and_then(JsonValue::as_str),
+            Err(_) => None,
+        };
+        if status != Some("reverted") {
+            // 链记录损坏（回退不可用）：清空回基线 + 审计留痕（机制
+            // 豁免路径；被清空补丁数随审计记录保留）
+            overwritten = true;
+            engine::host::call_engine_op_async(
+                "engine.chain_reset_to_base",
+                serde_json::json!({ "reason": "出厂重置：链记录损坏，清空至基线" }),
+            )
+            .await
+            .map_err(|err| format!("出厂重置（清空）失败: {err}"))?;
+            break;
+        }
+        reverted.push(version);
+    }
+    // 引擎停机重挂：下次装配 = 出厂基线（链已空 + 种子重注入）
+    if let Some(host) = state.backend.engine.lock().unwrap().take() {
+        let _ = host.stop();
+    }
+    domain::recovery::clear_safe_mode(&data_dir);
+    Ok(json!({
+        "reverted_patches": reverted,
+        "overwritten": overwritten,
+    }))
+}
+
 // ── 工具快照 / 组件清单 ──
 
 /// 工具快照（四层兜底标签 + 工具族分组；管理台/名映射共用）。
@@ -839,6 +1050,9 @@ pub fn run() {
             backup_export,
             backup_preview,
             backup_restore,
+            recovery_snapshots,
+            recovery_restore_snapshot,
+            recovery_factory_reset,
             tools_snapshot,
             components_manifest,
         ])

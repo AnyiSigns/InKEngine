@@ -159,6 +159,8 @@ export interface RendererChrome {
   onApplyUiSpec?: (spec: UISpec) => void;
   /** 备份/恢复向导（宿主接线：安全信任节/管理台入口） */
   onOpenBackupWizard?: (mode: 'export' | 'restore') => void;
+  /** 崩溃回退操作面（宿主接线：安全信任节回上一稳定版本/出厂重置） */
+  recovery?: unknown;
   /** 设置应用（宿主接线：能力档持久化） */
   onApplySettings?: (settings: Record<string, unknown>) => void;
   /** 宿主能力档初值（启动时从后端装载） */
@@ -194,6 +196,7 @@ export function UIRenderer({
   onOpenBackupWizard,
   onApplySettings,
   initialCapability,
+  recovery,
   uiSpec,
   sessionStore,
   activeSessionId,
@@ -222,6 +225,7 @@ export function UIRenderer({
   if (onActivateSession) chromeProps.onActivateSession = onActivateSession;
   if (onApplyUiSpec) chromeProps.onApplyUiSpec = onApplyUiSpec;
   if (onOpenBackupWizard) chromeProps.onOpenBackupWizard = onOpenBackupWizard;
+  if (recovery !== undefined) chromeProps.recovery = recovery;
   if (onApplySettings) chromeProps.onApplySettings = onApplySettings;
   if (initialCapability !== undefined) chromeProps.initialCapability = initialCapability;
   if (uiSpec !== undefined) chromeProps.uiSpec = uiSpec;

@@ -64,6 +64,43 @@ from .security_domain import (
 _DEFAULT_DATA_DIR_PREFIX = "inkling-runtime-"
 
 
+async def assemble_chain_with_boot_fallback(runtime: Runtime) -> dict:
+    """链引导回退：最新链装配失败时逐尾回退重试（审计留痕）直至可启动。
+
+    崩溃可回退红线的启动侧兜底——链上存在内容型坏补丁（组装即抛错）
+    时，启动不再整轮失败：按「回退链尾 → 重试装配」逐尾收敛。回退走
+    既有补丁链回退路径（审批决议预填放行，理由 = 启动引导回退），审计
+    记录 append-only 完整保留；回退到基线仍失败 = 显式报错（交由宿主
+    安全模式 / 一键回落处置）。
+    """
+    from inkling_bridge import StandaloneApprovalContext, prefill_approval_decision
+
+    ctx = StandaloneApprovalContext(None)
+    while True:
+        try:
+            return await runtime.self_pipeline.chain.assemble()
+        except Exception as exc:
+            try:
+                current = await runtime.self_pipeline.chain.current_version()
+            except Exception:
+                raise RuntimeError(
+                    f"链装配失败且链记录不可读（需安全模式处置）: {exc}"
+                ) from exc
+            if current < 2:
+                raise RuntimeError(
+                    f"链装配失败且已回退至基线（需宿主处置）: {exc}"
+                ) from exc
+            reason = f"启动引导回退：链装配失败（{exc}）"
+            prefill_approval_decision(
+                None, f"revert:{current}", decision="accept", reason=reason
+            )
+            outcome = await runtime.self_pipeline.revert(ctx, current, reason=reason)
+            if getattr(outcome, "status", None) != "reverted":
+                raise RuntimeError(
+                    f"链引导回退失败（补丁 #{current}）: {outcome}"
+                ) from exc
+
+
 @dataclass(slots=True)
 class _RecordedTransport:
     """回合步骤记录包裹：事件先喂 RoundSteps 累积，再转发下游传输。"""
@@ -188,6 +225,7 @@ async def boot_inkling(
     host: InKlingHost | None = None,
     market: dict[str, Any] | None = None,
     data_dir: Path | None = None,
+    safe_mode: bool = False,
 ) -> tuple[Runtime, InKlingHost, McpMountService]:
     """装配 InKling 运行时（配方数据装配 + 宿主装配动作）。
 
@@ -212,6 +250,8 @@ async def boot_inkling(
         market: MCP 市场数据覆盖（缺省 = seed_data/mcp_market.json）。
         data_dir: 运行数据目录（envs/artifacts 落盘根；缺省 = 进程级
             临时目录——环境/产物是可销毁重建的会话态数据）。
+        safe_mode: 安全模式（缺省 False）——崩溃循环下宿主自动转入：
+            链内容（自写资产载体）整体不参与装配，出厂基线启动。
 
     Returns:
         (runtime, host, mount_service)——mount_service 是挂载双入口
@@ -350,17 +390,21 @@ async def boot_inkling(
     # 补丁来源知识条目登记位（回退恢复的撤销清单；宿主 boot 初始化）
     runtime.patch_entries: set[str] = set()
     # 链恢复：环境段（声明生效）+ 产物段（声明工具注册）+ 工作区授权
-    # + 活跃态整体还原（界面/主题/知识/事件类型——重启装配从链恢复）
-    assembled = await runtime.self_pipeline.chain.assemble()
-    await env_domain.restore(assembled.get("environments") or {})
-    build_domain.sync_artifact_tools(runtime, assembled.get("artifacts") or {})
-    await host.workspaces.load()
-    restore_live_views(
-        runtime,
-        assembled,
-        base_event_names=revert_state.get("base_event_names") or (),
-        base_ui_spec=revert_state.get("base_ui_spec"),
-    )
+    # + 活跃态整体还原（界面/主题/知识/事件类型——重启装配从链恢复）。
+    # 安全模式 = 只读基线装配：链内容（自写资产的载体）整体不参与本次
+    # 启动，链条目原样保留不触碰；崩溃循环下以出厂基线可用为优先，恢复
+    # 动作（回落/重置）由宿主显式执行后退出安全模式
+    if not safe_mode:
+        assembled = await assemble_chain_with_boot_fallback(runtime)
+        await env_domain.restore(assembled.get("environments") or {})
+        build_domain.sync_artifact_tools(runtime, assembled.get("artifacts") or {})
+        await host.workspaces.load()
+        restore_live_views(
+            runtime,
+            assembled,
+            base_event_names=revert_state.get("base_event_names") or (),
+            base_ui_spec=revert_state.get("base_ui_spec"),
+        )
     # 种子条目重注入：引擎链恢复在种子注入之后整体替换知识集实例，
     # 出厂基线条目（内存态、不在链上）随之丢失——按既定语义「种子 =
     # 启动注入基线，链只承载演化」，此处重注入并与链段条目按 id 去重

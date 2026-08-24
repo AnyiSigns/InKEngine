@@ -25,6 +25,7 @@ pub mod mcp;
 pub mod memory_md;
 pub mod policy;
 pub mod prompt;
+pub mod recovery;
 pub mod recipe;
 pub mod review;
 pub mod score;

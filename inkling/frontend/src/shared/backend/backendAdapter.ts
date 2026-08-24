@@ -55,6 +55,13 @@ export interface BackupPreview {
   created_at: number;
 }
 
+/** 启动快照条目（崩溃回退「回上一稳定版本」的取用面）。 */
+export interface RecoverySnapshot {
+  name: string;
+  chain_version: number;
+  created_at: number;
+}
+
 /** 组件构建产物清单条目（挂载后注册表刷新）。 */
 export interface ArtifactManifestEntry {
   name: string;
@@ -75,7 +82,7 @@ export interface ToolSnapshotEntry {
 export interface BackendAdapter {
   /** 宿主可用性（false = 回落夹具路径）。 */
   available: boolean;
-  status(): Promise<{ engine_ready: boolean; tool_count: number }>;
+  status(): Promise<{ engine_ready: boolean; tool_count: number; safe_mode?: boolean }>;
   engineBoot(): Promise<{ snapshot: Record<string, unknown> }>;
   roundSend(threadId: string, roundId: string, text: string, autoAccept?: boolean): Promise<RoundResult>;
   roundAbort(roundId: string): Promise<{ aborted: boolean }>;
@@ -120,6 +127,9 @@ export interface BackendAdapter {
   backupExport(dest: string): Promise<{ entries: number; size: number; has_db: boolean }>;
   backupPreview(path: string): Promise<BackupPreview>;
   backupRestore(path: string): Promise<{ restored_entries: number; snapshot: string }>;
+  recoverySnapshots(): Promise<{ snapshots: RecoverySnapshot[] }>;
+  recoveryRestoreSnapshot(name: string): Promise<{ restored: string; chain_version: number }>;
+  recoveryFactoryReset(): Promise<{ reverted_patches: number[]; overwritten: boolean }>;
   toolsSnapshot(): Promise<{ tools: ToolSnapshotEntry[] }>;
   componentsManifest(): Promise<{ artifacts: ArtifactManifestEntry[] }>;
 }
@@ -154,6 +164,9 @@ export function createUnavailableBackend(): BackendAdapter {
     backupExport: unavailable as never,
     backupPreview: unavailable as never,
     backupRestore: unavailable as never,
+    recoverySnapshots: unavailable as never,
+    recoveryRestoreSnapshot: unavailable as never,
+    recoveryFactoryReset: unavailable as never,
     toolsSnapshot: unavailable as never,
     componentsManifest: unavailable as never,
   };
@@ -201,6 +214,9 @@ export function createTauriBackend(invoker?: TauriInvoker): BackendAdapter {
     backupExport: (dest) => call('backup_export', { dest }),
     backupPreview: (path) => call('backup_preview', { path }),
     backupRestore: (path) => call('backup_restore', { path }),
+    recoverySnapshots: () => call('recovery_snapshots'),
+    recoveryRestoreSnapshot: (name) => call('recovery_restore_snapshot', { name }),
+    recoveryFactoryReset: () => call('recovery_factory_reset'),
     toolsSnapshot: () => call('tools_snapshot'),
     componentsManifest: () => call('components_manifest'),
   };

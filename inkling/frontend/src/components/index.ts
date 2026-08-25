@@ -12,6 +12,7 @@
 
 import { registerComponent } from '@/renderer/componentRegistry';
 import { FileTree } from './file_tree';
+import { SummaryBar } from './summary_bar';
 import { ViewHeader } from './view_header';
 import { SessionList } from './session_list';
 import { MessageList } from './message_list';
@@ -32,6 +33,7 @@ import { registerPathAssemblyRenderers } from '@/renderer/pathAssembly';
 /** 装配所有机制通用组件（幂等：注册表同名覆盖语义天然幂等）。 */
 export function registerBuiltinComponents(): void {
   registerComponent('file_tree', FileTree);
+  registerComponent('summary_bar', SummaryBar);
   registerComponent('view_header', ViewHeader);
   registerComponent('session_list', SessionList);
   registerComponent('message_list', MessageList);

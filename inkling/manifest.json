@@ -16,6 +16,9 @@
     "host_id": "inkling_shell",
     "renderer_components": [
       "agent_input",
+      "admin_console",
+      "admin_tools",
+      "architecture_view",
       "evolution_factory",
       "evolution_timeline",
       "file_tree",
@@ -27,10 +30,14 @@
       "settings_form",
       "simulation_tree",
       "source_trace",
+      "summary_bar",
+      "ui_spec_editor",
       "view_header"
     ],
     "bind_channels": [
       "state",
+      "state.messages",
+      "state.session",
       "events.reply_token",
       "events.thinking_start",
       "events.plan_start",

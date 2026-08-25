@@ -13,10 +13,12 @@ import type { ViewId } from '@/renderer/uiSpecTypes';
 interface ViewHeaderProps {
   title?: string;
   hint?: string;
+  /** 顶部操作入口（主视图借本组件承载导航） */
+  actions?: Array<{ label: string; view: ViewId }>;
   onNavigate?: (view: ViewId) => void;
 }
 
-export function ViewHeader({ title = '', hint = '', onNavigate }: ViewHeaderProps) {
+export function ViewHeader({ title = '', hint = '', actions, onNavigate }: ViewHeaderProps) {
   return (
     <header className="flex h-12 shrink-0 items-center gap-2.5 border-b px-3.5 ink-border">
       <button
@@ -29,6 +31,16 @@ export function ViewHeader({ title = '', hint = '', onNavigate }: ViewHeaderProp
       </button>
       <span className="text-[13.5px] font-semibold tracking-tight">{title}</span>
       {hint ? <span className="ml-auto text-[10px] tracking-wide ink-text-faint">{hint}</span> : null}
+      {actions?.map((action) => (
+        <button
+          key={action.view}
+          data-ui={`nav_${action.view}`}
+          onClick={() => onNavigate?.(action.view)}
+          className="rounded-lg px-2.5 py-1 text-[11px] cursor-pointer ink-text-muted hover:bg-[var(--ink-bg-elevated)] hover:text-[var(--ink-text-base)]"
+        >
+          {action.label}
+        </button>
+      ))}
     </header>
   );
 }

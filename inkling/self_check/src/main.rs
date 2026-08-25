@@ -1,10 +1,10 @@
-﻿//! InKling 出厂自检编排：五门禁一键矩阵化报告。
+﻿//! InKling 出厂自检编排：六门禁一键矩阵化报告。
 //!
-//! 单个命令跑五项门禁（schema 数据一致性 / cargo 三 crate /
-//! frontend typecheck+vitest / 接线 e2e / 代码纪律），输出每项的命令、状态、
+//! 单个命令跑六项门禁（schema 数据一致性 / cargo 三 crate /
+//! frontend typecheck+vitest / 接线 e2e / 代码纪律 / 公开评测基准），输出每项的命令、状态、
 //! 耗时与输出摘要；任一失败结构化显示并以非零退出码结束。
 //!
-//! 子命令：`schema` / `cargo` / `frontend` / `e2e` / `discipline` / `all`（默认）。
+//! 子命令：`schema` / `cargo` / `frontend` / `e2e` / `discipline` / `benchmark` / `all`（默认）。
 //! 门禁命令的事实源 = manifest.json `self_check` 表（防文档-脚本
 //! 漂移——编排器不重复声明命令，只做聚合执行与报告）。
 
@@ -82,7 +82,7 @@ const TIMEOUT_E2E_SECS: u64 = 2400;
 const TIMEOUT_PROBE_SECS: u64 = 900;
 
 /// 门禁失败修复指引（人类可读，出厂遇到红时的第一步方向）。
-const GATE_HINTS: [(&str, &str); 5] = [
+const GATE_HINTS: [(&str, &str); 6] = [
     (
         "schema",
         "seed_data 或 schema 定义问题：按上方 [FAIL] 违规清单定位修复后重跑",
@@ -102,6 +102,10 @@ const GATE_HINTS: [(&str, &str); 5] = [
     (
         "discipline",
         "代码纪律违例：注释/文案含计划编号或推进字眼——改写为叙述句（信息量不降），禁用字眼清单见计划 B2 节",
+    ),
+    (
+        "benchmark",
+        "公开评测基准未达标：引擎基准（组装<500ms / 缓存≥60% / spawn<2s）或自举回归（既有引擎测试）失败；按 run_benchmarks 输出定位，先本地重跑 tools/benchmarks/run_benchmarks.py",
     ),
 ];
 
@@ -269,6 +273,46 @@ fn e2e_preflight(repo_root: &Path) -> Result<PathBuf, String> {
 }
 
 // ── 各门禁实现 ──
+
+/// 公开评测基准门禁：运行 tools/benchmarks/run_benchmarks.py 编排器。
+///
+/// 该脚本串联四类基准（引擎基准 / OS 操作 / 复杂项目 / 自举演示）。引擎基准与
+/// 自举回归为硬门禁（非零退出即失败）；OS 与复杂基准在门禁内走离线/冒烟口径，
+/// 真实达标率以 live 环境复核。脚本依赖 Python 解释器与可导入的 ink_engine
+/// （与 e2e 门禁同一套解释器解析逻辑）。
+fn gate_benchmark_full(repo_root: &Path) -> (GateResult, String) {
+    let Some(python_exe) = resolve_python_exe(repo_root) else {
+        let summary = "未找到可用的 Python 解释器：设 PYO3_PYTHON 指向仓库根 .venv 的 python（Windows: .venv/Scripts/python.exe）".to_string();
+        let result = GateResult {
+            key: "benchmark".to_string(),
+            label: "公开评测基准（P5.2）".to_string(),
+            command: "self_check benchmark".to_string(),
+            passed: false,
+            seconds: 0.0,
+            summary: summary.clone(),
+            tail: summary.clone(),
+        };
+        return (result, summary);
+    };
+    let script = repo_root
+        .join("tools")
+        .join("benchmarks")
+        .join("run_benchmarks.py");
+    let argv = vec![
+        python_exe.to_string_lossy().into_owned(),
+        script.to_string_lossy().into_owned(),
+    ];
+    let (result, full) = run_external_full(
+        "benchmark",
+        "公开评测基准（P5.2）",
+        &argv.join(" "),
+        &argv,
+        repo_root,
+        Duration::from_secs(TIMEOUT_PROBE_SECS),
+        None,
+    );
+    (result, full)
+}
 
 /// 运行单个外部命令并结构化为门禁结果（返回完整输出供 --full 展示）。
 fn run_external_full(
@@ -581,7 +625,7 @@ fn parse_args() -> Args {
             other => {
                 if other.starts_with("--root=") {
                     args.root = Some(other["--root=".len()..].to_string());
-                } else if ["schema", "cargo", "frontend", "e2e", "discipline", "all"]
+                } else if ["schema", "cargo", "frontend", "e2e", "discipline", "benchmark", "all"]
                     .contains(&other)
                 {
                     args.gate = other.to_string();
@@ -609,7 +653,7 @@ fn main() {
     let e2e_command = commands[3].clone();
 
     print!(
-        "InKling 出厂自检矩阵（五门禁一键）\n入口：inkling/self_check（Rust 编排）｜ 仓库根: {}\n门禁命令 = manifest.json self_check（单一事实源）\n\n",
+        "InKling 出厂自检矩阵（六门禁一键）\n入口：inkling/self_check（Rust 编排）｜ 仓库根: {}\n门禁命令 = manifest.json self_check（单一事实源）\n\n",
         repo_root.display()
     );
 
@@ -642,6 +686,10 @@ fn main() {
             let (result, full) = gate_discipline_full(&repo_root);
             run_gate(result, full);
         }
+        "benchmark" => {
+            let (result, full) = gate_benchmark_full(&repo_root);
+            run_gate(result, full);
+        }
         _ => {
             let (result, full) = gate_schema_full(&repo_root, &schema_command);
             run_gate(result, full);
@@ -652,6 +700,8 @@ fn main() {
             let (result, full) = gate_e2e_full(&repo_root, &e2e_command, args.live);
             run_gate(result, full);
             let (result, full) = gate_discipline_full(&repo_root);
+            run_gate(result, full);
+            let (result, full) = gate_benchmark_full(&repo_root);
             run_gate(result, full);
         }
     }
@@ -718,7 +768,7 @@ fn main() {
         }
         std::process::exit(1);
     }
-    println!("\n自检全绿：五门禁全部 PASS（schema 数据一致性 / cargo 三 crate / frontend / 接线 e2e / 代码纪律）");
+    println!("\n自检全绿：六门禁全部 PASS（schema 数据一致性 / cargo 三 crate / frontend / 接线 e2e / 代码纪律 / 公开评测基准）");
 }
 
 

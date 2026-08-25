@@ -115,3 +115,17 @@ jobs:
       - run: npm ci --prefix inkling/frontend
       - run: npm --prefix inkling/frontend run typecheck
       - run: npm --prefix inkling/frontend run test
+
+  # ── 第八关：公开评测基准（P5.2）──
+  # 引擎基准（组装<500ms / 缓存≥60% / spawn<2s）与自举回归为硬门禁，
+  # OS 操作 / 复杂项目基准在门禁内走离线/冒烟口径，真实达标率以 live 环境复核。
+  benchmark:
+    name: 公开评测基准（P5.2）
+    runs-on: ubuntu-latest
+    steps:
+      - uses: actions/checkout@v4
+      - uses: actions/setup-python@v5
+        with:
+          python-version: ${{ env.PYTHON_VERSION }}
+      - run: pip install -e "ink_engine[test,sqlite,llm,mcp]"
+      - run: python tools/benchmarks/run_benchmarks.py

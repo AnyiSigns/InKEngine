@@ -22,6 +22,7 @@ import { PlanEntry } from './plan_entry';
 import { StreamingEntry, TextEntry } from './text_entry';
 import { ThinkingEntry } from './thinking_entry';
 import { ToolEntry } from './tool_entry';
+import { ChartEntry } from './chart_entry';
 
 export type MessageHoverAction =
   | { kind: 'resend'; message: Extract<InkMessage, { kind: 'text' }> }
@@ -34,6 +35,8 @@ export interface MessageEntryContext {
   live: boolean;
   /** hover 操作（编辑重发/由此分支 → 悬浮窗） */
   onOpenAction?: (action: MessageHoverAction) => void;
+  /** 图表导出回调（宿主接线；缺省走锚点下载） */
+  onExportChart?: (svg: string, spec: import('@/shared/charts/chart_spec').ChartSpec) => void;
 }
 
 function MediaEntry({ message, visual }: { message: InkImageMessage | InkVideoMessage | InkDocumentMessage; visual: 'card' }) {
@@ -85,6 +88,8 @@ export function renderMessageEntry(message: InkMessage, context: MessageEntryCon
       return <MediaEntry message={message} visual="card" />;
     case 'unknown':
       return <UnknownEntry id={message.id} message={message} live={context.live} />;
+    case 'chart':
+      return <ChartEntry message={message} onExport={context.onExportChart} />;
     default: {
       // 闭集外的新增 kind：显式占位（上游契约扩展时经此提示补渲染器）
       return <MediaRejected kind={String((message as { kind?: string }).kind)} reason="未登记消息渲染器" />;

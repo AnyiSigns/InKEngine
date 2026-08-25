@@ -102,6 +102,15 @@ export interface InkErrorMessage extends InkMessageBase {
 }
 
 /**
+ * 图表消息（会话流内嵌渲染）：chart spec → 自绘 SVG；
+ * 不进附件流，降级渲染不崩（spec 非法/缺数据时占位卡片）。
+ */
+export interface InkChartMessage extends InkMessageBase {
+  kind: 'chart';
+  spec: import('@/shared/charts/chart_spec').ChartSpec;
+}
+
+/**
  * 图片消息（用户附件 / 引擎产出）：url/尺寸/alt 三个展示面；
  * 渲染器经媒体渲染器白名单注册（未注册渲染器拒绝渲染）。
  */
@@ -155,6 +164,7 @@ export type InkMessage =
   | InkImageMessage
   | InkVideoMessage
   | InkDocumentMessage
+  | InkChartMessage
   | InkUnknownMessage;
 
 /** 回合步骤快照（state.round_steps 通道：来源明细/演化时间线消费）。 */

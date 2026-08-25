@@ -74,6 +74,27 @@ export interface ArtifactManifestEntry {
   renderer_key?: string;
 }
 
+/** 知识图节点（知识条目拓扑：规则/模板/工具规则/权重）。 */
+export interface KnowledgeGraphNode {
+  id: string;
+  label: string;
+  kind: 'rule' | 'template' | 'tool_rule' | 'weight';
+  tags?: string[];
+}
+
+/** 知识图关系边（标签/引用/来源拓扑维，区别于时间维演化）。 */
+export interface KnowledgeGraphEdge {
+  source: string;
+  target: string;
+  relation: 'tag' | 'reference' | 'source';
+}
+
+/** 知识关系图（拓扑视图数据源）。 */
+export interface KnowledgeGraphResult {
+  nodes: KnowledgeGraphNode[];
+  edges: KnowledgeGraphEdge[];
+}
+
 /** 工具快照条目（四层兜底标签 + 工具族 + 自动审批可登记标记）。 */
 export interface ToolSnapshotEntry {
   tool: string;
@@ -147,6 +168,7 @@ export interface BackendAdapter {
   recoveryFactoryReset(): Promise<{ reverted_patches: number[]; overwritten: boolean }>;
   toolsSnapshot(): Promise<{ tools: ToolSnapshotEntry[] }>;
   componentsManifest(): Promise<{ artifacts: ArtifactManifestEntry[] }>;
+  knowledgeGraph(): Promise<KnowledgeGraphResult>;
 }
 
 /** 宿主不可用的空适配器（夹具回落的显式形态）。 */
@@ -185,6 +207,7 @@ export function createUnavailableBackend(): BackendAdapter {
     recoveryFactoryReset: unavailable as never,
     toolsSnapshot: unavailable as never,
     componentsManifest: unavailable as never,
+    knowledgeGraph: unavailable as never,
   };
 }
 
@@ -236,6 +259,7 @@ export function createTauriBackend(invoker?: TauriInvoker): BackendAdapter {
     recoveryFactoryReset: () => call('recovery_factory_reset'),
     toolsSnapshot: () => call('tools_snapshot'),
     componentsManifest: () => call('components_manifest'),
+    knowledgeGraph: () => call('knowledge_graph'),
   };
 }
 

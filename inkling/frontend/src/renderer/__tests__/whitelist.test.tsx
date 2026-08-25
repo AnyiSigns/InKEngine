@@ -7,7 +7,7 @@ import { render, screen } from '@testing-library/react';
 import { registerBuiltinComponents } from '@/components';
 import { ChannelHub } from '@/shared/session/channelHub';
 import { registerComponent } from '@/renderer/componentRegistry';
-import { isBindChannelAllowed } from '@/renderer/channelWhitelist';
+import { bindChannelWhitelist, isBindChannelAllowed } from '@/renderer/channelWhitelist';
 import { applyThemeTokens, rejectedThemeTokens, THEME_TOKEN_DEFAULTS } from '@/renderer/themeTokens';
 import { UIRenderer } from '@/renderer/bootRenderer';
 import type { UISpec } from '@/renderer/uiSpecTypes';
@@ -206,5 +206,13 @@ describe('动态注册与覆盖', () => {
     registerComponent('dyn_test', () => <div>动态组件已注册</div>);
     render(<UIRenderer spec={spec} hub={new ChannelHub()} />);
     expect(screen.getByText('动态组件已注册')).toBeInTheDocument();
+  });
+});
+
+describe('task_state 子通道（纯追加）', () => {
+  it('state.task_state 白名单放行且列入清单', () => {
+    expect(isBindChannelAllowed('state.task_state')).toBe(true);
+    const list = bindChannelWhitelist();
+    expect(list).toContain('state.task_state');
   });
 });

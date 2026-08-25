@@ -113,6 +113,46 @@ export interface BackendStatus {
   bundled?: boolean;
 }
 
+/** 模型档案（按挡位分组，占用/上限联动显示）。 */
+export interface ModelProfile {
+  id: string;
+  name: string;
+  tier: string;
+  occupancy: number;
+  limit: number;
+}
+
+/** 模型档案快照（仪表/选择控件数据源）。 */
+export interface ModelsSnapshot {
+  profiles: ModelProfile[];
+}
+
+/**
+ * 回合指标快照（TurnMetrics 形态）：回合数 / 失败数 / 失败率 /
+ * 平均评审分 + 扩展面（LLM 调用数 / 回合耗时）。
+ */
+export interface TurnMetricsSnapshot {
+  turns: number;
+  failures: number;
+  failure_rate: number;
+  avg_review_score: number;
+  llm_calls: number;
+  round_duration_ms: number;
+}
+
+/**
+ * 组装路径统计（path.assemble op 回传 stats，命中率钉死取此）：
+ * 缓存命/失/失效/顶替 + 边平均成本。注意：不引用任何缓存存储的
+ * 内部 stats 方法，仅消费 op 回传的聚合统计。
+ */
+export interface AssembleStats {
+  cache_hits: number;
+  cache_misses: number;
+  cache_invalidations: number;
+  cache_replacements: number;
+  avg_cost: number;
+}
+
 /** 后端适配器接口（生产 = 宿主桥；测试 = mock）。 */
 export interface BackendAdapter {
   /** 宿主可用性（false = 回落夹具路径）。 */
@@ -169,6 +209,17 @@ export interface BackendAdapter {
   toolsSnapshot(): Promise<{ tools: ToolSnapshotEntry[] }>;
   componentsManifest(): Promise<{ artifacts: ArtifactManifestEntry[] }>;
   knowledgeGraph(): Promise<KnowledgeGraphResult>;
+  // 可观测数据面（仪表 / 模型选择器数据源）
+  modelsSnapshot(): Promise<ModelsSnapshot>;
+  metricsSnapshot(): Promise<TurnMetricsSnapshot>;
+  assembleStats(): Promise<AssembleStats>;
+  // 干预 op（前端契约；壳侧落地由另一道负责）
+  chooseCandidate(candidateId: string | null): Promise<{ chosen: string | null }>;
+  setMultipath(enabled: boolean): Promise<{ multipath: boolean }>;
+  invalidateCache(scope: string): Promise<{ cleared: string }>;
+  downgradeEdgeTier(edgeId: string): Promise<{ edge: string; tier: string }>;
+  rebuildCache(scope: string): Promise<{ rebuilt: string }>;
+  restoreEdgeTier(edgeId: string): Promise<{ edge: string; tier: string }>;
 }
 
 /** 宿主不可用的空适配器（夹具回落的显式形态）。 */
@@ -208,6 +259,15 @@ export function createUnavailableBackend(): BackendAdapter {
     toolsSnapshot: unavailable as never,
     componentsManifest: unavailable as never,
     knowledgeGraph: unavailable as never,
+    modelsSnapshot: unavailable as never,
+    metricsSnapshot: unavailable as never,
+    assembleStats: unavailable as never,
+    chooseCandidate: unavailable as never,
+    setMultipath: unavailable as never,
+    invalidateCache: unavailable as never,
+    downgradeEdgeTier: unavailable as never,
+    rebuildCache: unavailable as never,
+    restoreEdgeTier: unavailable as never,
   };
 }
 
@@ -260,6 +320,15 @@ export function createTauriBackend(invoker?: TauriInvoker): BackendAdapter {
     toolsSnapshot: () => call('tools_snapshot'),
     componentsManifest: () => call('components_manifest'),
     knowledgeGraph: () => call('knowledge_graph'),
+    modelsSnapshot: () => call('models_snapshot'),
+    metricsSnapshot: () => call('metrics_snapshot'),
+    assembleStats: () => call('assemble_stats'),
+    chooseCandidate: (candidateId) => call('path_choose_candidate', { candidateId }),
+    setMultipath: (enabled) => call('path_set_multipath', { enabled }),
+    invalidateCache: (scope) => call('cache_invalidate', { scope }),
+    downgradeEdgeTier: (edgeId) => call('edge_downgrade_tier', { edgeId }),
+    rebuildCache: (scope) => call('cache_rebuild', { scope }),
+    restoreEdgeTier: (edgeId) => call('edge_restore_tier', { edgeId }),
   };
 }
 

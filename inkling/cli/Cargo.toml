@@ -1,0 +1,21 @@
+[package]
+name = "inkling_cli"
+version = "0.1.0"
+description = "InKling headless 驱动界面：外部程序经统一 JSON 信封驱动回合 / 单 op / 审计导出"
+edition = "2021"
+
+[lib]
+name = "inkling_cli"
+path = "src/lib.rs"
+
+[[bin]]
+name = "inkling-headless"
+path = "src/main.rs"
+
+[dependencies]
+inkling_shell_lib = { package = "inkling_shell", path = "../shell/src-tauri" }
+serde = { version = "1", features = ["derive"] }
+serde_json = "1"
+clap = { version = "4", features = ["derive"] }
+uuid = { version = "1", features = ["v4"] }
+tokio = { version = "1", features = ["rt"] }

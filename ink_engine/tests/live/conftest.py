@@ -1,6 +1,6 @@
 """live 套件共享基础设施（tests/live/，`-m live` 显式启用）。
 
-测试计划 §4 执行配置 / §7 报告与门禁的落地：
+测试说明文档第四节执行配置 / 第七节报告与门禁的落地：
 
 - **配置来源**：`INKENGINE_LIVE_BASE_URL/API_KEY/MODEL` 环境变量优先，
   回落仓库根 `.kilo/测试模型配置.txt`（url/key/model_name 行形态）；
@@ -36,7 +36,7 @@ from tests.live.report import (
     estimate_tokens,
 )
 
-# 熔断硬上限（测试计划 §4/§7）：真实调用轮数 / token 估算
+# 熔断硬上限（测试说明文档第四/七节）：真实调用轮数 / token 估算
 FUSE_MAX_ROUNDS = 120
 FUSE_MAX_TOKENS = 600_000
 # 每真实调用的输出 token 预留（输入估算之外，保守偏高防费用失控）
@@ -195,7 +195,7 @@ class ChargedLLM:
 
 
 class FailureRepro:
-    """确定性复现归类（测试计划 §2 失败分类流程）。
+    """确定性复现归类（测试说明文档第二节失败分类流程）。
 
     live 调用失败 → 以 mock 协议重放同一输入：重放也失败 = 机制缺陷
     （报告 mark mechanism）；重放通过 = 模型行为/环境（启发式分类）。

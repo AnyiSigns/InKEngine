@@ -542,7 +542,7 @@ async def test_engine_spawn_instance_trace_merges():
     await store.close()
 
 
-# ── 推荐先验自动晋升 + 策略边对抗复审（§11.6 双通道触发）──
+# ── 推荐先验自动晋升 + 策略边对抗复审（自动生长机制双通道触发）──
 
 def test_recommended_prior_eligible_thresholds():
     """晋升证据判据：N≥30 且成功率≥0.9（与信任档推导同一组常数）。"""

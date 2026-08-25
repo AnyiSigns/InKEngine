@@ -5,7 +5,7 @@
 让图定义数据（graph.json / spawn 子图 / 推演分支）只携带类型名 + 配置
 就能建图——图 = 数据，AI 可改图拓扑（HARNESS 补丁）。
 
-出厂注册两个通用节点类型（PLAN §2 公理 5 的图结构演化边界）：
+出厂注册两个通用节点类型（设计文档第二节公理 5 的图结构演化边界）：
 - ``research_orchestrator``：研究编排节点——返回 __plan__/__spawn__/
   __simulate__ 保留键的通用编排节点（数据驱动脚本形态：默认按
   workflow.json 节点序产出研究流程规划，测试/运行时可用
@@ -45,6 +45,76 @@ STATE_PENDING = "pending"
 
 # 工具结果回填消息流的截断上限（上下文体积有界）
 _TOOL_RESULT_MAX_CHARS = 4000
+
+# 子图命名前缀（spawn 分组展开实例的子图名；实例事件按 graph_path 归属）
+_SPAWN_SUBGRAPH_PREFIX = "inkling.spawn."
+
+
+def spawn_group_specs(
+    workflow: WorkflowSpec, spawns: list[dict], step_args: dict | None = None
+) -> list[dict]:
+    """spawn 分组清单 → 引擎子任务清单契约（subgraph/state/index）。
+
+    策略层产出的分组形态 = {id, nodes[], parallel, label}（展示语义）；
+    引擎消费形态 = {subgraph: 图定义数据, state: 入口状态, index: 实例序号}。
+    契约锚定在引擎侧（collect_spawn_specs），本转换与 build_round_graph
+    同源同模块：parallel 组按每节点一实例拆分子图（单节点 tool_pipeline，
+    引擎并发上限天然约束并行度），串行组为单实例链式子图（按分组列表序
+    串联边）。state 携带回合步骤参数（step_args 透传，各实例只消费自己
+    工具名对应的参数段；无参数时为空字典）。index 全局唯一（组序×组内
+    序），引擎拒绝重复序号。未知节点 id 不在此处校验——子图重建时由引擎
+    图校验失败收口（fail-closed，不静默跳过）。
+    """
+    shared_args = dict(step_args or {})
+    specs: list[dict] = []
+    for group_index, group in enumerate(spawns):
+        group_id = str(group.get("id") or f"g{group_index}")
+        nodes = list(group.get("nodes") or [])
+        parallel = bool(group.get("parallel"))
+        if not nodes:
+            raise ValueError(f"spawn 分组 {group_id} 为空（无节点清单）")
+        if parallel:
+            for node_index, node in enumerate(nodes):
+                subgraph = {
+                    "name": f"{_SPAWN_SUBGRAPH_PREFIX}{group_id}.{node}",
+                    "entry": node,
+                    "nodes": {
+                        node: {
+                            "type": TYPE_TOOL_PIPELINE,
+                            "config": {"tool": node},
+                        }
+                    },
+                    "edges": {},
+                    "exits": [node],
+                }
+                specs.append({
+                    "subgraph": subgraph,
+                    "state": {"step_args": shared_args},
+                    "index": group_index * 100 + node_index,
+                })
+        else:
+            subgraph = {
+                "name": f"{_SPAWN_SUBGRAPH_PREFIX}{group_id}",
+                "entry": nodes[0],
+                "nodes": {
+                    node: {
+                        "type": TYPE_TOOL_PIPELINE,
+                        "config": {"tool": node},
+                    }
+                    for node in nodes
+                },
+                "edges": {
+                    nodes[i]: [{"target": nodes[i + 1]}]
+                    for i in range(len(nodes) - 1)
+                },
+                "exits": [nodes[-1]],
+            }
+            specs.append({
+                "subgraph": subgraph,
+                "state": {"step_args": shared_args},
+                "index": group_index * 100,
+            })
+    return specs
 
 
 def workflow_spec_from_data(data: dict[str, Any]) -> WorkflowSpec:
@@ -105,7 +175,12 @@ def make_orchestrator_factory(
                 delta[PLAN_KEY] = plan_data
             if spawns is not None:
                 await ctx.emit("spawn_start", {"spawns": spawns})
-                delta[SPAWN_KEY] = spawns
+                # 展示形态保留（{id,nodes,parallel,label}，前端零改动）；
+                # 引擎消费形态 = 转换后的契约清单（subgraph/state/index），
+                # 回合步骤参数随实例入口状态透传（各实例只消费自己工具段）
+                delta[SPAWN_KEY] = spawn_group_specs(
+                    workflow, spawns, step_args=ctx.state.get(STATE_STEP_ARGS)
+                )
             if simulate is not None:
                 delta[SIMULATE_KEY] = simulate
             return delta or None
@@ -306,5 +381,6 @@ __all__ = [
     "make_orchestrator_factory",
     "make_tool_pipeline_factory",
     "register_node_types",
+    "spawn_group_specs",
     "workflow_spec_from_data",
 ]

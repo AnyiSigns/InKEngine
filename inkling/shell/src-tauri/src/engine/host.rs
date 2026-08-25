@@ -267,6 +267,9 @@ pub struct RoundRequest {
     pub thread_id: String,
     pub round_id: String,
     pub step_args: Option<JsonValue>,
+    /// 编排脚本（state.orchestrate 形态：plan/spawns/simulate 保留键；
+    /// 缺省时图配方按工作流节点序产出默认规划）。
+    pub orchestrate: Option<JsonValue>,
     pub inject: Option<JsonValue>,
     pub auto_accept_review: bool,
 }
@@ -506,6 +509,19 @@ impl EngineHost {
         Ok(report)
     }
 
+    /// 挂接/摘除事件实时发射钩子（回合内事件到达即调用，供前端事件通道；
+    /// 回合返回体形态不变，两者并存）。
+    pub fn set_event_emitter(&self, emitter: Option<Box<dyn Fn(&str) + Send + Sync>>) {
+        let _ = Python::attach(|py| -> PyResult<()> {
+            let inner = self.inner.lock().unwrap();
+            if let Some(inner) = inner.as_ref() {
+                let transport = inner.transport.clone_ref(py);
+                transport.borrow(py).set_emitter(emitter);
+            }
+            Ok(())
+        });
+    }
+
     /// 驱动一次回合直至终态（审批卡按需决议）。
     pub fn round(&self, request: RoundRequest) -> Result<RoundOutcome, String> {
         let inner = self.inner.lock().unwrap();
@@ -516,6 +532,7 @@ impl EngineHost {
         let thread_id = request.thread_id.clone();
         let round_id = request.round_id.clone();
         let step_args = request.step_args.map(|v| v.to_string());
+        let orchestrate = request.orchestrate.map(|v| v.to_string());
         let inject = request.inject.map(|v| v.to_string());
         let auto_accept = request.auto_accept_review;
 
@@ -528,6 +545,10 @@ impl EngineHost {
             if let Some(step_args) = step_args.as_deref() {
                 let rendered = py.import("json")?.call_method1("loads", (step_args,))?;
                 kwargs.set_item("step_args", rendered)?;
+            }
+            if let Some(orchestrate) = orchestrate.as_deref() {
+                let rendered = py.import("json")?.call_method1("loads", (orchestrate,))?;
+                kwargs.set_item("orchestrate", rendered)?;
             }
             if let Some(inject) = inject.as_deref() {
                 let rendered = py.import("json")?.call_method1("loads", (inject,))?;
@@ -679,6 +700,7 @@ impl Drop for EngineHost {
 #[cfg(test)]
 mod tests {
     use super::*;
+    use pyo3::types::PyAnyMethods;
 
     fn repo_root() -> PathBuf {
         readable_path(
@@ -721,6 +743,7 @@ mod tests {
                 thread_id: "bridge-t1".to_string(),
                 round_id: "bridge-r1".to_string(),
                 step_args: None,
+                orchestrate: None,
                 inject: None,
                 auto_accept_review: true,
             })
@@ -953,6 +976,7 @@ mod tests {
                 thread_id: "ops-chain-t1".to_string(),
                 round_id: "ops-chain-r1".to_string(),
                 step_args: None,
+                orchestrate: None,
                 inject: None,
                 auto_accept_review: true,
             })
@@ -1246,6 +1270,7 @@ mod tests {
                 thread_id: "embed-t1".to_string(),
                 round_id: "embed-r1".to_string(),
                 step_args: None,
+                orchestrate: None,
                 inject: None,
                 auto_accept_review: true,
             })
@@ -1430,6 +1455,301 @@ mod tests {
             joined.contains("推理过程中"),
             "系统消息应含交错推理引导语"
         );
+
+        host.stop().expect("关停失败");
+    }
+
+    /// 子任务清单契约往返：编排脚本注入 spawns（{id,nodes,parallel,label}
+    /// 展示形态）→ 编排节点转换为引擎契约（subgraph/state/index）→
+    /// 引擎展开为实例并回收集成断言（契约往返验证）。
+    #[test]
+    fn orchestrate_spawn_groups_expand_through_engine() {
+        let _serial = bridge_guard();
+        let root = repo_root();
+        let options = BootOptions {
+            repo_root: root.clone(),
+            stub_script: Some(serde_json::json!({
+                "研究": {"reply": "子任务并行展开完成。"}
+            })),
+            ..BootOptions::default()
+        };
+        let host = EngineHost::boot(options).expect("装配失败");
+
+        let outcome = host
+            .round(RoundRequest {
+                input_text: "研究墨引擎机制".to_string(),
+                thread_id: "spawn-t1".to_string(),
+                round_id: "spawn-r1".to_string(),
+                step_args: None,
+                // 编排脚本：单步规划 + 两个分组（并行组 2 节点 + 串行组 2 节点）
+                orchestrate: Some(serde_json::json!({
+                    "plan": [{"nodes": ["collect_material"]}],
+                    "spawns": [
+                        {"id": "g1", "nodes": ["collect_material", "parse_material"],
+                         "parallel": true, "label": "并行采集解析"},
+                        {"id": "g2", "nodes": ["validate_material", "score_material"],
+                         "parallel": false, "label": "串行校验评分"},
+                    ],
+                })),
+                inject: None,
+                auto_accept_review: true,
+            })
+            .expect("回合失败");
+
+        if outcome.reason != "reply" {
+            eprintln!("== 回合未达回复，事件流: {:?}", outcome.events);
+        }
+        assert_eq!(outcome.reason, "reply", "回合未完成到回复");
+        let spawn_starts: Vec<&JsonValue> = outcome
+            .events
+            .iter()
+            .filter(|event| event.get("type").and_then(JsonValue::as_str) == Some("spawn_start"))
+            .collect();
+        assert_eq!(spawn_starts.len(), 1, "编排节点应发出一次 spawn_start");
+        let spawns = spawn_starts[0]["payload"]["spawns"].as_array().cloned().unwrap_or_default();
+        assert_eq!(spawns.len(), 2, "展示形态应保留两个分组");
+        assert!(spawns[0].get("nodes").is_some(), "展示形态应保留 nodes 清单");
+
+        // 四个实例工具各自执行（tool_start/tool_end 成对出现）
+        let tool_ends: Vec<&JsonValue> = outcome
+            .events
+            .iter()
+            .filter(|event| event.get("type").and_then(JsonValue::as_str) == Some("tool_end"))
+            .collect();
+        let executed: Vec<String> = tool_ends
+            .iter()
+            .filter_map(|event| {
+                event["payload"]["tool"].as_str().map(String::from)
+            })
+            .collect();
+        for tool in ["collect_material", "parse_material", "validate_material", "score_material"] {
+            assert!(executed.contains(&tool.to_string()), "实例工具 {tool} 未执行");
+        }
+
+        host.stop().expect("关停失败");
+    }
+
+    /// 子任务清单非法形态 fail-closed：空分组在转换期被拒绝 → error 事件 +
+    /// 回合错误收口（不静默跳过、不崩溃）。
+    #[test]
+    fn orchestrate_spawn_groups_unknown_node_fails_closed() {
+        let _serial = bridge_guard();
+        let root = repo_root();
+        let options = BootOptions {
+            repo_root: root.clone(),
+            stub_script: Some(serde_json::json!({
+                "研究": {"reply": "不应到达回复。"}
+            })),
+            ..BootOptions::default()
+        };
+        let host = EngineHost::boot(options).expect("装配失败");
+
+        let outcome = host
+            .round(RoundRequest {
+                input_text: "研究墨引擎机制".to_string(),
+                thread_id: "spawn-t2".to_string(),
+                round_id: "spawn-r2".to_string(),
+                step_args: None,
+                orchestrate: Some(serde_json::json!({
+                    "plan": [{"nodes": ["collect_material"]}],
+                    "spawns": [
+                        {"id": "g1", "nodes": [], "parallel": true,
+                         "label": "非法分组"},
+                    ],
+                })),
+                inject: None,
+                auto_accept_review: true,
+            })
+            .expect("回合失败");
+
+        let has_error = outcome.events.iter().any(|event| {
+            event.get("type").and_then(JsonValue::as_str) == Some("error")
+        });
+        assert!(has_error, "非法清单应以 error 事件收口");
+        let error_messages: Vec<&str> = outcome
+            .events
+            .iter()
+            .filter(|event| event.get("type").and_then(JsonValue::as_str) == Some("error"))
+            .filter_map(|event| event["payload"]["message"].as_str())
+            .collect();
+        assert!(
+            error_messages.iter().any(|message| {
+                message.contains("节点执行失败") || message.contains("分组") || message.contains("空")
+            }),
+            "错误消息应指向分组/清单非法: {error_messages:?}"
+        );
+        assert_ne!(outcome.reason, "reply", "非法清单不得完成回复");
+
+        host.stop().expect("关停失败");
+    }
+
+    /// OS 执行体接桥：引擎链路（process_exec 端点 → 宿主 os_registry 分发）
+    /// 经回调桥转发到壳执行器注册表——接线后真实执行，未接线保持明确降级
+    /// （接桥断言，含被删影子 registry 的降级语义在真实调度点迁移）。
+    #[test]
+    fn os_bridge_forwards_process_exec_to_shell_registry() {
+        let _serial = bridge_guard();
+        let root = repo_root();
+        let options = BootOptions {
+            repo_root: root.clone(),
+            ..BootOptions::default()
+        };
+        let host = EngineHost::boot(options).expect("装配失败");
+
+        // 分发调用（Python 侧真实调度点：os_registry.dispatch 的执行体）
+        let dispatch = |py: Python<'_>| -> pyo3::PyResult<String> {
+            let bridge = py.import("inkling_bridge")?;
+            let host_obj = bridge.call_method0("host_handle")?;
+            let registry = host_obj.getattr("security")?.getattr("os_registry")?;
+            let impl_ = registry.getattr("_impls")?.call_method1("get", ("launch_app",))?;
+            let callable = impl_.getattr("__call__")?;
+            let raw: String = callable
+                .call1((
+                    py.None(),
+                    py.None(),
+                    pyo3::types::PyDict::new(py),
+                ))?
+                .extract()?;
+            Ok(raw)
+        };
+
+        // 未接线：明确降级（executor_not_registered），不崩溃
+        let degraded = Python::attach(dispatch).expect("分发调用失败");
+        let degraded_json: JsonValue = serde_json::from_str(&degraded).expect("降级结果应可解析");
+        assert_eq!(degraded_json["ok"], false);
+        assert_eq!(degraded_json["status"], "executor_not_registered");
+
+        // 接线：回调桥转发到壳执行器注册表（stub 运行体）
+        crate::engine::bridge::register_callback(
+            "os.dispatch",
+            Box::new(|_payload: String| -> pyo3::PyResult<String> {
+                Ok(serde_json::json!({"ok": true, "result": "mock:launch_app"}).to_string())
+            }),
+        )
+        .expect("回调注册失败");
+        let bridged = Python::attach(dispatch).expect("分发调用失败");
+        let bridged_json: JsonValue = serde_json::from_str(&bridged).expect("接线结果应可解析");
+        assert_eq!(bridged_json["ok"], true, "接线后应真实执行: {bridged_json}");
+        assert_eq!(bridged_json["result"], "mock:launch_app");
+
+        host.stop().expect("关停失败");
+    }
+
+    /// 转换器形态往返：graph_recipe.spawn_group_specs 产出的契约清单直接
+    /// 喂引擎 collect_spawn_specs（注入运行时引擎的真实图数据解析器）被
+    /// 接受——纯函数级契约断言（parallel 两态 + 序号全局唯一 + 非法形态
+    /// fail-closed）。
+    #[test]
+    fn spawn_group_specs_contract_accepted_by_collector() {
+        let _serial = bridge_guard();
+        let root = repo_root();
+        let options = BootOptions {
+            repo_root: root.clone(),
+            ..BootOptions::default()
+        };
+        let host = EngineHost::boot(options).expect("装配失败");
+
+        Python::attach(|py| -> PyResult<()> {
+            let bridge = py.import("inkling_bridge")?;
+            let graph_recipe = py.import("inkling_host.graph_recipe")?;
+            let json_mod = py.import("json")?;
+            let workflow_text = std::fs::read_to_string(root.join("inkling/seed_data/workflow.json"))
+                .map_err(|err| pyo3::exceptions::PyIOError::new_err(err.to_string()))?;
+            let workflow_data = json_mod.call_method1("loads", (workflow_text,))?;
+            let workflow = graph_recipe.call_method1("workflow_spec_from_data", (workflow_data,))?;
+
+            let group_g1 = pyo3::types::PyDict::new(py);
+            group_g1.set_item("id", "g1")?;
+            group_g1.set_item("nodes", vec!["collect_material", "parse_material"])?;
+            group_g1.set_item("parallel", true)?;
+            group_g1.set_item("label", "并行采集解析")?;
+            let group_g2 = pyo3::types::PyDict::new(py);
+            group_g2.set_item("id", "g2")?;
+            group_g2.set_item("nodes", vec!["validate_material", "score_material"])?;
+            group_g2.set_item("parallel", false)?;
+            group_g2.set_item("label", "串行校验评分")?;
+            let spawns = pyo3::types::PyList::new(py, vec![group_g1, group_g2])?;
+            let specs = graph_recipe.call_method1("spawn_group_specs", (workflow, spawns))?;
+            let spec_items = specs.extract::<Vec<pyo3::Py<pyo3::PyAny>>>()?;
+            assert_eq!(spec_items.len(), 3, "并行 2 实例 + 串行 1 实例 = 3");
+            let indexes: Vec<i64> = spec_items
+                .iter()
+                .map(|spec| spec.bind(py).get_item("index").unwrap().extract::<i64>().unwrap())
+                .collect();
+            assert_eq!(indexes, vec![0, 1, 100], "序号应全局唯一（组序×组内序）");
+            for spec in &spec_items {
+                assert!(spec.bind(py).get_item("subgraph").is_ok(), "清单应含子图定义");
+                assert!(spec.bind(py).get_item("state").is_ok(), "清单应含自包含入口状态");
+            }
+
+            // 引擎侧真实解析器（运行时引擎已装配 tool_pipeline 注册表）
+            let runtime = bridge.call_method0("runtime_handle")?;
+            let engine = runtime.getattr("engine")?;
+            let resolver = engine.getattr("_resolve_graph_data")?;
+            let spawn_mod = py.import("ink_engine.core.spawn")?;
+            let resolver_kwargs = pyo3::types::PyDict::new(py);
+            resolver_kwargs.set_item("resolve_graph", resolver.clone())?;
+            let overlay = pyo3::types::PyDict::new(py);
+            overlay.set_item("__spawn__", specs)?;
+            let collected = spawn_mod.call_method(
+                "collect_spawn_specs",
+                (overlay, pyo3::types::PyList::empty(py)),
+                Some(&resolver_kwargs),
+            )?;
+            let collected_items = collected.extract::<Vec<pyo3::Py<pyo3::PyAny>>>()?;
+            assert_eq!(collected_items.len(), 3, "引擎应收纳 3 个实例规格");
+
+            // 非法形态 fail-closed：缺子图 / 序号重复 两条都拒绝
+            let bad_no_subgraph = pyo3::types::PyDict::new(py);
+            bad_no_subgraph.set_item("state", pyo3::types::PyDict::new(py))?;
+            bad_no_subgraph.set_item("index", 9)?;
+            let bad_overlay = pyo3::types::PyDict::new(py);
+            bad_overlay.set_item(
+                "__spawn__",
+                pyo3::types::PyList::new(py, vec![bad_no_subgraph])?,
+            )?;
+            let missing_err = spawn_mod.call_method(
+                "collect_spawn_specs",
+                (bad_overlay, pyo3::types::PyList::empty(py)),
+                Some(&resolver_kwargs),
+            );
+            assert!(missing_err.is_err(), "缺子图清单应被拒绝");
+
+            let make_dup_spec = |py: Python<'_>| -> pyo3::PyResult<pyo3::Py<pyo3::types::PyDict>> {
+                let node = pyo3::types::PyDict::new(py);
+                node.set_item("type", "tool_pipeline")?;
+                node.set_item("config", pyo3::types::PyDict::new(py))?;
+                let nodes = pyo3::types::PyDict::new(py);
+                nodes.set_item("collect_material", node)?;
+                let sub = pyo3::types::PyDict::new(py);
+                sub.set_item("name", "dup")?;
+                sub.set_item("entry", "collect_material")?;
+                sub.set_item("nodes", nodes)?;
+                sub.set_item("edges", pyo3::types::PyDict::new(py))?;
+                sub.set_item("exits", vec!["collect_material"])?;
+                let spec = pyo3::types::PyDict::new(py);
+                spec.set_item("subgraph", sub)?;
+                spec.set_item("state", pyo3::types::PyDict::new(py))?;
+                spec.set_item("index", 7)?;
+                Ok(spec.unbind())
+            };
+            let dup_one = make_dup_spec(py)?;
+            let dup_two = make_dup_spec(py)?;
+            let duplicate_overlay = pyo3::types::PyDict::new(py);
+            duplicate_overlay.set_item(
+                "__spawn__",
+                pyo3::types::PyList::new(py, vec![dup_one, dup_two])?,
+            )?;
+            let dup_err = spawn_mod.call_method(
+                "collect_spawn_specs",
+                (duplicate_overlay, pyo3::types::PyList::empty(py)),
+                Some(&resolver_kwargs),
+            );
+            assert!(dup_err.is_err(), "重复序号清单应被拒绝");
+            Ok(())
+        })
+        .map_err(|err: pyo3::PyErr| format!("契约往返失败: {err}"))
+        .expect("契约往返断言失败");
 
         host.stop().expect("关停失败");
     }

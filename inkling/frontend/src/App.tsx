@@ -36,6 +36,7 @@ import type { SessionRecord, SessionStore } from '@/shared/session/sessionStore'
 import { RemoteSessionStore, createSessionStoreFrom } from '@/shared/backend/remoteSessionStore';
 import { createBackend } from '@/shared/backend/backendAdapter';
 import type { BackendAdapter } from '@/shared/backend/backendAdapter';
+import { listenHostEvent } from '@/shared/backend/tauriBridge';
 import { refreshArtifactManifest } from '@/renderer/artifactLoader.tsx';
 import { BackupWizard, backupOpsFrom, type BackupMode } from '@/components/floaters/backup_wizard';
 import { FirstRunGuide } from '@/components/floaters/first_run_guide';
@@ -73,6 +74,7 @@ export default function App() {
   const [activeSessionId, setActiveSessionId] = useState('');
   const [backupMode, setBackupMode] = useState<BackupMode | null>(null);
   const [capabilityRecord, setCapabilityRecord] = useState<Record<string, unknown> | null>(null);
+  const [autoApprovableTools, setAutoApprovableTools] = useState<string[]>([]);
   const [firstRun, setFirstRun] = useState(false);
   if (!hubRef.current) {
     hubRef.current = bootChannelHub();
@@ -116,6 +118,16 @@ export default function App() {
       .capabilityGet()
       .then((value) => setCapabilityRecord(value as Record<string, unknown>))
       .catch(() => undefined);
+    void backend
+      .toolsSnapshot()
+      .then(({ tools }) => {
+        setAutoApprovableTools(
+          tools
+            .filter((entry) => entry.auto_approvable)
+            .map((entry) => entry.tool),
+        );
+      })
+      .catch(() => undefined);
   }, [backend, sessionStore]);
 
   // 夹具会话驱动（无宿主演示形态；宿主可用时关闭）
@@ -124,6 +136,31 @@ export default function App() {
     const stop = runFixtureSession(hubRef.current as ChannelHub, { baseDelayMs: 250 });
     logger.info('app', '夹具会话已启动（演示形态，无宿主环境回落）');
     return stop;
+  }, [backend]);
+
+  // 回合事件流式通道：回合内事件实时到达（增量渲染），回合返回体仍保留
+  // 全量事件（兼容/回落）；按回合计数去重——返回体只补灌流式未覆盖的尾部。
+  const streamedRef = useRef<Record<string, number>>({});
+  useEffect(() => {
+    if (!backend.available) return undefined;
+    let stop: () => void = () => undefined;
+    void listenHostEvent<Record<string, unknown>>('inkling://round_event', (payload) => {
+      const hub = hubRef.current as ChannelHub;
+      const type = typeof payload?.type === 'string' ? payload.type : '';
+      if (!type || !isEventTypeName(type)) return;
+      const roundId = typeof payload.round_id === 'string' ? payload.round_id : '';
+      if (roundId) {
+        streamedRef.current[roundId] = (streamedRef.current[roundId] ?? 0) + 1;
+      }
+      ingestEvent(hub, {
+        type,
+        payload: (payload.payload ?? {}) as Record<string, unknown>,
+        at: Date.now(),
+      });
+    }).then((unlisten) => {
+      stop = unlisten;
+    });
+    return () => stop();
   }, [backend]);
 
   const activationRound = (sessionId: string): void => {
@@ -149,7 +186,9 @@ export default function App() {
     void backend
       .roundSend(activeSessionId, roundId, text, false)
       .then((outcome) => {
-        for (const event of outcome.events ?? []) {
+        const streamed = streamedRef.current[roundId] ?? 0;
+        const events = outcome.events ?? [];
+        for (const event of events.slice(streamed)) {
           const type = String(event.type ?? '');
           if (isEventTypeName(type)) {
             ingestEvent(hub, { type, payload: (event.payload ?? {}) as Record<string, unknown>, at: Date.now() });
@@ -254,11 +293,19 @@ export default function App() {
   const applySettings = useCallback(
     (settings: Record<string, unknown>): void => {
       const capability = (settings.capability ?? {}) as { simulationTier?: string; reasoningProfileId?: string };
+      const security = (settings.security ?? {}) as {
+        autoApproveTools?: string[];
+        autoApproveAllReview?: boolean;
+      };
       if (!backend.available) return;
       const record: Record<string, unknown> = {
         simulation_tier: capability.simulationTier ?? 'light',
       };
       if (capability.reasoningProfileId) record.reasoning_profile = capability.reasoningProfileId;
+      if (security.autoApproveTools) record.auto_approve_tools = security.autoApproveTools;
+      if (security.autoApproveAllReview !== undefined) {
+        record.auto_approve_all_review = security.autoApproveAllReview;
+      }
       void backend.capabilityPut(record).catch(() => undefined);
     },
     [backend],
@@ -268,6 +315,15 @@ export default function App() {
     ? {
         simulationTier: (capabilityRecord.simulation_tier as 'off' | 'light' | 'full' | undefined) ?? undefined,
         reasoningProfileId: (capabilityRecord.reasoning_profile as string | undefined) ?? undefined,
+      }
+    : undefined;
+
+  const initialAutoApprove = capabilityRecord
+    ? {
+        tools: Array.isArray(capabilityRecord.auto_approve_tools)
+          ? (capabilityRecord.auto_approve_tools as string[])
+          : [],
+        allReview: capabilityRecord.auto_approve_all_review === true,
       }
     : undefined;
 
@@ -302,6 +358,8 @@ export default function App() {
         recovery={recoveryOps}
         onApplySettings={applySettings}
         initialCapability={initialCapability}
+        initialAutoApprove={initialAutoApprove}
+        autoApprovableTools={autoApprovableTools}
       />
       {backupMode && (
         <BackupWizard mode={backupMode} ops={backupOps} onClose={() => setBackupMode(null)} />

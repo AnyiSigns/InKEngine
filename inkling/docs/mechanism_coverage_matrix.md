@@ -18,7 +18,7 @@
 | 检查 | Rust 侧落点 | 状态 |
 |---|---|---|
 | manifest 身份定稿值（id/name/positioning/domain_boot/version/theme 逐字比对） | recipe.rs `manifest_identity_fields_are_frozen` | 绿 |
-| 自举提示词定稿（逐字比对 §5.1 原文） | prompt.rs `boot_prompt_seed_loads_and_layers_split` / `injection_meets_tenfold_ratio_with_real_seed`（结构 + 关键段 + 注入比例） | 绿（等价降级：定稿全文逐字比对属数据规格校验，随 Python 校验脚本退场，由出厂自检 schema 门禁恢复；Rust 断言结构/段/比例不变式） |
+| 自举提示词定稿（逐字比对设计文档第五节第一小节原文） | prompt.rs `boot_prompt_seed_loads_and_layers_split` / `injection_meets_tenfold_ratio_with_real_seed`（结构 + 关键段 + 注入比例） | 绿（等价降级：定稿全文逐字比对属数据规格校验，随 Python 校验脚本退场，由出厂自检 schema 门禁恢复；Rust 断言结构/段/比例不变式） |
 | seed_data 17 文件 schema 全量校验（缺失/多余/类型/空值边界） | recipe.rs `load_seed_data_reads_all_17_files` / `load_seed_data_errors_on_missing_file`（17 文件齐备 + 对象形态 + 缺文件报错） | 绿（等价降级：JSON-schema 类型/空值深度校验随 Python 校验脚本退场，由出厂自检恢复；Rust 断言装载完整性 + 各域字段契约） |
 | 跨文件一致性（graph↔workflow、ui_spec↔event_types↔manifest、rules↔review、tools↔workflow、samples↔rules） | recipe.rs `ui_channels_union_of_three_sources` / `ui_components_match_manifest_contracts` / `ui_theme_tokens_from_ui_spec_theme` / `event_type_specs_mirror_seed_data`；graph.rs `workflow_spec_parses_seed_data_generically`；tools.rs `domain_groups_match_seed_tool_families`；prompt.rs `tool_name_map_from_seed_is_sorted_and_labeled`；exec `tests/binding.rs`（谓词↔样例绑定） | 绿 |
 | 自检矩阵四项门禁命令真实可执行（一键聚合入口） | 出厂自检编排（Rust 自检：schema/data 一致性 / cargo 三 crate / frontend / 接线 e2e，`inkling/self_check/` 二进制，manifest.json self_check 为命令单一事实源） | 绿（Rust 自检编排已落地：四门禁一键矩阵化报告，本机全量 all 全 PASS；schema/e2e 门禁随编排恢复） |
@@ -153,7 +153,7 @@
 | 喂资料 → 研究 → 孵化 → 沉淀闭环（注入→挂载→回合→推演→孵化→补丁→回退→续流→压缩→调优→领域长出） | 各段分环节覆盖：engine host.rs `boot_stub_round_and_protocols`（注入→回合）+ `op_channel_domain_actions`（补丁→回退→分支→续跑→链索引→清理）+ incubation.rs 孵化/闸门 + boot.rs 装配 | 绿（等价降级：完整闭环为引擎回合级集成场景，由出厂自检「接线 e2e」覆盖（stub LLM 驱动）） |
 | 全链路 stdio 真执行件形态（注入→挂载→真实调用→卸载撤销） | 引擎 MCP stdio 监督机制 retain（test_mcp_client：stdio 传输/监督）；挂载/卸载链分段覆盖（mcp.rs） | 绿（等价降级：stdio 真执行件闭环须执行件环境，由集成 e2e 覆盖；机制语义 = 引擎 retain） |
 | 领域长出 live 验证（真实运行路径：新规则经样例闸门放行 → 自指 KNOWLEDGE 补丁挂载 → 活跃态生效 → 链尾回退撤销） | incubation.rs `samples_seed_baseline_positive_subset`（样例基线）+ `gate_l2_shape_semantics`（闸门）+ live.rs `apply_knowledge_payload_upsert_protects_identity`（挂载生效）+ `patch.revert` 回退闭环 | 绿（等价降级：真实运行路径全链 = 集成 e2e 覆盖；各段机制以域测试直落） |
-| 出厂演示脚本全链 | 演示脚本随 Python 演示资产退场；分步演示 = 桌面壳交互路径（D4/D7 产品面） | 绿（等价降级：出厂演示为产品演示资产，机制覆盖以域测试 + 集成 e2e 承担） |
+| 出厂演示脚本全链 | 演示脚本随 Python 演示资产退场；分步演示 = 桌面壳交互路径（发行产品面） | 绿（等价降级：出厂演示为产品演示资产，机制覆盖以域测试 + 集成 e2e 承担） |
 
 ## 十三、执行深度
 
@@ -170,7 +170,7 @@
 | UI 三层白名单深度（拒绝/回落/同源） | live.rs `validate_ui_spec_enforces_three_whitelists` / `restore_ui_theme_falls_back_to_baseline_and_validates` / recipe.rs 同源推导 | 绿 |
 | 宿主件执行器注册契约（声明↔签名一致 + 权限/沙箱断言） | 壳 crate 集成测试（`tests/executor_contract.rs` 17 例：声明↔执行器签名契约 + 权限/沙箱断言；`tests/mcp_protocol.rs` 9 例；lib 1 例） | 绿 |
 
-## 十四、决策 21/22 专项验收（D7 发行前核对）
+## 十四、决策编号 21/22 专项验收（发行前核对）
 
 | 检查 | Rust 侧落点 | 状态 |
 |---|---|---|
@@ -178,9 +178,9 @@
 | canary 非法图拒绝（结构非法/悬空边/缺入口 → 拒绝 + 留痕） | canary.rs `dangling_edge_and_missing_entry_are_rejected` / `graph_without_nodes_is_invalid_structurally` / `graph_violations_reject_even_with_clean_run` | 绿 |
 | canary 关键路径崩溃拒绝（崩溃事件/非终态原因/关键路径节点缺失 → 拒绝） | canary.rs `crash_event_rejects_run` / `non_terminal_reason_rejects_even_without_crash` / `missing_key_path_node_rejects_clean_run` | 绿 |
 | 提示词生效断言（LLM 调用消息流含 boot_prompt 引导语 + 打标分类准则） | prompt.rs `boot_prompt_seed_loads_and_layers_split` / `injection_meets_tenfold_ratio_with_real_seed` / `strategy_variants_cover_both_kinds`（组成）+ engine host.rs `stub_llm_messages_contain_behavior_guidance`（端到端：行为准则层经协议代理前置为系统消息，模型桩消息流可观测断言） | 绿 |
-| 行为准则层注入（soul/准则/事实 + 目标设定 10× 工具清单 + 交错引导语 + 工具名对照表） | prompt.rs `compose_round_behavior`（装配期组成）+ BehaviorLLM 协议代理（resolve_llm 出口包装，覆盖评审/蒸馏/路由全部调用点） | 绿（D7 落地：此前为尸体态——boot_prompt 只装载未注入，本轮接线闭环） |
+| 行为准则层注入（soul/准则/事实 + 目标设定 10× 工具清单 + 交错引导语 + 工具名对照表） | prompt.rs `compose_round_behavior`（装配期组成）+ BehaviorLLM 协议代理（resolve_llm 出口包装，覆盖评审/蒸馏/路由全部调用点） | 绿（发行落地：此前为尸体态——boot_prompt 只装载未注入，本次接线闭环） |
 
-## 十五、发行形态（D7）
+## 十五、发行形态
 
 | 检查 | Rust 侧落点 | 状态 |
 |---|---|---|

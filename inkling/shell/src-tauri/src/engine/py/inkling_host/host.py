@@ -1,4 +1,4 @@
-"""InKling 宿主：Host 五件套 + 装配动作（PLAN §4 host/ 与 §6 M3）。
+"""InKling 宿主：Host 五件套 + 装配动作（设计文档第四节 host/ 与第六节模块 M3）。
 
 Host 五件套（引擎嵌入契约，见 core/runtime.Host）：
 - create_storage：存储工厂（memory/sqlite 后端，URI 由装配参数决定；
@@ -19,6 +19,7 @@ Host 五件套（引擎嵌入契约，见 core/runtime.Host）：
 from __future__ import annotations
 
 import asyncio
+import json
 import os
 import tempfile
 from collections.abc import Callable
@@ -532,6 +533,10 @@ async def boot_inkling(
     # 安全纵深替换运行时流水线（图配方实时持有者，替换后下一回合生效）
     security.apply(runtime)
     security.reregister_file_tools(root=None)
+    # 自动审批设置恢复（用户预授权随启动装载；无记录 = 出厂空集）
+    from .security_domain import restore_auto_approve
+
+    await restore_auto_approve(runtime.storage, security)
     # 装配域挂到宿主（设置页/评测侧运行期入口）
     host.security = security
     host.builds = build_domain
@@ -684,13 +689,15 @@ def register_host_executors(
     """宿主声明式执行器注册（机制层不代注册执行实现，宿主职责）。
 
     - process_exec：propose_mcp_mount（对话式安装入口）走挂载服务；
-      OS 控制七件经 OS 执行器注册表分发（桌面壳/测试 stub 注入，
-      未注册时降级为明确失败文本）；deny 档（shell_exec）执行体
+      OS 控制九件经 OS 执行器注册表分发——执行实现经回调桥转发到壳侧
+      执行器注册表（同一套运行体，引擎链路与壳命令共用；回调桥未接线
+      时降级为未注册明确失败，不崩溃）；deny 档（shell_exec）执行体
       二次拒绝（纵深防御）；
     - http_fetch：fetch 网络策略执行体（域名白名单二次核对，
       取回实现可注入，缺省 httpx）；
     - file_ops：文件开发执行体（工作区读写编辑 + 写前快照 + 大小上限）。
     """
+    _register_os_bridge(security)
     runtime.harness_registry.declarative.register(
         EndpointType.PROCESS_EXEC,
         make_process_exec_executor(
@@ -709,6 +716,68 @@ def register_host_executors(
         EndpointType.WEB_SEARCH,
         make_web_search_executor(),
     )
+
+
+# 壳侧执行器注册表承载的 OS 命令清单（与 fixtures/tools_os.json 一一对应；
+# 执行体在壳侧 impls.rs，引擎链路经本桥转发，避免两套调度语义分叉）
+_OS_BRIDGE_COMMANDS = (
+    "launch_app",
+    "open_file",
+    "system_query",
+    "set_volume",
+    "set_brightness",
+    "notify",
+    "schedule",
+    "screen_query",
+    "file_query",
+    "run_typecheck",
+    "run_test_cargo",
+    "run_test_python",
+    "run_test_web",
+)
+
+
+def _register_os_bridge(security: SecurityDomain) -> None:
+    """把 OS 命令经回调桥接到壳侧执行器注册表。
+
+    回调未注册（壳未启动/测试环境）时返回结构化未注册失败——与
+    执行器注册表缺实现的降级语义一致，调用方据此感知「桌面壳未挂载」。
+    """
+
+    def make_impl(command: str):
+        def impl(ctx: Any, definition: Any, args: dict) -> str:
+            try:
+                from inkling_bridge import callback_host
+            except Exception as exc:  # 桥模块不可用 = 未接线降级
+                return json.dumps(
+                    {
+                        "ok": False,
+                        "status": "executor_not_registered",
+                        "error": f"OS 执行体桥未接线: {exc}",
+                    },
+                    ensure_ascii=False,
+                )
+            payload = json.dumps(
+                {"tool": command, "args": dict(args or {})},
+                ensure_ascii=False,
+            )
+            try:
+                raw = callback_host().invoke("os.dispatch", payload)
+            except Exception as exc:  # 回调未注册/壳未挂载 = 明确降级
+                return json.dumps(
+                    {
+                        "ok": False,
+                        "status": "executor_not_registered",
+                        "error": f"OS 执行体未注册: {command}（桌面壳未挂载: {exc}）",
+                    },
+                    ensure_ascii=False,
+                )
+            return raw
+
+        return impl
+
+    for command in _OS_BRIDGE_COMMANDS:
+        security.os_registry.register(command, make_impl(command))
 
 
 __all__ = [

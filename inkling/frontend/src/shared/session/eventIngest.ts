@@ -213,7 +213,7 @@ export function ingestEvent(hub: ChannelHub, event: HubEvent): void {
       next.sourceTraces = traces;
       break;
     }
-    case 'device_perception':
+    case 'device_sensed':
     case 'device_control': {
       const action = String(payload.action ?? type);
       messages = [...messages, { kind: 'device', action, detail: String(payload.detail ?? payload.result ?? ''), id: nextId(), stepId: stepId || undefined, roundId }];
@@ -222,7 +222,7 @@ export function ingestEvent(hub: ChannelHub, event: HubEvent): void {
       next.sourceTraces = traces;
       break;
     }
-    case 'signal_observed': {
+    case 'signal_detected': {
       const incubation = [...state.incubation];
       incubation.push({
         id: String(payload.signal_id ?? nextId()),
@@ -234,7 +234,7 @@ export function ingestEvent(hub: ChannelHub, event: HubEvent): void {
       next.incubation = incubation;
       break;
     }
-    case 'distill_result': {
+    case 'distill_outcome': {
       const incubation = state.incubation.map((entry) =>
         entry.id === payload.signal_id
           ? { ...entry, stage: 'distilled' as const, distilled: String(payload.distilled ?? '') }
@@ -351,7 +351,7 @@ export function ingestEvent(hub: ChannelHub, event: HubEvent): void {
       next.sourceTraces = traces;
       break;
     }
-    case 'tuning_applied': {
+    case 'tuning_update': {
       const traces = [...state.sourceTraces];
       traces.push({
         id: nextId(),

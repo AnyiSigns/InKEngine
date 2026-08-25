@@ -1,4 +1,4 @@
-"""环境装配域（PLAN §6 M3-2 环境装配）。
+"""环境装配域（设计文档第六节模块 M3-2 环境装配）。
 
 env.json → EnvironmentSpec → 三环境提供器注册表（local / web_bridge /
 container）+ 域选择 + PatchKind.ENVIRONMENT 补丁链应用：

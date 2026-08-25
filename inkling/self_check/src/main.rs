@@ -1,13 +1,14 @@
-﻿//! InKling 出厂自检编排：四门禁一键矩阵化报告。
+﻿//! InKling 出厂自检编排：五门禁一键矩阵化报告。
 //!
-//! 单个命令跑四项门禁（schema 数据一致性 / cargo 三 crate /
-//! frontend typecheck+vitest / 接线 e2e），输出每项的命令、状态、
+//! 单个命令跑五项门禁（schema 数据一致性 / cargo 三 crate /
+//! frontend typecheck+vitest / 接线 e2e / 代码纪律），输出每项的命令、状态、
 //! 耗时与输出摘要；任一失败结构化显示并以非零退出码结束。
 //!
-//! 子命令：`schema` / `cargo` / `frontend` / `e2e` / `all`（默认）。
+//! 子命令：`schema` / `cargo` / `frontend` / `e2e` / `discipline` / `all`（默认）。
 //! 门禁命令的事实源 = manifest.json `self_check` 表（防文档-脚本
 //! 漂移——编排器不重复声明命令，只做聚合执行与报告）。
 
+mod discipline;
 mod process_util;
 mod report;
 mod schema;
@@ -81,7 +82,7 @@ const TIMEOUT_E2E_SECS: u64 = 2400;
 const TIMEOUT_PROBE_SECS: u64 = 900;
 
 /// 门禁失败修复指引（人类可读，出厂遇到红时的第一步方向）。
-const GATE_HINTS: [(&str, &str); 4] = [
+const GATE_HINTS: [(&str, &str); 5] = [
     (
         "schema",
         "seed_data 或 schema 定义问题：按上方 [FAIL] 违规清单定位修复后重跑",
@@ -97,6 +98,10 @@ const GATE_HINTS: [(&str, &str); 4] = [
     (
         "e2e",
         "接线 e2e 问题：按 cargo 输出定位；引擎环境依赖仓库根 .venv（junction 或 PYO3_PYTHON）安装 ink_engine",
+    ),
+    (
+        "discipline",
+        "代码纪律违例：注释/文案含计划编号或推进字眼——改写为叙述句（信息量不降），禁用字眼清单见计划 B2 节",
     ),
 ];
 
@@ -202,6 +207,37 @@ fn python_dll_dir(repo_root: &Path, python_exe: &Path) -> Option<PathBuf> {
         let _ = candidates;
         None
     }
+}
+
+fn gate_discipline_full(repo_root: &Path) -> (GateResult, String) {
+    let started = Instant::now();
+    let hits = discipline::run(repo_root);
+    let seconds = started.elapsed().as_secs_f64();
+    let passed = hits.is_empty();
+    let detail = if passed {
+        "代码纪律全绿：代码/测试/seed 文案内零计划编号与推进字眼，注释为叙述口吻".to_string()
+    } else {
+        let mut text = String::new();
+        for hit in &hits {
+            text.push_str(&format!("[FAIL] {hit}\n"));
+        }
+        text
+    };
+    let summary = if passed {
+        detail.clone()
+    } else {
+        hits.first().cloned().unwrap_or_else(|| "代码纪律存在违例".to_string())
+    };
+    let result = GateResult {
+        key: "discipline".to_string(),
+        label: "代码纪律（B2 零计划痕迹）".to_string(),
+        command: "self_check discipline".to_string(),
+        passed,
+        seconds,
+        summary,
+        tail: report::tail_lines(&detail),
+    };
+    (result, detail)
 }
 
 /// e2e 前置检查：解释器存在 + 引擎可导入；失败给修复指引。
@@ -545,7 +581,7 @@ fn parse_args() -> Args {
             other => {
                 if other.starts_with("--root=") {
                     args.root = Some(other["--root=".len()..].to_string());
-                } else if ["schema", "cargo", "frontend", "e2e", "all"]
+                } else if ["schema", "cargo", "frontend", "e2e", "discipline", "all"]
                     .contains(&other)
                 {
                     args.gate = other.to_string();
@@ -573,7 +609,7 @@ fn main() {
     let e2e_command = commands[3].clone();
 
     print!(
-        "InKling 出厂自检矩阵（四门禁一键）\n入口：inkling/self_check（Rust 编排）｜ 仓库根: {}\n门禁命令 = manifest.json self_check（单一事实源）\n\n",
+        "InKling 出厂自检矩阵（五门禁一键）\n入口：inkling/self_check（Rust 编排）｜ 仓库根: {}\n门禁命令 = manifest.json self_check（单一事实源）\n\n",
         repo_root.display()
     );
 
@@ -602,6 +638,10 @@ fn main() {
             let (result, full) = gate_e2e_full(&repo_root, &e2e_command, args.live);
             run_gate(result, full);
         }
+        "discipline" => {
+            let (result, full) = gate_discipline_full(&repo_root);
+            run_gate(result, full);
+        }
         _ => {
             let (result, full) = gate_schema_full(&repo_root, &schema_command);
             run_gate(result, full);
@@ -610,6 +650,8 @@ fn main() {
             let (result, full) = gate_frontend_full(&repo_root, &frontend_command);
             run_gate(result, full);
             let (result, full) = gate_e2e_full(&repo_root, &e2e_command, args.live);
+            run_gate(result, full);
+            let (result, full) = gate_discipline_full(&repo_root);
             run_gate(result, full);
         }
     }
@@ -676,7 +718,7 @@ fn main() {
         }
         std::process::exit(1);
     }
-    println!("\n自检全绿：四门禁全部 PASS（schema 数据一致性 / cargo 三 crate / frontend / 接线 e2e）");
+    println!("\n自检全绿：五门禁全部 PASS（schema 数据一致性 / cargo 三 crate / frontend / 接线 e2e / 代码纪律）");
 }
 
 

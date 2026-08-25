@@ -15,8 +15,9 @@
 //!   执行体二次核对，越域拒绝）；
 //! - **vetting L2 影子运行**：[`ShadowVettingStore`] 记录导入期工具清单
 //!   （不真执行），TOOL 补丁（MCP 端点类）落链前比对，不一致拒绝挂载；
-//! - **shell 执行器进工具表**：[`OsControlRegistry`] 进程端点分发
-//!   （执行器注册表插拔，stub 注入免真实桌面）。
+//! - **shell 执行器进工具表**：进程端点分发（执行器注册表插拔，stub
+//!   注入免真实桌面）——OS 命令调度的唯一权威点在引擎宿主侧注册表
+//!   （security_domain.py），壳侧经回调桥转发，不再维护平行影子表。
 //!
 //! 安全判定与域装配模块化：新工具/新端点 = 注册新守卫/执行器，不动机制
 //! 代码。所有拒绝路径携带错误码（[`ErrorCode`]）。
@@ -760,44 +761,6 @@ impl DeclarativeSandboxProxy {
     }
 }
 
-// ── OS 控制执行器注册表（process_exec 端点宿主注入点）──
-
-/// OS 控制执行器执行体（工具调用参数 → 结构化结果文本）。
-pub type OsImpl = Box<dyn Fn(&JsonValue) -> Result<String, String> + Send + Sync>;
-
-/// OS 控制执行器注册表（process_exec 端点的宿主注入点）。
-///
-/// 工具声明 = 数据（tools.json），执行实现 = 宿主/桌面壳注册（插拔
-/// U 盘）：未注册命令 = 明确降级失败文本（不崩溃、不静默假装可用）。
-/// stub 注入供端到端免真实桌面闭环。
-#[derive(Clone, Default)]
-pub struct OsControlRegistry {
-    impls: Arc<Mutex<HashMap<String, OsImpl>>>,
-}
-
-impl OsControlRegistry {
-    pub fn register(&self, command: &str, impl_: OsImpl) {
-        self.impls
-            .lock()
-            .unwrap()
-            .insert(command.to_string(), impl_);
-    }
-
-    /// 分发执行（未注册 = 结构化降级 JSON；stub 注入即接管）。
-    pub fn dispatch(&self, command: &str, args: &JsonValue) -> Result<String, String> {
-        let guard = self.impls.lock().unwrap();
-        let Some(impl_) = guard.get(command) else {
-            return Ok(serde_json::json!({
-                "ok": false,
-                "status": "executor_not_registered",
-                "error": format!("OS 控制执行器未注册: {command}（桌面壳未挂载）"),
-            })
-            .to_string());
-        };
-        impl_(args)
-    }
-}
-
 // ── http_fetch 端点执行体 ──
 
 /// 取回实现注入形态（定义 + 调用参数 → 取回文本；可注入 stub 免真实出网）。
@@ -1524,17 +1487,16 @@ fn glob_match(pattern: &str, text: &str) -> bool {
 
 /// 工具安全纵深装配（boot 期创建，挂到宿主对象供运行期取用）。
 ///
-/// 持有：三档门禁 + 沙箱代理 + 工作区门 + 影子存储 + OS 执行器注册表
-/// + 文件工具定义数据源。`load_definitions` 从引擎操作通道现取声明式
-/// 定义登记表（boot 调用后，新挂载工具同样被代理现取守卫——懒解析
-/// 接线）；`apply_to_runtime` 把安全流水线替换进 runtime（引擎装配点
-/// 不动，只换宿主侧流水线实例——图配方每次建图实时取流水线持有者，
-/// 替换后下一回合生效），装配点经 op 通道挂接。
+/// 持有：三档门禁 + 沙箱代理 + 工作区门 + 影子存储 + 文件工具定义数据源。
+/// `load_definitions` 从引擎操作通道现取声明式定义登记表（boot 调用后，
+/// 新挂载工具同样被代理现取守卫——懒解析接线）；`apply_to_runtime` 把
+/// 安全流水线替换进 runtime（引擎装配点不动，只换宿主侧流水线实例——
+/// 图配方每次建图实时取流水线持有者，替换后下一回合生效），装配点经
+/// op 通道挂接。
 pub struct SecurityDomain {
     pub tiers: HashMap<String, String>,
     pub workspace: WorkspaceGuard,
     pub shadow: ShadowVettingStore,
-    pub os_registry: OsControlRegistry,
     file_tool_defs: Vec<DeclarativeSpec>,
 }
 
@@ -1566,7 +1528,6 @@ impl SecurityDomain {
             tiers,
             workspace: WorkspaceGuard::default(),
             shadow: ShadowVettingStore::default(),
-            os_registry: OsControlRegistry::default(),
             file_tool_defs,
         })
     }
@@ -2215,22 +2176,7 @@ mod tests {
         assert!(ok.contains("note.txt"));
     }
 
-    // ── OS 控制执行器注册表 ──
-
-    #[test]
-    fn os_registry_dispatch_and_unregistered_degrade() {
-        let registry = OsControlRegistry::default();
-        registry.register(
-            "notify",
-            Box::new(|args| Ok(format!("notified: {}", args.get("title").and_then(|v| v.as_str()).unwrap_or("")))),
-        );
-        let outcome = registry.dispatch("notify", &json!({"title": "你好"})).unwrap();
-        assert_eq!(outcome, "notified: 你好");
-        let missing = registry.dispatch("launch_app", &json!({})).unwrap();
-        let parsed: JsonValue = serde_json::from_str(&missing).unwrap();
-        assert_eq!(parsed["status"], "executor_not_registered");
-        assert_eq!(parsed["ok"], false);
-    }
+    // ── process_exec 解析与守卫 ──
 
     #[test]
     fn resolve_process_exec_enum_mismatch_and_deny() {

@@ -164,6 +164,85 @@ fn allow_tool_runs_without_approval() {
     assert_eq!(outcome.result, "mock:query os");
 }
 
+// ===== 进程模板工具（run_typecheck / run_test_*） =====
+
+const PROCESS_TEMPLATE_TOOLS: [&str; 4] = ["run_typecheck", "run_test_cargo", "run_test_python", "run_test_web"];
+
+#[test]
+fn process_template_tools_registered_with_review_gate() {
+    let declarations = load_tool_declarations(TOOLS_DECL_JSON).unwrap();
+    let registry = registry_with(&declarations);
+    for tool in PROCESS_TEMPLATE_TOOLS {
+        let executor = registry.get(tool).unwrap_or_else(|| panic!("{tool} 应已注册"));
+        assert_eq!(executor.spec().endpoint, Endpoint::ProcessExec, "{tool} 端点应为 process_exec");
+        assert_eq!(executor.spec().permission, PermissionLevel::Review, "{tool} 权限应为 review");
+        let template = match &executor.spec().sandbox {
+            SandboxRule::ProcessTemplate { argv, timeout_secs } => {
+                assert!(!argv.is_empty(), "{tool} 模板不得为空");
+                assert!(*timeout_secs > 0, "{tool} 超时必须为正");
+                argv.clone()
+            }
+            other => panic!("{tool} 沙箱模式应为 process_template: {other:?}"),
+        };
+        // 未授权 → ApprovalRequired（review 档硬守）
+        let backend = MockBackend::new();
+        let err = registry
+            .run(tool, &args(&[("command", tool.into())]), &backend, &denied())
+            .unwrap_err();
+        assert_eq!(err, ExecError::ApprovalRequired(tool.into()));
+        // 授权后经后端执行钉死模板
+        let outcome = registry
+            .run(tool, &args(&[("command", tool.into())]), &backend, &approved())
+            .expect("授权后应放行");
+        assert!(outcome.sandbox_checked);
+        assert!(
+            outcome.result.contains(&template.join(" ")),
+            "{tool} 结果应含模板 argv: {}",
+            outcome.result
+        );
+        assert!(
+            backend
+                .calls
+                .lock()
+                .unwrap()
+                .iter()
+                .any(|call| call.starts_with("run_process:")),
+            "后端应记录进程模板调用"
+        );
+    }
+}
+
+#[test]
+fn process_template_command_enum_enforced() {
+    let declarations = load_tool_declarations(TOOLS_DECL_JSON).unwrap();
+    let registry = registry_with(&declarations);
+    let backend = MockBackend::new();
+    // command 固定枚举不符 = 拒绝（与引擎侧 command_enum_mismatch 同语义）
+    let err = registry
+        .run("run_test_cargo", &args(&[("command", "run_typecheck".into())]), &backend, &approved())
+        .unwrap_err();
+    assert!(matches!(err, ExecError::BadArgs(_)), "command 枚举不符必须拒绝: {err}");
+    // 缺 command = 参数非法
+    let err = registry
+        .run("run_typecheck", &args(&[]), &backend, &approved())
+        .unwrap_err();
+    assert!(matches!(err, ExecError::BadArgs(_)), "缺 command 必须拒绝: {err}");
+}
+
+#[test]
+fn process_template_wrong_sandbox_mode_rejected() {
+    // 声明沙箱模式与执行器不一致 = 注册失败（fail-closed，漂移启动即暴露）
+    let declarations = load_tool_declarations(TOOLS_DECL_JSON).unwrap();
+    let mut declarations = declarations;
+    for tool in &mut declarations.tools {
+        if tool.name == "run_typecheck" {
+            tool.sandbox = SandboxRule::CommandAllowlist { allowlist: vec!["tsc".into()] };
+        }
+    }
+    let message = expect_registration_error(&declarations);
+    assert!(message.contains("run_typecheck"), "模式漂移必须报错: {message}");
+}
+
 // ===== 沙箱守卫 =====
 
 #[test]

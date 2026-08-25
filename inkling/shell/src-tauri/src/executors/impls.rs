@@ -259,7 +259,7 @@ fn notify_spec() -> ExecutorSpec {
             ParamSpec { name: "title", param_type: ParamType::String, required: true },
             ParamSpec { name: "body", param_type: ParamType::String, required: true },
         ],
-        permission: PermissionLevel::Review,
+        permission: PermissionLevel::Allow,
         endpoint: Endpoint::ProcessExec,
         sandbox: SandboxRule::LengthCaps { title_max: 80, body_max: 500 },
     }
@@ -282,7 +282,7 @@ fn screen_query_spec() -> ExecutorSpec {
     ExecutorSpec {
         name: "screen_query",
         params: vec![ParamSpec { name: "target", param_type: ParamType::String, required: true }],
-        permission: PermissionLevel::Allow,
+        permission: PermissionLevel::Review,
         endpoint: Endpoint::DeviceMcp,
         sandbox: SandboxRule::CommandAllowlist {
             allowlist: vec!["resolution".into(), "work_area".into()],
@@ -294,9 +294,64 @@ fn file_query_spec() -> ExecutorSpec {
     ExecutorSpec {
         name: "file_query",
         params: vec![ParamSpec { name: "path", param_type: ParamType::String, required: true }],
-        permission: PermissionLevel::Allow,
+        permission: PermissionLevel::Review,
         endpoint: Endpoint::DeviceMcp,
         sandbox: SandboxRule::PathRoots { roots: vec![WORKSPACE_ROOT.into()] },
+    }
+}
+
+/// 进程模板工具的超时上限（秒；钉死在声明侧，与夹具一致）。
+const PROCESS_TEMPLATE_TIMEOUT_SECS: u64 = 180;
+
+fn run_typecheck_spec() -> ExecutorSpec {
+    ExecutorSpec {
+        name: "run_typecheck",
+        params: vec![ParamSpec { name: "command", param_type: ParamType::String, required: true }],
+        permission: PermissionLevel::Review,
+        endpoint: Endpoint::ProcessExec,
+        sandbox: SandboxRule::ProcessTemplate {
+            argv: vec!["tsc".into(), "--noEmit".into()],
+            timeout_secs: PROCESS_TEMPLATE_TIMEOUT_SECS,
+        },
+    }
+}
+
+fn run_test_cargo_spec() -> ExecutorSpec {
+    ExecutorSpec {
+        name: "run_test_cargo",
+        params: vec![ParamSpec { name: "command", param_type: ParamType::String, required: true }],
+        permission: PermissionLevel::Review,
+        endpoint: Endpoint::ProcessExec,
+        sandbox: SandboxRule::ProcessTemplate {
+            argv: vec!["cargo".into(), "test".into()],
+            timeout_secs: PROCESS_TEMPLATE_TIMEOUT_SECS,
+        },
+    }
+}
+
+fn run_test_python_spec() -> ExecutorSpec {
+    ExecutorSpec {
+        name: "run_test_python",
+        params: vec![ParamSpec { name: "command", param_type: ParamType::String, required: true }],
+        permission: PermissionLevel::Review,
+        endpoint: Endpoint::ProcessExec,
+        sandbox: SandboxRule::ProcessTemplate {
+            argv: vec!["python".into(), "-m".into(), "pytest".into()],
+            timeout_secs: PROCESS_TEMPLATE_TIMEOUT_SECS,
+        },
+    }
+}
+
+fn run_test_web_spec() -> ExecutorSpec {
+    ExecutorSpec {
+        name: "run_test_web",
+        params: vec![ParamSpec { name: "command", param_type: ParamType::String, required: true }],
+        permission: PermissionLevel::Review,
+        endpoint: Endpoint::ProcessExec,
+        sandbox: SandboxRule::ProcessTemplate {
+            argv: vec!["npx".into(), "vitest".into(), "run".into()],
+            timeout_secs: PROCESS_TEMPLATE_TIMEOUT_SECS,
+        },
     }
 }
 
@@ -312,6 +367,10 @@ pub fn executor_impl(name: &str) -> Option<(ExecutorSpec, RunFn)> {
         "schedule" => (schedule_spec(), schedule_run),
         "screen_query" => (screen_query_spec(), screen_query_run),
         "file_query" => (file_query_spec(), file_query_run),
+        "run_typecheck" => (run_typecheck_spec(), run_process_template),
+        "run_test_cargo" => (run_test_cargo_spec(), run_process_template),
+        "run_test_python" => (run_test_python_spec(), run_process_template),
+        "run_test_web" => (run_test_web_spec(), run_process_template),
         _ => return None,
     };
     Some(pair)
@@ -473,5 +532,41 @@ fn file_query_run(
         check_path_roots(roots, &path)?;
     }
     let result = backend.file_query(&path).map_err(ExecError::ExecutionFailed)?;
+    Ok(ExecOutcome { result, sandbox_checked: true })
+}
+
+/// 进程模板运行体（run_typecheck / run_test_* 共用）：
+///
+/// 调用参数只承载端点操作判定的固定命令名（command 与工具名不符 =
+/// 拒绝）；可执行面 = 声明侧钉死的参数模板（无自由参数），工作目录
+/// = 工作区挂载根，超时与输出截断由后端保证。守卫 = 权限档 + 模板
+/// 形态校验；命令名本身经引擎侧端点白名单收口（双重校验）。
+fn run_process_template(
+    executor: &dyn Executor,
+    args: &BTreeMap<String, Value>,
+    backend: &dyn SystemBackend,
+    auth: &Authorization,
+) -> Result<ExecOutcome, ExecError> {
+    let tool = executor.name();
+    check_permission(tool, executor.spec().permission, auth)?;
+    let command = arg_str(args, "command")?;
+    if command != tool {
+        return Err(ExecError::BadArgs(format!(
+            "command 固定枚举不符: {command}（期望 {tool}）"
+        )));
+    }
+    let (argv, timeout_secs) = match &executor.spec().sandbox {
+        SandboxRule::ProcessTemplate { argv, timeout_secs } => (argv.clone(), *timeout_secs),
+        _ => {
+            return Err(ExecError::SandboxViolation(
+                "沙箱模式非法（进程模板工具须声明钉死模板）".into(),
+            ))
+        }
+    };
+    let cwd = normalize_abs(WORKSPACE_ROOT)?;
+    let cwd_text = cwd.to_string_lossy().into_owned();
+    let result = backend
+        .run_process(&argv, &cwd_text, timeout_secs)
+        .map_err(ExecError::ExecutionFailed)?;
     Ok(ExecOutcome { result, sandbox_checked: true })
 }

@@ -46,6 +46,9 @@ pub enum SandboxRule {
     Bounds { min: i64, max: i64 },
     /// 长度上限（notify）
     LengthCaps { title_max: usize, body_max: usize },
+    /// 进程模板（run_typecheck / run_test_*：钉死参数模板 + 超时上限，
+    /// 无自由参数面——调用参数只承载端点操作判定的固定命令名）
+    ProcessTemplate { argv: Vec<String>, timeout_secs: u64 },
 }
 
 /// 参数声明

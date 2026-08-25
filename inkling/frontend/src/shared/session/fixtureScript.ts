@@ -72,8 +72,8 @@ export function runFixtureSession(hub: ChannelHub, options: FixtureScriptOptions
   at(14, () => ingest(ev('suggestions', { step_id: 'reply:1', items: ['调用 inspect_ui 观察界面形态', '推演下一个研究决策', '进入孵化面板查看流水'] })));
 
   // 孵化流水：信号 → 蒸馏 → 闸门
-  at(15, () => ingest(ev('signal_observed', { signal_id: 'sig-1', signal_type: 'insight', signal: '引用质量校验规则可抽象为通用约束条目' })));
-  at(16, () => ingest(ev('distill_result', { signal_id: 'sig-1', distilled: '约束：知识条目引用须带来源标识（r-001）' })));
+  at(15, () => ingest(ev('signal_detected', { signal_id: 'sig-1', signal_type: 'insight', signal: '引用质量校验规则可抽象为通用约束条目' })));
+  at(16, () => ingest(ev('distill_outcome', { signal_id: 'sig-1', distilled: '约束：知识条目引用须带来源标识（r-001）' })));
   at(17, () => ingest(ev('gate_verdict', { signal_id: 'sig-1', level: 'L1', passed: true, reason: '样例校验通过，规则语义一致' })));
 
   // 补丁链
@@ -102,7 +102,7 @@ export function runFixtureSession(hub: ChannelHub, options: FixtureScriptOptions
 
   // vetting 留痕 + 调优
   at(26, () => ingest(ev('vetting_result', { tool: 'propose_patch', passed: true, reason: '静态钩子核对通过' })));
-  at(27, () => ingest(ev('tuning_applied', { detail: '引用质量权重 0.6 → 0.65（低分降权）' })));
+  at(27, () => ingest(ev('tuning_update', { detail: '引用质量权重 0.6 → 0.65（低分降权）' })));
 
   // 审批卡（朱砂 accent，任何视图可弹）
   at(28, () =>
@@ -119,7 +119,7 @@ export function runFixtureSession(hub: ChannelHub, options: FixtureScriptOptions
   );
 
   // 设备感知/控制留痕
-  at(30, () => ingest(ev('device_perception', { step_id: 'dev:1', action: 'system_query', detail: 'os=windows · arch=x86_64 · uptime 3h' })));
+  at(30, () => ingest(ev('device_sensed', { step_id: 'dev:1', action: 'system_query', detail: 'os=windows · arch=x86_64 · uptime 3h' })));
   at(31, () => ingest(ev('device_control', { step_id: 'dev:2', action: 'notify', detail: '通知：补丁 p-004 已沉淀' })));
 
   at(32, () => ingest(ev('spawn_start', { step_id: 'spawn:1', node_id: 'sub-1', label: '子任务：生成知识条目草稿' })));

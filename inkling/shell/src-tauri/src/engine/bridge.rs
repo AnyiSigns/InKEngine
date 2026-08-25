@@ -12,22 +12,31 @@ use pyo3::prelude::*;
 use pyo3::IntoPyObjectExt;
 use serde_json::Value as JsonValue;
 
-/// 引擎事件传输回桥：Python 侧 `transport.send(event)` 推 JSON 进 Rust 侧缓冲。
+/// 引擎事件传输回桥：Python 侧 `transport.send(event)` 推 JSON 进 Rust 侧缓冲，
+/// 同时（若已挂发射钩子）把事件实时转发到前端事件通道——回合返回体保留为
+/// 兼容/回落形态，流式通道保证首事件早于回合返回到达。
 #[pyclass]
 pub struct RustTransport {
     events: Arc<Mutex<Vec<String>>>,
+    emitter: Arc<Mutex<Option<Box<dyn Fn(&str) + Send + Sync>>>>,
 }
 
 impl RustTransport {
     pub fn new() -> Self {
         Self {
             events: Arc::new(Mutex::new(Vec::new())),
+            emitter: Arc::new(Mutex::new(None)),
         }
     }
 
     /// 取走全部已收事件（JSON 字符串；取后清空，回合驱动侧按序消费）。
     pub fn take_events(&self) -> Vec<String> {
         std::mem::take(&mut *self.events.lock().unwrap())
+    }
+
+    /// 挂接/摘除实时发射钩子（事件到达即调用；钩子失败不影响事件收集）。
+    pub fn set_emitter(&self, emitter: Option<Box<dyn Fn(&str) + Send + Sync>>) {
+        *self.emitter.lock().unwrap() = emitter;
     }
 }
 
@@ -43,7 +52,11 @@ impl RustTransport {
         let json_str: String = event
             .call_method0(pyo3::intern!(py, "to_json"))?
             .extract()?;
-        self.events.lock().unwrap().push(json_str);
+        self.events.lock().unwrap().push(json_str.clone());
+        let emitter = self.emitter.lock().unwrap();
+        if let Some(emit) = emitter.as_ref() {
+            emit(&json_str);
+        }
         pyo3_async_runtimes::tokio::future_into_py(py, async move { Ok(()) })
     }
 
@@ -423,6 +436,16 @@ pub fn register_callback(name: &str, callback: JsonCallback) -> PyResult<()> {
         );
         Ok(())
     })
+}
+
+/// 注销回调（摘除接线/测试恢复前置条件；返回是否命中）。
+pub fn unregister_callback(name: &str) -> bool {
+    Python::attach(|py| -> PyResult<bool> {
+        let host = py.import("inkling_bridge")?.call_method0("callback_host")?;
+        let downcast = host.cast::<JsonCallbackHost>()?;
+        Ok(downcast.borrow().registry.lock().unwrap().remove(name).is_some())
+    })
+    .unwrap_or(false)
 }
 
 #[pymethods]

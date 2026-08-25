@@ -1,4 +1,4 @@
-"""工具安全纵深域装配（PLAN §6 M3-2 工具安全纵深）。
+"""工具安全纵深域装配（设计文档第六节模块 M3-2 工具安全纵深）。
 
 引擎零改动铁律下，工具安全纵深的宿主侧实现：
 
@@ -126,6 +126,7 @@ class TieredGate:
         executors: DeclarativeToolExecutors | None = None,
         default_policy: str = DENY,
         gating_overrides: Mapping[str, str] | None = None,
+        auto_approvable: frozenset[str] = frozenset(),
     ) -> None:
         self._tiers = dict(tiers)
         self._executors = executors
@@ -140,6 +141,12 @@ class TieredGate:
             default_policy=default_policy,
             review_tier=lambda tool: self._review_needed(tool),
         )
+        # 自动审批（用户预授权）：可登记集 = 声明标记 auto_approvable 的
+        # 只读感知/测试构建类工具（登记边界在设置持久化层硬拒）；
+        # 命中只跳过人审弹卡，deny/沙箱/审计环节不动。
+        self._auto_approvable = frozenset(auto_approvable)
+        self._auto_approve_tools: frozenset[str] = frozenset()
+        self._auto_approve_all_review = False
 
     def _review_needed(self, tool: str) -> bool:
         """弹卡判定（引擎门控分级为判据；未登记工具保持出厂直过语义）。"""
@@ -150,7 +157,45 @@ class TieredGate:
             overrides=self._gating_overrides,
             registry=self._gating_registry,
         )
-        return tier is GatingTier.L2
+        if tier is not GatingTier.L2:
+            return False
+        return not self.auto_approved(tool)
+
+    # ── 自动审批（用户预授权，仅跳过人审弹卡）──
+
+    def configure_auto_approve(
+        self, tools: Sequence[str], all_review: bool
+    ) -> None:
+        """按登记边界配置自动审批集（边界外工具硬拒，不静默过滤）。
+
+        可登记集 = 声明标记 auto_approvable 的工具；请求含边界外
+        工具 = 整体拒绝（持久化层在设置保存前已过滤，此处为纵深
+        防御的二次校验——漏过的请求在这里必须失败）。
+        """
+        requested = frozenset(str(tool) for tool in tools if str(tool).strip())
+        outside = sorted(requested - self._auto_approvable)
+        if outside:
+            raise ValueError(
+                "自动审批登记边界外工具: "
+                + ", ".join(outside)
+                + "（仅只读感知/测试构建类可登记，OS 控制与文件写类不可）"
+            )
+        self._auto_approve_tools = requested
+        self._auto_approve_all_review = bool(all_review)
+
+    def auto_approved(self, tool: str) -> bool:
+        """自动审批命中判定（边界外工具恒不命中，纵深防御）。"""
+        if tool not in self._auto_approvable:
+            return False
+        return self._auto_approve_all_review or tool in self._auto_approve_tools
+
+    def auto_approve_snapshot(self) -> tuple[list[str], bool]:
+        """当前自动审批集快照（设置页装载形态）。"""
+        return sorted(self._auto_approve_tools), self._auto_approve_all_review
+
+    def auto_approvable_tools(self) -> list[str]:
+        """可登记清单（设置页勾选项的单一来源）。"""
+        return sorted(self._auto_approvable)
 
     def check(
         self,
@@ -270,12 +315,31 @@ class SecurityToolPipeline(ToolPipeline):
     全部沿用基类。
     """
 
+    def __init__(self, **kwargs: Any) -> None:
+        super().__init__(**kwargs)
+        # 自动审批判定面（门禁同实例注入；缺省 = 无标记）
+        self._auto_gate = getattr(kwargs.get("gate"), "auto_approved", None)
+
     async def execute(self, ctx: Any, spec: Any, args: dict) -> Any:
         token = _current_spec.set(spec.name)
         try:
             return await super().execute(ctx, spec, args)
         finally:
             _current_spec.reset(token)
+
+    async def _audit(self, ctx: Any, record: dict) -> None:
+        # 自动审批命中留痕：成功审计记录标 auto_approved_by_user
+        # （审计可回溯——跳过的只是人审弹卡，留痕不跳过）
+        tool = str(record.get("tool") or "")
+        if (
+            tool
+            and record.get("decision") == "ok"
+            and self._auto_gate is not None
+            and self._auto_gate(tool)
+        ):
+            record = dict(record)
+            record["auto_approved_by_user"] = True
+        return await super()._audit(ctx, record)
 
 
 class DeclarativeSandboxProxy:
@@ -1042,6 +1106,13 @@ class SecurityDomain:
             for tool in (tool_data.get("tools") or ())
             if tool.get("endpoint") == "file_ops"
         ]
+        # 自动审批可登记集（声明 meta.auto_approvable 标记的工具；
+        # 只读感知/测试构建类出厂标记，其余工具一律不可登记）
+        self.auto_approvable: frozenset[str] = frozenset(
+            str(tool.get("name"))
+            for tool in (tool_data.get("tools") or ())
+            if (tool.get("meta") or {}).get("auto_approvable") is True
+        )
         self._runtime: Any | None = None
         self._executors: DeclarativeToolExecutors | None = None
 
@@ -1059,7 +1130,11 @@ class SecurityDomain:
         self._runtime = runtime
         executors = runtime.harness_registry.declarative
         self._executors = executors
-        self.gate = TieredGate(self._tiers, executors=executors)
+        self.gate = TieredGate(
+            self._tiers,
+            executors=executors,
+            auto_approvable=self.auto_approvable,
+        )
         self.sandbox = DeclarativeSandboxProxy(executors, workspace=self.workspace)
         old = runtime.tool_pipeline
         runtime.tool_pipeline = SecurityToolPipeline(
@@ -1073,6 +1148,19 @@ class SecurityDomain:
             allow_unchecked=old.allow_unchecked,
             trace_sink=old.trace_sink,
         )
+
+    def set_auto_approve(self, tools: Sequence[str], all_review: bool) -> None:
+        """自动审批配置（设置持久化层保存前调用；边界外硬拒）。"""
+        self.gate.configure_auto_approve(tools, all_review)
+
+    def auto_approve_snapshot(self) -> dict[str, Any]:
+        """自动审批快照（设置页装载形态：已勾选清单 + 全量开关）。"""
+        tools, all_review = self.gate.auto_approve_snapshot()
+        return {"tools": tools, "all_review": all_review}
+
+    def auto_approvable_tools(self) -> list[str]:
+        """自动审批可登记清单（设置页勾选项单一来源）。"""
+        return self.gate.auto_approvable_tools()
 
     def reregister_file_tools(self, root: Path | None) -> None:
         """文件工具重注册（授权根替换占位符；撤销 = 回到占位符拒绝态）。
@@ -1110,6 +1198,35 @@ class SecurityDomain:
 def _substitute_root(pattern: str, root: str) -> str:
     """权限模式占位符替换（路径统一正斜杠，与 rule_matches 归一一致）。"""
     return pattern.replace(WORKSPACE_ROOT_PLACEHOLDER, root.replace("\\", "/"))
+
+
+# ── 自动审批设置持久化（能力记录通道：与壳 capability_get/put 同集合）──
+
+AUTO_APPROVE_COLLECTION = "app_capabilities"
+AUTO_APPROVE_KEY = "capability"
+
+
+async def restore_auto_approve(storage: Any, security: SecurityDomain) -> None:
+    """从能力记录恢复自动审批设置（启动装载；无记录/坏形态 = 出厂空集）。
+
+    记录字段：auto_approve_tools（工具名清单）/ auto_approve_all_review
+    （全量开关）。装载失败只记日志，不阻断装配——出厂空集为最保守态。
+    """
+    try:
+        record = await storage.get_record(AUTO_APPROVE_COLLECTION, AUTO_APPROVE_KEY)
+    except Exception as exc:
+        logger.warning("自动审批设置读取失败（回落出厂空集）: %s", exc)
+        return
+    if not isinstance(record, dict):
+        return
+    tools = record.get("auto_approve_tools")
+    all_review = bool(record.get("auto_approve_all_review"))
+    if not isinstance(tools, (list, tuple)):
+        return
+    try:
+        security.set_auto_approve([str(t) for t in tools], all_review)
+    except Exception as exc:
+        logger.warning("自动审批设置装载被拒（按出厂空集启动）: %s", exc)
 
 
 def _glob_translate(pattern: str) -> str:
@@ -1175,6 +1292,8 @@ def _glob_match(pattern: str, text: str) -> bool:
 
 
 __all__ = [
+    "AUTO_APPROVE_COLLECTION",
+    "AUTO_APPROVE_KEY",
     "WORKSPACE_ROOT_PLACEHOLDER",
     "DeclarativeSandboxProxy",
     "ErrorCode",
@@ -1191,4 +1310,5 @@ __all__ = [
     "make_file_ops_executor",
     "make_http_fetch_executor",
     "make_process_exec_executor",
+    "restore_auto_approve",
 ]

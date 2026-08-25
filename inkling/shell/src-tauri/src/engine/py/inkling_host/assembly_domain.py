@@ -1,4 +1,4 @@
-"""调配域装配：五源输入装配源提供者 + 记忆/检索接线（PLAN §6 M3）。
+"""调配域装配：五源输入装配源提供者 + 记忆/检索接线（设计文档第六节模块 M3）。
 
 引擎机制（core.assembly.InputAssembler）按 AssemblyConfig 五源预算
 （context/knowledge/tool/memory/evidence）对 ContextSource 分池裁剪；

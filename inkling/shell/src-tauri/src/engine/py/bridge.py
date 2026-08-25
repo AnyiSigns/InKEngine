@@ -754,6 +754,26 @@ def register_builtin_ops() -> None:
 
     # ── 图配方（节点类型登记 + 回合图构造）──
 
+    @op_sync("security.auto_approve_set")
+    def _auto_approve_set(args: dict) -> Any:
+        """自动审批配置（用户预授权：只跳过人审弹卡，安全环节不动）。
+
+        登记边界在安全域内硬拒（仅声明 auto_approvable 的只读感知/
+        测试构建类工具可登记）；边界外请求 = 显式失败，持久化层
+        不落盘。
+        """
+        from inkling_host.security_domain import SecurityDomain
+
+        host = host_handle()
+        security = getattr(host, "security", None)
+        if security is None:
+            raise RuntimeError("安全域未装配（先经 boot 装配）")
+        tools = args.get("tools") or []
+        if not isinstance(tools, (list, tuple)):
+            raise ValueError("自动审批清单须为列表")
+        security.set_auto_approve([str(t) for t in tools], bool(args.get("all_review")))
+        return {"applied": True}
+
     @op_sync("graph.register_node_types")
     def _graph_register_node_types(args: dict) -> Any:
         from inkling_host.graph_recipe import (
@@ -1524,6 +1544,7 @@ async def execute_round_to_reply(
     thread_id: str,
     round_id: str,
     step_args: dict | None = None,
+    orchestrate: dict | None = None,
     inject: dict | None = None,
     auto_accept_review: bool = True,
     max_cards: int = 8,
@@ -1531,8 +1552,12 @@ async def execute_round_to_reply(
     """执行一次回合直至终态：审批卡逐张决议（可指定接受决议），直到回复/终止。
 
     生产宿主按审批卡交互决议；离线验证用 auto_accept_review 一次跑通。
+    编排脚本（orchestrate）非空时注入回合入口状态——编排节点按
+    plan/spawns/simulate 保留键驱动；缺省走工作流节点序默认规划。
     """
     state = {"input": input_text, "step_args": step_args or {}}
+    if orchestrate is not None:
+        state["orchestrate"] = orchestrate
     result = await runtime.engine.ainvoke(
         state,
         thread_id=thread_id,

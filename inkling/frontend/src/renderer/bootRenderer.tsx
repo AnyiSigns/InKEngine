@@ -165,6 +165,10 @@ export interface RendererChrome {
   onApplySettings?: (settings: Record<string, unknown>) => void;
   /** 宿主能力档初值（启动时从后端装载） */
   initialCapability?: Record<string, unknown> | undefined;
+  /** 自动审批初值（启动时从能力记录装载） */
+  initialAutoApprove?: { tools: string[]; allReview: boolean } | undefined;
+  /** 自动审批可登记工具清单（tools_snapshot 的 auto_approvable 过滤面） */
+  autoApprovableTools?: string[];
   /** 活动界面描述（界面树编辑器的读入面） */
   uiSpec?: UISpec | null;
   /** 会话存储（会话侧栏的数据面；宿主接线注入） */
@@ -196,6 +200,8 @@ export function UIRenderer({
   onOpenBackupWizard,
   onApplySettings,
   initialCapability,
+  initialAutoApprove,
+  autoApprovableTools,
   recovery,
   uiSpec,
   sessionStore,
@@ -228,6 +234,8 @@ export function UIRenderer({
   if (recovery !== undefined) chromeProps.recovery = recovery;
   if (onApplySettings) chromeProps.onApplySettings = onApplySettings;
   if (initialCapability !== undefined) chromeProps.initialCapability = initialCapability;
+  if (initialAutoApprove !== undefined) chromeProps.initialAutoApprove = initialAutoApprove;
+  if (autoApprovableTools !== undefined) chromeProps.autoApprovableTools = autoApprovableTools;
   if (uiSpec !== undefined) chromeProps.uiSpec = uiSpec;
   if (sessionStore !== undefined) chromeProps.sessionStore = sessionStore;
   if (activeSessionId !== undefined) chromeProps.activeSessionId = activeSessionId;

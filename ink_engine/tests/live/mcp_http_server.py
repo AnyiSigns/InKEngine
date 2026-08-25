@@ -1,6 +1,6 @@
 """本地真实 MCP http 传输 server（mcp SDK streamable http，动态端口）。
 
-测试计划 §6：http 传输真实挂载用例。经 uvicorn 线程挂载
+测试说明文档第六节：http 传输真实挂载用例。经 uvicorn 线程挂载
 ``Server.streamable_http_app()``（Starlette），提供 echo/adder 两个
 确定性工具；127.0.0.1:0 动态端口，无外网依赖。
 """

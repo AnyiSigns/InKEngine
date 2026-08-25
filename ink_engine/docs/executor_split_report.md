@@ -30,7 +30,7 @@
   executor（executor 的外部 import 面仅 runtime.py 顶层 + graph.py 函数
   内延迟 import）——无循环 import 风险。
 - 顺带清理 executor.py 移走后残留的 6 个仅 import 符号（ruff F401）。
-- 回归：引擎全量 1213 passed（原数 1207 + 本批新增测试 6 项），ruff 零错。
+- 回归：引擎全量 1213 passed（原数 1207 + 本次改动新增测试 6 项），ruff 零错。
 
 ## 不做强拆的理由（风险分析）
 

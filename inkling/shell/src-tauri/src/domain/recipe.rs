@@ -787,7 +787,7 @@ mod tests {
         assert!(!recipe.ui_allowed_channels.is_empty());
         assert!(!recipe.ui_allowed_components.is_empty());
         assert!(!recipe.ui_allowed_theme_tokens.is_empty());
-        assert_eq!(recipe.event_type_specs.len(), 20);
+        assert_eq!(recipe.event_type_specs.len(), 34);
         assert_eq!(recipe.seeds.len(), 1);
         assert_eq!(recipe.approval_levels.len(), 9);
 

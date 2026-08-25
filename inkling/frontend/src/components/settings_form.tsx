@@ -35,6 +35,10 @@ interface SettingsFormProps {
   onApplySettings?: (settings: Record<string, unknown>) => void;
   /** 宿主能力档（启动时从后端装载：推演档位/推理档初值） */
   initialCapability?: Partial<CapabilityValue>;
+  /** 自动审批初值（启动时从能力记录装载：已勾选清单 + 全量开关） */
+  initialAutoApprove?: { tools: string[]; allReview: boolean };
+  /** 自动审批可登记工具清单（tools_snapshot 的 auto_approvable 过滤面） */
+  autoApprovableTools?: string[];
   /** 备份/恢复向导入口（安全信任节接线） */
   onOpenBackupWizard?: (mode: 'export' | 'restore') => void;
   /** 崩溃回退操作面（安全信任节接线：回上一稳定版本 / 出厂重置） */
@@ -67,6 +71,8 @@ export function SettingsForm({
   onNavigate,
   onApplySettings,
   initialCapability,
+  initialAutoApprove,
+  autoApprovableTools,
   onOpenBackupWizard,
   recovery,
 }: SettingsFormProps) {
@@ -75,7 +81,12 @@ export function SettingsForm({
   const [capability, setCapability] = useState<CapabilityValue>({ ...DEFAULT_CAPABILITY, ...initialCapability });
   const [environment, setEnvironment] = useState<EnvironmentValue>(DEFAULT_ENVIRONMENT);
   const [growth, setGrowth] = useState<GrowthValue>(DEFAULT_GROWTH);
-  const [security, setSecurity] = useState<SecurityValue>(DEFAULT_SECURITY);
+  const [security, setSecurity] = useState<SecurityValue>({
+    ...DEFAULT_SECURITY,
+    ...(initialAutoApprove
+      ? { autoApproveTools: initialAutoApprove.tools, autoApproveAllReview: initialAutoApprove.allReview }
+      : {}),
+  });
   const [connect, setConnect] = useState<ConnectValue>(DEFAULT_CONNECT);
   const [appearance, setAppearance] = useState<AppearanceValue>(DEFAULT_APPEARANCE);
   const [aboutOpen, setAboutOpen] = useState(false);
@@ -199,7 +210,13 @@ export function SettingsForm({
             <GrowthGovernance value={growth} patch={(next) => patchSection(setGrowth, next)} />
           )}
           {active === 'security' && (
-            <SecurityTrust value={security} patch={(next) => patchSection(setSecurity, next)} onOpenBackupWizard={onOpenBackupWizard} recovery={recovery} />
+            <SecurityTrust
+              value={security}
+              patch={(next) => patchSection(setSecurity, next)}
+              onOpenBackupWizard={onOpenBackupWizard}
+              recovery={recovery}
+              autoApprovableTools={autoApprovableTools ?? []}
+            />
           )}
           {active === 'connect' && (
             <ConnectSection value={connect} patch={(next) => patchSection(setConnect, next)} />

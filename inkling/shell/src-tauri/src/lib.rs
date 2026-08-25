@@ -19,7 +19,7 @@ use std::sync::{Arc, Mutex};
 use serde_json::{json, Value as JsonValue};
 use tauri::menu::{Menu, MenuItem};
 use tauri::tray::TrayIconBuilder;
-use tauri::{AppHandle, Manager, RunEvent, State};
+use tauri::{AppHandle, Emitter, Manager, RunEvent, State};
 
 pub mod domain;
 pub mod engine;
@@ -135,8 +135,8 @@ fn boot_options(
         safe_mode,
         bundled: engine::runtime::bundled_mode(),
         embedder_model_dir: embedder_model_dir(&data_dir),
-        // 引擎路径装配机制出厂全开（批 4 全开验收：契约/证据/沉淀/池/
-        // 组装/多径/指纹七块启用；逐块独立，单块异常可关闭回滚）
+        // 引擎路径装配机制出厂全开（契约/证据/沉淀/池/组装/多径/指纹
+        // 七块启用；逐块独立，单块异常可关闭回滚）
         path_assembly: engine::host::PathAssemblyFlags {
             contract_enabled: true,
             edge_evidence_enabled: true,
@@ -401,6 +401,7 @@ fn round_send(
         thread_id: thread_id.clone(),
         round_id: round_id.clone(),
         step_args: None,
+        orchestrate: None,
         inject: None,
         auto_accept_review: auto_accept_review.unwrap_or(true),
     };
@@ -408,6 +409,15 @@ fn round_send(
     let engine = engine_guard
         .as_ref()
         .ok_or_else(|| "引擎未装配（引擎装配失败或尚未就绪）".to_string())?;
+    // 事件流式通道：回合内逐事件实时发射（前端 listen 增量渲染）；
+    // 发射失败只记日志不阻断回合（事件收集缓冲与返回体照常）。
+    let stream_app = app.clone();
+    engine.set_event_emitter(Some(Box::new(move |event_json: &str| {
+        let parsed: JsonValue = serde_json::from_str(event_json).unwrap_or(JsonValue::Null);
+        if let Err(err) = stream_app.emit("inkling://round_event", parsed) {
+            eprintln!("[events] 流式事件发射失败: {err}");
+        }
+    })));
     let outcome = engine.round(request).map_err(|err| format!("回合执行失败: {err}"))?;
     drop(engine_guard);
     for event in &outcome.events {
@@ -703,7 +713,8 @@ async fn approval_card(
 
 // ── 能力设置（推演档位等持久化）──
 
-/// 读取能力设置（无记录 = 装配数据默认档：轻探测）。
+/// 读取能力设置（无记录 = 装配数据默认档：轻探测；自动审批字段
+/// 缺省 = 出厂空集——不勾选即不预授权，最保守）。
 #[tauri::command]
 async fn capability_get() -> Result<JsonValue, String> {
     let record = engine::host::call_engine_op_async(
@@ -711,18 +722,48 @@ async fn capability_get() -> Result<JsonValue, String> {
         json!({ "collection": CAPABILITY_COLLECTION, "key": CAPABILITY_KEY }),
     )
     .await?;
-    if record.is_null() {
+    let mut merged = match record {
+        JsonValue::Object(map) => JsonValue::Object(map),
+        _ => json!({}),
+    };
+    if merged.get("simulation_tier").and_then(JsonValue::as_str).is_none() {
         let workflow = load_workflow_data()?;
         let default = domain::policy::default_simulation_tier_from_data(&workflow);
-        Ok(json!({ "simulation_tier": default.as_str() }))
-    } else {
-        Ok(record)
+        merged["simulation_tier"] = json!(default.as_str());
     }
+    if merged.get("auto_approve_tools").is_none() {
+        merged["auto_approve_tools"] = json!([]);
+    }
+    if merged.get("auto_approve_all_review").is_none() {
+        merged["auto_approve_all_review"] = json!(false);
+    }
+    Ok(merged)
 }
 
-/// 保存能力设置（档位阈值随装配数据，此处只存档选）。
+/// 保存能力设置（自动审批先经安全域校验并应用：登记边界外工具
+/// 整体拒绝、不落盘；档位阈值随装配数据，此处只存档选）。
 #[tauri::command]
 async fn capability_put(record: JsonValue) -> Result<JsonValue, String> {
+    if record.get("auto_approve_tools").is_some() || record.get("auto_approve_all_review").is_some() {
+        let auto_tools = record
+            .get("auto_approve_tools")
+            .and_then(JsonValue::as_array)
+            .cloned()
+            .unwrap_or_default();
+        let auto_all = record
+            .get("auto_approve_all_review")
+            .and_then(JsonValue::as_bool)
+            .unwrap_or(false);
+        // 先应用（登记边界在安全域内硬拒，失败 = 不落盘）
+        let applied = engine::host::call_engine_op_async(
+            "security.auto_approve_set",
+            json!({ "tools": auto_tools, "all_review": auto_all }),
+        )
+        .await?;
+        if applied.get("applied").and_then(JsonValue::as_bool) != Some(true) {
+            return Err("自动审批配置未生效（安全域拒绝）".to_string());
+        }
+    }
     engine::host::call_engine_op_async(
         "engine.records_put",
         json!({
@@ -910,15 +951,30 @@ async fn recovery_factory_reset(
 
 // ── 工具快照 / 组件清单 ──
 
-/// 工具快照（四层兜底标签 + 工具族分组；管理台/名映射共用）。
+/// 工具快照（四层兜底标签 + 工具族 + 自动审批可登记标记；管理台/
+/// 名映射/设置页勾选项共用）。
 #[tauri::command]
 fn tools_snapshot(state: State<'_, ShellState>) -> JsonValue {
-    let map: Vec<JsonValue> = state
-        .backend
-        .tool_provider
+    let provider = state.backend.tool_provider.clone();
+    let map: Vec<JsonValue> = provider
         .name_map()
         .iter()
-        .map(|entry| json!({ "tool": entry.tool, "zh": entry.zh, "group": entry.group }))
+        .map(|entry| {
+            let auto_approvable = provider
+                .lookup(&entry.tool)
+                .and_then(|spec| {
+                    spec.get("meta")
+                        .and_then(|meta| meta.get("auto_approvable"))
+                        .and_then(JsonValue::as_bool)
+                })
+                .unwrap_or(false);
+            json!({
+                "tool": entry.tool,
+                "zh": entry.zh,
+                "group": entry.group,
+                "auto_approvable": auto_approvable,
+            })
+        })
         .collect();
     json!({ "tools": map })
 }
@@ -1024,7 +1080,8 @@ fn device_mcp_call(
         .cloned()
         .map(|map| map.into_iter().collect::<std::collections::BTreeMap<String, serde_json::Value>>())
         .ok_or_else(|| format!("工具参数须为对象: {tool}"))?;
-    // 设备感知工具出厂 allow 级；审批语义与 process_exec 同源（壳只强制沙箱）
+    // 设备感知工具审批语义与 process_exec 同源：审批闸门在引擎侧 approval
+    // 档（seed 单源，出厂 review）；壳此路径只强制沙箱，不重复弹卡
     let auth = Authorization { approved: true };
     let outcome = state
         .registry
@@ -1145,6 +1202,7 @@ fn run_selftest(data_dir: &Path, phase: bool) -> Result<JsonValue, String> {
             thread_id: "selftest-t1".to_string(),
             round_id: "selftest-r1".to_string(),
             step_args: None,
+            orchestrate: None,
             inject: None,
             auto_accept_review: true,
         })
@@ -1280,6 +1338,58 @@ pub fn run() {
 
             let backend = build_shell_backend(app.handle().clone());
             app.manage(backend);
+
+            // OS 执行体接桥：引擎链路（process_exec 端点 → 宿主 os_registry
+            // 分发）经回调桥转发到本注册表——同一套运行体，两处调度点合一；
+            // 回调执行在引擎回合线程，经 AppHandle 取托管状态（沙箱/授权在
+            // 执行器 run 内强制，此处只做转发）。
+            let os_bridge_app = app.handle().clone();
+            engine::bridge::register_callback(
+                "os.dispatch",
+                Box::new(move |payload: String| -> pyo3::PyResult<String> {
+                    let parsed: JsonValue = serde_json::from_str(&payload).map_err(|err| {
+                        pyo3::exceptions::PyValueError::new_err(format!(
+                            "os.dispatch 载荷非法: {err}"
+                        ))
+                    })?;
+                    let tool = parsed
+                        .get("tool")
+                        .and_then(JsonValue::as_str)
+                        .ok_or_else(|| {
+                            pyo3::exceptions::PyValueError::new_err("os.dispatch 缺 tool")
+                        })?
+                        .to_string();
+                    let args_obj = parsed.get("args").cloned().unwrap_or_else(|| json!({}));
+                    let args_map: std::collections::BTreeMap<String, JsonValue> = args_obj
+                        .as_object()
+                        .cloned()
+                        .unwrap_or_default()
+                        .into_iter()
+                        .collect();
+                    let state = os_bridge_app.state::<ShellState>();
+                    let shell_backend = os_bridge_app.state::<ShellBackend>();
+                    // 审批闸门在引擎侧 approval 档（seed 单源）；执行器层
+                    // 只强制沙箱/签名（与 device_mcp_call 同口径）
+                    let auth = executors::impls::Authorization { approved: true };
+                    match state
+                        .registry
+                        .run(&tool, &args_map, shell_backend.inner(), &auth)
+                    {
+                        Ok(outcome) => Ok(serde_json::json!({
+                            "ok": true,
+                            "result": outcome.result,
+                        })
+                        .to_string()),
+                        Err(err) => Ok(serde_json::json!({
+                            "ok": false,
+                            "status": "executor_error",
+                            "error": err.to_string(),
+                        })
+                        .to_string()),
+                    }
+                }),
+            )
+            .expect("os.dispatch 回调注册失败");
 
             build_tray(app.handle())?;
             let _ = stop;

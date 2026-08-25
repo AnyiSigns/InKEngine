@@ -1,6 +1,6 @@
 """推演评估装配：review.json 打分配置 → 确定性维度打分器 + 评估器。
 
-评审/推演共用的打分语义（PLAN §6 M3 执行域装配）：
+评审/推演共用的打分语义（设计文档第六节模块 M3 执行域装配）：
 - review.json 声明维度与权重（citation_quality/cross_validation/
   consistency/readability）与通过阈值；
 - samples.json 顶层 facts = 评分交叉验证锚点：分支携带的事实命中数

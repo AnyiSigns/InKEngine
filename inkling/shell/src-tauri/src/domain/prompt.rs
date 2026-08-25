@@ -435,7 +435,7 @@ mod tests {
     fn tool_name_map_from_seed_is_sorted_and_labeled() {
         let tools = seed_file("tools.json");
         let pairs = tool_name_map(&tools);
-        assert_eq!(pairs.len(), 25, "工具清单 25 条");
+        assert_eq!(pairs.len(), 29, "工具清单 29 条");
         assert_eq!(pairs[0].tool, "collect_material");
         let collect = pairs.iter().find(|p| p.tool == "collect_material").unwrap();
         assert_eq!(collect.zh, "把研究素材采集回来");

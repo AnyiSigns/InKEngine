@@ -1,4 +1,4 @@
-"""模型层装配：tiers.json 双挡位按挡位建链 + 缺省回退（PLAN §6 M3）。
+"""模型层装配：tiers.json 双挡位按挡位建链 + 缺省回退（设计文档第六节模块 M3）。
 
 引擎机制（core.tiers）：tier_key 未知挡位回落 main；resolve_tier_config
 缺挡位配置回落 main_config；build_tier_chain 复用重试/备用链。

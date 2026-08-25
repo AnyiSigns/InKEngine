@@ -15,6 +15,12 @@ pub trait SystemBackend: Send + Sync {
     fn schedule(&self, seconds: u64, action: &str) -> Result<String, String>;
     fn screen_query(&self, target: &str) -> Result<String, String>;
     fn file_query(&self, path: &str) -> Result<String, String>;
+    /// 进程模板执行（钉死 argv + 工作目录 + 超时；输出按流截断）。
+    ///
+    /// 结构化结果文本（退出码 + 标准输出/错误 + 截断标记）而非裸错误：
+    /// 超时与退出码非零都落在结果文本里，调用方按结果语义读成败
+    /// （与引擎侧 ProcessResult 形状一致）；仅启动失败/参数非法返回 Err。
+    fn run_process(&self, argv: &[String], cwd: &str, timeout_secs: u64) -> Result<String, String>;
 }
 
 /// 平台后端：真实系统操作的唯一实现（Windows 优先，其余平台显式报不支持）
@@ -34,6 +40,96 @@ fn run_cmd(program: &str, args: &[&str]) -> Result<String, String> {
             String::from_utf8_lossy(&output.stderr).trim()
         ))
     }
+}
+
+/// 进程模板输出单流截断上限（字符；与回合工具结果上限同量级，
+/// 防长输出撑爆结果通道）。
+const PROCESS_OUTPUT_MAX_CHARS: usize = 4000;
+
+/// 子进程输出读取（后台线程消费管道，防管道缓冲写满后子进程阻塞）。
+fn spawn_pipe_reader<R>(mut pipe: R) -> std::thread::JoinHandle<String>
+where
+    R: std::io::Read + Send + 'static,
+{
+    std::thread::spawn(move || {
+        let mut content = String::new();
+        let _ = pipe.read_to_string(&mut content);
+        content
+    })
+}
+
+fn truncate_stream(text: String) -> String {
+    if text.chars().count() <= PROCESS_OUTPUT_MAX_CHARS {
+        return text;
+    }
+    let mut head: String = text.chars().take(PROCESS_OUTPUT_MAX_CHARS).collect();
+    head.push_str("\n…（已截断）");
+    head
+}
+
+/// 进程模板执行（真实子进程）：钉死 argv + 工作目录 + 超时终止 +
+/// 按流截断。退出码与输出落在结构化文本里（超时 = 退出码 -1 +
+/// 超时标记，不抛错）；启动失败 = Err。
+fn run_process_impl(
+    argv: &[String],
+    cwd: &str,
+    timeout_secs: u64,
+) -> Result<String, String> {
+    let Some(program) = argv.first() else {
+        return Err("进程模板为空（缺程序名）".to_string());
+    };
+    let mut cmd = std::process::Command::new(program);
+    cmd.args(&argv[1..])
+        .current_dir(cwd)
+        .stdout(std::process::Stdio::piped())
+        .stderr(std::process::Stdio::piped());
+    let mut child = cmd
+        .spawn()
+        .map_err(|err| format!("命令启动失败: {err}"))?;
+    let stdout_reader = child.stdout.take().map(spawn_pipe_reader);
+    let stderr_reader = child.stderr.take().map(spawn_pipe_reader);
+    let deadline = std::time::Instant::now() + std::time::Duration::from_secs(timeout_secs.max(1));
+    let mut timed_out = false;
+    let mut exit_code: Option<i32> = None;
+    loop {
+        match child.try_wait() {
+            Ok(Some(status)) => {
+                exit_code = status.code();
+                break;
+            }
+            Ok(None) => {}
+            Err(err) => {
+                let _ = child.kill();
+                return Err(format!("等待子进程失败: {err}"));
+            }
+        }
+        if std::time::Instant::now() >= deadline {
+            let _ = child.kill();
+            let _ = child.wait();
+            timed_out = true;
+            break;
+        }
+        std::thread::sleep(std::time::Duration::from_millis(50));
+    }
+    let stdout = stdout_reader
+        .and_then(|handle| handle.join().ok())
+        .unwrap_or_default();
+    let stderr = stderr_reader
+        .and_then(|handle| handle.join().ok())
+        .unwrap_or_default();
+    let code = if timed_out { -1 } else { exit_code.unwrap_or(-1) };
+    let mut text = String::new();
+    if timed_out {
+        text.push_str(&format!("exit {code}（执行超时 {timeout_secs}s，已终止）\n"));
+    } else {
+        text.push_str(&format!("exit {code}\n"));
+    }
+    text.push_str("[stdout]\n");
+    text.push_str(&truncate_stream(stdout));
+    text.push('\n');
+    text.push_str("[stderr]\n");
+    text.push_str(&truncate_stream(stderr));
+    Ok(text)
 }
 
 impl Default for PlatformBackend {
@@ -122,6 +218,10 @@ impl SystemBackend for PlatformBackend {
             .collect::<Vec<_>>()
             .join(", ");
         Ok(format!("[{path}] {entries}"))
+    }
+
+    fn run_process(&self, argv: &[String], cwd: &str, timeout_secs: u64) -> Result<String, String> {
+        run_process_impl(argv, cwd, timeout_secs)
     }
 }
 
@@ -291,6 +391,10 @@ impl SystemBackend for ShellBackend {
     fn file_query(&self, path: &str) -> Result<String, String> {
         self.platform.file_query(path)
     }
+
+    fn run_process(&self, argv: &[String], cwd: &str, timeout_secs: u64) -> Result<String, String> {
+        self.platform.run_process(argv, cwd, timeout_secs)
+    }
 }
 
 impl SystemBackend for MockBackend {
@@ -337,5 +441,64 @@ impl SystemBackend for MockBackend {
     fn file_query(&self, path: &str) -> Result<String, String> {
         self.calls.lock().unwrap().push(format!("file_query:{path}"));
         Ok(format!("mock:file {path}"))
+    }
+
+    fn run_process(&self, argv: &[String], cwd: &str, timeout_secs: u64) -> Result<String, String> {
+        self.calls.lock().unwrap().push(format!(
+            "run_process:{}|{}|{}s",
+            argv.join(" "),
+            cwd,
+            timeout_secs
+        ));
+        Ok(format!("mock:run {}（exit 0）", argv.join(" ")))
+    }
+}
+
+#[cfg(test)]
+mod tests {
+    use super::*;
+
+    #[test]
+    fn run_process_reports_exit_code_and_output() {
+        let backend = PlatformBackend;
+        #[cfg(windows)]
+        let argv = vec!["cmd".into(), "/C".into(), "echo".into(), "process-ok".into()];
+        #[cfg(not(windows))]
+        let argv = vec!["echo".into(), "process-ok".into()];
+        let result = backend.run_process(&argv, ".", 30).expect("执行应成功");
+        assert!(result.contains("exit 0"), "退出码缺失: {result}");
+        assert!(result.contains("process-ok"), "stdout 缺失: {result}");
+    }
+
+    #[test]
+    fn run_process_timeout_kills_and_marks() {
+        let backend = PlatformBackend;
+        #[cfg(windows)]
+        let argv = vec![
+            "cmd".into(),
+            "/C".into(),
+            "ping".into(),
+            "-n".into(),
+            "30".into(),
+            "127.0.0.1".into(),
+        ];
+        #[cfg(not(windows))]
+        let argv = vec!["sleep".into(), "30".into()];
+        let result = backend.run_process(&argv, ".", 1).expect("超时返回结构化结果");
+        assert!(result.contains("超时"), "超时标记缺失: {result}");
+        assert!(result.contains("exit -1"), "超时退出码应为 -1: {result}");
+    }
+
+    #[test]
+    fn run_process_spawn_failure_is_err() {
+        let backend = PlatformBackend;
+        let argv = vec!["definitely-not-a-real-binary-xyz".into()];
+        assert!(backend.run_process(&argv, ".", 5).is_err());
+    }
+
+    #[test]
+    fn run_process_empty_argv_is_err() {
+        let backend = PlatformBackend;
+        assert!(backend.run_process(&[], ".", 5).is_err());
     }
 }

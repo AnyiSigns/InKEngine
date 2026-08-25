@@ -170,7 +170,7 @@ def audit_event_specs() -> tuple[EventTypeSpec, ...]:
 
     组装/汇流裁决/指纹顶替/策略边复审 + 推荐先验晋升五类留痕入
     ``event_types`` 注册表——append-only 审计统一出口，不散落宿主
-    自造事件（晋升通道为 §11.6 自动生长机制新增的第五类）。
+    自造事件（晋升通道来自设计文档第十一节第六节的自动生长机制，为新增的第五类）。
     """
     return (
         EventTypeSpec(

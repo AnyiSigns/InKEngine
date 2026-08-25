@@ -27,6 +27,10 @@ export interface SecurityValue {
   timeoutSecs: string;
   networkEnabled: boolean;
   networkAllowlist: string;
+  /** 自动审批已勾选工具（仅可登记清单内的工具可勾选；勾选 = 用户预授权） */
+  autoApproveTools: string[];
+  /** 自动审批全量开关（对全部可登记工具生效；OS 控制/文件写类不受影响） */
+  autoApproveAllReview: boolean;
 }
 
 export const DEFAULT_SECURITY: SecurityValue = {
@@ -37,6 +41,8 @@ export const DEFAULT_SECURITY: SecurityValue = {
   timeoutSecs: '30',
   networkEnabled: false,
   networkAllowlist: '',
+  autoApproveTools: [],
+  autoApproveAllReview: false,
 };
 
 /** 崩溃回退操作面（宿主后端接线；无宿主 = 空操作，按钮失败反馈）。 */
@@ -70,9 +76,11 @@ interface SecurityTrustProps {
   onOpenBackupWizard?: (mode: 'export' | 'restore') => void;
   /** 崩溃回退操作面（回上一稳定版本 / 出厂重置的宿主接线） */
   recovery?: RecoveryOps | null;
+  /** 自动审批可登记工具清单（后端 tools_snapshot 的 auto_approvable 过滤面） */
+  autoApprovableTools?: string[];
 }
 
-export function SecurityTrust({ value, patch, onOpenBackupWizard, recovery }: SecurityTrustProps) {
+export function SecurityTrust({ value, patch, onOpenBackupWizard, recovery, autoApprovableTools = [] }: SecurityTrustProps) {
   const [auditPhase, setAuditPhase] = useState<FeedbackPhase>('idle');
   const [snapshots, setSnapshots] = useState<RecoverySnapshot[]>([]);
   const [snapshotsPhase, setSnapshotsPhase] = useState<FeedbackPhase>('idle');
@@ -207,6 +215,47 @@ export function SecurityTrust({ value, patch, onOpenBackupWizard, recovery }: Se
             onChange={(e) => patch({ networkAllowlist: e.target.value })}
           />
         </div>
+      </div>
+      <div className="ink-elevated space-y-2.5 px-3.5 py-3">
+        <div className="text-[11px] font-medium tracking-wide ink-text-muted">自动审批（用户预授权）</div>
+        <label className="flex items-center gap-2 cursor-pointer">
+          <input
+            type="checkbox"
+            className="ink-check"
+            checked={value.autoApproveAllReview}
+            onChange={(e) => patch({ autoApproveAllReview: e.target.checked })}
+            data-ui="auto_approve_all"
+          />
+          <span className="text-[11px]">对全部可登记工具免审批（只读感知/测试构建类）</span>
+        </label>
+        {autoApprovableTools.length > 0 ? (
+          <div className="grid grid-cols-2 gap-1.5">
+            {autoApprovableTools.map((tool) => (
+              <label key={tool} className="flex items-center gap-2 cursor-pointer">
+                <input
+                  type="checkbox"
+                  className="ink-check"
+                  checked={value.autoApproveTools.includes(tool)}
+                  onChange={(e) => {
+                    const next = e.target.checked
+                      ? [...value.autoApproveTools, tool]
+                      : value.autoApproveTools.filter((name) => name !== tool);
+                    patch({ autoApproveTools: next });
+                  }}
+                  data-ui={`auto_approve_${tool}`}
+                />
+                <span className="truncate font-mono text-[10px]">{tool}</span>
+              </label>
+            ))}
+          </div>
+        ) : (
+          <p className="text-[10px] ink-text-faint">可登记清单暂不可用（宿主未返回工具快照）。</p>
+        )}
+        <p className="flex items-center gap-1.5 text-[10px] leading-relaxed ink-text-faint">
+          <ShieldCheck size={10} strokeWidth={1.6} className="shrink-0" aria-hidden />
+          勾选只跳过人审弹卡：deny 档、沙箱越界与审计留痕不受影响；OS 控制与文件写类工具
+          不可登记，始终需要真人审批。
+        </p>
       </div>
       <div className="ink-elevated space-y-2.5 px-3.5 py-3">
         <div className="text-[11px] font-medium tracking-wide ink-text-muted">审计与恢复</div>

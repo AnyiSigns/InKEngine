@@ -81,8 +81,8 @@ const DOMAIN_TOOLS: [&str; 7] = [
     "distill_knowledge",
     "mutate_knowledge",
 ];
-/// shell 执行器注册（感知/控制；壳契约测试同源）。
-const SHELL_EXECUTORS: [&str; 7] = [
+/// shell 执行器注册（感知/控制/进程模板；壳契约测试同源）。
+const SHELL_EXECUTORS: [&str; 11] = [
     "launch_app",
     "open_file",
     "system_query",
@@ -90,6 +90,10 @@ const SHELL_EXECUTORS: [&str; 7] = [
     "set_brightness",
     "notify",
     "schedule",
+    "run_typecheck",
+    "run_test_cargo",
+    "run_test_python",
+    "run_test_web",
 ];
 /// OS 控制类（system_query 属感知/状态查询，不计入）。
 const OS_CONTROL_TOOLS: [&str; 6] = [
@@ -1417,6 +1421,161 @@ fn check_mcp_market(data: &Value, _payload: &Payload, issues: &mut Vec<String>) 
     }
 }
 
+/// 解析前端 eventTypes.ts 中 `EVENT_TYPE_NAMES = [...]` 的字符串字面量清单
+/// （文本扫描，零依赖；与事件类型注册表镜像表同源比对）。
+fn parse_frontend_event_names(source: &str) -> Vec<String> {
+    let Some(start) = source.find("EVENT_TYPE_NAMES = [") else {
+        return Vec::new();
+    };
+    let rest = &source[start + "EVENT_TYPE_NAMES = [".len()..];
+    let end = rest.find("] as const").unwrap_or(rest.len());
+    let body = &rest[..end];
+    let mut names = Vec::new();
+    let mut cursor = 0;
+    while cursor < body.len() {
+        let Some(quote) = body[cursor..].find('\'') else {
+            break;
+        };
+        let after_quote = cursor + quote + 1;
+        let Some(end) = body[after_quote..].find('\'') else {
+            break;
+        };
+        names.push(body[after_quote..after_quote + end].to_string());
+        cursor = after_quote + end + 1;
+    }
+    names
+}
+
+/// 三方事件清单一致：seed event_types.json（权威）↔ 前端镜像表 eventTypes.ts
+/// ↔ 前端夹具 event_types.fixture.json——防事件类型再漂移。
+fn check_event_types_consistency(repo_root: &Path, payload: &Payload, issues: &mut Vec<String>) {
+    let seed_names: Vec<&str> = payload
+        .get("event_types")
+        .and_then(|types| types.get("events"))
+        .and_then(Value::as_array)
+        .map(|events| {
+            events
+                .iter()
+                .filter_map(|event| event.get("name").and_then(Value::as_str))
+                .collect()
+        })
+        .unwrap_or_default();
+    let mirror_path = repo_root.join("inkling/frontend/src/shared/session/eventTypes.ts");
+    let mirror_source = match std::fs::read_to_string(&mirror_path) {
+        Ok(source) => source,
+        Err(err) => {
+            issues.push(format!("前端事件镜像表读取失败 {}: {err}", mirror_path.display()));
+            return;
+        }
+    };
+    let mirror_names = parse_frontend_event_names(&mirror_source);
+    if mirror_names.is_empty() {
+        issues.push("前端事件镜像表未解析到 EVENT_TYPE_NAMES 清单".to_string());
+    }
+    let missing_in_mirror: Vec<&str> = seed_names
+        .iter()
+        .copied()
+        .filter(|name| !mirror_names.iter().any(|m| m == name))
+        .collect();
+    if !missing_in_mirror.is_empty() {
+        issues.push(format!(
+            "事件清单不一致：seed 有而前端镜像表缺 {missing_in_mirror:?}"
+        ));
+    }
+    let extra_in_mirror: Vec<&str> = mirror_names
+        .iter()
+        .map(String::as_str)
+        .filter(|name| !seed_names.contains(name))
+        .collect();
+    if !extra_in_mirror.is_empty() {
+        issues.push(format!(
+            "事件清单不一致：前端镜像表有而 seed 缺 {extra_in_mirror:?}（seed 为权威，须先登记 seed）"
+        ));
+    }
+    let fixture_path = repo_root.join("inkling/frontend/src/data/event_types.fixture.json");
+    match load_json(&fixture_path) {
+        Ok(fixture) => {
+            let fixture_names: Vec<&str> = fixture
+                .get("event_types")
+                .and_then(Value::as_array)
+                .map(|items| {
+                    items
+                        .iter()
+                        .filter_map(|item| item.get("name").and_then(Value::as_str))
+                        .collect()
+                })
+                .unwrap_or_default();
+            let missing_in_fixture: Vec<&str> = seed_names
+                .iter()
+                .copied()
+                .filter(|name| !fixture_names.contains(name))
+                .collect();
+            if !missing_in_fixture.is_empty() {
+                issues.push(format!(
+                    "事件清单不一致：seed 有而前端夹具缺 {missing_in_fixture:?}"
+                ));
+            }
+            let extra_in_fixture: Vec<&str> = fixture_names
+                .iter()
+                .copied()
+                .filter(|name| !seed_names.contains(name))
+                .collect();
+            if !extra_in_fixture.is_empty() {
+                issues.push(format!(
+                    "事件清单不一致：前端夹具含 seed 无的事件 {extra_in_fixture:?}"
+                ));
+            }
+        }
+        Err(err) => issues.push(err),
+    }
+}
+
+/// 档位单源：壳侧运行时数据资产 tools_os.json 的权限档必须等于 seed
+/// tools.json 的 approval 档（同一能力同一档位，防按调用路径分叉）。
+fn check_tool_tier_single_source(repo_root: &Path, payload: &Payload, issues: &mut Vec<String>) {
+    let decl_path = repo_root.join("inkling/shell/src-tauri/fixtures/tools_os.json");
+    let decls = match load_json(&decl_path) {
+        Ok(value) => value,
+        Err(err) => {
+            issues.push(err);
+            return;
+        }
+    };
+    let Some(decl_tools) = decls.get("tools").and_then(Value::as_array) else {
+        issues.push("tools_os.json 缺 tools 清单".to_string());
+        return;
+    };
+    let seed_tools = payload
+        .get("tools")
+        .and_then(|tools| tools.get("tools"))
+        .and_then(Value::as_array)
+        .cloned()
+        .unwrap_or_default();
+    let seed_tier_of = |name: &str| -> Option<&str> {
+        seed_tools.iter().find_map(|tool| {
+            if tool.get("name").and_then(Value::as_str) == Some(name) {
+                tool.get("approval").and_then(Value::as_str)
+            } else {
+                None
+            }
+        })
+    };
+    for tool in decl_tools {
+        let name = tool.get("name").and_then(Value::as_str).unwrap_or("");
+        let declared = tool.get("permission").and_then(Value::as_str).unwrap_or("");
+        let seed_tier = seed_tier_of(name);
+        match seed_tier {
+            Some(seed) if seed != declared => issues.push(format!(
+                "档位双源：壳侧 tools_os.json {name} 档位 {declared:?} ≠ seed tools.json {seed:?}（seed 为唯一权威档位源）"
+            )),
+            None => issues.push(format!(
+                "档位单源：壳侧 tools_os.json {name} 在 seed tools.json 无对应条目（工具登记漂移）"
+            )),
+            _ => {}
+        }
+    }
+}
+
 fn unique<T: PartialEq>(items: &[T]) -> bool {
     for (index, item) in items.iter().enumerate() {
         if items.iter().skip(index + 1).any(|other| other == item) {
@@ -1559,6 +1718,10 @@ pub fn run(repo_root: &Path) -> SchemaReport {
             Err(err) => issues.push(err),
         }
     }
+
+    // 跨仓一致性门禁：事件类型三方清单（seed 权威）+ 工具档位单源
+    check_event_types_consistency(repo_root, &payload, &mut issues);
+    check_tool_tier_single_source(repo_root, &payload, &mut issues);
 
     // 校验器自检夹具：正例全通过、反例全部命中（防检查器自身失效）
     let fixture_problems = run_validator_fixtures();

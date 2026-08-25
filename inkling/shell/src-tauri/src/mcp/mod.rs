@@ -119,7 +119,8 @@ impl<'a> DeviceServer<'a> {
                     .unwrap_or_default()
                     .into_iter()
                     .collect::<BTreeMap<String, Value>>();
-                // 感知工具出厂 allow 级；review/deny 由审批层在 process_exec 面拦截
+                // 设备感知工具审批语义与 process_exec 同源：审批闸门在引擎
+                // 侧 approval 档（seed 单源，出厂 review），此处只强制沙箱
                 let auth = Authorization { approved: true };
                 match self.registry.run(tool, &args, self.backend, &auth) {
                     Ok(outcome) => Some(

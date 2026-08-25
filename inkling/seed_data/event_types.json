@@ -26,6 +26,19 @@
       "meta": { "note": "思考开始（节点级），消息流内联展示" }
     },
     {
+      "name": "thinking_end",
+      "schema": {
+        "name": "thinking_end",
+        "fields": [
+          { "name": "content", "kind": "string" },
+          { "name": "step_id", "kind": "string" }
+        ]
+      },
+      "renderer": "message_list",
+      "system": false,
+      "meta": { "note": "思考结束定型（同 step_id 收敛为完成态）" }
+    },
+    {
       "name": "plan_start",
       "schema": {
         "name": "plan_start",
@@ -37,6 +50,19 @@
       "renderer": "message_list",
       "system": false,
       "meta": { "note": "重规划开始（__plan__ 落点），推演轨迹树与消息流内联行消费" }
+    },
+    {
+      "name": "plan_end",
+      "schema": {
+        "name": "plan_end",
+        "fields": [
+          { "name": "content", "kind": "string" },
+          { "name": "step_id", "kind": "string" }
+        ]
+      },
+      "renderer": "message_list",
+      "system": false,
+      "meta": { "note": "规划结束（步骤清单定型）" }
     },
     {
       "name": "spawn_start",
@@ -52,6 +78,19 @@
       "meta": { "note": "子任务展开（__spawn__ 落点），推演轨迹树分支" }
     },
     {
+      "name": "spawn_end",
+      "schema": {
+        "name": "spawn_end",
+        "fields": [
+          { "name": "node_id", "kind": "string" },
+          { "name": "spawn_id", "kind": "string" }
+        ]
+      },
+      "renderer": "simulation_tree",
+      "system": false,
+      "meta": { "note": "子任务实例结束（按实例 graph_path 归属回收）" }
+    },
+    {
       "name": "tool_start",
       "schema": {
         "name": "tool_start",
@@ -64,6 +103,21 @@
       "renderer": "message_list",
       "system": false,
       "meta": { "note": "工具调用留痕（工具名·权限判定·结果摘要），内联一行" }
+    },
+    {
+      "name": "tool_end",
+      "schema": {
+        "name": "tool_end",
+        "fields": [
+          { "name": "tool", "required": true, "kind": "string" },
+          { "name": "success", "kind": "boolean" },
+          { "name": "message", "kind": "string" },
+          { "name": "summary", "kind": "string" }
+        ]
+      },
+      "renderer": "message_list",
+      "system": false,
+      "meta": { "note": "工具调用结束（成败 + 截断结果回填）" }
     },
     {
       "name": "review_card",
@@ -105,6 +159,16 @@
       "meta": { "note": "节点执行异常（引擎 error 事件），消息流告警展示" }
     },
     {
+      "name": "end",
+      "schema": {
+        "name": "end",
+        "fields": []
+      },
+      "renderer": "message_list",
+      "system": false,
+      "meta": { "note": "回合结束信号（不建卡，仅推进状态）" }
+    },
+    {
       "name": "simulate_decision",
       "schema": {
         "name": "simulate_decision",
@@ -117,6 +181,32 @@
       "renderer": "simulation_tree",
       "system": false,
       "meta": { "note": "决策点推演（__simulate__ 落点）：分支对比 + Evaluator 评分 + 换选" }
+    },
+    {
+      "name": "branch_result",
+      "schema": {
+        "name": "branch_result",
+        "fields": [
+          { "name": "branch_id", "required": true, "kind": "string" },
+          { "name": "score", "kind": "number" },
+          { "name": "rationale", "kind": "string" }
+        ]
+      },
+      "renderer": "simulation_tree",
+      "system": false,
+      "meta": { "note": "分支评分结果回填（同 branch_id 更新评分与理由）" }
+    },
+    {
+      "name": "swap_branch",
+      "schema": {
+        "name": "swap_branch",
+        "fields": [
+          { "name": "branch_id", "required": true, "kind": "string" }
+        ]
+      },
+      "renderer": "simulation_tree",
+      "system": false,
+      "meta": { "note": "换选分支（selected 归属切换）" }
     },
     {
       "name": "signal_detected",
@@ -168,6 +258,34 @@
       "meta": { "note": "三层闸门判定留痕（放行/拦截及原因）" }
     },
     {
+      "name": "mutation_proposed",
+      "schema": {
+        "name": "mutation_proposed",
+        "fields": [
+          { "name": "mutation_id", "required": true, "kind": "string" },
+          { "name": "mutation", "kind": "string" },
+          { "name": "title", "kind": "string" }
+        ]
+      },
+      "renderer": "incubator_panel",
+      "system": false,
+      "meta": { "note": "进化工厂变异体提案（孵化流水条目）" }
+    },
+    {
+      "name": "regression_guard",
+      "schema": {
+        "name": "regression_guard",
+        "fields": [
+          { "name": "mutation_id", "required": true, "kind": "string" },
+          { "name": "passed", "kind": "boolean" },
+          { "name": "reason", "kind": "string" }
+        ]
+      },
+      "renderer": "incubator_panel",
+      "system": false,
+      "meta": { "note": "防退化守卫判定（变异体回归拦截留痕）" }
+    },
+    {
       "name": "evolution_variant",
       "schema": {
         "name": "evolution_variant",
@@ -200,6 +318,21 @@
       "renderer": "evolution_timeline",
       "system": false,
       "meta": { "note": "补丁链落链事件（演化时间线推进）" }
+    },
+    {
+      "name": "patch_proposed",
+      "schema": {
+        "name": "patch_proposed",
+        "fields": [
+          { "name": "patch_id", "required": true, "kind": "string" },
+          { "name": "kind", "kind": "string" },
+          { "name": "title", "kind": "string" },
+          { "name": "level", "kind": "string" }
+        ]
+      },
+      "renderer": "evolution_timeline",
+      "system": false,
+      "meta": { "note": "补丁提案（待审批/待落链条目）" }
     },
     {
       "name": "patch_reverted",
@@ -287,6 +420,61 @@
       "renderer": "message_list",
       "system": false,
       "meta": { "note": "OS 控制留痕（launch_app/open_file/notify 等执行器动作）" }
+    },
+    {
+      "name": "task_start",
+      "schema": {
+        "name": "task_start",
+        "fields": [
+          { "name": "task_id", "required": true, "kind": "string" },
+          { "name": "kind", "kind": "string" },
+          { "name": "goal", "kind": "string" }
+        ]
+      },
+      "renderer": "message_list",
+      "system": false,
+      "meta": { "note": "后台任务启动（回合外任务载体，任务面板消费）" }
+    },
+    {
+      "name": "task_update",
+      "schema": {
+        "name": "task_update",
+        "fields": [
+          { "name": "task_id", "required": true, "kind": "string" },
+          { "name": "status", "kind": "string" },
+          { "name": "progress", "kind": "number" },
+          { "name": "note", "kind": "string" }
+        ]
+      },
+      "renderer": "message_list",
+      "system": false,
+      "meta": { "note": "后台任务进度更新" }
+    },
+    {
+      "name": "task_done",
+      "schema": {
+        "name": "task_done",
+        "fields": [
+          { "name": "task_id", "required": true, "kind": "string" },
+          { "name": "result", "kind": "string" }
+        ]
+      },
+      "renderer": "message_list",
+      "system": false,
+      "meta": { "note": "后台任务完成通知" }
+    },
+    {
+      "name": "task_cancelled",
+      "schema": {
+        "name": "task_cancelled",
+        "fields": [
+          { "name": "task_id", "required": true, "kind": "string" },
+          { "name": "reason", "kind": "string" }
+        ]
+      },
+      "renderer": "message_list",
+      "system": false,
+      "meta": { "note": "后台任务取消（含回退语义）" }
     }
   ]
 }

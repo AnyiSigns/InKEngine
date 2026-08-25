@@ -113,7 +113,7 @@ describe('事件落位（ingest）', () => {
 
   it('孵化/推演/补丁事件落位（孵化流水 + 分支 + 补丁链）', () => {
     const hub = new ChannelHub();
-    ingestEvent(hub, ev('signal_observed', { signal_id: 'sig-1', signal_type: 'insight', signal: '信号' }));
+    ingestEvent(hub, ev('signal_detected', { signal_id: 'sig-1', signal_type: 'insight', signal: '信号' }));
     ingestEvent(hub, ev('gate_verdict', { signal_id: 'sig-1', level: 'L1', passed: false, reason: '样例不足' }));
     expect(hub.getSnapshot().incubation[0]).toMatchObject({ stage: 'blocked', gateLevel: 'L1' });
 

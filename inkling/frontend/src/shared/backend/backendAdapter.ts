@@ -71,11 +71,12 @@ export interface ArtifactManifestEntry {
   view_forms?: string[];
 }
 
-/** 工具快照条目（四层兜底标签 + 工具族）。 */
+/** 工具快照条目（四层兜底标签 + 工具族 + 自动审批可登记标记）。 */
 export interface ToolSnapshotEntry {
   tool: string;
   zh: string;
   group: string;
+  auto_approvable?: boolean;
 }
 
 /** 后端状态（引擎就绪/工具面/安全模式/首启引导/执行件随包/运行形态）。 */

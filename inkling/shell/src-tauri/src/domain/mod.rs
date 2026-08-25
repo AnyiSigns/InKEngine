@@ -14,6 +14,7 @@ pub mod build;
 pub mod canary;
 pub mod code_tools;
 pub mod common;
+pub mod doc_ops;
 pub mod convergence;
 pub mod embedder;
 pub mod env;

@@ -13,6 +13,7 @@ import { Cpu, Paperclip, Send, Square } from 'lucide-react';
 
 import type { GearTier, ModeTier } from '@/shared/session/types';
 import type { AttachmentAsset } from '@/shared/session/eventIngest';
+import type { ModelProfile } from '@/shared/backend/backendAdapter';
 import type { FilePicker } from '@/shared/media/filePicker';
 import { createDomFilePicker } from '@/shared/media/filePicker';
 import { classifyMediaAsset } from '@/shared/media/mediaPolicy';
@@ -48,6 +49,12 @@ interface AgentInputProps {
   filePicker?: FilePicker | null;
   /** 会话键（草稿持久化作用域） */
   sessionKey?: string;
+  /** 模型档案清单（按挡位分组；缺省回落假数据） */
+  models?: ModelProfile[];
+  /** 预设选中模型 id */
+  selectedModel?: string;
+  /** 切换回调（宿主接线：占用/上限联动） */
+  onModelSelect?: (id: string) => void;
 }
 
 const defaultPicker = createDomFilePicker();
@@ -60,6 +67,9 @@ export function AgentInput({
   onAttachments,
   filePicker = defaultPicker,
   sessionKey = 'default',
+  models,
+  selectedModel,
+  onModelSelect,
 }: AgentInputProps) {
   const [draft, setDraft] = useUiState<string>(`agent_input.draft.${sessionKey}`, '');
   const [attachNote, setAttachNote] = useState<{ text: string; phase: 'success' | 'fail' } | null>(null);
@@ -68,6 +78,26 @@ export function AgentInput({
   const streaming = data.streaming === true;
   const gear = data.activeGear ?? 'main';
   const mode = data.modeTier ?? 'default';
+
+  // 模型选择器：档案清单按挡位分组；无宿主数据回落假数据
+  const FALLBACK_MODELS: ModelProfile[] = [
+    { id: 'main-pro', name: '主模型·专业', tier: 'main', occupancy: 3, limit: 10 },
+    { id: 'main-lite', name: '主模型·轻量', tier: 'main', occupancy: 1, limit: 10 },
+    { id: 'router-fast', name: '制片人·快', tier: 'router', occupancy: 0, limit: 5 },
+  ];
+  const modelList = models ?? FALLBACK_MODELS;
+  const [modelId, setModelId] = useState<string>(selectedModel ?? modelList[0]?.id ?? '');
+  const selectedModelObj = modelList.find((m) => m.id === modelId);
+  const tierGroups = new Map<string, ModelProfile[]>();
+  for (const m of modelList) {
+    const group = tierGroups.get(m.tier) ?? [];
+    group.push(m);
+    tierGroups.set(m.tier, group);
+  }
+  const onModelChange = (id: string): void => {
+    setModelId(id);
+    onModelSelect?.(id);
+  };
 
   const canSend = draft.trim().length > 0 && !streaming;
   const submit = (): void => {
@@ -145,6 +175,30 @@ export function AgentInput({
             挡位 {GEAR_LABELS[gear]}
           </span>
           <span className="ink-chip ink-text-muted">模式 {MODE_LABELS[mode]}</span>
+          <span className="ink-chip ink-text-muted" data-ui="model_selector">
+            <select
+              aria-label="模型选择"
+              data-ui="model_select"
+              value={modelId}
+              onChange={(e) => onModelChange(e.target.value)}
+              className="bg-transparent text-[9px] outline-none ink-text-muted"
+            >
+              {[...tierGroups.entries()].map(([tier, list]) => (
+                <optgroup key={tier} label={`挡位 ${tier}`}>
+                  {list.map((m) => (
+                    <option key={m.id} value={m.id}>
+                      {m.name}
+                    </option>
+                  ))}
+                </optgroup>
+              ))}
+            </select>
+          </span>
+          {selectedModelObj ? (
+            <span className="ink-chip ink-text-faint" data-ui="model_occupancy">
+              占用 {selectedModelObj.occupancy}/{selectedModelObj.limit}
+            </span>
+          ) : null}
           {attachNote && (
             <span
               data-ui="attach_note"

@@ -8,6 +8,7 @@
 import { BatchCounter } from '../logger';
 import type { ChannelHub, HubEvent } from './channelHub';
 import type { InkMessage } from './types';
+import { reduceTaskEvent } from './taskState';
 
 let messageSeq = 0;
 
@@ -49,6 +50,8 @@ export function ingestEvent(hub: ChannelHub, event: HubEvent): void {
   const state = hub.getSnapshot();
   const roundId = (payload.round_id as string | undefined) ?? state.roundId ?? undefined;
   const stepId = (payload.step_id as string | undefined) ?? '';
+  // 任务面事件归约（task_state 子通道）；非任务事件归约为原样（不崩）
+  const taskState = reduceTaskEvent(state.taskState, event);
 
   let messages = state.messages;
   let next: Partial<typeof state> = {};
@@ -371,7 +374,7 @@ export function ingestEvent(hub: ChannelHub, event: HubEvent): void {
       messages = [...messages, { kind: 'unknown', token: JSON.stringify(event), id: nextId(), stepId: stepId || undefined, roundId }];
   }
 
-  hub.setState({ ...next, messages, roundId: state.roundId ?? roundId });
+  hub.setState({ ...next, messages, roundId: state.roundId ?? roundId, taskState });
 }
 
 /**

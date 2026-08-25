@@ -16,6 +16,8 @@
 import type { EventTypeName } from './eventTypes';
 import type { InspectChannelName, InspectSnapshot } from './inspectTypes';
 import type { InkMessage, RoundStep, SimulationBranch, IncubationEntry, SourceTraceEntry, PatchChainEntry, GearTier, ModeTier } from './types';
+import type { TaskState } from './taskState';
+import { emptyTaskState } from './taskState';
 
 /** 会话状态快照（state.* 通道的根对象）。 */
 export interface SessionSnapshot {
@@ -32,6 +34,8 @@ export interface SessionSnapshot {
   sourceTraces: SourceTraceEntry[];
   patchChain: PatchChainEntry[];
   eventMetrics: { total: number; tokens: number; lastAt: number };
+  /** 任务级执行状态（task_state 子通道根对象）。 */
+  taskState: TaskState;
 }
 
 export function emptySessionSnapshot(): SessionSnapshot {
@@ -49,6 +53,7 @@ export function emptySessionSnapshot(): SessionSnapshot {
     sourceTraces: [],
     patchChain: [],
     eventMetrics: { total: 0, tokens: 0, lastAt: 0 },
+    taskState: emptyTaskState(),
   };
 }
 

@@ -95,32 +95,35 @@
     },
     {
       "name": "run_test_cargo",
-      "description": "Rust 测试（钉死参数模板，只读测试/构建类）",
+      "description": "Rust 测试（钉死参数模板，只读测试/构建类；filter 受限筛选）",
       "permission": "review",
       "endpoint": "process_exec",
-      "sandbox": { "mode": "process_template", "argv": ["cargo", "test"], "timeout_secs": 180 },
+      "sandbox": { "mode": "process_template", "argv": ["cargo", "test"], "timeout_secs": 180, "filter_arg": "--" },
       "params": [
-        { "name": "command", "type": "string", "required": true }
+        { "name": "command", "type": "string", "required": true },
+        { "name": "filter", "type": "string", "required": false }
       ]
     },
     {
       "name": "run_test_python",
-      "description": "Python 测试（钉死参数模板，只读测试/构建类）",
+      "description": "Python 测试（钉死参数模板，只读测试/构建类；filter 受限筛选）",
       "permission": "review",
       "endpoint": "process_exec",
-      "sandbox": { "mode": "process_template", "argv": ["python", "-m", "pytest"], "timeout_secs": 180 },
+      "sandbox": { "mode": "process_template", "argv": ["python", "-m", "pytest"], "timeout_secs": 180, "filter_arg": "-k" },
       "params": [
-        { "name": "command", "type": "string", "required": true }
+        { "name": "command", "type": "string", "required": true },
+        { "name": "filter", "type": "string", "required": false }
       ]
     },
     {
       "name": "run_test_web",
-      "description": "Web 前端测试（钉死参数模板，只读测试/构建类）",
+      "description": "Web 前端测试（钉死参数模板，只读测试/构建类；filter 受限筛选）",
       "permission": "review",
       "endpoint": "process_exec",
-      "sandbox": { "mode": "process_template", "argv": ["npx", "vitest", "run"], "timeout_secs": 180 },
+      "sandbox": { "mode": "process_template", "argv": ["npx", "vitest", "run"], "timeout_secs": 180, "filter_arg": "-t" },
       "params": [
-        { "name": "command", "type": "string", "required": true }
+        { "name": "command", "type": "string", "required": true },
+        { "name": "filter", "type": "string", "required": false }
       ]
     },
     {

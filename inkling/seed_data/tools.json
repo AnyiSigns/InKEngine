@@ -818,7 +818,7 @@
     },
     {
       "name": "run_test_cargo",
-      "description": "行为意图：Rust 测试——按钉死参数模板执行 cargo test，产出退出码与截断输出；只读测试动作。\n\n使用时机：涉及 Rust 工程改动后验证测试；用户说「跑一下测试/rust 测试过了吗」时；回合内自我验证的测试闸之一。\n\n取舍与替代选项：类型检查——run_typecheck；Python 测试——run_test_python；Web 前端测试——run_test_web；本工具只执行 cargo test 一种动作，模板钉死不接受自由参数。\n\n参数语义：command=固定值 run_test_cargo（端点操作判定同源，调用方恒传）。\n\n边界与协作：经 process_exec 端点白名单收口；在授权工作区根目录执行；超时与输出截断由执行体保证；失败 = 退出码非零或超时，按输出修正后重跑。",
+      "description": "行为意图：Rust 测试——按钉死参数模板执行 cargo test，产出退出码与截断输出；只读测试动作。\n\n使用时机：涉及 Rust 工程改动后验证测试；用户说「跑一下测试/rust 测试过了吗」时；回合内自我验证的测试闸之一。\n\n取舍与替代选项：类型检查——run_typecheck；Python 测试——run_test_python；Web 前端测试——run_test_web；本工具只执行 cargo test 一种动作；模板钉死，筛选仅限受限 filter（测试名子串，非自由命令面）。\n\n参数语义：command=固定值 run_test_cargo（端点操作判定同源，调用方恒传）；filter=测试名筛选子串/关键词（可选；仅字母/数字/下划线/连字符/点/斜杠/空格，长度 1..=64，不得以连字符开头；pytest 可用 and/or/not 组合关键词，如 \"parse and not live\"）。\n\n边界与协作：经 process_exec 端点白名单收口；在授权工作区根目录执行；超时与输出截断由执行体保证；失败 = 退出码非零或超时，按输出修正后重跑；输出超长截断时用 filter 缩小范围重跑定位。",
       "parameters": {
         "type": "object",
         "properties": {
@@ -828,6 +828,10 @@
               "run_test_cargo"
             ],
             "description": "命令名（固定值；与 process_exec 端点操作判定同源，调用方恒传）"
+          },
+          "filter": {
+            "type": "string",
+            "description": "测试名筛选子串/关键词（可选；仅字母/数字/下划线/连字符/点/斜杠/空格，长度 1..=64，不得以连字符开头；pytest 可用 and/or/not 组合关键词，如 \"parse and not live\"）"
           }
         },
         "required": [
@@ -852,12 +856,12 @@
         "auto_approvable": true,
         "executor": "shell:run_test_cargo",
         "sandbox": "process_template",
-        "note": "钉死参数模板；只读测试/构建类，可登记自动审批"
+        "note": "钉死参数模板 + 受限筛选；只读测试/构建类，可登记自动审批"
       }
     },
     {
       "name": "run_test_python",
-      "description": "行为意图：Python 测试——按钉死参数模板执行 pytest，产出退出码与截断输出；只读测试动作。\n\n使用时机：涉及 Python 工程改动后验证测试；用户说「跑一下 python 测试」时；回合内自我验证的测试闸之一。\n\n取舍与替代选项：类型检查——run_typecheck；Rust 测试——run_test_cargo；Web 前端测试——run_test_web；本工具只执行 pytest 一种动作，模板钉死不接受自由参数。\n\n参数语义：command=固定值 run_test_python（端点操作判定同源，调用方恒传）。\n\n边界与协作：经 process_exec 端点白名单收口；在授权工作区根目录执行；超时与输出截断由执行体保证；失败 = 退出码非零或超时，按输出修正后重跑。",
+      "description": "行为意图：Python 测试——按钉死参数模板执行 pytest，产出退出码与截断输出；只读测试动作。\n\n使用时机：涉及 Python 工程改动后验证测试；用户说「跑一下 python 测试」时；回合内自我验证的测试闸之一。\n\n取舍与替代选项：类型检查——run_typecheck；Rust 测试——run_test_cargo；Web 前端测试——run_test_web；本工具只执行 pytest 一种动作；模板钉死，筛选仅限受限 filter（关键词/子串，非自由命令面）。\n\n参数语义：command=固定值 run_test_python（端点操作判定同源，调用方恒传）；filter=测试名筛选子串/关键词（可选；仅字母/数字/下划线/连字符/点/斜杠/空格，长度 1..=64，不得以连字符开头；pytest 可用 and/or/not 组合关键词，如 \"parse and not live\"）。\n\n边界与协作：经 process_exec 端点白名单收口；在授权工作区根目录执行；超时与输出截断由执行体保证；失败 = 退出码非零或超时，按输出修正后重跑；输出超长截断时用 filter 缩小范围重跑定位。",
       "parameters": {
         "type": "object",
         "properties": {
@@ -867,6 +871,10 @@
               "run_test_python"
             ],
             "description": "命令名（固定值；与 process_exec 端点操作判定同源，调用方恒传）"
+          },
+          "filter": {
+            "type": "string",
+            "description": "测试名筛选子串/关键词（可选；仅字母/数字/下划线/连字符/点/斜杠/空格，长度 1..=64，不得以连字符开头；pytest 可用 and/or/not 组合关键词，如 \"parse and not live\"）"
           }
         },
         "required": [
@@ -891,12 +899,12 @@
         "auto_approvable": true,
         "executor": "shell:run_test_python",
         "sandbox": "process_template",
-        "note": "钉死参数模板；只读测试/构建类，可登记自动审批"
+        "note": "钉死参数模板 + 受限筛选；只读测试/构建类，可登记自动审批"
       }
     },
     {
       "name": "run_test_web",
-      "description": "行为意图：Web 前端测试——按钉死参数模板执行 vitest，产出退出码与截断输出；只读测试动作。\n\n使用时机：涉及前端工程改动后验证测试；用户说「跑一下前端测试」时；回合内自我验证的测试闸之一。\n\n取舍与替代选项：类型检查——run_typecheck；Rust 测试——run_test_cargo；Python 测试——run_test_python；本工具只执行 vitest 一种动作，模板钉死不接受自由参数。\n\n参数语义：command=固定值 run_test_web（端点操作判定同源，调用方恒传）。\n\n边界与协作：经 process_exec 端点白名单收口；在授权工作区根目录执行；超时与输出截断由执行体保证；失败 = 退出码非零或超时，按输出修正后重跑。",
+      "description": "行为意图：Web 前端测试——按钉死参数模板执行 vitest，产出退出码与截断输出；只读测试动作。\n\n使用时机：涉及前端工程改动后验证测试；用户说「跑一下前端测试」时；回合内自我验证的测试闸之一。\n\n取舍与替代选项：类型检查——run_typecheck；Rust 测试——run_test_cargo；Python 测试——run_test_python；本工具只执行 vitest 一种动作；模板钉死，筛选仅限受限 filter（测试名子串，非自由命令面）。\n\n参数语义：command=固定值 run_test_web（端点操作判定同源，调用方恒传）；filter=测试名筛选子串/关键词（可选；仅字母/数字/下划线/连字符/点/斜杠/空格，长度 1..=64，不得以连字符开头；pytest 可用 and/or/not 组合关键词，如 \"parse and not live\"）。\n\n边界与协作：经 process_exec 端点白名单收口；在授权工作区根目录执行；超时与输出截断由执行体保证；失败 = 退出码非零或超时，按输出修正后重跑；输出超长截断时用 filter 缩小范围重跑定位。",
       "parameters": {
         "type": "object",
         "properties": {
@@ -906,6 +914,10 @@
               "run_test_web"
             ],
             "description": "命令名（固定值；与 process_exec 端点操作判定同源，调用方恒传）"
+          },
+          "filter": {
+            "type": "string",
+            "description": "测试名筛选子串/关键词（可选；仅字母/数字/下划线/连字符/点/斜杠/空格，长度 1..=64，不得以连字符开头；pytest 可用 and/or/not 组合关键词，如 \"parse and not live\"）"
           }
         },
         "required": [
@@ -930,7 +942,7 @@
         "auto_approvable": true,
         "executor": "shell:run_test_web",
         "sandbox": "process_template",
-        "note": "钉死参数模板；只读测试/构建类，可登记自动审批"
+        "note": "钉死参数模板 + 受限筛选；只读测试/构建类，可登记自动审批"
       }
     },
     {

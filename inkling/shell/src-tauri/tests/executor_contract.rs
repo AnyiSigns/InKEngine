@@ -177,7 +177,7 @@ fn process_template_tools_registered_with_review_gate() {
         assert_eq!(executor.spec().endpoint, Endpoint::ProcessExec, "{tool} 端点应为 process_exec");
         assert_eq!(executor.spec().permission, PermissionLevel::Review, "{tool} 权限应为 review");
         let template = match &executor.spec().sandbox {
-            SandboxRule::ProcessTemplate { argv, timeout_secs } => {
+            SandboxRule::ProcessTemplate { argv, timeout_secs, .. } => {
                 assert!(!argv.is_empty(), "{tool} 模板不得为空");
                 assert!(*timeout_secs > 0, "{tool} 超时必须为正");
                 argv.clone()
@@ -241,6 +241,78 @@ fn process_template_wrong_sandbox_mode_rejected() {
     }
     let message = expect_registration_error(&declarations);
     assert!(message.contains("run_typecheck"), "模式漂移必须报错: {message}");
+}
+
+// ===== 受限筛选参数（filter：缩小范围重跑，值经字符集/前导符校验） =====
+
+#[test]
+fn process_template_filter_appends_per_declared_flag() {
+    let declarations = load_tool_declarations(TOOLS_DECL_JSON).unwrap();
+    let registry = registry_with(&declarations);
+    let backend = MockBackend::new();
+
+    // cargo：模板尾部追加 ["--", 筛选]
+    let outcome = registry
+        .run("run_test_cargo", &args(&[("command", "run_test_cargo".into()), ("filter", "parse_test".into())]), &backend, &approved())
+        .expect("cargo 筛选应放行");
+    assert!(outcome.result.contains("cargo test -- parse_test"), "{}", outcome.result);
+
+    // pytest：追加 ["-k", 关键词表达式]（and/or/not 是字母组合，放行）
+    let outcome = registry
+        .run("run_test_python", &args(&[("command", "run_test_python".into()), ("filter", "parse and not live".into())]), &backend, &approved())
+        .expect("pytest 关键词组合应放行");
+    assert!(outcome.result.contains("pytest -k parse and not live"), "{}", outcome.result);
+
+    // vitest：追加 ["-t", 测试名子串]
+    let outcome = registry
+        .run("run_test_web", &args(&[("command", "run_test_web".into()), ("filter", "settings_form".into())]), &backend, &approved())
+        .expect("vitest 筛选应放行");
+    assert!(outcome.result.contains("vitest run -t settings_form"), "{}", outcome.result);
+
+    // 空白 filter = 视同未传（整跑）
+    let outcome = registry
+        .run("run_test_cargo", &args(&[("command", "run_test_cargo".into()), ("filter", "   ".into())]), &backend, &approved())
+        .expect("空白筛选应整跑");
+    assert!(outcome.result.contains("cargo test（exit 0）"), "{}", outcome.result);
+}
+
+#[test]
+fn process_template_filter_injection_rejected() {
+    let declarations = load_tool_declarations(TOOLS_DECL_JSON).unwrap();
+    let registry = registry_with(&declarations);
+    let backend = MockBackend::new();
+
+    // 前导连字符 = 旗标注入（pytest --pdb 类交互面）→ 拒绝
+    let err = registry
+        .run("run_test_python", &args(&[("command", "run_test_python".into()), ("filter", "--pdb".into())]), &backend, &approved())
+        .unwrap_err();
+    assert!(matches!(err, ExecError::BadArgs(_)), "旗标注入必须拒绝: {err}");
+
+    // 命令拼接符号 → 拒绝（纵深防御，即便未来引入 shell 层也不放大面）
+    for evil in ["parse; rm -rf .", "parse && cargo clean", "parse$(whoami)", "a|b", "x>y"] {
+        let err = registry
+            .run("run_test_cargo", &args(&[("command", "run_test_cargo".into()), ("filter", evil.into())]), &backend, &approved())
+            .unwrap_err();
+        assert!(matches!(err, ExecError::BadArgs(_)), "拼接符号必须拒绝: {evil}");
+    }
+
+    // 超长 → 拒绝
+    let err = registry
+        .run("run_test_web", &args(&[("command", "run_test_web".into()), ("filter", "x".repeat(65).into())]), &backend, &approved())
+        .unwrap_err();
+    assert!(matches!(err, ExecError::BadArgs(_)), "超长筛选必须拒绝: {err}");
+}
+
+#[test]
+fn process_template_filter_rejected_without_declared_slot() {
+    // run_typecheck 无 filter 声明位：传筛选 = 拒绝（模板钉死不收自由面）
+    let declarations = load_tool_declarations(TOOLS_DECL_JSON).unwrap();
+    let registry = registry_with(&declarations);
+    let backend = MockBackend::new();
+    let err = registry
+        .run("run_typecheck", &args(&[("command", "run_typecheck".into()), ("filter", "app".into())]), &backend, &approved())
+        .unwrap_err();
+    assert!(matches!(err, ExecError::BadArgs(_)), "无声明位必须拒绝: {err}");
 }
 
 // ===== 沙箱守卫 =====

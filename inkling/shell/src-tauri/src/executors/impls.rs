@@ -303,6 +303,9 @@ fn file_query_spec() -> ExecutorSpec {
 /// 进程模板工具的超时上限（秒；钉死在声明侧，与夹具一致）。
 const PROCESS_TEMPLATE_TIMEOUT_SECS: u64 = 180;
 
+/// 测试筛选值长度上限（字符；足够承载测试名子串/关键词组合）。
+const FILTER_MAX_CHARS: usize = 64;
+
 fn run_typecheck_spec() -> ExecutorSpec {
     ExecutorSpec {
         name: "run_typecheck",
@@ -312,6 +315,7 @@ fn run_typecheck_spec() -> ExecutorSpec {
         sandbox: SandboxRule::ProcessTemplate {
             argv: vec!["tsc".into(), "--noEmit".into()],
             timeout_secs: PROCESS_TEMPLATE_TIMEOUT_SECS,
+            filter_arg: None,
         },
     }
 }
@@ -319,12 +323,16 @@ fn run_typecheck_spec() -> ExecutorSpec {
 fn run_test_cargo_spec() -> ExecutorSpec {
     ExecutorSpec {
         name: "run_test_cargo",
-        params: vec![ParamSpec { name: "command", param_type: ParamType::String, required: true }],
+        params: vec![
+            ParamSpec { name: "command", param_type: ParamType::String, required: true },
+            ParamSpec { name: "filter", param_type: ParamType::String, required: false },
+        ],
         permission: PermissionLevel::Review,
         endpoint: Endpoint::ProcessExec,
         sandbox: SandboxRule::ProcessTemplate {
             argv: vec!["cargo".into(), "test".into()],
             timeout_secs: PROCESS_TEMPLATE_TIMEOUT_SECS,
+            filter_arg: Some("--".into()),
         },
     }
 }
@@ -332,12 +340,16 @@ fn run_test_cargo_spec() -> ExecutorSpec {
 fn run_test_python_spec() -> ExecutorSpec {
     ExecutorSpec {
         name: "run_test_python",
-        params: vec![ParamSpec { name: "command", param_type: ParamType::String, required: true }],
+        params: vec![
+            ParamSpec { name: "command", param_type: ParamType::String, required: true },
+            ParamSpec { name: "filter", param_type: ParamType::String, required: false },
+        ],
         permission: PermissionLevel::Review,
         endpoint: Endpoint::ProcessExec,
         sandbox: SandboxRule::ProcessTemplate {
             argv: vec!["python".into(), "-m".into(), "pytest".into()],
             timeout_secs: PROCESS_TEMPLATE_TIMEOUT_SECS,
+            filter_arg: Some("-k".into()),
         },
     }
 }
@@ -345,12 +357,16 @@ fn run_test_python_spec() -> ExecutorSpec {
 fn run_test_web_spec() -> ExecutorSpec {
     ExecutorSpec {
         name: "run_test_web",
-        params: vec![ParamSpec { name: "command", param_type: ParamType::String, required: true }],
+        params: vec![
+            ParamSpec { name: "command", param_type: ParamType::String, required: true },
+            ParamSpec { name: "filter", param_type: ParamType::String, required: false },
+        ],
         permission: PermissionLevel::Review,
         endpoint: Endpoint::ProcessExec,
         sandbox: SandboxRule::ProcessTemplate {
             argv: vec!["npx".into(), "vitest".into(), "run".into()],
             timeout_secs: PROCESS_TEMPLATE_TIMEOUT_SECS,
+            filter_arg: Some("-t".into()),
         },
     }
 }
@@ -535,12 +551,41 @@ fn file_query_run(
     Ok(ExecOutcome { result, sandbox_checked: true })
 }
 
+/// 测试筛选值校验（run_test_* 的 filter 参数）。
+///
+/// 直接 argv 数组传给测试运行器（不经 shell，无命令拼接面），校验
+/// 只关两点：值不得以 `-` 开头（防被解析为运行器旗标，如 pytest 的
+/// --pdb 交互式调试器）且仅限安全字符集（关键词/文件名子串语义够用，
+/// 排除 `;` `&` `|` `$` 反引号等一切可作逃逸/拼接的符号——纵深防御，
+/// 即便未来某层引入 shell 拼接也不放大攻击面）。
+fn validate_test_filter(filter: &str) -> Result<(), ExecError> {
+    let len = filter.chars().count();
+    if !(1..=FILTER_MAX_CHARS).contains(&len) {
+        return Err(ExecError::BadArgs(format!(
+            "filter 长度须在 1..={FILTER_MAX_CHARS} 字符内（实际 {len}）"
+        )));
+    }
+    let head = filter.chars().next().unwrap_or_default();
+    if head == '-' || head == ' ' {
+        return Err(ExecError::BadArgs(
+            "filter 不得以 `-` 或空格开头（防旗标注入）".into(),
+        ));
+    }
+    if !filter.chars().all(|ch| ch.is_ascii_alphanumeric() || matches!(ch, '_' | '-' | '.' | '/' | ' ')) {
+        return Err(ExecError::BadArgs(
+            "filter 仅限字母/数字/`_`/`-`/`.`/`/`/空格（无命令拼接面）".into(),
+        ));
+    }
+    Ok(())
+}
+
 /// 进程模板运行体（run_typecheck / run_test_* 共用）：
 ///
-/// 调用参数只承载端点操作判定的固定命令名（command 与工具名不符 =
-/// 拒绝）；可执行面 = 声明侧钉死的参数模板（无自由参数），工作目录
-/// = 工作区挂载根，超时与输出截断由后端保证。守卫 = 权限档 + 模板
-/// 形态校验；命令名本身经引擎侧端点白名单收口（双重校验）。
+/// 调用参数 = 端点操作判定的固定命令名（command 与工具名不符 = 拒绝）
+/// + 可选的受限筛选（filter：仅声明 filter_arg 的工具接受；值经字符
+/// 集/长度/前导符校验后以 [标志, 值] 追加到模板尾部）。可执行面 =
+/// 声明侧钉死的参数模板，工作目录 = 工作区挂载根，超时与输出截断由
+/// 后端保证。守卫 = 权限档 + 模板形态校验 + 筛选校验。
 fn run_process_template(
     executor: &dyn Executor,
     args: &BTreeMap<String, Value>,
@@ -555,14 +600,28 @@ fn run_process_template(
             "command 固定枚举不符: {command}（期望 {tool}）"
         )));
     }
-    let (argv, timeout_secs) = match &executor.spec().sandbox {
-        SandboxRule::ProcessTemplate { argv, timeout_secs } => (argv.clone(), *timeout_secs),
+    let (mut argv, timeout_secs, filter_arg) = match &executor.spec().sandbox {
+        SandboxRule::ProcessTemplate { argv, timeout_secs, filter_arg } => {
+            (argv.clone(), *timeout_secs, filter_arg.clone())
+        }
         _ => {
             return Err(ExecError::SandboxViolation(
                 "沙箱模式非法（进程模板工具须声明钉死模板）".into(),
             ))
         }
     };
+    if let Some(filter) = args.get("filter").and_then(Value::as_str) {
+        if !filter.trim().is_empty() {
+            let Some(flag) = filter_arg else {
+                return Err(ExecError::BadArgs(format!(
+                    "{tool} 不接受筛选参数（模板钉死，无 filter 声明位）"
+                )));
+            };
+            validate_test_filter(filter)?;
+            argv.push(flag);
+            argv.push(filter.to_string());
+        }
+    }
     let cwd = normalize_abs(WORKSPACE_ROOT)?;
     let cwd_text = cwd.to_string_lossy().into_owned();
     let result = backend

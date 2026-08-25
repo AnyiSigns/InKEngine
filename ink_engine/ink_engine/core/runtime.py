@@ -51,6 +51,7 @@ from .llm import AsyncLLM
 from .llm.tools import ToolSpec
 from .logging import get_logger
 from .mcp_client import McpClientManager, register_mcp_executor
+from .perception import register_perception_nodes
 from .permissions import PermissionGate
 from .registry import GraphRegistries
 from .retrieval import SOURCE_MODEL, Retriever, RetrieverRegistry
@@ -311,6 +312,12 @@ class Runtime:
 
         # ② 图注册表（节点类型/条件边注册位）
         self.graph_registries = GraphRegistries()
+        # 感知结点登记（视觉理解：截图引用 → 结构化描述；可被组装器组装）
+        try:
+            register_perception_nodes(self.graph_registries.nodes)
+        except Exception:
+            # 重复装配防护：已登记则跳过（同进程多次 boot 不报错）
+            pass
 
         # ③ 种子注入（通用基线恒注 + 配方领域种子；注入属启动装配
         #    机制路径，经旁路写防护全豁免上下文放行）

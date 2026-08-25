@@ -30,6 +30,7 @@ pub mod recovery;
 pub mod recipe;
 pub mod review;
 pub mod score;
+pub mod screenshot;
 pub mod security;
 pub mod session;
 pub mod steps;

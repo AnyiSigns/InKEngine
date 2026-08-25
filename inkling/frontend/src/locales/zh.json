@@ -1,0 +1,10 @@
+{
+  "settings.title": "设置",
+  "appearance.section": "外观",
+  "appearance.theme": "主题档",
+  "appearance.language": "界面语言",
+  "appearance.language.help": "切换即时生效，重启后沿用",
+  "common.cancel": "取消",
+  "common.confirm": "确定",
+  "message.empty": "消息流为空"
+}

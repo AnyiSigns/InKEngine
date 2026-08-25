@@ -1412,6 +1412,61 @@ fn screenshot_capture(
     Ok(attachment.to_dict())
 }
 
+/// 语音能力探测（麦克风/STT/TTS 三项独立降级）。
+#[tauri::command]
+fn voice_status(app: AppHandle) -> JsonValue {
+    let dir = app_data_dir(&app).ok();
+    crate::domain::voice::capabilities(dir.as_deref())
+}
+
+/// 语音识别：音频（WAV 字节）→ 文本（模型缺失即报不可用降级）。
+#[tauri::command]
+async fn voice_transcribe(app: AppHandle, audio: Vec<u8>) -> Result<JsonValue, String> {
+    let dir = app_data_dir(&app).ok();
+    let text = crate::domain::voice::transcribe(&audio, dir.as_deref()).await?;
+    Ok(json!({ "text": text, "available": true }))
+}
+
+/// 语音合成：Windows SAPI 朗读文本。
+#[tauri::command]
+fn voice_synthesize(text: String) -> Result<JsonValue, String> {
+    let spoken = crate::domain::voice::speak(&text)?;
+    Ok(json!({ "spoken": spoken }))
+}
+
+/// 麦克风采集：录制指定毫秒数，返回 WAV 字节。
+#[tauri::command]
+fn voice_record(duration_ms: u32) -> Result<Vec<u8>, String> {
+    crate::domain::voice::record_wav(duration_ms)
+}
+
+/// 麦克风设备清单。
+#[tauri::command]
+fn voice_devices() -> JsonValue {
+    crate::domain::voice::list_devices()
+}
+
+/// 离线支持级探测（Ollama + 本地嵌入 + 本地记忆）。
+#[tauri::command]
+async fn offline_detect(app: AppHandle) -> Result<JsonValue, String> {
+    let dir = app_data_dir(&app).ok();
+    crate::domain::offline::detect(dir.as_deref()).await
+}
+
+/// 读取离线 settings 档。
+#[tauri::command]
+fn offline_settings_get(app: AppHandle) -> Result<JsonValue, String> {
+    let dir = app_data_dir(&app)?;
+    Ok(crate::domain::offline::read_settings(&dir))
+}
+
+/// 写入离线 settings 档。
+#[tauri::command]
+fn offline_settings_put(app: AppHandle, settings: JsonValue) -> Result<JsonValue, String> {
+    let dir = app_data_dir(&app)?;
+    Ok(crate::domain::offline::write_settings(&dir, settings))
+}
+
 // ── 底层辅助 ──
 
 /// 安全域实例（授权命令按 seed 声明装载判定语义）。
@@ -1864,6 +1919,14 @@ pub fn run() {
             doc_generate,
             material_import,
             screenshot_capture,
+            voice_status,
+            voice_transcribe,
+            voice_synthesize,
+            voice_record,
+            voice_devices,
+            offline_detect,
+            offline_settings_get,
+            offline_settings_put,
         ])
         .build(tauri::generate_context!())
         .expect("InKling 桌面壳装配失败");

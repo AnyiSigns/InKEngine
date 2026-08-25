@@ -11,6 +11,7 @@ import { useEffect, useState } from 'react';
 import {
   AppWindow, Check, ChevronDown, Cpu, FileText, FlaskConical, GitBranch, Info,
   KeyRound, Paintbrush, PlugZap, RotateCcw, ScrollText, ShieldCheck, Sparkles,
+  Volume2,
 } from 'lucide-react';
 
 import type { ViewId } from '@/renderer/uiSpecTypes';
@@ -27,6 +28,7 @@ import type { BackendAdapter } from '@/shared/backend/backendAdapter';
 import { DEFAULT_SECURITY, SecurityTrust } from './settings_sections/security_trust';
 import type { SecurityValue, RecoveryOps as SecurityTrustRecovery } from './settings_sections/security_trust';
 import { ConnectSection, DEFAULT_CONNECT } from './settings_sections/connect_section';
+import { VoiceSection } from './settings_sections/voice_section';
 import type { ConnectValue } from './settings_sections/connect_section';
 import { AppearanceSection, DEFAULT_APPEARANCE } from './settings_sections/appearance_section';
 import type { AppearanceValue } from './settings_sections/appearance_section';
@@ -51,7 +53,7 @@ interface SettingsFormProps {
   materialImport?: BackendAdapter;
 }
 
-type SectionId = 'environment' | 'capability' | 'growth' | 'security' | 'connect' | 'appearance' | 'about';
+type SectionId = 'environment' | 'capability' | 'growth' | 'security' | 'connect' | 'voice' | 'appearance' | 'about';
 
 const SECTION_NAV: Array<{ id: SectionId; label: string; icon: typeof Cpu; desc: string }> = [
   { id: 'environment', label: '环境容器', icon: AppWindow, desc: '创建审批 · 清单 · 孤儿清理' },
@@ -59,6 +61,7 @@ const SECTION_NAV: Array<{ id: SectionId; label: string; icon: typeof Cpu; desc:
   { id: 'growth', label: '生长治理', icon: Sparkles, desc: '孵化 · 闸门 · 记忆窗口' },
   { id: 'security', label: '安全信任', icon: ShieldCheck, desc: '权限矩阵 · 网络策略 · 审计' },
   { id: 'connect', label: '连接', icon: PlugZap, desc: 'MCP 市场 · 挂载向导' },
+  { id: 'voice', label: '语音与离线', icon: Volume2, desc: '本地语音 · 离线支持级' },
   { id: 'appearance', label: '外观', icon: Paintbrush, desc: '主题三档 · token 试穿' },
   { id: 'about', label: '关于', icon: Info, desc: '版本 · 契约清单' },
 ];
@@ -148,6 +151,8 @@ export function SettingsForm({
         );
       case 'connect':
         return <ConnectSection value={connect} patch={(next) => patchSection(setConnect, next)} />;
+      case 'voice':
+        return <VoiceSection />;
       case 'appearance':
         return <AppearanceSection value={appearance} patch={(next) => patchSection(setAppearance, next)} />;
       case 'about':

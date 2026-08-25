@@ -39,6 +39,9 @@ pub const ASSETS_DIR_NAME: &str = "assets";
 /// 模型目录名（granite-97m 内嵌语义检索模型）。
 pub const MODEL_DIR_NAME: &str = "granite-97m";
 
+/// 模型目录名（whisper 嵌入式语音识别模型）。
+pub const VOICE_MODEL_DIR_NAME: &str = "whisper";
+
 /// 数据目录内的执行件目录名（随包 exec 二进制的解包落位）。
 pub const EXEC_DIR_NAME: &str = "exec";
 
@@ -90,6 +93,11 @@ pub fn model_dir_in(data_dir: &Path) -> PathBuf {
     data_dir.join(ASSETS_DIR_NAME).join(MODEL_DIR_NAME)
 }
 
+/// 数据目录内的语音模型资产目录（bundled 形态的 whisper 解包落位）。
+pub fn voice_model_dir_in(data_dir: &Path) -> PathBuf {
+    data_dir.join(ASSETS_DIR_NAME).join(VOICE_MODEL_DIR_NAME)
+}
+
 /// 数据目录内的执行件目录（bundled 形态的 exec 二进制落位）。
 pub fn exec_dir_in(data_dir: &Path) -> PathBuf {
     data_dir.join(EXEC_DIR_NAME)
@@ -134,6 +142,7 @@ pub struct ProvisionReport {
     pub engine_dir: PathBuf,
     pub seed_dir: PathBuf,
     pub model_dir: PathBuf,
+    pub voice_model_dir: PathBuf,
     pub exec_dir: PathBuf,
     pub provisioned: Vec<String>,
 }
@@ -152,6 +161,7 @@ pub fn provision(data_dir: &Path) -> Result<ProvisionReport, String> {
         engine_dir: data_dir.join(ENGINE_DIR_NAME),
         seed_dir: data_dir.join(SEED_DIR_NAME),
         model_dir: model_dir_in(data_dir),
+        voice_model_dir: voice_model_dir_in(data_dir),
         exec_dir: exec_dir_in(data_dir),
         provisioned: Vec::new(),
     };
@@ -171,6 +181,11 @@ pub fn provision(data_dir: &Path) -> Result<ProvisionReport, String> {
         let target = report.model_dir.clone();
         copy_tree_skip_existing(&source, &target)?;
         report.provisioned.push(MODEL_DIR_NAME.to_string());
+    }
+    if let Some(source) = resource_subdir(&root, VOICE_MODEL_DIR_NAME) {
+        let target = report.voice_model_dir.clone();
+        copy_tree_skip_existing(&source, &target)?;
+        report.provisioned.push(VOICE_MODEL_DIR_NAME.to_string());
     }
     if let Some(source) = resource_subdir(&root, EXEC_DIR_NAME) {
         copy_tree_skip_existing(&source, &report.exec_dir)?;
@@ -418,6 +433,27 @@ mod tests {
             !report.provisioned.contains(&"granite-97m".to_string()),
             "缺模型的资源不报错（随包分量缺失可降级）"
         );
+        std::env::remove_var("INKLING_RESOURCE_DIR");
+    }
+
+    #[test]
+    fn provision_copies_whisper_when_present() {
+        let _env = ENV_GUARD.lock().unwrap();
+        let ws = Scratch::new("whisper");
+        let resources = ws.0.join("resources");
+        touch(&resources.join("python/python314.dll"));
+        touch(&resources.join("python/python314.zip"));
+        touch(&resources.join("ink_engine/ink_engine/__init__.py"));
+        touch(&resources.join("inkling/manifest.json"));
+        touch(&resources.join("whisper/config.json"));
+        std::env::set_var("INKLING_RESOURCE_DIR", resources.to_string_lossy().into_owned());
+        let data_dir = ws.0.join("data");
+        let report = provision(&data_dir).expect("解包成功");
+        assert!(
+            report.provisioned.contains(&"whisper".to_string()),
+            "whisper 资源存在时应被解包"
+        );
+        assert!(report.voice_model_dir.join("config.json").is_file());
         std::env::remove_var("INKLING_RESOURCE_DIR");
     }
 

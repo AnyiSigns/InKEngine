@@ -43,6 +43,7 @@
     "resources": [
       "resources/python/",
       "resources/granite-97m/",
+      "resources/whisper/",
       "resources/ink_engine/",
       "resources/inkling/",
       "resources/exec/"

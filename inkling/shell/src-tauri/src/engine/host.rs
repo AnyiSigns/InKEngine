@@ -41,6 +41,7 @@ const HOST_PACKAGE_SOURCES: &[(&str, &str)] = &[
     ("security_domain", include_str!("py/inkling_host/security_domain.py")),
     ("web_search_domain", include_str!("py/inkling_host/web_search_domain.py")),
     ("recipe_loader", include_str!("py/inkling_host/recipe_loader.py")),
+    ("skill_market", include_str!("py/inkling_host/skill_market.py")),
     ("host", include_str!("py/inkling_host/host.py")),
     ("__init__", include_str!("py/inkling_host/__init__.py")),
 ];

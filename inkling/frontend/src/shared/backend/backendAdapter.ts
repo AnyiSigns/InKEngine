@@ -120,6 +120,8 @@ export interface ModelProfile {
   tier: string;
   occupancy: number;
   limit: number;
+  /** 多模态能力标记（壳侧模型档案 multimodal 标注的镜像；缺省回落 false）。 */
+  multimodal?: boolean;
 }
 
 /** 模型档案快照（仪表/选择控件数据源）。 */
@@ -160,7 +162,13 @@ export interface BackendAdapter {
   status(): Promise<BackendStatus>;
   engineBoot(): Promise<{ snapshot: Record<string, unknown> }>;
   firstRunDismiss(): Promise<{ dismissed: boolean }>;
-  roundSend(threadId: string, roundId: string, text: string, autoAccept?: boolean): Promise<RoundResult>;
+  roundSend(
+    threadId: string,
+    roundId: string,
+    text: string,
+    autoAccept?: boolean,
+    attachments?: Array<{ kind: string; url: string; name?: string; mime?: string }>,
+  ): Promise<RoundResult>;
   roundAbort(roundId: string): Promise<{ aborted: boolean }>;
   roundResume(
     threadId: string,
@@ -284,8 +292,10 @@ export function createTauriBackend(invoker?: TauriInvoker): BackendAdapter {
     status: () => call('backend_status'),
     engineBoot: () => call('engine_boot'),
     firstRunDismiss: () => call('first_run_dismiss'),
-    roundSend: (threadId, roundId, text, autoAccept) =>
-      call('round_send', { threadId, roundId, text, autoAccept }),
+    roundSend: (threadId, roundId, text, autoAccept, attachments) =>
+      call('round_send', attachments
+        ? { threadId, roundId, text, autoAccept, attachments }
+        : { threadId, roundId, text, autoAccept }),
     roundAbort: (roundId) => call('round_abort', { roundId }),
     roundResume: (threadId, key, decision, reason, editedContent) =>
       call('round_resume', { threadId, key, decision, reason, editedContent }),

@@ -7,7 +7,7 @@
 
 import { BatchCounter } from '../logger';
 import type { ChannelHub, HubEvent } from './channelHub';
-import type { InkMessage } from './types';
+import type { InkMessage, OutboundAttachment } from './types';
 import { reduceTaskEvent } from './taskState';
 
 let messageSeq = 0;
@@ -409,14 +409,39 @@ export function commitStreaming(hub: ChannelHub, at = Date.now()): void {
 }
 
 /**
+ * 附件资产 → 引擎 Attachment 契约形态的出站序列化。
+ *
+ * 对齐引擎 Attachment（kind + url 必备）：缺 url/path 引用的资产不入载荷
+ * （引擎要求引用存在，否则序列化会被拒）；name/mime/alt 作展示与诊断补充。
+ */
+export function toEngineAttachments(assets: AttachmentAsset[]): OutboundAttachment[] {
+  const out: OutboundAttachment[] = [];
+  for (const asset of assets) {
+    const url = asset.url;
+    if (!url) continue;
+    out.push({ kind: asset.kind, url, name: asset.name, mime: asset.mime || undefined, alt: asset.name });
+  }
+  return out;
+}
+
+/**
  * 用户输入提交（会话驱动侧本地动作）：message_list 的用户气泡 + 演示占位回复。
  * 集成期此处由引擎回合接管（该路径不产生引擎事件，仅落位本地面）。
+ * 带附件时把资产按引擎 Attachment 契约序列化进 user 消息（多模态直发形态）。
  */
-export function submitUserMessage(hub: ChannelHub, text: string, at = Date.now()): void {
+export function submitUserMessage(hub: ChannelHub, text: string, attachments?: AttachmentAsset[], at = Date.now()): void {
   const snapshot = hub.getSnapshot();
   if (snapshot.streaming) return;
   const roundId = snapshot.roundId ?? `round-${at}`;
-  const userMsg: InkMessage = { kind: 'text', role: 'user', content: text, id: nextId(), roundId };
+  const payload = toEngineAttachments(attachments ?? []);
+  const userMsg: InkMessage = {
+    kind: 'text',
+    role: 'user',
+    content: text,
+    id: nextId(),
+    roundId,
+    ...(payload.length > 0 ? { attachments: payload } : {}),
+  };
   const reply: InkMessage = {
     kind: 'text',
     role: 'assistant',

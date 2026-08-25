@@ -9,9 +9,10 @@
 
 import { memo } from 'react';
 
-import { GitBranch, MessageSquarePlus } from 'lucide-react';
+import { FileText, GitBranch, Image as ImageIcon, MessageSquarePlus } from 'lucide-react';
 
 import type { InkStreamingMessage, InkTextMessage } from '@/shared/session/types';
+import { isAttachmentPreviewUrl } from '@/shared/media/mediaPolicy';
 import { MarkdownText } from './markdown_text';
 import { useThrottledValue } from './streaming_throttle';
 import type { MessageHoverAction } from './message_renderers';
@@ -21,6 +22,38 @@ interface TextEntryProps {
   onOpenAction?: (action: MessageHoverAction) => void;
 }
 
+/** 用户消息内的附件内联展示（图片缩略 / 文档名芯片；危险协议回落占位）。 */
+function InlineAttachments({ attachments }: { attachments: NonNullable<InkTextMessage['attachments']> }) {
+  return (
+    <div data-ui="msg_attachments" className="mt-2 flex flex-wrap gap-1.5">
+      {attachments.map((att, index) => {
+        const displayable = isAttachmentPreviewUrl(att.url);
+        if (att.kind === 'image') {
+          return displayable ? (
+            <img
+              key={`${att.url}-${index}`}
+              src={att.url}
+              alt={att.alt ?? att.name ?? '附件图片'}
+              data-ui="msg_attachment_image"
+              className="max-h-32 max-w-[12rem] rounded-[var(--ink-radius-md)] border border-[var(--ink-border)] object-cover"
+            />
+          ) : (
+            <span key={`${att.url}-${index}`} data-ui="msg_attachment_rejected" className="ink-chip ink-text-faint">
+              <ImageIcon size={10} strokeWidth={1.8} aria-hidden /> 图片地址协议不在白名单内
+            </span>
+          );
+        }
+        return (
+          <span key={`${att.url}-${index}`} data-ui="msg_attachment_doc" className="ink-chip flex items-center gap-1.5 ink-text-muted">
+            <FileText size={10} strokeWidth={1.8} aria-hidden />
+            <span className="max-w-[10rem] truncate text-[9px]">{att.name ?? att.url}</span>
+          </span>
+        );
+      })}
+    </div>
+  );
+}
+
 export const TextEntry = memo(function TextEntry({ message, onOpenAction }: TextEntryProps) {
   if (message.role === 'user') {
     return (
@@ -28,6 +61,7 @@ export const TextEntry = memo(function TextEntry({ message, onOpenAction }: Text
         <div className="group relative max-w-[85%]">
           <div className="ink-bubble-user px-4 py-2.5 text-[var(--ink-font-sm)] leading-[var(--ink-lh-body)] whitespace-pre-wrap break-words">
             {message.content}
+            {message.attachments && message.attachments.length > 0 && <InlineAttachments attachments={message.attachments} />}
           </div>
           <HoverActions message={message} onOpenAction={onOpenAction} />
         </div>

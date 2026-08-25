@@ -160,6 +160,25 @@ export function formatByteSize(bytes: number): string {
 }
 
 /**
+ * 附件预览 URL 放行面：比 isSafeMediaUrl 额外允许 blob:/data:（本地贴图
+ * 预览），仍拒绝 javascript: 等可执行协议。仅用于输入框/气泡内的本地预览，
+ * 消息流媒体条目渲染仍走更严格的 isSafeMediaUrl。
+ */
+export function isAttachmentPreviewUrl(url: string): boolean {
+  const lower = url.trim().toLowerCase();
+  if (lower.startsWith('javascript:')) return false;
+  return (
+    lower.startsWith('https://') ||
+    lower.startsWith('http://') ||
+    lower.startsWith('blob:') ||
+    lower.startsWith('data:') ||
+    lower.startsWith('file://') ||
+    lower.startsWith('~/') ||
+    lower.startsWith('/')
+  );
+}
+
+/**
  * 媒体 URL 协议白名单：仅 http(s)（远端）与本地路径（~/、/、file:）
  * 放行；javascript:/data: 等一律拒绝（防注入）。
  * 本地路径须位于路径白名单前缀之下（越权即拒）。

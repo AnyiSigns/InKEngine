@@ -1796,6 +1796,59 @@ async def _metrics_snapshot(args: dict) -> dict[str, Any]:
     )
 
 
+# ── 过程摘要链合并 / 记忆无感提取 + 冲突消解 ──
+# 仅追加本域 op：合并走引擎既有压缩形态，提取走零 LLM 规则抽取 + 仲裁，
+# 引擎存储/记忆接口零新增机制，逻辑落在 ink_engine 包内。
+
+@op_async("ledger.merge")
+async def _ledger_merge(args: dict) -> Any:
+    """回合账本增量合并（复用 context.py 压缩形态，便宜档可选 LLM）。
+
+    输入：``thread_id`` / ``old_summary``（摘要链最新一条）/ ``new_ledgers``
+    （本轮事实快照列表）。产出同构摘要 JSON，落位语义与
+    ``build_message_compress_patches`` 的 summary 落链首一致。
+    """
+    from ink_engine.core.ledger import merge_ledger
+
+    thread_id = args.get("thread_id", "")
+    old_summary = args.get("old_summary")
+    new_ledgers = args.get("new_ledgers") or []
+    if not isinstance(new_ledgers, list):
+        new_ledgers = []
+    # 便宜档 LLM 摘要为扩展点：未配置时走确定性压缩（零模型、可测、可复现）
+    merged = merge_ledger(old_summary if old_summary else None, new_ledgers)
+    return _jsonable({"thread_id": thread_id, **merged})
+
+
+@op_async("memory.extract")
+async def _memory_extract(args: dict) -> Any:
+    """记忆无感提取 + 冲突仲裁（零 LLM 规则抽取，新旧并存留痕）。
+
+    输入：``ledger``（回合账本 JSON：intent/conclusion/events）。抽取条目
+    经 ``StorageBackedMemoryStore`` 存储，同 namespace+kind 内容冲突 →
+    新旧并存留痕（不静默覆盖），内容相同 → 去重跳过。
+    """
+    from ink_engine.core.memory_extract import (
+        arbitrate_and_store,
+        extract_entries_from_ledger,
+    )
+    from ink_engine.core.memory import StorageBackedMemoryStore
+
+    runtime = runtime_handle()
+    ledger = args.get("ledger") or {}
+    entries = extract_entries_from_ledger(ledger)
+    store = StorageBackedMemoryStore(runtime.storage)
+    result = await arbitrate_and_store(store, entries)
+    return _jsonable(
+        {
+            "extracted": len(entries),
+            "stored": result["stored"],
+            "arbitrations": result["arbitrations"],
+            "skipped": result["skipped"],
+        }
+    )
+
+
 # ── 协议注入验证助手（Rust 侧实现的嵌入/记忆协议对象经此被消费验证）──
 
 def _split_tokens(text: str) -> list[str]:

@@ -1412,6 +1412,214 @@ fn screenshot_capture(
     Ok(attachment.to_dict())
 }
 
+// ── 过程摘要链（回合账本 / 摘要合并 / 记忆无感提取）──
+
+/// 回合账本记录：壳侧确定性归约回合事件 → 结构化账本落记忆目录，引擎零改动。
+///
+/// 归约不调模型（零成本、可审计）；账本 = 压缩前的事实快照，留待引擎侧
+/// `ledger.merge` op 按需增量压缩。返回落盘路径与账本 JSON。
+#[tauri::command]
+fn round_ledger_record(
+    app: AppHandle,
+    thread_id: String,
+    round_id: String,
+    intent: Option<String>,
+    conclusion: Option<String>,
+    events: JsonValue,
+    turn_metrics: Option<JsonValue>,
+    audit_events: Option<JsonValue>,
+) -> Result<JsonValue, String> {
+    let data_dir = app_data_dir(&app)?;
+    let dir = domain::round_ledger::ledger_dir(&data_dir);
+    let ev_array = events
+        .get("events")
+        .cloned()
+        .unwrap_or_else(|| events.clone())
+        .as_array()
+        .cloned()
+        .unwrap_or_default();
+    let tm = turn_metrics.unwrap_or_else(|| json!({}));
+    let au = audit_events.unwrap_or_else(|| json!([]));
+    let ledger = domain::round_ledger::reduce_round(
+        &thread_id,
+        &round_id,
+        intent.as_deref(),
+        conclusion.as_deref(),
+        &ev_array,
+        &tm,
+        &au,
+    );
+    let path = domain::round_ledger::write_ledger(&dir, &ledger)
+        .map_err(|err| format!("回合账本落盘失败: {err}"))?;
+    Ok(json!({
+        "path": path.to_string_lossy(),
+        "ledger": ledger.to_json(),
+    }))
+}
+
+/// 回合账本摘要链读取（append-only 可回溯）。
+#[tauri::command]
+fn round_ledger_chain(app: AppHandle, thread_id: String) -> Result<JsonValue, String> {
+    let data_dir = app_data_dir(&app)?;
+    let dir = domain::round_ledger::ledger_dir(&data_dir);
+    let chain = domain::round_ledger::load_summary_chain(&dir, &thread_id);
+    Ok(json!({ "thread_id": thread_id, "chain": chain }))
+}
+
+/// 回合账本容量滚动（按 N 周或 N MB 上限，与 fingerprint_cache 同语义）：
+/// 超龄最旧删、超限最旧删；不传 thread_id 则全量线程滚动。
+#[tauri::command]
+fn round_ledger_roll(
+    app: AppHandle,
+    thread_id: Option<String>,
+    max_bytes: Option<i64>,
+    max_age_days: Option<i64>,
+) -> Result<JsonValue, String> {
+    let data_dir = app_data_dir(&app)?;
+    let dir = domain::round_ledger::ledger_dir(&data_dir);
+    let max_bytes = max_bytes.unwrap_or(domain::round_ledger::DEFAULT_MAX_BYTES as i64) as u64;
+    let max_age = max_age_days.unwrap_or(domain::round_ledger::DEFAULT_MAX_AGE_DAYS);
+    let removed = match thread_id {
+        Some(t) => domain::round_ledger::roll_ledgers(&dir, &t, max_bytes, max_age)?,
+        None => {
+            let mut total = 0usize;
+            for t in domain::round_ledger::list_thread_ids(&dir) {
+                total += domain::round_ledger::roll_ledgers(&dir, &t, max_bytes, max_age)?;
+            }
+            total
+        }
+    };
+    Ok(json!({ "removed": removed }))
+}
+
+/// 回合账本摘要合并：汇总线程最新摘要 + 账本事实快照，经引擎 `ledger.merge`
+/// op 复用压缩形态产出增量摘要，落回摘要链（append-only）并滚动留界。
+#[tauri::command]
+async fn round_ledger_merge(
+    app: AppHandle,
+    thread_id: String,
+    old_summary: Option<String>,
+    ledgers: Option<JsonValue>,
+) -> Result<JsonValue, String> {
+    let data_dir = app_data_dir(&app)?;
+    let dir = domain::round_ledger::ledger_dir(&data_dir);
+    let old = old_summary
+        .or_else(|| domain::round_ledger::load_summary_chain(&dir, &thread_id).last().cloned());
+    let leds = ledgers
+        .and_then(|v| v.as_array().cloned())
+        .unwrap_or_else(|| domain::round_ledger::load_ledger_jsons(&dir, &thread_id));
+    let merged = engine::host::call_engine_op_async(
+        "ledger.merge",
+        json!({
+            "thread_id": thread_id,
+            "old_summary": old,
+            "new_ledgers": leds,
+        }),
+    )
+    .await?;
+    if let Some(summary) = merged.get("summary").and_then(|v| v.as_str()) {
+        domain::round_ledger::append_summary(&dir, &thread_id, summary)
+            .map_err(|err| format!("摘要链追加失败: {err}"))?;
+        let _ = domain::round_ledger::roll_summary_chain(&dir, &thread_id, 200);
+    }
+    Ok(merged)
+}
+
+/// 记忆无感提取：回合账本（用户意图/结论/确认）经引擎 `memory.extract` op
+/// 规则抽取（零 LLM）→ 冲突仲裁（新旧并存留痕）入记忆。
+#[tauri::command]
+async fn round_memory_extract(
+    thread_id: String,
+    ledger: JsonValue,
+) -> Result<JsonValue, String> {
+    let _ = thread_id;
+    let outcome = engine::host::call_engine_op_async(
+        "memory.extract",
+        json!({ "ledger": ledger }),
+    )
+    .await?;
+    Ok(outcome)
+}
+
+/// 回合续跑并附最新摘要：加载线程摘要链最新一条，注入 `ledger_summary`
+/// 续跑（引擎零改动感知，压缩前事实快照随续跑上下文回流）。
+#[tauri::command]
+async fn round_resume_with_summary(
+    app: AppHandle,
+    thread_id: String,
+    key: String,
+    decision: String,
+    reason: Option<String>,
+    edited_content: Option<JsonValue>,
+) -> Result<JsonValue, String> {
+    let data_dir = app_data_dir(&app)?;
+    let dir = domain::round_ledger::ledger_dir(&data_dir);
+    let latest_summary = domain::round_ledger::load_summary_chain(&dir, &thread_id)
+        .last()
+        .cloned();
+    let latest = engine::host::call_engine_op_async(
+        "engine.thread_latest_checkpoint",
+        json!({ "thread_id": thread_id }),
+    )
+    .await?;
+    let checkpoint_id = latest
+        .get("checkpoint_id")
+        .and_then(JsonValue::as_i64)
+        .ok_or_else(|| "会话无检查点（先发送一条消息）".to_string())?;
+    let mut inject = json!({});
+    inject[key] = match decision.as_str() {
+        "reject" => json!("reject"),
+        "edit" => json!(edited_content.unwrap_or_else(|| json!("accept"))),
+        _ => json!("accept"),
+    };
+    if let Some(s) = latest_summary {
+        inject["ledger_summary"] = json!(s);
+    }
+    let mut args = json!({
+        "thread_id": thread_id,
+        "checkpoint_id": checkpoint_id,
+        "inject": inject,
+    });
+    if let Some(reason) = reason {
+        args["reason"] = json!(reason);
+    }
+    let outcome = engine::host::call_engine_op_async("engine.thread_resume", args).await?;
+    Ok(outcome)
+}
+
+/// 例行任务到点触发回合（schedule 工具升级路径）：经既有引擎回合通道拉起
+/// 一轮执行，输入即到点动作，引擎零改动感知。本函数供壳后端定时线程调用，
+/// 失败仅留观测日志，不阻断定时调度。
+pub fn run_routine_round(app: &AppHandle, action: &str) -> Result<JsonValue, String> {
+    let data_dir = app_data_dir(app)?;
+    let state = app.state::<ShellState>();
+    ensure_engine(&state, &data_dir)?;
+    let thread_id = format!("routine-{}", chrono::Utc::now().timestamp());
+    let round_id = format!("routine-r-{}", uuid::Uuid::new_v4().simple());
+    let request = engine::host::RoundRequest {
+        input_text: action.to_string(),
+        thread_id: thread_id.clone(),
+        round_id: round_id.clone(),
+        step_args: None,
+        orchestrate: None,
+        inject: None,
+        auto_accept_review: true,
+    };
+    let engine_guard = state.backend.engine.lock().unwrap();
+    let engine = engine_guard
+        .as_ref()
+        .ok_or_else(|| "引擎未装配（例行回合失败）".to_string())?;
+    let outcome = engine
+        .round(request)
+        .map_err(|err| format!("例行回合失败: {err}"))?;
+    drop(engine_guard);
+    Ok(json!({
+        "thread_id": thread_id,
+        "round_id": round_id,
+        "reason": outcome.reason,
+    }))
+}
+
 // ── 底层辅助 ──
 
 /// 安全域实例（授权命令按 seed 声明装载判定语义）。
@@ -1864,6 +2072,12 @@ pub fn run() {
             doc_generate,
             material_import,
             screenshot_capture,
+            round_ledger_record,
+            round_ledger_chain,
+            round_ledger_roll,
+            round_ledger_merge,
+            round_memory_extract,
+            round_resume_with_summary,
         ])
         .build(tauri::generate_context!())
         .expect("InKling 桌面壳装配失败");

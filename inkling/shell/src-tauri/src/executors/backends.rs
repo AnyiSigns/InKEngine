@@ -366,8 +366,9 @@ mod windows_ops {
 /// + 文本输入 + 窗口枚举/聚焦/最小化。手写 FFI，与既有 windows_ops 同风格。
 #[cfg(windows)]
 mod windows_ui_ops {
-    use std::ffi::c_void;
-    use serde_json::{json, Value};
+use std::ffi::c_void;
+use serde_json::{json, Value};
+use uuid::Uuid;
 
     #[link(name = "user32")]
     extern "system" {
@@ -685,7 +686,42 @@ impl SystemBackend for ShellBackend {
     }
 
     fn schedule(&self, seconds: u64, action: &str) -> Result<String, String> {
-        self.platform.schedule(seconds, action)
+        // 定时任务升级：到点自动建任务对象并触发例行回合。
+        // 计时在子线程进行，到点后登记例行任务域对象并经既有引擎回合通道
+        // 拉起一轮执行；失败仅留观测日志，不阻断调度。
+        let job_id = format!(
+            "job-{}",
+            std::time::SystemTime::now()
+                .duration_since(std::time::UNIX_EPOCH)
+                .map(|d| d.as_millis())
+                .unwrap_or(0)
+        );
+        let app = self.app.clone();
+        let action = action.to_string();
+        std::thread::spawn(move || {
+            std::thread::sleep(std::time::Duration::from_secs(seconds));
+            let task_id = format!("routine-task-{}", uuid::Uuid::new_v4().simple());
+            if let Err(err) = crate::domain::tasks::registry().start_tracked(
+                &task_id,
+                "routine",
+                &action,
+                None,
+                None,
+            ) {
+                eprintln!("[schedule] 例行任务登记失败: {err}");
+                return;
+            }
+            match crate::run_routine_round(&app, &action) {
+                Ok(_) => {
+                    let _ = crate::domain::tasks::registry().finish_signal(&task_id, "例行回合已触发");
+                }
+                Err(err) => {
+                    eprintln!("[schedule] 例行回合触发失败: {err}");
+                    let _ = crate::domain::tasks::registry().fail_signal(&task_id, &err);
+                }
+            }
+        });
+        Ok(job_id)
     }
 
     fn screen_query(&self, target: &str) -> Result<String, String> {

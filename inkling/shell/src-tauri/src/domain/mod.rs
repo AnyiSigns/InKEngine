@@ -32,6 +32,7 @@ pub mod score;
 pub mod security;
 pub mod session;
 pub mod steps;
+pub mod tasks;
 pub mod tiers;
 pub mod tools;
 pub mod vectors;

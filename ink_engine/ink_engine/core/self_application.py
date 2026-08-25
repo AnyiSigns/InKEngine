@@ -366,11 +366,15 @@ class SelfApplicationPipeline:
         l2_vetting: L2VettingHook | None = None,
         on_reverted: Callable[[int, str], Any] | None = None,
         guard_token: str | None = None,
+        regression: Callable[[Any], Any] | None = None,
     ) -> None:
         self.chain = SetPatchChain(storage, guard_token=guard_token)
         self._storage = storage
         self._guard_token = guard_token
         self._validator = validator or ProposalValidator()
+        # 域内回归钩子（演化不倒退闸门）：知识/工具/规则补丁落链前自动跑
+        # 既有样例集（L2 样例闸门同构）；返回 False = 拒绝并回退。默认
+        # 未装配 = 透传（不影响既有 apply 语义，宿主按域装配接入）。
         auto_keys = frozenset(
             f"{_APPROVAL_KEY_PREFIX}:{kind.value}"
             for kind, level in (approval_levels or DEFAULT_APPROVAL_LEVELS).items()
@@ -382,6 +386,7 @@ class SelfApplicationPipeline:
         self._levels = dict(approval_levels or DEFAULT_APPROVAL_LEVELS)
         self._l2_vetting = l2_vetting
         self._on_reverted = on_reverted
+        self._regression = regression
         self._targets: dict[PatchKind, ApplyTarget] = {}
 
     @property
@@ -523,6 +528,34 @@ class SelfApplicationPipeline:
                     reason=reason,
                 )
             proposal = edited
+        # 域内回归（演化不倒退）：知识/工具/规则补丁落链前跑既有样例集，
+        # 不通过 = 拒绝并留痕（fail-closed 方向；默认未装配则透传）。
+        if self._regression is not None and proposal.kind in (
+            PatchKind.KNOWLEDGE,
+            PatchKind.TOOL,
+            PatchKind.RULE,
+        ):
+            try:
+                passed = bool(await self._regression(proposal))
+            except Exception as exc:
+                passed = False
+                reason = f"域内回归执行异常: {exc}"
+            else:
+                if not passed:
+                    reason = "域内回归未通过（样例集不全绿，演化不倒退闸门拒绝）"
+            if not passed:
+                await self._audit(
+                    proposal,
+                    status=AUDIT_STATUS_REJECTED,
+                    reason=reason,
+                    decision=approval.decision,
+                    round_id=round_id,
+                )
+                return PatchOutcome(
+                    decision=DECISION_REJECT,
+                    status=AUDIT_STATUS_REJECTED,
+                    reason=reason,
+                )
         # ④ 落链前复验并发基准：审批（L1 弹卡等）可能异步挂起，期间链
         #    可能已被其他提案推进——基于过期基准落链会静默覆盖等待期内
         #    已批准的变更。复验不匹配 = 拒绝并要求基于最新态重提（与

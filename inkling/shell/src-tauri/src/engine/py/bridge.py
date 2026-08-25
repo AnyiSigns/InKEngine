@@ -1469,6 +1469,141 @@ def _path_set_assembler_enabled(args: dict) -> dict[str, Any]:
     )
 
 
+@op_async("path.choose_candidate")
+async def _path_choose_candidate(args: dict) -> dict[str, Any]:
+    """候选路径人工选择 op：assemble 后挑选执行路径（状态落库 + 审计）。
+
+    委托引擎侧 ``choose_candidate``（path_assembler）；候选身份由前端
+    candidateId 经壳命令透传（壳命令映射由主会话补齐）。运行时存储用于
+    选中态持久化与审计落库；无存储 = 仅做状态计算不落库。
+    """
+    runtime = runtime_handle()
+    storage = getattr(runtime, "storage", None)
+    candidate_id = str(args.get("candidateId") or args.get("candidate_id") or "")
+    domain = str(args.get("domain") or "default")
+    chain = [str(c) for c in (args.get("chain") or ())]
+    fingerprint = str(args.get("fingerprint") or "")
+    from ink_engine.core.path_assembler import choose_candidate
+
+    result = await choose_candidate(
+        storage,
+        candidate_id,
+        domain=domain,
+        chain=chain,
+        fingerprint=fingerprint,
+    )
+    return _jsonable(result)
+
+
+@op_async("path.set_multipath")
+async def _path_set_multipath(args: dict) -> dict[str, Any]:
+    """多径开关 op（复用 path.set_flags 单块开关语义；状态落库 + 审计）。
+
+    沿用既有单块开关的字段键约定，只翻转 ``multipath_enabled`` 位（其余装配
+    开关保持不变，不做全量重建以免误清其他块），再委托引擎侧 ``set_multipath``
+    落持久化与审计——运行期开关与落库状态双通道一致。
+    """
+    enabled = bool(args.get("enabled", False))
+    domain = str(args.get("domain") or "default")
+    runtime = runtime_handle()
+    storage = getattr(runtime, "storage", None)
+    # 单块翻转：保留其余装配开关，只改多径位
+    global _PATH_FLAGS
+    flags = dict(_PATH_FLAGS or {})
+    flags["multipath_enabled"] = enabled
+    _PATH_FLAGS = flags
+    from ink_engine.core.path_assembler import set_multipath
+
+    result = await set_multipath(storage, enabled, domain=domain) if storage is not None else {
+        "multipath_enabled": enabled,
+        "flags": dict(flags),
+    }
+    return _jsonable(result)
+
+
+@op_async("cache.invalidate")
+async def _cache_invalidate(args: dict) -> dict[str, Any]:
+    """指纹缓存语义化失效 op（复用 FingerprintCacheStore.invalidate 机制）。
+
+    scope 形态：``*``/``all`` 整库、``domain:<域>`` 指定域、其余按上下文指纹
+    单条。引擎侧 ``invalidate_cache`` 复用既有失效机制并发审计留痕；运行时
+    存储用于审计落库。空 scope = fail-closed 拒绝。
+    """
+    scope = args.get("scope") or ""
+    runtime = runtime_handle()
+    storage = getattr(runtime, "storage", None)
+    db_path = str(args.get("db_path") or ":memory:")
+    from ink_engine.core.fingerprint_cache import FingerprintCacheStore, invalidate_cache
+
+    store = FingerprintCacheStore(db_path=db_path)
+    try:
+        result = await invalidate_cache(
+            store, scope, storage=storage, reason=args.get("reason") or "人工失效"
+        )
+    finally:
+        await store.close()
+    return _jsonable({"ok": True, **result})
+
+
+@op_async("edge.downgrade_tier")
+async def _edge_downgrade_tier(args: dict) -> dict[str, Any]:
+    """信任档人工降级 op（档位更新 + 审计；降级前快照留痕可复原）。
+
+    边标识 edgeId 支持 ``src|dst|srcVer|dstVer|domain`` 串或 dict 形态；
+    未知边 / 非法档位 = fail-closed 拒绝（引擎侧抛错上抛）。运行时存储用于
+    审计与降级前快照落库。
+    """
+    edge_id = args.get("edgeId") or args.get("edge_id") or ""
+    target = args.get("tier") or args.get("target_tier") or ""
+    runtime = runtime_handle()
+    storage = getattr(runtime, "storage", None)
+    db_path = str(args.get("db_path") or ":memory:")
+    from ink_engine.core.edge_evidence import EdgeEvidenceStore, EdgeKey
+
+    key = _edge_key_from_id(edge_id)
+    store = EdgeEvidenceStore(db_path=db_path)
+    try:
+        if key is None:
+            raise ValueError(f"边标识非法: {edge_id!r}")
+        from ink_engine.core.edge_evidence import downgrade_edge_tier
+
+        result = await downgrade_edge_tier(
+            store,
+            key,
+            target_tier=target,
+            storage=storage,
+            reason=args.get("reason") or "人工降级",
+        )
+    finally:
+        await store.close()
+    return _jsonable({"ok": True, **result})
+
+
+def _edge_key_from_id(edge_id: str) -> "EdgeKey | None":
+    """边标识 → EdgeKey：``src|dst|srcVer|dstVer|domain`` 串或 dict 形态。"""
+    from ink_engine.core.edge_evidence import EdgeKey
+
+    if not edge_id:
+        return None
+    if isinstance(edge_id, dict):
+        return EdgeKey.from_dict(edge_id)
+    parts = str(edge_id).split("|")
+    if len(parts) < 2:
+        return None
+    src = parts[0]
+    dst = parts[1]
+    src_ver = parts[2] if len(parts) > 2 else "1"
+    dst_ver = parts[3] if len(parts) > 3 else "1"
+    domain = parts[4] if len(parts) > 4 else "default"
+    return EdgeKey(
+        src_type=src,
+        dst_type=dst,
+        src_contract_version=src_ver,
+        dst_contract_version=dst_ver,
+        context_domain=domain,
+    )
+
+
 # ── 指标快照聚合（壳侧观测；纯聚合，不触引擎机制）──
 
 def _as_int(value) -> int:

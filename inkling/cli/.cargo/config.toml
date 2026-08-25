@@ -1,0 +1,5 @@
+# 开发构建使用仓库根 .venv 的解释器（relative 相对本配置目录解析）。
+# 本 crate 依赖 inkling_shell_lib（内嵌 Python 引擎），编译期需经 PYO3_PYTHON
+# 定位解释器；与 shell 内嵌构建保持同一来源。
+[env]
+PYO3_PYTHON = { value = "../../../.venv/Scripts/python.exe", relative = true }

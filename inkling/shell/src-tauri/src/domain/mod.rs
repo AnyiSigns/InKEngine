@@ -20,6 +20,7 @@ pub mod embedder;
 pub mod env;
 pub mod exec_proc;
 pub mod graph;
+pub mod import_material;
 pub mod incubation;
 pub mod live;
 pub mod mcp;

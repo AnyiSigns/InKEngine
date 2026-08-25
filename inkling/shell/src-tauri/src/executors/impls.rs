@@ -422,6 +422,47 @@ fn doc_parse_run(
     Ok(ExecOutcome { result: parsed.to_string(), sandbox_checked: true })
 }
 
+/// 既有资料批量导入（目录扫描 + 格式归一；沙箱端点 device_mcp，根收口于用户主目录域）。
+fn material_import_spec() -> ExecutorSpec {
+    ExecutorSpec {
+        name: "material_import",
+        params: vec![
+            ParamSpec { name: "path", param_type: ParamType::String, required: true },
+            ParamSpec { name: "recursive", param_type: ParamType::Boolean, required: false },
+        ],
+        permission: PermissionLevel::Review,
+        endpoint: Endpoint::DeviceMcp,
+        sandbox: SandboxRule::PathRoots {
+            roots: crate::domain::import_material::MATERIAL_ROOTS
+                .iter()
+                .map(|root| root.to_string())
+                .collect(),
+        },
+    }
+}
+
+/// 既有资料批量导入运行体（只读：路径根收口 + 递归深度/文件数/体积上限 → 格式归一）。
+fn material_import_run(
+    executor: &dyn Executor,
+    args: &BTreeMap<String, Value>,
+    backend: &dyn SystemBackend,
+    auth: &Authorization,
+) -> Result<ExecOutcome, ExecError> {
+    let _ = backend;
+    let tool = executor.name();
+    check_permission(tool, executor.spec().permission, auth)?;
+    let path = arg_str(args, "path")?.to_string();
+    let recursive = args
+        .get("recursive")
+        .and_then(Value::as_bool)
+        .unwrap_or(false);
+    let result = crate::domain::import_material::scan_and_normalize(&path, recursive)
+        .map_err(ExecError::ExecutionFailed)?;
+    let serialized = serde_json::to_string(&result)
+        .map_err(|err| ExecError::ExecutionFailed(format!("扫描结果序列化失败: {err}")))?;
+    Ok(ExecOutcome { result: serialized, sandbox_checked: true })
+}
+
 /// 文档生成参数上限（正文/表格行防滥用；声明侧同源）。
 const DOC_GENERATE_BODY_MAX_CHARS: usize = 20000;
 const DOC_GENERATE_TABLE_MAX_ROWS: usize = 500;
@@ -686,6 +727,7 @@ pub fn executor_impl(name: &str) -> Option<(ExecutorSpec, RunFn)> {
         "window_focus" => (window_focus_spec(), window_focus_run),
         "window_minimize" => (window_minimize_spec(), window_minimize_run),
         "doc_parse" => (doc_parse_spec(), doc_parse_run),
+        "material_import" => (material_import_spec(), material_import_run),
         "doc_generate" => (doc_generate_spec(), doc_generate_run),
         "screenshot_capture" => (screenshot_capture_spec(), screenshot_capture_run),
         "run_typecheck" => (run_typecheck_spec(), run_process_template),

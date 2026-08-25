@@ -1307,6 +1307,71 @@ fn doc_generate(
     }))
 }
 
+/// 既有资料批量导入（搬进 InKEngine 第一步）：目录扫描归一 + 可选走样例闸门入料。
+///
+/// `ingest=false`（默认）= 仅扫描归一预览；`ingest=true` = 逐条目经既有样例闸门
+/// / 知识集入料链（`patch.propose_knowledge`）入集，返回逐文件入料状态。
+#[tauri::command]
+async fn material_import(
+    path: String,
+    recursive: Option<bool>,
+    ingest: Option<bool>,
+) -> Result<JsonValue, String> {
+    let recursive = recursive.unwrap_or(false);
+    let scan = crate::domain::import_material::scan_and_normalize(&path, recursive)?;
+    if !ingest.unwrap_or(false) {
+        return Ok(serde_json::to_value(&scan).map_err(|err| err.to_string())?);
+    }
+    let mut ingested = 0usize;
+    let mut rejected = 0usize;
+    let mut file_results: Vec<JsonValue> = Vec::with_capacity(scan.files.len());
+    for file in &scan.files {
+        let format = file.format.clone();
+        let entry = json!({
+            "id": format!("material:{}", file.path),
+            "level": "user",
+            "kind": "insight",
+            "data": { "content": file.normalized.clone(), "format": format },
+            "source": file.path,
+            "title": format!("导入资料：{}", file.path),
+            "tags": ["material", format],
+        });
+        let schema_errs = crate::domain::incubation::entry_schema_errors(&entry);
+        let injection = crate::domain::incubation::scan_entry_injection(&entry);
+        if !schema_errs.is_empty() || !injection.is_empty() {
+            rejected += 1;
+            file_results.push(json!({
+                "path": file.path,
+                "status": "rejected",
+                "reason": schema_errs.into_iter().chain(injection).collect::<Vec<_>>().join("; "),
+            }));
+            continue;
+        }
+        match crate::domain::incubation::propose_knowledge_patch(json!({
+            "payload": { "entry": entry },
+            "rationale": "既有资料批量导入（搬进 InKEngine）",
+            "base_version": 1,
+        }))
+        .await
+        {
+            Ok(_) => {
+                ingested += 1;
+                file_results.push(json!({ "path": file.path, "status": "ingested" }));
+            }
+            Err(err) => {
+                rejected += 1;
+                file_results.push(json!({ "path": file.path, "status": "rejected", "reason": err }));
+            }
+        }
+    }
+    Ok(json!({
+        "scanned": scan.files.len(),
+        "ingested": ingested,
+        "rejected": rejected,
+        "files": file_results,
+    }))
+}
+
 /// 屏幕截图（隐私分级：本地直喂 / 云端默认禁外发，授权开关 + 审批回调，
 /// 外发事件落审计；与壳执行器同源域函数）。
 #[tauri::command]
@@ -1797,6 +1862,7 @@ pub fn run() {
             edge_downgrade_tier,
             doc_parse,
             doc_generate,
+            material_import,
             screenshot_capture,
         ])
         .build(tauri::generate_context!())

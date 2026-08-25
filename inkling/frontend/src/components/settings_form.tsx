@@ -22,6 +22,8 @@ import { DEFAULT_ENVIRONMENT, EnvironmentContainer } from './settings_sections/e
 import type { EnvironmentValue } from './settings_sections/environment_container';
 import { DEFAULT_GROWTH, GrowthGovernance } from './settings_sections/growth_governance';
 import type { GrowthValue } from './settings_sections/growth_governance';
+import { MaterialImportPanel } from './settings_sections/material_import';
+import type { BackendAdapter } from '@/shared/backend/backendAdapter';
 import { DEFAULT_SECURITY, SecurityTrust } from './settings_sections/security_trust';
 import type { SecurityValue, RecoveryOps as SecurityTrustRecovery } from './settings_sections/security_trust';
 import { ConnectSection, DEFAULT_CONNECT } from './settings_sections/connect_section';
@@ -45,6 +47,8 @@ interface SettingsFormProps {
   onOpenBackupWizard?: (mode: 'export' | 'restore') => void;
   /** 崩溃回退操作面（安全信任节接线：回上一稳定版本 / 出厂重置） */
   recovery?: SecurityTrustRecovery | null;
+  /** 既有资料批量导入操作面（搬进 InKEngine 第一步） */
+  materialImport?: BackendAdapter;
 }
 
 type SectionId = 'environment' | 'capability' | 'growth' | 'security' | 'connect' | 'appearance' | 'about';
@@ -78,6 +82,7 @@ export function SettingsForm({
   autoApprovableTools,
   onOpenBackupWizard,
   recovery,
+  materialImport,
 }: SettingsFormProps) {
   void bindValue;
   const [active, setActive] = useState<SectionId>('capability');
@@ -125,7 +130,12 @@ export function SettingsForm({
       case 'environment':
         return <EnvironmentContainer value={environment} patch={(next) => patchSection(setEnvironment, next)} />;
       case 'growth':
-        return <GrowthGovernance value={growth} patch={(next) => patchSection(setGrowth, next)} />;
+        return (
+          <>
+            <GrowthGovernance value={growth} patch={(next) => patchSection(setGrowth, next)} />
+            <MaterialImportPanel materialImport={materialImport} />
+          </>
+        );
       case 'security':
         return (
           <SecurityTrust

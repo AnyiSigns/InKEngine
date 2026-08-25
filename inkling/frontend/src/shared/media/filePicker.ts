@@ -54,3 +54,35 @@ export function createStubFilePicker(files: PickedFile[]): FilePicker {
     },
   };
 }
+
+/** 浏览器默认目录拾取器（input[webkitdirectory]；桌面壳下 file.path 带绝对路径）。 */
+export function createDomDirectoryPicker(): FilePicker {
+  return {
+    pick(): Promise<PickedFile[]> {
+      return new Promise((resolve) => {
+        const input = document.createElement('input');
+        input.type = 'file';
+        // 非标准属性，setAttribute 才能生效（目录多选）
+        input.setAttribute('webkitdirectory', '');
+        input.setAttribute('directory', '');
+        input.style.display = 'none';
+        const cleanup = (): void => {
+          input.remove();
+        };
+        input.onchange = (): void => {
+          const files = Array.from(input.files ?? []).map((file) => ({
+            name: file.name,
+            size: file.size,
+            path:
+              (file as File & { path?: string }).path ??
+              (file as File & { webkitRelativePath?: string }).webkitRelativePath,
+          }));
+          cleanup();
+          resolve(files);
+        };
+        document.body.appendChild(input);
+        input.click();
+      });
+    },
+  };
+}

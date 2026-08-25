@@ -1469,6 +1469,120 @@ def _path_set_assembler_enabled(args: dict) -> dict[str, Any]:
     )
 
 
+# ── 指标快照聚合（壳侧观测；纯聚合，不触引擎机制）──
+
+def _as_int(value) -> int:
+    """容错转 int（非整数/非法 = 0），聚合不被脏数据打崩。"""
+    try:
+        return int(value)
+    except (TypeError, ValueError):
+        return 0
+
+
+def _as_float(value) -> float:
+    """容错转 float（非数字/非法 = 0.0），avg_cost 等聚合不受脏数据打崩。"""
+    try:
+        return float(value)
+    except (TypeError, ValueError):
+        return 0.0
+
+
+@op_async("metrics.snapshot")
+async def _metrics_snapshot(args: dict) -> dict[str, Any]:
+    """指标快照聚合 op：回合/LLM/缓存/边证据指标汇成单一观测快照。
+
+    输入（各块缺省容错，缺块 = 0/空，不报错）：
+    - ``turn_metrics``：TurnMetrics.snapshot 形态（turns/failures/...
+      /llm_calls_by_tier）；
+    - ``llm_usage``：LLM usage 帧清单（每帧 ``prompt_tokens``/
+      ``completion_tokens``，来自 LLMChunk/LLMResult.usage 捕获点）；
+    - ``cache_stats``：path.assemble 回传的 cache_hits/cache_misses/
+      cache_invalidations/cache_replacements；
+    - ``cache_entries``：FingerprintCacheStore.count（缓存条目量）；
+    - ``edges``：edge_evidence.list_edges 结果（取每条 ``avg_cost``）；
+    - ``occupancy``：``{ "current": int, "limit": int }``（占用/上限）。
+
+    输出：聚合快照（命中率 = hits/(hits+misses)，>80% 标 over_threshold）。
+    """
+    turn = args.get("turn_metrics") or {}
+    if not isinstance(turn, dict):
+        turn = {}
+
+    usage = args.get("llm_usage") or []
+    if not isinstance(usage, list):
+        usage = []
+    prompt_total = 0
+    completion_total = 0
+    last_prompt = None
+    last_completion = None
+    for frame in usage:
+        if not isinstance(frame, dict):
+            continue
+        p = _as_int(frame.get("prompt_tokens"))
+        c = _as_int(frame.get("completion_tokens"))
+        prompt_total += p
+        completion_total += c
+        last_prompt = p
+        last_completion = c
+    llm_calls = sum(_as_int(v) for v in (turn.get("llm_calls_by_tier") or {}).values())
+
+    cache = args.get("cache_stats") or {}
+    if not isinstance(cache, dict):
+        cache = {}
+    hits = _as_int(cache.get("cache_hits"))
+    misses = _as_int(cache.get("cache_misses"))
+    invalidations = _as_int(cache.get("cache_invalidations"))
+    replacements = _as_int(cache.get("cache_replacements"))
+    denom = hits + misses
+    hit_rate = (hits / denom) if denom > 0 else 0.0
+
+    edges = args.get("edges") or []
+    if not isinstance(edges, list):
+        edges = []
+    costs = [_as_float(e.get("avg_cost")) for e in edges if isinstance(e, dict)]
+    avg_cost_mean = (sum(costs) / len(costs)) if costs else 0.0
+
+    cache_entries = _as_int(args.get("cache_entries"))
+
+    occupancy = None
+    occ = args.get("occupancy")
+    if isinstance(occ, dict) and "current" in occ and "limit" in occ:
+        current = _as_int(occ.get("current"))
+        limit = _as_int(occ.get("limit"))
+        over = (limit > 0) and (current > limit * 0.8)
+        occupancy = {"current": current, "limit": limit, "over_threshold": over}
+
+    return _jsonable(
+        {
+            "ok": True,
+            "turn_metrics": turn,
+            "llm": {
+                "prompt_tokens_total": prompt_total,
+                "completion_tokens_total": completion_total,
+                "tokens_total": prompt_total + completion_total,
+                "last_prompt_tokens": last_prompt,
+                "last_completion_tokens": last_completion,
+                "calls_total": llm_calls,
+            },
+            "cache": {
+                "hits": hits,
+                "misses": misses,
+                "invalidations": invalidations,
+                "replacements": replacements,
+                "hit_rate": hit_rate,
+            },
+            "edges": {
+                "count": len(costs),
+                "avg_cost_mean": avg_cost_mean,
+                "avg_cost_min": (min(costs) if costs else None),
+                "avg_cost_max": (max(costs) if costs else None),
+            },
+            "cache_entries": cache_entries,
+            "occupancy": occupancy,
+        }
+    )
+
+
 # ── 协议注入验证助手（Rust 侧实现的嵌入/记忆协议对象经此被消费验证）──
 
 def _split_tokens(text: str) -> list[str]:

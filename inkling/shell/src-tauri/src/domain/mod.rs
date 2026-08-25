@@ -22,6 +22,7 @@ pub mod graph;
 pub mod incubation;
 pub mod live;
 pub mod mcp;
+pub mod model_archive;
 pub mod memory_md;
 pub mod policy;
 pub mod prompt;

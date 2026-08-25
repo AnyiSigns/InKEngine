@@ -996,6 +996,86 @@ fn components_manifest(app: AppHandle) -> JsonValue {
     }
 }
 
+// ── 模型档案（自动探测 + 上下文窗口/多模态能力标记；壳侧为主）──
+
+/// 读取模型档案快照（全部已探测/补录档案，按 model_id 字典序）。
+#[tauri::command]
+fn model_archive_snapshot(app: AppHandle) -> Result<JsonValue, String> {
+    let data_dir = app_data_dir(&app)?;
+    let mut store = domain::model_archive::ModelArchiveStore::open_in_data_dir(&data_dir)
+        .map_err(|err| err.to_string())?;
+    let archives = store
+        .list()
+        .map_err(|err| err.to_string())?
+        .iter()
+        .map(|a| a.to_json())
+        .collect::<Vec<_>>();
+    Ok(json!({ "ok": true, "archives": archives }))
+}
+
+/// 触发模型清单探测与回写（连接配置保存/变更时调用）。
+///
+/// 入参：`base_url`/`api_key`（连接配置）+ `models`（宣告模型列表
+/// `[{ "tier": "main"|"router", "model_id": "..." }]`，降级补录用）。
+/// 探测失败/非 JSON/缺字段 → 结构化降级（按档位缺省窗口回落），不崩溃。
+#[tauri::command]
+async fn models_refresh(app: AppHandle, config: JsonValue) -> Result<JsonValue, String> {
+    let base_url = config
+        .get("base_url")
+        .and_then(JsonValue::as_str)
+        .unwrap_or("")
+        .to_string();
+    let api_key = config
+        .get("api_key")
+        .and_then(JsonValue::as_str)
+        .unwrap_or("")
+        .to_string();
+    let declared: Vec<domain::model_archive::DeclaredModel> = config
+        .get("models")
+        .and_then(JsonValue::as_array)
+        .map(|list| {
+            list.iter()
+                .filter_map(|item| {
+                    let model_id = item.get("model_id")?.as_str()?.to_string();
+                    let tier = item
+                        .get("tier")
+                        .and_then(JsonValue::as_str)
+                        .unwrap_or("main")
+                        .to_string();
+                    Some(domain::model_archive::DeclaredModel { tier, model_id })
+                })
+                .collect()
+        })
+        .unwrap_or_default();
+    let data_dir = app_data_dir(&app)?;
+    let mut store = domain::model_archive::ModelArchiveStore::open_in_data_dir(&data_dir)
+        .map_err(|err| err.to_string())?;
+    let fetcher = domain::model_archive::HttpModelsFetcher::new();
+    let report = domain::model_archive::refresh_archives(
+        &mut store,
+        &fetcher,
+        &base_url,
+        &api_key,
+        &declared,
+    )
+    .await
+    .map_err(|err| err.to_string())?;
+    Ok(json!({
+        "ok": true,
+        "mode": if report.mode == domain::model_archive::RefreshMode::Success { "success" } else { "fallback" },
+        "probed": report.probed,
+        "stored": report.stored,
+        "reason": report.reason,
+    }))
+}
+
+/// 上下文指标快照（转发至嵌入桥 `metrics.snapshot` op；聚合回合/LLM/
+/// 缓存/边证据指标，走既有引擎操作通道）。
+#[tauri::command]
+async fn metrics_snapshot(args: JsonValue) -> Result<JsonValue, String> {
+    engine::host::call_engine_op_async("metrics.snapshot", args).await
+}
+
 // ── 底层辅助 ──
 
 /// 安全域实例（授权命令按 seed 声明装载判定语义）。
@@ -1429,6 +1509,9 @@ pub fn run() {
             recovery_factory_reset,
             tools_snapshot,
             components_manifest,
+            model_archive_snapshot,
+            models_refresh,
+            metrics_snapshot,
         ])
         .build(tauri::generate_context!())
         .expect("InKling 桌面壳装配失败");

@@ -41,6 +41,7 @@ ort = "=2.0.0-rc.10"
 # 不带 esaxx_fast：esaxx-rs 仅 unigram 训练器用、推理不触碰，且其强制
 # 静态 CRT 与 ort 预编译库（动态 CRT）链接冲突——本壳只需推理）
 tokenizers = { version = "0.20", default-features = false, features = ["onig"] }
+flate2 = "1.1.9"
 
 # 生产形态开关：开启后加载 frontend/dist（内嵌资产），不依赖 dev server。
 # 缺省（不带该 feature 构建）= dev 形态连 devUrl——Tauri 的 dev 判定

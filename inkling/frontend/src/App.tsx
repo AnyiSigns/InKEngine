@@ -359,6 +359,7 @@ export default function App() {
         initialCapability={initialCapability}
         initialAutoApprove={initialAutoApprove}
         autoApprovableTools={autoApprovableTools}
+        materialImport={backend}
       />
       {backupMode && (
         <BackupWizard mode={backupMode} ops={backupOps} onClose={() => setBackupMode(null)} />

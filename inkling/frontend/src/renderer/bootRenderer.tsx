@@ -20,6 +20,7 @@ import { BindSourceProvider } from './bindSource';
 import { DynamicComponent } from './componentRegistry';
 import { applyThemeTokens } from './themeTokens';
 import type { UINode, UISpec, ViewId } from './uiSpecTypes';
+import type { BackendAdapter } from '@/shared/backend/backendAdapter';
 import { resolveMessageRenderer } from './messageRendererRegistry';
 import { logSpecDamage, normalizeSpec, validateUiSpec } from './validation';
 
@@ -268,6 +269,8 @@ export interface RendererChrome {
   activeSessionId?: string;
   /** 架构视图基线快照（视觉 diff 的面） */
   architectureBaseline?: unknown;
+  /** 既有资料批量导入操作面（搬进 InKEngine 第一步） */
+  materialImport?: BackendAdapter;
 }
 
 /**
@@ -298,6 +301,7 @@ export function UIRenderer({
   sessionStore,
   activeSessionId,
   architectureBaseline,
+  materialImport,
 }: {
   spec: UISpec | null;
   hub: ChannelHub | null;
@@ -331,6 +335,7 @@ export function UIRenderer({
   if (sessionStore !== undefined) chromeProps.sessionStore = sessionStore;
   if (activeSessionId !== undefined) chromeProps.activeSessionId = activeSessionId;
   if (architectureBaseline !== undefined) chromeProps.architectureBaseline = architectureBaseline;
+  if (materialImport !== undefined) chromeProps.materialImport = materialImport;
   // 追加式挂接：自定义消息渲染器通道经 chromeProps 暴露组件消费，由注册表
   // 侧 resolveMessageRenderer 按 (键, 形态) 选择，不重构既有布局树。
   chromeProps.resolveMessageRenderer = resolveMessageRenderer;

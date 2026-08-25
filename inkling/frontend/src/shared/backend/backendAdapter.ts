@@ -155,6 +155,37 @@ export interface AssembleStats {
   avg_cost: number;
 }
 
+/** 单条归一结果（既有资料批量导入扫描预览）。 */
+export interface MaterialScanFile {
+  path: string;
+  format: string;
+  size: number;
+}
+
+/** 扫描预览结果（目录扫描 + 格式归一，尚未入料）。 */
+export interface MaterialScanResult {
+  root: string;
+  recursive: boolean;
+  scanned: number;
+  files: MaterialScanFile[];
+  skipped: Array<{ path: string; reason: string }>;
+}
+
+/** 单文件入料状态（经样例闸门/知识集入料链后）。 */
+export interface MaterialImportFileResult {
+  path: string;
+  status: 'ingested' | 'rejected';
+  reason?: string;
+}
+
+/** 入料结果（逐文件状态 + 汇总）。 */
+export interface MaterialImportResult {
+  scanned: number;
+  ingested: number;
+  rejected: number;
+  files: MaterialImportFileResult[];
+}
+
 /** 后端适配器接口（生产 = 宿主桥；测试 = mock）。 */
 export interface BackendAdapter {
   /** 宿主可用性（false = 回落夹具路径）。 */
@@ -228,6 +259,9 @@ export interface BackendAdapter {
   downgradeEdgeTier(edgeId: string): Promise<{ edge: string; tier: string }>;
   rebuildCache(scope: string): Promise<{ rebuilt: string }>;
   restoreEdgeTier(edgeId: string): Promise<{ edge: string; tier: string }>;
+  // 既有资料批量导入（搬进 InKEngine 第一步）：扫描预览 + 入料
+  materialScan(path: string, recursive?: boolean): Promise<MaterialScanResult>;
+  materialIngest(path: string, recursive?: boolean): Promise<MaterialImportResult>;
 }
 
 /** 宿主不可用的空适配器（夹具回落的显式形态）。 */
@@ -276,6 +310,8 @@ export function createUnavailableBackend(): BackendAdapter {
     downgradeEdgeTier: unavailable as never,
     rebuildCache: unavailable as never,
     restoreEdgeTier: unavailable as never,
+    materialScan: unavailable as never,
+    materialIngest: unavailable as never,
   };
 }
 
@@ -339,6 +375,8 @@ export function createTauriBackend(invoker?: TauriInvoker): BackendAdapter {
     downgradeEdgeTier: (edgeId) => call('edge_downgrade_tier', { edgeId }),
     rebuildCache: (scope) => call('cache_rebuild', { scope }),
     restoreEdgeTier: (edgeId) => call('edge_restore_tier', { edgeId }),
+    materialScan: (path, recursive) => call('material_import', { path, recursive, ingest: false }),
+    materialIngest: (path, recursive) => call('material_import', { path, recursive, ingest: true }),
   };
 }
 

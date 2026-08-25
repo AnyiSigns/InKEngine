@@ -53,8 +53,11 @@ from typing import Any, Protocol, runtime_checkable
 from .contracts import (
     NodeContract,
     PathAssemblyConfig,
+    PathAssemblyFlags,
     QualityGate,
 )
+from .audit_log import AUDIT_COLLECTION, emit_audit
+from .event_types import EVENT_ASSEMBLY_CANDIDATE, EVENT_AUDIT_ASSEMBLY
 from .edge_evidence import (
     DEFAULT_CONTRACT_VERSION,
     EdgeEvidence,
@@ -1956,6 +1959,110 @@ async def assemble_plan(
     return await runtime.assemble_plan(request, audit_sink=audit_sink)
 
 
+# ── 干预能力：候选选择 / 多径开关（assemble 后的运行期干预；状态落库 + 审计）──
+
+# 候选选择落库集合（按域记录当前选中候选；清空 = 恢复多候选观察态）
+PATH_CANDIDATE_COLLECTION = "path_candidate_selection"
+# 多径开关落库集合（复用 PathAssemblyFlags 单块开关语义；按域持久化）
+PATH_FLAGS_COLLECTION = "path_flags"
+
+
+async def choose_candidate(
+    storage: object,
+    candidate_id: str,
+    *,
+    domain: str = "default",
+    chain: Sequence[str] = (),
+    fingerprint: str = "",
+    now: float | None = None,
+) -> dict[str, Any]:
+    """记录候选路径人工选择（assemble 后挑选执行路径；选后状态落库 + 审计）。
+
+    候选身份由调用方提供（assemble 产物的 rank / chain / fingerprint）；
+    候选 id 为空 = fail-closed 拒绝（未知候选不落库）。选中态按域覆盖写入，
+    同一域同时只持有一条选中候选——后续多径/执行消费此选中态。
+
+    审计复用 ``assembly_candidate`` 既有类型（候选留痕），落 ``set_audit``
+    集合（与沉淀侧审计同一通道）。
+    """
+    if not candidate_id:
+        raise ValueError("候选 id 不能为空（fail-closed）")
+    ts = now if now is not None else time.time()
+    selection = {
+        "domain": domain,
+        "candidate_id": str(candidate_id),
+        "chain": list(chain or ()),
+        "fingerprint": fingerprint,
+        "chosen_at": ts,
+    }
+    await storage.put_record(PATH_CANDIDATE_COLLECTION, domain, selection)  # type: ignore[attr-defined]
+    await emit_audit(
+        storage,
+        {
+            "type": EVENT_ASSEMBLY_CANDIDATE,
+            "ts": ts,
+            "domain": domain,
+            "fingerprint": fingerprint,
+            "candidate_id": str(candidate_id),
+            "chain": list(chain or ()),
+        },
+    )
+    return selection
+
+
+async def clear_candidate_selection(
+    storage: object,
+    *,
+    domain: str = "default",
+    now: float | None = None,
+) -> dict[str, Any]:
+    """反向操作：清除候选选择（恢复多候选观察态，不持有任何选中路径）。
+
+    选中态以「标记位」覆写而非删除（存储接口无删除原语），``candidate_id``
+    置空代表无选中——与 choose_candidate 同一集合同一键，状态可断言轮转。
+    """
+    ts = now if now is not None else time.time()
+    cleared = {"domain": domain, "candidate_id": "", "chosen_at": ts, "cleared": True}
+    await storage.put_record(PATH_CANDIDATE_COLLECTION, domain, cleared)  # type: ignore[attr-defined]
+    return cleared
+
+
+async def set_multipath(
+    storage: object,
+    enabled: bool,
+    *,
+    domain: str = "default",
+    now: float | None = None,
+) -> dict[str, Any]:
+    """多径开关（复用 PathAssemblyFlags 单块开关语义；状态落库 + 审计）。
+
+    在既有 ``path.set_flags`` 的 flag 集合上只翻转 ``multipath_enabled`` 位：
+    先按域取已存 flag（缺省全关），再以 :class:`~ink_engine.core.contracts
+    .PathAssemblyFlags` 的 ``replace`` 更新多径位，落库后回流给运行期消费。
+    非法域名 / 非布尔开关不静默吞错（fail-closed：异常上抛）。
+
+    审计复用 ``assembly_audit`` 既有类型，落 ``set_audit`` 集合。
+    """
+    existing = await storage.get_record(PATH_FLAGS_COLLECTION, domain)  # type: ignore[attr-defined]
+    flags = PathAssemblyFlags.from_boot(existing or {})
+    new_flags = replace(flags, multipath_enabled=bool(enabled))
+    await storage.put_record(  # type: ignore[attr-defined]
+        PATH_FLAGS_COLLECTION, domain, dict(new_flags.to_dict())
+    )
+    ts = now if now is not None else time.time()
+    await emit_audit(
+        storage,
+        {
+            "type": EVENT_AUDIT_ASSEMBLY,
+            "ts": ts,
+            "domain": domain,
+            "flag": "multipath_enabled",
+            "enabled": bool(enabled),
+        },
+    )
+    return {"multipath_enabled": bool(enabled), "flags": dict(new_flags.to_dict())}
+
+
 __all__ = [
     "CANDIDATE_SOURCE_ALGORITHM",
     "CANDIDATE_SOURCE_CACHE",
@@ -1992,6 +2099,8 @@ __all__ = [
     "add_branch",
     "assemble_plan",
     "assembly_audit_record",
+    "choose_candidate",
+    "clear_candidate_selection",
     "canary_instantiate",
     "canary_round",
     "get_default_assembly_runtime",
@@ -2001,5 +2110,6 @@ __all__ = [
     "replace_node",
     "reroute_edge",
     "set_default_assembly_runtime",
+    "set_multipath",
     "validate_chain",
 ]

@@ -37,6 +37,8 @@ from collections.abc import Sequence
 from dataclasses import dataclass
 from typing import Any
 
+from .audit_log import emit_audit
+from .event_types import EVENT_AUDIT_POLICY_REVIEW
 from .exceptions import StorageError
 from .logging import get_logger
 
@@ -647,6 +649,131 @@ async def import_seed_paths(
     return written
 
 
+# ── 干预能力：信任档人工降级（档位更新 + 审计；可复原）──
+
+# 降级前证据快照集合（反向操作 restore_edge_tier 据此回写原档，状态可复原）
+EDGE_TIER_OVERRIDE_COLLECTION = "edge_tier_overrides"
+
+# 目标档位 → 推导该档所需的最小成功/失败计数（保留原 avg_cost/policy/时间戳）
+_TIER_TARGET_COUNTS = {
+    TIER_OBSERVING: (0, 0),  # n<8（success=0 即 n=fail<8 或 n=0）→ 观察
+    TIER_REGULAR: (8, 2),    # n≥8 且 p≥0.7 且 n<30 → 常规
+    TIER_PROMOTED: (30, 3),  # n≥30 且 p≥0.9 → 转正
+}
+
+
+def _tier_rank(tier: str) -> int:
+    """档位序（观察 0 < 常规 1 < 转正 2；未知档归观察）。"""
+    return {TIER_OBSERVING: 0, TIER_REGULAR: 1, TIER_PROMOTED: 2}.get(tier, 0)
+
+
+async def downgrade_edge_tier(
+    store: EdgeEvidenceStore,
+    key: EdgeKey,
+    *,
+    target_tier: str,
+    storage: object | None = None,
+    reason: str = "",
+    now: float | None = None,
+) -> dict[str, Any]:
+    """信任档人工降级（档位更新 + 审计；降级前快照留痕，可经 restore 复原）。
+
+    信任档由证据计数纯算法推导（``derive_edge_tier``），本函数把边证据改写
+    为「恰好落在目标档」的计数（保留 avg_cost / policy / 时间戳），使推导档
+    降至目标档——人工干预覆盖自动晋级。目标档非法 / 边不存在 = fail-closed
+    拒绝（未知 id 不静默）；目标档高于当前档（已更低）= 不升档、仅留痕。
+
+    降级前把原证据快照落 ``edge_tier_overrides`` 集合（按边主键），供
+    :func:`restore_edge_tier` 反向复原。审计复用 ``policy_edge_review_audit``
+    既有类型（边信任复审留痕），落 ``set_audit`` 集合。
+    """
+    if target_tier not in _TIER_TARGET_COUNTS:
+        raise ValueError(f"未知信任档: {target_tier!r}（仅 observing/regular/promoted）")
+    current = await store.get(key)
+    if current is None:
+        raise KeyError(f"边证据不存在（未知 id）: {key.key()}")
+    ts = now if now is not None else time.time()
+    current_tier = derive_edge_tier(current.success_count, current.fail_count)
+    new_success, new_fail = _TIER_TARGET_COUNTS[target_tier]
+    # 目标档不低于当前推导档：无需改写（不升档），仍记录干预动作
+    if _tier_rank(target_tier) >= _tier_rank(current_tier):
+        new_success, new_fail = current.success_count, current.fail_count
+    if storage is not None:
+        await storage.put_record(  # type: ignore[attr-defined]
+            EDGE_TIER_OVERRIDE_COLLECTION, "::".join(key.key()), current.to_dict()
+        )
+        await emit_audit(
+            storage,
+            {
+                "type": EVENT_AUDIT_POLICY_REVIEW,
+                "ts": ts,
+                "domain": key.context_domain,
+                "src_type": key.src_type,
+                "dst_type": key.dst_type,
+                "reason": reason or "人工信任档降级",
+                "action": "tier_downgraded",
+                "from_tier": current_tier,
+                "to_tier": target_tier,
+                "review_tier": "l2",
+            },
+        )
+    await store.put(
+        EdgeEvidence(
+            key=key,
+            success_count=new_success,
+            fail_count=new_fail,
+            avg_cost=current.avg_cost,
+            policy=current.policy,
+            last_used_at=current.last_used_at,
+            created_at=current.created_at,
+        )
+    )
+    updated = await store.get(key)
+    updated_tier = derive_edge_tier(updated.success_count, updated.fail_count) if updated else current_tier
+    return {
+        "src_type": key.src_type,
+        "dst_type": key.dst_type,
+        "domain": key.context_domain,
+        "from_tier": current_tier,
+        "to_tier": updated_tier,
+        "changed": (new_success, new_fail) != (current.success_count, current.fail_count),
+    }
+
+
+async def restore_edge_tier(
+    store: EdgeEvidenceStore,
+    key: EdgeKey,
+    *,
+    storage: object | None = None,
+) -> dict[str, Any] | None:
+    """反向操作：恢复降级前的信任档（从 override 快照回写原证据计数）。
+
+    回写后推导档回到干预前水平——配合 :func:`downgrade_edge_tier` 形成可
+    复原闭环。无快照（未降级过 / 未知 id）= 返回 None（fail-closed 不报错）。
+    """
+    if storage is None:
+        return None
+    snapshot = await storage.get_record(  # type: ignore[attr-defined]
+        EDGE_TIER_OVERRIDE_COLLECTION, "::".join(key.key())
+    )
+    if snapshot is None:
+        return None
+    await store.put(EdgeEvidence.from_dict(snapshot))
+    restored = await store.get(key)
+    restored_tier = (
+        derive_edge_tier(restored.success_count, restored.fail_count)
+        if restored is not None
+        else ""
+    )
+    return {
+        "src_type": key.src_type,
+        "dst_type": key.dst_type,
+        "domain": key.context_domain,
+        "to_tier": restored_tier,
+        "restored": True,
+    }
+
+
 __all__ = [
     "DECAY_HALF_DAYS",
     "DEFAULT_CONTRACT_VERSION",
@@ -669,12 +796,14 @@ __all__ = [
     "EdgeScore",
     "cold_start_index",
     "derive_edge_tier",
+    "downgrade_edge_tier",
     "edge_score",
     "import_seed_paths",
     "is_exploration_mode",
     "laplace_success",
     "multi_path_trigger",
     "rank_candidates",
+    "restore_edge_tier",
     "sample_weight",
     "tier_tau",
     "time_decay",

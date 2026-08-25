@@ -28,6 +28,7 @@ from collections.abc import Mapping, Sequence
 from dataclasses import dataclass
 from typing import Any
 
+from .audit_log import emit_audit
 from .edge_evidence import (
     DEFAULT_CONTRACT_VERSION,
     derive_edge_tier,
@@ -482,6 +483,56 @@ class FingerprintCacheStore:
             self._conn = None
 
 
+async def invalidate_cache(
+    store: FingerprintCacheStore,
+    scope: str,
+    *,
+    storage: object | None = None,
+    reason: str = "",
+    now: float | None = None,
+) -> dict[str, Any]:
+    """指纹缓存语义化失效（复用既有 ``invalidate`` 单条/整库失效机制）。
+
+    scope 三种形态：
+    - ``"*"`` / ``"all"``：整库失效（逐项 invalidate，计数累加）；
+    - ``"domain:<域>"``：指定域全部条目失效；
+    - 其余：按上下文指纹单条失效（未知指纹 = 0 条失效，fail-closed 不报错）。
+
+    空 scope = fail-closed 拒绝（不静默吞错）。每条失效经既有 ``invalidate``
+    走「降级不命中」语义，被顶替/淘汰时移除——本函数不另起实现。审计复用
+    ``fingerprint_replace_audit`` 既有类型（缓存相关留痕），落 ``set_audit``
+    集合。反向复原 = 重新 upsert 该指纹（命中恢复）。
+    """
+    if not scope:
+        raise ValueError("缓存失效 scope 不能为空（fail-closed）")
+    invalidated = 0
+    if scope in ("*", "all"):
+        for entry in await store.entries():
+            if await store.invalidate(entry.context_fingerprint, reason=reason):
+                invalidated += 1
+    elif scope.startswith("domain:"):
+        domain = scope[len("domain:"):]
+        for entry in await store.entries(domain or None):
+            if await store.invalidate(entry.context_fingerprint, reason=reason):
+                invalidated += 1
+    else:
+        if await store.invalidate(scope, reason=reason):
+            invalidated += 1
+    ts = now if now is not None else time.time()
+    await emit_audit(
+        storage,
+        {
+            "type": EVENT_AUDIT_FINGERPRINT_REPLACE,
+            "ts": ts,
+            "domain": "default",
+            "fingerprint": scope if scope not in ("*", "all") else "",
+            "reason": reason or "人工失效",
+            "invalidated": invalidated,
+        },
+    )
+    return {"invalidated": invalidated, "scope": scope}
+
+
 __all__ = [
     "DEFAULT_CACHE_CAP_PER_DOMAIN",
     "DRIFT_MIN_N",
@@ -492,4 +543,5 @@ __all__ = [
     "FingerprintCacheStore",
     "evidence_drifted",
     "fingerprint_replace_audit_record",
+    "invalidate_cache",
 ]

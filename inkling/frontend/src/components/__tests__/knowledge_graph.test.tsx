@@ -1,5 +1,5 @@
 /**
- * 知识关系可视化（P4.9）：节点/边渲染 + 展开折叠交互 + 点击入条目。
+ * 知识关系可视化：节点/边渲染 + 展开折叠交互 + 点击入条目。
  */
 
 import { render, screen } from '@testing-library/react';

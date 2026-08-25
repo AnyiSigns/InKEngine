@@ -1,5 +1,5 @@
 /**
- * 图表渲染器（P4.8）+ 生成端（P4.7）+ 导出 + 降级渲染断言。
+ * 图表渲染器 + 生成端 + 导出 + 降级渲染断言。
  */
 
 import { render, screen } from '@testing-library/react';
@@ -83,7 +83,7 @@ describe('chart 导出：触发断言', () => {
   });
 });
 
-describe('chart 生成端（P4.7）：同源同 spec', () => {
+describe('chart 生成端：同源同 spec', () => {
   it('结构化数据 + 指令 → chart spec（类型推断正确）', () => {
     const spec = buildChartSpec(
       { labels: ['一', '二', '三'], series: [{ name: 'A', values: [1, 2, 3] }] },

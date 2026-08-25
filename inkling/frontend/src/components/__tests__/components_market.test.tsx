@@ -1,5 +1,5 @@
 /**
- * 组件市场（P4.6）：seed JSON schema 校验 + 前端列表渲染断言。
+ * 组件市场：seed JSON schema 校验 + 前端列表渲染断言。
  */
 
 import { readFileSync } from 'node:fs';

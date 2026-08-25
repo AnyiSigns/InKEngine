@@ -733,7 +733,7 @@ mod tests {
             &allowed_tokens(),
         )
         .expect("应回落基线");
-        assert_eq!(restored["name"], "boot.panel");
+        assert_eq!(restored["name"], "inkling.ui");
         // 链上有 theme 覆盖：合并进快照
         let assembled = json!({"theme": {"bg.base": "#111111"}});
         let restored = restore_ui_theme(
@@ -757,7 +757,7 @@ mod tests {
             &allowed_tokens(),
         )
         .expect("校验不过保持现状");
-        assert_eq!(restored["name"], "boot.panel");
+        assert_eq!(restored["name"], "inkling.ui");
         // 白名单外 token 合并被剔除
         let tagged = json!({"theme": {"known": "not-allowed"}});
         let restored = restore_ui_theme(

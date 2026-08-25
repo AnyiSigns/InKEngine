@@ -1,0 +1,42 @@
+{
+  "premounted": false,
+  "mount_policy": {
+    "required": ["vetting 静态钩子核对", "审批卡预览（可 edit 改传输/命令）", "L2 人工审批", "补丁链挂载可回退"],
+    "note": "出厂零预挂：市场目录是候选清单，任何挂载都须走既有 vetting → 观察 → 审批 → 补丁链链路；挂载链复用既有 Artifact 补丁链（本道不做壳侧）"
+  },
+  "components": [
+    {
+      "id": "market.focus_dashboard",
+      "name": "专注仪表盘",
+      "source": "社区公开组件（示例条目）",
+      "version": "0.1.0",
+      "risk": "low",
+      "risk_note": "仅本地渲染会话指标，无网络/文件系统权限；首次接入仍走观察期播报",
+      "artifact_url": "https://components.inkling.dev/focus_dashboard.tar.gz",
+      "test_manifest": { "required": ["render_smoke", "no_network_egress"], "note": "挂载前须通过冒烟与零出网两项门禁" },
+      "maintenance": "maintained"
+    },
+    {
+      "id": "market.web_clipper",
+      "name": "网页摘录",
+      "source": "社区公开组件（示例条目）",
+      "version": "0.2.1",
+      "risk": "medium",
+      "risk_note": "抓取外部网页：挂载后须走网络策略域名白名单 + review 审批，摘录来源分级 web 最低",
+      "artifact_url": "https://components.inkling.dev/web_clipper.tar.gz",
+      "test_manifest": { "required": ["render_smoke", "domain_allowlist_enforced"], "note": "挂载前须通过冒烟与域名白名单强制两项门禁" },
+      "maintenance": "maintained"
+    },
+    {
+      "id": "market.fs_indexer",
+      "name": "文件索引器",
+      "source": "MCP 官方参考实现（示例条目）",
+      "version": "0.3.0",
+      "risk": "high",
+      "risk_note": "遍历工作区文件：须文件沙箱根目录限定（file_ops 权限分级 allow/review），首次越界操作强制 L2 人工审批",
+      "artifact_url": "https://components.inkling.dev/fs_indexer.tar.gz",
+      "test_manifest": { "required": ["render_smoke", "sandbox_root_enforced", "no_delete"], "note": "挂载前须通过冒烟、沙箱根目录强制、零删除三项门禁" },
+      "maintenance": "experimental"
+    }
+  ]
+}

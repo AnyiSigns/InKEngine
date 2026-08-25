@@ -688,6 +688,84 @@ def register_builtin_ops() -> None:
             runtime.self_pipeline.register_target(kind, target)
         return {"registered": [target.name for target in targets.values()]}
 
+    # ── 技能结晶 / 技能市场 ──
+
+    @op_async("skill.list")
+    async def _skill_list(args: dict) -> Any:
+        """列出已结晶技能（按名+版本升序；domain 可选过滤）。"""
+        runtime = runtime_handle()
+        store = getattr(runtime, "skill_store", None)
+        if store is None:
+            return {"skills": []}
+        entries = await store.list(args.get("domain"))
+        return {"skills": [_jsonable(e) for e in entries]}
+
+    @op_async("skill.export")
+    async def _skill_export(args: dict) -> Any:
+        """导出技能为可分享 JSON（导出格式与市场导入同构）。
+
+        dest 给定时落盘文件，返回结构含导出路径；缺失技能 = found=False。
+        """
+        from ink_engine.core.skill_crystal import export_skill
+
+        runtime = runtime_handle()
+        store = getattr(runtime, "skill_store", None)
+        if store is None:
+            raise RuntimeError("技能存储未装配（技能结晶未启用）")
+        name = args["name"]
+        entry = await store.get(name)
+        if entry is None:
+            return {"found": False, "skill": None}
+        payload = export_skill(entry, dest=args.get("dest"))
+        return {"found": True, "skill": payload}
+
+    @op_async("skill.delete")
+    async def _skill_delete(args: dict) -> Any:
+        """删除某技能全部版本（派生数据可重建）。"""
+        runtime = runtime_handle()
+        store = getattr(runtime, "skill_store", None)
+        if store is None:
+            return {"deleted": False}
+        removed = await store.delete(args["name"])
+        return {"deleted": removed}
+
+    @op_async("skill.market_list")
+    async def _skill_market_list(args: dict) -> Any:
+        """浏览技能市场目录（候选清单，不预装）。"""
+        runtime = runtime_handle()
+        market = getattr(runtime, "skill_market", None)
+        if market is None:
+            return {"entries": [], "premounted": False, "mount_policy": {}}
+        return {
+            "entries": market.list_entries(),
+            "premounted": market.premounted,
+            "mount_policy": market.mount_policy,
+        }
+
+    @op_async("skill.market_install")
+    async def _skill_market_install(args: dict) -> Any:
+        """安装市场技能（目录取条目 → vetting → 审批 → 补丁链落链）。
+
+        decision 预填（accept/reject）走 StandaloneApprovalContext 同键语义；
+        缺省 = 拒绝（fail-closed）。落链同时写入本地技能存储。
+        """
+        from inkling_host.skill_market import SkillMarketService
+
+        runtime = runtime_handle()
+        market = getattr(runtime, "skill_market", None)
+        if market is None or not isinstance(market, SkillMarketService):
+            raise RuntimeError("技能市场未装配")
+        ctx = StandaloneApprovalContext(args.get("thread_id"))
+        decision = args.get("decision")
+        if decision is not None:
+            _APPROVAL_DECISIONS[
+                ctx._key("skill_install:" + str(args["skill_id"]))
+            ] = {"decision": decision, "reason": args.get("reason")}
+        outcome = await market.propose_install(
+            ctx, args["skill_id"], round_id=args.get("round_id")
+        )
+        return outcome.to_dict()
+
     # ── 工具表/流水线/审批──
 
     @op_sync("engine.tool_registry_remove")

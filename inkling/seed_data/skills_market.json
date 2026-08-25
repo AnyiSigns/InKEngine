@@ -1,0 +1,91 @@
+{
+  "premounted": false,
+  "mount_policy": {
+    "required": ["vetting 静态核对（清单一致性/必填字段/来源声明）", "审批卡预览（可 edit 改条目）", "L2 人工审批", "补丁链落链可回退"],
+    "note": "出厂零预装：市场目录是候选清单，任何安装都须走既有 vetting → 审批 → 补丁链链路（与 mcp_market 同形）"
+  },
+  "skills": [
+    {
+      "id": "market.skill.visual.chart_extract",
+      "name": "visual.chart_extract",
+      "kind": "visual",
+      "domain": "default",
+      "version": 1,
+      "description": "图表解读→数据提取→入库：输入图像，输出结构化数据提取（P3.5 感知结点 image→描述链路结晶）",
+      "fingerprint": "vismkt.chart.extract.01",
+      "source_path": "vismkt.chart.extract.01",
+      "model_id": "seed",
+      "hit_count": 42,
+      "fail_count": 3,
+      "contract_snapshot": [["vision.perceive", "1"], ["data.extract", "1"], ["memory.ingest", "1"]],
+      "evidence_snapshot": [
+        {"src_type": "vision.perceive", "dst_type": "data.extract", "src_contract_version": "1", "dst_contract_version": "1", "context_domain": "default", "success_count": 42, "fail_count": 3},
+        {"src_type": "data.extract", "dst_type": "memory.ingest", "src_contract_version": "1", "dst_contract_version": "1", "context_domain": "default", "success_count": 41, "fail_count": 1}
+      ],
+      "path": {
+        "nodes": {
+          "perceive": {"type": "vision.perceive", "contract": {"version": "1", "input_schema": {"name": "vision.perceive.in", "fields": [{"name": "image", "required": true, "kind": "string"}]}, "output_schema": {"name": "vision.perceive.out", "fields": [{"name": "description", "required": false, "kind": "string"}]}}},
+          "extract": {"type": "data.extract", "contract": {"version": "1", "input_schema": {"name": "data.extract.in", "fields": [{"name": "description", "required": true, "kind": "string"}]}, "output_schema": {"name": "data.extract.out", "fields": [{"name": "records", "required": false, "kind": "string"}]}}},
+          "ingest": {"type": "memory.ingest", "contract": {"version": "1", "input_schema": {"name": "memory.ingest.in", "fields": [{"name": "records", "required": true, "kind": "string"}]}, "output_schema": {"name": "memory.ingest.out", "fields": []}}}
+        }
+      },
+      "test_report": {
+        "skill_name": "visual.chart_extract",
+        "version": 1,
+        "skill_kind": "visual",
+        "domain": "default",
+        "model_id": "seed",
+        "success_rate": 0.9333,
+        "hit_count": 42,
+        "fail_count": 3,
+        "sample_edges": [
+          {"src_type": "vision.perceive", "dst_type": "data.extract", "success_count": 42, "fail_count": 3},
+          {"src_type": "data.extract", "dst_type": "memory.ingest", "success_count": 41, "fail_count": 1}
+        ],
+        "generated_at": 0,
+        "note": "市场候选技能（示例条目）：高频成功视觉路径结晶"
+      }
+    },
+    {
+      "id": "market.skill.path.doc_summary",
+      "name": "path.doc_summary",
+      "kind": "path",
+      "domain": "default",
+      "version": 1,
+      "description": "文档摘要路由：检索→摘要→归档（通用路径技能示例）",
+      "fingerprint": "pathmkt.doc.summary.01",
+      "source_path": "pathmkt.doc.summary.01",
+      "model_id": "seed",
+      "hit_count": 30,
+      "fail_count": 2,
+      "contract_snapshot": [["retrieve", "1"], ["summarize", "1"], ["archive", "1"]],
+      "evidence_snapshot": [
+        {"src_type": "retrieve", "dst_type": "summarize", "src_contract_version": "1", "dst_contract_version": "1", "context_domain": "default", "success_count": 30, "fail_count": 2},
+        {"src_type": "summarize", "dst_type": "archive", "src_contract_version": "1", "dst_contract_version": "1", "context_domain": "default", "success_count": 29, "fail_count": 1}
+      ],
+      "path": {
+        "nodes": {
+          "retrieve": {"type": "retrieve", "contract": {"version": "1", "input_schema": {"name": "retrieve.in", "fields": [{"name": "query", "required": true, "kind": "string"}]}, "output_schema": {"name": "retrieve.out", "fields": [{"name": "docs", "required": false, "kind": "string"}]}}},
+          "summarize": {"type": "summarize", "contract": {"version": "1", "input_schema": {"name": "summarize.in", "fields": [{"name": "docs", "required": true, "kind": "string"}]}, "output_schema": {"name": "summarize.out", "fields": [{"name": "summary", "required": false, "kind": "string"}]}}},
+          "archive": {"type": "archive", "contract": {"version": "1", "input_schema": {"name": "archive.in", "fields": [{"name": "summary", "required": true, "kind": "string"}]}, "output_schema": {"name": "archive.out", "fields": []}}}
+        }
+      },
+      "test_report": {
+        "skill_name": "path.doc_summary",
+        "version": 1,
+        "skill_kind": "path",
+        "domain": "default",
+        "model_id": "seed",
+        "success_rate": 0.9375,
+        "hit_count": 30,
+        "fail_count": 2,
+        "sample_edges": [
+          {"src_type": "retrieve", "dst_type": "summarize", "success_count": 30, "fail_count": 2},
+          {"src_type": "summarize", "dst_type": "archive", "success_count": 29, "fail_count": 1}
+        ],
+        "generated_at": 0,
+        "note": "市场候选技能（示例条目）：高频成功路径结晶"
+      }
+    }
+  ]
+}

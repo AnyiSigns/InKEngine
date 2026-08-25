@@ -18,6 +18,7 @@ import { BindSourceProvider } from './bindSource';
 import { DynamicComponent } from './componentRegistry';
 import { applyThemeTokens } from './themeTokens';
 import type { UINode, UISpec, ViewId } from './uiSpecTypes';
+import { resolveMessageRenderer } from './messageRendererRegistry';
 import { logSpecDamage, normalizeSpec, validateUiSpec } from './validation';
 
 const MAX_LAYOUT_DEPTH = 64;
@@ -240,6 +241,9 @@ export function UIRenderer({
   if (sessionStore !== undefined) chromeProps.sessionStore = sessionStore;
   if (activeSessionId !== undefined) chromeProps.activeSessionId = activeSessionId;
   if (architectureBaseline !== undefined) chromeProps.architectureBaseline = architectureBaseline;
+  // 追加式挂接：自定义消息渲染器通道经 chromeProps 暴露组件消费，由注册表
+  // 侧 resolveMessageRenderer 按 (键, 形态) 选择，不重构既有布局树。
+  chromeProps.resolveMessageRenderer = resolveMessageRenderer;
 
   if (!clean) {
     logSpecDamage(spec?.name ?? '(null)', validation.reason ?? '未知损坏');

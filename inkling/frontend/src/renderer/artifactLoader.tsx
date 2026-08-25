@@ -16,6 +16,11 @@ import type { ComponentType, ErrorInfo, ReactNode } from 'react';
 import { registerComponent } from './componentRegistry';
 import { logger } from '@/shared/logger';
 import type { ArtifactManifestEntry, BackendAdapter } from '@/shared/backend/backendAdapter';
+import {
+  registerMessageRenderer,
+  registerRendererKey,
+  type MessageRendererForm,
+} from './messageRendererRegistry';
 
 interface ArtifactComponentProps {
   [key: string]: unknown;
@@ -103,8 +108,18 @@ export function registerArtifactManifest(entries: ArtifactManifestEntry[]): numb
   for (const entry of entries) {
     if (!entry.name || !entry.url) continue;
     if (!/^https?:\/\//.test(entry.url) && !entry.url.startsWith('.') && !entry.url.startsWith('/')) continue;
-    if (registerArtifactComponent(entry.name, lazyArtifactComponent(entry.url, entry.name))) {
+    const lazyComp = lazyArtifactComponent(entry.url, entry.name);
+    if (registerArtifactComponent(entry.name, lazyComp)) {
       registered += 1;
+    }
+    // 清单条目带 renderer_key → 登记为白名单键并绑定自定义消息渲染器
+    // （view_forms 决定可用形态；键名非法时白名单拒绝、绑定 fail-closed）。
+    if (entry.renderer_key) {
+      registerRendererKey(entry.renderer_key);
+      const forms = (entry.view_forms ?? ['mini', 'overlay']).filter(
+        (f): f is MessageRendererForm => f === 'mini' || f === 'overlay',
+      );
+      registerMessageRenderer(entry.renderer_key, lazyComp, forms);
     }
   }
   if (registered > 0) {

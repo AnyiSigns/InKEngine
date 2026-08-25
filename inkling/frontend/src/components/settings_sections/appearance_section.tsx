@@ -16,6 +16,7 @@ import { TextInput } from '@/shared/ui/Field';
 import { applyThemeTokens, rejectedThemeTokens, THEME_TOKEN_WHITELIST } from '@/renderer/themeTokens';
 import { useThemeMode } from '@/renderer/themeMode';
 import type { ThemeMode } from '@/renderer/themeMode';
+import { setLocale, useT, type Locale } from '@/i18n/useT';
 
 export interface AppearanceValue {
   themeDraft: Record<string, string>;
@@ -38,6 +39,12 @@ interface AppearanceSectionProps {
 
 export function AppearanceSection({ value, patch }: AppearanceSectionProps) {
   const { mode, effective, setMode } = useThemeMode();
+  const { t, lang } = useT();
+
+  const LANGUAGE_OPTIONS: Array<{ value: Locale; label: string }> = [
+    { value: 'zh', label: '简体中文' },
+    { value: 'en', label: 'English' },
+  ];
 
   // 皮肤试穿：白名单 token 落地 CSS 变量（未声明 token 拒绝并提示）
   useEffect(() => {
@@ -80,6 +87,28 @@ export function AppearanceSection({ value, patch }: AppearanceSectionProps) {
         <p className="mt-2 flex items-center gap-1.5 text-[10px] leading-relaxed ink-text-faint">
           <Monitor size={10} strokeWidth={1.6} className="shrink-0" aria-hidden />
           system = 跟随 OS prefers-color-scheme，切换即时生效；首选档首启不闪屏
+        </p>
+      </div>
+      <div className="ink-elevated px-3.5 py-3">
+        <div className="mb-2 text-[11px] font-medium tracking-wide ink-text-muted">{t('appearance.language')}</div>
+        <div className="ink-seg" role="radiogroup" aria-label={t('appearance.language')}>
+          {LANGUAGE_OPTIONS.map((option) => (
+            <button
+              key={option.value}
+              role="radio"
+              aria-checked={lang === option.value}
+              data-ui={`lang_${option.value}`}
+              data-active={lang === option.value}
+              onClick={() => setLocale(option.value)}
+              className="ink-seg-item gap-1"
+            >
+              {option.label}
+            </button>
+          ))}
+        </div>
+        <p className="mt-2 flex items-center gap-1.5 text-[10px] leading-relaxed ink-text-faint">
+          <Monitor size={10} strokeWidth={1.6} className="shrink-0" aria-hidden />
+          {t('appearance.language.help')}
         </p>
       </div>
       <div className="ink-elevated divide-y divide-[var(--ink-border)] overflow-hidden">

@@ -68,7 +68,10 @@ export interface ArtifactManifestEntry {
   url: string;
   hash: string;
   version: string;
+  /** 渲染形态声明（mini 内联 / overlay 弹层）。 */
   view_forms?: string[];
+  /** 渲染器键：清单条目同时登记为自定义消息渲染器（须为白名单键）。 */
+  renderer_key?: string;
 }
 
 /** 工具快照条目（四层兜底标签 + 工具族 + 自动审批可登记标记）。 */

@@ -1,0 +1,10 @@
+{
+  "settings.title": "Settings",
+  "appearance.section": "Appearance",
+  "appearance.theme": "Theme mode",
+  "appearance.language": "Interface language",
+  "appearance.language.help": "Applies instantly, persists after restart",
+  "common.cancel": "Cancel",
+  "common.confirm": "Confirm",
+  "message.empty": "Message stream is empty"
+}

@@ -25,10 +25,10 @@ import { isEventTypeName } from '@/shared/session/eventTypes';
 import { runFixtureSession } from '@/shared/session/fixtureScript';
 import {
   submitUserMessage,
-  submitAttachments,
   ingestEvent,
   setStreaming,
   commitStreaming,
+  toEngineAttachments,
   type AttachmentAsset,
 } from '@/shared/session/eventIngest';
 import { MemorySessionStore } from '@/shared/session/sessionStore';
@@ -175,16 +175,16 @@ export default function App() {
     activationRound(sessionId);
   };
 
-  const sendToEngine = useCallback((text: string): void => {
+  const sendToEngine = useCallback((text: string, attachments: AttachmentAsset[] = []): void => {
     const hub = hubRef.current as ChannelHub;
     if (!backend.available || !activeSessionId) {
-      submitUserMessage(hub, text);
+      submitUserMessage(hub, text, attachments);
       return;
     }
     const roundId = `round-${Date.now()}`;
     setStreaming(hub, true);
     void backend
-      .roundSend(activeSessionId, roundId, text, false)
+      .roundSend(activeSessionId, roundId, text, false, toEngineAttachments(attachments))
       .then((outcome) => {
         const streamed = streamedRef.current[roundId] ?? 0;
         const events = outcome.events ?? [];
@@ -339,8 +339,7 @@ export default function App() {
         onSend={sendToEngine}
         onAbort={abortRound}
         onAttachments={(assets) => {
-          submitAttachments(hubRef.current as ChannelHub, assets as AttachmentAsset[]);
-          logger.info('app', '附件提交（媒体策略分发后落位）', { count: assets.length });
+          logger.info('app', '附件经媒体策略分发后暂存（随发送同行，不单独落位）', { count: assets.length });
         }}
         onResendMessage={resendMessage}
         onBranchFromMessage={branchFromMessage}

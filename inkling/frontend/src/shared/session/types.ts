@@ -17,6 +17,20 @@ export interface InkTextMessage extends InkMessageBase {
   kind: 'text';
   role: 'user' | 'assistant' | 'system';
   content: string;
+  /** 多模态附件（user 角色携带，对齐引擎 Attachment 契约：kind + url 必备）。 */
+  attachments?: OutboundAttachment[];
+}
+
+/**
+ * 出站附件（与引擎 Attachment 契约对齐）：kind 分类 + 可解析 url 为必备面，
+ * name/mime 为展示与诊断补充。序列化时缺 url/path 引用的附件不入载荷。
+ */
+export interface OutboundAttachment {
+  kind: 'image' | 'video' | 'document';
+  url: string;
+  name?: string;
+  mime?: string;
+  alt?: string;
 }
 
 /** 流式回复段（reply_token 事件累积写入，commit 后定型为 text/assistant）。 */

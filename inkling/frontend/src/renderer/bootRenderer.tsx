@@ -15,6 +15,7 @@ import { useEffect, useState } from 'react';
 import { ChevronRight } from 'lucide-react';
 
 import type { ChannelHub } from '@/shared/session/channelHub';
+import type { AttachmentAsset } from '@/shared/session/eventIngest';
 import { BindSourceProvider } from './bindSource';
 import { DynamicComponent } from './componentRegistry';
 import { applyThemeTokens } from './themeTokens';
@@ -233,8 +234,8 @@ export interface RendererChrome {
   onNavigate?: (view: ViewId) => void;
   /** 审批卡决议（accept/reject/edit/terminate） */
   onResolveReview?: (resolution: 'accept' | 'reject' | 'edit' | 'terminate', editedContent?: string) => void;
-  /** 输入提交（宿主接线：引擎回合入口） */
-  onSend?: (text: string) => void;
+  /** 输入提交（宿主接线：引擎回合入口；附件随多模态直发或降级为文本引用） */
+  onSend?: (text: string, attachments?: AttachmentAsset[]) => void;
   /** 回合中止（宿主接线：停止按钮 → 中止当前回合） */
   onAbort?: () => void;
   /** 附件提交（宿主接线：媒体资产落位消息流） */

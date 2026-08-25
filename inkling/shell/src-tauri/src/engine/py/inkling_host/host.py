@@ -350,6 +350,7 @@ async def boot_inkling(
     runtime_holder: dict[str, Any] = {}
     evidence_store: Any = None
     fingerprint_store: Any = None
+    skill_store: Any = None
     settle_hooks: Any = None
 
     def _audit_sink(record: dict[str, Any]) -> None:
@@ -387,6 +388,11 @@ async def boot_inkling(
 
         fingerprint_store = FingerprintCacheStore(
             db_path=str(data_dir / "fingerprint_cache.sqlite")
+        )
+        from ink_engine.core.skill_crystal import SkillStore
+
+        skill_store = SkillStore(
+            db_path=str(data_dir / "skills.sqlite")
         )
     from ink_engine.core.run_result import RunOptions
 
@@ -426,6 +432,21 @@ async def boot_inkling(
             )
         )
         hooks.register(PolicyEdgeReviewSettleHook(evidence_store, sink=_audit_sink))
+        if skill_store is not None and fingerprint_store is not None:
+            from ink_engine.core.skill_crystal import (
+                SKILL_HIT_MIN_DEFAULT,
+                SKILL_SUCCESS_RATE_DEFAULT,
+                SkillCrystallizeHook,
+            )
+
+            hooks.register(
+                SkillCrystallizeHook(
+                    fingerprint_store,
+                    skill_store,
+                    hit_min=SKILL_HIT_MIN_DEFAULT,
+                    success_rate=SKILL_SUCCESS_RATE_DEFAULT,
+                )
+            )
         settle_hooks = hooks
 
     def composed_l2_hook(proposal: Any) -> list[str]:
@@ -470,6 +491,8 @@ async def boot_inkling(
     )
     if fingerprint_store is not None:
         host.assembly_stores.append(fingerprint_store)
+    if skill_store is not None:
+        host.assembly_stores.append(skill_store)
     if evidence_store is not None:
         host.assembly_stores.append(evidence_store)
     from .recipe_loader import build_recipe
@@ -486,6 +509,12 @@ async def boot_inkling(
     runtime = await InkRuntime(_five_source_factory(bundle)).boot(host, recipe)
     runtime_holder["runtime"] = runtime
     revert_state["runtime"] = runtime
+    runtime.skill_store = skill_store
+    if skill_store is None:
+        from ink_engine.core.skill_crystal import SkillStore
+
+        skill_store = SkillStore(db_path=":memory:")
+        runtime.skill_store = skill_store
     # 组装指令运行期挂载（flag 开 = 默认运行期生效；关 = 显式卸载零生效）
     if path_flags.assembler_enabled:
         from ink_engine.core.path_assembler import (
@@ -518,6 +547,22 @@ async def boot_inkling(
         market=market if market is not None else bundle.data["mcp_market.json"],
         external_mark_vetted=mark_vetted,
     )
+    from .skill_market import SkillMarketService
+
+    market_path = bundle.root / "seed_data" / "skills_market.json"
+    skills_market: dict[str, Any] = {}
+    if market_path.is_file():
+        import json as _json
+
+        skills_market = _json.loads(market_path.read_text(encoding="utf-8"))
+    skill_market_service = SkillMarketService(
+        runtime,
+        market=skills_market,
+        skill_store=runtime.skill_store,
+        external_mark_vetted=mark_vetted,
+    )
+    host.skill_market = skill_market_service
+    runtime.skill_market = skill_market_service
     register_domain_tools(runtime, bundle)
     register_host_executors(runtime, mount_service, security)
     # 环境装配域（storage 在 boot 后可用：审计/恢复）

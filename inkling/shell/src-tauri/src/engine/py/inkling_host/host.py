@@ -734,6 +734,11 @@ _OS_BRIDGE_COMMANDS = (
     "run_test_cargo",
     "run_test_python",
     "run_test_web",
+    "ui_click",
+    "ui_type",
+    "window_list",
+    "window_focus",
+    "window_minimize",
 )
 
 

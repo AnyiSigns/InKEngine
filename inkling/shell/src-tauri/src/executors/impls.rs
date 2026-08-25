@@ -300,6 +300,92 @@ fn file_query_spec() -> ExecutorSpec {
     }
 }
 
+/// 屏幕坐标范围（Windows 坐标空间上限；与 fixture 坐标点击沙箱同源）。
+const CLICK_X_MIN: i64 = 0;
+const CLICK_X_MAX: i64 = 32767;
+const CLICK_Y_MIN: i64 = 0;
+const CLICK_Y_MAX: i64 = 32767;
+/// 点击按键白名单（与 fixture 坐标点击沙箱 buttons 同源）。
+const CLICK_BUTTONS: &[&str] = &["left", "right", "middle"];
+/// 文本输入长度上限（字符；与 fixture 文本输入沙箱 max_chars 同源）。
+const UI_TEXT_MAX_CHARS: usize = 256;
+/// 窗口作用域白名单（window_list 用；与 fixture window_target scopes 同源）。
+const WINDOW_SCOPES: &[&str] = &["all", "foreground"];
+
+fn ui_tree_query_spec() -> ExecutorSpec {
+    ExecutorSpec {
+        name: "ui_tree_query",
+        params: vec![ParamSpec { name: "scope", param_type: ParamType::String, required: false }],
+        permission: PermissionLevel::Allow,
+        endpoint: Endpoint::DeviceMcp,
+        sandbox: SandboxRule::CommandAllowlist {
+            allowlist: vec!["foreground".into(), "all".into()],
+        },
+    }
+}
+
+fn ui_click_spec() -> ExecutorSpec {
+    ExecutorSpec {
+        name: "ui_click",
+        params: vec![
+            ParamSpec { name: "x", param_type: ParamType::Integer, required: true },
+            ParamSpec { name: "y", param_type: ParamType::Integer, required: true },
+            ParamSpec { name: "button", param_type: ParamType::String, required: true },
+        ],
+        permission: PermissionLevel::Review,
+        endpoint: Endpoint::ProcessExec,
+        sandbox: SandboxRule::CoordinateClick {
+            x_min: CLICK_X_MIN,
+            x_max: CLICK_X_MAX,
+            y_min: CLICK_Y_MIN,
+            y_max: CLICK_Y_MAX,
+            buttons: CLICK_BUTTONS.iter().map(|item| item.to_string()).collect(),
+        },
+    }
+}
+
+fn ui_type_spec() -> ExecutorSpec {
+    ExecutorSpec {
+        name: "ui_type",
+        params: vec![ParamSpec { name: "text", param_type: ParamType::String, required: true }],
+        permission: PermissionLevel::Review,
+        endpoint: Endpoint::ProcessExec,
+        sandbox: SandboxRule::TextInput { max_chars: UI_TEXT_MAX_CHARS },
+    }
+}
+
+fn window_list_spec() -> ExecutorSpec {
+    ExecutorSpec {
+        name: "window_list",
+        params: vec![ParamSpec { name: "scope", param_type: ParamType::String, required: false }],
+        permission: PermissionLevel::Review,
+        endpoint: Endpoint::ProcessExec,
+        sandbox: SandboxRule::WindowTarget {
+            scopes: WINDOW_SCOPES.iter().map(|item| item.to_string()).collect(),
+        },
+    }
+}
+
+fn window_focus_spec() -> ExecutorSpec {
+    ExecutorSpec {
+        name: "window_focus",
+        params: vec![ParamSpec { name: "handle", param_type: ParamType::String, required: true }],
+        permission: PermissionLevel::Review,
+        endpoint: Endpoint::ProcessExec,
+        sandbox: SandboxRule::WindowTarget { scopes: vec![] },
+    }
+}
+
+fn window_minimize_spec() -> ExecutorSpec {
+    ExecutorSpec {
+        name: "window_minimize",
+        params: vec![ParamSpec { name: "handle", param_type: ParamType::String, required: true }],
+        permission: PermissionLevel::Review,
+        endpoint: Endpoint::ProcessExec,
+        sandbox: SandboxRule::WindowTarget { scopes: vec![] },
+    }
+}
+
 /// 进程模板工具的超时上限（秒；钉死在声明侧，与夹具一致）。
 const PROCESS_TEMPLATE_TIMEOUT_SECS: u64 = 180;
 
@@ -383,6 +469,12 @@ pub fn executor_impl(name: &str) -> Option<(ExecutorSpec, RunFn)> {
         "schedule" => (schedule_spec(), schedule_run),
         "screen_query" => (screen_query_spec(), screen_query_run),
         "file_query" => (file_query_spec(), file_query_run),
+        "ui_tree_query" => (ui_tree_query_spec(), ui_tree_query_run),
+        "ui_click" => (ui_click_spec(), ui_click_run),
+        "ui_type" => (ui_type_spec(), ui_type_run),
+        "window_list" => (window_list_spec(), window_list_run),
+        "window_focus" => (window_focus_spec(), window_focus_run),
+        "window_minimize" => (window_minimize_spec(), window_minimize_run),
         "run_typecheck" => (run_typecheck_spec(), run_process_template),
         "run_test_cargo" => (run_test_cargo_spec(), run_process_template),
         "run_test_python" => (run_test_python_spec(), run_process_template),
@@ -551,6 +643,137 @@ fn file_query_run(
     Ok(ExecOutcome { result, sandbox_checked: true })
 }
 
+/// 元素树感知运行体（只读：作用域白名单收口，越权域拒绝）。
+///
+/// ui_tree_query 为 allow 档（只读感知无副作用），但作用域（foreground/all）
+/// 越界仍按沙箱拒绝——只读不代表可越权感知任意桌面控件层级。
+fn ui_tree_query_run(
+    executor: &dyn Executor,
+    args: &BTreeMap<String, Value>,
+    backend: &dyn SystemBackend,
+    auth: &Authorization,
+) -> Result<ExecOutcome, ExecError> {
+    let tool = executor.name();
+    check_permission(tool, executor.spec().permission, auth)?;
+    let scope = args
+        .get("scope")
+        .and_then(Value::as_str)
+        .unwrap_or("all")
+        .to_string();
+    if let SandboxRule::CommandAllowlist { allowlist } = &executor.spec().sandbox {
+        check_allowlist(allowlist, &scope, tool)?;
+    }
+    let result = backend.ui_tree_query().map_err(ExecError::ExecutionFailed)?;
+    Ok(ExecOutcome { result, sandbox_checked: true })
+}
+
+/// 鼠标点击运行体（坐标边界 + 按键白名单收口；审批档 review）。
+fn ui_click_run(
+    executor: &dyn Executor,
+    args: &BTreeMap<String, Value>,
+    backend: &dyn SystemBackend,
+    auth: &Authorization,
+) -> Result<ExecOutcome, ExecError> {
+    let tool = executor.name();
+    check_permission(tool, executor.spec().permission, auth)?;
+    let x = arg_i64(args, "x")?;
+    let y = arg_i64(args, "y")?;
+    let button = arg_str(args, "button")?.to_string();
+    if let SandboxRule::CoordinateClick { x_min, x_max, y_min, y_max, buttons } = &executor.spec().sandbox {
+        check_bounds(*x_min, *x_max, x, tool)?;
+        check_bounds(*y_min, *y_max, y, tool)?;
+        if !buttons.iter().any(|item| item == &button) {
+            return Err(ExecError::SandboxViolation(format!(
+                "{tool} 不支持的按键: {button}"
+            )));
+        }
+    }
+    let result = backend
+        .ui_click(x as i32, y as i32, &button)
+        .map_err(ExecError::ExecutionFailed)?;
+    Ok(ExecOutcome { result, sandbox_checked: true })
+}
+
+/// 文本输入运行体（长度上限收口；审批档 review）。
+fn ui_type_run(
+    executor: &dyn Executor,
+    args: &BTreeMap<String, Value>,
+    backend: &dyn SystemBackend,
+    auth: &Authorization,
+) -> Result<ExecOutcome, ExecError> {
+    let tool = executor.name();
+    check_permission(tool, executor.spec().permission, auth)?;
+    let text = arg_str(args, "text")?.to_string();
+    if let SandboxRule::TextInput { max_chars } = &executor.spec().sandbox {
+        if text.chars().count() > *max_chars {
+            return Err(ExecError::SandboxViolation(format!(
+                "{tool} 文本超长（≤{max_chars} 字符）"
+            )));
+        }
+    }
+    let result = backend.ui_type(&text).map_err(ExecError::ExecutionFailed)?;
+    Ok(ExecOutcome { result, sandbox_checked: true })
+}
+
+/// 窗口清单运行体（作用域白名单收口；审批档 review）。
+fn window_list_run(
+    executor: &dyn Executor,
+    args: &BTreeMap<String, Value>,
+    backend: &dyn SystemBackend,
+    auth: &Authorization,
+) -> Result<ExecOutcome, ExecError> {
+    let tool = executor.name();
+    check_permission(tool, executor.spec().permission, auth)?;
+    let scope = args
+        .get("scope")
+        .and_then(Value::as_str)
+        .unwrap_or("all")
+        .to_string();
+    if let SandboxRule::WindowTarget { scopes } = &executor.spec().sandbox {
+        if !scopes.is_empty() && !scopes.iter().any(|item| item == &scope) {
+            return Err(ExecError::SandboxViolation(format!(
+                "{tool} 不支持的作用域: {scope}"
+            )));
+        }
+    }
+    let result = backend.window_list().map_err(ExecError::ExecutionFailed)?;
+    Ok(ExecOutcome { result, sandbox_checked: true })
+}
+
+/// 聚焦窗口运行体（句柄非空校验；审批档 review）。
+fn window_focus_run(
+    executor: &dyn Executor,
+    args: &BTreeMap<String, Value>,
+    backend: &dyn SystemBackend,
+    auth: &Authorization,
+) -> Result<ExecOutcome, ExecError> {
+    let tool = executor.name();
+    check_permission(tool, executor.spec().permission, auth)?;
+    let handle = arg_str(args, "handle")?.to_string();
+    if handle.trim().is_empty() {
+        return Err(ExecError::BadArgs(format!("{tool} 句柄不可为空")));
+    }
+    let result = backend.window_focus(&handle).map_err(ExecError::ExecutionFailed)?;
+    Ok(ExecOutcome { result, sandbox_checked: true })
+}
+
+/// 最小化窗口运行体（句柄非空校验；审批档 review）。
+fn window_minimize_run(
+    executor: &dyn Executor,
+    args: &BTreeMap<String, Value>,
+    backend: &dyn SystemBackend,
+    auth: &Authorization,
+) -> Result<ExecOutcome, ExecError> {
+    let tool = executor.name();
+    check_permission(tool, executor.spec().permission, auth)?;
+    let handle = arg_str(args, "handle")?.to_string();
+    if handle.trim().is_empty() {
+        return Err(ExecError::BadArgs(format!("{tool} 句柄不可为空")));
+    }
+    let result = backend.window_minimize(&handle).map_err(ExecError::ExecutionFailed)?;
+    Ok(ExecOutcome { result, sandbox_checked: true })
+}
+
 /// 测试筛选值校验（run_test_* 的 filter 参数）。
 ///
 /// 直接 argv 数组传给测试运行器（不经 shell，无命令拼接面），校验
@@ -628,4 +851,215 @@ fn run_process_template(
         .run_process(&argv, &cwd_text, timeout_secs)
         .map_err(ExecError::ExecutionFailed)?;
     Ok(ExecOutcome { result, sandbox_checked: true })
+}
+
+#[cfg(test)]
+mod tests {
+    use super::*;
+    use crate::executors::backends::{MockBackend, PlatformBackend, SystemBackend};
+    use serde_json::Value;
+
+    /// 测试桩执行器：把执行器侧签名契约喂给运行体（运行体只读 name/spec）。
+    struct SpecExecutor {
+        spec: ExecutorSpec,
+    }
+
+    impl Executor for SpecExecutor {
+        fn name(&self) -> &str {
+            self.spec.name
+        }
+        fn spec(&self) -> &ExecutorSpec {
+            &self.spec
+        }
+        fn run(
+            &self,
+            _args: &BTreeMap<String, Value>,
+            _backend: &dyn SystemBackend,
+            _auth: &Authorization,
+        ) -> Result<ExecOutcome, ExecError> {
+            unreachable!("测试桩不参与 run 分发")
+        }
+    }
+
+    /// 经执行器注册表表项运行（守卫 + 后端副作用同真实路径）。
+    fn run_via(
+        name: &str,
+        args: &BTreeMap<String, Value>,
+        backend: &dyn SystemBackend,
+        auth: &Authorization,
+    ) -> Result<ExecOutcome, ExecError> {
+        let (spec, run) = executor_impl(name).expect("执行器须已实现");
+        let executor = SpecExecutor { spec };
+        run(&executor, args, backend, auth)
+    }
+
+    #[test]
+    fn ui_tree_query_mock_returns_json_structure() {
+        let backend = MockBackend::new();
+        let mut args = BTreeMap::new();
+        args.insert("scope".into(), Value::String("all".into()));
+        let auth = Authorization { approved: true };
+        let outcome = run_via("ui_tree_query", &args, &backend, &auth).expect("须成功");
+        let tree: Value = serde_json::from_str(&outcome.result).expect("须为 JSON");
+        assert!(tree.get("foreground").is_some(), "缺 foreground 字段");
+        let windows = tree.get("windows").and_then(Value::as_array).expect("缺 windows 数组");
+        assert!(!windows.is_empty(), "窗口列表不应为空");
+        let first = &windows[0];
+        assert!(first.get("handle").is_some());
+        assert!(first.get("children").is_some(), "顶级窗口须含子窗口层级");
+    }
+
+    #[test]
+    fn ui_tree_query_overreach_scope_denied() {
+        let backend = MockBackend::new();
+        let mut args = BTreeMap::new();
+        args.insert("scope".into(), Value::String("camera".into()));
+        let auth = Authorization { approved: true };
+        let err = run_via("ui_tree_query", &args, &backend, &auth).unwrap_err();
+        assert!(matches!(err, ExecError::SandboxViolation(_)), "越权域须被拒: {err}");
+    }
+
+    #[test]
+    fn ui_tree_query_allow_tier_needs_no_approval() {
+        let backend = MockBackend::new();
+        let args = BTreeMap::new();
+        let auth = Authorization { approved: false };
+        let outcome = run_via("ui_tree_query", &args, &backend, &auth).expect("allow 档无需审批");
+        assert!(outcome.result.contains("windows"));
+    }
+
+    #[test]
+    fn ui_click_requires_approval() {
+        let backend = MockBackend::new();
+        let mut args = BTreeMap::new();
+        args.insert("x".into(), Value::from(10i64));
+        args.insert("y".into(), Value::from(10i64));
+        args.insert("button".into(), Value::String("left".into()));
+        let auth = Authorization { approved: false };
+        let err = run_via("ui_click", &args, &backend, &auth).unwrap_err();
+        assert!(matches!(err, ExecError::ApprovalRequired(_)), "review 档须审批: {err}");
+    }
+
+    #[test]
+    fn ui_click_bad_button_denied() {
+        let backend = MockBackend::new();
+        let mut args = BTreeMap::new();
+        args.insert("x".into(), Value::from(10i64));
+        args.insert("y".into(), Value::from(10i64));
+        args.insert("button".into(), Value::String("explode".into()));
+        let auth = Authorization { approved: true };
+        let err = run_via("ui_click", &args, &backend, &auth).unwrap_err();
+        assert!(matches!(err, ExecError::SandboxViolation(_)), "非法按键须被拒: {err}");
+    }
+
+    #[test]
+    fn ui_click_out_of_bounds_denied() {
+        let backend = MockBackend::new();
+        let mut args = BTreeMap::new();
+        args.insert("x".into(), Value::from(999999i64));
+        args.insert("y".into(), Value::from(10i64));
+        args.insert("button".into(), Value::String("left".into()));
+        let auth = Authorization { approved: true };
+        let err = run_via("ui_click", &args, &backend, &auth).unwrap_err();
+        assert!(matches!(err, ExecError::SandboxViolation(_)), "越界坐标须被拒: {err}");
+    }
+
+    #[test]
+    fn ui_click_approved_injects_backend() {
+        let backend = MockBackend::new();
+        let mut args = BTreeMap::new();
+        args.insert("x".into(), Value::from(10i64));
+        args.insert("y".into(), Value::from(20i64));
+        args.insert("button".into(), Value::String("right".into()));
+        let auth = Authorization { approved: true };
+        let outcome = run_via("ui_click", &args, &backend, &auth).expect("审批通过须执行");
+        assert!(outcome.result.contains("right @ (10,20)"));
+        assert!(backend.calls.lock().unwrap().iter().any(|call| call.contains("ui_click:10,20,right")));
+    }
+
+    #[test]
+    fn ui_type_overlong_denied() {
+        let backend = MockBackend::new();
+        let mut args = BTreeMap::new();
+        args.insert("text".into(), Value::String("x".repeat((UI_TEXT_MAX_CHARS as i64 + 1) as usize)));
+        let auth = Authorization { approved: true };
+        let err = run_via("ui_type", &args, &backend, &auth).unwrap_err();
+        assert!(matches!(err, ExecError::SandboxViolation(_)), "超长文本须被拒: {err}");
+    }
+
+    #[test]
+    fn ui_type_approved_injects_backend() {
+        let backend = MockBackend::new();
+        let mut args = BTreeMap::new();
+        args.insert("text".into(), Value::String("hello".into()));
+        let auth = Authorization { approved: true };
+        let outcome = run_via("ui_type", &args, &backend, &auth).expect("审批通过须执行");
+        assert!(outcome.result.contains("hello"));
+    }
+
+    #[test]
+    fn window_list_invalid_scope_denied() {
+        let backend = MockBackend::new();
+        let mut args = BTreeMap::new();
+        args.insert("scope".into(), Value::String("secrets".into()));
+        let auth = Authorization { approved: true };
+        let err = run_via("window_list", &args, &backend, &auth).unwrap_err();
+        assert!(matches!(err, ExecError::SandboxViolation(_)), "非法作用域须被拒: {err}");
+    }
+
+    #[test]
+    fn window_focus_empty_handle_denied() {
+        let backend = MockBackend::new();
+        let mut args = BTreeMap::new();
+        args.insert("handle".into(), Value::String("".into()));
+        let auth = Authorization { approved: true };
+        let err = run_via("window_focus", &args, &backend, &auth).unwrap_err();
+        assert!(matches!(err, ExecError::BadArgs(_)), "空句柄须被拒: {err}");
+    }
+
+    #[test]
+    fn window_focus_missing_handle_fail_closed() {
+        // 真实后端对不存在窗口返回 Err → 执行失败（fail-closed，不静默成功）。
+        let backend = PlatformBackend;
+        let mut args = BTreeMap::new();
+        args.insert("handle".into(), Value::String("__no_such_window__".into()));
+        let auth = Authorization { approved: true };
+        let err = run_via("window_focus", &args, &backend, &auth).unwrap_err();
+        assert!(matches!(err, ExecError::ExecutionFailed(_)), "定位失败须 fail-closed: {err}");
+    }
+
+    #[test]
+    fn window_minimize_missing_handle_fail_closed() {
+        let backend = PlatformBackend;
+        let mut args = BTreeMap::new();
+        args.insert("handle".into(), Value::String("__no_such_window__".into()));
+        let auth = Authorization { approved: true };
+        let err = run_via("window_minimize", &args, &backend, &auth).unwrap_err();
+        assert!(matches!(err, ExecError::ExecutionFailed(_)), "定位失败须 fail-closed: {err}");
+    }
+
+    #[test]
+    fn ui_type_unmappable_char_fail_closed() {
+        // 不可映射字符（如私有区码点）经 VkKeyScanW 返回 -1 → 失败，不静默丢字符。
+        let backend = PlatformBackend;
+        let mut args = BTreeMap::new();
+        args.insert("text".into(), Value::String("".into()));
+        let auth = Authorization { approved: true };
+        let err = run_via("ui_type", &args, &backend, &auth).unwrap_err();
+        assert!(matches!(err, ExecError::ExecutionFailed(_)), "不可映射字符须 fail-closed: {err}");
+    }
+
+    #[test]
+    fn new_executors_registered() {
+        for name in [
+            "ui_tree_query",
+            "ui_click",
+            "ui_type",
+            "window_list",
+            "window_focus",
+            "window_minimize",
+        ] {
+            assert!(executor_impl(name).is_some(), "执行器未注册: {name}");
+        }
+    }
 }

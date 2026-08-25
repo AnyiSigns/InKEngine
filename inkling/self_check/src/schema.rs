@@ -82,7 +82,7 @@ const DOMAIN_TOOLS: [&str; 7] = [
     "mutate_knowledge",
 ];
 /// shell 执行器注册（感知/控制/进程模板；壳契约测试同源）。
-const SHELL_EXECUTORS: [&str; 11] = [
+const SHELL_EXECUTORS: [&str; 16] = [
     "launch_app",
     "open_file",
     "system_query",
@@ -94,18 +94,28 @@ const SHELL_EXECUTORS: [&str; 11] = [
     "run_test_cargo",
     "run_test_python",
     "run_test_web",
+    "ui_click",
+    "ui_type",
+    "window_list",
+    "window_focus",
+    "window_minimize",
 ];
 /// OS 控制类（system_query 属感知/状态查询，不计入）。
-const OS_CONTROL_TOOLS: [&str; 6] = [
+const OS_CONTROL_TOOLS: [&str; 11] = [
     "launch_app",
     "open_file",
     "set_volume",
     "set_brightness",
     "notify",
     "schedule",
+    "ui_click",
+    "ui_type",
+    "window_list",
+    "window_focus",
+    "window_minimize",
 ];
 /// 设备感知类（屏幕/文件状态，经 inkling_shell 设备感知 server 挂载）。
-const DEVICE_SENSE_TOOLS: [&str; 2] = ["screen_query", "file_query"];
+const DEVICE_SENSE_TOOLS: [&str; 3] = ["screen_query", "file_query", "ui_tree_query"];
 /// 挂载提案 + 文件开发工具（对话式安装入口 / 工作区沙箱端点）。
 const SELF_AND_FILE_TOOLS: [&str; 4] = ["propose_mcp_mount", "file_read", "file_write", "file_edit"];
 /// 网络工具（http_fetch 端点：域名白名单策略的抓取与聚合检索）。

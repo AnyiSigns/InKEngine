@@ -135,6 +135,68 @@
       "params": [
         { "name": "path", "type": "string", "required": true }
       ]
+    },
+    {
+      "name": "ui_tree_query",
+      "description": "OS 元素树感知（只读：前台窗口 + 窗口列表 + 子窗口层级，JSON）",
+      "permission": "allow",
+      "endpoint": "device_mcp",
+      "sandbox": { "mode": "query_allowlist", "allowlist": ["foreground", "all"] },
+      "params": [
+        { "name": "scope", "type": "string", "required": false }
+      ]
+    },
+    {
+      "name": "ui_click",
+      "description": "鼠标点击（屏幕坐标 + 按键）",
+      "permission": "review",
+      "endpoint": "process_exec",
+      "sandbox": { "mode": "coordinate_click", "x_min": 0, "x_max": 32767, "y_min": 0, "y_max": 32767, "buttons": ["left", "right", "middle"] },
+      "params": [
+        { "name": "x", "type": "integer", "required": true },
+        { "name": "y", "type": "integer", "required": true },
+        { "name": "button", "type": "string", "required": true }
+      ]
+    },
+    {
+      "name": "ui_type",
+      "description": "文本输入（键盘事件注入）",
+      "permission": "review",
+      "endpoint": "process_exec",
+      "sandbox": { "mode": "text_input", "max_chars": 256 },
+      "params": [
+        { "name": "text", "type": "string", "required": true }
+      ]
+    },
+    {
+      "name": "window_list",
+      "description": "窗口清单（句柄/标题/可见性）",
+      "permission": "review",
+      "endpoint": "process_exec",
+      "sandbox": { "mode": "window_target", "scopes": ["all", "foreground"] },
+      "params": [
+        { "name": "scope", "type": "string", "required": false }
+      ]
+    },
+    {
+      "name": "window_focus",
+      "description": "聚焦窗口（句柄/标题/foreground）",
+      "permission": "review",
+      "endpoint": "process_exec",
+      "sandbox": { "mode": "window_target", "scopes": [] },
+      "params": [
+        { "name": "handle", "type": "string", "required": true }
+      ]
+    },
+    {
+      "name": "window_minimize",
+      "description": "最小化窗口（句柄/标题/foreground）",
+      "permission": "review",
+      "endpoint": "process_exec",
+      "sandbox": { "mode": "window_target", "scopes": [] },
+      "params": [
+        { "name": "handle", "type": "string", "required": true }
+      ]
     }
   ]
 }

@@ -1250,6 +1250,266 @@
           "max_write_bytes": 1048576
         }
       }
+    },
+    {
+      "name": "ui_tree_query",
+      "description": "行为意图：OS 元素树感知——只读枚举前台窗口 + 顶级窗口 + 子窗口层级，返回 JSON 元素树；给对话「桌面上现在有哪些窗口/控件」的依据。\n\n使用时机：任务需要感知当前桌面窗口布局/可交互控件时；用户问「现在开着哪些窗口」而模型无视觉信息时。\n\n取舍与替代选项：只读感知，不能改任何东西——要控制请 ui_click/ui_type/window_*；与 screen_query 的分工：那边看屏幕分辨率，本工具看窗口/控件层级；感知结果仅作指路依据，不代用户操作。\n\n参数语义：scope=感知范围（foreground=仅前台窗口；all=全部可见窗口，缺省 all）。\n\n边界与协作：只读、无控制权（approval=allow）；越权域（非桌面窗口/隐私控件）被作用域白名单拒绝；宿主件挂载接线后才可用，感知面随挂载核对。",
+      "parameters": {
+        "type": "object",
+        "properties": {
+          "scope": {
+            "type": "string",
+            "description": "感知范围（foreground=仅前台窗口；all=全部可见窗口，缺省 all）"
+          }
+        },
+        "required": []
+      },
+      "permissions": [
+        "mcp:call:inkling_shell"
+      ],
+      "approval": "allow",
+      "endpoint": "mcp",
+      "endpoint_config": {
+        "server_id": "inkling_shell"
+      },
+      "network_policy": {
+        "allow_domains": []
+      },
+      "meta": {
+        "domain": "os",
+        "sensor": "ui_tree",
+        "executor": "shell:device_sense",
+        "sandbox": "server_session"
+      }
+    },
+    {
+      "name": "ui_click",
+      "description": "行为意图：鼠标点击——经坐标 + 按键的壳执行器在屏幕指定位置触发鼠标按下/抬起；是「用户要求点一下某个位置」的执行体。\n\n使用时机：用户要求点击屏幕某坐标/某控件位置时；自动化操作桌面 UI 时。\n\n取舍与替代选项：输入文本——ui_type；移动/聚焦窗口——window_focus；本工具=单点鼠标动作，坐标须由上游感知（ui_tree_query/screen_query）提供；越界坐标被边界守卫拒绝。\n\n参数语义：command=固定值 ui_click（端点操作判定同源，调用方恒传）；x/y=屏幕坐标（0–32767）；button=按键（left/right/middle）。\n\n边界与协作：坐标边界 + 按键白名单收口；审批档 review（每次点击经引擎审批链、每步审计、可链回退）；实际点击效果受前台窗口/权限约束，不保证命中目标控件。",
+      "parameters": {
+        "type": "object",
+        "properties": {
+          "command": {
+            "type": "string",
+            "enum": [
+              "ui_click"
+            ],
+            "description": "命令名（固定值；与 process_exec 端点操作判定同源，调用方恒传）"
+          },
+          "x": {
+            "type": "integer",
+            "description": "屏幕 X 坐标（0–32767）"
+          },
+          "y": {
+            "type": "integer",
+            "description": "屏幕 Y 坐标（0–32767）"
+          },
+          "button": {
+            "type": "string",
+            "enum": [
+              "left",
+              "right",
+              "middle"
+            ],
+            "description": "按键"
+          }
+        },
+        "required": [
+          "command",
+          "x",
+          "y",
+          "button"
+        ]
+      },
+      "permissions": [
+        "process:exec:ui_click"
+      ],
+      "approval": "review",
+      "endpoint": "process_exec",
+      "endpoint_config": {
+        "allowlist": [
+          "ui_click"
+        ]
+      },
+      "network_policy": {
+        "allow_domains": []
+      },
+      "meta": {
+        "domain": "os",
+        "control": true,
+        "executor": "shell:ui_click",
+        "sandbox": "process_allowlist"
+      }
+    },
+    {
+      "name": "ui_type",
+      "description": "行为意图：文本输入——经键盘事件注入把文本键入前台窗口；是「用户要求在当前焦点处输入一段文字」的执行体。\n\n使用时机：用户要求往某输入框/文档填写内容时；自动化填表/回复时。\n\n取舍与替代选项：点击定位——ui_click（先点后输入）；本工具只管键入，不负责把焦点移到目标；不可映射字符（如私有区码点）被拒绝，不静默丢字符。\n\n参数语义：command=固定值 ui_type（端点操作判定同源，调用方恒传）；text=待输入文本（长度上限 256 字符）。\n\n边界与协作：长度上限收口；审批档 review（每次输入经引擎审批链、每步审计、可链回退）；输入目标由前台焦点决定，执行器不指定接收窗口。",
+      "parameters": {
+        "type": "object",
+        "properties": {
+          "command": {
+            "type": "string",
+            "enum": [
+              "ui_type"
+            ],
+            "description": "命令名（固定值；与 process_exec 端点操作判定同源，调用方恒传）"
+          },
+          "text": {
+            "type": "string",
+            "description": "待输入文本（≤ 256 字符）"
+          }
+        },
+        "required": [
+          "command",
+          "text"
+        ]
+      },
+      "permissions": [
+        "process:exec:ui_type"
+      ],
+      "approval": "review",
+      "endpoint": "process_exec",
+      "endpoint_config": {
+        "allowlist": [
+          "ui_type"
+        ]
+      },
+      "network_policy": {
+        "allow_domains": []
+      },
+      "meta": {
+        "domain": "os",
+        "control": true,
+        "executor": "shell:ui_type",
+        "sandbox": "process_allowlist"
+      }
+    },
+    {
+      "name": "window_list",
+      "description": "行为意图：窗口清单——只读枚举当前桌面可见窗口（句柄/标题/可见性）；是「现在有哪些窗口」的感知执行体。\n\n使用时机：多窗口切换/聚焦前先摸清桌面上开了什么；用户问「我开了哪些窗口」时。\n\n取舍与替代选项：聚焦指定窗口——window_focus；最小化——window_minimize；本工具只看清单不操作；与 ui_tree_query 的分工：本工具给窗口级总览，元素树给控件级细节。\n\n参数语义：command=固定值 window_list（端点操作判定同源，调用方恒传）；scope=作用域（all=全部；foreground=仅前台，缺省 all）。\n\n边界与协作：作用域白名单收口；审批档 review（每步审计、可链回退）；只列句柄/标题/可见性，不读窗口内容。",
+      "parameters": {
+        "type": "object",
+        "properties": {
+          "command": {
+            "type": "string",
+            "enum": [
+              "window_list"
+            ],
+            "description": "命令名（固定值；与 process_exec 端点操作判定同源，调用方恒传）"
+          },
+          "scope": {
+            "type": "string",
+            "description": "作用域（all=全部；foreground=仅前台窗口，缺省 all）"
+          }
+        },
+        "required": [
+          "command"
+        ]
+      },
+      "permissions": [
+        "process:exec:window_list"
+      ],
+      "approval": "review",
+      "endpoint": "process_exec",
+      "endpoint_config": {
+        "allowlist": [
+          "window_list"
+        ]
+      },
+      "network_policy": {
+        "allow_domains": []
+      },
+      "meta": {
+        "domain": "os",
+        "control": true,
+        "executor": "shell:window_list",
+        "sandbox": "process_allowlist"
+      }
+    },
+    {
+      "name": "window_focus",
+      "description": "行为意图：聚焦窗口——把指定窗口提到前台（按句柄/标题/foreground 关键字定位）；是「切到某个窗口」的执行体。\n\n使用时机：用户要求「切到浏览器/记事本」等多窗口切换时；自动化工序切换焦点时。\n\n取舍与替代选项：看清单——window_list（先列后选）；最小化——window_minimize；本工具只管聚焦，不读窗口内容。\n\n参数语义：command=固定值 window_focus（端点操作判定同源，调用方恒传）；handle=窗口句柄（十进制 HWND）/标题/foreground 关键字。\n\n边界与协作：句柄非空校验；审批档 review（每步审计、可链回退）；定位失败结构化返回错误，不静默成功。",
+      "parameters": {
+        "type": "object",
+        "properties": {
+          "command": {
+            "type": "string",
+            "enum": [
+              "window_focus"
+            ],
+            "description": "命令名（固定值；与 process_exec 端点操作判定同源，调用方恒传）"
+          },
+          "handle": {
+            "type": "string",
+            "description": "窗口句柄（十进制 HWND）/标题/foreground 关键字"
+          }
+        },
+        "required": [
+          "command",
+          "handle"
+        ]
+      },
+      "permissions": [
+        "process:exec:window_focus"
+      ],
+      "approval": "review",
+      "endpoint": "process_exec",
+      "endpoint_config": {
+        "allowlist": [
+          "window_focus"
+        ]
+      },
+      "network_policy": {
+        "allow_domains": []
+      },
+      "meta": {
+        "domain": "os",
+        "control": true,
+        "executor": "shell:window_focus",
+        "sandbox": "process_allowlist"
+      }
+    },
+    {
+      "name": "window_minimize",
+      "description": "行为意图：最小化窗口——把指定窗口收进任务栏（按句柄/标题/foreground 关键字定位）；是「收起某个窗口」的执行体。\n\n使用时机：用户要求「把这个窗口最小化」保持桌面清爽时；自动化工序收起干扰窗口时。\n\n取舍与替代选项：聚焦——window_focus；看清单——window_list；本工具只管最小化，不读窗口内容。\n\n参数语义：command=固定值 window_minimize（端点操作判定同源，调用方恒传）；handle=窗口句柄（十进制 HWND）/标题/foreground 关键字。\n\n边界与协作：句柄非空校验；审批档 review（每步审计、可链回退）；定位失败结构化返回错误，不静默成功。",
+      "parameters": {
+        "type": "object",
+        "properties": {
+          "command": {
+            "type": "string",
+            "enum": [
+              "window_minimize"
+            ],
+            "description": "命令名（固定值；与 process_exec 端点操作判定同源，调用方恒传）"
+          },
+          "handle": {
+            "type": "string",
+            "description": "窗口句柄（十进制 HWND）/标题/foreground 关键字"
+          }
+        },
+        "required": [
+          "command",
+          "handle"
+        ]
+      },
+      "permissions": [
+        "process:exec:window_minimize"
+      ],
+      "approval": "review",
+      "endpoint": "process_exec",
+      "endpoint_config": {
+        "allowlist": [
+          "window_minimize"
+        ]
+      },
+      "network_policy": {
+        "allow_domains": []
+      },
+      "meta": {
+        "domain": "os",
+        "control": true,
+        "executor": "shell:window_minimize",
+        "sandbox": "process_allowlist"
+      }
     }
   ]
 }

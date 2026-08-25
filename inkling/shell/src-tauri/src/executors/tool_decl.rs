@@ -51,6 +51,18 @@ pub enum SandboxRule {
     /// 筛选值以 [标志, 值] 追加到模板尾部——仅测试/构建类工具声明，
     /// 值本身经字符集/长度/前导符校验，杜绝参数注入面）
     ProcessTemplate { argv: Vec<String>, timeout_secs: u64, filter_arg: Option<String> },
+    /// 坐标点击（x/y 边界 + 按键白名单；UI 控制类 click 的沙箱，越界/越权按键拒绝）。
+    CoordinateClick {
+        x_min: i64,
+        x_max: i64,
+        y_min: i64,
+        y_max: i64,
+        buttons: Vec<String>,
+    },
+    /// 文本输入（长度上限；UI 控制类 type 的沙箱，超长拒绝）。
+    TextInput { max_chars: usize },
+    /// 窗口目标（作用域白名单；句柄/标题非空由执行体校验，window_* 控制类的沙箱）。
+    WindowTarget { scopes: Vec<String> },
 }
 
 /// 参数声明

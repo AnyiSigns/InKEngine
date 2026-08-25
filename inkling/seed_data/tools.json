@@ -322,7 +322,7 @@
       },
       "meta": {
         "domain": "os",
-        "sensor": "file",
+        "sensor": "screen",
         "executor": "shell:device_sense",
         "sandbox": "server_session"
       }
@@ -1509,6 +1509,139 @@
         "control": true,
         "executor": "shell:window_minimize",
         "sandbox": "process_allowlist"
+      }
+    },
+    {
+      "name": "doc_parse",
+      "description": "行为意图：把文档解析成结构化数据——PDF（文本+版面）/ Word / Excel / PPT 识别并抽取为 JSON，是「喂论文/表格/演示进分析链」的入料环节。\n\n使用时机：用户上传或指路 PDF/Office 文件，需要 agent 读懂内容时；研究链要从论文/表格提取要点时。\n\n取舍与替代选项：只看文件状态——file_query；读纯文本——file_read；本工具=格式识别+结构化解析，产出 JSON 供分析/入库；不支持解压/改写文档。\n\n参数语义：path=待解析文件路径（工作区或附件域内）。\n\n边界与协作：只读解析，不写原文件；坏文件/截断输入结构化报错不崩溃；解析产物可继续走研究链（收集→解析→校验→评分→蒸馏）。",
+      "parameters": {
+        "type": "object",
+        "properties": {
+          "path": {
+            "type": "string",
+            "description": "待解析文档路径（工作区/附件域内）"
+          }
+        },
+        "required": [
+          "path"
+        ]
+      },
+      "permissions": [
+        "mcp:call:inkling_shell"
+      ],
+      "approval": "review",
+      "endpoint": "mcp",
+      "endpoint_config": {
+        "server_id": "inkling_shell"
+      },
+      "network_policy": {
+        "allow_domains": []
+      },
+      "meta": {
+        "domain": "file",
+        "sensor": "doc",
+        "executor": "shell:doc_parse",
+        "sandbox": "server_session"
+      }
+    },
+    {
+      "name": "doc_generate",
+      "description": "行为意图：把结构化内容落成 Office 文档——docx 报告/纪要、xlsx 表格导出，是「把分析结论变成可交付文件」的执行体。\n\n使用时机：用户要报告/纪要/表格文件时；研究链收尾需要导出产物时。\n\n取舍与替代选项：仅生成不进工作区根外；要解析文档——doc_parse；本工具=生成落盘，返回路径与字节数。\n\n参数语义：command=固定值 doc_generate（端点操作判定同源，调用方恒传）；format=docx/xlsx；title=文档标题（同时作文件名基础）；body=正文（docx，多行用换行分隔）；table=表格 JSON 文本（xlsx，二维字符串数组）。\n\n边界与协作：写文件仅限工作区根内；正文 20000 字符/表格 500 行上限；审批档 review（每次生成经审批链、每步审计、可链回退）。",
+      "parameters": {
+        "type": "object",
+        "properties": {
+          "command": {
+            "type": "string",
+            "enum": [
+              "doc_generate"
+            ],
+            "description": "命令名（固定值；与 process_exec 端点操作判定同源，调用方恒传）"
+          },
+          "format": {
+            "type": "string",
+            "enum": [
+              "docx",
+              "xlsx"
+            ],
+            "description": "文档格式"
+          },
+          "title": {
+            "type": "string",
+            "description": "文档标题（兼文件名基础）"
+          },
+          "body": {
+            "type": "string",
+            "description": "正文（docx；多行用换行分隔，≤20000 字符）"
+          },
+          "table": {
+            "type": "string",
+            "description": "表格 JSON 文本（xlsx；二维字符串数组，≤500 行）"
+          }
+        },
+        "required": [
+          "command",
+          "format",
+          "title"
+        ]
+      },
+      "permissions": [
+        "process:exec:doc_generate"
+      ],
+      "approval": "review",
+      "endpoint": "process_exec",
+      "endpoint_config": {
+        "allowlist": [
+          "doc_generate"
+        ]
+      },
+      "network_policy": {
+        "allow_domains": []
+      },
+      "meta": {
+        "domain": "file",
+        "executor": "shell:doc_generate",
+        "sandbox": "process_allowlist"
+      }
+    },
+    {
+      "name": "screenshot_capture",
+      "description": "行为意图：截取当前屏幕并走隐私分级——本地模型直喂；云端模型默认禁止外发（屏幕内容不出网），须显式授权加审批后放行；产出引擎附件形态供多模态消费。\n\n使用时机：任务需要视觉理解屏幕（图表/图片/非标准控件）且已配多模态模型时；无多模态模型时走纯元素树感知。\n\n取舍与替代选项：要窗口/控件层级——ui_tree_query；要点击/输入——ui_click/ui_type；本工具=像素通道，与元素树互为双通道交叉验证。\n\n参数语义：model_class=目标模型类别（local=本地直喂；cloud=云端，受隐私闸门约束）；destination=消费方标识。\n\n边界与协作：云端外发默认拒绝（fail-closed），授权开关持久化于数据根、每次外发经审批；外发事件落审计；截图写附件域，不进入工作区。",
+      "parameters": {
+        "type": "object",
+        "properties": {
+          "model_class": {
+            "type": "string",
+            "enum": [
+              "local",
+              "cloud"
+            ],
+            "description": "目标模型类别（local=本地直喂；cloud=受隐私闸门）"
+          },
+          "destination": {
+            "type": "string",
+            "description": "消费方标识（缺省 engine）"
+          }
+        },
+        "required": [
+          "model_class"
+        ]
+      },
+      "permissions": [
+        "mcp:call:inkling_shell"
+      ],
+      "approval": "review",
+      "endpoint": "mcp",
+      "endpoint_config": {
+        "server_id": "inkling_shell"
+      },
+      "network_policy": {
+        "allow_domains": []
+      },
+      "meta": {
+        "domain": "os",
+        "sensor": "screen",
+        "executor": "shell:screenshot_capture",
+        "sandbox": "server_session"
       }
     }
   ]

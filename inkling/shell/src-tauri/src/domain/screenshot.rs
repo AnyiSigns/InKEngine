@@ -579,7 +579,7 @@ mod tests {
         let loaded = VisionSettings::load(&path).unwrap();
         assert_eq!(loaded, settings);
         // 缺省未授权（fail-closed）
-        let defaulted = VisionSettings::load(dir.join("missing.json")).unwrap();
+        let defaulted = VisionSettings::load(&dir.join("missing.json")).unwrap();
         assert!(!defaulted.screenshot_export_authorized);
         let _ = std::fs::remove_dir_all(&dir);
     }

@@ -194,7 +194,7 @@ pub fn tool_name_map_text(pairs: &[NamePair]) -> String {
 }
 
 /// 行为准则层目标设定的展开矩阵（场景 × 准则句式，组合无重复）。
-const GENERATION_SCENARIOS: [&str; 8] = [
+const GENERATION_SCENARIOS: [&str; 12] = [
     "用户初次使用",
     "知识沉淀入库",
     "评审与取舍",
@@ -203,6 +203,10 @@ const GENERATION_SCENARIOS: [&str; 8] = [
     "跨会话记忆",
     "情报检索取证",
     "开发构建循环",
+    "文档与办公文件处理",
+    "屏幕与视觉理解",
+    "窗口与界面操作",
+    "外部生态接入",
 ];
 
 /// 准则展开视角（同一场景同一准则的三个行动侧面，行内容不同）。
@@ -435,7 +439,7 @@ mod tests {
     fn tool_name_map_from_seed_is_sorted_and_labeled() {
         let tools = seed_file("tools.json");
         let pairs = tool_name_map(&tools);
-        assert_eq!(pairs.len(), 29, "工具清单 29 条");
+        assert_eq!(pairs.len(), 38, "工具清单 38 条");
         assert_eq!(pairs[0].tool, "collect_material");
         let collect = pairs.iter().find(|p| p.tool == "collect_material").unwrap();
         assert_eq!(collect.zh, "把研究素材采集回来");

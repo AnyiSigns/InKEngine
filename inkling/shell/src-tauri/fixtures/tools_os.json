@@ -197,6 +197,40 @@
       "params": [
         { "name": "handle", "type": "string", "required": true }
       ]
+    },
+    {
+      "name": "doc_parse",
+      "description": "文档解析（PDF/Word/Excel/PPT → 结构化 JSON，工作区/附件域内只读）",
+      "permission": "review",
+      "endpoint": "device_mcp",
+      "sandbox": { "mode": "path_roots", "roots": ["~/.inkling/workspace", "~/.inkling/attachments"] },
+      "params": [
+        { "name": "path", "type": "string", "required": true }
+      ]
+    },
+    {
+      "name": "doc_generate",
+      "description": "文档生成（docx 报告 / xlsx 表格，落盘工作区根）",
+      "permission": "review",
+      "endpoint": "process_exec",
+      "sandbox": { "mode": "path_roots", "roots": ["~/.inkling/workspace"] },
+      "params": [
+        { "name": "format", "type": "string", "required": true },
+        { "name": "title", "type": "string", "required": true },
+        { "name": "body", "type": "string", "required": false },
+        { "name": "table", "type": "string", "required": false }
+      ]
+    },
+    {
+      "name": "screenshot_capture",
+      "description": "屏幕截图（隐私分级：本地直喂 / 云端默认禁外发，审批后放行）",
+      "permission": "review",
+      "endpoint": "device_mcp",
+      "sandbox": { "mode": "query_allowlist", "allowlist": ["local", "cloud"] },
+      "params": [
+        { "name": "model_class", "type": "string", "required": true },
+        { "name": "destination", "type": "string", "required": false }
+      ]
     }
   ]
 }

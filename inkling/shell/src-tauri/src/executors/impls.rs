@@ -386,6 +386,216 @@ fn window_minimize_spec() -> ExecutorSpec {
     }
 }
 
+/// 文档解析沙箱根（工作区挂载根 + 附件落点；上传/截图文件均在此域）。
+const DOC_PARSE_ROOTS: &[&str] = &["~/.inkling/workspace", "~/.inkling/attachments"];
+
+fn doc_parse_spec() -> ExecutorSpec {
+    ExecutorSpec {
+        name: "doc_parse",
+        params: vec![ParamSpec { name: "path", param_type: ParamType::String, required: true }],
+        permission: PermissionLevel::Review,
+        endpoint: Endpoint::DeviceMcp,
+        sandbox: SandboxRule::PathRoots {
+            roots: DOC_PARSE_ROOTS.iter().map(|root| root.to_string()).collect(),
+        },
+    }
+}
+
+/// 文档解析运行体（只读：路径根收口 + 格式识别 + 结构化解析为 JSON）。
+fn doc_parse_run(
+    executor: &dyn Executor,
+    args: &BTreeMap<String, Value>,
+    backend: &dyn SystemBackend,
+    auth: &Authorization,
+) -> Result<ExecOutcome, ExecError> {
+    let _ = backend;
+    let tool = executor.name();
+    check_permission(tool, executor.spec().permission, auth)?;
+    let path = arg_str(args, "path")?.to_string();
+    if let SandboxRule::PathRoots { roots } = &executor.spec().sandbox {
+        check_path_roots(roots, &path)?;
+    }
+    let bytes = std::fs::read(&path)
+        .map_err(|err| ExecError::ExecutionFailed(format!("读取文档失败: {err}")))?;
+    let parsed = crate::domain::doc_ops::parse_document(&bytes)
+        .map_err(|err| ExecError::ExecutionFailed(err.to_string()))?;
+    Ok(ExecOutcome { result: parsed.to_string(), sandbox_checked: true })
+}
+
+/// 文档生成参数上限（正文/表格行防滥用；声明侧同源）。
+const DOC_GENERATE_BODY_MAX_CHARS: usize = 20000;
+const DOC_GENERATE_TABLE_MAX_ROWS: usize = 500;
+
+fn doc_generate_spec() -> ExecutorSpec {
+    ExecutorSpec {
+        name: "doc_generate",
+        params: vec![
+            ParamSpec { name: "format", param_type: ParamType::String, required: true },
+            ParamSpec { name: "title", param_type: ParamType::String, required: true },
+            ParamSpec { name: "body", param_type: ParamType::String, required: false },
+            ParamSpec { name: "table", param_type: ParamType::String, required: false },
+        ],
+        permission: PermissionLevel::Review,
+        endpoint: Endpoint::ProcessExec,
+        sandbox: SandboxRule::PathRoots { roots: vec![WORKSPACE_ROOT.into()] },
+    }
+}
+
+/// 文档生成运行体（写文件副作用：仅工作区根内落盘，格式枚举 + 长度上限收口）。
+fn doc_generate_run(
+    executor: &dyn Executor,
+    args: &BTreeMap<String, Value>,
+    backend: &dyn SystemBackend,
+    auth: &Authorization,
+) -> Result<ExecOutcome, ExecError> {
+    let _ = backend;
+    let tool = executor.name();
+    check_permission(tool, executor.spec().permission, auth)?;
+    let format = arg_str(args, "format")?.to_string();
+    let title = arg_str(args, "title")?.to_string();
+    if title.trim().is_empty() {
+        return Err(ExecError::BadArgs(format!("{tool} 标题不可为空")));
+    }
+    let body = args
+        .get("body")
+        .and_then(Value::as_str)
+        .unwrap_or("")
+        .to_string();
+    if body.chars().count() > DOC_GENERATE_BODY_MAX_CHARS {
+        return Err(ExecError::SandboxViolation(format!(
+            "{tool} 正文超长（≤{DOC_GENERATE_BODY_MAX_CHARS} 字符）"
+        )));
+    }
+    let bytes = match format.as_str() {
+        "docx" => {
+            use crate::domain::doc_ops::{build_docx_report, DocxReportSpec, DocxSection};
+            let spec = DocxReportSpec {
+                title: title.clone(),
+                sections: vec![DocxSection { heading: None, body }],
+                table: None,
+            };
+            build_docx_report(&spec).map_err(|err| ExecError::ExecutionFailed(err.to_string()))?
+        }
+        "xlsx" => {
+            use crate::domain::doc_ops::build_xlsx_table;
+            let rows: Vec<Vec<String>> = args
+                .get("table")
+                .and_then(Value::as_str)
+                .and_then(|text| serde_json::from_str::<Vec<Vec<String>>>(text).ok())
+                .unwrap_or_default();
+            if rows.len() > DOC_GENERATE_TABLE_MAX_ROWS {
+                return Err(ExecError::SandboxViolation(format!(
+                    "{tool} 表格行数超限（≤{DOC_GENERATE_TABLE_MAX_ROWS}）"
+                )));
+            }
+            build_xlsx_table(&title, &rows).map_err(|err| ExecError::ExecutionFailed(err.to_string()))?
+        }
+        other => {
+            return Err(ExecError::BadArgs(format!(
+                "{tool} 不支持的格式: {other}（docx/xlsx）"
+            )))
+        }
+    };
+    let out_dir = normalize_abs(WORKSPACE_ROOT)?;
+    std::fs::create_dir_all(&out_dir)
+        .map_err(|err| ExecError::ExecutionFailed(format!("输出目录创建失败: {err}")))?;
+    let stamp = std::time::SystemTime::now()
+        .duration_since(std::time::UNIX_EPOCH)
+        .map(|d| d.as_secs())
+        .unwrap_or(0);
+    let safe_title: String = title
+        .chars()
+        .map(|ch| if ch.is_alphanumeric() || ch == '_' || ch == '-' { ch } else { '_' })
+        .collect();
+    let ext = if format == "xlsx" { "xlsx" } else { "docx" };
+    let file_name = format!("{safe_title}_{stamp}.{ext}");
+    let out_path = out_dir.join(&file_name);
+    std::fs::write(&out_path, &bytes)
+        .map_err(|err| ExecError::ExecutionFailed(format!("文档写入失败: {err}")))?;
+    let result = serde_json::json!({
+        "path": out_path.to_string_lossy(),
+        "format": format,
+        "bytes": bytes.len(),
+    })
+    .to_string();
+    Ok(ExecOutcome { result, sandbox_checked: true })
+}
+
+/// 截图目标模型类别白名单（与声明侧同源；cloud 经隐私分级闸门）。
+const SCREENSHOT_MODEL_CLASSES: &[&str] = &["local", "cloud"];
+
+fn screenshot_capture_spec() -> ExecutorSpec {
+    ExecutorSpec {
+        name: "screenshot_capture",
+        params: vec![
+            ParamSpec { name: "model_class", param_type: ParamType::String, required: true },
+            ParamSpec { name: "destination", param_type: ParamType::String, required: false },
+        ],
+        permission: PermissionLevel::Review,
+        endpoint: Endpoint::DeviceMcp,
+        sandbox: SandboxRule::CommandAllowlist {
+            allowlist: SCREENSHOT_MODEL_CLASSES.iter().map(|item| item.to_string()).collect(),
+        },
+    }
+}
+
+/// 截图运行体（隐私分级闸门：本地直喂 / 云端默认禁外发，审批后放行）。
+fn screenshot_capture_run(
+    executor: &dyn Executor,
+    args: &BTreeMap<String, Value>,
+    backend: &dyn SystemBackend,
+    auth: &Authorization,
+) -> Result<ExecOutcome, ExecError> {
+    let _ = backend;
+    let tool = executor.name();
+    check_permission(tool, executor.spec().permission, auth)?;
+    let model_class = arg_str(args, "model_class")?.to_string();
+    if let SandboxRule::CommandAllowlist { allowlist } = &executor.spec().sandbox {
+        check_allowlist(allowlist, &model_class, tool)?;
+    }
+    let model = match model_class.as_str() {
+        "local" => crate::domain::screenshot::ModelClass::Local,
+        _ => crate::domain::screenshot::ModelClass::Cloud,
+    };
+    let destination = args
+        .get("destination")
+        .and_then(Value::as_str)
+        .unwrap_or("engine")
+        .to_string();
+    let settings_path = normalize_abs("~/.inkling/vision.json")?;
+    let settings = crate::domain::screenshot::VisionSettings::load(&settings_path)
+        .unwrap_or_else(|_| crate::domain::screenshot::VisionSettings::default());
+    let approved = auth.approved;
+    let gate = crate::domain::screenshot::VisionGate {
+        settings,
+        approve: std::sync::Arc::new(move || approved),
+    };
+    let out_dir = normalize_abs("~/.inkling/attachments")?;
+    let capturer = crate::domain::screenshot::WindowsScreenCapturer;
+    let attachment = tokio_block_on(crate::domain::screenshot::capture_and_feed(
+        &capturer,
+        &gate,
+        model,
+        &destination,
+        &out_dir,
+        &None,
+    ))
+    .map_err(|err| ExecError::ExecutionFailed(err.to_string()))?;
+    Ok(ExecOutcome {
+        result: attachment.to_dict().to_string(),
+        sandbox_checked: true,
+    })
+}
+
+/// 同步侧桥接异步域函数（截图分级流程为异步审计流；执行器签名保持同步）。
+fn tokio_block_on<F: std::future::Future>(future: F) -> F::Output {
+    tokio::runtime::Builder::new_current_thread()
+        .enable_all()
+        .build()
+        .expect("截图流程运行时构建失败")
+        .block_on(future)
+}
+
 /// 进程模板工具的超时上限（秒；钉死在声明侧，与夹具一致）。
 const PROCESS_TEMPLATE_TIMEOUT_SECS: u64 = 180;
 
@@ -475,6 +685,9 @@ pub fn executor_impl(name: &str) -> Option<(ExecutorSpec, RunFn)> {
         "window_list" => (window_list_spec(), window_list_run),
         "window_focus" => (window_focus_spec(), window_focus_run),
         "window_minimize" => (window_minimize_spec(), window_minimize_run),
+        "doc_parse" => (doc_parse_spec(), doc_parse_run),
+        "doc_generate" => (doc_generate_spec(), doc_generate_run),
+        "screenshot_capture" => (screenshot_capture_spec(), screenshot_capture_run),
         "run_typecheck" => (run_typecheck_spec(), run_process_template),
         "run_test_cargo" => (run_test_cargo_spec(), run_process_template),
         "run_test_python" => (run_test_python_spec(), run_process_template),

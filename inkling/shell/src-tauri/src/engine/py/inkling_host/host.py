@@ -739,6 +739,9 @@ _OS_BRIDGE_COMMANDS = (
     "window_list",
     "window_focus",
     "window_minimize",
+    "doc_parse",
+    "doc_generate",
+    "screenshot_capture",
 )
 
 

@@ -82,7 +82,7 @@ const DOMAIN_TOOLS: [&str; 7] = [
     "mutate_knowledge",
 ];
 /// shell 执行器注册（感知/控制/进程模板；壳契约测试同源）。
-const SHELL_EXECUTORS: [&str; 16] = [
+const SHELL_EXECUTORS: [&str; 19] = [
     "launch_app",
     "open_file",
     "system_query",
@@ -99,6 +99,9 @@ const SHELL_EXECUTORS: [&str; 16] = [
     "window_list",
     "window_focus",
     "window_minimize",
+    "doc_parse",
+    "doc_generate",
+    "screenshot_capture",
 ];
 /// OS 控制类（system_query 属感知/状态查询，不计入）。
 const OS_CONTROL_TOOLS: [&str; 11] = [

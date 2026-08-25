@@ -1199,6 +1199,154 @@ async fn metrics_snapshot(args: JsonValue) -> Result<JsonValue, String> {
     engine::host::call_engine_op_async("metrics.snapshot", args).await
 }
 
+/// 候选路径人工选择（透传至 `path.choose_candidate` op；干预即生效 + 审计）。
+#[tauri::command]
+async fn path_choose_candidate(
+    candidate_id: Option<String>,
+    domain: Option<String>,
+    chain: Option<JsonValue>,
+    fingerprint: Option<String>,
+) -> Result<JsonValue, String> {
+    let mut args = json!({
+        "candidateId": candidate_id.unwrap_or_default(),
+        "domain": domain.unwrap_or_else(|| "default".to_string()),
+    });
+    if let Some(chain) = chain {
+        args["chain"] = chain;
+    }
+    if let Some(fingerprint) = fingerprint {
+        args["fingerprint"] = JsonValue::String(fingerprint);
+    }
+    engine::host::call_engine_op_async("path.choose_candidate", args).await
+}
+
+/// 多径开关（透传至 `path.set_multipath` op；单块翻转保留其余装配开关）。
+#[tauri::command]
+async fn path_set_multipath(enabled: bool) -> Result<JsonValue, String> {
+    engine::host::call_engine_op_async("path.set_multipath", json!({ "enabled": enabled })).await
+}
+
+/// 指纹缓存语义化失效（透传至 `cache.invalidate` op；清除后同请求不再命中）。
+#[tauri::command]
+async fn cache_invalidate(
+    scope: String,
+    reason: Option<String>,
+) -> Result<JsonValue, String> {
+    let mut args = json!({ "scope": scope });
+    if let Some(reason) = reason {
+        args["reason"] = JsonValue::String(reason);
+    }
+    engine::host::call_engine_op_async("cache.invalidate", args).await
+}
+
+/// 信任档人工降级（透传至 `edge.downgrade_tier` op；降级前快照可复原）。
+#[tauri::command]
+async fn edge_downgrade_tier(
+    edge_id: String,
+    tier: Option<String>,
+) -> Result<JsonValue, String> {
+    let mut args = json!({ "edgeId": edge_id });
+    if let Some(tier) = tier {
+        args["tier"] = JsonValue::String(tier);
+    }
+    engine::host::call_engine_op_async("edge.downgrade_tier", args).await
+}
+
+/// 文档解析（PDF/Office → 结构化 JSON；与壳执行器同源域函数，路径根收口）。
+#[tauri::command]
+fn doc_parse(path: String) -> Result<JsonValue, String> {
+    let resolved = expand_home(&path);
+    let bytes = std::fs::read(&resolved).map_err(|err| format!("读取文档失败: {err}"))?;
+    domain::doc_ops::parse_document(&bytes).map_err(|err| err.to_string())
+}
+
+/// 文档生成（docx 报告 / xlsx 表格 → 落盘工作区根，返回路径与字节数）。
+#[tauri::command]
+fn doc_generate(
+    format: String,
+    title: String,
+    body: Option<String>,
+    table: Option<String>,
+) -> Result<JsonValue, String> {
+    let bytes = match format.as_str() {
+        "docx" => {
+            use domain::doc_ops::{build_docx_report, DocxReportSpec, DocxSection};
+            let spec = DocxReportSpec {
+                title: title.clone(),
+                sections: vec![DocxSection {
+                    heading: None,
+                    body: body.unwrap_or_default(),
+                }],
+                table: None,
+            };
+            build_docx_report(&spec).map_err(|err| err.to_string())?
+        }
+        "xlsx" => {
+            use domain::doc_ops::build_xlsx_table;
+            let rows: Vec<Vec<String>> = table
+                .and_then(|text| serde_json::from_str::<Vec<Vec<String>>>(&text).ok())
+                .unwrap_or_default();
+            build_xlsx_table(&title, &rows).map_err(|err| err.to_string())?
+        }
+        other => return Err(format!("不支持的文档格式: {other}（docx/xlsx）")),
+    };
+    let out_dir = expand_home(DEFAULT_MOUNT_ROOT);
+    std::fs::create_dir_all(&out_dir).map_err(|err| format!("输出目录创建失败: {err}"))?;
+    let stamp = chrono::Utc::now().timestamp_millis();
+    let safe_title: String = title
+        .chars()
+        .map(|ch| if ch.is_alphanumeric() || ch == '_' || ch == '-' { ch } else { '_' })
+        .collect();
+    let ext = if format == "xlsx" { "xlsx" } else { "docx" };
+    let out_path = out_dir.join(format!("{safe_title}_{stamp}.{ext}"));
+    std::fs::write(&out_path, &bytes).map_err(|err| format!("文档写入失败: {err}"))?;
+    Ok(json!({
+        "path": out_path.to_string_lossy(),
+        "format": format,
+        "bytes": bytes.len(),
+    }))
+}
+
+/// 屏幕截图（隐私分级：本地直喂 / 云端默认禁外发，授权开关 + 审批回调，
+/// 外发事件落审计；与壳执行器同源域函数）。
+#[tauri::command]
+fn screenshot_capture(
+    model_class: String,
+    destination: Option<String>,
+) -> Result<JsonValue, String> {
+    use domain::screenshot::{
+        capture_and_feed, WindowsScreenCapturer, ModelClass, VisionGate, VisionSettings,
+    };
+    let model = match model_class.as_str() {
+        "local" => ModelClass::Local,
+        "cloud" => ModelClass::Cloud,
+        other => return Err(format!("目标模型类别非法: {other}（local/cloud）")),
+    };
+    let destination = destination.unwrap_or_else(|| "engine".to_string());
+    let settings_path = expand_home("~/.inkling/vision.json");
+    let settings = VisionSettings::load(&settings_path).unwrap_or_else(|_| VisionSettings::default());
+    let gate = VisionGate {
+        settings,
+        approve: std::sync::Arc::new(|| false),
+    };
+    let out_dir = expand_home("~/.inkling/attachments");
+    let capturer = WindowsScreenCapturer;
+    let attachment = tokio::runtime::Builder::new_current_thread()
+        .enable_all()
+        .build()
+        .map_err(|err| format!("截图运行时构建失败: {err}"))?
+        .block_on(capture_and_feed(
+            &capturer,
+            &gate,
+            model,
+            &destination,
+            &out_dir,
+            &None,
+        ))
+        .map_err(|err| err.to_string())?;
+    Ok(attachment.to_dict())
+}
+
 // ── 底层辅助 ──
 
 /// 安全域实例（授权命令按 seed 声明装载判定语义）。
@@ -1643,6 +1791,13 @@ pub fn run() {
             model_archive_snapshot,
             models_refresh,
             metrics_snapshot,
+            path_choose_candidate,
+            path_set_multipath,
+            cache_invalidate,
+            edge_downgrade_tier,
+            doc_parse,
+            doc_generate,
+            screenshot_capture,
         ])
         .build(tauri::generate_context!())
         .expect("InKling 桌面壳装配失败");

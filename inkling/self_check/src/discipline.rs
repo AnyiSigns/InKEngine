@@ -72,12 +72,16 @@ fn has_section_marker(line: &str) -> bool {
 fn has_letter_number_code(line: &str) -> bool {
     // [A-E] + 1-2 位数字（A1/B2/D4/E2 类）；三位的 ruff 码（E402/B017）不命中；
     // 行含 noqa/规则集/ruff 字样时豁免（规则码清单语境）；C0 控制字符类为
-    // 技术术语（控制字符类别名），同行豁免
+    // 技术术语（控制字符类别名），同行豁免；表格电子表格语境（列引用/
+    // sheetData/单元格元素 <c r=）中的单元格坐标是业务字面量，同行豁免
     if line.contains("noqa")
         || line.contains("规则集")
         || line.contains("ruff")
         || line.contains("控制字符")
         || line.contains("控制符")
+        || line.contains("列引用")
+        || line.contains("sheetData")
+        || line.contains("<c r=")
     {
         return false;
     }

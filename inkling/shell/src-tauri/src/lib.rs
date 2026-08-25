@@ -996,6 +996,129 @@ fn components_manifest(app: AppHandle) -> JsonValue {
     }
 }
 
+// ── 后台任务域命令 ──
+
+/// 启动后台任务（受控承载：经 mpsc 受前端/回合信号驱动，自身不执行引擎
+/// 逻辑；事件经既有流式通道留痕，取消经既有链回退通道回退）。
+#[tauri::command]
+async fn task_start(
+    app: AppHandle,
+    id: String,
+    kind: String,
+    goal: String,
+    thread_id: Option<String>,
+    revert_target: Option<String>,
+) -> Result<JsonValue, String> {
+    crate::domain::tasks::bind_app(app);
+    crate::domain::tasks::registry()
+        .start_tracked(
+            &id,
+            &kind,
+            &goal,
+            thread_id.as_deref(),
+            revert_target.as_deref(),
+        )
+        .map_err(|err| err.to_string())?;
+    Ok(json!({ "task_id": id, "started": true }))
+}
+
+/// 取消后台任务：cancel token 撤销在途工作 + 发射 task_cancelled + 经既有
+/// `engine.thread_revert` 回退链。未知 id / 已终态 → 结构化错误。
+#[tauri::command]
+fn task_cancel(id: String, reason: Option<String>) -> Result<JsonValue, String> {
+    crate::domain::tasks::registry()
+        .cancel(
+            &id,
+            &reason.unwrap_or_else(|| crate::domain::tasks::DEFAULT_CANCEL_REASON.to_string()),
+        )
+        .map_err(|err| err.to_string())?;
+    Ok(json!({ "task_id": id, "cancelled": true }))
+}
+
+/// 上报后台任务进度（受控路径）。
+#[tauri::command]
+fn task_progress(id: String, progress: f64, note: Option<String>) -> Result<JsonValue, String> {
+    crate::domain::tasks::registry()
+        .progress_signal(&id, progress, &note.unwrap_or_default())
+        .map_err(|err| err.to_string())?;
+    Ok(json!({ "task_id": id, "progress": progress }))
+}
+
+/// 标记后台任务完成（发射 task_done）。
+#[tauri::command]
+fn task_finish(id: String, result: String) -> Result<JsonValue, String> {
+    crate::domain::tasks::registry()
+        .finish_signal(&id, &result)
+        .map_err(|err| err.to_string())?;
+    Ok(json!({ "task_id": id, "finished": true }))
+}
+
+/// 标记后台任务失败（发射 task_cancelled 兜底）。
+#[tauri::command]
+fn task_fail(id: String, reason: String) -> Result<JsonValue, String> {
+    crate::domain::tasks::registry()
+        .fail_signal(&id, &reason)
+        .map_err(|err| err.to_string())?;
+    Ok(json!({ "task_id": id, "failed": true }))
+}
+
+/// 后台任务清单（全部元信息）。
+#[tauri::command]
+fn task_list() -> JsonValue {
+    let metas = crate::domain::tasks::registry().list();
+    json!({ "tasks": metas })
+}
+
+/// 单后台任务状态（未知 id → 结构化错误）。
+#[tauri::command]
+fn task_state(id: String) -> Result<JsonValue, String> {
+    let meta = crate::domain::tasks::registry()
+        .state(&id)
+        .map_err(|err| err.to_string())?;
+    Ok(json!({ "task": meta }))
+}
+
+/// 回合续跑并附项目任务对象（经既有 `engine.thread_resume` 通道；inject 透传
+/// project_task，引擎零改动感知）。审批决议注入口径与 round_resume 同源。
+#[tauri::command]
+async fn task_resume(
+    thread_id: String,
+    key: String,
+    decision: String,
+    reason: Option<String>,
+    edited_content: Option<JsonValue>,
+    project_task: Option<JsonValue>,
+) -> Result<JsonValue, String> {
+    let latest = engine::host::call_engine_op_async(
+        "engine.thread_latest_checkpoint",
+        json!({ "thread_id": thread_id }),
+    )
+    .await?;
+    let checkpoint_id = latest
+        .get("checkpoint_id")
+        .and_then(JsonValue::as_i64)
+        .ok_or_else(|| "会话无检查点（先发送一条消息）".to_string())?;
+    let mut inject = json!({});
+    inject[key] = match decision.as_str() {
+        "reject" => json!("reject"),
+        "edit" => json!(edited_content.unwrap_or_else(|| json!("accept"))),
+        _ => json!("accept"),
+    };
+    if let Some(pt) = project_task {
+        inject["project_task"] = pt;
+    }
+    let mut args = json!({
+        "thread_id": thread_id,
+        "checkpoint_id": checkpoint_id,
+        "inject": inject,
+    });
+    if let Some(reason) = reason {
+        args["reason"] = json!(reason);
+    }
+    let outcome = engine::host::call_engine_op_async("engine.thread_resume", args).await?;
+    Ok(outcome)
+}
+
 // ── 底层辅助 ──
 
 /// 安全域实例（授权命令按 seed 声明装载判定语义）。
@@ -1429,6 +1552,14 @@ pub fn run() {
             recovery_factory_reset,
             tools_snapshot,
             components_manifest,
+            task_start,
+            task_cancel,
+            task_progress,
+            task_finish,
+            task_fail,
+            task_list,
+            task_state,
+            task_resume,
         ])
         .build(tauri::generate_context!())
         .expect("InKling 桌面壳装配失败");

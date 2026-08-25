@@ -11,40 +11,52 @@
         "children": [
           {
             "kind": "container",
-            "type": "row",
+            "type": "column",
             "props": { "view": "main", "gap": 0 },
             "children": [
               {
                 "kind": "component",
-                "type": "file_tree",
-                "props": { "collapsible": true }
+                "type": "view_header",
+                "props": { "title": "InKling", "actions": [{ "label": "演化", "view": "evolution" }, { "label": "设置", "view": "settings" }] }
               },
               {
                 "kind": "container",
-                "type": "column",
-                "props": { "grow": true },
+                "type": "row",
+                "props": { "grow": true, "gap": 0 },
                 "children": [
                   {
                     "kind": "component",
-                    "type": "message_list",
-                    "bind": { "channel": "state.messages", "path": "" }
+                    "type": "file_tree",
+                    "props": { "collapsible": true }
+                  },
+                  {
+                    "kind": "container",
+                    "type": "column",
+                    "props": { "grow": true },
+                    "children": [
+                      {
+                        "kind": "component",
+                        "type": "message_list",
+                        "bind": { "channel": "state.messages", "path": "" }
+                      },
+                      {
+                        "kind": "component",
+                        "type": "knowledge_row",
+                        "bind": { "channel": "events.memory_recall", "path": "" }
+                      },
+                      {
+                        "kind": "component",
+                        "type": "agent_input",
+                        "bind": { "channel": "state.session", "path": "" }
+                      }
+                    ]
                   },
                   {
                     "kind": "component",
-                    "type": "knowledge_row",
-                    "bind": { "channel": "events.memory_recall", "path": "" }
-                  },
-                  {
-                    "kind": "component",
-                    "type": "agent_input",
-                    "bind": { "channel": "state.session", "path": "" }
+                    "type": "session_list",
+                    "props": { "collapsible": true }
                   }
                 ]
-              },
-              {
-                "kind": "component",
-                "type": "session_list",
-                "props": { "collapsible": true }
               }
             ]
           },
@@ -56,12 +68,21 @@
               {
                 "kind": "component",
                 "type": "view_header",
-                "props": { "title": "设置", "hint": "入口 + 系统配置" }
+                "props": { "title": "设置", "hint": "系统配置分区" }
               },
               {
-                "kind": "component",
-                "type": "settings_form",
-                "bind": { "channel": "state.session", "path": "" }
+                "kind": "container",
+                "type": "tab",
+                "props": {},
+                "children": [
+                  { "kind": "component", "type": "settings_form", "props": { "form": "environment", "tab": "environment", "label": "环境容器" } },
+                  { "kind": "component", "type": "settings_form", "props": { "form": "capability", "tab": "capability", "label": "应用能力" } },
+                  { "kind": "component", "type": "settings_form", "props": { "form": "growth", "tab": "growth", "label": "生长治理" } },
+                  { "kind": "component", "type": "settings_form", "props": { "form": "security", "tab": "security", "label": "安全信任" } },
+                  { "kind": "component", "type": "settings_form", "props": { "form": "connect", "tab": "connect", "label": "连接" } },
+                  { "kind": "component", "type": "settings_form", "props": { "form": "appearance", "tab": "appearance", "label": "外观" } },
+                  { "kind": "component", "type": "settings_form", "props": { "form": "about", "tab": "about", "label": "关于" } }
+                ]
               }
             ]
           },
@@ -77,18 +98,28 @@
               },
               {
                 "kind": "component",
-                "type": "incubator_panel",
-                "bind": { "channel": "state.incubation", "path": "" }
+                "type": "summary_bar",
+                "props": { "label": "演化动态" },
+                "bind": { "channel": "events.signal_detected", "path": "" }
               },
               {
-                "kind": "component",
-                "type": "evolution_factory",
-                "bind": { "channel": "state.incubation", "path": "" }
+                "kind": "container",
+                "type": "group_card",
+                "props": { "title": "孵化与闸门", "collapsed": true },
+                "children": [
+                  { "kind": "component", "type": "incubator_panel", "props": { "stage": "signal" }, "bind": { "channel": "events.signal_detected", "path": "" } },
+                  { "kind": "component", "type": "incubator_panel", "props": { "stage": "distill" }, "bind": { "channel": "events.distill_outcome", "path": "" } },
+                  { "kind": "component", "type": "incubator_panel", "props": { "stage": "gate" }, "bind": { "channel": "events.gate_verdict", "path": "" } }
+                ]
               },
               {
-                "kind": "component",
-                "type": "evolution_timeline",
-                "bind": { "channel": "inspect_graph", "path": "patchChain" }
+                "kind": "container",
+                "type": "group_card",
+                "props": { "title": "进化与补丁链", "collapsed": true },
+                "children": [
+                  { "kind": "component", "type": "evolution_factory", "bind": { "channel": "events.evolution_variant", "path": "" } },
+                  { "kind": "component", "type": "evolution_timeline", "bind": { "channel": "inspect_graph", "path": "patchChain" } }
+                ]
               }
             ]
           },
@@ -104,8 +135,19 @@
               },
               {
                 "kind": "component",
-                "type": "simulation_tree",
-                "bind": { "channel": "state.simulations", "path": "" }
+                "type": "summary_bar",
+                "props": { "label": "推演动态" },
+                "bind": { "channel": "events.simulate_decision", "path": "" }
+              },
+              {
+                "kind": "container",
+                "type": "group_card",
+                "props": { "title": "分支对比", "collapsed": true },
+                "children": [
+                  { "kind": "component", "type": "simulation_tree", "props": { "branch": "replan" }, "bind": { "channel": "events.plan_start", "path": "" } },
+                  { "kind": "component", "type": "simulation_tree", "props": { "branch": "spawn" }, "bind": { "channel": "events.spawn_start", "path": "" } },
+                  { "kind": "component", "type": "simulation_tree", "props": { "branch": "decision" }, "bind": { "channel": "events.simulate_decision", "path": "" } }
+                ]
               }
             ]
           },
@@ -121,8 +163,22 @@
               },
               {
                 "kind": "component",
-                "type": "source_trace",
-                "bind": { "channel": "state.sourceTraces", "path": "" }
+                "type": "summary_bar",
+                "props": { "label": "来源动态" },
+                "bind": { "channel": "events.memory_recall", "path": "" }
+              },
+              {
+                "kind": "container",
+                "type": "group_card",
+                "props": { "title": "依据链", "collapsed": true },
+                "children": [
+                  { "kind": "component", "type": "source_trace", "props": { "source": "round_state" }, "bind": { "channel": "state", "path": "round_steps" } },
+                  { "kind": "component", "type": "source_trace", "props": { "source": "memory" }, "bind": { "channel": "events.memory_recall", "path": "" } },
+                  { "kind": "component", "type": "source_trace", "props": { "source": "tuning" }, "bind": { "channel": "events.tuning_update", "path": "" } },
+                  { "kind": "component", "type": "source_trace", "props": { "source": "vetting" }, "bind": { "channel": "events.vetting_result", "path": "" } },
+                  { "kind": "component", "type": "source_trace", "props": { "source": "device_sensed" }, "bind": { "channel": "events.device_sensed", "path": "" } },
+                  { "kind": "component", "type": "source_trace", "props": { "source": "device_control" }, "bind": { "channel": "events.device_control", "path": "" } }
+                ]
               }
             ]
           },

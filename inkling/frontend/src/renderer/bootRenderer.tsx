@@ -11,7 +11,8 @@
  * 默认渲染全部（直渲语义不裁剪）。审批卡 overlay 容器常驻任意视图可弹。
  */
 
-import { useEffect } from 'react';
+import { useEffect, useState } from 'react';
+import { ChevronRight } from 'lucide-react';
 
 import type { ChannelHub } from '@/shared/session/channelHub';
 import { BindSourceProvider } from './bindSource';
@@ -40,6 +41,13 @@ function BaselineLayout() {
 
 /** 容器间隙（静态类映射：Tailwind 静态扫描无法识别动态拼接类名）。 */
 const GAP_CLASSES = ['gap-0', 'gap-1', 'gap-2', 'gap-3'] as const;
+
+/** Tab 切换条按钮样式（激活态高亮，与左导航激活条同源语义）。 */
+function cnTab(active: boolean): string {
+  return active
+    ? 'rounded-lg bg-[var(--ink-bg-elevated)] px-2.5 py-1 text-[11px] font-medium'
+    : 'rounded-lg px-2.5 py-1 text-[11px] ink-text-muted hover:bg-[var(--ink-bg-elevated)] cursor-pointer';
+}
 
 /**
  * 布局节点递归渲染：容器组织层级，组件经注册表解析（bind 随节点透传）。
@@ -116,6 +124,87 @@ function UINodeView({
         </div>
       );
     }
+    // tab 容器：子级各自承载一个分区（props.tab + props.label），
+    // 顶栏切换条只渲染激活分区——设置页由此收敛为 Tab 形态。
+    if (node.type === 'tab') {
+      const children = node.children ?? [];
+      const tabs = children.map((child, index) => ({
+        key: String(child.props?.tab ?? child.props?.form ?? index),
+        label: String(child.props?.label ?? child.props?.form ?? child.type),
+        index,
+      }));
+      const [active, setActive] = useState(0);
+      const current = children[Math.min(Math.max(active, 0), Math.max(children.length - 1, 0))];
+      return (
+        <div className="flex min-h-0 flex-1 flex-col">
+          <div className="flex shrink-0 items-center gap-1 border-b px-2 py-1.5 ink-border">
+            {tabs.map((tab) => (
+              <button
+                key={tab.key}
+                data-ui={`tab_${tab.key}`}
+                data-active={tab.index === active}
+                onClick={() => setActive(tab.index)}
+                className={cnTab(tab.index === active)}
+              >
+                {tab.label}
+              </button>
+            ))}
+          </div>
+          <div className="ink-scroll-auto min-h-0 flex-1">
+            {current ? (
+              <UINodeView
+                node={current}
+                path={`${path}.active`}
+                activeView={activeView}
+                depth={depth + 1}
+                chromeProps={chromeProps}
+              />
+            ) : null}
+          </div>
+        </div>
+      );
+    }
+
+    // group_card 容器：可折叠分组（默认折叠，深看细节收进卡片），
+    // 顶栏显示标题 + 计数，展开后渲染内部组件。
+    if (node.type === 'group_card') {
+      const children = node.children ?? [];
+      const title = String(node.props?.title ?? '分组');
+      const collapsedDefault = node.props?.collapsed !== false;
+      const [open, setOpen] = useState(!collapsedDefault);
+      return (
+        <div data-ui={`group_${title}`} className="rounded-lg border ink-border">
+          <button
+            onClick={() => setOpen((value) => !value)}
+            className="flex w-full items-center gap-1.5 px-3 py-2 text-left cursor-pointer hover:bg-[var(--ink-bg-elevated)]"
+          >
+            <ChevronRight
+              size={12}
+              strokeWidth={1.8}
+              className={open ? 'rotate-90 transition-transform' : 'transition-transform'}
+              aria-hidden
+            />
+            <span className="text-[11px] font-medium">{title}</span>
+            <span className="ml-auto text-[9px] ink-text-faint">{children.length} 项</span>
+          </button>
+          {open ? (
+            <div className="min-h-0 flex-col gap-2 px-3 pb-3">
+              {children.map((child, index) => (
+                <UINodeView
+                  key={`${path}.${index}`}
+                  node={child}
+                  path={`${path}.${index}`}
+                  activeView={activeView}
+                  depth={depth + 1}
+                  chromeProps={chromeProps}
+                />
+              ))}
+            </div>
+          ) : null}
+        </div>
+      );
+    }
+
     const isRow = node.type === 'row';
     const gap = typeof node.props?.gap === 'number' ? Math.min(Math.max(node.props.gap, 0), 3) : 2;
     const growClass = grow || node.props?.grow === true ? 'flex-1 min-h-0 min-w-0' : 'min-h-0 min-w-0';

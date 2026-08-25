@@ -31,6 +31,8 @@ import type { AppearanceValue } from './settings_sections/appearance_section';
 
 interface SettingsFormProps {
   bindValue?: unknown;
+  /** 分区定位（Tab 容器下只渲染对应分区；省略则双栏全量形态） */
+  form?: SectionId;
   onNavigate?: (view: ViewId) => void;
   onApplySettings?: (settings: Record<string, unknown>) => void;
   /** 宿主能力档（启动时从后端装载：推演档位/推理档初值） */
@@ -68,6 +70,7 @@ const ENTRY_ITEMS: Array<{ view: ViewId; label: string; icon: typeof FlaskConica
 
 export function SettingsForm({
   bindValue,
+  form,
   onNavigate,
   onApplySettings,
   initialCapability,
@@ -114,6 +117,88 @@ export function SettingsForm({
 
   const activeMeta = SECTION_NAV.find((s) => s.id === active) ?? SECTION_NAV[0];
   const ActiveIcon = activeMeta.icon;
+
+  const renderSection = (id: SectionId): React.ReactNode => {
+    switch (id) {
+      case 'capability':
+        return <AppCapabilitySection value={capability} patch={(next) => patchSection(setCapability, next)} />;
+      case 'environment':
+        return <EnvironmentContainer value={environment} patch={(next) => patchSection(setEnvironment, next)} />;
+      case 'growth':
+        return <GrowthGovernance value={growth} patch={(next) => patchSection(setGrowth, next)} />;
+      case 'security':
+        return (
+          <SecurityTrust
+            value={security}
+            patch={(next) => patchSection(setSecurity, next)}
+            onOpenBackupWizard={onOpenBackupWizard}
+            recovery={recovery}
+            autoApprovableTools={autoApprovableTools ?? []}
+          />
+        );
+      case 'connect':
+        return <ConnectSection value={connect} patch={(next) => patchSection(setConnect, next)} />;
+      case 'appearance':
+        return <AppearanceSection value={appearance} patch={(next) => patchSection(setAppearance, next)} />;
+      case 'about':
+        return (
+          <div className="space-y-2.5">
+            <div className="ink-elevated space-y-2 px-3.5 py-3">
+              <div className="flex items-center gap-2">
+                <span className="text-[var(--ink-font-xs)] font-semibold">InKling 0.1.0</span>
+                <span className="ink-chip ink-text-faint">自进化认知伙伴</span>
+              </div>
+              <div className="text-[10px] leading-relaxed ink-text-muted">engine_version_compat：按当前 ink_engine 锁定</div>
+              <div className="text-[10px] leading-relaxed ink-text-faint">契约：inkling_exec（执行件）· inkling_shell（宿主件）· 渲染组件白名单 · 事件类型清单 · 工具清单</div>
+            </div>
+            <button
+              onClick={() => setAboutOpen((v) => !v)}
+              className="flex items-center gap-1 ink-text-muted hover:text-[var(--ink-text-base)] cursor-pointer bg-transparent border-none text-[10px]"
+            >
+              <ChevronDown size={10} strokeWidth={1.6} className={cn('transition-transform', aboutOpen && 'rotate-180')} aria-hidden />
+              白名单详情
+            </button>
+            {aboutOpen && (
+              <div className="ink-feed ink-panel px-3 py-2.5 font-mono text-[9px] ink-text-faint">
+                <FileText size={9} strokeWidth={1.6} className="mr-1 inline" aria-hidden />
+                主题 token：bg.base / text.base / accent.approval / status.bubble.* / status.card.edge
+              </div>
+            )}
+          </div>
+        );
+      default:
+        return null;
+    }
+  };
+
+  // Tab 容器形态：只渲染定位分区（无左导航轨），单区一屏。
+  if (form) {
+    const meta = SECTION_NAV.find((s) => s.id === form) ?? activeMeta;
+    return (
+      <div className="ink-scroll-auto min-h-0 flex-1">
+        <div className="mx-auto w-full max-w-xl px-6 py-6">
+          <div className="mb-6 flex items-start gap-3">
+            <span className="ink-icon-chip h-9 w-9 rounded-xl">
+              <ActiveIcon size={15} strokeWidth={1.6} aria-hidden />
+            </span>
+            <div className="min-w-0">
+              <h2 className="text-[var(--ink-font-md)] font-semibold tracking-tight">{meta.label}</h2>
+              <p className="mt-0.5 text-[11px] leading-relaxed ink-text-faint">{meta.desc}</p>
+            </div>
+          </div>
+          {renderSection(form)}
+          <div className="ink-sticky-bar mt-8 -mx-6 flex items-center justify-end gap-2 px-6 py-3">
+            <Button size="sm" variant="ghost" onClick={() => patchSection(setAppearance, { themeDraft: {} })}>
+              <RotateCcw size={11} strokeWidth={1.6} /> 还原跟随系统
+            </Button>
+            <Button size="sm" variant="primary" onClick={applyAll} data-ui="btn_apply_settings">
+              <Check size={11} strokeWidth={1.8} /> 应用设置
+            </Button>
+          </div>
+        </div>
+      </div>
+    );
+  }
 
   return (
     <div className="flex min-h-0 flex-1">
@@ -200,56 +285,7 @@ export function SettingsForm({
             </div>
           </div>
 
-          {active === 'capability' && (
-            <AppCapabilitySection value={capability} patch={(next) => patchSection(setCapability, next)} />
-          )}
-          {active === 'environment' && (
-            <EnvironmentContainer value={environment} patch={(next) => patchSection(setEnvironment, next)} />
-          )}
-          {active === 'growth' && (
-            <GrowthGovernance value={growth} patch={(next) => patchSection(setGrowth, next)} />
-          )}
-          {active === 'security' && (
-            <SecurityTrust
-              value={security}
-              patch={(next) => patchSection(setSecurity, next)}
-              onOpenBackupWizard={onOpenBackupWizard}
-              recovery={recovery}
-              autoApprovableTools={autoApprovableTools ?? []}
-            />
-          )}
-          {active === 'connect' && (
-            <ConnectSection value={connect} patch={(next) => patchSection(setConnect, next)} />
-          )}
-          {active === 'appearance' && (
-            <AppearanceSection value={appearance} patch={(next) => patchSection(setAppearance, next)} />
-          )}
-
-          {active === 'about' && (
-            <div className="space-y-2.5">
-              <div className="ink-elevated space-y-2 px-3.5 py-3">
-                <div className="flex items-center gap-2">
-                  <span className="text-[var(--ink-font-xs)] font-semibold">InKling 0.1.0</span>
-                  <span className="ink-chip ink-text-faint">自进化认知伙伴</span>
-                </div>
-                <div className="text-[10px] leading-relaxed ink-text-muted">engine_version_compat：按当前 ink_engine 锁定</div>
-                <div className="text-[10px] leading-relaxed ink-text-faint">契约：inkling_exec（执行件）· inkling_shell（宿主件）· 渲染组件白名单 · 事件类型清单 · 工具清单</div>
-              </div>
-              <button
-                onClick={() => setAboutOpen((v) => !v)}
-                className="flex items-center gap-1 ink-text-muted hover:text-[var(--ink-text-base)] cursor-pointer bg-transparent border-none text-[10px]"
-              >
-                <ChevronDown size={10} strokeWidth={1.6} className={cn('transition-transform', aboutOpen && 'rotate-180')} aria-hidden />
-                白名单详情
-              </button>
-              {aboutOpen && (
-                <div className="ink-feed ink-panel px-3 py-2.5 font-mono text-[9px] ink-text-faint">
-                  <FileText size={9} strokeWidth={1.6} className="mr-1 inline" aria-hidden />
-                  主题 token：bg.base / text.base / accent.approval / status.bubble.* / status.card.edge
-                </div>
-              )}
-            </div>
-          )}
+          {renderSection(active)}
 
           {/* 应用条（粘性底部） */}
           <div className="ink-sticky-bar mt-8 -mx-6 flex items-center justify-end gap-2 px-6 py-3">

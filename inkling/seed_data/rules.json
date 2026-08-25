@@ -122,6 +122,54 @@
       "kind": "sample_shape",
       "entity_type": "case",
       "description": "样例库自身形状校验：用例须可复现（输入/期望成对）"
+    },
+    {
+      "id": "rule.context.low_battery_window_active",
+      "predicate": "has_fields",
+      "config": {
+        "fields": ["battery_low", "active_window"],
+        "present": true,
+        "message": "电量偏低且存在活跃窗口：建议切换省电模式或暂停长任务"
+      },
+      "type": "context_trigger",
+      "target_path": "context",
+      "iterate_items": false,
+      "severity": "warning",
+      "kind": "context_trigger",
+      "entity_type": "context_signal",
+      "description": "情境触发：低电量 + 活跃窗口，主动建议省电/暂停（禁改既有规则行，仅追加）"
+    },
+    {
+      "id": "rule.context.idle_distraction",
+      "predicate": "has_fields",
+      "config": {
+        "fields": ["idle", "notification_pending"],
+        "present": true,
+        "message": "空闲且有待处理通知：建议归并处理挂起通知"
+      },
+      "type": "context_trigger",
+      "target_path": "context",
+      "iterate_items": false,
+      "severity": "info",
+      "kind": "context_trigger",
+      "entity_type": "context_signal",
+      "description": "情境触发：空闲 + 挂起通知，主动建议归并（仅追加）"
+    },
+    {
+      "id": "rule.context.long_task_no_checkpoint",
+      "predicate": "has_fields",
+      "config": {
+        "fields": ["long_task_running", "checkpoint_missing"],
+        "present": true,
+        "message": "长任务运行但未落检查点：建议先建立检查点再继续"
+      },
+      "type": "context_trigger",
+      "target_path": "context",
+      "iterate_items": false,
+      "severity": "warning",
+      "kind": "context_trigger",
+      "entity_type": "context_signal",
+      "description": "情境触发：长任务无检查点，主动建议先存档（仅追加）"
     }
   ]
 }

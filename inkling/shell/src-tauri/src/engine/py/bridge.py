@@ -1220,6 +1220,266 @@ def register_builtin_ops() -> None:
         }
 
 
+# ── 洞察层（Why 审计 / 成长报告 / 数据主权 / 情境建议）──
+
+async def _safe_storage_list(runtime: Any, collection: str) -> list[dict]:
+    """读取引擎存储集合（异步；缺失/异常时返回空清单，不阻断洞察聚合）。"""
+    storage = getattr(runtime, "storage", None)
+    if storage is None:
+        return []
+    try:
+        return list(await storage.list_records(collection))
+    except Exception:
+        return []
+
+
+def _safe_attr_call(runtime: Any, attr: str, default: Any = None) -> Any:
+    """安全取运行时属性并调用（无属性/异常 = 默认兜底）。"""
+    target = getattr(runtime, attr, None)
+    if target is None:
+        return default
+    try:
+        result = target() if callable(target) else target
+        return result
+    except Exception:
+        return default
+
+
+@op_async("why.audit")
+async def _why_audit(args: dict) -> Any:
+    """「为什么」下钻：把留痕层的可解释数据汇聚为结构化理由链。
+
+    数据源（均已在留痕层，非本 op 新造）：
+    - 候选选择（path_candidate_selection）：人工/自动选中的组装候选；
+    - 干预审计（set_audit）：assembly_candidate（候选留痕）、
+      policy_edge_review（策略边复审 reason+action+review_tier）、
+      失败审计（失败结点 reason）——决策点理由字段；
+    - 边证据（若运行时持有 EdgeEvidenceStore 实例）：每条边的
+      success/fail/policy/avg_cost 归因（汇流裁决的量化依据）。
+    """
+    runtime = runtime_handle()
+    domain = args.get("domain") or "default"
+
+    selections = [
+        rec for rec in await _safe_storage_list(runtime, "path_candidate_selection")
+        if (rec.get("domain") or "default") == domain
+    ]
+
+    audit = await _safe_storage_list(runtime, "set_audit")
+    reason_chain: list[dict] = []
+    for rec in audit:
+        rtype = rec.get("type") or rec.get("kind") or ""
+        if rtype in (
+            "policy_edge_review",
+            "assembly_candidate",
+            "assembly_audit",
+            "failure_audit",
+        ):
+            reason_chain.append({
+                "type": rtype,
+                "ts": rec.get("ts"),
+                "domain": rec.get("domain"),
+                "reason": rec.get("reason"),
+                "action": rec.get("action"),
+                "review_tier": rec.get("review_tier"),
+                "candidate_id": rec.get("candidate_id"),
+                "src_type": rec.get("src_type"),
+                "dst_type": rec.get("dst_type"),
+            })
+
+    edges: list[dict] = []
+    store = _safe_attr_call(runtime, "edge_evidence_store")
+    if store is not None:
+        try:
+            for ev in await store.list_edges(domain):
+                edges.append({
+                    "src_type": ev.src_type,
+                    "dst_type": ev.dst_type,
+                    "success_count": ev.success_count,
+                    "fail_count": ev.fail_count,
+                    "policy": ev.policy,
+                    "avg_cost": ev.avg_cost,
+                })
+        except Exception:
+            edges = []
+
+    return {
+        "domain": domain,
+        "candidates": selections,
+        "reason_chain": reason_chain,
+        "edge_evidence": edges,
+    }
+
+
+@op_async("report.growth")
+async def _report_growth(args: dict) -> Any:
+    """成长报告：对可观测的演化资产做当前窗口聚合（成功率/成本/结点增减/技能数）。
+
+    各源独立取数、单点异常不影响整体（返回 null 而非失败）。技能数取
+    批 4 波 1 已交付的 skill_store 计数；成功率/成本取边证据聚合；结点
+    增减取知识集与工具表的当前规模（历史增量需持久化回合指标流，当前
+    窗口以当前规模为近似）。
+    """
+    runtime = runtime_handle()
+
+    skill_count = None
+    store = _safe_attr_call(runtime, "skill_store")
+    if store is not None:
+        try:
+            skill_count = int(await store.count())
+        except Exception:
+            skill_count = None
+
+    knowledge_count = None
+    ks = _safe_attr_call(runtime, "knowledge_set")
+    if ks is not None:
+        try:
+            if callable(getattr(ks, "count", None)):
+                knowledge_count = int(await ks.count())
+            else:
+                knowledge_count = len(list(ks))
+        except Exception:
+            knowledge_count = None
+
+    tool_count = None
+    try:
+        tool_count = len(getattr(runtime, "tool_registry", {}) or {})
+    except Exception:
+        tool_count = None
+
+    success_total = 0
+    fail_total = 0
+    cost_sum = 0.0
+    cost_n = 0
+    ev_store = _safe_attr_call(runtime, "edge_evidence_store")
+    if ev_store is not None:
+        try:
+            for ev in await ev_store.list_edges(args.get("domain")):
+                success_total += ev.success_count
+                fail_total += ev.fail_count
+                if ev.avg_cost:
+                    cost_sum += ev.avg_cost
+                    cost_n += 1
+        except Exception:
+            pass
+    denom = success_total + fail_total
+    success_rate = (success_total / denom) if denom else None
+    avg_cost = (cost_sum / cost_n) if cost_n else None
+
+    audit = await _safe_storage_list(runtime, "set_audit")
+    recent_activity = sorted(
+        [a for a in audit if a.get("ts")], key=lambda a: a["ts"], reverse=True
+    )[: int(args.get("recent_limit") or 10)]
+
+    return {
+        "window": args.get("window") or "current",
+        "skill_count": skill_count,
+        "knowledge_count": knowledge_count,
+        "tool_count": tool_count,
+        "success_rate": success_rate,
+        "avg_cost": avg_cost,
+        "edge_success_total": success_total,
+        "edge_fail_total": fail_total,
+        "recent_activity": [
+            {"type": a.get("type") or a.get("kind"), "ts": a.get("ts")}
+            for a in recent_activity
+        ],
+    }
+
+
+@op_async("sovereignty.snapshot")
+async def _sovereignty_snapshot(args: dict) -> Any:
+    """数据主权快照：本地数据资产位置 + 模型挡位调用统计 + 访问审计概览。
+
+    本地位置取运行时存储后端标识与技能存储路径（缺失/内存态 = 标注）；
+    挡位统计取当前生效挡位声明（逐回合 TierCallStats 未持久化，此处仅
+    报告挡位配置面）；访问审计取 set_audit 计数与最近若干条。
+    """
+    runtime = runtime_handle()
+
+    storage = getattr(runtime, "storage", None)
+    storage_info: dict[str, Any] = {"backend": type(storage).__name__ if storage else None}
+    for attr in ("db_path", "path", "_db_path"):
+        value = getattr(storage, attr, None)
+        if value:
+            storage_info["location"] = str(value)
+            break
+
+    skill_path = None
+    ss = _safe_attr_call(runtime, "skill_store")
+    if ss is not None:
+        skill_path = getattr(ss, "_db_path", None)
+    if skill_path:
+        skill_path = str(skill_path)
+
+    from ink_engine.core.tiers import current_tier_names
+
+    audit = await _safe_storage_list(runtime, "set_audit")
+    audit_counts: dict[str, int] = {}
+    for rec in audit:
+        key = rec.get("type") or rec.get("kind") or "unknown"
+        audit_counts[key] = audit_counts.get(key, 0) + 1
+    recent_audit = sorted(
+        [a for a in audit if a.get("ts")], key=lambda a: a["ts"], reverse=True
+    )[: int(args.get("recent_limit") or 10)]
+
+    return {
+        "local_storage": storage_info,
+        "skill_store_path": skill_path,
+        "model_tiers": list(current_tier_names()),
+        "tier_call_stats_persisted": False,
+        "audit_total": len(audit),
+        "audit_counts": audit_counts,
+        "recent_audit": recent_audit,
+    }
+
+
+@op_sync("suggestion.scan")
+def _suggestion_scan(args: dict) -> Any:
+    """情境建议扫描：对提供的上下文求值「情境触发」规则（rules.json 追加行）。
+
+    规则只追加（禁改既有行），以既有谓词 has_fields 表达情境条件；本 op
+    读取种子规则中 kind=context_trigger 的行，对传入 context（如系统/
+    界面查询产物）求值，命中即生成主动建议。无规则/无上下文 = 空清单。
+    """
+    context = args.get("context") or {}
+    if not isinstance(context, dict):
+        context = {}
+
+    root = _REPO_ROOT
+    rules: list[dict] = []
+    if root:
+        import pathlib
+
+        seed = pathlib.Path(root) / "inkling" / "seed_data" / "rules.json"
+        try:
+            with open(seed, encoding="utf-8") as fh:
+                data = json.load(fh)
+            rules = [
+                r for r in (data.get("rules") or [])
+                if r.get("kind") == "context_trigger"
+            ]
+        except (OSError, ValueError):
+            rules = []
+
+    suggestions: list[dict] = []
+    for rule in rules:
+        predicate = rule.get("predicate")
+        config = rule.get("config") or {}
+        hit = False
+        if predicate == "has_fields":
+            fields = config.get("fields") or []
+            present = config.get("present", True)
+            hit = all(f in context for f in fields) == bool(present)
+        if hit:
+            suggestions.append({
+                "rule_id": rule.get("id"),
+                "message": config.get("message") or rule.get("description") or "",
+                "severity": rule.get("severity", "info"),
+            })
+    return {"scanned": len(rules), "suggestions": suggestions}
+
+
 # ── 路径组装机制（使用方接线：闸门/档位映射/草稿桥/桥 op 注册）──
 
 # 机制开关（默认关闭；装配按装配开关值透传——关闭即 op fail-closed）

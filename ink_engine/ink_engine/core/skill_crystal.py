@@ -9,7 +9,7 @@
 fingerprint_cache 存储先例（aiosqlite 惰性导入，测试默认内存库）。
 
 视觉技能扩展：高频成功的视觉路径（输入 = image、输出 = 结构化提取，对应
-P3.5 感知结点 image→描述链路）按同阈值结晶为视觉技能（kind=visual），结晶
+感知结点 image→描述链路）按同阈值结晶为视觉技能（kind=visual），结晶
 逻辑与通用路径完全同构，仅分类标签与导出语义不同。
 
 导出格式：JSON（技能元数据 + 路径定义 + 测试报告），可经技能市场同构获取层
@@ -101,7 +101,7 @@ def classify_skill_kind(path: Mapping[str, Any]) -> str:
     视觉技能，否则通用路径技能。
 
     判定纯算法、零 LLM：遍历路径结点契约的输入字段名与结点类型名
-    （大小写不敏感），命中 image/视觉语义即判视觉——P3.5 感知结点
+    （大小写不敏感），命中 image/视觉语义即判视觉——感知结点
     image→描述链路的结晶标签来源。
     """
     if not isinstance(path, dict):

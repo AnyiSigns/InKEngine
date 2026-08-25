@@ -11,7 +11,7 @@
       "kind": "visual",
       "domain": "default",
       "version": 1,
-      "description": "图表解读→数据提取→入库：输入图像，输出结构化数据提取（P3.5 感知结点 image→描述链路结晶）",
+      "description": "图表解读→数据提取→入库：输入图像，输出结构化数据提取（感知结点 image→描述链路结晶）",
       "fingerprint": "vismkt.chart.extract.01",
       "source_path": "vismkt.chart.extract.01",
       "model_id": "seed",

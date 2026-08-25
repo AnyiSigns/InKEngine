@@ -21,6 +21,21 @@ pub trait SystemBackend: Send + Sync {
     /// 超时与退出码非零都落在结果文本里，调用方按结果语义读成败
     /// （与引擎侧 ProcessResult 形状一致）；仅启动失败/参数非法返回 Err。
     fn run_process(&self, argv: &[String], cwd: &str, timeout_secs: u64) -> Result<String, String>;
+    /// 元素树感知（只读）：枚举前台窗口 + 顶级窗口 + 子窗口层级，返回 JSON 元素树。
+    ///
+    /// 只读、无控制权；越权域（非桌面窗口/隐私控件）由上游作用域白名单拒绝，
+    /// 本方法只负责收集当前桌面的窗口/控件层级。
+    fn ui_tree_query(&self) -> Result<String, String>;
+    /// 鼠标点击（屏幕坐标 + 按键）；真实副作用仅经此触发。
+    fn ui_click(&self, x: i32, y: i32, button: &str) -> Result<String, String>;
+    /// 文本输入（键盘事件注入）；真实副作用仅经此触发。
+    fn ui_type(&self, text: &str) -> Result<String, String>;
+    /// 窗口清单（JSON：句柄/标题/可见性）。
+    fn window_list(&self) -> Result<String, String>;
+    /// 聚焦窗口（按句柄/标题/foreground 定位）。
+    fn window_focus(&self, handle: &str) -> Result<String, String>;
+    /// 最小化窗口（按句柄/标题/foreground 定位）。
+    fn window_minimize(&self, handle: &str) -> Result<String, String>;
 }
 
 /// 平台后端：真实系统操作的唯一实现（Windows 优先，其余平台显式报不支持）
@@ -223,6 +238,30 @@ impl SystemBackend for PlatformBackend {
     fn run_process(&self, argv: &[String], cwd: &str, timeout_secs: u64) -> Result<String, String> {
         run_process_impl(argv, cwd, timeout_secs)
     }
+
+    fn ui_tree_query(&self) -> Result<String, String> {
+        windows_ui_ops::query_ui_tree()
+    }
+
+    fn ui_click(&self, x: i32, y: i32, button: &str) -> Result<String, String> {
+        windows_ui_ops::click(x, y, button)
+    }
+
+    fn ui_type(&self, text: &str) -> Result<String, String> {
+        windows_ui_ops::type_text(text)
+    }
+
+    fn window_list(&self) -> Result<String, String> {
+        windows_ui_ops::list_windows()
+    }
+
+    fn window_focus(&self, handle: &str) -> Result<String, String> {
+        windows_ui_ops::focus_window(handle)
+    }
+
+    fn window_minimize(&self, handle: &str) -> Result<String, String> {
+        windows_ui_ops::minimize_window(handle)
+    }
 }
 
 /// 进程运行时长（system_query/uptime；跨平台 std 近似——进程自身时长）
@@ -323,6 +362,271 @@ mod windows_ops {
     }
 }
 
+/// Windows 原生 UI 操作（user32 FFI，零外部依赖）：元素树感知 + 鼠标点击
+/// + 文本输入 + 窗口枚举/聚焦/最小化。手写 FFI，与既有 windows_ops 同风格。
+#[cfg(windows)]
+mod windows_ui_ops {
+    use std::ffi::c_void;
+    use serde_json::{json, Value};
+
+    #[link(name = "user32")]
+    extern "system" {
+        fn EnumWindows(
+            lpEnumFunc: extern "system" fn(*mut c_void, isize) -> i32,
+            lParam: isize,
+        ) -> i32;
+        fn EnumChildWindows(
+            hWndParent: *mut c_void,
+            lpEnumFunc: extern "system" fn(*mut c_void, isize) -> i32,
+            lParam: isize,
+        ) -> i32;
+        fn GetWindowTextW(hWnd: *mut c_void, lpString: *mut u16, nMaxCount: i32) -> i32;
+        fn GetClassNameW(hWnd: *mut c_void, lpString: *mut u16, nMaxCount: i32) -> i32;
+        fn GetWindowTextLengthW(hWnd: *mut c_void) -> i32;
+        fn IsWindowVisible(hWnd: *mut c_void) -> i32;
+        fn GetForegroundWindow() -> *mut c_void;
+        fn SetCursorPos(x: i32, y: i32) -> i32;
+        fn mouse_event(dwFlags: u32, dx: u32, dy: u32, dwData: u32, dwExtraInfo: usize);
+        fn SetForegroundWindow(hWnd: *mut c_void) -> i32;
+        fn ShowWindow(hWnd: *mut c_void, nCmdShow: i32) -> i32;
+        fn keybd_event(bVk: u8, bScan: u8, dwFlags: u32, dwExtraInfo: usize);
+        fn VkKeyScanW(ch: u16) -> i16;
+    }
+
+    const MOUSEEVENTF_LEFTDOWN: u32 = 0x0002;
+    const MOUSEEVENTF_LEFTUP: u32 = 0x0004;
+    const MOUSEEVENTF_RIGHTDOWN: u32 = 0x0008;
+    const MOUSEEVENTF_RIGHTUP: u32 = 0x0010;
+    const MOUSEEVENTF_MIDDLEDOWN: u32 = 0x0020;
+    const MOUSEEVENTF_MIDDLEUP: u32 = 0x0040;
+    const KEYEVENTF_KEYUP: u32 = 0x0002;
+    const VK_SHIFT: u8 = 0x10;
+    const SW_MINIMIZE: i32 = 6;
+
+    /// 窗口原始信息（句柄 + 标题 + 类名 + 可见性）
+    struct RawWindow {
+        hwnd: usize,
+        title: String,
+        class_name: String,
+        visible: bool,
+    }
+
+    /// 读取窗口标题（UTF-16 → UTF-8，截断容错）。
+    unsafe fn read_window_text(hwnd: *mut c_void) -> String {
+        let len = GetWindowTextLengthW(hwnd);
+        if len <= 0 {
+            return String::new();
+        }
+        let mut buffer: Vec<u16> = vec![0u16; (len + 1) as usize];
+        let copied = GetWindowTextW(hwnd, buffer.as_mut_ptr(), len + 1);
+        if copied <= 0 {
+            return String::new();
+        }
+        String::from_utf16_lossy(&buffer[..copied as usize])
+    }
+
+    /// 读取窗口类名（UTF-16 → UTF-8）。
+    unsafe fn read_class_name(hwnd: *mut c_void) -> String {
+        let mut buffer: Vec<u16> = vec![0u16; 256];
+        let copied = GetClassNameW(hwnd, buffer.as_mut_ptr(), buffer.len() as i32);
+        if copied <= 0 {
+            return String::new();
+        }
+        String::from_utf16_lossy(&buffer[..copied as usize])
+    }
+
+    /// EnumWindows/EnumChildWindows 回调（经 lParam 回传收集容器，避免捕获）。
+    extern "system" fn collect_window(hwnd: *mut c_void, lparam: isize) -> i32 {
+        let list = unsafe { &mut *(lparam as *mut Vec<RawWindow>) };
+        let raw = RawWindow {
+            hwnd: hwnd as usize,
+            title: unsafe { read_window_text(hwnd) },
+            class_name: unsafe { read_class_name(hwnd) },
+            visible: unsafe { IsWindowVisible(hwnd) != 0 },
+        };
+        list.push(raw);
+        1
+    }
+
+    /// 收集顶级窗口（仅句柄/可见性，子窗口层级按需再枚举）。
+    fn collect_top_level() -> Vec<RawWindow> {
+        let mut list: Vec<RawWindow> = Vec::new();
+        unsafe {
+            EnumWindows(
+                collect_window,
+                &mut list as *mut Vec<RawWindow> as isize,
+            );
+        }
+        list
+    }
+
+    /// 收集某窗口的子窗口（控件层级）。
+    fn collect_children(hwnd: usize) -> Vec<RawWindow> {
+        let mut list: Vec<RawWindow> = Vec::new();
+        unsafe {
+            EnumChildWindows(
+                hwnd as *mut c_void,
+                collect_window,
+                &mut list as *mut Vec<RawWindow> as isize,
+            );
+        }
+        list
+    }
+
+    /// 单窗口 → JSON（含子窗口递归层级）。
+    fn window_to_json(w: &RawWindow) -> Value {
+        let children = collect_children(w.hwnd)
+            .iter()
+            .map(window_to_json)
+            .collect::<Vec<Value>>();
+        json!({
+            "handle": w.hwnd.to_string(),
+            "title": w.title,
+            "class": w.class_name,
+            "visible": w.visible,
+            "children": children,
+        })
+    }
+
+    /// 元素树感知：前台窗口句柄 + 顶级窗口列表 + 每窗口子窗口层级。
+    pub fn query_ui_tree() -> Result<String, String> {
+        let top = collect_top_level();
+        let windows: Vec<Value> = top.iter().map(window_to_json).collect();
+        let fg = unsafe { GetForegroundWindow() as usize };
+        let tree = json!({
+            "foreground": if fg == 0 { Value::Null } else { json!(fg.to_string()) },
+            "windows": windows,
+        });
+        Ok(tree.to_string())
+    }
+
+    /// 按键 → 鼠标事件按下/抬起标志对。
+    fn button_flags(button: &str) -> Option<(u32, u32)> {
+        match button {
+            "left" => Some((MOUSEEVENTF_LEFTDOWN, MOUSEEVENTF_LEFTUP)),
+            "right" => Some((MOUSEEVENTF_RIGHTDOWN, MOUSEEVENTF_RIGHTUP)),
+            "middle" => Some((MOUSEEVENTF_MIDDLEDOWN, MOUSEEVENTF_MIDDLEUP)),
+            _ => None,
+        }
+    }
+
+    /// 鼠标点击：定位光标 → 按下 → 抬起（失败 fail-closed）。
+    pub fn click(x: i32, y: i32, button: &str) -> Result<String, String> {
+        let Some((down, up)) = button_flags(button) else {
+            return Err(format!("不支持的按键: {button}"));
+        };
+        if unsafe { SetCursorPos(x, y) } == 0 {
+            return Err(format!("光标定位失败（{x},{y}）"));
+        }
+        unsafe {
+            mouse_event(down, 0, 0, 0, 0);
+            mouse_event(up, 0, 0, 0, 0);
+        }
+        Ok(format!("已点击 {button} @ ({x},{y})"))
+    }
+
+    /// 文本输入：逐字符经 VkKeyScanW 映射虚拟键 + Shift 状态注入（不可映射字符 = 失败）。
+    pub fn type_text(text: &str) -> Result<String, String> {
+        for ch in text.chars() {
+            let vk = unsafe { VkKeyScanW(ch as u16) };
+            if vk == -1 {
+                return Err(format!("不支持的字符（无法映射虚拟键）: {ch}"));
+            }
+            let low = (vk & 0xff) as u8;
+            let shift = ((vk >> 8) & 0xff) != 0;
+            unsafe {
+                if shift {
+                    keybd_event(VK_SHIFT, 0, 0, 0);
+                }
+                keybd_event(low, 0, 0, 0);
+                keybd_event(low, 0, KEYEVENTF_KEYUP, 0);
+                if shift {
+                    keybd_event(VK_SHIFT, 0, KEYEVENTF_KEYUP, 0);
+                }
+            }
+        }
+        Ok(format!("已输入文本（{} 字符）", text.chars().count()))
+    }
+
+    /// 按句柄（十进制 HWND）/标题/foreground 关键字定位窗口。
+    fn find_window(handle: &str) -> Option<*mut c_void> {
+        if handle == "foreground" {
+            let fg = unsafe { GetForegroundWindow() };
+            return if fg.is_null() { None } else { Some(fg) };
+        }
+        if let Ok(addr) = handle.parse::<usize>() {
+            return Some(addr as *mut c_void);
+        }
+        collect_top_level()
+            .iter()
+            .find(|w| w.visible && w.title == handle)
+            .map(|w| w.hwnd as *mut c_void)
+    }
+
+    /// 窗口清单（句柄/标题/可见性，不含子层级）。
+    pub fn list_windows() -> Result<String, String> {
+        let top = collect_top_level();
+        let windows: Vec<Value> = top
+            .iter()
+            .map(|w| {
+                json!({
+                    "handle": w.hwnd.to_string(),
+                    "title": w.title,
+                    "class": w.class_name,
+                    "visible": w.visible,
+                })
+            })
+            .collect();
+        Ok(json!({ "windows": windows }).to_string())
+    }
+
+    /// 聚焦窗口（定位失败 = 失败，fail-closed）。
+    pub fn focus_window(handle: &str) -> Result<String, String> {
+        let Some(hwnd) = find_window(handle) else {
+            return Err(format!("未找到窗口: {handle}"));
+        };
+        if unsafe { SetForegroundWindow(hwnd) } != 0 {
+            Ok(format!("已聚焦窗口: {handle}"))
+        } else {
+            Err(format!("聚焦窗口失败: {handle}"))
+        }
+    }
+
+    /// 最小化窗口（定位失败 = 失败，fail-closed）。
+    pub fn minimize_window(handle: &str) -> Result<String, String> {
+        let Some(hwnd) = find_window(handle) else {
+            return Err(format!("未找到窗口: {handle}"));
+        };
+        if unsafe { ShowWindow(hwnd, SW_MINIMIZE) } != 0 {
+            Ok(format!("已最小化窗口: {handle}"))
+        } else {
+            Err(format!("最小化窗口失败: {handle}"))
+        }
+    }
+}
+
+#[cfg(not(windows))]
+mod windows_ui_ops {
+    pub fn query_ui_tree() -> Result<String, String> {
+        Err("当前平台不支持 UI 元素树感知".to_string())
+    }
+    pub fn click(_x: i32, _y: i32, _button: &str) -> Result<String, String> {
+        Err("当前平台不支持鼠标点击".to_string())
+    }
+    pub fn type_text(_text: &str) -> Result<String, String> {
+        Err("当前平台不支持文本输入".to_string())
+    }
+    pub fn list_windows() -> Result<String, String> {
+        Err("当前平台不支持窗口枚举".to_string())
+    }
+    pub fn focus_window(_handle: &str) -> Result<String, String> {
+        Err("当前平台不支持窗口聚焦".to_string())
+    }
+    pub fn minimize_window(_handle: &str) -> Result<String, String> {
+        Err("当前平台不支持窗口最小化".to_string())
+    }
+}
+
 /// 测试后端：记录调用面（免真实桌面断言守卫的宿主侧行为）
 #[derive(Default)]
 pub struct MockBackend {
@@ -395,6 +699,30 @@ impl SystemBackend for ShellBackend {
     fn run_process(&self, argv: &[String], cwd: &str, timeout_secs: u64) -> Result<String, String> {
         self.platform.run_process(argv, cwd, timeout_secs)
     }
+
+    fn ui_tree_query(&self) -> Result<String, String> {
+        self.platform.ui_tree_query()
+    }
+
+    fn ui_click(&self, x: i32, y: i32, button: &str) -> Result<String, String> {
+        self.platform.ui_click(x, y, button)
+    }
+
+    fn ui_type(&self, text: &str) -> Result<String, String> {
+        self.platform.ui_type(text)
+    }
+
+    fn window_list(&self) -> Result<String, String> {
+        self.platform.window_list()
+    }
+
+    fn window_focus(&self, handle: &str) -> Result<String, String> {
+        self.platform.window_focus(handle)
+    }
+
+    fn window_minimize(&self, handle: &str) -> Result<String, String> {
+        self.platform.window_minimize(handle)
+    }
 }
 
 impl SystemBackend for MockBackend {
@@ -451,6 +779,70 @@ impl SystemBackend for MockBackend {
             timeout_secs
         ));
         Ok(format!("mock:run {}（exit 0）", argv.join(" ")))
+    }
+
+    fn ui_tree_query(&self) -> Result<String, String> {
+        self.calls.lock().unwrap().push("ui_tree_query".into());
+        // 结构化元素树（前台窗口 + 窗口列表 + 子窗口层级），供断言 JSON 形态。
+        Ok(serde_json::json!({
+            "foreground": "1",
+            "windows": [
+                {
+                    "handle": "1",
+                    "title": "mock-window",
+                    "class": "MockWindow",
+                    "visible": true,
+                    "children": [
+                        {
+                            "handle": "2",
+                            "title": "mock-child",
+                            "class": "MockChild",
+                            "visible": true,
+                            "children": []
+                        }
+                    ]
+                }
+            ]
+        })
+        .to_string())
+    }
+
+    fn ui_click(&self, x: i32, y: i32, button: &str) -> Result<String, String> {
+        self.calls
+            .lock()
+            .unwrap()
+            .push(format!("ui_click:{x},{y},{button}"));
+        Ok(format!("mock:click {button} @ ({x},{y})"))
+    }
+
+    fn ui_type(&self, text: &str) -> Result<String, String> {
+        self.calls.lock().unwrap().push(format!("ui_type:{text}"));
+        Ok(format!("mock:type {text}"))
+    }
+
+    fn window_list(&self) -> Result<String, String> {
+        self.calls.lock().unwrap().push("window_list".into());
+        Ok(serde_json::json!({
+            "windows": [
+                {
+                    "handle": "1",
+                    "title": "mock-window",
+                    "class": "MockWindow",
+                    "visible": true
+                }
+            ]
+        })
+        .to_string())
+    }
+
+    fn window_focus(&self, handle: &str) -> Result<String, String> {
+        self.calls.lock().unwrap().push(format!("window_focus:{handle}"));
+        Ok(format!("mock:focus {handle}"))
+    }
+
+    fn window_minimize(&self, handle: &str) -> Result<String, String> {
+        self.calls.lock().unwrap().push(format!("window_minimize:{handle}"));
+        Ok(format!("mock:minimize {handle}"))
     }
 }
 

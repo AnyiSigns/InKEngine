@@ -177,6 +177,7 @@ impl Executor for RegisteredExecutor {
 #[cfg(test)]
 mod tests {
     use super::*;
+    use crate::executors::load_tool_declarations;
 
     fn params_of(decl: &super::super::tool_decl::ToolDecl) -> Vec<(String, ParamType, bool)> {
         decl.params.iter().map(|p| (p.name.clone(), p.param_type, p.required)).collect()
@@ -212,5 +213,28 @@ mod tests {
             &super::super::impls::executor_impl("launch_app").unwrap().0,
         );
         assert!(result.is_err());
+    }
+
+    #[test]
+    fn fixture_declarations_match_executor_signatures() {
+        // 运行期夹具（tools_os.json）声明须与执行器签名逐项一致，任一
+        // 漂移 = 注册失败；此处断言新增 UI 工具全部可成功注册。
+        let declarations = load_tool_declarations(include_str!("../../fixtures/tools_os.json"))
+            .expect("夹具须可解析");
+        let registry = build_registry_from_declarations(&declarations);
+        let names = match registry {
+            Ok(reg) => reg.names(),
+            Err(err) => panic!("注册失败: {err}"),
+        };
+        for name in [
+            "ui_tree_query",
+            "ui_click",
+            "ui_type",
+            "window_list",
+            "window_focus",
+            "window_minimize",
+        ] {
+            assert!(names.iter().any(|n| n == name), "夹具未注册工具: {name}");
+        }
     }
 }

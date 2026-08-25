@@ -32,6 +32,7 @@ pub mod prompt;
 pub mod recovery;
 pub mod recipe;
 pub mod review;
+pub mod round_ledger;
 pub mod score;
 pub mod screenshot;
 pub mod security;

@@ -16,10 +16,10 @@
           "id": { "type": "string", "minLength": 1 },
           "predicate": { "type": "string", "minLength": 1 },
           "config": { "type": "object" },
-          "type": { "type": "string", "enum": ["constraint", "transition"] },
+          "type": { "type": "string", "enum": ["constraint", "transition", "context_trigger"] },
           "target_path": { "type": ["string", "null"] },
           "iterate_items": { "type": "boolean" },
-          "severity": { "type": "string", "enum": ["error", "warning"] },
+          "severity": { "type": "string", "enum": ["error", "warning", "info"] },
           "kind": { "type": "string", "minLength": 1 },
           "entity_type": { "type": ["string", "null"] },
           "description": { "type": "string" }

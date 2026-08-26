@@ -283,6 +283,31 @@
       "expected_pass": false,
       "expected_kinds": ["sample_shape"],
       "description": "样例形状反例：用例缺 expected 字段（不可复现的样例不沉淀）"
+    },
+    {
+      "id": "context_trigger_idle_pending",
+      "data": {
+        "material": {
+          "title": "合规材料",
+          "text": "材料本身合规。",
+          "source": "model"
+        },
+        "entry": {
+          "data": {
+            "rule": { "message": "情境建议反例" }
+          }
+        },
+        "review": { "score": 0.8 },
+        "context": {
+          "idle": true,
+          "notification_pending": true
+        },
+        "case": { "input": "空闲且有待处理通知", "expected": "触发情境建议（context_trigger）" }
+      },
+      "context": {},
+      "expected_pass": false,
+      "expected_kinds": ["context_trigger"],
+      "description": "情境反例：idle 与 notification_pending 同现，情境触发规则应命中（建议通道语义）"
     }
   ]
 }

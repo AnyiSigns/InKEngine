@@ -42,17 +42,25 @@ from .state_machine import StateMachine
 
 logger = logging.getLogger(__name__)
 
-# 规则类型（枚举化防魔法值）：constraint = 约束/校验；transition = 状态转换
+# 规则类型（枚举化防魔法值）：constraint = 约束/校验；transition = 状态转换；
+# context_trigger = 情境触发（建议级，声明合法但不由规则引擎执行——由情境
+# 建议通道按需求值，避免进入常规校验路径产生误报）。
 RULE_CONSTRAINT = "constraint"
 RULE_TRANSITION = "transition"
+RULE_CONTEXT_TRIGGER = "context_trigger"
 
 # 规则类型合法取值（Rule.from_dict 校验用）
-_VALID_RULE_TYPES = (RULE_CONSTRAINT, RULE_TRANSITION)
+_VALID_RULE_TYPES = (RULE_CONSTRAINT, RULE_TRANSITION, RULE_CONTEXT_TRIGGER)
 
-# 违规严重度（与领域约定对齐：error = 硬冲突需裁决 / warning = 提示级）
+# 规则引擎可执行类型（常规校验路径）；情境触发类走专用建议通道
+_EXECUTABLE_RULE_TYPES = (RULE_CONSTRAINT, RULE_TRANSITION)
+
+# 违规严重度（与领域约定对齐：error = 硬冲突需裁决 / warning = 提示级 /
+# info = 建议级，仅情境建议通道产出，不参与硬冲突判定）
 SEVERITY_ERROR = "error"
 SEVERITY_WARNING = "warning"
-_VALID_SEVERITIES = (SEVERITY_ERROR, SEVERITY_WARNING)
+SEVERITY_INFO = "info"
+_VALID_SEVERITIES = (SEVERITY_ERROR, SEVERITY_WARNING, SEVERITY_INFO)
 
 # 谓词签名：(target, config, context) -> 违规清单（空 = 通过）。
 # context = 评估上下文，引擎注入 {"root": 数据对象}，调用方可增补
@@ -934,7 +942,7 @@ class RuleEngine:
         broken: list[tuple[str, str]] = []
         checked = 0
         for rule in rule_set.rules:
-            if rule.type not in _VALID_RULE_TYPES:
+            if rule.type not in _EXECUTABLE_RULE_TYPES:
                 skipped.append((rule.id, f"规则类型不可执行: {rule.type}"))
                 continue
             target = _get_path(data, rule.target_path)

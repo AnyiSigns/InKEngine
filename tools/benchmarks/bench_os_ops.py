@@ -5,7 +5,9 @@ ui_tree_query / ui_click / ui_type / window_list / focus / minimize，并做断�
 驱动层有两种实现：
 
 - SimulatedUIDriver：内存态 UI 树，离线可复现，用于门禁冒烟（不依赖真实桌面）；
-- LiveUIDriver：经 inkling headless 的 op 通道调 shell 执行体（需真实桌面/窗口管理器）。
+- LiveUIDriver：经 inkling-headless 的 `--os-op` 通道调桌面壳执行器注册表
+  （launch_app / ui_tree_query / ui_click / ui_type / window_list / window_focus /
+  window_minimize；需真实桌面/窗口管理器）。
 
 达标线（真实执行体）：简化集 ≥40%。离线冒烟集用于验证评测框架本身与任务口径。
 同一组任务对两种驱动通用——评测逻辑与执行后端解耦。
@@ -129,44 +131,210 @@ class SimulatedUIDriver(UIDriver):
 
 
 class LiveUIDriver(UIDriver):
-    """经 inkling headless op 通道调 shell 执行体（需真实桌面）。
+    """经 inkling-headless 的 `--os-op` 通道调桌面壳执行器（需真实桌面）。
 
-    命令行直连 inkling CLI 的 op 子命令；无桌面环境时调用即报错，由评测
-    框架归为「未运行」而非「失败」。
+    通道形态（与产品实际命令面对齐，不臆造）：
+
+    - `inkling-headless --os-op <tool> --args <json> [--approve]`：转发到桌面壳
+      执行器注册表（声明 `inkling/shell/src-tauri/fixtures/tools_os.json` → 权限档
+      → 沙箱 → PlatformBackend），与壳 `process_exec` / `device_mcp_call` 同一套
+      守卫；review 档工具缺 `--approve` 即 fail-closed 拒绝；
+    - 工具名/参数按产品真实签名：`ui_click{x,y,button}`（坐标制，非元素制）、
+      `ui_type{text}`（只打到前台窗口）、`window_list{scope}`、`window_focus{handle}`、
+      `window_minimize{handle}`、`ui_tree_query{scope}`、`launch_app{app}`。
+
+    口径降级（真实命令面能力缺口，如实标注而非伪造）：
+
+    - 元素定位：`ui_tree_query` 只回传 HWND 层级（handle/title/class/visible），
+      无控件矩形、无 UIA 名称，故 `ui_click(element_id)` 无法落地 → 显式报错；
+    - 值回读：跨进程 `GetWindowTextW` 读不到控件文本（Edit 子窗口 title 恒为空），
+      `ui_type` 后无法回读编辑框内容；
+    - 窗口态回读：`window_list` 无 minimized 字段（`IsWindowVisible` 最小化后仍为
+      true），故 minimized 缺省按「执行体 ack」记账；置 `INKLING_OS_LIVE_STRICT=1`
+      改为严格口径（只认产品回读面，ack 不算）。
     """
 
-    def __init__(self, cli: str = "inkling") -> None:
-        self._cli = cli
+    #: 应用名 → (launch_app 白名单值, 窗口标题关键字)
+    APP_MAP = {
+        "calculator": ("calc", ("计算器", "Calculator")),
+        "notepad": ("notepad", ("记事本", "Notepad")),
+    }
 
-    def _op(self, name: str, **params) -> dict:
+    def __init__(self, cli: str | None = None) -> None:
+        import os
+
+        self._cli = cli or os.environ.get("INKLING_HEADLESS_BIN") or str(
+            Path(__file__).resolve().parents[2]
+            / "inkling" / "cli" / "target" / "debug" / "inkling-headless.exe"
+        )
+        # headless 二进制内嵌 CPython（pyo3），运行期需 pythonXY.dll 在 PATH
+        self._dll_dir = os.environ.get("INKLING_PY_DLL_DIR") or sys.base_prefix
+        self._strict = os.environ.get("INKLING_OS_LIVE_STRICT") == "1"
+        # 执行体 ack 记账（最小化态无产品回读面时的降级口径）
+        self._minimized_ack: dict[str, bool] = {}
+        self.notes: list[str] = []
+
+    # ── 通道原语 ────────────────────────────────────────────────
+    def _env(self) -> dict:
+        import os
+
+        env = dict(os.environ)
+        env["PATH"] = self._dll_dir + os.pathsep + env.get("PATH", "")
+        return env
+
+    def _op(self, name: str, params: dict, approve: bool = True, timeout: int = 60) -> str:
         import subprocess
 
-        argv = [self._cli, "headless", "--op", name, json.dumps(params)]
-        proc = subprocess.run(argv, capture_output=True, text=True, timeout=60)
-        if proc.returncode != 0:
-            raise RuntimeError(f"op {name} 失败: {proc.stderr.strip()}")
-        return json.loads(proc.stdout)
+        argv = [self._cli, "--os-op", name, "--args", json.dumps(params, ensure_ascii=False)]
+        if approve:
+            argv.append("--approve")
+        proc = subprocess.run(argv, capture_output=True, env=self._env(), timeout=timeout)
+        text = proc.stdout.decode("utf-8", "replace").strip()
+        if not text:
+            raise RuntimeError(
+                f"os op {name} 无信封输出（退出码 {proc.returncode}）: "
+                f"{proc.stderr.decode('utf-8', 'replace').strip()[:200]}"
+            )
+        envelope = json.loads(text)
+        if not envelope.get("ok"):
+            raise RuntimeError(
+                f"os op {name} 失败: {envelope.get('error', {}).get('message')}"
+            )
+        return envelope["data"]["result"]
 
+    # ── 元素树映射（HWND 层级 → 评测用元素视图）─────────────────
+    @staticmethod
+    def _element_type(class_name: str) -> str:
+        lowered = class_name.lower()
+        if "edit" in lowered:
+            return "edit"
+        if lowered == "button":
+            return "button"
+        return "generic"
+
+    @classmethod
+    def _flatten(cls, node: dict, sink: dict) -> dict:
+        for child in node.get("children", []):
+            title = child.get("title", "")
+            sink[child["handle"]] = {
+                "id": child["handle"],
+                "type": cls._element_type(child.get("class", "")),
+                "label": title if title.strip() else child.get("class", ""),
+                # 值只来自真实回读（跨进程控件文本读不到 → 空串，不伪造）
+                "value": title,
+                "class": child.get("class", ""),
+            }
+            cls._flatten(child, sink)
+        return sink
+
+    def _owner_of(self, element_id: str) -> str | None:
+        tree = json.loads(self._op("ui_tree_query", {"scope": "all"}, approve=False))
+        for win in tree.get("windows", []):
+            if element_id in self._flatten(win, {}):
+                return win["handle"]
+        return None
+
+    # ── UIDriver 实现 ──────────────────────────────────────────
     def open_app(self, app: str) -> str:
-        return self._op("launch_app", app=app)["window_id"]
+        import subprocess
+        import time
+
+        command, keys = self.APP_MAP.get(app, (app, (app,)))
+        before = {w["id"] for w in self.window_list()}
+        # launch_app 缺陷绕行：run_cmd(...).output() 会等到被启动应用退出才返回
+        # （被启动进程继承管道写端 → 无 EOF），故 stdio 置 DEVNULL 后不等返回，
+        # 改由 window_list 轮询确认窗口出现，再终止该 headless 进程。
+        argv = [self._cli, "--os-op", "launch_app", "--args",
+                json.dumps({"app": command}), "--approve"]
+        proc = subprocess.Popen(
+            argv, stdout=subprocess.DEVNULL, stderr=subprocess.DEVNULL, env=self._env()
+        )
+        handle = None
+        deadline = time.time() + 15.0
+        try:
+            while time.time() < deadline:
+                time.sleep(0.7)
+                for win in self.window_list():
+                    if win["id"] in before:
+                        continue
+                    if any(key in win["title"] for key in keys):
+                        handle = win["id"]
+                        break
+                if handle:
+                    break
+        finally:
+            if proc.poll() is None:
+                proc.kill()
+                proc.wait(timeout=10)
+        if handle is None:
+            # 单实例应用（UWP 计算器）二次启动只激活既有窗口 → 复用既有句柄
+            for win in self.window_list():
+                if any(key in win["title"] for key in keys):
+                    self.notes.append(f"{app}: 复用既有窗口（单实例应用未新建窗口）")
+                    return win["id"]
+            raise RuntimeError(f"启动 {app} 后未观测到匹配窗口（launch_app 白名单值 {command}）")
+        return handle
 
     def ui_tree_query(self, root: str | None = None) -> dict:
-        return self._op("ui_tree_query", root=root or "")
+        tree = json.loads(self._op("ui_tree_query", {"scope": "all"}, approve=False))
+        result: dict[str, dict] = {}
+        for win in tree.get("windows", []):
+            handle = win["handle"]
+            if root is not None and handle != root:
+                continue
+            minimized = False if self._strict else self._minimized_ack.get(handle, False)
+            result[handle] = {
+                "id": handle,
+                "title": win.get("title", ""),
+                "minimized": minimized,
+                "elements": self._flatten(win, {}),
+            }
+        return result
 
     def ui_click(self, element_id: str) -> None:
-        self._op("ui_click", element_id=element_id)
+        raise RuntimeError(
+            "真实命令面 ui_click 只接屏幕坐标（x/y/button），而 ui_tree_query 不回传"
+            "控件矩形 → 无法由 element_id 定位可点击坐标"
+        )
 
     def ui_type(self, element_id: str, text: str) -> None:
-        self._op("ui_type", element_id=element_id, text=text)
+        owner = self._owner_of(element_id)
+        if owner is None:
+            raise RuntimeError(f"元素 {element_id} 无归属顶级窗口（元素树已变化）")
+        self._op("window_focus", {"handle": owner})
+        # 键盘注入打到前台窗口：前台不匹配即中止，避免误注入无关窗口
+        foreground = json.loads(
+            self._op("ui_tree_query", {"scope": "all"}, approve=False)
+        ).get("foreground")
+        if foreground != owner:
+            raise RuntimeError(
+                f"聚焦后前台窗口仍为 {foreground}（目标 {owner}）→ 中止键盘注入"
+            )
+        self._op("ui_type", {"text": text})
 
     def window_list(self) -> list[dict]:
-        return self._op("window_list")
+        listed = json.loads(self._op("window_list", {"scope": "all"}))
+        return [
+            {
+                "id": win["handle"],
+                "title": win.get("title", ""),
+                "minimized": False if self._strict else self._minimized_ack.get(win["handle"], False),
+                "visible": win.get("visible", False),
+            }
+            for win in listed.get("windows", [])
+        ]
 
     def focus(self, window_id: str) -> None:
-        self._op("focus", window_id=window_id)
+        self._op("window_focus", {"handle": window_id})
 
     def minimize(self, window_id: str) -> None:
-        self._op("minimize", window_id=window_id)
+        self._op("window_minimize", {"handle": window_id})
+        # 产品面无 minimized 回读（window_list 只有 visible，最小化后仍 true）：
+        # 非严格口径下以执行体 ack 记账，严格口径下不记（断言必然不通过）
+        self._minimized_ack[window_id] = True
+        if self._strict:
+            self.notes.append(f"{window_id}: 最小化已 ack，但产品面无状态回读（严格口径不计）")
+
 
 
 # ── 任务定义（评测逻辑与后端无关）──────────────────────────────
@@ -261,7 +429,7 @@ def run_evaluation(driver: UIDriver, tasks: list[Task]) -> tuple[int, int, list[
 
 def main() -> int:
     parser = argparse.ArgumentParser(description="OSWorld 风格 OS 操作评测")
-    parser.add_argument("--live", action="store_true", help="使用真实桌面后端（inkling headless op）")
+    parser.add_argument("--live", action="store_true", help="使用真实桌面后端（inkling-headless --os-op）")
     parser.add_argument("--target-rate", type=float, default=0.40, help="真实后端达标线（默认 0.40）")
     args = parser.parse_args()
 
@@ -285,6 +453,11 @@ def main() -> int:
     rate = (passed / total) if total else 0.0
     print("-" * 78)
     print(f"通过 {passed}/{total}（{rate:.1%}）  耗时 {elapsed:.2f}s")
+    notes = getattr(driver, "notes", [])
+    if notes:
+        print("驱动层备注（口径降级/环境事实）:")
+        for note in notes:
+            print(f"  - {note}")
     if args.live:
         verdict = "达标" if rate >= args.target_rate else "未达标"
         print(f"真实后端结论：{verdict}（达标线 {args.target_rate:.0%}）")

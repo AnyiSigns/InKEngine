@@ -1,6 +1,7 @@
 //! InKling headless 命令行入口：解析参数 → 调用驱动层 → 打印统一 JSON 信封。
 //!
-//! 三条驱动面：--round 发起回合、--op 单 op 调用、--audit 审计导出。
+//! 四条驱动面：--round 发起回合、--op 单引擎 op 调用、--os-op 单 OS 操作调用
+//! （转发桌面壳执行器注册表，守卫同源）、--audit 审计导出。
 //! 任意一步失败均返回 ok=false 的结构化错误信封并以退出码 1 收尾（fail-closed），
 //! 不向 stdout 泄露半成品 JSON，诊断信息走 stderr 的 [headless] 通道（复用桌面壳
 //! 既有的 eprintln 诊断约定，trace_id 随行透传）。
@@ -12,7 +13,7 @@ use clap::Parser;
 use serde_json::Value;
 
 use inkling_cli::{
-    repo_root_default, run_audit, run_op, run_round, Envelope, EnvelopeError, ErrorKind,
+    repo_root_default, run_audit, run_op, run_os_op, run_round, Envelope, EnvelopeError, ErrorKind,
 };
 
 #[derive(Parser)]
@@ -29,6 +30,14 @@ struct Cli {
     /// 审计动作（当前仅 export）
     #[arg(long)]
     audit: Option<String>,
+
+    /// 单 OS 操作调用（桌面壳执行器名，如 window_list / ui_tree_query / ui_click）
+    #[arg(long = "os-op")]
+    os_op: Option<String>,
+
+    /// 声明调用方已获授权（review 档 OS 操作需之；缺省 false = fail-closed）
+    #[arg(long)]
+    approve: bool,
 
     /// op 参数（JSON 字符串，缺省 {}）
     #[arg(long)]
@@ -72,6 +81,8 @@ fn main() {
         "round"
     } else if cli.op.is_some() {
         "op"
+    } else if cli.os_op.is_some() {
+        "os_op"
     } else if cli.audit.is_some() {
         "audit"
     } else {
@@ -104,6 +115,14 @@ fn main() {
                 &trace_id,
             ),
         ),
+        "os_op" => to_cli_err(
+            ErrorKind::Op,
+            run_os_op(
+                cli.os_op.as_deref().unwrap(),
+                cli.args.as_deref().unwrap_or("{}"),
+                cli.approve,
+            ),
+        ),
         "audit" => to_cli_err(
             ErrorKind::Op,
             run_audit(
@@ -115,7 +134,7 @@ fn main() {
         ),
         _ => Err((
             ErrorKind::Usage,
-            "需指定 --round / --op / --audit 之一".to_string(),
+            "需指定 --round / --op / --os-op / --audit 之一".to_string(),
         )),
     };
 

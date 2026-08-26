@@ -42,7 +42,9 @@ def classify_failure(exc: BaseException) -> str:
     if isinstance(exc, (ConnectionError, TimeoutError, OSError)):
         return CAT_ENVIRONMENT
     if name in ("AssertionError", "TypeError", "KeyError", "ValueError", "AttributeError"):
-        return CAT_TEST
+        # 纯逻辑失败（无环境异常、非熔断、非模型重放失败）归入机制缺陷统计，
+        # 修正门禁⑤「机制缺陷类失败=0」漏报纯断言失败的统计口径。
+        return CAT_MECHANISM
     return CAT_ENVIRONMENT
 
 

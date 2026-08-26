@@ -90,14 +90,19 @@ async def test_sqlite_storage_full_and_cross_process(tmp_path):
         "    await s.close()\n"
         "asyncio.run(main())\n"
     )
+    # 子进程在 PYTHONUTF8 父环境下若不以 utf8 输出会导致解码错位；
+    # 显式给子进程 -X utf8 并声明 encoding，且对 stderr/stdout 加 None 守卫，
+    # 避免断言消息拼接崩溃（子进程极端路径下 stderr/stdout 可能为 None）。
     result = subprocess.run(
-        [sys.executable, "-c", script, f"sqlite:///{db}"],
+        [sys.executable, "-X", "utf8", "-c", script, f"sqlite:///{db}"],
         capture_output=True,
         text=True,
+        encoding="utf-8",
+        errors="replace",
         timeout=60,
     )
-    assert result.returncode == 0, result.stderr
-    lines = result.stdout.strip().splitlines()
+    assert result.returncode == 0, (result.stderr or result.stdout or "子进程非零退出且无输出")
+    lines = (result.stdout or "").strip().splitlines()
     assert lines == ["跨进程", "1", "1"]
 
 

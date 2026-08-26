@@ -6,6 +6,7 @@
 //! JSON 信封（ok / error 结构化，fail-closed）。op 通道按同步 / 异步双注册
 //! 表存在，本层以「先同步后异步」的回落策略覆盖两类 op，与既有调用约定一致。
 
+use std::collections::BTreeMap;
 use std::path::{Path, PathBuf};
 
 use serde::Serialize;
@@ -14,6 +15,9 @@ use serde_json::{json, Value};
 use inkling_shell_lib::engine::host::{
     call_engine_op, call_engine_op_async, BootOptions, EngineHost, PathAssemblyFlags,
     RoundRequest,
+};
+use inkling_shell_lib::executors::{
+    build_registry_from_declarations, load_tool_declarations, Authorization, PlatformBackend,
 };
 
 /// 派生仓库根：CLI crate 位于 `<repo>/inkling/cli`，正常上两级即仓库根
@@ -132,6 +136,41 @@ pub fn run_op(
     let args: Value = serde_json::from_str(args_json)
         .map_err(|err| format!("op 参数 JSON 解析失败: {err}"))?;
     dispatch_op(op, args)
+}
+
+/// OS 工具声明（桌面壳的运行期夹具，单一事实源；本层只读、不复制签名）。
+const TOOLS_DECL_JSON: &str = include_str!("../../shell/src-tauri/fixtures/tools_os.json");
+
+/// 单 OS 操作调用：声明驱动注册表 + 平台后端，绕开 GUI 但不绕开守卫。
+///
+/// 与桌面壳 `process_exec` / `device_mcp_call` 命令同一套执行器与守卫
+/// （声明 ↔ 签名一致性校验 → 权限档 → 沙箱 → 后端副作用）；差异只在
+/// 授权来源：壳内由引擎审批层判定后传 `approved`，headless 形态下由调用方
+/// 显式 `--approve` 声明「已获授权」，缺省 false 即 review 档 fail-closed。
+/// 引擎不装配（OS 操作不经引擎 op 通道），故本路径无 Python 依赖。
+pub fn run_os_op(op: &str, args_json: &str, approved: bool) -> Result<Value, String> {
+    let declarations = load_tool_declarations(TOOLS_DECL_JSON)
+        .map_err(|err| format!("工具声明解析失败: {err}"))?;
+    let registry = build_registry_from_declarations(&declarations)
+        .map_err(|err| format!("执行器注册契约校验失败: {err}"))?;
+    let args: Value = serde_json::from_str(args_json)
+        .map_err(|err| format!("os op 参数 JSON 解析失败: {err}"))?;
+    let args_map: BTreeMap<String, Value> = args
+        .as_object()
+        .cloned()
+        .ok_or_else(|| format!("os op 参数须为对象: {op}"))?
+        .into_iter()
+        .collect();
+    let backend = PlatformBackend;
+    let auth = Authorization { approved };
+    let outcome = registry
+        .run(op, &args_map, &backend, &auth)
+        .map_err(|err| err.to_string())?;
+    Ok(json!({
+        "tool": op,
+        "result": outcome.result,
+        "sandbox": outcome.sandbox_checked,
+    }))
 }
 
 /// 审计导出：读取 `set_audit` 记录集合（引擎侧失败点 / 成本 / 提案经

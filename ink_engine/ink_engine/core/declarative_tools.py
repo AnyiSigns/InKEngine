@@ -86,6 +86,12 @@ _ENDPOINT_ACTIONS: dict[EndpointType, tuple[str, ...]] = {
     EndpointType.WEB_SEARCH: ("connect",),
 }
 
+# file_ops 操作别名归一：声明式工具可能以 "edit" 表达就地改写（如 file_edit
+# 工具），其语义等价于 write（权限域 filesystem:write、沙箱根目录边界与 write
+# 同构）。提取器在判定目标阶段归一为 write，使权限门禁与文件沙箱沿用既有
+# write 守卫——不新增操作域、不破坏 fail-closed（未知操作仍返回 None 拒绝）。
+_FILE_OP_ALIASES: dict[str, str] = {"edit": "write"}
+
 # 端点配置的必填白名单键（沙箱自动接线的声明依据：process_exec 须声明
 # 命令白名单、file_ops 须声明根目录——缺失即定义期拒绝，fail-closed）。
 # MCP 端点无本地沙箱（调用经远程 server 会话转发），不自动构造守卫；
@@ -286,6 +292,10 @@ def endpoint_operation(
         return ("exec", command) if isinstance(command, str) else None
     if endpoint is EndpointType.FILE_OPS:
         operation = args.get("operation")
+        # 操作别名归一（edit → write 等）：保证声明式工具以别名表达的操作
+        # 也能被判定目标、走通既有权限/沙箱守卫；未列入别名的未知操作仍
+        # 在下方白名单判定中返回 None（fail-closed 不破坏）
+        operation = _FILE_OP_ALIASES.get(operation, operation)
         if operation not in _ENDPOINT_ACTIONS[endpoint]:
             return None
         path = args.get("path")

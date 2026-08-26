@@ -230,24 +230,44 @@ def test_tier_build_chain_all_tiers():
 
 
 def test_tier_key_normalization():
-    for tier in ("main", "router", "tool", "audit"):
+    # TIER_NAMES 默认仅 main/router 激活：未激活挡位回落 main
+    # （与 core/tiers.py 文档语义一致），断言须按此校准。
+    for tier in ("main", "router"):
         assert tier_key(tier) == tier
+    assert tier_key("tool") == "main"     # 未激活 → 回落 main
+    assert tier_key("audit") == "main"    # 未激活 → 回落 main
     assert tier_key("bogus") == "main"
     assert tier_key(None) == "main"
 
+    # 声明激活后：激活挡位返回自身（验证装配注入语义；结束后恢复全局状态）
+    from ink_engine.core.tiers import current_tier_names, set_tier_names
+
+    saved = current_tier_names()
+    try:
+        set_tier_names(("main", "router", "tool", "audit"))
+        for tier in ("main", "router", "tool", "audit"):
+            assert tier_key(tier) == tier
+    finally:
+        set_tier_names(saved)
+
 
 def test_tier_call_stats_and_metrics_merge():
-    """挡位真实调用统计：逐挡位记录 → 汇入回合指标 llm_calls_by_tier。"""
+    """挡位真实调用统计：逐挡位记录 → 汇入回合指标 llm_calls_by_tier。
+
+    TIER_NAMES 默认仅 main/router 激活：未激活挡位（tool/audit/bogus）
+    经 tier_key 归一为 main，snapshot 不出现未激活挡位键。
+    """
     stats = TierCallStats()
     stats.record("router")
     stats.record("main", 3)
-    stats.record("tool")
-    stats.record("audit")
-    stats.record("bogus")  # 归一为 main
-    assert stats.snapshot() == {"router": 1, "main": 4, "tool": 1, "audit": 1}
+    stats.record("tool")    # 未激活 → 归一为 main
+    stats.record("audit")   # 未激活 → 归一为 main
+    stats.record("bogus")   # 归一为 main
+    # 默认仅 main/router 激活：tool/audit/bogus 全部回落 main
+    assert stats.snapshot() == {"router": 1, "main": 6}
     metrics = TurnMetrics()
     metrics.record_llm_calls(stats.snapshot())
-    assert metrics.llm_calls_by_tier == {"router": 1, "main": 4, "tool": 1, "audit": 1}
+    assert metrics.llm_calls_by_tier == {"router": 1, "main": 6}
 
 
 def test_tier_chain_stats_merge_across_subgraphs():

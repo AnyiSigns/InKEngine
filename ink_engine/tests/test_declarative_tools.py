@@ -255,6 +255,22 @@ def test_endpoint_operation_file():
     assert endpoint_operation(EndpointType.FILE_OPS, {"operation": "chmod", "path": "/x"}) is None
 
 
+def test_endpoint_operation_file_edit_alias():
+    """file_ops 别名归一：声明式工具以 edit 表达就地改写时，判定目标归一为
+    write（file_edit 经既有 write 权限/沙箱守卫放行，不再 fail-closed）。
+
+    回归：修复前 edit 不在操作白名单，file_edit 调用被提取器判为无法判定目标
+    （"操作提取器无法判定目标，拒绝执行"），任何模型均无法写入。未知操作仍
+    返回 None（fail-closed 不破坏）。
+    """
+    op, target = endpoint_operation(
+        EndpointType.FILE_OPS, {"operation": "edit", "path": "/book/ch1.md"}
+    )
+    assert (op, target) == ("write", "/book/ch1.md")
+    # 未知操作仍无法判定（fail-closed）
+    assert endpoint_operation(EndpointType.FILE_OPS, {"operation": "chmod", "path": "/x"}) is None
+
+
 def test_endpoint_operation_file_search_ops():
     """file_ops 检索操作：search/search_paths 判定目标（无 path 回落端点根）。
 

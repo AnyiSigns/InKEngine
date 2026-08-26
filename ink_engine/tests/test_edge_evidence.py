@@ -30,6 +30,7 @@ from ink_engine.core.edge_evidence import (
     EdgeKey,
     cold_start_index,
     derive_edge_tier,
+    downgrade_edge_tier,
     edge_score,
     import_seed_paths,
     is_exploration_mode,
@@ -270,6 +271,39 @@ async def test_avg_cost_sliding_mean():
     await store.close()
 
 
+async def test_avg_cost_sliding_mean_delta_roundtrip():
+    """avg_cost 滑动均值按 delta 加权：delta>1 归集与分次归集等价（ENG9b-3）。
+
+    旧实现恒用 (old_avg*old_n + cost)/(old_n+1)，delta=3 的加权归集被错误
+    稀释；新实现 (old_avg*old_n + cost*delta)/(old_n+delta) 使一次 delta=3
+    归集与 3 次 delta=1 归集得到相同均值（round-trip 一致）。
+    """
+    key = EdgeKey(src_type="a", dst_type="b", context_domain="code")
+
+    batched = EdgeEvidenceStore()
+    await batched.record_success(key, cost=100.0, delta=1)
+    await batched.record_success(key, cost=200.0, delta=3)
+    batched_ev = await batched.get(key)
+    assert batched_ev is not None and batched_ev.success_count == 4
+    assert batched_ev.avg_cost == pytest.approx(175.0)  # (100*1 + 200*3)/4
+
+    sequential = EdgeEvidenceStore()
+    await sequential.record_success(key, cost=100.0, delta=1)
+    for _ in range(3):
+        await sequential.record_success(key, cost=200.0, delta=1)
+    seq_ev = await sequential.get(key)
+    assert seq_ev is not None and seq_ev.success_count == 4
+    assert seq_ev.avg_cost == pytest.approx(175.0)
+
+    # delta=0（仅更新时间戳/成本不归集）不改写均值
+    await batched.record_success(key, cost=999.0, delta=0)
+    after = await batched.get(key)
+    assert after is not None and after.avg_cost == pytest.approx(175.0)
+
+    await batched.close()
+    await sequential.close()
+
+
 async def test_domain_isolation():
     """跨域聚合隔离：同边不同域互不影响（不做跨域平均）。"""
     store = EdgeEvidenceStore()
@@ -369,4 +403,36 @@ async def test_evidence_scoring_from_store():
     score = edge_score(ev, now=NOW)
     assert score.tau == 1.0
     assert score.p == pytest.approx(laplace_success(28, 2))
+    await store.close()
+
+
+async def test_downgrade_edge_tier_promoted_target_lands_on_promoted():
+    """降级到 promoted 的目标计数改写后推导档 = promoted（ENG9b-2 修复）。
+
+    修复点：``_TIER_TARGET_COUNTS[promoted]`` 由 (30,3) 改为 (35,3)。旧值
+    p̂=(31)/(35)=0.886 < 0.9 → derive_edge_tier 落 regular——「降级到 promoted」
+    的目标计数本身不满足转正推导线（永远达不到）；新值 p̂=(36)/(40)=0.9 恰好
+    过线 → 改写计数即落转正档。
+    """
+    from ink_engine.core.edge_evidence import _TIER_TARGET_COUNTS
+
+    target_s, target_f = _TIER_TARGET_COUNTS[TIER_PROMOTED]
+    # 目标计数形态必须满足转正推导线（N≥30 且 p̂≥0.9）——回归基线断言
+    assert laplace_success(target_s, target_f) >= 0.9
+    assert target_s + target_f >= 30
+    assert derive_edge_tier(target_s, target_f) == TIER_PROMOTED
+
+    # 端到端：当前证据即转正计数形态时，降级 op 到 promoted 推导档保持 promoted
+    store = EdgeEvidenceStore(":memory:")
+    key = EdgeKey(src_type="a", dst_type="b", context_domain="default")
+    await store.put(
+        EdgeEvidence(key=key, success_count=target_s, fail_count=target_f, avg_cost=1.5)
+    )
+    res = await downgrade_edge_tier(store, key, target_tier=TIER_PROMOTED, storage=None)
+    assert res["from_tier"] == TIER_PROMOTED
+    assert res["to_tier"] == TIER_PROMOTED
+    after = await store.get(key)
+    assert after is not None
+    assert derive_edge_tier(after.success_count, after.fail_count) == TIER_PROMOTED
+    assert after.avg_cost == pytest.approx(1.5)  # 保留原成本/时间戳
     await store.close()

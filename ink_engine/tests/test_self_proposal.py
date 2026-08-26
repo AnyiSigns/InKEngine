@@ -213,9 +213,9 @@ def test_validate_rule() -> None:
         },
     )
     assert validator.validate(ok) == []
-    assert validator.validate(_proposal(PatchKind.RULE, {})) == [
-        "rule 补丁缺 rule（规则声明 dict）"
-    ]
+    missing = validator.validate(_proposal(PatchKind.RULE, {}))
+    assert missing[0] == "rule 补丁缺 rule（规则声明 dict）"
+    assert any("合法形态示例" in v for v in missing)
 
 
 def test_validate_knowledge() -> None:
@@ -268,9 +268,9 @@ def test_validate_harness() -> None:
     )
     violations = validator.validate(bad_graph)
     assert violations, "非法图定义应被 harness 校验拦截"
-    assert validator.validate(_proposal(PatchKind.HARNESS, {})) == [
-        "harness 补丁缺 definition（harness 声明 dict）"
-    ]
+    missing = validator.validate(_proposal(PatchKind.HARNESS, {}))
+    assert missing[0] == "harness 补丁缺 definition（harness 声明 dict）"
+    assert any("合法形态示例" in v for v in missing)
 
 
 def test_validate_event_type() -> None:
@@ -330,3 +330,34 @@ def test_validate_artifact() -> None:
 def test_unknown_kind_rejected_at_construction() -> None:
     with pytest.raises(GraphDefinitionError, match="补丁类型非法"):
         SelfProposal(kind="mystery", payload={}, base_version=1)
+
+
+def test_validate_violations_carry_example_skeleton() -> None:
+    """校验失败时回传合法形态示例骨架（实证缺陷 D4）。
+
+    propose_patch 拒「schema 声明缺 name」等无形态引导的提示曾致模型试错
+    11 次；违规清单尾部须附该补丁类型的合法形态示例（tool 参照既有工具
+    声明形态），模型可循形态收敛。
+    """
+    validator = _validator()
+    bad_tool = _proposal(
+        PatchKind.TOOL,
+        {"name": "t", "description": "x", "permissions": []},
+    )
+    violations = validator.validate(bad_tool)
+    example_lines = [v for v in violations if v.startswith("合法形态示例: ")]
+    assert example_lines, "tool 补丁违规应附合法形态示例"
+    assert "endpoint" in example_lines[0] and "permissions" in example_lines[0]
+
+    # 无违规 = 不附示例
+    ok_tool = _proposal(
+        PatchKind.TOOL,
+        {
+            "name": "listfiles",
+            "description": "列出文件",
+            "permissions": ["filesystem:read:/workspace"],
+            "endpoint": "file_ops",
+            "endpoint_config": {"root": "/workspace"},
+        },
+    )
+    assert validator.validate(ok_tool) == []

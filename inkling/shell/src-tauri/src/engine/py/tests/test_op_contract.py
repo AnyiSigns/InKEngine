@@ -1,0 +1,75 @@
+"""Rust op 名 ⊆ bridge 注册表 契约测试（壳侧计划 §13.4 P8 落地项）。
+
+引擎侧第一批验收项：Rust 侧经 ``call_engine_op`` / ``call_engine_op_async``
+（含测试助手 ``block_on_op``）调用的每个 op 名必须在 bridge.py 的同步或
+异步注册表中有对应实现——Rust 调了桥未注册 = 运行期 KeyError 断点
+（如 engine.propose_patch 曾缺失）。本测试扫描 src-tauri/src 下全部
+Rust 源码提取 op 名，逐一断言已注册，防契约差集回归。
+
+无 pytest 依赖：`py test_op_contract.py` 与 pytest 均可运行。
+"""
+
+import importlib.util
+import os
+import re
+
+_HERE = os.path.dirname(os.path.abspath(__file__))
+_BRIDGE_PATH = os.path.join(_HERE, "..", "bridge.py")
+_RUST_ROOT = os.path.normpath(os.path.join(_HERE, "..", "..", ".."))
+
+# Rust 侧 op 调用形态（host.rs 的同步/异步通道 + 测试助手 block_on_op）
+_OP_CALL_RE = re.compile(
+    r"(?:call_engine_op|call_engine_op_async|block_on_op)\(\s*\"([A-Za-z0-9_.]+)\""
+)
+
+
+def _load_bridge():
+    spec = importlib.util.spec_from_file_location("bridge_under_test", _BRIDGE_PATH)
+    module = importlib.util.module_from_spec(spec)
+    spec.loader.exec_module(module)
+    return module
+
+
+def _rust_op_names():
+    names: set[str] = set()
+    for dirpath, _, filenames in os.walk(_RUST_ROOT):
+        for filename in filenames:
+            if not filename.endswith(".rs"):
+                continue
+            path = os.path.join(dirpath, filename)
+            with open(path, encoding="utf-8") as handle:
+                names.update(_OP_CALL_RE.findall(handle.read()))
+    return names
+
+
+def test_all_rust_op_names_registered_in_bridge():
+    bridge = _load_bridge()
+    registered = set(bridge._OPS_SYNC) | set(bridge._OPS_ASYNC)
+    missing = sorted(_rust_op_names() - registered)
+    assert not missing, (
+        "Rust 调用但桥未注册的 op（运行期 KeyError 断点）: "
+        + ", ".join(missing)
+        + "——请到 bridge.py 补注册"
+    )
+
+
+def test_engine_propose_patch_registered_both_channels():
+    """断点回归：engine.propose_patch 须在注册表（Rust 走同步通道调用，
+    同步形态驱动引擎异步 API；异步形态为切换通道预留）。"""
+    bridge = _load_bridge()
+    assert "engine.propose_patch" in bridge._OPS_SYNC
+    assert "engine.propose_patch" in bridge._OPS_ASYNC
+
+
+def test_builtin_mcp_ops_registered():
+    """ENG4-B3 内置 server 入口：注册表查询与真实连接 op 均已登记。"""
+    bridge = _load_bridge()
+    assert "mcp.builtin_registry" in bridge._OPS_SYNC
+    assert "mcp.builtin_connect" in bridge._OPS_ASYNC
+
+
+if __name__ == "__main__":
+    test_all_rust_op_names_registered_in_bridge()
+    test_engine_propose_patch_registered_both_channels()
+    test_builtin_mcp_ops_registered()
+    print("op 契约全部通过")

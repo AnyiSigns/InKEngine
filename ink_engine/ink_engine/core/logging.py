@@ -23,9 +23,15 @@ from typing import Any
 trace_id_var: contextvars.ContextVar[str] = contextvars.ContextVar("trace_id", default="-")
 
 # 日志遮蔽规则（凭据形态：sk- 密钥、key=/token= 赋值、Authorization 头、
-# 连接串用户信息）。与 security.SENSITIVE_KEYS 同源维护，覆盖日志侧出口。
+# 连接串用户信息、主流厂商 key 前缀）。与 security.SENSITIVE_KEYS 同源
+# 维护，覆盖日志侧出口。
 _REDACT_PATTERNS: tuple[re.Pattern[str], ...] = (
     re.compile(r"sk-[A-Za-z0-9_\-]{8,}"),
+    # 厂商密钥前缀（Groq/xAI/Perplexity/Anthropic 旧形态/HuggingFace/
+    # GitHub PAT/GitLab PAT；前缀后须有足够长密钥段，防误伤普通词）
+    re.compile(r"(?<![A-Za-z0-9])(?:gsk_|xai-|pplx-|sk-ant-|hf_|ghp_|github_pat_|glpat-)[A-Za-z0-9_\-]{8,}"),
+    # Google API key（AIza 前缀 + 35 位密钥段）
+    re.compile(r"\bAIza[0-9A-Za-z_\-]{25,}\b"),
     re.compile(r"(?i)(api[-_]?key|token|secret|password|authorization)\s*[=:]\s*\S+"),
     re.compile(r"(?i)\b(authorization|proxy-authorization)\b[^,;\r\n]*"),
     re.compile(r"(?i)\bbearer\s+[A-Za-z0-9._\-]+"),

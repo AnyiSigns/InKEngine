@@ -11,6 +11,7 @@ Rust 接线层对引擎的所有调用都经本模块，避免跨语言边界直
 """
 from __future__ import annotations
 
+import asyncio
 import inspect
 import json
 import os
@@ -25,12 +26,59 @@ if _REPO_ROOT and _REPO_ROOT not in sys.path:
 _RUNTIME: Any = None
 _HOST: Any = None
 
+# 引擎事件循环（异步 op 的宿主循环；同步 op 需要驱动引擎异步 API 时
+# 经 run_coroutine_threadsafe 派发到该循环——引擎对象（storage 连接等）
+# 与循环绑定，不得在其它线程新建循环驱动）
+_ENGINE_LOOP: asyncio.AbstractEventLoop | None = None
+
 
 def bind_runtime(runtime, host) -> None:
     """装配完成后绑定运行时句柄（模块级；进程内单实例语义）。"""
     global _RUNTIME, _HOST
     _RUNTIME = runtime
     _HOST = host
+    _capture_engine_loop()
+
+
+def _capture_engine_loop() -> None:
+    """记录当前线程运行中的事件循环（引擎异步 op 的宿主循环）。
+
+    装配/回合均在引擎循环内执行，invoke_async 每次调用时刷新——循环
+    重建后同步 op 的派发目标自动跟随最新循环。
+    """
+    global _ENGINE_LOOP
+    try:
+        _ENGINE_LOOP = asyncio.get_running_loop()
+    except RuntimeError:
+        pass  # 调用方不在循环线程：保留既有引用（惰性由 invoke_async 捕获）
+
+
+def _run_on_engine_loop(coro_factory: Callable[[], Any]) -> Any:
+    """同步通道驱动引擎异步 API（run_coroutine_threadsafe 派发到宿主循环）。
+
+    同步 op（Rust 经 invoke 通道调用）运行在 Rust 线程，引擎异步对象
+    与宿主循环绑定——新建循环驱动会破坏绑定（storage 连接跨循环失效）。
+    本函数把协程调度到宿主循环并阻塞等待结果；超时/循环未就绪显式
+    报错（fail-closed，不静默回退）。
+    """
+    loop = _ENGINE_LOOP
+    if loop is None or loop.is_closed():
+        raise RuntimeError(
+            "引擎事件循环未就绪（同步 op 派发失败：先经任一异步 op 建立循环）"
+        )
+    running = asyncio.get_running_loop()
+    if running is loop:
+        raise RuntimeError(
+            "引擎事件循环上不可同步等待自身调度（死锁防护：同步 op 应在"
+            " Rust 线程调用）"
+        )
+    future = asyncio.run_coroutine_threadsafe(coro_factory(), loop)
+    return future.result(timeout=_SYNC_OP_AWAIT_TIMEOUT)
+
+
+# 同步 op 驱动引擎异步 API 的等待上限（秒）：Rust 侧同步阻塞等待，
+# 上界防 worker 线程无限挂起；超时 = 显式错误上报
+_SYNC_OP_AWAIT_TIMEOUT = 300.0
 
 
 def runtime_handle() -> Any:
@@ -126,6 +174,7 @@ def invoke(name: str, args_json: str) -> str:
 
 async def invoke_async(name: str, args_json: str) -> str:
     """异步操作通道：JSON 进、JSON 出（引擎异步 API 的薄包装）。"""
+    _capture_engine_loop()  # 宿主循环锚点（同步 op 派发目标）
     fn = _OPS_ASYNC.get(name)
     if fn is None:
         raise KeyError(f"未注册的异步引擎操作: {name}")
@@ -211,6 +260,29 @@ def prefill_approval_decision(
         "edited_content": edited_content,
         "reason": reason,
     }
+
+
+async def _propose_patch_coro(runtime: Any, args: dict) -> Any:
+    """engine.propose_patch 的域逻辑（sync/async 两形态共用）。
+
+    契约与 patch.apply 一致（SelfProposal.from_dict 全字段）；payload
+    为 JSON 对象（Rust 执行器把扁平签名的 payload 文本还原为对象）。
+    """
+    from ink_engine.core.self_proposal import SelfProposal
+
+    proposal = SelfProposal.from_dict(
+        {
+            "kind": args["kind"],
+            "payload": args["payload"],
+            "base_version": int(args.get("base_version") or 1),
+            "rationale": args.get("rationale") or "",
+            "meta": dict(args.get("meta") or {}),
+        }
+    )
+    ctx = StandaloneApprovalContext(args.get("thread_id"))
+    return await runtime.self_pipeline.apply(
+        ctx, proposal, round_id=args.get("round_id")
+    )
 
 
 # ── 安全流水线的引擎侧适配（判定语义在 Rust；此处仅协议桥接）──
@@ -502,6 +574,17 @@ def register_builtin_ops() -> None:
         await runtime.rebuild_engine()
         return None
 
+    @op_async("engine.abort_current_run")
+    async def _abort_current_run(args: dict) -> Any:
+        """中止在途 run（Rust 停止按钮经 steps.rs 异步通道调用）。
+
+        契约：返回 ``{"aborted": bool}``——无在途 run = 幂等 False；
+        中止 = 取消在途任务 + CANCELLED 终止快照落链（可续跑）。
+        """
+        runtime = runtime_handle()
+        aborted = await runtime.abort_current_run()
+        return {"aborted": aborted}
+
     @op_sync("engine.collect_specs")
     def _collect_specs(args: dict) -> Any:
         runtime = runtime_handle()
@@ -650,6 +733,27 @@ def register_builtin_ops() -> None:
         outcome = await runtime.self_pipeline.apply(
             ctx, proposal, round_id=args.get("round_id")
         )
+        return {"outcome": _jsonable(outcome)}
+
+    @op_sync("engine.propose_patch")
+    def _engine_propose_patch(args: dict) -> Any:
+        """自指演化提案（Rust 执行器经同步通道调用的断点修复）。
+
+        壳侧 impls.rs 的 propose_patch 执行器经 ``call_engine_op``（同步
+        通道）调用本 op——域逻辑（按类型校验/审批分级/补丁链落链）与
+        ``patch.propose_knowledge`` 同管线（self_pipeline.apply）。参数
+        契约：kind/payload（JSON 对象）/base_version/rationale，与
+        SelfProposal.from_dict 对齐；引擎异步 API 经宿主循环派发执行。
+        """
+        outcome = _run_on_engine_loop(
+            lambda: _propose_patch_coro(runtime_handle(), args)
+        )
+        return {"outcome": _jsonable(outcome)}
+
+    @op_async("engine.propose_patch")
+    async def _engine_propose_patch_async(args: dict) -> Any:
+        """异步形态（未来调用方切 call_engine_op_async 时直接可用）。"""
+        outcome = await _propose_patch_coro(runtime_handle(), args)
         return {"outcome": _jsonable(outcome)}
 
     @op_sync("patch.apply_target_register")
@@ -898,6 +1002,39 @@ def register_builtin_ops() -> None:
         return {"graph": graph.to_dict()}
 
     # ── MCP 挂载（连接/工具导入/断开）──
+
+    @op_sync("mcp.builtin_registry")
+    def _mcp_builtin_registry(args: dict) -> Any:
+        """内置 server 注册表（tools.json mcp 工具 server_id 的权威定义）。
+
+        返回 server_id → 传输形态/来源/签名（连接位由宿主按环境填充后
+        经 ``mcp.builtin_connect`` 建立真实连接）。
+        """
+        from ink_engine.core.mcp_client import BUILTIN_MCP_SERVERS
+
+        return {
+            "servers": [
+                {
+                    "server_id": server_id,
+                    "transport": config.transport.value,
+                    "source": config.source.value,
+                    "signature": config.signature,
+                }
+                for server_id, config in BUILTIN_MCP_SERVERS.items()
+            ]
+        }
+
+    @op_async("mcp.builtin_connect")
+    async def _mcp_builtin_connect(args: dict) -> Any:
+        """连接内置 server（tools.json 声明 server 的真实连接入口）。
+
+        server_id 须在注册表内；连接位（stdio 的 command/args、内存
+        传输的 server_factory 等）随 args 透传，注册表字段不可覆盖。
+        """
+        runtime = runtime_handle()
+        overrides = dict(args.get("overrides") or {})
+        await runtime.mcp_manager.connect_builtin(args["server_id"], **overrides)
+        return {"connected": True, "server_id": args["server_id"]}
 
     @op_async("mcp.connect")
     async def _mcp_connect(args: dict) -> Any:

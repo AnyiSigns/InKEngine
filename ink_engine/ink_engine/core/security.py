@@ -6,11 +6,14 @@
 """
 from __future__ import annotations
 
+import re
 from typing import Any
 
 from .patch_chain import Patch, PatchChain
 
-# 敏感键（大小写不敏感匹配）：出现即从持久化数据中整体移除
+# 敏感键（大小写不敏感匹配）：出现即从持久化数据中整体移除。
+# 含常见驼峰凭据键的小写形态（clientSecret/openAiKey/authToken 等）——
+# 精确集合命中优先，无需依赖后缀启发式。
 SENSITIVE_KEYS: frozenset[str] = frozenset(
     {
         "api_key",
@@ -22,6 +25,13 @@ SENSITIVE_KEYS: frozenset[str] = frozenset(
         "password",
         "access_token",
         "refresh_token",
+        "clientsecret",
+        "openaikey",
+        "authtoken",
+        "accesstoken",
+        "refreshtoken",
+        "privatekey",
+        "secretkey",
     }
 )
 
@@ -42,11 +52,40 @@ _SENSITIVE_SUFFIXES: tuple[str, ...] = (
     "_credentials",
 )
 
+# 无下划线后缀形态（clientSecret/openAiKey/authToken 等驼峰键在
+# 归一化后按词尾命中；secret/token/key/password 为完整词尾——误伤面
+# 说明：以这些词结尾的非凭据字段（如英文单词 monkey）也会被剥离，
+# 与 _SENSITIVE_SUFFIXES 同属保守剥离纪律，须显式豁免）。
+_SENSITIVE_WORD_SUFFIXES: tuple[str, ...] = (
+    "secret",
+    "token",
+    "key",
+    "password",
+    "credentials",
+)
+
+# 驼峰边界归一（clientSecret → client_secret；仅插入下划线不改变词尾）
+_CAMEL_BOUNDARY_RE = re.compile(r"(?<=[a-z0-9])(?=[A-Z])")
+
 
 def is_sensitive_key(key: Any) -> bool:
-    """判定键名是否携带凭据语义（精确集合 + 常见后缀启发式）。"""
+    """判定键名是否携带凭据语义（精确集合 + 后缀启发式 + 驼峰归一）。
+
+    精确集合与下划线后缀优先；驼峰键归一为下划线后按词尾命中——
+    词尾命中要求后缀前有前缀（裸 ``key`` 字段名是业务通用形态，如
+    中断键 InterruptState.key，不视为凭据；``monkey`` 等以 key 结尾
+    的非凭据英文词仍会被保守剥离，须显式豁免）。
+    """
     k = str(key).lower()
-    return k in SENSITIVE_KEYS or k.endswith(_SENSITIVE_SUFFIXES)
+    if k in SENSITIVE_KEYS or k.endswith(_SENSITIVE_SUFFIXES):
+        return True
+    # 驼峰形态：clientSecret/openAiKey/authToken 归一为下划线后按
+    # 后缀命中（纯下划线键已在上一分支命中，此处零重复开销）
+    normalized = _CAMEL_BOUNDARY_RE.sub("_", k)
+    return any(
+        normalized.endswith(suffix) and len(normalized) > len(suffix)
+        for suffix in _SENSITIVE_WORD_SUFFIXES
+    )
 
 
 def _strip_from_dict(data: dict[str, Any]) -> dict[str, Any]:

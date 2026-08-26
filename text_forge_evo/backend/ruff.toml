@@ -1,7 +1,0 @@
-target-version = "py311"
-line-length = 100
-
-[lint]
-select = ["E", "F", "W", "I", "UP", "B", "C4", "SIM", "RUF"]
-# 中文项目必需：全角字符（括号/逗号）是正常书写，不视为歧义字符
-ignore = ["E501", "RUF001", "RUF002", "RUF003"]

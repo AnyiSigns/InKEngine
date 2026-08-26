@@ -51,7 +51,7 @@ from ink_engine.core.permissions import (
     NetworkPolicySandbox,
     PermissionGate,
 )
-from ink_engine.core.review_card import GatingTier, gating_tier_of, validate_card
+from ink_engine.core.review_card import GatingTier, gating_tier_of
 from ink_engine.core.sandbox import FileSandbox
 from ink_engine.core.self_proposal import PatchKind
 from ink_engine.core.tool_pipeline import ToolPipeline
@@ -443,20 +443,22 @@ class WorkspaceAuthorizer:
         return None
 
     async def authorize(self, ctx: Any, root: Path, *, reason: str = "") -> dict[str, Any]:
-        """授权确认卡 → 持久化 → 文件工具生效（结构化结果，失败不半挂）。"""
+        """授权确认卡 → 持久化 → 文件工具生效（结构化结果，失败不半挂）。
+
+        gate 卡形态经 approval 统一构建（review_card.build_gate_card——
+        E-P12 唯一卡形态源）；此处只提供 payload 数据。
+        """
         root = Path(root).resolve()
         approval = await approve_before_execute(
             ctx,
             "workspace:authorize",
             {"tool": "workspace_authorize", "root": str(root), "reason": reason},
-            payload=validate_card(
-                {
-                    "review_type": "gate",
-                    "node_id": "workspace_authorize",
-                    "node_label": "工作区授权确认",
-                    "output_preview": f"授权工作区 {root}（文件工具将可读/写/编辑该目录）",
-                }
-            ),
+            payload={
+                "review_type": "gate",
+                "node_id": "workspace_authorize",
+                "node_label": "工作区授权确认",
+                "output_preview": f"授权工作区 {root}（文件工具将可读/写/编辑该目录）",
+            },
         )
         if approval.decision in (DECISION_REJECT, DECISION_TERMINATE):
             return {
@@ -508,14 +510,12 @@ class WorkspaceAuthorizer:
             ctx,
             "workspace:revoke",
             {"tool": "workspace_revoke", "reason": reason},
-            payload=validate_card(
-                {
-                    "review_type": "gate",
-                    "node_id": "workspace_revoke",
-                    "node_label": "工作区撤销确认",
-                    "output_preview": f"撤销工作区授权（{reason or '未说明原因'}）",
-                }
-            ),
+            payload={
+                "review_type": "gate",
+                "node_id": "workspace_revoke",
+                "node_label": "工作区撤销确认",
+                "output_preview": f"撤销工作区授权（{reason or '未说明原因'}）",
+            },
         )
         if approval.decision in (DECISION_REJECT, DECISION_TERMINATE):
             return {

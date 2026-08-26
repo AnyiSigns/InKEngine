@@ -8,8 +8,10 @@
 - :func:`validate_card` / :func:`truncate_preview`：统一契约校验与预览截断
   （按 node_id 分档限额由宿主注入，上限随卡携带——SSE 出口与发卡点共用
   同一规则，出口零配置）；
-- :func:`build_body_card` / :func:`build_audit_card` / :func:`build_candidate_card`：
-  纯构造器（gate 卡依赖宿主写操作摘要，构造留在宿主注入）；
+- :func:`build_gate_card` / :func:`build_body_card` / :func:`build_audit_card` /
+  :func:`build_candidate_card`：**四类卡唯一构建源**（E-P12 拍板）——卡形态
+  一律经 build_*_card 构造 + validate_card 统一契约校验，宿主只提供 payload
+  数据与语义字段，不在发卡点手工拼卡；
 - :class:`GatingTier` + :func:`gating_tier_of`：门控分级判定（L1 直落库 /
   L2 弹卡 / L3 破坏类预留；未登记写操作默认 L2 保守弹卡）。
 
@@ -107,6 +109,51 @@ def truncate_preview(card: dict[str, Any]) -> dict[str, Any]:
     if isinstance(preview, str) and len(preview) > limit:
         payload["output_preview"] = preview[:limit] + "\n…（已截断）"
     return payload
+
+
+def build_gate_card(
+    action: dict[str, Any] | None = None,
+    *,
+    actions: list[dict] | None = None,
+    payload: dict[str, Any] | None = None,
+    limits: Mapping[str, int] | None = None,
+) -> dict[str, Any]:
+    """写操作审批卡（gate）：动作摘要 + 确认/编辑/取消（四类卡之一）。
+
+    E-P12 统一构建源：四类卡的卡形态一律经本模块 build_*_card 构造
+    （唯一构建源 + validate_card 统一契约校验），宿主只提供 payload
+    数据与语义字段。本函数同时承接单动作卡（``action`` 键）与合并卡
+    （``actions`` 键——同回合多写操作聚合一张卡，仍是 gate 卡形态）。
+
+    Args:
+        action: 单动作描述（{tool, args, summary, diff, ...}——渲染与
+            策略分级判定用，宿主自定形态）。
+        actions: 动作列表（合并卡；与 action 二选一，actions 优先）。
+        payload: 宿主提供的卡负载（字段优先：已显式给定的字段不改写，
+            与审批语义「宿主 payload 优先」一致）。
+        limits: 宿主注入的预览上限映射（可选；output_preview 超限截断）。
+    """
+    card = dict(payload) if payload else {}
+    card.setdefault("review_type", "gate")
+    if actions is not None:
+        card.setdefault("node_id", "approval_batch")
+        card.setdefault("node_label", "批量审批")
+        card.setdefault("actions", [dict(a) for a in actions])
+        if "output_preview" not in card:
+            card["output_preview"] = "\n".join(
+                f"- {a.get('tool')}: {a.get('summary') or a.get('diff') or ''}"
+                for a in actions
+            )
+    elif action is not None:
+        card.setdefault("node_id", str(action.get("tool") or "approval"))
+        card.setdefault("node_label", str(action.get("tool") or "approval"))
+        card.setdefault("action", dict(action))
+        if "output_preview" not in card:
+            card["output_preview"] = str(
+                action.get("diff") or action.get("summary") or ""
+            )
+    card["preview_limit"] = preview_limit_for(str(card.get("node_id") or ""), limits)
+    return validate_card(card)
 
 
 def build_body_card(
@@ -289,6 +336,7 @@ __all__ = [
     "build_audit_card",
     "build_body_card",
     "build_candidate_card",
+    "build_gate_card",
     "gating_tier_of",
     "preview_limit_for",
     "truncate_preview",

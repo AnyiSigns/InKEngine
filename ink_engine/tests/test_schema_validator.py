@@ -225,3 +225,28 @@ def test_tool_name_empty_rejected():
     """空工具名违规。"""
     violations = validate_tool_name("")
     assert any("不能为空" in v for v in violations)
+
+
+# -- 形态示例增强（实证缺陷 D4）--------------------------------------------
+
+
+def test_schema_field_missing_name_carries_decl_example():
+    """字段声明缺 name 的消息附字段声明合法形态（D4：防嵌套 name+fields 盲猜）。"""
+    with pytest.raises(GraphDefinitionError, match="字段声明合法形态"):
+        SchemaField.from_dict({"kind": "string"})
+
+
+def test_schema_spec_missing_name_carries_decl_example():
+    """schema 声明缺 name/fields 的消息附 schema 声明合法形态（D4）。"""
+    with pytest.raises(GraphDefinitionError, match="schema 声明合法形态"):
+        SchemaSpec.from_dict({"fields": []})
+    with pytest.raises(GraphDefinitionError, match="schema 声明合法形态"):
+        SchemaSpec.from_dict({"name": "s"})
+
+
+def test_validator_required_missing_carries_expected_kind():
+    """必填字段缺失的违规消息附期望类型（D4：形态示例增强）。"""
+    schema = _entry_schema()
+    validator = SchemaValidator()
+    violations = validator.validate(schema, {"id": "k1"})
+    assert any("缺失" in v and "期望 string 类型值" in v for v in violations)

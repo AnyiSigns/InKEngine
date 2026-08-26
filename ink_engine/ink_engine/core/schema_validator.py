@@ -30,6 +30,13 @@ FIELD_ARRAY = "array"
 
 _VALID_KINDS = (FIELD_STRING, FIELD_NUMBER, FIELD_BOOL, FIELD_OBJECT, FIELD_ARRAY)
 
+# 声明合法形态示例（实证缺陷 D4 形态示例增强）：错误消息附示例骨架，使
+# LLM/提案方按形态收敛，避免「缺 name」等提示无形态引导的盲目试错。
+_FIELD_DECL_EXAMPLE = '{"name": "<字段名>", "kind": "string"[, "required": true]}'
+_SCHEMA_DECL_EXAMPLE = (
+    '{"name": "<schema 名>", "fields": [{"name": "<字段名>", "kind": "string"}]}'
+)
+
 # 工具名规范（行为词典词汇约束：短词自然语言，命名声明为声明式数据）。
 # 工具名是 LLM 选工具/宿主协议路由的关键字，也是行为词典的词汇键——
 # 约束入口在声明式工具定义期检查（DeclarativeToolSpec），本函数是
@@ -110,7 +117,9 @@ class SchemaField:
             )
         name = data.get("name")
         if not name or not isinstance(name, str):
-            raise GraphDefinitionError("字段声明缺 name（字符串）")
+            raise GraphDefinitionError(
+                f"字段声明缺 name（字符串）——字段声明合法形态: {_FIELD_DECL_EXAMPLE}"
+            )
         kind = data.get("kind", FIELD_STRING)
         if kind not in _VALID_KINDS:
             raise GraphDefinitionError(
@@ -179,10 +188,14 @@ class SchemaSpec:
             )
         name = data.get("name")
         if not name or not isinstance(name, str):
-            raise GraphDefinitionError("schema 声明缺 name（字符串）")
+            raise GraphDefinitionError(
+                f"schema 声明缺 name（字符串）——schema 声明合法形态: {_SCHEMA_DECL_EXAMPLE}"
+            )
         raw_fields = data.get("fields")
         if not isinstance(raw_fields, list):
-            raise GraphDefinitionError("schema 声明缺 fields 清单")
+            raise GraphDefinitionError(
+                f"schema 声明缺 fields 清单——schema 声明合法形态: {_SCHEMA_DECL_EXAMPLE}"
+            )
         fields = tuple(SchemaField.from_dict(raw) for raw in raw_fields)
         seen: set[str] = set()
         for field in fields:
@@ -251,7 +264,9 @@ class SchemaValidator:
             value = _resolve_path(data, field.name)
             if value is None:
                 if field.required:
-                    violations.append(f"字段 {field.name} 缺失（必填）")
+                    violations.append(
+                        f"字段 {field.name} 缺失（必填，期望 {field.kind} 类型值）"
+                    )
                 continue
             if _type_mismatch(field.kind, value):
                 violations.append(
@@ -291,10 +306,10 @@ __all__ = [
     "FIELD_NUMBER",
     "FIELD_OBJECT",
     "FIELD_STRING",
+    "TOOL_NAME_FORBIDDEN_CHARS",
+    "TOOL_NAME_MAX_LENGTH",
     "SchemaField",
     "SchemaSpec",
     "SchemaValidator",
-    "TOOL_NAME_FORBIDDEN_CHARS",
-    "TOOL_NAME_MAX_LENGTH",
     "validate_tool_name",
 ]

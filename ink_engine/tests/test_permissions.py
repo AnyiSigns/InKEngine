@@ -118,6 +118,34 @@ def test_gate_deny_on_unmatched():
     assert "未命中" in result.reason
 
 
+def test_gate_deny_filesystem_hint_workspace_root_prefix():
+    """filesystem 域拒绝附「工作区根绝对前缀」提示（实证缺陷 D1）。
+
+    模型传相对路径仅见「权限未命中: 'src/...'」会盲目试错（每次 ≈90s
+    往返）；判定处直接附带路径形态引导，减少无引导的形态试探。
+    """
+    gate = PermissionGate()
+    result = gate.check(
+        "write_file", "write", "src/ch1.md",
+        permissions=("filesystem:write:/workspace/**",),
+    )
+    assert result.decision == DENY
+    assert "未命中" in result.reason
+    assert "工作区根绝对前缀" in result.reason
+
+    # 非 filesystem 操作域（process exec）不附加路径形态提示
+    proc = gate.check(
+        "run_cmd", "exec", "rm", permissions=("process:exec:git|python",),
+    )
+    assert proc.decision == DENY
+    assert "工作区根" not in proc.reason
+
+    # 未声明任何 filesystem 权限的工具拒绝：不附路径形态提示（缺权限非路径形态问题）
+    bare = gate.check("write_file", "write", "/etc/passwd")
+    assert bare.decision == DENY
+    assert "工作区根" not in bare.reason
+
+
 def test_gate_default_policy_review():
     gate = PermissionGate(default_policy=REVIEW)
     result = gate.check("write_file", "write", "/book/ch1.md")

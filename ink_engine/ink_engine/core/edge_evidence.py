@@ -602,7 +602,15 @@ class EdgeEvidenceStore:
             old_n = existing.success_count + existing.fail_count
             new_avg = existing.avg_cost
             if cost is not None:
-                new_avg = (existing.avg_cost * old_n + float(cost)) / (old_n + 1)
+                # 滑动均值按 delta 加权（实证缺陷 ENG9b-3）：settle 加权归因
+                # 单次传 delta 可达 11，旧实现恒用 old_n+1 作分母被错误稀释；
+                # (old_avg*old_n + cost*delta)/(old_n+delta) 使一次 delta 归集
+                # 与 delta 次单样本归集等价（round-trip 一致）。
+                delta = delta_success + delta_fail
+                if delta > 0:
+                    new_avg = (existing.avg_cost * old_n + float(cost) * delta) / (
+                        old_n + delta
+                    )
             origin = ORIGIN_RUNTIME if (delta_success or delta_fail) else existing.origin
             cur = await self._conn.execute(
                 "UPDATE edge_evidence SET success_count=?, fail_count=?,"
@@ -801,7 +809,7 @@ EDGE_TIER_OVERRIDE_COLLECTION = "edge_tier_overrides"
 _TIER_TARGET_COUNTS = {
     TIER_OBSERVING: (0, 0),  # n<8（success=0 即 n=fail<8 或 n=0）→ 观察
     TIER_REGULAR: (8, 2),    # n≥8 且 p≥0.7 且 n<30 → 常规
-    TIER_PROMOTED: (30, 3),  # n≥30 且 p≥0.9 → 转正
+    TIER_PROMOTED: (35, 3),  # n=38 且 p̂=36/40=0.9 → 转正（30,3 → p̂=0.886 落常规）
 }
 
 

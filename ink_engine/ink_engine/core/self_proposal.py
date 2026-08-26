@@ -65,6 +65,44 @@ _KNOWLEDGE_SCHEMA_FIELDS = (
     ("title", False, "string"),
 )
 
+# 各补丁类型的合法形态示例骨架（实证缺陷 D4 形态示例增强）：校验失败时随
+# 违规清单回传示例骨架，供模型按形态试错收敛——避免「缺 xxx」等提示无形态
+# 引导的盲目试探（如 schema 声明须嵌套 name+fields 的形态盲猜）。形态与
+# seed_data/tools.json 既有条目/字段声明模板同构（tool 示例参照出厂工具
+# 声明：name/description/permissions/endpoint/endpoint_config）。
+_PATCH_KIND_EXAMPLES: dict[str, str] = {
+    "ui": (
+        '{"spec": {"name": "...", "root": {"kind": "container", "type": "column",'
+        ' "children": [{"kind": "component", "type": "...", "bind": {...}}]}}}'
+    ),
+    "theme": '{"tokens": {"<token 名>": "<颜色值>"}}',
+    "tool": (
+        '{"name": "<工具名>", "description": "...",'
+        ' "permissions": ["filesystem:read:/workspace"],'
+        ' "endpoint": "file_ops", "endpoint_config": {"root": "/workspace"}}'
+    ),
+    "rule": (
+        '{"rule": {"id": "...", "predicate": "equals", "path": "status",'
+        ' "config": {"value": "..."}, "severity": "warning", "description": "..."}}'
+    ),
+    "knowledge": (
+        '{"entry": {"id": "...", "level": "user", "kind": "rule",'
+        ' "data": {"rule": {"id": "...", "predicate": "...", "path": "..."}}}}'
+    ),
+    "harness": (
+        '{"definition": {"name": "...", "description": "...", "graph": null, "tools": []}}'
+    ),
+    "event_type": '{"name": "quest_start", "renderer": "QuestRow", "system": false}',
+    "environment": (
+        '{"name": "node_env", "runtime": "local", "tools": ["node"],'
+        ' "install_cmds": ["npm install -g pkg"]}'
+    ),
+    "artifact": (
+        '{"artifact_id": "...", "kind": "js_bundle",'
+        ' "hashes": {"index.js": "<sha256 hex 64 字符>"}}'
+    ),
+}
+
 
 @dataclass(frozen=True, slots=True)
 class SelfProposal:
@@ -180,7 +218,12 @@ class ProposalValidator:
         method = getattr(self, f"_validate_{proposal.kind.value}", None)
         if method is None:
             return [f"未知补丁类型: {proposal.kind.value!r}"]
-        return method(proposal.payload)
+        violations = method(proposal.payload)
+        example = _PATCH_KIND_EXAMPLES.get(proposal.kind.value)
+        if violations and example:
+            # 违规清单尾部附合法形态示例骨架（D4）：回传示例供模型按形态收敛
+            violations = [*violations, f"合法形态示例: {example}"]
+        return violations
 
     def validate_ok(self, proposal: SelfProposal) -> bool:
         """布尔判定便捷入口（零违规 = True；闸门组装用）。"""

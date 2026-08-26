@@ -156,10 +156,19 @@ class PermissionGate:
                 return GateResult(ALLOW, tool, operation, target, "未声明权限（宿主放宽为放行）")
             if self.default_policy == REVIEW:
                 return GateResult(REVIEW, tool, operation, target, "未声明权限（宿主放宽为审批）")
-            return GateResult(
-                DENY, tool, operation, target,
-                "未声明权限或权限未命中，默认拒绝" if not permissions else f"权限未命中: {target!r}",
+            reason = (
+                "未声明权限或权限未命中，默认拒绝"
+                if not permissions
+                else f"权限未命中: {target!r}"
             )
+            # filesystem 判定拒绝时附路径形态引导（实证缺陷 D1）：模型传相对路径
+            # 仅见「权限未命中」会盲目试错（每次往返 ≈90s）——判定处直接提示路径
+            # 须以工作区根绝对前缀开头，减少无引导的形态试探。
+            if operation in _DOMAIN_ACTIONS["filesystem"] and any(
+                p.startswith("filesystem:") for p in permissions
+            ):
+                reason += "；filesystem 路径须以工作区根绝对前缀开头（如 /workspace/ 下的绝对路径）"
+            return GateResult(DENY, tool, operation, target, reason)
         if self.review_tier is not None and self.review_tier(tool):
             return GateResult(REVIEW, tool, operation, target, "门控分级需审批")
         return GateResult(ALLOW, tool, operation, target, "")

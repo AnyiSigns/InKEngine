@@ -295,13 +295,14 @@ pub fn roll_summary_chain(dir: &Path, thread_id: &str, keep_last: usize) -> Resu
     if chain.len() <= keep_last {
         return Ok(0);
     }
+    let total = chain.len();
     let keep: Vec<String> = chain.into_iter().rev().take(keep_last).collect::<Vec<_>>().into_iter().rev().collect();
     let path = summary_chain_path(dir, thread_id);
     let mut file = std::fs::File::create(&path).map_err(|err| format!("摘要链重写失败: {err}"))?;
     for line in &keep {
         writeln!(file, "{line}").map_err(|err| format!("摘要链重写失败: {err}"))?;
     }
-    Ok(chain.len() - keep.len())
+    Ok(total - keep.len())
 }
 
 /// 账本容量滚动：按年龄（最旧先删）与体积（超限最旧删）淘汰，返回删除数。
@@ -339,7 +340,7 @@ pub fn roll_ledgers(
     let mut removed = 0usize;
     let mut i = 0;
     while i < files.len() {
-        if files[i].1 < cutoff {
+        if files[i].1 <= cutoff {
             let _ = std::fs::remove_file(&files[i].0);
             files.remove(i);
             removed += 1;
@@ -348,7 +349,8 @@ pub fn roll_ledgers(
         }
     }
     let mut total: u64 = files.iter().map(|(_, _, s)| *s).sum();
-    while total > max_bytes && !files.is_empty() {
+    // 体积淘汰从最旧开始删；最新一条始终保留（单文件超限不误删，界 = 账本条数有界）
+    while total > max_bytes && files.len() > 1 {
         let (p, _, s) = files.remove(0);
         let _ = std::fs::remove_file(&p);
         total -= s;
@@ -438,6 +440,10 @@ mod tests {
         let p1 = write_ledger(&dir, &l1).unwrap();
         let p2 = write_ledger(&dir, &l2).unwrap();
         let p3 = write_ledger(&dir, &l3).unwrap();
+        // 同秒写入时 mtime 可能并列，显式拉开时间序保证「最旧两条」确定性
+        set_mtime_ago(&p1, 3);
+        set_mtime_ago(&p2, 2);
+        set_mtime_ago(&p3, 1);
         // 体积上限 1 字节：从最旧开始删，仅留最新一条
         let removed = roll_ledgers(&dir, "th", 1, DEFAULT_MAX_AGE_DAYS).unwrap();
         assert_eq!(removed, 2, "应删掉两条最旧账本");
@@ -453,10 +459,22 @@ mod tests {
         std::fs::create_dir_all(&dir).unwrap();
         let l1 = reduce_round("th", "r1", None, None, &sample_events(), &json!({}), &json!([]));
         let p1 = write_ledger(&dir, &l1).unwrap();
-        // max_age_days=0：cutoff=now，所有账本均超龄 → 全部清掉
+        set_mtime_ago(&p1, 100);
+        // max_age_days=0：cutoff=now，所有账本均满龄 → 全部清掉
         let removed = roll_ledgers(&dir, "th", DEFAULT_MAX_BYTES, 0).unwrap();
         assert!(removed >= 1, "超龄账本应被删");
         assert!(!p1.exists());
         let _ = std::fs::remove_dir_all(&tmp);
+    }
+
+    /// 测试辅助：把文件 mtime 拨回 n 秒前（显式时间序，消除同秒写入抖动）。
+    fn set_mtime_ago(path: &std::path::Path, seconds_ago: u64) {
+        let now_secs = std::time::SystemTime::now()
+            .duration_since(std::time::UNIX_EPOCH)
+            .map(|d| d.as_secs())
+            .unwrap_or(0);
+        let target = std::time::UNIX_EPOCH + std::time::Duration::from_secs(now_secs - seconds_ago);
+        let file = std::fs::OpenOptions::new().write(true).open(path).expect("打开账本写 mtime");
+        file.set_modified(target).expect("mtime 回拨");
     }
 }

@@ -91,6 +91,9 @@ class ToolPipeline:
         gate: 权限门禁（None = 跳过权限判定，宿主自行取舍）。
         extractor: 操作提取器 (spec, args) -> (operation, target) | None
             （None = 纯内存工具无判定目标，直通）。
+        failure_reason: 提取失败的原因钩子 (spec, args) -> str | None；
+            判定目标推导失败时把原因并入 fail-closed 拒绝文案，指引
+            模型自我纠正（缺参/非法形态可定位）。
         sandboxes: 沙箱守卫列表（validate(operation, target) 协议）。
         guards: 单调守卫列表 (ctx, spec, args)，抛异常即拒绝执行。
         executor: 分发执行器 (ctx, spec, args, approval) -> 结果文本。
@@ -102,6 +105,7 @@ class ToolPipeline:
 
     gate: Any | None = None
     extractor: Callable[[ToolSpec, dict], tuple[str, str] | None] | None = None
+    failure_reason: Callable[[ToolSpec, dict], str | None] | None = None
     sandboxes: tuple[Any, ...] = ()
     guards: tuple[Callable[..., Any], ...] = ()
     executor: Callable[..., Awaitable] | None = None
@@ -158,12 +162,21 @@ class ToolPipeline:
             # 权限/沙箱判定，绝不直通执行（声明式工具的非法参数路径）。
             # allow_unchecked=True 的直通仅对「有意不做判定」的工具生效。
             if not self.allow_unchecked:
+                hint = ""
+                if self.failure_reason is not None:
+                    try:
+                        reason = self.failure_reason(spec, args)
+                    except Exception:
+                        reason = None
+                    if reason:
+                        hint = f"：{reason}"
+                message = f"操作提取器无法判定目标，拒绝执行（fail-closed）{hint}"
                 await self._audit(
                     ctx,
-                    {"tool": spec.name, "decision": "deny", "reason": "操作提取器无法判定目标，拒绝执行（fail-closed）"},
+                    {"tool": spec.name, "decision": "deny", "reason": message},
                 )
                 return await _finish(
-                    ToolResult(ok=False, decision=DENY, error="操作提取器无法判定目标，拒绝执行（fail-closed）")
+                    ToolResult(ok=False, decision=DENY, error=message)
                 )
             operation, target = None, None
         else:

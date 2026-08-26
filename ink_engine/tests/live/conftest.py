@@ -218,7 +218,7 @@ class FailureRepro:
             except BaseException:
                 self._report.mark(self._nodeid, CAT_MECHANISM)
             else:
-                self._report.mark(self._nodeid, classify_failure(exc))
+                self._report.mark(self._nodeid, classify_failure(exc, is_real=True))
             raise
 
 
@@ -272,7 +272,7 @@ def pytest_runtest_makereport(item: pytest.Item, call: pytest.CallInfo) -> None:
     entry.is_real = item.get_closest_marker("real") is not None
     entry.family = _family_of(item.nodeid)
     if call.excinfo is not None and entry.status == "failed" and entry.category is None:
-        entry.category = classify_failure(call.excinfo.value)
+        entry.category = classify_failure(call.excinfo.value, is_real=entry.is_real)
     if entry.status == "skipped" and infra.ledger.exhausted():
         entry.category = "fuse"
     if item.get_closest_marker("fault") is not None:

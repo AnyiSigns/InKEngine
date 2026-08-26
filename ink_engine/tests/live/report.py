@@ -24,12 +24,15 @@ CAT_ENVIRONMENT = "environment"  # 网络/端点/环境不可用
 CAT_TEST = "test"  # 测试设计错误
 
 
-def classify_failure(exc: BaseException) -> str:
+def classify_failure(exc: BaseException, *, is_real: bool = False) -> str:
     """失败分类启发式（报告提示口径；确定性复现归类为机制缺陷的权威路径）。
 
     分类优先序：本地端点相关（fault server/MCP 本地服务）失败属环境或
-    测试设计；LLM 层异常属模型/环境；引擎机制异常属机制；其余（断言等）
-    默认测试设计错误——用例可经 ``live_report.mark(nodeid, cat)`` 覆盖。
+    测试设计；LLM 层异常属模型/环境；引擎机制异常属机制；纯逻辑失败
+    （断言族）按用例性质分流——确定性用例的纯断言失败归机制缺陷（修正
+    门禁⑤漏报），真实 LLM 用例的断言失败以模型输出漂移为主因归模型行为
+    （真实路径的机制缺陷由确定性套件与 FailureRepro 重放权威判定）。
+    用例可经 ``live_report.mark(nodeid, cat)`` 覆盖。
     """
     from ink_engine.core.exceptions import EngineError
     from ink_engine.core.llm.errors import LLMError
@@ -42,9 +45,9 @@ def classify_failure(exc: BaseException) -> str:
     if isinstance(exc, (ConnectionError, TimeoutError, OSError)):
         return CAT_ENVIRONMENT
     if name in ("AssertionError", "TypeError", "KeyError", "ValueError", "AttributeError"):
-        # 纯逻辑失败（无环境异常、非熔断、非模型重放失败）归入机制缺陷统计，
-        # 修正门禁⑤「机制缺陷类失败=0」漏报纯断言失败的统计口径。
-        return CAT_MECHANISM
+        # 纯逻辑失败：确定性用例归机制缺陷（门禁⑤统计口径）；
+        # 真实模型用例的断言失败以模型输出漂移为主因，归模型行为。
+        return CAT_MODEL if is_real else CAT_MECHANISM
     return CAT_ENVIRONMENT
 
 

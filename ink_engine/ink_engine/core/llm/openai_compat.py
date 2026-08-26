@@ -13,6 +13,7 @@ DeepSeek 系模型的 reasoning_content 增量透传为 reasoning_token。
 """
 from __future__ import annotations
 
+import asyncio
 import contextlib
 import json
 from collections.abc import AsyncIterator, Sequence
@@ -34,11 +35,25 @@ from ink_engine.core.llm.errors import (
     LLMError,
     LLMFormatError,
     classify_llm_error,
+    is_transient_llm_error,
 )
 from ink_engine.core.llm.messages import Message, ToolCall
 from ink_engine.core.llm.tools import ToolSpec, to_openai_tools
 
 DEFAULT_REQUEST_TIMEOUT = 120.0
+
+# 瞬时故障指数退避重试（429/503/超时/网络/空流等）：最多 3 次尝试
+# （1 原始 + 2 重试），退避 1s→2s→4s（指数封顶），吸收网关抖动与限流
+# 尖峰；确定性失败（认证/404/400）不重试，fail-closed 语义不变。
+_LLM_RETRY_MAX_ATTEMPTS = 3
+_LLM_RETRY_BASE_DELAY = 1.0
+_LLM_RETRY_MAX_DELAY = 4.0
+
+
+async def _retry_backoff(attempt: int) -> None:
+    """瞬时故障重试前的指数退避（attempt = 已失败次数，0 起）。"""
+    delay = min(_LLM_RETRY_BASE_DELAY * (2**attempt), _LLM_RETRY_MAX_DELAY)
+    await asyncio.sleep(delay)
 
 # 兼容端点常见但非标准的推理字段（DeepSeek/DashScope qwq 等）
 _REASONING_FIELDS = ("reasoning_content", "reasoning")
@@ -282,11 +297,23 @@ class OpenAICompatibleLLM(AsyncLLM):
     ) -> LLMResult:
         payload = self._payload(messages, tools, params, stream=False)
         client = self._get_client()
-        try:
-            response = await client.post(self._endpoint, json=payload, headers=self._headers())
-        except (httpx.TimeoutException, httpx.TransportError, httpx.HTTPError) as exc:
-            raise self._wrap_transport_error(exc) from exc
-        await self._raise_for_status(response)
+        response: httpx.Response | None = None
+        for attempt in range(_LLM_RETRY_MAX_ATTEMPTS):
+            try:
+                response = await client.post(
+                    self._endpoint, json=payload, headers=self._headers()
+                )
+                await self._raise_for_status(response)
+                break
+            except (httpx.TimeoutException, httpx.TransportError, httpx.HTTPError) as exc:
+                error = self._wrap_transport_error(exc)
+            except LLMError as exc:
+                error = exc
+            if is_transient_llm_error(error) and attempt + 1 < _LLM_RETRY_MAX_ATTEMPTS:
+                await _retry_backoff(attempt)
+                continue
+            raise error
+        assert response is not None
         try:
             obj = response.json()
         except json.JSONDecodeError as exc:
@@ -343,19 +370,30 @@ class OpenAICompatibleLLM(AsyncLLM):
     ) -> AsyncIterator[LLMChunk]:
         payload = self._payload(messages, tools, params, stream=True)
         client = self._get_client()
-        try:
-            # async with 语义：__aenter__ 失败不调 __aexit__；正常退出/
-            # 异常/消费方取消（生成器 aclose）均走 __aexit__ → 关闭上游连接
-            async with client.stream("POST", self._endpoint, json=payload, headers=self._headers()) as response:
-                await self._raise_for_status(response)
-                emitted = False
-                async for line in response.aiter_lines():
-                    chunk = self._parse_sse_line(line)
-                    if chunk is None:
-                        continue
-                    emitted = True
-                    yield chunk
-                if not emitted:
-                    raise LLMEmptyStreamError(detail=f"{self._endpoint} 流为空")
-        except (httpx.TimeoutException, httpx.TransportError, httpx.HTTPError) as exc:
-            raise self._wrap_transport_error(exc) from exc
+        for attempt in range(_LLM_RETRY_MAX_ATTEMPTS):
+            emitted = False
+            try:
+                # async with 语义：__aenter__ 失败不调 __aexit__；正常退出/
+                # 异常/消费方取消（生成器 aclose）均走 __aexit__ → 关闭上游连接
+                async with client.stream("POST", self._endpoint, json=payload, headers=self._headers()) as response:
+                    await self._raise_for_status(response)
+                    async for line in response.aiter_lines():
+                        chunk = self._parse_sse_line(line)
+                        if chunk is None:
+                            continue
+                        emitted = True
+                        yield chunk
+                    if not emitted:
+                        raise LLMEmptyStreamError(detail=f"{self._endpoint} 流为空")
+                return
+            except (httpx.TimeoutException, httpx.TransportError, httpx.HTTPError) as exc:
+                error = self._wrap_transport_error(exc)
+            except LLMError as exc:
+                error = exc
+            if emitted:
+                # 已产出内容后的中断：重试会重复已消费帧，直接上抛不重试
+                raise error
+            if is_transient_llm_error(error) and attempt + 1 < _LLM_RETRY_MAX_ATTEMPTS:
+                await _retry_backoff(attempt)
+                continue
+            raise error

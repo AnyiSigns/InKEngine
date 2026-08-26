@@ -702,7 +702,7 @@ impl DeclarativeSandboxProxy {
 
     pub fn guards_operation(&self, operation: &str) -> bool {
         operation == "exec"
-            || matches!(operation, "read" | "write" | "delete" | "search" | "search_paths")
+            || matches!(operation, "read" | "write" | "delete" | "edit" | "search" | "search_paths")
             || operation == "connect"
     }
 
@@ -734,13 +734,13 @@ impl DeclarativeSandboxProxy {
                 }
                 Ok(target.to_string())
             }
-            Endpoint::FileOps if matches!(operation, "read" | "write" | "delete" | "search" | "search_paths") => {
+            Endpoint::FileOps if matches!(operation, "read" | "write" | "delete" | "edit" | "search" | "search_paths") => {
                 // 检索操作只读不取整文件：仅解析边界，不做单文件大小上限
                 let max_bytes = match operation {
                     "read" => Some(
                         definition.size_limit("max_read_bytes", DEFAULT_MAX_READ_BYTES)
                     ),
-                    "write" => Some(
+                    "write" | "edit" => Some(
                         definition.size_limit("max_write_bytes", DEFAULT_MAX_WRITE_BYTES)
                     ),
                     _ => None,
@@ -889,6 +889,11 @@ impl FileOpsExecutor {
             "read" => self.read(path_text, limits),
             "search" => self.search(args, limits),
             "search_paths" => self.search_paths(args),
+            "edit" => {
+                let old_text = args.get("old_text").and_then(|v| v.as_str()).unwrap_or("");
+                let new_text = args.get("new_text").and_then(|v| v.as_str()).unwrap_or("");
+                self.edit(path_text, old_text, new_text, limits.max_write)
+            }
             "write" => {
                 if args.get("old_text").is_some() {
                     let old_text = args.get("old_text").and_then(|v| v.as_str()).unwrap_or("");

@@ -18,6 +18,7 @@ from ink_engine.core.declarative_tools import (
     EndpointType,
     build_declarative_pipeline,
     endpoint_operation,
+    endpoint_operation_failure_reason,
     make_declarative_extractor,
 )
 from ink_engine.core.exceptions import GraphDefinitionError
@@ -255,25 +256,101 @@ def test_endpoint_operation_file():
     assert endpoint_operation(EndpointType.FILE_OPS, {"operation": "chmod", "path": "/x"}) is None
 
 
-def test_endpoint_operation_file_edit_alias():
-    """file_ops 别名归一：声明式工具以 edit 表达就地改写时，判定目标归一为
-    write（file_edit 经既有 write 权限/沙箱守卫放行，不再 fail-closed）。
+def test_endpoint_operation_file_edit_first_class():
+    """file_ops 一等操作域：edit = 就地改写，判定目标原样保留（权限动作
+    filesystem:edit、沙箱守卫与审计可独立区分，不再归一为 write）。
 
-    回归：修复前 edit 不在操作白名单，file_edit 调用被提取器判为无法判定目标
-    （"操作提取器无法判定目标，拒绝执行"），任何模型均无法写入。未知操作仍
-    返回 None（fail-closed 不破坏）。
+    回归：edit 曾不在操作白名单，file_edit 调用被提取器判为无法判定目标
+    （"操作提取器无法判定目标，拒绝执行"）；升级为一等操作域后原样判定。
+    未知操作仍返回 None（fail-closed 不破坏）。
     """
     op, target = endpoint_operation(
         EndpointType.FILE_OPS, {"operation": "edit", "path": "/book/ch1.md"}
     )
-    assert (op, target) == ("write", "/book/ch1.md")
+    assert (op, target) == ("edit", "/book/ch1.md")
     # 未知操作仍无法判定（fail-closed）
     assert endpoint_operation(EndpointType.FILE_OPS, {"operation": "chmod", "path": "/x"}) is None
 
 
+def test_failure_reason_file_ops_missing_operation():
+    """判定失败原因：file_ops 缺 operation/非法 operation 给出合法值清单。"""
+    reason = endpoint_operation_failure_reason(
+        EndpointType.FILE_OPS, {"path": "/book/ch1.md"}
+    )
+    assert reason is not None and "operation" in reason and "edit" in reason
+    reason = endpoint_operation_failure_reason(
+        EndpointType.FILE_OPS, {"operation": "chmod", "path": "/x"}
+    )
+    assert reason is not None and "chmod" not in (reason or "")
+    # 合法调用不产生失败原因
+    assert (
+        endpoint_operation_failure_reason(
+            EndpointType.FILE_OPS, {"operation": "write", "path": "/a.md"}
+        )
+        is None
+    )
+
+
+def test_failure_reason_http_url_missing():
+    assert endpoint_operation_failure_reason(EndpointType.HTTP_FETCH, {}) is not None
+    assert (
+        endpoint_operation_failure_reason(
+            EndpointType.HTTP_FETCH, {"url": "https://a.example.com/x"}
+        )
+        is None
+    )
+
+
+def test_file_ops_operation_enum_definition_time_validation():
+    """定义期硬校验：file_ops 工具声明的 operation enum 必须 ⊆ 引擎操作域。
+
+    回归：file_edit 曾声明 operation enum 与提取器白名单不一致，运行期
+    必被 fail-closed 拒绝且无从定位（静默缺口）；现在定义期即报错。
+    """
+    # 合法：enum 全部落在操作域内
+    DeclarativeToolSpec(
+        name="fstool",
+        description="file tool",
+        parameters={
+            "type": "object",
+            "properties": {
+                "operation": {"type": "string", "enum": ["read", "write", "edit"]},
+                "path": {"type": "string"},
+            },
+        },
+        permissions=("filesystem:write:/book/**",),
+        endpoint="file_ops",
+        endpoint_config={"root": "/book"},
+    )
+    # 非法：enum 含引擎不支持的 chmod → 定义期拒绝
+    with pytest.raises(GraphDefinitionError, match="引擎不支持的文件操作"):
+        DeclarativeToolSpec(
+            name="fstool2",
+            description="file tool",
+            parameters={
+                "type": "object",
+                "properties": {
+                    "operation": {"type": "string", "enum": ["write", "chmod"]},
+                    "path": {"type": "string"},
+                },
+            },
+            permissions=("filesystem:write:/book/**",),
+            endpoint="file_ops",
+            endpoint_config={"root": "/book"},
+        )
+    # 未声明 operation 参数（无 enum 约束）不触发校验
+    DeclarativeToolSpec(
+        name="fstool3",
+        description="file tool",
+        parameters={"type": "object", "properties": {"path": {"type": "string"}}},
+        permissions=("filesystem:write:/book/**",),
+        endpoint="file_ops",
+        endpoint_config={"root": "/book"},
+    )
+
+
 def test_endpoint_operation_file_search_ops():
     """file_ops 检索操作：search/search_paths 判定目标（无 path 回落端点根）。
-
     检索操作 = 只读文件操作域的新成员：权限动作与沙箱守卫按操作名对齐
     （filesystem:search / filesystem:search_paths）；无 path 参数时全域
     检索，判定目标 = 端点配置根目录（检索域 = 整个工作区根）。
@@ -424,6 +501,8 @@ async def test_pipeline_rejects_undeterminable_target(memory_storage):
     assert result.ok is False
     assert result.decision == "deny"
     assert "无法判定目标" in (result.error or "")
+    # fail-closed 文案携带结构化原因（指引模型自我纠正）
+    assert "command" in (result.error or "")
 
 
 def test_make_declarative_extractor_resolves_by_endpoint():

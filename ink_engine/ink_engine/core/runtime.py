@@ -33,7 +33,7 @@ from typing import Any, Protocol, runtime_checkable
 from .approval import InterruptPolicy
 from .assembly import SOURCE_EVIDENCE, AssemblyConfig
 from .context import ContextSource
-from .declarative_tools import endpoint_operation
+from .declarative_tools import endpoint_operation, endpoint_operation_failure_reason
 from .event_types import EventTypeRegistry, EventTypeSpec
 from .events import EngineTransport
 from .executor import Engine, RunOptions
@@ -462,9 +462,20 @@ class Runtime:
                 ctx, spec, args, approval
             )
 
+        def unified_failure_reason(spec, args):
+            definition = self.harness_registry.declarative.definitions.get(
+                spec.name
+            )
+            if definition is None:
+                return None
+            return endpoint_operation_failure_reason(
+                definition.endpoint, args, config=definition.endpoint_config
+            )
+
         self.tool_pipeline = ToolPipeline(
             gate=PermissionGate(),
             extractor=unified_extractor,
+            failure_reason=unified_failure_reason,
             executor=unified_executor,
         )
 

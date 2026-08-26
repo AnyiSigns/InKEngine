@@ -41,20 +41,20 @@ pub trait SystemBackend: Send + Sync {
 /// 平台后端：真实系统操作的唯一实现（Windows 优先，其余平台显式报不支持）
 pub struct PlatformBackend;
 
+/// 启动类命令执行（fire-and-forget）：拉起即返回，不等待子进程退出。
+///
+/// launch_app / open_file 的语义是「拉起后立即把控制权交还回合」——
+/// 若等待（output()）且子进程继承了输出管道句柄，回合线程会阻塞在
+/// 子进程整个生命周期上（实测 `cmd /C start` 拉起 GUI 应用后永不返回）。
+/// 这里丢弃输出并 detach 句柄，只校验「启动动作本身成功」。
 fn run_cmd(program: &str, args: &[&str]) -> Result<String, String> {
-    let output = std::process::Command::new(program)
+    std::process::Command::new(program)
         .args(args)
-        .output()
-        .map_err(|err| format!("命令执行失败: {err}"))?;
-    if output.status.success() {
-        Ok(String::from_utf8_lossy(&output.stdout).trim().to_string())
-    } else {
-        Err(format!(
-            "命令退出码 {}: {}",
-            output.status.code().unwrap_or(-1),
-            String::from_utf8_lossy(&output.stderr).trim()
-        ))
-    }
+        .stdout(std::process::Stdio::null())
+        .stderr(std::process::Stdio::null())
+        .spawn()
+        .map_err(|err| format!("命令启动失败: {err}"))?;
+    Ok(String::new())
 }
 
 /// 进程模板输出单流截断上限（字符；与回合工具结果上限同量级，
@@ -928,5 +928,22 @@ mod tests {
     fn run_process_empty_argv_is_err() {
         let backend = PlatformBackend;
         assert!(backend.run_process(&[], ".", 5).is_err());
+    }
+
+    #[test]
+    fn run_cmd_fire_and_forget_returns_immediately() {
+        // 拉起一个远超阈值时长才退出的进程，run_cmd 应即刻返回
+        #[cfg(windows)]
+        let argv = ["cmd", "/C", "ping", "-n", "4", "127.0.0.1"];
+        #[cfg(not(windows))]
+        let argv = ["sleep", "3"];
+        let started = std::time::Instant::now();
+        let result = run_cmd(argv[0], &argv[1..]);
+        assert!(result.is_ok(), "启动动作应成功: {result:?}");
+        assert!(
+            started.elapsed() < std::time::Duration::from_secs(2),
+            "run_cmd 不应等待子进程退出（耗时 {:?}）",
+            started.elapsed()
+        );
     }
 }

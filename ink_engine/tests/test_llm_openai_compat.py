@@ -15,6 +15,7 @@ from ink_engine.core.llm.errors import (
     LLMAuthError,
     LLMBadRequestError,
     LLMEmptyStreamError,
+    LLMError,
     LLMFormatError,
     LLMNotFoundError,
     LLMRateLimitError,
@@ -465,3 +466,67 @@ class TestAstream:
         llm, _ = make_adapter(handler)
         with pytest.raises(LLMTimeoutError):
             await collect_result(llm.astream([user("hi")]))
+
+
+class TestTransientRetry:
+    """瞬时故障指数退避重试（429/503/网络/空流重试；确定性失败不重试）。"""
+
+    async def test_ainvoke_retries_503_then_succeeds(self):
+        attempts = {"n": 0}
+
+        def handler(request):
+            attempts["n"] += 1
+            if attempts["n"] < 3:
+                return httpx.Response(
+                    503, json={"error": {"message": "服务暂时不可用"}}, headers=JSON_HEADERS
+                )
+            return ok_json({"choices": [{"message": {"content": "ok"}, "finish_reason": "stop"}]})
+
+        llm, seen = make_adapter(handler)
+        result = await llm.ainvoke([user("hi")])
+        assert result.content == "ok"
+        assert seen["calls"] == 3
+
+    async def test_ainvoke_retry_exhausted_raises_last_error(self):
+        def handler(request):
+            return httpx.Response(429, json={"error": {"message": "rate limit"}})
+
+        llm, seen = make_adapter(handler)
+        with pytest.raises(LLMRateLimitError):
+            await llm.ainvoke([user("hi")])
+        assert seen["calls"] == 3
+
+    async def test_ainvoke_deterministic_error_not_retried(self):
+        def handler(request):
+            return httpx.Response(401, json={"error": {"message": "invalid key"}})
+
+        llm, seen = make_adapter(handler)
+        with pytest.raises(LLMAuthError):
+            await llm.ainvoke([user("hi")])
+        assert seen["calls"] == 1
+
+    async def test_astream_retries_empty_stream_then_succeeds(self):
+        attempts = {"n": 0}
+
+        def handler(request):
+            attempts["n"] += 1
+            if attempts["n"] < 3:
+                return stream_response([])
+            return stream_response([sse_frame(sse_delta({"content": "hi"}))])
+
+        llm, seen = make_adapter(handler)
+        result = await collect_result(llm.astream([user("hi")]))
+        assert result.content == "hi"
+        assert seen["calls"] == 3
+
+    async def test_astream_midstream_failure_not_retried(self):
+        async def gen():
+            yield sse_frame(sse_delta({"content": "部分"}))
+            raise LLMServerError(detail="midstream")
+
+        llm, seen = make_adapter(
+            lambda request: httpx.Response(200, content=gen(), headers=JSON_HEADERS)
+        )
+        with pytest.raises(LLMError):
+            await collect_result(llm.astream([user("hi")]))
+        assert seen["calls"] == 1  # 已产出内容后中断：不重试（防重复帧）

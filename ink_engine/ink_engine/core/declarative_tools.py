@@ -80,17 +80,12 @@ _ENDPOINT_ACTIONS: dict[EndpointType, tuple[str, ...]] = {
     EndpointType.HTTP_FETCH: ("connect",),
     EndpointType.PROCESS_EXEC: ("exec",),
     # search = 工作区文本内容检索（grep）/ search_paths = 工作区路径检索
-    # （glob）——同属只读文件操作域，权限动作与沙箱守卫按操作名对齐
-    EndpointType.FILE_OPS: ("read", "write", "delete", "search", "search_paths"),
+    # （glob）——同属只读文件操作域；edit = 就地改写，一等操作域（权限
+    # 动作 filesystem:edit、沙箱守卫与审计可独立区分）
+    EndpointType.FILE_OPS: ("read", "write", "delete", "edit", "search", "search_paths"),
     EndpointType.MCP: ("call",),
     EndpointType.WEB_SEARCH: ("connect",),
 }
-
-# file_ops 操作别名归一：声明式工具可能以 "edit" 表达就地改写（如 file_edit
-# 工具），其语义等价于 write（权限域 filesystem:write、沙箱根目录边界与 write
-# 同构）。提取器在判定目标阶段归一为 write，使权限门禁与文件沙箱沿用既有
-# write 守卫——不新增操作域、不破坏 fail-closed（未知操作仍返回 None 拒绝）。
-_FILE_OP_ALIASES: dict[str, str] = {"edit": "write"}
 
 # 端点配置的必填白名单键（沙箱自动接线的声明依据：process_exec 须声明
 # 命令白名单、file_ops 须声明根目录——缺失即定义期拒绝，fail-closed）。
@@ -193,6 +188,38 @@ class DeclarativeToolSpec:
                 raise GraphDefinitionError(
                     f"工具 {self.name} 的 root 须为非空根目录路径"
                 )
+            # 定义期硬校验：parameters 声明的 operation enum 必须全部落在
+            # 引擎操作域内（防「file_edit 自诞生起即不可达」类静默缺口——
+            # 声明与提取器白名单不一致会在定义期暴露而非运行期 fail-closed）。
+            op_enum = self._declared_operation_enum()
+            allowed = set(_ENDPOINT_ACTIONS[EndpointType.FILE_OPS])
+            unsupported = op_enum - allowed
+            if unsupported:
+                raise GraphDefinitionError(
+                    f"工具 {self.name} 声明了引擎不支持的文件操作: "
+                    f"{'、'.join(sorted(unsupported))}（合法值："
+                    f"{'、'.join(sorted(allowed))}）"
+                )
+
+    def _declared_operation_enum(self) -> set[str]:
+        """参数 schema 中声明的 operation 枚举值（缺声明 = 空集）。
+
+        定义期硬校验的取数来源：声明式工具若在 parameters 里约束
+        operation 的 enum，其值必须 ⊆ 引擎操作域（endpoint_operation
+        白名单），否则运行期必然无法判定目标——提前到定义期暴露。
+        """
+        props = (
+            self.parameters.get("properties") if isinstance(self.parameters, dict) else None
+        )
+        if not isinstance(props, dict):
+            return set()
+        op_schema = props.get("operation")
+        if not isinstance(op_schema, dict):
+            return set()
+        enum = op_schema.get("enum")
+        if not isinstance(enum, list):
+            return set()
+        return {str(v) for v in enum if isinstance(v, str)}
 
     def to_spec(self) -> ToolSpec:
         """转为引擎工具描述（参数 schema 与权限声明透传）。"""
@@ -292,10 +319,6 @@ def endpoint_operation(
         return ("exec", command) if isinstance(command, str) else None
     if endpoint is EndpointType.FILE_OPS:
         operation = args.get("operation")
-        # 操作别名归一（edit → write 等）：保证声明式工具以别名表达的操作
-        # 也能被判定目标、走通既有权限/沙箱守卫；未列入别名的未知操作仍
-        # 在下方白名单判定中返回 None（fail-closed 不破坏）
-        operation = _FILE_OP_ALIASES.get(operation, operation)
         if operation not in _ENDPOINT_ACTIONS[endpoint]:
             return None
         path = args.get("path")
@@ -318,6 +341,56 @@ def endpoint_operation(
         # 结果域名过滤在实现内完成——与 fetch 的单 URL 出网语义不同）
         query = args.get("query")
         return ("connect", query) if isinstance(query, str) and query else None
+    return None
+
+
+def endpoint_operation_failure_reason(
+    endpoint: EndpointType, args: dict[str, Any], *, config: dict | None = None
+) -> str | None:
+    """判定目标推导失败的结构化原因（供流水线 fail-closed 文案指引模型）。
+
+    与 :func:`endpoint_operation` 分支一一对应：推导成功或不属于本端点
+    返回 None；推导失败返回具体缺参/非法原因，让拒绝文案可指导模型
+    自我纠正（如 file_ops 缺 operation 时列出合法值）。
+    """
+    if endpoint is EndpointType.HTTP_FETCH:
+        url = args.get("url")
+        if not isinstance(url, str) or not url:
+            return "url 参数缺失或非法"
+        try:
+            parsed = urllib.parse.urlsplit(url)
+        except ValueError:
+            return "url 无法解析"
+        if parsed.scheme not in ("http", "https") or not parsed.hostname:
+            return "url 协议/主机非法（仅 http/https 且须含主机名）"
+        return None
+    if endpoint is EndpointType.PROCESS_EXEC:
+        command_param = "command"
+        if isinstance(config, dict):
+            command_param = str(config.get("operation_param") or "command")
+        command = args.get(command_param)
+        if not isinstance(command, str) or not command:
+            return f"{command_param} 参数缺失或非字符串"
+        return None
+    if endpoint is EndpointType.FILE_OPS:
+        operation = args.get("operation")
+        if operation not in _ENDPOINT_ACTIONS[endpoint]:
+            allowed = "/".join(_ENDPOINT_ACTIONS[endpoint])
+            return f"operation 字段缺失或非法（合法值：{allowed}）"
+        path = args.get("path")
+        if not isinstance(path, str) or not path:
+            return "path 参数缺失或非字符串"
+        return None
+    if endpoint is EndpointType.MCP:
+        server_id = (config or {}).get("server_id") if isinstance(config, dict) else None
+        if not (isinstance(server_id, str) and server_id):
+            return "server_id 未配置（无法路由）"
+        return None
+    if endpoint is EndpointType.WEB_SEARCH:
+        query = args.get("query")
+        if not isinstance(query, str) or not query:
+            return "query 参数缺失"
+        return None
     return None
 
 
@@ -407,6 +480,26 @@ def make_declarative_extractor(
         return endpoint_operation(definition.endpoint, args, config=definition.endpoint_config)
 
     return extract
+
+
+def make_declarative_failure_reason(
+    executors: DeclarativeToolExecutors,
+) -> Callable[[ToolSpec, dict], str | None]:
+    """声明式工具的判定失败原因钩子（ToolPipeline.failure_reason 接线）。
+
+    与提取器同源反查定义：推导失败时给出结构化缺参/非法原因，供
+    fail-closed 拒绝文案携带，指引模型自我纠正（不泄露敏感细节）。
+    """
+
+    def reason(spec: ToolSpec, args: dict) -> str | None:
+        definition = executors.definitions.get(spec.name)
+        if definition is None:
+            return None
+        return endpoint_operation_failure_reason(
+            definition.endpoint, args, config=definition.endpoint_config
+        )
+
+    return reason
 
 
 class _DefinitionGate:
@@ -511,6 +604,7 @@ def build_declarative_pipeline(
     return ToolPipeline(
         gate=gate,
         extractor=make_declarative_extractor(executors),
+        failure_reason=make_declarative_failure_reason(executors),
         sandboxes=sandboxes,
         guards=guards,
         executor=executors.dispatch,

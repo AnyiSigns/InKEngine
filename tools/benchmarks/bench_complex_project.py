@@ -304,6 +304,8 @@ class LiveAgentDriver(AgentDriver):
         self._active_dir: Path | None = None
         self._runtime = None
         self._host = None
+        # 最近一轮的归因信息（工具调用/错误/失败点；供失败任务的 0 轮归因）
+        self._last_round: dict | None = None
 
     async def boot(self) -> None:
         from ink_engine.core.declarative_tools import DeclarativeToolSpec, EndpointType
@@ -418,6 +420,23 @@ class LiveAgentDriver(AgentDriver):
         outcome = await run_round(
             self._runtime, self._host, prompt, max_resumes=4, event_offset=0
         )
+        tool_calls = [
+            str(e.payload.get("tool", ""))
+            for e in outcome["events"]
+            if e.type == "tool_start"
+        ]
+        errors = [
+            str(e.payload.get("message", ""))
+            for e in outcome["events"]
+            if e.type == "error"
+        ]
+        self._last_round = {
+            "round": round_no,
+            "tool_calls": tool_calls,
+            "errors": errors,
+            "failure": detail,
+            "reason": getattr(outcome["result"].reason, "value", str(outcome["result"].reason)),
+        }
         digest_after = _digest(directory / "solution.py")
         return digest_before != digest_after
 
@@ -454,15 +473,20 @@ async def evaluate_async(
             baseline_red += 1
         success = green_at_start
         rounds = 0
+        last_round: dict | None = None
         for r in range(1, round_cap + 1):
             changed = await driver.fix_round(spec, proj, r)
+            last_round = getattr(driver, "_last_round", None)
             if not changed:
                 break
             rounds = r
             if run_tests(proj):
                 success = True
                 break
-        results.append({"name": spec.name, "success": success, "rounds": rounds})
+        result: dict = {"name": spec.name, "success": success, "rounds": rounds}
+        if last_round is not None:
+            result["last_round"] = last_round
+        results.append(result)
     passed = sum(1 for r in results if r["success"])
     avg_rounds = (
         sum(r["rounds"] for r in results if r["success"]) / passed if passed else 0.0
@@ -532,6 +556,7 @@ def main() -> int:
     parser.add_argument("--count", type=int, default=20, help="任务数（默认 20）")
     parser.add_argument("--target-rate", type=float, default=0.80, help="成功率达标线（默认 0.80）")
     parser.add_argument("--target-rounds", type=float, default=8.0, help="平均轮数达标上限")
+    parser.add_argument("--detail", action="store_true", help="输出失败任务归因明细（工具调用/错误/失败点）")
     args = parser.parse_args()
 
     tasks = build_tasks(args.count)
@@ -572,6 +597,16 @@ def main() -> int:
         for item in report["results"]:
             print(f"    - {item['name']}: {'全绿' if item['success'] else '失败'}"
                   f"（{item['rounds']} 轮）")
+        if args.detail:
+            print("  [归因明细：失败任务的最后一轮]")
+            for item in report["results"]:
+                if item["success"] or "last_round" not in item:
+                    continue
+                lr = item["last_round"]
+                tools = ", ".join(lr.get("tool_calls") or []) or "（未调用工具）"
+                errors = "；".join(lr.get("errors") or []) or "（无错误事件）"
+                print(f"    - {item['name']} 第{lr.get('round')}轮: 工具=[{tools}]"
+                      f" 错误=[{errors}] 失败点=[{lr.get('failure')}]")
     if args.self_test:
         ok = (
             report["passed"] == report["total"]

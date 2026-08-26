@@ -37,7 +37,7 @@ DENY = "deny"
 
 # 各权限域支持的判定动作（供校验与文档；匹配时 action 支持 fnmatch 通配）
 _DOMAIN_ACTIONS: dict[str, tuple[str, ...]] = {
-    "filesystem": ("read", "write", "delete"),
+    "filesystem": ("read", "write", "delete", "edit"),
     "process": ("exec",),
     "network": ("connect",),
 }

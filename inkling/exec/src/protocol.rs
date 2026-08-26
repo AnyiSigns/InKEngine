@@ -16,7 +16,7 @@
 //! 的无 id 消息仍会响应，这里按规范静默（MCP SDK 行为兼容优先）。
 
 use std::io::{BufRead, Write};
-use std::time::{SystemTime, UNIX_EPOCH};
+use std::time::{Instant, SystemTime, UNIX_EPOCH};
 
 use crate::json::{self, Object, Value};
 use crate::tool::{ToolError, ToolErrorKind};
@@ -42,7 +42,7 @@ const SERVER_VERSION: &str = "0.1.0";
 /// initialize 时回显/缺省用的协议版本（与 ts_seed_pack 一致）。
 const DEFAULT_PROTOCOL_VERSION: &str = "2025-06-18";
 
-/// 单行输入长度上限（16 MiB）：超限行跳过并留日志（防内存轰炸）。
+/// 单行输入长度上限（16 MiB）：超限行拒绝解析并回结构化错误（防内存轰炸）。
 const MAX_LINE_BYTES: usize = 16 * 1024 * 1024;
 
 /// 工具执行错误 → JSON-RPC 错误码映射（执行体不感知协议错误码）。
@@ -53,6 +53,7 @@ fn tool_error_code(kind: ToolErrorKind) -> i64 {
     }
 }
 
+/// 日志时间戳（墙钟，供 trace 对账；计时用 Instant——见 handle_line）。
 fn epoch_ms() -> u128 {
     SystemTime::now()
         .duration_since(UNIX_EPOCH)
@@ -60,13 +61,18 @@ fn epoch_ms() -> u128 {
         .unwrap_or(0)
 }
 
-/// stderr 结构化日志（JSON 行）：事件/请求 id/耗时/成败，trace 语义。
+/// stderr 结构化日志（JSON 行）：事件/请求 id/耗时/成败 + 失败时的
+/// error_code/error_message/tool（E16：失败日志不再只剩 ok:false）。
+#[allow(clippy::too_many_arguments)]
 fn log_line(
     event: &str,
     method: &str,
     id: &Value,
     duration_ms: u128,
     ok: bool,
+    error_code: Option<i64>,
+    error_message: Option<&str>,
+    tool: Option<&str>,
     detail: Option<&str>,
 ) {
     let mut obj = Object::new();
@@ -84,6 +90,15 @@ fn log_line(
     }
     obj.insert("duration_ms".to_string(), Value::Number(duration_ms as f64));
     obj.insert("ok".to_string(), Value::Bool(ok));
+    if let Some(code) = error_code {
+        obj.insert("error_code".to_string(), Value::Number(code as f64));
+    }
+    if let Some(message) = error_message {
+        obj.insert("error_message".to_string(), Value::String(message.to_string()));
+    }
+    if let Some(tool) = tool {
+        obj.insert("tool".to_string(), Value::String(tool.to_string()));
+    }
     if let Some(detail) = detail {
         obj.insert("detail".to_string(), Value::String(detail.to_string()));
     }
@@ -191,17 +206,22 @@ fn handle_tools_call(params: &Value) -> Result<Value, (i64, String)> {
 
 /// 处理一行输入：返回要写往 stdout 的响应行（None = 通知，无需响应）。
 pub fn handle_line(line: &str) -> Option<String> {
-    let start = epoch_ms();
+    // E18：耗时用 Instant（单调钟），NTP 回拨不会导致 u128 下溢
+    let start = Instant::now();
     let msg = match json::parse(line) {
         Ok(value) => value,
         Err(err) => {
+            let detail = err.to_string();
             log_line(
                 "rpc",
                 "",
                 &Value::Null,
-                epoch_ms() - start,
+                start.elapsed().as_millis(),
                 false,
-                Some(&err.to_string()),
+                Some(PARSE_ERROR),
+                Some(&detail),
+                None,
+                None,
             );
             return Some(error_response(
                 &Value::Null,
@@ -242,61 +262,145 @@ pub fn handle_line(line: &str) -> Option<String> {
     let method = match obj.get_str("method") {
         Some(m) => m,
         None => {
+            let message = "消息缺 method";
             log_line(
                 "rpc",
                 "",
                 &id,
-                epoch_ms() - start,
+                start.elapsed().as_millis(),
                 false,
-                Some("消息缺 method"),
+                Some(INVALID_REQUEST),
+                Some(message),
+                None,
+                None,
             );
-            return Some(error_response(
-                &id,
-                INVALID_REQUEST,
-                "消息缺 method".to_string(),
-            ));
+            return Some(error_response(&id, INVALID_REQUEST, message.to_string()));
         }
     };
     let params = obj.get("params").cloned().unwrap_or(Value::Null);
-    let outcome: Result<Option<String>, String> = match method {
+    let outcome: Result<Option<String>, (i64, String)> = match method {
         "initialize" => Ok(Some(response(&id, handle_initialize(&params)))),
         "tools/list" => Ok(Some(response(&id, handle_tools_list()))),
         "tools/call" => match handle_tools_call(&params) {
             Ok(result) => Ok(Some(response(&id, result))),
-            Err((code, message)) => Err(error_response(&id, code, message)),
+            Err((code, message)) => Err((code, message)),
         },
         "ping" => Ok(Some(response(&id, Value::Object(Object::new())))),
-        // 通知类方法（含 notifications/initialized）在无 id 分支已返回；
-        // 带 id 的通知方法同样按「无响应」处理（方法面兼容）
-        m if m.starts_with("notifications/") => Ok(None),
-        m => Err(error_response(
-            &id,
-            METHOD_NOT_FOUND,
-            format!("方法未实现: {}", m),
-        )),
+        // E25：带 id 的通知方法同样回响应（空 result）——只有无 id 消息
+        // 才是真通知（上面 message_id None 分支已处理）；带 id 不回响应
+        // 会令客户端悬挂等待
+        m if m.starts_with("notifications/") => {
+            Ok(Some(response(&id, Value::Object(Object::new()))))
+        }
+        m => Err((METHOD_NOT_FOUND, format!("方法未实现: {}", m))),
     };
+    let duration_ms = start.elapsed().as_millis();
     match outcome {
         Ok(Some(resp)) => {
-            log_line("rpc", method, &id, epoch_ms() - start, true, None);
+            log_line("rpc", method, &id, duration_ms, true, None, None, None, None);
             Some(resp)
         }
         Ok(None) => {
-            log_line("rpc", method, &id, epoch_ms() - start, true, None);
+            log_line("rpc", method, &id, duration_ms, true, None, None, None, None);
             None
         }
-        Err(resp) => {
-            log_line("rpc", method, &id, epoch_ms() - start, false, None);
-            Some(resp)
+        Err((code, message)) => {
+            // E16：失败日志补 code/message/tool 字段（排障不再只见 ok:false）
+            let tool = if method == "tools/call" {
+                params
+                    .as_object()
+                    .and_then(|o| o.get_str("name"))
+            } else {
+                None
+            };
+            log_line(
+                "rpc",
+                method,
+                &id,
+                duration_ms,
+                false,
+                Some(code),
+                Some(&message),
+                tool,
+                None,
+            );
+            Some(error_response(&id, code, message))
         }
     }
 }
 
+/// 限长行读取：追加到 buf（Vec<u8>，调用方负责 clear），至多 limit 字节
+/// 或到行尾（含 \n）。返回已读字节数（0 = EOF）。E8：任何路径都不把整行
+/// 无界读入内存——fill_buf 分段消费，超限即停（不等待行尾）。
+fn read_bounded_line<R: BufRead>(input: &mut R, buf: &mut Vec<u8>, limit: usize) -> std::io::Result<usize> {
+    let mut total = 0usize;
+    loop {
+        if total >= limit {
+            break;
+        }
+        // 借用作用域化：chunk 借用结束（consume 前）再消费
+        let (take, ended_with_newline) = {
+            let chunk = input.fill_buf()?;
+            if chunk.is_empty() {
+                break; // EOF
+            }
+            let take = chunk
+                .iter()
+                .position(|&b| b == b'\n')
+                .map(|i| i + 1)
+                .unwrap_or(chunk.len())
+                .min(limit - total);
+            if take == 0 {
+                break;
+            }
+            buf.extend_from_slice(&chunk[..take]);
+            (take, chunk[take - 1] == b'\n')
+        };
+        input.consume(take);
+        total += take;
+        if ended_with_newline {
+            break; // 完整行结束
+        }
+    }
+    Ok(total)
+}
+
+/// 排空到行尾（超限行余量，分块消费不落内存）。
+fn drain_to_line_end<R: BufRead>(input: &mut R) -> std::io::Result<usize> {
+    let mut total = 0usize;
+    loop {
+        let (take, ended_with_newline) = {
+            let chunk = input.fill_buf()?;
+            if chunk.is_empty() {
+                break; // EOF
+            }
+            let take = chunk
+                .iter()
+                .position(|&b| b == b'\n')
+                .map(|i| i + 1)
+                .unwrap_or(chunk.len());
+            (take, chunk[take - 1] == b'\n')
+        };
+        input.consume(take);
+        total += take;
+        if ended_with_newline {
+            break;
+        }
+    }
+    Ok(total)
+}
+
 /// 服务主循环（stdin 逐行 → stdout 响应；EOF 优雅退出 0；写失败退出 1）。
+///
+/// E8：行读取限长（read_line 无界读入会让 1 GiB 行常驻内存），超限行回
+/// 结构化 -32700 错误并排空余下到行尾（保持流对齐，不吞下一行）；大行
+/// 缓冲区一次性释放（不保留高水位）。
 pub fn run_server<R: BufRead, W: Write>(input: &mut R, output: &mut W) -> i32 {
-    let mut line = String::new();
+    let mut line: Vec<u8> = Vec::with_capacity(256);
     loop {
         line.clear();
-        match input.read_line(&mut line) {
+        let read = read_bounded_line(input, &mut line, MAX_LINE_BYTES + 1);
+        match read {
             Ok(0) => {
                 // EOF = 客户端关闭 stdio：优雅退出
                 if let Err(e) = output.flush() {
@@ -338,17 +442,73 @@ pub fn run_server<R: BufRead, W: Write>(input: &mut R, output: &mut W) -> i32 {
             }
         }
         if line.len() > MAX_LINE_BYTES {
+            // E8：超限行不回静默跳过——客户端会悬挂；回结构化 -32700 错误
+            // 并排空本行余量到行尾（限长读取已停在 MAX+1，余下按行清掉）
+            let message = format!("单行超过 {} 字节上限，拒绝解析", MAX_LINE_BYTES);
             log_line(
                 "rpc",
                 "",
                 &Value::Null,
                 0,
                 false,
-                Some("单行超过 16 MiB 上限，跳过"),
+                Some(PARSE_ERROR),
+                Some(&message),
+                None,
+                None,
             );
+            if let Err(e) = writeln!(output, "{}", error_response(&Value::Null, PARSE_ERROR, message)) {
+                eprintln!(
+                    "{}",
+                    json::serialize(&Value::Object({
+                        let mut obj = Object::new();
+                        obj.insert("ts".to_string(), Value::Number(epoch_ms() as f64));
+                        obj.insert("level".to_string(), Value::String("error".to_string()));
+                        obj.insert(
+                            "event".to_string(),
+                            Value::String("stdout_write".to_string()),
+                        );
+                        obj.insert(
+                            "detail".to_string(),
+                            Value::String(format!("stdout 写入失败: {}", e)),
+                        );
+                        obj
+                    }))
+                );
+                return 1;
+            }
+            let _ = output.flush();
+            // 排空余下到行尾（分块消费，不把超大行留在内存里）
+            if let Err(e) = drain_to_line_end(input) {
+                eprintln!(
+                    "{}",
+                    json::serialize(&Value::Object({
+                        let mut obj = Object::new();
+                        obj.insert("ts".to_string(), Value::Number(epoch_ms() as f64));
+                        obj.insert("level".to_string(), Value::String("error".to_string()));
+                        obj.insert(
+                            "event".to_string(),
+                            Value::String("stdin_read".to_string()),
+                        );
+                        obj.insert(
+                            "detail".to_string(),
+                            Value::String(format!("stdin 读取失败: {}", e)),
+                        );
+                        obj
+                    }))
+                );
+                return 1;
+            }
+            // 收缩超限缓冲（大行分配一次性释放）
+            line.clear();
+            line.shrink_to_fit();
             continue;
         }
-        let trimmed = line.trim();
+        if line.capacity() > MAX_LINE_BYTES {
+            line.clear();
+            line.shrink_to_fit();
+        }
+        // 缓冲里是 UTF-8（协议面），lossy 兜底不 panic
+        let trimmed = std::str::from_utf8(&line).unwrap_or("").trim();
         if trimmed.is_empty() {
             continue;
         }
@@ -484,5 +644,42 @@ mod tests {
         let value = json::parse(&resp).unwrap();
         let error = value.as_object().unwrap().get_object("error").unwrap();
         assert_eq!(error.get_f64("code"), Some(INVALID_REQUEST as f64));
+    }
+
+    #[test]
+    fn notification_with_id_gets_response() {
+        // E25：带 id 的通知方法必须回响应（否则客户端悬挂）；无 id 才静默
+        let resp = call(r#"{"jsonrpc": "2.0", "id": 8, "method": "notifications/whatever", "params": {}}"#)
+            .unwrap();
+        let value = json::parse(&resp).unwrap();
+        assert!(value.as_object().unwrap().get_object("result").is_some());
+        assert_eq!(
+            value.as_object().unwrap().get("id"),
+            Some(&Value::Number(8.0))
+        );
+    }
+
+    #[test]
+    fn overlong_line_gets_structured_error_and_recovers() {
+        // E8：超限行回结构化 -32700 错误（不回静默跳过），服务继续可用
+        let mut input = std::io::Cursor::new(Vec::<u8>::new());
+        input.get_mut().extend_from_slice(&vec![b'x'; MAX_LINE_BYTES + 10]);
+        input.get_mut().push(b'\n');
+        input.get_mut().extend_from_slice(
+            br#"{"jsonrpc":"2.0","id":9,"method":"ping"}"#.to_vec().as_slice(),
+        );
+        input.get_mut().push(b'\n');
+        let mut output = Vec::<u8>::new();
+        let code = run_server(&mut input, &mut output);
+        assert_eq!(code, 0, "EOF 优雅退出");
+        let text = String::from_utf8_lossy(&output);
+        let lines: Vec<&str> = text.lines().collect();
+        assert_eq!(lines.len(), 2, "超限行错误 + ping 响应: {}", text);
+        let first = json::parse(lines[0]).unwrap();
+        let error = first.as_object().unwrap().get_object("error").unwrap();
+        assert_eq!(error.get_f64("code"), Some(PARSE_ERROR as f64));
+        assert_eq!(first.as_object().unwrap().get("id"), Some(&Value::Null));
+        let second = json::parse(lines[1]).unwrap();
+        assert!(second.as_object().unwrap().get_object("result").is_some());
     }
 }

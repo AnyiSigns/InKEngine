@@ -506,8 +506,13 @@ impl<'a> Parser<'a> {
         }
         let text = &self.bytes[start..self.pos];
         let text = std::str::from_utf8(text).map_err(|_| self.error("数字非 UTF-8"))?;
-        // 严格语法的数字经 from_str 一定能解析（语法已按 JSON 数字文法校验）
+        // 语法已按 JSON 数字文法校验；但超范围字面量（如 1e400）经 from_str
+        // 会解析为 inf 而非报错——inf/NaN 序列化为非法 JSON（E3），
+        // 此处显式拒绝非有限数（fail-fast，不产出污染协议行的值）。
         let number: f64 = text.parse().map_err(|_| self.error("数字超出可表示范围"))?;
+        if !number.is_finite() {
+            return Err(self.error("数字超出可表示范围"));
+        }
         Ok(Value::Number(number))
     }
 }
@@ -529,8 +534,13 @@ pub fn parse(input: &str) -> Result<Value, ParseError> {
     Parser::parse(input)
 }
 
-/// 数字序列化：整数值输出整数形态（无 ".0"），其余输出最短往返表示。
+/// 数字序列化：整数值输出整数形态（无 ".0"），其余输出最短往返表示；
+/// 非有限数（inf/NaN，理论不可达——解析期已拒绝）防御性输出 null，
+/// 保证任何路径都产不出非法 JSON（E3）。
 fn format_number(n: f64) -> String {
+    if !n.is_finite() {
+        return "null".to_string();
+    }
     if n.fract() == 0.0 && n.abs() < 9.007_199_254_740_992e15 {
         format!("{}", n as i64)
     } else {
@@ -651,6 +661,22 @@ mod tests {
     fn rejects_deep_nesting() {
         let deep = "[".repeat(200).to_string();
         assert!(parse(&deep).is_err());
+    }
+
+    #[test]
+    fn rejects_out_of_range_number() {
+        // 1e400 语法合法但超出 f64 可表示范围：from_str 返回 Ok(inf)，
+        // 若放行会序列化成非法 JSON——必须显式拒绝（E3）
+        assert!(parse("1e400").is_err());
+        assert!(parse("-1e400").is_err());
+    }
+
+    #[test]
+    fn non_finite_serializes_as_null() {
+        // 防御性兜底：任何路径产生的 inf/NaN 序列化输出 null（不产出非法 JSON）
+        assert_eq!(serialize(&Value::Number(f64::INFINITY)), "null");
+        assert_eq!(serialize(&Value::Number(f64::NEG_INFINITY)), "null");
+        assert_eq!(serialize(&Value::Number(f64::NAN)), "null");
     }
 
     #[test]

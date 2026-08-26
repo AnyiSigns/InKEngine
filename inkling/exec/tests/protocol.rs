@@ -116,11 +116,23 @@ fn tools_list_metadata_shape() {
         7,
         "执行体清单 = 采集/解析/校验/评分/评审/蒸馏/变异"
     );
-    for tool in tools {
+    // 工具名 = seed_data/tools.json 声明名（决议 1：seed 为真源，exec 适配）
+    let expected_names = [
+        "collect_material",
+        "parse_material",
+        "validate_material",
+        "score_material",
+        "review_material",
+        "distill_knowledge",
+        "mutate_knowledge",
+    ];
+    for (i, tool) in tools.iter().enumerate() {
         let obj = tool.as_object().unwrap();
-        assert!(
-            obj.get_str("name").unwrap().starts_with("inkling_"),
-            "工具名须带 inkling_ 前缀"
+        assert_eq!(
+            obj.get_str("name"),
+            Some(expected_names[i]),
+            "工具名须与声明名一致（工具 #{}）",
+            i
         );
         assert!(!obj.get_str("description").unwrap().is_empty());
         let schema = obj.get_object("inputSchema").unwrap();
@@ -142,7 +154,7 @@ fn validate_tool_pass_and_fail_paths() {
     let out = call_tool(
         &mut exec,
         10,
-        "inkling_validate",
+        "validate_material",
         r#"{"data":{"title":"溯源方法论","title_length":6,"kind":"insight","source":"model","evidence":"证据","text":"普通文本。","credibility":0.8,"count":2,"limit":5,"tags":[{"tag":"方法"},{"tag":"溯源"}],"from_state":"draft","to_state":"reviewing"}}"#,
     );
     let text = content_text(&out);
@@ -161,7 +173,7 @@ fn validate_tool_pass_and_fail_paths() {
     let out = call_tool(
         &mut exec,
         11,
-        "inkling_validate",
+        "validate_material",
         r#"{"data":{"kind":"rule","source":"model","evidence":"证据"}}"#,
     );
     let text = content_text(&out);
@@ -180,7 +192,7 @@ fn distill_tool_returns_engine_shape() {
     let out = call_tool(
         &mut exec,
         12,
-        "inkling_distill",
+        "distill_knowledge",
         r#"{"signals":[{"kind":"insight","message":"知识沉淀需证据留痕","source":"model","context":{"node":"research"}},{"kind":"pitfall","message":"无证据落库被拒","source":"web"}],"complexity":6,"interventions":1}"#,
     );
     let text = content_text(&out);
@@ -199,8 +211,8 @@ fn collect_text_and_review_roundtrip() {
     let out = call_tool(
         &mut exec,
         13,
-        "inkling_collect",
-        r#"{"source":"text","text":"hello","max_bytes":3}"#,
+        "collect_material",
+        r#"{"text":"hello","max_bytes":3}"#,
     );
     let parsed = parse_response(&content_text(&out));
     assert_eq!(
@@ -211,7 +223,7 @@ fn collect_text_and_review_roundtrip() {
     let out = call_tool(
         &mut exec,
         14,
-        "inkling_review",
+        "review_material",
         r#"{"candidates":[{"text":"xxxxxxxxxxxxxxxxxxxx","claims":["a","b","c"]}],"dimension_scores":[{"candidate_index":0,"name":"evidence","score":0.9},{"candidate_index":0,"name":"relevance","score":0.8},{"candidate_index":0,"name":"clarity","score":0.8},{"candidate_index":0,"name":"completeness","score":0.8}]}"#,
     );
     let parsed = parse_response(&content_text(&out));
@@ -249,7 +261,7 @@ fn missing_tool_name_returns_structured_error() {
 #[test]
 fn non_object_arguments_returns_structured_error() {
     let mut exec = spawn();
-    let resp = parse_response(&exec.roundtrip(r#"{"jsonrpc":"2.0","id":23,"method":"tools/call","params":{"name":"inkling_validate","arguments":[1,2]}}"#));
+    let resp = parse_response(&exec.roundtrip(r#"{"jsonrpc":"2.0","id":23,"method":"tools/call","params":{"name":"validate_material","arguments":[1,2]}}"#));
     assert_eq!(
         error_code_of(&resp),
         -32602.0,
@@ -261,14 +273,15 @@ fn non_object_arguments_returns_structured_error() {
 #[test]
 fn tool_domain_error_returns_32000() {
     let mut exec = spawn();
-    // https 取回 = 领域能力边界（需宿主 web_bridge 代理）→ 工具执行错误
+    // URL 取回 = 走宿主 web_bridge 代理（决议 9：exec 禁直接出网）；
+    // 代理契约未接线前 fail-closed → 工具执行错误
     let out = call_tool(
         &mut exec,
         24,
-        "inkling_collect",
-        r#"{"source":"url","url":"https://example.com"}"#,
+        "collect_material",
+        r#"{"url":"https://example.com"}"#,
     );
-    assert_eq!(error_code_of(&out), -32000.0, "https 取回须报工具执行错误");
+    assert_eq!(error_code_of(&out), -32000.0, "url 取回须报工具执行错误");
     assert!(
         error_message_of(&out).contains("web_bridge"),
         "错误消息须给出可操作指引"
@@ -363,6 +376,45 @@ fn no_id_request_is_treated_as_notification() {
     exec.close_and_wait();
 }
 
+#[test]
+fn notification_with_id_gets_response() {
+    // E25：带 id 的通知方法也必须回响应（客户端按请求语义等待，不回会悬挂）
+    let mut exec = spawn();
+    let resp = parse_response(
+        &exec.roundtrip(r#"{"jsonrpc":"2.0","id":35,"method":"notifications/whatever","params":{}}"#),
+    );
+    assert!(
+        result_of(&resp).is_empty(),
+        "带 id 通知应回空 result 响应"
+    );
+    assert_eq!(
+        resp.as_object().unwrap().get("id"),
+        Some(&Value::Number(35.0)),
+        "响应须回显请求 id"
+    );
+    exec.close_and_wait();
+}
+
+#[test]
+fn overlong_line_returns_structured_error_and_recovers() {
+    // E8：16 MiB+ 超限行必须回结构化 -32700 错误（不能静默跳过——客户端
+    // 会悬挂），且服务端继续可用（排空行余量、保持流对齐）
+    let mut exec = spawn();
+    exec.roundtrip(INITIALIZE);
+    let huge = "x".repeat(16 * 1024 * 1024 + 16);
+    let resp = parse_response(&exec.roundtrip(&huge));
+    assert_eq!(error_code_of(&resp), -32700.0, "超限行 = 解析错误");
+    assert!(
+        error_message_of(&resp).contains("上限"),
+        "错误消息须说明超限: {}",
+        error_message_of(&resp)
+    );
+    // 排空后服务端继续正常服务
+    let resp = parse_response(&exec.roundtrip(r#"{"jsonrpc":"2.0","id":36,"method":"ping"}"#));
+    assert!(result_of(&resp).is_empty());
+    exec.close_and_wait();
+}
+
 // -- 退出语义与可观测性 ------------------------------------------------------
 
 #[test]
@@ -378,12 +430,14 @@ fn stderr_logs_are_structured_json_lines() {
     let mut exec = spawn();
     exec.roundtrip(INITIALIZE);
     exec.roundtrip(r#"{"jsonrpc":"2.0","id":41,"method":"tools/list"}"#);
+    // 制造一次失败调用：失败日志须带 error_code/error_message/tool（E16）
+    call_tool(&mut exec, 42, "no_such_tool", "{}");
     // stderr 由独立线程异步收集：轮询等待（上限 3 秒），避免收集时序竞争
     let mut logs = Vec::new();
     let deadline = std::time::Instant::now() + std::time::Duration::from_secs(3);
-    while logs.is_empty() && std::time::Instant::now() < deadline {
+    while logs.len() < 3 && std::time::Instant::now() < deadline {
         logs = exec.stderr_logs();
-        if logs.is_empty() {
+        if logs.len() < 3 {
             std::thread::sleep(std::time::Duration::from_millis(20));
         }
     }
@@ -405,5 +459,29 @@ fn stderr_logs_are_structured_json_lines() {
         list_log.contains("\"id\":41"),
         "请求 id 须透传进日志: {}",
         list_log
+    );
+    // E16：失败日志须含错误码/消息/工具名（排障不再只剩 ok:false）
+    let failure_log = logs
+        .iter()
+        .find(|l| l.contains("\"ok\":false"))
+        .expect("失败调用应有失败日志");
+    let value = parse_response(failure_log);
+    let obj = value.as_object().unwrap();
+    assert_eq!(
+        obj.get_f64("error_code"),
+        Some(-32602.0),
+        "失败日志须带 error_code: {}",
+        failure_log
+    );
+    assert!(
+        obj.get_str("error_message").unwrap_or("").contains("未知工具"),
+        "失败日志须带 error_message: {}",
+        failure_log
+    );
+    assert_eq!(
+        obj.get_str("tool"),
+        Some("no_such_tool"),
+        "失败日志须带 tool 名: {}",
+        failure_log
     );
 }

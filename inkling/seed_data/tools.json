@@ -2,17 +2,21 @@
   "tools": [
     {
       "name": "collect_material",
-      "description": "行为意图：把研究素材采集回来——文本直取或 URL 取回，产物是未经解析的原始材料（title/text/source），只入料不加工。\n\n使用时机：研究课题/知识沉淀需要素材时；用户直接粘贴长文本、或给出一个待研究的 URL 时。\n\n取舍与替代选项：粘贴的文本走 text，URL 取回走 url，一次调用只采一个来源；与 fetch 工具的分工——fetch 是即时抓取单个网页原文直接支撑回答（出厂域名白名单），collect_material 是研究流程的入料环节（走 inkling_exec 会话）；判断标准是「是否要进知识沉淀链」，要进链用本工具。\n\n参数语义：url=待取回的 URL（与 text 二选一）；text=直接粘贴的文本内容。\n\n边界与协作：出网行为由 inkling_exec server 侧策略约束，挂载时经 vetting 核对；原始材料不得直接作为知识条目，须经 parse_material 结构化、validate_material 校验后才有资格沉淀；多个来源分别调用，一次一料。",
+      "description": "行为意图：把研究素材采集回来——文本直取或 URL 取回，产物是未经解析的原始材料（title/text/source），只入料不加工。\n\n使用时机：研究课题/知识沉淀需要素材时；用户直接粘贴长文本、或给出一个待研究的 URL 时。\n\n取舍与替代选项：粘贴的文本走 text，URL 取回走 url，一次调用只采一个来源；与 fetch 工具的分工——fetch 是即时抓取单个网页原文直接支撑回答（出厂域名白名单），collect_material 是研究流程的入料环节（走 inkling_exec 会话）；判断标准是「是否要进知识沉淀链」，要进链用本工具。\n\n参数语义：url=待取回的 URL（经宿主 web_bridge 代理取回，与 text 二选一）；text=直接粘贴的文本内容（与 url 二选一）；max_bytes=大小上限保护（默认 1 MiB，超出截断并标记）。\n\n边界与协作：URL 取回经宿主 web_bridge 代理（域名白名单/禁重定向/截断/超时整体收口，代理契约以引擎侧 E-P7 后 mcp_client.py 为准）；exec 侧禁直接出网，契约未接线前 url 调用返回结构化错误；原始材料不得直接作为知识条目，须经 parse_material 结构化、validate_material 校验后才有资格沉淀；多个来源分别调用，一次一料。",
       "parameters": {
         "type": "object",
         "properties": {
           "url": {
             "type": "string",
-            "description": "待取回的 URL"
+            "description": "待取回的 URL（经宿主 web_bridge 代理取回，与 text 二选一）"
           },
           "text": {
             "type": "string",
-            "description": "直接粘贴的文本内容"
+            "description": "直接粘贴的文本内容（与 url 二选一）"
+          },
+          "max_bytes": {
+            "type": "integer",
+            "description": "大小上限保护（默认 1 MiB，超出截断并标记）"
           }
         },
         "required": []
@@ -37,17 +41,65 @@
     },
     {
       "name": "parse_material",
-      "description": "行为意图：把原始材料结构化——按声明式抽取规格从文本中抽出标题/正文/要点/来源引用，是「采集→知识」之间的整形环节。\n\n使用时机：collect_material 产出原始材料后、做校验/评分/评审之前；材料是纯文本、后续要复用其内容时。\n\n取舍与替代选项：一次性问答场景直接用原始文本即可，不必 parse；需要内容化沉淀时再结构化；与 validate_material 的分工——本工具只整形不管好坏，校验管「合规与否」，评分管「证据强弱」。\n\n参数语义：material=待解析的原始材料对象（collect_material 产物，含 title/text/source）。\n\n边界与协作：纯计算无副作用、无出网（allow 档）；解析产物被 score_material/review_material 消费；关键字段缺失时回落原文，不以空壳数据进下游链。",
+      "description": "行为意图：把原始材料结构化——按声明式抽取规格从文本中抽出标题/正文/要点/来源引用，是「采集→知识」之间的整形环节。\n\n使用时机：collect_material 产出原始材料后、做校验/评分/评审之前；材料是纯文本、后续要复用其内容时。\n\n取舍与替代选项：一次性问答场景直接用原始文本即可，不必 parse；需要内容化沉淀时再结构化；与 validate_material 的分工——本工具只整形不管好坏，校验管「合规与否」，评分管「证据强弱」。\n\n参数语义：text=待解析文本；spec=抽取规格清单（每条声明 name/kind/start/end/prefix/needle）。\n\n边界与协作：纯计算无副作用、无出网（allow 档）；解析产物被 score_material/review_material 消费；关键字段缺失时回落原文，不以空壳数据进下游链。",
       "parameters": {
         "type": "object",
         "properties": {
-          "material": {
-            "type": "object",
-            "description": "待解析的原始材料对象"
+          "text": {
+            "type": "string",
+            "description": "待解析文本"
+          },
+          "spec": {
+            "type": "array",
+            "items": {
+              "type": "object",
+              "properties": {
+                "name": {
+                  "type": "string",
+                  "description": "字段名"
+                },
+                "kind": {
+                  "type": "string",
+                  "enum": [
+                    "between",
+                    "line_prefix",
+                    "count",
+                    "contains"
+                  ],
+                  "description": "抽取方式"
+                },
+                "start": {
+                  "type": "string",
+                  "description": "between：起始标记"
+                },
+                "end": {
+                  "type": "string",
+                  "description": "between：结束标记"
+                },
+                "prefix": {
+                  "type": "string",
+                  "description": "line_prefix：行前缀"
+                },
+                "include_prefix": {
+                  "type": "boolean",
+                  "description": "line_prefix：结果是否含前缀"
+                },
+                "needle": {
+                  "type": "string",
+                  "description": "count/contains：查找串"
+                }
+              },
+              "required": [
+                "name",
+                "kind"
+              ]
+            },
+            "description": "抽取规格清单"
           }
         },
         "required": [
-          "material"
+          "text",
+          "spec"
         ]
       },
       "permissions": [
@@ -108,24 +160,97 @@
     },
     {
       "name": "score_material",
-      "description": "行为意图：对解析后材料做引用质量/交叉验证等维度的确定性评分（0-1），给「这份材料证据多硬」一个量化读数。\n\n使用时机：材料齐备、需要量化证据强度时；评审收敛循环里给候选打明细分时。\n\n取舍与替代选项：只看违规——validate_material；要多维度加权与收敛决策——review_material；本工具是维度明细打分，供收敛判定消费；若只是问「这材料行不行」，直接读原文往往更快。\n\n参数语义：material=解析后的材料对象；dimensions=评分维度子集（缺省全量）。\n\n边界与协作：评分不改材料本身；交叉验证比对样例库基准事实；打分结果喂给 review_material 做加权判定，不直接决定取舍。",
+      "description": "行为意图：对候选答案做引用质量/交叉验证等维度的确定性评分（0-1），给「这份材料证据多硬」一个量化读数。\n\n使用时机：材料齐备、需要量化证据强度时；评审收敛循环里给候选打明细分时。\n\n取舍与替代选项：只看违规——validate_material；要多维度加权与收敛决策——review_material；本工具是维度明细打分，供收敛判定消费；若只是问「这材料行不行」，往往直接读原文更快。\n\n参数语义：answer=候选答案对象（含 claims 断言清单，citations 引用清单可选）；sources=引用来源文本（可验证性基准）；weights=四维度权重覆盖（缺省出厂口径）。\n\n边界与协作：评分不改材料本身；交叉验证比对样例库基准事实；打分结果喂给 review_material 做加权判定，不直接决定取舍。",
       "parameters": {
         "type": "object",
         "properties": {
-          "material": {
+          "answer": {
             "type": "object",
-            "description": "解析后的材料对象"
+            "properties": {
+              "text": {
+                "type": "string",
+                "description": "候选答案文本"
+              },
+              "claims": {
+                "type": "array",
+                "items": {
+                  "type": "object",
+                  "properties": {
+                    "text": {
+                      "type": "string",
+                      "description": "断言文本"
+                    }
+                  },
+                  "required": [
+                    "text"
+                  ]
+                },
+                "description": "断言清单"
+              },
+              "citations": {
+                "type": "array",
+                "items": {
+                  "type": "object",
+                  "properties": {
+                    "claim_index": {
+                      "type": "integer",
+                      "description": "断言下标"
+                    },
+                    "source_id": {
+                      "type": "string",
+                      "description": "来源 id"
+                    },
+                    "quote": {
+                      "type": "string",
+                      "description": "引用原文"
+                    }
+                  },
+                  "required": [
+                    "claim_index",
+                    "source_id",
+                    "quote"
+                  ]
+                },
+                "description": "引用清单"
+              }
+            },
+            "required": [
+              "claims"
+            ],
+            "description": "候选答案对象"
           },
-          "dimensions": {
+          "sources": {
             "type": "array",
             "items": {
-              "type": "string"
+              "type": "object",
+              "properties": {
+                "id": {
+                  "type": "string",
+                  "description": "来源 id"
+                },
+                "title": {
+                  "type": "string",
+                  "description": "来源标题"
+                },
+                "text": {
+                  "type": "string",
+                  "description": "来源正文"
+                }
+              },
+              "required": [
+                "id",
+                "text"
+              ]
             },
-            "description": "评分维度子集（缺省全量）"
+            "description": "引用来源文本（可验证性基准）"
+          },
+          "weights": {
+            "type": "object",
+            "description": "四维度权重覆盖（缺省 = 出厂默认口径，总和 1.0）"
           }
         },
         "required": [
-          "material"
+          "answer"
         ]
       },
       "permissions": [
@@ -147,20 +272,64 @@
     },
     {
       "name": "review_material",
-      "description": "行为意图：评审收敛循环的执行体——按 review.json 的维度/阈值/轮次上限对候选输出打分、给出 failing_dimensions 与改进意见，并输出收敛决策（接受/再生成/呈交现状）。\n\n使用时机：候选输出定稿前必须过一遍；「生成→评审→再生成」循环每轮调用。\n\n取舍与替代选项：单项内容检查——score_material；合规性裁决——validate_material；「该不该收、要不要再改」的加权总评与轮次判定——只有本工具。\n\n参数语义：candidates=候选输出清单（文本与引用声明）；context=评审上下文（问题/材料基线）。\n\n边界与协作：维度/阈值/轮次上限全部数据驱动（review.json）；达到轮次上限呈交现状并附 notes，不无限循环；评审卡经审批管线对用户可见，评审通过后方可沉淀。",
+      "description": "行为意图：评审收敛循环的执行体——按 review.json 的维度/阈值/轮次上限对候选输出打分、给出 failing_dimensions 与改进意见，并输出收敛决策（接受/再生成/呈交现状）。\n\n使用时机：候选输出定稿前必须过一遍；「生成→评审→再生成」循环每轮调用。\n\n取舍与替代选项：单项内容检查——score_material；合规性裁决——validate_material；「该不该收、要不要再改」的加权总评与轮次判定——只有本工具。\n\n参数语义：candidates=候选输出清单（每条含 text 与可选的 claims/citations）；dimension_scores=显式维度得分（缺省 = 确定性启发式默认口径）；round_no=当前再生成轮次。\n\n边界与协作：维度/阈值/轮次上限全部数据驱动（review.json）；达到轮次上限呈交现状并附 notes，不无限循环；评审卡经审批管线对用户可见，评审通过后方可沉淀。",
       "parameters": {
         "type": "object",
         "properties": {
           "candidates": {
             "type": "array",
             "items": {
-              "type": "string"
+              "type": "object",
+              "properties": {
+                "text": {
+                  "type": "string",
+                  "description": "候选文本"
+                },
+                "claims": {
+                  "type": "array",
+                  "description": "断言清单（完备性启发式用）"
+                },
+                "citations": {
+                  "type": "array",
+                  "description": "引用清单（证据启发式用）"
+                },
+                "topic": {
+                  "type": "string",
+                  "description": "主题（相关性启发式用）"
+                }
+              }
             },
             "description": "候选输出清单"
           },
-          "context": {
-            "type": "object",
-            "description": "评审上下文"
+          "dimension_scores": {
+            "type": "array",
+            "items": {
+              "type": "object",
+              "properties": {
+                "candidate_index": {
+                  "type": "integer",
+                  "description": "候选下标"
+                },
+                "name": {
+                  "type": "string",
+                  "description": "维度名"
+                },
+                "score": {
+                  "type": "number",
+                  "description": "得分（0-1）"
+                }
+              },
+              "required": [
+                "candidate_index",
+                "name",
+                "score"
+              ]
+            },
+            "description": "显式维度得分（缺省 = 确定性启发式默认口径）；显式提供时该候选全部配置维度须齐全"
+          },
+          "round_no": {
+            "type": "integer",
+            "description": "当前再生成轮次（收敛决策用）"
           }
         },
         "required": [
@@ -186,16 +355,46 @@
     },
     {
       "name": "distill_knowledge",
-      "description": "行为意图：把执行信号序列（五类）蒸馏成结构化知识数据（rule 形态声明）——丢弃试错分支，只保留可落库的心得。\n\n使用时机：一轮执行产生了信号（gap/insight/pitfall/repeated_root_cause/user_correction）需要沉淀时；失败/纠正经验入库前。\n\n取舍与替代选项：只要归档单条事实——直接记知识条目；要从信号归纳「规则形态」的教训——本工具；已有条目要进化——mutate_knowledge；先蒸馏得到母体，再谈变异，两者是先后关系。\n\n参数语义：signals=执行信号序列（每条含 kind/message/context）。\n\n边界与协作：产物为 rule 形态声明，须过校验闸门（validate_material/样例闸门）才可入集；蒸馏先于变异；不产证据支持的教训会被拦截（无依据不落库）。",
+      "description": "行为意图：把执行信号序列（五类）蒸馏成结构化知识数据（rule 形态声明）——丢弃试错分支，只保留可落库的心得。\n\n使用时机：一轮执行产生了信号（gap/insight/pitfall/repeated_root_cause/user_correction）需要沉淀时；失败/纠正经验入库前。\n\n取舍与替代选项：只要归档单条事实——直接记知识条目；要从信号归纳「规则形态」的教训——本工具；已有条目要进化——mutate_knowledge；先蒸馏得到母体，再谈变异，两者是先后关系。\n\n参数语义：signals=执行信号序列（每条含 kind/message，source/context 可选）；complexity=任务复杂度；interventions=用户干预次数（双阈值按需触发判定用）。\n\n边界与协作：产物为 rule 形态声明，须过校验闸门（validate_material/样例闸门）才可入集；蒸馏先于变异；不产证据支持的教训会被拦截（无依据不落库）。",
       "parameters": {
         "type": "object",
         "properties": {
           "signals": {
             "type": "array",
             "items": {
-              "type": "object"
+              "type": "object",
+              "properties": {
+                "kind": {
+                  "type": "string",
+                  "description": "信号类别"
+                },
+                "message": {
+                  "type": "string",
+                  "description": "信号内容"
+                },
+                "source": {
+                  "type": "string",
+                  "description": "来源（web/dialog/model/user）"
+                },
+                "context": {
+                  "type": "object",
+                  "description": "关联上下文"
+                }
+              },
+              "required": [
+                "kind",
+                "message"
+              ]
             },
             "description": "执行信号序列（五类）"
+          },
+          "complexity": {
+            "type": "integer",
+            "description": "任务复杂度（蒸馏按需触发判定用）"
+          },
+          "interventions": {
+            "type": "integer",
+            "description": "用户干预次数（蒸馏按需触发判定用）"
           }
         },
         "required": [
@@ -221,7 +420,7 @@
     },
     {
       "name": "mutate_knowledge",
-      "description": "行为意图：按失败日志对母体知识条目做反思式变异——产出携 _mutation 留痕（variant_of/based_on）的变体，数量随失败信号动态，是进化工厂的变异执行体。\n\n使用时机：某条知识实际使用失败率偏高、需要候选变体时；failure_logs 是必须输入（无失败日志=零变异，不做无依据变异）。\n\n取舍与替代选项：从信号做全新归纳——distill_knowledge；只是略改文案——直接改，不必变异；本工具=「失败反思驱动」的规则进化入口。\n\n参数语义：entry=母体知识条目；failure_logs=近期失败日志清单。\n\n边界与协作：变体不自动替换母体，须过三层验证闸门与评审筛选取舍；变异留痕保证可追溯回母体与失败日志；与 distill_knowledge 的分工：前者造新、本工具改旧。",
+      "description": "行为意图：按失败日志对母体知识条目做反思式变异——产出携 _mutation 留痕（variant_of/based_on）的变体，数量随失败信号动态，是进化工厂的变异执行体。\n\n使用时机：某条知识实际使用失败率偏高、需要候选变体时；failure_logs 是必须输入（无失败日志=零变异，不做无依据变异）。\n\n取舍与替代选项：从信号做全新归纳——distill_knowledge；只是略改文案——直接改，不必变异；本工具=「失败反思驱动」的规则进化入口。\n\n参数语义：entry=母体知识条目（data 须为对象，变异基底）；failure_logs=近期失败日志清单；max_variants=变体数量上限；failure_rate=母体失败率（≥0.3 高失败率 → 多探索）。\n\n边界与协作：变体不自动替换母体，须过三层验证闸门与评审筛选取舍；变异留痕保证可追溯回母体与失败日志；与 distill_knowledge 的分工：前者造新、本工具改旧。",
       "parameters": {
         "type": "object",
         "properties": {
@@ -235,6 +434,14 @@
               "type": "string"
             },
             "description": "近期失败日志"
+          },
+          "max_variants": {
+            "type": "integer",
+            "description": "变体数量上限（默认 3）"
+          },
+          "failure_rate": {
+            "type": "number",
+            "description": "母体失败率（≥0.3 高失败率 → 多探索）"
           }
         },
         "required": [

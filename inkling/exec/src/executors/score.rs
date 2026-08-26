@@ -156,16 +156,46 @@ fn normalize(text: &str) -> String {
     out.trim_end().to_string()
 }
 
-/// 断言是否被基准事实支持：断言文本归一化后包含于任一事实陈述。
-fn cross_validated(claim: &str, facts: &[&str]) -> bool {
-    let needle = normalize(claim);
-    if needle.is_empty() {
-        return false;
-    }
-    facts.iter().any(|f| normalize(f).contains(&needle))
+/// 交叉验证命中阈值：重叠度 ≥ 此值视为被基准事实支持（E22 口径）。
+const CROSS_VALIDATION_THRESHOLD: f64 = 0.5;
+
+/// 字符 bigram（重叠度计算单元；中文无空白分词，bigram 是稳定可解释口径）。
+fn char_bigrams(text: &str) -> Vec<(char, char)> {
+    let chars: Vec<char> = text.chars().collect();
+    chars.windows(2).map(|w| (w[0], w[1])).collect()
 }
 
-/// inkling_score：参数 {answer: {claims, citations?}, sources?, weights?}。
+/// 断言与单条基准事实的重叠度：整条包含 = 1.0；否则按断言字符 bigram
+/// 在事实中的出现比例度量（E22：从「整条子串」放宽为可解释重叠度，
+/// 消除系统性恒 0 压低 0.3 权重的问题）。
+fn overlap_degree(needle: &str, hay: &str) -> f64 {
+    if needle.is_empty() {
+        return 0.0;
+    }
+    if hay.contains(needle) {
+        return 1.0;
+    }
+    let ngrams = char_bigrams(needle);
+    if ngrams.is_empty() {
+        return 0.0;
+    }
+    let hit = ngrams
+        .iter()
+        .filter(|(a, b)| hay.contains(&format!("{}{}", a, b)))
+        .count();
+    hit as f64 / ngrams.len() as f64
+}
+
+/// 断言对基准事实库的重叠度（取最高者；fact 已归一化缓存，E21 免
+/// N×M 重复 re-normalize）。
+fn claim_overlap(claim_norm: &str, normalized_facts: &[String]) -> f64 {
+    normalized_facts
+        .iter()
+        .map(|fact| overlap_degree(claim_norm, fact))
+        .fold(0.0_f64, f64::max)
+}
+
+/// score_material：参数 {answer: {claims, citations?}, sources?, weights?}。
 pub fn run(args: &Value) -> Result<Value, ToolError> {
     let args = args
         .as_object()
@@ -287,7 +317,9 @@ pub fn run(args: &Value) -> Result<Value, ToolError> {
         }
     }
 
-    // 基准事实（样例库数据绑定）：samples.json facts → 交叉验证基准
+    // 基准事实（样例库数据绑定）：samples.json facts → 交叉验证基准。
+    // 归一化一次性预计算（E21：避免对每条断言全量 re-normalize 的 N×M
+    // 重复计算）。
     let samples = crate::data::load_json_file("samples.json")
         .map_err(|e| ToolError::new(ToolErrorKind::ToolError, e))?;
     let facts: Vec<String> = samples
@@ -298,7 +330,7 @@ pub fn run(args: &Value) -> Result<Value, ToolError> {
         .filter_map(|f| f.as_object().and_then(|o| o.get_str("statement")))
         .map(|s| s.to_string())
         .collect();
-    let fact_refs: Vec<&str> = facts.iter().map(String::as_str).collect();
+    let normalized_facts: Vec<String> = facts.iter().map(|f| normalize(f)).collect();
 
     // 引用可验证性：quote 是所引来源正文的子串（宽松：去掉首尾空白后比较）
     let verified_citations: Vec<bool> = citations
@@ -320,10 +352,15 @@ pub fn run(args: &Value) -> Result<Value, ToolError> {
         .map(|i| citations.iter().any(|(idx, _, _)| *idx == i))
         .collect();
 
-    // 交叉验证：断言被样例库基准事实支持
-    let validated_claims: Vec<bool> = claims
+    // 交叉验证：断言与基准事实的重叠度（E22 可解释口径：整条包含 = 1.0，
+    // 否则 bigram 包含比例；阈值以上视为「被支持」）
+    let claim_overlaps: Vec<f64> = claims
         .iter()
-        .map(|c| cross_validated(c, &fact_refs))
+        .map(|c| claim_overlap(&normalize(c), &normalized_facts))
+        .collect();
+    let validated_claims: Vec<bool> = claim_overlaps
+        .iter()
+        .map(|o| *o >= CROSS_VALIDATION_THRESHOLD)
         .collect();
 
     // 证据覆盖率：既有引用又被基准支持
@@ -345,7 +382,12 @@ pub fn run(args: &Value) -> Result<Value, ToolError> {
     } else {
         verified_citations.iter().filter(|v| **v).count() as f64 / citations.len() as f64
     };
-    let cross_validation = ratio(&validated_claims);
+    // 交叉验证 = 平均重叠度（可解释度量，替代布尔占比）
+    let cross_validation = if claims.is_empty() {
+        0.0
+    } else {
+        claim_overlaps.iter().sum::<f64>() / total_claims
+    };
     let coverage = ratio(&covered_claims);
 
     let weight_sum: f64 = weights.iter().map(|(_, w)| w).sum();
@@ -378,7 +420,7 @@ pub fn run(args: &Value) -> Result<Value, ToolError> {
             ("score", Value::Number(cross_validation)),
             (
                 "note",
-                Value::String("被样例库基准事实支持的断言占比".to_string()),
+                Value::String("断言与样例库基准事实的平均重叠度（E22 可解释口径）".to_string()),
             ),
         ]),
         object_from_pairs(vec![
@@ -398,6 +440,7 @@ pub fn run(args: &Value) -> Result<Value, ToolError> {
                 ("text", Value::String(claims[i].to_string())),
                 ("cited", Value::Bool(cited_claims[i])),
                 ("cross_validated", Value::Bool(validated_claims[i])),
+                ("overlap", Value::Number(claim_overlaps[i])),
                 ("covered", Value::Bool(covered_claims[i])),
             ])
         })
@@ -448,9 +491,22 @@ mod tests {
     }
 
     #[test]
+    fn overlap_detects_containment_and_partial_overlap() {
+        // E22：整条包含 = 1.0；部分重叠（bigram 口径）> 0；无关 ≈ 0
+        let hay = normalize("自进化系统把使用中积累的理解沉淀为可信的知识");
+        assert_eq!(overlap_degree("沉淀为可信的知识", &hay), 1.0);
+        let partial = overlap_degree("沉淀为可信的方法论", &hay);
+        assert!(partial > 0.0 && partial < 1.0, "部分重叠应介于 0-1: {}", partial);
+        let unrelated = overlap_degree("完全无关的断言文本", &hay);
+        assert!(unrelated < 0.5, "无关断言应低于命中阈值: {}", unrelated);
+    }
+
+    #[test]
     fn cross_validates_against_facts() {
-        let facts = vec!["自进化系统把使用中积累的理解沉淀为可信的知识"];
-        assert!(cross_validated("沉淀为可信的知识", &facts));
-        assert!(!cross_validated("完全无关的断言", &facts));
+        let facts = vec![normalize("自进化系统把使用中积累的理解沉淀为可信的知识")];
+        let contained = claim_overlap(&normalize("沉淀为可信的知识"), &facts);
+        assert!(contained >= 1.0);
+        let unrelated = claim_overlap(&normalize("完全无关的断言"), &facts);
+        assert!(unrelated < CROSS_VALIDATION_THRESHOLD);
     }
 }

@@ -12,7 +12,8 @@ pub mod review;
 pub mod score;
 pub mod validate;
 
-/// 执行体注册表（协议层 tools/list 与 tools/call 的唯一事实源）。
-pub fn registry() -> Vec<crate::tool::ToolDef> {
+/// 执行体注册表（协议层 tools/list 与 tools/call 的唯一事实源；
+/// 惰性构建 + OnceLock 缓存，进程生命周期内只建一次）。
+pub fn registry() -> &'static Vec<crate::tool::ToolDef> {
     crate::tool::registry()
 }

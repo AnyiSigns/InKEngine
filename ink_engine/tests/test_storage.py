@@ -27,6 +27,36 @@ async def test_create_storage_unknown_scheme():
         create_storage("mysql://x")
 
 
+async def test_sqlite_connection_sets_concurrency_pragmas(tmp_path):
+    """回归 ENG5-1：sqlite 连接后立即设 busy_timeout/WAL/synchronous。
+
+    宿主默认后端为 sqlite:///（跨进程并发写）：无 busy_timeout 时锁竞争
+    直接报 database is locked；无 WAL 时读写互斥放大竞争。
+    """
+    from ink_engine.core.storage_sqlite import SqliteStorage
+
+    path = tmp_path / "pragma.db"
+    store = SqliteStorage(str(path))
+    try:
+        await store._connect()
+
+        async def pragma(name):
+            cur = await store._conn.execute(f"PRAGMA {name}")
+            row = await cur.fetchone()
+            await cur.close()
+            return row[0] if row else None
+
+        assert await pragma("busy_timeout") == 5000
+        assert await pragma("journal_mode") == "wal"
+        assert await pragma("synchronous") == 1  # NORMAL
+        # pragma 生效后常规读写不受影响
+        rec = await store.put_checkpoint(_cp(state={"x": 1}))
+        got = await store.get_checkpoint(rec.checkpoint_id)
+        assert got is not None and got.state == {"x": 1}
+    finally:
+        await store.close()
+
+
 async def test_checkpoint_create_and_get(storage):
     rec = await storage.put_checkpoint(_cp(state={"a": 1}))
     assert rec.checkpoint_id > 0

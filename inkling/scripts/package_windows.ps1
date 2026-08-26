@@ -86,15 +86,40 @@ if (-not (Test-Path (Join-Path $sitePkg "mcp\__init__.py"))) {
     Log "OK 出厂依赖已就位"
 }
 
-# ── 2. 引擎包（ink_engine 纯标准库，整体随包）──────────────────────
+# ── 2. 引擎包（源 ink_engine/ 现场拷贝 + 内容哈希校验，漂移即失败）──
+# 发行真源 = 仓库源 ink_engine/（resources 不再长期驻留陈旧副本）：
+# 每次打包强制从源重新拷贝（删除旧副本后全量重建），并以源文件清单
+# 的 SHA256 校验副本——任一源文件缺失/内容漂移 = 打包失败（双真源
+# 纪律：副本只是发布期快照，快照与源不一致绝不允许进发行包）。
 $engineDir = Join-Path $res "ink_engine"
-if (-not (Test-Path (Join-Path $engineDir "ink_engine\__init__.py"))) {
-    Log "拷贝引擎包 -> $engineDir"
-    New-Item -ItemType Directory -Force -Path $engineDir | Out-Null
-    robocopy (Join-Path $root "ink_engine") $engineDir /E /XD __pycache__ .venv target /NFL /NDL /NJH /NJS | Out-Null
-} else {
-    Log "OK 引擎包已就位"
+$engineSrc = Join-Path $root "ink_engine"
+Log "拷贝引擎包（源 -> $engineDir；哈希校验）"
+if (Test-Path $engineDir) {
+    Remove-Item -LiteralPath $engineDir -Recurse -Force
 }
+New-Item -ItemType Directory -Force -Path $engineDir | Out-Null
+robocopy $engineSrc $engineDir /E /XD __pycache__ .venv target /NFL /NDL /NJH /NJS | Out-Null
+if ($LASTEXITCODE -ge 8) { throw "引擎包拷贝失败（robocopy 退出码 $LASTEXITCODE）" }
+$srcFiles = Get-ChildItem -LiteralPath $engineSrc -Recurse -File |
+    Where-Object { $_.FullName -notmatch "__pycache__" -and $_.FullName -notmatch "\\\.venv\\" -and $_.FullName -notmatch "\\target\\" }
+$mismatches = 0
+foreach ($file in $srcFiles) {
+    $rel = $file.FullName.Substring($engineSrc.Length).TrimStart("\")
+    $dst = Join-Path $engineDir $rel
+    if (-not (Test-Path -LiteralPath $dst)) {
+        Log "  漂移: 副本缺文件 $rel"
+        $mismatches++
+        continue
+    }
+    $srcHash = (Get-FileHash -LiteralPath $file.FullName -Algorithm SHA256).Hash
+    $dstHash = (Get-FileHash -LiteralPath $dst -Algorithm SHA256).Hash
+    if ($srcHash -ne $dstHash) {
+        Log "  漂移: 文件内容不一致 $rel"
+        $mismatches++
+    }
+}
+if ($mismatches -gt 0) { throw "引擎包副本与源不一致（$mismatches 处漂移）——发行包禁止携带漂移副本" }
+Log "OK 引擎包校验通过（$($srcFiles.Count) 个文件哈希一致）"
 
 # ── 3. 种子根（seed_data + manifest）───────────────────────────────
 $seedDir = Join-Path $res "inkling"

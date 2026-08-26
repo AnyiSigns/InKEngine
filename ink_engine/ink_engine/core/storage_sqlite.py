@@ -82,6 +82,13 @@ class SqliteStorage:
 
                 self._conn = await aiosqlite.connect(self._db_path)
                 self._conn.row_factory = aiosqlite.Row
+                # 跨进程并发护栏（宿主默认后端，多引擎实例并发 append/续链/
+                # 压缩会触发锁竞争）：busy_timeout 等待而非立即报错、
+                # WAL 读写不互斥、synchronous=NORMAL 崩溃安全与吞吐平衡
+                # （WAL 下 fsync 仅 checkpoint 期，不丢已提交数据）。
+                await self._conn.execute("PRAGMA busy_timeout = 5000")
+                await self._conn.execute("PRAGMA journal_mode = WAL")
+                await self._conn.execute("PRAGMA synchronous = NORMAL")
                 await self._conn.executescript(_SCHEMA_SQL)
                 await self._check_schema()
                 await self._conn.commit()

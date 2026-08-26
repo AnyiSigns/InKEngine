@@ -37,6 +37,7 @@ from .logging import get_logger
 from .permissions import ALLOW as _ALLOW
 from .permissions import DENY as _DENY
 from .permissions import REVIEW as _REVIEW
+from .security import strip_sensitive
 from .tool_orchestrator import ToolTrace
 
 logger = get_logger(__name__)
@@ -134,7 +135,10 @@ class ToolPipeline:
                             tool=spec.name,
                             ok=result.ok,
                             decision=result.decision,
-                            args=dict(args),
+                            # 轨迹落库前对参数脱敏：凭据类参数不得随轨迹
+                            # 持久化留存（strip_sensitive 纯函数，无敏感键
+                            # 时零拷贝返回原对象）
+                            args=strip_sensitive(dict(args)),
                             error=result.error,
                             duration_ms=(time.monotonic() - started) * 1000.0,
                         )
@@ -268,7 +272,12 @@ class ToolPipeline:
                 ):
                     continue
                 try:
-                    resolved = sb.validate(operation, target)
+                    if "name" in inspect.signature(sb.validate).parameters:
+                        # 定义反查型沙箱（_AutoDefinitionSandbox）按当前
+                        # 调用工具自身定义构造守卫（防跨工具 root 泄漏）
+                        resolved = sb.validate(operation, target, name=spec.name)
+                    else:
+                        resolved = sb.validate(operation, target)
                 except SandboxViolation as exc:
                     await self._audit(
                         ctx,

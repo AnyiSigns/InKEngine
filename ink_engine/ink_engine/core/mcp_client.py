@@ -19,7 +19,7 @@
   （fail-closed，不静默放行）。
 
 传输形态（Streamable HTTP 为主，stdio 次之，内存用于内嵌/测试）：
-- http：``streamablehttp_client(url)``（MCP v2 规范主传输）；
+- http：``streamable_http_client(url, http_client=...)``（MCP v2 规范主传输）；
 - stdio：``StdioServerParameters(command, args, env)`` 拉起本地进程；执行件
   的 stderr（结构化日志通道）捕获进引擎日志，不裸露到终端；
 - in_memory：宿主注入 ``server_factory``（返回 (read, write) 流对的异步
@@ -150,19 +150,9 @@ def _require_mcp():
     return mcp
 
 
-# mcp SDK 1.x 与 2.x 的 http 客户端导入名与签名差异（2.x 改名
-# streamable_http_client 且 headers 改经 http_client 注入）。仅解析可调用名，
-# 实际形态以运行时签名检测（http_client 参数存在与否），不依赖函数名下划线
-try:
-    from mcp.client.streamable_http import streamablehttp_client
-except ImportError:
-    from mcp.client.streamable_http import (
-        streamable_http_client as streamablehttp_client,  # type: ignore[no-redef]
-    )
-
-# 双版本兼容：以运行时签名检测 API 形态（不依赖函数名下划线）—— 含 http_client
-# 参数即 2.x（headers 经 httpx 客户端注入），否则 1.x（streamablehttp_client(url, headers=...)）
-_HTTP_CLIENT_2X = "http_client" in inspect.signature(streamablehttp_client).parameters
+# mcp SDK 为可选依赖（见 _require_mcp）：本模块导入零 SDK 依赖——
+# 连接/调用路径才惰性引入；2.x 更名（streamable_http_client/is_error/
+# input_schema）为唯一契约（pyproject 下限 mcp>=2.0）。
 
 
 @dataclass(frozen=True, slots=True)
@@ -289,6 +279,67 @@ class McpServerConfig:
         )
 
 
+# ── 内置 MCP server 注册表（tools.json mcp 工具声明的 server_id 定义）──
+# tools.json 中 13 个 endpoint=mcp 工具的 server_id 归并后仅两个：
+# inkling_exec（研究链/OS 感知执行件，随包二进制的 stdio 服务）与
+# inkling_shell（壳自身能力：设备感知/文档/截图/素材，宿主注入的内存
+# 嵌入服务）。本表 = Python 侧权威定义（server_id → 传输形态/来源/
+# 签名）；环境相关连接位（stdio 命令路径、in_memory 工厂）由宿主装配
+# 期经 ``builtin_mcp_server_config`` 填充——声明层与真实连接由此对齐，
+# 未注册 server_id 的调用走 McpClientManager fail-closed 拒绝。
+BUILTIN_MCP_SERVERS: dict[str, McpServerConfig] = {
+    "inkling_exec": McpServerConfig(
+        id="inkling_exec",
+        transport=McpTransport.STDIO,
+        source=ToolSource.GITHUB,
+        signature="builtin:inkling_exec",
+    ),
+    "inkling_shell": McpServerConfig(
+        id="inkling_shell",
+        transport=McpTransport.IN_MEMORY,
+        source=ToolSource.GITHUB,
+        signature="builtin:inkling_shell",
+    ),
+}
+
+
+def builtin_mcp_server_config(
+    server_id: str, **overrides: Any
+) -> McpServerConfig | None:
+    """内置 server 定义（注册表权威 + 宿主填充连接位）。
+
+    ``overrides`` 只允许覆盖环境相关连接参数（command/args/url/headers/
+    env/server_factory/restart_policy）；传输形态/来源/签名以注册表为
+    准（宿主不得改写——防改头换面挂载）。未知 server_id 返回 None
+    （fail-closed：未定义即不可连接）。
+    """
+    base = BUILTIN_MCP_SERVERS.get(server_id)
+    if base is None:
+        return None
+    if any(k in overrides for k in ("id", "transport", "source", "signature")):
+        raise GraphDefinitionError(
+            f"内置 server 注册表字段不可覆盖: {server_id}"
+        )
+    unknown = set(overrides) - set(McpServerConfig.__dataclass_fields__)
+    if unknown:
+        raise GraphDefinitionError(
+            f"内置 server 连接参数未知字段: {sorted(unknown)}"
+        )
+    return McpServerConfig(
+        id=base.id,
+        transport=base.transport,
+        url=overrides.get("url", base.url),
+        headers=overrides.get("headers", base.headers),
+        command=overrides.get("command", base.command),
+        args=overrides.get("args", base.args),
+        env=overrides.get("env", base.env),
+        source=base.source,
+        signature=base.signature,
+        server_factory=overrides.get("server_factory", base.server_factory),
+        restart_policy=overrides.get("restart_policy", base.restart_policy),
+    )
+
+
 def _normalize_input_schema(schema: Any) -> dict[str, Any]:
     """MCP 工具 inputSchema → 引擎参数 JSON Schema（缺省兜底为空对象）。
 
@@ -308,7 +359,7 @@ def _normalize_input_schema(schema: Any) -> dict[str, Any]:
 def convert_mcp_tool(server_id: str, tool: Any) -> DeclarativeToolSpec:
     """MCP 工具 → 声明式工具定义（纯函数，无 SDK 依赖，可独立测试）。
 
-    字段映射：name/description/inputSchema → 同名；端点固定 MCP，
+    字段映射：name/description/input_schema → 同名；端点固定 MCP，
     路由密钥 ``server_id`` 写入 endpoint_config（定义期必填校验）；权限
     统一为 ``mcp:call:<server_id>``（按 server 粒度管控，宿主放行即整
     server 可信）。约定优于配置：MCP 工具无需逐个手工声明权限。
@@ -316,7 +367,8 @@ def convert_mcp_tool(server_id: str, tool: Any) -> DeclarativeToolSpec:
     Args:
         server_id: 来源 server 标识。
         tool: MCP SDK 的 Tool 对象（鸭子类型读取 name/description/
-            inputSchema/input_schema 任一字段形态）或等价 dict。
+            input_schema，2.x 实例属性为 snake_case；inputSchema 仅作
+            遗留形态/JSON 往返的防御性回退）或等价 dict。
 
     Raises:
         GraphDefinitionError: 工具缺 name（MCP 协议违规）。
@@ -324,18 +376,17 @@ def convert_mcp_tool(server_id: str, tool: Any) -> DeclarativeToolSpec:
     if isinstance(tool, dict):
         name = tool.get("name")
         description = tool.get("description") or ""
-        schema = tool.get("inputSchema")
+        # 2.x 字段形态是 input_schema（SDK 1.x 的 inputSchema 仅作
+        # 遗留序列化数据回退）——两形态等价读取，参数 schema 不归一空壳
+        schema = tool.get("input_schema")
         if schema is None:
-            # SDK 2.x 的字段形态是 input_schema（inputSchema 只是声明时的
-            # pydantic 别名，实例属性为 snake_case）——两形态等价读取，
-            # 避免 SDK 升级后所有参数 schema 归一为空壳
-            schema = tool.get("input_schema")
+            schema = tool.get("inputSchema")
     else:
         name = getattr(tool, "name", None)
         description = getattr(tool, "description", "") or ""
-        schema = getattr(tool, "inputSchema", None)
+        schema = getattr(tool, "input_schema", None)
         if schema is None:
-            schema = getattr(tool, "input_schema", None)
+            schema = getattr(tool, "inputSchema", None)
     if not name or not isinstance(name, str):
         raise GraphDefinitionError("MCP 工具缺 name（协议违规）")
     return DeclarativeToolSpec(
@@ -510,30 +561,23 @@ class _SdkSession(McpSessionHandle):
                     raise McpToolImportError(
                         f"MCP server {config.id} 的 http 传输缺 url"
                     )
-                # 双版本兼容：以运行时签名检测 API 形态（不依赖函数名下划线）
-                # —— 含 http_client 参数即 2.x（headers 经 httpx 客户端注入），
-                # 否则 1.x（streamablehttp_client(url, headers=...)）
-                sig = inspect.signature(streamablehttp_client)
-                if "http_client" in sig.parameters:
-                    import httpx
+                # mcp 2.x 契约（pyproject 下限 >=2.0）：客户端名
+                # streamable_http_client，headers 经 httpx http_client 注入。
+                # 惰性 import：未安装 SDK 时经 _require_mcp 显式报错（不
+                # 污染模块导入期）。
+                import httpx
+                from mcp.client.streamable_http import streamable_http_client
 
-                    http_client = (
-                        httpx.AsyncClient(headers=dict(config.headers))
-                        if config.headers
-                        else None
-                    )
-                    if http_client is not None:
-                        exit_stack.push_async_callback(http_client.aclose)
-                    read, write = await exit_stack.enter_async_context(
-                        streamablehttp_client(config.url, http_client=http_client)
-                    )
-                else:
-                    client_kwargs: dict[str, Any] = {}
-                    if config.headers:
-                        client_kwargs["headers"] = config.headers
-                    read, write = await exit_stack.enter_async_context(
-                        streamablehttp_client(config.url, **client_kwargs)
-                    )
+                http_client = (
+                    httpx.AsyncClient(headers=dict(config.headers))
+                    if config.headers
+                    else None
+                )
+                if http_client is not None:
+                    exit_stack.push_async_callback(http_client.aclose)
+                read, write = await exit_stack.enter_async_context(
+                    streamable_http_client(config.url, http_client=http_client)
+                )
             elif config.transport is McpTransport.STDIO:
                 if not config.command:
                     raise McpToolImportError(
@@ -616,7 +660,7 @@ class _SdkSession(McpSessionHandle):
             raise GraphDefinitionError(
                 f"MCP 工具调用超时: {name}（{_CALL_TIMEOUT} 秒）"
             ) from exc
-        if getattr(result, "isError", False):
+        if _result_is_error(result):
             raise GraphDefinitionError(
                 f"MCP 工具执行失败: {name}: {_extract_text(result)}"
             )
@@ -830,6 +874,15 @@ class _SupervisedStdioSession(McpSessionHandle):
             await self._teardown()
 
 
+def _result_is_error(result: Any) -> bool:
+    """MCP 调用结果的失败标记（2.x 字段形态 is_error；isError 仅为
+    1.x 遗留数据/自定义桩的防御性回退）。"""
+    marker = getattr(result, "is_error", None)
+    if marker is None:
+        marker = getattr(result, "isError", None)
+    return bool(marker)
+
+
 def _extract_text(result: Any) -> str:
     """从 MCP 调用结果提取文本（兼容 TextContent 与结构化内容）。
 
@@ -921,6 +974,23 @@ class McpClientManager:
             "MCP server 已连接: %s（传输: %s）", config.id, config.transport.value
         )
         return handle
+
+    async def connect_builtin(
+        self, server_id: str, **overrides: Any
+    ) -> McpSessionHandle:
+        """按内置注册表连接（tools.json 声明 server 的真实连接入口）。
+
+        宿主只传环境相关连接位（stdio 命令路径/in_memory 工厂等），
+        传输形态/来源/签名以注册表为准；未定义的 server_id fail-closed
+        拒绝（与分发路径同语义——声明层无定义即不可连接）。
+        """
+        config = builtin_mcp_server_config(server_id, **overrides)
+        if config is None:
+            raise McpToolImportError(
+                f"内置 MCP server 未定义: {server_id}（注册表仅含 "
+                f"{sorted(BUILTIN_MCP_SERVERS)}）"
+            )
+        return await self.connect(config)
 
     async def disconnect(self, server_id: str) -> bool:
         """关闭并注销会话（缺省返回 False，不抛错）。"""
@@ -1030,6 +1100,7 @@ def register_mcp_executor(
 
 
 __all__ = [
+    "BUILTIN_MCP_SERVERS",
     "McpClientManager",
     "McpServerConfig",
     "McpSessionHandle",
@@ -1037,6 +1108,7 @@ __all__ = [
     "McpTransport",
     "StdioRestartPolicy",
     "build_mcp_manifest",
+    "builtin_mcp_server_config",
     "convert_mcp_tool",
     "register_mcp_executor",
 ]

@@ -18,6 +18,7 @@ from typing import Any, Protocol, runtime_checkable
 
 from .llm.tools import ToolSpec
 from .logging import get_logger
+from .security import strip_sensitive
 from .storage import Storage
 
 logger = get_logger(__name__)
@@ -203,9 +204,14 @@ class ToolTraceStore:
         self._collection = collection
 
     async def record(self, trace: ToolTrace) -> str:
-        """追加一条轨迹（同 id 覆写 = 补录，幂等安全）。"""
+        """追加一条轨迹（同 id 覆写 = 补录，幂等安全）。
+
+        落库前对参数脱敏：凭据类参数不得随轨迹持久化留存（strip_sensitive
+        纯函数，无敏感键时零拷贝返回原对象）。
+        """
         trace_id = trace.id or f"{trace.tool}:{uuid.uuid4().hex}"
         data = trace.to_dict()
+        data["args"] = strip_sensitive(data["args"])
         data["id"] = trace_id  # 生成 id 回写记录（查询还原可关联原始轨迹）
         await self._storage.put_record(self._collection, trace_id, data)
         return trace_id

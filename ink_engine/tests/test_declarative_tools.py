@@ -806,3 +806,97 @@ async def test_gate_judges_by_definition_permissions():
         Ctx(), forged, {"url": "https://evil.example.org/x"}
     )
     assert denied.ok is False and denied.decision == "deny"
+
+
+async def test_auto_sandbox_uses_calling_tool_own_definition(tmp_path):
+    """跨工具沙箱边界回归（ENG6-1）：守卫按当前调用工具自身定义构造。
+
+    修复前取注册表第一个匹配定义——同端点先登记宽 root 的工具 B 时，
+    窄 root 工具 A 的越界路径被 B 的 root 放过（纵深防御被绕过）。
+    """
+    narrow_root = tmp_path / "narrow"
+    wide_root = tmp_path / "wide"
+    narrow_root.mkdir()
+    wide_root.mkdir()
+
+    wide_def = _declarative(
+        name="wide_tool",
+        endpoint=EndpointType.FILE_OPS,
+        permissions=("filesystem:write:*",),
+        endpoint_config={"root": str(wide_root)},
+    )
+    narrow_def = DeclarativeToolSpec(
+        name="narrow_tool",
+        description="窄边界工具",
+        parameters={"type": "object"},
+        permissions=("filesystem:write:*",),  # 宽权限：沙箱根目录做路径收口
+        endpoint=EndpointType.FILE_OPS,
+        endpoint_config={"root": str(narrow_root)},
+    )
+    executors = DeclarativeToolExecutors()
+    # 先登记宽边界定义：修复前第一个匹配即被采用 → 窄工具越界可逃逸
+    executors.register_definition(wide_def)
+    executors.register_definition(narrow_def)
+
+    async def file_executor(ctx, defn, args, approval):
+        return f"fs:{args.get('path')}"
+
+    executors.register(EndpointType.FILE_OPS, file_executor)
+    pipeline = build_declarative_pipeline(executors, gate=None)
+
+    class Ctx:
+        async def emit(self, *args, **kwargs):
+            pass
+
+    narrow_spec = narrow_def.to_spec()
+    # 窄工具写自身根内 → 放行
+    inside = await pipeline.execute(
+        Ctx(), narrow_spec, {"operation": "write", "path": str(narrow_root / "a.md")}
+    )
+    assert inside.ok is True
+    # 窄工具越界（落在宽工具根内、窄工具根外）→ 必须被窄工具自身 root 拒绝
+    escaped = await pipeline.execute(
+        Ctx(), narrow_spec, {"operation": "write", "path": str(wide_root / "x.md")}
+    )
+    assert escaped.ok is False
+    assert escaped.decision == "deny"
+    assert "路径越界" in (escaped.error or "")
+
+
+async def test_trace_args_stripped_before_persist(memory_storage):
+    """轨迹脱敏回归（ENG6-2）：凭据类参数不随轨迹落库。"""
+    from ink_engine.core.permissions import PermissionGate
+
+    definition = _declarative(
+        endpoint=EndpointType.PROCESS_EXEC,
+        permissions=("process:exec:git",),
+        endpoint_config={"allowlist": ["git"], "path": os.environ.get("PATH")},
+    )
+    executors = DeclarativeToolExecutors()
+    executors.register_definition(definition)
+
+    async def process_executor(ctx, defn, args, approval):
+        return "ok"
+
+    executors.register(EndpointType.PROCESS_EXEC, process_executor)
+    trace_store = ToolTraceStore(memory_storage)
+    pipeline = build_declarative_pipeline(
+        executors,
+        gate=PermissionGate(),
+        trace_sink=lambda trace: trace_store.record(trace),
+    )
+
+    class Ctx:
+        async def emit(self, *args, **kwargs):
+            pass
+
+    spec = definition.to_spec()
+    result = await pipeline.execute(
+        Ctx(), spec, {"command": "git", "api_key": "sk-secret", "keep": 1}
+    )
+    assert result.ok is True
+    traces = await trace_store.list(tool="mytool")
+    assert len(traces) == 1
+    assert traces[0].args["api_key"] == ""
+    assert traces[0].args["keep"] == 1
+    assert traces[0].args["command"] == "git"

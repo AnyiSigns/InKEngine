@@ -528,9 +528,9 @@ class _AutoDefinitionSandbox:
 
     构建期快照问题：若在构建流水线后 register_definition 新工具，快照
     沙箱不含其守卫（file_ops 无根目录边界、process_exec 无命令白名单
-    时仅靠权限 pattern 约束，纵深防御被削弱）。本沙箱在每次校验时从
-    执行体注册表现取定义构造守卫：事后注册的定义立即获得硬边界，且
-    守卫语义与构建期接线等价（定义即权威）。
+    时仅靠权限 pattern 约束，纵深防御被削弱）。本沙箱在每次校验时按
+    **当前调用工具自身定义**（spec.name 反查）构造守卫：事后注册的
+    定义立即获得硬边界，且守卫语义与构建期接线等价（定义即权威）。
     """
 
     def __init__(self, executors: DeclarativeToolExecutors) -> None:
@@ -540,8 +540,15 @@ class _AutoDefinitionSandbox:
         # 守卫域由定义端点决定：process_exec → exec；file_ops → FS 操作
         return operation in ("exec",) or operation in _FS_GUARDED_OPS
 
-    def validate(self, operation: str, target: str) -> str | None:
-        for definition in self._executors.definitions.values():
+    def validate(
+        self, operation: str, target: str, name: str | None = None
+    ) -> str | None:
+        # 按当前调用工具自身定义构造沙箱：跨工具共享注册表时，工具 A
+        # 的 root 硬边界不得被工具 B 的 root 放过（修复前取第一个匹配
+        # 定义——同端点多定义时边界可被绕过）。定义缺失 = fail-closed
+        # 拒绝（无沙箱边界的操作不得放行）。
+        definition = self._executors.definitions.get(name) if name else None
+        if definition is not None:
             if definition.endpoint is EndpointType.PROCESS_EXEC and operation == "exec":
                 sandbox = ProcessSandbox(
                     allowlist=tuple(definition.endpoint_config["allowlist"]),
@@ -557,7 +564,8 @@ class _AutoDefinitionSandbox:
                 resolved = sandbox.validate(operation, target)
                 return resolved if resolved is not None else target
         raise SandboxViolation(
-            f"无声明式定义守卫操作 {operation!r}（目标 {target!r} 无沙箱边界）"
+            f"无声明式定义守卫操作 {operation!r}（工具 {name!r} 目标 {target!r}"
+            " 无沙箱边界）"
         )
 
 

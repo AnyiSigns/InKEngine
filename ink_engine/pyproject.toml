@@ -34,8 +34,10 @@ sqlite = ["aiosqlite>=0.19"]
 postgres = ["asyncpg>=0.29"]
 # LLM 层（AsyncLLM/厂商适配/SSE 流式）的 HTTP 传输依赖；核心包保持零运行时依赖
 llm = ["httpx>=0.27"]
-# MCP 客户端会话（core/mcp_client.py 惰性导入，三传输形态 http/stdio/in_memory）
-mcp = ["mcp>=1.0"]
+# MCP 客户端会话（core/mcp_client.py 惰性导入，三传输形态 http/stdio/in_memory；
+# 下限 2.x：SDK 2.0 破坏性更名 streamable_http_client/is_error/input_schema，
+# 代码按 2.x 契约实现，1.x 不在支持面）
+mcp = ["mcp>=2.0,<3"]
 test = [
     "pytest>=8",
     "pytest-asyncio>=0.23",

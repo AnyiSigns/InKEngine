@@ -134,6 +134,26 @@ def test_convert_mcp_tool_both_schema_shapes_equivalent():
     assert camel.parameters == schema
 
 
+def test_convert_mcp_tool_input_schema_is_primary():
+    """SDK 2.x 字段形态（input_schema）优先：同载两形态时以 2.x 为准。"""
+    schema_2x = {"type": "object", "properties": {"a": {"type": "string"}}}
+    schema_1x = {"type": "object", "properties": {"b": {"type": "string"}}}
+    dict_spec = convert_mcp_tool(
+        "s1",
+        {"name": "t", "description": "d", "inputSchema": schema_1x, "input_schema": schema_2x},
+    )
+    assert dict_spec.parameters == schema_2x
+
+    class _Tool:
+        name = "t"
+        description = "d"
+        input_schema = schema_2x
+        inputSchema = schema_1x
+
+    object_spec = convert_mcp_tool("s1", _Tool())
+    assert object_spec.parameters == schema_2x
+
+
 def test_convert_mcp_tool_missing_name_rejected():
     """缺 name（协议违规）→ 定义期拒绝。"""
     with pytest.raises(GraphDefinitionError, match="缺 name"):
@@ -415,22 +435,25 @@ def test_extract_text_handles_dict_content_items():
         == "你好\n42"
     )
 
-def test_http_client_import_fallback_resolves():
-    """回归（SDK 2.x 兼容缺陷）：mcp 2.x 改名 streamable_http_client——
-    模块级兼容导入必须解析出可调用实现（1.x/2.x 任一形态）。"""
+def test_http_client_2x_contract():
+    """回归（mcp 2.x 适配）：SDK 客户端名为 streamable_http_client，
+    签名支持 http_client 注入（headers 经 httpx 客户端注入的 2.x 契约）。
+    SDK 缺失时跳过（可选依赖：模块导入与纯函数不受影响）。"""
     import inspect
 
-    from ink_engine.core import mcp_client as module
+    pytest.importorskip("mcp")
 
-    assert callable(module.streamablehttp_client)
-    assert isinstance(module._HTTP_CLIENT_2X, bool)
-    signature = inspect.signature(module.streamablehttp_client)
-    params = set(signature.parameters)
-    # 2.x 形态（当前安装）须支持 http_client 注入；1.x 形态支持 headers
-    if module._HTTP_CLIENT_2X:
-        assert "http_client" in params
-    else:
-        assert "headers" in params
+    from mcp.client.streamable_http import streamable_http_client
+
+    assert callable(streamable_http_client)
+    params = set(inspect.signature(streamable_http_client).parameters)
+    assert "http_client" in params
+    assert "url" in params
+    # 2.x 字段形态（is_error/input_schema）为唯一契约
+    from mcp.types import CallToolResult, Tool
+
+    assert "is_error" in CallToolResult.model_fields
+    assert "input_schema" in Tool.model_fields
 
 
 async def test_sdk_session_open_wraps_internal_cancellation(monkeypatch):
@@ -443,7 +466,8 @@ async def test_sdk_session_open_wraps_internal_cancellation(monkeypatch):
     """
     import asyncio
 
-    from ink_engine.core import mcp_client as module
+    pytest.importorskip("mcp")
+
     from ink_engine.core.mcp_client import _SdkSession
 
     class _RefusingClient:
@@ -453,7 +477,8 @@ async def test_sdk_session_open_wraps_internal_cancellation(monkeypatch):
         async def __aexit__(self, *exc):
             return None
 
-    monkeypatch.setattr(module, "streamablehttp_client", lambda url, **kw: _RefusingClient())
+    sdk_mod = sys.modules["mcp.client.streamable_http"]
+    monkeypatch.setattr(sdk_mod, "streamable_http_client", lambda url, **kw: _RefusingClient())
     config = McpServerConfig(
         id="refused", transport=McpTransport.HTTP, url="https://mcp.example"
     )
@@ -463,9 +488,10 @@ async def test_sdk_session_open_wraps_internal_cancellation(monkeypatch):
 
 async def test_sdk_session_open_cleanup_failure_does_not_mask(monkeypatch):
     """清理路径自身抛错不掩盖原始连接失败（原始失败优先，仅记日志）。"""
+    pytest.importorskip("mcp")
+
     import mcp
 
-    from ink_engine.core import mcp_client as module
     from ink_engine.core.mcp_client import _SdkSession
 
     class _CleanupExplodes:
@@ -485,7 +511,8 @@ async def test_sdk_session_open_cleanup_failure_does_not_mask(monkeypatch):
         async def __aexit__(self, *exc):
             return None
 
-    monkeypatch.setattr(module, "streamablehttp_client", lambda url, **kw: _CleanupExplodes())
+    sdk_mod = sys.modules["mcp.client.streamable_http"]
+    monkeypatch.setattr(sdk_mod, "streamable_http_client", lambda url, **kw: _CleanupExplodes())
     monkeypatch.setattr(mcp, "ClientSession", _FailingSession)
     config = McpServerConfig(
         id="cleanup", transport=McpTransport.HTTP, url="https://mcp.example"
@@ -498,7 +525,8 @@ async def test_sdk_session_open_propagates_outer_cancellation(monkeypatch):
     """外层任务真被取消：CancelledError 原样传播（不包装为导入错误）。"""
     import asyncio
 
-    from ink_engine.core import mcp_client as module
+    pytest.importorskip("mcp")
+
     from ink_engine.core.mcp_client import _SdkSession
 
     started = asyncio.Event()
@@ -513,7 +541,8 @@ async def test_sdk_session_open_propagates_outer_cancellation(monkeypatch):
         async def __aexit__(self, *exc):
             return None
 
-    monkeypatch.setattr(module, "streamablehttp_client", lambda url, **kw: _HangingClient())
+    sdk_mod = sys.modules["mcp.client.streamable_http"]
+    monkeypatch.setattr(sdk_mod, "streamable_http_client", lambda url, **kw: _HangingClient())
     config = McpServerConfig(
         id="hang", transport=McpTransport.HTTP, url="https://mcp.example"
     )
@@ -590,6 +619,8 @@ async def test_stdio_exec_stderr_forwarded_to_log_channel(tmp_path):
     import json
     import logging
 
+    pytest.importorskip("mcp")
+
     from mcp.client.stdio import stdio_client
 
     from ink_engine.core import mcp_client as module
@@ -640,3 +671,104 @@ async def test_stdio_exec_stderr_forwarded_to_log_channel(tmp_path):
     assert info["trace_id"] == "trace-stdio-01"
     assert error["level"] == "ERROR"
     assert error["logger"] == "ink_engine.core.mcp_client.exec"
+
+
+def test_builtin_server_registry_covers_tools_json_server_ids():
+    """内置 server 注册表：tools.json 13 个 mcp 工具的 server_id 全部有
+    Python 侧定义（声明 → 真实连接的对齐落点；回归 ENG4-B3）。"""
+    from ink_engine.core.mcp_client import BUILTIN_MCP_SERVERS
+
+    assert set(BUILTIN_MCP_SERVERS) == {"inkling_exec", "inkling_shell"}
+    assert BUILTIN_MCP_SERVERS["inkling_exec"].transport is McpTransport.STDIO
+    assert BUILTIN_MCP_SERVERS["inkling_shell"].transport is McpTransport.IN_MEMORY
+    for config in BUILTIN_MCP_SERVERS.values():
+        assert config.signature  # 连接身份签名齐备（vetting 清单不缺项）
+
+
+def test_builtin_server_config_overrides_connection_bits_only():
+    """内置定义 + 宿主连接位填充：环境相关参数可覆盖，注册表字段不可改。"""
+    from ink_engine.core.mcp_client import (
+        BUILTIN_MCP_SERVERS,
+        builtin_mcp_server_config,
+    )
+
+    config = builtin_mcp_server_config(
+        "inkling_exec",
+        command="C:/bin/inkling_exec.exe",
+        args=("serve",),
+    )
+    assert config is not None
+    assert config.id == "inkling_exec"
+    assert config.transport is McpTransport.STDIO
+    assert config.command == "C:/bin/inkling_exec.exe"
+    assert config.args == ("serve",)
+    assert config.source is BUILTIN_MCP_SERVERS["inkling_exec"].source
+    assert config.signature == "builtin:inkling_exec"
+
+    with pytest.raises(GraphDefinitionError, match="注册表字段不可覆盖"):
+        builtin_mcp_server_config("inkling_exec", transport=McpTransport.HTTP)
+    with pytest.raises(GraphDefinitionError, match="未知字段"):
+        builtin_mcp_server_config("inkling_exec", bogus=1)
+    assert builtin_mcp_server_config("ghost-server") is None
+
+
+async def test_connect_builtin_in_memory_shell_server():
+    """connect_builtin：inkling_shell 经内存嵌入工厂建立真实会话（ENG4-B3）。"""
+    import asyncio
+    import contextlib
+
+    pytest.importorskip("mcp")
+
+    from mcp.server import Server
+    from mcp.shared.memory import create_client_server_memory_streams
+    from mcp.types import ListToolsResult, PaginatedRequestParams, Tool
+
+    from ink_engine.core.mcp_client import McpClientManager
+
+    async def list_tools(ctx, params: PaginatedRequestParams | None) -> ListToolsResult:
+        return ListToolsResult(
+            tools=[
+                Tool(
+                    name="ui_tree_query",
+                    description="设备感知",
+                    input_schema={"type": "object"},
+                )
+            ]
+        )
+
+    server = Server("inkling_shell", on_list_tools=list_tools)
+
+    @contextlib.asynccontextmanager
+    async def server_factory():
+        async with create_client_server_memory_streams() as (client_streams, server_streams):
+            read, write = server_streams
+            task = asyncio.create_task(_run_until_closed(server, read, write))
+            try:
+                yield client_streams
+            finally:
+                task.cancel()
+                with contextlib.suppress(BaseException):
+                    await task
+
+    manager = McpClientManager()
+    handle = await manager.connect_builtin(
+        "inkling_shell", server_factory=server_factory
+    )
+    try:
+        tools = await handle.list_tools()
+        assert len(tools) == 1
+        assert tools[0].name == "ui_tree_query"
+    finally:
+        await handle.aclose()
+
+    # 未定义 server_id → fail-closed 拒绝
+    with pytest.raises(McpToolImportError, match="未定义"):
+        await manager.connect_builtin("ghost-server")
+
+
+async def _run_until_closed(server, read, write) -> None:
+    try:
+        async with write:
+            await server.run(read, write, server.create_initialization_options())
+    except BaseException:
+        pass

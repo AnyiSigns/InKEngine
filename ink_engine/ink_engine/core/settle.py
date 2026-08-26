@@ -26,18 +26,18 @@ from typing import Any, Protocol, runtime_checkable
 
 from .edge_evidence import (
     DEFAULT_CONTRACT_VERSION,
+    TIER_PROMOTE_N,
+    TIER_PROMOTE_P,
     EdgeEvidence,
     EdgeEvidenceStore,
     EdgeKey,
-    TIER_PROMOTE_N,
-    TIER_PROMOTE_P,
     laplace_success,
 )
 from .edge_evidence import (
     import_seed_paths as _import_seed_paths,
 )
-from .exceptions import GraphDefinitionError
 from .event_types import EVENT_AUDIT_POLICY_REVIEW, EVENT_AUDIT_PROMOTION
+from .exceptions import GraphDefinitionError
 from .graph import Graph, TerminateReason
 from .logging import get_logger
 from .run_result import RunResult
@@ -55,6 +55,35 @@ PROPOSAL_MIN_FAILS = 3
 PROPOSAL_FAIL_RATE = 0.4
 # 入边失败率判定所需最小样本（单样本不判率——偶发失败不误伤）
 PROPOSAL_RATE_MIN_N = 2
+
+# 失败归因分类（error 事件 message 分类器）：把失败原因归到能力缺口类
+# 才走「新结点提案」通道，环境/配置类失败（权限/校验/网络）不污染评审
+# 队列（垃圾提案率断言由此压低）。model / unknown 视为能力缺口类。
+FAIL_CAT_PERMISSION = "permission"
+FAIL_CAT_VALIDATION = "validation"
+FAIL_CAT_NETWORK = "network"
+FAIL_CAT_MODEL = "model"
+FAIL_CAT_UNKNOWN = "unknown"
+# 能力缺口类（才触发结点提案）：模型能力本身不足 / 未归类未知
+CAPABILITY_GAP_CATEGORIES = frozenset({FAIL_CAT_MODEL, FAIL_CAT_UNKNOWN})
+
+
+def classify_failure(message: str | None) -> str:
+    """失败消息 → 类别（permission/validation/network/model/unknown）。
+
+    纯关键词分类（无 LLM）；命中多类按优先级 permission>validation>
+    network>model 取首类，均无 → unknown（能力缺口兜底）。
+    """
+    text = (message or "").lower()
+    if any(k in text for k in ("permission", "forbidden", "denied", "unauthorized", "403")):
+        return FAIL_CAT_PERMISSION
+    if any(k in text for k in ("validation", "schema", "invalid", "400", "malformed")):
+        return FAIL_CAT_VALIDATION
+    if any(k in text for k in ("network", "timeout", "connection", "dns", "502", "503", "504")):
+        return FAIL_CAT_NETWORK
+    if any(k in text for k in ("model", "llm", "context length", "rate limit", "429", "token")):
+        return FAIL_CAT_MODEL
+    return FAIL_CAT_UNKNOWN
 
 # 归因更新种类（声明式枚举）
 UPDATE_SUCCESS = "success"
@@ -110,15 +139,18 @@ class Traversal:
     dst_type: str
     src_contract_version: str
     dst_contract_version: str
+    src_variant_hash: str = ""
+    dst_variant_hash: str = ""
 
 
 @dataclass(frozen=True, slots=True)
 class EdgeUpdate:
-    """归因更新计划（纯数据：成败 + 成本；由存储钩子逐条落库）。"""
+    """归因更新计划（纯数据：成败 + 成本 + 增量；由存储钩子逐条落库）。"""
 
     key: EdgeKey
     kind: str  # UPDATE_SUCCESS / UPDATE_FAIL
     cost: float
+    delta: int = 1  # 增量（成功 +1；失败 = 加权分摊 blame 量）
 
 
 @dataclass(slots=True)
@@ -135,17 +167,20 @@ class SettleContext:
     result: RunResult
 
 
-def node_identity(graph: Graph | None, node: str) -> tuple[str, str]:
-    """结点 → (类型名, 契约版本)：声明式绑定取注册类型与配置内版本，
-    直挂函数取结点名 + 缺省版本（类型即身份，版本入键）。"""
+def node_identity(graph: Graph | None, node: str) -> tuple[str, str, str]:
+    """结点 → (类型名, 契约版本, 变体指纹)：声明式绑定取注册类型与配置
+    内版本，以及可选 ``variant_hash``（节点配置/提示词变体指纹，空 = 类型
+    级兼容）；直挂函数取结点名 + 缺省版本 + 空变体。
+    """
     if graph is None:
-        return node, DEFAULT_CONTRACT_VERSION
+        return node, DEFAULT_CONTRACT_VERSION, ""
     binding = graph.node_bindings.get(node)
     if binding is not None:
         config = binding.config if isinstance(binding.config, dict) else {}
         version = str(config.get("contract_version", DEFAULT_CONTRACT_VERSION))
-        return binding.type_name, version
-    return node, DEFAULT_CONTRACT_VERSION
+        variant_hash = str(config.get("variant_hash", ""))
+        return binding.type_name, version, variant_hash
+    return node, DEFAULT_CONTRACT_VERSION, ""
 
 
 def derive_traversals(ctx: SettleContext) -> tuple[Traversal, ...]:
@@ -170,8 +205,8 @@ def derive_traversals(ctx: SettleContext) -> tuple[Traversal, ...]:
             targets = {e.target for e in graph.edges.get(prev.node, ())}
             if cur.node not in targets:
                 continue
-            src_type, src_version = node_identity(graph, prev.node)
-            dst_type, dst_version = node_identity(graph, cur.node)
+            src_type, src_version, src_variant = node_identity(graph, prev.node)
+            dst_type, dst_version, dst_variant = node_identity(graph, cur.node)
             traversals.append(
                 Traversal(
                     graph_path=path,
@@ -181,6 +216,8 @@ def derive_traversals(ctx: SettleContext) -> tuple[Traversal, ...]:
                     dst_type=dst_type,
                     src_contract_version=src_version,
                     dst_contract_version=dst_version,
+                    src_variant_hash=src_variant,
+                    dst_variant_hash=dst_variant,
                 )
             )
     return tuple(traversals)
@@ -205,34 +242,51 @@ def run_verdict(ctx: SettleContext) -> str:
     return UPDATE_SUCCESS
 
 
-def attribution_plan(ctx: SettleContext) -> tuple[EdgeUpdate, ...]:
+def attribution_plan(
+    ctx: SettleContext,
+    evidence_index: dict[EdgeKey, Any] | None = None,
+) -> tuple[EdgeUpdate, ...]:
     """归因计划（纯函数）：按归因规则逐边生成更新，不落库。
 
-    - 失败归因：只记失败结点的入边 ``fail+1``，上游边中性不记；
-    - 成功归因：全部遍历边 ``success+1``；
-    - 成本每次执行归集：目标结点执行边界 token 计账随归因携带。
+    - 成功归因：全部遍历边 ``success+delta``（delta=1，成功才全边 +1）；
+    - 失败归因（归因对称）：失败事件视同整链可疑，惩罚按
+      边权重 / 成功史加权分摊到全路径边（非只记失败结点入边、非全边等权
+      fail+1）——权重 = 该边成功计数 + 1（零证据边取 1），使「成功膨胀」
+      被失败信号按真实证据强度回撤；失败结点的入边额外 +1 作为诊断信号
+      （定位最可疑边），避免失败信号被稀释；
+    - 成本每次执行归集：目标结点执行边界 token 计账随归因携带；
+    - ``evidence_index`` 为可选边证据快照（钩子注入），缺省退化为等权
+      （每边权重 1）的口径。
     """
     verdict = run_verdict(ctx)
     if verdict not in (UPDATE_SUCCESS, UPDATE_FAIL):
         return ()
+    traversals = derive_traversals(ctx)
+    if not traversals:
+        return ()
     updates: list[EdgeUpdate] = []
-    for tr in derive_traversals(ctx):
-        if verdict == UPDATE_FAIL and tr.dst.status != TRACE_FAILED:
-            continue
-        cost = ctx.node_tokens.get((tr.dst.graph_path, tr.dst.node), 0)
-        updates.append(
-            EdgeUpdate(
-                key=EdgeKey(
-                    src_type=tr.src_type,
-                    dst_type=tr.dst_type,
-                    src_contract_version=tr.src_contract_version,
-                    dst_contract_version=tr.dst_contract_version,
-                    context_domain=ctx.domain,
-                ),
-                kind=verdict,
-                cost=float(cost),
-            )
+    failed_tr = next((t for t in traversals if t.dst.status == TRACE_FAILED), None)
+    for tr in traversals:
+        key = EdgeKey(
+            src_type=tr.src_type,
+            dst_type=tr.dst_type,
+            src_contract_version=tr.src_contract_version,
+            dst_contract_version=tr.dst_contract_version,
+            context_domain=ctx.domain,
+            variant_hash=tr.dst_variant_hash,
         )
+        cost = ctx.node_tokens.get((tr.dst.graph_path, tr.dst.node), 0)
+        if verdict == UPDATE_SUCCESS:
+            updates.append(EdgeUpdate(key=key, kind=UPDATE_SUCCESS, cost=float(cost), delta=1))
+            continue
+        # 失败：加权分摊（权重 = 成功史 + 1，等权退化 = 1）
+        weight = 1
+        if evidence_index:
+            ev = evidence_index.get(key)
+            if ev is not None:
+                weight = getattr(ev, "success_count", 0) + 1
+        delta = weight + (1 if tr is failed_tr else 0)
+        updates.append(EdgeUpdate(key=key, kind=UPDATE_FAIL, cost=float(cost), delta=delta))
     return tuple(updates)
 
 
@@ -375,11 +429,28 @@ class EdgeEvidenceSettleHook:
         self._store = store
 
     async def settle(self, ctx: SettleContext) -> None:
-        for update in attribution_plan(ctx):
+        evidence_index = None
+        if ctx.steps and any(s.status == TRACE_FAILED for s in ctx.steps):
+            evidence_index = {}
+            for tr in derive_traversals(ctx):
+                key = EdgeKey(
+                    src_type=tr.src_type,
+                    dst_type=tr.dst_type,
+                    src_contract_version=tr.src_contract_version,
+                    dst_contract_version=tr.dst_contract_version,
+                    context_domain=ctx.domain,
+                    variant_hash=tr.dst_variant_hash,
+                )
+                evidence_index[key] = await self._store.get(key)
+        for update in attribution_plan(ctx, evidence_index=evidence_index):
             if update.kind == UPDATE_SUCCESS:
-                await self._store.record_success(update.key, cost=update.cost)
+                await self._store.record_success(
+                    update.key, cost=update.cost, delta=update.delta
+                )
             else:
-                await self._store.record_failure(update.key, cost=update.cost)
+                await self._store.record_failure(
+                    update.key, cost=update.cost, delta=update.delta
+                )
 
 
 class FailureAuditSettleHook:
@@ -526,6 +597,11 @@ class NodeProposalSettleHook:
         self.proposals: list[dict[str, Any]] = []
 
     async def settle(self, ctx: SettleContext) -> None:
+        category = classify_failure(ctx.result.error)
+        # 失败分类分流：仅能力缺口类（model / unknown）才提案，环境/
+        # 配置类（permission/validation/network）不污染评审队列
+        if category not in CAPABILITY_GAP_CATEGORIES:
+            return
         for tr in derive_traversals(ctx):
             if tr.dst.status != TRACE_FAILED:
                 continue
@@ -535,6 +611,7 @@ class NodeProposalSettleHook:
                 src_contract_version=tr.src_contract_version,
                 dst_contract_version=tr.dst_contract_version,
                 context_domain=ctx.domain,
+                variant_hash=tr.dst_variant_hash,
             )
             evidence = await self._store.get(key)
             fail = evidence.fail_count if evidence is not None else 1
@@ -550,6 +627,7 @@ class NodeProposalSettleHook:
                 **draft,
                 "src_type": tr.src_type,
                 "domain": ctx.domain,
+                "failure_category": category,
                 "trace_id": ctx.trace_id,
                 "ts": time.time(),
             }
@@ -611,6 +689,7 @@ class RecommendedPriorSettleHook:
                     src_contract_version=tr.src_contract_version,
                     dst_contract_version=tr.dst_contract_version,
                     context_domain=ctx.domain,
+                    variant_hash=tr.dst_variant_hash,
                 )
                 for tr in traversals
             )

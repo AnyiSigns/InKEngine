@@ -115,7 +115,11 @@ def test_attribution_success_all_edges():
 
 
 def test_attribution_failure_only_failed_incoming():
-    """失败只记失败结点入边 fail+1，上游边中性不记（防归因污染）。"""
+    """失败归因对称（加权分摊）：整链可疑，失败结点入边额外 +1 诊断。
+
+    等权退化（无证据快照）时失败结点入边 = 基础 1 + 诊断 1 = 2，其余
+    路径边各 1——失败信号不再被「只记失败结点入边」稀释。
+    """
     steps = _steps(
         ("start", TRACE_SUCCESS),
         ("mid", TRACE_FAILED),
@@ -126,20 +130,26 @@ def test_attribution_failure_only_failed_incoming():
     assert plan[0].kind == UPDATE_FAIL
     assert plan[0].key.src_type == "start"
     assert plan[0].key.dst_type == "mid"
+    assert plan[0].delta == 2  # 等权 1 + 失败结点入边诊断 1
 
 
 def test_attribution_failure_upstream_neutral():
-    """上游成功边不记 success（整链未全通，一次失败不毒化上游也不嘉奖）。"""
+    """上游成功边不记 success（整链未全通，但按对称口径分摊失败）。
+
+    等权退化时：失败结点入边（mid→end）额外 +1 诊断 = 2；上游成功边
+    （start→mid）仅基础分摊 1——失败信号散布全链而非稀释于单边。
+    """
     steps = _steps(
         ("start", TRACE_SUCCESS),
         ("mid", TRACE_SUCCESS),
         ("end", TRACE_FAILED),
     )
     plan = attribution_plan(_ctx(steps))
-    assert len(plan) == 1
-    assert plan[0].kind == UPDATE_FAIL
-    assert plan[0].key.dst_type == "end"
-    assert plan[0].key.src_type == "mid"
+    assert len(plan) == 2
+    assert all(u.kind == UPDATE_FAIL for u in plan)
+    by_key = {u.key.dst_type: u for u in plan}
+    assert by_key["end"].delta == 2  # 失败结点入边 + 诊断
+    assert by_key["mid"].delta == 1  # 上游成功边仅基础分摊
 
 
 def test_attribution_cost_carries_target_tokens():
@@ -174,8 +184,8 @@ def test_attribution_neutral_on_interrupt_and_error():
 def test_node_identity_resolves_bindings():
     """结点身份解析：声明式绑定取类型名/契约版本；直挂取结点名+缺省。"""
     g = demo_linear_graph()
-    assert node_identity(g, "start") == ("start", "1")
-    assert node_identity(None, "x") == ("x", "1")
+    assert node_identity(g, "start") == ("start", "1", "")
+    assert node_identity(None, "x") == ("x", "1", "")
     # 绑定形态：NodeBinding 携带类型与契约版本
     g2 = Graph(name="typed", entry="t")
     from ink_engine.core.registry import NodeTypeRegistry
@@ -184,7 +194,7 @@ def test_node_identity_resolves_bindings():
     reg.register("t1", lambda config: (lambda ctx: {"v": 1}))
     g2.add_node_type("t", "t1", {"contract_version": "3"})
     g2.resolve_types(reg)
-    assert node_identity(g2, "t") == ("t1", "3")
+    assert node_identity(g2, "t") == ("t1", "3", "")
 
 
 def test_attribution_domain_key():
@@ -227,7 +237,9 @@ async def test_edge_evidence_hook_applies_plan():
         )
     )
     e1 = await store.get(EdgeKey(src_type="start", dst_type="mid", context_domain="code"))
-    assert e1 is not None and e1.fail_count == 1 and e1.success_count == 1
+    # 加权分摊：失败前该边已有 1 次成功（权重 2），失败结点入边诊断 +1
+    # → delta=3；失败信号按真实证据强度回撤，不再被成功膨胀稀释
+    assert e1 is not None and e1.fail_count == 3 and e1.success_count == 1
     await store.close()
 
 
@@ -452,7 +464,7 @@ async def test_engine_end_to_end_failure_run_records_only_failed_incoming():
     result = await engine.ainvoke({}, thread_id="t-e2e-2")
     assert result.reason == "error"
     failed = await store.get(EdgeKey(src_type="start", dst_type="boom", context_domain="code"))
-    assert failed is not None and failed.fail_count == 1 and failed.success_count == 0
+    assert failed is not None and failed.fail_count == 2 and failed.success_count == 0
     # 上游 start 无入边；boom→end 未执行（终止于失败）→ 无记录
     assert await store.evidence_count("code") == 1
     await store.close()

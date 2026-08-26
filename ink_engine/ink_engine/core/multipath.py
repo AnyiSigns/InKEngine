@@ -333,7 +333,9 @@ def chain_evidence(
     cost = 0.0
     for ref in chain_edge_refs(candidate):
         edges += 1
-        row = evidence_index.get((ref.src, ref.dst, ref.src_version, ref.dst_version))
+        row = evidence_index.get(
+            (ref.src, ref.dst, ref.src_version, ref.dst_version)
+        )
         if row is None:
             continue
         evidenced += 1
@@ -352,11 +354,16 @@ def chain_evidence(
 def evidence_index_of(
     rows: Sequence[EdgeEvidence],
 ) -> dict[tuple[str, str, str, str], EdgeEvidence]:
-    """域内证据行 → 内存索引（组装/裁决全程在内存中计分）。"""
+    """域内证据行 → 内存索引（组装/裁决全程在内存中计分）。
+
+    口径 = 类型级（variant_hash 空）：变体专属证据不参与类型级聚合，
+    同类型对多变体行不互相覆盖（后写入行不再顶掉先写入行）。
+    """
     return {
         (row.src_type, row.dst_type, row.key.src_contract_version,
          row.key.dst_contract_version): row
         for row in rows
+        if not row.key.variant_hash
     }
 
 

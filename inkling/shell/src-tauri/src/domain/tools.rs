@@ -475,14 +475,15 @@ mod tests {
         let data = tools_data();
         let groups = group_tools(&data);
         let total: usize = groups.values().map(|names| names.len()).sum();
-        assert_eq!(total, 39, "分组不重不漏");
+        assert_eq!(total, 40, "分组不重不漏");
         assert_eq!(groups.get("os").map(|n| n.len()), Some(21));
         assert_eq!(groups.get("file").map(|n| n.len()), Some(8));
         assert_eq!(groups.get("network").map(|n| n.len()), Some(2));
         assert_eq!(groups.get("research").map(|n| n.len()), Some(7));
         assert!(groups.get("mcp").is_none(), "出厂工具表无 mcp 族");
-        assert_eq!(groups.get("generic").map(|n| n.len()), Some(1));
+        assert_eq!(groups.get("generic").map(|n| n.len()), Some(2));
         assert_eq!(groups.get("generic").unwrap()[0], "propose_mcp_mount");
+        assert!(groups["generic"].contains(&"propose_patch".to_string()));
         assert!(groups["network"].contains(&"web_search".to_string()));
         assert!(groups["network"].contains(&"fetch".to_string()));
         assert!(groups["os"].contains(&"shell_exec".to_string()));
@@ -500,7 +501,7 @@ mod tests {
     fn name_map_from_seed_is_sorted_and_grouped() {
         let data = tools_data();
         let entries = build_tool_name_map(&data);
-        assert_eq!(entries.len(), 39);
+        assert_eq!(entries.len(), 40);
         assert_eq!(entries[0].tool, "collect_material");
         assert_eq!(entries[0].group, "research");
         let fetch = entries.iter().find(|e| e.tool == "fetch").unwrap();
@@ -537,17 +538,17 @@ mod tests {
     fn provider_seed_and_lookup_snapshot_consistent() {
         let data = tools_data();
         let provider = ToolSpecsProvider::from_seed(&data);
-        assert_eq!(provider.len(), 39);
+        assert_eq!(provider.len(), 40);
         assert!(provider.lookup("file_read").is_some());
         assert!(provider.lookup("nope").is_none());
-        assert_eq!(provider.names().len(), 39);
+        assert_eq!(provider.names().len(), 40);
         assert_eq!(provider.resolve_label("fetch", None), "网络抓取");
         assert_eq!(
             provider.resolve_label("ghost_tool", Some("Some MCP tool description.")),
             "Some MCP tool description."
         );
         let map = provider.name_map();
-        assert_eq!(map.len(), 39);
+        assert_eq!(map.len(), 40);
         assert_eq!(map[0].tool, "collect_material");
         let empty = ToolSpecsProvider::empty();
         assert_eq!(empty.len(), 0);

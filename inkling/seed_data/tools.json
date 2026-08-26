@@ -1680,6 +1680,73 @@
         "executor": "shell:material_import",
         "sandbox": "server_session"
       }
+    },
+    {
+      "name": "propose_patch",
+      "description": "行为意图：自指演化提案——把变更意图整理为声明式补丁（kind 覆盖界面/主题/工具/规则/知识/harness/事件类型/环境/产物全类），经按类型校验与审批分级后交补丁链落链（可回退），是 AI 修改产品形态的唯一入口形态。\n\n使用时机：需要新增或修订界面/主题/工具声明/规则/知识条目/harness/事件类型/环境/构建产物时；改进建议已成型、要进入审批流时；本工具只做提案，批准前不落任何变更。\n\n取舍与替代选项：只挂载 MCP/插件——propose_mcp_mount；本工具=其余全部演化对象（ui/theme/tool/rule/knowledge/harness/event_type/environment/artifact）；不提案直接改——不存在此路径，变更必须走补丁链留痕。\n\n参数语义：kind=补丁类型（枚举九类）；payload=补丁内容（按类型校验，ui/theme 走界面 schema，tool/rule/knowledge/harness/event_type/environment 走各自声明构造，artifact 走产物哈希声明）；base_version=提案时的集补丁链版本（基准校验用）；rationale=提案理由（审批卡展示与审计留痕）。\n\n边界与协作：校验失败 = 违规清单直接返回，不落审批卡；审批分级（L0/L1/L2）与补丁链 vetting 复用既有管线，批准后落链可回退；本工具只产提案，应用/回退归既有 self_application 通道。",
+      "parameters": {
+        "type": "object",
+        "properties": {
+          "command": {
+            "type": "string",
+            "enum": [
+              "propose_patch"
+            ],
+            "description": "命令名（固定值；与 process_exec 端点操作判定同源，调用方恒传）"
+          },
+          "kind": {
+            "type": "string",
+            "enum": [
+              "ui",
+              "theme",
+              "tool",
+              "rule",
+              "knowledge",
+              "harness",
+              "event_type",
+              "environment",
+              "artifact"
+            ],
+            "description": "补丁类型（与引擎 PatchKind 枚举同源，全量九类）"
+          },
+          "payload": {
+            "type": "object",
+            "description": "补丁内容（按类型校验的声明形态）"
+          },
+          "base_version": {
+            "type": "integer",
+            "description": "提案时的集补丁链版本（基准校验；并发冲突须基于最新态重提）"
+          },
+          "rationale": {
+            "type": "string",
+            "description": "提案理由（审批卡展示与审计留痕）"
+          }
+        },
+        "required": [
+          "command",
+          "kind",
+          "payload"
+        ]
+      },
+      "permissions": [
+        "process:exec:propose_patch"
+      ],
+      "approval": "review",
+      "endpoint": "process_exec",
+      "endpoint_config": {
+        "allowlist": [
+          "propose_patch"
+        ]
+      },
+      "network_policy": {
+        "allow_domains": []
+      },
+      "meta": {
+        "domain": "self",
+        "executor": "host:propose_patch",
+        "sandbox": "process_allowlist",
+        "note": "执行器由宿主注册（提案接线）；审批链 = 按类型校验 → 审批分级 L0/L1/L2 → 补丁链落链（vetting 复用既有，可回退）"
+      }
     }
   ]
 }

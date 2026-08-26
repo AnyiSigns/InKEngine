@@ -34,15 +34,24 @@ from dataclasses import dataclass, field
 from enum import StrEnum
 from typing import TYPE_CHECKING, Any
 
+if TYPE_CHECKING:
+    from .tool_pipeline import ToolPipeline
+
+from .contracts import NodeContract
 from .exceptions import GraphDefinitionError, SandboxViolation
 from .llm.tools import ToolSpec
 from .logging import get_logger
 from .permissions import NetworkPolicy, NetworkPolicySandbox, PermissionGate, parse_permission
 from .sandbox import FS_OPERATIONS as _FS_GUARDED_OPS
 from .sandbox import FileSandbox, ProcessSandbox
-
-if TYPE_CHECKING:
-    from .tool_pipeline import ToolPipeline
+from .schema_validator import (
+    FIELD_ARRAY,
+    FIELD_BOOL,
+    FIELD_NUMBER,
+    FIELD_OBJECT,
+    FIELD_STRING,
+    SchemaField,
+)
 
 logger = get_logger(__name__)
 
@@ -538,6 +547,179 @@ def make_http_fetch_executor(
     return execute
 
 
+# ── 声明 → 结点契约（契约映射：input=parameters，output=端点操作结果形态）──
+
+# JSON Schema 类型 → SchemaField 类型映射（未知类型回落字符串，宁宽松不误拒）
+_JSON_SCHEMA_TO_FIELD: dict[str, str] = {
+    "string": FIELD_STRING,
+    "integer": FIELD_NUMBER,
+    "number": FIELD_NUMBER,
+    "boolean": FIELD_BOOL,
+    "object": FIELD_OBJECT,
+    "array": FIELD_ARRAY,
+}
+
+# 审批档 → 契约安全档（与审批档同阶：allow=0 最严 / review=1 / deny=2）
+_APPROVAL_TO_SAFETY_TIER: dict[str, int] = {
+    "allow": 0,
+    "review": 1,
+    "deny": 2,
+}
+
+# 端点操作结果形态（output schema 字段声明；与各端点执行体返回语义对齐）
+_ENDPOINT_OUTPUT_FIELDS: dict[EndpointType, tuple[SchemaField, ...]] = {
+    EndpointType.PROCESS_EXEC: (
+        SchemaField(name="stdout", required=True, kind=FIELD_STRING),
+        SchemaField(name="exit_code", required=True, kind=FIELD_NUMBER),
+    ),
+    EndpointType.FILE_OPS: (
+        SchemaField(name="result", required=True, kind=FIELD_STRING),
+    ),
+    EndpointType.MCP: (
+        SchemaField(name="result", required=True, kind=FIELD_OBJECT),
+    ),
+    EndpointType.HTTP_FETCH: (
+        SchemaField(name="status_code", required=True, kind=FIELD_NUMBER),
+        SchemaField(name="body", required=True, kind=FIELD_STRING),
+    ),
+    EndpointType.WEB_SEARCH: (
+        SchemaField(name="results", required=True, kind=FIELD_ARRAY),
+    ),
+}
+
+
+def _field_from_property(name: str, prop: Any, required: bool) -> SchemaField:
+    """JSON Schema 属性 → SchemaField（类型/枚举/边界透传；未知回落字符串）。"""
+    if not isinstance(prop, dict):
+        return SchemaField(name=name, required=required, kind=FIELD_STRING)
+    kind = _JSON_SCHEMA_TO_FIELD.get(str(prop.get("type") or "string"), FIELD_STRING)
+    enum = tuple(str(item) for item in prop.get("enum") or ())
+    minimum = prop.get("minimum")
+    maximum = prop.get("maximum")
+    return SchemaField(
+        name=name,
+        required=required,
+        kind=kind,
+        enum=enum,
+        min=float(minimum) if isinstance(minimum, (int, float)) else None,
+        max=float(maximum) if isinstance(maximum, (int, float)) else None,
+    )
+
+
+def tool_contract_from_declaration(
+    spec: DeclarativeToolSpec, *, version: int | None = None
+) -> NodeContract:
+    """工具声明 → 结点契约（input=parameters，output=端点操作结果形态）。
+
+    契约生成是纯数据变换：parameters 的 JSON Schema 属性逐项映射为
+    SchemaField（必填/类型/枚举/边界透传），output 按端点类型给出操作
+    结果形态（process_exec → stdout/exit_code，file_ops → result，
+    mcp → result 对象，http_fetch → status_code/body，web_search →
+    results 数组）；安全档按审批档同阶映射（allow=0/review=1/deny=2）；
+    契约版本缺省取声明 meta.contract_version，无则 1。
+
+    Args:
+        spec: 声明式工具定义（工具表唯一登记来源）。
+        version: 契约版本覆盖（缺省 = meta.contract_version 或 1）。
+
+    Returns:
+        结点契约（input_schema/output_schema 均为 SchemaSpec 数据形态，
+        随补丁链版本化/回退）。
+    """
+    from .schema_validator import SchemaSpec
+
+    properties = spec.parameters.get("properties") or {}
+    if not isinstance(properties, dict):
+        raise GraphDefinitionError(
+            f"工具 {spec.name} 参数 properties 须为 dict（契约映射前提）"
+        )
+    required = set(spec.parameters.get("required") or ())
+    input_fields = tuple(
+        _field_from_property(str(name), prop, str(name) in required)
+        for name, prop in properties.items()
+    )
+    output_fields = _ENDPOINT_OUTPUT_FIELDS.get(spec.endpoint) or (
+        SchemaField(name="result", required=True, kind=FIELD_STRING),
+    )
+    contract_version = version
+    if contract_version is None:
+        raw = spec.meta.get("contract_version")
+        contract_version = int(raw) if isinstance(raw, (int, float)) else 1
+    return NodeContract(
+        input_schema=SchemaSpec(name=f"{spec.name}.input", fields=input_fields),
+        output_schema=SchemaSpec(name=f"{spec.name}.output", fields=output_fields),
+        safety_tier=_APPROVAL_TO_SAFETY_TIER.get(
+            str(spec.meta.get("approval") or "review"), 1
+        ),
+        version=contract_version,
+    )
+
+
+def tool_node_mapping(
+    definitions: list[DeclarativeToolSpec],
+) -> dict[str, str]:
+    """工具表 → 结点池映射（node_type == tool_name，同源单一事实）。
+
+    结点池条目与工具表共享同一登记来源：工具登记即结点类型登记，任一
+    漂移（工具名重复/结点类型被占）在此显式报错，不做静默覆盖。
+
+    Returns:
+        {tool_name: node_type}（本实现口径下恒为同名字典，契约锚点）。
+    """
+    mapping: dict[str, str] = {}
+    for definition in definitions:
+        if definition.name in mapping:
+            raise GraphDefinitionError(f"工具名重复（结点池同源冲突）: {definition.name}")
+        mapping[definition.name] = definition.name
+    return mapping
+
+
+def node_contracts_from_tools(
+    definitions: list[DeclarativeToolSpec],
+) -> dict[str, NodeContract]:
+    """工具表 → 结点池条目（结点类型 = 工具名；契约 = 自动生成）。
+
+    Args:
+        definitions: 声明式工具定义清单（工具表同一登记来源）。
+
+    Returns:
+        {node_type: NodeContract}——结点池按此登记，与工具表同源。
+    """
+    mapping = tool_node_mapping(definitions)
+    contracts: dict[str, NodeContract] = {}
+    for definition in definitions:
+        contracts[mapping[definition.name]] = tool_contract_from_declaration(definition)
+    return contracts
+
+
+def validate_tool_node_consistency(
+    node_pool: dict[str, NodeContract],
+    definitions: list[DeclarativeToolSpec],
+) -> list[str]:
+    """结点池 ↔ 工具表一致性校验（同源门禁的观察侧）。
+
+    Returns:
+        违规清单（空 = 一致）：结点池条目与工具表同源——结点类型缺失、
+    多余、契约输入/输出形态与自动生成不一致均列入，供装配期门禁消费。
+    """
+    issues: list[str] = []
+    expected = node_contracts_from_tools(definitions)
+    for node_type in sorted(set(node_pool) | set(expected)):
+        if node_type not in node_pool:
+            issues.append(f"结点池缺工具映射类型: {node_type}")
+            continue
+        if node_type not in expected:
+            issues.append(f"结点池存在工具表外类型: {node_type}")
+            continue
+        actual = node_pool[node_type]
+        want = expected[node_type]
+        if actual.input_schema != want.input_schema:
+            issues.append(f"结点 {node_type} 输入契约与工具声明不符")
+        if actual.output_schema != want.output_schema:
+            issues.append(f"结点 {node_type} 输出契约与工具声明不符")
+    return issues
+
+
 __all__ = [
     "DeclarativeExecutor",
     "DeclarativeToolExecutors",
@@ -547,4 +729,8 @@ __all__ = [
     "endpoint_operation",
     "make_declarative_extractor",
     "make_http_fetch_executor",
+    "node_contracts_from_tools",
+    "tool_contract_from_declaration",
+    "tool_node_mapping",
+    "validate_tool_node_consistency",
 ]

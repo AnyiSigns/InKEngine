@@ -242,6 +242,19 @@
         { "name": "path", "type": "string", "required": true },
         { "name": "recursive", "type": "boolean", "required": false }
       ]
+    },
+    {
+      "name": "propose_patch",
+      "description": "自指演化提案（声明式补丁，按类型校验后走审批分级 L0/L1/L2 落补丁链，可回退）",
+      "permission": "review",
+      "endpoint": "process_exec",
+      "sandbox": { "mode": "command_allowlist", "allowlist": ["propose_patch"] },
+      "params": [
+        { "name": "kind", "type": "string", "required": true },
+        { "name": "payload", "type": "string", "required": true },
+        { "name": "base_version", "type": "integer", "required": false },
+        { "name": "rationale", "type": "string", "required": false }
+      ]
     }
   ]
 }

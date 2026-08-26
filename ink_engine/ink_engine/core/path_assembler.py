@@ -906,10 +906,15 @@ def _node_text(type_name: str, contract: NodeContract) -> str:
 def _snapshot_edge(
     rows: Sequence[Mapping[str, Any]], src: str, dst: str
 ) -> EdgeEvidence | None:
-    """快照行 → 边证据（按类型对匹配；未命中 = 零证据先验下界）。"""
+    """快照行 → 边证据（按类型对匹配；未命中 = 零证据先验下界）。
+
+    匹配口径 = 类型级（variant_hash 空）：变体专属证据不参与缓存路径
+    评分，与组装侧证据索引同口径。
+    """
     for row in rows:
-        if row.get("src_type") == src and row.get("dst_type") == dst:
-            return EdgeEvidence.from_dict(row)
+        if not row.get("variant_hash", ""):
+            if row.get("src_type") == src and row.get("dst_type") == dst:
+                return EdgeEvidence.from_dict(row)
     return None
 
 
@@ -1004,9 +1009,14 @@ class PathAssembler:
             for type_name, contract in pool.items()
         }
 
-    async def _evidence_index(self, domain: str) -> dict[tuple[str, str, str, str], EdgeEvidence]:
+    async def _evidence_index(self, domain: str) -> dict[tuple[str, str, str, str, str], EdgeEvidence]:
         """边证据索引（一次域内查询；组装全程在内存中计分——百万结点量级
-        逐边查询不可行，域内枚举 + 内存索引是规模前提）。"""
+        逐边查询不可行，域内枚举 + 内存索引是规模前提）。
+
+        索引键含实例粒度维（variant_hash）：组装是类型级口径，只消费
+        类型级行（variant_hash 空 = 旧行空值归类型级），变体专属证据
+        不混入类型级评分，也不互相覆盖。
+        """
         if self._evidence is None:
             return {}
         rows = await self._evidence.list_edges(domain)
@@ -1016,8 +1026,10 @@ class PathAssembler:
                 row.dst_type,
                 row.key.src_contract_version,
                 row.key.dst_contract_version,
+                row.key.variant_hash,
             ): row
             for row in rows
+            if not row.key.variant_hash
         }
 
     def _cache_key(self, request: AssemblyRequest, goal: tuple[str, ...]) -> str:
@@ -1236,6 +1248,7 @@ class PathAssembler:
             dst,
             str(index[src].contract.version),
             str(index[dst].contract.version),
+            "",
         )
         evidence = evidence_index.get(key)
         score = edge_score(evidence, now=self._now).score
@@ -1409,6 +1422,7 @@ class PathAssembler:
                     dst,
                     str(index[src].contract.version),
                     str(index[dst].contract.version),
+                    "",
                 )
             )
 
@@ -1435,6 +1449,7 @@ class PathAssembler:
                     dst,
                     str(index[src].contract.version),
                     str(index[dst].contract.version),
+                    "",
                 )
                 if key in evidence_index:
                     evidenced += 1

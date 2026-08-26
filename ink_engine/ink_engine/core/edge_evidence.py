@@ -58,6 +58,18 @@ TIER_TAU = {
     TIER_PROMOTED: 1.0,
 }
 
+# 证据来源（origin）与先验隔离：种子行携带 origin=seed 并在评分中降权，
+# 冷启动仍可靠种子兜底，但种子计数不得与运行期证据同权混算（避免「6/1=86%」
+# 假象）；运行期观察行 origin=runtime 参与全权评分；策略边 origin=policy
+# 仍取 τ=1.0 豁免（与 seed 降权正交——策略边是显式承诺而非统计先验）。
+ORIGIN_SEED = "seed"
+ORIGIN_RUNTIME = "runtime"
+ORIGIN_POLICY = "policy"
+# 种子行评分降权因子（<1）：种子统计是出厂先验、非真实观测，计入评分时
+# 按此因子压缩，使冷启动不被过度信任；首次真实成功后该行 origin 翻为
+# runtime，降权即解除（真实证据主导）。
+SEED_WEIGHT = 0.5
+
 # 信任档推导阈值（与推荐先验晋升同一组常数；纯算法自动晋级零审批）
 TIER_REGULAR_N = 8  # 常规：N ≥ 8 且 p̂ ≥ 0.7
 TIER_REGULAR_P = 0.7
@@ -66,7 +78,12 @@ TIER_PROMOTE_P = 0.9
 
 # 评分公式默认常数（引擎钉死；使用方仅覆盖权）
 SATURATION_N = 8.0  # 样本量半饱和点（w_n 分母）
-DECAY_HALF_DAYS = 30.0  # 时间衰减半衰期（天）
+# 时间衰减半衰期（天）：默认 30 保持历史行为兼容；改值经数据驱动注入
+# （boot env / tiers 装配），评分公式的 τ×d(t) 语义见 :func:`time_decay`。
+# ``DECAY_HALF_DAYS`` 为出厂默认值（不变量锚点），运行期覆盖经
+# :func:`set_decay_half_days` 注入，二者同义——装配注入即权威。
+DECAY_HALF_DAYS = 30.0
+_ZERO_EVIDENCE_DECAY_HALF_DAYS = 30.0
 ZERO_EVIDENCE_WEIGHT = 1 / 9  # 零证据边 w_n 先验下界（评审决议）
 ZERO_EVIDENCE_P = 0.5  # 零证据拉普拉斯先验成功率
 ZERO_EVIDENCE_TAU = TIER_TAU[TIER_OBSERVING]
@@ -94,11 +111,37 @@ def sample_weight(n: int) -> float:
     return n / (n + SATURATION_N)
 
 
-def time_decay(age_days: float, *, exempt: bool = False) -> float:
-    """时间衰减 d(t) = exp(-age_days/30)；策略边豁免（恒 1.0）。"""
+# 运行期衰减半衰期（数据驱动覆盖锚点；默认 = 出厂 DECAY_HALF_DAYS）
+_decay_half_days = DECAY_HALF_DAYS
+
+
+def set_decay_half_days(value: float) -> None:
+    """数据驱动注入衰减半衰期（boot env / tiers 装配调用）。
+
+    声明即权威：注入值覆盖所有后续评分的时间衰减口径，使宿主可按域/
+    按信任档收紧或放宽衰减节奏；不传 / 复位 = 回落出厂默认 30 天。
+    """
+    global _decay_half_days
+    _decay_half_days = float(value)
+
+
+def get_decay_half_days() -> float:
+    """当前生效的衰减半衰期（观察侧）。"""
+    return _decay_half_days
+
+
+def time_decay(age_days: float, *, exempt: bool = False, decay_half_days: float | None = None) -> float:
+    """时间衰减 d(t) = exp(-age_days/H)；策略边豁免（恒 1.0）。
+
+    H 默认取数据驱动注入的半衰期（:func:`get_decay_half_days`，出厂 30），
+    亦可经 ``decay_half_days`` 形参逐次覆盖（确定性测试注入）。语义：
+    评分 = p̂ · w_n · d(t) · τ，其中 d(t) 仅表达对旧证据的信任折旧，
+    与 τ（信任档乘数）正交——τ 是静态晋级结论，d(t) 是动态时间权重。
+    """
     if exempt or age_days <= 0:
         return 1.0
-    return math.exp(-age_days / DECAY_HALF_DAYS)
+    half = _decay_half_days if decay_half_days is None else decay_half_days
+    return math.exp(-age_days / half)
 
 
 def derive_edge_tier(success: int, fail: int) -> str:
@@ -153,13 +196,21 @@ def edge_score(
     fail: int | None = None,
     age_days: float | None = None,
     now: float | None = None,
+    decay_half_days: float | None = None,
 ) -> EdgeScore:
     """评分函数（公式形状 + 默认常数 = 引擎机制，使用方仅覆盖常数权）。
+
+    先验隔离（降权）：``origin=seed`` 的出厂先验行在 p̂·w_n·d(t)·τ
+    之外再乘 :data:`SEED_WEIGHT`（<1），使冷启动不被过度信任；首次真实
+    成功后该行 origin 翻为 runtime，降权解除（真实证据主导，不再有「6/1=86%」
+    假象）。策略边（``policy=True``）恒取 τ=1.0 且豁免时间衰减，与 seed
+    降权正交。
 
     Args:
         evidence: 边证据行（None = 零证据候选，取先验下界）。
         success/fail/age_days: 覆盖口径（测试与快照重算用；缺省取行内值）。
         now: 当前时间戳（缺省 = 实时；确定性测试注入）。
+        decay_half_days: 逐次覆盖衰减半衰期（缺省取数据驱动注入值）。
     """
     if evidence is None:
         score = zero_evidence_score()
@@ -177,9 +228,14 @@ def edge_score(
         ts = now if now is not None else time.time()
         last = evidence.last_used_at or evidence.created_at
         age_days = max(0.0, (ts - last) / 86400.0)
-    d = time_decay(age_days, exempt=evidence.policy)
+    d = time_decay(age_days, exempt=evidence.policy, decay_half_days=decay_half_days)
+    score = p * w * d * tau
+    # 先验隔离：种子行降权（策略边豁免 τ 仍走全权，两者正交）
+    origin = getattr(evidence, "origin", ORIGIN_RUNTIME)
+    if origin == ORIGIN_SEED and not evidence.policy:
+        score *= SEED_WEIGHT
     return EdgeScore(
-        score=p * w * d * tau,
+        score=score,
         p=p, weight=w, decay=d, tau=tau, tier=tier,
     )
 
@@ -246,31 +302,43 @@ def is_exploration_mode(index: float) -> bool:
 
 @dataclass(frozen=True, slots=True)
 class EdgeKey:
-    """边主键（契约版本入键：升版后旧行自然不命中，无需重置逻辑）。"""
+    """边主键（契约版本入键：升版后旧行自然不命中，无需重置逻辑）。
+
+    实例粒度（变体指纹维）：``variant_hash`` 为可选维度——节点配置 /
+    提示词变体指纹（可空 = 类型级兼容，旧行空值归类型级）。当一个结点
+    以不同配置/提示词变体执行时，不同变体各自沉淀独立边证据，避免把
+    A 变体的成败记到 B 变体头上；空值（默认）= 退化为类型级证据，与旧
+    行为完全兼容。
+    """
 
     src_type: str
     dst_type: str
     src_contract_version: str = DEFAULT_CONTRACT_VERSION
     dst_contract_version: str = DEFAULT_CONTRACT_VERSION
     context_domain: str = "default"
+    variant_hash: str = ""
 
-    def key(self) -> tuple[str, str, str, str, str]:
+    def key(self) -> tuple[str, str, str, str, str, str]:
         return (
             self.src_type,
             self.dst_type,
             self.src_contract_version,
             self.dst_contract_version,
             self.context_domain,
+            self.variant_hash,
         )
 
     def to_dict(self) -> dict[str, Any]:
-        return {
+        data: dict[str, Any] = {
             "src_type": self.src_type,
             "dst_type": self.dst_type,
             "src_contract_version": self.src_contract_version,
             "dst_contract_version": self.dst_contract_version,
             "context_domain": self.context_domain,
         }
+        if self.variant_hash:
+            data["variant_hash"] = self.variant_hash
+        return data
 
     @classmethod
     def from_dict(cls, data: dict[str, Any]) -> EdgeKey:
@@ -284,6 +352,7 @@ class EdgeKey:
                 data.get("dst_contract_version", DEFAULT_CONTRACT_VERSION)
             ),
             context_domain=str(data.get("context_domain", "default")),
+            variant_hash=str(data.get("variant_hash", "")),
         )
 
 
@@ -296,6 +365,7 @@ class EdgeEvidence:
     fail_count: int
     avg_cost: float = 0.0
     policy: bool = False  # 策略边（声明式承诺）：评分 τ=1.0 且豁免时间衰减
+    origin: str = ORIGIN_RUNTIME  # 证据来源：seed/runtime/policy（先验隔离降权）
     last_used_at: float | None = None
     created_at: float = 0.0
 
@@ -321,6 +391,8 @@ class EdgeEvidence:
         }
         if self.policy:
             data["policy"] = True
+        if self.origin != ORIGIN_RUNTIME:
+            data["origin"] = self.origin
         if self.last_used_at is not None:
             data["last_used_at"] = self.last_used_at
         return data
@@ -333,6 +405,7 @@ class EdgeEvidence:
             fail_count=int(data.get("fail_count", 0)),
             avg_cost=float(data.get("avg_cost", 0.0)),
             policy=bool(data.get("policy", False)),
+            origin=str(data.get("origin", ORIGIN_RUNTIME)),
             last_used_at=(
                 float(data["last_used_at"]) if data.get("last_used_at") is not None else None
             ),
@@ -347,13 +420,15 @@ CREATE TABLE IF NOT EXISTS edge_evidence (
     src_contract_version TEXT NOT NULL,
     dst_contract_version TEXT NOT NULL,
     context_domain TEXT NOT NULL,
+    variant_hash TEXT NOT NULL DEFAULT '',
     success_count INTEGER NOT NULL DEFAULT 0,
     fail_count INTEGER NOT NULL DEFAULT 0,
     avg_cost REAL NOT NULL DEFAULT 0.0,
     policy INTEGER NOT NULL DEFAULT 0,
+    origin TEXT NOT NULL DEFAULT 'runtime',
     last_used_at REAL,
     created_at REAL NOT NULL,
-    PRIMARY KEY (src_type, dst_type, src_contract_version, dst_contract_version, context_domain)
+    PRIMARY KEY (src_type, dst_type, src_contract_version, dst_contract_version, context_domain, variant_hash)
 );
 CREATE INDEX IF NOT EXISTS idx_edge_evidence_domain ON edge_evidence(context_domain);
 """
@@ -390,14 +465,52 @@ class EdgeEvidenceStore:
 
                 self._conn = await aiosqlite.connect(self._db_path)
                 self._conn.row_factory = aiosqlite.Row
-                await self._conn.executescript(_SCHEMA_SQL)
+                script_cur = await self._conn.executescript(_SCHEMA_SQL)
+                await script_cur.close()
                 await self._conn.commit()
+                await self._migrate_schema()
             except Exception as exc:
                 if self._conn is not None:
                     await self._conn.close()
                     self._conn = None
                 logger.error(f"边证据存储连接失败: {exc}")
                 raise StorageError(f"边证据存储连接失败: {exc}") from exc
+
+    async def _migrate_schema(self) -> None:
+        """存量库迁移：旧表缺 variant_hash/origin 列时重建为新主键形态。
+
+        一次性、幂等：仅当旧表存在且缺新列才重建（重命名旧表 → 建新表 →
+        拷贝数据，旧行 origin 回落 runtime），迁移后旧表删除。全新库走
+        ``_SCHEMA_SQL`` 直接建表，不触发。
+        """
+        try:
+            cur = await self._conn.execute("PRAGMA table_info(edge_evidence)")
+            rows = await cur.fetchall()
+            await cur.close()
+            cols = {row["name"] for row in rows}
+            if "variant_hash" in cols and "origin" in cols:
+                return
+            exists = await self._conn.execute(
+                "SELECT name FROM sqlite_master WHERE type='table' AND name='edge_evidence'"
+            )
+            if (await exists.fetchone()) is None:
+                await exists.close()
+                return
+            await exists.close()
+            await self._conn.execute("ALTER TABLE edge_evidence RENAME TO _edge_evidence_old")
+            await self._conn.executescript(_SCHEMA_SQL)
+            await self._conn.execute(
+                "INSERT INTO edge_evidence (src_type, dst_type, src_contract_version,"
+                " dst_contract_version, context_domain, variant_hash, success_count,"
+                " fail_count, avg_cost, policy, origin, last_used_at, created_at)"
+                " SELECT src_type, dst_type, src_contract_version, dst_contract_version,"
+                " context_domain, '', success_count, fail_count, avg_cost, policy,"
+                " 'runtime', last_used_at, created_at FROM _edge_evidence_old"
+            )
+            await self._conn.execute("DROP TABLE _edge_evidence_old")
+            await self._conn.commit()
+        except Exception as exc:  # 迁移失败不致命，留待后续重试
+            logger.warning(f"边证据表迁移跳过: {exc}")
 
     async def _row_to_evidence(self, row: Any) -> EdgeEvidence:
         return EdgeEvidence(
@@ -407,24 +520,26 @@ class EdgeEvidenceStore:
                 src_contract_version=row["src_contract_version"],
                 dst_contract_version=row["dst_contract_version"],
                 context_domain=row["context_domain"],
+                variant_hash=str(row["variant_hash"]),
             ),
             success_count=int(row["success_count"]),
             fail_count=int(row["fail_count"]),
             avg_cost=float(row["avg_cost"]),
             policy=bool(row["policy"]),
+            origin=str(row["origin"]),
             last_used_at=float(row["last_used_at"]) if row["last_used_at"] is not None else None,
             created_at=float(row["created_at"]),
         )
 
     async def get(self, key: EdgeKey) -> EdgeEvidence | None:
-        """按主键取证据（契约版本入键：升版后旧键自然不命中）。"""
+        """按主键取证据（契约版本 + 实例变体入键：升版/换变体后旧键自然不命中）。"""
         await self._connect()
         try:
             cur = await self._conn.execute(
                 "SELECT * FROM edge_evidence WHERE src_type=? AND dst_type=?"
                 " AND src_contract_version=? AND dst_contract_version=?"
-                " AND context_domain=?",
-                key.key(),
+                " AND context_domain=? AND variant_hash=?",
+                (*key.key(),),
             )
             row = await cur.fetchone()
             await cur.close()
@@ -433,19 +548,26 @@ class EdgeEvidenceStore:
         return await self._row_to_evidence(row) if row else None
 
     async def record_success(
-        self, key: EdgeKey, *, cost: float | None = None, now: float | None = None
+        self, key: EdgeKey, *, cost: float | None = None, now: float | None = None,
+        delta: int = 1,
     ) -> EdgeEvidence:
-        """成功归集：success+1（成功才全边 success+1 的归因由调用方保证）。
+        """成功归集：success+delta（成功才全边 +delta 的归因由调用方保证）。
 
         成本每次执行归集：avg_cost 滑动均值（按已记录样本数加权）。
+        首次真实成功把该行 origin 翻为 runtime（解除种子降权，真实证据主导）。
         """
-        return await self._record(key, delta_success=1, cost=cost, now=now)
+        return await self._record(key, delta_success=delta, cost=cost, now=now)
 
     async def record_failure(
-        self, key: EdgeKey, *, cost: float | None = None, now: float | None = None
+        self, key: EdgeKey, *, cost: float | None = None, now: float | None = None,
+        delta: int = 1,
     ) -> EdgeEvidence:
-        """失败归集：fail+1（失败只记失败结点入边的归因由调用方保证）。"""
-        return await self._record(key, delta_fail=1, cost=cost, now=now)
+        """失败归集：fail+delta（失败归因的加权分摊由调用方经 delta 携带）。
+
+        失败只记失败结点入边的语义由调用方（settle 钩子）保证；首次真实
+        失败同样把该行 origin 翻为 runtime（真实观测覆盖种子先验）。
+        """
+        return await self._record(key, delta_fail=delta, cost=cost, now=now)
 
     async def _record(
         self,
@@ -481,15 +603,17 @@ class EdgeEvidenceStore:
             new_avg = existing.avg_cost
             if cost is not None:
                 new_avg = (existing.avg_cost * old_n + float(cost)) / (old_n + 1)
+            origin = ORIGIN_RUNTIME if (delta_success or delta_fail) else existing.origin
             cur = await self._conn.execute(
                 "UPDATE edge_evidence SET success_count=?, fail_count=?,"
-                " avg_cost=?, last_used_at=? WHERE src_type=? AND dst_type=?"
-                " AND src_contract_version=? AND dst_contract_version=?"
-                " AND context_domain=?",
+                " avg_cost=?, origin=?, last_used_at=?"
+                " WHERE src_type=? AND dst_type=? AND src_contract_version=?"
+                " AND dst_contract_version=? AND context_domain=? AND variant_hash=?",
                 (
                     existing.success_count + delta_success,
                     existing.fail_count + delta_fail,
                     new_avg,
+                    origin,
                     ts,
                     *key.key(),
                 ),
@@ -513,19 +637,21 @@ class EdgeEvidenceStore:
     ) -> None:
         await self._conn.execute(
             "INSERT INTO edge_evidence (src_type, dst_type, src_contract_version,"
-            " dst_contract_version, context_domain, success_count, fail_count,"
-            " avg_cost, policy, last_used_at, created_at)"
-            " VALUES (?,?,?,?,?,?,?,?,?,?,?)",
+            " dst_contract_version, context_domain, variant_hash, success_count,"
+            " fail_count, avg_cost, policy, origin, last_used_at, created_at)"
+            " VALUES (?,?,?,?,?,?,?,?,?,?,?,?,?)",
             (
                 key.src_type,
                 key.dst_type,
                 key.src_contract_version,
                 key.dst_contract_version,
                 key.context_domain,
+                key.variant_hash,
                 success_count,
                 fail_count,
                 avg_cost,
                 int(policy),
+                ORIGIN_POLICY if policy else ORIGIN_RUNTIME,
                 last_used_at,
                 created_at if created_at is not None else last_used_at,
             ),
@@ -533,10 +659,17 @@ class EdgeEvidenceStore:
         await self._conn.commit()
 
     async def put(self, evidence: EdgeEvidence) -> EdgeEvidence:
-        """整行写入（种子导入/策略边声明用；已存在 = 覆盖更新）。"""
+        """整行写入（种子导入/策略边声明用；已存在 = 覆盖更新）。
+
+        origin 随证据行写入（策略边落 origin=policy；其余沿用行内声明，
+        默认 runtime）。种子导入经专用 :func:`import_seed_paths` 落 origin=seed。
+        """
         await self._connect()
         try:
             existing = await self.get(evidence.key)
+            origin = evidence.origin
+            if evidence.policy:
+                origin = ORIGIN_POLICY
             if existing is None:
                 await self._insert(
                     evidence.key,
@@ -547,17 +680,26 @@ class EdgeEvidenceStore:
                     created_at=evidence.created_at,
                     policy=evidence.policy,
                 )
+                if origin != ORIGIN_RUNTIME:
+                    await self._conn.execute(
+                        "UPDATE edge_evidence SET origin=? WHERE src_type=? AND"
+                        " dst_type=? AND src_contract_version=? AND"
+                        " dst_contract_version=? AND context_domain=? AND variant_hash=?",
+                        (origin, *evidence.key.key()),
+                    )
+                    await self._conn.commit()
             else:
                 cur = await self._conn.execute(
                     "UPDATE edge_evidence SET success_count=?, fail_count=?,"
-                    " avg_cost=?, policy=?, last_used_at=?, created_at=?"
+                    " avg_cost=?, policy=?, origin=?, last_used_at=?, created_at=?"
                     " WHERE src_type=? AND dst_type=? AND src_contract_version=?"
-                    " AND dst_contract_version=? AND context_domain=?",
+                    " AND dst_contract_version=? AND context_domain=? AND variant_hash=?",
                     (
                         evidence.success_count,
                         evidence.fail_count,
                         evidence.avg_cost,
                         int(evidence.policy),
+                        origin,
                         evidence.last_used_at,
                         evidence.created_at or existing.created_at,
                         *evidence.key.key(),
@@ -641,6 +783,7 @@ async def import_seed_paths(
                 fail_count=max(0, int(raw.get("fail_count", 0))),
                 avg_cost=float(raw.get("avg_cost", 0.0)),
                 policy=bool(raw.get("policy", False)),
+                origin=ORIGIN_SEED,
                 last_used_at=float(raw["last_used_at"]) if raw.get("last_used_at") else None,
                 created_at=float(raw.get("created_at", 0.0)),
             )

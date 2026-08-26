@@ -120,8 +120,15 @@ const OS_CONTROL_TOOLS: [&str; 11] = [
 ];
 /// 设备感知类（屏幕/文件状态，经 inkling_shell 设备感知 server 挂载）。
 const DEVICE_SENSE_TOOLS: [&str; 3] = ["screen_query", "file_query", "ui_tree_query"];
-/// 挂载提案 + 文件开发工具（对话式安装入口 / 工作区沙箱端点）。
-const SELF_AND_FILE_TOOLS: [&str; 4] = ["propose_mcp_mount", "file_read", "file_write", "file_edit"];
+/// 挂载提案 + 文件开发工具 + 自指演化提案（对话式安装入口 / 工作区
+/// 沙箱端点 / 声明式补丁提案）。
+const SELF_AND_FILE_TOOLS: [&str; 5] = [
+    "propose_mcp_mount",
+    "propose_patch",
+    "file_read",
+    "file_write",
+    "file_edit",
+];
 /// 网络工具（http_fetch 端点：域名白名单策略的抓取与聚合检索）。
 const NETWORK_TOOLS: [&str; 2] = ["fetch", "web_search"];
 /// 工作区文件内容/路径检索工具（file_ops 端点只读检索）。

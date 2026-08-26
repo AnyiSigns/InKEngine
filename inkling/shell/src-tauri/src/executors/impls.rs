@@ -708,6 +708,26 @@ fn run_test_web_spec() -> ExecutorSpec {
     }
 }
 
+/// 自指演化提案执行器：把工具调用转发给引擎接线桥的 propose_patch op
+/// （审批分级 L0/L1/L2 与补丁链 vetting 全部在引擎侧既有管线内执行，
+/// 壳侧只做签名校验与转发，不做域逻辑）。
+fn propose_patch_spec() -> ExecutorSpec {
+    ExecutorSpec {
+        name: "propose_patch",
+        params: vec![
+            ParamSpec { name: "kind", param_type: ParamType::String, required: true },
+            ParamSpec { name: "payload", param_type: ParamType::String, required: true },
+            ParamSpec { name: "base_version", param_type: ParamType::Integer, required: false },
+            ParamSpec { name: "rationale", param_type: ParamType::String, required: false },
+        ],
+        permission: PermissionLevel::Review,
+        endpoint: Endpoint::ProcessExec,
+        sandbox: SandboxRule::CommandAllowlist {
+            allowlist: vec!["propose_patch".into()],
+        },
+    }
+}
+
 /// 执行器实现表：名字 → (签名契约, 运行体)
 pub fn executor_impl(name: &str) -> Option<(ExecutorSpec, RunFn)> {
     let pair: (ExecutorSpec, RunFn) = match name {
@@ -734,6 +754,7 @@ pub fn executor_impl(name: &str) -> Option<(ExecutorSpec, RunFn)> {
         "run_test_cargo" => (run_test_cargo_spec(), run_process_template),
         "run_test_python" => (run_test_python_spec(), run_process_template),
         "run_test_web" => (run_test_web_spec(), run_process_template),
+        "propose_patch" => (propose_patch_spec(), propose_patch_run),
         _ => return None,
     };
     Some(pair)
@@ -1106,6 +1127,49 @@ fn run_process_template(
         .run_process(&argv, &cwd_text, timeout_secs)
         .map_err(ExecError::ExecutionFailed)?;
     Ok(ExecOutcome { result, sandbox_checked: true })
+}
+
+/// 自指演化提案运行体：签名校验 + 转发引擎接线桥 op。
+///
+/// 域逻辑（按类型校验 / 审批分级 / 补丁链落链回退）全部在引擎侧
+/// ``engine.propose_patch`` op 内执行，壳侧只做守卫与 JSON 转发——
+/// payload 按扁平签名为 JSON 文本，引擎侧还原为对象。
+fn propose_patch_run(
+    executor: &dyn Executor,
+    args: &BTreeMap<String, Value>,
+    _backend: &dyn SystemBackend,
+    auth: &Authorization,
+) -> Result<ExecOutcome, ExecError> {
+    let tool = executor.name();
+    check_permission(tool, executor.spec().permission, auth)?;
+    if let SandboxRule::CommandAllowlist { allowlist } = &executor.spec().sandbox {
+        check_allowlist(allowlist, tool, tool)?;
+    } else {
+        return Err(ExecError::SandboxViolation(
+            "沙箱模式非法（propose_patch 须声明命令白名单）".into(),
+        ));
+    }
+    let kind = arg_str(args, "kind")?.to_string();
+    let payload = arg_str(args, "payload")?.to_string();
+    let base_version = args
+        .get("base_version")
+        .and_then(Value::as_i64)
+        .unwrap_or(1);
+    let rationale = args
+        .get("rationale")
+        .and_then(Value::as_str)
+        .unwrap_or("")
+        .to_string();
+    let params = serde_json::json!({
+        "kind": kind,
+        "payload": serde_json::from_str::<serde_json::Value>(&payload)
+            .unwrap_or(serde_json::Value::Null),
+        "base_version": base_version,
+        "rationale": rationale,
+    });
+    let result = crate::engine::host::call_engine_op("engine.propose_patch", params)
+        .map_err(ExecError::ExecutionFailed)?;
+    Ok(ExecOutcome { result: result.to_string(), sandbox_checked: true })
 }
 
 #[cfg(test)]

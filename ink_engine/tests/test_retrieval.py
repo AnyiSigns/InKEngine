@@ -9,11 +9,18 @@ from __future__ import annotations
 import pytest
 
 from ink_engine.core.exceptions import GraphDefinitionError
+from ink_engine.core.knowledge_set import (
+    KIND_RULE,
+    KnowledgeEntry,
+    KnowledgeSet,
+)
 from ink_engine.core.retrieval import (
     MAX_LIMIT,
+    SOURCE_DIALOG,
     SOURCE_MODEL,
     SOURCE_USER,
     SOURCE_WEB,
+    KnowledgeSetRetriever,
     RetrievedChunk,
     RetrieverRegistry,
 )
@@ -143,3 +150,63 @@ async def test_registry_injection_scan_drops_hostile_chunks() -> None:
     results = await registry.retrieve("q")
     assert [c.doc_id for c in results] == ["clean"]
     assert len(results) == 1
+
+
+# ── 知识集注册为检索源（E-P6 Retriever 注册路线）──
+
+
+def _knowledge_entry(entry_id: str, credibility: float, source: str) -> KnowledgeEntry:
+    return KnowledgeEntry(
+        id=entry_id,
+        level="work",
+        kind=KIND_RULE,
+        data={"rule": {"message": f"规则 {entry_id}"}},
+        source=source,
+        credibility=credibility,
+        title=f"条目 {entry_id}",
+        tags=("知识",),
+    )
+
+
+async def test_knowledge_set_registered_as_retriever() -> None:
+    """知识集注册为检索源：检索命中 → 可信度分级透传 level + meta。
+
+    weight=credibility 注入面：chunk.level 按 _SOURCE_CREDIBILITY 分级档
+    映射（web/dialog/model/user），meta 携带原始 credibility——注入侧
+    据此设 ContextSource.weight，不再恒 1.0/仅二元过滤。
+    """
+    ks = KnowledgeSet("u1")
+    ks.add(_knowledge_entry("k-web", 0.3, "web"))
+    ks.add(_knowledge_entry("k-dialog", 0.6, "dialog"))
+    ks.add(_knowledge_entry("k-user", 0.9, "user"))
+    registry = RetrieverRegistry()
+    registry.register(KnowledgeSetRetriever(ks))
+    chunks = await registry.retrieve("知识", limit=8)
+    by_id = {chunk.meta["entry_id"]: chunk for chunk in chunks}
+    assert by_id["k-web"].level == SOURCE_WEB
+    assert by_id["k-dialog"].level == SOURCE_DIALOG
+    assert by_id["k-user"].level == SOURCE_USER
+    assert by_id["k-web"].meta["credibility"] == 0.3
+    assert by_id["k-user"].meta["credibility"] == 0.9
+    # 正文随 chunk 透传（渲染形态，与注入渲染同源）
+    assert "规则 k-user" in by_id["k-user"].text
+
+
+async def test_knowledge_retriever_late_binding() -> None:
+    """知识集实例延迟取用：链恢复替换实例后检索源仍读到最新（不持旧引用）。"""
+    holder: dict[str, KnowledgeSet] = {"ks": KnowledgeSet("u1")}
+
+    def provider() -> KnowledgeSet:
+        return holder["ks"]
+
+    retriever = KnowledgeSetRetriever(provider)
+    registry = RetrieverRegistry()
+    registry.register(retriever)
+    holder["ks"].add(_knowledge_entry("k-1", 0.9, "user"))
+    assert [c.doc_id for c in await registry.retrieve("知识", limit=8)] == ["k-1"]
+
+    # 替换实例（重启后链恢复语义）→ 检索命中新实例
+    fresh = KnowledgeSet("u1")
+    fresh.add(_knowledge_entry("k-2", 0.8, "model"))
+    holder["ks"] = fresh
+    assert [c.doc_id for c in await registry.retrieve("知识", limit=8)] == ["k-2"]

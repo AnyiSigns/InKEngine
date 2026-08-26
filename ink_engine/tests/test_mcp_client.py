@@ -28,7 +28,7 @@ from ink_engine.core.mcp_client import (
     convert_mcp_tool,
     register_mcp_executor,
 )
-from ink_engine.core.tool_vetting import ToolSource, VettingResult, VettingVerdict
+from ink_engine.core.tool_vetting import ToolSource, ToolVetting, VettingResult, VettingVerdict
 
 
 class _FakeSession:
@@ -63,6 +63,13 @@ class _RejectVetting:
             verdict=verdict,
             reason="" if ok else "被测试桩拒绝",
         )
+
+
+class _AcceptVetting(ToolVetting):
+    """假 vetting：全量 verified（观察模式接线测试用；shadow_run 继承真实实现）。"""
+
+    async def vet(self, manifest):
+        return VettingResult(ok=True, verdict=VettingVerdict.VERIFIED)
 
 
 def _mcp_tool(name="search", schema=None):
@@ -334,6 +341,87 @@ async def test_manager_import_review_verdict_fails_closed():
     manager.register_session("s1", _FakeSession([_mcp_tool("a")]))
     specs = await manager.import_tools("s1", vetting=_ReviewVetting())
     assert specs == []
+
+
+# ── 观察模式接线（E-P4 / ENG6-3：shadow_run 生产调用）──
+
+
+async def test_import_tools_runs_shadow_observation():
+    """挂载流程并入 shadow_run：VERIFIED 工具经影子探针 + 观察证据累积。
+
+    探针 = 空参（无默认值参数不臆造）经影子工作区执行一次远端调用；
+    结果恒标记 untrusted（观察数据不作信任依据，只作行为证据），
+    :meth:`McpClientManager.shadow_evidence` 可查。
+    """
+    calls: list = []
+    manager = McpClientManager()
+    manager.register_session("s1", _FakeSession([_mcp_tool("search")], calls=calls))
+    specs = await manager.import_tools("s1", vetting=_AcceptVetting())
+    assert [s.name for s in specs] == ["search"]
+    # 探针调用经影子工作区执行（空参探针：无默认值参数不臆造）
+    assert ("search", {}) in calls
+    evidence = manager.shadow_evidence("s1")
+    assert "s1:search" in evidence
+    assert evidence["s1:search"]["untrusted"] is True
+    assert evidence["s1:search"]["ok"] is True
+    # 全量查询视角
+    assert "s1:search" in manager.shadow_evidence()
+
+
+async def test_import_tools_shadow_probe_uses_schema_defaults():
+    """探针参数派生：只取带默认值的可选字段（不猜测必填参数）。"""
+    calls: list = []
+    manager = McpClientManager()
+    manager.register_session(
+        "s1",
+        _FakeSession(
+            [
+                {
+                    "name": "search",
+                    "description": "搜索",
+                    "input_schema": {
+                        "type": "object",
+                        "properties": {
+                            "q": {"type": "string"},
+                            "limit": {"type": "number", "default": 10},
+                        },
+                    },
+                }
+            ],
+            calls=calls,
+        ),
+    )
+    specs = await manager.import_tools("s1", vetting=_AcceptVetting())
+    assert specs[0].name == "search"
+    assert ("search", {"limit": 10}) in calls
+
+
+async def test_import_tools_shadow_failure_records_evidence_only():
+    """观察探针失败只记证据（ok=False），不阻断导入（观察不作挂载门禁）。"""
+
+    class _FailingCallSession(_FakeSession):
+        async def call_tool(self, name, args):
+            raise RuntimeError("远端拒绝探针（必填参数缺失）")
+
+    manager = McpClientManager()
+    manager.register_session("s1", _FailingCallSession([_mcp_tool("search")]))
+    specs = await manager.import_tools("s1", vetting=_AcceptVetting())
+    assert [s.name for s in specs] == ["search"]
+    assert manager.shadow_evidence("s1")["s1:search"]["ok"] is False
+
+
+async def test_import_tools_shadow_workdir_virtualizes_local_writes(tmp_path):
+    """提供 shadow_workdir：影子探针在工作目录副本执行，真实目录零触碰。"""
+    workdir = tmp_path / "workspace"
+    workdir.mkdir()
+    (workdir / "keep.txt").write_text("original", encoding="utf-8")
+    calls: list = []
+    manager = McpClientManager()
+    manager.register_session("s1", _FakeSession([_mcp_tool("search")], calls=calls))
+    specs = await manager.import_tools("s1", vetting=_AcceptVetting(), shadow_workdir=workdir)
+    assert [s.name for s in specs] == ["search"]
+    # 远端探针不触碰本地工作区（观察零副作用）
+    assert (workdir / "keep.txt").read_text(encoding="utf-8") == "original"
 
 
 async def test_manager_dispatch_propagates_session_error():

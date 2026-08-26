@@ -22,8 +22,12 @@ from __future__ import annotations
 from collections.abc import Callable
 from typing import Any
 
+from ink_engine.core.evolution import (
+    EvolutionFactory,
+    EvolutionOutcome,
+    entry_metrics,
+)
 from ink_engine.core.exceptions import GraphDefinitionError
-from ink_engine.core.evolution import EvolutionFactory, EvolutionOutcome
 from ink_engine.core.knowledge_gate import GateL2FixtureExecutor, KnowledgeGate
 from ink_engine.core.knowledge_set import (
     KIND_INSIGHT,
@@ -92,12 +96,20 @@ class IncubationDomain:
     """孵化域（宿主装配：signals/samples/review 数据 + 运行时注入）。
 
     Attributes:
-        samples: 完整样例库（samples.json 数据形态，含负面用例）。
-        gate_fixtures: L2 正面样例基线（expected_pass=True 全量）——负面
-            用例由领域谓词触发（has_fields/max_length/min_value/...，
-            谓词实现绑定执行件侧，数据级绑定由校验脚本与 exec 绑定测试
-            承接），Python 侧闸门按内置谓词域评估：新规则不得违反既有
-            领域形态约定（正面基线全绿）。
+        samples: 完整样例库（samples.json 数据形态，**含负面用例**——
+            verify_gate/sediment 喂 L2 的完整 fixtures，负面/对抗用例
+            不剥离）。
+        gate_fixtures: 内置谓词域的正面样例基线（expected_pass=True
+            全量——领域谓词绑定执行件侧（has_fields/max_length/
+            min_value/...），Python 侧内置闸门按内置谓词域评估候选，
+            新规则不得违反既有领域形态约定）。负面用例由领域谓词覆盖：
+            exec 绑定测试（rules.json × 完整 samples 全绿非谈判项）与
+            Rust 域孵化同源承载，负面用例显式记录在
+            ``negative_fixtures``（数据级绑定由校验脚本与 exec 绑定
+            测试承接，不静默丢弃）。
+        negative_fixtures: 负面/对抗用例显式记录（expected_pass=False
+            全量；由领域谓词覆盖的执行侧绑定测试承接评估，Python 侧
+            闸门按内置谓词域评估时以 gate_fixtures 为基线）。
         gate: 三层闸门实例（L1/L2/L3 组合入口）。
         schema: 知识条目 L1 形式校验声明。
     """
@@ -119,6 +131,10 @@ class IncubationDomain:
         self.gate_fixtures = FixtureSet(
             name=f"{self.samples.name}.positive",
             cases=tuple(case for case in self.samples.cases if case.expected_pass),
+        )
+        self.negative_fixtures = FixtureSet(
+            name=f"{self.samples.name}.negative",
+            cases=tuple(case for case in self.samples.cases if not case.expected_pass),
         )
         distill = signals_data.get("distill") or {}
         self.distiller = TieredDistiller(
@@ -185,27 +201,31 @@ class IncubationDomain:
         old_metrics: dict[str, float] | None = None,
         new_metrics: dict[str, float] | None = None,
     ) -> tuple[Any, Any, Any]:
-        """三层闸门组合评估（L1/L2/L3；L2 正面样例基线全绿，非谈判项）。
+        """三层闸门组合评估（L1/L2/L3；完整 samples 含负面用例，非谈判项）。
 
-        候选按自身评估（内置谓词域；领域谓词绑定执行件侧不重复登记，
-        负面用例的数据级绑定由校验脚本与 exec 绑定测试承接）。
+        L2 喂完整样例库（:attr:`samples`，负面/对抗用例不剥离）——内置
+        谓词域按候选评估：规则类候选须让完整样例全绿（含负面），insight
+        教训按闸门语义跳过规则执行（L1 注入扫描与形式校验已覆盖）；负面
+        用例的领域谓词覆盖（has_fields/max_length/min_value/...）由
+        exec 绑定测试与 Rust 域孵化同源承载（:attr:`negative_fixtures`
+        显式记录，不静默丢弃）。
         """
         l1, l2, l3 = await self.gate.check(
             entry,
             schema=self.schema,
-            fixtures=self.gate_fixtures,
+            fixtures=self.samples,
             old_metrics=old_metrics,
             new_metrics=new_metrics,
         )
         return l1, l2, l3
 
     async def sediment(self, entry: KnowledgeEntry) -> KnowledgeEntry:
-        """带闸门落库（正面样例基线非绿在存储边界拒绝；fail-closed 方向）。"""
+        """带闸门落库（完整 samples 含负面用例非绿在存储边界拒绝；fail-closed）。"""
         await self._runtime.knowledge_set.verify_through_gate(
             entry,
             gate=self.gate,
             schema=self.schema,
-            fixtures=self.gate_fixtures,
+            fixtures=self.samples,
         )
         return self._runtime.knowledge_set.add(entry)
 
@@ -333,14 +353,18 @@ class IncubationDomain:
 
         变异体落库 = KNOWLEDGE 补丁（审批分级 → 审计 → 可回退，链为
         权威）；变异策略缺省确定性基线（零 LLM 可断言），LLM 反思变异
-        经 ``self.evolution`` 的 mutation 注入（宿主扩展点）。
+        经 ``self.evolution`` 的 mutation 注入（宿主扩展点）。L3 防退化
+        （ENG1-1）：old_metrics 按母体条目调用留痕构造（
+        :func:`entry_metrics`）传入——变异体不差于母体才过 L3，不再
+        退化为「L1+L2 通过即替换」。
         """
         outcomes: list[EvolutionOutcome] = []
         for candidate in self.evolution_candidates()[:limit]:
             outcome = await self.evolution.evolve(
                 candidate,
                 schema=self.schema,
-                fixtures=self.gate_fixtures,
+                fixtures=self.samples,
+                old_metrics=entry_metrics(candidate.entry),
             )
             for variant in outcome.variants:
                 await self.propose_knowledge_patch(

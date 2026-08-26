@@ -34,11 +34,14 @@ import inspect
 import json
 import logging
 import os
+import shutil
+import tempfile
 import threading
 from collections.abc import Callable
 from contextlib import AsyncExitStack
 from dataclasses import dataclass, field
 from enum import StrEnum
+from pathlib import Path
 from typing import Any, TextIO
 
 from .declarative_tools import (
@@ -48,7 +51,13 @@ from .declarative_tools import (
 )
 from .exceptions import GraphDefinitionError
 from .logging import get_logger
-from .tool_vetting import ToolManifest, ToolSource, ToolVetting, VettingVerdict
+from .tool_vetting import (
+    ShadowRunResult,
+    ToolManifest,
+    ToolSource,
+    ToolVetting,
+    VettingVerdict,
+)
 
 logger = get_logger(__name__)
 
@@ -422,6 +431,25 @@ def build_mcp_manifest(
         permissions=(f"mcp:call:{server_id}",),
         meta={"mcp_server": server_id},
     )
+
+
+def _probe_args_from_schema(schema: Any) -> dict[str, Any]:
+    """观察探针的调用参数派生（只取带默认值的可选参数，不猜必填字段）。
+
+    观察模式 = 行为证据探针：无默认值参数为必填语义（真实调用由宿主
+    后续提供），探针绝不臆造必填参数——宁可调用失败（诚实留痕）也
+    不产生不可控的远端副作用。空 schema/无默认值 = 空参探针。
+    """
+    if not isinstance(schema, dict):
+        return {}
+    props = schema.get("properties")
+    if not isinstance(props, dict):
+        return {}
+    return {
+        name: prop["default"]
+        for name, prop in props.items()
+        if isinstance(prop, dict) and "default" in prop
+    }
 
 
 class McpSessionHandle:
@@ -925,7 +953,25 @@ class McpClientManager:
         self._sessions: dict[str, McpSessionHandle] = {}
         self._signatures: dict[str, str | None] = {}
         self._imported: dict[str, set[str]] = {}
+        # 观察证据累积（E-P4）：工具名 → 影子运行观察结果（untrusted
+        # 行为证据，信任进阶的输入；key = "<server_id>:<tool_name>"）
+        self._shadow_evidence: dict[str, dict[str, Any]] = {}
         self._lock = asyncio.Lock()
+
+    def shadow_evidence(self, server_id: str | None = None) -> dict[str, dict[str, Any]]:
+        """观察证据查询（影子运行结果：untrusted 行为证据，不作信任依据）。
+
+        server_id 缺省 = 全量；指定 = 该 server 的工具观察结果（审计/
+        信任进阶消费）。
+        """
+        if server_id is None:
+            return dict(self._shadow_evidence)
+        prefix = f"{server_id}:"
+        return {
+            key: value
+            for key, value in self._shadow_evidence.items()
+            if key.startswith(prefix)
+        }
 
     def list_servers(self) -> list[str]:
         """已连接 server 标识清单（会话路由密钥，只读查询免内部状态外露）。"""
@@ -1022,6 +1068,7 @@ class McpClientManager:
         source: ToolSource = ToolSource.UNKNOWN,
         vetting: ToolVetting | None = None,
         signature: str | None = None,
+        shadow_workdir: str | Path | None = None,
     ) -> list[DeclarativeToolSpec]:
         """列出并转换 server 工具为声明式定义（必经 vetting 闸门过滤）。
 
@@ -1030,6 +1077,16 @@ class McpClientManager:
         命中，语义 = 需人工确认，不自动放行）与 REJECTED 同样不进入
         工具表（fail-closed：信任靠审查证据，不静默放行）。签名取显式
         传入值，缺省回落到 ``connect`` 时登记的连接签名。
+
+        观察模式（E-P4，ENG6-3 接线）：提供 vetting 且工具 VERIFIED 后，
+        挂载流程并入 :meth:`ToolVetting.shadow_run`——影子执行探针（写
+        虚拟化：工作目录副本 + 快照 diff；结果恒标记 untrusted）+ 观察
+        证据累积（:meth:`shadow_evidence` 可查，信任进阶按证据累积，不
+        靠承诺）。探针参数只取带默认值的可选字段（绝不臆造必填参数）；
+        探针失败只记证据不阻断导入（观察是行为证据，不作信任依据，也
+        不作挂载门禁）。``shadow_workdir`` 提供 = 以真实工作目录为影子
+        模板（覆盖本地写语义的工具，如 exec 类 server）；缺省 = 空探针
+        模板（远端调用无本地写面，仅记录调用成败证据）。
 
         Raises:
             McpToolImportError: 会话不存在（未连接/未挂载）。
@@ -1041,31 +1098,103 @@ class McpClientManager:
             signature = self._signatures.get(server_id)
         raw_tools = await handle.list_tools()
         specs: list[DeclarativeToolSpec] = []
-        for raw in raw_tools:
-            try:
-                spec = convert_mcp_tool(server_id, raw)
-            except GraphDefinitionError as exc:
-                logger.warning("MCP 工具转换跳过: %s: %s", server_id, exc)
-                continue
-            if vetting is not None:
-                verdict = await vetting.vet(
-                    build_mcp_manifest(
-                        server_id, raw, source=source, signature=signature
-                    )
-                )
-                if verdict.verdict is not VettingVerdict.VERIFIED:
-                    logger.warning(
-                        "MCP 工具经 vetting 未放行，不导入: %s/%s（%s: %s）",
-                        server_id,
-                        spec.name,
-                        verdict.verdict.value,
-                        verdict.reason,
-                    )
+        shadow_template: Path | None = None
+        try:
+            if vetting is not None and shadow_workdir is None:
+                # 无本地工作目录语义：空探针模板（拷贝开销可忽略，探针只
+                # 记录远端调用成败行为证据）
+                shadow_template = Path(tempfile.mkdtemp(prefix="forge-shadow-probe-"))
+            probe_workdir = (
+                Path(shadow_workdir)
+                if shadow_workdir is not None
+                else shadow_template
+            )
+            for raw in raw_tools:
+                try:
+                    spec = convert_mcp_tool(server_id, raw)
+                except GraphDefinitionError as exc:
+                    logger.warning("MCP 工具转换跳过: %s: %s", server_id, exc)
                     continue
-            specs.append(spec)
+                if vetting is not None:
+                    verdict = await vetting.vet(
+                        build_mcp_manifest(
+                            server_id, raw, source=source, signature=signature
+                        )
+                    )
+                    if verdict.verdict is not VettingVerdict.VERIFIED:
+                        logger.warning(
+                            "MCP 工具经 vetting 未放行，不导入: %s/%s（%s: %s）",
+                            server_id,
+                            spec.name,
+                            verdict.verdict.value,
+                            verdict.reason,
+                        )
+                        continue
+                    await self._observe_shadow(
+                        vetting,
+                        handle,
+                        spec,
+                        workdir=probe_workdir,
+                    )
+                specs.append(spec)
+        finally:
+            if shadow_template is not None:
+                shutil.rmtree(shadow_template, ignore_errors=True)
         self._imported[server_id] = {spec.name for spec in specs}
         logger.info("MCP server 工具导入: %s（%d 个）", server_id, len(specs))
         return specs
+
+    async def _observe_shadow(
+        self,
+        vetting: ToolVetting,
+        handle: McpSessionHandle,
+        spec: DeclarativeToolSpec,
+        *,
+        workdir: Path | None,
+    ) -> None:
+        """观察模式探针：影子执行（写虚拟化 + untrusted）→ 证据累积。
+
+        探针 = 以空参/仅默认值参数经影子工作区执行一次工具调用——远端
+        调用无法本地写虚拟化（副作用归 server 自身语义），观察结果恒标
+        记 untrusted，仅作行为证据累积（信任进阶输入），不作信任依据。
+        探针失败（如必填参数缺失）同样落证据（ok=False），不阻断导入。
+        """
+        server_id = spec.endpoint_config.get("server_id")
+        probe_args = _probe_args_from_schema(spec.parameters)
+
+        async def probe_executor(_args: dict[str, Any], _shadow_dir: Path) -> str:
+            return await handle.call_tool(spec.name, probe_args)
+
+        evidence: dict[str, Any]
+        try:
+            observation: ShadowRunResult
+            if workdir is None:
+                observation = ShadowRunResult(
+                    ok=False, error="影子工作区未提供（探针跳过）"
+                )
+            else:
+                observation = await vetting.shadow_run(
+                    probe_executor, probe_args, workdir=workdir
+                )
+            evidence = {
+                "ok": observation.ok,
+                "writes": [
+                    {"path": w.path, "operation": w.operation, "size": w.size}
+                    for w in observation.writes
+                ],
+                "error": observation.error,
+                "untrusted": observation.untrusted,
+                "output_preview": observation.output[:500],
+            }
+        except Exception as exc:
+            evidence = {"ok": False, "error": str(exc), "untrusted": True}
+        self._shadow_evidence[f"{server_id}:{spec.name}"] = evidence
+        logger.info(
+            "MCP 工具观察探针完成（untrusted 行为证据）: %s/%s ok=%s",
+            server_id,
+            spec.name,
+            evidence["ok"],
+        )
 
     async def dispatch(
         self, ctx: Any, definition: DeclarativeToolSpec, args: dict, approval: Any = None

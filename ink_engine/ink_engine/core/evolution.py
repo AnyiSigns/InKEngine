@@ -63,6 +63,33 @@ class EvolutionOutcome:
         return len(self.variants)
 
 
+def entry_metrics(entry: KnowledgeEntry) -> dict[str, float]:
+    """母体知识条目 → L3 维度指标（防退化基线：劣于母体不过 L3）。
+
+    ENG1-1 修复的指标构造口径（调用留痕 = 该知识的执行观测）：
+    - accuracy = 1 - 失败率（usage_count>0 时按 fail/usage 留痕推算，
+      成功 = 该知识实际有效运行的证据；从未调用 = 1.0，无失败证据）；
+    - safety = 1.0（闸门 L2 满分基线口径，与 check_l3 默认派生同向）。
+
+    不含 latency：条目不携带时序数据（中性基线 1.0 会与变异体真实
+    测量的 latency<1.0 比较产生虚假「劣化」）——母体无可比时序维度
+    即不参与比较；变异策略注入 evaluate 时新指标的 latency 也不与
+    母体比较（母体无该维度数据，口径一致不误判）。
+
+    与 :class:`MutationStrategy.evaluate` 产出的变异体 new_metrics 在
+    accuracy/safety 维度可比——变异策略注入 evaluate 时「劣于母体
+    不过 L3」按真实评估比较；未注入时变异体走 L2 默认派生（accuracy
+    为样例通过率），母体按本口径给出比较基线。
+    """
+    failure_rate = 0.0
+    if entry.usage_count > 0:
+        failure_rate = min(entry.fail_count / entry.usage_count, 1.0)
+    return {
+        "accuracy": round(1.0 - failure_rate, 6),
+        "safety": 1.0,
+    }
+
+
 @runtime_checkable
 class MutationStrategy(Protocol):
     """变异策略协议：失败日志 → 变异体知识数据（反思式变异的执行体）。
@@ -219,6 +246,12 @@ class EvolutionFactory:
             return EvolutionOutcome(
                 rejected=(f"{candidate.entry.id}: 无失败日志（无从反思）",)
             )
+        if old_metrics is None:
+            # ENG1-1 防退化底线：调用方未提供旧版指标时按母体调用留痕
+            # 构造（accuracy = 成功率，latency/safety = 中性基线）——
+            # 「不差于母体」在生产链路真实生效，不再退化为「L1+L2 通过
+            # 即替换」
+            old_metrics = entry_metrics(candidate.entry)
         # 变异体数量按失败率/调用频率动态决定（高活跃多探索，低活跃单
         # 变体控膨胀）：策略实现 variant_count 时以其为准，否则全量日志
         variant_limit = (
@@ -275,4 +308,5 @@ __all__ = [
     "EvolutionFactory",
     "EvolutionOutcome",
     "MutationStrategy",
+    "entry_metrics",
 ]

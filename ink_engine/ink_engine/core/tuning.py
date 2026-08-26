@@ -554,19 +554,43 @@ class MetaTuner:
             _params_entry(tuned.params), fixtures, regression=regression
         )
         if l2.passed:
-            # 回归通过的参数快照经注入的落库回调持久化（回放/审计按
-            # 快照重算）；回调失败只记日志不阻断调参
-            if tuned.snapshot is not None and self.snapshot_sink is not None:
-                try:
-                    self.snapshot_sink(tuned.snapshot)
-                except Exception as exc:
-                    logger.warning(f"参数快照落库失败（忽略）: {exc}")
-            self._persist_params(tuned.params)
+            self._commit(tuned)
             return tuned
         return TuneResult(
             params=params,
             note=f"参数回归未通过，变更被拒绝: {l2.note or '样例未全绿'}",
         )
+
+    def tune_persisted(
+        self,
+        params: TunableParams,
+        metrics: TurnMetrics,
+        *,
+        feedback: dict[str, float] | None = None,
+        rule_version: str | None = None,
+    ) -> TuneResult:
+        """调参并回写知识集（运行时回合收尾接线；无回归样例时的持久化入口）。
+
+        与 :meth:`tune_with_regression` 的分工：参数回归（L2 效果评估）
+        需注入回归样例库，运行时回合收尾常无样例上下文——本入口按
+        确定性基线调参（tune）后直接回写知识集（快照经注入的落库回调
+        持久化），供下次调参读回基线；无参数变化 = no-op 不落库。
+        """
+        result = self.tune(
+            params, metrics, feedback=feedback, rule_version=rule_version
+        )
+        if result.changes:
+            self._commit(result)
+        return result
+
+    def _commit(self, result: TuneResult) -> None:
+        """调参结果落地（快照落库回调 + 参数回写知识集；失败只记日志）。"""
+        if result.snapshot is not None and self.snapshot_sink is not None:
+            try:
+                self.snapshot_sink(result.snapshot)
+            except Exception as exc:
+                logger.warning(f"参数快照落库失败（忽略）: {exc}")
+        self._persist_params(result.params)
 
     def _persist_params(self, params: TunableParams) -> None:
         """调参结果回写知识集（与知识孵化闭环：下次调参从条目读回基线）。

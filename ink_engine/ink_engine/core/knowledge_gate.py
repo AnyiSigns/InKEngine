@@ -35,6 +35,10 @@ from .rules import (
 )
 from .schema_validator import SchemaSpec, SchemaValidator
 
+# L2 耗时 → L3 latency 维度的归一化基准（10000ms = 满分基线，超出
+# 线性衰减到 0；ENG1-4 建议项落地：硬编码魔法数字提为常量）
+LATENCY_NORM_MS = 10000.0
+
 # L1 安全扫描：指令注入检测的命中模式（声明数据中的「指令型」措辞）。
 # 规则文本是知识不是指令：检出即拒绝——防 web 注入规则成为注入载体。
 # 中英文指令句式均收录（web 蒸馏是注入主要入口，英文形态不可漏）；
@@ -345,6 +349,26 @@ class ReviewCardPolicy:
         return not self.enabled
 
 
+def _default_l3_metrics(
+    entry: KnowledgeEntry, l2: GateL2Result
+) -> dict[str, float]:
+    """L3 缺省维度指标派生（未注入 new_metrics 时的兜底口径）。
+
+    - 规则类条目：accuracy = L2 样例通过率（效果的真实度量）；
+    - insight 教训条目：无规则执行语义（L2 跳过执行，accuracy 恒 0.0
+      是「未测量」而非「劣」）——缺省派生不含 accuracy，避免与母体
+      派生指标（调用留痕成功率）比较时产生虚假的「劣于旧版」误判，
+      只留 latency/safety 中性维度（与旧版可比且不产生虚假优劣）；
+    - latency = 1 - min(latency_ms / LATENCY_NORM_MS, 1)（耗时归一化）；
+    - safety = L2 安全合规评分（L1 通过 = 满分基线）。
+    """
+    latency = 1.0 - min(l2.latency_ms / LATENCY_NORM_MS, 1.0)
+    metrics: dict[str, float] = {"latency": latency, "safety": l2.safety_score}
+    if entry.kind != KIND_INSIGHT:
+        metrics["accuracy"] = l2.accuracy
+    return metrics
+
+
 class KnowledgeGate:
     """知识验证闸门（三层组合入口：L1 → L2 → L3 顺序执行）。
 
@@ -627,11 +651,7 @@ class KnowledgeGate:
             return l1, l2, GateL3Result(
                 passed=False, reason="L2 样例测试未全绿（非谈判项）"
             )
-        metrics = new_metrics or {
-            "accuracy": l2.accuracy,
-            "latency": 1.0 - min(l2.latency_ms / 10000.0, 1.0),
-            "safety": l2.safety_score,
-        }
+        metrics = new_metrics or _default_l3_metrics(entry, l2)
         l3 = self.check_l3(metrics, old_metrics, diversity=diversity)
         if l3.passed and self.human_reviewer is not None and self.human_review_enabled:
             approved = await self.human_reviewer.review(entry, l3)

@@ -11,7 +11,9 @@
 
 机制定在 core、语义归属审批卡协议（`review_card` 四类卡）——
 不绑领域语义、跨域共用；挂起/重入走引擎 interrupt 原语（`core/interrupt.py`），
-本模块不引入第二套挂起语义。
+本模块不引入第二套挂起语义。**gate 卡形态统一由
+`review_card.build_gate_card` 构造（E-P12 唯一卡形态源）**——宿主只提供
+动作描述与 payload 数据，不在发卡点手工拼卡。
 
 决议集合（对应注入值）：
 - accept：按原动作执行；
@@ -40,6 +42,7 @@ from dataclasses import dataclass
 from typing import Any, Protocol
 
 from .logging import get_logger
+from .review_card import build_gate_card
 
 logger = get_logger(__name__)
 
@@ -144,7 +147,7 @@ async def approve_before_execute(
     clock = clock or time.time
     if not policy.should_approve(key, action):
         return ApprovalDecision(decision=DECISION_AUTO, action=action, source="policy")
-    card = _build_gate_card(action, payload)
+    card = build_gate_card(action, payload=payload)
     timeout = policy.timeout_for(key, action)
     # 重入读回已挂卡的超时窗口（持久化在中断 checkpoint 的卡负载）：挂起
     # 时写入的 expires_at 才是超时判定的权威时钟——重算（now+timeout）会让
@@ -218,7 +221,7 @@ async def approve_batch(
             ApprovalDecision(decision=DECISION_AUTO, action=a, source="policy")
             for a in actions
         ]
-    card = _build_batch_card(actions, payload)
+    card = build_gate_card(actions=actions, payload=payload)
     timeouts = [policy.timeout_for(key, a) for a in actions]
     shortest = min((t for t in timeouts if t is not None), default=None)
     # 重入读回已挂卡的超时窗口（与 approve_before_execute 同语义：
@@ -261,33 +264,6 @@ async def approve_batch(
         )
         for i, a in enumerate(actions)
     ]
-
-
-def _build_gate_card(action: dict, payload: dict | None) -> dict:
-    """动作 → gate 卡（宿主 payload 优先，缺省字段从 action 补全）。"""
-    card = dict(payload) if payload else {}
-    card.setdefault("review_type", "gate")
-    card.setdefault("node_id", str(action.get("tool") or "approval"))
-    card.setdefault("node_label", str(action.get("tool") or "approval"))
-    card.setdefault("action", dict(action))
-    if "output_preview" not in card:
-        card["output_preview"] = str(action.get("diff") or action.get("summary") or "")
-    return card
-
-
-def _build_batch_card(actions: list[dict], payload: dict | None) -> dict:
-    """动作列表 → 合并卡（仍是 gate 卡形态，actions 列表供单卡渲染 diff 列表）。"""
-    card = dict(payload) if payload else {}
-    card.setdefault("review_type", "gate")
-    card.setdefault("node_id", "approval_batch")
-    card.setdefault("node_label", "批量审批")
-    card.setdefault("actions", [dict(a) for a in actions])
-    if "output_preview" not in card:
-        card["output_preview"] = "\n".join(
-            f"- {a.get('tool')}: {a.get('summary') or a.get('diff') or ''}"
-            for a in actions
-        )
-    return card
 
 
 def _resolve_decision(

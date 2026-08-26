@@ -15,6 +15,7 @@ from collections.abc import Callable
 from dataclasses import dataclass
 from typing import Any
 
+from ink_engine.core.review_card import build_gate_card
 from ink_engine.core.skill_crystal import (
     SKILL_KIND_PATH,
     SKILL_KIND_VISUAL,
@@ -227,16 +228,21 @@ class SkillMarketService:
     async def _install_approval(self, ctx: Any, entry: dict[str, Any]) -> str:
         """安装审批卡预览（提案阶段）：可 edit 改条目，重走校验链。
 
+        卡形态经 review_card.build_gate_card 统一构建（E-P12 唯一卡形态
+        源），预览字段（skill_id/name/kind/domain）随 payload 透传。
         返回 accept / reject / terminate / vetting_rejected（与 MCP 同语义）。
         """
-        card = {
-            "review_type": "skill_install",
-            "skill_id": entry.get("id"),
-            "name": entry.get("name"),
-            "kind": entry.get("kind"),
-            "domain": entry.get("domain"),
-            "note": "技能市场安装预览：可 edit 修改条目后重走校验链",
-        }
+        card = build_gate_card(
+            payload={
+                "node_id": "skill_install",
+                "node_label": "技能市场安装预览",
+                "skill_id": entry.get("id"),
+                "name": entry.get("name"),
+                "kind": entry.get("kind"),
+                "domain": entry.get("domain"),
+                "reason": "技能市场安装预览：可 edit 修改条目后重走校验链",
+            }
+        )
         injected = await ctx.interrupt(f"skill_install:{entry.get('id')}", card)
         if isinstance(injected, str):
             return injected

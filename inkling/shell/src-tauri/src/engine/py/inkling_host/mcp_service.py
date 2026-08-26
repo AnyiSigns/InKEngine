@@ -377,6 +377,11 @@ class McpMountService:
         edit 决议的 edited_content 作为新配置重跑 vetting 核对
         （重走校验链 = 编辑内容与提案同门禁）。返回决议：
         accept / reject / terminate / vetting_rejected。
+
+        注（E-P12 遗留）：本卡为挂载域专有形态（review_type="mount"，
+        与 Rust domain/mcp.rs mount_approval_card 共享协议、Rust 侧断言
+        钉死该字面量），未并入 review_card 四类卡统一构建源——统一需
+        跨 Rust 修改，由 MCP 域批次跟进。
         """
         card = {
             "review_type": "mount",

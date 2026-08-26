@@ -1,23 +1,28 @@
-"""测试时专才化评审-收敛原语（评审器接口 / 收敛策略 / 轮次上限 / web 验证钩子）。
+"""测试时专才化评审-收敛原语（评审器接口 / 确定性基线实现 / 收敛策略 / web 验证钩子）。
 
 测试时专才化（Test-time Specialization）：不微调权重，靠「生成 → 评审 →
 校验 → 迭代收敛」把输出质量逼近专才水平。奖励信号三源：评审器质量评分、
 一致性校验（校验层）、卡回路人类反馈（accept/reject/edit——最真实奖励，
 弹卡即收集偏好数据）。
 
-本模块只定义**机制**（接口 + 数据类 + 默认策略），不绑定任何领域语义：
+本模块定义**机制**（接口 + 数据类 + 默认策略）与**确定性基线参考实现**，
+不绑定任何领域语义：
 
-- :class:`Reviewer`：评审器接口（对候选输出给质量分 / 段落级评分 / 改进意见）；
-- :class:`Regenerator`：再生成器接口（按评审反馈改进一个候选，不达标自动
-  再生成，不弹卡）；
-- :class:`WebVerifier`：web 验证钩子接口（评审发现事实存疑时验证，结果喂回
-  下一轮评审）；
+- :class:`Reviewer` / :class:`Regenerator` / :class:`WebVerifier`：协议接口
+  （对候选给质量分 / 按反馈改进候选 / 存疑声明验证）；
+- :class:`DeterministicReviewer` / :class:`DeterministicRegenerator` /
+  :class:`DeterministicWebVerifier`：**确定性基线参考实现**（E-P11 拍板）——
+  纯启发式、无随机 / 无 LLM / 无 IO，同输入产出恒等，作为 LLM 评审的
+  回归基线（对比测试锚定输出，断言不漂移）；
 - :class:`ConvergencePolicy`：收敛策略接口（何时收敛 / 何时再生成哪个候选）；
 - :class:`MaxRoundsConvergencePolicy`：默认策略（达阈值收敛 + Beam 宽度 +
   轮次上限）。
 
-领域语义（评审 prompt、候选混合）在种子包（seeds/）实现，
-宿主只负责注册与装配——换评审策略 / 换验证后端不改本模块。
+双轨收敛（E-P11 拍板，2026-08-26）：**产品 LLM 评审权威实现**在宿主层
+（``inkling_host/review_pipeline.py`` 的 LLMReviewer / LLMRegenerator，
+host 注入模型链，评审失败 fail-open 中性分）；core 侧不再承载 LLM 评审
+实现，只提供协议接口与确定性基线参考实现——换评审策略 / 换验证后端
+不改本模块，LLM 评审行为漂移时基线给出稳定参照。
 """
 from __future__ import annotations
 
@@ -119,6 +124,97 @@ class WebVerifier(Protocol):
         *,
         context: dict[str, Any] | None = None,
     ) -> str | None: ...
+
+
+@dataclass(frozen=True, slots=True)
+class DeterministicReviewer:
+    """确定性基线评审器（E-P11 回归基线参考实现，非产品权威实现）。
+
+    双轨收敛：产品 LLM 评审权威实现 = ``inkling_host/review_pipeline.py``
+    的 :class:`LLMReviewer`；本类 = core 侧**确定性基线**——纯启发式
+    质量分（长度 + 段落结构），无随机 / 无 LLM / 无 IO，同输入产出恒等
+    （对比测试断言不漂移），作为 LLM 评审的回归基线：LLM 评审行为漂移时
+    基线给出稳定参照，同输入断言不漂移的锚定点。
+
+    实现约定：与 :class:`Reviewer` 协议对齐（按下标一一对应返回；
+    评审不抛错——纯函数恒产出有效分）。
+
+    Attributes:
+        pass_threshold: 判定通过的质量分阈值（与引擎默认同源 0.75）。
+        neutral: 中性分（保留协议语义；确定性评审永不失败，恒产出实分）。
+    """
+
+    pass_threshold: float = DEFAULT_PASS_THRESHOLD
+    neutral: float = NEUTRAL_SCORE
+
+    async def review(
+        self,
+        candidates: list[str],
+        *,
+        context: dict[str, Any] | None = None,
+    ) -> list[CandidateReview]:
+        results: list[CandidateReview] = []
+        for index, content in enumerate(candidates):
+            score, reason = self._score(text=content or "")
+            results.append(
+                CandidateReview(
+                    candidate_index=index,
+                    score=score,
+                    passed=score >= self.pass_threshold,
+                    feedback=reason,
+                )
+            )
+        return results
+
+    def _score(self, *, text: str) -> tuple[float, str]:
+        """确定性质量分（纯函数）：长度分 60% + 段落结构分 40%，锚定 [0,1]。
+
+        长度分 = min(len/500, 1)；结构分 = min(换行数/4, 1)。分数四舍五入
+        到 4 位小数——同输入恒等，作为回归基线的断言锚点。
+        """
+        length_score = min(len(text) / 500.0, 1.0)
+        structure_score = min(text.count("\n") / 4.0, 1.0)
+        score = round(0.6 * length_score + 0.4 * structure_score, 4)
+        reason = f"确定性基线：长度分 {length_score:.2f}，结构分 {structure_score:.2f}"
+        return score, reason
+
+
+@dataclass(frozen=True, slots=True)
+class DeterministicRegenerator:
+    """确定性基线再生成器（E-P11 回归基线参考实现，非产品权威实现）。
+
+    产品权威实现 = ``inkling_host/review_pipeline.py`` 的
+    :class:`LLMRegenerator`；本类按评审反馈**追加修订段**（无随机 / 无
+    LLM / 无 IO），同输入产出恒等，作为再生成路径的回归基线。
+    """
+
+    async def regenerate(
+        self,
+        candidate: str,
+        feedback: str,
+        *,
+        context: dict[str, Any] | None = None,
+    ) -> str:
+        if not feedback or not feedback.strip():
+            return candidate
+        return f"{candidate}\n\n【确定性基线修订】{feedback.strip()}"
+
+
+@dataclass(frozen=True, slots=True)
+class DeterministicWebVerifier:
+    """确定性基线 web 验证器（E-P11 回归基线参考实现）。
+
+    返回占位结论（不触发真实联网验证），同输入产出恒等——验证路径的
+    回归基线；真实验证后端由宿主注册（协议 :class:`WebVerifier`）。
+    """
+
+    async def verify(
+        self,
+        claim: str,
+        *,
+        context: dict[str, Any] | None = None,
+    ) -> str:
+        return f"【确定性基线验证】{claim}（未触发真实联网验证，占位结论）"
 
 
 @dataclass(frozen=True, slots=True)
@@ -284,6 +380,9 @@ __all__ = [
     "ConvergencePolicy",
     "ConvergenceResult",
     "ConvergenceRound",
+    "DeterministicRegenerator",
+    "DeterministicReviewer",
+    "DeterministicWebVerifier",
     "MaxRoundsConvergencePolicy",
     "ParagraphScore",
     "Regenerator",

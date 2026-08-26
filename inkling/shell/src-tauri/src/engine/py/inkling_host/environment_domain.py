@@ -26,7 +26,7 @@ import os
 import shutil
 import time
 import uuid
-from collections.abc import Sequence
+from collections.abc import Awaitable, Callable, Sequence
 from pathlib import Path
 from typing import Any
 
@@ -51,6 +51,11 @@ logger = get_logger("host.environment")
 
 # 容器动作缺省超时（docker 拉取/构建/运行统一护栏，秒）
 _CONTAINER_TIMEOUT = 120.0
+
+# Docker 动作执行通道（argv → 超时 → 结构化结果）；测试可注入假探针
+# （与 Rust 权威实现 env.rs 的 DockerProbe 同构：免真实 Docker 断言
+# 降级/幂等语义），缺省 = 本机子进程执行
+DockerProbe = Callable[[list[str], float], Awaitable["ProcessResult"]]
 
 
 class ContainerUnavailable(GraphDefinitionError):
@@ -123,14 +128,29 @@ class SeedContainerProvider:
     移除容器（幂等；镜像保留——镜像描述是数据，重建成本 = 数据驱动）。
 
     Docker 不可用（客户端缺失/守护进程不可达）= 结构化错误
-    （ContainerUnavailable），所有动作 fail-closed 不假装可用。
+    （ContainerUnavailable），所有动作 fail-closed 不假装可用；
+    守护进程探测结果缓存（不可达后不再重复探测）。
+
+    执行通道注入（docker_probe，与 Rust 权威实现 env.rs 的
+    DockerProbe 同构）：测试/宿主可注入假探针免真实 Docker 断言
+    降级与幂等语义；缺省 = 本机子进程执行（_probe_subprocess）。
     """
 
     name: str = "container"
 
-    def __init__(self, *, storage: Any | None = None) -> None:
+    def __init__(
+        self,
+        *,
+        storage: Any | None = None,
+        docker_probe: DockerProbe | None = None,
+    ) -> None:
         self._storage = storage
-        self._docker = shutil.which("docker")
+        # 注入探针 = 测试/宿主形态：二进制名不参与判定（与 Rust 权威实现
+        # env.rs 的 with_probe 同构）；缺省 = 本机客户端探测（缺依赖 fail-fast）
+        self._docker = "docker" if docker_probe is not None else shutil.which("docker")
+        # 容器动作执行通道注入（缺省 = 本机子进程执行）；测试形态注入假探针
+        # 免真实 Docker 断言降级/幂等语义（与 Rust env.rs DockerProbe 同构）
+        self._probe: DockerProbe = docker_probe or _probe_subprocess
         self._containers: dict[str, str] = {}
         # 守护进程可用性探测结果缓存（None = 未探测；False = 不可用，
         # 后续调用直接抛结构化错误，不重复探测）
@@ -149,7 +169,7 @@ class SeedContainerProvider:
                 "Docker 客户端未安装（容器形态不可用，local 为默认形态）"
             )
         try:
-            probe = await _run_subprocess(
+            probe = await self._probe(
                 [self._docker, "version", "--format", "{{.Server.Version}}"],
                 timeout=10,
             )
@@ -180,7 +200,7 @@ class SeedContainerProvider:
             return self._make_handle(spec)
         build_context = image.get("build_context")
         if isinstance(build_context, str) and build_context:
-            result = await _run_subprocess(
+            result = await self._probe(
                 [
                     self._docker or "docker",
                     "build",
@@ -208,7 +228,7 @@ class SeedContainerProvider:
         if container_id is None or self._docker is None:
             return
         with contextlib.suppress(Exception):
-            await _run_subprocess(
+            await self._probe(
                 [self._docker, "rm", "-f", container_id], timeout=30
             )
 
@@ -223,7 +243,7 @@ class SeedContainerProvider:
         image = (handle.spec.meta or {}).get("image") or {}
         image_name = str(image.get("name") or "").strip()
         container_name = f"inkling-{handle.spec.name}-{uuid.uuid4().hex[:8]}"
-        result = await _run_subprocess(
+        result = await self._probe(
             [
                 self._docker or "docker",
                 "run",
@@ -253,7 +273,7 @@ class SeedContainerProvider:
     async def _image_exists(self, image_name: str) -> bool:
         if self._docker is None:
             return False
-        result = await _run_subprocess(
+        result = await self._probe(
             [self._docker, "image", "inspect", image_name], timeout=30
         )
         return result.exit_code == 0
@@ -279,6 +299,11 @@ class SeedContainerProvider:
                 f"{record['ts']:.3f}-{uuid.uuid4().hex[:8]}",
                 record,
             )
+
+
+async def _probe_subprocess(argv: list[str], timeout: float) -> ProcessResult:
+    """缺省 Docker 动作执行通道（子进程执行；参数与 DockerProbe 对齐）。"""
+    return await _run_subprocess(argv, timeout=timeout)
 
 
 async def _run_subprocess(
@@ -336,6 +361,7 @@ class EnvironmentDomain:
         envs_dir: str | Path = "envs",
         storage: Any | None = None,
         run_allowlist: Sequence[str] = (),
+        container_probe: DockerProbe | None = None,
     ) -> None:
         # 基线声明（env.json）：链回退/恢复时回落基准（链只承载补丁增量）
         self._baseline: dict[str, EnvironmentSpec] = {
@@ -354,7 +380,12 @@ class EnvironmentDomain:
                 sandbox=sandbox, envs_dir=envs_dir, storage=storage
             )
         )
-        self.providers.register(SeedContainerProvider(storage=storage))
+        # 容器提供器装配（E-P13 接线：容器环境声明 → 容器运行时执行；
+        # 缺 Docker = ContainerUnavailable 结构化降级，绝不假装可用；
+        # 探针通道供测试/宿主注入，缺省 = 本机子进程执行）
+        self.providers.register(
+            SeedContainerProvider(storage=storage, docker_probe=container_probe)
+        )
         # web_bridge：引擎默认提供器（恒就绪；run 显式不支持），保持注册
         self.providers.register(WebBridgeProvider())
         self._handles: dict[str, EnvironmentHandle] = {}

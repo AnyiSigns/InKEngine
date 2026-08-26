@@ -12,6 +12,7 @@
 //! 在首次使用处懒执行（起步不阻塞首屏），失败语义 = 结构化错误透传
 //! （fail-closed，不静默降级）。
 
+use std::collections::{BTreeMap, HashMap, HashSet};
 use std::path::{Path, PathBuf};
 use std::sync::atomic::{AtomicBool, Ordering};
 use std::sync::{Arc, Mutex};
@@ -82,11 +83,13 @@ impl ShellBackendState {
     }
 }
 
-/// 壳状态：授权挂载点 + 执行器注册表（声明驱动，启动时构建并自检签名）。
+/// 壳状态：授权挂载点 + 执行器注册表（声明驱动，启动时构建并自检签名）
+/// + 壳侧审批台账（决议 4：命令层裁决的档位表与决议态）。
 struct ShellState {
     mounts: Mutex<Vec<PathBuf>>,
     registry: ExecutorRegistry,
     backend: ShellBackendState,
+    approval: ApprovalLedger,
 }
 
 /// 构建壳后端：平台操作 + Tauri 通知接线。
@@ -650,17 +653,19 @@ async fn workspace_revoke() -> Result<JsonValue, String> {
 /// 审批卡请求（回合外两步形态：先请求落卡，后注入决议）。
 #[tauri::command]
 async fn approval_request(
+    state: tauri::State<'_, ShellState>,
     thread_id: Option<String>,
     key: String,
     action: JsonValue,
     payload: Option<JsonValue>,
 ) -> Result<JsonValue, String> {
-    approval_card(thread_id.as_deref(), &key, action, payload, None).await
+    approval_card(&state, thread_id.as_deref(), &key, action, payload, None).await
 }
 
 /// 审批决议注入（决议经操作通道预注入；已决去重）。
 #[tauri::command]
 async fn approval_resolve(
+    state: tauri::State<'_, ShellState>,
     thread_id: Option<String>,
     key: String,
     decision: String,
@@ -668,6 +673,7 @@ async fn approval_resolve(
     edited_content: Option<JsonValue>,
 ) -> Result<JsonValue, String> {
     approval_card(
+        &state,
         thread_id.as_deref(),
         &key,
         json!({}),
@@ -682,7 +688,12 @@ async fn approval_resolve(
 }
 
 /// 审批卡操作通道接线（请求 + 决议注入共用入口）。
+///
+/// 决议态同时登记进壳侧审批台账（决议 4：引擎审批卡决议态驱动命令面裁决
+/// ——`approval_resolve`/自动审批的引擎决议结果落台账，process_exec /
+/// device_mcp_call 按 (工具, 参数指纹) 查询放行）。
 async fn approval_card(
+    state: &tauri::State<'_, ShellState>,
     thread_id: Option<&str>,
     key: &str,
     action: JsonValue,
@@ -694,6 +705,7 @@ async fn approval_card(
         "key": key,
         "action": action,
     });
+    let payload_for_ledger = payload.clone();
     if let Some(payload) = payload {
         args["payload"] = payload;
     }
@@ -708,15 +720,29 @@ async fn approval_card(
             }
         }
     }
-    engine::host::call_engine_op_async("approval.gate_card_request", args).await
+    let outcome = engine::host::call_engine_op_async("approval.gate_card_request", args).await?;
+    // 引擎决议态入台账（决议 4）：按引擎返回的 decision 登记（payload 带
+    // tool/args 线索时按指纹命中命令面裁决）
+    let decision = outcome
+        .get("decision")
+        .and_then(JsonValue::as_str)
+        .unwrap_or("reject");
+    state
+        .approval
+        .record_resolution(key, decision, payload_for_ledger.as_ref());
+    Ok(outcome)
 }
 
 // ── 能力设置（推演档位等持久化）──
 
 /// 读取能力设置（无记录 = 装配数据默认档：轻探测；自动审批字段
 /// 缺省 = 出厂空集——不勾选即不预授权，最保守）。
+///
+/// 读取时同步台账（重启后命令面裁决与持久化的自动审批配置对齐）。
 #[tauri::command]
-async fn capability_get() -> Result<JsonValue, String> {
+async fn capability_get(
+    state: tauri::State<'_, ShellState>,
+) -> Result<JsonValue, String> {
     let record = engine::host::call_engine_op_async(
         "engine.records_get",
         json!({ "collection": CAPABILITY_COLLECTION, "key": CAPABILITY_KEY }),
@@ -737,13 +763,35 @@ async fn capability_get() -> Result<JsonValue, String> {
     if merged.get("auto_approve_all_review").is_none() {
         merged["auto_approve_all_review"] = json!(false);
     }
+    let auto_tools: Vec<String> = merged
+        .get("auto_approve_tools")
+        .and_then(JsonValue::as_array)
+        .map(|tools| {
+            tools
+                .iter()
+                .filter_map(JsonValue::as_str)
+                .map(str::to_string)
+                .collect()
+        })
+        .unwrap_or_default();
+    let auto_all = merged
+        .get("auto_approve_all_review")
+        .and_then(JsonValue::as_bool)
+        .unwrap_or(false);
+    state.approval.set_auto_approve(auto_tools, auto_all);
     Ok(merged)
 }
 
 /// 保存能力设置（自动审批先经安全域校验并应用：登记边界外工具
 /// 整体拒绝、不落盘；档位阈值随装配数据，此处只存档选）。
+///
+/// 自动审批配置同时同步进壳侧审批台账（决议 4：命令面裁决与引擎侧
+/// `security.auto_approve_set` 门禁同口径）。
 #[tauri::command]
-async fn capability_put(record: JsonValue) -> Result<JsonValue, String> {
+async fn capability_put(
+    state: tauri::State<'_, ShellState>,
+    record: JsonValue,
+) -> Result<JsonValue, String> {
     if record.get("auto_approve_tools").is_some() || record.get("auto_approve_all_review").is_some() {
         let auto_tools = record
             .get("auto_approve_tools")
@@ -763,6 +811,12 @@ async fn capability_put(record: JsonValue) -> Result<JsonValue, String> {
         if applied.get("applied").and_then(JsonValue::as_bool) != Some(true) {
             return Err("自动审批配置未生效（安全域拒绝）".to_string());
         }
+        let tools: Vec<String> = auto_tools
+            .iter()
+            .filter_map(JsonValue::as_str)
+            .map(str::to_string)
+            .collect();
+        state.approval.set_auto_approve(tools, auto_all);
     }
     engine::host::call_engine_op_async(
         "engine.records_put",
@@ -1125,7 +1179,7 @@ async fn task_resume(
 #[tauri::command]
 fn model_archive_snapshot(app: AppHandle) -> Result<JsonValue, String> {
     let data_dir = app_data_dir(&app)?;
-    let mut store = domain::model_archive::ModelArchiveStore::open_in_data_dir(&data_dir)
+    let store = domain::model_archive::ModelArchiveStore::open_in_data_dir(&data_dir)
         .map_err(|err| err.to_string())?;
     let archives = store
         .list()
@@ -1320,7 +1374,7 @@ async fn material_import(
     let recursive = recursive.unwrap_or(false);
     let scan = crate::domain::import_material::scan_and_normalize(&path, recursive)?;
     if !ingest.unwrap_or(false) {
-        return Ok(serde_json::to_value(&scan).map_err(|err| err.to_string())?);
+        return serde_json::to_value(&scan).map_err(|err| err.to_string());
     }
     let mut ingested = 0usize;
     let mut rejected = 0usize;
@@ -1473,6 +1527,10 @@ fn offline_settings_put(app: AppHandle, settings: JsonValue) -> Result<JsonValue
 ///
 /// 归约不调模型（零成本、可审计）；账本 = 压缩前的事实快照，留待引擎侧
 /// `ledger.merge` op 按需增量压缩。返回落盘路径与账本 JSON。
+///
+/// 注：命令签名为前端固定契约（Tauri invoke 入参形态），参数数超 lint
+/// 阈值属命令面固有形态，维持不动。
+#[allow(clippy::too_many_arguments)]
 #[tauri::command]
 fn round_ledger_record(
     app: AppHandle,
@@ -1695,29 +1753,168 @@ fn app_data_dir(app: &AppHandle) -> Result<PathBuf, String> {
     Ok(dir)
 }
 
-/// process_exec 命令：引擎工具调配器经统一流水线调用（权限分级由引擎
-/// 审批层判定后传 approved；壳只强制 deny/沙箱，不自行决定审批）。
+// ── 壳侧审批台账（决议 4：S2/S3/L1 审批闸门归属壳侧）──
+
+/// 审批台账条目键：(工具名, 参数指纹) → 已批准（指纹 = 参数规范 JSON，
+/// 按调用实参精确裁决——同工具不同参数不共享批准）。
+fn fingerprint_key(tool: &str, args: &BTreeMap<String, JsonValue>) -> String {
+    let args_text = serde_json::to_string(args).unwrap_or_default();
+    format!("{tool}\u{1f}{args_text}")
+}
+
+/// 壳侧审批台账：命令层不接受客户端 approved 布尔；`registry.run` 前的裁决
+/// = 档位表（工具声明 permission → TieredGate）判定 review 档 → 查询台账
+/// （引擎审批卡决议态驱动：`approval.gate_card_request` 决议 / 自动审批
+/// 配置 / 引擎 `os.dispatch` 放行态登记）。无服务端审批态 = review 档被拒
+/// （fail-closed，客户端无法自证授权）。
+#[derive(Clone)]
+pub struct ApprovalLedger {
+    gate: domain::security::TieredGate,
+    auto_all_review: Arc<Mutex<bool>>,
+    auto_tools: Arc<Mutex<HashSet<String>>>,
+    resolutions: Arc<Mutex<HashMap<String, bool>>>,
+}
+
+impl ApprovalLedger {
+    /// 从工具声明（fixtures/tools_os.json）装载档位表（permission → 档位；
+    /// deny 档不登记 = TieredGate 无条件拒绝语义由执行器守卫兜底）。
+    pub fn from_declarations(declarations: &ToolDeclarations) -> Self {
+        let mut tiers = HashMap::new();
+        for tool in &declarations.tools {
+            let tier = match tool.permission {
+                executors::tool_decl::PermissionLevel::Allow => domain::security::ALLOW,
+                executors::tool_decl::PermissionLevel::Review => domain::security::REVIEW,
+                executors::tool_decl::PermissionLevel::Deny => domain::security::DENY,
+            };
+            tiers.insert(tool.name.clone(), tier.to_string());
+        }
+        Self {
+            gate: domain::security::TieredGate::new(
+                tiers,
+                domain::security::DENY,
+                HashMap::new(),
+            ),
+            auto_all_review: Arc::new(Mutex::new(false)),
+            auto_tools: Arc::new(Mutex::new(HashSet::new())),
+            resolutions: Arc::new(Mutex::new(HashMap::new())),
+        }
+    }
+
+    /// `registry.run` 前的裁决（命令层唯一授权入口）：allow/未登记工具按
+    /// 声明直过；review 档查询台账，无批准态 = 拒绝。
+    pub fn adjudicate(&self, tool: &str, args: &BTreeMap<String, JsonValue>) -> Authorization {
+        let approved = if self.gate.review_needed(tool) {
+            self.is_approved(tool, args)
+        } else {
+            true
+        };
+        Authorization { approved }
+    }
+
+    /// 引擎通道放行态登记（`os.dispatch` 回调）：引擎审批流水线先行裁决
+    /// （approval.gate_card_request / 自动审批 / 策略档，seed 单源），壳侧
+    /// 将引擎放行态记入台账——台账由引擎审批卡决议态驱动，客户端通道与
+    /// 引擎通道共用同一裁决函数，无任何硬编码放行。
+    pub fn record_engine_dispatch(&self, tool: &str, args: &BTreeMap<String, JsonValue>) {
+        if self.gate.review_needed(tool) {
+            self.resolutions
+                .lock()
+                .unwrap()
+                .insert(fingerprint_key(tool, args), true);
+        }
+    }
+
+    /// 审批卡决议登记（引擎 `approval.gate_card_request` 决议态驱动）：
+    /// payload 携带 tool/args 线索时按 (工具, 参数指纹) 落台账（调用方
+    /// 约定：审批请求 payload 含 `{"tool": "...", "args": {...}}`）；
+    /// 无线索仅留 key 迹（审计可回溯，裁决不命中）。
+    pub fn record_resolution(&self, key: &str, decision: &str, payload: Option<&JsonValue>) {
+        let accepted = decision == "accept";
+        if let Some(payload) = payload {
+            if let (Some(tool), Some(args)) = (
+                payload.get("tool").and_then(JsonValue::as_str),
+                payload.get("args"),
+            ) {
+                if let Some(map) = args.as_object() {
+                    let map = map.clone().into_iter().collect();
+                    self.resolutions
+                        .lock()
+                        .unwrap()
+                        .insert(fingerprint_key(tool, &map), accepted);
+                }
+            }
+        }
+        self.resolutions
+            .lock()
+            .unwrap()
+            .insert(format!("key:{key}"), accepted);
+    }
+
+    /// 自动审批配置登记（能力设置持久化同源：`security.auto_approve_set`
+    /// 成功后同步，命令面裁决与引擎侧门禁同口径）。
+    pub fn set_auto_approve(&self, tools: Vec<String>, all_review: bool) {
+        *self.auto_all_review.lock().unwrap() = all_review;
+        *self.auto_tools.lock().unwrap() = tools.into_iter().collect();
+    }
+
+    fn is_approved(&self, tool: &str, args: &BTreeMap<String, JsonValue>) -> bool {
+        if *self.auto_all_review.lock().unwrap() {
+            return true;
+        }
+        if self.auto_tools.lock().unwrap().contains(tool) {
+            return true;
+        }
+        self.resolutions
+            .lock()
+            .unwrap()
+            .get(&fingerprint_key(tool, args))
+            .copied()
+            .unwrap_or(false)
+    }
+}
+
+/// 用户可见结果脱敏（S10）：工作区绝对路径 → `<workspace>` 占位；审计侧
+/// 日志保留完整文本（process_exec/device_mcp_call 审计分层——完整结果只进
+/// 本地日志，回传前端的结果为脱敏形态）。
+pub fn redact_workspace(text: &str, root: &Path) -> String {
+    let root_text = root.to_string_lossy();
+    text.replace(&*root_text, "<workspace>")
+        .replace(&root_text.replace('\\', "/"), "<workspace>")
+}
+
+/// 工作区根（沙箱根 + 脱敏替换目标）。
+fn workspace_root() -> PathBuf {
+    expand_home(DEFAULT_MOUNT_ROOT)
+}
+
+/// process_exec 命令：统一审批台账裁决（决议 4）——命令层不再接受客户端
+/// approved 布尔；`registry.run` 前壳侧按档位表 + 审批台账自行裁决
+/// （无服务端审批态时 review 档被拒，fail-closed）。
 #[tauri::command]
 fn process_exec(
     state: tauri::State<'_, ShellState>,
     backend: tauri::State<'_, ShellBackend>,
     tool: String,
     args: serde_json::Value,
-    approved: bool,
 ) -> Result<serde_json::Value, String> {
     let args_map = args
         .as_object()
         .cloned()
         .map(|map| map.into_iter().collect::<std::collections::BTreeMap<String, serde_json::Value>>())
         .ok_or_else(|| format!("工具参数须为对象: {tool}"))?;
-    let auth = Authorization { approved };
+    let auth = state.approval.adjudicate(&tool, &args_map);
     let outcome = state
         .registry
         .run(&tool, &args_map, backend.inner(), &auth)
         .map_err(|err| err.to_string())?;
+    // 审计分层（S10）：完整结果留本地日志；用户可见结果经工作区路径脱敏
+    eprintln!(
+        "[process_exec] tool={tool} sandbox={} result={}",
+        outcome.sandbox_checked, outcome.result
+    );
     Ok(serde_json::json!({
         "tool": tool,
-        "result": outcome.result,
+        "result": redact_workspace(&outcome.result, &workspace_root()),
         "sandbox": outcome.sandbox_checked,
     }))
 }
@@ -1747,6 +1944,9 @@ fn mount_list(state: tauri::State<'_, ShellState>) -> Vec<String> {
 }
 
 /// 设备感知 server 调用（进程内接线形态；宿主侧 MCP stdio 形态见 mcp 模块）。
+///
+/// 审批语义与 process_exec 同源（决议 4）：壳侧审批台账裁决——引擎审批卡
+/// 决议态驱动的批准才放行 review 档，不再硬编码 approved。
 #[tauri::command]
 fn device_mcp_call(
     state: tauri::State<'_, ShellState>,
@@ -1759,14 +1959,20 @@ fn device_mcp_call(
         .cloned()
         .map(|map| map.into_iter().collect::<std::collections::BTreeMap<String, serde_json::Value>>())
         .ok_or_else(|| format!("工具参数须为对象: {tool}"))?;
-    // 设备感知工具审批语义与 process_exec 同源：审批闸门在引擎侧 approval
-    // 档（seed 单源，出厂 review）；壳此路径只强制沙箱，不重复弹卡
-    let auth = Authorization { approved: true };
+    let auth = state.approval.adjudicate(&tool, &args_map);
     let outcome = state
         .registry
         .run(&tool, &args_map, backend.inner(), &auth)
         .map_err(|err| err.to_string())?;
-    Ok(serde_json::json!({ "tool": tool, "result": outcome.result }))
+    // 审计分层（S10）：完整结果留本地日志；用户可见结果经工作区路径脱敏
+    eprintln!(
+        "[device_mcp_call] tool={tool} sandbox={} result={}",
+        outcome.sandbox_checked, outcome.result
+    );
+    Ok(serde_json::json!({
+        "tool": tool,
+        "result": redact_workspace(&outcome.result, &workspace_root()),
+    }))
 }
 
 fn expand_home(path: &str) -> PathBuf {
@@ -2009,10 +2215,12 @@ pub fn run() {
                 .expect("执行器注册契约校验失败（声明 ↔ 执行器签名不一致）");
 
             let mounts = vec![expand_home(DEFAULT_MOUNT_ROOT)];
+            let approval = ApprovalLedger::from_declarations(&declarations);
             app.manage(ShellState {
                 mounts: Mutex::new(mounts),
                 registry,
                 backend: ShellBackendState::new(),
+                approval,
             });
 
             let backend = build_shell_backend(app.handle().clone());
@@ -2047,9 +2255,12 @@ pub fn run() {
                         .collect();
                     let state = os_bridge_app.state::<ShellState>();
                     let shell_backend = os_bridge_app.state::<ShellBackend>();
-                    // 审批闸门在引擎侧 approval 档（seed 单源）；执行器层
-                    // 只强制沙箱/签名（与 device_mcp_call 同口径）
-                    let auth = executors::impls::Authorization { approved: true };
+                    // 引擎通道：审批流水线在引擎侧先行裁决（approval 档 seed
+                    // 单源），壳侧将引擎放行态记入审批台账后经同一裁决函数
+                    // 放行（决议 4：无硬编码放行，客户端通道与引擎通道共用
+                    // 台账裁决；执行器层守卫 deny/沙箱/签名照常强制）
+                    state.approval.record_engine_dispatch(&tool, &args_map);
+                    let auth = state.approval.adjudicate(&tool, &args_map);
                     match state
                         .registry
                         .run(&tool, &args_map, shell_backend.inner(), &auth)

@@ -12,6 +12,8 @@ use std::collections::BTreeMap;
 
 use serde_json::Value;
 
+use crate::domain::common::resolve_non_strict;
+
 use super::backends::SystemBackend;
 use super::tool_decl::{Endpoint, ParamType, PermissionLevel, SandboxRule};
 
@@ -141,17 +143,32 @@ pub(crate) fn check_allowlist(
     }
 }
 
-/// 沙箱校验辅助：路径根（规范化后前缀匹配，杜绝 ../ 越界与相对路径）
-pub(crate) fn check_path_roots(roots: &[String], path: &str) -> Result<(), ExecError> {
+/// 沙箱校验辅助：路径根（规范化后前缀匹配，杜绝 ../ 越界与相对路径）。
+///
+/// 解析 = resolve_non_strict（目标已存在 = canonicalize 跟随符号链接；不存在
+/// = 沿父目录回退到最近存在点解析后按词法补齐）——`..` 穿越与符号链接逃逸
+/// 在解析后按前缀匹配拒绝。返回解析后的绝对路径供 IO 使用（执行对象 =
+/// 校验对象，防 TOCTOU 校验后回用原始路径）。
+pub(crate) fn check_path_roots(roots: &[String], path: &str) -> Result<std::path::PathBuf, ExecError> {
     let target = normalize_abs(path)?;
+    if has_dotdot_segments(&target) {
+        return Err(ExecError::SandboxViolation(format!(
+            "路径含 `..` 段，拒绝穿越: {path}"
+        )));
+    }
+    let resolved = resolve_non_strict(&target);
     let inside = roots.iter().any(|root| {
-        match normalize_abs(root) {
-            Ok(root_path) => target.starts_with(&root_path),
-            Err(_) => false,
+        let root_path = match normalize_abs(root) {
+            Ok(root_path) => root_path,
+            Err(_) => return false,
+        };
+        if has_dotdot_segments(&root_path) {
+            return false;
         }
+        resolved.starts_with(resolve_non_strict(&root_path))
     });
     if inside {
-        Ok(())
+        Ok(resolved)
     } else {
         Err(ExecError::SandboxViolation(format!(
             "路径不在工作区挂载根内: {path}"
@@ -160,13 +177,15 @@ pub(crate) fn check_path_roots(roots: &[String], path: &str) -> Result<(), ExecE
 }
 
 fn normalize_abs(path: &str) -> Result<std::path::PathBuf, ExecError> {
-    let expanded = if let Some(rest) = path.trim().strip_prefix("~/") {
-        std::env::var("USERPROFILE")
-            .or_else(|_| std::env::var("HOME"))
-            .map(|home| std::path::PathBuf::from(home).join(rest))
-            .unwrap_or_else(|_| std::path::PathBuf::from(path))
+    let trimmed = path.trim();
+    let expanded = if trimmed == "~" {
+        home_dir().unwrap_or_else(|| std::path::PathBuf::from(trimmed))
+    } else if let Some(rest) = trimmed.strip_prefix("~/") {
+        home_dir()
+            .map(|home| home.join(rest))
+            .unwrap_or_else(|| std::path::PathBuf::from(trimmed))
     } else {
-        std::path::PathBuf::from(path)
+        std::path::PathBuf::from(trimmed)
     };
     if !expanded.is_absolute() {
         return Err(ExecError::SandboxViolation(format!(
@@ -174,6 +193,59 @@ fn normalize_abs(path: &str) -> Result<std::path::PathBuf, ExecError> {
         )));
     }
     Ok(expanded)
+}
+
+fn home_dir() -> Option<std::path::PathBuf> {
+    std::env::var("USERPROFILE")
+        .or_else(|_| std::env::var("HOME"))
+        .ok()
+        .map(std::path::PathBuf::from)
+}
+
+/// 路径是否含 `..` 段（词法判定；与安全域 rule_matches 的 `..` 拒绝同纪律，
+/// 新建文件场景无法靠解析结果兜底，必须先按段拒绝）。
+fn has_dotdot_segments(path: &std::path::Path) -> bool {
+    path.components()
+        .any(|component| component == std::path::Component::ParentDir)
+}
+
+/// 沙箱校验辅助：新建文件路径（写入目标可不存在，无法 canonicalize）——
+/// 「解析后的根前缀 + 禁 `..` 段」双校验，返回解析后的父目录与文件名
+/// （父目录经 resolve_non_strict 解析，落盘对象 = 校验对象）。
+pub(crate) fn check_new_path_root(
+    roots: &[String],
+    target: &std::path::Path,
+) -> Result<std::path::PathBuf, ExecError> {
+    let target = if target.is_absolute() {
+        target.to_path_buf()
+    } else {
+        normalize_abs(&target.to_string_lossy())?
+    };
+    if has_dotdot_segments(&target) {
+        return Err(ExecError::SandboxViolation(format!(
+            "路径含 `..` 段，拒绝穿越: {}",
+            target.display()
+        )));
+    }
+    let resolved = resolve_non_strict(&target);
+    let inside = roots.iter().any(|root| {
+        let root_path = match normalize_abs(root) {
+            Ok(root_path) => root_path,
+            Err(_) => return false,
+        };
+        if has_dotdot_segments(&root_path) {
+            return false;
+        }
+        resolved.starts_with(resolve_non_strict(&root_path))
+    });
+    if inside {
+        Ok(resolved)
+    } else {
+        Err(ExecError::SandboxViolation(format!(
+            "路径不在工作区挂载根内: {}",
+            target.display()
+        )))
+    }
 }
 
 /// 沙箱校验辅助：数值边界
@@ -412,10 +484,14 @@ fn doc_parse_run(
     let tool = executor.name();
     check_permission(tool, executor.spec().permission, auth)?;
     let path = arg_str(args, "path")?.to_string();
-    if let SandboxRule::PathRoots { roots } = &executor.spec().sandbox {
-        check_path_roots(roots, &path)?;
-    }
-    let bytes = std::fs::read(&path)
+    let resolved = if let SandboxRule::PathRoots { roots } = &executor.spec().sandbox {
+        check_path_roots(roots, &path)?
+    } else {
+        return Err(ExecError::SandboxViolation(
+            "沙箱模式非法（doc_parse 须声明路径根）".into(),
+        ));
+    };
+    let bytes = std::fs::read(&resolved)
         .map_err(|err| ExecError::ExecutionFailed(format!("读取文档失败: {err}")))?;
     let parsed = crate::domain::doc_ops::parse_document(&bytes)
         .map_err(|err| ExecError::ExecutionFailed(err.to_string()))?;
@@ -456,7 +532,14 @@ fn material_import_run(
         .get("recursive")
         .and_then(Value::as_bool)
         .unwrap_or(false);
-    let result = crate::domain::import_material::scan_and_normalize(&path, recursive)
+    let resolved = if let SandboxRule::PathRoots { roots } = &executor.spec().sandbox {
+        check_path_roots(roots, &path)?
+    } else {
+        return Err(ExecError::SandboxViolation(
+            "沙箱模式非法（material_import 须声明路径根）".into(),
+        ));
+    };
+    let result = crate::domain::import_material::scan_and_normalize(&resolved.to_string_lossy(), recursive)
         .map_err(ExecError::ExecutionFailed)?;
     let serialized = serde_json::to_string(&result)
         .map_err(|err| ExecError::ExecutionFailed(format!("扫描结果序列化失败: {err}")))?;
@@ -538,6 +621,8 @@ fn doc_generate_run(
         }
     };
     let out_dir = normalize_abs(WORKSPACE_ROOT)?;
+    let roots = vec![WORKSPACE_ROOT.to_string()];
+    let out_dir = check_new_path_root(&roots, &out_dir)?;
     std::fs::create_dir_all(&out_dir)
         .map_err(|err| ExecError::ExecutionFailed(format!("输出目录创建失败: {err}")))?;
     let stamp = std::time::SystemTime::now()
@@ -551,6 +636,7 @@ fn doc_generate_run(
     let ext = if format == "xlsx" { "xlsx" } else { "docx" };
     let file_name = format!("{safe_title}_{stamp}.{ext}");
     let out_path = out_dir.join(&file_name);
+    let out_path = check_new_path_root(&roots, &out_path)?;
     std::fs::write(&out_path, &bytes)
         .map_err(|err| ExecError::ExecutionFailed(format!("文档写入失败: {err}")))?;
     let result = serde_json::json!({
@@ -794,10 +880,16 @@ fn open_file_run(
     let tool = executor.name();
     check_permission(tool, executor.spec().permission, auth)?;
     let path = arg_str(args, "path")?.to_string();
-    if let SandboxRule::PathRoots { roots } = &executor.spec().sandbox {
-        check_path_roots(roots, &path)?;
-    }
-    let result = backend.open_file(&path).map_err(ExecError::ExecutionFailed)?;
+    let resolved = if let SandboxRule::PathRoots { roots } = &executor.spec().sandbox {
+        check_path_roots(roots, &path)?
+    } else {
+        return Err(ExecError::SandboxViolation(
+            "沙箱模式非法（open_file 须声明路径根）".into(),
+        ));
+    };
+    let result = backend
+        .open_file(&resolved.to_string_lossy())
+        .map_err(ExecError::ExecutionFailed)?;
     Ok(ExecOutcome { result, sandbox_checked: true })
 }
 
@@ -912,10 +1004,16 @@ fn file_query_run(
     let tool = executor.name();
     check_permission(tool, executor.spec().permission, auth)?;
     let path = arg_str(args, "path")?.to_string();
-    if let SandboxRule::PathRoots { roots } = &executor.spec().sandbox {
-        check_path_roots(roots, &path)?;
-    }
-    let result = backend.file_query(&path).map_err(ExecError::ExecutionFailed)?;
+    let resolved = if let SandboxRule::PathRoots { roots } = &executor.spec().sandbox {
+        check_path_roots(roots, &path)?
+    } else {
+        return Err(ExecError::SandboxViolation(
+            "沙箱模式非法（file_query 须声明路径根）".into(),
+        ));
+    };
+    let result = backend
+        .file_query(&resolved.to_string_lossy())
+        .map_err(ExecError::ExecutionFailed)?;
     Ok(ExecOutcome { result, sandbox_checked: true })
 }
 
@@ -1082,9 +1180,9 @@ fn validate_test_filter(filter: &str) -> Result<(), ExecError> {
 ///
 /// 调用参数 = 端点操作判定的固定命令名（command 与工具名不符 = 拒绝）
 /// + 可选的受限筛选（filter：仅声明 filter_arg 的工具接受；值经字符
-/// 集/长度/前导符校验后以 [标志, 值] 追加到模板尾部）。可执行面 =
-/// 声明侧钉死的参数模板，工作目录 = 工作区挂载根，超时与输出截断由
-/// 后端保证。守卫 = 权限档 + 模板形态校验 + 筛选校验。
+///   集/长度/前导符校验后以 [标志, 值] 追加到模板尾部）。可执行面 =
+///   声明侧钉死的参数模板，工作目录 = 工作区挂载根，超时与输出截断由
+///   后端保证。守卫 = 权限档 + 模板形态校验 + 筛选校验。
 fn run_process_template(
     executor: &dyn Executor,
     args: &BTreeMap<String, Value>,

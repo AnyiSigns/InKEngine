@@ -91,10 +91,28 @@ impl ProcessResult {
     }
 }
 
+/// 受限进程缺省环境白名单（env=None 时的注入面）。
+///
+/// 受限执行体默认不继承宿主完整环境：环境清空后仅注入平台运行最小面
+/// （裸命令名经 PATH 解析；Windows 系统目录/临时目录/用户主目录供
+/// 运行时与工具链自举），其余宿主环境变量一律不外泄给子进程。
+const RESTRICTED_ENV_WHITELIST: &[&str] = &[
+    "PATH",
+    "PATHEXT",
+    "SYSTEMROOT",
+    "WINDIR",
+    "TEMP",
+    "TMP",
+    "USERPROFILE",
+    "HOME",
+    "HOMEDRIVE",
+    "HOMEPATH",
+];
+
 /// 执行受限子进程（超时 kill + 输出截断；进程型域动作的通用通道）。
 ///
-/// - env 为完整环境块（缺省不继承宿主环境；PATH 等按调用方声明注入，
-///   引擎不替宿主决定平台默认值——裸命令名经 PATH 解析）；
+/// - env 为完整环境块；None = 环境清空后按 [`RESTRICTED_ENV_WHITELIST`]
+///   白名单注入（不继承宿主完整环境，受限执行体最小面）；
 /// - 超时 = kill 后返回 timed_out 结果（不崩溃），kill 语义经
 ///   kill_on_drop 保证（等待侧因超时离开后子进程不再残留）；
 /// - 输出按 max_chars 截断（超限追加截断标记，防撑爆结果通道）。
@@ -124,7 +142,14 @@ pub async fn run_command(
                 cmd.env(key, value);
             }
         }
-        None => {}
+        None => {
+            cmd.env_clear();
+            for key in RESTRICTED_ENV_WHITELIST {
+                if let Ok(value) = std::env::var(key) {
+                    cmd.env(key, value);
+                }
+            }
+        }
     }
     let mut child = match cmd.spawn() {
         Ok(child) => child,
@@ -197,9 +222,8 @@ pub fn readable_path(path: PathBuf) -> PathBuf {
 /// = canonicalize（跟随符号链接）；目标不存在 = 沿父目录回退到最近
 /// 存在点解析后按词法补齐剩余段（写新文件场景不因路径不存在而失败）。
 pub fn resolve_non_strict(path: &Path) -> PathBuf {
-    match path.canonicalize() {
-        Ok(canonical) => return readable_path(canonical),
-        Err(_) => {}
+    if let Ok(canonical) = path.canonicalize() {
+        return readable_path(canonical);
     }
     let mut head = path.to_path_buf();
     let mut tail: Vec<std::ffi::OsString> = Vec::new();

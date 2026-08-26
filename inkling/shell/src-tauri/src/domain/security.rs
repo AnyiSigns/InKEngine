@@ -54,6 +54,8 @@ impl ErrorCode {
     pub const PROCESS_NOT_ALLOWLISTED: &str = "SEC_007"; // 命令不在端点白名单
     pub const VETTING_SHADOW_MISMATCH: &str = "SEC_008"; // 影子清单比对不一致
     pub const COMMAND_ENUM_MISMATCH: &str = "SEC_009"; // 固定枚举参数与工具名不符
+    pub const NETWORK_REDIRECT_BLOCKED: &str = "SEC_010"; // http_fetch 拒绝跟随重定向
+    pub const NETWORK_SIZE_LIMIT: &str = "SEC_011"; // http_fetch 响应体超过上限
 }
 
 /// 权限判定档位（权限命中 × 门控分级后的产出）。
@@ -297,6 +299,7 @@ pub fn gating_tier_of(
 /// spec 权限不参与——防伪造宽松权限窗口）→ 命中且 review 档 = 弹卡
 /// 审批 / allow 档 = 直过 / 未命中 = 默认拒绝（fail-closed）。未在档位
 /// 表的工具（挂载/补丁新增）= 按声明权限直过（档位表是出厂契约）。
+#[derive(Debug, Clone)]
 pub struct TieredGate {
     tiers: HashMap<String, String>,
     overrides: HashMap<String, String>,
@@ -357,7 +360,10 @@ impl TieredGate {
                 tool,
                 operation,
                 target,
-                "出厂 deny 档工具默认拒绝（权限变更须经补丁链审批转正）",
+                format!(
+                    "出厂 deny 档工具默认拒绝（权限变更须经补丁链审批转正）（{}）",
+                    ErrorCode::PERMISSION_DENIED
+                ),
             );
         }
         let mut effective: Vec<String> = permissions.to_vec();
@@ -378,7 +384,10 @@ impl TieredGate {
                             tool,
                             operation,
                             target,
-                            "工作区未授权（请先在设置页「连接」完成工作区授权确认）",
+                            format!(
+                                "工作区未授权（请先在设置页「连接」完成工作区授权确认）（{}）",
+                                ErrorCode::SANDBOX_UNAUTHORIZED
+                            ),
                         );
                     }
                 }
@@ -407,9 +416,15 @@ impl TieredGate {
                 ),
                 _ => {
                     let reason = if effective.is_empty() {
-                        "未声明权限或权限未命中，默认拒绝".to_string()
+                        format!(
+                            "未声明权限或权限未命中，默认拒绝（{}）",
+                            ErrorCode::PERMISSION_DENIED
+                        )
                     } else {
-                        format!("权限未命中: {target:?}")
+                        format!(
+                            "权限未命中: {target:?}（{}）",
+                            ErrorCode::PERMISSION_DENIED
+                        )
                     };
                     GateResult::new(DENY, tool, operation, target, reason)
                 }
@@ -554,7 +569,7 @@ impl DeclarativeSpec {
         self.meta
             .get("network_policy")
             .and_then(|v| v.get("allow_domains"))
-            .map(|v| string_list_from(v))
+            .map(string_list_from)
             .unwrap_or_default()
     }
 }
@@ -650,9 +665,10 @@ impl WorkspaceGuard {
     ) -> Result<String, SandboxViolation> {
         let state = self.state.read().unwrap();
         if !state.authorized {
-            return Err(SandboxViolation(
-                "工作区未授权（请先在设置页「连接」完成工作区授权确认）".to_string(),
-            ));
+            return Err(SandboxViolation(format!(
+                "工作区未授权（请先在设置页「连接」完成工作区授权确认）（{}）",
+                ErrorCode::SANDBOX_UNAUTHORIZED
+            )));
         }
         let root = state.root.clone().unwrap_or_default();
         let requested = Path::new(target);
@@ -662,10 +678,18 @@ impl WorkspaceGuard {
             root.join(requested)
         };
         // 解析（跟随符号链接；不存在的路径按词法解析，父目录已存在的部分
-        // 仍会跟随链接）→ 前缀校验：链接指向根外的目标经解析越界即拒绝
+        // 仍会跟随链接）→ 前缀校验：链接指向根外的目标经解析越界即拒绝。
+        // 返回解析后的 canonical 路径供 IO 使用（执行对象 = 校验对象）。
         let resolved = resolve_non_strict(&candidate);
         if !resolved.starts_with(&root) {
-            return Err(SandboxViolation(format!("路径越界: {target}")));
+            // 错误码分层：词法即在根外 = 越界（SEC_002）；词法在根内但解析
+            // 越界 = 符号链接逃逸（SEC_003）——审计可按码聚合归因。
+            let code = if candidate.starts_with(&root) {
+                ErrorCode::SANDBOX_SYMLINK_ESCAPE
+            } else {
+                ErrorCode::SANDBOX_OUT_OF_ROOT
+            };
+            return Err(SandboxViolation(format!("路径越界: {target}（{code}）")));
         }
         if operation == "read" {
             if let Some(limit) = max_bytes {
@@ -751,7 +775,10 @@ impl DeclarativeSandboxProxy {
             Endpoint::HttpFetch if operation == "connect" => {
                 let domains = definition.allow_domains();
                 if !domains.iter().any(|pattern| network_matches(pattern, target)) {
-                    return Err(SandboxViolation(format!("域名不在白名单: {target}")));
+                    return Err(SandboxViolation(format!(
+                        "域名不在白名单: {target}（{}）",
+                        ErrorCode::NETWORK_DOMAIN_BLOCKED
+                    )));
                 }
                 Ok(target.to_string())
             }
@@ -789,7 +816,7 @@ pub async fn execute_http_fetch(
         return serde_json::json!({
             "ok": false,
             "status": "network_domain_blocked",
-            "error": format!("域名不在网络策略白名单: {host:?}（越域拒绝）"),
+            "error": format!("域名不在网络策略白名单: {host:?}（越域拒绝）（{}）", ErrorCode::NETWORK_DOMAIN_BLOCKED),
         })
         .to_string();
     }
@@ -809,9 +836,18 @@ fn url_host(url: &str) -> Option<String> {
     parsed.host_str().map(|h| h.to_string())
 }
 
+/// 响应体字节读取上限（max_chars × UTF-8 最大字节/字符 + 换行/状态行余量；
+/// 超上限即结构化 size_limit，防超大响应占满内存）。
+fn fetch_byte_cap(max_chars: usize) -> usize {
+    max_chars * 4 + 4096
+}
+
 async fn fetch_with_reqwest(url: &str, max_chars: usize) -> String {
     let client_req = reqwest::Client::builder()
         .timeout(std::time::Duration::from_secs(15))
+        // 禁跟随重定向：白名单只校验初始 host，30x 跳任意域即越域
+        // （与 Python security_domain.py 的 follow_redirects=False 同口径）
+        .redirect(reqwest::redirect::Policy::none())
         .build();
     let client = match client_req {
         Ok(client) => client,
@@ -824,19 +860,66 @@ async fn fetch_with_reqwest(url: &str, max_chars: usize) -> String {
             .to_string();
         }
     };
-    match client.get(url).send().await {
-        Ok(response) => {
-            let status = response.status();
-            let body = response.text().await.unwrap_or_default();
-            format!("HTTP {status}\n{}", truncate_chars(&body, max_chars))
+    let mut response = match client.get(url).send().await {
+        Ok(response) => response,
+        Err(_) => {
+            return serde_json::json!({
+                "ok": false,
+                "status": "fetch_failed",
+                "error": "http_fetch 取回失败（网络不可达或域名解析失败）",
+            })
+            .to_string();
         }
-        Err(_) => serde_json::json!({
+    };
+    let status = response.status();
+    // 重定向按拒绝处理（Policy::none 下 30x 原样返回）：逐跳校验的等价
+    // fail-closed——不跟随即不存在跳转后的白名单复核面
+    if status.is_redirection() {
+        return serde_json::json!({
             "ok": false,
-            "status": "fetch_failed",
-            "error": "http_fetch 取回失败（网络不可达或域名解析失败）",
+            "status": "redirect_blocked",
+            "error": format!("http_fetch 拒绝跟随重定向: HTTP {status}（{}）", ErrorCode::NETWORK_REDIRECT_BLOCKED),
         })
-        .to_string(),
+        .to_string();
     }
+    // 响应体上限：Content-Length 预检 + 流式限长读取（不整块读入）
+    let byte_cap = fetch_byte_cap(max_chars);
+    if let Some(len) = response.content_length() {
+        if len > byte_cap as u64 {
+            return serde_json::json!({
+                "ok": false,
+                "status": "size_limit",
+                "error": format!("http_fetch 响应超上限: {len} > {byte_cap} 字节（{}）", ErrorCode::NETWORK_SIZE_LIMIT),
+            })
+            .to_string();
+        }
+    }
+    let mut body: Vec<u8> = Vec::new();
+    loop {
+        let chunk = match response.chunk().await {
+            Ok(Some(chunk)) => chunk,
+            Ok(None) => break,
+            Err(_) => {
+                return serde_json::json!({
+                    "ok": false,
+                    "status": "fetch_failed",
+                    "error": "http_fetch 响应体读取中断",
+                })
+                .to_string();
+            }
+        };
+        if body.len() + chunk.len() > byte_cap {
+            return serde_json::json!({
+                "ok": false,
+                "status": "size_limit",
+                "error": format!("http_fetch 响应超上限（流式截断）（{}）", ErrorCode::NETWORK_SIZE_LIMIT),
+            })
+            .to_string();
+        }
+        body.extend_from_slice(&chunk);
+    }
+    let text = String::from_utf8_lossy(&body);
+    format!("HTTP {status}\n{}", truncate_chars(&text, max_chars))
 }
 
 // ── file_ops 端点执行体 ──
@@ -1262,14 +1345,14 @@ pub fn resolve_process_exec(
         return Err(serde_json::json!({
             "ok": false,
             "status": "command_enum_mismatch",
-            "error": format!("command 固定枚举不符: {command:?}（期望 {name:?}）"),
+            "error": format!("command 固定枚举不符: {command:?}（期望 {name:?}）（{}）", ErrorCode::COMMAND_ENUM_MISMATCH),
         }));
     }
     if tiers.get(name).map(|t| t == DENY).unwrap_or(false) {
         return Err(serde_json::json!({
             "ok": false,
             "status": "deny_tier",
-            "error": "出厂 deny 档工具默认拒绝（须经补丁链审批转正）",
+            "error": format!("出厂 deny 档工具默认拒绝（须经补丁链审批转正）（{}）", ErrorCode::PERMISSION_DENIED),
         }));
     }
     Ok(())
@@ -1361,6 +1444,9 @@ impl ShadowVettingStore {
     }
 }
 
+/// L2 验证钩子的内层判定器（非 MCP 工具补丁的追加门禁）。
+pub type VettingInner = Box<dyn Fn(&JsonValue) -> Vec<String> + Send + Sync>;
+
 /// L2 验证钩子（TOOL 补丁部署前门禁）+ 影子登记器。
 ///
 /// 钩子语义（fail-closed）：MCP 端点工具补丁须满足——server 已通过
@@ -1371,11 +1457,11 @@ impl ShadowVettingStore {
 pub struct SecurityL2Vetting {
     shadow: ShadowVettingStore,
     vetted: Arc<Mutex<HashSet<String>>>,
-    inner: Option<Box<dyn Fn(&JsonValue) -> Vec<String> + Send + Sync>>,
+    inner: Option<VettingInner>,
 }
 
 impl SecurityL2Vetting {
-    pub fn new(shadow: ShadowVettingStore, inner: Option<Box<dyn Fn(&JsonValue) -> Vec<String> + Send + Sync>>) -> Self {
+    pub fn new(shadow: ShadowVettingStore, inner: Option<VettingInner>) -> Self {
         Self {
             shadow,
             vetted: Arc::new(Mutex::new(HashSet::new())),
@@ -1449,9 +1535,7 @@ fn include_matches(include: &str, path: &std::path::Path) -> bool {
     if include.starts_with('.') {
         return name.ends_with(include);
     }
-    let pattern = if include.starts_with('*') {
-        include.to_string()
-    } else if include.contains('.') {
+    let pattern = if include.starts_with('*') || include.contains('.') {
         include.to_string()
     } else {
         format!("*{include}")
@@ -1654,7 +1738,14 @@ impl SecurityDomain {
                 .and_then(|specs| parse_engine_specs(&specs).ok())
                 .unwrap_or_default();
                 match proxy.validate(operation, target, tool, &definitions) {
-                    Ok(_) => Ok(serde_json::json!({ "pass": true, "reason": "" }).to_string()),
+                    // 通过时回传解析后的 canonical 目标（校验对象 = 执行对象：
+                    // 下游 IO 按解析路径落位，符号链接 TOCTOU 面收敛）
+                    Ok(resolved) => Ok(serde_json::json!({
+                        "pass": true,
+                        "reason": "",
+                        "target": resolved,
+                    })
+                    .to_string()),
                     Err(violation) => Ok(serde_json::json!({
                         "pass": false,
                         "reason": violation.0,
@@ -2449,7 +2540,7 @@ mod tests {
 
     #[test]
     fn l2_vetting_hook_inner_passthrough() {
-        let inner: Box<dyn Fn(&JsonValue) -> Vec<String> + Send + Sync> =
+        let inner: VettingInner =
             Box::new(|payload| vec![format!("inner rejected: {}", payload.get("name").and_then(|v| v.as_str()).unwrap_or(""))]);
         let hook = SecurityL2Vetting::new(ShadowVettingStore::default(), Some(inner));
         let result = hook.check("rule", &json!({"name": "r1"}));

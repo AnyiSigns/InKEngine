@@ -20,7 +20,8 @@ pyo3 = { version = "0.29.2", features = ["auto-initialize"] }
 pyo3-async-runtimes = { version = "0.29.0", features = ["tokio-runtime"] }
 tokio = { version = "1", features = ["full"] }
 # 接线层域模块共享依赖（数据映射/内容寻址/路径检索/网络策略）
-reqwest = { version = "0.12", default-features = false, features = ["rustls-tls", "json"] }
+# stream 特性供 http_fetch 端点响应体限长读取（S5：Content-Length 预检 + 流式截断，禁整块读入）
+reqwest = { version = "0.12", default-features = false, features = ["rustls-tls", "json", "stream"] }
 rusqlite = { version = "0.31", features = ["bundled"] }
 sha2 = "0.10"
 hex = "0.4"

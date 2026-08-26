@@ -57,7 +57,7 @@ fn validate_signature(declared_name: &str, declared_params: &[(String, ParamType
         .iter()
         .map(|p| (p.name.to_string(), p.param_type, p.required))
         .collect();
-    if declared_params != &executor_params {
+    if declared_params != executor_params {
         return Err(format!(
             "参数签名不一致: 声明 {declared_params:?} ≠ 执行器 {executor_params:?}（工具 {declared_name}）"
         ));

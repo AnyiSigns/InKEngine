@@ -61,15 +61,35 @@ fn run_cmd(program: &str, args: &[&str]) -> Result<String, String> {
 /// 防长输出撑爆结果通道）。
 const PROCESS_OUTPUT_MAX_CHARS: usize = 4000;
 
+/// 单流字节读取上限（max_chars × UTF-8 最大字节/字符，防超大输出占满内存；
+/// 超上限 = 停止读取并追加截断标记，进程可继续消费管道不阻塞）。
+const PROCESS_OUTPUT_READ_CAP: usize = PROCESS_OUTPUT_MAX_CHARS * 4;
+
 /// 子进程输出读取（后台线程消费管道，防管道缓冲写满后子进程阻塞）。
+/// 读取按 [`PROCESS_OUTPUT_READ_CAP`] 上限截断：不整块读入后再截断，
+/// 超大输出（GB 级）不常驻内存。
 fn spawn_pipe_reader<R>(mut pipe: R) -> std::thread::JoinHandle<String>
 where
     R: std::io::Read + Send + 'static,
 {
     std::thread::spawn(move || {
-        let mut content = String::new();
-        let _ = pipe.read_to_string(&mut content);
-        content
+        let mut bytes: Vec<u8> = Vec::new();
+        let mut buf = [0u8; 4096];
+        loop {
+            match pipe.read(&mut buf) {
+                Ok(0) => break,
+                Ok(n) => {
+                    if bytes.len() + n > PROCESS_OUTPUT_READ_CAP {
+                        bytes.extend_from_slice(&buf[..PROCESS_OUTPUT_READ_CAP - bytes.len()]);
+                        bytes.extend_from_slice("…（输出过长，已截断）".as_bytes());
+                        break;
+                    }
+                    bytes.extend_from_slice(&buf[..n]);
+                }
+                Err(_) => break,
+            }
+        }
+        String::from_utf8_lossy(&bytes).into_owned()
     })
 }
 
@@ -232,7 +252,9 @@ impl SystemBackend for PlatformBackend {
             })
             .collect::<Vec<_>>()
             .join(", ");
-        Ok(format!("[{path}] {entries}"))
+        // 只回传条目（不含绝对路径前缀）：工作区绝对路径/目录结构不泄露给
+        // 用户可见结果（审计侧留完整路径，见 lib.rs 命令层脱敏分层）
+        Ok(entries)
     }
 
     fn run_process(&self, argv: &[String], cwd: &str, timeout_secs: u64) -> Result<String, String> {
@@ -294,7 +316,7 @@ mod windows_ops {
 
     pub fn set_volume(percent: u32) -> Result<String, String> {
         // waveOutSetVolume：0–0xFFFF，左右声道同值（percent 0–100 已在守卫层校验）
-        let volume = ((percent * 0xFFFF / 100) & 0xFFFF) as u32;
+        let volume = (percent * 0xFFFF / 100) & 0xFFFF;
         let packed = (volume << 16) | volume;
         let result = unsafe { waveOutSetVolume(0, packed) };
         if result == 0 {
@@ -368,7 +390,6 @@ mod windows_ops {
 mod windows_ui_ops {
 use std::ffi::c_void;
 use serde_json::{json, Value};
-use uuid::Uuid;
 
     #[link(name = "user32")]
     extern "system" {

@@ -103,6 +103,17 @@ fn parse_specs(raw: &Value) -> Result<Vec<FieldSpec>, String> {
                 name, kind
             ));
         }
+        // E27：count/contains 的空 needle 语义相反（count=0 但 contains=true），
+        // 声明期直接拒绝——空串查找是声明错误，不是合法规格
+        if matches!(kind, "count" | "contains") {
+            let needle = obj.get_str("needle");
+            if needle.is_none() || needle.unwrap_or("").is_empty() {
+                return Err(format!(
+                    "字段 {} 的 {} 缺非空 needle",
+                    name, kind
+                ));
+            }
+        }
         specs.push(FieldSpec {
             name: name.to_string(),
             kind: kind.to_string(),
@@ -277,6 +288,22 @@ mod tests {
     fn rejects_duplicate_field_names() {
         let args = parse(
             r#"{"text": "x", "spec": [{"name": "a", "kind": "count", "needle": "x"}, {"name": "a", "kind": "contains", "needle": "x"}]}"#,
+        )
+        .unwrap();
+        assert!(run(&args).is_err());
+    }
+
+    #[test]
+    fn rejects_empty_needle() {
+        // E27：count/contains 空 needle 声明期拒绝（count=0 与 contains=true
+        // 语义相反，空串查找是声明错误）
+        let args = parse(
+            r#"{"text": "x", "spec": [{"name": "a", "kind": "count", "needle": ""}]}"#,
+        )
+        .unwrap();
+        assert!(run(&args).is_err());
+        let args = parse(
+            r#"{"text": "x", "spec": [{"name": "a", "kind": "contains"}]}"#,
         )
         .unwrap();
         assert!(run(&args).is_err());

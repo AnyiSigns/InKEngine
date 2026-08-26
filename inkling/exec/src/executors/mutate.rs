@@ -35,13 +35,31 @@ pub fn schema() -> Value {
                     string_schema("层级（work/project/user）"),
                 );
                 props.insert("kind".to_string(), string_schema("条目类别"));
-                props.insert("data".to_string(), string_schema("条目数据（变异基底）"));
+                props.insert(
+                    "data".to_string(),
+                    // E10：实现要求对象（变异基底 + _mutation 留痕），
+                    // 声明 string 会让严格按 schema 生成参数的客户端 100% 失败
+                    object_from_pairs(vec![(
+                        "type",
+                        Value::String("object".to_string()),
+                    )]),
+                );
                 props.insert("source".to_string(), string_schema("来源"));
                 props.insert("credibility".to_string(), number_schema("可信度（0-1）"));
                 props.insert("title".to_string(), string_schema("标题"));
                 props.insert(
                     "tags".to_string(),
-                    object_from_pairs(vec![("description", Value::String("标签清单".to_string()))]),
+                    // E10：tags 是清单（数组），不是对象
+                    object_from_pairs(vec![
+                        ("type", Value::String("array".to_string())),
+                        (
+                            "items",
+                            object_from_pairs(vec![(
+                                "type",
+                                Value::String("string".to_string()),
+                            )]),
+                        ),
+                    ]),
                 );
                 props
             }),
@@ -76,17 +94,13 @@ pub fn schema() -> Value {
                 "failure_rate",
                 number_schema("母体失败率（≥0.3 高失败率 → 多探索）"),
             ),
-            (
-                "usage_count",
-                integer_schema("母体调用次数（动态数量判定用）"),
-            ),
         ],
         vec!["entry", "failure_logs"],
     )
 }
 
-/// inkling_mutate：参数 {entry: {id, data, ...}, failure_logs, max_variants?,
-/// failure_rate?, usage_count?}。
+/// mutate_knowledge：参数 {entry: {id, data, ...}, failure_logs, max_variants?,
+/// failure_rate?}。
 ///
 /// 产物：{ok, variants: [知识条目数据], count}——variants 为空表示无失败
 /// 日志（无从反思）或全部被上限截断。

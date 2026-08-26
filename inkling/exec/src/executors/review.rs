@@ -97,6 +97,8 @@ struct ReviewConfig {
     pass_threshold: f64,
     max_rounds: i64,
     beam_width: usize,
+    /// 未知维度启发式回退分（真实种子维度无专用启发式时用中性分，E2）。
+    neutral_score: f64,
     web_verify_enabled: bool,
 }
 
@@ -161,13 +163,26 @@ fn load_config() -> Result<ReviewConfig, String> {
         .transpose()?;
     let max_rounds = obj.get_i64("max_rounds").unwrap_or(2).max(0);
     let beam_width = obj.get_i64("beam_width").unwrap_or(1).max(1) as usize;
+    let neutral_score = clamp_01(
+        obj.get_f64("neutral_score").unwrap_or(0.5),
+        "neutral_score",
+    )?;
+    // web_verify 兼容（E2）：真实种子是对象 {enabled, hook}，夹具是布尔
+    // web_verify_enabled——两形态都接受，取任一为真即启用
+    let web_verify_object_enabled = obj
+        .get_object("web_verify")
+        .and_then(|o| o.get_bool("enabled"))
+        .unwrap_or(false);
+    let web_verify_enabled =
+        web_verify_object_enabled || obj.get_bool("web_verify_enabled").unwrap_or(false);
     Ok(ReviewConfig {
         dimensions,
         overall_threshold,
         pass_threshold,
         max_rounds,
         beam_width,
-        web_verify_enabled: obj.get_bool("web_verify_enabled").unwrap_or(false),
+        neutral_score,
+        web_verify_enabled,
     })
 }
 
@@ -286,16 +301,9 @@ fn score_candidate(
                 "relevance" => heuristic_relevance(candidate),
                 "clarity" => heuristic_clarity(candidate),
                 "completeness" => heuristic_completeness(candidate),
-                // 未知维度名出现在配置里 = 数据漂移：报错让数据侧修复
-                other => {
-                    return Err(ToolError::new(
-                        ToolErrorKind::ToolError,
-                        format!(
-                            "review.json 含执行体未知维度: {}（数据漂移，须修数据）",
-                            other
-                        ),
-                    ))
-                }
+                // 真实种子维度（citation_quality/cross_validation/...）无
+                // 专用启发式：回退 neutral_score（E2），不再报数据漂移错
+                _ => config.neutral_score,
             };
             scores.push((dim.name.clone(), score));
         }
@@ -363,6 +371,21 @@ struct Decision {
     notes: Vec<String>,
 }
 
+/// 取最高分候选，同分保留首个（E12：与 Python max 语义对齐——Rust
+/// max_by 并列返回最后一个，fold 显式打破并列避免跨语言复现性断裂）。
+fn first_max_score<'a>(reviews: impl Iterator<Item = &'a Review>) -> Option<&'a Review> {
+    reviews.fold(None, |best: Option<&Review>, r| match best {
+        None => Some(r),
+        Some(b) => {
+            if r.score > b.score {
+                Some(r)
+            } else {
+                Some(b)
+            }
+        }
+    })
+}
+
 fn decide(reviews: &[Review], config: &ReviewConfig, round_no: i64) -> Decision {
     if reviews.is_empty() {
         return Decision {
@@ -372,12 +395,8 @@ fn decide(reviews: &[Review], config: &ReviewConfig, round_no: i64) -> Decision 
             notes: vec!["无候选可评审".to_string()],
         };
     }
-    // 达标者取最高分（同分取靠前者——与引擎 max 语义一致）
-    if let Some(best) = reviews.iter().filter(|r| r.passed).max_by(|a, b| {
-        a.score
-            .partial_cmp(&b.score)
-            .unwrap_or(std::cmp::Ordering::Equal)
-    }) {
+    // 达标者取最高分（同分取靠前者——与引擎 max 语义一致，E12）
+    if let Some(best) = first_max_score(reviews.iter().filter(|r| r.passed)) {
         return Decision {
             converged: true,
             accepted_indices: vec![best.candidate_index],
@@ -389,14 +408,7 @@ fn decide(reviews: &[Review], config: &ReviewConfig, round_no: i64) -> Decision 
         };
     }
     if round_no >= config.max_rounds {
-        let best = reviews
-            .iter()
-            .max_by(|a, b| {
-                a.score
-                    .partial_cmp(&b.score)
-                    .unwrap_or(std::cmp::Ordering::Equal)
-            })
-            .unwrap();
+        let best = first_max_score(reviews.iter()).unwrap();
         return Decision {
             converged: false,
             accepted_indices: Vec::new(),
@@ -430,7 +442,7 @@ fn decide(reviews: &[Review], config: &ReviewConfig, round_no: i64) -> Decision 
     }
 }
 
-/// inkling_review：参数 {candidates, dimension_scores?, round_no?}。
+/// review_material：参数 {candidates, dimension_scores?, round_no?}。
 pub fn run(args: &Value) -> Result<Value, ToolError> {
     let args = args
         .as_object()
@@ -589,6 +601,7 @@ pub fn run(args: &Value) -> Result<Value, ToolError> {
                 ),
                 ("max_rounds", Value::Number(config.max_rounds as f64)),
                 ("beam_width", Value::Number(config.beam_width as f64)),
+                ("neutral_score", Value::Number(config.neutral_score)),
                 ("web_verify_enabled", Value::Bool(config.web_verify_enabled)),
             ]),
         ),
@@ -668,5 +681,56 @@ mod tests {
         )
         .unwrap();
         assert!(run(&args).is_err());
+    }
+
+    #[test]
+    fn tied_scores_pick_first_candidate() {
+        // E12：同分候选收敛取首个（与 Python max 语义一致），不取末位
+        let args = parse(
+            r#"{
+                "candidates": [
+                    {"text": "xxxxxxxxxxxxxxxxxxxx", "claims": ["a", "b", "c"]},
+                    {"text": "yyyyyyyyyyyyyyyyyyyy", "claims": ["a", "b", "c"]}
+                ],
+                "dimension_scores": [
+                    {"candidate_index": 0, "name": "evidence", "score": 0.9},
+                    {"candidate_index": 0, "name": "relevance", "score": 0.8},
+                    {"candidate_index": 0, "name": "clarity", "score": 0.8},
+                    {"candidate_index": 0, "name": "completeness", "score": 0.8},
+                    {"candidate_index": 1, "name": "evidence", "score": 0.9},
+                    {"candidate_index": 1, "name": "relevance", "score": 0.8},
+                    {"candidate_index": 1, "name": "clarity", "score": 0.8},
+                    {"candidate_index": 1, "name": "completeness", "score": 0.8}
+                ]
+            }"#,
+        )
+        .unwrap();
+        let out = run(&args).unwrap();
+        let decision = out.as_object().unwrap().get_object("decision").unwrap();
+        assert_eq!(decision.get_bool("converged"), Some(true));
+        let accepted = decision.get_array("accepted_indices").unwrap();
+        assert_eq!(accepted.len(), 1);
+        assert_eq!(accepted[0].as_f64(), Some(0.0), "同分须取首个候选");
+    }
+
+    #[test]
+    fn unknown_heuristic_dimension_falls_back_to_neutral() {
+        // E2：真实种子维度（无专用启发式）回退 neutral_score，不报错
+        let config = ReviewConfig {
+            dimensions: vec![Dimension {
+                name: "citation_quality".to_string(),
+                weight: 1.0,
+                threshold: None,
+            }],
+            overall_threshold: None,
+            pass_threshold: 0.75,
+            max_rounds: 2,
+            beam_width: 1,
+            neutral_score: 0.5,
+            web_verify_enabled: false,
+        };
+        let candidate = parse(r#"{"text": "x"}"#).unwrap().as_object().unwrap().clone();
+        let review = score_candidate(0, &candidate, &config, None).unwrap();
+        assert_eq!(review.score, 0.5, "未知维度回退中性分");
     }
 }

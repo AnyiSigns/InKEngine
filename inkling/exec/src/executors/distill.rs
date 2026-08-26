@@ -10,7 +10,7 @@
 //!   {"kind": "insight", "insight": {"message", "context", "note"}}——
 //!   教训是经验文本无谓词实现，M3 集成时可直接过引擎闸门（L1 形式校验、
 //!   L2 对无执行语义教训跳过规则执行）落知识集；
-//! - 来源取信号中最可信者（signals.json 的 source_ranking 排序）；
+//! - 产物溯源取 primary.source（E23：消息与来源同源，防溯源失真）；
 //! - 按需触发（复杂度/干预双阈值，signals.json distill 配置）——双阈值
 //!   保守语义：两项都低 = 普通回合不蒸馏（防蒸馏垃圾进垃圾出）。
 
@@ -19,6 +19,15 @@ use crate::tool::{integer_schema, string_schema, ToolError, ToolErrorKind};
 
 /// 引擎知识条目 kind 常量（与 knowledge_set.py KIND_INSIGHT 对齐）。
 pub const KIND_INSIGHT: &str = "insight";
+
+/// 踩坑信号进教训 note 的上限（E24：魔法数字提常量，signals.json
+/// distill.pitfall_note_limit 可覆盖——数据驱动与同文件其它阈值一致）。
+const DEFAULT_PITFALL_NOTE_LIMIT: usize = 3;
+
+/// 来源可信度缺省排序（真实 signals.json 无 source_ranking 时的回落，
+/// 与引擎 knowledge_signals._SOURCE_RANK 一致：user > model > dialog > web）。
+const DEFAULT_SOURCE_RANKING: [(&str, i64); 4] =
+    [("web", 1), ("dialog", 2), ("model", 3), ("user", 4)];
 
 pub fn schema() -> Value {
     let signal_schema = object_from_pairs(vec![
@@ -34,10 +43,6 @@ pub fn schema() -> Value {
                     string_schema("来源（web/dialog/model/user）"),
                 );
                 props.insert("context".to_string(), string_schema("关联上下文"));
-                props.insert(
-                    "count".to_string(),
-                    integer_schema("同因出现次数（重复根因判定用）"),
-                );
                 props
             }),
         ),
@@ -72,7 +77,7 @@ pub fn schema() -> Value {
     )
 }
 
-/// signals.json 蒸馏配置（五类信号映射 + 触发阈值 + 来源可信度排序）。
+/// signals.json 蒸馏配置（信号→蒸馏器映射 + 触发阈值 + 来源可信度排序）。
 struct SignalsConfig {
     /// kind → 是否可蒸馏（信号→蒸馏器映射的运行时形态）
     distillable: Vec<(String, bool)>,
@@ -82,6 +87,8 @@ struct SignalsConfig {
     /// 来源名 → 可信度排序值（数值大优先）
     source_ranking: Vec<(String, i64)>,
     fallback_source: String,
+    /// 踩坑信号进 note 的上限（E24：数据可覆盖）
+    pitfall_note_limit: usize,
 }
 
 fn load_config() -> Result<SignalsConfig, String> {
@@ -89,16 +96,37 @@ fn load_config() -> Result<SignalsConfig, String> {
     let obj = value
         .as_object()
         .ok_or_else(|| "signals.json 声明非法: 期望对象".to_string())?;
-    let kinds = obj
-        .get_object("signal_kinds")
-        .ok_or_else(|| "signals.json 缺 signal_kinds".to_string())?;
-    let mut distillable = Vec::with_capacity(kinds.len());
-    for (kind, meta) in kinds.iter() {
-        let distillable_flag = meta
-            .as_object()
-            .and_then(|m| m.get_bool("distillable"))
-            .unwrap_or(false);
-        distillable.push((kind.to_string(), distillable_flag));
+    // signal_kinds 双侧兼容（E2）：夹具是对象 {kind: {distillable}}，真实
+    // 种子是数组 [{kind, name, distiller, produced_kind}]——可蒸馏标记 =
+    // 显式 distillable 布尔，或 produced_kind 非 null（真实形态：非 null
+    // 即该信号会产出知识条目）
+    let mut distillable = Vec::new();
+    match obj.get("signal_kinds") {
+        Some(Value::Object(kinds)) => {
+            for (kind, meta) in kinds.iter() {
+                let flag = meta
+                    .as_object()
+                    .and_then(|m| m.get_bool("distillable"))
+                    .unwrap_or(false);
+                distillable.push((kind.to_string(), flag));
+            }
+        }
+        Some(Value::Array(items)) => {
+            for item in items {
+                let meta = item
+                    .as_object()
+                    .ok_or_else(|| "signal_kinds 条目须为对象".to_string())?;
+                let kind = meta
+                    .get_str("kind")
+                    .filter(|s| !s.is_empty())
+                    .ok_or_else(|| "signal_kinds 条目缺 kind".to_string())?;
+                let flag = meta
+                    .get_bool("distillable")
+                    .unwrap_or_else(|| meta.get("produced_kind").is_some_and(|v| !v.is_null()));
+                distillable.push((kind.to_string(), flag));
+            }
+        }
+        _ => return Err("signals.json 缺 signal_kinds（对象或清单形态）".to_string()),
     }
     if distillable.is_empty() {
         return Err("signals.json 的 signal_kinds 不能为空".to_string());
@@ -114,8 +142,12 @@ fn load_config() -> Result<SignalsConfig, String> {
             }
         }
     }
+    // 真实种子无 source_ranking：回落缺省排序（与引擎 _SOURCE_RANK 对齐）
     if source_ranking.is_empty() {
-        return Err("signals.json 的 source_ranking 不能为空".to_string());
+        source_ranking = DEFAULT_SOURCE_RANKING
+            .iter()
+            .map(|(name, rank)| (name.to_string(), *rank))
+            .collect();
     }
     Ok(SignalsConfig {
         distillable,
@@ -127,6 +159,10 @@ fn load_config() -> Result<SignalsConfig, String> {
             .get_str("fallback_source")
             .unwrap_or("model")
             .to_string(),
+        pitfall_note_limit: distill
+            .get_i64("pitfall_note_limit")
+            .map(|v| v.max(0) as usize)
+            .unwrap_or(DEFAULT_PITFALL_NOTE_LIMIT),
     })
 }
 
@@ -194,30 +230,12 @@ fn validate_signals(raw: &Value, config: &SignalsConfig) -> Result<Vec<Signal>, 
     Ok(signals)
 }
 
-/// 来源可信度取最高者（user > model > dialog > web 的确定性基准，
-/// 排序值来自 signals.json——数据即基准，防 web 注入污染知识集）。
-fn best_source(signals: &[Signal], config: &SignalsConfig) -> String {
-    signals
-        .iter()
-        .map(|s| {
-            let rank = config
-                .source_ranking
-                .iter()
-                .find(|(name, _)| name == &s.source)
-                .map(|(_, r)| *r)
-                .unwrap_or(0);
-            (s.source.clone(), rank)
-        })
-        .max_by(|a, b| a.1.cmp(&b.1))
-        .map(|(source, _)| source)
-        .unwrap_or_else(|| config.fallback_source.clone())
-}
-
-/// inkling_distill：参数 {signals, complexity?, interventions?}。
+/// distill_knowledge：参数 {signals, complexity?, interventions?}。
 ///
 /// 产物：{ok, should_distill, source, data}——data 为 null 表示无可沉淀
 /// （全部噪音/无成功路径结论，不产出空知识）；非 null 时为引擎教训条目
 /// 声明形态 {"kind": "insight", "insight": {"message", "context", "note"}}。
+/// source 取 primary.source（E23：消息与来源同源，杜绝溯源失真）。
 pub fn run(args: &Value) -> Result<Value, ToolError> {
     let args = args
         .as_object()
@@ -288,7 +306,7 @@ pub fn run(args: &Value) -> Result<Value, ToolError> {
     let pitfalls: Vec<&str> = signals
         .iter()
         .filter(|s| s.kind == "pitfall")
-        .take(3)
+        .take(config.pitfall_note_limit)
         .map(|s| s.message.as_str())
         .collect();
     let note = pitfalls.join("; ");
@@ -319,7 +337,7 @@ pub fn run(args: &Value) -> Result<Value, ToolError> {
                 usable.len()
             )),
         ),
-        ("source", Value::String(best_source(&signals, &config))),
+        ("source", Value::String(primary.source.clone())),
         ("data", Value::Object(data)),
     ]))
 }
@@ -399,5 +417,29 @@ mod tests {
             out.as_object().unwrap().get_bool("should_distill"),
             Some(false)
         );
+    }
+
+    #[test]
+    fn missing_source_falls_back_and_unknown_source_rejected() {
+        // E2：source 缺省回落 fallback_source；未知来源结构化拒绝
+        let config = SignalsConfig {
+            distillable: vec![("insight".to_string(), true)],
+            enabled: true,
+            complexity_threshold: 5,
+            intervention_threshold: 1,
+            source_ranking: DEFAULT_SOURCE_RANKING
+                .iter()
+                .map(|(n, r)| (n.to_string(), *r))
+                .collect(),
+            fallback_source: "model".to_string(),
+            pitfall_note_limit: 3,
+        };
+        let raw = crate::json::parse(r#"[{"kind": "insight", "message": "x"}]"#).unwrap();
+        let signals = validate_signals(&raw, &config).unwrap();
+        assert_eq!(signals[0].source, "model");
+        let bad =
+            crate::json::parse(r#"[{"kind": "insight", "message": "x", "source": "hacker"}]"#)
+                .unwrap();
+        assert!(validate_signals(&bad, &config).is_err());
     }
 }

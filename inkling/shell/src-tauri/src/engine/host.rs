@@ -12,6 +12,7 @@ use std::sync::{Mutex, OnceLock};
 
 use pyo3::prelude::*;
 use pyo3::types::PyDict;
+use pyo3::types::PyTypeMethods;
 use serde_json::Value as JsonValue;
 
 use super::bridge::{register_objects, RustEmbedder, RustMemoryStore, RustTransport};
@@ -140,11 +141,22 @@ pub fn call_engine_op(op: &str, args: JsonValue) -> Result<JsonValue, String> {
 /// 必须串行执行，否则并行装配互相覆盖句柄，跨测试串链。
 ///
 /// 全 crate 共用此护栏（域模块装配/接线测试同样触碰桥）——测试间
-/// 的串行化以本锁为唯一权威，禁止另起并行装配入口。
+/// 的串行化以本锁为唯一权威，禁止另起并行装配入口。获取锁时同时
+/// 清空 INK_LLM_* 环境变量：装配默认走离线桩，真实模型装配由
+/// 显式设置 env 的测试自管（防环境变量污染静默切换桩/真实模型）。
 pub fn bridge_guard() -> std::sync::MutexGuard<'static, ()> {
     static LOCK: std::sync::Mutex<()> = std::sync::Mutex::new(());
-    LOCK.lock()
-        .unwrap_or_else(std::sync::PoisonError::into_inner)
+    let guard = LOCK
+        .lock()
+        .unwrap_or_else(std::sync::PoisonError::into_inner);
+    // 清空 INK_LLM_* 必须在持锁后执行：装配默认走离线桩，真实模型装配
+    // 由显式设置 env 的测试自管；若清理发生在持锁前，其他测试线程会在
+    // 本测试装配期间把 env 清掉（env 读取与持锁竞态，静默切回桩）。
+    std::env::remove_var("INK_LLM_BASE_URL");
+    std::env::remove_var("INK_LLM_MODEL");
+    std::env::remove_var("INK_LLM_API_KEY");
+    std::env::remove_var("INK_LLM_ADAPTER");
+    guard
 }
 
 /// 经桥模块调用引擎异步操作（JSON 进/JSON 出；awaitable 经异步桥贯通）。
@@ -390,22 +402,36 @@ impl EngineHost {
                 // 事件传输回桥（回合事件流终点）
                 let transport = Py::new(py, RustTransport::new())?;
 
-                // 离线模型桩（脚本匹配；缺省回复兜底）
-                let llm_kwargs = PyDict::new(py);
-                if let Some(script) = script_json.as_deref() {
-                    let script_dict = py.import("json")?.call_method1("loads", (script,))?;
-                    llm_kwargs.set_item("script", script_dict)?;
-                }
-                llm_kwargs.set_item("default_reply", &default_reply)?;
-                let llm = bridge.call_method("StubLLM", (), Some(&llm_kwargs))?;
-                // 离线模型桩句柄绑定（提示词生效断言的可观测出口）
-                bridge.call_method1("bind_stub_llm", (llm.clone(),))?;
-
-                // 宿主五件套（存储 URI + 模型桩 + Rust 传输回桥）
+                // 宿主五件套（存储 URI + 模型接线 + Rust 传输回桥）
                 let host_kwargs = PyDict::new(py);
                 host_kwargs.set_item("storage_uri", &storage_uri)?;
-                host_kwargs.set_item("llm", llm.clone())?;
                 host_kwargs.set_item("transport", transport.clone_ref(py))?;
+
+                // 模型接线：环境变量显式配置（INK_LLM_BASE_URL + INK_LLM_MODEL，
+                // 与 inkling_host.host._model_config_from_env 同口径）时跳过离线
+                // 桩注入——make_host 的 resolve_llm 回落环境配置装配真实模型
+                // （headless 真实模型驱动入口；桌面壳经设置页注入路径不受影响）。
+                // 未配置环境 = 离线模型桩（脚本匹配；缺省回复兜底）。
+                let live_model_from_env = std::env::var("INK_LLM_BASE_URL")
+                    .map(|v| !v.trim().is_empty())
+                    .unwrap_or(false)
+                    && std::env::var("INK_LLM_MODEL")
+                        .map(|v| !v.trim().is_empty())
+                        .unwrap_or(false);
+                if live_model_from_env {
+                    // 不注入 llm：resolve_llm 经 _model_config_from_env → create_llm
+                } else {
+                    let llm_kwargs = PyDict::new(py);
+                    if let Some(script) = script_json.as_deref() {
+                        let script_dict = py.import("json")?.call_method1("loads", (script,))?;
+                        llm_kwargs.set_item("script", script_dict)?;
+                    }
+                    llm_kwargs.set_item("default_reply", &default_reply)?;
+                    let llm = bridge.call_method("StubLLM", (), Some(&llm_kwargs))?;
+                    // 离线模型桩句柄绑定（提示词生效断言的可观测出口）
+                    bridge.call_method1("bind_stub_llm", (llm.clone(),))?;
+                    host_kwargs.set_item("llm", llm.clone())?;
+                }
                 // 本地语义嵌入器注入（模型目录显式传入；懒加载 + 缺失
                 // 降级确定性保底由接线层嵌入器保证）——引擎检索源默认
                 // 挂语义召回（出厂形态）；不注入 = 关键词基线
@@ -472,8 +498,10 @@ impl EngineHost {
                         },
                     )?;
                 // 模块级运行时句柄绑定（引擎操作通道的出口；桥模块持有）
-                py.import("inkling_bridge")?
-                    .call_method1("bind_runtime", (runtime_py.clone_ref(py), host_py.clone_ref(py)))?;
+                py.import("inkling_bridge")?.call_method1(
+                    "bind_runtime",
+                    (runtime_py.clone_ref(py), host_py.clone_ref(py)),
+                )?;
                 Ok((runtime_py, host_py, transport))
             })
             .map_err(|err: PyErr| err.to_string())?;
@@ -721,8 +749,7 @@ mod tests {
 
     #[test]
     fn boot_stub_round_and_protocols() {
-        let _serial = bridge_guard();
-        let options = BootOptions {
+        let _serial = bridge_guard();        let options = BootOptions {
             repo_root: repo_root(),
             storage_uri: "memory://".to_string(),
             data_dir: None,
@@ -757,6 +784,34 @@ mod tests {
         assert_eq!(check.memory_remaining, 0, "记忆回路残留条目");
 
         host.stop().expect("关停失败");
+    }
+
+    #[test]
+    fn boot_live_model_from_env_skips_stub() {
+        // 环境变量配置真实模型（INK_LLM_*）：装配应跳过离线桩注入，
+        // 桥侧宿主 _llm 保持 None（resolve_llm 回落 env → create_llm）。
+        // 只验证接线形态，不发网络请求（create_llm 构造零联网）。
+        let _serial = bridge_guard();
+        std::env::set_var("INK_LLM_BASE_URL", "http://127.0.0.1:9/v1");
+        std::env::set_var("INK_LLM_MODEL", "test-model");
+        let options = BootOptions {
+            repo_root: repo_root(),
+            ..BootOptions::default()
+        };
+        let host = EngineHost::boot(options).expect("装配失败");
+
+        let no_stub = Python::attach(|py| -> PyResult<bool> {
+            let bridge = py.import("inkling_bridge")?;
+            let host_obj = bridge.call_method0("host_handle")?;
+            Ok(host_obj.getattr("_llm")?.is_none())
+        })
+        .expect("桥侧断言失败");
+        assert!(no_stub, "env 模型路径不应注入 StubLLM");
+        let report = host.report().expect("摘要失败");
+        assert!(!report.tool_names.is_empty(), "工具清单为空");
+        host.stop().expect("关停失败");
+        std::env::remove_var("INK_LLM_BASE_URL");
+        std::env::remove_var("INK_LLM_MODEL");
     }
 
     #[test]
@@ -1751,6 +1806,133 @@ mod tests {
         })
         .map_err(|err: pyo3::PyErr| format!("契约往返失败: {err}"))
         .expect("契约往返断言失败");
+
+        host.stop().expect("关停失败");
+    }
+
+    /// headless os.dispatch 接线：注册后引擎回合内 OS 工具调用经回调桥转发
+    /// 到本进程执行器注册表（真实执行）；未注册工具 = 结构化 executor_error。
+    #[test]
+    fn headless_os_dispatch_forwards_to_platform_registry() {
+        let _serial = bridge_guard();
+        let root = repo_root();
+        let options = BootOptions {
+            repo_root: root.clone(),
+            ..BootOptions::default()
+        };
+        let host = EngineHost::boot(options).expect("装配失败");
+
+        let fixtures = root.join("inkling/shell/src-tauri/fixtures/tools_os.json");
+        let tools_os = std::fs::read_to_string(&fixtures)
+            .unwrap_or_else(|_| panic!("夹具缺失: {}", fixtures.display()));
+        crate::executors::register_headless_os_dispatch(&tools_os).expect("回调注册失败");
+
+        // 分发调用（Python 侧真实调度点：os_registry.dispatch 的执行体）
+        let dispatch = |py: Python<'_>| -> pyo3::PyResult<String> {
+            let bridge = py.import("inkling_bridge")?;
+            let host_obj = bridge.call_method0("host_handle")?;
+            let registry = host_obj.getattr("security")?.getattr("os_registry")?;
+            let impl_ = registry.getattr("_impls")?.call_method1("get", ("system_query",))?;
+            let callable = impl_.getattr("__call__")?;
+            let args = pyo3::types::PyDict::new(py);
+            args.set_item("query", "arch")?;
+            let raw: String = callable
+                .call1((py.None(), py.None(), args))?
+                .extract()?;
+            Ok(raw)
+        };
+        let forwarded = Python::attach(dispatch).expect("分发调用失败");
+        let forwarded_json: JsonValue = serde_json::from_str(&forwarded).expect("结果应可解析");
+        assert_eq!(forwarded_json["ok"], true, "headless os.dispatch 应真实执行: {forwarded_json}");
+
+        host.stop().expect("关停失败");
+    }
+
+    /// 未注册工具的 headless os.dispatch 转发：fail-closed 结构化错误。
+    #[test]
+    fn headless_os_dispatch_unknown_tool_fails_closed() {
+        let _serial = bridge_guard();
+        let root = repo_root();
+        let options = BootOptions {
+            repo_root: root.clone(),
+            ..BootOptions::default()
+        };
+        let host = EngineHost::boot(options).expect("装配失败");
+
+        let fixtures = root.join("inkling/shell/src-tauri/fixtures/tools_os.json");
+        let tools_os = std::fs::read_to_string(&fixtures)
+            .unwrap_or_else(|_| panic!("夹具缺失: {}", fixtures.display()));
+        crate::executors::register_headless_os_dispatch(&tools_os).expect("回调注册失败");
+
+        let result: String = Python::attach(|py| -> pyo3::PyResult<String> {
+            let bridge = py.import("inkling_bridge")?;
+            let payload = serde_json::json!({"tool": "no_such_tool", "args": {}}).to_string();
+            // 直接经回调宿主 invoke（等价 Python 侧 _callback 的底层出口）
+            let callback_host = bridge.call_method0("callback_host")?;
+            callback_host.call_method1("invoke", ("os.dispatch", payload))?.extract()
+        })
+        .expect("回调调用失败");
+        let result_json: JsonValue = serde_json::from_str(&result).expect("结果应可解析");
+        assert_eq!(result_json["ok"], false);
+        assert_eq!(result_json["status"], "executor_error");
+
+        host.stop().expect("关停失败");
+    }
+
+    /// headless 工作区授权 op：仓库根授权后文件工具沙箱根替换生效
+    /// （授权记录落 storage + 引擎重建；重启后经 load 恢复）。
+    #[test]
+    fn workspace_authorize_headless_op_grants_repo_root() {
+        let _serial = bridge_guard();
+        let root = repo_root();
+        let data_dir = std::env::temp_dir().join(format!(
+            "inkling-ws-headless-{}",
+            uuid::Uuid::new_v4()
+        ));
+        std::fs::create_dir_all(&data_dir).unwrap();
+        let options = BootOptions {
+            repo_root: root.clone(),
+            storage_uri: format!("sqlite:///{}", data_dir.join("inkling.sqlite").display()),
+            data_dir: Some(data_dir.clone()),
+            ..BootOptions::default()
+        };
+        let host = EngineHost::boot(options).expect("装配失败");
+
+        let outcome = block_on_op(
+            "workspace.authorize_headless",
+            serde_json::json!({ "root": root.display().to_string() }),
+        )
+        .expect("授权 op 调用失败");
+        assert_eq!(outcome["ok"], true, "授权应成功: {outcome}");
+
+        // 授权记录落库（重启恢复的持久面）
+        let record = block_on_op(
+            "engine.records_get",
+            serde_json::json!({ "collection": "workspace_auth", "key": "authorized_root" }),
+        )
+        .expect("记录读取失败");
+        assert_eq!(
+            record["root"], root.display().to_string(),
+            "授权根应落库: {record}"
+        );
+
+        // 文件工具沙箱根占位符已替换为仓库根（reregister_file_tools 生效面）
+        Python::attach(|py| -> pyo3::PyResult<()> {
+            let bridge = py.import("inkling_bridge")?;
+            let host_obj = bridge.call_method0("host_handle")?;
+            let security = host_obj.getattr("security")?;
+            let workspace = security.getattr("workspace")?;
+            let authorized: bool = workspace.getattr("authorized")?.extract()?;
+            assert!(authorized, "工作区应处于授权态");
+            let ws_root: String = workspace
+                .getattr("root")?
+                .call_method0("__str__")?
+                .extract()?;
+            assert_eq!(ws_root, root.display().to_string(), "授权根应为仓库根");
+            Ok(())
+        })
+        .map_err(|err: pyo3::PyErr| format!("授权态断言失败: {err}"))
+        .expect("授权态断言失败");
 
         host.stop().expect("关停失败");
     }

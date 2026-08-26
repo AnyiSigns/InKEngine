@@ -852,6 +852,27 @@ def register_builtin_ops() -> None:
         security.set_auto_approve([str(t) for t in tools], bool(args.get("all_review")))
         return {"applied": True}
 
+    @op_async("workspace.authorize_headless")
+    async def _workspace_authorize_headless(args: dict) -> Any:
+        """headless 显式工作区授权：调用方声明已获授权（等同 CLI --approve）。
+
+        生效路径与设置页授权卡一致（记录落 storage + 文件工具重注册 +
+        引擎重建，重启后经 load 恢复）；headless 无审批交互面，审批由
+        调用方显式声明。
+        """
+        from pathlib import Path
+
+        host = host_handle()
+        workspaces = getattr(host, "workspaces", None)
+        if workspaces is None:
+            raise RuntimeError("工作区授权器未装配（先经 boot 装配）")
+        root = Path(str(args["root"]))
+        if not root.exists() or not root.is_dir():
+            return {"ok": False, "status": "invalid_root", "error": f"工作区不可达: {root}"}
+        return await workspaces.authorize_headless(
+            root, reason=str(args.get("reason") or "")
+        )
+
     @op_sync("graph.register_node_types")
     def _graph_register_node_types(args: dict) -> Any:
         from inkling_host.graph_recipe import (
@@ -2211,9 +2232,11 @@ async def execute_round_to_reply(
         interrupt = await runtime.engine.get_latest_interrupt(thread_id)
         if interrupt is None:
             break
+        # 决议值形态（注入值本身）：resume_run 内部再按卡键包一层
+        # inject={interrupt.key: decision}，此处传决议值而非嵌套字典
         result = await runtime.resume_run(
             thread_id,
-            {interrupt.key: "accept"},
+            "accept",
             round_id=f"{round_id}-resume-{guard}",
             transports=[host.build_transport()],
         )

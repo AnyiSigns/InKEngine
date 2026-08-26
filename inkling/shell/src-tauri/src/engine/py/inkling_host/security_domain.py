@@ -479,6 +479,29 @@ class WorkspaceAuthorizer:
         await self._runtime.rebuild_engine()
         return {"ok": True, "root": str(root), "decision": approval.decision}
 
+    async def authorize_headless(self, root: Path, *, reason: str = "") -> dict[str, Any]:
+        """headless 显式授权：生效路径与授权卡一致，但跳过审批卡。
+
+        审批卡形态归交互宿主（桌面设置页）；headless 由调用方显式声明
+        已获授权（等同 CLI --approve 语义）——记录落 storage + 文件工具
+        重注册 + 引擎重建，重启后经 load 恢复同一根。
+        """
+        root = Path(root).resolve()
+        await self._storage.put_record(
+            self.AUTH_COLLECTION,
+            self._AUTH_KEY,
+            {
+                "root": str(root),
+                "granted_at": time.time(),
+                "reason": reason,
+                "decision": "accept",
+            },
+        )
+        self._security.workspace.authorize(root)
+        self._security.reregister_file_tools(root=root)
+        await self._runtime.rebuild_engine()
+        return {"ok": True, "root": str(root), "decision": "accept"}
+
     async def revoke(self, ctx: Any, *, reason: str = "") -> dict[str, Any]:
         """撤销授权（审批卡确认后回到未授权拒绝态）。"""
         approval = await approve_before_execute(

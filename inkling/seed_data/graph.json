@@ -1,32 +1,48 @@
 {
-  "name": "inkling.research_incubation",
-  "entry": "research_orchestrator",
+  "name": "inkling.agent_assembly",
+  "entry": "assembly_orchestrator",
   "nodes": {
-    "research_orchestrator": {
-      "type": "research_orchestrator",
+    "assembly_orchestrator": {
+      "type": "assembly_orchestrator",
       "config": {
         "reserved_keys": ["__plan__", "__spawn__", "__simulate__"],
         "workflow": "inkling.research_workflow",
-        "note": "研究编排节点：返回 __plan__（研究流程规划）/__spawn__（子任务展开）/__simulate__（决策点推演）保留键；plan 的约束域 = workflow.json 的 WorkflowSpec"
+        "goal_fields": ["result"],
+        "domain": "default",
+        "top_k": 2,
+        "max_rounds": 2,
+        "note": "组装编排节点：组装优先（PathAssembler 产候选路径 → spawn 展开执行），零候选/超轮回落研究链默认规划；确定性编排（orchestrate 脚本）优先透传。"
+      }
+    },
+    "llm_decider": {
+      "type": "llm_decider",
+      "config": {
+        "system_prompt": "你是 InKling 的产品 agent，本轮任务需要你按步骤自主完成：1) 先读相关代码理解现状（file_read/grep/glob）；2) 用 file_write/file_edit 完成任务所需的代码改动；3) 用 run_typecheck/run_test_web/run_test_python/run_test_cargo 验证改动；4) 用 propose_patch/apply_patch 把能力挂载为补丁链（kind=event_type 等）；5) 完成后用一句话汇报结果。工具结果会回填给你，你可以多轮调用工具直到任务完成；任务完成或无需工具时直接给出最终回复。",
+        "max_tool_rounds": 12,
+        "note": "LLM 决策循环节点：读消息流 → 工具调用清单（pending）→ 回环 tool_pipeline 执行 → 无工具调用收口回复。"
       }
     },
     "tool_pipeline": {
       "type": "tool_pipeline",
       "config": {
-        "note": "工具流水线编排节点：统一工具分发（内省/自指/声明式三路），按子任务动态组装"
+        "note": "工具流水线编排节点：统一工具分发（内省/自指/声明式三路），按子任务动态组装；消费 llm_decider 产出的 pending 待执行清单。"
       }
     },
     "end": {
       "type": "tool_pipeline",
       "config": {
         "role": "terminal",
-        "note": "终止节点（图出口）：工具流水线类型的终态实例，执行完毕图即终止"
+        "note": "终态节点（图出口）：工具流水线类型的终态实例，执行完毕图即终止"
       }
     }
   },
   "edges": {
-    "research_orchestrator": [{ "target": "tool_pipeline" }],
-    "tool_pipeline": [{ "target": "end" }]
+    "assembly_orchestrator": [{ "target": "tool_pipeline" }],
+    "tool_pipeline": [{ "target": "llm_decider" }],
+    "llm_decider": [
+      { "target": "tool_pipeline", "condition": "llm.pending_nonempty" },
+      { "target": "end", "condition": "llm.pending_empty" }
+    ]
   },
   "exits": ["end"],
   "subgraphs": {},

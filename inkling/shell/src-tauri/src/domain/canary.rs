@@ -396,8 +396,8 @@ mod tests {
         let viols = validate_canary_graph(&graph).expect("图数据形态应可检查");
         assert!(viols.is_empty(), "graph.json 应合法: {:?}", viols);
         let spec = canary_spec_from(graph, None, "stub 缺省回复").expect("试跑声明装配成功");
-        assert_eq!(spec.entry, "research_orchestrator");
-        assert_eq!(spec.key_path.len(), 3, "缺省关键路径 = 全节点集");
+        assert_eq!(spec.entry, "assembly_orchestrator");
+        assert_eq!(spec.key_path.len(), 4, "缺省关键路径 = 全节点集");
     }
 
     #[test]

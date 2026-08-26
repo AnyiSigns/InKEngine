@@ -43,8 +43,17 @@ pub fn repo_root_default() -> PathBuf {
     std::fs::canonicalize(&fallback).unwrap_or(fallback)
 }
 
-/// 装配引擎宿主：复用桌面壳的装配链路（行为准则层注入 + 路径装配七块全开），
-/// 离线模型桩保证回合可在无真实模型下稳定抵达回复态。
+/// 装配引擎宿主：复用桌面壳的装配链路（行为准则层注入 + 路径装配七块全开）。
+///
+/// 模型接线：环境变量 INK_LLM_BASE_URL + INK_LLM_MODEL（可选
+/// INK_LLM_API_KEY / INK_LLM_ADAPTER，与 inkling_host 同口径）配置时
+/// 装配真实模型（headless 真实模型驱动入口）；未配置 = 离线模型桩，
+/// 保证回合可在无真实模型下稳定抵达回复态。
+///
+/// 回合接线：装配后注册 os.dispatch 回调（引擎回合内 OS 工具调用转发到
+/// 本进程执行器注册表，PlatformBackend 真实执行）并以仓库根授权工作区
+/// （文件工具沙箱根，agent 可在仓库内读写）。headless 无审批交互面，
+/// 授权语义由调用方显式声明（等同 CLI --approve）。
 ///
 /// 返回值在调用方持有期间维持运行时绑定（op 通道依赖该绑定），用毕应 `stop`。
 pub fn boot_engine(repo_root: &Path, data_dir: &Path) -> Result<EngineHost, String> {
@@ -72,7 +81,27 @@ pub fn boot_engine(repo_root: &Path, data_dir: &Path) -> Result<EngineHost, Stri
         bundled: false,
         embedder_model_dir: None,
     };
-    EngineHost::boot(options)
+    let host = EngineHost::boot(options)?;
+    wire_round_execution(repo_root)?;
+    Ok(host)
+}
+
+/// headless 回合执行接线：os.dispatch 回调 + 工作区授权（幂等，可重复调用）。
+///
+/// - os.dispatch：引擎回合内 OS 工具（run_typecheck/run_test_web 等）经回调
+///   桥转发到本进程执行器注册表（PlatformBackend 真实子进程执行）；
+/// - workspace：以仓库根授权文件工具沙箱（agent 回合内读写仓库文件的
+///   前置条件）；记录落 sqlite，重启后经引擎 load 恢复同一根。
+fn wire_round_execution(repo_root: &Path) -> Result<(), String> {
+    inkling_shell_lib::executors::register_headless_os_dispatch(TOOLS_DECL_JSON)?;
+    let auth = dispatch_op(
+        "workspace.authorize_headless",
+        json!({ "root": repo_root.display().to_string() }),
+    )?;
+    if auth.get("ok").and_then(Value::as_bool) != Some(true) {
+        return Err(format!("工作区授权失败: {auth}"));
+    }
+    Ok(())
 }
 
 /// 同步驱动异步引擎操作：当前线程内单运行时完成（与引擎线程亲和纪律一致）。
@@ -96,7 +125,63 @@ pub fn dispatch_op(op: &str, args: Value) -> Result<Value, String> {
     }
 }
 
+/// 截断长文本（诊断行防护，避免整段文件内容刷屏）。
+fn truncate(text: &str, max: usize) -> String {
+    let mut out: String = text.chars().take(max).collect();
+    if text.chars().count() > max {
+        out.push('…');
+    }
+    out
+}
+
+/// 回合内事件实时进度行（走 stderr 诊断通道，stdout 信封形态不变）。
+///
+/// - `reply_token` / `plan_token`：模型输出原样流式打印（实时可见 LLM 生成）；
+/// - `tool_start`：工具名 + 截断参数（回合内自主调工具留痕）；
+/// - 其余事件：类型 + 截断载荷摘要。
+fn live_progress(event_json: &str) {
+    let Ok(value) = serde_json::from_str::<Value>(event_json) else {
+        eprintln!("[round] {}", truncate(event_json, 120));
+        return;
+    };
+    let etype = value.get("type").and_then(Value::as_str).unwrap_or("?");
+    let payload = value.get("payload").cloned().unwrap_or(Value::Null);
+    match etype {
+        "reply_token" | "plan_token" => {
+            if let Some(token) = payload
+                .get("token")
+                .or_else(|| payload.get("content"))
+                .and_then(Value::as_str)
+            {
+                if !token.is_empty() {
+                    eprint!("{token}");
+                }
+            }
+        }
+        "tool_start" => {
+            let tool = payload.get("tool").and_then(Value::as_str).unwrap_or("?");
+            let args = payload
+                .get("args")
+                .map(Value::to_string)
+                .unwrap_or_default();
+            eprintln!();
+            eprintln!("[round] →tool {tool} args={}", truncate(&args, 120));
+        }
+        _ => {
+            eprintln!();
+            eprintln!(
+                "[round] {etype} {}",
+                truncate(&payload.to_string(), 150)
+            );
+        }
+    }
+}
+
 /// 发起一次回合：装配 → 驱动 → 取事件流，归并为可断言的 JSON。
+///
+/// 装配后挂实时事件发射钩子：回合内事件到达即经 `live_progress` 打 stderr
+/// 诊断行（模型流式输出 / 工具调用留痕），便于长回合观察；stdout 仍只出
+/// 最终信封，驱动脚本解析形态不变。
 pub fn run_round(
     repo_root: &Path,
     data_dir: &Path,
@@ -104,6 +189,9 @@ pub fn run_round(
     trace_id: &str,
 ) -> Result<Value, String> {
     let host = boot_engine(repo_root, data_dir)?;
+    host.set_event_emitter(Some(Box::new(|event_json: &str| {
+        live_progress(event_json);
+    })));
     let outcome = host
         .round(RoundRequest {
             input_text: task.to_string(),

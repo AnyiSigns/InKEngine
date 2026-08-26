@@ -34,6 +34,7 @@ from ink_engine.core.llm import AsyncLLM, create_llm
 from ink_engine.core.runtime import Host, Runtime
 from ink_engine.core.self_application import APPROVAL_TIMEOUT_SECONDS
 from ink_engine.core.self_proposal import PatchKind
+from ink_engine.core.self_tools import SELF_TOOL_CONTRACT
 from ink_engine.core.storage import Storage, create_storage
 
 from .build_domain import ArtifactApplyTarget, BuildDomain
@@ -722,8 +723,17 @@ def register_domain_tools(runtime: Runtime, bundle: SeedDataBundle) -> None:
     声明是数据：工具定义（名称/参数/权限/端点）全部来自 tools.json；
     执行端点由宿主执行器注册兜底（未注册端点在调用时降级为明确
     失败文本，不崩溃）。
+
+    同名防御：内核契约自指工具（propose_patch/apply_patch/revert_patch/
+    propose_domain_manifest）以内核 spec 为权威，tools.json 若重复声明
+    同名条目一律跳过——否则声明式副本（process:exec 权限）覆盖工具表
+    同名项，自指判定（self:propose/self:apply）权限不命中导致
+    「权限未命中」误拒（propose_patch 曾因 tools.json 冗余条目被拒）。
     """
+    reserved = set(SELF_TOOL_CONTRACT)
     for spec in declarative_specs_from_tools(bundle):
+        if spec.name in reserved:
+            continue
         runtime.harness_registry.declarative.register_definition(spec)
         runtime.tool_registry[spec.name] = spec.to_spec()
 

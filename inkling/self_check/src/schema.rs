@@ -68,7 +68,13 @@ const KNOWLEDGE_LEVELS: [&str; 3] = ["work", "project", "user"];
 const KNOWLEDGE_KINDS: [&str; 4] = ["rule", "template", "weight", "tool_rule"];
 const APPROVAL_TIERS: [&str; 3] = ["allow", "review", "deny"];
 const ENV_RUNTIMES: [&str; 3] = ["local", "web_bridge", "container"];
-const GRAPH_NODE_TYPES: [&str; 2] = ["research_orchestrator", "tool_pipeline"];
+const GRAPH_NODE_TYPES: [&str; 4] = [
+    "research_orchestrator",
+    "tool_pipeline",
+    "llm_decider",
+    "assembly_orchestrator",
+];
+const GRAPH_EDGE_CONDITIONS: [&str; 2] = ["llm.pending_nonempty", "llm.pending_empty"];
 const ORCHESTRATOR_RESERVED_KEYS: [&str; 3] = ["__plan__", "__spawn__", "__simulate__"];
 
 /// 领域工具（exec 执行体一一对应：采集/解析/校验/评分/评审/蒸馏/变异）。
@@ -177,7 +183,10 @@ const TOOL_NAME_MAX_LENGTH: usize = 24;
 fn expected_file_ops_enum(name: &str) -> &'static [&'static str] {
     match name {
         "file_read" => &["read"],
-        "file_write" | "file_edit" => &["write"],
+        "file_write" => &["write"],
+        // edit = 就地改写，一等操作域（与引擎 _ENDPOINT_ACTIONS 同源；
+        // 权限动作 filesystem:edit、沙箱守卫与审计独立区分）
+        "file_edit" => &["edit"],
         "grep" => &["search"],
         "glob" => &["search_paths"],
         _ => &[],
@@ -581,9 +590,9 @@ fn check_graph(data: &Value, payload: &Payload, issues: &mut Vec<String>) {
             }
         }
     }
-    let orchestrator = nodes.get("research_orchestrator");
+    let orchestrator = nodes.get("research_orchestrator").or_else(|| nodes.get("assembly_orchestrator"));
     let Some(orchestrator) = orchestrator else {
-        issues.push("graph 缺少 research_orchestrator 节点（出厂编排节点）".to_string());
+        issues.push("graph 缺少 research_orchestrator 或 assembly_orchestrator 节点（回合编排节点）".to_string());
         return;
     };
     let config = orchestrator.get("config").and_then(Value::as_object);
@@ -593,7 +602,7 @@ fn check_graph(data: &Value, payload: &Payload, issues: &mut Vec<String>) {
         .map(|items| items.iter().filter_map(Value::as_str).collect())
         .unwrap_or_default();
     if reserved != ORCHESTRATOR_RESERVED_KEYS {
-        issues.push(format!("research_orchestrator 保留键应为 {ORCHESTRATOR_RESERVED_KEYS:?}"));
+        issues.push(format!("编排节点保留键应为 {ORCHESTRATOR_RESERVED_KEYS:?}"));
     }
     let workflow_name = config
         .and_then(|map| map.get("workflow"))
@@ -611,6 +620,22 @@ fn check_graph(data: &Value, payload: &Payload, issues: &mut Vec<String>) {
     }
     if !nodes.contains_key("tool_pipeline") {
         issues.push("graph 缺少 tool_pipeline 节点（统一工具分发编排）".to_string());
+    }
+    if !nodes.contains_key("llm_decider") {
+        issues.push("graph 缺少 llm_decider 节点（LLM 决策循环）".to_string());
+    }
+    if let Some(edges) = data.get("edges").and_then(Value::as_object) {
+        for edge_list in edges.values().filter_map(Value::as_array) {
+            for edge in edge_list {
+                if let Some(condition) = edge.get("condition").and_then(Value::as_str) {
+                    if !GRAPH_EDGE_CONDITIONS.contains(&condition) {
+                        issues.push(format!(
+                            "graph 边引用了未注册条件 {condition:?}（出厂仅 {GRAPH_EDGE_CONDITIONS:?}）"
+                        ));
+                    }
+                }
+            }
+        }
     }
 }
 

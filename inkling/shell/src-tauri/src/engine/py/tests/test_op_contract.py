@@ -1,4 +1,4 @@
-"""Rust op 名 ⊆ bridge 注册表 契约测试（壳侧计划 §13.4 P8 落地项）。
+"""Rust op 名 ⊆ bridge 注册表 契约测试。
 
 引擎侧第一批验收项：Rust 侧经 ``call_engine_op`` / ``call_engine_op_async``
 （含测试助手 ``block_on_op``）调用的每个 op 名必须在 bridge.py 的同步或
@@ -62,7 +62,7 @@ def test_engine_propose_patch_registered_both_channels():
 
 
 def test_builtin_mcp_ops_registered():
-    """ENG4-B3 内置 server 入口：注册表查询与真实连接 op 均已登记。"""
+    """内置 server 入口：注册表查询与真实连接 op 均已登记。"""
     bridge = _load_bridge()
     assert "mcp.builtin_registry" in bridge._OPS_SYNC
     assert "mcp.builtin_connect" in bridge._OPS_ASYNC

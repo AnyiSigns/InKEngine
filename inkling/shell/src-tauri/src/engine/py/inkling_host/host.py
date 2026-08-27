@@ -533,8 +533,8 @@ async def boot_inkling(
     runtime = await InkRuntime(_five_source_factory(bundle)).boot(host, recipe)
     runtime_holder["runtime"] = runtime
     revert_state["runtime"] = runtime
-    # D3 接线：装配期注入真实 MCP server 探测（graph_recipe 探测通道，
-    # 3b 收官形态——离线 server 的挂载工具从默认研究链剔除/调用降级，
+    # 接线：装配期注入真实 MCP server 探测（graph_recipe 探测通道，
+    # 收官形态——离线 server 的挂载工具从默认研究链剔除/调用降级，
     # 不再每回合 8 个必失败调用白跑）。探测 = runtime.mcp_manager 会话
     # health_check 语义（协议级 ping，失败含拉起尝试）：未连接/探测失败
     # 仅将该 server 标记离线，其余 server/工具不受影响（逐 server 独立
@@ -590,7 +590,7 @@ async def boot_inkling(
 
                 if not registry.has("junction"):
                     register_junction_node(registry)
-            # 种子路径语料导入（D1 联动）：path_seeds.json 的出厂路径链 →
+            # 种子路径语料导入：path_seeds.json 的出厂路径链 →
             # 边证据冷启动基线（同键不覆盖，运行统计是事实）——组装器冷
             # 启动有先验可循，不靠裸奔
             if evidence_store is not None:
@@ -977,7 +977,7 @@ def _governed_proposal_sink_factory(
 
 
 def _seed_edges_from_path_seeds(bundle: SeedDataBundle) -> list[dict[str, Any]]:
-    """seed_data/path_seeds.json → 边证据种子清单（D1 联动：冷启动基线）。
+    """seed_data/path_seeds.json → 边证据种子清单（冷启动基线）。
 
     每条出厂路径链的相邻结点对展开为一条边证据种子（成败计数取该路径
     声明值，缺省回落文件级 edge_defaults）；同键行导入时不覆盖运行期

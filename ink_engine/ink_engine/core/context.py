@@ -634,7 +634,7 @@ def compress_message_history(
     policy: CompressionPolicy,
     keep_recent: int = 10,
 ) -> list[Any]:
-    """回合内消息流压缩（D5 接线原语：LLM 消息组装处的确定性压缩视图）。
+    """回合内消息流压缩（LLM 消息组装处的确定性压缩视图）。
 
     语义（非破坏性：原始消息流不修改，返回压缩后的视图列表）：
     - ``policy.should_compress`` 未触发 → 原列表副本直接返回（零改动）；

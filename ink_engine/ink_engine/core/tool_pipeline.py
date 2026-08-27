@@ -335,7 +335,7 @@ class ToolPipeline:
         # ── 调用后：审计留痕 + 结果观察（截断/溢出标记）──
         text = str(output) if output is not None else ""
         if approval is not None and approval.decision == DECISION_AUTO:
-            # 审批语义可观测（D2）：策略直过（auto）在执行结果文本前缀
+            # 审批语义可观测：策略直过（auto）在执行结果文本前缀
             # 标注——模型不再把「已放行的执行」误判为 interrupted 重试
             text = f"【已自动批准执行】{text}"
         overflow = len(text) > self.max_result_chars

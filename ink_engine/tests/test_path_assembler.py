@@ -1313,7 +1313,7 @@ async def test_runtime_stats_total_accumulates():
         await cache.close()
 
 
-# ── 本批回归：契约视图/证据单查/EdgeIndexKey/stats 隔离/rng/补链 ──
+# ── 契约视图/证据单查/EdgeIndexKey/stats 隔离/rng/补链 ──
 
 
 def test_validate_chain_with_prebuilt_views_matches():

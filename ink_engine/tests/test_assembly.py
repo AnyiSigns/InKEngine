@@ -477,7 +477,7 @@ async def test_executor_ctx_assemble_wiring(memory_storage, transport):
 
 
 async def test_executor_input_assembly_event_trimmed(memory_storage, transport):
-    """input_assembly 事件体裁剪（D5 事件降频）：高源数事件负载有界。
+    """input_assembly 事件体裁剪（事件降频）：高源数事件负载有界。
 
     回归：修复前事件携带全量源元数据（高源数下事件流体积可观）；修复
     后保留条数上限 + 标题截断——被裁条目以 sources_more 计数，可回放

@@ -43,7 +43,7 @@ from ink_engine.core.llm.tools import ToolSpec, to_openai_tools
 
 DEFAULT_REQUEST_TIMEOUT = 120.0
 
-# 重试唯一权威（ENG4-C1）：适配器默认单次尝试，瞬时故障重试归挡位链
+# 重试唯一权威：适配器默认单次尝试，瞬时故障重试归挡位链
 # （fallback.RetryPolicy）统一负责——双重重试叠加（3×3=9 请求）已消除；
 # 独立直用适配器可注入 retry 策略（构造参数）按需开重试。
 _LLM_RETRY_BASE_DELAY = 1.0
@@ -120,7 +120,7 @@ class OpenAICompatibleLLM(AsyncLLM):
         Args:
             config: 模型接入配置。
             transport: 测试注入（MockTransport）；None = 生产默认。
-            retry: 重试策略（ENG4-C1：None = 单次尝试不重试——重试归
+            retry: 重试策略（None = 单次尝试不重试——重试归
                 挡位链 ModelChain.RetryPolicy 唯一权威，防双重重试叠加；
                 独立直用适配器时按需注入策略开重试）。
         """
@@ -386,7 +386,7 @@ class OpenAICompatibleLLM(AsyncLLM):
         params: LLMParams | None = None,
     ) -> AsyncIterator[LLMChunk]:
         payload = self._payload(messages, tools, params, stream=True)
-        # 流式用量计量（ENG4-C2）：默认请求 include_usage，服务端在末帧
+        # 流式用量计量：默认请求 include_usage，服务端在末帧
         # 回传 usage（_parse_sse_line 捕获纯 usage 帧）；调用方经
         # LLMParams.extra_body 的 stream_options 可显式覆盖/关闭
         payload.setdefault("stream_options", {"include_usage": True})

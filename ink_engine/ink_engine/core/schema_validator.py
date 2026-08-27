@@ -30,7 +30,7 @@ FIELD_ARRAY = "array"
 
 _VALID_KINDS = (FIELD_STRING, FIELD_NUMBER, FIELD_BOOL, FIELD_OBJECT, FIELD_ARRAY)
 
-# 声明合法形态示例（实证缺陷 D4 形态示例增强）：错误消息附示例骨架，使
+# 声明合法形态示例（形态示例增强）：错误消息附示例骨架，使
 # LLM/提案方按形态收敛，避免「缺 name」等提示无形态引导的盲目试错。
 _FIELD_DECL_EXAMPLE = '{"name": "<字段名>", "kind": "string"[, "required": true]}'
 _SCHEMA_DECL_EXAMPLE = (

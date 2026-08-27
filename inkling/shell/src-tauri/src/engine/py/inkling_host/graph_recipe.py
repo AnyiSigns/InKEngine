@@ -214,7 +214,7 @@ def _tool_result_message(text: str, tool_call_id: str) -> dict:
     return tool_result(text, tool_call_id).to_dict()
 
 
-# ── D3：MCP server 离线独立标记（离线仅该 server 的挂载工具降级）──
+# ── MCP server 离线独立标记（离线仅该 server 的挂载工具降级）──
 
 # 离线 server 独立标记（server_id → 可用性）：探测失败只标记该 server
 # 的挂载工具不可用，其余 server/工具不受影响——研究链默认规划与组装
@@ -224,7 +224,7 @@ _SERVER_AVAILABILITY: dict[str, bool] = {}
 _SERVER_CHECKED_AT: dict[str, float] = {}
 # 注入的探测通道（async: server_id -> bool | None；False = 离线，
 # True/None = 在线/未知——未知保守按可用处理，不因缺探测误降级；
-# None = 未注入，不发起真实探测，行为与未接入 D3 前一致）
+# None = 未注入，不发起真实探测，行为与未接入前一致）
 _SERVER_PROBE: Any = None
 # 探测 TTL 窗口（秒）
 _MCP_PROBE_TTL_SECONDS = 30.0
@@ -294,7 +294,7 @@ async def refresh_mcp_availability(
 ) -> dict[str, bool]:
     """探测挂载工具引用的全部 MCP server（离线独立标记 + TTL 缓存）。
 
-    D3 核心：逐 server 独立探测——任一 server 探测失败/异常仅将该
+    核心：逐 server 独立探测——任一 server 探测失败/异常仅将该
     server 标记不可用（其挂载工具降级），其余 server 继续探测、不受
     影响；未注入探测通道时全部按可用处理（不因缺探测误降级）。
     """
@@ -348,7 +348,7 @@ def tool_server_offline(specs: Sequence[Any], tool_name: str) -> bool:
 def _default_plan_steps(
     specs: Sequence[Any], plan_steps: Sequence[str]
 ) -> tuple[tuple[str, ...], tuple[str, ...]]:
-    """默认研究链按 server 可用性过滤（D3）：返回 (在线步骤, 剔除步骤)。
+    """默认研究链按 server 可用性过滤：返回 (在线步骤, 剔除步骤)。
 
     离线 server 挂载工具的步骤从默认链剔除（降级跳过）——仅该 server
     受影响；无工具表/未探测 = 原样返回（不因缺探测误降级）。
@@ -376,7 +376,7 @@ def _candidate_chain(candidate: Any) -> tuple[str, ...]:
 def _candidates_online(
     specs: Sequence[Any], candidates: Sequence[dict]
 ) -> tuple[list[dict], tuple[str, ...]]:
-    """组装候选按 server 可用性过滤（D3）：返回 (在线候选, 剔除说明)。
+    """组装候选按 server 可用性过滤：返回 (在线候选, 剔除说明)。
 
     链含离线 server 挂载工具的候选整条剔除（该 server 工具降级不可
     用），其余候选不受影响——不再出现「必失败调用白跑」。
@@ -409,7 +409,7 @@ def make_orchestrator_factory(
     规划（__plan__ 数据形态 = 每步一个节点的顺序步骤清单）。规划
     产出即发出 plan_start 事件（消息流内联行/推演轨迹树消费）。
 
-    默认规划经 D3 离线 server 独立标记过滤：离线 server 挂载工具的
+    默认规划经离线 server 独立标记过滤：离线 server 挂载工具的
     步骤从默认链剔除（降级跳过），其余步骤/其余 server 不受影响。
     """
     plan_steps = tuple(node.id for node in workflow.nodes)
@@ -487,7 +487,7 @@ def make_tool_pipeline_factory(
         specs = holder.get("specs") or ()
         spec = next((s for s in specs if s.name == name), None)
         if spec is not None:
-            # D3 离线 server 独立标记：每次分发前按 TTL 刷新引用 server
+            # 离线 server 独立标记：每次分发前按 TTL 刷新引用 server
             # 的可用性——离线 server 的挂载工具在此降级（不发起调用），
             # 其余 server/工具不受影响
             await refresh_mcp_availability(specs)
@@ -495,7 +495,7 @@ def make_tool_pipeline_factory(
         if spec is None:
             text, success = f"未知或未启用工具: {name}", False
         elif tool_server_offline(specs, name):
-            # D3：该 server 已标记离线 → 工具标记不可用（降级文案留痕，
+            # 该 server 已标记离线 → 工具标记不可用（降级文案留痕，
             # 不污染消息历史为必失败调用）
             text, success = _MCP_OFFLINE_MESSAGE, False
         elif pipeline_now is None:
@@ -693,10 +693,10 @@ def make_assembler_factory(
     3. 组装轮次护栏：assembly_rounds 随每次候选执行展开递增，超
        max_rounds 后回落默认规划——注意：无「候选失败 → 回本节点
        重试」的失败回环（graph.json 无回边、无 assembly_failed 信号
-       生产点，ENG9a-23 已删此前的错误声称；候选执行失败由工具流水
+       生产点，已删此前的错误声称；候选执行失败由工具流水
        线失败语义承载，本轮结束回落兜底）。
 
-    候选与默认规划经 D3 离线 server 独立标记过滤：链含离线 server
+    候选与默认规划经离线 server 独立标记过滤：链含离线 server
     挂载工具的候选整条剔除（该 server 工具降级），其余候选不受影响。
     """
     plan_steps = tuple(node.id for node in workflow.nodes)
@@ -788,7 +788,7 @@ def make_assembler_factory(
                     return {PLAN_KEY: fallback}
                 return {}
             candidates, note, result = await assemble_candidates(ctx)
-            # D3 离线 server 独立标记：链含离线 server 挂载工具的候选
+            # 离线 server 独立标记：链含离线 server 挂载工具的候选
             # 整条剔除（该 server 工具降级），其余候选不受影响
             specs = await _refresh_specs_availability(holder)
             if candidates:
@@ -814,7 +814,7 @@ def make_assembler_factory(
                 and result is not None
                 and result.multipath_signal
             ):
-                # D3：多径候选同样过滤离线 server 候选（对象形态，多径
+                # 多径候选同样过滤离线 server 候选（对象形态，多径
                 # 消费 AssemblyCandidate；链含离线工具的候选整条剔除）
                 online_objects = [
                     c

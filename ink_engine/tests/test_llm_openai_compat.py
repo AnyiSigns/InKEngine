@@ -375,7 +375,7 @@ class TestAstream:
         assert result.usage == {"prompt_tokens": 1}
 
     async def test_astream_requests_include_usage_by_default(self):
-        """流式主路径默认请求 usage（ENG4-C2）：stream_options.include_usage=true。
+        """流式主路径默认请求 usage：stream_options.include_usage=true。
 
         服务端在流末帧回传 usage（_parse_sse_line 捕获纯 usage 帧），用量
         闭环的流式主路径 token 计量不再缺位。
@@ -387,7 +387,7 @@ class TestAstream:
         assert body["stream_options"] == {"include_usage": True}
 
     async def test_astream_extra_body_can_override_stream_options(self):
-        """stream_options 可由 LLMParams.extra_body 显式覆盖（ENG4-C2 语义）。
+        """stream_options 可由 LLMParams.extra_body 显式覆盖。
 
         默认开启 include_usage 是主路径保证；调用方声明了 stream_options
         时尊重调用方声明（extra_body 非核心字段，与其它端点专有参数同
@@ -514,7 +514,7 @@ class TestAstream:
 class TestTransientRetry:
     """瞬时故障指数退避重试（429/503/网络/空流重试；确定性失败不重试）。
 
-    重试唯一权威（ENG4-C1）：适配器默认单次尝试——重试经构造参数显式
+    重试唯一权威：适配器默认单次尝试——重试经构造参数显式
     注入 RetryPolicy（独立直用场景）或由挡位链 ModelChain 统一负责；
     下列重试用例均显式注入策略。
     """
@@ -583,7 +583,7 @@ class TestTransientRetry:
         assert seen["calls"] == 1  # 已产出内容后中断：不重试（防重复帧）
 
     async def test_default_single_attempt_no_retry(self):
-        """适配器默认单次尝试（ENG4-C1）：瞬时故障直接抛错，不叠加重试。
+        """适配器默认单次尝试：瞬时故障直接抛错，不叠加重试。
 
         重试唯一权威 = 挡位链 RetryPolicy——独立直用适配器未注入策略
         时零重试，杜绝「适配器 3× + 链 3× = 9 请求」的双层叠加。
@@ -602,7 +602,7 @@ class TestTransientRetry:
         assert seen["calls"] == 1  # 单次尝试，无重试
 
     async def test_chain_single_retry_authority_no_stacking(self):
-        """链 + 真实适配器集成（ENG4-C1）：总请求数 = 链重试预算，非叠加。
+        """链 + 真实适配器集成：总请求数 = 链重试预算，非叠加。
 
         回归：修复前适配器 3× 与链 3× 叠加 = 9 次请求（3 次 ×3 模型）；
         修复后适配器单次尝试、链 RetryPolicy 唯一权威 = 恰好 3 次。

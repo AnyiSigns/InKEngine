@@ -119,7 +119,7 @@ def test_gate_deny_on_unmatched():
 
 
 def test_gate_deny_filesystem_hint_workspace_root_prefix():
-    """filesystem 域拒绝附「工作区根绝对前缀」提示（实证缺陷 D1）。
+    """filesystem 域拒绝附「工作区根绝对前缀」提示。
 
     模型传相对路径仅见「权限未命中: 'src/...'」会盲目试错（每次 ≈90s
     往返）；判定处直接附带路径形态引导，减少无引导的形态试探。

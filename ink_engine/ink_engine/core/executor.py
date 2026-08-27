@@ -91,7 +91,7 @@ from .storage import ChainLink, CheckpointRecord, Storage
 
 logger = get_logger(__name__)
 
-# ── input_assembly 事件体裁剪（D5 事件降频）─────────────────────────
+# ── input_assembly 事件体裁剪（事件降频）─────────────────────────
 # 激活留痕事件不携带全量源元数据：保留条数上限 + 标题长度上限——事件流
 # 体积有界（每源条目只是元数据行，但高源数下累积可观），可回放审计性
 # 不受影响（被裁条目语义 = 更多源，重建口径与全量一致）。
@@ -326,7 +326,7 @@ class _NodeContextImpl(NodeContext):
             "input_assembly",
             {
                 "node": self.node,
-                # 事件体裁剪（D5 事件降频）：激活留痕保留条数上限 + 标题
+                # 事件体裁剪（事件降频）：激活留痕保留条数上限 + 标题
                 # 截断——事件流不为每条源元数据付全量文本（可回放审计性
                 # 不受影响：被裁条目是"更多源"，重建口径与全量一致）
                 "record": _input_assembly_event_record(result.record),

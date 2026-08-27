@@ -179,7 +179,7 @@ class PermissionGate:
                 if not permissions
                 else f"权限未命中: {target!r}"
             )
-            # filesystem 判定拒绝时附路径形态引导（实证缺陷 D1）：模型传相对路径
+            # filesystem 判定拒绝时附路径形态引导：模型传相对路径
             # 仅见「权限未命中」会盲目试错（每次往返 ≈90s）——判定处直接提示路径
             # 须以工作区根绝对前缀开头，减少无引导的形态试探。
             if operation in _DOMAIN_ACTIONS["filesystem"] and any(

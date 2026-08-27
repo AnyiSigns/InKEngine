@@ -237,7 +237,7 @@ async def test_trace_sink_receives_outcome():
 
 
 async def test_auto_approval_prefixes_result_text():
-    """auto 决议（策略直过）执行结果前缀标注（D2 审批语义可观测）。
+    """auto 决议（策略直过）执行结果前缀标注（审批语义可观测）。
 
     回归：修复前 auto 直过只透传 approval.decision=auto，执行结果文本
     无任何审批语义标记——模型把已放行的执行误判为 interrupted 反复重试；

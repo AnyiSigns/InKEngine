@@ -14,7 +14,7 @@ crate，避免 tauri/pyo3/ort 编译地狱）。六门禁一键矩阵化报告�
 | `cargo` | 三 crate cargo test：`inkling/exec` / `inkling/shell/src-tauri` / 本 crate | exec 600s / shell 1800s / 自身 300s |
 | `frontend` | `npm run typecheck` + `npm run test`（vitest） | 900s |
 | `e2e` | 壳 crate 集成测试全量（pyo3 内嵌引擎 stub 回合）；运行前校验解释器与引擎可导入并给出修复指引；`--live` 追加 `tools/probe_reasoning_clean.py`（需 LLM key） | 2400s（探针 900s） |
-| `discipline` | 代码纪律（B2 零计划痕迹）：注释/文案含计划编号或推进字眼即违例 | 秒级 |
+| `discipline` | 代码纪律（零计划痕迹）：注释/文案含计划编号或推进字眼即违例 | 秒级 |
 | `benchmark` | 公开评测基准：`tools/benchmarks/run_benchmarks.py`（引擎基准 + 自举回归硬门禁；OS/复杂基准离线冒烟口径） | 900s |
 | `all`（默认） | 六门禁一键矩阵化报告：**按 manifest `self_check` 表命令逐一真实执行**，任一失败非零退出 | — |
 

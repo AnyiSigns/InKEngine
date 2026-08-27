@@ -1,5 +1,4 @@
-//! 壳侧审批台账（决议 4：S2/S3/L1 审批闸门归属壳侧；批 1 落地，本批随
-//! 命令面拆分迁入 commands 域）。
+//! 壳侧审批台账（审批闸门归属壳侧；命令面拆分迁入 commands 域）。
 //!
 //! 命令层不接受客户端 approved 布尔；`registry.run` 前的裁决 = 档位表
 //! （工具声明 permission → TieredGate）判定 review 档 → 查询台账（引擎

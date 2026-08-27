@@ -143,7 +143,7 @@ fn boot_options(
         safe_mode,
         bundled: engine::runtime::bundled_mode(),
         embedder_model_dir: embedder_model_dir(&data_dir),
-        // A9：引擎路径装配机制（E-P1/E-P2/E-P9 实验性机制七块）出厂默认
+        // 引擎路径装配机制（实验性机制）出厂默认
         // 全关——缩小装配爆炸半径（红线二仅靠崩溃循环回退）；用户显式
         // 开启（BootOptions 注入 / 未来设置项）后逐块独立，单块异常可
         // 单独关闭回滚。
@@ -169,8 +169,8 @@ fn load_workflow_data() -> Result<JsonValue, String> {
     serde_json::from_str(&text).map_err(|err| format!("装配数据 JSON 非法: {err}"))
 }
 
-/// 装配失败脱敏（A10：引擎装配错误可能含绝对路径/堆栈/内部布局——
-/// 本地日志留痕完整错误，对外仅回传粗粒度提示，trace_id 关联排障）。
+/// 装配失败脱敏：引擎装配错误可能含绝对路径/堆栈/内部布局——
+/// 本地日志留痕完整错误，对外仅回传粗粒度提示，trace_id 关联排障。
 fn assembly_failure(stage: &str, detail: impl std::fmt::Display) -> String {
     let trace_id = uuid::Uuid::new_v4().simple().to_string();
     eprintln!("[assembly] {stage} 失败 trace_id={trace_id}: {detail}");
@@ -181,7 +181,7 @@ fn assembly_failure(stage: &str, detail: impl std::fmt::Display) -> String {
 ///
 /// 装配 = 嵌入装配域包的 `boot_inkling`（机制装配 + 安全纵深 + 活跃态
 /// 目标 + 链恢复全在装配域包内）；装配失败 = 结构化错误（粗粒度提示 +
-/// 本地详细日志，A10）。崩溃回退（红线二）编排在此完成：
+/// 本地详细日志）。崩溃回退（红线二）编排在此完成：
 /// - 启动状态跟踪：失败计数 → 达阈值自动转入安全模式重试（出厂基线
 ///   启动，链内容不参与装配）；成功启动计数归零；
 /// - 启动快照轮换：装配成功后按链版本落一份存储快照（N 份轮换，绑定

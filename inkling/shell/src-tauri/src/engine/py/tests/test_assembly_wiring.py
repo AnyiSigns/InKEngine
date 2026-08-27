@@ -1,13 +1,13 @@
-﻿"""第二批组装域壳侧接线单测（ENG9a-1/2 + E-P9 治理 sink + D1 种子语料）。
+﻿"""组装域壳侧接线单测。
 
 覆盖：
 - 工具契约登记闭环（register_tool_node_types）：组装池不再恒零候选——
-  声明式工具带契约进注册表后 assemble 解出目标字段（ENG9a-1）；
+  声明式工具带契约进注册表后 assemble 解出目标字段；
 - 图定义候选直接作 spawn subgraph 消费 + 类型名→工具名映射两端断言
-  （assembly_candidate_specs，ENG9a-2）；
+  （assembly_candidate_specs）；
 - 池治理 sink 接线（_governed_proposal_sink_factory）：结点提案经四规则
-  判定随审计落库（E-P9）；
-- path_seeds.json 种子语料 → 边证据冷启动基线（D1 联动）。
+  判定随审计落库；
+- path_seeds.json 种子语料 → 边证据冷启动基线。
 
 pytest 兼容；无 pytest 依赖时可用 `py test_assembly_wiring.py` 直跑。
 """
@@ -223,7 +223,7 @@ def test_governed_proposal_sink_factory():
     assert "governance" not in emitted[-1]
 
 
-# ── D3：MCP server 离线独立标记（离线仅该 server 挂载工具降级）────
+# ── MCP server 离线独立标记（离线仅该 server 挂载工具降级）────
 
 def _mcp_spec(name, server_id):
     from ink_engine.core.declarative_tools import DeclarativeToolSpec, EndpointType
@@ -268,7 +268,7 @@ class _FakeCtx:
 
 @pytest.fixture(autouse=True)
 def _isolate_mcp_state():
-    """D3 模块级标记/探测通道隔离（用例间不互相污染）。"""
+    """模块级标记/探测通道隔离（用例间不互相污染）。"""
     recipe = _load_graph_recipe()
     yield
     recipe._SERVER_AVAILABILITY.clear()
@@ -314,7 +314,7 @@ async def test_refresh_mcp_availability_independent_failure():
     assert snapshot["server_b"] is False  # 探测返回 False → 离线
     assert snapshot["server_c"] is True  # 其余 server 不受影响
     assert set(probe_calls) == {"server_a", "server_b", "server_c"}
-    # 未注入探测通道 = 不探测不降级（装配形态与 D3 前一致）
+    # 未注入探测通道 = 不探测不降级（装配形态与启用前一致）
     recipe.install_mcp_server_probe(None)
     recipe._SERVER_AVAILABILITY.clear()
     recipe._SERVER_CHECKED_AT.clear()
@@ -429,7 +429,7 @@ async def test_orchestrator_default_plan_filters_offline_steps():
     assert plan == [{"nodes": ["answer_direct"]}]
 
 
-# ── D1 联动：path_seeds.json 种子语料 → 边证据冷启动基线 ─────────
+# ── path_seeds.json 种子语料 → 边证据冷启动基线 ─────────
 
 def test_seed_edges_from_path_seeds():
     """出厂路径链 → 边证据种子（相邻结点对展开，缺省回落 edge_defaults）。"""

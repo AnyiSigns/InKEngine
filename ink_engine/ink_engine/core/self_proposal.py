@@ -56,7 +56,7 @@ class PatchKind(StrEnum):
 # 产物哈希声明形态（sha256 hex，64 字符）
 _ARTIFACT_HASH_LENGTH = 64
 
-# 各补丁类型的合法形态示例骨架（实证缺陷 D4 形态示例增强）：校验失败时随
+# 各补丁类型的合法形态示例骨架（形态示例增强）：校验失败时随
 # 违规清单回传示例骨架，供模型按形态试错收敛——避免「缺 xxx」等提示无形态
 # 引导的盲目试探（如 schema 声明须嵌套 name+fields 的形态盲猜）。形态与
 # seed_data/tools.json 既有条目/字段声明模板同构（tool 示例参照出厂工具
@@ -212,7 +212,7 @@ class ProposalValidator:
         violations = method(proposal.payload)
         example = _PATCH_KIND_EXAMPLES.get(proposal.kind.value)
         if violations and example:
-            # 违规清单尾部附合法形态示例骨架（D4）：回传示例供模型按形态收敛
+            # 违规清单尾部附合法形态示例骨架：回传示例供模型按形态收敛
             violations = [*violations, f"合法形态示例: {example}"]
         return violations
 

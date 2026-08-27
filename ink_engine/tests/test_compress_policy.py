@@ -63,7 +63,7 @@ def test_threshold_policy_rejects_bad_params():
         ThresholdCompressionPolicy(budget_chars=0)
 
 
-# ── 回合内消息流压缩原语（D5 接线：LLM 消息组装处的压缩视图）──
+# ── 回合内消息流压缩原语（LLM 消息组装处的压缩视图）──
 
 
 def _long_messages(n: int, chars: int) -> list[Message]:

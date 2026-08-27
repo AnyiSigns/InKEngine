@@ -397,7 +397,7 @@ def test_unknown_kind_rejected_at_construction() -> None:
 
 
 def test_validate_violations_carry_example_skeleton() -> None:
-    """校验失败时回传合法形态示例骨架（实证缺陷 D4）。
+    """校验失败时回传合法形态示例骨架。
 
     propose_patch 拒「schema 声明缺 name」等无形态引导的提示曾致模型试错
     11 次；违规清单尾部须附该补丁类型的合法形态示例（tool 参照既有工具

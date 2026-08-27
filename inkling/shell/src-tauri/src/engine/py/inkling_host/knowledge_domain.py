@@ -276,10 +276,10 @@ class IncubationDomain:
     def _rescan_injection(
         self, entry: KnowledgeEntry, *, rationale: str | None = None
     ) -> list[str]:
-        """晋升前注入复扫（A4：蒸馏后候选晋升前按全字符串字段再扫一遍）。
+        """晋升前注入复扫（蒸馏后候选晋升前按全字符串字段再扫一遍）。
 
         扫描面 = id/source/title/tags + data 递归字符串值与键名 + 提案
-        rationale（A5 同面）——蒸馏/归一/拼接可能在 L1 之后引入注入
+        rationale（rationale 同面）——蒸馏/归一/拼接可能在 L1 之后引入注入
         措辞，落库/落链前 fail-closed 复扫兜底（与 Rust 侧
         incubation.rs propose_knowledge_patch 复扫同口径）。命中清单
         （空 = 干净）。
@@ -300,7 +300,7 @@ class IncubationDomain:
     ) -> KnowledgeEntry:
         """晋升：条目层级迁移（work → project → user，不跳级，id 稳定）。
 
-        A4：晋升前注入复扫——蒸馏后候选可能在归一/拼接时引入注入措辞，
+        晋升前注入复扫——蒸馏后候选可能在归一/拼接时引入注入措辞，
         迁移前按全字符串字段再扫一遍（fail-closed，命中即拒）。
         """
         entry = self._runtime.knowledge_set.get(entry_id)
@@ -383,7 +383,7 @@ class IncubationDomain:
     ) -> Any:
         """知识条目 → KNOWLEDGE 补丁提案（集补丁链自指挂载形态）。
 
-        A4：落链前注入复扫（entry 全字符串字段 + rationale 同面，与
+        落链前注入复扫（entry 全字符串字段 + rationale 同面，与
         Rust 侧 incubation.rs 复扫同口径；命中 = fail-closed，不触碰
         引擎通道）。
         """

@@ -1,4 +1,4 @@
-"""logging.redact 的厂商 key 前缀覆盖（回归 ENG4-C5）。
+"""logging.redact 的厂商 key 前缀覆盖回归。
 
 修复前仅遮蔽 sk-/bearer/key= 等形态，gsk_/AIza 等厂商前缀明文落日志。
 """

@@ -94,7 +94,7 @@ class _RecordingStorage:
 
 
 class _ClosableLLM:
-    """带关闭留痕的假模型（C7 断言：stop/rebuild 显式关闭 LLM 链）。"""
+    """带关闭留痕的假模型（断言 stop/rebuild 显式关闭 LLM 链）。"""
 
     def __init__(self) -> None:
         self.closed = False
@@ -402,7 +402,7 @@ async def test_resume_run_rejects_stale_card():
 
 
 async def test_stop_closes_engine_llm():
-    """stop 显式关闭 LLM 链（ENG4-C7）：httpx 长连接不依赖 GC 回收。
+    """stop 显式关闭 LLM 链：httpx 长连接不依赖 GC 回收。
 
     关停序列：MCP → LLM → 存储 → 宿主钩子；模型已装配时 aclose 必达。
     """
@@ -414,7 +414,7 @@ async def test_stop_closes_engine_llm():
 
 
 async def test_rebuild_replaces_and_closes_old_llm():
-    """引擎重建换模型时显式关闭旧 LLM 链（ENG4-C7），新链不受影响。"""
+    """引擎重建换模型时显式关闭旧 LLM 链，新链不受影响。"""
     host = FakeHost()
     runtime = await Runtime().boot(host, _minimal_recipe())
     old = _ClosableLLM()
@@ -433,7 +433,7 @@ async def test_engine_llm_guard_wiring():
     """引擎装配把 LLM 包上守卫链（用量闭环 + 回合内压缩）。
 
     节点消费的 llm = UsageTrackingLLM(CompressingLLM(inner))：usage 帧
-    进结点账（ENG4-C3/C4），调用前按压缩策略折叠历史（D5）；配方
+    进结点账，调用前按压缩策略折叠历史；配方
     compress_policy 注入的自定义策略生效。
     """
     from ink_engine.core.llm.guard import CompressingLLM, UsageTrackingLLM

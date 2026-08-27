@@ -82,7 +82,7 @@ pub(crate) async fn material_import(
     let mut ingested = 0usize;
     let mut rejected = 0usize;
     let mut file_results: Vec<JsonValue> = Vec::with_capacity(scan.files.len());
-    // A3：base_version = 集补丁链 head（补丁数 + 1；链记录读取失败回落 1）——
+    // base_version = 集补丁链 head（补丁数 + 1；链记录读取失败回落 1）——
     // 补丁链推进后陈旧基版本会被引擎 fail-closed 拒绝，资料静默未入库
     let base_version = crate::domain::incubation::chain_head_version().await;
     for file in &scan.files {

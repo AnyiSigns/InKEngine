@@ -1,11 +1,11 @@
-"""引擎侧 LLM 链守卫包装：用量闭环 + 回合内上下文压缩（ENG4-C3/C4/D5）。
+"""引擎侧 LLM 链守卫包装：用量闭环 + 回合内上下文压缩。
 
 - :class:`UsageTrackingLLM`：LLM usage 帧 → 当前节点成本账
   （``ctx.account_usage``）与 ``llm_usage`` 指标事件（``ctx.emit``）——
   生产用量闭环接线：流式末帧 usage（``stream_options.include_usage``）
   与非流式 ``result.usage`` 统一上报，不再只活在测试里；
 - :class:`CompressingLLM`：LLM 调用前按 CompressPolicy 压缩消息流——
-  回合内上下文压缩（D5）：默认双阈值（30 条 / 40000 字符）触发，阈值
+  回合内上下文压缩：默认双阈值（30 条 / 40000 字符）触发，阈值
   与保留尾段长度可配，压缩是确定性非破坏视图（原始消息流不修改）。
 
 节点上下文经 :data:`current_node_context`（ContextVar）由执行器在节点
@@ -63,7 +63,7 @@ def _usage_frame(usage: Mapping[str, Any]) -> dict[str, int]:
 class UsageTrackingLLM(AsyncLLM):
     """用量闭环包装：LLM usage 帧 → 结点成本账 + llm_usage 指标事件。
 
-    生产用量闭环接线（ENG4-C3/C4）：执行器在节点边界注入当前节点上下文
+    生产用量闭环接线：执行器在节点边界注入当前节点上下文
     （:data:`current_node_context`），本包装在每次调用的 usage 帧处：
 
     - ``ctx.account_usage(usage)``：token 计入当前节点执行边界成本账
@@ -131,7 +131,7 @@ class UsageTrackingLLM(AsyncLLM):
 
 
 class CompressingLLM(AsyncLLM):
-    """回合内上下文压缩包装（D5）：LLM 调用前按 CompressPolicy 压缩消息流。
+    """回合内上下文压缩包装：LLM 调用前按 CompressPolicy 压缩消息流。
 
     触发阈值与保留尾段长度可配（``policy``/``keep_recent``），默认
     :class:`ThresholdCompressionPolicy`（30 条 / 40000 字符，构造参数可

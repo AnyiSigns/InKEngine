@@ -763,7 +763,7 @@ async def test_stdio_exec_stderr_forwarded_to_log_channel(tmp_path):
 
 def test_builtin_server_registry_covers_tools_json_server_ids():
     """内置 server 注册表：tools.json 13 个 mcp 工具的 server_id 全部有
-    Python 侧定义（声明 → 真实连接的对齐落点；回归 ENG4-B3）。"""
+    Python 侧定义（声明 → 真实连接的对齐落点）。"""
     from ink_engine.core.mcp_client import BUILTIN_MCP_SERVERS
 
     assert set(BUILTIN_MCP_SERVERS) == {"inkling_exec", "inkling_shell"}
@@ -801,7 +801,7 @@ def test_builtin_server_config_overrides_connection_bits_only():
 
 
 async def test_connect_builtin_in_memory_shell_server():
-    """connect_builtin：inkling_shell 经内存嵌入工厂建立真实会话（ENG4-B3）。"""
+    """connect_builtin：inkling_shell 经内存嵌入工厂建立真实会话。"""
     import asyncio
     import contextlib
 

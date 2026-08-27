@@ -5,7 +5,7 @@
 - :class:`CompressingLLM`：触发阈值（默认 30 条/40000 字符）内零改动
   透传；触发后旧段折叠为确定性摘要（system 恒保留 + 保留尾段）；
 - 执行器节点上下文注入（current_node_context）在节点执行期对 LLM
-  调用可见（ENG4-C3/C4/D5 接线验证）。
+  调用可见。
 """
 from __future__ import annotations
 
@@ -72,7 +72,7 @@ def _long_history(n: int, chars: int = 20) -> list[Message]:
     return messages
 
 
-# ── 用量闭环（ENG4-C3/C4）──
+# ── 用量闭环 ──
 
 
 async def test_usage_tracking_ainvoke_accounts_and_emits():
@@ -138,7 +138,7 @@ async def test_usage_tracking_forwards_aclose():
     assert inner.aclosed
 
 
-# ── 回合内上下文压缩（D5）──
+# ── 回合内上下文压缩 ──
 
 # 默认策略（30 条/40000 字符）触发所需的历史规模：60 轮 × 700 字符
 _DEFAULT_TRIGGER_HISTORY = _long_history(60, chars=700)

@@ -330,8 +330,8 @@ class InputAssembler:
         # 语义——分配决定 = 组装决定，留痕即事实）
         self._assembler = ContextAssembler(allocator=self._allocator)
         self._compressor = compressor
-        # 激活聚合器（ENG9a-12 接线：随本批挂上 InputAssembler——每次
-        # 调配留痕同步喂聚合器，衔接知识集归档/进化优先级；None = 不聚合）
+        # 激活聚合器：随本次挂上 InputAssembler——每次
+        # 调配留痕同步喂聚合器，衔接知识集归档/进化优先级；None = 不聚合
         self._aggregator = aggregator
         # 全量路径分配器：门槛归零 = 预算足够时全部保留（零低分丢弃）
         self._keep_all = WeightedBudgetAllocator(

@@ -550,3 +550,53 @@ def test_invalid_level_rejected():
     """未知层级拒绝。"""
     with pytest.raises(GraphDefinitionError, match="层级非法"):
         _entry(level="archive")
+
+
+def test_search_uses_default_limit_constant():
+    """ENG3-5 回归：search 默认上限 = DEFAULT_SEARCH_LIMIT（5，魔法数字数据化）。"""
+    from ink_engine.core.knowledge_set import DEFAULT_SEARCH_LIMIT, KnowledgeSet
+
+    assert DEFAULT_SEARCH_LIMIT == 5
+    ks = KnowledgeSet("u1")
+    for i in range(8):
+        ks.add(_entry(f"k-{i}", tags=("批量",)))
+    hits = ks.search("批量")
+    assert len(hits) == DEFAULT_SEARCH_LIMIT
+    assert ks.search("批量", limit=3).__len__() == 3
+
+
+def test_seed_skip_logs_warning(caplog):
+    """ENG3-9 回归：同 id 种子跳过记 warning（不静默遮蔽演化冲突）。"""
+    import logging
+
+    ks = KnowledgeSet("u1")
+    ks.add(_entry("k-1"))
+    with caplog.at_level(logging.WARNING, logger="ink_engine.core.knowledge_set"):
+        seed_knowledge_set(ks, [_entry("k-1"), _entry("k-2")])
+    assert any("跳过" in record.message for record in caplog.records)
+
+
+def test_render_cap_truncates_oversized_json():
+    """ENG3-14 回归：非规则条目 JSON 摘要渲染层软上限（截断 + 溢出标记）。"""
+    entry = KnowledgeEntry(
+        id="k-big",
+        level="work",
+        kind="template",
+        data={"blob": "x" * 10_000},
+        title="超长条目",
+    )
+    rendered = entry.render_content()
+    assert len(rendered) < 5000
+    assert "渲染截断" in rendered
+
+
+def test_on_mutation_hook_fires_on_record_usage():
+    """ENG3-17 回归：变更钩子在 add/update/record_usage 后同步触发
+    （关键路径显式持久化的接线点——宿主在钩子内调度落库）。"""
+    events: list[str] = []
+    ks = KnowledgeSet("u1", on_mutation=lambda: events.append("mutated"))
+    ks.add(_entry("k-1"))
+    ks.record_usage("k-1")
+    ks.update("k-1", data={"rule": {"message": "v2"}})
+    ks.remove("k-1")
+    assert len(events) == 4

@@ -46,6 +46,11 @@ DENY = _DENY
 ALLOW = _ALLOW
 REVIEW = _REVIEW
 
+# 工具结果文本截断上限（ENG6-6：100_000 魔法数字共享常量——引擎工具
+# 流水线默认值；声明式工具流水线/自指工具/内省工具同源引用，防多份
+# 拷贝漂移）
+DEFAULT_MAX_RESULT_CHARS = 100_000
+
 
 def _substitute_target(value: Any, target: str, resolved: str) -> Any:
     """递归替换 args 中与原始 target 相等的值 → 沙箱解析结果。
@@ -111,7 +116,7 @@ class ToolPipeline:
     guards: tuple[Callable[..., Any], ...] = ()
     executor: Callable[..., Awaitable] | None = None
     audit: Callable[..., Any] | None = None
-    max_result_chars: int = 100_000
+    max_result_chars: int = DEFAULT_MAX_RESULT_CHARS
     allow_unchecked: bool = False
     # 工具轨迹回调（经验闭环的信号出口）：每次调用结束后回调
     # (trace: ToolTrace)，宿主接 ToolTraceStore 落库；None = 不记录。
@@ -345,4 +350,4 @@ class ToolPipeline:
             await emit("tool_audit", record)
 
 
-__all__ = ["ALLOW", "DENY", "ToolPipeline", "ToolResult"]
+__all__ = ["ALLOW", "DEFAULT_MAX_RESULT_CHARS", "DENY", "ToolPipeline", "ToolResult"]

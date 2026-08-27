@@ -30,7 +30,7 @@ from .llm.tools import ToolSpec
 from .permissions import PermissionGate
 from .rules import SEVERITY_ERROR
 from .security import strip_sensitive
-from .tool_pipeline import ToolPipeline
+from .tool_pipeline import DEFAULT_MAX_RESULT_CHARS, ToolPipeline
 
 # 内省工具的统一权限声明（只读域；未命中默认拒绝，fail-closed）
 INTROSPECTION_PERMISSION = "introspection:read:*"
@@ -43,7 +43,8 @@ _INTROSPECTION_TARGET = "*"
 # 条目上限（防超长结果挤爆上下文；限额与引擎工具流水线默认一致）
 _DEFAULT_KNOWLEDGE_LIMIT = 20
 _KNOWLEDGE_LIMIT_MAX = 100
-_MAX_RESULT_CHARS = 100_000
+# 单工具结果截断上限（ENG6-6：共享常量——与引擎工具流水线默认一致）
+_MAX_RESULT_CHARS = DEFAULT_MAX_RESULT_CHARS
 
 
 @dataclass(slots=True)

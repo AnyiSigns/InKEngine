@@ -21,6 +21,9 @@ from dataclasses import dataclass
 from typing import Any
 
 from .exceptions import GraphDefinitionError
+from .logging import get_logger
+
+logger = get_logger(__name__)
 
 
 @dataclass(frozen=True, slots=True)
@@ -188,6 +191,11 @@ class WeightedScorer:
         configured = {d.name for d in self.config.dimensions}
         unknown = sorted(set(raw) - configured)
         if unknown:
+            # 口径漂移 fail-closed + 留痕（ENG3-12）：抛错前记 warning——
+            # 调用方漏捕获时错误至少进日志，不静默炸链路
+            logger.warning(
+                "打分口径漂移（未知维度）: %s（配置 %s）", unknown, sorted(configured)
+            )
             raise ValueError(
                 f"未知打分维度: {unknown}（配置 {sorted(configured)}）"
             )
@@ -197,12 +205,20 @@ class WeightedScorer:
         for dimension in self.config.dimensions:
             actual = raw.get(dimension.name)
             if actual is None:
+                logger.warning(
+                    "打分口径漂移（缺维度得分）: %s（配置 %s）",
+                    dimension.name,
+                    sorted(configured),
+                )
                 raise ValueError(
                     f"未提供维度 {dimension.name} 的得分（配置 "
                     f"{sorted(configured)}）"
                 )
             score = actual.score
             if score < 0 or score > 1:
+                logger.warning(
+                    "打分值越界: %s=%s（须在 [0, 1] 内）", dimension.name, score
+                )
                 raise ValueError(
                     f"维度 {dimension.name} 得分必须在 [0, 1] 内: {score}"
                 )

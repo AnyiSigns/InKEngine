@@ -176,3 +176,45 @@ async def test_provider_registry(tmp_path) -> None:
     assert registry.get("local").name == "local"
     with pytest.raises(GraphDefinitionError, match="未注册"):
         registry.get("phantom")
+
+
+async def test_install_cmds_structured_form():
+    """ENG6-11 回归：install_cmds 结构化 (cmd, args) 形态——不再按空格拆分。
+
+    带引号参数（含空格路径）经 shlex 兼容形态与结构化形态均可正确解析；
+    结构化形态拒绝缺失 cmd / 非法 args。
+    """
+    from ink_engine.core.exceptions import GraphDefinitionError
+
+    spec = EnvironmentSpec(
+        name="node_env",
+        runtime=RuntimeKind.LOCAL,
+        tools=("node",),
+        install_cmds=(
+            "npm install -g typescript",
+            {"cmd": "pip", "args": ["install", "-r", "requirements.txt"]},
+        ),
+    )
+    assert spec.to_dict()["install_cmds"] == [
+        "npm install -g typescript",
+        {"cmd": "pip", "args": ["install", "-r", "requirements.txt"]},
+    ]
+    restored = EnvironmentSpec.from_dict(spec.to_dict())
+    assert restored.install_cmds == spec.install_cmds
+    with pytest.raises(GraphDefinitionError, match="cmd"):
+        EnvironmentSpec(name="e", install_cmds=({"args": ["x"]},))
+    with pytest.raises(GraphDefinitionError, match="args"):
+        EnvironmentSpec(name="e", install_cmds=({"cmd": "npm", "args": [1]},))
+
+
+def test_install_cmds_quoted_args_not_split():
+    """ENG6-11 回归：带空格引号参数不按空格裂开（shlex 兼容形态）。"""
+    from ink_engine.core.environments import _parse_install_cmd
+
+    command, args = _parse_install_cmd('npm install --prefix "C:/Program Files/node"')
+    assert command == "npm"
+    assert args == ("install", "--prefix", "C:/Program Files/node")
+    # 结构化形态直取 (cmd, args)
+    command2, args2 = _parse_install_cmd({"cmd": "pip", "args": ["install", "x"]})
+    assert (command2, args2) == ("pip", ("install", "x"))
+

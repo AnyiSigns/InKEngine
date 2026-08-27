@@ -377,15 +377,17 @@ def test_endpoint_operation_file_search_ops():
 
 
 def test_endpoint_operation_web_search():
-    """web_search 端点：查询语句作判定目标（connect 语义；空查询无法判定）。
+    """web_search 端点：独立权限动作 search（ENG6-10；空查询无法判定）。
 
-    联网搜索与 fetch 的单 URL 出网不同：结果域名过滤在实现内完成，
-    权限动作按 connect 白名单语义判定（network:connect:* 命中任意查询）。
+    联网搜索与 fetch 的单 URL 出网不同：查询串不能做域名白名单匹配，
+    权限动作 = 独立 search（不再挂 connect 域名语义）——新声明用
+    ``network:search:*``，既有 ``network:connect:*`` 全开通配经
+    :func:`~ink_engine.core.permissions.rule_matches` 兼容分支继续生效。
     """
     op, target = endpoint_operation(
         EndpointType.WEB_SEARCH, {"query": "最新研究", "limit": 5}
     )
-    assert (op, target) == ("connect", "最新研究")
+    assert (op, target) == ("search", "最新研究")
     assert endpoint_operation(EndpointType.WEB_SEARCH, {}) is None
     assert endpoint_operation(EndpointType.WEB_SEARCH, {"query": ""}) is None
 
@@ -900,3 +902,80 @@ async def test_trace_args_stripped_before_persist(memory_storage):
     assert traces[0].args["api_key"] == ""
     assert traces[0].args["keep"] == 1
     assert traces[0].args["command"] == "git"
+
+
+def test_web_search_permission_action_compat_and_new():
+    """ENG6-10 回归：web_search 独立动作 search + 既有 connect:* 兼容。"""
+    from ink_engine.core.permissions import parse_permission, rule_matches
+
+    # 新声明：network:search:* 命中 search 操作（pattern = 通配标记）
+    assert rule_matches(parse_permission("network:search:*"), "search", "任意查询")
+    # 既有声明：network:connect:* 全开通配兼容（查询串无法做域名匹配）
+    assert rule_matches(parse_permission("network:connect:*"), "search", "任意查询")
+    # 非通配的 connect 声明不误放行 search（白名单语义不被绕过）
+    assert not rule_matches(
+        parse_permission("network:connect:example.com"), "search", "任意查询"
+    )
+    # connect 操作语义不受影响
+    assert rule_matches(
+        parse_permission("network:connect:example.com"), "connect", "example.com"
+    )
+
+
+async def test_http_fetch_streams_with_cap(monkeypatch):
+    """ENG6-9 回归：http_fetch 响应流式读取 + 上限截断（不整读 OOM）。"""
+    import httpx
+
+    if not hasattr(httpx, "AsyncClient"):
+        pytest.skip("httpx 不可用")
+
+    class FakeStreamResponse:
+        status_code = 200
+
+        async def __aenter__(self):
+            return self
+
+        async def __aexit__(self, *exc):
+            return False
+
+        def aiter_text(self):
+            async def gen():
+                for _ in range(50):
+                    yield "x" * 1000  # 总 50KB
+
+            return gen()
+
+    streamed = []
+
+    class FakeClient:
+        def __init__(self, *args, **kwargs):
+            pass
+
+        async def __aenter__(self):
+            return self
+
+        async def __aexit__(self, *exc):
+            return False
+
+        def stream(self, method, url, headers=None):
+            streamed.append((method, url))
+            return FakeStreamResponse()
+
+    monkeypatch.setattr(httpx, "AsyncClient", FakeClient)
+    from ink_engine.core.declarative_tools import make_http_fetch_executor
+
+    executor = make_http_fetch_executor(max_chars=5000)
+    spec = DeclarativeToolSpec(
+        name="fetchdocs",
+        description="抓取",
+        parameters={"type": "object", "properties": {"url": {"type": "string"}}},
+        permissions=("network:connect:example.com",),
+        endpoint=EndpointType.HTTP_FETCH,
+        endpoint_config={"method": "GET"},
+    )
+    out = await executor(None, spec, {"url": "https://example.com/doc"}, None)
+    assert out.startswith("HTTP 200")
+    assert "溢出截断" in out
+    body = out.split("\n", 1)[1]
+    assert len(body) < 6000
+    assert streamed == [("GET", "https://example.com/doc")]

@@ -26,13 +26,18 @@ from .knowledge_set import (
     KnowledgeSet,
     seed_knowledge_set,
 )
+from .source_grading import _SOURCE_CREDIBILITY, SOURCE_USER
 
 # 通用种子条目 id（稳定键：幂等注入与版本回退的锚点）
 GENERAL_TEMPLATE_SEED_ID = "seed.general.template.default"
 GENERAL_WEIGHTS_SEED_ID = "seed.general.weights.default"
 
-# 引擎随带的种子 = 经过验证的发布物（可信度高于普通对话/模型来源）
-_SEED_CREDIBILITY = 0.9
+# 种子条目可信度（ENG3-15 机制化说明）：引擎随带的种子 = 经过验证的
+# 发布物——取值 = 统一来源分级表（source_grading）中最高档（用户确认
+# 级 0.9），高于普通对话（0.6）/模型（0.7）来源：种子经出厂验证管线
+# 发布，等同用户确认的信任档；分级基准变化时本常量随表联动（不再
+# 独立硬编码）
+SEED_CREDIBILITY: float = _SOURCE_CREDIBILITY[SOURCE_USER]
 
 # 种子条目工厂签名（装配配方 seeds 直注用）
 SeedProvider = Callable[[], list[KnowledgeEntry]]
@@ -59,7 +64,7 @@ def build_general_seed_entries() -> list[KnowledgeEntry]:
                 }
             },
             source=SOURCE_MODEL,
-            credibility=_SEED_CREDIBILITY,
+            credibility=SEED_CREDIBILITY,
             title="默认编排模板",
             tags=("template", "default"),
         ),
@@ -75,7 +80,7 @@ def build_general_seed_entries() -> list[KnowledgeEntry]:
                 "thresholds": {"pass": 0.6},
             },
             source=SOURCE_MODEL,
-            credibility=_SEED_CREDIBILITY,
+            credibility=SEED_CREDIBILITY,
             title="默认权重与阈值",
             tags=("weights", "thresholds", "tuning"),
         ),
@@ -90,6 +95,7 @@ def seed_general(knowledge_set: KnowledgeSet) -> int:
 __all__ = [
     "GENERAL_TEMPLATE_SEED_ID",
     "GENERAL_WEIGHTS_SEED_ID",
+    "SEED_CREDIBILITY",
     "SeedProvider",
     "build_general_seed_entries",
     "seed_general",

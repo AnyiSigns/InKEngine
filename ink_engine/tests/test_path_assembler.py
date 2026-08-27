@@ -36,9 +36,12 @@ from ink_engine.core.event_types import (
     register_path_assembly_event_types,
 )
 from ink_engine.core.fingerprint import graph_fingerprint, request_fingerprint
+from ink_engine.core.fingerprint_cache import FingerprintCacheStore
 from ink_engine.core.graph import Graph, TerminateReason
 from ink_engine.core.path_assembler import (
     CANDIDATE_SOURCE_ALGORITHM,
+    STATS_CACHE_HITS,
+    STATS_CACHE_MISSES,
     InMemoryPoolRetriever,
     PathAssembler,
     add_branch,
@@ -178,6 +181,9 @@ def make_assembler(
     config: PathAssemblyConfig | None = None,
     sink: Any = None,
     now: float | None = DUMMY_NOW,
+    cache: FingerprintCacheStore | None = None,
+    cache_epsilon: float = 0.0,
+    rng: Any = None,
 ) -> PathAssembler:
     return PathAssembler(
         registry=registry or make_registry(),
@@ -186,6 +192,9 @@ def make_assembler(
         config=config,
         sink=sink,
         now=now,
+        cache=cache,
+        cache_epsilon=cache_epsilon,
+        rng=rng,
     )
 
 
@@ -463,9 +472,32 @@ async def test_multipath_signal_cold_start_triggers():
 
 
 async def test_multipath_signal_strong_evidence_no_trigger():
-    """多径信号：证据强（N≥5 且分差≥0.15）绝不触发。"""
+    """多径信号：证据强（全链 N≥5 且分差≥0.15）绝不触发。
+
+    全链口径（ENG9a-22）：证据聚合 = 整链成败计数（multipath.chain_evidence
+    同源），分差 = 全链平均证据分——首候选全链高证据、次候选弱证据时
+    分差拉大 → 不触发。
+    """
     registry = make_registry()
     store = EdgeEvidenceStore(":memory:")
+    # top-1 链（intent_parse→domain_router→web_search→answer_direct）全链
+    # 强证据：三条边全部高成功计数（全链均值不被稀释）
+    await store.put(
+        EdgeEvidence(
+            key=EdgeKey(src_type="intent_parse", dst_type="domain_router",
+                        context_domain="code"),
+            success_count=30, fail_count=0, avg_cost=1.0,
+            last_used_at=DUMMY_NOW, created_at=DUMMY_NOW,
+        )
+    )
+    await store.put(
+        EdgeEvidence(
+            key=EdgeKey(src_type="domain_router", dst_type="web_search",
+                        context_domain="code"),
+            success_count=30, fail_count=0, avg_cost=1.0,
+            last_used_at=DUMMY_NOW, created_at=DUMMY_NOW,
+        )
+    )
     await store.put(
         EdgeEvidence(
             key=EdgeKey(src_type="web_search", dst_type="answer_direct",
@@ -474,6 +506,7 @@ async def test_multipath_signal_strong_evidence_no_trigger():
             last_used_at=DUMMY_NOW, created_at=DUMMY_NOW,
         )
     )
+    # top-2 链收尾边弱证据（5 次成功，分数显著低于全链强证据链）
     await store.put(
         EdgeEvidence(
             key=EdgeKey(src_type="qa_check", dst_type="report_assemble",
@@ -1278,3 +1311,149 @@ async def test_runtime_stats_total_accumulates():
         set_default_assembly_runtime(previous)
         await evidence.close()
         await cache.close()
+
+
+# ── 本批回归：契约视图/证据单查/EdgeIndexKey/stats 隔离/rng/补链 ──
+
+
+def test_validate_chain_with_prebuilt_views_matches():
+    """ENG9a-15 回归：预解析契约视图校验与按池现建同语义（热路径等价）。"""
+    pool = pool_of(make_registry())
+    from ink_engine.core.path_assembler import _build_contract_views
+
+    views = _build_contract_views(pool)
+    chain = ("intent_parse", "domain_router", "web_search", "answer_direct")
+    ok_direct, reasons_direct = validate_chain(
+        chain, pool=pool, goal_fields=("answer",), entry_fields=ENTRY
+    )
+    ok_views, reasons_views = validate_chain(
+        chain,
+        pool=pool,
+        goal_fields=("answer",),
+        entry_fields=ENTRY,
+        views=views,
+    )
+    assert ok_direct is ok_views
+    assert reasons_direct == reasons_views
+    # 修复驱动同样吃视图（operator 族统一签名）
+    broken = ("intent_parse", "domain_router", "web_search", "report_assemble")
+    assert repair_chain(
+        broken,
+        pool=pool,
+        goal_fields=("answer",),
+        entry_fields=ENTRY,
+        views=views,
+    ) == ("intent_parse", "domain_router", "web_search", "answer_direct")
+
+
+def test_edge_index_key_alias_is_five_tuple():
+    """ENG9a-17 回归：EdgeIndexKey = 5 元类型级键别名（注解与实际一致）。"""
+    from ink_engine.core.path_assembler import EdgeIndexKey
+
+    assert EdgeIndexKey.__origin__ is tuple
+    assert len(EdgeIndexKey.__args__) == 5
+    assert EdgeIndexKey.__args__ == (str, str, str, str, str)
+
+
+async def test_evidence_queried_once_per_domain():
+    """ENG9a-16 回归：同域全量 list_edges 只查一次（缓存与评分共用）。"""
+    registry = make_registry()
+    cache = FingerprintCacheStore(now=DUMMY_NOW)
+    calls: list[str] = []
+
+    class SpyStore(EdgeEvidenceStore):
+        async def list_edges(self, domain: str, *args, **kwargs):
+            calls.append(domain)
+            return await super().list_edges(domain, *args, **kwargs)
+
+    spy = SpyStore(":memory:")
+    assembler = make_assembler(registry, store=spy, cache=cache)
+    await assembler.assemble(_request(("answer",)))
+    assert len(calls) == 1  # 缓存校验 + 评分索引共用一次查询
+    await spy.close()
+    await cache.close()
+
+
+async def test_stats_isolated_from_shared_dict():
+    """ENG9a-19 回归：结果统计按值拷贝——外部改写不反向污染组装器内部累积。"""
+    assembler = make_assembler()
+    result = await assembler.assemble(_request(("answer",)))
+    result.stats["beam_extensions"] = 999999
+    again = await assembler.assemble(_request(("answer",)))
+    assert again.stats["beam_extensions"] < 999999
+
+
+async def test_epsilon_sampling_rng_injectable():
+    """ENG9a-20 回归：ε 抽样随机源可注入——seed 固定→抽样判定可复现。"""
+    import random
+
+    from ink_engine.core.fingerprint import graph_fingerprint, request_fingerprint
+
+    registry = make_registry()
+    store = EdgeEvidenceStore(":memory:")
+    cache = FingerprintCacheStore(now=DUMMY_NOW)
+    request = _request(("answer",))
+    first = await make_assembler(registry, store=store, cache=cache).assemble(
+        request
+    )
+    assert first.candidates
+    await cache.upsert(
+        request_fingerprint(
+            goal_fields=request.goal_fields(),
+            entry_fields=request.entry_fields,
+            domain=request.domain,
+            max_safety_tier=request.max_safety_tier,
+            model_id='',
+        ),
+        path=first.candidates[0].graph.to_dict(),
+        evidence_snapshot=[],
+        model_id="",
+        gate_passed=True,
+        path_fingerprint=graph_fingerprint(first.candidates[0].graph),
+        domain=request.domain,
+    )
+
+    def build():
+        return make_assembler(
+            registry,
+            store=store,
+            cache=cache,
+            cache_epsilon=1.0,
+            rng=random.Random(7),
+        )
+
+    a1 = await build().assemble(request)
+    a2 = await build().assemble(request)
+    # ε=1.0 恒抽样重装：绕过缓存（miss=1 且 hits=0）——rng 注入路径生效
+    assert a1.stats[STATS_CACHE_MISSES] == 1
+    assert a2.stats[STATS_CACHE_MISSES] == 1
+    assert a1.stats[STATS_CACHE_HITS] == 0
+    await store.close()
+    await cache.close()
+
+
+def test_add_branch_continues_to_next_gap():
+    """ENG9a-25 回归：单个缺口补不上不整体放弃——继续尝试后续缺口/目标缺口。
+
+    旧实现「首个缺口补链失败即整体 return None」：目标缺口
+    （链尾追加生产链）在首个缺口无解时永远不可达。新实现逐缺口尝试，
+    目标缺口照常可达；全部缺口不可补才返回 None。
+    """
+    pool = pool_of(make_registry())
+    chain = ("intent_parse", "domain_router", "web_search")
+    repaired = add_branch(
+        chain, pool=pool, goal_fields=("answer",), entry_fields=ENTRY
+    )
+    assert repaired == ("intent_parse", "domain_router", "web_search", "answer_direct")
+    # 全部缺口不可补（池无 producer）→ None（语义保持）
+    missing_pool = {
+        "intent_parse": pool["intent_parse"],
+        "domain_router": pool["domain_router"],
+        "web_search": pool["web_search"],
+    }
+    assert (
+        add_branch(
+            chain, pool=missing_pool, goal_fields=("answer",), entry_fields=ENTRY
+        )
+        is None
+    )

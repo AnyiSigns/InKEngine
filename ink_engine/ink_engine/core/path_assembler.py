@@ -67,7 +67,6 @@ from .edge_evidence import (
     cold_start_index,
     edge_score,
     is_exploration_mode,
-    multi_path_trigger,
 )
 from .event_types import EVENT_ASSEMBLY_CANDIDATE, EVENT_AUDIT_ASSEMBLY
 from .exceptions import GraphDefinitionError
@@ -131,6 +130,11 @@ DEFAULT_DRAFT_TIMEOUT = 30.0
 CANDIDATE_SOURCE_ALGORITHM = "algorithm"
 CANDIDATE_SOURCE_DRAFT = "draft"
 CANDIDATE_SOURCE_CACHE = "cache"
+
+# 边证据索引键（ENG9a-17 类型别名）：(src_type, dst_type, src_contract_version,
+# dst_contract_version, variant_hash) 五元组——类型级口径（variant_hash 空）。
+# 此前 4 元/5 元注解并存使静态检查失效，统一为单一别名
+EdgeIndexKey = tuple[str, str, str, str, str]
 
 # 统计口径键（声明式枚举）
 STATS_BEAM_EXTENSIONS = "beam_extensions"
@@ -225,8 +229,11 @@ class AssemblyRequest:
         domain: 上下文域（边证据按域聚合——评分/统计永远按域分组）。
         max_safety_tier: 组装放行档位（默认 0 最严；高安全结点不可进
             低信任路径；映射策略归使用方）。
-        quality_gate: 产出质量判定窄协议（使用方按域注入；本步只读
-            不消费——沉淀/汇流的 fail-closed 降级链由使用方接线）。
+        quality_gate: 产出质量判定窄协议（组装请求携带、本步不消费——
+            接线确认（ENG9a-21）：请求随多径调度透传给执行入口，
+            MultipathRunner 汇流裁决（junction_verdict）按域消费
+            ``request.quality_gate`` 判定支流产物质量；沉淀侧质量线
+            另经 SettleQualityGate 适配消费——组装只出候选不判定）。
         state_schema: 状态通道 schema（缺省 None = 跳过通道写入规则）。
         draft_provider: 草稿源（None = 不使用 LLM 层；提示词归使用方）。
         top_k: 候选条数上限（默认 2）。
@@ -391,7 +398,7 @@ class CanaryVerdict:
 
 
 @dataclass(frozen=True, slots=True)
-class AssemblyResult:
+class PathAssemblyResult:
     """组装结果（只读候选清单 + 观测统计 + 验证/审计留痕）。
 
     Attributes:
@@ -399,16 +406,22 @@ class AssemblyResult:
         fingerprint: 首候选图定义指纹（Graph.digest 规范摘要；空 = 无候选）。
         cold_start_index: 冷启动指数（有证据边数 / 候选边数）。
         exploration_mode: 探索模式判定（指数 < 0.3 = 探索模式）。
-        multipath_signal: 多径触发信号（top-1/top-2 候选边证据判据；
+        multipath_signal: 多径触发信号（top-1/top-2 候选全链证据判据；
             只给信号，触发决策归使用方——本步只记录不裁决）。
         fallback_reason: 兜底原因（草稿层失败时标注；算法层无解亦标注）。
         llm_attempts: 草稿源调用次数（0 = 未启用草稿层）。
         stats: 统计口径（beam_extensions / edge_score_calls /
-            repair_attempts / llm_attempts）——规模基准与审计用。
+            repair_attempts / llm_attempts）——规模基准与审计用。构造时
+            按值拷贝（ENG9a-19：frozen 结果不共享可变统计字典）。
         canary: 各候选的 canary 验证结论（重建 + 单回合；指令入口
             装配时产出，只读组装不产出——观测侧零影响）。
         audit: 本结果随附的审计留痕（append-only 记录；落库归
             sink/audit_sink 回调，本字段只携带不落库）。
+
+    .. note:: 命名区分（ENG9a-24）：本类 = 路径组装候选结果，与
+        :class:`~ink_engine.core.assembly.InputAssemblyResult`（输入调配
+        产物）同包同名异义已消除——``AssemblyResult`` 旧名保留为兼容
+        别名（multipath 等既有消费方沿用），新代码一律用区分名。
     """
 
     candidates: tuple[AssemblyCandidate, ...] = ()
@@ -441,6 +454,11 @@ class AssemblyResult:
         }
 
 
+# 兼容别名（ENG9a-24）：旧名 AssemblyResult 保留供既有消费方
+# （multipath 等）沿用；新代码用 :class:`PathAssemblyResult`
+AssemblyResult = PathAssemblyResult
+
+
 # ── 候选链校验（纯函数；自组装基础语义）──────────────────────────
 
 def validate_chain(
@@ -451,25 +469,67 @@ def validate_chain(
     entry_fields: Sequence[str] = (),
     max_safety_tier: int = DEFAULT_MAX_SAFETY_TIER,
     state_schema: StateSchema | None = None,
+    views: Mapping[str, _ContractView] | None = None,
 ) -> tuple[bool, list[str]]:
     """候选链校验：池成员 + 唯一性 + 前缀可达性（弱校验）+ 目标覆盖。
 
     多源汇聚合法：序列中每个结点的必填输入 ⊆ 入口 ∪ 前缀结点产出并集；
     高安全结点按放行档位剪枝（安全档逐结点检查）。理由序稳定可断言。
+
+    ``views`` = 预解析契约视图（ENG9a-15）：热路径（修复算子循环/
+    组装候选过滤）可注入一次建好的视图，字段名集免重复解析；未注入
+    时按 ``pool`` 现建（公共入口行为不变）。
     """
+    if views is None:
+        views = _build_contract_views(pool)
+    return _validate_chain_views(
+        chain,
+        views=views,
+        goal_fields=goal_fields,
+        entry_fields=entry_fields,
+        max_safety_tier=max_safety_tier,
+        state_schema=state_schema,
+    )
+
+
+def _build_contract_views(
+    pool: Mapping[str, NodeContract],
+) -> dict[str, _ContractView]:
+    """池 → 预解析契约视图（ENG9a-15：字段名解析一次，全链校验/搜索复用）。"""
+    return {
+        type_name: _ContractView(
+            required=required_field_names(contract.input_schema),
+            produced=produced_field_names(contract.output_schema),
+            contract=contract,
+        )
+        for type_name, contract in pool.items()
+    }
+
+
+def _validate_chain_views(
+    chain: Sequence[str],
+    *,
+    views: Mapping[str, _ContractView],
+    goal_fields: Sequence[str],
+    entry_fields: Sequence[str] = (),
+    max_safety_tier: int = DEFAULT_MAX_SAFETY_TIER,
+    state_schema: StateSchema | None = None,
+) -> tuple[bool, list[str]]:
+    """候选链校验（预解析视图版）：与 :func:`validate_chain` 同语义，
+    字段名集取自视图缓存（ENG9a-15 热路径免重复解析）。"""
     if not chain:
         return False, ["候选链为空"]
     reasons: list[str] = []
     seen: set[str] = set()
     for name in chain:
-        if name not in pool:
+        if name not in views:
             reasons.append(f"结点未知: {name}")
         elif name in seen:
             reasons.append(f"结点重复: {name}")
         seen.add(name)
     if reasons:
         return False, reasons
-    contracts = [pool[name] for name in chain]
+    contracts = [views[name].contract for name in chain]
     _prefix_ok, prefix_reasons = validate_prefix_reachability(
         contracts,
         entry_fields=entry_fields,
@@ -479,7 +539,7 @@ def validate_chain(
     reasons.extend(prefix_reasons)
     available = set(entry_fields)
     for name in chain:
-        available |= produced_field_names(pool[name].output_schema)
+        available |= views[name].produced
     missing_goal = sorted(set(goal_fields) - available)
     if missing_goal:
         reasons.append(f"未覆盖目标字段: {'、'.join(missing_goal)}")
@@ -555,15 +615,15 @@ def sanitize_draft_feedback(
 
 def _chain_available(
     chain: Sequence[str],
-    pool: Mapping[str, NodeContract],
+    views: Mapping[str, _ContractView],
     entry_fields: Sequence[str],
 ) -> set[str]:
     available = set(entry_fields)
     for name in chain:
-        contract = pool.get(name)
-        if contract is None:
+        view = views.get(name)
+        if view is None:
             continue  # 未知结点（待替换位）无产出信息，跳过
-        available |= produced_field_names(contract.output_schema)
+        available |= view.produced
     return available
 
 
@@ -575,21 +635,29 @@ def replace_node(
     entry_fields: Sequence[str] = (),
     max_safety_tier: int = DEFAULT_MAX_SAFETY_TIER,
     state_schema: StateSchema | None = None,
+    views: Mapping[str, _ContractView] | None = None,
+    beam_width: int = DEFAULT_BEAM_WIDTH,
+    max_depth: int = DEFAULT_MAX_PATH_LENGTH,
 ) -> tuple[str, ...] | None:
     """替换算子：结点 → 可达等价结点（输出覆盖不缩水、输入可达）。
 
     逐位尝试池内候选（排除自身与既有重复），产出即校验——保证替换后
-    目标覆盖不丢失；无可达等价结点 = None。
+    目标覆盖不丢失；无可达等价结点 = None。视图预解析一次（ENG9a-15）：
+    内层 O(n·|pool|) 次校验复用同一契约视图，不再逐次解析字段名。
+    ``beam_width``/``max_depth`` 为算子族统一签名（本算子不使用，
+    补链算子消费——修复驱动按统一签名透传）。
     """
+    if views is None:
+        views = _build_contract_views(pool)
     base = tuple(chain)
     for i in range(len(base)):
         for alt in pool:
             if alt == base[i] or alt in base:
                 continue
             candidate = (*base[:i], alt, *base[i + 1:])
-            ok, _ = validate_chain(
+            ok, _ = _validate_chain_views(
                 candidate,
-                pool=pool,
+                views=views,
                 goal_fields=goal_fields,
                 entry_fields=entry_fields,
                 max_safety_tier=max_safety_tier,
@@ -608,42 +676,52 @@ def add_branch(
     entry_fields: Sequence[str] = (),
     max_safety_tier: int = DEFAULT_MAX_SAFETY_TIER,
     state_schema: StateSchema | None = None,
+    views: Mapping[str, _ContractView] | None = None,
+    beam_width: int = DEFAULT_BEAM_WIDTH,
+    max_depth: int = DEFAULT_MAX_PATH_LENGTH,
 ) -> tuple[str, ...] | None:
     """补链算子：缺口字段 → 补一条前置生产链（多源汇聚合法）。
 
     缺口 = 某结点必填输入不被前缀覆盖，或目标字段不被全链覆盖；生产链
     经正向链式搜索找出（排除既有链结点防重复），前置于首个消费结点
     （目标缺口则追加于链尾）；产物即校验。
+
+    ENG9a-25：单个缺口无生产者不整体放弃——继续尝试下一缺口/目标缺口
+    （首个缺口补不上 ≠ 其余缺口也补不上）；beam 宽度/深度参数透传
+    （不再无视 envelope 硬编码默认值）。
     """
+    if views is None:
+        views = _build_contract_views(pool)
     base = tuple(chain)
     for i, name in enumerate(base):
-        contract = pool.get(name)
-        if contract is None:
+        view = views.get(name)
+        if view is None:
             continue  # 未知结点由替换算子处理，补链算子不触碰
         prefix = set(entry_fields)
         for prev in base[:i]:
-            prev_contract = pool.get(prev)
-            if prev_contract is None:
+            prev_view = views.get(prev)
+            if prev_view is None:
                 continue
-            prefix |= produced_field_names(prev_contract.output_schema)
-        missing = sorted(set(required_field_names(contract.input_schema)) - prefix)
+            prefix |= prev_view.produced
+        missing = sorted(set(view.required) - prefix)
         if not missing:
             continue
         producers = _forward_search(
             missing,
             tuple(sorted(prefix)),
             pool,
-            beam_width=DEFAULT_BEAM_WIDTH,
-            max_depth=DEFAULT_MAX_PATH_LENGTH,
+            views=views,
+            beam_width=beam_width,
+            max_depth=max_depth,
             max_safety_tier=max_safety_tier,
             exclude=set(base),
         )
         if not producers:
-            return None
+            continue  # 本缺口补不上：尝试下一缺口（ENG9a-25）
         candidate = base[:i] + producers[0] + base[i:]
-        ok, _ = validate_chain(
+        ok, _ = _validate_chain_views(
             candidate,
-            pool=pool,
+            views=views,
             goal_fields=goal_fields,
             entry_fields=entry_fields,
             max_safety_tier=max_safety_tier,
@@ -651,25 +729,25 @@ def add_branch(
         )
         if ok:
             return candidate
-        return None
-    missing_goal = sorted(set(goal_fields) - _chain_available(base, pool, entry_fields))
+    missing_goal = sorted(set(goal_fields) - _chain_available(base, views, entry_fields))
     if not missing_goal:
         return None
     producers = _forward_search(
         missing_goal,
-        tuple(sorted(_chain_available(base, pool, entry_fields))),
+        tuple(sorted(_chain_available(base, views, entry_fields))),
         pool,
-        beam_width=DEFAULT_BEAM_WIDTH,
-        max_depth=DEFAULT_MAX_PATH_LENGTH,
+        views=views,
+        beam_width=beam_width,
+        max_depth=max_depth,
         max_safety_tier=max_safety_tier,
         exclude=set(base),
     )
     if not producers:
         return None
     candidate = base + producers[0]
-    ok, _ = validate_chain(
+    ok, _ = _validate_chain_views(
         candidate,
-        pool=pool,
+        views=views,
         goal_fields=goal_fields,
         entry_fields=entry_fields,
         max_safety_tier=max_safety_tier,
@@ -686,19 +764,25 @@ def remove_node(
     entry_fields: Sequence[str] = (),
     max_safety_tier: int = DEFAULT_MAX_SAFETY_TIER,
     state_schema: StateSchema | None = None,
+    views: Mapping[str, _ContractView] | None = None,
+    beam_width: int = DEFAULT_BEAM_WIDTH,
+    max_depth: int = DEFAULT_MAX_PATH_LENGTH,
 ) -> tuple[str, ...] | None:
     """剪枝算子：冗余/不可达结点剪除（产出不被任何后继需求也不补目标）。
 
     从链尾向链首尝试——优先剪冗余尾结点（形态退化修复的确定性选择）；
     剪除后校验须仍可达；无可剪结点（删除任何结点都会破坏目标覆盖或
-    可达性）返回 None。
+    可达性）返回 None。``beam_width``/``max_depth`` 为算子族统一签名
+    （本算子不使用，补链算子消费）。
     """
+    if views is None:
+        views = _build_contract_views(pool)
     base = tuple(chain)
     for i in range(len(base) - 1, -1, -1):
         candidate = base[:i] + base[i + 1:]
-        ok, _ = validate_chain(
+        ok, _ = _validate_chain_views(
             candidate,
-            pool=pool,
+            views=views,
             goal_fields=goal_fields,
             entry_fields=entry_fields,
             max_safety_tier=max_safety_tier,
@@ -717,12 +801,19 @@ def reroute_edge(
     entry_fields: Sequence[str] = (),
     max_safety_tier: int = DEFAULT_MAX_SAFETY_TIER,
     state_schema: StateSchema | None = None,
+    views: Mapping[str, _ContractView] | None = None,
+    beam_width: int = DEFAULT_BEAM_WIDTH,
+    max_depth: int = DEFAULT_MAX_PATH_LENGTH,
 ) -> tuple[str, ...] | None:
     """改接算子：结点重新落位（生产者前置 / 消费者后移，补齐覆盖顺序）。
 
     把链中任一结点移动到另一位置（等价于改写前后邻接边），移动后即
     校验；同一时刻首达合法改接即收（确定性顺序）；无合法改接返回 None。
+    ``beam_width``/``max_depth`` 为算子族统一签名（本算子不使用，补链
+    算子消费）。
     """
+    if views is None:
+        views = _build_contract_views(pool)
     base = tuple(chain)
     for i in range(len(base)):
         for j in range(len(base)):
@@ -733,9 +824,9 @@ def reroute_edge(
             candidate = (*rest[:j], node, *rest[j:])
             if candidate == base:
                 continue
-            ok, _ = validate_chain(
+            ok, _ = _validate_chain_views(
                 candidate,
-                pool=pool,
+                views=views,
                 goal_fields=goal_fields,
                 entry_fields=entry_fields,
                 max_safety_tier=max_safety_tier,
@@ -765,26 +856,36 @@ def repair_chain(
     max_safety_tier: int = DEFAULT_MAX_SAFETY_TIER,
     state_schema: StateSchema | None = None,
     max_rounds: int = MAX_REPAIR_ROUNDS,
+    beam_width: int = DEFAULT_BEAM_WIDTH,
+    max_depth: int = DEFAULT_MAX_PATH_LENGTH,
+    views: Mapping[str, _ContractView] | None = None,
 ) -> tuple[str, ...] | None:
     """自动修复驱动：按固定算子集逐轮修复，每算子后重跑可达性校验。
 
     单轮内按 {replace_node → add_branch → remove_node → reroute_edge}
     顺序尝试首个产出合法链的算子；轮数上限 = max_rounds（防算子组合全
     枚举）；修复不可达或既有链已合法不可再进 = None（调用方走全量算法
-    重组装兜底）。
+    重组装兜底）。契约视图全驱动共享一次预解析（ENG9a-15）；beam 宽度/
+    深度透传给补链搜索（ENG9a-25——不再硬编码默认值）。
     """
     if not chain:
         return None
+    if views is None:
+        views = _build_contract_views(pool)
     current = tuple(chain)
-    for _ in range(max(1, max_rounds)):
-        ok, _ = validate_chain(
-            current,
-            pool=pool,
+
+    def _validate(candidate: tuple[str, ...]) -> tuple[bool, list[str]]:
+        return _validate_chain_views(
+            candidate,
+            views=views,
             goal_fields=goal_fields,
             entry_fields=entry_fields,
             max_safety_tier=max_safety_tier,
             state_schema=state_schema,
         )
+
+    for _ in range(max(1, max_rounds)):
+        ok, _ = _validate(current)
         if ok:
             return current
         progressed = False
@@ -796,31 +897,20 @@ def repair_chain(
                 entry_fields=entry_fields,
                 max_safety_tier=max_safety_tier,
                 state_schema=state_schema,
+                views=views,
+                beam_width=beam_width,
+                max_depth=max_depth,
             )
             if repaired is None or repaired == current:
                 continue
-            ok, _ = validate_chain(
-                repaired,
-                pool=pool,
-                goal_fields=goal_fields,
-                entry_fields=entry_fields,
-                max_safety_tier=max_safety_tier,
-                state_schema=state_schema,
-            )
+            ok, _ = _validate(repaired)
             if ok:
                 current = repaired
                 progressed = True
                 break
         if not progressed:
             return None
-    ok, _ = validate_chain(
-        current,
-        pool=pool,
-        goal_fields=goal_fields,
-        entry_fields=entry_fields,
-        max_safety_tier=max_safety_tier,
-        state_schema=state_schema,
-    )
+    ok, _ = _validate(current)
     return current if ok else None
 
 
@@ -837,6 +927,7 @@ def _forward_search(
     exclude: Collection[str] = (),
     edge_score_lookup: Callable[[str, str], float] | None = None,
     stats: dict[str, int] | None = None,
+    views: Mapping[str, _ContractView] | None = None,
 ) -> list[tuple[str, ...]]:
     """正向链式（前缀可达性）beam 搜索：从入口字段出发逐层扩边至目标覆盖。
 
@@ -852,7 +943,12 @@ def _forward_search(
 
     Returns:
         全部解出目标的候选链（beam 宽度内；按搜索序，去重）。
+
+    ``views`` = 预解析契约视图（ENG9a-15）：修复/组装热路径注入后，
+    逐层扩展不再重复解析字段名（未注入时按池现建）。
     """
+    if views is None:
+        views = _build_contract_views(pool)
     goal = set(goal_fields)
     found: list[tuple[str, ...]] = []
     seen_found: set[tuple[str, ...]] = set()
@@ -873,12 +969,12 @@ def _forward_search(
             if key in visited:
                 continue
             visited.add(key)
-            for type_name, contract in pool.items():
+            for type_name, view in views.items():
                 if type_name in exclude_set or type_name in path:
                     continue
-                if contract.safety_tier > max_safety_tier:
+                if view.contract.safety_tier > max_safety_tier:
                     continue  # 安全档剪枝：高安全结点不可进低信任路径
-                required = required_field_names(contract.input_schema)
+                required = view.required
                 if not required <= set(covered):
                     continue
                 if path and required <= set(entry_fields):
@@ -886,7 +982,7 @@ def _forward_search(
                     # 置换到链首（其后置冗余），裁剪不减完整性（多根目标由
                     # 外层分支机制承担，线性链只表达单一连贯目标）
                     continue
-                produced = produced_field_names(contract.output_schema)
+                produced = view.produced
                 new_covered = frozenset(set(covered) | produced)
                 if new_covered == covered:
                     continue  # 无新增产出的结点跳过（防发散）
@@ -1048,6 +1144,7 @@ class PathAssembler:
         cache: FingerprintCacheStore | None = None,
         model_id: str = "",
         cache_epsilon: float = DEFAULT_CACHE_EPSILON,
+        rng: random.Random | None = None,
     ) -> None:
         self._registry = registry
         self._evidence = evidence_store
@@ -1058,6 +1155,9 @@ class PathAssembler:
         self._cache = cache
         self._model_id = model_id
         self._cache_epsilon = max(0.0, float(cache_epsilon))
+        # ε 抽样随机源（ENG9a-20 rng 注入）：None = 模块级 random（缺省
+        # 不可复现）；注入 seed 的 Random 实例 = 抽样路径确定性可复现
+        self._rng = rng or random
 
     def contract_pool(self) -> dict[str, NodeContract]:
         """池子快照：注册表内全部带契约的类型（类型名 → 契约）。"""
@@ -1078,7 +1178,7 @@ class PathAssembler:
             for type_name, contract in pool.items()
         }
 
-    async def _evidence_index(self, domain: str) -> dict[tuple[str, str, str, str, str], EdgeEvidence]:
+    async def _evidence_index(self, domain: str) -> dict[EdgeIndexKey, EdgeEvidence]:
         """边证据索引（一次域内查询；组装全程在内存中计分——百万结点量级
         逐边查询不可行，域内枚举 + 内存索引是规模前提）。
 
@@ -1089,6 +1189,14 @@ class PathAssembler:
         if self._evidence is None:
             return {}
         rows = await self._evidence.list_edges(domain)
+        return self._evidence_index_from_rows(rows)
+
+    @staticmethod
+    def _evidence_index_from_rows(
+        rows: Sequence[EdgeEvidence],
+    ) -> dict[EdgeIndexKey, EdgeEvidence]:
+        """域内证据行 → 内存索引（ENG9a-16：与缓存证据快照共用同一构造——
+        同域证据只查一次，缓存校验与组装评分复用同一份行）。"""
         return {
             (
                 row.src_type,
@@ -1215,11 +1323,15 @@ class PathAssembler:
         self,
         entry: FingerprintCacheEntry,
         stats: dict[str, int],
+        index: dict[str, _ContractView] | None = None,
+        evidence_index: dict[EdgeIndexKey, EdgeEvidence] | None = None,
     ) -> AssemblyResult | None:
         """命中构造：缓存路径图定义重建 → 单候选结果（含图定义，可走 canary）。
 
         重建失败（退化条目仅携指纹/结构损坏）＝ 按未命中处理，不静默
-        返回残缺产物。
+        返回残缺产物。多径信号按全链口径计算（ENG9a-22）：命中路径
+        不再硬编码 False——证据/分差判据与组装侧同源；``index``/
+        ``evidence_index`` 由调用方注入（组装侧已查询，免重复建索引）。
         """
         try:
             graph = Graph.from_dict(
@@ -1246,15 +1358,20 @@ class PathAssembler:
             graph=graph,
             score=score,
         )
+        multipath = False
+        if index is not None and evidence_index is not None:
+            multipath = await self._multipath_signal(
+                candidate, None, index, evidence_index
+            )
         stats[STATS_CACHE_HITS] = stats.get(STATS_CACHE_HITS, 0) + 1
         return AssemblyResult(
             candidates=(candidate,),
             fingerprint=graph_fingerprint(graph),
             cold_start_index=cold_index,
             exploration_mode=is_exploration_mode(cold_index),
-            multipath_signal=False,
+            multipath_signal=multipath,
             llm_attempts=0,
-            stats=stats,
+            stats=dict(stats),
         )
 
     async def _maybe_replace_cache_entry(
@@ -1311,7 +1428,7 @@ class PathAssembler:
         src: str,
         dst: str,
         index: dict[str, _ContractView],
-        evidence_index: dict[tuple[str, str, str, str], EdgeEvidence],
+        evidence_index: dict[EdgeIndexKey, EdgeEvidence],
         stats: dict[str, int],
     ) -> float:
         """边证据分（评分公式复用 edge_evidence；零证据 = 先验下界）。"""
@@ -1419,7 +1536,8 @@ class PathAssembler:
             if ok:
                 return [(chain, CANDIDATE_SOURCE_DRAFT, False)], None
             # 语义偏好 vs 结构可达冲突：先走算法自动修复（实验定稿：重试
-            # 闭环不可靠——模型固执不改，需第三级算法自动修复）
+            # 闭环不可靠——模型固执不改，需第三级算法自动修复）；修复
+            # 搜索参数随信封透传（ENG9a-25：不再无视 envelope 硬编码）
             stats[STATS_REPAIR_ATTEMPTS] = stats.get(STATS_REPAIR_ATTEMPTS, 0) + 1
             repaired = repair_chain(
                 chain,
@@ -1428,6 +1546,8 @@ class PathAssembler:
                 entry_fields=request.entry_fields,
                 max_safety_tier=request.max_safety_tier,
                 state_schema=request.state_schema,
+                beam_width=envelope.beam_width,
+                max_depth=envelope.max_path_length,
             )
             if repaired is not None:
                 ok, _ = validate_chain(
@@ -1452,7 +1572,7 @@ class PathAssembler:
             tuple[tuple[str, ...], str, bool]
         ],
         index: dict[str, _ContractView],
-        evidence_index: dict[tuple[str, str, str, str], EdgeEvidence],
+        evidence_index: dict[EdgeIndexKey, EdgeEvidence],
         stats: dict[str, int],
     ) -> list[tuple[tuple[str, ...], str, bool, float]]:
         """证据评分 + beam top-k：全链边证据分平均值排序（确定性 tie-break）。
@@ -1484,42 +1604,58 @@ class PathAssembler:
         top1: AssemblyCandidate | None,
         top2: AssemblyCandidate | None,
         index: dict[str, _ContractView],
-        evidence_index: dict[tuple[str, str, str, str], EdgeEvidence],
+        evidence_index: dict[EdgeIndexKey, EdgeEvidence],
     ) -> bool:
-        """多径触发信号（判据复用 edge_evidence；只给信号不裁决）。
+        """多径触发信号（全链口径，与排序同基准；只给信号不裁决）。
 
-        取 top-1/top-2 候选收尾边的证据行（None = 零证据）交由
-        :func:`~ink_engine.core.edge_evidence.multi_path_trigger` 判定——
-        样本不足（N<5）或分差不足（<0.15）触发；证据强绝不触发；冷启动
-        因样本不足自然落入触发分支。
+        判据与 multipath 汇流同源（ENG9a-22）：候选证据经
+        :func:`~ink_engine.core.multipath.chain_evidence` 全链聚合——
+        不再只看收尾一条边（此前与排序的全链平均分判据不一致）；
+        样本数 = 全链成败计数合计，分差 = 全链平均分差，触发阈值复用
+        多径判据常数（MULTIPATH_MIN_N/MULTIPATH_GAP，同一公式不另定阈值）。
         """
+        from .edge_evidence import MULTIPATH_GAP, MULTIPATH_MIN_N
+        from .multipath import chain_evidence
 
-        def tail_evidence(candidate: AssemblyCandidate | None) -> EdgeEvidence | None:
-            if candidate is None:
-                return None
-            chain = candidate.chain
-            if len(chain) < 2:
-                return None
-            src, dst = chain[-2], chain[-1]
-            return evidence_index.get(
-                (
-                    src,
-                    dst,
-                    str(index[src].contract.version),
-                    str(index[dst].contract.version),
-                    "",
-                )
-            )
+        if top1 is None or top2 is None:
+            return True
+        # multipath.chain_evidence 索引键 = 4 元类型级口径（src/dst/契约版本对）；
+        # 本模块索引含 variant_hash 维（EdgeIndexKey 5 元）——投影为类型级
+        # 口径再传入（组装侧索引 variant_hash 恒空，投影无损）
+        type_level_index = {
+            (src, dst, src_version, dst_version): row
+            for (src, dst, src_version, dst_version, _variant), row in evidence_index.items()
+        }
+        c1 = chain_evidence(top1, type_level_index)
+        c2 = chain_evidence(top2, type_level_index)
+        n1 = c1.success_total + c1.fail_total
+        n2 = c2.success_total + c2.fail_total
+        if n1 < MULTIPATH_MIN_N or n2 < MULTIPATH_MIN_N:
+            return True
+        s1 = self._chain_average_score(top1, index, evidence_index)
+        s2 = self._chain_average_score(top2, index, evidence_index)
+        return abs(s1 - s2) < MULTIPATH_GAP
 
-        return multi_path_trigger(
-            tail_evidence(top1), tail_evidence(top2), now=self._now
-        )
+    def _chain_average_score(
+        self,
+        candidate: AssemblyCandidate,
+        index: dict[str, _ContractView],
+        evidence_index: dict[EdgeIndexKey, EdgeEvidence],
+    ) -> float:
+        """候选全链平均证据分（与 _rank_chains 同口径：逐边评分取平均）。"""
+        chain = candidate.chain
+        if len(chain) < 2:
+            return 0.0
+        total = 0.0
+        for src, dst in itertools.pairwise(chain):
+            total += self._edge_score_of(src, dst, index, evidence_index, {})
+        return total / (len(chain) - 1)
 
     async def _cold_start_index(
         self,
         chains: Sequence[tuple[tuple[str, ...], str, bool, float]],
         index: dict[str, _ContractView],
-        evidence_index: dict[tuple[str, str, str, str], EdgeEvidence],
+        evidence_index: dict[EdgeIndexKey, EdgeEvidence],
     ) -> float:
         """冷启动指数 = 有证据边数 / 候选边数（候选 0 = 0.0）。"""
         candidate_edges: set[tuple[str, str]] = set()
@@ -1547,9 +1683,14 @@ class PathAssembler:
         request: AssemblyRequest,
         rank: int,
     ) -> Graph:
-        """候选链 → 图定义数据（节点 = 类型绑定 + 契约快照；线性链）。"""
+        """候选链 → 图定义数据（节点 = 类型绑定 + 契约快照；线性链）。
+
+        候选图名 = 域固定名（ENG9a-18）：不再携带 ``rank+1`` 排名——排名
+        变化不改变图身份，同拓扑不同排名不得产出不同图名/不同指纹
+        （Graph.digest 已排除 name 参与指纹，缓存身份按拓扑判定）。
+        """
         graph = Graph(
-            name=request.graph_name or f"assembly.{rank + 1}.{request.domain}",
+            name=request.graph_name or f"assembly.{request.domain}",
             entry=chain[0],
         )
         for name in chain:
@@ -1594,7 +1735,21 @@ class PathAssembler:
         entry: FingerprintCacheEntry | None = None
         comparable = False
         replace_reason: str | None = None
-        evidence_rows: list[dict[str, Any]] = []
+        # 域内证据行只查一次（ENG9a-16）：缓存校验/顶替（evidence_rows）
+        # 与组装评分索引（evidence_index）共用同一份查询结果；None =
+        # 尚未查询（空结果也是已查询态，不再二次查询）
+        evidence_rows: list[dict[str, Any]] | None = None
+        if cache is not None and self._evidence is not None:
+            evidence_rows = [
+                e.to_dict() for e in await self._evidence.list_edges(request.domain)
+            ]
+        index = self._index_pool(pool)
+        if evidence_rows is not None:
+            evidence_index = self._evidence_index_from_rows(
+                [EdgeEvidence.from_dict(row) for row in evidence_rows]
+            )
+        else:
+            evidence_index = await self._evidence_index(request.domain)
         if cache is not None:
             stats.update(
                 {
@@ -1604,10 +1759,6 @@ class PathAssembler:
                     STATS_CACHE_REPLACEMENTS: 0,
                 }
             )
-            if self._evidence is not None:
-                evidence_rows = [
-                    e.to_dict() for e in await self._evidence.list_edges(request.domain)
-                ]
             cache_key = self._cache_key(request, goal)
             entry = await cache.lookup(cache_key)
             if entry is None:
@@ -1625,21 +1776,22 @@ class PathAssembler:
                     # 契约版本/模型钉死失效：降级不命中，不参与顶替
                     entry = None
                     stats[STATS_CACHE_MISSES] = 1
-                elif self._cache_epsilon > 0 and random.random() < self._cache_epsilon:
-                    # ε 抽样重装：绕过缓存重新组装对比（条目保留供顶替对比）
+                elif self._cache_epsilon > 0 and self._rng.random() < self._cache_epsilon:
+                    # ε 抽样重装（ENG9a-20 rng 注入：确定性可复现）：绕过
+                    # 缓存重新组装对比（条目保留供顶替对比）
                     comparable = True
                     replace_reason = REPLACE_REASON_SAMPLE
                     stats[STATS_CACHE_MISSES] = 1
                 else:
-                    hit = await self._result_from_cache(entry, stats)
+                    hit = await self._result_from_cache(
+                        entry, stats, index, evidence_index
+                    )
                     if hit is not None:
                         if self._sink is not None:
                             self._sink(self._audit_record(request, goal, hit))
                         return hit
                     entry = None
                     stats[STATS_CACHE_MISSES] = 1
-        index = self._index_pool(pool)
-        evidence_index = await self._evidence_index(request.domain)
         # ① schema 反推（纯算法，全量搜索——无需上下文，池子规模解耦）
         algorithm_chains = _forward_search(
             goal,
@@ -1654,6 +1806,7 @@ class PathAssembler:
                 )
             ),
             stats=stats,
+            views=index,
         )
         chains: list[tuple[tuple[str, ...], str, bool]] = [
             (chain, CANDIDATE_SOURCE_ALGORITHM, False) for chain in algorithm_chains
@@ -1676,7 +1829,7 @@ class PathAssembler:
             return AssemblyResult(
                 fallback_reason=fallback_reason or "算法层未解出目标覆盖链",
                 llm_attempts=llm_attempts,
-                stats=stats,
+                stats=dict(stats),
             )
         # 候选合法性兜底过滤（搜索/修复已保证，此处为序列化红线的最终防线：
         # 产物候选必须全链合法——未知/重复/翻档/缺口一律不得进入候选清单）
@@ -1689,6 +1842,7 @@ class PathAssembler:
                 entry_fields=request.entry_fields,
                 max_safety_tier=request.max_safety_tier,
                 state_schema=request.state_schema,
+                views=index,
             )
             if ok:
                 pairs.append((chain, source, repaired))
@@ -1696,7 +1850,7 @@ class PathAssembler:
             return AssemblyResult(
                 fallback_reason=fallback_reason or "全部候选未通过合法性校验",
                 llm_attempts=llm_attempts,
-                stats=stats,
+                stats=dict(stats),
             )
         # ③ 证据评分 + beam top-k（确定性序）
         ranked = await self._rank_chains(pairs, index, evidence_index, stats)
@@ -2341,9 +2495,11 @@ __all__ = [
     "CanaryVerdict",
     "CandidateStorage",
     "DraftProvider",
+    "EdgeIndexKey",
     "InMemoryPoolRetriever",
     "NodeSummary",
     "PathAssembler",
+    "PathAssemblyResult",
     "PathAssemblyRuntime",
     "add_branch",
     "assemble_plan",

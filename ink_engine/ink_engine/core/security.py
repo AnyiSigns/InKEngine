@@ -130,8 +130,14 @@ def strip_sensitive(value: Any) -> Any:
     if isinstance(value, tuple):
         out = tuple(strip_sensitive(item) for item in value)
         return out if any(o is not v for o, v in zip(out, value, strict=True)) else value
+    if isinstance(value, frozenset):
+        # frozenset 保持集合类型（ENG6-14）：剥离不漂移类型——frozenset
+        # 输入返回 frozenset，set 输入返回 set（同型返回，恒等时零拷贝）
+        out = frozenset(strip_sensitive(item) for item in value)
+        return out if out != value else value
     if isinstance(value, set):
-        return {strip_sensitive(item) for item in value}
+        out = {strip_sensitive(item) for item in value}
+        return out if out != value else value
     return value
 
 

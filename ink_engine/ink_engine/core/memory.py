@@ -21,9 +21,23 @@ from dataclasses import dataclass, field
 from typing import Any, Protocol, runtime_checkable
 
 from .logging import get_logger
+from .source_grading import (  # 来源分级单源（ENG3-19：与知识/检索统一分级类型）
+    _SOURCE_CREDIBILITY,
+)
 from .storage import Storage
 
 logger = get_logger(__name__)
+
+# 来源分级 → 默认召回权重（复用 source_grading 分级基准；ENG3-19）
+# 记忆来源取值宿主语义，但当来源落在统一分级词汇表（web/dialog/
+# model/user）内时，默认权重 = 该级可信度基准——与知识条目
+# credibility、检索 chunk level 同源同口径；词汇表外来源回落中性
+# 1.0（非可信度语义的来源不套用分级）
+SOURCE_WEIGHT_BY_SOURCE: dict[str, float] = dict(_SOURCE_CREDIBILITY)
+
+# per-key 锁表上限（ENG3-6：锁字典随 entry_id 无限增长的内存泄漏防护——
+# 超限时先驱逐空闲锁（未持有者），仍超限则放弃缓存直接新建）
+_MAX_LOCK_ENTRIES = 4096
 
 
 @dataclass(frozen=True, slots=True)
@@ -39,6 +53,9 @@ class MemoryEntry:
         source: 来源（宿主语义，如 "decision"/"domain_window"/"self_reflection"）。
         priority: 优先级（数值大优先，召回排序用）。
         weight: 召回权重（相关度维度，确定性召回外的调酒师融合用）。
+            来源落在统一分级词汇表（source_grading.SOURCE_*）内时，
+            未显式声明的权重默认 = 该级可信度基准（ENG3-19：来源/权重
+            概念与知识集、检索同一套分级类型）。
         meta: 业务元数据（宿主语义，如 domain/related_entity_id/...）。
         created_at: 创建时间戳（epoch 秒）。
         expires_at: 失效时间戳（None = 不过期；时效失效策略用）。
@@ -55,6 +72,14 @@ class MemoryEntry:
     meta: dict[str, Any] = field(default_factory=dict)
     created_at: float = field(default_factory=time.time)
     expires_at: float | None = None
+
+    def __post_init__(self) -> None:
+        # 来源权重统一（ENG3-19）：来源落在统一分级词汇表内且权重未
+        # 显式声明（= 中性默认 1.0）时，按该级可信度基准定默认权重。
+        # 显式声明的权重优先（显式 1.0 与默认不可区分，同按分级基准
+        # 覆盖——需要中性权重的分级来源可显式用词汇表外来源名）
+        if self.weight == 1.0 and self.source in SOURCE_WEIGHT_BY_SOURCE:
+            object.__setattr__(self, "weight", SOURCE_WEIGHT_BY_SOURCE[self.source])
 
     def is_expired(self, now: float | None = None) -> bool:
         if self.expires_at is None:
@@ -162,16 +187,39 @@ class StorageBackedMemoryStore:
     并发：update/delete 为读-改-写两段操作，本实现以进程内 per-key 锁
     串行化（asyncio 单进程内安全）；跨进程并发写仍需宿主在业务层
     串行化（存储抽象不提供跨进程事务级合并）。
+
+    查询语义（ENG3-7）：过滤（namespace/kind/source/时效）与召回排序
+    （priority 降序 + created_at 降序 + limit 截断）统一在存储边界完成
+    ——调用方取回即终态，不再二次 recall 排序；召回策略可注入
+    （``recall_policy``，默认 :class:`PriorityRecallPolicy`），策略判据
+    单点维护（存储层与协议层不重复实现同一排序）。
     """
 
-    def __init__(self, storage: Storage, collection: str = "memory") -> None:
+    def __init__(
+        self,
+        storage: Storage,
+        collection: str = "memory",
+        *,
+        recall_policy: MemoryRecallPolicy | None = None,
+    ) -> None:
         self._storage = storage
         self._collection = collection
         self._locks: dict[str, asyncio.Lock] = {}
+        self._recall = recall_policy or PriorityRecallPolicy()
 
     def _lock_for(self, entry_id: str) -> asyncio.Lock:
         lock = self._locks.get(entry_id)
         if lock is None:
+            if len(self._locks) >= _MAX_LOCK_ENTRIES:
+                # 有界防护（ENG3-6）：超限先驱逐空闲锁（未持有者）——
+                # 持有中的锁驱逐会破坏并发串行化，不驱逐
+                idle = [
+                    eid
+                    for eid, existing in self._locks.items()
+                    if not existing.locked()
+                ]
+                for eid in idle[:_MAX_LOCK_ENTRIES // 2]:
+                    self._locks.pop(eid, None)
             lock = self._locks[entry_id] = asyncio.Lock()
         return lock
 
@@ -205,29 +253,37 @@ class StorageBackedMemoryStore:
                 return False
             rec = {**rec, "_deleted": True}
             await self._storage.put_record(self._collection, entry_id, rec)
+            # 删除后移除锁（ENG3-6：失效条目不再占用锁表；后续同 id
+            # 重建走新锁，无状态残留）
+            self._locks.pop(entry_id, None)
             return True
 
     async def query(self, q: MemoryQuery) -> list[MemoryEntry]:
+        # 过滤（namespace/kind/source/时效）+ 召回排序统一在存储边界
+        # 完成（ENG3-7）：取回即终态，调用方不再二次 recall 排序——
+        # 排序判据单点维护在 recall_policy（与协议层同判据不重复）。
+        # 过滤仍在内存执行（存储协议只有 list_records 全量原语；下推
+        # 到 sqlite WHERE 属存储层演进，见 storage* 模块归属）
         recs = await self._storage.list_records(self._collection)
-        entries = [_record_to_entry(r) for r in recs if not r.get("_deleted")]
-        if q.namespace is not None:
-            entries = [e for e in entries if e.namespace == q.namespace]
-        if q.kind is not None:
-            entries = [e for e in entries if e.kind == q.kind]
-        if q.source is not None:
-            entries = [e for e in entries if e.source == q.source]
-        # 过期过滤与 recall 保持一致，避免返回已失效条目。规模边界：
-        # 存储层未下推过滤（全量拉取后在内存按条件过滤），条目规模受
-        # 集合大小约束；下推过滤属大改，本次仅补过期过滤
         now = time.time()
-        entries = [e for e in entries if not e.is_expired(now)]
-        entries.sort(key=lambda e: (e.priority, e.created_at), reverse=True)
-        if q.limit is not None:
-            entries = entries[: q.limit]
-        return entries
+        alive: list[MemoryEntry] = []
+        for rec in recs:
+            if rec.get("_deleted"):
+                continue
+            entry = _record_to_entry(rec)
+            if q.namespace is not None and entry.namespace != q.namespace:
+                continue
+            if q.kind is not None and entry.kind != q.kind:
+                continue
+            if q.source is not None and entry.source != q.source:
+                continue
+            if not entry.is_expired(now):
+                alive.append(entry)
+        return self._recall.recall(alive, limit=q.limit)
 
 
 __all__ = [
+    "SOURCE_WEIGHT_BY_SOURCE",
     "MemoryEntry",
     "MemoryQuery",
     "MemoryRecallPolicy",

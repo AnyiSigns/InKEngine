@@ -53,7 +53,8 @@ STATE_PENDING = "pending"
 MAX_TOOL_ROUNDS = 8
 # 工具结果回填消息流的截断上限（上下文体积有界）
 TOOL_RESULT_MAX_CHARS = 4000
-# 组装回环上限（候选执行失败 → 修复算子重组装的重试轮数）
+# 组装轮次上限（候选展开执行的轮数护栏：超限回落默认规划；ENG9a-23——
+# 无失败回环，本值只护栏候选重复展开，不承载「失败重试」语义）
 ASSEMBLY_MAX_ROUNDS = 2
 
 # llm_decider 回环条件边名（graph.json 引用；判定见 register_node_types）
@@ -491,9 +492,11 @@ def make_assembler_factory(
          子图展开执行，回合步骤参数随实例透传）；
        - 零候选/组装未装配 → 回落默认研究链规划（__plan__ 既有
          数据形态，前端零改动）；
-    3. 失败回环：候选执行失败信号（state.assembly_failed）→ 条件边
-       回本节点重试（修复算子重组装，ASSEMBLY_MAX_ROUNDS 上限），
-       回环轮次经 state.assembly_rounds 计数。
+    3. 组装轮次护栏：assembly_rounds 随每次候选执行展开递增，超
+       max_rounds 后回落默认规划——注意：无「候选失败 → 回本节点
+       重试」的失败回环（graph.json 无回边、无 assembly_failed 信号
+       生产点，ENG9a-23 已删此前的错误声称；候选执行失败由工具流水
+       线失败语义承载，本轮结束回落兜底）。
     """
     plan_steps = tuple(node.id for node in workflow.nodes)
 

@@ -134,3 +134,30 @@ class _FakeLLM:
 
     async def aclose(self) -> None:
         pass
+
+
+def test_explicit_empty_tier_config_not_fallback():
+    """ENG3-11 回归：显式空配置（{}）不被 or 回退到主挡位。
+
+    显式空 = 该挡位显式声明无配置（config=None），与缺失键（回退
+    main_config）区分——None 哨兵语义。
+    """
+    cfg = {
+        "main_config": {"adapter": "openai_compat", "model_id": "main"},
+        "router_config": {},
+    }
+    tc = resolve_tier_config(cfg, "router")
+    assert tc.config is None  # 显式空配置 = 无配置（不回退 main）
+    assert tc.tier == "router"
+    # 缺失键 = 回退 main（与显式空区分）
+    cfg_missing = {"main_config": {"adapter": "openai_compat", "model_id": "main"}}
+    tc_missing = resolve_tier_config(cfg_missing, "router")
+    assert tc_missing.config == cfg_missing["main_config"]
+    # 显式空备用列表同样不被 or 回退到嵌套形态
+    cfg2 = {
+        "main_config": {"adapter": "openai_compat", "model_id": "main"},
+        "router_config": {"adapter": "openai_compat", "model_id": "router"},
+        "router_fallback_configs": [],
+    }
+    tc2 = resolve_tier_config(cfg2, "router")
+    assert tc2.fallbacks == ()

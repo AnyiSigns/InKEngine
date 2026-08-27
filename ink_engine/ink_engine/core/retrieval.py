@@ -19,21 +19,19 @@ from typing import Any, Protocol, runtime_checkable
 
 from .exceptions import GraphDefinitionError
 from .knowledge_gate import scan_text_injection
-from .knowledge_set import _SOURCE_CREDIBILITY, KnowledgeSet
+from .knowledge_set import KnowledgeSet
+from .source_grading import (  # 来源分级单源（ENG3-4：与知识集共享，不再各自定义）
+    _SOURCE_CREDIBILITY,
+    SOURCE_DIALOG,
+    SOURCE_MODEL,
+    SOURCE_ORDER,
+    SOURCE_USER,
+    SOURCE_WEB,
+)
 
-# 检索源可信度分级（与知识闸门对齐：web < dialog < model < user）
-SOURCE_WEB = "web"
-SOURCE_DIALOG = "dialog"
-SOURCE_MODEL = "model"
-SOURCE_USER = "user"
-
-# 来源分级权重（合并排序时同 relevance 的分级次序依据）
-_LEVEL_ORDER: dict[str, int] = {
-    SOURCE_WEB: 0,
-    SOURCE_DIALOG: 1,
-    SOURCE_MODEL: 2,
-    SOURCE_USER: 3,
-}
+# 来源分级次序（SOURCE_ORDER 的查表形态；单源派生的分级权重，与
+# 知识集/记忆同口径——ENG3-4/ENG3-19）
+_LEVEL_RANK: dict[str, int] = {name: index for index, name in enumerate(SOURCE_ORDER)}
 
 # 注册表默认配额（防检索源无限膨胀；宿主可参数化）
 DEFAULT_MAX_RETRIEVERS = 32
@@ -130,6 +128,13 @@ class RetrieverRegistry:
             limit: 返回条数上限（钳制 [1, MAX_LIMIT]）。
             levels: 允许的可信度分级（None = 全部分级放行；注入防线
                 可只放行 model/user 级来源，拦截 web/dialog 检索注入）。
+
+        每源配额语义（ENG3-10）：``limit`` 是**每源取回上限**——各源
+        均以该上限并行取回（``retriever.retrieve(query, limit=capped)``），
+        合并后仍以同一上限全局截断。即单源配额 = 全局上限（不是
+        limit/源数）：多源场景下低相关源不会因高相关源占满全局配额
+        而整体挤出，但全局截断仍保证注入体积有界（每源取回可能
+        多余实际消费，由全局截断兜底）。
         """
         capped = max(1, min(int(limit or 1), MAX_LIMIT))
         merged: list[RetrievedChunk] = []
@@ -149,7 +154,7 @@ class RetrieverRegistry:
         merged.sort(
             key=lambda chunk: (
                 chunk.relevance,
-                _LEVEL_ORDER.get(chunk.level, -1),
+                _LEVEL_RANK.get(chunk.level, -1),
             ),
             reverse=True,
         )

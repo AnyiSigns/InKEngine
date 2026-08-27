@@ -49,3 +49,11 @@ def test_general_seed_serialization_roundtrip():
     for entry in build_general_seed_entries():
         rebuilt = type(entry).from_dict(entry.to_dict())
         assert rebuilt == entry
+
+
+def test_seed_credibility_derived_from_grading_table():
+    """ENG3-15 回归：种子可信度 = 统一来源分级表最高档（用户确认级 0.9）。"""
+    from ink_engine.core.seeds import SEED_CREDIBILITY, build_general_seed_entries
+
+    assert SEED_CREDIBILITY == 0.9
+    assert all(e.credibility == SEED_CREDIBILITY for e in build_general_seed_entries())

@@ -313,6 +313,36 @@ class Builder:
             ok=ok, output=result.stdout, exit_code=result.exit_code
         )
 
+    async def build_and_verify(
+        self, spec: BuildSpec, probe: SmokeProbe
+    ) -> BuildArtifact:
+        """构建 + 冒烟强制门禁的统一上线入口（ENG6-13）。
+
+        build 与 smoke 分离时宿主漏 smoke 即 promote——本入口把冒烟
+        变成不可跳过的环节：产物必须过冒烟门禁（启动/连通/回归）才算
+        可上线；冒烟失败 = 抛 :class:`BuildError`（产物目录保留供排查，
+        不产出自称成功的记录，调用方留痕后按失败处理）。
+
+        Args:
+            spec: 构建声明。
+            probe: 冒烟探针（产物上下文内执行）。
+
+        Returns:
+            通过冒烟门禁的构建产物（可直接 promote/挂载）。
+
+        Raises:
+            BuildError: 构建失败或冒烟未通过。
+        """
+        artifact = await self.build(spec)
+        result = await self.smoke(artifact, probe)
+        if not result.ok:
+            detail = (
+                f"冒烟超时（>{probe.timeout}s）" if result.timed_out
+                else f"冒烟未通过（exit={result.exit_code}，期望 {probe.expect_exit}）"
+            )
+            raise BuildError(f"{detail}: {result.output[:300]}")
+        return artifact
+
     def verify_hash(self, artifact: BuildArtifact, name: str, digest: str) -> bool:
         """哈希校验（部署/回退前强制门禁）：产物目录内文件与声明一致。"""
         declared = artifact.files.get(name)

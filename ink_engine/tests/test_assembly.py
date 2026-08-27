@@ -990,3 +990,63 @@ def test_input_assembler_feeds_aggregator():
     assembler2.assemble(tools, total_budget=300)
     summary2 = aggregator2.snapshot()
     assert summary2.total_refs <= 1  # 被裁剪的工具不计激活
+
+
+
+def test_pool_boundary_rollback_drops_whole_blocks():
+    """ENG9a-14 回归：粘合开销超预算按源块边界回退丢整块（不切半句）。
+
+    各分级池分别填满后拼接超出总预算时，尾部整块被丢弃（源块边界），
+    被丢块的激活留痕改写为 drop 归因；保留块文本不被硬截断。
+    """
+    config = AssemblyConfig(
+        total_budget=600,
+        context_ratio=0.34,
+        knowledge_ratio=0.33,
+        tool_ratio=0.33,
+        memory_ratio=0.0,
+        evidence_ratio=0.0,
+    )
+    assembler = InputAssembler(config)
+    sources = [
+        _source(SOURCE_CONTEXT, "对话历史块 " * 50, weight=1.0, relevance=1.0),
+        _source(SOURCE_KNOWLEDGE, "知识条目块 " * 50, weight=1.0, relevance=1.0),
+        _source(SOURCE_TOOL, "工具定义块 " * 50, weight=1.0, relevance=1.0),
+    ]
+    result = assembler.assemble(sources, total_budget=600)
+    assert len(result.text) <= 600
+    # 回退 = 整块丢弃：保留块均为完整块文本（无半句截断残留）
+    for block in result.text.split("\n\n"):
+        assert block
+    dropped = [
+        s
+        for s in result.record.sources
+        if s.mode == "drop" and "全局预算回退" in s.note
+    ]
+    assert result.record.truncated_chars > 0
+    assert dropped  # 被丢块留痕归因（char_limit 置 0）
+    for s in dropped:
+        assert s.char_limit == 0
+
+
+def test_assembly_result_rename_distinct_from_path_assembler():
+    """ENG9a-24 回归：同包两个 AssemblyResult 同名异义已消除。
+
+    assembly.InputAssemblyResult（输入调配产物）与
+    path_assembler.PathAssemblyResult（路径组装结果）为两个独立类型，
+    旧名 AssemblyResult 仅为兼容别名（executor/multipath 消费方沿用）。
+    """
+    from ink_engine.core.assembly import AssemblyResult as InputAlias
+    from ink_engine.core.assembly import InputAssemblyResult
+    from ink_engine.core.path_assembler import AssemblyResult as PathAlias
+    from ink_engine.core.path_assembler import PathAssemblyResult
+
+    assert InputAssemblyResult is InputAlias
+    assert PathAssemblyResult is PathAlias
+    assert InputAssemblyResult is not PathAssemblyResult
+    assert InputAssemblyResult.__name__ == "InputAssemblyResult"
+    assert PathAssemblyResult.__name__ == "PathAssemblyResult"
+    text_result = InputAssemblyResult(
+        text="x", record=ActivationRecord(total_budget=1, assembled_chars=1)
+    )
+    assert text_result.text == "x"

@@ -464,7 +464,9 @@ async def test_cache_hit_returns_cached_path_without_search():
     assert candidate.chain == first.candidates[0].chain
     assert candidate.graph.digest() == first.candidates[0].graph.digest()
     assert second.fingerprint == first.fingerprint
-    assert second.multipath_signal is False  # 已证路径不再探索
+    # 多径信号 = 全链口径（ENG9a-22）：命中路径不再硬编码 False——单
+    # 候选（top-2 缺失 = 样本不足判据）与组装侧同判据，恒触发
+    assert second.multipath_signal is True
     await evidence.close()
     await store.close()
 

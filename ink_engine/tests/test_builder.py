@@ -174,3 +174,33 @@ def test_artifact_roundtrip() -> None:
     assert restored == artifact
     with pytest.raises(GraphDefinitionError, match="artifact_id"):
         BuildArtifact.from_dict({"kind": "x"})
+
+
+async def test_build_and_verify_passes_when_smoke_ok(builder, tmp_path):
+    """ENG6-13 回归：build_and_verify = 构建 + 冒烟强制门禁统一入口。
+
+    冒烟通过 → 返回可 promote 产物；冒烟失败 → BuildError（宿主漏
+    smoke 即上线的缺口关闭）。
+    """
+    source = tmp_path / "src"
+    source.mkdir()
+    (source / "main.py").write_text("print('hello')\n", encoding="utf-8")
+    spec = BuildSpec(
+        kind=BuildKind.PYTHON_PACKAGE,
+        command="python",
+        args=("-c", "print('built')"),
+        workdir=source,
+        timeout=30.0,
+        output_paths=("main.py",),
+    )
+    artifact = await builder.build_and_verify(
+        spec,
+        SmokeProbe(command="python", args=("-c", "print('ok')"), timeout=30.0),
+    )
+    assert artifact.artifact_id
+    # 冒烟失败 → 整体拒绝（构建产物保留但不产出自称成功的记录）
+    with pytest.raises(BuildError, match="冒烟"):
+        await builder.build_and_verify(
+            spec,
+            SmokeProbe(command="python", args=("-c", "import sys; sys.exit(3)"), timeout=30.0),
+        )

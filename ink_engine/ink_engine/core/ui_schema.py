@@ -184,6 +184,13 @@ class UISpec:
 class UISchemaValidator:
     """界面描述校验器（结构 + 三层白名单；纯函数无状态，可作模块级复用）。
 
+    .. note:: 调用时机强制确认（ENG6-12）：本校验器在四条落点强制接线——
+        ① 装配基线（runtime boot 对 recipe.ui_spec 校验，违规回落未定形）；
+        ② 集状态恢复（runtime._restore_set_state，链态界面生效前校验）；
+        ③ 提案校验（ProposalValidator 对 UI 补丁在落链前校验）；
+        ④ 壳侧活跃态生效（live_apply 的 UiApplyTarget 应用前校验）。
+        界面补丁落地前必经校验链，无「先落库后校验」路径。
+
     校验语义（违规清单可读可审计，闸门失败原因可直接展示）：
     - 结构：root 存在、kind 合法、component 不携带 children；
     - 组件白名单：component.type ∈ allowed_components（未注册 = 违规）；

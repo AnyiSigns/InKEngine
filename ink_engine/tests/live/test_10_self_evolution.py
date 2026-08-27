@@ -492,7 +492,7 @@ async def test_real_llm_generates_self_proposal(live_llm) -> None:
 
     tool_prompt = (
         "只输出一个 JSON 对象，不要任何解释或代码围栏："
-        '{"kind":"tool","payload":{"name":"lookup_example",'
+        '{"kind":"tool","payload":{"name":"lookupdata",'
         '"description":"查询示例数据","permissions":["filesystem:read:/data"],'
         '"endpoint":"file_ops","endpoint_config":{"root":"/data"}}}。'
     )
@@ -511,7 +511,31 @@ async def test_real_llm_generates_self_proposal(live_llm) -> None:
 
 
 def _parse_proposal(text: str, kind: PatchKind, base_version: int = 1) -> SelfProposal:
-    match = re.search(r"\{.*\}", text, re.DOTALL)
-    data = json.loads(match.group(0))
+    """模型输出 → SelfProposal（宽容解析 + 失败留痕）。
+
+    E-P8 门禁回归：模型对「只输出 JSON」指令可能带代码围栏/前后文散文
+    ——围栏剥离后取首个花括号块解析；JSON 不可解析 = 显式失败并回显
+    模型原文（门禁失败可诊断，不裸 AttributeError/JSONDecodeError）。
+    """
+    body = (text or "").strip()
+    body = re.sub(r"^```(?:json)?\s*|\s*```$", "", body, flags=re.MULTILINE)
+    match = re.search(r"\{.*\}", body, re.DOTALL)
+    if match is None:
+        pytest.fail(f"模型输出无可解析 JSON 对象（原文: {body[:200]!r}）")
+    try:
+        data = json.loads(match.group(0))
+    except ValueError as exc:
+        pytest.fail(f"模型输出 JSON 解析失败: {exc}（原文: {body[:200]!r}）")
     payload = data.get("payload", {})
     return SelfProposal(kind=kind, payload=payload, base_version=base_version)
+
+
+def test_parse_proposal_tolerates_fenced_json() -> None:
+    """宽容解析回归：代码围栏包裹的模型输出可正常解析（E-P8）。"""
+    raw = '```json\n{"kind": "theme", "payload": {"tokens": {"bg": "#112233"}}}\n```'
+    proposal = _parse_proposal(raw, PatchKind.THEME)
+    assert proposal.kind is PatchKind.THEME
+    assert proposal.payload["tokens"]["bg"] == "#112233"
+    # 花括号块不可解析 = 显式失败并回显原文（门禁失败可诊断）
+    with pytest.raises(pytest.fail.Exception, match="JSON 解析失败"):
+        _parse_proposal('{"a": 未加引号}', PatchKind.THEME)

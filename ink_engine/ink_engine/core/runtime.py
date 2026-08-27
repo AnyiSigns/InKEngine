@@ -32,7 +32,7 @@ from typing import Any, Protocol, runtime_checkable
 
 from .approval import InterruptPolicy
 from .assembly import SOURCE_EVIDENCE, AssemblyConfig
-from .context import ContextSource
+from .context import CompressionPolicy, ContextSource, ThresholdCompressionPolicy
 from .declarative_tools import endpoint_operation, endpoint_operation_failure_reason
 from .event_types import EventTypeRegistry, EventTypeSpec
 from .events import EngineTransport
@@ -53,6 +53,7 @@ from .knowledge_set import (
     build_knowledge_sources,
 )
 from .llm import AsyncLLM
+from .llm.guard import CompressingLLM, UsageTrackingLLM
 from .llm.tools import ToolSpec
 from .logging import get_logger
 from .mcp_client import McpClientManager, register_mcp_executor
@@ -202,6 +203,10 @@ class AssemblyRecipe:
         run_options: 执行域选项覆盖（None = 引擎默认；非 None 时按字段
             级覆盖装配默认——plan_policy/plan_workflow/budget/evaluator
             等执行约束经此注入，装配产物字段由 Runtime 注入不建议覆盖）。
+        compress_policy: 回合内上下文压缩策略（D5；None = 引擎默认
+            :class:`ThresholdCompressionPolicy`，30 条 / 40000 字符——
+            仅极端膨胀回合触发）。回合 LLM 调用前经
+            :class:`~ink_engine.core.llm.guard.CompressingLLM` 应用。
     """
 
     set_id: str = "default"
@@ -226,6 +231,8 @@ class AssemblyRecipe:
     on_reverted: Callable[[int, str], Any] | None = None
     convergence_provider: Callable[[], ConvergenceHook | None] | None = None
     run_options: RunOptions | None = None
+    # 回合内上下文压缩策略（None = 引擎默认 ThresholdCompressionPolicy）
+    compress_policy: CompressionPolicy | None = None
 
 
 class Runtime:
@@ -530,11 +537,12 @@ class Runtime:
         self._state = RuntimeState.RUNNING
 
     async def stop(self) -> None:
-        """关停（幂等）：拒新 → 等在途完成 → 关 MCP 会话 → 关存储 →
-        宿主关停钩子。顺序保证优雅退出时远端会话先于存储被显式关闭。
+        """关停（幂等）：拒新 → 等在途完成 → 关 MCP 会话 → 关 LLM 链 →
+        关存储 → 宿主关停钩子。顺序保证优雅退出时远端会话与模型连接先于
+        存储被显式关闭。
 
         故障隔离：各关停步骤独立 try/except——任一步失败不跳过后续
-        清理（MCP→存储→宿主钩子全部尽力关闭），失败仅记日志。
+        清理（MCP→LLM→存储→宿主钩子全部尽力关闭），失败仅记日志。
         """
         if self._state in (RuntimeState.UNINITIALIZED, RuntimeState.STOPPED):
             return
@@ -546,6 +554,13 @@ class Runtime:
                 await self.mcp_manager.close_all()
             except Exception as exc:
                 logger.warning("MCP 会话关闭失败（继续后续清理）: %s", exc)
+        if self.engine_llm is not None:
+            try:
+                # LLM 链显式关闭（ENG4-C7）：httpx 长连接/重载残留不再
+                # 依赖 GC 回收；关停失败只记日志不阻断后续清理
+                await self.engine_llm.aclose()
+            except Exception as exc:
+                logger.warning("LLM 链关闭失败（继续后续清理）: %s", exc)
         if self.storage is not None:
             try:
                 await self.storage.close()
@@ -787,9 +802,34 @@ class Runtime:
         spec_key = tuple(sorted(spec.name for spec in specs))
         if self.engine is not None and self.engine_llm is llm and self.storage is self._engine_storage and spec_key == self._engine_spec_key:
             return self.engine
+        # 引擎重建前显式关闭旧 LLM 链（ENG4-C7）：模型变更时旧链的
+        # httpx 连接池随引用替换悬置，长会话/重载会残留连接——关闭
+        # 失败只记日志不阻断重建（重建语义优先，清理是增强）
+        if self.engine_llm is not None and self.engine_llm is not llm:
+            try:
+                await self.engine_llm.aclose()
+            except Exception as exc:
+                logger.warning("旧 LLM 链关闭失败（继续重建）: %s", exc)
+        # LLM 链守卫包装（用量闭环 + 回合内压缩）：节点消费的 llm =
+        # 包装后的实例——usage 帧进结点成本账与 llm_usage 指标事件
+        # （ENG4-C3/C4），调用前按压缩策略折叠历史（D5）。engine_llm
+        # 保持宿主原始实例（重建缓存身份比较不变），包装器随引擎装配
+        guard_llm = None
+        if llm is not None:
+            compress_policy = self._recipe.compress_policy
+            guard_llm = UsageTrackingLLM(
+                CompressingLLM(
+                    llm,
+                    policy=(
+                        compress_policy
+                        if compress_policy is not None
+                        else ThresholdCompressionPolicy()
+                    ),
+                )
+            )
         recipe = self._recipe
         context = GraphRecipeContext(
-            llm=llm,
+            llm=guard_llm,
             tool_pipeline=self.tool_pipeline,
             tool_specs=specs,
             storage=self.storage,

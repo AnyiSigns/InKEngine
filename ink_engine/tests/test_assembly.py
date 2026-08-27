@@ -476,6 +476,56 @@ async def test_executor_ctx_assemble_wiring(memory_storage, transport):
     assert kinds == {SOURCE_CONTEXT, SOURCE_KNOWLEDGE}
 
 
+async def test_executor_input_assembly_event_trimmed(memory_storage, transport):
+    """input_assembly 事件体裁剪（D5 事件降频）：高源数事件负载有界。
+
+    回归：修复前事件携带全量源元数据（高源数下事件流体积可观）；修复
+    后保留条数上限 + 标题截断——被裁条目以 sources_more 计数，可回放
+    审计性不受影响。
+    """
+    from ink_engine.core.context import ContextSource as CS
+    from ink_engine.core.executor import (
+        _INPUT_ASSEMBLY_EVENT_MAX_SOURCES,
+        RunOptions,
+    )
+    from ink_engine.core.graph import Graph
+
+    long_title = "长" * 500
+
+    async def plan(ctx):
+        sources = []
+        for i in range(40):
+            sources.append(
+                CS(type=SOURCE_CONTEXT, content=f"源{i}", title=f"{long_title}-{i}")
+            )
+        await ctx.assemble(sources, total_budget=100000)
+        return {"assembled": True}
+
+    graph = Graph(name="trim", entry="plan")
+    graph.add_node("plan", plan)
+    graph.add_exit("plan")
+    engine = Engine(
+        graph,
+        options=RunOptions(
+            storage=memory_storage,
+            transports=[transport],
+            assembly=AssemblyConfig(total_budget=100000),
+        ),
+    )
+    _, result = await engine._execute(
+        state={}, thread_id="t1", round_id=None, resume_from=None,
+        trace_id="trace", queue=None,
+    )
+    assert result.reason == "reply"
+    events = [e for e in transport.events if e.type == "input_assembly"]
+    assert len(events) == 1
+    record = events[0].payload["record"]
+    sources = record["sources"]
+    assert len(sources) == _INPUT_ASSEMBLY_EVENT_MAX_SOURCES  # 条数上限生效
+    assert record["sources_more"] == 40 - _INPUT_ASSEMBLY_EVENT_MAX_SOURCES
+    assert all(len(s["title"]) <= 200 for s in sources)  # 长标题截断
+
+
 async def test_executor_ctx_assemble_disabled_fallback(memory_storage):
     """一键开关：装配未启用时 ctx.assemble 抛错（调用点回退旧路径）。"""
     from ink_engine.core.executor import RunOptions

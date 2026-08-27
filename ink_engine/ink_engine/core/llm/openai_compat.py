@@ -37,22 +37,22 @@ from ink_engine.core.llm.errors import (
     classify_llm_error,
     is_transient_llm_error,
 )
+from ink_engine.core.llm.fallback import RetryPolicy
 from ink_engine.core.llm.messages import Message, ToolCall
 from ink_engine.core.llm.tools import ToolSpec, to_openai_tools
 
 DEFAULT_REQUEST_TIMEOUT = 120.0
 
-# 瞬时故障指数退避重试（429/503/超时/网络/空流等）：最多 3 次尝试
-# （1 原始 + 2 重试），退避 1s→2s→4s（指数封顶），吸收网关抖动与限流
-# 尖峰；确定性失败（认证/404/400）不重试，fail-closed 语义不变。
-_LLM_RETRY_MAX_ATTEMPTS = 3
+# 重试唯一权威（ENG4-C1）：适配器默认单次尝试，瞬时故障重试归挡位链
+# （fallback.RetryPolicy）统一负责——双重重试叠加（3×3=9 请求）已消除；
+# 独立直用适配器可注入 retry 策略（构造参数）按需开重试。
 _LLM_RETRY_BASE_DELAY = 1.0
 _LLM_RETRY_MAX_DELAY = 4.0
 
 
-async def _retry_backoff(attempt: int) -> None:
+async def _retry_backoff(policy: RetryPolicy, attempt: int) -> None:
     """瞬时故障重试前的指数退避（attempt = 已失败次数，0 起）。"""
-    delay = min(_LLM_RETRY_BASE_DELAY * (2**attempt), _LLM_RETRY_MAX_DELAY)
+    delay = min(policy.base_delay * (2**attempt), policy.max_delay)
     await asyncio.sleep(delay)
 
 # 兼容端点常见但非标准的推理字段（DeepSeek/DashScope qwq 等）
@@ -108,10 +108,26 @@ class OpenAICompatibleLLM(AsyncLLM):
 
     adapter = "openai_compat"
 
-    def __init__(self, config: LLMConfig, *, transport: httpx.AsyncBaseTransport | None = None) -> None:
+    def __init__(
+        self,
+        config: LLMConfig,
+        *,
+        transport: httpx.AsyncBaseTransport | None = None,
+        retry: RetryPolicy | None = None,
+    ) -> None:
+        """构造适配器。
+
+        Args:
+            config: 模型接入配置。
+            transport: 测试注入（MockTransport）；None = 生产默认。
+            retry: 重试策略（ENG4-C1：None = 单次尝试不重试——重试归
+                挡位链 ModelChain.RetryPolicy 唯一权威，防双重重试叠加；
+                独立直用适配器时按需注入策略开重试）。
+        """
         super().__init__(config)
         self._transport = transport  # 测试注入（MockTransport）；None = 生产默认
         self._client: httpx.AsyncClient | None = None  # 惰性长生命周期 client（连接池复用）
+        self._retry = retry
 
     # ------------------------------------------------------------------
     # 请求构造
@@ -298,7 +314,8 @@ class OpenAICompatibleLLM(AsyncLLM):
         payload = self._payload(messages, tools, params, stream=False)
         client = self._get_client()
         response: httpx.Response | None = None
-        for attempt in range(_LLM_RETRY_MAX_ATTEMPTS):
+        attempts = self._retry.attempts if self._retry is not None else 1
+        for attempt in range(attempts):
             try:
                 response = await client.post(
                     self._endpoint, json=payload, headers=self._headers()
@@ -309,8 +326,8 @@ class OpenAICompatibleLLM(AsyncLLM):
                 error = self._wrap_transport_error(exc)
             except LLMError as exc:
                 error = exc
-            if is_transient_llm_error(error) and attempt + 1 < _LLM_RETRY_MAX_ATTEMPTS:
-                await _retry_backoff(attempt)
+            if is_transient_llm_error(error) and attempt + 1 < attempts:
+                await _retry_backoff(self._retry, attempt)
                 continue
             raise error
         assert response is not None
@@ -369,8 +386,13 @@ class OpenAICompatibleLLM(AsyncLLM):
         params: LLMParams | None = None,
     ) -> AsyncIterator[LLMChunk]:
         payload = self._payload(messages, tools, params, stream=True)
+        # 流式用量计量（ENG4-C2）：默认请求 include_usage，服务端在末帧
+        # 回传 usage（_parse_sse_line 捕获纯 usage 帧）；调用方经
+        # LLMParams.extra_body 的 stream_options 可显式覆盖/关闭
+        payload.setdefault("stream_options", {"include_usage": True})
         client = self._get_client()
-        for attempt in range(_LLM_RETRY_MAX_ATTEMPTS):
+        attempts = self._retry.attempts if self._retry is not None else 1
+        for attempt in range(attempts):
             emitted = False
             try:
                 # async with 语义：__aenter__ 失败不调 __aexit__；正常退出/
@@ -393,7 +415,7 @@ class OpenAICompatibleLLM(AsyncLLM):
             if emitted:
                 # 已产出内容后的中断：重试会重复已消费帧，直接上抛不重试
                 raise error
-            if is_transient_llm_error(error) and attempt + 1 < _LLM_RETRY_MAX_ATTEMPTS:
-                await _retry_backoff(attempt)
+            if is_transient_llm_error(error) and attempt + 1 < attempts:
+                await _retry_backoff(self._retry, attempt)
                 continue
             raise error

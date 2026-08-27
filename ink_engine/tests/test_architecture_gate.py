@@ -56,6 +56,7 @@ _RECIPE_TYPE_WHITELIST: frozenset[str] = frozenset(
         "ApplyTarget",
         "ApprovalLevel",
         "Callable",
+        "CompressionPolicy",
         "ConvergenceHook",
         "EventTypeSpec",
         "Graph",
@@ -117,6 +118,7 @@ _ASSEMBLY_RECIPE_FIELDS: tuple[str, ...] = (
     "on_reverted",
     "convergence_provider",
     "run_options",
+    "compress_policy",
 )
 
 _ENGINE_ROOT = Path(__file__).resolve().parents[1] / "ink_engine"

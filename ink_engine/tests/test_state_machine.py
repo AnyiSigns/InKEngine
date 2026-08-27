@@ -122,13 +122,27 @@ class TestTransitionLog:
         assert len(log) == 0
         assert log.current_state == "draft"
 
-    def test_illegal_transition_is_not_blocked_here(self):
-        """非法转换的拦截策略由调用方决定，日志原语只保证 append-only。"""
+    def test_illegal_transition_blocked_with_audit(self):
+        """非法转换（终态复活）在 append 内强制拦截 + 审计留痕（ENG2-10）。"""
         machine = _machine()
         log = machine.log(initial_state="published")
         assert machine.is_illegal_transition("published", "draft")
-        assert log.append("draft") is not None
-        assert log.current_state == "draft"
+        assert log.append("draft") is None
+        assert log.current_state == "published"
+        assert len(log) == 0
+
+    def test_allowed_whitelist_violation_blocked(self):
+        """白名单外转换同样在 append 内拦截（ENG2-10 强制转换）。"""
+        machine = StateMachine(
+            _STATES,
+            terminal_states=("published",),
+            allowed={"draft": ("review",)},
+            name="doc_strict",
+        )
+        log = machine.log(initial_state="draft")
+        assert log.append("published") is None  # draft 不能直接发布
+        assert log.append("review") is not None  # 白名单内放行
+        assert log.current_state == "review"
 
     def test_history_is_ordered_and_copied(self):
         log = _machine().log()

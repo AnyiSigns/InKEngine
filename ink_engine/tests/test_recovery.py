@@ -251,3 +251,51 @@ async def test_resume_from_missing_anchor_raises(memory_storage):
             replay=False,
             resume_map=None,
         )
+
+
+async def test_top_level_chain_thread_contract_enforced(memory_storage):
+    """ENG5-13 回归：顶层恢复路径（graph_path 空）强制 checkpoint 链与
+    事件日志同线程——chain_index 与 events_after 都按单一 thread 定位，
+    混用会静默跨线程取锚点/重放。嵌套路径（graph_path 非空，spawn/分支
+    经 checkpoint_thread_id 显式隔离）不受限。"""
+    with pytest.raises(AssertionError, match="顶层恢复路径"):
+        await resolve_resume(
+            storage=memory_storage,
+            state={},
+            schema=None,
+            thread_id="t1",
+            chain_thread="t1:spawn:0",  # 顶层分离 = 契约违例
+            resume_from=None,
+            continue_chain=True,
+            graph_path=(),
+            replay=False,
+            resume_map=None,
+        )
+    # 嵌套路径合法（spawn/分支的显式隔离形态）
+    res = await resolve_resume(
+        storage=memory_storage,
+        state={"x": 1},
+        schema=None,
+        thread_id="t1",
+        chain_thread="t1:spawn:0",
+        resume_from=None,
+        continue_chain=True,
+        graph_path=("sub", "0"),
+        replay=False,
+        resume_map=None,
+    )
+    assert res.state == {"x": 1}
+    # 纯内存执行（storage=None）无线程语义，不触发契约
+    res2 = await resolve_resume(
+        storage=None,
+        state={"x": 1},
+        schema=None,
+        thread_id="t1",
+        chain_thread="anything",
+        resume_from=None,
+        continue_chain=True,
+        graph_path=(),
+        replay=False,
+        resume_map=None,
+    )
+    assert res2.state == {"x": 1}

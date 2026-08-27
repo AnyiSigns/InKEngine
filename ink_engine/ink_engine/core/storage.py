@@ -14,6 +14,7 @@ from __future__ import annotations
 import time
 from dataclasses import dataclass, field
 from typing import TYPE_CHECKING, Any, Protocol, runtime_checkable
+from urllib.parse import urlsplit
 
 from .events import EngineEvent
 from .logging import get_logger
@@ -27,6 +28,11 @@ if TYPE_CHECKING:
 SCHEME_MEMORY = "memory"
 SCHEME_SQLITE = "sqlite"
 SCHEME_POSTGRES = "postgresql"
+
+# 版本链巡检上限（validate_chain 回溯步数护栏；防意外成环死循环）
+DEFAULT_CHAIN_WALK_LIMIT = 10000
+# 版本链列表默认返回条数（list_checkpoints 上限）
+DEFAULT_LIST_CHECKPOINTS_LIMIT = 100
 
 # 补丁链序列化标记键（checkpoint JSON 列内联结构，from_dict 精确还原）
 _PATCH_CHAIN_MARKER = "__patch_chain__"
@@ -232,6 +238,16 @@ class Storage(Protocol):
     - 链压缩原语（chain_index/delete_checkpoints/set_checkpoint_parent/
       trim_events）为链级 rebase 提供底座：不实现的后端在调用方
       fail-open 兜底下跳过压缩（版本链照常增长，功能不受损）。
+
+    append_event 的 seq 分配原子性（ENG2-4/16 确认）：多子引擎实例
+    （spawn/simulate fan_out）并发 append_event 跨实例互不互斥，seq
+    唯一性与单调性由存储层保证，调用方无需外部锁——
+    - 内存端：锁内自增（_next_event_seq）；
+    - sqlite：AUTOINCREMENT 主键（并发写经 busy_timeout 排队，序列
+      永不复用）；
+    - postgres：BIGSERIAL 序列（事务级原子分配）。
+    引擎侧 _event_lock 只串行化**单实例内**的计数与 seq 锚点登记；
+    跨实例并发依赖的正是上述存储级原子性。
     """
 
     # ── checkpoint 版本链 ──
@@ -244,7 +260,9 @@ class Storage(Protocol):
         expected_version: int | None = None,
         fork: bool = False,
     ) -> CheckpointRecord: ...
-    async def list_checkpoints(self, thread_id: str, *, limit: int = 100) -> list[CheckpointRecord]: ...
+    async def list_checkpoints(
+        self, thread_id: str, *, limit: int = DEFAULT_LIST_CHECKPOINTS_LIMIT
+    ) -> list[CheckpointRecord]: ...
     async def chain_index(self, thread_id: str) -> list[ChainLink]: ...
     async def delete_checkpoints(self, thread_id: str, ids: list[int]) -> int: ...
     async def set_checkpoint_parent(
@@ -268,6 +286,11 @@ class Storage(Protocol):
     # 替换是整体操作（一致性由后端保证；sqlite 走 backup API，内存端走
     # 序列化往返）；不支持的后端显式抛 NotImplementedError（调用方
     # fail-open 兜底：快照是运维便利，非执行依赖）。
+    # 能力声明（ENG5-7）：宿主在调用前经 ``snapshot_capable`` 探测，
+    # 不支持的部署（postgres = 服务器级备份归 pg_dump/归档基础设施）
+    # 直接跳过，避免运行期 NotImplementedError 断链。
+    @property
+    def snapshot_capable(self) -> bool: ...
     async def snapshot(self, dest: str) -> None: ...
     async def restore(self, src: str) -> None: ...
 
@@ -278,7 +301,7 @@ async def validate_chain(
     storage: Storage,
     thread_id: str,
     *,
-    max_walk: int = 10000,
+    max_walk: int = DEFAULT_CHAIN_WALK_LIMIT,
     check_event_seq: bool = True,
 ) -> list[str]:
     """版本链一致性校验（存储层断言工具：调试/测试/巡检）。
@@ -354,9 +377,13 @@ def create_storage(conn_string: str) -> Storage:
     """存储后端工厂：连接串协议前缀决定后端（内存/sqlite/postgres）。
 
     例：memory://、sqlite:///:memory:、sqlite:///./engine.db、
-    postgresql://user:pwd@host/db（postgres:// 别名兼容 DATABASE_URL 形态）
+    postgresql://user:pwd@host/db（postgres:// 别名兼容 DATABASE_URL 形态）。
+
+    协议前缀经 :func:`urllib.parse.urlsplit` 解析（ENG5-8）：裸串/带
+    参数形态（``memory``、``sqlite:///path?x=1``）与手工 ``split(":", 1)``
+    同效，但对 ``C:\\path`` 等冒号形态与 URI 转义更稳健。
     """
-    scheme = conn_string.split(":", 1)[0].lower()
+    scheme = urlsplit(conn_string).scheme.lower()
     if scheme == SCHEME_MEMORY or conn_string in ("", "memory"):
         from .storage_memory import MemoryStorage
 
@@ -394,6 +421,8 @@ def create_storage(conn_string: str) -> Storage:
 
 
 __all__ = [
+    "DEFAULT_CHAIN_WALK_LIMIT",
+    "DEFAULT_LIST_CHECKPOINTS_LIMIT",
     "SCHEME_MEMORY",
     "SCHEME_POSTGRES",
     "SCHEME_SQLITE",

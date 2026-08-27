@@ -438,8 +438,14 @@ class Engine:
         # 图内容指纹（checkpoint 图版本）：本图执行产生的 checkpoint 均携带，
         # 恢复时与锚点比对（图定义变了 = 恢复语义不保证，拒绝续跑）
         self._graph_digest = graph.digest()
-        # 子图引擎缓存（嵌套图/循环/并行场景避免每次执行重复 compile）
-        self._subgraph_engines: dict[int, Engine] = {}
+        # 子图引擎缓存（嵌套图/循环/并行场景避免每次执行重复 compile）——
+        # 缓存键 = 图内容 digest（ENG2-6）：数据驱动子图每次新建实例时
+        # id() 键永不命中，同内容图重复 compile；digest 键让同定义子图
+        # 跨实例复用（digest 含图名，同拓扑不同名不混用）
+        self._subgraph_engines: dict[str, Engine] = {}
+        # 执行回路护栏（ENG2-5）：单节点访问次数（每轮 _execute 复位；
+        # 超 max_cycle 终止本轮，防纯静态回路靠预算超时兜底）
+        self._node_visits: dict[str, int] = {}
         # 事件日志写失败降频时间戳（存储故障时避免每事件一条 ERROR 洪水）
         self._event_log_error_ts = 0.0
         # 内存态执行日志 seq（checkpoint 锚点权威来源；append_event 已返回 seq，
@@ -974,6 +980,9 @@ class Engine:
         # 首写跟随父链尾），不复位。
         self._event_counter = 0
         self._latest_event_seq = None
+        # 执行回路护栏计数复位（本引擎每轮独立：缓存子图引擎跨 run 复用
+        # 时上一轮的访问计数不得残留——同节点在不同轮的正常访问不受累计）
+        self._node_visits = {}
         # 结点级成败留痕复位（本引擎每轮独立；嵌套引擎执行完经合并点
         # 并入父引擎，不在此跨轮残留）
         self._trace_reset(graph, graph_path)
@@ -1169,6 +1178,24 @@ class Engine:
             ctx.step_count += 1
             # 引擎级步数累计（子链步数截止：分支/支流引擎执行后按此判超限）
             self.executed_node_steps += 1
+
+            # ── 执行回路护栏（ENG2-5）：单节点访问次数超限 = 疑似纯静态
+            # 回路（A→B→A 无可达 exit），compile 期不拒绝（条件边合法循环
+            # 允许回指），执行期按节点访问次数兜底截止——不依赖预算钩子
+            # 注入，任何图定义都有成本上界。0 = 按数据声明不校验。
+            if self.options.max_cycle > 0:
+                visits = self._node_visits.get(current, 0) + 1
+                self._node_visits[current] = visits
+                if visits > self.options.max_cycle:
+                    node_error = (
+                        f"执行回路超限（节点 {current} 访问 {visits} 次 > "
+                        f"max_cycle={self.options.max_cycle}，疑似纯静态回路）"
+                    )
+                    logger.error(f"执行回路超限 [{current}]: {node_error}")
+                    await ctx.emit("error", {"node": current, "message": node_error})
+                    error_msg = node_error
+                    reason = TerminateReason.ERROR
+                    break
 
             # ── 预算检查（节点边界，策略由业务注册）──
             if self.options.budget is not None:
@@ -1824,6 +1851,13 @@ class Engine:
             ctx._state = state
             plan = nxt_plan
             if storage is not None:
+                # 计划步完成标记（ENG2-13）：工作步（并行/spawn）完成的
+                # checkpoint 其 node 字段是计划产出节点，实际执行的是计划
+                # 步本身——plan 快照附加 ``plan_step`` 标记，审计/消费方
+                # 可区分「节点步 checkpoint」与「计划工作步 checkpoint」
+                # （恢复重入只认 ``work_step`` 中断标记，不受影响）。
+                plan_snapshot = plan.to_dict()
+                plan_snapshot = {**plan_snapshot, "plan_step": True}
                 record, fork_write = await self._write_checkpoint(
                     storage=storage,
                     thread_id=thread_id,
@@ -1833,7 +1867,7 @@ class Engine:
                     state=state,
                     parent_id=parent_id,
                     fork_write=fork_write,
-                    plan=plan.to_dict(),
+                    plan=plan_snapshot,
                 )
                 parent_id = record.checkpoint_id
 
@@ -2034,6 +2068,10 @@ class Engine:
             for task in tasks:
                 if not task.done():
                     task.cancel()
+            # 检索全部任务结果（ENG2-9）：FIRST_COMPLETED 循环退出后已完成
+            # 任务未 await，异常/取消永不检索——gather(return_exceptions=True)
+            # 统一收取，杜绝 "Task exception was never retrieved" 告警
+            await asyncio.gather(*tasks, return_exceptions=True)
         if outcome.interrupt is not None or outcome.terminate is not None:
             if outcome.terminate is not None:
                 # 终止成员的 overlay 随终态保留（与单节点 terminate 同语义：
@@ -2178,6 +2216,8 @@ class Engine:
                 # 且子链深度 = 父深度 + 1（嵌套校验基准递进）
                 spawn_max_depth=self.options.spawn_max_depth,
                 simulate_max_branch_steps=self.options.simulate_max_branch_steps,
+                # 执行回路护栏随实例传播（实例内同样有成本上界）
+                max_cycle=self.options.max_cycle,
                 spawn_depth=spawn_depth,
                 # 建图注册表与计划配置随实例传播（数据形态子图/计划条件在
                 # 实例层同样可解析；计划策略/护栏口径与父层一致）
@@ -2286,6 +2326,15 @@ class Engine:
             # 实例内中断 → 提升为父图 interrupt（挂起卡跨层保留，重入语义一致）
             if sub_result.interrupt is not None:
                 raise InterruptSignal(sub_result.interrupt.key, sub_result.interrupt.payload)
+            # 实例步数截止护栏（ENG2-8，与推演分支/多径支流同口径——护栏
+            # 口径统一为 simulate_max_branch_steps）：实例子链执行步数超限
+            # = 该实例失败（剔除留痕，父链继续）——探测实例失控的成本
+            # 截止点；0 = 按数据声明不校验
+            step_limit = self.options.simulate_max_branch_steps
+            if step_limit > 0 and sub_engine.executed_node_steps > step_limit:
+                raise RuntimeError(
+                    f"spawn 实例步数超限: {sub_engine.executed_node_steps} > {step_limit}"
+                )
             # 实例终态为 ERROR：不入回流（剔除留痕，父链继续）——部分失败
             # 语义不允许失败实例的部分状态污染父图
             if sub_result.reason == TerminateReason.ERROR:
@@ -2541,8 +2590,11 @@ class Engine:
         entry_state = dict(data.get("entry_state") or {})
         if not candidates:
             raise ValueError("多径展开清单缺候选（编排节点产出非法）")
-        # inject 不重复注入：回合级注入值已在 run/ainvoke 入口进共享
-        # coordinator，支流引擎与父图同一通道，直接消费即可
+        # 注入透传（ENG2-12）：回合级注入值已在 run/ainvoke 入口进父
+        # coordinator——支流与父图同一通道，但同 review_key 的注入值
+        # 被首条命中支流 consume 后其余支流会抛 InterruptError；把父
+        # coordinator 的待消费注入快照传给支流执行器，由支流侧按分支
+        # 隔离（每条支流各持副本消费）
         return await runner.run(
             request,
             candidates,
@@ -2553,6 +2605,7 @@ class Engine:
             k=data.get("k"),
             quality_gate=data.get("quality_gate"),
             synth_provider=data.get("synth_provider"),
+            inject=dict(self._coordinator.pending_inject) or None,
         )
 
     async def _run_multipath_degraded_single(
@@ -2587,16 +2640,27 @@ async def run_subgraph(subgraph: Graph, parent_ctx: NodeContext) -> dict | None:
     子图复用父引擎（共享 storage/transports/budget/coordinator——
     interrupt 在子图内同样可用），graph_path 追加子图名；子图最终状态
     整体作为增量返回父图（输出回流，reducer 合并，绝不静默丢值）。
-    子图引擎按图实例缓存（循环/并行场景避免每次执行重复 compile）；
-    复用实例的事件计数由 _execute 入口复位（每轮从零起算，父引擎按
-    差值合并，events_emitted 无历史轮残留）。
+    子图引擎按图内容 digest 缓存（ENG2-6：数据驱动子图每次新建实例，
+    id() 缓存键永不命中 → 每次重复 compile；digest 键让同定义子图
+    跨实例复用）；复用实例的事件计数由 _execute 入口复位（每轮从零
+    起算，父引擎按差值合并，events_emitted 无历史轮残留）。
+
+    schema 继承检查（ENG2-7）：子图自定义 schema 的 merge reducer 分类
+    与父图不一致时回流语义错位（子图按自身口径剥离/求差，父图按自身
+    口径合并——同通道分类不同 = 二次加和或丢值），首跑即显式拒绝。
     """
     parent: _NodeContextImpl = parent_ctx  # type: ignore[assignment]
     engine = parent._engine
-    sub_engine = engine._subgraph_engines.get(id(subgraph))
+    # 子图允许自定义 schema（业务子图按自身通道声明），未声明时继承父引擎 schema
+    sub_schema = subgraph.schema or engine.options.schema
+    if subgraph.schema is not None and engine.options.schema is not None:
+        _validate_subgraph_schema_inheritance(
+            parent_schema=engine.options.schema,
+            sub_schema=subgraph.schema,
+            subgraph_name=subgraph.name,
+        )
+    sub_engine = engine._subgraph_engines.get(subgraph.digest())
     if sub_engine is None:
-        # 子图允许自定义 schema（业务子图按自身通道声明），未声明时继承父引擎 schema
-        sub_schema = subgraph.schema or engine.options.schema
         sub_engine = Engine(
             subgraph,
             options=RunOptions(
@@ -2609,6 +2673,8 @@ async def run_subgraph(subgraph: Graph, parent_ctx: NodeContext) -> dict | None:
                 # 成本护栏整体继承：父层禁用/收紧的 spawn 限制在子图内不旁落
                 max_spawns=engine.options.max_spawns,
                 spawn_concurrency=engine.options.spawn_concurrency,
+                # 执行回路护栏随子图传播（嵌套层同样有成本上界）
+                max_cycle=engine.options.max_cycle,
                 # 建图注册表与计划配置随子图传播（数据形态子图/计划条件
                 # 在子图内同样可解析；计划策略/护栏口径与父层一致）
                 registries=engine.options.registries,
@@ -2622,6 +2688,7 @@ async def run_subgraph(subgraph: Graph, parent_ctx: NodeContext) -> dict | None:
                 branch_mixer=engine.options.branch_mixer,
                 max_simulations=engine.options.max_simulations,
                 simulate_concurrency=engine.options.simulate_concurrency,
+                simulate_max_branch_steps=engine.options.simulate_max_branch_steps,
                 # 输入调配随子图传播（嵌套子图执行面同样统一走调配管线）
                 assembly=engine.options.assembly,
                 assembly_sources=engine.options.assembly_sources,
@@ -2630,7 +2697,7 @@ async def run_subgraph(subgraph: Graph, parent_ctx: NodeContext) -> dict | None:
                 checkpoint_keep=engine.options.checkpoint_keep,
             ),
         )
-        engine._subgraph_engines[id(subgraph)] = sub_engine
+        engine._subgraph_engines[subgraph.digest()] = sub_engine
     # 共享父引擎 coordinator：子图内 interrupt 重入与父图同一通道
     sub_engine._coordinator = engine._coordinator
     entry_state = dict(parent_ctx.state)
@@ -2702,6 +2769,47 @@ async def run_subgraph(subgraph: Graph, parent_ctx: NodeContext) -> dict | None:
     return subgraph_overlay_delta(
         entry_state, final_state, sub_engine.options.schema
     )
+
+
+def _validate_subgraph_schema_inheritance(
+    *,
+    parent_schema: StateSchema,
+    sub_schema: StateSchema,
+    subgraph_name: str,
+) -> None:
+    """子图 schema 与父图 merge reducer 分类的继承检查（ENG2-7）。
+
+    回流语义依赖两端的 merge 分类一致：子图入口按**自身** schema 剥离
+    合并累加族通道、回流增量按**自身** schema 求差，父图再按**自身**
+    schema 合并——同一通道两端分类不同 = 二次加和（父合并子终态）或
+    丢值（父覆盖子增量）。声明期（首跑）显式拒绝，不静默错位：
+
+    - 子图声明 merge、父图未声明（或非 merge）→ 父图不合并子增量，
+      父图既有值又已被入口剥离 → 丢值；
+    - 父图声明 merge、子图声明非 merge → 子图不剥离入口、回流全量，
+      父图合并 → 二次加和。
+    """
+    sub_merge = {
+        key
+        for key, channel in sub_schema.channels.items()
+        if is_merge_reducer(channel.reducer)
+    }
+    parent_merge = {
+        key
+        for key, channel in parent_schema.channels.items()
+        if is_merge_reducer(channel.reducer)
+    }
+    conflict = (sub_merge - parent_merge) | (
+        parent_merge & (set(sub_schema.channels) - sub_merge)
+    )
+    if conflict:
+        raise GraphDefinitionError(
+            f"子图 {subgraph_name} 的 schema 与父图 merge reducer 声明不一致"
+            f"（回流语义错位，拒绝执行）: {sorted(conflict)}"
+            "——同通道的 merge 分类必须两端一致（子图未声明为 merge 的"
+            "通道父图不得声明为 merge；子图声明为 merge 的通道父图必须"
+            "同样声明）"
+        )
 
 
 __all__ = ["Engine", "RunOptions", "RunResult"]

@@ -595,6 +595,9 @@ async def junction_verdict(
         )
     homogeneous = branches_are_homogeneous(branches)
     reasons: list[str] = []
+    # 模式集中确定（ENG2-17）：优先档位单一决策点——同构 → 质量闸门
+    # 优先；异构 → 合成源优先；两者不可用/未过/失败统一降级信任档。
+    # 各分支只做「通过即返回」/「失败追加降级理由」，不再分散赋 mode。
     if homogeneous and quality_gate is not None:
         passed = [b for b in branches if await gate_passed(b)]
         if passed:
@@ -617,36 +620,30 @@ async def junction_verdict(
                 homogeneous=homogeneous,
             )
         reasons.append("质量闸门全部未过，降级信任档裁决")
-        mode = MODE_TIER
-    elif homogeneous:
-        mode = MODE_TIER
-    else:
-        if synth_provider is not None:
-            try:
-                context = JunctionSynthContext(
-                    domain=domain,
-                    goal=tuple(goal),
-                    branches=tuple(branches),
-                    notes=("异构输出：各支产物字段不一致",),
-                )
-                selection = await synth_provider.synthesize(context)
-            except Exception as exc:
-                logger.warning(f"异构合成失败（降级信任档裁决）: {exc}")
-                selection = None
-            if selection is not None:
-                return JunctionVerdict(
-                    mode=MODE_SYNTHETIC,
-                    homogeneous=False,
-                    winner=None,
-                    selection=dict(selection),
-                    reasons=("异构输出经合成源合成（支流产物字段不一致）",),
-                    losers=tuple(b.index for b in branches),
-                )
-            reasons.append("异构合成无产出/失败，降级信任档裁决")
-            mode = MODE_TIER
-        else:
-            reasons.append("异构输出且未注入合成源，降级信任档裁决")
-            mode = MODE_TIER
+    elif not homogeneous and synth_provider is not None:
+        try:
+            context = JunctionSynthContext(
+                domain=domain,
+                goal=tuple(goal),
+                branches=tuple(branches),
+                notes=("异构输出：各支产物字段不一致",),
+            )
+            selection = await synth_provider.synthesize(context)
+        except Exception as exc:
+            logger.warning(f"异构合成失败（降级信任档裁决）: {exc}")
+            selection = None
+        if selection is not None:
+            return JunctionVerdict(
+                mode=MODE_SYNTHETIC,
+                homogeneous=False,
+                winner=None,
+                selection=dict(selection),
+                reasons=("异构输出经合成源合成（支流产物字段不一致）",),
+                losers=tuple(b.index for b in branches),
+            )
+        reasons.append("异构合成无产出/失败，降级信任档裁决")
+    elif not homogeneous:
+        reasons.append("异构输出且未注入合成源，降级信任档裁决")
     ordered = _tier_cost_order(branches)
     winner = ordered[0]
     if sum(1 for b in ordered if b.tier == winner.tier) > 1:
@@ -657,7 +654,7 @@ async def junction_verdict(
     return _winner_verdict(
         winner,
         branches,
-        mode=mode,
+        mode=MODE_TIER,
         reasons=tuple(reasons),
         homogeneous=homogeneous,
     )
@@ -1347,12 +1344,20 @@ class MultipathRunner:
         inject: Mapping[str, Any] | None,
         evidence_index: Mapping[tuple[str, str, str, str], EdgeEvidence],
     ) -> list[MultiPathBranchResult]:
-        """支流并行执行（子链隔离 + 事件统一父链；与既有子链同构）。"""
-        if inject:
-            self._engine._coordinator.inject(dict(inject))
+        """支流并行执行（子链隔离 + 事件统一父链；与既有子链同构）。
+
+        注入按分支隔离（ENG2-12）：跨分支共享父 coordinator 时，同一
+        review_key 的注入值被首条命中中断点的支流 consume（一次性弹出），
+        其余支流再 interrupt() 无值可消费 → InterruptError/反复挂起。
+        每条支流执行前预载父级注入快照到**支流专属 coordinator**——
+        同键决策对每条命中中断点的支流都可消费（父级重入时各支流按
+        自身副本续跑）；支流内嵌套 spawn 实例共享支流 coordinator，
+        不回流父级。
+        """
         storage = self._engine.options.storage
         schema = self._engine.options.schema
         results: dict[int, MultiPathBranchResult] = {}
+        inject_snapshot = dict(inject) if inject else None
 
         async def run_one(position: int) -> None:
             index = position
@@ -1360,6 +1365,12 @@ class MultipathRunner:
             sub_engine = self._engine._make_instance_engine(
                 candidate.graph, self._engine.options.spawn_depth + 1
             )
+            if inject_snapshot:
+                from .interrupt import InterruptCoordinator
+
+                sub_engine._coordinator = InterruptCoordinator(
+                    pending_inject=dict(inject_snapshot)
+                )
             sub_path = multipath_branch_path(index)
             branch_thread = multipath_branch_thread(thread_id, index)
             try:

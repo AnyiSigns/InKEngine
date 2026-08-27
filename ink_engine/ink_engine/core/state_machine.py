@@ -167,11 +167,11 @@ class StateMachine:
 class TransitionLog:
     """append-only 转换日志：当前状态由日志推导，不单独存可变状态字段。
 
-    ``append`` 只拦截"无变化"与"目标状态非法"两类写入；**非法转换不在此
-    强制拦截**——拦截策略按场景不同（写时预检要拦并提示用户，派生同步要
-    容忍历史数据），故由调用方用
-    :meth:`StateMachine.is_illegal_transition` 自行决定，本原语只保证
-    日志 append-only 与当前状态可推导。
+    ``append`` 拦截三类写入：无变化（目标 = 当前状态）、目标状态非法、
+    **非法转换**（:meth:`StateMachine.is_illegal_transition`——终态复活
+    与白名单外转换）——拦截即记 warning 留痕（审计清单），转换被拒绝
+    时返回 None 且不写日志。终态单向与白名单约束由此内置强制，调用方
+    无需自行预检（ENG2-10）。
     """
 
     __slots__ = ("_entries", "_initial", "_machine")
@@ -211,16 +211,27 @@ class TransitionLog:
     ) -> StateTransition | None:
         """追加一次转换。
 
+        拦截规则（ENG2-10 强制）：无实际变化、目标状态非法、**非法转换**
+        （终态复活 / 白名单外，经 :meth:`StateMachine.is_illegal_transition`
+        判定）一律拒绝写入——拒绝即记 warning 留痕（审计清单可查），
+        不再把终态防护推给调用方预检。
+
         Returns:
-            落日志的转换记录；无实际变化（目标 = 当前状态）或目标状态非法
-            时返回 None 且不写日志。
+            落日志的转换记录；被拦截（无变化/目标非法/非法转换）时返回
+            None 且不写日志。
         """
         from_state = self.current_state
         if to_state == from_state:
             return None
         if not self._machine.is_valid_state(to_state):
             logger.warning(
-                f"[{self._machine.name}] 状态转换被忽略，目标状态非法: "
+                f"[{self._machine.name}] 状态转换被拒绝，目标状态非法: "
+                f"{from_state!r} -> {to_state!r}"
+            )
+            return None
+        if self._machine.is_illegal_transition(from_state, to_state):
+            logger.warning(
+                f"[{self._machine.name}] 非法状态转换被拒绝（终态复活/白名单外）: "
                 f"{from_state!r} -> {to_state!r}"
             )
             return None

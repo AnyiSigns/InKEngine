@@ -135,6 +135,14 @@ async def maybe_compact_chain(
     无害）。单次链索引查询即完成长度判定与规划——判定成本 O(1) 轮询，
     不随链长放大。
 
+    原子性护栏（ENG5-10）：压缩的改写/删除是多个存储原语的序列，计划
+    与执行之间链可能被并发推进（多引擎实例同 thread 续链/嵌套子图写
+    checkpoint）——基于过期快照的删除会把新窗口内的行误裁。以计划期
+    链尾 checkpoint_id 为版本戳：删除前重取索引比对，链尾已前进 =
+    本计划作废，跳过删除（fail-open：压缩是尽力而为的维护操作，跳过后
+    版本链照常增长，功能不受损；已执行的改写无害——重写行脱离父链成
+    归档链头，下轮压缩会清理）。
+
     Args:
         storage: 存储服务。
         thread_id: 版本链归属线程。
@@ -151,8 +159,17 @@ async def maybe_compact_chain(
     plan = plan_compaction(links, keep)
     if plan.is_empty:
         return CompactionOutcome()
+    tail_stamp = links[0].checkpoint_id if links else None
     for checkpoint_id in plan.rewire_ids:
         await storage.set_checkpoint_parent(thread_id, checkpoint_id, None)
+    fresh = await storage.chain_index(thread_id)
+    if fresh and fresh[0].checkpoint_id != tail_stamp:
+        # 链尾已前进：计划期快照过期，删除作废（改写已执行，无害）
+        logger.warning(
+            f"链压缩并发推进（链尾 {tail_stamp} -> {fresh[0].checkpoint_id}），"
+            f"跳过删除，下轮入口重试: thread={thread_id}"
+        )
+        return CompactionOutcome(rewired=len(plan.rewire_ids))
     removed = (
         await storage.delete_checkpoints(thread_id, list(plan.delete_ids))
         if plan.delete_ids

@@ -19,6 +19,9 @@ from dataclasses import dataclass, field
 from typing import Protocol, runtime_checkable
 
 from .exceptions import ProtocolVersionError
+from .logging import get_logger
+
+logger = get_logger(__name__)
 
 # 事件协议版本：与前端协议同构（前端零改动约束）
 PROTOCOL_VERSION = 2
@@ -92,8 +95,49 @@ class EngineEvent:
         )
 
     def to_json(self) -> str:
-        """JSON 序列化（事件传输线格式，ensure_ascii=False 中文可读）。"""
-        return json.dumps(self.to_dict(), ensure_ascii=False, default=str)
+        """JSON 序列化（事件传输线格式，ensure_ascii=False 中文可读）。
+
+        负载须为 JSON 可序列化形态；含非 JSON 对象时降级 ``default=str``
+        字符串化落库（回放类型降级），并记 warning 留痕（ENG5-14：
+        不再静默——类型降级有明确提示，可在日志中定位到事件）。
+        """
+        try:
+            return json.dumps(self.to_dict(), ensure_ascii=False)
+        except (TypeError, ValueError):
+            logger.warning(
+                f"事件负载含不可 JSON 序列化对象，已字符串化降级"
+                f"（回放类型降级）: type={self.type} node={self.node}"
+            )
+            return json.dumps(self.to_dict(), ensure_ascii=False, default=str)
+
+
+def parse_event_lenient(data: dict) -> EngineEvent | None:
+    """逐条事件解析（回放容错入口）：单条非法事件跳过，不中断整段重放。
+
+    执行日志回放（events_after）的容错语义（ENG5-4）：旧版本协议事件/
+    单条结构损坏的事件不应让整个恢复区间失败——逐条 try/except，跳过
+    并留痕（warning），其余事件照常回放。
+
+    Args:
+        data: 事件字典（含存储侧回填的 seq）。
+
+    Returns:
+        解析成功的事件；版本不符/结构非法 = None（调用方跳过）。
+    """
+    if not isinstance(data, dict):
+        logger.warning(f"事件行非 dict 形态，跳过（回放容错）: {type(data).__name__}")
+        return None
+    try:
+        return EngineEvent.from_dict(data)
+    except ProtocolVersionError:
+        logger.warning(
+            f"事件协议版本不符，跳过（回放容错）: "
+            f"{data.get('version')!r} != {PROTOCOL_VERSION}"
+        )
+        return None
+    except (KeyError, TypeError, ValueError) as exc:
+        logger.warning(f"事件结构非法，跳过（回放容错）: {exc}")
+        return None
 
 
 @runtime_checkable
@@ -123,4 +167,5 @@ __all__ = [
     "CollectorTransport",
     "EngineEvent",
     "EngineTransport",
+    "parse_event_lenient",
 ]

@@ -99,3 +99,34 @@ async def test_collector_transport_keeps_events():
     await collector.send(event)
     assert collector.events == [event]
     assert isinstance(collector, EngineTransport)
+
+
+def test_to_json_stringify_is_marked():
+    """ENG5-14 回归：to_json 对不可序列化负载降级 default=str 字符串化
+    并记 warning（不再静默）——回放类型降级有明确提示。"""
+    import json
+
+    event = EngineEvent(type="odd", payload={"obj": object()})
+    raw = json.loads(event.to_json())
+    assert raw["type"] == "odd"
+    assert isinstance(raw["payload"]["obj"], str)  # 字符串化降级
+    # 可序列化负载不受影响（无降级）
+    assert EngineEvent(type="ok", payload={"n": 1}).to_json() == json.dumps(
+        {"type": "ok", "version": PROTOCOL_VERSION, "payload": {"n": 1},
+         "step_id": None, "parent_step_id": None, "round_id": None,
+         "node": None, "graph_path": [], "seq": None, "trace_id": "-",
+         "thread_id": "-"}, ensure_ascii=False
+    )
+
+
+def test_parse_event_lenient_skips_incompatible():
+    """ENG5-4 回归：parse_event_lenient 逐条容错——旧版本/结构非法返回 None，
+    合法事件正常解析（重放入口不再单条炸整段）。"""
+    from ink_engine.core.events import parse_event_lenient
+
+    good = _event()
+    assert parse_event_lenient(good.to_dict()) == good
+    old = {**good.to_dict(), "version": PROTOCOL_VERSION + 1}
+    assert parse_event_lenient(old) is None
+    assert parse_event_lenient({"version": PROTOCOL_VERSION}) is None  # 缺 type
+    assert parse_event_lenient("not-a-dict") is None  # type: ignore[arg-type]

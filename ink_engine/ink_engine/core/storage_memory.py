@@ -18,7 +18,11 @@ import tempfile
 from .events import EngineEvent
 from .exceptions import CheckpointConflictError, StorageError
 from .security import strip_sensitive
-from .storage import ChainLink, CheckpointRecord
+from .storage import (
+    DEFAULT_LIST_CHECKPOINTS_LIMIT,
+    ChainLink,
+    CheckpointRecord,
+)
 
 
 def _normalize_record(record: CheckpointRecord) -> CheckpointRecord:
@@ -55,8 +59,12 @@ class MemoryStorage:
 
     # ── checkpoint 版本链 ──
     async def get_checkpoint(self, checkpoint_id: int) -> CheckpointRecord | None:
-        record = self._checkpoints.get(checkpoint_id)
-        return CheckpointRecord.from_dict(record.to_dict()) if record else None
+        # 统一加锁（ENG5-9）：读路径与写路径（put_checkpoint/delete_checkpoints
+        # 等）互斥——asyncio 单线程下裸读不炸，但与链尾/删除并发的读到
+        # 半更新态（对象替换非原地），与 get_latest_checkpoint 同口径持锁
+        async with self._lock:
+            record = self._checkpoints.get(checkpoint_id)
+            return CheckpointRecord.from_dict(record.to_dict()) if record else None
 
     async def get_latest_checkpoint(self, thread_id: str) -> CheckpointRecord | None:
         async with self._lock:
@@ -155,7 +163,9 @@ class MemoryStorage:
             # 返回深拷贝副本（调用方修改返回记录不得污染存储内快照）
             return CheckpointRecord.from_dict(record.to_dict())
 
-    async def list_checkpoints(self, thread_id: str, *, limit: int = 100) -> list[CheckpointRecord]:
+    async def list_checkpoints(
+        self, thread_id: str, *, limit: int = DEFAULT_LIST_CHECKPOINTS_LIMIT
+    ) -> list[CheckpointRecord]:
         async with self._lock:
             candidates = [
                 c for c in self._checkpoints.values() if c.thread_id == thread_id
@@ -281,6 +291,11 @@ class MemoryStorage:
         return [copy.deepcopy(r) for r in self._records.get(collection, {}).values()]
 
     # ── 全量快照（序列化往返：与 checkpoint/records 的 JSON 契约同口径）──
+    @property
+    def snapshot_capable(self) -> bool:
+        """文件级快照/恢复能力声明（内存端走序列化往返，支持）。"""
+        return True
+
     async def snapshot(self, dest: str) -> None:
         """全量导出到 dest（JSON 文件；原子落盘——临时文件 + 替换）。
 

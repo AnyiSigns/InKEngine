@@ -310,6 +310,52 @@ class TestContextMixer:
         assert result.text == "正文"
         assert result.fused is False
 
+
+# ── 第四批 ENG2 建议项回归 ─────────────────────────────────────────
+
+@pytest.mark.asyncio
+async def test_mixer_consumes_fusion_registry():
+    """ENG2-11 回归：FusionRegistry 接入 ContextMixer——mix 未直接注入
+    钩子时按 fusion_hook_name 从注册表取钩子（注册表不再是无消费方
+    孤儿代码）。"""
+    registry = FusionRegistry()
+    hook = _FakeFusionHook("注册表融合")
+    registry.register("novel", hook)
+    registry.register("other", _FakeFusionHook("另一个"))
+    mixer = ContextMixer(
+        fusion_registry=registry, fusion_hook_name="novel"
+    )
+    result = await mixer.mix([_src(content="正文")], total_chars=1000)
+    assert result.text == "注册表融合"
+    assert result.fused is True
+    assert hook.calls == 1
+    # 注册表未注册该名 → 回退确定性组装（无钩子行为不变）
+    mixer2 = ContextMixer(
+        fusion_registry=registry, fusion_hook_name="missing"
+    )
+    result2 = await mixer2.mix([_src(content="正文")], total_chars=100)
+    assert result2.text == "正文"
+    assert result2.fused is False
+    # 直接注入钩子优先于注册表
+    direct = _FakeFusionHook("直接")
+    mixer3 = ContextMixer(
+        fusion_registry=registry,
+        fusion_hook_name="novel",
+        fusion_hook=direct,
+    )
+    result3 = await mixer3.mix([_src(content="正文")], total_chars=100)
+    assert result3.text == "直接"
+
+
+def test_allocator_protocol_enforced_at_construction():
+    """ENG2-14 回归：BudgetAllocator 协议运行期校验——不满足协议的注入
+    分配策略在装配期暴露 TypeError，而非执行期 AttributeError。"""
+    with pytest.raises(TypeError, match="BudgetAllocator"):
+        ContextAssembler(allocator=object())  # type: ignore[arg-type]
+    # 满足协议的注入器正常装配
+    assembler = ContextAssembler(allocator=WeightedBudgetAllocator())
+    assert assembler.allocator is not None
+
     @pytest.mark.asyncio
     async def test_fused_text_hard_capped(self):
         mixer = ContextMixer(fusion_hook=_FakeFusionHook("长" * 5000))

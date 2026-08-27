@@ -79,6 +79,16 @@ async def resolve_resume(
     last_checkpoint: CheckpointRecord | None = None
     resume_map = dict(resume_map or {})
     replay_events: list[EngineEvent] = []
+    if not graph_path and storage is not None:
+        # 契约强制（ENG5-13）：顶层恢复路径（graph_path 空）的 checkpoint
+        # 链与事件日志必须同线程——锚点回溯（chain_index(tail.thread_id)）
+        # 与增量重放（events_after(thread_id, ...)）都按单一 thread 定位，
+        # 分离只允许出现在嵌套层（spawn/分支经 checkpoint_thread_id 显式
+        # 隔离，且 graph_path 非空不走本路径）。顶层混用会静默跨线程
+        # 取锚点/重放，恢复结果错位。
+        assert (
+            chain_thread == thread_id
+        ), f"顶层恢复路径 chain_thread({chain_thread}) 与 thread_id({thread_id}) 不一致（spawn/分支隔离仅限嵌套路径）"
     if continue_chain and storage is not None:
         # 新回合续链：读链尾 checkpoint 为基底，输入 state 经 schema 覆盖
         # 合并（消息追加/指标复位等 reducer 语义），从入口执行，版本链

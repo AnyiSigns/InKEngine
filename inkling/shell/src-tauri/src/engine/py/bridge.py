@@ -12,11 +12,14 @@ Rust 接线层对引擎的所有调用都经本模块，避免跨语言边界直
 from __future__ import annotations
 
 import asyncio
-import inspect
 import json
 import os
 import sys
 from typing import Any, Callable
+
+from ink_engine.core.logging import get_logger
+
+logger = get_logger("host.bridge")
 
 _REPO_ROOT = os.environ.get("INK_ENGINE_REPO_ROOT", "")
 if _REPO_ROOT and _REPO_ROOT not in sys.path:
@@ -166,7 +169,12 @@ def invoke(name: str, args_json: str) -> str:
     """同步操作通道：JSON 进、JSON 出（域模块调用引擎公开 API 的薄包装）。"""
     fn = _OPS_SYNC.get(name)
     if fn is None:
-        raise KeyError(f"未注册的同步引擎操作: {name}")
+        # P9：未注册 op 返回结构化错误（不再抛 KeyError 原文泄漏内部
+        # 注册命名；Rust 侧 host.rs 对结构化错误按 error 字段呈现）
+        return json.dumps(
+            {"ok": False, "error": "unregistered_op", "op": name},
+            ensure_ascii=False,
+        )
     args = json.loads(args_json)
     result = fn(args)
     return json.dumps(_jsonable(result))
@@ -177,7 +185,11 @@ async def invoke_async(name: str, args_json: str) -> str:
     _capture_engine_loop()  # 宿主循环锚点（同步 op 派发目标）
     fn = _OPS_ASYNC.get(name)
     if fn is None:
-        raise KeyError(f"未注册的异步引擎操作: {name}")
+        # P9：未注册 op 返回结构化错误（同 invoke 口径）
+        return json.dumps(
+            {"ok": False, "error": "unregistered_op", "op": name},
+            ensure_ascii=False,
+        )
     args = json.loads(args_json)
     result = await fn(args)
     return json.dumps(_jsonable(result))
@@ -542,6 +554,52 @@ class _CollectingTransport:
         self.events.append(_jsonable(event))
 
 
+# ── llm_usage 帧桥接收集（引擎 3a 生产 → 指标快照消费的最后一跳）──
+
+# 桥侧累计的 llm_usage 事件帧（每帧 prompt_tokens/completion_tokens，
+# 引擎 UsageTrackingLLM 经 ``ctx.emit("llm_usage", frame)`` 生产）；
+# metrics.snapshot 在调用方未显式传入 llm_usage 时聚合本清单（进程内
+# 跨回合累计，与组装运行期统计同口径）。
+_LLM_USAGE_FRAMES: list[dict[str, int]] = []
+
+
+class _UsageFrameTransport:
+    """事件传输包裹：llm_usage 事件帧收集 + 原样转发下游。
+
+    回合入口（execute_round_to_reply / thread_resume / canary 试跑）
+    用它包裹宿主传输——引擎生产的使用量帧进桥侧累计，供指标快照
+    消费；其它事件零干预。
+    """
+
+    def __init__(self, inner: Any) -> None:
+        self._inner = inner
+
+    async def send(self, event: Any) -> None:
+        _collect_llm_usage_frame(event)
+        await self._inner.send(event)
+
+
+def _collect_llm_usage_frame(event: Any) -> None:
+    """从事件对象提取 llm_usage 帧（协议不匹配 = 零操作）。"""
+    if getattr(event, "type", None) != "llm_usage":
+        return
+    payload = getattr(event, "payload", None)
+    if not isinstance(payload, dict):
+        return
+    frame: dict[str, int] = {}
+    for key in ("prompt_tokens", "completion_tokens"):
+        value = payload.get(key)
+        if isinstance(value, int) and not isinstance(value, bool) and value >= 0:
+            frame[key] = value
+    if frame:
+        _LLM_USAGE_FRAMES.append(frame)
+
+
+def _usage_collecting_transport(inner: Any) -> Any:
+    """回合传输包裹工厂（llm_usage 帧收集；复用传入传输作为下游）。"""
+    return _UsageFrameTransport(inner)
+
+
 def _runtime_recipe_context(runtime: Any) -> Any:
     """按运行时装配产物构造图配方上下文（装配期调用，组件实时引用）。"""
     from ink_engine.core.assembly import AssemblyConfig
@@ -559,8 +617,8 @@ def _runtime_recipe_context(runtime: Any) -> Any:
     )
 
 
-def register_builtin_ops() -> None:
-    """注册出厂引擎操作（薄包装集合；随域模块拓展增量注册）。"""
+def _register_engine_core_ops() -> None:
+    """引擎核心操作组（engine.* 基础：装配/记录/知识/声明式注册表）。"""
 
     @op_async("engine.chain_assemble")
     async def _chain_assemble(args: dict) -> Any:
@@ -667,6 +725,7 @@ def register_builtin_ops() -> None:
         runtime = runtime_handle()
         return list(runtime.event_type_registry.names())
 
+def _register_patch_ops() -> None:
     # ── 补丁链（应用/回退/提案/目标注册）──
 
     @op_async("patch.apply")
@@ -792,6 +851,7 @@ def register_builtin_ops() -> None:
             runtime.self_pipeline.register_target(kind, target)
         return {"registered": [target.name for target in targets.values()]}
 
+def _register_skill_ops() -> None:
     # ── 技能结晶 / 技能市场 ──
 
     @op_async("skill.list")
@@ -870,6 +930,7 @@ def register_builtin_ops() -> None:
         )
         return outcome.to_dict()
 
+def _register_pipeline_ops() -> None:
     # ── 工具表/流水线/审批──
 
     @op_sync("engine.tool_registry_remove")
@@ -934,6 +995,7 @@ def register_builtin_ops() -> None:
             "source": approval.source,
         }
 
+def _register_graph_ops() -> None:
     # ── 图配方（节点类型登记 + 回合图构造）──
 
     @op_sync("security.auto_approve_set")
@@ -1001,6 +1063,7 @@ def register_builtin_ops() -> None:
         )
         return {"graph": graph.to_dict()}
 
+def _register_mcp_ops() -> None:
     # ── MCP 挂载（连接/工具导入/断开）──
 
     @op_sync("mcp.builtin_registry")
@@ -1080,6 +1143,7 @@ def register_builtin_ops() -> None:
             rows.append(row)
         return {"servers": rows}
 
+def _register_thread_ops() -> None:
     # ── 会话/版本链（记录删除、会话删除、分支/续跑/回退）──
 
     @op_async("engine.records_delete")
@@ -1157,7 +1221,7 @@ def register_builtin_ops() -> None:
             round_id=args.get("round_id") or _uuid.uuid4().hex,
             resume_from=anchor.checkpoint_id,
             inject=args.get("inject") or None,
-            transports=[host_handle().build_transport()],
+            transports=[_usage_collecting_transport(host_handle().build_transport())],
         )
         return {
             "reason": getattr(result, "reason", None),
@@ -1200,6 +1264,7 @@ def register_builtin_ops() -> None:
             for link in links
         ]
 
+def _register_memory_ops() -> None:
     # ── 记忆/检索──
 
     @op_async("engine.memory_query")
@@ -1264,6 +1329,7 @@ def register_builtin_ops() -> None:
             )
         return {"cleared_patches": patches}
 
+def _register_live_ops() -> None:
     # ── 活跃态生效（界面/主题/harness/知识/试跑/路由轻调用）──
 
     @op_sync("engine.introspection_ui_apply")
@@ -1354,7 +1420,7 @@ def register_builtin_ops() -> None:
         options = RunOptions(
             storage=runtime.storage,
             registries=runtime.graph_registries,
-            transports=[collector],
+            transports=[_usage_collecting_transport(collector)],
             system_events=runtime.event_type_registry.system_events(),
             assembly=AssemblyConfig(),
             assembly_sources=runtime._assembly_sources(),
@@ -1376,6 +1442,23 @@ def register_builtin_ops() -> None:
             "error": getattr(result, "error", None),
             "events": collector.events,
         }
+
+
+def register_builtin_ops() -> None:
+    """注册出厂引擎操作（P10 按域拆分：各域注册函数组见 _register_*_ops）。
+
+    op 名与签名保持不变（注册表契约由 tests/test_op_contract.py 回归
+    守卫）；新增域 = 新增 _register_<域>_ops 并在本函数登记。
+    """
+    _register_engine_core_ops()
+    _register_patch_ops()
+    _register_skill_ops()
+    _register_pipeline_ops()
+    _register_graph_ops()
+    _register_mcp_ops()
+    _register_thread_ops()
+    _register_memory_ops()
+    _register_live_ops()
 
 
 # ── 洞察层（Why 审计 / 成长报告 / 数据主权 / 情境建议）──
@@ -2198,7 +2281,9 @@ async def _metrics_snapshot(args: dict) -> dict[str, Any]:
     - ``turn_metrics``：TurnMetrics.snapshot 形态（turns/failures/...
       /llm_calls_by_tier）；
     - ``llm_usage``：LLM usage 帧清单（每帧 ``prompt_tokens``/
-      ``completion_tokens``，来自 LLMChunk/LLMResult.usage 捕获点）；
+      ``completion_tokens``，来自 LLMChunk/LLMResult.usage 捕获点；
+      缺省 = 桥侧回合入口收集的 llm_usage 事件帧——引擎
+      UsageTrackingLLM 生产 → 帧桥接收集 → 本快照消费的闭环）；
     - ``cache_stats``：path.assemble 回传的 cache_hits/cache_misses/
       cache_invalidations/cache_replacements（缺省 = 壳侧自取组装运行期
       统计累计——ENG9a-8：前端无参调用不再恒 0）；
@@ -2216,6 +2301,10 @@ async def _metrics_snapshot(args: dict) -> dict[str, Any]:
     usage = args.get("llm_usage") or []
     if not isinstance(usage, list):
         usage = []
+    if not usage:
+        # 帧桥接收集（批 3a 遗留闭环）：调用方未显式传帧 = 聚合桥侧
+        # 回合入口收集的 llm_usage 事件帧（引擎 UsageTrackingLLM 生产）
+        usage = list(_LLM_USAGE_FRAMES)
     prompt_total = 0
     completion_total = 0
     last_prompt = None
@@ -2415,6 +2504,26 @@ def make_host(*, storage_uri: str, transport, llm=None, embedder=None, behavior=
     )
 
 
+async def _tune_round_end(runtime: Any, result: Any) -> None:
+    """主回合入口收尾调参（E-P5 接线；best-effort，不阻断结果回流）。
+
+    信号口径与引擎 ``Runtime._tune_round_end`` 一致：结果缺失或携带
+    error = 失败信号（调参按失败率聚合）；调参失败只记日志。
+    """
+    try:
+        error = getattr(result, "error", None)
+        runtime.tune_after_round(
+            failed=result is None or bool(error),
+            error=(
+                str(error)
+                if error
+                else ("回合执行异常（无结果）" if result is None else "")
+            ),
+        )
+    except Exception as exc:  # noqa: BLE001 —— 调参是增强，失败不阻断结果
+        logger.warning("回合收尾调参失败（忽略）: %s", exc)
+
+
 async def execute_round_to_reply(
     runtime,
     host,
@@ -2433,32 +2542,38 @@ async def execute_round_to_reply(
     生产宿主按审批卡交互决议；离线验证用 auto_accept_review 一次跑通。
     编排脚本（orchestrate）非空时注入回合入口状态——编排节点按
     plan/spawns/simulate 保留键驱动；缺省走工作流节点序默认规划。
+    回合收尾（E-P5）按结果失败信号调参（runtime.tune_after_round，
+    best-effort）；llm_usage 事件帧随传输收集（指标快照消费）。
     """
-    state = {"input": input_text, "step_args": step_args or {}}
-    if orchestrate is not None:
-        state["orchestrate"] = orchestrate
-    result = await runtime.engine.ainvoke(
-        state,
-        thread_id=thread_id,
-        round_id=round_id,
-        transports=[host.build_transport()],
-        inject=inject or {},
-    )
-    guard = 0
-    while result.reason == "interrupted" and auto_accept_review and guard < max_cards:
-        guard += 1
-        interrupt = await runtime.engine.get_latest_interrupt(thread_id)
-        if interrupt is None:
-            break
-        # 决议值形态（注入值本身）：resume_run 内部再按卡键包一层
-        # inject={interrupt.key: decision}，此处传决议值而非嵌套字典
-        result = await runtime.resume_run(
-            thread_id,
-            "accept",
-            round_id=f"{round_id}-resume-{guard}",
-            transports=[host.build_transport()],
+    result = None
+    try:
+        state = {"input": input_text, "step_args": step_args or {}}
+        if orchestrate is not None:
+            state["orchestrate"] = orchestrate
+        result = await runtime.engine.ainvoke(
+            state,
+            thread_id=thread_id,
+            round_id=round_id,
+            transports=[_usage_collecting_transport(host.build_transport())],
+            inject=inject or {},
         )
-    return {"reason": result.reason, "state": dict(getattr(result, "state", {}) or {})}
+        guard = 0
+        while result.reason == "interrupted" and auto_accept_review and guard < max_cards:
+            guard += 1
+            interrupt = await runtime.engine.get_latest_interrupt(thread_id)
+            if interrupt is None:
+                break
+            # 决议值形态（注入值本身）：resume_run 内部再按卡键包一层
+            # inject={interrupt.key: decision}，此处传决议值而非嵌套字典
+            result = await runtime.resume_run(
+                thread_id,
+                "accept",
+                round_id=f"{round_id}-resume-{guard}",
+                transports=[_usage_collecting_transport(host.build_transport())],
+            )
+        return {"reason": result.reason, "state": dict(getattr(result, "state", {}) or {})}
+    finally:
+        await _tune_round_end(runtime, result)
 
 
 async def stop_runtime(runtime) -> None:

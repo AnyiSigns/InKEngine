@@ -33,7 +33,6 @@ from ink_engine.core.self_proposal import PatchKind
 from ink_engine.core.self_tools import make_self_executor, operation_of, self_tool_specs
 
 from .graph_recipe import build_round_graph
-from .scoring import dimension_scorer_with_facts
 
 # seed_data 目录下的数据文件名（与 schema 校验脚本同源，17 个文件）
 SEED_DATA_FILES: tuple[str, ...] = (
@@ -395,19 +394,6 @@ def map_apply_targets() -> dict[PatchKind, Callable[[Any], ApplyTarget]]:
 # ── 执行域映射 ──
 
 
-def map_review_scorer(
-    bundle: SeedDataBundle,
-) -> Callable[[Any, dict[str, Any]], dict[str, float]]:
-    """review.json 打分配置 → 确定性维度打分器（推演分支评估用）。
-
-    维度与权重来自 review.json；samples.json 顶层 facts 作为交叉验证
-    锚点参与打分（评分交叉验证维度的数据来源）。
-    """
-    facts = [f.get("statement") for f in bundle.data["samples.json"].get("facts") or ()]
-    scorer = dimension_scorer_with_facts(facts)
-    return scorer
-
-
 def map_graph_recipe(bundle: SeedDataBundle) -> Callable[[GraphRecipeContext], Any]:
     """图配方：seed_data/graph.json 建回合图（节点类型注册见 graph_recipe）。
 
@@ -501,7 +487,6 @@ __all__ = [
     "map_graph_recipe",
     "map_harness_definitions",
     "map_retrieval_sources",
-    "map_review_scorer",
     "map_seed_providers",
     "map_tool_wiring",
     "map_ui_allowed_channels",

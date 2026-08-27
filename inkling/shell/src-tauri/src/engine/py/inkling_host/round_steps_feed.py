@@ -16,14 +16,13 @@
 """
 from __future__ import annotations
 
-import logging
 from collections.abc import Mapping
-from typing import Any
 
 from ink_engine.core.events import EngineEvent
+from ink_engine.core.logging import get_logger
 from ink_engine.core.round_steps import RoundSteps
 
-logger = logging.getLogger("host.round_steps")
+logger = get_logger("host.round_steps")
 
 
 class RoundStepsTransport:

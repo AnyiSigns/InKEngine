@@ -58,6 +58,7 @@ from .logging import get_logger
 from .mcp_client import McpClientManager, register_mcp_executor
 from .perception import register_perception_nodes
 from .permissions import PermissionGate
+from .pool_governance import PoolGovernance
 from .registry import GraphRegistries
 from .retrieval import KnowledgeSetRetriever, Retriever, RetrieverRegistry
 from .seeds import seed_general, seed_knowledge_set
@@ -283,6 +284,8 @@ class Runtime:
         self.turn_metrics: TurnMetrics | None = None
         # 宿主动态工具表（挂载/从链恢复的工具定义；统一分发第三路）
         self.tool_registry: dict[str, ToolSpec] = {}
+        # 池治理登记器（容量/淘汰/合并/预算四规则；只登记不执行）
+        self.pool_governance: PoolGovernance | None = None
         self.engine: Engine | None = None
         self.engine_llm: AsyncLLM | None = None
 
@@ -506,7 +509,10 @@ class Runtime:
         self.meta_tuner = MetaTuner(knowledge_set=self.knowledge_set)
         self.turn_metrics = TurnMetrics()
 
-        # ⑯ 引擎重建（按当前模型配置装配回合图；工具表/配置变更重建）
+        # ⑯ 池治理登记器（容量/淘汰/合并/预算四规则；只登记不执行决策）
+        self.pool_governance = PoolGovernance()
+
+        # ⑰ 引擎重建（按当前模型配置装配回合图；工具表/配置变更重建）
         self.introspection_service._sources.tools = self.collect_specs()
         await self.rebuild_engine()
         self._drained.set()
@@ -799,6 +805,12 @@ class Runtime:
             assembly_sources=self._assembly_sources(),
         )
         graph = recipe.graph_recipe(context)
+        # 沉淀钩子链：池治理登记钩子（只登记不执行；桥 op 触发判定）
+        from .settle import PoolGovernanceSettleHook, SettleHooks
+
+        settle_hooks = SettleHooks()
+        if self.pool_governance is not None:
+            settle_hooks.register(PoolGovernanceSettleHook(self.pool_governance))
         options = RunOptions(
             storage=self.storage,
             registries=self.graph_registries,
@@ -806,6 +818,7 @@ class Runtime:
             system_events=context.system_events,
             assembly=context.assembly,
             assembly_sources=context.assembly_sources,
+            settle=settle_hooks,
         )
         recipe_run_options = recipe.run_options
         if recipe_run_options is not None:

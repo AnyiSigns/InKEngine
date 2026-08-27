@@ -135,12 +135,73 @@ class DemoBudgetPolicy(BudgetPolicy):
             raise BudgetExceededError("nodes", self.max_nodes, len(self.visited))
 
 
+@pytest.fixture
+def assembled_runtime():
+    """装配运行时（含池治理登记器 + 内省服务），供桥 op 测试。"""
+    import importlib
+    import sys
+    from pathlib import Path
+
+    from ink_engine.core.pool_governance import PoolGovernance
+    from ink_engine.core.runtime import Runtime
+
+    runtime = Runtime()
+    runtime.pool_governance = PoolGovernance()
+    runtime._state = "running"
+
+    # 内省服务（含图数据源）
+    from ink_engine.core.introspection import IntrospectionService, IntrospectionSources
+
+    graph = demo_linear_graph()
+    runtime.introspection_service = IntrospectionService(
+        IntrospectionSources(graph=graph)
+    )
+
+    # 加载桥模块（路径含点，需手动加载）
+    repo_root = Path(__file__).resolve().parents[2]
+    bridge_path = repo_root / "inkling" / "shell" / "src-tauri" / "src" / "engine" / "py" / "bridge.py"
+    spec = importlib.util.spec_from_file_location("inkling_bridge", bridge_path)
+    bridge = importlib.util.module_from_spec(spec)
+    sys.modules["inkling_bridge"] = bridge
+    spec.loader.exec_module(bridge)
+    bridge.bind_runtime(runtime, None)
+    yield runtime
+    bridge.bind_runtime(None, None)
+
+
+@pytest.fixture
+def runtime_with_edges(assembled_runtime):
+    """带边证据存储的运行时。"""
+    import asyncio
+
+    from ink_engine.core.edge_evidence import EdgeEvidence, EdgeEvidenceStore, EdgeKey
+
+    store = EdgeEvidenceStore()
+    assembled_runtime.edge_evidence_store = store
+    key = EdgeKey(src_type="a", dst_type="b", context_domain="code")
+    asyncio.run(
+        store.put(
+            EdgeEvidence(
+                key=key,
+                success_count=10,
+                fail_count=2,
+                avg_cost=1.5,
+                last_used_at=1_800_000_000.0,
+                created_at=1_800_000_000.0,
+            )
+        )
+    )
+    return assembled_runtime
+
+
 __all__ = [
     "DemoBudgetPolicy",
+    "assembled_runtime",
     "demo_conditional_graph",
     "demo_linear_graph",
     "demo_loop_graph",
     "make_engine",
     "memory_storage",
+    "runtime_with_edges",
     "transport",
 ]

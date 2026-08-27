@@ -163,21 +163,27 @@ def _jsonable(value: Any) -> Any:
 
 
 def invoke(name: str, args_json: str) -> str:
-    """同步操作通道：JSON 进、JSON 出（域模块调用引擎公开 API 的薄包装）。"""
+    """同步操作通道：JSON 进、JSON 出（域模块调用引擎公开 API 的薄包装）。
+
+    未知 op = 显式空态标记（不白屏）：返回 {"op": name, "found": false}。
+    """
     fn = _OPS_SYNC.get(name)
     if fn is None:
-        raise KeyError(f"未注册的同步引擎操作: {name}")
+        return json.dumps({"op": name, "found": False, "empty": True})
     args = json.loads(args_json)
     result = fn(args)
     return json.dumps(_jsonable(result))
 
 
 async def invoke_async(name: str, args_json: str) -> str:
-    """异步操作通道：JSON 进、JSON 出（引擎异步 API 的薄包装）。"""
+    """异步操作通道：JSON 进、JSON 出（引擎异步 API 的薄包装）。
+
+    未知 op = 显式空态标记（不白屏）：返回 {"op": name, "found": false}。
+    """
     _capture_engine_loop()  # 宿主循环锚点（同步 op 派发目标）
     fn = _OPS_ASYNC.get(name)
     if fn is None:
-        raise KeyError(f"未注册的异步引擎操作: {name}")
+        return json.dumps({"op": name, "found": False, "empty": True})
     args = json.loads(args_json)
     result = await fn(args)
     return json.dumps(_jsonable(result))
@@ -1000,6 +1006,200 @@ def register_builtin_ops() -> None:
             workflow_data=args["workflow"],
         )
         return {"graph": graph.to_dict()}
+
+    # ── 架构快照 op（W3.1 图快照 / W3.2 池快照 / W3.3 边证据快照）──
+
+    @op_sync("graph.snapshot")
+    def _graph_snapshot(args: dict) -> Any:
+        """图快照 op：内省 snapshot_graph → 前端 GraphSnapshot 映射。
+
+        映射契约：
+        - version = 图内容指纹（digest；不可用时取链版本）
+        - nodes = [{id, type, label}]（id = 节点名，type = 类型名，label = 节点名）
+        - edges = [{from, to}]（条件边标 condition 字段）
+        - patchChain = 补丁链摘要（当前版本 / 补丁数）
+
+        无图 / 不可序列化 = 显式空态标记（不白屏）：degraded=true + 空 nodes/edges。
+        """
+        try:
+            runtime = runtime_handle()
+        except RuntimeError:
+            return {"version": "none", "nodes": [], "edges": [], "patchChain": {"version": "none", "patch_count": 0}, "degraded": True}
+        introspection = runtime.introspection_service
+        snapshot = introspection.snapshot_graph()
+        graph_data = snapshot.get("graph")
+        digest = snapshot.get("digest")
+
+        nodes: list[dict[str, Any]] = []
+        edges: list[dict[str, Any]] = []
+        degraded = False
+        version = digest
+
+        if graph_data is None:
+            degraded = True
+        else:
+            degraded = bool(graph_data.get("degraded", False))
+            nodes = [
+                {"id": name, "type": info.get("type", "unknown"), "label": name}
+                for name, info in (graph_data.get("nodes") or {}).items()
+            ]
+            for source, edge_list in (graph_data.get("edges") or {}).items():
+                for edge in edge_list:
+                    e: dict[str, Any] = {"from": source, "to": edge.get("target", "")}
+                    condition = edge.get("condition")
+                    if condition is not None and condition != "function":
+                        e["condition"] = condition
+                    edges.append(e)
+            if not version:
+                version = graph_data.get("name")
+
+        # 补丁链摘要
+        patch_chain: dict[str, Any] = {"version": version, "patch_count": 0}
+        chain = getattr(runtime, "self_pipeline", None)
+        if chain is not None:
+            try:
+                patch_chain["patch_count"] = len(
+                    getattr(chain.chain, "patches", []) or ()
+                )
+                if patch_chain["version"] is None:
+                    patch_chain["version"] = int(
+                        getattr(chain.chain, "current_version", lambda: 0)()
+                    )
+            except Exception:
+                pass
+
+        result: dict[str, Any] = {
+            "version": version if version is not None else "none",
+            "nodes": nodes,
+            "edges": edges,
+            "patchChain": patch_chain,
+        }
+        if degraded:
+            result["degraded"] = True
+        return result
+
+    @op_sync("pool.snapshot")
+    def _pool_snapshot(args: dict) -> Any:
+        """池快照 op：PoolNodeSnapshot 列表 + GovernanceVerdict 最近记录。
+
+        返回形态：{pool_nodes: [...], governance_log: [...]}。
+        无治理登记器 = 显式空态（不白屏）。
+        """
+        runtime = runtime_handle()
+        governance = getattr(runtime, "pool_governance", None)
+        pool_nodes: list[dict[str, Any]] = []
+        gov_log: list[dict[str, Any]] = []
+
+        if governance is not None:
+            gov_log = [_jsonable(r) for r in governance.log]
+            # 池快照结点：从注册表取契约字段（同源 pool_nodes_from_registry）
+            registries = getattr(runtime, "graph_registries", None)
+            if registries is not None and hasattr(registries, "nodes"):
+                try:
+                    from ink_engine.core.pool_governance import pool_nodes_from_registry
+
+                    pool_nodes = [
+                        _jsonable(n) for n in pool_nodes_from_registry(registries.nodes)
+                    ]
+                except Exception:
+                    pool_nodes = []
+
+        return {"pool_nodes": pool_nodes, "governance_log": gov_log}
+
+    @op_sync("pool.evaluate")
+    def _pool_evaluate(args: dict) -> Any:
+        """池治理判定 op：对提案做四规则判定并登记（纯规则+登记不执行）。
+
+        输入：proposal（node_id/fields）+ snapshot（pool_count/used_this_week/pool_nodes）。
+        返回：GovernanceVerdict dict。无治理登记器 = 显式空态。
+        """
+        runtime = runtime_handle()
+        governance = getattr(runtime, "pool_governance", None)
+        if governance is None:
+            return {"verdict": "none", "reasons": [], "budget_remaining": 0}
+        proposal = args.get("proposal") or {}
+        snapshot = args.get("snapshot") or {}
+        verdict = governance.evaluate(proposal, snapshot)
+        return _jsonable(verdict)
+
+    @op_async("edge_evidence.list")
+    async def _edge_evidence_list(args: dict) -> Any:
+        """边证据快照 op：按域枚举边证据 + 评分分量（信任档观察/常规/转正）。
+
+        返回形态：{domain, edges: [{src_type, dst_type, success_count, fail_count,
+        tier, score, p, weight, decay, tau, avg_cost, policy, origin}], ...}。
+        无存储 = 显式空态。
+        """
+        try:
+            runtime = runtime_handle()
+        except RuntimeError:
+            return {"domain": args.get("domain"), "edges": [], "total_candidates": 0, "evidenced_edges": 0, "cold_start_index": 0.0, "exploration_mode": True}
+        domain = args.get("domain")
+        store = _safe_attr_call(runtime, "edge_evidence_store")
+        if store is None:
+            return {"domain": domain, "edges": [], "exploration_index": None}
+        from ink_engine.core.edge_evidence import (
+            cold_start_index,
+            edge_score,
+            is_exploration_mode,
+        )
+
+        edge_list = await store.list_edges(domain)
+        edges: list[dict[str, Any]] = []
+        for ev in edge_list:
+            score = edge_score(ev)
+            edges.append({
+                "src_type": ev.src_type,
+                "dst_type": ev.dst_type,
+                "success_count": ev.success_count,
+                "fail_count": ev.fail_count,
+                "tier": score.tier,
+                "score": score.score,
+                "p": score.p,
+                "weight": score.weight,
+                "decay": score.decay,
+                "tau": score.tau,
+                "avg_cost": ev.avg_cost,
+                "policy": ev.policy,
+                "origin": ev.origin,
+            })
+        # 冷启动探索指数
+        total_candidates = await store.evidence_count(domain)
+        evidenced = len([e for e in edge_list if e.success_count + e.fail_count > 0])
+        index = cold_start_index(evidenced, total_candidates)
+        return {
+            "domain": domain,
+            "edges": edges,
+            "total_candidates": total_candidates,
+            "evidenced_edges": evidenced,
+            "cold_start_index": index,
+            "exploration_mode": is_exploration_mode(index),
+        }
+
+    @op_async("edge_evidence.update")
+    async def _edge_evidence_update(args: dict) -> Any:
+        """边证据更新 op：仅信任档降级/停用语义（自动晋级纯算法不开放）。
+
+        契约：target_tier ∈ {observing, regular}（只降级不晋级）；
+        update 只做信任档降级/停用，不改计数细节（计数由运行期归集）。
+        """
+        runtime = runtime_handle()
+        store = _safe_attr_call(runtime, "edge_evidence_store")
+        if store is None:
+            raise RuntimeError("边证据存储未装配")
+        key_data = args["key"]
+        from ink_engine.core.edge_evidence import EdgeKey, downgrade_edge_tier
+
+        key = EdgeKey.from_dict(key_data)
+        target_tier = args.get("target_tier", "observing")
+        storage = getattr(runtime, "storage", None)
+        result = await downgrade_edge_tier(
+            store, key,
+            target_tier=target_tier,
+            storage=storage,
+            reason=str(args.get("reason") or "桥 op 信任档降级"),
+        )
+        return result
 
     # ── MCP 挂载（连接/工具导入/断开）──
 

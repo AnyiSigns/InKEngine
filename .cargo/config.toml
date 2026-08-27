@@ -1,0 +1,4 @@
+# 构建加速（4C8G 低配机器）：限制并行编译进程数防内存打爆。
+# 各 crate 自身的 .cargo/config.toml（PYO3_PYTHON 等 env）与本节配置由 cargo 自动合并。
+[build]
+jobs = 4

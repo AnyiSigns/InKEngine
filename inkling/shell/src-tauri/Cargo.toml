@@ -54,9 +54,21 @@ custom-protocol = ["tauri/custom-protocol"]
 name = "inkling_shell_lib"
 crate-type = ["staticlib", "cdylib", "rlib"]
 
+# 开发构建加速（4C8G 低配机器）：debug=1 仅行号表（体积/链接/内存大幅下降），
+# 依赖以 opt-level=2 预编译（依赖不变只编一次，增量仅重编本 crate），
+# codegen-units=16 限制并行 codegen 内存尖峰（默认 256 会打爆 8GB 内存）。
+[profile.dev]
+debug = 1
+codegen-units = 16
+
+[profile.dev.package."*"]
+opt-level = 2
+
 [profile.release]
-codegen-units = 1
-lto = true
+# 发布构建加速：thin LTO + 16 codegen-units（tauri 官方推荐），
+# 全量 LTO + 单 codegen-units 在 4C8G 上构建需 30-60 分钟且吃满内存。
+codegen-units = 16
+lto = "thin"
 opt-level = "s"
 panic = "abort"
 strip = true

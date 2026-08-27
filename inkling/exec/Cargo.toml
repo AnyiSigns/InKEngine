@@ -12,3 +12,10 @@ path = "src/lib.rs"
 [[bin]]
 name = "inkling_exec"
 path = "src/main.rs"
+
+[profile.dev]
+debug = 1
+codegen-units = 16
+
+[profile.dev.package."*"]
+opt-level = 2

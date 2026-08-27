@@ -115,6 +115,7 @@ pub fn boot_engine(repo_root: &Path, data_dir: &Path) -> Result<EngineHost, CliE
         safe_mode: false,
         bundled: false,
         embedder_model_dir: None,
+        tool_provider: None,
     };
     let host = EngineHost::boot(options).map_err(CliError::boot)?;
     wire_round_execution(repo_root)?;
@@ -168,13 +169,13 @@ fn block_on_op_async(op: &str, args: Value) -> Result<Value, String> {
         .block_on(call_engine_op_async(op, args))
 }
 
-/// 同步 op 未注册哨兵判别（C6：引擎 KeyError 文案判别的唯一收口点）。
+/// 同步 op 未注册哨兵判别（C6：引擎错误码判别的唯一收口点）。
 ///
 /// 同步 / 异步 op 分属两张注册表，同步未命中即回落异步表；判据为引擎
-/// 侧 `未注册的同步引擎操作` KeyError（bridge.py invoke）。P9 结构化
-/// `unregistered_op` 标记落地后应切换为标记解析，本函数兼容两态过渡。
+/// 侧错误信封 `code=ENGINE_OP_UNREGISTERED`（host.rs parse_op_result
+/// 将 bridge 结构化 `unregistered_op` 映射为该码），兼容旧文案过渡。
 fn is_unregistered_sync_op(error: &str) -> bool {
-    error.contains("unregistered_op") || error.contains("未注册的同步引擎操作")
+    error.contains("ENGINE_OP_UNREGISTERED") || error.contains("未注册的同步引擎操作")
 }
 
 /// 经 op 通道调用引擎操作：先试同步表，未命中再回落异步表。

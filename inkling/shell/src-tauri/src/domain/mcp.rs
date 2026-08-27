@@ -33,6 +33,11 @@ const PREFIX_HTTPS: &str = "https://";
 const PREFIX_NPM: &str = "npm:";
 const PREFIX_GIT: &str = "git:";
 
+/// 来源分类（与引擎 ToolSource 枚举对齐；mcp.connect 按分类解析，
+/// 不得塞自由文本）。市场条目 = market；直接地址 = unknown（无分类）。
+const SOURCE_MARKET: &str = "market";
+const SOURCE_UNKNOWN: &str = "unknown";
+
 /// stdio 命令推导模板（npx -y <包>，仅提案不执行）。
 const NPX_COMMAND: &str = "npx";
 const NPX_ARGS_PREFIX: &str = "-y";
@@ -79,7 +84,11 @@ pub struct McpServerConfig {
     pub args: Vec<String>,
     /// 嵌入式 server 工厂登记名（in_memory 传输的宿主注入点）。
     pub server_factory: Option<String>,
+    /// 来源分类（与引擎 ToolSource 枚举对齐：market/unknown 等，
+    /// mcp.connect 落引擎配置时按分类解析，不得塞自由文本）。
     pub source: String,
+    /// 市场条目 category（市场内挂载原样映射；直接地址挂载为 None）。
+    pub category: Option<String>,
 }
 
 impl McpServerConfig {
@@ -92,6 +101,7 @@ impl McpServerConfig {
             "args": self.args,
             "server_factory": self.server_factory,
             "source": self.source,
+            "category": self.category,
         })
     }
 }
@@ -199,7 +209,7 @@ impl McpMountService {
     pub fn register_server_factory(&self, server_id: &str, factory: String) {
         self.server_factories
             .write()
-            .unwrap()
+            .unwrap_or_else(std::sync::PoisonError::into_inner)
             .insert(server_id.to_string(), factory);
     }
 
@@ -222,6 +232,9 @@ impl McpMountService {
     }
 
     /// 市场条目 → 挂载配置（市场内落市场配置，字段原样映射）。
+    ///
+    /// source 落引擎 ToolSource 兼容分类（市场条目 = market），不塞
+    /// 市场条目的自由文本描述；category 原样映射市场条目分类。
     pub fn config_from_market_entry(&self, entry: &JsonValue) -> Result<McpServerConfig, DomainError> {
         let obj = entry
             .as_object()
@@ -252,11 +265,16 @@ impl McpMountService {
                 })
                 .unwrap_or_default(),
             server_factory: None,
-            source: "unknown".to_string(),
+            source: SOURCE_MARKET.to_string(),
+            category: obj.get("category").and_then(JsonValue::as_str).map(str::to_string),
         })
     }
 
-    /// 地址 → 稳定 server id（非字母数字折叠为点，防 id 漂移）。
+    /// 地址 → 稳定 server id（非字母数字折叠为点 + 短哈希防截断碰撞）。
+    ///
+    /// 折叠串截断 64 字符后追加 8 位 sha256 前缀：截断只保留前缀不保留
+    /// 区分信息，不追加哈希时不同长地址会折叠出同一 id（mount_log 以
+    /// id 为键，后者静默覆盖前者）；哈希随完整地址确定性派生。
     pub fn derive_server_id(address: &str) -> String {
         let cleaned: Vec<&str> = address
             .split(|ch: char| !ch.is_ascii_alphanumeric())
@@ -268,7 +286,13 @@ impl McpMountService {
             bounded.truncate(64);
         }
         let bounded = bounded.trim_matches('.');
-        format!("addr.{bounded}")
+        let digest = {
+            use sha2::{Digest, Sha256};
+            let mut hasher = Sha256::new();
+            hasher.update(address.as_bytes());
+            hex::encode(hasher.finalize())
+        };
+        format!("addr.{bounded}.{}", &digest[..8])
     }
 
     /// 地址解析：市场条目 / http(s) url / npm 包 / git 仓库 → 配置。
@@ -293,7 +317,8 @@ impl McpMountService {
                 command: None,
                 args: Vec::new(),
                 server_factory: None,
-                source: "unknown".to_string(),
+                source: SOURCE_UNKNOWN.to_string(),
+                category: None,
             });
         }
         if let Some(package) = address.strip_prefix(PREFIX_NPM).map(str::trim) {
@@ -307,7 +332,8 @@ impl McpMountService {
                 command: Some(NPX_COMMAND.to_string()),
                 args: vec![NPX_ARGS_PREFIX.to_string(), package.to_string()],
                 server_factory: None,
-                source: "unknown".to_string(),
+                source: SOURCE_UNKNOWN.to_string(),
+                category: None,
             });
         }
         if let Some(repo) = address.strip_prefix(PREFIX_GIT).map(str::trim) {
@@ -321,7 +347,8 @@ impl McpMountService {
                 command: Some(NPX_COMMAND.to_string()),
                 args: vec![NPX_ARGS_PREFIX.to_string(), repo.to_string()],
                 server_factory: None,
-                source: "unknown".to_string(),
+                source: SOURCE_UNKNOWN.to_string(),
+                category: None,
             });
         }
         Err(McpMountError(format!(
@@ -464,6 +491,7 @@ impl McpMountService {
             args,
             server_factory: config.server_factory.clone(),
             source: config.source.clone(),
+            category: config.category.clone(),
         })
     }
 
@@ -479,7 +507,7 @@ impl McpMountService {
             if config.transport == McpTransport::InMemory && config.server_factory.is_none() {
                 self.server_factories
                     .read()
-                    .unwrap()
+                    .unwrap_or_else(std::sync::PoisonError::into_inner)
                     .get(&config.id)
                     .cloned()
             } else {
@@ -555,11 +583,21 @@ impl McpMountService {
             Err(outcome) => return outcome,
         };
         self.mark_vetted(&prepared.id);
-        self.mount_execute(&prepared).await
+        let outcome = self.mount_execute(&prepared).await;
+        if !outcome.ok {
+            eprintln!(
+                "[mcp] mount_failed server={} status={} err={}",
+                outcome.server_id,
+                outcome.status,
+                outcome.error.as_deref().unwrap_or("")
+            );
+        }
+        outcome
     }
 
     /// 挂载执行段：connect → 工具导入 → 逐工具决议注入 + 落链 →
-    /// 登记 → 引擎重建（任一失败结构化返回，不半挂载）。
+    /// 引擎重建 → 登记（rebuild 成功后才落挂载态，任一失败结构化返回，
+    /// 不半挂载）。
     ///
     /// 审批语义对齐挂载链：挂载审批卡预览（可 edit）已在提案
     /// 阶段产出；执行段对逐工具 TOOL 补丁（L1 弹卡）经
@@ -682,15 +720,22 @@ impl McpMountService {
                 }
             }
         }
-        // ④ 登记 + 引擎重建（重建失败 = 结构化失败，登记已留可查）
-        self.record_mount(&server_id, patch_ids.clone());
-        self.mounted_tools
-            .write()
-            .unwrap()
-            .insert(server_id.clone(), tool_names.clone());
-        if let Err(err) = call_engine_op_async("engine.rebuild", json!({})).await {
-            return MountOutcome::failed(&server_id, "rebuild_failed", &format!("引擎重建失败: {err}"));
+        // ④ 挂载登记收口（finalize_mount）：引擎重建成功后才落登记——
+        // rebuild 失败 = 无登记、无工具表条目（fail-closed，设置页不
+        // 显示「已挂载、实际不可用」的半挂载态，卸载/回退无残留判据）
+        if let Err(err) = self
+            .finalize_mount(&server_id, patch_ids.clone(), tool_names.clone())
+            .await
+        {
+            return MountOutcome::failed(
+                &server_id,
+                "rebuild_failed",
+                &format!("引擎重建失败: {err}"),
+            );
         }
+        eprintln!(
+            "[mcp] mount server={server_id} tools={tool_names:?} patches={patch_ids:?}"
+        );
         MountOutcome {
             ok: true,
             server_id,
@@ -699,6 +744,25 @@ impl McpMountService {
             status: "mounted".to_string(),
             error: None,
         }
+    }
+
+    /// 挂载登记时序收口：引擎重建成功后才落挂载态（登记 + 工具表）。
+    ///
+    /// rebuild 失败返回 Err 且不产生任何挂载记录——「登记」与「引擎
+    /// 就绪」的顺序契约在此单一收口，调用方不得提前落登记。
+    async fn finalize_mount(
+        &self,
+        server_id: &str,
+        patch_ids: Vec<i64>,
+        tool_names: Vec<String>,
+    ) -> Result<(), String> {
+        call_engine_op_async("engine.rebuild", json!({})).await?;
+        self.record_mount(server_id, patch_ids);
+        self.mounted_tools
+            .write()
+            .unwrap_or_else(std::sync::PoisonError::into_inner)
+            .insert(server_id.to_string(), tool_names);
+        Ok(())
     }
 
     /// 集补丁链当前版本（= 补丁数 + 1；链记录缺失/读取失败 = 版本 1，
@@ -750,7 +814,7 @@ impl McpMountService {
     pub fn record_mount(&self, server_id: &str, patch_ids: Vec<i64>) {
         self.mount_log
             .write()
-            .unwrap()
+            .unwrap_or_else(std::sync::PoisonError::into_inner)
             .insert(server_id.to_string(), patch_ids);
     }
 
@@ -760,7 +824,12 @@ impl McpMountService {
         server_id: &str,
         tail_patch: Option<&JsonValue>,
     ) -> Result<Vec<i64>, MountOutcome> {
-        let patch_ids = self.mount_log.read().unwrap().get(server_id).cloned();
+        let patch_ids = self
+            .mount_log
+            .read()
+            .unwrap_or_else(std::sync::PoisonError::into_inner)
+            .get(server_id)
+            .cloned();
         let Some(patch_ids) = patch_ids else {
             return Err(MountOutcome::failed(
                 server_id,
@@ -854,7 +923,7 @@ impl McpMountService {
         let tool_names = self
             .mounted_tools
             .read()
-            .unwrap()
+            .unwrap_or_else(std::sync::PoisonError::into_inner)
             .get(server_id)
             .cloned()
             .unwrap_or_else(|| tool_names_from_tail(tail_patch));
@@ -865,8 +934,17 @@ impl McpMountService {
             )
             .await;
         }
-        self.mount_log.write().unwrap().remove(server_id);
-        self.mounted_tools.write().unwrap().remove(server_id);
+        self.mount_log
+            .write()
+            .unwrap_or_else(std::sync::PoisonError::into_inner)
+            .remove(server_id);
+        self.mounted_tools
+            .write()
+            .unwrap_or_else(std::sync::PoisonError::into_inner)
+            .remove(server_id);
+        eprintln!(
+            "[mcp] unmount server={server_id} tools={tool_names:?} patches={patch_ids:?}"
+        );
         MountOutcome {
             ok: true,
             server_id: server_id.to_string(),
@@ -879,17 +957,33 @@ impl McpMountService {
 
     /// 登记已通过 vetting 的 server（L2 钩子放行依据）。
     pub fn mark_vetted(&self, server_id: &str) {
-        self.vetted.write().unwrap().insert(server_id.to_string());
+        self.vetted
+            .write()
+            .unwrap_or_else(std::sync::PoisonError::into_inner)
+            .insert(server_id.to_string());
     }
 
     /// 当前挂载登记（设置页「连接」视图数据源）。
     pub fn mounted_servers(&self) -> Vec<String> {
-        self.mount_log.read().unwrap().keys().cloned().collect()
+        self.mount_log
+            .read()
+            .unwrap_or_else(std::sync::PoisonError::into_inner)
+            .keys()
+            .cloned()
+            .collect()
     }
 
     /// 卸载/回退后的链尾归属判定入口（供 boot 调取链尾补丁判断）。
     pub fn l2_hook_violations(&self, proposal_kind: &str, payload: &JsonValue) -> Vec<String> {
-        l2_hook_violations(proposal_kind, payload, &self.vetted.read().unwrap().clone())
+        l2_hook_violations(
+            proposal_kind,
+            payload,
+            &self
+                .vetted
+                .read()
+                .unwrap_or_else(std::sync::PoisonError::into_inner)
+                .clone(),
+        )
     }
 }
 
@@ -1044,12 +1138,23 @@ mod tests {
     }
 
     #[test]
-    fn derive_server_id_folds_and_bounds() {
-        assert_eq!(McpMountService::derive_server_id("https://a.example.com/mcp"), "addr.https.a.example.com.mcp");
+    fn derive_server_id_folds_bounds_and_disambiguates() {
+        // 折叠 + 截断 64 + 8 位短哈希（FA6）：同前缀折叠地址不碰撞
+        let short = McpMountService::derive_server_id("https://a.example.com/mcp");
+        assert!(short.starts_with("addr.https.a.example.com.mcp"), "{short}");
+        assert!(short.len() >= "addr.https.a.example.com.mcp".len() + 8);
         let long = format!("https://{}.example.com", "x".repeat(100));
         let derived = McpMountService::derive_server_id(&long);
-        assert!(derived.len() <= 64 + 5, "折叠后限长 64");
+        assert!(derived.len() <= 64 + 8 + 6, "折叠限长 64 + 短哈希: {}", derived.len());
         assert_eq!(derived, McpMountService::derive_server_id(&long), "同地址同 id（稳定）");
+        // 碰撞回归：两个地址折叠前缀在 64 字符内完全一致、仅尾部不同
+        // → 不追加哈希时同 id（mount_log 以 id 为键被覆盖），追加后必不同
+        let shared_prefix = format!("https://{}.example.com/", "x".repeat(100));
+        let a = format!("{shared_prefix}path-a");
+        let b = format!("{shared_prefix}path-b");
+        let id_a = McpMountService::derive_server_id(&a);
+        let id_b = McpMountService::derive_server_id(&b);
+        assert_ne!(id_a, id_b, "同前缀不同地址的 id 必须不同（防 mount_log 覆盖）");
     }
 
     #[test]
@@ -1066,21 +1171,22 @@ mod tests {
             args: vec![],
             server_factory: None,
             source: "unknown".to_string(),
+            category: None,
         };
         assert!(service.vetting_checks(&http_bad).iter().any(|v| v.contains("http(s)")));
 
         // stdio 缺命令 / 白名单外命令 → 拒绝
-        let stdio_no_cmd = McpServerConfig { id: "x".into(), transport: McpTransport::Stdio, url: None, command: None, args: vec![], server_factory: None, source: "unknown".into() };
+        let stdio_no_cmd = McpServerConfig { id: "x".into(), transport: McpTransport::Stdio, url: None, command: None, args: vec![], server_factory: None, source: "unknown".into(), category: None };
         assert!(service.vetting_checks(&stdio_no_cmd).iter().any(|v| v.contains("缺命令")));
-        let rogue = McpServerConfig { id: "evil".into(), transport: McpTransport::Stdio, url: None, command: Some("curl".into()), args: vec![], server_factory: None, source: "unknown".into() };
+        let rogue = McpServerConfig { id: "evil".into(), transport: McpTransport::Stdio, url: None, command: Some("curl".into()), args: vec![], server_factory: None, source: "unknown".into(), category: None };
         assert!(service.vetting_checks(&rogue).iter().any(|v| v.contains("白名单")));
 
         // npx 提案须携带包名参数
-        let npx_no_pkg = McpServerConfig { id: "npm.bare".into(), transport: McpTransport::Stdio, url: None, command: Some("npx".into()), args: vec!["-y".into()], server_factory: None, source: "unknown".into() };
+        let npx_no_pkg = McpServerConfig { id: "npm.bare".into(), transport: McpTransport::Stdio, url: None, command: Some("npx".into()), args: vec!["-y".into()], server_factory: None, source: "unknown".into(), category: None };
         assert!(service.vetting_checks(&npx_no_pkg).iter().any(|v| v.contains("包名")));
 
         // in_memory 须嵌入式工厂
-        let memory_no_factory = McpServerConfig { id: "test.echo".into(), transport: McpTransport::InMemory, url: None, command: None, args: vec![], server_factory: None, source: "unknown".into() };
+        let memory_no_factory = McpServerConfig { id: "test.echo".into(), transport: McpTransport::InMemory, url: None, command: None, args: vec![], server_factory: None, source: "unknown".into(), category: None };
         let violations = service.vetting_checks(&memory_no_factory);
         assert!(violations.iter().any(|v| v.contains("工厂")), "违规: {violations:?}");
         let with_factory = McpServerConfig { server_factory: Some("echo".into()), ..memory_no_factory.clone() };
@@ -1137,10 +1243,34 @@ mod tests {
         assert_eq!(outcome.status, "resolve_failed");
         assert!(!outcome.ok);
         // vetting 拒绝（stdio 白名单外）→ 未到审批卡
-        let config = McpServerConfig { id: "evil.mount".into(), transport: McpTransport::Stdio, url: None, command: Some("curl".into()), args: vec![], server_factory: None, source: "unknown".into() };
+        let config = McpServerConfig { id: "evil.mount".into(), transport: McpTransport::Stdio, url: None, command: Some("curl".into()), args: vec![], server_factory: None, source: "unknown".into(), category: None };
         let rejected = service.premount_checks(&config, None).unwrap_err();
         assert_eq!(rejected.status, "vetting_rejected");
         assert!(rejected.error.as_deref().unwrap().contains("白名单"));
+    }
+
+    #[test]
+    fn market_entry_config_keeps_source_class_and_category() {
+        // FA14：市场条目 → source 落引擎 ToolSource 兼容分类（market），
+        // category 原样映射；直接地址挂载 = unknown 且无 category。
+        let market = json!({
+            "premounted": false,
+            "servers": [{
+                "id": "market.web_fetch",
+                "source": "社区公开 server（示例条目）",
+                "category": "web_fetch",
+                "transport": "http",
+                "url": "https://r.jina.ai",
+            }],
+        });
+        let service = McpMountService::new(&market).unwrap();
+        let market_cfg = service.resolve_address("market.web_fetch").unwrap();
+        assert_eq!(market_cfg.source, "market", "市场条目来源分类 = market（引擎 ToolSource 兼容）");
+        assert_eq!(market_cfg.category.as_deref(), Some("web_fetch"));
+        assert_eq!(market_cfg.to_json()["category"], "web_fetch");
+        let direct = service.resolve_address("https://r.jina.ai").unwrap();
+        assert_eq!(direct.source, "unknown", "直接地址无来源分类");
+        assert_eq!(direct.category, None);
     }
 
     #[test]
@@ -1239,6 +1369,37 @@ mod tests {
         assert!(!outcome.error.as_deref().unwrap().contains("需 op"));
         // 挂载登记按结果保持干净（fail-closed：失败无半挂载记录）
         assert!(service.mounted_servers().is_empty());
+    }
+
+    #[test]
+    fn rebuild_failure_leaves_no_mount_state() {
+        // FA3 时序回归：挂载登记必须先等引擎重建成功——rebuild 失败时
+        // 不落登记、不插工具表（无引擎环境 = rebuild 必失败；若实现回退
+        // 到「先登记后重建」，本测试即被挂载态残留抓住）。
+        let market = market_with(&in_memory_entry());
+        let service = McpMountService::new(&market).unwrap();
+        let rt = tokio::runtime::Builder::new_current_thread()
+            .enable_all()
+            .build()
+            .unwrap();
+        let result = rt.block_on(service.finalize_mount(
+            "test.echo",
+            vec![1, 2],
+            vec!["echo".to_string()],
+        ));
+        assert!(result.is_err(), "无引擎环境 engine.rebuild 应失败");
+        assert!(
+            service.mounted_servers().is_empty(),
+            "rebuild 失败不得留下挂载登记（设置页不得显示已挂载）"
+        );
+        assert!(
+            service
+                .mounted_tools
+                .read()
+                .unwrap_or_else(std::sync::PoisonError::into_inner)
+                .is_empty(),
+            "rebuild 失败不得留下工具表登记"
+        );
     }
 
     #[test]

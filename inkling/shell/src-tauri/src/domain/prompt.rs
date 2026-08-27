@@ -11,8 +11,9 @@
 //! 工具标识符——推理过程的书写语言与工具无关）。
 //!
 //! 工具名映射表中间态：中文名（描述首句的行为意图标签）↔ 工具名的
-//! 对照清单，作为策略层上下文的素材；标签抽取规则与 tools 域的兜底
-//! 首层同源（描述首句），本模块独立实现不跨域调用。
+//! 对照清单，作为策略层上下文的素材；标签抽取复用 tools 域四层兜底
+//! （[`super::tools::build_tool_name_map`]，含「（未本地化）」审计标记），
+//! 两侧共源不重复实现——映射表中间态只保留对照所需的两字段。
 
 use std::path::Path;
 
@@ -25,9 +26,6 @@ pub const BOOT_PROMPT_FILE: &str = "boot_prompt.json";
 
 /// 目标设定体积下限倍数（相对工具清单体积）。
 pub const BEHAVIOR_GUIDE_MIN_RATIO: usize = 10;
-
-/// 优先档位：描述首句的行为意图前置词（抽取后剥离）。
-const DESCRIPTION_INTENT_PREFIX: &str = "行为意图：";
 
 /// 策略层打标准则（确定性任务 → spawn 标注）。
 pub const STRATEGY_VARIANT_DETERMINISTIC: &str = "打标分类准则：任务走法确定（如规范要求的固定步骤）时，把子树标注为 spawn 分组并行展开，不要逐节点模拟；确定性任务不设 simulate 探测档。";
@@ -132,52 +130,18 @@ pub struct NamePair {
     pub zh: String,
 }
 
-/// 描述首句 → 中文行为意图标签（独立实现；与 tools 域首层兜底同源）。
-pub fn zh_label_from_description(description: &str) -> Option<String> {
-    let first_line = description.lines().next().unwrap_or_default().trim();
-    if first_line.is_empty() {
-        return None;
-    }
-    let without_prefix = first_line
-        .strip_prefix(DESCRIPTION_INTENT_PREFIX)
-        .unwrap_or(first_line)
-        .trim();
-    let label = without_prefix
-        .split("——")
-        .next()
-        .unwrap_or(without_prefix)
-        .split('：')
-        .next()
-        .unwrap_or(without_prefix)
-        .trim();
-    if label.is_empty() {
-        None
-    } else {
-        Some(label.to_string())
-    }
-}
-
 /// tools.json → 工具名映射表中间态（中文标签 ↔ 工具名，按名排序）。
+///
+/// 标签复用 tools 域四层兜底（[`super::tools::build_tool_name_map`]），
+/// 含「（未本地化）」审计标记——与工具侧装配/展示口径一致，不重复实现。
 pub fn tool_name_map(tools_data: &JsonValue) -> Vec<NamePair> {
-    let mut pairs: Vec<NamePair> = tools_data
-        .get("tools")
-        .and_then(JsonValue::as_array)
-        .map(|list| {
-            list.iter()
-                .filter_map(|tool| {
-                    let name = tool.get("name")?.as_str()?.to_string();
-                    let zh = tool
-                        .get("description")
-                        .and_then(JsonValue::as_str)
-                        .and_then(zh_label_from_description)
-                        .unwrap_or_else(|| name.clone());
-                    Some(NamePair { tool: name, zh })
-                })
-                .collect()
+    super::tools::build_tool_name_map(tools_data)
+        .into_iter()
+        .map(|entry| NamePair {
+            tool: entry.tool,
+            zh: entry.zh,
         })
-        .unwrap_or_default();
-    pairs.sort_by(|a, b| a.tool.cmp(&b.tool));
-    pairs
+        .collect()
 }
 
 /// 映射表 → 注入文本（策略层上下文的工具清单形态）。
@@ -332,6 +296,10 @@ fn total_len(lines: &[String]) -> usize {
 /// 装配期一次性组成（纯函数），随五源装配进每回合上下文（行为源
 /// 高权重全保留，不被预算裁剪）——「系统提示谈意图、工具描述谈动作」
 /// 的纪律落点：本块不引用任何工具标识符，工具名映射表仅作对照。
+///
+/// 工具清单来源：本变体以 seed tools.json 静态声明为源（装配期基线）；
+/// MCP 挂载/补丁后的运行时快照走
+/// [`compose_round_behavior_with_provider`]（工具对照表随真实工具集更新）。
 pub fn compose_round_behavior(
     prompt: &str,
     tools_data: &serde_json::Value,
@@ -339,8 +307,36 @@ pub fn compose_round_behavior(
 ) -> String {
     let layers = behavior_layers(prompt);
     let pairs = tool_name_map(tools_data);
-    let catalog = tool_name_map_text(&pairs);
-    let injection = compose_behavior_injection(&layers, &catalog);
+    compose_round_behavior_parts(&layers, &pairs, tier)
+}
+
+/// 回合行为层（运行时快照变体）：工具对照表取 [`ToolSpecsProvider`]
+/// 实时快照（MCP 挂载后刷新即生效），其余注入形态与
+/// [`compose_round_behavior`] 一致。
+pub fn compose_round_behavior_with_provider(
+    prompt: &str,
+    provider: &super::tools::ToolSpecsProvider,
+    tier: ReasoningTier,
+) -> String {
+    let layers = behavior_layers(prompt);
+    let pairs: Vec<NamePair> = provider
+        .name_map()
+        .into_iter()
+        .map(|entry| NamePair {
+            tool: entry.tool,
+            zh: entry.zh,
+        })
+        .collect();
+    compose_round_behavior_parts(&layers, &pairs, tier)
+}
+
+fn compose_round_behavior_parts(
+    layers: &BehaviorLayers,
+    pairs: &[NamePair],
+    tier: ReasoningTier,
+) -> String {
+    let catalog = tool_name_map_text(pairs);
+    let injection = compose_behavior_injection(layers, &catalog);
     let mut parts: Vec<String> = vec![injection.render()];
     parts.push(strategy_prompt_variant(false).to_string());
     parts.push(strategy_prompt_variant(true).to_string());
@@ -451,6 +447,44 @@ mod tests {
     }
 
     #[test]
+    fn tool_name_map_matches_tools_domain_labels() {
+        // FA1 回归：prompt 映射表与 tools 域四层兜底共源（含
+        // 「（未本地化）」审计标记），两侧标签不得发散。
+        let tools = seed_file("tools.json");
+        let pairs = tool_name_map(&tools);
+        let entries = super::super::tools::build_tool_name_map(&tools);
+        assert_eq!(pairs.len(), entries.len());
+        for (pair, entry) in pairs.iter().zip(entries.iter()) {
+            assert_eq!(pair.tool, entry.tool);
+            assert_eq!(pair.zh, entry.zh, "标签发散: {}", pair.tool);
+        }
+    }
+
+    #[test]
+    fn provider_variant_uses_runtime_snapshot() {
+        // FA12（prompt.rs 侧）：Provider 快照变体的工具对照表随快照更新
+        // （MCP 挂载后 refresh 即生效），与 seed 静态变体形态一致。
+        let tools = seed_file("tools.json");
+        let provider = super::super::tools::ToolSpecsProvider::from_seed(&tools);
+        let data = load_boot_prompt(&seed_root()).expect("boot_prompt 装载失败");
+        let from_provider = compose_round_behavior_with_provider(
+            &data.prompt,
+            &provider,
+            ReasoningTier::LiteProbe,
+        );
+        let from_seed = compose_round_behavior(&data.prompt, &tools, ReasoningTier::LiteProbe);
+        assert_eq!(from_provider, from_seed, "同快照下两变体注入形态一致");
+        let empty = super::super::tools::ToolSpecsProvider::empty();
+        let sparse = compose_round_behavior_with_provider(
+            &data.prompt,
+            &empty,
+            ReasoningTier::LiteProbe,
+        );
+        assert!(!sparse.contains("工具名对照表"), "空快照不注入对照表段");
+        assert!(sparse.contains("【工具清单"));
+    }
+
+    #[test]
     fn injection_meets_tenfold_ratio_with_real_seed() {
         let data = load_boot_prompt(&seed_root()).expect("boot_prompt 装载失败");
         let layers = behavior_layers(&data.prompt);
@@ -510,13 +544,5 @@ mod tests {
         }
         assert!(line.contains("推理"));
         assert!(line.contains("自然语言"));
-    }
-
-    #[test]
-    fn zh_label_extraction_rules() {
-        let description = "行为意图：网络抓取——经 http_fetch 端点以 GET 取回网页原文。\n\n使用时机：回答需要…";
-        assert_eq!(zh_label_from_description(description).as_deref(), Some("网络抓取"));
-        assert_eq!(zh_label_from_description("没有前缀的标签"), Some("没有前缀的标签".to_string()));
-        assert_eq!(zh_label_from_description(""), None);
     }
 }

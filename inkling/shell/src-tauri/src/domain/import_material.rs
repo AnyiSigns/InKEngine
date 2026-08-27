@@ -77,6 +77,14 @@ pub fn scan_and_normalize(root: &str, recursive: bool) -> Result<MaterialScanRes
         skipped: Vec::new(),
     };
     walk(&root_path, 0, recursive, &mut result)?;
+    eprintln!(
+        "[import_material] scan root={} recursive={} scanned={} files={} skipped={}",
+        result.root,
+        result.recursive,
+        result.scanned,
+        result.files.len(),
+        result.skipped.len()
+    );
     Ok(result)
 }
 
@@ -97,6 +105,15 @@ fn walk(
             Ok(file_type) => file_type,
             Err(_) => continue,
         };
+        if file_type.is_symlink() {
+            // FA19：符号链接显式记 skipped，不跟随——跟随可能越出扫描根
+            // （链接指向沙箱外），静默跳过会让用户误以为文件已入料
+            result.skipped.push(MaterialSkipped {
+                path: path.to_string_lossy().to_string(),
+                reason: "符号链接不跟随（防越出沙箱根）".to_string(),
+            });
+            continue;
+        }
         if file_type.is_dir() {
             if recursive && depth + 1 <= MATERIAL_SCAN_MAX_DEPTH {
                 walk(&path, depth + 1, recursive, result)?;
@@ -234,5 +251,36 @@ mod tests {
         // Windows 下 C:\Windows 不在 ~/ 内；其他平台该路径非绝对/不存在同样 Err。
         let err = scan_and_normalize("C:\\Windows", false);
         assert!(err.is_err(), "主目录域外路径应被沙箱拒绝");
+    }
+
+    #[cfg(windows)]
+    #[test]
+    fn scan_records_symlinks_as_skipped() {
+        // FA19：符号链接显式记 skipped（不跟随防越出沙箱根），
+        // 不再静默忽略；无符号链接权限（未开开发者模式）时跳过场景。
+        let base = std::env::var("USERPROFILE").unwrap_or_else(|_| ".".to_string());
+        let dir = std::path::Path::new(&base).join("ink_material_symlink_test");
+        let _ = std::fs::remove_dir_all(&dir);
+        std::fs::create_dir_all(&dir).expect("建临时目录");
+        write_temp_file(&dir, "real.md", "# 正文");
+        let link = dir.join("alias.md");
+        let linked = std::fs::canonicalize(dir.join("real.md")).unwrap();
+        if std::os::windows::fs::symlink_file(&linked, &link).is_err() {
+            let _ = std::fs::remove_dir_all(&dir);
+            return;
+        }
+        let result = scan_and_normalize(dir.to_str().unwrap(), false).expect("扫描应成功");
+        assert_eq!(result.files.len(), 1, "仅真实文件被归一");
+        assert_eq!(result.skipped.len(), 1);
+        assert!(
+            result.skipped[0].reason.contains("符号链接"),
+            "符号链接显式记 skipped: {}",
+            result.skipped[0].reason
+        );
+        assert!(
+            result.skipped[0].path.contains("alias.md"),
+            "跳过项携带链接路径"
+        );
+        let _ = std::fs::remove_dir_all(&dir);
     }
 }

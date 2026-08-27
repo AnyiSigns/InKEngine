@@ -19,6 +19,18 @@ use std::collections::HashMap;
 
 use serde_json::Value as JsonValue;
 
+/// PDF 头扫描窗口（前 1024 字节内找 %PDF- 魔数，容忍少量前导字节）。
+const PDF_HEADER_SCAN_BYTES: usize = 1024;
+
+/// 文本行合并容差（y 坐标差 < 1.0 视为同一行）。
+const PDF_LINE_Y_TOLERANCE: f64 = 1.0;
+
+/// 块合并容差（行 y 坐标差 < 20.0 归入同一块）。
+const PDF_BLOCK_Y_TOLERANCE: f64 = 20.0;
+
+/// 工作表/幻灯片条目遍历上限（防御性兜底；正常路径按声明条目数遍历）。
+const MAX_SHEET_ENTRIES: usize = 256;
+
 /// 依赖纪律：文档格式枚举（PDF 与 OOXML 三件套）。
 #[derive(Debug, Clone, Copy, PartialEq, Eq)]
 pub enum DocFormat {
@@ -38,6 +50,8 @@ pub enum DocErrorKind {
     UnsupportedCompression,
     NotPdf,
     NotOffice,
+    /// 压缩包结构合法但缺指定条目（与「非 Office 包」区分）。
+    NotFound,
     Parse,
     Generate,
 }
@@ -93,9 +107,9 @@ pub fn detect_format(bytes: &[u8]) -> DocFormat {
     DocFormat::Unknown
 }
 
-/// 在文件头 1024 字节内扫描 PDF 魔数（容忍少量前导字节）。
+/// 在文件头 [`PDF_HEADER_SCAN_BYTES`] 字节内扫描 PDF 魔数（容忍少量前导字节）。
 fn pdf_has_header(bytes: &[u8]) -> bool {
-    let end = bytes.len().min(1024);
+    let end = bytes.len().min(PDF_HEADER_SCAN_BYTES);
     bytes[..end].windows(5).any(|w| w == b"%PDF-")
 }
 
@@ -152,7 +166,8 @@ pub fn zip_list_entries(zip: &[u8]) -> Result<Vec<ZipEntryInfo>, DocError> {
     Ok(entries)
 }
 
-/// 读取压缩包中指定条目的解压数据；缺失返回结构化错误。
+/// 读取压缩包中指定条目的解压数据；缺失返回 NotFound 分型（区别于
+/// BadZip/NotOffice——包结构合法但缺条目，调用方按缺件语义处理）。
 pub fn zip_read_entry(zip: &[u8], name: &str) -> Result<Vec<u8>, DocError> {
     let (cd_offset, total) = read_eocd(zip)?;
     let mut pos = cd_offset as usize;
@@ -180,7 +195,7 @@ pub fn zip_read_entry(zip: &[u8], name: &str) -> Result<Vec<u8>, DocError> {
         pos += 46 + name_len + extra_len + comment_len;
     }
     Err(DocError::new(
-        DocErrorKind::NotOffice,
+        DocErrorKind::NotFound,
         format!("压缩包内未找到条目 {name}"),
     ))
 }
@@ -370,8 +385,9 @@ pub struct PdfDocument {
     pub pages: Vec<PdfPage>,
 }
 
-/// 解析 PDF 字节为结构化文档；头缺失/无页/截断一律 fail-closed。
-pub fn collect_pdf_objects(bytes: &[u8]) -> Vec<(u32, Vec<u8>)> {
+/// 解析 PDF 字节为对象体切片（零拷贝：对象体为输入字节的借用切片，
+/// 不在解析层复制全文件——FA9 惰性读取，内存随输入而非成倍放大）。
+pub fn collect_pdf_objects(bytes: &[u8]) -> Vec<(u32, &[u8])> {
     let obj_re = bytes_regex(r"(?s)(\d+)\s+\d+\s+obj");
     let mut starts: Vec<(u32, usize)> = Vec::new();
     for c in obj_re.captures_iter(bytes) {
@@ -386,47 +402,146 @@ pub fn collect_pdf_objects(bytes: &[u8]) -> Vec<(u32, Vec<u8>)> {
     out
 }
 
-fn extract_object_body(bytes: &[u8], after_obj: usize) -> Vec<u8> {
-    let stream_pos = find_sub(bytes, b"stream", after_obj);
-    let endobj_pos = find_sub(bytes, b"endobj", after_obj);
+/// 抽取对象体（dict + stream 全段）的借用切片。
+///
+/// 边界按 `/Length` 推算的流尾逐字核对 `endstream`（关键字搜索经
+/// 字面量状态跟踪，不误割字符串体内的 "stream"/"endobj" 字面量）；
+/// `/Length` 与 endstream 不闭合 = 边界不可信，fail-closed 返回空
+/// （宁丢该对象，不产出错割内容）。
+fn extract_object_body(bytes: &[u8], after_obj: usize) -> &[u8] {
+    let stream_pos = find_keyword(bytes, b"stream", after_obj);
+    let endobj_pos = find_keyword(bytes, b"endobj", after_obj);
     match (stream_pos, endobj_pos) {
         (Some(sp), Some(ep)) if sp < ep => {
             let dict = &bytes[after_obj..sp];
             let eol = if bytes.get(sp + 6) == Some(&b'\r') { 2 } else { 1 };
             let data_start = sp + 6 + eol;
-            let len = bytes_regex(r"(?s)/Length\s+(\d+)")
-                .captures(dict)
-                .and_then(|c| c.get(1))
-                .and_then(|m| std::str::from_utf8(m.as_bytes()).ok())
-                .and_then(|s| s.parse::<usize>().ok())
-                .unwrap_or(0);
-            let endstream = data_start + len;
-            if endstream + 9 <= bytes.len() && &bytes[endstream..endstream + 9] == b"endstream" {
-                bytes[after_obj..endstream + 9].to_vec()
+            let end = data_start + parse_stream_length(dict).unwrap_or(0);
+            let es = end + skip_stream_eol(bytes, end);
+            if es + 9 <= bytes.len() && &bytes[es..es + 9] == b"endstream" {
+                &bytes[after_obj..es + 9]
             } else {
-                bytes[after_obj..endstream.min(bytes.len())].to_vec()
+                &[]
             }
         }
-        (_, Some(ep)) => bytes[after_obj..(ep + 6).min(bytes.len())].to_vec(),
-        _ => Vec::new(),
+        (_, Some(ep)) => &bytes[after_obj..(ep + 6).min(bytes.len())],
+        _ => &[],
     }
 }
 
-fn find_sub(hay: &[u8], needle: &[u8], from: usize) -> Option<usize> {
+/// stream 数据尾到 endstream 关键字间允许的 EOL 分隔（PDF 约定：
+/// `endstream` 前可有一行 EOL；该 EOL 不属于流数据）。
+fn skip_stream_eol(bytes: &[u8], pos: usize) -> usize {
+    if bytes.get(pos) == Some(&b'\r') {
+        if bytes.get(pos + 1) == Some(&b'\n') {
+            2
+        } else {
+            1
+        }
+    } else if bytes.get(pos) == Some(&b'\n') {
+        1
+    } else {
+        0
+    }
+}
+
+/// 关键字搜索（字面量状态跟踪）：跳过 `(…)` 字符串、`<…>` 十六进制串、
+/// `<<`/`>>` 字典定界符与 `%` 注释后找 needle；命中处须以分隔符收尾
+/// （防半词前缀误匹配）。
+fn find_keyword(hay: &[u8], needle: &[u8], from: usize) -> Option<usize> {
     if from >= hay.len() {
         return None;
     }
-    hay[from..]
-        .windows(needle.len())
-        .position(|w| w == needle)
-        .map(|p| from + p)
+    let mut i = from;
+    let mut in_literal = false;
+    let mut depth = 0usize;
+    let mut in_hex = false;
+    while i < hay.len() {
+        if in_literal {
+            if hay[i] == b'\\' && i + 1 < hay.len() {
+                i += 2;
+                continue;
+            }
+            if hay[i] == b'(' {
+                depth += 1;
+            } else if hay[i] == b')' {
+                depth = depth.saturating_sub(1);
+                if depth == 0 {
+                    in_literal = false;
+                }
+            }
+            i += 1;
+            continue;
+        }
+        if in_hex {
+            if hay[i] == b'>' {
+                in_hex = false;
+            }
+            i += 1;
+            continue;
+        }
+        if hay[i] == b'%' {
+            while i < hay.len() && hay[i] != b'\n' && hay[i] != b'\r' {
+                i += 1;
+            }
+            continue;
+        }
+        if hay[i] == b'(' {
+            in_literal = true;
+            depth = 1;
+            i += 1;
+            continue;
+        }
+        if hay[i] == b'<' {
+            if hay.get(i + 1) == Some(&b'<') {
+                // 字典定界符 <<：非十六进制串，整对跳过
+                i += 2;
+                continue;
+            }
+            in_hex = true;
+            i += 1;
+            continue;
+        }
+        if hay[i..].starts_with(needle) {
+            let before_ok = i == from || !hay[i - 1].is_ascii_alphanumeric();
+            let after = i + needle.len();
+            let after_ok = after >= hay.len() || is_keyword_delim(hay[after]);
+            if before_ok && after_ok {
+                return Some(i);
+            }
+        }
+        i += 1;
+    }
+    None
+}
+
+/// 关键字分隔符判定（PDF 词法：空白/括号/尖括号/斜杠/百分号/花括号）。
+fn is_keyword_delim(b: u8) -> bool {
+    b.is_ascii_whitespace() || matches!(b, b'(' | b')' | b'<' | b'>' | b'/' | b'%' | b'{' | b'}' | b'[' | b']')
+}
+
+/// dict 段内 `/Length` 值（字面量状态跟踪，不误读字符串体内的 /Length）。
+fn parse_stream_length(dict: &[u8]) -> Option<usize> {
+    let pos = find_keyword(dict, b"/Length", 0)?;
+    let mut i = pos + b"/Length".len();
+    while i < dict.len() && dict[i].is_ascii_whitespace() {
+        i += 1;
+    }
+    let start = i;
+    while i < dict.len() && dict[i].is_ascii_digit() {
+        i += 1;
+    }
+    if i == start {
+        return None;
+    }
+    std::str::from_utf8(&dict[start..i]).ok()?.parse::<usize>().ok()
 }
 
 fn parse_pdf(bytes: &[u8]) -> Result<PdfDocument, DocError> {
     if bytes.len() < 5 || !pdf_has_header(bytes) {
         return Err(DocError::new(DocErrorKind::NotPdf, "PDF 头缺失或输入过短"));
     }
-    let mut obj_map: HashMap<u32, Vec<u8>> = HashMap::new();
+    let mut obj_map: HashMap<u32, &[u8]> = HashMap::new();
     for (n, body) in collect_pdf_objects(bytes) {
         if !body.is_empty() {
             obj_map.insert(n, body);
@@ -488,9 +603,12 @@ fn parse_pdf(bytes: &[u8]) -> Result<PdfDocument, DocError> {
     Ok(PdfDocument { pages })
 }
 
+/// 抽取对象内内容流（解压或原文）。边界经字面量状态跟踪的
+/// `stream` 关键字 + `/Length` 推算 + `endstream` 逐字核对；
+/// 边界不可信 = None（fail-closed，不静默错割）。
 fn extract_stream(body: &[u8]) -> Option<Vec<u8>> {
     let marker = b"stream";
-    let pos = body.windows(marker.len()).position(|w| w == marker)?;
+    let pos = find_keyword(body, marker, 0)?;
     let after = pos + marker.len();
     let start = if body.get(after) == Some(&b'\r') {
         after + 2
@@ -499,25 +617,27 @@ fn extract_stream(body: &[u8]) -> Option<Vec<u8>> {
     } else {
         return None;
     };
-    let len = bytes_regex(r"(?s)/Length\s+(\d+)")
-        .captures(body)
-        .and_then(|c| c.get(1))
-        .and_then(|m| std::str::from_utf8(m.as_bytes()).ok())
-        .and_then(|s| s.parse::<usize>().ok())?;
+    let dict = &body[..pos];
+    let len = parse_stream_length(dict)?;
     if start + len > body.len() {
         return None;
     }
-    let raw = body[start..start + len].to_vec();
-    let flate = bytes_regex(r"(?s)/Filter\s*/FlateDecode").is_match(body);
+    let end = start + len;
+    let es = end + skip_stream_eol(body, end);
+    if !(es + 9 <= body.len() && &body[es..es + 9] == b"endstream") {
+        return None;
+    }
+    let raw = &body[start..end];
+    let flate = bytes_regex(r"(?s)/Filter\s*/FlateDecode").is_match(dict);
     if flate {
         use flate2::read::ZlibDecoder;
         use std::io::Read;
-        let mut d = ZlibDecoder::new(&raw[..]);
+        let mut d = ZlibDecoder::new(raw);
         let mut out = Vec::new();
         d.read_to_end(&mut out).ok()?;
         Some(out)
     } else {
-        Some(raw)
+        Some(raw.to_vec())
     }
 }
 
@@ -603,7 +723,7 @@ fn cluster_blocks(runs: &[PdfTextRun]) -> Vec<PdfBlock> {
     for &i in &idx {
         let r = &runs[i];
         if let Some(last) = lines.last_mut() {
-            if (last.0 - r.y).abs() < 1.0 {
+            if (last.0 - r.y).abs() < PDF_LINE_Y_TOLERANCE {
                 last.2.push(' ');
                 last.2.push_str(&r.text);
                 continue;
@@ -615,7 +735,7 @@ fn cluster_blocks(runs: &[PdfTextRun]) -> Vec<PdfBlock> {
     let mut cur: Option<PdfBlock> = None;
     for (y, x, text) in lines {
         match cur.as_mut() {
-            Some(b) if (b.y0 - y).abs() < 20.0 => {
+            Some(b) if (b.y0 - y).abs() < PDF_BLOCK_Y_TOLERANCE => {
                 b.text.push('\n');
                 b.text.push_str(&text);
                 b.y1 = y;
@@ -867,6 +987,15 @@ fn attr_val<'a>(attrs: &[(&'a str, &'a str)], name: &str) -> Option<&'a str> {
     attrs
         .iter()
         .find(|(k, _)| local_name(k) == name)
+        .map(|(_, v)| *v)
+}
+
+/// 精确属性值匹配（带命名空间前缀的属性，如 workbook 的 `r:id`——
+/// local_name 折叠后无法与全名区分，须按原名精确匹配）。
+fn attr_val_exact<'a>(attrs: &[(&'a str, &'a str)], name: &str) -> Option<&'a str> {
+    attrs
+        .iter()
+        .find(|(k, _)| *k == name)
         .map(|(_, v)| *v)
 }
 
@@ -1240,24 +1369,69 @@ pub fn parse_shared_strings(xml: &str) -> Vec<String> {
 
 /// 解析 workbook.xml 的工作表名清单（顺序对应 sheetN.xml）。
 pub fn parse_workbook_sheet_names(xml: &str) -> Vec<String> {
+    parse_workbook_sheet_refs(xml)
+        .into_iter()
+        .map(|(name, _)| name)
+        .collect()
+}
+
+/// 解析 workbook.xml 的工作表引用（文档序：name + r:id）。
+///
+/// FA5 基础：表名与工作表部件经 workbook 关系表（r:id → Target）
+/// 关联，不依赖 sheetN 序号位置。
+pub fn parse_workbook_sheet_refs(xml: &str) -> Vec<(String, String)> {
     let tokens = match tokenize(xml) {
         Ok(t) => t,
         Err(_) => return Vec::new(),
     };
-    let mut names = Vec::new();
+    let mut refs = Vec::new();
     for tok in tokens {
         match tok {
             XmlToken::Start(name, attrs) | XmlToken::SelfClose(name, attrs) => {
                 if local_name(name) == "sheet" {
                     if let Some(n) = attr_val(&attrs, "name") {
-                        names.push(n.to_string());
+                        // r:id 为命名空间前缀属性，须精确匹配原名
+                        let rid = attr_val_exact(&attrs, "r:id").unwrap_or("");
+                        refs.push((n.to_string(), rid.to_string()));
                     }
                 }
             }
             _ => {}
         }
     }
-    names
+    refs
+}
+
+/// 解析 workbook 关系表（r:id → Target；Target 相对 xl/ 目录解析）。
+fn parse_workbook_rels(xml: &str) -> HashMap<String, String> {
+    let tokens = match tokenize(xml) {
+        Ok(t) => t,
+        Err(_) => return HashMap::new(),
+    };
+    let mut rels = HashMap::new();
+    for tok in tokens {
+        if let XmlToken::Start(name, attrs) | XmlToken::SelfClose(name, attrs) = tok {
+            if let (true, Some(rid), Some(target)) = (
+                local_name(name) == "Relationship",
+                attr_val(&attrs, "Id"),
+                attr_val(&attrs, "Target"),
+            ) {
+                rels.insert(rid.to_string(), target.to_string());
+            }
+        }
+    }
+    rels
+}
+
+/// workbook 关系 Target → 包内部件名（"worksheets/sheet1.xml" 相对
+/// xl/ 目录解析为 "xl/worksheets/sheet1.xml"；绝对形态原样保留）。
+fn normalize_workbook_target(target: &str) -> String {
+    let target = target.trim_start_matches('/');
+    if target.starts_with("xl/") {
+        target.to_string()
+    } else {
+        format!("xl/{target}")
+    }
 }
 
 /// 解析单个工作表 XML（shared 用于解共享字符串引用）。
@@ -1380,25 +1554,53 @@ pub fn parse_sheet_xml(xml: &str, shared: &[String]) -> Result<Sheet, DocError> 
 }
 
 /// 从 xlsx 压缩包解析全部工作表。
+///
+/// FA5：表名经 workbook.xml（name + r:id）→ workbook.xml.rels
+/// （r:id → Target）映射取用，不再按 sheetN 序号位置取——自定义
+/// 命名/跳号时表名与内容不错配。workbook 声明缺失时回退为按
+/// sheetN 顺序枚举（上限 [`MAX_SHEET_ENTRIES`] 防御性兜底）。
 pub fn parse_xlsx_package(zip: &[u8]) -> Result<Vec<Sheet>, DocError> {
     let shared = match zip_read_entry(zip, "xl/sharedStrings.xml") {
         Ok(b) => parse_shared_strings(&String::from_utf8_lossy(&b)),
         Err(_) => Vec::new(),
     };
-    let names = match zip_read_entry(zip, "xl/workbook.xml") {
-        Ok(b) => parse_workbook_sheet_names(&String::from_utf8_lossy(&b)),
+    let refs = match zip_read_entry(zip, "xl/workbook.xml") {
+        Ok(b) => parse_workbook_sheet_refs(&String::from_utf8_lossy(&b)),
         Err(_) => Vec::new(),
     };
+    let rels = match zip_read_entry(zip, "xl/_rels/workbook.xml.rels") {
+        Ok(b) => parse_workbook_rels(&String::from_utf8_lossy(&b)),
+        Err(_) => HashMap::new(),
+    };
     let mut sheets = Vec::new();
-    for n in 1..=256usize {
-        let entry = format!("xl/worksheets/sheet{n}.xml");
+    for (name, rid) in &refs {
+        let target = rels.get(rid).cloned().unwrap_or_default();
+        let entry = if target.is_empty() {
+            // rels 缺失：按声明序回退 sheetN（与旧行为一致的兜底）
+            format!("xl/worksheets/sheet{}.xml", sheets.len() + 1)
+        } else {
+            normalize_workbook_target(&target)
+        };
         match zip_read_entry(zip, &entry) {
             Ok(b) => {
                 let mut s = parse_sheet_xml(&String::from_utf8_lossy(&b), &shared)?;
-                s.name = names.get(n - 1).cloned();
+                s.name = Some(name.clone());
                 sheets.push(s);
             }
             Err(_) => break,
+        }
+    }
+    if sheets.is_empty() {
+        for n in 1..=MAX_SHEET_ENTRIES {
+            let entry = format!("xl/worksheets/sheet{n}.xml");
+            match zip_read_entry(zip, &entry) {
+                Ok(b) => {
+                    let mut s = parse_sheet_xml(&String::from_utf8_lossy(&b), &shared)?;
+                    s.name = None;
+                    sheets.push(s);
+                }
+                Err(_) => break,
+            }
         }
     }
     if sheets.is_empty() {
@@ -1585,9 +1787,21 @@ pub fn parse_slide_xml(xml: &str) -> Result<PptxSlide, DocError> {
 }
 
 /// 从 pptx 压缩包解析全部幻灯片。
+///
+/// 按压缩包声明条目遍历（slideN.xml 数字序），不依赖魔数上限——
+/// 超 256 张幻灯片不再静默丢弃。
 pub fn parse_pptx_package(zip: &[u8]) -> Result<PptxDocument, DocError> {
+    let entries = zip_list_entries(zip)?;
+    let mut nums: Vec<usize> = entries
+        .iter()
+        .filter_map(|e| {
+            let rest = e.name.strip_prefix("ppt/slides/slide")?;
+            rest.strip_suffix(".xml")?.parse::<usize>().ok()
+        })
+        .collect();
+    nums.sort_unstable();
     let mut slides = Vec::new();
-    for n in 1..=256usize {
+    for n in nums {
         let entry = format!("ppt/slides/slide{n}.xml");
         match zip_read_entry(zip, &entry) {
             Ok(b) => slides.push(parse_slide_xml(&String::from_utf8_lossy(&b))?),
@@ -1614,7 +1828,7 @@ pub fn pptx_to_json(doc: &PptxDocument) -> JsonValue {
 
 /// 一键解析：识别格式后分发到对应解析器，输出结构化 JSON。
 pub fn parse_document(bytes: &[u8]) -> Result<JsonValue, DocError> {
-    match detect_format(bytes) {
+    let result = match detect_format(bytes) {
         DocFormat::Pdf => Ok(pdf_to_json(&parse_pdf(bytes)?)),
         DocFormat::Docx => Ok(docx_to_json(&parse_docx_package(bytes)?)),
         DocFormat::Xlsx => Ok(xlsx_to_json(&parse_xlsx_package(bytes)?)),
@@ -1623,7 +1837,20 @@ pub fn parse_document(bytes: &[u8]) -> Result<JsonValue, DocError> {
             DocErrorKind::UnsupportedFormat,
             "无法识别的文档格式",
         )),
+    };
+    match &result {
+        Ok(json) => eprintln!(
+            "[doc_ops] parse ok format={}",
+            json.get("format")
+                .and_then(JsonValue::as_str)
+                .unwrap_or("?")
+        ),
+        Err(err) => eprintln!(
+            "[doc_ops] parse_failed kind={:?} err={}",
+            err.kind, err.message
+        ),
     }
+    result
 }
 
 #[derive(Debug, Clone, Copy, PartialEq, Eq)]
@@ -1712,6 +1939,16 @@ mod tests {
     }
 
     #[test]
+    fn zip_missing_entry_kind_is_not_found() {
+        // FA4：zip_read_entry 缺条目 = NotFound 分型（区别于
+        // BadZip/NotOffice——包结构合法但缺件，按缺件语义处理）
+        let zip = make_zip("word/document.xml");
+        let err = zip_read_entry(&zip, "xl/workbook.xml").unwrap_err();
+        assert_eq!(err.kind, DocErrorKind::NotFound);
+        assert!(err.message.contains("xl/workbook.xml"));
+    }
+
+    #[test]
     fn zip_reader_fails_closed_on_truncation() {
         let mut zip = zip_store(&[("a.txt".to_string(), b"alpha" as &[u8])]).unwrap();
         zip.truncate(zip.len() - 5);
@@ -1743,6 +1980,56 @@ mod tests {
         let text = doc.pages[0].text.clone();
         assert!(text.contains("First line of text"));
         assert!(text.contains("Second line"));
+    }
+
+    #[test]
+    fn pdf_stream_keyword_inside_literal_not_mis_split() {
+        // FA8：dict 字符串体内的 "stream"/"endobj" 字面量不得干扰流
+        // 边界定位（字面量状态跟踪；旧实现正则/朴素搜索会错割）
+        let content = b"BT (hello stream world) Tj ET";
+        let mut pdf = Vec::new();
+        pdf.extend_from_slice(b"%PDF-1.4\n");
+        pdf.extend_from_slice(
+            b"1 0 obj<< /Type /Page /MediaBox [0 0 595 842] /Contents 2 0 R >>endobj\n",
+        );
+        pdf.extend_from_slice(
+            format!(
+                "2 0 obj<< /Title (a stream note endobj here) /Length {} >>stream\n",
+                content.len()
+            )
+            .as_bytes(),
+        );
+        pdf.extend_from_slice(content);
+        pdf.extend_from_slice(b"\nendstream endobj\n%%EOF\n");
+        let doc = parse_pdf(&pdf).expect("字面量含 stream 字样也应正确解析");
+        let text = doc.pages[0].text.clone();
+        assert!(
+            text.contains("hello stream world"),
+            "内容流文本应完整（未被字面量错割）: {text}"
+        );
+    }
+
+    #[test]
+    fn pdf_bad_stream_boundary_fails_closed() {
+        // FA8 fail-closed：/Length 与 endstream 位置不闭合 = 边界不可信，
+        // 不得静默截断（错割内容）；该页内容流为空也不产出错误文本
+        let content = b"BT (ghost) Tj ET";
+        let mut pdf = Vec::new();
+        pdf.extend_from_slice(b"%PDF-1.4\n");
+        pdf.extend_from_slice(
+            b"1 0 obj<< /Type /Page /MediaBox [0 0 595 842] /Contents 2 0 R >>endobj\n",
+        );
+        pdf.extend_from_slice(
+            format!(
+                "2 0 obj<< /Title (stream) /Length {} >>stream\n",
+                content.len() + 99
+            )
+            .as_bytes(),
+        );
+        pdf.extend_from_slice(content);
+        pdf.extend_from_slice(b"\nendstream endobj\n%%EOF\n");
+        let doc = parse_pdf(&pdf).expect("坏流边界对象被跳过，不击穿整包解析");
+        assert!(!doc.pages[0].text.contains("ghost"), "错割内容不得进入文本");
     }
 
     #[test]
@@ -1871,6 +2158,91 @@ mod tests {
         let wb = r#"<workbook xmlns="x" xmlns:r="y"><sheets><sheet name="面板" sheetId="1" r:id="rId1"/><sheet name="明细" sheetId="2" r:id="rId2"/></sheets></workbook>"#;
         let names = parse_workbook_sheet_names(wb);
         assert_eq!(names, vec!["面板", "明细"]);
+    }
+
+    #[test]
+    fn xlsx_sheet_names_map_by_rels_not_position() {
+        // FA5：表名经 r:id → rels Target 映射——rId 顺序与 sheetN 序号
+        // 错位时按位置取名会错配（旧实现 names.get(n-1)），rels 映射
+        // 必须按声明序给出正确表名与内容配对
+        let wb = r#"<workbook xmlns="x" xmlns:r="y"><sheets><sheet name="面板" sheetId="2" r:id="rId2"/><sheet name="明细" sheetId="1" r:id="rId1"/></sheets></workbook>"#;
+        let rels = r#"<Relationships xmlns="x"><Relationship Id="rId1" Target="worksheets/sheet1.xml"/><Relationship Id="rId2" Target="worksheets/sheet2.xml"/></Relationships>"#;
+        let sheet1 = r#"<worksheet xmlns="x"><sheetData><row r="1"><c r="A1"><v>明细行</v></c></row></sheetData></worksheet>"#;
+        let sheet2 = r#"<worksheet xmlns="x"><sheetData><row r="1"><c r="A1"><v>面板行</v></c></row></sheetData></worksheet>"#;
+        let zip = zip_store(&[
+            ("xl/workbook.xml".to_string(), wb.as_bytes()),
+            ("xl/_rels/workbook.xml.rels".to_string(), rels.as_bytes()),
+            ("xl/worksheets/sheet1.xml".to_string(), sheet1.as_bytes()),
+            ("xl/worksheets/sheet2.xml".to_string(), sheet2.as_bytes()),
+        ])
+        .unwrap();
+        let sheets = parse_xlsx_package(&zip).expect("rels 映射解析成功");
+        assert_eq!(sheets.len(), 2);
+        assert_eq!(sheets[0].name.as_deref(), Some("面板"));
+        assert_eq!(sheets[0].rows[0][0].value, "面板行");
+        assert_eq!(sheets[1].name.as_deref(), Some("明细"));
+        assert_eq!(sheets[1].rows[0][0].value, "明细行");
+    }
+
+    #[test]
+    fn xlsx_parses_more_than_256_declared_sheets() {
+        // FA11：工作表数量按声明条目遍历，不再受 256 魔数上限约束
+        let count = 260usize;
+        let parts: Vec<(String, String)> = (1..=count)
+            .map(|n| {
+                (
+                    format!("xl/worksheets/sheet{n}.xml"),
+                    format!(r#"<worksheet xmlns="x"><sheetData><row r="1"><c r="A1"><v>s{n}</v></c></row></sheetData></worksheet>"#),
+                )
+            })
+            .collect();
+        let sheets_decl: String = (1..=count)
+            .map(|n| format!(r#"<sheet name="表{n}" sheetId="{n}" r:id="rId{n}"/>"#))
+            .collect();
+        let wb = format!(r#"<workbook xmlns="x" xmlns:r="y"><sheets>{sheets_decl}</sheets></workbook>"#);
+        let rels_decl: String = (1..=count)
+            .map(|n| format!(r#"<Relationship Id="rId{n}" Target="worksheets/sheet{n}.xml"/>"#))
+            .collect();
+        let rels = format!(r#"<Relationships xmlns="x">{rels_decl}</Relationships>"#);
+        let mut entries: Vec<(String, &[u8])> = vec![
+            ("xl/workbook.xml".to_string(), wb.as_bytes()),
+            ("xl/_rels/workbook.xml.rels".to_string(), rels.as_bytes()),
+        ];
+        entries.extend(
+            parts
+                .iter()
+                .map(|(name, xml)| (name.clone(), xml.as_bytes())),
+        );
+        let zip = zip_store(&entries).unwrap();
+        let sheets = parse_xlsx_package(&zip).expect("超 256 工作表解析成功");
+        assert_eq!(sheets.len(), count);
+        assert_eq!(sheets[count - 1].name.as_deref(), Some(format!("表{count}").as_str()));
+        assert_eq!(sheets[count - 1].rows[0][0].value, format!("s{count}"));
+    }
+
+    #[test]
+    fn pptx_parses_more_than_256_slides() {
+        // FA11：幻灯片按声明条目遍历，不再受 256 魔数上限约束
+        let count = 260usize;
+        let parts: Vec<(String, String)> = (1..=count)
+            .map(|n| {
+                (
+                    format!("ppt/slides/slide{n}.xml"),
+                    format!(
+                        r#"<p:sld xmlns:p="p" xmlns:a="a"><p:sp><p:txBody><a:p><a:t>S{n}</a:t></a:p></p:txBody></p:sp></p:sld>"#
+                    ),
+                )
+            })
+            .collect();
+        let entries: Vec<(String, &[u8])> = parts
+            .iter()
+            .map(|(name, xml)| (name.clone(), xml.as_bytes()))
+            .collect();
+        let zip = zip_store(&entries).unwrap();
+        let doc = parse_pptx_package(&zip).expect("超 256 幻灯片解析成功");
+        assert_eq!(doc.slides.len(), count);
+        let last = &doc.slides[count - 1];
+        assert_eq!(last.shapes[0].paragraphs, vec![format!("S{count}")]);
     }
 
     #[test]

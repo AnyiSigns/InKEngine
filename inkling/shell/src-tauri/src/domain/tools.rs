@@ -1,37 +1,33 @@
-﻿//! tools 域：工具装配——标签四层兜底 / 行为手册注入 / 工具族元数据
-//! 分组 / tool_specs_provider 实时刷新 / 工具名映射表产出。
+﻿//! tools 域：工具装配——标签四层兜底 / 工具族元数据分组 /
+//! tool_specs_provider 实时刷新 / 工具名映射表产出。
 //!
 //! - **resolve_tool_label 四层兜底**：声明式 description 首句 →
 //!   引擎执行体声明 label（meta.label / 执行体自声明）→ MCP server
 //!   描述原文首句 → 原样名 + 未本地化审计标记（兜底不静默伪装）；
-//! - **行为手册注入**：tools.json description 即为行为手册（行为意图/
-//!   使用时机/取舍/参数语义/边界 五段 ≥5 行校验，不足拒绝注入）；
 //! - **工具族分组**：meta.domain → 规范组（OS/文件/网络/研究/MCP/通用），
 //!   未知域按 endpoint 收口（mcp 端点进 MCP 组，其余进通用组）；
 //! - **tool_specs_provider**：引擎实时工具表 （collect_specs 形态）的
 //!   宿主侧快照提供器——装配后实时刷新（内省源同步 + 重取），
 //!   label 解析与映射表产出共用同一快照；
-//! - **工具名映射表**：中文标签 ↔ 工具名 ↔ 工具族（策略层上下文素材）。
+//! - **工具名映射表**：中文标签 ↔ 工具名 ↔ 工具族（策略层上下文素材；
+//!   prompt 域对照表复用本映射，两侧共源不重复实现）。
 //!
 //! 依赖纪律：本模块不直接调用其它域模块；引擎交互（工具表实时取/
 //! 刷新）经 [`crate::engine::host::call_engine_op`] 操作通道。
 
-use std::collections::{BTreeMap, HashMap};
+use std::collections::HashMap;
 use std::sync::RwLock;
 
 use serde_json::Value as JsonValue;
 
 use super::common::{
-    DomainError, TOOL_GROUP_FILE, TOOL_GROUP_GENERIC, TOOL_GROUP_MCP, TOOL_GROUP_NETWORK,
-    TOOL_GROUP_OS, TOOL_GROUP_RESEARCH,
+    TOOL_GROUP_FILE, TOOL_GROUP_GENERIC, TOOL_GROUP_MCP, TOOL_GROUP_NETWORK, TOOL_GROUP_OS,
+    TOOL_GROUP_RESEARCH,
 };
 use crate::engine::host::call_engine_op;
 
 /// 未本地化审计标记（第四层兜底：原样名 + 标记，可被产品侧审计）。
 pub const AUDIT_UNLOCALIZED_MARK: &str = "（未本地化）";
-
-/// 行为手册最低行数（描述须覆盖行为意图/使用时机/取舍/参数/边界）。
-pub const BEHAVIOR_MANUAL_MIN_LINES: usize = 5;
 
 /// 行为意图前置词（描述首句抽取后剥离）。
 const DESCRIPTION_INTENT_PREFIX: &str = "行为意图：";
@@ -120,35 +116,6 @@ pub fn resolve_tool_label(
     format!("{name}{AUDIT_UNLOCALIZED_MARK}")
 }
 
-/// 行为手册注入：tools.json description → 行为手册文本（≥5 行校验）。
-///
-/// 注入要求：描述非空且非空行数 ≥ [`BEHAVIOR_MANUAL_MIN_LINES`]
-/// （行为意图/使用时机/取舍/参数语义/边界 五段齐备）；不足 = 拒绝
-/// 注入（不注入残缺手册，防执行体凭残缺上下文误判）。
-pub fn behavior_manual(name: &str, tools_data: &JsonValue) -> Result<String, DomainError> {
-    let description = tools_data
-        .get("tools")
-        .and_then(JsonValue::as_array)
-        .and_then(|list| {
-            list.iter()
-                .find(|tool| tool.get("name").and_then(JsonValue::as_str) == Some(name))
-        })
-        .and_then(|tool| tool.get("description"))
-        .and_then(JsonValue::as_str)
-        .ok_or_else(|| DomainError::InvalidData(format!("工具未登记或缺描述: {name}")))?;
-    let non_empty_lines = description
-        .lines()
-        .filter(|line| !line.trim().is_empty())
-        .count();
-    if non_empty_lines < BEHAVIOR_MANUAL_MIN_LINES {
-        return Err(DomainError::InvalidData(format!(
-            "工具行为手册不足 {} 行（实际 {} 行）: {name}",
-            BEHAVIOR_MANUAL_MIN_LINES, non_empty_lines
-        )));
-    }
-    Ok(description.to_string())
-}
-
 /// 工具族规范组：meta.domain → 规范组名（未知名收口：mcp 端点 →
 /// MCP 组，其余 → 通用组）。
 pub fn canonical_group(domain: Option<&str>, endpoint: Option<&str>) -> &'static str {
@@ -166,30 +133,6 @@ pub fn canonical_group(domain: Option<&str>, endpoint: Option<&str>) -> &'static
             }
         }
     }
-}
-
-/// tools.json → 工具族分组（规范组名 → 工具名清单，按名排序）。
-pub fn group_tools(tools_data: &JsonValue) -> BTreeMap<String, Vec<String>> {
-    let mut groups: BTreeMap<String, Vec<String>> = BTreeMap::new();
-    if let Some(list) = tools_data.get("tools").and_then(JsonValue::as_array) {
-        for tool in list {
-            let name = match tool.get("name").and_then(JsonValue::as_str) {
-                Some(name) => name,
-                None => continue,
-            };
-            let domain = tool
-                .get("meta")
-                .and_then(|m| m.get("domain"))
-                .and_then(JsonValue::as_str);
-            let endpoint = tool.get("endpoint").and_then(JsonValue::as_str);
-            let group = canonical_group(domain, endpoint);
-            groups.entry(group.to_string()).or_default().push(name.to_string());
-        }
-    }
-    for names in groups.values_mut() {
-        names.sort();
-    }
-    groups
 }
 
 /// 工具名映射表条目（中文标签 ↔ 工具名 ↔ 工具族）。
@@ -292,24 +235,30 @@ impl ToolSpecsProvider {
                 }
             }
         }
-        *self.specs.write().unwrap() = specs;
+        *self.specs.write().unwrap_or_else(std::sync::PoisonError::into_inner) = specs;
     }
 
     /// 按名取工具声明（快照内不存在 = None）。
     pub fn lookup(&self, name: &str) -> Option<JsonValue> {
-        self.specs.read().unwrap().get(name).cloned()
+        self.specs.read().unwrap_or_else(std::sync::PoisonError::into_inner).get(name).cloned()
     }
 
     /// 快照内工具名清单（按名排序）。
     pub fn names(&self) -> Vec<String> {
-        let mut names: Vec<String> = self.specs.read().unwrap().keys().cloned().collect();
+        let mut names: Vec<String> = self
+            .specs
+            .read()
+            .unwrap_or_else(std::sync::PoisonError::into_inner)
+            .keys()
+            .cloned()
+            .collect();
         names.sort();
         names
     }
 
     /// 快照条目数（装配/刷新后的观察口径）。
     pub fn len(&self) -> usize {
-        self.specs.read().unwrap().len()
+        self.specs.read().unwrap_or_else(std::sync::PoisonError::into_inner).len()
     }
 
     /// 实时刷新：内省源同步（introspection_refresh_tool_sources）+
@@ -326,7 +275,10 @@ impl ToolSpecsProvider {
                 snapshot.insert(name.to_string(), spec.clone());
             }
         }
-        *self.specs.write().unwrap() = snapshot;
+        *self
+            .specs
+            .write()
+            .unwrap_or_else(std::sync::PoisonError::into_inner) = snapshot;
         Ok(())
     }
 
@@ -341,7 +293,7 @@ impl ToolSpecsProvider {
         let mut entries: Vec<NameEntry> = self
             .specs
             .read()
-            .unwrap()
+            .unwrap_or_else(std::sync::PoisonError::into_inner)
             .iter()
             .map(|(name, spec)| {
                 let zh = resolve_tool_label(name, spec, None, None);
@@ -360,25 +312,6 @@ impl ToolSpecsProvider {
         entries.sort_by(|a, b| a.tool.cmp(&b.tool));
         entries
     }
-}
-
-/// 行为手册注入的组合入口：工具族分组手册（每组行为手册摘要行，
-/// 用作策略层上下文的「工具族协作说明书」）。
-pub fn group_manual_lines(tools_data: &JsonValue) -> Vec<String> {
-    let groups = group_tools(tools_data);
-    let mut lines = Vec::new();
-    for (group, names) in &groups {
-        let label = match group.as_str() {
-            TOOL_GROUP_OS => "设备与系统控制",
-            TOOL_GROUP_FILE => "文件工作区",
-            TOOL_GROUP_NETWORK => "网络与检索",
-            TOOL_GROUP_RESEARCH => "研究链",
-            TOOL_GROUP_MCP => "外部 MCP 挂载工具",
-            _ => "通用",
-        };
-        lines.push(format!("- {label}：{}", names.join("、")));
-    }
-    lines
 }
 
 #[cfg(test)]
@@ -455,41 +388,6 @@ mod tests {
     }
 
     #[test]
-    fn behavior_manual_injection_meets_five_lines() {
-        let data = tools_data();
-        for name in ["fetch", "file_read", "web_search", "grep"] {
-            let manual = behavior_manual(name, &data).expect("出厂工具手册应注入");
-            let non_empty = manual.lines().filter(|l| !l.trim().is_empty()).count();
-            assert!(non_empty >= BEHAVIOR_MANUAL_MIN_LINES, "{name} 手册行数不足");
-        }
-        let short = serde_json::json!({
-            "tools": [{"name": "tiny", "description": "只有一行描述"}]
-        });
-        let err = behavior_manual("tiny", &short).unwrap_err();
-        assert!(matches!(err, DomainError::InvalidData(_)));
-        assert!(behavior_manual("ghost", &data).is_err());
-    }
-
-    #[test]
-    fn domain_groups_match_seed_tool_families() {
-        let data = tools_data();
-        let groups = group_tools(&data);
-        let total: usize = groups.values().map(|names| names.len()).sum();
-        assert_eq!(total, 40, "分组不重不漏");
-        assert_eq!(groups.get("os").map(|n| n.len()), Some(21));
-        assert_eq!(groups.get("file").map(|n| n.len()), Some(8));
-        assert_eq!(groups.get("network").map(|n| n.len()), Some(2));
-        assert_eq!(groups.get("research").map(|n| n.len()), Some(7));
-        assert!(groups.get("mcp").is_none(), "出厂工具表无 mcp 族");
-        assert_eq!(groups.get("generic").map(|n| n.len()), Some(2));
-        assert_eq!(groups.get("generic").unwrap()[0], "propose_mcp_mount");
-        assert!(groups["generic"].contains(&"propose_patch".to_string()));
-        assert!(groups["network"].contains(&"web_search".to_string()));
-        assert!(groups["network"].contains(&"fetch".to_string()));
-        assert!(groups["os"].contains(&"shell_exec".to_string()));
-    }
-
-    #[test]
     fn canonical_group_folds_unknown_domain_by_endpoint() {
         assert_eq!(canonical_group(Some("os"), Some("process_exec")), TOOL_GROUP_OS);
         assert_eq!(canonical_group(Some("self"), Some("process_exec")), TOOL_GROUP_GENERIC);
@@ -553,14 +451,5 @@ mod tests {
         let empty = ToolSpecsProvider::empty();
         assert_eq!(empty.len(), 0);
         assert_eq!(empty.name_map().len(), 0);
-    }
-
-    #[test]
-    fn group_manual_lines_render_families() {
-        let data = tools_data();
-        let lines = group_manual_lines(&data);
-        assert_eq!(lines.len(), 5, "出厂五族（无 mcp 族条目）");
-        assert!(lines.iter().any(|l| l.contains("研究链")));
-        assert!(lines.iter().any(|l| l.contains("文件工作区")));
     }
 }

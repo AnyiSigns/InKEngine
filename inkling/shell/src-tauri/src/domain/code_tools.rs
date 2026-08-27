@@ -18,8 +18,6 @@
 
 use std::path::{Path, PathBuf};
 
-use serde_json::Value as JsonValue;
-
 use super::common::{resolve_non_strict, DomainError, WORKSPACE_ROOT_PLACEHOLDER};
 
 /// 缺省结果条数上限（tools.json max_results 下限一致）。
@@ -28,14 +26,16 @@ pub const DEFAULT_MAX_RESULTS: usize = 100;
 /// 单文件读取上限（字节；超限不读全文，命中行以阅读窗口截断）。
 pub const MAX_READ_BYTES: usize = 1 << 20;
 
+/// NUL 探针窗口（字节）：文件头该窗口内含 NUL 判定为二进制跳过。
+/// 与 doc_ops 共用同一窗口口径（doc_ops 当前无 NUL 探针使用点；
+/// 若批 6c 后 common.rs 可承载跨域常量，统一上移至 common）。
+pub const NUL_PROBE_WINDOW: usize = 8192;
+
 /// 命中文本行长展示上限（字符）。
 pub const HIT_TEXT_MAX_CHARS: usize = 200;
 
 /// 检索跳过目录（版本控制/依赖目录不进检索面）。
 pub const SKIPPED_DIRS: [&str; 3] = [".git", "target", "node_modules"];
-
-/// 三工具互让行为手册（grep=内容、glob=文件名、file_query=状态）。
-pub const THREE_TOOL_BEHAVIOR_MANUAL: &str = "三工具分工与互让：grep=内容（记得内容/模式、不知道在哪个文件时用；命中过多时先收紧 glob/include 再查，不要基于截断结果下结论）；glob=文件名/路径（先定位路径、后 file_read 读内容；本工具不返回文件内容）；file_query=文件状态与边界（存在性/大小/时间戳，只扫状态不含内容）。互让次序：定位标题找路径（glob）→ 读内容（file_read）→ 内容检索（grep）→ 状态确认（file_query）；grep 与 glob 之间没有替代关系，一个找内容一个找名字。";
 
 /// grep 检索请求（pattern 必填；glob/include 收窄；root 已授权沙箱）。
 #[derive(Debug, Clone, PartialEq)]
@@ -123,9 +123,16 @@ fn include_matches(file_name: &str, include: &str) -> bool {
 /// 工作区内容检索（grep）：glob 限定路径 + 正则行匹配 + 类型过滤 +
 /// 超限截断。
 ///
-/// 只读、不进 .git/target/node_modules；二进制文件（前 8KB 含 NUL）
-/// 跳过；根目录须已授权（调用方从设置页授权根取 root）。
+/// 只读、不进 .git/target/node_modules；二进制文件（前
+/// [`NUL_PROBE_WINDOW`] 字节含 NUL）跳过；根目录须已授权（调用方从
+/// 设置页授权根取 root）。
+///
+/// 读取形态（FA10）：按文件行缓冲流式读取——超体积上限的文件按
+/// 元数据直接跳过（不读全文），限内文件逐行处理，内存占用随行长
+/// 而非整文件体积。
 pub fn run_grep(request: &GrepRequest) -> Result<GrepResult, DomainError> {
+    use std::io::{BufRead, BufReader, Read, Seek, SeekFrom};
+
     let matcher = regex::Regex::new(&request.pattern).map_err(|err| {
         DomainError::InvalidData(format!("检索正则非法 {:?}: {err}", request.pattern))
     })?;
@@ -167,20 +174,42 @@ pub fn run_grep(request: &GrepRequest) -> Result<GrepResult, DomainError> {
             }
         }
         scanned_files += 1;
-        let reading = std::fs::read(entry.path()).unwrap_or_default();
-        if reading.len() > MAX_READ_BYTES {
+        // 超体积文件不读全文（元数据直接跳过，命中语义与旧实现一致）
+        if entry.metadata().map(|m| m.len()).unwrap_or(0) > MAX_READ_BYTES as u64 {
             truncated = true;
             continue;
         }
-        if reading[..reading.len().min(8192)].contains(&0u8) {
+        let mut file = match std::fs::File::open(entry.path()) {
+            Ok(file) => file,
+            Err(_) => continue,
+        };
+        // NUL 探针：文件头 NUL_PROBE_WINDOW 字节含 NUL = 二进制跳过
+        let mut probe = [0u8; NUL_PROBE_WINDOW];
+        let probe_len = file.read(&mut probe).unwrap_or(0);
+        if probe[..probe_len].contains(&0u8) {
             continue;
         }
-        let content = String::from_utf8_lossy(&reading);
-        for (index, line) in content.lines().enumerate() {
+        if let Err(err) = file.seek(SeekFrom::Start(0)) {
+            eprintln!("[code_tools] grep seek_failed path={} err={err}", entry.path().display());
+            continue;
+        }
+        let mut reader = BufReader::new(file);
+        let mut line_buf: Vec<u8> = Vec::new();
+        let mut line_no = 0usize;
+        loop {
+            line_buf.clear();
+            let read = reader.read_until(b'\n', &mut line_buf).unwrap_or(0);
+            if read == 0 {
+                break;
+            }
+            line_no += 1;
+            // 与旧实现一致：非法 UTF-8 行 lossy 化（行缓冲，不整文件载入）
+            let raw = String::from_utf8_lossy(&line_buf);
+            let line = raw.trim_end_matches(['\r', '\n']);
             if matcher.is_match(line) && !is_binary_line(line) {
                 hits.push(GrepHit {
                     path: rel.to_string_lossy().replace('\\', "/"),
-                    line: index + 1,
+                    line: line_no,
                     text: truncate_chars(line.trim(), HIT_TEXT_MAX_CHARS),
                 });
                 if hits.len() >= max_results {
@@ -298,40 +327,6 @@ fn push_ancestor_dirs(
             });
         }
     }
-}
-
-/// 三工具互让行为手册（策略层/执行体上下文的固定文案素材）。
-pub fn three_tool_behavior_manual() -> &'static str {
-    THREE_TOOL_BEHAVIOR_MANUAL
-}
-
-/// 三工具的角色声明（工具族分组/行为手册渲染的元数据形态）。
-pub fn three_tool_roles() -> Vec<(&'static str, &'static str)> {
-    vec![
-        ("grep", "内容"),
-        ("glob", "文件名/路径"),
-        ("file_query", "文件状态与边界"),
-    ]
-}
-
-/// 工具声明从 tools.json 取用的白名单口径（只读数据形态；装配侧
-/// 负责把工具声明的 sandbox/approval 落在执行面）。
-pub fn declared_search_tools(tools_data: &JsonValue) -> Vec<String> {
-    tools_data
-        .get("tools")
-        .and_then(JsonValue::as_array)
-        .map(|list| {
-            list.iter()
-                .filter(|tool| {
-                    tool.get("name")
-                        .and_then(JsonValue::as_str)
-                        .map(|name| matches!(name, "grep" | "glob" | "file_query"))
-                        .unwrap_or(false)
-                })
-                .filter_map(|tool| tool.get("name").and_then(JsonValue::as_str).map(str::to_string))
-                .collect()
-        })
-        .unwrap_or_default()
 }
 
 #[cfg(test)]
@@ -511,24 +506,24 @@ mod tests {
     }
 
     #[test]
-    fn three_tool_roles_and_manual_are_consistent() {
-        let roles = three_tool_roles();
-        assert_eq!(roles.len(), 3);
-        let manual = three_tool_behavior_manual();
-        assert!(manual.contains("grep=内容"));
-        assert!(manual.contains("glob=文件名/路径"));
-        assert!(manual.contains("file_query=文件状态与边界"));
-    }
-
-    #[test]
-    fn declared_search_tools_matches_seed() {
-        let text = std::fs::read_to_string(
-            PathBuf::from(env!("CARGO_MANIFEST_DIR"))
-                .join("../../../inkling/seed_data/tools.json"),
-        )
-        .expect("seed 读取");
-        let data: JsonValue = serde_json::from_str(&text).expect("seed JSON");
-        let declared = declared_search_tools(&data);
-        assert_eq!(declared, vec!["file_query", "grep", "glob"]);
+    fn grep_skips_oversized_and_binary_files() {
+        // FA10 回归：超体积文件按元数据跳过（不读全文），二进制（NUL）
+        // 文件跳过——行缓冲读取保持与旧语义一致
+        let (_ws, root) = fixture_workspace();
+        let big_path = root.join("big.bin");
+        std::fs::write(&big_path, vec![b'x'; MAX_READ_BYTES + 16]).unwrap();
+        let bin_path = root.join("blob.dat");
+        std::fs::write(&bin_path, [b'a', 0u8, b'b', b'c']).unwrap();
+        let request = GrepRequest {
+            pattern: "x".to_string(),
+            glob: Some("**/*".to_string()),
+            include: None,
+            max_results: DEFAULT_MAX_RESULTS,
+            root,
+        };
+        let result = run_grep(&request).expect("检索成功");
+        assert!(result.truncated, "超体积文件命中截断标记");
+        assert!(result.hits.iter().all(|h| h.path != "big.bin"), "超体积文件不产出命中");
+        assert!(result.hits.iter().all(|h| h.path != "blob.dat"), "二进制文件不产出命中");
     }
 }

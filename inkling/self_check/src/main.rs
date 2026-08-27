@@ -5,8 +5,10 @@
 //! 耗时与输出摘要；任一失败结构化显示并以非零退出码结束。
 //!
 //! 子命令：`schema` / `cargo` / `frontend` / `e2e` / `discipline` / `benchmark` / `all`（默认）。
-//! 门禁命令的事实源 = manifest.json `self_check` 表（防文档-脚本
-//! 漂移——编排器不重复声明命令，只做聚合执行与报告）。
+//! 门禁命令的事实源 = manifest.json `self_check` 表：`all` 聚合模式**真正执行**
+//! 表内声明的命令（单一事实源不名不副实——声明命令与实际执行同一路径），
+//! 子命令直调模式 = 该命令指向的同一门禁在本进程内执行（快速局部复验）。
+//! 任一 manifest 命令缺表项即结构化失败，不允许静默跳过。
 
 mod discipline;
 mod process_util;
@@ -109,8 +111,9 @@ const GATE_HINTS: [(&str, &str); 6] = [
     ),
 ];
 
-/// 自检命令事实源：manifest.json self_check 表（命令单一事实源）。
-fn load_self_check_commands(manifest_path: &Path) -> Result<[String; 4], String> {
+/// 自检命令事实源：manifest.json self_check 表（六门禁命令单一事实源；
+/// `all` 聚合模式按此表真实执行，不重复声明命令）。
+fn load_self_check_commands(manifest_path: &Path) -> Result<Vec<(String, String)>, String> {
     let text = std::fs::read_to_string(manifest_path)
         .map_err(|err| format!("manifest 读取失败: {err}"))?;
     let manifest: serde_json::Value = serde_json::from_str(&text)
@@ -119,17 +122,20 @@ fn load_self_check_commands(manifest_path: &Path) -> Result<[String; 4], String>
         .get("self_check")
         .and_then(serde_json::Value::as_object)
         .ok_or_else(|| "manifest.json 缺 self_check 门禁表（出厂门禁入口无法聚合）".to_string())?;
-    let mut commands = Vec::with_capacity(4);
-    for key in ["schema", "cargo_test", "frontend", "e2e"] {
+    let mut commands = Vec::with_capacity(6);
+    for key in ["schema", "cargo_test", "frontend", "e2e", "discipline", "benchmark"] {
         let command = self_check
             .get(key)
             .and_then(serde_json::Value::as_object)
             .and_then(|entry| entry.get("command"))
             .and_then(serde_json::Value::as_str)
             .unwrap_or("");
-        commands.push(command.to_string());
+        if command.is_empty() {
+            return Err(format!("manifest.self_check.{key} 缺命令声明（命令单一事实源不完整）"));
+        }
+        commands.push((key.to_string(), command.to_string()));
     }
-    Ok([commands[0].clone(), commands[1].clone(), commands[2].clone(), commands[3].clone()])
+    Ok(commands)
 }
 
 fn gate_label(key: &str) -> &'static str {
@@ -138,6 +144,8 @@ fn gate_label(key: &str) -> &'static str {
         "cargo_test" => "机制件 cargo test",
         "frontend" => "前端 typecheck+vitest",
         "e2e" => "接线 e2e 全量",
+        "discipline" => "代码纪律（B2 零计划痕迹）",
+        "benchmark" => "公开评测基准（P5.2）",
         _ => "未知门禁",
     }
 }
@@ -213,7 +221,7 @@ fn python_dll_dir(repo_root: &Path, python_exe: &Path) -> Option<PathBuf> {
     }
 }
 
-fn gate_discipline_full(repo_root: &Path) -> (GateResult, String) {
+fn gate_discipline_full(repo_root: &Path, manifest_command: &str) -> (GateResult, String) {
     let started = Instant::now();
     let hits = discipline::run(repo_root);
     let seconds = started.elapsed().as_secs_f64();
@@ -235,7 +243,7 @@ fn gate_discipline_full(repo_root: &Path) -> (GateResult, String) {
     let result = GateResult {
         key: "discipline".to_string(),
         label: "代码纪律（B2 零计划痕迹）".to_string(),
-        command: "self_check discipline".to_string(),
+        command: manifest_command.to_string(),
         passed,
         seconds,
         summary,
@@ -280,13 +288,13 @@ fn e2e_preflight(repo_root: &Path) -> Result<PathBuf, String> {
 /// 自举回归为硬门禁（非零退出即失败）；OS 与复杂基准在门禁内走离线/冒烟口径，
 /// 真实达标率以 live 环境复核。脚本依赖 Python 解释器与可导入的 ink_engine
 /// （与 e2e 门禁同一套解释器解析逻辑）。
-fn gate_benchmark_full(repo_root: &Path) -> (GateResult, String) {
+fn gate_benchmark_full(repo_root: &Path, manifest_command: &str) -> (GateResult, String) {
     let Some(python_exe) = resolve_python_exe(repo_root) else {
         let summary = "未找到可用的 Python 解释器：设 PYO3_PYTHON 指向仓库根 .venv 的 python（Windows: .venv/Scripts/python.exe）".to_string();
         let result = GateResult {
             key: "benchmark".to_string(),
             label: "公开评测基准（P5.2）".to_string(),
-            command: "self_check benchmark".to_string(),
+            command: manifest_command.to_string(),
             passed: false,
             seconds: 0.0,
             summary: summary.clone(),
@@ -636,6 +644,62 @@ fn parse_args() -> Args {
     args
 }
 
+/// 聚合模式的门禁子进程超时（外层保险；内层门禁自带更细粒度的子超时）。
+fn gate_spawn_timeout_secs(key: &str) -> u64 {
+    match key {
+        "schema" => TIMEOUT_CARGO_SELF_SECS + 120,
+        "cargo_test" => TIMEOUT_CARGO_EXEC_SECS + TIMEOUT_CARGO_SHELL_SECS + TIMEOUT_CARGO_SELF_SECS + 600,
+        "frontend" => TIMEOUT_FRONTEND_SECS + 300,
+        "e2e" => TIMEOUT_E2E_SECS + TIMEOUT_PROBE_SECS + 300,
+        "discipline" => 600,
+        "benchmark" => TIMEOUT_PROBE_SECS + 300,
+        _ => 600,
+    }
+}
+
+/// 真正执行 manifest `self_check` 表声明的门禁命令（命令单一事实源）：
+/// 退出码 = PASS/FAIL 判定，内层进程输出 = 门禁明细（--full 可见完整输出）。
+/// `--live` 仅透传给 e2e 门禁（推理清洁度实弹探针）。
+fn run_manifest_gate(
+    repo_root: &Path,
+    key: &str,
+    command: &str,
+    live: bool,
+) -> (GateResult, String) {
+    let mut argv: Vec<String> = command.split_whitespace().map(String::from).collect();
+    if key == "e2e" && live {
+        argv.push("--live".to_string());
+    }
+    let timeout = Duration::from_secs(gate_spawn_timeout_secs(key));
+    let started = Instant::now();
+    let outcome = process_util::run_command(&argv, repo_root, timeout, None);
+    let seconds = started.elapsed().as_secs_f64();
+    let passed = outcome.spawn_error.is_none() && !outcome.timed_out && outcome.passed();
+    let (summary, detail) = if let Some(spawn_error) = &outcome.spawn_error {
+        let text = format!("门禁命令启动失败: {spawn_error}");
+        (text.clone(), text)
+    } else if outcome.timed_out {
+        let text = format!("门禁命令超时（> {:.0}s）", timeout.as_secs_f64());
+        (text.clone(), text)
+    } else if passed {
+        let summary = report::summarize(&outcome.output, key);
+        (summary, outcome.output.clone())
+    } else {
+        let summary = report::failure_summary(&outcome.output);
+        (summary, outcome.output.clone())
+    };
+    let result = GateResult {
+        key: key.to_string(),
+        label: gate_label(key).to_string(),
+        command: command.to_string(),
+        passed,
+        seconds,
+        summary,
+        tail: report::tail_lines(&detail),
+    };
+    (result, detail)
+}
+
 fn main() {
     let args = parse_args();
     let repo_root = resolve_repo_root(args.root.as_deref());
@@ -647,13 +711,16 @@ fn main() {
             std::process::exit(2);
         }
     };
-    let schema_command = commands[0].clone();
-    let cargo_command = commands[1].clone();
-    let frontend_command = commands[2].clone();
-    let e2e_command = commands[3].clone();
+    let command_of = |manifest_key: &str| -> &str {
+        commands
+            .iter()
+            .find(|(key, _)| key == manifest_key)
+            .map(|(_, command)| command.as_str())
+            .unwrap_or("（manifest 缺该门禁命令声明）")
+    };
 
     print!(
-        "InKling 出厂自检矩阵（六门禁一键）\n入口：inkling/self_check（Rust 编排）｜ 仓库根: {}\n门禁命令 = manifest.json self_check（单一事实源）\n\n",
+        "InKling 出厂自检矩阵（六门禁一键）\n入口：inkling/self_check（Rust 编排）｜ 仓库根: {}\n门禁命令 = manifest.json self_check（单一事实源，聚合模式真实执行）\n\n",
         repo_root.display()
     );
 
@@ -665,43 +732,36 @@ fn main() {
         }
         results.push(result);
     };
-    match args.gate.as_str() {
-        "schema" => {
-            let (result, full) = gate_schema_full(&repo_root, &schema_command);
-            run_gate(result, full);
+
+    // 子命令直调 = manifest 命令指向的同一门禁在本进程内执行（快速局部复验）
+    let manifest_key_of = |sub: &str| -> &'static str {
+        match sub {
+            "schema" => "schema",
+            "cargo" => "cargo_test",
+            "frontend" => "frontend",
+            "e2e" => "e2e",
+            "discipline" => "discipline",
+            "benchmark" => "benchmark",
+            _ => "schema",
         }
-        "cargo" => {
-            let (result, full) = gate_cargo_full(&repo_root, &cargo_command);
-            run_gate(result, full);
-        }
-        "frontend" => {
-            let (result, full) = gate_frontend_full(&repo_root, &frontend_command);
-            run_gate(result, full);
-        }
-        "e2e" => {
-            let (result, full) = gate_e2e_full(&repo_root, &e2e_command, args.live);
-            run_gate(result, full);
-        }
-        "discipline" => {
-            let (result, full) = gate_discipline_full(&repo_root);
-            run_gate(result, full);
-        }
-        "benchmark" => {
-            let (result, full) = gate_benchmark_full(&repo_root);
-            run_gate(result, full);
-        }
-        _ => {
-            let (result, full) = gate_schema_full(&repo_root, &schema_command);
-            run_gate(result, full);
-            let (result, full) = gate_cargo_full(&repo_root, &cargo_command);
-            run_gate(result, full);
-            let (result, full) = gate_frontend_full(&repo_root, &frontend_command);
-            run_gate(result, full);
-            let (result, full) = gate_e2e_full(&repo_root, &e2e_command, args.live);
-            run_gate(result, full);
-            let (result, full) = gate_discipline_full(&repo_root);
-            run_gate(result, full);
-            let (result, full) = gate_benchmark_full(&repo_root);
+    };
+    if args.gate != "all" {
+        let key = manifest_key_of(args.gate.as_str());
+        let command = command_of(key);
+        let (result, full) = match args.gate.as_str() {
+            "schema" => gate_schema_full(&repo_root, command),
+            "cargo" => gate_cargo_full(&repo_root, command),
+            "frontend" => gate_frontend_full(&repo_root, command),
+            "e2e" => gate_e2e_full(&repo_root, command, args.live),
+            "discipline" => gate_discipline_full(&repo_root, command),
+            "benchmark" => gate_benchmark_full(&repo_root, command),
+            _ => unreachable!("parse_args 只接受已知子命令"),
+        };
+        run_gate(result, full);
+    } else {
+        // 聚合模式：真正执行 manifest self_check 表声明的全部命令
+        for (key, command) in &commands {
+            let (result, full) = run_manifest_gate(&repo_root, key, command, args.live);
             run_gate(result, full);
         }
     }

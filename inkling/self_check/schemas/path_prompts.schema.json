@@ -1,0 +1,48 @@
+{
+  "$schema": "http://json-schema.org/draft-07/schema#",
+  "title": "路径组装提示词语料（非契约语料：组装草稿/汇流合成等策略模板）",
+  "type": "object",
+  "required": ["prompts"],
+  "additionalProperties": false,
+  "properties": {
+    "prompts": {
+      "type": "array",
+      "minItems": 1,
+      "items": {
+        "type": "object",
+        "required": ["id", "level", "kind", "data", "source", "credibility", "title"],
+        "additionalProperties": false,
+        "properties": {
+          "id": { "type": "string", "minLength": 1 },
+          "level": { "type": "string", "enum": ["work", "project", "user"] },
+          "kind": { "type": "string", "enum": ["template", "rule", "weight", "tool_rule"] },
+          "data": {
+            "type": "object",
+            "required": ["prompt"],
+            "additionalProperties": false,
+            "properties": {
+              "prompt": {
+                "type": "object",
+                "required": ["name", "kind", "description"],
+                "additionalProperties": false,
+                "properties": {
+                  "name": { "type": "string", "minLength": 1 },
+                  "kind": { "type": "string", "minLength": 1 },
+                  "description": { "type": "string", "minLength": 1 },
+                  "system": { "type": "string" },
+                  "user_template": { "type": "string" },
+                  "extra_body": { "type": "object" },
+                  "extra_body_note": { "type": "string" }
+                }
+              }
+            }
+          },
+          "source": { "type": "string", "enum": ["web", "dialog", "model", "user"] },
+          "credibility": { "type": "number", "minimum": 0, "maximum": 1 },
+          "title": { "type": "string", "minLength": 1 },
+          "tags": { "type": "array", "items": { "type": "string", "minLength": 1 } }
+        }
+      }
+    }
+  }
+}

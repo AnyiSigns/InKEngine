@@ -1303,7 +1303,7 @@
     },
     {
       "name": "web_search",
-      "description": "行为意图：网络搜索——把自然语言查询发往搜索聚合源，返回结果清单（标题/摘要/链接），是「先找到网页」的入口。\n\n使用时机：问题涉及最新/外部事实、需要先定位信息源再读原文时；与 fetch 工具的分工——本工具检索定位，fetch 抓取单页原文，两者常串行使用（先检索后取证）。\n\n取舍与替代选项：已知确切 URL——直接用 fetch；研究链批量采集——collect_material；本工具=检索层，结果不是原文，引用前须经 fetch 校验原文。\n\n参数语义：query=查询语句（必填）；limit=返回条数（缺省 5，范围 1-20）；domains=域名过滤子集（可选，收窄检索面）。\n\n边界与协作：默认走本地聚合源（metasearch 类免费无 key）；用户自配 Exa/parallel/bocha 任一 key 后降级到厂商源（键在设置页配置，数据驱动）；失败时提示可重试（瞬时错误/超时），不静默重放；域名白名单语义同 fetch（allow_domains 越域拒绝），出厂白名单条目由装配/TOOL 补丁数据驱动补齐；sandbox=network_policy。",
+      "description": "行为意图：网络搜索——把自然语言查询发往搜索聚合源，返回结果清单（标题/摘要/链接），是「先找到网页」的入口。\n\n使用时机：问题涉及最新/外部事实、需要先定位信息源再读原文时；与 fetch 工具的分工——本工具检索定位，fetch 抓取单页原文，两者常串行使用（先检索后取证）。\n\n取舍与替代选项：已知确切 URL——直接用 fetch；研究链批量采集——collect_material；本工具=检索层，结果不是原文，引用前须经 fetch 校验原文。\n\n参数语义：query=查询语句（必填）；limit=返回条数（缺省 5，范围 1-20）；domains=域名过滤子集（可选，收窄检索面）。\n\n边界与协作：默认走本地聚合源（metasearch 类免费无 key）；用户自配 Exa/parallel/bocha 任一 key 后降级到厂商源（键在设置页配置，数据驱动）；失败时提示可重试（瞬时错误/超时），不静默重放；出网目标白名单化（outbound_domains = 本地聚合 + 厂商后端，内网 CIDR 一律不放行）；allow_domains 语义同 fetch（越域结果丢弃），出厂白名单条目由装配/TOOL 补丁数据驱动补齐；sandbox=network_policy。",
       "parameters": {
         "type": "object",
         "properties": {
@@ -1337,7 +1337,14 @@
       "endpoint_config": {},
       "network_policy": {
         "allow_domains": [],
-        "note": "域名白名单语义同 fetch：越域拒绝；出厂本地聚合源与用户自配厂商（Exa/parallel/bocha）的域名条目由装配/TOOL 补丁数据驱动补齐"
+        "outbound_domains": [
+          "html.duckduckgo.com",
+          "www.bing.com",
+          "api.exa.ai",
+          "api.parallel.ai",
+          "api.bochaai.com"
+        ],
+        "note": "出网目标白名单（outbound_domains = 搜索实现真实后端：本地聚合 html.duckduckgo.com/www.bing.com + 用户自配厂商 api.exa.ai/api.parallel.ai/api.bochaai.com，数据驱动可经 TOOL 补丁演化）；内网 CIDR（回环/私网/链路本地/云元数据地址）一律不放行；permissions 的 network:connect:* 是门禁语义通配（web_search 判定目标 = 查询语句，结果域名过滤在实现内），出网域名收口以 outbound_domains 为唯一声明源（实现层同源消费）；allow_domains 为结果域名过滤（空 = 结果不过滤，语义勿混）"
       },
       "meta": {
         "domain": "network",

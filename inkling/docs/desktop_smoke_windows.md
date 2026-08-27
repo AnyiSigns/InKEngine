@@ -1,10 +1,10 @@
 # 桌面壳 Windows 真实启动冒烟记录（2026-08-22）
 
-> 前置：shell 契约测试 27/27 全绿（17 执行器契约 + 9 MCP 协议 + 1 lib）；
+> 前置：shell 契约测试 33/33 全绿（23 执行器契约 + 9 MCP 协议 + 1 lib）；
 > 本记录补真实桌面启动验证——进程/窗口/内容/截图/退出码全链。
-> 复跑：`powershell -ExecutionPolicy Bypass -File seeds/inkling/shell/smoke_windows.ps1`
-> （需先 `cargo build --manifest-path seeds/inkling/shell/src-tauri/Cargo.toml
-> --features custom-protocol` 与 `npm --prefix seeds/inkling/frontend run build`）。
+> 复跑：`powershell -ExecutionPolicy Bypass -File inkling/shell/smoke_windows.ps1`
+> （需先 `cargo build --manifest-path inkling/shell/src-tauri/Cargo.toml
+> --features custom-protocol` 与 `npm --prefix inkling/frontend run build`）。
 
 ## 环境
 
@@ -70,8 +70,9 @@
 
 ## 装配语义（真实进程内验证）
 
-窗口出现 + 深色界面断言即证明真实装配成功（任一环节失败 = 启动拒绝，
-fail-closed）：
+窗口出现 + **内容占比断言**（v2 口径：客户端区上半区内容像素占比 > 2%，
+亮/暗主题通用；深色像素占比只适用深色主题，不作装配证明）即证明真实装配
+成功（任一环节失败 = 启动拒绝，fail-closed）：
 
 - 工具声明解析：`fixtures/tools_os.json`（include_str 内嵌数据）；
 - 执行器注册契约校验：声明 ↔ 执行器签名一致才放行（不一致 = 启动失败）；

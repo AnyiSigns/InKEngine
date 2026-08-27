@@ -1,0 +1,84 @@
+{
+  "$schema": "http://json-schema.org/draft-07/schema#",
+  "title": "技能市场目录（技能市场 seed 数据，条目即技能导出格式；消费 = SkillMarketService）",
+  "type": "object",
+  "required": ["premounted", "mount_policy", "skills"],
+  "additionalProperties": false,
+  "properties": {
+    "premounted": { "type": "boolean" },
+    "mount_policy": {
+      "type": "object",
+      "required": ["required", "note"],
+      "additionalProperties": false,
+      "properties": {
+        "required": { "type": "array", "minItems": 1, "items": { "type": "string", "minLength": 1 } },
+        "note": { "type": "string", "minLength": 1 }
+      }
+    },
+    "skills": {
+      "type": "array",
+      "minItems": 1,
+      "items": {
+        "type": "object",
+        "required": [
+          "id",
+          "name",
+          "kind",
+          "domain",
+          "version",
+          "description",
+          "fingerprint",
+          "source_path",
+          "model_id",
+          "hit_count",
+          "fail_count",
+          "contract_snapshot",
+          "evidence_snapshot",
+          "path",
+          "test_report"
+        ],
+        "additionalProperties": false,
+        "properties": {
+          "id": { "type": "string", "minLength": 1 },
+          "name": { "type": "string", "minLength": 1 },
+          "kind": { "type": "string", "minLength": 1 },
+          "domain": { "type": "string", "minLength": 1 },
+          "version": { "type": "number", "minimum": 0 },
+          "description": { "type": "string", "minLength": 1 },
+          "fingerprint": { "type": "string", "minLength": 1 },
+          "source_path": { "type": "string", "minLength": 1 },
+          "model_id": { "type": "string", "minLength": 1 },
+          "hit_count": { "type": "number", "minimum": 0 },
+          "fail_count": { "type": "number", "minimum": 0 },
+          "contract_snapshot": {
+            "type": "array",
+            "minItems": 1,
+            "items": {
+              "type": "array",
+              "minItems": 2,
+              "maxItems": 2,
+              "items": { "type": "string" }
+            }
+          },
+          "evidence_snapshot": {
+            "type": "array",
+            "minItems": 1,
+            "items": { "type": "object" }
+          },
+          "path": {
+            "type": "object",
+            "required": ["nodes"],
+            "additionalProperties": false,
+            "properties": {
+              "nodes": {
+                "type": "object",
+                "additionalProperties": { "type": "object" }
+              }
+            }
+          },
+          "test_report": { "type": "object" }
+        }
+      }
+    }
+  }
+}

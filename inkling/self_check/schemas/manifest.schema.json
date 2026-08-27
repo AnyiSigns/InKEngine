@@ -24,7 +24,7 @@
     },
     "contracts": {
       "type": "object",
-      "required": ["exec_mcp_id", "host_id", "renderer_components", "bind_channels", "event_types", "tools", "build", "theme_tokens"],
+      "required": ["exec_mcp_id", "host_id", "renderer_components", "bind_channels", "event_types", "tools", "build", "seed_files", "theme_tokens"],
       "additionalProperties": false,
       "properties": {
         "exec_mcp_id": { "type": "string", "minLength": 1 },
@@ -41,7 +41,10 @@
           "type": "object",
           "required": ["file"],
           "additionalProperties": false,
-          "properties": { "file": { "type": "string", "minLength": 1 } }
+          "properties": {
+            "file": { "type": "string", "minLength": 1 },
+            "note": { "type": "string", "minLength": 1 }
+          }
         },
         "build": {
           "type": "object",
@@ -49,18 +52,42 @@
           "additionalProperties": false,
           "properties": { "file": { "type": "string", "minLength": 1 } }
         },
+        "seed_files": {
+          "type": "object",
+          "required": ["files"],
+          "additionalProperties": false,
+          "properties": {
+            "note": { "type": "string", "minLength": 1 },
+            "files": {
+              "type": "array",
+              "minItems": 21,
+              "uniqueItems": true,
+              "items": {
+                "type": "object",
+                "required": ["name", "role"],
+                "additionalProperties": false,
+                "properties": {
+                  "name": { "type": "string", "minLength": 1 },
+                  "role": { "type": "string", "minLength": 1 }
+                }
+              }
+            }
+          }
+        },
         "theme_tokens": { "type": "array", "items": { "type": "string", "minLength": 1 }, "minItems": 1, "uniqueItems": true }
       }
     },
     "self_check": {
       "type": "object",
-      "required": ["schema", "cargo_test", "frontend", "e2e"],
+      "required": ["schema", "cargo_test", "frontend", "e2e", "discipline", "benchmark"],
       "additionalProperties": false,
       "properties": {
         "schema": { "$ref": "#/definitions/gate" },
         "cargo_test": { "$ref": "#/definitions/gate" },
         "frontend": { "$ref": "#/definitions/gate" },
-        "e2e": { "$ref": "#/definitions/gate" }
+        "e2e": { "$ref": "#/definitions/gate" },
+        "discipline": { "$ref": "#/definitions/gate" },
+        "benchmark": { "$ref": "#/definitions/gate" }
       }
     }
   },

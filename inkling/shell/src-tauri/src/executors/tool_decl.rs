@@ -1,6 +1,9 @@
 //! 工具声明加载（数据资产形态：只读，禁硬编码）。
 //!
-//! 声明文件 = seed_data/tools.json 的 OS 工具段（夹具 = 定稿形态）；
+//! 声明文件 = `fixtures/tools_os.json`（壳执行器声明**生成物**：由
+//! `seed_data/tools.json` 经 `inkling/scripts/sync_tools_fixtures.py`
+//! 生成——seed = 引擎代理工具目录真源，fixtures = 壳执行器声明，禁手工
+//! 维护；成员/档位/端点漂移由出厂自检「跨注册表一致性闸门」硬校验）；
 //! 壳只消费声明，不自行定义工具能力——新增/演化工具走补丁链管线产出
 //! 声明后再注册。
 

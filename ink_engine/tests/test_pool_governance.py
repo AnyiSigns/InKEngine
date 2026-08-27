@@ -6,6 +6,14 @@
   （不物理删）；
 - 近重复合并：字段 Jaccard>0.8 或目的嵌入余弦>0.9 → 转合并提案；
 - 提案预算：3/周/域，耗尽拒绝。
+
+接线现状标注（ENG9b-14 评审结论修正）：本模块**已非孤儿**——壳侧宿主
+（inkling_host/host.py:360-364,430-435）按 boot 键
+``path_assembly_pool_governance_enabled`` 实例化 PoolGovernance 接入
+结点提案链路（NodeProposalSettleHook 提案 sink 经治理判定），
+``pool_nodes_from_registry``/``proposal_from_node_draft``/
+``weekly_proposal_usage`` 为生产接线辅助。本测试不是「绿但无意义」——
+判定规则是生产链路的真实消费面（壳侧装配测试另行覆盖接线闭环）。
 """
 from __future__ import annotations
 
@@ -32,7 +40,6 @@ from ink_engine.core.pool_governance import (
     invalidation_record,
     near_duplicate_by_embedding,
     near_duplicate_by_fields,
-    proposal_allowed,
     proposal_budget_remaining,
 )
 
@@ -147,9 +154,6 @@ def test_proposal_budget():
     assert proposal_budget_remaining(2) == 1
     assert proposal_budget_remaining(3) == 0
     assert proposal_budget_remaining(5) == 0  # 负数按 0 计
-    assert proposal_allowed(0) and proposal_allowed(2)
-    assert not proposal_allowed(3)
-    assert not proposal_allowed(4)
 
 
 def test_budget_exhausted_reject():
@@ -204,6 +208,36 @@ def test_pool_governance_snapshot_objects():
         {"pool_count": 500, "used_this_week": 0, "pool_nodes": nodes},
     )
     assert "dict_node" in verdict2.eviction_candidates
+
+
+def test_dead_node_records_derived_from_evictions():
+    """失效登记由判定记录的 eviction_candidates 派生（ENG9b-9 统一）：
+
+    旧实现按 log 的 action 键过滤恒返回空（死代码）；现由判定记录
+    派生——log 保持纯判定记录（周预算统计不被污染），淘汰候选即失效
+    登记来源。
+    """
+    gov = PoolGovernance()
+    nodes = [
+        PoolNodeSnapshot(node_id="dead1", usage_count=0, age_days=200.0),
+        PoolNodeSnapshot(node_id="alive", usage_count=5, age_days=200.0),
+    ]
+    gov.evaluate(
+        {"node_id": "new_node", "fields": ["a"]},
+        {"pool_count": 500, "used_this_week": 0, "pool_nodes": nodes},
+    )
+    records = gov.dead_node_records()
+    assert [r["node_id"] for r in records] == ["dead1"]
+    assert all(r["action"] == GOV_INVALIDATE for r in records)
+    assert all("reason" in r and "ts" in r for r in records)
+    # 无淘汰候选 = 空登记（非恒空，是与判定同源的派生结果）
+    gov.evaluate(
+        {"node_id": "plain", "fields": ["a"]},
+        {"pool_count": 10, "used_this_week": 0, "pool_nodes": []},
+    )
+    assert gov.dead_node_records() == records  # 不重复派生
+    # 派生不污染判定 log（周预算统计口径保持纯判定记录）
+    assert len(gov.log) == 2
 
 
 # ── E-P9：接线辅助（提案归一 / 周预算 / 注册表快照）──────────────

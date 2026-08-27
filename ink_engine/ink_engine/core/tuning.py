@@ -245,15 +245,19 @@ class TuneResult:
 
     Attributes:
         params: 生效参数（回归拒绝时 = 原参数，变更不落地）。
-        changes: 变更说明（空 = 无参数变化）。
+        changes: 变更说明（空 = 无参数变化或变更被拒绝）。
         snapshot: 参数快照（规则版本 + 新参数；回归拒绝时 = None）。
         note: 附加说明（回归未通过原因等；空 = 无附加说明）。
+        rejected: 显式拒绝语义（ENG1-17）：True = 本次调参建议被回归
+            拒绝（changes 为空不代表「无变化」——调用方据 rejected
+            区分「无参数变化」与「有建议但被拒绝」）。
     """
 
     params: TunableParams
     changes: tuple[str, ...] = ()
     snapshot: ParameterSnapshot | None = None
     note: str = ""
+    rejected: bool = False
 
     def to_dict(self) -> dict[str, Any]:
         return {
@@ -261,6 +265,7 @@ class TuneResult:
             "changes": list(self.changes),
             "snapshot": self.snapshot.to_dict() if self.snapshot else None,
             "note": self.note,
+            "rejected": self.rejected,
         }
 
 
@@ -529,7 +534,7 @@ class MetaTuner:
         分工语义（参数变更过 L2 效果评估回归）：参数无「旧版」可比
         （L1/L3 不适用），回归 = L2 样例闸门——新参数须让回归样例全绿
         才允许生效；回归未通过 = 变更被拒绝，返回原参数（changes 空 +
-        note 说明原因，调用方留痕审计）。
+        note 说明原因 + rejected=True 显式拒绝语义，调用方留痕审计）。
 
         Args:
             params: 当前参数（调参输入基线，也是回归失败时的回落值）。
@@ -559,6 +564,10 @@ class MetaTuner:
         return TuneResult(
             params=params,
             note=f"参数回归未通过，变更被拒绝: {l2.note or '样例未全绿'}",
+            # 显式拒绝语义（ENG1-17）：调用方据 rejected 区分「无参数
+            # 变化」与「有建议但被回归拒绝」——依赖 changes 判生效会
+            # 把拒绝误判为无变化
+            rejected=True,
         )
 
     def tune_persisted(

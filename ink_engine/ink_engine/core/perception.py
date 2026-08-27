@@ -115,7 +115,7 @@ async def record_vision_evidence(
     store: EdgeEvidenceStore,
     *,
     success: bool,
-    dst_type: str = "vision_describe",
+    dst_type: str = VISION_PERCEIVE_TYPE,
     cost: float | None = None,
     now: float | None = None,
 ) -> None:
@@ -123,6 +123,11 @@ async def record_vision_evidence(
 
     成功 = success+1、失败 = fail+1（失败只记失败结点入边，归因由执行器
     保证）；主键含契约版本与域，升版后旧行自然不命中。
+
+    默认 ``dst_type`` 与注册结点类型（:data:`VISION_PERCEIVE_TYPE`）对齐
+    （ENG1-5）：旧默认 ``"vision_describe"`` 未登记为结点类型，视觉任务
+    成败会落到无契约类型键上，进不了边证据归因/组装池——默认即类型级
+    兼容键，下游归因按实际入边结点覆盖传入。
     """
     key = EdgeKey(
         src_type=VISION_PERCEIVE_TYPE,
@@ -242,15 +247,15 @@ def classify_vision_export(model_kind: str, *, authorized: bool) -> VisionExport
 
 
 __all__ = [
-    "MODEL_CLOUD",
-    "MODEL_LOCAL",
     "EXPORT_ALLOW",
     "EXPORT_DENY",
+    "MODEL_CLOUD",
+    "MODEL_LOCAL",
     "VALIDATE_PROCEED",
     "VALIDATE_REVIEW",
-    "VISION_PERCEIVE_TYPE",
-    "VISION_CONTRACT_VERSION",
     "VISION_CONTEXT_DOMAIN",
+    "VISION_CONTRACT_VERSION",
+    "VISION_PERCEIVE_TYPE",
     "CrossValidationResult",
     "VisionExportDecision",
     "classify_vision_export",

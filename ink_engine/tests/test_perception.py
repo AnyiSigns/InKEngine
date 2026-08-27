@@ -15,12 +15,13 @@ from ink_engine.core.contracts import PathAssemblyConfig
 from ink_engine.core.edge_evidence import EdgeEvidenceStore, EdgeKey
 from ink_engine.core.path_assembler import PathAssembler
 from ink_engine.core.perception import (
-    MODEL_CLOUD,
-    MODEL_LOCAL,
     EXPORT_ALLOW,
     EXPORT_DENY,
+    MODEL_CLOUD,
+    MODEL_LOCAL,
     VALIDATE_PROCEED,
     VALIDATE_REVIEW,
+    VISION_CONTEXT_DOMAIN,
     VISION_PERCEIVE_TYPE,
     CrossValidationResult,
     VisionExportDecision,
@@ -30,7 +31,6 @@ from ink_engine.core.perception import (
     register_perception_nodes,
 )
 from ink_engine.core.registry import NodeTypeRegistry
-
 
 # ── 感知结点注册 + 可组装 ──
 
@@ -85,6 +85,35 @@ async def test_vision_evidence_records_success_and_failure():
     assert row is not None
     assert row.success_count == 1
     assert row.fail_count == 1
+
+
+async def test_vision_evidence_default_dst_type_matches_registered_node():
+    """ENG1-5：record_vision_evidence 默认 dst_type 与注册结点类型对齐。
+
+    旧默认 "vision_describe" 不是登记过的结点类型——视觉成败落到无
+    契约类型键上，进不了边证据归因/组装池；默认对齐
+    VISION_PERCEIVE_TYPE 后类型级归因天然可达（下游按实际入边覆盖）。
+    """
+    store = EdgeEvidenceStore()
+    await record_vision_evidence(store, success=True, now=1.0)
+    row = await store.get(
+        EdgeKey(
+            src_type=VISION_PERCEIVE_TYPE,
+            dst_type=VISION_PERCEIVE_TYPE,
+            context_domain=VISION_CONTEXT_DOMAIN,
+        )
+    )
+    assert row is not None and row.success_count == 1
+    # 显式传入下游类型仍按传入落键（调用方可覆盖归因目标）
+    await record_vision_evidence(store, success=True, dst_type="downstream", now=2.0)
+    assert await store.get(
+        EdgeKey(
+            src_type=VISION_PERCEIVE_TYPE,
+            dst_type="downstream",
+            context_domain=VISION_CONTEXT_DOMAIN,
+        )
+    ) is not None
+    await store.close()
 
 
 # ── 双通道交叉验证 ──

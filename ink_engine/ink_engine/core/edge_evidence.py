@@ -67,7 +67,8 @@ ORIGIN_RUNTIME = "runtime"
 ORIGIN_POLICY = "policy"
 # 种子行评分降权因子（<1）：种子统计是出厂先验、非真实观测，计入评分时
 # 按此因子压缩，使冷启动不被过度信任；首次真实成功后该行 origin 翻为
-# runtime，降权即解除（真实证据主导）。
+# runtime，降权即解除（真实证据主导）。权威默认 = 引擎钉死（ENG9b-5），
+# 数据驱动覆盖经 :func:`set_seed_weight` 注入（宿主装配，与半衰期同形态）。
 SEED_WEIGHT = 0.5
 
 # 信任档推导阈值（与推荐先验晋升同一组常数；纯算法自动晋级零审批）
@@ -76,14 +77,14 @@ TIER_REGULAR_P = 0.7
 TIER_PROMOTE_N = 30  # 转正：N ≥ 30 且 p̂ ≥ 0.9
 TIER_PROMOTE_P = 0.9
 
-# 评分公式默认常数（引擎钉死；使用方仅覆盖权）
+# 评分公式默认常数（引擎钉死默认；使用方仅覆盖权——ENG9b-5 起权威
+# 常量语义明确：出厂默认 = 本值，运行期覆盖经 set_* 钩子数据驱动注入）
 SATURATION_N = 8.0  # 样本量半饱和点（w_n 分母）
 # 时间衰减半衰期（天）：默认 30 保持历史行为兼容；改值经数据驱动注入
 # （boot env / tiers 装配），评分公式的 τ×d(t) 语义见 :func:`time_decay`。
 # ``DECAY_HALF_DAYS`` 为出厂默认值（不变量锚点），运行期覆盖经
 # :func:`set_decay_half_days` 注入，二者同义——装配注入即权威。
 DECAY_HALF_DAYS = 30.0
-_ZERO_EVIDENCE_DECAY_HALF_DAYS = 30.0
 ZERO_EVIDENCE_WEIGHT = 1 / 9  # 零证据边 w_n 先验下界（评审决议）
 ZERO_EVIDENCE_P = 0.5  # 零证据拉普拉斯先验成功率
 ZERO_EVIDENCE_TAU = TIER_TAU[TIER_OBSERVING]
@@ -95,10 +96,6 @@ MULTIPATH_GAP = 0.15  # 证据不足判定线（分差 < 0.15 且 N ≥ 5 = 方�
 # 冷启动探索模式（指数计算与模式判定归引擎；默认参数引擎钉死）
 EXPLORATION_INDEX_THRESHOLD = 0.3
 
-# 信任档结果形态（声明式枚举，防魔法字符串）
-TIER_S = "success"
-TIER_F = "fail"
-
 
 def laplace_success(success: int, fail: int) -> float:
     """拉普拉斯平滑成功率 p̂ = (s+1)/(s+f+2)（零证据先验 0.5）。"""
@@ -106,10 +103,22 @@ def laplace_success(success: int, fail: int) -> float:
 
 
 def sample_weight(n: int) -> float:
-    """样本量加权 w_n = max(n,1)/(max(n,1)+8)（零证据取 1/9 下界）。"""
-    n = max(n, 1)
-    return n / (n + SATURATION_N)
+    """样本量加权 w_n = max(n,1)/(max(n,1)+saturation_n)（零证据取 1/9 下界）。
 
+    半饱和点取当前生效值（出厂 :data:`SATURATION_N`，可经
+    :func:`set_saturation_n` 数据驱动注入——ENG9b-5）。
+    """
+    n = max(n, 1)
+    return n / (n + get_saturation_n())
+
+
+# ── 评分常数数据驱动注入（ENG9b-4/5 收口）──
+# 出厂默认 = 引擎钉死（模块常量：SEED_WEIGHT / SATURATION_N /
+# DECAY_HALF_DAYS），运行期覆盖一律经本组 set_* 钩子注入（boot env /
+# tiers 装配调用）——避免「文档声称可注入、实现恒用默认」的假面。
+# 注入即权威：覆盖后续所有评分的对应口径；复位 = 传回出厂默认。
+# 现状声明（ENG9b-4）：引擎侧无自动装配点（runtime/壳侧接线归宿主域），
+# 未注入时按出厂默认生效——默认值即权威，注入钩子为可选增强面。
 
 # 运行期衰减半衰期（数据驱动覆盖锚点；默认 = 出厂 DECAY_HALF_DAYS）
 _decay_half_days = DECAY_HALF_DAYS
@@ -128,6 +137,36 @@ def set_decay_half_days(value: float) -> None:
 def get_decay_half_days() -> float:
     """当前生效的衰减半衰期（观察侧）。"""
     return _decay_half_days
+
+
+# 运行期种子降权因子（数据驱动覆盖锚点；默认 = 出厂 SEED_WEIGHT）
+_seed_weight = SEED_WEIGHT
+
+
+def set_seed_weight(value: float) -> None:
+    """数据驱动注入种子降权因子（ENG9b-5；装配调用，语义同半衰期钩子）。"""
+    global _seed_weight
+    _seed_weight = float(value)
+
+
+def get_seed_weight() -> float:
+    """当前生效的种子降权因子（观察侧）。"""
+    return _seed_weight
+
+
+# 运行期样本量半饱和点（数据驱动覆盖锚点；默认 = 出厂 SATURATION_N）
+_saturation_n = SATURATION_N
+
+
+def set_saturation_n(value: float) -> None:
+    """数据驱动注入样本量半饱和点（ENG9b-5；装配调用，语义同半衰期钩子）。"""
+    global _saturation_n
+    _saturation_n = float(value)
+
+
+def get_saturation_n() -> float:
+    """当前生效的样本量半饱和点（观察侧）。"""
+    return _saturation_n
 
 
 def time_decay(age_days: float, *, exempt: bool = False, decay_half_days: float | None = None) -> float:
@@ -230,31 +269,15 @@ def edge_score(
         age_days = max(0.0, (ts - last) / 86400.0)
     d = time_decay(age_days, exempt=evidence.policy, decay_half_days=decay_half_days)
     score = p * w * d * tau
-    # 先验隔离：种子行降权（策略边豁免 τ 仍走全权，两者正交）
+    # 先验隔离：种子行降权（策略边豁免 τ 仍走全权，两者正交）；
+    # 降权因子取当前生效值（出厂 SEED_WEIGHT，可经 set_seed_weight
+    # 数据驱动注入——ENG9b-5）
     origin = getattr(evidence, "origin", ORIGIN_RUNTIME)
     if origin == ORIGIN_SEED and not evidence.policy:
-        score *= SEED_WEIGHT
+        score *= get_seed_weight()
     return EdgeScore(
         score=score,
         p=p, weight=w, decay=d, tau=tau, tier=tier,
-    )
-
-
-def rank_candidates(
-    candidates: Sequence[EdgeEvidence],
-    *,
-    now: float | None = None,
-) -> list[EdgeEvidence]:
-    """beam 候选排序（确定性 tie-break：score 降序, avg_cost 升序,
-    dst_type 字典序）——冷启动零分并列可断言。
-    """
-    return sorted(
-        candidates,
-        key=lambda e: (
-            -edge_score(e, now=now).score,
-            e.avg_cost,
-            e.dst_type,
-        ),
     )
 
 
@@ -474,7 +497,9 @@ class EdgeEvidenceStore:
                     await self._conn.close()
                     self._conn = None
                 logger.error(f"边证据存储连接失败: {exc}")
-                raise StorageError(f"边证据存储连接失败: {exc}") from exc
+                raise StorageError(
+                    "边证据存储连接失败（详情见日志）"
+                ) from exc
 
     async def _migrate_schema(self) -> None:
         """存量库迁移：旧表缺 variant_hash/origin 列时重建为新主键形态。
@@ -544,7 +569,10 @@ class EdgeEvidenceStore:
             row = await cur.fetchone()
             await cur.close()
         except Exception as exc:
-            raise StorageError(f"边证据读取失败: {exc}") from exc
+            # 对外脱敏（ENG9b-12）：原始异常文本（SQL/路径等内部细节）
+            # 不内联进对外错误——详情留日志，对外只给类别文案
+            logger.error(f"边证据读取失败: {exc}")
+            raise StorageError("边证据读取失败（详情见日志）") from exc
         return await self._row_to_evidence(row) if row else None
 
     async def record_success(
@@ -581,55 +609,61 @@ class EdgeEvidenceStore:
         await self._connect()
         ts = now if now is not None else time.time()
         try:
-            existing = await self.get(key)
-            if existing is None:
-                new_avg = float(cost) if cost is not None else 0.0
-                await self._insert(
-                    key,
-                    success_count=delta_success,
-                    fail_count=delta_fail,
-                    avg_cost=new_avg,
-                    last_used_at=ts,
-                )
-                return EdgeEvidence(
-                    key=key,
-                    success_count=delta_success,
-                    fail_count=delta_fail,
-                    avg_cost=new_avg,
-                    last_used_at=ts,
-                    created_at=ts,
-                )
-            old_n = existing.success_count + existing.fail_count
-            new_avg = existing.avg_cost
-            if cost is not None:
-                # 滑动均值按 delta 加权（实证缺陷 ENG9b-3）：settle 加权归因
-                # 单次传 delta 可达 11，旧实现恒用 old_n+1 作分母被错误稀释；
-                # (old_avg*old_n + cost*delta)/(old_n+delta) 使一次 delta 归集
-                # 与 delta 次单样本归集等价（round-trip 一致）。
-                delta = delta_success + delta_fail
-                if delta > 0:
-                    new_avg = (existing.avg_cost * old_n + float(cost) * delta) / (
-                        old_n + delta
-                    )
-            origin = ORIGIN_RUNTIME if (delta_success or delta_fail) else existing.origin
+            # 原子 upsert（ENG9b-7）：旧实现读后写（get → UPDATE）非原子，
+            # 并发 record_success/record_failure 会丢更新或触发
+            # IntegrityError——单条 INSERT ... ON CONFLICT DO UPDATE 由
+            # sqlite 语句级原子性保证两次增量都落库。avg_cost 滑动均值在
+            # 语句内按「更新前计数」计算（与 delta 加权口径一致），
+            # cost=None 不改写均值。
+            new_row_avg = float(cost) if cost is not None else 0.0
             cur = await self._conn.execute(
-                "UPDATE edge_evidence SET success_count=?, fail_count=?,"
-                " avg_cost=?, origin=?, last_used_at=?"
-                " WHERE src_type=? AND dst_type=? AND src_contract_version=?"
-                " AND dst_contract_version=? AND context_domain=? AND variant_hash=?",
+                "INSERT INTO edge_evidence (src_type, dst_type,"
+                " src_contract_version, dst_contract_version, context_domain,"
+                " variant_hash, success_count, fail_count, avg_cost, policy,"
+                " origin, last_used_at, created_at)"
+                " VALUES (?,?,?,?,?,?,?,?,?,0,?,?,?)"
+                " ON CONFLICT(src_type, dst_type, src_contract_version,"
+                " dst_contract_version, context_domain, variant_hash)"
+                " DO UPDATE SET"
+                " success_count = edge_evidence.success_count + excluded.success_count,"
+                " fail_count = edge_evidence.fail_count + excluded.fail_count,"
+                " avg_cost = CASE WHEN (? IS NOT NULL"
+                "   AND (edge_evidence.success_count + edge_evidence.fail_count"
+                "        + ? + ?) > 0) THEN"
+                "   (edge_evidence.avg_cost"
+                "    * (edge_evidence.success_count + edge_evidence.fail_count)"
+                "    + ? * (? + ?))"
+                "   / ((edge_evidence.success_count + edge_evidence.fail_count)"
+                "      + ? + ?)"
+                "   ELSE edge_evidence.avg_cost END,"
+                " origin = CASE WHEN (? + ?) > 0 THEN 'runtime'"
+                "   ELSE edge_evidence.origin END,"
+                " last_used_at = ?",
                 (
-                    existing.success_count + delta_success,
-                    existing.fail_count + delta_fail,
-                    new_avg,
-                    origin,
-                    ts,
                     *key.key(),
+                    delta_success,
+                    delta_fail,
+                    new_row_avg,
+                    ORIGIN_RUNTIME,
+                    ts,
+                    ts,
+                    cost,
+                    delta_success,
+                    delta_fail,
+                    cost,
+                    delta_success,
+                    delta_fail,
+                    delta_success,
+                    delta_fail,
+                    delta_success,
+                    delta_fail,
+                    ts,
                 ),
             )
             await self._conn.commit()
             await cur.close()
         except Exception as exc:
-            raise StorageError(f"边证据写入失败: {exc}") from exc
+            raise StorageError("边证据写入失败（并发或存储异常，详情见日志）") from exc
         return await self.get(key)  # type: ignore[return-value]
 
     async def _insert(
@@ -716,7 +750,8 @@ class EdgeEvidenceStore:
                 await self._conn.commit()
                 await cur.close()
         except Exception as exc:
-            raise StorageError(f"边证据整行写入失败: {exc}") from exc
+            logger.error(f"边证据整行写入失败: {exc}")
+            raise StorageError("边证据整行写入失败（详情见日志）") from exc
         return evidence
 
     async def list_edges(self, domain: str | None = None) -> list[EdgeEvidence]:
@@ -738,7 +773,8 @@ class EdgeEvidenceStore:
             rows = await cur.fetchall()
             await cur.close()
         except Exception as exc:
-            raise StorageError(f"边证据枚举失败: {exc}") from exc
+            logger.error(f"边证据枚举失败: {exc}")
+            raise StorageError("边证据枚举失败（详情见日志）") from exc
         return [await self._row_to_evidence(r) for r in rows]
 
     async def evidence_count(self, domain: str | None = None) -> int:
@@ -757,7 +793,8 @@ class EdgeEvidenceStore:
             row = await cur.fetchone()
             await cur.close()
         except Exception as exc:
-            raise StorageError(f"边证据计数失败: {exc}") from exc
+            logger.error(f"边证据计数失败: {exc}")
+            raise StorageError("边证据计数失败（详情见日志）") from exc
         return int(row["c"]) if row else 0
 
     async def close(self) -> None:
@@ -901,6 +938,11 @@ async def restore_edge_tier(
 
     回写后推导档回到干预前水平——配合 :func:`downgrade_edge_tier` 形成可
     复原闭环。无快照（未降级过 / 未知 id）= 返回 None（fail-closed 不报错）。
+
+    .. note:: 接线现状（ENG9b-11）：当前无生产调用方——桥接层仅暴露
+       降级 op（``edge.downgrade_tier``），本复原入口未导出为 op。
+       保留为引擎机制完整性的反向操作（含测试），宿主暴露 op 后即可
+       恢复可写复原链路；若长期无接线需求可删除。
     """
     if storage is None:
         return None
@@ -953,7 +995,6 @@ __all__ = [
     "is_exploration_mode",
     "laplace_success",
     "multi_path_trigger",
-    "rank_candidates",
     "restore_edge_tier",
     "sample_weight",
     "tier_tau",

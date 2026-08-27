@@ -12,8 +12,6 @@ namespace + kind 条目按可信度 / 时间序仲裁（新旧并存留痕，不
 from __future__ import annotations
 
 import json
-import time
-from typing import Any
 
 from .memory import MemoryEntry, MemoryQuery, StorageBackedMemoryStore
 
@@ -23,16 +21,27 @@ CONFIRMATION_EVENTS = ("confirmation", "approval_accept", "user_confirm")
 # 默认记忆域（用户级）。
 DEFAULT_NAMESPACE = "user:default"
 
+# 抽取条目的优先级档（数据化，ENG1-13：旧实现硬编码 6/5/7 魔法数字）。
+# 语义：确认类（用户显式确认 = 最强事实）> 意图（回合指令）> 结论
+# （模型产出要点）。宿主可按产品语义覆盖。
+PRIORITY_CONFIRMATION = 7
+PRIORITY_INTENT = 6
+PRIORITY_CONCLUSION = 5
+
 
 def extract_entries_from_ledger(
     ledger: dict,
     *,
     namespace: str = DEFAULT_NAMESPACE,
+    priority_confirmation: int = PRIORITY_CONFIRMATION,
+    priority_intent: int = PRIORITY_INTENT,
+    priority_conclusion: int = PRIORITY_CONCLUSION,
 ) -> list[MemoryEntry]:
     """从回合账本规则抽取记忆条目（零 LLM）。
 
     抽取点：意图（intent）、结论（conclusion）、确认类事件（approval /
-    confirm）。每条带 ledger_round 溯源，便于回溯与去重仲裁。
+    confirm）。每条带 ledger_round 溯源，便于回溯与去重仲裁。优先级档
+    为数据化参数（缺省 = 模块常量），宿主可覆盖。
     """
     out: list[MemoryEntry] = []
     round_id = ledger.get("round_id")
@@ -46,7 +55,7 @@ def extract_entries_from_ledger(
                 kind="intent",
                 content=intent,
                 source="round_ledger",
-                priority=6,
+                priority=priority_intent,
                 meta={**meta_base},
             )
         )
@@ -59,7 +68,7 @@ def extract_entries_from_ledger(
                 kind="conclusion",
                 content=conclusion,
                 source="round_ledger",
-                priority=5,
+                priority=priority_conclusion,
                 meta={**meta_base},
             )
         )
@@ -80,7 +89,7 @@ def extract_entries_from_ledger(
                 kind="confirmation",
                 content=content,
                 source="round_ledger",
-                priority=7,
+                priority=priority_confirmation,
                 meta={**meta_base},
             )
         )
@@ -165,6 +174,9 @@ async def arbitrate_and_store(
 
 __all__ = [
     "DEFAULT_NAMESPACE",
-    "extract_entries_from_ledger",
+    "PRIORITY_CONCLUSION",
+    "PRIORITY_CONFIRMATION",
+    "PRIORITY_INTENT",
     "arbitrate_and_store",
+    "extract_entries_from_ledger",
 ]

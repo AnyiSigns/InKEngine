@@ -2,7 +2,7 @@
 
 覆盖（硬规则断言段）：
 - 评分公式单调性：成功率↑样本↑→分↑；衰减↑→分↓；τ 档位序
-  0.6<0.8<1.0；零证据边权重 1/9；确定性 tie-break；
+  0.6<0.8<1.0；零证据边权重 1/9；
 - 信任档推导边界（N=7/8、p̂=0.7 边界、N=29/30）；
 - 多径判据边界（N=4 vs N=5、分差 0.15）；
 - 冷启动指数边界（0.3）；
@@ -36,7 +36,6 @@ from ink_engine.core.edge_evidence import (
     is_exploration_mode,
     laplace_success,
     multi_path_trigger,
-    rank_candidates,
     sample_weight,
     time_decay,
     zero_evidence_score,
@@ -120,35 +119,6 @@ def test_decay_half_life():
     assert time_decay(30.0) == pytest.approx(math.exp(-1.0))
     assert time_decay(0.0) == 1.0
     assert time_decay(30.0, exempt=True) == 1.0
-
-
-def test_deterministic_tie_break():
-    """确定性 tie-break：(score 降序, avg_cost 升序, dst_type 字典序)。"""
-    key = EdgeKey(src_type="a", dst_type="b", context_domain="code")
-    e1 = EdgeEvidence(key=key, success_count=10, fail_count=0, avg_cost=5.0, last_used_at=NOW, created_at=NOW)
-    key2 = EdgeKey(src_type="a", dst_type="b2", context_domain="code")
-    e2 = EdgeEvidence(key=key2, success_count=10, fail_count=0, avg_cost=1.0, last_used_at=NOW, created_at=NOW)
-    key3 = EdgeKey(src_type="a", dst_type="c", context_domain="code")
-    e3 = EdgeEvidence(key=key3, success_count=10, fail_count=0, avg_cost=1.0, last_used_at=NOW, created_at=NOW)
-    ranked = rank_candidates([e1, e2, e3], now=NOW)
-    # 同分：avg_cost 升序 → b2（1.0）先于 b（5.0）；同成本同分 → 字典序
-    assert [e.dst_type for e in ranked] == ["b2", "c", "b"]
-    # 重复排序结果一致（确定性）
-    assert [e.dst_type for e in rank_candidates([e1, e3, e2], now=NOW)] == [
-        "b2",
-        "c",
-        "b",
-    ]
-
-
-def test_tie_break_score_desc_first():
-    """分数降序优先于成本/字典序。"""
-    key = EdgeKey(src_type="a", dst_type="b", context_domain="code")
-    strong = EdgeEvidence(key=key, success_count=50, fail_count=0, avg_cost=100.0, last_used_at=NOW, created_at=NOW)
-    key2 = EdgeKey(src_type="a", dst_type="c", context_domain="code")
-    weak = EdgeEvidence(key=key2, success_count=1, fail_count=5, avg_cost=0.0, last_used_at=NOW, created_at=NOW)
-    ranked = rank_candidates([weak, strong], now=NOW)
-    assert ranked[0] is strong
 
 
 # ── 信任档推导边界 ──
@@ -268,6 +238,32 @@ async def test_avg_cost_sliding_mean():
     await store.record_success(key)
     ev = await store.get(key)
     assert ev is not None and ev.avg_cost == pytest.approx(150.0)
+    await store.close()
+
+
+async def test_concurrent_record_updates_not_lost():
+    """ENG9b-7：并发归集不丢更新（原子 upsert）。
+
+    旧实现 _record 读后写（get → UPDATE）非原子——并发 record_success
+    在 get 与 UPDATE 之间交错会互相覆盖（丢更新）；单条 INSERT ...
+    ON CONFLICT DO UPDATE 由 sqlite 语句级原子性保证每次增量都落库。
+    """
+    import asyncio
+
+    store = EdgeEvidenceStore()
+    key = EdgeKey(src_type="a", dst_type="b", context_domain="code")
+    await asyncio.gather(
+        *[store.record_success(key, cost=100.0) for _ in range(20)]
+    )
+    ev = await store.get(key)
+    assert ev is not None and ev.success_count == 20
+    await asyncio.gather(
+        *[store.record_failure(key, cost=50.0) for _ in range(10)]
+    )
+    ev = await store.get(key)
+    assert ev is not None and ev.fail_count == 10
+    # 均值 = 全量样本同成本归集（(100*20 + 50*10)/30）
+    assert ev.avg_cost == pytest.approx((100.0 * 20 + 50.0 * 10) / 30)
     await store.close()
 
 

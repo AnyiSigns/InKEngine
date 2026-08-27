@@ -81,7 +81,12 @@ SEGMENT_TO_KIND: dict[str, str] = {
 # 旁路写防护的演化资产集合（唯一写入路径 = 本管线）。
 # 精确集合 + 前缀集合两类：知识/规则条目落 knowledge:<user_id> 集合
 # （动态前缀，见 knowledge_set 的集合命名），前缀匹配兜底——规则以
-# kind=rule 知识条目同落此集合，一并受守卫
+# kind=rule 知识条目同落此集合，一并受守卫。
+# ENG1-20 核对结论：知识集权威集合名 = knowledge_collection(user_id)
+# （knowledge_set.py:82 前缀 "knowledge:" + 用户 id），**不存在**精确名
+# "knowledge" 集合——动态用户集只能前缀守卫；已核对全仓生产写入
+# （knowledge_set.save / settle 提案 / self_proposal 补丁落点）均落
+# 该前缀集合，前缀覆盖即完整覆盖。
 _GUARDED_COLLECTIONS: frozenset[str] = frozenset(
     {
         _SET_CHAIN_COLLECTION,
@@ -220,22 +225,42 @@ class SetPatchChain:
         return len(chain.patches) + 1
 
     async def _put_record(self, collection: str, key: str, data: dict) -> None:
-        """链写入（持有守卫令牌时随调用透传——Storage 协议无该参数，
-        普通后端不传即透传）。"""
-        if self._guard_token is not None:
+        """链写入（持有守卫令牌且目标为 GuardedStorage 时随调用透传）。
+
+        Storage 协议未声明 ``guard_token`` 形参（ENG1-7）：普通后端/
+        自定义实现不接受该 kwarg，直接透传会 TypeError——令牌只对
+        :class:`GuardedStorage` 包装层有意义（其余后端无守卫语义，不传
+        令牌同样安全）。协议级可选形参声明归存储域（ENG5）收口。
+        """
+        if self._guard_token is not None and isinstance(
+            self._storage, GuardedStorage
+        ):
             await self._storage.put_record(
                 collection, key, data, guard_token=self._guard_token
             )
         else:
             await self._storage.put_record(collection, key, data)
 
-    async def append(self, patch: Patch) -> int:
+    async def append(self, patch: Patch, *, expected_version: int | None = None) -> int:
         """追加一条补丁（append-only）：链记录整体写回（单次存储事务）。
+
+        Args:
+            patch: 待追加补丁。
+            expected_version: 乐观版本校验（CAS，ENG1-8）：调用方持有的
+                基准版本号；加载后与当前版本不符 = 并发冲突，拒绝落链。
+                读改写窗口内的并发覆盖由此显式化——存储层事务化
+                （put_record 原子 CAS）属存储域（ENG5）进一步收口。
 
         Returns:
             新版本号。
         """
         chain = await self._load()
+        current = len(chain.patches) + 1
+        if expected_version is not None and expected_version != current:
+            raise GraphDefinitionError(
+                f"并发冲突: 链已前进（调用方基准版本 {expected_version}，"
+                f"当前 {current}）——请基于最新链状态重试"
+            )
         chain.apply(patch)
         await self._put_record(
             _SET_CHAIN_COLLECTION, _SET_CHAIN_KEY, chain.to_dict()
@@ -255,7 +280,9 @@ class SetPatchChain:
             return chain.assemble(mode=AssembleMode.BASE_ONLY)
         return chain.assemble(mode=AssembleMode.PARTIAL, end=version - 1)
 
-    async def revert_to(self, version: int) -> dict:
+    async def revert_to(
+        self, version: int, *, expected_version: int | None = None
+    ) -> dict:
         """回退到指定版本：仅允许回退链尾（当前版本 - 1，单步回退）。
 
         链完整性在存储层强制：回退目标是「已应用的链尾补丁」本身——
@@ -266,12 +293,20 @@ class SetPatchChain:
 
         Args:
             version: 回退目标版本（当前版本 - 1；版本 1 = 回退全部补丁）。
+            expected_version: 乐观版本校验（CAS，ENG1-8）：加载后当前
+                版本与调用方持有版本不符 = 并发冲突（审批挂起窗口后链
+                被推进），拒绝回退——防回退到错误的版本语义。
 
         Returns:
             回退后的集状态。
         """
         chain = await self._load()
         current = len(chain.patches) + 1
+        if expected_version is not None and expected_version != current:
+            raise GraphDefinitionError(
+                f"回退冲突: 链已前进（调用方基准版本 {expected_version}，"
+                f"当前 {current}）——请基于最新链尾重新发起回退"
+            )
         if version < 1 or version > current:
             raise GraphDefinitionError(
                 f"回退目标版本越界: {version}（当前 {current}）"
@@ -399,9 +434,15 @@ class SelfApplicationPipeline:
         self._targets[kind] = target
 
     async def _put_record(self, collection: str, key: str, data: dict) -> None:
-        """审计写入（持有守卫令牌时随调用透传——Storage 协议无该参数，
-        普通后端不传即透传）。"""
-        if self._guard_token is not None:
+        """审计写入（持有守卫令牌且目标为 GuardedStorage 时随调用透传）。
+
+        Storage 协议未声明 ``guard_token`` 形参（ENG1-7）：普通后端/
+        自定义实现不接受该 kwarg，直接透传会 TypeError——令牌只对
+        :class:`GuardedStorage` 包装层有意义，其余后端不传令牌同样安全。
+        """
+        if self._guard_token is not None and isinstance(
+            self._storage, GuardedStorage
+        ):
             await self._storage.put_record(
                 collection, key, data, guard_token=self._guard_token
             )
@@ -579,11 +620,14 @@ class SelfApplicationPipeline:
                 status=AUDIT_STATUS_CONFLICT,
                 reason=reason,
             )
-        # ⑤ 落链（单次存储事务）+ ⑥ 活跃态应用（幂等钩子）
+        # ⑤ 落链（单次存储事务 + 乐观版本 CAS：复验后到实际写入间的
+        #    读改写窗口由 append 的 expected_version 二次校验兜底，
+        #    并发提案不再互相覆盖——ENG1-8）+ ⑥ 活跃态应用（幂等钩子）
         try:
             path, value = patch_path(proposal.kind, proposal.payload)
             patch_id = await self.chain.append(
-                Patch(op=PatchOp.REPLACE, path=path, value=value)
+                Patch(op=PatchOp.REPLACE, path=path, value=value),
+                expected_version=current,
             )
         except GraphDefinitionError as exc:
             reason = f"落链失败: {exc}"
@@ -703,7 +747,9 @@ class SelfApplicationPipeline:
                 status=AUDIT_STATUS_CONFLICT,
                 reason=reason_msg,
             )
-        await self.chain.revert_to(target_version)
+        # 复验通过后落回退（expected_version CAS 兜底复验到写入间的
+        # 读改写窗口——ENG1-8）
+        await self.chain.revert_to(target_version, expected_version=current)
         if self._on_reverted is not None:
             try:
                 result = self._on_reverted(patch_id, reason)

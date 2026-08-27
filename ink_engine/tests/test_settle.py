@@ -681,8 +681,8 @@ async def test_recommended_prior_hook_rejects_weak_edges():
 
 def test_policy_edge_needs_review_predicates():
     """策略边复审判据：失败累计≥5 或域均值反超承诺（样本不足只按失败判）。"""
-    from ink_engine.core.settle import policy_edge_needs_review
     from ink_engine.core.edge_evidence import EdgeEvidence, EdgeKey
+    from ink_engine.core.settle import policy_edge_needs_review
 
     def edge(fail: int, success: int = 0, policy: bool = True) -> EdgeEvidence:
         return EdgeEvidence(
@@ -808,4 +808,184 @@ async def test_policy_edge_review_hook_domain_mean_overtake():
         EdgeKey(src_type="start", dst_type="mid", context_domain="code")
     )
     assert downgraded is not None and downgraded.policy is False
+    await store.close()
+
+
+async def test_policy_edge_review_hook_incremental_untouched_not_scanned():
+    """ENG1-9 增量面：未触达的策略边不评估（不做每 run 全量扫描）。
+
+    旧实现每 run 全量 list_edges + O(N) 遍历；现只评估本 run 触达的
+    策略边——未触达边即使失败累计超阈值也不触发（对抗证据来自被触达
+    边的失败累积），触达后才按判据评估。
+    """
+    from ink_engine.core.settle import PolicyEdgeReviewSettleHook
+
+    store = EdgeEvidenceStore()
+    # 两条策略边：一条本 run 触达（健康），一条未触达（失败累计超阈值）
+    await store.put(
+        EdgeEvidence(
+            key=EdgeKey(src_type="start", dst_type="mid", context_domain="code"),
+            success_count=10,
+            fail_count=0,
+            policy=True,
+            created_at=NOW,
+            last_used_at=NOW,
+        )
+    )
+    await store.put(
+        EdgeEvidence(
+            key=EdgeKey(src_type="ghost", dst_type="never", context_domain="code"),
+            success_count=0,
+            fail_count=99,
+            policy=True,
+            created_at=NOW,
+            last_used_at=NOW,
+        )
+    )
+    hook = PolicyEdgeReviewSettleHook(store)
+    ctx = _ctx(
+        _steps(
+            ("start", TRACE_SUCCESS),
+            ("mid", TRACE_SUCCESS),
+        )
+    )
+    await hook.settle(ctx)
+    assert hook.reviews == []  # 未触达的失败策略边不被扫描到
+    # 触达该边后判据生效（失败累计 ≥5 → 复审 + 降级）
+    ghost_graph = Graph(name="g2", entry="ghost")
+    ghost_graph.add_node("ghost", lambda ctx: {})
+    ghost_graph.add_node("never", lambda ctx: {})
+    ghost_graph.add_edge("ghost", "never")
+    ghost_graph.add_exit("never")
+    ctx2 = _ctx(
+        _steps(
+            ("ghost", TRACE_SUCCESS),
+            ("never", TRACE_SUCCESS),
+        ),
+        graph=ghost_graph,
+    )
+    await hook.settle(ctx2)
+    assert len(hook.reviews) == 1
+    assert (hook.reviews[0]["src_type"], hook.reviews[0]["dst_type"]) == (
+        "ghost",
+        "never",
+    )
+    await store.close()
+
+
+async def test_policy_edge_review_hook_domain_average_rate_limited():
+    """ENG1-9 限频面：域证据均值带缓存（scan_interval 内不重复全量扫描）。
+
+    非策略边样本不变时，多次触达评估复用缓存的域均值（不每 run 全量
+    list_edges 重算）；到达 scan_interval 后重算一次。
+    """
+    from ink_engine.core.settle import PolicyEdgeReviewSettleHook
+
+    store = EdgeEvidenceStore()
+    # 策略边成功率高于域均值（不触发复审，但每次触达都评估）
+    await store.put(
+        EdgeEvidence(
+            key=EdgeKey(src_type="start", dst_type="mid", context_domain="code"),
+            success_count=40,
+            fail_count=0,
+            policy=True,
+            created_at=NOW,
+            last_used_at=NOW,
+        )
+    )
+    for idx in range(2):
+        await store.put(
+            EdgeEvidence(
+                key=EdgeKey(
+                    src_type=f"s{idx}", dst_type=f"t{idx}", context_domain="code"
+                ),
+                success_count=30,
+                fail_count=0,
+                policy=False,
+                created_at=NOW,
+                last_used_at=NOW,
+            )
+        )
+    hook = PolicyEdgeReviewSettleHook(store, scan_interval=3)
+    ctx = _ctx(
+        _steps(
+            ("start", TRACE_SUCCESS),
+            ("mid", TRACE_SUCCESS),
+        )
+    )
+    await hook.settle(ctx)  # 首次：计算并缓存域均值
+    assert hook.reviews == []  # 策略边未反超，不复审
+    assert hook._runs_since_refresh["code"] == 1
+    await hook.settle(ctx)  # 缓存复用（runs 递增，不重算）
+    assert hook.reviews == []
+    assert hook._runs_since_refresh["code"] == 2
+    await hook.settle(ctx)  # 缓存复用
+    assert hook._runs_since_refresh["code"] == 3
+    await hook.settle(ctx)  # 达 scan_interval：重算一次（runs 复位 1）
+    assert hook._runs_since_refresh["code"] == 1
+    await store.close()
+
+
+async def test_recommended_prior_hook_dedup_persists_across_restart():
+    """ENG1-18：晋升去重键可持久化恢复（重启后不再重复登记）。
+
+    旧实现 _promoted 在进程内存，重启丢失 → 同一路径重复晋升登记
+    （审计重复）；persisted_signatures 装配期恢复 + 记录携带 signature
+    键（宿主幂等 upsert 依据）。
+    """
+    from ink_engine.core.settle import RecommendedPriorSettleHook
+
+    store = EdgeEvidenceStore()
+    for src, dst in (("start", "mid"), ("mid", "end")):
+        await store.put(
+            EdgeEvidence(
+                key=EdgeKey(src_type=src, dst_type=dst, context_domain="code"),
+                success_count=30,
+                fail_count=0,
+                created_at=NOW,
+                last_used_at=NOW,
+            )
+        )
+    persisted: set[tuple[str, ...]] = set()
+    recorded: list[tuple[str, ...]] = []
+
+    def persist(signature: tuple[str, ...]) -> None:
+        persisted.add(signature)
+        recorded.append(signature)
+
+    hook = RecommendedPriorSettleHook(
+        store,
+        gate=_StubGate(verdict=True),
+        canary_ok=lambda ctx: True,
+        on_promoted=persist,
+    )
+    ctx = _ctx(
+        _steps(
+            ("start", TRACE_SUCCESS),
+            ("mid", TRACE_SUCCESS),
+            ("end", TRACE_SUCCESS),
+        )
+    )
+    await hook.settle(ctx)
+    assert len(hook.promotions) == 1
+    assert len(persisted) == 1 and len(recorded) == 1
+    signature = next(iter(persisted))
+    assert hook.promotions[0]["signature"] == list(signature)  # 记录携带去重键
+    # 「重启」= 新实例从持久化恢复：同路径不再重复登记
+    restarted = RecommendedPriorSettleHook(
+        store,
+        gate=_StubGate(verdict=True),
+        canary_ok=lambda ctx: True,
+        persisted_signatures=persisted,
+        on_promoted=persist,
+    )
+    await restarted.settle(ctx)
+    assert restarted.promotions == []
+    assert len(recorded) == 1  # 恢复后不再触发持久化回调
+    # 无恢复（旧行为面）：仍会重复登记——持久化是宿主装配选择
+    fresh = RecommendedPriorSettleHook(
+        store, gate=_StubGate(verdict=True), canary_ok=lambda ctx: True
+    )
+    await fresh.settle(ctx)
+    assert len(fresh.promotions) == 1
     await store.close()

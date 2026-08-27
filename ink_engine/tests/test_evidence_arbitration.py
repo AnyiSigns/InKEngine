@@ -101,7 +101,7 @@ async def test_drift_triggers_reassembly():
 
 async def test_policy_edge_review_downgrade_removes_tau_exemption():
     """策略边复审降级 → τ 豁免移除：policy=False 后评分回落统计档口径。"""
-    from ink_engine.core.graph import TerminateReason
+    from ink_engine.core.graph import Graph, TerminateReason
     from ink_engine.core.run_result import RunResult
     from ink_engine.core.settle import PolicyEdgeReviewSettleHook, SettleContext, TraceStep
 
@@ -121,6 +121,13 @@ async def test_policy_edge_review_downgrade_removes_tau_exemption():
     score_before = edge_score(before, now=DUMMY_NOW).score
     assert before.policy is True  # 策略边 τ=1.0 豁免
     # 复审钩子：失败累计 ≥5 → 降级提请 L2 + 落库 policy=False
+    # （ENG1-9 增量语义：钩子只评估本 run 触达的策略边——ctx 须带图，
+    #   步骤 start→mid 构成触达遍历）
+    g = Graph(name="g", entry="start")
+    g.add_node("start", lambda ctx: {})
+    g.add_node("mid", lambda ctx: {})
+    g.add_edge("start", "mid")
+    g.add_exit("mid")
     hook = PolicyEdgeReviewSettleHook(store)
     ctx = SettleContext(
         thread_id="t",
@@ -130,7 +137,7 @@ async def test_policy_edge_review_downgrade_removes_tau_exemption():
         steps=(TraceStep(graph_path=(), node="start", status="success"),
                TraceStep(graph_path=(), node="mid", status="success")),
         node_tokens={},
-        graphs={},
+        graphs={(): g},
         result=RunResult(state={}, reason=TerminateReason.REPLY, error=None),
     )
     await hook.settle(ctx)

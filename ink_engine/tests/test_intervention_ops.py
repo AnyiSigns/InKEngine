@@ -179,6 +179,46 @@ async def test_cache_invalidate_rejects_empty_scope() -> None:
     await store.close()
 
 
+async def test_cache_invalidate_audit_domain_from_scope() -> None:
+    """ENG9b-6：失效审计的 domain 从 scope 解析真实域（旧实现硬编码
+    "default"——非 default 域失效留下错误域归属的审计记录）。"""
+    store = FingerprintCacheStore(":memory:")
+    from ink_engine.core.fingerprint_cache import invalidate_cache
+    from ink_engine.core.storage import create_storage
+
+    async def _upsert(fp: str, domain: str) -> None:
+        await store.upsert(
+            fp,
+            path={"nodes": {"a": {"type": "a"}}, "edges": {}, "entry": "a"},
+            evidence_snapshot=[],
+            model_id="m",
+            gate_passed=True,
+            path_fingerprint="",
+            domain=domain,
+        )
+
+    await _upsert("fp-code", "code")
+    await _upsert("fp-docs", "docs")
+    audit_store = create_storage("memory://")
+    # 单条指纹失效：审计 domain = 条目所属域（从缓存反查，非 default）
+    await invalidate_cache(store, "fp-code", storage=audit_store, reason="人工失效")
+    records = await audit_store.list_records("set_audit")
+    rec = [r for r in records if r.get("type") == EVENT_AUDIT_FINGERPRINT_REPLACE][-1]
+    assert rec["domain"] == "code"
+    # domain:<域> scope：审计 domain = 该域
+    await invalidate_cache(store, "domain:docs", storage=audit_store, reason="按域失效")
+    records = await audit_store.list_records("set_audit")
+    rec = [r for r in records if r.get("type") == EVENT_AUDIT_FINGERPRINT_REPLACE][-1]
+    assert rec["domain"] == "docs"
+    # 全域失效：domain 为空串（跨域操作，不冒认单一域）
+    await invalidate_cache(store, "*", storage=audit_store, reason="全域失效")
+    records = await audit_store.list_records("set_audit")
+    rec = [r for r in records if r.get("type") == EVENT_AUDIT_FINGERPRINT_REPLACE][-1]
+    assert rec["domain"] == ""
+    await store.close()
+    await audit_store.close()
+
+
 # ── 4. edge.downgrade_tier ──
 
 async def test_edge_downgrade_tier_roundtrip() -> None:

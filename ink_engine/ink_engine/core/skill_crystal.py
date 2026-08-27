@@ -195,6 +195,16 @@ class SkillStore:
     """
 
     def __init__(self, db_path: str = ":memory:") -> None:
+        # 依赖 fail-fast（ENG1-11）：aiosqlite 是可选依赖，旧实现惰性导入
+        # 且错误被 SettleHooks.run 吞掉 → 技能结晶静默失效。构造期即探测
+        # 缺失并显式报错——装配期暴露，不拖到运行期静默。
+        try:
+            import aiosqlite  # noqa: F401
+        except ImportError as exc:
+            raise StorageError(
+                "技能存储需要 aiosqlite 依赖（pip install aiosqlite）——"
+                "缺失时技能结晶将静默失效，装配期即拒绝（fail-fast）"
+            ) from exc
         self._db_path = db_path
         self._conn: Any = None
         self._closed = False

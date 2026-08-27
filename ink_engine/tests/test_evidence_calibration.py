@@ -1,4 +1,4 @@
-"""证据口径收口单测：归因对称 / 先验隔离 / 双衰减数据驱动 / 实例粒度 /
+"""证据口径收口单测：归因对称 / 先验隔离 / 时间衰减数据驱动 / 实例粒度 /
 失败分类分流的断言回归。
 
 覆盖（口径断言段）：
@@ -7,7 +7,10 @@
   按权重分摊、失败边评分显著回撤（成功膨胀回归）；
 - 先验隔离（降权）：种子行带 origin=seed 且评分降权；首次真实成功后翻
   为 runtime、降权解除（先验假象不再主导）；
-- 双衰减数据驱动：半衰期可经注入收紧/放宽，默认 30 保持行为兼容；
+- 时间衰减数据驱动（ENG9b-13 术语澄清）：实现只有**单一时间衰减机制**
+  （time_decay）——「双」指半衰期的两个注入源（全局数据驱动
+  set_decay_half_days + 逐次覆盖 decay_half_days 形参），不是两套衰减
+  机制；本节验证注入收紧/放宽与默认 30 的行为兼容；
 - 实例粒度（变体指纹维）：variant_hash 使同类型不同变体沉淀独立边证据；
 - 失败归因分类：error 消息分类器按类分流，仅能力缺口类触发结点提案
   （环境/配置类失败不污染评审队列）。
@@ -139,10 +142,46 @@ async def test_seed_illusion_removed_after_real_success():
     await store.close()
 
 
-# ── 双衰减数据驱动 ──
+def test_score_constant_hooks_data_driven():
+    """评分常数注入钩子（ENG9b-5/14）：SEED_WEIGHT/SATURATION_N 出厂默认
+    引擎钉死（标注权威常量），set_* 注入后生效、复位回默认——与半衰期
+    钩子同形态的「数据驱动注入面」断言。
+    """
+    from ink_engine.core.edge_evidence import (
+        SATURATION_N,
+        SEED_WEIGHT,
+        get_saturation_n,
+        get_seed_weight,
+        sample_weight,
+        set_saturation_n,
+        set_seed_weight,
+    )
+
+    assert get_seed_weight() == SEED_WEIGHT == 0.5
+    assert get_saturation_n() == SATURATION_N == 8.0
+    seed = _ev(6, 0, origin=ORIGIN_SEED)
+    rt = _ev(6, 0, origin=ORIGIN_RUNTIME)
+    set_seed_weight(0.2)
+    assert edge_score(seed, now=NOW).score == pytest.approx(
+        edge_score(rt, now=NOW).score * 0.2
+    )
+    set_saturation_n(16.0)
+    assert sample_weight(8) == pytest.approx(8 / (8 + 16.0))
+    # 复位出厂默认，避免污染其它测试
+    set_seed_weight(SEED_WEIGHT)
+    set_saturation_n(SATURATION_N)
+    assert get_seed_weight() == SEED_WEIGHT
+    assert get_saturation_n() == SATURATION_N
+
+
+# ── 时间衰减数据驱动（单一机制；半衰期双注入源）──
 
 def test_decay_data_driven_and_default_kept():
-    """半衰期可注入收紧，默认 30 保持行为兼容。"""
+    """半衰期可注入收紧，默认 30 保持行为兼容（ENG9b-4 接线现状断言：
+
+    出厂默认钉死 30（引擎侧无自动装配点），注入钩子为宿主可选增强面——
+    未注入时按默认生效，注入后即权威）。
+    """
     assert get_decay_half_days() == DECAY_HALF_DAYS == 30.0
     key = EdgeKey(src_type="a", dst_type="b", context_domain="code")
     old = EdgeEvidence(key=key, success_count=30, fail_count=0,

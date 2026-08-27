@@ -506,25 +506,35 @@ async def invalidate_cache(
     if not scope:
         raise ValueError("缓存失效 scope 不能为空（fail-closed）")
     invalidated = 0
+    # 审计 domain 从 scope 解析真实域（ENG9b-6）：旧实现硬编码 "default"
+    # 会在非 default 域失效时留下错误域归属的审计记录。三种形态：
+    # domain:<域> → 该域；单条指纹 → 从缓存条目反查所属域；全域失效 →
+    # 空串（跨域操作，不冒认单一域）。
+    domain_label = ""
     if scope in ("*", "all"):
         for entry in await store.entries():
             if await store.invalidate(entry.context_fingerprint, reason=reason):
                 invalidated += 1
     elif scope.startswith("domain:"):
         domain = scope[len("domain:"):]
+        domain_label = domain
         for entry in await store.entries(domain or None):
             if await store.invalidate(entry.context_fingerprint, reason=reason):
                 invalidated += 1
     else:
         if await store.invalidate(scope, reason=reason):
             invalidated += 1
+        for entry in await store.entries():
+            if entry.context_fingerprint == scope:
+                domain_label = entry.domain
+                break
     ts = now if now is not None else time.time()
     await emit_audit(
         storage,
         {
             "type": EVENT_AUDIT_FINGERPRINT_REPLACE,
             "ts": ts,
-            "domain": "default",
+            "domain": domain_label,
             "fingerprint": scope if scope not in ("*", "all") else "",
             "reason": reason or "人工失效",
             "invalidated": invalidated,

@@ -13,6 +13,7 @@
 """
 from __future__ import annotations
 
+import copy
 from dataclasses import dataclass
 from typing import Any, Protocol, runtime_checkable
 
@@ -153,7 +154,9 @@ class DeterministicMutation:
             return []
         variants: list[dict[str, Any]] = []
         for log in failure_logs[: self.max_variants]:
-            variant = dict(entry.data)
+            # 深拷贝：嵌套结构共享引用会污染母体条目（ENG1-10）——变异体
+            # 只在其自身 data 上追加修订标记，母体 data 永不被改写
+            variant = copy.deepcopy(entry.data)
             variant["_mutation"] = {
                 "based_on": log,
                 "variant_of": entry.id,
@@ -205,6 +208,11 @@ class EvolutionFactory:
                 continue  # 从未调用：无从评估失败率，也不进化（避免噪音）
             failure_rate = min(entry.fail_count / entry.usage_count, 1.0)
             idle = entry.usage_count <= idle_threshold and entry.credibility > 0
+            if failure_rate <= 0.0 and not idle:
+                # 稳定高频零失败：不参与进化（与「失败率优先、次之长期未
+                # 调用、稳定者不入队」文档一致——ENG1-3：旧实现把稳定条目
+                # 也入队，与 docstring「稳定且活跃的条目不参与进化」矛盾）
+                continue
             candidates.append(
                 EvolutionCandidate(
                     entry=entry,
@@ -243,8 +251,16 @@ class EvolutionFactory:
             （防退化：L3 拒绝 = 劣于旧版，不落库）。
         """
         if not candidate.failure_logs:
+            # 区分「稳定无日志」与「真无日志」（ENG1-22）：失败率 = 0 的
+            # 候选是稳定条目（无失败可记），有失败率却无日志 = 留痕缺口
+            # （失败发生了但日志没采到）——两种情形拒绝文案不同，观察侧
+            # 可据此识别留痕链路问题
+            if candidate.failure_rate <= 0.0:
+                reason = "无失败日志（稳定条目无失败可反思）"
+            else:
+                reason = "无失败日志（有失败率但日志缺失，无从反思）"
             return EvolutionOutcome(
-                rejected=(f"{candidate.entry.id}: 无失败日志（无从反思）",)
+                rejected=(f"{candidate.entry.id}: {reason}",)
             )
         if old_metrics is None:
             # ENG1-1 防退化底线：调用方未提供旧版指标时按母体调用留痕

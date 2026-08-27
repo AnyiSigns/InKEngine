@@ -159,6 +159,30 @@ class TestBuilders:
         assert card["review_type"] == "audit"
         assert card["workflow_id"] == "wf-1"
 
+    def test_build_audit_card_preview_uses_injected_limit(self):
+        """ENG1-15：audit 卡预览截断统一走 truncate_preview——宿主注入的
+        大额上限真实生效（旧内联 [:1000] 会先于注入上限截断，双实现重复
+        且不一致）。"""
+        long_output = "x" * 5000
+        # 注入 2000 上限 → 截到 2000（旧内联 1000 会先截断，注入失效）
+        card = build_audit_card(
+            "long_content",
+            "长内容",
+            "wf-1",
+            long_output,
+            "不合格",
+            1,
+            limits={"long_content": 2000},
+        )
+        assert len(card["output_preview"]) <= 2000 + 1 + len("…（已截断）")
+        assert "已截断" in card["output_preview"]
+        # 默认档（1000）下仍按统一截断生效
+        default = build_audit_card("writer", "执笔", "wf-1", long_output, "不合格", 1)
+        assert len(default["output_preview"]) <= 1000 + 1 + len("…（已截断）")
+        # 短内容不截断（与 truncate_preview 同语义）
+        short = build_audit_card("writer", "执笔", "wf-1", "输出", "不合格", 1)
+        assert short["output_preview"] == "输出"
+
     def test_build_candidate_card_workflow(self):
         card = build_candidate_card(
             1, "wf-1", [{"node_id": "n", "output": "x"}], source="workflow", node_id="workflow_candidate"

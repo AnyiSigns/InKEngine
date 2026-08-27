@@ -285,13 +285,18 @@ class Graph:
                 f"图 {self.name} 含未解析的条件边，需注入条件注册表: "
                 + ", ".join(f"{source}->{edge.target}" for source, edge in pending)
             )
-        for source, edge in pending:
-            edge_list = self.edges[source]
-            edge_list[edge_list.index(edge)] = Edge(
-                target=edge.target,
-                condition=edge_registry.create(edge.condition_name),
-                condition_name=edge.condition_name,
-            )
+        # 按位置直接构造（ENG2-15）：不再 ``edge_list.index(edge)`` 重建——
+        # index 按 dataclass 相等比较，同源多条件边（同 target 同条件名）
+        # 会命中首条错替；位置式替换严格一一对应，且消除 O(n²) 重扫
+        for _source, edge_list in self.edges.items():
+            for index, edge in enumerate(edge_list):
+                if edge.condition_name is None or edge.condition is not None:
+                    continue
+                edge_list[index] = Edge(
+                    target=edge.target,
+                    condition=edge_registry.create(edge.condition_name),
+                    condition_name=edge.condition_name,
+                )
         for subgraph in self.subgraphs.values():
             subgraph.resolve_conditions(edge_registry)
 
@@ -486,6 +491,10 @@ class Graph:
         续跑（图定义变了 = 恢复语义不保证，显式拒绝而非静默错位）。
         函数直挂节点按模块.限定名参与指纹（进程内稳定；lambda 无限定名
         按占位处理——拓扑变更仍会改变指纹，仅同拓扑实现替换不敏感）。
+
+        ``name`` 不参与指纹（ENG9a-18）：图名是展示/路由标签而非图定义
+        身份——同拓扑不同图名（如候选图名随排名生成）不得产出不同指纹，
+        缓存身份按拓扑判定。
         """
         def node_ref(name: str) -> str:
             binding = self.node_bindings.get(name)
@@ -535,7 +544,7 @@ class Graph:
             )
 
         payload = {
-            "name": self.name,
+            # name 不入指纹（ENG9a-18）：同拓扑不同图名 = 同一图定义身份
             "entry": self.entry,
             "nodes": {
                 name: node_ref(name)

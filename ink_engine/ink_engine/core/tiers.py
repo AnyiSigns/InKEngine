@@ -97,16 +97,19 @@ def resolve_tier_config(
     3. 全部缺失 → ``config=None``（调用方按无配置处理，不抛错）。
     """
     key = tier_key(tier)
-    cfg = (
-        (model_config or {}).get(f"{key}_config")
-        or (model_config or {}).get("main_config")
-        or {}
-    )
-    fallbacks = (
-        (model_config or {}).get(f"{key}_fallback_configs")
-        or cfg.get("fallback_configs")
-        or []
-    )
+    cfg_map = model_config or {}
+    # 显式空配置与缺失区分（ENG3-11）：``or`` 回退会把显式空配置
+    # ``{f"{key}_config": {}}`` 误当缺失而回落主挡位——空配置 = 该挡位
+    # 显式声明无配置（config=None，调用方按无配置兜底），不回落
+    cfg = cfg_map.get(f"{key}_config")
+    if cfg is None:
+        cfg = cfg_map.get("main_config")
+    if cfg is None:
+        cfg = {}
+    tier_fallbacks = cfg_map.get(f"{key}_fallback_configs")
+    if tier_fallbacks is None:
+        tier_fallbacks = cfg.get("fallback_configs")
+    fallbacks = tier_fallbacks if tier_fallbacks is not None else []
     return TierConfig(
         tier=key,
         config=cfg or None,

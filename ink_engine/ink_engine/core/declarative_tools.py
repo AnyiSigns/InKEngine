@@ -52,6 +52,7 @@ from .schema_validator import (
     FIELD_STRING,
     SchemaField,
 )
+from .tool_pipeline import DEFAULT_MAX_RESULT_CHARS
 
 logger = get_logger(__name__)
 
@@ -65,7 +66,8 @@ class EndpointType(StrEnum):
     MCP: 外部 MCP server 工具调用（按 server_id 路由会话；挂载须经
         vetting 闸门与审批，会话缺失 = fail-closed 拒绝）。
     WEB_SEARCH: 联网搜索（本地聚合源/厂商降级；结果域名过滤在实现内，
-        不设本地域名沙箱——与 fetch 的单 URL 出网语义不同）。
+        不设本地域名沙箱——与 fetch 的单 URL 出网语义不同；权限动作 =
+        独立 search 域（ENG6-10），不再挂 connect 域名白名单）。
     """
 
     HTTP_FETCH = "http_fetch"
@@ -84,7 +86,12 @@ _ENDPOINT_ACTIONS: dict[EndpointType, tuple[str, ...]] = {
     # 动作 filesystem:edit、沙箱守卫与审计可独立区分）
     EndpointType.FILE_OPS: ("read", "write", "delete", "edit", "search", "search_paths"),
     EndpointType.MCP: ("call",),
-    EndpointType.WEB_SEARCH: ("connect",),
+    # web_search 用独立动作 search（ENG6-10）：查询串不能做域名白名单
+    # 匹配，挂 connect 语义 = 白名单永远无法生效（只能全开/全拒）——
+    # 独立动作后权限声明语义明确（network:search:* = 允许联网搜索，
+    # pattern 是通配标记而非域名）；既有 network:connect:* 声明经
+    # permissions.rule_matches 的兼容分支继续生效
+    EndpointType.WEB_SEARCH: ("search",),
 }
 
 # 端点配置的必填白名单键（沙箱自动接线的声明依据：process_exec 须声明
@@ -327,9 +334,8 @@ def endpoint_operation(
         # 工作区根；带 path 时目标 = 该路径，检索域 = 路径内）
         if operation in ("search", "search_paths") and (
             not isinstance(path, str) or not path
-        ):
-            if isinstance(config, dict):
-                path = config.get("root")
+        ) and isinstance(config, dict):
+            path = config.get("root")
         if not isinstance(path, str) or not path:
             return None
         return (operation, path)
@@ -337,10 +343,12 @@ def endpoint_operation(
         server_id = (config or {}).get("server_id") if isinstance(config, dict) else None
         return ("call", server_id) if isinstance(server_id, str) and server_id else None
     if endpoint is EndpointType.WEB_SEARCH:
-        # 联网搜索：判定目标 = 查询语句（网络权限按 connect 白名单语义，
-        # 结果域名过滤在实现内完成——与 fetch 的单 URL 出网语义不同）
+        # 联网搜索：独立权限动作 search（ENG6-10）——判定目标 = 查询语句
+        # （白名单按动作表达：network:search:* = 允许搜索，pattern 是通配
+        # 标记；不再伪装成 connect 域名白名单）；出网域名收口在实现层
+        # （结果域名过滤在实现内完成——与 fetch 的单 URL 出网语义不同）
         query = args.get("query")
-        return ("connect", query) if isinstance(query, str) and query else None
+        return ("search", query) if isinstance(query, str) and query else None
     return None
 
 
@@ -577,7 +585,7 @@ def build_declarative_pipeline(
     network_policy: NetworkPolicy | None = None,
     guards: tuple[Callable[..., Any], ...] = (),
     audit: Callable[..., Any] | None = None,
-    max_result_chars: int = 100_000,
+    max_result_chars: int = DEFAULT_MAX_RESULT_CHARS,
     trace_sink: Callable[..., Any] | None = None,
 ) -> ToolPipeline:
     """声明式工具执行流水线装配（轻路径的引擎侧桥接）。
@@ -624,14 +632,16 @@ def build_declarative_pipeline(
 
 
 def make_http_fetch_executor(
-    *, timeout: float = 30.0, max_chars: int = 100_000
+    *, timeout: float = 30.0, max_chars: int = DEFAULT_MAX_RESULT_CHARS
 ) -> DeclarativeExecutor:
     """默认 http_fetch 执行体（httpx 可选依赖；未安装时调用即显式报错）。
 
-    仅做受控抓取：超时 + 输出截断（与 ProcessSandbox 输出截断同档防护）；
-    域名白名单经 :func:`build_declarative_pipeline` 的 ``network_policy``
-    参数并入沙箱环节（NetworkPolicySandbox 在守卫层先行判定，执行体
-    不再自行判断域名——守卫在前，执行在后）。
+    仅做受控抓取：超时 + 流式读取 + 字节上限截断（ENG6-9：不再整读
+    响应再截断——响应流式消费，超限即停，防超大响应 OOM；与
+    ProcessSandbox 输出截断同档防护）；域名白名单经
+    :func:`build_declarative_pipeline` 的 ``network_policy`` 参数并入
+    沙箱环节（NetworkPolicySandbox 在守卫层先行判定，执行体不再自行
+    判断域名——守卫在前，执行在后）。
     """
 
     async def execute(ctx: Any, definition: DeclarativeToolSpec, args: dict, approval: Any) -> str:
@@ -649,12 +659,28 @@ def make_http_fetch_executor(
         headers = config.get("headers") or args.get("headers") or {}
         if not isinstance(headers, dict):
             raise ValueError("headers 须为 dict")
-        async with httpx.AsyncClient(timeout=timeout, follow_redirects=False) as client:
-            response = await client.request(method, url, headers=headers)
-        text = response.text
-        overflow = len(text) > max_chars
-        body = text[:max_chars] + ("\n…（溢出截断）" if overflow else "")
-        return f"HTTP {response.status_code}\n{body}"
+        # 流式读取 + 上限（ENG6-9）：响应不整读进内存——按 max_chars
+        # 消费字节流，超出即停（溢出标记与整读语义一致）
+        body: list[str] = []
+        size = 0
+        overflow = False
+        async with httpx.AsyncClient(timeout=timeout, follow_redirects=False) as client, client.stream(
+            method, url, headers=headers
+        ) as response:
+            async for chunk in response.aiter_text():
+                room = max_chars - size
+                if room <= 0:
+                    overflow = True
+                    break
+                body.append(chunk[:room])
+                size += len(body[-1])
+                if len(chunk) > room:
+                    overflow = True
+                    break
+        text = "".join(body)
+        if overflow:
+            text += "\n…（溢出截断）"
+        return f"HTTP {response.status_code}\n{text}"
 
     return execute
 
@@ -809,6 +835,12 @@ def validate_tool_node_consistency(
     definitions: list[DeclarativeToolSpec],
 ) -> list[str]:
     """结点池 ↔ 工具表一致性校验（同源门禁的观察侧）。
+
+    .. note:: 离线审计工具（ENG6-8）：本门禁不被 harness.build_tools
+       装配路径自动调用（harness 注册期校验在 harness 模块归口）——
+       定位 = 离线审计/回归工具：装配期门禁消费由宿主在构建处显式
+       调用（如 CI/self_check 对登记结果跑一致性核对），本函数只做
+       纯计算不做任何装配副作用。
 
     Returns:
         违规清单（空 = 一致）：结点池条目与工具表同源——结点类型缺失、

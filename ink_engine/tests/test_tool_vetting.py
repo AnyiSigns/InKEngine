@@ -180,3 +180,22 @@ def test_code_files_exist_helper(tmp_path) -> None:
     result = code_files_exist((source, missing))
     assert len(result) == 1
     assert "missing.py" in result[0]
+
+
+async def test_code_files_exist_attached_by_default(tmp_path):
+    """ENG6-7 回归：code_files_exist 默认附加——静态审查默认非空操作。"""
+    source = tmp_path / "t.py"
+    source.write_text("x = 1\n", encoding="utf-8")
+    vetting = ToolVetting()  # 宿主零注入
+    clean = await vetting.vet(_manifest(), (source,))
+    assert clean.verdict is VettingVerdict.VERIFIED
+    missing = await vetting.vet(_manifest(), (tmp_path / "ghost.py",))
+    assert missing.verdict is VettingVerdict.REVIEW  # 文件缺失 = 审查命中
+    assert any("代码文件缺失" in check.detail for check in missing.checks)
+    # 宿主注入钩子时存在性校验仍保留（叠加）
+    def fake(paths):
+        return []
+
+    vetting2 = ToolVetting(static_hooks=(fake,))
+    result = await vetting2.vet(_manifest(), (tmp_path / "ghost.py",))
+    assert result.verdict is VettingVerdict.REVIEW

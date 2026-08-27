@@ -131,3 +131,16 @@ def test_empty_config_returns_zero_total():
     assert result.total == 0.0
     assert result.passed is True
     assert result.scores == ()
+
+
+def test_unknown_dimension_logged_before_raise(caplog):
+    """ENG3-12 回归：未知维度 fail-closed 抛错前记 warning（调用方漏捕获
+    时错误至少进日志，不静默炸链路）。"""
+    import logging
+
+    scorer = WeightedScorer(_config())
+    with caplog.at_level(logging.WARNING, logger="ink_engine.core.scoring"), pytest.raises(
+        ValueError, match="未知打分维度"
+    ):
+        scorer.score({"plot": 0.8, "style": 0.5, "extra": 0.9})
+    assert any("打分口径漂移" in record.message for record in caplog.records)

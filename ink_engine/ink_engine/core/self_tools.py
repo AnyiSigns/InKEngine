@@ -26,10 +26,9 @@ from .exceptions import GraphDefinitionError
 from .harness import HarnessRegistry, build_minimal_harness
 from .knowledge_set import KnowledgeSet
 from .llm.tools import ToolSpec
-from .permissions import PermissionGate
 from .self_application import SelfApplicationPipeline
 from .self_proposal import PatchKind, SelfProposal
-from .tool_pipeline import ToolPipeline
+from .tool_pipeline import DEFAULT_MAX_RESULT_CHARS
 
 # 权限声明（自定义域：self:propose / self:apply）
 PERMISSION_PROPOSE = "self:propose:*"
@@ -48,8 +47,8 @@ SELF_TOOL_CONTRACT: tuple[str, ...] = (
 _OPERATION_PROPOSE = "propose"
 _OPERATION_APPLY = "apply"
 
-# 结果文本截断上限（与引擎工具流水线默认一致）
-_MAX_RESULT_CHARS = 100_000
+# 结果文本截断上限（ENG6-6：共享常量——与引擎工具流水线默认一致）
+_MAX_RESULT_CHARS = DEFAULT_MAX_RESULT_CHARS
 # 收敛管制评估的审计扫描上限（指标聚合有界，防大链拖慢工具调用）
 _AUDIT_SCAN_LIMIT = 1000
 
@@ -246,28 +245,6 @@ def make_self_executor(
         raise GraphDefinitionError(f"未知自指工具: {spec.name}")
 
     return executor
-
-
-def build_self_pipeline(
-    pipeline: SelfApplicationPipeline,
-    context_getter: Any,
-    *,
-    gate: PermissionGate | None = None,
-) -> ToolPipeline:
-    """装配契约自指元工具流水线（权限门禁 fail-closed + 执行器分发）。
-
-    gate 缺省为 fail-closed 的 PermissionGate——工具声明了
-    ``self:propose:*`` / ``self:apply:*`` 权限即可直过；未声明/未命中
-    权限的工具调用被拒绝并留痕。审批分级在应用管线内完成，工具
-    流水线不做二次挂卡。
-    """
-    return ToolPipeline(
-        gate=gate or PermissionGate(),
-        # 流水线按 extractor(spec, args) 双参调用；自指判定只取工具名
-        extractor=lambda spec, _args: operation_of(spec),
-        executor=make_self_executor(pipeline, context_getter),
-        max_result_chars=_MAX_RESULT_CHARS,
-    )
 
 
 async def _propose(ctx: Any, context: SelfToolContext, args: dict) -> str:
@@ -506,7 +483,6 @@ __all__ = [
     "SELF_TOOL_CONTRACT",
     "ConvergenceHook",
     "SelfToolContext",
-    "build_self_pipeline",
     "make_self_executor",
     "operation_of",
     "self_tool_specs",

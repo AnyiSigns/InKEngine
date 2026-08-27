@@ -206,14 +206,22 @@ class ToolVetting:
     """工具可信度闸门（清单校验 + 静态审查钩子 + 影子运行）。
 
     装配：static_hooks（宿主注入静态审查钩子：ruff/pyright/eslint/
-    tsc/npm audit 等，缺省空 = 只做清单校验）。vet 返回判定：
+    tsc/npm audit 等）。静态审查默认非空操作（ENG6-7）：出厂基线附带
+    :func:`code_files_exist`（代码文件存在性校验）——宿主未注入任何
+    钩子时审查至少覆盖「声明的代码文件真实存在」，杜绝「零钩子 =
+    静态审查静默空操作」；宿主注入钩子时存在性校验仍保留（低成本
+    前置防线，与宿主钩子叠加）。vet 返回判定：
     - 清单校验失败（签名缺失/权限声明非法/哈希形态非法）= rejected；
     - 静态审查命中 = review（需人工确认，不自动放行）；
     - 全过 = verified。观察模式由宿主显式调用（shadow_run）。
     """
 
     def __init__(self, *, static_hooks: Sequence[StaticHook] = ()) -> None:
-        self._static_hooks = tuple(static_hooks)
+        # 默认附加 code_files_exist（ENG6-7）：宿主未注入/部分注入时
+        # 静态审查恒有基础防线；已显式包含时不重复附加
+        hooks = [code_files_exist]
+        hooks.extend(hook for hook in static_hooks if hook is not code_files_exist)
+        self._static_hooks = tuple(hooks)
 
     async def vet(
         self,

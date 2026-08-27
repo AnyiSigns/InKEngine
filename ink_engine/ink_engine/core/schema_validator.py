@@ -206,7 +206,15 @@ class SchemaSpec:
 
 
 def _resolve_path(data: Any, path: str) -> Any:
-    """点分路径取值（与规则 DSL 的 _get_path 同语义：缺段返回 None）。"""
+    """点分路径取值（与规则 DSL 的 _get_path 同语义：缺段返回 None）。
+
+    路径段解析语义（ENG3-20 明示）：
+    - ``_`` 前缀段（内部字段）一律跳过——校验器不触碰内部通道字段，
+      这是刻意的边界而非静默跳过（schema 声明含 ``_`` 前缀段 = 声明
+      错误，校验器按「该段不可读」处理，缺失判定交给必填声明兜底）；
+    - 未知字段（dict 无此键）返回 None——缺失字段仅按必填声明判定，
+      与「未知字段忽略」的 schema 演进宽容语义一致（见模块 docstring）。
+    """
     current = data
     for segment in path.split("."):
         if current is None or segment.startswith("_"):

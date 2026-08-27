@@ -93,3 +93,17 @@ def test_sensitive_keys_set_contains_camel_case_forms():
     """常见驼峰凭据键显式入 SENSITIVE_KEYS（精确集合语义）。"""
     for key in ("clientsecret", "openaikey", "authtoken"):
         assert key in SENSITIVE_KEYS
+
+
+def test_strip_sensitive_preserves_frozenset_type():
+    """ENG6-14 回归：frozenset 输入返回 frozenset（集合类型不漂移）。"""
+    from ink_engine.core.security import strip_sensitive
+
+    frozen = frozenset({"a", "b"})
+    out = strip_sensitive(frozen)
+    assert isinstance(out, frozenset)
+    assert out == frozen
+    plain = {"a", "b"}
+    out_set = strip_sensitive(plain)
+    assert isinstance(out_set, set)
+    assert out_set == plain

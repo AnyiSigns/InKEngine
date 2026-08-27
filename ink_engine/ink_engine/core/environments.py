@@ -19,10 +19,11 @@ from __future__ import annotations
 
 import contextlib
 import dataclasses
+import shlex
 import shutil
 import time
 import uuid
-from collections.abc import Sequence
+from collections.abc import Mapping, Sequence
 from dataclasses import dataclass, field
 from enum import StrEnum
 from pathlib import Path
@@ -47,6 +48,56 @@ DEFAULT_ENVS_DIR = "envs"
 ENV_AUDIT_COLLECTION = "env_audit"
 
 
+def _display_install_cmd(cmd: str | Mapping[str, Any]) -> str:
+    """安装命令条目的可读展示形态（审计/日志用；与解析同源）。"""
+    if isinstance(cmd, Mapping):
+        command = str(cmd.get("cmd") or "")
+        args = " ".join(str(a) for a in cmd.get("args") or ())
+        return " ".join(part for part in (command, args) if part)
+    return cmd
+
+
+def _validate_install_cmd(cmd: Any, env_name: str) -> None:
+    """安装命令条目形态校验（字符串兼容形态 / 结构化 (cmd, args) 形态）。"""
+    if isinstance(cmd, str):
+        if not cmd:
+            raise GraphDefinitionError(
+                f"环境 {env_name} 的 install_cmds 须为非空命令条目"
+            )
+        return
+    if isinstance(cmd, Mapping):
+        command = cmd.get("cmd")
+        args = cmd.get("args") or ()
+        if not isinstance(command, str) or not command:
+            raise GraphDefinitionError(
+                f"环境 {env_name} 的安装命令条目缺 cmd（字符串）: {cmd!r}"
+            )
+        if not isinstance(args, (list, tuple)) or not all(
+            isinstance(arg, str) for arg in args
+        ):
+            raise GraphDefinitionError(
+                f"环境 {env_name} 的安装命令条目 args 须为字符串清单: {cmd!r}"
+            )
+        return
+    raise GraphDefinitionError(
+        f"环境 {env_name} 的 install_cmds 条目须为字符串或 (cmd, args) 结构: {cmd!r}"
+    )
+
+
+def _parse_install_cmd(cmd: str | Mapping[str, Any]) -> tuple[str, tuple[str, ...]]:
+    """安装命令条目 → (命令, 参数)（ENG6-11：结构化解析，不再按空格拆分）。
+
+    字符串兼容形态经 shlex 分词（引号参数安全，含空格路径不裂开）；
+    结构化形态直接取 (cmd, args)——命令与参数分离是推荐声明方式。
+    """
+    if isinstance(cmd, Mapping):
+        return str(cmd["cmd"]), tuple(cmd.get("args") or ())
+    parts = shlex.split(cmd)
+    if not parts:
+        raise GraphDefinitionError(f"安装命令条目为空: {cmd!r}")
+    return parts[0], tuple(parts[1:])
+
+
 class RuntimeKind(StrEnum):
     """运行时类别（声明式枚举：本地/浏览器/容器）。"""
 
@@ -64,7 +115,10 @@ class EnvironmentSpec:
         runtime: 运行时类别（local/web_bridge/container）。
         tools: 需要的工具命令清单（本地运行时可用性判定/白名单安装）。
         install_cmds: 安装命令白名单（缺失工具时的懒装命令；命令
-            本身须在白名单内才能执行——安装也走沙箱）。
+            本身须在白名单内才能执行——安装也走沙箱）。条目两种形态：
+            - 字符串（兼容形态，经 shlex 分词——引号参数安全）；
+            - 结构化 dict ``{"cmd": str, "args": [str, ...]}``
+              （ENG6-11 推荐形态：命令与参数分离，不再按空格拆分）。
         version: 运行时版本约束（None = 不限定）。
         meta: 扩展元数据（来源/说明等，宿主语义）。
     """
@@ -72,7 +126,7 @@ class EnvironmentSpec:
     name: str
     runtime: RuntimeKind = RuntimeKind.LOCAL
     tools: tuple[str, ...] = ()
-    install_cmds: tuple[str, ...] = ()
+    install_cmds: tuple[str | dict[str, Any], ...] = ()
     version: str | None = None
     meta: dict[str, Any] = field(default_factory=dict)
 
@@ -89,10 +143,7 @@ class EnvironmentSpec:
                     f"环境 {self.name} 的 tools 须为非空命令字符串清单"
                 )
         for cmd in self.install_cmds:
-            if not isinstance(cmd, str) or not cmd:
-                raise GraphDefinitionError(
-                    f"环境 {self.name} 的 install_cmds 须为非空命令字符串清单"
-                )
+            _validate_install_cmd(cmd, self.name)
 
     def to_dict(self) -> dict[str, Any]:
         data: dict[str, Any] = {
@@ -126,13 +177,18 @@ class EnvironmentSpec:
             ) from exc
         tools = data.get("tools") or ()
         install_cmds = data.get("install_cmds") or ()
-        for label, items in (("tools", tools), ("install_cmds", install_cmds)):
-            if not isinstance(items, (list, tuple)) or not all(
-                isinstance(item, str) and item for item in items
-            ):
-                raise GraphDefinitionError(
-                    f"环境 {name} 的 {label} 须为非空命令字符串清单"
-                )
+        if not isinstance(tools, (list, tuple)) or not all(
+            isinstance(item, str) and item for item in tools
+        ):
+            raise GraphDefinitionError(
+                f"环境 {name} 的 tools 须为非空命令字符串清单"
+            )
+        if not isinstance(install_cmds, (list, tuple)):
+            raise GraphDefinitionError(
+                f"环境 {name} 的 install_cmds 须为清单"
+            )
+        for cmd in install_cmds:
+            _validate_install_cmd(cmd, name)
         version = data.get("version")
         if version is not None and not isinstance(version, str):
             raise GraphDefinitionError(f"环境 {name} 的 version 须为字符串")
@@ -259,12 +315,14 @@ class LocalProvider:
         install_sandbox = dataclasses.replace(self._sandbox, cwd=workdir)
         try:
             for cmd in spec.install_cmds:
-                parts = cmd.split()
-                if not parts or parts[0] not in self._sandbox.allowlist:
+                # 结构化解析（ENG6-11）：字符串形态 shlex 分词（引号安全），
+                # 结构化 (cmd, args) 形态直取——不再按空格拆分的脆弱语义
+                command, args = _parse_install_cmd(cmd)
+                if not command or command not in self._sandbox.allowlist:
                     raise GraphDefinitionError(
                         f"安装命令不在白名单: {cmd!r}（fail-closed）"
                     )
-                result = await install_sandbox.run(parts[0], tuple(parts[1:]))
+                result = await install_sandbox.run(command, args)
                 if result.exit_code != 0:
                     raise GraphDefinitionError(
                         f"安装失败 [{cmd!r}]: exit={result.exit_code} "
@@ -276,7 +334,7 @@ class LocalProvider:
             await self._audit(
                 action="install",
                 env=spec.name,
-                command="; ".join(spec.install_cmds),
+                command="; ".join(_display_install_cmd(c) for c in spec.install_cmds),
                 ok=False,
                 detail=str(exc)[:200],
             )
@@ -285,7 +343,7 @@ class LocalProvider:
         await self._audit(
             action="install",
             env=spec.name,
-            command="; ".join(spec.install_cmds),
+            command="; ".join(_display_install_cmd(c) for c in spec.install_cmds),
             ok=True,
         )
 

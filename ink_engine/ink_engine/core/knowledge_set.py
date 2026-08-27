@@ -24,6 +24,7 @@ from __future__ import annotations
 import json
 import time
 import uuid
+from collections.abc import Callable
 from dataclasses import dataclass, field, replace
 from typing import Any
 
@@ -31,6 +32,17 @@ from .context import ContextSource
 from .exceptions import GraphDefinitionError
 from .logging import get_logger
 from .patch_chain import Patch, PatchChain, PatchOp
+from .source_grading import (  # 来源分级单源（ENG3-4/ENG3-19：与检索/记忆共享）
+    _SOURCE_CREDIBILITY,  # noqa: F401 — 重导出（外部消费方沿用 knowledge_set._SOURCE_CREDIBILITY 形态）
+    SOURCE_DIALOG,
+    SOURCE_MODEL,
+    SOURCE_ORDER,
+    SOURCE_USER,
+    SOURCE_WEB,
+)
+from .source_grading import (
+    default_credibility as _default_credibility,
+)
 from .storage import Storage
 
 logger = get_logger(__name__)
@@ -51,25 +63,29 @@ _LEVEL_ORDER = {LEVEL_WORK: 0, LEVEL_PROJECT: 1, LEVEL_USER: 2}
 # 条目失败日志留存上限（反思式变异的输入窗口：只留近期，防无限膨胀）
 _MAX_FAILURE_LOGS = 20
 
-# 来源分级（web < dialog < model < user：可信度由使用方按此基准定值）
-SOURCE_WEB = "web"
-SOURCE_DIALOG = "dialog"
-SOURCE_MODEL = "model"
-SOURCE_USER = "user"
+# 条目渲染软上限（ENG3-14：非 rule/insight 条目的 JSON 摘要截断——
+# 渲染层防超长 data 撑爆注入上下文；截断带溢出标记，留痕可重建）
+_MAX_RENDER_CHARS = 4000
 
-# 来源 → 默认可信度基准（web 最低——防 web 注入污染知识集；经落库
-# 路径（from_dict）的条目按此分级定值，显式声明的可信度优先）
-_SOURCE_CREDIBILITY: dict[str, float] = {
-    SOURCE_WEB: 0.3,
-    SOURCE_DIALOG: 0.6,
-    SOURCE_MODEL: 0.7,
-    SOURCE_USER: 0.9,
-}
+# 复用检索默认上限（ENG3-5：search(limit=5) 魔法数字数据化；检索 =
+# 复用优先于生成的窗口，取 5 条命中即够决策，防超大集全量注入）
+DEFAULT_SEARCH_LIMIT = 5
+
+# 知识条目对外错误码（ENG3-8：桥接透传不泄露内部字段形态——文案统一
+# 携带错误码前缀，内部结构（层级枚举/类型名）不以 Python 形态裸透）
+KS_ERR_INVALID_LEVEL = "KS_001"
+KS_ERR_CREDIBILITY_RANGE = "KS_002"
+KS_ERR_GATE_TYPE = "KS_003"
+
+# 来源分级（web < dialog < model < user）与默认可信度基准 = 单源
+# 定义（source_grading，与检索/记忆共享同一分级类型——ENG3-4/ENG3-19）
+# SOURCE_*/_SOURCE_CREDIBILITY 经上方 import 重导出（外部消费方沿用
+# ``knowledge_set.SOURCE_*`` / ``knowledge_set._SOURCE_CREDIBILITY`` 形态）
 
 
 def default_credibility(source: str) -> float:
     """按来源取默认可信度（未知来源 = 模型级，保守不激进）。"""
-    return _SOURCE_CREDIBILITY.get(source, _SOURCE_CREDIBILITY[SOURCE_MODEL])
+    return _default_credibility(source)
 
 # 知识条目 kind（规则/模板/权重/工具规则/教训——集内能力的数据形态）
 KIND_RULE = "rule"
@@ -105,6 +121,12 @@ def _render_entry_content(entry: KnowledgeEntry) -> str:
             parts.append(f"（教训来源：{insight['note']}）")
         return " ".join(p for p in parts if p)
     parts.append(json.dumps(entry.data, ensure_ascii=False, sort_keys=True))
+    # 渲染层软上限（ENG3-14）：非规则条目的 JSON 摘要超限截断 + 溢出
+    # 标记——条目 data 失控不得撑爆注入上下文（截断内容仍可经条目
+    # 自身重建，留痕最小化原则不受影响）
+    rendered = parts[-1]
+    if len(rendered) > _MAX_RENDER_CHARS:
+        parts[-1] = rendered[:_MAX_RENDER_CHARS] + "…（渲染截断）"
     return " ".join(p for p in parts if p)
 
 
@@ -152,11 +174,17 @@ class KnowledgeEntry:
     updated_at: float = field(default_factory=time.time)
 
     def __post_init__(self) -> None:
+        # 错误码前缀（ENG3-8）：文案统一携带 KS_ 码，桥接透传不泄露
+        # 内部字段形态（层级枚举以可读形态呈现，不裸 Python 结构）
         if self.level not in _LEVELS:
-            raise GraphDefinitionError(f"知识条目层级非法: {self.level!r}（仅 {_LEVELS}）")
+            raise GraphDefinitionError(
+                f"[{KS_ERR_INVALID_LEVEL}] 知识条目层级非法: {self.level!r}"
+                f"（仅 {', '.join(_LEVELS)}）"
+            )
         if not 0 <= self.credibility <= 1:
             raise GraphDefinitionError(
-                f"知识条目 {self.id} 的可信度必须在 [0, 1] 内: {self.credibility}"
+                f"[{KS_ERR_CREDIBILITY_RANGE}] 知识条目 {self.id} 的可信度"
+                f"必须在 [0, 1] 内: {self.credibility}"
             )
 
     def to_dict(self) -> dict[str, Any]:
@@ -186,6 +214,15 @@ class KnowledgeEntry:
 
     @classmethod
     def from_dict(cls, data: dict[str, Any]) -> KnowledgeEntry:
+        """反序列化（单点结构校验；校验归口说明（ENG3-13）见类注释）。
+
+        条目形态校验集中在本方法（类型/枚举/数值域），与
+        :class:`~ink_engine.core.schema_validator.SchemaValidator` 的
+        声明式校验体系并存但职责不重叠：本方法是条目数据形态的权威
+        校验器（纯数据载体，不套用声明式）；需要声明式 L1 schema
+        校验时经 :meth:`KnowledgeSet.verify_through_gate` 注入
+        ``schema``（闸门路径）——两条体系按各自职责归口。
+        """
         if not isinstance(data, dict):
             raise GraphDefinitionError(
                 f"知识条目声明非法: 期望 dict，收到 {type(data).__name__}"
@@ -196,7 +233,10 @@ class KnowledgeEntry:
         if not entry_id or not isinstance(entry_id, str):
             raise GraphDefinitionError("知识条目缺 id（字符串）")
         if level not in _LEVELS:
-            raise GraphDefinitionError(f"知识条目层级非法: {level!r}（仅 {_LEVELS}）")
+            raise GraphDefinitionError(
+                f"[{KS_ERR_INVALID_LEVEL}] 知识条目层级非法: {level!r}"
+                f"（仅 {', '.join(_LEVELS)}）"
+            )
         if not kind or not isinstance(kind, str):
             raise GraphDefinitionError(f"知识条目 {entry_id} 缺 kind（字符串）")
         raw_data = data.get("data")
@@ -334,6 +374,13 @@ class KnowledgeSet:
         user_id: 用户集 id（存储隔离键）。
         chain: 条目补丁链（None = 尚未落库；write 后初始化）。
         storage: 存储服务（None = 纯内存集，不持久化）。
+        on_mutation: 变更钩子（每次内存链变更后同步回调；None = 不回调）。
+
+    持久化语义（ENG3-17）：add/update/record_usage 等只改内存链，
+    落库 = 调用方显式 :meth:`save`（写 ``knowledge:<user>`` 集合，受
+    宿主旁路写防护约束）。关键路径显式持久化 = 宿主经 ``on_mutation``
+    钩子在变更发生后立即调度落库（在自身机制上下文内执行）；未注入
+    钩子 = 维持「调用方显式 save」语义（钩子不改变默认行为）。
     """
 
     def __init__(
@@ -342,10 +389,20 @@ class KnowledgeSet:
         *,
         storage: Storage | None = None,
         chain: PatchChain | None = None,
+        on_mutation: Callable[[], None] | None = None,
     ) -> None:
         self.user_id = user_id
         self.storage = storage
         self.chain = chain or PatchChain()
+        self.on_mutation = on_mutation
+
+    def _notify_mutated(self) -> None:
+        """变更钩子（内存链变更后的同步回调；异常不阻断主流程）。"""
+        if self.on_mutation is not None:
+            try:
+                self.on_mutation()
+            except Exception as exc:
+                logger.warning("知识集变更钩子异常（忽略）: %s", exc)
 
     # ── 条目读写 ──
 
@@ -418,7 +475,9 @@ class KnowledgeSet:
         from .rules import FixtureGateError
 
         if not isinstance(gate, KnowledgeGate):
-            raise GraphDefinitionError("落库闸门须为 KnowledgeGate 实例")
+            raise GraphDefinitionError(
+                f"[{KS_ERR_GATE_TYPE}] 落库闸门形态非法（须为知识闸门实例）"
+            )
         l1, l2, l3 = await gate.check(
             entry,
             schema=schema,
@@ -472,6 +531,7 @@ class KnowledgeSet:
                 value=entry.to_dict(),
             )
         )
+        self._notify_mutated()
         return entry
 
     def update(
@@ -531,6 +591,7 @@ class KnowledgeSet:
                 raise GraphDefinitionError(
                     f"知识条目 {entry_id} 精准补丁后不可读"
                 )
+            self._notify_mutated()
             return entry
         updated = existing.to_dict()
         if data is not None:
@@ -550,6 +611,7 @@ class KnowledgeSet:
             Patch(op=PatchOp.REPLACE, path=_entry_path(entry_id), value=updated)
         )
         entry = KnowledgeEntry.from_dict(updated)
+        self._notify_mutated()
         return entry
 
     def remove(self, entry_id: str) -> bool:
@@ -557,6 +619,7 @@ class KnowledgeSet:
         if self.get(entry_id) is None:
             return False
         self.chain.apply(Patch(op=PatchOp.DELETE, path=_entry_path(entry_id)))
+        self._notify_mutated()
         return True
 
     # ── 归档/淘汰（生命周期 = 归档不删除：低使用移出活跃索引，可恢复）──
@@ -690,7 +753,7 @@ class KnowledgeSet:
         *,
         level: str | None = None,
         kind: str | None = None,
-        limit: int = 5,
+        limit: int = DEFAULT_SEARCH_LIMIT,
         include_archived: bool = False,
     ) -> list[KnowledgeEntry]:
         """相似任务检索：标题/标签/数据文本的关键词命中 + 可信度排序。
@@ -727,13 +790,19 @@ def seed_knowledge_set(
 
     通用种子（引擎内置）与领域种子（随引擎随带）统一经此入口注入；
     幂等性保证「种子只读基线 + 演化补丁链」的分层语义——重复初始化
-    不会覆盖使用中沉淀的知识。
+    不会覆盖使用中沉淀的知识。同 id 跳过时记 warning（ENG3-9）：种子
+    基线长期遮蔽演化沉淀属可观测信号，静默跳过会让「种子与演化冲突」
+    不可见。
     """
     injected = 0
     for entry in entries:
         if knowledge_set.get(entry.id) is None:
             knowledge_set.add(entry)
             injected += 1
+        else:
+            logger.warning(
+                "种子条目跳过（同 id 已存在，不覆盖演化）: %s", entry.id
+            )
     return injected
 
 
@@ -748,6 +817,12 @@ def build_knowledge_sources(
     source_type: str = "knowledge",
 ) -> list[ContextSource]:
     """知识条目 → 上下文源清单（知识注入 = 调配器思想复用的组装入口）。
+
+    .. deprecated:: E-P6 之后知识注入走 Retriever 注册路线
+       （:class:`~ink_engine.core.retrieval.KnowledgeSetRetriever` 注册为
+       检索源，runtime 回合装配统一经检索合并汇入——ENG3-18 标注）。
+       本入口保留为**显式条目清单**的注入形态（宿主/测试直接注入命中
+       条目时使用），不再承担回合级知识注入的唯一装配入口职责。
 
     检索命中条目经此转为 :class:`ContextSource`（type=装配源类别、
     weight=可信度、relevance=任务相关度、ttl=时效、内容 = 条目渲染，
@@ -805,6 +880,7 @@ def build_knowledge_sources(
 
 
 __all__ = [
+    "DEFAULT_SEARCH_LIMIT",
     "KIND_INSIGHT",
     "KIND_RULE",
     "KIND_TEMPLATE",
@@ -816,6 +892,7 @@ __all__ = [
     "SEED_ID_PREFIX",
     "SOURCE_DIALOG",
     "SOURCE_MODEL",
+    "SOURCE_ORDER",
     "SOURCE_USER",
     "SOURCE_WEB",
     "KnowledgeEntry",

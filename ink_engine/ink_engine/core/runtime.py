@@ -78,6 +78,10 @@ from .ui_schema import DEFAULT_BIND_CHANNELS, UISchemaValidator
 
 logger = get_logger(__name__)
 
+# 回合装配检索上限（ENG3-16：limit=8 魔法数字常量化——与检索原语
+# DEFAULT_LIMIT 同值，钳制回合注入上下文体积；分级口径见 _assembly_sources）
+_ASSEMBLY_SOURCE_LIMIT = 8
+
 
 class RuntimeState(StrEnum):
     """运行时生命周期状态（显式枚举 + 转换守卫，非法转换显式报错）。"""
@@ -900,7 +904,13 @@ class Runtime:
             query = str(ctx.state.get("input") or "").strip()
             if not query:
                 return []
-            chunks = await self.retriever_registry.retrieve(query, limit=8)
+            # 回合装配检索上限（ENG3-16 常量化）：与 retrieval.DEFAULT_LIMIT
+            # 同值（8）——钳制注入体积；分级口径 = 全部分级放行 + weight
+            # 按可信度映射（不再只放行 model 级——web/dialog 级经注入
+            # 扫描防线与权重分级参与预算分配，低可信源自然被预算挤出）
+            chunks = await self.retriever_registry.retrieve(
+                query, limit=_ASSEMBLY_SOURCE_LIMIT
+            )
             knowledge_hits: list[KnowledgeEntry] = []
             sources: list[ContextSource] = []
             for chunk in chunks:

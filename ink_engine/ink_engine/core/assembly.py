@@ -259,16 +259,27 @@ class ActivationRecord:
 
 
 @dataclass(frozen=True, slots=True)
-class AssemblyResult:
+class InputAssemblyResult:
     """一次输入调配的产物（组装文本 + 激活留痕）。
 
     Attributes:
         text: 组装后的输入文本（按源块拼接，分隔符计入预算）。
         record: 激活模式记录（本次激活了什么 + 版本快照，可落库回放）。
+
+    .. note:: 命名区分（ENG9a-24）：本类 = 输入调配产物（InputAssembler
+        assemble 的返回），与 :class:`~ink_engine.core.path_assembler
+        .PathAssemblyResult`（路径组装候选结果）同包同名异义已消除——
+        ``AssemblyResult`` 旧名保留为兼容别名（executor 等既有消费方
+        沿用），新代码一律用区分名。
     """
 
     text: str
     record: ActivationRecord
+
+
+# 兼容别名（ENG9a-24）：旧名 AssemblyResult 保留供既有消费方
+# （executor 等）沿用；新代码用 :class:`InputAssemblyResult`
+AssemblyResult = InputAssemblyResult
 
 
 def _group_sources(
@@ -435,14 +446,17 @@ class InputAssembler:
                     remainder * _ratio_for(self.config, kind) / ratio_sum
                 )
         activations: list[SourceActivation] = []
-        chunks: list[str] = []
+        # 源块清单（ENG9a-14）：逐池组装文本 + 该池激活留痕成对保存——
+        # 全局预算回退按块整体丢弃（不切半句），被丢块的留痕同步改写
+        blocks: list[tuple[str, list[SourceActivation]]] = []
         for kind in present_kinds:
             pool_sources = grouped[kind]
             pool_budget = pool_budgets[kind]
+            group_activations: list[SourceActivation] = []
             if kind == SOURCE_TOOL and len(pool_sources) > self.config.max_tools:
                 kept_tools = _limit_tools(pool_sources, self.config.max_tools)
                 kept_ids = {id(s) for s in kept_tools}
-                activations.extend(
+                group_activations.extend(
                     SourceActivation(
                         source_type=s.type,
                         title=s.title or "",
@@ -490,7 +504,7 @@ class InputAssembler:
                         continue
                 kept.append(a.source)
             if not kept:
-                activations.extend(
+                group_activations.extend(
                     SourceActivation(
                         source_type=a.source.type,
                         title=a.source.title or "",
@@ -503,14 +517,13 @@ class InputAssembler:
                     )
                     for a in allocations
                 )
+                activations.extend(group_activations)
                 continue
             assembled = self._assembler.assemble(
                 kept, total_chars=pool_budget
             )
-            if assembled.text:
-                chunks.append(assembled.text)
             for a in allocations:
-                activations.append(
+                group_activations.append(
                     SourceActivation(
                         source_type=a.source.type,
                         title=a.source.title or "",
@@ -522,13 +535,37 @@ class InputAssembler:
                         note=a.reason if a.char_limit <= 0 else "",
                     )
                 )
-        text = "\n\n".join(chunks)
-        # 粘合开销兜底：各分级池分别填满后拼接会超出总预算（每处边界
-        # 两个分隔符）——拼接后做全局硬截断，预算上界恒成立；截断量
+            if assembled.text:
+                blocks.append((assembled.text, group_activations))
+            activations.extend(group_activations)
+        text = "\n\n".join(block[0] for block in blocks)
+        # 粘合开销兜底（ENG9a-14）：各分级池分别填满后拼接会超出总预算
+        # （每处边界两个分隔符）——**按源块边界回退丢整块**（不再全局
+        # 硬截断切半句/恒定牺牲最后一个池）：从尾部逐块回退直至不超预算，
+        # 被丢块的源留痕改写为 drop（char_limit=0 + 归因 note），截断量
         # 随留痕记录（归因可见，回放不丢信息）
         truncated_chars = 0
+        while blocks and len(text) > budget:
+            _removed_text, removed_activations = blocks.pop()
+            truncated_chars += len(text) - len(
+                "\n\n".join(block[0] for block in blocks)
+            )
+            text = "\n\n".join(block[0] for block in blocks)
+            for act in removed_activations:
+                if act.char_limit <= 0:
+                    continue
+                for index, existing in enumerate(activations):
+                    if existing is act:
+                        activations[index] = replace(
+                            act,
+                            char_limit=0,
+                            mode=MODE_DROP,
+                            note="全局预算回退：按源块边界丢整块（粘合开销超预算）",
+                        )
+                        break
+        # 兜底防线：单块仍超预算（组装器异常，理论不可达）时最后硬截断
         if len(text) > budget:
-            truncated_chars = len(text) - budget
+            truncated_chars += len(text) - budget
             text = text[:budget]
         # 空装配保底：预算过小导致全部分配被丢弃时，保留最高优先源的
         # 可读片段（宁可截断也不空手喂模型——装配空 = 调用点拿不到
@@ -780,5 +817,6 @@ __all__ = [
     "EntryActivationStats",
     "EntryCompressor",
     "InputAssembler",
+    "InputAssemblyResult",
     "SourceActivation",
 ]

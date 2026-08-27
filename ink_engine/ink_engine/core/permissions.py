@@ -39,7 +39,11 @@ DENY = "deny"
 _DOMAIN_ACTIONS: dict[str, tuple[str, ...]] = {
     "filesystem": ("read", "write", "delete", "edit"),
     "process": ("exec",),
-    "network": ("connect",),
+    # search = web_search 端点的独立动作（ENG6-10）：查询串无法做域名
+    # 白名单匹配，联网搜索从 connect 语义中独立——声明 network:search:*
+    # = 允许搜索（pattern 为通配标记）；connect 仍服务 http_fetch 域名
+    # 白名单
+    "network": ("connect", "search"),
 }
 
 _KNOWN_DOMAINS = frozenset(_DOMAIN_ACTIONS)
@@ -75,7 +79,16 @@ def parse_permission(spec: str) -> PermissionRule:
 
 def rule_matches(rule: PermissionRule, operation: str, target: str) -> bool:
     """规则 × 单次判定的匹配（分域语义；network 为域名后缀匹配，其余 fnmatch）。"""
-    if not fnmatch(operation, rule.action):
+    if not fnmatch(operation, rule.action) and not (
+        # web_search 独立动作的既有声明兼容（ENG6-10）：出厂 web_search
+        # 工具曾以 ``network:connect:*`` 全开通配声明（查询串无法做域名
+        # 白名单匹配——connect 语义对 search 操作天然全开）；独立动作
+        # search 后保留该形态的放行，新声明一律用 ``network:search:*``
+        rule.domain == "network"
+        and rule.action == "connect"
+        and operation == "search"
+        and rule.pattern == "*"
+    ):
         return False
     if rule.domain == "network":
         return network_matches(rule.pattern, target)
@@ -90,7 +103,12 @@ def rule_matches(rule: PermissionRule, operation: str, target: str) -> bool:
         return _fnmatch_any(rule.pattern.replace("\\", "/"), t)
     if rule.domain in _KNOWN_DOMAINS:
         return _fnmatch_any(rule.pattern, target)
-    # 宿主自定义域：同样走 fnmatch（机制不给自定义域额外语义）
+    # 宿主自定义域：同样走 fnmatch（机制不给自定义域额外语义）。
+    # 注意（ENG6-15）：自定义域回退 = 非收紧匹配——未登记的域名/动作
+    # 不会因此被拒，而是按 fnmatch 通配判定；宿主须自行约束自定义域的
+    # 声明形态（域/动作拼写错误时声明静默不命中 = 默认拒绝，不会误放行；
+    # 但「以为命中了某个自定义域」的预期不会由机制兜底——自定义域语义
+    # 完全归宿主声明，机制只做字面匹配）
     return _fnmatch_any(rule.pattern, target)
 
 

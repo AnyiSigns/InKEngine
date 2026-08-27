@@ -179,6 +179,19 @@ fn record_round_ledger_auto(
     crate::domain::round_ledger::write_ledger(&dir, &ledger).map(|_| ())
 }
 
+/// 引擎操作失败脱敏（R5：引擎内部错误串可能含路径/堆栈，不透传前端）。
+///
+/// 前端只拿粗粒度文案（code=ENGINE 信封）；引擎详细错误仅本地审计日志
+/// 留痕（trace_id 与信封联动，排障经日志定位）。
+fn engine_failure(command: &str, detail: impl std::fmt::Display) -> CommandError {
+    let err = CommandError::engine(format!("{command}失败"));
+    eprintln!(
+        "[rounds] {command} 失败 trace_id={} detail={detail}",
+        err.trace_id
+    );
+    err
+}
+
 // ── 回合命令 ──
 
 /// 回合发送：引擎回合驱动（装配会话同线程；返回事件流 + 步骤序列）。
@@ -230,7 +243,7 @@ pub(crate) fn round_send(
     })));
     let outcome = engine
         .round(request)
-        .map_err(|err| CommandError::engine(format!("回合执行失败: {err}")))?;
+        .map_err(|err| engine_failure("回合执行", err))?;
     drop(engine_guard);
     for event in &outcome.events {
         recorder.feed(event);
@@ -359,7 +372,7 @@ pub(crate) async fn resume_round_with_inject(
         json!({ "thread_id": thread_id }),
     )
     .await
-    .map_err(CommandError::engine)?;
+    .map_err(|err| engine_failure("会话检查点读取", err))?;
     let checkpoint_id = latest
         .get("checkpoint_id")
         .and_then(JsonValue::as_i64)
@@ -385,7 +398,7 @@ pub(crate) async fn resume_round_with_inject(
     }
     let outcome = call_engine_op_async("engine.thread_resume", args)
         .await
-        .map_err(CommandError::engine)?;
+        .map_err(|err| engine_failure("回合续跑", err))?;
     let steps = recorder.lock().unwrap().snapshot();
     let resume_reason = outcome
         .get("reason")
@@ -413,9 +426,7 @@ pub(crate) fn round_abort(state: State<'_, ShellState>, round_id: String) -> Res
         let mut slot = state.backend.round.lock().unwrap();
         if let Some(recorder) = slot.as_mut() {
             if recorder.round_id() == round_id {
-                recorder
-                    .abort_current_round()
-                    .map_err(|err| CommandError::internal(err.to_string()))?;
+                recorder.abort_current_round();
             }
         }
     }
@@ -584,7 +595,7 @@ pub(crate) async fn round_ledger_merge(
         }),
     )
     .await
-    .map_err(CommandError::engine)?;
+    .map_err(|err| engine_failure("账本摘要合并", err))?;
     if let Some(summary) = merged.get("summary").and_then(|v| v.as_str()) {
         crate::domain::round_ledger::append_summary(&dir, &thread_id, summary)
             .map_err(|err| CommandError::io(format!("摘要链追加失败: {err}")))?;
@@ -607,7 +618,7 @@ pub(crate) async fn round_memory_extract(
     let _ = thread_id;
     call_engine_op_async("memory.extract", json!({ "ledger": ledger }))
         .await
-        .map_err(CommandError::engine)
+        .map_err(|err| engine_failure("记忆提取", err))
 }
 
 // ── 单元测试 ──

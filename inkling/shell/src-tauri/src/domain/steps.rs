@@ -26,9 +26,6 @@ use std::sync::Arc;
 
 use serde_json::{json, Value as JsonValue};
 
-use super::common::DomainError;
-use crate::engine::host::call_engine_op_async;
-
 /// 工具展示名解析器（tool 名 → 中文展示标题的可注入挂点）。
 ///
 /// 解析规则装配侧注入（工具表快照的四层兜底标签解析）；本模块只消费
@@ -697,23 +694,6 @@ fn truncate_id(step_id: &str) -> String {
     step_id.chars().take(STEP_ID_MAX_CHARS).collect()
 }
 
-/// 引擎侧中止（在途 run 取消 → CANCELLED 快照 → checkpoint 可续跑）。
-///
-/// 经引擎操作通道下达中止请求（`engine.abort_current_run`）：无在途
-/// run = 幂等（返回 Ok(false)）；操作通道未注册 = fail-closed 显式报错
-/// （中止语义不可静默跳过——停止按钮必须给出确定性结果）。
-pub async fn abort_engine_run() -> Result<bool, String> {
-    let outcome = call_engine_op_async(
-        "engine.abort_current_run",
-        JsonValue::Object(Default::default()),
-    )
-    .await?;
-    Ok(outcome
-        .get("aborted")
-        .and_then(JsonValue::as_bool)
-        .unwrap_or(true))
-}
-
 /// payload 浅合并（新值覆盖旧值；旧 payload 保底为空对象）。
 fn merge_payload(record: &JsonValue, patch: JsonValue) -> JsonValue {
     let mut payload = record
@@ -859,12 +839,13 @@ impl RoundStepsTransport {
     /// 只做本记录层形态：关闭事件弧（后续事件不再累积进步骤序列），
     /// 供前端停止按钮即时反馈；引擎中止（取消在途 run → CANCELLED
     /// 快照 → checkpoint 续跑）经操作通道由装配侧接线调用。
-    pub fn abort_current_round(&mut self) -> Result<(), DomainError> {
+    /// 本操作只置位原子标记，无可失败路径——直接返回 `()`（R14：
+    /// 删除恒 `Ok(())` 的摆设错误类型）。
+    pub fn abort_current_round(&mut self) {
         self.aborted = true;
         if let Some(signal) = &self.abort_signal {
             signal.abort();
         }
-        Ok(())
     }
 
     /// 当前回合中止信号（中止通知/恢复锚点引用；无信号 = None）。
@@ -875,9 +856,19 @@ impl RoundStepsTransport {
     /// 协议事件 → 步骤累积（事件类型未命中 = 不记录）。
     ///
     /// 中止状态下事件透传不累积；解析异常零噪声跳过（观测不影响执行）。
+    ///
+    /// R7：除本地事件弧外，同时轮询共享中止信号——`round_abort` 置位的
+    /// 是 slot 克隆的 `aborted` 标记（本记录器另一克隆不感知），共享
+    /// `abort_signal` 才是跨克隆唯一真源；本地 feed 循环 / 事件发射回调
+    /// 均经此处感知中止，中止后事件一律不再累积。
     pub fn feed(&mut self, event: &JsonValue) {
         if self.aborted {
             return;
+        }
+        if let Some(signal) = &self.abort_signal {
+            if signal.is_aborted() {
+                return;
+            }
         }
         let Some(etype) = event.get("type").and_then(JsonValue::as_str) else {
             return;
@@ -1240,7 +1231,7 @@ mod tests {
     fn abort_closes_event_arc_and_stops_accumulation() {
         let mut recorder = RoundStepsTransport::new("round-10", None, None);
         recorder.feed(&event("user", json!({ "content": "发起回合" })));
-        recorder.abort_current_round().expect("中止应成功");
+        recorder.abort_current_round();
         assert!(recorder.is_aborted());
         recorder.feed(&event("thinking_start", json!({})));
         recorder.feed(&event("reply_token", json!({ "token": "不应记录" })));
@@ -1346,21 +1337,44 @@ mod tests {
             None,
             Some(signal.clone()),
         );
-        recorder.abort_current_round().expect("中止应成功");
+        recorder.abort_current_round();
         assert!(signal.is_aborted(), "信号与记录层同步握手");
         assert_eq!(signal.epoch(), 1);
         recorder.begin_round("round-19");
         assert!(!signal.is_aborted(), "换回合清中止态");
         assert_eq!(signal.epoch(), 1, "闸门计数单调");
-        recorder.abort_current_round().unwrap();
+        recorder.abort_current_round();
         assert_eq!(signal.epoch(), 2);
     }
 
     #[test]
-    fn engine_abort_facade_fails_closed_without_engine() {
-        let _serial = crate::engine::host::bridge_guard();
-        let runtime = tokio::runtime::Runtime::new().unwrap();
-        let result = runtime.block_on(abort_engine_run());
-        assert!(result.is_err(), "中止操作通道未装配 = 显式报错");
+    fn feed_polls_shared_abort_signal_across_clones() {
+        // R7：round_abort 只改 slot 克隆的本地 aborted；另一克隆的 feed
+        // 必须经共享 abort_signal 感知中止，中止后事件不再累积。
+        let signal = RoundAbortSignal::new();
+        let mut primary = RoundStepsTransport::with_engine_handles(
+            "round-20",
+            None,
+            None,
+            None,
+            Some(signal.clone()),
+        );
+        let mut twin = RoundStepsTransport::with_engine_handles(
+            "round-20",
+            None,
+            None,
+            None,
+            Some(signal.clone()),
+        );
+        primary.feed(&event("user", json!({ "content": "第一回合" })));
+        twin.feed(&event("user", json!({ "content": "第一回合" })));
+        // 对 primary（slot 克隆）中止：只置位 primary 本地弧 + 共享信号
+        primary.abort_current_round();
+        assert!(signal.is_aborted(), "共享信号应置位");
+        // twin（round_send 收尾 feed 用的另一克隆）经共享信号感知中止
+        twin.feed(&event("thinking_start", json!({})));
+        twin.feed(&event("reply_token", json!({ "token": "不应记录" })));
+        let steps = twin.snapshot();
+        assert_eq!(steps.len(), 1, "共享信号中止后 feed 不再累积");
     }
 }

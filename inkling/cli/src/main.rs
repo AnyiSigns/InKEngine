@@ -2,9 +2,10 @@
 //!
 //! 四条驱动面：--round 发起回合、--op 单引擎 op 调用、--os-op 单 OS 操作调用
 //! （转发桌面壳执行器注册表，守卫同源）、--audit 审计导出。
-//! 任意一步失败均返回 ok=false 的结构化错误信封并以退出码 1 收尾（fail-closed），
-//! 不向 stdout 泄露半成品 JSON，诊断信息走 stderr 的 [headless] 通道（复用桌面壳
-//! 既有的 eprintln 诊断约定，trace_id 随行透传）。
+//! 任意一步失败均返回 ok=false 的结构化错误信封并退出码 1（fail-closed），
+//! 参数用法错误（互斥 flag / 缺命令）退出码 2；不向 stdout 泄露半成品 JSON，
+//! 诊断信息走 stderr 的 [headless] 通道（复用桌面壳既有的 eprintln 诊断约定，
+//! trace_id 随行透传）。
 
 use std::path::PathBuf;
 use std::process::exit;
@@ -13,7 +14,8 @@ use clap::Parser;
 use serde_json::Value;
 
 use inkling_cli::{
-    repo_root_default, run_audit, run_op, run_os_op, run_round, Envelope, EnvelopeError, ErrorKind,
+    kind_str, repo_root_default, run_audit, run_op, run_os_op, run_round, CliError, Envelope,
+    EnvelopeError, ErrorKind,
 };
 
 #[derive(Parser)]
@@ -56,19 +58,6 @@ struct Cli {
     trace_id: Option<String>,
 }
 
-fn kind_str(kind: ErrorKind) -> &'static str {
-    match kind {
-        ErrorKind::Boot => "boot",
-        ErrorKind::Op => "op",
-        ErrorKind::Parse => "parse",
-        ErrorKind::Usage => "usage",
-    }
-}
-
-fn to_cli_err(kind: ErrorKind, result: Result<Value, String>) -> Result<Value, (ErrorKind, String)> {
-    result.map_err(|message| (kind, message))
-}
-
 fn main() {
     let cli = Cli::parse();
 
@@ -76,6 +65,16 @@ fn main() {
         .trace_id
         .clone()
         .unwrap_or_else(|| uuid::Uuid::new_v4().simple().to_string());
+
+    // C7：驱动参数互斥——多 flag 同时指定 = usage 错误（退出码 2），
+    // 不再静默取第一个。
+    let provided = [
+        cli.round.is_some(),
+        cli.op.is_some(),
+        cli.os_op.is_some(),
+        cli.audit.is_some(),
+    ];
+    let count = provided.iter().filter(|&&c| c).count();
 
     let command: &str = if cli.round.is_some() {
         "round"
@@ -95,47 +94,36 @@ fn main() {
             .join(format!("inkling-headless-{}", uuid::Uuid::new_v4().simple()))
     });
 
-    let handled: Result<Value, (ErrorKind, String)> = match command {
-        "round" => to_cli_err(
-            ErrorKind::Boot,
-            run_round(
+    let handled: Result<Value, CliError> = if count > 1 {
+        Err(CliError::usage("互斥参数：--round / --op / --os-op / --audit 仅可指定其一"))
+    } else {
+        match command {
+            "round" => run_round(
                 &repo_root,
                 &data_dir,
                 cli.round.as_deref().unwrap(),
                 &trace_id,
             ),
-        ),
-        "op" => to_cli_err(
-            ErrorKind::Op,
-            run_op(
+            "op" => run_op(
                 &repo_root,
                 &data_dir,
                 cli.op.as_deref().unwrap(),
                 cli.args.as_deref().unwrap_or("{}"),
                 &trace_id,
             ),
-        ),
-        "os_op" => to_cli_err(
-            ErrorKind::Op,
-            run_os_op(
+            "os_op" => run_os_op(
                 cli.os_op.as_deref().unwrap(),
                 cli.args.as_deref().unwrap_or("{}"),
                 cli.approve,
             ),
-        ),
-        "audit" => to_cli_err(
-            ErrorKind::Op,
-            run_audit(
+            "audit" => run_audit(
                 &repo_root,
                 &data_dir,
                 cli.audit.as_deref().unwrap(),
                 &trace_id,
             ),
-        ),
-        _ => Err((
-            ErrorKind::Usage,
-            "需指定 --round / --op / --os-op / --audit 之一".to_string(),
-        )),
+            _ => Err(CliError::usage("需指定 --round / --op / --os-op / --audit 之一")),
+        }
     };
 
     match &handled {
@@ -143,14 +131,21 @@ fn main() {
             "[headless] trace_id={} command={} status=ok",
             trace_id, command
         ),
-        Err((kind, message)) => eprintln!(
+        Err(err) => eprintln!(
             "[headless] trace_id={} command={} status=error kind={} message={}",
             trace_id,
             command,
-            kind_str(*kind),
-            message
+            kind_str(err.kind),
+            err.message
         ),
     }
+
+    // C7：usage 错误退出码 2（参数用法问题），其余失败退出码 1，成功 0。
+    let exit_code = match &handled {
+        Ok(_) => 0,
+        Err(err) if err.kind == ErrorKind::Usage => 2,
+        Err(_) => 1,
+    };
 
     let envelope = match handled {
         Ok(data) => Envelope {
@@ -160,14 +155,14 @@ fn main() {
             data: Some(data),
             error: None,
         },
-        Err((kind, message)) => Envelope {
+        Err(err) => Envelope {
             ok: false,
             trace_id: &trace_id,
             command,
             data: None,
             error: Some(EnvelopeError {
-                kind: kind_str(kind),
-                message,
+                kind: kind_str(err.kind),
+                message: err.message,
             }),
         },
     };
@@ -180,5 +175,5 @@ fn main() {
         }
     }
 
-    exit(if envelope.ok { 0 } else { 1 });
+    exit(exit_code);
 }

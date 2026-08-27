@@ -3,7 +3,14 @@
 //! initialize → tools/list → tools/call 逐行喂 JSON，断言响应；
 //! 与 M1 执行件 conformance 同构。感知工具经统一执行器注册表执行
 //! （沙箱守卫断言与 executor_contract 同源，此处验证 MCP 层接线）。
+//!
+//! 审批语义（L2）：设备 server 的裁决经壳侧审批台账（与批 1 ApprovalLedger
+//! 同口径）——测试以引擎通道形态模拟「引擎放行态登记」后再调用，
+//! 无批准态的 review 档调用被拒（fail-closed，无硬编码 approved）。
 
+use std::collections::BTreeMap;
+
+use inkling_shell_lib::ApprovalLedger;
 use inkling_shell_lib::executors::backends::MockBackend;
 use inkling_shell_lib::executors::registry::build_registry_from_declarations;
 use inkling_shell_lib::executors::tool_decl::load_tool_declarations;
@@ -11,14 +18,21 @@ use inkling_shell_lib::mcp::DeviceServer;
 
 const TOOLS_DECL_JSON: &str = include_str!("../fixtures/tools_os.json");
 
-fn server() -> DeviceServer<'static> {
-    // 测试专用：Box::leak 构造 'static 注册表与后端（免真实桌面）
+/// 构造设备 server + 壳侧审批台账（测试保留台账句柄以模拟引擎通道
+/// 放行态登记；`DeviceServer::new` 装载同一台账实例）。
+fn server() -> (DeviceServer<'static>, ApprovalLedger) {
     let declarations = load_tool_declarations(TOOLS_DECL_JSON).unwrap();
     let registry: &'static _ = Box::leak(Box::new(
         build_registry_from_declarations(&declarations).unwrap(),
     ));
     let backend: &'static MockBackend = Box::leak(Box::new(MockBackend::new()));
-    DeviceServer::new(registry, backend)
+    let approval = ApprovalLedger::from_declarations(&declarations);
+    let server = DeviceServer::new(registry, backend, approval.clone());
+    (server, approval)
+}
+
+fn args(pairs: &[(&str, serde_json::Value)]) -> BTreeMap<String, serde_json::Value> {
+    pairs.iter().map(|(k, v)| (k.to_string(), v.clone())).collect()
 }
 
 fn call_line(server: &DeviceServer, line: &str) -> serde_json::Value {
@@ -30,7 +44,7 @@ fn call_line(server: &DeviceServer, line: &str) -> serde_json::Value {
 
 #[test]
 fn initialize_handshake() {
-    let server = server();
+    let (server, _ledger) = server();
     let response = call_line(
         &server,
         r#"{"jsonrpc":"2.0","id":1,"method":"initialize","params":{"protocolVersion":"2024-11-05","capabilities":{},"clientInfo":{"name":"test"}}}"#,
@@ -42,7 +56,7 @@ fn initialize_handshake() {
 
 #[test]
 fn tools_list_exposes_only_device_endpoint_tools() {
-    let server = server();
+    let (server, _ledger) = server();
     let response = call_line(&server, r#"{"jsonrpc":"2.0","id":2,"method":"tools/list","params":{}}"#);
     let tools = response["result"]["tools"].as_array().expect("tools 应为数组");
     let names: Vec<String> = tools
@@ -59,8 +73,10 @@ fn tools_list_exposes_only_device_endpoint_tools() {
 }
 
 #[test]
-fn tools_call_screen_query_happy_path() {
-    let server = server();
+fn tools_call_screen_query_happy_path_after_engine_dispatch() {
+    let (server, ledger) = server();
+    // L2：引擎侧审批流水线先行裁决（放行态登记入台账）→ 同一裁决函数放行
+    ledger.record_engine_dispatch("screen_query", &args(&[("target", "resolution".into())]));
     let response = call_line(
         &server,
         r#"{"jsonrpc":"2.0","id":3,"method":"tools/call","params":{"name":"screen_query","arguments":{"target":"resolution"}}}"#,
@@ -72,19 +88,38 @@ fn tools_call_screen_query_happy_path() {
 }
 
 #[test]
+fn review_tool_rejected_without_approval_state() {
+    // L2：无服务端审批态时 review 档被拒（fail-closed，客户端无法自证授权）
+    let (server, _ledger) = server();
+    let response = call_line(
+        &server,
+        r#"{"jsonrpc":"2.0","id":30,"method":"tools/call","params":{"name":"screen_query","arguments":{"target":"resolution"}}}"#,
+    );
+    assert!(response["error"].is_object(), "无审批态须拒绝: {response}");
+    assert!(
+        response["error"]["message"].as_str().unwrap().contains("审批"),
+        "应报需审批: {response}"
+    );
+    // L6：错误对象携带 trace_id 信封字段
+    assert!(response["error"]["trace_id"].as_str().unwrap().len() >= 16, "缺 trace_id: {response}");
+}
+
+#[test]
 fn tools_call_sandbox_violation_returns_error() {
-    let server = server();
+    let (server, ledger) = server();
+    ledger.record_engine_dispatch("screen_query", &args(&[("target", "spy_camera".into())]));
     let response = call_line(
         &server,
         r#"{"jsonrpc":"2.0","id":4,"method":"tools/call","params":{"name":"screen_query","arguments":{"target":"spy_camera"}}}"#,
     );
     assert!(response["error"].is_object(), "沙箱越界应返回 JSON-RPC 错误");
     assert!(response["error"]["message"].as_str().unwrap().contains("沙箱越界"));
+    assert!(response["error"]["trace_id"].as_str().unwrap().len() >= 16, "缺 trace_id: {response}");
 }
 
 #[test]
 fn tools_call_unknown_tool_rejected() {
-    let server = server();
+    let (server, _ledger) = server();
     let response = call_line(
         &server,
         r#"{"jsonrpc":"2.0","id":5,"method":"tools/call","params":{"name":"launch_app","arguments":{"app":"notepad"}}}"#,
@@ -94,28 +129,30 @@ fn tools_call_unknown_tool_rejected() {
 
 #[test]
 fn malformed_line_returns_parse_error_without_crash() {
-    let server = server();
+    let (server, _ledger) = server();
     let response = call_line(&server, "{not json at all");
     assert_eq!(response["error"]["code"], -32700);
+    assert!(response["error"]["trace_id"].as_str().unwrap().len() >= 16, "缺 trace_id: {response}");
 }
 
 #[test]
 fn unknown_method_returns_method_not_found() {
-    let server = server();
+    let (server, _ledger) = server();
     let response = call_line(&server, r#"{"jsonrpc":"2.0","id":6,"method":"shutdown","params":{}}"#);
     assert_eq!(response["error"]["code"], -32601);
 }
 
 #[test]
 fn notifications_are_ignored() {
-    let server = server();
+    let (server, _ledger) = server();
     let response = server.handle_line(r#"{"jsonrpc":"2.0","method":"notifications/initialized","params":{}}"#);
     assert!(response.is_none(), "通知不产出响应行");
 }
 
 #[test]
 fn missing_args_reported_as_error() {
-    let server = server();
+    let (server, ledger) = server();
+    ledger.record_engine_dispatch("screen_query", &args(&[]));
     let response = call_line(
         &server,
         r#"{"jsonrpc":"2.0","id":7,"method":"tools/call","params":{"name":"screen_query","arguments":{}}}"#,

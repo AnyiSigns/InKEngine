@@ -13,19 +13,27 @@ use std::collections::BTreeMap;
 use serde_json::{Value, json};
 
 use super::executors::backends::SystemBackend;
-use super::executors::impls::Authorization;
-use super::executors::registry::ExecutorRegistry;
+use super::executors::registry::{CallGate, ExecutorRegistry};
 use super::executors::tool_decl::Endpoint;
+use crate::commands::approval::ApprovalLedger;
 
-/// 设备感知 server 上下文（注册表 + 后端 + 授权面）
+/// 设备感知 server 上下文（注册表 + 后端 + 壳侧审批台账）
 pub struct DeviceServer<'a> {
     registry: &'a ExecutorRegistry,
     backend: &'a dyn SystemBackend,
+    approval: ApprovalLedger,
 }
 
 impl<'a> DeviceServer<'a> {
-    pub fn new(registry: &'a ExecutorRegistry, backend: &'a dyn SystemBackend) -> Self {
-        Self { registry, backend }
+    /// 注册表 + 后端 + 审批台账（L2：审批裁决经壳侧审批台账，与批 1 的
+    /// ApprovalLedger 同口径——不再硬编码 approved；引擎通道放行态经
+    /// `record_engine_dispatch` 登记后由同一裁决函数放行）。
+    pub fn new(
+        registry: &'a ExecutorRegistry,
+        backend: &'a dyn SystemBackend,
+        approval: ApprovalLedger,
+    ) -> Self {
+        Self { registry, backend, approval }
     }
 
     /// 感知工具清单（声明 endpoint = device_mcp 的执行器）
@@ -44,14 +52,16 @@ impl<'a> DeviceServer<'a> {
 
     /// 单行 JSON-RPC 处理：返回响应行（无响应 = None）。
     /// 未知方法/解析失败 → JSON-RPC 错误响应（不崩，保持会话存活）。
+    /// 错误对象统一携带 trace_id（L6：{code, message, trace_id} 信封）。
     pub fn handle_line(&self, line: &str) -> Option<String> {
+        let trace_id = uuid::Uuid::new_v4().simple().to_string();
         let request: Value = match serde_json::from_str(line) {
             Ok(value) => value,
             Err(err) => {
                 return Some(json!({
                     "jsonrpc": "2.0",
                     "id": null,
-                    "error": { "code": -32700, "message": format!("parse error: {err}") }
+                    "error": { "code": -32700, "message": format!("parse error: {err}"), "trace_id": trace_id }
                 })
                 .to_string());
             }
@@ -98,7 +108,8 @@ impl<'a> DeviceServer<'a> {
                 let tool = params.get("name").and_then(Value::as_str).unwrap_or("");
                 let executor = self.registry.get(tool);
                 // 端点隔离：设备 server 只服务 device_mcp 端点工具（process_exec
-                // 工具走引擎统一流水线 + 审批面，不经本 server 绕行）
+                // 工具走引擎统一流水线 + 审批面，不经本 server 绕行）；注册表层
+                // 网关再强制一次（纵深防御）
                 let is_device_tool = executor
                     .map(|e| e.spec().endpoint == Endpoint::DeviceMcp)
                     .unwrap_or(false);
@@ -107,7 +118,7 @@ impl<'a> DeviceServer<'a> {
                         json!({
                             "jsonrpc": "2.0",
                             "id": id,
-                            "error": { "code": -32602, "message": format!("tool not served by device server: {tool}") }
+                            "error": { "code": -32602, "message": format!("tool not served by device server: {tool}"), "trace_id": trace_id }
                         })
                         .to_string(),
                     );
@@ -119,10 +130,12 @@ impl<'a> DeviceServer<'a> {
                     .unwrap_or_default()
                     .into_iter()
                     .collect::<BTreeMap<String, Value>>();
-                // 设备感知工具审批语义与 process_exec 同源：审批闸门在引擎
-                // 侧 approval 档（seed 单源，出厂 review），此处只强制沙箱
-                let auth = Authorization { approved: true };
-                match self.registry.run(tool, &args, self.backend, &auth) {
+                // 审批裁决（L2）：引擎通道放行态经 `record_engine_dispatch`
+                // 登记入台账后由同一裁决函数放行；无服务端审批态 = review 档
+                // 拒绝（fail-closed，客户端无法自证授权）
+                let auth = self.approval.adjudicate(tool, &args);
+                let gate = CallGate::new(Endpoint::DeviceMcp);
+                match self.registry.run(tool, &args, self.backend, &auth, &gate) {
                     Ok(outcome) => Some(
                         json!({
                             "jsonrpc": "2.0",
@@ -139,7 +152,7 @@ impl<'a> DeviceServer<'a> {
                         json!({
                             "jsonrpc": "2.0",
                             "id": id,
-                            "error": { "code": -32001, "message": err.to_string() }
+                            "error": { "code": -32001, "message": err.to_string(), "trace_id": trace_id }
                         })
                         .to_string(),
                     ),
@@ -150,7 +163,7 @@ impl<'a> DeviceServer<'a> {
                 json!({
                     "jsonrpc": "2.0",
                     "id": id,
-                    "error": { "code": -32601, "message": format!("method not found: {method}") }
+                    "error": { "code": -32601, "message": format!("method not found: {method}"), "trace_id": trace_id }
                 })
                 .to_string(),
             ),
@@ -158,7 +171,7 @@ impl<'a> DeviceServer<'a> {
                 json!({
                     "jsonrpc": "2.0",
                     "id": id,
-                    "error": { "code": -32600, "message": "invalid request" }
+                    "error": { "code": -32600, "message": "invalid request", "trace_id": trace_id }
                 })
                 .to_string(),
             ),

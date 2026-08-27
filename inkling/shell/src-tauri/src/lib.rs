@@ -6,13 +6,17 @@
 //! 签名」一致，权限/沙箱守卫在执行器层强制（deny 硬拦、review 需授权、
 //! 白名单/边界越界拒绝）。
 //!
+//! 命令面（Tauri command 层）已按域拆分到 [`commands`]（L9 决议 12）：
+//! 本文件保留装配 / 状态 / 引擎生命周期 / 托盘 / 自检 / 运行时装配；
+//! 错误统一经 [`commands::error::CommandError`]（L6 信封 {code, message,
+//! trace_id}）。
+//!
 //! 产品后端面：会话 CRUD/分支树/标题生成、回合发送与中止、审批卡、
 //! 工作区授权、能力设置（推演档位）、导出备份恢复、工具快照与组件
 //! 清单经 Tauri 命令暴露给前端（前端以可注入适配器消费）。引擎装配
 //! 在首次使用处懒执行（起步不阻塞首屏），失败语义 = 结构化错误透传
 //! （fail-closed，不静默降级）。
 
-use std::collections::{BTreeMap, HashMap, HashSet};
 use std::path::{Path, PathBuf};
 use std::sync::atomic::{AtomicBool, Ordering};
 use std::sync::{Arc, Mutex};
@@ -20,26 +24,23 @@ use std::sync::{Arc, Mutex};
 use serde_json::{json, Value as JsonValue};
 use tauri::menu::{Menu, MenuItem};
 use tauri::tray::TrayIconBuilder;
-use tauri::{AppHandle, Emitter, Manager, RunEvent, State};
+use tauri::{AppHandle, Manager, RunEvent};
 
+pub mod commands;
 pub mod domain;
 pub mod engine;
 pub mod executors;
 pub mod mcp;
 
-use domain::session;
-use domain::steps::{RoundAbortSignal, RoundStepsTransport, ToolTitleResolver};
-use domain::tools::ToolSpecsProvider;
-use executors::backends::{PlatformBackend, ShellBackend};
-use executors::impls::Authorization;
-use executors::registry::{build_registry_from_declarations, ExecutorRegistry};
-use executors::tool_decl::{ToolDeclarations, load_tool_declarations};
+pub use commands::approval::ApprovalLedger;
+pub use commands::process::redact_workspace;
+pub use commands::rounds::run_routine_round;
 
 /// 工具声明文件（include_str 内嵌：声明 = 数据，随补丁链演化管线产出）
 const TOOLS_DECL_JSON: &str = include_str!("../fixtures/tools_os.json");
 
 /// 工作区挂载根（文件沙箱的授权底座；挂载授权命令按此校验）
-const DEFAULT_MOUNT_ROOT: &str = "~/.inkling/workspace";
+pub(crate) const DEFAULT_MOUNT_ROOT: &str = "~/.inkling/workspace";
 
 /// 引擎装配的种子根目录名（seed_data/manifest 所在目录）
 const SEED_DIR_NAME: &str = "inkling";
@@ -48,27 +49,30 @@ const SEED_DIR_NAME: &str = "inkling";
 const WORKFLOW_FILE: &str = "workflow.json";
 
 /// 能力设置记录集合/键（设置页应用能力档的持久化底座）
-const CAPABILITY_COLLECTION: &str = "app_capabilities";
-const CAPABILITY_KEY: &str = "capability";
+pub(crate) const CAPABILITY_COLLECTION: &str = "app_capabilities";
+pub(crate) const CAPABILITY_KEY: &str = "capability";
 
 /// 组件构建产物清单文件名（挂载后注册表刷新的数据源）
-const COMPONENT_MANIFEST_FILE: &str = "manifest.json";
+pub(crate) const COMPONENT_MANIFEST_FILE: &str = "manifest.json";
+
+/// 首启标记文件名（数据目录；存在 = 已完成首次装配引导）
+pub(crate) const FIRST_RUN_MARKER: &str = ".first_run";
 
 /// 产品后端（引擎句柄 + 工具快照 + 回合记录器 + 中止信号）。
 struct ShellBackendState {
     engine: Mutex<Option<engine::host::EngineHost>>,
-    tool_provider: Arc<ToolSpecsProvider>,
-    round: Mutex<Option<RoundStepsTransport>>,
-    abort_signal: RoundAbortSignal,
+    tool_provider: Arc<domain::tools::ToolSpecsProvider>,
+    round: Mutex<Option<domain::steps::RoundStepsTransport>>,
+    abort_signal: domain::steps::RoundAbortSignal,
 }
 
 impl ShellBackendState {
     fn new() -> Self {
         Self {
             engine: Mutex::new(None),
-            tool_provider: Arc::new(ToolSpecsProvider::empty()),
+            tool_provider: Arc::new(domain::tools::ToolSpecsProvider::empty()),
             round: Mutex::new(None),
-            abort_signal: RoundAbortSignal::new(),
+            abort_signal: domain::steps::RoundAbortSignal::new(),
         }
     }
 
@@ -87,15 +91,15 @@ impl ShellBackendState {
 /// + 壳侧审批台账（决议 4：命令层裁决的档位表与决议态）。
 struct ShellState {
     mounts: Mutex<Vec<PathBuf>>,
-    registry: ExecutorRegistry,
+    registry: executors::registry::ExecutorRegistry,
     backend: ShellBackendState,
-    approval: ApprovalLedger,
+    approval: commands::approval::ApprovalLedger,
 }
 
 /// 构建壳后端：平台操作 + Tauri 通知接线。
-fn build_shell_backend(app: AppHandle) -> ShellBackend {
-    let platform = PlatformBackend;
-    ShellBackend::new(app, platform)
+fn build_shell_backend(app: AppHandle) -> executors::backends::ShellBackend {
+    let platform = executors::backends::PlatformBackend;
+    executors::backends::ShellBackend::new(app, platform)
 }
 
 /// 开发形态仓库根（引擎桥 seed_root 定位；发行期由打包资源覆盖）。
@@ -274,33 +278,6 @@ fn block_on_op_async(op: &str, args: serde_json::Value) -> Result<serde_json::Va
         .block_on(engine::host::call_engine_op_async(op, args))
 }
 
-/// 回合记录器（事件弧 + 中止信号 + 工具标题解析挂点）。
-fn begin_round_recorder(state: &ShellState, round_id: &str) -> RoundStepsTransport {
-    let resolver: ToolTitleResolver = {
-        let provider = Arc::clone(&state.backend.tool_provider);
-        Arc::new(move |name: &str| {
-            let label = provider.resolve_label(name, None);
-            if label.contains("（未本地化）") {
-                None
-            } else {
-                Some(label)
-            }
-        })
-    };
-    RoundStepsTransport::with_engine_handles(
-        round_id,
-        None,
-        None,
-        Some(resolver),
-        Some(state.backend.abort_signal.clone()),
-    )
-}
-
-// ── 引擎生命周期命令 ──
-
-/// 首启标记文件名（数据目录；存在 = 已完成首次装配引导）。
-const FIRST_RUN_MARKER: &str = ".first_run";
-
 /// 首启标记判定（未标记 = 首启引导待展示）。
 fn first_run_pending(data_dir: &Path) -> bool {
     !data_dir.join(FIRST_RUN_MARKER).is_file()
@@ -321,1420 +298,6 @@ fn exec_present(data_dir: &Path) -> bool {
     domain::exec_proc::locate_exec_binary(&dir).is_ok()
 }
 
-/// 后端状态（前端启动探测：引擎是否就绪/工具面大小/安全模式标志/
-/// 首启引导/执行件随包就位/运行形态）。
-#[tauri::command]
-fn backend_status(app: AppHandle, state: State<'_, ShellState>) -> JsonValue {
-    let safe_mode = app_data_dir(&app)
-        .map(|dir| domain::recovery::load_boot_state(&dir).safe_mode)
-        .unwrap_or(false);
-    let first_run = app_data_dir(&app)
-        .map(|dir| first_run_pending(&dir))
-        .unwrap_or(true);
-    let exec_ready = app_data_dir(&app)
-        .map(|dir| exec_present(&dir))
-        .unwrap_or(false);
-    json!({
-        "engine_ready": state.backend.engine_ready(),
-        "tool_count": state.backend.tool_provider.len(),
-        "safe_mode": safe_mode,
-        "first_run": first_run,
-        "exec_ready": exec_ready,
-        "bundled": engine::runtime::bundled_mode(),
-    })
-}
-
-/// 首启引导关闭（标记落位；下次启动不再展示引导）。
-#[tauri::command]
-fn first_run_dismiss(app: AppHandle) -> Result<JsonValue, String> {
-    let data_dir = app_data_dir(&app)?;
-    std::fs::write(data_dir.join(FIRST_RUN_MARKER), serde_json::json!({
-        "dismissed_at": chrono::Utc::now().timestamp_millis(),
-    }).to_string())
-    .map_err(|err| format!("首启标记写入失败: {err}"))?;
-    Ok(json!({ "dismissed": true }))
-}
-
-/// 显式装配（懒装配的提前触发；失败 = 结构化错误）。
-#[tauri::command]
-fn engine_boot(app: AppHandle, state: State<'_, ShellState>) -> Result<JsonValue, String> {
-    let data_dir = app_data_dir(&app)?;
-    ensure_engine(&state, &data_dir)?;
-    let snapshot = state
-        .backend
-        .engine
-        .lock()
-        .unwrap()
-        .as_ref()
-        .and_then(|host| host.report().ok())
-        .map(|report| {
-            json!({
-                "tool_names": report.tool_names,
-                "event_types": report.event_types,
-            })
-        })
-        .unwrap_or_else(|| json!({}));
-    Ok(json!({ "snapshot": snapshot }))
-}
-
-/// 回合发送：引擎回合驱动（装配会话同线程；返回事件流 + 步骤序列）。
-///
-/// 回合在宿主线程内执行（Python 事件循环线程亲和性），事件经步骤
-/// 记录器收敛为步骤序列（tool 行 title 由解析挂点填充）；审批卡默认
-/// 接受决议（交互决议经 [`round_resume`] 注入续跑）。
-#[tauri::command]
-fn round_send(
-    app: AppHandle,
-    state: State<'_, ShellState>,
-    thread_id: String,
-    round_id: String,
-    text: String,
-    auto_accept_review: Option<bool>,
-) -> Result<JsonValue, String> {
-    let data_dir = app_data_dir(&app)?;
-    ensure_engine(&state, &data_dir)?;
-    state.backend.abort_signal.begin_round();
-    let mut recorder = begin_round_recorder(&state, &round_id);
-    {
-        let mut slot = state.backend.round.lock().unwrap();
-        *slot = Some(recorder.clone());
-    }
-    let request = engine::host::RoundRequest {
-        input_text: text,
-        thread_id: thread_id.clone(),
-        round_id: round_id.clone(),
-        step_args: None,
-        orchestrate: None,
-        inject: None,
-        auto_accept_review: auto_accept_review.unwrap_or(true),
-    };
-    let engine_guard = state.backend.engine.lock().unwrap();
-    let engine = engine_guard
-        .as_ref()
-        .ok_or_else(|| "引擎未装配（引擎装配失败或尚未就绪）".to_string())?;
-    // 事件流式通道：回合内逐事件实时发射（前端 listen 增量渲染）；
-    // 发射失败只记日志不阻断回合（事件收集缓冲与返回体照常）。
-    let stream_app = app.clone();
-    engine.set_event_emitter(Some(Box::new(move |event_json: &str| {
-        let parsed: JsonValue = serde_json::from_str(event_json).unwrap_or(JsonValue::Null);
-        if let Err(err) = stream_app.emit("inkling://round_event", parsed) {
-            eprintln!("[events] 流式事件发射失败: {err}");
-        }
-    })));
-    let outcome = engine.round(request).map_err(|err| format!("回合执行失败: {err}"))?;
-    drop(engine_guard);
-    for event in &outcome.events {
-        recorder.feed(event);
-    }
-    let steps = recorder.snapshot();
-    Ok(json!({
-        "round_id": round_id,
-        "thread_id": thread_id,
-        "reason": outcome.reason,
-        "output": outcome.output,
-        "events": outcome.events,
-        "steps": steps,
-    }))
-}
-
-/// 回合续跑（审批决议注入：挂起的审批卡 → 决议 → 续跑）。
-///
-/// 决议 = 中断点 key → inject 值（accept/reject/edit 形态由宿主构造）；
-/// 无挂起卡/卡失效 = 引擎侧结构化错误（fail-closed，前端提示重发）。
-#[tauri::command]
-async fn round_resume(
-    thread_id: String,
-    key: String,
-    decision: String,
-    reason: Option<String>,
-    edited_content: Option<JsonValue>,
-) -> Result<JsonValue, String> {
-    let latest = engine::host::call_engine_op_async(
-        "engine.thread_latest_checkpoint",
-        json!({ "thread_id": thread_id }),
-    )
-    .await?;
-    let checkpoint_id = latest
-        .get("checkpoint_id")
-        .and_then(JsonValue::as_i64)
-        .ok_or_else(|| "会话无检查点（先发送一条消息）".to_string())?;
-    let mut inject = json!({});
-    inject[key] = match decision.as_str() {
-        "reject" => json!("reject"),
-        "edit" => json!(edited_content.unwrap_or_else(|| json!("accept"))),
-        _ => json!("accept"),
-    };
-    let mut args = json!({
-        "thread_id": thread_id,
-        "checkpoint_id": checkpoint_id,
-        "inject": inject,
-    });
-    if let Some(reason) = reason {
-        args["reason"] = json!(reason);
-    }
-    let outcome = engine::host::call_engine_op_async("engine.thread_resume", args).await?;
-    Ok(outcome)
-}
-
-/// 回合中止：事件弧关断 + 中止信号握手（引擎在途取消经操作通道）。
-#[tauri::command]
-fn round_abort(state: State<'_, ShellState>, round_id: String) -> Result<JsonValue, String> {
-    {
-        let mut slot = state.backend.round.lock().unwrap();
-        if let Some(recorder) = slot.as_mut() {
-            if recorder.round_id() == round_id {
-                recorder.abort_current_round().map_err(|err| err.to_string())?;
-            }
-        }
-    }
-    state.backend.abort_signal.abort();
-    Ok(json!({
-        "round_id": round_id,
-        "aborted": state.backend.abort_signal.is_aborted(),
-        "engine": "engine.abort_current_run 操作通道由装配侧注册（本层已关断事件弧）",
-    }))
-}
-
-/// 策略层路由预览（任务分类 → 链分流 → 受控计划 → 配额守门）。
-#[tauri::command]
-fn route_plan(state: State<'_, ShellState>, text: String, tier: String) -> Result<JsonValue, String> {
-    let _ = state;
-    let workflow_data = load_workflow_data()?;
-    let tier = domain::policy::SimulationTier::parse(&tier).map_err(|err| err.to_string())?;
-    let routing =
-        domain::policy::route_round(&text, &workflow_data, None, tier).map_err(|err| err.to_string())?;
-    Ok(json!({
-        "kind": routing.kind.as_str(),
-        "chain_id": routing.chain_id,
-        "plan": domain::policy::plan_json(&routing.plan),
-        "policy": {
-            "tier": routing.policy.tier.as_str(),
-            "max_simulations": routing.policy.max_simulations,
-            "quota_per_round": routing.policy.quota_per_round,
-        },
-        "quota_guarded": routing.quota_guarded,
-    }))
-}
-
-// ── 会话命令（真实数据）──
-
-/// 会话清单（按最近活跃倒序；引擎记录为真实数据源）。
-#[tauri::command]
-async fn session_list() -> Result<JsonValue, String> {
-    let sessions = session::fetch_sessions().await?;
-    let rows: Vec<JsonValue> = sessions
-        .iter()
-        .map(session::session_meta_to_record)
-        .collect();
-    Ok(json!({ "sessions": rows }))
-}
-
-/// 新建会话（引擎线程 id；标题留空待首回合生成）。
-#[tauri::command]
-async fn session_create() -> Result<JsonValue, String> {
-    let id = session::new_thread_id();
-    let meta = session::new_session(&id);
-    session::save_session(&meta).await?;
-    Ok(session::session_meta_to_record(&meta))
-}
-
-/// 重命名会话（手改覆盖标题；≤12 字约束在域层）。
-#[tauri::command]
-async fn session_rename(thread_id: String, title: String) -> Result<JsonValue, String> {
-    let mut meta = session::fetch_session_meta(&thread_id)
-        .await?
-        .ok_or_else(|| format!("会话不存在: {thread_id}"))?;
-    session::rename_session(&mut meta, &title).map_err(|err| err.to_string())?;
-    session::save_session(&meta).await?;
-    Ok(session::session_meta_to_record(&meta))
-}
-
-/// 删除会话（记录墓碑 + 线程链清理）。
-#[tauri::command]
-async fn session_delete(thread_id: String) -> Result<JsonValue, String> {
-    session::delete_session(&thread_id).await?;
-    Ok(json!({ "deleted": true, "thread_id": thread_id }))
-}
-
-/// 回合后刷新（消息计数 + 首回合标题生成；幂等）。
-#[tauri::command]
-async fn session_refresh(thread_id: String) -> Result<JsonValue, String> {
-    session::refresh_session_after_round(&thread_id).await
-}
-
-/// 会话分支树（链索引 → 叶树；新建会话 = 空树）。
-#[tauri::command]
-async fn session_tree(thread_id: String) -> Result<JsonValue, String> {
-    let tree = session::fetch_branch_tree(&thread_id).await?;
-    let nodes: Vec<JsonValue> = tree
-        .nodes
-        .iter()
-        .map(|node| {
-            json!({
-                "leaf": node.leaf,
-                "parent": node.parent,
-                "reason": node.reason,
-            })
-        })
-        .collect();
-    Ok(json!({
-        "session_id": tree.session_id,
-        "nodes": nodes,
-        "current_leaf": tree.current_leaf,
-    }))
-}
-
-/// 分支动作（切换叶/切回原叶/链回退/fork 新叶）。
-#[tauri::command]
-async fn session_branch(
-    thread_id: String,
-    action: String,
-    target_leaf: Option<i64>,
-    edit_text: Option<String>,
-) -> Result<JsonValue, String> {
-    let tree = session::fetch_branch_tree(&thread_id).await?;
-    match action.as_str() {
-        "branch" => {
-            let parent = target_leaf.ok_or_else(|| "分支缺父叶".to_string())?;
-            let patch = match edit_text {
-                Some(text) => json!({
-                    "input": text,
-                    "messages": [{ "role": "user", "content": text }],
-                }),
-                None => json!({}),
-            };
-            let leaf = session::fork_branch(&tree, parent, patch).await?;
-            Ok(json!({ "leaf": leaf, "action": "branch" }))
-        }
-        other => {
-            let leaf = session::branch_action(&tree, other, target_leaf).await?;
-            Ok(json!({ "leaf": leaf, "action": other }))
-        }
-    }
-}
-
-// ── 授权 / 审批命令 ──
-
-/// 授权状态（工作区根；无授权记录 = 未授权）。
-#[tauri::command]
-async fn authorization_state() -> Result<JsonValue, String> {
-    let security = security_domain_from_seed()?;
-    let root = domain::security::load_authorization(&security).await?;
-    Ok(json!({ "authorized": root.is_some(), "root": root }))
-}
-
-/// 授权（工作区根写入记录 + 挂载点登记；引擎侧文件工具随装配生效）。
-#[tauri::command]
-async fn workspace_authorize(state: State<'_, ShellState>, path: String) -> Result<JsonValue, String> {
-    let resolved = expand_home(&path);
-    let canonical = std::fs::canonicalize(&resolved)
-        .map_err(|err| format!("工作区不可达: {} ({err})", resolved.display()))?;
-    {
-        let mut mounts = state.mounts.lock().unwrap();
-        if !mounts.contains(&canonical) {
-            mounts.push(canonical.clone());
-        }
-    }
-    let record = json!({
-        "root": canonical.display().to_string(),
-        "authorized_at": chrono::Utc::now().timestamp_millis(),
-    });
-    domain::security::persist_authorization(record).await?;
-    Ok(json!({ "authorized": true, "root": canonical.display().to_string() }))
-}
-
-/// 撤销授权（记录置空；重启后不再恢复）。
-#[tauri::command]
-async fn workspace_revoke() -> Result<JsonValue, String> {
-    domain::security::persist_authorization(json!({ "root": "" })).await?;
-    Ok(json!({ "authorized": false }))
-}
-
-/// 审批卡请求（回合外两步形态：先请求落卡，后注入决议）。
-#[tauri::command]
-async fn approval_request(
-    state: tauri::State<'_, ShellState>,
-    thread_id: Option<String>,
-    key: String,
-    action: JsonValue,
-    payload: Option<JsonValue>,
-) -> Result<JsonValue, String> {
-    approval_card(&state, thread_id.as_deref(), &key, action, payload, None).await
-}
-
-/// 审批决议注入（决议经操作通道预注入；已决去重）。
-#[tauri::command]
-async fn approval_resolve(
-    state: tauri::State<'_, ShellState>,
-    thread_id: Option<String>,
-    key: String,
-    decision: String,
-    reason: Option<String>,
-    edited_content: Option<JsonValue>,
-) -> Result<JsonValue, String> {
-    approval_card(
-        &state,
-        thread_id.as_deref(),
-        &key,
-        json!({}),
-        None,
-        Some(json!({
-            "decision": decision,
-            "reason": reason,
-            "edited_content": edited_content,
-        })),
-    )
-    .await
-}
-
-/// 审批卡操作通道接线（请求 + 决议注入共用入口）。
-///
-/// 决议态同时登记进壳侧审批台账（决议 4：引擎审批卡决议态驱动命令面裁决
-/// ——`approval_resolve`/自动审批的引擎决议结果落台账，process_exec /
-/// device_mcp_call 按 (工具, 参数指纹) 查询放行）。
-async fn approval_card(
-    state: &tauri::State<'_, ShellState>,
-    thread_id: Option<&str>,
-    key: &str,
-    action: JsonValue,
-    payload: Option<JsonValue>,
-    decision: Option<JsonValue>,
-) -> Result<JsonValue, String> {
-    let mut args = json!({
-        "thread_id": thread_id,
-        "key": key,
-        "action": action,
-    });
-    let payload_for_ledger = payload.clone();
-    if let Some(payload) = payload {
-        args["payload"] = payload;
-    }
-    if let Some(decision) = decision {
-        args["decision"] = decision.get("decision").cloned().unwrap_or_else(|| json!("reject"));
-        if let Some(reason) = decision.get("reason").and_then(JsonValue::as_str) {
-            args["reason"] = json!(reason);
-        }
-        if let Some(edited) = decision.get("edited_content") {
-            if !edited.is_null() {
-                args["edited_content"] = edited.clone();
-            }
-        }
-    }
-    let outcome = engine::host::call_engine_op_async("approval.gate_card_request", args).await?;
-    // 引擎决议态入台账（决议 4）：按引擎返回的 decision 登记（payload 带
-    // tool/args 线索时按指纹命中命令面裁决）
-    let decision = outcome
-        .get("decision")
-        .and_then(JsonValue::as_str)
-        .unwrap_or("reject");
-    state
-        .approval
-        .record_resolution(key, decision, payload_for_ledger.as_ref());
-    Ok(outcome)
-}
-
-// ── 能力设置（推演档位等持久化）──
-
-/// 读取能力设置（无记录 = 装配数据默认档：轻探测；自动审批字段
-/// 缺省 = 出厂空集——不勾选即不预授权，最保守）。
-///
-/// 读取时同步台账（重启后命令面裁决与持久化的自动审批配置对齐）。
-#[tauri::command]
-async fn capability_get(
-    state: tauri::State<'_, ShellState>,
-) -> Result<JsonValue, String> {
-    let record = engine::host::call_engine_op_async(
-        "engine.records_get",
-        json!({ "collection": CAPABILITY_COLLECTION, "key": CAPABILITY_KEY }),
-    )
-    .await?;
-    let mut merged = match record {
-        JsonValue::Object(map) => JsonValue::Object(map),
-        _ => json!({}),
-    };
-    if merged.get("simulation_tier").and_then(JsonValue::as_str).is_none() {
-        let workflow = load_workflow_data()?;
-        let default = domain::policy::default_simulation_tier_from_data(&workflow);
-        merged["simulation_tier"] = json!(default.as_str());
-    }
-    if merged.get("auto_approve_tools").is_none() {
-        merged["auto_approve_tools"] = json!([]);
-    }
-    if merged.get("auto_approve_all_review").is_none() {
-        merged["auto_approve_all_review"] = json!(false);
-    }
-    let auto_tools: Vec<String> = merged
-        .get("auto_approve_tools")
-        .and_then(JsonValue::as_array)
-        .map(|tools| {
-            tools
-                .iter()
-                .filter_map(JsonValue::as_str)
-                .map(str::to_string)
-                .collect()
-        })
-        .unwrap_or_default();
-    let auto_all = merged
-        .get("auto_approve_all_review")
-        .and_then(JsonValue::as_bool)
-        .unwrap_or(false);
-    state.approval.set_auto_approve(auto_tools, auto_all);
-    Ok(merged)
-}
-
-/// 保存能力设置（自动审批先经安全域校验并应用：登记边界外工具
-/// 整体拒绝、不落盘；档位阈值随装配数据，此处只存档选）。
-///
-/// 自动审批配置同时同步进壳侧审批台账（决议 4：命令面裁决与引擎侧
-/// `security.auto_approve_set` 门禁同口径）。
-#[tauri::command]
-async fn capability_put(
-    state: tauri::State<'_, ShellState>,
-    record: JsonValue,
-) -> Result<JsonValue, String> {
-    if record.get("auto_approve_tools").is_some() || record.get("auto_approve_all_review").is_some() {
-        let auto_tools = record
-            .get("auto_approve_tools")
-            .and_then(JsonValue::as_array)
-            .cloned()
-            .unwrap_or_default();
-        let auto_all = record
-            .get("auto_approve_all_review")
-            .and_then(JsonValue::as_bool)
-            .unwrap_or(false);
-        // 先应用（登记边界在安全域内硬拒，失败 = 不落盘）
-        let applied = engine::host::call_engine_op_async(
-            "security.auto_approve_set",
-            json!({ "tools": auto_tools, "all_review": auto_all }),
-        )
-        .await?;
-        if applied.get("applied").and_then(JsonValue::as_bool) != Some(true) {
-            return Err("自动审批配置未生效（安全域拒绝）".to_string());
-        }
-        let tools: Vec<String> = auto_tools
-            .iter()
-            .filter_map(JsonValue::as_str)
-            .map(str::to_string)
-            .collect();
-        state.approval.set_auto_approve(tools, auto_all);
-    }
-    engine::host::call_engine_op_async(
-        "engine.records_put",
-        json!({
-            "collection": CAPABILITY_COLLECTION,
-            "key": CAPABILITY_KEY,
-            "data": record,
-        }),
-    )
-    .await?;
-    Ok(record)
-}
-
-// ── 导出 / 备份 / 恢复命令 ──
-
-/// 一键导出（data_dir 打包 → 目标文件；含引擎存储快照）。
-#[tauri::command]
-async fn backup_export(app: AppHandle, dest: String) -> Result<JsonValue, String> {
-    let data_dir = app_data_dir(&app)?;
-    let manifest = domain::backup::pack_data_dir(&data_dir, Path::new(&dest))
-        .map_err(|err| err.to_string())?;
-    Ok(json!({
-        "entries": manifest.entries.len(),
-        "size": manifest.entries.iter().map(|e| e.size).sum::<u64>(),
-        "created_at": manifest.created_at,
-        "has_db": manifest.engine_snapshot,
-    }))
-}
-
-/// 恢复预览（校验包 → 重建预览：覆盖计数/大小/含库）。
-#[tauri::command]
-async fn backup_preview(path: String) -> Result<JsonValue, String> {
-    let manifest = domain::backup::validate_backup(Path::new(&path))
-        .map_err(|err| err.to_string())?;
-    let preview_dir = std::env::temp_dir();
-    let preview = domain::backup::preview_restore(&manifest, &preview_dir);
-    Ok(json!({
-        "entries_total": preview.entries_total,
-        "will_overwrite": preview.will_overwrite,
-        "total_size": preview.total_size,
-        "has_db": preview.has_db,
-        "created_at": manifest.created_at,
-    }))
-}
-
-/// 恢复执行（校验 → 当前态快照 → 解包落位；失败留快照不击穿）。
-#[tauri::command]
-async fn backup_restore(app: AppHandle, path: String) -> Result<JsonValue, String> {
-    let data_dir = app_data_dir(&app)?;
-    let snapshots_dir = data_dir.join("snapshots");
-    let (preview, snapshot) = domain::backup::execute_restore(
-        Path::new(&path),
-        &data_dir,
-        &snapshots_dir,
-    )
-    .map_err(|err| err.to_string())?;
-    Ok(json!({
-        "restored_entries": preview.entries_total,
-        "will_overwrite": preview.will_overwrite,
-        "total_size": preview.total_size,
-        "has_db": preview.has_db,
-        "snapshot": snapshot.display().to_string(),
-        "restore_from": path,
-    }))
-}
-
-// ── 崩溃回退（红线二：启动快照 / 一键回落）──
-
-/// 启动快照清单（「回到上一稳定版本」的取用入口：绑定链版本 + 时间序）。
-#[tauri::command]
-fn recovery_snapshots(app: AppHandle) -> Result<JsonValue, String> {
-    let data_dir = app_data_dir(&app)?;
-    let snapshots: Vec<JsonValue> = domain::recovery::list_snapshots(&data_dir)
-        .into_iter()
-        .map(|meta| {
-            json!({
-                "name": meta.name,
-                "chain_version": meta.chain_version,
-                "created_at": meta.created_at,
-            })
-        })
-        .collect();
-    Ok(json!({ "snapshots": snapshots }))
-}
-
-/// 回到上一稳定版本：从指定启动快照恢复（引擎存储契约 restore）→
-/// 引擎停机重挂（下次命令触发重新装配 = 快照时刻形态）→ 退出安全模式。
-///
-/// 快照名只接受既有清单条目（防路径穿越：不拼接用户输入路径）。
-#[tauri::command]
-async fn recovery_restore_snapshot(
-    app: AppHandle,
-    state: State<'_, ShellState>,
-    name: String,
-) -> Result<JsonValue, String> {
-    let data_dir = app_data_dir(&app)?;
-    let metas = domain::recovery::list_snapshots(&data_dir);
-    let meta = metas
-        .iter()
-        .find(|m| m.name == name)
-        .ok_or_else(|| format!("快照不存在: {name}"))?;
-    ensure_engine(&state, &data_dir)?;
-    let src = meta.path.to_string_lossy().into_owned();
-    let outcome = engine::host::call_engine_op_async(
-        "engine.storage_restore",
-        serde_json::json!({ "src": src }),
-    )
-    .await
-    .map_err(|err| format!("快照恢复失败: {err}"))?;
-    if outcome.get("restored").and_then(JsonValue::as_bool) != Some(true) {
-        return Err("快照恢复未确认落位".to_string());
-    }
-    // 引擎停机重挂：恢复后一致态由下次装配保证（会话/记忆/链回到快照时刻）
-    if let Some(host) = state.backend.engine.lock().unwrap().take() {
-        let _ = host.stop();
-    }
-    domain::recovery::clear_safe_mode(&data_dir);
-    Ok(json!({
-        "restored": meta.name,
-        "chain_version": meta.chain_version,
-    }))
-}
-
-/// 出厂重置：补丁链逐尾回退至基线（每条回退走既有回退路径、逐条落
-/// 审计）；链记录损坏（回退不可用）时回落为链记录整体清空 + 审计
-/// 留痕。完成后引擎停机重挂（下次装配 = 出厂基线 + 种子重注入），
-/// 并退出安全模式。
-#[tauri::command]
-async fn recovery_factory_reset(
-    app: AppHandle,
-    state: State<'_, ShellState>,
-) -> Result<JsonValue, String> {
-    let data_dir = app_data_dir(&app)?;
-    ensure_engine(&state, &data_dir)?;
-    let mut reverted: Vec<i64> = Vec::new();
-    let mut overwritten = false;
-    loop {
-        let record = engine::host::call_engine_op_async(
-            "engine.records_get",
-            serde_json::json!({ "collection": "set_patch_chain", "key": "chain" }),
-        )
-        .await
-        .unwrap_or(JsonValue::Null);
-        let version = domain::boot::chain_version(&record);
-        if version <= 1 {
-            break;
-        }
-        let outcome = engine::host::call_engine_op_async(
-            "patch.revert",
-            serde_json::json!({
-                "patch_id": version,
-                "decision": "accept",
-                "reason": "出厂重置：逐尾回退至基线",
-                "thread_id": "recovery",
-            }),
-        )
-        .await;
-        let status = match &outcome {
-            Ok(value) => value["outcome"].get("status").and_then(JsonValue::as_str),
-            Err(_) => None,
-        };
-        if status != Some("reverted") {
-            // 链记录损坏（回退不可用）：清空回基线 + 审计留痕（机制
-            // 豁免路径；被清空补丁数随审计记录保留）
-            overwritten = true;
-            engine::host::call_engine_op_async(
-                "engine.chain_reset_to_base",
-                serde_json::json!({ "reason": "出厂重置：链记录损坏，清空至基线" }),
-            )
-            .await
-            .map_err(|err| format!("出厂重置（清空）失败: {err}"))?;
-            break;
-        }
-        reverted.push(version);
-    }
-    // 引擎停机重挂：下次装配 = 出厂基线（链已空 + 种子重注入）
-    if let Some(host) = state.backend.engine.lock().unwrap().take() {
-        let _ = host.stop();
-    }
-    domain::recovery::clear_safe_mode(&data_dir);
-    Ok(json!({
-        "reverted_patches": reverted,
-        "overwritten": overwritten,
-    }))
-}
-
-// ── 工具快照 / 组件清单 ──
-
-/// 工具快照（四层兜底标签 + 工具族 + 自动审批可登记标记；管理台/
-/// 名映射/设置页勾选项共用）。
-#[tauri::command]
-fn tools_snapshot(state: State<'_, ShellState>) -> JsonValue {
-    let provider = state.backend.tool_provider.clone();
-    let map: Vec<JsonValue> = provider
-        .name_map()
-        .iter()
-        .map(|entry| {
-            let auto_approvable = provider
-                .lookup(&entry.tool)
-                .and_then(|spec| {
-                    spec.get("meta")
-                        .and_then(|meta| meta.get("auto_approvable"))
-                        .and_then(JsonValue::as_bool)
-                })
-                .unwrap_or(false);
-            json!({
-                "tool": entry.tool,
-                "zh": entry.zh,
-                "group": entry.group,
-                "auto_approvable": auto_approvable,
-            })
-        })
-        .collect();
-    json!({ "tools": map })
-}
-
-/// 组件构建产物清单（挂载后注册表刷新的数据源；无清单 = 空）。
-#[tauri::command]
-fn components_manifest(app: AppHandle) -> JsonValue {
-    let manifest_path = match app_data_dir(&app) {
-        Ok(dir) => dir.join("components").join(COMPONENT_MANIFEST_FILE),
-        Err(_) => PathBuf::new(),
-    };
-    if manifest_path.is_file() {
-        std::fs::read_to_string(&manifest_path)
-            .ok()
-            .and_then(|text| serde_json::from_str::<JsonValue>(&text).ok())
-            .unwrap_or_else(|| json!({ "artifacts": [] }))
-    } else {
-        json!({ "artifacts": [] })
-    }
-}
-
-// ── 后台任务域命令 ──
-
-/// 启动后台任务（受控承载：经 mpsc 受前端/回合信号驱动，自身不执行引擎
-/// 逻辑；事件经既有流式通道留痕，取消经既有链回退通道回退）。
-#[tauri::command]
-async fn task_start(
-    app: AppHandle,
-    id: String,
-    kind: String,
-    goal: String,
-    thread_id: Option<String>,
-    revert_target: Option<String>,
-) -> Result<JsonValue, String> {
-    crate::domain::tasks::bind_app(app);
-    crate::domain::tasks::registry()
-        .start_tracked(
-            &id,
-            &kind,
-            &goal,
-            thread_id.as_deref(),
-            revert_target.as_deref(),
-        )
-        .map_err(|err| err.to_string())?;
-    Ok(json!({ "task_id": id, "started": true }))
-}
-
-/// 取消后台任务：cancel token 撤销在途工作 + 发射 task_cancelled + 经既有
-/// `engine.thread_revert` 回退链。未知 id / 已终态 → 结构化错误。
-#[tauri::command]
-fn task_cancel(id: String, reason: Option<String>) -> Result<JsonValue, String> {
-    crate::domain::tasks::registry()
-        .cancel(
-            &id,
-            &reason.unwrap_or_else(|| crate::domain::tasks::DEFAULT_CANCEL_REASON.to_string()),
-        )
-        .map_err(|err| err.to_string())?;
-    Ok(json!({ "task_id": id, "cancelled": true }))
-}
-
-/// 上报后台任务进度（受控路径）。
-#[tauri::command]
-fn task_progress(id: String, progress: f64, note: Option<String>) -> Result<JsonValue, String> {
-    crate::domain::tasks::registry()
-        .progress_signal(&id, progress, &note.unwrap_or_default())
-        .map_err(|err| err.to_string())?;
-    Ok(json!({ "task_id": id, "progress": progress }))
-}
-
-/// 标记后台任务完成（发射 task_done）。
-#[tauri::command]
-fn task_finish(id: String, result: String) -> Result<JsonValue, String> {
-    crate::domain::tasks::registry()
-        .finish_signal(&id, &result)
-        .map_err(|err| err.to_string())?;
-    Ok(json!({ "task_id": id, "finished": true }))
-}
-
-/// 标记后台任务失败（发射 task_cancelled 兜底）。
-#[tauri::command]
-fn task_fail(id: String, reason: String) -> Result<JsonValue, String> {
-    crate::domain::tasks::registry()
-        .fail_signal(&id, &reason)
-        .map_err(|err| err.to_string())?;
-    Ok(json!({ "task_id": id, "failed": true }))
-}
-
-/// 后台任务清单（全部元信息）。
-#[tauri::command]
-fn task_list() -> JsonValue {
-    let metas = crate::domain::tasks::registry().list();
-    json!({ "tasks": metas })
-}
-
-/// 单后台任务状态（未知 id → 结构化错误）。
-#[tauri::command]
-fn task_state(id: String) -> Result<JsonValue, String> {
-    let meta = crate::domain::tasks::registry()
-        .state(&id)
-        .map_err(|err| err.to_string())?;
-    Ok(json!({ "task": meta }))
-}
-
-/// 回合续跑并附项目任务对象（经既有 `engine.thread_resume` 通道；inject 透传
-/// project_task，引擎零改动感知）。审批决议注入口径与 round_resume 同源。
-#[tauri::command]
-async fn task_resume(
-    thread_id: String,
-    key: String,
-    decision: String,
-    reason: Option<String>,
-    edited_content: Option<JsonValue>,
-    project_task: Option<JsonValue>,
-) -> Result<JsonValue, String> {
-    let latest = engine::host::call_engine_op_async(
-        "engine.thread_latest_checkpoint",
-        json!({ "thread_id": thread_id }),
-    )
-    .await?;
-    let checkpoint_id = latest
-        .get("checkpoint_id")
-        .and_then(JsonValue::as_i64)
-        .ok_or_else(|| "会话无检查点（先发送一条消息）".to_string())?;
-    let mut inject = json!({});
-    inject[key] = match decision.as_str() {
-        "reject" => json!("reject"),
-        "edit" => json!(edited_content.unwrap_or_else(|| json!("accept"))),
-        _ => json!("accept"),
-    };
-    if let Some(pt) = project_task {
-        inject["project_task"] = pt;
-    }
-    let mut args = json!({
-        "thread_id": thread_id,
-        "checkpoint_id": checkpoint_id,
-        "inject": inject,
-    });
-    if let Some(reason) = reason {
-        args["reason"] = json!(reason);
-    }
-    let outcome = engine::host::call_engine_op_async("engine.thread_resume", args).await?;
-    Ok(outcome)
-}
-
-// ── 模型档案（自动探测 + 上下文窗口/多模态能力标记；壳侧为主）──
-
-/// 读取模型档案快照（全部已探测/补录档案，按 model_id 字典序）。
-#[tauri::command]
-fn model_archive_snapshot(app: AppHandle) -> Result<JsonValue, String> {
-    let data_dir = app_data_dir(&app)?;
-    let store = domain::model_archive::ModelArchiveStore::open_in_data_dir(&data_dir)
-        .map_err(|err| err.to_string())?;
-    let archives = store
-        .list()
-        .map_err(|err| err.to_string())?
-        .iter()
-        .map(|a| a.to_json())
-        .collect::<Vec<_>>();
-    Ok(json!({ "ok": true, "archives": archives }))
-}
-
-/// 触发模型清单探测与回写（连接配置保存/变更时调用）。
-///
-/// 入参：`base_url`/`api_key`（连接配置）+ `models`（宣告模型列表
-/// `[{ "tier": "main"|"router", "model_id": "..." }]`，降级补录用）。
-/// 探测失败/非 JSON/缺字段 → 结构化降级（按档位缺省窗口回落），不崩溃。
-#[tauri::command]
-async fn models_refresh(app: AppHandle, config: JsonValue) -> Result<JsonValue, String> {
-    let base_url = config
-        .get("base_url")
-        .and_then(JsonValue::as_str)
-        .unwrap_or("")
-        .to_string();
-    let api_key = config
-        .get("api_key")
-        .and_then(JsonValue::as_str)
-        .unwrap_or("")
-        .to_string();
-    let declared: Vec<domain::model_archive::DeclaredModel> = config
-        .get("models")
-        .and_then(JsonValue::as_array)
-        .map(|list| {
-            list.iter()
-                .filter_map(|item| {
-                    let model_id = item.get("model_id")?.as_str()?.to_string();
-                    let tier = item
-                        .get("tier")
-                        .and_then(JsonValue::as_str)
-                        .unwrap_or("main")
-                        .to_string();
-                    Some(domain::model_archive::DeclaredModel { tier, model_id })
-                })
-                .collect()
-        })
-        .unwrap_or_default();
-    let data_dir = app_data_dir(&app)?;
-    let mut store = domain::model_archive::ModelArchiveStore::open_in_data_dir(&data_dir)
-        .map_err(|err| err.to_string())?;
-    let fetcher = domain::model_archive::HttpModelsFetcher::new();
-    let report = domain::model_archive::refresh_archives(
-        &mut store,
-        &fetcher,
-        &base_url,
-        &api_key,
-        &declared,
-    )
-    .await
-    .map_err(|err| err.to_string())?;
-    Ok(json!({
-        "ok": true,
-        "mode": if report.mode == domain::model_archive::RefreshMode::Success { "success" } else { "fallback" },
-        "probed": report.probed,
-        "stored": report.stored,
-        "reason": report.reason,
-    }))
-}
-
-/// 上下文指标快照（转发至嵌入桥 `metrics.snapshot` op；聚合回合/LLM/
-/// 缓存/边证据指标，走既有引擎操作通道）。
-#[tauri::command]
-async fn metrics_snapshot(args: JsonValue) -> Result<JsonValue, String> {
-    engine::host::call_engine_op_async("metrics.snapshot", args).await
-}
-
-/// 候选路径人工选择（透传至 `path.choose_candidate` op；干预即生效 + 审计）。
-#[tauri::command]
-async fn path_choose_candidate(
-    candidate_id: Option<String>,
-    domain: Option<String>,
-    chain: Option<JsonValue>,
-    fingerprint: Option<String>,
-) -> Result<JsonValue, String> {
-    let mut args = json!({
-        "candidateId": candidate_id.unwrap_or_default(),
-        "domain": domain.unwrap_or_else(|| "default".to_string()),
-    });
-    if let Some(chain) = chain {
-        args["chain"] = chain;
-    }
-    if let Some(fingerprint) = fingerprint {
-        args["fingerprint"] = JsonValue::String(fingerprint);
-    }
-    engine::host::call_engine_op_async("path.choose_candidate", args).await
-}
-
-/// 多径开关（透传至 `path.set_multipath` op；单块翻转保留其余装配开关）。
-#[tauri::command]
-async fn path_set_multipath(enabled: bool) -> Result<JsonValue, String> {
-    engine::host::call_engine_op_async("path.set_multipath", json!({ "enabled": enabled })).await
-}
-
-/// 指纹缓存语义化失效（透传至 `cache.invalidate` op；清除后同请求不再命中）。
-#[tauri::command]
-async fn cache_invalidate(
-    scope: String,
-    reason: Option<String>,
-) -> Result<JsonValue, String> {
-    let mut args = json!({ "scope": scope });
-    if let Some(reason) = reason {
-        args["reason"] = JsonValue::String(reason);
-    }
-    engine::host::call_engine_op_async("cache.invalidate", args).await
-}
-
-/// 信任档人工降级（透传至 `edge.downgrade_tier` op；降级前快照可复原）。
-#[tauri::command]
-async fn edge_downgrade_tier(
-    edge_id: String,
-    tier: Option<String>,
-) -> Result<JsonValue, String> {
-    let mut args = json!({ "edgeId": edge_id });
-    if let Some(tier) = tier {
-        args["tier"] = JsonValue::String(tier);
-    }
-    engine::host::call_engine_op_async("edge.downgrade_tier", args).await
-}
-
-/// 文档解析（PDF/Office → 结构化 JSON；与壳执行器同源域函数，路径根收口）。
-#[tauri::command]
-fn doc_parse(path: String) -> Result<JsonValue, String> {
-    let resolved = expand_home(&path);
-    let bytes = std::fs::read(&resolved).map_err(|err| format!("读取文档失败: {err}"))?;
-    domain::doc_ops::parse_document(&bytes).map_err(|err| err.to_string())
-}
-
-/// 文档生成（docx 报告 / xlsx 表格 → 落盘工作区根，返回路径与字节数）。
-#[tauri::command]
-fn doc_generate(
-    format: String,
-    title: String,
-    body: Option<String>,
-    table: Option<String>,
-) -> Result<JsonValue, String> {
-    let bytes = match format.as_str() {
-        "docx" => {
-            use domain::doc_ops::{build_docx_report, DocxReportSpec, DocxSection};
-            let spec = DocxReportSpec {
-                title: title.clone(),
-                sections: vec![DocxSection {
-                    heading: None,
-                    body: body.unwrap_or_default(),
-                }],
-                table: None,
-            };
-            build_docx_report(&spec).map_err(|err| err.to_string())?
-        }
-        "xlsx" => {
-            use domain::doc_ops::build_xlsx_table;
-            let rows: Vec<Vec<String>> = table
-                .and_then(|text| serde_json::from_str::<Vec<Vec<String>>>(&text).ok())
-                .unwrap_or_default();
-            build_xlsx_table(&title, &rows).map_err(|err| err.to_string())?
-        }
-        other => return Err(format!("不支持的文档格式: {other}（docx/xlsx）")),
-    };
-    let out_dir = expand_home(DEFAULT_MOUNT_ROOT);
-    std::fs::create_dir_all(&out_dir).map_err(|err| format!("输出目录创建失败: {err}"))?;
-    let stamp = chrono::Utc::now().timestamp_millis();
-    let safe_title: String = title
-        .chars()
-        .map(|ch| if ch.is_alphanumeric() || ch == '_' || ch == '-' { ch } else { '_' })
-        .collect();
-    let ext = if format == "xlsx" { "xlsx" } else { "docx" };
-    let out_path = out_dir.join(format!("{safe_title}_{stamp}.{ext}"));
-    std::fs::write(&out_path, &bytes).map_err(|err| format!("文档写入失败: {err}"))?;
-    Ok(json!({
-        "path": out_path.to_string_lossy(),
-        "format": format,
-        "bytes": bytes.len(),
-    }))
-}
-
-/// 既有资料批量导入（搬进 InKEngine 第一步）：目录扫描归一 + 可选走样例闸门入料。
-///
-/// `ingest=false`（默认）= 仅扫描归一预览；`ingest=true` = 逐条目经既有样例闸门
-/// / 知识集入料链（`patch.propose_knowledge`）入集，返回逐文件入料状态。
-#[tauri::command]
-async fn material_import(
-    path: String,
-    recursive: Option<bool>,
-    ingest: Option<bool>,
-) -> Result<JsonValue, String> {
-    let recursive = recursive.unwrap_or(false);
-    let scan = crate::domain::import_material::scan_and_normalize(&path, recursive)?;
-    if !ingest.unwrap_or(false) {
-        return serde_json::to_value(&scan).map_err(|err| err.to_string());
-    }
-    let mut ingested = 0usize;
-    let mut rejected = 0usize;
-    let mut file_results: Vec<JsonValue> = Vec::with_capacity(scan.files.len());
-    for file in &scan.files {
-        let format = file.format.clone();
-        let entry = json!({
-            "id": format!("material:{}", file.path),
-            "level": "user",
-            "kind": "insight",
-            "data": { "content": file.normalized.clone(), "format": format },
-            "source": file.path,
-            "title": format!("导入资料：{}", file.path),
-            "tags": ["material", format],
-        });
-        let schema_errs = crate::domain::incubation::entry_schema_errors(&entry);
-        let injection = crate::domain::incubation::scan_entry_injection(&entry);
-        if !schema_errs.is_empty() || !injection.is_empty() {
-            rejected += 1;
-            file_results.push(json!({
-                "path": file.path,
-                "status": "rejected",
-                "reason": schema_errs.into_iter().chain(injection).collect::<Vec<_>>().join("; "),
-            }));
-            continue;
-        }
-        match crate::domain::incubation::propose_knowledge_patch(json!({
-            "payload": { "entry": entry },
-            "rationale": "既有资料批量导入（搬进 InKEngine）",
-            "base_version": 1,
-        }))
-        .await
-        {
-            Ok(_) => {
-                ingested += 1;
-                file_results.push(json!({ "path": file.path, "status": "ingested" }));
-            }
-            Err(err) => {
-                rejected += 1;
-                file_results.push(json!({ "path": file.path, "status": "rejected", "reason": err }));
-            }
-        }
-    }
-    Ok(json!({
-        "scanned": scan.files.len(),
-        "ingested": ingested,
-        "rejected": rejected,
-        "files": file_results,
-    }))
-}
-
-/// 屏幕截图（隐私分级：本地直喂 / 云端默认禁外发，授权开关 + 审批回调，
-/// 外发事件落审计；与壳执行器同源域函数）。
-#[tauri::command]
-fn screenshot_capture(
-    model_class: String,
-    destination: Option<String>,
-) -> Result<JsonValue, String> {
-    use domain::screenshot::{
-        capture_and_feed, WindowsScreenCapturer, ModelClass, VisionGate, VisionSettings,
-    };
-    let model = match model_class.as_str() {
-        "local" => ModelClass::Local,
-        "cloud" => ModelClass::Cloud,
-        other => return Err(format!("目标模型类别非法: {other}（local/cloud）")),
-    };
-    let destination = destination.unwrap_or_else(|| "engine".to_string());
-    let settings_path = expand_home("~/.inkling/vision.json");
-    let settings = VisionSettings::load(&settings_path).unwrap_or_else(|_| VisionSettings::default());
-    let gate = VisionGate {
-        settings,
-        approve: std::sync::Arc::new(|| false),
-    };
-    let out_dir = expand_home("~/.inkling/attachments");
-    let capturer = WindowsScreenCapturer;
-    let attachment = tokio::runtime::Builder::new_current_thread()
-        .enable_all()
-        .build()
-        .map_err(|err| format!("截图运行时构建失败: {err}"))?
-        .block_on(capture_and_feed(
-            &capturer,
-            &gate,
-            model,
-            &destination,
-            &out_dir,
-            &None,
-        ))
-        .map_err(|err| err.to_string())?;
-    Ok(attachment.to_dict())
-}
-
-/// 语音能力探测（麦克风/STT/TTS 三项独立降级）。
-#[tauri::command]
-fn voice_status(app: AppHandle) -> JsonValue {
-    let dir = app_data_dir(&app).ok();
-    crate::domain::voice::capabilities(dir.as_deref())
-}
-
-/// 语音识别：音频（WAV 字节）→ 文本（模型缺失即报不可用降级）。
-#[tauri::command]
-async fn voice_transcribe(app: AppHandle, audio: Vec<u8>) -> Result<JsonValue, String> {
-    let dir = app_data_dir(&app).ok();
-    let text = crate::domain::voice::transcribe(&audio, dir.as_deref()).await?;
-    Ok(json!({ "text": text, "available": true }))
-}
-
-/// 语音合成：Windows SAPI 朗读文本。
-#[tauri::command]
-fn voice_synthesize(text: String) -> Result<JsonValue, String> {
-    let spoken = crate::domain::voice::speak(&text)?;
-    Ok(json!({ "spoken": spoken }))
-}
-
-/// 麦克风采集：录制指定毫秒数，返回 WAV 字节。
-#[tauri::command]
-fn voice_record(duration_ms: u32) -> Result<Vec<u8>, String> {
-    crate::domain::voice::record_wav(duration_ms)
-}
-
-/// 麦克风设备清单。
-#[tauri::command]
-fn voice_devices() -> JsonValue {
-    crate::domain::voice::list_devices()
-}
-
-/// 离线支持级探测（Ollama + 本地嵌入 + 本地记忆）。
-#[tauri::command]
-async fn offline_detect(app: AppHandle) -> Result<JsonValue, String> {
-    let dir = app_data_dir(&app).ok();
-    crate::domain::offline::detect(dir.as_deref()).await
-}
-
-/// 读取离线 settings 档。
-#[tauri::command]
-fn offline_settings_get(app: AppHandle) -> Result<JsonValue, String> {
-    let dir = app_data_dir(&app)?;
-    Ok(crate::domain::offline::read_settings(&dir))
-}
-
-/// 写入离线 settings 档。
-#[tauri::command]
-fn offline_settings_put(app: AppHandle, settings: JsonValue) -> Result<JsonValue, String> {
-    let dir = app_data_dir(&app)?;
-    Ok(crate::domain::offline::write_settings(&dir, settings))
-}
-
-// ── 过程摘要链（回合账本 / 摘要合并 / 记忆无感提取）──
-
-/// 回合账本记录：壳侧确定性归约回合事件 → 结构化账本落记忆目录，引擎零改动。
-///
-/// 归约不调模型（零成本、可审计）；账本 = 压缩前的事实快照，留待引擎侧
-/// `ledger.merge` op 按需增量压缩。返回落盘路径与账本 JSON。
-///
-/// 注：命令签名为前端固定契约（Tauri invoke 入参形态），参数数超 lint
-/// 阈值属命令面固有形态，维持不动。
-#[allow(clippy::too_many_arguments)]
-#[tauri::command]
-fn round_ledger_record(
-    app: AppHandle,
-    thread_id: String,
-    round_id: String,
-    intent: Option<String>,
-    conclusion: Option<String>,
-    events: JsonValue,
-    turn_metrics: Option<JsonValue>,
-    audit_events: Option<JsonValue>,
-) -> Result<JsonValue, String> {
-    let data_dir = app_data_dir(&app)?;
-    let dir = domain::round_ledger::ledger_dir(&data_dir);
-    let ev_array = events
-        .get("events")
-        .cloned()
-        .unwrap_or_else(|| events.clone())
-        .as_array()
-        .cloned()
-        .unwrap_or_default();
-    let tm = turn_metrics.unwrap_or_else(|| json!({}));
-    let au = audit_events.unwrap_or_else(|| json!([]));
-    let ledger = domain::round_ledger::reduce_round(
-        &thread_id,
-        &round_id,
-        intent.as_deref(),
-        conclusion.as_deref(),
-        &ev_array,
-        &tm,
-        &au,
-    );
-    let path = domain::round_ledger::write_ledger(&dir, &ledger)
-        .map_err(|err| format!("回合账本落盘失败: {err}"))?;
-    Ok(json!({
-        "path": path.to_string_lossy(),
-        "ledger": ledger.to_json(),
-    }))
-}
-
-/// 回合账本摘要链读取（append-only 可回溯）。
-#[tauri::command]
-fn round_ledger_chain(app: AppHandle, thread_id: String) -> Result<JsonValue, String> {
-    let data_dir = app_data_dir(&app)?;
-    let dir = domain::round_ledger::ledger_dir(&data_dir);
-    let chain = domain::round_ledger::load_summary_chain(&dir, &thread_id);
-    Ok(json!({ "thread_id": thread_id, "chain": chain }))
-}
-
-/// 回合账本容量滚动（按 N 周或 N MB 上限，与 fingerprint_cache 同语义）：
-/// 超龄最旧删、超限最旧删；不传 thread_id 则全量线程滚动。
-#[tauri::command]
-fn round_ledger_roll(
-    app: AppHandle,
-    thread_id: Option<String>,
-    max_bytes: Option<i64>,
-    max_age_days: Option<i64>,
-) -> Result<JsonValue, String> {
-    let data_dir = app_data_dir(&app)?;
-    let dir = domain::round_ledger::ledger_dir(&data_dir);
-    let max_bytes = max_bytes.unwrap_or(domain::round_ledger::DEFAULT_MAX_BYTES as i64) as u64;
-    let max_age = max_age_days.unwrap_or(domain::round_ledger::DEFAULT_MAX_AGE_DAYS);
-    let removed = match thread_id {
-        Some(t) => domain::round_ledger::roll_ledgers(&dir, &t, max_bytes, max_age)?,
-        None => {
-            let mut total = 0usize;
-            for t in domain::round_ledger::list_thread_ids(&dir) {
-                total += domain::round_ledger::roll_ledgers(&dir, &t, max_bytes, max_age)?;
-            }
-            total
-        }
-    };
-    Ok(json!({ "removed": removed }))
-}
-
-/// 回合账本摘要合并：汇总线程最新摘要 + 账本事实快照，经引擎 `ledger.merge`
-/// op 复用压缩形态产出增量摘要，落回摘要链（append-only）并滚动留界。
-#[tauri::command]
-async fn round_ledger_merge(
-    app: AppHandle,
-    thread_id: String,
-    old_summary: Option<String>,
-    ledgers: Option<JsonValue>,
-) -> Result<JsonValue, String> {
-    let data_dir = app_data_dir(&app)?;
-    let dir = domain::round_ledger::ledger_dir(&data_dir);
-    let old = old_summary
-        .or_else(|| domain::round_ledger::load_summary_chain(&dir, &thread_id).last().cloned());
-    let leds = ledgers
-        .and_then(|v| v.as_array().cloned())
-        .unwrap_or_else(|| domain::round_ledger::load_ledger_jsons(&dir, &thread_id));
-    let merged = engine::host::call_engine_op_async(
-        "ledger.merge",
-        json!({
-            "thread_id": thread_id,
-            "old_summary": old,
-            "new_ledgers": leds,
-        }),
-    )
-    .await?;
-    if let Some(summary) = merged.get("summary").and_then(|v| v.as_str()) {
-        domain::round_ledger::append_summary(&dir, &thread_id, summary)
-            .map_err(|err| format!("摘要链追加失败: {err}"))?;
-        let _ = domain::round_ledger::roll_summary_chain(&dir, &thread_id, 200);
-    }
-    Ok(merged)
-}
-
-/// 记忆无感提取：回合账本（用户意图/结论/确认）经引擎 `memory.extract` op
-/// 规则抽取（零 LLM）→ 冲突仲裁（新旧并存留痕）入记忆。
-#[tauri::command]
-async fn round_memory_extract(
-    thread_id: String,
-    ledger: JsonValue,
-) -> Result<JsonValue, String> {
-    let _ = thread_id;
-    let outcome = engine::host::call_engine_op_async(
-        "memory.extract",
-        json!({ "ledger": ledger }),
-    )
-    .await?;
-    Ok(outcome)
-}
-
-/// 回合续跑并附最新摘要：加载线程摘要链最新一条，注入 `ledger_summary`
-/// 续跑（引擎零改动感知，压缩前事实快照随续跑上下文回流）。
-#[tauri::command]
-async fn round_resume_with_summary(
-    app: AppHandle,
-    thread_id: String,
-    key: String,
-    decision: String,
-    reason: Option<String>,
-    edited_content: Option<JsonValue>,
-) -> Result<JsonValue, String> {
-    let data_dir = app_data_dir(&app)?;
-    let dir = domain::round_ledger::ledger_dir(&data_dir);
-    let latest_summary = domain::round_ledger::load_summary_chain(&dir, &thread_id)
-        .last()
-        .cloned();
-    let latest = engine::host::call_engine_op_async(
-        "engine.thread_latest_checkpoint",
-        json!({ "thread_id": thread_id }),
-    )
-    .await?;
-    let checkpoint_id = latest
-        .get("checkpoint_id")
-        .and_then(JsonValue::as_i64)
-        .ok_or_else(|| "会话无检查点（先发送一条消息）".to_string())?;
-    let mut inject = json!({});
-    inject[key] = match decision.as_str() {
-        "reject" => json!("reject"),
-        "edit" => json!(edited_content.unwrap_or_else(|| json!("accept"))),
-        _ => json!("accept"),
-    };
-    if let Some(s) = latest_summary {
-        inject["ledger_summary"] = json!(s);
-    }
-    let mut args = json!({
-        "thread_id": thread_id,
-        "checkpoint_id": checkpoint_id,
-        "inject": inject,
-    });
-    if let Some(reason) = reason {
-        args["reason"] = json!(reason);
-    }
-    let outcome = engine::host::call_engine_op_async("engine.thread_resume", args).await?;
-    Ok(outcome)
-}
-
-/// 例行任务到点触发回合（schedule 工具升级路径）：经既有引擎回合通道拉起
-/// 一轮执行，输入即到点动作，引擎零改动感知。本函数供壳后端定时线程调用，
-/// 失败仅留观测日志，不阻断定时调度。
-pub fn run_routine_round(app: &AppHandle, action: &str) -> Result<JsonValue, String> {
-    let data_dir = app_data_dir(app)?;
-    let state = app.state::<ShellState>();
-    ensure_engine(&state, &data_dir)?;
-    let thread_id = format!("routine-{}", chrono::Utc::now().timestamp());
-    let round_id = format!("routine-r-{}", uuid::Uuid::new_v4().simple());
-    let request = engine::host::RoundRequest {
-        input_text: action.to_string(),
-        thread_id: thread_id.clone(),
-        round_id: round_id.clone(),
-        step_args: None,
-        orchestrate: None,
-        inject: None,
-        auto_accept_review: true,
-    };
-    let engine_guard = state.backend.engine.lock().unwrap();
-    let engine = engine_guard
-        .as_ref()
-        .ok_or_else(|| "引擎未装配（例行回合失败）".to_string())?;
-    let outcome = engine
-        .round(request)
-        .map_err(|err| format!("例行回合失败: {err}"))?;
-    drop(engine_guard);
-    Ok(json!({
-        "thread_id": thread_id,
-        "round_id": round_id,
-        "reason": outcome.reason,
-    }))
-}
-
-// ── 底层辅助 ──
-
 /// 安全域实例（授权命令按 seed 声明装载判定语义）。
 fn security_domain_from_seed() -> Result<domain::security::SecurityDomain, String> {
     let bundle = domain::recipe::load_seed_data(&seed_root())
@@ -1751,228 +314,6 @@ fn app_data_dir(app: &AppHandle) -> Result<PathBuf, String> {
         .join("inkling");
     std::fs::create_dir_all(&dir).map_err(|err| format!("数据目录创建失败: {err}"))?;
     Ok(dir)
-}
-
-// ── 壳侧审批台账（决议 4：S2/S3/L1 审批闸门归属壳侧）──
-
-/// 审批台账条目键：(工具名, 参数指纹) → 已批准（指纹 = 参数规范 JSON，
-/// 按调用实参精确裁决——同工具不同参数不共享批准）。
-fn fingerprint_key(tool: &str, args: &BTreeMap<String, JsonValue>) -> String {
-    let args_text = serde_json::to_string(args).unwrap_or_default();
-    format!("{tool}\u{1f}{args_text}")
-}
-
-/// 壳侧审批台账：命令层不接受客户端 approved 布尔；`registry.run` 前的裁决
-/// = 档位表（工具声明 permission → TieredGate）判定 review 档 → 查询台账
-/// （引擎审批卡决议态驱动：`approval.gate_card_request` 决议 / 自动审批
-/// 配置 / 引擎 `os.dispatch` 放行态登记）。无服务端审批态 = review 档被拒
-/// （fail-closed，客户端无法自证授权）。
-#[derive(Clone)]
-pub struct ApprovalLedger {
-    gate: domain::security::TieredGate,
-    auto_all_review: Arc<Mutex<bool>>,
-    auto_tools: Arc<Mutex<HashSet<String>>>,
-    resolutions: Arc<Mutex<HashMap<String, bool>>>,
-}
-
-impl ApprovalLedger {
-    /// 从工具声明（fixtures/tools_os.json）装载档位表（permission → 档位；
-    /// deny 档不登记 = TieredGate 无条件拒绝语义由执行器守卫兜底）。
-    pub fn from_declarations(declarations: &ToolDeclarations) -> Self {
-        let mut tiers = HashMap::new();
-        for tool in &declarations.tools {
-            let tier = match tool.permission {
-                executors::tool_decl::PermissionLevel::Allow => domain::security::ALLOW,
-                executors::tool_decl::PermissionLevel::Review => domain::security::REVIEW,
-                executors::tool_decl::PermissionLevel::Deny => domain::security::DENY,
-            };
-            tiers.insert(tool.name.clone(), tier.to_string());
-        }
-        Self {
-            gate: domain::security::TieredGate::new(
-                tiers,
-                domain::security::DENY,
-                HashMap::new(),
-            ),
-            auto_all_review: Arc::new(Mutex::new(false)),
-            auto_tools: Arc::new(Mutex::new(HashSet::new())),
-            resolutions: Arc::new(Mutex::new(HashMap::new())),
-        }
-    }
-
-    /// `registry.run` 前的裁决（命令层唯一授权入口）：allow/未登记工具按
-    /// 声明直过；review 档查询台账，无批准态 = 拒绝。
-    pub fn adjudicate(&self, tool: &str, args: &BTreeMap<String, JsonValue>) -> Authorization {
-        let approved = if self.gate.review_needed(tool) {
-            self.is_approved(tool, args)
-        } else {
-            true
-        };
-        Authorization { approved }
-    }
-
-    /// 引擎通道放行态登记（`os.dispatch` 回调）：引擎审批流水线先行裁决
-    /// （approval.gate_card_request / 自动审批 / 策略档，seed 单源），壳侧
-    /// 将引擎放行态记入台账——台账由引擎审批卡决议态驱动，客户端通道与
-    /// 引擎通道共用同一裁决函数，无任何硬编码放行。
-    pub fn record_engine_dispatch(&self, tool: &str, args: &BTreeMap<String, JsonValue>) {
-        if self.gate.review_needed(tool) {
-            self.resolutions
-                .lock()
-                .unwrap()
-                .insert(fingerprint_key(tool, args), true);
-        }
-    }
-
-    /// 审批卡决议登记（引擎 `approval.gate_card_request` 决议态驱动）：
-    /// payload 携带 tool/args 线索时按 (工具, 参数指纹) 落台账（调用方
-    /// 约定：审批请求 payload 含 `{"tool": "...", "args": {...}}`）；
-    /// 无线索仅留 key 迹（审计可回溯，裁决不命中）。
-    pub fn record_resolution(&self, key: &str, decision: &str, payload: Option<&JsonValue>) {
-        let accepted = decision == "accept";
-        if let Some(payload) = payload {
-            if let (Some(tool), Some(args)) = (
-                payload.get("tool").and_then(JsonValue::as_str),
-                payload.get("args"),
-            ) {
-                if let Some(map) = args.as_object() {
-                    let map = map.clone().into_iter().collect();
-                    self.resolutions
-                        .lock()
-                        .unwrap()
-                        .insert(fingerprint_key(tool, &map), accepted);
-                }
-            }
-        }
-        self.resolutions
-            .lock()
-            .unwrap()
-            .insert(format!("key:{key}"), accepted);
-    }
-
-    /// 自动审批配置登记（能力设置持久化同源：`security.auto_approve_set`
-    /// 成功后同步，命令面裁决与引擎侧门禁同口径）。
-    pub fn set_auto_approve(&self, tools: Vec<String>, all_review: bool) {
-        *self.auto_all_review.lock().unwrap() = all_review;
-        *self.auto_tools.lock().unwrap() = tools.into_iter().collect();
-    }
-
-    fn is_approved(&self, tool: &str, args: &BTreeMap<String, JsonValue>) -> bool {
-        if *self.auto_all_review.lock().unwrap() {
-            return true;
-        }
-        if self.auto_tools.lock().unwrap().contains(tool) {
-            return true;
-        }
-        self.resolutions
-            .lock()
-            .unwrap()
-            .get(&fingerprint_key(tool, args))
-            .copied()
-            .unwrap_or(false)
-    }
-}
-
-/// 用户可见结果脱敏（S10）：工作区绝对路径 → `<workspace>` 占位；审计侧
-/// 日志保留完整文本（process_exec/device_mcp_call 审计分层——完整结果只进
-/// 本地日志，回传前端的结果为脱敏形态）。
-pub fn redact_workspace(text: &str, root: &Path) -> String {
-    let root_text = root.to_string_lossy();
-    text.replace(&*root_text, "<workspace>")
-        .replace(&root_text.replace('\\', "/"), "<workspace>")
-}
-
-/// 工作区根（沙箱根 + 脱敏替换目标）。
-fn workspace_root() -> PathBuf {
-    expand_home(DEFAULT_MOUNT_ROOT)
-}
-
-/// process_exec 命令：统一审批台账裁决（决议 4）——命令层不再接受客户端
-/// approved 布尔；`registry.run` 前壳侧按档位表 + 审批台账自行裁决
-/// （无服务端审批态时 review 档被拒，fail-closed）。
-#[tauri::command]
-fn process_exec(
-    state: tauri::State<'_, ShellState>,
-    backend: tauri::State<'_, ShellBackend>,
-    tool: String,
-    args: serde_json::Value,
-) -> Result<serde_json::Value, String> {
-    let args_map = args
-        .as_object()
-        .cloned()
-        .map(|map| map.into_iter().collect::<std::collections::BTreeMap<String, serde_json::Value>>())
-        .ok_or_else(|| format!("工具参数须为对象: {tool}"))?;
-    let auth = state.approval.adjudicate(&tool, &args_map);
-    let outcome = state
-        .registry
-        .run(&tool, &args_map, backend.inner(), &auth)
-        .map_err(|err| err.to_string())?;
-    // 审计分层（S10）：完整结果留本地日志；用户可见结果经工作区路径脱敏
-    eprintln!(
-        "[process_exec] tool={tool} sandbox={} result={}",
-        outcome.sandbox_checked, outcome.result
-    );
-    Ok(serde_json::json!({
-        "tool": tool,
-        "result": redact_workspace(&outcome.result, &workspace_root()),
-        "sandbox": outcome.sandbox_checked,
-    }))
-}
-
-/// 文件挂载授权：目录加入授权挂载点（文件沙箱根）。
-/// 宿主侧人工授权（设置页「工作区授权」）；集成期由引擎审批层叠加判定。
-#[tauri::command]
-fn mount_authorize(state: tauri::State<'_, ShellState>, path: String) -> Result<Vec<String>, String> {
-    let mut mounts = state.mounts.lock().unwrap();
-    let resolved = expand_home(&path);
-    let canonical = std::fs::canonicalize(&resolved).map_err(|err| format!("挂载目录不可达: {path} ({err})"))?;
-    if !mounts.contains(&canonical) {
-        mounts.push(canonical.clone());
-    }
-    Ok(mounts.iter().map(|p| p.display().to_string()).collect())
-}
-
-#[tauri::command]
-fn mount_list(state: tauri::State<'_, ShellState>) -> Vec<String> {
-    state
-        .mounts
-        .lock()
-        .unwrap()
-        .iter()
-        .map(|p| p.display().to_string())
-        .collect()
-}
-
-/// 设备感知 server 调用（进程内接线形态；宿主侧 MCP stdio 形态见 mcp 模块）。
-///
-/// 审批语义与 process_exec 同源（决议 4）：壳侧审批台账裁决——引擎审批卡
-/// 决议态驱动的批准才放行 review 档，不再硬编码 approved。
-#[tauri::command]
-fn device_mcp_call(
-    state: tauri::State<'_, ShellState>,
-    backend: tauri::State<'_, ShellBackend>,
-    tool: String,
-    args: serde_json::Value,
-) -> Result<serde_json::Value, String> {
-    let args_map = args
-        .as_object()
-        .cloned()
-        .map(|map| map.into_iter().collect::<std::collections::BTreeMap<String, serde_json::Value>>())
-        .ok_or_else(|| format!("工具参数须为对象: {tool}"))?;
-    let auth = state.approval.adjudicate(&tool, &args_map);
-    let outcome = state
-        .registry
-        .run(&tool, &args_map, backend.inner(), &auth)
-        .map_err(|err| err.to_string())?;
-    // 审计分层（S10）：完整结果留本地日志；用户可见结果经工作区路径脱敏
-    eprintln!(
-        "[device_mcp_call] tool={tool} sandbox={} result={}",
-        outcome.sandbox_checked, outcome.result
-    );
-    Ok(serde_json::json!({
-        "tool": tool,
-        "result": redact_workspace(&outcome.result, &workspace_root()),
-    }))
 }
 
 fn expand_home(path: &str) -> PathBuf {
@@ -2209,13 +550,14 @@ pub fn run() {
             // 嵌入解释器就绪（引擎桥前置；进程内一次）
             engine::host::ensure_python();
             // 声明加载 + 执行器注册 + 签名自检（不一致 = 启动失败，fail-closed）
-            let declarations: ToolDeclarations = load_tool_declarations(TOOLS_DECL_JSON)
-                .expect("工具声明解析失败（声明损坏，壳拒绝启动）");
-            let registry = build_registry_from_declarations(&declarations)
+            let declarations: executors::tool_decl::ToolDeclarations =
+                executors::tool_decl::load_tool_declarations(TOOLS_DECL_JSON)
+                    .expect("工具声明解析失败（声明损坏，壳拒绝启动）");
+            let registry = executors::registry::build_registry_from_declarations(&declarations)
                 .expect("执行器注册契约校验失败（声明 ↔ 执行器签名不一致）");
 
             let mounts = vec![expand_home(DEFAULT_MOUNT_ROOT)];
-            let approval = ApprovalLedger::from_declarations(&declarations);
+            let approval = commands::approval::ApprovalLedger::from_declarations(&declarations);
             app.manage(ShellState {
                 mounts: Mutex::new(mounts),
                 registry,
@@ -2229,7 +571,8 @@ pub fn run() {
             // OS 执行体接桥：引擎链路（process_exec 端点 → 宿主 os_registry
             // 分发）经回调桥转发到本注册表——同一套运行体，两处调度点合一；
             // 回调执行在引擎回合线程，经 AppHandle 取托管状态（沙箱/授权在
-            // 执行器 run 内强制，此处只做转发）。
+            // 执行器 run 内强制，此处只做转发）。端点闸门 = process_exec +
+            // 授权挂载点并入动态根（决议 14：引擎通道与客户端通道同口径）。
             let os_bridge_app = app.handle().clone();
             engine::bridge::register_callback(
                 "os.dispatch",
@@ -2254,17 +597,31 @@ pub fn run() {
                         .into_iter()
                         .collect();
                     let state = os_bridge_app.state::<ShellState>();
-                    let shell_backend = os_bridge_app.state::<ShellBackend>();
+                    let shell_backend = os_bridge_app.state::<executors::backends::ShellBackend>();
                     // 引擎通道：审批流水线在引擎侧先行裁决（approval 档 seed
                     // 单源），壳侧将引擎放行态记入审批台账后经同一裁决函数
                     // 放行（决议 4：无硬编码放行，客户端通道与引擎通道共用
                     // 台账裁决；执行器层守卫 deny/沙箱/签名照常强制）
                     state.approval.record_engine_dispatch(&tool, &args_map);
                     let auth = state.approval.adjudicate(&tool, &args_map);
-                    match state
-                        .registry
-                        .run(&tool, &args_map, shell_backend.inner(), &auth)
-                    {
+                    let dynamic_roots: Vec<String> = state
+                        .mounts
+                        .lock()
+                        .unwrap()
+                        .iter()
+                        .map(|p| p.display().to_string())
+                        .collect();
+                    let gate = executors::registry::CallGate::with_roots(
+                        executors::tool_decl::Endpoint::ProcessExec,
+                        dynamic_roots,
+                    );
+                    match state.registry.run(
+                        &tool,
+                        &args_map,
+                        shell_backend.inner(),
+                        &auth,
+                        &gate,
+                    ) {
                         Ok(outcome) => Ok(serde_json::json!({
                             "ok": true,
                             "result": outcome.result,
@@ -2286,72 +643,72 @@ pub fn run() {
             Ok(())
         })
         .invoke_handler(tauri::generate_handler![
-            process_exec,
-            mount_authorize,
-            mount_list,
-            device_mcp_call,
-            backend_status,
-            engine_boot,
-            first_run_dismiss,
-            round_send,
-            round_abort,
-            round_resume,
-            route_plan,
-            session_list,
-            session_create,
-            session_rename,
-            session_delete,
-            session_refresh,
-            session_tree,
-            session_branch,
-            authorization_state,
-            workspace_authorize,
-            workspace_revoke,
-            approval_request,
-            approval_resolve,
-            capability_get,
-            capability_put,
-            backup_export,
-            backup_preview,
-            backup_restore,
-            recovery_snapshots,
-            recovery_restore_snapshot,
-            recovery_factory_reset,
-            tools_snapshot,
-            components_manifest,
-            task_start,
-            task_cancel,
-            task_progress,
-            task_finish,
-            task_fail,
-            task_list,
-            task_state,
-            task_resume,
-            model_archive_snapshot,
-            models_refresh,
-            metrics_snapshot,
-            path_choose_candidate,
-            path_set_multipath,
-            cache_invalidate,
-            edge_downgrade_tier,
-            doc_parse,
-            doc_generate,
-            material_import,
-            screenshot_capture,
-            voice_status,
-            voice_transcribe,
-            voice_synthesize,
-            voice_record,
-            voice_devices,
-            offline_detect,
-            offline_settings_get,
-            offline_settings_put,
-            round_ledger_record,
-            round_ledger_chain,
-            round_ledger_roll,
-            round_ledger_merge,
-            round_memory_extract,
-            round_resume_with_summary,
+            commands::process::process_exec,
+            commands::workspace::mount_authorize,
+            commands::workspace::mount_list,
+            commands::process::device_mcp_call,
+            commands::lifecycle::backend_status,
+            commands::lifecycle::engine_boot,
+            commands::lifecycle::first_run_dismiss,
+            commands::rounds::round_send,
+            commands::rounds::round_abort,
+            commands::rounds::round_resume,
+            commands::lifecycle::route_plan,
+            commands::sessions::session_list,
+            commands::sessions::session_create,
+            commands::sessions::session_rename,
+            commands::sessions::session_delete,
+            commands::sessions::session_refresh,
+            commands::sessions::session_tree,
+            commands::sessions::session_branch,
+            commands::workspace::authorization_state,
+            commands::workspace::workspace_authorize,
+            commands::workspace::workspace_revoke,
+            commands::workspace::approval_request,
+            commands::workspace::approval_resolve,
+            commands::capability::capability_get,
+            commands::capability::capability_put,
+            commands::backup::backup_export,
+            commands::backup::backup_preview,
+            commands::backup::backup_restore,
+            commands::backup::recovery_snapshots,
+            commands::backup::recovery_restore_snapshot,
+            commands::backup::recovery_factory_reset,
+            commands::tools::tools_snapshot,
+            commands::tools::components_manifest,
+            commands::tasks::task_start,
+            commands::tasks::task_cancel,
+            commands::tasks::task_progress,
+            commands::tasks::task_finish,
+            commands::tasks::task_fail,
+            commands::tasks::task_list,
+            commands::tasks::task_state,
+            commands::tasks::task_resume,
+            commands::models::model_archive_snapshot,
+            commands::models::models_refresh,
+            commands::models::metrics_snapshot,
+            commands::models::path_choose_candidate,
+            commands::models::path_set_multipath,
+            commands::models::cache_invalidate,
+            commands::models::edge_downgrade_tier,
+            commands::files::doc_parse,
+            commands::files::doc_generate,
+            commands::files::material_import,
+            commands::files::screenshot_capture,
+            commands::voice::voice_status,
+            commands::voice::voice_transcribe,
+            commands::voice::voice_synthesize,
+            commands::voice::voice_record,
+            commands::voice::voice_devices,
+            commands::offline::offline_detect,
+            commands::offline::offline_settings_get,
+            commands::offline::offline_settings_put,
+            commands::rounds::round_ledger_record,
+            commands::rounds::round_ledger_chain,
+            commands::rounds::round_ledger_roll,
+            commands::rounds::round_ledger_merge,
+            commands::rounds::round_memory_extract,
+            commands::rounds::round_resume_with_summary,
         ])
         .build(tauri::generate_context!())
         .expect("InKling 桌面壳装配失败");

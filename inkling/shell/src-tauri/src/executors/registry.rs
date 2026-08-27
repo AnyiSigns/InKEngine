@@ -11,37 +11,102 @@ use serde_json::Value;
 
 use super::backends::SystemBackend;
 use super::impls::{Authorization, ExecError, ExecOutcome, Executor, ExecutorSpec, executor_impl};
-use super::tool_decl::{ToolDeclarations, ParamType, PermissionLevel, Endpoint};
+use super::tool_decl::{ToolDeclarations, ParamType, PermissionLevel, Endpoint, SandboxRule};
 
 /// 注册表（工具名 → 执行器）
 pub struct ExecutorRegistry {
-    executors: Vec<Box<dyn Executor>>,
+    executors: Vec<RegisteredExecutor>,
+}
+
+/// 调用闸门（L7 端点隔离 + L4 动态挂载根）：命令面到注册表的
+/// （端点, 动态根）载体——端点校验在注册表层强制（process_exec 端点
+/// 不可调 device_mcp 工具，反之亦然）；动态挂载根并入路径根沙箱裁决。
+#[derive(Debug, Clone)]
+pub struct CallGate {
+    pub endpoint: Endpoint,
+    pub dynamic_roots: Vec<String>,
+}
+
+impl CallGate {
+    pub fn new(endpoint: Endpoint) -> Self {
+        Self { endpoint, dynamic_roots: Vec::new() }
+    }
+
+    pub fn with_roots(endpoint: Endpoint, dynamic_roots: Vec<String>) -> Self {
+        Self { endpoint, dynamic_roots }
+    }
 }
 
 impl ExecutorRegistry {
     /// 按名取执行器
     pub fn get(&self, name: &str) -> Option<&dyn Executor> {
-        self.executors.iter().find(|e| e.name() == name).map(|e| e.as_ref())
+        self.executors.iter().find(|e| e.spec.name == name).map(|e| e as &dyn Executor)
     }
 
     /// 已注册工具名（inspect_tools 快照面）
     pub fn names(&self) -> Vec<String> {
-        self.executors.iter().map(|e| e.name().to_string()).collect()
+        self.executors.iter().map(|e| e.spec.name.to_string()).collect()
     }
 
-    /// 执行：查表 → 执行器 run（守卫在 run 内强制）
+    /// 执行：查表 → 端点隔离校验（L7）→ 动态挂载根并入路径根沙箱（L4）
+    /// → 执行器 run（权限/沙箱守卫在 run 内强制）。
+    ///
+    /// 端点校验在注册表层强制：调用闸门端点与工具声明端点不一致 =
+    /// 沙箱级拒绝（端点隔离是命令面的最后一层防线，禁被绕行）。
     pub fn run(
         &self,
         tool: &str,
         args: &BTreeMap<String, Value>,
         backend: &dyn SystemBackend,
         auth: &Authorization,
+        gate: &CallGate,
     ) -> Result<ExecOutcome, ExecError> {
-        let executor = self
-            .get(tool)
+        let registered = self
+            .find(tool)
             .ok_or_else(|| ExecError::UnknownTool(tool.to_string()))?;
-        executor.run(args, backend, auth)
+        if registered.spec.endpoint != gate.endpoint {
+            return Err(ExecError::SandboxViolation(format!(
+                "端点隔离拒绝: 工具 {tool} 声明端点 {:?}，调用端点 {:?}",
+                registered.spec.endpoint, gate.endpoint
+            )));
+        }
+        // L4（决议 14）：授权挂载点并入路径根沙箱——路径根工具按「声明根 +
+        // 动态挂载根」裁决；非路径根工具（命令白名单/边界/模板）不受影响。
+        if !gate.dynamic_roots.is_empty() {
+            if let Some(merged) = merge_dynamic_roots(&registered.spec, &gate.dynamic_roots) {
+                return registered.run_view(&merged, args, backend, auth);
+            }
+        }
+        registered.run(args, backend, auth)
     }
+
+    fn find(&self, name: &str) -> Option<&RegisteredExecutor> {
+        self.executors.iter().find(|e| e.spec.name == name)
+    }
+}
+
+/// 把动态挂载根并入 PathRoots 沙箱（仅路径根形态；无动态根/非路径根 = None）。
+fn merge_dynamic_roots(
+    spec: &ExecutorSpec,
+    dynamic_roots: &[String],
+) -> Option<ExecutorSpec> {
+    let SandboxRule::PathRoots { roots } = &spec.sandbox else {
+        return None;
+    };
+    let mut merged = roots.clone();
+    let mut changed = false;
+    for root in dynamic_roots {
+        if !merged.iter().any(|r| r == root) {
+            merged.push(root.clone());
+            changed = true;
+        }
+    }
+    if !changed {
+        return None;
+    }
+    let mut merged_spec = spec.clone();
+    merged_spec.sandbox = SandboxRule::PathRoots { roots: merged };
+    Some(merged_spec)
 }
 
 /// 签名一致性校验（声明 ↔ 执行器）：逐项比对，返回首处不一致描述
@@ -137,10 +202,10 @@ pub fn build_registry_from_declarations(declarations: &ToolDeclarations) -> Resu
             continue;
         }
 
-        registry.executors.push(Box::new(RegisteredExecutor {
+        registry.executors.push(RegisteredExecutor {
             spec: executor_spec,
             run_fn,
-        }));
+        });
     }
 
     if !errors.is_empty() {
@@ -153,6 +218,30 @@ pub fn build_registry_from_declarations(declarations: &ToolDeclarations) -> Resu
 struct RegisteredExecutor {
     spec: ExecutorSpec,
     run_fn: super::impls::RunFn,
+}
+
+impl RegisteredExecutor {
+    fn run(
+        &self,
+        args: &BTreeMap<String, Value>,
+        backend: &dyn SystemBackend,
+        auth: &Authorization,
+    ) -> Result<ExecOutcome, ExecError> {
+        (self.run_fn)(self, args, backend, auth)
+    }
+
+    /// 以替换签名（动态挂载根并入后的 PathRoots）运行同一运行体：
+    /// 运行体只读 name/spec，spec 换成合并态即完成动态根生效（L4）。
+    fn run_view(
+        &self,
+        spec: &ExecutorSpec,
+        args: &BTreeMap<String, Value>,
+        backend: &dyn SystemBackend,
+        auth: &Authorization,
+    ) -> Result<ExecOutcome, ExecError> {
+        let view = SpecView { spec: spec.clone() };
+        (self.run_fn)(&view, args, backend, auth)
+    }
 }
 
 impl Executor for RegisteredExecutor {
@@ -170,7 +259,31 @@ impl Executor for RegisteredExecutor {
         backend: &dyn SystemBackend,
         auth: &Authorization,
     ) -> Result<ExecOutcome, ExecError> {
-        (self.run_fn)(self, args, backend, auth)
+        RegisteredExecutor::run(self, args, backend, auth)
+    }
+}
+
+/// 签名承载视图（动态挂载根合并态的只读 spec 载体；不参与 run 分发）。
+struct SpecView {
+    spec: ExecutorSpec,
+}
+
+impl Executor for SpecView {
+    fn name(&self) -> &str {
+        self.spec.name
+    }
+
+    fn spec(&self) -> &ExecutorSpec {
+        &self.spec
+    }
+
+    fn run(
+        &self,
+        _args: &BTreeMap<String, Value>,
+        _backend: &dyn SystemBackend,
+        _auth: &Authorization,
+    ) -> Result<ExecOutcome, ExecError> {
+        unreachable!("SpecView 仅承载合并签名，不参与 run 分发")
     }
 }
 
@@ -236,5 +349,79 @@ mod tests {
         ] {
             assert!(names.iter().any(|n| n == name), "夹具未注册工具: {name}");
         }
+    }
+
+    fn args(pairs: &[(&str, serde_json::Value)]) -> BTreeMap<String, serde_json::Value> {
+        pairs.iter().map(|(k, v)| (k.to_string(), v.clone())).collect()
+    }
+
+    /// L7：process_exec 端点不可调 device_mcp 工具（端点隔离在注册表强制）。
+    #[test]
+    fn process_exec_gate_rejects_device_mcp_tools() {
+        let declarations = load_tool_declarations(include_str!("../../fixtures/tools_os.json"))
+            .expect("夹具须可解析");
+        let registry = build_registry_from_declarations(&declarations).expect("注册须成功");
+        let backend = crate::executors::backends::MockBackend::new();
+        let auth = Authorization { approved: true };
+        let call = args(&[("target", "resolution".into())]);
+        let err = registry
+            .run("screen_query", &call, &backend, &auth, &CallGate::new(Endpoint::ProcessExec))
+            .unwrap_err();
+        assert!(
+            matches!(err, ExecError::SandboxViolation(_)),
+            "device_mcp 工具经 process_exec 端点必须被拒: {err}"
+        );
+        assert!(backend.calls.lock().unwrap().is_empty(), "隔离拒绝不得触达后端");
+    }
+
+    /// L7：device_mcp 端点不可调 process_exec 工具（双向隔离）。
+    #[test]
+    fn device_gate_rejects_process_exec_tools() {
+        let declarations = load_tool_declarations(include_str!("../../fixtures/tools_os.json"))
+            .expect("夹具须可解析");
+        let registry = build_registry_from_declarations(&declarations).expect("注册须成功");
+        let backend = crate::executors::backends::MockBackend::new();
+        let auth = Authorization { approved: true };
+        let call = args(&[("app", "notepad".into())]);
+        let err = registry
+            .run("launch_app", &call, &backend, &auth, &CallGate::new(Endpoint::DeviceMcp))
+            .unwrap_err();
+        assert!(
+            matches!(err, ExecError::SandboxViolation(_)),
+            "process_exec 工具经 device 端点必须被拒: {err}"
+        );
+    }
+
+    /// L4：动态挂载根并入路径根沙箱——挂载点内路径放行、声明根内路径照常、
+    /// 两者之外的路径仍拒绝（决议 14：授权挂载点成为文件沙箱的动态根）。
+    #[test]
+    fn dynamic_mount_roots_merged_into_path_roots() {
+        let declarations = load_tool_declarations(include_str!("../../fixtures/tools_os.json"))
+            .expect("夹具须可解析");
+        let registry = build_registry_from_declarations(&declarations).expect("注册须成功");
+        let backend = crate::executors::backends::MockBackend::new();
+        let auth = Authorization { approved: true };
+
+        let mount = std::env::temp_dir()
+            .join(format!("inkling-mount-{}", uuid::Uuid::new_v4().simple()));
+        std::fs::create_dir_all(&mount).expect("挂载目录创建失败");
+        let inside = mount.join("a.txt").to_string_lossy().into_owned();
+        std::fs::write(mount.join("a.txt"), "x").unwrap();
+
+        let gate = CallGate::with_roots(Endpoint::ProcessExec, vec![mount.to_string_lossy().into_owned()]);
+
+        // 挂载点内路径放行（动态根生效）
+        let call = args(&[("path", inside.clone().into())]);
+        let outcome = registry.run("open_file", &call, &backend, &auth, &gate).expect("动态根内应放行");
+        assert!(outcome.result.contains("a.txt"), "{}", outcome.result);
+
+        // 无动态根时同一路径仍被拒（挂载点未授权 = 沙箱外）
+        let call = args(&[("path", inside.into())]);
+        let err = registry
+            .run("open_file", &call, &backend, &auth, &CallGate::new(Endpoint::ProcessExec))
+            .unwrap_err();
+        assert!(matches!(err, ExecError::SandboxViolation(_)), "未挂载路径必须拒绝: {err}");
+
+        let _ = std::fs::remove_dir_all(&mount);
     }
 }

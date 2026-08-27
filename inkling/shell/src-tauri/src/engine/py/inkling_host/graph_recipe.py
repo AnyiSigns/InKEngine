@@ -21,6 +21,7 @@
 from __future__ import annotations
 
 import json
+import time
 from collections.abc import Callable, Sequence
 from typing import Any
 from weakref import WeakKeyDictionary
@@ -212,11 +213,193 @@ def _tool_result_message(text: str, tool_call_id: str) -> dict:
     return tool_result(text, tool_call_id).to_dict()
 
 
+# ── D3：MCP server 离线独立标记（离线仅该 server 的挂载工具降级）──
+
+# 离线 server 独立标记（server_id → 可用性）：探测失败只标记该 server
+# 的挂载工具不可用，其余 server/工具不受影响——研究链默认规划与组装
+# 候选按此剔除离线 server 依赖的节点，不再「8 个必失败调用白跑」。
+_SERVER_AVAILABILITY: dict[str, bool] = {}
+# 各 server 最近探测时刻（TTL 缓存：连通性不逐秒抖动，窗口内不重复探测）
+_SERVER_CHECKED_AT: dict[str, float] = {}
+# 注入的探测通道（async: server_id -> bool | None；False = 离线，
+# True/None = 在线/未知——未知保守按可用处理，不因缺探测误降级；
+# None = 未注入，不发起真实探测，行为与未接入 D3 前一致）
+_SERVER_PROBE: Any = None
+# 探测 TTL 窗口（秒）
+_MCP_PROBE_TTL_SECONDS = 30.0
+# 离线 server 挂载工具的降级文案（工具执行留痕/消息流可见）
+_MCP_OFFLINE_MESSAGE = (
+    "MCP server 离线（该 server 挂载工具已标记不可用，其余工具不受影响）"
+)
+
+
+def install_mcp_server_probe(probe: Any) -> None:
+    """注入 MCP server 探测通道（async: server_id -> bool | None）。
+
+    None = 关闭探测（缺省形态：不探测不降级）；探测函数对单 server
+    判定可用性，失败/异常由 :func:`refresh_mcp_availability` 按
+    server 独立标记，不扩散到其余 server。
+    """
+    global _SERVER_PROBE
+    _SERVER_PROBE = probe
+
+
+def mark_mcp_server_available(server_id: str, available: bool) -> None:
+    """显式标记 server 可用性（探测结果/宿主观测的直接落点）。
+
+    同时刷新该 server 的探测时刻——TTL 窗口内刷新不再覆盖显式标记。
+    """
+    _SERVER_AVAILABILITY[server_id] = bool(available)
+    _SERVER_CHECKED_AT[server_id] = time.monotonic()
+
+
+def mcp_server_available(server_id: str) -> bool:
+    """server 可用性读取（未探测/未知 = 可用——不因缺探测误降级）。"""
+    return _SERVER_AVAILABILITY.get(server_id, True)
+
+
+def server_availability_snapshot() -> dict[str, bool]:
+    """全量离线/在线标记快照（审计/观测消费；独立标记的查询入口）。"""
+    return dict(_SERVER_AVAILABILITY)
+
+
+def _tool_mcp_server_id(spec: Any) -> str | None:
+    """工具声明 → 所属 MCP server id（非 MCP 端点 = None）。"""
+    if spec is None:
+        return None
+    from ink_engine.core.declarative_tools import EndpointType
+
+    endpoint = getattr(spec, "endpoint", None)
+    if endpoint is not EndpointType.MCP and endpoint != EndpointType.MCP.value:
+        return None
+    server_id = (getattr(spec, "endpoint_config", None) or {}).get("server_id")
+    if isinstance(server_id, str) and server_id:
+        return server_id
+    return None
+
+
+def mcp_server_ids_of(specs: Sequence[Any]) -> frozenset[str]:
+    """工具表 → 引用的全部 MCP server id 集合（探测范围）。"""
+    server_ids: set[str] = set()
+    for spec in specs:
+        server_id = _tool_mcp_server_id(spec)
+        if server_id is not None:
+            server_ids.add(server_id)
+    return frozenset(server_ids)
+
+
+async def refresh_mcp_availability(
+    specs: Sequence[Any], *, force: bool = False
+) -> dict[str, bool]:
+    """探测挂载工具引用的全部 MCP server（离线独立标记 + TTL 缓存）。
+
+    D3 核心：逐 server 独立探测——任一 server 探测失败/异常仅将该
+    server 标记不可用（其挂载工具降级），其余 server 继续探测、不受
+    影响；未注入探测通道时全部按可用处理（不因缺探测误降级）。
+    """
+    probe = _SERVER_PROBE
+    now = time.monotonic()
+    for server_id in mcp_server_ids_of(specs):
+        if not force:
+            checked = _SERVER_CHECKED_AT.get(server_id, 0.0)
+            if now - checked < _MCP_PROBE_TTL_SECONDS:
+                continue
+        if probe is None:
+            _SERVER_AVAILABILITY.setdefault(server_id, True)
+        else:
+            # 探测通道为外部注入的任意 async 回调，失败形态不可枚举——
+            # 逐 server 独立标记要求吞掉全部探测错误（仅该 server 降级）
+            try:
+                result = await probe(server_id)
+            except Exception:  # noqa: BLE001 - 探测失败 = 该 server 独立标记离线
+                _SERVER_AVAILABILITY[server_id] = False
+            else:
+                _SERVER_AVAILABILITY[server_id] = result is not False
+        _SERVER_CHECKED_AT[server_id] = now
+    return dict(_SERVER_AVAILABILITY)
+
+
+async def _refresh_specs_availability(
+    holder: dict[str, Any] | None,
+) -> Sequence[Any]:
+    """取实时工具表并刷新其引用 server 的可用性（无表 = 空序列）。"""
+    if holder is None:
+        return ()
+    specs = holder.get(_HOLDER_SPECS) or ()
+    if specs:
+        await refresh_mcp_availability(specs)
+    return specs
+
+
+def tool_server_offline(specs: Sequence[Any], tool_name: str) -> bool:
+    """工具是否因所属 MCP server 离线而降级（独立标记判定）。
+
+    非 MCP 工具/未知 server = 恒 False（不受离线标记影响）。
+    """
+    for spec in specs:
+        if getattr(spec, "name", None) != tool_name:
+            continue
+        server_id = _tool_mcp_server_id(spec)
+        return server_id is not None and not mcp_server_available(server_id)
+    return False
+
+
+def _default_plan_steps(
+    specs: Sequence[Any], plan_steps: Sequence[str]
+) -> tuple[tuple[str, ...], tuple[str, ...]]:
+    """默认研究链按 server 可用性过滤（D3）：返回 (在线步骤, 剔除步骤)。
+
+    离线 server 挂载工具的步骤从默认链剔除（降级跳过）——仅该 server
+    受影响；无工具表/未探测 = 原样返回（不因缺探测误降级）。
+    """
+    if not specs:
+        return tuple(plan_steps), ()
+    online: list[str] = []
+    dropped: list[str] = []
+    for name in plan_steps:
+        if tool_server_offline(specs, str(name)):
+            dropped.append(str(name))
+        else:
+            online.append(str(name))
+    return tuple(online), tuple(dropped)
+
+
+def _candidate_chain(candidate: Any) -> tuple[str, ...]:
+    """候选的链结点清单（兼容 AssemblyCandidate 对象与 to_dict 形态）。"""
+    chain = getattr(candidate, "chain", None)
+    if chain is None and isinstance(candidate, dict):
+        chain = candidate.get("chain")
+    return tuple(str(n) for n in (chain or ()))
+
+
+def _candidates_online(
+    specs: Sequence[Any], candidates: Sequence[dict]
+) -> tuple[list[dict], tuple[str, ...]]:
+    """组装候选按 server 可用性过滤（D3）：返回 (在线候选, 剔除说明)。
+
+    链含离线 server 挂载工具的候选整条剔除（该 server 工具降级不可
+    用），其余候选不受影响——不再出现「必失败调用白跑」。
+    """
+    if not specs:
+        return list(candidates), ()
+    online: list[dict] = []
+    dropped: list[str] = []
+    for candidate in candidates:
+        chain = _candidate_chain(candidate)
+        if any(tool_server_offline(specs, name) for name in chain):
+            label = str(candidate.get("id") or "→".join(chain) or "?")
+            dropped.append(label)
+        else:
+            online.append(candidate)
+    return online, tuple(dropped)
+
+
 # ── 节点类型工厂 ──
 
 
 def make_orchestrator_factory(
     workflow: WorkflowSpec,
+    holder: dict[str, Any] | None = None,
 ) -> Callable[[dict[str, Any]], Callable[[Any], dict | None]]:
     """研究编排节点工厂：配置 → 节点执行函数（数据驱动脚本形态）。
 
@@ -224,6 +407,9 @@ def make_orchestrator_factory(
     保留键的逐一透传）；脚本缺省时按工作流节点序产出默认研究流程
     规划（__plan__ 数据形态 = 每步一个节点的顺序步骤清单）。规划
     产出即发出 plan_start 事件（消息流内联行/推演轨迹树消费）。
+
+    默认规划经 D3 离线 server 独立标记过滤：离线 server 挂载工具的
+    步骤从默认链剔除（降级跳过），其余步骤/其余 server 不受影响。
     """
     plan_steps = tuple(node.id for node in workflow.nodes)
 
@@ -237,7 +423,9 @@ def make_orchestrator_factory(
             simulate = script.get("simulate")
             delta: dict[str, Any] = {}
             if plan_data is None and use_default_plan:
-                plan_data = [{"nodes": [name]} for name in plan_steps]
+                specs = await _refresh_specs_availability(holder)
+                online_steps, _dropped = _default_plan_steps(specs, plan_steps)
+                plan_data = [{"nodes": [name]} for name in online_steps]
             if plan_data is not None:
                 await ctx.emit("plan_start", {"plan": plan_data})
                 delta[PLAN_KEY] = plan_data
@@ -297,9 +485,18 @@ def make_tool_pipeline_factory(
         await ctx.emit("tool_start", {"tool": name, "args": args}, step_id=step_id)
         specs = holder.get("specs") or ()
         spec = next((s for s in specs if s.name == name), None)
+        if spec is not None:
+            # D3 离线 server 独立标记：每次分发前按 TTL 刷新引用 server
+            # 的可用性——离线 server 的挂载工具在此降级（不发起调用），
+            # 其余 server/工具不受影响
+            await refresh_mcp_availability(specs)
         pipeline_now = resolve()
         if spec is None:
             text, success = f"未知或未启用工具: {name}", False
+        elif tool_server_offline(specs, name):
+            # D3：该 server 已标记离线 → 工具标记不可用（降级文案留痕，
+            # 不污染消息历史为必失败调用）
+            text, success = _MCP_OFFLINE_MESSAGE, False
         elif pipeline_now is None:
             text, success = "工具未启用（无分发管线）", False
         else:
@@ -476,6 +673,7 @@ def make_llm_decider_factory(
 
 def make_assembler_factory(
     workflow: WorkflowSpec,
+    holder: dict[str, Any] | None = None,
 ) -> Callable[[dict[str, Any]], Callable[[Any], dict | None]]:
     """组装编排节点工厂：配置 → 节点执行函数（组装优先，研究链回落）。
 
@@ -494,6 +692,9 @@ def make_assembler_factory(
     3. 失败回环：候选执行失败信号（state.assembly_failed）→ 条件边
        回本节点重试（修复算子重组装，ASSEMBLY_MAX_ROUNDS 上限），
        回环轮次经 state.assembly_rounds 计数。
+
+    候选与默认规划经 D3 离线 server 独立标记过滤：链含离线 server
+    挂载工具的候选整条剔除（该 server 工具降级），其余候选不受影响。
     """
     plan_steps = tuple(node.id for node in workflow.nodes)
 
@@ -577,14 +778,22 @@ def make_assembler_factory(
             rounds = int(ctx.state.get("assembly_rounds") or 0)
             if rounds >= max_rounds:
                 if use_default_plan:
-                    fallback = [{"nodes": [name]} for name in plan_steps]
+                    specs = await _refresh_specs_availability(holder)
+                    online_steps, _dropped = _default_plan_steps(specs, plan_steps)
+                    fallback = [{"nodes": [name]} for name in online_steps]
                     await ctx.emit("plan_start", {"plan": fallback})
                     return {PLAN_KEY: fallback}
                 return {}
             candidates, note, result = await assemble_candidates(ctx)
+            # D3 离线 server 独立标记：链含离线 server 挂载工具的候选
+            # 整条剔除（该 server 工具降级），其余候选不受影响
+            specs = await _refresh_specs_availability(holder)
+            if candidates:
+                candidates, _degraded = _candidates_online(specs, candidates)
             if not candidates:
                 if use_default_plan:
-                    fallback = [{"nodes": [name]} for name in plan_steps]
+                    online_steps, _dropped = _default_plan_steps(specs, plan_steps)
+                    fallback = [{"nodes": [name]} for name in online_steps]
                     await ctx.emit("plan_start", {"plan": fallback})
                     return {PLAN_KEY: fallback}
                 return {}
@@ -602,10 +811,20 @@ def make_assembler_factory(
                 and result is not None
                 and result.multipath_signal
             ):
+                # D3：多径候选同样过滤离线 server 候选（对象形态，多径
+                # 消费 AssemblyCandidate；链含离线工具的候选整条剔除）
+                online_objects = [
+                    c
+                    for c in result.candidates
+                    if not any(
+                        tool_server_offline(specs, name)
+                        for name in _candidate_chain(c)
+                    )
+                ]
                 return {
                     MULTIPATH_KEY: {
                         "request": result_request,
-                        "candidates": list(result.candidates),
+                        "candidates": online_objects,
                         "entry_state": {
                             "input": ctx.state.get("input") or "",
                             "step_args": ctx.state.get(STATE_STEP_ARGS) or {},
@@ -692,7 +911,9 @@ def register_node_types(ctx: GraphRecipeContext, workflow: WorkflowSpec) -> None
     holder[_HOLDER_PIPELINE] = ctx.tool_pipeline
     holder[_HOLDER_LLM] = ctx.llm
     if not registries.nodes.has(TYPE_ORCHESTRATOR):
-        registries.nodes.register(TYPE_ORCHESTRATOR, make_orchestrator_factory(workflow))
+        registries.nodes.register(
+            TYPE_ORCHESTRATOR, make_orchestrator_factory(workflow, holder)
+        )
     if not registries.nodes.has(TYPE_TOOL_PIPELINE):
         registries.nodes.register(
             TYPE_TOOL_PIPELINE,
@@ -702,7 +923,7 @@ def register_node_types(ctx: GraphRecipeContext, workflow: WorkflowSpec) -> None
         registries.nodes.register(TYPE_LLM_DECIDER, make_llm_decider_factory(holder))
     if not registries.nodes.has(TYPE_ASSEMBLY_ORCHESTRATOR):
         registries.nodes.register(
-            TYPE_ASSEMBLY_ORCHESTRATOR, make_assembler_factory(workflow)
+            TYPE_ASSEMBLY_ORCHESTRATOR, make_assembler_factory(workflow, holder)
         )
     # llm_decider 回环条件边（判定 = 状态通道 pending 是否有待执行工具调用）
     edges = registries.edges
@@ -833,12 +1054,19 @@ __all__ = [
     "TYPE_TOOL_PIPELINE",
     "assembly_candidate_specs",
     "build_round_graph",
+    "install_mcp_server_probe",
     "make_assembler_factory",
     "make_llm_decider_factory",
     "make_orchestrator_factory",
     "make_tool_pipeline_factory",
+    "mark_mcp_server_available",
+    "mcp_server_available",
+    "mcp_server_ids_of",
+    "refresh_mcp_availability",
     "register_node_types",
     "register_tool_node_types",
+    "server_availability_snapshot",
     "spawn_group_specs",
+    "tool_server_offline",
     "workflow_spec_from_data",
 ]

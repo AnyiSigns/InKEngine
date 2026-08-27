@@ -129,4 +129,3 @@ if __name__ == "__main__":
     test_dirty_values_do_not_crash()
     test_assemble_stats_op_no_runtime_safe()
     test_metrics_snapshot_self_fetches_cache_stats()
-    print("metrics.snapshot all assertions passed")

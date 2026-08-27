@@ -78,10 +78,11 @@ fn percent_encode_path(path: &str) -> String {
 
 /// 装配引擎宿主：复用桌面壳的装配链路（行为准则层注入 + 路径装配七块全开）。
 ///
-/// 模型接线：环境变量 INK_LLM_BASE_URL + INK_LLM_MODEL（可选
-/// INK_LLM_API_KEY / INK_LLM_ADAPTER，与 inkling_host 同口径）配置时
-/// 装配真实模型（headless 真实模型驱动入口）；未配置 = 离线模型桩，
-/// 保证回合可在无真实模型下稳定抵达回复态。
+/// 模型接线：环境变量 INK_LLM_BASE_URL + INK_LLM_MODEL + INK_LLM_API_KEY
+/// （与 inkling_host 同口径；本地无鉴权端点（Ollama/vLLM 类）也须设占位
+/// key，H6 门禁三要素齐备才走真实模型）配置时装配真实模型（headless
+/// 真实模型驱动入口）；未配置 = 离线模型桩，保证回合可在无真实模型下
+/// 稳定抵达回复态。
 ///
 /// 回合接线：装配后注册 os.dispatch 回调（引擎回合内 OS 工具调用转发到
 /// 本进程执行器注册表，PlatformBackend 真实执行）并以仓库根授权工作区

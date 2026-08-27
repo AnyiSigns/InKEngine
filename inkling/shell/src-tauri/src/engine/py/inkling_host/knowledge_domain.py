@@ -28,7 +28,11 @@ from ink_engine.core.evolution import (
     entry_metrics,
 )
 from ink_engine.core.exceptions import GraphDefinitionError
-from ink_engine.core.knowledge_gate import GateL2FixtureExecutor, KnowledgeGate
+from ink_engine.core.knowledge_gate import (
+    GateL2FixtureExecutor,
+    KnowledgeGate,
+    scan_text_injection,
+)
 from ink_engine.core.knowledge_set import (
     KIND_INSIGHT,
     KnowledgeEntry,
@@ -73,6 +77,44 @@ def build_entry_schema() -> SchemaSpec:
     return SchemaSpec.from_dict(
         {"name": "knowledge_entry", "fields": list(_ENTRY_SCHEMA_FIELDS)}
     )
+
+
+def _string_values_of(data: Any, *, depth: int = 0) -> list[str]:
+    """递归提取条目数据中的字符串值（注入复扫的文本面，与引擎闸门同口径）。"""
+    if depth > 8:
+        return []
+    if isinstance(data, str):
+        return [data]
+    if isinstance(data, dict):
+        out: list[str] = []
+        for value in data.values():
+            out.extend(_string_values_of(value, depth=depth + 1))
+        return out
+    if isinstance(data, (list, tuple)):
+        out: list[str] = []
+        for item in data:
+            out.extend(_string_values_of(item, depth=depth + 1))
+        return out
+    return []
+
+
+def _string_keys_of(data: Any, *, depth: int = 0) -> list[str]:
+    """递归提取条目数据中的字符串键名（注入复扫的键位面）。"""
+    if depth > 8:
+        return []
+    if isinstance(data, dict):
+        out: list[str] = []
+        for key, value in data.items():
+            if isinstance(key, str):
+                out.append(key)
+            out.extend(_string_keys_of(value, depth=depth + 1))
+        return out
+    if isinstance(data, (list, tuple)):
+        out: list[str] = []
+        for item in data:
+            out.extend(_string_keys_of(item, depth=depth + 1))
+        return out
+    return []
 
 
 def fixture_set_from_samples(samples_data: dict[str, Any]) -> FixtureSet:
@@ -231,10 +273,44 @@ class IncubationDomain:
 
     # ── 分层晋升 ──
 
+    def _rescan_injection(
+        self, entry: KnowledgeEntry, *, rationale: str | None = None
+    ) -> list[str]:
+        """晋升前注入复扫（A4：蒸馏后候选晋升前按全字符串字段再扫一遍）。
+
+        扫描面 = id/source/title/tags + data 递归字符串值与键名 + 提案
+        rationale（A5 同面）——蒸馏/归一/拼接可能在 L1 之后引入注入
+        措辞，落库/落链前 fail-closed 复扫兜底（与 Rust 侧
+        incubation.rs propose_knowledge_patch 复扫同口径）。命中清单
+        （空 = 干净）。
+        """
+        texts = [entry.id, entry.source, entry.title, *entry.tags]
+        texts.extend(_string_values_of(entry.data))
+        texts.extend(_string_keys_of(entry.data))
+        if rationale:
+            texts.append(rationale)
+        hits: list[str] = []
+        for text in texts:
+            if text:
+                hits.extend(scan_text_injection(text))
+        return list(dict.fromkeys(hits))
+
     def promote(
         self, entry_id: str, *, to_level: str | None = None
     ) -> KnowledgeEntry:
-        """晋升：条目层级迁移（work → project → user，不跳级，id 稳定）。"""
+        """晋升：条目层级迁移（work → project → user，不跳级，id 稳定）。
+
+        A4：晋升前注入复扫——蒸馏后候选可能在归一/拼接时引入注入措辞，
+        迁移前按全字符串字段再扫一遍（fail-closed，命中即拒）。
+        """
+        entry = self._runtime.knowledge_set.get(entry_id)
+        if entry is None:
+            raise GraphDefinitionError(f"知识条目不存在: {entry_id}")
+        hits = self._rescan_injection(entry)
+        if hits:
+            raise GraphDefinitionError(
+                f"知识晋升前注入复扫未通过（指令注入命中: {'；'.join(hits)}）"
+            )
         return self._runtime.knowledge_set.promote(entry_id, to_level=to_level)
 
     # ── 可移植（导出/导入）──
@@ -305,7 +381,17 @@ class IncubationDomain:
         *,
         round_id: str | None = None,
     ) -> Any:
-        """知识条目 → KNOWLEDGE 补丁提案（集补丁链自指挂载形态）。"""
+        """知识条目 → KNOWLEDGE 补丁提案（集补丁链自指挂载形态）。
+
+        A4：落链前注入复扫（entry 全字符串字段 + rationale 同面，与
+        Rust 侧 incubation.rs 复扫同口径；命中 = fail-closed，不触碰
+        引擎通道）。
+        """
+        hits = self._rescan_injection(entry, rationale=rationale)
+        if hits:
+            raise GraphDefinitionError(
+                f"知识补丁晋升前复扫未通过（指令注入命中: {'；'.join(hits)}）"
+            )
         base_version = await self._runtime.self_pipeline.chain.current_version()
         proposal = SelfProposal(
             kind=PatchKind.KNOWLEDGE,

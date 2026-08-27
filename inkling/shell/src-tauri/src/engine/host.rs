@@ -120,6 +120,24 @@ pub fn ensure_python() {
     });
 }
 
+/// 引擎操作结果信封解析（P9）：bridge.py 对未注册 op 返回结构化信封
+/// ``{"ok":false,"error":"unregistered_op","op":name}``（正常 JSON 结果，
+/// 非 PyErr）——本层识别该信封并映射为可判别错误码，不再把信封原样
+/// 透传为「成功结果」，也不透传 KeyError 文本（防泄漏内部注册命名）。
+/// 其余 ``ok:false`` 形态（结构化降级结果/业务失败）原样返回，不拦截。
+fn parse_op_result(op: &str, result_json: &str) -> Result<JsonValue, String> {
+    let value: JsonValue = serde_json::from_str(result_json)
+        .map_err(|err| format!("引擎操作返回不可解析: {err}"))?;
+    if value.get("ok").and_then(JsonValue::as_bool) == Some(false)
+        && value.get("error").and_then(JsonValue::as_str) == Some("unregistered_op")
+    {
+        return Err(format!(
+            "引擎操作失败（code=ENGINE_OP_UNREGISTERED, op={op}）"
+        ));
+    }
+    Ok(value)
+}
+
 /// 经桥模块调用引擎同步操作（JSON 进/JSON 出；域模块访问引擎公开 API
 /// 的统一通道，薄包装在 bridge.py 的 op 注册表中）。
 pub fn call_engine_op(op: &str, args: JsonValue) -> Result<JsonValue, String> {
@@ -131,7 +149,7 @@ pub fn call_engine_op(op: &str, args: JsonValue) -> Result<JsonValue, String> {
         outcome.extract()
     })
     .map_err(|err: PyErr| engine_op_failure(op, err))?;
-    serde_json::from_str(&result_json).map_err(|err| format!("引擎操作返回不可解析: {err}"))
+    parse_op_result(op, &result_json)
 }
 
 /// 桥模块状态是进程级单例（装配句柄/回调注册表）：触碰桥的测试
@@ -178,7 +196,7 @@ pub async fn call_engine_op_async(op: &str, args: JsonValue) -> Result<JsonValue
         })
     })
     .map_err(|err: PyErr| engine_op_failure(op, err))?;
-    serde_json::from_str(&result_json).map_err(|err| format!("引擎操作返回不可解析: {err}"))
+    parse_op_result(op, &result_json)
 }
 
 /// 引擎路径装配机制的七块 feature flag（装配参数，默认全关）。
@@ -764,6 +782,26 @@ mod tests {
         readable_path(
             PathBuf::from(env!("CARGO_MANIFEST_DIR")).join("../../.."),
         )
+    }
+
+    #[test]
+    fn unregistered_op_envelope_maps_to_coded_error() {
+        // P9：bridge.py 结构化信封 → 可判别错误码（不原样透传信封/文本）
+        let envelope = r#"{"ok":false,"error":"unregistered_op","op":"engine.nope"}"#;
+        let err = parse_op_result("engine.nope", envelope).unwrap_err();
+        assert!(err.contains("ENGINE_OP_UNREGISTERED"), "错误码应可判别: {err}");
+        assert!(err.contains("engine.nope"), "错误应携带 op 名: {err}");
+        // 其它 ok:false 业务信封（结构化降级结果）不拦截
+        let business =
+            r#"{"ok":false,"status":"executor_not_registered","error":"桌面壳未挂载"}"#;
+        let value = parse_op_result("os.dispatch", business).unwrap();
+        assert_eq!(value["status"], "executor_not_registered");
+        // 正常结果原样返回
+        let ok = parse_op_result("engine.collect_specs", r#"[{"name":"x"}]"#).unwrap();
+        assert_eq!(ok[0]["name"], "x");
+        // 非法 JSON 保持不可解析错误
+        let bad = parse_op_result("engine.nope", "not-json").unwrap_err();
+        assert!(bad.contains("不可解析"), "{bad}");
     }
 
     /// 异步引擎操作在单线程内完成（引擎回合在 Python 事件循环内执行，

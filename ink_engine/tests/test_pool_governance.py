@@ -9,6 +9,8 @@
 """
 from __future__ import annotations
 
+from typing import Any
+
 import pytest
 
 from ink_engine.core.pool_governance import (
@@ -202,3 +204,117 @@ def test_pool_governance_snapshot_objects():
         {"pool_count": 500, "used_this_week": 0, "pool_nodes": nodes},
     )
     assert "dict_node" in verdict2.eviction_candidates
+
+
+# ── E-P9：接线辅助（提案归一 / 周预算 / 注册表快照）──────────────
+
+def test_proposal_from_node_draft_normalizes():
+    """失败点提案记录 → 治理提案形态（node_id = node_type，fields = 产出字段）。"""
+    from ink_engine.core.pool_governance import proposal_from_node_draft
+
+    record = {
+        "node_type": "web_search",
+        "output_schema": {
+            "name": "web_search.output",
+            "fields": [
+                {"name": "result", "required": True},
+                {"name": "sources", "required": False},
+            ],
+        },
+    }
+    proposal = proposal_from_node_draft(record)
+    assert proposal["node_id"] == "web_search"
+    assert set(proposal["fields"]) == {"result", "sources"}
+
+
+def test_proposal_from_node_draft_missing_schema_defaults_empty():
+    from ink_engine.core.pool_governance import proposal_from_node_draft
+
+    assert proposal_from_node_draft({"node_type": "x"})["node_id"] == "x"
+    assert proposal_from_node_draft({})["node_id"] == ""
+    assert proposal_from_node_draft({})["fields"] == ()
+
+
+def test_weekly_proposal_usage_window():
+    """周提案预算的已用口径：时间窗口内条数（越窗不重复扣预算）。"""
+    import time
+
+    from ink_engine.core.pool_governance import weekly_proposal_usage
+
+    now = time.time()
+    records = [
+        {"node_id": "a", "ts": now - 3600},       # 本周内
+        {"node_id": "b", "ts": now - 6 * 86400},  # 本周内（< 7 天）
+        {"node_id": "c", "ts": now - 8 * 86400},  # 越窗
+        {"node_id": "d"},                         # 无 ts = 按当前计
+    ]
+    assert weekly_proposal_usage(records, now=now) == 3
+    assert weekly_proposal_usage(records, now=now + 86400) == 3
+
+
+def test_pool_nodes_from_registry_contracts_only():
+    """注册表 → 治理快照：只取带契约类型，字段 = 产出字段名集。"""
+    from ink_engine.core.contracts import NodeContract
+    from ink_engine.core.pool_governance import pool_nodes_from_registry
+    from ink_engine.core.registry import NodeTypeRegistry
+
+    registry = NodeTypeRegistry()
+    registry.register("plain", lambda config: (lambda ctx: None), contract=None)
+    registry.register(
+        "with_contract",
+        lambda config: (lambda ctx: None),
+        contract=NodeContract(
+            input_schema=_spec("in", _field("q", required=True)),
+            output_schema=_spec("out", _field("result"), _field("extra")),
+        ),
+    )
+    nodes = pool_nodes_from_registry(registry)
+    assert [n.node_id for n in nodes] == ["with_contract"]
+    assert set(nodes[0].fields) == {"result", "extra"}
+
+
+def _spec(name: str, *fields: Any) -> Any:
+    from ink_engine.core.schema_validator import SchemaSpec
+
+    return SchemaSpec(name=name, fields=tuple(fields))
+
+
+def _field(name: str, required: bool = False) -> Any:
+    from ink_engine.core.schema_validator import FIELD_STRING, SchemaField
+
+    return SchemaField(name=name, required=required, kind=FIELD_STRING)
+
+
+def test_governed_evaluate_rejects_when_budget_exhausted():
+    """接线闭环：提案经治理判定（预算耗尽 = reject）——结点提案链路
+    四规则生效的判定面断言。"""
+    from ink_engine.core.pool_governance import (
+        GOV_VERDICT_REJECT,
+        proposal_from_node_draft,
+        weekly_proposal_usage,
+    )
+
+    gov = PoolGovernance()
+    record = {
+        "node_type": "new_node",
+        "output_schema": {
+            "name": "new_node.output",
+            "fields": [{"name": "result", "required": True}],
+        },
+    }
+    # 预算窗口内已用满（登记 3 条）
+    import time
+
+    for _ in range(3):
+        gov.evaluate(
+            {"node_id": "old", "fields": ["a"]},
+            {"pool_count": 1, "used_this_week": 0, "pool_nodes": []},
+        )
+    snapshot = {
+        "pool_count": 2,
+        "used_this_week": weekly_proposal_usage(gov.log, now=time.time()),
+        "pool_nodes": [],
+    }
+    verdict = gov.evaluate(proposal_from_node_draft(record), snapshot)
+    assert verdict.verdict == GOV_VERDICT_REJECT
+    assert any("预算" in r for r in verdict.reasons)

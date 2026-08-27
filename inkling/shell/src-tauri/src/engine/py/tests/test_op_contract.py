@@ -68,8 +68,20 @@ def test_builtin_mcp_ops_registered():
     assert "mcp.builtin_connect" in bridge._OPS_ASYNC
 
 
+def test_assembly_batch_ops_registered():
+    """第二批组装域新增 op：assemble_stats（ENG9a-8）与 path.clear_candidate
+    （ENG9a-9）须在异步注册表（前端仪表盘/clearChoice 消费）。"""
+    bridge = _load_bridge()
+    assert "assemble_stats" in bridge._OPS_ASYNC
+    assert "path.clear_candidate" in bridge._OPS_ASYNC
+    assert "path.assemble" in bridge._OPS_ASYNC
+    assert "path.choose_candidate" in bridge._OPS_ASYNC
+    assert "path.set_multipath" in bridge._OPS_ASYNC
+
+
 if __name__ == "__main__":
     test_all_rust_op_names_registered_in_bridge()
     test_engine_propose_patch_registered_both_channels()
     test_builtin_mcp_ops_registered()
+    test_assembly_batch_ops_registered()
     print("op 契约全部通过")

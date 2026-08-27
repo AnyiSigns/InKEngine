@@ -311,6 +311,7 @@ class InputAssembler:
         *,
         allocator: WeightedBudgetAllocator | None = None,
         compressor: EntryCompressor | None = None,
+        aggregator: ActivationAggregator | None = None,
     ) -> None:
         self.config = config or AssemblyConfig()
         self._allocator = allocator or WeightedBudgetAllocator()
@@ -318,10 +319,19 @@ class InputAssembler:
         # 语义——分配决定 = 组装决定，留痕即事实）
         self._assembler = ContextAssembler(allocator=self._allocator)
         self._compressor = compressor
+        # 激活聚合器（ENG9a-12 接线：随本批挂上 InputAssembler——每次
+        # 调配留痕同步喂聚合器，衔接知识集归档/进化优先级；None = 不聚合）
+        self._aggregator = aggregator
         # 全量路径分配器：门槛归零 = 预算足够时全部保留（零低分丢弃）
         self._keep_all = WeightedBudgetAllocator(
             keep_full_threshold=0.0, truncate_min_score=0.0, min_truncate_chars=0
         )
+
+    def _feed_aggregator(self, record: ActivationRecord) -> ActivationRecord:
+        """留痕同步喂聚合器（ENG9a-12 接线；聚合器为空 = 零影响）。"""
+        if self._aggregator is not None:
+            self._aggregator.record(record)
+        return record
 
     def assemble(
         self,
@@ -400,22 +410,35 @@ class InputAssembler:
             )
             return AssemblyResult(
                 text=assembled.text,
-                record=ActivationRecord(
-                    total_budget=budget,
-                    assembled_chars=len(assembled.text),
-                    sources=tuple(activations),
-                    version_snapshot=snapshot,
+                record=self._feed_aggregator(
+                    ActivationRecord(
+                        total_budget=budget,
+                        assembled_chars=len(assembled.text),
+                        sources=tuple(activations),
+                        version_snapshot=snapshot,
+                    )
                 ),
             )
-
-        # 放不下才裁剪：逐分级池分配（工具额外按激活数上限裁剪）
+        # 放不下才裁剪：分级池预算两遍分配（ENG9a-13）——先按占比分池，
+        # 再把无源池与取整余量二次回拨给有源池（缺源的池预算不闲置：
+        # 仅 context 源可用预算 ≈ 总预算，与「能全量则全量」取向一致）
+        present_kinds = [kind for kind in _SOURCE_TYPES if grouped[kind]]
+        pool_budgets = {
+            kind: int(budget * _ratio_for(self.config, kind))
+            for kind in present_kinds
+        }
+        remainder = max(0, budget - sum(pool_budgets.values()))
+        ratio_sum = sum(_ratio_for(self.config, kind) for kind in present_kinds)
+        if remainder > 0 and ratio_sum > 0:
+            for kind in present_kinds:
+                pool_budgets[kind] += int(
+                    remainder * _ratio_for(self.config, kind) / ratio_sum
+                )
         activations: list[SourceActivation] = []
         chunks: list[str] = []
-        for kind in _SOURCE_TYPES:
+        for kind in present_kinds:
             pool_sources = grouped[kind]
-            if not pool_sources:
-                continue
-            pool_budget = int(budget * _ratio_for(self.config, kind))
+            pool_budget = pool_budgets[kind]
             if kind == SOURCE_TOOL and len(pool_sources) > self.config.max_tools:
                 kept_tools = _limit_tools(pool_sources, self.config.max_tools)
                 kept_ids = {id(s) for s in kept_tools}
@@ -527,12 +550,14 @@ class InputAssembler:
             ]
         return AssemblyResult(
             text=text,
-            record=ActivationRecord(
-                total_budget=budget,
-                assembled_chars=len(text),
-                sources=tuple(activations),
-                version_snapshot=snapshot,
-                truncated_chars=truncated_chars,
+            record=self._feed_aggregator(
+                ActivationRecord(
+                    total_budget=budget,
+                    assembled_chars=len(text),
+                    sources=tuple(activations),
+                    version_snapshot=snapshot,
+                    truncated_chars=truncated_chars,
+                )
             ),
         )
 
@@ -659,12 +684,20 @@ class ActivationAggregator:
         self._stats: dict[str, list[Any]] = {}
 
     def record(self, record: ActivationRecord) -> None:
-        """聚合一次调配留痕（逐源累积激活计数/强度/最近激活序号）。"""
+        """聚合一次调配留痕（逐源累积激活计数/强度/最近激活序号）。
+
+        被丢弃的源不计激活（ENG9a-12）：``char_limit<=0``（分配为 0 =
+        本调用未纳入）或 ``mode=MODE_DROP``（预算/上限丢弃）的条目若计
+        入激活，预算丢弃会反向推高「过热」判定、过冷归档候选失真——
+        只有真正进入装配文本的源才算激活。
+        """
         self._calls += 1
         for source in record.sources:
             ref = source.entry_ref
             if not ref:
                 continue  # 无条目引用的源（上下文/工具）不参与知识利用率
+            if source.char_limit <= 0 or source.mode == MODE_DROP:
+                continue  # 丢弃/零分配源不计激活
             stats = self._stats.setdefault(ref, [0, 0.0, 0, 0])
             stats[0] += 1  # 激活次数
             stats[1] += source.weight  # 激活强度累计

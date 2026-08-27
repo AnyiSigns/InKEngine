@@ -1818,7 +1818,10 @@ def _run_path_assembly(
         from ink_engine.core.path_assembler import assemble_plan
     except ImportError:
         return direct()
-    return assemble_plan(request, audit_sink=audit_sink)
+    # 预算信封全程透传（ENG9a-3）：默认路径同样接收 envelope——
+    # use_draft/beam_width/max_path_length/llm_retry_limit 覆盖权不再
+    # 仅限 prefer_direct 分支
+    return assemble_plan(request, envelope=envelope, audit_sink=audit_sink)
 
 
 @op_async("path.assemble")
@@ -1840,16 +1843,20 @@ async def _path_assemble(args: dict) -> dict[str, Any]:
             "enabled": False,
             "reason": "路径组装未启用（机制开关关闭，fail-closed）",
         }
-    from inkling_host.quality import (
-        DomainQualityGate,
-        approval_tier_to_max_safety_tier,
-    )
     from ink_engine.core.path_assembler import (
+        DEFAULT_BEAM_WIDTH,
+        DEFAULT_LLM_WINDOW,
+        DEFAULT_MAX_PATH_LENGTH,
+        LLM_RETRY_LIMIT,
         AssemblyEnvelope,
         AssemblyRequest,
         InMemoryPoolRetriever,
     )
     from ink_engine.core.schema_validator import SchemaSpec
+    from inkling_host.quality import (
+        DomainQualityGate,
+        approval_tier_to_max_safety_tier,
+    )
 
     runtime = runtime_handle()
     host = host_handle()
@@ -1889,7 +1896,18 @@ async def _path_assemble(args: dict) -> dict[str, Any]:
         top_k=top_k,
         graph_name=args.get("graph_name"),
     )
-    envelope = AssemblyEnvelope(llm_draft=use_draft)
+    envelope = AssemblyEnvelope(
+        llm_draft=use_draft,
+        # 预算信封参数经 op 透传（ENG9a-3：覆盖权全链路可达）
+        beam_width=max(1, int(args.get("beam_width") or DEFAULT_BEAM_WIDTH)),
+        max_path_length=max(
+            1, int(args.get("max_path_length") or DEFAULT_MAX_PATH_LENGTH)
+        ),
+        llm_retry_limit=max(
+            0, int(args.get("llm_retry_limit") or LLM_RETRY_LIMIT)
+        ),
+        llm_window=max(1, int(args.get("llm_window") or DEFAULT_LLM_WINDOW)),
+    )
     audit_records: list[dict[str, Any]] = []
     result = await _run_path_assembly(
         request,
@@ -1952,7 +1970,9 @@ def _path_set_flags(args: dict) -> dict[str, Any]:
 
     global _PATH_FLAGS, _PATH_ASSEMBLER_ENABLED
     flags = PathAssemblyFlags.from_boot(args)
-    _PATH_FLAGS = dict(flags.to_dict())
+    # 进程内镜像统一 BOOT_KEY_* 长键形态（与引擎落库/读取同口径，
+    # 单块翻转 op 读取本镜像时键名不漂移）
+    _PATH_FLAGS = dict(flags.to_boot_dict())
     _PATH_ASSEMBLER_ENABLED = flags.assembler_enabled
     return {"enabled": _PATH_ASSEMBLER_ENABLED, "flags": dict(_PATH_FLAGS)}
 
@@ -1991,6 +2011,22 @@ async def _path_choose_candidate(args: dict) -> dict[str, Any]:
     return _jsonable(result)
 
 
+@op_async("path.clear_candidate")
+async def _path_clear_candidate(args: dict) -> dict[str, Any]:
+    """候选选择清除 op（ENG9a-9 接线）：清除当前域选中候选，恢复多候选
+    观察态（前端 clearChoice 不再走 choose_candidate 空 id 的 fail-closed
+    拒绝路径）。委托引擎侧 ``clear_candidate_selection``（同一集合同一键，
+    状态可断言轮转）；无存储 = 仅状态计算不落库。
+    """
+    runtime = runtime_handle()
+    storage = getattr(runtime, "storage", None)
+    domain = str(args.get("domain") or "default")
+    from ink_engine.core.path_assembler import clear_candidate_selection
+
+    result = await clear_candidate_selection(storage, domain=domain)
+    return _jsonable(result)
+
+
 @op_async("path.set_multipath")
 async def _path_set_multipath(args: dict) -> dict[str, Any]:
     """多径开关 op（复用 path.set_flags 单块开关语义；状态落库 + 审计）。
@@ -2003,10 +2039,11 @@ async def _path_set_multipath(args: dict) -> dict[str, Any]:
     domain = str(args.get("domain") or "default")
     runtime = runtime_handle()
     storage = getattr(runtime, "storage", None)
-    # 单块翻转：保留其余装配开关，只改多径位
+    # 单块翻转：保留其余装配开关，只改多径位（进程内镜像与引擎落库同用
+    # BOOT_KEY_* 长键形态——读取/写入口径统一，防短键落库长键读取全 False）
     global _PATH_FLAGS
     flags = dict(_PATH_FLAGS or {})
-    flags["multipath_enabled"] = enabled
+    flags["path_assembly_multipath_enabled"] = enabled
     _PATH_FLAGS = flags
     from ink_engine.core.path_assembler import set_multipath
 
@@ -2118,6 +2155,41 @@ def _as_float(value) -> float:
         return 0.0
 
 
+async def _runtime_assembly_stats() -> dict[str, Any]:
+    """取组装运行期统计累计 + 缓存条目量（stats 最后一跳的数据源）。
+
+    引擎侧 PathAssemblyRuntime.stats_total 为进程内跨调用累计（命中/
+    未命中/失效/顶替四计数器），缓存条目量经 FingerprintCacheStore.count
+    实时读取；运行期未挂载（组装关闭）= 空统计。
+    """
+    from ink_engine.core.path_assembler import get_default_assembly_runtime
+
+    runtime = get_default_assembly_runtime()
+    if runtime is None:
+        return {"stats": {}, "cache_entries": 0}
+    stats = dict(getattr(runtime, "stats_total", {}) or {})
+    cache_entries = 0
+    cache = getattr(runtime, "cache", None)
+    if cache is not None:
+        try:
+            cache_entries = await cache.count()
+        except (TypeError, ValueError, OSError):
+            cache_entries = 0
+    return {"stats": stats, "cache_entries": cache_entries}
+
+
+@op_async("assemble_stats")
+async def _assemble_stats(args: dict) -> dict[str, Any]:
+    """组装统计 op（ENG9a-8 接线：stats 四计数器消费链最后一跳）。
+
+    前端仪表盘经本 op 直取：命中/未命中/失效/顶替四计数器（进程内跨
+    调用累计，含顶替计数——ENG9a-19 按值拷贝后仍可见）+ 缓存条目量。
+    组装未装配（flag 关）= 空统计 + 条目量 0，不报错。
+    """
+    data = await _runtime_assembly_stats()
+    return _jsonable({"ok": True, **data})
+
+
 @op_async("metrics.snapshot")
 async def _metrics_snapshot(args: dict) -> dict[str, Any]:
     """指标快照聚合 op：回合/LLM/缓存/边证据指标汇成单一观测快照。
@@ -2128,8 +2200,10 @@ async def _metrics_snapshot(args: dict) -> dict[str, Any]:
     - ``llm_usage``：LLM usage 帧清单（每帧 ``prompt_tokens``/
       ``completion_tokens``，来自 LLMChunk/LLMResult.usage 捕获点）；
     - ``cache_stats``：path.assemble 回传的 cache_hits/cache_misses/
-      cache_invalidations/cache_replacements；
-    - ``cache_entries``：FingerprintCacheStore.count（缓存条目量）；
+      cache_invalidations/cache_replacements（缺省 = 壳侧自取组装运行期
+      统计累计——ENG9a-8：前端无参调用不再恒 0）；
+    - ``cache_entries``：FingerprintCacheStore.count（缓存条目量；
+      缺省 = 壳侧自取）；
     - ``edges``：edge_evidence.list_edges 结果（取每条 ``avg_cost``）；
     - ``occupancy``：``{ "current": int, "limit": int }``（占用/上限）。
 
@@ -2158,6 +2232,10 @@ async def _metrics_snapshot(args: dict) -> dict[str, Any]:
     llm_calls = sum(_as_int(v) for v in (turn.get("llm_calls_by_tier") or {}).values())
 
     cache = args.get("cache_stats") or {}
+    if not isinstance(cache, dict) or not cache:
+        # 缺省自取：组装运行期统计累计（命中率不再恒 0 的最后一跳）
+        runtime_stats = await _runtime_assembly_stats()
+        cache = runtime_stats.get("stats") or {}
     if not isinstance(cache, dict):
         cache = {}
     hits = _as_int(cache.get("cache_hits"))
@@ -2174,6 +2252,9 @@ async def _metrics_snapshot(args: dict) -> dict[str, Any]:
     avg_cost_mean = (sum(costs) / len(costs)) if costs else 0.0
 
     cache_entries = _as_int(args.get("cache_entries"))
+    if not cache_entries:
+        runtime_stats = await _runtime_assembly_stats()
+        cache_entries = _as_int(runtime_stats.get("cache_entries"))
 
     occupancy = None
     occ = args.get("occupancy")

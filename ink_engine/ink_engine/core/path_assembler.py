@@ -41,23 +41,25 @@
 """
 from __future__ import annotations
 
+import asyncio
 import itertools
 import json
 import random
 import re
 import time
 from collections.abc import Callable, Collection, Mapping, Sequence
+from contextvars import ContextVar
 from dataclasses import dataclass, field, replace
 from typing import Any, Protocol, runtime_checkable
 
+from .audit_log import emit_audit
+from .budget import BudgetManager, BudgetPolicy
 from .contracts import (
     NodeContract,
     PathAssemblyConfig,
     PathAssemblyFlags,
     QualityGate,
 )
-from .audit_log import AUDIT_COLLECTION, emit_audit
-from .event_types import EVENT_ASSEMBLY_CANDIDATE, EVENT_AUDIT_ASSEMBLY
 from .edge_evidence import (
     DEFAULT_CONTRACT_VERSION,
     EdgeEvidence,
@@ -67,6 +69,7 @@ from .edge_evidence import (
     is_exploration_mode,
     multi_path_trigger,
 )
+from .event_types import EVENT_ASSEMBLY_CANDIDATE, EVENT_AUDIT_ASSEMBLY
 from .exceptions import GraphDefinitionError
 from .fingerprint import graph_fingerprint, request_fingerprint
 from .fingerprint_cache import (
@@ -106,6 +109,23 @@ DEFAULT_MAX_SAFETY_TIER = 0
 # 缓存抽样重装概率（命中时以 ε 概率绕过缓存重新组装对比；轻任务由
 # 使用方注入 ε≈0 关闭——执行成本 ≤ 组装成本时收益不对称前提不成立）
 DEFAULT_CACHE_EPSILON = 0.05
+# 草稿层护栏（ENG9a-11）：条数与单条长度上限，防模型输出失控撑爆上下文
+MAX_DRAFT_ITEMS = 20  # 草稿链最大条数（超出 = 解析失败直接兜底）
+MAX_ITEM_CHARS = 200  # 草稿单条类型名最大长度（超出 = 非白名单形态）
+# 反馈结构化理由码（草稿重试反馈只回码 + 白名单类型名，不回模型自造原文）
+FEEDBACK_UNKNOWN_NODE = "unknown_node"
+FEEDBACK_DUPLICATE_NODE = "duplicate_node"
+FEEDBACK_SAFETY_TIER = "safety_tier"
+FEEDBACK_PREFIX_REQUIREMENT = "prefix_requirement"
+FEEDBACK_GOAL_NOT_COVERED = "goal_not_covered"
+FEEDBACK_STATE_RULE = "state_rule"
+FEEDBACK_OTHER = "other"
+# canary 护栏默认值（ENG9a-6）：单候选执行步数上限 + 超时上限，防止
+# canary 真执行失控（工具调用/LLM 调用在 canary 态被结点层桩化）
+CANARY_MAX_STEPS = 16
+DEFAULT_CANARY_TIMEOUT = 30.0
+# 草稿源单次调用超时（秒；草稿层护栏——模型卡死不得拖住组装）
+DEFAULT_DRAFT_TIMEOUT = 30.0
 
 # 候选来源标记（声明式枚举，防魔法字符串）
 CANDIDATE_SOURCE_ALGORITHM = "algorithm"
@@ -291,6 +311,7 @@ class AssemblyEnvelope:
         llm_retry_limit: 草稿重试上限（空响应/非 JSON 不重试直接兜底）。
         llm_draft: 草稿层开关（默认关；使用方按「仅反推解不出时」开启）。
         llm_window: 草稿上下文窗口（检索 top-N 上限）。
+        draft_timeout: 草稿源单次调用超时（秒；<=0 = 不设超时）。
     """
 
     beam_width: int = DEFAULT_BEAM_WIDTH
@@ -298,6 +319,7 @@ class AssemblyEnvelope:
     llm_retry_limit: int = LLM_RETRY_LIMIT
     llm_draft: bool = False
     llm_window: int = DEFAULT_LLM_WINDOW
+    draft_timeout: float = DEFAULT_DRAFT_TIMEOUT
 
 
 @dataclass(frozen=True, slots=True)
@@ -469,7 +491,9 @@ def validate_chain(
 def parse_draft_chain(text: str) -> tuple[str, ...] | None:
     """草稿解析：提取 JSON 字符串数组（容忍 ```json 包裹与空白）。
 
-    空响应/非 JSON/非字符串数组 = None（调用方不重试直接兜底）。
+    空响应/非 JSON/非字符串数组 = None（调用方不重试直接兜底）。条数
+    超过 :data:`MAX_DRAFT_ITEMS` 或任一条目超过 :data:`MAX_ITEM_CHARS`
+    同样视为非法（草稿层护栏：模型输出失控不得撑爆下游上下文）。
     """
     if not text or not text.strip():
         return None
@@ -482,7 +506,49 @@ def parse_draft_chain(text: str) -> tuple[str, ...] | None:
         isinstance(item, str) and item for item in data
     ):
         return None
+    if len(data) > MAX_DRAFT_ITEMS or any(
+        len(item) > MAX_ITEM_CHARS for item in data
+    ):
+        return None
     return tuple(data)
+
+
+def sanitize_draft_feedback(
+    reasons: Sequence[str], pool: Mapping[str, NodeContract]
+) -> str:
+    """校验理由 → 结构化重试反馈（只回理由码 + 白名单类型名）。
+
+    防自反馈注入（ENG9a-11）：模型自造的结点名原文不得拼回下一轮提示词；
+    理由按类别映射为结构化码，结点名仅当存在于白名单（当前池）才回显。
+    """
+    codes: list[str] = []
+
+    def _safe_name(name: str) -> str:
+        return name if name in pool else "?"
+
+    for reason in reasons:
+        if reason.startswith("结点未知"):
+            name = _safe_name(reason.split("结点未知: ", 1)[-1].strip())
+            codes.append(f"{FEEDBACK_UNKNOWN_NODE}({name})")
+        elif reason.startswith("结点重复"):
+            name = _safe_name(reason.split("结点重复: ", 1)[-1].strip())
+            codes.append(f"{FEEDBACK_DUPLICATE_NODE}({name})")
+        elif reason.startswith("未覆盖目标字段"):
+            fields = "、".join(
+                _safe_name(f)
+                for f in reason.split("未覆盖目标字段: ", 1)[-1].split("、")
+                if f
+            )
+            codes.append(f"{FEEDBACK_GOAL_NOT_COVERED}({fields})")
+        elif "安全档" in reason:
+            codes.append(FEEDBACK_SAFETY_TIER)
+        elif "输入" in reason or "必填" in reason or "前缀" in reason:
+            codes.append(FEEDBACK_PREFIX_REQUIREMENT)
+        elif "状态" in reason or "通道" in reason:
+            codes.append(FEEDBACK_STATE_RULE)
+        else:
+            codes.append(FEEDBACK_OTHER)
+    return "; ".join(dict.fromkeys(codes)) or FEEDBACK_OTHER
 
 
 # ── 算法自动修复算子集（有名字的图编辑；每算子后重跑可达性校验）──
@@ -912,9 +978,12 @@ def _snapshot_edge(
     评分，与组装侧证据索引同口径。
     """
     for row in rows:
-        if not row.get("variant_hash", ""):
-            if row.get("src_type") == src and row.get("dst_type") == dst:
-                return EdgeEvidence.from_dict(row)
+        if (
+            not row.get("variant_hash", "")
+            and row.get("src_type") == src
+            and row.get("dst_type") == dst
+        ):
+            return EdgeEvidence.from_dict(row)
     return None
 
 
@@ -1205,8 +1274,11 @@ class PathAssembler:
         if result.is_empty:
             return
         new_score = result.candidates[0].score
+        # 顶替判据两侧同基线（ENG9a-5）：缓存分用当前证据行重算，与组装
+        # 侧评分同口径——证据漂移后新分数与缓存分可比（旧条目内快照只作
+        # 缓存体，不作评分基线，否则漂移场景下 new<=cached 恒成立永不顶替）
         cached_score = self._score_from_snapshot(
-            self._cached_chain(entry), entry.evidence_snapshot
+            self._cached_chain(entry), evidence_rows
         )
         if new_score <= cached_score:
             return
@@ -1320,7 +1392,18 @@ class PathAssembler:
                 node_summaries=summaries,
                 feedback=feedback,
             )
-            raw = await provider.draft(context)
+            try:
+                if envelope.draft_timeout > 0:
+                    raw = await asyncio.wait_for(
+                        provider.draft(context), timeout=envelope.draft_timeout
+                    )
+                else:
+                    raw = await provider.draft(context)
+            except Exception as exc:
+                # 草稿源异常/超时兜底：不重试（环境抖动重试闭环无意义），
+                # 直接转算法层兜底——异常详情进日志，不外泄给提示词
+                logger.warning(f"草稿源调用失败（转算法兜底）: {exc}")
+                return [], f"草稿源调用异常（共 {attempts} 次调用）"
             chain = parse_draft_chain(raw)
             if chain is None:
                 # 空响应/非 JSON：不重试直接兜底（重试闭环对环境抖动无意义）
@@ -1357,7 +1440,9 @@ class PathAssembler:
                 )
                 if ok:
                     return [(repaired, CANDIDATE_SOURCE_DRAFT, True)], None
-            feedback = "; ".join(reasons)
+            # 重试反馈只回结构化理由码 + 白名单类型名（模型自造结点名原文
+            # 不拼回提示词——自反馈注入面关闭）
+            feedback = sanitize_draft_feedback(reasons, pool)
             fallback_reason = "草稿非法且算法修复不可达（重试耗尽，转全量算法重组装兜底）"
         return [], fallback_reason or "草稿未通过校验且修复不可达"
 
@@ -1643,7 +1728,7 @@ class PathAssembler:
             multipath_signal=multipath,
             fallback_reason=fallback_reason,
             llm_attempts=llm_attempts,
-            stats=stats,
+            stats=dict(stats),
         )
         if cache is not None and cache_key is not None and entry is not None and comparable:
             await self._maybe_replace_cache_entry(
@@ -1656,6 +1741,10 @@ class PathAssembler:
                 replace_reason or "",
                 stats,
             )
+            # 顶替计数随内部统计字典更新，结果快照须重新按值拷贝（ENG9a-19：
+            # AssemblyResult 构造时已按值拷贝——顶替侧在构造后自增，此处再快照，
+            # 避免「按值拷贝后顶替计数静默变 0」）
+            result = replace(result, stats=dict(stats))
         if self._sink is not None:
             self._sink(self._audit_record(request, goal, result))
         return result
@@ -1715,6 +1804,47 @@ def canary_instantiate(
     )
 
 
+# canary 执行态标记（ContextVar 按异步任务隔离）：结点层据此桩化真实
+# 执行体（工具调用/LLM 调用在 canary 态零副作用——ENG9a-6「风险前置
+# 实为真执行」护栏的结点层一侧）。canary_round 入口置位、出口复位，
+# 嵌套执行（子图/分支引擎）继承同一异步任务上下文。
+_CANARY_CONTEXT: ContextVar[bool] = ContextVar("ink_engine_canary_active", default=False)
+
+
+def canary_active() -> bool:
+    """当前异步任务是否处于 canary 执行态（结点层桩化判定）。"""
+    return _CANARY_CONTEXT.get()
+
+
+class _CanaryStepBudget(BudgetPolicy):
+    """canary 预算上限：执行步数超限即终止（预算护栏的第二道闸）。
+
+    canary 只验证「图合法 + 单回合走通」——步数上限确保候选链失控
+    （意外循环/超长展开）时在预算维度被掐断，与超时护栏互补。
+    """
+
+    def __init__(self, max_steps: int = CANARY_MAX_STEPS) -> None:
+        self.max_steps = max_steps
+        self._visited: list[str] = []
+
+    async def check(self, ctx: Any) -> None:
+        from .exceptions import BudgetExceededError
+
+        node = getattr(ctx, "node", None)
+        self._visited.append(str(node or ""))
+        if len(self._visited) > self.max_steps:
+            raise BudgetExceededError(
+                "canary_steps", self.max_steps, len(self._visited)
+            )
+
+
+def canary_budget() -> BudgetManager:
+    """canary 预算管理器（步数上限；canary_round 缺省注入）。"""
+    manager = BudgetManager()
+    manager.register(_CanaryStepBudget())
+    return manager
+
+
 @dataclass(frozen=True, slots=True)
 class CanaryResult:
     """单回合执行结果（无存储、无预算约束；stub 模型由使用方 RunOptions 注入）。"""
@@ -1738,6 +1868,7 @@ async def canary_round(
     *,
     entry_state: Mapping[str, Any] | None = None,
     options: RunOptions | None = None,
+    canary_timeout: float | None = None,
 ) -> CanaryResult:
     """stub 一回合执行：图合法 + 单回合走通（无存储、无预算约束）。
 
@@ -1745,11 +1876,28 @@ async def canary_round(
     （error/budget_exceeded/cancelled）或挂起 = 失败。stub 模型注入归
     使用方（RunOptions 承载——样例模型/传输出口均直接替换）。执行不发
     checkpoint（storage=None）；规模可控（一级图单回合）。
+
+    护栏（ENG9a-6）：canary 态由本入口置位（:func:`canary_active`），
+    结点层执行体（工具流水线/LLM 决策）据此桩化零副作用；缺省注入
+    步数上限预算（:func:`canary_budget`，调用方注入 options 时不覆盖
+    既有预算——调用方预算优先）；``canary_timeout`` 为执行超时上限
+    （None = 不设超时）。
     """
     from .executor import Engine
 
-    engine = Engine(graph, options=options or RunOptions())
-    result = await engine.ainvoke(dict(entry_state or {}))
+    effective = options or RunOptions()
+    if effective.budget is None:
+        effective.budget = canary_budget()
+    token = _CANARY_CONTEXT.set(True)
+    try:
+        engine = Engine(graph, options=effective)
+        coro = engine.ainvoke(dict(entry_state or {}))
+        if canary_timeout is not None and canary_timeout > 0:
+            result = await asyncio.wait_for(coro, timeout=canary_timeout)
+        else:
+            result = await coro
+    finally:
+        _CANARY_CONTEXT.reset(token)
     ok = result.reason in (TerminateReason.REPLY, TerminateReason.STOP) and (
         result.interrupt is None
     )
@@ -1779,6 +1927,11 @@ class PathAssemblyRuntime:
         model_id: 模型标识（组装请求上下文指纹入键；与沉淀侧同一标识）。
         cache_epsilon: 抽样重装概率（命中时以 ε 概率绕过缓存重新组装
             对比；轻任务注入 ε≈0 关闭，默认引擎钉死）。
+        canary_timeout: 单候选 canary 执行超时（秒；None/<=0 = 不设超时）。
+        canary_options: canary 执行选项注入（stub 模型/传输等；None =
+            引擎缺省护栏：canary 态桩化 + 步数上限预算）。
+        multipath_enabled: 多径机制开关（装配期按壳侧透传键注入；执行
+            入口按此开关触发 MultipathRunner 调度）。
     """
 
     registry: NodeTypeRegistry
@@ -1791,6 +1944,12 @@ class PathAssemblyRuntime:
     cache: FingerprintCacheStore | None = None
     model_id: str = ""
     cache_epsilon: float = DEFAULT_CACHE_EPSILON
+    canary_timeout: float | None = None
+    canary_options: RunOptions | None = None
+    multipath_enabled: bool = False
+    # 组装统计累计（进程内跨调用聚合：stats 最后一跳的数据源——前端
+    # 仪表盘经 assemble_stats op 读取；frozen 数据类下该 dict 就地累积）
+    stats_total: dict[str, int] = field(default_factory=dict)
 
     def bind(self) -> PathAssembler:
         """构造只读组装器（同源配置；单次绑定复用）。"""
@@ -1828,6 +1987,7 @@ class PathAssemblyRuntime:
         self,
         request: AssemblyRequest,
         *,
+        envelope: AssemblyEnvelope | None = None,
         audit_sink: Callable[[dict[str, Any]], Any] | None = None,
     ) -> AssemblyResult:
         """组装指令：组装 + canary 验证链路 + 审计留痕。
@@ -1836,13 +1996,18 @@ class PathAssemblyRuntime:
         结论 + 审计记录；候选图经 :func:`canary_instantiate` 重建后即可
         走既有 run 通道（Graph.from_dict(validate=True) 语义）。
 
+        预算信封（envelope）全程透传：use_draft/beam_width/max_path_length/
+        llm_retry_limit/llm_window/draft_timeout 在默认路径同样生效
+        （ENG9a-3——envelope 不再仅限 prefer_direct 分支）。
+
         审计留痕（每条记录调用 audit_sink 一次；落库归回调）：
         1. 组装记录（候选清单 + 指纹 + 统计，形状与只读组装一致）；
         2. 各候选 canary 结论（重建指纹 + 单回合收尾原因）。
 
         缓存命中候选须过 canary 验证：命中路径验证失败（执行失败）=
         强失效——失败数+1 且条目立即失效（不命中），随后本入口代调用方
-        重组装（失效后自然走 miss 路径）。
+        重组装（失效后自然走 miss 路径）。命中且全部验证通过时直接复用
+        首批 verdict（ENG9a-7：验证成本不翻倍、首批结论进审计）。
 
         机制开关关闭（config.enabled=False）时零生效：无候选、无验证、
         无审计回调；无默认装配时不产出任何审计（模块级入口语义）。
@@ -1850,8 +2015,9 @@ class PathAssemblyRuntime:
         if self.config is not None and not self.config.enabled:
             return AssemblyResult()
         assembler = self.bind()
-        result = await assembler.assemble(request)
+        result = await assembler.assemble(request, envelope)
         ts = self.now if self.now is not None else time.time()
+        hit_verdicts: list[CanaryVerdict] | None = None
         if self.cache is not None and result.stats.get(STATS_CACHE_HITS, 0) > 0:
             # 命中候选先行验证：失败 = 强失效 + 立即重组装（缓存路径执行失败路径）
             hit_verdicts = [
@@ -1860,7 +2026,8 @@ class PathAssemblyRuntime:
             ]
             if any(not verdict.ok for verdict in hit_verdicts):
                 await self.report_cache_execution(request, ok=False)
-                result = await assembler.assemble(request)
+                result = await assembler.assemble(request, envelope)
+                hit_verdicts = None
         goal = request.goal_fields()
         records: list[dict[str, Any]] = [
             assembly_audit_record(request, goal, result, ts=ts)
@@ -1868,10 +2035,18 @@ class PathAssemblyRuntime:
         if not result.candidates:
             result = replace(result, audit=tuple(records))
             self._emit_audit(records, audit_sink)
+            self._accumulate_stats(result)
             return result
         verdicts: list[CanaryVerdict] = []
-        for candidate in result.candidates:
-            verdict = await self._verify_candidate(candidate, ts=ts)
+        for index, candidate in enumerate(result.candidates):
+            if (
+                hit_verdicts is not None
+                and index < len(hit_verdicts)
+                and candidate.source == CANDIDATE_SOURCE_CACHE
+            ):
+                verdict = hit_verdicts[index]
+            else:
+                verdict = await self._verify_candidate(candidate, ts=ts)
             verdicts.append(verdict)
             records.append(
                 {
@@ -1883,7 +2058,13 @@ class PathAssemblyRuntime:
             )
         result = replace(result, canary=tuple(verdicts), audit=tuple(records))
         self._emit_audit(records, audit_sink)
+        self._accumulate_stats(result)
         return result
+
+    def _accumulate_stats(self, result: AssemblyResult) -> None:
+        """本次组装统计并入运行期累计（stats 最后一跳的数据源）。"""
+        for key, value in result.stats.items():
+            self.stats_total[key] = self.stats_total.get(key, 0) + int(value)
 
     async def _verify_candidate(
         self, candidate: AssemblyCandidate, *, ts: float
@@ -1905,7 +2086,11 @@ class PathAssemblyRuntime:
                 rank=candidate.rank, digest=rebuilt.digest(), ok=True, executed=False
             )
         try:
-            round_result = await canary_round(rebuilt)
+            round_result = await canary_round(
+                rebuilt,
+                options=self.canary_options,
+                canary_timeout=self.canary_timeout,
+            )
         except Exception as exc:
             return CanaryVerdict(
                 rank=candidate.rank,
@@ -1953,12 +2138,15 @@ def get_default_assembly_runtime() -> PathAssemblyRuntime | None:
 async def assemble_plan(
     request: AssemblyRequest,
     *,
+    envelope: AssemblyEnvelope | None = None,
     audit_sink: Callable[[dict[str, Any]], Any] | None = None,
 ) -> AssemblyResult:
     """组装产物执行入口（默认运行期挂载后可用；壳侧 op 与策略层调用）。
 
     Args:
         request: 组装请求（目标 schema + 域 + 安全档 + 闸门 + 草稿源）。
+        envelope: 预算信封（use_draft/beam_width/max_path_length/
+            llm_retry_limit 等透传；None = 引擎默认值）。
         audit_sink: 审计记录回调（接受事件 dict；失败留痕也经此回调）。
 
     Returns:
@@ -1971,7 +2159,7 @@ async def assemble_plan(
     runtime = _DEFAULT_ASSEMBLY_RUNTIME
     if runtime is None:
         return AssemblyResult(fallback_reason="组装运行期未装配（默认关闭）")
-    return await runtime.assemble_plan(request, audit_sink=audit_sink)
+    return await runtime.assemble_plan(request, envelope=envelope, audit_sink=audit_sink)
 
 
 # ── 干预能力：候选选择 / 多径开关（assemble 后的运行期干预；状态落库 + 审计）──
@@ -1982,8 +2170,20 @@ PATH_CANDIDATE_COLLECTION = "path_candidate_selection"
 PATH_FLAGS_COLLECTION = "path_flags"
 
 
+class CandidateStorage(Protocol):
+    """干预落库窄协议（只声明干预侧用到的两个原语；storage=None 早退）。
+
+    与审计通道同语义：无存储 = 仅状态计算不落库（审计通道 emit_audit
+    对 None 静默跳过）。协议窄化后静态检查可发现「缺原语存储」误传。
+    """
+
+    async def get_record(self, collection: str, key: str) -> dict | None: ...
+
+    async def put_record(self, collection: str, key: str, record: dict) -> None: ...
+
+
 async def choose_candidate(
-    storage: object,
+    storage: CandidateStorage | None,
     candidate_id: str,
     *,
     domain: str = "default",
@@ -1996,6 +2196,9 @@ async def choose_candidate(
     候选身份由调用方提供（assemble 产物的 rank / chain / fingerprint）；
     候选 id 为空 = fail-closed 拒绝（未知候选不落库）。选中态按域覆盖写入，
     同一域同时只持有一条选中候选——后续多径/执行消费此选中态。
+
+    storage 为 None 时仅计算选中态不落库（与审计通道同语义：无存储 =
+    状态只存运行期，不抛 AttributeError）。
 
     审计复用 ``assembly_candidate`` 既有类型（候选留痕），落 ``set_audit``
     集合（与沉淀侧审计同一通道）。
@@ -2010,23 +2213,24 @@ async def choose_candidate(
         "fingerprint": fingerprint,
         "chosen_at": ts,
     }
-    await storage.put_record(PATH_CANDIDATE_COLLECTION, domain, selection)  # type: ignore[attr-defined]
-    await emit_audit(
-        storage,
-        {
-            "type": EVENT_ASSEMBLY_CANDIDATE,
-            "ts": ts,
-            "domain": domain,
-            "fingerprint": fingerprint,
-            "candidate_id": str(candidate_id),
-            "chain": list(chain or ()),
-        },
-    )
+    if storage is not None:
+        await storage.put_record(PATH_CANDIDATE_COLLECTION, domain, selection)
+        await emit_audit(
+            storage,
+            {
+                "type": EVENT_ASSEMBLY_CANDIDATE,
+                "ts": ts,
+                "domain": domain,
+                "fingerprint": fingerprint,
+                "candidate_id": str(candidate_id),
+                "chain": list(chain or ()),
+            },
+        )
     return selection
 
 
 async def clear_candidate_selection(
-    storage: object,
+    storage: CandidateStorage | None,
     *,
     domain: str = "default",
     now: float | None = None,
@@ -2035,15 +2239,17 @@ async def clear_candidate_selection(
 
     选中态以「标记位」覆写而非删除（存储接口无删除原语），``candidate_id``
     置空代表无选中——与 choose_candidate 同一集合同一键，状态可断言轮转。
+    storage 为 None 时仅返回清除态不落库（与 choose_candidate 同语义）。
     """
     ts = now if now is not None else time.time()
     cleared = {"domain": domain, "candidate_id": "", "chosen_at": ts, "cleared": True}
-    await storage.put_record(PATH_CANDIDATE_COLLECTION, domain, cleared)  # type: ignore[attr-defined]
+    if storage is not None:
+        await storage.put_record(PATH_CANDIDATE_COLLECTION, domain, cleared)
     return cleared
 
 
 async def set_multipath(
-    storage: object,
+    storage: CandidateStorage | None,
     enabled: bool,
     *,
     domain: str = "default",
@@ -2056,40 +2262,67 @@ async def set_multipath(
     .PathAssemblyFlags` 的 ``replace`` 更新多径位，落库后回流给运行期消费。
     非法域名 / 非布尔开关不静默吞错（fail-closed：异常上抛）。
 
+    读写键名口径统一（ENG9a-4）：读取经 ``from_boot``（BOOT_KEY_* 长键），
+    落库经 :meth:`PathAssemblyFlags.to_boot_dict`（同一长键形态）——短键
+    落库再长键读取会把其余六块开关整体回退 False（每次翻多径位即重置）。
+
+    storage 为 None 时仅返回开关态不落库（与 choose_candidate 同语义）。
+
     审计复用 ``assembly_audit`` 既有类型，落 ``set_audit`` 集合。
     """
-    existing = await storage.get_record(PATH_FLAGS_COLLECTION, domain)  # type: ignore[attr-defined]
-    flags = PathAssemblyFlags.from_boot(existing or {})
-    new_flags = replace(flags, multipath_enabled=bool(enabled))
-    await storage.put_record(  # type: ignore[attr-defined]
-        PATH_FLAGS_COLLECTION, domain, dict(new_flags.to_dict())
-    )
     ts = now if now is not None else time.time()
-    await emit_audit(
-        storage,
-        {
-            "type": EVENT_AUDIT_ASSEMBLY,
-            "ts": ts,
-            "domain": domain,
-            "flag": "multipath_enabled",
-            "enabled": bool(enabled),
-        },
-    )
-    return {"multipath_enabled": bool(enabled), "flags": dict(new_flags.to_dict())}
+    if storage is not None:
+        existing = await storage.get_record(PATH_FLAGS_COLLECTION, domain)
+        flags = PathAssemblyFlags.from_boot(existing or {})
+        new_flags = replace(flags, multipath_enabled=bool(enabled))
+        await storage.put_record(
+            PATH_FLAGS_COLLECTION, domain, dict(new_flags.to_boot_dict())
+        )
+        await emit_audit(
+            storage,
+            {
+                "type": EVENT_AUDIT_ASSEMBLY,
+                "ts": ts,
+                "domain": domain,
+                "flag": "multipath_enabled",
+                "enabled": bool(enabled),
+            },
+        )
+        flags_out = new_flags
+    else:
+        flags_out = replace(
+            PathAssemblyFlags(), multipath_enabled=bool(enabled)
+        )
+    return {
+        "multipath_enabled": bool(enabled),
+        "flags": dict(flags_out.to_boot_dict()),
+    }
 
 
 __all__ = [
+    "CANARY_MAX_STEPS",
     "CANDIDATE_SOURCE_ALGORITHM",
     "CANDIDATE_SOURCE_CACHE",
     "CANDIDATE_SOURCE_DRAFT",
     "DEFAULT_BEAM_WIDTH",
     "DEFAULT_CACHE_EPSILON",
+    "DEFAULT_CANARY_TIMEOUT",
     "DEFAULT_DOMAIN",
+    "DEFAULT_DRAFT_TIMEOUT",
     "DEFAULT_LLM_WINDOW",
     "DEFAULT_MAX_PATH_LENGTH",
     "DEFAULT_MAX_SAFETY_TIER",
     "DEFAULT_TOP_K",
+    "FEEDBACK_DUPLICATE_NODE",
+    "FEEDBACK_GOAL_NOT_COVERED",
+    "FEEDBACK_OTHER",
+    "FEEDBACK_PREFIX_REQUIREMENT",
+    "FEEDBACK_SAFETY_TIER",
+    "FEEDBACK_STATE_RULE",
+    "FEEDBACK_UNKNOWN_NODE",
     "LLM_RETRY_LIMIT",
+    "MAX_DRAFT_ITEMS",
+    "MAX_ITEM_CHARS",
     "MAX_REPAIR_ROUNDS",
     "STATS_BEAM_EXTENSIONS",
     "STATS_CACHE_HITS",
@@ -2106,6 +2339,7 @@ __all__ = [
     "AssemblyResult",
     "CanaryResult",
     "CanaryVerdict",
+    "CandidateStorage",
     "DraftProvider",
     "InMemoryPoolRetriever",
     "NodeSummary",
@@ -2114,16 +2348,19 @@ __all__ = [
     "add_branch",
     "assemble_plan",
     "assembly_audit_record",
-    "choose_candidate",
-    "clear_candidate_selection",
+    "canary_active",
+    "canary_budget",
     "canary_instantiate",
     "canary_round",
+    "choose_candidate",
+    "clear_candidate_selection",
     "get_default_assembly_runtime",
     "parse_draft_chain",
     "remove_node",
     "repair_chain",
     "replace_node",
     "reroute_edge",
+    "sanitize_draft_feedback",
     "set_default_assembly_runtime",
     "set_multipath",
     "validate_chain",

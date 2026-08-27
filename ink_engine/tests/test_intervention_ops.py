@@ -70,16 +70,57 @@ async def test_set_multipath_roundtrip(memory_storage) -> None:
     # 调用
     on = await set_multipath(memory_storage, True, domain="code")
     assert on["multipath_enabled"] is True
-    # 状态改变
+    # 状态改变（落库形态 = BOOT_KEY_* 长键，与 from_boot 读取同口径）
     flags = await memory_storage.get_record("path_flags", "code")
-    assert flags["multipath_enabled"] is True
+    assert flags["path_assembly_multipath_enabled"] is True
     # 审计事件落库
     assert EVENT_AUDIT_ASSEMBLY in await _audit_types(memory_storage)
     # 反向操作复原
     off = await set_multipath(memory_storage, False, domain="code")
     assert off["multipath_enabled"] is False
     flags = await memory_storage.get_record("path_flags", "code")
-    assert flags["multipath_enabled"] is False
+    assert flags["path_assembly_multipath_enabled"] is False
+
+
+async def test_set_multipath_keeps_other_flags(memory_storage) -> None:
+    """先开 assembler 位再翻多径位：其余六块开关不被重置（ENG9a-4）。"""
+    # 先落一条只开 assembler 位的记录（长键形态）
+    from ink_engine.core.contracts import PathAssemblyFlags
+
+    await memory_storage.put_record(
+        "path_flags",
+        "code",
+        dict(
+            PathAssemblyFlags(assembler_enabled=True).to_boot_dict()
+        ),
+    )
+    # 翻多径位
+    on = await set_multipath(memory_storage, True, domain="code")
+    assert on["multipath_enabled"] is True
+    flags = await memory_storage.get_record("path_flags", "code")
+    assert flags["path_assembly_multipath_enabled"] is True
+    assert flags["path_assembly_assembler_enabled"] is True
+    assert flags["path_assembly_contract_enabled"] is False
+    # 再翻回 False，assembler 位依旧保留
+    await set_multipath(memory_storage, False, domain="code")
+    flags = await memory_storage.get_record("path_flags", "code")
+    assert flags["path_assembly_assembler_enabled"] is True
+    assert flags["path_assembly_multipath_enabled"] is False
+
+
+async def test_set_multipath_storage_none_state_only(memory_storage) -> None:
+    """storage=None 时仅状态计算不落库（与审计通道同语义，不抛异常）。"""
+    result = await set_multipath(None, True, domain="code")
+    assert result["multipath_enabled"] is True
+    assert await memory_storage.get_record("path_flags", "code") is None
+
+
+async def test_choose_candidate_storage_none_state_only() -> None:
+    """choose/clear 对 storage=None 早退（ENG9a-10：不 AttributeError）。"""
+    sel = await choose_candidate(None, "c-1", domain="code", chain=["a"])
+    assert sel["candidate_id"] == "c-1"
+    cleared = await clear_candidate_selection(None, domain="code")
+    assert cleared["candidate_id"] == ""
 
 
 # ── 3. cache.invalidate ──

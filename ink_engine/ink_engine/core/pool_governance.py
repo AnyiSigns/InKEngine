@@ -19,7 +19,7 @@ LLM——判定输入为池快照（由调用方提供），输出为登记记�
 from __future__ import annotations
 
 import time
-from collections.abc import Sequence
+from collections.abc import Mapping, Sequence
 from dataclasses import dataclass
 from typing import Any
 
@@ -263,6 +263,72 @@ class PoolGovernance:
         return [r for r in self.log if r.get("action") == GOV_INVALIDATE]
 
 
+def pool_nodes_from_registry(registry: Any) -> list[PoolNodeSnapshot]:
+    """结点类型注册表 → 治理快照结点清单（契约字段名集 = Jaccard 判定输入）。
+
+    只取带契约的类型（与组装池同源：无契约结点不参与组装，也不参与
+    治理的合并/淘汰判定）；字段集 = 产出字段名（结点对下游的语义面）。
+    """
+    from .link_validator import produced_field_names
+
+    nodes: list[PoolNodeSnapshot] = []
+    for type_name in registry.types():
+        contract = registry.contract_for(type_name)
+        if contract is None:
+            continue
+        nodes.append(
+            PoolNodeSnapshot(
+                node_id=str(type_name),
+                fields=tuple(sorted(produced_field_names(contract.output_schema))),
+            )
+        )
+    return nodes
+
+
+def weekly_proposal_usage(
+    records: Sequence[dict[str, Any]],
+    *,
+    now: float | None = None,
+    week_seconds: float = 7 * 24 * 3600,
+) -> int:
+    """治理登记历史 → 本周提案已用数（时间窗口内条数；无 ts = 按当前计）。
+
+    提案预算规则（3/周/域）的「已用」口径：以登记记录时间戳计窗口内
+    提案条数（含预算耗尽拒绝前的放行登记——预算扣减发生在登记时点）。
+    无时间戳记录按当前窗口计（刚登记的登记器历史，无从落在旧窗口）。
+    """
+    current = now if now is not None else time.time()
+    cutoff = current - week_seconds
+    total = 0
+    for record in records:
+        ts = record.get("ts")
+        if ts is None:
+            total += 1  # 无时间戳 = 视为当前窗口
+            continue
+        if float(ts) >= cutoff:
+            total += 1
+    return total
+
+
+def proposal_from_node_draft(record: Mapping[str, Any]) -> dict[str, Any]:
+    """失败点结点提案记录 → 治理提案形态（node_id/fields 归一）。
+
+    记录形态（NodeProposalSettleHook 产出）：``node_type`` + 契约草案
+    （input_schema/output_schema，SchemaSpec dict 形态）；治理判定的
+    字段集 = 产出字段名（Jaccard 合并/近重复判定的语义面）。未知形态
+    的键缺省空——判定按缺省走（不因归一失败抛错）。
+    """
+    schema = record.get("output_schema") or {}
+    fields: list[str] = []
+    for field in schema.get("fields") or ():
+        if isinstance(field, dict) and field.get("name"):
+            fields.append(str(field["name"]))
+    return {
+        "node_id": str(record.get("node_type") or record.get("node_id") or ""),
+        "fields": tuple(fields),
+    }
+
+
 __all__ = [
     "DEAD_NODE_MIN_AGE_DAYS",
     "GOV_BUDGET_EXHAUSTED",
@@ -284,6 +350,9 @@ __all__ = [
     "invalidation_record",
     "near_duplicate_by_embedding",
     "near_duplicate_by_fields",
+    "pool_nodes_from_registry",
     "proposal_allowed",
     "proposal_budget_remaining",
+    "proposal_from_node_draft",
+    "weekly_proposal_usage",
 ]

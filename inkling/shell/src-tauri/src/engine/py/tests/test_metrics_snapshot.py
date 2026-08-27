@@ -101,9 +101,32 @@ def test_dirty_values_do_not_crash():
     assert out["edges"]["avg_cost_mean"] == 0.0
 
 
+def test_assemble_stats_op_no_runtime_safe():
+    """assemble_stats op（ENG9a-8 最后一跳）：组装运行期未挂载时返回空
+    统计 + 条目量 0，不报错（前端无参调用安全降级）。"""
+    bridge = _load_bridge()
+    out = asyncio.run(bridge._assemble_stats({}))
+    assert out["ok"] is True
+    assert out["stats"] == {}
+    assert out["cache_entries"] == 0
+
+
+def test_metrics_snapshot_self_fetches_cache_stats():
+    """metrics.snapshot 壳侧自取 cache_stats（ENG9a-8）：无参调用不再
+    恒 0——运行期未挂载 = 空统计回落 0，不崩溃。"""
+    out = _call({})
+    assert out["ok"] is True
+    assert out["cache"]["hits"] == 0
+    assert out["cache"]["misses"] == 0
+    assert out["cache"]["hit_rate"] == 0.0
+    assert out["cache_entries"] == 0
+
+
 if __name__ == "__main__":
     test_hit_rate_and_token_totals()
     test_occupancy_over_threshold_flag()
     test_missing_blocks_default_to_zero()
     test_dirty_values_do_not_crash()
+    test_assemble_stats_op_no_runtime_safe()
+    test_metrics_snapshot_self_fetches_cache_stats()
     print("metrics.snapshot all assertions passed")

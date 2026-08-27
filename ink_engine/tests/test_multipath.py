@@ -950,3 +950,177 @@ async def test_branch_steps_limit_overrun_marks_branch_failed(memory_storage):
     assert all(b.terminal == "error" for b in result.branches)
     assert any("步数超限" in (b.error or "") for b in result.branches)
     assert result.verdict is not None and result.verdict.mode == MODE_NONE
+
+
+# ── E-P2：多径接入执行主链路（executor 读 multipath_enabled/signal）──
+
+async def test_executor_multipath_dispatch():
+    """执行入口接 MultipathRunner.run：编排节点产 MULTIPATH_KEY →
+    executor 展开 → 汇流裁决 → 胜者增量回流主线 + multipath_result 事件。
+
+    机制开关（装配运行期 multipath_enabled=True）+ 触发信号双双放行时
+    走多径调度（ENG2-1/2/3 接线；grep 验证 MultipathRunner.run 生产点）。
+    """
+    from ink_engine.core.events import CollectorTransport
+    from ink_engine.core.graph import Graph
+    from ink_engine.core.multipath import MULTIPATH_KEY
+    from ink_engine.core.path_assembler import (
+        PathAssemblyRuntime,
+        get_default_assembly_runtime,
+        set_default_assembly_runtime,
+    )
+
+    registry = make_behavior_registry()
+    store = EdgeEvidenceStore(":memory:")
+    candidates = await make_candidates(registry, store, top_k=3, tier=0)
+    request = make_request(top_k=3, tier=0)
+    previous = get_default_assembly_runtime()
+    set_default_assembly_runtime(
+        PathAssemblyRuntime(
+            registry=registry,
+            evidence_store=store,
+            config=PathAssemblyConfig(enabled=True),
+            multipath_enabled=True,
+            now=DUMMY_NOW,
+        )
+    )
+    try:
+        async def orchestrator(ctx):
+            return {
+                MULTIPATH_KEY: {
+                    "request": request,
+                    "candidates": list(candidates),
+                    "entry_state": {"input": "任务输入"},
+                    "k": 3,
+                }
+            }
+
+        graph = Graph(name="mp-dispatch", entry="orch")
+        graph.add_node("orch", orchestrator)
+        graph.add_exit("orch")
+        collector = CollectorTransport()
+        engine = make_engine(
+            graph,
+            transports=[collector],
+            registries=GraphRegistries(nodes=registry),
+        )
+        result = await engine.ainvoke({"input": "任务输入"})
+        assert result.reason == "reply"
+        # multipath_result 事件：触发/支流/裁决/子链引用全量留痕
+        events = [e for e in collector.events if e.type == "multipath_result"]
+        assert len(events) == 1
+        payload = events[0].payload
+        assert payload["triggered"] is True
+        assert payload["k"] >= 2  # 三候选 k=3 但低风险档降为 2
+        assert payload["winner"] is not None
+        # 胜者增量回流主线（行为结点产出 answer 字段）
+        assert "answer" in result.state
+        # 事件归属父链（graph_path 无 multipath 前缀——顶层事件）
+        assert events[0].graph_path == ()
+    finally:
+        set_default_assembly_runtime(previous)
+        await store.close()
+
+
+async def test_executor_multipath_degraded_single_when_flag_off():
+    """机制开关关闭但清单存在（编排节点与运行期不同步）：防御性降级
+    单径执行首候选——候选不静默丢弃，且不产出多径留痕事件。"""
+    from ink_engine.core.events import CollectorTransport
+    from ink_engine.core.graph import Graph
+    from ink_engine.core.multipath import MULTIPATH_KEY
+    from ink_engine.core.path_assembler import (
+        PathAssemblyRuntime,
+        get_default_assembly_runtime,
+        set_default_assembly_runtime,
+    )
+
+    registry = make_behavior_registry()
+    store = EdgeEvidenceStore(":memory:")
+    candidates = await make_candidates(registry, store, top_k=2, tier=0)
+    request = make_request(top_k=2, tier=0)
+    previous = get_default_assembly_runtime()
+    set_default_assembly_runtime(
+        PathAssemblyRuntime(
+            registry=registry,
+            config=PathAssemblyConfig(enabled=True),
+            multipath_enabled=False,
+            now=DUMMY_NOW,
+        )
+    )
+    try:
+        async def orchestrator(ctx):
+            return {
+                MULTIPATH_KEY: {
+                    "request": request,
+                    "candidates": list(candidates),
+                    "entry_state": {"input": "任务输入"},
+                    "k": 2,
+                }
+            }
+
+        graph = Graph(name="mp-degraded", entry="orch")
+        graph.add_node("orch", orchestrator)
+        graph.add_exit("orch")
+        collector = CollectorTransport()
+        engine = make_engine(
+            graph,
+            transports=[collector],
+            registries=GraphRegistries(nodes=registry),
+        )
+        result = await engine.ainvoke({"input": "任务输入"})
+        events = [e for e in collector.events if e.type == "multipath_result"]
+        assert len(events) == 1
+        assert events[0].payload["triggered"] is False
+        assert events[0].payload["k"] == 1  # 单径降级
+        # 首候选产物仍回流主线（不静默丢弃候选）
+        assert "answer" in result.state
+    finally:
+        set_default_assembly_runtime(previous)
+        await store.close()
+
+
+async def test_executor_multipath_absent_flag_no_dispatch():
+    """运行期未挂载（默认关）：清单存在 → 防御性单径执行（不崩溃）。"""
+    from ink_engine.core.events import CollectorTransport
+    from ink_engine.core.graph import Graph
+    from ink_engine.core.multipath import MULTIPATH_KEY
+    from ink_engine.core.path_assembler import (
+        get_default_assembly_runtime,
+        set_default_assembly_runtime,
+    )
+
+    registry = make_behavior_registry()
+    store = EdgeEvidenceStore(":memory:")
+    candidates = await make_candidates(registry, store, top_k=2, tier=0)
+    request = make_request(top_k=2, tier=0)
+    previous = get_default_assembly_runtime()
+    set_default_assembly_runtime(None)  # 未装配
+    try:
+        async def orchestrator(ctx):
+            return {
+                MULTIPATH_KEY: {
+                    "request": request,
+                    "candidates": list(candidates),
+                    "entry_state": {"input": "任务输入"},
+                    "k": 2,
+                }
+            }
+
+        graph = Graph(name="mp-absent", entry="orch")
+        graph.add_node("orch", orchestrator)
+        graph.add_exit("orch")
+        collector = CollectorTransport()
+        engine = make_engine(
+            graph,
+            transports=[collector],
+            registries=GraphRegistries(nodes=registry),
+        )
+        result = await engine.ainvoke({"input": "任务输入"})
+        events = [e for e in collector.events if e.type == "multipath_result"]
+        assert len(events) == 1
+        assert events[0].payload["triggered"] is False
+        assert events[0].payload["k"] == 1
+        assert "answer" in result.state
+    finally:
+        set_default_assembly_runtime(previous)
+        await store.close()

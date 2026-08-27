@@ -8,14 +8,14 @@
 
 use std::collections::HashMap;
 use std::path::PathBuf;
-use std::sync::{Mutex, OnceLock};
+use std::sync::{Arc, Mutex, OnceLock};
 
 use pyo3::prelude::*;
 use pyo3::types::PyDict;
-use pyo3::types::PyTypeMethods;
 use serde_json::Value as JsonValue;
 
 use super::bridge::{register_objects, RustEmbedder, RustMemoryStore, RustTransport};
+use crate::domain::common::readable_path;
 
 const BRIDGE_MODULE_SOURCE: &str = include_str!("py/bridge.py");
 
@@ -99,16 +99,13 @@ fn load_behavior_tools(seed_root: &str) -> Result<serde_json::Value, String> {
     serde_json::from_str(&text).map_err(|err| format!("行为准则层工具清单 JSON 非法: {err}"))
 }
 
-/// 归一化目录路径：Windows canonicalize 产出 `\\?\` 前缀的 verbatim 路径，
-/// Python 导入器无法可靠处理该类路径——统一转换为普通路径形态。
-fn readable_path(path: PathBuf) -> PathBuf {
-    let canonical = path.canonicalize().unwrap_or_else(|_| path.clone());
-    let text = canonical.to_string_lossy();
-    if let Some(rest) = text.strip_prefix(r"\\?\") {
-        PathBuf::from(rest)
-    } else {
-        canonical
-    }
+/// 引擎操作失败脱敏（H7）：PyErr 原文可能含绝对路径/工作区结构/堆栈，
+/// 原样回传会泄漏宿主布局——统一脱敏 + 错误码 + 本地日志（trace_id
+/// 关联日志定位，对外只回传粗粒度文案）。
+fn engine_op_failure(op: &str, err: pyo3::PyErr) -> String {
+    let trace_id = uuid::Uuid::new_v4().simple().to_string();
+    eprintln!("[engine] 操作失败 op={op} trace_id={trace_id}: {err}");
+    format!("引擎操作失败（code=ENGINE_OP_FAILED, op={op}, trace_id={trace_id}）")
 }
 
 /// 解释器就绪哨兵（auto-initialize 特性下首次 attach 自动初始化；
@@ -133,7 +130,7 @@ pub fn call_engine_op(op: &str, args: JsonValue) -> Result<JsonValue, String> {
         let outcome = bridge.call_method1("invoke", (op, args_json))?;
         outcome.extract()
     })
-    .map_err(|err: PyErr| err.to_string())?;
+    .map_err(|err: PyErr| engine_op_failure(op, err))?;
     serde_json::from_str(&result_json).map_err(|err| format!("引擎操作返回不可解析: {err}"))
 }
 
@@ -180,7 +177,7 @@ pub async fn call_engine_op_async(op: &str, args: JsonValue) -> Result<JsonValue
             Python::attach(|py| value.bind(py).extract::<String>())
         })
     })
-    .map_err(|err: PyErr| err.to_string())?;
+    .map_err(|err: PyErr| engine_op_failure(op, err))?;
     serde_json::from_str(&result_json).map_err(|err| format!("引擎操作返回不可解析: {err}"))
 }
 
@@ -247,6 +244,10 @@ pub struct BootOptions {
     /// 本地语义召回（懒加载 + 缺失降级确定性保底）；None = 不注入，
     /// 检索回落关键词基线（离线测试形态）。
     pub embedder_model_dir: Option<PathBuf>,
+    /// 回合行为层工具对照表来源（FA12）：装配期经 [`ToolSpecsProvider`]
+    /// 运行时快照组成工具名映射（MCP 挂载/补丁后快照随内省刷新）；
+    /// None = 回落 seed tools.json 静态声明（测试/无状态形态）。
+    pub tool_provider: Option<Arc<crate::domain::tools::ToolSpecsProvider>>,
 }
 
 impl Default for BootOptions {
@@ -261,6 +262,7 @@ impl Default for BootOptions {
             safe_mode: false,
             bundled: false,
             embedder_model_dir: None,
+            tool_provider: None,
         }
     }
 }
@@ -346,15 +348,48 @@ impl EngineHost {
         // 组成（soul/准则/事实 + 打标准则 + 档位说明 + 交错引导语 + 工具名
         // 对照表），随宿主注入为每次 LLM 调用的系统消息。种子根齐备是
         // 装配前提（缺文件 = 显式失败，行为准则层为生产级必做项）。
-        let behavior = crate::domain::prompt::compose_round_behavior(
-            &load_behavior_prompt(&seed_root)?,
-            &load_behavior_tools(&seed_root)?,
-            crate::domain::prompt::ReasoningTier::LiteProbe,
-        );
+        // FA12：工具对照表经 ToolSpecsProvider 运行时快照（MCP 挂载后
+        // 刷新即生效），未注入提供器回落 seed 静态声明（测试形态）。
+        let behavior = match options.tool_provider.as_ref() {
+            Some(provider) => crate::domain::prompt::compose_round_behavior_with_provider(
+                &load_behavior_prompt(&seed_root)?,
+                provider,
+                crate::domain::prompt::ReasoningTier::LiteProbe,
+            ),
+            None => crate::domain::prompt::compose_round_behavior(
+                &load_behavior_prompt(&seed_root)?,
+                &load_behavior_tools(&seed_root)?,
+                crate::domain::prompt::ReasoningTier::LiteProbe,
+            ),
+        };
         let behavior_text = behavior;
 
-        let (runtime, host_out, transport) =
-            Python::attach(|py| -> PyResult<(Py<PyAny>, Py<PyAny>, Py<RustTransport>)> {
+        // 模型接线：环境变量显式配置（INK_LLM_BASE_URL + INK_LLM_MODEL +
+        // INK_LLM_API_KEY，与 inkling_host.host._model_config_from_env 同口径）
+        // 时跳过离线桩注入——make_host 的 resolve_llm 回落环境配置装配真实
+        // 模型（headless 真实模型驱动入口；桌面壳经设置页注入路径不受影响）。
+        // 未配置环境 = 离线模型桩（脚本匹配；缺省回复兜底）。
+        // H6：门禁三要素齐备才走真实模型——base_url/model 已配但缺 key =
+        // 漏配，装配期即 fail-fast（不静默回退桩掩盖误配、不首轮才报错）。
+        let base_url_ok = std::env::var("INK_LLM_BASE_URL")
+            .map(|v| !v.trim().is_empty())
+            .unwrap_or(false);
+        let model_ok = std::env::var("INK_LLM_MODEL")
+            .map(|v| !v.trim().is_empty())
+            .unwrap_or(false);
+        let api_key_ok = std::env::var("INK_LLM_API_KEY")
+            .map(|v| !v.trim().is_empty())
+            .unwrap_or(false);
+        let live_model_from_env = base_url_ok && model_ok && api_key_ok;
+        let live_model_gate = (base_url_ok || model_ok) && !live_model_from_env;
+        if live_model_gate {
+            return Err(format!(
+                "真实模型门禁未通过：INK_LLM_BASE_URL/INK_LLM_MODEL 已配置但缺 \
+                 INK_LLM_API_KEY（漏配 key——真实模型路径三要素须齐备）"
+            ));
+        }
+        let (runtime, host_out, transport) = Python::attach(
+            |py| -> PyResult<(Py<PyAny>, Py<PyAny>, Py<RustTransport>)> {
                 // 捆绑形态：运行时目录登记为扩展模块 DLL 搜索位
                 // （os.add_dll_directory：pyd 依赖解析的确定途径，
                 // 覆盖 vcruntime/pywintypes 等随包原生依赖）
@@ -407,17 +442,6 @@ impl EngineHost {
                 host_kwargs.set_item("storage_uri", &storage_uri)?;
                 host_kwargs.set_item("transport", transport.clone_ref(py))?;
 
-                // 模型接线：环境变量显式配置（INK_LLM_BASE_URL + INK_LLM_MODEL，
-                // 与 inkling_host.host._model_config_from_env 同口径）时跳过离线
-                // 桩注入——make_host 的 resolve_llm 回落环境配置装配真实模型
-                // （headless 真实模型驱动入口；桌面壳经设置页注入路径不受影响）。
-                // 未配置环境 = 离线模型桩（脚本匹配；缺省回复兜底）。
-                let live_model_from_env = std::env::var("INK_LLM_BASE_URL")
-                    .map(|v| !v.trim().is_empty())
-                    .unwrap_or(false)
-                    && std::env::var("INK_LLM_MODEL")
-                        .map(|v| !v.trim().is_empty())
-                        .unwrap_or(false);
                 if live_model_from_env {
                     // 不注入 llm：resolve_llm 经 _model_config_from_env → create_llm
                 } else {
@@ -552,6 +576,11 @@ impl EngineHost {
     }
 
     /// 驱动一次回合直至终态（审批卡按需决议）。
+    ///
+    /// 并发纪律（H12）：本方法全程持有 inner Mutex——引擎回合为进程级
+    /// 单引擎串行执行（Python 事件循环线程亲和），并发回合/回调在锁上
+    /// 串行等待；上层不得并行驱动多回合（同一进程内同一时刻至多一个
+    /// 在途回合，headless 与桌面壳共用同一宿主）。
     pub fn round(&self, request: RoundRequest) -> Result<RoundOutcome, String> {
         let inner = self.inner.lock().unwrap();
         let Some(inner) = inner.as_ref() else {
@@ -615,7 +644,7 @@ impl EngineHost {
                 },
             )
         })
-        .map_err(|err: PyErr| err.to_string())?;
+        .map_err(|err: PyErr| engine_op_failure("engine.round", err))?;
 
         let raw_events = Python::attach(|py| {
             let transport = inner.transport.clone_ref(py);
@@ -625,7 +654,7 @@ impl EngineHost {
             };
             Ok(events)
         })
-        .map_err(|err: PyErr| err.to_string())?;
+        .map_err(|err: PyErr| engine_op_failure("engine.round.events", err))?;
         let mut events = Vec::with_capacity(raw_events.len());
         for raw in raw_events {
             if let Ok(value) = serde_json::from_str(&raw) {
@@ -788,12 +817,14 @@ mod tests {
 
     #[test]
     fn boot_live_model_from_env_skips_stub() {
-        // 环境变量配置真实模型（INK_LLM_*）：装配应跳过离线桩注入，
-        // 桥侧宿主 _llm 保持 None（resolve_llm 回落 env → create_llm）。
-        // 只验证接线形态，不发网络请求（create_llm 构造零联网）。
+        // 环境变量配置真实模型（INK_LLM_BASE_URL + INK_LLM_MODEL +
+        // INK_LLM_API_KEY，H6 门禁三要素齐备）：装配应跳过离线桩注入，
+        // 桥侧宿主 _llm 保持 None（resolve_llm 经 _model_config_from_env →
+        // create_llm）。只验证接线形态，不发网络请求（create_llm 构造零联网）。
         let _serial = bridge_guard();
         std::env::set_var("INK_LLM_BASE_URL", "http://127.0.0.1:9/v1");
         std::env::set_var("INK_LLM_MODEL", "test-model");
+        std::env::set_var("INK_LLM_API_KEY", "test-key");
         let options = BootOptions {
             repo_root: repo_root(),
             ..BootOptions::default()
@@ -810,6 +841,29 @@ mod tests {
         let report = host.report().expect("摘要失败");
         assert!(!report.tool_names.is_empty(), "工具清单为空");
         host.stop().expect("关停失败");
+        std::env::remove_var("INK_LLM_BASE_URL");
+        std::env::remove_var("INK_LLM_MODEL");
+        std::env::remove_var("INK_LLM_API_KEY");
+    }
+
+    #[test]
+    fn boot_live_model_gate_requires_api_key() {
+        // H6：真实模型门禁三要素齐备才走真实模型——base_url/model 已配但
+        // 缺 API_KEY = 漏配 key，装配期即 fail-fast（不静默走桩、不首轮
+        // 才报错）。
+        let _serial = bridge_guard();
+        std::env::set_var("INK_LLM_BASE_URL", "http://127.0.0.1:9/v1");
+        std::env::set_var("INK_LLM_MODEL", "test-model");
+        std::env::remove_var("INK_LLM_API_KEY");
+        let options = BootOptions {
+            repo_root: repo_root(),
+            ..BootOptions::default()
+        };
+        let err = match EngineHost::boot(options) {
+            Ok(_) => panic!("缺 API_KEY 装配应 fail-fast"),
+            Err(err) => err,
+        };
+        assert!(err.contains("API_KEY"), "错误应指向漏配 key: {err}");
         std::env::remove_var("INK_LLM_BASE_URL");
         std::env::remove_var("INK_LLM_MODEL");
     }

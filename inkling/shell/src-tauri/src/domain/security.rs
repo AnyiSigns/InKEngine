@@ -35,13 +35,20 @@ use pyo3::exceptions::PyValueError;
 use pyo3::prelude::*;
 use serde_json::Value as JsonValue;
 
-use super::common::{resolve_non_strict, DomainError, WORKSPACE_ROOT_PLACEHOLDER};
+use super::common::{
+    resolve_non_strict, DomainError, WORKSPACE_ROOT_PLACEHOLDER, DEFAULT_MAX_READ_BYTES,
+    DEFAULT_MAX_WRITE_BYTES,
+};
 use crate::engine::bridge::register_callback;
 use crate::engine::host::{call_engine_op, call_engine_op_async};
 
 // ── 结构化错误码（拒绝路径统一携带，防魔法字符串）──
 
 /// 安全拒绝/降级路径的结构化错误码（日志与结果文本共用）。
+///
+/// 对偶文件：`engine/py/inkling_host/security_domain.py`（S12：Rust 侧为
+/// 拒绝路径错误码的权威源，Python 侧经批 6e 收敛引用；值变更须双侧
+/// 同步）。
 pub struct ErrorCode;
 
 impl ErrorCode {
@@ -62,10 +69,6 @@ impl ErrorCode {
 pub const ALLOW: &str = "allow";
 pub const REVIEW: &str = "review";
 pub const DENY: &str = "deny";
-
-// 大小上限缺省值（文件工具声明 sandbox_limits 缺项时的兜底，字节）
-const DEFAULT_MAX_READ_BYTES: u64 = 1 << 20;
-const DEFAULT_MAX_WRITE_BYTES: u64 = 1 << 20;
 
 // ── 沙箱违规（守卫拒绝的统一异常形态）──
 
@@ -2367,7 +2370,7 @@ mod tests {
         std::fs::write(ws.join("src").join("main.rs"), "fn main() { println!(\"墨引擎\"); }").unwrap();
         std::fs::write(ws.join("src").join("sub").join("lib.rs"), "// 墨引擎注释\npub fn lib() {}").unwrap();
         std::fs::write(ws.join("src").join("notes.txt"), "plain text").unwrap();
-        let limits = SizeLimits { max_read: 1 << 20, max_write: 1 << 20 };
+        let limits = SizeLimits { max_read: DEFAULT_MAX_READ_BYTES, max_write: DEFAULT_MAX_WRITE_BYTES };
         let mut executor = FileOpsExecutor::default();
 
         // grep：正则 + 路径 glob 过滤 + 行号/摘要

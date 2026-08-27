@@ -15,12 +15,12 @@
 //! 与存储逻辑零网络依赖单测。
 
 use std::path::{Path, PathBuf};
-use std::time::{Duration, SystemTime, UNIX_EPOCH};
+use std::time::Duration;
 
 use rusqlite::{params, Connection, OptionalExtension};
 use serde_json::Value as JsonValue;
 
-use super::common::DomainError;
+use super::common::{now_epoch, DomainError};
 
 /// 探测默认超时（秒；端点无响应及时 fail-closed，不挂起前端）。
 pub const PROBE_TIMEOUT_SECS: u64 = 20;
@@ -158,14 +158,6 @@ pub struct RefreshReport {
 pub enum RefreshMode {
     Success,
     Fallback,
-}
-
-/// 当前 epoch 秒（写入 discovered_at 的时间基准）。
-fn now_epoch() -> f64 {
-    SystemTime::now()
-        .duration_since(UNIX_EPOCH)
-        .map(|d| d.as_secs_f64())
-        .unwrap_or(0.0)
 }
 
 /// 归一化模型清单端点 URL：`base_url` 去尾斜杠 + `/models`。
@@ -340,9 +332,11 @@ impl ModelsFetcher for HttpModelsFetcher {
         }
         let response = builder.send().await.map_err(|err| {
             if err.is_timeout() {
-                ProbeError::Network(format!("模型端点超时: {url}"))
+                // H8：降级原因不含请求 URL——探测端点属宿主内部信息，
+                // reason 经 models_refresh 回传前端会泄露内网拓扑
+                ProbeError::Network("模型端点超时".to_string())
             } else {
-                ProbeError::Network(err.to_string())
+                ProbeError::Network("模型端点连接失败".to_string())
             }
         })?;
         if !response.status().is_success() {
@@ -351,7 +345,7 @@ impl ModelsFetcher for HttpModelsFetcher {
         response
             .text()
             .await
-            .map_err(|err| ProbeError::Network(err.to_string()))
+            .map_err(|_| ProbeError::Network("模型响应读取失败".to_string()))
     }
 }
 

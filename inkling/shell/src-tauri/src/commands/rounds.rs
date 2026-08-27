@@ -219,13 +219,28 @@ pub(crate) fn round_send(
         let mut slot = state.backend.round.lock().unwrap();
         *slot = Some(recorder.clone());
     }
+    // R2（决议 10）：项目任务注入——线程绑定任务的持久化对象读回并
+    // 序列化进 inject（引擎零改动感知）；回合后按事件流归约并写回
+    // （读 → 注入 → 归约 → 落库完整链）
+    let bound_task = crate::domain::tasks::registry()
+        .list()
+        .into_iter()
+        .find(|meta| meta.thread_id.as_deref() == Some(thread_id.as_str()))
+        .map(|meta| meta.id.clone())
+        .and_then(|task_id| {
+            crate::domain::tasks::load_project_task(&data_dir, &task_id)
+                .map(|task| (task_id, task))
+        });
+    let inject = bound_task
+        .as_ref()
+        .map(|(_, task)| crate::domain::tasks::inject_project_task(task));
     let request = RoundRequest {
         input_text: text.clone(),
         thread_id: thread_id.clone(),
         round_id: round_id.clone(),
         step_args: None,
         orchestrate: None,
-        inject: None,
+        inject,
         auto_accept_review: auto_accept_review.unwrap_or(true),
     };
     let engine_guard = state.backend.engine.lock().unwrap();
@@ -245,6 +260,18 @@ pub(crate) fn round_send(
         .round(request)
         .map_err(|err| engine_failure("回合执行", err))?;
     drop(engine_guard);
+    // R2：回合事件流归约写回项目任务（绑定线程的任务对象；失败仅观测
+    // 日志——任务对象仍保留上一回合状态，不阻断回合返回）
+    if let Some((task_id, task)) = bound_task {
+        if let Err(err) = crate::domain::tasks::reduce_and_save_project_task(
+            &data_dir,
+            &task_id,
+            &task,
+            &outcome.events,
+        ) {
+            eprintln!("[rounds] 项目任务归约落库失败: {err}");
+        }
+    }
     for event in &outcome.events {
         recorder.feed(event);
     }
@@ -419,7 +446,10 @@ pub(crate) async fn resume_round_with_inject(
     Ok(response)
 }
 
-/// 回合中止：事件弧关断 + 中止信号握手（引擎在途取消经操作通道）。
+/// 回合中止：事件弧关断 + 中止信号握手 + 引擎在途回合取消（R8 接线：
+/// engine.abort_current_run 操作通道——引擎侧在途回合在下一个取消检查点
+/// 退出；操作调用失败仅留观测日志——中止信号已置位，事件弧已关断，
+/// 本地回合通道的取消语义不依赖该 op 成功）。
 #[tauri::command]
 pub(crate) fn round_abort(state: State<'_, ShellState>, round_id: String) -> Result<JsonValue, CommandError> {
     {
@@ -431,10 +461,17 @@ pub(crate) fn round_abort(state: State<'_, ShellState>, round_id: String) -> Res
         }
     }
     state.backend.abort_signal.abort();
+    let engine_abort = match crate::block_on_op_async("engine.abort_current_run", json!({})) {
+        Ok(outcome) => outcome,
+        Err(err) => {
+            eprintln!("[rounds] 引擎回合取消调用失败（中止信号已置位，不阻断）: {err}");
+            json!({ "ok": false })
+        }
+    };
     Ok(json!({
         "round_id": round_id,
         "aborted": state.backend.abort_signal.is_aborted(),
-        "engine": "engine.abort_current_run 操作通道由装配侧注册（本层已关断事件弧）",
+        "engine_abort": engine_abort,
     }))
 }
 

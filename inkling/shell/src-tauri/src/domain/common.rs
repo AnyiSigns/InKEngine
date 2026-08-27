@@ -2,6 +2,12 @@
 //!
 //! 各域模块只依赖本模块与引擎公开 API，避免相互直接引用；
 //! 装配编排只发生在 [`super::boot`]，其余域之间不发生调用。
+//!
+//! 收敛纪律（H9/H10/H11/FA16/S12）：跨域重复的小工具与常量（object_map /
+//! readable_path / now_epoch / truncate_chars / NUL_PROBE_WINDOW /
+//! 沙箱大小上限）一律以本模块为唯一权威，域内禁止平行副本。
+
+use serde_json::Value as JsonValue;
 
 /// 域层统一错误（消息形态产品可读；域内各模块按其细分错误包装）。
 #[derive(Debug, thiserror::Error)]
@@ -63,6 +69,55 @@ pub const TOOL_GROUP_NETWORK: &str = "network";
 pub const TOOL_GROUP_RESEARCH: &str = "research";
 pub const TOOL_GROUP_MCP: &str = "mcp";
 pub const TOOL_GROUP_GENERIC: &str = "generic";
+
+// ── 安全面共享常量（S12：权限/沙箱裁决的 Rust 侧权威源）──
+
+/// 文件工具读大小上限缺省值（字节；声明 sandbox_limits 缺项时兜底）。
+///
+/// 对偶文件：`engine/py/inkling_host/security_domain.py`（Python 侧同一
+/// 常量按批 6e 收敛引用本值；值变更须双侧同步，本侧为权威）。
+pub const DEFAULT_MAX_READ_BYTES: u64 = 1 << 20;
+
+/// 文件工具写大小上限缺省值（字节；同上对偶）。
+pub const DEFAULT_MAX_WRITE_BYTES: u64 = 1 << 20;
+
+/// NUL 探针窗口（文件头该字节数内含 NUL = 二进制跳过；code_tools/doc_ops
+/// 共享——FA16 上移 common）。
+pub const NUL_PROBE_WINDOW: usize = 8192;
+
+// ── 域间共享小工具（H9/H11：object_map / now_epoch / truncate 单一权威）──
+
+/// JSON 对象 → 字符串键映射（缺段/非对象 = 空映射；链段数据形态）。
+pub fn object_map(value: Option<&JsonValue>) -> HashMap<String, JsonValue> {
+    value
+        .and_then(JsonValue::as_object)
+        .map(|map| map.iter().map(|(k, v)| (k.clone(), v.clone())).collect())
+        .unwrap_or_default()
+}
+
+/// 当前 Unix 时间戳（秒；时钟异常回落 0——与既有域实现同语义）。
+pub fn now_epoch() -> f64 {
+    std::time::SystemTime::now()
+        .duration_since(std::time::UNIX_EPOCH)
+        .map(|d| d.as_secs_f64())
+        .unwrap_or(0.0)
+}
+
+/// 文本截断（字节上限；超限截断并追加截断标记）。
+///
+/// 统一行为口径（H11）：所有域内 truncate_chars 副本收敛到本函数——
+/// 超限文本一律带「…（已截断）」标记，禁止裸截断（防无标记截断的
+/// 语义失真）。
+pub fn truncate_chars(text: &str, max: usize) -> String {
+    if text.len() <= max {
+        text.to_string()
+    } else {
+        let mut head = text.to_string();
+        head.truncate(max);
+        head.push_str("…（已截断）");
+        head
+    }
+}
 
 // ── 受限进程执行（env/build 域共用的宿主侧进程通道）──
 
@@ -203,24 +258,21 @@ async fn read_pipe<R: tokio::io::AsyncRead + Unpin>(pipe: Option<R>) -> std::io:
 }
 
 fn truncate_text(data: Vec<u8>, max_chars: usize) -> String {
-    let text = String::from_utf8_lossy(&data).into_owned();
-    if text.len() <= max_chars {
-        return text;
-    }
-    let mut head = text;
-    head.truncate(max_chars);
-    head.push_str("\n…（已截断）");
-    head
+    truncate_chars(&String::from_utf8_lossy(&data), max_chars)
 }
 
 /// 归一化路径：Windows canonicalize 产出 `\\?\` 前缀的 verbatim 路径，
 /// 路径比较与展示统一转普通形态（与引擎桥 readable_path 同口径）。
+///
+/// 统一语义（H10）：目标已存在 = canonicalize（跟随符号链接）后去
+/// `\\?\` 前缀；不存在 = 原样返回（写新文件场景不因路径不存在而失败）。
 pub fn readable_path(path: PathBuf) -> PathBuf {
-    let text = path.to_string_lossy();
+    let canonical = path.canonicalize().unwrap_or_else(|_| path);
+    let text = canonical.to_string_lossy();
     if let Some(rest) = text.strip_prefix(r"\\?\") {
         PathBuf::from(rest)
     } else {
-        path
+        canonical
     }
 }
 
@@ -264,6 +316,28 @@ mod tests {
     #[test]
     fn placeholder_constant_is_untouched() {
         assert_eq!(WORKSPACE_ROOT_PLACEHOLDER, "${workspace_root}");
+    }
+
+    #[test]
+    fn shared_constants_and_helpers_are_single_authority() {
+        // S12：沙箱大小上限 = 1 MiB（与 Python 侧 security_domain.py 对偶）
+        assert_eq!(DEFAULT_MAX_READ_BYTES, 1 << 20);
+        assert_eq!(DEFAULT_MAX_WRITE_BYTES, 1 << 20);
+        // FA16：NUL 探针窗口（code_tools/doc_ops 共享）
+        assert_eq!(NUL_PROBE_WINDOW, 8192);
+        // H9：object_map 缺段/非对象 = 空映射
+        let map = object_map(Some(&serde_json::json!({"a": 1})));
+        assert_eq!(map.len(), 1);
+        assert!(object_map(None).is_empty());
+        assert!(object_map(Some(&JsonValue::Null)).is_empty());
+        assert!(object_map(Some(&serde_json::json!("nope"))).is_empty());
+        // H11：truncate 统一带截断标记（禁裸截断语义失真）
+        assert_eq!(truncate_chars("短文本", 10), "短文本");
+        let cut = truncate_chars("一二三四五六七八九十", 6);
+        assert!(cut.starts_with("一二"), "截断保留头部: {cut}");
+        assert!(cut.contains("已截断"), "超限截断须带标记: {cut}");
+        // H11：now_epoch 为正值秒时间戳
+        assert!(now_epoch() > 1_700_000_000.0);
     }
 
     #[tokio::test]

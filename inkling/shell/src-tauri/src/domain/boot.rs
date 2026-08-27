@@ -22,12 +22,12 @@
 //! 依赖纪律：本模块是唯一装配编排点，只调用各域的冻结装配签名与引擎
 //! 操作通道（`call_engine_op` / `call_engine_op_async`），域间不互调。
 
-use std::collections::{HashMap, HashSet};
+use std::collections::HashSet;
 
 use pyo3::PyResult;
 use serde_json::{json, Value as JsonValue};
 
-use super::common::{readable_path, DomainError};
+use super::common::{object_map, readable_path, DomainError};
 use super::{build, env, live, mcp, recipe, security};
 use crate::engine::host::{
     call_engine_op, call_engine_op_async, BootOptions, EngineHost, PathAssemblyFlags,
@@ -103,11 +103,37 @@ async fn wire_security(bundle: &recipe::SeedDataBundle) -> Result<(), String> {
 
 // ── 联网搜索接线 ──
 
+/// 联网搜索共享时序运行时（H3：回调桥同步上下文内驱动搜索异步动作；
+/// 进程级单例复用，替代每次调用新建 current_thread runtime）。
+fn search_runtime() -> &'static tokio::runtime::Runtime {
+    static RT: std::sync::OnceLock<tokio::runtime::Runtime> = std::sync::OnceLock::new();
+    RT.get_or_init(|| {
+        tokio::runtime::Builder::new_multi_thread()
+            .worker_threads(2)
+            .enable_all()
+            .build()
+            .expect("搜索共享运行时创建失败")
+    })
+}
+
+/// 联网搜索共享 HTTP 客户端（H3：进程级单例复用连接池，替代每次
+/// 调用新建 reqwest Client；超时 = 搜索超时上限）。
+fn search_client() -> &'static reqwest::Client {
+    static CLIENT: std::sync::OnceLock<reqwest::Client> = std::sync::OnceLock::new();
+    CLIENT.get_or_init(|| {
+        reqwest::Client::builder()
+            .timeout(std::time::Duration::from_secs(super::web_search::SEARCH_TIMEOUT_SECS))
+            .build()
+            .expect("搜索客户端构建失败")
+    })
+}
+
 /// 联网搜索执行体回调注册（web_search 工具的宿主执行路径）。
 ///
 /// Python 宿主执行体经 JSON 回调桥调用本回调；搜索实现 = 壳侧域
 /// （本地聚合源默认 / 用户自配厂商 key 降级），回调按调用参数执行
 /// 并返回结构化结果 JSON。key 缺省 = 本地聚合源（免费无 key）。
+/// H3：共享 Client/运行时复用，不随调用重建。
 async fn wire_web_search() -> Result<(), String> {
     crate::engine::bridge::register_callback(
         "host.web_search",
@@ -118,16 +144,8 @@ async fn wire_web_search() -> Result<(), String> {
                 .get("keys")
                 .map(super::web_search::parse_search_keys)
                 .unwrap_or_default();
-            let rt = tokio::runtime::Builder::new_current_thread()
-                .enable_all()
-                .build()
-                .map_err(|err| pyo3::exceptions::PyRuntimeError::new_err(err.to_string()))?;
-            let client = reqwest::Client::builder()
-                .timeout(std::time::Duration::from_secs(super::web_search::SEARCH_TIMEOUT_SECS))
-                .build()
-                .map_err(|err| pyo3::exceptions::PyRuntimeError::new_err(err.to_string()))?;
-            Ok(rt.block_on(super::web_search::search_tool(
-                &client,
+            Ok(search_runtime().block_on(super::web_search::search_tool(
+                search_client(),
                 &args,
                 &keys,
             )))
@@ -139,11 +157,38 @@ async fn wire_web_search() -> Result<(), String> {
 
 // ── 活跃态目标注册 ──
 
-/// 活跃态目标注册：五类配方目标 + 引擎内置 TOOL/EVENT_TYPE。
-async fn wire_live_targets() -> Result<(), String> {
+/// 活跃态目标注册：五类配方目标（壳侧回调接管 + 三层白名单校验）+
+/// 环境/产物两域补丁自应用目标 + 引擎内置 TOOL/EVENT_TYPE。
+///
+/// FB6（决议 13）：五类目标经 [`live::wire_apply_live_callbacks`] 改由
+/// 壳侧回调接管（recipe 白名单三清单传入，UI/THEME 补丁落链即校验）。
+/// H1：env/build 两域 `register_apply_target` 补进装配编排——运行期
+/// ENVIRONMENT/ARTIFACT 补丁落链回拉壳侧回调（补丁链版本化/回退契约
+/// 的接线补齐；重复注册 = 覆盖，幂等）。
+async fn wire_live_targets(
+    bundle: &recipe::SeedDataBundle,
+    env_domain: &env::EnvironmentDomain,
+    build_domain: &build::BuildDomain,
+) -> Result<(), String> {
     live::register_live_targets()
         .await
         .map_err(|err| fail("活跃态目标注册", err))?;
+    let whitelist = live::LiveUiWhitelist {
+        components: recipe::map_ui_allowed_components(bundle)
+            .map_err(|err| fail("界面白名单解析", err.to_string()))?,
+        channels: recipe::map_ui_allowed_channels(bundle),
+        tokens: recipe::map_ui_allowed_theme_tokens(bundle),
+    };
+    live::wire_apply_live_callbacks(&whitelist)
+        .map_err(|err| fail("活跃态回调接管", err))?;
+    env_domain
+        .register_apply_target()
+        .await
+        .map_err(|err| fail("环境域补丁目标注册", err))?;
+    build_domain
+        .register_apply_target()
+        .await
+        .map_err(|err| fail("构建域补丁目标注册", err))?;
     call_engine_op("patch.apply_target_register", json!({ "kind": "tool" }))
         .map_err(|err| fail("引擎内置目标注册（tool）", err))?;
     call_engine_op("patch.apply_target_register", json!({ "kind": "event_type" }))
@@ -159,14 +204,6 @@ async fn assemble_chain() -> Result<JsonValue, String> {
     call_engine_op_async("engine.chain_assemble", json!({}))
         .await
         .map_err(|err| fail("链组装", err))
-}
-
-/// 组装段 → 字符串映射（链段数据形态；缺段/非对象 = 空映射）。
-fn object_map(value: Option<&JsonValue>) -> HashMap<String, JsonValue> {
-    value
-        .and_then(JsonValue::as_object)
-        .map(|map| map.iter().map(|(key, v)| (key.clone(), v.clone())).collect())
-        .unwrap_or_default()
 }
 
 /// 环境段恢复：声明全景 = 基线（env.json）叠加链补丁增量（链为权威）。
@@ -640,7 +677,6 @@ pub async fn assemble_runtime(options: &BootOptions) -> Result<AssemblyReport, S
     let host = boot_host(options)?;
     wire_security(&bundle).await?;
     wire_web_search().await?;
-    wire_live_targets().await?;
 
     // 运行数据目录（envs/artifacts 落盘根）：注入优先，缺省进程级临时目录
     let data_dir = options.data_dir.clone().unwrap_or_else(std::env::temp_dir);
@@ -657,6 +693,10 @@ pub async fn assemble_runtime(options: &BootOptions) -> Result<AssemblyReport, S
     let mount_service = mcp::McpMountService::new(bundle.file("mcp_market.json"))
         .map_err(|err| fail("挂载服务装载", err.to_string()))?;
 
+    // 活跃态目标注册（H1：env/build 两域补丁自应用目标随装配接线；
+    // FB6：五类目标壳侧回调接管——需 env/build 域实例先装载）
+    wire_live_targets(&bundle, &env_domain, &build_domain).await?;
+
     // 链恢复重放（宿主侧剩余段：环境/产物/挂载/活跃态视图）
     let assembled = assemble_chain().await?;
     restore_environments(&env_domain, &assembled).await?;
@@ -665,11 +705,14 @@ pub async fn assemble_runtime(options: &BootOptions) -> Result<AssemblyReport, S
     let _ = replay_live_views(&assembled).await;
 
     let seeds = reinject_seeds(&bundle).await?;
-    finish_assembly().await?;
 
-    // 路径组装机制宿主接线（尾部挂载：开关透传 + 种子路径语料导入；
-    // 机制开关关闭时零生效——op fail-closed + 导入跳过，重放幂等）
-    wire_path_assembly(options, &bundle, &data_dir).await?;
+    // 路径组装机制宿主接线（H2：先接线再收尾重建——失败降级记录不
+    // 熔断已装配块；开关关闭时零生效——op fail-closed + 导入跳过，
+    // 重放幂等；边证据库是派生数据，可由运行历史重建）
+    if let Err(err) = wire_path_assembly(options, &bundle, &data_dir).await {
+        eprintln!("[boot] 路径组装机制接线降级（记录不阻断装配）: {err}");
+    }
+    finish_assembly().await?;
 
     // 链版本号：链组装结果本身无版本字段，按链记录补丁段长度 + 1；
     // 记录读取失败只影响报告字段（回落 1），不阻断装配完成
@@ -701,17 +744,6 @@ pub async fn wiring_probe(options: &BootOptions) -> Result<Vec<String>, String> 
 
     probe_line(&mut lines, "安全域接线", wire_security(&bundle).await.map(|_| ()));
     probe_line(&mut lines, "联网搜索回调注册", wire_web_search().await.map(|_| ()));
-    probe_line(&mut lines, "活跃态目标注册", wire_live_targets().await);
-    let assembled = match assemble_chain().await {
-        Ok(value) => {
-            lines.push("ok 链组装".to_string());
-            value
-        }
-        Err(err) => {
-            lines.push(format!("error 链组装: {err}"));
-            JsonValue::Null
-        }
-    };
 
     let data_dir = options.data_dir.clone().unwrap_or_else(std::env::temp_dir);
     let build_domain = match build::BuildDomain::new(bundle.file("build.json"), data_dir.join("artifacts"))
@@ -744,6 +776,16 @@ pub async fn wiring_probe(options: &BootOptions) -> Result<Vec<String>, String> 
             None
         }
     };
+    match (&env_domain, &build_domain) {
+        (Some(env_domain), Some(build_domain)) => probe_line(
+            &mut lines,
+            "活跃态目标注册",
+            wire_live_targets(&bundle, env_domain, build_domain).await,
+        ),
+        _ => lines.push(
+            "error 活跃态目标注册: 环境/构建域未装载（目标注册须两域实例齐备）".to_string(),
+        ),
+    }
     let mount_service = match mcp::McpMountService::new(bundle.file("mcp_market.json")) {
         Ok(service) => {
             lines.push("ok 挂载服务装载".to_string());
@@ -752,6 +794,17 @@ pub async fn wiring_probe(options: &BootOptions) -> Result<Vec<String>, String> 
         Err(err) => {
             lines.push(format!("error 挂载服务装载: {err}"));
             None
+        }
+    };
+
+    let assembled = match assemble_chain().await {
+        Ok(value) => {
+            lines.push("ok 链组装".to_string());
+            value
+        }
+        Err(err) => {
+            lines.push(format!("error 链组装: {err}"));
+            JsonValue::Null
         }
     };
 

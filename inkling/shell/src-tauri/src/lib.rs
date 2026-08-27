@@ -134,6 +134,7 @@ fn boot_options(
     repo_root: PathBuf,
     data_dir: PathBuf,
     safe_mode: bool,
+    tool_provider: Option<std::sync::Arc<domain::tools::ToolSpecsProvider>>,
 ) -> engine::host::BootOptions {
     engine::host::BootOptions {
         repo_root,
@@ -142,17 +143,14 @@ fn boot_options(
         safe_mode,
         bundled: engine::runtime::bundled_mode(),
         embedder_model_dir: embedder_model_dir(&data_dir),
-        // 引擎路径装配机制出厂全开（契约/证据/沉淀/池/组装/多径/指纹
-        // 七块启用；逐块独立，单块异常可关闭回滚）
-        path_assembly: engine::host::PathAssemblyFlags {
-            contract_enabled: true,
-            edge_evidence_enabled: true,
-            settle_hooks_enabled: true,
-            pool_governance_enabled: true,
-            assembler_enabled: true,
-            multipath_enabled: true,
-            fingerprint_cache_enabled: true,
-        },
+        // A9：引擎路径装配机制（E-P1/E-P2/E-P9 实验性机制七块）出厂默认
+        // 全关——缩小装配爆炸半径（红线二仅靠崩溃循环回退）；用户显式
+        // 开启（BootOptions 注入 / 未来设置项）后逐块独立，单块异常可
+        // 单独关闭回滚。
+        path_assembly: engine::host::PathAssemblyFlags::default(),
+        // FA12：回合行为层工具对照表经运行时快照（装配前种子装载 +
+        // 装配后内省刷新；MCP 挂载/补丁后随 refresh 更新）
+        tool_provider,
         ..Default::default()
     }
 }
@@ -171,11 +169,19 @@ fn load_workflow_data() -> Result<JsonValue, String> {
     serde_json::from_str(&text).map_err(|err| format!("装配数据 JSON 非法: {err}"))
 }
 
+/// 装配失败脱敏（A10：引擎装配错误可能含绝对路径/堆栈/内部布局——
+/// 本地日志留痕完整错误，对外仅回传粗粒度提示，trace_id 关联排障）。
+fn assembly_failure(stage: &str, detail: impl std::fmt::Display) -> String {
+    let trace_id = uuid::Uuid::new_v4().simple().to_string();
+    eprintln!("[assembly] {stage} 失败 trace_id={trace_id}: {detail}");
+    format!("引擎装配失败（{stage}，trace_id={trace_id}；详见本地日志）")
+}
+
 /// 懒装配（幂等）：首次调用执行引擎机制装配 + 工具快照刷新。
 ///
 /// 装配 = 嵌入装配域包的 `boot_inkling`（机制装配 + 安全纵深 + 活跃态
-/// 目标 + 链恢复全在装配域包内）；装配失败 = 结构化错误（透传引擎侧
-/// 真实错误）。崩溃回退（红线二）编排在此完成：
+/// 目标 + 链恢复全在装配域包内）；装配失败 = 结构化错误（粗粒度提示 +
+/// 本地详细日志，A10）。崩溃回退（红线二）编排在此完成：
 /// - 启动状态跟踪：失败计数 → 达阈值自动转入安全模式重试（出厂基线
 ///   启动，链内容不参与装配）；成功启动计数归零；
 /// - 启动快照轮换：装配成功后按链版本落一份存储快照（N 份轮换，绑定
@@ -187,30 +193,46 @@ fn ensure_engine(state: &ShellState, data_dir: &Path) -> Result<(), String> {
     }
     let boot_state = domain::recovery::load_boot_state(data_dir);
     let repo_root = repo_root_for(data_dir);
+    // FA12：回合行为层工具对照表取运行时快照——装配前先以种子装载
+    // 提供器（装配后经 refresh 同步实时表，MCP 挂载/补丁后快照随内省
+    // 刷新更新）
+    if let Ok(bundle) = domain::recipe::load_seed_data(&seed_root()) {
+        state
+            .backend
+            .tool_provider
+            .replace_from_seed(bundle.file("tools.json"));
+    }
+    let tool_provider = std::sync::Arc::clone(&state.backend.tool_provider);
     let host = match engine::host::EngineHost::boot(boot_options(
         repo_root.clone(),
         data_dir.to_path_buf(),
         boot_state.safe_mode,
+        Some(tool_provider.clone()),
     )) {
         Ok(host) => host,
         Err(err) if boot_state.safe_mode => {
-            return Err(format!("引擎装配失败（安全模式）: {err}"));
+            return Err(assembly_failure("安全模式装配", err));
         }
         Err(err) => {
             // 崩溃计数 +1；达到阈值自动转入安全模式重试（出厂基线启动）
-            let state = domain::recovery::record_boot_failure(data_dir);
-            if !state.safe_mode {
-                return Err(format!("引擎装配失败: {err}"));
+            let boot_state_after = domain::recovery::record_boot_failure(data_dir);
+            if !boot_state_after.safe_mode {
+                return Err(assembly_failure("装配", err));
             }
             match engine::host::EngineHost::boot(boot_options(
                 repo_root,
                 data_dir.to_path_buf(),
                 true,
+                Some(tool_provider),
             )) {
                 Ok(host) => host,
                 Err(safe_err) => {
+                    let trace_id = uuid::Uuid::new_v4().simple().to_string();
+                    eprintln!(
+                        "[assembly] 装配失败（自动安全模式亦失败）trace_id={trace_id}: {err} / {safe_err}"
+                    );
                     return Err(format!(
-                        "引擎装配失败（自动安全模式亦失败）: {err} / {safe_err}"
+                        "引擎装配失败（自动安全模式亦失败，trace_id={trace_id}；详见本地日志）"
                     ));
                 }
             }
@@ -359,6 +381,17 @@ fn build_tray(app: &AppHandle) -> tauri::Result<()> {
 /// 自检持久化标记文件名（selftest 二次运行的会话持久断言基准）。
 const SELFTEST_PHASE_MARKER: &str = ".selftest_phase";
 
+/// 结构化日志订阅器装配（FA17：tracing 正式接入——进程级一次；默认
+/// info 级到 stderr，`RUST_LOG` 可调）。
+pub fn init_tracing() {
+    static TRACING: std::sync::OnceLock<()> = std::sync::OnceLock::new();
+    TRACING.get_or_init(|| {
+        let _ = tracing_subscriber::fmt()
+            .with_max_level(tracing::Level::INFO)
+            .try_init();
+    });
+}
+
 /// 出厂自检（`--selftest` 入口）：全新机器路径模拟——不依赖仓库/不依赖
 /// 外部 Python，只依赖发行资源（或显式注入的模拟环境）。覆盖面：
 /// 首启解包 → 内嵌解释器 → 引擎装配 → stub 回合 → 会话记录持久 →
@@ -370,8 +403,10 @@ const SELFTEST_PHASE_MARKER: &str = ".selftest_phase";
 ///   模拟，资源根经 `INKLING_RESOURCE_DIR` 指向打包产物；
 /// - 二次运行（同数据目录）断言会话持久（重启后列表可恢复）。
 ///
-/// 返回 0 = 全过；非 0 = 失败（结构化错误到 stderr）。
+/// 返回 0 = 全过；非 0 = 失败。输出改结构化日志（H13：不再 println!
+/// 裸文本——summary 事件带结构化字段，失败事件含 trace_id 与明细）。
 pub fn selftest() -> i32 {
+    init_tracing();
     let data_dir = std::env::var("INK_DATA_DIR")
         .map(PathBuf::from)
         .unwrap_or_else(|_| {
@@ -384,11 +419,20 @@ pub fn selftest() -> i32 {
     let outcome = run_selftest(&data_dir, phase);
     match outcome {
         Ok(summary) => {
-            println!("{}", serde_json::to_string_pretty(&summary).unwrap_or_default());
+            let text = serde_json::to_string_pretty(&summary).unwrap_or_default();
+            tracing::info!(
+                target: "selftest",
+                phase = summary.get("phase").and_then(JsonValue::as_i64).unwrap_or(0),
+                tool_count = summary.get("tool_count").and_then(JsonValue::as_i64).unwrap_or(0),
+                event_count = summary.get("event_count").and_then(JsonValue::as_i64).unwrap_or(0),
+                session_persisted = summary.get("session_persisted").and_then(JsonValue::as_bool).unwrap_or(false),
+                "出厂自检通过: {text}",
+            );
             0
         }
         Err(err) => {
-            eprintln!("SELFTEST FAIL: {err}");
+            let trace_id = uuid::Uuid::new_v4().simple().to_string();
+            tracing::error!(target: "selftest", trace_id, "出厂自检失败: {err}");
             1
         }
     }
@@ -542,6 +586,7 @@ fn run_selftest(data_dir: &Path, phase: bool) -> Result<JsonValue, String> {
 }
 
 pub fn run() {
+    init_tracing();
     let stop = Arc::new(AtomicBool::new(false));
     let app = tauri::Builder::default()
         .plugin(tauri_plugin_notification::init())

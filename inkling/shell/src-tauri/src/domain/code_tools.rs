@@ -18,18 +18,15 @@
 
 use std::path::{Path, PathBuf};
 
-use super::common::{resolve_non_strict, DomainError, WORKSPACE_ROOT_PLACEHOLDER};
+use super::common::{
+    resolve_non_strict, DomainError, NUL_PROBE_WINDOW, WORKSPACE_ROOT_PLACEHOLDER,
+};
 
 /// 缺省结果条数上限（tools.json max_results 下限一致）。
 pub const DEFAULT_MAX_RESULTS: usize = 100;
 
 /// 单文件读取上限（字节；超限不读全文，命中行以阅读窗口截断）。
 pub const MAX_READ_BYTES: usize = 1 << 20;
-
-/// NUL 探针窗口（字节）：文件头该窗口内含 NUL 判定为二进制跳过。
-/// 与 doc_ops 共用同一窗口口径（doc_ops 当前无 NUL 探针使用点；
-/// 若批 6c 后 common.rs 可承载跨域常量，统一上移至 common）。
-pub const NUL_PROBE_WINDOW: usize = 8192;
 
 /// 命中文本行长展示上限（字符）。
 pub const HIT_TEXT_MAX_CHARS: usize = 200;

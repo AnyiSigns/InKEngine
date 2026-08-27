@@ -229,6 +229,12 @@ impl LocalOnnx {
 const MEMORY_RECORD_DELETED: &str = "_deleted";
 const MEMORY_PROTECTED_KEYS: [&str; 4] = ["id", "namespace", "created_at", "_deleted"];
 
+/// 记忆记录是否已删除（墓碑标记判定；H13：删除判定集中一处，防散落
+/// 三处写法漂移）。
+fn is_deleted(rec: &JsonValue) -> bool {
+    rec.get(MEMORY_RECORD_DELETED) == Some(&JsonValue::Bool(true))
+}
+
 /// 内嵌记忆存储（本地文件记忆的协议同位件）：记录以 JSON 驻留 Rust 侧；
 /// 删除=标记失效（召回不可见，记录仍可追溯），与引擎记忆语义一致。
 #[pyclass]
@@ -284,9 +290,7 @@ impl RustMemoryStore {
     fn get<'py>(&self, py: Python<'py>, entry_id: String) -> PyResult<Bound<'py, PyAny>> {
         let record = self.records.lock().unwrap().get(&entry_id).cloned();
         let result: Py<PyAny> = match record {
-            Some(rec) if rec.get(MEMORY_RECORD_DELETED) != Some(&JsonValue::Bool(true)) => {
-                self.to_entry(py, &entry_id)?
-            }
+            Some(rec) if !is_deleted(&rec) => self.to_entry(py, &entry_id)?,
             _ => py.None(),
         };
         pyo3_async_runtimes::tokio::future_into_py(py, async move { Ok(result) })
@@ -302,7 +306,7 @@ impl RustMemoryStore {
         let mut guard = self.records.lock().unwrap();
         let mut done = false;
         if let Some(rec) = guard.get_mut(&entry_id) {
-            if rec.get(MEMORY_RECORD_DELETED) != Some(&JsonValue::Bool(true)) {
+            if !is_deleted(rec) {
                 if let JsonValue::Object(fields) = patch {
                     if let JsonValue::Object(rec_fields) = rec {
                         for (key, value) in fields {
@@ -346,7 +350,7 @@ impl RustMemoryStore {
             let guard = self.records.lock().unwrap();
             let mut keys: Vec<(&String, &JsonValue)> = guard
                 .iter()
-                .filter(|(_, rec)| rec.get(MEMORY_RECORD_DELETED) != Some(&JsonValue::Bool(true)))
+                .filter(|(_, rec)| !is_deleted(rec))
                 .filter(|(_, rec)| {
                     namespace
                         .as_deref()

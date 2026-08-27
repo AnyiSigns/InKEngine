@@ -28,11 +28,12 @@ use std::collections::HashMap;
 use std::path::{Path, PathBuf};
 use std::pin::Pin;
 use std::sync::{Arc, RwLock};
-use std::time::{SystemTime, UNIX_EPOCH};
 
 use serde_json::Value as JsonValue;
 
-use super::common::{run_command, DomainError, ProcessResult};
+use super::common::{
+    now_epoch, object_map, run_command, truncate_chars, DomainError, ProcessResult,
+};
 use crate::engine::bridge::register_callback;
 use crate::engine::host::call_engine_op;
 
@@ -54,6 +55,13 @@ pub const ENVIRONMENT_APPLY_TARGET: &str = "inkling.environment";
 
 // 容器动作缺省超时（docker 拉取/构建/运行统一护栏，秒）
 const CONTAINER_TIMEOUT: f64 = 120.0;
+
+/// 本地环境动作超时（run/install 统一护栏，秒——H5 抽常量，与
+/// CONTAINER_TIMEOUT 同为动作超时命名纪律）。
+const ENV_ACTION_TIMEOUT_SECS: f64 = 30.0;
+
+/// 本地环境动作输出截断上限（字符——超限经 [`truncate_chars`] 带标记截断）。
+const ENV_ACTION_OUTPUT_MAX_CHARS: usize = 100_000;
 
 // ── 域错误形态 ──
 
@@ -331,7 +339,15 @@ impl InkLocalProvider {
             }
             let mut argv = vec![program.to_string()];
             argv.extend(rest);
-            let result = run_command(&argv, Some(Path::new(&workdir)), Some(&env), 30.0, 100_000, "").await;
+            let result = run_command(
+                &argv,
+                Some(Path::new(&workdir)),
+                Some(&env),
+                ENV_ACTION_TIMEOUT_SECS,
+                ENV_ACTION_OUTPUT_MAX_CHARS,
+                "",
+            )
+            .await;
             if result.exit_code != 0 {
                 let violation = format!(
                     "安装失败 [{cmd:?}]: exit={} {}",
@@ -378,7 +394,15 @@ impl InkLocalProvider {
         let env = run_env(handle.spec.as_ref());
         let mut argv = vec![command.to_string()];
         argv.extend(args.iter().cloned());
-        let result = run_command(&argv, Some(Path::new(&workdir)), Some(&env), 30.0, 100_000, "").await;
+        let result = run_command(
+            &argv,
+            Some(Path::new(&workdir)),
+            Some(&env),
+            ENV_ACTION_TIMEOUT_SECS,
+            ENV_ACTION_OUTPUT_MAX_CHARS,
+            "",
+        )
+        .await;
         emit_audit(
             &self.audit,
             audit_record(
@@ -927,17 +951,10 @@ impl EnvironmentDomain {
                     .cloned()
                     .unwrap_or_else(|| serde_json::json!({}));
                 // 回调桥同步执行：ensure 的异步动作（本地/容器进程通道）
-                // 在独立当前线程运行时内驱动——声明解析失败 = 结构化
+                // 经共享时序运行时驱动（H4：进程级单例复用，替代每次
+                // 调用新建 current_thread runtime——声明解析失败 = 结构化
                 // 拒绝（fail-closed），不 panic
-                let runtime = tokio::runtime::Builder::new_current_thread()
-                    .enable_all()
-                    .build()
-                    .map_err(|err| {
-                        pyo3::exceptions::PyRuntimeError::new_err(format!(
-                            "环境 ensure 运行时构造失败: {err}"
-                        ))
-                    })?;
-                match runtime.block_on(apply_environment_patch(&domain, &patch_payload)) {
+                match apply_runtime().block_on(apply_environment_patch(&domain, &patch_payload)) {
                     Ok(name) => Ok(serde_json::json!({ "ok": true, "name": name }).to_string()),
                     Err(err) => Ok(serde_json::json!({ "ok": false, "reason": err.to_string() }).to_string()),
                 }
@@ -987,6 +1004,19 @@ pub async fn apply_environment_patch(
 
 // ── 工具函数 ──
 
+/// 环境应用回调共享时序运行时（H4：回调桥同步上下文内驱动 ensure 的
+/// 异步动作；进程级单例复用，替代每次调用新建 current_thread runtime）。
+fn apply_runtime() -> &'static tokio::runtime::Runtime {
+    static RT: std::sync::OnceLock<tokio::runtime::Runtime> = std::sync::OnceLock::new();
+    RT.get_or_init(|| {
+        tokio::runtime::Builder::new_multi_thread()
+            .worker_threads(2)
+            .enable_all()
+            .build()
+            .expect("环境应用共享运行时创建失败")
+    })
+}
+
 fn string_list(value: Option<&JsonValue>) -> Vec<String> {
     value
         .and_then(|v| v.as_array())
@@ -996,13 +1026,6 @@ fn string_list(value: Option<&JsonValue>) -> Vec<String> {
                 .filter_map(|v| v.as_str().map(str::to_string))
                 .collect()
         })
-        .unwrap_or_default()
-}
-
-fn object_map(value: Option<&JsonValue>) -> HashMap<String, JsonValue> {
-    value
-        .and_then(|v| v.as_object())
-        .map(|m| m.iter().map(|(k, v)| (k.clone(), v.clone())).collect())
         .unwrap_or_default()
 }
 
@@ -1035,23 +1058,6 @@ fn which(command: &str) -> Option<PathBuf> {
         }
     }
     None
-}
-
-fn truncate_chars(text: &str, max: usize) -> String {
-    if text.len() <= max {
-        text.to_string()
-    } else {
-        let mut head = text.to_string();
-        head.truncate(max);
-        head
-    }
-}
-
-fn now_epoch() -> f64 {
-    SystemTime::now()
-        .duration_since(UNIX_EPOCH)
-        .map(|d| d.as_secs_f64())
-        .unwrap_or(0.0)
 }
 
 #[cfg(test)]

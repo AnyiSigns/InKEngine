@@ -11,10 +11,10 @@
 - 种子 = seed 中 ``meta.domain == "os"`` 的 OS 域工具（引擎代理目录的
   OS 能力面）；
 - 追加 = 壳执行器实现的 seed 非 OS 域工具（文档/导入/自指演化，固定清单）；
-- 豁免 = ``shell_exec``：seed 的 deny 档样例工具，**无壳侧执行器实现**
-  （守卫执行体在 Python 宿主侧 ``host:shell_exec_guard``，见
-  inkling_host/security_domain.py）；fail-closed 注册表要求声明引用已
-  实现执行器，补入会拒绝启动——以显式豁免登记对齐，防静默漂移。
+- deny 档样例 = ``shell_exec``：seed 的 deny 档工具，壳侧以 deny 档执行器
+  fail-closed 仅登记（守卫恒拒绝，执行面不存在；转正须经补丁链审批改档，
+  守卫执行体见 inkling_host/security_domain.py 的 host:shell_exec_guard）——
+  声明进入夹具，签名与执行器逐项比对，与其它工具同纪律。
 
 schema 形态差异映射（seed 嵌套 schema → 夹具扁平签名）：
 - 参数：取 seed ``parameters.properties`` 中除固定 ``command`` 枚举外的
@@ -51,14 +51,9 @@ FIXTURE_EXTRA_TOOLS: list[str] = [
     "propose_patch",
 ]
 
-# 豁免：seed 有声明、壳侧无执行器实现的工具（deny 档样例；理由见模块 docstring）
-FIXTURE_EXEMPTIONS: dict[str, str] = {
-    "shell_exec": (
-        "seed 的 deny 档样例工具，无壳侧执行器实现（守卫执行体在 Python 宿主侧 "
-        "host:shell_exec_guard）；fail-closed 注册表要求声明引用已实现执行器，"
-        "故不进入壳执行器声明集——显式豁免登记，防静默漂移"
-    ),
-}
+# 豁免：seed 有声明、壳侧无执行器实现的工具（当前为空——deny 档样例
+# shell_exec 已补入壳侧 deny 档执行器，见模块 docstring；新增豁免须显式登记）
+FIXTURE_EXEMPTIONS: dict[str, str] = {}
 
 # seed 参数面与执行器签名面有意的形态分叉（agent 面向 vs 壳运行面）：
 # 这些 seed 参数不进入壳执行器签名，由执行器侧同名/同义参数承接，显式登记防静默漂移。
@@ -69,6 +64,7 @@ DIVERGED_SEED_PARAMS: dict[str, set[str]] = {
     "schedule": {"when"},  # 执行器以 seconds 承载延迟档位
     "screen_query": {"region"},  # 执行器以 target 承载查询面（resolution/work_area 白名单）
     "file_query": {"pattern"},  # 执行器侧暂未实现文件名过滤
+    "shell_exec": {"argv"},  # deny 档样例：执行器签名空（argv 为引擎面向，壳侧恒拒绝）
 }
 
 # 夹具扁平参数（name/type/required）：seed 的固定 command 枚举参数与执行器
@@ -113,6 +109,7 @@ PARAMS_MAPPING: dict[str, list[tuple[str, str, bool]]] = {
         ("base_version", "integer", False),
         ("rationale", "string", False),
     ],
+    "shell_exec": [],  # deny 档样例：签名空（守卫恒拒绝，执行面不存在）
 }
 
 # 夹具沙箱规则（壳执行器守卫数据；与执行器签名契约同源，值以本表为唯一源）
@@ -176,13 +173,14 @@ SANDBOX_MAPPING: dict[str, dict[str, Any]] = {
         "filter_arg": "-t",
     },
     "propose_patch": {"mode": "command_allowlist", "allowlist": ["propose_patch"]},
+    "shell_exec": {"mode": "command_allowlist", "allowlist": ["shell_exec"]},
 }
 
 FIXTURE_NOTE = (
     "壳执行器声明生成物：由 seed_data/tools.json 经 inkling/scripts/"
     "sync_tools_fixtures.py 生成（seed=引擎代理工具目录真源，fixtures=壳执行器声明，"
-    "禁手工维护）；成员 = seed OS 域工具 ∪ 壳执行工具 − deny 档豁免 "
-    f"（{sorted(FIXTURE_EXEMPTIONS)}），漂移由出厂自检跨注册表一致性闸门硬校验。"
+    "禁手工维护）；成员 = seed OS 域工具 ∪ 壳执行工具（含 deny 档样例 shell_exec，"
+    "fail-closed 仅登记），漂移由出厂自检跨注册表一致性闸门硬校验。"
     "params 为扁平签名形态——声明 ↔ 执行器签名一致性校验的直接比对面；shell 只读声明，禁硬编码。"
 )
 

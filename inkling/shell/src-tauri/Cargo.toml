@@ -43,6 +43,9 @@ ort = "=2.0.0-rc.10"
 # 静态 CRT 与 ort 预编译库（动态 CRT）链接冲突——本壳只需推理）
 tokenizers = { version = "0.20", default-features = false, features = ["onig"] }
 flate2 = "1.1.9"
+# 结构化日志（FA17：tracing 正式接入——装配期订阅器 + 关键事件落结构化字段）
+tracing = "0.1"
+tracing-subscriber = { version = "0.3", default-features = false, features = ["fmt", "ansi"] }
 
 # 生产形态开关：开启后加载 frontend/dist（内嵌资产），不依赖 dev server。
 # 缺省（不带该 feature 构建）= dev 形态连 devUrl——Tauri 的 dev 判定

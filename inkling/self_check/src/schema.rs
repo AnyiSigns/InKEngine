@@ -44,8 +44,9 @@ const EXPECTED_SEED_FILES: [&str; 21] = [
 ];
 
 /// 引擎源码事实核对基准：AssemblyRecipe 字段数以 runtime.py 源码为准
-/// （字段增删会让本门禁与常量失配而失败，防口径漂移）。
-const ASSEMBLY_RECIPE_FIELD_COUNT: usize = 18;
+/// （字段增删会让本门禁与常量失配而失败，防口径漂移；引擎批 3a 增
+/// compress_policy 字段后同步为 19）。
+const ASSEMBLY_RECIPE_FIELD_COUNT: usize = 19;
 
 /// manifest 身份定稿值（出厂登记表）。
 const MANIFEST_ID: &str = "inkling";
@@ -1629,15 +1630,14 @@ fn check_event_types_consistency(repo_root: &Path, payload: &Payload, issues: &m
 /// 职责边界（决议 6 / 审查 D2-S6 同源）：seed_data/tools.json = 引擎代理
 /// 工具目录真源；fixtures/tools_os.json = 壳执行器声明**生成物**（生成脚本
 /// inkling/scripts/sync_tools_fixtures.py，禁手工维护）。本闸门硬校验：
-/// 1. 成员集合 = seed OS 域工具 ∪ 壳执行工具 − 显式豁免（防 D2 成员漂移）；
+/// 1. 成员集合 = seed OS 域工具 ∪ 壳执行工具（防 D2 成员漂移）；
 /// 2. 档位单源：fixture permission == seed approval（同一能力同一档位）；
 /// 3. 端点映射：process_exec ↔ process_exec；device_mcp ↔ seed mcp
-///    （inkling_shell server 的感知/文档/导入类）；
-/// 4. 豁免登记真实性：豁免工具必须是 seed 真实存在的 OS 域工具。
+///    （inkling_shell server 的感知/文档/导入类）。
 ///
-/// 豁免项：shell_exec——seed 的 deny 档样例工具，无壳侧执行器实现（守卫
-/// 执行体在 Python 宿主侧 host:shell_exec_guard），fail-closed 注册表要求
-/// 声明引用已实现执行器，故不进入壳执行器声明集（显式登记防静默漂移）。
+/// deny 档样例 shell_exec：seed 的 deny 档工具，壳侧以 deny 档执行器
+/// fail-closed 仅登记（守卫恒拒绝，执行面不存在；转正须经补丁链审批
+/// 改档，见 impls.rs shell_exec_spec），声明进入夹具与其它工具同纪律。
 fn check_tool_tier_single_source(repo_root: &Path, payload: &Payload, issues: &mut Vec<String>) {
     /// 壳执行器实现的 seed 非 OS 域工具（文档/导入/自指演化；与生成脚本同源）。
     const FIXTURE_EXTRA_TOOLS: [&str; 4] = [
@@ -1646,8 +1646,9 @@ fn check_tool_tier_single_source(repo_root: &Path, payload: &Payload, issues: &m
         "material_import",
         "propose_patch",
     ];
-    /// 显式豁免：seed 有声明、壳侧无执行器实现的 deny 档工具（理由见函数文档）。
-    const FIXTURE_EXEMPTIONS: [&str; 1] = ["shell_exec"];
+    /// 显式豁免（当前为空：deny 档样例 shell_exec 已补入壳侧 deny 档
+    /// 执行器；新增豁免须同步生成脚本，防静默漂移）。
+    const FIXTURE_EXEMPTIONS: [&str; 0] = [];
 
     let decl_path = repo_root.join("inkling/shell/src-tauri/fixtures/tools_os.json");
     let decls = match load_json(&decl_path) {
@@ -1715,29 +1716,6 @@ fn check_tool_tier_single_source(repo_root: &Path, payload: &Payload, issues: &m
             "跨注册表成员漂移：fixtures/tools_os.json 应为 seed OS 域 ∪ 壳执行工具 − 豁免共 {} 件（缺 {missing:?} / 多 {extra:?}；生成脚本 inkling/scripts/sync_tools_fixtures.py 重生成）",
             expected_members.len()
         ));
-    }
-
-    // ── 4. 豁免登记真实性（豁免必须是 seed 真实存在的 OS 域工具）──
-    for exempt in FIXTURE_EXEMPTIONS {
-        let definition = seed_of(exempt);
-        let is_os = definition
-            .and_then(|tool| {
-                tool.get("meta")
-                    .and_then(Value::as_object)
-                    .and_then(|meta| meta.get("domain"))
-                    .and_then(Value::as_str)
-            })
-            == Some("os");
-        if definition.is_none() || !is_os {
-            issues.push(format!(
-                "豁免登记失真：{exempt} 不在 seed 的 OS 域工具内（豁免项必须是 seed 真实存在的 deny 档 OS 工具）"
-            ));
-        }
-        if decl_names.contains(&exempt) {
-            issues.push(format!(
-                "豁免登记失效：{exempt} 已进入 fixtures/tools_os.json（豁免清单须同步移除）"
-            ));
-        }
     }
 
     // ── 2/3. 逐条档位 + 端点映射（seed 为唯一权威）──

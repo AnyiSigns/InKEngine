@@ -128,11 +128,36 @@ fn search_client() -> &'static reqwest::Client {
     })
 }
 
+/// 厂商搜索 key 从环境变量读取（P5：与 web_search_domain.py
+/// `_search_provider_from_env` 对偶——payload 只携带 provider 名，
+/// key 明文不跨桥，防密钥落桥日志/审计链）。provider 取 payload
+/// ``provider``（缺省 exa，非 exa/parallel/bocha 回落 exa，与 Python
+/// 侧口径一致）；``INK_SEARCH_KEY`` 未配置 = 本地聚合源（免费无 key）。
+fn search_keys_from_env(args: &JsonValue) -> super::web_search::SearchKeys {
+    let key = std::env::var("INK_SEARCH_KEY").unwrap_or_default();
+    let key = key.trim();
+    if key.is_empty() {
+        return super::web_search::SearchKeys::default();
+    }
+    let mut keys = super::web_search::SearchKeys::default();
+    match args
+        .get("provider")
+        .and_then(JsonValue::as_str)
+        .unwrap_or("exa")
+    {
+        "parallel" => keys.parallel = Some(key.to_string()),
+        "bocha" => keys.bocha = Some(key.to_string()),
+        _ => keys.exa = Some(key.to_string()),
+    }
+    keys
+}
+
 /// 联网搜索执行体回调注册（web_search 工具的宿主执行路径）。
 ///
 /// Python 宿主执行体经 JSON 回调桥调用本回调；搜索实现 = 壳侧域
 /// （本地聚合源默认 / 用户自配厂商 key 降级），回调按调用参数执行
-/// 并返回结构化结果 JSON。key 缺省 = 本地聚合源（免费无 key）。
+/// 并返回结构化结果 JSON。key 由本侧从环境变量读取（P5），缺省 =
+/// 本地聚合源（免费无 key）。
 /// H3：共享 Client/运行时复用，不随调用重建。
 async fn wire_web_search() -> Result<(), String> {
     crate::engine::bridge::register_callback(
@@ -140,10 +165,7 @@ async fn wire_web_search() -> Result<(), String> {
         Box::new(|payload: String| -> PyResult<String> {
             let args: JsonValue = serde_json::from_str(&payload)
                 .map_err(|err| pyo3::exceptions::PyValueError::new_err(err.to_string()))?;
-            let keys = args
-                .get("keys")
-                .map(super::web_search::parse_search_keys)
-                .unwrap_or_default();
+            let keys = search_keys_from_env(&args);
             Ok(search_runtime().block_on(super::web_search::search_tool(
                 search_client(),
                 &args,
@@ -853,6 +875,34 @@ mod tests {
     /// 仓库根（env! 定位；与引擎桥测试同口径）。
     fn repo_root() -> PathBuf {
         readable_path(PathBuf::from(env!("CARGO_MANIFEST_DIR")).join("../../.."))
+    }
+
+    #[test]
+    fn search_keys_read_from_env_not_payload() {
+        // P5：厂商 key 从环境变量读取（与 web_search_domain.py
+        // _search_provider_from_env 对偶）；payload 只携带 provider 名，
+        // 旧形态 payload `keys` 字段不再被读取（防密钥跨桥/落日志）。
+        let payload = serde_json::json!({
+            "provider": "parallel",
+            "keys": {"search": {"bocha": "payload-leak"}}
+        });
+        std::env::set_var("INK_SEARCH_KEY", "env-key");
+        let keys = search_keys_from_env(&payload);
+        assert_eq!(keys.parallel.as_deref(), Some("env-key"));
+        assert!(keys.exa.is_none(), "provider=parallel 不应落到 exa");
+        assert!(keys.bocha.is_none(), "payload keys 不得被读取: {:?}", keys.bocha);
+        std::env::remove_var("INK_SEARCH_KEY");
+
+        // 未配置 env key = 本地聚合源（免费无 key）
+        let none = search_keys_from_env(&payload);
+        assert!(!none.any(), "未配置 INK_SEARCH_KEY 应为本地聚合源");
+        // provider 缺省/非法 = 回落 exa（与 Python 侧口径一致）
+        std::env::set_var("INK_SEARCH_KEY", "env-key");
+        let defaulted = search_keys_from_env(&serde_json::json!({}));
+        assert_eq!(defaulted.exa.as_deref(), Some("env-key"));
+        let weird = search_keys_from_env(&serde_json::json!({"provider": "nope"}));
+        assert_eq!(weird.exa.as_deref(), Some("env-key"));
+        std::env::remove_var("INK_SEARCH_KEY");
     }
 
     fn test_bundle() -> recipe::SeedDataBundle {

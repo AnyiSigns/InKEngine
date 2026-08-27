@@ -533,6 +533,28 @@ async def boot_inkling(
     runtime = await InkRuntime(_five_source_factory(bundle)).boot(host, recipe)
     runtime_holder["runtime"] = runtime
     revert_state["runtime"] = runtime
+    # D3 接线：装配期注入真实 MCP server 探测（graph_recipe 探测通道，
+    # 3b 收官形态——离线 server 的挂载工具从默认研究链剔除/调用降级，
+    # 不再每回合 8 个必失败调用白跑）。探测 = runtime.mcp_manager 会话
+    # health_check 语义（协议级 ping，失败含拉起尝试）：未连接/探测失败
+    # 仅将该 server 标记离线，其余 server/工具不受影响（逐 server 独立
+    # 标记由 graph_recipe.refresh_mcp_availability 保证）。
+    from .graph_recipe import install_mcp_server_probe
+
+    async def _probe_mcp_server(server_id: str) -> bool | None:
+        """单 server 存活探测（runtime.mcp_manager 会话 health_check）。"""
+        manager = runtime.mcp_manager
+        if manager is None:
+            return None
+        handle = getattr(manager, "_sessions", {}).get(server_id)
+        if handle is None:
+            return False
+        try:
+            return bool(await handle.health_check())
+        except Exception:  # noqa: BLE001 - 探测失败 = 该 server 独立标记离线
+            return False
+
+    install_mcp_server_probe(_probe_mcp_server)
     runtime.skill_store = skill_store
     if skill_store is None:
         from ink_engine.core.skill_crystal import SkillStore

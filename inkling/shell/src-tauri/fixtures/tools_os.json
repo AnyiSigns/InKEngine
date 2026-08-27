@@ -1,5 +1,5 @@
 {
-  "note": "壳执行器声明生成物：由 seed_data/tools.json 经 inkling/scripts/sync_tools_fixtures.py 生成（seed=引擎代理工具目录真源，fixtures=壳执行器声明，禁手工维护）；成员 = seed OS 域工具 ∪ 壳执行工具 − deny 档豁免 （['shell_exec']），漂移由出厂自检跨注册表一致性闸门硬校验。params 为扁平签名形态——声明 ↔ 执行器签名一致性校验的直接比对面；shell 只读声明，禁硬编码。",
+  "note": "壳执行器声明生成物：由 seed_data/tools.json 经 inkling/scripts/sync_tools_fixtures.py 生成（seed=引擎代理工具目录真源，fixtures=壳执行器声明，禁手工维护）；成员 = seed OS 域工具 ∪ 壳执行工具（含 deny 档样例 shell_exec，fail-closed 仅登记），漂移由出厂自检跨注册表一致性闸门硬校验。params 为扁平签名形态——声明 ↔ 执行器签名一致性校验的直接比对面；shell 只读声明，禁硬编码。",
   "tools": [
     {
       "description": "行为意图：设备感知——只读查询屏幕状态（分辨率/布局/元素定位等），给对话提供「屏幕上有什么」的依据。\n\n使用时机：任务需要知道屏幕内容/布局元素时；用户问「界面上…」而模型无视觉信息时。\n\n取舍与替代选项：只读感知，不能改任何东西——要改请 launch_app/open_file 或更具体的控制工具；与 file_query 的分工：本工具看屏幕，file_query 看工作区外文件状态；感知结果仅作指路依据，不代用户操作。\n\n参数语义：region=屏幕区域/元素定位（缺省=整屏概览）。\n\n边界与协作：只读、无控制权；越权感知（摄像头/他窗口内容）被传感器白名单拒绝；宿主件挂载接线后才可用，感知面随挂载核对。",
@@ -184,6 +184,19 @@
         "max": 86400,
         "min": 1,
         "mode": "bounds"
+      }
+    },
+    {
+      "description": "行为意图：任意命令执行——出厂三档权限契约的 deny 档样例：任何调用在门禁处拒绝，不得静默绕过。\n\n使用时机：理论上覆盖「想跑什么命令」；但出厂不可用——须经补丁链显式转正（如放开特定命令）后才是可用工具，转正属产品演化决策。\n\n取舍与替代选项：受控的常见操作——各专用工具（launch_app/open_file/system_query/…，白名单+审批档齐备）；「万能执行」——本工具但必须先转正；能不改权限解决就先不用它。\n\n参数语义：command=固定值 shell_exec（端点操作判定同源，调用方恒传）；argv=待执行命令参数。\n\n边界与协作：权限契约不得擅自放宽；转正须人工审批+补丁链留痕；未转正时调用被拒绝属预期行为，请勿绕过门禁。",
+      "endpoint": "process_exec",
+      "name": "shell_exec",
+      "params": [],
+      "permission": "deny",
+      "sandbox": {
+        "allowlist": [
+          "shell_exec"
+        ],
+        "mode": "command_allowlist"
       }
     },
     {

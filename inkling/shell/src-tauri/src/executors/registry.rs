@@ -346,6 +346,7 @@ mod tests {
             "window_list",
             "window_focus",
             "window_minimize",
+            "shell_exec",
         ] {
             assert!(names.iter().any(|n| n == name), "夹具未注册工具: {name}");
         }

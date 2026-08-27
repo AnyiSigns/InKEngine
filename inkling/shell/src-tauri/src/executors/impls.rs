@@ -814,6 +814,22 @@ fn propose_patch_spec() -> ExecutorSpec {
     }
 }
 
+/// 任意命令执行执行器（出厂 deny 档样例：三档权限契约的默认拒绝——
+/// 任何调用在权限守卫处被拒，绝不落执行面；转正须经补丁链审批改档，
+/// 见 seed_data/tools.json shell_exec 声明。fail-closed 仅登记：签名
+/// 契约承载声明 ↔ 执行器一致性，守卫恒拒绝）。
+fn shell_exec_spec() -> ExecutorSpec {
+    ExecutorSpec {
+        name: "shell_exec",
+        params: vec![],
+        permission: PermissionLevel::Deny,
+        endpoint: Endpoint::ProcessExec,
+        sandbox: SandboxRule::CommandAllowlist {
+            allowlist: vec!["shell_exec".into()],
+        },
+    }
+}
+
 /// 执行器实现表：名字 → (签名契约, 运行体)
 pub fn executor_impl(name: &str) -> Option<(ExecutorSpec, RunFn)> {
     let pair: (ExecutorSpec, RunFn) = match name {
@@ -841,6 +857,7 @@ pub fn executor_impl(name: &str) -> Option<(ExecutorSpec, RunFn)> {
         "run_test_python" => (run_test_python_spec(), run_process_template),
         "run_test_web" => (run_test_web_spec(), run_process_template),
         "propose_patch" => (propose_patch_spec(), propose_patch_run),
+        "shell_exec" => (shell_exec_spec(), shell_exec_run),
         _ => return None,
     };
     Some(pair)
@@ -1271,6 +1288,21 @@ fn propose_patch_run(
     Ok(ExecOutcome { result: result.to_string(), sandbox_checked: true })
 }
 
+/// 任意命令执行运行体（fail-closed 仅登记：deny 档守卫恒拒绝，执行面
+/// 不存在——此处为签名承载位，防未来权限语义变更后静默放行）。
+fn shell_exec_run(
+    executor: &dyn Executor,
+    _args: &BTreeMap<String, Value>,
+    _backend: &dyn SystemBackend,
+    auth: &Authorization,
+) -> Result<ExecOutcome, ExecError> {
+    let tool = executor.name();
+    check_permission(tool, executor.spec().permission, auth)?;
+    Err(ExecError::PermissionDenied(format!(
+        "{tool} 出厂 deny 档（须经补丁链审批转正后方可用）"
+    )))
+}
+
 #[cfg(test)]
 mod tests {
     use super::*;
@@ -1309,6 +1341,21 @@ mod tests {
         let (spec, run) = executor_impl(name).expect("执行器须已实现");
         let executor = SpecExecutor { spec };
         run(&executor, args, backend, auth)
+    }
+
+    /// deny 档样例工具（shell_exec）：任何调用在守卫处恒拒绝——审批
+    /// 通过也不得执行（转正须改档，属补丁链演化决策）。
+    #[test]
+    fn shell_exec_deny_tier_always_rejected() {
+        let backend = MockBackend::new();
+        let args = BTreeMap::new();
+        let auth = Authorization { approved: true };
+        let err = run_via("shell_exec", &args, &backend, &auth).unwrap_err();
+        assert!(matches!(err, ExecError::PermissionDenied(_)), "deny 档须恒拒绝: {err}");
+        assert!(
+            backend.calls.lock().unwrap().is_empty(),
+            "deny 档不得触达后端副作用"
+        );
     }
 
     #[test]

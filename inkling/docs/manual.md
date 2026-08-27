@@ -68,7 +68,7 @@ InKling 是本地单机桌面产品：引擎自学习、数据全本地（sqlite
 |---|---|
 | MCP 市场 | 出厂零预挂（mcp_market.json 目录）；一键挂载走 vetting → 观察 → L2 审批转正 → 补丁链；stdio/http/in_memory 三传输；卸载回退（链尾冲突预检） |
 | 组件通道 | 形态进渲染层：白名单渲染器 + ui_spec 三层白名单校验 + ErrorBoundary 组件隔离（渲染崩溃不拖垮会话） |
-| 执行件通道 | 出厂七体（collect/parse/validate/score/review/distill/mutate）+ OS 七件（launch/open/query/volume/brightness/notify/schedule）+ 自写执行体（P1 契约测试） |
+| 执行件通道 | 出厂七体（collect/parse/validate/score/review/distill/mutate）+ OS 控制 11 件（launch_app/open_file/set_volume/set_brightness/notify/schedule/ui_click/ui_type/window_list/window_focus/window_minimize）+ 自写执行体（P1 契约测试） |
 
 ### F 生长治理
 
@@ -90,6 +90,7 @@ InKling 是本地单机桌面产品：引擎自学习、数据全本地（sqlite
 | 审计 | append-only（补丁/审批/回退/组装/汇流全留痕；on_reverted 通知钩子） |
 | 沙箱三件 | 文件（越界/符号链接拒绝 + 写前快照）/ 进程（白名单枚举 + 超时 kill）/ 网络（域名白名单 + 厂商源二次核对） |
 | 环境容器 | 薄治理：创建前审批 / 清单展示 / 孤儿清理 / 幂等销毁；ContainerUnavailable 结构化降级 |
+| headless 边界 | **headless 无人值守模式不设人工审批，仅限可信自动化场景**——`--approve` 由调用方显式声明即放行 review 档，桌面壳的审批闸门在无人值守形态下不参与；外部自动化调用链须自证可信（风控自担） |
 
 ### H 运维与恢复
 
@@ -146,5 +147,6 @@ boot_prompt 定稿 + 引擎源码事实核对 + 校验器自检夹具）/**cargo
 3. **全流程可见可审计**：写 → 门禁 → 挂载 → 生效 → 回退，消息流内联 +
    管理台条目（来源 = AI 自写，附测试报告/版本/补丁链审计）。
 
-教学资产（内容中性示例领域演示完整链路）见 `ink_engine/examples/domain_template/`，
-不占种子生态位。
+教学资产（内容中性示例领域演示完整链路，规划待建）计划落
+`ink_engine/examples/domain_template/`，不占种子生态位；建成前机制演示以
+`ink_engine/examples/e2e` 与出厂自检门禁为准。

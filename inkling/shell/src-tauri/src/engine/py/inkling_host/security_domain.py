@@ -393,8 +393,11 @@ class DeclarativeSandboxProxy:
                 max_bytes = None
             return self._workspace.validate_file(operation, target, max_bytes=max_bytes)
         if definition.endpoint is EndpointType.HTTP_FETCH and operation == "connect":
-            policy = (definition.meta or {}).get("network_policy") or {}
-            allow_domains = frozenset(policy.get("allow_domains") or ())
+            # 定义级网络策略现取（DeclarativeToolSpec.network_policy 顶层字段；
+            # 修复前误读 meta.network_policy 恒为空 → 白名单实质失效）。缺省
+            # 空 = 默认禁网（fail-closed），域名放行以声明 allow_domains 为唯一源
+            policy = definition.network_policy
+            allow_domains = frozenset(policy.allow_domains) if policy is not None else frozenset()
             NetworkPolicySandbox(allow_domains=allow_domains).validate(operation, target)
             return target
         return target  # mcp 端点：会话级边界（挂载 vetting + 审批链）

@@ -15,7 +15,11 @@ use serde_json::Value;
 use std::path::Path;
 
 /// 必须交付的 seed_data 文件（缺一即失败，防漏交付）。
-const EXPECTED_SEED_FILES: [&str; 17] = [
+/// 21 件 = 17 件既有契约文件 + 4 件登记补全：
+/// path_prompts/path_seeds（路径组装语料，接口契约见各自 schema，消费
+/// 接线属引擎路径组装域会话）/ skills_market/components_market（市场
+/// 目录，消费方 = 技能市场服务与前端组件市场入口）。
+const EXPECTED_SEED_FILES: [&str; 21] = [
     "boot_prompt.json",
     "ui_spec.json",
     "event_types.json",
@@ -33,6 +37,10 @@ const EXPECTED_SEED_FILES: [&str; 17] = [
     "env.json",
     "mcp_market.json",
     "build.json",
+    "path_prompts.json",
+    "path_seeds.json",
+    "skills_market.json",
+    "components_market.json",
 ];
 
 /// 引擎源码事实核对基准：AssemblyRecipe 字段数以 runtime.py 源码为准
@@ -411,10 +419,11 @@ fn check_manifest(data: &Value, payload: &Payload, issues: &mut Vec<String>) {
             issues.push(format!("ui_spec 使用的主题键 {key:?} 超出白名单 {actual_tokens:?}"));
         }
     }
-    // 出厂自检表身份定稿：四门禁全部 ready 且命令非空（单一事实源自证）
+    // 出厂自检表身份定稿：六门禁全部 ready 且命令非空（命令 = 编排器真正
+    // 执行的单一事实源；门禁清单与 manifest 登记一致，防文档-脚本漂移）
     let self_check = get("self_check").and_then(Value::as_object);
     if let Some(self_check) = self_check {
-        for gate in ["schema", "cargo_test", "frontend", "e2e"] {
+        for gate in ["schema", "cargo_test", "frontend", "e2e", "discipline", "benchmark"] {
             let entry = self_check.get(gate).and_then(Value::as_object);
             let command = entry
                 .and_then(|map| map.get("command"))
@@ -430,6 +439,45 @@ fn check_manifest(data: &Value, payload: &Payload, issues: &mut Vec<String>) {
                 ));
             }
         }
+    }
+    // contracts.seed_files 全量登记：21 件 seed_data 清单与 EXPECTED_SEED_FILES 逐名一致
+    // （D1/D13 落地项：孤儿种子补登记 + contracts 补全登记全部种子文件）
+    let mut registered: Vec<String> = contracts
+        .and_then(|map| map.get("seed_files"))
+        .and_then(|registry| registry.get("files"))
+        .and_then(Value::as_array)
+        .map(|entries| {
+            entries
+                .iter()
+                .filter_map(|entry| {
+                    entry
+                        .get("name")
+                        .and_then(Value::as_str)
+                        .map(String::from)
+                })
+                .collect()
+        })
+        .unwrap_or_default();
+    registered.sort_unstable();
+    let mut expected: Vec<String> = EXPECTED_SEED_FILES
+        .iter()
+        .map(|name| name.to_string())
+        .collect();
+    expected.sort_unstable();
+    if registered != expected {
+        let missing: Vec<&str> = EXPECTED_SEED_FILES
+            .iter()
+            .copied()
+            .filter(|name| !registered.iter().any(|reg| reg == name))
+            .collect();
+        let extra: Vec<String> = registered
+            .iter()
+            .filter(|name| !EXPECTED_SEED_FILES.contains(&name.as_str()))
+            .cloned()
+            .collect();
+        issues.push(format!(
+            "contracts.seed_files 未与 EXPECTED_SEED_FILES 对齐（缺 {missing:?} / 多 {extra:?}；全量登记 21 件）"
+        ));
     }
 }
 
@@ -1576,9 +1624,31 @@ fn check_event_types_consistency(repo_root: &Path, payload: &Payload, issues: &m
     }
 }
 
-/// 档位单源：壳侧运行时数据资产 tools_os.json 的权限档必须等于 seed
-/// tools.json 的 approval 档（同一能力同一档位，防按调用路径分叉）。
+/// 壳执行器声明生成物（fixtures/tools_os.json）的跨注册表一致性闸门。
+///
+/// 职责边界（决议 6 / 审查 D2-S6 同源）：seed_data/tools.json = 引擎代理
+/// 工具目录真源；fixtures/tools_os.json = 壳执行器声明**生成物**（生成脚本
+/// inkling/scripts/sync_tools_fixtures.py，禁手工维护）。本闸门硬校验：
+/// 1. 成员集合 = seed OS 域工具 ∪ 壳执行工具 − 显式豁免（防 D2 成员漂移）；
+/// 2. 档位单源：fixture permission == seed approval（同一能力同一档位）；
+/// 3. 端点映射：process_exec ↔ process_exec；device_mcp ↔ seed mcp
+///    （inkling_shell server 的感知/文档/导入类）；
+/// 4. 豁免登记真实性：豁免工具必须是 seed 真实存在的 OS 域工具。
+///
+/// 豁免项：shell_exec——seed 的 deny 档样例工具，无壳侧执行器实现（守卫
+/// 执行体在 Python 宿主侧 host:shell_exec_guard），fail-closed 注册表要求
+/// 声明引用已实现执行器，故不进入壳执行器声明集（显式登记防静默漂移）。
 fn check_tool_tier_single_source(repo_root: &Path, payload: &Payload, issues: &mut Vec<String>) {
+    /// 壳执行器实现的 seed 非 OS 域工具（文档/导入/自指演化；与生成脚本同源）。
+    const FIXTURE_EXTRA_TOOLS: [&str; 4] = [
+        "doc_parse",
+        "doc_generate",
+        "material_import",
+        "propose_patch",
+    ];
+    /// 显式豁免：seed 有声明、壳侧无执行器实现的 deny 档工具（理由见函数文档）。
+    const FIXTURE_EXEMPTIONS: [&str; 1] = ["shell_exec"];
+
     let decl_path = repo_root.join("inkling/shell/src-tauri/fixtures/tools_os.json");
     let decls = match load_json(&decl_path) {
         Ok(value) => value,
@@ -1597,27 +1667,119 @@ fn check_tool_tier_single_source(repo_root: &Path, payload: &Payload, issues: &m
         .and_then(Value::as_array)
         .cloned()
         .unwrap_or_default();
-    let seed_tier_of = |name: &str| -> Option<&str> {
-        seed_tools.iter().find_map(|tool| {
-            if tool.get("name").and_then(Value::as_str) == Some(name) {
-                tool.get("approval").and_then(Value::as_str)
-            } else {
-                None
-            }
-        })
+
+    let seed_of = |name: &str| -> Option<&Value> {
+        seed_tools
+            .iter()
+            .find(|tool| tool.get("name").and_then(Value::as_str) == Some(name))
     };
+
+    // ── 1. 成员集合（seed OS 域 ∪ 追加 − 豁免）──
+    let mut seed_os_tools: Vec<&str> = seed_tools
+        .iter()
+        .filter(|tool| {
+            tool.get("meta")
+                .and_then(Value::as_object)
+                .and_then(|meta| meta.get("domain"))
+                .and_then(Value::as_str)
+                == Some("os")
+        })
+        .filter_map(|tool| tool.get("name").and_then(Value::as_str))
+        .collect();
+    seed_os_tools.sort_unstable();
+    let mut expected_members: Vec<&str> = Vec::new();
+    expected_members.extend(seed_os_tools.iter().copied());
+    expected_members.extend(FIXTURE_EXTRA_TOOLS);
+    expected_members.retain(|name| !FIXTURE_EXEMPTIONS.contains(name));
+    expected_members.sort_unstable();
+    expected_members.dedup();
+
+    let mut decl_names: Vec<&str> = decl_tools
+        .iter()
+        .filter_map(|tool| tool.get("name").and_then(Value::as_str))
+        .collect();
+    decl_names.sort_unstable();
+    decl_names.dedup();
+    if decl_names != expected_members {
+        let missing: Vec<&str> = expected_members
+            .iter()
+            .copied()
+            .filter(|name| !decl_names.contains(name))
+            .collect();
+        let extra: Vec<&str> = decl_names
+            .iter()
+            .copied()
+            .filter(|name| !expected_members.contains(name))
+            .collect();
+        issues.push(format!(
+            "跨注册表成员漂移：fixtures/tools_os.json 应为 seed OS 域 ∪ 壳执行工具 − 豁免共 {} 件（缺 {missing:?} / 多 {extra:?}；生成脚本 inkling/scripts/sync_tools_fixtures.py 重生成）",
+            expected_members.len()
+        ));
+    }
+
+    // ── 4. 豁免登记真实性（豁免必须是 seed 真实存在的 OS 域工具）──
+    for exempt in FIXTURE_EXEMPTIONS {
+        let definition = seed_of(exempt);
+        let is_os = definition
+            .and_then(|tool| {
+                tool.get("meta")
+                    .and_then(Value::as_object)
+                    .and_then(|meta| meta.get("domain"))
+                    .and_then(Value::as_str)
+            })
+            == Some("os");
+        if definition.is_none() || !is_os {
+            issues.push(format!(
+                "豁免登记失真：{exempt} 不在 seed 的 OS 域工具内（豁免项必须是 seed 真实存在的 deny 档 OS 工具）"
+            ));
+        }
+        if decl_names.contains(&exempt) {
+            issues.push(format!(
+                "豁免登记失效：{exempt} 已进入 fixtures/tools_os.json（豁免清单须同步移除）"
+            ));
+        }
+    }
+
+    // ── 2/3. 逐条档位 + 端点映射（seed 为唯一权威）──
     for tool in decl_tools {
         let name = tool.get("name").and_then(Value::as_str).unwrap_or("");
         let declared = tool.get("permission").and_then(Value::as_str).unwrap_or("");
-        let seed_tier = seed_tier_of(name);
+        let declared_endpoint = tool.get("endpoint").and_then(Value::as_str).unwrap_or("");
+        let seed = seed_of(name);
+        let seed_tier = seed.and_then(|s| s.get("approval").and_then(Value::as_str));
         match seed_tier {
-            Some(seed) if seed != declared => issues.push(format!(
-                "档位双源：壳侧 tools_os.json {name} 档位 {declared:?} ≠ seed tools.json {seed:?}（seed 为唯一权威档位源）"
+            Some(seed_tier) if seed_tier != declared => issues.push(format!(
+                "档位双源：壳侧 tools_os.json {name} 档位 {declared:?} ≠ seed tools.json {seed_tier:?}（seed 为唯一权威档位源）"
             )),
             None => issues.push(format!(
                 "档位单源：壳侧 tools_os.json {name} 在 seed tools.json 无对应条目（工具登记漂移）"
             )),
             _ => {}
+        }
+        let expected_endpoint = seed.and_then(|s| {
+            let endpoint = s.get("endpoint").and_then(Value::as_str).unwrap_or("");
+            if endpoint == "mcp" {
+                let server_id = s
+                    .get("endpoint_config")
+                    .and_then(Value::as_object)
+                    .and_then(|config| config.get("server_id"))
+                    .and_then(Value::as_str)
+                    .unwrap_or("");
+                if server_id == "inkling_shell" {
+                    Some("device_mcp")
+                } else {
+                    Some(endpoint)
+                }
+            } else {
+                Some(endpoint)
+            }
+        });
+        if let Some(expected_endpoint) = expected_endpoint {
+            if expected_endpoint != declared_endpoint {
+                issues.push(format!(
+                    "端点双源：壳侧 tools_os.json {name} 端点 {declared_endpoint:?} ≠ seed 映射 {expected_endpoint:?}（mcp+inkling_shell → device_mcp）"
+                ));
+            }
         }
     }
 }
@@ -1756,16 +1918,7 @@ pub fn run(repo_root: &Path) -> SchemaReport {
         }
     }
 
-    // 出厂补充文件（路径组装语料）结构检查：合法 JSON 对象即可
-    for extra in ["path_prompts", "path_seeds"] {
-        match load_json(&seed_data_dir.join(format!("{extra}.json"))) {
-            Ok(Value::Object(_)) => {}
-            Ok(_) => issues.push(format!("{extra}.json 顶层应为对象（路径组装语料）")),
-            Err(err) => issues.push(err),
-        }
-    }
-
-    // 跨仓一致性门禁：事件类型三方清单（seed 权威）+ 工具档位单源
+    // 跨仓一致性门禁：事件类型三方清单（seed 权威）+ 工具档位单源/跨注册表成员一致性
     check_event_types_consistency(repo_root, &payload, &mut issues);
     check_tool_tier_single_source(repo_root, &payload, &mut issues);
 
@@ -1786,7 +1939,7 @@ pub fn run(repo_root: &Path) -> SchemaReport {
 }
 
 /// 内嵌 schema 定义（随 crate 编译打包，二进制自包含）。
-const SCHEMA_FILES: [(&str, &str); 18] = [
+const SCHEMA_FILES: [(&str, &str); 22] = [
     ("manifest.schema.json", include_str!("../schemas/manifest.schema.json")),
     ("boot_prompt.schema.json", include_str!("../schemas/boot_prompt.schema.json")),
     ("ui_spec.schema.json", include_str!("../schemas/ui_spec.schema.json")),
@@ -1805,6 +1958,10 @@ const SCHEMA_FILES: [(&str, &str); 18] = [
     ("env.schema.json", include_str!("../schemas/env.schema.json")),
     ("mcp_market.schema.json", include_str!("../schemas/mcp_market.schema.json")),
     ("build.schema.json", include_str!("../schemas/build.schema.json")),
+    ("path_prompts.schema.json", include_str!("../schemas/path_prompts.schema.json")),
+    ("path_seeds.schema.json", include_str!("../schemas/path_seeds.schema.json")),
+    ("skills_market.schema.json", include_str!("../schemas/skills_market.schema.json")),
+    ("components_market.schema.json", include_str!("../schemas/components_market.schema.json")),
 ];
 
 fn validate_against_schema(key: &str, data: &Value, issues: &mut Vec<String>) {

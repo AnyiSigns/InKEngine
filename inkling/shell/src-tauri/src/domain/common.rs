@@ -25,21 +25,27 @@ impl DomainError {
     }
 }
 
-/// seed_data 17 数据文件清单（与 schema 校验脚本同源；manifest.json 例外：
-/// 位于产品根而非 seed_data 目录，单独读取）。
-pub const SEED_DATA_FILES: [&str; 17] = [
+/// seed_data 21 数据文件清单（与 schema 校验脚本同源；manifest.json 例外：
+/// 位于产品根而非 seed_data 目录，单独读取）。消费方：path_prompts.json
+/// 由桥层组装草稿策略模板消费，path_seeds.json 由 boot 边证据导入消费，
+/// skills_market.json/components_market.json 由技能/组件市场服务消费。
+pub const SEED_DATA_FILES: [&str; 21] = [
     "boot_prompt.json",
     "build.json",
+    "components_market.json",
     "env.json",
     "event_types.json",
     "graph.json",
     "knowledge.json",
     "mcp_market.json",
     "memory.json",
+    "path_prompts.json",
+    "path_seeds.json",
     "review.json",
     "rules.json",
     "samples.json",
     "signals.json",
+    "skills_market.json",
     "templates.json",
     "tiers.json",
     "tools.json",
@@ -252,7 +258,7 @@ mod tests {
 
     #[test]
     fn seed_file_list_has_expected_count() {
-        assert_eq!(SEED_DATA_FILES.len(), 17);
+        assert_eq!(SEED_DATA_FILES.len(), 21);
     }
 
     #[test]

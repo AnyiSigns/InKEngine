@@ -68,10 +68,37 @@
       "file": "seed_data/event_types.json"
     },
     "tools": {
-      "file": "seed_data/tools.json"
+      "file": "seed_data/tools.json",
+      "note": "引擎代理工具目录真源；壳执行器声明（fixtures/tools_os.json）为其生成物（脚本 inkling/scripts/sync_tools_fixtures.py），禁手工维护"
     },
     "build": {
       "file": "seed_data/build.json"
+    },
+    "seed_files": {
+      "note": "seed_data 全量登记（21 件；与出厂自检 schema 门禁 EXPECTED_SEED_FILES 逐名对齐）。path_prompts/path_seeds 为路径组装语料，消费接线属引擎路径组装域；skills_market/components_market 为市场目录，消费方 = 技能市场服务 / 前端组件市场入口",
+      "files": [
+        { "name": "boot_prompt.json", "role": "自举提示词定稿（boot 注入层消费）" },
+        { "name": "build.json", "role": "构建产物/冒烟声明（build 域消费）" },
+        { "name": "components_market.json", "role": "组件市场目录（前端组件市场入口消费）" },
+        { "name": "env.json", "role": "环境域声明（env 域消费）" },
+        { "name": "event_types.json", "role": "事件类型契约（三方清单 seed 权威）" },
+        { "name": "graph.json", "role": "agent_graph 装配图声明" },
+        { "name": "knowledge.json", "role": "出厂知识种子（分层/规则/权重/工具规则）" },
+        { "name": "mcp_market.json", "role": "MCP 市场目录（出厂零预挂）" },
+        { "name": "memory.json", "role": "记忆域默认声明" },
+        { "name": "path_prompts.json", "role": "路径组装提示词语料（桥层组装草稿策略模板消费；接口契约见 schema）" },
+        { "name": "path_seeds.json", "role": "路径种子语料（boot 边证据导入消费；接口契约见 schema）" },
+        { "name": "review.json", "role": "评审维度/阈值/轮次上限声明" },
+        { "name": "rules.json", "role": "规则集（validate_material 谓词声明）" },
+        { "name": "samples.json", "role": "样例库（闸门基线）" },
+        { "name": "signals.json", "role": "信号/蒸馏阈值声明" },
+        { "name": "skills_market.json", "role": "技能市场目录（SkillMarketService 消费）" },
+        { "name": "templates.json", "role": "模板集声明" },
+        { "name": "tiers.json", "role": "档位/推演档声明" },
+        { "name": "tools.json", "role": "引擎代理工具目录真源（40 工具声明）" },
+        { "name": "ui_spec.json", "role": "界面规格（白名单渲染器/组件）" },
+        { "name": "workflow.json", "role": "工作流分流声明" }
+      ]
     },
     "theme_tokens": [
       "bg.base",
@@ -94,6 +121,14 @@
     },
     "e2e": {
       "command": "cargo run --release --manifest-path inkling/self_check/Cargo.toml -- e2e",
+      "status": "ready"
+    },
+    "discipline": {
+      "command": "cargo run --release --manifest-path inkling/self_check/Cargo.toml -- discipline",
+      "status": "ready"
+    },
+    "benchmark": {
+      "command": "cargo run --release --manifest-path inkling/self_check/Cargo.toml -- benchmark",
       "status": "ready"
     }
   }

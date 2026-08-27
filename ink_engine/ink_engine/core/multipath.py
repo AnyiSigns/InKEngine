@@ -92,6 +92,10 @@ UPDATE_FAIL = "fail"
 # Junction 节点类型（注册表内建类型名；装配开关关闭时不注册 = 不参与执行）
 JUNCTION_TYPE = "junction"
 
+# 多径展开保留键（组装编排节点 → 执行入口的状态通道保留键；与
+# __spawn__/__plan__/__simulate__ 同语义：弹出后不落状态/checkpoint）
+MULTIPATH_KEY = "__multipath__"
+
 # Junction 节点与执行体的状态通道保留键（数据形态：可序列化落库）
 JUNCTION_BRANCHES_STATE_KEY = "multipath.branches"
 JUNCTION_VERDICT_STATE_KEY = "multipath.verdict"
@@ -1509,6 +1513,7 @@ __all__ = [
     "MODE_QUALITY_GATE",
     "MODE_SYNTHETIC",
     "MODE_TIER",
+    "MULTIPATH_KEY",
     "RHO_MAX",
     "RHO_MIN",
     "UPDATE_FAIL",

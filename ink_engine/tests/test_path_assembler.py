@@ -15,8 +15,11 @@
 """
 from __future__ import annotations
 
+import asyncio
+import json
 from typing import Any
 
+import pytest
 from conftest import make_engine
 
 from ink_engine.core.contracts import PathAssemblyConfig
@@ -32,7 +35,7 @@ from ink_engine.core.event_types import (
     assembly_candidate_event_spec,
     register_path_assembly_event_types,
 )
-from ink_engine.core.fingerprint import graph_fingerprint
+from ink_engine.core.fingerprint import graph_fingerprint, request_fingerprint
 from ink_engine.core.graph import Graph, TerminateReason
 from ink_engine.core.path_assembler import (
     CANDIDATE_SOURCE_ALGORITHM,
@@ -853,3 +856,425 @@ async def test_canary_instantiate_rebuilds_candidate():
     data = result.candidates[0].to_dict()["graph"]
     rebuilt = canary_instantiate(data, registry=registry)
     assert rebuilt.digest() == result.candidates[0].graph.digest()
+
+
+# ── ENG9a-3：预算信封全程透传（assemble_plan 入口）────────────────
+
+async def test_assemble_plan_envelope_reaches_draft_layer():
+    """envelope 透传（默认路径同样生效）：llm_draft 开关经模块级入口到达
+    草稿层——use_draft=true 触发 draft_provider 断言（ENG9a-3）。"""
+    from ink_engine.core.path_assembler import (
+        AssemblyEnvelope,
+        PathAssemblyRuntime,
+        assemble_plan,
+        get_default_assembly_runtime,
+        set_default_assembly_runtime,
+    )
+
+    previous = get_default_assembly_runtime()
+    runtime = PathAssemblyRuntime(
+        registry=make_registry(),
+        config=PathAssemblyConfig(enabled=True),
+        now=DUMMY_NOW,
+    )
+    set_default_assembly_runtime(runtime)
+    try:
+        # 未传 envelope：草稿层关闭，provider 不被调用
+        off = FixedDraftProvider('["intent_parse","domain_router"]')
+        result_off = await assemble_plan(
+            _request(("answer",), provider=off), audit_sink=lambda r: None
+        )
+        assert result_off.llm_attempts == 0
+        assert off.calls == []
+        # 传 envelope（llm_draft=True）：provider 被调用，草稿链进候选
+        on = FixedDraftProvider(
+            '["intent_parse","domain_router","web_search","answer_direct"]'
+        )
+        result_on = await assemble_plan(
+            _request(("answer",), provider=on),
+            envelope=AssemblyEnvelope(llm_draft=True, llm_retry_limit=1),
+            audit_sink=lambda r: None,
+        )
+        assert result_on.llm_attempts == 1
+        assert len(on.calls) == 1
+    finally:
+        set_default_assembly_runtime(previous)
+
+
+async def test_runtime_assemble_plan_envelope_beam_and_draft():
+    """PathAssemblyRuntime.assemble_plan 的 envelope 直通组装器（beam 宽度
+    与草稿开关同达；仅反推解不出时开草稿 = 覆盖率断言）。"""
+    from ink_engine.core.path_assembler import (
+        AssemblyEnvelope,
+        PathAssemblyRuntime,
+    )
+
+    provider = FixedDraftProvider(
+        '["intent_parse","domain_router","web_search","answer_direct"]'
+    )
+    runtime = PathAssemblyRuntime(
+        registry=make_registry(),
+        config=PathAssemblyConfig(enabled=True),
+        now=DUMMY_NOW,
+    )
+    result = await runtime.assemble_plan(
+        _request(("answer",), provider=provider),
+        envelope=AssemblyEnvelope(llm_draft=True, beam_width=2, max_path_length=6),
+    )
+    assert result.llm_attempts == 1
+    assert len(provider.calls) == 1
+
+
+# ── ENG9a-11：草稿层三重敞口（条数/长度上限 + 超时兜底 + 反馈消毒）──
+
+def test_parse_draft_chain_imposes_limits():
+    """草稿链条数/单条长度上限：超出 = 解析失败（模型输出失控不撑爆上下文）。"""
+    from ink_engine.core.path_assembler import (
+        MAX_DRAFT_ITEMS,
+        MAX_ITEM_CHARS,
+        parse_draft_chain,
+    )
+
+    assert parse_draft_chain(json.dumps(["a"] * (MAX_DRAFT_ITEMS + 1))) is None
+    assert parse_draft_chain(json.dumps(["x" * (MAX_ITEM_CHARS + 1)])) is None
+    assert parse_draft_chain(json.dumps(["a", "b"])) == ("a", "b")
+    assert parse_draft_chain(json.dumps(["a" * MAX_ITEM_CHARS])) == ("a" * MAX_ITEM_CHARS,)
+
+
+class _SlowDraftProvider:
+    """慢速草稿源（验证草稿层超时兜底；不重试直接转算法兜底）。"""
+
+    def __init__(self) -> None:
+        self.calls = 0
+
+    async def draft(self, context: Any) -> str:
+        self.calls += 1
+        await asyncio.sleep(5)
+        return '["intent_parse"]'
+
+
+async def test_draft_provider_timeout_falls_back_to_algorithm():
+    """草稿源超时：wait_for 兜底 → 不重试直接算法层兜底（候选仍产出）。"""
+    from ink_engine.core.path_assembler import AssemblyEnvelope
+
+    provider = _SlowDraftProvider()
+    result = await make_assembler().assemble(
+        _request(("answer",), provider=provider),
+        envelope=AssemblyEnvelope(llm_draft=True, draft_timeout=0.05, llm_retry_limit=2),
+    )
+    assert provider.calls == 1  # 超时即放弃，不重试
+    assert result.llm_attempts == 1
+    assert not result.is_empty  # 算法层兜底产出候选
+    assert "草稿源调用异常" in (result.fallback_reason or "")
+
+
+async def test_draft_feedback_only_codes_and_whitelisted_names():
+    """重试反馈消毒：模型自造结点名原文不拼回提示词，只回结构化码 +
+    白名单类型名（自反馈注入面关闭）。"""
+    from ink_engine.core.path_assembler import AssemblyEnvelope
+
+    provider = FixedDraftProvider(
+        '["evil_node"]',
+        '["intent_parse","domain_router","web_search","answer_direct"]',
+    )
+    result = await make_assembler().assemble(
+        _request(("answer",), provider=provider),
+        envelope=AssemblyEnvelope(llm_draft=True, llm_retry_limit=1),
+    )
+    assert result.llm_attempts == 2
+    assert len(provider.calls) == 2
+    feedback = provider.calls[1].feedback
+    assert "evil_node" not in feedback
+    assert "unknown_node" in feedback  # 结构化理由码
+
+
+# ── ENG9a-6：canary 护栏（桩化 + 预算上限 + 超时）──────────────────
+
+async def test_canary_active_context_flag():
+    """canary 执行态标记：执行期间结点层可见（桩化判定），入口出口复位。"""
+    from ink_engine.core.path_assembler import canary_active, canary_round
+
+    seen: list[bool] = []
+
+    async def node(ctx):
+        seen.append(canary_active())
+        return {}
+
+    graph = Graph(name="canary-flag", entry="n")
+    graph.add_node("n", node)
+    graph.add_exit("n")
+    assert canary_active() is False
+    result = await canary_round(graph)
+    assert result.ok is True
+    assert seen == [True]
+    assert canary_active() is False
+
+
+async def test_canary_step_budget_caps_execution():
+    """canary 预算护栏：候选链执行步数超上限即终止（预算维度掐断）。"""
+    from ink_engine.core.path_assembler import canary_round
+
+    graph = Graph(name="canary-long", entry="n0")
+    for i in range(30):
+        graph.add_node(f"n{i}", lambda ctx: {})
+    for i in range(29):
+        graph.add_edge(f"n{i}", f"n{i + 1}")
+    graph.add_exit("n29")
+    result = await canary_round(graph)
+    assert result.ok is False
+    assert result.reason == TerminateReason.BUDGET_EXCEEDED
+
+
+async def test_canary_timeout_aborts():
+    """canary 超时护栏：执行超上限即中断（wait_for 兜底）。"""
+    from ink_engine.core.path_assembler import canary_round
+
+    async def slow(ctx):
+        await asyncio.sleep(5)
+        return {}
+
+    graph = Graph(name="canary-slow", entry="n")
+    graph.add_node("n", slow)
+    graph.add_exit("n")
+    with pytest.raises(asyncio.TimeoutError):
+        await canary_round(graph, canary_timeout=0.05)
+
+
+async def test_runtime_canary_options_propagate_to_execution():
+    """canary_options 注入经 PathAssemblyRuntime 到达执行（预算掐断 =
+    canary 失败；缺省无掐断 = canary 通过）。"""
+    from conftest import DemoBudgetPolicy
+
+    from ink_engine.core.budget import BudgetManager
+    from ink_engine.core.path_assembler import (
+        PathAssemblyRuntime,
+        assemble_plan,
+        get_default_assembly_runtime,
+        set_default_assembly_runtime,
+    )
+    from ink_engine.core.run_result import RunOptions
+
+    previous = get_default_assembly_runtime()
+    capped = BudgetManager()
+    capped.register(DemoBudgetPolicy(max_nodes=0))  # 首个节点边界即超限
+    runtime = PathAssemblyRuntime(
+        registry=make_registry(),
+        config=PathAssemblyConfig(enabled=True),
+        canary=True,
+        canary_options=RunOptions(budget=capped),
+        now=DUMMY_NOW,
+    )
+    set_default_assembly_runtime(runtime)
+    try:
+        result = await assemble_plan(_request(("answer",)), audit_sink=lambda r: None)
+        assert not result.is_empty
+        assert all(v.ok is False for v in result.canary)  # 预算掐断 → canary 失败
+    finally:
+        set_default_assembly_runtime(previous)
+
+
+# ── ENG9a-7：缓存命中候选不重复 canary ────────────────────────────
+
+def _counting_registry(counter: list[int]) -> NodeTypeRegistry:
+    """计数结点注册表（结点执行一次计一次；canary 重复执行断言用）。"""
+    registry = NodeTypeRegistry()
+
+    async def node(ctx):
+        counter.append(1)
+        return {"goal": "ok"}
+
+    registry.register(
+        "cnt",
+        lambda config: node,
+        contract=_contract(outputs=("goal",)),
+    )
+    return registry
+
+
+async def test_cache_hit_candidates_canary_verified_once():
+    """命中候选 canary 只验证一次（全部 ok 直接复用 hit_verdicts）——
+    验证成本不翻倍、首批结论进审计（ENG9a-7）。"""
+    from ink_engine.core.fingerprint_cache import FingerprintCacheStore
+    from ink_engine.core.path_assembler import (
+        PathAssemblyRuntime,
+        assemble_plan,
+        get_default_assembly_runtime,
+        set_default_assembly_runtime,
+    )
+
+    counter: list[int] = []
+    registry = _counting_registry(counter)
+    store = FingerprintCacheStore(":memory:", now=DUMMY_NOW)
+    graph = Graph(name="cnt", entry="cnt")
+    graph.add_node_type(
+        "cnt", "cnt", config={}, contract=registry.contract_for("cnt")
+    )
+    graph.add_exit("cnt")
+    request = _request(("goal",))
+    from ink_engine.core.fingerprint import request_fingerprint
+
+    key = request_fingerprint(
+        goal_fields=request.goal_fields(),
+        entry_fields=request.entry_fields,
+        domain=request.domain,
+        max_safety_tier=request.max_safety_tier,
+        model_id="",
+    )
+    await store.upsert(
+        key,
+        path=graph.to_dict(),
+        evidence_snapshot=[],
+        model_id="",
+        gate_passed=True,
+        path_fingerprint=graph.digest(),
+        domain="code",
+    )
+    previous = get_default_assembly_runtime()
+    runtime = PathAssemblyRuntime(
+        registry=registry,
+        config=PathAssemblyConfig(enabled=True),
+        cache=store,
+        cache_epsilon=0.0,
+        now=DUMMY_NOW,
+    )
+    set_default_assembly_runtime(runtime)
+    try:
+        result = await assemble_plan(request, audit_sink=lambda r: None)
+        assert result.stats["cache_hits"] == 1
+        assert len(result.canary) == 1
+        assert result.canary[0].ok is True
+        assert len(counter) == 1  # 命中验证一次即复用（修复前为 2）
+    finally:
+        set_default_assembly_runtime(previous)
+        await store.close()
+
+
+# ── ENG9a-5：顶替判据两侧基线统一 ─────────────────────────────────
+
+async def test_replace_baseline_uses_current_evidence():
+    """顶替判据两侧同基线：缓存分用当前证据行重算——证据漂移后新链分
+    高于旧链当前分即顶替（旧快照不再压制顶替，ENG9a-5）。"""
+    from ink_engine.core.edge_evidence import EdgeEvidenceStore, EdgeKey
+    from ink_engine.core.fingerprint_cache import (
+        FingerprintCacheStore,
+    )
+    from ink_engine.core.path_assembler import (
+        STATS_CACHE_REPLACEMENTS,
+        PathAssembler,
+    )
+
+    # 小池：A 产 x；B/C 消费 x 产 goal
+    small_pool = (
+        ("A", (), ("x",)),
+        ("B", ("x",), ("goal",)),
+        ("C", ("x",), ("goal",)),
+    )
+    registry = make_registry(small_pool)
+    evidence = EdgeEvidenceStore(":memory:")
+    cache = FingerprintCacheStore(":memory:", now=DUMMY_NOW)
+    assembler = PathAssembler(
+        registry=registry,
+        evidence_store=evidence,
+        cache=cache,
+        config=PathAssemblyConfig(enabled=True),
+        cache_epsilon=0.0,
+        now=DUMMY_NOW,
+    )
+    request = _request(("goal",))
+    first = await assembler.assemble(request)
+    assert first.candidates[0].chain == ("A", "B")  # 零证据字典序 B 先
+    key = request_fingerprint(
+        goal_fields=request.goal_fields(),
+        entry_fields=request.entry_fields,
+        domain=request.domain,
+        max_safety_tier=request.max_safety_tier,
+        model_id="",
+    )
+    b_edge = EdgeKey(src_type="A", dst_type="B", context_domain="code")
+    c_edge = EdgeKey(src_type="A", dst_type="C", context_domain="code")
+    # 旧条目快照：B 边 30 成功（转正档高分）
+    for _ in range(30):
+        await evidence.record_success(b_edge, now=DUMMY_NOW)
+    await cache.upsert(
+        key,
+        path=first.candidates[0].graph.to_dict(),
+        evidence_snapshot=[e.to_dict() for e in await evidence.list_edges("code")],
+        model_id="",
+        gate_passed=True,
+        path_fingerprint=first.candidates[0].graph.digest(),
+        domain="code",
+    )
+    # 证据漂移：B 边灌失败（当前分大跌），C 边灌中量成功（当前分反超 B
+    # 但低于 B 的旧快照分——旧基线会压制顶替，同基线则成立）
+    for _ in range(30):
+        await evidence.record_failure(b_edge, now=DUMMY_NOW)
+    for _ in range(25):
+        await evidence.record_success(c_edge, now=DUMMY_NOW)
+    second = await assembler.assemble(request)
+    assert second.stats[STATS_CACHE_REPLACEMENTS] == 1
+    assert second.candidates[0].chain == ("A", "C")
+    await evidence.close()
+    await cache.close()
+
+
+# ── ENG9a-8：stats 最后一跳（运行期统计累计）───────────────────────
+
+async def test_runtime_stats_total_accumulates():
+    """组装统计跨调用累计（assemble_stats op 的数据源）：命中/未命中/
+    顶替计数经运行期累积可见，不随单次结果丢失。"""
+    from ink_engine.core.edge_evidence import EdgeEvidenceStore
+    from ink_engine.core.fingerprint_cache import FingerprintCacheStore
+    from ink_engine.core.path_assembler import (
+        PathAssemblyRuntime,
+        assemble_plan,
+        get_default_assembly_runtime,
+        set_default_assembly_runtime,
+    )
+
+    registry = make_registry()
+    evidence = EdgeEvidenceStore(":memory:")
+    cache = FingerprintCacheStore(":memory:", now=DUMMY_NOW)
+    previous = get_default_assembly_runtime()
+    runtime = PathAssemblyRuntime(
+        registry=registry,
+        evidence_store=evidence,
+        config=PathAssemblyConfig(enabled=True),
+        cache=cache,
+        cache_epsilon=0.0,
+        now=DUMMY_NOW,
+    )
+    set_default_assembly_runtime(runtime)
+    try:
+        first = await assemble_plan(_request(("answer",)), audit_sink=lambda r: None)
+        assert runtime.stats_total["cache_misses"] == 1
+        assert runtime.stats_total["beam_extensions"] == first.stats["beam_extensions"]
+        # 沉淀侧写入缓存（FingerprintSettleHook 同源形态）后再调：命中累计
+        from ink_engine.core.fingerprint import request_fingerprint as _rf
+
+        req = _request(("answer",))
+        key = _rf(
+            goal_fields=req.goal_fields(),
+            entry_fields=req.entry_fields,
+            domain=req.domain,
+            max_safety_tier=req.max_safety_tier,
+            model_id="",
+        )
+        graph = first.candidates[0].graph
+        await cache.upsert(
+            key,
+            path=graph.to_dict(),
+            evidence_snapshot=[],
+            model_id="",
+            gate_passed=True,
+            path_fingerprint=graph.digest(),
+            domain="code",
+        )
+        await assemble_plan(_request(("answer",)), audit_sink=lambda r: None)
+        assert runtime.stats_total["cache_hits"] == 1
+        assert runtime.stats_total["cache_misses"] == 1  # 命中不再累计 miss
+        await assemble_plan(_request(("answer",)), audit_sink=lambda r: None)
+        assert runtime.stats_total["cache_hits"] == 2
+    finally:
+        set_default_assembly_runtime(previous)
+        await evidence.close()
+        await cache.close()

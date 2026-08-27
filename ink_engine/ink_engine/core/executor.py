@@ -26,7 +26,7 @@ import asyncio
 import inspect
 import time
 import uuid
-from collections.abc import AsyncGenerator
+from collections.abc import AsyncGenerator, Mapping
 from dataclasses import dataclass, field, replace
 from typing import Any
 
@@ -46,6 +46,7 @@ from .fanout import fan_out
 from .graph import Graph, NodeContext, TerminateReason
 from .interrupt import InterruptCoordinator, InterruptSignal, InterruptState
 from .logging import get_logger, trace_id_var
+from .multipath import MULTIPATH_KEY
 from .plan import (
     KIND_NODES,
     KIND_PARALLEL,
@@ -186,6 +187,10 @@ class _NodeContextImpl(NodeContext):
     @property
     def graph_path(self) -> tuple[str, ...]:
         return self._graph_path
+
+    @property
+    def thread_id(self) -> str:
+        return self._thread_id
 
     @property
     def round_id(self) -> str | None:
@@ -1332,6 +1337,16 @@ class Engine:
                 # 决策点步骤 id：分支事件 parent_step_id 指向它（轨迹树根；
                 # 清单未携带时为 None——分支仍经独立子链保留，可回溯换选）
 
+            # ── 多径展开清单提取（保留键不落状态；__multipath__ 与
+            # __spawn__/__simulate__ 同语义）──
+            # 组装编排节点在「多径开启 + 触发信号」时产出：候选集 + 组装
+            # 请求 + 入口状态。执行入口读 multipath_enabled（装配运行期
+            # 开关）与本清单（含 multipath_signal），经 MultipathRunner
+            # 并行执行 → 汇流裁决 → 胜者增量回流主线（ENG2-1/2/3 接线）。
+            multipath_data = (
+                overlay.pop(MULTIPATH_KEY, None) if overlay is not None else None
+            )
+
             # ── 增量合并（reducer）──
             if overlay:
                 current_state = schema.apply(current_state, overlay) if schema else {
@@ -1496,6 +1511,69 @@ class Engine:
                         },
                     },
                     step_id=step_id,
+                )
+
+            # ── 多径展开（候选集并行执行 → 汇流裁决 → 胜者增量回流主线）──
+            # 与推演同构：支流独立子链执行 + 事件统一父链 + 中断提升为父图
+            # 挂起卡；与推演的差异在裁决——多径按边证据/质量闸门择优（胜者
+            # 回流），推演按评估器打分择优。机制开关关闭（装配运行期
+            # multipath_enabled=False）或信号为假 = 清单本不应产出（编排
+            # 节点侧已按开关分流）；此处再验一次（运行时开关回退 = 防御性
+            # 降级：按单径执行首候选，不静默丢弃候选）。
+            if multipath_data is not None:
+                try:
+                    mp_result = await self._run_multipath(multipath_data, ctx)
+                except InterruptSignal as sig:
+                    # 支流内中断 → 提升为父图挂起卡（与静态子图同语义）
+                    interrupt_state = InterruptState(
+                        key=sig.key,
+                        payload=strip_sensitive(sig.payload),
+                        node=current,
+                        graph_path=ctx.graph_path,
+                    )
+                    self._trace_mark_skipped()
+                    reason = "interrupted"
+                    break
+                except Exception as exc:
+                    node_error = f"多径执行失败: {exc}"
+                    logger.error(f"多径执行失败 [{current}]: {exc}")
+                    await ctx.emit("error", {"node": current, "message": node_error})
+                    self._trace_mark_failed()
+                    error_msg = node_error
+                    reason = TerminateReason.ERROR
+                    break
+                overlay_merge: dict[str, Any] = {}
+                if mp_result.verdict is not None and mp_result.verdict.selection:
+                    overlay_merge = dict(mp_result.verdict.selection)
+                elif mp_result.k == 1 and mp_result.branches:
+                    # 降级单径：首个候选的回收增量直接回流（与 spawn 单实例
+                    # 回流同语义——候选仍执行，机制降级不丢产物）
+                    overlay_merge = dict(mp_result.branches[0].overlay)
+                if overlay_merge:
+                    current_state = (
+                        schema.apply(current_state, overlay_merge)
+                        if schema
+                        else {**current_state, **overlay_merge}
+                    )
+                ctx._state = current_state
+                # 多径执行留痕事件（触发/支流/裁决/子链引用全量可审计）
+                await ctx.emit(
+                    "multipath_result",
+                    {
+                        "node": current,
+                        "triggered": bool(mp_result.triggered),
+                        "k": int(mp_result.k),
+                        "candidates": int(mp_result.candidates),
+                        "winner": mp_result.winner,
+                        "degraded_reason": mp_result.degraded_reason,
+                        "branches": [b.to_dict() for b in mp_result.branches],
+                        "verdict": (
+                            mp_result.verdict.to_dict()
+                            if mp_result.verdict is not None
+                            else None
+                        ),
+                        "threads": dict(mp_result.thread_ids),
+                    },
                 )
 
             # ── checkpoint 快照（每节点完成，版本链；计划激活时随附计划快照）──
@@ -2425,6 +2503,81 @@ class Engine:
             selection=selection,
             branches=tuple(evaluated),
             thread_ids=dict(branch_threads),
+        )
+
+    async def _run_multipath(
+        self, data: Mapping[str, Any], ctx: NodeContext
+    ) -> Any:
+        """多径展开调度（ENG2-1/2/3 接线）：候选集 → MultipartRunner 执行。
+
+        数据形态（组装编排节点产出）：``{request, candidates, entry_state,
+        signal, k?, quality_gate?, synth_provider?}``——request/candidates
+        为进程内对象（与 ``__spawn__`` 经 ``ctx._spawns`` 携带 Graph 对象
+        同构，不落状态/checkpoint）。
+
+        机制开关读装配运行期（get_default_assembly_runtime 挂载的多径位；
+        未挂载 = 关闭 = 零触发）。证据存储/审计回调同源取自运行期；无
+        运行期时按单径降级执行首候选（候选不静默丢弃）。
+        """
+        from .multipath import (
+            MultiPathConfig,
+            MultipathRunner,
+        )
+        from .path_assembler import get_default_assembly_runtime
+
+        runtime = get_default_assembly_runtime()
+        if runtime is None or not getattr(runtime, "multipath_enabled", False):
+            # 防御性降级：开关关闭但清单存在（编排节点与运行期不同步）——
+            # 按单径执行首候选，不静默丢弃候选
+            return await self._run_multipath_degraded_single(data, ctx)
+        runner = MultipathRunner(
+            self,
+            evidence_store=getattr(runtime, "evidence_store", None),
+            config=MultiPathConfig(enabled=True),
+            sink=getattr(runtime, "sink", None),
+        )
+        request = data["request"]
+        candidates = list(data["candidates"] or ())
+        entry_state = dict(data.get("entry_state") or {})
+        if not candidates:
+            raise ValueError("多径展开清单缺候选（编排节点产出非法）")
+        # inject 不重复注入：回合级注入值已在 run/ainvoke 入口进共享
+        # coordinator，支流引擎与父图同一通道，直接消费即可
+        return await runner.run(
+            request,
+            candidates,
+            entry_state=entry_state,
+            thread_id=ctx.thread_id,
+            round_id=ctx.round_id,
+            trace_id=ctx.trace_id,
+            k=data.get("k"),
+            quality_gate=data.get("quality_gate"),
+            synth_provider=data.get("synth_provider"),
+        )
+
+    async def _run_multipath_degraded_single(
+        self, data: Mapping[str, Any], ctx: NodeContext
+    ) -> Any:
+        """降级单径执行：不触发多径机制，仅执行首候选并回收增量。"""
+        from .multipath import (
+            MultiPathConfig,
+            MultipathRunner,
+        )
+
+        runner = MultipathRunner(
+            self,
+            evidence_store=None,
+            config=MultiPathConfig(enabled=True),
+        )
+        return await runner.run(
+            data["request"],
+            list(data["candidates"] or ())[:1],
+            entry_state=dict(data.get("entry_state") or {}),
+            thread_id=ctx.thread_id,
+            round_id=ctx.round_id,
+            trace_id=ctx.trace_id,
+            k=1,
+            concurrency=1,
         )
 
 

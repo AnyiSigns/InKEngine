@@ -93,6 +93,23 @@ class PathAssemblyFlags:
             "fingerprint_cache_enabled": self.fingerprint_cache_enabled,
         }
 
+    def to_boot_dict(self) -> dict[str, Any]:
+        """按 BOOT_KEY_* 长键形态序列化（与 :meth:`from_boot` 读取口径一致）。
+
+        落库形态须与读取形态同源：以短键（to_dict）落库再用 from_boot 读取
+        会整体回退 False（长键/短键口径错配）——单块翻转类写入（如
+        set_multipath）一律按本方法落库，保证「读取 = 写入」闭环。
+        """
+        return {
+            BOOT_KEY_CONTRACT_ENABLED: self.contract_enabled,
+            BOOT_KEY_EDGE_EVIDENCE_ENABLED: self.edge_evidence_enabled,
+            BOOT_KEY_SETTLE_HOOKS_ENABLED: self.settle_hooks_enabled,
+            BOOT_KEY_POOL_GOVERNANCE_ENABLED: self.pool_governance_enabled,
+            BOOT_KEY_ASSEMBLER_ENABLED: self.assembler_enabled,
+            BOOT_KEY_MULTIPATH_ENABLED: self.multipath_enabled,
+            BOOT_KEY_FINGERPRINT_CACHE_ENABLED: self.fingerprint_cache_enabled,
+        }
+
     @classmethod
     def from_boot(cls, data: Mapping[str, Any] | None) -> PathAssemblyFlags:
         """按名读取装配参数（未知键忽略；缺省键 = False = 默认全关）。

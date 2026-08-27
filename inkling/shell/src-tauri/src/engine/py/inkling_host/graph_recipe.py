@@ -21,7 +21,7 @@
 from __future__ import annotations
 
 import json
-from collections.abc import Callable
+from collections.abc import Callable, Sequence
 from typing import Any
 from weakref import WeakKeyDictionary
 
@@ -131,6 +131,60 @@ def spawn_group_specs(
     return specs
 
 
+def assembly_candidate_specs(
+    candidates: list[dict], step_args: dict | None = None
+) -> list[dict]:
+    """组装候选（图定义数据）→ spawn 子任务清单契约（直接消费候选图）。
+
+    ENG9a-2 接线：候选图定义数据（``candidate["graph"]``）直接作 spawn
+    subgraph 消费——graph/score/rank/契约快照不再被降级丢弃为工具名列表；
+    节点类型即注册表类型（组装候选链的全部结点都在注册表内带契约登记，
+    见 :func:`register_node_types` 的工具契约登记）。
+
+    「类型名→工具名」显式映射契约 + 两端断言：
+    - 登记端（register_node_types）：结点类型名 == 工具名（同源单一事实，
+      经 declarative_tools.tool_node_mapping 保证）；
+    - 消费端（本函数）：候选图内每个结点类型名都须已登记（
+      ``registries.nodes.has`` 断言）——类型名与工具名漂移（候选引用未
+      登记类型）在此显式报错，不做静默降级。
+
+    index 全局唯一（组序 × 100 + 组内序），引擎拒绝重复序号；state 携带
+    回合步骤参数（step_args 透传）。
+    """
+    registries = _current_registries()
+    shared_args = dict(step_args or {})
+    specs: list[dict] = []
+    for rank, candidate in enumerate(candidates, start=1):
+        graph_data = candidate.get("graph")
+        if not isinstance(graph_data, dict):
+            raise TypeError(f"组装候选 {rank} 缺图定义数据（candidate.graph）")
+        chain = candidate.get("chain") or ()
+        if registries is not None:
+            for type_name in chain:
+                if not registries.nodes.has(str(type_name)):
+                    raise ValueError(
+                        f"组装候选 {rank} 引用未登记结点类型: {type_name}"
+                        f"（类型名→工具名映射契约：结点类型须已登记）"
+                    )
+        specs.append(
+            {
+                "subgraph": graph_data,
+                "state": {"step_args": shared_args},
+                "index": rank * 100,
+            }
+        )
+    return specs
+
+
+def _current_registries() -> Any:
+    """取当前装配注册表（图配方注册处挂载的 GraphRegistries；未挂载 = None）。
+
+    注册表实例随引擎重建变化（register_node_types 按 ctx.registries 挂载），
+    本函数经模块级最近一次注册记录取用——组装候选消费端断言用。
+    """
+    return _REGISTRIES_STATE.get("registries") if _REGISTRIES_STATE else None
+
+
 def workflow_spec_from_data(data: dict[str, Any]) -> WorkflowSpec:
     """workflow.json → WorkflowSpec（节点类型名透传，配置原样保留）。"""
     return WorkflowSpec(
@@ -233,6 +287,13 @@ def make_tool_pipeline_factory(
         ctx: Any, name: str, args: dict[str, Any], step_id: str
     ) -> tuple[str, bool]:
         """执行单个工具（统一流水线分发），返回 (结果文本, 是否成功)。"""
+        # canary 态桩化（ENG9a-6 护栏的结点层一侧）：canary 单回合验证
+        # 只确认「图合法 + 走通」，真实工具调用（文件写/shell/MCP）不得
+        # 在 canary 态发生——工具层桩执行并标记成功，路径完整走完
+        from ink_engine.core.path_assembler import canary_active
+
+        if canary_active():
+            return "（canary 桩执行：工具未真实调用）", True
         await ctx.emit("tool_start", {"tool": name, "args": args}, step_id=step_id)
         specs = holder.get("specs") or ()
         spec = next((s for s in specs if s.name == name), None)
@@ -332,7 +393,24 @@ def make_llm_decider_factory(
             messages: list[Message] = []
             if system_prompt:
                 messages.append(system(system_prompt))
-            messages.append(user(str(ctx.state.get("input") or "")))
+            # 输入调配产物接入（组装观察 2 接线）：预装配文本（多源统一
+            # 调配的产物——上下文/知识/工具/记忆/证据）并入首条用户消息，
+            # llm_decider 的 messages 不再只由 system_prompt + 原始输入构成
+            assembled_text = ""
+            assembled = getattr(ctx, "_assembled", None)
+            if assembled is not None and getattr(assembled, "text", ""):
+                assembled_text = assembled.text
+            base_input = str(ctx.state.get("input") or "")
+            if assembled_text:
+                messages.append(
+                    user(
+                        f"{base_input}\n\n【回合输入调配】\n{assembled_text}"
+                        if base_input
+                        else f"【回合输入调配】\n{assembled_text}"
+                    )
+                )
+            else:
+                messages.append(user(base_input))
             return messages
 
         async def node(ctx: Any) -> dict | None:
@@ -345,6 +423,15 @@ def make_llm_decider_factory(
             rounds = int(ctx.state.get("tool_rounds") or 0)
             if rounds >= max_rounds:
                 return {"reply": reply}
+            # canary 态桩化（ENG9a-6）：不调模型，直接以输入收口回复——
+            # canary 单回合验证不产生真实 LLM 调用（成本与副作用护栏）
+            from ink_engine.core.path_assembler import canary_active
+
+            if canary_active():
+                return {
+                    "reply": str(ctx.state.get("input") or "") or reply,
+                    STATE_MESSAGES: [m.to_dict() for m in messages],
+                }
             content = ""
             deltas: list = []
             try:
@@ -415,9 +502,15 @@ def make_assembler_factory(
         goal_fields = tuple(str(f) for f in (config.get("goal_fields") or ()))
         domain = str(config.get("domain") or "default")
         max_rounds = int(config.get("max_rounds") or ASSEMBLY_MAX_ROUNDS)
+        # 回合审批档（graph.json 配置声明；缺省 None = 0 最严 fail-closed）
+        approval_tier = config.get("approval_tier")
+        # 本次组装的请求（多径调度清单携带：执行入口经请求取安全档/域/闸门）
+        result_request: Any = None
 
-        async def assemble_candidates(ctx: Any) -> tuple[list[dict], str]:
-            """组装请求 → 候选清单（图定义数据形态）+ 说明；未装配 = 空。"""
+        async def assemble_candidates(
+            ctx: Any,
+        ) -> tuple[list[dict], str, Any | None]:
+            """组装请求 → (候选清单图定义形态, 说明, 组装结果)；未装配 = 空。"""
             from ink_engine.core.path_assembler import (
                 AssemblyRequest,
                 get_default_assembly_runtime,
@@ -427,6 +520,7 @@ def make_assembler_factory(
                 SchemaField,
                 SchemaSpec,
             )
+
             from inkling_host.quality import (
                 DomainQualityGate,
                 approval_tier_to_max_safety_tier,
@@ -434,28 +528,30 @@ def make_assembler_factory(
 
             runtime = get_default_assembly_runtime()
             if runtime is None:
-                return [], "组装运行期未装配（默认关闭）"
+                return [], "组装运行期未装配（默认关闭）", None
             # 目标字段：config 声明优先，缺省按研究链产出形态（result 通道）
             fields = goal_fields or ("result",)
             goal_schema = SchemaSpec(
                 name="assembly.goal",
                 fields=tuple(
-                    SchemaField(name=f, required=True, kind=FIELD_STRING) for f in fields
+                    SchemaField(name=f, required=True, kind=FIELD_STRING)
+                    for f in fields
                 ),
             )
-            request = AssemblyRequest(
+            nonlocal result_request
+            result_request = AssemblyRequest(
                 goal_schema=goal_schema,
                 entry_fields=(),
                 domain=domain,
-                max_safety_tier=approval_tier_to_max_safety_tier(None),
+                max_safety_tier=approval_tier_to_max_safety_tier(approval_tier),
                 quality_gate=DomainQualityGate(),
                 top_k=int(config.get("top_k") or 2),
             )
-            result = await runtime.assemble_plan(request)
+            result = await runtime.assemble_plan(result_request)
             if not result.candidates:
-                return [], f"组装零候选（{result.fallback_reason or '无解'}）"
+                return [], f"组装零候选（{result.fallback_reason or '无解'}）", result
             candidates = [candidate.to_dict() for candidate in result.candidates]
-            return candidates, "组装候选产出"
+            return candidates, "组装候选产出", result
 
         async def node(ctx: Any) -> dict | None:
             script = ctx.state.get(STATE_ORCHESTRATE) or {}
@@ -476,7 +572,8 @@ def make_assembler_factory(
                 if simulate is not None:
                     delta[SIMULATE_KEY] = simulate
                 return delta or None
-            # 组装优先：候选路径 → spawn 子图展开执行
+            # 组装优先：候选路径 → 执行展开（多径开启 = 多径调度；否则
+            # spawn 子图展开执行）
             rounds = int(ctx.state.get("assembly_rounds") or 0)
             if rounds >= max_rounds:
                 if use_default_plan:
@@ -484,14 +581,41 @@ def make_assembler_factory(
                     await ctx.emit("plan_start", {"plan": fallback})
                     return {PLAN_KEY: fallback}
                 return {}
-            candidates, note = await assemble_candidates(ctx)
+            candidates, note, result = await assemble_candidates(ctx)
             if not candidates:
                 if use_default_plan:
                     fallback = [{"nodes": [name]} for name in plan_steps]
                     await ctx.emit("plan_start", {"plan": fallback})
                     return {PLAN_KEY: fallback}
                 return {}
-            # 候选链 → spawn 分组（每条候选 = 一条串行工具链子图）
+            # 多径调度（E-P2 接线）：机制开关（装配运行期 multipath_enabled）
+            # + 触发信号（组装结果 multipath_signal）双双放行 → 候选集交
+            # 执行入口经 MultipathRunner 并行执行 + 汇流裁决；信号不成立 =
+            # 走单链 spawn 展开（组装候选仍被执行，不静默丢弃）
+            from ink_engine.core.multipath import MULTIPATH_KEY
+            from ink_engine.core.path_assembler import get_default_assembly_runtime
+
+            mp_runtime = get_default_assembly_runtime()
+            if (
+                mp_runtime is not None
+                and getattr(mp_runtime, "multipath_enabled", False)
+                and result is not None
+                and result.multipath_signal
+            ):
+                return {
+                    MULTIPATH_KEY: {
+                        "request": result_request,
+                        "candidates": list(result.candidates),
+                        "entry_state": {
+                            "input": ctx.state.get("input") or "",
+                            "step_args": ctx.state.get(STATE_STEP_ARGS) or {},
+                        },
+                        "k": int(config.get("multipath_k") or 2),
+                    },
+                    "assembly_rounds": rounds + 1,
+                }
+            # 候选图定义数据直接作 spawn subgraph 消费（ENG9a-2：不再降级
+            # 为工具名列表）；展示形态（spawn_start 事件）仍按候选链给前端
             spawn_groups: list[dict] = []
             for rank, candidate in enumerate(candidates, start=1):
                 chain = candidate.get("chain") or []
@@ -513,8 +637,8 @@ def make_assembler_factory(
                 return {}
             await ctx.emit("spawn_start", {"spawns": spawn_groups})
             return {
-                SPAWN_KEY: spawn_group_specs(
-                    workflow, spawn_groups, step_args=ctx.state.get(STATE_STEP_ARGS)
+                SPAWN_KEY: assembly_candidate_specs(
+                    candidates, step_args=ctx.state.get(STATE_STEP_ARGS)
                 ),
                 "assembly_rounds": rounds + 1,
             }
@@ -528,6 +652,10 @@ def make_assembler_factory(
 # 补丁演化/安全层替换而变化——持有者每次建图刷新，工厂执行时取实时值，
 # 跨引擎重建不携带过期闭包。
 _registry_specs: WeakKeyDictionary[Any, dict[str, Any]] | None = None
+
+# 最近一次图配方注册的注册表实例（组装候选消费端断言取用；引擎重建后
+# 由 register_node_types 刷新——只读引用，不持有可变状态快照）
+_REGISTRIES_STATE: dict[str, Any] = {}
 
 # 持有者键（值 = 各刷新一次的快照；节点执行时现取）
 _HOLDER_SPECS = "specs"
@@ -558,6 +686,7 @@ def register_node_types(ctx: GraphRecipeContext, workflow: WorkflowSpec) -> None
     registries = ctx.registries
     if registries is None:
         raise ValueError("图配方需要注册表（RunOptions.registries 未注入）")
+    _REGISTRIES_STATE["registries"] = registries
     holder = _specs_holder(registries)
     holder[_HOLDER_SPECS] = list(ctx.tool_specs)
     holder[_HOLDER_PIPELINE] = ctx.tool_pipeline
@@ -587,6 +716,62 @@ def register_node_types(ctx: GraphRecipeContext, workflow: WorkflowSpec) -> None
             COND_FINISHED,
             lambda ctx: not bool(ctx.state.get(STATE_PENDING)),
         )
+
+
+def register_tool_node_types(registry: Any, specs: Sequence[Any]) -> int:
+    """声明式工具 → 结点类型登记（结点类型 = 工具名；契约随登记）。
+
+    ENG9a-1 接线：组装池不再只有 vision_perceive 一个带契约类型——每个
+    声明式工具以「结点类型 = 工具名」登记（契约 = 工具声明自动生成：
+    输入 = parameters、输出 = 端点操作结果形态、安全档 = 审批档同阶，
+    见 ``declarative_tools.tool_contract_from_declaration``），assemble
+    的目标字段与真实工具产出可匹配、放行档剪枝按真实审批档生效。
+
+    「类型名→工具名」显式映射契约 + 登记端断言：tool_node_mapping 保证
+    工具名唯一且 node_type == tool_name（同源单一事实，漂移显式报错）；
+    契约自动生成缺失 = 显式报错不静默跳过。工厂 = 工具流水线工厂按
+    工具名绑定（执行走实时持有者的最新流水线/工具表快照）。
+
+    Returns:
+        本次新登记类型数（幂等：已登记类型跳过）。
+    """
+    from ink_engine.core.declarative_tools import (
+        node_contracts_from_tools,
+        tool_node_mapping,
+    )
+
+    definitions = list(specs)
+    mapping = tool_node_mapping(definitions)
+    contracts = node_contracts_from_tools(definitions)
+    holder = _specs_holder_from_registry(registry)
+    inner = make_tool_pipeline_factory(holder)
+    registered = 0
+    for tool_name in mapping:
+        type_name = mapping[tool_name]
+        contract = contracts.get(type_name)
+        if contract is None:
+            raise ValueError(f"工具 {tool_name} 契约自动生成缺失（登记失败）")
+        if registry.has(type_name):
+            continue  # 幂等：跨引擎重建重复登记无害
+        registry.register(
+            type_name,
+            lambda config, _name=tool_name: inner({**config, "tool": _name}),
+            contract=contract,
+        )
+        registered += 1
+    return registered
+
+
+def _specs_holder_from_registry(registry: Any) -> dict[str, Any]:
+    """取（或建）注册表实例的实时持有者（与 register_node_types 同源）。"""
+    global _registry_specs
+    if _registry_specs is None:
+        _registry_specs = WeakKeyDictionary()
+    holder = _registry_specs.get(registry)
+    if not isinstance(holder, dict):
+        holder = {}
+        _registry_specs[registry] = holder
+    return holder
 
 
 def build_round_graph(
@@ -641,17 +826,19 @@ __all__ = [
     "STATE_PENDING",
     "STATE_RESULTS",
     "STATE_STEP_ARGS",
+    "TOOL_RESULT_MAX_CHARS",
     "TYPE_ASSEMBLY_ORCHESTRATOR",
     "TYPE_LLM_DECIDER",
     "TYPE_ORCHESTRATOR",
     "TYPE_TOOL_PIPELINE",
-    "TOOL_RESULT_MAX_CHARS",
+    "assembly_candidate_specs",
     "build_round_graph",
     "make_assembler_factory",
     "make_llm_decider_factory",
     "make_orchestrator_factory",
     "make_tool_pipeline_factory",
     "register_node_types",
+    "register_tool_node_types",
     "spawn_group_specs",
     "workflow_spec_from_data",
 ]

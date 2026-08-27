@@ -19,6 +19,7 @@ Host 五件套（引擎嵌入契约，见 core/runtime.Host）：
 from __future__ import annotations
 
 import asyncio
+import itertools
 import json
 import os
 import tempfile
@@ -31,6 +32,7 @@ from ink_engine.core.approval import DefaultInterruptPolicy, InterruptPolicy
 from ink_engine.core.declarative_tools import EndpointType
 from ink_engine.core.events import CollectorTransport, EngineEvent, EngineTransport
 from ink_engine.core.llm import AsyncLLM, create_llm
+from ink_engine.core.logging import get_logger
 from ink_engine.core.runtime import Host, Runtime
 from ink_engine.core.self_application import APPROVAL_TIMEOUT_SECONDS
 from ink_engine.core.self_proposal import PatchKind
@@ -62,6 +64,8 @@ from .security_domain import (
     make_process_exec_executor,
 )
 from .web_search_domain import make_web_search_executor
+
+logger = get_logger(__name__)
 
 
 class BehaviorLLM:
@@ -250,7 +254,6 @@ class InKlingHost(Host):
                         await result
                 except Exception:
                     pass
-        return
 
     @property
     def events(self) -> list[Any]:
@@ -353,6 +356,12 @@ async def boot_inkling(
     fingerprint_store: Any = None
     skill_store: Any = None
     settle_hooks: Any = None
+    # 结点池治理登记器（flag 开 = 四规则接入结点提案链路；关 = 零参与）
+    pool_governance: Any = None
+    if path_flags.pool_governance_enabled:
+        from ink_engine.core.pool_governance import PoolGovernance
+
+        pool_governance = PoolGovernance()
 
     def _audit_sink(record: dict[str, Any]) -> None:
         import uuid as _uuid
@@ -407,13 +416,25 @@ async def boot_inkling(
             RecommendedPriorSettleHook,
             SettleHooks,
         )
+
         from inkling_host.quality import SettleQualityGate
 
         hooks = SettleHooks()
         hooks.register(EdgeEvidenceSettleHook(evidence_store))
         hooks.register(FailureAuditSettleHook(sink=_audit_sink))
+        # 结点提案链路（E-P9 接线）：池治理 flag 开启时，每条失败点结点
+        # 提案先经 PoolGovernance 四规则判定（容量/淘汰/合并/预算），判定
+        # 登记随提案审计落库——治理判定只登记不执行，采纳与否仍走既有
+        # 评审通道（vetting/审批）
+        proposal_sink = _audit_sink
+        if pool_governance is not None:
+            proposal_sink = _governed_proposal_sink_factory(
+                pool_governance,
+                registry_getter=lambda: _assembly_registry(runtime_holder),
+                fallback_sink=_audit_sink,
+            )
         hooks.register(
-            NodeProposalSettleHook(evidence_store, proposal_sink=_audit_sink)
+            NodeProposalSettleHook(evidence_store, proposal_sink=proposal_sink)
         )
         settle_gate = SettleQualityGate()
         hooks.register(
@@ -490,6 +511,8 @@ async def boot_inkling(
         embedder=embedder,
         behavior=behavior,
     )
+    # 池治理登记器挂到宿主（设置页/审计侧运行期入口；flag 关 = None）
+    host.pool_governance = pool_governance
     if fingerprint_store is not None:
         host.assembly_stores.append(fingerprint_store)
     if skill_store is not None:
@@ -522,6 +545,7 @@ async def boot_inkling(
             PathAssemblyRuntime,
             set_default_assembly_runtime,
         )
+
         from inkling_host.quality import SettleQualityGate
 
         registries = getattr(runtime, "graph_registries", None)
@@ -529,6 +553,32 @@ async def boot_inkling(
         if registry is not None:
             from ink_engine.core.contracts import PathAssemblyConfig
 
+            # 契约登记（ENG9a-1）：声明式工具以「结点类型 = 工具名」带契约
+            # 进注册表——组装池不再只有 vision_perceive 一个带契约类型，
+            # 目标字段（result 等）与真实工具产出匹配、放行档按真实审批档
+            # 剪枝，assemble 不再恒零候选恒回落 use_default_plan
+            from .graph_recipe import register_tool_node_types
+
+            register_tool_node_types(registry, declarative_specs_from_tools(bundle))
+            # 多径装配注册（E-P2 接线）：开关开启时注入 junction 结点类型
+            # （引用 junction 的图在建图期可解析）；关闭 = 类型不存在 =
+            # 引用被拒（默认全关的零影响语义）
+            if path_flags.multipath_enabled:
+                from ink_engine.core.multipath import register_junction_node
+
+                if not registry.has("junction"):
+                    register_junction_node(registry)
+            # 种子路径语料导入（D1 联动）：path_seeds.json 的出厂路径链 →
+            # 边证据冷启动基线（同键不覆盖，运行统计是事实）——组装器冷
+            # 启动有先验可循，不靠裸奔
+            if evidence_store is not None:
+                seed_edges = _seed_edges_from_path_seeds(bundle)
+                if seed_edges:
+                    from ink_engine.core.edge_evidence import import_seed_paths
+
+                    imported = await import_seed_paths(evidence_store, seed_edges)
+                    if imported:
+                        logger.info("路径种子导入边证据基线: %s 条", imported)
             set_default_assembly_runtime(
                 PathAssemblyRuntime(
                     registry=registry,
@@ -537,6 +587,7 @@ async def boot_inkling(
                     sink=_audit_sink,
                     cache=fingerprint_store,
                     model_id=os.environ.get("INK_LLM_MODEL", ""),
+                    multipath_enabled=path_flags.multipath_enabled,
                 )
             )
     else:
@@ -841,6 +892,108 @@ def _register_os_bridge(security: SecurityDomain) -> None:
 
     for command in _OS_BRIDGE_COMMANDS:
         security.os_registry.register(command, make_impl(command))
+
+
+def _assembly_registry(runtime_holder: dict[str, Any]) -> Any:
+    """取装配注册表结点注册表（runtime 未就绪 = None；治理快照惰性取用）。"""
+    runtime = runtime_holder.get("runtime")
+    if runtime is None:
+        return None
+    registries = getattr(runtime, "graph_registries", None)
+    if registries is None:
+        return None
+    return getattr(registries, "nodes", None)
+
+
+def _governed_proposal_sink_factory(
+    governance: Any,
+    *,
+    registry_getter: Callable[[], Any],
+    fallback_sink: Callable[[dict[str, Any]], Any],
+) -> Callable[[dict[str, Any]], Any]:
+    """结点提案治理 sink 工厂（E-P9 接线：四规则判定随提案审计落库）。
+
+    每条失败点结点提案先经 PoolGovernance.evaluate（容量/淘汰/合并/预算
+    四规则，输入 = 提案 + 注册表快照），判定结果随提案记录经原审计通道
+    落库——治理只判定登记不执行决策，采纳与否仍走既有评审通道。判定
+    异常不阻断提案审计（治理故障只记日志，fail-open 于观测侧）。
+    """
+
+    def sink(record: dict[str, Any]) -> Any:
+        from ink_engine.core.pool_governance import (
+            pool_nodes_from_registry,
+            proposal_from_node_draft,
+            weekly_proposal_usage,
+        )
+
+        verdict = None
+        try:
+            registry = registry_getter()
+            snapshot: dict[str, Any] = {
+                "pool_count": len(registry) if registry is not None else 0,
+                "used_this_week": weekly_proposal_usage(governance.log),
+                "pool_nodes": (
+                    pool_nodes_from_registry(registry)
+                    if registry is not None
+                    else []
+                ),
+                "duplicate_cosine": 0.0,
+            }
+            verdict = governance.evaluate(
+                proposal_from_node_draft(record), snapshot
+            )
+        except (TypeError, ValueError, KeyError) as exc:
+            # 治理判定失败只记日志走原审计（观测侧 fail-open，不阻断提案）
+            logger.warning("结点提案池治理判定失败（忽略，走原审计）: %s", exc)
+        if verdict is not None:
+            return fallback_sink(
+                {**record, "governance": verdict.to_dict()}
+            )
+        return fallback_sink(record)
+
+    return sink
+
+
+def _seed_edges_from_path_seeds(bundle: SeedDataBundle) -> list[dict[str, Any]]:
+    """seed_data/path_seeds.json → 边证据种子清单（D1 联动：冷启动基线）。
+
+    每条出厂路径链的相邻结点对展开为一条边证据种子（成败计数取该路径
+    声明值，缺省回落文件级 edge_defaults）；同键行导入时不覆盖运行期
+    事实（import_seed_paths 语义）。文件只读（不在 SEED_DATA_FILES 装配
+    清单内，按需直读）——缺失/损坏 = 空清单（冷启动无先验，不阻断装配）。
+    """
+    try:
+        path = bundle.root / "seed_data" / "path_seeds.json"
+        data = json.loads(path.read_text(encoding="utf-8"))
+    except (OSError, ValueError):
+        return []
+    defaults = data.get("edge_defaults") or {}
+    edges: list[dict[str, Any]] = []
+    for seed in data.get("seed_paths") or ():
+        chain = seed.get("chain") or ()
+        stats = seed.get("edge_stats") or {}
+        for src, dst in itertools.pairwise(chain):
+            edges.append(
+                {
+                    "src_type": str(src),
+                    "dst_type": str(dst),
+                    "success_count": int(
+                        stats.get("success_count", defaults.get("success_count", 3))
+                    ),
+                    "fail_count": int(
+                        stats.get("fail_count", defaults.get("fail_count", 1))
+                    ),
+                    "avg_cost": float(defaults.get("avg_cost", 0.0)),
+                    "context_domain": str(seed.get("domain") or "default"),
+                    "src_contract_version": str(
+                        defaults.get("src_contract_version", "1")
+                    ),
+                    "dst_contract_version": str(
+                        defaults.get("dst_contract_version", "1")
+                    ),
+                }
+            )
+    return edges
 
 
 __all__ = [

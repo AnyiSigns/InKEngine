@@ -15,6 +15,7 @@ import pytest
 
 from ink_engine.core.assembly import (
     SOURCE_CONTEXT,
+    SOURCE_EVIDENCE,
     SOURCE_KNOWLEDGE,
     SOURCE_MEMORY,
     SOURCE_TOOL,
@@ -855,3 +856,137 @@ async def test_spawn_instance_inherits_assembly(memory_storage, transport):
     assert "子任务上下文" in state["sub_text"]  # 实例内装配真实生效
     events = [e for e in transport.events if e.type == "input_assembly"]
     assert len(events) >= 2  # 父节点 + 实例节点各留痕一次
+
+
+# ── ENG9a-13：分级池预算两遍分配（缺源池预算回收）──────────────────
+
+def test_budget_two_pass_recovers_unused_pools():
+    """仅 context 源可用预算 ≈ 总预算（两遍分配回收缺源池余量）。
+
+    修复前：context 池 = 0.5×总预算，其余 50% 闲置——单源超池必被截断；
+    修复后：余量二次回拨，源内容 ≤ 总预算即整段保留（能全量则全量）。
+    """
+    budget = 1000
+    config = AssemblyConfig(
+        total_budget=budget,
+        context_ratio=0.5,
+        knowledge_ratio=0.3,
+        tool_ratio=0.1,
+        memory_ratio=0.05,
+        evidence_ratio=0.05,
+    )
+    assembler = InputAssembler(config)
+    # 单个 context 源内容 600 字符：> 首遍 context 池(500)，< 总预算(1000)
+    sources = [_source(SOURCE_CONTEXT, "甲" * 600, weight=1.0, relevance=1.0)]
+    result = assembler.assemble(sources, total_budget=budget)
+    assert "甲" * 600 in result.text  # 余量回收后整段保留（修复前被截到 500）
+    assert len(result.text) <= budget
+    # 有源源记录：context 源整段激活（char_limit = 内容全长，未遭截断）
+    context_sources = [
+        s for s in result.record.sources if s.source_type == SOURCE_CONTEXT
+    ]
+    assert any(s.char_limit == 600 for s in context_sources)
+
+
+def test_budget_two_pass_all_pools_allocated_still_capped():
+    """全池有源：两遍分配后各池预算合计仍 ≤ 总预算（硬上界不破）。"""
+    budget = 1000
+    config = AssemblyConfig(total_budget=budget)
+    assembler = InputAssembler(config)
+    sources = [
+        _source(SOURCE_CONTEXT, "C" * 300, weight=1.0),
+        _source(SOURCE_KNOWLEDGE, "K" * 300, weight=1.0),
+        _source(SOURCE_TOOL, "T" * 300, weight=1.0),
+        _source(SOURCE_MEMORY, "M" * 300, weight=1.0),
+        _source(SOURCE_EVIDENCE, "E" * 300, weight=1.0),
+    ]
+    result = assembler.assemble(sources, total_budget=budget)
+    assert len(result.text) <= budget
+    assert result.record.assembled_chars == len(result.text)
+
+
+# ── ENG9a-12：ActivationAggregator 接线（drop 不计激活）────────────
+
+def _activation(entry_ref: str, char_limit: int, mode: str, weight: float = 1.0) -> SourceActivation:
+    return SourceActivation(
+        source_type=SOURCE_KNOWLEDGE,
+        title="t",
+        weight=weight,
+        relevance=0.5,
+        char_limit=char_limit,
+        mode=mode,
+        entry_ref=entry_ref,
+    )
+
+
+def test_aggregator_skips_dropped_sources():
+    """drop/零分配源不计激活：预算丢弃的条目不再推高过热判定。"""
+    from ink_engine.core.context import MODE_DROP
+
+    aggregator = ActivationAggregator()
+    aggregator.record(
+        ActivationRecord(
+            total_budget=100,
+            assembled_chars=50,
+            sources=(
+                _activation("kept", 30, "keep_full"),
+                _activation("dropped", 0, MODE_DROP),
+                _activation("zero", 0, "truncate"),
+            ),
+        )
+    )
+    summary = aggregator.snapshot()
+    refs = {s.entry_ref for s in summary.per_entry}
+    assert refs == {"kept"}
+    assert summary.total_refs == 1
+
+
+def test_aggregator_compressed_and_truncated_still_count():
+    """非丢弃档（truncate/compressed）仍计激活：只有真正进装配文本才算。"""
+    aggregator = ActivationAggregator()
+    aggregator.record(
+        ActivationRecord(
+            total_budget=100,
+            assembled_chars=50,
+            sources=(
+                _activation("trunc", 20, "truncate"),
+                _activation("comp", 10, "compressed"),
+            ),
+        )
+    )
+    summary = aggregator.snapshot()
+    assert summary.total_refs == 2
+    assert summary.active_refs == 2
+
+
+def test_input_assembler_feeds_aggregator():
+    """InputAssembler 挂接聚合器：每次装配留痕同步喂聚合器（随批接线）。"""
+    aggregator = ActivationAggregator()
+    assembler = InputAssembler(
+        AssemblyConfig(total_budget=1000),
+        aggregator=aggregator,
+    )
+    result = assembler.assemble(
+        [
+            _source(SOURCE_KNOWLEDGE, "知识甲", weight=1.0, entry_ref="k1"),
+            _source(SOURCE_KNOWLEDGE, "知识乙", weight=1.0, entry_ref="k2"),
+        ],
+        total_budget=1000,
+    )
+    assert result.record.assembled_chars > 0
+    summary = aggregator.snapshot()
+    assert summary.calls == 1
+    assert summary.total_refs == 2
+    # 预算裁剪下 drop 源不误计：工具超上限被丢的条目不进聚合
+    aggregator2 = ActivationAggregator()
+    assembler2 = InputAssembler(
+        AssemblyConfig(total_budget=300, max_tools=1),
+        aggregator=aggregator2,
+    )
+    tools = [
+        _source(SOURCE_TOOL, f"工具{i}定义内容 " * 20, weight=1.0, entry_ref=f"tool{i}")
+        for i in range(3)
+    ]
+    assembler2.assemble(tools, total_budget=300)
+    summary2 = aggregator2.snapshot()
+    assert summary2.total_refs <= 1  # 被裁剪的工具不计激活

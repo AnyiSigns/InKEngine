@@ -663,6 +663,8 @@ class RecommendedPriorSettleHook:
         canary_ok: Callable[[SettleContext], bool] | None = None,
         sink: Callable[[dict[str, Any]], Any] | None = None,
         model_id: str = "",
+        persisted_signatures: set[tuple[str, ...]] | None = None,
+        on_promoted: Callable[[tuple[str, ...]], Any] | None = None,
     ) -> None:
         self._store = store
         self._gate = gate
@@ -670,8 +672,15 @@ class RecommendedPriorSettleHook:
         self._sink = sink
         self._model_id = model_id
         self.promotions: list[dict[str, Any]] = []
-        # 已晋升路径签名（去重：同一路径不重复登记）
-        self._promoted: set[tuple[tuple[str, ...], ...]] = set()
+        # 已晋升路径签名（去重：同一路径不重复登记）。
+        # 持久化语义（ENG1-18）：进程内存集重启即丢——旧实现重启后同一
+        # 路径会重复登记晋升（审计重复）。现支持：
+        # - persisted_signatures：装配期从持久化去重键恢复（宿主从审计
+        #   记录回读 signature 字段）；
+        # - on_promoted：每次新晋升签名回调（宿主幂等 upsert 去重键，
+        #   重启后经 persisted_signatures 恢复）。
+        self._promoted: set[tuple[str, ...]] = set(persisted_signatures or ())
+        self._on_promoted = on_promoted
 
     async def settle(self, ctx: SettleContext) -> None:
         if self._gate is None:
@@ -710,6 +719,11 @@ class RecommendedPriorSettleHook:
         if signature in self._promoted:
             return
         self._promoted.add(signature)
+        if self._on_promoted is not None:
+            try:
+                self._on_promoted(signature)
+            except Exception as exc:
+                logger.warning(f"晋升去重键持久化失败（忽略）: {exc}")
         record: dict[str, Any] = {
             "type": EVENT_AUDIT_PROMOTION,
             "ts": time.time(),
@@ -719,6 +733,9 @@ class RecommendedPriorSettleHook:
             "gate_passed": gate_passed,
             "model_id": self._model_id,
             "trace_id": ctx.trace_id,
+            # 去重键（宿主幂等 upsert 依据：重启后经 persisted_signatures
+            # 恢复，杜绝重复晋升登记——ENG1-18）
+            "signature": list(signature),
         }
         self.promotions.append(record)
         if self._sink is not None:
@@ -732,6 +749,14 @@ class PolicyEdgeReviewSettleHook:
     反超其承诺 → 自动提请人工复审（L2 审批）并把该边降级为普通统计边
     （复审前不再享受 τ=1.0/豁免时间衰减的先验待遇）。零 LLM：复审请求
     经审计事件（policy_edge_review_audit）留痕，审批裁决归宿主通道。
+
+    增量 + 限频（ENG1-9）：旧实现每 run 全量 ``list_edges`` + O(N) 遍历。
+    现改为——
+    - **增量面**：只评估本 run 触达的策略边（对抗证据来自被触达边的
+      失败累积，未触达边不重复全量扫描）；
+    - **限频面**：域证据均值（非策略边全量扫描）带缓存，每
+      ``scan_interval`` 次触发评估重算一次（均值随证据缓慢变化，适度
+      陈旧不影响「失败累计」主判据）。
     """
 
     def __init__(
@@ -739,22 +764,65 @@ class PolicyEdgeReviewSettleHook:
         store: EdgeEvidenceStore,
         *,
         sink: Callable[[dict[str, Any]], Any] | None = None,
+        scan_interval: int = 10,
     ) -> None:
         self._store = store
         self._sink = sink
+        self._scan_interval = max(1, scan_interval)
         self.reviews: list[dict[str, Any]] = []
         # 已降级边签名（去重：降级后不再重复提请）
         self._downgraded: set[tuple[str, ...]] = set()
+        # 域证据均值限频缓存（domain → 均值；重算间隔 = scan_interval）
+        self._domain_average_cache: dict[str, float] = {}
+        self._runs_since_refresh: dict[str, int] = {}
+
+    async def _touched_policy_edges(self, ctx: SettleContext) -> list[EdgeEvidence]:
+        """本 run 触达的策略边（增量评估面，按边主键去重）。"""
+        seen: set[tuple[str, ...]] = set()
+        touched: list[EdgeEvidence] = []
+        for tr in derive_traversals(ctx):
+            key = EdgeKey(
+                src_type=tr.src_type,
+                dst_type=tr.dst_type,
+                src_contract_version=tr.src_contract_version,
+                dst_contract_version=tr.dst_contract_version,
+                context_domain=ctx.domain,
+                variant_hash=tr.dst_variant_hash,
+            )
+            if key.key() in seen:
+                continue
+            seen.add(key.key())
+            edge = await self._store.get(key)
+            if edge is not None and edge.policy:
+                touched.append(edge)
+        return touched
+
+    async def _domain_average(self, domain: str) -> float | None:
+        """域证据均值（限频缓存：每 scan_interval 次评估重算一次）。"""
+        runs = self._runs_since_refresh.get(domain, 0)
+        cached = self._domain_average_cache.get(domain)
+        if cached is not None and runs < self._scan_interval:
+            self._runs_since_refresh[domain] = runs + 1
+            return cached
+        non_policy = [
+            e for e in await self._store.list_edges(domain) if not e.policy
+        ]
+        self._runs_since_refresh[domain] = 1
+        if len(non_policy) < POLICY_REVIEW_DOMAIN_MIN_EDGES:
+            self._domain_average_cache.pop(domain, None)
+            return None
+        avg = sum(
+            laplace_success(e.success_count, e.fail_count) for e in non_policy
+        ) / len(non_policy)
+        self._domain_average_cache[domain] = avg
+        return avg
 
     async def settle(self, ctx: SettleContext) -> None:
-        domain_edges = await self._store.list_edges(ctx.domain)
-        non_policy = [e for e in domain_edges if not e.policy]
-        domain_average_p: float | None = None
-        if len(non_policy) >= POLICY_REVIEW_DOMAIN_MIN_EDGES:
-            domain_average_p = sum(
-                laplace_success(e.success_count, e.fail_count) for e in non_policy
-            ) / len(non_policy)
-        for edge in domain_edges:
+        touched = await self._touched_policy_edges(ctx)
+        if not touched:
+            return  # 增量：本 run 未触达策略边 = 无复审需求，零全量扫描
+        domain_average_p = await self._domain_average(ctx.domain)
+        for edge in touched:
             needs, reason = policy_edge_needs_review(
                 edge, domain_average_p=domain_average_p
             )

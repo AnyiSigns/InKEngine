@@ -79,6 +79,10 @@ class CandidateReview:
     paragraphs: tuple[ParagraphScore, ...] = ()
     uncertain_claims: tuple[str, ...] = ()
 
+    # passed 语义：评审器按自身阈值（pass_threshold）预计算的达标标志，
+    # 仅供留痕/展示——收敛判定以策略 threshold 为唯一门槛（ENG1-19），
+    # 不把两者叠加成双重门槛。
+
 
 @runtime_checkable
 class Reviewer(Protocol):
@@ -254,7 +258,8 @@ class MaxRoundsConvergencePolicy:
     """默认收敛策略：达阈值即收敛，否则 Beam 再生成，直到轮次上限。
 
     规则：
-    1. 存在 passed 的候选 → 收敛，接受其中分数最高者（同分取靠前者）；
+    1. 存在分数 ≥ 策略 threshold 的候选 → 收敛，接受其中分数最高者
+       （同分取靠前者）——threshold 是唯一收敛门槛（ENG1-19）；
     2. 未收敛但已到轮次上限 → 停止（converged=False，呈交现状 + 评审意见）；
     3. 否则取分数前 K（Beam 宽度）个候选继续再生成。
 
@@ -299,11 +304,13 @@ class MaxRoundsConvergencePolicy:
             return ConvergenceDecision(
                 converged=False, notes=("无候选可评审",)
             )
-        # threshold 是策略层二次门槛：评审器按自身阈值预计算 passed，
-        # 策略 threshold 与之独立——宿主收紧 threshold（如 0.9）须真实生效，
-        # 否则配置静默失效（评审器 0.75 达标即收敛）
+        # 单一阈值源（ENG1-19）：收敛判定只认策略 threshold——评审器的
+        # passed 标志（自身阈值预计算）不再作为第二道门槛。双重门槛
+        # （评审器 0.75 判 passed + 策略收紧 0.9）会让「达标但低于策略
+        # 门槛」的候选被反复再生成直至轮次上限，可能永不收敛；策略
+        # threshold 是收敛判定的唯一门槛源，评审器 passed 仅留痕展示。
         passed = [
-            r for r in reviews if r.passed and r.score >= self.threshold
+            r for r in reviews if r.score >= self.threshold
         ]
         if passed:
             best = max(passed, key=lambda r: r.score)
@@ -364,10 +371,22 @@ class ConvergenceResult:
 
     @property
     def best_index(self) -> int:
-        """当前候选集中得分最高者下标（reviews 空时取 0）。"""
+        """当前候选集中得分最高者的列表位置（``candidates`` 下标）。
+
+        按评审器协议（reviews 与 candidates 按下标一一对应）取 reviews
+        中最高分者的**序列位置**作为 candidates 下标——不直接信任评审器
+        的 ``candidate_index`` 字段（ENG1-6：该下标来自评审轮内枚举，候选
+        被过滤/跨轮重组后直接引用会取错候选）；候选集被过滤后位置同样
+        越界 = 回落 0（收敛接受的候选落在首位，与收敛决策语义一致）。
+        """
         if not self.reviews:
             return 0
-        return max(self.reviews, key=lambda r: r.score).candidate_index
+        best_pos = max(
+            range(len(self.reviews)), key=lambda i: self.reviews[i].score
+        )
+        if best_pos < len(self.candidates):
+            return best_pos
+        return 0
 
 
 __all__ = [

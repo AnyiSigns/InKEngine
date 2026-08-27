@@ -59,6 +59,28 @@ def _fake_cache(*entries):
     return _Store(entries)
 
 
+def test_skill_store_fails_fast_without_aiosqlite(monkeypatch):
+    """ENG1-11：SkillStore 构造期 fail-fast——aiosqlite 缺失 = 显式拒绝。
+
+    旧实现惰性 import 且异常被 SettleHooks.run 吞掉 → 技能结晶静默
+    失效；构造期探测依赖，装配期即暴露（StorageError 带依赖指引）。
+    """
+    import builtins
+
+    from ink_engine.core.exceptions import StorageError
+
+    real_import = builtins.__import__
+
+    def fake_import(name, *args, **kwargs):
+        if name == "aiosqlite":
+            raise ImportError("No module named 'aiosqlite'")
+        return real_import(name, *args, **kwargs)
+
+    monkeypatch.setattr(builtins, "__import__", fake_import)
+    with pytest.raises(StorageError, match="aiosqlite"):
+        SkillStore(":memory:")
+
+
 async def test_skill_store_roundtrip():
     store = SkillStore(":memory:")
     entry = SkillEntry(

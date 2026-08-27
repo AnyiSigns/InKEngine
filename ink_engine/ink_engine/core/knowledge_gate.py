@@ -92,6 +92,42 @@ def _normalize_injection_text(text: str) -> str:
     return "".join(chars)
 
 
+# 熵启发（ENG1-21）：静态关键词对 base64/编码形态覆盖有限——归一化
+# 文本中大小写/数字三类字符集混合 + 符号占比合理 = 疑似编码混淆块，
+# 作为关键词之外的补充判据（保守阈值见 _obfuscation_entropy_hits）。
+
+
+def _obfuscation_entropy_hits(text: str) -> tuple[str, ...]:
+    """混淆熵启发信号：疑似 base64/编码混淆块的指纹（ENG1-21）。
+
+    静态关键词对 base64/编码形态覆盖有限，熵启发作为补充判据。判据
+    保守设计（压低自然文本/路径误伤）：
+    - 归一化文本长度 ≥ 24（编码块最小有意义长度；短路径/短语不触发）；
+    - **原文**同时含大写/小写字母与数字（大小写是编码形态指纹，归一化
+      会小写化抹掉该信号——必须在原文上判定；自然语言连续片段很少
+      三类字符集齐备）；
+    - 符号占比 ≤ 0.5（纯符号噪声不判；base64 自带 ``+`` ``/`` 与
+      ``=`` 填充，占比天然低于自然符号堆）。
+    该信号只做「疑似」标记，随命中清单返回（调用方按 L1 拒绝语义
+    处理，与关键词命中同权）。
+    """
+    normalized = _normalize_injection_text(text)
+    if len(normalized) < 24:
+        return ()
+    # 大小写类判定用原文（归一化小写化会抹掉编码形态的大小写信号）
+    has_upper = any(ch.isupper() for ch in text)
+    has_lower = any(ch.islower() for ch in text)
+    has_digit = any(ch.isdigit() for ch in text)
+    if not (has_upper and has_lower and has_digit):
+        return ()
+    symbol_ratio = 1.0 - sum(
+        1 for ch in normalized if ch.isalnum()
+    ) / len(normalized)
+    if symbol_ratio > 0.5:
+        return ()
+    return ("疑似编码混淆（base64 形态指纹：大小写数字混合）",)
+
+
 def scan_text_injection(
     text: str, *, patterns: tuple[str, ...] = _INJECTION_PATTERNS
 ) -> tuple[str, ...]:
@@ -99,7 +135,8 @@ def scan_text_injection(
 
     供检索结果/外部内容等不可信文本进入上下文前扫描（web 检索注入
     防线）；命中清单（空 = 干净）。归一化与命中语义与知识条目扫描
-    同源——全角/空格混淆变体与英文句式同样可命中。命中即拒：检出
+    同源——全角/空格混淆变体与英文句式同样可命中；熵启发（ENG1-21）
+    作为关键词之外的补充信号（疑似编码混淆也入清单）。命中即拒：检出
     指令型措辞的文本不得进入模型上下文。
     """
     normalized = _normalize_injection_text(text)
@@ -109,6 +146,7 @@ def scan_text_injection(
     for pattern in patterns:
         if _normalize_injection_text(pattern) in normalized:
             hits.append(pattern)
+    hits.extend(_obfuscation_entropy_hits(text))
     return tuple(dict.fromkeys(hits))
 
 
@@ -486,17 +524,19 @@ class KnowledgeGate:
         扫描面 = 标题/标签 + 条目数据内的字符串值与键名（键位注入与
         值位注入同属注入载体；常规结构键以分隔符拼合，与含空格的指令
         句式不冲突）；匹配前归一化（全角转半角、去空白、小写）——
-        空格/全角混淆变体与英文句式同样可命中。检出指令型措辞即拒绝
-        该知识落库。
+        空格/全角混淆变体与英文句式同样可命中；熵启发（ENG1-21）补充
+        编码混淆信号。检出指令型措辞即拒绝该知识落库。
         """
         texts = [entry.title, *entry.tags]
         texts.extend(_string_values(entry.data))
         texts.extend(_string_keys(entry.data))
-        normalized = _normalize_injection_text(" ".join(texts))
+        joined = " ".join(texts)
+        normalized = _normalize_injection_text(joined)
         hits: list[str] = []
         for pattern in self.injection_patterns:
             if _normalize_injection_text(pattern) in normalized:
                 hits.append(pattern)
+        hits.extend(_obfuscation_entropy_hits(joined))
         return tuple(dict.fromkeys(hits))
 
     # ── L2 效果评估：完整 fixtures（非谈判项）──

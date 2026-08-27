@@ -50,6 +50,23 @@ DEFAULT_DISTILL_TIER = "router"
 # 蒸馏产物的来源归属（无信号可推导时回落模型来源）
 _FALLBACK_SOURCE = SOURCE_MODEL
 
+# 来源可信度基准（数值仅供排序，不产出可信度字段）——模块级单一来源，
+# :class:`DeterministicDistiller` 与 :func:`reuse_or_distill` 共用
+SOURCE_RANK: dict[str, int] = {
+    SOURCE_USER: 4, SOURCE_MODEL: 3, SOURCE_DIALOG: 2, SOURCE_WEB: 1
+}
+
+# 信号类别与来源白名单（校验集；定义在 ExecutionSignal.from_dict 之前，
+# 避免「类方法引用定义在后的模块常量」的顺序误导——ENG1-14）
+_SIGNAL_KINDS = (
+    SIGNAL_PITFALL,
+    SIGNAL_USER_CORRECTION,
+    SIGNAL_INSIGHT,
+    SIGNAL_GAP,
+    SIGNAL_REPEATED_ROOT_CAUSE,
+)
+_SOURCES = (SOURCE_WEB, SOURCE_DIALOG, SOURCE_MODEL, SOURCE_USER)
+
 
 @dataclass(frozen=True, slots=True)
 class ExecutionSignal:
@@ -110,16 +127,6 @@ class ExecutionSignal:
             count=int(data.get("count", 1)),
             timestamp=float(data.get("timestamp", time.time())),
         )
-
-
-_SIGNAL_KINDS = (
-    SIGNAL_PITFALL,
-    SIGNAL_USER_CORRECTION,
-    SIGNAL_INSIGHT,
-    SIGNAL_GAP,
-    SIGNAL_REPEATED_ROOT_CAUSE,
-)
-_SOURCES = (SOURCE_WEB, SOURCE_DIALOG, SOURCE_MODEL, SOURCE_USER)
 
 
 class SignalClassifier:
@@ -287,10 +294,9 @@ class DeterministicDistiller:
     实现只负责「触发后的压缩」。
     """
 
-    # 来源可信度基准（数值仅供排序，不产出可信度字段）
-    _SOURCE_RANK: ClassVar[dict[str, int]] = {
-        SOURCE_USER: 4, SOURCE_MODEL: 3, SOURCE_DIALOG: 2, SOURCE_WEB: 1
-    }
+    # 来源可信度基准（数值仅供排序，不产出可信度字段）——模块级
+    # :data:`SOURCE_RANK` 是唯一来源（ENG1-12 起模块级收口）
+    _SOURCE_RANK: ClassVar[dict[str, int]] = SOURCE_RANK
 
     def __init__(
         self,
@@ -541,9 +547,20 @@ def reuse_or_distill(
     data = distiller.distill(signals)
     if data is None:
         return ReuseDecision(note="未命中复用且蒸馏无产物（本次不沉淀）")
-    source = next(
-        (s.source for s in signals if s.kind == SIGNAL_USER_CORRECTION),
-        signals[0].source if signals else _FALLBACK_SOURCE,
+    # 来源取蒸馏可用信号（insight/user_correction）中最可信者（ENG1-12）：
+    # 旧实现无 user_correction 时取 signals[0].source——首条信号未必是
+    # 最可信来源（如 web 先于 user 到达），会掩盖更高可信来源；SOURCE_RANK
+    # 取最高者（user > model > dialog > web；同分取先到达者）。蒸馏输入
+    # 全为噪音（无 insight/user_correction）时按全部信号取最高来源。
+    ranked = [
+        (s, SOURCE_RANK.get(s.source, 0))
+        for s in signals
+        if s.kind in (SIGNAL_INSIGHT, SIGNAL_USER_CORRECTION)
+    ]
+    if not ranked:
+        ranked = [(s, SOURCE_RANK.get(s.source, 0)) for s in signals]
+    source = (
+        max(ranked, key=lambda item: item[1])[0].source if ranked else _FALLBACK_SOURCE
     )
     return ReuseDecision(
         distilled=DistillOutcome(
@@ -584,6 +601,7 @@ __all__ = [
     "SIGNAL_PITFALL",
     "SIGNAL_REPEATED_ROOT_CAUSE",
     "SIGNAL_USER_CORRECTION",
+    "SOURCE_RANK",
     "DeterministicDistiller",
     "DistillConfig",
     "DistillOutcome",

@@ -2,10 +2,10 @@
 
 import asyncio
 
-from ink_engine.core.memory import MemoryEntry, StorageBackedMemoryStore
+from ink_engine.core.memory import StorageBackedMemoryStore
 from ink_engine.core.memory_extract import (
-    extract_entries_from_ledger,
     arbitrate_and_store,
+    extract_entries_from_ledger,
 )
 from ink_engine.core.storage_memory import MemoryStorage
 
@@ -31,6 +31,46 @@ def test_extract_pulls_intent_conclusion_confirmation():
     assert "confirmation" in kinds
     confirm = [e for e in entries if e.kind == "confirmation"][0]
     assert "确认关灯" in confirm.content
+
+
+def test_extract_priorities_data_driven():
+    """ENG1-13：抽取优先级数据化（旧硬编码 6/5/7）——缺省 = 模块常量，
+    宿主可覆盖；语义：确认类 > 意图 > 结论。"""
+    from ink_engine.core.memory_extract import (
+        PRIORITY_CONCLUSION,
+        PRIORITY_CONFIRMATION,
+        PRIORITY_INTENT,
+        extract_entries_from_ledger,
+    )
+
+    ledger = {
+        "round_id": "r1",
+        "intent": "意图",
+        "conclusion": "结论",
+        "events": [{"kind": "user_confirm", "detail": {"content": "确认"}}],
+    }
+    entries = extract_entries_from_ledger(ledger)
+    by_kind = {e.kind: e.priority for e in entries}
+    assert by_kind == {
+        "intent": PRIORITY_INTENT,
+        "conclusion": PRIORITY_CONCLUSION,
+        "confirmation": PRIORITY_CONFIRMATION,
+    }
+    assert PRIORITY_CONFIRMATION > PRIORITY_INTENT > PRIORITY_CONCLUSION
+    assert by_kind["intent"] == 6
+    assert by_kind["conclusion"] == 5
+    assert by_kind["confirmation"] == 7
+    # 宿主覆盖生效
+    custom = extract_entries_from_ledger(
+        ledger,
+        priority_intent=9,
+        priority_conclusion=1,
+        priority_confirmation=5,
+    )
+    custom_by_kind = {e.kind: e.priority for e in custom}
+    assert custom_by_kind["intent"] == 9
+    assert custom_by_kind["conclusion"] == 1
+    assert custom_by_kind["confirmation"] == 5
 
 
 def test_arbitrate_dedup_same_content():

@@ -241,6 +241,70 @@ def test_validate_knowledge() -> None:
     assert any("层级非法" in v for v in validator.validate(bad_level))
 
 
+def test_validate_knowledge_injected_schema_targets_entry_data() -> None:
+    """ENG1-16：注入 schema 校验对象 = entry_data（与结构校验同对象）。
+
+    旧实现校验整条 entry（含 id/level/kind 等条目级字段），与「收紧
+    data 内部形态」的声明语义不一致；统一后 schema 描述的是 data 字段
+    形态——data 内缺声明字段 = 违规，条目级字段不再被误检。
+    """
+    from ink_engine.core.schema_validator import (
+        FIELD_OBJECT,
+        FIELD_STRING,
+        SchemaField,
+        SchemaSpec,
+    )
+
+    data_schema = SchemaSpec(
+        name="knowledge.data",
+        fields=(
+            SchemaField(name="rule", required=True, kind=FIELD_OBJECT),
+            SchemaField(name="note", required=True, kind=FIELD_STRING),
+        ),
+    )
+    validator = ProposalValidator(knowledge_schema=data_schema)
+    # data 缺声明字段 note → 违规（schema 作用于 data）
+    missing = _proposal(
+        PatchKind.KNOWLEDGE,
+        {
+            "entry": {
+                "id": "k1",
+                "level": "user",
+                "kind": "rule",
+                "data": {"rule": {"id": "r1"}},
+            }
+        },
+    )
+    violations = validator.validate(missing)
+    assert any("note" in v for v in violations)
+    # data 形态合规 → 通过（条目级字段 id/level/kind 不参与该 schema）
+    ok = _proposal(
+        PatchKind.KNOWLEDGE,
+        {
+            "entry": {
+                "id": "k1",
+                "level": "user",
+                "kind": "rule",
+                "data": {"rule": {"id": "r1"}, "note": "说明"},
+            }
+        },
+    )
+    assert validator.validate(ok) == []
+    # kind=rule 的最小结构校验与 schema 校验并存（双闸不互斥）
+    bad_rule = _proposal(
+        PatchKind.KNOWLEDGE,
+        {
+            "entry": {
+                "id": "k2",
+                "level": "user",
+                "kind": "rule",
+                "data": {"note": "无 rule 声明"},
+            }
+        },
+    )
+    assert any("data 须含 dict 形态 rule" in v for v in validator.validate(bad_rule))
+
+
 def test_validate_harness() -> None:
     validator = _validator()
     ok = _proposal(

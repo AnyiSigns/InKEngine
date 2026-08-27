@@ -99,6 +99,84 @@ async def test_chain_revert_limits() -> None:
     assert await chain.assemble() == {"theme": {"bg": "#000"}}
 
 
+async def test_chain_append_optimistic_version_check() -> None:
+    """ENG1-8：append 乐观版本校验（CAS）——基准版本过期 = 并发冲突拒绝。
+
+    旧实现 append 是读改写非原子：复验到写入间存在 await 窗口，并发两
+    提案可互相覆盖；expected_version 把窗口内的版本前进显式化为冲突。
+    """
+    chain = SetPatchChain(create_storage("memory://"))
+    patch = Patch(op=PatchOp.REPLACE, path=("theme",), value={"bg": "#000"})
+    with pytest.raises(GraphDefinitionError, match="并发冲突"):
+        await chain.append(patch, expected_version=5)  # 当前 1 ≠ 5
+    assert await chain.current_version() == 1  # 未落链
+    assert await chain.append(patch, expected_version=1) == 2  # 版本匹配
+    # 落链后过期基准再试 = 冲突
+    with pytest.raises(GraphDefinitionError, match="并发冲突"):
+        await chain.append(patch, expected_version=1)
+    # 不传 expected_version = 向后兼容（无校验）
+    assert await chain.append(patch) == 3
+
+
+async def test_chain_revert_optimistic_version_check() -> None:
+    """ENG1-8：revert_to 乐观版本校验（CAS）——审批挂起窗口后链前进 =
+    冲突拒绝，不误回退新补丁。"""
+    chain = SetPatchChain(create_storage("memory://"))
+    patch = Patch(op=PatchOp.REPLACE, path=("theme",), value={"bg": "#000"})
+    await chain.append(patch)
+    await chain.append(patch)
+    assert await chain.current_version() == 3
+    # 调用方基准过期（2，实际 3）：回退冲突拒绝，不误回退新补丁
+    with pytest.raises(GraphDefinitionError, match="回退冲突"):
+        await chain.revert_to(1, expected_version=2)
+    # 正确基准（当前 3，回退目标 2）通过
+    state = await chain.revert_to(2, expected_version=3)
+    assert state["theme"] == {"bg": "#000"}
+
+
+async def test_guard_token_with_plain_storage_no_type_error() -> None:
+    """ENG1-7：守卫令牌 + 非 GuardedStorage 后端不 TypeError。
+
+    旧实现非空令牌即透传 guard_token kwarg——Storage 协议未声明该形参，
+    普通后端（memory 等）直接 TypeError；令牌只对 GuardedStorage 包装
+    层有意义，其余后端不传令牌同样安全。
+    """
+    chain = SetPatchChain(
+        create_storage("memory://"), guard_token="tok-1"
+    )
+    patch = Patch(op=PatchOp.REPLACE, path=("theme",), value={"bg": "#000"})
+    version = await chain.append(patch)  # 不抛 TypeError
+    assert version == 2
+    assert await chain.assemble() == {"theme": {"bg": "#000"}}
+    # 管线审计写入同样不炸（内存后端 + 令牌）
+    sa = SelfApplicationPipeline(
+        create_storage("memory://"),
+        guard_token="tok-2",
+        validator=ProposalValidator(
+            allowed_components=("column",),
+            allowed_channels=("state",),
+            allowed_theme_tokens=("bg",),
+        ),
+    )
+    outcome = await sa.apply(FakeCtx(), _theme_proposal())
+    assert outcome.applied is True
+    # GuardedStorage 包装层仍正确消费令牌（令牌透传路径保留）
+    raw = create_storage("memory://")
+    guarded = GuardedStorage(raw, guard_token="tok-3")
+    pipeline = SelfApplicationPipeline(
+        guarded,
+        guard_token="tok-3",
+        validator=ProposalValidator(
+            allowed_components=("column",),
+            allowed_channels=("state",),
+            allowed_theme_tokens=("bg",),
+        ),
+    )
+    out = await pipeline.apply(FakeCtx(), _theme_proposal())
+    assert out.applied is True
+    assert await guarded.get_record("set_patch_chain", "chain") is not None
+
+
 async def test_apply_l0_auto_approve(pipeline) -> None:
     ctx = FakeCtx()
     outcome = await pipeline.apply(ctx, _theme_proposal())
@@ -392,6 +470,25 @@ async def test_guarded_storage_covers_harness_and_knowledge_prefix() -> None:
     # 退出豁免后恢复拦截
     with pytest.raises(GraphDefinitionError, match="旁路写拦截"):
         await guarded.put_record("harness", "other", {"name": "other"})
+
+
+async def test_guarded_storage_covers_all_knowledge_user_collections() -> None:
+    """ENG1-20：知识集权威集合命名核对——knowledge:<user_id> 动态集合
+    全部受守卫（无精确名 "knowledge" 集合，前缀即完整覆盖）。
+
+    知识集持久化 = knowledge_collection(user_id)（knowledge_set.py 前缀
+    "knowledge:"），任意用户 id 的集合直写一律拦截（不含精确名集合的
+    缺口）。
+    """
+    guarded = GuardedStorage(create_storage("memory://"))
+    for user_id in ("default", "u-1", "u-42"):
+        with pytest.raises(GraphDefinitionError, match="旁路写拦截"):
+            await guarded.put_record(
+                f"knowledge:{user_id}", "chain", {"base": {}}
+            )
+    # 近前缀（非知识集）集合不受误伤
+    await guarded.put_record("knowledge_frag", "k", {"v": 1})
+    assert await guarded.get_record("knowledge_frag", "k") == {"v": 1}
 
 
 async def test_revert_to_enforces_tail_only_at_storage_layer() -> None:

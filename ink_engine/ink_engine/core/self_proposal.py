@@ -56,15 +56,6 @@ class PatchKind(StrEnum):
 # 产物哈希声明形态（sha256 hex，64 字符）
 _ARTIFACT_HASH_LENGTH = 64
 
-# 知识条目补丁的可选结构校验声明（缺省不校验 data 内部形态；
-# 宿主可注入领域 schema 收紧）
-_KNOWLEDGE_SCHEMA_FIELDS = (
-    ("id", True, "string"),
-    ("level", True, "string"),
-    ("kind", True, "string"),
-    ("title", False, "string"),
-)
-
 # 各补丁类型的合法形态示例骨架（实证缺陷 D4 形态示例增强）：校验失败时随
 # 违规清单回传示例骨架，供模型按形态试错收敛——避免「缺 xxx」等提示无形态
 # 引导的盲目试探（如 schema 声明须嵌套 name+fields 的形态盲猜）。形态与
@@ -299,12 +290,16 @@ class ProposalValidator:
         # 宿主可经 _knowledge_schema 注入更强校验）。
         entry_kind = entry.get("kind")
         entry_data = entry.get("data")
-        if entry_kind == "rule" and not isinstance(entry_data.get("rule"), dict):
-            return ["knowledge 补丁 kind=rule 时 data 须含 dict 形态 rule 声明"]
         if not isinstance(entry_data, dict):
             return ["knowledge 补丁的 data 须为 dict"]
+        if entry_kind == "rule" and not isinstance(entry_data.get("rule"), dict):
+            return ["knowledge 补丁 kind=rule 时 data 须含 dict 形态 rule 声明"]
         if self._knowledge_schema is not None:
-            return SchemaValidator().validate(self._knowledge_schema, entry)
+            # 注入 schema 校验对象 = entry_data（ENG1-16 口径统一）：与上面
+            # 两处结构校验同对象——旧实现校验整条 entry（含 id/level/kind
+            # 等条目级字段），与「收紧 data 内部形态」的声明语义不一致；
+            # 宿主注入的领域 schema 描述的是 data 字段形态
+            return SchemaValidator().validate(self._knowledge_schema, entry_data)
         return []
 
     def _validate_harness(self, payload: dict[str, Any]) -> list[str]:

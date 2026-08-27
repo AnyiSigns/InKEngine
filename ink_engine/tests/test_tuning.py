@@ -361,6 +361,35 @@ async def test_tune_with_regression_rejects_out_of_bounds():
     assert result.changes == ()  # 变更被拒绝
     assert result.params.weights == {"A": 0.5, "B": 0.15}  # 回落原参数
     assert "回归未通过" in result.note
+    # ENG1-17：显式拒绝语义——调用方据 rejected 区分「无变化」与
+    # 「有建议但被回归拒绝」（旧实现未置任何标记，changes 空会误判）
+    assert result.rejected is True
+    assert result.snapshot is None  # 拒绝 = 快照不落库
+
+
+async def test_tune_with_regression_rejection_is_distinct_from_no_change():
+    """ENG1-17：拒绝（rejected=True）与无参数变化（rejected=False）显式
+    区分——changes 判生效会误判，rejected 是权威拒绝信号。"""
+    gate = KnowledgeGate(l2_executor=ParamRegressionExecutor())
+    tuner = MetaTuner()
+    # 无变化：rejected=False 且 changes 空
+    no_change = await tuner.tune_with_regression(
+        TunableParams(retry_budget=1), TurnMetrics(), _param_fixtures(), gate=gate
+    )
+    assert no_change.changes == () and no_change.rejected is False
+    # 有建议但被拒：changes 空但 rejected=True
+    params = TunableParams(weights={"A": 0.5, "B": 0.15}, thresholds={"pass": 0.6})
+    rejected = await tuner.tune_with_regression(
+        params,
+        TurnMetrics(),
+        _param_fixtures(weight_min=0.2),
+        feedback={"B": 0.0},
+        gate=gate,
+    )
+    assert rejected.changes == () and rejected.rejected is True
+    # to_dict 携带 rejected（审计/序列化面）
+    assert rejected.to_dict()["rejected"] is True
+    assert no_change.to_dict()["rejected"] is False
 
 
 async def test_tune_with_regression_accepts_within_bounds():

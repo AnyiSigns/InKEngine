@@ -41,7 +41,6 @@ GOV_VERDICT_ALLOW = "allow"
 GOV_VERDICT_REJECT = "reject"
 GOV_VERDICT_MERGE = "merge"
 GOV_INVALIDATE = "invalidate"
-GOV_BUDGET_EXHAUSTED = "budget_exhausted"
 
 
 @dataclass(frozen=True, slots=True)
@@ -149,13 +148,6 @@ def proposal_budget_remaining(
     return max(0, weekly_budget - max(0, used_this_week))
 
 
-def proposal_allowed(
-    used_this_week: int, *, weekly_budget: int = PROPOSAL_WEEKLY_BUDGET
-) -> bool:
-    """提案预算判定：本周已用 < 预算 = 允许（预算耗尽 = 拒绝）。"""
-    return used_this_week < weekly_budget
-
-
 def evaluate_proposal(
     node_id: str,
     fields: Sequence[str],
@@ -259,8 +251,25 @@ class PoolGovernance:
         return verdict
 
     def dead_node_records(self) -> list[dict[str, Any]]:
-        """本登记器历史中全部死结点失效登记（标记失效不物理删）。"""
-        return [r for r in self.log if r.get("action") == GOV_INVALIDATE]
+        """本登记器历史中全部死结点失效登记（标记失效不物理删）。
+
+        ENG9b-9 统一：旧实现按 log 中的 ``action`` 键过滤——判定记录
+        （``evaluate`` 产出）从不带 ``action`` 键，恒返回空清单（死代码）。
+        现由判定记录的 ``eviction_candidates`` 派生失效登记（判定与登记
+        同源：候选清单即淘汰登记的依据，不重复落 log——log 保持纯判定
+        记录，周预算统计（weekly_proposal_usage）不被淘汰登记污染）。
+        """
+        out: list[dict[str, Any]] = []
+        for record in self.log:
+            for node_id in record.get("eviction_candidates") or ():
+                out.append(
+                    invalidation_record(
+                        str(node_id),
+                        "死结点淘汰（零调用且超龄）",
+                        ts=record.get("ts"),
+                    )
+                )
+        return out
 
 
 def pool_nodes_from_registry(registry: Any) -> list[PoolNodeSnapshot]:
@@ -331,7 +340,6 @@ def proposal_from_node_draft(record: Mapping[str, Any]) -> dict[str, Any]:
 
 __all__ = [
     "DEAD_NODE_MIN_AGE_DAYS",
-    "GOV_BUDGET_EXHAUSTED",
     "GOV_INVALIDATE",
     "GOV_VERDICT_ALLOW",
     "GOV_VERDICT_MERGE",
@@ -351,7 +359,6 @@ __all__ = [
     "near_duplicate_by_embedding",
     "near_duplicate_by_fields",
     "pool_nodes_from_registry",
-    "proposal_allowed",
     "proposal_budget_remaining",
     "proposal_from_node_draft",
     "weekly_proposal_usage",

@@ -219,7 +219,10 @@ def build_audit_card(
             "node_id": node_id,
             "node_label": node_label,
             "workflow_id": workflow_id,
-            "output_preview": (output or "")[:1000],
+            # 截断统一交给 truncate_preview（validate_card 内按 preview_limit
+            # 执行）——旧实现内联 [:1000] 与默认档重复且会先于宿主注入的
+            # 大额上限截断（ENG1-15），删去后宿主 limits 映射真实生效
+            "output_preview": output or "",
             "reason": reason or "输出质量不满足节点要求",
             "review_type": "audit",
             "target_id": target_id,

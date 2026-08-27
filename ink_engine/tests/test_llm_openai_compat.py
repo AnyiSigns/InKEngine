@@ -22,6 +22,7 @@ from ink_engine.core.llm.errors import (
     LLMServerError,
     LLMTimeoutError,
 )
+from ink_engine.core.llm.fallback import ModelChain, RetryPolicy
 from ink_engine.core.llm.messages import system, user
 from ink_engine.core.llm.openai_compat import OpenAICompatibleLLM
 from ink_engine.core.llm.tools import ToolSpec
@@ -29,8 +30,11 @@ from ink_engine.core.llm.tools import ToolSpec
 JSON_HEADERS = {"content-type": "application/json"}
 
 
-def make_adapter(handler, **config_kw) -> tuple[OpenAICompatibleLLM, dict]:
-    """构造注入 MockTransport 的适配器；seen 记录最后一次请求与调用次数。"""
+def make_adapter(handler, retry=None, **config_kw) -> tuple[OpenAICompatibleLLM, dict]:
+    """构造注入 MockTransport 的适配器；seen 记录最后一次请求与调用次数。
+
+    retry: 重试策略注入（None = 适配器默认单次尝试——重试归链层）。
+    """
     seen = {"request": None, "calls": 0}
 
     def wrapper(request: httpx.Request) -> httpx.Response:
@@ -47,7 +51,7 @@ def make_adapter(handler, **config_kw) -> tuple[OpenAICompatibleLLM, dict]:
     }
     base_config.update(config_kw)
     config = LLMConfig(**base_config)
-    return OpenAICompatibleLLM(config, transport=transport), seen
+    return OpenAICompatibleLLM(config, transport=transport, retry=retry), seen
 
 
 def sse_frame(payload: dict) -> bytes:
@@ -370,6 +374,45 @@ class TestAstream:
         result = await collect_result(llm.astream([user("hi")]))
         assert result.usage == {"prompt_tokens": 1}
 
+    async def test_astream_requests_include_usage_by_default(self):
+        """流式主路径默认请求 usage（ENG4-C2）：stream_options.include_usage=true。
+
+        服务端在流末帧回传 usage（_parse_sse_line 捕获纯 usage 帧），用量
+        闭环的流式主路径 token 计量不再缺位。
+        """
+        frames = [sse_frame(sse_delta({"content": "x"})), b"data: [DONE]\n\n"]
+        llm, seen = make_adapter(lambda request: stream_response(frames))
+        await collect_result(llm.astream([user("hi")]))
+        body = json.loads(seen["request"].content.decode())
+        assert body["stream_options"] == {"include_usage": True}
+
+    async def test_astream_extra_body_can_override_stream_options(self):
+        """stream_options 可由 LLMParams.extra_body 显式覆盖（ENG4-C2 语义）。
+
+        默认开启 include_usage 是主路径保证；调用方声明了 stream_options
+        时尊重调用方声明（extra_body 非核心字段，与其它端点专有参数同
+        形态透传）。
+        """
+        frames = [sse_frame(sse_delta({"content": "x"})), b"data: [DONE]\n\n"]
+        llm, seen = make_adapter(lambda request: stream_response(frames))
+        await collect_result(
+            llm.astream(
+                [user("hi")],
+                params=LLMParams(extra_body={"stream_options": {"include_usage": False}}),
+            )
+        )
+        body = json.loads(seen["request"].content.decode())
+        assert body["stream_options"] == {"include_usage": False}
+
+    async def test_ainvoke_does_not_send_stream_options(self):
+        """非流式调用不带 stream_options（该字段仅流式语义）。"""
+        llm, seen = make_adapter(
+            lambda request: ok_json({"choices": [{"message": {"content": "ok"}}]})
+        )
+        await llm.ainvoke([user("hi")])
+        body = json.loads(seen["request"].content.decode())
+        assert "stream_options" not in body
+
     async def test_bad_frame_skipped(self):
         frames = [
             b"data: {not json}\n\n",
@@ -469,7 +512,14 @@ class TestAstream:
 
 
 class TestTransientRetry:
-    """瞬时故障指数退避重试（429/503/网络/空流重试；确定性失败不重试）。"""
+    """瞬时故障指数退避重试（429/503/网络/空流重试；确定性失败不重试）。
+
+    重试唯一权威（ENG4-C1）：适配器默认单次尝试——重试经构造参数显式
+    注入 RetryPolicy（独立直用场景）或由挡位链 ModelChain 统一负责；
+    下列重试用例均显式注入策略。
+    """
+
+    QUICK = RetryPolicy(attempts=3, base_delay=0.01, max_delay=0.05)
 
     async def test_ainvoke_retries_503_then_succeeds(self):
         attempts = {"n": 0}
@@ -482,7 +532,7 @@ class TestTransientRetry:
                 )
             return ok_json({"choices": [{"message": {"content": "ok"}, "finish_reason": "stop"}]})
 
-        llm, seen = make_adapter(handler)
+        llm, seen = make_adapter(handler, retry=self.QUICK)
         result = await llm.ainvoke([user("hi")])
         assert result.content == "ok"
         assert seen["calls"] == 3
@@ -491,7 +541,7 @@ class TestTransientRetry:
         def handler(request):
             return httpx.Response(429, json={"error": {"message": "rate limit"}})
 
-        llm, seen = make_adapter(handler)
+        llm, seen = make_adapter(handler, retry=self.QUICK)
         with pytest.raises(LLMRateLimitError):
             await llm.ainvoke([user("hi")])
         assert seen["calls"] == 3
@@ -500,7 +550,7 @@ class TestTransientRetry:
         def handler(request):
             return httpx.Response(401, json={"error": {"message": "invalid key"}})
 
-        llm, seen = make_adapter(handler)
+        llm, seen = make_adapter(handler, retry=self.QUICK)
         with pytest.raises(LLMAuthError):
             await llm.ainvoke([user("hi")])
         assert seen["calls"] == 1
@@ -514,7 +564,7 @@ class TestTransientRetry:
                 return stream_response([])
             return stream_response([sse_frame(sse_delta({"content": "hi"}))])
 
-        llm, seen = make_adapter(handler)
+        llm, seen = make_adapter(handler, retry=self.QUICK)
         result = await collect_result(llm.astream([user("hi")]))
         assert result.content == "hi"
         assert seen["calls"] == 3
@@ -525,8 +575,68 @@ class TestTransientRetry:
             raise LLMServerError(detail="midstream")
 
         llm, seen = make_adapter(
-            lambda request: httpx.Response(200, content=gen(), headers=JSON_HEADERS)
+            lambda request: httpx.Response(200, content=gen(), headers=JSON_HEADERS),
+            retry=self.QUICK,
         )
         with pytest.raises(LLMError):
             await collect_result(llm.astream([user("hi")]))
         assert seen["calls"] == 1  # 已产出内容后中断：不重试（防重复帧）
+
+    async def test_default_single_attempt_no_retry(self):
+        """适配器默认单次尝试（ENG4-C1）：瞬时故障直接抛错，不叠加重试。
+
+        重试唯一权威 = 挡位链 RetryPolicy——独立直用适配器未注入策略
+        时零重试，杜绝「适配器 3× + 链 3× = 9 请求」的双层叠加。
+        """
+        attempts = {"n": 0}
+
+        def handler(request):
+            attempts["n"] += 1
+            return httpx.Response(
+                503, json={"error": {"message": "服务暂时不可用"}}, headers=JSON_HEADERS
+            )
+
+        llm, seen = make_adapter(handler)  # 未注入 retry
+        with pytest.raises(LLMServerError):
+            await llm.ainvoke([user("hi")])
+        assert seen["calls"] == 1  # 单次尝试，无重试
+
+    async def test_chain_single_retry_authority_no_stacking(self):
+        """链 + 真实适配器集成（ENG4-C1）：总请求数 = 链重试预算，非叠加。
+
+        回归：修复前适配器 3× 与链 3× 叠加 = 9 次请求（3 次 ×3 模型）；
+        修复后适配器单次尝试、链 RetryPolicy 唯一权威 = 恰好 3 次。
+        """
+        seen = {"calls": 0}
+
+        def handler(request):
+            seen["calls"] += 1
+            return httpx.Response(
+                503, json={"error": {"message": "服务暂时不可用"}}, headers=JSON_HEADERS
+            )
+
+        transport = httpx.MockTransport(handler)
+        configs = [
+            LLMConfig(
+                adapter="openai_compat",
+                model_id="a",
+                base_url="https://a.example.com/v1/",
+                api_key="sk-a",
+            ),
+            LLMConfig(
+                adapter="openai_compat",
+                model_id="b",
+                base_url="https://b.example.com/v1/",
+                api_key="sk-b",
+            ),
+        ]
+
+        def create(cfg):
+            return OpenAICompatibleLLM(cfg, transport=transport)
+
+        chain = ModelChain(configs, retry=self.QUICK, create=create)
+        with pytest.raises(LLMError):
+            await chain.ainvoke([user("hi")])
+        # 3 次尝试（链 RetryPolicy）耗尽 + 2 个模型各 3 次 = 6 次
+        # （每个模型独立重试预算）；若适配器叠加重试则为 18 次
+        assert seen["calls"] == 6

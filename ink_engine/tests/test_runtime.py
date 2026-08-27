@@ -93,6 +93,23 @@ class _RecordingStorage:
         await self._inner.close()
 
 
+class _ClosableLLM:
+    """带关闭留痕的假模型（C7 断言：stop/rebuild 显式关闭 LLM 链）。"""
+
+    def __init__(self) -> None:
+        self.closed = False
+
+    async def astream(self, messages, *, tools=None, params=None):
+        return
+        yield  # 空流（async generator 形态；永不产出增量）
+
+    async def ainvoke(self, messages, *, tools=None, params=None):
+        return None
+
+    async def aclose(self) -> None:
+        self.closed = True
+
+
 async def _echo_agent(ctx) -> dict:
     await ctx.emit("reply_token", {"token": "ok"}, step_id="reply:1")
     return {"reply": "ok"}
@@ -382,6 +399,69 @@ async def test_resume_run_rejects_stale_card():
     await runtime.engine.ainvoke({"input": "x"}, thread_id="t-ok", round_id="r-ok")
     with pytest.raises(RuntimeError, match="无挂起审批卡"):
         await runtime.resume_run("t-ok", {"decision": "accept"})
+
+
+async def test_stop_closes_engine_llm():
+    """stop 显式关闭 LLM 链（ENG4-C7）：httpx 长连接不依赖 GC 回收。
+
+    关停序列：MCP → LLM → 存储 → 宿主钩子；模型已装配时 aclose 必达。
+    """
+    llm = _ClosableLLM()
+    runtime = await Runtime().boot(FakeHost(llm=llm), _minimal_recipe())
+    assert runtime.engine_llm is llm
+    await runtime.stop()
+    assert llm.closed
+
+
+async def test_rebuild_replaces_and_closes_old_llm():
+    """引擎重建换模型时显式关闭旧 LLM 链（ENG4-C7），新链不受影响。"""
+    host = FakeHost()
+    runtime = await Runtime().boot(host, _minimal_recipe())
+    old = _ClosableLLM()
+    await runtime.rebuild_engine(old)
+    assert not old.closed
+    new = _ClosableLLM()
+    await runtime.rebuild_engine(new)
+    assert old.closed  # 模型变更 → 旧链关闭
+    assert not new.closed
+    assert runtime.engine_llm is new
+    await runtime.stop()
+    assert new.closed
+
+
+async def test_engine_llm_guard_wiring():
+    """引擎装配把 LLM 包上守卫链（用量闭环 + 回合内压缩）。
+
+    节点消费的 llm = UsageTrackingLLM(CompressingLLM(inner))：usage 帧
+    进结点账（ENG4-C3/C4），调用前按压缩策略折叠历史（D5）；配方
+    compress_policy 注入的自定义策略生效。
+    """
+    from ink_engine.core.llm.guard import CompressingLLM, UsageTrackingLLM
+
+    captured: list = []
+
+    class AlwaysCompress:
+        def should_compress(self, state: dict) -> bool:
+            return True
+
+        def budget_chars(self, state: dict) -> int:
+            return 100
+
+    def capture_recipe(ctx: GraphRecipeContext) -> Graph:
+        captured.append(ctx.llm)
+        return _echo_graph_recipe(ctx)
+
+    policy = AlwaysCompress()
+    runtime = await Runtime().boot(
+        FakeHost(llm=_ClosableLLM()),
+        _minimal_recipe(compress_policy=policy, graph_recipe=capture_recipe),
+    )
+    guard = captured[0]
+    assert isinstance(guard, UsageTrackingLLM)
+    compressing = guard._inner
+    assert isinstance(compressing, CompressingLLM)
+    assert compressing._policy is policy
+    await runtime.stop()
 
 
 async def test_rebuild_engine_caches_by_config():

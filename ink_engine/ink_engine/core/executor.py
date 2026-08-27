@@ -45,6 +45,7 @@ from .exceptions import (
 from .fanout import fan_out
 from .graph import Graph, NodeContext, TerminateReason
 from .interrupt import InterruptCoordinator, InterruptSignal, InterruptState
+from .llm.guard import current_node_context
 from .logging import get_logger, trace_id_var
 from .multipath import MULTIPATH_KEY
 from .plan import (
@@ -89,6 +90,31 @@ from .state import StateSchema, is_merge_reducer, subgraph_overlay_delta
 from .storage import ChainLink, CheckpointRecord, Storage
 
 logger = get_logger(__name__)
+
+# ── input_assembly 事件体裁剪（D5 事件降频）─────────────────────────
+# 激活留痕事件不携带全量源元数据：保留条数上限 + 标题长度上限——事件流
+# 体积有界（每源条目只是元数据行，但高源数下累积可观），可回放审计性
+# 不受影响（被裁条目语义 = 更多源，重建口径与全量一致）。
+_INPUT_ASSEMBLY_EVENT_MAX_SOURCES = 16
+_INPUT_ASSEMBLY_EVENT_MAX_TITLE_CHARS = 120
+
+
+def _input_assembly_event_record(record: Any) -> dict:
+    """激活记录 → 事件负载（体裁剪：源条数上限 + 标题截断）。
+
+    Args:
+        record: ActivationRecord（assembly 模块激活模式记录）。
+    """
+    data = record.to_dict()
+    sources = [s for s in data.get("sources") or () if isinstance(s, dict)]
+    if len(sources) > _INPUT_ASSEMBLY_EVENT_MAX_SOURCES:
+        data["sources"] = sources[:_INPUT_ASSEMBLY_EVENT_MAX_SOURCES]
+        data["sources_more"] = len(sources) - _INPUT_ASSEMBLY_EVENT_MAX_SOURCES
+    for source in data.get("sources") or ():
+        title = source.get("title")
+        if isinstance(title, str) and len(title) > _INPUT_ASSEMBLY_EVENT_MAX_TITLE_CHARS:
+            source["title"] = title[:_INPUT_ASSEMBLY_EVENT_MAX_TITLE_CHARS] + "…"
+    return data
 
 
 class _QueueTransport:
@@ -298,7 +324,13 @@ class _NodeContextImpl(NodeContext):
         self._assembled = result
         await self.emit(
             "input_assembly",
-            {"node": self.node, "record": result.record.to_dict()},
+            {
+                "node": self.node,
+                # 事件体裁剪（D5 事件降频）：激活留痕保留条数上限 + 标题
+                # 截断——事件流不为每条源元数据付全量文本（可回放审计性
+                # 不受影响：被裁条目是"更多源"，重建口径与全量一致）
+                "record": _input_assembly_event_record(result.record),
+            },
         )
         return result
 
@@ -1197,6 +1229,10 @@ class Engine:
                 # 重试成功后一并展开（序号冲突/重复执行），终止信号同理
                 ctx._spawns.clear()
                 ctx._terminated = None
+                # 当前节点上下文注入（用量闭环接线）：节点执行期间
+                # current_node_context 指向本节点——LLM 链守卫包装据此
+                # 把 usage 帧记入本节点成本账并发射 llm_usage 指标事件
+                node_token = current_node_context.set(ctx)
                 try:
                     fn = graph.nodes[current]
                     result = fn(ctx)
@@ -1232,6 +1268,8 @@ class Engine:
                         # 跳过语义：节点异常忽略（无增量），图继续按边走
                         logger.warning(f"节点异常跳过（error_on_exception=False）[{current}]: {exc}")
                     break
+                finally:
+                    current_node_context.reset(node_token)
             if node_error is not None:
                 self._trace_mark_failed()
             if interrupt_state is not None:
@@ -1934,6 +1972,9 @@ class Engine:
                 for attempt in range(self.options.max_node_retries + 1):
                     member_ctx._spawns.clear()
                     member_ctx._terminated = None
+                    # 当前节点上下文注入（与主循环同口径）：并行成员执行期
+                    # 间 LLM 用量记入成员节点账 + llm_usage 指标事件
+                    member_token = current_node_context.set(member_ctx)
                     try:
                         fn = graph.nodes[name]
                         result = fn(member_ctx)
@@ -2014,6 +2055,8 @@ class Engine:
                             member_ctx.graph_path, name, TRACE_FAILED
                         )
                         return
+                    finally:
+                        current_node_context.reset(member_token)
 
         # 并发执行 + 首信号取消：任一成员中断/终止（或预算超限）时立即
         # 取消未完成兄弟成员（asyncio.gather 会等待全部成员——挂起成员的

@@ -9,8 +9,10 @@
 """
 from __future__ import annotations
 
+import pytest
+
 from ink_engine.core.llm.tools import ToolSpec
-from ink_engine.core.permissions import ALLOW, DENY, PermissionGate
+from ink_engine.core.permissions import ALLOW, DENY, REVIEW, PermissionGate
 from ink_engine.core.sandbox import FileSandbox
 from ink_engine.core.tool_pipeline import ToolPipeline
 
@@ -232,3 +234,74 @@ async def test_trace_sink_receives_outcome():
     assert traces[0].ok is True
     assert traces[0].decision == ALLOW
     assert traces[0].duration_ms >= 0
+
+
+async def test_auto_approval_prefixes_result_text():
+    """auto 决议（策略直过）执行结果前缀标注（D2 审批语义可观测）。
+
+    回归：修复前 auto 直过只透传 approval.decision=auto，执行结果文本
+    无任何审批语义标记——模型把已放行的执行误判为 interrupted 反复重试；
+    修复后结果文本前缀「已自动批准执行」，模型可辨识为已放行。
+    """
+    from ink_engine.core.approval import DefaultInterruptPolicy
+
+    calls: list[str] = []
+
+    async def executor(ctx, spec, args, approval):
+        calls.append(str(approval.decision))
+        return "done"
+
+    pipeline = ToolPipeline(
+        gate=PermissionGate(default_policy=REVIEW),
+        extractor=lambda spec, args: ("write", args["path"]),
+        executor=executor,
+        approval_policy=DefaultInterruptPolicy(auto_approve_tools={"t"}),
+    )
+    result = await _execute(pipeline, _spec(), {"path": "a.md"})
+    assert result.ok is True
+    assert result.decision == ALLOW
+    assert result.approval is not None and result.approval.decision == "auto"
+    assert result.output.startswith("【已自动批准执行】")
+    assert result.output.endswith("done")
+    assert calls == ["auto"]
+
+
+async def test_auto_approval_prefix_present_with_empty_output():
+    """auto 直过即使执行输出为空也标注放行语义（模型不误判 interrupted）。"""
+    from ink_engine.core.approval import DefaultInterruptPolicy
+
+    async def executor(ctx, spec, args, approval):
+        return None  # 执行成功但无输出
+
+    pipeline = ToolPipeline(
+        gate=PermissionGate(default_policy=REVIEW),
+        extractor=lambda spec, args: ("write", args["path"]),
+        executor=executor,
+        approval_policy=DefaultInterruptPolicy(auto_approve_tools={"t"}),
+    )
+    result = await _execute(pipeline, _spec(), {"path": "a.md"})
+    assert result.ok is True
+    assert result.output == "【已自动批准执行】"
+
+
+async def test_review_not_in_auto_policy_hangs_gate():
+    """非直过工具（review 未在 auto 名单）仍挂卡：auto 名单是明示让步。"""
+    from ink_engine.core.approval import DefaultInterruptPolicy
+    from ink_engine.core.interrupt import InterruptSignal
+
+    async def executor(ctx, spec, args, approval):
+        raise AssertionError("挂卡路径不应执行")
+
+    pipeline = ToolPipeline(
+        gate=PermissionGate(default_policy=REVIEW),
+        extractor=lambda spec, args: ("write", args["path"]),
+        executor=executor,
+        approval_policy=DefaultInterruptPolicy(auto_approve_tools=()),  # 空名单
+    )
+
+    class HangingCtx:
+        async def interrupt(self, key, payload):
+            raise InterruptSignal(key, payload)
+
+    with pytest.raises(InterruptSignal):
+        await pipeline.execute(HangingCtx(), _spec(), {"path": "a.md"})

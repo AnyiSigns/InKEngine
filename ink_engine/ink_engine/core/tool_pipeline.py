@@ -25,6 +25,7 @@ from dataclasses import dataclass
 from typing import Any
 
 from .approval import (
+    DECISION_AUTO,
     DECISION_EDIT,
     DECISION_REJECT,
     DECISION_TERMINATE,
@@ -113,6 +114,10 @@ class ToolPipeline:
     audit: Callable[..., Any] | None = None
     max_result_chars: int = 100_000
     allow_unchecked: bool = False
+    # 审批决议策略（None = approve_before_execute 默认全挂起；宿主注入
+    # 直过白名单（auto-approve）后 review 档可策略直过，决议 auto 会
+    # 在执行结果文本前缀标注——审批语义对模型可观测）
+    approval_policy: Any | None = None
     # 工具轨迹回调（经验闭环的信号出口）：每次调用结束后回调
     # (trace: ToolTrace)，宿主接 ToolTraceStore 落库；None = 不记录。
     # 回调失败只记日志不阻断主流程（观测不阻断执行）。
@@ -204,6 +209,7 @@ class ToolPipeline:
                         ctx,
                         f"gate:{spec.name}",
                         {"tool": spec.name, "args": args},
+                        policy=self.approval_policy,
                     )
                     if approval.decision in (DECISION_REJECT, DECISION_TERMINATE):
                         await self._audit(
@@ -323,6 +329,10 @@ class ToolPipeline:
 
         # ── 调用后：审计留痕 + 结果观察（截断/溢出标记）──
         text = str(output) if output is not None else ""
+        if approval is not None and approval.decision == DECISION_AUTO:
+            # 审批语义可观测（D2）：策略直过（auto）在执行结果文本前缀
+            # 标注——模型不再把「已放行的执行」误判为 interrupted 重试
+            text = f"【已自动批准执行】{text}"
         overflow = len(text) > self.max_result_chars
         truncated = text[: self.max_result_chars] + ("\n…（溢出截断）" if overflow else "")
         await self._audit(

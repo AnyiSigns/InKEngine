@@ -33,6 +33,7 @@
 from __future__ import annotations
 
 import asyncio
+import contextvars
 import inspect
 import itertools
 import time
@@ -77,6 +78,17 @@ DEFAULT_SHARED_RHO = 0.3  # 共享折扣默认值（共同前缀命中 = 边际�
 RHO_MIN = 0.2  # 共享折扣下界（前缀命中理想情形）
 RHO_MAX = 1.0  # 共享折扣上界（无缓存 = 全边际成本）
 DEFAULT_MULTIPATH_CONCURRENCY = 2  # 支流并发上限（fan_out 限流）
+
+# 多径嵌套上限（多径嵌套护栏）：多径支流内再触发多径 = 成本爆炸高发点
+# （支流 × 支流），嵌套深度 ≥ 该上限直接降级单径 + 审计注明（fail-closed
+# 语义与 spawn 嵌套护栏同族——宁可降级不可静默放行）。深度经 ContextVar
+# 跨任务传播（fan_out 子任务继承），子引擎支流内天然可见。
+MAX_MULTIPATH_NESTING = 1
+
+# 多径嵌套深度（运行期护栏计数；0 = 顶层多径）
+_multipath_depth: contextvars.ContextVar[int] = contextvars.ContextVar(
+    "multipath_nesting_depth", default=0
+)
 
 # 汇流裁决模式（声明式枚举，防魔法字符串）
 MODE_QUALITY_GATE = "quality_gate"
@@ -123,6 +135,8 @@ class MultiPathConfig:
         shared_rho: 共享折扣（多径成本核算的边际成本系数；见
             :func:`multipath_budget_required`）。
         concurrency: 支流并发上限。
+        max_nesting: 多径嵌套上限（嵌套超限降级单径 + 审计注明，
+            默认 1 = 仅一级图；防支流内再触发多径的成本爆炸）。
     """
 
     enabled: bool = False
@@ -130,6 +144,7 @@ class MultiPathConfig:
     max_k: int = MAX_MULTIPATH_K
     shared_rho: float = DEFAULT_SHARED_RHO
     concurrency: int = DEFAULT_MULTIPATH_CONCURRENCY
+    max_nesting: int = MAX_MULTIPATH_NESTING
 
     def __post_init__(self) -> None:
         if isinstance(self.default_k, bool) or not isinstance(self.default_k, int):
@@ -148,6 +163,10 @@ class MultiPathConfig:
             raise GraphDefinitionError(
                 f"支流并发上限须为正整数: {self.concurrency!r}"
             )
+        if isinstance(self.max_nesting, bool) or self.max_nesting < 0:
+            raise GraphDefinitionError(
+                f"多径嵌套上限须为非负整数: {self.max_nesting!r}"
+            )
 
     def to_dict(self) -> dict[str, Any]:
         return {
@@ -156,6 +175,7 @@ class MultiPathConfig:
             "max_k": self.max_k,
             "shared_rho": self.shared_rho,
             "concurrency": self.concurrency,
+            "max_nesting": self.max_nesting,
         }
 
     @classmethod
@@ -170,6 +190,7 @@ class MultiPathConfig:
             max_k=int(data.get("max_k", MAX_MULTIPATH_K)),
             shared_rho=float(data.get("shared_rho", DEFAULT_SHARED_RHO)),
             concurrency=int(data.get("concurrency", DEFAULT_MULTIPATH_CONCURRENCY)),
+            max_nesting=int(data.get("max_nesting", MAX_MULTIPATH_NESTING)),
         )
 
 
@@ -1098,6 +1119,14 @@ class MultipathRunner:
             degradation = "k>2 仅高风险任务放行（max_safety_tier ≥ 1），已降为 2"
             k_eff = DEFAULT_MULTIPATH_K
             degradations.append(degradation)
+        # 多径嵌套护栏：嵌套深度 ≥ 上限（默认 1 = 仅一级图）直接降级
+        # 单径 + 审计注明（fail-closed：宁可降级不可静默放行成本爆炸）
+        nesting = _multipath_depth.get()
+        if nesting >= config.max_nesting:
+            k_eff = 1
+            degradations.append(
+                f"多径嵌套超限（深度 {nesting} ≥ 上限 {config.max_nesting}），降级单径执行"
+            )
         if k_eff < 2:
             branch_results = []
             if k_eff == 1:
@@ -1112,12 +1141,17 @@ class MultipathRunner:
                     inject=inject,
                     evidence_index=evidence_index,
                 )
+            degraded = "; ".join(degradations) or "候选不足（<2 条），单径执行"
             result = MultiPathResult(
                 triggered=False,
                 k=k_eff,
                 candidates=len(candidates),
-                degraded_reason="候选不足（<2 条），单径执行",
-                budget_note="候选不足，未触发多径",
+                degraded_reason=degraded,
+                budget_note=(
+                    "多径嵌套超限，未触发多径"
+                    if degraded.startswith("多径嵌套超限")
+                    else "候选不足，未触发多径"
+                ),
                 branches=tuple(branch_results),
                 thread_ids={b.index: b.thread_id for b in branch_results},
             )
@@ -1131,8 +1165,8 @@ class MultipathRunner:
                     "base_cost": 0.0,
                     "budget_required": 0.0,
                     "budget_passed": True,
-                    "budget_note": "候选不足，未触发多径",
-                    "degraded_reason": "候选不足（<2 条），单径执行",
+                    "budget_note": result.budget_note,
+                    "degraded_reason": degraded,
                 },
             )
         base_cost = chain_evidence(candidates[0], evidence_index).cost_estimate
@@ -1463,11 +1497,17 @@ class MultipathRunner:
                 edge_refs=chain_edge_refs(candidate),
             )
 
-        await fan_out(
-            [lambda pos: run_one(pos) for pos in range(len(candidates))],
-            max(1, int(concurrency)),
-            propagate=InterruptSignal,
-        )
+        # 多径嵌套深度 +1（多径嵌套护栏）：支流子引擎内再触发多径时
+        # 深度可见（ContextVar 随 fan_out 子任务传播）——超限即降级单径
+        nesting_token = _multipath_depth.set(_multipath_depth.get() + 1)
+        try:
+            await fan_out(
+                [lambda pos: run_one(pos) for pos in range(len(candidates))],
+                max(1, int(concurrency)),
+                propagate=InterruptSignal,
+            )
+        finally:
+            _multipath_depth.reset(nesting_token)
         return [results[i] for i in range(len(candidates)) if i in results]
 
     def _merge_sub_engine(self, sub_engine: Engine) -> None:

@@ -697,6 +697,88 @@ async def test_k3_gated_by_high_risk_tier(memory_storage):
     await store.close()
 
 
+async def test_multipath_nesting_guardrail_degrades_single(memory_storage):
+    """多径嵌套护栏：嵌套深度 ≥ 上限（默认 1 = 仅一级图）→ 降级单径。
+
+    回归：修复前支流子引擎内再触发多径 = 支流 × 支流成本爆炸；修复后
+    运行期维护嵌套深度（ContextVar），深度 ≥ max_nesting 直接单径执行
+    首候选 + 审计注明（fail-closed：宁可降级不可静默放行）。
+    """
+    import ink_engine.core.multipath as mp
+
+    registry = make_behavior_registry()
+    store = EdgeEvidenceStore(":memory:")
+    candidates = await make_candidates(registry, store, top_k=2)
+    engine = make_parent_engine(registry, memory_storage, [])
+    runner = make_runner(engine, store=store)
+
+    # 模拟支流子引擎内环境：深度已 = 1（父多径执行中）
+    token = mp._multipath_depth.set(mp._multipath_depth.get() + 1)
+    try:
+        nested = await runner.run(
+            make_request(top_k=2),
+            candidates,
+            entry_state={"user_query": "q"},
+            thread_id="t-mp-nested",
+            round_id="r1",
+        )
+    finally:
+        mp._multipath_depth.reset(token)
+    assert nested.triggered is False
+    assert nested.k == 1
+    assert "多径嵌套超限" in (nested.degraded_reason or "")
+    assert len(nested.branches) == 1  # 单径仍执行首候选（不静默丢弃）
+    # 审计注明：降级原因可见
+    assert any("多径嵌套超限" in str(r) for r in nested.audit)
+
+    # 顶层（深度 0）不受护栏影响：正常触发多径
+    top = await runner.run(
+        make_request(top_k=2),
+        candidates,
+        entry_state={"user_query": "q"},
+        thread_id="t-mp-top",
+        round_id="r2",
+    )
+    assert top.triggered is True
+    assert top.k == 2
+    await store.close()
+
+
+async def test_multipath_nesting_depth_resets_after_run(memory_storage):
+    """嵌套深度随执行收口复位：正常 run 后 ContextVar 回到 0。"""
+    import ink_engine.core.multipath as mp
+
+    registry = make_behavior_registry()
+    store = EdgeEvidenceStore(":memory:")
+    candidates = await make_candidates(registry, store, top_k=2)
+    engine = make_parent_engine(registry, memory_storage, [])
+    runner = make_runner(engine, store=store)
+    result = await runner.run(
+        make_request(top_k=2),
+        candidates,
+        entry_state={"user_query": "q"},
+        thread_id="t-mp-depth",
+    )
+    assert result.triggered is True
+    assert mp._multipath_depth.get() == 0  # 支流执行后深度复位
+    await store.close()
+
+
+def test_multipath_config_max_nesting():
+    """max_nesting 可配 + 校验 + 序列化往返（护栏上限非魔法常量）。"""
+    from ink_engine.core.multipath import MAX_MULTIPATH_NESTING
+
+    assert MultiPathConfig().max_nesting == MAX_MULTIPATH_NESTING
+    config = MultiPathConfig(enabled=True, max_nesting=0)
+    assert config.to_dict()["max_nesting"] == 0
+    restored = MultiPathConfig.from_dict(config.to_dict())
+    assert restored.max_nesting == 0
+    with pytest.raises(GraphDefinitionError):
+        MultiPathConfig(max_nesting=-1)
+    with pytest.raises(GraphDefinitionError):
+        MultiPathConfig(max_nesting=True)
+
+
 # ── 中断语义：挂起重入 + checkpoint 保留 / 取消后可续 ─────────────
 
 async def test_multipath_interrupt_suspend_and_resume(memory_storage):

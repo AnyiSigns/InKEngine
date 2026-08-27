@@ -8,7 +8,12 @@ from __future__ import annotations
 
 import pytest
 
-from ink_engine.core.context import CompressionPolicy, ThresholdCompressionPolicy
+from ink_engine.core.context import (
+    CompressionPolicy,
+    ThresholdCompressionPolicy,
+    compress_message_history,
+)
+from ink_engine.core.llm.messages import Message, assistant, system, user
 from ink_engine.core.patch_chain import (
     PatchChain,
     PatchOp,
@@ -56,6 +61,80 @@ def test_threshold_policy_rejects_bad_params():
         ThresholdCompressionPolicy(min_messages=0)
     with pytest.raises(ValueError):
         ThresholdCompressionPolicy(budget_chars=0)
+
+
+# ── 回合内消息流压缩原语（D5 接线：LLM 消息组装处的压缩视图）──
+
+
+def _long_messages(n: int, chars: int) -> list[Message]:
+    """n 条历史消息（交替 user/assistant，各 chars 字符）+ system 链首。"""
+    messages = [system("系统提示")]
+    for i in range(n):
+        messages.append(user(f"u{i}" + "x" * chars))
+        messages.append(assistant("a" + "y" * chars))
+    return messages
+
+
+def test_compress_history_not_triggered_returns_copy():
+    policy = ThresholdCompressionPolicy(min_messages=30, min_chars=40000)
+    messages = _long_messages(5, chars=10)  # 双阈值均不达
+    result = compress_message_history(messages, policy=policy, keep_recent=6)
+    assert result == list(messages)
+    assert result is not messages  # 副本（非破坏性视图）
+
+
+def test_compress_history_triggered_summary_replaces_middle():
+    policy = ThresholdCompressionPolicy(min_messages=30, min_chars=40000)
+    messages = _long_messages(60, chars=700)  # 121 条 × ~700 字 → 触发
+    result = compress_message_history(messages, policy=policy, keep_recent=6)
+    assert len(result) < len(messages)
+    assert result[0] == messages[0]  # system 恒保留
+    assert result[0].role == "system"
+    summary = result[1]
+    assert summary.role == "user"
+    assert "历史上下文压缩摘要" in summary.content
+    assert "工具轮数" in summary.content  # 摘要含连续性锚点
+    assert result[-6:] == messages[-6:]  # 最近 6 条原样保留
+
+
+def test_compress_history_system_messages_all_kept():
+    policy = ThresholdCompressionPolicy(min_messages=5, min_chars=100)
+    messages = [system("s1"), system("s2"), *_long_messages(6, chars=30)[1:]]
+    result = compress_message_history(messages, policy=policy, keep_recent=3)
+    assert [m.content for m in result if m.role == "system"] == ["s1", "s2"]
+    assert result[0].role == "system"
+    assert result[1].role == "system"
+
+
+def test_compress_history_middle_only_not_triggered_when_tail_covers_all():
+    """中间无可折叠段（system + 尾段即全部）→ 不压缩。"""
+    policy = ThresholdCompressionPolicy(min_messages=5, min_chars=100)
+    messages = _long_messages(2, chars=100)  # 5 条全部属于保留尾段
+    result = compress_message_history(messages, policy=policy, keep_recent=10)
+    assert result == list(messages)
+
+
+def test_compress_history_accepts_dict_messages():
+    policy = ThresholdCompressionPolicy(min_messages=5, min_chars=100)
+    messages = [
+        {"role": "system", "content": "提示"},
+        {"role": "user", "content": "u0" + "x" * 30},
+        {"role": "assistant", "content": "a" + "y" * 30},
+        {"role": "user", "content": "u1" + "x" * 30},
+        {"role": "assistant", "content": "a" + "y" * 30},
+        {"role": "user", "content": "u2" + "x" * 30},
+        {"role": "assistant", "content": "a" + "y" * 30},
+    ]
+    result = compress_message_history(messages, policy=policy, keep_recent=2)
+    assert len(result) < len(messages)
+    assert result[0] == messages[0]
+    assert result[-2:] == messages[-2:]
+    assert "历史上下文压缩摘要" in result[1].content
+
+
+def test_compress_history_empty_input():
+    policy = ThresholdCompressionPolicy(min_messages=5, min_chars=100)
+    assert compress_message_history([], policy=policy) == []
 
 
 # ── 消息压缩补丁链 ──

@@ -31,7 +31,7 @@ from collections.abc import Callable, Sequence
 from dataclasses import dataclass, field
 from typing import Any, Protocol, runtime_checkable
 
-from .llm.messages import message_role
+from .llm.messages import message_role, user
 from .logging import get_logger
 
 logger = get_logger(__name__)
@@ -612,6 +612,55 @@ class ThresholdCompressionPolicy:
         return self._budget_chars
 
 
+def compress_message_history(
+    messages: Sequence[Any],
+    *,
+    policy: CompressionPolicy,
+    keep_recent: int = 10,
+) -> list[Any]:
+    """回合内消息流压缩（D5 接线原语：LLM 消息组装处的确定性压缩视图）。
+
+    语义（非破坏性：原始消息流不修改，返回压缩后的视图列表）：
+    - ``policy.should_compress`` 未触发 → 原列表副本直接返回（零改动）；
+    - 触发 → 头部 system 消息恒保留（提示词不压缩）+ 最近
+      ``keep_recent`` 条消息原样保留 + 中间旧消息段折叠为一条确定性
+      摘要 user 消息（:func:`archive_digest`，预算 = ``policy.budget_chars``）。
+
+    触发阈值默认 30 条 / 40000 字符（:class:`ThresholdCompressionPolicy`
+    构造参数可配），仅极端膨胀回合触发；摘要以「历史上下文压缩摘要」
+    标注前缀，模型可辨识该段为压缩锚点而非原始消息。
+
+    Args:
+        messages: 消息流（Message 对象或 dict 形态混排均可，只读）。
+        policy: 压缩策略（触发判定 + 摘要预算）。
+        keep_recent: 保留的最近消息条数（触发时；system 消息恒保留）。
+
+    Returns:
+        压缩后的消息视图（未触发 = 原列表副本）。
+    """
+    if not messages:
+        return list(messages)
+    state = {
+        "messages": [
+            m if isinstance(m, dict) else m.to_dict() for m in messages
+        ]
+    }
+    if not policy.should_compress(state):
+        return list(messages)
+    count = len(messages)
+    head = 0
+    while head < count and message_role(messages[head]) == "system":
+        head += 1
+    tail_start = max(head, count - max(1, int(keep_recent)))
+    if tail_start <= head:
+        # 中间无旧消息段可折叠（全部为 system + 保留尾段）——不压缩
+        return list(messages)
+    middle = messages[head:tail_start]
+    digest = archive_digest(middle, max_chars=policy.budget_chars(state))
+    summary = user(f"【历史上下文压缩摘要（{len(middle)} 条旧消息）】\n{digest}")
+    return [*messages[:head], summary, *messages[tail_start:]]
+
+
 # ── 域上下文窗口投影（原 components/domain_window，并入机制层）──────────────
 
 # 域窗口保留的工具轮数上限（防上下文膨胀；用户消息不设限全留）
@@ -801,6 +850,7 @@ __all__ = [
     "WeightedBudgetAllocator",
     "archive_digest",
     "build_domain_window",
+    "compress_message_history",
     "iter_tool_rounds",
     "last_body_message",
     "message_text",

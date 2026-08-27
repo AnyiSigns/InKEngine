@@ -1,5 +1,6 @@
-# 开发构建使用仓库根 .venv 的解释器（relative 相对本配置目录解析）。
+# 开发构建使用仓库根 .venv 的解释器（relative 按 cargo 进程 cwd 解析）。
 # 本 crate 依赖 inkling_shell_lib（内嵌 Python 引擎），编译期需经 PYO3_PYTHON
 # 定位解释器；与 shell 内嵌构建保持同一来源。
+# 注意：路径相对编译时 cwd（包目录）——cli 包在 inkling/cli，仓库根为两层（../../）。
 [env]
-PYO3_PYTHON = { value = "../../../.venv/Scripts/python.exe", relative = true }
+PYO3_PYTHON = { value = "../../.venv/Scripts/python.exe", relative = true }

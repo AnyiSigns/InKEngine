@@ -7,3 +7,8 @@
 [build]
 jobs = 4
 target-dir = "C:/Users/Anyi/Documents/PycharmProjects/InkEngine/inkling/shell/src-tauri/target"
+
+# 清除宿主环境残留的 RUSTC_WRAPPER=sccache：sccache 0.17 daemon 在并行编译
+# proc-macro crate 时必失败（4C8G 上连续 4 次构建验证），已弃用。
+[env]
+RUSTC_WRAPPER = ""

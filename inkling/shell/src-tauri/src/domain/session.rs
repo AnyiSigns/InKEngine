@@ -268,7 +268,9 @@ pub fn branch_tree_from_chain_index(
         })
         .collect();
     nodes.sort_by_key(|node| std::cmp::Reverse(node.leaf));
-    nodes.retain(|node| !parent_ids.contains(&node.leaf) || node.leaf == current_leaf);
+    // R12：`current_leaf = 最大 checkpoint_id` 恒为叶（链尾保留语义），
+    // 删除冗余条件——叶判定只依赖 parent_ids，不存在需单独保链尾的情况。
+    nodes.retain(|node| !parent_ids.contains(&node.leaf));
     Ok(BranchTree {
         session_id: session_id.to_string(),
         nodes,
@@ -550,6 +552,9 @@ pub async fn refresh_session_after_round(thread_id: &str) -> Result<JsonValue, S
     let mut updated = meta.unwrap_or_else(|| new_session(thread_id));
     updated.message_count = messages.len();
     updated.updated_at = now_epoch();
+    // R13：刷新时同步写回 SessionMeta.current_leaf（与 branch_tree 的
+    // current_leaf 语义一致——resume/回退锚点不因刷新偏差）。
+    sync_current_leaf(&mut updated, &checkpoint);
     if !updated.deleted {
         if updated.title.is_empty() && messages.len() >= TITLE_TRIGGER_MESSAGE_COUNT {
             let candidate = title_candidate(&messages).await.unwrap_or(None);
@@ -559,6 +564,15 @@ pub async fn refresh_session_after_round(thread_id: &str) -> Result<JsonValue, S
         save_session(&updated).await?;
     }
     Ok(session_meta_to_record(&updated))
+}
+
+/// 从最新检查点回填 current_leaf（R13：无检查点 = 不改写，保持既有值）。
+fn sync_current_leaf(meta: &mut SessionMeta, checkpoint: &Option<JsonValue>) {
+    if let Some(cp) = checkpoint {
+        if let Some(id) = cp.get("checkpoint_id").and_then(JsonValue::as_i64) {
+            meta.current_leaf = Some(id);
+        }
+    }
 }
 
 /// 读取单条会话记录（补丁链/重命名前读取；无记录 = None）。
@@ -718,6 +732,22 @@ mod tests {
         // 父叶不在树内 = 域侧拒绝（不触碰通道）
         let rejected = runtime.block_on(fork_branch(&tree, 99, serde_json::json!({})));
         assert!(rejected.is_err());
+    }
+
+    #[test]
+    fn refresh_syncs_current_leaf_from_checkpoint() {
+        // R13：刷新时从最新检查点回填 current_leaf（与分支树语义一致）
+        let checkpoint = serde_json::json!({
+            "checkpoint_id": 9,
+            "state": { "messages": [{ "role": "user", "content": "a" }] },
+        });
+        let mut meta = new_session("t-leaf");
+        sync_current_leaf(&mut meta, &Some(checkpoint));
+        assert_eq!(meta.current_leaf, Some(9), "刷新应回填当前叶");
+        // 无检查点 = 不改写
+        let mut kept = SessionMeta { current_leaf: Some(3), ..new_session("t-keep") };
+        sync_current_leaf(&mut kept, &None);
+        assert_eq!(kept.current_leaf, Some(3), "无检查点保持既有叶");
     }
 
     #[test]

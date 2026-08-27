@@ -15,6 +15,7 @@
 //! 序列确定性归约更新（纯函数，不调模型）。
 
 use std::future::Future;
+use std::pin::Pin;
 use std::sync::atomic::{AtomicBool, Ordering};
 use std::sync::{Arc, Mutex, OnceLock};
 
@@ -24,19 +25,12 @@ use tauri::{AppHandle, Emitter};
 use tokio::sync::mpsc::{self, UnboundedSender};
 use tokio::task::JoinHandle;
 
+use crate::engine::host::call_engine_op_async;
+
 // ── 常量（命名集中，禁用裸字符串/裸数字）──
 
 /// 事件协议版本（与引擎侧 `PROTOCOL_VERSION` 对齐，前端零改动）。
 const PROTOCOL_VERSION: i64 = 2;
-
-/// 任务状态语义常量。
-const STATUS_PENDING: &str = "pending";
-const STATUS_RUNNING: &str = "running";
-const STATUS_COMPLETED: &str = "completed";
-const STATUS_CANCELLED: &str = "cancelled";
-const STATUS_FAILED: &str = "failed";
-const STATUS_IN_PROGRESS: &str = "in_progress";
-const STATUS_ERROR: &str = "error";
 
 /// 任务事件类型（对照 seed 登记的事件名）。
 const EVENT_TASK_START: &str = "task_start";
@@ -60,8 +54,13 @@ const TOOL_KIND_TEST_RUN: &str = "test_run";
 /// 事件汇（可注入，便于测试替身记录）。
 pub type EventSink = Arc<dyn Fn(JsonValue) + Send + Sync>;
 
-/// 链回退器（可注入，便于测试替身断言调用）。
-pub type Reverter = Arc<dyn Fn(&str, &str) -> Result<JsonValue, String> + Send + Sync>;
+/// 链回退器（可注入，便于测试替身断言调用；R6：异步形态——后台任务
+/// 在 async 上下文内 await 而非内嵌 new_current_thread + block_on）。
+pub type Reverter = Arc<
+    dyn Fn(String, String) -> Pin<Box<dyn Future<Output = Result<JsonValue, String>> + Send>>
+        + Send
+        + Sync,
+>;
 
 /// 构造与引擎事件信封同构的事件对象（type / payload / thread_id …）。
 fn build_event(event_type: &str, payload: JsonValue, thread_id: Option<&str>) -> JsonValue {
@@ -82,22 +81,31 @@ fn build_event(event_type: &str, payload: JsonValue, thread_id: Option<&str>) ->
 
 // ── 任务状态 / 注册表条目 ──
 
-/// 任务生命周期状态（任务注册即进入运行态，故无独立 pending 变体）。
-#[derive(Debug, Clone, Copy, PartialEq, Eq)]
-enum TaskStatus {
+/// 任务生命周期状态（单一词表真源，R11：统一原「枚举 + 两套字符串
+/// 状态常量」双维护——注册表条目、回合归约、事件载荷、前端契约共用）。
+#[derive(Debug, Clone, Copy, PartialEq, Eq, Serialize, Deserialize)]
+#[serde(rename_all = "snake_case")]
+pub enum TaskStatus {
+    Pending,
     Running,
     Completed,
     Cancelled,
     Failed,
+    InProgress,
+    Error,
 }
 
 impl TaskStatus {
-    fn as_str(&self) -> &'static str {
+    /// 对外字面形态（事件载荷 / 命令返回的统一字符串词表）。
+    pub fn as_str(&self) -> &'static str {
         match self {
-            TaskStatus::Running => STATUS_RUNNING,
-            TaskStatus::Completed => STATUS_COMPLETED,
-            TaskStatus::Cancelled => STATUS_CANCELLED,
-            TaskStatus::Failed => STATUS_FAILED,
+            TaskStatus::Pending => "pending",
+            TaskStatus::Running => "running",
+            TaskStatus::Completed => "completed",
+            TaskStatus::Cancelled => "cancelled",
+            TaskStatus::Failed => "failed",
+            TaskStatus::InProgress => "in_progress",
+            TaskStatus::Error => "error",
         }
     }
 
@@ -204,7 +212,7 @@ impl TaskHandle {
             EVENT_TASK_UPDATE,
             json!({
                 "task_id": self.id,
-                "status": STATUS_RUNNING,
+                "status": TaskStatus::Running.as_str(),
                 "progress": value,
                 "note": note,
             }),
@@ -264,13 +272,20 @@ impl TaskRegistry {
         }
         let cancel = Arc::new(AtomicBool::new(false));
         let created_at = chrono::Utc::now().timestamp();
+        // R16：显式回退目标缺省时，捕获「任务起始时线程的最新稳定
+        // checkpoint」为回退锚点（任务工作产出的后续 checkpoint 将被
+        // thread_revert 清理）；线程无检查点/引擎不可用 = None，取消时
+        // 跳过回退（不再传空串——空串经 `int("")` 直接失败且语义失真）。
+        let revert_resolved = revert_target
+            .map(str::to_string)
+            .or_else(|| thread_id.and_then(resolve_latest_checkpoint));
         let entry = TaskEntry {
             id: id.to_string(),
             kind: kind.to_string(),
             goal: goal.to_string(),
             status: TaskStatus::Running,
             thread_id: thread_id.map(str::to_string),
-            revert_target: revert_target.map(str::to_string),
+            revert_target: revert_resolved.clone(),
             created_at,
             cancel: cancel.clone(),
             handle: None,
@@ -290,7 +305,7 @@ impl TaskRegistry {
         let reverter = self.reverter.clone();
         let id_owned = id.to_string();
         let thread_id_owned = thread_id.map(str::to_string);
-        let revert_target_owned = revert_target.map(str::to_string);
+        let revert_target_owned = revert_resolved;
 
         let join_handle = tokio::spawn(async move {
             let t_handle = TaskHandle::new(
@@ -318,7 +333,15 @@ impl TaskRegistry {
                             thread_id_owned.as_deref(),
                         ));
                         if let Some(tid) = &thread_id_owned {
-                            let _ = (reverter)(tid, &revert_target_owned.clone().unwrap_or_default());
+                            // R6：async 上下文中 await 回退，不嵌套运行时；
+                            // R16：无回退目标（线程无稳定 checkpoint）跳过。
+                            if let Some(target) = &revert_target_owned {
+                                let _ = (reverter)(tid.clone(), target.clone()).await;
+                            } else {
+                                eprintln!(
+                                    "[tasks] 任务 {id_owned} 无回退目标（线程无稳定 checkpoint），跳过链回退"
+                                );
+                            }
                         }
                     }
                 }
@@ -405,7 +428,14 @@ impl TaskRegistry {
             ),
         );
         if let Some(tid) = thread_id {
-            let _ = (self.reverter)(&tid, &revert_target.unwrap_or_default());
+            // R6：取消为同步命令面，经运行时感知桥接阻塞驱动（不新建
+            // current_thread runtime；运行时内不嵌套 block_on）；
+            // R16：无回退目标（线程无稳定 checkpoint）跳过回退，不传空串。
+            if let Some(target) = revert_target {
+                let _ = block_on_engine((self.reverter)(tid, target));
+            } else {
+                eprintln!("[tasks] 任务 {id} 无回退目标（线程无稳定 checkpoint），跳过链回退");
+            }
         }
         Ok(())
     }
@@ -487,26 +517,62 @@ pub fn registry() -> Arc<TaskRegistry> {
                     }
                 }
             });
-            let revert: Reverter = Arc::new(
-                |thread_id: &str, target_id: &str| -> Result<JsonValue, String> {
-                    call_engine_revert(thread_id, target_id)
-                },
-            );
+            let revert: Reverter = Arc::new(|thread_id: String, target_id: String| {
+                Box::pin(call_engine_revert(thread_id, target_id))
+            });
             Arc::new(TaskRegistry::new(sink, revert))
         })
         .clone()
 }
 
-/// 经既有操作通道回退链（同步形态，复用 host 既有异步桥 + 当前线程运行时）。
-fn call_engine_revert(thread_id: &str, target_id: &str) -> Result<JsonValue, String> {
-    tokio::runtime::Builder::new_current_thread()
-        .enable_all()
-        .build()
-        .map_err(|err| format!("回退运行时创建失败: {err}"))?
-        .block_on(crate::engine::host::call_engine_op_async(
-            OP_THREAD_REVERT,
-            json!({ "thread_id": thread_id, "target_id": target_id }),
-        ))
+/// 进程级共享时序运行时（R6：同步上下文阻塞桥接的单一复用运行时，
+/// 替代每次调用新建 current_thread runtime；引擎线程亲和由操作通道内部保证）。
+fn shared_runtime() -> &'static tokio::runtime::Runtime {
+    static RT: OnceLock<tokio::runtime::Runtime> = OnceLock::new();
+    RT.get_or_init(|| {
+        tokio::runtime::Builder::new_multi_thread()
+            .worker_threads(2)
+            .enable_all()
+            .build()
+            .expect("共享时序运行时创建失败")
+    })
+}
+
+/// 同步上下文的阻塞桥接（R6）：调用点已在运行时线程内（Tauri 同步命令 /
+/// 测试 async 上下文）时用 `block_in_place` 驱动既有运行时——`block_on`
+/// 在运行时内嵌套会 panic「Cannot start a runtime from within a runtime」；
+/// 纯同步上下文（无运行时）才回落到共享运行时 `block_on`。
+fn block_on_engine(
+    fut: impl Future<Output = Result<JsonValue, String>>,
+) -> Result<JsonValue, String> {
+    match tokio::runtime::Handle::try_current() {
+        Ok(handle) => tokio::task::block_in_place(|| handle.block_on(fut)),
+        Err(_) => shared_runtime().block_on(fut),
+    }
+}
+
+/// 经既有操作通道回退链（R6：异步形态，复用调用方所在时序运行时；
+/// 同步调用方经 [`block_on_engine`] 阻塞桥接）。
+async fn call_engine_revert(thread_id: String, target_id: String) -> Result<JsonValue, String> {
+    call_engine_op_async(
+        OP_THREAD_REVERT,
+        json!({ "thread_id": thread_id, "target_id": target_id }),
+    )
+    .await
+}
+
+/// R16：解析线程最新稳定 checkpoint id（任务起始锚点；无检查点/引擎
+/// 不可用 = None）。
+fn resolve_latest_checkpoint(thread_id: &str) -> Option<String> {
+    let outcome = block_on_engine(call_engine_op_async(
+        "engine.thread_latest_checkpoint",
+        json!({ "thread_id": thread_id }),
+    ))
+    .ok()?;
+    outcome
+        .get("checkpoint_id")
+        .and_then(JsonValue::as_i64)
+        .map(|id| id.to_string())
 }
 
 // ── 项目任务对象（领域无关目标载体）──
@@ -524,7 +590,7 @@ pub struct CheckStatus {
 pub struct ProjectTask {
     pub goal: String,
     pub round_no: u64,
-    pub status: String,
+    pub status: TaskStatus,
     pub changed_files: Vec<String>,
     pub check_status: CheckStatus,
     pub next_step: Option<String>,
@@ -537,7 +603,7 @@ impl ProjectTask {
         Self {
             goal: goal.to_string(),
             round_no: 0,
-            status: STATUS_PENDING.to_string(),
+            status: TaskStatus::Pending,
             changed_files: Vec::new(),
             check_status: CheckStatus {
                 last_run: None,
@@ -618,14 +684,14 @@ pub fn reduce_project_task(task: &ProjectTask, events: &[JsonValue]) -> ProjectT
                 out.check_status.passing = failed <= 0 && passed >= 0;
             }
             "error" => {
-                out.status = STATUS_ERROR.to_string();
+                out.status = TaskStatus::Error;
                 out.next_step = Some("review_error".to_string());
             }
             _ => {}
         }
     }
-    if saw_event && out.status != STATUS_ERROR {
-        out.status = STATUS_IN_PROGRESS.to_string();
+    if saw_event && out.status != TaskStatus::Error {
+        out.status = TaskStatus::InProgress;
     }
     out
 }
@@ -633,6 +699,55 @@ pub fn reduce_project_task(task: &ProjectTask, events: &[JsonValue]) -> ProjectT
 /// 构造回合注入负载：把任务对象序列化进 `project_task` 键（引擎零改动感知）。
 pub fn inject_project_task(task: &ProjectTask) -> JsonValue {
     json!({ "project_task": serde_json::to_value(task).unwrap_or(JsonValue::Null) })
+}
+
+// ── R2：项目任务落库（注入 → 回合归约 → 落库完整化的壳侧存储面）──
+
+/// 项目任务存储目录名（data_dir 下；按任务 id 单文件 JSON）。
+const PROJECT_TASK_DIR: &str = "project_tasks";
+
+/// 文件名安全化（非字母数字统一为下划线，防路径穿越；与账本同纪律）。
+fn sanitize(name: &str) -> String {
+    name.chars()
+        .map(|ch| if ch.is_alphanumeric() { ch } else { '_' })
+        .collect()
+}
+
+fn project_task_dir(data_dir: &std::path::Path) -> std::path::PathBuf {
+    data_dir.join(PROJECT_TASK_DIR)
+}
+
+/// 落库项目任务（回合归约后写回；失败 = 结构化错误，不静默）。
+pub fn save_project_task(
+    data_dir: &std::path::Path,
+    task_id: &str,
+    task: &ProjectTask,
+) -> Result<std::path::PathBuf, String> {
+    let dir = project_task_dir(data_dir);
+    std::fs::create_dir_all(&dir).map_err(|err| format!("任务目录创建失败: {err}"))?;
+    let path = dir.join(format!("task_{}.json", sanitize(task_id)));
+    let text = serde_json::to_string_pretty(task).map_err(|err| format!("任务序列化失败: {err}"))?;
+    std::fs::write(&path, text).map_err(|err| format!("任务落盘失败: {err}"))?;
+    Ok(path)
+}
+
+/// 读回项目任务（无记录/坏 JSON = None；供 round_send 注入与 resume 续流）。
+pub fn load_project_task(data_dir: &std::path::Path, task_id: &str) -> Option<ProjectTask> {
+    let path = project_task_dir(data_dir).join(format!("task_{}.json", sanitize(task_id)));
+    let text = std::fs::read_to_string(&path).ok()?;
+    serde_json::from_str(&text).ok()
+}
+
+/// 归约后更新并落库（R2 完整链一步到位：读 → 归约 → 写回）。
+pub fn reduce_and_save_project_task(
+    data_dir: &std::path::Path,
+    task_id: &str,
+    task: &ProjectTask,
+    events: &[JsonValue],
+) -> Result<ProjectTask, String> {
+    let updated = reduce_project_task(task, events);
+    save_project_task(data_dir, task_id, &updated)?;
+    Ok(updated)
 }
 
 // ── 单元测试 ──
@@ -654,9 +769,12 @@ mod tests {
         };
         let revert: Reverter = {
             let rc = revert_calls.clone();
-            Arc::new(move |t, tg| {
-                rc.lock().unwrap().push((t.to_string(), tg.to_string()));
-                Ok(json!({ "reverted_to": tg }))
+            Arc::new(move |thread_id: String, target_id: String| {
+                let rc = rc.clone();
+                Box::pin(async move {
+                    rc.lock().unwrap().push((thread_id, target_id.clone()));
+                    Ok(json!({ "reverted_to": target_id }))
+                })
             })
         };
         (
@@ -670,9 +788,9 @@ mod tests {
     async fn wait_terminal(reg: &TaskRegistry, id: &str) {
         for _ in 0..400 {
             if let Ok(meta) = reg.state(id) {
-                if meta.status == STATUS_COMPLETED
-                    || meta.status == STATUS_CANCELLED
-                    || meta.status == STATUS_FAILED
+                if meta.status == TaskStatus::Completed.as_str()
+                    || meta.status == TaskStatus::Cancelled.as_str()
+                    || meta.status == TaskStatus::Failed.as_str()
                 {
                     return;
                 }
@@ -722,7 +840,7 @@ mod tests {
             .expect("应发射 task_start");
         assert_eq!(start["payload"]["task_id"], "task-done-1");
         assert_eq!(start["payload"]["goal"], "完成构建");
-        assert_eq!(reg.state("task-done-1").unwrap().status, STATUS_COMPLETED);
+        assert_eq!(reg.state("task-done-1").unwrap().status, TaskStatus::Completed.as_str());
     }
 
     #[test]
@@ -794,7 +912,7 @@ mod tests {
             reg.cancel("task-cancel-1", "user_abort").unwrap();
             wait_terminal(&reg, "task-cancel-1").await;
         });
-        assert_eq!(reg.state("task-cancel-1").unwrap().status, STATUS_CANCELLED);
+        assert_eq!(reg.state("task-cancel-1").unwrap().status, TaskStatus::Cancelled.as_str());
         let cancelled = events_of(&sink, EVENT_TASK_CANCELLED)
             .into_iter()
             .next()
@@ -824,7 +942,7 @@ mod tests {
         );
         assert!(updated.check_status.last_run.is_some(), "测试运行应记时");
         assert!(updated.check_status.passing, "无失败应通过");
-        assert_eq!(updated.status, STATUS_ERROR, "错误应置 error 状态");
+        assert_eq!(updated.status, TaskStatus::Error, "错误应置 error 状态");
         assert_eq!(updated.round_no, 1, "每轮归约 round_no +1");
         let again = reduce_project_task(&task, &events);
         assert_eq!(updated, again, "归约应为确定性纯函数");
@@ -854,6 +972,7 @@ mod tests {
         };
         let inj = req.inject.expect("inject 应透传");
         assert_eq!(inj["project_task"]["goal"], "目标 x");
+        assert_eq!(inj["project_task"]["status"], "pending", "枚举序列化 = snake_case 词表");
     }
 
     #[test]
@@ -890,7 +1009,7 @@ mod tests {
             .next()
             .expect("失败应兜底发射 task_cancelled");
         assert_eq!(cancelled["payload"]["reason"], "boom");
-        assert_eq!(reg.state("task-fail-1").unwrap().status, STATUS_FAILED);
+        assert_eq!(reg.state("task-fail-1").unwrap().status, TaskStatus::Failed.as_str());
         let rev = revert.lock().unwrap();
         assert!(
             rev.contains(&("thread-f1".to_string(), "cp-f1".to_string())),
@@ -918,5 +1037,85 @@ mod tests {
             .next()
             .expect("受控完成应发射 task_done");
         assert_eq!(done["payload"]["result"], "达成");
+    }
+
+    // ── R2：注入 → 回合归约 → 落库 完整链（决议 10 接线测试）──
+
+    fn tmp_dir(tag: &str) -> std::path::PathBuf {
+        std::env::temp_dir().join(format!("{tag}_{}", uuid::Uuid::new_v4().simple()))
+    }
+
+    fn round_events() -> Vec<JsonValue> {
+        vec![
+            json!({"type":"tool_start","payload":{"tool":"write_file","tool_call_id":"call-1","title":"写文件"}}),
+            json!({"type":"tool_end","payload":{"tool":"write_file","tool_call_id":"call-1","kind":"file_write","path":"src/a.rs","success":true}}),
+            json!({"type":"run_test_unit","payload":{"passed":3,"failed":0}}),
+        ]
+    }
+
+    #[test]
+    fn project_task_inject_reduce_persist_roundtrip() {
+        let dir = tmp_dir("pt_roundtrip");
+        let task = ProjectTask::new("实现特性");
+        // 1) 注入：任务序列化进 RoundRequest.inject（引擎零改动感知）
+        let inject = inject_project_task(&task);
+        let req = crate::engine::host::RoundRequest {
+            input_text: "go".to_string(),
+            thread_id: "th".to_string(),
+            round_id: "r".to_string(),
+            step_args: None,
+            orchestrate: None,
+            inject: Some(inject),
+            auto_accept_review: true,
+        };
+        assert_eq!(req.inject.as_ref().unwrap()["project_task"]["goal"], "实现特性");
+        // 2) 归约：回合事件确定性收敛任务状态
+        let updated = reduce_project_task(&task, &round_events());
+        assert!(updated.changed_files.contains(&"src/a.rs".to_string()));
+        assert!(updated.check_status.passing);
+        assert_eq!(updated.round_no, 1);
+        // 3) 落库：归约结果写回 + 读回一致（重启续流形态）
+        save_project_task(&dir, "task-1", &updated).expect("落库须成功");
+        let loaded = load_project_task(&dir, "task-1").expect("读回须命中");
+        assert_eq!(loaded, updated);
+        // 4) 一步链：读 → 归约 → 写回
+        let again = reduce_and_save_project_task(&dir, "task-1", &loaded, &round_events())
+            .expect("链式归约落库须成功");
+        assert_eq!(again.round_no, 2, "第二轮归约 round_no 递增");
+        assert_eq!(load_project_task(&dir, "task-1").unwrap(), again);
+        assert!(load_project_task(&dir, "task-missing").is_none(), "未落库任务 = None");
+        let _ = std::fs::remove_dir_all(&dir);
+    }
+
+    #[test]
+    fn project_task_inject_to_persist_via_round_steps_transport() {
+        // 端到端形态：round_send 的注入 → 记录器 feed 回合事件 → 归约落库
+        let dir = tmp_dir("pt_chain");
+        let task = ProjectTask::new("端到端目标");
+        let inject = inject_project_task(&task);
+        // 注入负载进入回合请求
+        let mut recorder = crate::domain::steps::RoundStepsTransport::new("r-1", None, None);
+        let req = crate::engine::host::RoundRequest {
+            input_text: "跑一回合".to_string(),
+            thread_id: "th".to_string(),
+            round_id: "r-1".to_string(),
+            step_args: None,
+            orchestrate: None,
+            inject: Some(inject),
+            auto_accept_review: true,
+        };
+        assert_eq!(req.inject.as_ref().unwrap()["project_task"]["goal"], "端到端目标");
+        // 回合事件经记录器收敛为步骤序列，再喂给归约
+        for ev in &round_events() {
+            recorder.feed(ev);
+        }
+        let steps = recorder.snapshot();
+        assert!(!steps.is_empty(), "记录器应收敛出步骤");
+        let updated = reduce_and_save_project_task(&dir, "task-e2e", &task, &round_events())
+            .expect("归约落库须成功");
+        assert_eq!(updated.round_no, 1);
+        let persisted = load_project_task(&dir, "task-e2e").unwrap();
+        assert_eq!(persisted.status, TaskStatus::InProgress, "有事件无错误 → in_progress");
+        let _ = std::fs::remove_dir_all(&dir);
     }
 }

@@ -232,10 +232,15 @@ pub fn load_ledger_jsons(dir: &Path, thread_id: &str) -> Vec<JsonValue> {
 }
 
 /// 列出目录下出现的全部线程 id（滚动全量用）。
+///
+/// R9：文件名是 sanitize 后的形态（`-` 变 `_`，有损），优先读账本 JSON
+/// 内的原始 `thread_id` 还原真实 id；JSON 缺失/解析失败回退文件名形态
+/// （仅供滚动等内部用途——内部再经 sanitize 幂等自洽，不做跨层契约）。
 pub fn list_thread_ids(dir: &Path) -> Vec<String> {
     let mut ids = std::collections::BTreeSet::new();
     if let Ok(entries) = std::fs::read_dir(dir) {
         for entry in entries.flatten() {
+            let path = entry.path();
             let name = match entry.file_name().into_string() {
                 Ok(n) => n,
                 Err(_) => continue,
@@ -243,18 +248,21 @@ pub fn list_thread_ids(dir: &Path) -> Vec<String> {
             if let Some(rest) = name.strip_prefix(LEDGER_FILE_PREFIX) {
                 if let Some(stem) = rest.strip_suffix(".json") {
                     if let Some((tid, _)) = stem.rsplit_once('_') {
-                        ids.insert(sanitize_invert(tid));
+                        let original = std::fs::read_to_string(&path)
+                            .ok()
+                            .and_then(|text| serde_json::from_str::<JsonValue>(&text).ok())
+                            .and_then(|v| {
+                                v.get("thread_id")
+                                    .and_then(JsonValue::as_str)
+                                    .map(str::to_string)
+                            });
+                        ids.insert(original.unwrap_or_else(|| tid.to_string()));
                     }
                 }
             }
         }
     }
     ids.into_iter().collect()
-}
-
-/// 还原被 sanitize 的下划线（最佳努力，仅用于列表展示，不影响路径安全）。
-fn sanitize_invert(s: &str) -> String {
-    s.to_string()
 }
 
 /// 追加一条摘要到线程摘要链（append-only）。
@@ -412,6 +420,24 @@ mod tests {
         let loaded = load_ledger_jsons(&dir, "th");
         assert_eq!(loaded.len(), 1);
         assert_eq!(loaded[0]["round_id"], "r1");
+        let _ = std::fs::remove_dir_all(&tmp);
+    }
+
+    #[test]
+    fn list_thread_ids_restores_original_ids() {
+        // R9：sanitize 把 `-` 变 `_`，list_thread_ids 应读账本 JSON 的
+        // 原始 thread_id 还原（thread-<uuid> 形态），而非有损文件名形态。
+        let tmp = std::env::temp_dir().join(format!("rl_ids_{}", uuid::Uuid::new_v4().simple()));
+        let dir = ledger_dir(&tmp);
+        let original = "thread-abc-123".to_string();
+        let ledger = reduce_round(&original, "r1", None, None, &sample_events(), &json!({}), &json!([]));
+        write_ledger(&dir, &ledger).unwrap();
+        let ids = list_thread_ids(&dir);
+        assert_eq!(ids, vec![original], "应还原原始 thread id（含连字符）");
+        // 损坏 JSON：回退文件名形态（内部滚动自洽）
+        std::fs::write(dir.join("ledger_broken_r2.json"), "not json").unwrap();
+        let ids = list_thread_ids(&dir);
+        assert!(ids.contains(&"broken".to_string()), "坏 JSON 回退文件名形态");
         let _ = std::fs::remove_dir_all(&tmp);
     }
 

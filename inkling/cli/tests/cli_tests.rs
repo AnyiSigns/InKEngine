@@ -98,6 +98,21 @@ fn op_unknown_returns_structured_error() {
 }
 
 #[test]
+fn mutually_exclusive_flags_exit_usage_code_2() {
+    // C7：互斥 flag 同时传入 = usage 错误，退出码 2（不再静默取第一个）
+    let data = temp_data_dir("mutex");
+    let out = run(&["--round", "x", "--op", "engine.collect_specs"], &data);
+    assert_eq!(out.status.code(), Some(2), "互斥 flag = usage 错误退出码 2");
+    let env = parse_envelope(&out);
+    assert_eq!(env["ok"], false);
+    assert_eq!(env["error"]["kind"], "usage", "信封 kind 应为 usage");
+    assert!(
+        env["error"]["message"].as_str().unwrap_or("").contains("互斥"),
+        "错误文案应说明互斥"
+    );
+}
+
+#[test]
 fn audit_export_returns_array() {
     let data = temp_data_dir("audit");
     // 先跑一回合（同数据目录），为审计集合供给结算钩子落写

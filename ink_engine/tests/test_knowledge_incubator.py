@@ -973,3 +973,128 @@ async def test_evolution_variant_count_wired():
         fixtures=_fixtures(),
     )
     assert len(low_outcome.variants) == 1
+
+
+async def test_evolution_derives_old_metrics_rejects_worse_variant():
+    """ENG1-1 回归：未传 old_metrics 时按母体调用留痕构造——劣于母体不过 L3。
+
+    修复前演化链路 old_metrics 缺省 None，L3 走「首版直接保留」，劣于
+    母体的变异体同样落补丁链（防退化被绕过）；修复后母体派生指标
+    （accuracy = 1 - 失败率）作为比较基线，评估器产出的劣化变异体被
+    L3 拒绝。
+    """
+    class WorseMutation(DeterministicMutation):
+        def mutate(self, entry, failure_logs):
+            data = dict(entry.data)
+            data["rule"] = {**data["rule"], "config": {"forbid": "bad"}}
+            return [data]
+
+        async def evaluate(self, variant_data, schema, fixtures):
+            return {"accuracy": 0.4, "safety": 1.0}
+
+    mother = _rule_entry("母体", forbid="ok")
+    candidate = EvolutionCandidate(
+        entry=KnowledgeEntry(
+            id=mother.id,
+            level=mother.level,
+            kind=mother.kind,
+            data=mother.data,
+            source=mother.source,
+            credibility=mother.credibility,
+            title=mother.title,
+            tags=mother.tags,
+            usage_count=10,
+            fail_count=4,  # 母体成功率 0.6
+        ),
+        failure_rate=0.4,
+        failure_logs=("失败日志",),
+    )
+    factory = EvolutionFactory(
+        gate=KnowledgeGate(l2_executor=GateL2FixtureExecutor(registry=_registry())),
+        mutation=WorseMutation(),
+    )
+    outcome = await factory.evolve(
+        candidate,
+        schema=_rule_schema(),
+        fixtures=_fixtures(),
+    )
+    # 变异体过 L1/L2（fixture 全绿）但维度劣于母体（0.4 < 0.6）→ L3 拒绝
+    assert outcome.kept == 0
+    assert any("L3" in reason for reason in outcome.rejected)
+
+
+async def test_evolution_derives_old_metrics_keeps_better_variant():
+    """ENG1-1 回归（正向）：优于母体的变异体按派生基线保留。"""
+    class BetterMutation(DeterministicMutation):
+        def mutate(self, entry, failure_logs):
+            data = dict(entry.data)
+            data["rule"] = {**data["rule"], "config": {"forbid": "bad"}}
+            return [data]
+
+        async def evaluate(self, variant_data, schema, fixtures):
+            return {"accuracy": 0.9, "safety": 1.0}
+
+    mother = _rule_entry("母体", forbid="ok")
+    candidate = EvolutionCandidate(
+        entry=KnowledgeEntry(
+            id=mother.id,
+            level=mother.level,
+            kind=mother.kind,
+            data=mother.data,
+            source=mother.source,
+            credibility=mother.credibility,
+            title=mother.title,
+            tags=mother.tags,
+            usage_count=10,
+            fail_count=4,  # 母体成功率 0.6
+        ),
+        failure_rate=0.4,
+        failure_logs=("失败日志",),
+    )
+    factory = EvolutionFactory(
+        gate=KnowledgeGate(l2_executor=GateL2FixtureExecutor(registry=_registry())),
+        mutation=BetterMutation(),
+    )
+    outcome = await factory.evolve(
+        candidate,
+        schema=_rule_schema(),
+        fixtures=_fixtures(),
+    )
+    assert outcome.kept == 1
+
+
+async def test_l3_default_metrics_insight_skip_accuracy():
+    """insight 缺省 L3 指标不含 accuracy（L2 跳过执行：未测量 ≠ 劣）。
+
+    insight 教训条目无规则执行语义，缺省派生指标剔除 accuracy——与母体
+    派生指标比较不产生「accuracy 0.0」的虚假劣化误判；safety 中性维度
+    可比（L1 通过 = 满分基线）。
+    """
+    gate = KnowledgeGate()
+    schema = SchemaSpec.from_dict(
+        {
+            "name": "knowledge_entry",
+            "fields": [
+                {"name": "id", "required": True, "kind": "string"},
+                {"name": "level", "required": True, "kind": "string"},
+                {"name": "kind", "required": True, "kind": "string"},
+            ],
+        }
+    )
+    insight = KnowledgeEntry(
+        id="k-insight",
+        level="work",
+        kind=KIND_INSIGHT,
+        data={"insight": {"message": "用户修正教训：须给出来源链接"}},
+        source="user",
+        credibility=0.7,
+        title="教训",
+    )
+    l1, l2, l3 = await gate.check(
+        insight,
+        schema=schema,
+        fixtures=_fixtures(),
+        old_metrics={"accuracy": 0.5, "safety": 0.7},
+    )
+    assert l1.passed and l2.passed
+    assert l3.passed  # accuracy 不参与比较（insight 缺省派生无该维度）

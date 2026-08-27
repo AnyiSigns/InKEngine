@@ -13,11 +13,13 @@ user 的来源分级在 chunk 上透传，注入侧按级过滤；指令注入�
 """
 from __future__ import annotations
 
+from collections.abc import Callable
 from dataclasses import dataclass, field
 from typing import Any, Protocol, runtime_checkable
 
 from .exceptions import GraphDefinitionError
 from .knowledge_gate import scan_text_injection
+from .knowledge_set import _SOURCE_CREDIBILITY, KnowledgeSet
 
 # 检索源可信度分级（与知识闸门对齐：web < dialog < model < user）
 SOURCE_WEB = "web"
@@ -154,6 +156,88 @@ class RetrieverRegistry:
         return merged[:capped]
 
 
+class KnowledgeSetRetriever:
+    """知识集 → 检索源适配（KnowledgeSet 注册为 Retriever；知识注入接线）。
+
+    决策 E-P6「Retriever 注册路线」落点：KnowledgeSet 以本适配器形态
+    注册进 :class:`RetrieverRegistry`，知识内容与文档库/向量库等检索源
+    统一汇入（合并排序 + 注入防线同管）。检索执行体 = knowledge_set
+    的关键词基线（无语义检索时确定性可断言；语义检索为可选扩展，宿主
+    可自行注册更强检索源）。
+
+    可信度分级透传（weight=credibility 注入面）：条目 credibility 按
+    ``knowledge_set._SOURCE_CREDIBILITY`` 分级档映射为 chunk.level（与
+    来源分级同口径：web < dialog < model < user），meta 携带原始
+    credibility——注入侧据此设 ContextSource.weight（不再恒 1.0 / 仅
+    二元过滤），分级预算分配真正生效。
+
+    Args:
+        knowledge_set: 知识集实例或延迟提供者（``Callable[[], KnowledgeSet]``
+            ——运行时链恢复会替换知识集实例，提供者取用最新实例）。
+        name: 检索源名（注册表内唯一标识，知识源固定名）。
+        relevance: 条目注入的相关度基准（无语义相关度时以可信度作合并
+            排序代理——检索命中即视为与任务相关）。
+    """
+
+    def __init__(
+        self,
+        knowledge_set: KnowledgeSet | Callable[[], KnowledgeSet],
+        *,
+        name: str = "knowledge",
+        relevance: float = 0.5,
+    ) -> None:
+        if not (0 <= relevance <= 1):
+            raise GraphDefinitionError(f"检索相关度须在 [0, 1] 内: {relevance}")
+        self._set_provider: Callable[[], KnowledgeSet] = (
+            knowledge_set if callable(knowledge_set) else (lambda: knowledge_set)
+        )
+        self.name = name
+        self.relevance = relevance
+
+    @property
+    def knowledge_set(self) -> KnowledgeSet:
+        """当前知识集实例（延迟取用：运行时会合替换后仍读到最新）。"""
+        return self._set_provider()
+
+    @staticmethod
+    def _level_for(credibility: float) -> str:
+        """credibility → 来源分级档（复用 _SOURCE_CREDIBILITY 分级基准）。"""
+        ranking = sorted(
+            ((source, weight) for source, weight in _SOURCE_CREDIBILITY.items()),
+            key=lambda pair: pair[1],
+            reverse=True,
+        )
+        for source, weight in ranking:
+            if credibility >= weight - 1e-9:
+                return source
+        return SOURCE_WEB
+
+    async def retrieve(
+        self, query: str, *, limit: int
+    ) -> list[RetrievedChunk]:
+        """知识条目检索：关键词基线命中 → 可信度分级透传的 chunk 清单。"""
+        capped = max(1, min(int(limit or 1), MAX_LIMIT))
+        hits = self.knowledge_set.search(query, limit=capped)
+        chunks: list[RetrievedChunk] = []
+        for entry in hits:
+            chunks.append(
+                RetrievedChunk(
+                    source=self.name,
+                    doc_id=entry.id,
+                    text=entry.render_content(),
+                    relevance=self.relevance,
+                    level=self._level_for(entry.credibility),
+                    meta={
+                        "entry_id": entry.id,
+                        "credibility": entry.credibility,
+                        "kind": entry.kind,
+                        "level": entry.level,
+                    },
+                )
+            )
+        return chunks
+
+
 __all__ = [
     "DEFAULT_LIMIT",
     "DEFAULT_MAX_RETRIEVERS",
@@ -162,6 +246,7 @@ __all__ = [
     "SOURCE_MODEL",
     "SOURCE_USER",
     "SOURCE_WEB",
+    "KnowledgeSetRetriever",
     "RetrievedChunk",
     "Retriever",
     "RetrieverRegistry",

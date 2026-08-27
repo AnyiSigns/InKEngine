@@ -269,6 +269,15 @@ class KnowledgeEntry:
             updated_at=float(raw_updated),
         )
 
+    def render_content(self) -> str:
+        """条目内容渲染（知识注入的模型可见形态：标题 + 结构化内容摘要）。
+
+        规则条目取声明中的 message（规则的自述），其余条目输出紧凑 JSON
+        摘要——内容随源一起进入预算分配与组装，留痕可重建。注入前
+        :func:`build_knowledge_sources` 对渲染内容做指令注入扫描。
+        """
+        return _render_entry_content(self)
+
     def as_context_source(
         self,
         relevance: float = 0.5,
@@ -735,6 +744,7 @@ def build_knowledge_sources(
     ttl: float | None = None,
     max_chars: int | None = None,
     injection_enabled: bool = True,
+    injection_scan: bool = True,
     source_type: str = "knowledge",
 ) -> list[ContextSource]:
     """知识条目 → 上下文源清单（知识注入 = 调配器思想复用的组装入口）。
@@ -750,12 +760,18 @@ def build_knowledge_sources(
     （id 以 ``seed.`` 前缀）作为注入源——回退到种子基线（引擎内置
     最小可用），演化沉淀的知识不再进入上下文。
 
+    ``injection_scan=True`` = 注入防线：渲染内容过
+    :func:`~ink_engine.core.knowledge_gate.scan_text_injection`——
+    检出指令型措辞的条目剔除（web/用户来源知识条目可能携带指令型
+    措辞进提示词，与检索结果注入防线同口径；检出即剔除，不放行）。
+
     Args:
         entries: 检索命中的知识条目（复用优先于生成的产物）。
         relevance: 任务相关度（0-1，本次任务的匹配度，预算分配次因子）。
         ttl: 注入时效秒数（None = 不过期）。
         max_chars: 单条目注入字符上限（None = 不设额外上限）。
         injection_enabled: 知识注入开关（False = 回退种子基线）。
+        injection_scan: 注入前指令注入扫描（True = 检出剔除）。
         source_type: 装配源类别（知识池的分配键；须在输入调配管线的
             源类别集合内——未知类别在装配处显式拒绝）。
 
@@ -764,12 +780,24 @@ def build_knowledge_sources(
     """
     if not injection_enabled:
         entries = [e for e in entries if e.id.startswith(SEED_ID_PREFIX)]
-    sources = [
-        entry.as_context_source(
-            relevance=relevance, ttl=ttl, budget_chars=max_chars
+    sources: list[ContextSource] = []
+    for entry in entries:
+        if injection_scan:
+            from .knowledge_gate import scan_text_injection
+
+            hits = scan_text_injection(entry.render_content())
+            if hits:
+                logger.warning(
+                    "知识条目注入前检出指令注入措辞，剔除: %s（命中: %s）",
+                    entry.id,
+                    "；".join(hits),
+                )
+                continue
+        sources.append(
+            entry.as_context_source(
+                relevance=relevance, ttl=ttl, budget_chars=max_chars
+            )
         )
-        for entry in entries
-    ]
     if source_type:
         sources = [replace(s, type=source_type) for s in sources]
     sources.sort(key=lambda s: (s.weight, s.priority), reverse=True)

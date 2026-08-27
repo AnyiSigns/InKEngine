@@ -46,7 +46,12 @@ from .introspection import (
     introspection_tool_specs,
     make_introspection_executor,
 )
-from .knowledge_set import KnowledgeEntry, KnowledgeSet
+from .knowledge_set import (
+    _SOURCE_CREDIBILITY,
+    KnowledgeEntry,
+    KnowledgeSet,
+    build_knowledge_sources,
+)
 from .llm import AsyncLLM
 from .llm.tools import ToolSpec
 from .logging import get_logger
@@ -54,7 +59,7 @@ from .mcp_client import McpClientManager, register_mcp_executor
 from .perception import register_perception_nodes
 from .permissions import PermissionGate
 from .registry import GraphRegistries
-from .retrieval import SOURCE_MODEL, Retriever, RetrieverRegistry
+from .retrieval import KnowledgeSetRetriever, Retriever, RetrieverRegistry
 from .seeds import seed_general, seed_knowledge_set
 from .self_application import (
     ApplyTarget,
@@ -67,6 +72,7 @@ from .self_tools import ConvergenceHook, SelfToolContext
 from .storage import CheckpointRecord, Storage
 from .tool_pipeline import ToolPipeline
 from .tool_vetting import ToolVetting
+from .tuning import MetaTuner, TuneResult, TurnMetrics
 from .ui_schema import DEFAULT_BIND_CHANNELS, UISchemaValidator
 
 logger = get_logger(__name__)
@@ -271,6 +277,10 @@ class Runtime:
         self.retriever_registry: RetrieverRegistry | None = None
         self.mcp_manager: McpClientManager | None = None
         self.tool_pipeline: ToolPipeline | None = None
+        # 调参接线（E-P5）：回合指标聚合 + MetaTuner（round 结束后按
+        # 失败信号调参；None = 未装配）
+        self.meta_tuner: MetaTuner | None = None
+        self.turn_metrics: TurnMetrics | None = None
         # 宿主动态工具表（挂载/从链恢复的工具定义；统一分发第三路）
         self.tool_registry: dict[str, ToolSpec] = {}
         self.engine: Engine | None = None
@@ -313,11 +323,9 @@ class Runtime:
         # ② 图注册表（节点类型/条件边注册位）
         self.graph_registries = GraphRegistries()
         # 感知结点登记（视觉理解：截图引用 → 结构化描述；可被组装器组装）
-        try:
-            register_perception_nodes(self.graph_registries.nodes)
-        except Exception:
+        with contextlib.suppress(Exception):
             # 重复装配防护：已登记则跳过（同进程多次 boot 不报错）
-            pass
+            register_perception_nodes(self.graph_registries.nodes)
 
         # ③ 种子注入（通用基线恒注 + 配方领域种子；注入属启动装配
         #    机制路径，经旁路写防护全豁免上下文放行）
@@ -427,8 +435,14 @@ class Runtime:
             executor=self_executor,
         )
 
-        # ⑩ 调配源注册（检索源 → evidence 源；回合内节点预装配消费）
+        # ⑩ 调配源注册（检索源 → evidence 源；回合内节点预装配消费）。
+        #    知识集注册为检索源（E-P6 Retriever 注册路线）：检索命中含
+        #    知识条目（weight=credibility 分级注入），提供者延迟取用——
+        #    链恢复（⑬）替换知识集实例后检索源仍读到最新实例
         self.retriever_registry = RetrieverRegistry()
+        self.retriever_registry.register(
+            KnowledgeSetRetriever(lambda: self.knowledge_set)
+        )
         for factory in recipe.retrieval_sources:
             self.retriever_registry.register(factory(self))
 
@@ -486,7 +500,13 @@ class Runtime:
         for kind, factory in recipe.apply_targets.items():
             self.self_pipeline.register_target(kind, factory(self))
 
-        # ⑮ 引擎重建（按当前模型配置装配回合图；工具表/配置变更重建）
+        # ⑮ 调参接线（E-P5）：回合指标聚合 + MetaTuner（round 结束后
+        #    按失败信号调参，参数回写知识集权重/阈值条目——与知识孵化
+        #    闭环同源，下次调参从条目读回基线）
+        self.meta_tuner = MetaTuner(knowledge_set=self.knowledge_set)
+        self.turn_metrics = TurnMetrics()
+
+        # ⑯ 引擎重建（按当前模型配置装配回合图；工具表/配置变更重建）
         self.introspection_service._sources.tools = self.collect_specs()
         await self.rebuild_engine()
         self._drained.set()
@@ -683,8 +703,9 @@ class Runtime:
         if latest is None or latest.interrupt is None:
             raise RuntimeError("挂起卡已失效，请重新发起回合")
         ticket = self.begin_run(thread_id)
+        result = None
         try:
-            return await self.engine.ainvoke(
+            result = await self.engine.ainvoke(
                 {},
                 thread_id=thread_id,
                 round_id=round_id or uuid.uuid4().hex,
@@ -692,8 +713,49 @@ class Runtime:
                 inject={interrupt.key: decision},
                 transports=transports,
             )
+            return result
         finally:
             self.end_run(ticket)
+            self._tune_round_end(result)
+
+    def tune_after_round(self, *, failed: bool = False, error: str = "") -> TuneResult | None:
+        """回合收尾调参（E-P5 接线入口）：失败信号聚合 → MetaTuner 调参。
+
+        语义：round 结束后按失败信号调参（失败率偏高 → 重试预算上调/
+        web 验证阈值下调，评审反馈维度降权……），参数回写知识集权重/
+        阈值条目（下次调参从条目读回基线，与知识孵化闭环同源）。未
+        装配（meta_tuner 缺省 None）或调参无变化 = no-op。失败信号由
+        宿主/运行时在回合收尾处上报——本方法是同步确定性调参，不阻塞
+        回合结果回流。
+        """
+        if self.meta_tuner is None or self.turn_metrics is None:
+            return None
+        if self.knowledge_set is None:
+            return None
+        self.turn_metrics.record_turn(failed=failed, error=error)
+        params = MetaTuner.load_params(self.knowledge_set)
+        return self.meta_tuner.tune_persisted(params, self.turn_metrics)
+
+    def _tune_round_end(self, result: Any) -> None:
+        """resume_run 收尾调参：按回合结果错误信号调参（best-effort）。
+
+        调参失败只记日志不击穿决议回流（机制是增强，回合结果已定）。
+        结果缺失（决议执行抛异常）= 失败信号（异常回合同样计入失败率）。
+        """
+        if self.meta_tuner is None:
+            return
+        try:
+            error = getattr(result, "error", None)
+            self.tune_after_round(
+                failed=result is None or bool(error),
+                error=(
+                    str(error)
+                    if error
+                    else ("回合执行异常（无结果）" if result is None else "")
+                ),
+            )
+        except Exception as exc:
+            logger.warning("回合收尾调参失败（忽略）: %s", exc)
 
     # ── 装配产物访问器 ──
 
@@ -783,31 +845,58 @@ class Runtime:
         )
 
     def _assembly_sources(self) -> Callable[..., Any]:
-        """调配器源提供者：检索结果 → evidence 源（回合内节点预装配消费）。
+        """调配器源提供者：检索结果 + 知识注入 → 装配源（回合内节点预装配消费）。
 
-        查询串取回合输入；检索结果按可信度分级过滤（只放行集内知识/
-        用户级来源），经注册表合并排序后作 evidence 源注入。无检索源/
-        空结果/调配未启用 = 空清单（检索是增强，不阻断回合）。
+        查询串取回合输入；检索源合并（知识集已注册为检索源之一：
+        :class:`KnowledgeSetRetriever`）→ 知识命中条目经
+        :func:`build_knowledge_sources` 转源（weight=credibility 映射、
+        注入前指令注入扫描），其余检索 chunk 按可信度分级映射权重
+        （复用 ``knowledge_set._SOURCE_CREDIBILITY``，不再恒 1.0/仅二元
+        过滤）作 evidence 源。无检索源/空结果/调配未启用 = 空清单
+        （检索是增强，不阻断回合）。
         """
 
         async def provide(ctx) -> list[ContextSource]:
             query = str(ctx.state.get("input") or "").strip()
             if not query:
                 return []
-            chunks = await self.retriever_registry.retrieve(
-                query, limit=8, levels=(SOURCE_MODEL,)
-            )
-            return [
-                ContextSource(
-                    type=SOURCE_EVIDENCE,
-                    content=chunk.text[:1200],
-                    title=f"检索：{chunk.source}/{chunk.doc_id}",
-                    relevance=chunk.relevance,
-                    priority=5,
-                    meta={"source": chunk.source, "doc_id": chunk.doc_id},
+            chunks = await self.retriever_registry.retrieve(query, limit=8)
+            knowledge_hits: list[KnowledgeEntry] = []
+            sources: list[ContextSource] = []
+            for chunk in chunks:
+                entry_id = (chunk.meta or {}).get("entry_id")
+                if (
+                    chunk.source == "knowledge"
+                    and entry_id
+                    and self.knowledge_set is not None
+                ):
+                    entry = self.knowledge_set.get(entry_id)
+                    if entry is not None:
+                        knowledge_hits.append(entry)
+                        continue
+                sources.append(
+                    ContextSource(
+                        type=SOURCE_EVIDENCE,
+                        content=chunk.text[:1200],
+                        title=f"检索：{chunk.source}/{chunk.doc_id}",
+                        relevance=chunk.relevance,
+                        priority=5,
+                        weight=_SOURCE_CREDIBILITY.get(
+                            chunk.level, _SOURCE_CREDIBILITY["model"]
+                        ),
+                        meta={"source": chunk.source, "doc_id": chunk.doc_id},
+                    )
                 )
-                for chunk in chunks
-            ]
+            if self.knowledge_set is not None:
+                sources.extend(
+                    build_knowledge_sources(
+                        knowledge_hits,
+                        relevance=0.5,
+                        source_type=SOURCE_EVIDENCE,
+                        max_chars=1200,
+                    )
+                )
+            return sources
 
         return provide
 

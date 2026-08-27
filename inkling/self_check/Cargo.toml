@@ -2,7 +2,7 @@
 name = "inkling_self_check"
 version = "0.1.0"
 edition = "2021"
-description = "InKling 出厂自检编排：四门禁一键矩阵化报告（schema 数据一致性 / cargo 三 crate / frontend typecheck+vitest / 接线 e2e）"
+description = "InKling 出厂自检编排：七门禁一键矩阵化报告（schema 数据一致性 / cargo 三 crate / frontend typecheck+vitest / 接线 e2e / 代码纪律 / 公开评测基准 / 符号引用计数）"
 license = "MIT"
 
 [[bin]]

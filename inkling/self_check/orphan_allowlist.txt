@@ -1,0 +1,34 @@
+# 孤儿符号灰名单（E-P14 符号引用计数门禁）
+#
+# 灰名单仅豁免历史已知孤儿——定义后未被同文件复用、跨文件 grep
+# 也无引用，但承载显式契约（pub 接口/常量/预留方法）需要保留。门
+# 禁仍按灰名单全量加载并匹配，新孤儿会被拦截，由维护者半自动甄
+# 别：真接线补引用、误报加灰名单、确认无用则删定义并移除灰名单。
+#
+# 格式：<kind> <name>@<relative_path_from_repo_root>
+# kind: py | rs
+rs ENV_STATUS_DESTROYED@inkling/shell/src-tauri/src/domain/env.rs
+rs docker_available@inkling/shell/src-tauri/src/domain/env.rs
+rs decision_markers@inkling/shell/src-tauri/src/domain/policy.rs
+rs spawn_groupings@inkling/shell/src-tauri/src/domain/policy.rs
+rs to_markdown@inkling/shell/src-tauri/src/domain/round_ledger.rs
+rs VETTING_SHADOW_MISMATCH@inkling/shell/src-tauri/src/domain/security.rs
+rs assemble_gate@inkling/shell/src-tauri/src/domain/security.rs
+rs from_definition@inkling/shell/src-tauri/src/domain/security.rs
+rs log_decision@inkling/shell/src-tauri/src/domain/security.rs
+rs TITLE_TEMPERATURE@inkling/shell/src-tauri/src/domain/session.rs
+rs last_step_id@inkling/shell/src-tauri/src/domain/steps.rs
+rs unregister_callback@inkling/shell/src-tauri/src/engine/bridge.rs
+rs INTERNAL_ERROR@inkling/exec/src/protocol.rs
+rs DECLARED_TOOL_NAMES@inkling/exec/src/tool.rs
+rs engine_storage_restore@inkling/shell/src-tauri/src/domain/backup.rs
+rs engine_storage_snapshot@inkling/shell/src-tauri/src/domain/backup.rs
+rs restore_wizard_select@inkling/shell/src-tauri/src/domain/backup.rs
+rs wiring_probe@inkling/shell/src-tauri/src/domain/boot.rs
+rs ARTIFACT_APPLY_TARGET@inkling/shell/src-tauri/src/domain/build.rs
+rs BUILD_ERROR_SMOKE@inkling/shell/src-tauri/src/domain/build.rs
+rs BUILD_ERROR_VETTING@inkling/shell/src-tauri/src/domain/build.rs
+rs ENVIRONMENT_APPLY_TARGET@inkling/shell/src-tauri/src/domain/env.rs
+rs ENV_AUDIT_COLLECTION@inkling/shell/src-tauri/src/domain/env.rs
+rs ENV_ERROR_CONTAINER_UNAVAILABLE@inkling/shell/src-tauri/src/domain/env.rs
+rs known_predicates@inkling/exec/src/executors/validate.rs

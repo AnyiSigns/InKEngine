@@ -338,9 +338,38 @@ class Runtime:
             # 重复装配防护：已登记则跳过（同进程多次 boot 不报错）
             register_perception_nodes(self.graph_registries.nodes)
 
+        # 知识集变更落库任务集合（ENG3-17 on_mutation 钩子调度——持有
+        # 引用防 GC 提前回收；task 完成自动从集合移除）
+        self._persist_tasks: set[asyncio.Task[None]] = set()
+
         # ③ 种子注入（通用基线恒注 + 配方领域种子；注入属启动装配
         #    机制路径，经旁路写防护全豁免上下文放行）
-        self.knowledge_set = KnowledgeSet(recipe.set_id, storage=self.storage)
+        # ENG3-17：on_mutation 钩子在变更时调度持久化（create_task
+        # fire-and-forget——种子注入期落库不阻断 boot；落库走机制旁路
+        # 上下文放行，不污染守卫审计）。
+        async def _persist_knowledge_set() -> None:
+            if self.knowledge_set is None:
+                return
+            with self.storage.allow_mechanism("knowledge_set"):
+                await self.knowledge_set.save()
+
+        def _on_knowledge_mutated() -> None:
+            import asyncio
+
+            try:
+                loop = asyncio.get_event_loop()
+            except RuntimeError:
+                return
+            if loop.is_running():
+                task = loop.create_task(_persist_knowledge_set())
+                # 持有 task 引用防 GC 提前回收（fire-and-forget 调度不
+                # 阻断 boot；落库失败仅在 task 自身异常时显式记录）
+                self._persist_tasks.add(task)
+                task.add_done_callback(self._persist_tasks.discard)
+
+        self.knowledge_set = KnowledgeSet(
+            recipe.set_id, storage=self.storage, on_mutation=_on_knowledge_mutated
+        )
         with self.storage.allow_mechanism():
             seed_general(self.knowledge_set)
             for _domain, provider in recipe.seeds:

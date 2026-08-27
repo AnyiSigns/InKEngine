@@ -37,7 +37,7 @@ from .patch_chain import AssembleMode, Patch, PatchChain, PatchOp
 from .registry import GraphRegistries
 from .state import StateSchema
 from .storage import Storage
-from .tool_pipeline import ToolPipeline
+from .tool_pipeline import DEFAULT_MAX_RESULT_CHARS, ToolPipeline
 
 logger = get_logger(__name__)
 
@@ -321,7 +321,7 @@ class HarnessRegistry:
         network_policy: Any = None,
         guards: tuple[Callable[..., Any], ...] = (),
         audit: Callable[..., Any] | None = None,
-        max_result_chars: int = 100_000,
+        max_result_chars: int = DEFAULT_MAX_RESULT_CHARS,
         trace_sink: Callable[..., Any] | None = None,
     ) -> ToolPipeline:
         """构建 harness 声明式工具的完整执行流水线（轻路径接线）。

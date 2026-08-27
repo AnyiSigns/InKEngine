@@ -30,11 +30,6 @@ def register_op(name: str, fn: Callable[..., Awaitable[dict[str, Any]]]) -> None
     OP_DISPATCH[name] = fn
 
 
-def op_names() -> tuple[str, ...]:
-    """已登记 op 名清单（观察侧；与工具声明对齐校验用）。"""
-    return tuple(sorted(OP_DISPATCH))
-
-
 async def propose_patch(
     pipeline: SelfApplicationPipeline,
     params: dict[str, Any],
@@ -108,7 +103,6 @@ register_op("propose_patch", propose_patch)
 
 __all__ = [
     "OP_DISPATCH",
-    "op_names",
     "propose_patch",
     "register_op",
 ]

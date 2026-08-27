@@ -196,17 +196,59 @@ class ToolPipeline:
         else:
             operation, target = op_target
 
+        # ── 路径解析前置（ENG6-4：统一两闸基准）──
+        # 权限门禁与沙箱守卫的判定对象必须一致：相对路径在 PermissionGate
+        # 规则基准下无法命中（沙箱基线 = 绝对路径白名单），导致「沙箱接
+        # 住但 gate 漏过 / gate 接住但沙箱按相对路径拒」的判定漂移。本步
+        # 在 gate 判定前复用沙箱 resolve 逻辑把 target 解析为沙箱基准下
+        # 的绝对路径（沙箱异常时拒绝，fail-closed），并同步回写 args——
+        # 后续 gate.check 与 sb.validate 看同一份解析结果。原始字面
+        # 量 target 保留 = ``_resolved_pre_target``，权限规则按字面量
+        # 注册时仍可命中（不强制要求规则升级为绝对路径）。
+        _resolved_pre_target: str | None = None
+        if operation is not None and target is not None:
+            _resolved_pre_target = target
+            try:
+                resolved = self._resolve_target(spec, operation, target)
+            except SandboxViolation as exc:
+                await self._audit(
+                    ctx,
+                    {"tool": spec.name, "operation": operation, "decision": "deny", "reason": str(exc)},
+                )
+                return await _finish(ToolResult(ok=False, decision=DENY, error=str(exc)))
+            if resolved is not None and resolved != target:
+                args = _substitute_target(args, target, resolved)
+                target = resolved
+
         # ── 调用前策略：权限门禁（review 委托挂卡审批）──
         # edit 决议的编辑内容须重走校验链：宿主编辑可能改写工具参数
         # （路径/命令），绕过已校验的沙箱边界——编辑内容（dict 形态）
         # 作为新 args 重新提取判定目标并重过权限门禁，校验对象 =
         # 执行对象。编辑轮次限 1 次（二次编辑 = 拒绝，防挂卡死循环）。
+        # ENG6-4：路径解析前置已将 target 规范化为沙箱基准下的绝对路径；
+        # 权限规则可能仍按原始字面量（如 ``/ws``）注册——同时按解析前
+        # 后的 target 判定（任一命中 = ALLOW），保证相对路径规则不
+        # 因解析规范化而失配。
         approval: ApprovalDecision | None = None
         for _edit_round in range(2):
             if self.gate is not None and operation is not None:
                 verdict = self.gate.check(
                     spec.name, operation, target, permissions=spec.permissions
                 )
+                if verdict.decision == _ALLOW:
+                    pass
+                elif (
+                    verdict.decision != _REVIEW
+                    and _resolved_pre_target is not None
+                    and _resolved_pre_target != target
+                ):
+                    # 解析后未命中：尝试原始 target（规则按字面量注册的场景）
+                    verdict = self.gate.check(
+                        spec.name,
+                        operation,
+                        _resolved_pre_target,
+                        permissions=spec.permissions,
+                    )
                 if verdict.decision == _ALLOW:
                     pass
                 elif verdict.decision == _REVIEW:
@@ -271,7 +313,6 @@ class ToolPipeline:
             break
 
         # ── 沙箱守卫（校验结果回写执行参数：执行对象 = 校验对象）──
-        resolved_target: str | None = None
         if operation is not None:
             for sb in self.sandboxes:
                 # 操作域过滤：沙箱只守卫自己声明的操作（多端点流水线
@@ -295,10 +336,9 @@ class ToolPipeline:
                         {"tool": spec.name, "operation": operation, "decision": "deny", "reason": str(exc)},
                     )
                     return await _finish(ToolResult(ok=False, decision=DENY, error=str(exc)))
-                if resolved is not None and resolved_target is None:
-                    resolved_target = str(resolved)
-            if resolved_target is not None and resolved_target != target:
-                args = _substitute_target(args, target, resolved_target)
+                if resolved is not None and resolved != target:
+                    args = _substitute_target(args, target, resolved)
+                    target = str(resolved)
 
         # ── 单调守卫（抛异常即拒绝，fail-closed）──
         for guard in self.guards:
@@ -358,6 +398,30 @@ class ToolPipeline:
         emit = getattr(ctx, "emit", None)
         if emit is not None:
             await emit("tool_audit", record)
+
+    def _resolve_target(
+        self, spec: ToolSpec, operation: str, target: str
+    ) -> str | None:
+        """复用沙箱 resolve 逻辑预解析 target（ENG6-4 统一两闸基准）。
+
+        任一沙箱能解析（validate 返回非 None 路径/命令）= 取首个解析
+        结果作为「绝对基准」target；全部沙箱都不解析（None 或未声明守
+        卫域）= 返回原 target（无法规范化的命令等直通字面量）。沙箱
+        抛 ``SandboxViolation`` 由调用方收口（拒绝），不在此吞。
+        """
+        for sb in self.sandboxes:
+            if (
+                getattr(sb, "guards_operation", None) is not None
+                and not sb.guards_operation(operation)
+            ):
+                continue
+            if "name" in inspect.signature(sb.validate).parameters:
+                resolved = sb.validate(operation, target, name=spec.name)
+            else:
+                resolved = sb.validate(operation, target)
+            if resolved is not None:
+                return str(resolved)
+        return target
 
 
 __all__ = ["ALLOW", "DEFAULT_MAX_RESULT_CHARS", "DENY", "ToolPipeline", "ToolResult"]

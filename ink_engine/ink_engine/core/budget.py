@@ -116,13 +116,6 @@ class BudgetManager:
         return tuple(results)
 
 
-def remaining_after(results: tuple[BudgetRemaining, ...]) -> float | None:
-    """多维度余量汇总：取各维度余量最小值（None = 无预算维度 = 不限）。"""
-    if not results:
-        return None
-    return min(r.remaining for r in results)
-
-
 def can_afford(results: tuple[BudgetRemaining, ...], cost: float) -> bool:
     """预算预检（fail-closed 引擎强制）：够付才放行。
 
@@ -143,5 +136,4 @@ __all__ = [
     "BudgetQuery",
     "BudgetRemaining",
     "can_afford",
-    "remaining_after",
 ]

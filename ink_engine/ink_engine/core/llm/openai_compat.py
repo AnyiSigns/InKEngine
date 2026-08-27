@@ -192,6 +192,12 @@ class OpenAICompatibleLLM(AsyncLLM):
                     if k not in _CORE_PAYLOAD_KEYS
                 }
             )
+        # 推理链开关（ENG4-S1）：LLMParams.enable_thinking 独立字段
+        # 透传——避免调用方反复拼 extra_body 字典；非 None 时按厂商
+        # 协议（OpenAI 兼容的 enable_thinking / reasoning_effort 群
+        # 体）下发到请求体
+        if params is not None and params.enable_thinking is not None:
+            payload["enable_thinking"] = bool(params.enable_thinking)
         return payload
 
     # ------------------------------------------------------------------

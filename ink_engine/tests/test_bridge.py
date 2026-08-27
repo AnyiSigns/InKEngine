@@ -10,7 +10,7 @@
 from __future__ import annotations
 
 from ink_engine.core.approval import DECISION_ACCEPT, DECISION_AUTO, DECISION_REJECT
-from ink_engine.core.bridge import OP_DISPATCH, op_names, propose_patch
+from ink_engine.core.bridge import OP_DISPATCH, propose_patch
 from ink_engine.core.self_application import (
     ApprovalLevel,
     SelfApplicationPipeline,
@@ -63,10 +63,9 @@ def _theme_params(base_version: int = 1) -> dict:
 
 
 def test_op_registered_and_manifested():
-    """op 登记面：propose_patch 已登记且清单唯一（与工具声明对齐）。"""
+    """op 登记面：propose_patch 已登记（与工具声明对齐）。"""
     assert "propose_patch" in OP_DISPATCH
     assert OP_DISPATCH["propose_patch"] is propose_patch
-    assert op_names() == ("propose_patch",)
 
 
 async def test_propose_patch_l0_auto_approve():

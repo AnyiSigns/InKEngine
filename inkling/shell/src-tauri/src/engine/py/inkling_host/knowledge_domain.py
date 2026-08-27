@@ -39,6 +39,7 @@ from ink_engine.core.knowledge_set import (
 )
 from ink_engine.core.knowledge_signals import (
     DEFAULT_COMPLEXITY_THRESHOLD,
+    DEFAULT_DISTILL_TIER,
     DEFAULT_INTERVENTION_THRESHOLD,
     REPEAT_THRESHOLD,
     DistillConfig,
@@ -46,6 +47,7 @@ from ink_engine.core.knowledge_signals import (
     ExecutionSignal,
     SignalClassifier,
     TieredDistiller,
+    resolve_distill_chain,
     reuse_or_distill,
 )
 from ink_engine.core.rules import FixtureCase, FixtureSet
@@ -164,6 +166,8 @@ class IncubationDomain:
         samples_data: dict[str, Any],
         review_data: dict[str, Any],
         on_llm_call: Callable[[str], None] | None = None,
+        model_config: dict[str, Any] | None = None,
+        distill_tier: str | None = None,
     ) -> None:
         self._runtime = runtime
         self.review_data = review_data
@@ -179,8 +183,17 @@ class IncubationDomain:
             cases=tuple(case for case in self.samples.cases if not case.expected_pass),
         )
         distill = signals_data.get("distill") or {}
+        # 蒸馏模型链（ENG12 接线3：resolve_distill_chain 真正派上用场）
+        # — 当宿主注入 model_config 时按挡位建链注入 TieredDistiller，
+        # 蒸馏走 LLM 路径（distill_async 入口可用）；未注入时链为 None，
+        # 回落确定性蒸馏基线（防 model_config 缺配置时阻塞孵化）。
+        tier = distill_tier or distill.get("tier") or DEFAULT_DISTILL_TIER
+        chain = (
+            resolve_distill_chain(model_config, tier) if model_config else None
+        )
         self.distiller = TieredDistiller(
             config=DistillConfig.from_dict(distill),
+            chain=chain,
             complexity_threshold=int(
                 distill.get("complexity_threshold", DEFAULT_COMPLEXITY_THRESHOLD)
             ),

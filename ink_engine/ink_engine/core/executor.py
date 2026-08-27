@@ -491,8 +491,15 @@ class Engine:
         self.executed_node_steps = 0
         # 输入调配管线执行体（RunOptions.assembly 非 None 时启用；调用点
         # 经 ctx.assemble 统一调配，激活留痕随事件落库）
+        # ENG12 接线4：assembly_aggregator 注入 InputAssembler——每次
+        # 装配留痕同步喂聚合器，衔接知识集归档/进化优先级
         self._assembler = (
-            InputAssembler(self.options.assembly) if self.options.assembly is not None else None
+            InputAssembler(
+                self.options.assembly,
+                aggregator=self.options.assembly_aggregator,
+            )
+            if self.options.assembly is not None
+            else None
         )
         # 结点级成败留痕（沉淀钩子输入）：本 run 的执行轨迹与成本账，
         # 不发射事件（观测侧零影响）。_execute 入口复位；嵌套引擎
@@ -2586,6 +2593,11 @@ class Engine:
                 ),
             )
         else:
+            # 调配策略选择（ENG12 接线1：补丁链 mixer 接入装配链）
+            # 优先顺序：用户显式注入 > 单选兜底。用户未指定 mixer 时
+            # 仍用 BestBranchMixer 兜底（行为兼容——既有单选语义不漂
+            # 移）；PatchChainBranchMixer 经 RunOptions.branch_mixer
+            # 显式注入后启用（跨分支拼接的来源可留痕语义按需开启）。
             mixer = self.options.branch_mixer or BestBranchMixer()
             try:
                 selection = await mixer.mix(evaluated, budget=budget)

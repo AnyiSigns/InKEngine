@@ -405,6 +405,7 @@ async def boot_inkling(
             db_path=str(data_dir / "skills.sqlite")
         )
     from ink_engine.core.run_result import RunOptions
+    from ink_engine.core.simulation import PatchChainBranchMixer
 
     if path_flags.settle_hooks_enabled:
         from ink_engine.core.settle import (
@@ -527,7 +528,16 @@ async def boot_inkling(
         on_reverted=_on_reverted,
         embedder=embedder,
         run_options=(
-            RunOptions(settle=settle_hooks) if settle_hooks is not None else None
+            RunOptions(
+                settle=settle_hooks,
+                # ENG12 接线1：跨分支拼接（补丁链 mixer）——生产环境默认
+                # 走 PatchChainBranchMixer（overlay 逐键落 replace 补丁，
+                # 来源可留痕可回放），RunOptions.branch_mixer 留出口给
+                # 测试与重写场景
+                branch_mixer=PatchChainBranchMixer(),
+            )
+            if settle_hooks is not None
+            else RunOptions(branch_mixer=PatchChainBranchMixer())
         ),
     )
     runtime = await InkRuntime(_five_source_factory(bundle)).boot(host, recipe)

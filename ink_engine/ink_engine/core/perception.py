@@ -6,7 +6,8 @@
 - 感知结点 ``vision_perceive``：输入 = 屏幕截图引用（image url/path），
   输出 = 结构化界面描述（文本摘要 + 元素清单 + 置信度）。结点按既有
   结点契约登记进结点类型注册表，可被路径组装器组装进执行路径；视觉
-  任务的成败经边证据机制留痕（reuse :class:`EdgeEvidenceStore`）。
+  任务的成败由执行器经通用 ``EdgeEvidenceStore`` 边证据机制统一留痕
+  （不维护专用记录函数——通用机制已覆盖）。
 - 双通道交叉验证：元素树结果 + 像素理解结果两路独立产出，一致 = 直进，
   不一致 = 触发复核信号（复核路径接管）并给出降级决策。
 - 截图外发分级：本地多模态模型可直喂（不出网），云端模型默认禁止截图
@@ -22,7 +23,6 @@ from dataclasses import dataclass
 from typing import Any
 
 from .contracts import NodeContract
-from .edge_evidence import EdgeEvidenceStore, EdgeKey
 from .registry import NodeTypeRegistry
 from .schema_validator import FIELD_NUMBER, FIELD_STRING, SchemaField, SchemaSpec
 
@@ -107,39 +107,6 @@ def register_perception_nodes(registry: NodeTypeRegistry) -> None:
         lambda config: _vision_perceive_node,
         contract=_vision_contract(),
     )
-
-
-# ── 边证据（视觉任务成败留痕，reuse EdgeEvidenceStore）──
-
-async def record_vision_evidence(
-    store: EdgeEvidenceStore,
-    *,
-    success: bool,
-    dst_type: str = VISION_PERCEIVE_TYPE,
-    cost: float | None = None,
-    now: float | None = None,
-) -> None:
-    """视觉任务成败进边证据（reuse :class:`EdgeEvidenceStore`）。
-
-    成功 = success+1、失败 = fail+1（失败只记失败结点入边，归因由执行器
-    保证）；主键含契约版本与域，升版后旧行自然不命中。
-
-    默认 ``dst_type`` 与注册结点类型（:data:`VISION_PERCEIVE_TYPE`）对齐
-    （ENG1-5）：旧默认 ``"vision_describe"`` 未登记为结点类型，视觉任务
-    成败会落到无契约类型键上，进不了边证据归因/组装池——默认即类型级
-    兼容键，下游归因按实际入边结点覆盖传入。
-    """
-    key = EdgeKey(
-        src_type=VISION_PERCEIVE_TYPE,
-        dst_type=dst_type,
-        src_contract_version=VISION_CONTRACT_VERSION,
-        dst_contract_version=VISION_CONTRACT_VERSION,
-        context_domain=VISION_CONTEXT_DOMAIN,
-    )
-    if success:
-        await store.record_success(key, cost=cost, now=now)
-    else:
-        await store.record_failure(key, cost=cost, now=now)
 
 
 # ── 双通道交叉验证 ──
@@ -260,6 +227,5 @@ __all__ = [
     "VisionExportDecision",
     "classify_vision_export",
     "cross_validate_channels",
-    "record_vision_evidence",
     "register_perception_nodes",
 ]

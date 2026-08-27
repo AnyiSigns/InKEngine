@@ -51,6 +51,7 @@ from .declarative_tools import (
 )
 from .exceptions import GraphDefinitionError
 from .logging import get_logger
+from .tool_pipeline import DEFAULT_MAX_RESULT_CHARS
 from .tool_vetting import (
     ShadowRunResult,
     ToolManifest,
@@ -72,8 +73,9 @@ _DEFAULT_STDIO_RESTART_RETRIES = 2
 _DEFAULT_STDIO_RESTART_BACKOFF = 1.0
 _DEFAULT_STDIO_CIRCUIT_BREAK_THRESHOLD = 3
 
-# 工具调用结果文本截断上限（与引擎工具流水线默认一致，防大对象挤爆上下文）
-_MAX_RESULT_CHARS = 100_000
+# 工具调用结果文本截断上限（ENG6-6：与引擎 tool_pipeline.DEFAULT_MAX_RESULT_CHARS
+# 共享常量——MCP server 响应同样可能大对象挤爆上下文，单点维护防漂移）
+_MAX_RESULT_CHARS = DEFAULT_MAX_RESULT_CHARS
 
 # 内存传输的 server 工厂签名：() -> 异步上下文管理器，产出 (read, write) 流对
 ServerFactory = Callable[[], Any]

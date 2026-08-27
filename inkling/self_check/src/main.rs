@@ -14,6 +14,7 @@ mod discipline;
 mod process_util;
 mod report;
 mod schema;
+mod symbols;
 mod validator;
 
 use report::GateResult;
@@ -84,7 +85,7 @@ const TIMEOUT_E2E_SECS: u64 = 2400;
 const TIMEOUT_PROBE_SECS: u64 = 900;
 
 /// 门禁失败修复指引（人类可读，出厂遇到红时的第一步方向）。
-const GATE_HINTS: [(&str, &str); 6] = [
+const GATE_HINTS: [(&str, &str); 7] = [
     (
         "schema",
         "seed_data 或 schema 定义问题：按上方 [FAIL] 违规清单定位修复后重跑",
@@ -109,6 +110,10 @@ const GATE_HINTS: [(&str, &str); 6] = [
         "benchmark",
         "公开评测基准未达标：引擎基准（组装<500ms / 缓存≥60% / spawn<2s）或自举回归（既有引擎测试）失败；按 run_benchmarks 输出定位，先本地重跑 tools/benchmarks/run_benchmarks.py",
     ),
+    (
+        "symbols",
+        "符号引用计数门禁存在孤儿：定义的 Python def/Rust pub 项在文件内仅出现 1 次——按 [ORPHAN] 列表补接线（同文件再调一次）或显式删除（删除走 git revert 重跑门禁验证）",
+    ),
 ];
 
 /// 自检命令事实源：manifest.json self_check 表（六门禁命令单一事实源；
@@ -122,8 +127,8 @@ fn load_self_check_commands(manifest_path: &Path) -> Result<Vec<(String, String)
         .get("self_check")
         .and_then(serde_json::Value::as_object)
         .ok_or_else(|| "manifest.json 缺 self_check 门禁表（出厂门禁入口无法聚合）".to_string())?;
-    let mut commands = Vec::with_capacity(6);
-    for key in ["schema", "cargo_test", "frontend", "e2e", "discipline", "benchmark"] {
+    let mut commands = Vec::with_capacity(7);
+    for key in ["schema", "cargo_test", "frontend", "e2e", "discipline", "benchmark", "symbols"] {
         let command = self_check
             .get(key)
             .and_then(serde_json::Value::as_object)
@@ -146,6 +151,7 @@ fn gate_label(key: &str) -> &'static str {
         "e2e" => "接线 e2e 全量",
         "discipline" => "代码纪律（B2 零计划痕迹）",
         "benchmark" => "公开评测基准（P5.2）",
+        "symbols" => "符号引用计数（E-P14 孤儿扫描）",
         _ => "未知门禁",
     }
 }
@@ -281,6 +287,37 @@ fn e2e_preflight(repo_root: &Path) -> Result<PathBuf, String> {
 }
 
 // ── 各门禁实现 ──
+
+/// 符号引用计数门禁（E-P14）：扫描 ink_engine/core 与壳侧 Rust 的孤儿符号。
+///
+/// 轻量正则扫描（不依赖 syn/pyo3 解析），零重依赖可在本进程内热跑；
+/// 误报由维护者按 [ORPHAN] 列表半自动甄别（补接线或显式删除）。
+fn gate_symbols_full(repo_root: &Path, manifest_command: &str) -> (GateResult, String) {
+    let started = Instant::now();
+    let report = symbols::run(repo_root);
+    let seconds = started.elapsed().as_secs_f64();
+    let passed = report.is_clean();
+    let summary = report.summary();
+    let mut detail = String::new();
+    if passed {
+        detail.push_str(&format!(
+            "[OK] 扫描 {} 个 Python 文件 + {} 个 Rust 文件，零孤儿符号\n",
+            report.python_scanned, report.rust_scanned
+        ));
+    } else {
+        detail.push_str(&report.render_issues());
+    }
+    let result = GateResult {
+        key: "symbols".to_string(),
+        label: gate_label("symbols").to_string(),
+        command: manifest_command.to_string(),
+        passed,
+        seconds,
+        summary,
+        tail: report::tail_lines(&detail),
+    };
+    (result, detail)
+}
 
 /// 公开评测基准门禁：运行 tools/benchmarks/run_benchmarks.py 编排器。
 ///
@@ -633,7 +670,7 @@ fn parse_args() -> Args {
             other => {
                 if other.starts_with("--root=") {
                     args.root = Some(other["--root=".len()..].to_string());
-                } else if ["schema", "cargo", "frontend", "e2e", "discipline", "benchmark", "all"]
+                } else if ["schema", "cargo", "frontend", "e2e", "discipline", "benchmark", "symbols", "all"]
                     .contains(&other)
                 {
                     args.gate = other.to_string();
@@ -653,6 +690,7 @@ fn gate_spawn_timeout_secs(key: &str) -> u64 {
         "e2e" => TIMEOUT_E2E_SECS + TIMEOUT_PROBE_SECS + 300,
         "discipline" => 600,
         "benchmark" => TIMEOUT_PROBE_SECS + 300,
+        "symbols" => 120,
         _ => 600,
     }
 }
@@ -720,7 +758,7 @@ fn main() {
     };
 
     print!(
-        "InKling 出厂自检矩阵（六门禁一键）\n入口：inkling/self_check（Rust 编排）｜ 仓库根: {}\n门禁命令 = manifest.json self_check（单一事实源，聚合模式真实执行）\n\n",
+        "InKling 出厂自检矩阵（七门禁一键）\n入口：inkling/self_check（Rust 编排）｜ 仓库根: {}\n门禁命令 = manifest.json self_check（单一事实源，聚合模式真实执行）\n\n",
         repo_root.display()
     );
 
@@ -742,6 +780,7 @@ fn main() {
             "e2e" => "e2e",
             "discipline" => "discipline",
             "benchmark" => "benchmark",
+            "symbols" => "symbols",
             _ => "schema",
         }
     };
@@ -755,6 +794,7 @@ fn main() {
             "e2e" => gate_e2e_full(&repo_root, command, args.live),
             "discipline" => gate_discipline_full(&repo_root, command),
             "benchmark" => gate_benchmark_full(&repo_root, command),
+            "symbols" => gate_symbols_full(&repo_root, command),
             _ => unreachable!("parse_args 只接受已知子命令"),
         };
         run_gate(result, full);
@@ -828,7 +868,7 @@ fn main() {
         }
         std::process::exit(1);
     }
-    println!("\n自检全绿：六门禁全部 PASS（schema 数据一致性 / cargo 三 crate / frontend / 接线 e2e / 代码纪律 / 公开评测基准）");
+    println!("\n自检全绿：七门禁全部 PASS（schema 数据一致性 / cargo 三 crate / frontend / 接线 e2e / 代码纪律 / 公开评测基准 / 符号引用计数）");
 }
 
 

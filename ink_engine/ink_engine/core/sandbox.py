@@ -24,6 +24,7 @@ from dataclasses import dataclass
 from pathlib import Path
 
 from .exceptions import SandboxViolation
+from .tool_pipeline import DEFAULT_MAX_RESULT_CHARS
 
 # FileSandbox 支持的操作（四类守卫 + 两类只读检索；edit = 就地改写，与
 # write 同属写守卫，但作为一等操作域存在，权限/审计可与 write 区分）
@@ -131,7 +132,10 @@ class ProcessSandbox:
     allowlist: tuple[str, ...] = ()
     timeout: float = 30.0
     cwd: str | Path | None = None
-    max_output: int = 100_000
+    # 进程输出上限（ENG6-6：与工具结果文本截断同源常量——防止多份
+    # 100_000 漂移；语义略不同：max_output 限子进程 stdout/stderr 累
+    # 积，DEFAULT_MAX_RESULT_CHARS 限工具最终结果文本，但同量级共维护）
+    max_output: int = DEFAULT_MAX_RESULT_CHARS
     env: dict[str, str] | None = None
     path: str | None = None
 

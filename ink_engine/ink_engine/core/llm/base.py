@@ -81,11 +81,19 @@ class LLMConfig:
 
 @dataclass(frozen=True, slots=True)
 class LLMParams:
-    """单次调用的参数覆盖（None 字段回落到配置默认）。"""
+    """单次调用的参数覆盖（None 字段回落到配置默认）。
+
+    Attributes:
+        enable_thinking: 是否启用推理链（部分厂商支持，等价于
+            ``extra_body={"enable_thinking": ...}``——独立字段避免
+            调用方反复拼 extra_body 字典；适配层检测到非 None 时按
+            厂商协议透传到请求体；None = 走厂商默认/引擎默认）。
+    """
 
     temperature: float | None = None
     max_tokens: int | None = None
     extra_body: dict[str, Any] | None = None
+    enable_thinking: bool | None = None
 
 
 @dataclass(frozen=True, slots=True)

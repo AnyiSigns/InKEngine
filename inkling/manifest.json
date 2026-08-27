@@ -130,6 +130,10 @@
     "benchmark": {
       "command": "cargo run --release --manifest-path inkling/self_check/Cargo.toml -- benchmark",
       "status": "ready"
+    },
+    "symbols": {
+      "command": "cargo run --release --manifest-path inkling/self_check/Cargo.toml -- symbols",
+      "status": "ready"
     }
   }
 }

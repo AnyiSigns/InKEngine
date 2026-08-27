@@ -27,6 +27,7 @@ from .storage import Storage
 from .tuning import TurnMetrics
 
 if TYPE_CHECKING:
+    from .assembly import ActivationAggregator
     from .settle import SettleHooks
 
 
@@ -99,6 +100,10 @@ class RunOptions:
     # 源）：节点执行前引擎自动调用一次取源并统一调配，节点内 assemble
     # 复用预装配结果（不重复装配/不重复留痕）
     assembly_sources: Any = None
+    # 激活聚合器（ENG12 接线4：InputAssembler 挂载点）：随 InputAssembler
+    # 实例化时注入，每次装配留痕同步喂聚合器，衔接知识集归档/进化
+    # 优先级；None = 不聚合（输入调配器按原语义运行）
+    assembly_aggregator: ActivationAggregator | None = None
     # 回合指标聚合（引擎自承载的观测件）：注入后顶层 run 收尾时自动
     # 记录回合成败与错误摘要（评审分/收敛轮数/挡位调用由使用方按事件
     # 语义填报——引擎只采集自身可见的执行事实）；None = 不采集

@@ -12,6 +12,7 @@ zhipu / moonshot 等共用 /embeddings 协议的厂商；其余厂商接口形�
 from __future__ import annotations
 
 import abc
+import asyncio
 import contextlib
 import json
 from collections.abc import Mapping, Sequence
@@ -22,6 +23,11 @@ from urllib.parse import urlparse
 import httpx
 
 from ink_engine.core.llm.errors import LLMConfigError, LLMError, classify_llm_error
+from ink_engine.core.llm.fallback import _backoff_delay, is_transient_llm_error
+
+# embedding 调用重试（ENG4-S4）：瞬时故障最多 3 次指数退避；非瞬时
+# 故障（认证失败/参数非法）一次性失败不上抬。
+_EMBEDDING_RETRY_ATTEMPTS = 3
 
 # 配置白名单键（模型配置形态兼容，未知键收进 extra 透传不破坏）。
 _CONFIG_KEYS = (
@@ -177,27 +183,40 @@ class OpenAICompatibleEmbedder(AsyncEmbedder):
 
     async def _post(self, inputs: Any) -> list[dict[str, Any]]:
         client = self._get_client()
-        try:
-            response = await client.post(
-                self._endpoint, json=self._payload(inputs), headers=self._headers()
-            )
-        except (httpx.TimeoutException, httpx.TransportError, httpx.HTTPError) as exc:
-            raise classify_llm_error(exc=exc) from exc
-        if response.status_code >= 400:
-            body = b""
-            with contextlib.suppress(Exception):
-                body = await response.aread()
-            raise classify_llm_error(response.status_code, detail=self._error_detail(body))
-        try:
-            obj = response.json()
-        except json.JSONDecodeError as exc:
-            raise LLMError(detail=f"embedding 非 JSON 响应: {exc}") from exc
-        if not isinstance(obj, dict):
-            raise LLMError(detail="embedding 响应非对象")
-        data = obj.get("data")
-        if not isinstance(data, list) or not data:
-            raise LLMError(detail=f"embedding 响应缺 data: {str(obj)[:200]}")
-        return data
+        last_error: LLMError | None = None
+        for attempt in range(_EMBEDDING_RETRY_ATTEMPTS):
+            try:
+                response = await client.post(
+                    self._endpoint, json=self._payload(inputs), headers=self._headers()
+                )
+            except (httpx.TimeoutException, httpx.TransportError, httpx.HTTPError) as exc:
+                last_error = classify_llm_error(exc=exc)
+                if not is_transient_llm_error(last_error) or attempt == _EMBEDDING_RETRY_ATTEMPTS - 1:
+                    raise last_error from exc
+                await asyncio.sleep(_backoff_delay(None, attempt + 1))
+                continue
+            if response.status_code >= 400:
+                body = b""
+                with contextlib.suppress(Exception):
+                    body = await response.aread()
+                last_error = classify_llm_error(response.status_code, detail=self._error_detail(body))
+                if not is_transient_llm_error(last_error) or attempt == _EMBEDDING_RETRY_ATTEMPTS - 1:
+                    raise last_error
+                await asyncio.sleep(_backoff_delay(None, attempt + 1))
+                continue
+            try:
+                obj = response.json()
+            except json.JSONDecodeError as exc:
+                raise LLMError(detail=f"embedding 非 JSON 响应: {exc}") from exc
+            if not isinstance(obj, dict):
+                raise LLMError(detail="embedding 响应非对象")
+            data = obj.get("data")
+            if not isinstance(data, list) or not data:
+                raise LLMError(detail=f"embedding 响应缺 data: {str(obj)[:200]}")
+            return data
+        # 循环正常退出（理论不可达，兜底防御）
+        assert last_error is not None
+        raise last_error
 
     @staticmethod
     def _coerce(vector: Any) -> list[float]:

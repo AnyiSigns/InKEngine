@@ -17,7 +17,6 @@ from ink_engine.core.budget import (
     BudgetQuery,
     BudgetRemaining,
     can_afford,
-    remaining_after,
 )
 from ink_engine.core.exceptions import BudgetExceededError
 
@@ -156,7 +155,6 @@ async def test_query_remaining_multiple_dimensions_min():
     manager.register(QueryPolicy(limit=100.0, used=10.0, name="tokens"))
     manager.register(QueryPolicy(limit=50.0, used=40.0, name="steps"))
     results = await manager.query_remaining(None)
-    assert remaining_after(results) == 10.0
     assert can_afford(results, 5.0)
     assert not can_afford(results, 11.0)
 
@@ -185,7 +183,6 @@ async def test_query_remaining_no_policies_unlimited():
     manager = BudgetManager()
     results = await manager.query_remaining(None)
     assert results == ()
-    assert remaining_after(results) is None
     assert can_afford(results, 1e9)
 
 

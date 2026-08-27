@@ -570,13 +570,21 @@ class KnowledgeSet:
                 raise GraphDefinitionError(
                     f"知识条目 {entry_id} 的精准补丁缺 value"
                 )
-            # 深路径 replace 补丁：只改对应段落；updated_at 顶层时间戳
-            # 一并刷新（两条补丁同属一次修正，链历史完整保留）
+            # 精准补丁契约（ENG12 接线2：build_precise_patch 单点定义）：
+            # 由 build_precise_patch 生成 path/value 声明（蒸馏侧精准
+            # 补丁与此处修正语义同源——避免两条并行实现漂移），本处仅
+            # 补充 entry 前缀（修正作用域 = 该条目 data 字段内部）后落
+            # 链为深路径 replace 补丁；updated_at 顶层时间戳一并刷新。
+            # 函数内 import 防 knowledge_set ↔ knowledge_signals 循环
+            from .knowledge_signals import build_precise_patch
+
+            inner = build_precise_patch(existing.data, path, value)
+            inner_path = tuple(inner["path"])
             self.chain.apply(
                 Patch(
                     op=PatchOp.REPLACE,
-                    path=(*_entry_path(entry_id), "data", *path),
-                    value=value,
+                    path=(*_entry_path(entry_id), "data", *inner_path),
+                    value=inner["value"],
                 )
             )
             self.chain.apply(

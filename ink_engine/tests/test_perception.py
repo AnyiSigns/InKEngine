@@ -3,7 +3,8 @@
 覆盖：
 - 感知结点注册 + 可组装（登记进结点类型注册表，进入组装器结点池，
   factory 产出结构化描述）；
-- 视觉任务成败进边证据（reuse EdgeEvidenceStore）；
+- 视觉任务成败由执行器经通用 ``EdgeEvidenceStore`` 边证据机制统一留痕
+  （无专用函数——通用机制覆盖）；
 - 双通道交叉验证（一致直进 / 不一致触发复核信号 + 降级决策）；
 - 截图外发分级（本地多模态直喂、云端默认禁外发、授权放开）。
 """
@@ -12,7 +13,6 @@ from __future__ import annotations
 from typing import Any
 
 from ink_engine.core.contracts import PathAssemblyConfig
-from ink_engine.core.edge_evidence import EdgeEvidenceStore, EdgeKey
 from ink_engine.core.path_assembler import PathAssembler
 from ink_engine.core.perception import (
     EXPORT_ALLOW,
@@ -21,13 +21,11 @@ from ink_engine.core.perception import (
     MODEL_LOCAL,
     VALIDATE_PROCEED,
     VALIDATE_REVIEW,
-    VISION_CONTEXT_DOMAIN,
     VISION_PERCEIVE_TYPE,
     CrossValidationResult,
     VisionExportDecision,
     classify_vision_export,
     cross_validate_channels,
-    record_vision_evidence,
     register_perception_nodes,
 )
 from ink_engine.core.registry import NodeTypeRegistry
@@ -68,52 +66,6 @@ async def test_perception_node_factory_produces_description():
     assert out["description"]
     assert "elements" in out
     assert out["confidence"] > 0.0
-
-
-# ── 视觉任务成败进边证据 ──
-
-async def test_vision_evidence_records_success_and_failure():
-    store = EdgeEvidenceStore()
-    key = EdgeKey(
-        src_type=VISION_PERCEIVE_TYPE,
-        dst_type="vision_describe",
-        context_domain="vision",
-    )
-    await record_vision_evidence(store, success=True, dst_type="vision_describe", now=1.0)
-    await record_vision_evidence(store, success=False, dst_type="vision_describe", now=2.0)
-    row = await store.get(key)
-    assert row is not None
-    assert row.success_count == 1
-    assert row.fail_count == 1
-
-
-async def test_vision_evidence_default_dst_type_matches_registered_node():
-    """ENG1-5：record_vision_evidence 默认 dst_type 与注册结点类型对齐。
-
-    旧默认 "vision_describe" 不是登记过的结点类型——视觉成败落到无
-    契约类型键上，进不了边证据归因/组装池；默认对齐
-    VISION_PERCEIVE_TYPE 后类型级归因天然可达（下游按实际入边覆盖）。
-    """
-    store = EdgeEvidenceStore()
-    await record_vision_evidence(store, success=True, now=1.0)
-    row = await store.get(
-        EdgeKey(
-            src_type=VISION_PERCEIVE_TYPE,
-            dst_type=VISION_PERCEIVE_TYPE,
-            context_domain=VISION_CONTEXT_DOMAIN,
-        )
-    )
-    assert row is not None and row.success_count == 1
-    # 显式传入下游类型仍按传入落键（调用方可覆盖归因目标）
-    await record_vision_evidence(store, success=True, dst_type="downstream", now=2.0)
-    assert await store.get(
-        EdgeKey(
-            src_type=VISION_PERCEIVE_TYPE,
-            dst_type="downstream",
-            context_domain=VISION_CONTEXT_DOMAIN,
-        )
-    ) is not None
-    await store.close()
 
 
 # ── 双通道交叉验证 ──

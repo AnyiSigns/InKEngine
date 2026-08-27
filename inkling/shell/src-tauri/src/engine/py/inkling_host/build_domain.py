@@ -239,7 +239,23 @@ class BuildDomain:
         产物描述 = 数据（artifact_id/kind/hashes + meta：声明工具/冒烟
         记录/构建耗时）；审批通过后经 ArtifactApplyTarget 把声明工具
         注册进工具表（产物挂载引擎，工具表即时生效）。
+
+        冒烟门禁强制（ENG7-3）：``smoke=None`` 拒绝直接走 propose——
+        冒烟是产物的不可跳过的环节（vetting_l2_hook 也会在落链前拦
+        截，但「先 produce 再被拦」是双失败路径）；本入口先决校验
+        ``smoke.ok is True``，未冒烟或冒烟失败 = 抛 ``BuildError``，
+        调用方需先调 :meth:`smoke`（或 :meth:`build_and_verify` 一
+        站完成）拿到冒烟结果再 propose。
         """
+        if smoke is None:
+            raise BuildError(
+                "propose_artifact_patch 必须传入冒烟结果（smoke=None 拒绝；"
+                "先调 build_and_verify 或本域 smoke() 取得 smoke.ok=True 再 propose）"
+            )
+        if not smoke.ok:
+            raise BuildError(
+                f"冒烟门禁未通过：propose_artifact_patch 拒绝（exit={smoke.exit_code}）"
+            )
         if self._runtime is None or self._runtime.self_pipeline is None:
             raise BuildError("构建域未装配运行时（无法发起产物补丁）")
         meta: dict[str, Any] = {

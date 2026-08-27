@@ -260,10 +260,15 @@ class StorageBackedMemoryStore:
 
     async def query(self, q: MemoryQuery) -> list[MemoryEntry]:
         # 过滤（namespace/kind/source/时效）+ 召回排序统一在存储边界
-        # 完成（ENG3-7）：取回即终态，调用方不再二次 recall 排序——
-        # 排序判据单点维护在 recall_policy（与协议层同判据不重复）。
-        # 过滤仍在内存执行（存储协议只有 list_records 全量原语；下推
-        # 到 sqlite WHERE 属存储层演进，见 storage* 模块归属）
+        # 完成（ENG3-7 by-design）：取回即终态，调用方不再二次 recall
+        # 排序——排序判据单点维护在 recall_policy（与协议层同判据不重
+        # 复）。过滤（namespace/kind/source/时效）仍在内存执行，by-design：
+        # 存储协议 ``Storage.list_records`` 只有全量原语，无字段级下推
+        # （sqlite/postgres WHERE 子句属存储层演进，本抽象层零侵入）
+        # ——下推会引入跨后端差异（内存/sqlite/postgres 三套实现不同
+        # 字段类型/scheme/索引），反而让「调用方取回即终态」契约漂
+        # 移；当前实现保证：所有后端返回前都经过统一过滤 + 排序
+        # （recall_policy 注入点），调用方零关心。
         recs = await self._storage.list_records(self._collection)
         now = time.time()
         alive: list[MemoryEntry] = []

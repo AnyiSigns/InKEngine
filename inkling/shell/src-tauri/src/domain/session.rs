@@ -258,7 +258,7 @@ pub fn branch_tree_from_chain_index(
     let parent_ids: std::collections::HashSet<i64> =
         rows.iter().filter_map(|(_, parent, _)| *parent).collect();
     let ids: Vec<i64> = rows.iter().map(|(id, _, _)| *id).collect();
-    let current_leaf = Some(*ids.iter().max().unwrap());
+    let current_leaf = *ids.iter().max().expect("rows 非空保证存在最大叶");
     let mut nodes: Vec<BranchNode> = rows
         .iter()
         .map(|(id, parent, reason)| BranchNode {
@@ -267,12 +267,12 @@ pub fn branch_tree_from_chain_index(
             reason: reason.clone(),
         })
         .collect();
-    nodes.sort_by(|a, b| b.leaf.cmp(&a.leaf));
-    nodes.retain(|node| !parent_ids.contains(&node.leaf) || node.leaf == current_leaf.unwrap());
+    nodes.sort_by_key(|node| std::cmp::Reverse(node.leaf));
+    nodes.retain(|node| !parent_ids.contains(&node.leaf) || node.leaf == current_leaf);
     Ok(BranchTree {
         session_id: session_id.to_string(),
         nodes,
-        current_leaf,
+        current_leaf: Some(current_leaf),
     })
 }
 
@@ -793,7 +793,6 @@ mod tests {
         assert!(content.contains("共 3 条消息"), "条数锚点在压缩面内: {content}");
         assert!(content.contains("调研墨引擎的引用质量校验"), "首条用户消息入压缩面");
         assert!(content.contains("取证评分公式"), "末条用户消息入压缩面");
-        assert!(TITLE_TEMPERATURE > 0.0 && TITLE_TEMPERATURE <= 1.0);
         assert_eq!(TITLE_CANDIDATE_MAX_CHARS, 12);
         let empty = title_messages(&[]);
         assert_eq!(empty.len(), 2, "空会话也给骨架（降级路径）");

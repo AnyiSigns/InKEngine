@@ -64,7 +64,6 @@ type StepRecord = JsonValue;
 /// 续流回合的 step_id 与中断前连续（前端按 step_id 增量更新既有卡片）。
 #[derive(Debug, Clone)]
 pub struct RoundSteps {
-    round_id: String,
     node_labels: BTreeMap<String, String>,
     steps: Vec<StepRecord>,
     index: HashMap<String, usize>,
@@ -76,7 +75,7 @@ impl RoundSteps {
     /// 新建累积器（seed = 中断回合已有步骤；node_labels = 节点展示标签
     /// 覆盖表，命中即以表内标签替代调用方传入的 label）。
     pub fn new(
-        round_id: &str,
+        _round_id: &str,
         seed: Option<Vec<JsonValue>>,
         node_labels: Option<BTreeMap<String, String>>,
     ) -> Self {
@@ -99,7 +98,6 @@ impl RoundSteps {
             }
         }
         let mut acc = Self {
-            round_id: round_id.to_string(),
             node_labels: node_labels.unwrap_or_default(),
             steps,
             index,

@@ -15,7 +15,7 @@ use std::collections::BTreeMap;
 use inkling_shell_lib::ApprovalLedger;
 use inkling_shell_lib::executors::backends::MockBackend;
 use inkling_shell_lib::executors::impls::{Authorization, ExecError};
-use inkling_shell_lib::executors::registry::build_registry_from_declarations;
+use inkling_shell_lib::executors::registry::{CallGate, build_registry_from_declarations};
 use inkling_shell_lib::executors::tool_decl::{
     Endpoint, ParamType, PermissionLevel, SandboxRule, ToolDecl, ToolDeclarations,
     load_tool_declarations,
@@ -29,6 +29,16 @@ fn registry_with(declarations: &ToolDeclarations) -> inkling_shell_lib::executor
 
 fn args(pairs: &[(&str, serde_json::Value)]) -> BTreeMap<String, serde_json::Value> {
     pairs.iter().map(|(k, v)| (k.to_string(), v.clone())).collect()
+}
+
+/// 调用闸门（L7）：端点隔离 + 端点匹配的注册表网关。测试工具多为
+/// process_exec 端点，统一经过程序端点闸门调用（device_mcp 工具除外）。
+fn pgate() -> CallGate {
+    CallGate::new(Endpoint::ProcessExec)
+}
+
+fn dgate() -> CallGate {
+    CallGate::new(Endpoint::DeviceMcp)
 }
 
 fn ledger_with(declarations: &ToolDeclarations) -> ApprovalLedger {
@@ -159,7 +169,7 @@ fn review_tool_requires_approval() {
     let auth = adjudicate(&ledger, "launch_app", &call);
     assert!(!auth.approved, "无审批态时命令面不得放行 review 档");
     let err = registry
-        .run("launch_app", &call, &backend, &auth)
+        .run("launch_app", &call, &backend, &auth, &pgate())
         .unwrap_err();
     assert_eq!(err, ExecError::ApprovalRequired("launch_app".into()));
     assert!(
@@ -171,7 +181,7 @@ fn review_tool_requires_approval() {
     let auth = pre_approved(&ledger, "launch_app", &call);
     assert!(auth.approved, "台账决议后应放行");
     let outcome = registry
-        .run("launch_app", &call, &backend, &auth)
+        .run("launch_app", &call, &backend, &auth, &pgate())
         .expect("台账批准后应放行");
     assert!(outcome.sandbox_checked);
 }
@@ -185,7 +195,7 @@ fn deny_level_tool_is_hard_blocked() {
     let backend = MockBackend::new();
     let auth = adjudicate(&ledger, "unknown_tool", &args(&[]));
     let err = registry
-        .run("unknown_tool", &args(&[]), &backend, &auth)
+        .run("unknown_tool", &args(&[]), &backend, &auth, &pgate())
         .unwrap_err();
     assert!(matches!(err, ExecError::UnknownTool(_)));
 }
@@ -199,7 +209,7 @@ fn allow_tool_runs_without_approval() {
     let auth = adjudicate(&ledger, "system_query", &args(&[("query", "os".into())]));
     assert!(auth.approved, "allow 档无需审批即放行");
     let outcome = registry
-        .run("system_query", &args(&[("query", "os".into())]), &backend, &auth)
+        .run("system_query", &args(&[("query", "os".into())]), &backend, &auth, &pgate())
         .expect("allow 级不需要授权");
     assert_eq!(outcome.result, "mock:query os");
 }
@@ -230,12 +240,12 @@ fn process_template_tools_registered_with_review_gate() {
         let call = args(&[("command", tool.into())]);
         let auth = adjudicate(&ledger, tool, &call);
         assert!(!auth.approved, "无审批态时 review 档不得放行: {tool}");
-        let err = registry.run(tool, &call, &backend, &auth).unwrap_err();
+        let err = registry.run(tool, &call, &backend, &auth, &pgate()).unwrap_err();
         assert_eq!(err, ExecError::ApprovalRequired(tool.into()));
         // 台账预授权后经后端执行钉死模板
         let auth = pre_approved(&ledger, tool, &call);
         let outcome = registry
-            .run(tool, &call, &backend, &auth)
+            .run(tool, &call, &backend, &auth, &pgate())
             .expect("台账批准后应放行");
         assert!(outcome.sandbox_checked);
         assert!(
@@ -256,23 +266,32 @@ fn process_template_tools_registered_with_review_gate() {
 }
 
 #[test]
-fn process_template_command_enum_enforced() {
+fn process_template_command_is_routing_key() {
+    // L8：command 为真实路由键——按名选中钉死模板（不再「相等校验后丢弃」）；
+    // 未登记路由键/缺 command = 参数非法
     let declarations = load_tool_declarations(TOOLS_DECL_JSON).unwrap();
     let registry = registry_with(&declarations);
     let ledger = ledger_with(&declarations);
     let backend = MockBackend::new();
-    // command 固定枚举不符 = 拒绝（与引擎侧 command_enum_mismatch 同语义）
+    // command=run_typecheck 路由到 tsc 模板（即使经 run_test_cargo 工具调用）
     let call = args(&[("command", "run_typecheck".into())]);
     let auth = pre_approved(&ledger, "run_test_cargo", &call);
+    let outcome = registry
+        .run("run_test_cargo", &call, &backend, &auth, &pgate())
+        .expect("已登记路由键须放行");
+    assert!(outcome.result.contains("tsc --noEmit"), "应路由到 tsc 模板: {}", outcome.result);
+    // 未登记路由键 = 拒绝
+    let call = args(&[("command", "no_such_template".into())]);
+    let auth = pre_approved(&ledger, "run_test_cargo", &call);
     let err = registry
-        .run("run_test_cargo", &call, &backend, &auth)
+        .run("run_test_cargo", &call, &backend, &auth, &pgate())
         .unwrap_err();
-    assert!(matches!(err, ExecError::BadArgs(_)), "command 枚举不符必须拒绝: {err}");
+    assert!(matches!(err, ExecError::BadArgs(_)), "未登记路由键必须拒绝: {err}");
     // 缺 command = 参数非法
     let call = args(&[]);
     let auth = pre_approved(&ledger, "run_typecheck", &call);
     let err = registry
-        .run("run_typecheck", &call, &backend, &auth)
+        .run("run_typecheck", &call, &backend, &auth, &pgate())
         .unwrap_err();
     assert!(matches!(err, ExecError::BadArgs(_)), "缺 command 必须拒绝: {err}");
 }
@@ -304,7 +323,7 @@ fn process_template_filter_appends_per_declared_flag() {
     let call = args(&[("command", "run_test_cargo".into()), ("filter", "parse_test".into())]);
     let auth = pre_approved(&ledger, "run_test_cargo", &call);
     let outcome = registry
-        .run("run_test_cargo", &call, &backend, &auth)
+        .run("run_test_cargo", &call, &backend, &auth, &pgate())
         .expect("cargo 筛选应放行");
     assert!(outcome.result.contains("cargo test -- parse_test"), "{}", outcome.result);
 
@@ -312,7 +331,7 @@ fn process_template_filter_appends_per_declared_flag() {
     let call = args(&[("command", "run_test_python".into()), ("filter", "parse and not live".into())]);
     let auth = pre_approved(&ledger, "run_test_python", &call);
     let outcome = registry
-        .run("run_test_python", &call, &backend, &auth)
+        .run("run_test_python", &call, &backend, &auth, &pgate())
         .expect("pytest 关键词组合应放行");
     assert!(outcome.result.contains("pytest -k parse and not live"), "{}", outcome.result);
 
@@ -320,7 +339,7 @@ fn process_template_filter_appends_per_declared_flag() {
     let call = args(&[("command", "run_test_web".into()), ("filter", "settings_form".into())]);
     let auth = pre_approved(&ledger, "run_test_web", &call);
     let outcome = registry
-        .run("run_test_web", &call, &backend, &auth)
+        .run("run_test_web", &call, &backend, &auth, &pgate())
         .expect("vitest 筛选应放行");
     assert!(outcome.result.contains("vitest run -t settings_form"), "{}", outcome.result);
 
@@ -328,7 +347,7 @@ fn process_template_filter_appends_per_declared_flag() {
     let call = args(&[("command", "run_test_cargo".into()), ("filter", "   ".into())]);
     let auth = pre_approved(&ledger, "run_test_cargo", &call);
     let outcome = registry
-        .run("run_test_cargo", &call, &backend, &auth)
+        .run("run_test_cargo", &call, &backend, &auth, &pgate())
         .expect("空白筛选应整跑");
     assert!(outcome.result.contains("cargo test（exit 0）"), "{}", outcome.result);
 }
@@ -344,7 +363,7 @@ fn process_template_filter_injection_rejected() {
     let call = args(&[("command", "run_test_python".into()), ("filter", "--pdb".into())]);
     let auth = pre_approved(&ledger, "run_test_python", &call);
     let err = registry
-        .run("run_test_python", &call, &backend, &auth)
+        .run("run_test_python", &call, &backend, &auth, &pgate())
         .unwrap_err();
     assert!(matches!(err, ExecError::BadArgs(_)), "旗标注入必须拒绝: {err}");
 
@@ -353,7 +372,7 @@ fn process_template_filter_injection_rejected() {
         let call = args(&[("command", "run_test_cargo".into()), ("filter", evil.into())]);
         let auth = pre_approved(&ledger, "run_test_cargo", &call);
         let err = registry
-            .run("run_test_cargo", &call, &backend, &auth)
+            .run("run_test_cargo", &call, &backend, &auth, &pgate())
             .unwrap_err();
         assert!(matches!(err, ExecError::BadArgs(_)), "拼接符号必须拒绝: {evil}");
     }
@@ -362,7 +381,7 @@ fn process_template_filter_injection_rejected() {
     let call = args(&[("command", "run_test_web".into()), ("filter", "x".repeat(65).into())]);
     let auth = pre_approved(&ledger, "run_test_web", &call);
     let err = registry
-        .run("run_test_web", &call, &backend, &auth)
+        .run("run_test_web", &call, &backend, &auth, &pgate())
         .unwrap_err();
     assert!(matches!(err, ExecError::BadArgs(_)), "超长筛选必须拒绝: {err}");
 }
@@ -377,7 +396,7 @@ fn process_template_filter_rejected_without_declared_slot() {
     let call = args(&[("command", "run_typecheck".into()), ("filter", "app".into())]);
     let auth = pre_approved(&ledger, "run_typecheck", &call);
     let err = registry
-        .run("run_typecheck", &call, &backend, &auth)
+        .run("run_typecheck", &call, &backend, &auth, &pgate())
         .unwrap_err();
     assert!(matches!(err, ExecError::BadArgs(_)), "无声明位必须拒绝: {err}");
 }
@@ -394,14 +413,14 @@ fn launch_app_command_allowlist_enforced() {
     let call = args(&[("app", "powershell.exe".into())]);
     let auth = pre_approved(&ledger, "launch_app", &call);
     let err = registry
-        .run("launch_app", &call, &backend, &auth)
+        .run("launch_app", &call, &backend, &auth, &pgate())
         .unwrap_err();
     assert!(matches!(err, ExecError::SandboxViolation(_)), "白名单外应用必须拒绝: {err}");
 
     let call = args(&[("app", "calc".into())]);
     let auth = pre_approved(&ledger, "launch_app", &call);
     let outcome = registry
-        .run("launch_app", &call, &backend, &auth)
+        .run("launch_app", &call, &backend, &auth, &pgate())
         .expect("白名单内应放行");
     assert!(outcome.result.starts_with("mock:launch calc"));
 }
@@ -417,7 +436,7 @@ fn open_file_path_roots_enforced() {
     let call = args(&[("path", "relative/evil.txt".into())]);
     let auth = pre_approved(&ledger, "open_file", &call);
     let err = registry
-        .run("open_file", &call, &backend, &auth)
+        .run("open_file", &call, &backend, &auth, &pgate())
         .unwrap_err();
     assert!(matches!(err, ExecError::SandboxViolation(_)), "相对路径必须拒绝");
 
@@ -425,7 +444,7 @@ fn open_file_path_roots_enforced() {
     let call = args(&[("path", "C:\\Windows\\System32\\cmd.exe".into())]);
     let auth = pre_approved(&ledger, "open_file", &call);
     let err = registry
-        .run("open_file", &call, &backend, &auth)
+        .run("open_file", &call, &backend, &auth, &pgate())
         .unwrap_err();
     assert!(matches!(err, ExecError::SandboxViolation(_)), "挂载根外必须拒绝");
 
@@ -438,7 +457,7 @@ fn open_file_path_roots_enforced() {
         let call = args(&[("path", evil.into())]);
         let auth = pre_approved(&ledger, "open_file", &call);
         let err = registry
-            .run("open_file", &call, &backend, &auth)
+            .run("open_file", &call, &backend, &auth, &pgate())
             .unwrap_err();
         assert!(
             matches!(err, ExecError::SandboxViolation(_)),
@@ -450,7 +469,7 @@ fn open_file_path_roots_enforced() {
     let call = args(&[("path", "~/.inkling/workspace/notes.md".into())]);
     let auth = pre_approved(&ledger, "open_file", &call);
     let outcome = registry
-        .run("open_file", &call, &backend, &auth)
+        .run("open_file", &call, &backend, &auth, &pgate())
         .expect("挂载根内应放行");
     assert!(outcome.result.contains("notes.md"));
 }
@@ -465,14 +484,14 @@ fn set_volume_bounds_enforced() {
     let call = args(&[("percent", 150.into())]);
     let auth = pre_approved(&ledger, "set_volume", &call);
     let err = registry
-        .run("set_volume", &call, &backend, &auth)
+        .run("set_volume", &call, &backend, &auth, &pgate())
         .unwrap_err();
     assert!(matches!(err, ExecError::SandboxViolation(_)), "越界必须拒绝");
 
     let call = args(&[("percent", 42.into())]);
     let auth = pre_approved(&ledger, "set_volume", &call);
     let outcome = registry
-        .run("set_volume", &call, &backend, &auth)
+        .run("set_volume", &call, &backend, &auth, &pgate())
         .expect("边界内应放行");
     assert_eq!(outcome.result, "mock:volume 42");
 }
@@ -487,7 +506,7 @@ fn set_brightness_bounds_enforced() {
     let call = args(&[("percent", (-5).into())]);
     let auth = pre_approved(&ledger, "set_brightness", &call);
     let err = registry
-        .run("set_brightness", &call, &backend, &auth)
+        .run("set_brightness", &call, &backend, &auth, &pgate())
         .unwrap_err();
     assert!(matches!(err, ExecError::SandboxViolation(_)), "负值必须拒绝");
 }
@@ -502,21 +521,21 @@ fn schedule_bounds_and_required_args() {
     let call = args(&[("seconds", 0.into()), ("action", "x".into())]);
     let auth = pre_approved(&ledger, "schedule", &call);
     let err = registry
-        .run("schedule", &call, &backend, &auth)
+        .run("schedule", &call, &backend, &auth, &pgate())
         .unwrap_err();
     assert!(matches!(err, ExecError::SandboxViolation(_)), "0 秒越界必须拒绝");
 
     let call = args(&[("seconds", 10.into())]);
     let auth = pre_approved(&ledger, "schedule", &call);
     let err = registry
-        .run("schedule", &call, &backend, &auth)
+        .run("schedule", &call, &backend, &auth, &pgate())
         .unwrap_err();
     assert!(matches!(err, ExecError::BadArgs(_)), "缺少 action 必须拒绝");
 
     let call = args(&[("seconds", 10.into()), ("action", "提醒".into())]);
     let auth = pre_approved(&ledger, "schedule", &call);
     let outcome = registry
-        .run("schedule", &call, &backend, &auth)
+        .run("schedule", &call, &backend, &auth, &pgate())
         .expect("边界内应放行");
     assert!(outcome.result.starts_with("mock:job"));
 }
@@ -532,14 +551,14 @@ fn notify_length_caps_enforced() {
     let call = args(&[("title", long_title.into()), ("body", "正文".into())]);
     let auth = pre_approved(&ledger, "notify", &call);
     let err = registry
-        .run("notify", &call, &backend, &auth)
+        .run("notify", &call, &backend, &auth, &pgate())
         .unwrap_err();
     assert!(matches!(err, ExecError::SandboxViolation(_)), "超长标题必须拒绝");
 
     let call = args(&[("title", "InKling".into()), ("body", "补丁已沉淀".into())]);
     let auth = pre_approved(&ledger, "notify", &call);
     let outcome = registry
-        .run("notify", &call, &backend, &auth)
+        .run("notify", &call, &backend, &auth, &pgate())
         .expect("正常长度应放行");
     assert!(outcome.result.contains("InKling"));
 }
@@ -554,7 +573,7 @@ fn system_query_allowlist_enforced() {
     let call = args(&[("query", "registry_dump".into())]);
     let auth = adjudicate(&ledger, "system_query", &call);
     let err = registry
-        .run("system_query", &call, &backend, &auth)
+        .run("system_query", &call, &backend, &auth, &pgate())
         .unwrap_err();
     assert!(matches!(err, ExecError::SandboxViolation(_)), "白名单外查询面必须拒绝");
 }
@@ -570,14 +589,14 @@ fn device_tools_share_same_guards() {
     let call = args(&[("target", "webcam_stream".into())]);
     let auth = pre_approved(&ledger, "screen_query", &call);
     let err = registry
-        .run("screen_query", &call, &backend, &auth)
+        .run("screen_query", &call, &backend, &auth, &dgate())
         .unwrap_err();
     assert!(matches!(err, ExecError::SandboxViolation(_)));
 
     let call = args(&[("target", "resolution".into())]);
     let auth = pre_approved(&ledger, "screen_query", &call);
     let outcome = registry
-        .run("screen_query", &call, &backend, &auth)
+        .run("screen_query", &call, &backend, &auth, &dgate())
         .expect("白名单内应放行");
     assert_eq!(outcome.result, "mock:screen resolution");
 }
@@ -593,13 +612,13 @@ fn backend_side_effects_only_after_guards() {
 
     let launch = args(&[("app", "evil.exe".into())]);
     let auth = pre_approved(&ledger, "launch_app", &launch);
-    let _ = registry.run("launch_app", &launch, &backend, &auth);
+    let _ = registry.run("launch_app", &launch, &backend, &auth, &pgate());
     let volume = args(&[("percent", 200.into())]);
     let auth = pre_approved(&ledger, "set_volume", &volume);
-    let _ = registry.run("set_volume", &volume, &backend, &auth);
+    let _ = registry.run("set_volume", &volume, &backend, &auth, &pgate());
     let evil_open = args(&[("path", "C:\\Windows\\evil.exe".into())]);
     let auth = pre_approved(&ledger, "open_file", &evil_open);
-    let _ = registry.run("open_file", &evil_open, &backend, &auth);
+    let _ = registry.run("open_file", &evil_open, &backend, &auth, &pgate());
 
     let calls = backend.calls.lock().unwrap();
     assert!(calls.is_empty(), "守卫拒绝的调用不得触达后端: {calls:?}");

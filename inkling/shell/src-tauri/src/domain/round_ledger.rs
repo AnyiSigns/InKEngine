@@ -34,7 +34,7 @@ pub const DEFAULT_MAX_BYTES: u64 = 50 * 1024 * 1024;
 pub const DEFAULT_MAX_AGE_DAYS: i64 = 90;
 
 /// 摘要链保留条数（append-only 但留容量界）。
-const SUMMARY_CHAIN_KEEP: usize = 200;
+pub const SUMMARY_CHAIN_KEEP: usize = 200;
 
 /// 归约保留的事件类型（其余回合事件不进账本，账本只存事实要点）。
 const RECOGNIZED_EVENTS: &[&str] = &[

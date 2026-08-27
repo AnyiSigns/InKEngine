@@ -17,8 +17,8 @@ use std::path::PathBuf;
 
 use inkling_shell_lib::executors::backends::MockBackend;
 use inkling_shell_lib::executors::impls::ExecError;
-use inkling_shell_lib::executors::registry::build_registry_from_declarations;
-use inkling_shell_lib::executors::tool_decl::load_tool_declarations;
+use inkling_shell_lib::executors::registry::{CallGate, build_registry_from_declarations};
+use inkling_shell_lib::executors::tool_decl::{Endpoint, load_tool_declarations};
 use inkling_shell_lib::domain::security::{ErrorCode, WorkspaceGuard, resolve_process_exec};
 use inkling_shell_lib::{ApprovalLedger, redact_workspace};
 
@@ -26,6 +26,18 @@ const TOOLS_DECL_JSON: &str = include_str!("../fixtures/tools_os.json");
 
 fn args(pairs: &[(&str, serde_json::Value)]) -> BTreeMap<String, serde_json::Value> {
     pairs.iter().map(|(k, v)| (k.to_string(), v.clone())).collect()
+}
+
+/// 调用闸门（L7）：按工具声明端点取调用端点（process_exec / device_mcp 隔离）。
+fn gate_for(tool: &str) -> CallGate {
+    let declarations = load_tool_declarations(TOOLS_DECL_JSON).unwrap();
+    let endpoint = declarations
+        .tools
+        .iter()
+        .find(|t| t.name == tool)
+        .map(|t| t.endpoint)
+        .unwrap_or(Endpoint::ProcessExec);
+    CallGate::new(endpoint)
 }
 
 fn fixtures() -> (
@@ -55,7 +67,7 @@ fn review_tier_rejected_without_server_approval_state() {
     ] {
         let auth = ledger.adjudicate(tool, &tool_args);
         assert!(!auth.approved, "{tool} 无审批态时不得放行");
-        let err = registry.run(tool, &tool_args, &backend, &auth).unwrap_err();
+        let err = registry.run(tool, &tool_args, &backend, &auth, &gate_for(tool)).unwrap_err();
         assert_eq!(err, ExecError::ApprovalRequired(tool.into()), "{tool} 应报需审批");
         assert!(backend.calls.lock().unwrap().is_empty(), "{tool} 不得触达后端");
     }
@@ -80,13 +92,13 @@ fn approval_resolution_unlocks_exact_fingerprint() {
 
     let auth = ledger.adjudicate("ui_click", &approved_call);
     assert!(auth.approved, "台账决议命中的调用应放行");
-    let outcome = registry.run("ui_click", &approved_call, &backend, &auth).expect("应执行");
+    let outcome = registry.run("ui_click", &approved_call, &backend, &auth, &gate_for("ui_click")).expect("应执行");
     assert!(outcome.result.contains("left @ (10,10)"));
 
     // 参数指纹不同 → 不命中批准（台账裁决按实参精确匹配）
     let auth = ledger.adjudicate("ui_click", &other_call);
     assert!(!auth.approved, "不同参数不得共享批准");
-    let err = registry.run("ui_click", &other_call, &backend, &auth).unwrap_err();
+    let err = registry.run("ui_click", &other_call, &backend, &auth, &gate_for("ui_click")).unwrap_err();
     assert_eq!(err, ExecError::ApprovalRequired("ui_click".into()));
 
     // reject 决议 = 不落批准态（裁决仍拒绝）
@@ -113,7 +125,7 @@ fn auto_approve_config_passes_review_tier() {
     ledger.set_auto_approve(vec!["set_volume".into()], false);
     let auth = ledger.adjudicate("set_volume", &call);
     assert!(auth.approved, "自动审批登记工具应放行");
-    let outcome = registry.run("set_volume", &call, &backend, &auth).expect("应执行");
+    let outcome = registry.run("set_volume", &call, &backend, &auth, &gate_for("set_volume")).expect("应执行");
     assert_eq!(outcome.result, "mock:volume 50");
 
     // 未登记工具不受影响
@@ -137,7 +149,7 @@ fn engine_dispatch_channel_records_and_passes() {
     ledger.record_engine_dispatch("ui_click", &call);
     let auth = ledger.adjudicate("ui_click", &call);
     assert!(auth.approved, "引擎放行态登记后应放行");
-    let outcome = registry.run("ui_click", &call, &backend, &auth).expect("应执行");
+    let outcome = registry.run("ui_click", &call, &backend, &auth, &gate_for("ui_click")).expect("应执行");
     assert!(outcome.sandbox_checked);
 }
 
@@ -169,7 +181,7 @@ fn path_dotdot_traversal_rejected_in_open_file() {
         let call = args(&[("path", evil.into())]);
         let auth = ledger.adjudicate("open_file", &call);
         assert!(auth.approved, "审批层应放行（沙箱层是拒绝点）: {evil}");
-        let err = registry.run("open_file", &call, &backend, &auth).unwrap_err();
+        let err = registry.run("open_file", &call, &backend, &auth, &gate_for("open_file")).unwrap_err();
         assert!(
             matches!(err, ExecError::SandboxViolation(_)),
             "`..` 穿越必须被沙箱拒绝: {evil}（{err}）"

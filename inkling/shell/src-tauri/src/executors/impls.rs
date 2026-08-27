@@ -1178,11 +1178,12 @@ fn validate_test_filter(filter: &str) -> Result<(), ExecError> {
 
 /// 进程模板运行体（run_typecheck / run_test_* 共用）：
 ///
-/// 调用参数 = 端点操作判定的固定命令名（command 与工具名不符 = 拒绝）
-/// + 可选的受限筛选（filter：仅声明 filter_arg 的工具接受；值经字符
-///   集/长度/前导符校验后以 [标志, 值] 追加到模板尾部）。可执行面 =
-///   声明侧钉死的参数模板，工作目录 = 工作区挂载根，超时与输出截断由
-///   后端保证。守卫 = 权限档 + 模板形态校验 + 筛选校验。
+/// 调用参数 = 进程模板路由键（command：真实路由键——按名选中钉死模板，
+/// 不再是「相等校验后丢弃」；路由面 = 声明的进程模板工具闭集，未登记
+/// 路由键 = 拒绝）+ 可选的受限筛选（filter：仅声明 filter_arg 的工具接受；
+/// 值经字符集/长度/前导符校验后以 [标志, 值] 追加到模板尾部）。可执行面 =
+/// 声明侧钉死的参数模板，工作目录 = 工作区挂载根，超时与输出截断由
+/// 后端保证。守卫 = 权限档 + 模板路由校验 + 筛选校验。
 fn run_process_template(
     executor: &dyn Executor,
     args: &BTreeMap<String, Value>,
@@ -1192,21 +1193,9 @@ fn run_process_template(
     let tool = executor.name();
     check_permission(tool, executor.spec().permission, auth)?;
     let command = arg_str(args, "command")?;
-    if command != tool {
-        return Err(ExecError::BadArgs(format!(
-            "command 固定枚举不符: {command}（期望 {tool}）"
-        )));
-    }
-    let (mut argv, timeout_secs, filter_arg) = match &executor.spec().sandbox {
-        SandboxRule::ProcessTemplate { argv, timeout_secs, filter_arg } => {
-            (argv.clone(), *timeout_secs, filter_arg.clone())
-        }
-        _ => {
-            return Err(ExecError::SandboxViolation(
-                "沙箱模式非法（进程模板工具须声明钉死模板）".into(),
-            ))
-        }
-    };
+    let (mut argv, timeout_secs, filter_arg) = process_template_of(command).ok_or_else(|| {
+        ExecError::BadArgs(format!("command 未登记为进程模板路由键: {command}"))
+    })?;
     if let Some(filter) = args.get("filter").and_then(Value::as_str) {
         if !filter.trim().is_empty() {
             let Some(flag) = filter_arg else {
@@ -1225,6 +1214,18 @@ fn run_process_template(
         .run_process(&argv, &cwd_text, timeout_secs)
         .map_err(ExecError::ExecutionFailed)?;
     Ok(ExecOutcome { result, sandbox_checked: true })
+}
+
+/// 进程模板路由表：command 路由键 → 钉死模板（L8——路由键与签名同源：
+/// 经 executor_impl 取已注册模板的沙箱声明，路由面 = 进程模板工具闭集）。
+fn process_template_of(command: &str) -> Option<(Vec<String>, u64, Option<String>)> {
+    let (spec, _) = executor_impl(command)?;
+    match &spec.sandbox {
+        SandboxRule::ProcessTemplate { argv, timeout_secs, filter_arg } => {
+            Some((argv.clone(), *timeout_secs, filter_arg.clone()))
+        }
+        _ => None,
+    }
 }
 
 /// 自指演化提案运行体：签名校验 + 转发引擎接线桥 op。

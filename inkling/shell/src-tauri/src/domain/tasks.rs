@@ -643,6 +643,7 @@ mod tests {
     use std::time::Duration;
 
     /// 构造带记录汇与回退替身的注册表（不触碰真实引擎）。
+    #[allow(clippy::type_complexity)]
     fn test_registry(
     ) -> (Arc<TaskRegistry>, Arc<Mutex<Vec<JsonValue>>>, Arc<Mutex<Vec<(String, String)>>>) {
         let sink_calls = Arc::new(Mutex::new(Vec::new()));

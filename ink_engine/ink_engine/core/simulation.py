@@ -24,6 +24,7 @@ checkpoint 链，落选分支不销毁——保留为轨迹树引用，可回溯
 """
 from __future__ import annotations
 
+import json
 from collections.abc import Callable, Sequence
 from dataclasses import dataclass, field
 from typing import Any, Protocol, runtime_checkable
@@ -319,7 +320,6 @@ def _fit_overlay(overlay: dict, budget: int | None) -> dict:
     """
     if budget is None or budget <= 0:
         return dict(overlay)
-    import json as _json
 
     kept: dict[str, Any] = {}
     used = 0
@@ -334,7 +334,7 @@ def _fit_overlay(overlay: dict, budget: int | None) -> dict:
                 kept[key] = value
                 used += len(value)
             continue
-        size = len(_json.dumps(value, ensure_ascii=False, default=str))
+        size = len(json.dumps(value, ensure_ascii=False, default=str))
         if kept and used + size > budget:
             break
         kept[key] = value

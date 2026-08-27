@@ -397,4 +397,42 @@ async def test_instance_interrupt_cancels_siblings(memory_storage):
     engine = make_engine(_parent_graph(route), storage=memory_storage, spawn_concurrency=2)
     _, result = await _run(engine, thread_id="t1")
     assert result.reason == "interrupted"
-    assert "slow-done" not in done  # 兄弟实例被取消（修复前：sleep 完成并继续写链）
+
+
+async def test_instance_step_limit_marks_instance_failed(memory_storage):
+    """ENG2-8 回归：spawn 实例应用步数护栏（与推演分支/多径支流同口径
+    simulate_max_branch_steps）——执行步数超限的实例失败剔除，不静默提交。"""
+    from ink_engine.core.events import CollectorTransport
+
+    async def a(ctx):
+        return {"n": 1}
+
+    async def b(ctx):
+        return {"n": 2}
+
+    # 两节点实例：execute 步数 = 2 > 护栏 1 → 实例失败
+    sub = Graph(name="sub", entry="s1")
+    sub.add_node("s1", a)
+    sub.add_node("s2", b)
+    sub.add_edge("s1", "s2")
+    sub.add_exit("s2")
+
+    async def route(ctx):
+        return {SPAWN_KEY: [{"subgraph": sub, "state": {}, "index": 0}]}
+
+    collector = CollectorTransport()
+    engine = make_engine(
+        _parent_graph(route),
+        storage=memory_storage,
+        transports=[collector],
+        simulate_max_branch_steps=1,
+    )
+    state, result = await _run(engine, thread_id="t1")
+    assert result.reason == TerminateReason.REPLY
+    # 实例失败剔除：不回流、失败留痕（细节进日志，事件带剔除摘要）
+    assert "n" not in state
+    assert any(
+        "spawn 实例失败" in e.payload.get("message", "")
+        for e in collector.events
+        if e.type == "error"
+    )

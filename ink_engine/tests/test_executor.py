@@ -995,3 +995,226 @@ async def test_cached_subgraph_engine_resets_seq_and_count(memory_storage):
     r3 = await engine.ainvoke({}, thread_id="t1")
     assert r3.reason == TerminateReason.REPLY
     assert r3.events_emitted == 2
+
+
+# ── 第四批 ENG2 建议项回归 ─────────────────────────────────────────
+
+async def test_static_cycle_guard_terminates_with_error(memory_storage):
+    """ENG2-5 回归：纯静态边回路（A→B→A 无可达 exit）执行期按 max_cycle 截止。
+
+    编译期不拒绝（条件边合法循环允许回指），执行器按单节点访问次数
+    兜底：超 max_cycle 终止本轮（reason=error），不依赖预算钩子注入。
+    """
+    calls: dict[str, int] = {}
+
+    async def a(ctx):
+        calls["a"] = calls.get("a", 0) + 1
+        return {}
+
+    async def b(ctx):
+        calls["b"] = calls.get("b", 0) + 1
+        return {}
+
+    g = Graph(name="static-cycle", entry="a")
+    g.add_node("a", a)
+    g.add_node("b", b)
+    g.add_edge("a", "b")
+    g.add_edge("b", "a")  # 静态回边：无可达出口
+
+    engine = make_engine(g, storage=memory_storage, max_cycle=8)
+    _state, result = await _execute(engine, thread_id="t-cycle")
+    assert result.reason == TerminateReason.ERROR
+    assert result.error is not None and "回路超限" in result.error
+    assert "a" in calls and calls["a"] <= 8
+
+    # 护栏关闭（0 = 不校验）：走预算钩子或自然终止——此处验证配置语义生效
+    from ink_engine.core.budget import BudgetPolicy
+    from ink_engine.core.exceptions import BudgetExceededError
+
+    class TinyBudget(BudgetPolicy):
+        def __init__(self):
+            self.n = 0
+
+        async def check(self, ctx) -> None:
+            self.n += 1
+            if self.n > 10:
+                raise BudgetExceededError("nodes", 10, self.n)
+
+    engine3 = make_engine(g, storage=memory_storage, max_cycle=0, budget=TinyBudget())
+    _, result3 = await _execute(engine3, thread_id="t-cycle-budget")
+    assert result3.reason == TerminateReason.BUDGET_EXCEEDED
+
+
+async def test_subgraph_digest_cache_key_hits(memory_storage):
+    """ENG2-6 回归：run_subgraph 缓存键 = 图 digest——同内容子图不同实例
+    复用同一子引擎（id() 键对每次重建的数据驱动子图永不命中，重复
+    compile 成本消失）。"""
+    sub_calls = {"count": 0}
+
+    async def s1(ctx):
+        sub_calls["count"] += 1
+        return {"sub": ctx.state.get("seed", 0)}
+
+    sub_template = Graph(name="data-sub", entry="s1")
+    sub_template.add_node("s1", s1)
+    sub_template.add_exit("s1")
+
+    parent = Graph(name="parent", entry="pre")
+
+    async def pre(ctx):
+        return {}
+
+    parent.add_node("pre", pre)
+    parent.add_exit("pre")
+
+    from ink_engine.core.executor import run_subgraph
+
+    engine = make_engine(parent, storage=memory_storage)
+    state = {"seed": 1}
+    from ink_engine.core.executor import _NodeContextImpl
+
+    ctx = _NodeContextImpl(
+        engine=engine,
+        state=dict(state),
+        graph_path=(),
+        round_id=None,
+        trace_id="t",
+        thread_id="t-digest",
+    )
+    ctx.node = "pre"
+    # 数据驱动重建：两次调用传入内容相同、实例不同的子图（deepcopy
+    # 新建实例——digest 一致、id 不同；任意 callable 结点不可序列化，
+    # 不经 to_dict 往返）
+    import copy
+
+    first = await run_subgraph(copy.deepcopy(sub_template), ctx)
+    second = await run_subgraph(copy.deepcopy(sub_template), ctx)
+    assert first == {"seed": 1, "sub": 1}
+    assert second == {"seed": 1, "sub": 1}
+    # 缓存键为 digest：同定义图只建一个子引擎（id() 键 = 2 个）
+    assert len(engine._subgraph_engines) == 1
+    assert sub_calls["count"] == 2  # 引擎复用、节点照常执行
+
+
+async def test_subgraph_schema_merge_mismatch_rejected():
+    """ENG2-7 回归：子图 schema 与父图 merge reducer 分类不一致 = 首跑拒绝。
+
+    子图声明 merge、父图未声明（回流丢值）与父图声明 merge、子图声明
+    非 merge（回流二次加和）两种错位都显式报错，不静默错位。
+    """
+    from ink_engine.core.exceptions import GraphDefinitionError
+    from ink_engine.core.state import StateSchema
+
+    async def s1(ctx):
+        return {"m": {"k": 1}}
+
+    sub = Graph(name="sub", entry="s1")
+    sub.add_node("s1", s1)
+    sub.add_exit("s1")
+    # 子图声明 m 为 merge_dicts
+    sub.schema = StateSchema.from_dict({"channels": {"m": "merge_dicts"}})
+
+    parent = Graph(name="parent", entry="pre")
+
+    async def pre(ctx):
+        return {}
+
+    parent.add_node("pre", pre)
+    parent.add_subgraph("sub", sub)
+    parent.add_edge("pre", "sub")
+    parent.add_exit("sub")
+    # 父图 schema 未声明 m（裸通道覆盖）→ 子图 merge 声明无处承接 = 拒绝
+    parent.schema = StateSchema.from_dict({"channels": {}})
+    # 检查点 = run_subgraph 入口（经节点执行时被引擎节点失败语义包装，
+    # 这里直测检查本身——ENG2-7 的「拒绝」落点）
+    from ink_engine.core.executor import _NodeContextImpl, run_subgraph
+
+    engine = make_engine(parent, schema=parent.schema)
+    ctx = _NodeContextImpl(
+        engine=engine, state={}, graph_path=(), round_id=None, trace_id="t", thread_id="t"
+    )
+    with pytest.raises(GraphDefinitionError, match="merge reducer"):
+        await run_subgraph(sub, ctx)
+    # 反向：父图声明 m 为 merge_dicts、子图声明 m 为非 merge → 同样拒绝
+    parent.schema = StateSchema.from_dict({"channels": {"m": "merge_dicts"}})
+    sub2 = Graph(name="sub", entry="s1")
+    sub2.add_node("s1", s1)
+    sub2.add_exit("s1")
+    sub2.schema = StateSchema.from_dict({"channels": {"m": "last_value"}})
+    parent2 = Graph(name="parent2", entry="pre")
+    parent2.add_node("pre", pre)
+    parent2.add_subgraph("sub", sub2)
+    parent2.add_edge("pre", "sub")
+    parent2.add_exit("sub")
+    parent2.schema = StateSchema.from_dict({"channels": {"m": "merge_dicts"}})
+    engine2 = make_engine(parent2, schema=parent2.schema)
+    ctx2 = _NodeContextImpl(
+        engine=engine2, state={}, graph_path=(), round_id=None, trace_id="t", thread_id="t"
+    )
+    with pytest.raises(GraphDefinitionError, match="merge reducer"):
+        await run_subgraph(sub2, ctx2)
+
+
+async def test_plan_work_step_checkpoint_marked(memory_storage):
+    """ENG2-13 回归：计划工作步（并行组）完成的 checkpoint 携带
+    ``plan_step`` 标记——node 字段是计划产出节点，标记让审计/消费方
+    可区分「节点步 checkpoint」与「计划工作步 checkpoint」。"""
+    from ink_engine.core.plan import PLAN_KEY
+
+    async def route(ctx):
+        return {PLAN_KEY: [{"parallel": ["x", "y"]}]}
+
+    async def x(ctx):
+        return {"xv": 1}
+
+    async def y(ctx):
+        return {"yv": 2}
+
+    g = Graph(name="plan-mark", entry="route")
+    g.add_node("route", route)
+    g.add_node("x", x)
+    g.add_node("y", y)
+    g.add_exit("route")
+
+    engine = make_engine(g, storage=memory_storage)
+    _, result = await _execute(engine, thread_id="t-planmark")
+    assert result.reason == TerminateReason.REPLY
+    cps = await memory_storage.list_checkpoints("t-planmark")
+    marked = [cp for cp in cps if cp.plan is not None and cp.plan.get("plan_step")]
+    assert marked, "并行组完成 checkpoint 应带 plan_step 标记"
+    # 标记只出现在工作步 checkpoint（含并行成员 overlay 的那条）
+    assert all(cp.node == "route" for cp in marked)
+
+
+async def test_parallel_group_cancel_retrieves_all_tasks(memory_storage):
+    """ENG2-9 回归：FIRST_COMPLETED 取消路径出口 gather(return_exceptions=True)——
+    已完成/已取消任务结果全部检索，无 "Task exception was never retrieved"
+    告警；行为 = 首信号取消后立即返回。"""
+    import asyncio
+
+    async def slow(ctx):
+        await asyncio.sleep(0.5)
+        return {"slow": True}
+
+    async def leader(ctx):
+        ctx.terminate(TerminateReason.REPLY)
+        return {"lead": True}
+
+    async def route(ctx):
+        return {"__plan__": [{"parallel": ["slow", "leader"]}]}
+
+    g = Graph(name="pg-cancel", entry="route")
+    g.add_node("route", route)
+    g.add_node("slow", slow)
+    g.add_node("leader", leader)
+    g.add_exit("route")
+
+    engine = make_engine(g, storage=memory_storage)
+    import time
+
+    t0 = time.monotonic()
+    state, result = await _execute(engine, thread_id="t-pgcancel")
+    elapsed = time.monotonic() - t0
+    assert result.reason == TerminateReason.REPLY
+    assert elapsed < 0.4  # 未等待 slow 成员（首信号即取消）
+    assert state.get("lead") is True

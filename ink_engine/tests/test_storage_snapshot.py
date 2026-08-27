@@ -102,6 +102,60 @@ class TestSqliteSnapshot:
         await copy.close()
         await storage.close()
 
+    async def test_restore_rejects_source_outside_trusted_dir(self, tmp_path):
+        """ENG5-6 回归：restore(src) 限定可信快照目录——目录外/不存在/
+        非常规文件显式拒绝（恢复 = 全量替换，来源不可信不静默透传）。"""
+        from ink_engine.core.exceptions import StorageError
+
+        db_dir = tmp_path / "db"
+        other_dir = tmp_path / "other"
+        db_dir.mkdir()
+        other_dir.mkdir()
+        db_path = str(db_dir / "engine.db")
+        snap_path = str(db_dir / "snapshot.db")
+        outside = other_dir / "foreign.db"
+        storage = SqliteStorage(db_path)
+        await _fill(storage)
+        await storage.snapshot(snap_path)
+        # 可信目录（缺省 = 库文件所在目录）内的快照可恢复
+        await storage.restore(snap_path)
+        # 目录外（且为合法 sqlite 库文件）的恢复源：拒绝
+        outside_src = SqliteStorage(str(outside))
+        await _fill(outside_src)
+        await outside_src.close()
+        with pytest.raises(StorageError, match="可信快照目录"):
+            await storage.restore(str(outside))
+        # 可信目录内但文件不存在 / 传入目录形态：按文件校验拒绝
+        with pytest.raises(StorageError, match="常规文件"):
+            await storage.restore(str(db_dir / "missing.db"))
+        with pytest.raises(StorageError, match="可信快照目录"):
+            await storage.restore(str(other_dir))
+        await storage.close()
+
+    async def test_restore_custom_snapshot_dir(self, tmp_path):
+        """ENG5-6：snapshot_dir 构造参数覆盖默认可信目录。"""
+        trusted = tmp_path / "trusted"
+        untrusted = tmp_path / "untrusted"
+        trusted.mkdir()
+        untrusted.mkdir()
+        snap_path = str(trusted / "snap.db")
+        storage = SqliteStorage(str(tmp_path / "engine.db"), snapshot_dir=str(trusted))
+        await _fill(storage)
+        await storage.snapshot(snap_path)
+        await storage.restore(snap_path)
+        # 可信目录内任意快照文件可恢复（兄弟库文件同受信任）
+        sibling = SqliteStorage(str(trusted / "other.db"))
+        await _fill(sibling)
+        await sibling.close()
+        await storage.restore(str(trusted / "other.db"))
+        # 可信目录之外（即使与库同目录）的快照：拒绝
+        untrusted_snap = SqliteStorage(str(untrusted / "foreign.db"))
+        await _fill(untrusted_snap)
+        await untrusted_snap.close()
+        with pytest.raises(Exception, match="可信快照目录"):
+            await storage.restore(str(untrusted / "foreign.db"))
+        await storage.close()
+
 
 class TestMemorySnapshot:
     async def test_snapshot_restore_round_trip(self, tmp_path):

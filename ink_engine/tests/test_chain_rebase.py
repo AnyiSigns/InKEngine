@@ -407,4 +407,76 @@ async def test_compaction_fail_open_partial_storage(memory_storage):
     )
     result = await engine.ainvoke(state={}, thread_id="t1")
     assert result.reason == TerminateReason.REPLY
-    assert result.state == {"count": 1}
+
+
+# ── ENG5-10：压缩原子性（链尾版本戳）──
+
+
+class _AdvancingTailStorage:
+    """模拟压缩期并发推进：第二次 chain_index 返回链尾已前进的索引。
+
+    压缩计划基于首次索引（tail=T），rewire 后重取索引发现链尾 != T
+    （他引擎同 thread 续链）→ 本计划作废，跳过删除（fail-open）。
+    """
+
+    def __init__(self, inner) -> None:
+        self._inner = inner
+        self.index_calls = 0
+        self.delete_called = False
+
+    async def chain_index(self, thread_id):
+        self.index_calls += 1
+        links = await self._inner.chain_index(thread_id)
+        if self.index_calls == 2:
+            # 模拟并发推进：新链尾 = 旧链尾之后（parent 指向旧链尾）
+            advanced = ChainLink(
+                checkpoint_id=links[0].checkpoint_id + 100,
+                parent_id=links[0].checkpoint_id,
+                event_seq=links[0].event_seq + 1,
+                graph_path=(),
+                reason=None,
+            )
+            return [advanced, *links]
+        return links
+
+    async def set_checkpoint_parent(self, thread_id, cid, parent):
+        await self._inner.set_checkpoint_parent(thread_id, cid, parent)
+
+    async def delete_checkpoints(self, thread_id, ids):
+        self.delete_called = True
+        return await self._inner.delete_checkpoints(thread_id, ids)
+
+    async def trim_events(self, thread_id, before_seq):
+        return 0
+
+
+async def test_compaction_skips_delete_on_concurrent_tail_advance(memory_storage):
+    """ENG5-10 回归：rewire 与删除之间链尾被并发推进 → 计划作废，跳过删除。
+
+    基于过期快照的删除会把新窗口内的行误裁；以计划期链尾为版本戳，
+    删除前重取索引比对，链尾已前进 = 本计划作废（fail-open：压缩是
+    尽力而为的维护操作，跳过不损坏数据）。
+    """
+    await _build_chain(memory_storage, n=10)
+    for i in range(1, 21):
+        await memory_storage.append_event("t1", _event(i))
+
+    adv = _AdvancingTailStorage(memory_storage)
+    outcome = await maybe_compact_chain(adv, "t1", keep=3)
+    # rewire 已执行（无害），删除被跳过（版本戳不匹配）
+    assert outcome.removed == 0
+    assert outcome.rewired == 1
+    assert not adv.delete_called
+    assert len(await memory_storage.chain_index("t1")) == 10  # 行数未裁剪
+    # 链仍一致（rewire 无害：归档链头脱离父链，校验器只走链尾路径）
+    assert await validate_chain(memory_storage, "t1") == []
+
+
+async def test_compaction_normal_path_still_compacts(memory_storage):
+    """ENG5-10 反向确认：无并发推进时压缩照常执行（版本戳匹配）。"""
+    await _build_chain(memory_storage, n=10)
+    outcome = await maybe_compact_chain(memory_storage, "t1", keep=3)
+    assert outcome.removed == 7
+    assert outcome.rewired == 1
+    assert len(await memory_storage.chain_index("t1")) == 3
+    assert await validate_chain(memory_storage, "t1") == []

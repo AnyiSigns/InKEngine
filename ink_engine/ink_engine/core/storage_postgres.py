@@ -12,11 +12,17 @@ import asyncio
 import json
 from typing import Any
 
-from .events import EngineEvent
+from .events import EngineEvent, parse_event_lenient
 from .exceptions import CheckpointConflictError, StorageError
 from .logging import get_logger
 from .security import strip_sensitive
-from .storage import ChainLink, CheckpointRecord, _from_jsonable
+from .storage import (
+    DEFAULT_LIST_CHECKPOINTS_LIMIT,
+    ChainLink,
+    CheckpointRecord,
+    _from_jsonable,
+)
+from .storage_schema import build_schema_sql
 
 logger = get_logger(__name__)
 
@@ -36,39 +42,57 @@ def _decode_jsonb(value: Any, default: Any = None) -> Any:
     return value
 
 
-_SCHEMA_SQL = """
-CREATE TABLE IF NOT EXISTS checkpoints (
-    checkpoint_id BIGSERIAL PRIMARY KEY,
-    thread_id TEXT NOT NULL,
-    node TEXT,
-    graph_path JSONB NOT NULL DEFAULT '[]',
-    state JSONB NOT NULL DEFAULT '{}',
-    parent_id BIGINT,
-    reason TEXT,
-    created_at DOUBLE PRECISION NOT NULL,
-    version INTEGER NOT NULL DEFAULT 1,
-    event_seq BIGINT NOT NULL DEFAULT 0,
-    error TEXT,
-    interrupt JSONB,
-    graph_version TEXT,
-    plan JSONB
-);
-CREATE INDEX IF NOT EXISTS idx_checkpoints_thread ON checkpoints(thread_id, checkpoint_id DESC);
+_SCHEMA_SQL = build_schema_sql("postgres")
 
-CREATE TABLE IF NOT EXISTS event_log (
-    seq BIGSERIAL PRIMARY KEY,
-    thread_id TEXT NOT NULL,
-    event JSONB NOT NULL
-);
-CREATE INDEX IF NOT EXISTS idx_event_log_thread ON event_log(thread_id, seq);
 
-CREATE TABLE IF NOT EXISTS records (
-    collection TEXT NOT NULL,
-    key TEXT NOT NULL,
-    data JSONB NOT NULL,
-    PRIMARY KEY (collection, key)
-);
-"""
+def _conditional_insert_sql_and_params(data: dict) -> tuple[str, tuple]:
+    """构造条件续链 INSERT ... SELECT：返回 (SQL, 按 $n 顺序的参数表)。
+
+    有序参数构造器（ENG5-3）：占位符按 SQL 出现顺序编号 $1..$17，
+    参数表与占位符**一一对齐顺序构造**——跳号/乱序人工对齐脆弱
+    （增删字段或调整条件时错位即静默写错库），改由单一参数列表驱动。
+    参数全部显式转型：asyncpg 对 INSERT ... SELECT 的目标列表参数
+    无目标列类型可推断，裸 $n 报 "could not determine data type of
+    parameter"。
+    """
+    params: list[Any] = [
+        data["thread_id"],  # $1
+        data["node"],  # $2
+        json.dumps(data["graph_path"]),  # $3
+        json.dumps(data["state"], ensure_ascii=False),  # $4
+        data["parent_id"],  # $5
+        data["reason"],  # $6
+        data["created_at"],  # $7
+        data["event_seq"],  # $8
+        data["error"],  # $9
+        json.dumps(data["interrupt"], ensure_ascii=False)
+        if data["interrupt"] is not None
+        else None,  # $10
+        data["graph_version"],  # $11
+        json.dumps(data["plan"], ensure_ascii=False)
+        if data["plan"] is not None
+        else None,  # $12
+        data["thread_id"],  # $13（WHERE NOT EXISTS 归属）
+        data["parent_id"],  # $14（WHERE NOT EXISTS 链尾锚点）
+        data["parent_id"],  # $15（父指针 EXISTS 锚点）
+        data["thread_id"],  # $16（父指针归属）
+        data["event_seq"],  # $17（父指针 event_seq 上界）
+    ]
+    sql = (
+        "INSERT INTO checkpoints (thread_id, node, graph_path, state,"
+        " parent_id, reason, created_at, version, event_seq, error, interrupt,"
+        " graph_version, plan)"
+        " SELECT $1::text,$2::text,$3::jsonb,$4::jsonb,$5::bigint,$6::text,"
+        " $7::double precision,1,$8::bigint,$9::text,$10::jsonb,"
+        " $11::text,$12::jsonb"
+        " WHERE NOT EXISTS (SELECT 1 FROM checkpoints"
+        " WHERE thread_id = $13::text AND checkpoint_id > $14::bigint)"
+        " AND EXISTS (SELECT 1 FROM checkpoints"
+        " WHERE checkpoint_id = $15::bigint"
+        " AND thread_id = $16::text AND event_seq <= $17::bigint)"
+        " RETURNING checkpoint_id"
+    )
+    return sql, tuple(params)
 
 
 class PostgresStorage:
@@ -188,44 +212,8 @@ class PostgresStorage:
                             #   且 event_seq 不高于新节点（EXISTS 判定）——悬挂/
                             #   跨线程父指针与 event_seq 回退在写入期暴露。
                             # fork=True（编辑重放分叉）跳过校验，允许锚点指向历史链节点。
-                            # 参数全部显式转型：asyncpg 对 INSERT ... SELECT 的
-                            # 目标列表参数无目标列类型可推断，裸 $n 报
-                            # "could not determine data type of parameter"。
-                            row = await conn.fetchrow(
-                                "INSERT INTO checkpoints (thread_id, node, graph_path, state,"
-                                " parent_id, reason, created_at, version, event_seq, error, interrupt,"
-                                " graph_version, plan)"
-                                " SELECT $1::text,$2::text,$3::jsonb,$4::jsonb,$5::bigint,$6::text,"
-                                " $7::double precision,1,$8::bigint,$9::text,$12::jsonb,"
-                                " $13::text,$16::jsonb"
-                                " WHERE NOT EXISTS (SELECT 1 FROM checkpoints"
-                                " WHERE thread_id = $10::text AND checkpoint_id > $11::bigint)"
-                                " AND EXISTS (SELECT 1 FROM checkpoints"
-                                " WHERE checkpoint_id = $15::bigint"
-                                " AND thread_id = $14::text AND event_seq <= $17::bigint)"
-                                " RETURNING checkpoint_id",
-                                data["thread_id"],
-                                data["node"],
-                                json.dumps(data["graph_path"]),
-                                json.dumps(data["state"], ensure_ascii=False),
-                                data["parent_id"],
-                                data["reason"],
-                                data["created_at"],
-                                data["event_seq"],
-                                data["error"],
-                                data["thread_id"],
-                                data["parent_id"],
-                                json.dumps(data["interrupt"], ensure_ascii=False)
-                                if data["interrupt"] is not None
-                                else None,
-                                data["graph_version"],
-                                data["thread_id"],
-                                data["parent_id"],
-                                json.dumps(data["plan"], ensure_ascii=False)
-                                if data["plan"] is not None
-                                else None,
-                                data["event_seq"],
-                            )
+                            sql, params = _conditional_insert_sql_and_params(data)
+                            row = await conn.fetchrow(sql, *params)
                             if row is None:
                                 raise CheckpointConflictError(
                                     f"checkpoint 写入被拒绝（链尾已前进/父指针不存在/跨线程/event_seq 回退）: "
@@ -325,7 +313,9 @@ class PostgresStorage:
             logger.error(f"postgres checkpoint 写入失败: {exc}")
             raise StorageError(f"postgres checkpoint 写入失败: {exc}") from exc
 
-    async def list_checkpoints(self, thread_id: str, *, limit: int = 100) -> list[CheckpointRecord]:
+    async def list_checkpoints(
+        self, thread_id: str, *, limit: int = DEFAULT_LIST_CHECKPOINTS_LIMIT
+    ) -> list[CheckpointRecord]:
         await self._connect()
         try:
             async with self._pool.acquire() as conn:
@@ -428,10 +418,20 @@ class PostgresStorage:
                 )
         except Exception as exc:
             raise StorageError(f"postgres 事件日志读取失败: {exc}") from exc
-        return [
-            EngineEvent.from_dict({**_decode_jsonb(r["event"], {}), "seq": r["seq"]})
-            for r in rows
-        ]
+        # 逐条容错解析（ENG5-4）：单条旧版本/损坏事件跳过，不中断整段重放
+        events: list[EngineEvent] = []
+        for row in rows:
+            try:
+                raw = _decode_jsonb(row["event"], {})
+            except (json.JSONDecodeError, TypeError) as exc:
+                logger.warning(
+                    f"事件行 JSON 损坏，跳过（回放容错）: seq={row['seq']}: {exc}"
+                )
+                continue
+            event = parse_event_lenient({**raw, "seq": row["seq"]})
+            if event is not None:
+                events.append(event)
+        return events
 
     async def latest_event_seq(self, thread_id: str) -> int:
         await self._connect()
@@ -510,6 +510,16 @@ class PostgresStorage:
         return [_decode_jsonb(r["data"]) for r in rows]
 
     # ── 全量快照（显式不支持：服务器级备份归 pg_dump/归档基础设施）──
+    @property
+    def snapshot_capable(self) -> bool:
+        """文件级快照/恢复能力声明：postgres 不支持（ENG5-7）。
+
+        宿主在调用前经本属性探测，不支持的部署直接跳过（fail-open），
+        避免运行期 NotImplementedError 断链——文件级快照归 pg_dump/
+        归档基础设施，引擎侧连接是应用会话，无权也不应复制服务器数据文件。
+        """
+        return False
+
     async def snapshot(self, dest: str) -> None:
         """不支持（显式 NotImplementedError）。
 

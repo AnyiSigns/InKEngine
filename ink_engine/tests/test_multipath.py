@@ -824,6 +824,109 @@ async def test_multipath_interrupt_suspend_and_resume(memory_storage):
     await store.close()
 
 
+async def test_branch_inject_isolated_per_branch(memory_storage):
+    """ENG2-12 回归：同 review_key 注入按分支隔离——每条命中中断点的
+    支流消费自己的注入副本。
+
+    修复前：跨分支共享父 coordinator，注入值被首条命中支流 consume
+    （一次性弹出），其余支流再 interrupt() 无值可消费 → 提升挂起卡/
+    InterruptError。修复后每条支流独立 coordinator 预载注入快照，
+    同键决策对全部命中中断点的支流可消费。
+    """
+    registry = make_behavior_registry(
+        interrupt_types={"answer_direct", "answer_direct_2"}
+    )
+    store = EdgeEvidenceStore(":memory:")
+    candidates = await make_candidates(registry, store, top_k=2)
+    assert {"answer_direct", "answer_direct_2"} <= {
+        c.chain[-1] for c in candidates
+    }
+    engine = make_parent_engine(registry, memory_storage, [])
+    runner = make_runner(engine, store=store)
+    result = await runner.run(
+        make_request(top_k=2),
+        candidates,
+        entry_state={"user_query": "q"},
+        thread_id="t-mp-inj",
+        round_id="r1",
+        trace_id="trace-mp-inj",
+        inject={"test.gate": "APPROVED"},
+    )
+    assert result.triggered is True
+    assert result.verdict is not None
+    assert result.verdict.winner is not None
+    # 两条支流各自消费注入值并完成（修复前：非首条支流中断抛卡）
+    assert all(b.terminal != "error" for b in result.branches)
+    interrupting = [
+        b for b in result.branches if b.final_state.get("intent") == "APPROVED"
+    ]
+    assert len(interrupting) == 2
+    await store.close()
+
+
+async def test_executor_multipath_passes_pending_inject(memory_storage):
+    """ENG2-12 接线：executor._run_multipath 把父 coordinator 的待消费
+    注入快照透传给支流执行器——run(inject=...) 注入经多径节点到支流。"""
+    from ink_engine.core.events import CollectorTransport
+    from ink_engine.core.graph import Graph
+    from ink_engine.core.multipath import MULTIPATH_KEY
+    from ink_engine.core.path_assembler import (
+        PathAssemblyRuntime,
+        get_default_assembly_runtime,
+        set_default_assembly_runtime,
+    )
+
+    registry = make_behavior_registry(
+        interrupt_types={"answer_direct", "answer_direct_2"}
+    )
+    store = EdgeEvidenceStore(":memory:")
+    candidates = await make_candidates(registry, store, top_k=2)
+    request = make_request(top_k=2, tier=0)
+    previous = get_default_assembly_runtime()
+    set_default_assembly_runtime(
+        PathAssemblyRuntime(
+            registry=registry,
+            evidence_store=store,
+            config=PathAssemblyConfig(enabled=True),
+            multipath_enabled=True,
+            now=DUMMY_NOW,
+        )
+    )
+    try:
+        async def orchestrator(ctx):
+            return {
+                MULTIPATH_KEY: {
+                    "request": request,
+                    "candidates": list(candidates),
+                    "entry_state": {"input": "任务输入"},
+                    "k": 2,
+                }
+            }
+
+        graph = Graph(name="mp-inject", entry="orch")
+        graph.add_node("orch", orchestrator)
+        graph.add_exit("orch")
+        collector = CollectorTransport()
+        engine = make_engine(
+            graph,
+            transports=[collector],
+            registries=GraphRegistries(nodes=registry),
+        )
+        result = await engine.ainvoke(
+            {"input": "任务输入"}, inject={"test.gate": "APPROVED"}
+        )
+        assert result.reason == "reply"
+        events = [e for e in collector.events if e.type == "multipath_result"]
+        assert len(events) == 1
+        assert events[0].payload["triggered"] is True
+        assert events[0].payload["winner"] is not None
+        # 胜者支流消费了注入值（intent = 注入值，非默认 "ip"）
+        assert result.state.get("intent") == "APPROVED"
+    finally:
+        set_default_assembly_runtime(previous)
+        await store.close()
+
+
 async def test_multipath_cancel_keeps_subchains_and_recovers(memory_storage):
     """中止语义：执行中取消（abort 同向）→ 子链 checkpoint 保留 →
     重跑从链尾/链头收口（不丢已跑轨迹）。"""

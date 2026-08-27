@@ -372,6 +372,13 @@ class ContextAssembler:
     ) -> None:
         if default_budget_chars < 0:
             raise ValueError(f"默认预算不能为负: {default_budget_chars}")
+        if allocator is not None and not isinstance(allocator, BudgetAllocator):
+            # 协议运行期校验（ENG2-14）：BudgetAllocator 不再只是类型注解——
+            # 注入的分配策略不满足协议（缺 allocate/签名漂移）在装配期暴露，
+            # 而非执行期 AttributeError 炸链路
+            raise TypeError(
+                f"allocator 须实现 BudgetAllocator 协议: {type(allocator).__name__}"
+            )
         self.default_budget_chars = default_budget_chars
         self.allocator = allocator or WeightedBudgetAllocator()
 
@@ -475,9 +482,9 @@ class FusionRegistry:
 
     插拔语义：同名重复注册 = 覆盖（宿主启动按配置装配，配置驱动）。
 
-    预留 API：多钩子注册表当前无消费方——运行时融合由单钩子的
-    ContextMixer 承载，本注册表与 ContextMixer 的接入或移除属决策项，
-    本次仅标注，行为不变（注册/取钩子仍可用，但不会被装配核心调用）。
+    消费方 = :class:`ContextMixer`（ENG2-11 接入）：mix 未直接注入
+    ``fusion_hook`` 时，按 ``fusion_hook_name`` 从注册表取钩子——
+    注册表不再是无消费方的孤儿代码，多策略注册经名称选择参与融合。
     """
 
     def __init__(self) -> None:
@@ -503,7 +510,9 @@ class ContextMixer:
     - 注册融合钩子（或 mix 调用时注入）→ 优先融合：融合产出即最终文本，
       且留痕 fused=True；融合返回 None / 抛异常 → 自动回退确定性组装
       （fail-open，融合成本 = 按需额外 LLM 调用，不默认）；
-    - 未注册钩子 → 纯确定性组装，零额外 LLM 调用。
+    - 未直接注入钩子时，可按 ``fusion_registry`` 注册表按名取钩子
+      （ENG2-11：注册表有真实消费方）；
+    - 未注册任何钩子 → 纯确定性组装，零额外 LLM 调用。
     """
 
     def __init__(
@@ -512,10 +521,14 @@ class ContextMixer:
         assembler: ContextAssembler | None = None,
         fusion_hook: FusionHook | None = None,
         fusion_instruction: str = "",
+        fusion_registry: FusionRegistry | None = None,
+        fusion_hook_name: str = "default",
     ) -> None:
         self.assembler = assembler or ContextAssembler()
         self.fusion_hook = fusion_hook
         self.fusion_instruction = fusion_instruction
+        self.fusion_registry = fusion_registry
+        self.fusion_hook_name = fusion_hook_name
 
     def attach_fusion(self, hook: FusionHook, instruction: str = "") -> None:
         """挂载/替换融合钩子（运行期可换，插拔语义）。"""
@@ -536,9 +549,12 @@ class ContextMixer:
             if total_chars is None
             else total_chars
         )
-        if self.fusion_hook is not None and sources:
+        hook = self.fusion_hook
+        if hook is None and self.fusion_registry is not None:
+            hook = self.fusion_registry.get(self.fusion_hook_name)
+        if hook is not None and sources:
             try:
-                fused = await self.fusion_hook.fuse(
+                fused = await hook.fuse(
                     sources,
                     instruction=instruction or self.fusion_instruction,
                     budget_chars=total,

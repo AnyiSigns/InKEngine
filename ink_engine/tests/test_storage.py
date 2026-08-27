@@ -2,12 +2,17 @@
 事件日志 append-only + 截断、structured records。"""
 from __future__ import annotations
 
+import json
 import os
 
 import pytest
 
 from ink_engine.core.events import EngineEvent
-from ink_engine.core.exceptions import CheckpointConflictError, StorageError
+from ink_engine.core.exceptions import (
+    CheckpointConflictError,
+    ProtocolVersionError,
+    StorageError,
+)
 from ink_engine.core.security import SENSITIVE_KEYS, strip_sensitive
 from ink_engine.core.storage import CheckpointRecord, create_storage, validate_chain
 
@@ -657,3 +662,215 @@ async def test_validate_chain_detects_violations():
     assert any("父链非递减" in v for v in violations)
     # 环检测立即终止：不触发遍历超限
     assert not any("遍历超限" in v for v in violations)
+
+
+# ── 第四批 ENG2/ENG5 建议项回归 ───────────────────────────────────
+
+async def test_append_event_seq_atomic_under_concurrency(tmp_path):
+    """ENG2-4/16 回归：多实例并发 append_event 的 seq 分配原子性。
+
+    子引擎（spawn/simulate fan_out）并发落父 thread 日志时 seq 由存储层
+    保证唯一且严格递增（内存端锁内自增 / sqlite AUTOINCREMENT + WAL
+    单写者 / postgres BIGSERIAL）——跨连接/跨引擎实例并发不产生重复或
+    乱序 seq（引擎侧 _event_lock 只串行化单实例内计数）。
+    """
+    import asyncio
+
+    async def hammer(store, thread: str, count: int) -> list[int]:
+        seqs: list[int] = []
+        for _ in range(count):
+            seqs.append(
+                await store.append_event(
+                    thread, EngineEvent(type="t", payload={"i": len(seqs)})
+                )
+            )
+        return seqs
+
+    # 内存端：单实例 + 并发任务
+    mem = create_storage("memory://")
+    try:
+        seqs = await asyncio.gather(
+            *[hammer(mem, "t-conc", 10) for _ in range(4)]
+        )
+        flat = [s for group in seqs for s in group]
+        assert len(set(flat)) == len(flat)  # 全局唯一
+        for group in seqs:
+            assert group == sorted(group)  # 各任务内单调（锁内自增）
+        assert len(await mem.events_after("t-conc", 0)) == 40
+    finally:
+        await mem.close()
+
+    # sqlite 端：两个独立连接（模拟跨引擎实例/跨进程形态）并发写同一文件。
+    # 连接期串行建立（生产 = 各引擎启动期各自建连；建连含 PRAGMA/schema
+    # 写锁，并发建连在 WAL 生效前互相阻塞属启动竞态而非日志写入问题），
+    # 并发只打在 append 路径（ENG2-4 的目标场景）
+    path = tmp_path / "conc.db"
+    s1 = create_storage(f"sqlite:///{path.as_posix()}")
+    s2 = create_storage(f"sqlite:///{path.as_posix()}")
+    try:
+        await s1._connect()
+        await s2._connect()
+        seqs = await asyncio.gather(
+            hammer(s1, "t-sql", 10), hammer(s2, "t-sql", 10)
+        )
+        flat = [s for group in seqs for s in group]
+        assert len(set(flat)) == len(flat)  # AUTOINCREMENT 序列不复用
+        # 原子性 = 各连接内部单调（跨连接交错分配，无全局完成序）
+        for group in seqs:
+            assert group == sorted(group)
+        assert len(await s1.events_after("t-sql", 0)) == 20
+    finally:
+        await s1.close()
+        await s2.close()
+
+
+async def test_events_after_skips_incompatible_rows(tmp_path):
+    """ENG5-4 回归：events_after 单条旧版本/损坏事件跳过，不中断整段重放。
+
+    存储层逐条容错解析（parse_event_lenient）：一条旧协议版本事件不再
+    让整个重放区间抛 ProtocolVersionError——其余事件照常回放。
+    """
+    import json
+
+    from ink_engine.core.events import PROTOCOL_VERSION
+    from ink_engine.core.storage_sqlite import SqliteStorage
+
+    store = SqliteStorage(":memory:")
+    try:
+        good1 = await store.append_event(
+            "t1", EngineEvent(type="a", payload={"n": 1})
+        )
+        good2 = await store.append_event(
+            "t1", EngineEvent(type="c", payload={"n": 3})
+        )
+        # 直接注入一条旧版本事件（绕过 append_event——它按当前协议写）
+        raw_old = {
+            "type": "legacy",
+            "version": PROTOCOL_VERSION + 1,
+            "payload": {},
+            "seq": 0,
+            "step_id": None,
+            "parent_step_id": None,
+            "round_id": None,
+            "node": None,
+            "graph_path": [],
+            "trace_id": "-",
+            "thread_id": "-",
+        }
+        await store._conn.execute(
+            "INSERT INTO event_log (thread_id, event) VALUES (?, ?)",
+            ("t1", json.dumps(raw_old)),
+        )
+        await store._conn.commit()
+        # 中间位置注入损坏行（非 JSON 无法 parse 前仍逐条跳过）
+        await store._conn.execute(
+            "INSERT INTO event_log (thread_id, event) VALUES (?, ?)",
+            ("t1", "not-json{{"),
+        )
+        await store._conn.commit()
+
+        events = await store.events_after("t1", 0)
+        assert [e.type for e in events] == ["a", "c"]
+        assert [e.seq for e in events] == [good1, good2]
+        # 旧版本事件本身仍被 from_dict 拒绝（入口语义不变）
+        with pytest.raises(ProtocolVersionError):
+            EngineEvent.from_dict(raw_old)
+    finally:
+        await store.close()
+
+
+async def test_storage_capabilities():
+    """ENG5-7 回归：三后端暴露 snapshot_capable 能力声明——宿主据此
+    fail-open（postgres 不支持文件级快照，不再运行期 NotImplementedError）。"""
+    from ink_engine.core.storage_memory import MemoryStorage
+    from ink_engine.core.storage_postgres import PostgresStorage
+    from ink_engine.core.storage_sqlite import SqliteStorage
+
+    mem = MemoryStorage()
+    sqlite = SqliteStorage(":memory:")
+    pg = PostgresStorage("postgresql://u:p@localhost/db")
+    try:
+        assert mem.snapshot_capable is True
+        assert sqlite.snapshot_capable is True
+        assert pg.snapshot_capable is False
+        # 声明即契约：声明支持者方法可用，不支持者显式拒绝
+        with pytest.raises(NotImplementedError):
+            await pg.snapshot("x.db")
+    finally:
+        await mem.close()
+        await sqlite.close()
+        await pg.close()
+
+
+async def test_create_storage_urlsplit_schemes(tmp_path):
+    """ENG5-8 回归：连接串 scheme 经 urlsplit 解析——裸串/带查询参数/
+    postgres 别名形态稳定路由（手工 split(":",1) 对形态歧义脆弱）。"""
+    from ink_engine.core.storage_memory import MemoryStorage
+    from ink_engine.core.storage_sqlite import SqliteStorage
+
+    assert isinstance(create_storage("memory"), MemoryStorage)
+    assert isinstance(create_storage("memory://"), MemoryStorage)
+    assert isinstance(create_storage(""), MemoryStorage)
+    assert isinstance(
+        create_storage("sqlite:///:memory:?x=1"), SqliteStorage
+    )
+    assert isinstance(
+        create_storage(f"sqlite:///{tmp_path / 'q.db'}"), SqliteStorage
+    )
+    with pytest.raises(ValueError):
+        create_storage("mysql://x")
+
+
+def test_postgres_conditional_insert_ordered_params():
+    """ENG5-3 回归：条件续链 INSERT ... SELECT 的有序参数构造器——
+    $n 占位符与参数表一一顺序对齐（17 个参数无跳号），增删字段只改
+    构造器一处。"""
+    from ink_engine.core.storage_postgres import (
+        _conditional_insert_sql_and_params,
+    )
+
+    data = {
+        "thread_id": "t1",
+        "node": "n1",
+        "graph_path": ["g"],
+        "state": {"a": 1},
+        "parent_id": 5,
+        "reason": None,
+        "created_at": 123.0,
+        "event_seq": 7,
+        "error": None,
+        "interrupt": None,
+        "graph_version": "v1",
+        "plan": None,
+    }
+    sql, params = _conditional_insert_sql_and_params(data)
+    # 占位符顺序编号 1..17 连续（无跳号）且按 SQL 出现顺序
+    for i in range(1, 18):
+        assert f"${i}" in sql
+    assert "$18" not in sql
+    assert len(params) == 17
+    # 参数与占位符对齐：前 12 个 = 列值，13/14 = NOT EXISTS，15/16/17 = EXISTS
+    assert params[0] == "t1" and params[1] == "n1"
+    assert json.loads(params[3]) == {"a": 1}
+    assert params[4] == 5 and params[7] == 7
+    assert params[12] == "t1" and params[13] == 5 and params[14] == 5
+    assert params[15] == "t1" and params[16] == 7
+
+
+def test_default_magic_numbers_extracted():
+    """ENG5-5 回归：list_checkpoints(limit)/validate_chain(max_walk) 魔法
+    数字抽为具名常量（存储协议默认值与常量一致）。"""
+    import inspect
+
+    from ink_engine.core.storage import (
+        DEFAULT_CHAIN_WALK_LIMIT,
+        DEFAULT_LIST_CHECKPOINTS_LIMIT,
+        Storage,
+    )
+
+    assert DEFAULT_LIST_CHECKPOINTS_LIMIT == 100
+    assert DEFAULT_CHAIN_WALK_LIMIT == 10000
+    sig = inspect.signature(Storage.list_checkpoints)
+    assert sig.parameters["limit"].default == DEFAULT_LIST_CHECKPOINTS_LIMIT
+    sig = inspect.signature(validate_chain)
+    assert sig.parameters["max_walk"].default == DEFAULT_CHAIN_WALK_LIMIT

@@ -27,11 +27,37 @@ from ink_engine.core.path_assembler import (
     clear_candidate_selection,
     set_multipath,
 )
+from ink_engine.core.storage import create_storage
 
 
 async def _audit_types(storage) -> list[str]:
     """取 set_audit 集合中全部审计记录的 type（落库断言用）。"""
     return [r.get("type") for r in await storage.list_records("set_audit")]
+
+
+# ── 0. 审计通道契约（ENG5-12）──
+
+async def test_emit_audit_protocol_contract() -> None:
+    """ENG5-12 回归：emit_audit 的显式 AuditStorage 契约——满足协议的
+    存储正常落库；缺 put_record 的存储（接口漂移）跳过但不抛错，审计
+    失败可闻（warning 留痕）而非静默丢失。"""
+    from ink_engine.core.audit_log import AuditStorage, emit_audit
+
+    storage = create_storage("memory://")
+    try:
+        # 存储满足协议（MemoryStorage 实现 put_record）
+        await emit_audit(storage, {"type": "op.test", "ts": 1.0})
+        assert (await storage.list_records("set_audit"))[0]["type"] == "op.test"
+    finally:
+        await storage.close()
+
+    # 裸对象（无 put_record）：跳过 + warning（不抛错不静默）
+    await emit_audit(object(), {"type": "op.test", "ts": 1.0})
+
+    # 协议可运行时探测（宿主据此判断存储是否支持审计通道）
+    from ink_engine.core.storage_memory import MemoryStorage
+
+    assert isinstance(MemoryStorage(), AuditStorage)
 
 
 # ── 1. path.choose_candidate ──

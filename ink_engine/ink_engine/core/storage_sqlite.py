@@ -9,49 +9,24 @@ from __future__ import annotations
 
 import asyncio
 import json
+import os
 from typing import Any
 
-from .events import EngineEvent
+from .events import EngineEvent, parse_event_lenient
 from .exceptions import CheckpointConflictError, StorageError
 from .logging import get_logger
 from .security import strip_sensitive
-from .storage import ChainLink, CheckpointRecord, _from_jsonable
+from .storage import (
+    DEFAULT_LIST_CHECKPOINTS_LIMIT,
+    ChainLink,
+    CheckpointRecord,
+    _from_jsonable,
+)
+from .storage_schema import build_schema_sql
 
 logger = get_logger(__name__)
 
-_SCHEMA_SQL = """
-CREATE TABLE IF NOT EXISTS checkpoints (
-    checkpoint_id INTEGER PRIMARY KEY AUTOINCREMENT,
-    thread_id TEXT NOT NULL,
-    node TEXT,
-    graph_path TEXT NOT NULL DEFAULT '[]',
-    state TEXT NOT NULL DEFAULT '{}',
-    parent_id INTEGER,
-    reason TEXT,
-    created_at REAL NOT NULL,
-    version INTEGER NOT NULL DEFAULT 1,
-    event_seq INTEGER NOT NULL DEFAULT 0,
-    error TEXT,
-    interrupt TEXT,
-    graph_version TEXT,
-    plan TEXT
-);
-CREATE INDEX IF NOT EXISTS idx_checkpoints_thread ON checkpoints(thread_id, checkpoint_id DESC);
-
-CREATE TABLE IF NOT EXISTS event_log (
-    seq INTEGER PRIMARY KEY AUTOINCREMENT,
-    thread_id TEXT NOT NULL,
-    event TEXT NOT NULL
-);
-CREATE INDEX IF NOT EXISTS idx_event_log_thread ON event_log(thread_id, seq);
-
-CREATE TABLE IF NOT EXISTS records (
-    collection TEXT NOT NULL,
-    key TEXT NOT NULL,
-    data TEXT NOT NULL,
-    PRIMARY KEY (collection, key)
-);
-"""
+_SCHEMA_SQL = build_schema_sql("sqlite")
 
 
 class SqliteStorage:
@@ -62,8 +37,23 @@ class SqliteStorage:
     影响行数 0 = 冲突抛 CheckpointConflictError。
     """
 
-    def __init__(self, db_path: str = ":memory:") -> None:
+    def __init__(
+        self,
+        db_path: str = ":memory:",
+        *,
+        snapshot_dir: str | None = None,
+    ) -> None:
         self._db_path = db_path
+        # 可信快照目录（ENG5-6）：restore(src) 只接受该目录内的文件——
+        # 恢复 = 全量替换当前库，来源不受限时任意路径文件可被灌入
+        # （含库文件自身以外位置的不可信内容）。None = 默认取库文件
+        # 所在目录（:memory: 无目录 = 不限制，仅保留文件存在性校验）。
+        if snapshot_dir is not None:
+            self._snapshot_dir = os.path.abspath(snapshot_dir)
+        elif not db_path.startswith(":") and not db_path.startswith("file:"):
+            self._snapshot_dir = os.path.dirname(os.path.abspath(db_path))
+        else:
+            self._snapshot_dir = None
         self._conn: Any = None
         self._closed = False
         # 初始化互斥：并发首次调用只建一条连接（双重检查）
@@ -330,7 +320,9 @@ class SqliteStorage:
             logger.error(f"sqlite checkpoint 写入失败: {exc}")
             raise StorageError(f"sqlite checkpoint 写入失败: {exc}") from exc
 
-    async def list_checkpoints(self, thread_id: str, *, limit: int = 100) -> list[CheckpointRecord]:
+    async def list_checkpoints(
+        self, thread_id: str, *, limit: int = DEFAULT_LIST_CHECKPOINTS_LIMIT
+    ) -> list[CheckpointRecord]:
         await self._connect()
         try:
             cur = await self._conn.execute(
@@ -430,9 +422,20 @@ class SqliteStorage:
             await cur.close()
         except Exception as exc:
             raise StorageError(f"sqlite 事件日志读取失败: {exc}") from exc
-        return [
-            EngineEvent.from_dict({**json.loads(r["event"]), "seq": r["seq"]}) for r in rows
-        ]
+        # 逐条容错解析（ENG5-4）：单条旧版本/损坏事件跳过，不中断整段重放
+        events: list[EngineEvent] = []
+        for row in rows:
+            try:
+                raw = json.loads(row["event"])
+            except json.JSONDecodeError as exc:
+                logger.warning(
+                    f"事件行 JSON 损坏，跳过（回放容错）: seq={row['seq']}: {exc}"
+                )
+                continue
+            event = parse_event_lenient({**raw, "seq": row["seq"]})
+            if event is not None:
+                events.append(event)
+        return events
 
     async def latest_event_seq(self, thread_id: str) -> int:
         await self._connect()
@@ -513,6 +516,11 @@ class SqliteStorage:
         return [json.loads(r["data"]) for r in rows]
 
     # ── 全量快照（sqlite backup API：目标库 = 源库一致副本）──
+    @property
+    def snapshot_capable(self) -> bool:
+        """文件级快照/恢复能力声明（sqlite 走 backup API，支持）。"""
+        return True
+
     async def snapshot(self, dest: str) -> None:
         """全量备份：把当前库复制到 dest 路径（打开目标连接作备份目标）。
 
@@ -542,17 +550,37 @@ class SqliteStorage:
 
         backup API 整体替换目标内容（含 schema——源即权威）；与源
         路径相同时 no-op 拒绝（无意义且浪费）。
+
+        来源校验（ENG5-6）：恢复 = 全量替换当前库，来源不可信时任意
+        路径文件可被灌入——只接受可信快照目录（``snapshot_dir`` 构造
+        参数；缺省 = 库文件所在目录）内的**常规文件**（目录/不存在/
+        目录外一律显式拒绝，不静默透传）。
         """
         await self._connect()
         if src == self._db_path:
             raise StorageError(
                 f"恢复源与当前库相同: {src}（当前库已是待恢复内容）"
             )
+        src_abs = os.path.abspath(src)
+        if self._snapshot_dir is not None:
+            try:
+                inside = (
+                    os.path.commonpath([src_abs, self._snapshot_dir])
+                    == self._snapshot_dir
+                )
+            except ValueError:
+                inside = False  # 不同盘符/路径形态 = 目录外
+            if not inside:
+                raise StorageError(
+                    f"恢复源不在可信快照目录内: {src}（可信目录: {self._snapshot_dir}）"
+                )
+        if not os.path.isfile(src_abs):
+            raise StorageError(f"恢复源须为存在的常规文件: {src}")
         import aiosqlite
 
         src_conn: Any = None
         try:
-            src_conn = await aiosqlite.connect(src)
+            src_conn = await aiosqlite.connect(src_abs)
             await src_conn.backup(self._conn)
             await self._conn.commit()
         except Exception as exc:

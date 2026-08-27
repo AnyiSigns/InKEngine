@@ -65,9 +65,21 @@ pub fn local_embedding_status() -> serde_json::Value {
     })
 }
 
+/// 默认存储数据库文件名（引擎存储 URI 的产品缺省形态）。
+const DEFAULT_STORAGE_DB: &str = "inkling.sqlite";
+
 /// 本地记忆/技能状态（数据目录 sqlite 存在即视为可用）。
+///
+/// 数据库文件名从离线 settings 的 `storage_db` 读取（缺省
+/// `inkling.sqlite`）——引擎改 db 名时探测不再仅按固定文件名误报（FB16）。
 pub fn local_memory_status(data_dir: &Path) -> serde_json::Value {
-    let sqlite = data_dir.join("inkling.sqlite");
+    let settings = read_settings(data_dir);
+    let db_name = settings
+        .get("storage_db")
+        .and_then(serde_json::Value::as_str)
+        .filter(|name| !name.trim().is_empty())
+        .unwrap_or(DEFAULT_STORAGE_DB);
+    let sqlite = data_dir.join(db_name);
     let available = sqlite.is_file();
     serde_json::json!({ "available": available, "path": sqlite.to_string_lossy() })
 }

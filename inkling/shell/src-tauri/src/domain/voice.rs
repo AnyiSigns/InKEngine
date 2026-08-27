@@ -11,8 +11,9 @@
 //! 降级：模型目录/文件缺失 → STT 不可用（capabilities.stt=false），
 //! 不阻塞交付；采集与合成链路独立降级（平台不支持即显式报不支持）。
 
+use std::collections::HashMap;
 use std::path::{Path, PathBuf};
-use std::sync::OnceLock;
+use std::sync::{Arc, Mutex, OnceLock};
 
 /// 模型目录默认位置（开发形态，相对进程 CWD）。
 pub const VOICE_MODEL_DIR_DEFAULT: &str = "inkling/models/whisper";
@@ -143,7 +144,7 @@ pub fn capabilities(data_dir: Option<&Path>) -> serde_json::Value {
         "note": if stt {
             serde_json::Value::Null
         } else {
-            serde_json::Value::String(format!("模型缺失：{}", dir.display()))
+            serde_json::Value::String("模型缺失".to_string())
         },
     })
 }
@@ -198,10 +199,11 @@ fn parse_wav_to_mono_f32(data: &[u8]) -> Result<Vec<f32>, String> {
 pub async fn transcribe(audio: &[u8], data_dir: Option<&Path>) -> Result<String, String> {
     let dir = resolve_dir(data_dir);
     if !stt_ready(&dir) {
-        return Err(format!("语音识别不可用（模型缺失：{}）", dir.display()));
+        return Err("语音识别不可用（模型缺失）".to_string());
     }
     let samples = parse_wav_to_mono_f32(audio)?;
-    let model = WhisperModel::new(dir);
+    // 模型实例按目录缓存（Arc 复用）：ONNX 会话不随每次调用重载（FB13）
+    let model = cached_whisper_model(dir);
     let rt = model.runtime()?;
     let n = samples.len();
     if n == 0 {
@@ -255,6 +257,29 @@ pub async fn transcribe(audio: &[u8], data_dir: Option<&Path>) -> Result<String,
     Ok(text.trim().to_string())
 }
 
+/// STT 模型实例缓存（进程级，按模型目录键控）。
+///
+/// 模型实例内的 ONNX 会话首次装载后常驻（OnceLock）——每次调用
+/// 重建 WhisperModel 会让 ONNX 会话反复重载，本缓存按目录复用实例
+/// （目录形态有限：开发默认/捆绑资产/显式覆盖，常驻内存可控）。
+fn cached_whisper_model(dir: PathBuf) -> Arc<WhisperModel> {
+    static CACHE: OnceLock<Mutex<HashMap<PathBuf, Arc<WhisperModel>>>> = OnceLock::new();
+    let cache = CACHE.get_or_init(|| Mutex::new(HashMap::new()));
+    let mut guard = cache.lock().unwrap_or_else(std::sync::PoisonError::into_inner);
+    guard
+        .entry(dir.clone())
+        .or_insert_with(|| Arc::new(WhisperModel::new(dir)))
+        .clone()
+}
+
+/// SAPI 朗读脚本（纯函数：$args[0] = 临时文本文件路径）。
+///
+/// 路径经命令行参数传递（`-LiteralPath $args[0]`）而非拼进脚本——
+/// 文件路径原样进 argv，无 shell 插值面（含引号/空格/$ 字符均安全）。
+fn speak_script() -> &'static str {
+    "Add-Type -AssemblyName System.Speech; $s=New-Object System.Speech.Synthesis.SpeechSynthesizer; $s.Speak((Get-Content -Raw -LiteralPath $args[0])); $s.Dispose()"
+}
+
 /// TTS：Windows SAPI 朗读（PowerShell 桥，零新依赖；文本落临时文件防注入）。
 pub fn speak(text: &str) -> Result<bool, String> {
     if !cfg!(windows) {
@@ -265,12 +290,9 @@ pub fn speak(text: &str) -> Result<bool, String> {
     }
     let tmp = std::env::temp_dir().join(format!("inkling-tts-{}.txt", uuid::Uuid::new_v4()));
     std::fs::write(&tmp, text).map_err(|e| format!("语音临时文件写入失败: {e}"))?;
-    let script = format!(
-        "Add-Type -AssemblyName System.Speech; $s=New-Object System.Speech.Synthesis.SpeechSynthesizer; $s.Speak((Get-Content -Raw -Path '{}')); $s.Dispose()",
-        tmp.display().to_string().replace('\'', "''")
-    );
+    let path_arg = tmp.to_string_lossy().into_owned();
     let out = std::process::Command::new("powershell")
-        .args(["-NoProfile", "-NonInteractive", "-Command", &script])
+        .args(["-NoProfile", "-NonInteractive", "-Command", speak_script(), &path_arg])
         .output()
         .map_err(|e| format!("语音合成启动失败: {e}"))?;
     let _ = std::fs::remove_file(&tmp);
@@ -534,5 +556,29 @@ mod tests {
         let err = rt.block_on(transcribe(&[0u8; 44], Some(&dir)));
         assert!(err.is_err(), "模型缺失应报不可用：{err:?}");
         let _ = std::fs::remove_dir_all(&dir);
+    }
+
+    #[test]
+    fn whisper_model_cached_per_model_dir() {
+        // FB13 回归：同目录复用同一实例（ONNX 会话不反复重载）
+        let dir = std::env::temp_dir().join(format!("inkling-voice-cache-{}", uuid::Uuid::new_v4()));
+        std::fs::create_dir_all(&dir).unwrap();
+        let first = cached_whisper_model(dir.clone());
+        let second = cached_whisper_model(dir.clone());
+        assert!(Arc::ptr_eq(&first, &second), "同目录应复用同一实例");
+        let other = std::env::temp_dir()
+            .join(format!("inkling-voice-cache-other-{}", uuid::Uuid::new_v4()));
+        let third = cached_whisper_model(other.clone());
+        assert!(!Arc::ptr_eq(&first, &third), "异目录应独立实例");
+        let _ = std::fs::remove_dir_all(&dir);
+        let _ = std::fs::remove_dir_all(&other);
+    }
+
+    #[test]
+    fn speak_script_passes_path_as_argument() {
+        // FB14 回归：路径经 -LiteralPath $args[0] 传参——脚本无单引号转义拼接
+        let script = speak_script();
+        assert!(script.contains("-LiteralPath $args[0]"), "路径应经 argv 传递");
+        assert!(!script.contains('\''), "脚本不应含单引号转义拼接");
     }
 }

@@ -68,10 +68,8 @@ pub fn looks_executable(path: &Path) -> bool {
 /// 错误（随包未就位，不得默认它在）。
 pub fn locate_exec_binary(exec_dir: &Path) -> Result<ExecBinary, DomainError> {
     if !exec_dir.is_dir() {
-        return Err(DomainError::InvalidData(format!(
-            "exec/ 目录缺失: {}",
-            exec_dir.display()
-        )));
+        eprintln!("exec_proc: exec/ 目录缺失: {}", exec_dir.display());
+        return Err(DomainError::InvalidData("exec/ 目录缺失".to_string()));
     }
     let mut preferred: Option<ExecBinary> = None;
     let mut fallback: Option<ExecBinary> = None;
@@ -112,10 +110,8 @@ pub fn locate_exec_binary(exec_dir: &Path) -> Result<ExecBinary, DomainError> {
     if let Some(binary) = fallback {
         return Ok(binary);
     }
-    Err(DomainError::InvalidData(format!(
-        "exec/ 未找到可执行件（{}）",
-        exec_dir.display()
-    )))
+    eprintln!("exec_proc: exec/ 未找到可执行件（{}）", exec_dir.display());
+    Err(DomainError::InvalidData("exec/ 未找到可执行件".to_string()))
 }
 
 /// 数据目录下的 exec/ 路径（运行数据根的产品化布局）。
@@ -242,8 +238,10 @@ pub fn heartbeat_stale_count(rows: &[ProcessEntry], now: f64) -> usize {
 
 /// 日志尾部读取（最近 max_chars 字符；超长带截断标记）。
 pub fn log_tail(log_path: &Path, max_chars: usize) -> Result<String, DomainError> {
-    let content = std::fs::read_to_string(log_path)
-        .map_err(|err| DomainError::Storage(format!("日志读取失败 {}: {err}", log_path.display())))?;
+    let content = std::fs::read_to_string(log_path).map_err(|err| {
+        eprintln!("exec_proc: 日志读取失败 ({}): {err}", log_path.display());
+        DomainError::Storage("日志读取失败".to_string())
+    })?;
     if content.chars().count() <= max_chars {
         return Ok(content);
     }

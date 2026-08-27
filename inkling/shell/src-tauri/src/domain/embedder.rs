@@ -138,9 +138,7 @@ pub fn resolve_plan<L>(lookup: L, model_dir: &Path, default_dim: usize) -> Embed
 where
     L: Fn(&str) -> Option<String>,
 {
-    let base_url = lookup("INK_EMBEDDING_BASE_URL")
-        .filter(|v| !v.is_empty())
-        .or_else(|| None);
+    let base_url = lookup("INK_EMBEDDING_BASE_URL").filter(|v| !v.is_empty());
     let model_id = lookup("INK_EMBEDDING_MODEL").filter(|v| !v.is_empty());
     if let (Some(base), Some(model)) = (base_url, model_id) {
         let timeout_secs = lookup("INK_EMBEDDING_REQUEST_TIMEOUT")
@@ -180,10 +178,8 @@ where
     }
 
     if !model_dir.is_dir() {
-        return EmbedderPlan::deterministic(
-            default_dim,
-            format!("模型目录不存在: {}", model_dir.display()),
-        );
+        eprintln!("embedder: 模型目录不存在: {}", model_dir.display());
+        return EmbedderPlan::deterministic(default_dim, "模型目录不存在");
     }
 
     // 维度从模型配置断言（本地模型信息是权威：缺失/不一致不得静默猜测）
@@ -204,10 +200,8 @@ where
     };
     for file in [LOCAL_ONNX_FILE, LOCAL_TOKENIZER_FILE] {
         if !model_dir.join(file).is_file() {
-            return EmbedderPlan::deterministic(
-                default_dim,
-                format!("模型文件缺失: {}（缺 {file}）", model_dir.display()),
-            );
+            eprintln!("embedder: 模型文件缺失: {}（缺 {file}）", model_dir.display());
+            return EmbedderPlan::deterministic(default_dim, format!("模型文件缺失（缺 {file}）"));
         }
     }
 
@@ -229,20 +223,36 @@ struct ModelConfig {
 /// 从 `config.json` 读取模型配置（现代 BERT 配置形态的声明）。
 fn read_model_config(model_dir: &Path) -> Result<ModelConfig, String> {
     let config = model_dir.join(LOCAL_MODEL_CONFIG_FILE);
-    let raw = std::fs::read_to_string(&config)
-        .map_err(|e| format!("模型配置读取失败 ({}): {e}", config.display()))?;
-    let value: serde_json::Value = serde_json::from_str(&raw)
-        .map_err(|e| format!("模型配置解析失败 ({}): {e}", config.display()))?;
+    let raw = match std::fs::read_to_string(&config) {
+        Ok(raw) => raw,
+        Err(e) => {
+            eprintln!("embedder: 模型配置读取失败 ({}): {e}", config.display());
+            return Err("模型配置读取失败".to_string());
+        }
+    };
+    let value: serde_json::Value = match serde_json::from_str(&raw) {
+        Ok(value) => value,
+        Err(e) => {
+            eprintln!("embedder: 模型配置解析失败 ({}): {e}", config.display());
+            return Err("模型配置解析失败".to_string());
+        }
+    };
     let hidden_size = value
         .get("hidden_size")
         .and_then(|v| v.as_u64())
         .map(|n| n as usize)
-        .ok_or_else(|| format!("模型配置缺 hidden_size 字段 ({}): {raw}", config.display()))?;
+        .ok_or_else(|| {
+            eprintln!("embedder: 模型配置缺 hidden_size 字段 ({}): {raw}", config.display());
+            "模型配置缺 hidden_size 字段".to_string()
+        })?;
     let bos_token_id = value
         .get("bos_token_id")
         .and_then(|v| v.as_u64())
         .map(|n| n as u32)
-        .ok_or_else(|| format!("模型配置缺 bos_token_id 字段 ({}): {raw}", config.display()))?;
+        .ok_or_else(|| {
+            eprintln!("embedder: 模型配置缺 bos_token_id 字段 ({}): {raw}", config.display());
+            "模型配置缺 bos_token_id 字段".to_string()
+        })?;
     Ok(ModelConfig {
         hidden_size,
         bos_token_id,
@@ -305,13 +315,20 @@ fn load_local_runtime(model_dir: &Path) -> Result<LocalRuntime, String> {
     }
     let tokenizer_path = model_dir.join(LOCAL_TOKENIZER_FILE);
     let tokenizer = tokenizers::Tokenizer::from_file(&tokenizer_path)
-        .map_err(|e| format!("分词器加载失败 ({}): {e}", tokenizer_path.display()))?;
+        .map_err(|e| {
+            eprintln!("embedder: 分词器加载失败 ({}): {e}", tokenizer_path.display());
+            "分词器加载失败".to_string()
+        })?;
     let session = ort::session::Session::builder()
         .map_err(|e| format!("ONNX 会话构建器初始化失败: {e}"))?
         .with_intra_threads(SESSION_INTRA_THREADS)
         .map_err(|e| format!("ONNX 会话线程配置失败: {e}"))?
         .commit_from_file(model_dir.join(LOCAL_ONNX_FILE))
-        .map_err(|e| format!("ONNX 会话提交失败 ({}): {e}", model_dir.join(LOCAL_ONNX_FILE).display()))?;
+        .map_err(|e| {
+            let onnx = model_dir.join(LOCAL_ONNX_FILE);
+            eprintln!("embedder: ONNX 会话提交失败 ({}): {e}", onnx.display());
+            "ONNX 会话提交失败".to_string()
+        })?;
     Ok(LocalRuntime {
         tokenizer,
         session: tokio::sync::Mutex::new(session),

@@ -219,8 +219,13 @@ fn strip_html_tag(text: &str) -> String {
 
 /// DuckDuckGo HTML 结果页解析（result__a 结果行形态；选择器子集，
 /// 供本地聚合源的无 key 抓取解析）。
+///
+/// 脆弱性标注（FB22）：依赖 HTML 类名子串匹配（`result__a`）——DDG
+/// 页面微调即解析失效，属已知降级面（聚合源整体失败 = 结构化可重试
+/// 错误，不静默返回空结果）。选择器按「类名包含」放宽匹配，容忍
+/// 附加 class 修饰（`class="result__a result__a--ext"` 等）。
 pub fn parse_ddg_html(html: &str) -> Vec<SearchItem> {
-    let pattern = r#"<a class="result__a" href="([^"]+)">(.*?)</a>"#;
+    let pattern = r#"<a class="[^"]*result__a[^"]*" href="([^"]+)">(.*?)</a>"#;
     let anchor_re = regex::Regex::new(pattern).expect("DDG 结果行模式合法");
     anchor_re
         .captures_iter(html)
@@ -244,27 +249,31 @@ pub fn parse_ddg_html(html: &str) -> Vec<SearchItem> {
         .collect()
 }
 
-/// DuckDuckGo 结果摘要补全（result__snippet 行；按文档序与结果行
-/// 一一对应，不进行跨行配对）。
+/// DuckDuckGo 结果摘要补全（result__snippet 行；以归一化 url 为键配对，
+/// 不依赖文档序——顺序不一致/缺行时不错配，FB8）。
 pub fn fill_ddg_snippets(items: &mut [SearchItem], html: &str) {
-    let pattern = r#"<a class="result__snippet" href="([^"]+)">(.*?)</a>"#;
+    let pattern = r#"<a class="[^"]*result__snippet[^"]*" href="([^"]+)">(.*?)</a>"#;
     let snippet_re = regex::Regex::new(pattern).expect("DDG 摘要行模式合法");
-    let snippets: Vec<String> = snippet_re
-        .captures_iter(html)
-        .map(|capture| {
-            let text = capture
-                .get(2)
-                .map(|m| strip_html_tag(m.as_str()).trim().to_string())
-                .unwrap_or_default();
-            let text = text
-                .chars()
-                .take(160)
-                .collect::<String>();
-            text
-        })
-        .collect();
-    for (item, snippet) in items.iter_mut().zip(snippets) {
-        item.snippet = snippet;
+    let mut by_url: std::collections::HashMap<String, String> = std::collections::HashMap::new();
+    for capture in snippet_re.captures_iter(html) {
+        let url = capture
+            .get(1)
+            .map(|m| normalize_url(m.as_str()))
+            .unwrap_or_default();
+        if url.is_empty() {
+            continue;
+        }
+        let text = capture
+            .get(2)
+            .map(|m| strip_html_tag(m.as_str()).trim().to_string())
+            .unwrap_or_default();
+        let text: String = text.chars().take(160).collect();
+        by_url.insert(url, text);
+    }
+    for item in items.iter_mut() {
+        if let Some(snippet) = by_url.get(&item.url) {
+            item.snippet = snippet.clone();
+        }
     }
 }
 
@@ -484,6 +493,16 @@ async fn fetch_engine_raw(
         .map_err(|err| SearchError::new(SearchErrorKind::Network, format!("{engine} 响应读取失败: {err}")))
 }
 
+/// 厂商鉴权头选择（单一头，FB7）：按厂商官方契约取用——
+/// exa = `x-api-key`（文档首选）；parallel/bocha = `Authorization: Bearer`。
+/// 双头发送会被厂商拒绝（未知鉴权头/重复凭证），不得同发。
+fn vendor_auth_header(provider: &str) -> &'static str {
+    match provider {
+        "exa" => "x-api-key",
+        _ => "bearer",
+    }
+}
+
 /// 厂商抓取（POST JSON；key 缺失 = 结构化 NoKey，不静默回落聚合）。
 pub async fn fetch_vendor(
     client: &reqwest::Client,
@@ -498,12 +517,18 @@ pub async fn fetch_vendor(
             format!("{provider} 未配置搜索 key"),
         ));
     }
+    let started = std::time::Instant::now();
     let (endpoint, body) = vendor_request(provider, query, limit);
-    let response = match client
-        .post(endpoint)
-        .bearer_auth(api_key)
-        .header("x-api-key", api_key)
-        .json(&body)
+    let mut request = client.post(endpoint).json(&body);
+    match vendor_auth_header(provider) {
+        "x-api-key" => {
+            request = request.header("x-api-key", api_key);
+        }
+        _ => {
+            request = request.bearer_auth(api_key);
+        }
+    }
+    let response = match request
         .timeout(Duration::from_secs(SEARCH_TIMEOUT_SECS))
         .send()
         .await
@@ -549,7 +574,7 @@ pub async fn fetch_vendor(
     Ok(SearchResponse {
         items,
         truncated,
-        took_ms: 0,
+        took_ms: started.elapsed().as_millis() as u64,
     })
 }
 
@@ -735,7 +760,7 @@ mod tests {
         let ddg = r#"<html><body>
             <a class="result__a" href="https://example.com/a">Example 论文 A</a>
             <a class="result__snippet" href="https://example.com/a">摘要 A 内容</a>
-            <a class="result__a" href="//html.duckduckgo.com/l/?uddg=https%3A%2F%2Farxiv.org%2Fabs%2F123&rut=zz">arXiv 摘要页</a>
+            <a class="result__a result__a--ext" href="//html.duckduckgo.com/l/?uddg=https%3A%2F%2Farxiv.org%2Fabs%2F123&rut=zz">arXiv 摘要页</a>
         </body></html>"#;
         let mut items = parse_ddg_html(ddg);
         fill_ddg_snippets(&mut items, ddg);
@@ -743,6 +768,15 @@ mod tests {
         assert_eq!(items[0].url, "https://example.com/a");
         assert_eq!(items[0].snippet, "摘要 A 内容");
         assert_eq!(items[1].url, "https://arxiv.org/abs/123", "uddg 链接解码");
+        assert_eq!(items[1].snippet, "", "无摘要行 = 空摘要");
+        // FB8：摘要按归一化 url 配对——文档序颠倒也不错配
+        let shuffled = r#"<html><body>
+            <a class="result__snippet" href="https://example.com/a">摘要 A 内容</a>
+            <a class="result__a" href="https://example.com/a">Example 论文 A</a>
+        </body></html>"#;
+        let mut items = parse_ddg_html(shuffled);
+        fill_ddg_snippets(&mut items, shuffled);
+        assert_eq!(items[0].snippet, "摘要 A 内容", "url 键配对不依赖文档序");
         let bing = r#"<li class="b_algo"><h2><a href="https://example.org/b">Bing 命中</a></h2><p class="b_lineclamp2">摘要 B</p></li>"#;
         let bing_items = parse_bing_html(bing);
         assert_eq!(bing_items.len(), 1);
@@ -813,6 +847,15 @@ mod tests {
         assert_eq!(endpoint, VENDOR_URL_BOCHA);
         assert_eq!(limit_clamp(999), 20);
         assert_eq!(limit_clamp(0), 1);
+    }
+
+    #[test]
+    fn vendor_auth_header_is_single_per_provider() {
+        // FB7：单一鉴权头——exa 走 x-api-key，其余厂商走 Bearer（不同发）
+        assert_eq!(vendor_auth_header("exa"), "x-api-key");
+        assert_eq!(vendor_auth_header("parallel"), "bearer");
+        assert_eq!(vendor_auth_header("bocha"), "bearer");
+        assert_eq!(vendor_auth_header("unknown"), "bearer", "未知厂商按 Bearer 兜底");
     }
 
     #[test]

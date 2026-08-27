@@ -35,6 +35,12 @@ pub const BACKUP_COMPRESSION: &str = "stored";
 /// 恢复前当前态快照目录名前缀。
 pub const PRE_RESTORE_SNAPSHOT_PREFIX: &str = "pre-restore-";
 
+/// 恢复前快照保留份数（最新 N 份；超限清最旧，防磁盘无限增长）。
+pub const PRE_RESTORE_SNAPSHOT_KEEP: usize = 3;
+
+/// 恢复解包暂存目录名前缀（随 snapshots_dir 落盘，恢复结束即清理）。
+const RESTORE_STAGING_PREFIX: &str = "restore-staging-";
+
 /// 清单条目（单文件：相对路径 + 大小 + sha256）。
 #[derive(Debug, Clone, PartialEq)]
 pub struct BackupEntry {
@@ -135,10 +141,7 @@ fn parse_manifest(bytes: &[u8]) -> Result<BackupManifest, DomainError> {
 /// 快照形态 = 数据目录全部运行数据；顺序确定，可复现导出）。
 pub fn pack_data_dir(data_dir: &Path, dest: &Path) -> Result<BackupManifest, DomainError> {
     if !data_dir.is_dir() {
-        return Err(DomainError::InvalidData(format!(
-            "数据目录不存在: {}",
-            data_dir.display()
-        )));
+        return Err(DomainError::InvalidData("数据目录不存在".to_string()));
     }
     let mut files: Vec<PathBuf> = Vec::new();
     for entry in walkdir::WalkDir::new(data_dir) {
@@ -161,7 +164,7 @@ pub fn pack_data_dir(data_dir: &Path, dest: &Path) -> Result<BackupManifest, Dom
             continue;
         }
         let data = std::fs::read(&path)
-            .map_err(|err| DomainError::Storage(format!("读取失败 {}: {err}", path.display())))?;
+            .map_err(|err| DomainError::Storage(format!("读取失败: {err}")))?;
         if rel.ends_with(".sqlite") || rel.ends_with(".db") {
             has_db = true;
         }
@@ -197,7 +200,7 @@ pub fn pack_data_dir(data_dir: &Path, dest: &Path) -> Result<BackupManifest, Dom
         output.extend_from_slice(&data);
     }
     std::fs::write(dest, &output)
-        .map_err(|err| DomainError::Storage(format!("备份落盘失败 {}: {err}", dest.display())))?;
+        .map_err(|err| DomainError::Storage(format!("备份落盘失败: {err}")))?;
     Ok(manifest)
 }
 
@@ -235,17 +238,22 @@ impl<'a> BackupReader<'a> {
     }
 }
 
-/// 选包校验：容器头 + 清单 + 逐条目哈希核对（坏包拒绝恢复）。
+/// 容器帧（解包产物：清单条目路径 + 数据；哈希已在解析时核对）。
+struct ContainerFrame {
+    path: String,
+    data: Vec<u8>,
+}
+
+/// 容器解析：头 + 清单 + 逐条目哈希核对（坏包拒绝恢复）。
 ///
-/// 校验通过才进入恢复向导（fail-closed：任何一条哈希不符 = 整包
-/// 拒绝，不部分恢复）。
-pub fn validate_backup(path: &Path) -> Result<BackupManifest, DomainError> {
-    let bytes = std::fs::read(path)
-        .map_err(|err| DomainError::Storage(format!("备份读取失败 {}: {err}", path.display())))?;
+/// 校验通过才进入恢复流程（fail-closed：任何一条哈希不符 = 整包
+/// 拒绝，不部分恢复）。`validate_backup` 与 `execute_restore` 共用本
+/// 解析——同一备份文件只读一遍（FB17）。
+fn parse_container(bytes: &[u8]) -> Result<(BackupManifest, Vec<ContainerFrame>), DomainError> {
     if bytes.len() < BACKUP_MAGIC.len() + 8 {
         return Err(DomainError::InvalidData("非 InKling 备份包（文件过短，魔数不符）".to_string()));
     }
-    let mut reader = BackupReader::new(&bytes);
+    let mut reader = BackupReader::new(bytes);
     let mut magic = [0u8; 16];
     reader.read_exact(&mut magic)?;
     if magic != BACKUP_MAGIC {
@@ -264,6 +272,7 @@ pub fn validate_backup(path: &Path) -> Result<BackupManifest, DomainError> {
     if manifest.format != version {
         return Err(DomainError::InvalidData("清单格式与容器版本不一致".to_string()));
     }
+    let mut frames = Vec::with_capacity(manifest.entries.len());
     for entry in &manifest.entries {
         let path_len = reader.read_u32()? as usize;
         let mut path_bytes = vec![0u8; path_len];
@@ -290,7 +299,19 @@ pub fn validate_backup(path: &Path) -> Result<BackupManifest, DomainError> {
                 entry.path
             )));
         }
+        frames.push(ContainerFrame { path: path_text, data });
     }
+    Ok((manifest, frames))
+}
+
+/// 选包校验：容器头 + 清单 + 逐条目哈希核对（坏包拒绝恢复）。
+///
+/// 校验通过才进入恢复向导（fail-closed：任何一条哈希不符 = 整包
+/// 拒绝，不部分恢复）。
+pub fn validate_backup(path: &Path) -> Result<BackupManifest, DomainError> {
+    let bytes = std::fs::read(path)
+        .map_err(|err| DomainError::Storage(format!("备份读取失败: {err}")))?;
+    let (manifest, _) = parse_container(&bytes)?;
     Ok(manifest)
 }
 
@@ -321,7 +342,8 @@ pub fn preview_restore(manifest: &BackupManifest, target_dir: &Path) -> RestoreP
 /// 恢复前当前态快照（防误恢复：数据目录 → 快照目录副本）。
 ///
 /// 快照目录 = `<snapshots_dir>/pre-restore-<时间戳>/`；恢复失败/误
-/// 恢复时以快照原位回滚。
+/// 恢复时以快照原位回滚。成功恢复后按 [`PRE_RESTORE_SNAPSHOT_KEEP`]
+/// 保留最新份数（超限清最旧；失败不清——失败快照是回滚依据）。
 pub fn snapshot_current_state(
     data_dir: &Path,
     snapshots_dir: &Path,
@@ -355,6 +377,31 @@ pub fn snapshot_current_state(
     Ok(snapshot_dir)
 }
 
+/// 恢复前快照保留清理：按时间戳保留最新 [`PRE_RESTORE_SNAPSHOT_KEEP`]
+/// 份（最旧优先删；删除失败忽略——下次恢复再清）。
+fn prune_old_snapshots(snapshots_dir: &Path) {
+    let mut entries: Vec<(f64, PathBuf)> = Vec::new();
+    if let Ok(read) = std::fs::read_dir(snapshots_dir) {
+        for entry in read.flatten() {
+            let path = entry.path();
+            let Some(name) = path.file_name().and_then(|n| n.to_str()) else {
+                continue;
+            };
+            let Some(stamp) = name.strip_prefix(PRE_RESTORE_SNAPSHOT_PREFIX) else {
+                continue;
+            };
+            if let Ok(ts) = stamp.parse::<f64>() {
+                entries.push((ts, path));
+            }
+        }
+    }
+    entries.sort_by(|a, b| a.0.total_cmp(&b.0));
+    let overflow = entries.len().saturating_sub(PRE_RESTORE_SNAPSHOT_KEEP);
+    for (_, dir) in entries.into_iter().take(overflow) {
+        let _ = std::fs::remove_dir_all(&dir);
+    }
+}
+
 /// 路径穿越防护：条目路径须为相对路径（无绝对/盘符/.. 片段）。
 fn path_within_target(rel: &str) -> bool {
     if Path::new(rel).is_absolute() {
@@ -372,60 +419,108 @@ fn path_within_target(rel: &str) -> bool {
         })
 }
 
-/// 执行恢复（校验 → 当前态快照 → 解包落位）。
+/// 全量解包到暂存目录（逐条路径越界校验；任何失败 = 整批拒绝）。
 ///
-/// 失败即中止（快照已留——可回滚），不部分恢复（半恢复态直接
-/// 拒绝返回，快照目录地址随错误信息给出）。
+/// 暂存期目标目录零改动——「不部分恢复」的第一道闸：解包阶段任一
+/// 条目失败（越界/写入失败），目标目录保持原样。
+fn unpack_to_staging(frames: &[ContainerFrame], staging: &Path) -> Result<(), DomainError> {
+    for frame in frames {
+        if !path_within_target(&frame.path) {
+            return Err(DomainError::InvalidData(format!(
+                "恢复条目路径越界（拒绝）: {:?}",
+                frame.path
+            )));
+        }
+        let dest = staging.join(&frame.path);
+        if let Some(parent) = dest.parent() {
+            std::fs::create_dir_all(parent)
+                .map_err(|err| DomainError::Storage(format!("恢复暂存子目录失败: {err}")))?;
+        }
+        std::fs::write(&dest, &frame.data)
+            .map_err(|err| DomainError::Storage(format!("恢复暂存写入失败: {err}")))?;
+    }
+    Ok(())
+}
+
+/// 暂存 → 目标落位（逐条写入；任何阶段失败逆序回滚兑现「不部分恢复」）。
+///
+/// 回滚语义：已覆盖文件从恢复前快照还原、本次新增文件删除——目标
+/// 目录回到恢复前形态；回滚自身失败时错误信息给出快照目录供手动还原。
+fn commit_staged(
+    frames: &[ContainerFrame],
+    target_dir: &Path,
+    snapshot: &Path,
+) -> Result<(), DomainError> {
+    let mut committed: Vec<&str> = Vec::with_capacity(frames.len());
+    for frame in frames {
+        let dest = target_dir.join(&frame.path);
+        let write_result = match dest.parent() {
+            Some(parent) => {
+                std::fs::create_dir_all(parent).and_then(|_| std::fs::write(&dest, &frame.data))
+            }
+            None => std::fs::write(&dest, &frame.data),
+        };
+        if let Err(err) = write_result {
+            let mut message = format!("恢复写入失败: {err}");
+            if let Err(rollback_err) = rollback_committed(&committed, target_dir, snapshot) {
+                eprintln!(
+                    "backup: 恢复回滚未完整执行（快照留于 {}）: {rollback_err}",
+                    snapshot.display()
+                );
+                message.push_str("；回滚未完整执行（快照已留，可手动还原）");
+            }
+            return Err(DomainError::Storage(message));
+        }
+        committed.push(&frame.path);
+    }
+    Ok(())
+}
+
+/// 已提交条目逆序回滚：快照内存在 = 还原快照态；否则 = 删除已写文件。
+fn rollback_committed(
+    committed: &[&str],
+    target_dir: &Path,
+    snapshot: &Path,
+) -> Result<(), DomainError> {
+    for rel in committed.iter().rev() {
+        let dest = target_dir.join(rel);
+        let snap = snapshot.join(rel);
+        if snap.is_file() {
+            std::fs::copy(&snap, &dest)
+                .map_err(|err| DomainError::Storage(format!("回滚还原失败: {err}")))?;
+        } else {
+            let _ = std::fs::remove_file(&dest);
+        }
+    }
+    Ok(())
+}
+
+/// 执行恢复（校验 → 当前态快照 → 全量解包暂存 → 整体校验后落位）。
+///
+/// 失败即中止（快照已留——可回滚），不部分恢复：解包阶段失败 = 目标
+/// 目录零改动；落位阶段失败 = 已写条目逆序回滚到快照态（回滚失败时
+/// 快照目录地址随错误信息给出，可手动还原）。
 pub fn execute_restore(
     backup_path: &Path,
     target_dir: &Path,
     snapshots_dir: &Path,
 ) -> Result<(RestorePreview, PathBuf), DomainError> {
-    let manifest = restore_wizard_select(backup_path)?;
-    let preview = preview_restore(&manifest, target_dir);
-    let snapshot = snapshot_current_state(target_dir, snapshots_dir)?;
-    std::fs::create_dir_all(target_dir)
-        .map_err(|err| DomainError::Storage(format!("恢复目标目录创建失败: {err}")))?;
     let bytes = std::fs::read(backup_path)
         .map_err(|err| DomainError::Storage(format!("备份读取失败: {err}")))?;
-    let mut reader = BackupReader::new(&bytes);
-    let mut magic = [0u8; 16];
-    reader.read_exact(&mut magic)?;
-    let _ = reader.read_u32()?;
-    let manifest_len = reader.read_u32()? as usize;
-    let mut manifest_bytes = vec![0u8; manifest_len];
-    reader.read_exact(&mut manifest_bytes)?;
-    let manifest = parse_manifest(&manifest_bytes)?;
-    for entry in &manifest.entries {
-        let path_len = reader.read_u32()? as usize;
-        let mut path_bytes = vec![0u8; path_len];
-        reader.read_exact(&mut path_bytes)?;
-        let path_text = String::from_utf8(path_bytes)
-            .map_err(|_| DomainError::InvalidData("条目路径非 UTF-8".to_string()))?;
-        let data_len = reader.read_u64()?;
-        let mut data = vec![0u8; data_len as usize];
-        reader.read_exact(&mut data)?;
-        if path_text != entry.path || sha256_bytes(&data) != entry.sha256 {
-            return Err(DomainError::InvalidData(format!(
-                "恢复前校验未通过: {}（当前态快照已留于 {}）",
-                entry.path,
-                snapshot.display()
-            )));
-        }
-        if !path_within_target(&path_text) {
-            return Err(DomainError::InvalidData(format!(
-                "恢复条目路径越界（拒绝）: {path_text:?}"
-            )));
-        }
-        let dest = target_dir.join(&path_text);
-        if let Some(parent) = dest.parent() {
-            std::fs::create_dir_all(parent)
-                .map_err(|err| DomainError::Storage(format!("恢复子目录失败: {err}")))?;
-        }
-        std::fs::write(&dest, &data).map_err(|err| {
-            DomainError::Storage(format!("恢复写入失败 {}: {err}", dest.display()))
-        })?;
+    let (manifest, frames) = parse_container(&bytes)?;
+    let preview = preview_restore(&manifest, target_dir);
+    let snapshot = snapshot_current_state(target_dir, snapshots_dir)?;
+    let staging = snapshots_dir.join(format!("{RESTORE_STAGING_PREFIX}{}", uuid::Uuid::new_v4()));
+    if let Err(err) = unpack_to_staging(&frames, &staging) {
+        let _ = std::fs::remove_dir_all(&staging);
+        return Err(err);
     }
+    if let Err(err) = commit_staged(&frames, target_dir, &snapshot) {
+        let _ = std::fs::remove_dir_all(&staging);
+        return Err(err);
+    }
+    let _ = std::fs::remove_dir_all(&staging);
+    prune_old_snapshots(snapshots_dir);
     Ok((preview, snapshot))
 }
 
@@ -574,5 +669,125 @@ mod tests {
         assert!(!path_within_target("C:/evil.txt"));
         assert!(path_within_target("memory/main.md"));
         assert!(path_within_target("a/b/c.txt"));
+    }
+
+    /// 手工构造容器（任意条目清单；测试注入非法包形态）。
+    fn build_container(entries: &[(&str, &[u8])]) -> Vec<u8> {
+        let manifest = BackupManifest {
+            format: BACKUP_FORMAT_VERSION,
+            created_at: 1.0,
+            compression: BACKUP_COMPRESSION.to_string(),
+            engine_snapshot: false,
+            entries: entries
+                .iter()
+                .map(|(path, data)| BackupEntry {
+                    path: (*path).to_string(),
+                    size: data.len() as u64,
+                    sha256: sha256_bytes(data),
+                })
+                .collect(),
+        };
+        let manifest_bytes = manifest_json(&manifest);
+        let mut out = Vec::new();
+        out.extend_from_slice(&BACKUP_MAGIC);
+        out.extend_from_slice(&BACKUP_FORMAT_VERSION.to_le_bytes());
+        out.extend_from_slice(&(manifest_bytes.len() as u32).to_le_bytes());
+        out.extend_from_slice(&manifest_bytes);
+        for (path, data) in entries {
+            let path_bytes = path.as_bytes();
+            out.extend_from_slice(&(path_bytes.len() as u32).to_le_bytes());
+            out.extend_from_slice(path_bytes);
+            out.extend_from_slice(&(data.len() as u64).to_le_bytes());
+            out.extend_from_slice(data);
+        }
+        out
+    }
+
+    #[test]
+    fn restore_staging_rejects_traversal_without_touching_target() {
+        // FB2 回归：越界条目在暂存阶段被拒——目标目录零改动
+        let ws = Scratch::new("traversal-restore");
+        let backup = ws.0.join("evil.inkb");
+        let evil = "../evil.txt";
+        std::fs::write(&backup, build_container(&[(evil, b"pwned")])).unwrap();
+        let target = ws.0.join("target");
+        write(&target, "keep.txt", b"keep");
+        let err = execute_restore(&backup, &target, &ws.0.join("snapshots")).unwrap_err();
+        assert!(err.to_string().contains("越界"), "{err}");
+        assert!(target.join("keep.txt").is_file(), "目标目录不应被触碰");
+        assert!(!target.join("evil.txt").is_file());
+    }
+
+    #[test]
+    fn restore_commit_failure_rolls_back_written_files() {
+        // FB2 回归：落位阶段失败 → 已写条目逆序回滚（目标回到恢复前形态）
+        let ws = Scratch::new("rollback");
+        // 备份含两个条目（排序后 aaa.txt 先写、z/y.txt 后写）
+        let backup = ws.0.join("out.inkb");
+        write(&ws.0, "data2/aaa.txt", b"first");
+        write(&ws.0, "data2/z/y.txt", b"second");
+        let pack_src = ws.0.join("data2");
+        let manifest = pack_data_dir(&pack_src, &backup).expect("导出成功");
+        assert_eq!(manifest.entries.len(), 2);
+        // 目标目录：z 是普通文件 → 写 z/y.txt 必然失败（目录创建冲突）
+        let target = ws.0.join("target");
+        write(&target, "z", b"file-not-dir");
+        let err = execute_restore(&backup, &target, &ws.0.join("snapshots")).unwrap_err();
+        assert!(err.to_string().contains("恢复写入失败"), "{err}");
+        // 已写的 aaa.txt 被回滚删除（快照中不存在）；z 文件原样保留
+        assert!(!target.join("aaa.txt").exists(), "部分恢复文件必须回滚删除");
+        assert_eq!(std::fs::read(target.join("z")).unwrap(), b"file-not-dir");
+    }
+
+    #[test]
+    fn restore_prunes_old_snapshots_to_keep_limit() {
+        // FB3 回归：恢复前快照保留最新 3 份（超限清最旧）
+        let ws = Scratch::new("prune");
+        let snapshots = ws.0.join("snapshots");
+        let keep = |ts: f64| -> PathBuf {
+            let dir = snapshots.join(format!("{PRE_RESTORE_SNAPSHOT_PREFIX}{ts}"));
+            std::fs::create_dir_all(&dir).unwrap();
+            dir
+        };
+        let old1 = keep(1000.0);
+        let old2 = keep(2000.0);
+        let old3 = keep(3000.0);
+        let old4 = keep(4000.0);
+        let old5 = keep(5000.0);
+        // 未命名/异名目录不受影响
+        let foreign = snapshots.join("other-dir");
+        std::fs::create_dir_all(&foreign).unwrap();
+        prune_old_snapshots(&snapshots);
+        assert!(!old1.exists(), "最旧快照应被清理");
+        assert!(!old2.exists(), "次旧快照应被清理");
+        assert!(old3.exists());
+        assert!(old4.exists());
+        assert!(old5.exists());
+        assert!(foreign.exists(), "非 pre-restore 目录不受清理");
+    }
+
+    #[test]
+    fn execute_restore_keeps_snapshot_budget_across_runs() {
+        // FB3 回归（全流程）：连续多次恢复后快照总数受 PRE_RESTORE_SNAPSHOT_KEEP 约束
+        let (ws, data_dir) = fixture_data_dir();
+        let backup = ws.0.join("out.inkb");
+        pack_data_dir(&data_dir, &backup).expect("导出成功");
+        let snapshots = ws.0.join("snapshots");
+        let target = ws.0.join("restored");
+        for _ in 0..5 {
+            let _ = std::fs::remove_dir_all(&target);
+            execute_restore(&backup, &target, &snapshots).expect("恢复成功");
+        }
+        let count = std::fs::read_dir(&snapshots)
+            .unwrap()
+            .filter_map(|entry| entry.ok().map(|e| e.path()))
+            .filter(|p| {
+                p.file_name()
+                    .and_then(|n| n.to_str())
+                    .map(|n| n.starts_with(PRE_RESTORE_SNAPSHOT_PREFIX))
+                    .unwrap_or(false)
+            })
+            .count();
+        assert_eq!(count, PRE_RESTORE_SNAPSHOT_KEEP, "快照份数应受保留上限约束");
     }
 }

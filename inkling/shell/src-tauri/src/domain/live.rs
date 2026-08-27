@@ -13,9 +13,17 @@
 //! 依赖纪律：本模块不直接调用其它域模块；活跃态生效的引擎动作
 //! （界面快照切换/注册表登记/知识集 upsert/工具表重建）经
 //! [`crate::engine::host::call_engine_op`] 操作通道（接线点文档标注）。
+//!
+//! 补丁落链接线（决议 13）：[`wire_apply_live_callbacks`] 把五类目标
+//! 改由壳侧回调接管——引擎经 `patch.apply_target_register`（callback
+//! 受托形态）注册目标，补丁落链后回拉 [`LIVE_APPLY_CALLBACK_PREFIX`]
+//! 前缀回调，经 [`apply_live_patch`] 应用活跃态（UI/THEME 含三层白名单
+//! 校验，见 [`LiveUiWhitelist`]）。装配侧调用点 = boot.rs 的
+//! `wire_live_targets`（批 4/6c 接线，本模块只提供接线面）。
 
 use std::collections::{BTreeMap, HashSet};
 
+use pyo3::PyResult;
 use serde_json::{json, Value as JsonValue};
 
 use crate::engine::host::call_engine_op;
@@ -42,6 +50,25 @@ const ENTRY_PROTECTED_KEYS: [&str; 2] = ["id", "created_at"];
 
 /// 种子条目前缀（只读基线：任何回退不动种子知识）。
 pub const SEED_ID_PREFIX: &str = "seed.";
+
+/// 回调委托型活跃态应用的桥回调名前缀（每 kind 一个：
+/// `live.apply_patch.<kind>`；引擎侧 `_CallbackApplyTarget` 按名回拉）。
+pub const LIVE_APPLY_CALLBACK_PREFIX: &str = "live.apply_patch";
+
+/// 界面三层白名单（组件/绑定通道/主题 token；与配方装配同源）。
+#[derive(Debug, Clone, PartialEq)]
+pub struct LiveUiWhitelist {
+    pub components: Vec<String>,
+    pub channels: Vec<String>,
+    pub tokens: Vec<String>,
+}
+
+impl LiveUiWhitelist {
+    /// 三层是否齐备（任一为空 = 未配置——拒绝接管，防误伤活跃态）。
+    pub fn is_complete(&self) -> bool {
+        !self.components.is_empty() && !self.channels.is_empty() && !self.tokens.is_empty()
+    }
+}
 
 // ── 五目标 apply 语义（纯数据变换：补丁载荷 → 活跃态增量）──
 
@@ -470,27 +497,39 @@ pub async fn register_live_targets() -> Result<JsonValue, String> {
 /// 形态下发）；harness → engine.harness_register；rule/knowledge →
 /// engine.knowledge_upsert。载荷归一不过（坏条目）= 结构化错误返回，
 /// 不 panic。
+///
+/// 白名单纪律（FB1 补回）：UI 分支整布局经 [`validate_ui_spec`] 三层
+/// 白名单校验（组件/绑定通道/主题 token），违规即拒绝（与回退恢复路径
+/// 同口径）；THEME 分支 tokens 经 [`filter_allowed_tokens`] 过滤后再
+/// 下发（白名单外 token 剔除，不注入渲染快照）。
 pub async fn apply_live_patch(
     kind: &str,
     payload: &JsonValue,
     current_ui: Option<&JsonValue>,
+    whitelist: &LiveUiWhitelist,
 ) -> Result<JsonValue, String> {
     match kind {
         PATCH_KIND_UI => {
             let spec = apply_ui_payload(payload, current_ui)
                 .ok_or_else(|| "UI 补丁载荷非法（缺合法 spec.root 布局）".to_string())?;
+            let violations = validate_ui_spec(
+                &spec,
+                &whitelist.components,
+                &whitelist.channels,
+                &whitelist.tokens,
+            );
+            if !violations.is_empty() {
+                return Err(format!("UI 补丁未通过白名单校验: {}", violations.join("；")));
+            }
             call_engine_op("engine.introspection_ui_apply", json!({ "ui_spec": spec }))
         }
         PATCH_KIND_THEME => {
             // 归一校验：tokens 增量经 apply_theme_payload 与当前快照合并
             // 确认形态合法；下发 tokens 增量（引擎侧并入其当前快照 theme
-            // 段，不覆盖布局根）
+            // 段，不覆盖布局根）——下发前经白名单过滤
             apply_theme_payload(payload, current_ui)
                 .ok_or_else(|| "主题补丁载荷非法（缺 tokens 对象）".to_string())?;
-            let tokens = payload
-                .get("tokens")
-                .cloned()
-                .unwrap_or_else(|| json!({}));
+            let tokens = filter_allowed_tokens(payload.get("tokens"), &whitelist.tokens);
             call_engine_op(
                 "engine.introspection_ui_apply",
                 json!({ "tokens": tokens }),
@@ -521,19 +560,88 @@ pub async fn apply_live_patch(
     }
 }
 
-// ── 工具函数 ──
-
-fn string_list_from(value: &JsonValue) -> Vec<String> {
-    value
-        .as_array()
-        .map(|items| {
-            items
-                .iter()
-                .filter_map(|v| v.as_str().map(str::to_string))
-                .collect()
-        })
-        .unwrap_or_default()
+/// 主题 token 白名单过滤（白名单外 token 剔除，与回退恢复路径同语义）。
+pub fn filter_allowed_tokens(tokens: Option<&JsonValue>, allowed: &[String]) -> JsonValue {
+    let mut filtered = serde_json::Map::new();
+    if let Some(map) = tokens.and_then(JsonValue::as_object) {
+        for (key, value) in map {
+            if allowed.contains(key) {
+                filtered.insert(key.clone(), value.clone());
+            }
+        }
+    }
+    JsonValue::Object(filtered)
 }
+
+/// 补丁落链活跃态回调分派（JSON 进/JSON 出；单 kind 回调体）。
+///
+/// 载荷形态 = 引擎 `_CallbackApplyTarget` 回拉契约：`{payload, patch_id}`。
+/// 成功 = `{ok: true, result}`；失败 = `{ok: false, reason}`（引擎侧转
+/// RuntimeError 记 warning——链已落，重启装配恢复，不阻断管线）。
+fn dispatch_live_apply(kind: &str, payload: &str, whitelist: &LiveUiWhitelist) -> String {
+    let args: JsonValue = match serde_json::from_str(payload) {
+        Ok(value) => value,
+        Err(err) => {
+            return json!({"ok": false, "reason": format!("活跃态回调载荷非法: {err}")}).to_string();
+        }
+    };
+    let patch_payload = args.get("payload").cloned().unwrap_or(JsonValue::Null);
+    let runtime = match tokio::runtime::Builder::new_current_thread()
+        .enable_all()
+        .build()
+    {
+        Ok(rt) => rt,
+        Err(err) => {
+            return json!({"ok": false, "reason": format!("活跃态运行时构建失败: {err}")})
+                .to_string();
+        }
+    };
+    match runtime.block_on(apply_live_patch(kind, &patch_payload, None, whitelist)) {
+        Ok(result) => json!({ "ok": true, "result": result }).to_string(),
+        Err(reason) => json!({ "ok": false, "reason": reason }).to_string(),
+    }
+}
+
+/// 接入补丁落链活跃态生效（决议 13：apply_live_patch 进入生产路径）。
+///
+/// 接线点：boot.rs `wire_live_targets` 在 [`register_live_targets`] 之后
+/// 以配方白名单（recipe 的 ui_allowed_* 三清单）调用本函数——五类目标
+/// 改由壳侧回调接管：补丁落链后引擎回拉 `live.apply_patch.<kind>`
+/// 回调，经 [`apply_live_patch`]（含三层白名单校验）应用活跃态。
+///
+/// 幂等可重放：回调重复注册 = 覆盖（桥语义），目标重复注册 = 覆盖
+/// （引擎 self_pipeline 同名覆盖）。白名单未配齐时拒绝接管（fail-closed：
+/// 引擎侧目标保持生效，不静默换用未校验路径）。
+pub fn wire_apply_live_callbacks(whitelist: &LiveUiWhitelist) -> Result<(), String> {
+    if !whitelist.is_complete() {
+        return Err("活跃态回调接管失败：界面三层白名单未配齐（拒绝接管）".to_string());
+    }
+    for kind in [
+        PATCH_KIND_UI,
+        PATCH_KIND_THEME,
+        PATCH_KIND_HARNESS,
+        PATCH_KIND_RULE,
+        PATCH_KIND_KNOWLEDGE,
+    ] {
+        let callback_name = format!("{LIVE_APPLY_CALLBACK_PREFIX}.{kind}");
+        let whitelist = whitelist.clone();
+        crate::engine::bridge::register_callback(
+            &callback_name,
+            Box::new(move |payload: String| -> PyResult<String> {
+                Ok(dispatch_live_apply(kind, &payload, &whitelist))
+            }),
+        )
+        .map_err(|err| format!("活跃态回调注册失败（{callback_name}）: {err}"))?;
+        call_engine_op(
+            "patch.apply_target_register",
+            json!({ "kind": kind, "callback": callback_name }),
+        )
+        .map_err(|err| format!("活跃态目标注册失败（{kind}）: {err}"))?;
+    }
+    Ok(())
+}
+
+// ── 工具函数 ──
 
 /// 知识条目解析（id/level/kind/data 契约；非法形状返回 None）。
 pub fn parse_knowledge_entry(raw: &JsonValue) -> Option<JsonValue> {
@@ -621,6 +729,14 @@ mod tests {
 
     fn allowed_tokens() -> Vec<String> {
         vec!["bg.base".to_string(), "text.base".to_string(), "accent.approval".to_string()]
+    }
+
+    fn whitelist() -> LiveUiWhitelist {
+        LiveUiWhitelist {
+            components: allowed_components(),
+            channels: allowed_channels(),
+            tokens: allowed_tokens(),
+        }
     }
 
     #[test]
@@ -900,12 +1016,13 @@ mod tests {
             .enable_all()
             .build()
             .unwrap();
+        let wl = whitelist();
         let err = rt.block_on(register_live_targets());
         assert!(err.is_err());
         let message = err.unwrap_err();
         assert!(!message.contains("需 op"), "接线后不再返回占位文案: {message}");
         // 非法 UI 载荷（无 root）= 归一拒绝（域侧错误，不触碰通道）
-        let err = rt.block_on(apply_live_patch(PATCH_KIND_UI, &json!({"spec": {}}), None));
+        let err = rt.block_on(apply_live_patch(PATCH_KIND_UI, &json!({"spec": {}}), None, &wl));
         assert!(err.is_err());
         assert!(!err.unwrap_err().contains("需 op"));
         // 非法知识条目（缺 id/kind/level 契约）= 归一拒绝
@@ -913,13 +1030,77 @@ mod tests {
             PATCH_KIND_KNOWLEDGE,
             &json!({"entry": {"level": "work"}}),
             None,
+            &wl,
         ));
         assert!(err.is_err());
         assert!(!err.unwrap_err().contains("需 op"));
     }
 
     #[test]
-    fn string_list_helper_keeps_strings() {
-        assert_eq!(string_list_from(&json!(["a", 1, "b"])), vec!["a", "b"]);
+    fn apply_live_patch_rejects_ui_outside_whitelist() {
+        // FB1 回归：运行期 UI 补丁越权组件/通道/token = 白名单拒绝
+        // （域侧错误，不触碰引擎通道）
+        let _serial = crate::engine::host::bridge_guard();
+        let rt = tokio::runtime::Builder::new_current_thread()
+            .enable_all()
+            .build()
+            .unwrap();
+        let rogue = json!({
+            "spec": {
+                "name": "boot.panel",
+                "root": {"kind": "component", "type": "evil_widget", "bind": {"channel": "events.hack"}, "children": []},
+            }
+        });
+        let err = rt.block_on(apply_live_patch(PATCH_KIND_UI, &rogue, None, &whitelist()));
+        let message = err.unwrap_err();
+        assert!(message.contains("白名单"), "{message}");
+        assert!(message.contains("evil_widget"), "{message}");
+        assert!(message.contains("events.hack"), "{message}");
+        // 合规布局 = 进入引擎通道（无引擎 = 结构化引擎错误，而非白名单拒绝）
+        let clean = json!({"spec": {"name": "boot.panel", "root": {"kind": "container", "type": "root", "props": {}, "children": []}}});
+        let err = rt.block_on(apply_live_patch(PATCH_KIND_UI, &clean, None, &whitelist()));
+        assert!(err.is_err());
+        assert!(!err.unwrap_err().contains("白名单"), "合规布局不应被白名单拒绝");
+    }
+
+    #[test]
+    fn apply_live_patch_filters_theme_tokens_by_whitelist() {
+        // FB1 回归：THEME 分支 tokens 先过滤后下发——白名单外 token 剔除
+        let payload = json!({"tokens": {"bg.base": "#000000", "evil.token": "#ff0000"}});
+        let filtered = filter_allowed_tokens(payload.get("tokens"), &allowed_tokens());
+        assert_eq!(filtered["bg.base"], "#000000");
+        assert!(filtered.get("evil.token").is_none(), "白名单外 token 必须剔除");
+        // 非对象 tokens = 空对象（与回退路径同语义）
+        assert_eq!(filter_allowed_tokens(Some(&json!("nope")), &allowed_tokens()), json!({}));
+        assert_eq!(filter_allowed_tokens(None, &allowed_tokens()), json!({}));
+    }
+
+    #[test]
+    fn dispatch_live_apply_returns_structured_ok_and_fail() {
+        // FB6 回归：回调分派（纯函数，不触碰桥）——坏载荷/越权组件 = ok:false
+        // 结构化拒绝；白名单未配齐拒绝接管（fail-closed）
+        let bad = dispatch_live_apply(PATCH_KIND_UI, "not-json", &whitelist());
+        let parsed: JsonValue = serde_json::from_str(&bad).unwrap();
+        assert_eq!(parsed["ok"], false);
+        assert!(parsed["reason"].as_str().unwrap().contains("载荷非法"));
+        let rogue = json!({"payload": {"spec": {"name": "x", "root": {"kind": "component", "type": "evil_widget"}}}})
+            .to_string();
+        let denied = dispatch_live_apply(PATCH_KIND_UI, &rogue, &whitelist());
+        let parsed: JsonValue = serde_json::from_str(&denied).unwrap();
+        assert_eq!(parsed["ok"], false);
+        assert!(parsed["reason"].as_str().unwrap().contains("白名单"), "{parsed}");
+        // 未知 kind = ok:false 结构化错误
+        let unknown = dispatch_live_apply("unknown", &rogue, &whitelist());
+        let parsed: JsonValue = serde_json::from_str(&unknown).unwrap();
+        assert_eq!(parsed["ok"], false);
+        assert!(parsed["reason"].as_str().unwrap().contains("未知补丁类型"));
+        // 白名单未配齐 = 拒绝接管
+        let incomplete = LiveUiWhitelist {
+            components: vec!["a".to_string()],
+            channels: vec![],
+            tokens: vec![],
+        };
+        assert!(!incomplete.is_complete());
+        assert!(wire_apply_live_callbacks(&incomplete).is_err());
     }
 }

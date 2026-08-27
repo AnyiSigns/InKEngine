@@ -19,9 +19,9 @@
 
 use std::ffi::{c_int, c_void};
 use std::future::Future;
-use std::path::{Path, PathBuf};
+use std::path::Path;
 use std::pin::Pin;
-use std::sync::{Arc, Mutex};
+use std::sync::Arc;
 use std::time::{SystemTime, UNIX_EPOCH};
 
 use serde_json::Value as JsonValue;
@@ -374,7 +374,24 @@ fn now_epoch() -> f64 {
         .unwrap_or(0.0)
 }
 
+/// 从 BMP 字节读像素宽高（FILEHEADER 14B + 信息头 bi_width/bi_height；
+/// 非法形态返回 None——不阻塞附件产出，宽高保持未填）。
+fn bmp_dimensions(bytes: &[u8]) -> Option<(u32, u32)> {
+    if bytes.len() < 26 || &bytes[0..2] != b"BM" {
+        return None;
+    }
+    let width = i32::from_le_bytes([bytes[18], bytes[19], bytes[20], bytes[21]]);
+    let height = i32::from_le_bytes([bytes[22], bytes[23], bytes[24], bytes[25]]);
+    if width <= 0 || height <= 0 {
+        return None;
+    }
+    Some((width as u32, height as u32))
+}
+
 /// 写截图字节到本地文件，产出引擎 Attachment 形态。
+///
+/// 宽高在写入时从 BMP 头回填（FB12）：BitBlt 采集路径的位图头已知
+/// 宽高，附件序列化不再恒为 null。
 fn write_attachment(bytes: &[u8], out_dir: &Path) -> Result<VisionAttachment, DomainError> {
     std::fs::create_dir_all(out_dir)
         .map_err(|e| DomainError::Storage(format!("截图目录创建失败: {e}")))?;
@@ -383,14 +400,18 @@ fn write_attachment(bytes: &[u8], out_dir: &Path) -> Result<VisionAttachment, Do
     std::fs::write(&path, bytes)
         .map_err(|e| DomainError::Storage(format!("截图写入失败: {e}")))?;
     let url = format!("file:///{}", path.to_string_lossy().replace('\\', "/"));
+    let (width, height) = match bmp_dimensions(bytes) {
+        Some((w, h)) => (Some(w), Some(h)),
+        None => (None, None),
+    };
     Ok(VisionAttachment {
         kind: "image".to_string(),
         url: Some(url),
         path: Some(path.to_string_lossy().into_owned()),
         mime_type: Some("image/bmp".to_string()),
         alt: Some("屏幕截图".to_string()),
-        width: None,
-        height: None,
+        width,
+        height,
         name: Some(name),
     })
 }
@@ -494,6 +515,9 @@ fn export_record(
 
 #[cfg(test)]
 mod tests {
+    use std::path::PathBuf;
+    use std::sync::Mutex;
+
     use super::*;
 
     fn block_on<F: Future>(fut: F) -> F::Output {
@@ -722,6 +746,34 @@ mod tests {
             exported[0]["type"],
             JsonValue::String(VISION_AUDIT_EVENT_TYPE.to_string())
         );
+    }
+
+    #[test]
+    fn bmp_dimensions_reads_bitmap_header() {
+        let mut bmp = vec![0u8; 54];
+        bmp[0..2].copy_from_slice(b"BM");
+        bmp[18..22].copy_from_slice(&1920i32.to_le_bytes());
+        bmp[22..26].copy_from_slice(&1080i32.to_le_bytes());
+        assert_eq!(bmp_dimensions(&bmp), Some((1920, 1080)));
+        // 非 BMP / 过短 / 非正尺寸 = None（宽高保持未填）
+        assert_eq!(bmp_dimensions(b"not a bmp"), None);
+        assert_eq!(bmp_dimensions(&bmp[..20]), None);
+        bmp[18..22].copy_from_slice(&(-1i32).to_le_bytes());
+        assert_eq!(bmp_dimensions(&bmp), None);
+    }
+
+    #[test]
+    fn attachment_fills_dimensions_from_bmp() {
+        // FB12 回归：BitBlt 已知宽高写入时回填进附件
+        let dir = tmp_dir();
+        let mut bmp = vec![0u8; 54];
+        bmp[0..2].copy_from_slice(b"BM");
+        bmp[18..22].copy_from_slice(&800i32.to_le_bytes());
+        bmp[22..26].copy_from_slice(&600i32.to_le_bytes());
+        let attachment = write_attachment(&bmp, &dir).expect("写入成功");
+        assert_eq!(attachment.width, Some(800));
+        assert_eq!(attachment.height, Some(600));
+        let _ = std::fs::remove_dir_all(&dir);
     }
 
     #[test]

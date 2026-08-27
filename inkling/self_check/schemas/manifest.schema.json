@@ -79,7 +79,7 @@
     },
     "self_check": {
       "type": "object",
-      "required": ["schema", "cargo_test", "frontend", "e2e", "discipline", "benchmark"],
+      "required": ["schema", "cargo_test", "frontend", "e2e", "discipline", "benchmark", "symbols"],
       "additionalProperties": false,
       "properties": {
         "schema": { "$ref": "#/definitions/gate" },
@@ -87,7 +87,8 @@
         "frontend": { "$ref": "#/definitions/gate" },
         "e2e": { "$ref": "#/definitions/gate" },
         "discipline": { "$ref": "#/definitions/gate" },
-        "benchmark": { "$ref": "#/definitions/gate" }
+        "benchmark": { "$ref": "#/definitions/gate" },
+        "symbols": { "$ref": "#/definitions/gate" }
       }
     }
   },

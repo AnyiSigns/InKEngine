@@ -420,11 +420,11 @@ fn check_manifest(data: &Value, payload: &Payload, issues: &mut Vec<String>) {
             issues.push(format!("ui_spec 使用的主题键 {key:?} 超出白名单 {actual_tokens:?}"));
         }
     }
-    // 出厂自检表身份定稿：六门禁全部 ready 且命令非空（命令 = 编排器真正
+    // 出厂自检表身份定稿：门禁全部 ready 且命令非空（命令 = 编排器真正
     // 执行的单一事实源；门禁清单与 manifest 登记一致，防文档-脚本漂移）
     let self_check = get("self_check").and_then(Value::as_object);
     if let Some(self_check) = self_check {
-        for gate in ["schema", "cargo_test", "frontend", "e2e", "discipline", "benchmark"] {
+        for gate in ["schema", "cargo_test", "frontend", "e2e", "discipline", "benchmark", "symbols"] {
             let entry = self_check.get(gate).and_then(Value::as_object);
             let command = entry
                 .and_then(|map| map.get("command"))

@@ -55,14 +55,15 @@ name = "inkling_shell_lib"
 crate-type = ["staticlib", "cdylib", "rlib"]
 
 # 开发构建加速（4C8G 低配机器）：debug=1 仅行号表（体积/链接/内存大幅下降），
-# 依赖以 opt-level=2 预编译（依赖不变只编一次，增量仅重编本 crate），
+# 依赖以 opt-level=1 预编译（opt-level=2 使 windows-sys 等巨型依赖编译内存翻倍，
+# 在 8GB 机器上并行编译会 OOM；依赖不变只编一次，增量仅重编本 crate），
 # codegen-units=16 限制并行 codegen 内存尖峰（默认 256 会打爆 8GB 内存）。
 [profile.dev]
 debug = 1
 codegen-units = 16
 
 [profile.dev.package."*"]
-opt-level = 2
+opt-level = 1
 
 [profile.release]
 # 发布构建加速：thin LTO + 16 codegen-units（tauri 官方推荐），

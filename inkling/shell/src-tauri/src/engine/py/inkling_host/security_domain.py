@@ -59,8 +59,13 @@ from ink_engine.core.tool_pipeline import ToolPipeline
 logger = get_logger("host.security")
 
 # ── 错误码（结构化可观测：拒绝路径统一携带，防魔法字符串）──
+# 对偶来源（S12）：错误码值域与 Rust 侧 domain/security.rs ErrorCode
+# 同源（SEC_001-SEC_009 一一对应；Rust 另含 http_fetch 的 SEC_010/
+# SEC_011——两端以 tools.json 声明与安全语义收敛，6c 批收敛校验）
 
 # 占位符语义：file_ops 工具根目录在装配期由授权替换（见 WorkspaceAuthorizer）
+# 对偶来源（S12）：常量值与 Rust 侧 domain/common.rs WORKSPACE_ROOT_PLACEHOLDER
+# 同源（授权替换/越界拒绝两端同口径，6c 批收敛校验）
 WORKSPACE_ROOT_PLACEHOLDER = "${workspace_root}"
 
 # 大小上限缺省值（文件工具声明 sandbox_limits 缺项时的兜底，字节）
@@ -69,7 +74,12 @@ _DEFAULT_MAX_WRITE_BYTES = 1 << 20
 
 
 class ErrorCode:
-    """安全拒绝/降级路径的结构化错误码（日志与结果文本共用）。"""
+    """安全拒绝/降级路径的结构化错误码（日志与结果文本共用）。
+
+    对偶来源（S12）：值域与 Rust 侧 domain/security.rs ErrorCode 同源，
+    SEC_001-SEC_009 一一对应（Rust 侧额外持有 http_fetch 重定向/大小
+    上限的 SEC_010/SEC_011）；两端收敛由 6c 批校验，本侧不新增私有码。
+    """
 
     PERMISSION_DENIED = "SEC_001"  # deny 档/权限未命中，默认拒绝
     SANDBOX_OUT_OF_ROOT = "SEC_002"  # 文件路径越出工作区根
@@ -1227,6 +1237,8 @@ def _substitute_root(pattern: str, root: str) -> str:
 
 
 # ── 自动审批设置持久化（能力记录通道：与壳 capability_get/put 同集合）──
+# 对偶来源（S12）：集合/键与 Rust 侧 lib.rs CAPABILITY_COLLECTION/
+# CAPABILITY_KEY 同源（命令面持久化与引擎侧恢复同键读写，6c 批收敛校验）
 
 AUTO_APPROVE_COLLECTION = "app_capabilities"
 AUTO_APPROVE_KEY = "capability"

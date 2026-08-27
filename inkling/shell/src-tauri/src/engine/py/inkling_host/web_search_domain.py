@@ -10,7 +10,10 @@
   未注册同语义）；
 - **搜索 key**：用户自配厂商 key 从环境变量读取（``INK_SEARCH_KEY`` +
   ``INK_SEARCH_PROVIDER``，provider 取 exa/parallel/bocha 任一）；
-  未配置 = 本地聚合源（免费无 key）；设置页配置位后续数据驱动接入；
+  本侧只把 provider 名传给 Rust 回调，**不传 key 明文**（防密钥落桥
+  日志/审计链）；key 由 Rust 侧从环境读取（web_search.rs 6c 收敛——
+  当前 boot.rs 回调仍读 ``keys`` 字段，6c 改读 env 前厂商搜索临时
+  回落本地聚合源）；未配置 = 本地聚合源（免费无 key）；
 - **域名过滤**：结果域名白名单过滤在实现内完成（allow_domains 空 =
   不限制；非空 = 越域结果丢弃），沙箱层不做本地域名判定（与 fetch
   的单 URL 出网语义不同）。
@@ -26,15 +29,18 @@ _SEARCH_LIMIT_MAX = 20
 _SEARCH_LIMIT_DEFAULT = 5
 
 
-def _search_keys_from_env() -> dict[str, str]:
-    """用户自配厂商 key（环境变量形态；provider 缺省 exa 优先序）。"""
-    key = os.environ.get("INK_SEARCH_KEY", "").strip()
-    if not key:
-        return {}
+def _search_provider_from_env() -> str:
+    """用户自配厂商 provider 名（环境变量形态；key 由 Rust 侧读 env）。
+
+    仅返回 provider（exa/parallel/bocha），key 明文不跨桥（P5：防密钥
+    落桥日志/审计链）；``INK_SEARCH_KEY`` 未配置 = 空（本地聚合源）。
+    """
+    if not os.environ.get("INK_SEARCH_KEY", "").strip():
+        return ""
     provider = os.environ.get("INK_SEARCH_PROVIDER", "exa").strip().lower()
     if provider not in ("exa", "parallel", "bocha"):
         provider = "exa"
-    return {"search": {provider: key}}
+    return provider
 
 
 def make_web_search_executor(
@@ -72,9 +78,9 @@ def make_web_search_executor(
             "limit": limit,
             "domains": domains,
         }
-        keys = _search_keys_from_env()
-        if keys:
-            payload["keys"] = keys
+        provider = _search_provider_from_env()
+        if provider:
+            payload["provider"] = provider
         try:
             if callback is not None:
                 result = callback("host.web_search", payload)
@@ -85,7 +91,7 @@ def make_web_search_executor(
                     "host.web_search", json.dumps(payload, ensure_ascii=False)
                 )
                 result = json.loads(raw)
-        except (RuntimeError, ImportError) as exc:
+        except (RuntimeError, ImportError, json.JSONDecodeError) as exc:
             return json.dumps(
                 {
                     "ok": False,

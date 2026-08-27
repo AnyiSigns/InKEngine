@@ -17,11 +17,8 @@ from collections.abc import Callable
 from dataclasses import dataclass
 from typing import Any
 
-from ink_engine.core.logging import get_logger
 from ink_engine.core.self_application import patch_path
 from ink_engine.core.self_proposal import PatchKind
-
-logger = get_logger(__name__)
 
 # 审计扫描窗口（与自指工具 propose_patch 的前置扫描同量级：只看近期
 # 记录，防长跑审计膨胀拖慢冷却判定）

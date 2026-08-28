@@ -29,6 +29,7 @@ from ink_engine.core.settle import (
     FailureAuditSettleHook,
     FingerprintSettleHook,
     NodeProposalSettleHook,
+    PoolGovernanceSettleHook,
     SettleContext,
     SettleHooks,
     TraceStep,
@@ -989,3 +990,40 @@ async def test_recommended_prior_hook_dedup_persists_across_restart():
     await fresh.settle(ctx)
     assert len(fresh.promotions) == 1
     await store.close()
+
+# ── E5.1：池治理登记钩子 ──
+
+def test_pool_governance_settle_hook_registerable():
+    """PoolGovernanceSettleHook 可注册进 SettleHooks 链。"""
+    from ink_engine.core.pool_governance import PoolGovernance
+
+    gov = PoolGovernance()
+    hook = PoolGovernanceSettleHook(gov)
+    hooks = SettleHooks()
+    hooks.register(hook)
+    assert len(hooks.hooks) == 1
+    assert hooks.hooks[0] is hook
+
+
+@pytest.mark.asyncio
+async def test_pool_governance_settle_hook_settle_is_noop():
+    """PoolGovernanceSettleHook.settle 不报错（占位钩子）。"""
+    import time
+
+    from ink_engine.core.pool_governance import PoolGovernance
+
+    gov = PoolGovernance()
+    hook = PoolGovernanceSettleHook(gov)
+    ctx = SettleContext(
+        thread_id="t1",
+        round_id="r1",
+        trace_id="tr1",
+        domain="default",
+        steps=(TraceStep(graph_path=(), node="n", status=TRACE_SUCCESS),),
+        node_tokens={},
+        graphs={},
+        result=RunResult(state={}, reason="reply"),
+    )
+    await hook.settle(ctx)
+    # 钩子不执行判定，只占位
+    assert len(gov.log) == 0

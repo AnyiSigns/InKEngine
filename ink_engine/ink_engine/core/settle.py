@@ -742,6 +742,27 @@ class RecommendedPriorSettleHook:
             self._sink(record)
 
 
+class PoolGovernanceSettleHook:
+    """池治理登记钩子：把 PoolGovernance 挂入 settle 钩子链（只登记不执行）。
+
+    钩子本身不在 settle 路径做治理判定——治理判定由桥 op 触发
+    （pool.snapshot 读快照、pool.evaluate 判定提案）。本钩子只把
+    PoolGovernance 登记器注册进钩子链，使运行时持有可观测的治理状态。
+    """
+
+    def __init__(self, governance: Any) -> None:
+        self._governance = governance
+
+    @property
+    def governance(self) -> Any:
+        return self._governance
+
+    async def settle(self, ctx: SettleContext) -> None:
+        # 沉淀路径不做治理判定（纯登记模块由桥 op 触发）；钩子占位
+        # 使运行时持有治理登记器可观测
+        pass
+
+
 class PolicyEdgeReviewSettleHook:
     """策略边对抗复审钩子（对抗证据 → 自动提请 L2 复审 + 复审前降级）。
 
@@ -881,6 +902,7 @@ __all__ = [
     "FingerprintSettleHook",
     "NodeProposalSettleHook",
     "PolicyEdgeReviewSettleHook",
+    "PoolGovernanceSettleHook",
     "QualityGate",
     "RecommendedPriorSettleHook",
     "SettleContext",

@@ -4,6 +4,7 @@
 - 内置：openai_compat（规范名）+ 常见 OpenAI 兼容厂商别名
   （openai/deepseek/zhipu/moonshot/ollama 均指向同一类，改 base_url 适配）；
 - 新厂商：register_adapter 注册适配器类，配置 dict 的 adapter 字段驱动选择；
+- 原生协议厂商：anthropic / gemini 内置注册（各自独立适配器，非 OpenAI 兼容包装）；
 - DashScope 兼容端点同样走 openai_compat（base_url = .../compatible-mode/v1），
   专用原生协议适配待实际需要时再补（机制已预留）。
 
@@ -59,6 +60,26 @@ def _ensure_builtins() -> None:
         raise
     for name in _OPENAI_COMPAT_ALIASES:
         _LLM_REGISTRY.setdefault(name, OpenAICompatibleLLM)
+    # 原生协议厂商：anthropic / gemini 各自独立适配器（非 OpenAI 兼容包装），
+    # 缺 httpx 时跳过（内置惰性，用不到即不依赖）
+    try:
+        from ink_engine.core.llm.anthropic import AnthropicLLM
+
+        _LLM_REGISTRY.setdefault("anthropic", AnthropicLLM)
+    except ModuleNotFoundError as exc:
+        if getattr(exc, "name", None) == "httpx":
+            pass  # 缺 httpx 时跳过原生适配器注册
+        else:
+            raise
+    try:
+        from ink_engine.core.llm.gemini import GeminiLLM
+
+        _LLM_REGISTRY.setdefault("gemini", GeminiLLM)
+    except ModuleNotFoundError as exc:
+        if getattr(exc, "name", None) == "httpx":
+            pass  # 缺 httpx 时跳过原生适配器注册
+        else:
+            raise
     _BUILTINS_REGISTERED = True
 
 

@@ -75,6 +75,26 @@ def __getattr__(name: str):
                 ) from exc
             raise
         return OpenAICompatibleLLM
+    if name == "AnthropicLLM":
+        try:
+            from ink_engine.core.llm.anthropic import AnthropicLLM
+        except ModuleNotFoundError as exc:
+            if getattr(exc, "name", None) == "httpx":
+                raise ModuleNotFoundError(
+                    "AnthropicLLM 需要 httpx：请安装 textforge-engine-core[llm]"
+                ) from exc
+            raise
+        return AnthropicLLM
+    if name == "GeminiLLM":
+        try:
+            from ink_engine.core.llm.gemini import GeminiLLM
+        except ModuleNotFoundError as exc:
+            if getattr(exc, "name", None) == "httpx":
+                raise ModuleNotFoundError(
+                    "GeminiLLM 需要 httpx：请安装 textforge-engine-core[llm]"
+                ) from exc
+            raise
+        return GeminiLLM
     if name in _EMBEDDING_NAMES:
         try:
             from ink_engine.core.llm import embeddings as _emb
@@ -90,10 +110,12 @@ def __getattr__(name: str):
 __all__ = [
     "CACHE_COLLECTION",
     "DEFAULT_CACHE_TTL",
+    "AnthropicLLM",
     "AsyncEmbedder",
     "AsyncLLM",
     "CachingLLM",
     "EmbeddingConfig",
+    "GeminiLLM",
     "LLMAuthError",
     "LLMBadRequestError",
     "LLMChunk",

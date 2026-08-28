@@ -13,7 +13,6 @@ import { Archive, Lock, RotateCcw, Trash2 } from 'lucide-react';
 import type { AppRegistryEntry, AppRegistryStore } from '@/shared/registry/appRegistry';
 import { MemoryAppRegistryStore, REGISTRY_SOURCE_LABELS, REGISTRY_TYPE_LABELS } from '@/shared/registry/appRegistry';
 import { formatTimeCompact } from '@/shared/format_helpers';
-import registryFixture from '@/data/app_registry.fixture.json';
 import { cn } from '@/shared/cn';
 import { Button } from '@/shared/ui/Button';
 import { Feedback } from '@/components/floaters/feedback';
@@ -26,10 +25,8 @@ interface AdminConsoleProps {
   onOpenBackupWizard?: (mode: 'export' | 'restore') => void;
 }
 
-const seededStore = new MemoryAppRegistryStore(registryFixture as unknown as AppRegistryEntry[]);
-
-export function AdminConsole({ registryStore = seededStore, onOpenBackupWizard }: AdminConsoleProps) {
-  const store = registryStore;
+export function AdminConsole({ registryStore, onOpenBackupWizard }: AdminConsoleProps) {
+  const store = registryStore ?? new MemoryAppRegistryStore([]);
   return <AdminConsoleInner store={store} onOpenBackupWizard={onOpenBackupWizard} />;
 }
 
@@ -43,7 +40,6 @@ function AdminConsoleInner({ store, onOpenBackupWizard }: { store: AppRegistrySt
   const run = (action: () => void): void => {
     action();
     setPhase('success');
-    setTimeout(() => setPhase('idle'), 700);
   };
 
   return (

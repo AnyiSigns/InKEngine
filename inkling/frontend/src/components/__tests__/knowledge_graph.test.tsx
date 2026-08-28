@@ -5,7 +5,7 @@
 import { render, screen } from '@testing-library/react';
 import userEvent from '@testing-library/user-event';
 
-import { KnowledgeGraph, KNOWLEDGE_GRAPH_FIXTURE } from '@/components/knowledge_graph';
+import { KnowledgeGraph } from '@/components/knowledge_graph';
 import type { KnowledgeGraphResult } from '@/shared/backend/backendAdapter';
 
 function pair(): KnowledgeGraphResult {
@@ -25,12 +25,6 @@ describe('knowledge_graph：节点/边渲染', () => {
     expect(container.querySelector('[data-node="b"]')).toBeInTheDocument();
     expect(container.querySelector('[data-edge="a->b"]')).toBeInTheDocument();
     expect(container.querySelector('[data-relation="reference"]')).toBeInTheDocument();
-  });
-
-  it('无宿主时回落夹具数据仍可渲染', () => {
-    const { container } = render(<KnowledgeGraph />);
-    expect(container.querySelector(`[data-node="${KNOWLEDGE_GRAPH_FIXTURE.nodes[0].id}"]`)).toBeInTheDocument();
-    expect(container.querySelectorAll('[data-node]').length).toBe(KNOWLEDGE_GRAPH_FIXTURE.nodes.length);
   });
 
   it('空数据态不崩', () => {

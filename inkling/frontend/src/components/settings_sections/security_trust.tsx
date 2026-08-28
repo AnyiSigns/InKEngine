@@ -265,8 +265,7 @@ export function SecurityTrust({ value, patch, onOpenBackupWizard, recovery, auto
             variant="secondary"
             data-ui="audit_export"
             onClick={() => {
-              setAuditPhase('loading');
-              setTimeout(() => setAuditPhase('success'), 120);
+              setAuditPhase('success');
             }}
           >
             <FileClock size={11} strokeWidth={1.6} /> 导出审计日志

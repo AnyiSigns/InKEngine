@@ -31,8 +31,7 @@ export function EnvironmentContainer({ value, patch }: EnvironmentContainerProps
   const [destroyArmed, setDestroyArmed] = useState(false);
 
   const runClean = (): void => {
-    setCleaning('loading');
-    setTimeout(() => setCleaning('success'), 120);
+    setCleaning('success');
   };
 
   return (

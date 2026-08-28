@@ -70,7 +70,6 @@ export function UiSpecEditor({ uiSpec, onApplyUiSpec, onClose }: UiSpecEditorPro
     }
     onApplyUiSpec?.(draft);
     setApplied(true);
-    setTimeout(() => setApplied(false), 700);
   };
 
   const updateSelected = (patch: (node: UINode) => UINode): void => {

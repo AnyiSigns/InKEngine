@@ -46,12 +46,8 @@ export function MountWizardFloater({ onClose, onMounted, market = MCP_MARKET_DEF
 
   const next = (): void => {
     if (step === 2) {
-      // vetting 观察：静态钩子核对通过 → 挂载确认（无静默变化：loading → success）
-      setPhase('loading');
-      setTimeout(() => {
-        setPhase('success');
-        setStep(3);
-      }, 120);
+      setPhase('success');
+      setStep(3);
       return;
     }
     if (step === 3) {

@@ -38,9 +38,4 @@ describe('模型选择器', () => {
     expect(onSelect).toHaveBeenCalledWith('r1');
     expect(screen.getByText('占用 1/5')).toBeInTheDocument();
   });
-
-  it('无档案回落假数据（不崩）', () => {
-    render(<AgentInput />);
-    expect(screen.getByText(/占用/)).toBeInTheDocument();
-  });
 });

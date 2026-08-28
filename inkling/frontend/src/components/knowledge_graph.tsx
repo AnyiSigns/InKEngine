@@ -12,28 +12,6 @@ import { useMemo, useRef, useState, type MutableRefObject } from 'react';
 import type { KnowledgeGraphEdge, KnowledgeGraphNode, KnowledgeGraphResult } from '@/shared/backend/backendAdapter';
 import { createBackend } from '@/shared/backend/backendAdapter';
 
-export const KNOWLEDGE_GRAPH_FIXTURE: KnowledgeGraphResult = {
-  nodes: [
-    { id: 'rule.focus.window', label: '专注窗口规则', kind: 'rule', tags: ['节奏'] },
-    { id: 'rule.deep.work', label: '深度工作规则', kind: 'rule', tags: ['节奏'] },
-    { id: 'tpl.daily.plan', label: '日计划模板', kind: 'template', tags: ['计划'] },
-    { id: 'tpl.retro', label: '复盘模板', kind: 'template', tags: ['计划'] },
-    { id: 'tool.inspect', label: '检视工具规则', kind: 'tool_rule', tags: ['工具'] },
-    { id: 'weight.novelty', label: '新颖度权重', kind: 'weight', tags: ['评分'] },
-    { id: 'src.dialog', label: '对话来源', kind: 'rule', tags: ['来源'] },
-    { id: 'src.web', label: '网络来源', kind: 'rule', tags: ['来源'] },
-  ],
-  edges: [
-    { source: 'rule.focus.window', target: 'tpl.daily.plan', relation: 'reference' },
-    { source: 'rule.deep.work', target: 'tpl.daily.plan', relation: 'reference' },
-    { source: 'tpl.daily.plan', target: 'tpl.retro', relation: 'reference' },
-    { source: 'tool.inspect', target: 'weight.novelty', relation: 'reference' },
-    { source: 'rule.focus.window', target: 'rule.deep.work', relation: 'tag' },
-    { source: 'src.dialog', target: 'rule.focus.window', relation: 'source' },
-    { source: 'src.web', target: 'weight.novelty', relation: 'source' },
-  ],
-};
-
 const RELATION_COLOR: Record<KnowledgeGraphEdge['relation'], string> = {
   tag: 'var(--ink-accent)',
   reference: 'var(--ink-text-base)',
@@ -137,7 +115,7 @@ export function KnowledgeGraph({ bindValue, onSelectEntry }: KnowledgeGraphProps
 
   useMemoLoad(bindValue, backend, setGraph, graph);
 
-  const data = graph ?? KNOWLEDGE_GRAPH_FIXTURE;
+  const data = graph ?? { nodes: [], edges: [] };
   const positions = useMemo(
     () => layoutGraph(data.nodes, data.edges, width, height),
     [data.nodes, data.edges, width, height],
@@ -274,9 +252,9 @@ function useMemoLoad(
       backend.current
         .knowledgeGraph()
         .then((result) => setGraph(result))
-        .catch(() => setGraph(KNOWLEDGE_GRAPH_FIXTURE));
+        .catch(() => setGraph({ nodes: [], edges: [] }));
     } else {
-      setGraph(KNOWLEDGE_GRAPH_FIXTURE);
+      setGraph({ nodes: [], edges: [] });
     }
   }
 }

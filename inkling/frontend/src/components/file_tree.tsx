@@ -22,41 +22,6 @@ export interface FileNode {
   children?: FileNode[];
 }
 
-const DEMO_FILES: FileNode[] = [
-  {
-    name: '~/inkling',
-    kind: 'dir',
-    children: [
-      {
-        name: 'knowledge',
-        kind: 'dir',
-        children: [
-          { name: '引用质量校验规则.md', kind: 'file' },
-          { name: '领域术语表.md', kind: 'file' },
-        ],
-      },
-      {
-        name: 'domains',
-        kind: 'dir',
-        children: [{ name: 'knowledge', kind: 'dir', children: [{ name: 'manifest.json', kind: 'file' }] }],
-      },
-      {
-        name: 'rules',
-        kind: 'dir',
-        children: [
-          { name: 'approval_L1.json', kind: 'file' },
-          { name: 'sample_gate.json', kind: 'file' },
-        ],
-      },
-      {
-        name: 'patches',
-        kind: 'dir',
-        children: [{ name: 'p-0001 引用校验.applied', kind: 'file' }],
-      },
-    ],
-  },
-];
-
 interface FileTreeProps {
   collapsible?: boolean;
   files?: FileNode[];
@@ -64,7 +29,7 @@ interface FileTreeProps {
   onNavigate?: (view: ViewId) => void;
 }
 
-export function FileTree({ collapsible = false, files = DEMO_FILES, activeFile = '', onNavigate }: FileTreeProps) {
+export function FileTree({ collapsible = false, files = [], activeFile = '', onNavigate }: FileTreeProps) {
   const [collapsed, setCollapsed] = useState(false);
 
   if (collapsed) {

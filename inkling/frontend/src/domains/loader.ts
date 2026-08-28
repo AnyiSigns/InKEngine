@@ -2,8 +2,7 @@
  * 领域组件包加载器：按 manifest 清单（contracts.renderer_components）
  * 注册领域组件进渲染器注册表。
  *
- * 清单 = 种子 manifest.json 的 contracts 段（夹具见 contracts.fixture.json，
- * 集成期注入 M0 真实 manifest）；清单外的领域组件名不注册——渲染器
+ * 清单 = 种子 manifest.json 的 contracts 段；清单外的领域组件名不注册——渲染器
  * 白名单拒绝（未声明组件不渲染）。
  */
 

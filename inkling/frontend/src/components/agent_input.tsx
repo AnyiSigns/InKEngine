@@ -93,13 +93,7 @@ export function AgentInput({
     if (noteTimer.current) clearTimeout(noteTimer.current);
   }, []);
 
-  // 模型选择器：档案清单按挡位分组；无宿主数据回落假数据
-  const FALLBACK_MODELS: ModelProfile[] = [
-    { id: 'main-pro', name: '主模型·专业', tier: 'main', occupancy: 3, limit: 10 },
-    { id: 'main-lite', name: '主模型·轻量', tier: 'main', occupancy: 1, limit: 10 },
-    { id: 'router-fast', name: '制片人·快', tier: 'router', occupancy: 0, limit: 5 },
-  ];
-  const modelList = models ?? FALLBACK_MODELS;
+  const modelList = models ?? [];
   const [modelId, setModelId] = useState<string>(selectedModel ?? modelList[0]?.id ?? '');
   const selectedModelObj = modelList.find((m) => m.id === modelId);
   const tierGroups = new Map<string, ModelProfile[]>();

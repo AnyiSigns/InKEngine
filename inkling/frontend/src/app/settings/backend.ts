@@ -13,7 +13,7 @@ export interface SettingsBackend {
   available: boolean;
   status(): Promise<{ engine_ready: boolean; first_run?: boolean }>;
   firstRunDismiss(): Promise<{ dismissed: boolean }>;
-  modelsSnapshot(): Promise<Record<string, unknown>>;
+  modelArchiveSnapshot(): Promise<Record<string, unknown>>;
   capabilityGet(): Promise<Record<string, unknown>>;
   capabilityPut(record: Record<string, unknown>): Promise<unknown>;
   offlineSettingsGet(): Promise<Record<string, unknown>>;
@@ -36,7 +36,7 @@ export function createSettingsBackend(adapter: BackendAdapter | null): SettingsB
       available: false,
       status: async () => ({ engine_ready: false }),
       firstRunDismiss: async () => ({ dismissed: false }),
-      modelsSnapshot: async () => ({}),
+      modelArchiveSnapshot: async () => ({}),
       capabilityGet: async () => ({}),
       capabilityPut: async () => undefined,
       offlineSettingsGet: () => direct('offline_settings_get'),
@@ -54,7 +54,7 @@ export function createSettingsBackend(adapter: BackendAdapter | null): SettingsB
     available: true,
     status: () => adapter.status().then((s) => ({ engine_ready: s.engine_ready, first_run: s.first_run })),
     firstRunDismiss: () => adapter.firstRunDismiss(),
-    modelsSnapshot: () => adapter.modelsSnapshot().then((r) => r as unknown as Record<string, unknown>),
+    modelArchiveSnapshot: () => adapter.modelArchiveSnapshot().then((r) => r as unknown as Record<string, unknown>),
     capabilityGet: () => adapter.capabilityGet().then((r) => r as unknown as Record<string, unknown>),
     capabilityPut: (record) => adapter.capabilityPut(record),
     offlineSettingsGet: () => direct('offline_settings_get'),

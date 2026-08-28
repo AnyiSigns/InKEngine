@@ -1,4 +1,4 @@
-import { describe, it, expect, vi } from 'vitest';
+import { describe, it, expect } from 'vitest';
 import { render, screen, fireEvent } from '@testing-library/react';
 import { MessageStream } from '../session/MessageStream';
 
@@ -48,7 +48,7 @@ describe('MessageStream', () => {
   });
 
   it('renders tool card with expand/collapse', () => {
-    render(<MessageStream entries={[{ id: '1', kind: 'tool', content: 'output', meta: { toolName: 'grep', status: 'ok', summary: '命中 3 处' } }]} streaming={false} onBranchFromMessage={() => {}} />);
+    render(<MessageStream entries={[{ id: '1', kind: 'tool', content: 'output', at: Date.now(), meta: { toolName: 'grep', status: 'ok', summary: '命中 3 处' } }]} streaming={false} onBranchFromMessage={() => {}} />);
     expect(screen.getByText('grep')).toBeTruthy();
     fireEvent.click(screen.getByText('查看输出'));
     expect(screen.getByText('收起')).toBeTruthy();
@@ -57,7 +57,7 @@ describe('MessageStream', () => {
   it('renders spawn card and opens panel', () => {
     render(
       <MessageStream
-        entries={[{ id: '1', kind: 'spawn', meta: { count: 2 } }]}
+        entries={[{ id: '1', kind: 'spawn', at: Date.now(), meta: { count: 2 } }]}
         streaming={false}
         spawnInstances={[{ index: 0, label: '子任务 1', status: 'running' }]}
         onSpawnSelect={() => {}}

@@ -25,10 +25,6 @@ interface VoiceStatus {
   note: string | null;
 }
 
-interface ModelArchiveEntry {
-  multimodal?: boolean;
-}
-
 function CapabilityChip({ on, label }: { on: boolean; label: string }): JSX.Element {
   return (
     <span className={['ink-chip', on ? 'ink-text-accent' : 'ink-text-faint'].join(' ')}>
@@ -59,9 +55,9 @@ export function CapabilityOverview(): JSX.Element {
         setVoice(null);
       }
       try {
-        const m = (await tauri.invoke('models_snapshot', {})) as { profiles?: ModelArchiveEntry[] };
-        const profiles = m.profiles ?? [];
-        setMultimodal(profiles.some((p) => p.multimodal));
+        const m = (await tauri.invoke('model_archive_snapshot', {})) as { archives?: Array<{ multimodal?: boolean | null }> };
+        const profiles = m.archives ?? [];
+        setMultimodal(profiles.some((p) => p.multimodal === true));
       } catch {
         setMultimodal(false);
       }

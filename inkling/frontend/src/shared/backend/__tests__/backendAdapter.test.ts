@@ -108,7 +108,7 @@ describe('Tauri 桥适配器', () => {
       'recovery_factory_reset',
       'components_manifest',
     ]);
-    expect(calls[0].args).toEqual({ threadId: 'thread-a', roundId: 'round-1', text: '调研', autoAccept: false });
+    expect(calls[0].args).toEqual({ threadId: 'thread-a', roundId: 'round-1', text: '调研', autoAcceptReview: false });
     expect(calls[2].args).toEqual({ threadId: 'thread-a', key: 'patch.rule', decision: 'accept' });
     expect(calls[9].args).toEqual({ name: 'chain-v3-1720000000000-abc.sqlite' });
   });

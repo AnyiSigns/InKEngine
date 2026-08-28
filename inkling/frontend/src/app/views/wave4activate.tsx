@@ -7,7 +7,7 @@
  */
 
 import { type ReactNode } from 'react';
-import { Server, Wrench, Monitor, Shield, Settings } from 'lucide-react';
+import { Server, Wrench, Shield, Settings } from 'lucide-react';
 
 import type { UISpec } from '@/renderer/uiSpecTypes';
 import { registerEventRenderers } from '../renderers/eventRenderers';
@@ -17,7 +17,6 @@ import type { AppBackend } from '../backend';
 import { McpMarket } from './markets/McpMarket';
 import { ComponentMarket } from './markets/ComponentMarket';
 import { ToolsPanel } from './tools/ToolsPanel';
-import { OsView } from './os/OsView';
 import { WorkspaceAuth } from './workspace/WorkspaceAuth';
 import { EnvironmentContainer } from './workspace/EnvironmentContainer';
 import { UiEditorHost } from './uieditor/UiEditorHost';
@@ -49,7 +48,6 @@ export function activate(backend: AppBackend): { sections: SettingsSectionSpec[]
   registerComponent('mcp_market', McpMarket as unknown as PlainComponent);
   registerComponent('component_market', ComponentMarket as unknown as PlainComponent);
   registerComponent('tools_panel', ToolsPanel as unknown as PlainComponent);
-  registerComponent('os_view', OsView as unknown as PlainComponent);
   registerComponent('workspace_auth', WorkspaceAuth as unknown as PlainComponent);
   registerComponent('environment_container', EnvironmentContainer as unknown as PlainComponent);
   registerComponent('ui_editor_host', UiEditorHost as unknown as PlainComponent);
@@ -93,22 +91,6 @@ export function activate(backend: AppBackend): { sections: SettingsSectionSpec[]
           hint: '浏览 tools_snapshot，四层标签筛选，research 6 工具独立分组',
           kind: 'component',
           read: () => backend.getToolDetails(),
-          write: () => {},
-        },
-      ],
-    },
-    {
-      key: 'os',
-      label: 'OS 层',
-      icon: <Monitor size={14} strokeWidth={1.5} />,
-      order: 30,
-      items: [
-        {
-          key: 'os_view',
-          label: '设备感知 / 控制',
-          hint: '设备感知卡 + 设备控制确认 UI + 截图 + 测试运行器 + 网络越域',
-          kind: 'component',
-          read: () => ({}),
           write: () => {},
         },
       ],
@@ -166,7 +148,6 @@ export const viewRegistrations = {
   mcp_market: McpMarket,
   component_market: ComponentMarket,
   tools_panel: ToolsPanel,
-  os_view: OsView,
   workspace_auth: WorkspaceAuth,
   environment_container: EnvironmentContainer,
   ui_editor_host: UiEditorHost,

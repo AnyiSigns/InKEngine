@@ -12,8 +12,8 @@ describe('activate (W4/W5)', () => {
     const backend = createAppBackend({ backend: { available: false } as never });
     const { sections } = activate(backend);
 
-    expect(sections.length).toBe(5);
-    expect(sections.map((s) => s.key)).toEqual(['markets', 'tools', 'os', 'workspace', 'ui_editor']);
+    expect(sections.length).toBe(4);
+    expect(sections.map((s) => s.key)).toEqual(['markets', 'tools', 'workspace', 'ui_editor']);
   });
 
   it('settings sections 按顺序排列', () => {
@@ -42,15 +42,6 @@ describe('activate (W4/W5)', () => {
     const toolsSection = sections.find((s) => s.key === 'tools');
     expect(toolsSection).toBeTruthy();
     expect(toolsSection!.items![0].key).toBe('tools_panel');
-  });
-
-  it('os section 包含 OS 层视图', () => {
-    const backend = createAppBackend({ backend: { available: false } as never });
-    const { sections } = activate(backend);
-
-    const osSection = sections.find((s) => s.key === 'os');
-    expect(osSection).toBeTruthy();
-    expect(osSection!.items![0].key).toBe('os_view');
   });
 
   it('workspace section 包含授权 + 环境容器', () => {
@@ -86,7 +77,6 @@ describe('activate (W4/W5)', () => {
     expect(viewRegistrations.mcp_market).toBeTruthy();
     expect(viewRegistrations.component_market).toBeTruthy();
     expect(viewRegistrations.tools_panel).toBeTruthy();
-    expect(viewRegistrations.os_view).toBeTruthy();
     expect(viewRegistrations.workspace_auth).toBeTruthy();
     expect(viewRegistrations.environment_container).toBeTruthy();
     expect(viewRegistrations.ui_editor_host).toBeTruthy();

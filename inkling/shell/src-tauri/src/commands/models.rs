@@ -160,3 +160,11 @@ pub(crate) async fn edge_downgrade_tier(
         .await
         .map_err(CommandError::engine)
 }
+
+/// 模型连接配置落盘（settings_put 的替代：前端 model_section 改调此名）。
+#[tauri::command]
+pub(crate) fn models_config_put(app: AppHandle, config: JsonValue) -> Result<JsonValue, CommandError> {
+    let data_dir = app_data_dir(&app)?;
+    crate::domain::model_archive::write_model_connection(&data_dir, &config);
+    Ok(config)
+}

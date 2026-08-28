@@ -79,9 +79,36 @@ def test_assembly_batch_ops_registered():
     assert "path.set_multipath" in bridge._OPS_ASYNC
 
 
+def test_backend_gap_commands_registered():
+    """补齐 Rust 命令面断链：A 类转换 op + B 类知识/记忆 op + 运行时生命周期
+    + 流水线安全状态，全部须在桥注册表（前端按命令名调用，缺注册 = 断链）。"""
+    bridge = _load_bridge()
+    registered = set(bridge._OPS_SYNC) | set(bridge._OPS_ASYNC)
+    expected = [
+        # A 类转换 op（已在既有 op，此处断言仍登记）
+        "assemble_stats", "graph.snapshot", "pool.snapshot", "pool.evaluate",
+        "edge_evidence.list", "edge_evidence.update", "path.assemble",
+        "path.clear_candidate", "path.set_assembler_enabled", "cache.stats",
+        "cache.clear", "why.audit", "sovereignty.snapshot", "suggestion.scan",
+        # B 类知识集 op（_register_knowledge_ops 新增）
+        "knowledge.list", "knowledge.add", "knowledge.promote",
+        "knowledge.archive", "knowledge.restore", "knowledge.export",
+        # B 类记忆 op（_register_memory_ops 新增）
+        "memory.list", "memory.invalidate", "memory.update_frontmatter",
+        # 运行时生命周期（_register_runtime_ops 新增）
+        "engine.runtime_state", "engine.runtime_pause",
+        "engine.runtime_resume", "engine.runtime_stop",
+        # 流水线安全（_register_pipeline_ops 新增）
+        "pipeline.security_status",
+    ]
+    missing = sorted(set(expected) - registered)
+    assert not missing, "桥未注册的新增 op: " + ", ".join(missing)
+
+
 if __name__ == "__main__":
     test_all_rust_op_names_registered_in_bridge()
     test_engine_propose_patch_registered_both_channels()
     test_builtin_mcp_ops_registered()
     test_assembly_batch_ops_registered()
+    test_backend_gap_commands_registered()
     print("op 契约全部通过")

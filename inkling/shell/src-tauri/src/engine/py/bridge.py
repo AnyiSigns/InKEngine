@@ -1001,6 +1001,14 @@ def _register_pipeline_ops() -> None:
             "source": approval.source,
         }
 
+    @op_sync("pipeline.security_status")
+    def _security_pipeline_status(args: dict) -> Any:
+        """安全流水线安装状态（比对运行时 tool_pipeline 是否为安全流水线子类）。"""
+        runtime = runtime_handle()
+        pipeline = getattr(runtime, "tool_pipeline", None)
+        installed = isinstance(pipeline, _security_pipeline_class())
+        return {"installed": bool(installed)}
+
 def _register_graph_ops() -> None:
     # ── 图配方（节点类型登记 + 回合图构造）──
 
@@ -1529,6 +1537,63 @@ def _register_memory_ops() -> None:
             )
         return {"cleared_patches": patches}
 
+    # ── 记忆（MemoryData 契约：namespaces 分组计数 + entries 映射）──
+
+    @op_async("memory.list")
+    async def _memory_list(args: dict) -> Any:
+        from ink_engine.core.memory import MemoryQuery
+        from inkling_host.assembly_domain import build_memory_store
+
+        runtime = runtime_handle()
+        store = build_memory_store(runtime.storage)
+        rows = await store.query(MemoryQuery(namespace=args.get("namespace")))
+        entries: list[dict] = []
+        namespaces: dict[str, int] = {}
+        for entry in rows:
+            ns = entry.namespace or ""
+            namespaces[ns] = namespaces.get(ns, 0) + 1
+            entries.append({
+                "id": entry.id,
+                "namespace": entry.namespace,
+                "kind": entry.kind,
+                "title": entry.title or "",
+                "content": entry.content,
+                "source": entry.source,
+                "credibility": entry.weight,
+                "expires_at": entry.expires_at,
+                # 引擎无 invalid 概念（失效 = expires_at 过期），前端语义暂恒 False
+                "invalid": False,
+                "created_at": entry.created_at,
+            })
+        return _jsonable({
+            "namespaces": [
+                {"name": name, "count": count}
+                for name, count in sorted(namespaces.items())
+            ],
+            "entries": entries,
+        })
+
+    @op_async("memory.invalidate")
+    async def _memory_invalidate(args: dict) -> Any:
+        from inkling_host.assembly_domain import build_memory_store
+
+        runtime = runtime_handle()
+        store = build_memory_store(runtime.storage)
+        ok = await store.update(args["id"], {"expires_at": 0})
+        return {"id": args["id"], "invalidated": bool(ok)}
+
+    @op_async("memory.update_frontmatter")
+    async def _memory_update_frontmatter(args: dict) -> Any:
+        from inkling_host.assembly_domain import build_memory_store
+
+        runtime = runtime_handle()
+        store = build_memory_store(runtime.storage)
+        frontmatter = args.get("frontmatter") or {}
+        if not isinstance(frontmatter, dict):
+            frontmatter = {}
+        ok = await store.update(args["id"], frontmatter)
+        return {"id": args["id"], "updated": bool(ok)}
+
 def _register_live_ops() -> None:
     # ── 活跃态生效（界面/主题/harness/知识/试跑/路由轻调用）──
 
@@ -1644,6 +1709,136 @@ def _register_live_ops() -> None:
         }
 
 
+def _register_runtime_ops() -> None:
+    # ── 运行时生命周期（状态机：uninitialized/running/paused/stopped）──
+
+    @op_sync("engine.runtime_state")
+    def _runtime_state(args: dict) -> Any:
+        runtime = runtime_handle()
+        return {"state": runtime.state.value}
+
+    @op_sync("engine.runtime_pause")
+    def _runtime_pause(args: dict) -> Any:
+        runtime = runtime_handle()
+        runtime.pause()
+        return {"state": "paused"}
+
+    @op_sync("engine.runtime_resume")
+    def _runtime_resume(args: dict) -> Any:
+        runtime = runtime_handle()
+        runtime.resume()
+        return {"state": "running"}
+
+    @op_async("engine.runtime_stop")
+    async def _runtime_stop(args: dict) -> Any:
+        runtime = runtime_handle()
+        await runtime.stop()
+        return {"state": "stopped"}
+
+
+def _register_knowledge_ops() -> None:
+    # ── 知识集（用户集知识 CRUD / 晋升 / 归档 / 导出）──
+
+    @op_async("knowledge.list")
+    async def _knowledge_list(args: dict) -> Any:
+        runtime = runtime_handle()
+        level = args.get("level")
+        include_archived = bool(
+            args.get("includeArchived") or args.get("include_archived")
+        )
+        entries = runtime.knowledge_set.entries(
+            level=level, include_archived=include_archived
+        )
+        out: list[dict] = []
+        for entry in entries:
+            try:
+                content = entry.render_content()
+            except Exception:
+                content = str(entry.data)
+            out.append({
+                "id": entry.id,
+                "level": entry.level,
+                "kind": entry.kind,
+                "title": entry.title,
+                "content": content,
+                "source": entry.source,
+                "credibility": entry.credibility,
+                "tags": list(entry.tags),
+                "archived": bool(entry.archived),
+                "archived_at": None,
+                "usage_failures": [
+                    {"at": entry.updated_at, "reason": s}
+                    for s in entry.failure_logs
+                ],
+                "created_at": entry.created_at,
+            })
+        return _jsonable({"entries": out})
+
+    @op_async("knowledge.add")
+    async def _knowledge_add(args: dict) -> Any:
+        import uuid as _uuid
+
+        from ink_engine.core.knowledge_set import KnowledgeEntry
+
+        runtime = runtime_handle()
+        entry_id = f"k-{_uuid.uuid4().hex[:12]}"
+        entry = KnowledgeEntry(
+            id=entry_id,
+            level=args.get("level") or "work",
+            kind=args.get("kind") or "insight",
+            title=args.get("title") or "",
+            data={
+                "title": args.get("title") or "",
+                "content": args.get("content") or "",
+            },
+            source="user",
+            credibility=0.5,
+        )
+        runtime.knowledge_set.add(entry)
+        ks = runtime.knowledge_set
+        if getattr(ks, "storage", None) is not None:
+            await ks.save()
+        return {"id": entry_id}
+
+    @op_async("knowledge.promote")
+    async def _knowledge_promote(args: dict) -> Any:
+        runtime = runtime_handle()
+        entry = runtime.knowledge_set.promote(args["id"])
+        ks = runtime.knowledge_set
+        if getattr(ks, "storage", None) is not None:
+            await ks.save()
+        return {"id": entry.id, "level": entry.level}
+
+    @op_async("knowledge.archive")
+    async def _knowledge_archive(args: dict) -> Any:
+        runtime = runtime_handle()
+        entry = runtime.knowledge_set.archive(args["id"])
+        ks = runtime.knowledge_set
+        if getattr(ks, "storage", None) is not None:
+            await ks.save()
+        return {"id": entry.id}
+
+    @op_async("knowledge.restore")
+    async def _knowledge_restore(args: dict) -> Any:
+        runtime = runtime_handle()
+        entry = runtime.knowledge_set.unarchive(args["id"])
+        ks = runtime.knowledge_set
+        if getattr(ks, "storage", None) is not None:
+            await ks.save()
+        return {"id": entry.id}
+
+    @op_async("knowledge.export")
+    async def _knowledge_export(args: dict) -> Any:
+        """导出知识集：全量补丁链（跨部署可移植）；传 id 则导出单条 to_dict。"""
+        runtime = runtime_handle()
+        if args.get("id"):
+            entry = runtime.knowledge_set.get(args["id"])
+            if entry is None:
+                raise ValueError(f"知识条目不存在: {args['id']}")
+            return _jsonable(entry.to_dict())
+        return _jsonable(runtime.knowledge_set.export())
+
+
 def register_builtin_ops() -> None:
     """注册出厂引擎操作（P10 按域拆分：各域注册函数组见 _register_*_ops）。
 
@@ -1658,6 +1853,8 @@ def register_builtin_ops() -> None:
     _register_mcp_ops()
     _register_thread_ops()
     _register_memory_ops()
+    _register_knowledge_ops()
+    _register_runtime_ops()
     _register_live_ops()
 
 

@@ -333,7 +333,7 @@ export function ModelSection(): JSX.Element {
       };
       if (tauri) {
         await Promise.all([
-          tauri.invoke('settings_put', { section: 'model', record: payload }),
+          tauri.invoke('models_config_put', { config: payload }),
           tauri.invoke('capability_put', { record: { simulation_tier: simulationTier } }),
         ]);
       }

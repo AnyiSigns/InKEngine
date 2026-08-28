@@ -351,8 +351,8 @@ export function createTauriBackend(invoker?: TauriInvoker): BackendAdapter {
     firstRunDismiss: () => call('first_run_dismiss'),
     roundSend: (threadId, roundId, text, autoAccept, attachments) =>
       call('round_send', attachments
-        ? { threadId, roundId, text, autoAccept, attachments }
-        : { threadId, roundId, text, autoAccept }),
+        ? { threadId, roundId, text, autoAcceptReview: autoAccept, attachments }
+        : { threadId, roundId, text, autoAcceptReview: autoAccept }),
     roundAbort: (roundId) => call('round_abort', { roundId }),
     roundResume: (threadId, key, decision, reason, editedContent) =>
       call('round_resume', { threadId, key, decision, reason, editedContent }),

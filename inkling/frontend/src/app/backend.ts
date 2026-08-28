@@ -154,8 +154,8 @@ export class AppBackend {
       return isFixtureMode() ? (uiSpecSeed as unknown as UISpec) : null;
     }
     try {
-      const result = await this.backend.knowledgeGraph();
-      return (result as unknown as { ui_spec?: UISpec }).ui_spec ?? null;
+      const rec = (await this.backend.capabilityGet()) as Record<string, unknown>;
+      return (rec?.ui_spec as UISpec) ?? (isFixtureMode() ? (uiSpecSeed as unknown as UISpec) : null);
     } catch (err) {
       logger.warn('app', '获取 ui_spec 失败', { err: String(err) });
       return isFixtureMode() ? (uiSpecSeed as unknown as UISpec) : null;
@@ -194,8 +194,12 @@ export class AppBackend {
       return { reverted: true, chain_version: 0 };
     }
     try {
-      const result = await this.backend.recoveryRestoreSnapshot('');
-      return { reverted: true, chain_version: result.chain_version };
+      const list = await this.backend.recoverySnapshots();
+      const snapshots = list.snapshots ?? [];
+      if (snapshots.length === 0) return { reverted: false };
+      const latest = snapshots.reduce((a, b) => (b.created_at > a.created_at ? b : a));
+      const result = await this.backend.recoveryRestoreSnapshot(latest.name);
+      return { reverted: true, ...(result.chain_version !== undefined ? { chain_version: result.chain_version } : {}) };
     } catch (err) {
       logger.warn('app', '回退 ui_spec 失败', { err: String(err) });
       return { reverted: false };

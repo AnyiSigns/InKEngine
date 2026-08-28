@@ -5,6 +5,8 @@
  * 目录列表 / 添加 / 撤销 / 审计。
  * 文件操作前授权弹窗（触发时机 = 首次文件操作时，非预授权）。
  * 挂载管理列表（mount_authorize / mount_list）。
+ *
+ * 目录选择一律走系统原生文件选择器（Tauri dialog），不做手动路径输入。
  */
 
 import { useState, useCallback, useEffect } from 'react';
@@ -14,6 +16,7 @@ import type { AppBackend } from '../../backend';
 import { Button } from '@/shared/ui/Button';
 import { Feedback } from '@/components/floaters/feedback';
 import type { FeedbackPhase } from '@/components/floaters/feedback';
+import { createTauriInvoker } from '@/shared/backend/tauriBridge';
 
 interface AuthorizationState {
   authorized: boolean;
@@ -30,8 +33,6 @@ export function WorkspaceAuth({ backend, state: externalState, onStateChange }: 
   const [authState, setAuthState] = useState<AuthorizationState | null>(externalState ?? null);
   const [authorizePhase, setAuthorizePhase] = useState<FeedbackPhase>('idle');
   const [revokePhase, setRevokePhase] = useState<FeedbackPhase>('idle');
-  const [pendingPath, setPendingPath] = useState('');
-  const [showAuthorizePrompt, setShowAuthorizePrompt] = useState(false);
 
   const updateAuthState = useCallback((next: AuthorizationState) => {
     setAuthState(next);
@@ -56,16 +57,25 @@ export function WorkspaceAuth({ backend, state: externalState, onStateChange }: 
     }
   }, [externalState, refreshAuthState]);
 
-  const handleAuthorize = useCallback(async (path: string) => {
-    if (!path.trim()) return;
+  /** 系统原生目录选择器 → 授权（宿主不可用时静默失败，保持现状）。 */
+  const handleAuthorizeFromPicker = useCallback(async () => {
+    const tauri = createTauriInvoker();
+    if (!tauri) return;
+    let picked: string | null = null;
+    try {
+      picked = (await tauri.invoke('plugin:dialog|open', {
+        options: { directory: true, multiple: false, title: '选择工作区目录' },
+      })) as string | null;
+    } catch {
+      return;
+    }
+    if (!picked) return;
     setAuthorizePhase('loading');
     try {
-      const result = await backend.authorizeWorkspace(path);
+      const result = await backend.authorizeWorkspace(picked);
       if (result) {
         updateAuthState({ authorized: result.authorized, root: result.root });
         setAuthorizePhase('success');
-        setShowAuthorizePrompt(false);
-        setPendingPath('');
       } else {
         setAuthorizePhase('fail');
       }
@@ -88,10 +98,6 @@ export function WorkspaceAuth({ backend, state: externalState, onStateChange }: 
       setRevokePhase('fail');
     }
   }, [backend, updateAuthState]);
-
-  const handleAuthorizeFromPrompt = useCallback(() => {
-    void handleAuthorize(pendingPath);
-  }, [pendingPath, handleAuthorize]);
 
   return (
     <section className="ink-panel p-4 space-y-4" data-ui="workspace_auth">
@@ -139,10 +145,11 @@ export function WorkspaceAuth({ backend, state: externalState, onStateChange }: 
           size="sm"
           variant="secondary"
           data-ui="workspace_authorize_prompt"
-          onClick={() => setShowAuthorizePrompt(true)}
+          onClick={() => void handleAuthorizeFromPicker()}
+          disabled={authorizePhase === 'loading'}
         >
           <FolderOpen size={10} strokeWidth={1.5} aria-hidden />
-          添加授权目录
+          {authorizePhase === 'loading' ? '选择中…' : '添加授权目录'}
         </Button>
         <Button
           size="sm"
@@ -155,6 +162,7 @@ export function WorkspaceAuth({ backend, state: externalState, onStateChange }: 
           撤销授权
         </Button>
         <Feedback phase={revokePhase} okText="授权已撤销" failText="撤销失败" />
+        <Feedback phase={authorizePhase} okText="授权成功" failText="授权失败" />
       </div>
 
       <div className="pt-2">
@@ -167,44 +175,6 @@ export function WorkspaceAuth({ backend, state: externalState, onStateChange }: 
           挂载管理列表
         </button>
       </div>
-
-      {showAuthorizePrompt ? (
-        <div className="fixed inset-0 z-[var(--ink-z-floater)] flex items-center justify-center bg-black/40" data-ui="workspace_authorize_prompt_overlay">
-          <div className="w-80 rounded-lg border bg-[var(--ink-bg-surface)] p-4 shadow-[var(--ink-shadow-pop)]">
-            <h4 className="mb-2 text-[12px] font-medium">添加授权目录</h4>
-            <p className="mb-3 text-[10px] leading-relaxed ink-text-faint">
-              文件操作前授权弹窗（触发时机 = 首次文件操作时，非预授权）。
-            </p>
-            <input
-              type="text"
-              placeholder="请输入目录路径"
-              value={pendingPath}
-              onChange={(e) => setPendingPath(e.target.value)}
-              className="ink-input w-full text-[11px] mb-3"
-              data-ui="workspace_authorize_path"
-            />
-            <div className="flex justify-end gap-2">
-              <Button size="xs" variant="ghost" onClick={() => setShowAuthorizePrompt(false)}>
-                取消
-              </Button>
-              <Button
-                size="xs"
-                variant="primary"
-                data-ui="workspace_authorize_confirm"
-                onClick={handleAuthorizeFromPrompt}
-                disabled={!pendingPath.trim() || authorizePhase === 'loading'}
-              >
-                授权
-              </Button>
-            </div>
-            <Feedback phase={authorizePhase} okText="授权成功" failText="授权失败" />
-          </div>
-        </div>
-      ) : null}
-
-      {showAuthorizePrompt && authState && !authState.authorized ? (
-        <div className="text-[10px] text-center ink-text-faint">暂时无法访问，请先授权</div>
-      ) : null}
     </section>
   );
 }

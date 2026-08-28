@@ -90,6 +90,14 @@ export interface InkDeviceMessage extends InkMessageBase {
   detail?: string;
 }
 
+/** 审查留痕内联行（vetting_result：pass/fail/review 三态）。 */
+export interface InkVettingMessage extends InkMessageBase {
+  kind: 'vetting';
+  tool?: string;
+  verdict: 'pass' | 'fail' | 'review';
+  reason?: string;
+}
+
 /** 检索命中/孵化信号内联微卡（knowledge_row 领域组件数据源）。 */
 export interface InkKnowledgeHitMessage extends InkMessageBase {
   kind: 'knowledge_hit';
@@ -171,6 +179,7 @@ export type InkMessage =
   | InkToolMessage
   | InkSpawnMessage
   | InkDeviceMessage
+  | InkVettingMessage
   | InkKnowledgeHitMessage
   | InkReviewCardMessage
   | InkSuggestionsMessage

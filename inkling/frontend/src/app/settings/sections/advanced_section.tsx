@@ -4,6 +4,7 @@
  * 主会话界面不放机制导航——引擎机制视图（架构/推演/来源/演化/技能市场/
  * 知识面板）统一收纳于此，点击以浮窗打开；市场/工具/OS/工作区/界面编辑器
  * 与原管理台各节已内嵌为设置开发者节，不在此重复列出。
+ * 演化已内联为主区「演化」页签，高级节不重复列出。
  * 入口经 SettingsActionsContext 由装配层注入。
  */
 
@@ -22,13 +23,14 @@ export const SettingsActionsContext = createContext<SettingsActions>({
   onOpenView: () => undefined,
 });
 
-/** 已有设置内嵌节的视图键（市场/工具/工作区/界面编辑器），高级行不重复列出。 */
+/** 已有设置内嵌节/主区页签的视图键，高级行不重复列出。 */
 const INLINE_SECTION_KEYS = new Set([
   'mcp_market',
   'component_market',
   'tools_panel',
   'workspace_auth',
   'ui_editor_host',
+  'evolution',
 ]);
 
 export function AdvancedSection(): JSX.Element {

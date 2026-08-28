@@ -363,12 +363,17 @@ export function ingestEvent(hub: ChannelHub, event: HubEvent): void {
       );
       break;
     case 'vetting_result': {
+      const tool = String(payload.tool ?? payload.target ?? '');
+      const rawVerdict = String(payload.verdict ?? '');
+      const verdict = rawVerdict === 'fail' || rawVerdict === 'review' ? rawVerdict : 'pass';
+      const reason = payload.reason as string | undefined;
+      messages = [...messages, { kind: 'vetting', tool, verdict, reason, id: nextId(), stepId: stepId || undefined, roundId }];
       const traces = [...state.sourceTraces];
       traces.push({
         id: nextId(),
         sourceType: 'evidence',
-        title: `vetting：${String(payload.tool ?? payload.target ?? '')}`,
-        detail: payload.passed === true ? '静态钩子核对通过' : `拦截：${String(payload.reason ?? '')}`,
+        title: `vetting：${tool}`,
+        detail: verdict === 'pass' ? '静态钩子核对通过' : `拦截：${reason ?? ''}`,
         createdAt: at,
       });
       next.sourceTraces = traces;

@@ -80,7 +80,7 @@ describe('SettingsFloater', () => {
       />,
     );
 
-    await user.click(screen.getByRole('button', { name: '关闭' }));
+    await user.click(screen.getByRole('button', { name: '关闭设置' }));
     expect(onClose).toHaveBeenCalledTimes(1);
   });
 });

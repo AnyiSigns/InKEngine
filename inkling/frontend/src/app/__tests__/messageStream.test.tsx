@@ -9,22 +9,22 @@ describe('MessageStream', () => {
   });
 
   it('renders user bubble', () => {
-    render(<MessageStream entries={[{ id: '1', kind: 'user', content: 'hello', at: Date.now() }]} streaming={false} onBranchFromMessage={() => {}} />);
+    render(<MessageStream entries={[{ id: '1', kind: 'text', role: 'user', content: 'hello', roundId: 'r1' }]} streaming={false} onBranchFromMessage={() => {}} />);
     expect(screen.getByText('hello')).toBeTruthy();
   });
 
   it('renders assistant text with streaming cursor', () => {
-    render(<MessageStream entries={[{ id: '1', kind: 'assistant', content: 'hi', at: Date.now() }]} streaming onBranchFromMessage={() => {}} />);
+    render(<MessageStream entries={[{ id: '1', kind: 'streaming', content: 'hi', roundId: 'r1' }]} streaming onBranchFromMessage={() => {}} />);
     expect(screen.getByText('hi')).toBeTruthy();
   });
 
-  it('renders system end event', () => {
-    render(<MessageStream entries={[{ id: '1', kind: 'system', content: '回合结束', at: Date.now() }]} streaming={false} onBranchFromMessage={() => {}} />);
+  it('renders system text message', () => {
+    render(<MessageStream entries={[{ id: '1', kind: 'text', role: 'system', content: '回合结束', roundId: 'r1' }]} streaming={false} onBranchFromMessage={() => {}} />);
     expect(screen.getByText('回合结束')).toBeTruthy();
   });
 
   it('renders error card', () => {
-    render(<MessageStream entries={[{ id: '1', kind: 'error', content: '执行异常', at: Date.now() }]} streaming={false} onBranchFromMessage={() => {}} />);
+    render(<MessageStream entries={[{ id: '1', kind: 'error', content: '执行异常', roundId: 'r1' }]} streaming={false} onBranchFromMessage={() => {}} />);
     expect(screen.getByText('执行异常')).toBeTruthy();
   });
 
@@ -48,16 +48,16 @@ describe('MessageStream', () => {
   });
 
   it('renders tool card with expand/collapse', () => {
-    render(<MessageStream entries={[{ id: '1', kind: 'tool', content: 'output', at: Date.now(), meta: { toolName: 'grep', status: 'ok', summary: '命中 3 处' } }]} streaming={false} onBranchFromMessage={() => {}} />);
+    render(<MessageStream entries={[{ id: '1', kind: 'tool', tool: 'grep', permission: '', toolStatus: 'done', summary: '命中 3 处', roundId: 'r1' }]} streaming={false} onBranchFromMessage={() => {}} />);
     expect(screen.getByText('grep')).toBeTruthy();
-    fireEvent.click(screen.getByText('查看输出'));
+    fireEvent.click(screen.getByText('查看参数'));
     expect(screen.getByText('收起')).toBeTruthy();
   });
 
   it('renders spawn card and opens panel', () => {
     render(
       <MessageStream
-        entries={[{ id: '1', kind: 'spawn', at: Date.now(), meta: { count: 2 } }]}
+        entries={[{ id: '1', kind: 'spawn', status: 'running', label: '子任务 1', roundId: 'r1' }]}
         streaming={false}
         spawnInstances={[{ index: 0, label: '子任务 1', status: 'running' }]}
         onSpawnSelect={() => {}}
@@ -67,8 +67,41 @@ describe('MessageStream', () => {
         onBranchFromMessage={() => {}}
       />,
     );
-    expect(screen.getByText('子代理 · 2 个实例')).toBeTruthy();
-    fireEvent.click(screen.getByText('打开面板'));
-    expect(screen.getByText('子代理实例')).toBeTruthy();
+    expect(screen.getByText('子任务 1')).toBeTruthy();
+  });
+
+  it('renders knowledge hit card inline', () => {
+    render(
+      <MessageStream
+        entries={[{ id: '1', kind: 'knowledge_hit', hits: [{ id: 'k1', title: '记忆甲', snippet: '摘要' }], roundId: 'r1' }]}
+        streaming={false}
+        onBranchFromMessage={() => {}}
+      />,
+    );
+    expect(screen.getByText(/知识检索 · 已放行 · 1 条相关记忆/)).toBeTruthy();
+    expect(screen.getByText('记忆甲')).toBeTruthy();
+  });
+
+  it('renders device card inline', () => {
+    render(
+      <MessageStream
+        entries={[{ id: '1', kind: 'device', action: 'read_file', detail: '/tmp/a.txt', roundId: 'r1' }]}
+        streaming={false}
+        onBranchFromMessage={() => {}}
+      />,
+    );
+    expect(screen.getByText('设备操作')).toBeTruthy();
+    expect(screen.getByText('read_file')).toBeTruthy();
+  });
+
+  it('renders vetting card inline', () => {
+    render(
+      <MessageStream
+        entries={[{ id: '1', kind: 'vetting', tool: 'shell', verdict: 'pass', roundId: 'r1' }]}
+        streaming={false}
+        onBranchFromMessage={() => {}}
+      />,
+    );
+    expect(screen.getByText('已通过审查')).toBeTruthy();
   });
 });

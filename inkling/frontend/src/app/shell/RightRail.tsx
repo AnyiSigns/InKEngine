@@ -3,12 +3,15 @@
  * 全高贯穿窗口右侧（顶栏不再常驻，栏体不被顶栏截断），
  * 默认 256px 展开（会话主导航，参考桌面 agent 产品形态），可折叠为 48px 图标条。
  *
- * 顶部为全宽「新会话」主按钮（参考形态），其下搜索行；会话行 13px
- * 舒适行高 + 右侧相对时间，hover reveal 菜单（重命名/由此分支/删除）。
+ * 优化（壳层重设计）：
+ * - 分组细化：今天 / 昨天 / 近 7 天 / 更早，替代简单「今日/历史」二分；
+ * - 折叠动画与左栏一致（宽度 180ms + 内容淡出），合成器友好；
+ * - 会话行舒适行高 + 相对时间，hover reveal 菜单（重命名/由此分支/删除）；
+ * - 空态引导：图标 + 文案 + 新建按钮。
  */
 
 import { useEffect, useRef, useState } from 'react';
-import { Plus, Search, MoreVertical, ChevronRight, ChevronDown, MessageSquare, Trash2, Pencil, PanelLeftClose, PanelLeftOpen, GitBranch } from 'lucide-react';
+import { Plus, Search, MoreVertical, ChevronRight, ChevronDown, MessageSquare, Trash2, Pencil, PanelRightClose, PanelRightOpen, GitBranch } from 'lucide-react';
 import type { SessionRemoteRecord, SessionBranchTree } from '@/shared/backend/backendAdapter';
 
 /** 相对时间（会话行右侧：刚刚 / N 分钟 / N 小时 / N 天，超一周落月-日）。 */
@@ -22,6 +25,20 @@ function relativeTime(at: number): string {
   const d = new Date(at);
   return `${d.getMonth() + 1}月${d.getDate()}日`;
 }
+
+/** 会话分组窗口（今天/昨天/近 7 天/更早）。 */
+function bucketOf(at: number): 0 | 1 | 2 | 3 {
+  const dayMs = 86_400_000;
+  const startOfToday = new Date();
+  startOfToday.setHours(0, 0, 0, 0);
+  const todayStart = startOfToday.getTime();
+  if (at >= todayStart) return 0;
+  if (at >= todayStart - dayMs) return 1;
+  if (at >= todayStart - 7 * dayMs) return 2;
+  return 3;
+}
+
+const BUCKET_LABELS = ['今天', '昨天', '近 7 天', '更早'];
 
 interface RightRailProps {
   collapsed: boolean;
@@ -51,10 +68,15 @@ export function RightRail({
   onBranchFromLeaf,
 }: RightRailProps) {
   const [query, setQuery] = useState('');
-  const today = sessions.filter((s) => Date.now() - s.updated_at < 86400000);
-  const history = sessions.filter((s) => Date.now() - s.updated_at >= 86400000);
   const filtered = (list: SessionRemoteRecord[]) =>
     list.filter((s) => s.title.toLowerCase().includes(query.toLowerCase()));
+  const buckets = [0, 1, 2, 3]
+    .map((bucket) => ({
+      bucket,
+      label: BUCKET_LABELS[bucket],
+      sessions: filtered(sessions.filter((s) => bucketOf(s.updated_at) === bucket)),
+    }))
+    .filter((b) => b.sessions.length > 0);
 
   if (collapsed) {
     return (
@@ -75,27 +97,27 @@ export function RightRail({
           title="展开会话列表"
           data-ui="right_rail_expand"
         >
-          <PanelLeftOpen size={15} strokeWidth={1.6} />
+          <PanelRightOpen size={15} strokeWidth={1.6} />
         </button>
       </aside>
     );
   }
 
   return (
-    <aside className="ink-rail flex w-64 shrink-0 flex-col border-l ink-border">
+    <aside className="ink-rail flex w-64 shrink-0 flex-col border-l ink-border transition-[width] duration-[180ms] ease-out">
       {/* 新会话主按钮 + 搜索/折叠行 */}
-      <div className="space-y-2.5 p-3.5">
+      <div className="shrink-0 space-y-2.5 p-3.5">
         <button
           type="button"
           onClick={onCreateSession}
           data-ui="session_create"
-          className="ink-btn-secondary flex h-10 w-full items-center justify-center gap-1.5 rounded-xl text-[13px] font-medium"
+          className="ink-btn-secondary flex h-10 w-full items-center justify-center gap-1.5 rounded-xl text-[13px] font-medium transition-colors hover:bg-[var(--ink-bg-elevated)] hover:border-[var(--ink-border-strong)]"
         >
           <Plus size={15} strokeWidth={1.8} />
           新会话
         </button>
         <div className="flex items-center gap-1.5">
-          <div className="ink-input-shell flex h-9 flex-1 items-center gap-2 rounded-xl border ink-border bg-[var(--ink-bg-base)] px-2.5">
+          <div className="ink-input-shell flex h-9 flex-1 items-center gap-2 rounded-xl border ink-border bg-[var(--ink-bg-base)] px-2.5 transition-colors hover:border-[var(--ink-border-strong)]">
             <Search size={14} strokeWidth={1.6} className="shrink-0 ink-text-faint" />
             <input
               className="h-full w-full flex-1 border-0 bg-transparent text-[12px] outline-none placeholder:text-[var(--ink-text-faint)]"
@@ -112,23 +134,24 @@ export function RightRail({
             title="收起会话列表"
             data-ui="right_rail_collapse"
           >
-            <PanelLeftClose size={15} strokeWidth={1.6} />
+            <PanelRightClose size={15} strokeWidth={1.6} />
           </button>
         </div>
       </div>
 
-      <div className="flex-1 overflow-y-auto px-3 pb-3">
+      <div className="ink-scroll-auto min-h-0 flex-1 overflow-y-auto px-3 pb-3">
         {sessions.length === 0 && (
           <div className="flex flex-col items-center justify-center py-12 text-[12px] ink-text-faint">
             <MessageSquare size={24} strokeWidth={1.5} className="mb-2 opacity-50" />
             <p>发送消息开始对话</p>
+            <p className="mt-1 text-[10px] ink-text-faint">新会话按钮在顶部</p>
           </div>
         )}
 
-        {filtered(today).length > 0 && (
-          <div className="mb-2">
-            <div className="px-1.5 py-1.5 text-[11px] font-medium tracking-wide ink-text-faint">今日</div>
-            {filtered(today).map((s) => (
+        {buckets.map(({ bucket, label, sessions: list }) => (
+          <div key={bucket} className={bucket > 0 ? 'mt-2' : ''}>
+            <div className="px-1.5 py-1.5 text-[11px] font-medium tracking-wide ink-text-faint">{label}</div>
+            {list.map((s) => (
               <SessionRow
                 key={s.thread_id}
                 session={s}
@@ -140,24 +163,7 @@ export function RightRail({
               />
             ))}
           </div>
-        )}
-
-        {filtered(history).length > 0 && (
-          <div>
-            <div className="px-1.5 py-1.5 text-[11px] font-medium tracking-wide ink-text-faint">历史</div>
-            {filtered(history).map((s) => (
-              <SessionRow
-                key={s.thread_id}
-                session={s}
-                active={s.thread_id === activeSessionId}
-                onSelect={() => onSelectSession(s.thread_id)}
-                onRename={(t) => onRenameSession(s.thread_id, t)}
-                onDelete={() => onDeleteSession(s.thread_id)}
-                onBranchFromMessage={onBranchFromMessage}
-              />
-            ))}
-          </div>
-        )}
+        ))}
 
         {sessions.length > 0 && (
           <div className="mt-3 border-t ink-border pt-2">
@@ -201,7 +207,7 @@ function BranchTreeSection({ activeSessionId, branchTrees, onBranchFromLeaf }: B
         <span>分支</span>
       </button>
       {expanded && (
-        <div className="mt-1 space-y-0.5 pl-2">
+        <div className="ink-feed mt-1 space-y-0.5 pl-2">
           {activeTree.nodes.map((node) => (
             <div
               key={node.leaf}
@@ -255,7 +261,7 @@ function SessionRow({
 
   return (
     <div
-      className={`group relative flex cursor-pointer items-center gap-2 rounded-xl px-2.5 py-2 text-[13px] ${
+      className={`group relative flex cursor-pointer items-center gap-2 rounded-xl px-2.5 py-2 text-[13px] transition-colors duration-[150ms] ${
         active ? 'bg-[var(--ink-bg-elevated)] text-[var(--ink-text-base)]' : 'ink-text-muted hover:bg-[var(--ink-bg-elevated)]'
       }`}
       onClick={onSelect}

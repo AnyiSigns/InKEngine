@@ -18,7 +18,7 @@ import { LeftRail } from '@/app/shell/LeftRail';
 import { RightRail } from '@/app/shell/RightRail';
 import { InputBar } from '@/app/input/InputBar';
 import { MessageStream } from '@/app/session/MessageStream';
-import { TrajectoryView } from '@/app/session/TrajectoryView';
+import { EvolutionFeed } from '@/app/session/EvolutionFeed';
 import { useSessionState, useSessionActions } from '@/app/state/sessionState';
 import { SettingsFloater } from '@/app/settings/settings_floater';
 import { ViewFloater } from '@/app/wiring/ViewFloater';
@@ -170,7 +170,7 @@ export default function App({ backend, hub, sessionStore }: AppProps) {
   const activeNav = NAV_ENTRIES.find((e) => e.key === activeView);
   const roundSteps = (hub.getSnapshot().roundSteps as RoundStep[]) || [];
   const simulations = (hub.getSnapshot().simulations as SimulationBranch[]) || [];
-  const roundCount = state.entries.filter((e) => e.kind === 'user').length;
+  const roundCount = state.entries.filter((e) => e.kind === 'text' && e.role === 'user').length;
 
   return (
     <div className="ink-app flex h-screen w-full flex-row overflow-hidden">
@@ -200,7 +200,6 @@ export default function App({ backend, hub, sessionStore }: AppProps) {
             tab={tab}
             onTabChange={setTab}
             onTitleChange={setTitle}
-            onOpenEvolution={() => setActiveView('evolution')}
           />
         </div>
         <main className="flex min-h-0 flex-1 flex-col overflow-hidden">
@@ -240,7 +239,10 @@ export default function App({ backend, hub, sessionStore }: AppProps) {
               />
             </>
           ) : (
-            <TrajectoryView steps={roundSteps} />
+            <EvolutionFeed
+              incubation={hub.getSnapshot().incubation}
+              patchChain={hub.getSnapshot().patchChain}
+            />
           )}
         </main>
       </div>
@@ -280,7 +282,17 @@ export default function App({ backend, hub, sessionStore }: AppProps) {
         />
       )}
 
-      {activeNav && <ViewFloater entry={activeNav} onClose={() => setActiveView(null)} />}
+      {activeNav && (
+        <ViewFloater
+          entry={activeNav}
+          onClose={() => setActiveView(null)}
+          extraProps={
+            activeNav.key === 'sources'
+              ? { traces: hub.getSnapshot().sourceTraces }
+              : undefined
+          }
+        />
+      )}
 
       {/* 审批卡：review_card 事件到达即弹（任何视图下），决议走 approval_resolve */}
       {state.pendingReview && (

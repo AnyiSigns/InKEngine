@@ -1,20 +1,20 @@
 /**
  * 设置页激活入口（对外固定签名：activate(): void）。
  *
- * 普通组（全部用户）：通用/模型/应用能力/连接/关于；
+ * 普通组（全部用户）：通用/模型/连接/关于；
  * 开发者组（devOnly，开发者模式可见）：
  * - 高级（机制视图浮窗入口）/生长治理/安全信任/环境容器；
  * - 原管理台节内嵌（注册表/任务/账本/记忆/洞察/生命周期/备份/审计）；
  * - 市场/工具/OS/工作区授权/界面编辑器（wave4 归一注册，见 app/activate）。
- * 语音并入应用能力（agent 能力扩展）；语音输入在对话输入胶囊（直连 AI）。
+ * 模型页承载档位/厂商/端点/推演档；连接页承载 MCP 与搜索 key；
+ * 语音输入在对话输入胶囊（直连 AI），设置不展示语音状态。
  * 控制台不再独立成窗——重复的管理台语音/外观/关于已随合并移除。
  */
 
-import { Activity, BookOpen, Database, Eye, Info, LifeBuoy, Lock, PlugZap, Settings2, ShieldCheck, SlidersHorizontal, Sparkles, Wrench } from 'lucide-react';
+import { Activity, BookOpen, Database, Eye, Info, LifeBuoy, Lock, PlugZap, Settings2, ShieldCheck, Sparkles, Wrench } from 'lucide-react';
 
 import { GeneralSection } from './sections/general_section';
 import { ModelSection } from './sections/model_section';
-import { CapabilitySection } from './sections/capability_section';
 import { ConnectSection } from './sections/connect_section';
 import { AboutSection } from './sections/about_section';
 import { AdvancedSection } from './sections/advanced_section';
@@ -49,18 +49,10 @@ export function registerSettingsSections(): void {
   });
 
   registerSettingsSection({
-    key: 'capability',
-    label: '应用能力',
-    icon: <SlidersHorizontal size={16} strokeWidth={1.6} aria-hidden />,
-    order: 3,
-    render: () => <CapabilitySection />,
-  });
-
-  registerSettingsSection({
     key: 'connect',
     label: '连接',
     icon: <PlugZap size={16} strokeWidth={1.6} aria-hidden />,
-    order: 4,
+    order: 3,
     render: () => <ConnectSection />,
   });
 
@@ -68,7 +60,7 @@ export function registerSettingsSections(): void {
     key: 'about',
     label: '关于',
     icon: <Info size={16} strokeWidth={1.6} aria-hidden />,
-    order: 5,
+    order: 4,
     render: () => <AboutSection />,
   });
 

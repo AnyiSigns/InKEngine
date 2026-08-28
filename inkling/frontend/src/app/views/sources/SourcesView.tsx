@@ -1,126 +1,95 @@
-import { useEffect, useState } from 'react';
-import { ChevronDown, Database, History } from 'lucide-react';
+/**
+ * 来源视图（依据溯源时间线）。
+ *
+ * 依据来源视图重定位：不做账本/摘要链展示（内部管道，无产品意义），
+ * 收敛为「依据溯源时间线」——数据 = 会话 sourceTraces（记忆召回/审查/
+ * 调参/设备感知控制事件的落位留痕，由 eventIngest 维护）。
+ * 按来源类型分组：记忆召回 / 审查 / 设备 / 调优；每条 = 标题 + 详情 + 时间。
+ * 普通用户在主消息流已见内联依据卡，这里供深挖完整留痕（开发者入口）。
+ */
 
-import { createLiveSourceBackend } from './mockBackend';
-import type { LedgerSummary, RoundLedgerEntry, SourceBackend, SourceEntry, SourceTabId } from './backend';
-import { SOURCE_TABS } from './backend';
-import { EmptyState } from '../EmptyState';
+import { Database, History, Monitor, ShieldCheck } from 'lucide-react';
 
-/** 来源视图：六 tab + 账本摘要卡 + 轮次回放抽屉（机器术语豁免层）。 */
-export function SourcesView({ backend = createLiveSourceBackend() }: { backend?: SourceBackend }) {
-  const [tab, setTab] = useState<SourceTabId>('round_steps');
-  const [ledger, setLedger] = useState<LedgerSummary | null>(null);
-  const [entries, setEntries] = useState<SourceEntry[] | null>(null);
-  const [loaded, setLoaded] = useState(false);
-  const [openRaw, setOpenRaw] = useState<string | null>(null);
-  const [replay, setReplay] = useState<RoundLedgerEntry | null>(null);
+import type { SourceTraceEntry } from '@/shared/session/types';
 
-  useEffect(() => {
-    let alive = true;
-    void Promise.all([backend.fetchLedgerSummary(), backend.fetchSources(tab)]).then(([l, e]) => {
-      if (!alive) return;
-      setLedger(l);
-      setEntries(e);
-      setLoaded(true);
-    });
-    return () => {
-      alive = false;
-    };
-  }, [backend, tab]);
+interface SourcesViewProps {
+  /** 依据留痕快照（装配层从会话 hub 注入；无数据 = 空态）。 */
+  traces?: SourceTraceEntry[];
+}
 
-  function openReplay(roundId: string) {
-    void backend.fetchLedgerRound(roundId).then((r) => r && setReplay(r));
+interface SourceGroupMeta {
+  key: SourceTraceEntry['sourceType'];
+  label: string;
+  icon: React.ReactNode;
+}
+
+const GROUP_META: SourceGroupMeta[] = [
+  { key: 'memory', label: '记忆召回', icon: <Database size={13} strokeWidth={1.6} aria-hidden /> },
+  { key: 'evidence', label: '审查与调优', icon: <ShieldCheck size={13} strokeWidth={1.6} aria-hidden /> },
+  { key: 'device', label: '设备感知与控制', icon: <Monitor size={13} strokeWidth={1.6} aria-hidden /> },
+  { key: 'retrieval', label: '检索', icon: <History size={13} strokeWidth={1.6} aria-hidden /> },
+];
+
+function timeLabel(at: number): string {
+  if (!at) return '';
+  const d = new Date(at);
+  const now = new Date();
+  const sameDay = d.toDateString() === now.toDateString();
+  const hh = String(d.getHours()).padStart(2, '0');
+  const mm = String(d.getMinutes()).padStart(2, '0');
+  return sameDay ? `${hh}:${mm}` : `${d.getMonth() + 1}月${d.getDate()}日 ${hh}:${mm}`;
+}
+
+export function SourcesView({ traces = [] }: SourcesViewProps): JSX.Element {
+  const grouped = GROUP_META.map((g) => ({
+    meta: g,
+    entries: traces.filter((t) => t.sourceType === g.key),
+  })).filter((g) => g.entries.length > 0);
+
+  if (traces.length === 0) {
+    return (
+      <div className="flex h-full flex-col items-center justify-center gap-2 py-16 text-center">
+        <History size={26} strokeWidth={1.5} className="ink-text-faint" aria-hidden />
+        <p className="text-[13px] ink-text-muted">暂无依据留痕</p>
+        <p className="max-w-xs text-[11px] leading-relaxed ink-text-faint">
+          会话运行后，记忆召回、工具审查、设备操作等依据会以时间线形式沉淀在这里
+        </p>
+      </div>
+    );
   }
 
   return (
-    <div className="w3" data-view="sources">
-      <div className="w3-tabs" role="tablist">
-        {SOURCE_TABS.map((t) => (
-          <button
-            key={t.id}
-            type="button"
-            role="tab"
-            aria-selected={tab === t.id}
-            className={`w3-tab ${tab === t.id ? 'w3-tab--active' : ''}`}
-            data-testid={`src-tab-${t.id}`}
-            onClick={() => setTab(t.id)}
-          >
-            {t.label}
-          </button>
-        ))}
+    <div className="flex h-full flex-col" data-ui="sources_view">
+      <div className="flex items-baseline gap-3 border-b ink-border px-4 py-3">
+        <span className="text-[13px] font-medium">依据溯源</span>
+        <span className="text-[11px] ink-text-faint">
+          {traces.length} 条留痕 · 按来源类型分组
+        </span>
       </div>
-
-      <div className="w3-body w3-stack">
-        {ledger && (
-          <div className="w3-panel" data-testid="ledger-summary">
-            <div className="w3-panel-title">
-              <Database size={14} strokeWidth={1.5} /> 账本摘要
-            </div>
-            <div className="w3-muted">
-              本轮事实快照 {ledger.snapshots} 条 · 摘要链 {ledger.chainSegments} 段
-            </div>
-            <button type="button" className="w3-empty-link" data-testid="ledger-replay" onClick={() => openReplay(`round-${ledger.snapshots}`)}>
-              轮次回放
-            </button>
-          </div>
-        )}
-
-        {!loaded && <div className="w3-muted" data-testid="src-loading">加载来源…</div>}
-        {loaded && entries === null && (
-          <EmptyState icon={History} text="暂无来源数据" />
-        )}
-        {entries && entries.length === 0 && <EmptyState icon={History} text="暂无来源数据" />}
-
-        {entries?.map((e) => (
-          <div key={e.id} className="w3-panel" data-testid={`src-entry-${e.id}`} data-type={e.type}>
-            <div className="w3-row">
-              <span className="w3-grow">{e.title}</span>
-              {e.confidence !== undefined && (
-                <span className="w3-badge w3-badge--ok" data-testid="src-confidence">
-                  {Math.round(e.confidence * 100)}%
-                </span>
-              )}
-            </div>
-            <div className="w3-muted">{e.detail}</div>
-            {e.raw && (
-              <div className="w3-row" style={{ marginTop: 6 }}>
-                <button type="button" className="w3-empty-link" data-testid={`src-raw-${e.id}`} onClick={() => setOpenRaw((p) => (p === e.id ? null : e.id))}>
-                  <ChevronDown size={14} strokeWidth={1.5} /> 原始事件
-                </button>
+      <div className="ink-scroll-auto flex-1 overflow-y-auto px-4 py-4">
+        <div className="space-y-6">
+          {grouped.map(({ meta, entries }) => (
+            <section key={meta.key} data-ui={`source_group_${meta.key}`}>
+              <div className="mb-2 flex items-center gap-1.5 text-[11px] font-medium tracking-wide ink-text-muted">
+                {meta.icon}
+                {meta.label}
+                <span className="text-[10px] ink-text-faint">{entries.length} 条</span>
               </div>
-            )}
-            {openRaw === e.id && e.raw && (
-              <pre className="w3-diff" data-testid="src-raw-block">
-                {JSON.stringify(e.raw, null, 2)}
-              </pre>
-            )}
-          </div>
-        ))}
-
-        {replay && (
-          <div className="w3-drawer" role="dialog" aria-label="轮次回放" data-testid="replay-drawer">
-            <div className="w3-drawer-head">
-              <strong>
-                <History size={14} strokeWidth={1.5} /> 回合 {replay.roundId}
-              </strong>
-              <button type="button" className="w3-empty-link" onClick={() => setReplay(null)}>
-                关闭
-              </button>
-            </div>
-            <div className="w3-row">
-              <span className="w3-grow">摘要</span>
-              <span>{replay.summary}</span>
-            </div>
-            <div className="w3-row">
-              <span className="w3-grow">成本</span>
-              <span>{replay.cost}</span>
-            </div>
-            <div className="w3-row">
-              <span className="w3-grow">结论</span>
-              <span>{replay.conclusion}</span>
-            </div>
-          </div>
-        )}
+              <ol className="relative space-y-1 border-l ink-border pl-4">
+                {entries.map((t) => (
+                  <li key={t.id} className="group relative rounded-lg px-2 py-2 hover:bg-[var(--ink-bg-surface)]">
+                    <span className="absolute -left-[22px] top-3 h-1.5 w-1.5 rounded-full bg-[var(--ink-text-faint)] transition-colors group-hover:bg-[var(--ink-text-muted)]" />
+                    <div className="flex items-baseline gap-2">
+                      <span className="min-w-0 flex-1 truncate text-[12px]">{t.title}</span>
+                      <span className="shrink-0 text-[10px] tabular-nums ink-text-faint">{timeLabel(t.createdAt)}</span>
+                    </div>
+                    {t.detail && <p className="mt-0.5 text-[11px] leading-relaxed ink-text-faint">{t.detail}</p>}
+                  </li>
+                ))}
+              </ol>
+            </section>
+          ))}
+        </div>
       </div>
     </div>
   );

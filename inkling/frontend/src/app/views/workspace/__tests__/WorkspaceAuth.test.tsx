@@ -50,36 +50,13 @@ describe('WorkspaceAuth (W5.5)', () => {
     expect(revokeBtn).toBeDisabled();
   });
 
-  it('点击「添加授权目录」打开弹窗', async () => {
+  it('添加授权目录按钮存在且无手动路径输入框（走原生选择器）', () => {
     const backend = makeMockBackend();
     render(<WorkspaceAuth backend={backend} />);
 
-    const addBtns = screen.getAllByText('添加授权目录');
-    fireEvent.click(addBtns[0]!);
-
-    expect(screen.getByPlaceholderText('请输入目录路径')).toBeTruthy();
-  });
-
-  it('授权 e2e：输入路径 → 授权 → 状态更新', async () => {
-    const backend = makeMockBackend();
-    render(<WorkspaceAuth backend={backend} />);
-
-    const addBtns = screen.getAllByText('添加授权目录');
-    fireEvent.click(addBtns[0]!);
-
-    const input = screen.getByPlaceholderText('请输入目录路径');
-    fireEvent.change(input!, { target: { value: '/my/workspace' } });
-
-    const confirmBtns = screen.getAllByText('授权');
-    fireEvent.click(confirmBtns[0]!);
-
-    await waitFor(() => {
-      expect(backend.authorizeWorkspace).toHaveBeenCalledWith('/my/workspace');
-    });
-
-    await waitFor(() => {
-      expect(screen.getByText('已授权')).toBeTruthy();
-    });
+    expect(screen.getByText('添加授权目录')).toBeTruthy();
+    expect(screen.queryByPlaceholderText('请输入目录路径')).toBeFalsy();
+    expect(screen.queryByText('取消')).toBeFalsy();
   });
 
   it('撤销授权 e2e：点击撤销 → 状态更新为未授权', async () => {
@@ -107,16 +84,5 @@ describe('WorkspaceAuth (W5.5)', () => {
     render(<WorkspaceAuth backend={backend} />);
 
     expect(screen.getByText('挂载管理列表')).toBeTruthy();
-  });
-
-  it('弹窗取消按钮关闭弹窗', async () => {
-    const backend = makeMockBackend();
-    render(<WorkspaceAuth backend={backend} />);
-
-    fireEvent.click(screen.getByText('添加授权目录')!);
-    const cancelBtn = screen.getByText('取消');
-    fireEvent.click(cancelBtn!);
-
-    expect(screen.queryByText('请输入目录路径')).toBeFalsy();
   });
 });

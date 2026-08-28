@@ -121,7 +121,7 @@ export function InputBar({
           onRoutePlanPreview?.(spoken);
         }
       } catch {
-        // 录音/转写失败：回落静默（语音能力状态在设置「应用能力」可见）
+        // 录音/转写失败：回落静默（语音能力属宿主能力，无用户设置项）
       } finally {
         setVoicePhase('idle');
       }

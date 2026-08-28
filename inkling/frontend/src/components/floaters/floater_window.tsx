@@ -5,7 +5,10 @@
  * 多步/复杂交互（审批、编辑、向导）承载于悬浮窗，与主窗数据即时
  * 同步（数据层共用会话中枢/可注入存储，悬浮窗只是展示面）。
  *
- * 几何：拖拽 = 头部手柄（pointer 与 mouse 兼容监听：浏览器走 pointer，
+ * 几何（壳层重设计）：fixed 相对视口定位，不再受宿主面板的定位上下文
+ * 影响（此前 absolute 会相对无定位的面板落在视口左上角）；未传 initialRect
+ * 时默认视口居中（x/y = (视口 - 尺寸)/2），可拖拽/缩放记忆位置。
+ * 拖拽 = 头部手柄（pointer 与 mouse 兼容监听：浏览器走 pointer，
  * jsdom/降级环境走 mouse）；缩放 = 右下角手柄（同机制）——拖动逻辑
  * 以坐标差驱动，事件面只取 clientX/clientY。层级经 .ink-z-floater
  * （设计 token，禁直写数值）。关闭回调注入。
@@ -43,6 +46,15 @@ interface FloaterWindowProps {
 const DEFAULT_WIDTH = 380;
 const DEFAULT_HEIGHT = 320;
 
+/** 视口居中起点（未传 initialRect.x/y 时生效）。 */
+function centeredOrigin(width: number, height: number): { x: number; y: number } {
+  if (typeof window === 'undefined') return { x: 96, y: 88 };
+  return {
+    x: Math.max(8, Math.round((window.innerWidth - width) / 2)),
+    y: Math.max(8, Math.round((window.innerHeight - height) / 2)),
+  };
+}
+
 type DragEvent = Pick<ReactPointerEvent<HTMLElement>, 'clientX' | 'clientY'> | Pick<ReactMouseEvent<HTMLElement>, 'clientX' | 'clientY'>;
 
 export function FloaterWindow({
@@ -55,11 +67,14 @@ export function FloaterWindow({
   className = '',
   dataUi,
 }: FloaterWindowProps) {
+  const width = initialRect.width ?? DEFAULT_WIDTH;
+  const height = initialRect.height ?? DEFAULT_HEIGHT;
+  const origin = centeredOrigin(width, height);
   const [rect, setRect] = useState<FloaterRect>({
-    x: initialRect.x ?? 96,
-    y: initialRect.y ?? 88,
-    width: initialRect.width ?? DEFAULT_WIDTH,
-    height: initialRect.height ?? DEFAULT_HEIGHT,
+    x: initialRect.x ?? origin.x,
+    y: initialRect.y ?? origin.y,
+    width,
+    height,
   });
   const dragRef = useRef<{ startX: number; startY: number; originX: number; originY: number } | null>(null);
   const resizeRef = useRef<{ startX: number; startY: number; originW: number; originH: number } | null>(null);
@@ -106,7 +121,7 @@ export function FloaterWindow({
       aria-label={title}
       data-ui={dataUi ?? 'floater'}
       data-floater-key={floaterKey}
-      className={`ink-pop-in absolute flex flex-col ${Z_VARIANTS.floater} ${RADIUS_VARIANTS[12]} border border-[var(--ink-border-strong)] bg-[var(--ink-bg-surface)] ${className}`}
+      className={`ink-pop-in fixed flex flex-col ${Z_VARIANTS.floater} ${RADIUS_VARIANTS[12]} border border-[var(--ink-border-strong)] bg-[var(--ink-bg-surface)] ${className}`}
       style={{
         left: rect.x,
         top: rect.y,

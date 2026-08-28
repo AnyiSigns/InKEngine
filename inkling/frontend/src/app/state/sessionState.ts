@@ -7,30 +7,23 @@ import { ChannelHub } from '@/shared/session/channelHub';
 import { submitUserMessage, submitUserRound, toEngineAttachments, setStreaming, commitStreaming, type AttachmentAsset } from '@/shared/session/eventIngest';
 import type { BackendAdapter } from '@/shared/backend/backendAdapter';
 import type { SessionStore } from '@/shared/session/sessionStore';
+import type { InkMessage } from '@/shared/session/types';
 
 export interface SessionState {
   activeSessionId: string;
   sessions: Array<{ id: string; title: string; updated_at: number }>;
-  entries: MessageEntry[];
+  entries: InkMessage[];
   streaming: boolean;
   pendingReview: Record<string, unknown> | null;
   models?: { profiles: Array<{ id: string; name: string; tier: string; occupancy: number; limit: number; multimodal?: boolean }> };
   authorized: boolean;
 }
 
-export interface MessageEntry {
-  id: string;
-  kind: 'user' | 'assistant' | 'thinking' | 'tool' | 'event' | 'spawn' | 'system' | 'error';
-  content?: string;
-  at: number;
-  meta?: Record<string, unknown>;
-}
-
 export function createSessionState(hub: ChannelHub, store: SessionStore, _backend: BackendAdapter): SessionState {
   return {
     get activeSessionId() { return hub.getSnapshot().activeSessionId as string || ''; },
     get sessions() { return store.list().map((s) => ({ id: s.id, title: s.title, updated_at: s.lastActiveAt })); },
-    get entries() { return (hub.getSnapshot().messages as MessageEntry[]) || []; },
+    get entries() { return hub.getSnapshot().messages || []; },
     get streaming() { return hub.getSnapshot().streaming as boolean || false; },
     get pendingReview() { return hub.getSnapshot().pendingReview as Record<string, unknown> | null || null; },
     get authorized() { return false; },

@@ -13,12 +13,20 @@ import type { NavEntry } from './navEntries';
 interface ViewFloaterProps {
   entry: NavEntry;
   onClose: () => void;
+  /** 注入给注册视图的额外 props（装配层按视图类型提供，如来源视图的依据留痕）。 */
+  extraProps?: Record<string, unknown>;
 }
 
-export function ViewFloater({ entry, onClose }: ViewFloaterProps) {
+export function ViewFloater({ entry, onClose, extraProps }: ViewFloaterProps) {
   const registered = getRegisteredViews().find((v) => v.id === entry.key);
   const Icon = entry.icon;
   const width = entry.group === 'mech' ? '72%' : '58%';
+
+  const renderView = () => {
+    if (!registered) return <DynamicComponent name={entry.key} />;
+    const Comp = registered.Component as React.ComponentType<Record<string, unknown>>;
+    return <Comp {...(extraProps ?? {})} />;
+  };
 
   return (
     <div className="ink-settings-overlay" data-ui="view_floater_overlay" onClick={onClose}>
@@ -47,7 +55,7 @@ export function ViewFloater({ entry, onClose }: ViewFloaterProps) {
             </button>
           </header>
           <div className="ink-scroll-auto flex-1 overflow-y-auto px-4 py-4">
-            {registered ? <registered.Component /> : <DynamicComponent name={entry.key} />}
+            {renderView()}
           </div>
         </div>
       </section>

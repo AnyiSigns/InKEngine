@@ -1,15 +1,16 @@
 /**
- * 顶部状态条：会话标题（可编辑）+ 对话/轨迹页签 + 演化徽标（未读红点）。
- * 页签切换主区内容（消息流 / 回合轨迹时间线），参考桌面 agent 产品形态。
+ * 顶部状态条：会话标题（可编辑）+ 对话/演化页签。
+ * 页签切换主区内容（消息流 / 演化动态时间线），演化已内联为主页签，
+ * 不再需要独立徽标入口。
  *
  * 非常驻：由装配层「悬停触发带 + 磨砂覆盖层」（ink-topbar-veil）承载，
  * 悬停主区顶缘滑出，移出自动收回；底色/描边/阴影归覆盖层，本组件透明。
  */
 
 import { useState } from 'react';
-import { Pencil, ChevronDown } from 'lucide-react';
+import { Pencil } from 'lucide-react';
 
-export type MainTab = 'chat' | 'trace';
+export type MainTab = 'chat' | 'evolution';
 
 interface TopBarProps {
   title: string;
@@ -20,7 +21,7 @@ interface TopBarProps {
   onOpenEvolution?: () => void;
 }
 
-export function TopBar({ title, unreadCount, tab, onTabChange, onTitleChange, onOpenEvolution }: TopBarProps) {
+export function TopBar({ title, tab, onTabChange, onTitleChange }: TopBarProps) {
   const [editing, setEditing] = useState(false);
   const [draft, setDraft] = useState(title);
 
@@ -60,7 +61,7 @@ export function TopBar({ title, unreadCount, tab, onTabChange, onTitleChange, on
         )}
       </div>
 
-      {/* 对话 / 轨迹页签 */}
+      {/* 对话 / 演化页签 */}
       <nav className="flex items-stretch gap-5" aria-label="主区页签">
         <button
           type="button"
@@ -73,33 +74,14 @@ export function TopBar({ title, unreadCount, tab, onTabChange, onTitleChange, on
         </button>
         <button
           type="button"
-          data-ui="tab_trace"
-          data-active={tab === 'trace'}
-          onClick={() => onTabChange('trace')}
+          data-ui="tab_evolution"
+          data-active={tab === 'evolution'}
+          onClick={() => onTabChange('evolution')}
           className="ink-tab-item"
         >
-          轨迹
+          演化
         </button>
       </nav>
-
-      {/* 演化徽标 */}
-      <span className="ml-auto flex items-center gap-1.5">
-        <button
-          type="button"
-          data-ui="nav_evolution"
-          onClick={onOpenEvolution}
-          className="flex items-center gap-1.5 rounded-lg px-1.5 py-1 ink-text-muted hover:bg-[var(--ink-bg-elevated)] hover:text-[var(--ink-text-base)]"
-          title="演化动态"
-        >
-          <span className="relative flex h-2 w-2">
-            {unreadCount > 0 && (
-              <span className="absolute inline-flex h-2 w-2 rounded-full bg-[var(--ink-accent-approval)] opacity-75 animate-ping" />
-            )}
-            <span className="relative inline-flex h-2 w-2 rounded-full bg-[var(--ink-accent-approval)]" />
-          </span>
-          <ChevronDown size={14} strokeWidth={1.6} />
-        </button>
-      </span>
     </header>
   );
 }

@@ -3,10 +3,14 @@
  * R8 覆盖：spawn_start/spawn_end -> 子代理轻卡；simulate_decision/branch_result/swap_branch -> 推演树（波 3 视图）。
  */
 
-import type { MessageEntry } from '../state/sessionState';
 import type { EventTypeName } from '@/shared/session/eventTypes';
 
-export interface DispatchedEntry extends MessageEntry {
+export interface DispatchedEntry {
+  id: string;
+  kind: string;
+  content: string;
+  at: number;
+  meta?: Record<string, unknown>;
   renderer: EventTypeName | 'fallback';
 }
 

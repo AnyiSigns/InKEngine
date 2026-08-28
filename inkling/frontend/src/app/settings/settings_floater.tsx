@@ -101,17 +101,6 @@ export function SettingsFloater({ open, onClose, backend, actions }: SettingsFlo
                   <div className="space-y-0.5">{devSections.map(renderNavItem)}</div>
                 </>
               )}
-              <div className="mt-auto px-2">
-                <button
-                  type="button"
-                  data-ui="settings_close"
-                  onClick={onClose}
-                  className="flex h-7 w-full items-center justify-center gap-1 rounded-lg text-[11px] ink-text-muted hover:text-[var(--ink-text-base)] cursor-pointer bg-transparent border-none"
-                >
-                  <X size={12} strokeWidth={1.6} aria-hidden />
-                  关闭
-                </button>
-              </div>
             </nav>
 
             {/* 右内容区 */}

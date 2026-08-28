@@ -1,4 +1,4 @@
-"""桥 op 单测：图快照 / 池治理 / 边证据三类新 op（E4/E5/E6）。
+"""桥 op 单测：图快照 / 池治理 / 边证据三类新 op。
 
 覆盖：
 - graph.snapshot op：GraphSnapshot 映射（version/nodes/edges/patchChain）+ 降级标记；

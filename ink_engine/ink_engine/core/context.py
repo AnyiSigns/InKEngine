@@ -592,7 +592,7 @@ class CompressionPolicy(Protocol):
         ...
 
 
-# ── 上下文压缩阈值动态化（E10：按模型档案 context_window 推算）────────────
+# ── 上下文压缩阈值动态化（按模型档案 context_window 推算）────────────
 # 压缩触发阈值 = 上下文窗口占比（避免短窗口模型被长历史撑爆、长窗口模型
 # 过早压缩）；档案未知回退硬底线（仅 cw 与档位均未知时生效）。
 COMPRESSION_CONTEXT_WINDOW_RATIO = 0.8
@@ -637,7 +637,7 @@ class ThresholdCompressionPolicy:
     预算固定返回配置值；阈值与预算均为构造参数（宿主按场景注入）。
 
     ``from_context_window`` 类方法按模型档案 ``context_window`` 动态推算
-    字符阈值（E10），使压缩阈值随模型窗口自适应。
+    字符阈值，使压缩阈值随模型窗口自适应。
     """
 
     def __init__(

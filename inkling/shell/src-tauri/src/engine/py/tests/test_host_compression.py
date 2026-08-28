@@ -1,4 +1,4 @@
-"""E10 host-side verification: compression threshold scales with model_archive context_window.
+"""host-side compression verification: compression threshold scales with model_archive context_window.
 
 Covers:
 - ``_model_context_window_from_archive`` reads from model_archive.sqlite;
@@ -13,14 +13,12 @@ import os
 import sqlite3
 import tempfile
 
-import inkling_host.host as host_mod
+from ink_engine.core.llm.base import AsyncLLM, LLMChunk, LLMConfig, LLMResult
 from inkling_host.host import (
     InKlingHost,
     ThresholdCompressionPolicy,
     _model_context_window_from_archive,
 )
-
-from ink_engine.core.llm.base import AsyncLLM, LLMConfig, LLMResult, LLMChunk
 
 
 class _FakeLLM(AsyncLLM):
@@ -99,4 +97,4 @@ if __name__ == "__main__":
     test_resolve_llm_builds_dynamic_policy()
     test_resolve_llm_router_tier_fallback()
     test_resolve_llm_no_data_dir_tier_default()
-    print("E10 host compression all assertions passed")
+    print("host compression all assertions passed")

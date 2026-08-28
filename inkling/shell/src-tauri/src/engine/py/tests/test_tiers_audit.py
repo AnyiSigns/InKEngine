@@ -20,9 +20,15 @@ _PY_DIR = os.path.dirname(_HERE)
 if _PY_DIR not in sys.path:
     sys.path.insert(0, _PY_DIR)
 
-from ink_engine.core.tiers import TIER_NAMES, current_tier_names, set_tier_names  # noqa: E402
-
-from inkling_host.model_layers import build_tier_chains, resolve_tier_chain  # noqa: E402
+from ink_engine.core.tiers import (
+    TIER_NAMES,
+    current_tier_names,
+    set_tier_names,
+)
+from inkling_host.model_layers import (
+    build_tier_chains,
+    resolve_tier_chain,
+)
 
 _TIERS_AUDIT = {"tiers": ["main", "router", "audit"]}
 _MAIN_CONFIG = {

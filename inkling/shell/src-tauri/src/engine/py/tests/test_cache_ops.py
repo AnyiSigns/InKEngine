@@ -1,4 +1,4 @@
-"""E3 壳侧验证：cache.stats / cache.clear op + metrics.snapshot 的 caching_llm 子键。
+"""壳侧验证：cache.stats / cache.clear op + metrics.snapshot 的 caching_llm 子键。
 
 直接加载 bridge.py，绑定一个含 CachingLLM 的运行期桩（engine_llm），
 断言命中统计导出、缓存清空、以及指标快照聚合到 caching_llm 子键；
@@ -10,7 +10,7 @@ import asyncio
 import importlib.util
 import os
 
-from ink_engine.core.llm.base import AsyncLLM, LLMConfig, LLMResult, LLMChunk
+from ink_engine.core.llm.base import AsyncLLM, LLMChunk, LLMConfig, LLMResult
 from ink_engine.core.llm.cache import CachingLLM
 from ink_engine.core.llm.messages import user
 from ink_engine.core.storage import create_storage
@@ -118,4 +118,4 @@ if __name__ == "__main__":
     test_cache_clear_op()
     test_metrics_snapshot_includes_caching_llm()
     test_cache_ops_unavailable_without_cache()
-    print("E3 cache ops all assertions passed")
+    print("cache ops all assertions passed")

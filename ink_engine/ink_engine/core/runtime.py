@@ -311,9 +311,9 @@ class Runtime:
         # 池治理登记器（容量/淘汰/合并/预算四规则；只登记不执行）
         self.pool_governance: PoolGovernance | None = None
 
-        # 工具向量索引（E2 工具注入瘦身）：search_tools/request_tool 的检索后端
+        # 工具向量索引（工具注入瘦身）：search_tools/request_tool 的检索后端
         self.tool_index: ToolVectorIndex | None = None
-        # 工具调配器（E2 接线）：保底工具 priority 高 + 调用权重
+        # 工具调配器（工具注入瘦身接线）：保底工具 priority 高 + 调用权重
         self.tool_selector: ToolSelector | None = None
         self.engine: Engine | None = None
         self.engine_llm: AsyncLLM | None = None
@@ -557,12 +557,12 @@ class Runtime:
         # ⑬ 从链恢复集状态（重启/回退后活跃态一致；链损坏回落基线）
         await self._restore_set_state(recipe)
 
-        # ⑬-a 工具向量索引构建（E2 工具注入瘦身）：全量工具 → 向量，
+        # ⑬-a 工具向量索引构建（工具注入瘦身）：全量工具 → 向量，
         #     search_tools/request_tool 检索后端；失败降级关键词基线
         self.tool_index = ToolVectorIndex(embedder=build_default_embedder())
         self._rebuild_tool_index()
 
-        # ⑬-b 工具调配器接线（E2）：保底工具 priority 高 + 调用权重
+        # ⑬-b 工具调配器接线（工具注入瘦身）：保底工具 priority 高 + 调用权重
         self.tool_selector = ToolSelector(max_tools=12)
 
         # ⑭ apply 目标注册（补丁落链后的活跃态生效钩子；配方工厂注入）

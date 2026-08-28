@@ -991,7 +991,7 @@ async def test_recommended_prior_hook_dedup_persists_across_restart():
     assert len(fresh.promotions) == 1
     await store.close()
 
-# ── E5.1：池治理登记钩子 ──
+# ── 池治理登记钩子 ──
 
 def test_pool_governance_settle_hook_registerable():
     """PoolGovernanceSettleHook 可注册进 SettleHooks 链。"""

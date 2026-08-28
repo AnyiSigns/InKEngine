@@ -181,7 +181,7 @@ class InKlingHost(Host):
         self._auto_approve_keys = auto_approve_keys
         self._timeout = timeout
         self._storage: Storage | None = None
-        # 运行数据目录（model_archive.sqlite 等落盘根；E10 读取 context_window）
+        # 运行数据目录（model_archive.sqlite 等落盘根；压缩阈值读取 context_window）
         self._data_dir = data_dir
         # 本地语义嵌入器（Rust 协议注入形态；None = 关键词基线检索）
         self._embedder = embedder
@@ -213,7 +213,7 @@ class InKlingHost(Host):
 
         返回实例统一经行为准则层包装（BehaviorLLM）——行为块前置为
         系统消息，覆盖全部宿主 LLM 调用路径。解析完成后按模型档案
-        context_window 构建压缩策略（E10：阈值随窗口动态化）。
+        context_window 构建压缩策略（阈值随窗口动态化）。
         """
         llm = self._llm
         if llm is None:
@@ -225,7 +225,7 @@ class InKlingHost(Host):
             except Exception:
                 return None
         wrapped = BehaviorLLM(llm, self._behavior) if self._behavior is not None else llm
-        # E10：压缩阈值按 context_window 动态化（档案缺失回退硬底线）
+        # 压缩阈值按 context_window 动态化（档案缺失回退硬底线）
         model_id = getattr(getattr(llm, "config", None), "model_id", None)
         context_window = _model_context_window_from_archive(self._data_dir, model_id)
         tier = infer_compression_tier(model_id)
@@ -235,7 +235,7 @@ class InKlingHost(Host):
         return wrapped
 
     def compression_policy(self) -> Any:
-        """当前压缩策略（E10：resolve_llm 后可用，未解析返回 None）。"""
+        """当前压缩策略（resolve_llm 后可用，未解析返回 None）。"""
         return getattr(self, "_compression_policy", None)
 
     def interrupt_policy(self) -> InterruptPolicy:
@@ -824,7 +824,7 @@ def _model_config_from_env() -> dict[str, str]:
 def _model_context_window_from_archive(
     data_dir: Path | None, model_id: str | None
 ) -> int | None:
-    """从模型档案库读取 context_window（E10 动态阈值数据源）。
+    """从模型档案库读取 context_window（压缩动态阈值数据源）。
 
     data_dir 缺省 / model_id 空 / 档案库不存在 / 记录缺失 = 返回 None
     （调用方回退硬底线或档位缺省）。只读不写，失败时静默回退。

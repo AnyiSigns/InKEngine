@@ -516,7 +516,7 @@ async def test_recipe_run_options_override_applied():
 
 
 async def test_collect_specs_baseline_plus_dynamic():
-    """工具清单 = 保底 8+2 常驻集 + 动态注册表工具（E2 工具注入瘦身）。"""
+    """工具清单 = 保底 8+2 常驻集 + 动态注册表工具（工具注入瘦身）。"""
     runtime = await Runtime().boot(FakeHost(), _minimal_recipe())
     # 模拟声明式工具注册（生产环境由 harness 定义载入）
     for name in ("file_read", "file_write", "file_edit", "grep", "glob"):

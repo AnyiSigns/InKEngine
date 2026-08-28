@@ -271,7 +271,7 @@ class CachingLLM(AsyncLLM):
         await self._store(fingerprint, result, patch_version)
         return result
 
-    # ── 统计与清理（E3：命中率导出 + 缓存清空）──
+    # ── 统计与清理（命中率导出 + 缓存清空）──
 
     async def stats(self) -> dict[str, Any]:
         """缓存统计：条目量 + 命中/未命中计数 + 命中率。

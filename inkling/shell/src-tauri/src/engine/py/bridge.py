@@ -2610,7 +2610,7 @@ async def _metrics_snapshot(args: dict) -> dict[str, Any]:
         over = (limit > 0) and (current > limit * 0.8)
         occupancy = {"current": current, "limit": limit, "over_threshold": over}
 
-    # LLM 缓存命中统计（E3：穿透行为层定位 CachingLLM，未挂 = 空）
+    # LLM 缓存命中统计（穿透行为层定位 CachingLLM，未挂 = 空）
     caching_llm: dict[str, Any] = {}
     try:
         runtime = runtime_handle()

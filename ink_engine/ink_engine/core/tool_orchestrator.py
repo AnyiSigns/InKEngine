@@ -129,7 +129,7 @@ class ToolSelector:
     与 ContextMixer 同构：默认走确定性调配（WeightedToolScorer），宿主
     可注入自定义策略（如 LLM 语义匹配后的候选加权）——换策略不改装配。
 
-    E2 接线：保底工具 priority 高 + 调用权重（baseline_names 声明的工具
+    工具注入瘦身接线：保底工具 priority 高 + 调用权重（baseline_names 声明的工具
     自动获得 priority 与 weight 加成，确保常驻工具优先入选）。
     """
 

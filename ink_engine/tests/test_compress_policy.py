@@ -140,7 +140,7 @@ def test_compress_history_empty_input():
     policy = ThresholdCompressionPolicy(min_messages=5, min_chars=100)
     assert compress_message_history([], policy=policy) == []
 
-# ── E10：压缩阈值按 context_window 动态化 ──
+# ── 压缩阈值按 context_window 动态化 ──
 
 
 def test_resolve_min_chars_scales_with_context_window():

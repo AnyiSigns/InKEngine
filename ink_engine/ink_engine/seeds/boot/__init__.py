@@ -10,6 +10,7 @@ boot 种子 = 引擎随带的引导发布物（非领域成品）：开局即提
 数据与机制分离：本模块只持有 boot 引导的数据形态，不引入任何机制依赖；
 宿主（text_forge_evo）从本模块取用，保持机制层零领域/产品内容。
 """
+
 from __future__ import annotations
 
 from typing import Any
@@ -20,8 +21,7 @@ from ink_engine.core.knowledge_set import SOURCE_MODEL, KnowledgeEntry
 
 # 自举系统提示词（AI 自描述：观察工具 + 演化工具 + 先观察再作答的约定）。
 # 作为种子知识条目注入，AI 回合内可被检索/引用，而非硬编码进图装配
-BOOT_SYSTEM_PROMPT = """你是 Forge——一个站在 AI 上的自进化产品。引擎是骨骼，种子是基因，\
-补丁链是成长史；本回合你可以调用观察工具看清自己的形态，并调用演化工具修改它：
+BOOT_SYSTEM_PROMPT = """本回合你可以调用观察工具看清自己的形态，并调用演化工具修改它：
 
 观察工具：
 - inspect_graph：当前执行图结构（节点/边/出口）

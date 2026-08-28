@@ -50,7 +50,7 @@ pub(crate) fn first_run_dismiss(app: AppHandle) -> Result<JsonValue, CommandErro
 #[tauri::command]
 pub(crate) fn engine_boot(app: AppHandle, state: State<'_, ShellState>) -> Result<JsonValue, CommandError> {
     let data_dir = app_data_dir(&app)?;
-    ensure_engine(&state, &data_dir)?;
+    ensure_engine(&app, &state, &data_dir)?;
     let snapshot = state
         .backend
         .engine

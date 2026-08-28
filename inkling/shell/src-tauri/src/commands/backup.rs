@@ -93,7 +93,7 @@ pub(crate) async fn recovery_restore_snapshot(
         .iter()
         .find(|m| m.name == name)
         .ok_or_else(|| CommandError::not_found(format!("快照不存在: {name}")))?;
-    ensure_engine(&state, &data_dir)?;
+    ensure_engine(&app, &state, &data_dir)?;
     let src = meta.path.to_string_lossy().into_owned();
     let outcome = crate::engine::host::call_engine_op_async(
         "engine.storage_restore",
@@ -125,7 +125,7 @@ pub(crate) async fn recovery_factory_reset(
     state: State<'_, ShellState>,
 ) -> Result<JsonValue, CommandError> {
     let data_dir = app_data_dir(&app)?;
-    ensure_engine(&state, &data_dir)?;
+    ensure_engine(&app, &state, &data_dir)?;
     let mut reverted: Vec<i64> = Vec::new();
     let mut overwritten = false;
     loop {

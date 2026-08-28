@@ -94,6 +94,7 @@ struct ShellState {
     registry: executors::registry::ExecutorRegistry,
     backend: ShellBackendState,
     approval: commands::approval::ApprovalLedger,
+    os_dispatch: std::sync::OnceLock<()>,
 }
 
 /// 构建壳后端：平台操作 + Tauri 通知接线。
@@ -186,7 +187,7 @@ fn assembly_failure(stage: &str, detail: impl std::fmt::Display) -> String {
 ///   启动，链内容不参与装配）；成功启动计数归零；
 /// - 启动快照轮换：装配成功后按链版本落一份存储快照（N 份轮换，绑定
 ///   链版本号），供「回到上一稳定版本」一键回落取用。
-fn ensure_engine(state: &ShellState, data_dir: &Path) -> Result<(), String> {
+fn ensure_engine(app: &tauri::AppHandle, state: &ShellState, data_dir: &Path) -> Result<(), String> {
     let mut engine = state.backend.engine.lock().unwrap();
     if engine.is_some() {
         return Ok(());
@@ -248,6 +249,11 @@ fn ensure_engine(state: &ShellState, data_dir: &Path) -> Result<(), String> {
         let _ = state.backend.tool_provider.refresh();
     }
     *engine = Some(host);
+    // OS 执行体接桥（引擎桥就绪后注册，避免装配前触碰 Python 模块）：
+    // process_exec 端点 → 宿主 os_registry 分发经回调桥转发到本注册表；
+    // 同一套运行体，两处调度点合一；回调执行在引擎回合线程，经 AppHandle
+    // 取托管状态（沙箱/授权在执行器 run 内强制，此处只做转发）。
+    wire_os_dispatch(app, state).map_err(|err| format!("os.dispatch 接线失败: {err}"))?;
     // 启动快照轮换（非安全模式：安全模式下存储为崩溃前形态，不覆盖
     // 既有稳定快照；失败仅留观测日志，不阻断装配）
     if !domain::recovery::load_boot_state(data_dir).safe_mode {
@@ -255,6 +261,80 @@ fn ensure_engine(state: &ShellState, data_dir: &Path) -> Result<(), String> {
             eprintln!("[recovery] 启动快照失败: {snap_err}");
         }
     }
+    Ok(())
+}
+
+/// OS 执行体回调注册（引擎装配成功后执行一次）。
+fn wire_os_dispatch(app: &tauri::AppHandle, state: &ShellState) -> Result<(), String> {
+    state
+        .os_dispatch
+        .get_or_init(|| {
+            let os_bridge_app = app.clone();
+            engine::bridge::register_callback(
+                "os.dispatch",
+                Box::new(move |payload: String| -> pyo3::PyResult<String> {
+                    let parsed: JsonValue = serde_json::from_str(&payload).map_err(|err| {
+                        pyo3::exceptions::PyValueError::new_err(format!(
+                            "os.dispatch 载荷非法: {err}"
+                        ))
+                    })?;
+                    let tool = parsed
+                        .get("tool")
+                        .and_then(JsonValue::as_str)
+                        .ok_or_else(|| {
+                            pyo3::exceptions::PyValueError::new_err("os.dispatch 缺 tool")
+                        })?
+                        .to_string();
+                    let args_obj = parsed.get("args").cloned().unwrap_or_else(|| json!({}));
+                    let args_map: std::collections::BTreeMap<String, JsonValue> = args_obj
+                        .as_object()
+                        .cloned()
+                        .unwrap_or_default()
+                        .into_iter()
+                        .collect();
+                    let os_state = os_bridge_app.state::<ShellState>();
+                    let shell_backend =
+                        os_bridge_app.state::<executors::backends::ShellBackend>();
+                    // 引擎通道：审批流水线在引擎侧先行裁决（approval 档 seed
+                    // 单源），壳侧将引擎放行态记入审批台账后经同一裁决函数
+                    // 放行（决议 4：无硬编码放行，客户端通道与引擎通道共用
+                    // 台账裁决；执行器层守卫 deny/沙箱/签名照常强制）
+                    os_state.approval.record_engine_dispatch(&tool, &args_map);
+                    let auth = os_state.approval.adjudicate(&tool, &args_map);
+                    let dynamic_roots: Vec<String> = os_state
+                        .mounts
+                        .lock()
+                        .unwrap()
+                        .iter()
+                        .map(|p| p.display().to_string())
+                        .collect();
+                    let gate = executors::registry::CallGate::with_roots(
+                        executors::tool_decl::Endpoint::ProcessExec,
+                        dynamic_roots,
+                    );
+                    match os_state.registry.run(
+                        &tool,
+                        &args_map,
+                        shell_backend.inner(),
+                        &auth,
+                        &gate,
+                    ) {
+                        Ok(outcome) => Ok(serde_json::json!({
+                            "ok": true,
+                            "result": outcome.result,
+                        })
+                        .to_string()),
+                        Err(err) => Ok(serde_json::json!({
+                            "ok": false,
+                            "status": "executor_error",
+                            "error": err.to_string(),
+                        })
+                        .to_string()),
+                    }
+                }),
+            )
+            .expect("os.dispatch 回调注册失败");
+        });
     Ok(())
 }
 
@@ -608,80 +688,11 @@ pub fn run() {
                 registry,
                 backend: ShellBackendState::new(),
                 approval,
+                os_dispatch: std::sync::OnceLock::new(),
             });
 
             let backend = build_shell_backend(app.handle().clone());
             app.manage(backend);
-
-            // OS 执行体接桥：引擎链路（process_exec 端点 → 宿主 os_registry
-            // 分发）经回调桥转发到本注册表——同一套运行体，两处调度点合一；
-            // 回调执行在引擎回合线程，经 AppHandle 取托管状态（沙箱/授权在
-            // 执行器 run 内强制，此处只做转发）。端点闸门 = process_exec +
-            // 授权挂载点并入动态根（决议 14：引擎通道与客户端通道同口径）。
-            let os_bridge_app = app.handle().clone();
-            engine::bridge::register_callback(
-                "os.dispatch",
-                Box::new(move |payload: String| -> pyo3::PyResult<String> {
-                    let parsed: JsonValue = serde_json::from_str(&payload).map_err(|err| {
-                        pyo3::exceptions::PyValueError::new_err(format!(
-                            "os.dispatch 载荷非法: {err}"
-                        ))
-                    })?;
-                    let tool = parsed
-                        .get("tool")
-                        .and_then(JsonValue::as_str)
-                        .ok_or_else(|| {
-                            pyo3::exceptions::PyValueError::new_err("os.dispatch 缺 tool")
-                        })?
-                        .to_string();
-                    let args_obj = parsed.get("args").cloned().unwrap_or_else(|| json!({}));
-                    let args_map: std::collections::BTreeMap<String, JsonValue> = args_obj
-                        .as_object()
-                        .cloned()
-                        .unwrap_or_default()
-                        .into_iter()
-                        .collect();
-                    let state = os_bridge_app.state::<ShellState>();
-                    let shell_backend = os_bridge_app.state::<executors::backends::ShellBackend>();
-                    // 引擎通道：审批流水线在引擎侧先行裁决（approval 档 seed
-                    // 单源），壳侧将引擎放行态记入审批台账后经同一裁决函数
-                    // 放行（决议 4：无硬编码放行，客户端通道与引擎通道共用
-                    // 台账裁决；执行器层守卫 deny/沙箱/签名照常强制）
-                    state.approval.record_engine_dispatch(&tool, &args_map);
-                    let auth = state.approval.adjudicate(&tool, &args_map);
-                    let dynamic_roots: Vec<String> = state
-                        .mounts
-                        .lock()
-                        .unwrap()
-                        .iter()
-                        .map(|p| p.display().to_string())
-                        .collect();
-                    let gate = executors::registry::CallGate::with_roots(
-                        executors::tool_decl::Endpoint::ProcessExec,
-                        dynamic_roots,
-                    );
-                    match state.registry.run(
-                        &tool,
-                        &args_map,
-                        shell_backend.inner(),
-                        &auth,
-                        &gate,
-                    ) {
-                        Ok(outcome) => Ok(serde_json::json!({
-                            "ok": true,
-                            "result": outcome.result,
-                        })
-                        .to_string()),
-                        Err(err) => Ok(serde_json::json!({
-                            "ok": false,
-                            "status": "executor_error",
-                            "error": err.to_string(),
-                        })
-                        .to_string()),
-                    }
-                }),
-            )
-            .expect("os.dispatch 回调注册失败");
 
             build_tray(app.handle())?;
             let _ = stop;

@@ -212,7 +212,7 @@ pub(crate) fn round_send(
     auto_accept_review: Option<bool>,
 ) -> Result<JsonValue, CommandError> {
     let data_dir = app_data_dir(&app)?;
-    ensure_engine(&state, &data_dir)?;
+    ensure_engine(&app, &state, &data_dir)?;
     state.backend.abort_signal.begin_round();
     let mut recorder = begin_round_recorder(&state, &round_id, &data_dir);
     {
@@ -481,7 +481,7 @@ pub(crate) fn round_abort(state: State<'_, ShellState>, round_id: String) -> Res
 pub fn run_routine_round(app: &AppHandle, action: &str) -> Result<JsonValue, String> {
     let data_dir = app_data_dir(app)?;
     let state = app.state::<ShellState>();
-    ensure_engine(&state, &data_dir)?;
+    ensure_engine(app, &state, &data_dir)?;
     let thread_id = format!("routine-{}", chrono::Utc::now().timestamp());
     let round_id = format!("routine-r-{}", uuid::Uuid::new_v4().simple());
     let mut recorder = begin_round_recorder(&state, &round_id, &data_dir);

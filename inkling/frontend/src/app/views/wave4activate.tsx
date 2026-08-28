@@ -134,7 +134,7 @@ export function activate(backend: AppBackend): { sections: SettingsSectionSpec[]
           kind: 'component',
           read: () => ({}),
           write: () => {},
-          disabledReason: 'Q27 定稿未实现，占位禁用',
+          disabledReason: '容器域方案尚未实现，占位禁用',
         },
       ],
     },

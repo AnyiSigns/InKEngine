@@ -1,6 +1,6 @@
 import type { LucideIcon } from 'lucide-react';
 
-/** 空态：线条风 SVG 插画 + 一行文案 + ≤1 个直达入口（notes §二）。 */
+/** 空态：线条风 SVG 插画 + 一行文案 + ≤1 个直达入口（空态统一规格）。 */
 export function EmptyState({
   icon: Icon,
   text,

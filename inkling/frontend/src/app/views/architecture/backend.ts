@@ -53,7 +53,7 @@ export interface InstanceGraph {
   nodeStatus: Record<string, DagNodeStatus>;
 }
 
-/** 结点池治理读数（E5 接线后可用；未接线=null → 降级空态）。 */
+/** 结点池治理读数（治理接线后可用；未接线=null → 降级空态）。 */
 export interface PoolGovernance {
   used: number;
   total: number;

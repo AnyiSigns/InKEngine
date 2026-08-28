@@ -13,7 +13,7 @@ export function GrowthSection(): JSX.Element {
         <div className="text-[11px] font-medium tracking-wide ink-text-muted">孵化与进化</div>
         <div className="flex items-center gap-2 text-[10px] ink-text-faint">
           <Sparkles size={12} strokeWidth={1.6} aria-hidden />
-          治理数据暂不可用（E5/W3.2 接线后可用）
+          治理数据暂不可用（治理接线后可用）
         </div>
       </div>
     </div>

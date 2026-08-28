@@ -1,7 +1,7 @@
 /**
  * 右栏：会话列表 + 线程分支 mini 树。
  * 默认 240px 展开，可折叠为 48px 图标条。
- * Q24：左开右收，默认收起。
+ * 布局约定：左栏默认展开、右栏默认收起。
  */
 
 import { useState, type ReactNode } from 'react';

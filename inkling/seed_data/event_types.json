@@ -517,6 +517,19 @@
       "renderer": "message_list",
       "system": false,
       "meta": { "note": "后台任务取消（含回退语义）" }
+    },
+    {
+      "name": "user_message",
+      "schema": {
+        "name": "user_message",
+        "fields": [
+          { "name": "text", "required": true, "kind": "string" },
+          { "name": "attachments", "kind": "array" }
+        ]
+      },
+      "renderer": "message_list",
+      "system": false,
+      "meta": { "note": "用户消息（输入行发送内容，消息流气泡渲染）" }
     }
   ]
 }

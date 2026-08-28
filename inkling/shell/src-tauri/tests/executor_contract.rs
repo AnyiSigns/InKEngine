@@ -537,7 +537,7 @@ fn schedule_bounds_and_required_args() {
     let outcome = registry
         .run("schedule", &call, &backend, &auth, &pgate())
         .expect("边界内应放行");
-    assert!(outcome.result.starts_with("mock:job"));
+    assert!(outcome.result.starts_with("routine-task"), "schedule 应返回例行任务 id");
 }
 
 #[test]

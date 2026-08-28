@@ -211,13 +211,16 @@ class TestEdgeEvidenceOps:
 
 class TestMissingOpEmptyState:
     def test_missing_sync_op_returns_empty_state(self):
-        """未知同步 op 返回显式空态标记（不报错）。"""
+        """未知同步 op 返回 P9 结构化信封（ok:false + unregistered_op，供
+        Rust host.rs 映射 ENGINE_OP_UNREGISTERED——不白屏也不原样透传）。"""
         result = _invoke_sync("nonexistent.op")
-        assert result["found"] is False
-        assert result["empty"] is True
+        assert result.get("ok") is False
+        assert result.get("error") == "unregistered_op"
+        assert result.get("op") == "nonexistent.op"
 
     def test_missing_async_op_returns_empty_state(self):
-        """未知异步 op 返回显式空态标记（不报错）。"""
+        """未知异步 op 同上（invoke_async 同一契约）。"""
         result = _invoke_async("nonexistent.async.op")
-        assert result["found"] is False
-        assert result["empty"] is True
+        assert result.get("ok") is False
+        assert result.get("error") == "unregistered_op"
+        assert result.get("op") == "nonexistent.async.op"

@@ -29,8 +29,7 @@ from .llm.tools import ToolSpec
 from .self_application import SelfApplicationPipeline
 from .self_proposal import PatchKind, SelfProposal
 from .tool_index import ToolVectorIndex
-from .tool_pipeline import DEFAULT_MAX_RESULT_CHARS, ToolPipeline
-
+from .tool_pipeline import DEFAULT_MAX_RESULT_CHARS
 
 # 权限声明（自定义域：self:propose / self:apply）
 PERMISSION_PROPOSE = "self:propose:*"

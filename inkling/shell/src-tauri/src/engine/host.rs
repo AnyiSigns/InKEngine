@@ -941,7 +941,7 @@ mod tests {
         let has_stub = Python::attach(|py| -> PyResult<bool> {
             let bridge = py.import("inkling_bridge")?;
             let host_obj = bridge.call_method0("host_handle")?;
-            Ok(host_obj.getattr("_llm").is_some())
+            Ok(host_obj.getattr("_llm").is_ok())
         })
         .expect("桥侧断言失败");
         assert!(has_stub, "无 env 模型路径应注入 StubLLM");
@@ -949,9 +949,10 @@ mod tests {
     }
 
     #[test]
-    fn boot_env_partial_not_enough() {
-        // 仅设置 INK_LLM_BASE_URL 或 INK_LLM_MODEL 之一：不满足 live_model_from_env
-        // 条件，应回落 StubLLM 注入（两者必须同时非空才跳过桩）。
+    fn boot_env_partial_config_fails_fast() {
+        // 仅设置 INK_LLM_BASE_URL（缺 MODEL/API_KEY）：H6 门禁 fail-fast——
+        // base_url/model 已配但缺 key = 漏配，装配期显式报错，不静默回落桩
+        // （防桩掩盖误配；S6 注入优先序：env 三要素齐备才走真实模型）。
         let _serial = bridge_guard();
         std::env::set_var("INK_LLM_BASE_URL", "http://127.0.0.1:9/v1");
         std::env::remove_var("INK_LLM_MODEL");
@@ -959,16 +960,10 @@ mod tests {
             repo_root: repo_root(),
             ..BootOptions::default()
         };
-        let host = EngineHost::boot(options).expect("装配失败");
-
-        let has_stub = Python::attach(|py| -> PyResult<bool> {
-            let bridge = py.import("inkling_bridge")?;
-            let host_obj = bridge.call_method0("host_handle")?;
-            Ok(host_obj.getattr("_llm").is_some())
-        })
-        .expect("桥侧断言失败");
-        assert!(has_stub, "部分 env 配置应回落 StubLLM");
-        host.stop().expect("关停失败");
+        let err = EngineHost::boot(options)
+            .err()
+            .expect("部分 env 配置应触发 H6 门禁");
+        assert!(err.contains("门禁"), "H6 门禁错误应可判别: {err}");
         std::env::remove_var("INK_LLM_BASE_URL");
     }
 

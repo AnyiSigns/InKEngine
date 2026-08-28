@@ -160,6 +160,8 @@ export function activate(backend: AppBackend): { sections: SettingsSectionSpec[]
 }
 
 /** 激活视图组件映射（供集成 agent 使用） */
+export type Wave4SettingsSection = SettingsSectionSpec;
+
 export const viewRegistrations = {
   mcp_market: McpMarket,
   component_market: ComponentMarket,

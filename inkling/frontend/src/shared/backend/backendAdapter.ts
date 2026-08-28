@@ -252,6 +252,17 @@ export interface BackendAdapter {
   modelArchiveSnapshot(): Promise<ModelArchiveSnapshot>;
   metricsSnapshot(): Promise<TurnMetricsSnapshot>;
   assembleStats(): Promise<AssembleStats>;
+  // 接线面后端桥 op（壳内嵌桥命令，生产透传；无宿主回落不可用）
+  graphSnapshot(): Promise<unknown>;
+  poolSnapshot(): Promise<unknown>;
+  poolEvaluate(): Promise<unknown>;
+  edgeEvidenceList(): Promise<unknown>;
+  edgeEvidenceUpdate(edgeId: string, patch: Record<string, unknown>): Promise<unknown>;
+  pathAssemble(): Promise<unknown>;
+  pathClearCandidate(): Promise<unknown>;
+  pathSetAssemblerEnabled(enabled: boolean): Promise<unknown>;
+  cacheStats(): Promise<unknown>;
+  cacheClear(): Promise<unknown>;
   // 干预 op（前端契约；壳侧落地由另一道负责）
   chooseCandidate(candidateId: string | null): Promise<{ chosen: string | null }>;
   setMultipath(enabled: boolean): Promise<{ multipath: boolean }>;
@@ -306,6 +317,16 @@ export function createUnavailableBackend(): BackendAdapter {
     modelArchiveSnapshot: unavailable as never,
     metricsSnapshot: unavailable as never,
     assembleStats: unavailable as never,
+    graphSnapshot: unavailable as never,
+    poolSnapshot: unavailable as never,
+    poolEvaluate: unavailable as never,
+    edgeEvidenceList: unavailable as never,
+    edgeEvidenceUpdate: unavailable as never,
+    pathAssemble: unavailable as never,
+    pathClearCandidate: unavailable as never,
+    pathSetAssemblerEnabled: unavailable as never,
+    cacheStats: unavailable as never,
+    cacheClear: unavailable as never,
     chooseCandidate: unavailable as never,
     setMultipath: unavailable as never,
     invalidateCache: unavailable as never,
@@ -368,6 +389,16 @@ export function createTauriBackend(invoker?: TauriInvoker): BackendAdapter {
     modelArchiveSnapshot: () => call('model_archive_snapshot'),
     metricsSnapshot: () => call('metrics_snapshot'),
     assembleStats: () => call('assemble_stats'),
+    graphSnapshot: () => call('graph_snapshot'),
+    poolSnapshot: () => call('pool_snapshot'),
+    poolEvaluate: () => call('pool_evaluate'),
+    edgeEvidenceList: () => call('edge_evidence_list'),
+    edgeEvidenceUpdate: (edgeId, patch) => call('edge_evidence_update', { edgeId, patch }),
+    pathAssemble: () => call('path_assemble'),
+    pathClearCandidate: () => call('path_clear_candidate'),
+    pathSetAssemblerEnabled: (enabled) => call('path_set_assembler_enabled', { enabled }),
+    cacheStats: () => call('cache_stats'),
+    cacheClear: () => call('cache_clear'),
     chooseCandidate: (candidateId) => call('path_choose_candidate', { candidateId }),
     setMultipath: (enabled) => call('path_set_multipath', { enabled }),
     invalidateCache: (scope) => call('cache_invalidate', { scope }),

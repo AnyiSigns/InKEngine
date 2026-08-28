@@ -9,9 +9,10 @@ interface TopBarProps {
   title: string;
   unreadCount: number;
   onTitleChange: (title: string) => void;
+  onOpenEvolution?: () => void;
 }
 
-export function TopBar({ title, unreadCount, onTitleChange }: TopBarProps) {
+export function TopBar({ title, unreadCount, onTitleChange, onOpenEvolution }: TopBarProps) {
   const [editing, setEditing] = useState(false);
   const [draft, setDraft] = useState(title);
 
@@ -48,13 +49,21 @@ export function TopBar({ title, unreadCount, onTitleChange }: TopBarProps) {
         </button>
       )}
       <span className="ml-auto flex items-center gap-1.5 text-xs ink-text-muted">
-        <span className="relative flex h-2 w-2">
-          {unreadCount > 0 && (
-            <span className="absolute inline-flex h-2 w-2 rounded-full bg-[var(--ink-accent-approval)] opacity-75 animate-ping" />
-          )}
-          <span className="relative inline-flex h-2 w-2 rounded-full bg-[var(--ink-accent-approval)]" />
-        </span>
-        <ChevronDown size={14} strokeWidth={1.5} />
+        <button
+          type="button"
+          data-ui="nav_evolution"
+          onClick={onOpenEvolution}
+          className="flex items-center gap-1.5 rounded-md px-1.5 py-1 hover:bg-[var(--ink-bg-elevated)]"
+          title="演化视图"
+        >
+          <span className="relative flex h-2 w-2">
+            {unreadCount > 0 && (
+              <span className="absolute inline-flex h-2 w-2 rounded-full bg-[var(--ink-accent-approval)] opacity-75 animate-ping" />
+            )}
+            <span className="relative inline-flex h-2 w-2 rounded-full bg-[var(--ink-accent-approval)]" />
+          </span>
+          <ChevronDown size={14} strokeWidth={1.5} />
+        </button>
       </span>
     </header>
   );

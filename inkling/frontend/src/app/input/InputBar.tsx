@@ -27,10 +27,14 @@ interface InputBarProps {
   streaming?: boolean;
   models?: ModelArchiveSnapshot;
   routePlan?: RoutePlanResult;
-  onSend: (text: string, attachments?: AttachmentAsset[]) => void;
+  onSend: (text: string, attachments: AttachmentAsset[], mode: 'standard' | 'assembly') => void;
   onAbort: () => void;
   onOpenSettings: () => void;
   onAttachments: (files: AttachmentAsset[]) => void;
+  /** 回合模式切换（组装=path.set_assembler_enabled 真透传由装配层执行）。 */
+  onModeChange?: (mode: 'standard' | 'assembly') => void;
+  /** 发送前路线预览（route_plan 壳命令真调用由装配层执行）。 */
+  onRoutePlanPreview?: (text: string) => void;
 }
 
 export function InputBar({
@@ -42,6 +46,8 @@ export function InputBar({
   onAbort,
   onOpenSettings,
   onAttachments,
+  onModeChange,
+  onRoutePlanPreview,
 }: InputBarProps) {
   const [text, setText] = useState('');
   const [attachments, setAttachments] = useState<AttachmentAsset[]>([]);
@@ -61,7 +67,7 @@ export function InputBar({
 
   const submit = () => {
     if (!canSend) return;
-    onSend(text.trim(), attachments);
+    onSend(text.trim(), attachments, mode);
     setText('');
     setAttachments([]);
   };
@@ -145,7 +151,10 @@ export function InputBar({
             className="flex-1 resize-none bg-transparent py-1 text-sm outline-none placeholder:text-[var(--ink-text-faint)]"
             placeholder={selectedModel ? '输入消息…' : '请先配置模型'}
             value={text}
-            onChange={(e) => setText(e.target.value)}
+            onChange={(e) => {
+              setText(e.target.value);
+              onRoutePlanPreview?.(e.target.value);
+            }}
             onKeyDown={handleKeyDown}
             disabled={disabled || !selectedModel}
           />
@@ -165,14 +174,32 @@ export function InputBar({
 
         <div className="flex items-center justify-between">
           <div className="flex items-center gap-2">
-            <div className="ink-seg">
-              <button type="button" data-active={mode === 'standard'} onClick={() => setMode('standard')} className="ink-seg-item" disabled={streaming}>
-                标准
-              </button>
-              <button type="button" data-active={mode === 'assembly'} onClick={() => setMode('assembly')} className="ink-seg-item" disabled={streaming}>
-                组装
-              </button>
-            </div>
+          <div className="ink-seg">
+            <button
+              type="button"
+              data-active={mode === 'standard'}
+              onClick={() => {
+                setMode('standard');
+                onModeChange?.('standard');
+              }}
+              className="ink-seg-item"
+              disabled={streaming}
+            >
+              标准
+            </button>
+            <button
+              type="button"
+              data-active={mode === 'assembly'}
+              onClick={() => {
+                setMode('assembly');
+                onModeChange?.('assembly');
+              }}
+              className="ink-seg-item"
+              disabled={streaming}
+            >
+              组装
+            </button>
+          </div>
             {selectedModel && (
               <span className="ink-chip text-[10px]">
                 <Sparkles size={10} strokeWidth={1.5} />

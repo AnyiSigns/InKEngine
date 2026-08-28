@@ -4,7 +4,7 @@
  * Q24：左开右收，默认收起。
  */
 
-import { useState } from 'react';
+import { useState, type ReactNode } from 'react';
 import { Plus, Search, MoreVertical, ChevronRight, ChevronDown, MessageSquare, Trash2, Pencil, ChevronLeft } from 'lucide-react';
 import type { SessionRemoteRecord, SessionBranchTree } from '@/shared/backend/backendAdapter';
 
@@ -20,6 +20,8 @@ interface RightRailProps {
   onBranchFromMessage: (messageId: string, branchLabel: string) => void;
   branchTrees: Record<string, SessionBranchTree>;
   onBranchFromLeaf: (sessionId: string, leaf: number) => void;
+  /** 右栏顶部挂载位：跨回合长任务胶囊（仅长任务期间存在）。 */
+  headerSlot?: ReactNode;
 }
 
 export function RightRail({
@@ -34,6 +36,7 @@ export function RightRail({
   onBranchFromMessage,
   branchTrees,
   onBranchFromLeaf,
+  headerSlot,
 }: RightRailProps) {
   const [query, setQuery] = useState('');
   const today = sessions.filter((s) => Date.now() - s.updated_at < 86400000);
@@ -56,6 +59,7 @@ export function RightRail({
 
   return (
     <aside className="flex w-60 flex-col border-l ink-border">
+      {headerSlot && <div className="border-b ink-border p-2">{headerSlot}</div>}
       <div className="flex h-12 items-center gap-2 px-3 border-b ink-border">
         <Search size={14} strokeWidth={1.5} className="ink-text-faint" />
         <input

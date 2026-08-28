@@ -80,8 +80,8 @@ export function LedgerSection() {
                   </span>
                   {isLatest && (
                     <span className="ml-auto flex items-center gap-1">
-                      <span className="h-1.5 w-1.5 rounded-full bg-emerald-500 animate-pulse" />
-                      <span className="text-[9px] text-emerald-600">最新</span>
+                      <span className="h-1.5 w-1.5 rounded-full bg-[var(--ink-text-muted)] animate-pulse" />
+                      <span className="text-[9px] ink-text-faint">最新</span>
                     </span>
                   )}
                 </button>

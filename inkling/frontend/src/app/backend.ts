@@ -19,6 +19,8 @@ import { ChannelHub, type SessionSnapshot, type HubEvent } from '@/shared/sessio
 import { isEventTypeName } from '@/shared/session/eventTypes';
 import type { UISpec } from '@/renderer/uiSpecTypes';
 
+import { isFixtureMode } from './wiring/env';
+
 import type { McpMarketEntry, ComponentMarketEntry, ToolDetail } from './types';
 
 import mcpMarketSeed from '../../../seed_data/mcp_market.json';
@@ -88,13 +90,15 @@ export class AppBackend {
     }
   }
 
-  /** MCP 市场数据（W5.1）：从种子 mcp_market.json 驱动。 */
+  /** MCP 市场数据：从种子 mcp_market.json 驱动；演示态外不内嵌夹具。 */
   getMcpMarket(): McpMarketEntry[] {
+    if (!isFixtureMode()) return [];
     return (mcpMarketSeed as { servers?: unknown[] }).servers?.map((s) => s as unknown as McpMarketEntry) ?? [];
   }
 
-  /** 组件市场数据（W4）：从种子 components_market.json 驱动。 */
+  /** 组件市场数据：从种子 components_market.json 驱动；演示态外不内嵌夹具。 */
   getComponentMarket(): ComponentMarketEntry[] {
+    if (!isFixtureMode()) return [];
     return (componentsMarketSeed as { components?: ComponentMarketEntry[] }).components ?? [];
   }
 
@@ -127,10 +131,11 @@ export class AppBackend {
   }
 
   /**
-   * 工具详情（W5.2 行为手册）：从种子 tools.json 驱动完整 schema。
+   * 工具详情（行为手册）：从种子 tools.json 驱动完整 schema。
    * 供工具面板的详情抽屉展示（description/参数 schema/权限档/端点）。
    */
   getToolDetails(): ToolDetail[] {
+    if (!isFixtureMode()) return [];
     return (toolsSeed as { tools?: unknown[] }).tools?.map((t) => t as unknown as ToolDetail) ?? [];
   }
 
@@ -146,14 +151,14 @@ export class AppBackend {
    */
   async getUiSpec(): Promise<UISpec | null> {
     if (!this.backend?.available) {
-      return uiSpecSeed as unknown as UISpec;
+      return isFixtureMode() ? (uiSpecSeed as unknown as UISpec) : null;
     }
     try {
       const result = await this.backend.knowledgeGraph();
       return (result as unknown as { ui_spec?: UISpec }).ui_spec ?? null;
     } catch (err) {
       logger.warn('app', '获取 ui_spec 失败', { err: String(err) });
-      return uiSpecSeed as unknown as UISpec;
+      return isFixtureMode() ? (uiSpecSeed as unknown as UISpec) : null;
     }
   }
 

@@ -25,7 +25,8 @@
 param(
     [string]$ExePath = (Join-Path $PSScriptRoot "src-tauri\target\debug\inkling_shell.exe"),
     [string]$OutDir = ".\smoke_out",
-    [int]$WaitSeconds = 60
+    [int]$WaitSeconds = 60,
+    [switch]$SettingsShot
 )
 
 $ErrorActionPreference = "Stop"
@@ -44,6 +45,8 @@ Add-Type -Namespace InkSmoke -Name Native -MemberDefinition @'
 [DllImport("user32.dll")] public static extern bool SetForegroundWindow(IntPtr hWnd);
 [DllImport("user32.dll")] public static extern bool SetProcessDPIAware();
 [DllImport("user32.dll")] public static extern uint GetWindowThreadProcessId(IntPtr hWnd, out uint processId);
+[DllImport("user32.dll")] public static extern bool SetCursorPos(int X, int Y);
+[DllImport("user32.dll")] public static extern void mouse_event(uint dwFlags, uint dx, uint dy, uint dwData, UIntPtr dwExtraInfo);
 [StructLayout(LayoutKind.Sequential)] public struct RECT { public int Left; public int Top; public int Right; public int Bottom; }
 [StructLayout(LayoutKind.Sequential)] public struct POINT { public int X; public int Y; }
 '@
@@ -177,6 +180,35 @@ if (-not [InkSmoke.Native]::GetClientRect($hwnd, [ref]$clientRect)) {
             Log "FAIL 窗口内容未加载（内容占比过低，疑似 WebView 错误页/空白）"
             if (-not $proc.HasExited) { $proc.Kill() }
             exit 1
+        }
+
+        # 设置浮窗截图路径（-SettingsShot）：点击左栏底部「设置」按钮（新前端 data-ui=nav_settings，
+        # 位于左栏底部两个入口的上方，中心 ≈ 左栏中线/底部上移 48px）→ 等待浮窗滑入 → 截图断言。
+        # 该路径可选，默认不启用（保持主界面截图行为不变）。
+        if ($SettingsShot) {
+            $relX = 104
+            $relY = [math]::Max(40, $h - 48)
+            $screenX = $clientPt.X + $relX
+            $screenY = $clientPt.Y + $relY
+            [InkSmoke.Native]::SetCursorPos($screenX, $screenY) | Out-Null
+            [InkSmoke.Native]::mouse_event(0x02, 0, 0, 0, [UIntPtr]::Zero)
+            [InkSmoke.Native]::mouse_event(0x04, 0, 0, 0, [UIntPtr]::Zero)
+            Start-Sleep -Milliseconds 1200
+            $bmp2 = New-Object System.Drawing.Bitmap($w, $h)
+            $gfx2 = [System.Drawing.Graphics]::FromImage($bmp2)
+            $gfx2.CopyFromScreen($clientPt.X, $clientPt.Y, 0, 0, $bmp2.Size)
+            $shotSettings = Join-Path $OutDir "settings.png"
+            $bmp2.Save($shotSettings, [System.Drawing.Imaging.ImageFormat]::Png)
+            $gfx2.Dispose()
+            $bmp2.Dispose()
+            Log "设置浮窗截图保存: $shotSettings"
+            $ratioSettings = Get-ContentRatio $shotSettings
+            Log "设置浮窗内容占比=${ratioSettings}（断言 > 0.02）"
+            if ($ratioSettings -le 0.02) {
+                Log "FAIL 设置浮窗未打开（内容占比过低，疑似未滑入）"
+                if (-not $proc.HasExited) { $proc.Kill() }
+                exit 1
+            }
         }
     }
 }

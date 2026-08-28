@@ -26,7 +26,7 @@ describe('InputBar', () => {
     render(<InputBar disabled={false} streaming={false} models={{ profiles: [{ id: 'm1', name: 'M', tier: 'main', occupancy: 0, limit: 100 }] }} onSend={onSend} onAbort={() => {}} onOpenSettings={() => {}} onAttachments={() => {}} />);
     fireEvent.change(screen.getByPlaceholderText('输入消息…'), { target: { value: 'hello' } });
     fireEvent.keyDown(screen.getByPlaceholderText('输入消息…'), { key: 'Enter', code: 'Enter', charCode: 13 });
-    expect(onSend).toHaveBeenCalledWith('hello', []);
+    expect(onSend).toHaveBeenCalledWith('hello', [], 'standard');
   });
 
   it('switches mode via segmented control', () => {

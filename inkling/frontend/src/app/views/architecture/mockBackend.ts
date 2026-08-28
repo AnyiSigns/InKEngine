@@ -18,7 +18,13 @@ import type {
 export function createLiveArchitectureBackend(adapter: BackendAdapter = createBackend()): ArchitectureBackend {
   return {
     async fetchWorkflowTemplates() {
-      return null;
+      if (!adapter.available) return null;
+      try {
+        const snap = (await adapter.graphSnapshot()) as WorkflowTemplate[] | null;
+        return Array.isArray(snap) ? snap : null;
+      } catch {
+        return null;
+      }
     },
     async validateTemplate(_t: WorkflowTemplate): Promise<ValidationResult> {
       return { ok: true };
@@ -35,17 +41,42 @@ export function createLiveArchitectureBackend(adapter: BackendAdapter = createBa
     async fetchInstanceGraph(): Promise<InstanceGraph | null> {
       return null;
     },
-    async fetchPool(): Promise<{ governance: PoolGovernance | null; nodes: PoolNode[] | null; verdicts: GovernanceVerdict[] }> {
-      return { governance: null, nodes: null, verdicts: [] };
+    async fetchPool() {
+      if (!adapter.available) return { governance: null, nodes: null, verdicts: [] };
+      try {
+        const snap = (await adapter.poolSnapshot()) as
+          | { governance?: PoolGovernance; nodes?: PoolNode[]; verdicts?: GovernanceVerdict[] }
+          | null;
+        if (!snap) return { governance: null, nodes: null, verdicts: [] };
+        return {
+          governance: snap.governance ?? null,
+          nodes: snap.nodes ?? null,
+          verdicts: snap.verdicts ?? [],
+        };
+      } catch {
+        return { governance: null, nodes: null, verdicts: [] };
+      }
     },
     async fetchEdgeEvidence(): Promise<EdgeEvidence[] | null> {
-      return null;
+      if (!adapter.available) return null;
+      try {
+        const list = (await adapter.edgeEvidenceList()) as EdgeEvidence[] | null;
+        return Array.isArray(list) ? list : null;
+      } catch {
+        return null;
+      }
     },
     async downgradeEdge(_id: string): Promise<void> {
       await adapter.downgradeEdgeTier(_id);
     },
     async fetchAssemblyResult(): Promise<AssemblyResult | null> {
-      return null;
+      if (!adapter.available) return null;
+      try {
+        const res = (await adapter.pathAssemble()) as AssemblyResult | null;
+        return res ?? null;
+      } catch {
+        return null;
+      }
     },
   };
 }

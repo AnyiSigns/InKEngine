@@ -54,7 +54,12 @@ export function CapabilitySection(): JSX.Element {
     setSavePhase('saving');
     try {
       if (tauri) {
-        await tauri.invoke('capability_put', { record: value });
+        await Promise.all([
+          tauri.invoke('capability_put', { record: value }),
+          tauri.invoke('search_keys_put', {
+            keys: { search_key: value.searchKey, search_provider: value.searchProvider },
+          }),
+        ]);
       }
       setSavePhase('saved');
       setTimeout(() => setSavePhase('idle'), 1200);

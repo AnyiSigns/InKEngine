@@ -29,13 +29,13 @@
  */
 
 :root {
-  --ink-bg-base: #f9f9fb;
+  --ink-bg-base: #fcfcfd;
   --ink-text-base: #21242c;
 
-  --ink-bg-surface: color-mix(in srgb, var(--ink-text-base) 3.5%, var(--ink-bg-base));
-  --ink-bg-elevated: color-mix(in srgb, var(--ink-text-base) 7%, var(--ink-bg-base));
-  --ink-border: color-mix(in srgb, var(--ink-text-base) 10%, transparent);
-  --ink-border-strong: color-mix(in srgb, var(--ink-text-base) 24%, transparent);
+  --ink-bg-surface: color-mix(in srgb, var(--ink-text-base) 2.5%, var(--ink-bg-base));
+  --ink-bg-elevated: color-mix(in srgb, var(--ink-text-base) 6%, var(--ink-bg-base));
+  --ink-border: color-mix(in srgb, var(--ink-text-base) 8%, transparent);
+  --ink-border-strong: color-mix(in srgb, var(--ink-text-base) 20%, transparent);
   --ink-text-muted: color-mix(in srgb, var(--ink-text-base) 58%, var(--ink-bg-base));
   --ink-text-faint: color-mix(in srgb, var(--ink-text-base) 34%, var(--ink-bg-base));
 
@@ -50,14 +50,14 @@
 
   /* 多层软阴影（0 = 旄17 / 1 = 静置 / 2 = 弹层），单点使用 */
   --ink-elev-1:
-    0 1px 2px color-mix(in srgb, var(--ink-text-base) 6%, transparent),
-    0 3px 10px color-mix(in srgb, var(--ink-text-base) 6%, transparent);
+    0 1px 2px color-mix(in srgb, var(--ink-text-base) 4%, transparent),
+    0 4px 16px color-mix(in srgb, var(--ink-text-base) 5%, transparent);
   --ink-elev-2:
-    0 2px 6px color-mix(in srgb, var(--ink-text-base) 8%, transparent),
-    0 10px 28px color-mix(in srgb, var(--ink-text-base) 10%, transparent);
+    0 2px 6px color-mix(in srgb, var(--ink-text-base) 6%, transparent),
+    0 12px 36px color-mix(in srgb, var(--ink-text-base) 8%, transparent);
   --ink-elev-3:
-    0 4px 14px color-mix(in srgb, var(--ink-text-base) 12%, transparent),
-    0 20px 56px color-mix(in srgb, var(--ink-text-base) 18%, transparent);
+    0 4px 14px color-mix(in srgb, var(--ink-text-base) 10%, transparent),
+    0 24px 64px color-mix(in srgb, var(--ink-text-base) 14%, transparent);
 
   /* 设计 token（几佄17/节奏/层级；单丢事实源见 renderer/designTokens.ts＄17 */
   --ink-space-1: 4px;
@@ -148,13 +148,12 @@ body,
  * --------------------------------------------------------------- */
 .ink-app {
   display: flex;
-  flex-direction: column;
   height: 100%;
   min-height: 100%;
   overflow: hidden;
   background:
     radial-gradient(1200px 480px at 50% -160px,
-      color-mix(in srgb, var(--ink-text-base) 3%, transparent),
+      color-mix(in srgb, var(--ink-text-base) 2%, transparent),
       transparent),
     var(--ink-bg-base);
   color: var(--ink-text-base);
@@ -189,13 +188,9 @@ body,
     box-shadow 150ms ease;
 }
 
-/* 侧栏轨道（左栄17/右栏）：surface 庄17 + 内发兄17 + hairline 分隔 */
+/* 侧栏轨道（左栄17/右栏）：比 base 略深的净色底（无渐变堆叠，防灰脏感）+ hairline 分隔 */
 .ink-rail {
-  background:
-    linear-gradient(180deg,
-      color-mix(in srgb, var(--ink-bg-base) 6%, transparent) 0%,
-      transparent 22%),
-    var(--ink-bg-surface);
+  background: color-mix(in srgb, var(--ink-text-base) 2%, var(--ink-bg-base));
 }
 
 .ink-border {
@@ -367,13 +362,13 @@ body,
   display: inline-flex;
   align-items: center;
   justify-content: center;
-  min-width: 2rem;
-  padding: 3px 10px;
+  min-width: 2.25rem;
+  padding: 4px 12px;
   border-radius: 0.5rem;
   border: 1px solid transparent;
   background: transparent;
   color: var(--ink-text-muted);
-  font-size: 10px;
+  font-size: 11px;
   cursor: pointer;
   transition:
     background-color 150ms ease,
@@ -950,7 +945,7 @@ select {
   border: 1px solid var(--ink-border-strong);
   border-radius: 12px;
   background: var(--ink-bg-surface);
-  box-shadow: var(--ink-shadow-2);
+  box-shadow: var(--ink-elev-2);
   animation: ink-pop-in 180ms ease-out;
 }
 
@@ -1033,7 +1028,7 @@ select {
 
 .ink-settings-rail {
   width: 11rem;
-  shrink: 0;
+  flex-shrink: 0;
   display: flex;
   flex-direction: column;
   border-right: 1px solid var(--ink-border);
@@ -1042,6 +1037,7 @@ select {
 }
 
 .ink-settings-nav-item {
+  position: relative;
   display: flex;
   align-items: center;
   gap: 0.5rem;
@@ -1174,20 +1170,62 @@ select {
 }
 
 /* ===== Chat composer capsule =====
- * Solid surface + hairline; focus-within lifts border and shadow. */
+ * 近白实底 + 柔发阴影；focus-within 描边加深 + 阴影抬升 + 微光晕。 */
 .ink-composer {
-  background: var(--ink-bg-surface);
+  background: var(--ink-bg-base);
   border: 1px solid var(--ink-border);
-  border-radius: 1rem;
+  border-radius: 1.25rem;
   box-shadow: var(--ink-elev-1);
   transition:
     border-color 150ms ease,
     box-shadow 150ms ease;
 }
 
+.ink-composer:hover {
+  border-color: var(--ink-border-strong);
+}
+
 .ink-composer:focus-within {
   border-color: var(--ink-border-strong);
-  box-shadow: var(--ink-elev-2);
+  box-shadow:
+    0 0 0 4px color-mix(in srgb, var(--ink-text-base) 4%, transparent),
+    var(--ink-elev-2);
+}
+
+/* ===== 顶栏自动隐藏（悬停 veil 覆盖层） =====
+ * 顶栏非常驻：主区顶部一条触发带，悬停滑出磨砂覆盖层（不推挤布局），
+ * 移出后延迟收回；触发带本身透明，仅承接指针事件。 */
+.ink-topbar-trigger {
+  position: absolute;
+  top: 0;
+  left: 0;
+  right: 0;
+  height: 10px;
+  z-index: var(--ink-z-card);
+}
+
+.ink-topbar-veil {
+  position: absolute;
+  top: 0;
+  left: 0;
+  right: 0;
+  z-index: var(--ink-z-card);
+  background: color-mix(in srgb, var(--ink-bg-base) 88%, transparent);
+  backdrop-filter: blur(8px);
+  border-bottom: 1px solid var(--ink-border);
+  box-shadow: var(--ink-elev-1);
+  transform: translateY(-102%);
+  opacity: 0;
+  pointer-events: none;
+  transition:
+    transform var(--ink-motion-base) var(--ink-ease-out),
+    opacity var(--ink-motion-fast) ease;
+}
+
+.ink-topbar-veil[data-open="true"] {
+  transform: translateY(0);
+  opacity: 1;
+  pointer-events: auto;
 }
 
 /* ===== Top bar tabs (dialog / trajectory) ===== */
@@ -1232,12 +1270,37 @@ select {
   top: calc(100% + 4px);
   z-index: var(--ink-z-card);
   min-width: 7.5rem;
-  border-radius: 0.625rem;
+  border-radius: 0.5rem;
   border: 1px solid var(--ink-border);
   background: var(--ink-bg-base);
   box-shadow: var(--ink-elev-2);
-  padding: 4px;
+  padding: 3px;
   animation: ink-pop 150ms var(--ink-ease-out);
+}
+
+/* 左对齐变体（左栏控件触发时下拉向左展开） */
+.ink-menu-pop-left {
+  left: 0;
+  right: auto;
+}
+
+/* 向上展开变体（底部输入胶囊触发时防溢出视口；入场自上方滑入） */
+.ink-menu-pop-up {
+  top: auto;
+  bottom: calc(100% + 6px);
+  animation-name: ink-pop-up;
+}
+
+@keyframes ink-pop-up {
+  from {
+    opacity: 0;
+    transform: scale(0.96) translateY(-6px);
+  }
+
+  to {
+    opacity: 1;
+    transform: scale(1) translateY(0);
+  }
 }
 
 .ink-menu-item {
@@ -1248,7 +1311,7 @@ select {
   border: none;
   background: transparent;
   border-radius: 0.375rem;
-  padding: 6px 8px;
+  padding: 5px 8px;
   font-size: 12px;
   color: var(--ink-text-base);
   cursor: pointer;

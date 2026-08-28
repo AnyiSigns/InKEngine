@@ -73,7 +73,7 @@ export function KnowledgePanel() {
     <div data-ui="knowledge_panel" className="flex flex-col gap-3 p-4">
       <div className="flex items-center gap-2">
         <BookOpen size={14} strokeWidth={1.6} className="text-[var(--ink-text-muted)]" />
-        <h3 className="text-[13px] font-medium text-[var(--ink-text-base)]">知识库</h3>
+        <h3 className="text-[13px] font-medium text-[var(--ink-text-base)]">知识集</h3>
         <Button size="xs" variant="secondary" onClick={() => setShowAdd(!showAdd)}>
           <Plus size={10} strokeWidth={1.6} />
           添加知识
@@ -82,7 +82,7 @@ export function KnowledgePanel() {
 
       {!data || allEntries.length === 0 ? (
         <div className="rounded border border-dashed border-[var(--ink-border)] px-3 py-8 text-center text-[12px] text-[var(--ink-text-faint)]">
-          知识库为空
+          知识集为空
         </div>
       ) : (
         <>

@@ -29,10 +29,13 @@ describe('InputBar', () => {
     expect(onSend).toHaveBeenCalledWith('hello', [], 'standard');
   });
 
-  it('switches mode via segmented control', () => {
+  it('switches mode via dropdown', () => {
     render(<InputBar disabled={false} streaming={false} onSend={() => {}} onAbort={() => {}} onOpenSettings={() => {}} onAttachments={() => {}} />);
-    const assemblyBtn = screen.getByText('组装');
-    fireEvent.click(assemblyBtn);
-    expect(assemblyBtn.getAttribute('data-active')).toBe('true');
+    // 触发「标准」档位切换器（下拉），默认为标准
+    const toggle = screen.getByRole('button', { name: /标准/ });
+    fireEvent.click(toggle);
+    // 打开下拉后选择「组装」
+    fireEvent.click(screen.getByRole('menuitem', { name: '组装' }));
+    expect(screen.getByRole('button', { name: /组装/ })).toBeTruthy();
   });
 });

@@ -1,6 +1,9 @@
 /**
  * 顶部状态条：会话标题（可编辑）+ 对话/轨迹页签 + 演化徽标（未读红点）。
  * 页签切换主区内容（消息流 / 回合轨迹时间线），参考桌面 agent 产品形态。
+ *
+ * 非常驻：由装配层「悬停触发带 + 磨砂覆盖层」（ink-topbar-veil）承载，
+ * 悬停主区顶缘滑出，移出自动收回；底色/描边/阴影归覆盖层，本组件透明。
  */
 
 import { useState } from 'react';
@@ -29,13 +32,13 @@ export function TopBar({ title, unreadCount, tab, onTabChange, onTitleChange, on
   };
 
   return (
-    <header className="flex h-12 items-stretch gap-4 border-b ink-border px-4">
+    <header className="flex h-12 items-stretch gap-5 px-5">
       {/* 会话标题（可编辑） */}
       <div className="flex min-w-0 items-center">
         {editing ? (
           <input
             autoFocus
-            className="ink-input h-8 w-48 text-[13px]"
+            className="ink-input h-8 w-56 text-[13px]"
             value={draft}
             onChange={(e) => setDraft(e.target.value)}
             onBlur={commit}
@@ -48,7 +51,7 @@ export function TopBar({ title, unreadCount, tab, onTabChange, onTitleChange, on
           <button
             type="button"
             onClick={() => { setDraft(title); setEditing(true); }}
-            className="flex min-w-0 items-center gap-1.5 text-[13px] font-medium hover:opacity-80"
+            className="flex min-w-0 items-center gap-1.5 text-[14px] font-medium hover:opacity-80"
             title="重命名会话"
           >
             <span className="truncate">{title || '未命名会话'}</span>
@@ -58,7 +61,7 @@ export function TopBar({ title, unreadCount, tab, onTabChange, onTitleChange, on
       </div>
 
       {/* 对话 / 轨迹页签 */}
-      <nav className="flex items-stretch gap-4" aria-label="主区页签">
+      <nav className="flex items-stretch gap-5" aria-label="主区页签">
         <button
           type="button"
           data-ui="tab_chat"

@@ -49,13 +49,11 @@ export function MessageStream({ entries, streaming, roundSteps, pulseText, pulse
   const [spawnPanelOpen, setSpawnPanelOpen] = useState(false);
 
   return (
-    <div ref={listRef} className="flex-1 overflow-y-auto px-4 py-4">
+    <div ref={listRef} className="flex-1 overflow-y-auto px-6 py-6">
       {entries.length === 0 && (
-        <div className="flex h-full flex-col items-center justify-center gap-1 text-[13px] ink-text-faint">
-          <p>开始你的第一个任务</p>
-        </div>
+        <EmptyHero />
       )}
-      <div className="mx-auto max-w-3xl space-y-4">
+      <div className="mx-auto max-w-4xl space-y-5">
         {roundSteps && roundSteps.length > 0 && (
           <PhaseCapsule steps={roundSteps.map((s) => ({ id: s.stepId, label: s.label || s.type, status: s.status }))} />
         )}
@@ -92,8 +90,23 @@ export function MessageStream({ entries, streaming, roundSteps, pulseText, pulse
   );
 }
 
-function UserBubble({ content }: { content: string }) {
-  const [copied, setCopied] = useState(false);
+/** 空态 hero（参考桌面 agent 空态：居中品牌图标 + 首任务引导）。 */
+function EmptyHero() {
+  return (
+    <div className="flex h-full min-h-[50vh] flex-col items-center justify-center gap-4 text-center">
+      <div className="flex items-center gap-2">
+        <img src="/icon.ico" alt="InKling" className="h-7 w-7" />
+        <span className="text-[17px] font-semibold tracking-tight">InKling</span>
+      </div>
+      <div className="space-y-1">
+        <h1 className="text-[22px] font-semibold tracking-tight">开始你的第一个任务</h1>
+        <p className="text-[13px] ink-text-faint">描述你想要构建的内容，智能体将自主规划、执行并演化</p>
+      </div>
+    </div>
+  );
+}
+
+function UserBubble({ content }: { content: string }) {  const [copied, setCopied] = useState(false);
 
   const copy = () => {
     void navigator.clipboard?.writeText(content).then(() => {
@@ -104,7 +117,7 @@ function UserBubble({ content }: { content: string }) {
 
   return (
     <div className="group flex flex-col items-end">
-      <div className="ink-bubble-user max-w-[80%] px-4 py-2 text-[14px] leading-relaxed">
+      <div className="ink-bubble-user max-w-[80%] px-4 py-2.5 text-[15px] leading-relaxed">
         <p className="whitespace-pre-wrap">{content}</p>
       </div>
       <button
@@ -121,7 +134,7 @@ function UserBubble({ content }: { content: string }) {
 
 function AssistantText({ content, streaming }: { content: string; streaming?: boolean }) {
   return (
-    <div className="ink-markdown text-[14px] leading-relaxed">
+    <div className="ink-markdown text-[15px] leading-relaxed">
       {content}
       {streaming && <span className="ink-caret-muted" />}
     </div>

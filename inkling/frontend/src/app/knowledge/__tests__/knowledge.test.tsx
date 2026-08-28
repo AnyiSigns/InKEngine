@@ -8,7 +8,7 @@ import type { KnowledgeEntry } from '../backend';
 describe('KnowledgePanel', () => {
   it('空态渲染', () => {
     render(<KnowledgePanel />);
-    expect(screen.getByText(/知识库为空/)).toBeInTheDocument();
+    expect(screen.getByText(/知识集为空/)).toBeInTheDocument();
   });
 });
 

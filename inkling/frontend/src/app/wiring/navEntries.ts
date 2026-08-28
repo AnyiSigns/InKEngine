@@ -4,7 +4,7 @@
  * 渲染解析：键在 getRegisteredViews() → 直接渲染组件；否则视为 componentRegistry 组件键。
  */
 
-import { Network, GitFork, History, Sprout, Server, Boxes, Sparkles, Wrench, Monitor, Shield, Settings, BookOpen } from 'lucide-react';
+import { Network, GitFork, History, Sprout, Server, Boxes, Sparkles, Wrench, Shield, Settings, BookOpen } from 'lucide-react';
 import type { LucideIcon } from 'lucide-react';
 
 export type NavGroup = 'mech' | 'market';
@@ -25,7 +25,6 @@ export const NAV_ENTRIES: NavEntry[] = [
   { key: 'component_market', label: '组件市场', icon: Boxes, group: 'market' },
   { key: 'skill_market', label: '技能市场', icon: Sparkles, group: 'market' },
   { key: 'tools_panel', label: '工具面板', icon: Wrench, group: 'market' },
-  { key: 'os_view', label: 'OS 层', icon: Monitor, group: 'market' },
   { key: 'workspace_auth', label: '工作区授权', icon: Shield, group: 'market' },
   { key: 'ui_editor_host', label: '界面编辑器', icon: Settings, group: 'market' },
   { key: 'knowledge_panel', label: '知识面板', icon: BookOpen, group: 'market' },

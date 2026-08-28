@@ -1,14 +1,27 @@
 /**
  * 右栏：会话列表 + 线程分支 mini 树。
- * 默认 240px 展开（会话主导航，参考桌面 agent 产品形态），可折叠为 48px 图标条。
+ * 全高贯穿窗口右侧（顶栏不再常驻，栏体不被顶栏截断），
+ * 默认 256px 展开（会话主导航，参考桌面 agent 产品形态），可折叠为 48px 图标条。
  *
  * 顶部为全宽「新会话」主按钮（参考形态），其下搜索行；会话行 13px
- * 舒适行高，hover  reveal 菜单（重命名/由此分支/删除）。
+ * 舒适行高 + 右侧相对时间，hover reveal 菜单（重命名/由此分支/删除）。
  */
 
 import { useEffect, useRef, useState } from 'react';
-import { Plus, Search, MoreVertical, ChevronRight, ChevronDown, MessageSquare, Trash2, Pencil, ChevronLeft, GitBranch } from 'lucide-react';
+import { Plus, Search, MoreVertical, ChevronRight, ChevronDown, MessageSquare, Trash2, Pencil, PanelLeftClose, PanelLeftOpen, GitBranch } from 'lucide-react';
 import type { SessionRemoteRecord, SessionBranchTree } from '@/shared/backend/backendAdapter';
+
+/** 相对时间（会话行右侧：刚刚 / N 分钟 / N 小时 / N 天，超一周落月-日）。 */
+function relativeTime(at: number): string {
+  if (!at) return '';
+  const diff = Date.now() - at;
+  if (diff < 60_000) return '刚刚';
+  if (diff < 3_600_000) return `${Math.floor(diff / 60_000)} 分钟`;
+  if (diff < 86_400_000) return `${Math.floor(diff / 3_600_000)} 小时`;
+  if (diff < 7 * 86_400_000) return `${Math.floor(diff / 86_400_000)} 天`;
+  const d = new Date(at);
+  return `${d.getMonth() + 1}月${d.getDate()}日`;
+}
 
 interface RightRailProps {
   collapsed: boolean;
@@ -45,11 +58,11 @@ export function RightRail({
 
   if (collapsed) {
     return (
-      <aside className="flex w-12 flex-col items-center border-l ink-border py-2">
+      <aside className="ink-rail flex w-12 shrink-0 flex-col items-center border-l ink-border py-3">
         <button
           type="button"
           onClick={onCreateSession}
-          className="mb-1 flex h-8 w-8 items-center justify-center rounded-lg ink-text-muted hover:bg-[var(--ink-bg-elevated)] hover:text-[var(--ink-text-base)]"
+          className="mb-1.5 flex h-8 w-8 items-center justify-center rounded-lg ink-text-muted hover:bg-[var(--ink-bg-elevated)] hover:text-[var(--ink-text-base)]"
           title="新会话"
           data-ui="session_create_collapsed"
         >
@@ -62,28 +75,28 @@ export function RightRail({
           title="展开会话列表"
           data-ui="right_rail_expand"
         >
-          <ChevronRight size={15} strokeWidth={1.6} />
+          <PanelLeftOpen size={15} strokeWidth={1.6} />
         </button>
       </aside>
     );
   }
 
   return (
-    <aside className="flex w-60 flex-col border-l ink-border">
+    <aside className="ink-rail flex w-64 shrink-0 flex-col border-l ink-border">
       {/* 新会话主按钮 + 搜索/折叠行 */}
-      <div className="space-y-2 border-b ink-border p-2.5">
+      <div className="space-y-2.5 p-3.5">
         <button
           type="button"
           onClick={onCreateSession}
           data-ui="session_create"
-          className="ink-btn-secondary flex w-full items-center justify-center gap-1.5 rounded-xl px-3 py-2 text-[13px] font-medium"
+          className="ink-btn-secondary flex h-10 w-full items-center justify-center gap-1.5 rounded-xl text-[13px] font-medium"
         >
           <Plus size={15} strokeWidth={1.8} />
           新会话
         </button>
         <div className="flex items-center gap-1.5">
-          <div className="ink-input-shell flex h-8 flex-1 items-center gap-1.5 rounded-lg border ink-border bg-[var(--ink-bg-base)] px-2">
-            <Search size={13} strokeWidth={1.6} className="shrink-0 ink-text-faint" />
+          <div className="ink-input-shell flex h-9 flex-1 items-center gap-2 rounded-xl border ink-border bg-[var(--ink-bg-base)] px-2.5">
+            <Search size={14} strokeWidth={1.6} className="shrink-0 ink-text-faint" />
             <input
               className="h-full w-full flex-1 border-0 bg-transparent text-[12px] outline-none placeholder:text-[var(--ink-text-faint)]"
               placeholder="搜索会话"
@@ -95,18 +108,18 @@ export function RightRail({
           <button
             type="button"
             onClick={onToggle}
-            className="flex h-8 w-8 shrink-0 items-center justify-center rounded-lg ink-text-muted hover:bg-[var(--ink-bg-elevated)] hover:text-[var(--ink-text-base)]"
+            className="flex h-9 w-9 shrink-0 items-center justify-center rounded-xl ink-text-muted hover:bg-[var(--ink-bg-elevated)] hover:text-[var(--ink-text-base)]"
             title="收起会话列表"
             data-ui="right_rail_collapse"
           >
-            <ChevronLeft size={15} strokeWidth={1.6} />
+            <PanelLeftClose size={15} strokeWidth={1.6} />
           </button>
         </div>
       </div>
 
-      <div className="flex-1 overflow-y-auto p-2">
+      <div className="flex-1 overflow-y-auto px-3 pb-3">
         {sessions.length === 0 && (
-          <div className="flex flex-col items-center justify-center py-10 text-[12px] ink-text-faint">
+          <div className="flex flex-col items-center justify-center py-12 text-[12px] ink-text-faint">
             <MessageSquare size={24} strokeWidth={1.5} className="mb-2 opacity-50" />
             <p>发送消息开始对话</p>
           </div>
@@ -114,7 +127,7 @@ export function RightRail({
 
         {filtered(today).length > 0 && (
           <div className="mb-2">
-            <div className="px-2 py-1 text-[10px] font-medium uppercase tracking-wide ink-text-faint">今日</div>
+            <div className="px-1.5 py-1.5 text-[11px] font-medium tracking-wide ink-text-faint">今日</div>
             {filtered(today).map((s) => (
               <SessionRow
                 key={s.thread_id}
@@ -131,7 +144,7 @@ export function RightRail({
 
         {filtered(history).length > 0 && (
           <div>
-            <div className="px-2 py-1 text-[10px] font-medium uppercase tracking-wide ink-text-faint">历史</div>
+            <div className="px-1.5 py-1.5 text-[11px] font-medium tracking-wide ink-text-faint">历史</div>
             {filtered(history).map((s) => (
               <SessionRow
                 key={s.thread_id}
@@ -181,7 +194,7 @@ function BranchTreeSection({ activeSessionId, branchTrees, onBranchFromLeaf }: B
       <button
         type="button"
         onClick={() => setExpanded(!expanded)}
-        className="flex w-full items-center gap-1.5 px-2 py-1 text-[12px] font-medium ink-text-muted hover:text-[var(--ink-text-base)]"
+        className="flex w-full items-center gap-1.5 px-1.5 py-1.5 text-[12px] font-medium ink-text-muted hover:text-[var(--ink-text-base)]"
       >
         {expanded ? <ChevronDown size={12} strokeWidth={1.6} /> : <ChevronRight size={12} strokeWidth={1.6} />}
         <GitBranch size={12} strokeWidth={1.6} />
@@ -242,7 +255,7 @@ function SessionRow({
 
   return (
     <div
-      className={`group relative flex cursor-pointer items-center gap-2 rounded-lg px-2 py-1.5 text-[13px] ${
+      className={`group relative flex cursor-pointer items-center gap-2 rounded-xl px-2.5 py-2 text-[13px] ${
         active ? 'bg-[var(--ink-bg-elevated)] text-[var(--ink-text-base)]' : 'ink-text-muted hover:bg-[var(--ink-bg-elevated)]'
       }`}
       onClick={onSelect}
@@ -259,9 +272,16 @@ function SessionRow({
           onKeyDown={(e) => { if (e.key === 'Enter') { onRename(draft.trim() || session.title); setRenaming(false); } }}
         />
       ) : (
-        <span className="flex-1 truncate">{session.title || '未命名会话'}</span>
+        <>
+          <span className="min-w-0 flex-1 truncate">{session.title || '未命名会话'}</span>
+          {/* 相对时间：hover 时让位给操作菜单 */}
+          <span className="shrink-0 text-[11px] tabular-nums ink-text-faint transition-opacity group-hover:opacity-0">
+            {relativeTime(session.updated_at)}
+          </span>
+        </>
       )}
-      <div className="relative" ref={menuRef}>
+      {!renaming && (
+      <div className="absolute right-2 top-1/2 -translate-y-1/2" ref={menuRef}>
         <button
           type="button"
           aria-label="会话操作"
@@ -284,6 +304,7 @@ function SessionRow({
           </div>
         )}
       </div>
+      )}
     </div>
   );
 }

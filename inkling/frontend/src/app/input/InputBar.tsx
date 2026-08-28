@@ -1,14 +1,15 @@
 /**
  * 输入胶囊（会话主输入面）。
  *
- * 形态：居中 max-w-3xl 单颗胶囊（surface 实底 + hairline + focus-within
- * 抬升），控件全部收进胶囊底排——附件 +、标准|组装分段、模型 chip、
+ * 形态（参考桌面 agent 产品空态）：居中 max-w-4xl 大胶囊（近白实底 + 柔发
+ * 阴影 + focus-within 光晕抬升），文本区双行起步自适应伸展，控件全部收进
+ * 胶囊底排——圆形附件 +、语音、回合档位下拉、模型/推理档位下拉、右侧大号
  * 圆形发送钮；胶囊下方居中「N 轮 · M 步」回合计数。
  * route_plan 发送前预览置于胶囊上方（已落定语义，不抢占胶囊内空间）。
  */
 
 import { useState, useRef, useEffect } from 'react';
-import { ArrowUp, Loader2, Mic, Plus, Square, Settings2, Sparkles, Image, Video, FileText } from 'lucide-react';
+import { ArrowUp, ChevronDown, Loader2, Mic, Plus, Route, Settings2, SlidersHorizontal, Sparkles, Square, Image, Video, FileText } from 'lucide-react';
 import type { ModelArchiveSnapshot } from '@/shared/backend/backendAdapter';
 import { createTauriInvoker } from '@/shared/backend/tauriBridge';
 
@@ -49,8 +50,6 @@ export function InputBar({
   streaming,
   models,
   routePlan,
-  roundCount = 0,
-  stepCount = 0,
   onSend,
   onAbort,
   onOpenSettings,
@@ -66,9 +65,33 @@ export function InputBar({
   const [voicePhase, setVoicePhase] = useState<'idle' | 'recording' | 'transcribing'>('idle');
   const textareaRef = useRef<HTMLTextAreaElement>(null);
   const fileInputRef = useRef<HTMLInputElement>(null);
+  const modeRef = useRef<HTMLDivElement>(null);
+  const [modeMenuOpen, setModeMenuOpen] = useState(false);
+  const modelRef = useRef<HTMLDivElement>(null);
+  const [modelMenuOpen, setModelMenuOpen] = useState(false);
+  const [selectedModelId, setSelectedModelId] = useState<string | null>(null);
 
-  const selectedModel = models?.profiles[0];
+  const profiles = models?.profiles ?? [];
+  const selectedModel = profiles.find((p) => p.id === selectedModelId) ?? profiles[0];
   const canSend = text.trim().length > 0 && !disabled && !streaming;
+
+  useEffect(() => {
+    if (!modeMenuOpen) return;
+    const onDocClick = (e: MouseEvent) => {
+      if (modeRef.current && !modeRef.current.contains(e.target as Node)) setModeMenuOpen(false);
+    };
+    document.addEventListener('mousedown', onDocClick);
+    return () => document.removeEventListener('mousedown', onDocClick);
+  }, [modeMenuOpen]);
+
+  useEffect(() => {
+    if (!modelMenuOpen) return;
+    const onDocClick = (e: MouseEvent) => {
+      if (modelRef.current && !modelRef.current.contains(e.target as Node)) setModelMenuOpen(false);
+    };
+    document.addEventListener('mousedown', onDocClick);
+    return () => document.removeEventListener('mousedown', onDocClick);
+  }, [modelMenuOpen]);
 
   useEffect(() => {
     const tauri = createTauriInvoker();
@@ -108,7 +131,7 @@ export function InputBar({
   useEffect(() => {
     if (textareaRef.current) {
       textareaRef.current.style.height = '0px';
-      textareaRef.current.style.height = `${Math.min(textareaRef.current.scrollHeight, 160)}px`;
+      textareaRef.current.style.height = `${Math.min(textareaRef.current.scrollHeight, 240)}px`;
     }
   }, [text]);
 
@@ -146,10 +169,10 @@ export function InputBar({
   };
 
   return (
-    <div className="bg-[var(--ink-bg-base)] px-4 pb-3 pt-2">
-      <div className="mx-auto max-w-3xl">
+    <div className="px-5 pb-4 pt-2">
+      <div className="mx-auto max-w-4xl">
         {!selectedModel && (
-          <div className="mb-2 flex items-center justify-between rounded-xl border border-dashed ink-border px-3.5 py-2 text-[12px] ink-text-muted">
+          <div className="mb-2.5 flex items-center justify-between rounded-xl border border-dashed ink-border px-4 py-2.5 text-[13px] ink-text-muted">
             <span>请先配置模型</span>
             <button type="button" onClick={onOpenSettings} className="flex items-center gap-1 font-medium hover:underline" data-ui="input_goto_settings">
               <Settings2 size={12} strokeWidth={1.6} /> 前往设置
@@ -158,17 +181,21 @@ export function InputBar({
         )}
 
         {routePlan && (
-          <div className="mb-1.5 flex items-center gap-2 px-1 text-[11px] ink-text-faint" data-ui="route_plan_preview">
+          <div
+            className="mb-2 inline-flex items-center gap-2 rounded-lg border ink-border bg-[var(--ink-bg-surface)] px-2.5 py-1.5 text-[12px] ink-text-muted"
+            data-ui="route_plan_preview"
+          >
+            <Route size={12} strokeWidth={1.6} className="shrink-0 ink-text-faint" />
             <span>将走 {routePlan.chainLabel} · 配额 {routePlan.quota} · 推演 {routePlan.tier}</span>
           </div>
         )}
 
-        {/* 输入胶囊：附件行 + 文本区 + 底排控件 */}
-        <div className="ink-composer px-3 pb-2 pt-2.5" data-streaming={streaming || undefined}>
+        {/* 输入胶囊：附件行 + 文本区 + 底排控件（无内分割线，控件悬浮底排） */}
+        <div className="ink-composer pl-4 pr-2.5 pb-2.5 pt-3.5" data-streaming={streaming || undefined}>
           {attachments.length > 0 && (
-            <div className="flex flex-wrap gap-1.5 px-1 pb-2">
+            <div className="flex flex-wrap gap-1.5 px-1 pb-2.5">
               {attachments.map((a, i) => (
-                <span key={i} className="ink-chip text-[11px]">
+                <span key={i} className="ink-chip px-2 py-1 text-[11px]">
                   {a.kind === 'image' && <Image size={11} strokeWidth={1.6} />}
                   {a.kind === 'video' && <Video size={11} strokeWidth={1.6} />}
                   {a.kind === 'document' && <FileText size={11} strokeWidth={1.6} />}
@@ -183,8 +210,8 @@ export function InputBar({
 
           <textarea
             ref={textareaRef}
-            rows={1}
-            className="w-full resize-none bg-transparent px-1 pb-1.5 text-[14px] leading-relaxed outline-none placeholder:text-[var(--ink-text-faint)]"
+            rows={2}
+            className="min-h-[52px] w-full resize-none bg-transparent px-1.5 pb-2 text-[15px] leading-relaxed outline-none placeholder:text-[var(--ink-text-faint)]"
             placeholder={selectedModel ? '给智能体发消息' : '请先配置模型'}
             value={text}
             onChange={(e) => {
@@ -196,16 +223,16 @@ export function InputBar({
             data-ui="input_textarea"
           />
 
-          {/* 底排：附件 + 模式分段 + 模型 chip … 发送钮 */}
-          <div className="flex items-center gap-2 border-t border-[var(--ink-border)] pt-2">
+          {/* 底排：附件/语音 + 回合档位 + 模型档位（紧凑精致）… 大号圆形发送钮 */}
+          <div className="flex items-center gap-1.5">
             <button
               type="button"
               onClick={() => fileInputRef.current?.click()}
-              className="flex h-8 w-8 shrink-0 items-center justify-center rounded-lg ink-text-muted hover:bg-[var(--ink-bg-elevated)] hover:text-[var(--ink-text-base)]"
+              className="flex h-8 w-8 shrink-0 items-center justify-center rounded-full border ink-border ink-text-muted hover:bg-[var(--ink-bg-elevated)] hover:text-[var(--ink-text-base)]"
               title="添加附件"
               data-ui="input_attach"
             >
-              <Plus size={17} strokeWidth={1.8} />
+              <Plus size={15} strokeWidth={1.8} />
             </button>
             <input ref={fileInputRef} type="file" multiple className="hidden" onChange={handleFiles} />
 
@@ -214,19 +241,19 @@ export function InputBar({
                 type="button"
                 onClick={handleVoice}
                 disabled={voicePhase !== 'idle' || disabled}
-                className={`relative flex h-8 w-8 shrink-0 items-center justify-center rounded-lg transition-colors ${
+                className={`relative flex h-8 w-8 shrink-0 items-center justify-center rounded-full border transition-colors ${
                   voicePhase === 'recording'
-                    ? 'text-[var(--ink-accent-approval)]'
-                    : 'ink-text-muted hover:bg-[var(--ink-bg-elevated)] hover:text-[var(--ink-text-base)]'
+                    ? 'border-[var(--ink-accent-border)] text-[var(--ink-accent-approval)]'
+                    : 'ink-border ink-text-muted hover:bg-[var(--ink-bg-elevated)] hover:text-[var(--ink-text-base)]'
                 }`}
                 title={voicePhase === 'recording' ? '录音中（5s）…' : voicePhase === 'transcribing' ? '转写中…' : '语音输入'}
                 data-ui="input_voice"
                 data-phase={voicePhase}
               >
                 {voicePhase === 'transcribing' ? (
-                  <Loader2 size={16} strokeWidth={1.8} className="animate-spin" />
+                  <Loader2 size={15} strokeWidth={1.8} className="animate-spin" />
                 ) : (
-                  <Mic size={16} strokeWidth={1.8} />
+                  <Mic size={15} strokeWidth={1.8} />
                 )}
                 {voicePhase === 'recording' && (
                   <span className="absolute right-1 top-1 h-1.5 w-1.5 rounded-full bg-[var(--ink-accent-approval)] animate-ping" />
@@ -234,48 +261,90 @@ export function InputBar({
               </button>
             )}
 
-            <div className="ink-seg" role="radiogroup" aria-label="回合模式">
+            {/* 回合模式档位：下拉筛选（非胶囊分段，参考桌面 agent 下拉形态） */}
+            <div className="relative" ref={modeRef}>
               <button
                 type="button"
-                role="radio"
-                aria-checked={mode === 'standard'}
-                data-active={mode === 'standard'}
-                data-ui="mode_standard"
-                onClick={() => switchMode('standard')}
-                className="ink-seg-item"
+                onClick={() => setModeMenuOpen((v) => !v)}
                 disabled={streaming}
+                aria-haspopup="menu"
+                aria-expanded={modeMenuOpen}
+                data-ui="mode_toggle"
+                className="flex h-7 items-center gap-1 rounded-lg border ink-border px-2 text-[11px] ink-text-muted hover:bg-[var(--ink-bg-elevated)] hover:text-[var(--ink-text-base)] disabled:cursor-not-allowed disabled:opacity-60"
               >
-                标准
+                <SlidersHorizontal size={12} strokeWidth={1.7} />
+                <span>{mode === 'standard' ? '标准' : '组装'}</span>
+                <ChevronDown size={12} strokeWidth={1.7} className={`transition-transform ${modeMenuOpen ? 'rotate-180' : ''}`} />
               </button>
-              <button
-                type="button"
-                role="radio"
-                aria-checked={mode === 'assembly'}
-                data-active={mode === 'assembly'}
-                data-ui="mode_assembly"
-                onClick={() => switchMode('assembly')}
-                className="ink-seg-item"
-                disabled={streaming}
-              >
-                组装
-              </button>
+              {modeMenuOpen && (
+                <div className="ink-menu-pop ink-menu-pop-left ink-menu-pop-up" role="menu">
+                  <button
+                    type="button"
+                    role="menuitem"
+                    data-active={mode === 'standard'}
+                    data-ui="mode_standard"
+                    onClick={() => { switchMode('standard'); setModeMenuOpen(false); }}
+                    className="ink-menu-item"
+                  >
+                    标准
+                  </button>
+                  <button
+                    type="button"
+                    role="menuitem"
+                    data-active={mode === 'assembly'}
+                    data-ui="mode_assembly"
+                    onClick={() => { switchMode('assembly'); setModeMenuOpen(false); }}
+                    className="ink-menu-item"
+                  >
+                    组装
+                  </button>
+                </div>
+              )}
             </div>
 
             {selectedModel && (
-              <span className="ink-chip text-[11px]" data-ui="input_model_chip">
-                <Sparkles size={11} strokeWidth={1.6} />
-                {selectedModel.name}
-                {selectedModel.multimodal && <span className="ink-text-faint">多模态</span>}
-              </span>
+              <div className="relative" ref={modelRef}>
+                <button
+                  type="button"
+                  onClick={() => setModelMenuOpen((v) => !v)}
+                  aria-haspopup="menu"
+                  aria-expanded={modelMenuOpen}
+                  data-ui="input_model_chip"
+                  className="flex h-7 items-center gap-1 rounded-lg border ink-border px-2 text-[11px] ink-text-muted hover:bg-[var(--ink-bg-elevated)] hover:text-[var(--ink-text-base)]"
+                >
+                  <Sparkles size={12} strokeWidth={1.6} />
+                  <span className="max-w-[9rem] truncate">{selectedModel.name}</span>
+                  {selectedModel.multimodal && <span className="ink-text-faint">多模态</span>}
+                  <ChevronDown size={12} strokeWidth={1.6} className={`text-[var(--ink-text-faint)] transition-transform ${modelMenuOpen ? 'rotate-180' : ''}`} />
+                </button>
+                {modelMenuOpen && (
+                  <div className="ink-menu-pop ink-menu-pop-left ink-menu-pop-up" role="menu" aria-label="模型/推理档位">
+                    {profiles.map((p) => (
+                      <button
+                        key={p.id}
+                        type="button"
+                        role="menuitem"
+                        data-active={p.id === selectedModel?.id}
+                        onClick={() => { setSelectedModelId(p.id); setModelMenuOpen(false); }}
+                        className="ink-menu-item"
+                      >
+                        <span className="flex-1 truncate">{p.name}</span>
+                        {p.multimodal && <span className="ink-text-faint">多模态</span>}
+                        {p.tier && <span className="ml-2 shrink-0 text-[10px] ink-text-faint">{p.tier}</span>}
+                      </button>
+                    ))}
+                  </div>
+                )}
+              </div>
             )}
 
-            <span className="ml-auto flex items-center gap-2">
+            <span className="ml-auto flex items-center gap-2.5">
               {text.length > 0 && <span className="text-[11px] tabular-nums ink-text-faint">{text.length} 字</span>}
               {streaming ? (
                 <button
                   type="button"
                   onClick={onAbort}
-                  className="flex h-8 w-8 items-center justify-center rounded-full border ink-border ink-text-muted hover:text-[var(--ink-accent-approval)]"
+                  className="flex h-9 w-9 items-center justify-center rounded-full border ink-border ink-text-muted hover:border-[var(--ink-border-strong)] hover:text-[var(--ink-accent-approval)]"
                   title="中止"
                   data-ui="input_abort"
                 >
@@ -286,20 +355,15 @@ export function InputBar({
                   type="button"
                   onClick={submit}
                   disabled={!canSend}
-                  className="flex h-8 w-8 items-center justify-center rounded-full bg-[var(--ink-text-base)] text-[var(--ink-bg-base)] transition-all hover:opacity-90 disabled:opacity-30"
+                  className="flex h-9 w-9 items-center justify-center rounded-full bg-[var(--ink-text-base)] text-[var(--ink-bg-base)] shadow-[var(--ink-elev-1)] transition-all hover:-translate-y-px hover:shadow-[var(--ink-elev-2)] disabled:translate-y-0 disabled:opacity-30 disabled:shadow-none"
                   title="发送"
                   data-ui="input_send"
                 >
-                  <ArrowUp size={16} strokeWidth={2} />
+                  <ArrowUp size={17} strokeWidth={2} />
                 </button>
               )}
             </span>
           </div>
-        </div>
-
-        {/* 回合计数行（胶囊下方居中） */}
-        <div className="pt-1.5 text-center text-[11px] tabular-nums ink-text-faint" data-ui="round_step_counter">
-          {roundCount} 轮 · {stepCount} 步
         </div>
       </div>
     </div>

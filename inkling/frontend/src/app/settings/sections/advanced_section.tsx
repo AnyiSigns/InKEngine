@@ -22,12 +22,11 @@ export const SettingsActionsContext = createContext<SettingsActions>({
   onOpenView: () => undefined,
 });
 
-/** 已有设置内嵌节的视图键（市场/工具/OS/工作区/界面编辑器），高级行不重复列出。 */
+/** 已有设置内嵌节的视图键（市场/工具/工作区/界面编辑器），高级行不重复列出。 */
 const INLINE_SECTION_KEYS = new Set([
   'mcp_market',
   'component_market',
   'tools_panel',
-  'os_view',
   'workspace_auth',
   'ui_editor_host',
 ]);

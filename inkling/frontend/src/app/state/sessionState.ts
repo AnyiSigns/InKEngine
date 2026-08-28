@@ -4,7 +4,7 @@
 
 import { useSyncExternalStore, useCallback } from 'react';
 import { ChannelHub } from '@/shared/session/channelHub';
-import { ingestEvent, type AttachmentAsset } from '@/shared/session/eventIngest';
+import { submitUserMessage, submitUserRound, toEngineAttachments, setStreaming, commitStreaming, type AttachmentAsset } from '@/shared/session/eventIngest';
 import type { BackendAdapter } from '@/shared/backend/backendAdapter';
 import type { SessionStore } from '@/shared/session/sessionStore';
 
@@ -41,7 +41,16 @@ export function createSessionState(hub: ChannelHub, store: SessionStore, _backen
 export function useSessionState(hub: ChannelHub, store: SessionStore, backend: BackendAdapter) {
   const state = createSessionState(hub, store, backend);
   return useSyncExternalStore(
-    (cb) => store.subscribe(cb),
+    (cb) => {
+      // 会话元数据（store）与回合事件态（hub）任一变更都触发重渲，
+      // 主链路（消息流/审批卡/任务胶囊/模拟分支）由此实时跟随事件流。
+      const unsubStore = store.subscribe(cb);
+      const unsubHub = hub.subscribeState(cb);
+      return () => {
+        unsubStore();
+        unsubHub();
+      };
+    },
     () => state,
     () => state,
   );
@@ -51,20 +60,37 @@ export function useSessionActions(hub: ChannelHub, store: SessionStore, backend:
   const send = useCallback(
     (text: string, attachments: AttachmentAsset[] = []) => {
       if (!backend.available) {
-        ingestEvent(hub, { type: 'user_message', payload: { text, attachments }, at: Date.now() });
+        submitUserMessage(hub, text, attachments);
         return;
       }
+      if (hub.getSnapshot().streaming) return;
       const activeId = hub.getSnapshot().activeSessionId as string || store.list()[0]?.id || '';
       if (!activeId) return;
-      const roundId = `round-${Date.now()}`;
-      void backend.roundSend(activeId, roundId, text, false, attachments.filter((a) => a.url).map((a) => ({ kind: a.kind, url: a.url!, name: a.name, mime: a.mime }))).catch(() => undefined);
+      const roundId = submitUserRound(hub, text, attachments);
+      const finish = () => {
+        commitStreaming(hub);
+        setStreaming(hub, false);
+      };
+      void backend
+        .roundSend(activeId, roundId, text, false, toEngineAttachments(attachments))
+        .then(() => {
+          finish();
+          // 回合收尾刷新会话记录（标题生成/更新时间落库后镜像同步）
+          void (store as { reload?: () => Promise<void> }).reload?.();
+        })
+        .catch(() => finish());
     },
     [hub, store, backend],
   );
 
   const abort = useCallback(() => {
+    const roundId = hub.getSnapshot().roundId;
+    if (backend.available && roundId) {
+      void backend.roundAbort(roundId).catch(() => undefined);
+    }
+    setStreaming(hub, false);
     hub.setState({ streaming: false, roundId: null });
-  }, [hub]);
+  }, [hub, backend]);
 
   return { send, abort };
 }

@@ -16,6 +16,7 @@ import { Button } from '@/shared/ui/Button';
 import { Field, Select, TextInput } from '@/shared/ui/Field';
 import { Feedback } from '@/components/floaters/feedback';
 import type { FeedbackPhase } from '@/components/floaters/feedback';
+import { FloaterWindow } from '@/components/floaters/floater_window';
 import { createTauriInvoker } from '@/shared/backend/tauriBridge';
 
 export type GearTier = 'main' | 'router' | 'audit';
@@ -50,7 +51,6 @@ const VENDORS = [
 ] as const;
 
 const DEFAULT_CONTEXT = 128 * 1024;
-const HARD_FLOOR = 40 * 1024;
 
 const TIER_META: Array<{ tier: GearTier; label: string; hint: string }> = [
   { tier: 'main', label: '主模型', hint: '正文生成与工具执行；必填。' },
@@ -58,7 +58,10 @@ const TIER_META: Array<{ tier: GearTier; label: string; hint: string }> = [
   { tier: 'audit', label: '审计', hint: '审批点复核与裁决；留空回落主模型。' },
 ];
 
-/** 三档模型配置：先选档位、再配该档 model_id（单一输入框随档位切换）。 */
+/**
+ * 三档模型配置：档位各成一张卡（显示已配置 model_id / 回落状态），
+ * 点击卡片弹悬浮窗设置该档 model_id——设置页只做配置，占用/上限在对话页。
+ */
 function TierModelBlock({
   mainModelId,
   routerModelId,
@@ -70,44 +73,74 @@ function TierModelBlock({
   auditModelId: string;
   onChange: (tier: GearTier, id: string) => void;
 }): JSX.Element {
-  const [tier, setTier] = useState<GearTier>('main');
-  const value = tier === 'main' ? mainModelId : tier === 'router' ? routerModelId : auditModelId;
-  const meta = TIER_META.find((t) => t.tier === tier) ?? TIER_META[0];
+  const [editing, setEditing] = useState<GearTier | null>(null);
+  const [draft, setDraft] = useState('');
 
-  const configured = (t: GearTier): boolean =>
-    (t === 'main' ? mainModelId : t === 'router' ? routerModelId : auditModelId).trim().length > 0;
+  const valueOf = (tier: GearTier): string =>
+    tier === 'main' ? mainModelId : tier === 'router' ? routerModelId : auditModelId;
+  const configured = (tier: GearTier): boolean => valueOf(tier).trim().length > 0;
+
+  const openEditor = (tier: GearTier): void => {
+    setDraft(valueOf(tier));
+    setEditing(tier);
+  };
+
+  const commit = (): void => {
+    if (editing) onChange(editing, draft.trim());
+    setEditing(null);
+  };
+
+  const editingMeta = editing ? TIER_META.find((t) => t.tier === editing) ?? TIER_META[0] : null;
 
   return (
     <div className="ink-elevated space-y-3 px-3.5 py-3">
       <div className="text-[11px] font-medium tracking-wide ink-text-muted">模型档位</div>
-      <div className="ink-seg" role="radiogroup" aria-label="模型档位">
+      <p className="text-[11px] leading-relaxed ink-text-faint">
+        三档分工：制片人决策 / 主模型生成 / 审计复核；非主档留空时回落主模型。
+      </p>
+      <div className="space-y-2">
         {TIER_META.map((t) => (
           <button
             key={t.tier}
             type="button"
-            role="radio"
-            aria-checked={tier === t.tier}
             data-ui={`model_tier_${t.tier}`}
-            data-active={tier === t.tier}
-            onClick={() => setTier(t.tier)}
-            className="ink-seg-item gap-1.5"
+            data-configured={configured(t.tier)}
+            onClick={() => openEditor(t.tier)}
+            className="flex w-full items-center gap-3 rounded-xl border border-[var(--ink-border)] px-3 py-2.5 text-left hover:border-[var(--ink-border-strong)] hover:bg-[var(--ink-bg-surface)] cursor-pointer"
           >
-            {t.label}
-            {configured(t.tier) && <span className="h-1.5 w-1.5 rounded-full bg-current opacity-60" aria-hidden />}
+            <span className="w-14 shrink-0 text-[12px] font-medium ink-text-base">{t.label}</span>
+            <span className="min-w-0 flex-1 truncate text-[11px] ink-text-muted">
+              {configured(t.tier) ? valueOf(t.tier) : (t.tier === 'main' ? '必填' : '留空回落主模型')}
+            </span>
+            <span className="shrink-0 text-[10px] ink-text-faint">配置 →</span>
           </button>
         ))}
       </div>
-      <Field label={`${meta.label} model_id`} hint={meta.hint}>
-        <TextInput
-          value={value}
-          onChange={(e) => onChange(tier, e.target.value)}
-          placeholder="model_id"
-          aria-label={`${tier} model_id`}
-        />
-      </Field>
-      <p className="text-[11px] leading-relaxed ink-text-faint">
-        三档分工：制片人决策 / 主模型生成 / 审计复核；非主档留空时回落主模型。
-      </p>
+      {editing && editingMeta && (
+        <FloaterWindow
+          title={`设置${editingMeta.label}`}
+          floaterKey={`model_tier_${editing}`}
+          onClose={() => setEditing(null)}
+          initialRect={{ x: 120, y: 140, width: 400, height: 200 }}
+        >
+          <div className="flex h-full flex-col p-4">
+            <Field label={`${editingMeta.label} model_id`} hint={editingMeta.hint}>
+              <TextInput
+                value={draft}
+                onChange={(e) => setDraft(e.target.value)}
+                placeholder="model_id"
+                aria-label={`${editing} model_id`}
+              />
+            </Field>
+            <div className="mt-auto flex justify-end gap-2 pt-4">
+              <Button size="xs" variant="ghost" onClick={() => setEditing(null)}>取消</Button>
+              <Button size="xs" variant="primary" onClick={commit} data-ui="model_tier_commit">
+                确定
+              </Button>
+            </div>
+          </div>
+        </FloaterWindow>
+      )}
     </div>
   );
 }
@@ -127,15 +160,18 @@ export function ModelSection(): JSX.Element {
   const [routerModelId, setRouterModelId] = useState('');
   const [auditModelId, setAuditModelId] = useState('');
   const [contextWindow, setContextWindow] = useState<number>(DEFAULT_CONTEXT);
+  const [compressionPercent, setCompressionPercent] = useState<number>(80);
   const [probePhase, setProbePhase] = useState<'idle' | 'loading' | 'success' | 'fail'>('idle');
   const [probeNote, setProbeNote] = useState<string>('');
   const [customMode, setCustomMode] = useState(false);
   const [savePhase, setSavePhase] = useState<FeedbackPhase>('idle');
 
-  const effectiveContext = useMemo(() => {
-    const raw = contextWindow > 0 ? contextWindow : DEFAULT_CONTEXT;
-    return Math.floor(Math.min(raw * 0.8, HARD_FLOOR));
-  }, [contextWindow]);
+  // 压缩红线 = 上下文窗口 × 用户所选百分比（1%~100%）；40k 只作执行侧硬下限，不参与展示
+  const redlineTokens = useMemo(() => {
+    const base = contextWindow > 0 ? contextWindow : DEFAULT_CONTEXT;
+    const pct = Number.isFinite(compressionPercent) ? Math.min(100, Math.max(1, compressionPercent)) : 80;
+    return Math.floor((base * pct) / 100);
+  }, [contextWindow, compressionPercent]);
 
   const handleVendorChange = (next: string): void => {
     setVendor(next);
@@ -189,6 +225,7 @@ export function ModelSection(): JSX.Element {
         router_model_id: routerModelId,
         audit_model_id: auditModelId,
         context_window: contextWindow,
+        compression_percent: compressionPercent,
       };
       if (tauri) {
         await tauri.invoke('settings_put', { section: 'model', record: payload });
@@ -278,11 +315,20 @@ export function ModelSection(): JSX.Element {
         </div>
         <div className="flex items-center gap-3">
           <span className="w-28 shrink-0 text-[11px] ink-text-muted">压缩红线</span>
-          <span className="text-[11px] font-medium">{effectiveContext.toLocaleString()} tokens</span>
-          <span className="text-[10px] ink-text-faint">
-            （≈{Math.floor(contextWindow / 1024)}k 的 80%，保底下限 40k）
-          </span>
+          <TextInput
+            type="number"
+            min={1}
+            max={100}
+            value={String(compressionPercent)}
+            onChange={(e) => setCompressionPercent(Number(e.target.value) || 0)}
+            className="w-28"
+            aria-label="compression_percent"
+          />
+          <span className="text-[10px] ink-text-faint">%（上下文窗口比例）</span>
         </div>
+        <p className="text-[10px] ink-text-faint">
+          触发压缩 ≈ {redlineTokens.toLocaleString()} tokens；执行时保底下限 40k。
+        </p>
         {contextWindow >= 128 * 1024 && (
           <div className="flex items-center gap-1.5 text-[10px] ink-text-faint">
             <AlertTriangle size={10} strokeWidth={1.6} aria-hidden />

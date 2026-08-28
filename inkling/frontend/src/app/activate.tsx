@@ -15,6 +15,8 @@ import { ChannelHub } from '@/shared/session/channelHub';
 import { MemorySessionStore } from '@/shared/session/sessionStore';
 import { createSessionStoreFrom } from '@/shared/backend/remoteSessionStore';
 import { createBackend } from '@/shared/backend/backendAdapter';
+import { listenHostEvent } from '@/shared/backend/tauriBridge';
+import { createIngester, toHubEvent, setStreaming, commitStreaming } from '@/shared/session/eventIngest';
 import { registerComponent, type PlainComponent } from '@/renderer/componentRegistry';
 import { AppBackend } from './backend';
 import { registerSettingsSections } from './settings/activate';
@@ -61,6 +63,22 @@ export function activate(): void {
   const hub = new ChannelHub({});
   const fixtureStore = new MemorySessionStore([]);
   const sessionStore = createSessionStoreFrom(backend, () => fixtureStore);
+
+  // 后端→前端回合事件流接线：宿主桥 round_event → 会话状态归约。
+  // 引擎信封（EngineEvent）与前端 HubEvent 形态归一后逐条落位，消息流/
+  // 审批卡/任务胶囊/模拟分支全部由此驱动；宿主不可用时订阅为空操作。
+  if (backend.available) {
+    const ingest = createIngester(hub);
+    void listenHostEvent<Record<string, unknown>>('inkling://round_event', (raw) => {
+      if (!raw || typeof raw !== 'object') return;
+      const event = toHubEvent(raw as Record<string, unknown>);
+      ingest(event);
+      if (event.type === 'end') {
+        setStreaming(hub, false);
+        commitStreaming(hub);
+      }
+    });
+  }
 
   const rootEl = document.getElementById('root');
   if (!rootEl) throw new Error('缺少 #root 挂载点');

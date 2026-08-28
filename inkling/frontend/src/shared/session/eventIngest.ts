@@ -11,12 +11,30 @@ import type { InkMessage, OutboundAttachment } from './types';
 import { reduceTaskEvent } from './taskState';
 import { getUiStateStore } from '../ui/uiStateStore';
 import { DEV_MODE_KEY } from '../ui/devMode';
+import type { EventTypeName } from './eventTypes';
 
 let messageSeq = 0;
 
 function nextId(): string {
   messageSeq += 1;
   return `m-${Date.now()}-${messageSeq}`;
+}
+
+/**
+ * 引擎事件（EngineEvent.to_dict 信封）→ HubEvent 归一。
+ * 引擎把 round_id/step_id 放信封顶层，前端归约从 payload 读取——
+ * 归一注入 payload，与夹具/绑定协议形态统一；未登记类型原样透传
+ * （ingest 默认分支折叠兜底，不崩）。
+ */
+export function toHubEvent(raw: Record<string, unknown>): HubEvent {
+  const rawPayload = (raw.payload && typeof raw.payload === 'object'
+    ? (raw.payload as Record<string, unknown>)
+    : {});
+  const payload: Record<string, unknown> = { ...rawPayload };
+  if (raw.round_id !== undefined && raw.round_id !== null) payload.round_id = raw.round_id;
+  if (raw.step_id !== undefined && raw.step_id !== null) payload.step_id = raw.step_id;
+  const rawType = typeof raw.type === 'string' ? raw.type : 'unknown';
+  return { type: rawType as EventTypeName, payload, at: Date.now() };
 }
 
 /** 工具原始参数整理：对象/数组 → 格式化 JSON 文本（供展开查看，不裸 JSON）。 */
@@ -457,6 +475,31 @@ export function submitUserMessage(hub: ChannelHub, text: string, attachments?: A
     roundId,
   };
   hub.setState({ ...snapshot, messages: [...snapshot.messages, userMsg, reply], roundId });
+}
+
+/**
+ * 真实回合提交（宿主驱动侧）：只落用户气泡 + 开启流式态，回复由
+ * 回合事件流（round_event）增量渲染；返回 roundId 供宿主下发 round_send。
+ * 区别于 submitUserMessage（演示占位回复），本路径不产生假回复。
+ */
+export function submitUserRound(
+  hub: ChannelHub,
+  text: string,
+  attachments?: AttachmentAsset[],
+  roundId = `round-${Date.now()}`,
+): string {
+  const snapshot = hub.getSnapshot();
+  const payload = toEngineAttachments(attachments ?? []);
+  const userMsg: InkMessage = {
+    kind: 'text',
+    role: 'user',
+    content: text,
+    id: nextId(),
+    roundId,
+    ...(payload.length > 0 ? { attachments: payload } : {}),
+  };
+  hub.setState({ ...snapshot, messages: [...snapshot.messages, userMsg], roundId, streaming: true });
+  return roundId;
 }
 
 export function setGear(hub: ChannelHub, activeGear: Parameters<ChannelHub['setState']>[0]['activeGear']): void {

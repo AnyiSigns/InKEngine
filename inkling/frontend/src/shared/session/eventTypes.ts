@@ -8,6 +8,7 @@
 
 export const EVENT_TYPE_NAMES = [
   // 回合基础
+  'user_message',
   'reply_token',
   'thinking_start',
   'thinking_end',
@@ -65,6 +66,7 @@ export interface EventTypeSpec {
 }
 
 export const EVENT_TYPE_SPECS: EventTypeSpec[] = [
+  { name: 'user_message', description: '用户消息', bindable: true },
   { name: 'reply_token', description: '流式回复 token', bindable: true },
   { name: 'thinking_start', description: '思考开始', bindable: true },
   { name: 'thinking_end', description: '思考结束', bindable: true },

@@ -21,6 +21,7 @@ import { emptyTaskState } from './taskState';
 
 /** 会话状态快照（state.* 通道的根对象）。 */
 export interface SessionSnapshot {
+  activeSessionId: string;
   messages: InkMessage[];
   roundSteps: RoundStep[];
   roundId: string | null;
@@ -40,6 +41,7 @@ export interface SessionSnapshot {
 
 export function emptySessionSnapshot(): SessionSnapshot {
   return {
+    activeSessionId: '',
     messages: [],
     roundSteps: [],
     roundId: null,

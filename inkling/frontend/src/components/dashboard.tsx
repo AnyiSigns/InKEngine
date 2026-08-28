@@ -14,7 +14,7 @@
 
 import { useEffect, useState } from 'react';
 
-import type { AssembleStats, BackendAdapter, ModelsSnapshot, TurnMetricsSnapshot } from '@/shared/backend/backendAdapter';
+import type { AssembleStats, BackendAdapter, ModelArchiveSnapshot, TurnMetricsSnapshot } from '@/shared/backend/backendAdapter';
 import { createBackend } from '@/shared/backend/backendAdapter';
 
 export interface DashboardProps {
@@ -23,7 +23,7 @@ export interface DashboardProps {
   /** 注入组装统计（缓存命中率/边成本来源） */
   assembleStats?: AssembleStats;
   /** 注入模型档案（占用/上限联动显示） */
-  models?: ModelsSnapshot;
+  models?: ModelArchiveSnapshot;
   /** 可注入后端（缺省 = 全局后端选择） */
   backend?: BackendAdapter;
 }
@@ -58,7 +58,7 @@ export function Dashboard({ metrics, assembleStats, models, backend }: Dashboard
   const resolvedBackend = backend ?? createBackend();
   const [remoteMetrics, setRemoteMetrics] = useState<TurnMetricsSnapshot | undefined>(metrics);
   const [remoteStats, setRemoteStats] = useState<AssembleStats | undefined>(assembleStats);
-  const [remoteModels, setRemoteModels] = useState<ModelsSnapshot | undefined>(models);
+  const [remoteModels, setRemoteModels] = useState<ModelArchiveSnapshot | undefined>(models);
 
   useEffect(() => {
     let alive = true;
@@ -73,7 +73,7 @@ export function Dashboard({ metrics, assembleStats, models, backend }: Dashboard
       }).catch(() => undefined);
     }
     if (models == null && resolvedBackend.available) {
-      void resolvedBackend.modelsSnapshot().then((m) => {
+      void resolvedBackend.modelArchiveSnapshot().then((m) => {
         if (alive) setRemoteModels(m);
       }).catch(() => undefined);
     }

@@ -83,7 +83,7 @@ def _make_tools(storage, *, approval_levels=None, convergence=None):
 
 
 def test_contract_tools_exact():
-    """契约工具清单 = 4 个演化工具（名称与 seeds/boot 契约同源）。"""
+    """契约工具清单 = 6 个工具（4 演化 + 2 自指发现，与 seeds/boot 契约同源）。"""
     names = {spec.name for spec in self_tool_specs()}
     assert names == set(SELF_TOOL_CONTRACT)
     assert set(SELF_TOOL_CONTRACT) == {
@@ -91,6 +91,8 @@ def test_contract_tools_exact():
         "apply_patch",
         "revert_patch",
         "propose_domain_manifest",
+        "search_tools",
+        "request_tool",
     }
     by_name = {spec.name: spec for spec in self_tool_specs()}
     # 权限声明（自定义域：propose/apply）

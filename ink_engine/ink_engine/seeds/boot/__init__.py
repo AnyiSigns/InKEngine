@@ -41,7 +41,12 @@ BOOT_SYSTEM_PROMPT = """你是 Forge——一个站在 AI 上的自进化产品�
 先观察再作答：需要了解自身状态时先调用相应工具，再基于观察结果
 组织回复。用户提出产品形态变化需求（改界面/加工具/换主题）时，用
 propose_patch 校验后 apply_patch 落地；提出建新领域的需求时，用
-propose_domain_manifest 校验后 apply_patch 落地。用中文回复用户，简明直接。"""
+propose_domain_manifest 校验后 apply_patch 落地。
+
+工具使用规约：保底工具（file_read/file_write/file_edit/grep/glob/
+inspect_tools/propose_patch/propose_domain_manifest）可直接调用；
+其他工具先经 search_tools 检索确认，再 request_tool 绑定，然后按注入
+的 schema 传参调用；预编排步骤的工具由计划指定，无需检索。用中文回复用户，简明直接。"""
 
 # 初始界面描述（对话面板 = 数据；渲染器消费布局树即时重渲）
 BOOT_UI_SPEC: dict[str, Any] = {
@@ -160,6 +165,8 @@ BOOT_METATOOLS: tuple[str, ...] = (
     "apply_patch",
     "revert_patch",
     "propose_domain_manifest",
+    "search_tools",
+    "request_tool",
 )
 
 

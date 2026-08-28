@@ -70,12 +70,25 @@ from .self_application import (
 from .self_proposal import PatchKind, ProposalValidator
 from .self_tools import ConvergenceHook, SelfToolContext
 from .storage import CheckpointRecord, Storage
+from .tool_index import ToolVectorIndex, build_default_embedder
+from .tool_orchestrator import ToolSelector
 from .tool_pipeline import ToolPipeline
 from .tool_vetting import ToolVetting
 from .tuning import MetaTuner, TuneResult, TurnMetrics
 from .ui_schema import DEFAULT_BIND_CHANNELS, UISchemaValidator
 
 logger = get_logger(__name__)
+
+# 保底 8+2 常驻集合（collect_specs 只注入这些完整 schema 进 tools 参数）。
+# 保底 8 = file_read/file_write/file_edit/grep/glob（声明式）
+#         + propose_patch/propose_domain_manifest（自指）+ inspect_tools（内省）
+# +2 自指 = search_tools/request_tool
+BASELINE_TOOL_NAMES: frozenset[str] = frozenset({
+    "file_read", "file_write", "file_edit", "grep", "glob",
+    "propose_patch", "propose_domain_manifest",
+    "inspect_tools",
+    "search_tools", "request_tool",
+})
 
 
 class RuntimeState(StrEnum):
@@ -283,6 +296,10 @@ class Runtime:
         self.turn_metrics: TurnMetrics | None = None
         # 宿主动态工具表（挂载/从链恢复的工具定义；统一分发第三路）
         self.tool_registry: dict[str, ToolSpec] = {}
+        # 工具向量索引（E2 工具注入瘦身）：search_tools/request_tool 的检索后端
+        self.tool_index: ToolVectorIndex | None = None
+        # 工具调配器（E2 接线）：保底工具 priority 高 + 调用权重
+        self.tool_selector: ToolSelector | None = None
         self.engine: Engine | None = None
         self.engine_llm: AsyncLLM | None = None
 
@@ -495,6 +512,14 @@ class Runtime:
 
         # ⑬ 从链恢复集状态（重启/回退后活跃态一致；链损坏回落基线）
         await self._restore_set_state(recipe)
+
+        # ⑬-a 工具向量索引构建（E2 工具注入瘦身）：全量工具 → 向量，
+        #     search_tools/request_tool 检索后端；失败降级关键词基线
+        self.tool_index = ToolVectorIndex(embedder=build_default_embedder())
+        self._rebuild_tool_index()
+
+        # ⑬-b 工具调配器接线（E2）：保底工具 priority 高 + 调用权重
+        self.tool_selector = ToolSelector(max_tools=12)
 
         # ⑭ apply 目标注册（补丁落链后的活跃态生效钩子；配方工厂注入）
         for kind, factory in recipe.apply_targets.items():
@@ -759,12 +784,28 @@ class Runtime:
 
     # ── 装配产物访问器 ──
 
-    def collect_specs(self) -> list[ToolSpec]:
-        """工具清单汇总（内省 + 自指 + 动态工具），供内省快照与回合装配。"""
+    def merged_specs(self) -> list[ToolSpec]:
+        """全量工具清单（内省 + 自指 + 动态），供工具索引构建与内省快照。
+
+        与 collect_specs 分工：collect_specs 只返回保底 8+2 常驻集（进
+        tools 参数），merged_specs 返回全部（检索/内省用）。
+        """
         return [
             *self.introspection_specs,
             *self.self_specs,
             *self.tool_registry.values(),
+        ]
+
+    def collect_specs(self) -> list[ToolSpec]:
+        """工具清单汇总（保底 8+2 常驻集），供回合装配 tools 参数。
+
+        终稿注入策略：常驻 ≤12 个完整 schema（保底 8 + 自指 2），其余工具
+        不再全量进 tools 参数——模型经 search_tools 检索、request_tool
+        绑定后注入下一轮。
+        """
+        return [
+            spec for spec in self.merged_specs()
+            if spec.name in BASELINE_TOOL_NAMES
         ]
 
     async def rebuild_engine(self, llm: AsyncLLM | None = None) -> Engine:
@@ -842,7 +883,32 @@ class Runtime:
             knowledge_set=self.knowledge_set,
             convergence=convergence,
             interrupt_policy=self._host_policy,
+            tool_index=self.tool_index,
         )
+
+    def _rebuild_tool_index(self) -> None:
+        """重建工具向量索引（全量 merged_specs → 向量）。"""
+        if self.tool_index is None:
+            return
+        self.tool_index.build(self.merged_specs(), endpoints=self._tool_endpoints())
+
+    def refresh_tool_index(self, specs: list[ToolSpec] | None = None) -> None:
+        """增量刷新工具索引（工具增改 / MCP 挂载 hook 调用）。"""
+        if self.tool_index is None:
+            return
+        target = specs if specs is not None else self.merged_specs()
+        self.tool_index.refresh(target, endpoints=self._tool_endpoints())
+
+    def _tool_endpoints(self) -> dict[str, str]:
+        """工具端点类型映射（供索引元数据标注）。"""
+        endpoints: dict[str, str] = {}
+        for spec in self.introspection_specs:
+            endpoints[spec.name] = "introspection"
+        for spec in self.self_specs:
+            endpoints[spec.name] = "self"
+        for name in self.tool_registry:
+            endpoints[name] = "declarative"
+        return endpoints
 
     def _assembly_sources(self) -> Callable[..., Any]:
         """调配器源提供者：检索结果 + 知识注入 → 装配源（回合内节点预装配消费）。

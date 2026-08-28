@@ -710,20 +710,14 @@ impl SystemBackend for ShellBackend {
         // 定时任务升级：到点自动建任务对象并触发例行回合。
         // 计时在子线程进行，到点后登记例行任务域对象并经既有引擎回合通道
         // 拉起一轮执行；失败仅留观测日志，不阻断调度。
-        let job_id = format!(
-            "job-{}",
-            std::time::SystemTime::now()
-                .duration_since(std::time::UNIX_EPOCH)
-                .map(|d| d.as_millis())
-                .unwrap_or(0)
-        );
+        let task_id = format!("routine-task-{}", uuid::Uuid::new_v4().simple());
         let app = self.app.clone();
         let action = action.to_string();
+        let scheduled_task_id = task_id.clone();
         std::thread::spawn(move || {
             std::thread::sleep(std::time::Duration::from_secs(seconds));
-            let task_id = format!("routine-task-{}", uuid::Uuid::new_v4().simple());
             if let Err(err) = crate::domain::tasks::registry().start_tracked(
-                &task_id,
+                &scheduled_task_id,
                 "routine",
                 &action,
                 None,
@@ -734,15 +728,15 @@ impl SystemBackend for ShellBackend {
             }
             match crate::run_routine_round(&app, &action) {
                 Ok(_) => {
-                    let _ = crate::domain::tasks::registry().finish_signal(&task_id, "例行回合已触发");
+                    let _ = crate::domain::tasks::registry().finish_signal(&scheduled_task_id, "例行回合已触发");
                 }
                 Err(err) => {
                     eprintln!("[schedule] 例行回合触发失败: {err}");
-                    let _ = crate::domain::tasks::registry().fail_signal(&task_id, &err);
+                    let _ = crate::domain::tasks::registry().fail_signal(&scheduled_task_id, &err);
                 }
             }
         });
-        Ok(job_id)
+        Ok(task_id)
     }
 
     fn screen_query(&self, target: &str) -> Result<String, String> {
@@ -815,7 +809,7 @@ impl SystemBackend for MockBackend {
 
     fn schedule(&self, seconds: u64, action: &str) -> Result<String, String> {
         self.calls.lock().unwrap().push(format!("schedule:{seconds}:{action}"));
-        Ok("mock:job-1".into())
+        Ok(format!("routine-task-mock-{seconds}"))
     }
 
     fn screen_query(&self, target: &str) -> Result<String, String> {

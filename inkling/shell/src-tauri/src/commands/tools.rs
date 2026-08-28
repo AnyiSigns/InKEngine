@@ -52,3 +52,19 @@ pub(crate) fn components_manifest(app: AppHandle) -> JsonValue {
         json!({ "artifacts": [] })
     }
 }
+
+/// 写入组件构建产物清单（挂载/构建完成后更新；白名单拒绝语义保持）。
+#[tauri::command]
+pub(crate) fn components_manifest_put(
+    app: AppHandle,
+    artifacts: JsonValue,
+) -> Result<JsonValue, crate::commands::error::CommandError> {
+    let dir = app_data_dir(&app)?;
+    let components_dir = dir.join("components");
+    std::fs::create_dir_all(&components_dir).map_err(crate::commands::error::CommandError::io)?;
+    let manifest_path = components_dir.join(COMPONENT_MANIFEST_FILE);
+    let text =
+        serde_json::to_string_pretty(&artifacts).map_err(crate::commands::error::CommandError::internal)?;
+    std::fs::write(&manifest_path, text).map_err(crate::commands::error::CommandError::io)?;
+    Ok(artifacts)
+}

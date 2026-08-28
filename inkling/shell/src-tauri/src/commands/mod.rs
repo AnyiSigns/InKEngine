@@ -14,6 +14,7 @@ pub mod models;
 pub mod offline;
 pub mod process;
 pub mod rounds;
+pub mod search;
 pub mod sessions;
 pub mod tasks;
 pub mod tools;

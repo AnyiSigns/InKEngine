@@ -1,12 +1,13 @@
 # 构建加速（4C8G 低配机器）：
 # - jobs=4 限制并行编译进程数防内存打爆。
-# - target-dir 指向主仓库共享构建目录（绝对路径）：所有 worktree/会话复用同一份
-#   依赖编译产物，避免每个会话重复编译整个 tauri 栈（各会话对共享目录由 cargo
-#   文件锁串行化，4C8G 下串行编译比并行 OOM 更稳）。
+# 共享 target-dir 属本地机器优化，不入库：本地需要时用环境变量
+# CARGO_TARGET_DIR 指向主仓库共享构建目录（绝对路径），所有 worktree/
+# 会话复用同一份依赖编译产物；直接写进本文件会把 Windows 盘符路径
+# （如 C:/Users/...）带入 Linux CI，导致 cargo join_paths 构建
+# LD_LIBRARY_PATH 时因冒号分隔符解析失败。
 # 各 crate 自身的 .cargo/config.toml（PYO3_PYTHON 等 env）与本节配置由 cargo 自动合并。
 [build]
 jobs = 4
-target-dir = "C:/Users/Anyi/Documents/PycharmProjects/InkEngine/inkling/shell/src-tauri/target"
 
 # 清除宿主环境残留的 RUSTC_WRAPPER=sccache：sccache 0.17 daemon 在并行编译
 # proc-macro crate 时必失败（4C8G 上连续 4 次构建验证），已弃用。

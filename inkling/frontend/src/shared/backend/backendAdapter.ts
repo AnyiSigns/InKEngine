@@ -125,7 +125,7 @@ export interface ModelProfile {
 }
 
 /** 模型档案快照（仪表/选择控件数据源）。 */
-export interface ModelsSnapshot {
+export interface ModelArchiveSnapshot {
   profiles: ModelProfile[];
 }
 
@@ -249,7 +249,7 @@ export interface BackendAdapter {
   componentsManifest(): Promise<{ artifacts: ArtifactManifestEntry[] }>;
   knowledgeGraph(): Promise<KnowledgeGraphResult>;
   // 可观测数据面（仪表 / 模型选择器数据源）
-  modelsSnapshot(): Promise<ModelsSnapshot>;
+  modelArchiveSnapshot(): Promise<ModelArchiveSnapshot>;
   metricsSnapshot(): Promise<TurnMetricsSnapshot>;
   assembleStats(): Promise<AssembleStats>;
   // 干预 op（前端契约；壳侧落地由另一道负责）
@@ -301,15 +301,15 @@ export function createUnavailableBackend(): BackendAdapter {
     toolsSnapshot: unavailable as never,
     componentsManifest: unavailable as never,
     knowledgeGraph: unavailable as never,
-    modelsSnapshot: unavailable as never,
+    rebuildCache: unavailable as never,
+    restoreEdgeTier: unavailable as never,
+    modelArchiveSnapshot: unavailable as never,
     metricsSnapshot: unavailable as never,
     assembleStats: unavailable as never,
     chooseCandidate: unavailable as never,
     setMultipath: unavailable as never,
     invalidateCache: unavailable as never,
     downgradeEdgeTier: unavailable as never,
-    rebuildCache: unavailable as never,
-    restoreEdgeTier: unavailable as never,
     materialScan: unavailable as never,
     materialIngest: unavailable as never,
   };
@@ -365,16 +365,16 @@ export function createTauriBackend(invoker?: TauriInvoker): BackendAdapter {
     recoveryFactoryReset: () => call('recovery_factory_reset'),
     toolsSnapshot: () => call('tools_snapshot'),
     componentsManifest: () => call('components_manifest'),
-    knowledgeGraph: () => call('knowledge_graph'),
-    modelsSnapshot: () => call('models_snapshot'),
+    modelArchiveSnapshot: () => call('model_archive_snapshot'),
     metricsSnapshot: () => call('metrics_snapshot'),
     assembleStats: () => call('assemble_stats'),
     chooseCandidate: (candidateId) => call('path_choose_candidate', { candidateId }),
     setMultipath: (enabled) => call('path_set_multipath', { enabled }),
     invalidateCache: (scope) => call('cache_invalidate', { scope }),
     downgradeEdgeTier: (edgeId) => call('edge_downgrade_tier', { edgeId }),
-    rebuildCache: (scope) => call('cache_rebuild', { scope }),
-    restoreEdgeTier: (edgeId) => call('edge_restore_tier', { edgeId }),
+    rebuildCache: () => Promise.reject(new Error('ENGINE_OP_UNREGISTERED: cache_rebuild 后端未实现')),
+    restoreEdgeTier: () => Promise.reject(new Error('ENGINE_OP_UNREGISTERED: edge_restore_tier 后端未实现')),
+    knowledgeGraph: () => Promise.reject(new Error('ENGINE_OP_UNREGISTERED: knowledge_graph 后端未实现')),
     materialScan: (path, recursive) => call('material_import', { path, recursive, ingest: false }),
     materialIngest: (path, recursive) => call('material_import', { path, recursive, ingest: true }),
   };

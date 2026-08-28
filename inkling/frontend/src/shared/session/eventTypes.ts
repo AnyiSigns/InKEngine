@@ -8,6 +8,7 @@
 
 export const EVENT_TYPE_NAMES = [
   // 回合基础
+  'user_message',
   'reply_token',
   'thinking_start',
   'thinking_end',
@@ -25,6 +26,10 @@ export const EVENT_TYPE_NAMES = [
   'simulate_decision',
   'branch_result',
   'swap_branch',
+  // 路径组装/节点追踪
+  'assembly_candidate',
+  'junction_verdict',
+  'node_start',
   // 孵化/进化
   'signal_detected',
   'distill_outcome',
@@ -61,6 +66,7 @@ export interface EventTypeSpec {
 }
 
 export const EVENT_TYPE_SPECS: EventTypeSpec[] = [
+  { name: 'user_message', description: '用户消息', bindable: true },
   { name: 'reply_token', description: '流式回复 token', bindable: true },
   { name: 'thinking_start', description: '思考开始', bindable: true },
   { name: 'thinking_end', description: '思考结束', bindable: true },
@@ -77,6 +83,9 @@ export const EVENT_TYPE_SPECS: EventTypeSpec[] = [
   { name: 'simulate_decision', description: '决策点推演开始', bindable: true },
   { name: 'branch_result', description: '分支评分结果', bindable: true },
   { name: 'swap_branch', description: '换选分支', bindable: true },
+  { name: 'assembly_candidate', description: '组装候选留痕（路径/边证据视图）', bindable: true },
+  { name: 'junction_verdict', description: '汇流裁决留痕', bindable: true },
+  { name: 'node_start', description: '节点执行开始（架构实例追踪）', bindable: true },
   { name: 'signal_detected', description: '孵化信号检测', bindable: true },
   { name: 'distill_outcome', description: '蒸馏产物', bindable: true },
   { name: 'gate_verdict', description: '闸门判定（放行/拦截）', bindable: true },

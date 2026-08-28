@@ -290,6 +290,16 @@ class MemoryStorage:
     async def list_records(self, collection: str) -> list[dict]:
         return [copy.deepcopy(r) for r in self._records.get(collection, {}).values()]
 
+    async def delete_collection(self, collection: str) -> int:
+        """删除集合全部记录，返回删除条数（集合不存在 = 0）。"""
+        async with self._lock:
+            store = self._records.get(collection)
+            if not store:
+                return 0
+            count = len(store)
+            del self._records[collection]
+            return count
+
     # ── 全量快照（序列化往返：与 checkpoint/records 的 JSON 契约同口径）──
     @property
     def snapshot_capable(self) -> bool:

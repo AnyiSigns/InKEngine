@@ -342,3 +342,61 @@ class TestCacheWrapsModelChain:
         await cached.ainvoke([user("q")])
         await cached.ainvoke([user("q")])
         assert made[0].ainvoke_calls == 1  # 缓存命中 → 链不再进模型
+
+
+class TestCacheStatsAndClear:
+    async def test_stats_counts_hits_and_misses(self):
+        storage = create_storage("memory://")
+        cached, inner = make_cached(storage)
+        messages = [user("q")]
+        # 1 miss（落库）+ 1 hit
+        await cached.ainvoke(messages)
+        await cached.ainvoke(messages)
+        assert inner.ainvoke_calls == 1
+        stats = await cached.stats()
+        assert stats["entries"] == 1
+        assert stats["hits"] == 1
+        assert stats["misses"] == 1
+        assert stats["hit_rate"] == 0.5
+
+    async def test_stats_zero_rate_without_calls(self):
+        cached, _inner = make_cached(create_storage("memory://"))
+        stats = await cached.stats()
+        assert stats["hits"] == 0
+        assert stats["misses"] == 0
+        assert stats["hit_rate"] == 0.0
+
+    async def test_stats_without_storage(self):
+        cached, inner = make_cached(None)
+        await cached.ainvoke([user("q")])
+        await cached.ainvoke([user("q")])
+        # 无存储：条目量 0，计数仍累计（passthrough 也算 miss）
+        stats = await cached.stats()
+        assert stats["entries"] == 0
+        assert stats["misses"] == 2
+
+    async def test_clear_removes_records_and_resets_counters(self):
+        storage = create_storage("memory://")
+        cached, inner = make_cached(storage)
+        await cached.ainvoke([user("q")])
+        await cached.ainvoke([user("q")])
+        cleared = await cached.clear()
+        assert cleared == 1
+        # 清后仍可命中计数归零
+        stats = await cached.stats()
+        assert stats["entries"] == 0
+        assert stats["hits"] == 0
+        assert stats["misses"] == 0
+        # 记录已删：下一轮重新落库（前两次仅内层调用 1 次，清空后第 3 次
+        # ainvoke 重新 miss → 内层累计 2 次）
+        await cached.ainvoke([user("q")])
+        assert len(await storage.list_records(CACHE_COLLECTION)) == 1
+        assert inner.ainvoke_calls == 2
+
+    async def test_clear_without_storage_resets_only(self):
+        cached, inner = make_cached(None)
+        await cached.ainvoke([user("q")])
+        cleared = await cached.clear()
+        assert cleared == 0
+        stats = await cached.stats()
+        assert stats["misses"] == 0

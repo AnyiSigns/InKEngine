@@ -509,6 +509,20 @@ class PostgresStorage:
             raise StorageError(f"postgres records 列出失败: {exc}") from exc
         return [_decode_jsonb(r["data"]) for r in rows]
 
+    async def delete_collection(self, collection: str) -> int:
+        """删除集合全部记录，返回删除条数（集合空 = 0，不报错）。"""
+        await self._connect()
+        try:
+            async with self._pool.acquire() as conn:
+                result = await conn.execute(
+                    "DELETE FROM records WHERE collection = $1", collection
+                )
+                # asyncpg execute 返回 "DELETE <n>" 形态命令标签
+                count = int((result or "0").split()[-1] or 0)
+                return count
+        except Exception as exc:
+            raise StorageError(f"postgres records 删除失败: {exc}") from exc
+
     # ── 全量快照（显式不支持：服务器级备份归 pg_dump/归档基础设施）──
     @property
     def snapshot_capable(self) -> bool:

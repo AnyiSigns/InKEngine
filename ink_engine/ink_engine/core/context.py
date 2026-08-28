@@ -592,11 +592,52 @@ class CompressionPolicy(Protocol):
         ...
 
 
+# ── 上下文压缩阈值动态化（E10：按模型档案 context_window 推算）────────────
+# 压缩触发阈值 = 上下文窗口占比（避免短窗口模型被长历史撑爆、长窗口模型
+# 过早压缩）；档案未知回退硬底线（仅 cw 与档位均未知时生效）。
+COMPRESSION_CONTEXT_WINDOW_RATIO = 0.8
+COMPRESSION_MIN_CHARS_FLOOR = 40000
+# 档位缺省上下文窗口（main/router 来自 model_archive.rs 出厂常量；档案
+# 缺失时按档位取缺省再推算，保证阈值有界）。
+DEFAULT_TIER_CONTEXT_WINDOW: dict[str, int] = {
+    "main": 128 * 1024,
+    "router": 32 * 1024,
+}
+
+
+def resolve_compression_min_chars(
+    context_window: int | None = None,
+    tier: str | None = None,
+) -> int:
+    """压缩字符阈值（按 context_window 动态推算）。
+
+    - 已知 context_window：取 ``int(0.8 * cw)``（128k→102k、32k→26k）；
+    - cw 未知但档位已知：按档位缺省 cw 推算（main/router）；
+    - 两者均未知：回落硬底线 40000（极端兜底，不按窗口比例）。
+    """
+    if context_window and context_window > 0:
+        return int(context_window * COMPRESSION_CONTEXT_WINDOW_RATIO)
+    if tier:
+        cw = DEFAULT_TIER_CONTEXT_WINDOW.get(tier, DEFAULT_TIER_CONTEXT_WINDOW["main"])
+        return int(cw * COMPRESSION_CONTEXT_WINDOW_RATIO)
+    return COMPRESSION_MIN_CHARS_FLOOR
+
+
+def infer_compression_tier(model_id: str | None) -> str:
+    """模型 id → 档位（含 ``router`` 关键词判路由档，其余归 main）。"""
+    if model_id and "router" in str(model_id).lower():
+        return "router"
+    return "main"
+
+
 class ThresholdCompressionPolicy:
     """默认压缩策略：消息量与字符量双阈值触发（确定性，可断言）。
 
     策略语义：两者都达到阈值才触发（短消息多轮不压、长消息少量不压），
     预算固定返回配置值；阈值与预算均为构造参数（宿主按场景注入）。
+
+    ``from_context_window`` 类方法按模型档案 ``context_window`` 动态推算
+    字符阈值（E10），使压缩阈值随模型窗口自适应。
     """
 
     def __init__(
@@ -611,6 +652,23 @@ class ThresholdCompressionPolicy:
         self.min_messages = min_messages
         self.min_chars = min_chars
         self._budget_chars = budget_chars
+
+    @classmethod
+    def from_context_window(
+        cls,
+        context_window: int | None = None,
+        *,
+        tier: str | None = None,
+        min_messages: int = 30,
+        budget_chars: int = 8000,
+    ) -> ThresholdCompressionPolicy:
+        """按上下文窗口动态构建（字符阈值 = 0.8 * cw，未知回落硬底线）。"""
+        min_chars = resolve_compression_min_chars(context_window, tier)
+        return cls(
+            min_messages=min_messages,
+            min_chars=min_chars,
+            budget_chars=budget_chars,
+        )
 
     def should_compress(self, state: dict) -> bool:
         messages = state.get("messages") or []
@@ -840,10 +898,13 @@ def archive_digest(
 
 
 __all__ = [
+    "COMPRESSION_CONTEXT_WINDOW_RATIO",
+    "COMPRESSION_MIN_CHARS_FLOOR",
     "DEFAULT_BUDGET_CHARS",
     "DEFAULT_DIGEST_MAX_CHARS",
     "DEFAULT_MAX_TOOL_ROUNDS",
     "DEFAULT_RELEVANCE",
+    "DEFAULT_TIER_CONTEXT_WINDOW",
     "KEEP_FULL_THRESHOLD",
     "MIN_TRUNCATE_CHARS",
     "MODE_DROP",
@@ -867,7 +928,9 @@ __all__ = [
     "archive_digest",
     "build_domain_window",
     "compress_message_history",
+    "infer_compression_tier",
     "iter_tool_rounds",
     "last_body_message",
     "message_text",
+    "resolve_compression_min_chars",
 ]

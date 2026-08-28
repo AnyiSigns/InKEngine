@@ -407,11 +407,21 @@ impl EngineHost {
                 host_kwargs.set_item("storage_uri", &storage_uri)?;
                 host_kwargs.set_item("transport", transport.clone_ref(py))?;
 
-                // 模型接线：环境变量显式配置（INK_LLM_BASE_URL + INK_LLM_MODEL，
-                // 与 inkling_host.host._model_config_from_env 同口径）时跳过离线
-                // 桩注入——make_host 的 resolve_llm 回落环境配置装配真实模型
-                // （headless 真实模型驱动入口；桌面壳经设置页注入路径不受影响）。
-                // 未配置环境 = 离线模型桩（脚本匹配；缺省回复兜底）。
+                // 模型接线注入优先序（壳侧 → 桥侧 → 引擎 resolve_llm）：
+                //
+                // 1. INK_LLM_BASE_URL + INK_LLM_MODEL 环境变量同时非空：
+                //    壳侧跳过 StubLLM 注入，make_host 的 resolve_llm 回落
+                //    _model_config_from_env → create_llm 装配真实模型（headless
+                //    真实模型驱动入口；桌面壳经设置页注入路径不受影响）。
+                //    可选 INK_LLM_API_KEY / INK_LLM_ADAPTER 补齐配置。
+                //
+                // 2. 环境变量缺配置：注入 StubLLM 离线桩（脚本匹配 + 缺省回复兜底），
+                //    桥侧宿主 _llm 保持非空；resolve_llm 直接返回桩实例。
+                //
+                // 3. 未来可叠加 model_connection.json 回落（S3 产物）：环境变量
+                //    仍优先，文件配置作为 headless 无 env 场景的二次回落。
+                //
+                // 优先级：环境变量 > 文件配置 > StubLLM（降级兜底）。
                 let live_model_from_env = std::env::var("INK_LLM_BASE_URL")
                     .map(|v| !v.trim().is_empty())
                     .unwrap_or(false)
@@ -812,6 +822,51 @@ mod tests {
         host.stop().expect("关停失败");
         std::env::remove_var("INK_LLM_BASE_URL");
         std::env::remove_var("INK_LLM_MODEL");
+    }
+
+    #[test]
+    fn boot_stub_llm_injected_when_no_env() {
+        // 未配置 INK_LLM_* 环境变量：装配应注入 StubLLM 离线桩，
+        // 桥侧宿主 _llm 非空（resolve_llm 直接返回桩实例）。
+        let _serial = bridge_guard();
+        let options = BootOptions {
+            repo_root: repo_root(),
+            ..BootOptions::default()
+        };
+        let host = EngineHost::boot(options).expect("装配失败");
+
+        let has_stub = Python::attach(|py| -> PyResult<bool> {
+            let bridge = py.import("inkling_bridge")?;
+            let host_obj = bridge.call_method0("host_handle")?;
+            Ok(host_obj.getattr("_llm").is_some())
+        })
+        .expect("桥侧断言失败");
+        assert!(has_stub, "无 env 模型路径应注入 StubLLM");
+        host.stop().expect("关停失败");
+    }
+
+    #[test]
+    fn boot_env_partial_not_enough() {
+        // 仅设置 INK_LLM_BASE_URL 或 INK_LLM_MODEL 之一：不满足 live_model_from_env
+        // 条件，应回落 StubLLM 注入（两者必须同时非空才跳过桩）。
+        let _serial = bridge_guard();
+        std::env::set_var("INK_LLM_BASE_URL", "http://127.0.0.1:9/v1");
+        std::env::remove_var("INK_LLM_MODEL");
+        let options = BootOptions {
+            repo_root: repo_root(),
+            ..BootOptions::default()
+        };
+        let host = EngineHost::boot(options).expect("装配失败");
+
+        let has_stub = Python::attach(|py| -> PyResult<bool> {
+            let bridge = py.import("inkling_bridge")?;
+            let host_obj = bridge.call_method0("host_handle")?;
+            Ok(host_obj.getattr("_llm").is_some())
+        })
+        .expect("桥侧断言失败");
+        assert!(has_stub, "部分 env 配置应回落 StubLLM");
+        host.stop().expect("关停失败");
+        std::env::remove_var("INK_LLM_BASE_URL");
     }
 
     #[test]

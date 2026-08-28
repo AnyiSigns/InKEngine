@@ -107,17 +107,18 @@ async fn wire_security(bundle: &recipe::SeedDataBundle) -> Result<(), String> {
 ///
 /// Python 宿主执行体经 JSON 回调桥调用本回调；搜索实现 = 壳侧域
 /// （本地聚合源默认 / 用户自配厂商 key 降级），回调按调用参数执行
-/// 并返回结构化结果 JSON。key 缺省 = 本地聚合源（免费无 key）。
-async fn wire_web_search() -> Result<(), String> {
+/// 并返回结构化结果 JSON。key 优先级：环境变量（INK_SEARCH_KEY）>
+/// 设置档（search_keys.json）> 本地聚合源。
+async fn wire_web_search(data_dir: std::path::PathBuf) -> Result<(), String> {
     crate::engine::bridge::register_callback(
         "host.web_search",
-        Box::new(|payload: String| -> PyResult<String> {
+        Box::new(move |payload: String| -> PyResult<String> {
             let args: JsonValue = serde_json::from_str(&payload)
                 .map_err(|err| pyo3::exceptions::PyValueError::new_err(err.to_string()))?;
             let keys = args
                 .get("keys")
-                .map(super::web_search::parse_search_keys)
-                .unwrap_or_default();
+                .map(super::web_search::parse_search_keys);
+            let keys = keys.unwrap_or_else(|| super::web_search::read_search_keys(&data_dir));
             let rt = tokio::runtime::Builder::new_current_thread()
                 .enable_all()
                 .build()
@@ -639,11 +640,11 @@ pub async fn assemble_runtime(options: &BootOptions) -> Result<AssemblyReport, S
     let bundle = load_seed(options)?;
     let host = boot_host(options)?;
     wire_security(&bundle).await?;
-    wire_web_search().await?;
     wire_live_targets().await?;
 
     // 运行数据目录（envs/artifacts 落盘根）：注入优先，缺省进程级临时目录
     let data_dir = options.data_dir.clone().unwrap_or_else(std::env::temp_dir);
+    wire_web_search(data_dir.clone()).await?;
     let build_domain = build::BuildDomain::new(bundle.file("build.json"), data_dir.join("artifacts"))
         .map_err(|err| fail("构建域装载", err.to_string()))?;
     let env_domain = env::EnvironmentDomain::new(
@@ -700,7 +701,8 @@ pub async fn wiring_probe(options: &BootOptions) -> Result<Vec<String>, String> 
     }
 
     probe_line(&mut lines, "安全域接线", wire_security(&bundle).await.map(|_| ()));
-    probe_line(&mut lines, "联网搜索回调注册", wire_web_search().await.map(|_| ()));
+    let data_dir = options.data_dir.clone().unwrap_or_else(std::env::temp_dir);
+    probe_line(&mut lines, "联网搜索回调注册", wire_web_search(data_dir.clone()).await.map(|_| ()));
     probe_line(&mut lines, "活跃态目标注册", wire_live_targets().await);
     let assembled = match assemble_chain().await {
         Ok(value) => {
@@ -713,7 +715,6 @@ pub async fn wiring_probe(options: &BootOptions) -> Result<Vec<String>, String> 
         }
     };
 
-    let data_dir = options.data_dir.clone().unwrap_or_else(std::env::temp_dir);
     let build_domain = match build::BuildDomain::new(bundle.file("build.json"), data_dir.join("artifacts"))
     {
         Ok(domain) => {

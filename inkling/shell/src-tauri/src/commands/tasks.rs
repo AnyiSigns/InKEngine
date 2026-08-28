@@ -118,3 +118,26 @@ pub(crate) async fn task_resume(
     )
     .await
 }
+
+/// 定时任务清单（仅 kind=routine 的任务；供设置页计划任务视图消费）。
+#[tauri::command]
+pub(crate) fn schedule_list() -> JsonValue {
+    let metas = crate::domain::tasks::registry()
+        .list()
+        .into_iter()
+        .filter(|m| m.kind == "routine")
+        .collect::<Vec<_>>();
+    json!({ "schedules": metas })
+}
+
+/// 停止定时任务（按 task_id 取消 routine 任务；已终态 / 未知 id → 结构化错误）。
+#[tauri::command]
+pub(crate) fn schedule_stop(id: String) -> Result<JsonValue, CommandError> {
+    crate::domain::tasks::registry()
+        .cancel(
+            &id,
+            crate::domain::tasks::DEFAULT_CANCEL_REASON,
+        )
+        .map_err(CommandError::internal)?;
+    Ok(json!({ "task_id": id, "stopped": true }))
+}

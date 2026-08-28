@@ -574,6 +574,30 @@ impl ModelArchiveStore {
 /// 档案库文件名（放在数据目录下，随导出传入）。
 pub const MODEL_ARCHIVE_DB_NAME: &str = "model_archive.sqlite";
 
+/// 连接配置文件名（base_url / api_key 持久化；供下次探测 / 真实模型注入回落）。
+const MODEL_CONNECTION_FILE: &str = "model_connection.json";
+
+/// 读取模型连接配置（缺文件/解析失败回落空对象）。
+pub fn read_model_connection(data_dir: &Path) -> JsonValue {
+    let path = data_dir.join(MODEL_CONNECTION_FILE);
+    if let Ok(text) = std::fs::read_to_string(&path) {
+        if let Ok(value) = serde_json::from_str::<JsonValue>(&text) {
+            return value;
+        }
+    }
+    JsonValue::Object(Default::default())
+}
+
+/// 写入模型连接配置（覆盖写入）。
+pub fn write_model_connection(data_dir: &Path, config: &JsonValue) -> JsonValue {
+    let path = data_dir.join(MODEL_CONNECTION_FILE);
+    let _ = std::fs::create_dir_all(data_dir);
+    if let Ok(text) = serde_json::to_string_pretty(config) {
+        let _ = std::fs::write(&path, text);
+    }
+    config.clone()
+}
+
 #[cfg(test)]
 mod tests {
     use super::*;

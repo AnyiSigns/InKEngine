@@ -21,11 +21,19 @@ pub(crate) fn model_archive_snapshot(app: AppHandle) -> Result<JsonValue, Comman
     Ok(json!({ "ok": true, "archives": archives }))
 }
 
+/// 读取模型连接配置（上次探测保存的 base_url / api_key）。
+#[tauri::command]
+pub(crate) fn models_config_get(app: AppHandle) -> Result<JsonValue, CommandError> {
+    let data_dir = app_data_dir(&app)?;
+    Ok(crate::domain::model_archive::read_model_connection(&data_dir))
+}
+
 /// 触发模型清单探测与回写（连接配置保存/变更时调用）。
 ///
 /// 入参：`base_url`/`api_key`（连接配置）+ `models`（宣告模型列表
 /// `[{ "tier": "main"|"router", "model_id": "..." }]`，降级补录用）。
 /// 探测失败/非 JSON/缺字段 → 结构化降级（按档位缺省窗口回落），不崩溃。
+/// 连接配置探测成功后持久化供下次 / 真实模型注入回落使用。
 #[tauri::command]
 pub(crate) async fn models_refresh(app: AppHandle, config: JsonValue) -> Result<JsonValue, CommandError> {
     let base_url = config
@@ -68,12 +76,21 @@ pub(crate) async fn models_refresh(app: AppHandle, config: JsonValue) -> Result<
     )
     .await
     .map_err(CommandError::internal)?;
+    let saved = if report.mode == crate::domain::model_archive::RefreshMode::Success {
+        crate::domain::model_archive::write_model_connection(
+            &data_dir,
+            &json!({ "base_url": base_url, "api_key": api_key }),
+        )
+    } else {
+        json!({ "base_url": base_url, "api_key": api_key })
+    };
     Ok(json!({
         "ok": true,
         "mode": if report.mode == crate::domain::model_archive::RefreshMode::Success { "success" } else { "fallback" },
         "probed": report.probed,
         "stored": report.stored,
         "reason": report.reason,
+        "connection_saved": saved,
     }))
 }
 

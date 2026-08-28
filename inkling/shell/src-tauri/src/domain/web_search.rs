@@ -16,6 +16,7 @@
 //! 依赖纪律：本模块不直接调用其它域模块；网络策略数据（tools.json
 //! web_search 条目的 network_policy 白名单）由装配侧喂入。
 
+use std::path::Path;
 use std::time::Duration;
 
 use serde_json::Value as JsonValue;
@@ -131,6 +132,20 @@ pub fn parse_search_keys(config: &JsonValue) -> SearchKeys {
         parallel: key_of("parallel"),
         bocha: key_of("bocha"),
     }
+}
+
+/// 搜索 key 配置文件名（数据目录）。
+const SEARCH_KEYS_FILE: &str = "search_keys.json";
+
+/// 从设置档读取搜索 key（缺文件/解析失败回落空配置）。
+pub fn read_search_keys(data_dir: &Path) -> SearchKeys {
+    let path = data_dir.join(SEARCH_KEYS_FILE);
+    if let Ok(text) = std::fs::read_to_string(&path) {
+        if let Ok(value) = serde_json::from_str::<JsonValue>(&text) {
+            return parse_search_keys(&value);
+        }
+    }
+    SearchKeys::default()
 }
 
 /// 搜索源形态（本地聚合 / 厂商）。

@@ -73,9 +73,9 @@
           { "name": "task", "required": true, "kind": "string" }
         ]
       },
-      "renderer": "simulation_tree",
+      "renderer": "message_list",
       "system": false,
-      "meta": { "note": "子任务展开（__spawn__ 落点），推演轨迹树分支" }
+      "meta": { "note": "子任务展开（__spawn__ 落点），主会话轻量子代理卡（界面复审 R8：按事件语义覆盖分派，spawn→子代理卡；simulate_*→推演树）" }
     },
     {
       "name": "spawn_end",
@@ -86,9 +86,51 @@
           { "name": "spawn_id", "kind": "string" }
         ]
       },
-      "renderer": "simulation_tree",
+      "renderer": "message_list",
       "system": false,
-      "meta": { "note": "子任务实例结束（按实例 graph_path 归属回收）" }
+      "meta": { "note": "子任务实例结束（按实例 graph_path 归属回收），子代理卡实例行状态推进" }
+    },
+    {
+      "name": "assembly_candidate",
+      "schema": {
+        "name": "assembly_candidate",
+        "fields": [
+          { "name": "domain", "required": true, "kind": "string" },
+          { "name": "ts", "kind": "number" },
+          { "name": "fingerprint", "kind": "string" }
+        ]
+      },
+      "renderer": "path_dag",
+      "system": false,
+      "meta": { "note": "组装候选留痕（候选计划登记，只观察不执行；路径/边证据视图消费，旧前端 path_dag 已注册渲染器）" }
+    },
+    {
+      "name": "junction_verdict",
+      "schema": {
+        "name": "junction_verdict",
+        "fields": [
+          { "name": "domain", "required": true, "kind": "string" },
+          { "name": "winner", "kind": "string" },
+          { "name": "losers", "kind": "array" },
+          { "name": "ts", "kind": "number" }
+        ]
+      },
+      "renderer": "path_dag",
+      "system": false,
+      "meta": { "note": "汇流裁决留痕（胜者/败者/裁决理由；路径/边证据视图消费）" }
+    },
+    {
+      "name": "node_start",
+      "schema": {
+        "name": "node_start",
+        "fields": [
+          { "name": "node_id", "required": true, "kind": "string" },
+          { "name": "label", "kind": "string" }
+        ]
+      },
+      "renderer": "NodeRow",
+      "system": false,
+      "meta": { "note": "节点执行开始（架构视图实例 tab 节点执行态追踪，随 node_start/end 推进；boot 常量有/seed 补登记）" }
     },
     {
       "name": "tool_start",

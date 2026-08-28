@@ -708,11 +708,13 @@ async def boot_inkling(
     # 自举提示词（boot_prompt 定稿形态，注入侧产品数据入口）
     host.boot_prompt = bundle.data["boot_prompt.json"]
     # 评审-收敛管线（引擎 core.review 机制：review.json 数据驱动；
-    # 模型缺省 = 无评审 fail-open，不阻断主流程）；LLM 调用归因主挡位
+    # 模型缺省 = 无评审 fail-open，不阻断主流程）；治理类 LLM 调用归因
+    # audit 挡（W8.3：缺省回落 main 链；audit_config 未配 = 走主挡位链，
+    # 全缺 = 无评审 fail-open，中性分保留）
     host.review_pipeline = build_review_pipeline(
-        await host.resolve_llm(),
+        resolve_tier_chain(host.tier_chains, "audit"),
         bundle.data["review.json"],
-        tier="main",
+        tier="audit",
         on_llm_call=host.tier_stats.record,
     )
     revert_state["base_tools"] = bundle.data["tools.json"].get("tools") or ()

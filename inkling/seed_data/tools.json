@@ -1256,7 +1256,7 @@
           "operation": {
             "type": "string",
             "enum": [
-              "edit"
+              "write"
             ],
             "description": "文件操作（固定值；编辑属于写操作，与 file_ops 端点操作判定同源，调用方恒传）"
           },

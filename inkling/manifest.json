@@ -25,6 +25,8 @@
       "incubator_panel",
       "knowledge_row",
       "message_list",
+      "NodeRow",
+      "path_dag",
       "review_card",
       "session_list",
       "settings_form",

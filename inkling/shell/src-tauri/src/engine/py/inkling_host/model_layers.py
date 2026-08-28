@@ -1,15 +1,22 @@
-"""模型层装配：tiers.json 双挡位按挡位建链 + 缺省回退（设计文档第六节模块 M3）。
+"""模型层装配：tiers.json 挡位声明按挡位建链 + 缺省回退（设计文档第六节模块 M3）。
 
 引擎机制（core.tiers）：tier_key 未知挡位回落 main；resolve_tier_config
 缺挡位配置回落 main_config；build_tier_chain 复用重试/备用链。
 本模块把 tiers.json（挡位声明 + 缺省回退语义）与宿主注入的实际模型
-连接配置（base_url/模型/密钥引用归宿主职责）装配成双挡位链。
+连接配置（base_url/模型/密钥引用归宿主职责）装配成挡位链（main/
+router/audit 三挡；audit 为治理类挡位——评审收敛/L3 终审/vetting
+影子观察，缺省回落 main 链）。
 """
 from __future__ import annotations
 
 from typing import Any
 
-from ink_engine.core.tiers import TierCallStats, build_tier_chain, tier_key
+from ink_engine.core.tiers import (
+    TierCallStats,
+    build_tier_chain,
+    set_tier_names,
+    tier_key,
+)
 
 # 缺省回退挡位（tiers.json fallback.unknown_tier_falls_to 的引擎常量映射）
 _DEFAULT_TIER = "main"
@@ -27,9 +34,16 @@ def build_tier_chains(
     宿主注入的 model_config 含实际连接配置（挡位键形态与引擎
     resolve_tier_config 对齐：``<tier>_config`` + ``<tier>_fallback_configs``）；
     未配置的挡位返回 None——调用方按缺省回退取主挡位链。
+
+    装配注入（W8.1 挡位枚举数据化）：建链前把声明清单注入引擎
+    ``set_tier_names``——tier_key/统计等引擎侧读取随数据声明生效
+    （非法声明显式拒绝；声明即权威，整组替换）。
     """
+    declared = tuple(tiers_data.get("tiers") or ())
+    if declared:
+        set_tier_names(declared)
     chains: dict[str, Any] = {}
-    for tier in tiers_data.get("tiers") or ():
+    for tier in declared:
         chains[tier] = build_tier_chain(
             model_config, tier, create=create, retry=retry
         )

@@ -1,5 +1,5 @@
 {
-  "tiers": ["main", "router"],
+  "tiers": ["main", "router", "audit"],
   "default_tier": "main",
   "model_config": {
     "main_config": {
@@ -9,11 +9,15 @@
     "router_config": {
       "purpose": "路由/蒸馏等轻量决策（省成本）；配置缺失回落 main_config",
       "requires_user_config": true
+    },
+    "audit_config": {
+      "purpose": "治理类 LLM 调用（评审收敛/L3 终审/vetting 影子观察）；配置缺失回落 main_config——治理是 best-effort 增强，无配置不阻断主流程",
+      "requires_user_config": true
     }
   },
   "fallback": {
     "unknown_tier_falls_to": "main",
     "missing_tier_config_falls_to": "main_config",
-    "note": "与引擎 tiers 语义对齐：tier_key 未知回落 main；resolve_tier_config 缺挡位配置回落 main_config；实际连接配置（base_url/模型/密钥引用）由宿主注入，归宿主职责"
+    "note": "与引擎 tiers 语义对齐：tier_key 未知回落 main；resolve_tier_config 缺挡位配置回落 main_config；实际连接配置（base_url/模型/密钥引用）由宿主注入，归宿主职责。audit 挡缺省 = 治理类调用回落主挡位链（fail-open 中性分保留）"
   }
 }

@@ -352,7 +352,9 @@ class IncubationDomain:
 
         review.json（pass_threshold/max_rounds/beam_width/neutral_score/
         dimensions）数据驱动；LLM 缺省/评审失败 = fail-open 中性分
-        （评审是 best-effort 增强，不阻断主流程）。
+        （评审是 best-effort 增强，不阻断主流程）。治理类调用归因
+        audit 挡（W8.3：review_pipeline+knowledge_domain main→audit；
+        缺省回落 main 链，fail-open 中性分保留）。
         """
         from .review_pipeline import converge_candidates
 
@@ -362,7 +364,7 @@ class IncubationDomain:
             candidates,
             dimensions=list(self.review_data.get("dimensions") or []),
             context=context,
-            tier="main",
+            tier="audit",
             on_llm_call=self._on_llm_call,
         )
 

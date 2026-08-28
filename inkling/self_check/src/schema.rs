@@ -193,9 +193,9 @@ fn expected_file_ops_enum(name: &str) -> &'static [&'static str] {
     match name {
         "file_read" => &["read"],
         "file_write" => &["write"],
-        // edit = 就地改写，一等操作域（与引擎 _ENDPOINT_ACTIONS 同源；
-        // 权限动作 filesystem:edit、沙箱守卫与审计独立区分）
-        "file_edit" => &["edit"],
+        // edit = 写操作域（与 tools.json 声明同源：描述固定值 write，编辑属于
+        // 写操作；执行体 write 分支按 old_text 回落编辑语义）
+        "file_edit" => &["write"],
         "grep" => &["search"],
         "glob" => &["search_paths"],
         _ => &[],

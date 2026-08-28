@@ -2078,6 +2078,22 @@ async def _cache_invalidate(args: dict) -> dict[str, Any]:
     return _jsonable({"ok": True, **result})
 
 
+@op_async("cache.stats")
+async def _cache_stats(args: dict) -> dict[str, Any]:
+    """LLM 缓存命中统计 op（穿透行为层/链定位 CachingLLM）。
+
+    未挂缓存（链路里无 CachingLLM）= available False，stats 为空；
+    挂了则返回 entries/hits/misses/hit_rate。
+    """
+    runtime = runtime_handle()
+    llm = getattr(runtime, "engine_llm", None)
+    caching = _find_caching_llm(llm)
+    if caching is None:
+        return _jsonable({"ok": True, "available": False, "stats": {}})
+    stats = await caching.stats()
+    return _jsonable({"ok": True, "available": True, "stats": stats})
+
+
 @op_async("edge.downgrade_tier")
 async def _edge_downgrade_tier(args: dict) -> dict[str, Any]:
     """信任档人工降级 op（档位更新 + 审计；降级前快照留痕可复原）。
@@ -2153,6 +2169,47 @@ def _as_float(value) -> float:
         return float(value)
     except (TypeError, ValueError):
         return 0.0
+
+
+@op_async("cache.clear")
+async def _cache_clear(args: dict) -> dict[str, Any]:
+    """LLM 缓存清空 op（穿透行为层/链定位 CachingLLM 并清空）。"""
+    runtime = runtime_handle()
+    llm = getattr(runtime, "engine_llm", None)
+    caching = _find_caching_llm(llm)
+    if caching is None:
+        return _jsonable({"ok": True, "available": False, "cleared": 0})
+    cleared = await caching.clear()
+    return _jsonable({"ok": True, "available": True, "cleared": int(cleared or 0)})
+
+
+def _find_caching_llm(llm: Any) -> Any:
+    """在 LLM 包装链里定位 CachingLLM（行为层/链包装下穿透）。
+
+    返回首个 CachingLLM 实例，找不到返回 None（未挂缓存 = 统计不可用）。
+    遍历 ``._inner``（BehaviorLLM/CachingLLM 等单包）与 ``._llms``
+    （ModelChain 多模型列表），防环用 id 记忆集。
+    """
+    from ink_engine.core.llm.cache import CachingLLM
+
+    if llm is None:
+        return None
+    seen: set[int] = set()
+    stack = [llm]
+    while stack:
+        node = stack.pop()
+        if node is None or id(node) in seen:
+            continue
+        seen.add(id(node))
+        if isinstance(node, CachingLLM):
+            return node
+        inner = getattr(node, "_inner", None)
+        if inner is not None:
+            stack.append(inner)
+        llms = getattr(node, "_llms", None)
+        if isinstance(llms, (list, tuple)):
+            stack.extend(llms)
+    return None
 
 
 async def _runtime_assembly_stats() -> dict[str, Any]:
@@ -2264,6 +2321,17 @@ async def _metrics_snapshot(args: dict) -> dict[str, Any]:
         over = (limit > 0) and (current > limit * 0.8)
         occupancy = {"current": current, "limit": limit, "over_threshold": over}
 
+    # LLM 缓存命中统计（E3：穿透行为层定位 CachingLLM，未挂 = 空）
+    caching_llm: dict[str, Any] = {}
+    try:
+        runtime = runtime_handle()
+        caching = _find_caching_llm(getattr(runtime, "engine_llm", None))
+        if caching is not None:
+            caching_llm = await caching.stats()
+    except Exception:
+        # 取缓存统计失败不影响指标快照（fail-open）
+        caching_llm = {}
+
     return _jsonable(
         {
             "ok": True,
@@ -2282,6 +2350,7 @@ async def _metrics_snapshot(args: dict) -> dict[str, Any]:
                 "invalidations": invalidations,
                 "replacements": replacements,
                 "hit_rate": hit_rate,
+                "caching_llm": caching_llm,
             },
             "edges": {
                 "count": len(costs),

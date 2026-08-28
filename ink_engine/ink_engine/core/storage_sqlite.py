@@ -512,6 +512,20 @@ class SqliteStorage:
             raise StorageError(f"sqlite records 列出失败: {exc}") from exc
         return [json.loads(r["data"]) for r in rows]
 
+    async def delete_collection(self, collection: str) -> int:
+        """删除集合全部记录，返回删除条数（集合空 = 0，不报错）。"""
+        await self._connect()
+        try:
+            cur = await self._conn.execute(
+                "DELETE FROM records WHERE collection = ?", (collection,)
+            )
+            deleted = cur.rowcount
+            await self._conn.commit()
+            await cur.close()
+            return int(deleted or 0)
+        except Exception as exc:
+            raise StorageError(f"sqlite records 删除失败: {exc}") from exc
+
     # ── 全量快照（sqlite backup API：目标库 = 源库一致副本）──
     async def snapshot(self, dest: str) -> None:
         """全量备份：把当前库复制到 dest 路径（打开目标连接作备份目标）。

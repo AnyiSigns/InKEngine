@@ -15,9 +15,9 @@
   记录 fingerprint/response/tier/created_at/patch_version 五字段），
   随集导出自然满足（导出 = 复制 records 集；无独立导出路径）；
 - **失效**：记录携带 ``patch_version``（外部版本提供者或本地失效代
-  际），读取时与当前版本比对，不一致 = 视为 miss（逻辑清空）——
-  Storage 协议无删除原语，依赖链演化的失效以版本比对实现（正确性
-  等价于清空，记录留库有界性由 TTL 出局兜底）；
+   际），读取时与当前版本比对，不一致 = 视为 miss（逻辑清空）；
+   ``clear()`` 经 Storage.delete_collection 物理删除落库记录并归零计数
+   （记录留库有界性仍由 TTL 出局兜底）；
 - **TTL**：默认 ``DEFAULT_CACHE_TTL``（24h，常量）；``clock`` 可注入
   （测试用假时钟，配 `ttl=0` 恒过期）；
 - **流式不缓存**：ainvoke 缓存命中复用上次完整结果；astream 直通
@@ -156,6 +156,9 @@ class CachingLLM(AsyncLLM):
         self._clock = clock
         # 本地失效代际：无外部版本提供者时作为记录的 patch_version 语义
         self._epoch = 0
+        # 命中率统计计数（进程内累计；stats() 导出、clear() 重置）
+        self._hits = 0
+        self._misses = 0
 
     # ── 失效与版本 ──
 
@@ -258,13 +261,57 @@ class CachingLLM(AsyncLLM):
         fingerprint = self._fingerprint(messages, tools, params)
         cached = await self._get_cached(fingerprint, patch_version)
         if cached is not None:
+            self._hits += 1
             logger.info(
                 "LLM 缓存命中: model=%s tier=%s", self._model_label, self._tier
             )
             return cached
+        self._misses += 1
         result = await self._inner.ainvoke(messages, tools=tools, params=params)
         await self._store(fingerprint, result, patch_version)
         return result
+
+    # ── 统计与清理（E3：命中率导出 + 缓存清空）──
+
+    async def stats(self) -> dict[str, Any]:
+        """缓存统计：条目量 + 命中/未命中计数 + 命中率。
+
+        条目量经存储后端实时读取（缺存储 = 0）；命中率 = hits/(hits+misses)
+        （无调用 = 0.0）。计数为进程内累计，与存储条目量口径不同（计数
+        含历史已失效记录，条目量仅当前有效）。
+        """
+        entries = 0
+        if self._storage is not None:
+            try:
+                records = await self._storage.list_records(CACHE_COLLECTION)
+                entries = len(records)
+            except Exception as exc:
+                logger.warning("LLM 缓存条目量读取失败: %s", exc)
+                entries = 0
+        denom = self._hits + self._misses
+        hit_rate = (self._hits / denom) if denom > 0 else 0.0
+        return {
+            "entries": entries,
+            "hits": self._hits,
+            "misses": self._misses,
+            "hit_rate": hit_rate,
+        }
+
+    async def clear(self) -> int:
+        """清空缓存：删除全部落库记录并重置命中计数，返回删除条数。
+
+        计数归零与记录清理一致（缓存语义整体清零）；无存储 = 仅计数归零、
+        返回 0。清库失败不阻断（留痕即可），计数仍归零。
+        """
+        count = 0
+        if self._storage is not None:
+            try:
+                count = await self._storage.delete_collection(CACHE_COLLECTION)
+            except Exception as exc:
+                logger.warning("LLM 缓存清空失败（计数仍归零）: %s", exc)
+        self._hits = 0
+        self._misses = 0
+        return int(count or 0)
 
     async def astream(
         self,

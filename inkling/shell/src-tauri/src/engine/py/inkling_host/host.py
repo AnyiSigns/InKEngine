@@ -29,6 +29,10 @@ from pathlib import Path
 from typing import Any
 
 from ink_engine.core.approval import DefaultInterruptPolicy, InterruptPolicy
+from ink_engine.core.context import (
+    ThresholdCompressionPolicy,
+    infer_compression_tier,
+)
 from ink_engine.core.declarative_tools import EndpointType
 from ink_engine.core.events import CollectorTransport, EngineEvent, EngineTransport
 from ink_engine.core.llm import AsyncLLM, create_llm
@@ -169,6 +173,7 @@ class InKlingHost(Host):
         timeout: float | None = APPROVAL_TIMEOUT_SECONDS,
         embedder: Any | None = None,
         behavior: str | None = None,
+        data_dir: Path | None = None,
     ) -> None:
         self._storage_uri = storage_uri
         self._llm = llm
@@ -176,6 +181,8 @@ class InKlingHost(Host):
         self._auto_approve_keys = auto_approve_keys
         self._timeout = timeout
         self._storage: Storage | None = None
+        # 运行数据目录（model_archive.sqlite 等落盘根；E10 读取 context_window）
+        self._data_dir = data_dir
         # 本地语义嵌入器（Rust 协议注入形态；None = 关键词基线检索）
         self._embedder = embedder
         # 行为准则层文本（装配期组成；None = 不注入——离线单元形态）
@@ -205,7 +212,8 @@ class InKlingHost(Host):
         """模型解析：注入实例优先，否则环境变量配置；缺配置返回 None。
 
         返回实例统一经行为准则层包装（BehaviorLLM）——行为块前置为
-        系统消息，覆盖全部宿主 LLM 调用路径。
+        系统消息，覆盖全部宿主 LLM 调用路径。解析完成后按模型档案
+        context_window 构建压缩策略（E10：阈值随窗口动态化）。
         """
         llm = self._llm
         if llm is None:
@@ -216,9 +224,19 @@ class InKlingHost(Host):
                 llm = create_llm(config)
             except Exception:
                 return None
-        if self._behavior is not None:
-            return BehaviorLLM(llm, self._behavior)
-        return llm
+        wrapped = BehaviorLLM(llm, self._behavior) if self._behavior is not None else llm
+        # E10：压缩阈值按 context_window 动态化（档案缺失回退硬底线）
+        model_id = getattr(getattr(llm, "config", None), "model_id", None)
+        context_window = _model_context_window_from_archive(self._data_dir, model_id)
+        tier = infer_compression_tier(model_id)
+        self._compression_policy = ThresholdCompressionPolicy.from_context_window(
+            context_window=context_window, tier=tier
+        )
+        return wrapped
+
+    def compression_policy(self) -> Any:
+        """当前压缩策略（E10：resolve_llm 后可用，未解析返回 None）。"""
+        return getattr(self, "_compression_policy", None)
 
     def interrupt_policy(self) -> InterruptPolicy:
         """审批策略（直过白名单 + 审批超时窗口；缺省走引擎默认超时）。"""
@@ -510,6 +528,7 @@ async def boot_inkling(
         storage_uri=storage_uri,
         embedder=embedder,
         behavior=behavior,
+        data_dir=data_dir,
     )
     # 池治理登记器挂到宿主（设置页/审计侧运行期入口；flag 关 = None）
     host.pool_governance = pool_governance
@@ -766,6 +785,36 @@ def _model_config_from_env() -> dict[str, str]:
     if api_key:
         config["api_key"] = api_key
     return config
+
+
+def _model_context_window_from_archive(
+    data_dir: Path | None, model_id: str | None
+) -> int | None:
+    """从模型档案库读取 context_window（E10 动态阈值数据源）。
+
+    data_dir 缺省 / model_id 空 / 档案库不存在 / 记录缺失 = 返回 None
+    （调用方回退硬底线或档位缺省）。只读不写，失败时静默回退。
+    """
+    if data_dir is None or not model_id:
+        return None
+    db_path = Path(data_dir) / "model_archive.sqlite"
+    if not db_path.exists():
+        return None
+    try:
+        import sqlite3
+
+        with sqlite3.connect(str(db_path)) as conn:
+            cur = conn.execute(
+                "SELECT context_window FROM model_archive WHERE model_id = ?",
+                (str(model_id),),
+            )
+            row = cur.fetchone()
+        if row and row[0]:
+            return int(row[0])
+    except Exception as exc:
+        logger.warning("模型档案 context_window 读取失败（回退）: %s", exc)
+        return None
+    return None
 
 
 def register_domain_tools(runtime: Runtime, bundle: SeedDataBundle) -> None:

@@ -1,10 +1,11 @@
 /**
- * 设置「应用能力」节：模型挡位（双挡）+ 推理强度档 per-挡 + 推演档位 + 搜索 key。
+ * 设置「应用能力」节：推理强度档 + 推演档位 + 搜索 key + 语音能力。
  *
  * 推理档按 reasoning_profile 声明渲染；param=null 的档位隐藏强度
  * 控制器并提示「该模型不支持推理强度调节」；推演档位三选
  * （关 / 轻探测 / 全量）；搜索 key 配置项（env INK_SEARCH_KEY 显式优先、
- * 设置档兜底）。
+ * 设置档兜底）。语音为 agent 能力扩展（mic/STT/TTS 状态 + 合成自检），
+ * 归本层而非用户独立设置。模型三档 id 归「模型」节，本节不重复配置。
  */
 
 import { useState } from 'react';
@@ -12,6 +13,7 @@ import { useState } from 'react';
 import { Button } from '@/shared/ui/Button';
 import { Field, Select, TextInput } from '@/shared/ui/Field';
 import { createTauriInvoker } from '@/shared/backend/tauriBridge';
+import { VoiceSection } from './voice_section';
 
 export type GearTier = 'router' | 'main' | 'audit';
 
@@ -72,37 +74,6 @@ export function CapabilitySection(): JSX.Element {
   return (
     <div className="space-y-4">
       <div className="ink-elevated space-y-3 px-3.5 py-3">
-        <div className="text-[11px] font-medium tracking-wide ink-text-muted">模型挡位</div>
-        {(['main', 'router', 'audit'] as GearTier[]).map((tier) => (
-          <div key={tier} className="flex items-center gap-3">
-            <span className="w-20 shrink-0 text-[11px] ink-text-muted">
-              {tier === 'main' ? '主模型' : tier === 'router' ? '制片人' : '审计'}
-            </span>
-            <TextInput
-              value={tier === 'main' ? value.mainModelId : tier === 'router' ? value.routerModelId : value.auditModelId}
-              onChange={(e) => {
-                if (tier === 'main') patch({ mainModelId: e.target.value });
-                else if (tier === 'router') patch({ routerModelId: e.target.value });
-                else patch({ auditModelId: e.target.value });
-              }}
-              placeholder="model_id"
-              className="flex-1"
-              aria-label={`${tier} 模型`}
-            />
-            <span className={[
-              'ink-chip text-[9px]',
-              tier === 'audit' ? 'ink-text-accent' : 'ink-text-faint',
-            ].join(' ')}>
-              {tier === 'audit' ? '审计' : tier === 'main' ? '主模型' : '制片人'}
-            </span>
-          </div>
-        ))}
-        <p className="text-[10px] leading-relaxed ink-text-faint">
-          双挡位分工：制片人决策 / 主模型 / 审计；某挡位留空时回落主模型。
-        </p>
-      </div>
-
-      <div className="ink-elevated space-y-3 px-3.5 py-3">
         <div className="text-[11px] font-medium tracking-wide ink-text-muted">推理强度档</div>
         <Field label="推理档" hint="per-挡位全局默认；输入行未选过时按此。">
           <Select
@@ -155,6 +126,11 @@ export function CapabilitySection(): JSX.Element {
             <option value="bocha">bocha</option>
           </Select>
         </Field>
+      </div>
+
+      <div className="ink-elevated space-y-3 px-3.5 py-3">
+        <div className="text-[11px] font-medium tracking-wide ink-text-muted">语音能力</div>
+        <VoiceSection />
       </div>
 
       <div className="flex items-center justify-end gap-2">

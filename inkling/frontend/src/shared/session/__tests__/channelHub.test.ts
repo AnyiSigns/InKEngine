@@ -5,6 +5,8 @@
 import { ChannelHub } from '@/shared/session/channelHub';
 import { ingestEvent } from '@/shared/session/eventIngest';
 import type { HubEvent } from '@/shared/session/channelHub';
+import { getUiStateStore } from '@/shared/ui/uiStateStore';
+import { DEV_MODE_KEY } from '@/shared/ui/devMode';
 
 function ev(type: HubEvent['type'], payload: Record<string, unknown> = {}): HubEvent {
   return { type, payload, at: Date.now() };
@@ -126,10 +128,18 @@ describe('事件落位（ingest）', () => {
     expect(hub.getSnapshot().patchChain[0]).toMatchObject({ status: 'reverted', revertReason: '链尾回退' });
   });
 
-  it('未登记事件类型折叠兜底不崩', () => {
+  it('未登记事件类型：普通模式不进消息流，开发者模式折叠兜底不崩', () => {
+    const store = getUiStateStore();
     const hub = new ChannelHub();
+    // 默认（非开发者模式）：诊断事件不泄露进消息流
+    store.set(DEV_MODE_KEY, false);
+    ingestEvent(hub, { type: 'unknown_future_event', payload: { x: 1 }, at: 0 } as never);
+    expect(hub.getSnapshot().messages.find((m) => m.kind === 'unknown')).toBeUndefined();
+    // 开发者模式：折叠兜底卡落位
+    store.set(DEV_MODE_KEY, true);
     ingestEvent(hub, { type: 'unknown_future_event', payload: { x: 1 }, at: 0 } as never);
     expect(hub.getSnapshot().messages.at(-1)).toMatchObject({ kind: 'unknown' });
+    store.set(DEV_MODE_KEY, false);
   });
 
   it('end 事件不建卡（静默）', () => {

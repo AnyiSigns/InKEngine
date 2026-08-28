@@ -23,6 +23,7 @@ import {
 } from '@/renderer/messageRendererRegistry';
 import type { HubEvent } from '@/shared/session/channelHub';
 import { logger } from '@/shared/logger';
+import { useDevMode } from '@/shared/ui/devMode';
 
 /** 事件渲染器键（W4.5）：end / node_start / evolution_variant + unknown 兜底。 */
 export const EVENT_RENDERER_KEYS = ['end', 'node_start', 'evolution_variant', 'unknown'] as const;
@@ -39,6 +40,7 @@ export interface EventRendererSpec {
 
 /** 回合结束事件渲染器（mini 内联状态气泡）。 */
 function EndEventRenderer({ event, form }: MessageRendererProps) {
+  const [devMode] = useDevMode();
   const payload = (event as HubEvent | undefined)?.payload ?? {};
   const reason = typeof payload.reason === 'string' ? payload.reason : '';
   const output = typeof payload.output === 'string' ? payload.output : '';
@@ -52,7 +54,7 @@ function EndEventRenderer({ event, form }: MessageRendererProps) {
           <span className="text-[12px] font-medium">回合结束</span>
         </div>
         {reason ? <div className="mt-1.5 text-[11px] leading-relaxed ink-text-muted">{reason}</div> : null}
-        {output ? (
+        {devMode && output ? (
           <div className="mt-1.5 rounded-md border ink-border bg-[var(--ink-bg-elevated)] p-2 font-mono text-[10px] ink-text-faint">
             {output.slice(0, 200)}
             {output.length > 200 ? '…' : null}
@@ -73,6 +75,7 @@ function EndEventRenderer({ event, form }: MessageRendererProps) {
 
 /** 节点启动事件渲染器（agent_graph 节点开始）。 */
 function NodeStartEventRenderer({ event, form }: MessageRendererProps) {
+  const [devMode] = useDevMode();
   const payload = (event as HubEvent | undefined)?.payload ?? {};
   const nodeId = typeof payload.node_id === 'string' ? payload.node_id : '';
   const nodeType = typeof payload.node_type === 'string' ? payload.node_type : '';
@@ -89,11 +92,11 @@ function NodeStartEventRenderer({ event, form }: MessageRendererProps) {
             <Code size={12} strokeWidth={1.6} className="ink-text-faint" aria-hidden />
           </span>
           <span className="text-[12px] font-medium">节点开始</span>
-          <span className="font-mono text-[10px] ink-text-faint">#{nodeId}</span>
+          {devMode && nodeId ? <span className="font-mono text-[10px] ink-text-faint">#{nodeId}</span> : null}
         </div>
         <div className="mt-1 text-[11px] ink-text-muted">
           {display}
-          {nodeType ? <span className="ml-1.5 rounded px-1 py-px text-[9px] ink-elevated">{nodeType}</span> : null}
+          {devMode && nodeType ? <span className="ml-1.5 rounded px-1 py-px text-[9px] ink-elevated">{nodeType}</span> : null}
         </div>
       </div>
     );
@@ -150,14 +153,18 @@ function EvolutionVariantEventRenderer({ event, form }: MessageRendererProps) {
   );
 }
 
-/** 未知事件类型兜底渲染器（折叠 + 复制按钮）。 */
+/** 未知事件类型兜底渲染器（折叠 + 复制按钮；仅开发者模式渲染）。 */
 function UnknownEventRenderer({ event, form }: MessageRendererProps) {
+  const [devMode] = useDevMode();
   const payload = (event as HubEvent | undefined)?.payload ?? {};
   const eventType = (event as HubEvent | undefined)?.type ?? 'unknown';
   const [expanded, setExpanded] = useState(false);
 
   const rawJson = JSON.stringify({ type: eventType, payload }, null, 2);
   const isOverlay = form === 'overlay';
+
+  // 未登记事件不对普通用户展示（原始负载属诊断信息）
+  if (!devMode) return null;
 
   if (isOverlay) {
     return (

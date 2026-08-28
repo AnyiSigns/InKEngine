@@ -14,11 +14,14 @@ import {
   isRendererKeyAllowed,
 } from '@/renderer/messageRendererRegistry';
 import type { HubEvent } from '@/shared/session/channelHub';
+import { getUiStateStore } from '@/shared/ui/uiStateStore';
+import { DEV_MODE_KEY } from '@/shared/ui/devMode';
 
 describe('eventRenderers', () => {
   beforeEach(() => {
     resetMessageRendererRegistry();
     vi.restoreAllMocks();
+    getUiStateStore().set(DEV_MODE_KEY, true);
   });
 
   describe('EVENT_RENDERER_KEYS', () => {
@@ -211,6 +214,20 @@ describe('eventRenderers', () => {
       } as unknown as HubEvent;
       render(<Renderer event={event} form="mini" />);
       expect(screen.getByText('未知事件：new_event_type')).toBeTruthy();
+    });
+
+    it('非开发者模式不渲染未登记事件', () => {
+      getUiStateStore().set(DEV_MODE_KEY, false);
+      registerEventRenderers();
+      const Renderer = resolveMessageRenderer('unknown', 'mini')!;
+      const event = {
+        type: 'new_event_type' as never,
+        at: Date.now(),
+        payload: {},
+      } as unknown as HubEvent;
+      const { container } = render(<Renderer event={event} form="mini" />);
+      expect(container.querySelector('[data-ui="event_renderer_unknown_mini"]')).toBeNull();
+      getUiStateStore().set(DEV_MODE_KEY, true);
     });
   });
 

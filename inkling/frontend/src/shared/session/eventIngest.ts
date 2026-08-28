@@ -9,6 +9,8 @@ import { BatchCounter } from '../logger';
 import type { ChannelHub, HubEvent } from './channelHub';
 import type { InkMessage, OutboundAttachment } from './types';
 import { reduceTaskEvent } from './taskState';
+import { getUiStateStore } from '../ui/uiStateStore';
+import { DEV_MODE_KEY } from '../ui/devMode';
 
 let messageSeq = 0;
 
@@ -369,9 +371,14 @@ export function ingestEvent(hub: ChannelHub, event: HubEvent): void {
     case 'end':
       // 回合结束信号：不建卡（消息流/指标已承载），仅推进状态
       break;
-    default:
-      // 未落位的事件类型：折叠兜底卡（不崩，展示原始负载）
-      messages = [...messages, { kind: 'unknown', token: JSON.stringify(event), id: nextId(), stepId: stepId || undefined, roundId }];
+    default: {
+      // 未落位的事件类型：原始负载属诊断信息，仅开发者模式建折叠兜底卡；
+      // 普通模式跳过（消息流不泄露引擎内部事件）。
+      if (getUiStateStore().get<boolean>(DEV_MODE_KEY)) {
+        messages = [...messages, { kind: 'unknown', token: JSON.stringify(event), id: nextId(), stepId: stepId || undefined, roundId }];
+      }
+      break;
+    }
   }
 
   hub.setState({ ...next, messages, roundId: state.roundId ?? roundId, taskState });

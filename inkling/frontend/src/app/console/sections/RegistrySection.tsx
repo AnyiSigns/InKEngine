@@ -1,5 +1,5 @@
 import { useEffect, useState } from 'react';
-import { ChevronDown, ChevronRight, Play, RotateCcw, Square } from 'lucide-react';
+import { ChevronDown, ChevronRight } from 'lucide-react';
 
 import { Button } from '@/shared/ui/Button';
 import { invokeOp } from '../../shared/invokeOp';
@@ -144,21 +144,11 @@ export function RegistrySection() {
                           <td className="px-2 py-1 text-[var(--ink-text-faint)]">{entry.version}</td>
                           <td className="px-2 py-1 text-[var(--ink-text-faint)] truncate max-w-24">{entry.source}</td>
                           <td className="px-2 py-1">
-                            <span className={entry.status === 'active' ? 'text-emerald-600' : 'text-[var(--ink-text-faint)]'}>
+                            <span className={entry.status === 'active' ? 'text-[var(--ink-text-muted)]' : 'text-[var(--ink-text-faint)]'}>
                               {entry.status === 'active' ? '启用' : '停用'}
                             </span>
                           </td>
                           <td className="px-2 py-1 text-[var(--ink-text-faint)] truncate max-w-32">{entry.last_change}</td>
-                          <td className="px-2 py-1">
-                            <div className="flex gap-0.5">
-                              <Button size="xs" variant="ghost">
-                                {entry.status === 'active' ? <Square size={9} strokeWidth={1.6} /> : <Play size={9} strokeWidth={1.6} />}
-                              </Button>
-                              <Button size="xs" variant="ghost">
-                                <RotateCcw size={9} strokeWidth={1.6} />
-                              </Button>
-                            </div>
-                          </td>
                         </tr>
                       ))}
                     </tbody>

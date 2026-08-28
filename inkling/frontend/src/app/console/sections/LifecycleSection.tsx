@@ -107,12 +107,6 @@ export function LifecycleSection() {
           </Button>
         )}
       </div>
-
-      {status?.engine_ready && (
-        <Button size="xs" variant="ghost">
-          查看启动快照
-        </Button>
-      )}
     </div>
   );
 }

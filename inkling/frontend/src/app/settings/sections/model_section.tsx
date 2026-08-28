@@ -52,6 +52,66 @@ const VENDORS = [
 const DEFAULT_CONTEXT = 128 * 1024;
 const HARD_FLOOR = 40 * 1024;
 
+const TIER_META: Array<{ tier: GearTier; label: string; hint: string }> = [
+  { tier: 'main', label: '主模型', hint: '正文生成与工具执行；必填。' },
+  { tier: 'router', label: '制片人', hint: '任务拆解与路径决策；留空回落主模型。' },
+  { tier: 'audit', label: '审计', hint: '审批点复核与裁决；留空回落主模型。' },
+];
+
+/** 三档模型配置：先选档位、再配该档 model_id（单一输入框随档位切换）。 */
+function TierModelBlock({
+  mainModelId,
+  routerModelId,
+  auditModelId,
+  onChange,
+}: {
+  mainModelId: string;
+  routerModelId: string;
+  auditModelId: string;
+  onChange: (tier: GearTier, id: string) => void;
+}): JSX.Element {
+  const [tier, setTier] = useState<GearTier>('main');
+  const value = tier === 'main' ? mainModelId : tier === 'router' ? routerModelId : auditModelId;
+  const meta = TIER_META.find((t) => t.tier === tier) ?? TIER_META[0];
+
+  const configured = (t: GearTier): boolean =>
+    (t === 'main' ? mainModelId : t === 'router' ? routerModelId : auditModelId).trim().length > 0;
+
+  return (
+    <div className="ink-elevated space-y-3 px-3.5 py-3">
+      <div className="text-[11px] font-medium tracking-wide ink-text-muted">模型档位</div>
+      <div className="ink-seg" role="radiogroup" aria-label="模型档位">
+        {TIER_META.map((t) => (
+          <button
+            key={t.tier}
+            type="button"
+            role="radio"
+            aria-checked={tier === t.tier}
+            data-ui={`model_tier_${t.tier}`}
+            data-active={tier === t.tier}
+            onClick={() => setTier(t.tier)}
+            className="ink-seg-item gap-1.5"
+          >
+            {t.label}
+            {configured(t.tier) && <span className="h-1.5 w-1.5 rounded-full bg-current opacity-60" aria-hidden />}
+          </button>
+        ))}
+      </div>
+      <Field label={`${meta.label} model_id`} hint={meta.hint}>
+        <TextInput
+          value={value}
+          onChange={(e) => onChange(tier, e.target.value)}
+          placeholder="model_id"
+          aria-label={`${tier} model_id`}
+        />
+      </Field>
+      <p className="text-[11px] leading-relaxed ink-text-faint">
+        三档分工：制片人决策 / 主模型生成 / 审计复核；非主档留空时回落主模型。
+      </p>
+    </div>
+  );
+}
+
 function maskKey(key: string): string {
   if (!key) return '';
   if (key.length <= 8) return '****';
@@ -192,36 +252,16 @@ export function ModelSection(): JSX.Element {
         </div>
       </div>
 
-      <div className="ink-elevated space-y-3 px-3.5 py-3">
-        <div className="text-[11px] font-medium tracking-wide ink-text-muted">双挡模型</div>
-        {(['main', 'router', 'audit'] as GearTier[]).map((tier) => (
-          <div key={tier} className="flex items-center gap-3">
-            <span className="w-20 shrink-0 text-[11px] ink-text-muted">
-              {tier === 'main' ? '主模型' : tier === 'router' ? '制片人' : '审计'}
-            </span>
-            <TextInput
-              value={tier === 'main' ? mainModelId : tier === 'router' ? routerModelId : auditModelId}
-              onChange={(e) => {
-                if (tier === 'main') setMainModelId(e.target.value);
-                else if (tier === 'router') setRouterModelId(e.target.value);
-                else setAuditModelId(e.target.value);
-              }}
-              placeholder="model_id"
-              className="flex-1"
-              aria-label={`${tier} model_id`}
-            />
-            <span className={[
-              'ink-chip text-[9px]',
-              tier === 'audit' ? 'ink-text-accent' : 'ink-text-faint',
-            ].join(' ')}>
-              {tier === 'audit' ? '审计' : tier === 'main' ? '主模型' : '制片人'}
-            </span>
-          </div>
-        ))}
-        <p className="text-[10px] leading-relaxed ink-text-faint">
-          双挡分工：制片人决策 / 主模型 / 审计；某挡位留空时回落主模型。
-        </p>
-      </div>
+      <TierModelBlock
+        mainModelId={mainModelId}
+        routerModelId={routerModelId}
+        auditModelId={auditModelId}
+        onChange={(tier, id) => {
+          if (tier === 'main') setMainModelId(id);
+          else if (tier === 'router') setRouterModelId(id);
+          else setAuditModelId(id);
+        }}
+      />
 
       <div className="ink-elevated space-y-3 px-3.5 py-3">
         <div className="text-[11px] font-medium tracking-wide ink-text-muted">上下文窗口与压缩红线</div>

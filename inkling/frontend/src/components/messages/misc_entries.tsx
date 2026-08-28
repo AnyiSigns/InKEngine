@@ -18,6 +18,7 @@ import type {
   InkUnknownMessage,
 } from '@/shared/session/types';
 import { EntryFrame, StatusPill } from './entry_frame';
+import { useDevMode } from '@/shared/ui/devMode';
 
 interface RowProps {
   id: string;
@@ -149,6 +150,9 @@ export function ReviewEventEntry({ message }: { message: InkReviewCardMessage } 
 }
 
 export function UnknownEntry({ message }: { message: InkUnknownMessage } & RowProps) {
+  const [devMode] = useDevMode();
+  // 未登记事件负载属诊断信息，仅开发者模式展示
+  if (!devMode) return null;
   return (
     <EntryFrame
       id={message.id}

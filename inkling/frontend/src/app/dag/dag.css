@@ -1,0 +1,86 @@
+/* 自研 DAG 渲染器样式：仅经 --ink-* token 取色（墨色语义，图不占决策色）。 */
+
+.dag-canvas {
+  width: 100%;
+  height: 100%;
+  display: block;
+  background: var(--ink-bg-base);
+  cursor: grab;
+}
+
+.dag-edge {
+  stroke: var(--ink-border-strong);
+  stroke-width: 1.25;
+}
+
+.dag-arrow-head {
+  fill: var(--ink-border-strong);
+}
+
+.dag-node {
+  cursor: pointer;
+}
+
+.dag-node-box {
+  fill: var(--ink-bg-surface);
+  stroke: var(--ink-border);
+  stroke-width: 1.25;
+  transition: stroke var(--ink-motion-fast) var(--ink-ease-out);
+}
+
+.dag-node-label {
+  fill: var(--ink-text-base);
+  font-size: var(--ink-font-sm);
+  font-family: var(--font-sans);
+}
+
+/* 语义色：编排=text-base 强调 / 工具=neutral / 终结=text-strong 中性强调（非朱砂） */
+.dag-node--orchestrator .dag-node-box {
+  stroke: var(--ink-text-muted);
+}
+.dag-node--tool .dag-node-box {
+  stroke: var(--ink-border);
+}
+.dag-node--terminal .dag-node-box {
+  stroke: var(--ink-text-base);
+  stroke-width: 1.5;
+}
+
+/* 执行态追踪（实例 tab）：进行中=呼吸 / 成功=墨绿 / 失败=警示 */
+.dag-node--running .dag-node-box {
+  stroke: var(--ink-status-running, var(--ink-text-muted));
+  stroke-width: 2;
+  animation: dag-breathe 1.6s ease-in-out infinite;
+}
+.dag-node--success .dag-node-box {
+  stroke: var(--ink-status-ok, var(--ink-text-muted));
+}
+.dag-node--failed .dag-node-box {
+  stroke: var(--ink-status-warn, var(--ink-text-muted));
+}
+
+.dag-group-badge rect {
+  fill: var(--ink-bg-elevated);
+  stroke: var(--ink-border-strong);
+}
+.dag-group-badge text {
+  fill: var(--ink-text-base);
+  font-size: 11px;
+  font-family: var(--font-sans);
+}
+
+@keyframes dag-breathe {
+  0%,
+  100% {
+    opacity: 1;
+  }
+  50% {
+    opacity: 0.45;
+  }
+}
+
+@media (prefers-reduced-motion: reduce) {
+  .dag-node--running .dag-node-box {
+    animation: none;
+  }
+}

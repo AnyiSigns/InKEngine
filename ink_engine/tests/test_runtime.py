@@ -22,6 +22,7 @@ from ink_engine.core.graph import Graph
 from ink_engine.core.harness import HarnessDefinition
 from ink_engine.core.knowledge_set import KIND_RULE, KnowledgeEntry
 from ink_engine.core.llm import AsyncLLM
+from ink_engine.core.llm.tools import ToolSpec
 from ink_engine.core.retrieval import RetrievedChunk
 from ink_engine.core.runtime import (
     AssemblyRecipe,
@@ -188,9 +189,9 @@ async def test_boot_assembles_all_artifacts():
     assert saved is not None and saved.name == "forge"
     # 事件类型注册表（基线 + 装配期持久化）
     assert "reply_token" in runtime.event_type_registry.names()
-    # 元工具流水线（内省 5 + 契约自指 4）
+    # 元工具流水线（内省 5 + 自指 6（含 search_tools/request_tool））
     assert len(runtime.introspection_specs) == 5
-    assert len(runtime.self_specs) == 4
+    assert len(runtime.self_specs) == 6
     assert runtime.introspection_service is not None
     assert runtime.introspection_pipeline is not None
     assert runtime.self_pipeline is not None
@@ -514,14 +515,31 @@ async def test_recipe_run_options_override_applied():
     assert engine.options.error_on_exception is True
 
 
-async def test_collect_specs_merges_three_routes():
-    """工具清单汇总 = 内省 + 自指 + 动态三路（内省快照/回合装配同源）。"""
+async def test_collect_specs_baseline_plus_dynamic():
+    """工具清单 = 保底 8+2 常驻集 + 动态注册表工具（E2 工具注入瘦身）。"""
     runtime = await Runtime().boot(FakeHost(), _minimal_recipe())
+    # 模拟声明式工具注册（生产环境由 harness 定义载入）
+    for name in ("file_read", "file_write", "file_edit", "grep", "glob"):
+        runtime.tool_registry[name] = ToolSpec(name=name, description=f"{name} 工具")
     specs = runtime.collect_specs()
-    assert len(specs) == 9
-    assert {s.name for s in specs} >= {"inspect_graph", "propose_patch", "apply_patch"}
-    runtime.tool_registry["dynamic"] = self_tool_specs()[0]
-    assert len(runtime.collect_specs()) == 10
+    names = {s.name for s in specs}
+    # 保底 8+2 常驻集（≤12）
+    assert len(specs) == 10
+    assert names == {
+        "file_read", "file_write", "file_edit", "grep", "glob",
+        "propose_patch", "propose_domain_manifest", "inspect_tools",
+        "search_tools", "request_tool",
+    }
+    # 动态注册表新增的非基线工具不进 tools 参数（经 search_tools/request_tool 按需注入）
+    runtime.tool_registry["custom_dynamic"] = ToolSpec(
+        name="custom_dynamic", description="动态注入"
+    )
+    specs2 = runtime.collect_specs()
+    assert len(specs2) == 10
+    assert "custom_dynamic" not in {s.name for s in specs2}
+    # 但 merged_specs 全量可见
+    all_names = {s.name for s in runtime.merged_specs()}
+    assert "custom_dynamic" in all_names
 
 
 async def test_unified_pipeline_routes_self_tools():

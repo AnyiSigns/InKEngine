@@ -13,6 +13,7 @@ from __future__ import annotations
 
 import time
 import uuid
+from collections.abc import Iterable
 from dataclasses import dataclass, field
 from typing import Any, Protocol, runtime_checkable
 
@@ -72,6 +73,18 @@ class ToolScoring(Protocol):
     def select(self, candidates: list[ToolCandidate], *, max_tools: int) -> list[ToolSpec]: ...
 
 
+@runtime_checkable
+class ToolMatchStrategy(Protocol):
+    """LLM 匹配策略位（轻量注入，不引入重机制）。
+
+    宿主可注入自定义语义匹配逻辑（如 LLM 对候选工具的相关度打分），
+    在基线加成之后、最终排序之前介入——换策略不改装配。默认 None =
+    不做额外匹配（纯基线加成 + 权重排序）。
+    """
+
+    def apply(self, candidates: list[ToolCandidate]) -> list[ToolCandidate]: ...
+
+
 class WeightedToolScorer:
     """确定性默认调配：按调配分排序、门槛丢弃、预算截断。
 
@@ -115,25 +128,58 @@ class ToolSelector:
 
     与 ContextMixer 同构：默认走确定性调配（WeightedToolScorer），宿主
     可注入自定义策略（如 LLM 语义匹配后的候选加权）——换策略不改装配。
+
+    E2 接线：保底工具 priority 高 + 调用权重（baseline_names 声明的工具
+    自动获得 priority 与 weight 加成，确保常驻工具优先入选）。
     """
+
+    # 保底工具加成（priority 偏移 / weight 倍率）
+    BASELINE_PRIORITY_BOOST = 10
+    BASELINE_WEIGHT_BOOST = 2.0
 
     def __init__(
         self,
         *,
         max_tools: int = DEFAULT_MAX_TOOLS,
         scorer: ToolScoring | None = None,
+        baseline_names: Iterable[str] | None = None,
+        match_strategy: ToolMatchStrategy | None = None,
     ) -> None:
         if max_tools < 0:
             raise ValueError(f"工具集预算不能为负: {max_tools}")
         self.max_tools = max_tools
         self.scorer = scorer or WeightedToolScorer()
+        self.baseline_names: frozenset[str] = frozenset(baseline_names or ())
+        self.match_strategy = match_strategy
 
     def select(
         self, candidates: list[ToolCandidate], *, max_tools: int | None = None
     ) -> list[ToolSpec]:
         """本轮工具集选取：候选 → 预算内工具清单（确定性，零 LLM 调用）。"""
         budget = self.max_tools if max_tools is None else max_tools
-        return self.scorer.select(candidates, max_tools=budget)
+        decorated = self._decorate_baselines(candidates)
+        if self.match_strategy is not None:
+            decorated = self.match_strategy.apply(decorated)
+        return self.scorer.select(decorated, max_tools=budget)
+
+    def _decorate_baselines(self, candidates: list[ToolCandidate]) -> list[ToolCandidate]:
+        """保底工具加成：priority 偏移 + weight 倍率（仅对声明的基线名生效）。"""
+        if not self.baseline_names:
+            return candidates
+        result: list[ToolCandidate] = []
+        for candidate in candidates:
+            if candidate.spec.name in self.baseline_names:
+                result.append(
+                    ToolCandidate(
+                        spec=candidate.spec,
+                        relevance=candidate.relevance,
+                        weight=candidate.weight * self.BASELINE_WEIGHT_BOOST,
+                        priority=candidate.priority + self.BASELINE_PRIORITY_BOOST,
+                    )
+                )
+            else:
+                result.append(candidate)
+        return result
 
 
 @dataclass(frozen=True, slots=True)
@@ -247,6 +293,7 @@ __all__ = [
     "DEFAULT_MIN_SCORE",
     "DEFAULT_RELEVANCE",
     "ToolCandidate",
+    "ToolMatchStrategy",
     "ToolScoring",
     "ToolSelector",
     "ToolTrace",

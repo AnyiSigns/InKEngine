@@ -28,7 +28,9 @@ from .knowledge_set import KnowledgeSet
 from .llm.tools import ToolSpec
 from .self_application import SelfApplicationPipeline
 from .self_proposal import PatchKind, SelfProposal
-from .tool_pipeline import DEFAULT_MAX_RESULT_CHARS
+from .tool_index import ToolVectorIndex
+from .tool_pipeline import DEFAULT_MAX_RESULT_CHARS, ToolPipeline
+
 
 # 权限声明（自定义域：self:propose / self:apply）
 PERMISSION_PROPOSE = "self:propose:*"
@@ -41,11 +43,14 @@ SELF_TOOL_CONTRACT: tuple[str, ...] = (
     "apply_patch",
     "revert_patch",
     "propose_domain_manifest",
+    "search_tools",
+    "request_tool",
 )
 
 # 判定动作（与权限声明的 action 配对）
 _OPERATION_PROPOSE = "propose"
 _OPERATION_APPLY = "apply"
+_OPERATION_DISCOVER = "discover"
 
 # 结果文本截断上限（ENG6-6：共享常量——与引擎工具流水线默认一致）
 _MAX_RESULT_CHARS = DEFAULT_MAX_RESULT_CHARS
@@ -76,6 +81,8 @@ class SelfToolContext:
         convergence: 演化收敛管制钩子（None = 不启用前置闸门）。
         interrupt_policy: 宿主级审批策略（种子沉淀等宿主扩展卡；
             None = 宿主扩展自带默认策略）。
+        tool_index: 工具向量索引（search_tools/request_tool 的检索后端；
+            None = 关键词基线降级）。
     """
 
     self_pipeline: SelfApplicationPipeline
@@ -83,6 +90,7 @@ class SelfToolContext:
     knowledge_set: KnowledgeSet | None = None
     convergence: ConvergenceHook | None = None
     interrupt_policy: Any | None = None
+    tool_index: ToolVectorIndex | None = None
 
 
 def self_tool_specs() -> list[ToolSpec]:
@@ -208,17 +216,51 @@ def self_tool_specs() -> list[ToolSpec]:
             },
             permissions=(PERMISSION_PROPOSE,),
         ),
+        ToolSpec(
+            name="search_tools",
+            description="检索工具集（保底集以外的工具经此发现）：输入自然语言查询，"
+            "返回匹配工具列表（名称/摘要/参数/权限档/端点，≤8 条），"
+            "供后续 request_tool 绑定后调用",
+            parameters={
+                "type": "object",
+                "properties": {
+                    "query": {
+                        "type": "string",
+                        "description": "自然语言查询（如「读取文件」「搜索代码」）",
+                    },
+                },
+                "required": ["query"],
+            },
+            permissions=(PERMISSION_PROPOSE,),
+        ),
+        ToolSpec(
+            name="request_tool",
+            description="绑定指定工具到下一轮 tools 参数：校验工具名合法性，"
+            "非法名返回明确错误；合法则注入完整 schema 到下一轮工具集，"
+            "返回「已绑定」确认——模型下一轮即可按 schema 生成 tool_call",
+            parameters={
+                "type": "object",
+                "properties": {
+                    "name": {
+                        "type": "string",
+                        "description": "要绑定的工具名（须在工具注册表中）",
+                    },
+                },
+                "required": ["name"],
+            },
+            permissions=(PERMISSION_PROPOSE,),
+        ),
     ]
 
 
 def operation_of(spec: ToolSpec) -> tuple[str, str]:
-    """操作提取：按工具名定动作（propose/apply × patch 目标）。
+    """操作提取：按工具名定动作（propose/apply/discover × patch 目标）。
 
     同时供自指流水线与宿主统一流水线接线使用（单一判定来源，两条管线
     分类一致，避免新工具只在一侧登记造成的权限误判）。宿主扩展工具
     （如种子沉淀）在宿主侧合并进统一判定，本函数只管契约工具。
     """
-    if spec.name in ("propose_patch", "propose_domain_manifest"):
+    if spec.name in ("propose_patch", "propose_domain_manifest", "search_tools", "request_tool"):
         return (_OPERATION_PROPOSE, "patch")
     return (_OPERATION_APPLY, "patch")
 
@@ -242,6 +284,10 @@ def make_self_executor(
             return await _apply(ctx, context, args)
         if spec.name == "revert_patch":
             return await _revert(ctx, context, args)
+        if spec.name == "search_tools":
+            return await _search_tools(ctx, context, args)
+        if spec.name == "request_tool":
+            return await _request_tool(ctx, context, args)
         raise GraphDefinitionError(f"未知自指工具: {spec.name}")
 
     return executor
@@ -436,6 +482,69 @@ async def _revert(ctx: Any, context: SelfToolContext, args: dict) -> str:
             "decision": outcome.decision,
             "patch_id": patch_id,
             "reason": outcome.reason,
+        }
+    )
+
+
+async def _search_tools(ctx: Any, context: SelfToolContext, args: dict) -> str:
+    """工具检索：自然语言查询 → 匹配工具列表（≤8 条）。"""
+    query = args.get("query")
+    if not isinstance(query, str) or not query.strip():
+        return _json({"ok": False, "violations": ["query 须为非空字符串"]})
+    index = context.tool_index
+    if index is None or len(index) == 0:
+        return _json({"ok": True, "results": [], "degraded": True})
+    results = index.search(query.strip(), limit=8)
+    return _json(
+        {
+            "ok": True,
+            "results": [
+                {
+                    "name": r.name,
+                    "description": r.description,
+                    "parameters_summary": r.parameters_summary,
+                    "tier": r.tier,
+                    "endpoint": r.endpoint,
+                }
+                for r in results
+            ],
+            "degraded": not index.uses_vectors(),
+        }
+    )
+
+
+async def _request_tool(ctx: Any, context: SelfToolContext, args: dict) -> str:
+    """工具绑定：注册表校验 → 完整 schema 注入下一轮 tools。"""
+    name = args.get("name")
+    if not isinstance(name, str) or not name.strip():
+        return _json({"ok": False, "violations": ["name 须为非空字符串"]})
+    name = name.strip()
+    index = context.tool_index
+    if index is None or not index.has(name):
+        return _json(
+            {
+                "ok": False,
+                "error": f"未注册工具名 {name}（可用 search_tools 检索可用工具）",
+            }
+        )
+    spec = index.spec(name)
+    if spec is None:
+        return _json(
+            {
+                "ok": False,
+                "error": f"未注册工具名 {name}（工具描述缺失）",
+            }
+        )
+    return _json(
+        {
+            "ok": True,
+            "message": f"已绑定 {name}，可调用",
+            "spec": {
+                "name": spec.name,
+                "description": spec.description,
+                "parameters": spec.parameters,
+                "permissions": list(spec.permissions),
+            },
         }
     )
 

@@ -1,31 +1,31 @@
 @import "tailwindcss";
 
-/* ===== InKling 主题 token（三档：light / dark / system） =====
+/* ===== InKling 主题 token（三档：light / dark / system＄1�7 =====
  *
- * 主题 token 白名单（与 renderer/themeTokens.ts 同源，来自 ui_spec.theme）：
- *   基底组
+ * 主题 token 白名单（丄1�7 renderer/themeTokens.ts 同源，来臄1�7 ui_spec.theme）：
+ *   基底组1�7
  *     --ink-bg-base         底色  bg.base
  *     --ink-text-base       字色  text.base
  *     --ink-accent-approval 朱砂  accent.approval（仅审批/决策点）
- *   透明组（alpha ≤ 0.5，状态层专用）
- *     --ink-status-bubble-fill  状态气泡底    status.bubble.fill
- *     --ink-status-bubble-edge  状态气泡描边  status.bubble.edge
- *     --ink-status-card-edge    状态卡片细描边 status.card.edge
- * 其余 --ink-* 均为以上白名单 token 的派生值（color-mix 计算，非硬编码颜色），
- * 随白名单 token 演化而演化。组件一律经语义类取色，不直接书写颜色值。
+ *   透明组（alpha ≄1�7 0.5，状态层专用＄1�7
+ *     --ink-status-bubble-fill  状��气泡底    status.bubble.fill
+ *     --ink-status-bubble-edge  状��气泡描辄1�7  status.bubble.edge
+ *     --ink-status-card-edge    状��卡片细描边 status.card.edge
+ * 其余 --ink-* 均为以上白名卄1�7 token 的派生��（color-mix 计算，非硬编码颜色）＄1�7
+ * 随白名单 token 演化而演化��组件一律经语义类取色，不直接书写颜色����1�7
  *
- * 三档机制：无 data-theme 时按 prefers-color-scheme（system 档）；
+ * 三档机制：无 data-theme 时按 prefers-color-scheme（system 档）＄1�7
  * data-theme="light|dark" 显式钉住；index.html 内联脚本在首屏前
- * 解析持久档位并预挂 data-theme（防闪屏），本文件仅负责按属性分档。
- * ui_spec.theme 试穿经 applyThemeTokens 以 inline 变量覆盖（可还原）。
+ * 解析持久档位并预挄1�7 data-theme（防闪屏），本文件仅负责按属性分档��1�7
+ * ui_spec.theme 试穿组1�7 applyThemeTokens 仄1�7 inline 变量覆盖（可还原）��1�7
  *
- * 设计语言（层次/呼吸/生命三向量）：
- * - 层次感：三级表面（base → surface → elevated）+ 阴影 0/1/2 + hairline
- *   分割 + 微渐变光泽；朱砂只出现在审批/决策点。
- * - 呼吸感：8pt 栅格留白（4/8/12/16/24/32）、圆角 4/8/12、宽松行高 1.6、
- *   区段节奏（space-y-6 / p-6 级）。
- * - 生命感：流式呼吸光标、骨架屏、三态反馈（loading/成功/失败无静默变化）、
- *   入场上浮——动效统一 150–250ms 且进入动效 180ms ease-out。
+ * 设计语言（层欄1�7/呼吸/生命三向量）＄1�7
+ * - 层次感：三级表面（base ↄ1�7 surface ↄ1�7 elevated＄1�7+ 阴影 0/1/2 + hairline
+ *   分割 + 微渐变光泽；朱砂只出现在审批/决策点��1�7
+ * - 呼吸感：8pt 栅格留白＄1�74/8/12/16/24/32）��圆规1�7 4/8/12、宽松行髄1�7 1.6〄1�7
+ *   区段节奏（space-y-6 / p-6 级）〄1�7
+ * - 生命感：流式呼吸光标、骨架屏、三态反馈（loading/成功/失败无静默变化）〄1�7
+ *   入场上浮—��动效统丢� 150 1�7250ms 且进入动敄1�7 180ms ease-out〄1�7
  */
 
 :root {
@@ -43,12 +43,12 @@
   --ink-accent-soft: color-mix(in srgb, var(--ink-accent-approval) 12%, transparent);
   --ink-accent-border: color-mix(in srgb, var(--ink-accent-approval) 40%, transparent);
 
-  /* 透明组（状态层）：alpha 全部 ≤ 0.5 */
+  /* 透明组（状��层）：alpha 全部 ≄1�7 0.5 */
   --ink-status-bubble-fill: color-mix(in srgb, var(--ink-text-base) 18%, transparent);
   --ink-status-bubble-edge: color-mix(in srgb, var(--ink-text-base) 30%, transparent);
   --ink-status-card-edge: color-mix(in srgb, var(--ink-text-base) 22%, transparent);
 
-  /* 多层软阴影（0 = 无 / 1 = 静置 / 2 = 弹层），单点使用 */
+  /* 多层软阴影（0 = 旄1�7 / 1 = 静置 / 2 = 弹层），单点使用 */
   --ink-elev-1:
     0 1px 2px color-mix(in srgb, var(--ink-text-base) 6%, transparent),
     0 3px 10px color-mix(in srgb, var(--ink-text-base) 6%, transparent);
@@ -59,7 +59,7 @@
     0 4px 14px color-mix(in srgb, var(--ink-text-base) 12%, transparent),
     0 20px 56px color-mix(in srgb, var(--ink-text-base) 18%, transparent);
 
-  /* 设计 token（几何/节奏/层级；单一事实源见 renderer/designTokens.ts） */
+  /* 设计 token（几佄1�7/节奏/层级；单丢�事实源见 renderer/designTokens.ts＄1�7 */
   --ink-space-1: 4px;
   --ink-space-2: 8px;
   --ink-space-3: 12px;
@@ -81,7 +81,7 @@
   --ink-font-lg: 17px;
   --ink-font-xl: 20px;
   --ink-lh-body: 1.6;
-  /* 层级策略：正文 < 底栏 < 卡片 < 悬浮窗（组件经 .ink-z-* 语义类取用） */
+  /* 层级策略：正斄1�7 < 底栏 < 卡片 < 悬浮窗（组件组1�7 .ink-z-* 语义类取用） */
   --ink-z-base: 0;
   --ink-z-bar: 10;
   --ink-z-card: 30;
@@ -93,7 +93,7 @@
   --font-mono: "Geist Mono", "Cascadia Code", "JetBrains Mono", "SFMono-Regular", Consolas, monospace;
 }
 
-/* system 档暗色（无显式 data-theme 时跟随 OS；light 钉住时被 :not 排除） */
+/* system 档暗色（无显弄1�7 data-theme 时跟隄1�7 OS；light 钉住时被 :not 排除＄1�7 */
 @media (prefers-color-scheme: dark) {
   :root:not([data-theme="light"]) {
     --ink-bg-base: #0c0d10;
@@ -132,10 +132,10 @@
 /* ===== 语义类（组件取色唯一通道，禁硬编码颜色） ===== */
 
 /* ---------------------------------------------------------------
- * 高度链：html/body/#root 全高 + .ink-app 100%——布局完全由文档流
- * 决定，视口「可视区」不再作为隐含前提（position:fixed 的
+ * 高度链：html/body/#root 全高 + .ink-app 100%—��布屢�完全由文档流
+ * 决定，视口��可视区」不再作为隐含前提（position:fixed 的1�7
  * inset:0 依赖浏览器对 fixed 定位的合成，DPI/缩放/窗口尺寸
- * 变化下可能留下未渲染带）。
+ * 变化下可能留下未渲染带）〄1�7
  * --------------------------------------------------------------- */
 html,
 body,
@@ -144,7 +144,7 @@ body,
 }
 
 /* ---------------------------------------------------------------
- * .ink-app：根容器，占满 #root（即窗口可视区）。
+ * .ink-app：根容器，占滄1�7 #root（即窗口可视区）〄1�7
  * --------------------------------------------------------------- */
 .ink-app {
   display: flex;
@@ -165,7 +165,7 @@ body,
   text-rendering: optimizeLegibility;
 }
 
-/* 面板（卡片/区块容器）：surface 底 + 微光泽 + 浅软阴影 */
+/* 面板（卡牄1�7/区块容器）：surface 庄1�7 + 微光泄1�7 + 浅软阴影 */
 .ink-panel {
   background:
     linear-gradient(
@@ -179,7 +179,7 @@ body,
   box-shadow: var(--ink-elev-1);
 }
 
-/* 抬升面（内嵌行/条目）：elevated 底 + 光泽 */
+/* 抬升面（内嵌衄1�7/条目）：elevated 庄1�7 + 光泽 */
 .ink-elevated {
   background:
     linear-gradient(
@@ -195,7 +195,7 @@ body,
     box-shadow 150ms ease;
 }
 
-/* 侧栏轨道（左栏/右栏）：surface 底 + 内发光 + hairline 分隔 */
+/* 侧栏轨道（左栄1�7/右栏）：surface 庄1�7 + 内发兄1�7 + hairline 分隔 */
 .ink-rail {
   background:
     linear-gradient(
@@ -237,7 +237,7 @@ body,
   border: 1px solid var(--ink-accent-border);
 }
 
-/* ===== 层级语义类（z-index 策略：正文 < 底栏 < 卡片 < 悬浮窗） ===== */
+/* ===== 层级语义类（z-index 策略：正斄1�7 < 底栏 < 卡片 < 悬浮窗） ===== */
 .ink-z-base {
   z-index: var(--ink-z-base);
 }
@@ -255,9 +255,9 @@ body,
 }
 
 /* ===== 三级视觉层（消息流呈现规范） =====
- * 正文消息：完全不透明（实底，走 ink-bubble-user / 纸面正文）；
- * 状态消息：气泡半透明（alpha ≤ 0.5，走透明组 token）；
- * 状态卡片：透明底（无实底填充，仅细描边与留白）。
+ * 正文消息：完全不透明（实底，资1�7 ink-bubble-user / 纸面正文）；
+ * 状��消息：气泡半��明（alpha ≄1�7 0.5，走透明组1�7 token）；
+ * 状��卡片：透明底（无实底填充，仅细描边与留白）〄1�7
  */
 .ink-status-bubble {
   background: var(--ink-status-bubble-fill);
@@ -271,7 +271,7 @@ body,
   border-radius: var(--ink-radius-md);
 }
 
-/* ===== 按钮（ink-btn-*，统一圆角/粗细/过渡） ===== */
+/* ===== 按钮（ink-btn-*，统丢�圆角/粗细/过渡＄1�7 ===== */
 
 .ink-btn-primary {
   background:
@@ -311,7 +311,7 @@ body,
   border-color: var(--ink-border-strong);
 }
 
-/* 朱砂按钮（审批/决策点）：软底 + 描边 + 悬停光晕 */
+/* 朱砂按钮（审扄1�7/决策点）：软庄1�7 + 描边 + 悬停光晕 */
 .ink-btn-accent {
   background: var(--ink-accent-soft);
   border: 1px solid var(--ink-accent-border);
@@ -326,7 +326,7 @@ body,
 
 /* ===== 控件 ===== */
 
-/* 输入框：圆角/悬停描边/聚焦光晕（替代叠框思路）。宽度由 w-full 实用类接管 */
+/* 输入框：圆角/悬停描边/聚焦光晕（替代叠框��路）��宽度由 w-full 实用类接箄1�7 */
 .ink-input {
   height: 2rem;
   border-radius: 0.625rem;
@@ -354,7 +354,7 @@ body,
   box-shadow: 0 0 0 3px color-mix(in srgb, var(--ink-text-base) 7%, transparent);
 }
 
-/* 输入外壳（多控件容器 · focus-within 光晕） */
+/* 输入外壳（多控件容器 · focus-within 光晕＄1�7 */
 .ink-input-shell:focus-within {
   border-color: var(--ink-border-strong);
   box-shadow: 0 0 0 3px color-mix(in srgb, var(--ink-text-base) 7%, transparent), var(--ink-elev-1);
@@ -365,7 +365,7 @@ body,
   outline: none;
 }
 
-/* 分段选择器（L0/L1/L2、默认档等）：iOS/Linear 风格胶囊段 */
+/* 分段选择器（L0/L1/L2、默认档等）：iOS/Linear 风格胶囊殄1�7 */
 .ink-seg {
   display: inline-flex;
   gap: 2px;
@@ -406,7 +406,7 @@ body,
   box-shadow: var(--ink-elev-1);
 }
 
-/* 开关（复选框样式）：细胶囊 + 圆点滑动 */
+/* 弢�关（复��框样式）：细胶囄1�7 + 圆点滑动 */
 input.ink-check {
   appearance: none;
   position: relative;
@@ -448,7 +448,7 @@ input.ink-check:checked::after {
   opacity: 1;
 }
 
-/* 胶囊 chip（状态/元信息小标签） */
+/* 胶囊 chip（状怄1�7/元信息小标签＄1�7 */
 .ink-chip {
   display: inline-flex;
   align-items: center;
@@ -474,7 +474,7 @@ input.ink-check:checked::after {
   color: var(--ink-text-muted);
 }
 
-/* 软阴影类（阴影 0/1/2 策略：soft = 静置 / pop = 弹层） */
+/* 软阴影类（阴彄1�7 0/1/2 策略：soft = 静置 / pop = 弹层＄1�7 */
 .ink-shadow-soft {
   box-shadow: var(--ink-shadow-soft);
 }
@@ -556,7 +556,7 @@ select {
   outline-offset: 1px;
 }
 
-/* ===== 生命感动效（入场/呼吸/悬停抬升；进入动效 180ms ease-out） ===== */
+/* ===== 生命感动效（入场/呼吸/悬停抬升；进入动敄1�7 180ms ease-out＄1�7 ===== */
 
 .ink-scroll-auto {
   overflow-y: auto;
@@ -564,7 +564,7 @@ select {
   min-height: 0;
 }
 
-/* 消息/条目入场：上浮渐显（整体轻柔，不打扰流式） */
+/* 消息/条目入场：上浮渐显（整体轻柔，不打扰流式＄1�7 */
 @keyframes ink-rise {
   from {
     opacity: 0;
@@ -580,7 +580,7 @@ select {
   animation: ink-rise var(--ink-motion-base) var(--ink-ease-out) both;
 }
 
-/* 弹层入场：缩放上浮 */
+/* 弹层入场：缩放上浄1�7 */
 @keyframes ink-pop {
   from {
     opacity: 0;
@@ -610,7 +610,7 @@ select {
   animation: ink-fade var(--ink-motion-base) var(--ink-ease-out) both;
 }
 
-/* 运行态呼吸点（currentColor 取色，类上自定色） */
+/* 运行态呼吸点（currentColor 取色，类上自定色＄1�7 */
 .ink-live-dot {
   position: relative;
   width: 6px;
@@ -662,9 +662,9 @@ select {
   animation: ink-shimmer 2.5s ease-in-out infinite;
 }
 
-/* 流式呼吸光标（朱砂，仅审批/决策点同款语义；此处为进行中标识） */
+/* 流式呼吸光标（朱砂，仅审扄1�7/决策点同款语义；此处为进行中标识＄1�7 */
 .ink-caret::after {
-  content: "▍";
+  content: "▄1�7";
   color: var(--ink-accent-approval);
   animation: ink-blink 1s step-end infinite;
 }
@@ -675,12 +675,12 @@ select {
 
 /* 流式呼吸光标变体：走文字色（正文进行中，不占用朱砂语义） */
 .ink-caret-muted::after {
-  content: "▍";
+  content: "▄1�7";
   color: var(--ink-text-muted);
   animation: ink-blink 1s step-end infinite;
 }
 
-/* 空态呼吸（图标微缩放） */
+/* 空��呼吸（图标微缩放） */
 .ink-breathe {
   animation: ink-breathe 3.2s ease-in-out infinite;
 }
@@ -695,7 +695,7 @@ select {
   }
 }
 
-/* 骨架屏（加载占位）：base 底 + 扫描高光，无静默空白 */
+/* 骨架屏（加载占位）：base 庄1�7 + 扫描高光，无静默空白 */
 .ink-skeleton {
   position: relative;
   overflow: hidden;
@@ -726,7 +726,7 @@ select {
   }
 }
 
-/* 三态反馈（loading / success / failed 无静默变化） */
+/* 三��反馈（loading / success / failed 无静默变化） */
 .ink-spinner {
   width: 10px;
   height: 10px;
@@ -751,7 +751,7 @@ select {
   color: var(--ink-text-base);
 }
 
-/* 消息气泡（用户侧：深色渐变 + 软影；assistant 侧：纸面居左） */
+/* 消息气泡（用户侧：深色渐叄1�7 + 软影；assistant 侧：纸面居左＄1�7 */
 .ink-bubble-user {
   background:
     linear-gradient(
@@ -772,7 +772,7 @@ select {
 }
 
 /* 折叠条目展开动画（仅 opacity/transform，合成器友好；不做高度动画以避免
- * 逐帧重排：max-height 插值 + fill-mode 保留会裁剪超长内容，弃用） */
+ * 逐帧重排：max-height 插��1�7 + fill-mode 保留会裁剪超长内容，弃用＄1�7 */
 @keyframes ink-feed {
   from {
     opacity: 0;
@@ -789,8 +789,8 @@ select {
   overflow: hidden;
 }
 
-/* 审批卡弹层遮罩（朱砂 accent，居中；模糊减半 + 入场淡入——
- * 全视口 backdrop-filter 每帧重采样，流式背景动画下成本高） */
+/* 审批卡弹层遮罩（朱砂 accent，居中；模糊减半 + 入场淡入—��1�7
+ * 全视叄1�7 backdrop-filter 每帧重采样，流式背景动画下成本高＄1�7 */
 .ink-modal-mask {
   position: fixed;
   inset: 0;
@@ -802,7 +802,7 @@ select {
   backdrop-filter: blur(3px);
 }
 
-/* 粘性操作条（设置页底部「应用」条）：近不透明底，避免滚动帧重采样 */
+/* 粘��操作条（设置页底部「应用��条）：近不透明底，避免滚动帧重采样 */
 .ink-sticky-bar {
   position: sticky;
   bottom: 0;
@@ -813,14 +813,14 @@ select {
 
 /* ===== 语义控件（消息流/轨道行专用变体） ===== */
 
-/* 消息流内扁平面板：surface 底 + hairline，无渐变/重阴影（滚动栅格化友好） */
+/* 消息流内扁平面板：surface 庄1�7 + hairline，无渐变/重阴影（滚动栅格化友好） */
 .ink-panel-flat {
   background: var(--ink-bg-surface);
   border: 1px solid var(--ink-border);
   border-radius: 0.875rem;
 }
 
-/* 选中态墨条（侧栏/导航行共用，几何同源） */
+/* 选中态墨条（侧栏/导航行共用，几何同源＄1�7 */
 .ink-active-bar {
   position: absolute;
   inset-block: 0.375rem;
@@ -830,7 +830,7 @@ select {
   background: var(--ink-text-base);
 }
 
-/* ===== Markdown 正文（消毒后 HTML；whitespace-pre-wrap 回退） ===== */
+/* ===== Markdown 正文（消毒后 HTML；whitespace-pre-wrap 回���＄1�7 ===== */
 
 .ink-markdown {
   white-space: pre-wrap;
@@ -918,7 +918,7 @@ select {
   padding: 0.3em 0.6em;
 }
 
-/* 动态减少：关闭装饰动画，保留功能 */
+/* 动��减少：关闭装饰动画，保留功胄1�7 */
 @media (prefers-reduced-motion: reduce) {
   .ink-enter,
   .ink-pop-in,
@@ -1006,4 +1006,126 @@ select {
 .first-run-guide__actions {
   display: flex;
   justify-content: flex-end;
+}
+
+/* ===== ���ø�����W6.1 ע��ʽ���棩 ===== */
+
+.ink-settings-overlay {
+  position: fixed;
+  inset: 0;
+  z-index: var(--ink-z-floater);
+  display: flex;
+  justify-content: flex-end;
+  background: color-mix(in srgb, var(--ink-text-base) 18%, transparent);
+  animation: ink-fade-in 180ms var(--ink-ease-out);
+}
+
+.ink-settings-panel {
+  width: 42%;
+  min-width: 320px;
+  max-width: 720px;
+  height: 100%;
+  background: var(--ink-bg-base);
+  border-left: 1px solid var(--ink-border);
+  box-shadow: var(--ink-elev-3);
+  display: flex;
+  flex-direction: column;
+  animation: ink-slide-in 180ms var(--ink-ease-out);
+}
+
+.ink-settings-rail {
+  width: 11rem;
+  shrink: 0;
+  display: flex;
+  flex-direction: column;
+  border-right: 1px solid var(--ink-border);
+  background: var(--ink-bg-surface);
+  padding: 0.5rem;
+}
+
+.ink-settings-nav-item {
+  display: flex;
+  align-items: center;
+  gap: 0.5rem;
+  width: 100%;
+  padding: 0.5rem 0.75rem;
+  border-radius: 0.5rem;
+  border: 1px solid transparent;
+  background: transparent;
+  color: var(--ink-text-muted);
+  cursor: pointer;
+  transition: background-color 150ms ease, color 150ms ease;
+  text-align: left;
+}
+
+.ink-settings-nav-item:hover {
+  background: var(--ink-bg-elevated);
+  color: var(--ink-text-base);
+}
+
+.ink-settings-nav-item-active {
+  background: var(--ink-bg-elevated);
+  color: var(--ink-text-base);
+  font-weight: 500;
+}
+
+.ink-settings-nav-item-active::before {
+  content: '';
+  position: absolute;
+  left: 0;
+  top: 0.5rem;
+  bottom: 0.5rem;
+  width: 2px;
+  border-radius: 1px;
+  background: var(--ink-accent-approval);
+}
+
+.ink-settings-content {
+  flex: 1;
+  min-width: 0;
+  display: flex;
+  flex-direction: column;
+  overflow: hidden;
+}
+
+@keyframes ink-fade-in {
+  from { opacity: 0; }
+  to { opacity: 1; }
+}
+
+@keyframes ink-slide-in {
+  from { transform: translateX(100%); }
+  to { transform: translateX(0); }
+}
+
+/* ===== �������� ===== */
+
+.ink-onboarding-overlay {
+  position: fixed;
+  inset: 0;
+  z-index: calc(var(--ink-z-floater) + 10);
+  display: flex;
+  align-items: center;
+  justify-content: center;
+  background: color-mix(in srgb, var(--ink-text-base) 28%, transparent);
+  animation: ink-fade-in 180ms var(--ink-ease-out);
+}
+
+.ink-onboarding-panel {
+  width: 100%;
+  max-width: 520px;
+  max-height: 90vh;
+  margin: 16px;
+  background: var(--ink-bg-base);
+  border: 1px solid var(--ink-border);
+  border-radius: 0.875rem;
+  box-shadow: var(--ink-elev-3);
+  display: flex;
+  flex-direction: column;
+  animation: ink-scale-in 180ms var(--ink-ease-out);
+}
+
+@keyframes ink-scale-in {
+  from { opacity: 0; transform: scale(0.96); }
+  to { opacity: 1; transform: scale(1); }
 }

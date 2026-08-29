@@ -28,6 +28,9 @@ export function activate(): void {
   const backend = createBackend();
   const appBackend = new AppBackend({ backend });
 
+  // 出厂组件启停同步到渲染器白名单（停用组件渲染占位拒绝；读取失败保持出厂全量）
+  void appBackend.syncUiComponentGate();
+
   registerSettingsSections();
 
   const wave4 = activateWave4(appBackend);

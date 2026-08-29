@@ -14,6 +14,7 @@
 
 import { createBackend, type BackendAdapter, type ArtifactManifestEntry, type ToolSnapshotEntry, type BackendStatus, type KnowledgeGraphResult } from '@/shared/backend/backendAdapter';
 import { registerArtifactManifest } from '@/renderer/artifactLoader';
+import { setUiComponentsDisabled } from '@/renderer/componentRegistry';
 import { logger } from '@/shared/logger';
 import { ChannelHub, type SessionSnapshot, type HubEvent } from '@/shared/session/channelHub';
 import { isEventTypeName } from '@/shared/session/eventTypes';
@@ -33,6 +34,7 @@ import type {
 import mcpMarketSeed from '../../../seed_data/mcp_market.json';
 import toolsSeed from '../../../seed_data/tools.json';
 import uiSpecSeed from '../../../seed_data/ui_spec.json';
+import productManifest from '../../../manifest.json';
 
 export interface AppBackendOptions {
   backend?: BackendAdapter | null;
@@ -318,6 +320,59 @@ export class AppBackend {
     } catch (err) {
       logger.warn('app', '获取组件清单失败', { err: String(err) });
       return [];
+    }
+  }
+
+  /** 出厂界面组件清单（种子 manifest 契约段；组件 tab 合并展示的 factory 源）。 */
+  getFactoryComponents(): string[] {
+    return (
+      (productManifest as { contracts?: { renderer_components?: string[] } }).contracts
+        ?.renderer_components ?? []
+    );
+  }
+
+  /**
+   * 出厂界面组件启停状态（组件 tab 数据源）：
+   * 宿主经 engine.ui_components_get（factory 权威 = 配方白名单未过滤全集）；
+   * 无宿主回落种子 manifest 契约清单（出厂全量、零停用）。
+   */
+  async getUiComponentsState(): Promise<{ factory: string[]; disabled: string[]; active: string[] }> {
+    const factory = this.getFactoryComponents();
+    if (!this.backend?.available) {
+      return { factory, disabled: [], active: factory };
+    }
+    try {
+      return await this.backend.uiComponentsGet();
+    } catch (err) {
+      logger.warn('app', '获取出厂组件启停状态失败（回落出厂全量）', { err: String(err) });
+      return { factory, disabled: [], active: factory };
+    }
+  }
+
+  /** 停用/恢复出厂组件（组件 tab 勾选落地面；非法名结构化拒绝）。 */
+  async setUiComponentsDisabled(
+    disabled: string[],
+  ): Promise<{ ok: boolean; disabled?: string[]; error?: string }> {
+    if (!this.backend?.available) {
+      logger.info('app', '停用出厂组件（dev 回退）', { disabled });
+      return { ok: true, disabled };
+    }
+    try {
+      const result = await this.backend.uiComponentsSetDisabled(disabled);
+      return { ok: true, disabled: result.disabled ?? [] };
+    } catch (err) {
+      logger.warn('app', '停用出厂组件失败', { err: String(err) });
+      return { ok: false, error: String(err) };
+    }
+  }
+
+  /** 出厂组件启停应用到渲染器白名单（停用组件渲染占位拒绝；读取失败保持现状）。 */
+  async syncUiComponentGate(): Promise<void> {
+    try {
+      const state = await this.getUiComponentsState();
+      setUiComponentsDisabled(state.disabled);
+    } catch (err) {
+      logger.warn('app', '出厂组件启停同步渲染白名单失败', { err: String(err) });
     }
   }
 

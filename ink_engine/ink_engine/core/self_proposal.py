@@ -192,6 +192,10 @@ class ProposalValidator:
         self._knowledge_schema = knowledge_schema
         self._ui_validator = UISchemaValidator()
 
+    def set_allowed_components(self, names: tuple[str, ...]) -> None:
+        """运行期更新组件白名单（出厂组件停用即时生效；后续 ui 补丁同源）。"""
+        self._allowed_components = names
+
     def validate(self, proposal: SelfProposal) -> list[str]:
         """校验一条提案：违规清单（空 = 通过）。
 

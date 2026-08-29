@@ -22,6 +22,8 @@ import type { UIBind } from './uiSpecTypes';
 export type PlainComponent = ComponentType<Record<string, unknown>>;
 
 const components = new Map<string, PlainComponent>();
+/** 已停用出厂组件（组件 tab 勾选落地面；停用组件渲染占位拒绝）。 */
+const disabledComponents = new Set<string>();
 
 /** 注册组件（同名覆盖——内置基线优先，演化产物可接管）。 */
 export function registerComponent(name: string, component: PlainComponent): void {
@@ -32,6 +34,17 @@ export function registerComponent(name: string, component: PlainComponent): void
 /** 组件是否已注册（白名单判定）。 */
 export function isComponentRegistered(name: string): boolean {
   return components.has(name);
+}
+
+/** 出厂组件启停同步（组件 tab 勾选落地面；整集替换）。 */
+export function setUiComponentsDisabled(names: string[]): void {
+  disabledComponents.clear();
+  for (const name of names) disabledComponents.add(name);
+}
+
+/** 组件是否启用（停用集排除；与注册白名单并存的第二道闸）。 */
+export function isComponentEnabled(name: string): boolean {
+  return !disabledComponents.has(name);
 }
 
 /** 解析组件：未注册返回 null（渲染占位拒绝）。 */
@@ -125,6 +138,10 @@ export function DynamicComponent({
 
   if (!Comp) {
     return <>{rejectPlaceholder(`未注册组件：${name}（组件白名单拒绝）`)}</>;
+  }
+
+  if (!isComponentEnabled(name)) {
+    return <>{rejectPlaceholder(`组件已停用：${name}（出厂组件停用）`)}</>;
   }
 
   if (bind) {

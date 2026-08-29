@@ -112,6 +112,15 @@ describe('Tauri 桥适配器', () => {
     expect(calls[2].args).toEqual({ threadId: 'thread-a', key: 'patch.rule', decision: 'accept' });
     expect(calls[9].args).toEqual({ name: 'chain-v3-1720000000000-abc.sqlite' });
   });
+
+  it('出厂组件启停命令经 invoke 直调（命令名/参数形态对齐宿主）', async () => {
+    const { invoker, calls } = mockInvoker();
+    const backend = createTauriBackend(invoker);
+    await backend.uiComponentsGet();
+    await backend.uiComponentsSetDisabled(['message_list']);
+    expect(calls.map((call) => call.cmd)).toEqual(['ui_components.get', 'ui_components.set_disabled']);
+    expect(calls[1].args).toEqual({ disabled: ['message_list'] });
+  });
 });
 
 describe('远端会话存储（真实数据源注入 mock 后端）', () => {

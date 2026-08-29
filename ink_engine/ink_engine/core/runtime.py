@@ -112,6 +112,12 @@ BASELINE_RECORD_KEY = "tool_baseline"
 # 的入口，永远强制常驻，用户不可摘除。
 BASELINE_IMMUTABLE_TOOLS: frozenset[str] = frozenset({"search_tools", "request_tool"})
 
+# 出厂界面组件启停持久化（records 通道；与常驻必带集同形态，重启经
+# _load_ui_components_disabled 装载）。禁用集 ⊆ 配方 ui_allowed_components
+# 出厂白名单，装配期过滤喂校验器与初始界面校验（三层白名单同源）。
+UI_COMPONENTS_RECORD_COLLECTION = "runtime_config"
+UI_COMPONENTS_RECORD_KEY = "ui_components_disabled"
+
 
 def _spec_identity(spec: Any) -> str:
     """工具 spec 的确定性结构身份（供引擎缓存键使用）。
@@ -443,6 +449,11 @@ class Runtime:
         # 增删——collect_specs 只注入本集合的完整 schema 进每回合 tools
         # 参数，其余工具经 search_tools/request_tool 动态绑定）
         self._baseline_names: frozenset[str] = BASELINE_TOOL_NAMES
+        # 出厂界面组件白名单基线（= 配方 ui_allowed_components 未过滤全集；
+        # 用户可在组件 tab 启停，停用集从活跃白名单剔除）
+        self._ui_factory_components: frozenset[str] = frozenset()
+        # 已停用出厂组件（装配期过滤 ui_allowed_components；records 持久化）
+        self._ui_components_disabled: frozenset[str] = frozenset()
         self.engine: Engine | None = None
         self.engine_llm: AsyncLLM | None = None
 
@@ -635,9 +646,16 @@ class Runtime:
             await self.event_type_registry.load()
             await self.event_type_registry.save()
 
-        # ⑥ 校验器与工具可信度闸门（配方白名单；提案形态的第一道闸门）
+        # ⑥ 校验器与工具可信度闸门（配方白名单；提案形态的第一道闸门）。
+        #    出厂界面组件启停恢复在此前装载：配方白名单 - 停用集 = 活跃
+        #    白名单，校验器与初始界面校验（⑧）共用同一过滤结果
+        self._ui_factory_components = frozenset(recipe.ui_allowed_components)
+        self._ui_components_disabled = await self._load_ui_components_disabled()
+        ui_allowed_components = tuple(
+            sorted(self._ui_factory_components - self._ui_components_disabled)
+        )
         self.validator = ProposalValidator(
-            allowed_components=recipe.ui_allowed_components,
+            allowed_components=ui_allowed_components,
             allowed_channels=recipe.ui_allowed_channels,
             allowed_theme_tokens=recipe.ui_allowed_theme_tokens,
             graph_registries=self.graph_registries,
@@ -682,7 +700,7 @@ class Runtime:
         ui_spec: dict | None = recipe.ui_spec
         ui_violations = UISchemaValidator().validate(
             recipe.ui_spec or {},
-            allowed_components=recipe.ui_allowed_components,
+            allowed_components=ui_allowed_components,
             allowed_channels=recipe.ui_allowed_channels,
             allowed_theme_tokens=recipe.ui_allowed_theme_tokens,
         )
@@ -1166,6 +1184,66 @@ class Runtime:
         tools = (record or {}).get("tools")
         if isinstance(tools, list):
             self._apply_baseline(tools)
+
+    # ── 出厂界面组件启停（组件 tab 管理面；出厂白名单可停用）──
+
+    @property
+    def ui_factory_components(self) -> tuple[str, ...]:
+        """出厂界面组件白名单基线（配方 ui_allowed_components 未过滤全集）。"""
+        return tuple(sorted(self._ui_factory_components))
+
+    @property
+    def ui_components_disabled(self) -> tuple[str, ...]:
+        """当前已停用出厂组件名（排序）。"""
+        return tuple(sorted(self._ui_components_disabled))
+
+    @property
+    def ui_allowed_components(self) -> tuple[str, ...]:
+        """活跃界面组件白名单（出厂全集 - 停用集；校验器/界面校验同源）。"""
+        return tuple(sorted(self._ui_factory_components - self._ui_components_disabled))
+
+    async def set_ui_components_disabled(
+        self, names: list[str] | tuple[str, ...]
+    ) -> tuple[str, ...]:
+        """停用/恢复出厂组件（组件 tab 勾选落地面）。
+
+        - 仅可停用出厂白名单内的组件（未登记名结构化拒绝）；
+        - 生效面：校验器白名单即时剔除 → 后续 ui 补丁引用停用组件被拒；
+        - 持久化：records 通道（runtime_config/ui_components_disabled），
+          重启经 _load_ui_components_disabled 装配期过滤（同源）。
+        """
+        requested = frozenset(names or ())
+        unknown = sorted(requested - self._ui_factory_components)
+        if unknown:
+            raise ValueError(
+                f"未登记出厂组件不能停用: {', '.join(unknown)}"
+            )
+        self._ui_components_disabled = requested
+        if self.validator is not None:
+            self.validator.set_allowed_components(self.ui_allowed_components)
+        if self.storage is not None:
+            await self.storage.put_record(
+                UI_COMPONENTS_RECORD_COLLECTION,
+                UI_COMPONENTS_RECORD_KEY,
+                {"disabled": sorted(self._ui_components_disabled)},
+            )
+        return self.ui_components_disabled
+
+    async def _load_ui_components_disabled(self) -> frozenset[str]:
+        """重启装载停用组件集（records 通道；坏形态/缺记录沿用出厂全量白名单）。"""
+        if self.storage is None:
+            return frozenset()
+        try:
+            record = await self.storage.get_record(
+                UI_COMPONENTS_RECORD_COLLECTION, UI_COMPONENTS_RECORD_KEY
+            )
+        except Exception as exc:
+            logger.warning("停用组件集读取失败（沿用出厂全量白名单）: %s", exc)
+            return frozenset()
+        names = (record or {}).get("disabled")
+        if isinstance(names, list) and all(isinstance(name, str) for name in names):
+            return frozenset(names)
+        return frozenset()
 
     async def rebuild_engine(self, llm: AsyncLLM | None = None) -> Engine:
         """重建回合图引擎（配置/工具表变更才重建；llm 缺省 = 宿主解析）。

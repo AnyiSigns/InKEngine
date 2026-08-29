@@ -66,11 +66,7 @@ def test_validate_ui() -> None:
                     "kind": "container",
                     "type": "column",
                     "children": [
-                        {
-                            "kind": "component",
-                            "type": "message_list",
-                            "bind": {"channel": "state", "path": "messages"},
-                        }
+                        {"kind": "component", "type": "message_list"},
                     ],
                 },
             }
@@ -103,6 +99,23 @@ def test_validate_ui() -> None:
         },
     )
     assert any("未放行" in v for v in validator.validate(bad_bind))
+
+
+def test_validate_ui_allowed_components_runtime_update() -> None:
+    """运行期组件白名单更新（出厂组件停用即时剔除 → 后续 ui 补丁被拒）。"""
+    validator = _validator()
+    proposal = _proposal(
+        PatchKind.UI,
+        {
+            "spec": {
+                "name": "x",
+                "root": {"kind": "component", "type": "message_list"},
+            }
+        },
+    )
+    assert validator.validate(proposal) == []
+    validator.set_allowed_components(("column",))
+    assert any("组件未注册" in v for v in validator.validate(proposal))
 
 
 def test_validate_theme() -> None:

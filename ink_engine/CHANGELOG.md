@@ -125,10 +125,6 @@ InkEngine 遵循 [语义化版本](https://semver.org/lang/zh-CN/)（`MAJOR.MINO
   core/tool_vetting.py（清单校验/静态钩子/影子运行写虚拟化独立副本）；
   core/retrieval.py（Retriever 注册表 + 指令注入扫描 + 调配器 evidence
   源接线）。
-- **产品壳 text_forge_evo**：Tauri 前端 + FastAPI 后端 + SSE 传输 +
-  审批容器（跨平台进程锁/11 步装配骨架/introspection 元工具流水线/
-  对话面板/模型引导/文件挂载点沙箱 fail-closed/凭据剥离）；经
-  `[tool.uv.sources]` 以 `../ink_engine` 路径依赖引擎源码，editable 开发。
 
 ### 外部生态与孵化闭环
 

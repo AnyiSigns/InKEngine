@@ -332,6 +332,71 @@ async def test_baseline_persists_across_reboot():
     await host_b.close()
 
 
+# ── 10. 出厂界面组件启停（组件 tab 管理面）──
+
+
+async def test_ui_components_disabled_filters_whitelist():
+    from ink_engine.core.runtime import Runtime
+    from ink_engine.core.self_proposal import PatchKind, SelfProposal
+
+    host = FakeHost()
+    runtime = await Runtime().boot(host, _minimal_recipe())
+    factory = runtime.ui_factory_components
+    assert "message_list" in factory and "agent_input" in factory
+    await runtime.set_ui_components_disabled(["message_list"])
+    assert "message_list" in runtime.ui_components_disabled
+    assert "message_list" not in runtime.ui_allowed_components
+    assert "agent_input" in runtime.ui_allowed_components
+    # 校验器白名单即时剔除：引用停用组件的 ui 补丁被拒
+    proposal = SelfProposal(
+        PatchKind.UI,
+        {"spec": {"name": "x", "root": {"kind": "component", "type": "message_list"}}},
+        base_version=1,
+    )
+    assert any("组件未注册" in v for v in runtime.validator.validate(proposal))
+    # 恢复出厂 → 白名单回归
+    await runtime.set_ui_components_disabled([])
+    assert runtime.ui_allowed_components == tuple(sorted(factory))
+    await host.close()
+
+
+async def test_ui_components_disabled_rejects_unknown():
+    import pytest
+
+    from ink_engine.core.runtime import Runtime
+
+    host = FakeHost()
+    runtime = await Runtime().boot(host, _minimal_recipe())
+    with pytest.raises(ValueError, match="未登记出厂组件"):
+        await runtime.set_ui_components_disabled(["no_such_component_xyz"])
+    await host.close()
+
+
+async def test_ui_components_disabled_persists_across_reboot():
+    from ink_engine.core.runtime import Runtime
+    from ink_engine.core.storage import Storage
+
+    storage: Storage = create_storage("memory://")
+
+    class SharedStorageHost(FakeHost):
+        async def create_storage(self) -> Any:
+            self.calls.append("create_storage")
+            return storage
+
+    host_a = SharedStorageHost()
+    runtime_a = await Runtime().boot(host_a, _minimal_recipe())
+    await runtime_a.set_ui_components_disabled(["message_list"])
+    assert "message_list" not in runtime_a.ui_allowed_components
+    await host_a.close()
+
+    host_b = SharedStorageHost()
+    runtime_b = await Runtime().boot(host_b, _minimal_recipe())
+    # 重启经 records 恢复停用集：装配期白名单已过滤
+    assert "message_list" in runtime_b.ui_components_disabled, "重启后停用集应从 records 恢复"
+    assert "message_list" not in runtime_b.ui_allowed_components
+    await host_b.close()
+
+
 # ── 内部辅助 ──
 
 

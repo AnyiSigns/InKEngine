@@ -1,7 +1,6 @@
 # InKEngine
 
-InKling 的仓库：自学习 agent 引擎（ink_engine）+ 种子生态（seeds/）+
-InKling 桌面产品（inkling/）。
+InKling 的仓库：自学习 agent 引擎（ink_engine）+ InKling 桌面产品（inkling/）。
 
 ## 仓库构成
 
@@ -27,9 +26,6 @@ InKling 桌面产品（inkling/）。
    `inkling/manifest.json`。
    安全边界：**headless 无人值守模式不设人工审批，仅限可信自动化场景**
    （`--approve` 由调用方显式声明即放行 review 档；外部调用链须自证可信）。
-- **seeds/** — 种子生态仓库（目录即清单）：产品种子身份登记。
-  领域深度归宿主产品层（领域规则/样例/谓词由产品自写并成对维护），
-  引擎只带通用种子与 boot 自举基线。登记明细见 `seeds/README.md`。
 
 ## 历史形态
 

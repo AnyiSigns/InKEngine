@@ -464,6 +464,101 @@ def knowledge_entry_to_skill(entry: KnowledgeEntry) -> SkillEntry:
     )
 
 
+def build_assembly_skill_entry(
+    candidate: Any,
+    verdict: Any,
+    *,
+    domain: str,
+    model_id: str,
+    evidence_edges: Sequence[Any] = (),
+    now: float | None = None,
+) -> SkillEntry:
+    """组装验证候选 → 技能条目（canary 单回合通过，低频长尾进技能池）。
+
+    与高频结晶（``crystallize_from_cache``）的差异：
+    - 来源 = 组装候选路径（canary 验证通过），非指纹缓存命中统计——
+      这是「复现 → 泛化」的第一格：没走过的路经验证也能结晶；
+    - hit/fail 计数 = 0（单次验证无命中统计）；test_report 标注
+      「证据待积累」——冷启动阶段 edge_evidence 可能全零，报告不
+      谎报成功率；
+    - 版本 = 1；去重（同名/同指纹）由接线侧（技能候选池审批前）判定。
+    """
+    now_ts = now or time.time()
+    graph = candidate.graph
+    chain = tuple(graph.node_bindings)
+    name = _assembly_skill_name(chain)
+    contract_snapshot = tuple(
+        (
+            binding.type_name,
+            str(getattr(binding.contract, "version", None) or "1"),
+        )
+        for binding in graph.node_bindings.values()
+    )
+    evidence_snapshot = tuple(
+        {
+            "src_type": str(edge.src_type),
+            "dst_type": str(edge.dst_type),
+            "src_contract_version": str(
+                getattr(edge.key, "src_contract_version", "") or ""
+            ),
+            "dst_contract_version": str(
+                getattr(edge.key, "dst_contract_version", "") or ""
+            ),
+            "context_domain": str(edge.context_domain or domain),
+            "success_count": int(getattr(edge, "success_count", 0) or 0),
+            "fail_count": int(getattr(edge, "fail_count", 0) or 0),
+        }
+        for edge in evidence_edges
+    )
+    has_evidence = bool(evidence_snapshot) and any(
+        e["success_count"] or e["fail_count"] for e in evidence_snapshot
+    )
+    test_report = {
+        "skill_name": name,
+        "version": 1,
+        "skill_kind": classify_skill_kind(graph.to_dict()),
+        "domain": domain,
+        "model_id": model_id,
+        "success_rate": 1.0 if verdict.ok else None,
+        "hit_count": 0,
+        "fail_count": 0,
+        "sample_edges": [
+            {"src_type": e["src_type"], "dst_type": e["dst_type"],
+             "success_count": e["success_count"], "fail_count": e["fail_count"]}
+            for e in evidence_snapshot
+        ],
+        "generated_at": now_ts,
+        "note": (
+            "组装验证路径结晶（canary 单回合通过）"
+            if verdict.ok
+            else "组装候选（canary 未通过，不应落库）"
+        )
+        + ("；证据待积累" if not has_evidence else ""),
+    }
+    return SkillEntry(
+        name=name,
+        version=1,
+        domain=domain,
+        fingerprint=str(verdict.digest or ""),
+        kind=classify_skill_kind(graph.to_dict()),
+        path=graph.to_dict(),
+        contract_snapshot=contract_snapshot,
+        evidence_snapshot=evidence_snapshot,
+        model_id=model_id,
+        hit_count=0,
+        fail_count=0,
+        test_report=test_report,
+        source_path=str(verdict.digest or ""),
+        created_at=now_ts,
+        updated_at=now_ts,
+    )
+
+
+def _assembly_skill_name(chain: Sequence[str]) -> str:
+    """组装候选技能名：asm.<链类型名>（确定性、可读、可去重）。"""
+    return f"asm.{'.'.join(chain)}"
+
+
 class KnowledgeSkillStore:
     """技能存储 = 知识集 kind=path 条目的访问器（合并容器，单一权威 = 知识集）。
 
@@ -709,6 +804,7 @@ __all__ = [
     "SkillCrystallizeHook",
     "SkillEntry",
     "SkillStore",
+    "build_assembly_skill_entry",
     "build_test_report",
     "classify_skill_kind",
     "crystallize_from_cache",

@@ -24,8 +24,11 @@ InKling 的仓库：自学习 agent 引擎（ink_engine）+ InKling 桌面产品
    产品手册见 `inkling/docs/manual.md`，机制覆盖审计见
    `inkling/docs/mechanism_coverage_matrix.md`，身份登记见
    `inkling/manifest.json`。
-   安全边界：**headless 无人值守模式不设人工审批，仅限可信自动化场景**
+    安全边界：**headless 无人值守模式不设人工审批，仅限可信自动化场景**
    （`--approve` 由调用方显式声明即放行 review 档；外部调用链须自证可信）。
+   headless 二进制运行期需嵌入式 Python 的 `pythonXY.dll` 可加载（调用前把
+   对应 CPython 安装目录加入 `PATH`，否则启动即退出码 `0xC0000135`）。
+
 
 ## 历史形态
 

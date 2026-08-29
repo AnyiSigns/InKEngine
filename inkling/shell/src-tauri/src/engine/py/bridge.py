@@ -15,6 +15,7 @@ import asyncio
 import json
 import os
 import sys
+import time
 from typing import Any, Callable
 
 from ink_engine.core.exceptions import GraphDefinitionError
@@ -655,6 +656,7 @@ def _register_engine_core_ops() -> None:
     @op_async("engine.rebuild")
     async def _rebuild(args: dict) -> Any:
         runtime = runtime_handle()
+        await _refresh_max_tool_rounds(runtime)
         await runtime.rebuild_engine()
         return None
 
@@ -670,6 +672,7 @@ def _register_engine_core_ops() -> None:
         if reload is not None:
             reload()
         runtime = runtime_handle()
+        await _refresh_max_tool_rounds(runtime)
         await runtime.rebuild_engine()
         return {"reloaded": True}
 
@@ -2407,6 +2410,26 @@ def _safe_attr_call(runtime: Any, attr: str, default: Any = None) -> Any:
         return default
 
 
+async def _refresh_max_tool_rounds(runtime: Any) -> None:
+    """引擎重建前刷新回合工具上限覆盖（能力记录 app_capabilities/capability）。
+
+    覆盖 = 设置项（max_tool_rounds）；无记录/缺失/非法 = 清除覆盖回落
+    节点 config 默认。异常吞掉（设置项缺失不阻断引擎重建主流程）。
+    """
+    from inkling_host.graph_recipe import set_max_tool_rounds_override
+
+    try:
+        storage = getattr(runtime, "storage", None)
+        if storage is None:
+            set_max_tool_rounds_override(None)
+            return
+        record = await storage.get_record("app_capabilities", "capability")
+        raw = None if record is None else record.get("max_tool_rounds")
+        set_max_tool_rounds_override(None if raw is None else int(raw))
+    except Exception:
+        set_max_tool_rounds_override(None)
+
+
 @op_async("why.audit")
 async def _why_audit(args: dict) -> Any:
     """「为什么」下钻：把留痕层的可解释数据汇聚为结构化理由链。
@@ -2541,6 +2564,16 @@ async def _report_growth(args: dict) -> Any:
             growth_snapshot = pipeline.snapshot()
         except Exception:
             growth_snapshot = None
+    # 成长指标时序（复利实证数据面：range 参数取最近 N 条，缺省 120）
+    metrics_series = None
+    if pipeline is not None:
+        try:
+            limit = int(args.get("range") or 0)
+            series = await pipeline.metric_series(limit=limit or 120)
+            if series:
+                metrics_series = series
+        except Exception:
+            metrics_series = None
 
     return {
         "window": args.get("window") or "current",
@@ -2552,6 +2585,7 @@ async def _report_growth(args: dict) -> Any:
         "edge_success_total": success_total,
         "edge_fail_total": fail_total,
         "growth": growth_snapshot,
+        "metrics": metrics_series,
         "recent_activity": [
             {"type": a.get("type") or a.get("kind"), "ts": a.get("ts")}
             for a in recent_activity
@@ -2935,6 +2969,16 @@ async def _path_assemble(args: dict) -> dict[str, Any]:
     audit = list(audit_records)
     if not audit and isinstance(data.get("audit"), list):
         audit = data["audit"]
+    # 组装→结晶接线（走审批卡）：canary 单回合通过的候选 → 技能候选池 →
+    # KNOWLEDGE 补丁审批（L1 人工卡）→ 落知识集（补丁链可回退）。
+    # 去重 = 同指纹已存在技能跳过；evidence 冷启动全零 = 报告标「证据待积累」。
+    skill_candidates = []
+    try:
+        skill_candidates = await _propose_assembly_skills(
+            runtime, host, result, domain, thread_id=args.get("thread_id")
+        )
+    except Exception as exc:
+        logger.warning("组装技能结晶提案失败（忽略）: %s", exc)
     return _jsonable(
         {
             "ok": True,
@@ -2949,8 +2993,90 @@ async def _path_assemble(args: dict) -> dict[str, Any]:
             "multipath_signal": bool(data.get("multipath_signal", False)),
             "fallback_reason": data.get("fallback_reason"),
             "llm_attempts": int(data.get("llm_attempts") or 0),
+            "skill_candidates": skill_candidates,
         }
     )
+
+
+async def _propose_assembly_skills(
+    runtime: Any,
+    host: Any,
+    result: Any,
+    domain: str,
+    *,
+    thread_id: str | None = None,
+) -> list[dict[str, Any]]:
+    """组装验证候选 → 技能候选池（审批卡后落知识集补丁链）。
+
+    canary 通过 = 单回合验证成功，进候选池（低频长尾路径可结晶）；
+    同指纹已存在 = 跳过（去重）；evidence 冷启动全零 = test_report
+    标注「证据待积累」不谎报成功率。提案异常只记日志（观测不阻断
+    组装主流程）。
+    """
+    from ink_engine.core.skill_crystal import (
+        build_assembly_skill_entry,
+        skill_to_knowledge_entry,
+    )
+
+    incubation = getattr(host, "incubation", None)
+    if incubation is None:
+        return []
+    candidates = list(result.candidates or ())
+    verdicts = {v.rank: v for v in (result.canary or ())}
+    if not candidates or not verdicts:
+        return []
+    skill_store = getattr(runtime, "skill_store", None)
+    evidence_store = getattr(runtime, "edge_evidence_store", None)
+    model_id = os.environ.get("INK_LLM_MODEL", "")
+    ctx = StandaloneApprovalContext(thread_id)
+    proposed: list[dict[str, Any]] = []
+    for candidate in candidates:
+        verdict = verdicts.get(candidate.rank)
+        if verdict is None or not verdict.ok:
+            continue
+        if skill_store is not None:
+            try:
+                existing = await skill_store.get_by_fingerprint(verdict.digest)
+                if existing is not None:
+                    continue
+            except Exception:
+                pass
+        evidence: list[Any] = []
+        if evidence_store is not None:
+            try:
+                evidence = list(await evidence_store.list_edges(domain))
+            except Exception:
+                evidence = []
+        skill = build_assembly_skill_entry(
+            candidate,
+            verdict,
+            domain=domain,
+            model_id=model_id,
+            evidence_edges=evidence,
+        )
+        entry = skill_to_knowledge_entry(skill, now=time.time())
+        try:
+            outcome = await incubation.propose_knowledge_patch(
+                ctx,
+                entry,
+                rationale=(
+                    "组装验证路径结晶（canary 通过："
+                    + " → ".join(candidate.chain)
+                    + "）；证据待积累"
+                ),
+                round_id=thread_id,
+            )
+            proposed.append(
+                {
+                    "name": skill.name,
+                    "fingerprint": skill.fingerprint,
+                    "applied": bool(getattr(outcome, "applied", False)),
+                    "reason": str(getattr(outcome, "reason", "") or ""),
+                }
+            )
+        except Exception as exc:
+            logger.warning("组装技能提案失败（忽略）: %s", exc)
+    return proposed
 
 
 @op_async("path.import_seed_paths")

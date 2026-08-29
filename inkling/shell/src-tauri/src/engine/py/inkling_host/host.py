@@ -619,6 +619,18 @@ async def boot_inkling(
         host.assembly_stores.append(evidence_store)
     from .recipe_loader import build_recipe
 
+    # 推演分支评估器（review.json 数据驱动 + 确定性 dimension_scorer）：
+    # 注入后节点返回 __simulate__ 才可执行（此前 evaluator=None = 引擎
+    # 显式拒绝）；评审策略外在于被评估者——默认实现只做启发式打分，
+    # 不引入 LLM/随机，保持可回放可断言
+    simulation_evaluator = None
+    try:
+        from .scoring import build_simulation_evaluator
+
+        simulation_evaluator = build_simulation_evaluator(bundle.data["review.json"])
+    except Exception:
+        simulation_evaluator = None
+
     recipe = build_recipe(
         bundle,
         l2_vetting_hook=composed_l2_hook,
@@ -632,14 +644,29 @@ async def boot_inkling(
                 # 来源可留痕可回放），RunOptions.branch_mixer 留出口给
                 # 测试与重写场景
                 branch_mixer=PatchChainBranchMixer(),
+                evaluator=simulation_evaluator,
             )
             if settle_hooks is not None
-            else RunOptions(branch_mixer=PatchChainBranchMixer())
+            else RunOptions(
+                branch_mixer=PatchChainBranchMixer(),
+                evaluator=simulation_evaluator,
+            )
         ),
     )
     runtime = await InkRuntime(_five_source_factory(bundle)).boot(host, recipe)
     runtime_holder["runtime"] = runtime
     revert_state["runtime"] = runtime
+    # 回合工具上限覆盖（能力记录设置项）启动装载：默认无记录 = 回落
+    # seed graph.json 节点 config 值；设置保存后经 capability_put →
+    # engine.rebuild 路径刷新
+    try:
+        from .graph_recipe import set_max_tool_rounds_override
+
+        cap = await runtime.storage.get_record("app_capabilities", "capability")
+        raw = None if cap is None else cap.get("max_tool_rounds")
+        set_max_tool_rounds_override(None if raw is None else int(raw))
+    except Exception:
+        pass
     # 技能存储挂知识集（合并容器：技能 = 知识集 kind=path 条目；未开指纹
     # 缓存 flag 时也绑——市场安装/外部导入的技能可持久化，不再退化为
     # 无持久化的内存落点）

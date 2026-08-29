@@ -91,6 +91,36 @@
       "credibility": 0.9,
       "title": "孵化触发策略",
       "tags": ["incubation", "policy", "distill"]
+    },
+    {
+      "id": "seed.inkling.reuse_before_collect",
+      "level": "project",
+      "kind": "rule",
+      "data": {
+        "rule": {
+          "message": "研究/文档任务入料前先检索既有知识集与技能（复用优先）：命中相关记忆先引用再决定是否新采集——避免重复劳动与知识集冗余，蒸馏沉淀的复利依赖复用而非堆料",
+          "context": { "domain": "knowledge_research", "rule_ref": ["rule.material.required_fields"] }
+        }
+      },
+      "source": "model",
+      "credibility": 0.9,
+      "title": "复用优先：入料前先检索既有知识集",
+      "tags": ["reuse", "retrieval", "research"]
+    },
+    {
+      "id": "seed.inkling.correction_authority",
+      "level": "project",
+      "kind": "rule",
+      "data": {
+        "rule": {
+          "message": "用户修正信号是最可靠的蒸馏素材（来源分级最高）：知识冲突或不确定时以用户最近的修正为准，并把反例沉淀为规则条目；重复出现 ≥ 3 次的同一根因升级为人工确认候选，不直接落库",
+          "context": { "source_rank": ["user", "dialog", "model", "web"], "repeat_threshold": 3 }
+        }
+      },
+      "source": "model",
+      "credibility": 0.9,
+      "title": "用户修正权威：冲突以用户修正为准",
+      "tags": ["user_correction", "distill", "authority"]
     }
   ]
 }

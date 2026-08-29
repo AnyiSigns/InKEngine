@@ -143,11 +143,12 @@ export class AppBackend {
     }
   }
 
-  /** 能力记录读取（权限矩阵数据面：自动审批勾选 + 档位覆盖）。 */
+  /** 能力记录读取（权限矩阵数据面：自动审批勾选 + 档位覆盖 + 回合工具上限）。 */
   async getCapability(): Promise<{
     autoApproveTools: string[];
     autoApproveAllReview: boolean;
     tierOverrides: Record<string, string>;
+    maxToolRounds?: number;
   }> {
     if (!this.backend?.available) {
       return { autoApproveTools: [], autoApproveAllReview: false, tierOverrides: {} };
@@ -158,10 +159,26 @@ export class AppBackend {
         autoApproveTools: Array.isArray(cap.auto_approve_tools) ? cap.auto_approve_tools : [],
         autoApproveAllReview: cap.auto_approve_all_review === true,
         tierOverrides: cap.tier_overrides && typeof cap.tier_overrides === 'object' ? (cap.tier_overrides as Record<string, string>) : {},
+        maxToolRounds: typeof cap.max_tool_rounds === 'number' ? cap.max_tool_rounds : undefined,
       };
     } catch (err) {
       logger.warn('app', '读取能力记录失败', { err: String(err) });
       return { autoApproveTools: [], autoApproveAllReview: false, tierOverrides: {} };
+    }
+  }
+
+  /** 回合工具上限写入（执行参数：llm_decider 单回合工具调用护栏）。 */
+  async setMaxToolRounds(rounds: number): Promise<{ ok: boolean; error?: string }> {
+    if (!this.backend?.available) {
+      logger.info('app', '回合工具上限设置（dev 回退）', { rounds });
+      return { ok: true };
+    }
+    try {
+      await this.backend.capabilityPut({ max_tool_rounds: rounds });
+      return { ok: true };
+    } catch (err) {
+      logger.warn('app', '回合工具上限设置失败', { err: String(err) });
+      return { ok: false, error: String(err) };
     }
   }
 

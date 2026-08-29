@@ -90,7 +90,7 @@ InKling 是本地单机桌面产品：引擎自学习、数据全本地（sqlite
 | 审计 | append-only（补丁/审批/回退/组装/汇流全留痕；on_reverted 通知钩子） |
 | 沙箱三件 | 文件（越界/符号链接拒绝 + 写前快照）/ 进程（白名单枚举 + 超时 kill）/ 网络（域名白名单 + 厂商源二次核对） |
 | 环境机制 | 环境声明 = 数据（随补丁链版本化），提供器 = 机制（local/web_bridge/container 自动装配）；用户不单独管理，环境类变更经对话审批卡；ContainerUnavailable 结构化降级 |
-| headless 边界 | **headless 无人值守模式不设人工审批，仅限可信自动化场景**——`--approve` 由调用方显式声明即放行 review 档，桌面壳的审批闸门在无人值守形态下不参与；外部自动化调用链须自证可信（风控自担） |
+| headless 边界 | **headless 无人值守模式不设人工审批，仅限可信自动化场景**——`--approve` 由调用方显式声明即放行 review 档，桌面壳的审批闸门在无人值守形态下不参与；外部自动化调用链须自证可信（风控自担）。运行期约束：`inkling-headless` 依赖嵌入式 Python（pyo3 auto-initialize），即使 `--os-op` 路径不经 Python 回合也需 `pythonXY.dll` 可加载——调用前须把对应 CPython 安装目录加入 `PATH`，否则启动直接退出码 `0xC0000135`（DLL 未找到，无可读诊断）；构建期 `PYO3_PYTHON` 见 `inkling/cli/.cargo/config.toml`（相对 cwd 两层） |
 
 ### H 运维与恢复
 

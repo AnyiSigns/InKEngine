@@ -52,6 +52,30 @@ STATE_PENDING = "pending"
 
 # LLM 决策循环护栏（回合工具循环上限；成本护栏与参考宿主同阶）
 MAX_TOOL_ROUNDS = 8
+
+# max_tool_rounds 用户覆盖（能力记录驱动；None = 用节点 config 默认值）。
+# 覆盖值在引擎重建前由宿主/桥从能力记录刷新（settings 保存 → capability_put
+# → engine.rebuild → 本模块刷新），节点执行时按最新值收口——不携带过期闭包。
+_MAX_TOOL_ROUNDS_OVERRIDE: int | None = None
+
+
+def set_max_tool_rounds_override(value: int | None) -> None:
+    """设置回合工具上限覆盖（None = 清除覆盖，回落节点 config 默认）。"""
+    global _MAX_TOOL_ROUNDS_OVERRIDE
+    if value is None:
+        _MAX_TOOL_ROUNDS_OVERRIDE = None
+        return
+    parsed = int(value)
+    if parsed < 1:
+        raise ValueError(f"max_tool_rounds 必须为正整数: {parsed}")
+    _MAX_TOOL_ROUNDS_OVERRIDE = parsed
+
+
+def max_tool_rounds_override() -> int | None:
+    """当前回合工具上限覆盖（None = 未覆盖，用节点 config 默认）。"""
+    return _MAX_TOOL_ROUNDS_OVERRIDE
+
+
 # 工具结果回填消息流的截断上限（上下文体积有界）
 TOOL_RESULT_MAX_CHARS = 4000
 # 组装轮次上限（候选展开执行的轮数护栏：超限回落默认规划；ENG9a-23——
@@ -604,7 +628,7 @@ def make_llm_decider_factory(
 
     def factory(config: dict[str, Any]) -> Callable[[Any], dict | None]:
         system_prompt = str(config.get("system_prompt") or "")
-        max_rounds = int(config.get("max_tool_rounds") or MAX_TOOL_ROUNDS)
+        default_max_rounds = int(config.get("max_tool_rounds") or MAX_TOOL_ROUNDS)
 
         async def restore_messages(ctx: Any) -> list[Message]:
             restored = ctx.state.get(STATE_MESSAGES) or []
@@ -643,6 +667,8 @@ def make_llm_decider_factory(
             messages = await restore_messages(ctx)
             reply = str(ctx.state.get("reply") or "")
             rounds = int(ctx.state.get("tool_rounds") or 0)
+            # 轮次上限运行时取用户覆盖（能力记录设置项），未覆盖 = config 默认
+            max_rounds = max_tool_rounds_override() or default_max_rounds
             if rounds >= max_rounds:
                 # 工具循环护栏强制收口：同时回填消息流（与正常路径一致），
                 # 保证跨回合历史含尾；add_messages 按 id 去重，重复回填不累积
@@ -1109,12 +1135,14 @@ __all__ = [
     "make_orchestrator_factory",
     "make_tool_pipeline_factory",
     "mark_mcp_server_available",
+    "max_tool_rounds_override",
     "mcp_server_available",
     "mcp_server_ids_of",
     "refresh_mcp_availability",
     "register_node_types",
     "register_tool_node_types",
     "server_availability_snapshot",
+    "set_max_tool_rounds_override",
     "spawn_group_specs",
     "tool_server_offline",
     "workflow_spec_from_data",

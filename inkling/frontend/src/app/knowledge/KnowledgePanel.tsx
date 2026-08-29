@@ -15,6 +15,8 @@ import { Archive, BookOpen, ChevronDown, ChevronRight, Download, Plus, RefreshCw
 import { Button } from '@/shared/ui/Button';
 import { TextInput } from '@/shared/ui/Field';
 import { createBackend } from '@/shared/backend/backendAdapter';
+import { buildChartSpec, type ChartSpec } from '@/shared/charts/chart_spec';
+import { chartSpecToSvgString } from '@/shared/charts/chart_export';
 import {
   compareCredibility,
   createKnowledgeOps,
@@ -38,6 +40,15 @@ interface GrowthStatus {
   last_flush_note?: string;
 }
 
+interface GrowthMetricPoint {
+  ts?: number;
+  knowledge_count?: number;
+  landed?: number;
+  collected_total?: number;
+  incubating_signals?: number;
+  gate_passed?: number;
+}
+
 const KIND_LABELS: Record<string, string> = {
   rule: '规则',
   template: '模板',
@@ -55,6 +66,7 @@ export function KnowledgePanel(): JSX.Element {
   const opsRef = useRef<KnowledgeOps>(createKnowledgeOps());
   const [data, setData] = useState<KnowledgeData | null>(null);
   const [growth, setGrowth] = useState<GrowthStatus | null>(null);
+  const [metrics, setMetrics] = useState<GrowthMetricPoint[]>([]);
   const [search, setSearch] = useState('');
   const [kindFilter, setKindFilter] = useState<string>('');
   const [expanded, setExpanded] = useState<Set<string>>(new Set());
@@ -85,6 +97,9 @@ export function KnowledgePanel(): JSX.Element {
         ...growth,
         knowledge_count: growth.knowledge_count ?? result?.knowledge_count ?? 0,
       });
+      if (Array.isArray(result?.metrics)) {
+        setMetrics(result.metrics as GrowthMetricPoint[]);
+      }
     } catch {
       // 宿主未就绪 = 空态说明（只读状态不阻断条目管理）
     }
@@ -194,6 +209,30 @@ export function KnowledgePanel(): JSX.Element {
 
   const passRate = growth?.gate_pass_rate !== undefined ? Math.round(growth.gate_pass_rate * 100) : null;
 
+  /** 成长趋势图（时序曲线：知识集规模 / 已落位 / 累计收集）。 */
+  const growthChart = useMemo((): ChartSpec | null => {
+    if (metrics.length < 2) return null;
+    const points = metrics.filter((m) => typeof m.ts === 'number');
+    if (points.length < 2) return null;
+    const labels = points.map((m) => {
+      const d = new Date((m.ts ?? 0) * 1000);
+      return `${String(d.getMonth() + 1).padStart(2, '0')}-${String(d.getDate()).padStart(2, '0')} ${String(d.getHours()).padStart(2, '0')}:${String(d.getMinutes()).padStart(2, '0')}`;
+    });
+    return buildChartSpec(
+      {
+        type: 'line',
+        labels,
+        series: [
+          { name: '知识集规模', values: points.map((m) => m.knowledge_count ?? 0) },
+          { name: '已落位', values: points.map((m) => m.landed ?? 0) },
+          { name: '累计收集信号', values: points.map((m) => m.collected_total ?? 0) },
+        ],
+        style: { width: 560, height: 200 },
+      },
+      { type: 'line' },
+    );
+  }, [metrics]);
+
   return (
     <div data-ui="knowledge_panel" className="flex flex-col gap-3">
       {/* ── 状态头：成长状态（生产端只读）── */}
@@ -231,6 +270,19 @@ export function KnowledgePanel(): JSX.Element {
         <p className="text-[9px] ink-text-faint" data-ui="growth_flush_note">
           {growth?.last_flush_note ?? '自学习管线就绪（回合收尾按需蒸馏）'}
         </p>
+        {growthChart ? (
+          <div className="mt-1 overflow-x-auto" data-ui="growth_trend">
+            <div
+              className="text-[10px] font-medium tracking-wide ink-text-muted mb-1"
+            >
+              成长趋势（回合指标时序 · 复利曲线）
+            </div>
+            <div
+              // eslint-disable-next-line react/no-danger
+              dangerouslySetInnerHTML={{ __html: chartSpecToSvgString(growthChart) }}
+            />
+          </div>
+        ) : null}
       </div>
 
       {/* ── 工具行 ── */}

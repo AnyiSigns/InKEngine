@@ -360,6 +360,7 @@ export interface BackendAdapter {
     auto_approve_tools?: string[];
     auto_approve_all_review?: boolean;
     tier_overrides?: Record<string, string>;
+    max_tool_rounds?: number;
     ui_spec?: unknown;
   }>;
   capabilityPut(record: Record<string, unknown>): Promise<unknown>;
@@ -425,7 +426,7 @@ export interface BackendAdapter {
   modelReload(): Promise<{ reloaded: boolean }>;
   // 设置节单通道收口（模型连接配置 / 搜索 key / 成长状态 / 原生目录选择器）
   searchKeysPut(keys: Record<string, string>): Promise<unknown>;
-  growthReport(): Promise<{ growth?: Record<string, unknown>; knowledge_count?: number }>;
+  growthReport(): Promise<{ growth?: Record<string, unknown>; knowledge_count?: number; metrics?: unknown }>;
   modelsRefresh(config: Record<string, unknown>): Promise<unknown>;
   modelsConfigGet(): Promise<Record<string, unknown>>;
   modelsConfigPut(config: Record<string, unknown>): Promise<unknown>;

@@ -267,6 +267,12 @@
   "tools.tier_set_failed": "Failed to set tier: {e}",
   "tools.auto_approve_set_failed": "Failed to set auto-approve: {e}",
 
+  "tools.rounds_title": "Max tool rounds",
+  "tools.rounds_hint": "Max tool calls per round (1-200, takes effect on save)",
+  "tools.rounds_invalid": "Max tool rounds must be an integer 1-200",
+  "tools.rounds_set_failed": "Failed to set max tool rounds: {e}",
+  "tools.rounds_saved": "Max tool rounds saved (engine rebuilt)",
+
   "message.knowledge_hit": "Knowledge retrieval · released · {n} related memories",
   "message.device_sense": "Device sense",
   "message.device_action": "Device action",

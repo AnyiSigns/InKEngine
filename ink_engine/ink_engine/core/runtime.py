@@ -606,7 +606,9 @@ class Runtime:
         #    snapshot）；重建引擎时注册进 settle 钩子链与事件观察传输。
         from .growth import GrowthPipeline
 
-        self.growth_pipeline = GrowthPipeline(self.knowledge_set)
+        self.growth_pipeline = GrowthPipeline(
+            self.knowledge_set, metric_store=self.storage
+        )
 
         # ④ harness 装配（定义注册 + 仓库落库；装配期写入经豁免上下文）。
         #    集合按集隔离（harness:<set_id>），与 knowledge:<set> 同构

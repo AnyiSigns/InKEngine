@@ -68,12 +68,17 @@
           "path": {
             "type": "object",
             "required": ["nodes"],
-            "additionalProperties": false,
             "properties": {
+              "name": { "type": "string" },
+              "entry": { "type": "string" },
               "nodes": {
                 "type": "object",
                 "additionalProperties": { "type": "object" }
-              }
+              },
+              "edges": { "type": "object" },
+              "exits": { "type": "array" },
+              "subgraphs": { "type": "object" },
+              "schema": {}
             }
           },
           "test_report": { "type": "object" }

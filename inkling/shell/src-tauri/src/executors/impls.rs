@@ -1500,14 +1500,18 @@ mod tests {
     }
 
     #[test]
-    fn ui_type_unmappable_char_fail_closed() {
-        // 不可映射字符（如私有区码点）经 VkKeyScanW 返回 -1 → 失败，不静默丢字符。
-        let backend = PlatformBackend;
+    fn ui_type_accepts_unmappable_codepoints() {
+        // UNICODE 注入按 UTF-16 码元直送：私有区码点不再被拒（无「不可映射字符」概念）。
+        let backend = MockBackend::new();
         let mut args = BTreeMap::new();
-        args.insert("text".into(), Value::String("".into()));
+        args.insert("text".into(), Value::String("\u{e100}".into()));
         let auth = Authorization { approved: true };
-        let err = run_via("ui_type", &args, &backend, &auth).unwrap_err();
-        assert!(matches!(err, ExecError::ExecutionFailed(_)), "不可映射字符须 fail-closed: {err}");
+        let outcome = run_via("ui_type", &args, &backend, &auth).expect("UNICODE 注入须接受任意码元");
+        assert!(outcome.result.contains("mock:type"), "执行应成功并透传文本: {outcome:?}");
+        assert!(
+            backend.calls.lock().unwrap().iter().any(|call| call.contains("ui_type:\u{e100}")),
+            "文本应原样透传给后端"
+        );
     }
 
     #[test]

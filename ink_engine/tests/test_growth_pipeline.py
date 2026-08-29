@@ -225,11 +225,48 @@ def test_emit_events_signal_distill_gate():
 
 
 def test_emit_none_silent():
-    """未注入 emit 回调：发射静默，沉淀链路不受影响。"""
+    """未注册 emit 回调时静默（发射不阻断落位链路）。"""
     ks = KnowledgeSet("u1")
     pipe = GrowthPipeline(ks)
-    _run(_collect(pipe, [_event("review_pass", message="洞见")]))
+    _run(_collect(pipe, [_event("review_pass", message="评审通过")]))
     _run(pipe.flush_round(complexity=5))
     snap = pipe.snapshot()
     assert snap["landed"] == 1
     assert snap["knowledge_count"] == 1
+
+
+class _FakeMetricStore:
+    def __init__(self) -> None:
+        self._records: dict = {}
+
+    async def get_record(self, collection: str, key: str):
+        return self._records.get((collection, key))
+
+    async def put_record(self, collection: str, key: str, data: dict) -> None:
+        self._records[(collection, key)] = data
+
+
+def test_metric_snapshot_appended_per_settle():
+    """回合收尾每轮追加成长指标快照（纯 append，可读回时序）。"""
+    from ink_engine.core.growth import METRICS_COLLECTION, METRICS_KEY
+
+    store = _FakeMetricStore()
+    pipe = GrowthPipeline(KnowledgeSet("u1"), metric_store=store)
+
+    class _Ctx:
+        steps = [1, 2]
+
+    _run(pipe.settle(_Ctx()))
+    _run(pipe.settle(_Ctx()))
+    series = _run(pipe.metric_series(limit=10))
+    assert len(series) == 2
+    assert "ts" in series[0]
+    assert "knowledge_count" in series[0]
+    assert "collected_total" in series[0]
+    assert store._records[(METRICS_COLLECTION, METRICS_KEY)]["items"][0]["ts"] > 0
+
+
+def test_metric_series_empty_without_store():
+    """未注入指标存储：时序为空、落位照常（观测层不可用不阻断）。"""
+    pipe = GrowthPipeline(KnowledgeSet("u1"))
+    assert _run(pipe.metric_series()) == []

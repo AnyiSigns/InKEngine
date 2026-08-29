@@ -397,13 +397,14 @@ use serde_json::{json, Value};
         fn GetClassNameW(hWnd: *mut c_void, lpString: *mut u16, nMaxCount: i32) -> i32;
         fn GetWindowTextLengthW(hWnd: *mut c_void) -> i32;
         fn IsWindowVisible(hWnd: *mut c_void) -> i32;
+        fn IsIconic(hWnd: *mut c_void) -> i32;
+        fn GetWindowRect(hWnd: *mut c_void, lpRect: *mut Rect) -> i32;
         fn GetForegroundWindow() -> *mut c_void;
         fn SetCursorPos(x: i32, y: i32) -> i32;
         fn mouse_event(dwFlags: u32, dx: u32, dy: u32, dwData: u32, dwExtraInfo: usize);
         fn SetForegroundWindow(hWnd: *mut c_void) -> i32;
         fn ShowWindow(hWnd: *mut c_void, nCmdShow: i32) -> i32;
-        fn keybd_event(bVk: u8, bScan: u8, dwFlags: u32, dwExtraInfo: usize);
-        fn VkKeyScanW(ch: u16) -> i16;
+        fn SendInput(cInputs: u32, pInputs: *const Input, cbSize: i32) -> u32;
     }
 
     const MOUSEEVENTF_LEFTDOWN: u32 = 0x0002;
@@ -413,15 +414,67 @@ use serde_json::{json, Value};
     const MOUSEEVENTF_MIDDLEDOWN: u32 = 0x0020;
     const MOUSEEVENTF_MIDDLEUP: u32 = 0x0040;
     const KEYEVENTF_KEYUP: u32 = 0x0002;
-    const VK_SHIFT: u8 = 0x10;
+    const KEYEVENTF_UNICODE: u32 = 0x0004;
+    const INPUT_KEYBOARD: u32 = 1;
     const SW_MINIMIZE: i32 = 6;
 
-    /// 窗口原始信息（句柄 + 标题 + 类名 + 可见性）
+    /// 窗口矩形（屏幕坐标，user32 RECT 同布局）。
+    #[repr(C)]
+    #[derive(Clone, Copy)]
+    struct Rect {
+        left: i32,
+        top: i32,
+        right: i32,
+        bottom: i32,
+    }
+
+    /// SendInput 的 INPUT 键盘变体（KEYBDINPUT 布局）。
+    #[repr(C)]
+    #[derive(Clone, Copy)]
+    struct KeyboardInput {
+        wvk: u16,
+        wscan: u16,
+        flags: u32,
+        time: u32,
+        extra_info: usize,
+    }
+
+    /// SendInput 的 INPUT 鼠标变体（MOUSEINPUT 布局，保证联合尺寸正确）。
+    #[repr(C)]
+    #[derive(Clone, Copy)]
+    struct MouseInput {
+        dx: i32,
+        dy: i32,
+        mouse_data: u32,
+        flags: u32,
+        time: u32,
+        extra_info: usize,
+    }
+
+    /// SendInput 的 INPUT 联合体（仅键盘变体被使用）。
+    #[repr(C)]
+    #[derive(Clone, Copy)]
+    union InputData {
+        mouse: MouseInput,
+        keyboard: KeyboardInput,
+    }
+
+    /// SendInput 的 INPUT 结构（type + 联合体）。
+    #[repr(C)]
+    #[derive(Clone, Copy)]
+    struct Input {
+        kind: u32,
+        data: InputData,
+    }
+
+    /// 窗口原始信息（句柄 + 标题 + 类名 + 可见性 + 最小化态 + 屏幕矩形）
     struct RawWindow {
         hwnd: usize,
         title: String,
         class_name: String,
         visible: bool,
+        minimized: bool,
+        rect: Rect,
     }
 
     /// 读取窗口标题（UTF-16 → UTF-8，截断容错）。
@@ -451,11 +504,17 @@ use serde_json::{json, Value};
     /// EnumWindows/EnumChildWindows 回调（经 lParam 回传收集容器，避免捕获）。
     extern "system" fn collect_window(hwnd: *mut c_void, lparam: isize) -> i32 {
         let list = unsafe { &mut *(lparam as *mut Vec<RawWindow>) };
+        let mut rect = Rect { left: 0, top: 0, right: 0, bottom: 0 };
+        unsafe {
+            GetWindowRect(hwnd, &mut rect);
+        }
         let raw = RawWindow {
             hwnd: hwnd as usize,
             title: unsafe { read_window_text(hwnd) },
             class_name: unsafe { read_class_name(hwnd) },
             visible: unsafe { IsWindowVisible(hwnd) != 0 },
+            minimized: unsafe { IsIconic(hwnd) != 0 },
+            rect,
         };
         list.push(raw);
         1
@@ -497,6 +556,13 @@ use serde_json::{json, Value};
             "title": w.title,
             "class": w.class_name,
             "visible": w.visible,
+            "minimized": w.minimized,
+            "rect": {
+                "left": w.rect.left,
+                "top": w.rect.top,
+                "right": w.rect.right,
+                "bottom": w.rect.bottom,
+            },
             "children": children,
         })
     }
@@ -538,27 +604,55 @@ use serde_json::{json, Value};
         Ok(format!("已点击 {button} @ ({x},{y})"))
     }
 
-    /// 文本输入：逐字符经 VkKeyScanW 映射虚拟键 + Shift 状态注入（不可映射字符 = 失败）。
+    /// 文本输入：把文本编码为 KEYEVENTF_UNICODE 键盘事件序列经 SendInput 注入
+    /// （按 UTF-16 码元直送，绕开中文输入法转换，内容不受 IME 影响）。
     pub fn type_text(text: &str) -> Result<String, String> {
-        for ch in text.chars() {
-            let vk = unsafe { VkKeyScanW(ch as u16) };
-            if vk == -1 {
-                return Err(format!("不支持的字符（无法映射虚拟键）: {ch}"));
-            }
-            let low = (vk & 0xff) as u8;
-            let shift = ((vk >> 8) & 0xff) != 0;
-            unsafe {
-                if shift {
-                    keybd_event(VK_SHIFT, 0, 0, 0);
-                }
-                keybd_event(low, 0, 0, 0);
-                keybd_event(low, 0, KEYEVENTF_KEYUP, 0);
-                if shift {
-                    keybd_event(VK_SHIFT, 0, KEYEVENTF_KEYUP, 0);
-                }
-            }
+        let inputs = build_text_inputs(text);
+        if inputs.is_empty() {
+            return Ok("已输入文本（0 字符）".to_string());
+        }
+        let sent = unsafe {
+            SendInput(
+                inputs.len() as u32,
+                inputs.as_ptr(),
+                std::mem::size_of::<Input>() as i32,
+            )
+        };
+        if sent != inputs.len() as u32 {
+            return Err(format!(
+                "文本注入失败（{}/{} 事件被接受）",
+                sent,
+                inputs.len()
+            ));
         }
         Ok(format!("已输入文本（{} 字符）", text.chars().count()))
+    }
+
+    /// 文本 → UNICODE 键盘事件序列（每个 UTF-16 码元一个键入事件；
+    /// 非 BMP 字符按代理对拆两个码元；KEYEVENTF_UNICODE|KEYEVENTF_KEYUP
+    /// 组合即键入语义，不映射虚拟键）。
+    fn build_text_inputs(text: &str) -> Vec<Input> {
+        let mut inputs: Vec<Input> = Vec::new();
+        for ch in text.chars() {
+            let mut units = [0u16; 2];
+            for unit in ch.encode_utf16(&mut units) {
+                inputs.push(unsafe {
+                    Input {
+                        kind: INPUT_KEYBOARD,
+                        data: InputData {
+                            keyboard: KeyboardInput {
+                                wvk: 0,
+                                wscan: *unit,
+                                flags: KEYEVENTF_UNICODE | KEYEVENTF_KEYUP,
+                                time: 0,
+                                extra_info: 0,
+                            },
+                        },
+                    }
+                });
+            }
+        }
+        inputs
     }
 
     /// 按句柄（十进制 HWND）/标题/foreground 关键字定位窗口。
@@ -587,6 +681,7 @@ use serde_json::{json, Value};
                     "title": w.title,
                     "class": w.class_name,
                     "visible": w.visible,
+                    "minimized": w.minimized,
                 })
             })
             .collect();
@@ -614,6 +709,67 @@ use serde_json::{json, Value};
             Ok(format!("已最小化窗口: {handle}"))
         } else {
             Err(format!("最小化窗口失败: {handle}"))
+        }
+    }
+
+    #[cfg(test)]
+    mod tests {
+        use super::*;
+
+        #[test]
+        fn window_json_includes_rect_and_minimized() {
+            let w = RawWindow {
+                hwnd: 0,
+                title: "mock".into(),
+                class_name: "Mock".into(),
+                visible: true,
+                minimized: false,
+                rect: Rect { left: 10, top: 20, right: 30, bottom: 40 },
+            };
+            let json = window_to_json(&w);
+            assert_eq!(json["minimized"], false);
+            assert_eq!(json["rect"]["left"], 10);
+            assert_eq!(json["rect"]["top"], 20);
+            assert_eq!(json["rect"]["right"], 30);
+            assert_eq!(json["rect"]["bottom"], 40);
+        }
+
+        #[test]
+        fn window_list_entries_have_minimized_field() {
+            let result = list_windows().expect("窗口枚举应成功");
+            let json: Value = serde_json::from_str(&result).expect("应为 JSON");
+            let windows = json["windows"].as_array().expect("应有 windows 数组");
+            if windows.is_empty() {
+                return;
+            }
+            assert!(
+                windows[0].get("minimized").is_some(),
+                "window_list 每项应有 minimized 字段: {json}"
+            );
+            assert!(windows[0]["minimized"].is_boolean());
+        }
+
+        #[test]
+        fn text_inputs_build_unicode_keyboard_events() {
+            let inputs = build_text_inputs("a阿😀");
+            assert_eq!(inputs.len(), 4, "ASCII1 + BMP1 + 代理对2 = 4 个码元事件");
+            for input in &inputs {
+                assert_eq!(input.kind, INPUT_KEYBOARD);
+                let kb = unsafe { input.data.keyboard };
+                assert_eq!(kb.wvk, 0);
+                assert_eq!(kb.flags, KEYEVENTF_UNICODE | KEYEVENTF_KEYUP);
+            }
+            let first = unsafe { inputs[0].data.keyboard };
+            assert_eq!(first.wscan, 'a' as u16);
+            let third = unsafe { inputs[2].data.keyboard };
+            assert_eq!(third.wscan, 0xd83d, "高代理码元");
+            let fourth = unsafe { inputs[3].data.keyboard };
+            assert_eq!(fourth.wscan, 0xde00, "低代理码元");
+        }
+
+        #[test]
+        fn text_inputs_empty_is_noop() {
+            assert!(build_text_inputs("").is_empty());
         }
     }
 }

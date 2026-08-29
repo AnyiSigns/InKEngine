@@ -79,6 +79,23 @@ pub(crate) async fn capability_put(
     state: State<'_, ShellState>,
     record: JsonValue,
 ) -> Result<JsonValue, CommandError> {
+    // 回合工具上限覆盖（max_tool_rounds 设置项）：正整数校验，越界拒绝
+    // 不落盘；保存后触发引擎重建使 llm_decider 立即按新值收口。
+    let mut rebuild_after = false;
+    if record.get("max_tool_rounds").is_some() {
+        let value = record
+            .get("max_tool_rounds")
+            .and_then(JsonValue::as_u64)
+            .ok_or_else(|| {
+                CommandError::invalid_arg("max_tool_rounds 须为整数")
+            })?;
+        if value == 0 || value > 200 {
+            return Err(CommandError::invalid_arg(
+                "max_tool_rounds 须在 1..=200 之间",
+            ));
+        }
+        rebuild_after = true;
+    }
     if record.get("auto_approve_tools").is_some() || record.get("auto_approve_all_review").is_some() {
         let auto_tools = record
             .get("auto_approve_tools")
@@ -134,6 +151,13 @@ pub(crate) async fn capability_put(
     )
     .await
     .map_err(CommandError::engine)?;
+    // 回合工具上限改动 → 引擎重建（桥侧刷新覆盖值后重建回合图，
+    // llm_decider 立即按新上限收口；其余字段改动不触发重建）
+    if rebuild_after {
+        crate::engine::host::call_engine_op_async("engine.rebuild", json!({}))
+            .await
+            .map_err(CommandError::engine)?;
+    }
     Ok(record)
 }
 

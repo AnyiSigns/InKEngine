@@ -288,3 +288,65 @@ def test_export_skill_format_and_file():
 def test_default_thresholds_exported():
     assert SKILL_HIT_MIN_DEFAULT >= 1
     assert 0.0 < SKILL_SUCCESS_RATE_DEFAULT <= 1.0
+
+
+def test_build_assembly_skill_entry():
+    """组装验证候选 → 技能条目：canary 通过即结晶，低频长尾进技能池。"""
+    from ink_engine.core.graph import Graph, NodeContract
+    from ink_engine.core.skill_crystal import (
+        build_assembly_skill_entry,
+        skill_to_knowledge_entry,
+    )
+
+    graph = Graph(name="cand", entry="collect")
+    graph.add_node_type("collect", "collect_material", contract=NodeContract(version=1))
+    graph.add_node_type("parse", "parse_material", contract=NodeContract(version=1))
+    graph.add_edge("collect", "parse")
+
+    candidate = SimpleNamespace(graph=graph, chain=("collect", "parse"), rank=1)
+    verdict = SimpleNamespace(rank=1, digest="digest-abc", ok=True)
+    edge = SimpleNamespace(
+        key=SimpleNamespace(src_contract_version="1", dst_contract_version="1"),
+        src_type="collect_material",
+        dst_type="parse_material",
+        context_domain="default",
+        success_count=3,
+        fail_count=0,
+    )
+
+    skill = build_assembly_skill_entry(
+        candidate,
+        verdict,
+        domain="default",
+        model_id="m1",
+        evidence_edges=[edge],
+    )
+    assert skill.name == "asm.collect.parse"
+    assert skill.kind == "path"
+    assert skill.fingerprint == "digest-abc"
+    assert skill.hit_count == 0 and skill.fail_count == 0
+    assert ("collect_material", "1") in skill.contract_snapshot
+    assert skill.evidence_snapshot[0]["success_count"] == 3
+    assert skill.test_report["success_rate"] == 1.0
+
+    entry = skill_to_knowledge_entry(skill, now=1234.0)
+    assert entry.kind == "path"
+    assert entry.id == "skill:asm.collect.parse@v1"
+    assert entry.data["skill"]["name"] == "asm.collect.parse"
+
+
+def test_assembly_skill_evidence_pending_note():
+    """冷启动 evidence 全零：test_report 标注「证据待积累」，不谎报。"""
+    from ink_engine.core.graph import Graph, NodeContract
+    from ink_engine.core.skill_crystal import build_assembly_skill_entry
+
+    graph = Graph(name="cand", entry="collect")
+    graph.add_node_type("collect", "collect_material", contract=NodeContract(version=1))
+    graph.add_edge("collect", "collect")
+    candidate = SimpleNamespace(graph=graph, chain=("collect",), rank=1)
+    verdict = SimpleNamespace(rank=1, digest="digest-xyz", ok=True)
+    skill = build_assembly_skill_entry(
+        candidate, verdict, domain="default", model_id="m1", evidence_edges=()
+    )
+    assert "证据待积累" in skill.test_report["note"]
+    assert skill.evidence_snapshot == ()

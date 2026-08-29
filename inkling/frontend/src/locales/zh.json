@@ -267,6 +267,12 @@
   "tools.tier_set_failed": "档位设置失败：{e}",
   "tools.auto_approve_set_failed": "自动审批设置失败：{e}",
 
+  "tools.rounds_title": "回合工具上限",
+  "tools.rounds_hint": "单回合最多工具调用次数（1-200，保存即生效）",
+  "tools.rounds_invalid": "回合工具上限须为 1-200 的整数",
+  "tools.rounds_set_failed": "回合工具上限设置失败：{e}",
+  "tools.rounds_saved": "回合工具上限已保存（引擎已重建）",
+
   "message.knowledge_hit": "知识检索 · 已放行 · {n} 条相关记忆",
   "message.device_sense": "设备感知",
   "message.device_action": "设备操作",

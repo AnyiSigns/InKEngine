@@ -70,6 +70,12 @@ _INSIGHT_SCHEMA = SchemaSpec(
 # L2 fixtures（insight 教训条目无规则执行语义——L2 跳过执行，空样例库即可）
 _EMPTY_FIXTURES = FixtureSet(name="growth", cases=())
 
+# 成长指标时序（复利实证数据面）：独立集合 growth_metrics，单键滚动
+# 缓冲（METRICS_CAP 条上限防无限膨胀）；与审计 set_audit 严格分离
+METRICS_COLLECTION = "growth_metrics"
+METRICS_KEY = "snapshots"
+METRICS_CAP = 1000
+
 
 @dataclass(frozen=True, slots=True)
 class GrowthConfig:
@@ -102,6 +108,7 @@ class GrowthPipeline:
         distiller: TieredDistiller | None = None,
         gate: KnowledgeGate | None = None,
         emit: Callable[[str, dict], Awaitable[None]] | None = None,
+        metric_store: Any | None = None,
     ) -> None:
         self.config = config or GrowthConfig()
         self.knowledge_set = knowledge_set
@@ -111,6 +118,9 @@ class GrowthPipeline:
         # 自动放行人工层：自我进化是后台机制，落位只过三层闸门
         self.gate = gate or KnowledgeGate(human_review_enabled=False)
         self._classifier = SignalClassifier()
+        # 成长指标时序存储（Storage 协议：get_record/put_record；None =
+        # 不持久化指标——只读诊断仍可用，曲线/周报数据面关闭）
+        self._metric_store = metric_store
         # 孵化事件发射回调（(etype, payload) -> Awaitable；注入 = 转发
         # 引擎事件流，前端演化页签实时消费；None = 静默，不阻断沉淀）
         self._emit = emit
@@ -248,13 +258,16 @@ class GrowthPipeline:
     # ── 触发侧：回合收尾按需蒸馏 ──
 
     async def settle(self, ctx: SettleContext) -> None:
-        """SettleHook：回合收尾（复杂度 = 结点步数）按需蒸馏。"""
+        """SettleHook：回合收尾（复杂度 = 结点步数）按需蒸馏 + 指标快照。"""
         if not self.config.enabled:
             return
         try:
             await self.flush_round(complexity=len(ctx.steps))
         except Exception as exc:
             logger.warning("自学习管线回合收尾失败（忽略）: %s", exc)
+        # 每回合收尾追加成长指标快照（未达蒸馏阈值也记——曲线要能看出
+        # 「信号在积累而知识未增长」的冷启动阶段；写入失败不阻断）
+        await self._append_metric_snapshot()
 
     async def flush_round(self, *, complexity: int = 0) -> None:
         """回合收尾刷新：缓冲信号按需蒸馏 → 三层闸门 → 知识集落位。
@@ -371,6 +384,50 @@ class GrowthPipeline:
             "last_landed_at": self._last_landed_at,
         }
 
+    # ── 成长指标时序（复利实证数据面：观测层，纯 append 不碰机制）──
+
+    async def _append_metric_snapshot(self) -> None:
+        """追加一条成长指标快照（单键滚动缓冲，上限 METRICS_CAP 条）。
+
+        写入失败只记日志（观测不阻断沉淀）；独立集合 growth_metrics，
+        与审计 set_audit 严格分离（不污染审计历史）。
+        """
+        if self._metric_store is None:
+            return
+        try:
+            snapshot = dict(self.snapshot())
+            snapshot["ts"] = time.time()
+            record = await self._metric_store.get_record(
+                METRICS_COLLECTION, METRICS_KEY
+            ) or {}
+            items = record.get("items") if isinstance(record, dict) else None
+            if not isinstance(items, list):
+                items = []
+            items.append(snapshot)
+            if len(items) > METRICS_CAP:
+                items = items[-METRICS_CAP:]
+            await self._metric_store.put_record(
+                METRICS_COLLECTION, METRICS_KEY, {"items": items}
+            )
+        except Exception as exc:
+            logger.warning("成长指标快照写入失败（忽略）: %s", exc)
+
+    async def metric_series(self, limit: int = 120) -> list[dict[str, Any]]:
+        """读取成长指标时序（按 ts 升序，取最近 limit 条；无存储 = 空）。"""
+        if self._metric_store is None:
+            return []
+        try:
+            record = await self._metric_store.get_record(
+                METRICS_COLLECTION, METRICS_KEY
+            ) or {}
+            items = record.get("items") if isinstance(record, dict) else None
+            if not isinstance(items, list):
+                return []
+            items.sort(key=lambda item: float(item.get("ts") or 0))
+            return items[-limit:]
+        except Exception:
+            return []
+
 
 def _source_from_event(event: EngineEvent) -> str:
     """事件来源派生：评审决议类事件 = 用户来源；其余取负载声明。"""
@@ -388,4 +445,7 @@ __all__ = [
     "_INSIGHT_SCHEMA",
     "GrowthConfig",
     "GrowthPipeline",
+    "METRICS_CAP",
+    "METRICS_COLLECTION",
+    "METRICS_KEY",
 ]

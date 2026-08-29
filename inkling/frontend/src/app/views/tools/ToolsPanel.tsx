@@ -242,6 +242,8 @@ export function ToolsPanel({ backend }: ToolsPanelProps) {
   const [autoApproveTools, setAutoApproveTools] = useState<string[]>([]);
   const [autoApproveAllReview, setAutoApproveAllReview] = useState(false);
   const [tierOverrides, setTierOverrides] = useState<Record<string, string>>({});
+  const [maxToolRounds, setMaxToolRounds] = useState<number>(12);
+  const [roundsSaving, setRoundsSaving] = useState(false);
   const [permSaving, setPermSaving] = useState(false);
 
   const refresh = async (): Promise<void> => {
@@ -251,7 +253,7 @@ export function ToolsPanel({ backend }: ToolsPanelProps) {
       const [next, status, capability, snapshot] = await Promise.all([
         backend.getToolsManifest(),
         backend.getMcpMarketStatus().catch(() => ({ markets: [], mounted: {} })),
-        backend.getCapability().catch(() => ({ autoApproveTools: [], autoApproveAllReview: false, tierOverrides: {} })),
+        backend.getCapability().catch(() => ({ autoApproveTools: [], autoApproveAllReview: false, tierOverrides: {}, maxToolRounds: undefined })),
         backend.getToolsSnapshot().catch(() => []),
       ]);
       const names: Record<string, string> = {};
@@ -264,6 +266,9 @@ export function ToolsPanel({ backend }: ToolsPanelProps) {
       setAutoApproveTools(capability.autoApproveTools);
       setAutoApproveAllReview(capability.autoApproveAllReview);
       setTierOverrides(capability.tierOverrides);
+      if (capability.maxToolRounds !== undefined) {
+        setMaxToolRounds(capability.maxToolRounds);
+      }
     } catch (err: unknown) {
       setError(String(err));
     } finally {
@@ -399,6 +404,25 @@ export function ToolsPanel({ backend }: ToolsPanelProps) {
     setPermSaving(false);
   };
 
+  /** 回合工具上限保存（正整数 1..200；保存后引擎重建即时生效）。 */
+  const saveMaxToolRounds = async (raw: string): Promise<void> => {
+    const value = Number(raw);
+    if (!Number.isInteger(value) || value < 1 || value > 200) {
+      setNotice(t('tools.rounds_invalid'));
+      return;
+    }
+    setRoundsSaving(true);
+    setNotice(null);
+    const result = await backend.setMaxToolRounds(value);
+    if (!result.ok) {
+      setNotice(interpolate(t('tools.rounds_set_failed'), { e: result.error ?? '未知错误' }));
+    } else {
+      setMaxToolRounds(value);
+      setNotice(t('tools.rounds_saved'));
+    }
+    setRoundsSaving(false);
+  };
+
   const effectiveTierOf = (tool: ToolManifestEntry): PermissionTier => {
     const value = tierOverrides[tool.name] ?? tool.approval ?? 'allow';
     return isPermissionTier(value) ? value : 'allow';
@@ -456,6 +480,29 @@ export function ToolsPanel({ backend }: ToolsPanelProps) {
               </label>
             ))
           )}
+        </div>
+      </div>
+
+      <div className="mb-3 rounded-lg border border-[var(--ink-border)] px-3 py-2.5" data-ui="tools_rounds">
+        <div className="flex items-center gap-2">
+          <span className="text-[10px] font-medium tracking-wide">{t('tools.rounds_title')}</span>
+          <span className="text-[9px] ink-text-faint">{t('tools.rounds_hint')}</span>
+          <label className="ml-auto flex items-center gap-1.5 text-[9px] ink-text-muted">
+            <input
+              type="number"
+              min={1}
+              max={200}
+              className="ink-input w-20 text-[11px]"
+              value={maxToolRounds}
+              disabled={roundsSaving}
+              onChange={(e) => setMaxToolRounds(Number(e.target.value))}
+              onBlur={(e) => void saveMaxToolRounds(e.target.value)}
+              onKeyDown={(e) => {
+                if (e.key === 'Enter') void saveMaxToolRounds((e.target as HTMLInputElement).value);
+              }}
+              data-ui="max_tool_rounds"
+            />
+          </label>
         </div>
       </div>
 

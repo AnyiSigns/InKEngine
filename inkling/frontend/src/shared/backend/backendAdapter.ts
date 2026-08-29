@@ -379,6 +379,9 @@ export interface BackendAdapter {
   toolsManifest(): Promise<{ tools: ToolManifestEntry[]; baseline: string[] }>;
   toolsBaselineGet(): Promise<{ tools: string[] }>;
   toolsBaselineSet(tools: string[]): Promise<{ tools: string[] }>;
+  /** 出厂界面组件启停状态（factory/disabled/active 三清单；组件 tab 数据源）。 */
+  uiComponentsGet(): Promise<{ factory: string[]; disabled: string[]; active: string[] }>;
+  uiComponentsSetDisabled(disabled: string[]): Promise<{ disabled: string[] }>;
   componentsManifest(): Promise<{ artifacts: ArtifactManifestEntry[] }>;
   knowledgeGraph(): Promise<KnowledgeGraphResult>;
   // MCP 市场（连接页市场管理 + 市场页服务挂载/卸载）
@@ -394,6 +397,7 @@ export interface BackendAdapter {
   assembleStats(): Promise<AssembleStats>;
   // 接线面后端桥 op（壳内嵌桥命令，生产透传；无宿主回落不可用）
   graphSnapshot(): Promise<unknown>;
+  graphInstanceSnapshot(threadId: string): Promise<unknown>;
   poolSnapshot(): Promise<unknown>;
   poolEvaluate(): Promise<unknown>;
   edgeEvidenceList(): Promise<unknown>;
@@ -470,6 +474,8 @@ export function createUnavailableBackend(): BackendAdapter {
     toolsManifest: unavailable as never,
     toolsBaselineGet: unavailable as never,
     toolsBaselineSet: unavailable as never,
+    uiComponentsGet: unavailable as never,
+    uiComponentsSetDisabled: unavailable as never,
     componentsManifest: unavailable as never,
     knowledgeGraph: unavailable as never,
     mcpMarketStatus: unavailable as never,
@@ -484,6 +490,7 @@ export function createUnavailableBackend(): BackendAdapter {
     metricsSnapshot: unavailable as never,
     assembleStats: unavailable as never,
     graphSnapshot: unavailable as never,
+    graphInstanceSnapshot: unavailable as never,
     poolSnapshot: unavailable as never,
     poolEvaluate: unavailable as never,
     edgeEvidenceList: unavailable as never,
@@ -574,6 +581,8 @@ export function createTauriBackend(invoker?: TauriInvoker): BackendAdapter {
     toolsManifest: () => call('tools_manifest'),
     toolsBaselineGet: () => call('tools_baseline_get'),
     toolsBaselineSet: (tools) => call('tools_baseline_set', { tools }),
+    uiComponentsGet: () => call('ui_components.get'),
+    uiComponentsSetDisabled: (disabled) => call('ui_components.set_disabled', { disabled }),
     componentsManifest: () => call('components_manifest'),
     mcpMarketStatus: () => call('mcp_market_status'),
     mcpMarketMount: (serverId) => call('mcp_market_mount', { serverId }),
@@ -585,6 +594,7 @@ export function createTauriBackend(invoker?: TauriInvoker): BackendAdapter {
     metricsSnapshot: () => call('metrics_snapshot'),
     assembleStats: () => call('assemble_stats'),
     graphSnapshot: () => call('graph_snapshot'),
+    graphInstanceSnapshot: (threadId) => call('graph_instance_snapshot', { threadId }),
     poolSnapshot: () => call('pool_snapshot'),
     poolEvaluate: () => call('pool_evaluate'),
     edgeEvidenceList: () => call('edge_evidence_list'),

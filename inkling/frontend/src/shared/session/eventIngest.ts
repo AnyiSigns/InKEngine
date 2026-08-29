@@ -6,7 +6,8 @@
  */
 
 import { BatchCounter } from '../logger';
-import type { ChannelHub, HubEvent } from './channelHub';
+import type { ChannelHub, HubEvent, ThreadBucket } from './channelHub';
+import { emptyThreadBucket } from './channelHub';
 import type { InkMessage, OutboundAttachment } from './types';
 import { reduceTaskEvent } from './taskState';
 import { getUiStateStore } from '../ui/uiStateStore';
@@ -76,25 +77,34 @@ function findStep(
 /**
  * 事件 → 会话状态归约。token 流按批聚合（BatchCounter），
  * 批次写入单条 streaming 消息，避免逐 token 重渲。
+ *
+ * 按 thread_id 分桶：演化/推演/来源时间线/补丁链等回合状态归约进
+ * 对应会话窗口的桶（perThread），消息流与全局镜像只反映当前会话——
+ * 切换会话窗口后各 tab 显示各自会话的数据，不跨会话残留。
  */
 export function ingestEvent(hub: ChannelHub, event: HubEvent): void {
   const { type, payload, at } = event;
   const state = hub.getSnapshot();
-  // 跨线程事件隔离：事件携带真实 thread_id 且不等于当前会话则丢弃，
-  // 避免多会话事件泄漏（当前会话 = hub.activeSessionId）。系统事件
-  // thread_id='-' 或缺失时不过滤（非会话专属，始终落位）。
+  // 目标线程：事件携带真实 thread_id 归入该会话桶；系统事件（'-'/缺失）
+  // 归入当前会话桶（非会话专属，始终落位当前窗口）。
   const eventThread = typeof payload.thread_id === 'string' ? payload.thread_id : '';
   const activeThread = state.activeSessionId;
-  if (eventThread && eventThread !== '-' && activeThread && eventThread !== activeThread) {
-    return;
-  }
-  const roundId = (payload.round_id as string | undefined) ?? state.roundId ?? undefined;
+  const targetThread = eventThread && eventThread !== '-' ? eventThread : activeThread;
+  const isActive = targetThread === activeThread;
+  const bucket = state.perThread[targetThread] ?? emptyThreadBucket();
+  const roundId = (payload.round_id as string | undefined) ?? bucket.roundId ?? undefined;
   const stepId = (payload.step_id as string | undefined) ?? '';
   // 任务面事件归约（task_state 子通道）；非任务事件归约为原样（不崩）
   const taskState = reduceTaskEvent(state.taskState, event);
 
   let messages = state.messages;
   let next: Partial<typeof state> = {};
+  // 桶内回合状态（归约目标 = 对应会话窗口）
+  let simulations = bucket.simulations;
+  let incubation = bucket.incubation;
+  let sourceTraces = bucket.sourceTraces;
+  let patchChain = bucket.patchChain;
+  const nextRoundId = bucket.roundId ?? roundId ?? null;
 
   const upsert = (create: InkMessage, patch: (m: InkMessage) => InkMessage): void => {
     const found = findStep(messages, stepId, roundId);
@@ -233,7 +243,7 @@ export function ingestEvent(hub: ChannelHub, event: HubEvent): void {
       break;
     case 'review_card': {
       messages = [...messages, { kind: 'review_card', payload: { ...payload }, live: true, id: nextId(), stepId: stepId || undefined, roundId }];
-      next.pendingReview = { ...payload };
+      if (isActive) next.pendingReview = { ...payload };
       break;
     }
     case 'suggestions': {
@@ -258,7 +268,7 @@ export function ingestEvent(hub: ChannelHub, event: HubEvent): void {
       if (hits.length > 0) {
         messages = [...messages, { kind: 'knowledge_hit', hits, id: nextId(), stepId: stepId || undefined, roundId }];
       }
-      const traces = [...state.sourceTraces];
+      const traces = [...sourceTraces];
       for (const hit of hits) {
         traces.push({
           id: nextId(),
@@ -269,41 +279,40 @@ export function ingestEvent(hub: ChannelHub, event: HubEvent): void {
           createdAt: at,
         });
       }
-      next.sourceTraces = traces.slice(-SOURCE_TRACES_MAX);
+      sourceTraces = traces.slice(-SOURCE_TRACES_MAX);
       break;
     }
     case 'device_sensed':
     case 'device_control': {
       const action = String(payload.action ?? type);
       messages = [...messages, { kind: 'device', action, detail: String(payload.detail ?? payload.result ?? ''), id: nextId(), stepId: stepId || undefined, roundId }];
-      const traces = [...state.sourceTraces];
+      const traces = [...sourceTraces];
       traces.push({ id: nextId(), sourceType: 'device', title: action, detail: String(payload.detail ?? ''), createdAt: at });
-      next.sourceTraces = traces.slice(-SOURCE_TRACES_MAX);
+      sourceTraces = traces.slice(-SOURCE_TRACES_MAX);
       break;
     }
     case 'signal_detected': {
-      const incubation = [...state.incubation];
-      incubation.push({
+      const list = [...incubation];
+      list.push({
         id: String(payload.signal_id ?? nextId()),
         signal: String(payload.signal ?? ''),
         signalType: String(payload.signal_type ?? ''),
         stage: 'signal',
         createdAt: at,
       });
-      next.incubation = incubation;
+      incubation = list;
       break;
     }
     case 'distill_outcome': {
-      const incubation = state.incubation.map((entry) =>
+      incubation = incubation.map((entry) =>
         entry.id === payload.signal_id
           ? { ...entry, stage: 'distilled' as const, distilled: String(payload.distilled ?? '') }
           : entry,
       );
-      next.incubation = incubation;
       break;
     }
     case 'gate_verdict': {
-      const incubation = state.incubation.map((entry) =>
+      incubation = incubation.map((entry) =>
         entry.id === payload.signal_id
           ? {
               ...entry,
@@ -313,7 +322,6 @@ export function ingestEvent(hub: ChannelHub, event: HubEvent): void {
             }
           : entry,
       );
-      next.incubation = incubation;
       break;
     }
     case 'simulate_decision': {
@@ -336,36 +344,36 @@ export function ingestEvent(hub: ChannelHub, event: HubEvent): void {
             };
           })
         : [];
-      next.simulations = branches;
+      simulations = branches;
       break;
     }
     case 'branch_result':
-      next.simulations = state.simulations.map((branch) =>
+      simulations = simulations.map((branch) =>
         branch.branchId === payload.branch_id
           ? { ...branch, score: Number(payload.score ?? branch.score), rationale: payload.rationale as string | undefined }
           : branch,
       );
       break;
     case 'swap_branch':
-      next.simulations = state.simulations.map((branch) => ({
+      simulations = simulations.map((branch) => ({
         ...branch,
         selected: branch.branchId === payload.branch_id,
       }));
       break;
     case 'mutation_proposed': {
-      const incubation = [...state.incubation];
-      incubation.push({
+      const list = [...incubation];
+      list.push({
         id: String(payload.mutation_id ?? nextId()),
         signal: String(payload.mutation ?? ''),
         signalType: 'mutation',
         stage: 'distilled',
         createdAt: at,
       });
-      next.incubation = incubation;
+      incubation = list;
       break;
     }
     case 'regression_guard': {
-      const incubation = state.incubation.map((entry) =>
+      incubation = incubation.map((entry) =>
         entry.id === payload.mutation_id
           ? {
               ...entry,
@@ -375,30 +383,29 @@ export function ingestEvent(hub: ChannelHub, event: HubEvent): void {
             }
           : entry,
       );
-      next.incubation = incubation;
       break;
     }
     case 'patch_proposed': {
-      const patchChain = [...state.patchChain];
-      patchChain.push({
+      const chain = [...patchChain];
+      chain.push({
         patchId: String(payload.patch_id ?? nextId()),
         kind: String(payload.kind ?? ''),
         title: String(payload.title ?? payload.kind ?? ''),
         status: 'proposed',
         level: payload.level as string | undefined,
       });
-      next.patchChain = patchChain;
+      patchChain = chain;
       break;
     }
     case 'patch_applied':
-      next.patchChain = state.patchChain.map((entry) =>
+      patchChain = patchChain.map((entry) =>
         entry.patchId === payload.patch_id
           ? { ...entry, status: 'applied' as const, appliedAt: at }
           : entry,
       );
       break;
     case 'patch_reverted':
-      next.patchChain = state.patchChain.map((entry) =>
+      patchChain = patchChain.map((entry) =>
         entry.patchId === payload.patch_id
           ? { ...entry, status: 'reverted' as const, revertedAt: at, revertReason: String(payload.reason ?? '') }
           : entry,
@@ -410,7 +417,7 @@ export function ingestEvent(hub: ChannelHub, event: HubEvent): void {
       const verdict = rawVerdict === 'fail' || rawVerdict === 'review' ? rawVerdict : 'pass';
       const reason = payload.reason as string | undefined;
       messages = [...messages, { kind: 'vetting', tool, verdict, reason, id: nextId(), stepId: stepId || undefined, roundId }];
-      const traces = [...state.sourceTraces];
+      const traces = [...sourceTraces];
       traces.push({
         id: nextId(),
         sourceType: 'evidence',
@@ -418,7 +425,7 @@ export function ingestEvent(hub: ChannelHub, event: HubEvent): void {
         detail: verdict === 'pass' ? '静态钩子核对通过' : `拦截：${reason ?? ''}`,
         createdAt: at,
       });
-      next.sourceTraces = traces.slice(-SOURCE_TRACES_MAX);
+      sourceTraces = traces.slice(-SOURCE_TRACES_MAX);
       break;
     }
     case 'assembly_candidate':
@@ -433,7 +440,7 @@ export function ingestEvent(hub: ChannelHub, event: HubEvent): void {
       break;
     }
     case 'tuning_update': {
-      const traces = [...state.sourceTraces];
+      const traces = [...sourceTraces];
       traces.push({
         id: nextId(),
         sourceType: 'evidence',
@@ -441,7 +448,7 @@ export function ingestEvent(hub: ChannelHub, event: HubEvent): void {
         detail: String(payload.detail ?? ''),
         createdAt: at,
       });
-      next.sourceTraces = traces.slice(-SOURCE_TRACES_MAX);
+      sourceTraces = traces.slice(-SOURCE_TRACES_MAX);
       break;
     }
     case 'end':
@@ -461,7 +468,23 @@ export function ingestEvent(hub: ChannelHub, event: HubEvent): void {
     }
   }
 
-  hub.setState({ ...next, messages, roundId: state.roundId ?? roundId, taskState });
+  const nextBucket: ThreadBucket = {
+    roundId: nextRoundId,
+    roundSteps: bucket.roundSteps,
+    simulations,
+    incubation,
+    sourceTraces,
+    patchChain,
+  };
+  hub.setState({
+    ...next,
+    messages: isActive ? messages : state.messages,
+    perThread: { ...state.perThread, [targetThread]: nextBucket },
+    roundId: isActive ? state.roundId ?? nextRoundId : state.roundId,
+    taskState,
+    // 当前会话桶 → 全局镜像（既有组件零改动读快照即得当前会话数据）
+    ...(isActive ? { simulations, incubation, sourceTraces, patchChain } : {}),
+  });
 }
 
 /**

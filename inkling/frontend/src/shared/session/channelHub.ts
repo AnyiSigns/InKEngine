@@ -37,6 +37,29 @@ export interface SessionSnapshot {
   eventMetrics: { total: number; tokens: number; lastAt: number };
   /** 任务级执行状态（task_state 子通道根对象）。 */
   taskState: TaskState;
+  /** 按 thread_id 分桶的回合状态（演化/推演/实例数据随会话窗口区分）。 */
+  perThread: Record<string, ThreadBucket>;
+}
+
+/** 单会话窗口的回合状态桶（与 messages 分储：消息随 sessionStore，桶随 hub）。 */
+export interface ThreadBucket {
+  roundId: string | null;
+  roundSteps: RoundStep[];
+  simulations: SimulationBranch[];
+  incubation: IncubationEntry[];
+  sourceTraces: SourceTraceEntry[];
+  patchChain: PatchChainEntry[];
+}
+
+export function emptyThreadBucket(): ThreadBucket {
+  return {
+    roundId: null,
+    roundSteps: [],
+    simulations: [],
+    incubation: [],
+    sourceTraces: [],
+    patchChain: [],
+  };
 }
 
 export function emptySessionSnapshot(): SessionSnapshot {
@@ -56,6 +79,7 @@ export function emptySessionSnapshot(): SessionSnapshot {
     patchChain: [],
     eventMetrics: { total: 0, tokens: 0, lastAt: 0 },
     taskState: emptyTaskState(),
+    perThread: {},
   };
 }
 

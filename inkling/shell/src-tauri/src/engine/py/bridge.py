@@ -743,6 +743,34 @@ def _register_engine_core_ops() -> None:
         applied = await runtime.set_baseline_names(names)
         return {"tools": list(applied)}
 
+    @op_sync("engine.ui_components_get")
+    def _ui_components_get(args: dict) -> Any:
+        """出厂界面组件启停状态（组件 tab 数据源）。
+
+        factory = 出厂白名单基线（配方 ui_allowed_components 未过滤全集）；
+        disabled = 当前已停用出厂组件；active = 活跃白名单（factory - disabled）。
+        与补丁链产物清单（components_manifest）分属两源，前端合并展示。
+        """
+        runtime = runtime_handle()
+        factory = runtime.ui_factory_components
+        disabled = runtime.ui_components_disabled
+        return {
+            "factory": list(factory),
+            "disabled": list(disabled),
+            "active": list(runtime.ui_allowed_components),
+        }
+
+    @op_async("engine.ui_components_set_disabled")
+    async def _ui_components_set_disabled(args: dict) -> Any:
+        runtime = runtime_handle()
+        names = args.get("disabled")
+        if not isinstance(names, list) or not all(
+            isinstance(name, str) for name in names
+        ):
+            raise TypeError("停用组件集 disabled 须为字符串清单")
+        applied = await runtime.set_ui_components_disabled(names)
+        return {"disabled": list(applied)}
+
     @op_sync("engine.retrieval_source_names")
     def _retrieval_source_names(args: dict) -> Any:
         runtime = runtime_handle()
@@ -1263,6 +1291,84 @@ def _register_graph_ops() -> None:
             "nodes": nodes,
             "edges": edges,
             "patchChain": patch_chain,
+        }
+        if degraded:
+            result["degraded"] = True
+        return result
+
+    @op_async("graph.instance_snapshot")
+    async def _graph_instance_snapshot(args: dict) -> Any:
+        """实例图快照 op：最近回合实际执行图 + 节点执行态（只读）。
+
+        图结构 = 当前回合图（与 graph.snapshot 同源 introspection）；节点
+        执行态从执行日志按 thread_id 归集——事件顶层 node 字段标记执行过的
+        节点，error 事件标记 failed，回合未发 end = running。无 storage /
+        该线程无事件 = 空态（round_id=None + 空 node_status，不白屏）。
+        """
+        try:
+            runtime = runtime_handle()
+        except RuntimeError:
+            return {
+                "round_id": None,
+                "graph": {"nodes": [], "edges": []},
+                "node_status": {},
+                "degraded": True,
+            }
+        thread_id = args.get("thread_id") or "-"
+
+        # 图结构（复用 introspection 当前回合图数据源）
+        nodes: list[dict[str, Any]] = []
+        edges: list[dict[str, Any]] = []
+        degraded = False
+        introspection = getattr(runtime, "introspection_service", None)
+        if introspection is not None:
+            graph_data = introspection.snapshot_graph().get("graph")
+            if graph_data is not None:
+                degraded = bool(graph_data.get("degraded", False))
+                nodes = [
+                    {"id": name, "type": info.get("type", "unknown"), "label": name}
+                    for name, info in (graph_data.get("nodes") or {}).items()
+                ]
+                for source, edge_list in (graph_data.get("edges") or {}).items():
+                    for edge in edge_list:
+                        edges.append({"from": source, "to": edge.get("target", "")})
+
+        # 节点执行态：按 thread_id 从执行日志归集最近一回合
+        node_status: dict[str, str] = {}
+        round_id: str | None = None
+        storage = getattr(runtime, "storage", None)
+        if storage is not None:
+            try:
+                events = await storage.events_after(thread_id, 0)
+            except Exception:
+                events = []
+            latest_round: str | None = None
+            for event in events:
+                if event.round_id:
+                    latest_round = event.round_id
+            if latest_round:
+                round_id = latest_round
+                anchor = latest_round or "-"
+                round_events = [e for e in events if (e.round_id or "-") == anchor]
+                visited: set[str] = set()
+                failed: set[str] = set()
+                ended = any(e.type == "end" for e in round_events)
+                for event in round_events:
+                    node = event.node
+                    if not node:
+                        continue
+                    visited.add(node)
+                    if event.type == "error":
+                        failed.add(node)
+                for node in visited:
+                    node_status[node] = (
+                        "failed" if node in failed else ("success" if ended else "running")
+                    )
+
+        result = {
+            "round_id": round_id,
+            "graph": {"nodes": nodes, "edges": edges},
+            "node_status": node_status,
         }
         if degraded:
             result["degraded"] = True

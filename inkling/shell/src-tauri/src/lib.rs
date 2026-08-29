@@ -783,6 +783,7 @@ pub fn run() {
             commands::search::search_keys_put,
             commands::ops::assemble_stats,
             commands::ops::graph_snapshot,
+            commands::ops::graph_instance_snapshot,
             commands::ops::pool_snapshot,
             commands::ops::pool_evaluate,
             commands::ops::edge_evidence_list,
@@ -820,6 +821,8 @@ pub fn run() {
             commands::ops::ui_spec_apply,
             commands::ops::ui_spec_revert_latest,
             commands::ops::model_reload,
+            commands::ops::ui_components_get,
+            commands::ops::ui_components_set_disabled,
         ])
         .build(tauri::generate_context!())
         .expect("InKling 桌面壳装配失败");

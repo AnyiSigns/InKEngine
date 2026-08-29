@@ -207,6 +207,89 @@ class TestEdgeEvidenceOps:
             assert result["to_tier"] == TIER_OBSERVING
 
 
+# ── graph.instance_snapshot ──
+
+class TestInstanceSnapshotOps:
+    def _make_runtime(self, events: bool = True):
+        import asyncio
+
+        from ink_engine.core.events import EngineEvent
+        from ink_engine.core.introspection import (
+            IntrospectionService,
+            IntrospectionSources,
+        )
+        from ink_engine.core.runtime import Runtime
+        from ink_engine.core.storage_memory import MemoryStorage
+
+        from conftest import demo_linear_graph
+
+        runtime = Runtime()
+        runtime._state = "running"
+        runtime.introspection_service = IntrospectionService(
+            IntrospectionSources(graph=demo_linear_graph())
+        )
+        runtime.storage = MemoryStorage()
+        if events:
+            for spec in (
+                ("thinking_start", "start", {"node": "start"}),
+                ("tool_start", "mid", {"node": "mid", "tool": "x"}),
+                ("error", "mid", {"node": "mid", "message": "boom"}),
+            ):
+                etype, node, payload = spec
+                asyncio.run(runtime.storage.append_event("t1", EngineEvent(
+                    type=etype, node=node, round_id="r1", thread_id="t1",
+                    payload=payload,
+                )))
+            asyncio.run(runtime.storage.append_event("t1", EngineEvent(
+                type="end", round_id="r1", thread_id="t1", payload={},
+            )))
+        bridge = _load_bridge()
+        bridge.bind_runtime(runtime, None)
+        return bridge
+
+    def test_instance_snapshot_returns_structure(self):
+        bridge = self._make_runtime()
+        try:
+            result = _invoke_async("graph.instance_snapshot", {"thread_id": "t1"})
+            assert "round_id" in result
+            assert "graph" in result
+            assert "node_status" in result
+            assert isinstance(result["graph"]["nodes"], list)
+            assert isinstance(result["graph"]["edges"], list)
+            assert isinstance(result["node_status"], dict)
+        finally:
+            bridge.bind_runtime(None, None)
+
+    def test_instance_snapshot_node_status_derived(self):
+        """节点执行态推导：执行过=success（回合 end），error 节点=failed。"""
+        bridge = self._make_runtime()
+        try:
+            result = _invoke_async("graph.instance_snapshot", {"thread_id": "t1"})
+            assert result["round_id"] == "r1"
+            assert result["node_status"]["start"] == "success"
+            assert result["node_status"]["mid"] == "failed"
+        finally:
+            bridge.bind_runtime(None, None)
+
+    def test_instance_snapshot_empty_when_no_events(self):
+        """无执行事件 = 空态（round_id=None + 空 node_status，不白屏）。"""
+        bridge = self._make_runtime(events=False)
+        try:
+            result = _invoke_async("graph.instance_snapshot", {"thread_id": "t1"})
+            assert result["round_id"] is None
+            assert result["node_status"] == {}
+        finally:
+            bridge.bind_runtime(None, None)
+
+    def test_instance_snapshot_no_runtime_degraded(self):
+        """无运行时时显式空态标记（degraded，不白屏）。"""
+        bridge = _load_bridge()
+        bridge.bind_runtime(None, None)
+        result = _invoke_async("graph.instance_snapshot", {"thread_id": "t1"})
+        assert result["degraded"] is True
+        assert result["node_status"] == {}
+
+
 # ── 无 op 显式空态 ──
 
 class TestMissingOpEmptyState:

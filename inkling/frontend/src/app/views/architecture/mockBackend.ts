@@ -1,5 +1,5 @@
 import { createBackend, type BackendAdapter } from '@/shared/backend/backendAdapter';
-import type { DagGraph, DagNode, DagNodeKind } from '@/app/dag';
+import type { DagGraph, DagNode, DagNodeKind, DagNodeStatus } from '@/app/dag';
 
 import type {
   ArchitectureBackend,
@@ -84,8 +84,40 @@ export function createLiveArchitectureBackend(adapter: BackendAdapter = createBa
     async fetchPatchDiff(): Promise<PatchDiff | null> {
       return null;
     },
-    async fetchInstanceGraph(): Promise<InstanceGraph | null> {
-      return null;
+    async fetchInstanceGraph(threadId?: string): Promise<InstanceGraph | null> {
+      if (!adapter.available) return null;
+      try {
+        const snap = (await adapter.graphInstanceSnapshot(threadId ?? '-')) as
+          | {
+              round_id?: string;
+              graph?: {
+                nodes?: Array<{ id?: unknown; type?: unknown; label?: unknown }>;
+                edges?: Array<{ from: string; to: string }>;
+              };
+              node_status?: Record<string, unknown>;
+              degraded?: boolean;
+            }
+          | null;
+        if (!snap || !snap.round_id) return null;
+        const nodes: DagNode[] = (snap.graph?.nodes ?? []).map((n) => ({
+          id: String(n.id ?? ''),
+          label: n.label !== undefined && n.label !== null ? String(n.label) : String(n.id ?? ''),
+          kind: nodeKind(typeof n.type === 'string' ? n.type : undefined),
+        }));
+        const graph: DagGraph = {
+          nodes,
+          edges: (snap.graph?.edges ?? []).map((e) => ({ from: e.from, to: e.to })),
+        };
+        const nodeStatus: Record<string, DagNodeStatus> = {};
+        for (const [name, status] of Object.entries(snap.node_status ?? {})) {
+          if (status === 'running' || status === 'success' || status === 'failed' || status === 'idle') {
+            nodeStatus[name] = status;
+          }
+        }
+        return { roundId: snap.round_id, graph, nodeStatus };
+      } catch {
+        return null;
+      }
     },
     async fetchPool(): Promise<{ governance: PoolGovernance | null; nodes: PoolNode[] | null; verdicts: GovernanceVerdict[] }> {
       if (!adapter.available) return { governance: null, nodes: null, verdicts: [] };
@@ -211,7 +243,7 @@ export function createMockArchitectureBackend(fixtures: {
         ],
       };
     },
-    async fetchInstanceGraph(): Promise<InstanceGraph | null> {
+    async fetchInstanceGraph(_threadId?: string): Promise<InstanceGraph | null> {
       return fixtures.instance ?? null;
     },
     async fetchPool() {

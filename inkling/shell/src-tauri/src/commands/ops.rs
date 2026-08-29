@@ -36,6 +36,13 @@ pub(crate) async fn graph_snapshot(args: Option<JsonValue>) -> Result<JsonValue,
 }
 
 #[command]
+pub(crate) async fn graph_instance_snapshot(
+    args: Option<JsonValue>,
+) -> Result<JsonValue, CommandError> {
+    forward_async("graph.instance_snapshot", args).await
+}
+
+#[command]
 pub(crate) async fn pool_snapshot(args: Option<JsonValue>) -> Result<JsonValue, CommandError> {
     forward_sync("pool.snapshot", args)
 }
@@ -136,4 +143,16 @@ pub(crate) async fn ui_spec_revert_latest(
 #[command(rename = "model.reload")]
 pub(crate) async fn model_reload(args: Option<JsonValue>) -> Result<JsonValue, CommandError> {
     forward_async("model.reload", args).await
+}
+
+#[command(rename = "ui_components.get")]
+pub(crate) async fn ui_components_get(args: Option<JsonValue>) -> Result<JsonValue, CommandError> {
+    forward_sync("engine.ui_components_get", args)
+}
+
+#[command(rename = "ui_components.set_disabled")]
+pub(crate) async fn ui_components_set_disabled(
+    args: Option<JsonValue>,
+) -> Result<JsonValue, CommandError> {
+    forward_async("engine.ui_components_set_disabled", args).await
 }

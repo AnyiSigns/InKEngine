@@ -148,3 +148,47 @@ describe('事件落位（ingest）', () => {
     expect(hub.getSnapshot().messages).toHaveLength(0);
   });
 });
+
+describe('thread 分桶（演化/推演按会话窗口区分）', () => {
+  it('回合事件归约进各自会话桶，全局镜像只反映当前会话', () => {
+    const hub = new ChannelHub();
+    hub.setState({ activeSessionId: 'thread-a' });
+    ingestEvent(hub, ev('signal_detected', { signal_id: 'sig-a', signal: 'A 信号' }));
+    ingestEvent(hub, ev('signal_detected', { signal_id: 'sig-b', signal: 'B 信号', thread_id: 'thread-b' }));
+
+    const snap = hub.getSnapshot();
+    // A 的孵化进 A 桶 + 全局镜像（当前会话）
+    expect(snap.perThread['thread-a'].incubation).toHaveLength(1);
+    expect(snap.incubation[0]).toMatchObject({ signal: 'A 信号' });
+    // B 只进 B 桶，不污染全局镜像
+    expect(snap.perThread['thread-b'].incubation).toHaveLength(1);
+    expect(snap.perThread['thread-b'].incubation[0]).toMatchObject({ signal: 'B 信号' });
+    expect(snap.incubation).toHaveLength(1);
+  });
+
+  it('切换会话窗口恢复该会话的桶数据（不跨会话残留）', () => {
+    const hub = new ChannelHub();
+    hub.setState({ activeSessionId: 'thread-a' });
+    ingestEvent(hub, ev('patch_proposed', { patch_id: 'p-a', kind: 'rule', title: 'A 补丁' }));
+    ingestEvent(hub, ev('patch_proposed', { patch_id: 'p-b', kind: 'rule', title: 'B 补丁', thread_id: 'thread-b' }));
+
+    // 切到 B：全局镜像恢复 B 桶（patchChain/simulations/incubation 等）
+    const bucket = hub.getSnapshot().perThread['thread-b'];
+    hub.setState({
+      activeSessionId: 'thread-b',
+      patchChain: bucket?.patchChain ?? [],
+      simulations: bucket?.simulations ?? [],
+      incubation: bucket?.incubation ?? [],
+      sourceTraces: bucket?.sourceTraces ?? [],
+    });
+    expect(hub.getSnapshot().patchChain).toHaveLength(1);
+    expect(hub.getSnapshot().patchChain[0]).toMatchObject({ title: 'B 补丁' });
+  });
+
+  it('跨会话事件不污染当前会话消息流', () => {
+    const hub = new ChannelHub();
+    hub.setState({ activeSessionId: 'thread-a' });
+    ingestEvent(hub, ev('tool_start', { step_id: 'tool:1', tool: 'grep', thread_id: 'thread-b' }));
+    expect(hub.getSnapshot().messages).toHaveLength(0);
+  });
+});

@@ -110,7 +110,7 @@ export interface ArchitectureBackend {
   runCanary(t: WorkflowTemplate): Promise<CanaryReceipt>;
   applyTemplate(t: WorkflowTemplate): Promise<ApplyResult>;
   fetchPatchDiff(t: WorkflowTemplate): Promise<PatchDiff | null>;
-  fetchInstanceGraph(): Promise<InstanceGraph | null>;
+  fetchInstanceGraph(threadId?: string): Promise<InstanceGraph | null>;
   fetchPool(): Promise<{ governance: PoolGovernance | null; nodes: PoolNode[] | null; verdicts: GovernanceVerdict[] }>;
   fetchEdgeEvidence(): Promise<EdgeEvidence[] | null>;
   downgradeEdge(id: string): Promise<void>;

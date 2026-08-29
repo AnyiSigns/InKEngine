@@ -29,7 +29,7 @@ import type { BackendAdapter, ModelArchiveSnapshot } from '@/shared/backend/back
 import type { AttachmentAsset } from '@/shared/session/eventIngest';
 import type { ChannelHub } from '@/shared/session/channelHub';
 import type { SessionStore } from '@/shared/session/sessionStore';
-import type { RoundStep, SimulationBranch } from '@/shared/session/types';
+import type { InkMessage, RoundStep, SimulationBranch } from '@/shared/session/types';
 
 interface AppProps {
   backend: BackendAdapter;
@@ -154,6 +154,21 @@ export default function App({ backend, hub, sessionStore }: AppProps) {
     void send(text, attachments);
   };
 
+  /** 会话窗口切换：从 perThread 桶恢复该会话的回合状态（演化/推演/来源）。 */
+  const restoreThread = (id: string, messages: InkMessage[]) => {
+    const bucket = hub.getSnapshot().perThread[id];
+    hub.setState({
+      activeSessionId: id,
+      messages,
+      roundId: bucket?.roundId ?? null,
+      streaming: false,
+      simulations: bucket?.simulations ?? [],
+      incubation: bucket?.incubation ?? [],
+      sourceTraces: bucket?.sourceTraces ?? [],
+      patchChain: bucket?.patchChain ?? [],
+    });
+  };
+
   const openSettings = () => {
     setOpenPanel('settings');
   };
@@ -246,13 +261,13 @@ export default function App({ backend, hub, sessionStore }: AppProps) {
         onBranchFromLeaf={() => {}}
         onSelectSession={(id) => {
           const s = sessionStore.get(id);
-          if (s) hub.setState({ activeSessionId: id, messages: s.messages, roundId: null, streaming: false });
+          if (s) restoreThread(id, s.messages);
         }}
         onCreateSession={() => {
           const pending = sessionStore.create();
           setTimeout(() => {
             const s = sessionStore.get(pending.id);
-            if (s) hub.setState({ activeSessionId: pending.id, messages: s.messages, roundId: null, streaming: false });
+            if (s) restoreThread(pending.id, s.messages);
           }, 0);
         }}
         onRenameSession={(id, newTitle) => sessionStore.rename(id, newTitle)}
@@ -264,6 +279,7 @@ export default function App({ backend, hub, sessionStore }: AppProps) {
         <SettingsFloater
           open
           onClose={() => setOpenPanel('none')}
+          currentThreadId={state.activeSessionId}
           backend={{
             available: backend.available,
             status: backend.status,

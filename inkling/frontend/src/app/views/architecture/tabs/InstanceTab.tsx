@@ -3,6 +3,7 @@ import { Lock } from 'lucide-react';
 
 import { DagRenderer } from '@/app/dag';
 import { EmptyState } from '../../EmptyState';
+import { useSettingsThread } from '@/app/settings/settings_floater';
 import type { ArchitectureBackend, InstanceGraph } from '../backend';
 import { GitBranch } from 'lucide-react';
 
@@ -10,10 +11,12 @@ import { GitBranch } from 'lucide-react';
 export function InstanceTab({ backend }: { backend: ArchitectureBackend }) {
   const [instance, setInstance] = useState<InstanceGraph | null>(null);
   const [loaded, setLoaded] = useState(false);
+  const threadId = useSettingsThread();
 
   useEffect(() => {
     let alive = true;
-    void backend.fetchInstanceGraph().then((g) => {
+    setLoaded(false);
+    void backend.fetchInstanceGraph(threadId || undefined).then((g) => {
       if (!alive) return;
       setInstance(g);
       setLoaded(true);
@@ -21,7 +24,7 @@ export function InstanceTab({ backend }: { backend: ArchitectureBackend }) {
     return () => {
       alive = false;
     };
-  }, [backend]);
+  }, [backend, threadId]);
 
   if (!loaded) return <div className="w3-muted" data-testid="inst-loading">加载实例图…</div>;
 

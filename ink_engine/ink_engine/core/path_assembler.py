@@ -2159,6 +2159,8 @@ class PathAssemblyRuntime:
     # 组装统计累计（进程内跨调用聚合：stats 最后一跳的数据源——前端
     # 仪表盘经 assemble_stats op 读取；frozen 数据类下该 dict 就地累积）
     stats_total: dict[str, int] = field(default_factory=dict)
+    # 技能先例提供器（异步；组装请求 → 候选技能链，见 bind() 转发到组装器）
+    skill_provider: Callable[[Any], Awaitable[Sequence[Any]]] | None = None
 
     def bind(self) -> PathAssembler:
         """构造只读组装器（同源配置；单次绑定复用）。"""
@@ -2172,6 +2174,7 @@ class PathAssemblyRuntime:
             cache=self.cache,
             model_id=self.model_id,
             cache_epsilon=self.cache_epsilon,
+            skill_provider=self.skill_provider,
         )
 
     async def report_cache_execution(self, request: AssemblyRequest, *, ok: bool) -> bool:

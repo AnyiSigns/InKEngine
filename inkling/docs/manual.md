@@ -148,5 +148,5 @@ boot_prompt 定稿 + 引擎源码事实核对 + 校验器自检夹具）/**cargo
    管理台条目（来源 = AI 自写，附测试报告/版本/补丁链审计）。
 
 教学资产（内容中性示例领域演示完整链路，规划待建）计划落
-`ink_engine/examples/domain_template/`，不占种子生态位；建成前机制演示以
+`ink_engine/examples/domain_template/`；建成前机制演示以
 `ink_engine/examples/e2e` 与出厂自检门禁为准。

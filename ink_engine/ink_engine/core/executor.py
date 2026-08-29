@@ -467,6 +467,11 @@ class Engine:
         # 事件登记锁：并行节点组（计划步骤）成员并发发射时串行化计数与
         # seq 锚点登记（防丢更新/乱序覆盖导致恢复重放重复事件）
         self._event_lock = asyncio.Lock()
+        # 传输推送保序锁 + 缓冲区：并行组并发 emit 经 seq 排定顺序推送，
+        # 避免事件顺序违背落库/执行顺序（见 :meth:`_deliver_event`）
+        self._transport_lock = asyncio.Lock()
+        self._transport_pending: dict[int, EngineEvent] = {}
+        self._transport_next_seq: int | None = None
         # 图内容指纹（checkpoint 图版本）：本图执行产生的 checkpoint 均携带，
         # 恢复时与锚点比对（图定义变了 = 恢复语义不保证，拒绝续跑）
         self._graph_digest = graph.digest()
@@ -520,9 +525,10 @@ class Engine:
 
         并发安全：并行节点组（计划步骤）成员并发发射事件——计数与 seq
         锚点的登记经引擎级事件锁串行化（计数器防丢更新、seq 锚点防乱序
-        覆盖导致恢复重放重复事件）；传输推送在锁外（消费方自身线程安全
-        由传输实现保证，不互相等待）。
+        覆盖导致恢复重放重复事件）；传输推送的保序在 :meth:`_deliver_event`
+        内完成（按 seq 排定顺序，避免并行组并发 emit 时推送顺序违背 seq）。
         """
+        seq: int | None = None
         async with self._event_lock:
             self._event_counter += 1
             if self.options.storage is not None:
@@ -536,11 +542,52 @@ class Engine:
                     if now - self._event_log_error_ts >= 5.0:
                         self._event_log_error_ts = now
                         logger.error(f"事件日志写入失败（忽略，继续执行）: {exc}")
-        for transport in transports or self.options.transports:
-            try:
-                await transport.send(event)
-            except Exception as exc:
-                logger.warning(f"事件传输失败（忽略）: {event.type}: {exc}")
+        # seq 分配在事件锁内完成；传输推送在锁外按 seq 保序（避免持锁 await
+        # I/O 的潜在死锁，同时保证事件顺序与执行/落库顺序一致）
+        await self._deliver_event(event, seq, transports or self.options.transports)
+
+    async def _deliver_event(
+        self,
+        event: EngineEvent,
+        seq: int | None,
+        transports: list[EngineTransport],
+    ) -> None:
+        """按 seq 顺序把事件推送给各传输（并行组并发 emit 也不乱序）。
+
+        落库 seq 已在事件锁内分配；此处仅负责传输推送的保序：seq 连续到达
+        即依次发送并冲刷后续已缓冲事件。seq 缺失（无存储/落库失败）则立即
+        发送（无 seq 可排序，退化为到达序）。换 run 时由调用方复位
+        :attr:`_transport_next_seq`。
+        """
+        async with self._transport_lock:
+            if seq is None:
+                for transport in transports:
+                    try:
+                        await transport.send(event)
+                    except Exception as exc:
+                        logger.warning(f"事件传输失败（忽略）: {event.type}: {exc}")
+                return
+            if self._transport_next_seq is None:
+                self._transport_next_seq = seq
+            if seq != self._transport_next_seq:
+                # 不是下一个预期 seq：先缓冲，待缺孔补齐后由后续冲刷统一发送
+                self._transport_pending[seq] = event
+                return
+            # 从当前 seq 起连续冲刷已到达事件（含本事件）
+            cur_seq = seq
+            cur_event = event
+            while True:
+                self._transport_next_seq = cur_seq + 1
+                for transport in transports:
+                    try:
+                        await transport.send(cur_event)
+                    except Exception as exc:
+                        logger.warning(f"事件传输失败（忽略）: {cur_event.type}: {exc}")
+                nxt = self._transport_pending.pop(cur_seq + 1, None)
+                if nxt is None:
+                    break
+                cur_seq += 1
+                cur_event = nxt
 
     async def update_state(self, thread_id: str, values: dict) -> None:
         """外部状态补丁：读最新 checkpoint，按 schema reducer 合并 values 后
@@ -638,6 +685,9 @@ class Engine:
         self._event_counter = 0
         self._latest_event_seq = None
         self._chain_advanced = False
+        # 传输推送保序状态复位（同 thread 跨 run 不串台）
+        self._transport_pending.clear()
+        self._transport_next_seq = None
         self._validate_entry_mode(resume_from=resume_from, continue_chain=continue_chain)
         try:
             if inject:
@@ -646,8 +696,10 @@ class Engine:
                 await self.options.storage.truncate_events(thread_id, truncate_log_after)
             # 链级 rebase：顶层入口压缩历史前缀（版本链行数维度有界化）。
             # 编辑重放（parent_checkpoint 分叉锚点指向历史链）跳过——锚点
-            # 可能落在窗口外，压缩会删掉分叉目标。
-            if parent_checkpoint is None:
+            # 可能落在窗口外，压缩会删掉分叉目标。恢复续跑（resume_from）同样
+            # 跳过：resume_from 落点在保留窗口外会被压缩删除，导致恢复锚点
+            # 不存在而 StorageError——设置 resume_from 时不压缩，保证锚点不被裁掉
+            if parent_checkpoint is None and resume_from is None:
                 await self._maybe_compact_chain(thread_id)
             task = asyncio.create_task(
                 self._execute(
@@ -714,13 +766,18 @@ class Engine:
         self._event_counter = 0
         self._latest_event_seq = None
         self._chain_advanced = False
+        # 传输推送保序状态复位（同 thread 跨 run 不串台）
+        self._transport_pending.clear()
+        self._transport_next_seq = None
         self._validate_entry_mode(resume_from=resume_from, continue_chain=continue_chain)
         try:
             if inject:
                 self._coordinator.inject(inject)
             if truncate_log_after is not None and self.options.storage is not None:
                 await self.options.storage.truncate_events(thread_id, truncate_log_after)
-            if parent_checkpoint is None:
+            # 编辑重放（parent_checkpoint 分叉）与恢复续跑（resume_from 锚点
+            # 可能落在保留窗口外）均跳过压缩，避免删掉分叉目标/恢复锚点
+            if parent_checkpoint is None and resume_from is None:
                 await self._maybe_compact_chain(thread_id)
             _state, result = await self._execute(
                 state=state,
@@ -865,7 +922,12 @@ class Engine:
             graphs=dict(self._trace_graphs),
             result=result,
         )
-        await hooks.run(ctx)
+        # 钩子异常隔离：沉淀钩子失败只记日志，不阻断 RunResult 交付
+        # （与「settle 不阻断」文档语义一致；钩子异常不得让成功 run 判异常）
+        try:
+            await hooks.run(ctx)
+        except Exception as exc:
+            logger.error(f"沉淀钩子执行失败（忽略，不阻断 run 结果交付）: {exc}")
 
     @staticmethod
     async def decision_anchor(
@@ -1788,23 +1850,43 @@ class Engine:
             if _tail is not None:
                 parent_id = _tail.checkpoint_id
             self._chain_advanced = False
-        record = await storage.put_checkpoint(
-            CheckpointRecord(
-                checkpoint_id=0,
-                thread_id=chain_thread,
-                node=node,
-                graph_path=ctx.graph_path,
-                state=state,
-                parent_id=parent_id,
-                reason=reason,
-                event_seq=event_seq,
-                error=error,
-                interrupt=interrupt,
-                graph_version=self._graph_digest,
-                plan=plan,
-            ),
-            fork=fork_write,
-        )
+        try:
+            record = await storage.put_checkpoint(
+                CheckpointRecord(
+                    checkpoint_id=0,
+                    thread_id=chain_thread,
+                    node=node,
+                    graph_path=ctx.graph_path,
+                    state=state,
+                    parent_id=parent_id,
+                    reason=reason,
+                    event_seq=event_seq,
+                    error=error,
+                    interrupt=interrupt,
+                    graph_version=self._graph_digest,
+                    plan=plan,
+                ),
+                fork=fork_write,
+            )
+        except Exception as exc:
+            # 事件已落库但 checkpoint 快照未提交：本节点之后的孤立事件若被
+            # 后续恢复重放 + 节点重执行会双重发射。此处回滚父快照之后的孤立
+            # 事件（标记该段不可恢复），并向上抛出明确错误（存储失败不静默吞掉）
+            logger.error(
+                f"checkpoint 写入失败（事件已落库但快照未提交，"
+                f"尝试回滚孤立事件）: thread={chain_thread} node={node} "
+                f"event_seq={event_seq}: {exc}"
+            )
+            try:
+                if parent_id is not None:
+                    parent_cp = await storage.get_checkpoint(parent_id)
+                    parent_seq = parent_cp.event_seq if parent_cp is not None else -1
+                    # 删除父快照之后的孤立事件（seq > parent_seq），使恢复重放
+                    # 不会与重执行叠加造成事件双重发射
+                    await storage.truncate_events(chain_thread, parent_seq)
+            except Exception as trunc_exc:
+                logger.error(f"孤立事件回滚失败（恢复可能重复发射）: {trunc_exc}")
+            raise
         return record, False
 
     async def _plan_advance(

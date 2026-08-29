@@ -39,7 +39,15 @@ export class RemoteSessionStore implements SessionStore {
   async reload(): Promise<void> {
     try {
       const remote = await this.backend.sessionList();
-      this.records = new Map(remote.map((record) => [record.thread_id, toLocalRecord(record)]));
+      const next = new Map<string, SessionRecord>();
+      for (const record of remote) {
+        const local = toLocalRecord(record);
+        // 保留本地已落盘的实时消息（回合结束回写），避免刷新覆盖历史
+        const existing = this.records.get(local.id);
+        if (existing && existing.messages.length > 0) local.messages = existing.messages;
+        next.set(local.id, local);
+      }
+      this.records = next;
       this.commit();
     } catch {
       // 宿主不可达：保留既有镜像（下次面板操作重试）

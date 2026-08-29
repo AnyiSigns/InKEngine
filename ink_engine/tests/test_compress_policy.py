@@ -140,6 +140,49 @@ def test_compress_history_empty_input():
     policy = ThresholdCompressionPolicy(min_messages=5, min_chars=100)
     assert compress_message_history([], policy=policy) == []
 
+
+def test_compress_history_tail_aligned_to_tool_round():
+    """P1（8 片审查修复）：折叠边界须对齐工具轮——tail 不得以 tool 消息开头，
+    且不得出现无前置 tool_call 的悬空 tool 消息（按 keep_recent 计算的
+    tail_start 恰好落在某工具轮内部时修正）。"""
+    from ink_engine.core.context import message_role
+    from ink_engine.core.llm.messages import ToolCall, assistant, system, tool_result, user
+
+    def _round(i: int) -> list:
+        return [
+            user(f"u{i}"),
+            assistant("调用", tool_calls=[ToolCall(id=f"c{i}", name="f")]),
+            tool_result(f"r{i}", f"c{i}"),
+        ]
+
+    # 8 轮 + system：count=25，keep_recent=4 → tail_start=21 正好落在工具轮
+    # 的 tool 消息上（无修复则 tail 以 tool 消息开头，产生悬空 tool）
+    messages = [system("提示")]
+    for i in range(8):
+        messages.extend(_round(i))
+    policy = ThresholdCompressionPolicy(min_messages=5, min_chars=100)
+    result = compress_message_history(messages, policy=policy, keep_recent=4)
+
+    # 自起点扫描：每个 tool 消息前必有未配对的 assistant(tool_calls)
+    pending = False
+    for m in result:
+        r = message_role(m)
+        if r == "assistant":
+            pending = bool(getattr(m, "tool_calls", None))
+        elif r == "tool":
+            assert pending, "折叠后 tail 出现无前置 tool_call 的悬空 tool 消息"
+            pending = False
+    # tail 起点（摘要之后）不得为 tool 消息
+    assert message_role(result[2]) != "tool"
+    # 工具轮被完整保留：每个 tool 消息都有配对的 assistant(tool_calls)
+    # （tail 内的助手工具调用数 == tool 结果数，无悬空 tool）
+    tool_count = sum(1 for m in result if message_role(m) == "tool")
+    tc_assistant = sum(
+        1 for m in result if message_role(m) == "assistant" and getattr(m, "tool_calls", None)
+    )
+    assert tool_count == tc_assistant
+    assert tool_count > 0  # 确有工具轮被保留（修复前会被劈断）
+
 # ── 压缩阈值按 context_window 动态化 ──
 
 

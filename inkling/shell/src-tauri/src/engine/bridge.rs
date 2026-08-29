@@ -55,7 +55,11 @@ impl RustTransport {
         self.events.lock().unwrap().push(json_str.clone());
         let emitter = self.emitter.lock().unwrap();
         if let Some(emit) = emitter.as_ref() {
-            emit(&json_str);
+            // 发射闭包可能 panic（如前端通道异常）：catch 住，避免 panic 经
+            // PyO3 回卷中断引擎在途回合；事件收集缓冲不受影响（#6）。
+            let _ = std::panic::catch_unwind(std::panic::AssertUnwindSafe(|| {
+                emit(&json_str);
+            }));
         }
         pyo3_async_runtimes::tokio::future_into_py(py, async move { Ok(()) })
     }

@@ -39,21 +39,21 @@ describe('设置页 Tab 化（每 tab 只渲染对应 form）', () => {
   it('默认激活首个 tab，仅渲染该分区内容', () => {
     render(<UIRenderer spec={fixtureSpec as unknown as UISpec} hub={new ChannelHub()} activeView="settings" />);
     expect(screen.getByText('创建容器前必须人工审批（fail-closed）')).toBeInTheDocument();
-    expect(screen.queryByText('制片人决策')).not.toBeInTheDocument();
+    expect(screen.queryByText('router')).not.toBeInTheDocument();
   });
 
   it('切换 tab 后仅渲染目标分区，其余分区移出', async () => {
     const user = userEvent.setup();
     render(<UIRenderer spec={fixtureSpec as unknown as UISpec} hub={new ChannelHub()} activeView="settings" />);
     await user.click(screen.getByRole('button', { name: '应用能力' }));
-    expect(screen.getByText('制片人决策')).toBeInTheDocument();
+    expect(screen.getByText('router')).toBeInTheDocument();
     expect(screen.queryByText('创建容器前必须人工审批（fail-closed）')).not.toBeInTheDocument();
   });
 
   it('settings_form 带 form 道具时只渲染对应分区（无左导航轨）', () => {
     render(<SettingsForm form="environment" />);
     expect(screen.getByText('创建容器前必须人工审批（fail-closed）')).toBeInTheDocument();
-    expect(screen.queryByText('制片人决策')).not.toBeInTheDocument();
+    expect(screen.queryByText('router')).not.toBeInTheDocument();
     expect(screen.queryByRole('button', { name: /系统配置/ })).not.toBeInTheDocument();
   });
 });

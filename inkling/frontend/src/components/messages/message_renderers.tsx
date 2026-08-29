@@ -16,7 +16,7 @@ import type {
   InkVideoMessage,
 } from '@/shared/session/types';
 import { resolveMediaRenderer } from '@/renderer/mediaRegistry';
-import { DeviceEntry, ErrorEntry, KnowledgeHitEntry, ReviewEventEntry, SpawnEntry, SuggestionsEntry, UnknownEntry } from './misc_entries';
+import { DeviceEntry, ErrorEntry, KnowledgeHitEntry, ReviewEventEntry, SpawnEntry, SuggestionsEntry, UnknownEntry, VettingEntry } from './misc_entries';
 import { MediaRejected, assetOf } from './media_entries';
 import { PlanEntry } from './plan_entry';
 import { StreamingEntry, TextEntry } from './text_entry';
@@ -82,6 +82,8 @@ export function renderMessageEntry(message: InkMessage, context: MessageEntryCon
       return <SuggestionsEntry id={message.id} message={message} live={context.live} />;
     case 'error':
       return <ErrorEntry id={message.id} message={message} live={context.live} />;
+    case 'vetting':
+      return <VettingEntry id={message.id} message={message} live={context.live} />;
     case 'image':
     case 'video':
     case 'document':

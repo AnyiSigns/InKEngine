@@ -19,6 +19,7 @@ Host 五件套（引擎嵌入契约，见 core/runtime.Host）：
 from __future__ import annotations
 
 import asyncio
+import contextlib
 import itertools
 import json
 import os
@@ -38,7 +39,11 @@ from ink_engine.core.events import CollectorTransport, EngineEvent, EngineTransp
 from ink_engine.core.llm import AsyncLLM, create_llm
 from ink_engine.core.logging import get_logger
 from ink_engine.core.runtime import Host, Runtime
-from ink_engine.core.self_application import APPROVAL_TIMEOUT_SECONDS
+from ink_engine.core.self_application import (
+    APPROVAL_TIMEOUT_SECONDS,
+    DEFAULT_APPROVAL_LEVELS,
+    ApprovalLevel,
+)
 from ink_engine.core.self_proposal import PatchKind
 from ink_engine.core.self_tools import SELF_TOOL_CONTRACT
 from ink_engine.core.storage import Storage, create_storage
@@ -70,6 +75,17 @@ from .security_domain import (
 from .web_search_domain import make_web_search_executor
 
 logger = get_logger(__name__)
+
+# resolve_llm 缓存哨兵（None 是合法已解析结果，须用独立哨兵区分未解析）
+_RESOLVED_LLM_MISSING = object()
+
+# 引擎默认 L0 直过补丁键（THEME/UI 低风险形态）：host 提供审批策略会
+# 覆盖管线自带的 L0 键，缺省会令低风险补丁改走弹卡——并入以保留引擎 L0 语义
+_L0_PATCH_KEYS = frozenset(
+    f"patch:{kind.value}"
+    for kind, level in DEFAULT_APPROVAL_LEVELS.items()
+    if level is ApprovalLevel.L0
+)
 
 
 class BehaviorLLM:
@@ -154,8 +170,17 @@ class _RecordedTransport:
 
     recorder: RoundStepsTransport
     inner: EngineTransport
+    _seen_round_id: str | None = None
 
     async def send(self, event: EngineEvent) -> None:
+        # 跨回合惰性重置：事件携带新 round_id 即换累积器，确保
+        # round_snapshot/checkpoint 同一回合边界、不跨回合累积（嵌入态
+        # 下 Rust 侧未调用 host.begin_round 时的兜底）。
+        rid = getattr(event, "round_id", None)
+        if rid and rid != self._seen_round_id:
+            self._seen_round_id = rid
+            with contextlib.suppress(Exception):
+                self.recorder.begin_round(rid)
         self.recorder.feed(event)
         await self.inner.send(event)
 
@@ -187,6 +212,10 @@ class InKlingHost(Host):
         self._embedder = embedder
         # 行为准则层文本（装配期组成；None = 不注入——离线单元形态）
         self._behavior = behavior
+        # 模型实例解析缓存（resolve_llm 复用，避免每次 rebuild_engine 新建连接）
+        self._resolved_llm: AsyncLLM | None = _RESOLVED_LLM_MISSING  # type: ignore[assignment]
+        # 审批策略共享实例（G1 传入管线与宿主级审批卡须同一实例）
+        self._interrupt_policy: InterruptPolicy | None = None
         # 回合步骤记录器（core.round_steps 原语：事件流 → 步骤序列）
         self.round_recorder = RoundStepsTransport()
         # 装配域（boot 后齐备；设置页/评测侧消费的运行期入口）
@@ -209,22 +238,37 @@ class InKlingHost(Host):
         return self._storage
 
     async def resolve_llm(self) -> AsyncLLM | None:
-        """模型解析：注入实例优先，否则环境变量配置；缺配置返回 None。
+        """模型解析：注入实例优先，其次环境变量，再次文件配置；缺配置返回 None。
 
         返回实例统一经行为准则层包装（BehaviorLLM）——行为块前置为
         系统消息，覆盖全部宿主 LLM 调用路径。解析完成后按模型档案
         context_window 构建压缩策略（阈值随窗口动态化）。
+
+        回落优先序（与环境变量门禁同口径）：注入实例 > 环境变量
+        (INK_LLM_*) > model_connection.json（设置页落盘，data_dir 下）
+        > None（壳侧据此注入 StubLLM 离线桩）。文件配置使桌面壳无需
+        env 变量即可装配真实模型。
         """
+        # 复用已解析实例（含行为准则层包装）：rebuild_engine 以
+        # self.engine_llm is llm 作缓存键，每次新建实例会让缓存恒失效、
+        # 每次重建引擎并新建 LLM 连接（中间实例泄漏）。
+        if self._resolved_llm is not _RESOLVED_LLM_MISSING:
+            return self._resolved_llm
         llm = self._llm
         if llm is None:
             config = _model_config_from_env()
             if not config:
+                config = _model_config_from_file(self._data_dir)
+            if not config:
+                self._resolved_llm = None
                 return None
             try:
                 llm = create_llm(config)
             except Exception:
+                self._resolved_llm = None
                 return None
         wrapped = BehaviorLLM(llm, self._behavior) if self._behavior is not None else llm
+        self._resolved_llm = wrapped
         # 压缩阈值按 context_window 动态化（档案缺失回退硬底线）
         model_id = getattr(getattr(llm, "config", None), "model_id", None)
         context_window = _model_context_window_from_archive(self._data_dir, model_id)
@@ -239,11 +283,20 @@ class InKlingHost(Host):
         return getattr(self, "_compression_policy", None)
 
     def interrupt_policy(self) -> InterruptPolicy:
-        """审批策略（直过白名单 + 审批超时窗口；缺省走引擎默认超时）。"""
-        return DefaultInterruptPolicy(
-            auto_approve_keys=self._auto_approve_keys,
-            timeout=self._timeout,
-        )
+        """审批策略（直过白名单 + 审批超时窗口；缺省走引擎默认超时）。
+
+        缓存共享实例：G1 传入 SelfApplicationPipeline 的策略与宿主级
+        审批卡须用同一实例（否则各自新建、auto_approve 语义分叉）。
+        并入引擎默认 L0 直过补丁键（patch:ui/patch:theme），host 提供
+        策略覆盖管线自带的 L0 键时仍保留引擎 L0 语义（低风险补丁直过）。
+        """
+        if self._interrupt_policy is None:
+            keys = frozenset(self._auto_approve_keys) | _L0_PATCH_KEYS
+            self._interrupt_policy = DefaultInterruptPolicy(
+                auto_approve_keys=keys,
+                timeout=self._timeout,
+            )
+        return self._interrupt_policy
 
     def build_transport(self) -> EngineTransport:
         """事件传输工厂（回合事件收集；web/stdio 宿主按形态换实现）。
@@ -390,16 +443,31 @@ async def boot_inkling(
         storage = getattr(runtime, "storage", None)
         if storage is None:
             return
-        try:
-            asyncio.ensure_future(
-                storage.put_record(
-                    "set_audit",
-                    f"settle-{_uuid.uuid4().hex[:12]}",
-                    {**record, "kind": record.get("type") or "settle"},
-                )
+
+        async def _write() -> None:
+            await storage.put_record(
+                "set_audit",
+                f"settle-{_uuid.uuid4().hex[:12]}",
+                {**record, "kind": record.get("type") or "settle"},
             )
-        except Exception as exc:  # 审计落库失败只记日志，不阻断沉淀
-            logger.warning("路径装配审计落库失败（忽略）: %s", exc)
+
+        # 失败防护：落库异常经 done callback 记日志并重试一次，避免
+        # fire-and-forget 静默丢失审计证据（done callback 未接手时异常
+        # 仅以「Task exception never retrieved」警告形式出现，证据不可观测）。
+        def _on_done(task: asyncio.Future) -> None:
+            exc = task.exception()
+            if exc is None:
+                return
+            logger.warning("路径装配审计落库失败（重试一次）: %s", exc)
+            try:
+                asyncio.ensure_future(_write())
+            except Exception:  # 重试调度失败只记日志，不阻断沉淀
+                pass
+
+        try:
+            asyncio.ensure_future(_write()).add_done_callback(_on_done)
+        except Exception as exc:  # 调度失败只记日志，不阻断沉淀
+            logger.warning("路径装配审计落库调度失败（忽略）: %s", exc)
 
     if (
         path_flags.edge_evidence_enabled
@@ -743,6 +811,13 @@ async def boot_inkling(
     revert_state["base_ui_spec"] = dict(bundle.data["ui_spec.json"])
     # 补丁来源知识条目登记位（回退恢复的撤销清单；宿主 boot 初始化）
     runtime.patch_entries: set[str] = set()
+    # 知识「就地修改」补丁的回退快照（entry_id → 应用前条目 dict；
+    # None 表示新建条目）：apply 侧写入，revert 侧据此还原，避免回退
+    # 误删为「删除」语义（与 G1 约定的契约字段）
+    runtime.knowledge_before_snapshots: dict[str, Any] = {}
+    # 补丁链注入的 harness 定义名（回退注销清单：仅注销补丁来源、
+    # 不动装配基线定义；与 patch_entries 同源机制）
+    runtime.harness_patch_entries: set[str] = set()
     # 链恢复：环境段（声明生效）+ 产物段（声明工具注册）+ 工作区授权
     # + 活跃态整体还原（界面/主题/知识/事件类型——重启装配从链恢复）。
     # 安全模式 = 只读基线装配：链内容（自写资产的载体）整体不参与本次
@@ -818,6 +893,43 @@ def _model_config_from_env() -> dict[str, str]:
     api_key = os.environ.get("INK_LLM_API_KEY")
     if api_key:
         config["api_key"] = api_key
+    return config
+
+
+def _model_config_from_file(data_dir: Path | None) -> dict[str, str]:
+    """文件配置回落（model_connection.json，设置页落盘）。
+
+    环境变量缺配置时经此读取 base_url + 主档 model_id 装配真实模型；
+    缺字段/文件不存在/非对象返回空（回落离线桩）。优先级：环境变量 >
+    文件 > 桩。主档 main_model_id 优先，router/audit 缺省回落 main
+    （与设置页回落口径一致）。
+    """
+    if data_dir is None:
+        return {}
+    path = Path(data_dir) / "model_connection.json"
+    if not path.exists():
+        return {}
+    try:
+        with open(path, "r", encoding="utf-8") as fh:
+            cfg = json.load(fh)
+    except Exception:
+        return {}
+    if not isinstance(cfg, dict):
+        return {}
+    base_url = cfg.get("base_url", "")
+    if not base_url or not str(base_url).strip():
+        return {}
+    model_id = cfg.get("main_model_id") or cfg.get("router_model_id") or cfg.get("audit_model_id")
+    if not model_id or not str(model_id).strip():
+        return {}
+    config: dict[str, str] = {
+        "adapter": cfg.get("provider_id") or "openai_compat",
+        "base_url": str(base_url),
+        "model_id": str(model_id),
+    }
+    api_key = cfg.get("api_key")
+    if api_key:
+        config["api_key"] = str(api_key)
     return config
 
 

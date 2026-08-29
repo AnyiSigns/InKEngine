@@ -31,7 +31,7 @@ from __future__ import annotations
 from dataclasses import dataclass
 
 from .logging import get_logger
-from .storage import ChainLink, Storage
+from .storage import ChainLink, Storage, validate_chain
 
 logger = get_logger(__name__)
 
@@ -154,14 +154,25 @@ async def maybe_compact_chain(
     if keep <= 0:
         return CompactionOutcome()
     links = await storage.chain_index(thread_id)
-    if len(links) <= keep:
-        return CompactionOutcome()
+    # 触发前先规划：plan 为空（多短叶链每叶路径 <= keep，无行需删除/改写）
+    # 直接跳过后续操作，避免每回合空转（阈值与「每叶保留 keep 行」规划语义对齐）。
     plan = plan_compaction(links, keep)
     if plan.is_empty:
         return CompactionOutcome()
     tail_stamp = links[0].checkpoint_id if links else None
+    # 改写先行（fail-safe）：set_checkpoint_parent 返回受影响行数，改写未
+    # 生效（行不存在/已并发删除）的链头会让后续删除制造悬挂父指针，故提前
+    # 中止删除（fail-open：压缩是维护操作，跳过不损坏数据）。
+    rewired = 0
     for checkpoint_id in plan.rewire_ids:
-        await storage.set_checkpoint_parent(thread_id, checkpoint_id, None)
+        affected = await storage.set_checkpoint_parent(thread_id, checkpoint_id, None)
+        if affected == 0:
+            logger.error(
+                f"压缩链头改写未生效（checkpoint #{checkpoint_id} 不存在），"
+                f"中止删除避免悬挂父指针: thread={thread_id}"
+            )
+            return CompactionOutcome(rewired=rewired)
+        rewired += 1
     fresh = await storage.chain_index(thread_id)
     if fresh and fresh[0].checkpoint_id != tail_stamp:
         # 链尾已前进：计划期快照过期，删除作废（改写已执行，无害）
@@ -169,7 +180,23 @@ async def maybe_compact_chain(
             f"链压缩并发推进（链尾 {tail_stamp} -> {fresh[0].checkpoint_id}），"
             f"跳过删除，下轮入口重试: thread={thread_id}"
         )
-        return CompactionOutcome(rewired=len(plan.rewire_ids))
+        return CompactionOutcome(rewired=rewired)
+    # 删除前重校验（并发编辑重放 fork 可能在计划后插入指向待删祖先的分支）：
+    # 任何保留节点的父指针不得落在待删集内，否则删除后成悬挂。命中则跳过删除。
+    delete_set = set(plan.delete_ids)
+    dangling = [
+        link.checkpoint_id
+        for link in fresh
+        if link.checkpoint_id not in delete_set
+        and link.parent_id is not None
+        and link.parent_id in delete_set
+    ]
+    if dangling:
+        logger.warning(
+            f"压缩删除前重校验命中悬挂风险（保留节点 {dangling} 的父指针落在待删集），"
+            f"跳过删除避免悬挂父指针: thread={thread_id}"
+        )
+        return CompactionOutcome(rewired=rewired)
     removed = (
         await storage.delete_checkpoints(thread_id, list(plan.delete_ids))
         if plan.delete_ids
@@ -180,9 +207,14 @@ async def maybe_compact_chain(
         if plan.trim_before_seq > 0
         else 0
     )
-    return CompactionOutcome(
-        removed=removed, rewired=len(plan.rewire_ids), trimmed=trimmed
-    )
+    # 压缩后置自检：压缩产物须满足「每保留行 parent 存在或为 None」不变量。
+    # 编辑重放分支的 event_seq 可能合法低于父锚点，故关闭 event_seq 单调性校验。
+    violations = await validate_chain(storage, thread_id, check_event_seq=False)
+    if violations:
+        logger.error(
+            f"压缩后置自检失败（链可能污染）: thread={thread_id} 违规={violations}"
+        )
+    return CompactionOutcome(removed=removed, rewired=rewired, trimmed=trimmed)
 
 
 __all__ = [

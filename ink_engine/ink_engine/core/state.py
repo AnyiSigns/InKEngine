@@ -12,6 +12,7 @@ reducer 族（对齐补丁链心智模型）：
 """
 from __future__ import annotations
 
+import json
 from collections.abc import Callable
 from dataclasses import dataclass, field
 from typing import Any
@@ -32,11 +33,35 @@ def _message_id(msg: Any) -> Any:
     return getattr(msg, "id", None)
 
 
+def _msg_content_key(msg: Any) -> Any:
+    """无 id 消息的稳定内容键（恢复重放 + 重执行去重用）。
+
+    消息按 (role, content) 归一化；content 为不可 JSON 化对象时退化为 repr，
+    保证同一消息在两次合并中产出同一键。无 id 消息不可单独寻址，按内容去重
+    是消除「恢复重放 + 节点重执行」重复累积的安全取舍（合法同内容无 id 消息
+    会被合并，因它们本就无法被单独引用/替换）。
+    """
+    if isinstance(msg, dict):
+        role = msg.get("role")
+        content = msg.get("content")
+    else:
+        role = getattr(msg, "role", None)
+        content = getattr(msg, "content", None)
+    try:
+        content_key = json.dumps(content, sort_keys=True, ensure_ascii=False)
+    except TypeError:
+        content_key = repr(content)
+    return ("msg", role, content_key)
+
+
 def add_messages(base: Any, overlay: Any) -> list:
     """累积型补丁链归约器：消息列表按 id 去重/替换，RemoveMessage 删除。
 
     每条消息 = 一个补丁（append 语义）；同 id 消息 = 补丁替换（编辑后的新内容
     覆盖旧内容）；RemoveMessage{id} = 删除补丁（编辑重放截断的通道形态）。
+
+    无 id 消息按内容去重：恢复重放与节点重执行会两次应用同一无 id 消息，
+    若直接 append 会重复累积；按内容键跳过重复项（取舍见 :func:`_msg_content_key`）。
     """
     result = list(base) if base is not None else []
     by_id: dict[Any, int] = {}
@@ -44,10 +69,23 @@ def add_messages(base: Any, overlay: Any) -> list:
         mid = _message_id(msg)
         if mid is not None:
             by_id[mid] = i
+    # 已存在于 base 的无 id 消息内容键（用于跨重放去重）
+    seen_no_id: set = set()
+    for msg in result:
+        if _message_id(msg) is None:
+            key = _msg_content_key(msg)
+            if key is not None:
+                seen_no_id.add(key)
     for msg in overlay or []:
         mid = _message_id(msg)
         if mid is None:
+            # 无 id 消息：按内容去重，跳过已存在的同内容消息（恢复重执行重复累积防护）
+            key = _msg_content_key(msg)
+            if key is not None and key in seen_no_id:
+                continue
             result.append(msg)
+            if key is not None:
+                seen_no_id.add(key)
             continue
         if isinstance(msg, dict) and msg.get("type") == _REMOVE_MESSAGE_TYPE:
             idx = by_id.pop(mid, None)
@@ -113,8 +151,16 @@ def patch_chain_reducer(base: Any, overlay: Any) -> Any:
     if isinstance(base, PatchChain):
         chain = base
     elif isinstance(overlay, PatchChain):
-        # 首次写入完整链（含子图入口归一化收到父链引用）：整体保留
-        # base+补丁，且深拷贝隔离——就地追加不污染原链
+        # base 非链而 overlay 是链：patch_chain 通道基底须为 PatchChain（首值
+        # 非链形态仅允许 None/dict，见下方分支）；str/list 等基底无法以 patch
+        # 链形态保留，静默丢弃会丢失数据 → 显式拒绝（fail-fast，让调用方用
+        # PatchChain 作为通道初值）。dict 基底走下方分支整体保留为链 base。
+        if base is not None and not isinstance(base, dict):
+            raise GraphDefinitionError(
+                f"patch_chain 通道基底类型为 {type(base).__name__}，与 PatchChain "
+                f"overlay 合并会静默丢弃基底（str/list 无法以 patch 链形态保留）；"
+                f"请使用 PatchChain 或 dict 作为通道初值"
+            )
         return overlay.branch()
     elif isinstance(overlay, dict):
         # 裸 dict 初值（通道首值非链形态）：作为基础文本（深拷贝防共享污染）
@@ -123,17 +169,28 @@ def patch_chain_reducer(base: Any, overlay: Any) -> Any:
         chain = PatchChain()
     if overlay is chain:
         return chain
-    if isinstance(overlay, Patch):
-        chain.apply(overlay)
-    elif isinstance(overlay, list):
-        chain.apply_many([p for p in overlay if isinstance(p, Patch)])
-    elif isinstance(overlay, PatchChain):
+    if isinstance(overlay, PatchChain):
         n = chain.length
         if overlay.length >= n and overlay.patches[:n] == chain.patches:
             # 同源链新拷贝（就地追加后整链回流）：只追加差集段
             chain.apply_many(overlay.patches[n:])
         else:
             chain.apply_many(overlay.patches)
+    elif isinstance(overlay, Patch):
+        # 单补丁前缀去重：已是链尾（恢复重执行重复追加）则跳过，防内容翻倍
+        if chain.length and chain.patches[-1] == overlay:
+            pass
+        else:
+            chain.apply(overlay)
+    elif isinstance(overlay, list):
+        patches = [p for p in overlay if isinstance(p, Patch)]
+        # list 形态与 PatchChain 等价前缀去重：overlay 是已并入链的前缀段
+        # （恢复重执行整段回流）时只追加差集段，防补丁被再次追加导致内容翻倍
+        n = chain.length
+        if len(patches) >= n and patches[:n] == chain.patches:
+            chain.apply_many(patches[n:])
+        else:
+            chain.apply_many(patches)
     return chain
 
 

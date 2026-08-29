@@ -378,16 +378,18 @@ class SqliteStorage:
 
     async def set_checkpoint_parent(
         self, thread_id: str, checkpoint_id: int, parent_id: int | None
-    ) -> None:
-        """改写链父指针（链级 rebase：窗口最旧行改写为链头 None）。"""
+    ) -> int:
+        """改写链父指针（链级 rebase：窗口最旧行改写为链头 None），返回受影响行数。"""
         await self._connect()
         try:
             cur = await self._conn.execute(
                 "UPDATE checkpoints SET parent_id = ? WHERE thread_id = ? AND checkpoint_id = ?",
                 (parent_id, thread_id, checkpoint_id),
             )
+            affected = cur.rowcount
             await self._conn.commit()
             await cur.close()
+            return int(affected or 0)
         except Exception as exc:
             raise StorageError(f"sqlite 改写 checkpoint 父指针失败: {exc}") from exc
 

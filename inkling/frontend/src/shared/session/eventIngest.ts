@@ -31,6 +31,12 @@ export function toHubEvent(raw: Record<string, unknown>): HubEvent {
     ? (raw.payload as Record<string, unknown>)
     : {});
   const payload: Record<string, unknown> = { ...rawPayload };
+  // 信封字段原样透传（引擎 events.to_dict 顶层字段，供前端隔离/续流用）
+  const envelopeKeys = ['thread_id', 'seq', 'parent_step_id', 'node', 'graph_path', 'trace_id', 'version'] as const;
+  for (const key of envelopeKeys) {
+    const value = raw[key];
+    if (value !== undefined && value !== null) payload[key] = value as string | number | unknown;
+  }
   if (raw.round_id !== undefined && raw.round_id !== null) payload.round_id = raw.round_id;
   if (raw.step_id !== undefined && raw.step_id !== null) payload.step_id = raw.step_id;
   const rawType = typeof raw.type === 'string' ? raw.type : 'unknown';
@@ -68,6 +74,14 @@ function findStep(
 export function ingestEvent(hub: ChannelHub, event: HubEvent): void {
   const { type, payload, at } = event;
   const state = hub.getSnapshot();
+  // 跨线程事件隔离：事件携带真实 thread_id 且不等于当前会话则丢弃，
+  // 避免多会话事件泄漏（当前会话 = hub.activeSessionId）。系统事件
+  // thread_id='-' 或缺失时不过滤（非会话专属，始终落位）。
+  const eventThread = typeof payload.thread_id === 'string' ? payload.thread_id : '';
+  const activeThread = state.activeSessionId;
+  if (eventThread && eventThread !== '-' && activeThread && eventThread !== activeThread) {
+    return;
+  }
   const roundId = (payload.round_id as string | undefined) ?? state.roundId ?? undefined;
   const stepId = (payload.step_id as string | undefined) ?? '';
   // 任务面事件归约（task_state 子通道）；非任务事件归约为原样（不崩）
@@ -399,6 +413,17 @@ export function ingestEvent(hub: ChannelHub, event: HubEvent): void {
         createdAt: at,
       });
       next.sourceTraces = traces;
+      break;
+    }
+    case 'assembly_candidate':
+    case 'node_start':
+    case 'evolution_variant': {
+      // 引擎观察/审计事件，无对应消息 kind：dev 模式折叠记录，避免静默丢
+      if (getUiStateStore().get<boolean>(DEV_MODE_KEY)) {
+        const keys = typeof payload === 'object' && payload ? Object.keys(payload).slice(0, 8) : [];
+        const digest = keys.length ? ` · ${keys.join(', ')}` : '';
+        messages = [...messages, { kind: 'unknown', token: `观察事件：${event.type}${digest}`, id: nextId(), stepId: stepId || undefined, roundId }];
+      }
       break;
     }
     case 'tuning_update': {

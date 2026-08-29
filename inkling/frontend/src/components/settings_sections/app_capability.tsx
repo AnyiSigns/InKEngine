@@ -12,8 +12,8 @@ import type { GearTier } from '@/shared/session/types';
 
 export const TIER_KEYS: GearTier[] = ['router', 'main'];
 export const TIER_LABELS: Record<GearTier, string> = {
-  router: '制片人决策',
-  main: '主模型',
+  router: 'router',
+  main: 'main',
 };
 
 export type SimulationTier = 'off' | 'light' | 'full';
@@ -79,7 +79,7 @@ export function AppCapabilitySection({ value, patch }: AppCapabilitySectionProps
                 className="flex-1"
                 onChange={(e) => patch({ gear: { ...value.gear, [tier]: { ...value.gear[tier], modelId: e.target.value } } })}
               />
-              <label className="flex shrink-0 items-center gap-1.5 pl-1 cursor-pointer" title="留空回落主模型">
+              <label className="flex shrink-0 items-center gap-1.5 pl-1 cursor-pointer" title="留空回落 main">
                 <input
                   type="checkbox"
                   className="ink-check"
@@ -91,7 +91,7 @@ export function AppCapabilitySection({ value, patch }: AppCapabilitySectionProps
             </div>
           ))}
         </div>
-        <p className="pt-1 text-[10px] leading-relaxed ink-text-faint">双挡位分工：制片人决策 / 主模型；某挡位留空时回落主模型。</p>
+        <p className="pt-1 text-[10px] leading-relaxed ink-text-faint">双挡位分工：router / main；某挡位留空时回落 main。</p>
       </div>
 
       <div>

@@ -221,14 +221,15 @@ class MemoryStorage:
 
     async def set_checkpoint_parent(
         self, thread_id: str, checkpoint_id: int, parent_id: int | None
-    ) -> None:
+    ) -> int:
         async with self._lock:
             existing = self._checkpoints.get(checkpoint_id)
             if existing is None or existing.thread_id != thread_id:
-                return  # 与 SQL 后端同口径：无匹配行静默无操作（幂等）
+                return 0  # 与 SQL 后端同口径：无匹配行静默无操作（幂等）
             self._checkpoints[checkpoint_id] = CheckpointRecord.from_dict(
                 {**existing.to_dict(), "parent_id": parent_id}
             )
+            return 1
 
     # ── 执行事件日志（append-only）──
     async def append_event(self, thread_id: str, event: EngineEvent) -> int:

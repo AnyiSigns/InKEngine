@@ -33,11 +33,13 @@ from ink_engine.core.memory import (
     MemoryStore,
     PriorityRecallPolicy,
 )
+from ink_engine.core.knowledge_gate import scan_text_injection
 from ink_engine.core.retrieval import (
     SOURCE_MODEL,
     RetrievedChunk,
     RetrieverRegistry,
 )
+from ink_engine.core.retrieval import KnowledgeSetRetriever as _EngineKnowledgeSetRetriever
 from ink_engine.core.storage import Storage
 
 # ── 记忆源装配 ──
@@ -73,35 +75,20 @@ async def recall_memory(
 # ── 检索源装配 ──
 
 
-class KnowledgeSetRetriever:
-    """知识集检索源：确定性关键词匹配（知识条目按可信度排序截断）。
+class KnowledgeSetRetriever(_EngineKnowledgeSetRetriever):
+    """知识集检索源（复用引擎侧统一实现，消除与 core.retrieval 口径分叉）。
 
-    检索源工厂经配方 retrieval_sources 注入 RetrieverRegistry；召回
-    结果按模型级可信度（SOURCE_MODEL）分级——注册表合并时按
-    (relevance, 来源分级) 排序，注入文本在注册表边界被剔除
-    （core.retrieval 的注入防线）。
+    部署侧原独立实现（relevance=entry.credibility / level=SOURCE_MODEL /
+    渲染截 500）与引擎侧（relevance=0.5 / level=按可信度分级 / 渲染 4000）
+    规则不一致，且两者同注同一 RetrieverRegistry 导致同一知识集双路径注入
+    内容与排序漂移。现直接复用引擎 KnowledgeSetRetriever（name="knowledge"），
+    注册时按名覆盖引擎已注册的同源，保证单一口径。limit 兼容保留（引擎侧
+    由 RetrieverRegistry 按全局 limit 截断，单源 limit 即全局上限）。
     """
 
-    name = "knowledge_set"
-
     def __init__(self, knowledge_set: Any, *, limit: int = 8) -> None:
-        self._knowledge_set = knowledge_set
+        super().__init__(knowledge_set, name="knowledge", relevance=0.5)
         self._limit = max(limit, 1)
-
-    async def retrieve(self, query: str, *, limit: int) -> list[RetrievedChunk]:
-        entries = self._knowledge_set.search(query, limit=self._limit)
-        chunks = [
-            RetrievedChunk(
-                source=self.name,
-                doc_id=entry.id,
-                text=_render_entry(entry),
-                relevance=entry.credibility,
-                level=SOURCE_MODEL,
-                meta={"kind": entry.kind, "level": entry.level},
-            )
-            for entry in entries
-        ]
-        return chunks[:limit]
 
 
 class EmbeddingRetriever:
@@ -282,6 +269,10 @@ def build_five_source_provider(
             )
         if knowledge_set is not None and query:
             for entry in knowledge_set.search(query, limit=memory_limit):
+                # 直接检索路径不经 RetrieverRegistry 注册边界扫描，此处补齐
+                # 注入防线（与检索注入同口径：检出指令措辞即剔除）
+                if scan_text_injection(_render_entry(entry)):
+                    continue
                 sources.append(
                     ContextSource(
                         type=SOURCE_KNOWLEDGE,
@@ -314,6 +305,10 @@ def build_five_source_provider(
                     limit=memory_limit,
                 )
                 for entry in recalled:
+                    # 记忆源不经 RetrieverRegistry 注册边界扫描，此处补齐注入
+                    # 防线（与检索注入同口径：检出指令措辞即剔除）
+                    if scan_text_injection(entry.content):
+                        continue
                     sources.append(
                         ContextSource(
                             type=SOURCE_MEMORY,

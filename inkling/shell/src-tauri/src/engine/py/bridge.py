@@ -17,6 +17,7 @@ import os
 import sys
 from typing import Any, Callable
 
+from ink_engine.core.exceptions import GraphDefinitionError
 from ink_engine.core.logging import get_logger
 
 logger = get_logger("host.bridge")
@@ -280,6 +281,21 @@ def prefill_approval_decision(
     }
 
 
+def _parse_base_version(args: dict) -> int:
+    """解析补丁 base_version（缺省 1）；非法输入显式报错而非裸 ValueError。
+
+    裸 int() 对 "abc" 抛 ValueError，经引擎链路会变成不可读的 500，
+    统一转为 GraphDefinitionError（与补丁链校验口径一致）。
+    """
+    raw = args.get("base_version")
+    if raw is None or raw == "":
+        return 1
+    try:
+        return int(raw)
+    except (TypeError, ValueError):
+        raise GraphDefinitionError(f"base_version 须为整数，收到: {raw!r}")
+
+
 async def _propose_patch_coro(runtime: Any, args: dict) -> Any:
     """engine.propose_patch 的域逻辑（sync/async 两形态共用）。
 
@@ -292,7 +308,7 @@ async def _propose_patch_coro(runtime: Any, args: dict) -> Any:
         {
             "kind": args["kind"],
             "payload": args["payload"],
-            "base_version": int(args.get("base_version") or 1),
+            "base_version": _parse_base_version(args),
             "rationale": args.get("rationale") or "",
             "meta": dict(args.get("meta") or {}),
         }
@@ -743,7 +759,7 @@ def _register_patch_ops() -> None:
             {
                 "kind": args["kind"],
                 "payload": args["payload"],
-                "base_version": int(args.get("base_version") or 1),
+                "base_version": _parse_base_version(args),
                 "rationale": args.get("rationale") or "",
                 "meta": args.get("meta") or {},
             }
@@ -3006,10 +3022,23 @@ class StubLLM:
         return None
 
 
-def make_host(*, storage_uri: str, transport, llm=None, embedder=None, behavior=None):
+def make_host(
+    *,
+    storage_uri: str,
+    transport,
+    llm=None,
+    embedder=None,
+    behavior=None,
+    data_dir=None,
+):
     """构造宿主五件套：存储 URI/事件传输（Rust 回桥）/模型实例注入/
     本地语义嵌入器注入（None = 检索回落关键词基线）/行为准则层文本
-    （None = 不注入）。"""
+    （None = 不注入）/运行数据目录（模型档案与连接配置回落根；None = 不注入）。
+
+    data_dir 经此落宿主（壳侧 make_host 装配入口），使 resolve_llm 的
+    model_connection.json 二次回落与压缩阈值档案读取可在真实运行期生效
+    （boot_inkling 复用本宿主，故 data_dir 必须从装配期即注入，不能等 boot）。
+    """
     from inkling_host.host import InKlingHost
 
     return InKlingHost(
@@ -3018,6 +3047,7 @@ def make_host(*, storage_uri: str, transport, llm=None, embedder=None, behavior=
         transport=transport,
         embedder=embedder,
         behavior=behavior,
+        data_dir=data_dir,
     )
 
 

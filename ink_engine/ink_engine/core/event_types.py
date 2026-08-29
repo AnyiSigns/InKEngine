@@ -50,8 +50,24 @@ DEFAULT_MAX_EVENT_TYPES = 200
 DEFAULT_ATTACHMENT_EVENT_NAME = "attachment"
 DEFAULT_ATTACHMENT_RENDERER = "AttachmentRow"
 
-# 集合级持久化通道（structured records 集合名）
+# 集合级持久化通道（structured records 集合名）。
+# 历史遗留名（无 set_id）：多集共享同一存储时会互相串数据——新写入按集
+# 隔离（见 :func:`event_types_collection`），此名仅作旧数据读兼容保留。
 _COLLECTION_EVENT_TYPES = "event_types"
+
+# 按集隔离的集合名前缀（与 knowledge:<user_id> / harness:<set_id> 同构）
+EVENT_TYPES_COLLECTION_PREFIX = "event_types:"
+
+
+def event_types_collection(set_id: str) -> str:
+    """事件类型集合名（按集隔离：``event_types:<set_id>``）。
+
+    与 ``knowledge:<user_id>`` 同构——多集共享存储时演化类型互不串数据。
+    旧数据落在无 set_id 的 ``event_types`` 集合：:meth:`EventTypeRegistry.load`
+    保留读回退（读到即在下次 :meth:`save` 时写入按集集合，惰性迁移），
+    写入一律进按集集合。
+    """
+    return f"{EVENT_TYPES_COLLECTION_PREFIX}{set_id}"
 
 
 @dataclass(frozen=True, slots=True)
@@ -266,7 +282,14 @@ class EventTypeRegistry:
         self._specs: dict[str, EventTypeSpec] = {}
         self._storage = storage
         self._set_id = set_id
+        # 持久化集合按集隔离（event_types:<set_id>）；历史集合只读兼容
+        self._collection = event_types_collection(set_id)
         self._max_types = max_types
+
+    @property
+    def collection(self) -> str:
+        """当前写入集合名（守卫豁免上下文按此名放行）。"""
+        return self._collection
 
     def register(self, spec: EventTypeSpec) -> None:
         """登记类型（重复注册/配额超限显式拒绝，schema 非法在构造期已拦截）。"""
@@ -322,30 +345,37 @@ class EventTypeRegistry:
     async def load(self) -> int:
         """从存储加载集内事件类型（启动装配调用；无存储 = 空注册表）。
 
+        读取顺序 = 按集集合（``event_types:<set_id>``）→ 历史集合
+        （``event_types``，只读兼容：旧库数据不丢；重名以按集记录为准）。
         脏记录跳过不阻断启动（回放不崩原则：坏类型折叠显示，不拦启动）。
         """
         if self._storage is None:
             return 0
         loaded = 0
-        for record in await self._storage.list_records(_COLLECTION_EVENT_TYPES):
-            name = record.get("name")
-            if not name or name in self._specs:
-                continue
-            try:
-                spec = EventTypeSpec.from_dict(record)
-            except GraphDefinitionError:
-                continue
-            self._specs[name] = spec
-            loaded += 1
+        for collection in (self._collection, _COLLECTION_EVENT_TYPES):
+            for record in await self._storage.list_records(collection):
+                name = record.get("name")
+                if not name or name in self._specs:
+                    continue
+                try:
+                    spec = EventTypeSpec.from_dict(record)
+                except GraphDefinitionError:
+                    continue
+                self._specs[name] = spec
+                loaded += 1
         return loaded
 
     async def save(self) -> None:
-        """全量落库（注册/废弃后由宿主调用；无存储 = 跳过）。"""
+        """全量落库（注册/废弃后由宿主调用；无存储 = 跳过）。
+
+        只写按集集合：历史集合的旧记录经 :meth:`load` 读入后随本次写入
+        落进按集集合（惰性迁移），旧记录原地保留不删除。
+        """
         if self._storage is None:
             return
         for spec in self._specs.values():
             await self._storage.put_record(
-                _COLLECTION_EVENT_TYPES, spec.name, spec.to_dict()
+                self._collection, spec.name, spec.to_dict()
             )
 
 
@@ -360,12 +390,14 @@ __all__ = [
     "EVENT_AUDIT_POLICY_REVIEW",
     "EVENT_STATUS_REGISTERED",
     "EVENT_STATUS_UNKNOWN",
+    "EVENT_TYPES_COLLECTION_PREFIX",
     "EventTypeRegistry",
     "EventTypeSpec",
     "EventVerdict",
     "assembly_candidate_event_spec",
     "attachment_event_spec",
     "audit_event_specs",
+    "event_types_collection",
     "register_audit_event_types",
     "register_path_assembly_event_types",
 ]

@@ -429,6 +429,9 @@ def make_orchestrator_factory(
                 plan_data = [{"nodes": [name]} for name in online_steps]
             if plan_data is not None:
                 await ctx.emit("plan_start", {"plan": plan_data})
+                # 规划产出完整后即收尾规划卡（round_steps.plan_end 置 completed/
+                # 丢弃空卡），否则 plan 卡永为 running
+                await ctx.emit("plan_end", {})
                 delta[PLAN_KEY] = plan_data
             if spawns is not None:
                 await ctx.emit("spawn_start", {"spawns": spawns})
@@ -465,10 +468,14 @@ def make_tool_pipeline_factory(
     pipeline = None
 
     def resolve() -> Any:
-        """取当前流水线（持有者刷新后首次调用时缓存新实例）。"""
+        """取当前流水线（持有者刷新后首次调用时缓存新实例）。
+
+        持有者置 None（工具禁用/未装配）时也刷新缓存：原 ``current is not
+        None`` 守卫会让旧的非空实例残留，导致禁用后节点仍跑过期流水线。
+        """
         nonlocal pipeline
         current = holder.get("pipeline")
-        if current is not None and current is not pipeline:
+        if current is not pipeline:
             pipeline = current
         return pipeline
 
@@ -481,9 +488,21 @@ def make_tool_pipeline_factory(
         # 在 canary 态发生——工具层桩执行并标记成功，路径完整走完
         from ink_engine.core.path_assembler import canary_active
 
+        # step_id 形如 "tool:{call_id}"，反向取出 call_id 放进事件负载，
+        # 保证与事件流 step_id（tool:{call_id}）一致（round_steps_feed 侧优先
+        # 用 event.step_id 提取，二者应同源）
+        call_id = (
+            step_id[len("tool:"):]
+            if isinstance(step_id, str) and step_id.startswith("tool:")
+            else step_id
+        )
         if canary_active():
             return "（canary 桩执行：工具未真实调用）", True
-        await ctx.emit("tool_start", {"tool": name, "args": args}, step_id=step_id)
+        await ctx.emit(
+            "tool_start",
+            {"tool": name, "args": args, "tool_call_id": call_id},
+            step_id=step_id,
+        )
         specs = holder.get("specs") or ()
         spec = next((s for s in specs if s.name == name), None)
         if spec is not None:
@@ -511,7 +530,12 @@ def make_tool_pipeline_factory(
                 text, success = f"工具执行异常: {exc}", False
         await ctx.emit(
             "tool_end",
-            {"tool": name, "success": success, "message": text[:TOOL_RESULT_MAX_CHARS]},
+            {
+                "tool": name,
+                "success": success,
+                "message": text[:TOOL_RESULT_MAX_CHARS],
+                "tool_call_id": call_id,
+            },
             step_id=step_id,
         )
         return text, success
@@ -620,7 +644,12 @@ def make_llm_decider_factory(
             reply = str(ctx.state.get("reply") or "")
             rounds = int(ctx.state.get("tool_rounds") or 0)
             if rounds >= max_rounds:
-                return {"reply": reply}
+                # 工具循环护栏强制收口：同时回填消息流（与正常路径一致），
+                # 保证跨回合历史含尾；add_messages 按 id 去重，重复回填不累积
+                return {
+                    "reply": reply,
+                    STATE_MESSAGES: [m.to_dict() for m in messages],
+                }
             # canary 态桩化（ENG9a-6）：不调模型，直接以输入收口回复——
             # canary 单回合验证不产生真实 LLM 调用（成本与副作用护栏）
             from ink_engine.core.path_assembler import canary_active
@@ -767,6 +796,8 @@ def make_assembler_factory(
                 delta: dict[str, Any] = {}
                 if plan_data is not None:
                     await ctx.emit("plan_start", {"plan": plan_data})
+                    # 规划产出完整后即收尾规划卡（否则 plan 卡永为 running）
+                    await ctx.emit("plan_end", {})
                     delta[PLAN_KEY] = plan_data
                 if spawns is not None:
                     await ctx.emit("spawn_start", {"spawns": spawns})
@@ -785,6 +816,8 @@ def make_assembler_factory(
                     online_steps, _dropped = _default_plan_steps(specs, plan_steps)
                     fallback = [{"nodes": [name]} for name in online_steps]
                     await ctx.emit("plan_start", {"plan": fallback})
+                    # 规划产出完整后即收尾规划卡（否则 plan 卡永为 running）
+                    await ctx.emit("plan_end", {})
                     return {PLAN_KEY: fallback}
                 return {}
             candidates, note, result = await assemble_candidates(ctx)
@@ -798,6 +831,8 @@ def make_assembler_factory(
                     online_steps, _dropped = _default_plan_steps(specs, plan_steps)
                     fallback = [{"nodes": [name]} for name in online_steps]
                     await ctx.emit("plan_start", {"plan": fallback})
+                    # 规划产出完整后即收尾规划卡（否则 plan 卡永为 running）
+                    await ctx.emit("plan_end", {})
                     return {PLAN_KEY: fallback}
                 return {}
             # 多径调度（E-P2 接线）：机制开关（装配运行期 multipath_enabled）
@@ -855,6 +890,8 @@ def make_assembler_factory(
                 if use_default_plan:
                     fallback = [{"nodes": [name]} for name in plan_steps]
                     await ctx.emit("plan_start", {"plan": fallback})
+                    # 规划产出完整后即收尾规划卡（否则 plan 卡永为 running）
+                    await ctx.emit("plan_end", {})
                     return {PLAN_KEY: fallback}
                 return {}
             await ctx.emit("spawn_start", {"spawns": spawn_groups})

@@ -72,10 +72,25 @@ export function activate(): void {
     void listenHostEvent<Record<string, unknown>>('inkling://round_event', (raw) => {
       if (!raw || typeof raw !== 'object') return;
       const event = toHubEvent(raw as Record<string, unknown>);
+      // 跨会话事件隔离：真实 thread_id 与当前会话不匹配则跳过
+      // （thread_id 缺失或系统值 '-' 不过滤）
+      const tid = typeof event.payload.thread_id === 'string' ? event.payload.thread_id : '';
+      const activeThread = hub.getSnapshot().activeSessionId;
+      if (tid && tid !== '-' && activeThread && tid !== activeThread) return;
       ingest(event);
       if (event.type === 'end') {
         setStreaming(hub, false);
         commitStreaming(hub);
+        // 回合结束回写当前会话消息到会话存储（历史落库）
+        const snap = hub.getSnapshot();
+        const storeThread = snap.activeSessionId;
+        if (storeThread && typeof sessionStore.replaceMessages === 'function') {
+          try {
+            sessionStore.replaceMessages(storeThread, snap.messages);
+          } catch {
+            // 回写失败不影响实时流
+          }
+        }
       }
     });
   }

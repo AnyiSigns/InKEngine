@@ -732,6 +732,17 @@ class KnowledgeSet:
 
     # ── 持久化（存储三后端共用：knowledge:<user> 集合）──
 
+    @property
+    def collection(self) -> str:
+        """持久化集合名（knowledge:<user_id>）。
+
+        守卫豁免对齐兼容点：旁路写守卫按集合名（精确/前缀）判定，runtime
+        侧的 ``allow_mechanism`` 需与此名一致（见另一片的豁免修复），避免
+        "knowledge_set" 字面量与真实集合名 knowledge:<user> 不匹配导致豁免
+        失效。宿主侧应改用 ``knowledge_set.collection`` 而非硬编码字面量。
+        """
+        return knowledge_collection(self.user_id)
+
     async def save(self) -> None:
         """落库（补丁链写入存储；storage=None 时跳过——纯内存集）。"""
         if self.storage is None:

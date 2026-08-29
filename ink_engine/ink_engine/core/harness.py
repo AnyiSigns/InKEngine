@@ -41,8 +41,23 @@ from .tool_pipeline import DEFAULT_MAX_RESULT_CHARS, ToolPipeline
 
 logger = get_logger(__name__)
 
-# 仓库存储集合名（通用存储服务 records 通道）
+# 仓库存储集合名（通用存储服务 records 通道）。
+# 历史遗留名（无 set_id）：多集共享同一存储时会互相串数据——新写入按集
+# 隔离（见 :func:`harness_collection`），此名仅作**旧数据只读兼容**保留。
 HARNESS_COLLECTION = "harness"
+
+# 按集隔离的集合名前缀（与 knowledge:<user_id> 同构：一集一集合）
+HARNESS_COLLECTION_PREFIX = "harness:"
+
+
+def harness_collection(set_id: str) -> str:
+    """harness 仓库集合名（按集隔离：``harness:<set_id>``）。
+
+    与知识集 ``knowledge:<user_id>`` 同构——多集共享存储时互不串数据。
+    旧数据落在无 set_id 的 :data:`HARNESS_COLLECTION`，仓库读路径保留
+    只读回退（写入一律进按集集合，不迁移旧数据）。
+    """
+    return f"{HARNESS_COLLECTION_PREFIX}{set_id}"
 
 # 能力路由缺省置信度门槛（低于 = 不匹配，返回 None 交由宿主询问用户）
 DEFAULT_ROUTE_THRESHOLD = 0.5
@@ -366,11 +381,46 @@ class HarnessRepository:
 
     存储后盾 = 通用存储服务 records 通道（memory/sqlite/postgres 共用，
     与记忆/轨迹存储同构）。
+
+    集合隔离（``set_id`` 注入时 = ``harness:<set_id>``）：多集共享同一
+    存储时定义互不串数据；未注入 set_id 保持历史集合名（``harness``）。
+    旧数据兼容 = **只读回退**：按集集合无记录时回落历史集合读取，写入
+    一律进按集集合（不做数据迁移，旧记录原地保留）。
     """
 
-    def __init__(self, storage: Storage, collection: str = HARNESS_COLLECTION) -> None:
+    def __init__(
+        self,
+        storage: Storage,
+        collection: str | None = None,
+        *,
+        set_id: str | None = None,
+    ) -> None:
         self._storage = storage
-        self._collection = collection
+        # 集合名优先级：显式 collection > set_id 派生 > 历史默认名
+        if collection is not None:
+            self._collection = collection
+        elif set_id is not None:
+            self._collection = harness_collection(set_id)
+        else:
+            self._collection = HARNESS_COLLECTION
+        # 旧集合只读回退（仅当当前集合不是历史名时启用）
+        self._legacy_collection = (
+            HARNESS_COLLECTION if self._collection != HARNESS_COLLECTION else None
+        )
+
+    @property
+    def collection(self) -> str:
+        """当前写入集合名（守卫豁免上下文按此名放行）。"""
+        return self._collection
+
+    async def _get_chain_record(self, name: str) -> dict | None:
+        """读链记录（按集集合优先；无记录时回落历史集合——只读兼容）。"""
+        record = await self._storage.get_record(self._collection, self._chain_key(name))
+        if record is None and self._legacy_collection is not None:
+            record = await self._storage.get_record(
+                self._legacy_collection, self._chain_key(name)
+            )
+        return record
 
     def _chain_key(self, name: str) -> str:
         return f"chain:{name}"
@@ -387,9 +437,9 @@ class HarnessRepository:
         Returns:
             新版本号。
         """
-        chain_record = await self._storage.get_record(
-            self._collection, self._chain_key(definition.name)
-        )
+        # 旧集合链记录经只读回退取用：写入落按集集合（版本号接续旧链，
+        # 首次写入即完成该 harness 的「按集迁移」，旧记录原地保留）
+        chain_record = await self._get_chain_record(definition.name)
         if chain_record is None:
             chain = PatchChain(base={"definition": definition.to_dict()})
             version = 1
@@ -408,9 +458,7 @@ class HarnessRepository:
         await self._storage.put_record(
             self._collection, self._chain_key(definition.name), chain.to_dict()
         )
-        versions = await self._storage.get_record(
-            self._collection, self._versions_key(definition.name)
-        )
+        versions = await self._get_versions_record(definition.name)
         entries = list(versions or [])
         entries.append(
             {
@@ -431,9 +479,7 @@ class HarnessRepository:
 
         回退 = 组装到指定版本（补丁链 partial 组装，不物理删除历史）。
         """
-        chain_record = await self._storage.get_record(
-            self._collection, self._chain_key(name)
-        )
+        chain_record = await self._get_chain_record(name)
         if chain_record is None:
             return None
         chain = PatchChain.from_dict(chain_record)
@@ -451,9 +497,7 @@ class HarnessRepository:
 
     async def versions(self, name: str) -> list[HarnessVersion]:
         """版本清单（升序：1 → 最新，含时间与说明）。"""
-        versions = await self._storage.get_record(
-            self._collection, self._versions_key(name)
-        )
+        versions = await self._get_versions_record(name)
         return [
             HarnessVersion(
                 version=int(entry["version"]),
@@ -463,28 +507,46 @@ class HarnessRepository:
             for entry in (versions or [])
         ]
 
+    async def _get_versions_record(self, name: str) -> Any:
+        """读版本索引（按集集合优先；无记录时回落历史集合——只读兼容）。"""
+        versions = await self._storage.get_record(
+            self._collection, self._versions_key(name)
+        )
+        if versions is None and self._legacy_collection is not None:
+            versions = await self._storage.get_record(
+                self._legacy_collection, self._versions_key(name)
+            )
+        return versions
+
     async def list(self) -> list[HarnessDefinition]:
         """全量定义（各 harness 最新版本）。
 
         仓库记录 = 补丁链数据：列表按链组装当前形态（版本演进后返回
-        最新定义）；非链记录（版本索引表等）跳过。
+        最新定义）；非链记录（版本索引表等）跳过。旧集合记录经只读
+        回退并入（同名以按集集合为准——迁移后新链权威）。
         """
-        definitions: list[HarnessDefinition] = []
-        chain_records = await self._storage.list_records(self._collection)
-        for record in chain_records:
-            if "base" not in record:
-                continue
-            chain = PatchChain.from_dict(record)
-            doc = chain.assemble()
-            raw = doc.get("definition")
-            if isinstance(raw, dict):
-                definitions.append(HarnessDefinition.from_dict(raw))
-        return definitions
+        definitions: dict[str, HarnessDefinition] = {}
+        collections = [self._collection]
+        if self._legacy_collection is not None:
+            # 历史集合后读：同名不覆盖按集集合的新链（新链权威）
+            collections.append(self._legacy_collection)
+        for collection in collections:
+            for record in await self._storage.list_records(collection):
+                if "base" not in record:
+                    continue
+                chain = PatchChain.from_dict(record)
+                doc = chain.assemble()
+                raw = doc.get("definition")
+                if isinstance(raw, dict):
+                    parsed = HarnessDefinition.from_dict(raw)
+                    definitions.setdefault(parsed.name, parsed)
+        return list(definitions.values())
 
 
 __all__ = [
     "DEFAULT_ROUTE_THRESHOLD",
     "HARNESS_COLLECTION",
+    "HARNESS_COLLECTION_PREFIX",
     "CapabilityMatcher",
     "HarnessDefinition",
     "HarnessRegistry",
@@ -492,4 +554,5 @@ __all__ = [
     "HarnessVersion",
     "_keyword_match",
     "build_minimal_harness",
+    "harness_collection",
 ]

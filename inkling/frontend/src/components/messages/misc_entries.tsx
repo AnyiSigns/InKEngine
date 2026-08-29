@@ -6,13 +6,14 @@
  * knowledge_hit/review 事件回放/unknown = 状态卡片（透明底细描边）。
  */
 
-import { AlertTriangle, Beaker, GitBranch, Cpu } from 'lucide-react';
+import { AlertTriangle, Beaker, GitBranch, Cpu, ShieldCheck } from 'lucide-react';
 
 import type {
   InkDeviceMessage,
   InkErrorMessage,
   InkKnowledgeHitMessage,
   InkReviewCardMessage,
+  InkVettingMessage,
   InkSpawnMessage,
   InkSuggestionsMessage,
   InkUnknownMessage,
@@ -158,6 +159,33 @@ export function UnknownEntry({ message }: { message: InkUnknownMessage } & RowPr
       id={message.id}
       visual="card"
       header={<div className="text-[10px] ink-text-faint">未登记事件（折叠展示）：{message.token}</div>}
+    />
+  );
+}
+
+/** 审查留痕（vetting_result：pass/fail/review 三态，与消息流一致）。 */
+export function VettingEntry({ message }: { message: InkVettingMessage } & RowProps) {
+  const isFail = message.verdict === 'fail';
+  const isReview = message.verdict === 'review';
+  return (
+    <EntryFrame
+      id={message.id}
+      visual="card"
+      header={
+        <div className="flex min-w-0 items-center gap-1.5 text-[var(--ink-font-xs)]">
+          {isFail ? (
+            <AlertTriangle size={10} strokeWidth={1.6} className="shrink-0 ink-accent" aria-hidden />
+          ) : (
+            <ShieldCheck size={10} strokeWidth={1.6} className="shrink-0 ink-text-faint" aria-hidden />
+          )}
+          <span className="min-w-0 flex-1 truncate font-medium">{message.tool || '工具'}</span>
+          <span className="ml-1.5 ink-text-muted">
+            {isFail ? '审查未通过' : isReview ? '审查需人工复核' : '已通过审查'}
+          </span>
+          {isReview && <span className="shrink-0 ink-chip text-[10px] ink-text-muted">待复核</span>}
+        </div>
+      }
+      body={message.reason ? <div className="mt-0.5 text-[10px] ink-text-faint">{message.reason}</div> : undefined}
     />
   );
 }

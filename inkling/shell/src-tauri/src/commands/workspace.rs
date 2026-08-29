@@ -1,15 +1,24 @@
 //! 授权 / 审批 / 挂载命令面（工作区授权 + 审批卡 + 文件挂载授权）。
 
 use serde_json::{json, Value as JsonValue};
-use tauri::State;
+use tauri::{AppHandle, State};
 
 use super::error::CommandError;
 use crate::ShellState;
-use crate::{expand_home, security_domain_from_seed};
+use crate::{app_data_dir, ensure_engine, expand_home, security_domain_from_seed};
 
 /// 授权状态（工作区根；无授权记录 = 未授权）。
+///
+/// 授权态经引擎 records 通道落库，须先确保引擎已装配（首轮会话前也可能
+/// 直接打开侧边栏选目录，此时引擎尚未 boot，否则 runtime_handle 为空会
+/// 静默失败、侧边栏不显示目录）。
 #[tauri::command]
-pub(crate) async fn authorization_state() -> Result<JsonValue, CommandError> {
+pub(crate) async fn authorization_state(
+    app: AppHandle,
+    state: State<'_, ShellState>,
+) -> Result<JsonValue, CommandError> {
+    let data_dir = app_data_dir(&app).map_err(CommandError::internal)?;
+    ensure_engine(&app, &state, &data_dir).map_err(CommandError::internal)?;
     let security = security_domain_from_seed().map_err(CommandError::internal)?;
     let root = crate::domain::security::load_authorization(&security)
         .await
@@ -18,11 +27,17 @@ pub(crate) async fn authorization_state() -> Result<JsonValue, CommandError> {
 }
 
 /// 授权（工作区根写入记录 + 挂载点登记；引擎侧文件工具随装配生效）。
+///
+/// 授权态经引擎 records 通道落库，须先确保引擎已装配（否则 runtime_handle
+/// 为空会报错、前端静默吞掉导致侧边栏不显示）。
 #[tauri::command]
 pub(crate) async fn workspace_authorize(
+    app: AppHandle,
     state: State<'_, ShellState>,
     path: String,
 ) -> Result<JsonValue, CommandError> {
+    let data_dir = app_data_dir(&app).map_err(CommandError::internal)?;
+    ensure_engine(&app, &state, &data_dir).map_err(CommandError::internal)?;
     let resolved = expand_home(&path);
     let canonical = std::fs::canonicalize(&resolved)
         .map_err(|err| CommandError::io(format!("工作区不可达: {} ({err})", resolved.display())))?;
@@ -44,7 +59,12 @@ pub(crate) async fn workspace_authorize(
 
 /// 撤销授权（记录置空；重启后不再恢复）。
 #[tauri::command]
-pub(crate) async fn workspace_revoke() -> Result<JsonValue, CommandError> {
+pub(crate) async fn workspace_revoke(
+    app: AppHandle,
+    state: State<'_, ShellState>,
+) -> Result<JsonValue, CommandError> {
+    let data_dir = app_data_dir(&app).map_err(CommandError::internal)?;
+    ensure_engine(&app, &state, &data_dir).map_err(CommandError::internal)?;
     crate::domain::security::persist_authorization(json!({ "root": "" }))
         .await
         .map_err(CommandError::internal)?;

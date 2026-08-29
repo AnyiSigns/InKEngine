@@ -9,6 +9,7 @@ Covers:
 """
 
 import asyncio
+import json
 import os
 import sqlite3
 import tempfile
@@ -17,6 +18,7 @@ from ink_engine.core.llm.base import AsyncLLM, LLMChunk, LLMConfig, LLMResult
 from inkling_host.host import (
     InKlingHost,
     ThresholdCompressionPolicy,
+    _model_config_from_file,
     _model_context_window_from_archive,
 )
 
@@ -92,9 +94,55 @@ def test_resolve_llm_no_data_dir_tier_default():
     assert policy.min_chars == 104857
 
 
+def _write_connection(data_dir, cfg):
+    with open(os.path.join(data_dir, "model_connection.json"), "w", encoding="utf-8") as fh:
+        json.dump(cfg, fh)
+
+
+def test_model_config_from_file_full():
+    with tempfile.TemporaryDirectory(ignore_cleanup_errors=True) as d:
+        _write_connection(
+            d,
+            {
+                "base_url": "http://a/v1",
+                "provider_id": "openai_compat",
+                "main_model_id": "m1",
+                "router_model_id": "r1",
+            },
+        )
+        cfg = _model_config_from_file(d)
+        assert cfg["base_url"] == "http://a/v1"
+        assert cfg["model_id"] == "m1"
+        assert cfg["adapter"] == "openai_compat"
+
+
+def test_model_config_from_file_router_fallback_when_main_empty():
+    with tempfile.TemporaryDirectory(ignore_cleanup_errors=True) as d:
+        _write_connection(d, {"base_url": "http://a/v1", "router_model_id": "r1"})
+        cfg = _model_config_from_file(d)
+        assert cfg["model_id"] == "r1", "main 空时回落 router"
+
+
+def test_model_config_from_file_missing_or_incomplete_returns_empty():
+    with tempfile.TemporaryDirectory(ignore_cleanup_errors=True) as d:
+        # 无文件
+        assert _model_config_from_file(d) == {}
+        # 缺 base_url
+        _write_connection(d, {"main_model_id": "m1"})
+        assert _model_config_from_file(d) == {}
+        # 缺 model_id
+        _write_connection(d, {"base_url": "http://a/v1"})
+        assert _model_config_from_file(d) == {}
+    # data_dir None -> 空
+    assert _model_config_from_file(None) == {}
+
+
 if __name__ == "__main__":
     test_read_context_window_from_archive()
     test_resolve_llm_builds_dynamic_policy()
     test_resolve_llm_router_tier_fallback()
     test_resolve_llm_no_data_dir_tier_default()
+    test_model_config_from_file_full()
+    test_model_config_from_file_router_fallback_when_main_empty()
+    test_model_config_from_file_missing_or_incomplete_returns_empty()
     print("host compression all assertions passed")

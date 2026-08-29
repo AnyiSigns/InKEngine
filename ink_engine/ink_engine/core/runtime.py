@@ -23,9 +23,10 @@ from __future__ import annotations
 
 import asyncio
 import contextlib
+import json
 import uuid
 from collections.abc import Callable, Sequence
-from dataclasses import dataclass, field, fields
+from dataclasses import dataclass, field, fields, is_dataclass
 from enum import StrEnum
 from pathlib import Path
 from typing import Any, Protocol, runtime_checkable
@@ -34,11 +35,16 @@ from .approval import InterruptPolicy
 from .assembly import SOURCE_EVIDENCE, AssemblyConfig
 from .context import CompressionPolicy, ContextSource, ThresholdCompressionPolicy
 from .declarative_tools import endpoint_operation, endpoint_operation_failure_reason
-from .event_types import EventTypeRegistry, EventTypeSpec
+from .event_types import EventTypeRegistry, EventTypeSpec, event_types_collection
 from .events import EngineTransport
 from .executor import Engine, RunOptions
 from .graph import Graph, TerminateReason
-from .harness import HarnessDefinition, HarnessRegistry, HarnessRepository
+from .harness import (
+    HarnessDefinition,
+    HarnessRegistry,
+    HarnessRepository,
+    harness_collection,
+)
 from .introspection import (
     IntrospectionService,
     IntrospectionSources,
@@ -95,6 +101,43 @@ BASELINE_TOOL_NAMES: frozenset[str] = frozenset({
     "inspect_tools",
     "search_tools", "request_tool",
 })
+
+
+def _spec_identity(spec: Any) -> str:
+    """工具 spec 的确定性结构身份（供引擎缓存键使用）。
+
+    取 spec 的确定性 JSON 序列化（排序键），使同名但被补丁改写的
+    工具（端点/参数/协议等）产生不同身份，从而触发引擎重建（节点
+    类型只注册一次，旧缓存命中会让差异化重写无效）。
+
+    序列化来源按序尝试：``to_dict()``（ToolSpec 的数据形态）→
+    ``model_dump()``（pydantic 形态）→ dataclass 字段 → ``repr``。
+    ToolSpec 是 ``slots=True`` 冻结 dataclass（无 ``__dict__``），
+    故不可用 ``vars()``——任何一步失败都回落，不得让缓存键计算抛错
+    击穿引擎重建。
+    """
+    body: Any = None
+    for attr in ("to_dict", "model_dump"):
+        method = getattr(spec, attr, None)
+        if callable(method):
+            try:
+                candidate = method()
+            except Exception:
+                continue
+            if isinstance(candidate, dict):
+                body = candidate
+                break
+    if body is None and is_dataclass(spec) and not isinstance(spec, type):
+        try:
+            body = {f.name: getattr(spec, f.name, None) for f in fields(spec)}
+        except Exception:
+            body = None
+    if body is None:
+        return repr(spec)
+    try:
+        return json.dumps(body, sort_keys=True, ensure_ascii=True, default=str)
+    except Exception:
+        return repr(body)
 
 
 class RuntimeState(StrEnum):
@@ -282,6 +325,11 @@ class Runtime:
         # 引擎重建缓存身份（配置/工具表变更才重建；is 比较 + 工具表名集合）
         self._engine_storage: Storage | None = None
         self._engine_spec_key: tuple[str, ...] | None = None
+        # 知识集变更落库任务集合（on_mutation 钩子调度的 fire-and-forget
+        # 落库任务；持有引用防 GC 提前回收）+ 变更钩子（链恢复替换知识集
+        # 实例后重新挂钩用）
+        self._persist_tasks: set[asyncio.Task[None]] = set()
+        self._knowledge_mutation_hook: Callable[[], None] | None = None
 
         # ── 装配产物（boot 后齐备；None = 未装配）──
         self.storage: Storage | None = None
@@ -333,6 +381,11 @@ class Runtime:
         流水线 → 调配源 → MCP 管理器 → 统一工具流水线 → 从链恢复 →
         apply 目标注册 → 引擎重建。不含任何宿主产品内容（宿主产品经
         配方钩子注入，装配动作本身是机制）。
+
+        失败语义（非事务化，最小可用）：中途异常时装配步骤本身不回滚
+        （链/仓库为 append-only 权威记录，落库写入幂等——重试不重复
+        追加），但已建**进程级资源**（MCP 会话/LLM 链/存储连接）尽力
+        关闭后原样上抛，不留悬置连接；状态保持未装配态（可重试 boot）。
         """
         if self._state is RuntimeState.RUNNING:
             return self
@@ -344,7 +397,58 @@ class Runtime:
             raise RuntimeError("装配配方缺图配方（graph_recipe）")
         self._host = host
         self._recipe = recipe
+        try:
+            await self._assemble(host, recipe)
+        except BaseException as exc:
+            # 装配失败显式留痕 + 资源回收（静默失败会让宿主拿到半装配
+            # 运行时；此处只回收资源，异常原样上抛交宿主处置）
+            logger.error("运行时装配失败（已回收装配中资源，原样上抛）: %s", exc)
+            await self._boot_cleanup()
+            raise
+        self._drained.set()
+        self._state = RuntimeState.RUNNING
+        return self
 
+    async def _boot_cleanup(self) -> None:
+        """装配失败的资源回收（各步独立容错；失败只记日志不掩盖原异常）。
+
+        回收对象 = 进程级资源（MCP 远端会话 → LLM 链 → 存储连接），顺序
+        与 :meth:`stop` 一致；宿主关停钩子不在此调用（宿主的资源由宿主
+        自己在 boot 失败路径处置，Runtime 不越界代关）。
+        """
+        # 在途知识落库任务先收口：存储将被关闭，悬置的 save 只会报错
+        await self._drain_persist_tasks()
+        if self.mcp_manager is not None:
+            try:
+                await self.mcp_manager.close_all()
+            except Exception as exc:
+                logger.warning("装配失败清理：MCP 会话关闭失败: %s", exc)
+        if self.engine_llm is not None:
+            try:
+                await self.engine_llm.aclose()
+            except Exception as exc:
+                logger.warning("装配失败清理：LLM 链关闭失败: %s", exc)
+        if self.storage is not None:
+            try:
+                await self.storage.close()
+            except Exception as exc:
+                logger.warning("装配失败清理：存储关闭失败: %s", exc)
+        # 半装配产物置空：失败后的运行时不得被当作可用装配态使用
+        self.storage = None
+        self.engine = None
+        self.engine_llm = None
+        self._engine_storage = None
+        self._engine_spec_key = None
+
+    async def _drain_persist_tasks(self) -> None:
+        """等待在途知识落库任务完成（异常已在任务内记录，此处只收口）。"""
+        pending = [task for task in self._persist_tasks if not task.done()]
+        if not pending:
+            return
+        await asyncio.gather(*pending, return_exceptions=True)
+
+    async def _assemble(self, host: Host, recipe: AssemblyRecipe) -> None:
+        """装配步骤 ①–⑰（boot 的内部实现；异常由 boot 统一清理后上抛）。"""
         # ① 存储（宿主工厂）+ 旁路写防护：集内可演化资产的唯一写入
         #    路径 = 应用管线；守卫令牌只归管线持有，宿主其余路径拦截
         raw_storage = await host.create_storage()
@@ -361,7 +465,7 @@ class Runtime:
 
         # 知识集变更落库任务集合（ENG3-17 on_mutation 钩子调度——持有
         # 引用防 GC 提前回收；task 完成自动从集合移除）
-        self._persist_tasks: set[asyncio.Task[None]] = set()
+        self._persist_tasks = set()
 
         # ③ 种子注入（通用基线恒注 + 配方领域种子；注入属启动装配
         #    机制路径，经旁路写防护全豁免上下文放行）
@@ -369,14 +473,21 @@ class Runtime:
         # fire-and-forget——种子注入期落库不阻断 boot；落库走机制旁路
         # 上下文放行，不污染守卫审计）。
         async def _persist_knowledge_set() -> None:
-            if self.knowledge_set is None:
+            if self.knowledge_set is None or self.storage is None:
                 return
-            with self.storage.allow_mechanism("knowledge_set"):
-                await self.knowledge_set.save()
+            try:
+                # 豁免集合名须与知识集真实集合一致（KnowledgeSet.collection
+                # = knowledge:<user_id>）——旧字面量 "knowledge_set" 与守卫
+                # 判定的集合名不匹配，落库被恒拦截（知识演化从不持久化，
+                # 重启退化为基线）
+                with self.storage.allow_mechanism(self.knowledge_set.collection):
+                    await self.knowledge_set.save()
+            except Exception as exc:
+                # 落库失败不再静默（fire-and-forget 的异常无人接手）：
+                # 明确记错误——知识演化未持久化，重启会退化为基线
+                logger.error("知识集落库失败（本次知识演化未持久化）: %s", exc)
 
         def _on_knowledge_mutated() -> None:
-            import asyncio
-
             try:
                 loop = asyncio.get_event_loop()
             except RuntimeError:
@@ -384,10 +495,13 @@ class Runtime:
             if loop.is_running():
                 task = loop.create_task(_persist_knowledge_set())
                 # 持有 task 引用防 GC 提前回收（fire-and-forget 调度不
-                # 阻断 boot；落库失败仅在 task 自身异常时显式记录）
+                # 阻断 boot；落库失败在 task 内部显式记录）
                 self._persist_tasks.add(task)
                 task.add_done_callback(self._persist_tasks.discard)
 
+        # 变更钩子持有（链恢复替换知识集实例后重新挂钩，否则恢复后的
+        # 实例无钩子 = 演化仍不落库）
+        self._knowledge_mutation_hook = _on_knowledge_mutated
         self.knowledge_set = KnowledgeSet(
             recipe.set_id, storage=self.storage, on_mutation=_on_knowledge_mutated
         )
@@ -396,23 +510,41 @@ class Runtime:
             for _domain, provider in recipe.seeds:
                 seed_knowledge_set(self.knowledge_set, provider())
 
-        # ④ harness 装配（定义注册 + 仓库落库；装配期写入经豁免上下文）
+        # ④ harness 装配（定义注册 + 仓库落库；装配期写入经豁免上下文）。
+        #    集合按集隔离（harness:<set_id>），与 knowledge:<set> 同构
         self.harness_registry = HarnessRegistry(registries=self.graph_registries)
-        self.harness_repository = HarnessRepository(self.storage)
+        self.harness_repository = HarnessRepository(
+            self.storage, set_id=recipe.set_id
+        )
+        harness_coll = harness_collection(recipe.set_id)
         for definition in recipe.harness_definitions:
             self.harness_registry.register(definition)
-            with self.storage.allow_mechanism("harness"):
+            # 幂等落库：仓库 save 每次 append 一个版本——库内最新版与
+            # 装配基线一致时跳过写入，重启/装配重试不再无限追加版本
+            existing = None
+            try:
+                existing = await self.harness_repository.get(definition.name)
+            except Exception as exc:
+                logger.warning(
+                    "harness 库内版本读取失败（按需重写）: %s: %s",
+                    definition.name,
+                    exc,
+                )
+            if existing is not None and existing.to_dict() == definition.to_dict():
+                continue
+            with self.storage.allow_mechanism(harness_coll):
                 await self.harness_repository.save(
                     definition, note="开局装配：自举领域基线"
                 )
 
-        # ⑤ 事件类型注册表（基线登记 + 集内演化类型加载；脏记录跳过）
+        # ⑤ 事件类型注册表（基线登记 + 集内演化类型加载；脏记录跳过）。
+        #    集合按集隔离（event_types:<set_id>）
         self.event_type_registry = EventTypeRegistry(
             storage=self.storage, set_id=recipe.set_id
         )
         for spec in recipe.event_type_specs:
             self.event_type_registry.register(spec)
-        with self.storage.allow_mechanism("event_types"):
+        with self.storage.allow_mechanism(event_types_collection(recipe.set_id)):
             await self.event_type_registry.load()
             await self.event_type_registry.save()
 
@@ -439,12 +571,20 @@ class Runtime:
         )
 
         # ⑦ 应用管线：提案 → 校验 → 分级审批 → 落链 → 应用 → 审计。
-        #    审批策略由管线按分级表自建（机制单一来源，宿主策略钩子
-        #    用于管线之外的宿主级审批，如种子沉淀卡）
+        #    审批策略 = 宿主五件套之一（host.interrupt_policy()，宿主侧
+        #    按实例缓存）：注入管线后宿主的直过白名单/超时窗口对补丁审批
+        #    生效——原实现让管线自建默认策略，宿主对补丁批准闸门无感知
+        #    （用户 auto_approve_keys 设置对补丁审批一律无效）。分级表
+        #    L0 键的「直过」语义由管线侧适配器与宿主策略合成（键命名空间
+        #    不同，见 self_application._PatchApprovalPolicy）。
+        #    宿主策略在此取用一次并持有（⑨ 自指上下文复用同一实例，
+        #    避免每次取用产生不同策略实例）
+        self._host_policy = host.interrupt_policy()
         self.self_pipeline = SelfApplicationPipeline(
             self.storage,
             validator=self.validator,
-            approval_levels=recipe.approval_levels,
+            approval_levels=recipe.approval_levels or None,
+            interrupt_policy=self._host_policy,
             l2_vetting=recipe.vetting_l2_hook,
             on_reverted=recipe.on_reverted,
             guard_token=guard_token,
@@ -465,9 +605,8 @@ class Runtime:
 
         # ⑨ 元工具流水线：内省（只读）+ 自指（演化）+ 统一三路分发。
         #    工具规格先于服务装配（内省快照需要工具清单）。宿主审批
-        #    策略在此取用（五件套之一），经自指上下文供宿主级审批卡
-        #    （种子沉淀等）消费
-        self._host_policy = host.interrupt_policy()
+        #    策略已在 ⑦ 取用并持有（self._host_policy），此处直接复用——
+        #    经自指上下文供宿主级审批卡（种子沉淀等）消费
         wiring = recipe.tool_wiring
         self.introspection_specs = tuple(introspection_tool_specs())
         self.self_specs = tuple(wiring.self_specs())
@@ -581,9 +720,6 @@ class Runtime:
         # ⑰ 引擎重建（按当前模型配置装配回合图；工具表/配置变更重建）
         self.introspection_service._sources.tools = self.collect_specs()
         await self.rebuild_engine()
-        self._drained.set()
-        self._state = RuntimeState.RUNNING
-        return self
 
     def pause(self) -> None:
         """暂停接受新 run（在途 run 自然完成，不强制打断）。"""
@@ -614,6 +750,9 @@ class Runtime:
         self._state = RuntimeState.STOPPED
         if self._active_runs:
             await self._drained.wait()
+        # 在途知识落库任务收口：fire-and-forget 的 save 若跨过存储关闭，
+        # 最后一批知识演化会写失败（关停期静默丢演化）——先等其完成
+        await self._drain_persist_tasks()
         if self.mcp_manager is not None:
             try:
                 await self.mcp_manager.close_all()
@@ -880,7 +1019,13 @@ class Runtime:
         if llm is None:
             llm = await self._host.resolve_llm()
         specs = self.collect_specs()
-        spec_key = tuple(sorted(spec.name for spec in specs))
+        # 缓存键须含工具**身份**（名称+结构序列化），而非仅名称：
+        # 同名工具被补丁改写端点/参数时旧缓存仍命中 → 引擎持有过期
+        # schema（节点类型只注册一次，差异化重写无效）。结构序列化取
+        # 各 spec 的确定性 JSON，使补丁改动实际生效才触发重建。
+        spec_key = tuple(
+            sorted(f"{s.name}\u241f{_spec_identity(s)}" for s in specs)
+        )
         if self.engine is not None and self.engine_llm is llm and self.storage is self._engine_storage and spec_key == self._engine_spec_key:
             return self.engine
         # 引擎重建前显式关闭旧 LLM 链：模型变更时旧链的
@@ -1123,6 +1268,10 @@ class Runtime:
                     {"base": {"entries": knowledge_state}, "patches": []},
                     storage=self.storage,
                 )
+                # 变更钩子重挂：from_export 新建实例不带 on_mutation，
+                # 不重挂 = 恢复后的知识演化不再落库（钩子在 ③ 构造）
+                if self._knowledge_mutation_hook is not None:
+                    self.knowledge_set.on_mutation = self._knowledge_mutation_hook
                 # 内省视图同步指向恢复后的集实例（替换前指向旧对象，
                 # inspect_knowledge 会返回恢复前数据）
                 if self.introspection_service is not None:

@@ -67,9 +67,9 @@ function adapterOf(vendor: string): string {
 const DEFAULT_CONTEXT = 128 * 1024;
 
 const TIER_META: Array<{ tier: GearTier; label: string; hint: string }> = [
-  { tier: 'main', label: '主模型', hint: '正文生成与工具执行；必填。' },
-  { tier: 'router', label: '制片人', hint: '任务拆解与路径决策；留空回落主模型。' },
-  { tier: 'audit', label: '审计', hint: '审批点复核与裁决；留空回落主模型。' },
+  { tier: 'main', label: 'main', hint: '正文生成与工具执行；必填。' },
+  { tier: 'router', label: 'router', hint: '任务拆解与路径决策；留空回落 main。' },
+  { tier: 'audit', label: 'audit', hint: '审批点复核与裁决；留空回落 main。' },
 ];
 
 /**
@@ -80,12 +80,19 @@ const TIER_META: Array<{ tier: GearTier; label: string; hint: string }> = [
  * - 上下文窗口与压缩红线。
  * 悬浮窗默认视口居中（FloaterWindow 无 initialRect）。
  */
+interface ProbeModel {
+  id: string;
+  context_window?: number;
+}
+
 function TierModelBlock({
   value,
-  onChange,
+  onCommit,
+  savePhase,
 }: {
   value: ModelSectionValue;
-  onChange: (patch: Partial<ModelSectionValue>) => void;
+  onCommit: (patch: Partial<ModelSectionValue>) => void;
+  savePhase: FeedbackPhase;
 }): JSX.Element {
   const [editing, setEditing] = useState<GearTier | null>(null);
   const [draftVendor, setDraftVendor] = useState(value.vendor);
@@ -97,6 +104,8 @@ function TierModelBlock({
   const [draftPercent, setDraftPercent] = useState(value.compressionPercent || 80);
   const [probePhase, setProbePhase] = useState<'idle' | 'loading' | 'success' | 'fail'>('idle');
   const [probeNote, setProbeNote] = useState('');
+  const [probeList, setProbeList] = useState<ProbeModel[]>([]);
+  const [showPicker, setShowPicker] = useState(false);
 
   const valueOf = (tier: GearTier): string =>
     tier === 'main' ? value.mainModelId : tier === 'router' ? value.routerModelId : value.auditModelId;
@@ -112,10 +121,12 @@ function TierModelBlock({
     setDraftPercent(value.compressionPercent || 80);
     setProbePhase('idle');
     setProbeNote('');
+    setProbeList([]);
+    setShowPicker(false);
     setEditing(tier);
   };
 
-  /** 探测端点模型列表 → 回填 model_id / 上下文窗口（失败结构化降级）。 */
+  /** 探测端点模型列表 → 弹悬浮窗供选择（失败结构化降级）。 */
   const probeModels = async (): Promise<void> => {
     setProbePhase('loading');
     setProbeNote('');
@@ -125,13 +136,12 @@ function TierModelBlock({
         headers: draftApiKey ? { Authorization: `Bearer ${draftApiKey}` } : undefined,
       });
       if (!res.ok) throw new Error(`探测失败：${res.status} ${res.statusText}`);
-      const data = (await res.json()) as { data?: Array<{ id: string; context_window?: number }> };
+      const data = (await res.json()) as { data?: ProbeModel[] };
       const models = data.data ?? [];
       if (models.length > 0) {
-        const first = models[0];
-        if (first.context_window) setDraftContext(first.context_window);
-        setDraftModelId(first.id);
-        setProbeNote(`探测到 ${models.length} 个模型，默认=${first.id}`);
+        setProbeList(models);
+        setShowPicker(true);
+        setProbeNote(`探测到 ${models.length} 个模型，请选择回填`);
       } else {
         setProbeNote('探测成功但无模型列表');
       }
@@ -142,9 +152,16 @@ function TierModelBlock({
     }
   };
 
+  /** 选中探测列表中的模型 → 回填 model_id（及上下文窗口）。 */
+  const pickModel = (m: ProbeModel): void => {
+    setDraftModelId(m.id);
+    if (m.context_window) setDraftContext(m.context_window);
+    setShowPicker(false);
+  };
+
   const commit = (): void => {
     if (!editing) return;
-    onChange({
+    onCommit({
       vendor: draftVendor,
       providerId: draftProviderId,
       baseUrl: draftBaseUrl,
@@ -165,9 +182,12 @@ function TierModelBlock({
 
   return (
     <div className="ink-elevated space-y-3 px-3.5 py-3">
-      <div className="text-[11px] font-medium tracking-wide ink-text-muted">模型档位</div>
+      <div className="flex items-center justify-between gap-2">
+        <div className="text-[11px] font-medium tracking-wide ink-text-muted">模型档位</div>
+        <Feedback phase={savePhase} okText="已保存" failText="保存失败" />
+      </div>
       <p className="text-[11px] leading-relaxed ink-text-faint">
-        三档分工：制片人决策 / 主模型生成 / 审计复核；非主档留空时回落主模型。点档位卡弹悬浮窗配置模型、厂商与参数。
+         三档分工：router 决策 / main 生成 / audit 复核；非 main 档留空时回落 main。点档位卡弹悬浮窗配置模型、厂商与参数。
       </p>
       <div className="space-y-2">
         {TIER_META.map((t) => (
@@ -181,7 +201,7 @@ function TierModelBlock({
           >
             <span className="w-14 shrink-0 text-[12px] font-medium ink-text-base">{t.label}</span>
             <span className="min-w-0 flex-1 truncate text-[11px] ink-text-muted">
-              {configured(t.tier) ? valueOf(t.tier) : (t.tier === 'main' ? '必填' : '留空回落主模型')}
+              {configured(t.tier) ? valueOf(t.tier) : (t.tier === 'main' ? '必填' : '留空回落 main')}
             </span>
             <span className="shrink-0 text-[10px] ink-text-faint">配置 →</span>
           </button>
@@ -292,6 +312,37 @@ function TierModelBlock({
           </div>
         </FloaterWindow>
       )}
+      {showPicker && (
+        <FloaterWindow
+          title="选择模型"
+          onClose={() => setShowPicker(false)}
+          initialRect={{ width: 320, height: 360 }}
+        >
+          <div className="flex h-full flex-col gap-2 p-4">
+            <p className="text-[10px] leading-relaxed ink-text-faint">
+              点击模型回填 {editingMeta?.label} 的 model_id（含上下文窗口）。
+            </p>
+            <div className="min-h-0 flex-1 space-y-1.5 overflow-y-auto">
+              {probeList.map((m) => (
+                <button
+                  key={m.id}
+                  type="button"
+                  data-ui="model_pick"
+                  onClick={() => pickModel(m)}
+                  className="flex w-full items-center justify-between gap-2 rounded-lg border border-[var(--ink-border)] px-3 py-2 text-left hover:border-[var(--ink-border-strong)] hover:bg-[var(--ink-bg-surface)] cursor-pointer"
+                >
+                  <span className="min-w-0 flex-1 truncate text-[11px] ink-text-base">{m.id}</span>
+                  {m.context_window ? (
+                    <span className="shrink-0 text-[10px] ink-text-faint">
+                      {Math.round(m.context_window / 1024)}k
+                    </span>
+                  ) : null}
+                </button>
+              ))}
+            </div>
+          </div>
+        </FloaterWindow>
+      )}
     </div>
   );
 }
@@ -337,24 +388,26 @@ export function ModelSection(): JSX.Element {
     return Math.floor((base * pct) / 100);
   }, [contextWindow, compressionPercent]);
 
-  const handleSave = async (): Promise<void> => {
+  /** 落盘：档位确定 / 推演档切换即触发保存（不再集中「保存」按钮）。 */
+  const persist = async (next: ModelSectionValue, sim: typeof simulationTier): Promise<void> => {
     setSavePhase('loading');
     try {
-      const payload = {
-        vendor,
-        provider_id: vendor === '__custom__' ? providerId : adapterOf(vendor),
-        base_url: baseUrl,
-        api_key: apiKey,
-        main_model_id: mainModelId,
-        router_model_id: routerModelId,
-        audit_model_id: auditModelId,
-        context_window: contextWindow,
-        compression_percent: compressionPercent,
+      const payload: Record<string, unknown> = {
+        vendor: next.vendor,
+        provider_id: next.vendor === '__custom__' ? next.providerId : adapterOf(next.vendor),
+        base_url: next.baseUrl,
+        main_model_id: next.mainModelId,
+        router_model_id: next.routerModelId,
+        audit_model_id: next.auditModelId,
+        context_window: next.contextWindow,
+        compression_percent: next.compressionPercent,
       };
+      // 留空沿用已保存密钥：仅当本档填写了 key 才覆盖。
+      if (next.apiKey && next.apiKey.trim()) payload.api_key = next.apiKey;
       if (tauri) {
         await Promise.all([
           tauri.invoke('models_config_put', { config: payload }),
-          tauri.invoke('capability_put', { record: { simulation_tier: simulationTier } }),
+          tauri.invoke('capability_put', { record: { simulation_tier: sim } }),
         ]);
       }
       setSavePhase('success');
@@ -365,27 +418,52 @@ export function ModelSection(): JSX.Element {
     }
   };
 
+  /** 档位编辑确定 → 即时更新状态并落盘。 */
+  const handleTierCommit = (patch: Partial<ModelSectionValue>): void => {
+    const next: ModelSectionValue = {
+      vendor: patch.vendor ?? vendor,
+      providerId: patch.providerId ?? providerId,
+      baseUrl: patch.baseUrl ?? baseUrl,
+      apiKey: patch.apiKey ?? apiKey,
+      mainModelId: patch.mainModelId ?? mainModelId,
+      routerModelId: patch.routerModelId ?? routerModelId,
+      auditModelId: patch.auditModelId ?? auditModelId,
+      contextWindow: patch.contextWindow ?? contextWindow,
+      compressionPercent: patch.compressionPercent ?? compressionPercent,
+    };
+    if (patch.vendor !== undefined) setVendor(patch.vendor);
+    if (patch.providerId !== undefined) setProviderId(patch.providerId);
+    if (patch.baseUrl !== undefined) setBaseUrl(patch.baseUrl);
+    if (patch.apiKey !== undefined && patch.apiKey.trim()) setApiKey(patch.apiKey);
+    if (patch.contextWindow !== undefined) setContextWindow(patch.contextWindow);
+    if (patch.compressionPercent !== undefined) setCompressionPercent(patch.compressionPercent);
+    if (patch.mainModelId !== undefined) setMainModelId(patch.mainModelId);
+    if (patch.routerModelId !== undefined) setRouterModelId(patch.routerModelId);
+    if (patch.auditModelId !== undefined) setAuditModelId(patch.auditModelId);
+    void persist(next, simulationTier);
+  };
+
+  /** 推演档切换 → 即时落盘。 */
+  const handleSimChange = (tier: 'off' | 'light' | 'full'): void => {
+    setSimulationTier(tier);
+    void persist(
+      { vendor, providerId, baseUrl, apiKey, mainModelId, routerModelId, auditModelId, contextWindow, compressionPercent },
+      tier,
+    );
+  };
+
   return (
     <div className="space-y-4">
       <TierModelBlock
         value={{ vendor, providerId, baseUrl, apiKey, mainModelId, routerModelId, auditModelId, contextWindow, compressionPercent }}
-        onChange={(patch) => {
-          if (patch.vendor !== undefined) setVendor(patch.vendor);
-          if (patch.providerId !== undefined) setProviderId(patch.providerId);
-          if (patch.baseUrl !== undefined) setBaseUrl(patch.baseUrl);
-          if (patch.apiKey !== undefined && patch.apiKey.trim()) setApiKey(patch.apiKey);
-          if (patch.contextWindow !== undefined) setContextWindow(patch.contextWindow);
-          if (patch.compressionPercent !== undefined) setCompressionPercent(patch.compressionPercent);
-          if (patch.mainModelId !== undefined) setMainModelId(patch.mainModelId);
-          if (patch.routerModelId !== undefined) setRouterModelId(patch.routerModelId);
-          if (patch.auditModelId !== undefined) setAuditModelId(patch.auditModelId);
-        }}
+        onCommit={handleTierCommit}
+        savePhase={savePhase}
       />
 
       <div className="ink-elevated space-y-3 px-3.5 py-3">
         <div className="text-[11px] font-medium tracking-wide ink-text-muted">推演档位</div>
         <p className="text-[10px] leading-relaxed ink-text-faint">
-          分支决策的推演强度：关 / 轻探测 / 全量。推演由模型端支撑，随模型配置保存。
+          分支决策的推演强度：关 / 轻探测 / 全量。推演由模型端支撑，切换即保存。
         </p>
         <div className="ink-seg">
           {(['off', 'light', 'full'] as const).map((tier) => (
@@ -394,7 +472,7 @@ export function ModelSection(): JSX.Element {
               type="button"
               data-ui={`sim_tier_${tier}`}
               data-active={simulationTier === tier}
-              onClick={() => setSimulationTier(tier)}
+              onClick={() => handleSimChange(tier)}
               className="ink-seg-item"
             >
               {tier === 'off' ? '关' : tier === 'light' ? '轻探测' : '全量'}
@@ -414,13 +492,6 @@ export function ModelSection(): JSX.Element {
             128k 以上窗口需确保模型实际支持，避免截断降级。
           </div>
         )}
-      </div>
-
-      <div className="flex items-center justify-end gap-2">
-        <Feedback phase={savePhase} okText="已保存" failText="保存失败" />
-        <Button size="sm" variant="primary" onClick={handleSave} data-ui="model_save">
-          保存模型配置
-        </Button>
       </div>
     </div>
   );

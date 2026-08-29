@@ -112,30 +112,6 @@ fn begin_round_recorder(state: &ShellState, round_id: &str, data_dir: &Path) -> 
     )
 }
 
-/// 链式事件发射：续跑/回合事件捕获进记录器 + 转发前端（前端 listen
-/// 增量渲染；捕获失败只记日志不阻断主流程）。
-fn chain_event_emitter(
-    state: &ShellState,
-    app: &AppHandle,
-    recorder: Arc<Mutex<RoundStepsTransport>>,
-) {
-    let stream_app = app.clone();
-    let recorder_capture = recorder;
-    if let Some(engine) = state.backend.engine.lock().unwrap().as_ref() {
-        engine.set_event_emitter(Some(Box::new(move |event_json: &str| {
-            let parsed: JsonValue = serde_json::from_str(event_json).unwrap_or(JsonValue::Null);
-            if !parsed.is_null() {
-                if let Ok(mut rec) = recorder_capture.lock() {
-                    rec.feed(&parsed);
-                }
-            }
-            if let Err(err) = stream_app.emit("inkling://round_event", parsed) {
-                eprintln!("[events] 流式事件发射失败: {err}");
-            }
-        })));
-    }
-}
-
 // ── R15：回合账本自动记录 ──
 
 /// 自动账本开关：环境变量 `INKLING_AUTO_ROUND_LEDGER`（1/true/on = 开，
@@ -259,6 +235,9 @@ pub(crate) fn round_send(
     let outcome = engine
         .round(request)
         .map_err(|err| engine_failure("回合执行", err))?;
+    // 收尾清 emitter：避免上一轮 emitter 泄漏到后续 run_routine_round
+    // 等不设 emitter 的回合，把事件误推前端、混入错误 round（#1）。
+    engine.set_event_emitter(None);
     drop(engine_guard);
     // R2：回合事件流归约写回项目任务（绑定线程的任务对象；失败仅观测
     // 日志——任务对象仍保留上一回合状态，不阻断回合返回）
@@ -293,6 +272,13 @@ pub(crate) fn round_send(
             &outcome.events,
         ) {
             eprintln!("[rounds] 回合账本自动记录失败: {err}");
+        }
+    }
+    // R15b：账本摘要链自动合并（阈值触发：自上次合并后新增账本 ≥ 10 条；
+    // 零 LLM 确定性压缩；失败仅观测日志，不阻断回合返回）
+    if auto_round_ledger_enabled() {
+        if let Err(err) = block_on_ledger_merge(&data_dir, &thread_id) {
+            eprintln!("[rounds] 账本摘要链自动合并失败: {err}");
         }
     }
     Ok(json!({
@@ -384,6 +370,10 @@ pub(crate) async fn resume_round_with_inject(
     edited_content: Option<JsonValue>,
     extra_inject: JsonValue,
 ) -> Result<JsonValue, CommandError> {
+    // 续跑开启新一轮：清中止态，避免沿用上一轮 abort 信号（#2：recorder.feed
+    // 轮询 abort_signal 早退 → 步骤恒空 → 误清 checkpoint）；与 round_send
+    // 开头 begin_round 同口径。
+    state.backend.abort_signal.begin_round();
     let data_dir = app_data_dir(app)?;
     let round_id = read_latest_round_id(&data_dir, thread_id).unwrap_or_default();
     let recorder = Arc::new(Mutex::new(begin_round_recorder(state, &round_id, &data_dir)));
@@ -391,8 +381,21 @@ pub(crate) async fn resume_round_with_inject(
         let mut slot = state.backend.round.lock().unwrap();
         *slot = Some(recorder.lock().unwrap().clone());
     }
-    // R1：续跑事件链式捕获（记录器种子续流）+ 转发前端
-    chain_event_emitter(state, app, Arc::clone(&recorder));
+    // 续跑事件发射：只发前端（#3 统一为与 round_send 同口径——recorder
+    // 不再由 emitter 喂入，统一在回合结束后用 transport 缓冲事件喂入，
+    // 避免 emitter 双路径/步骤重复累积）。
+    {
+        let guard = state.backend.engine.lock().unwrap();
+        if let Some(engine) = guard.as_ref() {
+            let stream_app = app.clone();
+            engine.set_event_emitter(Some(Box::new(move |event_json: &str| {
+                let parsed: JsonValue = serde_json::from_str(event_json).unwrap_or(JsonValue::Null);
+                if let Err(err) = stream_app.emit("inkling://round_event", parsed) {
+                    eprintln!("[events] 流式事件发射失败: {err}");
+                }
+            })));
+        }
+    }
 
     let latest = call_engine_op_async(
         "engine.thread_latest_checkpoint",
@@ -415,17 +418,31 @@ pub(crate) async fn resume_round_with_inject(
             inject[k] = v;
         }
     }
-    let mut args = json!({
-        "thread_id": thread_id,
-        "checkpoint_id": checkpoint_id,
-        "inject": inject,
-    });
-    if let Some(reason) = reason {
-        args["reason"] = json!(reason);
+    // 续跑经 inner 锁串行化（#4：与 EngineHost::round 同款），避免与在途
+    // round_send 并发双 ainvoke（快速 send/resume 竞态）。thread_resume 为
+    // 同步方法（内部持 inner 锁阻塞驱动），调用方持 engine 守卫跨同步调用即可。
+    let outcome = {
+        let guard = state.backend.engine.lock().unwrap();
+        let engine = guard
+            .as_ref()
+            .ok_or_else(|| CommandError::internal("引擎未装配（回合续跑）"))?;
+        engine
+            .thread_resume(thread_id, checkpoint_id, inject, reason)
+            .map_err(|err| engine_failure("回合续跑", err))?
+    };
+    // 统一喂 recorder（#3）：回合结束后取 transport 缓冲事件（与 round_send
+    // 同口径），不再由 emitter 喂入，确保步骤快照完整且不重复。
+    {
+        let guard = state.backend.engine.lock().unwrap();
+        if let Some(engine) = guard.as_ref() {
+            let events = engine.take_transport_events();
+            for event in &events {
+                recorder.lock().unwrap().feed(event);
+            }
+            // 清 emitter，避免泄漏到后续回合（与 round_send 收尾同口径，#1）。
+            engine.set_event_emitter(None);
+        }
     }
-    let outcome = call_engine_op_async("engine.thread_resume", args)
-        .await
-        .map_err(|err| engine_failure("回合续跑", err))?;
     let steps = recorder.lock().unwrap().snapshot();
     let resume_reason = outcome
         .get("reason")
@@ -461,6 +478,14 @@ pub(crate) fn round_abort(state: State<'_, ShellState>, round_id: String) -> Res
         }
     }
     state.backend.abort_signal.abort();
+    // 关断事件弧同时清 emitter（中止后不再有在途回合推前端；与 round_send
+    // 收尾同口径，避免 emitter 泄漏到后续不设 emitter 的回合，#1）。
+    {
+        let guard = state.backend.engine.lock().unwrap();
+        if let Some(engine) = guard.as_ref() {
+            engine.set_event_emitter(None);
+        }
+    }
     let engine_abort = match crate::block_on_op_async("engine.abort_current_run", json!({})) {
         Ok(outcome) => outcome,
         Err(err) => {
@@ -653,6 +678,57 @@ pub(crate) async fn round_ledger_merge(
         );
     }
     Ok(merged)
+}
+
+/// 账本摘要链自动合并（回合收尾静默触发）：自上次合并后新增账本
+/// ≥ `AUTO_MERGE_THRESHOLD` 条才合并一次——只压缩增量账本（零 LLM
+/// 确定性压缩），推进合并标记后下次只处理新账本，避免重复压缩质量衰减。
+async fn auto_merge_ledger_chain(data_dir: &Path, thread_id: &str) -> Result<(), String> {
+    let dir = crate::domain::round_ledger::ledger_dir(data_dir);
+    let new_ledgers = crate::domain::round_ledger::new_ledgers_since_marker(&dir, thread_id);
+    if new_ledgers.len() < crate::domain::round_ledger::AUTO_MERGE_THRESHOLD {
+        return Ok(());
+    }
+    let old = crate::domain::round_ledger::load_summary_chain(&dir, thread_id)
+        .last()
+        .cloned();
+    let merged = call_engine_op_async(
+        "ledger.merge",
+        json!({
+            "thread_id": thread_id,
+            "old_summary": old,
+            "new_ledgers": new_ledgers,
+        }),
+    )
+    .await
+    .map_err(|err| format!("引擎账本合并失败: {err}"))?;
+    if let Some(summary) = merged.get("summary").and_then(|v| v.as_str()) {
+        crate::domain::round_ledger::append_summary(&dir, thread_id, summary)
+            .map_err(|err| format!("摘要链追加失败: {err}"))?;
+        let _ = crate::domain::round_ledger::roll_summary_chain(
+            &dir,
+            thread_id,
+            crate::domain::round_ledger::SUMMARY_CHAIN_KEEP,
+        );
+        if let Some(last_id) = new_ledgers
+            .last()
+            .and_then(|l| l.get("round_id").and_then(JsonValue::as_str))
+        {
+            crate::domain::round_ledger::save_merge_marker(&dir, thread_id, last_id)
+                .map_err(|err| format!("合并标记推进失败: {err}"))?;
+        }
+    }
+    Ok(())
+}
+
+/// 同步驱动账本自动合并（round_send 无 tokio 上下文时使用；单线程运行时
+/// 内完成，与 `block_on_op_async` 的引擎线程亲和纪律一致）。
+fn block_on_ledger_merge(data_dir: &Path, thread_id: &str) -> Result<(), String> {
+    tokio::runtime::Builder::new_current_thread()
+        .enable_all()
+        .build()
+        .map_err(|err| format!("合并运行时创建失败: {err}"))?
+        .block_on(auto_merge_ledger_chain(data_dir, thread_id))
 }
 
 /// 记忆无感提取：回合账本（用户意图/结论/确认）经引擎 `memory.extract` op

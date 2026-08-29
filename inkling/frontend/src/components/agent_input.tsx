@@ -31,8 +31,8 @@ export interface AgentInputBindValue {
 }
 
 const GEAR_LABELS: Record<GearTier, string> = {
-  router: '制片人决策',
-  main: '主模型',
+  router: 'router',
+  main: 'main',
 };
 
 const MODE_LABELS: Record<ModeTier, string> = {

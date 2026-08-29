@@ -36,6 +36,14 @@ pub const DEFAULT_MAX_AGE_DAYS: i64 = 90;
 /// 摘要链保留条数（append-only 但留容量界）。
 pub const SUMMARY_CHAIN_KEEP: usize = 200;
 
+/// 摘要链自动合并阈值：自上次合并后新增账本 ≥ 此值才触发一次合并
+/// （回合收尾静默触发；避免每回合重复压缩导致摘要质量衰减）。
+pub const AUTO_MERGE_THRESHOLD: usize = 10;
+
+/// 合并标记文件名（记录上次合并覆盖的最新账本 round_id；推进后
+/// 只合并增量账本，不重复压缩旧账本）。
+const MERGE_MARKER_PREFIX: &str = "merge_marker_";
+
 /// 归约保留的事件类型（其余回合事件不进账本，账本只存事实要点）。
 const RECOGNIZED_EVENTS: &[&str] = &[
     "tool_start",
@@ -313,6 +321,45 @@ pub fn roll_summary_chain(dir: &Path, thread_id: &str, keep_last: usize) -> Resu
     Ok(total - keep.len())
 }
 
+/// 读取合并标记（上次自动合并覆盖的最新账本 round_id；无标记 = 从未合并）。
+pub fn load_merge_marker(dir: &Path, thread_id: &str) -> Option<String> {
+    let path = dir.join(format!("{}{}.json", MERGE_MARKER_PREFIX, sanitize(thread_id)));
+    let text = std::fs::read_to_string(&path).ok()?;
+    let value = serde_json::from_str::<JsonValue>(&text).ok()?;
+    value
+        .get("last_ledger_round_id")
+        .and_then(JsonValue::as_str)
+        .map(String::from)
+}
+
+/// 推进合并标记（记录本次合并覆盖的最新账本 round_id）。
+pub fn save_merge_marker(dir: &Path, thread_id: &str, last_round_id: &str) -> Result<(), String> {
+    std::fs::create_dir_all(dir).map_err(|err| format!("合并标记目录创建失败: {err}"))?;
+    let path = dir.join(format!("{}{}.json", MERGE_MARKER_PREFIX, sanitize(thread_id)));
+    let record = json!({ "last_ledger_round_id": last_round_id });
+    let text = serde_json::to_string(&record).map_err(|err| format!("合并标记序列化失败: {err}"))?;
+    std::fs::write(&path, text).map_err(|err| format!("合并标记落盘失败: {err}"))
+}
+
+/// 自上次合并之后的新增账本（按 created_at 时间序；标记账本已被容量滚动
+/// 删除 = 全部视为新账本）。
+pub fn new_ledgers_since_marker(dir: &Path, thread_id: &str) -> Vec<JsonValue> {
+    let mut ledgers = load_ledger_jsons(dir, thread_id);
+    ledgers.sort_by_key(|l| l.get("created_at").and_then(JsonValue::as_i64).unwrap_or(0));
+    match load_merge_marker(dir, thread_id) {
+        Some(last) => {
+            let idx = ledgers
+                .iter()
+                .position(|l| l.get("round_id").and_then(JsonValue::as_str) == Some(last.as_str()));
+            match idx {
+                Some(i) => ledgers[i + 1..].to_vec(),
+                None => ledgers,
+            }
+        }
+        None => ledgers,
+    }
+}
+
 /// 账本容量滚动：按年龄（最旧先删）与体积（超限最旧删）淘汰，返回删除数。
 ///
 /// 与 fingerprint_cache 容量淘汰同语义：先清过期（> max_age_days），再按
@@ -452,6 +499,33 @@ mod tests {
         let removed = roll_summary_chain(&dir, "th", 1).unwrap();
         assert_eq!(removed, 1);
         assert_eq!(load_summary_chain(&dir, "th").len(), 1);
+        let _ = std::fs::remove_dir_all(&tmp);
+    }
+
+    #[test]
+    fn merge_marker_tracks_incremental_ledgers() {
+        // 自动合并阈值：无标记 = 全部账本为新账本；标记推进后只取增量。
+        let tmp = std::env::temp_dir().join(format!("rl_mm_{}", uuid::Uuid::new_v4().simple()));
+        let dir = ledger_dir(&tmp);
+        for i in 1..=4 {
+            let ledger = reduce_round("th", &format!("r{i}"), None, None, &sample_events(), &json!({}), &json!([]));
+            write_ledger(&dir, &ledger).unwrap();
+        }
+        // 未合并过：全部为新账本（按时间序 r1..r4）
+        let first = new_ledgers_since_marker(&dir, "th");
+        assert_eq!(first.iter().map(|l| l["round_id"].as_str().unwrap().to_string()).collect::<Vec<_>>(), vec!["r1", "r2", "r3", "r4"]);
+        // 合并到 r3：推进标记后只返回 r4
+        save_merge_marker(&dir, "th", "r3").unwrap();
+        assert_eq!(load_merge_marker(&dir, "th").as_deref(), Some("r3"));
+        let delta = new_ledgers_since_marker(&dir, "th");
+        assert_eq!(delta.iter().map(|l| l["round_id"].as_str().unwrap().to_string()).collect::<Vec<_>>(), vec!["r4"]);
+        // 标记账本被滚动删除：全部视为新账本（不丢数据）
+        let _ = std::fs::remove_dir_all(&dir);
+        std::fs::create_dir_all(&dir).unwrap();
+        let ledger = reduce_round("th", "r9", None, None, &sample_events(), &json!({}), &json!([]));
+        write_ledger(&dir, &ledger).unwrap();
+        let after_roll = new_ledgers_since_marker(&dir, "th");
+        assert_eq!(after_roll.len(), 1);
         let _ = std::fs::remove_dir_all(&tmp);
     }
 

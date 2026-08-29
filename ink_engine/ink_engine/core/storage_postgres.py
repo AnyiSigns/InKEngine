@@ -374,18 +374,20 @@ class PostgresStorage:
 
     async def set_checkpoint_parent(
         self, thread_id: str, checkpoint_id: int, parent_id: int | None
-    ) -> None:
-        """改写链父指针（链级 rebase：窗口最旧行改写为链头 None）。"""
+    ) -> int:
+        """改写链父指针（链级 rebase：窗口最旧行改写为链头 None），返回受影响行数。"""
         await self._connect()
         try:
             async with self._pool.acquire() as conn:
-                await conn.execute(
+                tag = await conn.execute(
                     "UPDATE checkpoints SET parent_id = $1"
                     " WHERE thread_id = $2 AND checkpoint_id = $3",
                     parent_id,
                     thread_id,
                     checkpoint_id,
                 )
+            # 命令标签形如 "UPDATE 1"（asyncpg 无返回值 SQL）
+            return int(tag.split()[-1]) if tag.startswith("UPDATE") else 0
         except Exception as exc:
             raise StorageError(f"postgres 改写 checkpoint 父指针失败: {exc}") from exc
 

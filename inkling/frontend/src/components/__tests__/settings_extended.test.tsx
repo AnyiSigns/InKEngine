@@ -15,8 +15,8 @@ describe('四节导航 + 默认内容', () => {
     for (const label of ['环境容器', '应用能力', '生长治理', '安全信任', '连接', '外观', '关于']) {
       expect(screen.getByRole('button', { name: new RegExp(label) })).toBeInTheDocument();
     }
-    expect(screen.getByText('制片人决策')).toBeInTheDocument();
-    expect(screen.getByText('主模型')).toBeInTheDocument();
+    expect(screen.getByText('router')).toBeInTheDocument();
+    expect(screen.getByText('main')).toBeInTheDocument();
   });
 
   it('入口含管理台/架构/界面树', () => {

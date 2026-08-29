@@ -19,6 +19,7 @@ import contextlib
 from typing import Any
 
 from ink_engine.core.declarative_tools import DeclarativeToolSpec
+from ink_engine.core.event_types import EventTypeSpec
 from ink_engine.core.harness import HarnessDefinition
 from ink_engine.core.knowledge_set import (
     KIND_RULE,
@@ -81,6 +82,46 @@ class HarnessApplyTarget(ApplyTarget):
             return
         parsed = HarnessDefinition.from_dict(definition)
         self._runtime.harness_registry.register(parsed)
+        # 登记补丁来源 harness 名（回退注销清单：仅注销补丁定义，
+        # 不动装配基线 harness 定义）
+        _register_harness_patch_entry(self._runtime, parsed.name)
+
+
+class ToolApplyTarget(ApplyTarget):
+    """TOOL 补丁活跃态生效：声明式定义进注册表 + 统一工具表（挂载即生效）。
+
+    与引擎侧 _ToolApplyTarget（bridge.py）同构：落链即进入下一回合工具
+    表，无需重启——补齐 live_apply 注册表此前缺失的 TOOL 活跃态目标。
+    """
+
+    name = "inkling.tool"
+
+    def __init__(self, runtime: Any) -> None:
+        self._runtime = runtime
+
+    async def apply(self, payload: dict[str, Any], patch_id: int) -> None:
+        spec = DeclarativeToolSpec.from_dict(payload)
+        self._runtime.harness_registry.declarative.register_definition(spec)
+        self._runtime.tool_registry[spec.name] = spec.to_spec()
+        # 同步内省工具源，使工具立即在界面/装配可见（与 rebuild_declarative_tools 一致）
+        self._runtime.introspection_service._sources.tools = self._runtime.collect_specs()
+
+
+class EventTypeApplyTarget(ApplyTarget):
+    """EVENT_TYPE 补丁活跃态生效：事件类型注册表即时登记（新类型可渲染/校验）。
+
+    与引擎侧 _EventTypeApplyTarget（bridge.py）同构：补齐 live_apply
+    注册表此前缺失的 EVENT_TYPE 活跃态目标，落链即生效、无需重启。
+    """
+
+    name = "inkling.event_type"
+
+    def __init__(self, runtime: Any) -> None:
+        self._runtime = runtime
+
+    async def apply(self, payload: dict[str, Any], patch_id: int) -> None:
+        spec = EventTypeSpec.from_dict(payload)
+        self._runtime.event_type_registry.register(spec)
 
 
 class KnowledgeApplyTarget(ApplyTarget):
@@ -101,6 +142,8 @@ class KnowledgeApplyTarget(ApplyTarget):
         if not isinstance(entry, dict):
             return
         parsed = KnowledgeEntry.from_dict(entry)
+        # 回退快照：就地修改前保留旧值（与 G1 回退侧契约）
+        _snapshot_knowledge_before(self._runtime, parsed.id)
         _register_patch_entry(self._runtime, parsed.id)
         knowledge_set = self._runtime.knowledge_set
         if knowledge_set.get(parsed.id) is None:
@@ -133,6 +176,8 @@ class RuleApplyTarget(ApplyTarget):
         if not isinstance(rule, dict):
             return
         rule_id = str(rule.get("id") or payload.get("rule_id") or "rule")
+        # 回退快照：就地修改前保留旧值（与 G1 回退侧契约）
+        _snapshot_knowledge_before(self._runtime, rule_id)
         parsed = KnowledgeEntry(
             id=rule_id,
             level="project",
@@ -158,6 +203,30 @@ def _register_patch_entry(runtime: Any, entry_id: str) -> None:
     registry.add(entry_id)
 
 
+def _register_harness_patch_entry(runtime: Any, name: str) -> None:
+    """登记补丁来源 harness 名（回退注销清单；宿主 boot 时初始化）。"""
+    registry = getattr(runtime, "harness_patch_entries", None)
+    if registry is None:
+        registry = set()
+        runtime.harness_patch_entries = registry
+    registry.add(name)
+
+
+def _snapshot_knowledge_before(runtime: Any, entry_id: str) -> None:
+    """知识「就地修改」回退快照：apply 前把旧值写入 runtime 契约字段。
+
+    与 G1 约定的回退契约：``runtime.knowledge_before_snapshots[entry_id]``
+    = 应用前条目 dict（None 表示该条目为新建）；回退侧据此还原旧值或
+    删除新建条目，避免就地修改的回退被误判为「删除」语义。
+    """
+    snapshots = getattr(runtime, "knowledge_before_snapshots", None)
+    if snapshots is None:
+        snapshots = {}
+        runtime.knowledge_before_snapshots = snapshots
+    existing = runtime.knowledge_set.get(entry_id)
+    snapshots[entry_id] = existing.to_dict() if existing is not None else None
+
+
 def register_live_targets(runtime: Any) -> None:
     """注册全部活跃态目标（配方目标 + 本模块补齐的五类）。
 
@@ -170,6 +239,9 @@ def register_live_targets(runtime: Any) -> None:
     pipeline.register_target(PatchKind.HARNESS, HarnessApplyTarget(runtime))
     pipeline.register_target(PatchKind.RULE, RuleApplyTarget(runtime))
     pipeline.register_target(PatchKind.KNOWLEDGE, KnowledgeApplyTarget(runtime))
+    # TOOL/EVENT_TYPE 活跃态目标（此前缺失：落链即生效，无需重启）
+    pipeline.register_target(PatchKind.TOOL, ToolApplyTarget(runtime))
+    pipeline.register_target(PatchKind.EVENT_TYPE, EventTypeApplyTarget(runtime))
 
 
 def restore_live_views(
@@ -241,21 +313,35 @@ def restore_ui_theme(
 
 
 def restore_harness_views(runtime: Any, assembled: dict[str, Any]) -> None:
-    """harness 段恢复：链内定义登记（与装配期恢复同路径）。"""
+    """harness 段恢复：链内定义登记 + 补丁来源定义回退注销。
+
+    仅注销「由补丁链注入、且已不在链内」的 harness 定义（harness_patch_entries
+    登记位区分于装配基线定义），避免回退时误注销基线 harness 定义。
+    """
     registry = runtime.harness_registry
+    chain_names = set((assembled.get("harness") or {}).keys())
     for name, definition in (assembled.get("harness") or {}).items():
         if not isinstance(definition, dict) or name in registry.names():
             continue
         with contextlib.suppress(Exception):
             registry.register(HarnessDefinition.from_dict(definition))
+    # 回退：补丁来源定义不在链内 = 注销（撤销登记位，不触基线定义）
+    patch_names = getattr(runtime, "harness_patch_entries", None)
+    if not patch_names:
+        return
+    for name in [n for n in patch_names if n not in chain_names]:
+        with contextlib.suppress(Exception):
+            registry.unregister(name)
+        patch_names.discard(name)
 
 
 def restore_knowledge_view(runtime: Any, assembled: dict[str, Any]) -> None:
     """知识段恢复：补丁来源条目与链态就地对齐（检索/内省立即反映回退）。
 
     就地增删（不重建实例——调配器/检索源持有同一知识集引用）：
-    - 补丁来源条目（runtime.patch_entries 登记）不在链内 = 回退撤销，
-      从知识集删除；
+    - 补丁来源条目（runtime.patch_entries 登记）不在链内 = 回退撤销：
+      新建条目（无 before 快照）从知识集删除；就地修改条目按
+      knowledge_before_snapshots 还原旧值（避免回退误删为「删除」语义）；
     - 链内条目未在集内 = 补挂（重启装配后链态与活跃态对齐）；
     - 种子条目（seed. 前缀）是只读基线，任何回退不动。
     """
@@ -265,11 +351,25 @@ def restore_knowledge_view(runtime: Any, assembled: dict[str, Any]) -> None:
     chain_entries = assembled.get("knowledge") or {}
     if not isinstance(chain_entries, dict):
         return
+    snapshots = getattr(runtime, "knowledge_before_snapshots", None) or {}
     for entry_id in tracked:
-        if entry_id not in chain_entries:
+        if entry_id in chain_entries:
+            continue
+        before = snapshots.get(entry_id)
+        if before is None:
+            # 新建条目回退 = 删除（其 before 不存在）
             knowledge_set.remove(entry_id)
-            if patch_entries is not None:
-                patch_entries.discard(entry_id)
+        else:
+            # 就地修改回退 = 还原修改前旧值（非删除）
+            changes = {
+                key: value
+                for key, value in before.items()
+                if key not in ("id", "created_at")
+            }
+            knowledge_set.update(entry_id, **changes)
+        if patch_entries is not None:
+            patch_entries.discard(entry_id)
+        snapshots.pop(entry_id, None)
     for entry_id, raw in chain_entries.items():
         if not isinstance(raw, dict):
             continue

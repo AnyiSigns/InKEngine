@@ -582,14 +582,32 @@ pub fn read_model_connection(data_dir: &Path) -> JsonValue {
     JsonValue::Object(Default::default())
 }
 
-/// 写入模型连接配置（覆盖写入）。
+/// 写入模型连接配置（合并写入：入参缺省的已存字段保留）。
+///
+/// 合并语义确保逐档保存（仅带本档字段）不会清空既有字段——典型如
+/// `api_key`：设置页各档编辑仅在重填密钥时带 `api_key`，否则沿用已存值；
+/// 探测回写（`models_refresh`）同样只带 base_url/api_key，须保留已存
+/// 的 main/router/audit model_id。覆盖写入会丢失这些字段，故此处做浅合并。
 pub fn write_model_connection(data_dir: &Path, config: &JsonValue) -> JsonValue {
     let path = data_dir.join(MODEL_CONNECTION_FILE);
     let _ = std::fs::create_dir_all(data_dir);
-    if let Ok(text) = serde_json::to_string_pretty(config) {
+    // 入参非对象（异常形态）直接原样落盘，不合并。
+    let merged = if let JsonValue::Object(incoming) = config {
+        let mut base = match read_model_connection(data_dir) {
+            JsonValue::Object(existing) => existing,
+            _ => serde_json::Map::new(),
+        };
+        for (k, v) in incoming {
+            base.insert(k.clone(), v.clone());
+        }
+        JsonValue::Object(base)
+    } else {
+        config.clone()
+    };
+    if let Ok(text) = serde_json::to_string_pretty(&merged) {
         let _ = std::fs::write(&path, text);
     }
-    config.clone()
+    merged
 }
 
 #[cfg(test)]
@@ -681,6 +699,62 @@ mod tests {
         assert!(config_changed(Some("http://a"), Some("k"), "http://b", "k"));
         assert!(config_changed(Some("http://a"), Some("k"), "http://a", "kk"));
         assert!(!config_changed(Some("http://a"), Some("k"), "http://a", "k"));
+    }
+
+    #[test]
+    fn write_model_connection_merges_preserving_omitted_fields() {
+        let dir = std::env::temp_dir().join(format!("ink_model_conn_merge_{}", std::process::id()));
+        let _ = std::fs::create_dir_all(&dir);
+        // 首写带全量字段（含 api_key）。
+        write_model_connection(
+            &dir,
+            &serde_json::json!({
+                "base_url": "http://a/v1",
+                "api_key": "sk-secret",
+                "main_model_id": "m1",
+                "router_model_id": "r1",
+            }),
+        );
+        // 逐档保存：仅带本档字段，且未重填 api_key。
+        let merged = write_model_connection(
+            &dir,
+            &serde_json::json!({ "base_url": "http://b/v1", "audit_model_id": "a1" }),
+        );
+        assert_eq!(merged["base_url"], "http://b/v1");
+        assert_eq!(merged["api_key"], "sk-secret", "缺省 api_key 须沿用已存值");
+        assert_eq!(merged["main_model_id"], "m1", "未写入的 model_id 须保留");
+        assert_eq!(merged["router_model_id"], "r1");
+        assert_eq!(merged["audit_model_id"], "a1", "新字段须写入");
+        let _ = std::fs::remove_dir_all(&dir);
+    }
+
+    #[test]
+    fn write_model_connection_merges_preserving_model_ids_on_base_url_only() {
+        let dir = std::env::temp_dir().join(format!("ink_model_conn_merge2_{}", std::process::id()));
+        let _ = std::fs::create_dir_all(&dir);
+        // models_refresh 回写：先带 main/router/audit model_id + base_url/api_key。
+        write_model_connection(
+            &dir,
+            &serde_json::json!({
+                "base_url": "http://a/v1",
+                "api_key": "sk-secret",
+                "main_model_id": "m1",
+                "router_model_id": "r1",
+                "audit_model_id": "a1",
+            }),
+        );
+        // 后续仅更新连接端点（不带 model_id）：已存档位 model_id 须保留，
+        // 否则 resolve_llm 二次回落会丢主档而退化为空配置。
+        let merged = write_model_connection(
+            &dir,
+            &serde_json::json!({ "base_url": "http://b/v1" }),
+        );
+        assert_eq!(merged["base_url"], "http://b/v1");
+        assert_eq!(merged["main_model_id"], "m1", "base_url-only 保存不得清空 model_id");
+        assert_eq!(merged["router_model_id"], "r1");
+        assert_eq!(merged["audit_model_id"], "a1");
+        assert_eq!(merged["api_key"], "sk-secret");
+        let _ = std::fs::remove_dir_all(&dir);
     }
 
     #[test]

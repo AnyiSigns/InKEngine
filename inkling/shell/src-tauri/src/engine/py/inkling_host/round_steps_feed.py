@@ -93,17 +93,28 @@ class RoundStepsTransport:
         elif etype == "plan_end":
             self.steps.plan_end()
         elif etype == "tool_start":
+            tool_call_id = str(payload.get("tool_call_id") or "")
+            # 兜底：payload 缺 tool_call_id 时从事件 step_id（tool:{call_id}）提取，
+            # 保证与 graph_recipe 发射侧 id 一致
+            if not tool_call_id and event.step_id and event.step_id.startswith("tool:"):
+                tool_call_id = event.step_id[len("tool:"):]
             self.steps.tool_start(
                 category=source,
-                tool_call_id=str(payload.get("tool_call_id") or ""),
+                tool_call_id=tool_call_id,
             )
         elif etype == "tool_end":
+            tool_call_id = str(payload.get("tool_call_id") or "")
+            if not tool_call_id and event.step_id and event.step_id.startswith("tool:"):
+                tool_call_id = event.step_id[len("tool:"):]
             self.steps.tool_end(
-                str(payload.get("tool_call_id") or ""),
+                tool_call_id,
                 bool(payload.get("success", True)),
             )
         elif etype == "tool_pending":
-            self.steps.tool_pending(str(payload.get("tool_call_id") or ""))
+            tool_call_id = str(payload.get("tool_call_id") or "")
+            if not tool_call_id and event.step_id and event.step_id.startswith("tool:"):
+                tool_call_id = event.step_id[len("tool:"):]
+            self.steps.tool_pending(tool_call_id)
         elif etype == "review_card":
             self.steps.review_card(payload)
         elif etype == "reply_token":

@@ -459,6 +459,13 @@ impl EngineHost {
                 let host_kwargs = PyDict::new(py);
                 host_kwargs.set_item("storage_uri", &storage_uri)?;
                 host_kwargs.set_item("transport", transport.clone_ref(py))?;
+                // 运行数据目录注入宿主（make_host → InKlingHost._data_dir）：
+                // 供 resolve_llm 的 model_connection.json 二次回落与压缩阈值
+                // 档案读取在真实运行期生效（boot_inkling 复用本宿主，data_dir
+                // 必须装配期即注入，否则回落到 boot 时宿主已定型、_data_dir 永为 None）。
+                if let Some(data) = data_dir.as_deref() {
+                    host_kwargs.set_item("data_dir", data)?;
+                }
 
                 // 模型接线注入优先序（壳侧 → 桥侧 → 引擎 resolve_llm）：
                 //
@@ -468,11 +475,15 @@ impl EngineHost {
                 //    真实模型驱动入口；桌面壳经设置页注入路径不受影响）。
                 //    可选 INK_LLM_API_KEY / INK_LLM_ADAPTER 补齐配置。
                 //
-                // 2. 环境变量缺配置：注入 StubLLM 离线桩（脚本匹配 + 缺省回复兜底），
-                //    桥侧宿主 _llm 保持非空；resolve_llm 直接返回桩实例。
+                // 2. 环境变量缺配置、但 data_dir 下 model_connection.json
+                //    （设置页落盘）含 base_url + 任一档位 model_id：壳侧同样
+                //    跳过 StubLLM 注入，resolve_llm 经 _model_config_from_file
+                //    读取文件配置 → create_llm 装配真实模型（桌面壳默认回落路径：
+                //    用户经设置页填好即生效，无需 env 变量）。
                 //
-                // 3. 未来可叠加 model_connection.json 回落（S3 产物）：环境变量
-                //    仍优先，文件配置作为 headless 无 env 场景的二次回落。
+                // 3. 环境变量与文件配置均缺：注入 StubLLM 离线桩（脚本匹配 +
+                //    缺省回复兜底），桥侧宿主 _llm 保持非空；resolve_llm 直接
+                //    返回桩实例。
                 //
                 // 优先级：环境变量 > 文件配置 > StubLLM（降级兜底）。
                 let live_model_from_env = std::env::var("INK_LLM_BASE_URL")
@@ -481,8 +492,33 @@ impl EngineHost {
                     && std::env::var("INK_LLM_MODEL")
                         .map(|v| !v.trim().is_empty())
                         .unwrap_or(false);
-                if live_model_from_env {
-                    // 不注入 llm：resolve_llm 经 _model_config_from_env → create_llm
+                // 二次回落：model_connection.json（设置页落盘，data_dir 下）含
+                // base_url + 任一档位 model_id = 视作可装配真实模型，壳侧跳过
+                // StubLLM 注入（resolve_llm 经 _model_config_from_file 装配）。
+                let live_model_from_file = data_dir_path.as_ref().map(|p| {
+                    let cfg = crate::domain::model_archive::read_model_connection(p);
+                    let base_url = cfg
+                        .get("base_url")
+                        .and_then(|v| v.as_str())
+                        .unwrap_or("")
+                        .trim()
+                        .len()
+                        > 0;
+                    let has_model = ["main_model_id", "router_model_id", "audit_model_id"]
+                        .iter()
+                        .any(|k| {
+                            cfg.get(*k)
+                                .and_then(|v| v.as_str())
+                                .unwrap_or("")
+                                .trim()
+                                .len()
+                                > 0
+                        });
+                    base_url && has_model
+                }).unwrap_or(false);
+                if live_model_from_env || live_model_from_file {
+                    // 不注入 llm：resolve_llm 经 _model_config_from_env /
+                    // _model_config_from_file → create_llm 装配真实模型
                 } else {
                     let llm_kwargs = PyDict::new(py);
                     if let Some(script) = script_json.as_deref() {
@@ -705,6 +741,57 @@ impl EngineHost {
             output,
             events,
         })
+    }
+
+    /// 回合续跑（审批决议注入）：与 [`EngineHost::round`] 同锁串行化——同步
+    /// 持 inner 锁并阻塞驱动 `engine.thread_resume` 操作，避免与在途
+    /// `round_send` 并发双 ainvoke（H12 同款纪律；与 `round` 同为同步路径，
+    /// 不引入跨 `.await` 的 `!Send` 守卫）。
+    ///
+    /// 续跑经引擎 `engine.thread_resume` 操作通道；本方法仅负责在 inner 锁
+    /// 保护下驱动该操作，使快速 `send`/`resume` 在锁上串行等待，绝不并发
+    /// 两个在途回合。调用方（命令层）负责发射钩子挂接与步骤记录器喂入。
+    pub fn thread_resume(
+        &self,
+        thread_id: &str,
+        checkpoint_id: i64,
+        inject: JsonValue,
+        reason: Option<&str>,
+    ) -> Result<JsonValue, String> {
+        let inner = self.inner.lock().unwrap();
+        let Some(_inner) = inner.as_ref() else {
+            return Err("引擎未装配（先 boot）".to_string());
+        };
+        let mut args = serde_json::json!({
+            "thread_id": thread_id,
+            "checkpoint_id": checkpoint_id,
+            "inject": inject,
+        });
+        if let Some(reason) = reason {
+            args["reason"] = serde_json::json!(reason);
+        }
+        crate::block_on_op_async("engine.thread_resume", args)
+    }
+
+    /// 取走回合传输缓冲事件（统一回流步骤记录器；与 `round` 内
+    /// `take_events` 同口径——续跑路径在回合结束后以此喂 recorder，确保
+    /// 步骤快照完整且不重复，并清掉缓冲避免泄漏到下一回合）。
+    pub fn take_transport_events(&self) -> Vec<JsonValue> {
+        let inner = self.inner.lock().unwrap();
+        let Some(inner) = inner.as_ref() else {
+            return Vec::new();
+        };
+        let raw = Python::attach(|py| {
+            let transport = inner.transport.clone_ref(py);
+            let events = {
+                let borrowed = transport.borrow(py);
+                borrowed.take_events()
+            };
+            events
+        });
+        raw.into_iter()
+            .filter_map(|s| serde_json::from_str(&s).ok())
+            .collect()
     }
 
     /// 协议注入验证：Rust 嵌入器/记忆存储被引擎侧消费回路一次往返。

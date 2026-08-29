@@ -234,6 +234,18 @@ class TestContextAssembler:
         assert [(i.type, i.mode) for i in result.included] == [("chapter", MODE_KEEP_FULL)]
         assert result.dropped[0].type == "memory"
 
+    def test_assemble_reorders_by_priority_not_input_order(self):
+        """P1（8 片审查修复）：预算紧张时高优 keep_full 源不得被前置低优截断源
+        挤占——装配按优先级重排，高优先拼接并整源保留，低优被截断。"""
+        low = _src(type_="low", content="L" * 500, weight=1.0, relevance=0.9, priority=1)
+        high = _src(type_="high", content="H" * 500, weight=1.0, relevance=0.9, priority=10)
+        # 输入序 [低优, 高优]；预算只够一个整源（含少量余量）
+        result = ContextAssembler().assemble([low, high], total_chars=600)
+        assert result.included[0].type == "high"  # 高优排在装配首位
+        assert "H" * 500 in result.text  # 高优整源保留
+        assert "L" * 500 not in result.text  # 低优被截断（未完整出场）
+        assert len(result.text) <= 600
+
     def test_default_budget_used(self):
         result = ContextAssembler().assemble([_src(content="x" * 10000)])
         assert result.total_chars == 4000

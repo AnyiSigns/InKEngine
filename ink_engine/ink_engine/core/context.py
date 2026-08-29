@@ -396,11 +396,25 @@ class ContextAssembler:
             return AssembledContext(text="", total_chars=total, used_chars=0)
 
         allocations = self.allocator.allocate(sources, total)
+        # 装配顺序 = 分配优先级顺序（而非输入顺序）：分配结果已按优先级/
+        # 分数定好谁 keep_full/truncate/drop，但 concatenate 若按输入序，预算
+        # 紧张时前置低优截断源会先占预算、把后置高优 keep_full 源的内容二次
+        # 截断挤出。重排只影响拼接顺序，不动分配结果（预算硬上界不变）。
+        order = sorted(
+            range(len(allocations)),
+            key=lambda i: (
+                0 if allocations[i].mode != MODE_DROP else 1,
+                -allocations[i].source.priority,
+                -allocations[i].source.score(),
+                i,  # 同优先级的稳定序（输入序）
+            ),
+        )
         blocks: list[str] = []
         included: list[SourceInclusion] = []
         dropped: list[DroppedSource] = []
         used = 0
-        for alloc in allocations:
+        for i in order:
+            alloc = allocations[i]
             if alloc.mode == MODE_DROP:
                 dropped.append(
                     DroppedSource(alloc.source.type, alloc.source.title, alloc.reason)
@@ -412,7 +426,8 @@ class ContextAssembler:
                 continue
             title = alloc.source.title
             # 块成本 = 标题块【t】\n + 内容 + 块间分隔符 \n\n（首块无分隔符）
-            overhead = (len(title) + 2 if title else 0) + (2 if blocks else 0)
+            # 【title】\n 实际为 len(title)+3（【/】/\n 各占 1），原 +2 少算 1
+            overhead = (len(title) + 3 if title else 0) + (2 if blocks else 0)
             if used + overhead >= total:
                 # 标题/分隔符开销都放不下：整块无法呈现，丢弃（留痕可辨）
                 dropped.append(
@@ -726,6 +741,18 @@ def compress_message_history(
     while head < count and message_role(messages[head]) == "system":
         head += 1
     tail_start = max(head, count - max(1, int(keep_recent)))
+    # 折叠边界对齐工具轮：不让 tail 以 tool 消息开头（无前置 tool_call 的
+    # 悬空 tool 消息），也不把工具轮从中劈断。候选 tail_start 若落在某
+    # 工具轮区间内，回退到该轮起点（assistant + tool_calls，连同其 tool
+    # 消息一并保留）；若该轮起点已在 head 之前（整轮横跨折叠边界），则
+    # 改为跳到该轮尾之后，使悬空 tool 消息归入 middle 折叠段。
+    for start, end in _tool_round_spans(messages):
+        if start <= tail_start <= end:
+            tail_start = start if start >= head else end + 1
+            break
+    # 兜底：剔除仍可能残留在 tail 开头的孤立 tool 消息（无配对 assistant）
+    while tail_start < count and message_role(messages[tail_start]) == "tool":
+        tail_start += 1
     if tail_start <= head:
         # 中间无旧消息段可折叠（全部为 system + 保留尾段）——不压缩
         return list(messages)
@@ -817,6 +844,39 @@ def iter_tool_rounds(messages: Sequence[Any]) -> list[tuple[Any, list]]:
         elif role == "user":
             break
     return list(reversed(rounds))
+
+
+def _tool_round_spans(messages: Sequence[Any]) -> list[tuple[int, int]]:
+    """每个工具轮的 [起点索引, 终点索引]（assistant(tool_calls) → 末尾 tool）。
+
+    与 :func:`iter_tool_rounds` 同口径（按消息流正序返回区间），供压缩折叠
+    边界对齐使用——折叠点若落在某轮区间内会劈断工具轮，产生悬空 tool 消息。
+    """
+    spans: list[tuple[int, int]] = []
+    cur_start: int | None = None
+    cur_tools: list[int] = []
+
+    def _close() -> None:
+        nonlocal cur_start, cur_tools
+        if cur_start is not None and cur_tools:
+            spans.append((cur_start, cur_tools[-1]))
+        cur_start = None
+        cur_tools = []
+
+    for idx, msg in enumerate(messages):
+        role = message_role(msg)
+        if role == "tool":
+            if cur_start is not None:
+                cur_tools.append(idx)
+        elif role == "assistant":
+            # 进入新 assistant：先闭合上一未闭合轮（完成性回复/新轮开始）
+            _close()
+            if _tool_calls_of(msg):
+                cur_start = idx
+        elif role == "user":
+            _close()  # 回合边界闭合当前轮
+    _close()
+    return spans
 
 
 def last_body_message(messages: Sequence[Any]) -> Any | None:

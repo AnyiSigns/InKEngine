@@ -429,7 +429,7 @@ function SpawnCard({
   );
 }
 
-/** 推演分支对比卡（内嵌消息流；只读呈现，换选交互归开发者模式推演视图）。 */
+/** 推演分支对比卡（内嵌消息流；只读呈现，换选为引擎自主机制，不暴露交互）。 */
 function SimulationCard({ branches }: { branches: SimulationBranch[] }) {
   return (
     <div className="ink-status-card rounded-xl p-3" data-ui="simulation_inline_card">

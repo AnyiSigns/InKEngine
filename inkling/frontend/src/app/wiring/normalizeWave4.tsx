@@ -18,8 +18,6 @@ export function normalizeWave4Sections(sections: Wave4SettingsSection[]): Settin
     label: section.label,
     icon: section.icon,
     order: section.order,
-    // 市场/工具/OS/工作区/界面编辑器属机制能力面，仅开发者模式出现在设置
-    devOnly: true,
     render: () => (
       <div className="space-y-4">
         {section.items?.map((item) => (

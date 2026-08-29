@@ -1,14 +1,13 @@
 /**
- * InKling 前端产品面装配：左栏（工作区）+ 主区（页签：对话/轨迹）+ 右栏（会话）。
+ * InKling 前端产品面装配：左栏（工作区）+ 主区（页签：对话/演化/账本）+ 右栏（会话）。
  *
  * 布局形态（参考桌面 agent 产品）：左右栏全高贯穿窗口两侧，顶栏不再常驻——
- * 主区顶部悬停触发带滑出磨砂覆盖层承载顶栏（标题/页签/演化徽标），主区
+ * 主区顶部悬停触发带滑出磨砂覆盖层承载顶栏（标题/页签），主区
  * 视觉让位于消息流与输入胶囊。
  *
- * 主界面只保留会话产品面：机制/市场视图与管理台统一收纳在设置「高级」节
- * （开发者模式可见，经 SettingsActions 回调以浮窗打开）；工作区授权走
- * 原生目录选择器 + workspace_authorize 真接线；模型档快照装配层加载后
- * 注入输入胶囊。
+ * 主界面只保留会话产品面：机制/市场/管理台视图统一收纳在设置页各节
+ * （全部节对用户开放）；工作区授权走原生目录选择器 + workspace_authorize
+ * 真接线；模型档快照装配层加载后注入输入胶囊。
  */
 
 import { useEffect, useRef, useState } from 'react';
@@ -22,8 +21,6 @@ import { EvolutionFeed } from '@/app/session/EvolutionFeed';
 import { LedgerView } from '@/app/session/LedgerView';
 import { useSessionState, useSessionActions } from '@/app/state/sessionState';
 import { SettingsFloater } from '@/app/settings/settings_floater';
-import { ViewFloater } from '@/app/wiring/ViewFloater';
-import { NAV_ENTRIES } from '@/app/wiring/navEntries';
 import { TaskCapsule } from '@/app/tasks/TaskCapsule';
 import type { TaskCapsuleData } from '@/app/tasks/types';
 import { ReviewCard, type ReviewResolution } from '@/components/review_card';
@@ -76,7 +73,6 @@ export default function App({ backend, hub, sessionStore }: AppProps) {
   }, []);
 
   const [openPanel, setOpenPanel] = useState<'none' | 'settings'>('none');
-  const [activeView, setActiveView] = useState<string | null>(null);
   const [routePlan, setRoutePlan] = useState<RoutePlanPreview | undefined>(undefined);
   // 跨回合长任务数据源接线点：task_start/task_update/task_done 事件经
   // task_state 子通道归约，胶囊仅在长任务（planActive/步进>0）期间出现。
@@ -158,17 +154,10 @@ export default function App({ backend, hub, sessionStore }: AppProps) {
     void send(text, attachments);
   };
 
-  const openView = (key: string) => {
-    setOpenPanel('none');
-    setActiveView(key);
-  };
-
   const openSettings = () => {
-    setActiveView(null);
     setOpenPanel('settings');
   };
 
-  const activeNav = NAV_ENTRIES.find((e) => e.key === activeView);
   const roundSteps = (hub.getSnapshot().roundSteps as RoundStep[]) || [];
   const simulations = (hub.getSnapshot().simulations as SimulationBranch[]) || [];
   const roundCount = state.entries.filter((e) => e.kind === 'text' && e.role === 'user').length;
@@ -182,7 +171,6 @@ export default function App({ backend, hub, sessionStore }: AppProps) {
         workspaceRoot={workspaceRoot}
         onAddWorkspace={handleAddWorkspace}
         onOpenSettings={() => {
-          setActiveView(null);
           setOpenPanel('settings');
         }}
       />
@@ -281,12 +269,7 @@ export default function App({ backend, hub, sessionStore }: AppProps) {
             status: backend.status,
             firstRunDismiss: backend.firstRunDismiss,
           }}
-          actions={{ onOpenView: openView }}
         />
-      )}
-
-      {activeNav && (
-        <ViewFloater entry={activeNav} onClose={() => setActiveView(null)} />
       )}
 
       {/* 审批卡：review_card 事件到达即弹（任何视图下），决议走 approval_resolve */}

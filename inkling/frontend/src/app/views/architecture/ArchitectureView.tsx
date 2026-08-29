@@ -1,6 +1,7 @@
 import { useState } from 'react';
 import { Boxes, GitBranch, GitMerge, Network } from 'lucide-react';
 
+import '../w3.css';
 import { createLiveArchitectureBackend } from './mockBackend';
 import type { ArchitectureBackend, AssemblyResult } from './backend';
 import { TemplateTab } from './tabs/TemplateTab';

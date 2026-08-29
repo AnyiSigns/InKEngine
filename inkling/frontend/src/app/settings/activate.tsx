@@ -1,25 +1,23 @@
 /**
  * 设置页激活入口（对外固定签名：activate(): void）。
  *
- * 普通组（全部用户）：通用/模型/连接/关于；
- * 开发者组（devOnly，开发者模式可见）：
- * - 高级（机制视图浮窗入口）/成长状态/安全信任；
- * - 原管理台节内嵌（注册表/任务/账本/记忆/洞察/生命周期/备份/审计）；
- * - 市场/工具/OS/工作区授权/界面编辑器（wave4 归一注册，见 app/activate）。
+ * 全部节对所有用户开放（不再有开发者模式门控）：通用/模型/连接/关于/
+ * 知识集/架构；管理台各节内嵌（注册表/任务/账本/记忆/洞察/生命周期/备份/审计）；
+ * 市场/工具/OS/工作区授权/界面编辑器（wave4 归一注册，见 app/activate）。
  * 模型页承载档位/厂商/端点/推演档；连接页承载 MCP 与搜索 key；
  * 语音输入在对话输入胶囊（直连 AI），设置不展示语音状态。
  * 控制台不再独立成窗——重复的管理台语音/外观/关于已随合并移除。
  */
 
-import { Activity, BookOpen, Database, Eye, Info, LifeBuoy, Lock, PlugZap, Settings2, ShieldCheck, Wrench } from 'lucide-react';
+import { Activity, BookOpen, Database, Eye, Info, LifeBuoy, Lock, Network, PlugZap, Settings2, ShieldCheck } from 'lucide-react';
 
 import { GeneralSection } from './sections/general_section';
 import { ModelSection } from './sections/model_section';
 import { ConnectSection } from './sections/connect_section';
 import { AboutSection } from './sections/about_section';
-import { AdvancedSection } from './sections/advanced_section';
 import { SecuritySection } from './sections/security_section';
 import { KnowledgePanel } from '@/app/knowledge/KnowledgePanel';
+import { ArchitectureView } from '@/app/views/architecture/ArchitectureView';
 import { RegistrySection } from '@/app/console/sections/RegistrySection';
 import { TaskSection } from '@/app/console/sections/TaskSection';
 import { LedgerSection } from '@/app/console/sections/LedgerSection';
@@ -72,12 +70,11 @@ export function registerSettingsSections(): void {
   });
 
   registerSettingsSection({
-    key: 'advanced',
-    label: '高级',
-    icon: <Wrench size={16} strokeWidth={1.6} aria-hidden />,
-    order: 10,
-    devOnly: true,
-    render: () => <AdvancedSection />,
+    key: 'architecture',
+    label: '架构',
+    icon: <Network size={16} strokeWidth={1.6} aria-hidden />,
+    order: 6,
+    render: () => <ArchitectureView />,
   });
 
   registerSettingsSection({
@@ -85,17 +82,15 @@ export function registerSettingsSections(): void {
     label: '安全信任',
     icon: <ShieldCheck size={16} strokeWidth={1.6} aria-hidden />,
     order: 12,
-    devOnly: true,
     render: () => <SecuritySection />,
   });
 
-  // ===== 原管理台节（内嵌，devOnly）=====
+  // ===== 原管理台节（内嵌）=====
   registerSettingsSection({
     key: 'registry',
     label: '注册表',
     icon: <Settings2 size={16} strokeWidth={1.6} aria-hidden />,
     order: 70,
-    devOnly: true,
     render: () => <RegistrySection />,
   });
 
@@ -104,7 +99,6 @@ export function registerSettingsSections(): void {
     label: '任务',
     icon: <Activity size={16} strokeWidth={1.6} aria-hidden />,
     order: 71,
-    devOnly: true,
     render: () => <TaskSection />,
   });
 
@@ -113,7 +107,6 @@ export function registerSettingsSections(): void {
     label: '账本',
     icon: <BookOpen size={16} strokeWidth={1.6} aria-hidden />,
     order: 72,
-    devOnly: true,
     render: () => <LedgerSection />,
   });
 
@@ -122,7 +115,6 @@ export function registerSettingsSections(): void {
     label: '记忆',
     icon: <Database size={16} strokeWidth={1.6} aria-hidden />,
     order: 73,
-    devOnly: true,
     render: () => <MemoryView />,
   });
 
@@ -131,7 +123,6 @@ export function registerSettingsSections(): void {
     label: '洞察',
     icon: <Eye size={16} strokeWidth={1.6} aria-hidden />,
     order: 74,
-    devOnly: true,
     render: () => <InsightSection />,
   });
 
@@ -140,7 +131,6 @@ export function registerSettingsSections(): void {
     label: '生命周期',
     icon: <LifeBuoy size={16} strokeWidth={1.6} aria-hidden />,
     order: 75,
-    devOnly: true,
     render: () => <LifecycleSection />,
   });
 
@@ -149,7 +139,6 @@ export function registerSettingsSections(): void {
     label: '备份',
     icon: <ShieldCheck size={16} strokeWidth={1.6} aria-hidden />,
     order: 76,
-    devOnly: true,
     render: () => <BackupSection />,
   });
 
@@ -158,7 +147,6 @@ export function registerSettingsSections(): void {
     label: '审计',
     icon: <Lock size={16} strokeWidth={1.6} aria-hidden />,
     order: 77,
-    devOnly: true,
     render: () => <AuditSection />,
   });
 }

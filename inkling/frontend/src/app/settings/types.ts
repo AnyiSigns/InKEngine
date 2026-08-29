@@ -19,8 +19,6 @@ export interface SettingsSectionSpec {
   label: string;
   icon: ReactNode;
   order: number;
-  /** true = 仅开发者模式可见（机制/治理/诊断节，不对普通用户展示）。 */
-  devOnly?: boolean;
   items?: SettingsItemSpec[];
   render?: () => React.ReactNode;
 }

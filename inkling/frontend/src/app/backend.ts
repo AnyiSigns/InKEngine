@@ -364,7 +364,7 @@ export class AppBackend {
   }
 
   /**
-   * 授权挂载点清单（文件沙箱根集合；devOnly 高级能力）。
+   * 授权挂载点清单（文件沙箱根集合）。
    */
   async listMounts(): Promise<string[]> {
     if (!this.backend?.available) return [];
@@ -377,7 +377,7 @@ export class AppBackend {
   }
 
   /**
-   * 目录加入授权挂载点（文件沙箱根；devOnly 高级能力）。
+   * 目录加入授权挂载点（文件沙箱根）。
    */
   async authorizeMount(path: string): Promise<string[] | null> {
     if (!this.backend?.available) return null;

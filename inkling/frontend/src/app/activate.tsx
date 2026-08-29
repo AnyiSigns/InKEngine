@@ -2,10 +2,9 @@
  * 前端激活入口：供壳/测试注入调用，启动 InKling 产品面。
  *
  * 装配顺序：
- *  1. fe2 设置引擎注册 9 节（registerSettingsSections）；
- *  2. fe3 四机制视图注册（activateViews → getRegisteredViews 消费）；
- *  3. fe4 市场/工具/OS/工作区/界面组件注册 + 五个 section 归一进设置注册表；
- *  4. 会话层（backend + channelHub + sessionStore）→ App 渲染。
+ *  1. fe2 设置引擎注册各节（registerSettingsSections，含架构 tab）；
+ *  2. fe3 市场/工具/OS/工作区/界面组件注册 + 五个 section 归一进设置注册表；
+ *  3. 会话层（backend + channelHub + sessionStore）→ App 渲染。
  */
 
 import { createElement, type ComponentType } from 'react';
@@ -20,7 +19,6 @@ import { registerComponent, type PlainComponent } from '@/renderer/componentRegi
 import { AppBackend } from './backend';
 import { registerSettingsSections } from './settings/activate';
 import { registerSettingsSection } from './settings/registry';
-import { activate as activateViews } from './views/activate';
 import { activate as activateWave4, viewRegistrations } from './views/wave4activate';
 import { KnowledgePanel } from './knowledge/KnowledgePanel';
 import { normalizeWave4Sections } from './wiring/normalizeWave4';
@@ -30,7 +28,6 @@ export function activate(): void {
   const backend = createBackend();
   const appBackend = new AppBackend({ backend });
 
-  activateViews();
   registerSettingsSections();
 
   const wave4 = activateWave4(appBackend);

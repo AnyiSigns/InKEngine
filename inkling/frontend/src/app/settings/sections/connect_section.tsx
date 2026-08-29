@@ -7,16 +7,16 @@
  *   服务数/风险分布）→ 用户确认 → 落注册表持久化（预览即审批卡，
  *   确认即授权，与手动挂载同语义）；
  * - 删除市场 → 级联卸载其下服务；
- * - 服务级挂载/取消挂载在「MCP 市场」视图（onOpenView('mcp_market')）。
+ * - 服务级挂载/取消挂载在「市场」设置节的 MCP 市场清单（不在此重复）。
  *
  * 搜索 key 配置项（env INK_SEARCH_KEY 显式优先、设置档兜底；降级 = 用户
  * 自配 exa/parallel key/bocha），即改即存。
- * 网络白名单判定面归 OS 层沙箱（开发者模式 → OS 层），不在用户设置重复。
+ * 网络白名单判定面归 OS 层沙箱（设置「工作区授权」→ OS 层），不在用户设置重复。
  */
 
 import { useCallback, useEffect, useMemo, useState } from 'react';
 
-import { ChevronRight, Plus, Search, Server, Trash2 } from 'lucide-react';
+import { Plus, Search, Server, Trash2 } from 'lucide-react';
 
 import { Button } from '@/shared/ui/Button';
 import { Field, Select, TextInput } from '@/shared/ui/Field';
@@ -26,13 +26,10 @@ import type {
   McpMountStatus,
   McpMarketSummary,
 } from '@/shared/backend/backendAdapter';
-import { SettingsActionsContext } from './advanced_section';
-import { useContext } from 'react';
 
 type SearchProvider = 'exa' | 'parallel' | 'bocha';
 
 export function ConnectSection(): JSX.Element {
-  const { onOpenView } = useContext(SettingsActionsContext);
   // createTauriInvoker 每次调用返回新对象字面量：useMemo 固定身份，
   // 否则 invoke/refresh 的 useCallback 依赖链逐渲染变化 → 无限 IPC 轮询
   const tauri = useMemo(() => createTauriInvoker(), []);
@@ -140,24 +137,16 @@ export function ConnectSection(): JSX.Element {
       <div className="ink-elevated divide-y divide-[var(--ink-border)] overflow-hidden">
         <div className="flex items-center gap-3 px-3.5 py-3">
           <Server size={16} strokeWidth={1.6} className="shrink-0 ink-text-muted" aria-hidden />
-          <span className="min-w-0 flex-1">
-            <span className="block text-[13px] font-medium">MCP 市场</span>
-            <span className="mt-0.5 block text-[11px] leading-relaxed ink-text-faint">
-              {status
-                ? `${status.markets.length} 个市场 · ${status.markets.reduce((n, m) => n + m.servers.length, 0)} 个服务 · 已挂载 ${mountedCount} 个`
-                : '加载中…'}
+            <span className="min-w-0 flex-1">
+              <span className="block text-[13px] font-medium">MCP 市场</span>
+              <span className="mt-0.5 block text-[11px] leading-relaxed ink-text-faint">
+                {status
+                  ? `${status.markets.length} 个市场 · ${status.markets.reduce((n, m) => n + m.servers.length, 0)} 个服务 · 已挂载 ${mountedCount} 个`
+                  : '加载中…'}
+              </span>
             </span>
-          </span>
-          <button
-            type="button"
-            data-ui="connect_open_mcp_market"
-            onClick={() => onOpenView('mcp_market')}
-            className="flex shrink-0 items-center gap-1 rounded-md border border-[var(--ink-border)] px-2.5 py-1.5 text-[10px] ink-text-muted hover:text-[var(--ink-text-base)] cursor-pointer"
-          >
-            管理服务
-            <ChevronRight size={13} strokeWidth={1.6} aria-hidden />
-          </button>
-        </div>
+            <span className="shrink-0 text-[10px] ink-text-faint">服务挂载见「市场」节</span>
+          </div>
 
         {status?.markets.map((market) => (
           <div key={market.id} className="flex items-center gap-3 px-3.5 py-2.5" data-mcp-market={market.id}>
@@ -262,7 +251,7 @@ export function ConnectSection(): JSX.Element {
       </div>
 
       <p className="text-[11px] leading-relaxed ink-text-faint">
-        网络域名白名单与联网工具沙箱判定位于「开发者模式 → OS 层」。
+        网络域名白名单与联网工具沙箱判定位于「工作区授权 → OS 层」。
       </p>
     </div>
   );

@@ -1,16 +1,13 @@
 /**
- * 设置「通用」节：外观三档卡片（浅色/深色/跟随系统）+ 语言 + 开发者模式。
+ * 设置「通用」节：外观三档卡片（浅色/深色/跟随系统）+ 语言。
  *
- * 即改即存（主题走 themeMode 控制器、语言走 i18n、开发者模式走 uiStateStore），
- * 无保存按钮；不出现 token 名/英文内部词——白名单 token 试穿细节归开发者
- * 机制视图，不在用户设置面展示。
+ * 即改即存（主题走 themeMode 控制器、语言走 i18n），无保存按钮。
  */
 
 import { Monitor, Moon, Sun } from 'lucide-react';
 
 import { useThemeMode } from '@/renderer/themeMode';
 import { setLocale, useT, type Locale } from '@/i18n/useT';
-import { useDevMode } from '@/shared/ui/devMode';
 
 const MODE_OPTIONS: Array<{ mode: 'light' | 'dark' | 'system'; label: string; hint: string; icon: typeof Sun }> = [
   { mode: 'light', label: '浅色', hint: '明亮纸面', icon: Sun },
@@ -26,7 +23,6 @@ const LANGUAGE_OPTIONS: Array<{ value: Locale; label: string }> = [
 export function GeneralSection(): JSX.Element {
   const { mode, setMode } = useThemeMode();
   const { lang } = useT();
-  const [devMode, setDevMode] = useDevMode();
 
   return (
     <div className="space-y-6">
@@ -84,24 +80,6 @@ export function GeneralSection(): JSX.Element {
             </button>
           ))}
         </div>
-      </div>
-
-      {/* 开发者模式 */}
-      <div className="flex items-center justify-between gap-4 border-t ink-border pt-4">
-        <div>
-          <div className="text-[13px] font-medium">开发者模式</div>
-          <div className="mt-0.5 text-[11px] ink-text-faint">
-            显示机制视图入口与事件诊断细节；面向普通使用保持关闭
-          </div>
-        </div>
-        <input
-          type="checkbox"
-          className="ink-check"
-          checked={devMode}
-          onChange={(e) => setDevMode(e.target.checked)}
-          data-ui="dev_mode_toggle"
-          aria-label="开发者模式"
-        />
       </div>
     </div>
   );

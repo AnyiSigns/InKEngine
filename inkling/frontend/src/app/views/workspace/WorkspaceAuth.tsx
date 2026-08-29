@@ -108,7 +108,7 @@ export function WorkspaceAuth({ backend, state: externalState, onStateChange }: 
     void backend.listMounts().then(setMounts).catch(() => setMounts([]));
   }, [backend]);
 
-  /** 目录选择器 → 挂载授权（多挂载根，devOnly 高级能力）。 */
+  /** 目录选择器 → 挂载授权（多挂载根）。 */
   const handleAddMount = useCallback(async (): Promise<void> => {
     const tauri = createTauriInvoker();
     if (!tauri) return;

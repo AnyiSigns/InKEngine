@@ -19,9 +19,9 @@ from typing import Any, Protocol, runtime_checkable
 
 from .exceptions import GraphDefinitionError
 from .knowledge_gate import scan_text_injection
-from .knowledge_set import KnowledgeSet
+from .knowledge_set import KIND_PATH, KIND_SCRIPT, KnowledgeSet
 from .source_grading import (  # 来源分级单源（ENG3-4：与知识集共享，不再各自定义）
-    _SOURCE_CREDIBILITY,
+    _SOURCE_CREDIBILITY,  # noqa: F401 - 重导出（知识集/记忆消费方沿用 retrieval 形态）
     SOURCE_DIALOG,
     SOURCE_MODEL,
     SOURCE_ORDER,
@@ -29,6 +29,11 @@ from .source_grading import (  # 来源分级单源（ENG3-4：与知识集共�
     SOURCE_WEB,
     grade_level_for_credibility,
 )
+
+# 上下文注入排除的执行类 kind：path/script = 执行物（路径图/脚本载荷），
+# 不是 prompt 文本——检索侧剔除，防执行数据污染注入上下文（消费分派：
+# path 走路径组装先例层，script 走工具执行，均不进上下文注入）。
+INJECTION_EXCLUDED_KINDS: frozenset[str] = frozenset({KIND_PATH, KIND_SCRIPT})
 
 # 来源分级次序（SOURCE_ORDER 的查表形态；单源派生的分级权重，与
 # 知识集/记忆同口径——ENG3-4/ENG3-19）
@@ -204,7 +209,11 @@ class KnowledgeSetRetriever:
     ) -> list[RetrievedChunk]:
         """知识条目检索：关键词基线命中 → 可信度分级透传的 chunk 清单。"""
         capped = max(1, min(int(limit or 1), MAX_LIMIT))
-        hits = self.knowledge_set.search(query, limit=capped)
+        hits = [
+            entry
+            for entry in self.knowledge_set.search(query, limit=capped)
+            if entry.kind not in INJECTION_EXCLUDED_KINDS
+        ]
         chunks: list[RetrievedChunk] = []
         for entry in hits:
             chunks.append(
@@ -228,6 +237,7 @@ class KnowledgeSetRetriever:
 __all__ = [
     "DEFAULT_LIMIT",
     "DEFAULT_MAX_RETRIEVERS",
+    "INJECTION_EXCLUDED_KINDS",
     "MAX_LIMIT",
     "SOURCE_DIALOG",
     "SOURCE_MODEL",

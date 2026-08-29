@@ -331,14 +331,20 @@ export interface BackendAdapter {
     decision: string,
     reason?: string,
     editedContent?: unknown,
+    rememberDomain?: string,
   ): Promise<unknown>;
   capabilityGet(): Promise<{
     simulation_tier?: string;
     auto_approve_tools?: string[];
     auto_approve_all_review?: boolean;
+    remembered_domains?: string[];
     ui_spec?: unknown;
   }>;
   capabilityPut(record: Record<string, unknown>): Promise<unknown>;
+  /** 已记住域名清单（联网审批的域名级记忆：设置页管理列表读入面）。 */
+  rememberedDomainsGet(): Promise<{ domains: string[] }>;
+  /** 已记住域名全量替换（设置页增删 / 审批卡记住域名共用）。 */
+  rememberedDomainsSet(domains: string[]): Promise<unknown>;
   backupExport(dest: string): Promise<{ entries: number; size: number; has_db: boolean }>;
   backupPreview(path: string): Promise<BackupPreview>;
   backupRestore(path: string): Promise<{ restored_entries: number; snapshot: string }>;
@@ -421,6 +427,8 @@ export function createUnavailableBackend(): BackendAdapter {
     approvalResolve: unavailable as never,
     capabilityGet: unavailable as never,
     capabilityPut: unavailable as never,
+    rememberedDomainsGet: unavailable as never,
+    rememberedDomainsSet: unavailable as never,
     backupExport: unavailable as never,
     backupPreview: unavailable as never,
     backupRestore: unavailable as never,
@@ -513,10 +521,12 @@ export function createTauriBackend(invoker?: TauriInvoker): BackendAdapter {
     offlineDetect: () => call('offline_detect'),
     approvalRequest: (threadId, key, action, payload) =>
       call('approval_request', { threadId, key, action, payload }),
-    approvalResolve: (threadId, key, decision, reason, editedContent) =>
-      call('approval_resolve', { threadId, key, decision, reason, editedContent }),
+    approvalResolve: (threadId, key, decision, reason, editedContent, rememberDomain) =>
+      call('approval_resolve', { threadId, key, decision, reason, editedContent, rememberDomain }),
     capabilityGet: () => call('capability_get'),
     capabilityPut: (record) => call('capability_put', { record }),
+    rememberedDomainsGet: () => call('security_remembered_domains_get'),
+    rememberedDomainsSet: (domains) => call('security_remembered_domains_set', { domains }),
     backupExport: (dest) => call('backup_export', { dest }),
     backupPreview: (path) => call('backup_preview', { path }),
     backupRestore: (path) => call('backup_restore', { path }),

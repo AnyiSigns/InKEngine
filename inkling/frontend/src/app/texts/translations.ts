@@ -1,6 +1,6 @@
 /**
  * W1.5 语言转译表：消息流可见术语全中文映射。
- * 机器术语仅白名单（来源视图/管理台）可保留原文。
+ * 机器术语仅白名单（管理台）可保留原文。
  */
 
 type TranslationParams = Record<string, string | number>;

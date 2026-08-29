@@ -907,13 +907,13 @@
     },
     {
       "name": "fetch",
-      "description": "行为意图：网络抓取——经 http_fetch 端点以 GET 取回网页原文，域名白名单=出厂网络策略，越域拒绝，超限截断。\n\n使用时机：回答需要「某个网页当前原文」时（事实核查/取原文引文）；web_search 定位出 URL 之后的抓取步骤。\n\n取舍与替代选项：找网页——web_search（检索定位）；研究链批量入料——collect_material；本工具=检索后的单页抓取；只抓不存，结果直接支撑回答。\n\n参数语义：url=待抓取 URL（域名须在 network_policy.allow_domains 白名单内）。\n\n边界与协作：白名单数据驱动（可经 TOOL 补丁演化）；仅 http/https、超限截断（size_limit_bytes）；结果不自动进知识集；与 web_search 串行使用是「先定位后取证」的标准顺序。",
+      "description": "行为意图：网络抓取——经 http_fetch 端点以 GET 取回网页原文，出网走审批卡（出厂 review 档），已记住域名直过，超限截断。\n\n使用时机：回答需要「某个网页当前原文」时（事实核查/取原文引文）；web_search 定位出 URL 之后的抓取步骤。\n\n取舍与替代选项：找网页——web_search（检索定位）；研究链批量入料——collect_material；本工具=检索后的单页抓取；只抓不存，结果直接支撑回答。\n\n参数语义：url=待抓取 URL（每次出网弹审批卡；勾选「记住此域名」后该域直过）。\n\n边界与协作：审批即网关（可经 TOOL 补丁演化）；仅 http/https、超限截断（size_limit_bytes）；结果不自动进知识集；与 web_search 串行使用是「先定位后取证」的标准顺序。",
       "parameters": {
         "type": "object",
         "properties": {
           "url": {
             "type": "string",
-            "description": "待抓取 URL（域名须在 network_policy.allow_domains 白名单内）"
+            "description": "待抓取 URL（出网经审批卡裁决；已记住域名直过）"
           }
         },
         "required": [
@@ -921,7 +921,7 @@
         ]
       },
       "permissions": [
-        "network:connect:arxiv.org"
+        "network:connect:*"
       ],
       "approval": "review",
       "endpoint": "http_fetch",
@@ -929,15 +929,13 @@
         "method": "GET"
       },
       "network_policy": {
-        "allow_domains": [
-          "arxiv.org"
-        ],
-        "note": "出厂网络策略：研究场景仅放行 arXiv 主域（数据驱动，可经 TOOL 补丁演化）"
+        "allow_domains": [],
+        "note": "联网出网经审批网关裁决（出厂 review 档弹卡 + 记住域名直过）；allow_domains 为空 = 不做定义级白名单拦截（数据驱动，可经 TOOL 补丁演化）"
       },
       "meta": {
         "domain": "network",
         "executor": "host:fetch",
-        "sandbox": "network_policy",
+        "sandbox": "approval_gate",
         "size_limit_bytes": 100000
       }
     },

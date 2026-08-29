@@ -259,6 +259,10 @@ export interface RendererChrome {
   initialCapability?: Record<string, unknown> | undefined;
   /** 自动审批初值（启动时从能力记录装载） */
   initialAutoApprove?: { tools: string[]; allReview: boolean } | undefined;
+  /** 已记住域名初值（启动时从能力记录装载；联网审批的域名级记忆） */
+  initialRememberedDomains?: string[] | undefined;
+  /** 已记住域名持久化写（设置页增删 / 审批卡记住域名共用） */
+  onRememberedDomainsChange?: (domains: string[]) => void | undefined;
   /** 自动审批可登记工具清单（tools_snapshot 的 auto_approvable 过滤面） */
   autoApprovableTools?: string[];
   /** 活动界面描述（界面树编辑器的读入面） */
@@ -295,6 +299,8 @@ export function UIRenderer({
   onApplySettings,
   initialCapability,
   initialAutoApprove,
+  initialRememberedDomains,
+  onRememberedDomainsChange,
   autoApprovableTools,
   recovery,
   uiSpec,
@@ -330,6 +336,8 @@ export function UIRenderer({
   if (onApplySettings) chromeProps.onApplySettings = onApplySettings;
   if (initialCapability !== undefined) chromeProps.initialCapability = initialCapability;
   if (initialAutoApprove !== undefined) chromeProps.initialAutoApprove = initialAutoApprove;
+  if (initialRememberedDomains !== undefined) chromeProps.initialRememberedDomains = initialRememberedDomains;
+  if (onRememberedDomainsChange) chromeProps.onRememberedDomainsChange = onRememberedDomainsChange;
   if (autoApprovableTools !== undefined) chromeProps.autoApprovableTools = autoApprovableTools;
   if (uiSpec !== undefined) chromeProps.uiSpec = uiSpec;
   if (sessionStore !== undefined) chromeProps.sessionStore = sessionStore;

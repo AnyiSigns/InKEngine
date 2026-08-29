@@ -24,7 +24,14 @@ from dataclasses import dataclass
 from typing import Any, Protocol, runtime_checkable
 
 from .exceptions import FixtureGateError, GraphDefinitionError
-from .knowledge_set import KIND_INSIGHT, KnowledgeEntry
+from .knowledge_set import (
+    KIND_INSIGHT,
+    KIND_PATH,
+    KIND_SCRIPT,
+    KIND_TEMPLATE,
+    KIND_WEIGHT,
+    KnowledgeEntry,
+)
 from .rules import (
     FixtureResult,
     FixtureSet,
@@ -193,6 +200,32 @@ def _string_keys(data: Any, *, depth: int = 0) -> list[str]:
     return []
 
 
+def _scan_surface(data: Any, *, depth: int = 0) -> list[str]:
+    """扫描面提取：字符串值 + 键名（跳过 provenance 元数据子树）。
+
+    provenance = 导入/沉淀的结构化书签元数据（源地址/时间戳等），非
+    知识内容——源地址（文件路径/URL）的大小写数字混合会误伤熵启发
+    （外部 URL 导入将恒拒）；扫描面只覆盖实际知识内容（外部内容注入
+    风险仍在正文/标题/标签面上完整检测）。
+    """
+    if depth > 8:
+        return []
+    out: list[str] = []
+    if isinstance(data, dict):
+        for key, value in data.items():
+            if key == "provenance":
+                continue
+            if isinstance(key, str):
+                out.append(key)
+            out.extend(_scan_surface(value, depth=depth + 1))
+    elif isinstance(data, (list, tuple)):
+        for item in data:
+            out.extend(_scan_surface(item, depth=depth + 1))
+    elif isinstance(data, str):
+        out.append(data)
+    return out
+
+
 @dataclass(frozen=True, slots=True)
 class GateL1Result:
     """L1 准入结果（形式合法 + 安全扫描 + 最小功能）。"""
@@ -309,13 +342,22 @@ class GateL2FixtureExecutor:
         *,
         context_rules: dict[str, Any] | None = None,
     ) -> GateL2Result:
-        if entry.kind == KIND_INSIGHT:
+        # 无规则执行语义的声明/执行类条目（教训/模板/权重/路径技能/脚本）
+        # L2 跳过规则执行——L1 注入扫描与形式校验已覆盖（外部导入/孵化
+        # 产物的统一过闸口径，与 insight 同语义）
+        if entry.kind in (
+            KIND_INSIGHT,
+            KIND_TEMPLATE,
+            KIND_WEIGHT,
+            KIND_PATH,
+            KIND_SCRIPT,
+        ):
             return GateL2Result(
                 passed=True,
-                note="insight 教训条目（无执行语义，L2 跳过规则执行；"
+                note=f"{entry.kind} 条目（无执行语义，L2 跳过规则执行；"
                 "L1 注入扫描与形式校验已覆盖）",
             )
-        if entry.kind != "rule":
+        if entry.kind not in ("rule", "tool_rule"):
             return GateL2Result(
                 passed=False,
                 note=f"非规则条目（kind={entry.kind}）需注入领域执行器",
@@ -528,8 +570,7 @@ class KnowledgeGate:
         编码混淆信号。检出指令型措辞即拒绝该知识落库。
         """
         texts = [entry.title, *entry.tags]
-        texts.extend(_string_values(entry.data))
-        texts.extend(_string_keys(entry.data))
+        texts.extend(_scan_surface(entry.data))
         joined = " ".join(texts)
         normalized = _normalize_injection_text(joined)
         hits: list[str] = []

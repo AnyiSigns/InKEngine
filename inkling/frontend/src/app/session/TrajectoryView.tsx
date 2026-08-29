@@ -2,8 +2,7 @@
  * 轨迹页（主区「轨迹」页签）：当前回合步骤时间线。
  *
  * 数据 = state.round_steps 通道快照（与消息流阶段胶囊同源）；
- * 面向用户的呈现：步骤名 + 状态 + 耗时/token，不展示 stepId/type 原文
- * （诊断细节归开发者模式下的「来源」视图）。
+ * 面向用户的呈现：步骤名 + 状态 + 耗时/token，不展示 stepId/type 原文。
  */
 
 import { CheckCircle2, Circle, Loader2, XCircle } from 'lucide-react';

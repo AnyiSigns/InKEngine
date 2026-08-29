@@ -32,7 +32,7 @@ def _seed_tool(name: str) -> dict:
 class DeclarativeSandboxProxyGuardTests(unittest.TestCase):
     """声明式沙箱代理的实质守卫（白名单现取 + 拒绝路径携带错误码）。"""
 
-    def _build_proxy(self, tools: list[dict]):
+    def _build_executors(self, tools: list[dict]):
         from ink_engine.core.declarative_tools import (
             DeclarativeToolExecutors,
             DeclarativeToolSpec,
@@ -42,10 +42,12 @@ class DeclarativeSandboxProxyGuardTests(unittest.TestCase):
         for tool in tools:
             spec = DeclarativeToolSpec.from_dict(tool)
             executors.register_definition(spec)
+        return executors
 
+    def _build_proxy(self, tools: list[dict]):
         from inkling_host.security_domain import DeclarativeSandboxProxy
 
-        return DeclarativeSandboxProxy(executors)
+        return DeclarativeSandboxProxy(self._build_executors(tools))
 
     def _validate_as(self, proxy, name: str, operation: str, target: str):
         from inkling_host.security_domain import _current_spec
@@ -91,18 +93,20 @@ class DeclarativeSandboxProxyGuardTests(unittest.TestCase):
             self._validate_as(proxy, "launch_app", "exec", "launch_app")
         self.assertIn(ErrorCode.PROCESS_NOT_ALLOWLISTED, str(ctx.exception))
 
-    def test_http_fetch_domain_allowlist_from_declaration(self):
-        """http_fetch 守卫按声明 network_policy.allow_domains 判定（越域拒绝）。"""
-        from ink_engine.core.exceptions import SandboxViolation
-
+    def test_http_fetch_connect_passes_sandbox(self):
+        """http_fetch 出网经审批网关裁决（出厂 review 档弹卡 + 记住域名直过），
+        沙箱层不再按 allow_domains 二次硬拦——审批即网关（定义级白名单
+        是装配提示而非执行期网关）。"""
         proxy = self._build_proxy([_seed_tool("fetch")])
+        # 任一域名放行：审批卡 / 记住域名是网关，沙箱不再拦截
         self.assertEqual(
             self._validate_as(proxy, "fetch", "connect", "arxiv.org"),
             "arxiv.org",
         )
-        with self.assertRaises(SandboxViolation) as ctx:
-            self._validate_as(proxy, "fetch", "connect", "127.0.0.1")
-        self.assertIn("白名单", str(ctx.exception))
+        self.assertEqual(
+            self._validate_as(proxy, "fetch", "connect", "127.0.0.1"),
+            "127.0.0.1",
+        )
 
     def test_file_ops_unauthorized_fail_closed(self):
         """file_ops 守卫：工作区未授权即拒绝（占位符未解析 = 无根可越）。"""
@@ -112,6 +116,41 @@ class DeclarativeSandboxProxyGuardTests(unittest.TestCase):
         with self.assertRaises(SandboxViolation) as ctx:
             self._validate_as(proxy, "file_read", "read", "/anywhere/secret.txt")
         self.assertIn("未授权", str(ctx.exception))
+
+    def test_remembered_domain_gate_auto_allows_connect(self):
+        """记住域名（域名级）：connect 命中已记住域名 = 免审批直过；
+        未记住域名 = 仍走 review 弹卡（出厂 review 档）。"""
+        from ink_engine.core.permissions import ALLOW, REVIEW
+
+        from inkling_host.security_domain import TieredGate
+
+        tiers = {"fetch": "review"}
+        gate = TieredGate(tiers, executors=self._build_executors([_seed_tool("fetch")]))
+        # 未记住：fetch 出厂 review 档 → 弹卡（REVIEW）
+        result = gate.check("fetch", "connect", "news.example.com")
+        self.assertEqual(result.decision, REVIEW)
+        # 记住域名后：后缀匹配命中（example.com 覆盖其任意子域）→ 直过
+        gate.configure_remembered_domains(["example.com"])
+        self.assertTrue(gate.domain_remembered("docs.example.com"))
+        self.assertTrue(gate.domain_remembered("example.com"))
+        self.assertFalse(gate.domain_remembered("evil.org"))
+        result = gate.check("fetch", "connect", "docs.example.com")
+        self.assertEqual(result.decision, ALLOW)
+        # 未命中的域名仍走 review
+        result = gate.check("fetch", "connect", "other.example.org")
+        self.assertEqual(result.decision, REVIEW)
+
+    def test_remembered_domain_only_applies_to_connect(self):
+        """记住域名只影响网络出网（connect）；非 connect 操作不受影响。"""
+        from ink_engine.core.permissions import DENY, REVIEW
+
+        from inkling_host.security_domain import TieredGate
+
+        gate = TieredGate({"fetch": "review"})
+        gate.configure_remembered_domains(["example.com"])
+        # fetch 非 connect 操作（权限未命中默认 deny）不被记住域名误放行
+        result = gate.check("fetch", "read", "example.com")
+        self.assertIn(result.decision, (DENY, REVIEW))
 
 
 if __name__ == "__main__":

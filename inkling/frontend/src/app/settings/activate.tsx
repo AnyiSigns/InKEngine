@@ -3,7 +3,7 @@
  *
  * 普通组（全部用户）：通用/模型/连接/关于；
  * 开发者组（devOnly，开发者模式可见）：
- * - 高级（机制视图浮窗入口）/生长治理/安全信任/环境容器；
+ * - 高级（机制视图浮窗入口）/成长状态/安全信任；
  * - 原管理台节内嵌（注册表/任务/账本/记忆/洞察/生命周期/备份/审计）；
  * - 市场/工具/OS/工作区授权/界面编辑器（wave4 归一注册，见 app/activate）。
  * 模型页承载档位/厂商/端点/推演档；连接页承载 MCP 与搜索 key；
@@ -11,16 +11,15 @@
  * 控制台不再独立成窗——重复的管理台语音/外观/关于已随合并移除。
  */
 
-import { Activity, BookOpen, Database, Eye, Info, LifeBuoy, Lock, PlugZap, Settings2, ShieldCheck, Sparkles, Wrench } from 'lucide-react';
+import { Activity, BookOpen, Database, Eye, Info, LifeBuoy, Lock, PlugZap, Settings2, ShieldCheck, Wrench } from 'lucide-react';
 
 import { GeneralSection } from './sections/general_section';
 import { ModelSection } from './sections/model_section';
 import { ConnectSection } from './sections/connect_section';
 import { AboutSection } from './sections/about_section';
 import { AdvancedSection } from './sections/advanced_section';
-import { GrowthSection } from './sections/growth_section';
 import { SecuritySection } from './sections/security_section';
-import { EnvironmentSection } from './sections/environment_section';
+import { KnowledgePanel } from '@/app/knowledge/KnowledgePanel';
 import { RegistrySection } from '@/app/console/sections/RegistrySection';
 import { TaskSection } from '@/app/console/sections/TaskSection';
 import { LedgerSection } from '@/app/console/sections/LedgerSection';
@@ -65,6 +64,14 @@ export function registerSettingsSections(): void {
   });
 
   registerSettingsSection({
+    key: 'knowledge_set',
+    label: '知识集',
+    icon: <BookOpen size={16} strokeWidth={1.6} aria-hidden />,
+    order: 5,
+    render: () => <KnowledgePanel />,
+  });
+
+  registerSettingsSection({
     key: 'advanced',
     label: '高级',
     icon: <Wrench size={16} strokeWidth={1.6} aria-hidden />,
@@ -74,30 +81,12 @@ export function registerSettingsSections(): void {
   });
 
   registerSettingsSection({
-    key: 'growth',
-    label: '生长治理',
-    icon: <Sparkles size={16} strokeWidth={1.6} aria-hidden />,
-    order: 11,
-    devOnly: true,
-    render: () => <GrowthSection />,
-  });
-
-  registerSettingsSection({
     key: 'security',
     label: '安全信任',
     icon: <ShieldCheck size={16} strokeWidth={1.6} aria-hidden />,
     order: 12,
     devOnly: true,
     render: () => <SecuritySection />,
-  });
-
-  registerSettingsSection({
-    key: 'environment',
-    label: '环境容器',
-    icon: <span className="ink-icon-chip h-7 w-7 shrink-0 inline-flex items-center justify-center rounded-lg text-[11px] font-medium">环境</span>,
-    order: 13,
-    devOnly: true,
-    render: () => <EnvironmentSection />,
   });
 
   // ===== 原管理台节（内嵌，devOnly）=====

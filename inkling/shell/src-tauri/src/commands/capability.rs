@@ -34,6 +34,9 @@ pub(crate) async fn capability_get(state: State<'_, ShellState>) -> Result<JsonV
     if merged.get("auto_approve_all_review").is_none() {
         merged["auto_approve_all_review"] = json!(false);
     }
+    if merged.get("remembered_domains").is_none() {
+        merged["remembered_domains"] = json!([]);
+    }
     let auto_tools: Vec<String> = merged
         .get("auto_approve_tools")
         .and_then(JsonValue::as_array)
@@ -90,6 +93,24 @@ pub(crate) async fn capability_put(
             .collect();
         state.approval.set_auto_approve(tools, auto_all);
     }
+    // 已记住域名（联网审批的域名级记忆：审批卡「记住此域名」/设置页
+    // 管理列表共用；安全域应用 + 随能力记录持久化）
+    if record.get("remembered_domains").is_some() {
+        let domains = record
+            .get("remembered_domains")
+            .and_then(JsonValue::as_array)
+            .cloned()
+            .unwrap_or_default();
+        let applied = crate::engine::host::call_engine_op_async(
+            "security.remembered_domains_set",
+            json!({ "domains": domains }),
+        )
+        .await
+        .map_err(CommandError::engine)?;
+        if applied.get("applied").and_then(JsonValue::as_bool) != Some(true) {
+            return Err(CommandError::approval("已记住域名配置未生效（安全域拒绝）"));
+        }
+    }
     crate::engine::host::call_engine_op_async(
         "engine.records_put",
         json!({
@@ -101,4 +122,33 @@ pub(crate) async fn capability_put(
     .await
     .map_err(CommandError::engine)?;
     Ok(record)
+}
+
+/// 已记住域名清单（联网审批的域名级记忆：设置页管理列表读入面）。
+#[tauri::command]
+pub(crate) async fn security_remembered_domains_get(
+) -> Result<JsonValue, CommandError> {
+    crate::engine::host::call_engine_op_async(
+        "security.remembered_domains_get",
+        json!({}),
+    )
+    .await
+    .map_err(CommandError::engine)
+}
+
+/// 已记住域名全量替换（设置页增删 / 审批卡记住域名共用）。
+#[tauri::command]
+pub(crate) async fn security_remembered_domains_set(
+    domains: Vec<String>,
+) -> Result<JsonValue, CommandError> {
+    let applied = crate::engine::host::call_engine_op_async(
+        "security.remembered_domains_set",
+        json!({ "domains": domains }),
+    )
+    .await
+    .map_err(CommandError::engine)?;
+    if applied.get("applied").and_then(JsonValue::as_bool) != Some(true) {
+        return Err(CommandError::approval("已记住域名配置未生效（安全域拒绝）"));
+    }
+    Ok(applied)
 }

@@ -13,7 +13,7 @@ import type { NavEntry } from './navEntries';
 interface ViewFloaterProps {
   entry: NavEntry;
   onClose: () => void;
-  /** 注入给注册视图的额外 props（装配层按视图类型提供，如来源视图的依据留痕）。 */
+  /** 注入给注册视图的额外 props（装配层按视图类型提供）。 */
   extraProps?: Record<string, unknown>;
 }
 

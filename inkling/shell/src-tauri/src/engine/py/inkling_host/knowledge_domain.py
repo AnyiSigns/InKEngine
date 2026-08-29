@@ -1,17 +1,15 @@
 """孵化域：轨迹信号 → 蒸馏 → 三层闸门 → 落库 → 自指挂载的闭环入口。
 
-孵化闭环（「喂资料 → 研究 → 孵化 → 沉淀」的产品化接线）：
-- 信号感知：轨迹事件（回合/工具/评审事件流）分类为五类信号（踩坑/
-  用户修正/洞见/缺口/重复根因），同因聚合升级；
-- 蒸馏触发：复杂度/干预双阈值按需触发（非每回合），产物 = 结构化
-  知识数据（丢弃试错分支，来源留痕继承）；
-- 复用优先：相似任务先检索知识集，命中即跳过重新蒸馏（防知识膨胀）；
-- 三层闸门：L1 准入（形式 + 注入扫描）→ L2 样例全绿（samples.json
-  fixture 非谈判项）→ L3 目标筛选（不差于旧版）→ 才落库；
-- 沉淀：经闸门落库（add_gated，fail-closed）+ 分层晋升（work →
-  project → user，id 跨层稳定）+ 导出/导入（可移植，跨部署迁移）；
-- 自指挂载：以 KNOWLEDGE 补丁形态进入集补丁链（审批分级 → 审计 →
-  可回退）——知识既是数据也是演化对象，与工具/环境/产物同一链语义。
+**职责边界（孵化已下沉引擎）**：孵化闭环（信号感知/蒸馏触发/复用优先/
+三层闸门/沉淀）由引擎侧 :class:`~ink_engine.core.growth.GrowthPipeline`
+自承载（出厂默认开、宿主零介入）——本域的孵化面方法（classify/
+should_distill/distill/verify_gate/sediment/distill_llm/promote/export/
+review_and_converge）**无生产调用点**，标记废弃仅保留测试引用，宿主
+不得再新增调用。本域当前唯一生产职责 = **演化面**：
+- ``evolution_candidates``/``evolve``/``record_usage``：失败驱动反思式
+  变异 + 三层闸门防退化（`knowledge.evolve` 桥 op 的低频批次触发点）；
+- ``propose_knowledge_patch``：变异体以 KNOWLEDGE 补丁形态进入集补丁链
+  （审批分级 → 审计 → 可回退）——知识既是数据也是演化对象。
 
 数据驱动（PLAN 公理「知识是数据」）：蒸馏阈值/开关来自 signals.json、
 样例库与交叉验证锚点来自 samples.json、收敛与评审阈值来自 review.json
@@ -72,6 +70,15 @@ _ENTRY_SCHEMA_FIELDS: tuple[dict[str, Any], ...] = (
 # 评审阈值来源（review.json pass_threshold 的孵化侧引用点：评审收敛
 # 与孵化闸门共用同一通过语义，防两套阈值漂移）
 REVIEW_PASS_THRESHOLD_KEY = "pass_threshold"
+
+# 废弃标记（孵化已下沉引擎 GrowthPipeline）：孵化面方法仅保留测试
+# 引用，宿主不得再新增调用。装饰器在方法级 docstring 前追加统一
+# 说明，防止漂移。
+_DEPRECATED_INCUBATION = "【已废弃 · 孵化下沉引擎】"
+
+
+def _deprecated(message: str) -> str:
+    return f"{_DEPRECATED_INCUBATION} {message}（生产调用点已移除）"
 
 
 def build_entry_schema() -> SchemaSpec:
@@ -138,6 +145,13 @@ def fixture_set_from_samples(samples_data: dict[str, Any]) -> FixtureSet:
 
 class IncubationDomain:
     """孵化域（宿主装配：signals/samples/review 数据 + 运行时注入）。
+
+    生产职责 = **演化面**（`knowledge.evolve` 桥 op 消费）：
+    ``evolution_candidates`` → ``evolve``（失败驱动变异 + 三层闸门防退化）
+    → ``propose_knowledge_patch``（KNOWLEDGE 补丁落集补丁链）+
+    ``record_usage``（调用留痕 = 变异输入）。孵化面（信号/蒸馏/闸门/
+    沉淀）已下沉引擎 :class:`~ink_engine.core.growth.GrowthPipeline`，
+    本类孵化面方法标记废弃（无生产调用点，仅测试引用）。
 
     Attributes:
         samples: 完整样例库（samples.json 数据形态，**含负面用例**——
@@ -213,7 +227,11 @@ class IncubationDomain:
     # ── 信号感知 ──
 
     def classify(self, events: list[dict[str, Any]]) -> list[ExecutionSignal]:
-        """轨迹事件 → 信号（分类路由 + 同因聚合升级；噪音不沉淀）。"""
+        """【已废弃 · 孵化下沉引擎】轨迹事件 → 信号（孵化面无生产调用点）。
+
+        孵化信号分类已由引擎 :class:`~ink_engine.core.growth.GrowthPipeline`
+        自承载（回合事件流旁路监听 + 同因聚合）；本方法仅保留测试引用。
+        """
         signals = [
             signal
             for event in events
@@ -224,7 +242,11 @@ class IncubationDomain:
     def should_distill(
         self, *, complexity: int = 0, interventions: int = 0
     ) -> bool:
-        """按需触发判定（双阈值保守：普通回合不蒸馏）。"""
+        """【已废弃 · 孵化下沉引擎】按需触发判定（双阈值保守）。
+
+        蒸馏触发已由引擎 GrowthPipeline 回合收尾承载（复杂度/干预
+        双阈值）；本方法仅保留测试引用。
+        """
         return self.distiller.should_distill(
             complexity=complexity, interventions=interventions
         )
@@ -237,7 +259,11 @@ class IncubationDomain:
         level: str | None = None,
         kind: str | None = None,
     ) -> Any:
-        """复用优先于生成：检索命中即复用，未命中才蒸馏（防知识膨胀）。"""
+        """【已废弃 · 孵化下沉引擎】复用优先于生成（防知识膨胀）。
+
+        蒸馏链路已由引擎 GrowthPipeline 承载（信号 → 按需蒸馏 → 三层
+        闸门 → 知识集落位）；本方法仅保留测试引用。
+        """
         return reuse_or_distill(
             self._runtime.knowledge_set,
             query,
@@ -256,7 +282,10 @@ class IncubationDomain:
         old_metrics: dict[str, float] | None = None,
         new_metrics: dict[str, float] | None = None,
     ) -> tuple[Any, Any, Any]:
-        """三层闸门组合评估（L1/L2/L3；完整 samples 含负面用例，非谈判项）。
+        """【已废弃 · 孵化下沉引擎】三层闸门组合评估（L1/L2/L3）。
+
+        闸门评估已由引擎 GrowthPipeline 落位边界承载；本方法仅保留
+        测试引用（samples 完整含负面用例的语义契约）。
 
         L2 喂完整样例库（:attr:`samples`，负面/对抗用例不剥离）——内置
         谓词域按候选评估：规则类候选须让完整样例全绿（含负面），insight
@@ -275,7 +304,11 @@ class IncubationDomain:
         return l1, l2, l3
 
     async def sediment(self, entry: KnowledgeEntry) -> KnowledgeEntry:
-        """带闸门落库（完整 samples 含负面用例非绿在存储边界拒绝；fail-closed）。"""
+        """【已废弃 · 孵化下沉引擎】带闸门落库（fail-closed）。
+
+        落位已由引擎 GrowthPipeline 承载（三层闸门通过即知识集条目
+        补丁链落位）；本方法仅保留测试引用。
+        """
         await self._runtime.knowledge_set.verify_through_gate(
             entry,
             gate=self.gate,
@@ -311,7 +344,10 @@ class IncubationDomain:
     def promote(
         self, entry_id: str, *, to_level: str | None = None
     ) -> KnowledgeEntry:
-        """晋升：条目层级迁移（work → project → user，不跳级，id 稳定）。
+        """【已废弃 · 孵化下沉引擎】晋升：条目层级迁移（work → project → user）。
+
+        晋升已由引擎 KnowledgeSet.promote 承载（桥 op knowledge.promote
+        直连）；本方法仅保留测试引用。
 
         晋升前注入复扫——蒸馏后候选可能在归一/拼接时引入注入措辞，
         迁移前按全字符串字段再扫一遍（fail-closed，命中即拒）。
@@ -329,11 +365,14 @@ class IncubationDomain:
     # ── 可移植（导出/导入）──
 
     def export(self) -> dict[str, Any]:
-        """知识集导出（补丁链序列化形态：可落库、跨部署迁移）。"""
+        """【已废弃 · 孵化下沉引擎】知识集导出（桥 op knowledge.export 直连）。
+
+        导出已由桥 op 直连引擎 KnowledgeSet.export；本方法仅保留测试引用。
+        """
         return self._runtime.knowledge_set.export()
 
     def export_entry_summary(self, entry_id: str) -> dict[str, Any]:
-        """单条目导出摘要（晋升后导出的层级断言形态）。"""
+        """【已废弃 · 孵化下沉引擎】单条目导出摘要（仅保留测试引用）。"""
         entry = self._runtime.knowledge_set.get(entry_id)
         if entry is None:
             raise GraphDefinitionError(f"知识条目不存在: {entry_id}")
@@ -348,7 +387,10 @@ class IncubationDomain:
         *,
         context: dict[str, Any] | None = None,
     ) -> Any:
-        """评审-收敛循环（候选文稿 → 质量分 → 再生成 → 收敛/超限呈交）。
+        """【已废弃 · 孵化下沉引擎】评审-收敛循环（仅保留测试引用）。
+
+        评审收敛由引擎 core.review 机制承载（review.json 数据驱动）；
+        本方法无生产调用点。
 
         review.json（pass_threshold/max_rounds/beam_width/neutral_score/
         dimensions）数据驱动；LLM 缺省/评审失败 = fail-open 中性分
@@ -374,7 +416,10 @@ class IncubationDomain:
         *,
         llm_distill: Any = None,
     ) -> dict[str, Any] | None:
-        """LLM 蒸馏入口（router 挡链；失败回落确定性基线 fail-open）。
+        """【已废弃 · 孵化下沉引擎】LLM 蒸馏入口（仅保留测试引用）。
+
+        蒸馏已由引擎 GrowthPipeline 承载（TieredDistiller 双阈值按需
+        蒸馏）；本方法无生产调用点。
 
         领域蒸馏 prompt 由宿主经 ``llm_distill``（签名
         ``(chain, signals) -> dict | None``）注入；chain = host

@@ -45,11 +45,12 @@ from ink_engine.core.declarative_tools import (
 from ink_engine.core.exceptions import SandboxViolation
 from ink_engine.core.logging import get_logger
 from ink_engine.core.permissions import (
+    ALLOW,
     DENY,
     REVIEW,
     GateResult,
-    NetworkPolicySandbox,
     PermissionGate,
+    network_matches,
 )
 from ink_engine.core.review_card import GatingTier, gating_tier_of
 from ink_engine.core.sandbox import FileSandbox
@@ -157,6 +158,9 @@ class TieredGate:
         self._auto_approvable = frozenset(auto_approvable)
         self._auto_approve_tools: frozenset[str] = frozenset()
         self._auto_approve_all_review = False
+        # 已记住域名（联网审批的域名级记忆：审批卡「记住此域名」的产物；
+        # 域名后缀匹配——命中 = 该域出网免弹卡，直接放行）
+        self._remembered_domains: frozenset[str] = frozenset()
 
     def _review_needed(self, tool: str) -> bool:
         """弹卡判定（引擎门控分级为判据；未登记工具保持出厂直过语义）。"""
@@ -207,6 +211,41 @@ class TieredGate:
         """可登记清单（设置页勾选项的单一来源）。"""
         return sorted(self._auto_approvable)
 
+    # ── 已记住域名（联网审批的域名级记忆：命中 = 直过免弹卡）──
+
+    def configure_remembered_domains(self, domains: Sequence[str]) -> None:
+        """配置已记住域名集（域名后缀匹配；空串/空白过滤）。"""
+        normalized = frozenset(
+            str(domain).strip().lower()
+            for domain in (domains or ())
+            if isinstance(domain, str) and str(domain).strip()
+        )
+        self._remembered_domains = normalized
+
+    def domain_remembered(self, host: str) -> bool:
+        """域名是否已记住（域名级后缀匹配：记住 example.com 覆盖其任意子域）。
+
+        与声明式权限的 network_matches 同口径，但记住语义约定为「域名级」：
+        bare 域名（无前导通配）按主域 + 任意子域匹配（用户记住 example.com
+        即期望 docs.example.com 也直过）；显式 `*.x` 形态走原有通配语义。
+        """
+        if not self._remembered_domains or not host:
+            return False
+        host = str(host).lower()
+        for pattern in self._remembered_domains:
+            if pattern.startswith("*."):
+                if network_matches(pattern, host):
+                    return True
+                continue
+            bare = pattern.lower()
+            if host == bare or host.endswith(f".{bare}"):
+                return True
+        return False
+
+    def remembered_domains(self) -> list[str]:
+        """已记住域名清单（设置页管理列表的单一来源）。"""
+        return sorted(self._remembered_domains)
+
     def check(
         self,
         tool: str,
@@ -219,6 +258,13 @@ class TieredGate:
             return GateResult(
                 DENY, tool, operation, target,
                 "出厂 deny 档工具默认拒绝（权限变更须经补丁链审批转正）",
+            )
+        # 已记住域名直过：网络出网（connect）命中记住域名 = 免弹卡放行
+        # （审批的域名级记忆；记住前仍走 review 弹卡，不做默认放行）
+        if operation == "connect" and self.domain_remembered(target):
+            return GateResult(
+                ALLOW, tool, operation, target,
+                f"域名已记住（{target}），免审批放行",
             )
         effective = permissions
         if self._executors is not None:
@@ -403,12 +449,9 @@ class DeclarativeSandboxProxy:
                 max_bytes = None
             return self._workspace.validate_file(operation, target, max_bytes=max_bytes)
         if definition.endpoint is EndpointType.HTTP_FETCH and operation == "connect":
-            # 定义级网络策略现取（DeclarativeToolSpec.network_policy 顶层字段；
-            # 修复前误读 meta.network_policy 恒为空 → 白名单实质失效）。缺省
-            # 空 = 默认禁网（fail-closed），域名放行以声明 allow_domains 为唯一源
-            policy = definition.network_policy
-            allow_domains = frozenset(policy.allow_domains) if policy is not None else frozenset()
-            NetworkPolicySandbox(allow_domains=allow_domains).validate(operation, target)
+            # 联网出网经审批网关裁决（http_fetch 出厂 review 档弹卡 +
+            # 记住域名直过），沙箱层不再按 allow_domains 二次硬拦——
+            # 定义级 allow_domains 是装配提示而非执行期网关（审批即网关）。
             return target
         return target  # mcp 端点：会话级边界（挂载 vetting + 审批链）
 
@@ -1189,6 +1232,14 @@ class SecurityDomain:
         """自动审批配置（设置持久化层保存前调用；边界外硬拒）。"""
         self.gate.configure_auto_approve(tools, all_review)
 
+    def set_remembered_domains(self, domains: Sequence[str]) -> None:
+        """已记住域名配置（联网审批的域名级记忆；设置/审批卡写入）。"""
+        self.gate.configure_remembered_domains(domains)
+
+    def remembered_domains(self) -> list[str]:
+        """已记住域名清单（设置页管理列表 + 审批卡读入面）。"""
+        return self.gate.remembered_domains()
+
     def auto_approve_snapshot(self) -> dict[str, Any]:
         """自动审批快照（设置页装载形态：已勾选清单 + 全量开关）。"""
         tools, all_review = self.gate.auto_approve_snapshot()
@@ -1265,6 +1316,28 @@ async def restore_auto_approve(storage: Any, security: SecurityDomain) -> None:
         security.set_auto_approve([str(t) for t in tools], all_review)
     except Exception as exc:
         logger.warning("自动审批设置装载被拒（按出厂空集启动）: %s", exc)
+
+
+async def restore_remembered_domains(storage: Any, security: SecurityDomain) -> None:
+    """从能力记录恢复已记住域名（启动装载；无记录/坏形态 = 出厂空集）。
+
+    记录字段：remembered_domains（域名清单）。装载失败只记日志，不阻断
+    装配——出厂空集 = 全部域名走审批弹卡（最保守态）。
+    """
+    try:
+        record = await storage.get_record(AUTO_APPROVE_COLLECTION, AUTO_APPROVE_KEY)
+    except Exception as exc:
+        logger.warning("已记住域名读取失败（回落出厂空集）: %s", exc)
+        return
+    if not isinstance(record, dict):
+        return
+    domains = record.get("remembered_domains")
+    if not isinstance(domains, (list, tuple)):
+        return
+    try:
+        security.set_remembered_domains([str(d) for d in domains])
+    except Exception as exc:
+        logger.warning("已记住域名装载被拒（按出厂空集启动）: %s", exc)
 
 
 def _glob_translate(pattern: str) -> str:

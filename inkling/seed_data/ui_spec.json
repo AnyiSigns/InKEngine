@@ -85,9 +85,8 @@
                 "type": "tab",
                 "props": { "note": "设置页 Tab 化：每个 tab 只渲染对应 form" },
                 "children": [
-                  { "kind": "component", "type": "settings_form", "props": { "form": "environment", "tab": "environment", "label": "环境容器" } },
                   { "kind": "component", "type": "settings_form", "props": { "form": "capability", "tab": "capability", "label": "应用能力" } },
-                  { "kind": "component", "type": "settings_form", "props": { "form": "growth", "tab": "growth", "label": "生长治理" } },
+                  { "kind": "component", "type": "settings_form", "props": { "form": "growth", "tab": "growth", "label": "成长状态" } },
                   { "kind": "component", "type": "settings_form", "props": { "form": "security", "tab": "security", "label": "安全信任" } },
                   { "kind": "component", "type": "settings_form", "props": { "form": "connect", "tab": "connect", "label": "连接" } },
                   { "kind": "component", "type": "settings_form", "props": { "form": "appearance", "tab": "appearance", "label": "外观" } },

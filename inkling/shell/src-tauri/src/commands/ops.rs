@@ -96,3 +96,8 @@ pub(crate) async fn sovereignty_snapshot(args: Option<JsonValue>) -> Result<Json
 pub(crate) async fn suggestion_scan(args: Option<JsonValue>) -> Result<JsonValue, CommandError> {
     forward_sync("suggestion.scan", args)
 }
+
+#[command(rename = "growth.report")]
+pub(crate) async fn growth_report(args: Option<JsonValue>) -> Result<JsonValue, CommandError> {
+    forward_async("report.growth", args).await
+}

@@ -19,7 +19,11 @@ export type ReviewResolution = 'accept' | 'reject' | 'edit' | 'terminate';
 
 export interface ReviewCardProps {
   bindValue?: unknown;
-  onResolve?: (resolution: ReviewResolution, editedContent?: string) => void;
+  onResolve?: (
+    resolution: ReviewResolution,
+    editedContent?: string,
+    rememberDomain?: string,
+  ) => void;
 }
 
 interface ReviewData {
@@ -29,6 +33,7 @@ interface ReviewData {
   level?: string;
   tool?: string;
   content?: string;
+  action?: Record<string, unknown>;
 }
 
 /** 从事件负载中提取审批卡展示面（脏数据防御：逐字段收敛）。 */
@@ -37,9 +42,35 @@ function extractReview(data: Record<string, unknown>): ReviewData {
   const reason = typeof data.reason === 'string' ? data.reason : undefined;
   const kind = typeof data.kind === 'string' ? data.kind : undefined;
   const level = typeof data.level === 'string' ? data.level : undefined;
-  const tool = typeof data.tool === 'string' ? data.tool : undefined;
+  const action =
+    data.action && typeof data.action === 'object'
+      ? (data.action as Record<string, unknown>)
+      : undefined;
+  const tool =
+    typeof data.tool === 'string'
+      ? data.tool
+      : typeof action?.tool === 'string'
+        ? action.tool
+        : undefined;
   const content = typeof data.content === 'string' ? data.content : undefined;
-  return { title, reason, kind, level, tool, content };
+  return { title, reason, kind, level, tool, content, action };
+}
+
+/** 从 http_fetch 卡负载提取出网域名（action.args.url 的 host；无 = 未提供）。 */
+export function extractFetchDomain(data: Record<string, unknown>): string | null {
+  const action =
+    data.action && typeof data.action === 'object'
+      ? (data.action as Record<string, unknown>)
+      : undefined;
+  if (!action) return null;
+  const args = action.args && typeof action.args === 'object' ? (action.args as Record<string, unknown>) : {};
+  const url = typeof args.url === 'string' ? args.url : '';
+  if (!url) return null;
+  try {
+    return new URL(url).hostname.toLowerCase();
+  } catch {
+    return null;
+  }
 }
 
 export function ReviewCard({ bindValue, onResolve }: ReviewCardProps) {
@@ -47,6 +78,7 @@ export function ReviewCard({ bindValue, onResolve }: ReviewCardProps) {
   const [visible, setVisible] = useState(false);
   const [editing, setEditing] = useState(false);
   const [editText, setEditText] = useState('');
+  const [rememberDomain, setRememberDomain] = useState(false);
 
   // 新审批卡事件到达 → 弹层（任何视图下均弹出）
   useEffect(() => {
@@ -54,6 +86,7 @@ export function ReviewCard({ bindValue, onResolve }: ReviewCardProps) {
       setVisible(true);
       setEditing(false);
       setEditText('');
+      setRememberDomain(false);
     }
   }, [event]);
 
@@ -62,10 +95,12 @@ export function ReviewCard({ bindValue, onResolve }: ReviewCardProps) {
   const data = extractReview((event?.payload ?? {}) as Record<string, unknown>);
   const title = data.title ?? '审批请求';
   const reason = data.reason ?? '';
+  const fetchDomain = extractFetchDomain((event?.payload ?? {}) as Record<string, unknown>);
+  const isHttpFetchCard = Boolean(fetchDomain && data.tool);
 
   const resolve = (resolution: ReviewResolution, editedContent?: string): void => {
     setVisible(false);
-    onResolve?.(resolution, editedContent);
+    onResolve?.(resolution, editedContent, resolution === 'accept' && rememberDomain ? fetchDomain ?? undefined : undefined);
   };
 
   return (
@@ -128,6 +163,19 @@ export function ReviewCard({ bindValue, onResolve }: ReviewCardProps) {
                 <div className="mt-3 max-h-36 flex-1 overflow-y-auto rounded-xl border bg-[var(--ink-bg-base)] px-3 py-2.5 text-[11px] leading-relaxed whitespace-pre-wrap ink-border">
                   {data.content}
                 </div>
+              )}
+              {isHttpFetchCard && (
+                <label className="mt-3 flex items-center gap-2 cursor-pointer" data-ui="review_remember_domain">
+                  <input
+                    type="checkbox"
+                    className="ink-check"
+                    checked={rememberDomain}
+                    onChange={(e) => setRememberDomain(e.target.checked)}
+                  />
+                  <span className="text-[10px] ink-text-muted">
+                    记住此域名（{fetchDomain}）——以后直接放行，不再弹卡
+                  </span>
+                </label>
               )}
               <div className="mt-4 flex gap-2">
                 <Button

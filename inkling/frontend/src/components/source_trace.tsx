@@ -1,5 +1,5 @@
 /**
- * 来源明细（来源视图）：检索/记忆/证据留痕溯源。
+ * 来源明细：检索/记忆/证据留痕溯源。
  *
  * 数据源：state.sourceTraces 通道（memory_recall / vetting_result / tuning_update /
  * device_* 事件落位）。知识条目可跳到知识集（knowledgeId 留痕，供检索注入跳转）。

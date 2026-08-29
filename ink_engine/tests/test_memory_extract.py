@@ -21,7 +21,7 @@ def test_extract_pulls_intent_conclusion_confirmation():
         "conclusion": "已关闭灯光",
         "events": [
             {"kind": "tool_end", "detail": {"path": "a.rs"}},
-            {"kind": "approval_accept", "detail": {"content": "确认关灯"}},
+            {"kind": "accept", "detail": {"content": "确认关灯"}},
         ],
     }
     entries = extract_entries_from_ledger(ledger)
@@ -31,6 +31,28 @@ def test_extract_pulls_intent_conclusion_confirmation():
     assert "confirmation" in kinds
     confirm = [e for e in entries if e.kind == "confirmation"][0]
     assert "确认关灯" in confirm.content
+
+
+def test_confirmation_events_match_round_fact_contract():
+    """确认类事件口径 = 真实引擎事件类型（accept/edit/reject/user_correction/
+    user_confirm）——与壳侧账本归约保留集同源，防账本漏确认类 → 记忆抽不到。"""
+    from ink_engine.core.memory_extract import (
+        CONFIRMATION_EVENTS,
+        ROUND_FACT_EVENTS,
+    )
+
+    assert set(CONFIRMATION_EVENTS) == {
+        "accept",
+        "edit",
+        "reject",
+        "user_correction",
+        "user_confirm",
+    }
+    # 确认类 ⊆ 账本事实事件全集（壳侧 RECOGNIZED_EVENTS 引用 ROUND_FACT_EVENTS）
+    assert set(CONFIRMATION_EVENTS) <= set(ROUND_FACT_EVENTS)
+    # 历史虚构类型已移除（approval_accept 非真实引擎事件类型）
+    assert "approval_accept" not in CONFIRMATION_EVENTS
+    assert "confirmation" not in CONFIRMATION_EVENTS
 
 
 def test_extract_priorities_data_driven():

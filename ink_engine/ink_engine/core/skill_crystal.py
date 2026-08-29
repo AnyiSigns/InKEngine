@@ -24,6 +24,14 @@ from dataclasses import dataclass
 from typing import Any
 
 from .exceptions import StorageError
+from .knowledge_set import (
+    KIND_PATH,
+    LEVEL_PROJECT,
+    SKILL_ID_PREFIX,
+    SOURCE_MODEL,
+    KnowledgeEntry,
+    KnowledgeSet,
+)
 from .logging import get_logger
 
 logger = get_logger(__name__)
@@ -382,6 +390,180 @@ class SkillStore:
         if self._conn is not None:
             await self._conn.close()
             self._conn = None
+
+
+# ── 合并容器：技能 = 知识集 kind=path 条目（单一权威 = 知识集）──
+
+
+def skill_to_knowledge_entry(skill: SkillEntry, *, now: float) -> KnowledgeEntry:
+    """技能 → 知识集 path 条目（合并容器；条目 id = skill:<name>@v<version>）。
+
+    技能全量载荷进 ``data.skill``；``credibility`` = 成功率（统计证据
+    背书）；``level`` = 项目级（路径知识属领域沉淀）；来源 = model
+    （自动结晶）或由调用方覆写（市场安装经用户审批）。
+    """
+    return KnowledgeEntry(
+        id=f"{SKILL_ID_PREFIX}{skill.name}@v{skill.version}",
+        level=LEVEL_PROJECT,
+        kind=KIND_PATH,
+        data={"skill": _skill_payload(skill)},
+        source=SOURCE_MODEL,
+        credibility=round(_success_rate(skill.hit_count, skill.fail_count), 2),
+        title=skill.name,
+        tags=("skill", skill.domain, skill.kind),
+        created_at=skill.created_at,
+        updated_at=now,
+    )
+
+
+def _skill_payload(skill: SkillEntry) -> dict[str, Any]:
+    """技能值对象 → 载荷 dict（存知识集 data.skill，可无损重建）。"""
+    return {
+        "name": skill.name,
+        "version": skill.version,
+        "domain": skill.domain,
+        "fingerprint": skill.fingerprint,
+        "kind": skill.kind,
+        "path": dict(skill.path),
+        "contract_snapshot": list(skill.contract_snapshot),
+        "evidence_snapshot": [dict(e) for e in skill.evidence_snapshot],
+        "model_id": skill.model_id,
+        "hit_count": skill.hit_count,
+        "fail_count": skill.fail_count,
+        "test_report": dict(skill.test_report),
+        "source_path": skill.source_path,
+    }
+
+
+def knowledge_entry_to_skill(entry: KnowledgeEntry) -> SkillEntry:
+    """知识集 path 条目 → 技能值对象（组装/导出/市场同构消费）。
+
+    载荷缺 skill 形态 = 显式拒绝（path 类目内的条目必带技能载荷）。
+    """
+    data = (entry.data or {}).get("skill")
+    if not isinstance(data, dict):
+        raise StorageError(f"知识条目 {entry.id} 缺技能载荷（kind=path 须携 data.skill）")
+    return SkillEntry(
+        name=str(data["name"]),
+        version=int(data.get("version", 1)),
+        domain=str(data.get("domain", "default")),
+        fingerprint=str(data.get("fingerprint") or ""),
+        kind=str(data.get("kind", SKILL_KIND_PATH)),
+        path=dict(data.get("path") or {}),
+        contract_snapshot=tuple(tuple(p) for p in data.get("contract_snapshot") or ()),
+        evidence_snapshot=tuple(
+            dict(e) for e in data.get("evidence_snapshot") or ()
+        ),
+        model_id=str(data.get("model_id") or ""),
+        hit_count=int(data.get("hit_count", 0)),
+        fail_count=int(data.get("fail_count", 0)),
+        test_report=dict(data.get("test_report") or {}),
+        source_path=str(data.get("source_path") or data.get("fingerprint") or ""),
+        created_at=entry.created_at,
+        updated_at=entry.updated_at,
+    )
+
+
+class KnowledgeSkillStore:
+    """技能存储 = 知识集 kind=path 条目的访问器（合并容器，单一权威 = 知识集）。
+
+    与 sqlite :class:`SkillStore` 同接口（upsert/get/get_by_fingerprint/
+    list/delete/count/close），宿主装配期构造——knowledge_set 可后绑定
+    （运行时 boot 完成后挂到引擎知识集，装配期前后无需二阶段写入）。
+    技能 = 知识集内 kind=path 条目：补丁链即唯一演化史（版本/回退/
+    审计随知识集），持久化由知识集容器承接（本类零独立存储）。
+    """
+
+    def __init__(self, knowledge_set: KnowledgeSet | None = None) -> None:
+        self._knowledge_set = knowledge_set
+
+    @property
+    def knowledge_set(self) -> KnowledgeSet | None:
+        return self._knowledge_set
+
+    @knowledge_set.setter
+    def knowledge_set(self, value: KnowledgeSet | None) -> None:
+        self._knowledge_set = value
+
+    def _require(self) -> KnowledgeSet:
+        if self._knowledge_set is None:
+            raise StorageError("技能存储未绑定知识集（知识集容器未就绪）")
+        return self._knowledge_set
+
+    def _entries(self) -> list[KnowledgeEntry]:
+        return [
+            e
+            for e in self._require().entries(include_archived=True)
+            if e.kind == KIND_PATH
+        ]
+
+    async def upsert(self, entry: SkillEntry) -> None:
+        """写入技能（知识集条目：同名同版本整行替换 = update；新 = add）。"""
+        knowledge = skill_to_knowledge_entry(entry, now=time.time())
+        ks = self._require()
+        if ks.get(knowledge.id) is None:
+            ks.add(knowledge)
+        else:
+            ks.update(
+                knowledge.id,
+                data=knowledge.data,
+                credibility=knowledge.credibility,
+                updated_at=knowledge.updated_at,
+            )
+
+    async def get(self, name: str, version: int | None = None) -> SkillEntry | None:
+        """按名取技能（version=None = 取最新版本）。"""
+        matches = [
+            e for e in self._entries() if (e.data.get("skill") or {}).get("name") == name
+        ]
+        if not matches:
+            return None
+        if version is not None:
+            matches = [e for e in matches if e.data["skill"].get("version") == version]
+            if not matches:
+                return None
+        else:
+            matches.sort(key=lambda e: int(e.data["skill"].get("version", 1)), reverse=True)
+        return knowledge_entry_to_skill(matches[0])
+
+    async def get_by_fingerprint(self, fingerprint: str) -> SkillEntry | None:
+        """按来源指纹取最新版本（结晶去重/版本递增判定用）。"""
+        matches = [
+            e for e in self._entries() if (e.data.get("skill") or {}).get("fingerprint") == fingerprint
+        ]
+        if not matches:
+            return None
+        matches.sort(key=lambda e: int(e.data["skill"].get("version", 1)), reverse=True)
+        return knowledge_entry_to_skill(matches[0])
+
+    async def list(self, domain: str | None = None) -> list[SkillEntry]:
+        """枚举技能（domain=None = 全域；按名+版本升序确定性序）。"""
+        skills = [knowledge_entry_to_skill(e) for e in self._entries()]
+        if domain is not None:
+            skills = [s for s in skills if s.domain == domain]
+        skills.sort(key=lambda s: (s.name, s.version))
+        return skills
+
+    async def delete(self, name: str) -> bool:
+        """删除某技能全部版本（知识集条目移除，补丁链留痕可回退）。"""
+        ks = self._require()
+        removed = False
+        for e in self._entries():
+            if (e.data.get("skill") or {}).get("name") == name and ks.remove(e.id):
+                removed = True
+        return removed
+
+    async def count(self, domain: str | None = None) -> int:
+        """技能计数（含全部版本；domain=None = 全域）。"""
+        skills = list(self._entries())
+        if domain is not None:
+            skills = [
+                e for e in skills if (e.data.get("skill") or {}).get("domain") == domain
+            ]
+        return len(skills)
+
+    async def close(self) -> None:
+        """零独立存储——知识集容器负责持久化（无资源需释放）。"""
 
 
 def export_skill(entry: SkillEntry, *, dest: str | None = None) -> dict[str, Any]:

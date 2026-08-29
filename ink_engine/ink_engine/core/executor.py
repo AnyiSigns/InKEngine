@@ -640,6 +640,33 @@ class Engine:
             return None
         return latest.interrupt
 
+    async def publish_event(
+        self,
+        etype: str,
+        payload: dict,
+        *,
+        thread_id: str | None = None,
+        round_id: str | None = None,
+        node: str | None = None,
+    ) -> None:
+        """公开事件发射入口（机制件注入事件流：孵化动态 → 前端演化页签）。
+
+        构造系统信号（step_id=None——孵化动态非回合步骤），落执行日志 +
+        推送全部传输（含宿主传输 → 壳侧 → 前端）。观测不阻断：发射失败
+        由 :meth:`_publish` 吞异常并记日志。
+        """
+        await self._publish(
+            EngineEvent(
+                type=etype,
+                payload=payload,
+                step_id=None,
+                round_id=round_id,
+                node=node,
+                thread_id=thread_id or "-",
+                trace_id=trace_id_var.get() or "-",
+            )
+        )
+
     async def run(
         self,
         state: dict,

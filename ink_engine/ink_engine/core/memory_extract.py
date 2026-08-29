@@ -15,8 +15,39 @@ import json
 
 from .memory import MemoryEntry, MemoryQuery, StorageBackedMemoryStore
 
-# 确认类事件类型（规则抽取触发点）。
-CONFIRMATION_EVENTS = ("confirmation", "approval_accept", "user_confirm")
+# ── 回合事实提取规则（权威口径，防跨侧漂移）──
+#
+# 单一事实来源：壳侧回合账本归约（round_ledger.rs RECOGNIZED_EVENTS）
+# 与引擎信号分类（SignalClassifier.classify）都引用本集合——
+# 「哪些事件构成回合事实要点」的口径统一由本模块定义，壳侧/Rust 侧
+# 不得自建一套事件清单（契约守卫：tests/test_memory_extract.py 断言
+# 集合形态，壳侧有同口径常量经桥 op 导出校验）。
+
+# 账本事实事件全集：回合事件流中值得沉淀为「事实快照」的类型
+# （壳侧账本归约保留集 + 确认类）——memory_extract 从账本 events 里
+# 按本集合找确认事件；壳侧 reduce_round 保留本集合内的事件进账本。
+ROUND_FACT_EVENTS = (
+    # 执行轨迹事实（账本归约保留的步骤要点）
+    "tool_start",
+    "tool_end",
+    "plan_start",
+    "spawn_start",
+    "error",
+    "node_error",
+    "tool_error",
+    "validation_error",
+    # 确认类事实（用户显式确认 = 最强记忆来源）
+    "accept",
+    "edit",
+    "reject",
+    "user_correction",
+    "user_confirm",
+)
+
+# 确认类事件类型（规则抽取触发点）——真实引擎事件类型（审批卡决议
+# accept/reject、修正 edit/user_correction、洞见确认 user_confirm）；
+# 历史虚构类型（confirmation/approval_accept）已移除，防永远抽不到。
+CONFIRMATION_EVENTS = ("accept", "edit", "reject", "user_correction", "user_confirm")
 
 # 默认记忆域（用户级）。
 DEFAULT_NAMESPACE = "user:default"

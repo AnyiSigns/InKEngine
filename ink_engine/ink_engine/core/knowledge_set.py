@@ -87,12 +87,19 @@ def default_credibility(source: str) -> float:
     """按来源取默认可信度（未知来源 = 模型级，保守不激进）。"""
     return _default_credibility(source)
 
-# 知识条目 kind（规则/模板/权重/工具规则/教训——集内能力的数据形态）
+# 知识条目 kind（规则/模板/权重/工具规则/教训/路径技能/脚本——集内能力的数据形态）
 KIND_RULE = "rule"
 KIND_TEMPLATE = "template"
 KIND_WEIGHT = "weight"
 KIND_TOOL_RULE = "tool_rule"
 KIND_INSIGHT = "insight"
+# path = 证据化路径技能（结晶路径图 + 证据快照 + 测试报告，消费方 = 路径组装）；
+# script = 确定性脚本技能（外部 SKILL.md 脚本段导入形态，消费方 = 工具执行）
+KIND_PATH = "path"
+KIND_SCRIPT = "script"
+
+# path 技能条目的容器内集合前缀（技能 id 稳定命名 = skill:<name>@v<version>）
+SKILL_ID_PREFIX = "skill:"
 
 # 存储集合前缀（knowledge:<user_id>）
 _COLLECTION_PREFIX = "knowledge:"
@@ -874,6 +881,9 @@ def build_knowledge_sources(
     """
     if not injection_enabled:
         entries = [e for e in entries if e.id.startswith(SEED_ID_PREFIX)]
+    # 执行类 kind（path/script）剔除：执行物非 prompt 文本，不进上下文
+    # 注入——消费分派（path=路径组装先例 / script=工具执行）与注入面分离。
+    entries = [e for e in entries if e.kind not in (KIND_PATH, KIND_SCRIPT)]
     sources: list[ContextSource] = []
     for entry in entries:
         if injection_scan:
@@ -901,7 +911,9 @@ def build_knowledge_sources(
 __all__ = [
     "DEFAULT_SEARCH_LIMIT",
     "KIND_INSIGHT",
+    "KIND_PATH",
     "KIND_RULE",
+    "KIND_SCRIPT",
     "KIND_TEMPLATE",
     "KIND_TOOL_RULE",
     "KIND_WEIGHT",
@@ -909,6 +921,7 @@ __all__ = [
     "LEVEL_USER",
     "LEVEL_WORK",
     "SEED_ID_PREFIX",
+    "SKILL_ID_PREFIX",
     "SOURCE_DIALOG",
     "SOURCE_MODEL",
     "SOURCE_ORDER",

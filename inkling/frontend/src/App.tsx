@@ -286,26 +286,18 @@ export default function App({ backend, hub, sessionStore }: AppProps) {
       )}
 
       {activeNav && (
-        <ViewFloater
-          entry={activeNav}
-          onClose={() => setActiveView(null)}
-          extraProps={
-            activeNav.key === 'sources'
-              ? { traces: hub.getSnapshot().sourceTraces }
-              : undefined
-          }
-        />
+        <ViewFloater entry={activeNav} onClose={() => setActiveView(null)} />
       )}
 
       {/* 审批卡：review_card 事件到达即弹（任何视图下），决议走 approval_resolve */}
       {state.pendingReview && (
         <ReviewCard
           bindValue={hub.getLastEvent('review_card')}
-          onResolve={(resolution: ReviewResolution, editedContent?: string) => {
+          onResolve={(resolution: ReviewResolution, editedContent?: string, rememberDomain?: string) => {
             const payload = state.pendingReview as Record<string, unknown>;
             const key = String(payload.key ?? payload.review_key ?? 'review');
             void backend
-              .approvalResolve(state.activeSessionId, key, resolution, undefined, editedContent)
+              .approvalResolve(state.activeSessionId, key, resolution, undefined, editedContent, rememberDomain)
               .catch(() => undefined);
             hub.setState({ pendingReview: null });
           }}

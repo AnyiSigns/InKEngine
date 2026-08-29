@@ -146,7 +146,7 @@ fn record_round_ledger_auto(
     intent: Option<&str>,
     conclusion: Option<&str>,
     events: &[JsonValue],
-) -> Result<(), String> {
+) -> Result<JsonValue, String> {
     let dir = crate::domain::round_ledger::ledger_dir(data_dir);
     let ledger = crate::domain::round_ledger::reduce_round(
         thread_id,
@@ -157,8 +157,61 @@ fn record_round_ledger_auto(
         &json!({}),
         &json!([]),
     );
-    crate::domain::round_ledger::write_ledger(&dir, &ledger).map(|_| ())
+    crate::domain::round_ledger::write_ledger(&dir, &ledger)?;
+    Ok(ledger.to_json())
 }
+
+/// 自动记忆提取（账本 → 记忆闭环：回合收尾静默触发，失败仅观测日志）。
+///
+/// 复用 `memory.extract` 引擎 op——零 LLM 规则抽取（意图/结论/确认事件）
+/// + 冲突仲裁（新旧并存留痕），把回合账本沉淀为可召回记忆。账本已落盘，
+/// 提取失败不影响回合返回（观测侧语义）。
+fn auto_extract_memory(
+    thread_id: &str,
+    ledger_json: &JsonValue,
+) -> Result<(), String> {
+    let result = block_on_op_async(
+        "memory.extract",
+        json!({ "thread_id": thread_id, "ledger": ledger_json }),
+    )?;
+    let stored = result.get("stored").and_then(JsonValue::as_array).map(|v| v.len()).unwrap_or(0);
+    if stored > 0 {
+        eprintln!("[rounds] 回合账本 → 记忆提取完成（{} 条落记忆库）", stored);
+    }
+    Ok(())
+}
+
+/// 自动演化触发（知识集 → 演化闭环：回合收尾低频，失败仅观测日志）。
+///
+/// 复用 `knowledge.evolve` 引擎 op——失败驱动反思式变异 + 三层闸门防退化，
+/// 变异体经 KNOWLEDGE 补丁落集补丁链。低频语义：每 N 回合触发一批（N =
+/// EVOLVE_INTERVAL_ROUNDS），批量小（单批 1 条防膨胀）。无候选 = 空结果。
+fn auto_evolve(thread_id: &str, round_counter: &mut u64) -> Result<(), String> {
+    *round_counter = round_counter.wrapping_add(1);
+    if *round_counter % EVOLVE_INTERVAL_ROUNDS != 0 {
+        return Ok(());
+    }
+    let result = block_on_op_async(
+        "knowledge.evolve",
+        json!({ "thread_id": thread_id, "limit": 1 }),
+    )?;
+    let outcomes = result
+        .get("outcomes")
+        .and_then(JsonValue::as_array)
+        .cloned()
+        .unwrap_or_default();
+    let landed: usize = outcomes
+        .iter()
+        .map(|o| o.get("variants").and_then(JsonValue::as_array).map(|v| v.len()).unwrap_or(0))
+        .sum();
+    if landed > 0 {
+        eprintln!("[rounds] 知识演化批次完成（{} 变异体落位）", landed);
+    }
+    Ok(())
+}
+
+/// 演化触发频率（回合）：每 N 回合触发一批进化（低频防膨胀/防每回合开销）。
+const EVOLVE_INTERVAL_ROUNDS: u64 = 10;
 
 /// 引擎操作失败脱敏（R5：引擎内部错误串可能含路径/堆栈，不透传前端）。
 ///
@@ -268,15 +321,22 @@ pub(crate) fn round_send(
     }
     // R15：回合账本自动记录（决议 11——收尾自动触发；失败仅观测日志）
     if auto_round_ledger_enabled() {
-        if let Err(err) = record_round_ledger_auto(
+        let ledger_json = record_round_ledger_auto(
             &data_dir,
             &thread_id,
             &round_id,
             Some(&text),
             outcome.output.as_deref(),
             &outcome.events,
-        ) {
-            eprintln!("[rounds] 回合账本自动记录失败: {err}");
+        );
+        match &ledger_json {
+            Ok(ledger) => {
+                // 账本 → 记忆闭环（意图/结论/确认事件规则抽取入记忆库）
+                if let Err(err) = auto_extract_memory(&thread_id, ledger) {
+                    eprintln!("[rounds] 回合账本记忆提取失败: {err}");
+                }
+            }
+            Err(err) => eprintln!("[rounds] 回合账本自动记录失败: {err}"),
         }
     }
     // R15b：账本摘要链自动合并（阈值触发：自上次合并后新增账本 ≥ 10 条；
@@ -284,6 +344,13 @@ pub(crate) fn round_send(
     if auto_round_ledger_enabled() {
         if let Err(err) = block_on_ledger_merge(&data_dir, &thread_id) {
             eprintln!("[rounds] 账本摘要链自动合并失败: {err}");
+        }
+    }
+    // 演化闭环：知识集低频批次（每 N 回合触发一批；失败仅观测日志）
+    {
+        let mut counter = state.backend.evolution_round_counter.lock().unwrap();
+        if let Err(err) = auto_evolve(&thread_id, &mut counter) {
+            eprintln!("[rounds] 知识演化自动触发失败: {err}");
         }
     }
     Ok(json!({

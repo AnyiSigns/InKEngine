@@ -776,13 +776,9 @@ impl DeclarativeSandboxProxy {
                     .validate_file(operation, target, max_bytes)
             }
             Endpoint::HttpFetch if operation == "connect" => {
-                let domains = definition.allow_domains();
-                if !domains.iter().any(|pattern| network_matches(pattern, target)) {
-                    return Err(SandboxViolation(format!(
-                        "域名不在白名单: {target}（{}）",
-                        ErrorCode::NETWORK_DOMAIN_BLOCKED
-                    )));
-                }
+                // 联网出网经审批网关裁决（http_fetch 出厂 review 档弹卡 +
+                // 记住域名直过），沙箱层不再按 allow_domains 二次硬拦——
+                // 定义级 allow_domains 是装配提示而非执行期网关（审批即网关）。
                 Ok(target.to_string())
             }
             // mcp 端点：会话级边界（挂载 vetting + 审批链），无本地沙箱判定
@@ -796,12 +792,12 @@ impl DeclarativeSandboxProxy {
 /// 取回实现注入形态（定义 + 调用参数 → 取回文本；可注入 stub 免真实出网）。
 pub type FetchFn = Box<dyn Fn(&DeclarativeSpec, &JsonValue) -> Result<String, String> + Send + Sync>;
 
-/// http_fetch 端点执行体（网络策略二次核对 + 可选取回实现）。
+/// http_fetch 端点执行体（审批网关后的受控抓取）。
 ///
-/// 执行体不自行决定出网：域名白名单在沙箱层先行判定，执行体按定义
-/// 声明（meta.network_policy）再次核对（纵深防御），越域 = 结构化
-/// 失败（NETWORK_DOMAIN_BLOCKED）。取回实现可注入（端到端用 stub
-/// 免真实出网；缺省 = reqwest 受控取回）。返回 JSON 结果文本。
+/// 执行体不自行决定出网：联网出网经审批网关裁决（出厂 review 档弹卡 +
+/// 记住域名直过），执行体只做受控抓取（仅 http/https、不跟随重定向、
+/// 大小上限截断）。取回实现可注入（端到端用 stub 免真实出网；缺省 =
+/// reqwest 受控取回）。返回 JSON 结果文本。
 pub async fn execute_http_fetch(
     definition: &DeclarativeSpec,
     args: &JsonValue,
@@ -810,16 +806,12 @@ pub async fn execute_http_fetch(
 ) -> String {
     let url = args.get("url").and_then(|v| v.as_str()).unwrap_or("");
     let host = url_host(url);
-    let domains = definition.allow_domains();
-    let allowed = host
-        .as_deref()
-        .map(|host| domains.iter().any(|pattern| network_matches(pattern, host)))
-        .unwrap_or(false);
-    if !allowed {
+    if host.is_none() {
+        // 非 http/https 无法判定出网目标：拒绝（协议守卫保留）
         return serde_json::json!({
             "ok": false,
             "status": "network_domain_blocked",
-            "error": format!("域名不在网络策略白名单: {host:?}（越域拒绝）（{}）", ErrorCode::NETWORK_DOMAIN_BLOCKED),
+            "error": format!("http_fetch 仅支持 http/https 出网（{}）", ErrorCode::NETWORK_DOMAIN_BLOCKED),
         })
         .to_string();
     }
@@ -2250,8 +2242,9 @@ mod tests {
         assert!(proxy.validate("exec", "notify", "notify", &definitions).is_ok());
         let blocked = proxy.validate("exec", "evil", "notify", &definitions).unwrap_err();
         assert!(blocked.0.contains("SEC_007"), "错误码缺失: {}", blocked.0);
+        // http_fetch 出网经审批网关裁决：沙箱层不再按域名硬拦（任一 http(s) 放行）
         assert!(proxy.validate("connect", "arxiv.org", "fetch", &definitions).is_ok());
-        assert!(proxy.validate("connect", "evil.example.com", "fetch", &definitions).is_err());
+        assert!(proxy.validate("connect", "evil.example.com", "fetch", &definitions).is_ok());
         // 文件工具 + 未授权工作区 → 拒绝
         let unauth = proxy.validate("read", "note.txt", "file_read", &definitions).unwrap_err();
         assert!(unauth.0.contains("工作区未授权"));
@@ -2425,9 +2418,11 @@ mod tests {
     // ── http_fetch 执行体 ──
 
     #[tokio::test]
-    async fn http_fetch_executor_network_policy_second_layer() {
+    async fn http_fetch_executor_passes_domains_approval_is_gate() {
+        // 联网出网经审批网关裁决（出厂 review 档弹卡 + 记住域名直过），
+        // 执行体不再按 allow_domains 二次拦——审批即网关（定义级白名单
+        // 是装配提示而非执行期网关）。
         let mut definition = spec_of("fetch", "http_fetch", json!({"method": "GET"}), vec![]);
-        // 定义级网络策略（折叠进 meta 的形态）
         definition.meta.insert(
             "network_policy".to_string(),
             json!({"allow_domains": ["arxiv.org"]}),
@@ -2438,9 +2433,8 @@ mod tests {
         let inside = execute_http_fetch(&definition, &json!({"url": "https://arxiv.org/abs/2401.12345"}), Some(&fetch), 1000).await;
         assert!(inside.contains("stub-fetch:"), "界内域名应放行: {inside}");
         let outside = execute_http_fetch(&definition, &json!({"url": "https://evil.example/x"}), Some(&fetch), 1000).await;
-        let parsed: JsonValue = serde_json::from_str(&outside).unwrap();
-        assert_eq!(parsed["status"], "network_domain_blocked");
-        // 非 http/https 协议无法判定目标 → 拒绝
+        assert!(outside.contains("stub-fetch:"), "审批网关后任意 http(s) 域名放行: {outside}");
+        // 非 http/https 协议无法判定目标 → 拒绝（保留协议/重定向/大小守卫）
         let weird = execute_http_fetch(&definition, &json!({"url": "file:///etc/passwd"}), Some(&fetch), 1000).await;
         assert_eq!(serde_json::from_str::<JsonValue>(&weird).unwrap()["status"], "network_domain_blocked");
     }

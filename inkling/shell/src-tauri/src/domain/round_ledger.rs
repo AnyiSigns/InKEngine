@@ -45,12 +45,26 @@ pub const AUTO_MERGE_THRESHOLD: usize = 10;
 const MERGE_MARKER_PREFIX: &str = "merge_marker_";
 
 /// 归约保留的事件类型（其余回合事件不进账本，账本只存事实要点）。
+///
+/// 口径对齐（防漂移）：与引擎 `memory_extract.ROUND_FACT_EVENTS`
+/// 一致——执行轨迹事实 + 确认类事实。确认类必须保留：`memory.extract`
+/// 从账本 events 里按确认事件抽记忆，账本漏确认类 → 记忆永远抽不到。
+/// 契约守卫：`ledger.fact_rules` op 导出引擎权威集合，壳侧启动时校验
+/// 本常量为其子集（rounds.rs 契约检查 + 测试断言）。
 const RECOGNIZED_EVENTS: &[&str] = &[
     "tool_start",
     "tool_end",
     "plan_start",
     "spawn_start",
     "error",
+    "node_error",
+    "tool_error",
+    "validation_error",
+    "accept",
+    "edit",
+    "reject",
+    "user_correction",
+    "user_confirm",
 ];
 
 /// 单条账本事件（确定性归约后的事实要点）。
@@ -426,6 +440,7 @@ mod tests {
             json!({"type":"plan_start","payload":{"plan":"p"}}),
             json!({"type":"spawn_start","payload":{"target":"t"}}),
             json!({"type":"error","payload":{"message":"boom"}}),
+            json!({"type":"accept","payload":{"message":"用户确认"}}),
             json!({"type":"reply","payload":{"content":"完成"}}),
         ]
     }
@@ -444,10 +459,65 @@ mod tests {
         let kinds: Vec<&str> = ledger.events.iter().map(|e| e.kind.as_str()).collect();
         assert_eq!(
             kinds,
-            vec!["tool_start", "tool_end", "plan_start", "spawn_start", "error"]
+            vec!["tool_start", "tool_end", "plan_start", "spawn_start", "error", "accept"]
         );
         assert_eq!(ledger.intent.as_deref(), Some("做X"));
         assert_eq!(ledger.conclusion.as_deref(), Some("完成"));
+    }
+
+    #[test]
+    fn reduce_keeps_confirmation_events_for_memory_extract() {
+        // 口径契约：确认类事件必须保留进账本——memory.extract 从账本
+        // events 里按确认事件抽记忆，账本漏确认类 = 记忆永远抽不到
+        //（引擎权威集合 = memory_extract.ROUND_FACT_EVENTS）。
+        let events: Vec<JsonValue> = vec![
+            json!({"type":"user_correction","payload":{"message":"改成这样"}}),
+            json!({"type":"edit","payload":{"message":"修订"}}),
+            json!({"type":"user_confirm","payload":{"message":"确认"}}),
+            json!({"type":"reject","payload":{"message":"拒绝"}}),
+            json!({"type":"tool_error","payload":{"message":"工具异常"}}),
+            json!({"type":"user_message","payload":{"content":"噪音"}}),
+        ];
+        let ledger = reduce_round(
+            "th1", "r1", None, None, &events, &json!({}), &json!([]),
+        );
+        let kinds: Vec<&str> = ledger.events.iter().map(|e| e.kind.as_str()).collect();
+        assert_eq!(
+            kinds,
+            vec!["user_correction", "edit", "user_confirm", "reject", "tool_error"]
+        );
+    }
+
+    #[test]
+    fn recognized_events_are_subset_of_engine_fact_rules() {
+        // 契约守卫（静态）：壳侧归约保留集 ⊆ 引擎 ROUND_FACT_EVENTS——
+        // 引擎权威集合演进时此处显式同步（ledger.fact_rules op 运行时
+        // 校验同一约束；此处为编译期静态断言，防误删）。
+        assert!(RECOGNIZED_EVENTS.iter().all(|kind| {
+            matches!(
+                *kind,
+                "tool_start"
+                    | "tool_end"
+                    | "plan_start"
+                    | "spawn_start"
+                    | "error"
+                    | "node_error"
+                    | "tool_error"
+                    | "validation_error"
+                    | "accept"
+                    | "edit"
+                    | "reject"
+                    | "user_correction"
+                    | "user_confirm"
+            )
+        }));
+        // 确认类在保留集内（memory.extract 抽取点的存在性断言）
+        for confirmation in ["accept", "edit", "reject", "user_correction", "user_confirm"] {
+            assert!(
+                RECOGNIZED_EVENTS.contains(&confirmation),
+                "确认类事件 {confirmation} 必须保留进账本（记忆抽取依赖）"
+            );
+        }
     }
 
     #[test]

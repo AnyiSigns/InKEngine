@@ -1,7 +1,7 @@
 /**
  * 设置页（双栏形态）：左轨入口 + 分区导航，右侧一屏一分区。
  *
- * 分区：环境容器 / 应用能力 / 生长治理 / 安全信任 / 连接 / 外观 / 关于。
+ * 分区：应用能力 / 成长状态 / 安全信任 / 连接 / 外观 / 关于。
  * 默认分区 = 应用能力（模型挡位）；外观含主题三档 + token 试穿。
  * 表单状态 = 组件本地草稿（应用动作经 props 注入持久化面）；
  * 试穿与主题档切换即时生效、不动会话/草稿/折叠状态（独立存储面）。
@@ -9,8 +9,8 @@
 
 import { useEffect, useState } from 'react';
 import {
-  AppWindow, Check, ChevronDown, Cpu, FileText, FlaskConical, GitBranch, Info,
-  KeyRound, Paintbrush, PlugZap, RotateCcw, ScrollText, ShieldCheck, Sparkles,
+  Check, ChevronDown, Cpu, FileText, FlaskConical, GitBranch, Info,
+  KeyRound, Paintbrush, PlugZap, RotateCcw, ShieldCheck, Sparkles,
   Volume2,
 } from 'lucide-react';
 
@@ -19,10 +19,7 @@ import { Button } from '@/shared/ui/Button';
 import { cn } from '@/shared/cn';
 import { AppCapabilitySection, DEFAULT_CAPABILITY } from './settings_sections/app_capability';
 import type { CapabilityValue } from './settings_sections/app_capability';
-import { DEFAULT_ENVIRONMENT, EnvironmentContainer } from './settings_sections/environment_container';
-import type { EnvironmentValue } from './settings_sections/environment_container';
-import { DEFAULT_GROWTH, GrowthGovernance } from './settings_sections/growth_governance';
-import type { GrowthValue } from './settings_sections/growth_governance';
+import { GrowthSection } from '@/app/settings/sections/growth_section';
 import { MaterialImportPanel } from './settings_sections/material_import';
 import type { BackendAdapter } from '@/shared/backend/backendAdapter';
 import { DEFAULT_SECURITY, SecurityTrust } from './settings_sections/security_trust';
@@ -43,6 +40,10 @@ interface SettingsFormProps {
   initialCapability?: Partial<CapabilityValue>;
   /** 自动审批初值（启动时从能力记录装载：已勾选清单 + 全量开关） */
   initialAutoApprove?: { tools: string[]; allReview: boolean };
+  /** 已记住域名初值（启动时从能力记录装载；联网审批的域名级记忆） */
+  initialRememberedDomains?: string[];
+  /** 已记住域名持久化写（设置页增删 / 审批卡记住域名共用） */
+  onRememberedDomainsChange?: (domains: string[]) => void;
   /** 自动审批可登记工具清单（tools_snapshot 的 auto_approvable 过滤面） */
   autoApprovableTools?: string[];
   /** 备份/恢复向导入口（安全信任节接线） */
@@ -53,13 +54,12 @@ interface SettingsFormProps {
   materialImport?: BackendAdapter;
 }
 
-type SectionId = 'environment' | 'capability' | 'growth' | 'security' | 'connect' | 'voice' | 'appearance' | 'about';
+type SectionId = 'capability' | 'growth' | 'security' | 'connect' | 'voice' | 'appearance' | 'about';
 
 const SECTION_NAV: Array<{ id: SectionId; label: string; icon: typeof Cpu; desc: string }> = [
-  { id: 'environment', label: '环境容器', icon: AppWindow, desc: '创建审批 · 清单 · 孤儿清理' },
   { id: 'capability', label: '应用能力', icon: Cpu, desc: '模型挡位 · 推理档 · 搜索 key' },
-  { id: 'growth', label: '生长治理', icon: Sparkles, desc: '孵化 · 闸门 · 记忆窗口' },
-  { id: 'security', label: '安全信任', icon: ShieldCheck, desc: '权限矩阵 · 网络策略 · 审计' },
+  { id: 'growth', label: '成长状态', icon: Sparkles, desc: '自学习 · 孵化 · 闸门' },
+  { id: 'security', label: '安全信任', icon: ShieldCheck, desc: '权限矩阵 · 已记住域名 · 审计' },
   { id: 'connect', label: '连接', icon: PlugZap, desc: 'MCP 市场 · 挂载向导' },
   { id: 'voice', label: '语音与离线', icon: Volume2, desc: '本地语音 · 离线支持级' },
   { id: 'appearance', label: '外观', icon: Paintbrush, desc: '主题三档 · token 试穿' },
@@ -68,8 +68,6 @@ const SECTION_NAV: Array<{ id: SectionId; label: string; icon: typeof Cpu; desc:
 
 const ENTRY_ITEMS: Array<{ view: ViewId; label: string; icon: typeof FlaskConical; hint: string }> = [
   { view: 'evolution', label: '演化', icon: FlaskConical, hint: '孵化 · 进化工厂 · 补丁链' },
-  { view: 'simulation', label: '推演', icon: GitBranch, hint: 'simulate_decision 分支对比' },
-  { view: 'source', label: '来源', icon: ScrollText, hint: '依据链溯源' },
   { view: 'admin', label: '管理台', icon: KeyRound, hint: '组件/挂载/执行体注册表' },
   { view: 'architecture', label: '架构', icon: GitBranch, hint: 'agent_graph DAG · 视觉 diff' },
   { view: 'edit_ui', label: '界面树', icon: Paintbrush, hint: 'ui_spec 编辑（悬浮窗）' },
@@ -82,21 +80,22 @@ export function SettingsForm({
   onApplySettings,
   initialCapability,
   initialAutoApprove,
+  initialRememberedDomains,
   autoApprovableTools,
   onOpenBackupWizard,
   recovery,
   materialImport,
+  onRememberedDomainsChange,
 }: SettingsFormProps) {
   void bindValue;
   const [active, setActive] = useState<SectionId>('capability');
   const [capability, setCapability] = useState<CapabilityValue>({ ...DEFAULT_CAPABILITY, ...initialCapability });
-  const [environment, setEnvironment] = useState<EnvironmentValue>(DEFAULT_ENVIRONMENT);
-  const [growth, setGrowth] = useState<GrowthValue>(DEFAULT_GROWTH);
   const [security, setSecurity] = useState<SecurityValue>({
     ...DEFAULT_SECURITY,
     ...(initialAutoApprove
       ? { autoApproveTools: initialAutoApprove.tools, autoApproveAllReview: initialAutoApprove.allReview }
       : {}),
+    ...(initialRememberedDomains ? { rememberedDomains: initialRememberedDomains } : {}),
   });
   const [connect, setConnect] = useState<ConnectValue>(DEFAULT_CONNECT);
   const [appearance, setAppearance] = useState<AppearanceValue>(DEFAULT_APPEARANCE);
@@ -115,8 +114,6 @@ export function SettingsForm({
   const applyAll = (): void => {
     onApplySettings?.({
       capability,
-      environment,
-      growth,
       security,
       connect,
       theme: appearance.themeDraft,
@@ -130,12 +127,10 @@ export function SettingsForm({
     switch (id) {
       case 'capability':
         return <AppCapabilitySection value={capability} patch={(next) => patchSection(setCapability, next)} />;
-      case 'environment':
-        return <EnvironmentContainer value={environment} patch={(next) => patchSection(setEnvironment, next)} />;
       case 'growth':
         return (
           <>
-            <GrowthGovernance value={growth} patch={(next) => patchSection(setGrowth, next)} />
+            <GrowthSection />
             <MaterialImportPanel materialImport={materialImport} />
           </>
         );
@@ -147,6 +142,7 @@ export function SettingsForm({
             onOpenBackupWizard={onOpenBackupWizard}
             recovery={recovery}
             autoApprovableTools={autoApprovableTools ?? []}
+            onRememberedDomainsChange={onRememberedDomainsChange}
           />
         );
       case 'connect':

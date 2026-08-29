@@ -485,11 +485,11 @@ async def boot_inkling(
         fingerprint_store = FingerprintCacheStore(
             db_path=str(data_dir / "fingerprint_cache.sqlite")
         )
-        from ink_engine.core.skill_crystal import SkillStore
+        from ink_engine.core.skill_crystal import KnowledgeSkillStore
 
-        skill_store = SkillStore(
-            db_path=str(data_dir / "skills.sqlite")
-        )
+        # 合并容器：技能 = 知识集 kind=path 条目（单一权威 = 知识集；
+        # knowledge_set 在 runtime boot 后绑定，装配期前后无二阶段写入）
+        skill_store = KnowledgeSkillStore()
     from ink_engine.core.run_result import RunOptions
     from ink_engine.core.simulation import PatchChainBranchMixer
 
@@ -630,6 +630,26 @@ async def boot_inkling(
     runtime = await InkRuntime(_five_source_factory(bundle)).boot(host, recipe)
     runtime_holder["runtime"] = runtime
     revert_state["runtime"] = runtime
+    # 技能存储挂知识集（合并容器：技能 = 知识集 kind=path 条目；未开指纹
+    # 缓存 flag 时也绑——市场安装/外部导入的技能可持久化，不再退化为
+    # 无持久化的内存落点）
+    if skill_store is None:
+        from ink_engine.core.skill_crystal import KnowledgeSkillStore
+
+        skill_store = KnowledgeSkillStore()
+    skill_store.knowledge_set = runtime.knowledge_set
+    runtime.skill_store = skill_store
+
+    async def _skill_provider(request: Any) -> list[Any]:
+        """组装技能先例提供器：技能存储（知识集 kind=path 视图）→ 技能清单。
+
+        域过滤随组装请求传入（None = 全域）；未装配 = 空清单（技能层零参与）。
+        消费时机 = 路径组装先例层（缓存未命中时），见 path_assembler._skill_chains。
+        """
+        store = runtime.skill_store
+        if store is None:
+            return []
+        return await store.list(getattr(request, "domain", None))
     # 接线：装配期注入真实 MCP server 探测（graph_recipe 探测通道，
     # 收官形态——离线 server 的挂载工具从默认研究链剔除/调用降级，
     # 不再每回合 8 个必失败调用白跑）。探测 = runtime.mcp_manager 会话
@@ -652,12 +672,6 @@ async def boot_inkling(
             return False
 
     install_mcp_server_probe(_probe_mcp_server)
-    runtime.skill_store = skill_store
-    if skill_store is None:
-        from ink_engine.core.skill_crystal import SkillStore
-
-        skill_store = SkillStore(db_path=":memory:")
-        runtime.skill_store = skill_store
     # 组装指令运行期挂载（flag 开 = 默认运行期生效；关 = 显式卸载零生效）
     if path_flags.assembler_enabled:
         from ink_engine.core.path_assembler import (
@@ -707,6 +721,7 @@ async def boot_inkling(
                     cache=fingerprint_store,
                     model_id=os.environ.get("INK_LLM_MODEL", ""),
                     multipath_enabled=path_flags.multipath_enabled,
+                    skill_provider=_skill_provider,
                 )
             )
     else:
@@ -757,12 +772,17 @@ async def boot_inkling(
     security.apply(runtime)
     security.reregister_file_tools(root=None)
     # 自动审批设置恢复（用户预授权随启动装载；无记录 = 出厂空集）
-    from .security_domain import restore_auto_approve
+    from .security_domain import restore_auto_approve, restore_remembered_domains
 
     await restore_auto_approve(runtime.storage, security)
+    # 已记住域名恢复（联网审批的域名级记忆；无记录 = 出厂空集 = 全走审批）
+    await restore_remembered_domains(runtime.storage, security)
     # 装配域挂到宿主（设置页/评测侧运行期入口）
     host.security = security
     host.builds = build_domain
+    # 组件清单恢复（restore_live_views → restore_component_manifest）经 runtime
+    # 取构建域：回退/重启后从链重建 data_dir/components/manifest.json
+    runtime.builds = build_domain
     host.environments = env_domain
     revert_state["env_domain"] = env_domain
     revert_state["build_domain"] = build_domain

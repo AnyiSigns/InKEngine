@@ -64,6 +64,8 @@ struct ShellBackendState {
     tool_provider: Arc<domain::tools::ToolSpecsProvider>,
     round: Mutex<Option<domain::steps::RoundStepsTransport>>,
     abort_signal: domain::steps::RoundAbortSignal,
+    /// 演化触发回合计数（每 N 回合触发一批知识进化）。
+    evolution_round_counter: Mutex<u64>,
 }
 
 impl ShellBackendState {
@@ -73,6 +75,7 @@ impl ShellBackendState {
             tool_provider: Arc::new(domain::tools::ToolSpecsProvider::empty()),
             round: Mutex::new(None),
             abort_signal: domain::steps::RoundAbortSignal::new(),
+            evolution_round_counter: Mutex::new(0),
         }
     }
 
@@ -729,6 +732,8 @@ pub fn run() {
             commands::workspace::approval_resolve,
             commands::capability::capability_get,
             commands::capability::capability_put,
+            commands::capability::security_remembered_domains_get,
+            commands::capability::security_remembered_domains_set,
             commands::backup::backup_export,
             commands::backup::backup_preview,
             commands::backup::backup_restore,
@@ -793,6 +798,7 @@ pub fn run() {
             commands::ops::why_audit,
             commands::ops::sovereignty_snapshot,
             commands::ops::suggestion_scan,
+            commands::ops::growth_report,
             commands::knowledge::knowledge_list,
             commands::knowledge::knowledge_add,
             commands::knowledge::knowledge_promote,

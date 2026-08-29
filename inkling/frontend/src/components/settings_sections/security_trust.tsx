@@ -1,5 +1,5 @@
 /**
- * 设置「安全信任」节：权限矩阵 / 网络策略 / 审计入口 / 导出恢复入口 /
+ * 设置「安全信任」节：权限矩阵 / 默认权限档 / 已记住域名 / 审计与恢复 /
  * 崩溃回退（启动快照回上一稳定版本 / 出厂重置）。
  */
 
@@ -25,8 +25,9 @@ export interface SecurityValue {
   approvals: Record<ApprovalKind, ApprovalLevel>;
   defaultPermission: DefaultPermission;
   timeoutSecs: string;
-  networkEnabled: boolean;
-  networkAllowlist: string;
+  /** 已记住域名（联网审批的域名级记忆：审批卡「记住此域名」的产物；
+   *  命中 = 该域出网免弹卡，直接放行；非空态域名才有意义） */
+  rememberedDomains: string[];
   /** 自动审批已勾选工具（仅可登记清单内的工具可勾选；勾选 = 用户预授权） */
   autoApproveTools: string[];
   /** 自动审批全量开关（对全部可登记工具生效；OS 控制/文件写类不受影响） */
@@ -39,8 +40,7 @@ export const DEFAULT_SECURITY: SecurityValue = {
   },
   defaultPermission: 'review',
   timeoutSecs: '30',
-  networkEnabled: false,
-  networkAllowlist: '',
+  rememberedDomains: [],
   autoApproveTools: [],
   autoApproveAllReview: false,
 };
@@ -78,9 +78,12 @@ interface SecurityTrustProps {
   recovery?: RecoveryOps | null;
   /** 自动审批可登记工具清单（后端 tools_snapshot 的 auto_approvable 过滤面） */
   autoApprovableTools?: string[];
+  /** 已记住域名持久化写（宿主接线：设置页增删 + 审批卡记住域名共用；
+   *  缺省 = 纯前端态（无宿主不可持久化，UI 仍可用）） */
+  onRememberedDomainsChange?: (domains: string[]) => void;
 }
 
-export function SecurityTrust({ value, patch, onOpenBackupWizard, recovery, autoApprovableTools = [] }: SecurityTrustProps) {
+export function SecurityTrust({ value, patch, onOpenBackupWizard, recovery, autoApprovableTools = [], onRememberedDomainsChange }: SecurityTrustProps) {
   const [auditPhase, setAuditPhase] = useState<FeedbackPhase>('idle');
   const [snapshots, setSnapshots] = useState<RecoverySnapshot[]>([]);
   const [snapshotsPhase, setSnapshotsPhase] = useState<FeedbackPhase>('idle');
@@ -88,6 +91,8 @@ export function SecurityTrust({ value, patch, onOpenBackupWizard, recovery, auto
   const [resetPhase, setResetPhase] = useState<FeedbackPhase>('idle');
   const [safeMode, setSafeMode] = useState(false);
   const [confirmAction, setConfirmAction] = useState<'restore' | 'reset' | null>(null);
+  const [domainDraft, setDomainDraft] = useState('');
+  const [rememberedPhase, setRememberedPhase] = useState<FeedbackPhase>('idle');
 
   const refreshSnapshots = useCallback(() => {
     if (!recovery) {
@@ -137,6 +142,35 @@ export function SecurityTrust({ value, patch, onOpenBackupWizard, recovery, auto
       })
       .catch(() => setResetPhase('fail'));
   }, [recovery]);
+
+  const commitRememberedDomains = useCallback(
+    (next: string[]) => {
+      patch({ rememberedDomains: next });
+      onRememberedDomainsChange?.(next);
+    },
+    [patch, onRememberedDomainsChange],
+  );
+
+  const addRememberedDomain = useCallback(() => {
+    const domain = domainDraft.trim().toLowerCase();
+    if (!domain) return;
+    if (value.rememberedDomains.includes(domain)) {
+      setDomainDraft('');
+      setRememberedPhase('success');
+      return;
+    }
+    commitRememberedDomains([...value.rememberedDomains, domain]);
+    setDomainDraft('');
+    setRememberedPhase('success');
+  }, [domainDraft, value.rememberedDomains, commitRememberedDomains]);
+
+  const removeRememberedDomain = useCallback(
+    (domain: string) => {
+      commitRememberedDomains(value.rememberedDomains.filter((d) => d !== domain));
+      setRememberedPhase('success');
+    },
+    [value.rememberedDomains, commitRememberedDomains],
+  );
 
   const latestSnapshot = snapshots[0] ?? null;
 
@@ -194,27 +228,46 @@ export function SecurityTrust({ value, patch, onOpenBackupWizard, recovery, auto
         </div>
       </div>
       <div className="ink-elevated space-y-2.5 px-3.5 py-3">
-        <div className="text-[11px] font-medium tracking-wide ink-text-muted">网络策略</div>
-        <label className="flex items-center gap-2 cursor-pointer">
-          <input
-            type="checkbox"
-            className="ink-check"
-            checked={value.networkEnabled}
-            onChange={(e) => patch({ networkEnabled: e.target.checked })}
-            data-ui="net_enabled"
-          />
-          <span className="text-[11px]">允许联网工具（fetch / MCP 网络端点）</span>
-        </label>
+        <div className="text-[11px] font-medium tracking-wide ink-text-muted">已记住域名</div>
+        <p className="text-[10px] leading-relaxed ink-text-faint">
+          联网工具（http_fetch）出网走审批弹卡；在审批卡上勾选「记住此域名」
+          后，该域（后缀匹配，含子域）后续出网免弹卡直接放行。此处可查看/删除。
+        </p>
         <div className="flex items-center gap-2">
-          <span className="w-32 shrink-0 text-[11px] ink-text-muted">域名白名单</span>
           <TextInput
-            value={value.networkAllowlist}
-            placeholder="example.com, docs.example.org"
-            aria-label="网络域名白名单"
+            value={domainDraft}
+            onChange={(e) => setDomainDraft(e.target.value)}
+            placeholder="example.com"
+            aria-label="记住域名输入"
             className="font-mono text-[10px]"
-            onChange={(e) => patch({ networkAllowlist: e.target.value })}
+            onKeyDown={(e) => {
+              if (e.key === 'Enter') addRememberedDomain();
+            }}
           />
+          <Button size="sm" variant="secondary" onClick={addRememberedDomain} data-ui="remembered_domain_add">
+            添加
+          </Button>
+          <Feedback phase={rememberedPhase} okText="已记住" failText="操作失败" />
         </div>
+        {value.rememberedDomains.length > 0 ? (
+          <ul className="divide-y divide-[var(--ink-border)] overflow-hidden rounded">
+            {value.rememberedDomains.map((domain) => (
+              <li key={domain} className="flex items-center justify-between gap-2 px-1 py-1.5">
+                <span className="truncate font-mono text-[10px] ink-text-muted">{domain}</span>
+                <Button
+                  size="sm"
+                  variant="ghost"
+                  data-ui={`remembered_domain_remove_${domain}`}
+                  onClick={() => removeRememberedDomain(domain)}
+                >
+                  删除
+                </Button>
+              </li>
+            ))}
+          </ul>
+        ) : (
+          <p className="text-[10px] ink-text-faint">暂无已记住域名（全部联网请求走审批弹卡）。</p>
+        )}
       </div>
       <div className="ink-elevated space-y-2.5 px-3.5 py-3">
         <div className="text-[11px] font-medium tracking-wide ink-text-muted">自动审批（用户预授权）</div>

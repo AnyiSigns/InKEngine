@@ -5,8 +5,7 @@
  *  1. fe2 设置引擎注册 9 节（registerSettingsSections）；
  *  2. fe3 四机制视图注册（activateViews → getRegisteredViews 消费）；
  *  3. fe4 市场/工具/OS/工作区/界面组件注册 + 五个 section 归一进设置注册表；
- *  4. 技能市场组件注册（导航入口消费，键名 skill_market）；
- *  5. 会话层（backend + channelHub + sessionStore）→ App 渲染。
+ *  4. 会话层（backend + channelHub + sessionStore）→ App 渲染。
  */
 
 import { createElement, type ComponentType } from 'react';
@@ -23,7 +22,6 @@ import { registerSettingsSections } from './settings/activate';
 import { registerSettingsSection } from './settings/registry';
 import { activate as activateViews } from './views/activate';
 import { activate as activateWave4, viewRegistrations } from './views/wave4activate';
-import { SkillMarket } from './views/skills/SkillMarket';
 import { KnowledgePanel } from './knowledge/KnowledgePanel';
 import { normalizeWave4Sections } from './wiring/normalizeWave4';
 import App from '../App';
@@ -42,16 +40,11 @@ export function activate(): void {
 
   // 视图组件经 DynamicComponent 渲染时注入 AppBackend（白名单键原样保留，
   // 同名覆盖：装配层闭包提供 backend，组件未声明 backend 的忽略该额外属性）。
-  // 组件市场挂载动作接真：拉取 components_manifest 并注册产物（artifactLoader）。
+  // 已注册组件清单视图自取 components_manifest 并刷新 artifactLoader 注册；
   // MCP 市场挂载动作接真：市场一键挂载（手动挂载，免审批卡）。
   for (const [key, Comp] of Object.entries(viewRegistrations)) {
     const C = Comp as unknown as ComponentType<Record<string, unknown>>;
     const extraProps: Record<string, unknown> = { backend: appBackend };
-    if (key === 'component_market') {
-      extraProps.onMount = () => {
-        void appBackend.refreshComponentManifest();
-      };
-    }
     if (key === 'mcp_market') {
       extraProps.onMount = (entry: { id: string }) => appBackend.mountMcp(entry.id);
       extraProps.onUnmount = (entry: { id: string }) => appBackend.unmountMcp(entry.id);
@@ -62,7 +55,6 @@ export function activate(): void {
     );
   }
 
-  registerComponent('skill_market', SkillMarket as unknown as PlainComponent);
   registerComponent('knowledge_panel', KnowledgePanel as unknown as PlainComponent);
 
   const hub = new ChannelHub({});

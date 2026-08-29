@@ -282,9 +282,12 @@ class BuildDomain:
     def l2_vetting_hook(self) -> Callable[[Any], list[str]]:
         """ARTIFACT 补丁部署前验证（vetting_l2_hook 挂钩）。
 
-        验证项（fail-closed）：产物在构建登记内、声明的文件哈希与
-        产物目录逐文件一致、冒烟记录为通过（meta.smoke.ok）。非
-        ARTIFACT 补丁不在此钩子作用域（放行，交给审批分级）。
+        双形态（fail-closed）：
+        - 外部 URL 组件（``meta.component.url`` 直引，dsh 形态）：验证
+          URL 为 http(s) + 名称声明齐备，L2 人工审批把关；
+        - 本地构建产物：产物在构建登记内、声明的文件哈希与产物目录
+          逐文件一致、冒烟记录为通过（meta.smoke.ok）。
+        非 ARTIFACT 补丁不在此钩子作用域（放行，交给审批分级）。
         """
 
         def hook(proposal: Any) -> list[str]:

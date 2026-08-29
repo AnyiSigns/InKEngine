@@ -1048,6 +1048,54 @@ def _register_graph_ops() -> None:
         security.set_auto_approve([str(t) for t in tools], bool(args.get("all_review")))
         return {"applied": True}
 
+    @op_sync("security.remembered_domains_get")
+    def _remembered_domains_get(args: dict) -> Any:
+        """已记住域名清单（联网审批的域名级记忆；设置页管理列表读入面）。"""
+        host = host_handle()
+        security = getattr(host, "security", None)
+        if security is None:
+            raise RuntimeError("安全域未装配（先经 boot 装配）")
+        return {"domains": security.remembered_domains()}
+
+    @op_sync("security.remembered_domains_set")
+    def _remembered_domains_set(args: dict) -> Any:
+        """已记住域名配置（全量替换：设置页增删 + 审批卡记住域名共用）。
+
+        同步落能力记录（remembered_domains 字段；与自动审批同集合/键，
+        启动经 restore 装载）。域名级后缀匹配由门禁判定，本层只做
+        配置装载。
+        """
+        from inkling_host.security_domain import (
+            AUTO_APPROVE_COLLECTION,
+            AUTO_APPROVE_KEY,
+        )
+
+        host = host_handle()
+        security = getattr(host, "security", None)
+        if security is None:
+            raise RuntimeError("安全域未装配（先经 boot 装配）")
+        domains = args.get("domains") or []
+        if not isinstance(domains, (list, tuple)):
+            raise ValueError("已记住域名清单须为列表")
+        security.set_remembered_domains([str(d) for d in domains])
+
+        # 同步落能力记录（保留既有自动审批字段；storage 为异步 API，
+        # 经宿主循环派发执行）
+        async def _persist() -> None:
+            runtime = runtime_handle()
+            record = await runtime.storage.get_record(
+                AUTO_APPROVE_COLLECTION, AUTO_APPROVE_KEY
+            )
+            if not isinstance(record, dict):
+                record = {}
+            record["remembered_domains"] = sorted(security.remembered_domains())
+            await runtime.storage.put_record(
+                AUTO_APPROVE_COLLECTION, AUTO_APPROVE_KEY, record
+            )
+
+        _run_on_engine_loop(_persist)
+        return {"applied": True, "domains": security.remembered_domains()}
+
     @op_async("workspace.authorize_headless")
     async def _workspace_authorize_headless(args: dict) -> Any:
         """headless 显式工作区授权：调用方声明已获授权（等同 CLI --approve）。
@@ -1933,6 +1981,65 @@ def _register_knowledge_ops() -> None:
             return _jsonable(entry.to_dict())
         return _jsonable(runtime.knowledge_set.export())
 
+    @op_async("knowledge.skill_import")
+    async def _knowledge_skill_import(args: dict) -> Any:
+        """外部技能导入：SKILL.md 多形态源 → 知识集条目（转换 + 闸门 + 落位）。
+
+        ``source`` 支持 url:/git:/npm:/file:/text: 前缀；``preview=True``
+        只解析评估不落库（前端导入预览）。provenance 留痕支持重导入。
+        """
+        from inkling_host.skillmd_import import import_skill_source
+
+        return _jsonable(
+            await import_skill_source(
+                runtime_handle(),
+                args["source"],
+                preview=bool(args.get("preview")),
+            )
+        )
+
+    @op_async("knowledge.skill_reimport")
+    async def _knowledge_skill_reimport(args: dict) -> Any:
+        """外部技能重导入：按条目 provenance 重拉源 → diff → 更新。"""
+        from inkling_host.skillmd_import import reimport_skill_source
+
+        return _jsonable(await reimport_skill_source(runtime_handle(), args["id"]))
+
+    @op_async("knowledge.evolve")
+    async def _knowledge_evolve(args: dict) -> Any:
+        """进化批次自动触发（失败驱动反思式变异 + 三层闸门防退化）。
+
+        候选 = 知识集失败率优先（EvolutionFactory.collect_candidates），
+        变异体经 KNOWLEDGE 补丁落集补丁链（审批 → 审计 → 可回退）。
+        壳侧回合收尾低频调用（如每 N 回合一次）；limit 控制单批规模
+        （缺省 1，防膨胀）。空候选/无可进化条目 = 空结果（不报错）。
+        """
+        host = host_handle()
+        runtime = runtime_handle()
+        incubation = getattr(host, "incubation", None)
+        if incubation is None:
+            return _jsonable({"outcomes": [], "reason": "孵化域未装配"})
+        limit = max(1, int(args.get("limit", 1)))
+        ctx = StandaloneApprovalContext(args.get("thread_id"))
+        outcomes = await incubation.evolve(
+            ctx, limit=limit, round_id=args.get("round_id")
+        )
+        if runtime.knowledge_set is not None:
+            ks = runtime.knowledge_set
+            if getattr(ks, "storage", None) is not None:
+                await ks.save()
+        return _jsonable(
+            {
+                "outcomes": [
+                    {
+                        "variants": [v.id for v in o.variants],
+                        "rejected": list(o.rejected),
+                    }
+                    for o in outcomes
+                ]
+            }
+        )
+
 
 def register_builtin_ops() -> None:
     """注册出厂引擎操作（P10 按域拆分：各域注册函数组见 _register_*_ops）。
@@ -2104,6 +2211,15 @@ async def _report_growth(args: dict) -> Any:
         [a for a in audit if a.get("ts")], key=lambda a: a["ts"], reverse=True
     )[: int(args.get("recent_limit") or 10)]
 
+    # 自学习管线快照（成长状态只读数据面：孵化中信号/闸门通过率/落位）
+    growth_snapshot = None
+    pipeline = _safe_attr_call(runtime, "growth_pipeline")
+    if pipeline is not None:
+        try:
+            growth_snapshot = pipeline.snapshot()
+        except Exception:
+            growth_snapshot = None
+
     return {
         "window": args.get("window") or "current",
         "skill_count": skill_count,
@@ -2113,6 +2229,7 @@ async def _report_growth(args: dict) -> Any:
         "avg_cost": avg_cost,
         "edge_success_total": success_total,
         "edge_fail_total": fail_total,
+        "growth": growth_snapshot,
         "recent_activity": [
             {"type": a.get("type") or a.get("kind"), "ts": a.get("ts")}
             for a in recent_activity
@@ -3018,6 +3135,24 @@ async def _ledger_merge(args: dict) -> Any:
     # 便宜档 LLM 摘要为扩展点：未配置时走确定性压缩（零模型、可测、可复现）
     merged = merge_ledger(old_summary if old_summary else None, new_ledgers)
     return _jsonable({"thread_id": thread_id, **merged})
+
+
+@op_sync("ledger.fact_rules")
+def _ledger_fact_rules(_args: dict) -> Any:
+    """回合事实提取规则导出（权威口径，壳侧契约守卫消费）。
+
+    「哪些事件构成回合事实要点」的口径由引擎单一定义
+    （memory_extract.ROUND_FACT_EVENTS）；壳侧账本归约（round_ledger.rs
+    RECOGNIZED_EVENTS）与记忆提取引用同源——壳侧经本 op 校验自身常量
+    与引擎一致，防两套事件清单漂移（账本漏确认类 → 记忆抽不到）。
+    """
+    from ink_engine.core.memory_extract import ROUND_FACT_EVENTS
+
+    return _jsonable(
+        {
+            "round_fact_events": list(ROUND_FACT_EVENTS),
+        }
+    )
 
 
 @op_async("memory.extract")

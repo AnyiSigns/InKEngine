@@ -1,7 +1,7 @@
 /**
- * 设置页扩展测试：四节（环境容器/应用能力/生长治理/安全信任）+
+ * 设置页扩展测试：四节（应用能力/成长状态/安全信任）+
  * 连接/外观；推理档声明渲染（param=null 隐藏 + 提示）；推演档位；
- * 搜索 key；容器维护入口；挂载向导端到端。
+ * 搜索 key；挂载向导端到端。
  */
 
 import { render, screen, waitFor } from '@testing-library/react';
@@ -12,7 +12,7 @@ import { SettingsForm } from '@/components/settings_form';
 describe('四节导航 + 默认内容', () => {
   it('导航含四节 + 连接/外观/关于；默认分区 = 应用能力（模型挡位）', () => {
     render(<SettingsForm />);
-    for (const label of ['环境容器', '应用能力', '生长治理', '安全信任', '连接', '外观', '关于']) {
+    for (const label of ['应用能力', '成长状态', '安全信任', '连接', '外观', '关于']) {
       expect(screen.getByRole('button', { name: new RegExp(label) })).toBeInTheDocument();
     }
     expect(screen.getByText('router')).toBeInTheDocument();
@@ -59,44 +59,31 @@ describe('应用能力：推理强度档（按 reasoning_profile 声明渲染）
   });
 });
 
-describe('环境容器节', () => {
-  it('创建前审批开关 + 镜像清单 + 孤儿清理三态反馈 + 幂等销毁二次确认', async () => {
+describe('成长状态节', () => {
+  it('只读诊断展示（无操作项）：自学习管线状态/孵化中信号/知识集规模/闸门通过率', async () => {
     const user = userEvent.setup();
     render(<SettingsForm />);
-    await user.click(screen.getByRole('button', { name: /环境容器/ }));
-    expect(screen.getByText('创建容器前必须人工审批（fail-closed）')).toBeInTheDocument();
-    expect(screen.getByLabelText('镜像清单')).toBeInTheDocument();
-    await user.click(screen.getByText('清理孤儿容器'));
-    expect(await screen.findByText('清理完成')).toBeInTheDocument();
-    await user.click(screen.getByText('全部销毁'));
-    expect(screen.getByText('确认销毁全部环境容器？')).toBeInTheDocument();
-    await user.click(screen.getByText('确认'));
-    expect(screen.queryByText('确认销毁全部环境容器？')).not.toBeInTheDocument();
-  });
-});
-
-describe('生长治理节', () => {
-  it('自动孵化开关/种子观察周期/闸门默认档/记忆窗口', async () => {
-    const user = userEvent.setup();
-    render(<SettingsForm />);
-    await user.click(screen.getByRole('button', { name: /生长治理/ }));
-    expect(screen.getByText('自动孵化观察信号（会话内静默收集，变更落位需闸门）')).toBeInTheDocument();
-    await user.click(screen.getByText('L1'));
-    expect(document.querySelector('[data-ui="growth_gate_L1"]')?.getAttribute('data-active')).toBe('true');
-    expect(screen.getByLabelText('记忆失效窗口')).toBeInTheDocument();
+    await user.click(screen.getByRole('button', { name: /成长状态/ }));
+    expect(screen.getByText('自学习管线（孵化闭环）')).toBeInTheDocument();
+    expect(screen.getByText('孵化中信号')).toBeInTheDocument();
+    expect(screen.getByText('知识集规模')).toBeInTheDocument();
+    expect(screen.getByText('闸门通过率')).toBeInTheDocument();
+    expect(screen.getByText('默认开启')).toBeInTheDocument();
+    expect(screen.queryByText('自动孵化观察信号（会话内静默收集，变更落位需闸门）')).not.toBeInTheDocument();
   });
 });
 
 describe('安全信任节', () => {
-  it('权限矩阵/默认权限档/网络策略/审计入口/导出恢复入口', async () => {
+  it('权限矩阵/默认权限档/已记住域名/审计入口/导出恢复入口', async () => {
     const user = userEvent.setup();
     render(<SettingsForm />);
     await user.click(screen.getByRole('button', { name: /安全信任/ }));
     expect(screen.getByText('权限矩阵（kind → L0/L1/L2）')).toBeInTheDocument();
     expect(screen.getByText('默认权限档')).toBeInTheDocument();
-    expect(screen.getByText('网络策略')).toBeInTheDocument();
-    await user.type(screen.getByLabelText('网络域名白名单'), 'docs.example.org');
-    expect((screen.getByLabelText('网络域名白名单') as HTMLInputElement).value).toBe('docs.example.org');
+    expect(screen.getByText('已记住域名')).toBeInTheDocument();
+    await user.type(screen.getByLabelText('记住域名输入'), 'docs.example.org');
+    await user.click(screen.getByText('添加'));
+    expect(await screen.findByText('docs.example.org')).toBeInTheDocument();
     await user.click(screen.getByText('导出审计日志'));
     expect(await screen.findByText('审计日志已导出')).toBeInTheDocument();
     expect(screen.getByText('一键导出')).toBeInTheDocument();

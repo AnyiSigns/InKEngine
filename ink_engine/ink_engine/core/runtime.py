@@ -140,6 +140,69 @@ def _spec_identity(spec: Any) -> str:
         return repr(body)
 
 
+class _KnowledgeUsageSettleHook:
+    """知识使用归因（settle 钩子）：回合收尾按成败对注入知识记 fail。
+
+    演化候选的数据源闭环：回合装配注入知识（provide 命中即
+    ``record_usage`` 成功留痕）→ 回合收尾若失败（错误/预算超限/异常
+    终止），对本回合注入的知识条目补记 ``record_usage(failed=True,
+    log=...)``——失败日志 = 反思式变异的输入（EvolutionFactory 按近期
+    失败定向修订）。随后清空回合命中集合（回合边界）。
+
+    观测侧语义：归因失败只记日志不阻断 run 结果交付（settle 钩子
+    通用纪律）。
+    """
+
+    def __init__(self, runtime: Runtime) -> None:
+        self._runtime = runtime
+
+    async def settle(self, ctx: SettleContext) -> None:
+        hits = getattr(self._runtime, "_round_knowledge_hits", None)
+        if hits is None or not hits:
+            return
+        failed = _round_failed(ctx)
+        failed_reason = _round_failure_reason(ctx)
+        ks = self._runtime.knowledge_set
+        if ks is not None:
+            for entry_id in list(hits):
+                try:
+                    if failed:
+                        ks.record_usage(
+                            entry_id,
+                            failed=True,
+                            log=failed_reason or "回合失败（知识归因）",
+                        )
+                except Exception as exc:
+                    logger.warning("知识失败归因记录失败（忽略）: %s: %s", entry_id, exc)
+        hits.clear()
+
+    def __repr__(self) -> str:
+        return "_KnowledgeUsageSettleHook"
+
+
+def _round_failed(ctx: SettleContext) -> bool:
+    """回合失败判定（与证据归因 run_verdict 同语义：有失败结点 /
+    错误收尾 / 预算截断 = 失败；中断挂起中性不算失败但也不记成功）。"""
+    if any(getattr(s, "status", None) == "failed" for s in ctx.steps):
+        return True
+    reason = getattr(ctx.result, "reason", None)
+    return reason in ("error", "budget_exceeded")
+
+
+def _round_failure_reason(ctx: SettleContext) -> str | None:
+    """失败原因摘要（记入失败日志，供进化工厂反思）。"""
+    for step in ctx.steps:
+        if getattr(step, "status", None) == "failed":
+            note = getattr(step, "error", None) or getattr(step, "note", None)
+            if note:
+                return str(note)
+    error = getattr(ctx.result, "error", None)
+    if error:
+        return str(error)
+    reason = getattr(ctx.result, "reason", None)
+    return f"回合{reason}" if reason else None
+
+
 class RuntimeState(StrEnum):
     """运行时生命周期状态（显式枚举 + 转换守卫，非法转换显式报错）。"""
 
@@ -358,6 +421,9 @@ class Runtime:
         self.tool_registry: dict[str, ToolSpec] = {}
         # 池治理登记器（容量/淘汰/合并/预算四规则；只登记不执行）
         self.pool_governance: PoolGovernance | None = None
+        # 本回合注入的知识条目 id（知识使用留痕：provide 命中即记，回合
+        # 收尾按成败归因 usage/fail——演化候选（失败驱动）的数据源）
+        self._round_knowledge_hits: set[str] = set()
 
         # 工具向量索引（工具注入瘦身）：search_tools/request_tool 的检索后端
         self.tool_index: ToolVectorIndex | None = None
@@ -509,6 +575,13 @@ class Runtime:
             seed_general(self.knowledge_set)
             for _domain, provider in recipe.seeds:
                 seed_knowledge_set(self.knowledge_set, provider())
+
+        # ③-a 自学习管线（孵化闭环）：回合事件 → 信号 → 蒸馏 → 三层闸门
+        #    → 知识集落位。出厂默认开启、引擎自承载（成长状态视图只读消费
+        #    snapshot）；重建引擎时注册进 settle 钩子链与事件观察传输。
+        from .growth import GrowthPipeline
+
+        self.growth_pipeline = GrowthPipeline(self.knowledge_set)
 
         # ④ harness 装配（定义注册 + 仓库落库；装配期写入经豁免上下文）。
         #    集合按集隔离（harness:<set_id>），与 knowledge:<set> 同构
@@ -695,6 +768,11 @@ class Runtime:
 
         # ⑬ 从链恢复集状态（重启/回退后活跃态一致；链损坏回落基线）
         await self._restore_set_state(recipe)
+
+        # ⑬-a 自学习管线跟随集状态恢复后的最新知识集实例（from_export
+        #    会替换知识集对象——管线持旧引用 = 落位落在被替换的实例上）
+        if self.growth_pipeline is not None:
+            self.growth_pipeline.knowledge_set = self.knowledge_set
 
         # ⑬-a 工具向量索引构建（工具注入瘦身）：全量工具 → 向量，
         #     search_tools/request_tool 检索后端；失败降级关键词基线
@@ -1071,10 +1149,17 @@ class Runtime:
         settle_hooks = SettleHooks()
         if self.pool_governance is not None:
             settle_hooks.register(PoolGovernanceSettleHook(self.pool_governance))
+        # 知识使用归因（演化候选的数据源）：回合收尾按成败对注入知识
+        # 记 usage/fail——失败驱动进化工厂的「失败日志」从此有来源。
+        settle_hooks.register(_KnowledgeUsageSettleHook(self))
+        # 自学习闭环（默认开）：回合收尾按需蒸馏 + 闸门落位知识集
+        settle_hooks.register(self.growth_pipeline)
         options = RunOptions(
             storage=self.storage,
             registries=self.graph_registries,
-            transports=[],
+            # 自学习管线观察回合事件流（观测不阻断执行；宿主各自注入
+            # 传输，此传输不向宿主外发——只进不出）
+            transports=[self.growth_pipeline],
             system_events=context.system_events,
             assembly=context.assembly,
             assembly_sources=context.assembly_sources,
@@ -1092,6 +1177,18 @@ class Runtime:
             graph,
             options=options,
         )
+        # 自学习管线发射回调接入引擎事件流：孵化动态（信号/蒸馏/闸门）
+        # 落引擎事件日志并推送全部传输（宿主传输 → 壳侧 → 前端演化页签）。
+        # 发射目标 = 引擎自身 publish（观测不阻断沉淀链路）。
+        if self.growth_pipeline is not None:
+            self.growth_pipeline.set_emit(
+                lambda etype, payload: engine.publish_event(
+                    etype,
+                    payload,
+                    thread_id="-",
+                    node="growth",
+                )
+            )
         self.engine = engine
         self.engine_llm = llm
         self._engine_storage = self.storage
@@ -1200,6 +1297,14 @@ class Runtime:
                         max_chars=1200,
                     )
                 )
+            # 知识使用留痕：命中条目记 usage（演化候选的数据源——失败
+            # 归因在回合收尾钩子按成败标记 fail）。零记录不阻断装配。
+            for entry in knowledge_hits:
+                self._round_knowledge_hits.add(entry.id)
+                try:
+                    self.knowledge_set.record_usage(entry.id)
+                except Exception:
+                    pass
             return sources
 
         return provide

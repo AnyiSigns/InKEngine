@@ -28,6 +28,24 @@ export interface KnowledgeOps {
   archive(id: string): Promise<void>;
   restore(id: string): Promise<void>;
   export(id: string): Promise<void>;
+  skillImport(source: string, preview?: boolean): Promise<ImportOutcome | null>;
+  skillReimport(id: string): Promise<ImportOutcome | null>;
+}
+
+export interface ImportedEntry {
+  id: string;
+  kind: string;
+  title: string;
+}
+
+export interface ImportOutcome {
+  ok?: boolean;
+  error?: string;
+  source_type?: string;
+  added?: ImportedEntry[];
+  rejected?: Array<{ id: string; reason: string }>;
+  changed?: boolean;
+  note?: string;
 }
 
 export function createKnowledgeOps(): KnowledgeOps {
@@ -50,6 +68,12 @@ export function createKnowledgeOps(): KnowledgeOps {
     },
     export: async (id: string) => {
       await invokeOp('knowledge.export', { id });
+    },
+    skillImport: async (source, preview = false) => {
+      return await invokeOp<ImportOutcome>('knowledge.skill_import', { source, preview });
+    },
+    skillReimport: async (id: string) => {
+      return await invokeOp<ImportOutcome>('knowledge.skill_reimport', { id });
     },
   };
 }

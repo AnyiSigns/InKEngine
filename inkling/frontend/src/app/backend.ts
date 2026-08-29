@@ -21,7 +21,7 @@ import type { UISpec } from '@/renderer/uiSpecTypes';
 
 import { isFixtureMode } from './wiring/env';
 
-import type { McpMarketEntry, ComponentMarketEntry, ToolDetail } from './types';
+import type { McpMarketEntry, ToolDetail, AppArtifactEntry } from './types';
 import type {
   McpMarketSummary,
   McpMountOutcome,
@@ -30,7 +30,6 @@ import type {
 } from '@/shared/backend/backendAdapter';
 
 import mcpMarketSeed from '../../../seed_data/mcp_market.json';
-import componentsMarketSeed from '../../../seed_data/components_market.json';
 import toolsSeed from '../../../seed_data/tools.json';
 import uiSpecSeed from '../../../seed_data/ui_spec.json';
 
@@ -207,19 +206,21 @@ export class AppBackend {
     }
   }
 
-  /** 组件市场数据：从种子 components_market.json 驱动；演示态外不内嵌夹具。 */
-  getComponentMarket(): ComponentMarketEntry[] {
-    if (!isFixtureMode()) return [];
-    return (componentsMarketSeed as { components?: ComponentMarketEntry[] }).components ?? [];
-  }
-
-  /** 组件市场挂载策略 */
-  getComponentMountPolicy(): { required: string[]; note: string } {
-    const seed = componentsMarketSeed as { mount_policy?: { required?: string[]; note?: string } };
-    return {
-      required: seed.mount_policy?.required ?? [],
-      note: seed.mount_policy?.note ?? '',
-    };
+  /** 已注册/已挂载组件清单：拉取宿主 components_manifest（链为权威）。
+   *
+   * 与 MCP 市场分离：组件不再是「可挂载市场目录」，而是补丁链产物的
+   * 已注册清单（agent 自写 / 外部 URL 组件经 ARTIFACT 补丁落链登记）。
+   * 宿主不可用 = 空清单（无夹具回落）。
+   */
+  async getComponentsManifest(): Promise<AppArtifactEntry[]> {
+    if (!this.backend?.available) return [];
+    try {
+      const manifest = await this.backend.componentsManifest();
+      return (manifest.artifacts ?? []) as AppArtifactEntry[];
+    } catch (err) {
+      logger.warn('app', '获取组件清单失败', { err: String(err) });
+      return [];
+    }
   }
 
   /** MCP 市场挂载策略 */
@@ -234,11 +235,6 @@ export class AppBackend {
   /** MCP 出厂零预挂标记 */
   isMcpPremounted(): boolean {
     return (mcpMarketSeed as { premounted?: boolean }).premounted ?? false;
-  }
-
-  /** 组件出厂零预挂标记 */
-  isComponentPremounted(): boolean {
-    return (componentsMarketSeed as { premounted?: boolean }).premounted ?? false;
   }
 
   /**

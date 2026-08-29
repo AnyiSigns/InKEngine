@@ -14,26 +14,6 @@ import type { ArtifactManifestEntry, ToolSnapshotEntry, McpMarketEntrySummary } 
  */
 export type McpMarketEntry = McpMarketEntrySummary;
 
-/** 组件市场条目（与 seed_data/components_market.json components[] 同源）。 */
-export interface ComponentMarketEntry {
-  id: string;
-  name: string;
-  source: string;
-  version: string;
-  risk: 'low' | 'medium' | 'high';
-  risk_note: string;
-  artifact_url: string;
-  test_manifest: { required: string[]; note: string };
-  maintenance: 'maintained' | 'experimental' | 'deprecated';
-}
-
-/** 组件市场数据（与 seed_data/components_market.json 同源）。 */
-export interface ComponentMarketData {
-  premounted: boolean;
-  mount_policy: { required: string[]; note: string };
-  components: ComponentMarketEntry[];
-}
-
 /** MCP 市场数据（与 seed_data/mcp_market.json 同源）。 */
 export interface McpMarketData {
   premounted: boolean;

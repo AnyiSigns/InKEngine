@@ -3,7 +3,7 @@
  *
  * 集成期替换为真实事件源（SSE/宿主桥）——驱动接口 = dispatch(HubEvent)，
  * 组件与渲染器不感知来源。脚本节奏：思考/工具/孵化/推演/审批/设备留痕，
- * 覆盖 message_list/审批卡/孵化面板/时间线/推演树/来源明细的联动演示。
+ * 覆盖 message_list/审批卡/孵化面板/时间线/推演树的联动演示。
  */
 
 import type { ChannelHub, HubEvent } from './channelHub';

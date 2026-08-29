@@ -47,7 +47,7 @@ import json
 import random
 import re
 import time
-from collections.abc import Callable, Collection, Mapping, Sequence
+from collections.abc import Awaitable, Callable, Collection, Mapping, Sequence
 from contextvars import ContextVar
 from dataclasses import dataclass, field, replace
 from typing import Any, Protocol, runtime_checkable
@@ -130,6 +130,8 @@ DEFAULT_DRAFT_TIMEOUT = 30.0
 CANDIDATE_SOURCE_ALGORITHM = "algorithm"
 CANDIDATE_SOURCE_DRAFT = "draft"
 CANDIDATE_SOURCE_CACHE = "cache"
+# 技能先例源（知识集 kind=path 条目注入的候选链——证据背书的先例层）
+CANDIDATE_SOURCE_SKILL = "skill"
 
 # 边证据索引键（ENG9a-17 类型别名）：(src_type, dst_type, src_contract_version,
 # dst_contract_version, variant_hash) 五元组——类型级口径（variant_hash 空）。
@@ -1130,6 +1132,11 @@ class PathAssembler:
             变化 = 旧条目降级不命中）。
         cache_epsilon: 抽样重装概率（命中时以 ε 概率绕过缓存重新组装
             对比；ε≈0 = 关闭，默认引擎钉死，使用方仅覆盖权）。
+        skill_provider: 技能先例提供器（异步，输入组装请求 → 候选技能
+            值对象清单；None = 技能层零参与）。消费时机 = 路径组装阶段
+            先例层（缓存未命中时）：技能路径作为带证据的候选链参与
+            合法性校验/评分/排名——不进上下文注入（执行物非 prompt
+            文本，检索侧按 kind 排除）。
     """
 
     def __init__(
@@ -1145,6 +1152,7 @@ class PathAssembler:
         model_id: str = "",
         cache_epsilon: float = DEFAULT_CACHE_EPSILON,
         rng: random.Random | None = None,
+        skill_provider: Callable[[Any], Awaitable[Sequence[Any]]] | None = None,
     ) -> None:
         self._registry = registry
         self._evidence = evidence_store
@@ -1158,6 +1166,7 @@ class PathAssembler:
         # ε 抽样随机源（ENG9a-20 rng 注入）：None = 模块级 random（缺省
         # 不可复现）；注入 seed 的 Random 实例 = 抽样路径确定性可复现
         self._rng = rng or random
+        self._skill_provider = skill_provider
 
     def contract_pool(self) -> dict[str, NodeContract]:
         """池子快照：注册表内全部带契约的类型（类型名 → 契约）。"""
@@ -1700,6 +1709,49 @@ class PathAssembler:
         graph.add_exit(chain[-1])
         return graph
 
+    async def _skill_chains(
+        self,
+        request: AssemblyRequest,
+        pool: Mapping[str, NodeContract],
+    ) -> list[tuple[tuple[str, ...], str, bool]]:
+        """技能先例链：技能值对象 → 类型链（重建失败/退化链 = 跳过）。
+
+        消费时机 = 路径组装先例层（缓存未命中后、算法层前）：技能路径
+        作为带证据的候选链进入既有合法性校验/评分/排名管线（不进上下文
+        注入——执行物非 prompt 文本，检索侧按 kind 排除）。重建失败
+        （引用类型缺失/结构非法）= 跳过该技能，不静默产出残缺候选。
+        """
+        provider = self._skill_provider
+        if provider is None:
+            return []
+        try:
+            skills = await provider(request)
+        except Exception as exc:
+            logger.warning("技能先例获取失败（忽略，走算法层）: %s", exc)
+            return []
+        chains: list[tuple[tuple[str, ...], str, bool]] = []
+        for skill in skills:
+            path = getattr(skill, "path", None)
+            if not isinstance(path, dict):
+                continue
+            try:
+                graph = Graph.from_dict(
+                    dict(path), registry=self._registry, validate=True
+                )
+            except GraphDefinitionError:
+                continue
+            # 结点名链 → 类型名链（校验/评分消费类型名；与缓存命中同口径）
+            node_chain = _graph_chain(graph)
+            type_chain = tuple(
+                graph.node_bindings[name].type_name
+                for name in node_chain
+                if name in graph.node_bindings
+            )
+            if len(type_chain) < 2:
+                continue
+            chains.append((type_chain, CANDIDATE_SOURCE_SKILL, False))
+        return chains
+
     async def assemble(
         self,
         request: AssemblyRequest,
@@ -1808,9 +1860,12 @@ class PathAssembler:
             stats=stats,
             views=index,
         )
-        chains: list[tuple[tuple[str, ...], str, bool]] = [
+        chains: list[tuple[tuple[str, ...], str, bool]] = list(
+            await self._skill_chains(request, pool)
+        )
+        chains.extend(
             (chain, CANDIDATE_SOURCE_ALGORITHM, False) for chain in algorithm_chains
-        ]
+        )
         llm_attempts = 0
         fallback_reason: str | None = None
         # ② LLM 草稿（使用方注入；仅反推解不出时由使用方开启 llm_draft）
@@ -2458,6 +2513,7 @@ __all__ = [
     "CANDIDATE_SOURCE_ALGORITHM",
     "CANDIDATE_SOURCE_CACHE",
     "CANDIDATE_SOURCE_DRAFT",
+    "CANDIDATE_SOURCE_SKILL",
     "DEFAULT_BEAM_WIDTH",
     "DEFAULT_CACHE_EPSILON",
     "DEFAULT_CANARY_TIMEOUT",

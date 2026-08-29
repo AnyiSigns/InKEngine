@@ -7,7 +7,7 @@
  */
 
 import { type ReactNode } from 'react';
-import { Server, Wrench, Shield, Settings } from 'lucide-react';
+import { Server, Wrench, Shield, Settings, Boxes } from 'lucide-react';
 
 import type { UISpec } from '@/renderer/uiSpecTypes';
 import { registerEventRenderers } from '../renderers/eventRenderers';
@@ -15,10 +15,9 @@ import { registerComponent, type PlainComponent } from '@/renderer/componentRegi
 import type { AppBackend } from '../backend';
 
 import { McpMarket } from './markets/McpMarket';
-import { ComponentMarket } from './markets/ComponentMarket';
+import { ComponentRegistry } from './markets/ComponentRegistry';
 import { ToolsPanel } from './tools/ToolsPanel';
 import { WorkspaceAuth } from './workspace/WorkspaceAuth';
-import { EnvironmentContainer } from './workspace/EnvironmentContainer';
 import { UiEditorHost } from './uieditor/UiEditorHost';
 
 /** 设置节契约（波 2 registry 签名） */
@@ -46,10 +45,9 @@ export interface SettingsSectionSpec {
 /** 激活函数：注册所有视图/渲染器/设置节。 */
 export function activate(backend: AppBackend): { sections: SettingsSectionSpec[] } {
   registerComponent('mcp_market', McpMarket as unknown as PlainComponent);
-  registerComponent('component_market', ComponentMarket as unknown as PlainComponent);
+  registerComponent('component_registry', ComponentRegistry as unknown as PlainComponent);
   registerComponent('tools_panel', ToolsPanel as unknown as PlainComponent);
   registerComponent('workspace_auth', WorkspaceAuth as unknown as PlainComponent);
-  registerComponent('environment_container', EnvironmentContainer as unknown as PlainComponent);
   registerComponent('ui_editor_host', UiEditorHost as unknown as PlainComponent);
 
   registerEventRenderers();
@@ -69,12 +67,20 @@ export function activate(backend: AppBackend): { sections: SettingsSectionSpec[]
           read: () => backend.getMcpMarket(),
           write: () => {},
         },
+      ],
+    },
+    {
+      key: 'components',
+      label: '组件',
+      icon: <Boxes size={14} strokeWidth={1.5} />,
+      order: 15,
+      items: [
         {
-          key: 'component_market',
-          label: '组件市场',
-          hint: '浏览并挂载 UI 组件（onMount 拉取 components_manifest）',
+          key: 'component_registry',
+          label: '已注册组件',
+          hint: '补丁链登记的组件清单（agent 自写 / 外部拉取注册，非市场目录）',
           kind: 'component',
-          read: () => backend.getComponentMarket(),
+          read: () => backend.getComponentsManifest(),
           write: () => {},
         },
       ],
@@ -109,15 +115,6 @@ export function activate(backend: AppBackend): { sections: SettingsSectionSpec[]
           read: () => backend.getAuthorizationState(),
           write: () => {},
         },
-        {
-          key: 'environment_container',
-          label: '环境容器',
-          hint: '桌面以 OS 沙箱为主；容器域标记（禁用态）',
-          kind: 'component',
-          read: () => ({}),
-          write: () => {},
-          disabledReason: '容器域方案尚未实现，占位禁用',
-        },
       ],
     },
     {
@@ -146,10 +143,9 @@ export type Wave4SettingsSection = SettingsSectionSpec;
 
 export const viewRegistrations = {
   mcp_market: McpMarket,
-  component_market: ComponentMarket,
+  component_registry: ComponentRegistry,
   tools_panel: ToolsPanel,
   workspace_auth: WorkspaceAuth,
-  environment_container: EnvironmentContainer,
   ui_editor_host: UiEditorHost,
 } as const;
 

@@ -12,8 +12,8 @@ describe('activate (W4/W5)', () => {
     const backend = createAppBackend({ backend: { available: false } as never });
     const { sections } = activate(backend);
 
-    expect(sections.length).toBe(4);
-    expect(sections.map((s) => s.key)).toEqual(['markets', 'tools', 'workspace', 'ui_editor']);
+    expect(sections.length).toBe(5);
+    expect(sections.map((s) => s.key)).toEqual(['markets', 'components', 'tools', 'workspace', 'ui_editor']);
   });
 
   it('settings sections 按顺序排列', () => {
@@ -24,15 +24,24 @@ describe('activate (W4/W5)', () => {
     expect(orders).toEqual([...orders].sort((a, b) => a - b));
   });
 
-  it('market section 包含 MCP 市场 + 组件市场', () => {
+  it('market section 只含 MCP 市场（组件已分离）', () => {
     const backend = createAppBackend({ backend: { available: false } as never });
     const { sections } = activate(backend);
 
     const marketSection = sections.find((s) => s.key === 'markets');
     expect(marketSection).toBeTruthy();
     const keys = marketSection!.items!.map((i) => i.key);
-    expect(keys).toContain('mcp_market');
-    expect(keys).toContain('component_market');
+    expect(keys).toEqual(['mcp_market']);
+    expect(keys).not.toContain('component_market');
+  });
+
+  it('components section 展示已注册组件清单', () => {
+    const backend = createAppBackend({ backend: { available: false } as never });
+    const { sections } = activate(backend);
+
+    const componentsSection = sections.find((s) => s.key === 'components');
+    expect(componentsSection).toBeTruthy();
+    expect(componentsSection!.items![0].key).toBe('component_registry');
   });
 
   it('tools section 包含工具注册表', () => {
@@ -44,7 +53,7 @@ describe('activate (W4/W5)', () => {
     expect(toolsSection!.items![0].key).toBe('tools_panel');
   });
 
-  it('workspace section 包含授权 + 环境容器', () => {
+  it('workspace section 包含授权目录', () => {
     const backend = createAppBackend({ backend: { available: false } as never });
     const { sections } = activate(backend);
 
@@ -52,16 +61,6 @@ describe('activate (W4/W5)', () => {
     expect(wsSection).toBeTruthy();
     const keys = wsSection!.items!.map((i) => i.key);
     expect(keys).toContain('workspace_auth');
-    expect(keys).toContain('environment_container');
-  });
-
-  it('environment_container 节带有 disabledReason（禁用态）', () => {
-    const backend = createAppBackend({ backend: { available: false } as never });
-    const { sections } = activate(backend);
-
-    const wsSection = sections.find((s) => s.key === 'workspace');
-    const envItem = wsSection!.items!.find((i) => i.key === 'environment_container');
-    expect(envItem!.disabledReason).toBeTruthy();
   });
 
   it('ui_editor section 包含界面树编辑器', () => {
@@ -75,10 +74,9 @@ describe('activate (W4/W5)', () => {
 
   it('viewRegistrations 导出所有视图组件', () => {
     expect(viewRegistrations.mcp_market).toBeTruthy();
-    expect(viewRegistrations.component_market).toBeTruthy();
+    expect(viewRegistrations.component_registry).toBeTruthy();
     expect(viewRegistrations.tools_panel).toBeTruthy();
     expect(viewRegistrations.workspace_auth).toBeTruthy();
-    expect(viewRegistrations.environment_container).toBeTruthy();
     expect(viewRegistrations.ui_editor_host).toBeTruthy();
   });
 });

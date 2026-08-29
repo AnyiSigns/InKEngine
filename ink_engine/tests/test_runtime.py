@@ -741,3 +741,119 @@ async def test_tune_after_round_low_failure_adjusts_conservatively():
     params = TunableParams.from_dict(entry.data)
     assert params.retry_budget == 1  # 无失败不虚增重试预算
     assert params.web_verify_threshold > 0.5  # 低失败率 → 阈值回调（减少无谓验证）
+
+
+async def test_assembly_provide_records_knowledge_usage():
+    """回合装配命中知识即 record_usage（演化候选数据源：使用留痕）。"""
+    runtime = await Runtime().boot(FakeHost(), _minimal_recipe())
+    runtime.knowledge_set.add(
+        KnowledgeEntry(
+            id="k-usage-track",
+            level="work",
+            kind=KIND_RULE,
+            data={"rule": {"message": "被注入使用的知识"}},
+            source="model",
+            credibility=0.6,
+            title="使用留痕",
+            tags=("使用",),
+        )
+    )
+    provider = runtime._assembly_sources()
+    sources = await provider(_Ctx("使用留痕"))
+    assert sources, "知识命中应产出装配源"
+    assert "k-usage-track" in runtime._round_knowledge_hits
+    entry = runtime.knowledge_set.get("k-usage-track")
+    assert entry.usage_count >= 1
+
+
+async def test_knowledge_usage_settle_hook_marks_failure():
+    """回合收尾失败归因：注入知识补记 fail（失败日志 → 进化候选）。"""
+    runtime = await Runtime().boot(FakeHost(), _minimal_recipe())
+    runtime.knowledge_set.add(
+        KnowledgeEntry(
+            id="k-fail-track",
+            level="work",
+            kind=KIND_RULE,
+            data={"rule": {"message": "失败回合注入的知识"}},
+            source="model",
+            credibility=0.6,
+            title="失败留痕",
+            tags=("失败",),
+        )
+    )
+    runtime._round_knowledge_hits.add("k-fail-track")
+    runtime._round_knowledge_hits.add("k-missing")  # 不存在条目：静默跳过
+
+    # 构造失败结果（reason=error）的 settle ctx
+    from ink_engine.core.settle import SettleContext
+
+    class _Res:
+        reason = "error"
+        error = "节点执行失败"
+        interrupt = None
+
+    ctx = SettleContext(
+        thread_id="t1",
+        round_id="r1",
+        trace_id="tr1",
+        domain="default",
+        steps=(),
+        node_tokens={},
+        graphs={},
+        result=_Res(),
+    )
+    from ink_engine.core.runtime import _KnowledgeUsageSettleHook
+
+    hook = _KnowledgeUsageSettleHook(runtime)
+    await hook.settle(ctx)
+
+    entry = runtime.knowledge_set.get("k-fail-track")
+    assert entry.usage_count == 1  # 失败归因记 1 次使用（usage+fail 同记）
+    assert entry.fail_count == 1
+    assert any("节点执行失败" in log for log in entry.failure_logs)
+    assert "k-fail-track" not in runtime._round_knowledge_hits  # 回合边界清空
+
+
+async def test_knowledge_usage_settle_hook_neutral_keeps_no_fail():
+    """回合正常回复：注入知识只记成功使用，不补失败日志。"""
+    runtime = await Runtime().boot(FakeHost(), _minimal_recipe())
+    runtime.knowledge_set.add(
+        KnowledgeEntry(
+            id="k-neutral-track",
+            level="work",
+            kind=KIND_RULE,
+            data={"rule": {"message": "成功回合注入的知识"}},
+            source="model",
+            credibility=0.6,
+            title="成功留痕",
+            tags=("成功",),
+        )
+    )
+    runtime._round_knowledge_hits.add("k-neutral-track")
+
+    from ink_engine.core.settle import SettleContext
+
+    class _Res:
+        reason = "reply"
+        error = None
+        interrupt = None
+
+    ctx = SettleContext(
+        thread_id="t1",
+        round_id="r1",
+        trace_id="tr1",
+        domain="default",
+        steps=(),
+        node_tokens={},
+        graphs={},
+        result=_Res(),
+    )
+    from ink_engine.core.runtime import _KnowledgeUsageSettleHook
+
+    hook = _KnowledgeUsageSettleHook(runtime)
+    await hook.settle(ctx)
+
+    entry = runtime.knowledge_set.get("k-neutral-track")
+    assert entry.fail_count == 0
+    assert entry.failure_logs == ()
+    assert runtime._round_knowledge_hits == set()

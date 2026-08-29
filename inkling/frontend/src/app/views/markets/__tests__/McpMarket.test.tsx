@@ -6,10 +6,21 @@ import { createAppBackend, type AppBackend } from '../../../backend';
 import type { McpMarketEntry } from '../../../types';
 import type { McpMountStatus } from '../../../../shared/backend/backendAdapter';
 
-function makeMockBackend(entries: McpMarketEntry[] = []): AppBackend {
+function makeMockBackend(
+  entries: McpMarketEntry[] = [],
+  marketOverrides: { id?: string; name?: string; builtin?: boolean } = {},
+): AppBackend {
   const backend = createAppBackend({ backend: { available: false } as never });
   const status: McpMountStatus = {
-    markets: [{ id: 'market', name: '内置市场', source: '', builtin: true, servers: entries }],
+    markets: [
+      {
+        id: marketOverrides.id ?? 'market',
+        name: marketOverrides.name ?? '用户市场',
+        source: '',
+        builtin: marketOverrides.builtin ?? false,
+        servers: entries,
+      },
+    ],
     mounted: {},
   };
   vi.spyOn(backend, 'getMcpMarketStatus').mockResolvedValue(status);
@@ -63,13 +74,24 @@ describe('McpMarket (W5.1)', () => {
     expect(screen.getByText('本地 stdio Server')).toBeTruthy();
   });
 
-  it('空态显示「暂无可用服务」', async () => {
+  it('空态显示「暂无市场」引导', async () => {
     const backend = makeMockBackend([]);
     render(<McpMarket backend={backend} />);
 
     await waitFor(() => {
-      expect(screen.getByText('暂无可用服务')).toBeTruthy();
+      expect(screen.getByText('暂无市场')).toBeTruthy();
     });
+  });
+
+  it('内置市场（builtin）条目不展示', async () => {
+    const backend = makeMockBackend(sampleEntries, { name: '内置市场', builtin: true });
+    render(<McpMarket backend={backend} />);
+
+    await waitFor(() => {
+      expect(screen.getByText('暂无市场')).toBeTruthy();
+    });
+    expect(screen.queryByText('示例 MCP Server')).toBeNull();
+    expect(screen.queryByText('内置市场')).toBeNull();
   });
 
   it('风险徽标渲染（高风险=朱砂色）', async () => {

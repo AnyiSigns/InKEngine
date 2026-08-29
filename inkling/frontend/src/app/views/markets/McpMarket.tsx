@@ -1,14 +1,14 @@
 /**
  * MCP 市场浏览视图（W5.1 多市场形态）：从宿主 mcp_market_status 驱动
- * 真实市场注册表（内置市场出厂零预挂 ∪ 用户添加市场），按市场分组展示
- * 服务；挂载/取消挂载经宿主命令（手动挂载，免审批卡）。
+ * 用户添加的真实市场注册表（内置示例目录已移出），按市场分组展示服务；
+ * 挂载/取消挂载经宿主命令（手动挂载，免审批卡）。
  *
  * 展示形态：市场分组列表（类别/风险徽标/transport 图标）+ 条目详情抽屉
  * （transport/url/command/args/credentials/risk_note）。已挂载服务标
  * 「已挂载」并提供「取消挂载」。
  */
 
-import { useEffect, useState } from 'react';
+import { useEffect, useMemo, useState } from 'react';
 import type { ReactNode } from 'react';
 import { Globe, Terminal, AlertTriangle, CheckCircle, XCircle, Copy } from 'lucide-react';
 
@@ -197,7 +197,11 @@ export function McpMarket({ backend, onMount, onUnmount }: McpMarketProps) {
     }
   };
 
-  const serverCount = status?.markets.reduce((n, m) => n + m.servers.length, 0) ?? 0;
+  const visibleMarkets = useMemo(
+    () => (status?.markets ?? []).filter((m) => !m.builtin),
+    [status],
+  );
+  const serverCount = visibleMarkets.reduce((n, m) => n + m.servers.length, 0);
   const mountedIds = new Set(Object.keys(status?.mounted ?? {}));
 
   return (
@@ -219,14 +223,18 @@ export function McpMarket({ backend, onMount, onUnmount }: McpMarketProps) {
       {!status || serverCount === 0 ? (
         <div className="mt-3 rounded-xl border border-dashed px-3 py-6 text-center text-[11px] ink-border ink-text-faint">
           <Terminal size={24} strokeWidth={1.5} className="mx-auto mb-2 ink-text-faint" aria-hidden />
-          <p>暂无可用服务</p>
+          <p>暂无市场</p>
+          <p className="mt-1 text-[10px] leading-relaxed">
+            出厂零预挂：内置示例目录已移出，本页只展示用户添加的市场。
+            可在设置 → 连接 添加市场链接（http(s)://… 或本地目录路径）后浏览挂载。
+          </p>
         </div>
       ) : (
-        status.markets.map((market) => (
+        visibleMarkets.map((market) => (
           <div key={market.id} className="mt-3" data-mcp-market={market.id}>
             <div className="mb-1.5 flex items-center gap-2">
               <span className="text-[11px] font-medium">{market.name}</span>
-              {market.builtin ? <span className="ink-chip py-px text-[9px] ink-text-faint">内置</span> : null}
+              <span className="ink-chip py-px text-[9px] ink-text-faint">用户添加</span>
               <span className="ml-auto text-[10px] ink-text-faint">{market.servers.length} 个服务</span>
             </div>
             <ul className="space-y-2">

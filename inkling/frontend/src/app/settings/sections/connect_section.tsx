@@ -2,7 +2,7 @@
  * 设置「连接」节：MCP 市场管理器（列表/添加链接/删除）+ 联网搜索 key。
  *
  * MCP 市场管理：
- * - 展示已添加/内置的 MCP 市场（内置市场出厂零预挂不可删）；
+ * - 展示用户添加的 MCP 市场（内置示例目录已移出，本页只列外部市场）；
  * - 添加链接挂载新市场 = 外部目录摄入：拉取 → vetting → 预览（名称/
  *   服务数/风险分布）→ 用户确认 → 落注册表持久化（预览即审批卡，
  *   确认即授权，与手动挂载同语义）；
@@ -131,6 +131,10 @@ export function ConnectSection(): JSX.Element {
   };
 
   const mountedCount = status ? Object.keys(status.mounted).length : 0;
+  const visibleMarkets = useMemo(
+    () => (status?.markets ?? []).filter((m) => !m.builtin),
+    [status],
+  );
 
   return (
     <div className="space-y-4">
@@ -141,40 +145,34 @@ export function ConnectSection(): JSX.Element {
               <span className="block text-[13px] font-medium">MCP 市场</span>
               <span className="mt-0.5 block text-[11px] leading-relaxed ink-text-faint">
                 {status
-                  ? `${status.markets.length} 个市场 · ${status.markets.reduce((n, m) => n + m.servers.length, 0)} 个服务 · 已挂载 ${mountedCount} 个`
+                  ? `${visibleMarkets.length} 个市场 · ${visibleMarkets.reduce((n, m) => n + m.servers.length, 0)} 个服务 · 已挂载 ${mountedCount} 个`
                   : '加载中…'}
               </span>
             </span>
             <span className="shrink-0 text-[10px] ink-text-faint">服务挂载见「市场」节</span>
           </div>
 
-        {status?.markets.map((market) => (
+        {visibleMarkets.map((market) => (
           <div key={market.id} className="flex items-center gap-3 px-3.5 py-2.5" data-mcp-market={market.id}>
             <span className="min-w-0 flex-1">
               <span className="flex items-center gap-1.5">
                 <span className="truncate text-[12px] font-medium">{market.name}</span>
-                {market.builtin ? (
-                  <span className="ink-chip py-px text-[9px] ink-text-faint">内置</span>
-                ) : (
-                  <span className="ink-chip py-px text-[9px] ink-text-faint">用户添加</span>
-                )}
+                <span className="ink-chip py-px text-[9px] ink-text-faint">用户添加</span>
               </span>
               <span className="mt-0.5 block truncate font-mono text-[9px] ink-text-faint">
                 {market.source || 'seed_data/mcp_market.json'} · {market.servers.length} 个服务
               </span>
             </span>
-            {!market.builtin ? (
-              <button
-                type="button"
-                data-ui={`mcp_market_remove_${market.id}`}
-                onClick={() => void handleRemove(market.id)}
-                disabled={busy}
-                className="flex shrink-0 items-center gap-1 rounded-md border border-[var(--ink-border)] px-2 py-1 text-[10px] ink-text-faint hover:text-[var(--ink-feedback-fail)] cursor-pointer disabled:opacity-50"
-              >
-                <Trash2 size={10} strokeWidth={1.6} aria-hidden />
-                删除
-              </button>
-            ) : null}
+            <button
+              type="button"
+              data-ui={`mcp_market_remove_${market.id}`}
+              onClick={() => void handleRemove(market.id)}
+              disabled={busy}
+              className="flex shrink-0 items-center gap-1 rounded-md border border-[var(--ink-border)] px-2 py-1 text-[10px] ink-text-faint hover:text-[var(--ink-feedback-fail)] cursor-pointer disabled:opacity-50"
+            >
+              <Trash2 size={10} strokeWidth={1.6} aria-hidden />
+              删除
+            </button>
           </div>
         ))}
 

@@ -85,6 +85,18 @@ const mockTools: ToolManifestEntry[] = [
   })),
 ];
 
+const builtinMcpTool: ToolManifestEntry = {
+  name: 'distill_knowledge',
+  description: '蒸馏知识。',
+  parameters: {},
+  permissions: ['mcp:call:inkling_exec'],
+  approval: 'review',
+  endpoint: 'mcp',
+  endpoint_config: { server_id: 'inkling_exec' },
+  meta: { domain: 'research' },
+  baseline: false,
+};
+
 function makeMockBackend(tools: ToolManifestEntry[] = mockTools): AppBackend {
   const backend = createAppBackend({ backend: { available: false } as never });
   const baseline = tools.filter((t) => t.baseline).map((t) => t.name);
@@ -164,6 +176,16 @@ describe('ToolsPanel (工具管理)', () => {
     });
     const serverTag = screen.getAllByText('服务 A');
     expect(serverTag.length).toBeGreaterThan(0);
+  });
+
+  it('内置 MCP server 分组不带 MCP 前缀', async () => {
+    const backend = makeMockBackend([...mockTools, builtinMcpTool]);
+    render(<ToolsPanel backend={backend} />);
+
+    await waitFor(() => {
+      expect(screen.getByText('内置 · inkling_exec')).toBeTruthy();
+    });
+    expect(screen.queryByText('MCP · inkling_exec')).toBeNull();
   });
 
   it('搜索功能过滤工具', async () => {

@@ -41,6 +41,9 @@ function isPermissionTier(v: string): v is PermissionTier {
 /** 动态注册机制工具：语义检索入口，强制常驻不可摘除。 */
 const IMMUTABLE_TOOLS = new Set(['search_tools', 'request_tool']);
 
+/** 出厂随包 MCP server（manifest contracts：exec_mcp_id/host_id），非市场挂载。 */
+const BUILTIN_MCP_SERVERS = new Set(['inkling_exec', 'inkling_shell']);
+
 /** 工具层分类判定（与 seed_data/tools.json meta.domain 同源）。 */
 function classifyToolLayer(tool: ToolManifestEntry): ToolLayer {
   const family = classifyToolFamily(tool.name);
@@ -290,7 +293,9 @@ export function ToolsPanel({ backend }: ToolsPanelProps) {
     for (const tool of filtered) {
       const serverId = mcpServerIdOf(tool);
       if (serverId) {
-        const label = `MCP · ${serverNames[serverId] ?? serverId}`;
+        const label = BUILTIN_MCP_SERVERS.has(serverId)
+          ? `内置 · ${serverId}`
+          : `MCP · ${serverNames[serverId] ?? serverId}`;
         const bucket = groups.get(label);
         if (bucket) bucket.push(tool);
         else groups.set(label, [tool]);

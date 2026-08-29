@@ -20,6 +20,12 @@ function nextId(): string {
   return `m-${Date.now()}-${messageSeq}`;
 }
 
+/** streaming 超时兜底：无 reply_token 更新超时后自动定型，防永久闪烁。 */
+const STREAMING_TIMEOUT_MS = 30_000;
+
+/** sourceTraces 容量上限：超限截尾保留最近 N 条，防长会话无限增长。 */
+const SOURCE_TRACES_MAX = 200;
+
 /**
  * 引擎事件（EngineEvent.to_dict 信封）→ HubEvent 归一。
  * 引擎把 round_id/step_id 放信封顶层，前端归约从 payload 读取——
@@ -263,7 +269,7 @@ export function ingestEvent(hub: ChannelHub, event: HubEvent): void {
           createdAt: at,
         });
       }
-      next.sourceTraces = traces;
+      next.sourceTraces = traces.slice(-SOURCE_TRACES_MAX);
       break;
     }
     case 'device_sensed':
@@ -272,7 +278,7 @@ export function ingestEvent(hub: ChannelHub, event: HubEvent): void {
       messages = [...messages, { kind: 'device', action, detail: String(payload.detail ?? payload.result ?? ''), id: nextId(), stepId: stepId || undefined, roundId }];
       const traces = [...state.sourceTraces];
       traces.push({ id: nextId(), sourceType: 'device', title: action, detail: String(payload.detail ?? ''), createdAt: at });
-      next.sourceTraces = traces;
+      next.sourceTraces = traces.slice(-SOURCE_TRACES_MAX);
       break;
     }
     case 'signal_detected': {
@@ -412,7 +418,7 @@ export function ingestEvent(hub: ChannelHub, event: HubEvent): void {
         detail: verdict === 'pass' ? '静态钩子核对通过' : `拦截：${reason ?? ''}`,
         createdAt: at,
       });
-      next.sourceTraces = traces;
+      next.sourceTraces = traces.slice(-SOURCE_TRACES_MAX);
       break;
     }
     case 'assembly_candidate':
@@ -435,7 +441,7 @@ export function ingestEvent(hub: ChannelHub, event: HubEvent): void {
         detail: String(payload.detail ?? ''),
         createdAt: at,
       });
-      next.sourceTraces = traces;
+      next.sourceTraces = traces.slice(-SOURCE_TRACES_MAX);
       break;
     }
     case 'end':
@@ -461,11 +467,38 @@ export function ingestEvent(hub: ChannelHub, event: HubEvent): void {
 /**
  * 会话驱动：从事件源（SSE/夹具脚本）逐条 ingest。
  * 批次指标在事件流结束后统一输出（避免逐事件噪音）。
+ *
+ * streaming 超时兜底：回合异常终止未发 end 事件时，若 STREAMING_TIMEOUT_MS
+ * 内无 reply_token 更新，自动把残留 streaming 消息定型为 text/assistant
+ * （保留已收内容、停止闪烁）。定时器随 ingest 调用重置，end 事件清除。
  */
 export function createIngester(hub: ChannelHub): (event: HubEvent) => void {
   const counter = new BatchCounter('session', '事件流批次');
+  let streamingTimer: ReturnType<typeof setTimeout> | null = null;
+
+  const clearStreamingTimer = () => {
+    if (streamingTimer) {
+      clearTimeout(streamingTimer);
+      streamingTimer = null;
+    }
+  };
+
+  const resetStreamingTimer = () => {
+    clearStreamingTimer();
+    streamingTimer = setTimeout(() => {
+      streamingTimer = null;
+      commitStreaming(hub);
+    }, STREAMING_TIMEOUT_MS);
+  };
+
   return (event) => {
     counter.add(event.type, event.type === 'reply_token' ? String(event.payload.token ?? '').length : 0);
+    if (event.type === 'reply_token') {
+      resetStreamingTimer();
+    }
+    if (event.type === 'end') {
+      clearStreamingTimer();
+    }
     ingestEvent(hub, event);
   };
 }

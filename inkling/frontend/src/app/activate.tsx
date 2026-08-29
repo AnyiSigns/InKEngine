@@ -43,6 +43,7 @@ export function activate(): void {
   // 视图组件经 DynamicComponent 渲染时注入 AppBackend（白名单键原样保留，
   // 同名覆盖：装配层闭包提供 backend，组件未声明 backend 的忽略该额外属性）。
   // 组件市场挂载动作接真：拉取 components_manifest 并注册产物（artifactLoader）。
+  // MCP 市场挂载动作接真：市场一键挂载（手动挂载，免审批卡）。
   for (const [key, Comp] of Object.entries(viewRegistrations)) {
     const C = Comp as unknown as ComponentType<Record<string, unknown>>;
     const extraProps: Record<string, unknown> = { backend: appBackend };
@@ -50,6 +51,10 @@ export function activate(): void {
       extraProps.onMount = () => {
         void appBackend.refreshComponentManifest();
       };
+    }
+    if (key === 'mcp_market') {
+      extraProps.onMount = (entry: { id: string }) => appBackend.mountMcp(entry.id);
+      extraProps.onUnmount = (entry: { id: string }) => appBackend.unmountMcp(entry.id);
     }
     registerComponent(
       key,

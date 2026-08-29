@@ -5,26 +5,14 @@
  * 再镜像到本文件。
  */
 
-import type { ArtifactManifestEntry, ToolSnapshotEntry } from '@/shared/backend/backendAdapter';
+import type { ArtifactManifestEntry, ToolSnapshotEntry, McpMarketEntrySummary } from '@/shared/backend/backendAdapter';
 
-/** MCP 服务器市场条目（与 seed_data/mcp_market.json servers[] 同源）。 */
-export interface McpMarketEntry {
-  id: string;
-  name: string;
-  source: string;
-  transport: 'http' | 'stdio';
-  url: string | null;
-  command: string | null;
-  args: string[];
-  credentials: {
-    required: boolean;
-    note: string;
-  };
-  risk: 'low' | 'medium' | 'high';
-  risk_note: string;
-  category: string;
-  premounted: boolean;
-}
+/**
+ * MCP 服务器市场条目（宿主 mcp_market_status 回传；与 seed_data/mcp_market.json
+ * servers[] 同源契约）。单一契约源 = backendAdapter.McpMarketEntrySummary，
+ * 本类型为其别名，避免两份接口漂移。
+ */
+export type McpMarketEntry = McpMarketEntrySummary;
 
 /** 组件市场条目（与 seed_data/components_market.json components[] 同源）。 */
 export interface ComponentMarketEntry {

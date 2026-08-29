@@ -22,6 +22,12 @@ import type { UISpec } from '@/renderer/uiSpecTypes';
 import { isFixtureMode } from './wiring/env';
 
 import type { McpMarketEntry, ComponentMarketEntry, ToolDetail } from './types';
+import type {
+  McpMarketSummary,
+  McpMountOutcome,
+  McpMountStatus,
+  McpMarketPreview,
+} from '@/shared/backend/backendAdapter';
 
 import mcpMarketSeed from '../../../seed_data/mcp_market.json';
 import componentsMarketSeed from '../../../seed_data/components_market.json';
@@ -90,10 +96,115 @@ export class AppBackend {
     }
   }
 
-  /** MCP 市场数据：从种子 mcp_market.json 驱动；演示态外不内嵌夹具。 */
-  getMcpMarket(): McpMarketEntry[] {
+  /** MCP 市场数据：宿主优先（多市场状态），宿主不可用回落种子夹具。 */
+  async getMcpMarket(): Promise<McpMarketEntry[]> {
+    if (this.backend?.available) {
+      try {
+        const status = await this.backend.mcpMarketStatus();
+        const entries = status.markets.flatMap((m) => m.servers);
+        if (entries.length > 0) return entries;
+      } catch (err) {
+        logger.warn('app', '获取 MCP 市场失败', { err: String(err) });
+      }
+    }
     if (!isFixtureMode()) return [];
     return (mcpMarketSeed as { servers?: unknown[] }).servers?.map((s) => s as unknown as McpMarketEntry) ?? [];
+  }
+
+  /** MCP 市场 + 挂载状态（连接页市场管理 / 市场页数据源）。 */
+  async getMcpMarketStatus(): Promise<McpMountStatus> {
+    if (!this.backend?.available) {
+      const seed = isFixtureMode()
+        ? (mcpMarketSeed as unknown as { servers?: McpMarketEntry[] }).servers ?? []
+        : [];
+      return {
+        markets: [
+          {
+            id: 'market',
+            name: '内置市场',
+            source: '',
+            builtin: true,
+            servers: seed,
+          },
+        ],
+        mounted: {},
+      };
+    }
+    try {
+      return await this.backend.mcpMarketStatus();
+    } catch (err) {
+      logger.warn('app', '获取 MCP 挂载状态失败', { err: String(err) });
+      return { markets: [], mounted: {} };
+    }
+  }
+
+  /** 市场一键挂载（手动挂载：免审批卡）。 */
+  async mountMcp(serverId: string): Promise<McpMountOutcome> {
+    if (!this.backend?.available) {
+      logger.info('app', 'MCP 挂载（dev 回退）', { serverId });
+      return { ok: true, server_id: serverId, status: 'mounted' };
+    }
+    try {
+      return await this.backend.mcpMarketMount(serverId);
+    } catch (err) {
+      logger.warn('app', 'MCP 挂载失败', { serverId, err: String(err) });
+      return { ok: false, server_id: serverId, status: 'mount_failed', error: String(err) };
+    }
+  }
+
+  /** 市场服务取消挂载。 */
+  async unmountMcp(serverId: string): Promise<McpMountOutcome> {
+    if (!this.backend?.available) {
+      logger.info('app', 'MCP 卸载（dev 回退）', { serverId });
+      return { ok: true, server_id: serverId, status: 'unmounted' };
+    }
+    try {
+      return await this.backend.mcpMarketUnmount(serverId);
+    } catch (err) {
+      logger.warn('app', 'MCP 卸载失败', { serverId, err: String(err) });
+      return { ok: false, server_id: serverId, status: 'unmount_failed', error: String(err) };
+    }
+  }
+
+  /** 市场摄入预览（vetting + 摘要）。 */
+  async previewMarket(link: string): Promise<McpMarketPreview> {
+    if (!this.backend?.available) {
+      return { ok: false, error: '宿主不可用（预览需真实引擎）' };
+    }
+    try {
+      return await this.backend.mcpMarketPreview(link);
+    } catch (err) {
+      logger.warn('app', 'MCP 市场预览失败', { link, err: String(err) });
+      return { ok: false, error: String(err) };
+    }
+  }
+
+  /** 添加市场（外部目录摄入，落注册表持久化）。 */
+  async addMarket(link: string): Promise<{ ok: boolean; market?: McpMarketSummary; error?: string }> {
+    if (!this.backend?.available) {
+      return { ok: false, error: '宿主不可用（添加市场需真实引擎）' };
+    }
+    try {
+      return await this.backend.mcpMarketAdd(link);
+    } catch (err) {
+      logger.warn('app', 'MCP 市场添加失败', { link, err: String(err) });
+      return { ok: false, error: String(err) };
+    }
+  }
+
+  /** 删除市场（内置不可删；级联卸载其下服务）。 */
+  async removeMarket(marketId: string): Promise<{ ok: boolean; error?: string }> {
+    if (!this.backend?.available) {
+      return { ok: false, error: '宿主不可用（删除市场需真实引擎）' };
+    }
+    try {
+      const result = await this.backend.mcpMarketRemove(marketId);
+      if (!result.ok) return { ok: false, error: result.error };
+      return { ok: true };
+    } catch (err) {
+      logger.warn('app', 'MCP 市场删除失败', { marketId, err: String(err) });
+      return { ok: false, error: String(err) };
+    }
   }
 
   /** 组件市场数据：从种子 components_market.json 驱动；演示态外不内嵌夹具。 */

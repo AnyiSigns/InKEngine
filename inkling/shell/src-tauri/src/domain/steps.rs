@@ -663,6 +663,61 @@ impl RoundSteps {
         step_id
     }
 
+    // ── 子任务卡（spawn_start / spawn_end）──
+
+    /// 子任务卡开始。step_id = `spawn:<node_id>`（同 id 复用，与节点卡同口径）。
+    pub fn spawn_start(&mut self, node_id: &str, label: &str, extra: JsonValue) -> String {
+        self.close_reply();
+        let step_id = format!("spawn:{node_id}");
+        if let Some(pos) = self.last_by_type("spawn") {
+            let same_id = self.steps[pos]
+                .get("step_id")
+                .and_then(JsonValue::as_str)
+                == Some(step_id.as_str());
+            if same_id {
+                let mut patch = json!({ "status": "running" });
+                if !label.is_empty() {
+                    patch["label"] = json!(label);
+                }
+                let merged = merge_payload(&self.steps[pos], patch);
+                self.steps[pos] = merged;
+                return self.steps[pos]
+                    .get("step_id")
+                    .and_then(JsonValue::as_str)
+                    .unwrap_or_default()
+                    .to_string();
+            }
+        }
+        let display_label = self
+            .node_labels
+            .get(node_id)
+            .filter(|label| !label.is_empty())
+            .cloned()
+            .unwrap_or_else(|| {
+                if label.is_empty() {
+                    node_id.to_string()
+                } else {
+                    label.to_string()
+                }
+            });
+        let mut payload = json!({
+            "node_id": node_id,
+            "label": display_label,
+            "status": "running",
+        });
+        if let Some(spawns) = extra.get("spawns") {
+            payload["spawns"] = spawns.clone();
+        }
+        self.append("spawn", &step_id, payload)
+    }
+
+    /// 子任务卡收尾（completed）。
+    pub fn spawn_end(&mut self, node_id: &str) -> String {
+        let step_id = format!("spawn:{node_id}");
+        self.update(&step_id, json!({ "status": "completed" }));
+        step_id
+    }
+
     // ── 审批卡 ──
 
     /// 审批卡步骤。payload 携带 tool_call_id 时连带把该工具卡置 pending。
@@ -1000,6 +1055,15 @@ impl RoundStepsTransport {
                     .and_then(JsonValue::as_str)
                     .unwrap_or("节点失败");
                 self.steps.node_fail(source, index, reason);
+            }
+            "spawn_start" => {
+                let node_id = payload.get("node_id").and_then(JsonValue::as_str).unwrap_or(source);
+                let label = payload.get("label").and_then(JsonValue::as_str).unwrap_or(node_id);
+                self.steps.spawn_start(node_id, label, payload.clone());
+            }
+            "spawn_end" => {
+                let node_id = payload.get("node_id").and_then(JsonValue::as_str).unwrap_or(source);
+                self.steps.spawn_end(node_id);
             }
             "suggestions" => {
                 let items = match payload.get("items") {

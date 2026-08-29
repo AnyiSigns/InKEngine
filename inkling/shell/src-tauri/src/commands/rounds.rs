@@ -85,6 +85,11 @@ fn clear_round_checkpoint(data_dir: &Path, round_id: &str) {
     let _ = std::fs::remove_file(checkpoint_path(data_dir, round_id));
 }
 
+/// 清线程最新回合指针（checkpoint 清除后同步清指针，避免 resume 读到悬空 latest）。
+fn clear_latest_pointer(data_dir: &Path, thread_id: &str) {
+    let _ = std::fs::remove_file(latest_pointer_path(data_dir, thread_id));
+}
+
 // ── 回合记录器 ──
 
 /// 回合记录器（事件弧 + 中止信号 + 工具标题解析挂点）；种子读回既有
@@ -452,6 +457,8 @@ pub(crate) async fn resume_round_with_inject(
     // R1：回合完成清 checkpoint；仍挂起以新快照更新（下一轮 resume 续流）
     if resume_reason == "reply" || steps.is_empty() {
         clear_round_checkpoint(&data_dir, &round_id);
+        // 同步清 latest 指针，避免后续 resume 读到已被清除的 round（seed 空 → 续流 step_id 连续性丢失）
+        clear_latest_pointer(&data_dir, thread_id);
     } else if let Err(err) =
         write_round_checkpoint(&data_dir, thread_id, &round_id, &steps)
     {

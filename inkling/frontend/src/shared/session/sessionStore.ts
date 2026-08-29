@@ -18,6 +18,10 @@ export interface SessionRecord {
   createdAt: number;
   lastActiveAt: number;
   messages: InkMessage[];
+  /** 消息计数（与 messages.length 同步；列表展示用）。 */
+  message_count?: number;
+  /** 墓碑标记（true = 已删除；列表应过滤）。 */
+  deleted?: boolean;
 }
 
 export interface SessionStore {

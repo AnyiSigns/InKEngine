@@ -28,8 +28,11 @@ from ink_engine.core.mcp_client import (
     McpTransport,
     ToolSource,
 )
+from ink_engine.core.logging import get_logger
 from ink_engine.core.self_application import AUDIT_STATUS_REVERTED
 from ink_engine.core.self_proposal import PatchKind, SelfProposal
+
+logger = get_logger(__name__)
 
 # 地址形态前缀（resolve_address 的推导分支；npm/git 均只作提案）
 _PREFIX_HTTP = ("http://", "https://")
@@ -44,6 +47,15 @@ _NPX_ARGS_PREFIX = ("-y",)
 _PACKAGE_NAME_RE = re.compile(
     r"^(@[a-z0-9][a-z0-9._-]*/)?[a-z0-9][a-z0-9._-]*$"
 )
+
+# 用户市场持久化集合与键（storage records；配置形态，不参与旁路写守卫）
+_MARKETS_COLLECTION = "mcp_markets"
+_MARKETS_KEY = "registry"
+# 市场目录抓取超时（秒）
+_CATALOG_FETCH_TIMEOUT = 15.0
+# 市场目录校验枚举
+_VALID_RISKS = ("low", "medium", "high")
+_VALID_TRANSPORTS = ("http", "stdio")
 
 
 @dataclass(frozen=True, slots=True)
@@ -75,36 +87,432 @@ class McpMountError(Exception):
     """挂载流程错误（地址解析失败等确定性错误）。"""
 
 
+class _AutoAcceptCtx:
+    """手动挂载合成审批上下文：用户在 UI 点击挂载即授权。
+
+    回合外手动挂载没有 agent 回合 ctx；逐工具 TOOL 提案落补丁链时
+    ``approve_before_execute`` 仍会挂卡——本上下文把决议恒置 accept，
+    与「手动挂载免审批卡（方案 B）」语义一致：挂载动作本身就是用户
+    授权，工具使用期的高风险闸门照旧由工具声明的权限档兜底。
+    """
+
+    __slots__ = ()
+
+    async def interrupt(self, key: str, card: dict) -> dict:
+        return {"decision": "accept"}
+
+    async def get_interrupt_payload(self, key: str) -> None:
+        return None
+
+
+def _assert_public_http_host(link: str) -> None:
+    """SSRF 防线：http(s) 市场链接仅允许解析到公网地址。
+
+    拒绝私有（RFC1918）/回环/链路本地/保留/组播地址，防引擎进程被
+    引导去抓取内网资源（云元数据 169.254.169.254、内部 API、localhost）。
+    连接建立前的防御性校验（DNS 重绑仍需更严格的连接钉扎，桌面设置
+    场景下本防线 + 用户预览确认已足够）。
+    """
+    import ipaddress as _ip
+    import socket as _socket
+    from urllib.parse import urlsplit as _urlsplit
+
+    parts = _urlsplit(link)
+    if parts.scheme not in ("http", "https"):
+        raise McpMountError(f"仅支持 http(s) 市场链接: {link!r}")
+    host = (parts.hostname or "").strip()
+    if not host:
+        raise McpMountError("市场链接缺主机名")
+    try:
+        infos = _socket.getaddrinfo(
+            host, parts.port or (443 if parts.scheme == "https" else 80)
+        )
+    except OSError as exc:
+        raise McpMountError(f"市场链接主机解析失败: {host!r}") from exc
+    if not infos:
+        raise McpMountError(f"市场链接主机无解析结果: {host!r}")
+    for info in infos:
+        address = info[4][0].split("%", 1)[0]
+        try:
+            addr = _ip.ip_address(address)
+        except ValueError:
+            continue
+        if (
+            addr.is_private
+            or addr.is_loopback
+            or addr.is_link_local
+            or addr.is_reserved
+            or addr.is_multicast
+        ):
+            raise McpMountError(
+                f"市场链接主机指向内网/保留地址: {host} ({address})"
+            )
+
+
+def _fetch_catalog(link: str) -> dict[str, Any]:
+    """拉取市场目录：http(s) url / file:// 路径 / 本地文件路径 → dict。
+
+    仅拉取不执行；目录内容后续经 ``_vet_catalog`` 静态核对后才可落
+    注册表（外部目录摄入不可信，任何市场条目都不是出厂预挂）。
+    http(s) 链接先过 SSRF 防线（仅公网地址）；file:// 与本地路径由
+    用户在设置页显式提供（本机文件），不联网。
+    """
+    import json as _json
+    import urllib.request as _url
+    from pathlib import Path as _Path
+
+    if link.startswith(("http://", "https://")):
+        _assert_public_http_host(link)
+        with _url.urlopen(link, timeout=_CATALOG_FETCH_TIMEOUT) as resp:
+            text = resp.read().decode("utf-8")
+    elif link.startswith("file://"):
+        text = _Path(link[len("file://"):]).read_text(encoding="utf-8")
+    else:
+        text = _Path(link).read_text(encoding="utf-8")
+    catalog = _json.loads(text)
+    if not isinstance(catalog, dict):
+        raise McpMountError("市场目录须为 JSON 对象")
+    return catalog
+
+
+def _vet_catalog(catalog: dict[str, Any]) -> list[str]:
+    """市场目录静态核对（vetting）：结构/字段/枚举越界 → 违规清单。
+
+    核对项：servers 非空数组；每条目须带 id/name；transport ∈
+    {http, stdio}（in_memory 须嵌入式工厂，外部目录不可携带）；
+    http 须 http(s) url、stdio 须 command；risk/args 枚举与形态。
+    命令白名单属挂载期核对（vetting_checks），此处不判——新市场
+    命令加入注册表后并入白名单并集。
+    """
+    violations: list[str] = []
+    servers = catalog.get("servers")
+    if not isinstance(servers, list):
+        return ["市场目录缺 servers 数组"]
+    if not servers:
+        return ["市场目录 servers 为空"]
+    for idx, server in enumerate(servers):
+        prefix = f"servers[{idx}]"
+        if not isinstance(server, dict):
+            violations.append(f"{prefix} 须为对象")
+            continue
+        sid = server.get("id")
+        if not sid or not isinstance(sid, str) or not sid.strip():
+            violations.append(f"{prefix} 缺 id")
+        name = server.get("name")
+        if not name or not isinstance(name, str) or not name.strip():
+            violations.append(f"{prefix} 缺 name")
+        transport = str(server.get("transport") or "http")
+        if transport not in _VALID_TRANSPORTS:
+            violations.append(f"{prefix} transport 非法: {transport!r}")
+        if transport == "http":
+            url = server.get("url")
+            if not isinstance(url, str) or not url.startswith(("http://", "https://")):
+                violations.append(f"{prefix} http 传输须携带 http(s) url")
+        else:
+            command = server.get("command")
+            if not isinstance(command, str) or not command:
+                violations.append(f"{prefix} stdio 传输缺 command")
+        risk = server.get("risk")
+        if risk is not None and risk not in _VALID_RISKS:
+            violations.append(f"{prefix} risk 非法: {risk!r}")
+        args = server.get("args")
+        if args is not None and not isinstance(args, list):
+            violations.append(f"{prefix} args 须为数组")
+    return violations
+
+
+def _market_name_from_link(link: str) -> str:
+    """市场链接 → 展示名（URL 尾段或原样）。"""
+    cleaned = re.sub(r"^https?://", "", link).rstrip("/")
+    tail = cleaned.rsplit("/", 1)[-1] if "/" in cleaned else cleaned
+    return tail or cleaned or "MCP 市场"
+
+
+def _preview_from_catalog(catalog: dict[str, Any], link: str) -> dict[str, Any]:
+    """目录 → 审批预览（名称/来源/服务数/风险分布/条目摘要）。"""
+    servers = catalog.get("servers") or ()
+    risk_summary: dict[str, int] = {"low": 0, "medium": 0, "high": 0}
+    rows: list[dict[str, Any]] = []
+    for server in servers:
+        if not isinstance(server, dict):
+            continue
+        risk = str(server.get("risk") or "medium")
+        risk_summary[risk] = risk_summary.get(risk, 0) + 1
+        rows.append(
+            {
+                "id": str(server.get("id") or server.get("name") or ""),
+                "name": server.get("name") or server.get("id") or "",
+                "transport": server.get("transport") or "http",
+                "risk": risk,
+                "risk_note": server.get("risk_note") or "",
+            }
+        )
+    return {
+        "name": catalog.get("name") or _market_name_from_link(link),
+        "source": link,
+        "server_count": len(servers),
+        "risk_summary": risk_summary,
+        "servers": rows,
+    }
+
+
 class McpMountService:
-    """MCP 挂载编排服务（宿主装配期创建，运行时挂载/卸载/回退入口）。"""
+    """MCP 挂载编排服务（宿主装配期创建，运行时挂载/卸载/回退入口）。
+
+    多市场注册表：内置种子市场（缺省 id "market"，出厂零预挂）∪ 用户
+    持久化市场（连接页「添加链接挂载新市场」摄入，storage 落库）。命令
+    白名单 = 全部市场声明命令 ∪ npx 提案推导的并集。
+    """
 
     def __init__(
         self,
         runtime: Any,
         *,
-        market: dict[str, Any],
+        markets: list[dict[str, Any]] | dict[str, Any] | None = None,
         external_mark_vetted: Callable[[str], None] | None = None,
     ) -> None:
         self._runtime = runtime
-        self._market = market
+        # 市场注册表：market_id → 市场目录（含归一化后的 servers）。
+        self._markets: dict[str, dict[str, Any]] = {}
         self._external_mark_vetted = external_mark_vetted
         # 已通过 vetting 的 server 集合（L2 钩子据此放行，vetting → 审批
         # → L2 的顺序在机制上被强制执行）
         self._vetted_set: set[str] = set()
-        # 命令白名单：数据驱动（市场条目声明的 stdio 命令 + 提案推导的 npx）
-        self._allowed_commands: frozenset[str] = frozenset(
-            {
-                str(server.get("command"))
-                for server in market.get("servers") or ()
-                if server.get("command")
-            }
-            | {_NPX_COMMAND}
-        )
+        # 命令白名单：数据驱动（全市场条目声明的 stdio 命令 + npx 提案）
+        self._allowed_commands: frozenset[str] = frozenset()
         # 挂载登记（server_id → 补丁 id 序；卸载/回退按链尾倒序还原）
         self._mount_log: dict[str, list[int]] = {}
         # 嵌入式 server 工厂登记（in_memory 传输的宿主注入点：宿主把
         # 自带能力/测试 server 的工厂按 id 登记，市场条目无需携带工厂）
         self._server_factories: dict[str, Any] = {}
+        builtins = (
+            markets
+            if isinstance(markets, list)
+            else ([markets] if markets else [])
+        )
+        for catalog in builtins:
+            if isinstance(catalog, dict):
+                self._markets[catalog.get("id") or "market"] = self._ingest_market(
+                    catalog, builtin=True
+                )
+        self._rebuild_allowed_commands()
+
+    # ── 市场注册表（多市场：内置 ∪ 用户持久化）──
+
+    @staticmethod
+    def _normalize_server_id(market_id: str, raw: str) -> str:
+        """市场内条目 id 归一：加市场前缀防跨市场碰撞（内置 market.* 保持）。"""
+        if raw.startswith(f"{market_id}."):
+            return raw
+        return f"{market_id}.{raw}"
+
+    def _ingest_market(self, catalog: dict[str, Any], *, builtin: bool) -> dict[str, Any]:
+        """目录 → 注册表形态：市场 id 归一 + 条目 id 加前缀 + builtin 标记。
+
+        市场 id：显式 ``id`` 字段优先；缺省由来源（链接/名称）推导
+        ``mk.<hash>``（内置市场由宿主装配显式带 ``id: "market"``）。
+        """
+        market = dict(catalog or {})
+        mid = str(market.get("id") or "").strip()
+        if not mid or not re.match(r"^[a-zA-Z0-9._-]+$", mid):
+            mid = (
+                f"mk.{self._derive_server_id(str(market.get('source') or market.get('name') or 'catalog'))}"
+            )
+        market["id"] = mid
+        market["builtin"] = bool(builtin)
+        servers = []
+        for server in market.get("servers") or ():
+            if not isinstance(server, dict):
+                continue
+            entry = dict(server)
+            raw_id = str(entry.get("id") or entry.get("name") or "server")
+            entry["id"] = self._normalize_server_id(mid, raw_id)
+            servers.append(entry)
+        market["servers"] = servers
+        return market
+
+    def _rebuild_allowed_commands(self) -> None:
+        """命令白名单重建：全部市场条目声明命令 ∪ npx 提案推导。"""
+        commands: set[str] = {_NPX_COMMAND}
+        for market in self._markets.values():
+            for server in market.get("servers") or ():
+                command = server.get("command")
+                if isinstance(command, str) and command:
+                    commands.add(command)
+        self._allowed_commands = frozenset(commands)
+
+    def _market_summary(self, market: dict[str, Any]) -> dict[str, Any]:
+        """市场摘要（前端列表/审批预览消费；servers 为条目摘要形态）。"""
+        return {
+            "id": market["id"],
+            "name": market.get("name") or market["id"],
+            "source": market.get("source") or "",
+            "builtin": bool(market.get("builtin")),
+            "servers": [self._server_summary(s) for s in market.get("servers") or ()],
+        }
+
+    def _server_summary(self, server: dict[str, Any]) -> dict[str, Any]:
+        """市场条目摘要（对齐前端 McpMarketEntry 形态）。"""
+        return {
+            "id": str(server.get("id") or ""),
+            "name": server.get("name") or server.get("id") or "",
+            "source": server.get("source") or "",
+            "transport": str(server.get("transport") or "http"),
+            "url": server.get("url"),
+            "command": server.get("command"),
+            "args": list(server.get("args") or ()),
+            "credentials": server.get("credentials")
+            or {"required": False, "note": ""},
+            "risk": str(server.get("risk") or "medium"),
+            "risk_note": server.get("risk_note") or "",
+            "category": server.get("category") or "",
+            "premounted": bool(server.get("premounted")),
+        }
+
+    async def load_persisted_markets(self) -> None:
+        """启动装载用户市场（storage 单记录；集合不参与守卫=配置形态）。
+
+        装载失败（存储异常/记录损坏）只记日志不击穿启动——内置市场照常
+        可用，用户市场下次写入时以新态覆盖。
+        """
+        try:
+            record = await self._runtime.storage.get_record(
+                _MARKETS_COLLECTION, _MARKETS_KEY
+            )
+        except Exception as exc:
+            logger.warning("用户 MCP 市场装载失败（忽略，仅内置市场）: %s", exc)
+            record = None
+        markets = (record or {}).get("markets") or {}
+        for market in markets.values():
+            if not isinstance(market, dict):
+                continue
+            try:
+                ingested = self._ingest_market(market, builtin=False)
+                self._markets[ingested["id"]] = ingested
+            except Exception:
+                continue
+        self._rebuild_allowed_commands()
+
+    async def _persist_markets(self) -> None:
+        """用户市场落库（单记录 {markets: {id: market}}；内置不落库）。"""
+        user_markets = {
+            mid: {k: v for k, v in m.items() if k != "builtin"}
+            for mid, m in self._markets.items()
+            if not m.get("builtin")
+        }
+        await self._runtime.storage.put_record(
+            _MARKETS_COLLECTION, _MARKETS_KEY, {"markets": user_markets}
+        )
+
+    def list_markets(self) -> list[dict[str, Any]]:
+        return [self._market_summary(m) for m in self._markets.values()]
+
+    def status(self) -> dict[str, Any]:
+        """挂载状态快照（设置「连接」/「市场」视图数据源）。"""
+        markets = self.list_markets()
+        mounted = {
+            sid: {
+                "server_id": sid,
+                "tools": list(self._mounted_server_tools(sid)),
+            }
+            for sid in self._mount_log
+        }
+        return {"markets": markets, "mounted": mounted}
+
+    def _mounted_server_tools(self, server_id: str) -> tuple[str, ...]:
+        """某 server 挂载工具名（活跃态声明式定义按 meta.mcp_server 判定）。"""
+        names: list[str] = []
+        definitions = getattr(
+            getattr(self._runtime, "harness_registry", None), "declarative", None
+        )
+        if definitions is not None:
+            for name, definition in getattr(definitions, "definitions", {}).items():
+                if (getattr(definition, "meta", None) or {}).get("mcp_server") == server_id:
+                    names.append(name)
+        return tuple(names)
+
+    def restore_mount_log(self, assembled: dict[str, Any]) -> None:
+        """重启恢复挂载登记：链内 mcp 端点工具按 server 回填（补丁序占位）。
+
+        与 Rust 侧 boot.rs 的 ``plan_mcp_mount_restore`` 同口径：挂载
+        登记是会话态内存数据，补丁 id 序重启丢失——占位空序供卸载判定
+        （链尾归属检查兜底，见 ``unmount``）。
+        """
+        tools = (assembled or {}).get("tools") or {}
+        for payload in tools.values():
+            if not isinstance(payload, dict):
+                continue
+            if payload.get("endpoint") != "mcp":
+                continue
+            server_id = (payload.get("endpoint_config") or {}).get("server_id")
+            if isinstance(server_id, str) and server_id:
+                self._mount_log.setdefault(server_id, [])
+
+    async def preview_market(self, link: str) -> dict[str, Any]:
+        """市场摄入预览（vetting 静态核对 + 摘要；不落注册表）。"""
+        try:
+            catalog = _fetch_catalog(link)
+        except McpMountError as exc:
+            return {"ok": False, "error": str(exc)}
+        except Exception as exc:  # URL 拉取/文件解析失败
+            return {"ok": False, "error": f"目录拉取失败: {exc}"}
+        violations = _vet_catalog(catalog)
+        if violations:
+            return {"ok": False, "violations": violations}
+        return {"ok": True, "preview": _preview_from_catalog(catalog, link)}
+
+    async def add_market(
+        self, link: str, *, name: str | None = None
+    ) -> dict[str, Any]:
+        """添加市场（外部目录摄入）：拉取 → vetting → 落注册表持久化。
+
+        审批语义：连接页展示 vetting 通过的预览（名称/服务数/风险分布）
+        并要求用户确认后才调用本方法——预览即审批卡，确认即授权。
+        """
+        catalog = _fetch_catalog(link)
+        violations = _vet_catalog(catalog)
+        if violations:
+            raise McpMountError("；".join(violations))
+        market = dict(catalog or {})
+        market.setdefault("source", link)
+        market.setdefault("name", name or market.get("name") or _market_name_from_link(link))
+        ingested = self._ingest_market(market, builtin=False)
+        mid = ingested["id"]
+        if mid in self._markets:
+            raise McpMountError(f"市场已存在: {mid}")
+        self._markets[mid] = ingested
+        self._rebuild_allowed_commands()
+        await self._persist_markets()
+        return self._market_summary(ingested)
+
+    async def remove_market(self, market_id: str) -> dict[str, Any]:
+        """删除市场：内置市场不可删；用户市场级联卸载其下已挂载服务。
+
+        任一已挂载服务的卸载失败 = 整体拒绝删除（fail-closed）——已卸载
+        的服务保持卸载态，市场保留，避免「市场没了、工具还挂着」的孤儿态。
+        """
+        market = self._markets.get(market_id)
+        if market is None:
+            raise McpMountError(f"市场不存在: {market_id}")
+        if market.get("builtin"):
+            raise McpMountError("内置市场不可删除")
+        unmounted: list[dict[str, Any]] = []
+        for server in market.get("servers") or ():
+            sid = str(server.get("id") or "")
+            if sid in self._mount_log:
+                outcome = await self.unmount(_AutoAcceptCtx(), sid)
+                if not outcome.ok:
+                    raise McpMountError(
+                        f"市场 {market_id} 级联卸载失败（已回退删除）: "
+                        f"{sid} [{outcome.status}] {outcome.error or ''}"
+                    )
+                unmounted.append(
+                    {"server_id": sid, "ok": True, "status": outcome.status}
+                )
+        del self._markets[market_id]
+        self._rebuild_allowed_commands()
+        await self._persist_markets()
+        return {"unmounted": unmounted}
 
     def register_server_factory(self, server_id: str, factory: Any) -> None:
         """登记嵌入式 server 工厂（in_memory 传输的宿主注入点）。"""
@@ -113,9 +521,10 @@ class McpMountService:
     # ── 地址解析与配置推导 ──
 
     def _market_entry(self, server_id: str) -> dict[str, Any] | None:
-        for server in self._market.get("servers") or ():
-            if server.get("id") == server_id:
-                return server
+        for market in self._markets.values():
+            for server in market.get("servers") or ():
+                if str(server.get("id")) == server_id:
+                    return server
         return None
 
     def _config_from_market_entry(
@@ -139,10 +548,13 @@ class McpMountService:
         return f"addr.{cleaned[:64]}"
 
     def resolve_address(self, address: str) -> McpServerConfig:
-        """地址解析：市场条目 / http(s) url / npm 包 / git 仓库 → 配置。
+        """地址解析：市场条目 / 市场名+条目 / http(s) url / npm / git → 配置。
 
         仅推导不执行：npx 命令只是提案形态，实际运行前必经
         vetting → 审批 → 补丁链（出厂零预挂，任何挂载都走既有链路）。
+
+        市场条目解析跨全部市场按完整 id 匹配；``{market_id}:{entry_id}``
+        限定在某市场内解析（多市场下防同名条目歧义）。
         """
         address = address.strip()
         if not address:
@@ -150,6 +562,14 @@ class McpMountService:
         entry = self._market_entry(address)
         if entry is not None:
             return self._config_from_market_entry(entry)
+        if ":" in address:
+            maybe_market, _, maybe_entry = address.partition(":")
+            market = self._markets.get(maybe_market)
+            if market is not None:
+                for server in market.get("servers") or ():
+                    sid = str(server.get("id") or "")
+                    if sid in (maybe_entry, f"{maybe_market}.{maybe_entry}"):
+                        return self._config_from_market_entry(server)
         if address.startswith(_PREFIX_HTTP):
             return McpServerConfig(
                 id=self._derive_server_id(address),
@@ -239,8 +659,14 @@ class McpMountService:
         *,
         server_factory: Any = None,
         round_id: str | None = None,
+        require_approval: bool = True,
     ) -> MountOutcome:
-        """对话式安装链路：地址解析 → 配置推导 → vetting → 审批 → 落链。"""
+        """对话式安装链路：地址解析 → 配置推导 → vetting → 审批 → 落链。
+
+        require_approval=False = 手动挂载（连接页/市场页一键挂载）：
+        跳过挂载审批卡，逐工具补丁经 ``_AutoAcceptCtx`` 自动放行
+        （方案 B：用户点击即授权；工具使用期闸门照旧）。
+        """
         try:
             config = self.resolve_address(address)
         except McpMountError as exc:
@@ -248,7 +674,11 @@ class McpMountService:
                 ok=False, status="resolve_failed", error=str(exc)
             )
         return await self.mount_config(
-            ctx, config, server_factory=server_factory, round_id=round_id
+            ctx,
+            config,
+            server_factory=server_factory,
+            round_id=round_id,
+            require_approval=require_approval,
         )
 
     async def mount_config(
@@ -258,6 +688,7 @@ class McpMountService:
         *,
         server_factory: Any = None,
         round_id: str | None = None,
+        require_approval: bool = True,
     ) -> MountOutcome:
         """挂载一个 server 配置（市场一键挂载与对话式安装共用）。
 
@@ -270,6 +701,9 @@ class McpMountService:
 
         任一步失败清理已建立的会话/补丁（不半挂载），失败原因结构化
         返回（SDK 边界异常也按降级路径处理，不击穿挂载流程）。
+
+        require_approval=False（手动挂载）：跳过挂载审批卡，逐工具
+        补丁经 ``_AutoAcceptCtx`` 恒放行——用户 UI 点击即授权。
         """
         if server_factory is not None:
             config = _with_factory(config, server_factory)
@@ -286,18 +720,22 @@ class McpMountService:
                 ok=False, server_id=config.id,
                 status="vetting_rejected", error="；".join(violations),
             )
-        decision = await self._mount_approval(ctx, config)
-        if decision == "vetting_rejected":
-            return MountOutcome(
-                ok=False, server_id=config.id,
-                status="vetting_rejected",
-                error="编辑后的配置未通过校验链（重走 vetting 核对）",
-            )
-        if decision in ("reject", "terminate"):
-            return MountOutcome(
-                ok=False, server_id=config.id,
-                status="rejected", error="挂载审批未通过",
-            )
+        if require_approval:
+            decision = await self._mount_approval(ctx, config)
+            if decision == "vetting_rejected":
+                return MountOutcome(
+                    ok=False, server_id=config.id,
+                    status="vetting_rejected",
+                    error="编辑后的配置未通过校验链（重走 vetting 核对）",
+                )
+            if decision in ("reject", "terminate"):
+                return MountOutcome(
+                    ok=False, server_id=config.id,
+                    status="rejected", error="挂载审批未通过",
+                )
+        else:
+            # 手动挂载：跳过挂载审批卡；逐工具补丁用合成上下文恒放行。
+            ctx = _AutoAcceptCtx()
         manager = self._runtime.mcp_manager
         try:
             await manager.connect(config)
@@ -421,13 +859,17 @@ class McpMountService:
         （工具表/声明式定义）+ 会话断开 + 引擎重建——挂载/回退成对，
         任一步失败都结构化返回。
         """
+        # 回合外手动卸载（UI 触发，无 agent ctx）：合成上下文恒放行回退审批
+        ctx = ctx or _AutoAcceptCtx()
         patch_ids = list(self._mount_log.get(server_id) or ())
-        if not patch_ids:
+        tail = await self._runtime.self_pipeline.chain.last_patch()
+        if not patch_ids and (
+            tail is None or not _patch_belongs_to_server(tail, server_id)
+        ):
             return MountOutcome(
                 ok=False, server_id=server_id,
                 status="not_mounted", error="该 server 无挂载记录",
             )
-        tail = await self._runtime.self_pipeline.chain.last_patch()
         if tail is None or not _patch_belongs_to_server(tail, server_id):
             return MountOutcome(
                 ok=False, server_id=server_id, status="tail_conflict",

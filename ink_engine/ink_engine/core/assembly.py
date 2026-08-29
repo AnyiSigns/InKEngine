@@ -51,6 +51,17 @@ _SOURCE_TYPES = (
     SOURCE_EVIDENCE,
 )
 
+# 回退优先级（数值大 = 更晚被丢弃 = 更高优）。回退兜底按
+# 此优先级从尾部丢整块：evidence/memory 最先丢，context 最后丢——
+# 不依赖 _SOURCE_TYPES 元组序，显式可断言。
+_ROLLBACK_PRIORITY: dict[str, int] = {
+    SOURCE_EVIDENCE: 0,
+    SOURCE_MEMORY: 1,
+    SOURCE_TOOL: 2,
+    SOURCE_KNOWLEDGE: 3,
+    SOURCE_CONTEXT: 4,
+}
+
 # 缺省总预算（字符）：对齐宿主旧静态取段 4000 上限的调用点总口径
 DEFAULT_TOTAL_BUDGET = 8000
 
@@ -541,9 +552,16 @@ class InputAssembler:
         text = "\n\n".join(block[0] for block in blocks)
         # 粘合开销兜底（ENG9a-14）：各分级池分别填满后拼接会超出总预算
         # （每处边界两个分隔符）——**按源块边界回退丢整块**（不再全局
-        # 硬截断切半句/恒定牺牲最后一个池）：从尾部逐块回退直至不超预算，
-        # 被丢块的源留痕改写为 drop（char_limit=0 + 归因 note），截断量
-        # 随留痕记录（归因可见，回放不丢信息）
+        # 硬截断切半句/恒定牺牲最后一个池）：按回退优先级从低到高排序
+        # （低优池在尾部），从尾部逐块回退直至不超预算，保证 context 等
+        # 高优池最后才被牺牲。被丢块的源留痕改写为 drop（char_limit=0 +
+        # 归因 note），截断量随留痕记录（归因可见，回放不丢信息）
+        blocks.sort(
+            key=lambda block: _ROLLBACK_PRIORITY.get(
+                block[1][0].source_type if block[1] else "", 0
+            ),
+            reverse=True,
+        )
         truncated_chars = 0
         while blocks and len(text) > budget:
             _removed_text, removed_activations = blocks.pop()
@@ -569,11 +587,12 @@ class InputAssembler:
             text = text[:budget]
         # 空装配保底：预算过小导致全部分配被丢弃时，保留最高优先源的
         # 可读片段（宁可截断也不空手喂模型——装配空 = 调用点拿不到
-        # 任何输入上下文）
+        # 任何输入上下文）。保底源追加到留痕，保留原有各源 drop 记录
+        # 不整体替换——审计可见「哪些源被丢弃 + 哪个源保底」。
         if not text and all_sources:
             top = max(all_sources, key=lambda s: (s.score(), s.priority))
             text = top.content[:budget]
-            activations = [
+            activations = list(activations) + [
                 SourceActivation(
                     source_type=top.type,
                     title=top.title or "",

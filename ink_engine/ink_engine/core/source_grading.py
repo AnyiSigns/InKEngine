@@ -36,6 +36,24 @@ def default_credibility(source: str) -> float:
     return _SOURCE_CREDIBILITY.get(source, _SOURCE_CREDIBILITY[SOURCE_MODEL])
 
 
+def grade_level_for_credibility(credibility: float) -> str:
+    """credibility → 来源分级档（单源函数，检索/知识注入三路径共用）。
+
+    复用 _SOURCE_CREDIBILITY 分级基准：按可信度由高到低匹配，
+    首个 credibility ≥ 档位的来源即为该条目分级（同源同权，杜绝多路径
+    漂移）。均不匹配最低档时回退 web。
+    """
+    ranking = sorted(
+        ((source, weight) for source, weight in _SOURCE_CREDIBILITY.items()),
+        key=lambda pair: pair[1],
+        reverse=True,
+    )
+    for source, weight in ranking:
+        if credibility >= weight - 1e-9:
+            return source
+    return SOURCE_WEB
+
+
 __all__ = [
     "SOURCE_DIALOG",
     "SOURCE_MODEL",
@@ -43,4 +61,5 @@ __all__ = [
     "SOURCE_USER",
     "SOURCE_WEB",
     "default_credibility",
+    "grade_level_for_credibility",
 ]

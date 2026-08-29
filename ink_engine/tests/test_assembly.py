@@ -845,7 +845,8 @@ def test_empty_assembly_fallback_keeps_top_source():
     assert result.text  # 不空手喂模型
     assert len(result.text) <= 10
     assert "重要知识" in result.text
-    assert result.record.sources[0].mode == "fallback_keep"
+    # 保底源追加到留痕末尾（保留原有 drop 记录），不再整体替换
+    assert any(s.mode == "fallback_keep" for s in result.record.sources)
 
 
 def test_evidence_pool_default_ratio_nonzero():

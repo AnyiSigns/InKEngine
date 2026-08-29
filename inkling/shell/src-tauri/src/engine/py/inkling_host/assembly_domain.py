@@ -40,6 +40,10 @@ from ink_engine.core.retrieval import (
     RetrieverRegistry,
 )
 from ink_engine.core.retrieval import KnowledgeSetRetriever as _EngineKnowledgeSetRetriever
+from ink_engine.core.source_grading import (
+    _SOURCE_CREDIBILITY,
+    grade_level_for_credibility,
+)
 from ink_engine.core.storage import Storage
 
 # ── 记忆源装配 ──
@@ -87,7 +91,7 @@ class KnowledgeSetRetriever(_EngineKnowledgeSetRetriever):
     """
 
     def __init__(self, knowledge_set: Any, *, limit: int = 8) -> None:
-        super().__init__(knowledge_set, name="knowledge", relevance=0.5)
+        super().__init__(knowledge_set, name="knowledge")
         self._limit = max(limit, 1)
 
 
@@ -131,7 +135,7 @@ class EmbeddingRetriever:
                     doc_id=entry.id,
                     text=_render_entry(entry),
                     relevance=entry.credibility,
-                    level=SOURCE_MODEL,
+                    level=grade_level_for_credibility(entry.credibility),
                     meta={"kind": entry.kind},
                 )
                 for entry in entries
@@ -143,7 +147,7 @@ class EmbeddingRetriever:
                     doc_id=entry.id,
                     text=_render_entry(entry),
                     relevance=min(await self._score(query, entry), 1.0),
-                    level=SOURCE_MODEL,
+                    level=grade_level_for_credibility(entry.credibility),
                     meta={"kind": entry.kind, "semantic": True},
                 )
                 for entry in entries
@@ -333,6 +337,9 @@ def build_five_source_provider(
                             type=SOURCE_EVIDENCE,
                             content=chunk.text[:800],
                             title=f"检索：{chunk.source}/{chunk.doc_id}",
+                            weight=_SOURCE_CREDIBILITY.get(
+                                chunk.level, _SOURCE_CREDIBILITY[SOURCE_MODEL]
+                            ),
                             relevance=chunk.relevance,
                             priority=5,
                             meta={

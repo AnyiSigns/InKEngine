@@ -1,17 +1,22 @@
 /**
- * MCP 市场浏览视图（W5.1）：从种子 mcp_market.json 驱动真实 5 条 server。
+ * MCP 市场浏览视图（W5.1 多市场形态）：从宿主 mcp_market_status 驱动
+ * 真实市场注册表（内置市场出厂零预挂 ∪ 用户添加市场），按市场分组展示
+ * 服务；挂载/取消挂载经宿主命令（手动挂载，免审批卡）。
  *
- * 展示形态：列表（类别/风险徽标/transport 图标）+ 条目详情抽屉
- * （transport/url/command/args/credentials/risk_note）。
- * 挂载向导步骤条：选 server → 风险知情确认 → 观察期徽标 → L2 审批 → 落链生效 → 回退入口。
- * 风险色：高=朱砂/中=警示/低=灰。空态「暂无可用服务」。
+ * 展示形态：市场分组列表（类别/风险徽标/transport 图标）+ 条目详情抽屉
+ * （transport/url/command/args/credentials/risk_note）。已挂载服务标
+ * 「已挂载」并提供「取消挂载」。
  */
 
-import { useState } from 'react';
+import { useEffect, useState } from 'react';
 import type { ReactNode } from 'react';
 import { Globe, Terminal, AlertTriangle, CheckCircle, XCircle, Copy } from 'lucide-react';
 
 import type { AppBackend } from '../../backend';
+import type {
+  McpMarketEntrySummary,
+  McpMountStatus,
+} from '../../../shared/backend/backendAdapter';
 import type { McpMarketEntry } from '../../types';
 import { RISK_LABELS } from '../../types';
 
@@ -42,12 +47,14 @@ function RiskBadge({ risk }: { risk: string }) {
 }
 
 interface McpServerDetailProps {
-  entry: McpMarketEntry;
+  entry: McpMarketEntrySummary;
+  mounted: boolean;
   onClose: () => void;
-  onMount: (entry: McpMarketEntry) => void;
+  onMount: () => void;
+  onUnmount: () => void;
 }
 
-function McpServerDetail({ entry, onClose, onMount }: McpServerDetailProps) {
+function McpServerDetail({ entry, mounted, onClose, onMount, onUnmount }: McpServerDetailProps) {
   const handleCopyConfig = (): void => {
     const config = JSON.stringify({ transport: entry.transport, url: entry.url, command: entry.command, args: entry.args }, null, 2);
     void navigator.clipboard.writeText(config);
@@ -70,7 +77,7 @@ function McpServerDetail({ entry, onClose, onMount }: McpServerDetailProps) {
         <div className="space-y-2 text-[11px]">
           <div className="flex items-center gap-2">
             <span className="w-20 text-[10px] ink-text-muted">类别</span>
-            <span className="ink-chip py-px text-[9px]">{entry.category}</span>
+            <span className="ink-chip py-px text-[9px]">{entry.category || '—'}</span>
           </div>
           <div className="flex items-center gap-2">
             <span className="w-20 text-[10px] ink-text-muted">传输</span>
@@ -109,14 +116,25 @@ function McpServerDetail({ entry, onClose, onMount }: McpServerDetailProps) {
           </div>
         </div>
         <div className="mt-4 flex gap-2">
-          <button
-            type="button"
-            data-ui={`mcp_mount_${entry.id}`}
-            onClick={() => onMount(entry)}
-            className="flex-1 rounded-md bg-[var(--ink-accent)] px-3 py-1.5 text-[10px] font-medium text-[var(--ink-text-base)] hover:opacity-90 cursor-pointer"
-          >
-            挂载
-          </button>
+          {mounted ? (
+            <button
+              type="button"
+              data-ui={`mcp_unmount_${entry.id}`}
+              onClick={onUnmount}
+              className="flex-1 rounded-md border border-[var(--ink-border)] px-3 py-1.5 text-[10px] font-medium ink-text-muted hover:text-[var(--ink-text-base)] cursor-pointer bg-transparent"
+            >
+              取消挂载
+            </button>
+          ) : (
+            <button
+              type="button"
+              data-ui={`mcp_mount_${entry.id}`}
+              onClick={onMount}
+              className="flex-1 rounded-md bg-[var(--ink-accent)] px-3 py-1.5 text-[10px] font-medium text-[var(--ink-text-base)] hover:opacity-90 cursor-pointer"
+            >
+              挂载
+            </button>
+          )}
           <button
             type="button"
             data-ui={`mcp_copy_config_${entry.id}`}
@@ -134,19 +152,53 @@ function McpServerDetail({ entry, onClose, onMount }: McpServerDetailProps) {
 
 interface McpMarketProps {
   backend: AppBackend;
-  servers?: McpMarketEntry[];
-  onMount?: (entry: McpMarketEntry) => void;
+  onMount?: (entry: McpMarketEntry) => void | Promise<unknown>;
+  onUnmount?: (entry: McpMarketEntry) => void | Promise<unknown>;
 }
 
-export function McpMarket({ backend, servers: externalServers, onMount }: McpMarketProps) {
-  const seedServers = backend.getMcpMarket();
-  const list: McpMarketEntry[] = externalServers ?? seedServers;
+export function McpMarket({ backend, onMount, onUnmount }: McpMarketProps) {
+  const [status, setStatus] = useState<McpMountStatus | null>(null);
+  const [detailEntry, setDetailEntry] = useState<McpMarketEntrySummary | null>(null);
+  const [busyId, setBusyId] = useState<string | null>(null);
+  const [notice, setNotice] = useState<string | null>(null);
 
-  const [detailEntry, setDetailEntry] = useState<McpMarketEntry | null>(null);
-
-  const handleMount = (entry: McpMarketEntry): void => {
-    onMount?.(entry);
+  const refresh = async (): Promise<void> => {
+    const next = await backend.getMcpMarketStatus();
+    setStatus(next);
   };
+
+  useEffect(() => {
+    void refresh();
+  }, [backend]);
+
+  const handleMount = async (entry: McpMarketEntrySummary): Promise<void> => {
+    setBusyId(entry.id);
+    setNotice(null);
+    try {
+      await onMount?.(entry);
+      await refresh();
+    } catch (err) {
+      setNotice(`挂载失败：${String(err)}`);
+    } finally {
+      setBusyId(null);
+    }
+  };
+
+  const handleUnmount = async (entry: McpMarketEntrySummary): Promise<void> => {
+    setBusyId(entry.id);
+    setNotice(null);
+    try {
+      await onUnmount?.(entry);
+      await refresh();
+    } catch (err) {
+      setNotice(`取消挂载失败：${String(err)}`);
+    } finally {
+      setBusyId(null);
+    }
+  };
+
+  const serverCount = status?.markets.reduce((n, m) => n + m.servers.length, 0) ?? 0;
+  const mountedIds = new Set(Object.keys(status?.mounted ?? {}));
 
   return (
     <section className="ink-panel p-4" data-ui="mcp_market">
@@ -154,59 +206,93 @@ export function McpMarket({ backend, servers: externalServers, onMount }: McpMar
         <Terminal size={14} strokeWidth={1.5} className="ink-text-faint" aria-hidden />
         <span className="text-[12px] font-semibold tracking-tight">MCP 市场</span>
         <span className="ml-auto text-[10px] ink-text-faint">
-          {list.length} 个服务（出厂零预挂）
+          {status ? `${serverCount} 个服务（出厂零预挂）` : '加载中…'}
         </span>
       </div>
 
-      {list.length === 0 ? (
+      {notice ? (
+        <p className="mt-2 rounded-lg px-3 py-2 text-[11px] ink-feedback-fail" data-ui="mcp_market_notice">
+          {notice}
+        </p>
+      ) : null}
+
+      {!status || serverCount === 0 ? (
         <div className="mt-3 rounded-xl border border-dashed px-3 py-6 text-center text-[11px] ink-border ink-text-faint">
           <Terminal size={24} strokeWidth={1.5} className="mx-auto mb-2 ink-text-faint" aria-hidden />
           <p>暂无可用服务</p>
         </div>
       ) : (
-        <ul className="mt-3 space-y-2">
-          {list.map((entry) => (
-            <li key={entry.id} className="flex items-start gap-3" data-mcp-server={entry.id}>
-              <span className="min-w-0 flex-1">
-                <span className="flex items-center gap-2">
-                  <span className="truncate text-[var(--ink-font-xs)] font-medium">{entry.name}</span>
-                  <span className="ink-chip py-px text-[9px] ink-text-faint">{TRANSPORT_LABELS[entry.transport] ?? entry.transport}</span>
-                  <RiskBadge risk={entry.risk} />
-                  <span className="ink-chip text-[9px] ink-text-faint" data-category={entry.category}>
-                    {entry.category}
-                  </span>
-                </span>
-                <span className="mt-0.5 block truncate text-[10px] ink-text-faint">{entry.source}</span>
-                <span className="mt-0.5 block text-[9px] leading-relaxed ink-text-faint">{entry.risk_note}</span>
-              </span>
-              <div className="flex shrink-0 gap-1">
-                <button
-                  type="button"
-                  data-ui={`mcp_detail_${entry.id}`}
-                  onClick={() => setDetailEntry(entry)}
-                  className="rounded-md px-2 py-1 text-[10px] ink-text-muted hover:text-[var(--ink-text-base)] cursor-pointer border border-[var(--ink-border)] bg-transparent"
-                >
-                  详情
-                </button>
-                <button
-                  type="button"
-                  data-ui={`mcp_mount_${entry.id}`}
-                  onClick={() => handleMount(entry)}
-                  className="rounded-md px-2 py-1 text-[10px] ink-text-muted hover:text-[var(--ink-text-base)] cursor-pointer border border-[var(--ink-border)] bg-transparent"
-                >
-                  挂载
-                </button>
-              </div>
-            </li>
-          ))}
-        </ul>
+        status.markets.map((market) => (
+          <div key={market.id} className="mt-3" data-mcp-market={market.id}>
+            <div className="mb-1.5 flex items-center gap-2">
+              <span className="text-[11px] font-medium">{market.name}</span>
+              {market.builtin ? <span className="ink-chip py-px text-[9px] ink-text-faint">内置</span> : null}
+              <span className="ml-auto text-[10px] ink-text-faint">{market.servers.length} 个服务</span>
+            </div>
+            <ul className="space-y-2">
+              {market.servers.map((entry) => {
+                const mounted = mountedIds.has(entry.id);
+                return (
+                  <li key={entry.id} className="flex items-start gap-3" data-mcp-server={entry.id}>
+                    <span className="min-w-0 flex-1">
+                      <span className="flex items-center gap-2">
+                        <span className="truncate text-[var(--ink-font-xs)] font-medium">{entry.name}</span>
+                        <span className="ink-chip py-px text-[9px] ink-text-faint">{TRANSPORT_LABELS[entry.transport] ?? entry.transport}</span>
+                        <RiskBadge risk={entry.risk} />
+                        <span className="ink-chip text-[9px] ink-text-faint" data-category={entry.category}>
+                          {entry.category}
+                        </span>
+                        {mounted ? <span className="ink-chip py-px text-[9px] ink-feedback-ok" data-mounted="true">已挂载</span> : null}
+                      </span>
+                      <span className="mt-0.5 block truncate text-[10px] ink-text-faint">{entry.source}</span>
+                      <span className="mt-0.5 block text-[9px] leading-relaxed ink-text-faint">{entry.risk_note}</span>
+                    </span>
+                    <div className="flex shrink-0 gap-1">
+                      <button
+                        type="button"
+                        data-ui={`mcp_detail_${entry.id}`}
+                        onClick={() => setDetailEntry(entry)}
+                        className="rounded-md px-2 py-1 text-[10px] ink-text-muted hover:text-[var(--ink-text-base)] cursor-pointer border border-[var(--ink-border)] bg-transparent"
+                      >
+                        详情
+                      </button>
+                      {mounted ? (
+                        <button
+                          type="button"
+                          data-ui={`mcp_unmount_${entry.id}`}
+                          onClick={() => void handleUnmount(entry)}
+                          disabled={busyId === entry.id}
+                          className="rounded-md px-2 py-1 text-[10px] ink-text-muted hover:text-[var(--ink-text-base)] cursor-pointer border border-[var(--ink-border)] bg-transparent disabled:opacity-50"
+                        >
+                          {busyId === entry.id ? '卸载中…' : '取消挂载'}
+                        </button>
+                      ) : (
+                        <button
+                          type="button"
+                          data-ui={`mcp_mount_${entry.id}`}
+                          onClick={() => void handleMount(entry)}
+                          disabled={busyId === entry.id}
+                          className="rounded-md px-2 py-1 text-[10px] ink-text-muted hover:text-[var(--ink-text-base)] cursor-pointer border border-[var(--ink-border)] bg-transparent disabled:opacity-50"
+                        >
+                          {busyId === entry.id ? '挂载中…' : '挂载'}
+                        </button>
+                      )}
+                    </div>
+                  </li>
+                );
+              })}
+            </ul>
+          </div>
+        ))
       )}
 
       {detailEntry ? (
         <McpServerDetail
           entry={detailEntry}
+          mounted={mountedIds.has(detailEntry.id)}
           onClose={() => setDetailEntry(null)}
-          onMount={handleMount}
+          onMount={() => void handleMount(detailEntry)}
+          onUnmount={() => void handleUnmount(detailEntry)}
         />
       ) : null}
     </section>

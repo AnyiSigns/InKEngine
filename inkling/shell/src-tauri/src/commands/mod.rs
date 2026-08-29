@@ -11,6 +11,7 @@ pub mod error;
 pub mod files;
 pub mod knowledge;
 pub mod lifecycle;
+pub mod mcp;
 pub mod memory;
 pub mod ops;
 pub mod models;

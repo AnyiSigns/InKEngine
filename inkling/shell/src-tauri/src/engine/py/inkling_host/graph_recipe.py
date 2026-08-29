@@ -649,6 +649,7 @@ def make_llm_decider_factory(
                 return {
                     "reply": reply,
                     STATE_MESSAGES: [m.to_dict() for m in messages],
+                    "tool_rounds": 0,
                 }
             # canary 态桩化（ENG9a-6）：不调模型，直接以输入收口回复——
             # canary 单回合验证不产生真实 LLM 调用（成本与副作用护栏）
@@ -658,6 +659,7 @@ def make_llm_decider_factory(
                 return {
                     "reply": str(ctx.state.get("input") or "") or reply,
                     STATE_MESSAGES: [m.to_dict() for m in messages],
+                    "tool_rounds": 0,
                 }
             content = ""
             deltas: list = []
@@ -677,13 +679,20 @@ def make_llm_decider_factory(
                         deltas.extend(chunk.tool_calls_delta)
             except Exception as exc:
                 await ctx.emit("error", {"message": f"模型调用失败: {exc}"})
-                return {"reply": reply}
+                # 异常路径也返回 STATE_MESSAGES：确保本回合已累积的消息进 checkpoint，
+                # 避免下一回合历史断层（与三条正常收口路径一致）
+                return {
+                    "reply": reply,
+                    STATE_MESSAGES: [m.to_dict() for m in messages],
+                    "tool_rounds": 0,
+                }
             calls = accumulate_tool_calls(deltas)
             messages.append(assistant(content, tool_calls=calls or None))
             if not calls:
                 return {
                     "reply": reply,
                     STATE_MESSAGES: [m.to_dict() for m in messages],
+                    "tool_rounds": 0,
                 }
             pending = [
                 {"name": call.name, "id": call.id, "arguments": call.arguments}

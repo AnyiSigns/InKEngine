@@ -414,13 +414,48 @@ class HarnessRepository:
         return self._collection
 
     async def _get_chain_record(self, name: str) -> dict | None:
-        """读链记录（按集集合优先；无记录时回落历史集合——只读兼容）。"""
+        """读链记录（按集集合优先；无记录时回落历史集合——只读兼容）。
+
+        写通迁移：命中旧集合回退时，将链记录与版本索引复制进按集集合
+        （幂等），使旧集合逐渐排空；保留只读回退作为兜底。
+        """
         record = await self._storage.get_record(self._collection, self._chain_key(name))
         if record is None and self._legacy_collection is not None:
             record = await self._storage.get_record(
                 self._legacy_collection, self._chain_key(name)
             )
+            if record is not None:
+                await self._migrate_legacy_record(name, record)
         return record
+
+    async def _migrate_legacy_record(self, name: str, legacy_chain: dict) -> None:
+        """写通迁移：将旧集合的链记录与版本索引复制进按集集合（幂等）。
+
+        迁移失败（如旁路写防护拦截）只记警告不阻断读取；后续 save 在
+        allow_mechanism 上下文中写入时自然完成迁移。
+        """
+        try:
+            existing = await self._storage.get_record(
+                self._collection, self._chain_key(name)
+            )
+            if existing is not None:
+                return
+            await self._storage.put_record(
+                self._collection, self._chain_key(name), legacy_chain
+            )
+            legacy_versions = await self._storage.get_record(
+                self._legacy_collection, self._versions_key(name)
+            )
+            if legacy_versions is not None:
+                await self._storage.put_record(
+                    self._collection, self._versions_key(name), legacy_versions
+                )
+        except Exception as exc:
+            logger.warning(
+                "harness 写通迁移失败（旧集合仍作只读兜底）: %s: %s",
+                name,
+                exc,
+            )
 
     def _chain_key(self, name: str) -> str:
         return f"chain:{name}"

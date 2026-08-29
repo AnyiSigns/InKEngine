@@ -20,6 +20,8 @@ function toLocalRecord(record: SessionRemoteRecord): SessionRecord {
     createdAt,
     lastActiveAt: Math.round(record.updated_at * 1000),
     messages: [],
+    message_count: record.message_count,
+    deleted: record.deleted,
   };
 }
 
@@ -44,7 +46,11 @@ export class RemoteSessionStore implements SessionStore {
         const local = toLocalRecord(record);
         // 保留本地已落盘的实时消息（回合结束回写），避免刷新覆盖历史
         const existing = this.records.get(local.id);
-        if (existing && existing.messages.length > 0) local.messages = existing.messages;
+        if (existing && existing.messages.length > 0) {
+          local.messages = existing.messages;
+          // 计数与本地实际消息同步（上一回合 session_refresh 的 message_count 滞后）
+          local.message_count = existing.messages.length;
+        }
         next.set(local.id, local);
       }
       this.records = next;
@@ -55,7 +61,9 @@ export class RemoteSessionStore implements SessionStore {
   }
 
   list(): SessionRecord[] {
-    return [...this.records.values()].sort((a, b) => b.lastActiveAt - a.lastActiveAt);
+    return [...this.records.values()]
+      .filter((r) => !r.deleted)
+      .sort((a, b) => b.lastActiveAt - a.lastActiveAt);
   }
 
   get(id: string): SessionRecord | undefined {
@@ -82,6 +90,10 @@ export class RemoteSessionStore implements SessionStore {
         .then((remote) => {
           const local = toLocalRecord(remote);
           localStorageWarnFallback(local);
+          // 转移占位期已回写的消息（避免 race：round-end 先回写到占位 id，
+          // 随后 sessionCreate 完成删占位导致首回合消息丢失）
+          const placeholder = this.records.get(placeholderId);
+          if (placeholder && placeholder.messages.length > 0) local.messages = placeholder.messages;
           // 成功：占位替换为真实记录（不留双条目）
           this.records.delete(placeholderId);
           this.records.set(local.id, local);
@@ -140,7 +152,7 @@ export class RemoteSessionStore implements SessionStore {
   replaceMessages(id: string, messages: SessionRecord['messages']): void {
     const record = this.records.get(id);
     if (!record) return;
-    this.records.set(id, { ...record, messages, lastActiveAt: Date.now() });
+    this.records.set(id, { ...record, messages, message_count: messages.length, lastActiveAt: Date.now() });
     this.commit();
   }
 

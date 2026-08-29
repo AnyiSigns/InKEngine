@@ -713,11 +713,18 @@ async def boot_inkling(
         from ink_engine.core.path_assembler import set_default_assembly_runtime
 
         set_default_assembly_runtime(None)
+    _builtin_market = dict(market if market is not None else bundle.data["mcp_market.json"])
+    _builtin_market.setdefault("id", "market")
     mount_service = McpMountService(
         runtime,
-        market=market if market is not None else bundle.data["mcp_market.json"],
+        markets=[_builtin_market],
         external_mark_vetted=mark_vetted,
     )
+    # 挂载服务挂到运行时/宿主（bridge op 经 runtime_handle/host_handle 取用）：
+    # 用户持久化市场（连接页「添加链接挂载新市场」摄入）启动装载。
+    runtime.mcp_mount_service = mount_service
+    host.mcp_mount_service = mount_service
+    await mount_service.load_persisted_markets()
     from .skill_market import SkillMarketService
 
     market_path = bundle.root / "seed_data" / "skills_market.json"
@@ -834,6 +841,8 @@ async def boot_inkling(
             base_event_names=revert_state.get("base_event_names") or (),
             base_ui_spec=revert_state.get("base_ui_spec"),
         )
+        # MCP 挂载登记恢复（链内 mcp 端点工具按 server 回填；补丁序占位）
+        mount_service.restore_mount_log(assembled)
     # 种子条目重注入：引擎链恢复在种子注入之后整体替换知识集实例，
     # 出厂基线条目（内存态、不在链上）随之丢失——按既定语义「种子 =
     # 启动注入基线，链只承载演化」，此处重注入并与链段条目按 id 去重

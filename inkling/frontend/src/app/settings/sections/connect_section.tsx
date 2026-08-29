@@ -1,20 +1,31 @@
 /**
- * 设置「连接」节：MCP 服务连接管理入口 + 搜索 key 配置。
+ * 设置「连接」节：MCP 市场管理器（列表/添加链接/删除）+ 联网搜索 key。
  *
- * MCP 挂载唯一真路径 = MCP 市场（出厂零预挂；一键挂载走 vetting → 观察
- * → L2 审批转正 → 补丁链可回退），本节提供入口行，不做本地假挂载清单。
+ * MCP 市场管理：
+ * - 展示已添加/内置的 MCP 市场（内置市场出厂零预挂不可删）；
+ * - 添加链接挂载新市场 = 外部目录摄入：拉取 → vetting → 预览（名称/
+ *   服务数/风险分布）→ 用户确认 → 落注册表持久化（预览即审批卡，
+ *   确认即授权，与手动挂载同语义）；
+ * - 删除市场 → 级联卸载其下服务；
+ * - 服务级挂载/取消挂载在「MCP 市场」视图（onOpenView('mcp_market')）。
+ *
  * 搜索 key 配置项（env INK_SEARCH_KEY 显式优先、设置档兜底；降级 = 用户
  * 自配 exa/parallel key/bocha），即改即存。
  * 网络白名单判定面归 OS 层沙箱（开发者模式 → OS 层），不在用户设置重复。
  */
 
-import { useState } from 'react';
+import { useCallback, useEffect, useMemo, useState } from 'react';
 
-import { ChevronRight, Search, Server } from 'lucide-react';
+import { ChevronRight, Plus, Search, Server, Trash2 } from 'lucide-react';
 
 import { Button } from '@/shared/ui/Button';
 import { Field, Select, TextInput } from '@/shared/ui/Field';
 import { createTauriInvoker } from '@/shared/backend/tauriBridge';
+import type {
+  McpMarketPreview,
+  McpMountStatus,
+  McpMarketSummary,
+} from '@/shared/backend/backendAdapter';
 import { SettingsActionsContext } from './advanced_section';
 import { useContext } from 'react';
 
@@ -22,10 +33,89 @@ type SearchProvider = 'exa' | 'parallel' | 'bocha';
 
 export function ConnectSection(): JSX.Element {
   const { onOpenView } = useContext(SettingsActionsContext);
-  const tauri = createTauriInvoker();
+  // createTauriInvoker 每次调用返回新对象字面量：useMemo 固定身份，
+  // 否则 invoke/refresh 的 useCallback 依赖链逐渲染变化 → 无限 IPC 轮询
+  const tauri = useMemo(() => createTauriInvoker(), []);
   const [searchKey, setSearchKey] = useState('');
   const [searchProvider, setSearchProvider] = useState<SearchProvider>('exa');
   const [savePhase, setSavePhase] = useState<'idle' | 'saving' | 'saved' | 'error'>('idle');
+
+  const [status, setStatus] = useState<McpMountStatus | null>(null);
+  const [marketLink, setMarketLink] = useState('');
+  const [preview, setPreview] = useState<McpMarketPreview | null>(null);
+  const [busy, setBusy] = useState(false);
+  const [notice, setNotice] = useState<string | null>(null);
+
+  const invoke = useCallback(
+    async <T,>(cmd: string, args?: Record<string, unknown>): Promise<T | null> => {
+      if (!tauri) return null;
+      try {
+        return (await tauri.invoke(cmd, args)) as T;
+      } catch (err) {
+        setNotice(`${cmd} 失败：${String(err)}`);
+        return null;
+      }
+    },
+    [tauri],
+  );
+
+  const refresh = useCallback(async (): Promise<void> => {
+    const next = await invoke<McpMountStatus>('mcp_market_status');
+    if (next) setStatus(next);
+  }, [invoke]);
+
+  useEffect(() => {
+    void refresh();
+  }, [refresh]);
+
+  const handlePreview = async (): Promise<void> => {
+    const link = marketLink.trim();
+    if (!link) return;
+    setBusy(true);
+    setNotice(null);
+    setPreview(null);
+    const result = await invoke<McpMarketPreview>('mcp_market_preview', { link });
+    setBusy(false);
+    if (!result) return;
+    setPreview(result);
+    if (!result.ok) {
+      setNotice(result.error ?? result.violations?.join('；') ?? '目录未通过核对');
+    }
+  };
+
+  const handleAdd = async (): Promise<void> => {
+    const link = marketLink.trim();
+    if (!link) return;
+    setBusy(true);
+    setNotice(null);
+    const result = await invoke<{ ok: boolean; market?: McpMarketSummary; error?: string }>(
+      'mcp_market_add',
+      { link },
+    );
+    setBusy(false);
+    if (result?.ok) {
+      setPreview(null);
+      setMarketLink('');
+      setNotice(null);
+      await refresh();
+    } else {
+      setNotice(result?.error ?? '添加失败');
+    }
+  };
+
+  const handleRemove = async (marketId: string): Promise<void> => {
+    setBusy(true);
+    setNotice(null);
+    const result = await invoke<{ ok: boolean; error?: string }>('mcp_market_remove', {
+      marketId,
+    });
+    setBusy(false);
+    if (result?.ok) {
+      await refresh();
+    } else {
+      setNotice(result?.error ?? '删除失败');
+    }
+  };
 
   const handleSaveSearch = async (): Promise<void> => {
     setSavePhase('saving');
@@ -43,24 +133,93 @@ export function ConnectSection(): JSX.Element {
     }
   };
 
+  const mountedCount = status ? Object.keys(status.mounted).length : 0;
+
   return (
     <div className="space-y-4">
       <div className="ink-elevated divide-y divide-[var(--ink-border)] overflow-hidden">
-        <button
-          type="button"
-          data-ui="connect_open_mcp_market"
-          onClick={() => onOpenView('mcp_market')}
-          className="flex w-full items-center gap-3 px-3.5 py-3 text-left hover:bg-[var(--ink-bg-surface)]"
-        >
+        <div className="flex items-center gap-3 px-3.5 py-3">
           <Server size={16} strokeWidth={1.6} className="shrink-0 ink-text-muted" aria-hidden />
           <span className="min-w-0 flex-1">
-            <span className="block text-[13px] font-medium">MCP 服务</span>
+            <span className="block text-[13px] font-medium">MCP 市场</span>
             <span className="mt-0.5 block text-[11px] leading-relaxed ink-text-faint">
-              浏览市场并挂载；出厂零预挂，挂载经审查后生效、可回退
+              {status
+                ? `${status.markets.length} 个市场 · ${status.markets.reduce((n, m) => n + m.servers.length, 0)} 个服务 · 已挂载 ${mountedCount} 个`
+                : '加载中…'}
             </span>
           </span>
-          <ChevronRight size={15} strokeWidth={1.6} className="shrink-0 ink-text-faint" aria-hidden />
-        </button>
+          <button
+            type="button"
+            data-ui="connect_open_mcp_market"
+            onClick={() => onOpenView('mcp_market')}
+            className="flex shrink-0 items-center gap-1 rounded-md border border-[var(--ink-border)] px-2.5 py-1.5 text-[10px] ink-text-muted hover:text-[var(--ink-text-base)] cursor-pointer"
+          >
+            管理服务
+            <ChevronRight size={13} strokeWidth={1.6} aria-hidden />
+          </button>
+        </div>
+
+        {status?.markets.map((market) => (
+          <div key={market.id} className="flex items-center gap-3 px-3.5 py-2.5" data-mcp-market={market.id}>
+            <span className="min-w-0 flex-1">
+              <span className="flex items-center gap-1.5">
+                <span className="truncate text-[12px] font-medium">{market.name}</span>
+                {market.builtin ? (
+                  <span className="ink-chip py-px text-[9px] ink-text-faint">内置</span>
+                ) : (
+                  <span className="ink-chip py-px text-[9px] ink-text-faint">用户添加</span>
+                )}
+              </span>
+              <span className="mt-0.5 block truncate font-mono text-[9px] ink-text-faint">
+                {market.source || 'seed_data/mcp_market.json'} · {market.servers.length} 个服务
+              </span>
+            </span>
+            {!market.builtin ? (
+              <button
+                type="button"
+                data-ui={`mcp_market_remove_${market.id}`}
+                onClick={() => void handleRemove(market.id)}
+                disabled={busy}
+                className="flex shrink-0 items-center gap-1 rounded-md border border-[var(--ink-border)] px-2 py-1 text-[10px] ink-text-faint hover:text-[var(--ink-feedback-fail)] cursor-pointer disabled:opacity-50"
+              >
+                <Trash2 size={10} strokeWidth={1.6} aria-hidden />
+                删除
+              </button>
+            ) : null}
+          </div>
+        ))}
+
+        <div className="space-y-2 px-3.5 py-3">
+          <div className="flex items-center gap-2">
+            <TextInput
+              value={marketLink}
+              placeholder="市场链接：http(s)://… 或本地目录路径"
+              onChange={(e) => setMarketLink(e.target.value)}
+              aria-label="添加市场链接"
+            />
+            <Button size="sm" variant="secondary" data-ui="mcp_market_preview" onClick={() => void handlePreview()} disabled={busy}>
+              预览
+            </Button>
+            <Button size="sm" variant="primary" data-ui="mcp_market_add" onClick={() => void handleAdd()} disabled={busy || !preview?.ok}>
+              <Plus size={11} strokeWidth={1.6} />
+              添加市场
+            </Button>
+          </div>
+          {preview?.ok && preview.preview ? (
+            <div className="rounded-lg border border-[var(--ink-border)] px-3 py-2 text-[11px] leading-relaxed ink-text-muted" data-ui="mcp_market_preview_card">
+              <span className="font-medium">{preview.preview.name}</span> · {preview.preview.server_count} 个服务
+              · 低 {preview.preview.risk_summary.low} / 中 {preview.preview.risk_summary.medium} / 高 {preview.preview.risk_summary.high}
+              <p className="mt-1 text-[10px] ink-text-faint">
+                外部目录摄入：核对通过后确认添加即授权，服务挂载仍按各条目风险走既有闸门。
+              </p>
+            </div>
+          ) : null}
+          {notice ? (
+            <p className="text-[10px] leading-relaxed ink-feedback-fail" data-ui="mcp_market_notice">
+              {notice}
+            </p>
+          ) : null}
+        </div>
       </div>
 
       <div className="ink-elevated space-y-3 px-3.5 py-3">

@@ -23,6 +23,7 @@ build.json（数据声明）→ 引擎 Builder（白名单沙箱构建 + 内容�
 from __future__ import annotations
 
 import contextlib
+import json
 import os
 import time
 from collections.abc import Callable
@@ -51,6 +52,11 @@ BUILD_ERROR_WHITELIST = "BLD_001"  # 构建命令不在白名单（fail-closed�
 BUILD_ERROR_FAILED = "BLD_002"  # 构建命令失败/超时/产物缺失
 BUILD_ERROR_SMOKE = "BLD_003"  # 冒烟门禁未通过（不 promote）
 BUILD_ERROR_VETTING = "BLD_004"  # ARTIFACT 补丁部署前验证未通过
+
+# 前端组件清单落位（data_dir/components/manifest.json——壳 components_manifest
+# 命令与前端 artifactLoader 的消费文件；本域是其唯一写入方，链为权威）
+COMPONENT_DIR_NAME = "components"
+COMPONENT_MANIFEST_FILE = "manifest.json"
 
 
 class BuildDomain:
@@ -197,6 +203,80 @@ class BuildDomain:
                 runtime.harness_registry.declarative.unregister_definition(name)
                 self.declared_tools.pop(name, None)
 
+    # ── 前端组件清单（已挂载 UI 组件的权威落位：链 → manifest.json）──
+
+    def component_manifest_path(self) -> Path:
+        """前端组件清单路径（data_dir/components/manifest.json）。
+
+        与壳侧 components_manifest 命令读取文件同一路径（data_dir 为
+        壳 app_data_dir 注入）；本域 = 唯一写入方，补丁链为权威。
+        """
+        return self._artifact_dir.parent / COMPONENT_DIR_NAME / COMPONENT_MANIFEST_FILE
+
+    @staticmethod
+    def component_entry_from_payload(payload: Any) -> dict[str, Any] | None:
+        """ARTIFACT 补丁载荷 → 前端组件清单条目（无组件声明 = None）。
+
+        组件声明 = ``meta.component``（agent 自写/外部拉取 UI 组件的数据
+        形态）：name 必填，url 缺省回落本地产物首文件路径
+        （``artifacts/<id>/<file>``——能否加载取决于宿主提供方式，清单
+        条目本身以链为权威）。renderer_key/view_forms 有值才携带（与
+        前端 ArtifactManifestEntry 契约对齐）。
+        """
+        if not isinstance(payload, dict):
+            return None
+        meta = payload.get("meta")
+        if not isinstance(meta, dict):
+            return None
+        component = meta.get("component")
+        if not isinstance(component, dict):
+            return None
+        name = str(component.get("name") or "").strip()
+        if not name:
+            return None
+        hashes = payload.get("hashes")
+        file_names = list((hashes or {}).keys()) if isinstance(hashes, dict) else []
+        first_hash = ""
+        if isinstance(hashes, dict):
+            first_hash = next((str(h) for h in hashes.values() if h), "")
+        url = str(component.get("url") or "").strip()
+        if not url:
+            artifact_id = str(payload.get("artifact_id") or "")
+            url = f"artifacts/{artifact_id}/{file_names[0]}" if artifact_id and file_names else ""
+        entry: dict[str, Any] = {
+            "name": name,
+            "url": url,
+            "hash": str(component.get("hash") or first_hash or ""),
+            "version": str(component.get("version") or "1"),
+        }
+        if component.get("renderer_key"):
+            entry["renderer_key"] = str(component["renderer_key"])
+        if isinstance(component.get("view_forms"), list):
+            entry["view_forms"] = component["view_forms"]
+        return entry
+
+    def sync_component_manifest(self, artifacts: dict[str, Any] | None) -> None:
+        """从链产物声明重建前端组件清单（补丁链 = 权威，幂等可重放）。
+
+        链内产物带组件声明（meta.component）→ 写入清单条目；链外
+        （回退撤销）自动移除。前端 artifactLoader 消费本文件注册
+        即插即显；写入失败留痕不抛穿（派生数据，重启装配重建）。
+        """
+        entries: list[dict[str, Any]] = []
+        for payload in (artifacts or {}).values():
+            entry = self.component_entry_from_payload(payload)
+            if entry is not None:
+                entries.append(entry)
+        path = self.component_manifest_path()
+        try:
+            path.parent.mkdir(parents=True, exist_ok=True)
+            path.write_text(
+                json.dumps({"artifacts": entries}, ensure_ascii=False, indent=2),
+                encoding="utf-8",
+            )
+        except OSError as exc:
+            logger.warning("组件清单写入失败 path=%s reason=%s", path, exc)
+
     # ── ARTIFACT 补丁链路 ──
 
     def l2_vetting_hook(self) -> Callable[[Any], list[str]]:
@@ -211,6 +291,16 @@ class BuildDomain:
             if getattr(proposal, "kind", None) is not PatchKind.ARTIFACT:
                 return []
             payload = proposal.payload or {}
+            component = (payload.get("meta") or {}).get("component")
+            if isinstance(component, dict) and component.get("url"):
+                # 外部 URL 组件（dsh 形态：直引 http(s) 构件，无本地构建）：
+                # 验证面 = URL 形态 + 名称声明，L2 人工审批把关
+                url = str(component["url"])
+                if not (url.startswith("http://") or url.startswith("https://")):
+                    return ["外部组件 url 仅支持 http(s)（部署前门禁，fail-closed）"]
+                if not str(component.get("name") or "").strip():
+                    return ["外部组件声明缺 name（部署前门禁，fail-closed）"]
+                return []
             artifact = self.artifacts.get(str(payload.get("artifact_id") or ""))
             if artifact is None:
                 return ["产物未在构建登记（artifact_id 不存在于本域产物目录）"]
@@ -383,6 +473,13 @@ class ArtifactApplyTarget(ApplyTarget):
             self._runtime.harness_registry.declarative.register_definition(spec)
             self._runtime.tool_registry[spec.name] = spec.to_spec()
             self._domain.declared_tools[spec.name] = str(payload.get("artifact_id") or "")
+        # 组件清单同步：链内组件声明 → data_dir/components/manifest.json
+        # （落链已 append，链含本补丁；前端 artifactLoader 注册即插即显）
+        try:
+            assembled = await self._runtime.self_pipeline.chain.assemble()
+            self._domain.sync_component_manifest(assembled.get("artifacts") or {})
+        except Exception as exc:
+            logger.warning("组件清单同步失败（重启装配经链恢复）: %s", exc)
 
 
 __all__ = [

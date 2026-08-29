@@ -27,6 +27,7 @@ from .source_grading import (  # 来源分级单源（ENG3-4：与知识集共�
     SOURCE_ORDER,
     SOURCE_USER,
     SOURCE_WEB,
+    grade_level_for_credibility,
 )
 
 # 来源分级次序（SOURCE_ORDER 的查表形态；单源派生的分级权重，与
@@ -180,8 +181,6 @@ class KnowledgeSetRetriever:
         knowledge_set: 知识集实例或延迟提供者（``Callable[[], KnowledgeSet]``
             ——运行时链恢复会替换知识集实例，提供者取用最新实例）。
         name: 检索源名（注册表内唯一标识，知识源固定名）。
-        relevance: 条目注入的相关度基准（无语义相关度时以可信度作合并
-            排序代理——检索命中即视为与任务相关）。
     """
 
     def __init__(
@@ -189,33 +188,16 @@ class KnowledgeSetRetriever:
         knowledge_set: KnowledgeSet | Callable[[], KnowledgeSet],
         *,
         name: str = "knowledge",
-        relevance: float = 0.5,
     ) -> None:
-        if not (0 <= relevance <= 1):
-            raise GraphDefinitionError(f"检索相关度须在 [0, 1] 内: {relevance}")
         self._set_provider: Callable[[], KnowledgeSet] = (
             knowledge_set if callable(knowledge_set) else (lambda: knowledge_set)
         )
         self.name = name
-        self.relevance = relevance
 
     @property
     def knowledge_set(self) -> KnowledgeSet:
         """当前知识集实例（延迟取用：运行时会合替换后仍读到最新）。"""
         return self._set_provider()
-
-    @staticmethod
-    def _level_for(credibility: float) -> str:
-        """credibility → 来源分级档（复用 _SOURCE_CREDIBILITY 分级基准）。"""
-        ranking = sorted(
-            ((source, weight) for source, weight in _SOURCE_CREDIBILITY.items()),
-            key=lambda pair: pair[1],
-            reverse=True,
-        )
-        for source, weight in ranking:
-            if credibility >= weight - 1e-9:
-                return source
-        return SOURCE_WEB
 
     async def retrieve(
         self, query: str, *, limit: int
@@ -230,8 +212,8 @@ class KnowledgeSetRetriever:
                     source=self.name,
                     doc_id=entry.id,
                     text=entry.render_content(),
-                    relevance=self.relevance,
-                    level=self._level_for(entry.credibility),
+                    relevance=entry.credibility,
+                    level=grade_level_for_credibility(entry.credibility),
                     meta={
                         "entry_id": entry.id,
                         "credibility": entry.credibility,

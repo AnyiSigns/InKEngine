@@ -263,6 +263,20 @@ def restore_live_views(
     restore_harness_views(runtime, assembled)
     restore_knowledge_view(runtime, assembled)
     restore_event_types(runtime, assembled, base_event_names=base_event_names)
+    restore_component_manifest(runtime, assembled)
+
+
+def restore_component_manifest(runtime: Any, assembled: dict[str, Any]) -> None:
+    """产物段恢复：链内组件声明 → 重建前端组件清单（components/manifest.json）。
+
+    补丁链是权威记录：链内产物带 meta.component → 清单条目；回退后
+    链外产物自动移除。构建域未装配 = 跳过（清单是派生数据，可重建）。
+    """
+    build_domain = getattr(runtime, "builds", None)
+    if build_domain is None:
+        return
+    with contextlib.suppress(Exception):
+        build_domain.sync_component_manifest(assembled.get("artifacts") or {})
 
 
 def restore_ui_theme(
@@ -462,6 +476,7 @@ __all__ = [
     "UiApplyTarget",
     "rebuild_declarative_tools",
     "register_live_targets",
+    "restore_component_manifest",
     "restore_event_types",
     "restore_harness_views",
     "restore_knowledge_view",

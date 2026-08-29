@@ -103,6 +103,61 @@ export interface ToolSnapshotEntry {
   auto_approvable?: boolean;
 }
 
+/** MCP 市场条目摘要（与 app/types.ts McpMarketEntry 同源；宿主 status 回传）。 */
+export interface McpMarketEntrySummary {
+  id: string;
+  name: string;
+  source: string;
+  transport: 'http' | 'stdio';
+  url: string | null;
+  command: string | null;
+  args: string[];
+  credentials: { required: boolean; note: string };
+  risk: 'low' | 'medium' | 'high';
+  risk_note: string;
+  category: string;
+  premounted: boolean;
+}
+
+/** MCP 市场摘要（连接页列表 / 市场页分组数据源）。 */
+export interface McpMarketSummary {
+  id: string;
+  name: string;
+  source: string;
+  builtin: boolean;
+  servers: McpMarketEntrySummary[];
+}
+
+/** MCP 挂载状态快照（市场 + 已挂载服务）。 */
+export interface McpMountStatus {
+  markets: McpMarketSummary[];
+  mounted: Record<string, { server_id: string; tools: string[] }>;
+}
+
+/** 市场摄入预览（vetting 通过 = ok，violations = 违规清单）。 */
+export interface McpMarketPreview {
+  ok: boolean;
+  error?: string;
+  violations?: string[];
+  preview?: {
+    name: string;
+    source: string;
+    server_count: number;
+    risk_summary: { low: number; medium: number; high: number };
+    servers: Array<{ id: string; name: string; transport: string; risk: string; risk_note: string }>;
+  };
+}
+
+/** 挂载/卸载结果信封。 */
+export interface McpMountOutcome {
+  ok: boolean;
+  server_id?: string;
+  patch_ids?: number[];
+  tool_names?: string[];
+  status?: string;
+  error?: string | null;
+}
+
 /** 后端状态（引擎就绪/工具面/安全模式/首启引导/执行件随包/运行形态）。 */
 export interface BackendStatus {
   engine_ready: boolean;
@@ -297,6 +352,13 @@ export interface BackendAdapter {
   toolsSnapshot(): Promise<{ tools: ToolSnapshotEntry[] }>;
   componentsManifest(): Promise<{ artifacts: ArtifactManifestEntry[] }>;
   knowledgeGraph(): Promise<KnowledgeGraphResult>;
+  // MCP 市场（连接页市场管理 + 市场页服务挂载/卸载）
+  mcpMarketStatus(): Promise<McpMountStatus>;
+  mcpMarketMount(serverId: string): Promise<McpMountOutcome>;
+  mcpMarketUnmount(serverId: string): Promise<McpMountOutcome>;
+  mcpMarketPreview(link: string): Promise<McpMarketPreview>;
+  mcpMarketAdd(link: string): Promise<{ ok: boolean; market?: McpMarketSummary; error?: string }>;
+  mcpMarketRemove(marketId: string): Promise<{ ok: boolean; error?: string; unmounted?: Array<{ server_id: string; ok: boolean; status?: string }> }>;
   // 可观测数据面（仪表 / 模型选择器数据源）
   modelArchiveSnapshot(): Promise<ModelArchiveSnapshot>;
   metricsSnapshot(): Promise<TurnMetricsSnapshot>;
@@ -371,6 +433,12 @@ export function createUnavailableBackend(): BackendAdapter {
     toolsSnapshot: unavailable as never,
     componentsManifest: unavailable as never,
     knowledgeGraph: unavailable as never,
+    mcpMarketStatus: unavailable as never,
+    mcpMarketMount: unavailable as never,
+    mcpMarketUnmount: unavailable as never,
+    mcpMarketPreview: unavailable as never,
+    mcpMarketAdd: unavailable as never,
+    mcpMarketRemove: unavailable as never,
     rebuildCache: unavailable as never,
     restoreEdgeTier: unavailable as never,
     modelArchiveSnapshot: unavailable as never,
@@ -460,6 +528,12 @@ export function createTauriBackend(invoker?: TauriInvoker): BackendAdapter {
     roundLedgerMerge: (threadId) => call('round_ledger_merge', { threadId }),
     toolsSnapshot: () => call('tools_snapshot'),
     componentsManifest: () => call('components_manifest'),
+    mcpMarketStatus: () => call('mcp_market_status'),
+    mcpMarketMount: (serverId) => call('mcp_market_mount', { serverId }),
+    mcpMarketUnmount: (serverId) => call('mcp_market_unmount', { serverId }),
+    mcpMarketPreview: (link) => call('mcp_market_preview', { link }),
+    mcpMarketAdd: (link) => call('mcp_market_add', { link }),
+    mcpMarketRemove: (marketId) => call('mcp_market_remove', { marketId }),
     modelArchiveSnapshot: () => call('model_archive_snapshot'),
     metricsSnapshot: () => call('metrics_snapshot'),
     assembleStats: () => call('assemble_stats'),

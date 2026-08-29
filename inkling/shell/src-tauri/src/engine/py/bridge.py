@@ -1344,6 +1344,85 @@ def _register_mcp_ops() -> None:
         closed = await runtime.mcp_manager.disconnect(args["server_id"])
         return {"closed": closed}
 
+    def _mount_service() -> Any:
+        """当前挂载服务（host 装配期挂在 runtime 上；未装配显式报错）。"""
+        runtime = runtime_handle()
+        service = getattr(runtime, "mcp_mount_service", None)
+        if service is None:
+            raise RuntimeError("MCP 挂载服务未装配")
+        return service
+
+    def _mount_outcome(outcome: Any) -> dict:
+        """MountOutcome → JSON 可序列化形态。"""
+        return {
+            "ok": outcome.ok,
+            "server_id": outcome.server_id,
+            "patch_ids": list(outcome.patch_ids),
+            "tool_names": list(outcome.tool_names),
+            "status": outcome.status,
+            "error": outcome.error,
+        }
+
+    @op_async("mcp.market_status")
+    async def _mcp_market_status(args: dict) -> Any:
+        """市场 + 挂载状态（设置「连接」/「市场」视图数据源）。"""
+        return _mount_service().status()
+
+    @op_async("mcp.market_mount")
+    async def _mcp_market_mount(args: dict) -> Any:
+        """市场一键挂载（手动挂载：免挂载审批卡，逐工具自动放行）。"""
+        from inkling_host.mcp_service import MountOutcome
+
+        service = _mount_service()
+        server_id = str(args.get("server_id") or "")
+        try:
+            outcome = await service.propose_mount(
+                None, server_id, require_approval=False
+            )
+        except Exception as exc:
+            outcome = MountOutcome(
+                ok=False, server_id=server_id,
+                status="mount_failed", error=str(exc),
+            )
+        return _mount_outcome(outcome)
+
+    @op_async("mcp.market_unmount")
+    async def _mcp_market_unmount(args: dict) -> Any:
+        """市场服务取消挂载（补丁链回退 + 会话断开）。"""
+        service = _mount_service()
+        server_id = str(args.get("server_id") or "")
+        outcome = await service.unmount(None, server_id)
+        return _mount_outcome(outcome)
+
+    @op_async("mcp.market_preview")
+    async def _mcp_market_preview(args: dict) -> Any:
+        """市场摄入预览（拉取 + vetting + 摘要；不落注册表）。"""
+        return await _mount_service().preview_market(str(args.get("link") or ""))
+
+    @op_async("mcp.market_add")
+    async def _mcp_market_add(args: dict) -> Any:
+        """添加市场（外部目录摄入）：预览确认后落注册表持久化。"""
+        from inkling_host.mcp_service import McpMountError
+
+        service = _mount_service()
+        try:
+            summary = await service.add_market(str(args.get("link") or ""))
+            return {"ok": True, "market": summary}
+        except McpMountError as exc:
+            return {"ok": False, "error": str(exc)}
+
+    @op_async("mcp.market_remove")
+    async def _mcp_market_remove(args: dict) -> Any:
+        """删除市场（内置不可删；级联卸载其下服务）。"""
+        from inkling_host.mcp_service import McpMountError
+
+        service = _mount_service()
+        try:
+            result = await service.remove_market(str(args.get("market_id") or ""))
+            return {"ok": True, **result}
+        except McpMountError as exc:
+            return {"ok": False, "error": str(exc)}
+
     @op_sync("engine.mcp_process_registry")
     def _mcp_process_registry(args: dict) -> Any:
         runtime = runtime_handle()

@@ -1,13 +1,12 @@
 /**
- * 设置页后端通道封装（壳桥 op 映射层）。
+ * 设置页后端通道封装（单一 IPC 面：全部经 BackendAdapter 下发）。
  *
- * 只 import 不改动 src/shared/backend/backendAdapter.ts；
- * 设置页专用读写在注册项 read/write 内联；批量保存走
- * capability_put / offline_settings_put 等既有契约。
+ * 设置页不再持有独立 tauri invoke 通道——offline_settings_get/put、
+ * voice_status、offline_detect 等命令已并入 BackendAdapter 接口，
+ * 与主会话共用同一传输与统一错误信封收口（code/message/trace_id 记日志）。
  */
 
 import type { BackendAdapter } from '@/shared/backend/backendAdapter';
-import { createTauriInvoker } from '@/shared/backend/tauriBridge';
 
 export interface SettingsBackend {
   available: boolean;
@@ -26,29 +25,25 @@ export interface SettingsBackend {
   backendStatus(): Promise<Record<string, unknown>>;
 }
 
-export function createSettingsBackend(adapter: BackendAdapter | null): SettingsBackend {
-  const tauri = createTauriInvoker();
-  const direct = (cmd: string, args?: Record<string, unknown>) =>
-    tauri?.invoke(cmd, args).then((r) => r as Record<string, unknown>) ?? Promise.resolve({});
+const UNAVAILABLE: SettingsBackend = {
+  available: false,
+  status: async () => ({ engine_ready: false }),
+  firstRunDismiss: async () => ({ dismissed: false }),
+  modelArchiveSnapshot: async () => ({}),
+  capabilityGet: async () => ({}),
+  capabilityPut: async () => undefined,
+  offlineSettingsGet: async () => ({}),
+  offlineSettingsPut: async () => undefined,
+  metricsSnapshot: async () => ({}),
+  assembleStats: async () => ({}),
+  cacheInvalidate: async () => ({ cleared: 'unavailable' }),
+  voiceStatus: async () => ({}),
+  offlineDetect: async () => ({}),
+  backendStatus: async () => ({}),
+};
 
-  if (!adapter?.available) {
-    return {
-      available: false,
-      status: async () => ({ engine_ready: false }),
-      firstRunDismiss: async () => ({ dismissed: false }),
-      modelArchiveSnapshot: async () => ({}),
-      capabilityGet: async () => ({}),
-      capabilityPut: async () => undefined,
-      offlineSettingsGet: () => direct('offline_settings_get'),
-      offlineSettingsPut: (settings) => direct('offline_settings_put', { settings }),
-      metricsSnapshot: async () => ({}),
-      assembleStats: async () => ({}),
-      cacheInvalidate: (scope) => adapter?.invalidateCache(scope) ?? Promise.resolve({ cleared: 'unavailable' as const }),
-      voiceStatus: () => direct('voice_status'),
-      offlineDetect: () => direct('offline_detect'),
-      backendStatus: async () => ({}),
-    };
-  }
+export function createSettingsBackend(adapter: BackendAdapter | null): SettingsBackend {
+  if (!adapter?.available) return UNAVAILABLE;
 
   return {
     available: true,
@@ -57,13 +52,13 @@ export function createSettingsBackend(adapter: BackendAdapter | null): SettingsB
     modelArchiveSnapshot: () => adapter.modelArchiveSnapshot().then((r) => r as unknown as Record<string, unknown>),
     capabilityGet: () => adapter.capabilityGet().then((r) => r as unknown as Record<string, unknown>),
     capabilityPut: (record) => adapter.capabilityPut(record),
-    offlineSettingsGet: () => direct('offline_settings_get'),
-    offlineSettingsPut: (settings) => direct('offline_settings_put', { settings }),
+    offlineSettingsGet: () => adapter.offlineSettingsGet(),
+    offlineSettingsPut: (settings) => adapter.offlineSettingsPut(settings),
     metricsSnapshot: () => adapter.metricsSnapshot().then((r) => r as unknown as Record<string, unknown>),
     assembleStats: () => adapter.assembleStats().then((r) => r as unknown as Record<string, unknown>),
     cacheInvalidate: (scope) => adapter.invalidateCache(scope),
-    voiceStatus: () => direct('voice_status'),
-    offlineDetect: () => direct('offline_detect'),
+    voiceStatus: () => adapter.voiceStatus(),
+    offlineDetect: () => adapter.offlineDetect(),
     backendStatus: () => adapter.status().then((s) => s as unknown as Record<string, unknown>),
   };
 }

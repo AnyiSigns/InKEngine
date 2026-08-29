@@ -27,6 +27,9 @@ export function ArchitectureView({
   assemblyResult?: AssemblyResult | null;
   onOpenAssembly?: () => void;
 }) {
+  // 稳定后端实例：默认参数每次渲染新建对象，直接传给子 tab 会使其
+  // useEffect[backend] 每次渲染重跑（无限重渲循环）。
+  const [instance] = useState(() => backend);
   const [tab, setTab] = useState<ArchTab>('template');
 
   return (
@@ -50,10 +53,10 @@ export function ArchitectureView({
         })}
       </div>
       <div className="w3-body">
-        {tab === 'template' && <TemplateTab backend={backend} />}
-        {tab === 'instance' && <InstanceTab backend={backend} />}
-        {tab === 'pool' && <PoolTab backend={backend} />}
-        {tab === 'edge' && <EdgeEvidenceTab backend={backend} assemblyResult={assemblyResult} onOpenAssembly={onOpenAssembly} />}
+        {tab === 'template' && <TemplateTab backend={instance} />}
+        {tab === 'instance' && <InstanceTab backend={instance} />}
+        {tab === 'pool' && <PoolTab backend={instance} />}
+        {tab === 'edge' && <EdgeEvidenceTab backend={instance} assemblyResult={assemblyResult} onOpenAssembly={onOpenAssembly} />}
       </div>
     </div>
   );

@@ -120,10 +120,26 @@ export function ingestEvent(hub: ChannelHub, event: HubEvent): void {
       );
       break;
     case 'plan_start':
-      upsert(
-        { kind: 'plan', content: '', status: 'running', id: nextId(), workflow: payload.workflow as string | undefined },
-        (m) => (m.kind === 'plan' ? { ...m, status: 'running' as const, workflow: payload.workflow as string | undefined } : m),
-      );
+      // 引擎发射 {plan: [{nodes:[...]}]}（graph_recipe 计划步），取步骤名作展示标签。
+      {
+        const rawPlan = payload.plan ?? payload.workflow;
+        const workflow = Array.isArray(rawPlan)
+          ? rawPlan
+              .map((step) => {
+                const s = step as { nodes?: unknown };
+                const nodes = Array.isArray(s.nodes) ? s.nodes.map(String).join('→') : '';
+                return nodes;
+              })
+              .filter(Boolean)
+              .join(', ') || undefined
+          : typeof rawPlan === 'string'
+            ? rawPlan
+            : undefined;
+        upsert(
+          { kind: 'plan', content: '', status: 'running', id: nextId(), workflow },
+          (m) => (m.kind === 'plan' ? { ...m, status: 'running' as const, workflow } : m),
+        );
+      }
       break;
     case 'plan_end':
       upsert(
@@ -281,16 +297,22 @@ export function ingestEvent(hub: ChannelHub, event: HubEvent): void {
       break;
     }
     case 'simulate_decision': {
+      // 引擎实际发射（executor simulate 决策留痕）：branches = [{index,
+      // description, score, passed, note}]，selected = 选中分支索引数组。
+      const selectedIdx = Array.isArray(payload.selected) ? (payload.selected as unknown[]) : [];
       const branches = Array.isArray(payload.branches)
         ? payload.branches.map((b, index) => {
             const branch = b as Record<string, unknown>;
             return {
-              branchId: String(branch.branch_id ?? `b${index + 1}`),
-              label: String(branch.label ?? `分支 ${index + 1}`),
+              branchId: String(branch.branch_id ?? branch.index ?? `b${index + 1}`),
+              label: String(branch.label ?? branch.description ?? `分支 ${index + 1}`),
               score: Number(branch.score ?? 0),
-              rationale: branch.rationale as string | undefined,
+              rationale: (branch.rationale ?? branch.note) as string | undefined,
               steps: Array.isArray(branch.steps) ? (branch.steps as Array<{ node: string; status: string; note?: string }>) : [],
-              selected: branch.selected === true || index === 0,
+              selected:
+                selectedIdx.includes(branch.index) ||
+                (branch.selected === true) ||
+                (selectedIdx.length === 0 && index === 0),
             };
           })
         : [];
@@ -398,7 +420,11 @@ export function ingestEvent(hub: ChannelHub, event: HubEvent): void {
       // 未落位的事件类型：原始负载属诊断信息，仅开发者模式建折叠兜底卡；
       // 普通模式跳过（消息流不泄露引擎内部事件）。
       if (getUiStateStore().get<boolean>(DEV_MODE_KEY)) {
-        messages = [...messages, { kind: 'unknown', token: JSON.stringify(event), id: nextId(), stepId: stepId || undefined, roundId }];
+        // dev 模式也只展示事件名 + 载荷键摘要，不把引擎内部事件结构
+        // 原样 JSON 进用户视图（内部字段/敏感载荷不外泄）。
+        const keys = typeof payload === 'object' && payload ? Object.keys(payload).slice(0, 8) : [];
+        const digest = keys.length ? ` · ${keys.join(', ')}` : '';
+        messages = [...messages, { kind: 'unknown', token: `新事件：${event.type}${digest}`, id: nextId(), stepId: stepId || undefined, roundId }];
       }
       break;
     }

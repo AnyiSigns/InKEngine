@@ -232,8 +232,10 @@ class _FakeResult:
 class _FakeEngine:
     def __init__(self, result: _FakeResult):
         self._result = result
+        self.calls: list[dict] = []
 
     async def ainvoke(self, state, **kwargs):
+        self.calls.append(kwargs)
         return self._result
 
     async def get_latest_interrupt(self, thread_id: str):
@@ -255,6 +257,27 @@ class _FakeRuntime:
 class _FakeHost:
     def build_transport(self):
         return _NoopTransport()
+
+
+def test_round_entry_continues_chain_for_cross_round_context():
+    """回合入口续链：跨回合消息连续性 = continue_chain=True（引擎链级续接）。
+
+    引擎侧 continue_chain 语义（chain_rebase/recovery）：读链尾 checkpoint
+    为基底、输入覆盖、版本链续接链尾——不带此参数则每回合全新 state，
+    模型拿不到上一回合的逐字消息，长会话上下文丢失。
+    """
+    bridge = _load_bridge()
+    engine = _FakeEngine(_FakeResult("reply"))
+    runtime = _FakeRuntime(engine)
+    host = _FakeHost()
+    asyncio.run(
+        bridge.execute_round_to_reply(
+            runtime, host, input_text="第二轮", thread_id="t1", round_id="r2"
+        )
+    )
+    assert engine.calls, "回合入口必须驱动引擎一次"
+    assert engine.calls[0].get("continue_chain") is True
+    assert engine.calls[0].get("thread_id") == "t1"
 
 
 def test_round_entry_tunes_after_round_success():
@@ -319,4 +342,5 @@ if __name__ == "__main__":
     test_round_entry_tunes_after_round_success()
     test_round_entry_tunes_after_round_failure_signal()
     test_round_entry_tunes_after_round_on_exception()
+    test_round_entry_continues_chain_for_cross_round_context()
     print("batch 6e bridge fixes all assertions passed")

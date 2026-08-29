@@ -2574,6 +2574,57 @@ async def _cache_stats(args: dict) -> dict[str, Any]:
     return _jsonable({"ok": True, "available": True, "stats": stats})
 
 
+@op_async("cache.rebuild")
+async def _cache_rebuild(args: dict) -> dict[str, Any]:
+    """指纹缓存重建 op（清空指定域缓存 → 下次访问自动重算；审计留痕）。
+
+    与 cache.invalidate 的差异：rebuild 语义 = 强制该域缓存整包失效重建
+    （清空后由后续请求按当前契约重新计算），paired 形态「清除 → 重建」
+    在干预卡上形成可复原闭环；域缺省 = 整库。
+    """
+    domain = args.get("domain") or args.get("scope") or ""
+    scope = f"domain:{domain}" if domain else "*"
+    runtime = runtime_handle()
+    storage = getattr(runtime, "storage", None)
+    db_path = str(args.get("db_path") or ":memory:")
+    from ink_engine.core.fingerprint_cache import FingerprintCacheStore, invalidate_cache
+
+    store = FingerprintCacheStore(db_path=db_path)
+    try:
+        result = await invalidate_cache(
+            store, scope, storage=storage, reason=args.get("reason") or "人工重建"
+        )
+    finally:
+        await store.close()
+    return _jsonable({"ok": True, "rebuilt": True, "domain": domain, **result})
+
+
+@op_async("edge.restore_tier")
+async def _edge_restore_tier(args: dict) -> dict[str, Any]:
+    """信任档人工恢复 op（反向操作：从 override 快照回写原证据计数）。
+
+    与 edge.downgrade_tier 配对形成可复原闭环；无快照（未降级过/未知边）
+    = fail-closed 返回 None（不报错，前端按未降级处理）。
+    """
+    edge_id = args.get("edgeId") or args.get("edge_id") or ""
+    runtime = runtime_handle()
+    storage = getattr(runtime, "storage", None)
+    db_path = str(args.get("db_path") or ":memory:")
+    from ink_engine.core.edge_evidence import EdgeEvidenceStore, restore_edge_tier
+
+    key = _edge_key_from_id(edge_id)
+    store = EdgeEvidenceStore(db_path=db_path)
+    try:
+        if key is None:
+            raise ValueError(f"边标识非法: {edge_id!r}")
+        result = await restore_edge_tier(store, key, storage=storage)
+    finally:
+        await store.close()
+    if result is None:
+        return _jsonable({"ok": True, "restored": False, "reason": "无降级快照"})
+    return _jsonable({"ok": True, **result})
+
+
 @op_async("edge.downgrade_tier")
 async def _edge_downgrade_tier(args: dict) -> dict[str, Any]:
     """信任档人工降级 op（档位更新 + 审计；降级前快照留痕可复原）。
@@ -3022,6 +3073,7 @@ async def execute_round_to_reply(
             round_id=round_id,
             transports=[_usage_collecting_transport(host.build_transport())],
             inject=inject or {},
+            continue_chain=True,
         )
         guard = 0
         while result.reason == "interrupted" and auto_accept_review and guard < max_cards:

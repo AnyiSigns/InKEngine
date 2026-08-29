@@ -58,17 +58,6 @@ export class RemoteSessionStore implements SessionStore {
     // 真实数据：宿主生成线程 id + 空标题（标题生成走回合后刷新）；
     // 宿主不可用时本地生成（夹具形态）
     if (!title && this.backend.available) {
-      this.backend
-        .sessionCreate()
-        .then((record) => {
-          const local = toLocalRecord(record);
-          localStorageWarnFallback(local);
-          this.records.set(local.id, local);
-          this.commit();
-        })
-        .catch(() => {
-          this.createLocalFallback();
-        });
       const placeholderId = `pending-${Date.now()}`;
       const record: SessionRecord = {
         id: placeholderId,
@@ -80,6 +69,21 @@ export class RemoteSessionStore implements SessionStore {
       };
       this.records.set(placeholderId, record);
       this.commit();
+      this.backend
+        .sessionCreate()
+        .then((remote) => {
+          const local = toLocalRecord(remote);
+          localStorageWarnFallback(local);
+          // 成功：占位替换为真实记录（不留双条目）
+          this.records.delete(placeholderId);
+          this.records.set(local.id, local);
+          this.commit();
+        })
+        .catch(() => {
+          // 失败：先清占位再本地兜底（占位 + fallback 双记录问题）
+          this.records.delete(placeholderId);
+          this.createLocalFallback();
+        });
       return record;
     }
     return this.createLocalFallback(title);

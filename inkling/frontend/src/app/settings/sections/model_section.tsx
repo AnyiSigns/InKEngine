@@ -10,7 +10,7 @@
  * engine.records/事件流/日志；错误不回显明文）；压缩红线联动展示。
  */
 
-import { useMemo, useState } from 'react';
+import { useEffect, useMemo, useState } from 'react';
 
 import { AlertTriangle, RefreshCw } from 'lucide-react';
 
@@ -309,6 +309,26 @@ export function ModelSection(): JSX.Element {
   const [compressionPercent, setCompressionPercent] = useState<number>(80);
   const [simulationTier, setSimulationTier] = useState<'off' | 'light' | 'full'>('light');
   const [savePhase, setSavePhase] = useState<FeedbackPhase>('idle');
+
+  // 读回显：进入设置页时把上次保存的模型连接配置回填（api_key 掩码不回显）。
+  useEffect(() => {
+    if (!tauri) return;
+    void tauri
+      .invoke('models_config_get')
+      .then((raw) => {
+        const cfg = (raw ?? {}) as Record<string, unknown>;
+        if (typeof cfg !== 'object') return;
+        if (typeof cfg.vendor === 'string') setVendor(cfg.vendor);
+        if (typeof cfg.provider_id === 'string') setProviderId(cfg.provider_id);
+        if (typeof cfg.base_url === 'string') setBaseUrl(cfg.base_url);
+        if (typeof cfg.main_model_id === 'string') setMainModelId(cfg.main_model_id);
+        if (typeof cfg.router_model_id === 'string') setRouterModelId(cfg.router_model_id);
+        if (typeof cfg.audit_model_id === 'string') setAuditModelId(cfg.audit_model_id);
+        if (typeof cfg.context_window === 'number') setContextWindow(cfg.context_window);
+        if (typeof cfg.compression_percent === 'number') setCompressionPercent(cfg.compression_percent);
+      })
+      .catch(() => undefined);
+  }, [tauri]);
 
   // 压缩红线 = 上下文窗口 × 用户所选百分比（1%~100%）；40k 只作执行侧硬下限，不参与展示
   const redlineTokens = useMemo(() => {

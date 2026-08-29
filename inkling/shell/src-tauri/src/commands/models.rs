@@ -146,6 +146,18 @@ pub(crate) async fn cache_invalidate(scope: String, reason: Option<String>) -> R
         .map_err(CommandError::engine)
 }
 
+/// 指纹缓存重建（透传至 `cache.rebuild` op；清空指定域缓存 → 下次访问重算）。
+#[tauri::command]
+pub(crate) async fn cache_rebuild(domain: Option<String>) -> Result<JsonValue, CommandError> {
+    let mut args = json!({});
+    if let Some(domain) = domain {
+        args["domain"] = JsonValue::String(domain);
+    }
+    crate::engine::host::call_engine_op_async("cache.rebuild", args)
+        .await
+        .map_err(CommandError::engine)
+}
+
 /// 信任档人工降级（透传至 `edge.downgrade_tier` op；降级前快照可复原）。
 #[tauri::command]
 pub(crate) async fn edge_downgrade_tier(
@@ -157,6 +169,14 @@ pub(crate) async fn edge_downgrade_tier(
         args["tier"] = JsonValue::String(tier);
     }
     crate::engine::host::call_engine_op_async("edge.downgrade_tier", args)
+        .await
+        .map_err(CommandError::engine)
+}
+
+/// 信任档人工恢复（透传至 `edge.restore_tier` op；从降级快照回写原计数）。
+#[tauri::command]
+pub(crate) async fn edge_restore_tier(edge_id: String) -> Result<JsonValue, CommandError> {
+    crate::engine::host::call_engine_op_async("edge.restore_tier", json!({ "edgeId": edge_id }))
         .await
         .map_err(CommandError::engine)
 }

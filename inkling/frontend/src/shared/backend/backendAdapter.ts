@@ -6,7 +6,7 @@
  * `available=false`，应用回落夹具路径（浏览器 dev / 无壳环境）。
  */
 
-import { createTauriInvoker, type TauriInvoker } from './tauriBridge';
+import { createTauriInvoker, handleEngineError, type TauriInvoker } from './tauriBridge';
 
 /** 会话记录（引擎 records 通道的会话集合数据形态）。 */
 export interface SessionRemoteRecord {
@@ -186,6 +186,39 @@ export interface MaterialImportResult {
   files: MaterialImportFileResult[];
 }
 
+/** 回合账本事件（确定性归约后的事实要点）。 */
+export interface RoundLedgerEvent {
+  kind: string;
+  at: number;
+  detail: Record<string, unknown>;
+}
+
+/** 回合账本（结构化事实快照：意图/结论/事实要点/回合指标）。 */
+export interface RoundLedgerItem {
+  schema?: string;
+  thread_id: string;
+  round_id: string;
+  created_at: number;
+  intent?: string | null;
+  conclusion?: string | null;
+  events?: RoundLedgerEvent[];
+  turn_metrics?: Record<string, unknown>;
+  audit_events?: unknown[];
+  summary?: string | null;
+}
+
+/** 回合账本清单（某线程全部账本，按时间序）。 */
+export interface RoundLedgerList {
+  thread_id: string;
+  ledgers: RoundLedgerItem[];
+}
+
+/** 回合账本摘要链（线程 append-only 阶段性小结）。 */
+export interface RoundLedgerChain {
+  thread_id: string;
+  chain: string[];
+}
+
 /** 后端适配器接口（生产 = 宿主桥；测试 = mock）。 */
 export interface BackendAdapter {
   /** 宿主可用性（false = 回落夹具路径）。 */
@@ -224,6 +257,13 @@ export interface BackendAdapter {
   authorizationState(): Promise<{ authorized: boolean; root: string | null }>;
   workspaceAuthorize(path: string): Promise<{ authorized: boolean; root: string }>;
   workspaceRevoke(): Promise<{ authorized: boolean }>;
+  openPath(path: string): Promise<void>;
+  mountList(): Promise<string[]>;
+  mountAuthorize(path: string): Promise<string[]>;
+  offlineSettingsGet(): Promise<Record<string, unknown>>;
+  offlineSettingsPut(settings: Record<string, unknown>): Promise<unknown>;
+  voiceStatus(): Promise<Record<string, unknown>>;
+  offlineDetect(): Promise<Record<string, unknown>>;
   approvalRequest(
     threadId: string | null,
     key: string,
@@ -237,7 +277,12 @@ export interface BackendAdapter {
     reason?: string,
     editedContent?: unknown,
   ): Promise<unknown>;
-  capabilityGet(): Promise<{ simulation_tier?: string }>;
+  capabilityGet(): Promise<{
+    simulation_tier?: string;
+    auto_approve_tools?: string[];
+    auto_approve_all_review?: boolean;
+    ui_spec?: unknown;
+  }>;
   capabilityPut(record: Record<string, unknown>): Promise<unknown>;
   backupExport(dest: string): Promise<{ entries: number; size: number; has_db: boolean }>;
   backupPreview(path: string): Promise<BackupPreview>;
@@ -245,6 +290,10 @@ export interface BackendAdapter {
   recoverySnapshots(): Promise<{ snapshots: RecoverySnapshot[] }>;
   recoveryRestoreSnapshot(name: string): Promise<{ restored: string; chain_version: number }>;
   recoveryFactoryReset(): Promise<{ reverted_patches: number[]; overwritten: boolean }>;
+  // 回合账本（事实快照流 / 摘要链 / 压缩触发）
+  roundLedgerList(threadId: string): Promise<RoundLedgerList>;
+  roundLedgerChain(threadId: string): Promise<RoundLedgerChain>;
+  roundLedgerMerge(threadId: string): Promise<unknown>;
   toolsSnapshot(): Promise<{ tools: ToolSnapshotEntry[] }>;
   componentsManifest(): Promise<{ artifacts: ArtifactManifestEntry[] }>;
   knowledgeGraph(): Promise<KnowledgeGraphResult>;
@@ -299,6 +348,13 @@ export function createUnavailableBackend(): BackendAdapter {
     authorizationState: unavailable as never,
     workspaceAuthorize: unavailable as never,
     workspaceRevoke: unavailable as never,
+    openPath: unavailable as never,
+    mountList: unavailable as never,
+    mountAuthorize: unavailable as never,
+    offlineSettingsGet: unavailable as never,
+    offlineSettingsPut: unavailable as never,
+    voiceStatus: unavailable as never,
+    offlineDetect: unavailable as never,
     approvalRequest: unavailable as never,
     approvalResolve: unavailable as never,
     capabilityGet: unavailable as never,
@@ -309,6 +365,9 @@ export function createUnavailableBackend(): BackendAdapter {
     recoverySnapshots: unavailable as never,
     recoveryRestoreSnapshot: unavailable as never,
     recoveryFactoryReset: unavailable as never,
+    roundLedgerList: unavailable as never,
+    roundLedgerChain: unavailable as never,
+    roundLedgerMerge: unavailable as never,
     toolsSnapshot: unavailable as never,
     componentsManifest: unavailable as never,
     knowledgeGraph: unavailable as never,
@@ -341,8 +400,13 @@ export function createTauriBackend(invoker?: TauriInvoker): BackendAdapter {
   const transport = invoker ?? createTauriInvoker();
   if (!transport) return createUnavailableBackend();
   const call = async <T>(cmd: string, args?: Record<string, unknown>): Promise<T> => {
-    const raw = await transport.invoke(cmd, args);
-    return raw as T;
+    try {
+      const raw = await transport.invoke(cmd, args);
+      return raw as T;
+    } catch (err) {
+      handleEngineError(cmd, err);
+      throw err;
+    }
   };
   return {
     available: true,
@@ -372,6 +436,13 @@ export function createTauriBackend(invoker?: TauriInvoker): BackendAdapter {
     authorizationState: () => call('authorization_state'),
     workspaceAuthorize: (path) => call('workspace_authorize', { path }),
     workspaceRevoke: () => call('workspace_revoke'),
+    openPath: (path) => call('shell_open_path', { path }),
+    mountList: () => call('mount_list'),
+    mountAuthorize: (path) => call('mount_authorize', { path }),
+    offlineSettingsGet: () => call('offline_settings_get'),
+    offlineSettingsPut: (settings) => call('offline_settings_put', { settings }),
+    voiceStatus: () => call('voice_status'),
+    offlineDetect: () => call('offline_detect'),
     approvalRequest: (threadId, key, action, payload) =>
       call('approval_request', { threadId, key, action, payload }),
     approvalResolve: (threadId, key, decision, reason, editedContent) =>
@@ -384,6 +455,9 @@ export function createTauriBackend(invoker?: TauriInvoker): BackendAdapter {
     recoverySnapshots: () => call('recovery_snapshots'),
     recoveryRestoreSnapshot: (name) => call('recovery_restore_snapshot', { name }),
     recoveryFactoryReset: () => call('recovery_factory_reset'),
+    roundLedgerList: (threadId) => call('round_ledger_list', { threadId }),
+    roundLedgerChain: (threadId) => call('round_ledger_chain', { threadId }),
+    roundLedgerMerge: (threadId) => call('round_ledger_merge', { threadId }),
     toolsSnapshot: () => call('tools_snapshot'),
     componentsManifest: () => call('components_manifest'),
     modelArchiveSnapshot: () => call('model_archive_snapshot'),
@@ -403,8 +477,8 @@ export function createTauriBackend(invoker?: TauriInvoker): BackendAdapter {
     setMultipath: (enabled) => call('path_set_multipath', { enabled }),
     invalidateCache: (scope) => call('cache_invalidate', { scope }),
     downgradeEdgeTier: (edgeId) => call('edge_downgrade_tier', { edgeId }),
-    rebuildCache: () => Promise.reject(new Error('ENGINE_OP_UNREGISTERED: cache_rebuild 后端未实现')),
-    restoreEdgeTier: () => Promise.reject(new Error('ENGINE_OP_UNREGISTERED: edge_restore_tier 后端未实现')),
+    rebuildCache: (scope) => call('cache_rebuild', { domain: scope }),
+    restoreEdgeTier: (edgeId) => call('edge_restore_tier', { edgeId }),
     knowledgeGraph: () => Promise.reject(new Error('ENGINE_OP_UNREGISTERED: knowledge_graph 后端未实现')),
     materialScan: (path, recursive) => call('material_import', { path, recursive, ingest: false }),
     materialIngest: (path, recursive) => call('material_import', { path, recursive, ingest: true }),

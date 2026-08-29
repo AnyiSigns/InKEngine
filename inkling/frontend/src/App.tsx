@@ -19,6 +19,7 @@ import { RightRail } from '@/app/shell/RightRail';
 import { InputBar } from '@/app/input/InputBar';
 import { MessageStream } from '@/app/session/MessageStream';
 import { EvolutionFeed } from '@/app/session/EvolutionFeed';
+import { LedgerView } from '@/app/session/LedgerView';
 import { useSessionState, useSessionActions } from '@/app/state/sessionState';
 import { SettingsFloater } from '@/app/settings/settings_floater';
 import { ViewFloater } from '@/app/wiring/ViewFloater';
@@ -238,6 +239,8 @@ export default function App({ backend, hub, sessionStore }: AppProps) {
                 onRoutePlanPreview={handleRoutePlanPreview}
               />
             </>
+          ) : tab === 'ledger' ? (
+            <LedgerView backend={backend} threadId={state.activeSessionId} />
           ) : (
             <EvolutionFeed
               incubation={hub.getSnapshot().incubation}

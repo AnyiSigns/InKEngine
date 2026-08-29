@@ -6,6 +6,30 @@
  * 测试环境）时 available=false，调用方回落夹具路径。
  */
 
+import { logger } from '@/shared/logger';
+
+/** 统一错误信封形态（后端 {code, message, trace_id}）。 */
+export interface EngineErrorEnvelope {
+  code?: string;
+  message?: string;
+  trace_id?: string;
+}
+
+/**
+ * 统一命令失败处理（单 IPC 面的错误收口）：
+ * 提取 {code, message, trace_id} 记入日志后原样上抛——
+ * backendAdapter / invokeOp / settings 全部命令调用共用此面，
+ * 不再各自 catch 静默吞错或丢 trace_id。
+ */
+export function handleEngineError(cmd: string, err: unknown): void {
+  const envelope = (err ?? {}) as EngineErrorEnvelope;
+  logger.warn('engine', `命令失败: ${cmd}`, {
+    code: envelope.code ?? 'UNKNOWN',
+    message: envelope.message ?? String(err),
+    trace_id: envelope.trace_id ?? '',
+  });
+}
+
 export interface TauriInvoker {
   invoke(cmd: string, args?: Record<string, unknown>): Promise<unknown>;
 }

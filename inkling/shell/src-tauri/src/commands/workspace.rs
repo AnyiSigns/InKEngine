@@ -51,6 +51,36 @@ pub(crate) async fn workspace_revoke() -> Result<JsonValue, CommandError> {
     Ok(json!({ "authorized": false }))
 }
 
+/// 在系统文件管理器中打开路径（工作区授权视图「打开路径」）。
+///
+/// 安全边界：仅接受授权工作区内的目录（canonicalize 后前缀校验），
+/// 防前端传入任意路径触发外部程序。
+#[tauri::command]
+pub(crate) async fn shell_open_path(path: String) -> Result<JsonValue, CommandError> {
+    let security = security_domain_from_seed().map_err(CommandError::internal)?;
+    let root = crate::domain::security::load_authorization(&security)
+        .await
+        .map_err(CommandError::internal)?;
+    let root = root.ok_or_else(|| CommandError::new("DENIED", "未授权工作区"))?;
+    let root_canonical = std::fs::canonicalize(&root)
+        .map_err(|err| CommandError::io(format!("工作区根不可达: {} ({err})", root)))?;
+    let target = std::fs::canonicalize(&path)
+        .map_err(|err| CommandError::io(format!("路径不可达: {} ({err})", path)))?;
+    if !target.starts_with(&root_canonical) {
+        return Err(CommandError::new("DENIED", "路径不在授权工作区内"));
+    }
+    if !target.is_dir() {
+        return Err(CommandError::io("路径不是目录"));
+    }
+    #[cfg(target_os = "windows")]
+    let _ = std::process::Command::new("explorer").arg(&target).spawn();
+    #[cfg(target_os = "macos")]
+    let _ = std::process::Command::new("open").arg(&target).spawn();
+    #[cfg(all(unix, not(target_os = "macos")))]
+    let _ = std::process::Command::new("xdg-open").arg(&target).spawn();
+    Ok(json!({ "opened": target.display().to_string() }))
+}
+
 /// 审批卡请求（回合外两步形态：先请求落卡，后注入决议）。
 #[tauri::command]
 pub(crate) async fn approval_request(

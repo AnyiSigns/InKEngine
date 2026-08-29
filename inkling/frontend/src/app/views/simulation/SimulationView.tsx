@@ -15,13 +15,16 @@ const POLICY_LABEL: Record<SimulationState['policy'], string> = {
 
 /** 推演视图：分支对比 + 换选确认（三按钮）+ 档位指示。 */
 export function SimulationView({ backend = createLiveSimulationBackend() }: { backend?: SimulationBackend }) {
+  // 稳定后端实例：默认参数在每次渲染都新建对象，直接进 useEffect 依赖会
+  // 无限重渲（每次渲染 → 新 backend → effect 重跑 → setState → 重渲）。
+  const [instance] = useState(() => backend);
   const [state, setState] = useState<SimulationState | null>(null);
   const [loaded, setLoaded] = useState(false);
   const [swapId, setSwapId] = useState<string | null>(null);
 
   useEffect(() => {
     let alive = true;
-    void backend.fetchSimulation().then((s) => {
+    void instance.fetchSimulation().then((s) => {
       if (!alive) return;
       setState(s);
       setLoaded(true);
@@ -29,7 +32,7 @@ export function SimulationView({ backend = createLiveSimulationBackend() }: { ba
     return () => {
       alive = false;
     };
-  }, [backend]);
+  }, [instance]);
 
   if (!loaded) return <div className="w3-muted" data-testid="sim-loading">加载推演…</div>;
 
@@ -45,7 +48,7 @@ export function SimulationView({ backend = createLiveSimulationBackend() }: { ba
 
   async function confirmSwap() {
     if (!swapCandidate) return;
-    await backend.chooseCandidate(swapCandidate.id);
+    await instance.chooseCandidate(swapCandidate.id);
     setState((prev) =>
       prev
         ? {
@@ -82,7 +85,7 @@ export function SimulationView({ backend = createLiveSimulationBackend() }: { ba
           onConfirm={() => void confirmSwap()}
           onCancel={() => setSwapId(null)}
           onClear={async () => {
-            await backend.clearCandidate();
+            await instance.clearCandidate();
             setState((prev) => (prev ? { ...prev, chosenId: null } : prev));
             setSwapId(null);
           }}

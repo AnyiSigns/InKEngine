@@ -55,6 +55,47 @@ describe('工具原始参数', () => {
   });
 });
 
+describe('推演决策（simulate_decision 消费引擎实际结构）', () => {
+  it('branches 数组 + selected 索引 → 模拟分支表', () => {
+    const hub = new ChannelHub();
+    ingestEvent(hub, ev('simulate_decision', {
+      node: 'simulate:1',
+      step_id: 'sim:1',
+      selected: [1],
+      branches: [
+        { index: 0, description: '直接收口', score: 0.4, passed: false, note: '证据不足' },
+        { index: 1, description: '先检索再回答', score: 0.9, passed: true, note: '证据充分' },
+      ],
+    }));
+    const sims = hub.getSnapshot().simulations;
+    expect(sims).toHaveLength(2);
+    expect(sims[0]).toMatchObject({ branchId: '0', label: '直接收口', score: 0.4, selected: false, rationale: '证据不足' });
+    expect(sims[1]).toMatchObject({ branchId: '1', label: '先检索再回答', score: 0.9, selected: true, rationale: '证据充分' });
+  });
+
+  it('selected 缺失时回落首分支选中', () => {
+    const hub = new ChannelHub();
+    ingestEvent(hub, ev('simulate_decision', {
+      branches: [{ index: 0, description: 'A', score: 0.5 }],
+    }));
+    expect(hub.getSnapshot().simulations[0].selected).toBe(true);
+  });
+});
+
+describe('规划卡（plan_start 消费引擎 plan 数组）', () => {
+  it('plan 步骤数组 → workflow 展示标签（步骤名连接）', () => {
+    const hub = new ChannelHub();
+    ingestEvent(hub, ev('plan_start', { plan: [{ nodes: ['plan'] }, { nodes: ['tool'] }] }));
+    expect(hub.getSnapshot().messages[0]).toMatchObject({ kind: 'plan', status: 'running', workflow: 'plan, tool' });
+  });
+
+  it('plan 缺失时 workflow 为空', () => {
+    const hub = new ChannelHub();
+    ingestEvent(hub, ev('plan_start', {}));
+    expect(hub.getSnapshot().messages[0]).toMatchObject({ kind: 'plan', workflow: undefined });
+  });
+});
+
 describe('附件落位（submitAttachments）', () => {
   it('图片/视频/文档各自为独立条目', () => {
     const hub = new ChannelHub();

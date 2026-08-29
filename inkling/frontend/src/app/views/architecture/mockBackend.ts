@@ -1,4 +1,5 @@
 import { createBackend, type BackendAdapter } from '@/shared/backend/backendAdapter';
+import type { DagGraph, DagNode, DagNodeKind } from '@/app/dag';
 
 import type {
   ArchitectureBackend,
@@ -14,14 +15,59 @@ import type {
   WorkflowTemplate,
 } from './backend';
 
-/** 生产后端：能消费既有 adapter op 的走 adapter，缺口一律 null（列表级降级，不白屏）。 */
+function nodeKind(type: string | undefined): DagNodeKind {
+  if (type === 'orchestrator' || type === 'tool' || type === 'terminal') return type;
+  if (type === 'llm_decider' || type === 'assembly_orchestrator') return 'orchestrator';
+  if (type === 'tool_pipeline') return 'tool';
+  return 'terminal';
+}
+
+/** 边信任档映射（引擎 observing/regular/promoted → 前端 observe/normal/promoted）。 */
+function trustTier(tier: string | undefined): EdgeEvidence['trustTier'] {
+  if (tier === 'observing') return 'observe';
+  if (tier === 'regular') return 'normal';
+  if (tier === 'promoted') return 'promoted';
+  return 'normal';
+}
+
+/**
+ * 生产后端：把 adapter op 的返回结构映射成视图类型（引擎结构 → 前端契约）。
+ * op 返回结构不匹配时按视图类型空态降级，不把原始结构泄漏给渲染层。
+ */
 export function createLiveArchitectureBackend(adapter: BackendAdapter = createBackend()): ArchitectureBackend {
   return {
-    async fetchWorkflowTemplates() {
+    async fetchWorkflowTemplates(): Promise<WorkflowTemplate[] | null> {
       if (!adapter.available) return null;
       try {
-        const snap = (await adapter.graphSnapshot()) as WorkflowTemplate[] | null;
-        return Array.isArray(snap) ? snap : null;
+        const snap = (await adapter.graphSnapshot()) as
+          | {
+              version?: string;
+              nodes?: Array<{ id: string; type?: string; label?: string }>;
+              edges?: Array<{ from: string; to: string }>;
+              degraded?: boolean;
+            }
+          | null;
+        if (!snap || ((snap.degraded === true || (snap.nodes?.length ?? 0) === 0) && (snap.nodes?.length ?? 0) === 0)) {
+          return null;
+        }
+        const nodes: DagNode[] = (snap.nodes ?? []).map((n) => ({
+          id: n.id,
+          label: n.label ?? n.id,
+          kind: nodeKind(n.type),
+        }));
+        const graph: DagGraph = {
+          nodes,
+          edges: (snap.edges ?? []).map((e) => ({ from: e.from, to: e.to })),
+        };
+        return [
+          {
+            id: 'current',
+            name: '当前回合图',
+            description: `版本 ${snap.version ?? '—'} · 当前装配回合图`,
+            graph,
+            constraintDomain: [],
+          },
+        ];
       } catch {
         return null;
       }
@@ -41,17 +87,42 @@ export function createLiveArchitectureBackend(adapter: BackendAdapter = createBa
     async fetchInstanceGraph(): Promise<InstanceGraph | null> {
       return null;
     },
-    async fetchPool() {
+    async fetchPool(): Promise<{ governance: PoolGovernance | null; nodes: PoolNode[] | null; verdicts: GovernanceVerdict[] }> {
       if (!adapter.available) return { governance: null, nodes: null, verdicts: [] };
       try {
         const snap = (await adapter.poolSnapshot()) as
-          | { governance?: PoolGovernance; nodes?: PoolNode[]; verdicts?: GovernanceVerdict[] }
+          | {
+              pool_nodes?: Array<{ node_id?: unknown; usage_count?: unknown; promoted?: unknown; age_days?: unknown; domain?: unknown }>;
+              governance_log?: Array<{ verdict?: unknown; reasons?: unknown; budget_remaining?: unknown }>;
+            }
           | null;
         if (!snap) return { governance: null, nodes: null, verdicts: [] };
+        const nodes: PoolNode[] = (snap.pool_nodes ?? []).map((n) => ({
+          name: String(n.node_id ?? ''),
+          safetyTier: n.promoted ? 'allow' : 'review',
+          version: '',
+          usageCount: Number(n.usage_count ?? 0),
+          dead: false,
+        }));
+        const verdicts: GovernanceVerdict[] = (snap.governance_log ?? []).map((v, i) => ({
+          id: `g-${i}`,
+          action: String(v.verdict ?? ''),
+          at: 0,
+          detail: Array.isArray(v.reasons) ? v.reasons.map(String).join('；') : '',
+        }));
         return {
-          governance: snap.governance ?? null,
-          nodes: snap.nodes ?? null,
-          verdicts: snap.verdicts ?? [],
+          governance: nodes.length
+            ? {
+                used: nodes.length,
+                total: nodes.length,
+                domain: 'default',
+                weeklyUsed: 0,
+                weeklyTotal: 0,
+                weeklyPeriod: '—',
+              }
+            : null,
+          nodes: nodes.length ? nodes : null,
+          verdicts,
         };
       } catch {
         return { governance: null, nodes: null, verdicts: [] };
@@ -60,20 +131,47 @@ export function createLiveArchitectureBackend(adapter: BackendAdapter = createBa
     async fetchEdgeEvidence(): Promise<EdgeEvidence[] | null> {
       if (!adapter.available) return null;
       try {
-        const list = (await adapter.edgeEvidenceList()) as EdgeEvidence[] | null;
-        return Array.isArray(list) ? list : null;
+        const snap = (await adapter.edgeEvidenceList()) as
+          | { edges?: Array<{ src_type?: unknown; dst_type?: unknown; tier?: unknown; p?: unknown; weight?: unknown; decay?: unknown; tau?: unknown }> }
+          | null;
+        const list = snap?.edges ?? [];
+        if (!list.length) return null;
+        return list.map((e) => ({
+          id: `${e.src_type}|${e.dst_type}`,
+          from: String(e.src_type ?? ''),
+          to: String(e.dst_type ?? ''),
+          trustTier: trustTier(String(e.tier ?? '')),
+          score: {
+            phat: Number(e.p ?? 0),
+            w: Number(e.weight ?? 0),
+            dt: Number(e.decay ?? 0),
+            tau: Number(e.tau ?? 0),
+          },
+        }));
       } catch {
         return null;
       }
     },
-    async downgradeEdge(_id: string): Promise<void> {
-      await adapter.downgradeEdgeTier(_id);
+    async downgradeEdge(id: string): Promise<void> {
+      await adapter.downgradeEdgeTier(id);
     },
     async fetchAssemblyResult(): Promise<AssemblyResult | null> {
       if (!adapter.available) return null;
       try {
-        const res = (await adapter.pathAssemble()) as AssemblyResult | null;
-        return res ?? null;
+        const res = (await adapter.pathAssemble()) as
+          | {
+              ok?: boolean;
+              enabled?: boolean;
+              candidates?: Array<{ path?: unknown; score?: unknown }>;
+              junction?: { verdict?: unknown; score?: unknown };
+            }
+          | null;
+        if (!res || res.ok === false) return null;
+        return {
+          roundId: 'current',
+          candidates: (res.candidates ?? []).map((c) => ({ path: String(c.path ?? ''), score: Number(c.score ?? 0) })),
+          junction: { verdict: String(res.junction?.verdict ?? '—'), score: Number(res.junction?.score ?? 0) },
+        };
       } catch {
         return null;
       }

@@ -574,6 +574,16 @@ pub(crate) fn round_ledger_chain(app: AppHandle, thread_id: String) -> Result<Js
     Ok(json!({ "thread_id": thread_id, "chain": chain }))
 }
 
+/// 回合账本清单读取（某线程全部账本，按时间序；主会话页账本视图数据源）。
+#[tauri::command]
+pub(crate) fn round_ledger_list(app: AppHandle, thread_id: String) -> Result<JsonValue, CommandError> {
+    let data_dir = app_data_dir(&app)?;
+    let dir = crate::domain::round_ledger::ledger_dir(&data_dir);
+    let mut ledgers = crate::domain::round_ledger::load_ledger_jsons(&dir, &thread_id);
+    ledgers.sort_by_key(|l| l.get("created_at").and_then(JsonValue::as_i64).unwrap_or(0));
+    Ok(json!({ "thread_id": thread_id, "ledgers": ledgers }))
+}
+
 /// 回合账本容量滚动（按 N 周或 N MB 上限，与 fingerprint_cache 同语义）：
 /// 超龄最旧删、超限最旧删；不传 thread_id 则全量线程滚动。
 #[tauri::command]

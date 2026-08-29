@@ -164,10 +164,6 @@ export class AppBackend {
 
   /**
    * ui_spec 保存（W4.2）：产物 → 补丁链 → 落链。
-  }
-
-  /**
-   * ui_spec 保存（W4.2）：产物 → 补丁链 → 落链。
    * 宿主不可用时记录到日志（dev 回退）。
    */
   async saveUiSpec(spec: UISpec): Promise<{ applied: boolean }> {
@@ -207,7 +203,7 @@ export class AppBackend {
   }
 
   /**
-   * 打开路径（W5.5 工作区授权视图使用）。
+   * 打开路径（W5.5 工作区授权视图使用）：在系统文件管理器中打开授权工作区。
    * 宿主不可用时不执行任何操作。
    */
   openPath(path: string): void {
@@ -215,6 +211,10 @@ export class AppBackend {
       logger.info('app', '打开路径（dev 回退）', { path });
       return;
     }
+    void this.backend
+      .openPath(path)
+      .then(() => logger.info('app', '打开路径', { path }))
+      .catch((err) => logger.warn('app', '打开路径失败', { path, err: String(err) }));
   }
 
   /**
@@ -257,6 +257,32 @@ export class AppBackend {
   }
 
   /**
+   * 授权挂载点清单（文件沙箱根集合；devOnly 高级能力）。
+   */
+  async listMounts(): Promise<string[]> {
+    if (!this.backend?.available) return [];
+    try {
+      return await this.backend.mountList();
+    } catch (err) {
+      logger.warn('app', '获取挂载点清单失败', { err: String(err) });
+      return [];
+    }
+  }
+
+  /**
+   * 目录加入授权挂载点（文件沙箱根；devOnly 高级能力）。
+   */
+  async authorizeMount(path: string): Promise<string[] | null> {
+    if (!this.backend?.available) return null;
+    try {
+      return await this.backend.mountAuthorize(path);
+    } catch (err) {
+      logger.warn('app', '挂载授权失败', { path, err: String(err) });
+      return null;
+    }
+  }
+
+  /**
     * 获取 knowledgeGraph 拓扑（用于视图初始化）。
     * 当前后端仅暴露单一 knowledge_graph 接口；五元 inspect 快照
     * 尚无独立 op，回传节点/边拓扑供视图消费。
@@ -275,7 +301,11 @@ export class AppBackend {
    */
   async isEngineReady(): Promise<boolean> {
     const status = await this.getStatus();
-    return status?.engine_ready ?? false;
+    const ready = status?.engine_ready ?? false;
+    if (!ready) {
+      logger.warn('app', '引擎未就绪', { available: Boolean(this.backend?.available), status: String(status ?? '') });
+    }
+    return ready;
   }
 
   /**

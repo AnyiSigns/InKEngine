@@ -10,7 +10,7 @@
 import { useState } from 'react';
 import { Pencil } from 'lucide-react';
 
-export type MainTab = 'chat' | 'evolution';
+export type MainTab = 'chat' | 'evolution' | 'ledger';
 
 interface TopBarProps {
   title: string;
@@ -61,7 +61,7 @@ export function TopBar({ title, tab, onTabChange, onTitleChange }: TopBarProps) 
         )}
       </div>
 
-      {/* 对话 / 演化页签 */}
+      {/* 对话 / 演化 / 账本页签 */}
       <nav className="flex items-stretch gap-5" aria-label="主区页签">
         <button
           type="button"
@@ -80,6 +80,15 @@ export function TopBar({ title, tab, onTabChange, onTitleChange }: TopBarProps) 
           className="ink-tab-item"
         >
           演化
+        </button>
+        <button
+          type="button"
+          data-ui="tab_ledger"
+          data-active={tab === 'ledger'}
+          onClick={() => onTabChange('ledger')}
+          className="ink-tab-item"
+        >
+          账本
         </button>
       </nav>
     </header>

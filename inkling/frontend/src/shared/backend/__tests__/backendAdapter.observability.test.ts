@@ -37,6 +37,8 @@ describe('Tauri 桥：可观测/干预命令对齐', () => {
     await backend.setMultipath(true);
     await backend.invalidateCache('default');
     await backend.downgradeEdgeTier('e1');
+    await backend.rebuildCache('default');
+    await backend.restoreEdgeTier('e1');
     expect(calls.map((c) => c.cmd)).toEqual([
       'model_archive_snapshot',
       'metrics_snapshot',
@@ -45,13 +47,15 @@ describe('Tauri 桥：可观测/干预命令对齐', () => {
       'path_set_multipath',
       'cache_invalidate',
       'edge_downgrade_tier',
+      'cache_rebuild',
+      'edge_restore_tier',
     ]);
     expect(calls[0].args).toEqual({});
     expect(calls[3].args).toEqual({ candidateId: 'c1' });
     expect(calls[4].args).toEqual({ enabled: true });
+    expect(calls[7].args).toEqual({ domain: 'default' });
+    expect(calls[8].args).toEqual({ edgeId: 'e1' });
 
-    await expect(backend.rebuildCache('default')).rejects.toThrow('ENGINE_OP_UNREGISTERED');
-    await expect(backend.restoreEdgeTier('e1')).rejects.toThrow('ENGINE_OP_UNREGISTERED');
     await expect(backend.knowledgeGraph()).rejects.toThrow('ENGINE_OP_UNREGISTERED');
   });
 });

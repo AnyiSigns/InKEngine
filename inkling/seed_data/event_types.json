@@ -17,13 +17,14 @@
       "schema": {
         "name": "thinking_start",
         "fields": [
-          { "name": "node", "required": true, "kind": "string" },
-          { "name": "note", "kind": "string" }
+          { "name": "content", "kind": "string" },
+          { "name": "node", "kind": "string" },
+          { "name": "step_id", "kind": "string" }
         ]
       },
       "renderer": "message_list",
       "system": false,
-      "meta": { "note": "思考开始（节点级），消息流内联展示" }
+      "meta": { "note": "思考卡（消息流流式追加：thinking_start 携带内容分片逐片追加，thinking_end 定型）" }
     },
     {
       "name": "thinking_end",
@@ -215,14 +216,15 @@
       "schema": {
         "name": "simulate_decision",
         "fields": [
-          { "name": "branch", "required": true, "kind": "object" },
-          { "name": "scores", "kind": "object" },
-          { "name": "chosen", "kind": "string" }
+          { "name": "node", "kind": "string" },
+          { "name": "step_id", "kind": "string" },
+          { "name": "selected", "kind": "array" },
+          { "name": "branches", "kind": "array" }
         ]
       },
       "renderer": "simulation_tree",
       "system": false,
-      "meta": { "note": "决策点推演（__simulate__ 落点）：分支对比 + Evaluator 评分 + 换选" }
+      "meta": { "note": "决策点推演（__simulate__ 落点）：branches = [{index, description, score, passed, note}] 分支对比，selected = 选中分支索引" }
     },
     {
       "name": "branch_result",
@@ -255,49 +257,42 @@
       "schema": {
         "name": "signal_detected",
         "fields": [
-          {
-            "name": "kind",
-            "required": true,
-            "kind": "string",
-            "enum": ["pitfall", "user_correction", "insight", "gap", "repeated_root_cause"]
-          },
-          { "name": "message", "required": true, "kind": "string" },
-          { "name": "source", "kind": "string", "enum": ["web", "dialog", "model", "user"] },
-          { "name": "count", "kind": "number" }
+          { "name": "signal_id", "required": true, "kind": "string" },
+          { "name": "signal", "required": true, "kind": "string" },
+          { "name": "signal_type", "kind": "string" }
         ]
       },
       "renderer": "incubator_panel",
       "system": false,
-      "meta": { "note": "孵化入口：五类信号检测（与 knowledge_signals 五类枚举对齐）" }
+      "meta": { "note": "孵化入口：信号检测留痕（signal_id 关联后续蒸馏/闸门判定）" }
     },
     {
       "name": "distill_outcome",
       "schema": {
         "name": "distill_outcome",
         "fields": [
-          { "name": "data", "required": true, "kind": "object" },
-          { "name": "source", "kind": "string" },
-          { "name": "title", "kind": "string" },
-          { "name": "note", "kind": "string" }
+          { "name": "signal_id", "required": true, "kind": "string" },
+          { "name": "distilled", "kind": "string" }
         ]
       },
       "renderer": "incubator_panel",
       "system": false,
-      "meta": { "note": "蒸馏产物（信号→结构化知识，DistillOutcome 数据形态）" }
+      "meta": { "note": "蒸馏产物回填（同 signal_id 孵化条目进入已蒸馏态）" }
     },
     {
       "name": "gate_verdict",
       "schema": {
         "name": "gate_verdict",
         "fields": [
-          { "name": "level", "required": true, "kind": "string", "enum": ["L1", "L2", "L3"] },
+          { "name": "signal_id", "required": true, "kind": "string" },
+          { "name": "level", "kind": "string", "enum": ["L1", "L2", "L3"] },
           { "name": "passed", "required": true, "kind": "boolean" },
           { "name": "reason", "kind": "string" }
         ]
       },
       "renderer": "incubator_panel",
       "system": false,
-      "meta": { "note": "三层闸门判定留痕（放行/拦截及原因）" }
+      "meta": { "note": "三层闸门判定留痕（同 signal_id 放行/拦截及原因）" }
     },
     {
       "name": "mutation_proposed",
@@ -347,19 +342,14 @@
       "schema": {
         "name": "patch_applied",
         "fields": [
-          {
-            "name": "kind",
-            "required": true,
-            "kind": "string",
-            "enum": ["ui", "theme", "tool", "rule", "knowledge", "harness", "event_type", "environment", "artifact"]
-          },
-          { "name": "version", "required": true, "kind": "number" },
-          { "name": "summary", "kind": "string" }
+          { "name": "patch_id", "required": true, "kind": "string" },
+          { "name": "kind", "kind": "string" },
+          { "name": "title", "kind": "string" }
         ]
       },
       "renderer": "evolution_timeline",
       "system": false,
-      "meta": { "note": "补丁链落链事件（演化时间线推进）" }
+      "meta": { "note": "补丁应用回填（同 patch_id 补丁链条目 → 已应用态）" }
     },
     {
       "name": "patch_proposed",
@@ -381,19 +371,13 @@
       "schema": {
         "name": "patch_reverted",
         "fields": [
-          {
-            "name": "kind",
-            "required": true,
-            "kind": "string",
-            "enum": ["ui", "theme", "tool", "rule", "knowledge", "harness", "event_type", "environment", "artifact"]
-          },
-          { "name": "version", "required": true, "kind": "number" },
-          { "name": "summary", "kind": "string" }
+          { "name": "patch_id", "required": true, "kind": "string" },
+          { "name": "reason", "kind": "string" }
         ]
       },
       "renderer": "evolution_timeline",
       "system": false,
-      "meta": { "note": "补丁链回退事件（演化时间线还原）" }
+      "meta": { "note": "补丁回退回填（同 patch_id 补丁链条目 → 已回退态）" }
     },
     {
       "name": "memory_recall",
@@ -401,12 +385,12 @@
         "name": "memory_recall",
         "fields": [
           { "name": "query", "required": true, "kind": "string" },
-          { "name": "hits", "kind": "number" }
+          { "name": "hits", "kind": "array" }
         ]
       },
       "renderer": "source_trace",
       "system": false,
-      "meta": { "note": "记忆召回留痕（来源明细溯源）" }
+      "meta": { "note": "记忆召回留痕（hits = [{id, title, snippet}]，来源明细溯源）" }
     },
     {
       "name": "tuning_update",

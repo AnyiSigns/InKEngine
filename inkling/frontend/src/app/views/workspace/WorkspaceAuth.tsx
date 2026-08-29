@@ -10,7 +10,7 @@
  */
 
 import { useState, useCallback, useEffect } from 'react';
-import { FolderOpen, CheckCircle, XCircle, Shield, ExternalLink, List } from 'lucide-react';
+import { FolderOpen, CheckCircle, XCircle, Shield, ExternalLink, List, Plus } from 'lucide-react';
 
 import type { AppBackend } from '../../backend';
 import { Button } from '@/shared/ui/Button';
@@ -33,6 +33,9 @@ export function WorkspaceAuth({ backend, state: externalState, onStateChange }: 
   const [authState, setAuthState] = useState<AuthorizationState | null>(externalState ?? null);
   const [authorizePhase, setAuthorizePhase] = useState<FeedbackPhase>('idle');
   const [revokePhase, setRevokePhase] = useState<FeedbackPhase>('idle');
+  const [mountOpen, setMountOpen] = useState(false);
+  const [mounts, setMounts] = useState<string[] | null>(null);
+  const [mountPhase, setMountPhase] = useState<FeedbackPhase>('idle');
 
   const updateAuthState = useCallback((next: AuthorizationState) => {
     setAuthState(next);
@@ -98,6 +101,44 @@ export function WorkspaceAuth({ backend, state: externalState, onStateChange }: 
       setRevokePhase('fail');
     }
   }, [backend, updateAuthState]);
+
+  /** 挂载点清单刷新（文件沙箱根集合）。 */
+  const refreshMounts = useCallback((): void => {
+    if (!backend.available) return;
+    void backend.listMounts().then(setMounts).catch(() => setMounts([]));
+  }, [backend]);
+
+  /** 目录选择器 → 挂载授权（多挂载根，devOnly 高级能力）。 */
+  const handleAddMount = useCallback(async (): Promise<void> => {
+    const tauri = createTauriInvoker();
+    if (!tauri) return;
+    let picked: string | null = null;
+    try {
+      picked = (await tauri.invoke('plugin:dialog|open', {
+        options: { directory: true, multiple: false, title: '选择挂载目录' },
+      })) as string | null;
+    } catch {
+      return;
+    }
+    if (!picked) return;
+    setMountPhase('loading');
+    try {
+      const next = await backend.authorizeMount(picked);
+      if (next) {
+        setMounts(next);
+        setMountPhase('success');
+      } else {
+        setMountPhase('fail');
+      }
+    } catch {
+      setMountPhase('fail');
+    }
+    setTimeout(() => setMountPhase('idle'), 1200);
+  }, [backend]);
+
+  useEffect(() => {
+    if (mountOpen) refreshMounts();
+  }, [mountOpen, refreshMounts]);
 
   return (
     <section className="ink-panel p-4 space-y-4" data-ui="workspace_auth">
@@ -170,10 +211,45 @@ export function WorkspaceAuth({ backend, state: externalState, onStateChange }: 
           type="button"
           data-ui="workspace_mount_list"
           className="flex items-center gap-1.5 text-[10px] ink-text-muted hover:text-[var(--ink-text-base)] cursor-pointer"
+          onClick={() => setMountOpen((v) => !v)}
         >
           <List size={10} strokeWidth={1.5} aria-hidden />
           挂载管理列表
         </button>
+
+        {mountOpen && (
+          <div className="mt-2 space-y-1.5 rounded-lg border ink-border p-2.5" data-ui="mount_panel">
+            <div className="flex items-center gap-2">
+              <span className="text-[10px] ink-text-muted">授权挂载点（文件沙箱根）</span>
+              <Button size="xs" variant="secondary" data-ui="mount_add" onClick={() => void handleAddMount()} disabled={mountPhase === 'loading'}>
+                <Plus size={10} strokeWidth={1.6} /> 添加挂载
+              </Button>
+              <Feedback phase={mountPhase} okText="已挂载" failText="挂载失败" />
+            </div>
+            {mounts === null ? (
+              <div className="text-[10px] ink-text-faint">加载中…</div>
+            ) : mounts.length === 0 ? (
+              <div className="text-[10px] ink-text-faint">暂无挂载点</div>
+            ) : (
+              <ul className="space-y-0.5">
+                {mounts.map((m) => (
+                  <li key={m} className="flex items-center gap-1.5 text-[10px] font-mono ink-text-muted">
+                    <CheckCircle size={10} strokeWidth={1.5} className="shrink-0 ink-text-muted" aria-hidden />
+                    <span className="min-w-0 flex-1 break-all">{m}</span>
+                    <button
+                      type="button"
+                      className="shrink-0 rounded p-0.5 text-[10px] ink-text-muted hover:text-[var(--ink-text-base)]"
+                      title="在文件管理器中打开"
+                      onClick={() => backend.openPath(m)}
+                    >
+                      <ExternalLink size={10} strokeWidth={1.5} />
+                    </button>
+                  </li>
+                ))}
+              </ul>
+            )}
+          </div>
+        )}
       </div>
     </section>
   );

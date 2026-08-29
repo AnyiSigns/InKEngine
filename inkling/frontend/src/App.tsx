@@ -248,6 +248,8 @@ export default function App({ backend, hub, sessionStore }: AppProps) {
             <EvolutionFeed
               incubation={hub.getSnapshot().incubation}
               patchChain={hub.getSnapshot().patchChain}
+              backend={backend}
+              threadId={state.activeSessionId}
             />
           )}
         </main>
@@ -279,7 +281,6 @@ export default function App({ backend, hub, sessionStore }: AppProps) {
         <SettingsFloater
           open
           onClose={() => setOpenPanel('none')}
-          currentThreadId={state.activeSessionId}
           backend={{
             available: backend.available,
             status: backend.status,

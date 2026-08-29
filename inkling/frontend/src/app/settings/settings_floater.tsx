@@ -7,7 +7,7 @@
  * （原全局保存对所有节均为 no-op，已移除）。
  */
 
-import { createContext, useContext, useEffect, useState } from 'react';
+import { useEffect, useState } from 'react';
 
 import { X } from 'lucide-react';
 
@@ -15,17 +15,9 @@ import { listSettingsSections } from './registry';
 import { SettingsItemRenderer } from './settings_item_renderer';
 import { useT } from '@/i18n/useT';
 
-/** 当前会话窗口 thread_id（设置节组件可消费，如架构节实例图按会话查询）。 */
-export const SettingsThreadContext = createContext<string>('');
-
-export function useSettingsThread(): string {
-  return useContext(SettingsThreadContext);
-}
-
 interface SettingsFloaterProps {
   open: boolean;
   onClose: () => void;
-  currentThreadId?: string;
   backend: {
     available: boolean;
     status(): Promise<{ engine_ready: boolean; first_run?: boolean }>;
@@ -33,7 +25,7 @@ interface SettingsFloaterProps {
   };
 }
 
-export function SettingsFloater({ open, onClose, currentThreadId = '', backend }: SettingsFloaterProps) {
+export function SettingsFloater({ open, onClose, backend }: SettingsFloaterProps) {
   const { t } = useT();
   const [active, setActive] = useState<string>('');
   const [mounted, setMounted] = useState(false);
@@ -94,45 +86,43 @@ export function SettingsFloater({ open, onClose, currentThreadId = '', backend }
         aria-label={t('settings.title')}
         onClick={(e) => e.stopPropagation()}
       >
-        <SettingsThreadContext.Provider value={currentThreadId}>
-          <div className="flex h-full">
-            {/* 左节导航 */}
-            <nav className="ink-settings-rail" aria-label={t('settings.title')}>
-              <div className="px-3 pb-2 text-[10px] font-medium tracking-[0.14em] uppercase ink-text-faint">{t('settings.title')}</div>
-              <div className="space-y-0.5">{sections.map(renderNavItem)}</div>
-            </nav>
+        <div className="flex h-full">
+          {/* 左节导航 */}
+          <nav className="ink-settings-rail" aria-label={t('settings.title')}>
+            <div className="px-3 pb-2 text-[10px] font-medium tracking-[0.14em] uppercase ink-text-faint">{t('settings.title')}</div>
+            <div className="space-y-0.5">{sections.map(renderNavItem)}</div>
+          </nav>
 
-            {/* 右内容区 */}
-            <div className="ink-settings-content">
-              <div className="flex items-center justify-between px-6 py-4">
-                <h2 className="text-[var(--ink-font-md)] font-semibold tracking-tight">{sectionLabel(activeSection)}</h2>
-                <button
-                  type="button"
-                  data-ui="settings_close_top"
-                  onClick={onClose}
-                  className="flex h-7 w-7 items-center justify-center rounded-lg ink-text-muted hover:bg-[var(--ink-bg-elevated)] hover:text-[var(--ink-text-base)]"
-                  aria-label={t('settings.close')}
-                >
-                  <X size={15} strokeWidth={1.6} aria-hidden />
-                </button>
-              </div>
+          {/* 右内容区 */}
+          <div className="ink-settings-content">
+            <div className="flex items-center justify-between px-6 py-4">
+              <h2 className="text-[var(--ink-font-md)] font-semibold tracking-tight">{sectionLabel(activeSection)}</h2>
+              <button
+                type="button"
+                data-ui="settings_close_top"
+                onClick={onClose}
+                className="flex h-7 w-7 items-center justify-center rounded-lg ink-text-muted hover:bg-[var(--ink-bg-elevated)] hover:text-[var(--ink-text-base)]"
+                aria-label={t('settings.close')}
+              >
+                <X size={15} strokeWidth={1.6} aria-hidden />
+              </button>
+            </div>
 
-              <div className="ink-scroll-auto px-6 pb-6">
-                {activeSection?.render ? (
-                  activeSection.render()
-                ) : (
-                  <div className="space-y-3">
-                    {activeSection?.items?.map((item) => (
-                      <SettingsItemRenderer key={item.key} item={item} backendAvailable={backend.available} />
-                    )) ?? (
-                      <p className="text-[11px] ink-text-faint">{t('settings.no_items')}</p>
-                    )}
-                  </div>
-                )}
-              </div>
+            <div className="ink-scroll-auto px-6 pb-6">
+              {activeSection?.render ? (
+                activeSection.render()
+              ) : (
+                <div className="space-y-3">
+                  {activeSection?.items?.map((item) => (
+                    <SettingsItemRenderer key={item.key} item={item} backendAvailable={backend.available} />
+                  )) ?? (
+                    <p className="text-[11px] ink-text-faint">{t('settings.no_items')}</p>
+                  )}
+                </div>
+              )}
             </div>
           </div>
-        </SettingsThreadContext.Provider>
+        </div>
       </section>
     </div>
   );

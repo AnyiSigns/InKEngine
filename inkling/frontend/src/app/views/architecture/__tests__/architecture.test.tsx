@@ -5,10 +5,9 @@ import userEvent from '@testing-library/user-event';
 import { ArchitectureView } from '@/app/views/architecture/ArchitectureView';
 import { EdgeEvidenceTab } from '@/app/views/architecture/tabs/EdgeEvidenceTab';
 import { PoolTab } from '@/app/views/architecture/tabs/PoolTab';
-import { InstanceTab } from '@/app/views/architecture/tabs/InstanceTab';
 import { createMockArchitectureBackend } from '@/app/views/architecture/mockBackend';
 import type { DagGraph } from '@/app/dag';
-import type { WorkflowTemplate, EdgeEvidence, InstanceGraph, PoolNode, GovernanceVerdict } from '@/app/views/architecture/backend';
+import type { WorkflowTemplate, EdgeEvidence, PoolNode, GovernanceVerdict } from '@/app/views/architecture/backend';
 
 const tplGraph: DagGraph = {
   nodes: [
@@ -65,29 +64,6 @@ describe('架构·模板 tab', () => {
     expect(within(diff).getByText('+ step: research')).toHaveClass('w3-diff-add');
     expect(within(diff).getByText('- step: legacy')).toHaveClass('w3-diff-del');
     expect(within(diff).getByText('~ step: draft')).toHaveClass('w3-diff-mod');
-  });
-});
-
-describe('架构·实例 tab（只读 + node_start 追踪）', () => {
-  const instance: InstanceGraph = {
-    roundId: 'r-9',
-    graph: tplGraph,
-    nodeStatus: { n1: 'success', n2: 'running', n3: 'failed' },
-  };
-
-  it('只读渲染且携带执行态', async () => {
-    const user = userEvent.setup();
-    render(<ArchitectureView backend={createMockArchitectureBackend({ instance })} />);
-    await user.click(screen.getByTestId('arch-tab-instance'));
-    expect(await screen.findByText('实例图（只读）')).toBeInTheDocument();
-    expect(await screen.findByTestId('dag-node-n1')).toHaveAttribute('data-status', 'success');
-    expect(screen.getByTestId('dag-node-n2')).toHaveAttribute('data-status', 'running');
-    expect(screen.getByTestId('dag-node-n3')).toHaveAttribute('data-status', 'failed');
-  });
-
-  it('无实例数据→空态不白屏', async () => {
-    render(<InstanceTab backend={createMockArchitectureBackend({ instance: null })} />);
-    expect(await screen.findByText('暂无本回合实例图')).toBeInTheDocument();
   });
 });
 

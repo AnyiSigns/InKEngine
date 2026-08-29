@@ -1,4 +1,4 @@
-import type { DagGraph, DagNodeStatus } from '@/app/dag';
+import type { DagGraph, DagNode, DagNodeKind, DagNodeStatus } from '@/app/dag';
 
 /** 工具四源/安全档（语义，不暴露机器术语于用户视图）。 */
 export type SafetyTier = 'allow' | 'review' | 'deny';
@@ -103,6 +103,49 @@ export interface AssemblyResult {
   junction: { verdict: string; score: number };
 }
 
+/** 引擎节点类型 → 前端 DAG 结点 kind 映射（未知类型按终结结点回落）。 */
+export function dagNodeKind(type: string | undefined): DagNodeKind {
+  if (type === 'orchestrator' || type === 'tool' || type === 'terminal') return type;
+  if (type === 'llm_decider' || type === 'assembly_orchestrator') return 'orchestrator';
+  if (type === 'tool_pipeline') return 'tool';
+  return 'terminal';
+}
+
+/**
+ * 引擎 graph.instance_snapshot 响应 → 前端 InstanceGraph 契约映射。
+ * 结构不匹配/空态返回 null（渲染层空态降级，不泄漏原始结构）。
+ */
+export function mapInstanceSnapshot(raw: unknown): InstanceGraph | null {
+  const snap = raw as
+    | {
+        round_id?: string;
+        graph?: {
+          nodes?: Array<{ id?: unknown; type?: unknown; label?: unknown }>;
+          edges?: Array<{ from: string; to: string }>;
+        };
+        node_status?: Record<string, unknown>;
+      }
+    | null
+    | undefined;
+  if (!snap || !snap.round_id) return null;
+  const nodes: DagNode[] = (snap.graph?.nodes ?? []).map((n) => ({
+    id: String(n.id ?? ''),
+    label: n.label !== undefined && n.label !== null ? String(n.label) : String(n.id ?? ''),
+    kind: dagNodeKind(typeof n.type === 'string' ? n.type : undefined),
+  }));
+  const graph: DagGraph = {
+    nodes,
+    edges: (snap.graph?.edges ?? []).map((e) => ({ from: e.from, to: e.to })),
+  };
+  const nodeStatus: Record<string, DagNodeStatus> = {};
+  for (const [name, status] of Object.entries(snap.node_status ?? {})) {
+    if (status === 'running' || status === 'success' || status === 'failed' || status === 'idle') {
+      nodeStatus[name] = status;
+    }
+  }
+  return { roundId: snap.round_id, graph, nodeStatus };
+}
+
 /** 机制视图后端契约（mock 注入 / 生产降级回落）。 */
 export interface ArchitectureBackend {
   fetchWorkflowTemplates(): Promise<WorkflowTemplate[] | null>;
@@ -110,7 +153,6 @@ export interface ArchitectureBackend {
   runCanary(t: WorkflowTemplate): Promise<CanaryReceipt>;
   applyTemplate(t: WorkflowTemplate): Promise<ApplyResult>;
   fetchPatchDiff(t: WorkflowTemplate): Promise<PatchDiff | null>;
-  fetchInstanceGraph(threadId?: string): Promise<InstanceGraph | null>;
   fetchPool(): Promise<{ governance: PoolGovernance | null; nodes: PoolNode[] | null; verdicts: GovernanceVerdict[] }>;
   fetchEdgeEvidence(): Promise<EdgeEvidence[] | null>;
   downgradeEdge(id: string): Promise<void>;

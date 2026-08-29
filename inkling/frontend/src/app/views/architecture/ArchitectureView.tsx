@@ -1,24 +1,22 @@
 import { useState } from 'react';
-import { Boxes, GitBranch, GitMerge, Network } from 'lucide-react';
+import { Boxes, GitBranch, GitMerge } from 'lucide-react';
 
 import '../w3.css';
 import { createLiveArchitectureBackend } from './mockBackend';
 import type { ArchitectureBackend, AssemblyResult } from './backend';
 import { TemplateTab } from './tabs/TemplateTab';
-import { InstanceTab } from './tabs/InstanceTab';
 import { PoolTab } from './tabs/PoolTab';
 import { EdgeEvidenceTab } from './tabs/EdgeEvidenceTab';
 
-type ArchTab = 'template' | 'instance' | 'pool' | 'edge';
+type ArchTab = 'template' | 'pool' | 'edge';
 
 const TABS: Array<{ id: ArchTab; label: string; icon: typeof GitBranch }> = [
   { id: 'template', label: '模板', icon: GitBranch },
-  { id: 'instance', label: '实例', icon: Network },
   { id: 'pool', label: '结点池', icon: Boxes },
   { id: 'edge', label: '边证据', icon: GitMerge },
 ];
 
-/** 架构视图容器：四层 tab（模板/实例/池/边证据）。 */
+/** 架构视图容器：三层 tab（模板/池/边证据）。 */
 export function ArchitectureView({
   backend = createLiveArchitectureBackend(),
   assemblyResult = null,
@@ -55,7 +53,6 @@ export function ArchitectureView({
       </div>
       <div className="w3-body">
         {tab === 'template' && <TemplateTab backend={instance} />}
-        {tab === 'instance' && <InstanceTab backend={instance} />}
         {tab === 'pool' && <PoolTab backend={instance} />}
         {tab === 'edge' && <EdgeEvidenceTab backend={instance} assemblyResult={assemblyResult} onOpenAssembly={onOpenAssembly} />}
       </div>

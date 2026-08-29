@@ -1,21 +1,26 @@
 /**
- * 演化页（主区「演化」页签）：自学习演化动态时间线。
+ * 演化页（主区「演化」页签）：自学习演化动态时间线 + 最近回合实例图。
  *
- * 复用轨迹页的纵向时间线视觉（左侧状态点 + 右侧内容 + 指标行），
- * 数据 = hub 实时归约快照：
+ * 数据 = hub 实时归约快照 + 引擎实例图 op：
  * - incubation 孵化流水：信号检测 → 蒸馏 → 闸门判定（passed/blocked）
  * - patchChain 补丁链：提案 → 应用 / 回退
- * 不建独立侧边栏、不依赖 w3 mock backend——普通用户看到的就是
- * 「智能体如何自我调整」的紧凑时间线。
+ * - instance 最近回合实例图：按当前会话 thread_id 查 graph.instance_snapshot
+ *   （只读展示实际执行图与节点运行态；无数据/无会话 = 空态不白屏）
  */
 
-import { CheckCircle2, Circle, GitCommitVertical, Loader2, ShieldAlert, Sparkles, XCircle } from 'lucide-react';
+import { useEffect, useState } from 'react';
+import { CheckCircle2, Circle, GitCommitVertical, Loader2, Network, ShieldAlert, Sparkles, XCircle } from 'lucide-react';
 
+import { DagRenderer } from '@/app/dag';
+import type { BackendAdapter } from '@/shared/backend/backendAdapter';
 import type { IncubationEntry, PatchChainEntry } from '@/shared/session/types';
+import { mapInstanceSnapshot, type InstanceGraph } from '@/app/views/architecture/backend';
 
 interface EvolutionFeedProps {
   incubation: IncubationEntry[];
   patchChain: PatchChainEntry[];
+  backend: BackendAdapter;
+  threadId: string;
 }
 
 /** 孵化条目 → 时间线节点（状态点 + 标题 + 细节）。 */
@@ -52,15 +57,41 @@ function patchNode(entry: PatchChainEntry): { icon: JSX.Element; label: string; 
   }
 }
 
-export function EvolutionFeed({ incubation, patchChain }: EvolutionFeedProps): JSX.Element {
+export function EvolutionFeed({ incubation, patchChain, backend, threadId }: EvolutionFeedProps): JSX.Element {
   const signalCount = incubation.filter((e) => e.stage === 'passed').length + incubation.filter((e) => e.stage === 'blocked').length;
   const blockedCount = incubation.filter((e) => e.stage === 'blocked').length;
 
-  if (incubation.length === 0 && patchChain.length === 0) {
+  // 最近回合实例图（按当前会话窗口查询；thread_id 切换自动重取）
+  const [instance, setInstance] = useState<InstanceGraph | null>(null);
+  const [instanceLoaded, setInstanceLoaded] = useState(false);
+
+  useEffect(() => {
+    let alive = true;
+    setInstanceLoaded(false);
+    if (!backend.available || !threadId) {
+      setInstanceLoaded(true);
+      return;
+    }
+    void backend
+      .graphInstanceSnapshot(threadId)
+      .then((raw) => {
+        if (!alive) return;
+        setInstance(mapInstanceSnapshot(raw));
+        setInstanceLoaded(true);
+      })
+      .catch(() => {
+        if (alive) setInstanceLoaded(true);
+      });
+    return () => {
+      alive = false;
+    };
+  }, [backend, threadId]);
+
+  if (incubation.length === 0 && patchChain.length === 0 && !instance) {
     return (
       <div className="flex h-full flex-col items-center justify-center gap-1 text-[12px] ink-text-faint">
         <p>还没有演化动态</p>
-        <p className="text-[11px]">会话运行后，这里会展示智能体的自学习演化时间线</p>
+        <p className="text-[11px]">会话运行后，这里会展示智能体的自学习演化时间线与最近回合执行图</p>
       </div>
     );
   }
@@ -68,49 +99,86 @@ export function EvolutionFeed({ incubation, patchChain }: EvolutionFeedProps): J
   return (
     <div className="ink-scroll-auto flex-1 overflow-y-auto px-4 py-5">
       <div className="mx-auto max-w-2xl">
-        <div className="mb-4 flex items-baseline gap-3">
-          <span className="text-[13px] font-medium">演化动态</span>
-          <span className="text-[11px] ink-text-faint">
-            {incubation.length} 条孵化{signalCount > 0 ? ` · ${signalCount} 条已判定` : ''}{blockedCount > 0 ? ` · ${blockedCount} 条被拦截` : ''}
-            {patchChain.length > 0 ? ` · ${patchChain.length} 条补丁` : ''}
-          </span>
-        </div>
-        <ol className="relative space-y-1 border-l ink-border pl-5">
-          {patchChain.map((entry) => {
-            const node = patchNode(entry);
-            return (
-              <li key={entry.patchId} className="relative flex items-start gap-3 rounded-lg px-2 py-2 hover:bg-[var(--ink-bg-surface)]">
-                <span className="absolute -left-[26px] top-2.5 flex h-4 w-4 items-center justify-center bg-[var(--ink-bg-base)]">
-                  {node.icon}
+        {/* 最近回合实例图（只读） */}
+        {instance && (
+          <div className="mb-5 rounded-xl border ink-border p-4">
+            <div className="mb-2 flex items-center gap-2">
+              <Network size={14} strokeWidth={1.6} className="ink-text-faint" />
+              <span className="text-[13px] font-medium">最近回合执行图</span>
+              <span className="text-[11px] ink-text-faint">回合 {instance.roundId} · 只读</span>
+            </div>
+            <div style={{ height: 280 }}>
+              <DagRenderer
+                graph={{
+                  ...instance.graph,
+                  nodes: instance.graph.nodes.map((n) => ({
+                    ...n,
+                    status: instance.nodeStatus[n.id] ?? n.status,
+                  })),
+                }}
+                ariaLabel={`回合 ${instance.roundId} 实例图`}
+                onNodeClick={() => undefined}
+              />
+            </div>
+            <div className="mt-2 flex gap-3">
+              {(['running', 'success', 'failed'] as const).map((s) => (
+                <span key={s} className="ink-chip py-px text-[9px]" data-status-legend={s}>
+                  {s === 'running' ? '进行中' : s === 'success' ? '成功' : '失败'}
                 </span>
-                <div className="min-w-0 flex-1">
-                  <div className="flex items-center gap-2">
-                    <span className="truncate text-[13px]">{node.label}</span>
-                    {node.status && <span className="shrink-0 text-[11px] ink-text-faint">{node.status}</span>}
-                  </div>
-                  {node.note && <p className="mt-0.5 text-[11px] leading-relaxed ink-text-muted">{node.note}</p>}
-                </div>
-              </li>
-            );
-          })}
-          {incubation.map((entry) => {
-            const node = incubationNode(entry);
-            return (
-              <li key={entry.id} className="relative flex items-start gap-3 rounded-lg px-2 py-2 hover:bg-[var(--ink-bg-surface)]">
-                <span className="absolute -left-[26px] top-2.5 flex h-4 w-4 items-center justify-center bg-[var(--ink-bg-base)]">
-                  {node.icon}
-                </span>
-                <div className="min-w-0 flex-1">
-                  <div className="flex items-center gap-2">
-                    <span className="truncate text-[13px]">{node.label}</span>
-                    {node.status && <span className="shrink-0 text-[11px] ink-text-faint">{node.status}</span>}
-                  </div>
-                  {node.note && <p className="mt-0.5 text-[11px] leading-relaxed ink-text-muted">{node.note}</p>}
-                </div>
-              </li>
-            );
-          })}
-        </ol>
+              ))}
+            </div>
+          </div>
+        )}
+        {!instance && instanceLoaded && incubation.length === 0 && patchChain.length === 0 && null}
+
+        {/* 演化动态时间线 */}
+        {(incubation.length > 0 || patchChain.length > 0) && (
+          <div>
+            <div className="mb-4 flex items-baseline gap-3">
+              <span className="text-[13px] font-medium">演化动态</span>
+              <span className="text-[11px] ink-text-faint">
+                {incubation.length} 条孵化{signalCount > 0 ? ` · ${signalCount} 条已判定` : ''}{blockedCount > 0 ? ` · ${blockedCount} 条被拦截` : ''}
+                {patchChain.length > 0 ? ` · ${patchChain.length} 条补丁` : ''}
+              </span>
+            </div>
+            <ol className="relative space-y-1 border-l ink-border pl-5">
+              {patchChain.map((entry) => {
+                const node = patchNode(entry);
+                return (
+                  <li key={entry.patchId} className="relative flex items-start gap-3 rounded-lg px-2 py-2 hover:bg-[var(--ink-bg-surface)]">
+                    <span className="absolute -left-[26px] top-2.5 flex h-4 w-4 items-center justify-center bg-[var(--ink-bg-base)]">
+                      {node.icon}
+                    </span>
+                    <div className="min-w-0 flex-1">
+                      <div className="flex items-center gap-2">
+                        <span className="truncate text-[13px]">{node.label}</span>
+                        {node.status && <span className="shrink-0 text-[11px] ink-text-faint">{node.status}</span>}
+                      </div>
+                      {node.note && <p className="mt-0.5 text-[11px] leading-relaxed ink-text-muted">{node.note}</p>}
+                    </div>
+                  </li>
+                );
+              })}
+              {incubation.map((entry) => {
+                const node = incubationNode(entry);
+                return (
+                  <li key={entry.id} className="relative flex items-start gap-3 rounded-lg px-2 py-2 hover:bg-[var(--ink-bg-surface)]">
+                    <span className="absolute -left-[26px] top-2.5 flex h-4 w-4 items-center justify-center bg-[var(--ink-bg-base)]">
+                      {node.icon}
+                    </span>
+                    <div className="min-w-0 flex-1">
+                      <div className="flex items-center gap-2">
+                        <span className="truncate text-[13px]">{node.label}</span>
+                        {node.status && <span className="shrink-0 text-[11px] ink-text-faint">{node.status}</span>}
+                      </div>
+                      {node.note && <p className="mt-0.5 text-[11px] leading-relaxed ink-text-muted">{node.note}</p>}
+                    </div>
+                  </li>
+                );
+              })}
+            </ol>
+          </div>
+        )}
       </div>
     </div>
   );

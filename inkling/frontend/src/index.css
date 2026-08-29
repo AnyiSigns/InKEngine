@@ -93,6 +93,18 @@
   --font-mono: "Geist Mono", "Cascadia Code", "JetBrains Mono", "SFMono-Regular", Consolas, monospace;
 }
 
+/* 品牌标记（位图 alpha 作蒙版，颜色随主题 token——亮色深标记/暗色浅标记） */
+.brand-mark {
+  display: inline-block;
+  background-color: var(--ink-text-base);
+  -webkit-mask-image: url('/icon.png');
+  mask-image: url('/icon.png');
+  -webkit-mask-repeat: no-repeat;
+  mask-repeat: no-repeat;
+  -webkit-mask-size: contain;
+  mask-size: contain;
+}
+
 /* system 档暗色（无显弄17 data-theme 时跟隄17 OS；light 钉住时被 :not 排除＄17 */
 @media (prefers-color-scheme: dark) {
   :root:not([data-theme="light"]) {

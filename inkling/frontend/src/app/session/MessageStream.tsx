@@ -18,7 +18,6 @@ import {
   Clock,
   Copy,
   Database,
-  Feather,
   MousePointerClick,
   Monitor,
   ShieldCheck,
@@ -287,12 +286,12 @@ function UnknownLine({ entry }: { entry: Extract<InkMessage, { kind: 'unknown' }
   );
 }
 
-/** 空态 hero（参考桌面 agent 空态：居中品牌竖标 + 首任务引导）。 */
+/** 空态 hero（参考桌面 agent 空态：居中品牌标记 + 首任务引导）。 */
 function EmptyHero() {
   return (
     <div className="flex h-full min-h-[50vh] flex-col items-center justify-center gap-4 text-center">
       <div className="flex items-center gap-2">
-        <Feather size={24} strokeWidth={1.5} className="ink-text-muted" />
+        <span className="brand-mark h-6 w-6" aria-hidden="true" />
         <span className="text-[17px] font-semibold tracking-tight">InKling</span>
       </div>
       <div className="space-y-1">

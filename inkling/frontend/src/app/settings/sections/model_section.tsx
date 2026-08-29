@@ -126,18 +126,33 @@ function TierModelBlock({
     setEditing(tier);
   };
 
-  /** 探测端点模型列表 → 弹悬浮窗供选择（失败结构化降级）。 */
+  /** 探测端点模型列表 → 弹悬浮窗供选择（经壳 models_refresh：壳进程内
+   *  发起 HTTP，规避浏览器 CORS；结果落模型档案库，再经 archive 快照回读）。 */
   const probeModels = async (): Promise<void> => {
     setProbePhase('loading');
     setProbeNote('');
     try {
-      const endpoint = draftVendor === 'anthropic' ? `${draftBaseUrl}/v1/models` : `${draftBaseUrl}/models`;
-      const res = await fetch(endpoint, {
-        headers: draftApiKey ? { Authorization: `Bearer ${draftApiKey}` } : undefined,
+      const tauri = createTauriInvoker();
+      if (!tauri) throw new Error('宿主不可用');
+      // 壳侧 normalize_models_url 为 base_url + '/models'；Anthropic 需
+      // 显式带 /v1 前缀（api.anthropic.com/models 非有效端点）。
+      const probeBase = draftVendor === 'anthropic'
+        ? `${draftBaseUrl.replace(/\/+$/, '')}/v1`
+        : draftBaseUrl;
+      await tauri.invoke('models_refresh', {
+        config: {
+          base_url: probeBase,
+          api_key: draftApiKey || undefined,
+          models: [],
+        },
       });
-      if (!res.ok) throw new Error(`探测失败：${res.status} ${res.statusText}`);
-      const data = (await res.json()) as { data?: ProbeModel[] };
-      const models = data.data ?? [];
+      const archive = (await tauri.invoke('model_archive_snapshot')) as {
+        archives?: Array<{ model_id: string; context_window?: number }>;
+      };
+      const models = (archive?.archives ?? []).map((m) => ({
+        id: m.model_id,
+        context_window: m.context_window,
+      }));
       if (models.length > 0) {
         setProbeList(models);
         setShowPicker(true);
@@ -370,7 +385,12 @@ export function ModelSection(): JSX.Element {
         const cfg = (raw ?? {}) as Record<string, unknown>;
         if (typeof cfg !== 'object') return;
         if (typeof cfg.vendor === 'string') setVendor(cfg.vendor);
-        if (typeof cfg.provider_id === 'string') setProviderId(cfg.provider_id);
+        // provider_id 仅自定义厂商回填：预设厂商该字段承载的是适配器标识
+        // （engine 读作 adapter），不是用户自定义 Provider ID——回填会
+        // 污染自定义 providerId 输入态（切到自定义时残留脏值）。
+        if (cfg.vendor === '__custom__' && typeof cfg.provider_id === 'string') {
+          setProviderId(cfg.provider_id);
+        }
         if (typeof cfg.base_url === 'string') setBaseUrl(cfg.base_url);
         if (typeof cfg.main_model_id === 'string') setMainModelId(cfg.main_model_id);
         if (typeof cfg.router_model_id === 'string') setRouterModelId(cfg.router_model_id);

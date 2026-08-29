@@ -122,9 +122,8 @@ pub(crate) async fn approval_resolve(
     decision: String,
     reason: Option<String>,
     edited_content: Option<JsonValue>,
-    remember_domain: Option<String>,
 ) -> Result<JsonValue, CommandError> {
-    let outcome = approval_card(
+    approval_card(
         &state,
         thread_id.as_deref(),
         &key,
@@ -136,58 +135,7 @@ pub(crate) async fn approval_resolve(
             "edited_content": edited_content,
         })),
     )
-    .await?;
-    // 记住域名（联网审批的域名级记忆）：决议 accept 且携带域名时写入
-    // 安全域已记住域名集（后续同域出网免弹卡）。域名校验/持久化在
-    // 安全域内完成，失败 = 结构化错误（不静默吞掉）。
-    let decision_val = outcome
-        .get("decision")
-        .and_then(JsonValue::as_str)
-        .unwrap_or("reject");
-    if decision_val == "accept" {
-        if let Some(domain) = remember_domain.filter(|d| !d.trim().is_empty()) {
-            remember_domain_append(&state, &domain).await?;
-        }
-    }
-    Ok(outcome)
-}
-
-/// 追加一个已记住域名（读当前集 → 并入 → 全量写回安全域 + 能力记录）。
-async fn remember_domain_append(
-    state: &State<'_, ShellState>,
-    domain: &str,
-) -> Result<(), CommandError> {
-    let current = crate::engine::host::call_engine_op_async(
-        "security.remembered_domains_get",
-        json!({}),
-    )
     .await
-    .map_err(CommandError::engine)?;
-    let mut domains: Vec<String> = current
-        .get("domains")
-        .and_then(JsonValue::as_array)
-        .map(|arr| {
-            arr.iter()
-                .filter_map(JsonValue::as_str)
-                .map(str::to_string)
-                .collect()
-        })
-        .unwrap_or_default();
-    if !domains.iter().any(|d| d.eq_ignore_ascii_case(domain)) {
-        domains.push(domain.to_string());
-    }
-    let applied = crate::engine::host::call_engine_op_async(
-        "security.remembered_domains_set",
-        json!({ "domains": domains }),
-    )
-    .await
-    .map_err(CommandError::engine)?;
-    if applied.get("applied").and_then(JsonValue::as_bool) != Some(true) {
-        return Err(CommandError::approval(format!(
-            "记住域名未生效: {domain}（安全域拒绝）"
-        )));
-    }
-    Ok(())
 }
 
 /// 审批卡操作通道接线（请求 + 决议注入共用入口）。

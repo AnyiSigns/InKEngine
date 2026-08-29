@@ -9,10 +9,10 @@ import { Monitor, Moon, Sun } from 'lucide-react';
 import { useThemeMode } from '@/renderer/themeMode';
 import { setLocale, useT, type Locale } from '@/i18n/useT';
 
-const MODE_OPTIONS: Array<{ mode: 'light' | 'dark' | 'system'; label: string; hint: string; icon: typeof Sun }> = [
-  { mode: 'light', label: '浅色', hint: '明亮纸面', icon: Sun },
-  { mode: 'dark', label: '深色', hint: '夜间墨面', icon: Moon },
-  { mode: 'system', label: '跟随系统', hint: '随 OS 偏好切换', icon: Monitor },
+const MODE_OPTIONS: Array<{ mode: 'light' | 'dark' | 'system'; icon: typeof Sun }> = [
+  { mode: 'light', icon: Sun },
+  { mode: 'dark', icon: Moon },
+  { mode: 'system', icon: Monitor },
 ];
 
 const LANGUAGE_OPTIONS: Array<{ value: Locale; label: string }> = [
@@ -22,13 +22,13 @@ const LANGUAGE_OPTIONS: Array<{ value: Locale; label: string }> = [
 
 export function GeneralSection(): JSX.Element {
   const { mode, setMode } = useThemeMode();
-  const { lang } = useT();
+  const { t, lang } = useT();
 
   return (
     <div className="space-y-6">
       {/* 外观三档卡片（参考形态：三卡并排，选中描边） */}
       <div>
-        <div className="mb-2 text-[13px] font-medium">外观</div>
+        <div className="mb-2 text-[13px] font-medium">{t('general.appearance')}</div>
         <div className="grid grid-cols-3 gap-3" role="radiogroup" aria-label="外观">
           {MODE_OPTIONS.map((option) => {
             const Icon = option.icon;
@@ -50,8 +50,8 @@ export function GeneralSection(): JSX.Element {
                 ].join(' ')}
               >
                 <Icon size={18} strokeWidth={1.6} className={active ? '' : 'ink-text-muted'} aria-hidden />
-                <span className="text-[13px] font-medium">{option.label}</span>
-                <span className="text-[11px] ink-text-faint">{option.hint}</span>
+                <span className="text-[13px] font-medium">{t(`general.mode.${option.mode}`)}</span>
+                <span className="text-[11px] ink-text-faint">{t(`general.mode.${option.mode}.hint`)}</span>
               </button>
             );
           })}
@@ -61,8 +61,8 @@ export function GeneralSection(): JSX.Element {
       {/* 语言 */}
       <div className="flex items-center justify-between gap-4 border-t ink-border pt-4">
         <div>
-          <div className="text-[13px] font-medium">语言</div>
-          <div className="mt-0.5 text-[11px] ink-text-faint">界面文案语言，切换即时生效</div>
+          <div className="text-[13px] font-medium">{t('general.language')}</div>
+          <div className="mt-0.5 text-[11px] ink-text-faint">{t('general.language.help')}</div>
         </div>
         <div className="ink-seg" role="radiogroup" aria-label="语言">
           {LANGUAGE_OPTIONS.map((option) => (

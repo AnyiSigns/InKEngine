@@ -29,7 +29,7 @@ from collections.abc import Callable, Sequence
 from dataclasses import dataclass, field, fields, is_dataclass
 from enum import StrEnum
 from pathlib import Path
-from typing import Any, Protocol, runtime_checkable
+from typing import Any, Iterable, Protocol, runtime_checkable
 
 from .approval import InterruptPolicy
 from .assembly import SOURCE_EVIDENCE, AssemblyConfig
@@ -101,6 +101,16 @@ BASELINE_TOOL_NAMES: frozenset[str] = frozenset({
     "inspect_tools",
     "search_tools", "request_tool",
 })
+
+# 常驻必带集持久化（records 通道；集合不在演化资产守卫表内 = 直写放行）。
+# 与壳侧 workspace_auth/app_capabilities 同通道形态，重启后由
+# _restore_baseline 装载。
+BASELINE_RECORD_COLLECTION = "runtime_config"
+BASELINE_RECORD_KEY = "tool_baseline"
+
+# 动态注册机制工具（search_tools/request_tool）：语义检索绑定非必带工具
+# 的入口，永远强制常驻，用户不可摘除。
+BASELINE_IMMUTABLE_TOOLS: frozenset[str] = frozenset({"search_tools", "request_tool"})
 
 
 def _spec_identity(spec: Any) -> str:
@@ -429,6 +439,10 @@ class Runtime:
         self.tool_index: ToolVectorIndex | None = None
         # 工具调配器（工具注入瘦身接线）：保底工具 priority 高 + 调用权重
         self.tool_selector: ToolSelector | None = None
+        # 常驻必带工具集（出厂基线 = BASELINE_TOOL_NAMES；用户可在设置页
+        # 增删——collect_specs 只注入本集合的完整 schema 进每回合 tools
+        # 参数，其余工具经 search_tools/request_tool 动态绑定）
+        self._baseline_names: frozenset[str] = BASELINE_TOOL_NAMES
         self.engine: Engine | None = None
         self.engine_llm: AsyncLLM | None = None
 
@@ -774,13 +788,20 @@ class Runtime:
         if self.growth_pipeline is not None:
             self.growth_pipeline.knowledge_set = self.knowledge_set
 
+        # ⑬-a 用户常驻必带工具集恢复（records 通道；缺记录/坏形态沿用
+        #    出厂基线；恢复在 _restore_set_state 之后——校验须见全量工具表）
+        await self._restore_baseline()
+
         # ⑬-a 工具向量索引构建（工具注入瘦身）：全量工具 → 向量，
         #     search_tools/request_tool 检索后端；失败降级关键词基线
         self.tool_index = ToolVectorIndex(embedder=build_default_embedder())
         self._rebuild_tool_index()
 
         # ⑬-b 工具调配器接线（工具注入瘦身）：保底工具 priority 高 + 调用权重
-        self.tool_selector = ToolSelector(max_tools=12)
+        self.tool_selector = ToolSelector(
+            max_tools=16,
+            baseline_names=self._baseline_names,
+        )
 
         # ⑭ apply 目标注册（补丁落链后的活跃态生效钩子；配方工厂注入）
         for kind, factory in recipe.apply_targets.items():
@@ -1069,16 +1090,82 @@ class Runtime:
         ]
 
     def collect_specs(self) -> list[ToolSpec]:
-        """工具清单汇总（保底 8+2 常驻集），供回合装配 tools 参数。
+        """工具清单汇总（常驻必带集），供回合装配 tools 参数。
 
-        终稿注入策略：常驻 ≤12 个完整 schema（保底 8 + 自指 2），其余工具
-        不再全量进 tools 参数——模型经 search_tools 检索、request_tool
-        绑定后注入下一轮。
+        终稿注入策略：常驻 ≤12 个完整 schema（出厂保底 8 + 自指 2，用户
+        可在设置页增删），其余工具不再全量进 tools 参数——模型经
+        search_tools 检索、request_tool 绑定后注入下一轮。
         """
+        baseline = self._baseline_names
         return [
             spec for spec in self.merged_specs()
-            if spec.name in BASELINE_TOOL_NAMES
+            if spec.name in baseline
         ]
+
+    # ── 常驻必带工具集（设置页「工具」管理面；出厂基线可增删）──
+
+    @property
+    def baseline_names(self) -> tuple[str, ...]:
+        """当前常驻必带工具名（排序，含强制常驻的检索工具）。"""
+        return tuple(sorted(self._baseline_names))
+
+    def _apply_baseline(self, names: Iterable[str]) -> None:
+        """应用常驻必带集（不校验；校验归 set_baseline_names 调用面）。"""
+        next_set = frozenset(names) | BASELINE_IMMUTABLE_TOOLS
+        changed = next_set != self._baseline_names
+        self._baseline_names = next_set
+        if changed:
+            if self.tool_selector is not None:
+                self.tool_selector = ToolSelector(
+                    max_tools=self.tool_selector.max_tools,
+                    baseline_names=self._baseline_names,
+                )
+            if self.introspection_service is not None:
+                self.introspection_service._sources.tools = self.collect_specs()
+
+    async def set_baseline_names(self, names: list[str] | tuple[str, ...]) -> list[str]:
+        """设置常驻必带工具集（设置页勾选落地面）。
+
+        - 强制并入动态注册机制工具（search_tools/request_tool）；
+        - 非法名（不在全量工具表 merged_specs 内）结构化拒绝；
+        - 生效面：collect_specs 立即按新集注入 → 引擎重建缓存键随之
+          变化（rebuild_engine spec_key 含常驻集身份），下一回合生效；
+        - 持久化：records 通道（runtime_config/tool_baseline），重启经
+          _restore_baseline 装载。
+        """
+        merged_names = {spec.name for spec in self.merged_specs()}
+        requested = frozenset(names or ())
+        unknown = sorted(requested - merged_names)
+        if unknown:
+            raise ValueError(f"未注册工具不能加入常驻必带集: {', '.join(unknown)}")
+        self._apply_baseline(requested)
+        if self.storage is not None:
+            await self.storage.put_record(
+                BASELINE_RECORD_COLLECTION,
+                BASELINE_RECORD_KEY,
+                {"tools": sorted(self._baseline_names)},
+            )
+        return self.baseline_names
+
+    async def _restore_baseline(self) -> None:
+        """重启装载用户常驻必带集（records 通道；坏形态沿用出厂基线）。
+
+        宽松应用（不走 set_baseline_names 的实时校验）：持久化名可能含
+        尚未登记的挂载工具（MCP server 未装/链恢复前），名字在表内缺失
+        时注入面自然无效应，登记后即自动生效。
+        """
+        if self.storage is None:
+            return
+        try:
+            record = await self.storage.get_record(
+                BASELINE_RECORD_COLLECTION, BASELINE_RECORD_KEY
+            )
+        except Exception as exc:
+            logger.warning("常驻必带集读取失败（沿用出厂基线）: %s", exc)
+            return
+        tools = (record or {}).get("tools")
+        if isinstance(tools, list):
+            self._apply_baseline(tools)
 
     async def rebuild_engine(self, llm: AsyncLLM | None = None) -> Engine:
         """重建回合图引擎（配置/工具表变更才重建；llm 缺省 = 宿主解析）。

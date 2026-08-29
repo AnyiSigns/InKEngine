@@ -13,6 +13,7 @@ import { X } from 'lucide-react';
 
 import { listSettingsSections } from './registry';
 import { SettingsItemRenderer } from './settings_item_renderer';
+import { useT } from '@/i18n/useT';
 
 interface SettingsFloaterProps {
   open: boolean;
@@ -25,9 +26,17 @@ interface SettingsFloaterProps {
 }
 
 export function SettingsFloater({ open, onClose, backend }: SettingsFloaterProps) {
+  const { t } = useT();
   const [active, setActive] = useState<string>('');
   const [mounted, setMounted] = useState(false);
   const [sections, setSections] = useState(() => listSettingsSections());
+
+  /** 节标签：翻译键优先（settings.section.<key>），未登记键回落注册 label。 */
+  const sectionLabel = (section: (typeof sections)[number]): string => {
+    const key = `settings.section.${section.key}`;
+    const translated = t(key);
+    return translated === key ? section.label : translated;
+  };
 
   useEffect(() => {
     setSections(listSettingsSections());
@@ -63,7 +72,7 @@ export function SettingsFloater({ open, onClose, backend }: SettingsFloaterProps
         ].join(' ')}
       >
         <span className="ink-icon-chip h-7 w-7 shrink-0">{section.icon}</span>
-        <span className="truncate text-[12px]">{section.label}</span>
+        <span className="truncate text-[12px]">{sectionLabel(section)}</span>
       </button>
     );
   };
@@ -74,26 +83,26 @@ export function SettingsFloater({ open, onClose, backend }: SettingsFloaterProps
         data-ui="settings_floater"
         className="ink-modal-panel"
         role="dialog"
-        aria-label="设置"
+        aria-label={t('settings.title')}
         onClick={(e) => e.stopPropagation()}
       >
         <div className="flex h-full">
           {/* 左节导航 */}
-          <nav className="ink-settings-rail" aria-label="设置节导航">
-            <div className="px-3 pb-2 text-[10px] font-medium tracking-[0.14em] uppercase ink-text-faint">设置</div>
+          <nav className="ink-settings-rail" aria-label={t('settings.title')}>
+            <div className="px-3 pb-2 text-[10px] font-medium tracking-[0.14em] uppercase ink-text-faint">{t('settings.title')}</div>
             <div className="space-y-0.5">{sections.map(renderNavItem)}</div>
           </nav>
 
           {/* 右内容区 */}
           <div className="ink-settings-content">
             <div className="flex items-center justify-between px-6 py-4">
-              <h2 className="text-[var(--ink-font-md)] font-semibold tracking-tight">{activeSection?.label}</h2>
+              <h2 className="text-[var(--ink-font-md)] font-semibold tracking-tight">{sectionLabel(activeSection)}</h2>
               <button
                 type="button"
                 data-ui="settings_close_top"
                 onClick={onClose}
                 className="flex h-7 w-7 items-center justify-center rounded-lg ink-text-muted hover:bg-[var(--ink-bg-elevated)] hover:text-[var(--ink-text-base)]"
-                aria-label="关闭设置"
+                aria-label={t('settings.close')}
               >
                 <X size={15} strokeWidth={1.6} aria-hidden />
               </button>
@@ -107,7 +116,7 @@ export function SettingsFloater({ open, onClose, backend }: SettingsFloaterProps
                   {activeSection?.items?.map((item) => (
                     <SettingsItemRenderer key={item.key} item={item} backendAvailable={backend.available} />
                   )) ?? (
-                    <p className="text-[11px] ink-text-faint">该节暂无配置项。</p>
+                    <p className="text-[11px] ink-text-faint">{t('settings.no_items')}</p>
                   )}
                 </div>
               )}

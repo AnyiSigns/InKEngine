@@ -456,7 +456,7 @@ function KnowledgeRow({ entry, expanded, onToggle, onArchive, onRestore, onPromo
               <div className="text-[10px] font-medium text-[var(--ink-text-muted)]">失败记录</div>
               {entry.usage_failures.map((f, i) => (
                 <div key={i} className="text-[10px] text-[var(--ink-text-faint)]">
-                  {new Date(f.at * 1000).toLocaleString()} · {f.reason}
+                  {f.at !== null ? `${new Date(f.at * 1000).toLocaleString()} · ` : ''}{f.reason}
                 </div>
               ))}
             </div>

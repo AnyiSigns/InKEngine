@@ -101,3 +101,39 @@ pub(crate) async fn suggestion_scan(args: Option<JsonValue>) -> Result<JsonValue
 pub(crate) async fn growth_report(args: Option<JsonValue>) -> Result<JsonValue, CommandError> {
     forward_async("report.growth", args).await
 }
+
+/// 审计流水（只读）：读取 `set_audit` 集合（append-only 干预/自修改留痕）。
+/// 洞察事件时间线的历史底账源；集合缺省 set_audit，可由参数覆盖。
+#[command(rename = "audit.list")]
+pub(crate) async fn audit_list(args: Option<JsonValue>) -> Result<JsonValue, CommandError> {
+    let collection = args
+        .as_ref()
+        .and_then(JsonValue::as_object)
+        .and_then(|m| m.get("collection"))
+        .and_then(JsonValue::as_str)
+        .map(String::from)
+        .unwrap_or_else(|| "set_audit".to_string());
+    forward_async("engine.records_list", Some(json!({ "collection": collection }))).await
+}
+
+#[command(rename = "ui_spec.get")]
+pub(crate) async fn ui_spec_get(args: Option<JsonValue>) -> Result<JsonValue, CommandError> {
+    forward_sync("ui_spec.get", args)
+}
+
+#[command(rename = "ui_spec.apply")]
+pub(crate) async fn ui_spec_apply(args: Option<JsonValue>) -> Result<JsonValue, CommandError> {
+    forward_async("ui_spec.apply", args).await
+}
+
+#[command(rename = "ui_spec.revert_latest")]
+pub(crate) async fn ui_spec_revert_latest(
+    args: Option<JsonValue>,
+) -> Result<JsonValue, CommandError> {
+    forward_async("ui_spec.revert_latest", args).await
+}
+
+#[command(rename = "model.reload")]
+pub(crate) async fn model_reload(args: Option<JsonValue>) -> Result<JsonValue, CommandError> {
+    forward_async("model.reload", args).await
+}

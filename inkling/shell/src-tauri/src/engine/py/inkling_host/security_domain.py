@@ -50,7 +50,6 @@ from ink_engine.core.permissions import (
     REVIEW,
     GateResult,
     PermissionGate,
-    network_matches,
 )
 from ink_engine.core.review_card import GatingTier, gating_tier_of
 from ink_engine.core.sandbox import FileSandbox
@@ -158,9 +157,9 @@ class TieredGate:
         self._auto_approvable = frozenset(auto_approvable)
         self._auto_approve_tools: frozenset[str] = frozenset()
         self._auto_approve_all_review = False
-        # 已记住域名（联网审批的域名级记忆：审批卡「记住此域名」的产物；
-        # 域名后缀匹配——命中 = 该域出网免弹卡，直接放行）
-        self._remembered_domains: frozenset[str] = frozenset()
+        # 逐工具档位覆盖（权限矩阵写面：allow/review/deny；deny 出厂档
+        # 不可覆盖）。运行期生效经 ``_gating_overrides``（l1/l2）下发。
+        self._tier_overrides: dict[str, str] = {}
 
     def _review_needed(self, tool: str) -> bool:
         """弹卡判定（引擎门控分级为判据；未登记工具保持出厂直过语义）。"""
@@ -211,40 +210,46 @@ class TieredGate:
         """可登记清单（设置页勾选项的单一来源）。"""
         return sorted(self._auto_approvable)
 
-    # ── 已记住域名（联网审批的域名级记忆：命中 = 直过免弹卡）──
+    # ── 逐工具档位覆盖（权限矩阵写面：allow/review/deny）──
 
-    def configure_remembered_domains(self, domains: Sequence[str]) -> None:
-        """配置已记住域名集（域名后缀匹配；空串/空白过滤）。"""
-        normalized = frozenset(
-            str(domain).strip().lower()
-            for domain in (domains or ())
-            if isinstance(domain, str) and str(domain).strip()
-        )
-        self._remembered_domains = normalized
+    def set_tier_override(self, tool: str, tier: str) -> None:
+        """设置单工具档位覆盖（allow→l1 直过 / review→l2 弹卡）。
 
-    def domain_remembered(self, host: str) -> bool:
-        """域名是否已记住（域名级后缀匹配：记住 example.com 覆盖其任意子域）。
-
-        与声明式权限的 network_matches 同口径，但记住语义约定为「域名级」：
-        bare 域名（无前导通配）按主域 + 任意子域匹配（用户记住 example.com
-        即期望 docs.example.com 也直过）；显式 `*.x` 形态走原有通配语义。
+        约束：工具须在出厂档位表（挂载/补丁新增工具按声明权限直过，
+        无需覆盖）；deny 出厂档默认拒绝，权限变更须经补丁链审批转正，
+        不提供档位覆盖；档位覆盖等于出厂档 = 撤销覆盖。
         """
-        if not self._remembered_domains or not host:
-            return False
-        host = str(host).lower()
-        for pattern in self._remembered_domains:
-            if pattern.startswith("*."):
-                if network_matches(pattern, host):
-                    return True
-                continue
-            bare = pattern.lower()
-            if host == bare or host.endswith(f".{bare}"):
-                return True
-        return False
+        if tool not in self._tiers:
+            raise ValueError(
+                f"工具不在出厂档位表: {tool}（挂载/补丁工具按声明权限直过，无需覆盖）"
+            )
+        if tier not in (ALLOW, REVIEW, DENY):
+            raise ValueError(f"非法档位: {tier}（仅 allow/review/deny）")
+        if self._tiers[tool] == DENY:
+            raise ValueError(
+                "出厂 deny 档工具默认拒绝（权限变更须经补丁链审批转正，不提供档位覆盖）"
+            )
+        if tier == self._tiers[tool]:
+            self._tier_overrides.pop(tool, None)
+            self._gating_overrides.pop(tool, None)
+            return
+        self._tier_overrides[tool] = tier
+        self._gating_overrides[tool] = (
+            GatingTier.L1.value if tier == ALLOW else GatingTier.L2.value
+        )
 
-    def remembered_domains(self) -> list[str]:
-        """已记住域名清单（设置页管理列表的单一来源）。"""
-        return sorted(self._remembered_domains)
+    def set_tier_overrides(self, overrides: Mapping[str, str]) -> None:
+        """批量档位覆盖（逐工具校验；任一非法 = 整体拒绝不落盘）。"""
+        for tool, tier in overrides.items():
+            self.set_tier_override(str(tool), str(tier))
+
+    def tier_overrides(self) -> dict[str, str]:
+        """当前档位覆盖（能力记录持久化形态：工具名 → allow/review/deny）。"""
+        return dict(self._tier_overrides)
+
+    def effective_tier(self, tool: str) -> str:
+        """当前生效档位（覆盖优先于出厂档位表；未登记工具 = review 保守档）。"""
+        return self._tier_overrides.get(tool, self._tiers.get(tool, REVIEW))
 
     def check(
         self,
@@ -258,13 +263,6 @@ class TieredGate:
             return GateResult(
                 DENY, tool, operation, target,
                 "出厂 deny 档工具默认拒绝（权限变更须经补丁链审批转正）",
-            )
-        # 已记住域名直过：网络出网（connect）命中记住域名 = 免弹卡放行
-        # （审批的域名级记忆；记住前仍走 review 弹卡，不做默认放行）
-        if operation == "connect" and self.domain_remembered(target):
-            return GateResult(
-                ALLOW, tool, operation, target,
-                f"域名已记住（{target}），免审批放行",
             )
         effective = permissions
         if self._executors is not None:
@@ -1232,13 +1230,20 @@ class SecurityDomain:
         """自动审批配置（设置持久化层保存前调用；边界外硬拒）。"""
         self.gate.configure_auto_approve(tools, all_review)
 
-    def set_remembered_domains(self, domains: Sequence[str]) -> None:
-        """已记住域名配置（联网审批的域名级记忆；设置/审批卡写入）。"""
-        self.gate.configure_remembered_domains(domains)
+    def set_tier_overrides(self, overrides: Mapping[str, str]) -> None:
+        """逐工具档位覆盖（权限矩阵写面；deny 出厂档不可覆盖）。"""
+        self.gate.set_tier_overrides(overrides)
 
-    def remembered_domains(self) -> list[str]:
-        """已记住域名清单（设置页管理列表 + 审批卡读入面）。"""
-        return self.gate.remembered_domains()
+    def tier_overrides(self) -> dict[str, str]:
+        """当前档位覆盖（能力记录持久化形态）。"""
+        return self.gate.tier_overrides()
+
+    def effective_tiers(self) -> dict[str, str]:
+        """全工具生效档位（覆盖优先；设置页权限矩阵展示面）。"""
+        return {
+            tool: self.gate.effective_tier(tool)
+            for tool in self.tiers
+        }
 
     def auto_approve_snapshot(self) -> dict[str, Any]:
         """自动审批快照（设置页装载形态：已勾选清单 + 全量开关）。"""
@@ -1296,10 +1301,11 @@ AUTO_APPROVE_KEY = "capability"
 
 
 async def restore_auto_approve(storage: Any, security: SecurityDomain) -> None:
-    """从能力记录恢复自动审批设置（启动装载；无记录/坏形态 = 出厂空集）。
+    """从能力记录恢复自动审批设置与逐工具档位覆盖（启动装载）。
 
     记录字段：auto_approve_tools（工具名清单）/ auto_approve_all_review
-    （全量开关）。装载失败只记日志，不阻断装配——出厂空集为最保守态。
+    （全量开关）/ tier_overrides（工具名 → allow/review/deny）。
+    装载失败只记日志，不阻断装配——出厂空集为最保守态。
     """
     try:
         record = await storage.get_record(AUTO_APPROVE_COLLECTION, AUTO_APPROVE_KEY)
@@ -1310,34 +1316,19 @@ async def restore_auto_approve(storage: Any, security: SecurityDomain) -> None:
         return
     tools = record.get("auto_approve_tools")
     all_review = bool(record.get("auto_approve_all_review"))
-    if not isinstance(tools, (list, tuple)):
-        return
-    try:
-        security.set_auto_approve([str(t) for t in tools], all_review)
-    except Exception as exc:
-        logger.warning("自动审批设置装载被拒（按出厂空集启动）: %s", exc)
-
-
-async def restore_remembered_domains(storage: Any, security: SecurityDomain) -> None:
-    """从能力记录恢复已记住域名（启动装载；无记录/坏形态 = 出厂空集）。
-
-    记录字段：remembered_domains（域名清单）。装载失败只记日志，不阻断
-    装配——出厂空集 = 全部域名走审批弹卡（最保守态）。
-    """
-    try:
-        record = await storage.get_record(AUTO_APPROVE_COLLECTION, AUTO_APPROVE_KEY)
-    except Exception as exc:
-        logger.warning("已记住域名读取失败（回落出厂空集）: %s", exc)
-        return
-    if not isinstance(record, dict):
-        return
-    domains = record.get("remembered_domains")
-    if not isinstance(domains, (list, tuple)):
-        return
-    try:
-        security.set_remembered_domains([str(d) for d in domains])
-    except Exception as exc:
-        logger.warning("已记住域名装载被拒（按出厂空集启动）: %s", exc)
+    if isinstance(tools, (list, tuple)):
+        try:
+            security.set_auto_approve([str(t) for t in tools], all_review)
+        except Exception as exc:
+            logger.warning("自动审批设置装载被拒（按出厂空集启动）: %s", exc)
+    overrides = record.get("tier_overrides")
+    if isinstance(overrides, dict):
+        try:
+            security.set_tier_overrides(
+                {str(k): str(v) for k, v in overrides.items()}
+            )
+        except Exception as exc:
+            logger.warning("档位覆盖装载被拒（按出厂档位启动）: %s", exc)
 
 
 def _glob_translate(pattern: str) -> str:

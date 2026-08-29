@@ -34,7 +34,6 @@ pub mod mcp;
 
 pub use commands::approval::ApprovalLedger;
 pub use commands::process::redact_workspace;
-pub use commands::rounds::run_routine_round;
 
 /// 工具声明文件（include_str 内嵌：声明 = 数据，随补丁链演化管线产出）
 const TOOLS_DECL_JSON: &str = include_str!("../fixtures/tools_os.json");
@@ -69,12 +68,12 @@ struct ShellBackendState {
 }
 
 impl ShellBackendState {
-    fn new() -> Self {
+    fn new(abort_signal: domain::steps::RoundAbortSignal) -> Self {
         Self {
             engine: Mutex::new(None),
             tool_provider: Arc::new(domain::tools::ToolSpecsProvider::empty()),
             round: Mutex::new(None),
-            abort_signal: domain::steps::RoundAbortSignal::new(),
+            abort_signal,
             evolution_round_counter: Mutex::new(0),
         }
     }
@@ -100,10 +99,13 @@ struct ShellState {
     os_dispatch: std::sync::OnceLock<()>,
 }
 
-/// 构建壳后端：平台操作 + Tauri 通知接线。
-fn build_shell_backend(app: AppHandle) -> executors::backends::ShellBackend {
+/// 构建壳后端：平台操作 + Tauri 通知接线 + 回合中止信号（sleep 中断感知）。
+fn build_shell_backend(
+    app: AppHandle,
+    abort_signal: domain::steps::RoundAbortSignal,
+) -> executors::backends::ShellBackend {
     let platform = executors::backends::PlatformBackend;
-    executors::backends::ShellBackend::new(app, platform)
+    executors::backends::ShellBackend::new(app, platform, abort_signal)
 }
 
 /// 开发形态仓库根（引擎桥 seed_root 定位；发行期由打包资源覆盖）。
@@ -686,15 +688,18 @@ pub fn run() {
 
             let mounts = vec![expand_home(DEFAULT_MOUNT_ROOT)];
             let approval = commands::approval::ApprovalLedger::from_declarations(&declarations);
+            // 回合中止信号在壳状态与执行器后端间共享：round_abort 置位后，
+            // 执行器（sleep 等前台工具）轮询感知并中断。
+            let abort_signal = domain::steps::RoundAbortSignal::new();
             app.manage(ShellState {
                 mounts: Mutex::new(mounts),
                 registry,
-                backend: ShellBackendState::new(),
+                backend: ShellBackendState::new(abort_signal.clone()),
                 approval,
                 os_dispatch: std::sync::OnceLock::new(),
             });
 
-            let backend = build_shell_backend(app.handle().clone());
+            let backend = build_shell_backend(app.handle().clone(), abort_signal);
             app.manage(backend);
 
             build_tray(app.handle())?;
@@ -732,8 +737,7 @@ pub fn run() {
             commands::workspace::approval_resolve,
             commands::capability::capability_get,
             commands::capability::capability_put,
-            commands::capability::security_remembered_domains_get,
-            commands::capability::security_remembered_domains_set,
+            commands::capability::security_tier_overrides_set,
             commands::backup::backup_export,
             commands::backup::backup_preview,
             commands::backup::backup_restore,
@@ -741,18 +745,11 @@ pub fn run() {
             commands::backup::recovery_restore_snapshot,
             commands::backup::recovery_factory_reset,
             commands::tools::tools_snapshot,
+            commands::tools::tools_manifest,
+            commands::tools::tools_baseline_get,
+            commands::tools::tools_baseline_set,
             commands::tools::components_manifest,
             commands::tools::components_manifest_put,
-            commands::tasks::task_start,
-            commands::tasks::task_cancel,
-            commands::tasks::task_progress,
-            commands::tasks::task_finish,
-            commands::tasks::task_fail,
-            commands::tasks::task_list,
-            commands::tasks::task_state,
-            commands::tasks::task_resume,
-            commands::tasks::schedule_list,
-            commands::tasks::schedule_stop,
             commands::models::model_archive_snapshot,
             commands::models::models_refresh,
             commands::models::models_config_get,
@@ -799,17 +796,19 @@ pub fn run() {
             commands::ops::sovereignty_snapshot,
             commands::ops::suggestion_scan,
             commands::ops::growth_report,
+            commands::ops::audit_list,
             commands::knowledge::knowledge_list,
             commands::knowledge::knowledge_add,
             commands::knowledge::knowledge_promote,
             commands::knowledge::knowledge_archive,
             commands::knowledge::knowledge_restore,
             commands::knowledge::knowledge_export,
+            commands::knowledge::knowledge_skill_import,
+            commands::knowledge::knowledge_skill_reimport,
+            commands::knowledge::knowledge_graph,
             commands::memory::memory_list,
             commands::memory::memory_invalidate,
             commands::memory::memory_update_frontmatter,
-            commands::pipeline::pipeline_security_status,
-            commands::pipeline::pipeline_install_security_pipeline,
             commands::rounds::round_ledger_record,
             commands::rounds::round_ledger_chain,
             commands::rounds::round_ledger_list,
@@ -817,6 +816,10 @@ pub fn run() {
             commands::rounds::round_ledger_merge,
             commands::rounds::round_memory_extract,
             commands::rounds::round_resume_with_summary,
+            commands::ops::ui_spec_get,
+            commands::ops::ui_spec_apply,
+            commands::ops::ui_spec_revert_latest,
+            commands::ops::model_reload,
         ])
         .build(tauri::generate_context!())
         .expect("InKling 桌面壳装配失败");

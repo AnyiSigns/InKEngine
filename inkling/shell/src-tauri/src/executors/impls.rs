@@ -337,14 +337,11 @@ fn notify_spec() -> ExecutorSpec {
     }
 }
 
-fn schedule_spec() -> ExecutorSpec {
+fn sleep_spec() -> ExecutorSpec {
     ExecutorSpec {
-        name: "schedule",
-        params: vec![
-            ParamSpec { name: "seconds", param_type: ParamType::Integer, required: true },
-            ParamSpec { name: "action", param_type: ParamType::String, required: true },
-        ],
-        permission: PermissionLevel::Review,
+        name: "sleep",
+        params: vec![ParamSpec { name: "seconds", param_type: ParamType::Integer, required: true }],
+        permission: PermissionLevel::Allow,
         endpoint: Endpoint::ProcessExec,
         sandbox: SandboxRule::Bounds { min: 1, max: 86400 },
     }
@@ -839,7 +836,7 @@ pub fn executor_impl(name: &str) -> Option<(ExecutorSpec, RunFn)> {
         "set_volume" => (set_volume_spec(), set_volume_run),
         "set_brightness" => (set_brightness_spec(), set_brightness_run),
         "notify" => (notify_spec(), notify_run),
-        "schedule" => (schedule_spec(), schedule_run),
+        "sleep" => (sleep_spec(), sleep_run),
         "screen_query" => (screen_query_spec(), screen_query_run),
         "file_query" => (file_query_spec(), file_query_run),
         "ui_tree_query" => (ui_tree_query_spec(), ui_tree_query_run),
@@ -979,7 +976,7 @@ fn notify_run(
     Ok(ExecOutcome { result, sandbox_checked: true })
 }
 
-fn schedule_run(
+fn sleep_run(
     executor: &dyn Executor,
     args: &BTreeMap<String, Value>,
     backend: &dyn SystemBackend,
@@ -988,11 +985,10 @@ fn schedule_run(
     let tool = executor.name();
     check_permission(tool, executor.spec().permission, auth)?;
     let seconds = arg_i64(args, "seconds")?;
-    let action = arg_str(args, "action")?.to_string();
     if let SandboxRule::Bounds { min, max } = &executor.spec().sandbox {
         check_bounds(*min, *max, seconds, tool)?;
     }
-    let result = backend.schedule(seconds as u64, &action).map_err(ExecError::ExecutionFailed)?;
+    let result = backend.sleep(seconds as u64).map_err(ExecError::ExecutionFailed)?;
     Ok(ExecOutcome { result, sandbox_checked: true })
 }
 

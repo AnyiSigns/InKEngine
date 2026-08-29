@@ -183,8 +183,20 @@ pub(crate) async fn edge_restore_tier(edge_id: String) -> Result<JsonValue, Comm
 
 /// 模型连接配置落盘（settings_put 的替代：前端 model_section 改调此名）。
 #[tauri::command]
-pub(crate) fn models_config_put(app: AppHandle, config: JsonValue) -> Result<JsonValue, CommandError> {
+pub(crate) async fn models_config_put(
+    app: AppHandle,
+    config: JsonValue,
+) -> Result<JsonValue, CommandError> {
     let data_dir = app_data_dir(&app)?;
     crate::domain::model_archive::write_model_connection(&data_dir, &config);
+    // 运行期生效：通知引擎重载模型配置（宿未装配 = 下次启动生效，不报错）
+    let reloaded = crate::engine::host::call_engine_op_async(
+        "model.reload",
+        json!({}),
+    )
+    .await;
+    if let Err(err) = reloaded {
+        tracing::warn!("模型配置已落盘，但运行期重载未生效（下次启动生效）: {err}");
+    }
     Ok(config)
 }

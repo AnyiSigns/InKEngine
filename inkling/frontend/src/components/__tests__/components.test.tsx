@@ -74,7 +74,7 @@ describe('review_card：居中弹层（朱砂 accent，任何视图可弹）', (
     expect(screen.getByText('补丁审批')).toBeInTheDocument();
 
     await user.click(screen.getByText('确认'));
-    expect(onResolve).toHaveBeenCalledWith('accept', undefined, undefined);
+    expect(onResolve).toHaveBeenCalledWith('accept', undefined);
     // 决议后关闭弹层
     expect(screen.queryByRole('dialog')).not.toBeInTheDocument();
   });
@@ -87,14 +87,14 @@ describe('review_card：居中弹层（朱砂 accent，任何视图可弹）', (
     const { rerender } = render(<ReviewCard bindValue={hub.getLastEvent('review_card')} onResolve={onResolve} />);
 
     await user.click(screen.getByText('拒绝'));
-    expect(onResolve).toHaveBeenCalledWith('reject', undefined, undefined);
+    expect(onResolve).toHaveBeenCalledWith('reject', undefined);
 
     hub.dispatch(ev('review_card', { title: '审批', content: '可编辑内容' }));
     rerender(<ReviewCard bindValue={hub.getLastEvent('review_card')} onResolve={onResolve} />);
     await user.click(screen.getByText('编辑'));
     await user.type(screen.getByRole('textbox'), '追加');
     await user.click(screen.getByText('提交修改'));
-    expect(onResolve).toHaveBeenCalledWith('edit', expect.stringContaining('可编辑内容'), undefined);
+    expect(onResolve).toHaveBeenCalledWith('edit', expect.stringContaining('可编辑内容'));
   });
 });
 

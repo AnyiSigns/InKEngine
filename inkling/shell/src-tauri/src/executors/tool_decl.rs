@@ -45,7 +45,7 @@ pub enum SandboxRule {
     CommandAllowlist { allowlist: Vec<String> },
     /// 路径根（open_file / file_query：须位于工作区挂载根内）
     PathRoots { roots: Vec<String> },
-    /// 数值边界（set_volume / set_brightness / schedule）
+    /// 数值边界（set_volume / set_brightness / sleep）
     Bounds { min: i64, max: i64 },
     /// 长度上限（notify）
     LengthCaps { title_max: usize, body_max: usize },

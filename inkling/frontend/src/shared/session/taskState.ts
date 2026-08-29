@@ -1,13 +1,14 @@
 /**
  * 任务级执行状态归约（task_state 子通道的数据面）。
  *
- * 归约源 = 回合内任务面事件（plan/spawn/tool/task 家族）；输出一份
- * 不可变快照，供任务面板按「步进计数 / 子任务各自状态」渲染。归约
- * 纯函数、脏数据防御（缺字段收敛为运行态/缺省），不抛。
+ * 归约源 = 回合内任务面事件（plan/spawn/tool 家族；后台 task 家族随
+ * 后台任务域废弃不再产出）；输出一份不可变快照，供任务面板按
+ * 「步进计数 / 子任务各自状态」渲染。归约纯函数、脏数据防御
+ * （缺字段收敛为运行态/缺省），不抛。
  *
- * 子任务（spawn 展开 / 后台 task）以 key 关联：spawn 用 node_id、
- * task 用 task_id，tool_end 携带同 key 时按其归属的子任务收口，
- * 无 key 的 tool_end 仅计入计划步进（与子任务解耦，互不粘连）。
+ * 子任务（spawn 展开）以 key 关联：spawn 用 node_id，tool_end 携带
+ * 同 key 时按其归属的子任务收口，无 key 的 tool_end 仅计入计划步进
+ * （与子任务解耦，互不粘连）。
  */
 
 import type { HubEvent } from './channelHub';
@@ -22,7 +23,7 @@ export interface SubtaskRow {
   label: string;
   kind: SubtaskKind;
   status: SubtaskStatus;
-  /** 进度留痕（task_update 的 note/progress 文本）。 */
+  /** 进度留痕（spawn 子任务运行态的进度文本）。 */
   progress?: string;
 }
 
@@ -32,9 +33,9 @@ export interface TaskState {
   planActive: boolean;
   /** 计划步进总数（plan_start 载荷 steps；缺省 0）。 */
   stepsTotal: number;
-  /** 已完成步进（tool_end / spawn_end / task_done 计数）。 */
+  /** 已完成步进（tool_end / spawn_end 计数）。 */
   stepsDone: number;
-  /** 子任务各行（spawn/task），顺序 = 事件到达顺序。 */
+  /** 子任务各行（spawn），顺序 = 事件到达顺序。 */
   subtasks: SubtaskRow[];
   /** 最近一次任务面事件时间戳。 */
   lastEventAt: number;
@@ -135,48 +136,6 @@ export function reduceTaskEvent(state: TaskState, event: HubEvent): TaskState {
       }
       return next;
     }
-
-    case 'task_start': {
-      const fallbackKey = `task-${state.subtasks.length}`;
-      const row: SubtaskRow = {
-        key: key || fallbackKey,
-        label: typeof payload.label === 'string' && payload.label
-          ? payload.label
-          : typeof payload.task_id === 'string'
-            ? payload.task_id
-            : '后台任务',
-        kind: 'task',
-        status: 'running',
-      };
-      return { ...state, subtasks: upsertRow(state.subtasks, row), lastEventAt: event.at };
-    }
-    case 'task_update': {
-      const note = typeof payload.progress === 'string'
-        ? payload.progress
-        : typeof payload.note === 'string'
-          ? payload.note
-          : undefined;
-      return {
-        ...state,
-        subtasks: patchRow(state.subtasks, key, { progress: note }),
-        lastEventAt: event.at,
-      };
-    }
-    case 'task_done': {
-      const target = key || '';
-      return {
-        ...state,
-        stepsDone: state.stepsDone + 1,
-        subtasks: patchRow(state.subtasks, target, { status: 'done' }),
-        lastEventAt: event.at,
-      };
-    }
-    case 'task_cancelled':
-      return {
-        ...state,
-        subtasks: patchRow(state.subtasks, key, { status: 'cancelled' }),
-        lastEventAt: event.at,
-      };
 
     default:
       return state;

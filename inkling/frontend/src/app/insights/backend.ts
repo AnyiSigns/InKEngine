@@ -1,14 +1,9 @@
 import { invokeOp } from '../shared/invokeOp';
 
-export interface WhyCandidate {
-  domain?: string;
-  candidate_id?: string;
-  chain?: Array<string | number>;
-  chosen_at?: number;
-}
-
-export interface WhyReason {
+/** set_audit 集合记录（append-only 干预/自修改留痕的原始形态）。 */
+export interface AuditRecord {
   type?: string;
+  kind?: string;
   ts?: number;
   domain?: string;
   reason?: string | null;
@@ -17,63 +12,24 @@ export interface WhyReason {
   candidate_id?: string | null;
   src_type?: string | null;
   dst_type?: string | null;
+  tool?: string | null;
+  trace_id?: string | null;
+  thread_id?: string | null;
+  [key: string]: unknown;
 }
 
-export interface WhyEdge {
-  src_type?: string;
-  dst_type?: string;
-  success_count?: number;
-  fail_count?: number;
-  policy?: boolean;
-  avg_cost?: number;
+/** 时间线条目（历史铺底与实时事件统一形态）。 */
+export interface TimelineEntry {
+  id: string;
+  ts: number; // epoch 毫秒
+  type: string;
+  title: string;
+  detail?: string;
+  raw: AuditRecord;
+  source: 'history' | 'live';
 }
 
-export interface WhyAuditData {
-  domain?: string;
-  candidates?: WhyCandidate[];
-  reason_chain?: WhyReason[];
-  edge_evidence?: WhyEdge[];
-}
-
-export interface SovereigntySnapshot {
-  local_storage?: { backend?: string | null; location?: string };
-  skill_store_path?: string | null;
-  model_tiers?: string[];
-  tier_call_stats_persisted?: boolean;
-  audit_total?: number;
-  audit_counts?: Record<string, number>;
-  recent_audit?: Array<{ type?: string | null; ts?: number }>;
-}
-
-export interface Suggestion {
-  rule_id?: string;
-  message?: string;
-  severity?: string;
-}
-
-export interface SuggestionScan {
-  suggestions?: Suggestion[];
-}
-
-export interface InsightOps {
-  whyAudit(): Promise<WhyAuditData>;
-  sovereigntySnapshot(): Promise<SovereigntySnapshot>;
-  suggestionScan(): Promise<SuggestionScan>;
-}
-
-export function createInsightOps(): InsightOps {
-  return {
-    whyAudit: async () => {
-      const result = await invokeOp<WhyAuditData>('why.audit', {});
-      return result ?? {};
-    },
-    sovereigntySnapshot: async () => {
-      const result = await invokeOp<SovereigntySnapshot>('sovereignty.snapshot', {});
-      return result ?? {};
-    },
-    suggestionScan: async () => {
-      const result = await invokeOp<SuggestionScan>('suggestion.scan', {});
-      return result ?? { suggestions: [] };
-    },
-  };
+/** 审计流水（只读）：读取 set_audit 集合。 */
+export async function listAudit(): Promise<AuditRecord[] | null> {
+  return invokeOp<AuditRecord[]>('audit.list', {});
 }

@@ -11,7 +11,7 @@ use std::path::{Path, PathBuf};
 use std::sync::{Arc, Mutex};
 
 use serde_json::{json, Value as JsonValue};
-use tauri::{AppHandle, Emitter, Manager, State};
+use tauri::{AppHandle, Emitter, State};
 
 use super::error::CommandError;
 use crate::domain::steps::{RoundStepsTransport, ToolTitleResolver};
@@ -253,28 +253,15 @@ pub(crate) fn round_send(
         let mut slot = state.backend.round.lock().unwrap();
         *slot = Some(recorder.clone());
     }
-    // R2（决议 10）：项目任务注入——线程绑定任务的持久化对象读回并
-    // 序列化进 inject（引擎零改动感知）；回合后按事件流归约并写回
-    // （读 → 注入 → 归约 → 落库完整链）
-    let bound_task = crate::domain::tasks::registry()
-        .list()
-        .into_iter()
-        .find(|meta| meta.thread_id.as_deref() == Some(thread_id.as_str()))
-        .map(|meta| meta.id.clone())
-        .and_then(|task_id| {
-            crate::domain::tasks::load_project_task(&data_dir, &task_id)
-                .map(|task| (task_id, task))
-        });
-    let inject = bound_task
-        .as_ref()
-        .map(|(_, task)| crate::domain::tasks::inject_project_task(task));
+    // 后台任务域已废弃（定时走前台 sleep 工具），不再有线程绑定任务的
+    // 注入/归约接线；项目任务对象保留为独立模块（见 domain/tasks.rs）。
     let request = RoundRequest {
         input_text: text.clone(),
         thread_id: thread_id.clone(),
         round_id: round_id.clone(),
         step_args: None,
         orchestrate: None,
-        inject,
+        inject: None,
         auto_accept_review: auto_accept_review.unwrap_or(true),
     };
     let engine_guard = state.backend.engine.lock().unwrap();
@@ -293,22 +280,10 @@ pub(crate) fn round_send(
     let outcome = engine
         .round(request)
         .map_err(|err| engine_failure("回合执行", err))?;
-    // 收尾清 emitter：避免上一轮 emitter 泄漏到后续 run_routine_round
-    // 等不设 emitter 的回合，把事件误推前端、混入错误 round（#1）。
+    // 收尾清 emitter：避免上一轮 emitter 泄漏到后续不设 emitter 的回合，
+    // 把事件误推前端、混入错误 round（#1）。
     engine.set_event_emitter(None);
     drop(engine_guard);
-    // R2：回合事件流归约写回项目任务（绑定线程的任务对象；失败仅观测
-    // 日志——任务对象仍保留上一回合状态，不阻断回合返回）
-    if let Some((task_id, task)) = bound_task {
-        if let Err(err) = crate::domain::tasks::reduce_and_save_project_task(
-            &data_dir,
-            &task_id,
-            &task,
-            &outcome.events,
-        ) {
-            eprintln!("[rounds] 项目任务归约落库失败: {err}");
-        }
-    }
     for event in &outcome.events {
         recorder.feed(event);
     }
@@ -428,8 +403,8 @@ pub(crate) async fn round_resume_with_summary(
     .await
 }
 
-/// 续跑共享实现（round_resume / round_resume_with_summary / task_resume
-/// 共用）：读回 checkpoint 种子 → 链式捕获续跑事件 → thread_resume →
+/// 续跑共享实现（round_resume / round_resume_with_summary 共用）：
+/// 读回 checkpoint 种子 → 链式捕获续跑事件 → thread_resume →
 /// 快照随返回体回传 + checkpoint 更新/清理。
 #[allow(clippy::too_many_arguments)]
 pub(crate) async fn resume_round_with_inject(
@@ -571,47 +546,6 @@ pub(crate) fn round_abort(state: State<'_, ShellState>, round_id: String) -> Res
         "round_id": round_id,
         "aborted": state.backend.abort_signal.is_aborted(),
         "engine_abort": engine_abort,
-    }))
-}
-
-/// 例行任务到点触发回合（schedule 工具升级路径）：经既有引擎回合通道拉起
-/// 一轮执行，输入即到点动作，引擎零改动感知。本函数供壳后端定时线程调用，
-/// 失败仅留观测日志，不阻断定时调度。
-pub fn run_routine_round(app: &AppHandle, action: &str) -> Result<JsonValue, String> {
-    let data_dir = app_data_dir(app)?;
-    let state = app.state::<ShellState>();
-    ensure_engine(app, &state, &data_dir)?;
-    let thread_id = format!("routine-{}", chrono::Utc::now().timestamp());
-    let round_id = format!("routine-r-{}", uuid::Uuid::new_v4().simple());
-    let mut recorder = begin_round_recorder(&state, &round_id, &data_dir);
-    let request = RoundRequest {
-        input_text: action.to_string(),
-        thread_id: thread_id.clone(),
-        round_id: round_id.clone(),
-        step_args: None,
-        orchestrate: None,
-        inject: None,
-        auto_accept_review: true,
-    };
-    let engine_guard = state.backend.engine.lock().unwrap();
-    let engine = engine_guard
-        .as_ref()
-        .ok_or_else(|| "引擎未装配（例行回合失败）".to_string())?;
-    let outcome = engine
-        .round(request)
-        .map_err(|err| format!("例行回合失败: {err}"))?;
-    drop(engine_guard);
-    for event in &outcome.events {
-        recorder.feed(event);
-    }
-    let steps = recorder.snapshot();
-    if outcome.reason != "reply" && !steps.is_empty() {
-        let _ = write_round_checkpoint(&data_dir, &thread_id, &round_id, &steps);
-    }
-    Ok(json!({
-        "thread_id": thread_id,
-        "round_id": round_id,
-        "reason": outcome.reason,
     }))
 }
 

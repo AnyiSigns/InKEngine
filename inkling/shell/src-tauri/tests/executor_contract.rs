@@ -89,7 +89,7 @@ fn fixture_declarations_load_and_match_every_executor() {
 fn seven_process_exec_tools_registered() {
     let declarations = load_tool_declarations(TOOLS_DECL_JSON).unwrap();
     let registry = registry_with(&declarations);
-    for tool in ["launch_app", "open_file", "system_query", "set_volume", "set_brightness", "notify", "schedule"] {
+    for tool in ["launch_app", "open_file", "system_query", "set_volume", "set_brightness", "notify", "sleep"] {
         assert!(registry.get(tool).is_some(), "{tool} 应已注册");
         assert_eq!(
             registry.get(tool).unwrap().spec().endpoint,
@@ -512,32 +512,32 @@ fn set_brightness_bounds_enforced() {
 }
 
 #[test]
-fn schedule_bounds_and_required_args() {
+fn sleep_bounds_and_required_args() {
     let declarations = load_tool_declarations(TOOLS_DECL_JSON).unwrap();
     let registry = registry_with(&declarations);
     let ledger = ledger_with(&declarations);
     let backend = MockBackend::new();
 
-    let call = args(&[("seconds", 0.into()), ("action", "x".into())]);
-    let auth = pre_approved(&ledger, "schedule", &call);
+    let call = args(&[("seconds", 0.into())]);
+    let auth = pre_approved(&ledger, "sleep", &call);
     let err = registry
-        .run("schedule", &call, &backend, &auth, &pgate())
+        .run("sleep", &call, &backend, &auth, &pgate())
         .unwrap_err();
     assert!(matches!(err, ExecError::SandboxViolation(_)), "0 秒越界必须拒绝");
 
-    let call = args(&[("seconds", 10.into())]);
-    let auth = pre_approved(&ledger, "schedule", &call);
+    let call = args(&[]);
+    let auth = pre_approved(&ledger, "sleep", &call);
     let err = registry
-        .run("schedule", &call, &backend, &auth, &pgate())
+        .run("sleep", &call, &backend, &auth, &pgate())
         .unwrap_err();
-    assert!(matches!(err, ExecError::BadArgs(_)), "缺少 action 必须拒绝");
+    assert!(matches!(err, ExecError::BadArgs(_)), "缺少 seconds 必须拒绝");
 
-    let call = args(&[("seconds", 10.into()), ("action", "提醒".into())]);
-    let auth = pre_approved(&ledger, "schedule", &call);
+    let call = args(&[("seconds", 1.into())]);
+    let auth = pre_approved(&ledger, "sleep", &call);
     let outcome = registry
-        .run("schedule", &call, &backend, &auth, &pgate())
+        .run("sleep", &call, &backend, &auth, &pgate())
         .expect("边界内应放行");
-    assert!(outcome.result.starts_with("routine-task"), "schedule 应返回例行任务 id");
+    assert_eq!(outcome.result, "已等待 1s");
 }
 
 #[test]

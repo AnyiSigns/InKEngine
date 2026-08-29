@@ -45,3 +45,24 @@ pub(crate) async fn knowledge_restore(args: Option<JsonValue>) -> Result<JsonVal
 pub(crate) async fn knowledge_export(args: Option<JsonValue>) -> Result<JsonValue, CommandError> {
     forward("knowledge.export", args).await
 }
+
+#[command(rename = "knowledge.skill_import")]
+pub(crate) async fn knowledge_skill_import(
+    args: Option<JsonValue>,
+) -> Result<JsonValue, CommandError> {
+    forward("knowledge.skill_import", args).await
+}
+
+#[command(rename = "knowledge.skill_reimport")]
+pub(crate) async fn knowledge_skill_reimport(
+    args: Option<JsonValue>,
+) -> Result<JsonValue, CommandError> {
+    forward("knowledge.skill_reimport", args).await
+}
+
+#[command(rename = "knowledge.graph")]
+pub(crate) async fn knowledge_graph(
+    args: Option<JsonValue>,
+) -> Result<JsonValue, CommandError> {
+    forward("knowledge.graph", args).await
+}

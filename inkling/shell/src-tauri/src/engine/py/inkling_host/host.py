@@ -278,6 +278,16 @@ class InKlingHost(Host):
         )
         return wrapped
 
+    def reload_model_config(self) -> None:
+        """重载模型连接配置：清空解析缓存，下次 resolve_llm 重读文件。
+
+        设置页改模型连接后经壳命令调用，使运行期引擎感知新配置
+        （resolve_llm 缓存键是引擎重建的判定依据，不清缓存则配置变更
+        永不生效）。压缩策略随下一次 resolve 重建。
+        """
+        self._resolved_llm = _RESOLVED_LLM_MISSING  # type: ignore[assignment]
+        self._compression_policy = None
+
     def compression_policy(self) -> Any:
         """当前压缩策略（resolve_llm 后可用，未解析返回 None）。"""
         return getattr(self, "_compression_policy", None)
@@ -771,12 +781,10 @@ async def boot_inkling(
     # 安全纵深替换运行时流水线（图配方实时持有者，替换后下一回合生效）
     security.apply(runtime)
     security.reregister_file_tools(root=None)
-    # 自动审批设置恢复（用户预授权随启动装载；无记录 = 出厂空集）
-    from .security_domain import restore_auto_approve, restore_remembered_domains
+    # 自动审批设置 + 档位覆盖恢复（用户预授权随启动装载；无记录 = 出厂空集）
+    from .security_domain import restore_auto_approve
 
     await restore_auto_approve(runtime.storage, security)
-    # 已记住域名恢复（联网审批的域名级记忆；无记录 = 出厂空集 = 全走审批）
-    await restore_remembered_domains(runtime.storage, security)
     # 装配域挂到宿主（设置页/评测侧运行期入口）
     host.security = security
     host.builds = build_domain

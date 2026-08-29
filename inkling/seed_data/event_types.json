@@ -448,61 +448,6 @@
       "meta": { "note": "OS 控制留痕（launch_app/open_file/notify 等执行器动作）" }
     },
     {
-      "name": "task_start",
-      "schema": {
-        "name": "task_start",
-        "fields": [
-          { "name": "task_id", "required": true, "kind": "string" },
-          { "name": "kind", "kind": "string" },
-          { "name": "goal", "kind": "string" }
-        ]
-      },
-      "renderer": "message_list",
-      "system": false,
-      "meta": { "note": "后台任务启动（回合外任务载体，任务面板消费）" }
-    },
-    {
-      "name": "task_update",
-      "schema": {
-        "name": "task_update",
-        "fields": [
-          { "name": "task_id", "required": true, "kind": "string" },
-          { "name": "status", "kind": "string" },
-          { "name": "progress", "kind": "number" },
-          { "name": "note", "kind": "string" }
-        ]
-      },
-      "renderer": "message_list",
-      "system": false,
-      "meta": { "note": "后台任务进度更新" }
-    },
-    {
-      "name": "task_done",
-      "schema": {
-        "name": "task_done",
-        "fields": [
-          { "name": "task_id", "required": true, "kind": "string" },
-          { "name": "result", "kind": "string" }
-        ]
-      },
-      "renderer": "message_list",
-      "system": false,
-      "meta": { "note": "后台任务完成通知" }
-    },
-    {
-      "name": "task_cancelled",
-      "schema": {
-        "name": "task_cancelled",
-        "fields": [
-          { "name": "task_id", "required": true, "kind": "string" },
-          { "name": "reason", "kind": "string" }
-        ]
-      },
-      "renderer": "message_list",
-      "system": false,
-      "meta": { "note": "后台任务取消（含回退语义）" }
-    },
-    {
       "name": "user_message",
       "schema": {
         "name": "user_message",

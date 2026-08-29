@@ -93,13 +93,13 @@ def test_backend_gap_commands_registered():
         # B 类知识集 op（_register_knowledge_ops 新增）
         "knowledge.list", "knowledge.add", "knowledge.promote",
         "knowledge.archive", "knowledge.restore", "knowledge.export",
+        "knowledge.skill_import", "knowledge.skill_reimport",
+        "knowledge.graph",
         # B 类记忆 op（_register_memory_ops 新增）
         "memory.list", "memory.invalidate", "memory.update_frontmatter",
         # 运行时生命周期（_register_runtime_ops 新增）
         "engine.runtime_state", "engine.runtime_pause",
         "engine.runtime_resume", "engine.runtime_stop",
-        # 流水线安全（_register_pipeline_ops 新增）
-        "pipeline.security_status",
     ]
     missing = sorted(set(expected) - registered)
     assert not missing, "桥未注册的新增 op: " + ", ".join(missing)

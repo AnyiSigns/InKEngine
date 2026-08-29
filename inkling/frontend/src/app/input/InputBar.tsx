@@ -12,6 +12,11 @@ import { useState, useRef, useEffect } from 'react';
 import { ArrowUp, ChevronDown, Loader2, Mic, Plus, Route, Settings2, SlidersHorizontal, Sparkles, Square, Image, Video, FileText } from 'lucide-react';
 import type { ModelArchiveSnapshot } from '@/shared/backend/backendAdapter';
 import { createTauriInvoker } from '@/shared/backend/tauriBridge';
+import { useT } from '@/i18n/useT';
+
+function interpolate(template: string, vars: Record<string, string | number>): string {
+  return template.replace(/\{(\w+)\}/g, (_, k: string) => String(vars[k] ?? ''));
+}
 
 interface AttachmentAsset {
   kind: 'image' | 'video' | 'document';
@@ -57,6 +62,7 @@ export function InputBar({
   onModeChange,
   onRoutePlanPreview,
 }: InputBarProps) {
+  const { t } = useT();
   const [text, setText] = useState('');
   const [attachments, setAttachments] = useState<AttachmentAsset[]>([]);
   const [mode, setMode] = useState<'standard' | 'assembly'>('standard');
@@ -173,9 +179,9 @@ export function InputBar({
       <div className="mx-auto max-w-4xl">
         {!selectedModel && (
           <div className="mb-2.5 flex items-center justify-between rounded-xl border border-dashed ink-border px-4 py-2.5 text-[13px] ink-text-muted">
-            <span>请先配置模型</span>
+            <span>{t('input.need_model')}</span>
             <button type="button" onClick={onOpenSettings} className="flex items-center gap-1 font-medium hover:underline" data-ui="input_goto_settings">
-              <Settings2 size={12} strokeWidth={1.6} /> 前往设置
+              <Settings2 size={12} strokeWidth={1.6} /> {t('input.goto_settings')}
             </button>
           </div>
         )}
@@ -186,7 +192,7 @@ export function InputBar({
             data-ui="route_plan_preview"
           >
             <Route size={12} strokeWidth={1.6} className="shrink-0 ink-text-faint" />
-            <span>将走 {routePlan.chainLabel} · 配额 {routePlan.quota} · 推演 {routePlan.tier}</span>
+            <span>{interpolate(t('input.route_plan'), { label: routePlan.chainLabel, quota: routePlan.quota, tier: routePlan.tier })}</span>
           </div>
         )}
 
@@ -200,7 +206,7 @@ export function InputBar({
                   {a.kind === 'video' && <Video size={11} strokeWidth={1.6} />}
                   {a.kind === 'document' && <FileText size={11} strokeWidth={1.6} />}
                   {a.name}
-                  <button type="button" aria-label="移除附件" className="ml-0.5 ink-text-faint hover:text-[var(--ink-text-base)]" onClick={() => setAttachments((prev) => prev.filter((_, idx) => idx !== i))}>
+                  <button type="button" aria-label={t('input.remove_attachment')} className="ml-0.5 ink-text-faint hover:text-[var(--ink-text-base)]" onClick={() => setAttachments((prev) => prev.filter((_, idx) => idx !== i))}>
                     ×
                   </button>
                 </span>
@@ -212,7 +218,7 @@ export function InputBar({
             ref={textareaRef}
             rows={2}
             className="min-h-[52px] w-full resize-none bg-transparent px-1.5 pb-2 text-[15px] leading-relaxed outline-none placeholder:text-[var(--ink-text-faint)]"
-            placeholder={selectedModel ? '给智能体发消息' : '请先配置模型'}
+            placeholder={selectedModel ? t('input.placeholder') : t('input.need_model')}
             value={text}
             onChange={(e) => {
               setText(e.target.value);
@@ -229,7 +235,7 @@ export function InputBar({
               type="button"
               onClick={() => fileInputRef.current?.click()}
               className="flex h-8 w-8 shrink-0 items-center justify-center rounded-full border ink-border ink-text-muted hover:bg-[var(--ink-bg-elevated)] hover:text-[var(--ink-text-base)]"
-              title="添加附件"
+              title={t('input.add_attachment')}
               data-ui="input_attach"
             >
               <Plus size={15} strokeWidth={1.8} />
@@ -246,7 +252,7 @@ export function InputBar({
                     ? 'border-[var(--ink-accent-border)] text-[var(--ink-accent-approval)]'
                     : 'ink-border ink-text-muted hover:bg-[var(--ink-bg-elevated)] hover:text-[var(--ink-text-base)]'
                 }`}
-                title={voicePhase === 'recording' ? '录音中（5s）…' : voicePhase === 'transcribing' ? '转写中…' : '语音输入'}
+                title={voicePhase === 'recording' ? t('input.recording') : voicePhase === 'transcribing' ? t('input.transcribing') : t('input.voice')}
                 data-ui="input_voice"
                 data-phase={voicePhase}
               >
@@ -273,7 +279,7 @@ export function InputBar({
                 className="flex h-7 items-center gap-1 rounded-lg border ink-border px-2 text-[11px] ink-text-muted hover:bg-[var(--ink-bg-elevated)] hover:text-[var(--ink-text-base)] disabled:cursor-not-allowed disabled:opacity-60"
               >
                 <SlidersHorizontal size={12} strokeWidth={1.7} />
-                <span>{mode === 'standard' ? '标准' : '组装'}</span>
+                <span>{mode === 'standard' ? t('input.mode_standard') : t('input.mode_assembly')}</span>
                 <ChevronDown size={12} strokeWidth={1.7} className={`transition-transform ${modeMenuOpen ? 'rotate-180' : ''}`} />
               </button>
               {modeMenuOpen && (
@@ -286,7 +292,7 @@ export function InputBar({
                     onClick={() => { switchMode('standard'); setModeMenuOpen(false); }}
                     className="ink-menu-item"
                   >
-                    标准
+                    {t('input.mode_standard')}
                   </button>
                   <button
                     type="button"
@@ -296,7 +302,7 @@ export function InputBar({
                     onClick={() => { switchMode('assembly'); setModeMenuOpen(false); }}
                     className="ink-menu-item"
                   >
-                    组装
+                    {t('input.mode_assembly')}
                   </button>
                 </div>
               )}
@@ -314,11 +320,11 @@ export function InputBar({
                 >
                   <Sparkles size={12} strokeWidth={1.6} />
                   <span className="max-w-[9rem] truncate">{selectedModel.name}</span>
-                  {selectedModel.multimodal && <span className="ink-text-faint">多模态</span>}
+                  {selectedModel.multimodal && <span className="ink-text-faint">{t('input.multimodal')}</span>}
                   <ChevronDown size={12} strokeWidth={1.6} className={`text-[var(--ink-text-faint)] transition-transform ${modelMenuOpen ? 'rotate-180' : ''}`} />
                 </button>
                 {modelMenuOpen && (
-                  <div className="ink-menu-pop ink-menu-pop-left ink-menu-pop-up" role="menu" aria-label="模型/推理档位">
+                  <div className="ink-menu-pop ink-menu-pop-left ink-menu-pop-up" role="menu" aria-label={t('input.model_menu')}>
                     {profiles.map((p) => (
                       <button
                         key={p.id}
@@ -329,7 +335,7 @@ export function InputBar({
                         className="ink-menu-item"
                       >
                         <span className="flex-1 truncate">{p.name}</span>
-                        {p.multimodal && <span className="ink-text-faint">多模态</span>}
+                        {p.multimodal && <span className="ink-text-faint">{t('input.multimodal')}</span>}
                         {p.tier && <span className="ml-2 shrink-0 text-[10px] ink-text-faint">{p.tier}</span>}
                       </button>
                     ))}
@@ -339,13 +345,13 @@ export function InputBar({
             )}
 
             <span className="ml-auto flex items-center gap-2.5">
-              {text.length > 0 && <span className="text-[11px] tabular-nums ink-text-faint">{text.length} 字</span>}
+              {text.length > 0 && <span className="text-[11px] tabular-nums ink-text-faint">{interpolate(t('input.char_count'), { n: text.length })}</span>}
               {streaming ? (
                 <button
                   type="button"
                   onClick={onAbort}
                   className="flex h-9 w-9 items-center justify-center rounded-full border ink-border ink-text-muted hover:border-[var(--ink-border-strong)] hover:text-[var(--ink-accent-approval)]"
-                  title="中止"
+                  title={t('input.abort')}
                   data-ui="input_abort"
                 >
                   <Square size={14} strokeWidth={1.8} />
@@ -356,7 +362,7 @@ export function InputBar({
                   onClick={submit}
                   disabled={!canSend}
                   className="flex h-9 w-9 items-center justify-center rounded-full bg-[var(--ink-text-base)] text-[var(--ink-bg-base)] shadow-[var(--ink-elev-1)] transition-all hover:-translate-y-px hover:shadow-[var(--ink-elev-2)] disabled:translate-y-0 disabled:opacity-30 disabled:shadow-none"
-                  title="发送"
+                  title={t('input.send')}
                   data-ui="input_send"
                 >
                   <ArrowUp size={17} strokeWidth={2} />

@@ -10,6 +10,7 @@ import { useState, useEffect } from 'react';
 
 import { Field, TextInput, Select } from '@/shared/ui/Field';
 import type { SettingsItemSpec } from './types';
+import { useT } from '@/i18n/useT';
 
 interface SettingsItemRendererProps {
   item: SettingsItemSpec;
@@ -17,9 +18,23 @@ interface SettingsItemRendererProps {
 }
 
 export function SettingsItemRenderer({ item, backendAvailable }: SettingsItemRendererProps) {
+  const { t } = useT();
   const [value, setValue] = useState<string>('');
   const [phase, setPhase] = useState<'idle' | 'saving' | 'saved' | 'error'>('idle');
   const [error, setError] = useState<string | null>(null);
+
+  /** 项标签/提示：翻译键优先（settings.item.<key> / settings.item.hint.<key>），未登记回落注册文案。 */
+  const itemLabel = (): string => {
+    const key = `settings.item.${item.key}`;
+    const translated = t(key);
+    return translated === key ? item.label : translated;
+  };
+  const itemHint = (): string | undefined => {
+    if (!item.hint) return undefined;
+    const key = `settings.item.hint.${item.key}`;
+    const translated = t(key);
+    return translated === key ? item.hint : translated;
+  };
 
   useEffect(() => {
     let cancelled = false;
@@ -52,7 +67,7 @@ export function SettingsItemRenderer({ item, backendAvailable }: SettingsItemRen
   };
 
   const disabled = !!item.disabledReason || !backendAvailable;
-  const disabledReason = item.disabledReason ?? (backendAvailable ? '' : '该配置由数据声明驱动');
+  const disabledReason = item.disabledReason ?? (backendAvailable ? '' : t('settings.data_driven'));
 
   const input = (() => {
     switch (item.kind) {
@@ -65,7 +80,7 @@ export function SettingsItemRenderer({ item, backendAvailable }: SettingsItemRen
             disabled={disabled}
             onChange={(e) => setValue(e.target.value)}
             onBlur={() => writeValue(value)}
-            aria-label={item.label}
+            aria-label={itemLabel()}
           />
         );
       case 'select':
@@ -77,7 +92,7 @@ export function SettingsItemRenderer({ item, backendAvailable }: SettingsItemRen
               setValue(e.target.value);
               writeValue(e.target.value);
             }}
-            aria-label={item.label}
+            aria-label={itemLabel()}
           >
             {item.options?.map((opt) => (
               <option key={opt.value} value={opt.value}>{opt.label}</option>
@@ -97,14 +112,14 @@ export function SettingsItemRenderer({ item, backendAvailable }: SettingsItemRen
                 setValue(next);
                 writeValue(next);
               }}
-              aria-label={item.label}
+              aria-label={itemLabel()}
             />
-            <span className="text-[11px]">{value === 'true' || value === '1' ? '开' : '关'}</span>
+            <span className="text-[11px]">{value === 'true' || value === '1' ? t('settings.on') : t('settings.off')}</span>
           </label>
         );
       case 'custom':
         return (
-          <div className="text-[10px] ink-text-faint">自定义控件需配合 render 使用。</div>
+          <div className="text-[10px] ink-text-faint">{t('settings.custom_note')}</div>
         );
       case 'text':
       default:
@@ -114,7 +129,7 @@ export function SettingsItemRenderer({ item, backendAvailable }: SettingsItemRen
             disabled={disabled}
             onChange={(e) => setValue(e.target.value)}
             onBlur={() => writeValue(value)}
-            aria-label={item.label}
+            aria-label={itemLabel()}
           />
         );
     }
@@ -122,16 +137,16 @@ export function SettingsItemRenderer({ item, backendAvailable }: SettingsItemRen
 
   return (
     <div className={['ink-elevated px-3.5 py-2.5', disabled ? 'opacity-60' : ''].join(' ')}>
-      <Field label={item.label} hint={item.hint}>
+      <Field label={itemLabel()} hint={itemHint()}>
         {input}
       </Field>
       {disabled && disabledReason && (
         <p className="mt-1 text-[10px] ink-text-faint">{disabledReason}</p>
       )}
       {error && <p className="mt-1 text-[10px] ink-text-faint">{error}</p>}
-      {phase === 'saving' && <span className="text-[10px] ink-text-muted">保存中…</span>}
-      {phase === 'saved' && <span className="text-[10px] ink-feedback-ok">已保存</span>}
-      {phase === 'error' && <span className="text-[10px] ink-feedback-fail">保存失败</span>}
+      {phase === 'saving' && <span className="text-[10px] ink-text-muted">{t('settings.saving')}</span>}
+      {phase === 'saved' && <span className="text-[10px] ink-feedback-ok">{t('settings.saved')}</span>}
+      {phase === 'error' && <span className="text-[10px] ink-feedback-fail">{t('settings.save_failed')}</span>}
     </div>
   );
 }

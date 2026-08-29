@@ -136,7 +136,7 @@ async def test_tool_index_built_after_restore_before_rebuild():
     assert merged_names == {e.spec.name for e in runtime.tool_index._entries.values()}
     # 工具调配器已接线
     assert runtime.tool_selector is not None
-    assert runtime.tool_selector.max_tools == 12
+    assert runtime.tool_selector.max_tools == 16
     await host.close()
 
 
@@ -244,6 +244,92 @@ async def test_request_tool_binds_and_returns_spec():
     assert data["message"] == "已绑定 search_tools，可调用"
     assert data["spec"]["name"] == "search_tools"
     assert "parameters" in data["spec"]
+
+
+# ── 9. 常驻必带工具集（设置页「工具」管理面）──
+
+
+async def test_baseline_set_changes_collect_specs():
+    from ink_engine.core.runtime import Runtime
+    host = FakeHost()
+    runtime = await Runtime().boot(host, _minimal_recipe())
+    for name in ("file_read", "file_write", "file_edit", "grep", "glob"):
+        runtime.tool_registry[name] = ToolSpec(name=name, description=f"{name} 工具")
+    runtime.tool_registry["mcp_new_tool"] = _spec("mcp_new_tool", "MCP 新挂载工具")
+    before = {s.name for s in runtime.collect_specs()}
+    assert "mcp_new_tool" not in before
+    assert len(before) == 10
+    # 整集替换语义（前端勾选态全量提交）：加入 mcp_new_tool → 立即注入
+    full = sorted({
+        "file_read", "file_write", "file_edit", "grep", "glob",
+        "propose_patch", "propose_domain_manifest", "inspect_tools",
+        "search_tools", "request_tool", "mcp_new_tool",
+    })
+    await runtime.set_baseline_names(full)
+    after = {s.name for s in runtime.collect_specs()}
+    assert "mcp_new_tool" in after
+    assert len(after) == len(before) + 1
+    # 摘除 grep → 不再注入（search_tools/request_tool 强制常驻）
+    await runtime.set_baseline_names([n for n in full if n != "grep"])
+    names = {s.name for s in runtime.collect_specs()}
+    assert "grep" not in names
+    assert "file_read" in names
+    assert "search_tools" in names and "request_tool" in names
+    await host.close()
+
+
+async def test_baseline_rejects_unknown_tool():
+    from ink_engine.core.runtime import Runtime
+    host = FakeHost()
+    runtime = await Runtime().boot(host, _minimal_recipe())
+    import pytest
+
+    with pytest.raises(ValueError, match="未注册工具"):
+        await runtime.set_baseline_names(["no_such_tool_xyz"])
+    await host.close()
+
+
+async def test_baseline_forces_retrieval_tools():
+    from ink_engine.core.runtime import Runtime
+    host = FakeHost()
+    runtime = await Runtime().boot(host, _minimal_recipe())
+    await runtime.set_baseline_names([])
+    names = runtime.baseline_names
+    assert "search_tools" in names and "request_tool" in names
+    assert len(names) == 2
+    await host.close()
+
+
+async def test_baseline_persists_across_reboot():
+    from ink_engine.core.runtime import Runtime
+    from ink_engine.core.storage import Storage
+
+    storage: Storage = create_storage("memory://")
+
+    class SharedStorageHost(FakeHost):
+        async def create_storage(self) -> Any:
+            self.calls.append("create_storage")
+            return storage
+
+    host_a = SharedStorageHost()
+    runtime_a = await Runtime().boot(host_a, _minimal_recipe())
+    for name in ("file_read", "file_write", "file_edit", "grep", "glob"):
+        runtime_a.tool_registry[name] = ToolSpec(name=name, description=f"{name} 工具")
+    runtime_a.tool_registry["mcp_new_tool"] = _spec("mcp_new_tool", "MCP 新挂载工具")
+    full = sorted({
+        "file_read", "file_write", "file_edit", "grep", "glob",
+        "propose_patch", "propose_domain_manifest", "inspect_tools",
+        "search_tools", "request_tool", "mcp_new_tool",
+    })
+    await runtime_a.set_baseline_names(full)
+    await host_a.close()
+
+    host_b = SharedStorageHost()
+    runtime_b = await Runtime().boot(host_b, _minimal_recipe())
+    runtime_b.tool_registry["mcp_new_tool"] = _spec("mcp_new_tool", "MCP 新挂载工具")
+    names = {s.name for s in runtime_b.collect_specs()}
+    assert "mcp_new_tool" in names, "重启后常驻必带集应从 records 恢复"
+    await host_b.close()
 
 
 # ── 内部辅助 ──

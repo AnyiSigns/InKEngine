@@ -1,5 +1,5 @@
 /**
- * 任务级执行面板：消费 state.task_state 子通道（plan/spawn/tool/task 归约面）。
+ * 任务级执行面板：消费 state.task_state 子通道（plan/spawn/tool 归约面）。
  *
  * 呈现面：步进计数（第几步 / 总数 / 剩余）+ 子任务各自状态行。
  * spawn 展开后子任务独立成行（与事件流并行不粘连）；缺字段降级为

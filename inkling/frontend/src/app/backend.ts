@@ -27,6 +27,7 @@ import type {
   McpMountOutcome,
   McpMountStatus,
   McpMarketPreview,
+  ToolManifestEntry,
 } from '@/shared/backend/backendAdapter';
 
 import mcpMarketSeed from '../../../seed_data/mcp_market.json';
@@ -92,6 +93,103 @@ export class AppBackend {
     } catch (err) {
       logger.warn('app', '获取工具快照失败', { err: String(err) });
       return [];
+    }
+  }
+
+  /** 全量工具清单（设置页「工具」管理面）：引擎真实数据 + 常驻必带标记。
+   *
+   * 与 getToolsSnapshot 分工：快照 = 常驻必带集口径（自动审批勾选项）；
+   * 本方法 = merged_specs 全部工具（含 MCP 挂载），附来源/端点/mcp_server
+   * 归属与 baseline 标记，供工具管理界面展示与勾选。
+   */
+  async getToolsManifest(): Promise<{ tools: ToolManifestEntry[]; baseline: string[] }> {
+    if (this.backend?.available) {
+      try {
+        return await this.backend.toolsManifest();
+      } catch (err) {
+        logger.warn('app', '获取工具清单失败', { err: String(err) });
+      }
+    }
+    return isFixtureMode() ? fixtureToolsManifest() : { tools: [], baseline: [] };
+  }
+
+  /** 常驻必带工具集读取（设置页勾选态；宿主不可用回落出厂基线）。 */
+  async getToolBaseline(): Promise<string[]> {
+    if (this.backend?.available) {
+      try {
+        const result = await this.backend.toolsBaselineGet();
+        return result.tools ?? [];
+      } catch (err) {
+        logger.warn('app', '获取常驻必带工具失败', { err: String(err) });
+      }
+    }
+    return isFixtureMode() ? fixtureToolsManifest().baseline : [];
+  }
+
+  /** 常驻必带工具集写入（整集替换；非法名结构化拒绝）。 */
+  async setToolBaseline(tools: string[]): Promise<{ ok: boolean; tools?: string[]; error?: string }> {
+    if (!this.backend?.available) {
+      logger.info('app', '常驻必带工具设置（dev 回退）', { tools });
+      return { ok: true, tools };
+    }
+    try {
+      const result = await this.backend.toolsBaselineSet(tools);
+      return { ok: true, tools: result.tools ?? [] };
+    } catch (err) {
+      logger.warn('app', '常驻必带工具设置失败', { err: String(err) });
+      return { ok: false, error: String(err) };
+    }
+  }
+
+  /** 能力记录读取（权限矩阵数据面：自动审批勾选 + 档位覆盖）。 */
+  async getCapability(): Promise<{
+    autoApproveTools: string[];
+    autoApproveAllReview: boolean;
+    tierOverrides: Record<string, string>;
+  }> {
+    if (!this.backend?.available) {
+      return { autoApproveTools: [], autoApproveAllReview: false, tierOverrides: {} };
+    }
+    try {
+      const cap = await this.backend.capabilityGet();
+      return {
+        autoApproveTools: Array.isArray(cap.auto_approve_tools) ? cap.auto_approve_tools : [],
+        autoApproveAllReview: cap.auto_approve_all_review === true,
+        tierOverrides: cap.tier_overrides && typeof cap.tier_overrides === 'object' ? (cap.tier_overrides as Record<string, string>) : {},
+      };
+    } catch (err) {
+      logger.warn('app', '读取能力记录失败', { err: String(err) });
+      return { autoApproveTools: [], autoApproveAllReview: false, tierOverrides: {} };
+    }
+  }
+
+  /** 逐工具档位覆盖写入（权限矩阵写面；deny 出厂档/非法值安全域硬拒）。 */
+  async setTierOverrides(overrides: Record<string, string>): Promise<{ ok: boolean; error?: string }> {
+    if (!this.backend?.available) {
+      logger.info('app', '档位覆盖设置（dev 回退）', { overrides });
+      return { ok: true };
+    }
+    try {
+      await this.backend.securityTierOverridesSet(overrides);
+      return { ok: true };
+    } catch (err) {
+      logger.warn('app', '档位覆盖设置失败', { err: String(err) });
+      return { ok: false, error: String(err) };
+    }
+  }
+
+  /** 自动审批写入（用户预授权：只读感知/测试构建类工具；边界外安全域硬拒）。 */
+  async setAutoApprove(tools: string[], allReview: boolean): Promise<{ ok: boolean; error?: string }> {
+    if (!this.backend?.available) {
+      logger.info('app', '自动审批设置（dev 回退）', { tools, allReview });
+      return { ok: true };
+    }
+    try {
+      await this.backend.capabilityPut({ auto_approve_tools: tools, auto_approve_all_review: allReview });
+      return { ok: true };
+    } catch (err) {
+      logger.warn('app', '自动审批设置失败', { err: String(err) });
+      return { ok: false, error: String(err) };
     }
   }
 
@@ -252,17 +350,17 @@ export class AppBackend {
   }
 
   /**
-   * ui_spec 拉取（W4.1）。
-   * 生产环境通过 inspect_ui introspection 拉取；宿主不可用时
-   * 回落种子 ui_spec.json（dev 夹具）。
+   * ui_spec 拉取（W4.1）：生产环境经 introspection 活跃界面快照
+   * （ui_spec.get —— 与渲染器同一数据源），宿主不可用时回落种子
+   * ui_spec.json（dev 夹具）。
    */
   async getUiSpec(): Promise<UISpec | null> {
     if (!this.backend?.available) {
       return isFixtureMode() ? (uiSpecSeed as unknown as UISpec) : null;
     }
     try {
-      const rec = (await this.backend.capabilityGet()) as Record<string, unknown>;
-      return (rec?.ui_spec as UISpec) ?? (isFixtureMode() ? (uiSpecSeed as unknown as UISpec) : null);
+      const result = await this.backend.uiSpecGet();
+      return (result?.spec as unknown as UISpec) ?? (isFixtureMode() ? (uiSpecSeed as unknown as UISpec) : null);
     } catch (err) {
       logger.warn('app', '获取 ui_spec 失败', { err: String(err) });
       return isFixtureMode() ? (uiSpecSeed as unknown as UISpec) : null;
@@ -270,7 +368,8 @@ export class AppBackend {
   }
 
   /**
-   * ui_spec 保存（W4.2）：产物 → 补丁链 → 落链。
+   * ui_spec 保存（W4.2）：经 ui_spec.apply 落补丁链（kind=ui），
+   * 活跃界面即时生效 + 可回退；产物到补丁链落链（不再直写能力记录）。
    * 宿主不可用时记录到日志（dev 回退）。
    */
   async saveUiSpec(spec: UISpec): Promise<{ applied: boolean }> {
@@ -279,8 +378,10 @@ export class AppBackend {
       return { applied: true };
     }
     try {
-      await this.backend.capabilityPut({ ui_spec: spec });
-      return { applied: true };
+      const result = await this.backend.uiSpecApply(spec as unknown as Record<string, unknown>);
+      const outcome = (result?.outcome ?? {}) as { applied?: boolean; decision?: string; status?: string };
+      const applied = outcome.applied === true || outcome.decision === 'accept' || outcome.status === 'applied';
+      return { applied };
     } catch (err) {
       logger.warn('app', '保存 ui_spec 失败', { err: String(err) });
       return { applied: false };
@@ -288,7 +389,7 @@ export class AppBackend {
   }
 
   /**
-   * ui_spec 回退（W4.2）：回退到上一稳定版本。
+   * ui_spec 回退（W4.2）：回退最近一笔界面补丁（补丁链级，非整库快照）。
    * 宿主不可用时 dev 回退（成功）。
    */
   async revertUiSpec(): Promise<{ reverted: boolean; chain_version?: number }> {
@@ -297,12 +398,19 @@ export class AppBackend {
       return { reverted: true, chain_version: 0 };
     }
     try {
-      const list = await this.backend.recoverySnapshots();
-      const snapshots = list.snapshots ?? [];
-      if (snapshots.length === 0) return { reverted: false };
-      const latest = snapshots.reduce((a, b) => (b.created_at > a.created_at ? b : a));
-      const result = await this.backend.recoveryRestoreSnapshot(latest.name);
-      return { reverted: true, ...(result.chain_version !== undefined ? { chain_version: result.chain_version } : {}) };
+      const result = await this.backend.uiSpecRevert();
+      const outcome = (result?.outcome ?? {}) as {
+        applied?: boolean;
+        decision?: string;
+        status?: string;
+        patch_id?: number;
+      };
+      if (!outcome || outcome.status === 'rejected' || outcome.decision === 'reject') {
+        logger.warn('app', '回退 ui_spec 未生效', { reason: result?.reason ?? '未知原因' });
+        return { reverted: false };
+      }
+      const chain_version = outcome.patch_id !== undefined ? Math.max(0, outcome.patch_id - 1) : undefined;
+      return { reverted: true, ...(chain_version !== undefined ? { chain_version } : {}) };
     } catch (err) {
       logger.warn('app', '回退 ui_spec 失败', { err: String(err) });
       return { reverted: false };
@@ -442,6 +550,48 @@ export class AppBackend {
 /** 便捷工厂：创建 AppBackend 实例。 */
 export function createAppBackend(options: AppBackendOptions = {}): AppBackend {
   return new AppBackend(options);
+}
+
+/** 出厂常驻必带工具集（与引擎 BASELINE_TOOL_NAMES 同源；dev 夹具口径）。 */
+const FACTORY_BASELINE = [
+  'file_read', 'file_write', 'file_edit', 'grep', 'glob',
+  'propose_patch', 'propose_domain_manifest', 'inspect_tools',
+  'search_tools', 'request_tool',
+] as const;
+
+/** dev 夹具：从种子 tools.json 构建全量工具清单（无宿主时视图可渲染）。 */
+function fixtureToolsManifest(): { tools: ToolManifestEntry[]; baseline: string[] } {
+  const seedTools = (toolsSeed as { tools?: Array<Record<string, unknown>> }).tools ?? [];
+  const tools: ToolManifestEntry[] = seedTools.map((t) => ({
+    name: t.name as string,
+    description: (t.description as string) ?? '',
+    parameters: (t.parameters as Record<string, unknown>) ?? {},
+    permissions: (t.permissions as string[]) ?? [],
+    source: 'declarative',
+    endpoint: (t.endpoint as string) ?? 'mcp',
+    endpoint_config: (t.endpoint_config as Record<string, unknown>) ?? {},
+    meta: (t.meta as ToolManifestEntry['meta']) ?? {},
+    approval: (t.approval as string) ?? 'review',
+    baseline: false,
+  }));
+  for (const name of ['search_tools', 'request_tool'] as const) {
+    tools.push({
+      name,
+      description:
+        name === 'search_tools'
+          ? '语义检索未常驻工具并按相关度返回候选清单。'
+          : '绑定检索命中的工具到本回合，注入完整 schema 后按参调用。',
+      parameters: {},
+      source: 'self',
+      baseline: true,
+    });
+  }
+  const present = new Set(tools.map((t) => t.name));
+  const baseline: string[] = FACTORY_BASELINE.filter((n) => present.has(n));
+  for (const tool of tools) {
+    if (baseline.includes(tool.name)) tool.baseline = true;
+  }
+  return { tools, baseline };
 }
 
 /** 回放当前会话状态（用于视图初始化）。 */

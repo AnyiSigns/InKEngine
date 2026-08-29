@@ -12,8 +12,7 @@ export interface KnowledgeEntry {
   credibility: number;
   tags: string[];
   archived: boolean;
-  archived_at: number | null;
-  usage_failures: Array<{ at: number; reason: string }>;
+  usage_failures: Array<{ at: number | null; reason: string }>;
   created_at: number;
 }
 

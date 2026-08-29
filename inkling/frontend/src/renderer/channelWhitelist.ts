@@ -30,7 +30,7 @@ export const STATE_SUB_CHANNELS = [
   'patchChain',
   'eventMetrics',
   'session',
-  // 任务级执行状态（task_state 子通道：plan/spawn/tool/task 家族归约面）
+  // 任务级执行状态（task_state 子通道：plan/spawn/tool 家族归约面）
   'task_state',
 ] as const;
 

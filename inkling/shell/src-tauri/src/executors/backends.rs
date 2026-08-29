@@ -12,7 +12,8 @@ pub trait SystemBackend: Send + Sync {
     fn set_volume(&self, percent: u32) -> Result<String, String>;
     fn set_brightness(&self, percent: u32) -> Result<String, String>;
     fn notify(&self, title: &str, body: &str) -> Result<String, String>;
-    fn schedule(&self, seconds: u64, action: &str) -> Result<String, String>;
+    /// 前台休眠（阻塞 seconds 秒；壳后端轮询中止信号，停止会话即打断）。
+    fn sleep(&self, seconds: u64) -> Result<String, String>;
     fn screen_query(&self, target: &str) -> Result<String, String>;
     fn file_query(&self, path: &str) -> Result<String, String>;
     /// 进程模板执行（钉死 argv + 工作目录 + 超时；输出按流截断）。
@@ -218,19 +219,9 @@ impl SystemBackend for PlatformBackend {
         Ok(format!("notification:{title}|{body}"))
     }
 
-    fn schedule(&self, seconds: u64, action: &str) -> Result<String, String> {
-        let job_id = format!("job-{}", std::time::SystemTime::now()
-            .duration_since(std::time::UNIX_EPOCH)
-            .map(|d| d.as_millis())
-            .unwrap_or(0));
-        let title = "InKling 定时任务";
-        let body = format!("{action}（延迟 {seconds}s）");
-        std::thread::spawn(move || {
-            std::thread::sleep(std::time::Duration::from_secs(seconds));
-            // 到点经后端通知通道发出（无宿主时静默记录）
-            let _ = format!("notification:{title}|{body}");
-        });
-        Ok(job_id)
+    fn sleep(&self, seconds: u64) -> Result<String, String> {
+        std::thread::sleep(std::time::Duration::from_secs(seconds));
+        Ok(format!("已等待 {seconds}s"))
     }
 
     fn screen_query(&self, target: &str) -> Result<String, String> {
@@ -665,11 +656,16 @@ impl MockBackend {
 pub struct ShellBackend {
     app: tauri::AppHandle,
     platform: PlatformBackend,
+    abort_signal: crate::domain::steps::RoundAbortSignal,
 }
 
 impl ShellBackend {
-    pub fn new(app: tauri::AppHandle, platform: PlatformBackend) -> Self {
-        Self { app, platform }
+    pub fn new(
+        app: tauri::AppHandle,
+        platform: PlatformBackend,
+        abort_signal: crate::domain::steps::RoundAbortSignal,
+    ) -> Self {
+        Self { app, platform, abort_signal }
     }
 }
 
@@ -706,37 +702,23 @@ impl SystemBackend for ShellBackend {
         Ok(format!("已通知: {title}"))
     }
 
-    fn schedule(&self, seconds: u64, action: &str) -> Result<String, String> {
-        // 定时任务升级：到点自动建任务对象并触发例行回合。
-        // 计时在子线程进行，到点后登记例行任务域对象并经既有引擎回合通道
-        // 拉起一轮执行；失败仅留观测日志，不阻断调度。
-        let task_id = format!("routine-task-{}", uuid::Uuid::new_v4().simple());
-        let app = self.app.clone();
-        let action = action.to_string();
-        let scheduled_task_id = task_id.clone();
-        std::thread::spawn(move || {
-            std::thread::sleep(std::time::Duration::from_secs(seconds));
-            if let Err(err) = crate::domain::tasks::registry().start_tracked(
-                &scheduled_task_id,
-                "routine",
-                &action,
-                None,
-                None,
-            ) {
-                eprintln!("[schedule] 例行任务登记失败: {err}");
-                return;
+    fn sleep(&self, seconds: u64) -> Result<String, String> {
+        // 前台休眠：轮询中止信号，停止会话（round_abort）即中断，不残留后台态。
+        let start = std::time::Instant::now();
+        let total = std::time::Duration::from_secs(seconds);
+        loop {
+            if self.abort_signal.is_aborted() {
+                return Ok(format!(
+                    "等待被用户停止打断（已等待 {}s）",
+                    start.elapsed().as_secs()
+                ));
             }
-            match crate::run_routine_round(&app, &action) {
-                Ok(_) => {
-                    let _ = crate::domain::tasks::registry().finish_signal(&scheduled_task_id, "例行回合已触发");
-                }
-                Err(err) => {
-                    eprintln!("[schedule] 例行回合触发失败: {err}");
-                    let _ = crate::domain::tasks::registry().fail_signal(&scheduled_task_id, &err);
-                }
+            if start.elapsed() >= total {
+                break;
             }
-        });
-        Ok(task_id)
+            std::thread::sleep(std::time::Duration::from_millis(200));
+        }
+        Ok(format!("已等待 {seconds}s"))
     }
 
     fn screen_query(&self, target: &str) -> Result<String, String> {
@@ -807,9 +789,9 @@ impl SystemBackend for MockBackend {
         Ok(format!("mock:notify {title}"))
     }
 
-    fn schedule(&self, seconds: u64, action: &str) -> Result<String, String> {
-        self.calls.lock().unwrap().push(format!("schedule:{seconds}:{action}"));
-        Ok(format!("routine-task-mock-{seconds}"))
+    fn sleep(&self, seconds: u64) -> Result<String, String> {
+        self.calls.lock().unwrap().push(format!("sleep:{seconds}"));
+        Ok(format!("已等待 {seconds}s"))
     }
 
     fn screen_query(&self, target: &str) -> Result<String, String> {

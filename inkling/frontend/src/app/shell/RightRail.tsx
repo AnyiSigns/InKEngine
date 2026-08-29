@@ -13,17 +13,18 @@
 import { useEffect, useRef, useState } from 'react';
 import { Plus, Search, MoreVertical, ChevronRight, ChevronDown, MessageSquare, Trash2, Pencil, PanelRightClose, PanelRightOpen, GitBranch } from 'lucide-react';
 import type { SessionRemoteRecord, SessionBranchTree } from '@/shared/backend/backendAdapter';
+import { useT } from '@/i18n/useT';
 
 /** 相对时间（会话行右侧：刚刚 / N 分钟 / N 小时 / N 天，超一周落月-日）。 */
-function relativeTime(at: number): string {
+function relativeTime(at: number, t: (key: string) => string, lang: 'zh' | 'en'): string {
   if (!at) return '';
   const diff = Date.now() - at;
-  if (diff < 60_000) return '刚刚';
-  if (diff < 3_600_000) return `${Math.floor(diff / 60_000)} 分钟`;
-  if (diff < 86_400_000) return `${Math.floor(diff / 3_600_000)} 小时`;
-  if (diff < 7 * 86_400_000) return `${Math.floor(diff / 86_400_000)} 天`;
+  if (diff < 60_000) return t('time.just_now');
+  if (diff < 3_600_000) return `${Math.floor(diff / 60_000)} ${t('time.minutes')}`;
+  if (diff < 86_400_000) return `${Math.floor(diff / 3_600_000)} ${t('time.hours')}`;
+  if (diff < 7 * 86_400_000) return `${Math.floor(diff / 86_400_000)} ${t('time.days')}`;
   const d = new Date(at);
-  return `${d.getMonth() + 1}月${d.getDate()}日`;
+  return lang === 'en' ? `${d.getMonth() + 1}/${d.getDate()}` : `${d.getMonth() + 1}月${d.getDate()}日`;
 }
 
 /** 会话分组窗口（今天/昨天/近 7 天/更早）。 */
@@ -38,7 +39,7 @@ function bucketOf(at: number): 0 | 1 | 2 | 3 {
   return 3;
 }
 
-const BUCKET_LABELS = ['今天', '昨天', '近 7 天', '更早'];
+const BUCKET_KEYS = ['rightrail.bucket.today', 'rightrail.bucket.yesterday', 'rightrail.bucket.7d', 'rightrail.bucket.older'];
 
 interface RightRailProps {
   collapsed: boolean;
@@ -67,13 +68,14 @@ export function RightRail({
   branchTrees,
   onBranchFromLeaf,
 }: RightRailProps) {
+  const { t } = useT();
   const [query, setQuery] = useState('');
   const filtered = (list: SessionRemoteRecord[]) =>
     list.filter((s) => s.title.toLowerCase().includes(query.toLowerCase()));
   const buckets = [0, 1, 2, 3]
     .map((bucket) => ({
       bucket,
-      label: BUCKET_LABELS[bucket],
+      label: t(BUCKET_KEYS[bucket]),
       sessions: filtered(sessions.filter((s) => bucketOf(s.updated_at) === bucket)),
     }))
     .filter((b) => b.sessions.length > 0);
@@ -85,7 +87,7 @@ export function RightRail({
           type="button"
           onClick={onCreateSession}
           className="mb-1.5 flex h-8 w-8 items-center justify-center rounded-lg ink-text-muted hover:bg-[var(--ink-bg-elevated)] hover:text-[var(--ink-text-base)]"
-          title="新会话"
+          title={t('rightrail.new_session')}
           data-ui="session_create_collapsed"
         >
           <Plus size={16} strokeWidth={1.6} />
@@ -94,7 +96,7 @@ export function RightRail({
           type="button"
           onClick={onToggle}
           className="flex h-8 w-8 items-center justify-center rounded-lg ink-text-muted hover:bg-[var(--ink-bg-elevated)] hover:text-[var(--ink-text-base)]"
-          title="展开会话列表"
+          title={t('rightrail.expand')}
           data-ui="right_rail_expand"
         >
           <PanelRightOpen size={15} strokeWidth={1.6} />
@@ -114,14 +116,14 @@ export function RightRail({
           className="ink-btn-secondary flex h-10 w-full items-center justify-center gap-1.5 rounded-xl text-[13px] font-medium transition-colors hover:bg-[var(--ink-bg-elevated)] hover:border-[var(--ink-border-strong)]"
         >
           <Plus size={15} strokeWidth={1.8} />
-          新会话
+          {t('rightrail.new_session')}
         </button>
         <div className="flex items-center gap-1.5">
           <div className="ink-input-shell flex h-9 flex-1 items-center gap-2 rounded-xl border ink-border bg-[var(--ink-bg-base)] px-2.5 transition-colors hover:border-[var(--ink-border-strong)]">
             <Search size={14} strokeWidth={1.6} className="shrink-0 ink-text-faint" />
             <input
               className="h-full w-full flex-1 border-0 bg-transparent text-[12px] outline-none placeholder:text-[var(--ink-text-faint)]"
-              placeholder="搜索会话"
+              placeholder={t('rightrail.search')}
               value={query}
               onChange={(e) => setQuery(e.target.value)}
               data-ui="session_search"
@@ -131,7 +133,7 @@ export function RightRail({
             type="button"
             onClick={onToggle}
             className="flex h-9 w-9 shrink-0 items-center justify-center rounded-xl ink-text-muted hover:bg-[var(--ink-bg-elevated)] hover:text-[var(--ink-text-base)]"
-            title="收起会话列表"
+            title={t('rightrail.collapse')}
             data-ui="right_rail_collapse"
           >
             <PanelRightClose size={15} strokeWidth={1.6} />
@@ -143,8 +145,8 @@ export function RightRail({
         {sessions.length === 0 && (
           <div className="flex flex-col items-center justify-center py-12 text-[12px] ink-text-faint">
             <MessageSquare size={24} strokeWidth={1.5} className="mb-2 opacity-50" />
-            <p>发送消息开始对话</p>
-            <p className="mt-1 text-[10px] ink-text-faint">新会话按钮在顶部</p>
+            <p>{t('rightrail.empty_title')}</p>
+            <p className="mt-1 text-[10px] ink-text-faint">{t('rightrail.empty_hint')}</p>
           </div>
         )}
 
@@ -186,6 +188,7 @@ interface BranchTreeSectionProps {
 }
 
 function BranchTreeSection({ activeSessionId, branchTrees, onBranchFromLeaf }: BranchTreeSectionProps) {
+  const { t } = useT();
   const [expanded, setExpanded] = useState(true);
   const activeTree = branchTrees[activeSessionId];
 
@@ -204,7 +207,7 @@ function BranchTreeSection({ activeSessionId, branchTrees, onBranchFromLeaf }: B
       >
         {expanded ? <ChevronDown size={12} strokeWidth={1.6} /> : <ChevronRight size={12} strokeWidth={1.6} />}
         <GitBranch size={12} strokeWidth={1.6} />
-        <span>分支</span>
+        <span>{t('rightrail.branch')}</span>
       </button>
       {expanded && (
         <div className="ink-feed mt-1 space-y-0.5 pl-2">
@@ -220,8 +223,8 @@ function BranchTreeSection({ activeSessionId, branchTrees, onBranchFromLeaf }: B
               onContextMenu={(e) => { e.preventDefault(); onBranchFromLeaf(activeSessionId, node.leaf); }}
             >
               <span className="h-1.5 w-1.5 rounded-full bg-current opacity-60" />
-              <span className="flex-1 truncate">回合 {node.leaf}</span>
-              {node.leaf === currentLeaf && <span className="text-[10px] opacity-70">当前</span>}
+              <span className="flex-1 truncate">{t('rightrail.round')} {node.leaf}</span>
+              {node.leaf === currentLeaf && <span className="text-[10px] opacity-70">{t('rightrail.current')}</span>}
             </div>
           ))}
         </div>
@@ -245,6 +248,7 @@ function SessionRow({
   onDelete: () => void;
   onBranchFromMessage: (messageId: string, branchLabel: string) => void;
 }) {
+  const { t, lang } = useT();
   const [menuOpen, setMenuOpen] = useState(false);
   const [renaming, setRenaming] = useState(false);
   const [draft, setDraft] = useState(session.title);
@@ -279,10 +283,10 @@ function SessionRow({
         />
       ) : (
         <>
-          <span className="min-w-0 flex-1 truncate">{session.title || '未命名会话'}</span>
+          <span className="min-w-0 flex-1 truncate">{session.title || t('rightrail.untitled')}</span>
           {/* 相对时间：hover 时让位给操作菜单 */}
           <span className="shrink-0 text-[11px] tabular-nums ink-text-faint transition-opacity group-hover:opacity-0">
-            {relativeTime(session.updated_at)}
+            {relativeTime(session.updated_at, t, lang)}
           </span>
         </>
       )}
@@ -290,7 +294,7 @@ function SessionRow({
       <div className="absolute right-2 top-1/2 -translate-y-1/2" ref={menuRef}>
         <button
           type="button"
-          aria-label="会话操作"
+          aria-label={t('rightrail.actions')}
           onClick={(e) => { e.stopPropagation(); setMenuOpen(!menuOpen); }}
           className="flex h-6 w-6 items-center justify-center rounded-md opacity-0 transition-opacity group-hover:opacity-100 hover:bg-[var(--ink-bg-surface)]"
         >
@@ -299,13 +303,13 @@ function SessionRow({
         {menuOpen && (
           <div className="ink-menu-pop">
             <button type="button" className="ink-menu-item" onClick={(e) => { e.stopPropagation(); setRenaming(true); setMenuOpen(false); }}>
-              <Pencil size={12} strokeWidth={1.6} /> 重命名
+              <Pencil size={12} strokeWidth={1.6} /> {t('rightrail.rename')}
             </button>
             <button type="button" className="ink-menu-item" onClick={(e) => { e.stopPropagation(); onBranchFromMessage(session.thread_id, '从此分支'); setMenuOpen(false); }}>
-              <GitBranch size={12} strokeWidth={1.6} /> 由此分支
+              <GitBranch size={12} strokeWidth={1.6} /> {t('rightrail.branch_from')}
             </button>
             <button type="button" className="ink-menu-item" data-danger="true" onClick={(e) => { e.stopPropagation(); onDelete(); setMenuOpen(false); }}>
-              <Trash2 size={12} strokeWidth={1.6} /> 删除
+              <Trash2 size={12} strokeWidth={1.6} /> {t('rightrail.delete')}
             </button>
           </div>
         )}

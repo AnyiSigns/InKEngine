@@ -15,6 +15,8 @@
 
 import { CheckCircle2, FolderOpen, FolderPlus, PanelLeftClose, PanelLeftOpen, Settings2 } from 'lucide-react';
 
+import { useT } from '@/i18n/useT';
+
 interface LeftRailProps {
   collapsed: boolean;
   onToggle: () => void;
@@ -34,6 +36,7 @@ export function LeftRail({
   onAddWorkspace,
   onOpenSettings,
 }: LeftRailProps) {
+  const { t } = useT();
   const rootName = workspaceRoot ? workspaceRoot.replace(/[\\/]+$/, '').split(/[\\/]/).pop() ?? workspaceRoot : null;
 
   return (
@@ -49,7 +52,7 @@ export function LeftRail({
           type="button"
           onClick={onToggle}
           className="flex h-8 w-8 shrink-0 items-center justify-center rounded-lg ink-text-muted transition-colors hover:bg-[var(--ink-bg-elevated)] hover:text-[var(--ink-text-base)]"
-          title={collapsed ? '展开侧栏' : '收起侧栏'}
+          title={collapsed ? t('leftrail.expand') : t('leftrail.collapse')}
           data-ui="left_rail_toggle"
         >
           {collapsed ? <PanelLeftClose size={16} strokeWidth={1.6} /> : <PanelLeftOpen size={16} strokeWidth={1.6} />}
@@ -60,7 +63,7 @@ export function LeftRail({
       <div className="ink-scroll-auto min-h-0 flex-1 overflow-y-auto px-3 py-2">
         <div className={`transition-opacity duration-[150ms] ${collapsed ? 'pointer-events-none opacity-0' : 'opacity-100'}`}>
           {!collapsed && (
-            <div className="px-1.5 pb-2 text-[11px] font-medium tracking-wide ink-text-faint">工作区</div>
+            <div className="px-1.5 pb-2 text-[11px] font-medium tracking-wide ink-text-faint">{t('leftrail.workspace')}</div>
           )}
 
           {authorized && rootName ? (
@@ -75,7 +78,7 @@ export function LeftRail({
               <div className="min-w-0 flex-1">
                 <div className="flex items-center gap-1.5">
                   <span className="min-w-0 flex-1 truncate text-[13px] font-medium">{rootName}</span>
-                  <CheckCircle2 size={12} strokeWidth={1.6} className="shrink-0 ink-text-faint" aria-label="已授权" />
+                  <CheckCircle2 size={12} strokeWidth={1.6} className="shrink-0 ink-text-faint" aria-label={t('leftrail.authorized')} />
                 </div>
                 <p className="mt-0.5 truncate text-[10px] leading-relaxed ink-text-faint">{workspaceRoot}</p>
                 <button
@@ -83,7 +86,7 @@ export function LeftRail({
                   onClick={onAddWorkspace}
                   className="mt-1.5 text-[11px] ink-text-muted hover:text-[var(--ink-text-base)] cursor-pointer bg-transparent border-none p-0"
                 >
-                  更换目录
+                  {t('leftrail.switch_dir')}
                 </button>
               </div>
             </div>
@@ -93,9 +96,9 @@ export function LeftRail({
               data-ui="workspace_add"
             >
               <FolderPlus size={16} strokeWidth={1.6} className="mx-auto mb-2 ink-text-faint" />
-              <p className="text-[12px] leading-snug ink-text-muted">选择目录开始工作</p>
+              <p className="text-[12px] leading-snug ink-text-muted">{t('leftrail.pick_dir_hint')}</p>
               <p className="mt-1 text-[10px] leading-relaxed ink-text-faint">
-                授权后智能体可访问该目录下的文件
+                {t('leftrail.pick_dir_desc')}
               </p>
               <button
                 type="button"
@@ -103,7 +106,7 @@ export function LeftRail({
                 className="ink-btn-secondary mt-2.5 flex h-7 w-full items-center justify-center gap-1 rounded-lg text-[11px]"
               >
                 <FolderPlus size={11} strokeWidth={1.6} />
-                添加工作区
+                {t('leftrail.add_workspace')}
               </button>
             </div>
           )}
@@ -116,13 +119,13 @@ export function LeftRail({
           type="button"
           data-ui="nav_settings"
           onClick={onOpenSettings}
-          title="设置"
+          title={t('leftrail.settings')}
           className={`flex w-full items-center gap-2.5 rounded-xl ink-text-muted transition-colors hover:bg-[var(--ink-bg-elevated)] hover:text-[var(--ink-text-base)] ${
             collapsed ? 'justify-center px-0 py-2.5' : 'px-2.5 py-2'
           }`}
         >
           <Settings2 size={17} strokeWidth={1.6} className="shrink-0" />
-          {!collapsed && <span className="whitespace-nowrap text-[13px]">设置</span>}
+          {!collapsed && <span className="whitespace-nowrap text-[13px]">{t('leftrail.settings')}</span>}
         </button>
       </div>
     </aside>

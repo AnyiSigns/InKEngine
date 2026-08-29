@@ -31,7 +31,7 @@ const GUIDE_POINTS: Array<{ icon: typeof Database; title: string; body: string }
   {
     icon: ShieldCheck,
     title: '权限默认克制',
-    body: '文件/网络/系统操作出厂按最小必要档位放行，高风险动作走审批卡；权限档可在设置页「安全信任」随时调整。',
+    body: '文件/网络/系统操作出厂按最小必要档位放行，高风险动作走审批卡；权限档与自动审批可在设置页「工具」tab 随时调整。',
   },
 ];
 

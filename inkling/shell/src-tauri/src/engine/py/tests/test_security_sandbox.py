@@ -94,11 +94,11 @@ class DeclarativeSandboxProxyGuardTests(unittest.TestCase):
         self.assertIn(ErrorCode.PROCESS_NOT_ALLOWLISTED, str(ctx.exception))
 
     def test_http_fetch_connect_passes_sandbox(self):
-        """http_fetch 出网经审批网关裁决（出厂 review 档弹卡 + 记住域名直过），
+        """http_fetch 出网经审批网关裁决（出厂 review 档弹卡），
         沙箱层不再按 allow_domains 二次硬拦——审批即网关（定义级白名单
         是装配提示而非执行期网关）。"""
         proxy = self._build_proxy([_seed_tool("fetch")])
-        # 任一域名放行：审批卡 / 记住域名是网关，沙箱不再拦截
+        # 任一域名放行：审批卡是网关，沙箱不再拦截
         self.assertEqual(
             self._validate_as(proxy, "fetch", "connect", "arxiv.org"),
             "arxiv.org",
@@ -117,40 +117,43 @@ class DeclarativeSandboxProxyGuardTests(unittest.TestCase):
             self._validate_as(proxy, "file_read", "read", "/anywhere/secret.txt")
         self.assertIn("未授权", str(ctx.exception))
 
-    def test_remembered_domain_gate_auto_allows_connect(self):
-        """记住域名（域名级）：connect 命中已记住域名 = 免审批直过；
-        未记住域名 = 仍走 review 弹卡（出厂 review 档）。"""
+    def test_tier_override_changes_gate_decision(self):
+        """档位覆盖（权限矩阵写面）：review→allow = 直过；覆盖等于出厂档
+        = 撤销覆盖回到弹卡。"""
         from ink_engine.core.permissions import ALLOW, REVIEW
 
         from inkling_host.security_domain import TieredGate
 
         tiers = {"fetch": "review"}
         gate = TieredGate(tiers, executors=self._build_executors([_seed_tool("fetch")]))
-        # 未记住：fetch 出厂 review 档 → 弹卡（REVIEW）
-        result = gate.check("fetch", "connect", "news.example.com")
+        # 出厂 review 档 → 弹卡（REVIEW）
+        result = gate.check("fetch", "connect", "arxiv.org")
         self.assertEqual(result.decision, REVIEW)
-        # 记住域名后：后缀匹配命中（example.com 覆盖其任意子域）→ 直过
-        gate.configure_remembered_domains(["example.com"])
-        self.assertTrue(gate.domain_remembered("docs.example.com"))
-        self.assertTrue(gate.domain_remembered("example.com"))
-        self.assertFalse(gate.domain_remembered("evil.org"))
-        result = gate.check("fetch", "connect", "docs.example.com")
+        # review → allow 覆盖后 → 直过
+        gate.set_tier_override("fetch", "allow")
+        result = gate.check("fetch", "connect", "arxiv.org")
         self.assertEqual(result.decision, ALLOW)
-        # 未命中的域名仍走 review
-        result = gate.check("fetch", "connect", "other.example.org")
+        # 覆盖等于出厂档 = 撤销覆盖，回到 review 弹卡
+        gate.set_tier_override("fetch", "review")
+        result = gate.check("fetch", "connect", "arxiv.org")
         self.assertEqual(result.decision, REVIEW)
+        # 批量覆盖只保留非出厂档（配置面快照）
+        gate.set_tier_overrides({"fetch": "allow"})
+        self.assertEqual(gate.tier_overrides(), {"fetch": "allow"})
+        self.assertEqual(gate.effective_tier("fetch"), "allow")
 
-    def test_remembered_domain_only_applies_to_connect(self):
-        """记住域名只影响网络出网（connect）；非 connect 操作不受影响。"""
-        from ink_engine.core.permissions import DENY, REVIEW
-
+    def test_tier_override_deny_factory_tool_rejected(self):
+        """出厂 deny 档不可档位覆盖（权限变更须经补丁链审批转正）；
+        未登记工具 / 非法档位 = 显式拒绝。"""
         from inkling_host.security_domain import TieredGate
 
-        gate = TieredGate({"fetch": "review"})
-        gate.configure_remembered_domains(["example.com"])
-        # fetch 非 connect 操作（权限未命中默认 deny）不被记住域名误放行
-        result = gate.check("fetch", "read", "example.com")
-        self.assertIn(result.decision, (DENY, REVIEW))
+        gate = TieredGate({"shell_exec": "deny", "fetch": "review"})
+        with self.assertRaises(ValueError):
+            gate.set_tier_override("shell_exec", "allow")
+        with self.assertRaises(ValueError):
+            gate.set_tier_override("unknown_tool", "allow")
+        with self.assertRaises(ValueError):
+            gate.set_tier_override("fetch", "bogus")
 
 
 if __name__ == "__main__":

@@ -34,9 +34,22 @@ pub(crate) async fn capability_get(state: State<'_, ShellState>) -> Result<JsonV
     if merged.get("auto_approve_all_review").is_none() {
         merged["auto_approve_all_review"] = json!(false);
     }
-    if merged.get("remembered_domains").is_none() {
-        merged["remembered_domains"] = json!([]);
+    if merged.get("tier_overrides").is_none() {
+        merged["tier_overrides"] = json!({});
     }
+    // 默认值懒初始化落盘：注入的缺省字段一并持久化，重启后 restore 路径
+    // 读到与内存同源的数据（此前仅内存注入，重启即丢，自动审批配置随
+    // 每次首次读档与保存路径分歧）。
+    crate::engine::host::call_engine_op_async(
+        "engine.records_put",
+        json!({
+            "collection": CAPABILITY_COLLECTION,
+            "key": CAPABILITY_KEY,
+            "data": merged,
+        }),
+    )
+    .await
+    .map_err(CommandError::engine)?;
     let auto_tools: Vec<String> = merged
         .get("auto_approve_tools")
         .and_then(JsonValue::as_array)
@@ -93,22 +106,22 @@ pub(crate) async fn capability_put(
             .collect();
         state.approval.set_auto_approve(tools, auto_all);
     }
-    // 已记住域名（联网审批的域名级记忆：审批卡「记住此域名」/设置页
-    // 管理列表共用；安全域应用 + 随能力记录持久化）
-    if record.get("remembered_domains").is_some() {
-        let domains = record
-            .get("remembered_domains")
-            .and_then(JsonValue::as_array)
-            .cloned()
-            .unwrap_or_default();
-        let applied = crate::engine::host::call_engine_op_async(
-            "security.remembered_domains_set",
-            json!({ "domains": domains }),
-        )
-        .await
-        .map_err(CommandError::engine)?;
-        if applied.get("applied").and_then(JsonValue::as_bool) != Some(true) {
-            return Err(CommandError::approval("已记住域名配置未生效（安全域拒绝）"));
+    // 合并语义：能力记录是「整体存储」，但调用方（推演档 / ui_spec /
+    // 自动审批）各写各自字段——先读既有记录再并入，避免单字段写清空
+    // 其余字段（如切换推演档清空自动审批集 / 保存 ui_spec 清空档位）。
+    let existing = crate::engine::host::call_engine_op_async(
+        "engine.records_get",
+        json!({ "collection": CAPABILITY_COLLECTION, "key": CAPABILITY_KEY }),
+    )
+    .await
+    .map_err(CommandError::engine)?;
+    let mut merged = match existing {
+        JsonValue::Object(map) => map,
+        _ => serde_json::Map::new(),
+    };
+    if let JsonValue::Object(incoming) = &record {
+        for (key, value) in incoming {
+            merged.insert(key.clone(), value.clone());
         }
     }
     crate::engine::host::call_engine_op_async(
@@ -116,7 +129,7 @@ pub(crate) async fn capability_put(
         json!({
             "collection": CAPABILITY_COLLECTION,
             "key": CAPABILITY_KEY,
-            "data": record,
+            "data": JsonValue::Object(merged),
         }),
     )
     .await
@@ -124,31 +137,20 @@ pub(crate) async fn capability_put(
     Ok(record)
 }
 
-/// 已记住域名清单（联网审批的域名级记忆：设置页管理列表读入面）。
+/// 逐工具档位覆盖（权限矩阵写面：工具 tab 档位编辑；安全域校验
+/// deny 出厂档不可覆盖 + 合法值白名单，失败 = 不落盘）。
 #[tauri::command]
-pub(crate) async fn security_remembered_domains_get(
-) -> Result<JsonValue, CommandError> {
-    crate::engine::host::call_engine_op_async(
-        "security.remembered_domains_get",
-        json!({}),
-    )
-    .await
-    .map_err(CommandError::engine)
-}
-
-/// 已记住域名全量替换（设置页增删 / 审批卡记住域名共用）。
-#[tauri::command]
-pub(crate) async fn security_remembered_domains_set(
-    domains: Vec<String>,
+pub(crate) async fn security_tier_overrides_set(
+    overrides: JsonValue,
 ) -> Result<JsonValue, CommandError> {
     let applied = crate::engine::host::call_engine_op_async(
-        "security.remembered_domains_set",
-        json!({ "domains": domains }),
+        "security.tier_overrides_set",
+        json!({ "overrides": overrides }),
     )
     .await
     .map_err(CommandError::engine)?;
     if applied.get("applied").and_then(JsonValue::as_bool) != Some(true) {
-        return Err(CommandError::approval("已记住域名配置未生效（安全域拒绝）"));
+        return Err(CommandError::approval("档位覆盖未生效（安全域拒绝）"));
     }
     Ok(applied)
 }

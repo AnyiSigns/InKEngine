@@ -370,10 +370,6 @@ export function eventTypeLabel(type: string): string {
     vetting_result: '静态核对',
     device_sensed: '设备感知',
     device_control: '设备控制',
-    task_start: '后台任务启动',
-    task_update: '后台任务更新',
-    task_done: '后台任务完成',
-    task_cancelled: '后台任务取消',
   };
   return byEvent[type] ?? type;
 }

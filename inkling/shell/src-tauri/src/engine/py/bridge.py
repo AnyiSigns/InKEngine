@@ -119,6 +119,10 @@ def stub_llm_handle() -> Any:
 _OPS_SYNC: dict[str, Callable[[dict], Any]] = {}
 _OPS_ASYNC: dict[str, Callable[[dict], Any]] = {}
 
+# 知识拓扑边数上限（防大知识集构建 O(n²) 全互联边爆量；截尾保留
+# 先构造的 tag/source/reference 关系）
+_KNOWLEDGE_GRAPH_EDGE_CAP = 2000
+
 
 def op_sync(name: str, fn: Callable[[dict], Any] | None = None):
     """同步 op 注册（装饰器或直接调用双形态）。"""
@@ -654,6 +658,21 @@ def _register_engine_core_ops() -> None:
         await runtime.rebuild_engine()
         return None
 
+    @op_async("model.reload")
+    async def _model_reload(args: dict) -> Any:
+        """模型连接配置运行期重载：清空宿主解析缓存 + 引擎重建。
+
+        设置页改模型连接后调用，使当前运行期引擎立即感知新配置
+        （resolve_llm 按文件重读；无配置/解析失败回落离线桩）。
+        """
+        host = host_handle()
+        reload = getattr(host, "reload_model_config", None)
+        if reload is not None:
+            reload()
+        runtime = runtime_handle()
+        await runtime.rebuild_engine()
+        return {"reloaded": True}
+
     @op_async("engine.abort_current_run")
     async def _abort_current_run(args: dict) -> Any:
         """中止在途 run（Rust 停止按钮经 steps.rs 异步通道调用）。
@@ -669,6 +688,60 @@ def _register_engine_core_ops() -> None:
     def _collect_specs(args: dict) -> Any:
         runtime = runtime_handle()
         return [_jsonable(spec) for spec in runtime.collect_specs()]
+
+    @op_sync("engine.tools_manifest")
+    def _tools_manifest(args: dict) -> Any:
+        """全量工具清单（设置页「工具」管理面数据源）。
+
+        与 collect_specs 分工：collect_specs 只回常驻必带集（进回合 tools
+        参数），本 op 回全部工具（merged_specs）并附常驻标记/来源/声明式
+        细节（端点/meta/mcp_server）——前端据此展示全部工具并勾选必带。
+        """
+        runtime = runtime_handle()
+        baseline = set(runtime.baseline_names)
+        introspection_names = {spec.name for spec in runtime.introspection_specs}
+        self_names = {spec.name for spec in runtime.self_specs}
+        harness = getattr(runtime, "harness_registry", None)
+        declarative = getattr(harness, "declarative", None) if harness is not None else None
+        definitions = getattr(declarative, "definitions", {}) or {}
+        tools: list[dict] = []
+        for spec in runtime.merged_specs():
+            entry: dict = _jsonable(spec)
+            entry["baseline"] = spec.name in baseline
+            if spec.name in introspection_names:
+                entry["source"] = "introspection"
+            elif spec.name in self_names:
+                entry["source"] = "self"
+            else:
+                entry["source"] = "declarative"
+            decl = definitions.get(spec.name)
+            if decl is not None:
+                entry["endpoint"] = getattr(decl, "endpoint", None)
+                entry["endpoint"] = (
+                    entry["endpoint"].value
+                    if hasattr(entry["endpoint"], "value")
+                    else entry["endpoint"]
+                )
+                entry["endpoint_config"] = getattr(decl, "endpoint_config", {}) or {}
+                entry["meta"] = getattr(decl, "meta", {}) or {}
+            tools.append(entry)
+        return {"tools": tools, "baseline": list(runtime.baseline_names)}
+
+    @op_sync("engine.baseline_get")
+    def _baseline_get(args: dict) -> Any:
+        runtime = runtime_handle()
+        return {"tools": list(runtime.baseline_names)}
+
+    @op_async("engine.baseline_set")
+    async def _baseline_set(args: dict) -> Any:
+        runtime = runtime_handle()
+        names = args.get("tools")
+        if not isinstance(names, list) or not all(
+            isinstance(name, str) for name in names
+        ):
+            raise TypeError("常驻必带集 tools 须为字符串清单")
+        applied = await runtime.set_baseline_names(names)
+        return {"tools": list(applied)}
 
     @op_sync("engine.retrieval_source_names")
     def _retrieval_source_names(args: dict) -> Any:
@@ -1017,14 +1090,6 @@ def _register_pipeline_ops() -> None:
             "source": approval.source,
         }
 
-    @op_sync("pipeline.security_status")
-    def _security_pipeline_status(args: dict) -> Any:
-        """安全流水线安装状态（比对运行时 tool_pipeline 是否为安全流水线子类）。"""
-        runtime = runtime_handle()
-        pipeline = getattr(runtime, "tool_pipeline", None)
-        installed = isinstance(pipeline, _security_pipeline_class())
-        return {"installed": bool(installed)}
-
 def _register_graph_ops() -> None:
     # ── 图配方（节点类型登记 + 回合图构造）──
 
@@ -1048,22 +1113,13 @@ def _register_graph_ops() -> None:
         security.set_auto_approve([str(t) for t in tools], bool(args.get("all_review")))
         return {"applied": True}
 
-    @op_sync("security.remembered_domains_get")
-    def _remembered_domains_get(args: dict) -> Any:
-        """已记住域名清单（联网审批的域名级记忆；设置页管理列表读入面）。"""
-        host = host_handle()
-        security = getattr(host, "security", None)
-        if security is None:
-            raise RuntimeError("安全域未装配（先经 boot 装配）")
-        return {"domains": security.remembered_domains()}
+    @op_sync("security.tier_overrides_set")
+    def _tier_overrides_set(args: dict) -> Any:
+        """逐工具档位覆盖（权限矩阵写面：工具 tab 档位编辑）。
 
-    @op_sync("security.remembered_domains_set")
-    def _remembered_domains_set(args: dict) -> Any:
-        """已记住域名配置（全量替换：设置页增删 + 审批卡记住域名共用）。
-
-        同步落能力记录（remembered_domains 字段；与自动审批同集合/键，
-        启动经 restore 装载）。域名级后缀匹配由门禁判定，本层只做
-        配置装载。
+        安全域校验（deny 出厂档不可覆盖 / 合法值白名单）失败 = 显式失败，
+        持久化层不落盘；成功 = 门禁按覆盖档生效 + 随能力记录持久化，
+        启动经 restore 装载。
         """
         from inkling_host.security_domain import (
             AUTO_APPROVE_COLLECTION,
@@ -1074,13 +1130,13 @@ def _register_graph_ops() -> None:
         security = getattr(host, "security", None)
         if security is None:
             raise RuntimeError("安全域未装配（先经 boot 装配）")
-        domains = args.get("domains") or []
-        if not isinstance(domains, (list, tuple)):
-            raise ValueError("已记住域名清单须为列表")
-        security.set_remembered_domains([str(d) for d in domains])
+        raw = args.get("overrides") or {}
+        if not isinstance(raw, dict):
+            raise ValueError("档位覆盖须为对象（工具名 → allow/review/deny）")
+        overrides = {str(k): str(v) for k, v in raw.items()}
+        security.set_tier_overrides(overrides)
+        applied = security.tier_overrides()
 
-        # 同步落能力记录（保留既有自动审批字段；storage 为异步 API，
-        # 经宿主循环派发执行）
         async def _persist() -> None:
             runtime = runtime_handle()
             record = await runtime.storage.get_record(
@@ -1088,13 +1144,13 @@ def _register_graph_ops() -> None:
             )
             if not isinstance(record, dict):
                 record = {}
-            record["remembered_domains"] = sorted(security.remembered_domains())
+            record["tier_overrides"] = applied
             await runtime.storage.put_record(
                 AUTO_APPROVE_COLLECTION, AUTO_APPROVE_KEY, record
             )
 
         _run_on_engine_loop(_persist)
-        return {"applied": True, "domains": security.remembered_domains()}
+        return {"applied": True, "overrides": applied}
 
     @op_async("workspace.authorize_headless")
     async def _workspace_authorize_headless(args: dict) -> Any:
@@ -1756,6 +1812,81 @@ def _register_live_ops() -> None:
             raise ValueError("界面补丁缺 ui_spec 或 tokens")
         return {"applied": True}
 
+    @op_sync("ui_spec.get")
+    def _ui_spec_get(args: dict) -> Any:
+        """当前活跃界面描述（渲染器数据源 = introspection 快照）。
+
+        界面编辑器读入面与渲染器消费同一存储（_sources.ui_spec），
+        消除「编辑器读写 app_capabilities 幽灵数据」的存储分叉。
+        """
+        runtime = runtime_handle()
+        sources = runtime.introspection_service._sources
+        spec = getattr(sources, "ui_spec", None)
+        return {"spec": spec if isinstance(spec, dict) else None}
+
+    @op_async("ui_spec.apply")
+    async def _ui_spec_apply(args: dict) -> Any:
+        """界面描述落补丁链（kind=ui，活跃态即时生效 + 可回退）。
+
+        契约与 patch.apply 一致：spec 经 ui_schema 三层白名单校验后
+        落链，_UiLiveTarget 同步切入 introspection 快照（渲染器数据源）。
+        """
+        from ink_engine.core.self_proposal import PatchKind, SelfProposal
+
+        runtime = runtime_handle()
+        spec = args.get("spec")
+        if not isinstance(spec, dict) or not spec.get("root"):
+            raise ValueError("界面补丁缺有效 spec")
+        raw_base = args.get("base_version")
+        if raw_base in (None, ""):
+            base_version = int(await runtime.self_pipeline.chain.current_version())
+        else:
+            base_version = _parse_base_version(args)
+        proposal = SelfProposal(
+            kind=PatchKind.UI,
+            payload={"spec": spec},
+            base_version=base_version,
+            rationale=args.get("rationale") or "界面编辑器保存",
+            meta=dict(args.get("meta") or {"source": "ui_editor"}),
+        )
+        ctx = StandaloneApprovalContext(args.get("thread_id"))
+        outcome = await runtime.self_pipeline.apply(
+            ctx, proposal, round_id=args.get("round_id")
+        )
+        return {"outcome": _jsonable(outcome)}
+
+    @op_async("ui_spec.revert_latest")
+    async def _ui_spec_revert_latest(args: dict) -> Any:
+        """回退最近一笔界面补丁（链尾为 ui 补丁时才可回退）。
+
+        界面编辑器「回退」入口：仅撤销最后一次界面编辑，不动其它
+        补丁/数据（区别于恢复全库快照）。
+        """
+        runtime = runtime_handle()
+        chain = runtime.self_pipeline.chain
+        current = await chain.current_version()
+        if current <= 1:
+            return {
+                "outcome": None,
+                "reason": "无界面补丁可回退（集基线版本 1）",
+            }
+        last = await chain.last_patch()
+        path = (last or {}).get("path") or []
+        if not path or path[0] != "ui":
+            return {
+                "outcome": None,
+                "reason": "链尾不是界面补丁，拒绝整库回退（只撤销最近界面编辑）",
+            }
+        patch_id = current
+        ctx = StandaloneApprovalContext(args.get("thread_id"))
+        outcome = await runtime.self_pipeline.revert(
+            ctx,
+            patch_id,
+            reason=args.get("reason") or "界面编辑器回退",
+            round_id=args.get("round_id"),
+        )
+        return {"outcome": _jsonable(outcome)}
+
     @op_sync("engine.harness_register")
     def _harness_register(args: dict) -> Any:
         from ink_engine.core.harness import HarnessDefinition
@@ -1908,14 +2039,99 @@ def _register_knowledge_ops() -> None:
                 "credibility": entry.credibility,
                 "tags": list(entry.tags),
                 "archived": bool(entry.archived),
-                "archived_at": None,
+                # 引擎 KnowledgeEntry 无 archived_at 字段（归档只保留
+                # 标记位）；不造时间戳，前端按 archived 标记展示。
                 "usage_failures": [
-                    {"at": entry.updated_at, "reason": s}
+                    # 引擎失败日志只有文案无独立时间戳（updated_at 是
+                    # 条目最后更新时间，不等于失败发生时间），at 置
+                    # null 交由前端仅渲染文案，不伪造时间语义。
+                    {"at": None, "reason": s}
                     for s in entry.failure_logs
                 ],
                 "created_at": entry.created_at,
             })
         return _jsonable({"entries": out})
+
+    @op_sync("knowledge.graph")
+    def _knowledge_graph(args: dict) -> Any:
+        """知识拓扑 op：条目 → 节点，标签/来源/引用 → 边。
+
+        前端知识关系可视化（knowledge_graph 组件）数据源。节点仅收录
+        组件支持的四类（rule/template/tool_rule/weight）；边语义诚实、
+        不造数据：
+        - tag: 两条目共享至少一个标签；
+        - source: 两条目来源相同（默认 model 来源不建边，防全量互联）；
+        - reference: 一条目的 id 或标题出现在另一条目渲染内容中。
+        运行期未装配 = 显式空态（degraded=true），不白屏。
+        """
+        try:
+            runtime = runtime_handle()
+        except RuntimeError:
+            return {"nodes": [], "edges": [], "degraded": True}
+        from ink_engine.core.knowledge_set import SOURCE_MODEL
+
+        ks = getattr(runtime, "knowledge_set", None)
+        if ks is None:
+            return {"nodes": [], "edges": [], "degraded": True}
+        entries = list(ks.entries(include_archived=False))
+        nodes: list[dict[str, Any]] = []
+        for entry in entries:
+            if entry.kind not in ("rule", "template", "tool_rule", "weight"):
+                continue
+            nodes.append({
+                "id": entry.id,
+                "label": entry.title or entry.id,
+                "kind": entry.kind,
+            })
+        edges: list[dict[str, Any]] = []
+        if len(entries) > 1:
+            rendered: dict[str, str] = {}
+            for entry in entries:
+                try:
+                    rendered[entry.id] = entry.render_content()
+                except Exception:
+                    rendered[entry.id] = str(entry.data)
+            tag_peers: dict[str, list[Any]] = {}
+            for entry in entries:
+                for tag in entry.tags:
+                    tag_peers.setdefault(tag, []).append(entry)
+            for peers in tag_peers.values():
+                for i in range(len(peers)):
+                    for j in range(i + 1, len(peers)):
+                        edges.append({
+                            "source": peers[i].id,
+                            "target": peers[j].id,
+                            "relation": "tag",
+                        })
+            source_peers: dict[str, list[Any]] = {}
+            for entry in entries:
+                if not entry.source or entry.source == SOURCE_MODEL:
+                    continue
+                source_peers.setdefault(entry.source, []).append(entry)
+            for peers in source_peers.values():
+                for i in range(len(peers)):
+                    for j in range(i + 1, len(peers)):
+                        edges.append({
+                            "source": peers[i].id,
+                            "target": peers[j].id,
+                            "relation": "source",
+                        })
+            for entry in entries:
+                content = rendered[entry.id]
+                if not content:
+                    continue
+                for other in entries:
+                    if other.id == entry.id:
+                        continue
+                    if other.id in content or (other.title and other.title in content):
+                        edges.append({
+                            "source": entry.id,
+                            "target": other.id,
+                            "relation": "reference",
+                        })
+            if len(edges) > _KNOWLEDGE_GRAPH_EDGE_CAP:
+                edges = edges[:_KNOWLEDGE_GRAPH_EDGE_CAP]
+        return {"nodes": nodes, "edges": edges}
 
     @op_async("knowledge.add")
     async def _knowledge_add(args: dict) -> Any:

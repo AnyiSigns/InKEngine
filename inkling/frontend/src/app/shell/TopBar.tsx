@@ -10,6 +10,8 @@
 import { useState } from 'react';
 import { Pencil } from 'lucide-react';
 
+import { useT } from '@/i18n/useT';
+
 export type MainTab = 'chat' | 'evolution' | 'ledger';
 
 interface TopBarProps {
@@ -22,6 +24,7 @@ interface TopBarProps {
 }
 
 export function TopBar({ title, tab, onTabChange, onTitleChange }: TopBarProps) {
+  const { t } = useT();
   const [editing, setEditing] = useState(false);
   const [draft, setDraft] = useState(title);
 
@@ -53,9 +56,9 @@ export function TopBar({ title, tab, onTabChange, onTitleChange }: TopBarProps) 
             type="button"
             onClick={() => { setDraft(title); setEditing(true); }}
             className="flex min-w-0 items-center gap-1.5 text-[14px] font-medium hover:opacity-80"
-            title="重命名会话"
+            title={t('topbar.rename')}
           >
-            <span className="truncate">{title || '未命名会话'}</span>
+            <span className="truncate">{title || t('topbar.untitled')}</span>
             <Pencil size={12} strokeWidth={1.6} className="shrink-0 ink-text-faint" />
           </button>
         )}
@@ -70,7 +73,7 @@ export function TopBar({ title, tab, onTabChange, onTitleChange }: TopBarProps) 
           onClick={() => onTabChange('chat')}
           className="ink-tab-item"
         >
-          对话
+          {t('topbar.tab.chat')}
         </button>
         <button
           type="button"
@@ -79,7 +82,7 @@ export function TopBar({ title, tab, onTabChange, onTitleChange }: TopBarProps) 
           onClick={() => onTabChange('evolution')}
           className="ink-tab-item"
         >
-          演化
+          {t('topbar.tab.evolution')}
         </button>
         <button
           type="button"
@@ -88,7 +91,7 @@ export function TopBar({ title, tab, onTabChange, onTitleChange }: TopBarProps) 
           onClick={() => onTabChange('ledger')}
           className="ink-tab-item"
         >
-          账本
+          {t('topbar.tab.ledger')}
         </button>
       </nav>
     </header>

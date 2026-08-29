@@ -93,10 +93,10 @@ export function activate(backend: AppBackend): { sections: SettingsSectionSpec[]
       items: [
         {
           key: 'tools_panel',
-          label: '工具注册表',
-          hint: '浏览 tools_snapshot，四层标签筛选，research 6 工具独立分组',
+          label: '工具',
+          hint: '常驻必带工具集（每回合直接注入）+ 全量工具视图（含 MCP 挂载），tools_manifest 真实数据',
           kind: 'component',
-          read: () => backend.getToolDetails(),
+          read: () => backend.getToolsManifest(),
           write: () => {},
         },
       ],

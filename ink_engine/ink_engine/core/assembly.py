@@ -18,7 +18,7 @@
 激活预算经验框架：agent 无算力约束，不模仿 MoE 低激活——**能全量则
 全量，放不下才裁剪**（集小 = 整集注入即最优；集大 = 常驻基线 + 任务
 相关裁剪）。占调用预算 T 的结构：对话/回合上下文 50-70% + 知识注入
-20-40% + 工具定义 5-10%；工具激活数每轮 3-10 个。
+20-40% + 工具定义 5-10%；工具激活数每轮 3-14 个。
 """
 from __future__ import annotations
 
@@ -73,7 +73,7 @@ DEFAULT_KNOWLEDGE_RATIO = 0.3
 DEFAULT_TOOL_RATIO = 0.1
 DEFAULT_MEMORY_RATIO = 0.05
 DEFAULT_EVIDENCE_RATIO = 0.05
-# 工具激活数上限（每轮 3-10 个的经验框架；与工具调配器同源单点定义）
+# 工具激活数上限（每轮 3-14 个的经验框架；与工具调配器同源单点定义）
 # ——从 tool_orchestrator 导入即模块级常量（装配层与调配层同口径）
 
 # 缺省装配预算（单次 assemble 未指定时的总预算）
@@ -104,7 +104,7 @@ class AssemblyConfig:
         tool_ratio: 工具定义预算占比（5-10%）。
         memory_ratio: 记忆召回预算占比（从知识预算内另立池）。
         evidence_ratio: 证据组装预算占比（web 验证产物）。
-        max_tools: 工具激活数上限（每轮 3-10 个）。
+        max_tools: 工具激活数上限（每轮 3-14 个）。
     """
 
     enabled: bool = True
@@ -388,7 +388,7 @@ class InputAssembler:
         all_sources = [s for group in grouped.values() for s in group]
 
         # 能全量则全量：总内容不超过预算 → 整包激活（集小无稀疏必要）。
-        # 工具激活数上限是独立护栏（每轮 3-10 个，降模型选错工具概率）——
+        # 工具激活数上限是独立护栏（每轮 3-14 个，降模型选错工具概率）——
         # 全量路径同样受其约束（预算宽裕不代表工具可以无限暴露）。
         total_chars = sum(len(s.content) for s in all_sources)
         if total_chars <= budget:

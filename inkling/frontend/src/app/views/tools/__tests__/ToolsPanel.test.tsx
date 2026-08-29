@@ -3,10 +3,15 @@ import { render, screen, fireEvent, waitFor } from '@testing-library/react';
 
 import { ToolsPanel } from '../ToolsPanel';
 import { createAppBackend, type AppBackend } from '../../../backend';
-import type { ToolDetail } from '../../../types';
-import { TOOL_LAYER_LABELS, RESEARCH_TOOLS } from '../../../types';
+import type { ToolManifestEntry } from '@/shared/backend/backendAdapter';
 
-const mockTools: ToolDetail[] = [
+const FACTORY_BASELINE = [
+  'file_read', 'file_write', 'file_edit', 'grep', 'glob',
+  'propose_patch', 'propose_domain_manifest', 'inspect_tools',
+  'search_tools', 'request_tool',
+];
+
+const mockTools: ToolManifestEntry[] = [
   {
     name: 'collect_material',
     description: '收集研究素材的行为意图说明。',
@@ -15,6 +20,7 @@ const mockTools: ToolDetail[] = [
     approval: 'review',
     endpoint: 'mcp',
     meta: { domain: 'research', auto_approvable: false },
+    baseline: false,
   },
   {
     name: 'parse_material',
@@ -24,42 +30,7 @@ const mockTools: ToolDetail[] = [
     approval: 'allow',
     endpoint: 'mcp',
     meta: { domain: 'research', auto_approvable: true },
-  },
-  {
-    name: 'validate_material',
-    description: '校验材料质量。',
-    parameters: {},
-    permissions: [],
-    approval: 'allow',
-    endpoint: 'mcp',
-    meta: { domain: 'research' },
-  },
-  {
-    name: 'score_material',
-    description: '评分材料。',
-    parameters: {},
-    permissions: [],
-    approval: 'allow',
-    endpoint: 'mcp',
-    meta: { domain: 'research' },
-  },
-  {
-    name: 'distill_knowledge',
-    description: '蒸馏知识。',
-    parameters: {},
-    permissions: [],
-    approval: 'allow',
-    endpoint: 'mcp',
-    meta: { domain: 'research' },
-  },
-  {
-    name: 'mutate_knowledge',
-    description: '变异知识。',
-    parameters: {},
-    permissions: [],
-    approval: 'deny',
-    endpoint: 'mcp',
-    meta: { domain: 'research' },
+    baseline: false,
   },
   {
     name: 'screen_query',
@@ -69,6 +40,7 @@ const mockTools: ToolDetail[] = [
     approval: 'allow',
     endpoint: 'mcp',
     meta: { domain: 'os', tier: 'main', sensor: 'screen' },
+    baseline: false,
   },
   {
     name: 'fetch',
@@ -78,7 +50,7 @@ const mockTools: ToolDetail[] = [
     approval: 'deny',
     endpoint: 'http',
     meta: { domain: 'network', tier: 'router', auto_approvable: false },
-    network_policy: { allow_domains: ['example.com'], note: '白名单域名' },
+    baseline: false,
   },
   {
     name: 'shell_exec',
@@ -88,78 +60,110 @@ const mockTools: ToolDetail[] = [
     approval: 'deny',
     endpoint: 'process_exec',
     meta: { domain: 'os', tier: 'audit', deny_by_default: true },
+    baseline: false,
   },
   {
-    name: 'file_read',
-    description: '读取文件。',
+    name: 'mcp_new_tool',
+    description: 'MCP 挂载工具。',
     parameters: {},
-    permissions: ['file:read'],
-    approval: 'deny',
-    endpoint: 'file_ops',
-    meta: { domain: 'file', tier: 'main' },
+    permissions: ['mcp:call:server_a'],
+    approval: 'review',
+    endpoint: 'mcp',
+    endpoint_config: { server_id: 'server_a' },
+    meta: { domain: 'research', mcp_server: 'server_a' },
+    baseline: false,
   },
+  ...FACTORY_BASELINE.map((name) => ({
+    name,
+    description: `${name} 工具`,
+    parameters: {},
+    permissions: [],
+    approval: 'allow' as const,
+    endpoint: 'file_ops',
+    meta: { domain: 'file' },
+    baseline: true,
+  })),
 ];
 
-function makeMockBackend(tools: ToolDetail[] = mockTools): AppBackend {
+function makeMockBackend(tools: ToolManifestEntry[] = mockTools): AppBackend {
   const backend = createAppBackend({ backend: { available: false } as never });
-  vi.spyOn(backend, 'getToolDetails').mockReturnValue(tools);
-  vi.spyOn(backend, 'getToolsSnapshot').mockResolvedValue(tools.map((t) => ({ tool: t.name, zh: t.description, group: t.meta?.domain ?? '' })));
+  const baseline = tools.filter((t) => t.baseline).map((t) => t.name);
+  vi.spyOn(backend, 'getToolsManifest').mockResolvedValue({ tools, baseline });
+  vi.spyOn(backend, 'getMcpMarketStatus').mockResolvedValue({
+    markets: [
+      {
+        id: 'market',
+        name: '内置市场',
+        source: '',
+        builtin: true,
+        servers: [
+          {
+            id: 'server_a',
+            name: '服务 A',
+            source: '',
+            transport: 'stdio',
+            url: null,
+            command: null,
+            args: [],
+            credentials: { required: false, note: '' },
+            risk: 'medium',
+            risk_note: '',
+            category: 'research',
+            premounted: false,
+          },
+        ],
+      },
+    ],
+    mounted: {},
+  });
   return backend;
 }
 
-describe('ToolsPanel (W5.2)', () => {
+describe('ToolsPanel (工具管理)', () => {
   beforeEach(() => {
     vi.restoreAllMocks();
   });
 
-  it('从种子 tools.json 渲染 40 个工具', async () => {
+  it('渲染全部工具与常驻必带计数', async () => {
     const backend = makeMockBackend();
     render(<ToolsPanel backend={backend} />);
 
     await waitFor(() => {
-      expect(screen.getByText('10 个工具')).toBeTruthy();
+      expect(screen.getAllByText(/个工具/).length).toBeGreaterThan(0);
     });
+    expect(screen.getAllByText(/常驻必带/).length).toBeGreaterThan(0);
   });
 
-  it('research 域 6 个工具独立分组展示', async () => {
+  it('常驻必带区展示已勾选工具', async () => {
     const backend = makeMockBackend();
     render(<ToolsPanel backend={backend} />);
 
     await waitFor(() => {
-      expect(screen.getByText('研究链')).toBeTruthy();
+      expect(screen.getAllByText('取消常驻').length).toBeGreaterThan(0);
     });
-
-    const researchItems = screen.getAllByText(/研究链/);
-    expect(researchItems.length).toBeGreaterThan(0);
+    const group = screen.getByText('常驻必带').closest('section');
+    expect(group).toBeTruthy();
   });
 
-  it('research 域 6 个工具名称正确', async () => {
+  it('动态可用区 research 工具独立分组', async () => {
     const backend = makeMockBackend();
     render(<ToolsPanel backend={backend} />);
 
     await waitFor(() => {
-      expect(screen.getByText('研究链')).toBeTruthy();
+      expect(screen.getByText('动态可用')).toBeTruthy();
     });
-
-    for (const tool of RESEARCH_TOOLS) {
-      expect(screen.getByText(tool)).toBeTruthy();
-    }
+    expect(screen.getByText('collect_material')).toBeTruthy();
   });
 
-  it('四层标签筛选（声明式/自指/内省/动态）', async () => {
+  it('MCP 工具带服务归属标签', async () => {
     const backend = makeMockBackend();
     render(<ToolsPanel backend={backend} />);
 
     await waitFor(() => {
-      expect(screen.getByDisplayValue('全部')).toBeTruthy();
+      expect(screen.getAllByText('mcp_new_tool').length).toBeGreaterThan(0);
     });
-
-    const layerFilter = screen.getByDisplayValue('全部');
-    fireEvent.change(layerFilter!, { target: { value: TOOL_LAYER_LABELS.self_referential } });
-
-    await waitFor(() => {
-      expect(screen.getByText('自指')).toBeTruthy();
-    });
+    const serverTag = screen.getAllByText('服务 A');
+    expect(serverTag.length).toBeGreaterThan(0);
   });
 
   it('搜索功能过滤工具', async () => {
@@ -191,17 +195,50 @@ describe('ToolsPanel (W5.2)', () => {
 
     await waitFor(() => {
       expect(screen.getByText('行为手册（description 原文）')).toBeTruthy();
-      expect(screen.getByText('收集研究素材的行为意图说明。')).toBeTruthy();
     });
   });
 
-  it('auto_approvable 标记显示', async () => {
+  it('权限矩阵区展示与自动审批说明', async () => {
     const backend = makeMockBackend();
     render(<ToolsPanel backend={backend} />);
 
     await waitFor(() => {
-      expect(screen.getAllByText('自动审批').length).toBeGreaterThan(0);
+      expect(screen.getByText('权限矩阵')).toBeTruthy();
     });
+    expect(screen.getByText(/预授权只读感知/)).toBeTruthy();
+  });
+
+  it('档位分段切换 → 调用 setTierOverrides', async () => {
+    const backend = makeMockBackend();
+    const setSpy = vi.spyOn(backend, 'setTierOverrides').mockResolvedValue({ ok: true });
+    render(<ToolsPanel backend={backend} />);
+
+    await waitFor(() => {
+      expect(screen.getAllByText('已拒绝').length).toBeGreaterThan(0);
+    });
+
+    const allowBtn = document.querySelector('[data-ui="tool_tier_collect_material_allow"]');
+    expect(allowBtn).toBeTruthy();
+    fireEvent.click(allowBtn!);
+
+    await waitFor(() => {
+      expect(setSpy).toHaveBeenCalled();
+    });
+    const payload = setSpy.mock.calls[0]![0] as Record<string, string>;
+    expect(payload['collect_material']).toBe('allow');
+  });
+
+  it('deny 出厂档分段锁定不可覆盖', async () => {
+    const backend = makeMockBackend();
+    render(<ToolsPanel backend={backend} />);
+
+    await waitFor(() => {
+      expect(screen.getAllByText('已拒绝').length).toBeGreaterThan(0);
+    });
+
+    const shellAllow = document.querySelector('[data-ui="tool_tier_shell_exec_allow"]') as HTMLButtonElement;
+    expect(shellAllow).toBeTruthy();
+    expect(shellAllow.disabled).toBe(true);
   });
 
   it('工具 tier 标签显示', async () => {
@@ -225,14 +262,53 @@ describe('ToolsPanel (W5.2)', () => {
     });
   });
 
-  it('权限档中文展示：自动放行/待审批/已拒绝', async () => {
+  it('设为常驻 → 调用 setToolBaseline 并更新勾选态', async () => {
+    const backend = makeMockBackend();
+    const setSpy = vi.spyOn(backend, 'setToolBaseline').mockResolvedValue({
+      ok: true,
+      tools: [...FACTORY_BASELINE, 'collect_material'],
+    });
+    render(<ToolsPanel backend={backend} />);
+
+    await waitFor(() => {
+      expect(screen.getAllByText('collect_material').length).toBeGreaterThan(0);
+    });
+
+    const pinButtons = screen.getAllByText('设为常驻');
+    fireEvent.click(pinButtons[0]!);
+
+    await waitFor(() => {
+      expect(setSpy).toHaveBeenCalled();
+    });
+    expect(setSpy.mock.calls[0]![0]).toContain('collect_material');
+  });
+
+  it('取消常驻 → 调用 setToolBaseline 摘除', async () => {
+    const backend = makeMockBackend();
+    const setSpy = vi.spyOn(backend, 'setToolBaseline').mockResolvedValue({
+      ok: true,
+      tools: FACTORY_BASELINE.filter((n) => n !== 'file_read'),
+    });
+    render(<ToolsPanel backend={backend} />);
+
+    await waitFor(() => {
+      expect(screen.getAllByText('取消常驻').length).toBeGreaterThan(0);
+    });
+
+    fireEvent.click(screen.getAllByText('取消常驻')[0]!);
+
+    await waitFor(() => {
+      expect(setSpy).toHaveBeenCalled();
+    });
+    expect(setSpy.mock.calls[0]![0]).not.toContain('file_read');
+  });
+
+  it('检索机制工具显示强制常驻不可摘除', async () => {
     const backend = makeMockBackend();
     render(<ToolsPanel backend={backend} />);
 
     await waitFor(() => {
-      expect(screen.getAllByText('自动放行').length).toBeGreaterThan(0);
-      expect(screen.getAllByText('待审批').length).toBeGreaterThan(0);
-      expect(screen.getAllByText('已拒绝').length).toBeGreaterThan(0);
+      expect(screen.getAllByText('机制常驻').length).toBeGreaterThan(0);
     });
   });
 });

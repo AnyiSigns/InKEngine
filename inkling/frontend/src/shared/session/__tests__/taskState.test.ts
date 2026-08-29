@@ -1,10 +1,11 @@
 /**
- * 任务级执行归约测试：plan/spawn/tool/task 家族事件 → task_state 快照。
+ * 任务级执行归约测试：plan/spawn/tool 家族事件 → task_state 快照
+ * （后台 task 家族随后台任务域废弃不再产出）。
  */
 
 import { describe, expect, it } from 'vitest';
 
-import { emptyTaskState, reduceTaskEvent, type TaskState } from '../taskState';
+import { emptyTaskState, reduceTaskEvent } from '../taskState';
 import type { HubEvent } from '../channelHub';
 
 function ev(type: HubEvent['type'], payload: Record<string, unknown> = {}, at = 1): HubEvent {
@@ -65,23 +66,6 @@ describe('tool 步进与子任务收口', () => {
     const s1 = reduceTaskEvent(s0, ev('tool_end', { tool: 'think' }));
     expect(s1.stepsDone).toBe(1);
     expect(s1.subtasks).toHaveLength(0);
-  });
-});
-
-describe('后台 task 家族', () => {
-  it('task_start/update/done 全流程', () => {
-    let s: TaskState = reduceTaskEvent(emptyTaskState(), ev('task_start', { task_id: 't1', label: '校验' }));
-    s = reduceTaskEvent(s, ev('task_update', { task_id: 't1', progress: '50%' }));
-    expect(s.subtasks[0]).toMatchObject({ status: 'running', progress: '50%' });
-    s = reduceTaskEvent(s, ev('task_done', { task_id: 't1' }));
-    expect(s.subtasks[0].status).toBe('done');
-    expect(s.stepsDone).toBe(1);
-  });
-
-  it('task_cancelled 收口为已取消', () => {
-    const s0 = reduceTaskEvent(emptyTaskState(), ev('task_start', { task_id: 't2' }));
-    const s1 = reduceTaskEvent(s0, ev('task_cancelled', { task_id: 't2' }));
-    expect(s1.subtasks[0].status).toBe('cancelled');
   });
 });
 

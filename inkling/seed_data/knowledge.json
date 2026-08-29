@@ -61,7 +61,7 @@
             "set_volume",
             "set_brightness",
             "notify",
-            "schedule",
+            "sleep",
             "ui_click",
             "ui_type",
             "window_list",

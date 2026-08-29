@@ -103,6 +103,29 @@ export interface ToolSnapshotEntry {
   auto_approvable?: boolean;
 }
 
+/** 全量工具清单条目（设置页「工具」管理面：常驻必带勾选数据源）。 */
+export interface ToolManifestEntry {
+  name: string;
+  description: string;
+  parameters: Record<string, unknown>;
+  permissions?: string[];
+  source?: 'introspection' | 'self' | 'declarative';
+  endpoint?: string;
+  endpoint_config?: Record<string, unknown>;
+  meta?: {
+    domain?: string;
+    tier?: string;
+    auto_approvable?: boolean;
+    sensor?: string;
+    control?: boolean;
+    mcp_server?: string;
+    [key: string]: unknown;
+  };
+  approval?: string;
+  /** 常驻必带标记（用户指定每回合必带；false = 语义检索动态注册） */
+  baseline: boolean;
+}
+
 /** MCP 市场条目摘要（与 app/types.ts McpMarketEntry 同源；宿主 status 回传）。 */
 export interface McpMarketEntrySummary {
   id: string;
@@ -331,20 +354,17 @@ export interface BackendAdapter {
     decision: string,
     reason?: string,
     editedContent?: unknown,
-    rememberDomain?: string,
   ): Promise<unknown>;
   capabilityGet(): Promise<{
     simulation_tier?: string;
     auto_approve_tools?: string[];
     auto_approve_all_review?: boolean;
-    remembered_domains?: string[];
+    tier_overrides?: Record<string, string>;
     ui_spec?: unknown;
   }>;
   capabilityPut(record: Record<string, unknown>): Promise<unknown>;
-  /** 已记住域名清单（联网审批的域名级记忆：设置页管理列表读入面）。 */
-  rememberedDomainsGet(): Promise<{ domains: string[] }>;
-  /** 已记住域名全量替换（设置页增删 / 审批卡记住域名共用）。 */
-  rememberedDomainsSet(domains: string[]): Promise<unknown>;
+  /** 逐工具档位覆盖（权限矩阵写面：工具 tab 档位编辑 → 引擎安全域 + 能力记录持久化）。 */
+  securityTierOverridesSet(overrides: Record<string, string>): Promise<unknown>;
   backupExport(dest: string): Promise<{ entries: number; size: number; has_db: boolean }>;
   backupPreview(path: string): Promise<BackupPreview>;
   backupRestore(path: string): Promise<{ restored_entries: number; snapshot: string }>;
@@ -356,6 +376,9 @@ export interface BackendAdapter {
   roundLedgerChain(threadId: string): Promise<RoundLedgerChain>;
   roundLedgerMerge(threadId: string): Promise<unknown>;
   toolsSnapshot(): Promise<{ tools: ToolSnapshotEntry[] }>;
+  toolsManifest(): Promise<{ tools: ToolManifestEntry[]; baseline: string[] }>;
+  toolsBaselineGet(): Promise<{ tools: string[] }>;
+  toolsBaselineSet(tools: string[]): Promise<{ tools: string[] }>;
   componentsManifest(): Promise<{ artifacts: ArtifactManifestEntry[] }>;
   knowledgeGraph(): Promise<KnowledgeGraphResult>;
   // MCP 市场（连接页市场管理 + 市场页服务挂载/卸载）
@@ -390,6 +413,12 @@ export interface BackendAdapter {
   // 既有资料批量导入（搬进 InKEngine 第一步）：扫描预览 + 入料
   materialScan(path: string, recursive?: boolean): Promise<MaterialScanResult>;
   materialIngest(path: string, recursive?: boolean): Promise<MaterialImportResult>;
+  // 界面编辑器（W4.2 补丁链落链面）：读取活跃界面描述 / 落链 / 回退最近界面补丁
+  uiSpecGet(): Promise<{ spec: Record<string, unknown> | null }>;
+  uiSpecApply(spec: Record<string, unknown>): Promise<{ outcome: unknown }>;
+  uiSpecRevert(): Promise<{ outcome: unknown; reason?: string }>;
+  // 模型连接配置运行期重载（设置页保存后使引擎感知新配置）
+  modelReload(): Promise<{ reloaded: boolean }>;
 }
 
 /** 宿主不可用的空适配器（夹具回落的显式形态）。 */
@@ -427,8 +456,7 @@ export function createUnavailableBackend(): BackendAdapter {
     approvalResolve: unavailable as never,
     capabilityGet: unavailable as never,
     capabilityPut: unavailable as never,
-    rememberedDomainsGet: unavailable as never,
-    rememberedDomainsSet: unavailable as never,
+    securityTierOverridesSet: unavailable as never,
     backupExport: unavailable as never,
     backupPreview: unavailable as never,
     backupRestore: unavailable as never,
@@ -439,6 +467,9 @@ export function createUnavailableBackend(): BackendAdapter {
     roundLedgerChain: unavailable as never,
     roundLedgerMerge: unavailable as never,
     toolsSnapshot: unavailable as never,
+    toolsManifest: unavailable as never,
+    toolsBaselineGet: unavailable as never,
+    toolsBaselineSet: unavailable as never,
     componentsManifest: unavailable as never,
     knowledgeGraph: unavailable as never,
     mcpMarketStatus: unavailable as never,
@@ -468,6 +499,10 @@ export function createUnavailableBackend(): BackendAdapter {
     downgradeEdgeTier: unavailable as never,
     materialScan: unavailable as never,
     materialIngest: unavailable as never,
+    uiSpecGet: unavailable as never,
+    uiSpecApply: unavailable as never,
+    uiSpecRevert: unavailable as never,
+    modelReload: unavailable as never,
   };
 }
 
@@ -521,12 +556,11 @@ export function createTauriBackend(invoker?: TauriInvoker): BackendAdapter {
     offlineDetect: () => call('offline_detect'),
     approvalRequest: (threadId, key, action, payload) =>
       call('approval_request', { threadId, key, action, payload }),
-    approvalResolve: (threadId, key, decision, reason, editedContent, rememberDomain) =>
-      call('approval_resolve', { threadId, key, decision, reason, editedContent, rememberDomain }),
+    approvalResolve: (threadId, key, decision, reason, editedContent) =>
+      call('approval_resolve', { threadId, key, decision, reason, editedContent }),
     capabilityGet: () => call('capability_get'),
     capabilityPut: (record) => call('capability_put', { record }),
-    rememberedDomainsGet: () => call('security_remembered_domains_get'),
-    rememberedDomainsSet: (domains) => call('security_remembered_domains_set', { domains }),
+    securityTierOverridesSet: (overrides) => call('security_tier_overrides_set', { overrides }),
     backupExport: (dest) => call('backup_export', { dest }),
     backupPreview: (path) => call('backup_preview', { path }),
     backupRestore: (path) => call('backup_restore', { path }),
@@ -537,6 +571,9 @@ export function createTauriBackend(invoker?: TauriInvoker): BackendAdapter {
     roundLedgerChain: (threadId) => call('round_ledger_chain', { threadId }),
     roundLedgerMerge: (threadId) => call('round_ledger_merge', { threadId }),
     toolsSnapshot: () => call('tools_snapshot'),
+    toolsManifest: () => call('tools_manifest'),
+    toolsBaselineGet: () => call('tools_baseline_get'),
+    toolsBaselineSet: (tools) => call('tools_baseline_set', { tools }),
     componentsManifest: () => call('components_manifest'),
     mcpMarketStatus: () => call('mcp_market_status'),
     mcpMarketMount: (serverId) => call('mcp_market_mount', { serverId }),
@@ -563,9 +600,13 @@ export function createTauriBackend(invoker?: TauriInvoker): BackendAdapter {
     downgradeEdgeTier: (edgeId) => call('edge_downgrade_tier', { edgeId }),
     rebuildCache: (scope) => call('cache_rebuild', { domain: scope }),
     restoreEdgeTier: (edgeId) => call('edge_restore_tier', { edgeId }),
-    knowledgeGraph: () => Promise.reject(new Error('ENGINE_OP_UNREGISTERED: knowledge_graph 后端未实现')),
+    knowledgeGraph: () => call('knowledge.graph'),
     materialScan: (path, recursive) => call('material_import', { path, recursive, ingest: false }),
     materialIngest: (path, recursive) => call('material_import', { path, recursive, ingest: true }),
+    uiSpecGet: () => call('ui_spec.get'),
+    uiSpecApply: (spec) => call('ui_spec.apply', { spec }),
+    uiSpecRevert: () => call('ui_spec.revert_latest'),
+    modelReload: () => call('model.reload'),
   };
 }
 

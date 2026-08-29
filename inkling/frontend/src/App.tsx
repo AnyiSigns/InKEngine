@@ -74,8 +74,8 @@ export default function App({ backend, hub, sessionStore }: AppProps) {
 
   const [openPanel, setOpenPanel] = useState<'none' | 'settings'>('none');
   const [routePlan, setRoutePlan] = useState<RoutePlanPreview | undefined>(undefined);
-  // 跨回合长任务数据源接线点：task_start/task_update/task_done 事件经
-  // task_state 子通道归约，胶囊仅在长任务（planActive/步进>0）期间出现。
+  // 跨回合长任务数据源接线点：plan/spawn/tool 事件经 task_state 子通道
+  // 归约，胶囊仅在长任务（planActive/步进>0）期间出现。
   const taskState = hub.getSnapshot().taskState;
   const task: TaskCapsuleData | null =
     taskState.planActive || taskState.stepsTotal > 0
@@ -276,11 +276,11 @@ export default function App({ backend, hub, sessionStore }: AppProps) {
       {state.pendingReview && (
         <ReviewCard
           bindValue={hub.getLastEvent('review_card')}
-          onResolve={(resolution: ReviewResolution, editedContent?: string, rememberDomain?: string) => {
+          onResolve={(resolution: ReviewResolution, editedContent?: string) => {
             const payload = state.pendingReview as Record<string, unknown>;
             const key = String(payload.key ?? payload.review_key ?? 'review');
             void backend
-              .approvalResolve(state.activeSessionId, key, resolution, undefined, editedContent, rememberDomain)
+              .approvalResolve(state.activeSessionId, key, resolution, undefined, editedContent)
               .catch(() => undefined);
             hub.setState({ pendingReview: null });
           }}

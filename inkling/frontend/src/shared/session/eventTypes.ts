@@ -55,11 +55,6 @@ export const EVENT_TYPE_NAMES = [
   'device_control',
   // 附件（引擎 Attachment 契约形态，DEFAULT_ATTACHMENT_EVENT_NAME）
   'attachment',
-  // 后台任务（回合外任务载体）
-  'task_start',
-  'task_update',
-  'task_done',
-  'task_cancelled',
 ] as const;
 
 export type EventTypeName = (typeof EVENT_TYPE_NAMES)[number];
@@ -113,10 +108,6 @@ export const EVENT_TYPE_SPECS: EventTypeSpec[] = [
   { name: 'device_sensed', description: '设备感知留痕', bindable: true },
   { name: 'device_control', description: '设备控制留痕', bindable: true },
   { name: 'attachment', description: '附件（引擎 Attachment 契约形态）', bindable: true },
-  { name: 'task_start', description: '后台任务启动', bindable: true },
-  { name: 'task_update', description: '后台任务进度更新', bindable: true },
-  { name: 'task_done', description: '后台任务完成', bindable: true },
-  { name: 'task_cancelled', description: '后台任务取消', bindable: true },
 ];
 
 export function isEventTypeName(name: string): name is EventTypeName {

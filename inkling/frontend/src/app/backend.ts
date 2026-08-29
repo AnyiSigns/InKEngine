@@ -553,6 +553,19 @@ export class AppBackend {
   }
 
   /**
+   * 系统原生目录选择器（工作区/挂载授权共用；宿主不可用 = null）。
+   */
+  async openDirectoryDialog(options: { title: string; directory: boolean; multiple: boolean }): Promise<string[] | null> {
+    if (!this.backend?.available) return null;
+    try {
+      return await this.backend.openDirectoryDialog(options);
+    } catch (err) {
+      logger.warn('app', '目录选择器调用失败', { err: String(err) });
+      return null;
+    }
+  }
+
+  /**
     * 获取 knowledgeGraph 拓扑（用于视图初始化）。
     * 当前后端仅暴露单一 knowledge_graph 接口；五元 inspect 快照
     * 尚无独立 op，回传节点/边拓扑供视图消费。

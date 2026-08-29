@@ -306,7 +306,7 @@ body,
   border-color: var(--ink-border-strong);
 }
 
-/* 朱砂按钮
+/* 朱砂按钮（恢复启用：审批卡「确认」等 accent 语义按钮） */
 .ink-btn-accent {
   background: var(--ink-accent-soft);
   border: 1px solid var(--ink-accent-border);
@@ -909,6 +909,22 @@ select {
   margin: 0.6em 0 0.3em;
   font-weight: 600;
   line-height: 1.35;
+}
+
+.ink-markdown h1 {
+  font-size: var(--ink-font-xl);
+}
+
+.ink-markdown h2 {
+  font-size: var(--ink-font-lg);
+}
+
+.ink-markdown h3 {
+  font-size: var(--ink-font-md);
+}
+
+.ink-markdown h4 {
+  font-size: var(--ink-font-sm);
 }
 
 .ink-markdown table {

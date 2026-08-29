@@ -14,6 +14,7 @@ import { MemorySessionStore } from '@/shared/session/sessionStore';
 import { createSessionStoreFrom } from '@/shared/backend/remoteSessionStore';
 import { createBackend } from '@/shared/backend/backendAdapter';
 import { listenHostEvent } from '@/shared/backend/tauriBridge';
+import { registerBuiltinComponents } from '@/components';
 import { createIngester, toHubEvent, setStreaming, commitStreaming } from '@/shared/session/eventIngest';
 import { registerComponent, type PlainComponent } from '@/renderer/componentRegistry';
 import { AppBackend } from './backend';
@@ -25,6 +26,9 @@ import { normalizeWave4Sections } from './wiring/normalizeWave4';
 import App from '../App';
 
 export function activate(): void {
+  // 出厂基线组件注册（渲染器白名单基线；wave4 视图/产物清单按同名覆盖接管）
+  registerBuiltinComponents();
+
   const backend = createBackend();
   const appBackend = new AppBackend({ backend });
 
@@ -69,11 +73,8 @@ export function activate(): void {
     void listenHostEvent<Record<string, unknown>>('inkling://round_event', (raw) => {
       if (!raw || typeof raw !== 'object') return;
       const event = toHubEvent(raw as Record<string, unknown>);
-      // 跨会话事件隔离：真实 thread_id 与当前会话不匹配则跳过
-      // （thread_id 缺失或系统值 '-' 不过滤）
-      const tid = typeof event.payload.thread_id === 'string' ? event.payload.thread_id : '';
-      const activeThread = hub.getSnapshot().activeSessionId;
-      if (tid && tid !== '-' && activeThread && tid !== activeThread) return;
+      // 跨会话事件一律交给 ingest 分桶：ingest 已按 targetThread 正确分桶，
+      // 仅 isActive 时镜像到全局窗口；非活跃会话数据只入桶不污染当前窗口。
       ingest(event);
       if (event.type === 'end') {
         setStreaming(hub, false);

@@ -18,8 +18,10 @@ interface LedgerViewProps {
 }
 
 function formatTime(ts: number): string {
-  if (!ts) return '—';
-  const d = new Date(ts * 1000);
+  if (!ts || !Number.isFinite(ts)) return '—';
+  const ms = ts > 1e12 ? ts : ts * 1000;
+  const d = new Date(ms);
+  if (Number.isNaN(d.getTime())) return '—';
   const pad = (n: number) => String(n).padStart(2, '0');
   return `${pad(d.getMonth() + 1)}-${pad(d.getDate())} ${pad(d.getHours())}:${pad(d.getMinutes())}`;
 }

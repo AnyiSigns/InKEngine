@@ -11,7 +11,7 @@
  *   以消息流形态展示「智能体为什么这么做 / 做了什么」，不塞进设置。
  */
 
-import { useRef, useState, type ComponentType } from 'react';
+import { useRef, useState, useEffect, type ComponentType } from 'react';
 import {
   AlertTriangle,
   Check,
@@ -32,6 +32,11 @@ import { assetOf, MediaRejected } from '@/components/messages/media_entries';
 import { resolveMediaRenderer } from '@/renderer/mediaRegistry';
 import { ChartEntry } from '@/components/messages/chart_entry';
 import { useDevMode } from '@/shared/ui/devMode';
+import { useT } from '@/i18n/useT';
+
+function interpolate(template: string, vars: Record<string, string | number>): string {
+  return template.replace(/\{(\w+)\}/g, (_, k: string) => String(vars[k] ?? ''));
+}
 
 interface MessageStreamProps {
   entries: InkMessage[];
@@ -64,13 +69,34 @@ export function MessageStream({
   onBranchFromMessage: _onBranchFromMessage,
 }: MessageStreamProps) {
   const listRef = useRef<HTMLDivElement>(null);
+  const pinnedRef = useRef(true);
   const [drawerOpen, setDrawerOpen] = useState(false);
   const [drawerTitle, setDrawerTitle] = useState('');
   const [drawerContent, setDrawerContent] = useState<string>('');
   const [spawnPanelOpen, setSpawnPanelOpen] = useState(false);
 
+  // 自动滚底：流式输出或新条目追加时，若用户未上滚则贴底
+  useEffect(() => {
+    const el = listRef.current;
+    if (!el || !pinnedRef.current) return;
+    const target = el.scrollHeight - el.clientHeight;
+    if (target > 0) {
+      try {
+        el.scrollTop = target;
+      } catch {
+        // 只读环境静默
+      }
+    }
+  }, [entries, streaming]);
+
+  const onScroll = () => {
+    const el = listRef.current;
+    if (!el) return;
+    pinnedRef.current = el.scrollHeight - el.scrollTop - el.clientHeight < 64;
+  };
+
   return (
-    <div ref={listRef} className="flex-1 overflow-y-auto px-6 py-6">
+    <div ref={listRef} className="flex-1 overflow-y-auto px-6 py-6" onScroll={onScroll}>
       {entries.length === 0 && <EmptyHero />}
       <div className="mx-auto max-w-4xl space-y-5">
         {roundSteps && roundSteps.length > 0 && (
@@ -125,6 +151,7 @@ function MessageItem({
   onExpand: (title: string, content: string) => void;
   onOpenPanel: () => void;
 }) {
+  const { t } = useT();
   switch (entry.kind) {
     case 'text':
       if (entry.role === 'user') return <UserBubble content={entry.content} />;
@@ -140,9 +167,9 @@ function MessageItem({
         <div className="ink-status-card rounded-xl p-3" data-ui="plan_card">
           <div className="flex items-center gap-2 text-[12px]">
             <span className={`h-2 w-2 rounded-full ${running ? 'bg-[var(--ink-text-muted)] animate-pulse' : 'bg-[var(--ink-text-faint)]'}`} />
-            <span className="font-medium">计划</span>
+            <span className="font-medium">{t('message.plan')}</span>
             {entry.workflow && <span className="ink-chip text-[10px]">{entry.workflow}</span>}
-            <span className="ink-text-faint">{running ? '规划中' : '已完成'}</span>
+            <span className="ink-text-faint">{running ? t('message.planning') : t('message.plan_done')}</span>
           </div>
           {entry.content && (
             <p className="mt-2 whitespace-pre-wrap text-[12px] leading-relaxed ink-text-muted">{entry.content}</p>
@@ -170,7 +197,7 @@ function MessageItem({
     case 'video':
     case 'document': {
       const renderer = resolveMediaRenderer(entry.kind);
-      if (!renderer) return <MediaRejected kind={entry.kind} reason="未登记媒体渲染器" />;
+      if (!renderer) return <MediaRejected kind={entry.kind} reason={t('message.media_unregistered')} />;
       const MediaComp = renderer as ComponentType<{ asset: import('@/renderer/mediaRegistry').MediaAssetView }>;
       const asset = assetOf(entry as Parameters<typeof assetOf>[0]);
       return <div className="max-w-[80%]"><MediaComp asset={asset} /></div>;
@@ -186,12 +213,13 @@ function MessageItem({
 
 /** 知识命中内联卡（记忆召回 → 消息流）。 */
 function KnowledgeHitCard({ entry }: { entry: Extract<InkMessage, { kind: 'knowledge_hit' }> }) {
+  const { t } = useT();
   const hits = entry.hits;
   return (
     <div className="ink-status-card flex items-start gap-2 rounded-xl px-3 py-2 text-[12px]" data-ui="knowledge_hit_card">
       <Database size={12} strokeWidth={1.6} className="mt-0.5 shrink-0 ink-text-faint" />
       <div className="min-w-0 flex-1">
-        <span className="ink-text-muted">知识检索 · 已放行 · {hits.length} 条相关记忆</span>
+        <span className="ink-text-muted">{interpolate(t('message.knowledge_hit'), { n: hits.length })}</span>
         <div className="mt-1 flex flex-wrap gap-1">
           {hits.slice(0, 4).map((h) => (
             <span key={h.id} title={h.snippet} className="ink-chip max-w-56 truncate">
@@ -206,6 +234,7 @@ function KnowledgeHitCard({ entry }: { entry: Extract<InkMessage, { kind: 'knowl
 
 /** 设备感知/控制内联卡（信任审计核心）。 */
 function DeviceCard({ entry }: { entry: Extract<InkMessage, { kind: 'device' }> }) {
+  const { t } = useT();
   const isSense = entry.action.startsWith('sensed') || entry.action.includes('感知');
   return (
     <div className="ink-status-card flex items-start gap-2 rounded-xl px-3 py-2 text-[12px]" data-ui="device_card">
@@ -215,7 +244,7 @@ function DeviceCard({ entry }: { entry: Extract<InkMessage, { kind: 'device' }> 
         <MousePointerClick size={12} strokeWidth={1.6} className="mt-0.5 shrink-0 ink-text-faint" />
       )}
       <div className="min-w-0 flex-1">
-        <span className="font-medium">{isSense ? '设备感知' : '设备操作'}</span>
+        <span className="font-medium">{isSense ? t('message.device_sense') : t('message.device_action')}</span>
         <span className="ml-1.5 ink-text-muted">{entry.action}</span>
         {entry.detail && <p className="mt-0.5 text-[11px] leading-relaxed ink-text-faint">{entry.detail}</p>}
       </div>
@@ -225,6 +254,7 @@ function DeviceCard({ entry }: { entry: Extract<InkMessage, { kind: 'device' }> 
 
 /** 审查（vetting）内联卡：pass/fail/review 三态。 */
 function VettingCard({ entry }: { entry: Extract<InkMessage, { kind: 'vetting' }> }) {
+  const { t } = useT();
   const { tool, verdict, reason } = entry;
   const isFail = verdict === 'fail';
   const isReview = verdict === 'review';
@@ -236,23 +266,24 @@ function VettingCard({ entry }: { entry: Extract<InkMessage, { kind: 'vetting' }
         <ShieldCheck size={12} strokeWidth={1.6} className="mt-0.5 shrink-0 ink-text-faint" />
       )}
       <div className="min-w-0 flex-1">
-        <span className="font-medium">{tool || '工具'}</span>
+        <span className="font-medium">{tool || t('message.tool')}</span>
         <span className="ml-1.5 ink-text-muted">
-          {isFail ? '审查未通过' : isReview ? '审查需人工复核' : '已通过审查'}
+          {isFail ? t('message.vetting_fail') : isReview ? t('message.vetting_review') : t('message.vetting_pass')}
         </span>
         {reason && <p className="mt-0.5 text-[11px] leading-relaxed ink-text-faint">{reason}</p>}
       </div>
-      {isReview && <span className="shrink-0 ink-chip text-[10px] ink-text-muted">待复核</span>}
+      {isReview && <span className="shrink-0 ink-chip text-[10px] ink-text-muted">{t('message.vetting_pending')}</span>}
     </div>
   );
 }
 
 /** 审批卡消息（历史留痕：裁决徽标）。 */
 function ReviewInline({ entry }: { entry: Extract<InkMessage, { kind: 'review_card' }> }) {
+  const { t } = useT();
   const payload = entry.payload;
-  const title = String(payload.title ?? payload.key ?? payload.action ?? '审批请求');
+  const title = String(payload.title ?? payload.key ?? payload.action ?? t('message.review_request'));
   const verdict = String(payload.verdict ?? '');
-  const badge = verdict === 'accept' ? '已批准' : verdict === 'reject' ? '已驳回' : '待决议';
+  const badge = verdict === 'accept' ? t('message.review_accepted') : verdict === 'reject' ? t('message.review_rejected') : t('message.review_pending');
   return (
     <div className="ink-status-card flex items-center gap-2 rounded-xl px-3 py-2 text-[12px]" data-ui="review_inline">
       <span className={`h-2 w-2 rounded-full ${verdict ? 'bg-[var(--ink-text-muted)]' : 'bg-[var(--ink-accent-approval)] animate-pulse'}`} />
@@ -288,6 +319,7 @@ function UnknownLine({ entry }: { entry: Extract<InkMessage, { kind: 'unknown' }
 
 /** 空态 hero（参考桌面 agent 空态：居中品牌标记 + 首任务引导）。 */
 function EmptyHero() {
+  const { t } = useT();
   return (
     <div className="flex h-full min-h-[50vh] flex-col items-center justify-center gap-4 text-center">
       <div className="flex items-center gap-2">
@@ -295,8 +327,8 @@ function EmptyHero() {
         <span className="text-[17px] font-semibold tracking-tight">InKling</span>
       </div>
       <div className="space-y-1">
-        <h1 className="text-[22px] font-semibold tracking-tight">开始你的第一个任务</h1>
-        <p className="text-[13px] ink-text-faint">描述你想要构建的内容，智能体将自主规划、执行并演化</p>
+        <h1 className="text-[22px] font-semibold tracking-tight">{t('message.empty_title')}</h1>
+        <p className="text-[13px] ink-text-faint">{t('message.empty_hint')}</p>
       </div>
     </div>
   );
@@ -342,15 +374,16 @@ function AssistantText({ content, streaming }: { content: string; streaming?: bo
 }
 
 function ThinkingCard({ entry }: { entry: Extract<InkMessage, { kind: 'thinking' }> }) {
+  const { t } = useT();
   const [open, setOpen] = useState(false);
   const running = entry.status === 'running';
   return (
     <div className="ink-status-card rounded-xl p-3">
       <button type="button" onClick={() => setOpen(!open)} className="flex w-full items-center gap-2 text-[12px] ink-text-muted">
         <Zap size={12} strokeWidth={1.6} />
-        <span>思考</span>
-        <span className="ink-text-faint">· {running ? '推理中' : '已完成'}</span>
-        <span className="ml-auto">{open ? '收起' : '展开'}</span>
+        <span>{t('message.thinking')}</span>
+        <span className="ink-text-faint">· {running ? t('message.reasoning') : t('message.plan_done')}</span>
+        <span className="ml-auto">{open ? t('message.collapse') : t('message.expand')}</span>
       </button>
       {open && entry.content && (
         <div className="mt-2 ink-status-bubble rounded-lg p-3 text-[12px] leading-relaxed">
@@ -369,9 +402,10 @@ function ToolCard({
   entry: Extract<InkMessage, { kind: 'tool' }>;
   onExpand: (title: string, content: string) => void;
 }) {
+  const { t } = useT();
   const [expanded, setExpanded] = useState(false);
   const isError = entry.toolStatus === 'error';
-  const toolName = entry.title || entry.tool || '工具';
+  const toolName = entry.title || entry.tool || t('message.tool');
   const output = entry.args ?? '';
 
   return (
@@ -380,23 +414,23 @@ function ToolCard({
         <span className={`h-2 w-2 rounded-full ${isError ? 'bg-[var(--ink-accent-approval)]' : entry.toolStatus === 'done' ? 'bg-[var(--ink-text-muted)]' : 'bg-[var(--ink-text-faint)] animate-pulse'}`} />
         <span className="font-medium">{toolName}</span>
         <span className="ink-text-faint">· {entry.summary || ''}</span>
-        {entry.toolStatus === 'running' && <span className="ink-text-faint">· 进行中</span>}
+        {entry.toolStatus === 'running' && <span className="ink-text-faint">· {t('message.tool_running')}</span>}
         <button type="button" onClick={() => setExpanded(!expanded)} className="ml-auto text-[11px] ink-text-muted hover:text-[var(--ink-text-base)]">
-          {expanded ? '收起' : '查看参数'}
+          {expanded ? t('message.collapse') : t('message.view_params')}
         </button>
       </div>
       {isError && (
         <div className="mt-2 flex items-center gap-1.5 text-[12px] text-[var(--ink-accent-approval)]">
           <AlertTriangle size={12} strokeWidth={1.6} />
-          <span>失败 · {entry.summary || '执行异常'}</span>
+          <span>{interpolate(t('message.tool_fail'), { t: entry.summary || '执行异常' })}</span>
         </div>
       )}
       {expanded && (
         <div className="mt-2">
-          <pre className="max-h-60 overflow-auto rounded-lg bg-[var(--ink-bg-surface)] p-3 text-[12px]">{output || '（无参数）'}</pre>
+          <pre className="max-h-60 overflow-auto rounded-lg bg-[var(--ink-bg-surface)] p-3 text-[12px]">{output || t('message.no_params')}</pre>
           {output.length > 120 && (
             <button type="button" onClick={() => onExpand(`${toolName} 完整参数`, output)} className="mt-2 text-[11px] ink-text-muted hover:text-[var(--ink-text-base)]">
-              查看完整
+              {t('message.view_full')}
             </button>
           )}
         </div>
@@ -412,16 +446,17 @@ function SpawnCard({
   entry: Extract<InkMessage, { kind: 'spawn' }>;
   onOpenPanel: () => void;
 }) {
+  const { t } = useT();
   const running = entry.status === 'running';
   return (
     <div className="ink-status-card rounded-xl p-3">
       <div className="flex items-center gap-2 text-[12px]">
         <Zap size={12} strokeWidth={1.6} className="ink-text-muted" />
-        <span className="font-medium">{entry.label || '子代理'}</span>
-        <span className="ink-text-faint">{running ? '执行中' : '已完成'}</span>
+        <span className="font-medium">{entry.label || t('message.spawn')}</span>
+        <span className="ink-text-faint">{running ? t('message.spawn_running') : t('message.plan_done')}</span>
         {entry.reason && <span className="min-w-0 flex-1 truncate text-[11px] ink-text-faint">{entry.reason}</span>}
         <button type="button" onClick={onOpenPanel} className="ml-auto text-[11px] ink-text-muted hover:text-[var(--ink-text-base)]">
-          打开面板
+          {t('message.open_panel')}
         </button>
       </div>
     </div>
@@ -430,11 +465,12 @@ function SpawnCard({
 
 /** 推演分支对比卡（内嵌消息流；只读呈现，换选为引擎自主机制，不暴露交互）。 */
 function SimulationCard({ branches }: { branches: SimulationBranch[] }) {
+  const { t } = useT();
   return (
     <div className="ink-status-card rounded-xl p-3" data-ui="simulation_inline_card">
       <div className="flex items-center gap-2 text-[12px]">
-        <span className="font-medium">推演分支</span>
-        <span className="ink-text-faint">{branches.length} 条候选路径</span>
+        <span className="font-medium">{t('message.simulations')}</span>
+        <span className="ink-text-faint">{interpolate(t('message.candidate_paths'), { n: branches.length })}</span>
       </div>
       <div className="mt-2 space-y-1.5">
         {branches.map((b) => (
@@ -448,7 +484,7 @@ function SimulationCard({ branches }: { branches: SimulationBranch[] }) {
             <span className="min-w-0 flex-1 truncate font-medium">{b.label}</span>
             {b.rationale && <span className="hidden max-w-[40%] truncate ink-text-faint sm:inline">{b.rationale}</span>}
             <span className="shrink-0 tabular-nums ink-text-muted">{b.score.toFixed(2)}</span>
-            {b.selected && <span className="ink-chip shrink-0 text-[10px]">已选</span>}
+            {b.selected && <span className="ink-chip shrink-0 text-[10px]">{t('message.selected')}</span>}
           </div>
         ))}
       </div>
@@ -458,11 +494,12 @@ function SimulationCard({ branches }: { branches: SimulationBranch[] }) {
 
 /** 错误单行（参考形态：红点 + 摘要）。 */
 function ErrorLine({ entry }: { entry: Extract<InkMessage, { kind: 'error' }> }) {
+  const { t } = useT();
   return (
     <div className="flex items-start gap-2 px-1 text-[12px]" data-ui="error_line">
       <span className="mt-1.5 h-2 w-2 shrink-0 rounded-full bg-[var(--ink-accent-approval)]" />
       <p className="min-w-0 flex-1 leading-relaxed text-[var(--ink-accent-approval)]">
-        <span className="font-medium">本轮运行失败</span>
+        <span className="font-medium">{t('message.round_fail')}</span>
         {entry.content ? <span className="ink-text-muted">　{entry.content}</span> : null}
       </p>
     </div>
@@ -470,10 +507,11 @@ function ErrorLine({ entry }: { entry: Extract<InkMessage, { kind: 'error' }> })
 }
 
 function SystemLine({ content }: { content: string }) {
+  const { t } = useT();
   return (
     <div className="flex items-center gap-2 px-1 text-[12px] ink-text-faint">
       <Clock size={12} strokeWidth={1.6} />
-      <span>{content || '系统消息'}</span>
+      <span>{content || t('message.system')}</span>
     </div>
   );
 }

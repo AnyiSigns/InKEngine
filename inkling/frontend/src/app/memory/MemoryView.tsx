@@ -3,8 +3,10 @@ import { Brain, ChevronDown, ChevronRight, Trash2 } from 'lucide-react';
 
 import { Button } from '@/shared/ui/Button';
 import { createMemoryOps, type MemoryData, type MemoryEntry, type MemoryOps, sourceLabel, kindLabel } from './backend';
+import { useT } from '@/i18n/useT';
 
 export function MemoryView() {
+  const { t } = useT();
   const opsRef = useRef<MemoryOps>(createMemoryOps());
   const [data, setData] = useState<MemoryData | null>(null);
   const [selectedNs, setSelectedNs] = useState<string | null>(null);
@@ -50,12 +52,12 @@ export function MemoryView() {
     <div data-ui="memory_view" className="flex flex-col gap-3 p-4">
       <div className="flex items-center gap-2">
         <Brain size={14} strokeWidth={1.6} className="text-[var(--ink-text-muted)]" />
-        <h3 className="text-[13px] font-medium text-[var(--ink-text-base)]">记忆</h3>
+        <h3 className="text-[13px] font-medium text-[var(--ink-text-base)]">{t('memory.title')}</h3>
       </div>
 
       {!data || data.entries.length === 0 ? (
         <div className="rounded border border-dashed border-[var(--ink-border)] px-3 py-8 text-center text-[12px] text-[var(--ink-text-faint)]">
-          尚无记忆，使用后会逐渐积累
+          {t('memory.empty')}
         </div>
       ) : (
         <>
@@ -85,6 +87,7 @@ export function MemoryView() {
                 expanded={expanded.has(entry.id)}
                 editing={editing === entry.id}
                 editContent={editContent}
+                t={t}
                 onToggle={() => toggleExpand(entry.id)}
                 onEdit={() => {
                   setEditing(entry.id);
@@ -108,6 +111,7 @@ interface MemoryRowProps {
   expanded: boolean;
   editing: boolean;
   editContent: string;
+  t: (k: string) => string;
   onToggle: () => void;
   onEdit: () => void;
   onSave: () => void;
@@ -116,7 +120,7 @@ interface MemoryRowProps {
   onEditContentChange: (v: string) => void;
 }
 
-function MemoryRow({ entry, expanded, editing, editContent, onToggle, onEdit, onSave, onCancel, onInvalidate, onEditContentChange }: MemoryRowProps) {
+function MemoryRow({ entry, expanded, editing, editContent, t, onToggle, onEdit, onSave, onCancel, onInvalidate, onEditContentChange }: MemoryRowProps) {
   return (
     <div
       data-ui={`memory_entry_${entry.id}`}
@@ -133,7 +137,7 @@ function MemoryRow({ entry, expanded, editing, editContent, onToggle, onEdit, on
         </span>
         {entry.invalid && (
           <span className="rounded border border-[var(--ink-border)] px-1 py-0.5 text-[9px] text-[var(--ink-text-faint)]">
-            已失效
+            {t('memory.invalid')}
           </span>
         )}
         <span className="ml-auto text-[9px] text-[var(--ink-text-faint)]">
@@ -152,19 +156,19 @@ function MemoryRow({ entry, expanded, editing, editContent, onToggle, onEdit, on
                 rows={4}
               />
               <div className="flex gap-1">
-                <Button size="xs" variant="primary" onClick={onSave}>保存</Button>
-                <Button size="xs" variant="ghost" onClick={onCancel}>取消</Button>
+                <Button size="xs" variant="primary" onClick={onSave}>{t('memory.save')}</Button>
+                <Button size="xs" variant="ghost" onClick={onCancel}>{t('memory.cancel')}</Button>
               </div>
             </>
           ) : (
             <>
               <div className="text-[11px] text-[var(--ink-text-muted)] whitespace-pre-wrap">{entry.content}</div>
               <div className="flex gap-1">
-                <Button size="xs" variant="ghost" onClick={onEdit}>编辑</Button>
+                <Button size="xs" variant="ghost" onClick={onEdit}>{t('memory.edit')}</Button>
                 {!entry.invalid && (
                   <Button size="xs" variant="ghost" onClick={onInvalidate}>
                     <Trash2 size={10} strokeWidth={1.6} />
-                    标失效
+                    {t('memory.mark_invalid')}
                   </Button>
                 )}
               </div>

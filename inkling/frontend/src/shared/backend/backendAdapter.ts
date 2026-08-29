@@ -423,6 +423,32 @@ export interface BackendAdapter {
   uiSpecRevert(): Promise<{ outcome: unknown; reason?: string }>;
   // 模型连接配置运行期重载（设置页保存后使引擎感知新配置）
   modelReload(): Promise<{ reloaded: boolean }>;
+  // 设置节单通道收口（模型连接配置 / 搜索 key / 成长状态 / 原生目录选择器）
+  searchKeysPut(keys: Record<string, string>): Promise<unknown>;
+  growthReport(): Promise<{ growth?: Record<string, unknown>; knowledge_count?: number }>;
+  modelsRefresh(config: Record<string, unknown>): Promise<unknown>;
+  modelsConfigGet(): Promise<Record<string, unknown>>;
+  modelsConfigPut(config: Record<string, unknown>): Promise<unknown>;
+  openDirectoryDialog(options: { title: string; directory: boolean; multiple: boolean }): Promise<string[] | null>;
+  // 知识集条目管理（knowledge.* 命令；知识面板数据面）
+  knowledgeList(): Promise<{ entries: unknown[] }>;
+  knowledgeAdd(input: Record<string, unknown>): Promise<unknown>;
+  knowledgePromote(id: string): Promise<unknown>;
+  knowledgeArchive(id: string): Promise<unknown>;
+  knowledgeRestore(id: string): Promise<unknown>;
+  knowledgeExport(id: string): Promise<unknown>;
+  skillImport(source: string, preview?: boolean): Promise<unknown>;
+  skillReimport(id: string): Promise<unknown>;
+  // 记忆条目（memory.* 命令；记忆面板数据面）
+  memoryList(): Promise<{ entries: unknown[] }>;
+  memoryInvalidate(id: string): Promise<unknown>;
+  memoryUpdateFrontmatter(id: string, frontmatter: Record<string, unknown>): Promise<unknown>;
+  // 审计流水（audit.list；洞察时间线底账）
+  auditList(): Promise<unknown>;
+  // 语音（输入胶囊语音入口）
+  voiceRecord(durationMs: number): Promise<number[]>;
+  voiceTranscribe(audio: number[]): Promise<{ text?: string }>;
+  voiceSynthesize(text: string): Promise<unknown>;
 }
 
 /** 宿主不可用的空适配器（夹具回落的显式形态）。 */
@@ -510,6 +536,27 @@ export function createUnavailableBackend(): BackendAdapter {
     uiSpecApply: unavailable as never,
     uiSpecRevert: unavailable as never,
     modelReload: unavailable as never,
+    searchKeysPut: unavailable as never,
+    growthReport: unavailable as never,
+    modelsRefresh: unavailable as never,
+    modelsConfigGet: unavailable as never,
+    modelsConfigPut: unavailable as never,
+    openDirectoryDialog: unavailable as never,
+    knowledgeList: unavailable as never,
+    knowledgeAdd: unavailable as never,
+    knowledgePromote: unavailable as never,
+    knowledgeArchive: unavailable as never,
+    knowledgeRestore: unavailable as never,
+    knowledgeExport: unavailable as never,
+    skillImport: unavailable as never,
+    skillReimport: unavailable as never,
+    memoryList: unavailable as never,
+    memoryInvalidate: unavailable as never,
+    memoryUpdateFrontmatter: unavailable as never,
+    auditList: unavailable as never,
+    voiceRecord: unavailable as never,
+    voiceTranscribe: unavailable as never,
+    voiceSynthesize: unavailable as never,
   };
 }
 
@@ -617,6 +664,31 @@ export function createTauriBackend(invoker?: TauriInvoker): BackendAdapter {
     uiSpecApply: (spec) => call('ui_spec.apply', { spec }),
     uiSpecRevert: () => call('ui_spec.revert_latest'),
     modelReload: () => call('model.reload'),
+    searchKeysPut: (keys) => call('search_keys_put', { keys }),
+    growthReport: () => call('growth_report'),
+    modelsRefresh: (config) => call('models_refresh', { config }),
+    modelsConfigGet: () => call('models_config_get'),
+    modelsConfigPut: (config) => call('models_config_put', { config }),
+    openDirectoryDialog: (options) =>
+      call<string | string[] | null>('plugin:dialog|open', { options }).then((picked) => {
+        if (Array.isArray(picked)) return picked.filter((p): p is string => typeof p === 'string');
+        return picked ? [picked] : null;
+      }),
+    knowledgeList: () => call('knowledge.list'),
+    knowledgeAdd: (input) => call('knowledge.add', input),
+    knowledgePromote: (id) => call('knowledge.promote', { id }),
+    knowledgeArchive: (id) => call('knowledge.archive', { id }),
+    knowledgeRestore: (id) => call('knowledge.restore', { id }),
+    knowledgeExport: (id) => call('knowledge.export', { id }),
+    skillImport: (source, preview) => call('knowledge.skill_import', { source, preview }),
+    skillReimport: (id) => call('knowledge.skill_reimport', { id }),
+    memoryList: () => call('memory.list'),
+    memoryInvalidate: (id) => call('memory.invalidate', { id }),
+    memoryUpdateFrontmatter: (id, frontmatter) => call('memory.update_frontmatter', { id, frontmatter }),
+    auditList: () => call('audit.list'),
+    voiceRecord: (durationMs) => call('voice_record', { durationMs }),
+    voiceTranscribe: (audio) => call('voice_transcribe', { audio }),
+    voiceSynthesize: (text) => call('voice_synthesize', { text }),
   };
 }
 

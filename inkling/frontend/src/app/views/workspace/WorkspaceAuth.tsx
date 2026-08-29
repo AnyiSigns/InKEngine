@@ -16,7 +16,6 @@ import type { AppBackend } from '../../backend';
 import { Button } from '@/shared/ui/Button';
 import { Feedback } from '@/components/floaters/feedback';
 import type { FeedbackPhase } from '@/components/floaters/feedback';
-import { createTauriInvoker } from '@/shared/backend/tauriBridge';
 
 interface AuthorizationState {
   authorized: boolean;
@@ -62,13 +61,10 @@ export function WorkspaceAuth({ backend, state: externalState, onStateChange }: 
 
   /** 系统原生目录选择器 → 授权（宿主不可用时静默失败，保持现状）。 */
   const handleAuthorizeFromPicker = useCallback(async () => {
-    const tauri = createTauriInvoker();
-    if (!tauri) return;
     let picked: string | null = null;
     try {
-      picked = (await tauri.invoke('plugin:dialog|open', {
-        options: { directory: true, multiple: false, title: '选择工作区目录' },
-      })) as string | null;
+      const dirs = await backend.openDirectoryDialog({ title: '选择工作区目录', directory: true, multiple: false });
+      picked = dirs?.[0] ?? null;
     } catch {
       return;
     }
@@ -110,13 +106,10 @@ export function WorkspaceAuth({ backend, state: externalState, onStateChange }: 
 
   /** 目录选择器 → 挂载授权（多挂载根）。 */
   const handleAddMount = useCallback(async (): Promise<void> => {
-    const tauri = createTauriInvoker();
-    if (!tauri) return;
     let picked: string | null = null;
     try {
-      picked = (await tauri.invoke('plugin:dialog|open', {
-        options: { directory: true, multiple: false, title: '选择挂载目录' },
-      })) as string | null;
+      const dirs = await backend.openDirectoryDialog({ title: '选择挂载目录', directory: true, multiple: false });
+      picked = dirs?.[0] ?? null;
     } catch {
       return;
     }

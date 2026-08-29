@@ -35,6 +35,8 @@ export const EVENT_TYPE_NAMES = [
   'policy_edge_review_audit',
   'recommended_prior_promotion',
   'node_start',
+  'node_end',
+  'node_fail',
   // 孵化/进化
   'signal_detected',
   'distill_outcome',

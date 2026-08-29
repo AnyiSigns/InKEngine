@@ -4,7 +4,9 @@
  */
 
 export function formatTimeCompact(at: number): string {
+  if (!at || !Number.isFinite(at)) return '—';
   const time = new Date(at);
+  if (Number.isNaN(time.getTime())) return '—';
   const pad = (value: number) => String(value).padStart(2, '0');
   const clock = `${pad(time.getHours())}:${pad(time.getMinutes())}`;
   const now = new Date();

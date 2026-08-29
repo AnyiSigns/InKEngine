@@ -1,4 +1,4 @@
-import { useState } from 'react';
+import { useEffect, useState } from 'react';
 import { Eye, GitBranch, Play, ShieldCheck, TriangleAlert } from 'lucide-react';
 
 import { DagRenderer } from '@/app/dag';
@@ -17,17 +17,22 @@ export function TemplateTab({ backend }: { backend: ArchitectureBackend }) {
   const [diff, setDiff] = useState<PatchDiff | null>(null);
   const [collapsed, setCollapsed] = useState<Record<string, boolean>>({});
 
-  async function load() {
+  const load = async () => {
     const t = await backend.fetchWorkflowTemplates();
     setTemplates(t);
-    if (t && t.length && !selected) {
-      setSelected(t[0]);
-      setConstraints(t[0].constraintDomain);
+    if (t && t.length) {
+      setSelected((prev) => {
+        if (prev) return prev;
+        setConstraints(t[0].constraintDomain);
+        return t[0];
+      });
     }
-  }
-  if (templates === null && !selected) {
+  };
+
+  useEffect(() => {
     void load();
-  }
+    // eslint-disable-next-line react-hooks/exhaustive-deps
+  }, [backend]);
 
   if (templates === null) {
     return <div className="w3-muted" data-testid="tpl-loading">加载模板…</div>;

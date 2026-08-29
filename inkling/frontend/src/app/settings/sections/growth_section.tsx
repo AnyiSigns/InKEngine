@@ -6,11 +6,11 @@
  * 宿主不可用 = 空态说明（无夹具回落）。
  */
 
-import { useEffect, useState } from 'react';
+import { useEffect, useMemo, useState } from 'react';
 
 import { Activity, Database, RefreshCw, ShieldCheck } from 'lucide-react';
 
-import { createTauriInvoker } from '@/shared/backend/tauriBridge';
+import { createBackend } from '@/shared/backend/backendAdapter';
 
 export interface GrowthStatus {
   enabled?: boolean;
@@ -26,21 +26,18 @@ export interface GrowthStatus {
 }
 
 export function GrowthSection(): JSX.Element {
-  const tauri = createTauriInvoker();
+  const backend = useMemo(() => createBackend(), []);
   const [status, setStatus] = useState<GrowthStatus | null>(null);
   const [unavailable, setUnavailable] = useState(false);
 
   const load = async (): Promise<void> => {
-    if (!tauri) {
+    if (!backend.available) {
       setUnavailable(true);
       return;
     }
     try {
-      const result = (await tauri.invoke('growth_report', {})) as {
-        growth?: GrowthStatus;
-        knowledge_count?: number;
-      };
-      const growth = result?.growth ?? {};
+      const result = await backend.growthReport();
+      const growth = (result?.growth ?? {}) as GrowthStatus;
       setStatus({
         ...growth,
         knowledge_count: growth.knowledge_count ?? result?.knowledge_count ?? 0,
@@ -54,7 +51,7 @@ export function GrowthSection(): JSX.Element {
   useEffect(() => {
     void load();
     // eslint-disable-next-line react-hooks/exhaustive-deps
-  }, [tauri]);
+  }, [backend]);
 
   const passRate = status?.gate_pass_rate !== undefined ? Math.round(status.gate_pass_rate * 100) : null;
   const gateChecked = status?.gate_checked ?? 0;

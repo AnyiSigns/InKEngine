@@ -28,13 +28,8 @@ import { AdminConsole } from './admin_console';
 import { AdminTools } from './admin_tools';
 import { ArchitectureView } from './architecture_view';
 import { UiSpecEditor } from './ui_spec_editor';
-import { TaskPanel } from './task_panel';
-import { Dashboard } from './dashboard';
 import { PathDag } from './path_dag';
-import { InterventionCard } from './intervention_card';
 import { registerPathAssemblyRenderers } from '@/renderer/pathAssembly';
-import { KnowledgeGraph } from './knowledge_graph';
-import { ComponentsMarket } from './components_market';
 
 /** 装配所有机制通用组件（幂等：注册表同名覆盖语义天然幂等）。 */
 export function registerBuiltinComponents(): void {
@@ -55,11 +50,6 @@ export function registerBuiltinComponents(): void {
   registerComponent('admin_tools', AdminTools);
   registerComponent('architecture_view', ArchitectureView);
   registerComponent('ui_spec_editor', UiSpecEditor);
-  registerComponent('task_panel', TaskPanel);
-  registerComponent('dashboard', Dashboard);
   registerComponent('path_dag', PathDag);
-  registerComponent('intervention_card', InterventionCard);
-  registerComponent('knowledge_graph', KnowledgeGraph);
-  registerComponent('components_market', ComponentsMarket);
   registerPathAssemblyRenderers();
 }

@@ -11,7 +11,7 @@
 import { useState, useRef, useEffect } from 'react';
 import { ArrowUp, ChevronDown, Loader2, Mic, Plus, Route, Settings2, SlidersHorizontal, Sparkles, Square, Image, Video, FileText } from 'lucide-react';
 import type { ModelArchiveSnapshot } from '@/shared/backend/backendAdapter';
-import { createTauriInvoker } from '@/shared/backend/tauriBridge';
+import { createBackend } from '@/shared/backend/backendAdapter';
 import { useT } from '@/i18n/useT';
 
 function interpolate(template: string, vars: Record<string, string | number>): string {
@@ -69,6 +69,7 @@ export function InputBar({
   // 语音输入：capability=可用性探测；recording/transcribing=进行中态
   const [voiceCapable, setVoiceCapable] = useState(false);
   const [voicePhase, setVoicePhase] = useState<'idle' | 'recording' | 'transcribing'>('idle');
+  const backendRef = useRef(createBackend());
   const textareaRef = useRef<HTMLTextAreaElement>(null);
   const fileInputRef = useRef<HTMLInputElement>(null);
   const modeRef = useRef<HTMLDivElement>(null);
@@ -100,10 +101,9 @@ export function InputBar({
   }, [modelMenuOpen]);
 
   useEffect(() => {
-    const tauri = createTauriInvoker();
-    if (!tauri) return;
-    void tauri
-      .invoke('voice_status', {})
+    if (!backendRef.current.available) return;
+    void backendRef.current
+      .voiceStatus()
       .then((s) => {
         const status = s as { mic?: boolean; stt?: boolean };
         setVoiceCapable(Boolean(status.mic && status.stt));
@@ -113,14 +113,13 @@ export function InputBar({
 
   /** 语音输入：录音（定长 5s）→ 转写 → 文本入输入框（直发 AI 的入口在胶囊而非管理台）。 */
   const handleVoice = () => {
-    const tauri = createTauriInvoker();
-    if (!tauri || voicePhase !== 'idle') return;
+    if (!backendRef.current.available || voicePhase !== 'idle') return;
     setVoicePhase('recording');
     void (async () => {
       try {
-        const audio = (await tauri.invoke('voice_record', { durationMs: 5000 })) as number[];
+        const audio = await backendRef.current.voiceRecord(5000);
         setVoicePhase('transcribing');
-        const result = (await tauri.invoke('voice_transcribe', { audio })) as { text?: string };
+        const result = await backendRef.current.voiceTranscribe(audio);
         const spoken = (result.text ?? '').trim();
         if (spoken) {
           setText((prev) => (prev.trim() ? `${prev.trimEnd()} ${spoken}` : spoken));

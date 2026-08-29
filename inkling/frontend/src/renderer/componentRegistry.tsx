@@ -11,7 +11,7 @@
  * 渲染异常回退占位（错误边界），不击穿面板；未知事件类型折叠兜底。
  */
 
-import { Component, useMemo } from 'react';
+import { Component } from 'react';
 import type { ComponentType, ErrorInfo, ReactNode } from 'react';
 
 import { isBindChannelAllowed } from './channelWhitelist';
@@ -134,7 +134,8 @@ export function DynamicComponent({
   bind?: UIBind | null;
   chromeProps?: Record<string, unknown>;
 }) {
-  const Comp = useMemo(() => resolveComponent(name), [name]);
+  // 每次渲染即时解析：动态注册（产物清单/启停恢复）后无需缓存失效，立即生效。
+  const Comp = resolveComponent(name);
 
   if (!Comp) {
     return <>{rejectPlaceholder(`未注册组件：${name}（组件白名单拒绝）`)}</>;

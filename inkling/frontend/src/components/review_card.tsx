@@ -98,17 +98,16 @@ export function ReviewCard({ bindValue, onResolve }: ReviewCardProps) {
             ) : null}
             {data.level ? <span className="text-[9px] ink-text-faint">审批档 {data.level}</span> : null}
             {data.tool ? (
-              <span className="ml-auto text-[10px] ink-text-faint">工具：{data.tool}</span>
-            ) : (
-              <button
-                data-ui="review_close"
-                title="关闭"
-                onClick={() => resolve('terminate')}
-                className="ml-auto flex h-5 w-5 items-center justify-center rounded-md bg-transparent border-none cursor-pointer ink-text-faint hover:bg-[var(--ink-bg-elevated)]"
-              >
-                <X size={11} strokeWidth={1.6} aria-hidden />
-              </button>
-            )}
+              <span className="text-[10px] ink-text-faint">工具：{data.tool}</span>
+            ) : null}
+            <button
+              data-ui="review_close"
+              title="关闭"
+              onClick={() => resolve('terminate')}
+              className="ml-auto flex h-5 w-5 items-center justify-center rounded-md bg-transparent border-none cursor-pointer ink-text-faint hover:bg-[var(--ink-bg-elevated)]"
+            >
+              <X size={11} strokeWidth={1.6} aria-hidden />
+            </button>
           </div>
 
           {reason && <div className="mt-2.5 text-[11px] leading-relaxed ink-text-muted">{reason}</div>}

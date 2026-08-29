@@ -11,7 +11,7 @@ import { useState } from 'react';
 import { ChevronRight, FolderOpen, Globe, MessageSquare, Rocket, SkipForward, X } from 'lucide-react';
 
 import { Button } from '@/shared/ui/Button';
-import { createTauriInvoker } from '@/shared/backend/tauriBridge';
+import { createBackend } from '@/shared/backend/backendAdapter';
 
 type Step = 1 | 2 | 3 | 4 | 5;
 
@@ -37,7 +37,7 @@ const EXAMPLE_TASKS = [
 
 export function OnboardingFlow({ open, onClose, onComplete }: OnboardingFlowProps): JSX.Element | null {
   const [step, setStep] = useState<Step>(1);
-  const tauri = createTauriInvoker();
+  const backend = createBackend();
 
   if (!open) return null;
 
@@ -60,8 +60,8 @@ export function OnboardingFlow({ open, onClose, onComplete }: OnboardingFlowProp
 
   const dismiss = async (): Promise<void> => {
     try {
-      if (tauri) {
-        await tauri.invoke('first_run_dismiss');
+      if (backend.available) {
+        await backend.firstRunDismiss();
       }
     } catch {
       // 静默降级

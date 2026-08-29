@@ -1,4 +1,4 @@
-import { invokeOp } from '../shared/invokeOp';
+import { createBackend } from '@/shared/backend/backendAdapter';
 
 export type MemorySource = 'round_liquid' | 'manual' | 'seed';
 
@@ -32,16 +32,21 @@ export interface MemoryOps {
 }
 
 export function createMemoryOps(): MemoryOps {
+  const backend = createBackend();
   return {
     list: async () => {
-      const result = await invokeOp<MemoryData>('memory.list', {});
-      return result ?? { namespaces: [], entries: [] };
+      if (!backend.available) return { namespaces: [], entries: [] };
+      const result = (await backend.memoryList()) as unknown as { namespaces?: unknown[]; entries?: unknown[] };
+      return {
+        namespaces: Array.isArray(result.namespaces) ? (result.namespaces as MemoryNamespace[]) : [],
+        entries: Array.isArray(result.entries) ? (result.entries as MemoryEntry[]) : [],
+      };
     },
     invalidate: async (id: string) => {
-      await invokeOp('memory.invalidate', { id });
+      if (backend.available) await backend.memoryInvalidate(id);
     },
     updateFrontmatter: async (id: string, frontmatter: Record<string, string>) => {
-      await invokeOp('memory.update_frontmatter', { id, frontmatter });
+      if (backend.available) await backend.memoryUpdateFrontmatter(id, frontmatter);
     },
   };
 }

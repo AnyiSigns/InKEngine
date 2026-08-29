@@ -20,19 +20,17 @@ import { Plus, Search, Server, Trash2 } from 'lucide-react';
 
 import { Button } from '@/shared/ui/Button';
 import { Field, Select, TextInput } from '@/shared/ui/Field';
-import { createTauriInvoker } from '@/shared/backend/tauriBridge';
+import { createBackend } from '@/shared/backend/backendAdapter';
 import type {
   McpMarketPreview,
   McpMountStatus,
-  McpMarketSummary,
 } from '@/shared/backend/backendAdapter';
 
 type SearchProvider = 'exa' | 'parallel' | 'bocha';
 
 export function ConnectSection(): JSX.Element {
-  // createTauriInvoker 每次调用返回新对象字面量：useMemo 固定身份，
-  // 否则 invoke/refresh 的 useCallback 依赖链逐渲染变化 → 无限 IPC 轮询
-  const tauri = useMemo(() => createTauriInvoker(), []);
+  // BackendAdapter 单通道：MCP 市场管理与搜索 key 全经适配器（可 mock/可回落）。
+  const backend = useMemo(() => createBackend(), []);
   const [searchKey, setSearchKey] = useState('');
   const [searchProvider, setSearchProvider] = useState<SearchProvider>('exa');
   const [savePhase, setSavePhase] = useState<'idle' | 'saving' | 'saved' | 'error'>('idle');
@@ -43,23 +41,14 @@ export function ConnectSection(): JSX.Element {
   const [busy, setBusy] = useState(false);
   const [notice, setNotice] = useState<string | null>(null);
 
-  const invoke = useCallback(
-    async <T,>(cmd: string, args?: Record<string, unknown>): Promise<T | null> => {
-      if (!tauri) return null;
-      try {
-        return (await tauri.invoke(cmd, args)) as T;
-      } catch (err) {
-        setNotice(`${cmd} 失败：${String(err)}`);
-        return null;
-      }
-    },
-    [tauri],
-  );
-
   const refresh = useCallback(async (): Promise<void> => {
-    const next = await invoke<McpMountStatus>('mcp_market_status');
-    if (next) setStatus(next);
-  }, [invoke]);
+    if (!backend.available) return;
+    try {
+      setStatus(await backend.mcpMarketStatus());
+    } catch (err) {
+      setNotice(`mcp_market_status 失败：${String(err)}`);
+    }
+  }, [backend]);
 
   useEffect(() => {
     void refresh();
@@ -68,58 +57,77 @@ export function ConnectSection(): JSX.Element {
   const handlePreview = async (): Promise<void> => {
     const link = marketLink.trim();
     if (!link) return;
+    if (!backend.available) {
+      setNotice('宿主不可用（预览需真实引擎）');
+      return;
+    }
     setBusy(true);
     setNotice(null);
     setPreview(null);
-    const result = await invoke<McpMarketPreview>('mcp_market_preview', { link });
-    setBusy(false);
-    if (!result) return;
-    setPreview(result);
-    if (!result.ok) {
-      setNotice(result.error ?? result.violations?.join('；') ?? '目录未通过核对');
+    try {
+      const result = await backend.mcpMarketPreview(link);
+      setPreview(result);
+      if (!result.ok) {
+        setNotice(result.error ?? result.violations?.join('；') ?? '目录未通过核对');
+      }
+    } catch (err) {
+      setNotice(`mcp_market_preview 失败：${String(err)}`);
+    } finally {
+      setBusy(false);
     }
   };
 
   const handleAdd = async (): Promise<void> => {
     const link = marketLink.trim();
     if (!link) return;
+    if (!backend.available) {
+      setNotice('宿主不可用（添加市场需真实引擎）');
+      return;
+    }
     setBusy(true);
     setNotice(null);
-    const result = await invoke<{ ok: boolean; market?: McpMarketSummary; error?: string }>(
-      'mcp_market_add',
-      { link },
-    );
-    setBusy(false);
-    if (result?.ok) {
-      setPreview(null);
-      setMarketLink('');
-      setNotice(null);
-      await refresh();
-    } else {
-      setNotice(result?.error ?? '添加失败');
+    try {
+      const result = await backend.mcpMarketAdd(link);
+      if (result.ok) {
+        setPreview(null);
+        setMarketLink('');
+        setNotice(null);
+        await refresh();
+      } else {
+        setNotice(result.error ?? '添加失败');
+      }
+    } catch (err) {
+      setNotice(`mcp_market_add 失败：${String(err)}`);
+    } finally {
+      setBusy(false);
     }
   };
 
   const handleRemove = async (marketId: string): Promise<void> => {
+    if (!backend.available) return;
     setBusy(true);
     setNotice(null);
-    const result = await invoke<{ ok: boolean; error?: string }>('mcp_market_remove', {
-      marketId,
-    });
-    setBusy(false);
-    if (result?.ok) {
-      await refresh();
-    } else {
-      setNotice(result?.error ?? '删除失败');
+    try {
+      const result = await backend.mcpMarketRemove(marketId);
+      if (result.ok) {
+        await refresh();
+      } else {
+        setNotice(result.error ?? '删除失败');
+      }
+    } catch (err) {
+      setNotice(`mcp_market_remove 失败：${String(err)}`);
+    } finally {
+      setBusy(false);
     }
   };
 
   const handleSaveSearch = async (): Promise<void> => {
     setSavePhase('saving');
     try {
-      if (tauri) {
-        await tauri.invoke('search_keys_put', {
-          keys: { search_key: searchKey, search_provider: searchProvider },
+      if (backend.available) {
+        await backend.searchKeysPut({
+          search_key: searchKey,
+          search_provider: searchProvider,
         });
       }
       setSavePhase('saved');

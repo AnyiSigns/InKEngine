@@ -41,7 +41,7 @@ export interface ChartSpec {
 
 /** 共享调色板（渲染与导出一致，复用主题 token，不写死色值） */
 export const CHART_PALETTE: string[] = [
-  'var(--ink-accent)',
+  'var(--ink-accent-approval)',
   'var(--ink-text-base)',
   'var(--ink-text-muted)',
   'var(--ink-text-faint)',

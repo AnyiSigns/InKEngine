@@ -6,11 +6,11 @@
  * 缺 = 显式标注降级。
  */
 
-import { useEffect, useState } from 'react';
+import { useEffect, useMemo, useState } from 'react';
 
 import { Cpu, Eye, Mic, WifiOff } from 'lucide-react';
 
-import { createTauriInvoker } from '@/shared/backend/tauriBridge';
+import { createBackend } from '@/shared/backend/backendAdapter';
 
 interface OfflineDetect {
   ollama: { reachable: boolean; url: string | null; models: string[] };
@@ -34,35 +34,35 @@ function CapabilityChip({ on, label }: { on: boolean; label: string }): JSX.Elem
 }
 
 export function CapabilityOverview(): JSX.Element {
-  const tauri = createTauriInvoker();
+  const backend = useMemo(() => createBackend(), []);
   const [offline, setOffline] = useState<OfflineDetect | null>(null);
   const [voice, setVoice] = useState<VoiceStatus | null>(null);
   const [multimodal, setMultimodal] = useState(false);
 
   useEffect(() => {
-    if (!tauri) return;
+    if (!backend.available) return;
     void (async () => {
       try {
-        const o = (await tauri.invoke('offline_detect', {})) as OfflineDetect;
+        const o = (await backend.offlineDetect()) as unknown as OfflineDetect;
         setOffline(o);
       } catch {
         setOffline(null);
       }
       try {
-        const v = (await tauri.invoke('voice_status', {})) as VoiceStatus;
+        const v = (await backend.voiceStatus()) as unknown as VoiceStatus;
         setVoice(v);
       } catch {
         setVoice(null);
       }
       try {
-        const m = (await tauri.invoke('model_archive_snapshot', {})) as { archives?: Array<{ multimodal?: boolean | null }> };
+        const m = (await backend.modelArchiveSnapshot()) as unknown as { archives?: Array<{ multimodal?: boolean | null }> };
         const profiles = m.archives ?? [];
         setMultimodal(profiles.some((p) => p.multimodal === true));
       } catch {
         setMultimodal(false);
       }
     })();
-  }, [tauri]);
+  }, [backend]);
 
   return (
     <div className="space-y-4">

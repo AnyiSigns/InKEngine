@@ -101,6 +101,8 @@ export class ThemeModeController {
   private mode: ThemeMode = 'system';
   private listeners = new Set<() => void>();
   private unsubscribeDark: () => void = () => undefined;
+  /** 任何主题变化（换档 / OS 暗色切换）都递增：useSyncExternalStore 据此重渲。 */
+  private version = 0;
 
   constructor(
     private persist: ThemePersist = createLocalStoragePersist(),
@@ -111,6 +113,7 @@ export class ThemeModeController {
     this.apply(resolveEffectiveTheme(this.mode, darkQuery.matches));
     this.unsubscribeDark = darkQuery.subscribe(() => {
       this.apply(resolveEffectiveTheme(this.mode, this.darkQuery.matches));
+      this.version += 1;
       for (const listener of this.listeners) listener();
     });
   }
@@ -123,11 +126,17 @@ export class ThemeModeController {
     return resolveEffectiveTheme(this.mode, this.darkQuery.matches);
   }
 
+  /** 主题版本戳：换档与 OS 暗色切换均递增（system 档下 OS 切换也能触发重渲）。 */
+  getVersion(): number {
+    return this.version;
+  }
+
   setMode(mode: ThemeMode): void {
     if (mode === this.mode) return;
     this.mode = mode;
     this.persist.write(mode);
     this.apply(this.getEffective());
+    this.version += 1;
     for (const listener of this.listeners) listener();
   }
 
@@ -156,15 +165,17 @@ export function initThemeModeAtStartup(controller: ThemeModeController = getThem
   return controller.getMode();
 }
 
-/** React 消费面：当前档位 / 有效主题 / 换档回调（订阅即时切换）。 */
+/** React 消费面：当前档位 / 有效主题 / 换档回调（订阅即时切换；system 档
+ *  OS 暗色切换经版本戳同样触发重渲，brand-mark 等随 effective 换色）。 */
 export function useThemeMode(): { mode: ThemeMode; effective: EffectiveTheme; setMode: (mode: ThemeMode) => void } {
   const controller = getThemeController();
-  const mode = useSyncExternalStore(
+  const version = useSyncExternalStore(
     (cb) => controller.subscribe(cb),
-    () => controller.getMode(),
+    () => controller.getVersion(),
   );
+  void version;
   return {
-    mode,
+    mode: controller.getMode(),
     effective: controller.getEffective(),
     setMode: (m) => controller.setMode(m),
   };

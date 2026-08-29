@@ -30,6 +30,11 @@ import { TOOL_LAYER_LABELS } from '../../types';
 import type { ToolManifestEntry } from '@/shared/backend/backendAdapter';
 import { resolveToolLabel, permissionLabel } from '@/shared/labels/toolLabels';
 import { classifyToolFamily, FAMILY_LABELS } from '@/shared/labels/toolLabels';
+import { useT } from '@/i18n/useT';
+
+function interpolate(template: string, vars: Record<string, string | number>): string {
+  return template.replace(/\{(\w+)\}/g, (_, k: string) => String(vars[k] ?? ''));
+}
 
 const PERMISSION_TIERS = ['allow', 'review', 'deny'] as const;
 type PermissionTier = (typeof PERMISSION_TIERS)[number];
@@ -72,16 +77,16 @@ function ToolTierBadge({ tier }: { tier?: string }) {
   );
 }
 
-function AutoApprovableBadge({ autoApprovable }: { autoApprovable?: boolean }) {
+function AutoApprovableBadge({ autoApprovable, t }: { autoApprovable?: boolean; t: (k: string) => string }) {
   if (!autoApprovable) return null;
   return (
     <span className="ink-chip py-px text-[8px] ink-text-faint" data-auto-approvable>
-      自动审批
+      {t('tools.auto_approve')}
     </span>
   );
 }
 
-function SourceBadge({ source, serverName }: { source?: string; serverName?: string }) {
+function SourceBadge({ source, serverName, t }: { source?: string; serverName?: string; t: (k: string) => string }) {
   if (serverName) {
     return (
       <span className="flex items-center gap-0.5 ink-chip py-px text-[8px] ink-text-faint" data-mcp-server>
@@ -91,10 +96,10 @@ function SourceBadge({ source, serverName }: { source?: string; serverName?: str
     );
   }
   if (source === 'introspection') {
-    return <span className="ink-chip py-px text-[8px] ink-text-faint">内省</span>;
+    return <span className="ink-chip py-px text-[8px] ink-text-faint">{t('tools.introspective')}</span>;
   }
   if (source === 'self') {
-    return <span className="ink-chip py-px text-[8px] ink-text-faint">自指</span>;
+    return <span className="ink-chip py-px text-[8px] ink-text-faint">{t('tools.self_referential')}</span>;
   }
   return null;
 }
@@ -106,6 +111,7 @@ function PermissionTierSegment({
   factory,
   disabled,
   saving,
+  t,
   onChange,
 }: {
   tool: string;
@@ -113,6 +119,7 @@ function PermissionTierSegment({
   factory: PermissionTier;
   disabled?: boolean;
   saving?: boolean;
+  t: (k: string) => string;
   onChange: (tier: PermissionTier) => void;
 }) {
   const denyLocked = factory === 'deny';
@@ -129,8 +136,8 @@ function PermissionTierSegment({
             disabled={locked}
             title={
               denyLocked && tier !== 'deny'
-                ? '出厂 deny 档工具默认拒绝（权限变更须经补丁链审批转正）'
-                : `档位：${permissionLabel(tier)}`
+                ? t('tools.deny_locked_tooltip')
+                : interpolate(t('tools.tier_tooltip'), { t: permissionLabel(tier) })
             }
             onClick={() => onChange(tier)}
             className={`rounded px-1.5 py-0.5 text-[8px] font-mono leading-none cursor-pointer disabled:cursor-not-allowed ${
@@ -147,10 +154,11 @@ function PermissionTierSegment({
 
 interface ToolDetailDrawerProps {
   tool: ToolManifestEntry;
+  t: (k: string) => string;
   onClose: () => void;
 }
 
-function ToolDetailDrawer({ tool, onClose }: ToolDetailDrawerProps) {
+function ToolDetailDrawer({ tool, t, onClose }: ToolDetailDrawerProps) {
   const props = (tool.parameters as Record<string, unknown> | undefined) ?? {};
   const paramKeys = Object.keys(props);
 
@@ -165,30 +173,30 @@ function ToolDetailDrawer({ tool, onClose }: ToolDetailDrawerProps) {
             onClick={onClose}
             className="text-[10px] ink-text-faint hover:text-[var(--ink-text-base)] cursor-pointer"
           >
-            关闭
+            {t('tools.close')}
           </button>
         </div>
         <div className="space-y-3 text-[11px]">
           <div>
-            <span className="block text-[10px] ink-text-muted">行为手册（description 原文）</span>
+            <span className="block text-[10px] ink-text-muted">{t('tools.playbook')}</span>
             <div className="mt-1 text-[9px] leading-relaxed whitespace-pre-wrap ink-text-muted">
-              {tool.description || '（无描述）'}
+              {tool.description || t('tools.no_description')}
             </div>
           </div>
           <div className="flex flex-wrap gap-2">
             <span className="flex items-center gap-1 font-mono text-[9px]">
               <Shield size={10} strokeWidth={1.5} className="ink-text-faint" aria-hidden />
-              权限档：{permissionLabel(tool.approval ?? 'allow')}
+              {interpolate(t('tools.permission_tier'), { t: permissionLabel(tool.approval ?? 'allow') })}
             </span>
             <span className="flex items-center gap-1 font-mono text-[9px]">
-              端点：{tool.endpoint ?? '—'}
+              {interpolate(t('tools.endpoint'), { t: tool.endpoint ?? '—' })}
             </span>
             {tool.meta?.tier ? <ToolTierBadge tier={tool.meta.tier} /> : null}
-            {tool.meta?.auto_approvable ? <AutoApprovableBadge autoApprovable={tool.meta.auto_approvable} /> : null}
+            {tool.meta?.auto_approvable ? <AutoApprovableBadge autoApprovable={tool.meta.auto_approvable} t={t} /> : null}
           </div>
           {paramKeys.length > 0 ? (
             <div>
-              <span className="block text-[10px] ink-text-muted mb-1">参数 schema</span>
+              <span className="block text-[10px] ink-text-muted mb-1">{t('tools.param_schema')}</span>
               <div className="ink-elevated divide-y divide-[var(--ink-border)] overflow-hidden rounded">
                 {paramKeys.map((key) => {
                   const def = props[key] as Record<string, unknown> | undefined;
@@ -197,7 +205,7 @@ function ToolDetailDrawer({ tool, onClose }: ToolDetailDrawerProps) {
                     <div key={key} className="px-2.5 py-1.5">
                       <div className="flex items-center gap-2">
                         <span className="font-mono text-[9px]">{key}</span>
-                        {required ? <span className="ink-chip py-px text-[7px] ink-text-faint">必填</span> : null}
+                        {required ? <span className="ink-chip py-px text-[7px] ink-text-faint">{t('tools.required')}</span> : null}
                         <span className="text-[9px] ink-text-faint">{(def?.type as string) ?? 'unknown'}</span>
                       </div>
                       {typeof def?.description === 'string' && def.description ? (
@@ -220,6 +228,7 @@ interface ToolsPanelProps {
 }
 
 export function ToolsPanel({ backend }: ToolsPanelProps) {
+  const { t } = useT();
   const [manifest, setManifest] = useState<{ tools: ToolManifestEntry[]; baseline: string[] } | null>(null);
   const [loading, setLoading] = useState(true);
   const [error, setError] = useState<string | null>(null);
@@ -310,13 +319,13 @@ export function ToolsPanel({ backend }: ToolsPanelProps) {
     return { dynamicGroups: Array.from(groups.entries()) };
   }, [tools, baseline, selectedLayer, searchQuery, serverNames]);
 
-  const layerOptions: Array<{ value: ToolLayer | 'all'; label: string }> = [
-    { value: 'all', label: '全部' },
-    { value: 'declarative', label: TOOL_LAYER_LABELS.declarative },
-    { value: 'self_referential', label: TOOL_LAYER_LABELS.self_referential },
-    { value: 'introspective', label: TOOL_LAYER_LABELS.introspective },
-    { value: 'dynamic', label: TOOL_LAYER_LABELS.dynamic },
-  ];
+    const layerOptions: Array<{ value: ToolLayer | 'all'; label: string }> = [
+      { value: 'all', label: t('tools.layer_all') },
+      { value: 'declarative', label: TOOL_LAYER_LABELS.declarative },
+      { value: 'self_referential', label: TOOL_LAYER_LABELS.self_referential },
+      { value: 'introspective', label: TOOL_LAYER_LABELS.introspective },
+      { value: 'dynamic', label: TOOL_LAYER_LABELS.dynamic },
+    ];
 
   const togglePin = async (name: string, pin: boolean): Promise<void> => {
     setSaving(true);
@@ -325,9 +334,9 @@ export function ToolsPanel({ backend }: ToolsPanelProps) {
     if (pin) next.add(name);
     else next.delete(name);
     try {
-      const result = await backend.setToolBaseline([...next]);
+    const result = await backend.setToolBaseline([...next]);
       if (!result.ok) {
-        setNotice(`常驻必带设置失败：${result.error ?? '未知错误'}`);
+        setNotice(interpolate(t('tools.setting_failed'), { e: result.error ?? '未知错误' }));
         return;
       }
       const nextBaseline = new Set(result.tools ?? []);
@@ -340,7 +349,7 @@ export function ToolsPanel({ backend }: ToolsPanelProps) {
           : prev,
       );
     } catch (err) {
-      setNotice(`常驻必带设置失败：${String(err)}`);
+      setNotice(interpolate(t('tools.setting_failed'), { e: String(err) }));
     } finally {
       setSaving(false);
     }
@@ -356,7 +365,7 @@ export function ToolsPanel({ backend }: ToolsPanelProps) {
     else next[tool] = tier;
     const result = await backend.setTierOverrides(next);
     if (!result.ok) {
-      setNotice(`档位设置失败：${result.error ?? '未知错误'}`);
+      setNotice(interpolate(t('tools.tier_set_failed'), { e: result.error ?? '未知错误' }));
     } else {
       setTierOverrides(next);
     }
@@ -370,7 +379,7 @@ export function ToolsPanel({ backend }: ToolsPanelProps) {
     const next = checked ? [...autoApproveTools, tool] : autoApproveTools.filter((t) => t !== tool);
     const result = await backend.setAutoApprove(next, autoApproveAllReview);
     if (!result.ok) {
-      setNotice(`自动审批设置失败：${result.error ?? '未知错误'}`);
+      setNotice(interpolate(t('tools.auto_approve_set_failed'), { e: result.error ?? '未知错误' }));
     } else {
       setAutoApproveTools(next);
     }
@@ -383,7 +392,7 @@ export function ToolsPanel({ backend }: ToolsPanelProps) {
     setNotice(null);
     const result = await backend.setAutoApprove(autoApproveTools, checked);
     if (!result.ok) {
-      setNotice(`自动审批设置失败：${result.error ?? '未知错误'}`);
+      setNotice(interpolate(t('tools.auto_approve_set_failed'), { e: result.error ?? '未知错误' }));
     } else {
       setAutoApproveAllReview(checked);
     }
@@ -402,22 +411,21 @@ export function ToolsPanel({ backend }: ToolsPanelProps) {
     <section className="ink-panel p-4" data-ui="tools_panel">
       <div className="mb-1 flex items-center gap-2.5">
         <Wrench size={14} strokeWidth={1.5} className="ink-text-faint" aria-hidden />
-        <span className="text-[12px] font-semibold tracking-tight">工具</span>
+        <span className="text-[12px] font-semibold tracking-tight">{t('tools.title')}</span>
         <span className="ml-auto text-[10px] ink-text-faint">
-          {manifest ? `${tools.length} 个工具 · ${baseline.size} 常驻必带` : '加载中…'}
+          {manifest ? interpolate(t('tools.count_summary'), { total: tools.length, baseline: baseline.size }) : '加载中…'}
         </span>
       </div>
       <p className="mb-3 text-[10px] leading-relaxed ink-text-faint">
-        常驻必带工具每回合直接注入完整 schema，无需语义检索即可使用；其余工具由 agent
-        经 search_tools/request_tool 动态注册（必带集之外）。
+        {t('tools.intro')}
       </p>
 
       <div className="mb-3 rounded-lg border border-[var(--ink-border)] px-3 py-2.5" data-ui="tools_permission_matrix">
         <div className="flex items-center gap-2">
           <Shield size={12} strokeWidth={1.6} className="ink-text-faint" aria-hidden />
-          <span className="text-[10px] font-medium tracking-wide">权限矩阵</span>
+          <span className="text-[10px] font-medium tracking-wide">{t('tools.permission_matrix')}</span>
           <span className="text-[9px] ink-text-faint">
-            allow 直过 / review 弹卡审批 / deny 拒绝（出厂 deny 档不可调，须经补丁链转正）
+            {t('tools.permission_matrix_hint')}
           </span>
           <label className="ml-auto flex items-center gap-1.5 cursor-pointer text-[9px] ink-text-muted" data-ui="auto_approve_all">
             <input
@@ -427,13 +435,13 @@ export function ToolsPanel({ backend }: ToolsPanelProps) {
               disabled={permSaving}
               onChange={(e) => void toggleAllReview(e.target.checked)}
             />
-            自动审批全部 review 档
+            {t('tools.auto_approve_all')}
           </label>
         </div>
         <div className="mt-1.5 flex flex-wrap items-center gap-x-3 gap-y-0.5">
-          <span className="text-[9px] ink-text-faint">自动审批（预授权只读感知/测试构建类工具跳过人审弹卡）：</span>
+          <span className="text-[9px] ink-text-faint">{t('tools.auto_approve_hint')}</span>
           {autoApprovable.size === 0 ? (
-            <span className="text-[9px] ink-text-faint">无可登记工具</span>
+            <span className="text-[9px] ink-text-faint">{t('tools.no_auto_approvable')}</span>
           ) : (
             [...autoApprovable].sort().map((name) => (
               <label key={name} className="flex items-center gap-1 cursor-pointer font-mono text-[9px] ink-text-muted" data-ui={`auto_approve_${name}`}>
@@ -461,7 +469,7 @@ export function ToolsPanel({ backend }: ToolsPanelProps) {
         <div className="relative flex-1">
           <input
             type="text"
-            placeholder="搜索工具（名称/中文标签）"
+            placeholder={t('tools.search_placeholder')}
             value={searchQuery}
             onChange={(e) => setSearchQuery(e.target.value)}
             className="ink-input w-full pl-7 text-[11px]"
@@ -482,18 +490,18 @@ export function ToolsPanel({ backend }: ToolsPanelProps) {
       </div>
 
       {loading ? (
-        <div className="py-6 text-center text-[11px] ink-text-faint">加载工具清单中…</div>
+        <div className="py-6 text-center text-[11px] ink-text-faint">{t('tools.loading')}</div>
       ) : error ? (
-        <div className="py-4 text-center text-[11px] ink-accent">工具清单加载失败：{error}</div>
+        <div className="py-4 text-center text-[11px] ink-accent">{interpolate(t('tools.load_failed'), { e: error })}</div>
       ) : tools.length === 0 && pinnedStale.length === 0 ? (
-        <div className="py-6 text-center text-[11px] ink-text-faint">暂无工具</div>
+        <div className="py-6 text-center text-[11px] ink-text-faint">{t('tools.empty')}</div>
       ) : (
         <div className="space-y-4">
           <section data-ui="tools_group_baseline">
             <div className="mb-1.5 flex items-center gap-2">
-              <span className="ink-chip py-px text-[9px]">常驻必带</span>
+              <span className="ink-chip py-px text-[9px]">{t('tools.baseline')}</span>
               <span className="text-[10px] ink-text-faint">
-                {baseline.size} 个工具（每回合直接注入，无需语义检索）
+                {interpolate(t('tools.baseline_desc'), { n: baseline.size })}
               </span>
             </div>
             <div className="ink-elevated divide-y divide-[var(--ink-border)] overflow-hidden rounded">
@@ -508,11 +516,12 @@ export function ToolsPanel({ backend }: ToolsPanelProps) {
                   autoApprovableTool={autoApprovable.has(tool.name)}
                   autoApproved={autoApproveTools.includes(tool.name)}
                   permSaving={permSaving}
+                  t={t}
                   onSetTier={setTier}
                   onToggleAutoApprove={toggleAutoApprove}
                   action={
                     IMMUTABLE_TOOLS.has(tool.name) ? (
-                      <span className="shrink-0 text-[9px] ink-text-faint" title="语义检索机制工具，强制常驻">机制常驻</span>
+                      <span className="shrink-0 text-[9px] ink-text-faint" title={t('tools.baseline_desc')}>{t('tools.mechanism_pinned')}</span>
                     ) : (
                       <button
                         type="button"
@@ -521,7 +530,7 @@ export function ToolsPanel({ backend }: ToolsPanelProps) {
                         onClick={() => void togglePin(tool.name, false)}
                         className="shrink-0 rounded-md border border-[var(--ink-border)] px-2 py-1 text-[9px] ink-text-muted hover:text-[var(--ink-text-base)] cursor-pointer bg-transparent disabled:opacity-50"
                       >
-                        取消常驻
+                        {t('tools.remove_baseline')}
                       </button>
                     )
                   }
@@ -531,7 +540,7 @@ export function ToolsPanel({ backend }: ToolsPanelProps) {
                 <div key={name} className="px-3 py-2" data-tool={name}>
                   <div className="flex items-center gap-2">
                     <span className="min-w-0 flex-1 font-mono text-[11px] font-medium truncate">{name}</span>
-                    <span className="ink-chip py-px text-[8px] ink-text-faint">已常驻 · 当前未登记</span>
+                    <span className="ink-chip py-px text-[8px] ink-text-faint">{t('tools.stale_baseline')}</span>
                   </div>
                 </div>
               ))}
@@ -540,21 +549,21 @@ export function ToolsPanel({ backend }: ToolsPanelProps) {
 
           <section data-ui="tools_group_dynamic">
             <div className="mb-1.5 flex items-center gap-2">
-              <span className="ink-chip py-px text-[9px]">动态可用</span>
+              <span className="ink-chip py-px text-[9px]">{t('tools.dynamic')}</span>
               <span className="text-[10px] ink-text-faint">
-                必带集之外 · agent 经 search_tools/request_tool 语义检索注册
+                {t('tools.dynamic_desc')}
               </span>
             </div>
             {dynamicGroups.length === 0 ? (
               <div className="rounded-xl border border-dashed px-3 py-5 text-center text-[10px] ink-border ink-text-faint">
-                全部工具已设为常驻，或当前筛选无结果
+                {t('tools.all_pinned_or_empty')}
               </div>
             ) : (
               dynamicGroups.map(([label, groupTools]) => (
                 <div key={label} className="mb-3" data-ui={`tools_group_${label}`}>
                   <div className="mb-1.5 flex items-center gap-2">
                     <span className="ink-chip py-px text-[9px]">{label}</span>
-                    <span className="text-[10px] ink-text-faint">{groupTools.length} 个工具</span>
+                    <span className="text-[10px] ink-text-faint">{interpolate(t('tools.group_tool_count'), { n: groupTools.length })}</span>
                   </div>
                   <div className="ink-elevated divide-y divide-[var(--ink-border)] overflow-hidden rounded">
                     {groupTools.map((tool) => (
@@ -568,6 +577,7 @@ export function ToolsPanel({ backend }: ToolsPanelProps) {
                         autoApprovableTool={autoApprovable.has(tool.name)}
                         autoApproved={autoApproveTools.includes(tool.name)}
                         permSaving={permSaving}
+                        t={t}
                         onSetTier={setTier}
                         onToggleAutoApprove={toggleAutoApprove}
                         action={
@@ -578,7 +588,7 @@ export function ToolsPanel({ backend }: ToolsPanelProps) {
                             onClick={() => void togglePin(tool.name, true)}
                             className="shrink-0 rounded-md bg-[var(--ink-accent)] px-2 py-1 text-[9px] font-medium text-[var(--ink-text-base)] hover:opacity-90 cursor-pointer disabled:opacity-50"
                           >
-                            设为常驻
+                            {t('tools.add_baseline')}
                           </button>
                         }
                       />
@@ -591,12 +601,13 @@ export function ToolsPanel({ backend }: ToolsPanelProps) {
         </div>
       )}
 
-      {detailToolName ? (
-        <ToolDetailDrawer
-          tool={tools.find((t) => t.name === detailToolName) ?? tools[0]!}
-          onClose={() => setDetailToolName(null)}
-        />
-      ) : null}
+      {detailToolName
+        ? (() => {
+            const found = tools.find((t) => t.name === detailToolName) ?? tools[0];
+            if (!found) return null;
+            return <ToolDetailDrawer tool={found} t={t} onClose={() => setDetailToolName(null)} />;
+          })()
+        : null}
     </section>
   );
 }
@@ -610,6 +621,7 @@ interface ToolRowProps {
   autoApprovableTool: boolean;
   autoApproved: boolean;
   permSaving: boolean;
+  t: (k: string) => string;
   onSetTier: (name: string, tier: PermissionTier) => void;
   onToggleAutoApprove: (name: string, checked: boolean) => void;
   action?: React.ReactNode;
@@ -624,6 +636,7 @@ function ToolRow({
   autoApprovableTool,
   autoApproved,
   permSaving,
+  t,
   onSetTier,
   onToggleAutoApprove,
   action,
@@ -641,11 +654,11 @@ function ToolRow({
         </span>
         <span className="min-w-0 flex-1 font-mono text-[11px] font-medium truncate">{tool.name}</span>
         <span className="shrink-0 text-[9px] ink-text-muted">{label}</span>
-        <SourceBadge source={tool.source} serverName={serverName} />
+        <SourceBadge source={tool.source} serverName={serverName} t={t} />
         <span className="shrink-0 ink-chip py-px text-[8px] ink-text-faint font-mono">{TOOL_LAYER_LABELS[layer]}</span>
         {tier ? <ToolTierBadge tier={tier} /> : null}
         {autoApprovable && autoApprovableTool ? (
-          <label className="flex shrink-0 items-center gap-1 cursor-pointer text-[8px] ink-text-faint" data-ui={`auto_approve_row_${tool.name}`} title="自动审批（预授权跳过人审弹卡）">
+          <label className="flex shrink-0 items-center gap-1 cursor-pointer text-[8px] ink-text-faint" data-ui={`auto_approve_row_${tool.name}`} title={t('tools.auto_approve_row')}>
             <input
               type="checkbox"
               className="ink-check"
@@ -653,7 +666,7 @@ function ToolRow({
               disabled={permSaving}
               onChange={(e) => void onToggleAutoApprove(tool.name, e.target.checked)}
             />
-            自动
+            {t('tools.auto')}
           </label>
         ) : null}
         <PermissionTierSegment
@@ -661,6 +674,7 @@ function ToolRow({
           effective={effectiveTier}
           factory={factoryTier}
           saving={permSaving}
+          t={t}
           onChange={(next) => void onSetTier(tool.name, next)}
         />
         <button
@@ -668,7 +682,7 @@ function ToolRow({
           data-ui={`tool_detail_open_${tool.name}`}
           onClick={() => onOpenDetail(tool.name)}
           className="shrink-0 rounded-md p-1 text-[9px] ink-text-muted hover:text-[var(--ink-text-base)] cursor-pointer"
-          title="查看行为手册"
+          title={t('tools.view_playbook')}
         >
           <BookOpen size={9} strokeWidth={1.6} aria-hidden />
         </button>

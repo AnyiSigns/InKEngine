@@ -19,17 +19,19 @@ import { InputBar } from '@/app/input/InputBar';
 import { MessageStream } from '@/app/session/MessageStream';
 import { EvolutionFeed } from '@/app/session/EvolutionFeed';
 import { LedgerView } from '@/app/session/LedgerView';
+import { TrajectoryView } from '@/app/session/TrajectoryView';
 import { useSessionState, useSessionActions } from '@/app/state/sessionState';
 import { SettingsFloater } from '@/app/settings/settings_floater';
 import { TaskCapsule } from '@/app/tasks/TaskCapsule';
 import type { TaskCapsuleData } from '@/app/tasks/types';
 import { ReviewCard, type ReviewResolution } from '@/components/review_card';
-import { createTauriInvoker } from '@/shared/backend/tauriBridge';
-import type { BackendAdapter, ModelArchiveSnapshot } from '@/shared/backend/backendAdapter';
-import type { AttachmentAsset } from '@/shared/session/eventIngest';
+import type { BackendAdapter, ModelArchiveSnapshot, SessionBranchTree } from '@/shared/backend/backendAdapter';
+import { submitAttachments, type AttachmentAsset } from '@/shared/session/eventIngest';
 import type { ChannelHub } from '@/shared/session/channelHub';
+import { emptyThreadBucket } from '@/shared/session/channelHub';
 import type { SessionStore } from '@/shared/session/sessionStore';
-import type { InkMessage, RoundStep, SimulationBranch } from '@/shared/session/types';
+import type { InkMessage, SimulationBranch } from '@/shared/session/types';
+import type { SpawnInstance } from '@/app/session/SpawnPanel';
 
 interface AppProps {
   backend: BackendAdapter;
@@ -88,6 +90,26 @@ export default function App({ backend, hub, sessionStore }: AppProps) {
         }
       : null;
 
+  // 子代理实例清单（由 spawn 消息卡派生；空 = 面板不渲染）
+  const spawnInstances: SpawnInstance[] = state.entries
+    .filter((e): e is Extract<InkMessage, { kind: 'spawn' }> => e.kind === 'spawn')
+    .map((e, index) => ({
+      index,
+      label: e.label || `子代理 ${index + 1}`,
+      status: e.status === 'running' ? 'running' : 'completed',
+    }));
+  const [selectedSpawnIndex, setSelectedSpawnIndex] = useState<number | null>(null);
+
+  // 线程分支树（session_tree 真接线；空 = 分支 mini 树不渲染）
+  const [branchTrees, setBranchTrees] = useState<Record<string, SessionBranchTree>>({});
+  useEffect(() => {
+    if (!state.activeSessionId || !backend.available) return;
+    void backend
+      .sessionTree(state.activeSessionId)
+      .then((tree) => setBranchTrees((prev) => ({ ...prev, [state.activeSessionId]: tree })))
+      .catch(() => undefined);
+  }, [state.activeSessionId, backend]);
+
   // 工作区授权态（真接线：authorizationState 轮询 + workspace_authorize 写）
   const [authorized, setAuthorized] = useState(false);
   const [workspaceRoot, setWorkspaceRoot] = useState<string | null>(null);
@@ -108,15 +130,11 @@ export default function App({ backend, hub, sessionStore }: AppProps) {
   }, [backend]);
 
   const handleAddWorkspace = () => {
-    const tauri = createTauriInvoker();
-    if (!tauri) return;
     void (async () => {
       try {
-        const picked = (await tauri.invoke('plugin:dialog|open', {
-          options: { directory: true, multiple: false, title: '选择工作区目录' },
-        })) as string | null;
-        if (!picked) return;
-        const result = await backend.workspaceAuthorize(picked);
+        const picked = await backend.openDirectoryDialog({ title: '选择工作区目录', directory: true, multiple: false });
+        if (!picked || picked.length === 0) return;
+        const result = await backend.workspaceAuthorize(picked[0]);
         setAuthorized(result.authorized);
         setWorkspaceRoot(result.root);
       } catch {
@@ -125,9 +143,9 @@ export default function App({ backend, hub, sessionStore }: AppProps) {
     })();
   };
 
-  const handleBranchFromMessage = (messageId: string, branchLabel: string) => {
+  const handleBranchFromMessage = (_messageId: string, _branchLabel: string) => {
     void backend.sessionBranch(state.activeSessionId, 'branch', null).then(() => {
-      console.log('分支已创建', branchLabel, messageId);
+      // messageId 保留签名供后续 message 级分支使用；当前回落会话级分支
     }).catch(() => undefined);
   };
 
@@ -154,18 +172,28 @@ export default function App({ backend, hub, sessionStore }: AppProps) {
     void send(text, attachments);
   };
 
-  /** 会话窗口切换：从 perThread 桶恢复该会话的回合状态（演化/推演/来源）。 */
+  /** 会话窗口切换：从 perThread 桶恢复该会话的回合状态（演化/推演/来源/轨迹）。 */
   const restoreThread = (id: string, messages: InkMessage[]) => {
-    const bucket = hub.getSnapshot().perThread[id];
+    const current = hub.getSnapshot();
+    // 先回写当前会话在途消息与回合状态（窗口切换不丢失中途流式内容）
+    if (typeof sessionStore.replaceMessages === 'function' && current.activeSessionId) {
+      try {
+        sessionStore.replaceMessages(current.activeSessionId, current.messages);
+      } catch {
+        // 回写失败不影响切换
+      }
+    }
+    const bucket = current.perThread[id] ?? emptyThreadBucket();
     hub.setState({
       activeSessionId: id,
       messages,
-      roundId: bucket?.roundId ?? null,
+      roundSteps: bucket.roundSteps ?? [],
+      roundId: bucket.roundId ?? null,
       streaming: false,
-      simulations: bucket?.simulations ?? [],
-      incubation: bucket?.incubation ?? [],
-      sourceTraces: bucket?.sourceTraces ?? [],
-      patchChain: bucket?.patchChain ?? [],
+      simulations: bucket.simulations ?? [],
+      incubation: bucket.incubation ?? [],
+      sourceTraces: bucket.sourceTraces ?? [],
+      patchChain: bucket.patchChain ?? [],
     });
   };
 
@@ -173,7 +201,7 @@ export default function App({ backend, hub, sessionStore }: AppProps) {
     setOpenPanel('settings');
   };
 
-  const roundSteps = (hub.getSnapshot().roundSteps as RoundStep[]) || [];
+  const roundSteps = hub.getSnapshot().roundSteps ?? [];
   const simulations = (hub.getSnapshot().simulations as SimulationBranch[]) || [];
   const roundCount = state.entries.filter((e) => e.kind === 'text' && e.role === 'user').length;
 
@@ -203,7 +231,10 @@ export default function App({ backend, hub, sessionStore }: AppProps) {
             unreadCount={0}
             tab={tab}
             onTabChange={setTab}
-            onTitleChange={setTitle}
+            onTitleChange={(nextTitle) => {
+              setTitle(nextTitle);
+              if (state.activeSessionId) sessionStore.rename(state.activeSessionId, nextTitle);
+            }}
           />
         </div>
         <main className="flex min-h-0 flex-1 flex-col overflow-hidden">
@@ -216,11 +247,11 @@ export default function App({ backend, hub, sessionStore }: AppProps) {
                 pulseText={state.streaming ? '正在思考…' : undefined}
                 pulseColor={state.streaming ? 'approval' : undefined}
                 simulations={simulations}
-                spawnInstances={[]}
-                onSpawnSelect={() => {}}
-                selectedSpawnIndex={null}
-                onSpawnSendInstruction={() => {}}
-                spawnStreaming={false}
+                spawnInstances={spawnInstances}
+                onSpawnSelect={(idx) => setSelectedSpawnIndex(idx)}
+                selectedSpawnIndex={selectedSpawnIndex}
+                onSpawnSendInstruction={(text) => send(text, [])}
+                spawnStreaming={state.streaming}
                 onBranchFromMessage={handleBranchFromMessage}
               />
               {task && (
@@ -238,12 +269,14 @@ export default function App({ backend, hub, sessionStore }: AppProps) {
                 onSend={handleSend}
                 onAbort={abort}
                 onOpenSettings={() => setOpenPanel('settings')}
-                onAttachments={() => {}}
+                onAttachments={(assets) => submitAttachments(hub, assets)}
                 onRoutePlanPreview={handleRoutePlanPreview}
               />
             </>
           ) : tab === 'ledger' ? (
             <LedgerView backend={backend} threadId={state.activeSessionId} />
+          ) : tab === 'trajectory' ? (
+            <TrajectoryView steps={roundSteps} />
           ) : (
             <EvolutionFeed
               incubation={hub.getSnapshot().incubation}
@@ -259,18 +292,17 @@ export default function App({ backend, hub, sessionStore }: AppProps) {
         onToggle={() => setRightCollapsed(!rightCollapsed)}
         sessions={state.sessions.map((s) => ({ thread_id: s.id, title: s.title, created_at: 0, updated_at: s.updated_at, message_count: 0, current_leaf: null, rename_count: 0 }))}
         activeSessionId={state.activeSessionId}
-        branchTrees={{}}
-        onBranchFromLeaf={() => {}}
+        branchTrees={branchTrees}
+        onBranchFromLeaf={(sessionId, leaf) => {
+          void backend.sessionBranch(sessionId, 'branch', leaf).catch(() => undefined);
+        }}
         onSelectSession={(id) => {
           const s = sessionStore.get(id);
           if (s) restoreThread(id, s.messages);
         }}
         onCreateSession={() => {
           const pending = sessionStore.create();
-          setTimeout(() => {
-            const s = sessionStore.get(pending.id);
-            if (s) restoreThread(pending.id, s.messages);
-          }, 0);
+          restoreThread(pending.id, pending.messages);
         }}
         onRenameSession={(id, newTitle) => sessionStore.rename(id, newTitle)}
         onDeleteSession={(id) => sessionStore.remove(id)}
@@ -292,7 +324,7 @@ export default function App({ backend, hub, sessionStore }: AppProps) {
       {/* 审批卡：review_card 事件到达即弹（任何视图下），决议走 approval_resolve */}
       {state.pendingReview && (
         <ReviewCard
-          bindValue={hub.getLastEvent('review_card')}
+          bindValue={state.pendingReview ? { type: 'review_card' as const, payload: state.pendingReview, at: Date.now() } : undefined}
           onResolve={(resolution: ReviewResolution, editedContent?: string) => {
             const payload = state.pendingReview as Record<string, unknown>;
             const key = String(payload.key ?? payload.review_key ?? 'review');

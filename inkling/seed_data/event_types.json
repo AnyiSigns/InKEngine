@@ -134,6 +134,34 @@
       "meta": { "note": "节点执行开始（架构视图实例 tab 节点执行态追踪，随 node_start/end 推进；boot 常量有/seed 补登记）" }
     },
     {
+      "name": "node_end",
+      "schema": {
+        "name": "node_end",
+        "fields": [
+          { "name": "node_id", "kind": "string" },
+          { "name": "label", "kind": "string" },
+          { "name": "tokens", "kind": "number" }
+        ]
+      },
+      "renderer": "NodeRow",
+      "system": false,
+      "meta": { "note": "节点执行完成（轨迹/实例 tab 节点状态回填；与 node_start 配对）" }
+    },
+    {
+      "name": "node_fail",
+      "schema": {
+        "name": "node_fail",
+        "fields": [
+          { "name": "node_id", "kind": "string" },
+          { "name": "label", "kind": "string" },
+          { "name": "reason", "kind": "string" }
+        ]
+      },
+      "renderer": "NodeRow",
+      "system": false,
+      "meta": { "note": "节点执行失败（轨迹/实例 tab 节点失败态回填；与 node_start 配对）" }
+    },
+    {
       "name": "tool_start",
       "schema": {
         "name": "tool_start",

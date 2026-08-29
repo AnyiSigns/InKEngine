@@ -1,4 +1,4 @@
-import { invokeOp } from '../shared/invokeOp';
+import { createBackend } from '@/shared/backend/backendAdapter';
 
 /** set_audit 集合记录（append-only 干预/自修改留痕的原始形态）。 */
 export interface AuditRecord {
@@ -31,5 +31,12 @@ export interface TimelineEntry {
 
 /** 审计流水（只读）：读取 set_audit 集合。 */
 export async function listAudit(): Promise<AuditRecord[] | null> {
-  return invokeOp<AuditRecord[]>('audit.list', {});
+  const backend = createBackend();
+  if (!backend.available) return null;
+  try {
+    const result = await backend.auditList();
+    return Array.isArray(result) ? (result as AuditRecord[]) : null;
+  } catch {
+    return null;
+  }
 }

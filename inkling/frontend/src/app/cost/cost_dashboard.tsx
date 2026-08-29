@@ -8,12 +8,12 @@
  * 复用 src/shared/charts chart_spec + chart_export 自绘 SVG，禁新依赖。
  */
 
-import { useMemo, useState } from 'react';
+import { useEffect, useMemo, useState } from 'react';
 
 import { RefreshCw, Trash2 } from 'lucide-react';
 
 import { Button as InkButton } from '@/shared/ui/Button';
-import { createTauriInvoker } from '@/shared/backend/tauriBridge';
+import { createBackend } from '@/shared/backend/backendAdapter';
 import { buildChartSpec, type ChartSpec } from '@/shared/charts/chart_spec';
 import { chartSpecToSvgString } from '@/shared/charts/chart_export';
 
@@ -58,16 +58,17 @@ function MiniBar({ value, max, label, warn }: { value: number; max: number; labe
 }
 
 export function CostDashboard(): JSX.Element {
-  const tauri = createTauriInvoker();
+  const backend = useMemo(() => createBackend(), []);
   const [metrics, setMetrics] = useState<MetricsSnapshot | null>(null);
   const [stats, setStats] = useState<AssembleStats | null>(null);
   const [clearPhase, setClearPhase] = useState<'idle' | 'loading' | 'success' | 'error'>('idle');
 
   const refresh = async (): Promise<void> => {
+    if (!backend.available) return;
     try {
       const [m, s] = await Promise.all([
-        tauri?.invoke('metrics_snapshot').then((r) => r as unknown as MetricsSnapshot) ?? Promise.resolve(null),
-        tauri?.invoke('assemble_stats').then((r) => r as unknown as AssembleStats) ?? Promise.resolve(null),
+        backend.metricsSnapshot().then((r) => r as unknown as MetricsSnapshot),
+        backend.assembleStats().then((r) => r as unknown as AssembleStats),
       ]);
       if (m) setMetrics(m);
       if (s) setStats(s);
@@ -76,7 +77,9 @@ export function CostDashboard(): JSX.Element {
     }
   };
 
-  useState(() => { void refresh(); });
+  useEffect(() => {
+    void refresh();
+  }, [backend]);
 
   const tokenChart = useMemo<ChartSpec>(() => {
     if (!metrics) {
@@ -97,8 +100,8 @@ export function CostDashboard(): JSX.Element {
   const handleClearCache = async (): Promise<void> => {
     setClearPhase('loading');
     try {
-      if (tauri) {
-        await tauri.invoke('cache_invalidate', { scope: 'all' });
+      if (backend.available) {
+        await backend.invalidateCache('all');
       }
       setClearPhase('success');
       setTimeout(() => setClearPhase('idle'), 1200);
@@ -108,7 +111,7 @@ export function CostDashboard(): JSX.Element {
     }
   };
 
-  const cacheTotal = stats ? stats.cache_hits + stats.cache_misses + stats.cache_invalidations + stats.cache_replacements : 0;
+  const cacheTotal = stats ? stats.cache_hits + stats.cache_misses : 0;
   const cacheHitRate = stats && cacheTotal > 0 ? stats.cache_hits / cacheTotal : metrics?.cache_hit_rate ?? 0;
 
   return (

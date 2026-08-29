@@ -12,7 +12,7 @@ import { Pencil } from 'lucide-react';
 
 import { useT } from '@/i18n/useT';
 
-export type MainTab = 'chat' | 'evolution' | 'ledger';
+export type MainTab = 'chat' | 'evolution' | 'ledger' | 'trajectory';
 
 interface TopBarProps {
   title: string;
@@ -92,6 +92,15 @@ export function TopBar({ title, tab, onTabChange, onTitleChange }: TopBarProps) 
           className="ink-tab-item"
         >
           {t('topbar.tab.ledger')}
+        </button>
+        <button
+          type="button"
+          data-ui="tab_trajectory"
+          data-active={tab === 'trajectory'}
+          onClick={() => onTabChange('trajectory')}
+          className="ink-tab-item"
+        >
+          {t('topbar.tab.trajectory')}
         </button>
       </nav>
     </header>

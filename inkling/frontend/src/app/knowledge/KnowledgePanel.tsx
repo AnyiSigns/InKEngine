@@ -14,7 +14,7 @@ import { Archive, BookOpen, ChevronDown, ChevronRight, Download, Plus, RefreshCw
 
 import { Button } from '@/shared/ui/Button';
 import { TextInput } from '@/shared/ui/Field';
-import { createTauriInvoker } from '@/shared/backend/tauriBridge';
+import { createBackend } from '@/shared/backend/backendAdapter';
 import {
   compareCredibility,
   createKnowledgeOps,
@@ -51,6 +51,7 @@ const KIND_LABELS: Record<string, string> = {
 const KIND_FILTERS = ['', 'rule', 'template', 'insight', 'path', 'script', 'weight', 'tool_rule'] as const;
 
 export function KnowledgePanel(): JSX.Element {
+  const backendRef = useRef(createBackend());
   const opsRef = useRef<KnowledgeOps>(createKnowledgeOps());
   const [data, setData] = useState<KnowledgeData | null>(null);
   const [growth, setGrowth] = useState<GrowthStatus | null>(null);
@@ -76,16 +77,13 @@ export function KnowledgePanel(): JSX.Element {
   };
 
   const loadGrowth = async () => {
-    const tauri = createTauriInvoker();
-    if (!tauri) return;
+    if (!backendRef.current.available) return;
     try {
-      const result = (await tauri.invoke('growth_report', {})) as {
-        growth?: GrowthStatus;
-        knowledge_count?: number;
-      };
+      const result = await backendRef.current.growthReport();
+      const growth = (result?.growth ?? {}) as GrowthStatus;
       setGrowth({
-        ...(result?.growth ?? {}),
-        knowledge_count: result?.growth?.knowledge_count ?? result?.knowledge_count ?? 0,
+        ...growth,
+        knowledge_count: growth.knowledge_count ?? result?.knowledge_count ?? 0,
       });
     } catch {
       // 宿主未就绪 = 空态说明（只读状态不阻断条目管理）
@@ -106,9 +104,14 @@ export function KnowledgePanel(): JSX.Element {
     return counts;
   }, [activeEntries]);
 
+  const searchLower = search.toLowerCase();
   const filtered = activeEntries
     .filter((e) => !kindFilter || e.kind === kindFilter)
-    .filter((e) => e.title.includes(search) || e.tags.some((t) => t.includes(search)))
+    .filter((e) =>
+      e.title.toLowerCase().includes(searchLower) ||
+      e.content.toLowerCase().includes(searchLower) ||
+      e.tags.some((t) => t.toLowerCase().includes(searchLower)),
+    )
     .sort(compareCredibility);
 
   const toggleExpand = (id: string) => {

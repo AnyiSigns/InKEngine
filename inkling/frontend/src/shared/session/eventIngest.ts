@@ -8,7 +8,7 @@
 import { BatchCounter } from '../logger';
 import type { ChannelHub, HubEvent, ThreadBucket } from './channelHub';
 import { emptyThreadBucket } from './channelHub';
-import type { InkMessage, OutboundAttachment } from './types';
+import type { InkMessage, OutboundAttachment, RoundStep } from './types';
 import { reduceTaskEvent } from './taskState';
 import { getUiStateStore } from '../ui/uiStateStore';
 import { DEV_MODE_KEY } from '../ui/devMode';
@@ -100,6 +100,7 @@ export function ingestEvent(hub: ChannelHub, event: HubEvent): void {
   let messages = state.messages;
   let next: Partial<typeof state> = {};
   // 桶内回合状态（归约目标 = 对应会话窗口）
+  let roundSteps = bucket.roundSteps;
   let simulations = bucket.simulations;
   let incubation = bucket.incubation;
   let sourceTraces = bucket.sourceTraces;
@@ -113,7 +114,21 @@ export function ingestEvent(hub: ChannelHub, event: HubEvent): void {
       : [...messages, { ...create, id: nextId(), stepId: stepId || undefined, roundId }];
   };
 
+  /** 回合步骤累积（stepId 稳定 upsert；与引擎 core.round_steps 语义对齐）。 */
+  const upsertStep = (create: Omit<RoundStep, 'startedAt'>, patch: (s: RoundStep) => RoundStep): void => {
+    const sid = create.stepId || stepId || `${create.type}:${roundSteps.length + 1}`;
+    const idx = roundSteps.findIndex((s) => s.stepId === sid);
+    roundSteps = idx >= 0
+      ? roundSteps.map((s, i) => (i === idx ? patch(s) : s))
+      : [...roundSteps, { ...create, stepId: sid, startedAt: at }];
+  };
+
   switch (type) {
+    case 'user_message': {
+      // 回合边界：重置本回合步骤序列并落位用户步（消息气泡由提交侧本地落位）。
+      roundSteps = [{ stepId: 'user', type: 'user', label: '用户', status: 'done', startedAt: at }];
+      break;
+    }
     case 'reply_token': {
       const token = String(payload.token ?? '');
       if (!token) break;
@@ -127,6 +142,7 @@ export function ingestEvent(hub: ChannelHub, event: HubEvent): void {
       break;
     }
     case 'thinking_start': {
+      upsertStep({ stepId, type: 'thinking', label: '思考', status: 'running' }, (s) => ({ ...s, status: 'running' as const }));
       // 思考流式：同 stepId 的 thinking_start 携带 content 分片时在正在
       // 进行的思考条目上逐片追加（中途逐步可见）；无分片 = 仅开启条目。
       const chunk = String(payload.content ?? '');
@@ -144,12 +160,14 @@ export function ingestEvent(hub: ChannelHub, event: HubEvent): void {
       break;
     }
     case 'thinking_end':
+      upsertStep({ stepId, type: 'thinking', label: '思考', status: 'done' }, (s) => ({ ...s, status: 'done' as const }));
       upsert(
         { kind: 'thinking', content: String(payload.content ?? ''), status: 'completed', id: nextId() },
         (m) => (m.kind === 'thinking' ? { ...m, status: 'completed' as const, content: String(payload.content ?? m.content) } : m),
       );
       break;
     case 'plan_start':
+      upsertStep({ stepId, type: 'plan', label: '计划', status: 'running' }, (s) => ({ ...s, status: 'running' as const }));
       // 引擎发射 {plan: [{nodes:[...]}]}（graph_recipe 计划步），取步骤名作展示标签。
       {
         const rawPlan = payload.plan ?? payload.workflow;
@@ -172,6 +190,7 @@ export function ingestEvent(hub: ChannelHub, event: HubEvent): void {
       }
       break;
     case 'plan_end':
+      upsertStep({ stepId, type: 'plan', label: '计划', status: 'done' }, (s) => ({ ...s, status: 'done' as const }));
       upsert(
         { kind: 'plan', content: String(payload.content ?? ''), status: 'completed', id: nextId() },
         (m) => (m.kind === 'plan' ? { ...m, status: 'completed' as const } : m),
@@ -184,6 +203,10 @@ export function ingestEvent(hub: ChannelHub, event: HubEvent): void {
       const title = typeof payload.title === 'string' && payload.title.trim() !== ''
         ? payload.title
         : undefined;
+      upsertStep(
+        { stepId, type: 'tool', label: title ?? tool, status: 'running' },
+        (s) => ({ ...s, label: title ?? s.label ?? tool, status: 'running' as const }),
+      );
       upsert(
         { kind: 'tool', tool, title, permission: String(payload.permission ?? ''), toolStatus: 'running', id: nextId(), args },
         (m) =>
@@ -203,12 +226,17 @@ export function ingestEvent(hub: ChannelHub, event: HubEvent): void {
     case 'tool_end': {
       const tool = String(payload.tool ?? payload.tool_name ?? '');
       const summary = String(payload.summary ?? payload.result_preview ?? '');
+      const failed = payload.success === false;
+      upsertStep(
+        { stepId, type: 'tool', label: tool, status: failed ? 'error' : 'done' },
+        (s) => ({ ...s, label: s.label ?? tool, status: failed ? ('error' as const) : ('done' as const) }),
+      );
       upsert(
         {
           kind: 'tool',
           tool,
           permission: '',
-          toolStatus: payload.success === false ? 'error' : 'done',
+          toolStatus: failed ? 'error' : 'done',
           summary,
           id: nextId(),
         },
@@ -216,7 +244,7 @@ export function ingestEvent(hub: ChannelHub, event: HubEvent): void {
           m.kind === 'tool'
             ? {
                 ...m,
-                toolStatus: payload.success === false ? ('error' as const) : ('done' as const),
+                toolStatus: failed ? ('error' as const) : ('done' as const),
                 summary: summary || m.summary,
               }
             : m,
@@ -224,6 +252,10 @@ export function ingestEvent(hub: ChannelHub, event: HubEvent): void {
       break;
     }
     case 'spawn_start':
+      upsertStep(
+        { stepId, type: 'spawn', label: String(payload.label ?? '子代理'), status: 'running' },
+        (s) => ({ ...s, status: 'running' as const }),
+      );
       upsert(
         {
           kind: 'spawn',
@@ -236,12 +268,14 @@ export function ingestEvent(hub: ChannelHub, event: HubEvent): void {
       );
       break;
     case 'spawn_end':
+      upsertStep({ stepId, type: 'spawn', label: '子代理', status: 'completed' }, (s) => ({ ...s, status: 'completed' as const }));
       upsert(
         { kind: 'spawn', nodeId: payload.node_id as string | undefined, status: 'completed', id: nextId() },
         (m) => (m.kind === 'spawn' ? { ...m, status: 'completed' as const } : m),
       );
       break;
     case 'review_card': {
+      upsertStep({ stepId, type: 'review', label: '审批', status: 'running' }, (s) => ({ ...s, status: 'running' as const }));
       messages = [...messages, { kind: 'review_card', payload: { ...payload }, live: true, id: nextId(), stepId: stepId || undefined, roundId }];
       if (isActive) next.pendingReview = { ...payload };
       break;
@@ -252,6 +286,7 @@ export function ingestEvent(hub: ChannelHub, event: HubEvent): void {
       break;
     }
     case 'error':
+      upsertStep({ stepId, type: 'error', label: '错误', status: 'error' }, (s) => ({ ...s, status: 'error' as const }));
       messages = [...messages, { kind: 'error', content: String(payload.message ?? ''), id: nextId(), stepId: stepId || undefined, roundId }];
       break;
     case 'memory_recall': {
@@ -431,6 +466,12 @@ export function ingestEvent(hub: ChannelHub, event: HubEvent): void {
     case 'assembly_candidate':
     case 'node_start':
     case 'evolution_variant': {
+      if (type === 'node_start') {
+        upsertStep(
+          { stepId, type: 'node', label: String(payload.label ?? payload.name ?? '节点'), status: 'running' },
+          (s) => ({ ...s, status: 'running' as const }),
+        );
+      }
       // 引擎观察/审计事件，无对应消息 kind：dev 模式折叠记录，避免静默丢
       if (getUiStateStore().get<boolean>(DEV_MODE_KEY)) {
         const keys = typeof payload === 'object' && payload ? Object.keys(payload).slice(0, 8) : [];
@@ -439,6 +480,18 @@ export function ingestEvent(hub: ChannelHub, event: HubEvent): void {
       }
       break;
     }
+    case 'node_end':
+      upsertStep(
+        { stepId, type: 'node', label: String(payload.label ?? payload.name ?? '节点'), status: 'done' },
+        (s) => ({ ...s, status: 'done' as const }),
+      );
+      break;
+    case 'node_fail':
+      upsertStep(
+        { stepId, type: 'node', label: String(payload.label ?? payload.name ?? '节点'), status: 'failed' },
+        (s) => ({ ...s, status: 'failed' as const }),
+      );
+      break;
     case 'tuning_update': {
       const traces = [...sourceTraces];
       traces.push({
@@ -470,7 +523,7 @@ export function ingestEvent(hub: ChannelHub, event: HubEvent): void {
 
   const nextBucket: ThreadBucket = {
     roundId: nextRoundId,
-    roundSteps: bucket.roundSteps,
+    roundSteps,
     simulations,
     incubation,
     sourceTraces,
@@ -483,7 +536,7 @@ export function ingestEvent(hub: ChannelHub, event: HubEvent): void {
     roundId: isActive ? state.roundId ?? nextRoundId : state.roundId,
     taskState,
     // 当前会话桶 → 全局镜像（既有组件零改动读快照即得当前会话数据）
-    ...(isActive ? { simulations, incubation, sourceTraces, patchChain } : {}),
+    ...(isActive ? { roundSteps, simulations, incubation, sourceTraces, patchChain } : {}),
   });
 }
 

@@ -10,7 +10,7 @@
  * engine.records/事件流/日志；错误不回显明文）；压缩红线联动展示。
  */
 
-import { useEffect, useMemo, useState } from 'react';
+import { useEffect, useMemo, useRef, useState } from 'react';
 
 import { AlertTriangle, RefreshCw } from 'lucide-react';
 
@@ -19,7 +19,7 @@ import { Field, Select, TextInput } from '@/shared/ui/Field';
 import { Feedback } from '@/components/floaters/feedback';
 import type { FeedbackPhase } from '@/components/floaters/feedback';
 import { FloaterWindow } from '@/components/floaters/floater_window';
-import { createTauriInvoker } from '@/shared/backend/tauriBridge';
+import { createBackend } from '@/shared/backend/backendAdapter';
 
 export type GearTier = 'main' | 'router' | 'audit';
 
@@ -94,6 +94,7 @@ function TierModelBlock({
   onCommit: (patch: Partial<ModelSectionValue>) => void;
   savePhase: FeedbackPhase;
 }): JSX.Element {
+  const backend = useMemo(() => createBackend(), []);
   const [editing, setEditing] = useState<GearTier | null>(null);
   const [draftVendor, setDraftVendor] = useState(value.vendor);
   const [draftProviderId, setDraftProviderId] = useState(value.providerId);
@@ -132,21 +133,18 @@ function TierModelBlock({
     setProbePhase('loading');
     setProbeNote('');
     try {
-      const tauri = createTauriInvoker();
-      if (!tauri) throw new Error('宿主不可用');
+      if (!backend.available) throw new Error('宿主不可用');
       // 壳侧 normalize_models_url 为 base_url + '/models'；Anthropic 需
       // 显式带 /v1 前缀（api.anthropic.com/models 非有效端点）。
       const probeBase = draftVendor === 'anthropic'
         ? `${draftBaseUrl.replace(/\/+$/, '')}/v1`
         : draftBaseUrl;
-      await tauri.invoke('models_refresh', {
-        config: {
-          base_url: probeBase,
-          api_key: draftApiKey || undefined,
-          models: [],
-        },
+      await backend.modelsRefresh({
+        base_url: probeBase,
+        api_key: draftApiKey || undefined,
+        models: [],
       });
-      const archive = (await tauri.invoke('model_archive_snapshot')) as {
+      const archive = (await backend.modelArchiveSnapshot()) as unknown as {
         archives?: Array<{ model_id: string; context_window?: number }>;
       };
       const models = (archive?.archives ?? []).map((m) => ({
@@ -363,7 +361,7 @@ function TierModelBlock({
 }
 
 export function ModelSection(): JSX.Element {
-  const tauri = createTauriInvoker();
+  const backend = useMemo(() => createBackend(), []);
   const [vendor, setVendor] = useState<string>(VENDORS[0].id);
   const [providerId, setProviderId] = useState<string>('custom_provider');
   const [baseUrl, setBaseUrl] = useState<string>(VENDORS[0].baseUrl);
@@ -376,11 +374,25 @@ export function ModelSection(): JSX.Element {
   const [simulationTier, setSimulationTier] = useState<'off' | 'light' | 'full'>('light');
   const [savePhase, setSavePhase] = useState<FeedbackPhase>('idle');
 
+  // 用 ref 持久化最新表单闭包，避免 handleSimChange 读到过期渲染闭包。
+  const formRef = useRef<ModelSectionValue>({ vendor, providerId, baseUrl, apiKey, mainModelId, routerModelId, auditModelId, contextWindow, compressionPercent });
+  formRef.current = { vendor, providerId, baseUrl, apiKey, mainModelId, routerModelId, auditModelId, contextWindow, compressionPercent };
+
+  // 标记推演档是否经用户切换（排除初始挂载）。
+  const simTouchedRef = useRef(false);
+
+  // 推演档切换 → 读取最新表单值即时落盘（effect 在 committed state 上运行，无闭包过期）。
+  useEffect(() => {
+    if (!simTouchedRef.current) return;
+    void persist(formRef.current, simulationTier);
+    // eslint-disable-next-line react-hooks/exhaustive-deps
+  }, [simulationTier]);
+
   // 读回显：进入设置页时把上次保存的模型连接配置回填（api_key 掩码不回显）。
   useEffect(() => {
-    if (!tauri) return;
-    void tauri
-      .invoke('models_config_get')
+    if (!backend.available) return;
+    void backend
+      .modelsConfigGet()
       .then((raw) => {
         const cfg = (raw ?? {}) as Record<string, unknown>;
         if (typeof cfg !== 'object') return;
@@ -399,7 +411,7 @@ export function ModelSection(): JSX.Element {
         if (typeof cfg.compression_percent === 'number') setCompressionPercent(cfg.compression_percent);
       })
       .catch(() => undefined);
-  }, [tauri]);
+  }, [backend]);
 
   // 压缩红线 = 上下文窗口 × 用户所选百分比（1%~100%）；40k 只作执行侧硬下限，不参与展示
   const redlineTokens = useMemo(() => {
@@ -424,10 +436,10 @@ export function ModelSection(): JSX.Element {
       };
       // 留空沿用已保存密钥：仅当本档填写了 key 才覆盖。
       if (next.apiKey && next.apiKey.trim()) payload.api_key = next.apiKey;
-      if (tauri) {
+      if (backend.available) {
         await Promise.all([
-          tauri.invoke('models_config_put', { config: payload }),
-          tauri.invoke('capability_put', { record: { simulation_tier: sim } }),
+          backend.modelsConfigPut(payload),
+          backend.capabilityPut({ simulation_tier: sim }),
         ]);
       }
       setSavePhase('success');
@@ -463,13 +475,10 @@ export function ModelSection(): JSX.Element {
     void persist(next, simulationTier);
   };
 
-  /** 推演档切换 → 即时落盘。 */
+  /** 推演档切换 → setSimulationTier 触发 effect 持久化（读 formRef 最新值，无闭包过期）。 */
   const handleSimChange = (tier: 'off' | 'light' | 'full'): void => {
+    simTouchedRef.current = true;
     setSimulationTier(tier);
-    void persist(
-      { vendor, providerId, baseUrl, apiKey, mainModelId, routerModelId, auditModelId, contextWindow, compressionPercent },
-      tier,
-    );
   };
 
   return (

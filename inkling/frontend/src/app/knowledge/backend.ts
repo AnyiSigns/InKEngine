@@ -1,4 +1,4 @@
-import { invokeOp } from '../shared/invokeOp';
+import { createBackend } from '@/shared/backend/backendAdapter';
 
 export type KnowledgeCredibility = 'high' | 'medium' | 'low';
 
@@ -48,31 +48,35 @@ export interface ImportOutcome {
 }
 
 export function createKnowledgeOps(): KnowledgeOps {
+  const backend = createBackend();
   return {
     list: async () => {
-      const result = await invokeOp<KnowledgeData>('knowledge.list', {});
-      return result ?? { entries: [] };
+      if (!backend.available) return { entries: [] };
+      const result = await backend.knowledgeList();
+      return { entries: (Array.isArray(result.entries) ? result.entries : []) as KnowledgeEntry[] };
     },
     add: async (input) => {
-      await invokeOp('knowledge.add', input);
+      if (backend.available) await backend.knowledgeAdd(input);
     },
     promote: async (id: string) => {
-      await invokeOp('knowledge.promote', { id });
+      if (backend.available) await backend.knowledgePromote(id);
     },
     archive: async (id: string) => {
-      await invokeOp('knowledge.archive', { id });
+      if (backend.available) await backend.knowledgeArchive(id);
     },
     restore: async (id: string) => {
-      await invokeOp('knowledge.restore', { id });
+      if (backend.available) await backend.knowledgeRestore(id);
     },
     export: async (id: string) => {
-      await invokeOp('knowledge.export', { id });
+      if (backend.available) await backend.knowledgeExport(id);
     },
     skillImport: async (source, preview = false) => {
-      return await invokeOp<ImportOutcome>('knowledge.skill_import', { source, preview });
+      if (!backend.available) return null;
+      return (await backend.skillImport(source, preview)) as ImportOutcome;
     },
     skillReimport: async (id: string) => {
-      return await invokeOp<ImportOutcome>('knowledge.skill_reimport', { id });
+      if (!backend.available) return null;
+      return (await backend.skillReimport(id)) as ImportOutcome;
     },
   };
 }
@@ -93,8 +97,8 @@ export function credibilityLabel(level: KnowledgeCredibility): string {
 
 export function credibilityClass(level: KnowledgeCredibility): string {
   switch (level) {
-    case 'high': return 'text-emerald-600';
-    case 'medium': return 'text-amber-600';
+    case 'high': return 'text-[var(--ink-text-base)]';
+    case 'medium': return 'ink-text-muted';
     case 'low': return 'text-[var(--ink-text-faint)]';
   }
 }

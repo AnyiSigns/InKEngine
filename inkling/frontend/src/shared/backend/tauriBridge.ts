@@ -18,7 +18,7 @@ export interface EngineErrorEnvelope {
 /**
  * 统一命令失败处理（单 IPC 面的错误收口）：
  * 提取 {code, message, trace_id} 记入日志后原样上抛——
- * backendAdapter / invokeOp / settings 全部命令调用共用此面，
+ * backendAdapter / settings 全部命令调用共用此面，
  * 不再各自 catch 静默吞错或丢 trace_id。
  */
 export function handleEngineError(cmd: string, err: unknown): void {

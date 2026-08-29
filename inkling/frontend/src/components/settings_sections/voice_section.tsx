@@ -12,7 +12,7 @@ import { useEffect, useState } from 'react';
 import { Mic, AudioLines, Volume2, ShieldAlert, WifiOff } from 'lucide-react';
 
 import { Button } from '@/shared/ui/Button';
-import { createTauriInvoker } from '@/shared/backend/tauriBridge';
+import { createBackend, type BackendAdapter } from '@/shared/backend/backendAdapter';
 
 interface VoiceStatus {
   mic: boolean;
@@ -45,8 +45,8 @@ const DEFAULT_OFFLINE: OfflineSettings = {
 };
 
 export interface VoiceSectionProps {
-  /** 宿主可用时注入 invoker；缺省则组件内自取（测试可注入 mock）。 */
-  invoker?: ReturnType<typeof createTauriInvoker>;
+  /** 宿主可用时注入 backend；缺省则组件内自取（测试可注入 mock）。 */
+  backend?: BackendAdapter;
 }
 
 function Chip({ on, label }: { on: boolean; label: string }): JSX.Element {
@@ -60,9 +60,9 @@ function Chip({ on, label }: { on: boolean; label: string }): JSX.Element {
   );
 }
 
-export function VoiceSection({ invoker }: VoiceSectionProps) {
-  const transport = invoker ?? createTauriInvoker();
-  const available = transport !== null;
+export function VoiceSection({ backend: backendProp }: VoiceSectionProps) {
+  const backend = backendProp ?? createBackend();
+  const available = backend.available;
 
   const [status, setStatus] = useState<VoiceStatus | null>(null);
   const [offline, setOffline] = useState<OfflineDetect | null>(null);
@@ -71,41 +71,41 @@ export function VoiceSection({ invoker }: VoiceSectionProps) {
   const [speakTest, setSpeakTest] = useState<string | null>(null);
 
   useEffect(() => {
-    if (!transport) return;
+    if (!backend.available) return;
     void (async () => {
       try {
-        const s = (await transport.invoke('voice_status', {})) as VoiceStatus;
+        const s = (await backend.voiceStatus()) as unknown as VoiceStatus;
         setStatus(s);
       } catch {
         setStatus(null);
       }
       try {
-        const o = (await transport.invoke('offline_detect', {})) as OfflineDetect;
+        const o = (await backend.offlineDetect()) as unknown as OfflineDetect;
         setOffline(o);
       } catch {
         setOffline(null);
       }
       try {
-        const cfg = (await transport.invoke('offline_settings_get', {})) as Partial<OfflineSettings>;
+        const cfg = (await backend.offlineSettingsGet()) as Partial<OfflineSettings>;
         setSettings({ ...DEFAULT_OFFLINE, ...cfg });
       } catch {
         setSettings(DEFAULT_OFFLINE);
       }
     })();
-  }, [transport]);
+  }, [backend]);
 
   const saveSettings = (next: OfflineSettings): void => {
     setSettings(next);
-    if (transport) {
-      void transport.invoke('offline_settings_put', { settings: next }).catch(() => undefined);
+    if (backend.available) {
+      void backend.offlineSettingsPut(next as unknown as Record<string, unknown>).catch(() => undefined);
     }
   };
 
   const testSpeak = (): void => {
     setSpeakTest(null);
-    if (!transport) return;
-    void transport
-      .invoke('voice_synthesize', { text: '语音合成链路自检' })
+    if (!backend.available) return;
+    void backend
+      .voiceSynthesize('语音合成链路自检')
       .then(() => setSpeakTest('已朗读'))
       .catch((e: unknown) => setSpeakTest(`失败：${String(e)}`));
   };

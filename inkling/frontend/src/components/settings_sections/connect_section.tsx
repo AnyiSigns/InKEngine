@@ -14,7 +14,6 @@ import { TextInput } from '@/shared/ui/Field';
 import { MountWizardFloater } from '@/components/floaters/mount_wizard_floater';
 import type { McpMarketEntry } from '@/components/floaters/mount_wizard_floater';
 import { MCP_MARKET_DEFAULT } from '@/components/floaters/mount_wizard_floater';
-import { ComponentsMarket } from '@/components/components_market';
 
 export interface ConnectValue {
   mcpMounted: string[];
@@ -105,7 +104,6 @@ export function ConnectSection({ value, patch, market = MCP_MARKET_DEFAULT }: Co
           onMounted={(entry) => mount(entry.name)}
         />
       )}
-      <ComponentsMarket />
     </div>
   );
 }

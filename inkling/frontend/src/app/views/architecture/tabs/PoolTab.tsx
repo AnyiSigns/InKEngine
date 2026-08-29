@@ -3,9 +3,15 @@ import { Boxes, Cpu } from 'lucide-react';
 
 import { EmptyState } from '../../EmptyState';
 import type { ArchitectureBackend, GovernanceVerdict, PoolGovernance, PoolNode } from '../backend';
+import { useT } from '@/i18n/useT';
+
+function interpolate(template: string, vars: Record<string, string | number>): string {
+  return template.replace(/\{(\w+)\}/g, (_, k: string) => String(vars[k] ?? ''));
+}
 
 /** 结点池 tab：顶部摘要条 + 结点行 + 最近治理裁决。未接线→降级空态。 */
 export function PoolTab({ backend }: { backend: ArchitectureBackend }) {
+  const { t } = useT();
   const [data, setData] = useState<{
     governance: PoolGovernance | null;
     nodes: PoolNode[] | null;
@@ -23,11 +29,11 @@ export function PoolTab({ backend }: { backend: ArchitectureBackend }) {
     };
   }, [backend]);
 
-  if (data === null) return <div className="w3-muted" data-testid="pool-loading">加载结点池…</div>;
+  if (data === null) return <div className="w3-muted" data-testid="pool-loading">{t('edge.loading')}</div>;
 
   const { governance, nodes, verdicts } = data;
   if (!governance && !nodes) {
-    return <EmptyState icon={Cpu} text="治理数据暂不可用" actionLabel="接线后可用" onAction={() => undefined} />;
+    return <EmptyState icon={Cpu} text={t('pool.unavailable')} actionLabel={t('pool.connect_hint')} onAction={() => undefined} />;
   }
 
   return (
@@ -38,31 +44,31 @@ export function PoolTab({ backend }: { backend: ArchitectureBackend }) {
           <strong data-testid="pool-capacity">
             {governance ? `${governance.used}/${governance.total}` : '—'}
           </strong>
-          <span>· {governance?.domain ?? '域'}</span>
+          <span>· {governance?.domain ?? t('pool.domain')}</span>
         </span>
         <span className="w3-sep" />
         <span className="w3-metric">
           <strong data-testid="pool-budget">
             {governance ? `${governance.weeklyUsed}/${governance.weeklyTotal}` : '—'}
           </strong>
-          <span>· {governance?.weeklyPeriod ?? '周'}</span>
+          <span>· {governance?.weeklyPeriod ?? t('pool.week')}</span>
         </span>
       </div>
 
       {nodes && nodes.length > 0 && (
         <div className="w3-panel">
-          <div className="w3-panel-title">结点</div>
+          <div className="w3-panel-title">{t('pool.nodes')}</div>
           {nodes.map((n) => (
             <div key={n.name} className="w3-row-item" data-testid={`pool-node-${n.name}`} data-dead={n.dead}>
               <div className="w3-grow">
                 <div className="w3-truncate">{n.name}</div>
                 <div className="w3-muted">
-                  {n.safetyTier} · {n.version} · 使用 {n.usageCount}
+                  {n.safetyTier} · {n.version} · {interpolate(t('pool.usage'), { n: n.usageCount })}
                 </div>
               </div>
               {n.dead && (
                 <span className="w3-badge w3-badge--warn" data-testid="pool-dead">
-                  死亡
+                  {t('pool.dead')}
                 </span>
               )}
             </div>
@@ -72,7 +78,7 @@ export function PoolTab({ backend }: { backend: ArchitectureBackend }) {
 
       {verdicts && verdicts.length > 0 && (
         <div className="w3-panel">
-          <div className="w3-panel-title">最近治理裁决</div>
+          <div className="w3-panel-title">{t('pool.verdicts')}</div>
           {verdicts.map((v) => (
             <div key={v.id} className="w3-row" data-testid={`pool-verdict-${v.id}`}>
               <span className="w3-badge w3-badge--neutral">{v.action}</span>

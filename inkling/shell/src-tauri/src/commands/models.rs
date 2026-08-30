@@ -77,9 +77,16 @@ pub(crate) async fn models_refresh(app: AppHandle, config: JsonValue) -> Result<
     .await
     .map_err(CommandError::internal)?;
     let saved = if report.mode == crate::domain::model_archive::RefreshMode::Success {
+        // 提供方数组形态回写（provider_id 透传；旧 flat 由写入侧投影迁移）
         crate::domain::model_archive::write_model_connection(
             &data_dir,
-            &json!({ "base_url": base_url, "api_key": api_key }),
+            &json!({
+                "providers": [{
+                    "provider_id": config.get("provider_id").and_then(JsonValue::as_str).unwrap_or("default"),
+                    "base_url": base_url,
+                    "api_key": api_key,
+                }],
+            }),
         )
     } else {
         json!({ "base_url": base_url, "api_key": api_key })

@@ -68,6 +68,9 @@ class EndpointType(StrEnum):
     WEB_SEARCH: 联网搜索（本地聚合源/厂商降级；结果域名过滤在实现内，
         不设本地域名沙箱——与 fetch 的单 URL 出网语义不同；权限动作 =
         独立 search 域（ENG6-10），不再挂 connect 域名白名单）。
+    COLLAB_REQUEST: 协作者召唤（宿主执行体把 EntitySpec 物化为 spawn
+        子图——多 agent 动态协作入口；权限动作 = 独立 collab 域，
+        判定目标 = 实体 id（collab:request:<entity_id>），fail-closed）。
     """
 
     HTTP_FETCH = "http_fetch"
@@ -75,6 +78,7 @@ class EndpointType(StrEnum):
     FILE_OPS = "file_ops"
     MCP = "mcp"
     WEB_SEARCH = "web_search"
+    COLLAB_REQUEST = "collab_request"
 
 
 # 各端点类型的判定动作（endpoint_operation 的映射依据；与权限域动作对齐）
@@ -92,6 +96,9 @@ _ENDPOINT_ACTIONS: dict[EndpointType, tuple[str, ...]] = {
     # pattern 是通配标记而非域名）；既有 network:connect:* 声明经
     # permissions.rule_matches 的兼容分支继续生效
     EndpointType.WEB_SEARCH: ("search",),
+    # collab_request：独立 collab 域（collab:request:<entity_id>），
+    # 与文件/进程/网络域分离——召唤协作者是编排动作不是资源访问
+    EndpointType.COLLAB_REQUEST: ("request",),
 }
 
 # 端点配置的必填白名单键（沙箱自动接线的声明依据：process_exec 须声明
@@ -349,6 +356,11 @@ def endpoint_operation(
         # （结果域名过滤在实现内完成——与 fetch 的单 URL 出网语义不同）
         query = args.get("query")
         return ("search", query) if isinstance(query, str) and query else None
+    if endpoint is EndpointType.COLLAB_REQUEST:
+        # 协作者召唤：判定目标 = 实体 id（collab:request:<entity_id>）；
+        # 缺实体 id = 无法判定目标 = fail-closed 拒绝
+        entity_id = args.get("entity_id")
+        return ("request", entity_id) if isinstance(entity_id, str) and entity_id else None
     return None
 
 
@@ -398,6 +410,11 @@ def endpoint_operation_failure_reason(
         query = args.get("query")
         if not isinstance(query, str) or not query:
             return "query 参数缺失"
+        return None
+    if endpoint is EndpointType.COLLAB_REQUEST:
+        entity_id = args.get("entity_id")
+        if not isinstance(entity_id, str) or not entity_id:
+            return "entity_id 参数缺失或非法（须为已注册实体 id）"
         return None
     return None
 

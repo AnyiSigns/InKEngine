@@ -167,6 +167,10 @@ class Message:
             当前轮推理以流式 reasoning_token 增量产出，不入此字段）。
         attachments: user 角色的多模态附件（默认空元组；携带时
             to_openai_dict 以内容段数组形态序列化）。
+        name: 发言者身份（多 agent 协作：实体 id/label；OpenAI 协议
+            user/assistant 消息原生支持输出，anthropic/gemini 无此字段由
+            适配器忽略——身份引导走每轮注入的参与者清单，name 仅承担
+            展示/留痕（进 checkpoint/事件/前端渲染，见 multi_agent_design.md）。
     """
 
     role: str
@@ -176,6 +180,7 @@ class Message:
     reasoning: str | None = None
     id: str | None = None
     attachments: tuple[Attachment, ...] = ()
+    name: str | None = None
 
     def __post_init__(self) -> None:
         if self.role not in _ROLES:
@@ -197,6 +202,7 @@ class Message:
         user 消息携带附件时 content 序列化为多模态内容段数组
         （[{"type": "text", ...}, {"type": "image_url", ...}, ...]）；
         无附件时输出形态与既往逐字段一致（回归零影响）。
+        name 仅 user/assistant 角色携带（OpenAI 协议原生支持）。
         """
         if self.role == "tool":
             return {"role": "tool", "content": self.content, "tool_call_id": self.tool_call_id}
@@ -205,8 +211,13 @@ class Message:
             if self.content:
                 content.append({"type": "text", "text": self.content})
             content.extend(a.to_openai_segment() for a in self.attachments)
-            return {"role": "user", "content": content}
+            payload: dict[str, Any] = {"role": "user", "content": content}
+            if self.name:
+                payload["name"] = self.name
+            return payload
         payload: dict[str, Any] = {"role": self.role, "content": self.content}
+        if self.name and self.role in ("user", "assistant"):
+            payload["name"] = self.name
         if self.role == "assistant" and self.tool_calls:
             payload["tool_calls"] = [
                 {
@@ -236,6 +247,7 @@ class Message:
             "attachments": (
                 [a.to_dict() for a in self.attachments] if self.attachments else None
             ),
+            "name": self.name,
         }
 
     @classmethod
@@ -256,6 +268,7 @@ class Message:
                 if attachments
                 else ()
             ),
+            name=data.get("name"),
         )
 
 
@@ -267,16 +280,24 @@ def user(
     text: str,
     *,
     attachments: Iterable[Attachment] | None = None,
+    name: str | None = None,
 ) -> Message:
     return Message(
         role="user",
         content=text,
         attachments=tuple(attachments or ()),
+        name=name,
     )
 
 
-def assistant(text: str = "", *, tool_calls: list[ToolCall] | None = None, reasoning: str | None = None) -> Message:
-    return Message(role="assistant", content=text, tool_calls=tool_calls, reasoning=reasoning)
+def assistant(
+    text: str = "",
+    *,
+    tool_calls: list[ToolCall] | None = None,
+    reasoning: str | None = None,
+    name: str | None = None,
+) -> Message:
+    return Message(role="assistant", content=text, tool_calls=tool_calls, reasoning=reasoning, name=name)
 
 
 def tool_result(content: str, tool_call_id: str) -> Message:

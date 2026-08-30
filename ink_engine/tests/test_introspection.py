@@ -36,6 +36,7 @@ INTROSPECTION_TOOL_NAMES = (
     "inspect_knowledge",
     "inspect_ui",
     "inspect_tools",
+    "inspect_entities",
 )
 
 
@@ -146,7 +147,7 @@ def _service(storage=None, graph=None, registry=None) -> IntrospectionService:
 
 def test_tool_specs_registration_shape() -> None:
     specs = introspection_tool_specs()
-    assert len(specs) == 5
+    assert len(specs) == 6
     assert tuple(spec.name for spec in specs) == INTROSPECTION_TOOL_NAMES
     for spec in specs:
         assert spec.permissions == (INTROSPECTION_PERMISSION,)
@@ -266,7 +267,7 @@ def test_snapshot_tools_includes_harness(memory_storage) -> None:
     )
     service = _service(memory_storage, graph=_data_graph(), registry=registry)
     snapshot = service.snapshot_tools()
-    assert snapshot["count"] == 5
+    assert snapshot["count"] == 6
     assert "inspect_graph" in {tool["name"] for tool in snapshot["tools"]}
     assert snapshot["harnesses"] == ["novel"]
     assert snapshot["tools"][0]["permissions"] == [INTROSPECTION_PERMISSION]
@@ -316,7 +317,7 @@ def test_all_snapshots_json_serializable(memory_storage) -> None:
 def test_to_openai_tools_conversion() -> None:
     # 工具表注册契约：内省工具描述可转换为 OpenAI 工具 schema
     converted = to_openai_tools(list(introspection_tool_specs()))
-    assert len(converted) == 5
+    assert len(converted) == 6
     assert {tool["function"]["name"] for tool in converted} == set(
         INTROSPECTION_TOOL_NAMES
     )

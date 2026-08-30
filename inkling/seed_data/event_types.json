@@ -121,6 +121,73 @@
       "meta": { "note": "汇流裁决留痕（胜者/败者/裁决理由；路径/边证据视图消费）" }
     },
     {
+      "name": "junction_verdict_audit",
+      "schema": {
+        "name": "audit.junction",
+        "fields": [
+          { "name": "domain", "required": true, "kind": "string" },
+          { "name": "ts", "kind": "number" }
+        ]
+      },
+      "renderer": "path_dag",
+      "system": false,
+      "meta": { "note": "汇流裁决审计留痕（append-only 审计出口；与引擎 EVENT_AUDIT_JUNCTION 同源）" }
+    },
+    {
+      "name": "assembly_audit",
+      "schema": {
+        "name": "audit.assembly",
+        "fields": [
+          { "name": "domain", "required": true, "kind": "string" },
+          { "name": "ts", "kind": "number" },
+          { "name": "fingerprint", "kind": "string" }
+        ]
+      },
+      "renderer": "path_dag",
+      "system": false,
+      "meta": { "note": "组装审计留痕（候选计划登记；与引擎 EVENT_AUDIT_ASSEMBLY 同源）" }
+    },
+    {
+      "name": "fingerprint_replace_audit",
+      "schema": {
+        "name": "audit.fingerprint_replace",
+        "fields": [
+          { "name": "domain", "required": true, "kind": "string" },
+          { "name": "ts", "kind": "number" },
+          { "name": "fingerprint", "kind": "string" }
+        ]
+      },
+      "renderer": "path_dag",
+      "system": false,
+      "meta": { "note": "指纹顶替审计留痕（旧条目失效与新条目落位；与引擎 EVENT_AUDIT_FINGERPRINT_REPLACE 同源）" }
+    },
+    {
+      "name": "policy_edge_review_audit",
+      "schema": {
+        "name": "audit.policy_review",
+        "fields": [
+          { "name": "domain", "required": true, "kind": "string" },
+          { "name": "ts", "kind": "number" }
+        ]
+      },
+      "renderer": "path_dag",
+      "system": false,
+      "meta": { "note": "策略边复审审计留痕（对抗证据触发复审/降级；与引擎 EVENT_AUDIT_POLICY_REVIEW 同源）" }
+    },
+    {
+      "name": "recommended_prior_promotion",
+      "schema": {
+        "name": "audit.promotion",
+        "fields": [
+          { "name": "domain", "required": true, "kind": "string" },
+          { "name": "ts", "kind": "number" }
+        ]
+      },
+      "renderer": "path_dag",
+      "system": false,
+      "meta": { "note": "推荐先验自动晋升留痕（高强度证据路径自动晋升；与引擎 EVENT_AUDIT_PROMOTION 同源）" }
+    },
+    {
       "name": "node_start",
       "schema": {
         "name": "node_start",
@@ -487,6 +554,20 @@
       "renderer": "message_list",
       "system": false,
       "meta": { "note": "用户消息（输入行发送内容，消息流气泡渲染）" }
+    },
+    {
+      "name": "attachment",
+      "schema": {
+        "name": "attachment",
+        "fields": [
+          { "name": "kind", "kind": "string" },
+          { "name": "url", "kind": "string" },
+          { "name": "name", "kind": "string" }
+        ]
+      },
+      "renderer": "message_list",
+      "system": false,
+      "meta": { "note": "附件事件类别（引擎 Attachment 契约形态，DEFAULT_ATTACHMENT_EVENT_NAME；负载为宿主/前端协商形态，不作 schema 约束）" }
     }
   ]
 }

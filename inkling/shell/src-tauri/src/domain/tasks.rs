@@ -269,6 +269,7 @@ mod tests {
             step_args: None,
             orchestrate: None,
             inject: Some(inject),
+            model: None,
             auto_accept_review: true,
         };
         let inj = req.inject.expect("inject 应透传");
@@ -301,6 +302,7 @@ mod tests {
             step_args: None,
             orchestrate: None,
             inject: Some(inject),
+            model: None,
             auto_accept_review: true,
         };
         assert_eq!(req.inject.as_ref().unwrap()["project_task"]["goal"], "实现特性");
@@ -331,12 +333,13 @@ mod tests {
         // 注入负载进入回合请求
         let mut recorder = crate::domain::steps::RoundStepsTransport::new("r-1", None, None);
         let req = crate::engine::host::RoundRequest {
-            input_text: "跑一回合".to_string(),
+            input_text: "go".to_string(),
             thread_id: "th".to_string(),
-            round_id: "r-1".to_string(),
+            round_id: "r".to_string(),
             step_args: None,
             orchestrate: None,
             inject: Some(inject),
+            model: None,
             auto_accept_review: true,
         };
         assert_eq!(req.inject.as_ref().unwrap()["project_task"]["goal"], "端到端目标");

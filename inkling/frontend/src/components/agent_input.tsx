@@ -17,11 +17,25 @@ import { Cpu, FileText, Image as ImageIcon, Paperclip, Send, Square } from 'luci
 
 import type { GearTier, ModeTier } from '@/shared/session/types';
 import type { AttachmentAsset } from '@/shared/session/eventIngest';
-import type { ModelProfile } from '@/shared/backend/backendAdapter';
 import type { FilePicker, PickedFile } from '@/shared/media/filePicker';
 import { createDomFilePicker } from '@/shared/media/filePicker';
 import { classifyMediaAsset, formatByteSize, isAttachmentPreviewUrl } from '@/shared/media/mediaPolicy';
 import { useUiState } from '@/shared/ui/uiStateStore';
+
+/**
+ * 模型档案（旧组件注册表形态：按挡位分组 + 占用/上限展示）。
+ * 生产输入面已改经壳侧模型目录（ModelArchiveSnapshot，无挡位）；本组件
+ * 为 ui_spec 注册组件（agent_input），档案经 props 注入仅供测试/注册
+ * 组件消费，不读后端（设计 §1.3：无默认、无档位）。
+ */
+export interface ModelProfile {
+  id: string;
+  name: string;
+  tier: string;
+  occupancy: number;
+  limit: number;
+  multimodal?: boolean;
+}
 
 export interface AgentInputBindValue {
   streaming?: boolean;

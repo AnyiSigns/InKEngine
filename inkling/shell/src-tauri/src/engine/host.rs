@@ -304,6 +304,9 @@ pub struct RoundRequest {
     /// 缺省时图配方按工作流节点序产出默认规划）。
     pub orchestrate: Option<JsonValue>,
     pub inject: Option<JsonValue>,
+    /// 回合级模型选择（{provider, model_id}：输入框选定的 agent 模型；
+    /// None = 会话默认模型）。解析经宿主 resolve_model_llm，fail-open。
+    pub model: Option<JsonValue>,
     pub auto_accept_review: bool,
 }
 
@@ -495,25 +498,30 @@ impl EngineHost {
                 // 二次回落：model_connection.json（设置页落盘，data_dir 下）含
                 // base_url + 任一档位 model_id = 视作可装配真实模型，壳侧跳过
                 // StubLLM 注入（resolve_llm 经 _model_config_from_file 装配）。
+                // 提供方数组形态（providers[0] = 当前连接；旧 flat 归一化投影）。
                 let live_model_from_file = data_dir_path.as_ref().map(|p| {
-                    let cfg = crate::domain::model_archive::read_model_connection(p);
-                    let base_url = cfg
-                        .get("base_url")
-                        .and_then(|v| v.as_str())
+                    let providers = crate::domain::model_archive::read_connection_providers(p);
+                    let first = providers.first();
+                    let base_url = first
+                        .and_then(|v| v.get("base_url"))
+                        .and_then(JsonValue::as_str)
                         .unwrap_or("")
                         .trim()
                         .len()
                         > 0;
-                    let has_model = ["main_model_id", "router_model_id", "audit_model_id"]
-                        .iter()
-                        .any(|k| {
-                            cfg.get(*k)
-                                .and_then(|v| v.as_str())
-                                .unwrap_or("")
-                                .trim()
-                                .len()
-                                > 0
-                        });
+                    let has_model = first
+                        .map(|v| {
+                            ["main", "router", "audit"].iter().any(|tier| {
+                                v.get("model_ids")
+                                    .and_then(|m| m.get(*tier))
+                                    .and_then(JsonValue::as_str)
+                                    .unwrap_or("")
+                                    .trim()
+                                    .len()
+                                    > 0
+                            })
+                        })
+                        .unwrap_or(false);
                     base_url && has_model
                 }).unwrap_or(false);
                 if live_model_from_env || live_model_from_file {
@@ -667,6 +675,7 @@ impl EngineHost {
         let step_args = request.step_args.map(|v| v.to_string());
         let orchestrate = request.orchestrate.map(|v| v.to_string());
         let inject = request.inject.map(|v| v.to_string());
+        let model = request.model.map(|v| v.to_string());
         let auto_accept = request.auto_accept_review;
 
         let (reason, output) = Python::attach(|py| -> PyResult<(String, Option<String>)> {
@@ -686,6 +695,10 @@ impl EngineHost {
             if let Some(inject) = inject.as_deref() {
                 let rendered = py.import("json")?.call_method1("loads", (inject,))?;
                 kwargs.set_item("inject", rendered)?;
+            }
+            if let Some(model) = model.as_deref() {
+                let rendered = py.import("json")?.call_method1("loads", (model,))?;
+                kwargs.set_item("model", rendered)?;
             }
             kwargs.set_item("auto_accept_review", auto_accept)?;
             let kwargs = kwargs.unbind();
@@ -948,6 +961,7 @@ mod tests {
                 step_args: None,
                 orchestrate: None,
                 inject: None,
+                model: None,
                 auto_accept_review: true,
             })
             .expect("回合失败");
@@ -1274,6 +1288,7 @@ mod tests {
                 step_args: None,
                 orchestrate: None,
                 inject: None,
+                model: None,
                 auto_accept_review: true,
             })
             .expect("回合失败");
@@ -1568,6 +1583,7 @@ mod tests {
                 step_args: None,
                 orchestrate: None,
                 inject: None,
+                model: None,
                 auto_accept_review: true,
             })
             .expect("回合失败");
@@ -1788,6 +1804,7 @@ mod tests {
                     ],
                 })),
                 inject: None,
+                model: None,
                 auto_accept_review: true,
             })
             .expect("回合失败");
@@ -1854,6 +1871,7 @@ mod tests {
                     ],
                 })),
                 inject: None,
+                model: None,
                 auto_accept_review: true,
             })
             .expect("回合失败");

@@ -14,10 +14,10 @@ import userEvent from '@testing-library/user-event';
 import { describe, expect, it, vi } from 'vitest';
 
 import { AgentInput } from '@/components/agent_input';
+import type { ModelProfile } from '@/components/agent_input';
 import { createStubFilePicker } from '@/shared/media/filePicker';
 import { MEDIA_SIZE_LIMITS } from '@/shared/media/mediaPolicy';
 import type { AttachmentAsset } from '@/shared/session/eventIngest';
-import type { ModelProfile } from '@/shared/backend/backendAdapter';
 
 const MULTIMODAL: ModelProfile[] = [
   { id: 'mm', name: '多模态·专业', tier: 'main', occupancy: 0, limit: 10, multimodal: true },

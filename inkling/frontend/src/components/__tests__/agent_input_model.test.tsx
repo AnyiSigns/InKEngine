@@ -7,7 +7,7 @@ import userEvent from '@testing-library/user-event';
 import { describe, expect, it, vi } from 'vitest';
 
 import { AgentInput } from '@/components/agent_input';
-import type { ModelProfile } from '@/shared/backend/backendAdapter';
+import type { ModelProfile } from '@/components/agent_input';
 
 const PROFILES: ModelProfile[] = [
   { id: 'm1', name: '主·专业', tier: 'main', occupancy: 4, limit: 10 },

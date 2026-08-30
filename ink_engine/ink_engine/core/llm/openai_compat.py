@@ -104,9 +104,13 @@ def _status_hint(code: Any) -> int | None:
 
 
 class OpenAICompatibleLLM(AsyncLLM):
-    """OpenAI 兼容聊天补全适配器（chat/completions，流式/非流式）。"""
+    """OpenAI 兼容聊天补全适配器（chat/completions，流式/非流式）。
 
-    adapter = "openai_compat"
+    协议全名 openai_compatible（与 openai_responses / anthropic_messages
+    并列的常见 API 协议；openai_compat 为兼容别名）。
+    """
+
+    adapter = "openai_compatible"
 
     def __init__(
         self,

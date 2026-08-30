@@ -10,9 +10,9 @@ describe('InputBar', () => {
   });
 
   it('shows model chip when model selected', () => {
-    const models: ModelArchiveSnapshot = { profiles: [{ id: 'm1', name: 'TestModel', tier: 'main', occupancy: 0, limit: 100, multimodal: true }] };
+    const models: ModelArchiveSnapshot = { archives: [{ model_id: 'kimi-k2', context_window: 128 * 1024, multimodal: true }] };
     render(<InputBar disabled={false} streaming={false} models={models} onSend={() => {}} onAbort={() => {}} onOpenSettings={() => {}} onAttachments={() => {}} />);
-    expect(screen.getByText('TestModel')).toBeTruthy();
+    expect(screen.getByText('kimi-k2')).toBeTruthy();
     expect(screen.getByText('多模态')).toBeTruthy();
   });
 
@@ -23,10 +23,10 @@ describe('InputBar', () => {
 
   it('sends on Enter', () => {
     const onSend = vi.fn();
-    render(<InputBar disabled={false} streaming={false} models={{ profiles: [{ id: 'm1', name: 'M', tier: 'main', occupancy: 0, limit: 100 }] }} onSend={onSend} onAbort={() => {}} onOpenSettings={() => {}} onAttachments={() => {}} />);
+    render(<InputBar disabled={false} streaming={false} models={{ archives: [{ model_id: 'm1' }] }} onSend={onSend} onAbort={() => {}} onOpenSettings={() => {}} onAttachments={() => {}} />);
     fireEvent.change(screen.getByPlaceholderText('给智能体发消息'), { target: { value: 'hello' } });
     fireEvent.keyDown(screen.getByPlaceholderText('给智能体发消息'), { key: 'Enter', code: 'Enter', charCode: 13 });
-    expect(onSend).toHaveBeenCalledWith('hello', [], 'standard');
+    expect(onSend).toHaveBeenCalledWith('hello', [], 'standard', { model_id: 'm1' });
   });
 
   it('switches mode via dropdown', () => {

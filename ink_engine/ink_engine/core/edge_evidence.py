@@ -39,6 +39,7 @@ from typing import Any
 
 from .audit_log import emit_audit
 from .event_types import EVENT_AUDIT_POLICY_REVIEW
+from .evolution_writer import DefaultEvolutionWriter, edge_tier_writer
 from .exceptions import StorageError
 from .logging import get_logger
 
@@ -887,8 +888,13 @@ async def downgrade_edge_tier(
     if _tier_rank(target_tier) >= _tier_rank(current_tier):
         new_success, new_fail = current.success_count, current.fail_count
     if storage is not None:
-        await storage.put_record(  # type: ignore[attr-defined]
-            EDGE_TIER_OVERRIDE_COLLECTION, "::".join(key.key()), current.to_dict()
+        writer = DefaultEvolutionWriter(storage)  # type: ignore[arg-type]
+        await edge_tier_writer(
+            writer,
+            EDGE_TIER_OVERRIDE_COLLECTION,
+            "::".join(key.key()),
+            current.to_dict(),
+            note=reason or "人工信任档降级",
         )
         await emit_audit(
             storage,

@@ -23,6 +23,7 @@
     "max_rounds": { "type": "integer", "minimum": 0 },
     "beam_width": { "type": "integer", "minimum": 1 },
     "neutral_score": { "type": "number", "minimum": 0, "maximum": 1 },
+    "evolve_interval_rounds": { "type": "integer", "minimum": 1 },
     "web_verify": {
       "type": "object",
       "required": ["enabled", "hook"],

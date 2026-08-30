@@ -27,6 +27,7 @@ from __future__ import annotations
 from dataclasses import dataclass, field
 from typing import TYPE_CHECKING, Any
 
+from .evolution_writer import DefaultEvolutionWriter, event_type_writer
 from .exceptions import GraphDefinitionError
 from .schema_validator import (
     FIELD_NUMBER,
@@ -285,6 +286,7 @@ class EventTypeRegistry:
         # 持久化集合按集隔离（event_types:<set_id>）；历史集合只读兼容
         self._collection = event_types_collection(set_id)
         self._max_types = max_types
+        self._writer = DefaultEvolutionWriter(storage) if storage is not None else None
 
     @property
     def collection(self) -> str:
@@ -371,11 +373,15 @@ class EventTypeRegistry:
         只写按集集合：历史集合的旧记录经 :meth:`load` 读入后随本次写入
         落进按集集合（惰性迁移），旧记录原地保留不删除。
         """
-        if self._storage is None:
+        if self._storage is None or self._writer is None:
             return
         for spec in self._specs.values():
-            await self._storage.put_record(
-                self._collection, spec.name, spec.to_dict()
+            await event_type_writer(
+                self._writer,
+                self._collection,
+                spec.name,
+                spec.to_dict(),
+                note="registry_save",
             )
 
 

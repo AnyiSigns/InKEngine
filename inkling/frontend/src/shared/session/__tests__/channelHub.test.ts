@@ -79,6 +79,19 @@ describe('事件落位（ingest）', () => {
     expect(messages[0]).toMatchObject({ kind: 'streaming', content: '第一段' });
   });
 
+  it('reply_token 携带 name 时透传到 streaming 消息（协作者发言人）', () => {
+    const hub = new ChannelHub();
+    ingestEvent(hub, ev('reply_token', { step_id: 'reply:1', token: '评审', name: '安全评审' }));
+    ingestEvent(hub, ev('reply_token', { step_id: 'reply:1', token: '完成', name: '安全评审' }));
+    const messages = hub.getSnapshot().messages;
+    expect(messages).toHaveLength(1);
+    expect(messages[0]).toMatchObject({ kind: 'streaming', content: '评审完成', name: '安全评审' });
+    // 主 agent 无 name：不携带标签
+    const hub2 = new ChannelHub();
+    ingestEvent(hub2, ev('reply_token', { step_id: 'reply:2', token: '回复' }));
+    expect(hub2.getSnapshot().messages[0]).not.toHaveProperty('name');
+  });
+
   it('thinking_start/end 建卡定型，round_id 归属', () => {
     const hub = new ChannelHub();
     ingestEvent(hub, ev('thinking_start', { step_id: 'think:1' }));

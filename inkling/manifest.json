@@ -64,7 +64,8 @@
       "inspect_rules",
       "inspect_knowledge",
       "inspect_ui",
-      "inspect_tools"
+      "inspect_tools",
+      "inspect_entities"
     ],
     "event_types": {
       "file": "seed_data/event_types.json"
@@ -77,11 +78,12 @@
       "file": "seed_data/build.json"
     },
     "seed_files": {
-      "note": "seed_data 全量登记（21 件；与出厂自检 schema 门禁 EXPECTED_SEED_FILES 逐名对齐）。path_prompts/path_seeds 为路径组装语料，消费接线属引擎路径组装域；skills_market/components_market 为市场目录，消费方 = 技能市场服务 / 前端组件市场入口",
+      "note": "seed_data 全量登记（22 件；与出厂自检 schema 门禁 EXPECTED_SEED_FILES 逐名对齐）。path_prompts/path_seeds 为路径组装语料，消费接线属引擎路径组装域；skills_market/components_market 为市场目录，消费方 = 技能市场服务 / 前端组件市场入口",
       "files": [
         { "name": "boot_prompt.json", "role": "自举提示词定稿（boot 注入层消费）" },
         { "name": "build.json", "role": "构建产物/冒烟声明（build 域消费）" },
         { "name": "components_market.json", "role": "组件市场目录（前端组件市场入口消费）" },
+        { "name": "entities.json", "role": "实体目录（协作者出厂条目：主 Agent + 协作者，装配期登记进 EntityRegistry）" },
         { "name": "env.json", "role": "环境域声明（env 域消费）" },
         { "name": "event_types.json", "role": "事件类型契约（三方清单 seed 权威）" },
         { "name": "graph.json", "role": "agent_graph 装配图声明" },

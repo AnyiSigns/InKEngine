@@ -10,9 +10,14 @@
 
 import { useState, useRef, useEffect } from 'react';
 import { ArrowUp, ChevronDown, Loader2, Mic, Plus, Route, Settings2, SlidersHorizontal, Sparkles, Square, Image, Video, FileText } from 'lucide-react';
-import type { ModelArchiveSnapshot } from '@/shared/backend/backendAdapter';
+import type { ModelArchiveRow, ModelArchiveSnapshot, ModelSelection } from '@/shared/backend/backendAdapter';
 import { createBackend } from '@/shared/backend/backendAdapter';
 import { useT } from '@/i18n/useT';
+
+/** 多模态三态归一（壳侧档案标注 true/'true'/unknown）。 */
+function isMultimodal(m: ModelArchiveRow): boolean {
+  return m.multimodal === true || m.multimodal === 'true';
+}
 
 function interpolate(template: string, vars: Record<string, string | number>): string {
   return template.replace(/\{(\w+)\}/g, (_, k: string) => String(vars[k] ?? ''));
@@ -40,7 +45,7 @@ interface InputBarProps {
   /** 会话累计轮数与当前回合步数（胶囊下方居中计数行）。 */
   roundCount?: number;
   stepCount?: number;
-  onSend: (text: string, attachments: AttachmentAsset[], mode: 'standard' | 'assembly') => void;
+  onSend: (text: string, attachments: AttachmentAsset[], mode: 'standard' | 'assembly', model?: ModelSelection) => void;
   onAbort: () => void;
   onOpenSettings: () => void;
   onAttachments: (files: AttachmentAsset[]) => void;
@@ -78,8 +83,8 @@ export function InputBar({
   const [modelMenuOpen, setModelMenuOpen] = useState(false);
   const [selectedModelId, setSelectedModelId] = useState<string | null>(null);
 
-  const profiles = models?.profiles ?? [];
-  const selectedModel = profiles.find((p) => p.id === selectedModelId) ?? profiles[0];
+  const archives = models?.archives ?? [];
+  const selectedModel = archives.find((m) => m.model_id === selectedModelId) ?? archives[0];
   const canSend = text.trim().length > 0 && !disabled && !streaming;
 
   useEffect(() => {
@@ -142,7 +147,14 @@ export function InputBar({
 
   const submit = () => {
     if (!canSend) return;
-    onSend(text.trim(), attachments, mode);
+    // 选定的 agent 模型随发送携带（无默认、无档位——选什么跑什么；
+    // provider 缺省 = 当前唯一连接，宿主 resolve_model_llm fail-open）
+    onSend(
+      text.trim(),
+      attachments,
+      mode,
+      selectedModel ? { model_id: selectedModel.model_id } : undefined,
+    );
     setText('');
     setAttachments([]);
   };
@@ -318,24 +330,26 @@ export function InputBar({
                   className="flex h-7 items-center gap-1 rounded-lg border ink-border px-2 text-[11px] ink-text-muted hover:bg-[var(--ink-bg-elevated)] hover:text-[var(--ink-text-base)]"
                 >
                   <Sparkles size={12} strokeWidth={1.6} />
-                  <span className="max-w-[9rem] truncate">{selectedModel.name}</span>
-                  {selectedModel.multimodal && <span className="ink-text-faint">{t('input.multimodal')}</span>}
+                  <span className="max-w-[9rem] truncate">{selectedModel.model_id}</span>
+                  {isMultimodal(selectedModel) && <span className="ink-text-faint">{t('input.multimodal')}</span>}
                   <ChevronDown size={12} strokeWidth={1.6} className={`text-[var(--ink-text-faint)] transition-transform ${modelMenuOpen ? 'rotate-180' : ''}`} />
                 </button>
                 {modelMenuOpen && (
                   <div className="ink-menu-pop ink-menu-pop-left ink-menu-pop-up" role="menu" aria-label={t('input.model_menu')}>
-                    {profiles.map((p) => (
+                    {archives.map((m) => (
                       <button
-                        key={p.id}
+                        key={m.model_id}
                         type="button"
                         role="menuitem"
-                        data-active={p.id === selectedModel?.id}
-                        onClick={() => { setSelectedModelId(p.id); setModelMenuOpen(false); }}
+                        data-active={m.model_id === selectedModel?.model_id}
+                        onClick={() => { setSelectedModelId(m.model_id); setModelMenuOpen(false); }}
                         className="ink-menu-item"
                       >
-                        <span className="flex-1 truncate">{p.name}</span>
-                        {p.multimodal && <span className="ink-text-faint">{t('input.multimodal')}</span>}
-                        {p.tier && <span className="ml-2 shrink-0 text-[10px] ink-text-faint">{p.tier}</span>}
+                        <span className="flex-1 truncate">{m.model_id}</span>
+                        {isMultimodal(m) && <span className="ink-text-faint">{t('input.multimodal')}</span>}
+                        {typeof m.context_window === 'number' && (
+                          <span className="ml-2 shrink-0 text-[10px] tabular-nums ink-text-faint">{Math.round(m.context_window / 1024)}k</span>
+                        )}
                       </button>
                     ))}
                   </div>

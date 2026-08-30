@@ -242,7 +242,16 @@ _EMBEDDING_REGISTRY: dict[str, type[AsyncEmbedder]] = {}
 _BUILTINS_REGISTERED = False
 
 # OpenAI 兼容厂商别名 → 内置适配器（注册表按需扩容，未知厂商显式报错）。
-_OPENAI_COMPAT_ALIASES = ("openai_compat", "openai", "deepseek", "dashscope", "ollama", "zhipu", "moonshot")
+_OPENAI_COMPAT_ALIASES = (
+    "openai_compatible",
+    "openai_compat",
+    "openai",
+    "deepseek",
+    "dashscope",
+    "ollama",
+    "zhipu",
+    "moonshot",
+)
 
 
 def register_embedder(name: str, cls: type[AsyncEmbedder]) -> None:

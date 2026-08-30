@@ -32,7 +32,6 @@ from typing import Any
 from ink_engine.core.approval import DefaultInterruptPolicy, InterruptPolicy
 from ink_engine.core.context import (
     ThresholdCompressionPolicy,
-    infer_compression_tier,
 )
 from ink_engine.core.declarative_tools import EndpointType
 from ink_engine.core.events import CollectorTransport, EngineEvent, EngineTransport
@@ -255,6 +254,7 @@ class InKlingHost(Host):
         if self._resolved_llm is not _RESOLVED_LLM_MISSING:
             return self._resolved_llm
         llm = self._llm
+        config: dict = {}
         if llm is None:
             config = _model_config_from_env()
             if not config:
@@ -269,28 +269,129 @@ class InKlingHost(Host):
                 return None
         wrapped = BehaviorLLM(llm, self._behavior) if self._behavior is not None else llm
         self._resolved_llm = wrapped
-        # 压缩阈值按 context_window 动态化（档案缺失回退硬底线）
+        # 压缩阈值按模型档案 context_window × 全局压缩占比动态推算
+        # （占比 = 用户唯一旋钮，设置页落盘；缺失回落默认 0.8）
         model_id = getattr(getattr(llm, "config", None), "model_id", None)
         context_window = _model_context_window_from_archive(self._data_dir, model_id)
-        tier = infer_compression_tier(model_id)
+        try:
+            compression_ratio = float(config.get("compression_percent") or 80) / 100.0
+        except (TypeError, ValueError):
+            compression_ratio = 0.8
+        compression_ratio = min(max(compression_ratio, 0.05), 1.0)
         self._compression_policy = ThresholdCompressionPolicy.from_context_window(
-            context_window=context_window, tier=tier
+            context_window=context_window, ratio=compression_ratio
         )
+        # 当前模型窗口同步给图配方（工具结果截断按模型档案动态化）
+        from .graph_recipe import install_context_window
+
+        install_context_window(context_window)
         return wrapped
 
     def reload_model_config(self) -> None:
-        """重载模型连接配置：清空解析缓存，下次 resolve_llm 重读文件。
+        """重载模型连接配置：清空解析缓存 + 重建挡位链 + 压缩策略。
 
         设置页改模型连接后经壳命令调用，使运行期引擎感知新配置
         （resolve_llm 缓存键是引擎重建的判定依据，不清缓存则配置变更
-        永不生效）。压缩策略随下一次 resolve 重建。
+        永不生效）。压缩策略随下一次 resolve 重建；挡位链（router/audit
+        内部通道）即时重建——修复 boot 只投影 env 主挡、文件配置的
+        router/audit 模型永不参与挡位链的缺口。
         """
         self._resolved_llm = _RESOLVED_LLM_MISSING  # type: ignore[assignment]
         self._compression_policy = None
+        self._rebuild_model_domains()
+
+    def _rebuild_model_domains(self) -> None:
+        """重建模型域：挡位链 + 孵化蒸馏链 + 评审收敛链（热更新入口）。
+
+        tiers/review 数据在 boot 装配期留档（_tiers_data/_review_data）；
+        model.reload 后按文件连接配置重建——router 蒸馏链与 audit 评审
+        链引用随之换新（不再持有旧链实例）。
+        """
+        tiers_data = getattr(self, "_tiers_data", None)
+        if not tiers_data:
+            return
+        from .model_layers import build_tier_chains, resolve_tier_chain
+
+        configs = _model_tier_configs_from_file(self._data_dir)
+        self.tier_chains = build_tier_chains(tiers_data, configs)
+        if self.incubation is not None:
+            self.incubation.distiller.chain = resolve_tier_chain(
+                self.tier_chains, "router"
+            )
+        review_data = getattr(self, "_review_data", None)
+        if review_data is not None:
+            from .review_pipeline import build_review_pipeline
+
+            self.review_pipeline = build_review_pipeline(
+                resolve_tier_chain(self.tier_chains, "audit"),
+                review_data,
+                tier="audit",
+                on_llm_call=(
+                    self.tier_stats.record
+                    if self.tier_stats is not None
+                    else None
+                ),
+            )
 
     def compression_policy(self) -> Any:
         """当前压缩策略（resolve_llm 后可用，未解析返回 None）。"""
         return getattr(self, "_compression_policy", None)
+
+    def resolve_model_llm(
+        self, provider: str | None, model_id: str | None
+    ) -> AsyncLLM | None:
+        """按模型引用解析 LLM（EntitySpec.model / 输入框选模型路径）。
+
+        语义（fail-open，回落会话默认模型）：
+        - 模型引用缺失/无提供方配置 → None（调用方回落默认）；
+        - 提供方数组（model_connection.json）逐项匹配 provider（provider_id
+          或 adapter；缺省 = 第一项=当前连接），用该项 base_url/api_key 建链
+          并覆盖 model_id——无匹配提供方 = 该提供方未配置 → None；
+        - 产物统一经行为准则层包装（与 resolve_llm 同语义）；压缩策略
+          按该 model_id 档案 context_window 动态推算（调用方按需取
+          compression_policy，不暴露 token 数）。
+        """
+        if not model_id or not str(model_id).strip():
+            return None
+        providers = _read_connection_providers(self._data_dir)
+        if not providers:
+            return None
+
+        def _matches(item: dict[str, Any]) -> bool:
+            if not provider or provider in ("", "default"):
+                return True
+            return provider in (
+                str(item.get("provider_id") or ""),
+                str(item.get("adapter") or ""),
+            )
+
+        target = next((item for item in providers if _matches(item)), None)
+        if target is None:
+            return None
+        base_url = str(target.get("base_url") or "")
+        if not base_url.strip():
+            return None
+        try:
+            llm = create_llm(
+                {
+                    "adapter": target.get("adapter")
+                    or target.get("provider_id")
+                    or "openai_compatible",
+                    "base_url": base_url,
+                    "model_id": str(model_id),
+                    **(
+                        {"api_key": str(target["api_key"])}
+                        if target.get("api_key")
+                        else {}
+                    ),
+                }
+            )
+        except Exception as exc:
+            logger.warning("按模型引用建链失败（回落默认）: %s: %s", model_id, exc)
+            return None
+        if self._behavior is not None:
+            llm = BehaviorLLM(llm, self._behavior)
+        return llm
 
     def interrupt_policy(self) -> InterruptPolicy:
         """审批策略（直过白名单 + 审批超时窗口；缺省走引擎默认超时）。
@@ -794,7 +895,7 @@ async def boot_inkling(
     host.skill_market = skill_market_service
     runtime.skill_market = skill_market_service
     register_domain_tools(runtime, bundle)
-    register_host_executors(runtime, mount_service, security)
+    register_host_executors(runtime, mount_service, security, host=host)
     # 环境装配域（storage 在 boot 后可用：审计/恢复）
     env_allowlist = tuple(
         (bundle.data["build.json"].get("builder") or {}).get("allowlist") or ()
@@ -835,14 +936,18 @@ async def boot_inkling(
     # 活跃态目标补全（UI/THEME/HARNESS/RULE/KNOWLEDGE——落链即生效）
     register_live_targets(runtime)
     # 模型层挡位装配（tiers.json 双挡位链 + 回合级调用统计钩子）：
-    # 环境配置投影为主挡配置（router 缺省经 resolve_tier_chain 回落 main）
+    # 文件连接配置投影为各挡位链（main/router/audit——设置页落盘的
+    # router/audit 模型即时参与内部通道），env 配置覆盖主挡（缺省回落
+    # main）；tiers/review 数据留档供 model.reload 热重建挡位域
     from .model_layers import build_tier_chains, make_tier_stats, resolve_tier_chain
 
+    _tier_configs = _model_tier_configs_from_file(data_dir)
     _env_config = _model_config_from_env()
-    host.tier_chains = build_tier_chains(
-        bundle.data["tiers.json"],
-        {"main_config": dict(_env_config)} if _env_config else {},
-    )
+    if _env_config:
+        _tier_configs["main_config"] = dict(_env_config)
+    host.tier_chains = build_tier_chains(bundle.data["tiers.json"], _tier_configs)
+    host._tiers_data = bundle.data["tiers.json"]
+    host._review_data = bundle.data["review.json"]
     host.tier_stats = make_tier_stats()
     # 孵化域（信号 → 蒸馏 → 闸门 → 落库 → 自指挂载的产品化入口）
     host.incubation = IncubationDomain(
@@ -950,7 +1055,7 @@ def _model_config_from_env() -> dict[str, str]:
     if not base_url or not model_id:
         return {}
     config: dict[str, str] = {
-        "adapter": os.environ.get("INK_LLM_ADAPTER", "openai_compat"),
+        "adapter": os.environ.get("INK_LLM_ADAPTER", "openai_compatible"),
         "base_url": base_url,
         "model_id": model_id,
     }
@@ -960,41 +1065,136 @@ def _model_config_from_env() -> dict[str, str]:
     return config
 
 
-def _model_config_from_file(data_dir: Path | None) -> dict[str, str]:
-    """文件配置回落（model_connection.json，设置页落盘）。
+def _project_flat_connection(cfg: dict[str, Any]) -> dict[str, Any]:
+    """旧 flat 形态 → 单提供方投影（迁移期兼容读；与壳侧归一化同语义）。
 
-    环境变量缺配置时经此读取 base_url + 主档 model_id 装配真实模型；
-    缺字段/文件不存在/非对象返回空（回落离线桩）。优先级：环境变量 >
-    文件 > 桩。主档 main_model_id 优先，router/audit 缺省回落 main
-    （与设置页回落口径一致）。
+    provider_id 取自定义标识/vendor 预设 id；adapter 取 provider_id 字段
+    （预设厂商该字段是适配器标识）；model_ids 从 main/router/audit 键投影。
+    """
+    vendor = str(cfg.get("vendor") or "")
+    provider_field = str(cfg.get("provider_id") or "openai_compatible")
+    is_custom = vendor == "__custom__"
+    provider_id = provider_field if is_custom else (vendor or provider_field)
+    model_ids: dict[str, str] = {}
+    for tier, key in (
+        ("main", "main_model_id"),
+        ("router", "router_model_id"),
+        ("audit", "audit_model_id"),
+    ):
+        value = cfg.get(key)
+        if isinstance(value, str) and value.strip():
+            model_ids[tier] = value
+    provider: dict[str, Any] = {
+        "provider_id": provider_id,
+        "label": provider_id,
+        "adapter": provider_field,
+    }
+    for key in ("base_url", "api_key", "context_window", "compression_percent"):
+        if key in cfg:
+            provider[key] = cfg[key]
+    if model_ids:
+        provider["model_ids"] = model_ids
+    return provider
+
+
+def _read_connection_providers(data_dir: Path | None) -> list[dict[str, Any]]:
+    """model_connection.json → 提供方数组（多提供方唯一权威形态）。
+
+    - ``providers`` 数组 = 直接返回；
+    - 旧 flat 形态 = 投影为单提供方（迁移期兼容读）；
+    - 缺文件/非法 = 空数组（回落离线桩）。
+    与壳侧 :func:`read_connection_providers` 归一化语义一致，读写单一
+    权威，读取方不感知文件形态。
     """
     if data_dir is None:
-        return {}
+        return []
     path = Path(data_dir) / "model_connection.json"
     if not path.exists():
-        return {}
+        return []
     try:
         with open(path, "r", encoding="utf-8") as fh:
             cfg = json.load(fh)
     except Exception:
+        return []
+    if not isinstance(cfg, dict) or not cfg:
+        return []
+    providers = cfg.get("providers")
+    if isinstance(providers, list):
+        return [p for p in providers if isinstance(p, dict)]
+    return [_project_flat_connection(cfg)]
+
+
+def _model_config_from_file(data_dir: Path | None) -> dict[str, str]:
+    """文件配置回落（model_connection.json，设置页落盘；提供方数组形态）。
+
+    环境变量缺配置时经此读取 base_url + 主档 model_id 装配真实模型；
+    缺字段/文件不存在/非对象返回空（回落离线桩）。优先级：环境变量 >
+    文件 > 桩。取提供方数组第一项为当前连接（多提供方扩展期：当前连接
+    = 主提供方）；主档 model_id 优先，router/audit 缺省回落 main（与
+    设置页回落口径一致）。旧 flat 形态经归一化投影（迁移期兼容读）。
+    """
+    providers = _read_connection_providers(data_dir)
+    if not providers:
         return {}
-    if not isinstance(cfg, dict):
-        return {}
-    base_url = cfg.get("base_url", "")
+    provider = providers[0]
+    base_url = provider.get("base_url", "")
     if not base_url or not str(base_url).strip():
         return {}
-    model_id = cfg.get("main_model_id") or cfg.get("router_model_id") or cfg.get("audit_model_id")
+    model_ids = provider.get("model_ids") or {}
+    model_id = model_ids.get("main") or model_ids.get("router") or model_ids.get("audit")
     if not model_id or not str(model_id).strip():
         return {}
     config: dict[str, str] = {
-        "adapter": cfg.get("provider_id") or "openai_compat",
+        "adapter": str(provider.get("adapter") or provider.get("provider_id") or "openai_compatible"),
         "base_url": str(base_url),
         "model_id": str(model_id),
     }
-    api_key = cfg.get("api_key")
+    api_key = provider.get("api_key")
     if api_key:
         config["api_key"] = str(api_key)
+    # 压缩占比（全局唯一旋钮，默认 80%）：设置页落盘字段，引擎按
+    # 模型档案窗口 × 占比动态推算压缩阈值（不暴露 token 数）
+    try:
+        config["compression_percent"] = float(provider.get("compression_percent") or 80)
+    except (TypeError, ValueError):
+        config["compression_percent"] = 80.0
     return config
+
+
+def _model_tier_configs_from_file(data_dir: Path | None) -> dict[str, Any]:
+    """model_connection.json → 挡位配置投影（main/router/audit 各自成链）。
+
+    与 :func:`_model_config_from_file` 单连接口径同源解析（提供方数组第一
+    项 = 当前连接）：main/router/audit 各按档位 model_id 建一条链（配置
+    缺失的挡位不入映射 = 该挡位 None，调用方按 resolve_tier_chain 缺省
+    回落主挡）；api_key 留空沿用既有（壳侧逐提供方浅合并写保证缺省字段
+    保留）。缺 base_url = 空映射（回落离线桩）；数据形态与引擎
+    resolve_tier_config 对齐（``<tier>_config``）。
+    """
+    providers = _read_connection_providers(data_dir)
+    if not providers:
+        return {}
+    provider = providers[0]
+    base_url = str(provider.get("base_url") or "")
+    if not base_url.strip():
+        return {}
+    adapter = provider.get("adapter") or provider.get("provider_id") or "openai_compatible"
+    api_key = provider.get("api_key")
+    model_ids = provider.get("model_ids") or {}
+    configs: dict[str, Any] = {}
+    for tier in ("main", "router", "audit"):
+        model_id = model_ids.get(tier)
+        if not model_id or not str(model_id).strip():
+            continue
+        entry: dict[str, str] = {
+            "adapter": adapter,
+            "base_url": base_url,
+            "model_id": str(model_id),
+        }
+        if api_key:
+            entry["api_key"] = str(api_key)
+        configs[f"{tier}_config"] = entry
+    return configs
 
 
 def _model_context_window_from_archive(
@@ -1048,8 +1248,97 @@ def register_domain_tools(runtime: Runtime, bundle: SeedDataBundle) -> None:
         runtime.tool_registry[spec.name] = spec.to_spec()
 
 
+def make_collab_request_executor(runtime: Runtime, host: Any = None) -> Any:
+    """协作者召唤执行体：实体目录 → spawn 子图物化（多 agent 动态协作）。
+
+    args（tools.json collab_request 声明）：entity_id（必填，目录已注册）、
+    task（子任务描述，必填）、context_refs（可选，L2 消息 id 引用，本期
+    未消费保留）、constraints（可选，max_tool_rounds 等护栏覆盖）。
+
+    执行语义：
+    - 实体未注册 → 显式失败文本（fail-closed，不静默降级主 agent）；
+    - 物化 = 建协作者子图（llm_decider[entity.persona] ⇄ tool_pipeline
+      → end，复用回合图条件边）→ ``ctx.spawn`` 注册实例 → 引擎展开；
+    - 协作者事件落父链（L1 全量留痕）、结果随 spawn overlay 回流父状态；
+    - 模型：EntitySpec.model 声明时按提供方解析（经宿主 resolve_model_llm，
+      窗口参数按该模型档案 context_window；解析失败/未声明回落会话默认
+      模型——fail-open）；工具全量共享必带集 + 检索动态注册。
+    """
+
+    async def execute(ctx: Any, definition: Any, args: dict, approval: Any) -> str:
+        entity_id = str(args.get("entity_id") or "")
+        task = str(args.get("task") or "")
+        registry = runtime.entity_registry
+        if registry is None:
+            return "协作者目录未装配（EntityRegistry 不可用）"
+        spec = registry.get(entity_id)
+        if spec is None:
+            return (
+                f"协作者未注册: {entity_id!r}（inspect_entities 查看实体目录；"
+                "召唤只允许目录内已注册实体，fail-closed）"
+            )
+        llm_override = None
+        model_ref = spec.model
+        if host is not None and isinstance(model_ref, dict):
+            provider = str(model_ref.get("provider") or "")
+            model_id = str(model_ref.get("model_id") or "")
+            if provider and model_id:
+                llm_override = host.resolve_model_llm(provider, model_id)
+        graph = _build_collaborator_graph(spec, llm=llm_override)
+        entry_state: dict[str, Any] = {"input": task, "step_args": {}}
+        ctx.spawn(graph, entry_state)
+        return (
+            f"已召唤协作者 {spec.label or entity_id} 处理子任务"
+            "（spawn 实例已注册，结果将回流汇总）。"
+        )
+
+    return execute
+
+
+def _build_collaborator_graph(spec: Any, llm: Any = None) -> Any:
+    """协作者子图：llm_decider[entity.persona] ⇄ tool_pipeline → end。
+
+    与回合图同构（llm_decider 决策循环 + tool_pipeline 工具循环），仅
+    system_prompt 换成实体 persona——工具全量共享（必带集 + 检索动态
+    注册），权限/审批/审计走同一 tool_pipeline，零新执行机制。
+    llm 非空 = 按 EntitySpec.model 解析的实体专属模型覆盖（llm_decider
+    优先取 config 覆盖，回落会话默认模型）。
+    """
+    from ink_engine.core.graph import Graph
+
+    from .graph_recipe import (
+        COND_FINISHED,
+        COND_PENDING,
+        MAX_TOOL_ROUNDS,
+        TYPE_LLM_DECIDER,
+        TYPE_TOOL_PIPELINE,
+    )
+
+    graph = Graph(name=f"collab:{spec.id}", entry="llm_decider")
+    decider_config: dict[str, Any] = {
+        "system_prompt": spec.persona,
+        "max_tool_rounds": MAX_TOOL_ROUNDS,
+        # 发言人身份（Message.name：前端发言人标签 / 事件留痕；主 agent 缺省无）
+        "name": spec.label or spec.id,
+    }
+    if llm is not None:
+        decider_config["llm"] = llm
+    graph.add_node_type(
+        "llm_decider",
+        TYPE_LLM_DECIDER,
+        decider_config,
+    )
+    graph.add_node_type("tool_pipeline", TYPE_TOOL_PIPELINE, {})
+    graph.add_node_type("end", TYPE_TOOL_PIPELINE, {"role": "terminal"})
+    graph.add_conditional_edge_by_name("llm_decider", "tool_pipeline", COND_PENDING)
+    graph.add_conditional_edge_by_name("llm_decider", "end", COND_FINISHED)
+    graph.add_edge("tool_pipeline", "llm_decider")
+    graph.add_exit("end")
+    return graph
+
+
 def register_host_executors(
-    runtime: Runtime, mount_service: McpMountService, security: SecurityDomain
+    runtime: Runtime, mount_service: McpMountService, security: SecurityDomain, host: Any = None
 ) -> None:
     """宿主声明式执行器注册（机制层不代注册执行实现，宿主职责）。
 
@@ -1081,6 +1370,10 @@ def register_host_executors(
         EndpointType.WEB_SEARCH,
         make_web_search_executor(),
     )
+    runtime.harness_registry.declarative.register(
+        EndpointType.COLLAB_REQUEST,
+        make_collab_request_executor(runtime, host=host),
+    )
 
 
 # 壳侧执行器注册表承载的 OS 命令清单（与 fixtures/tools_os.json 一一对应；
@@ -1092,7 +1385,7 @@ _OS_BRIDGE_COMMANDS = (
     "set_volume",
     "set_brightness",
     "notify",
-    "schedule",
+    "sleep",
     "screen_query",
     "file_query",
     "run_typecheck",

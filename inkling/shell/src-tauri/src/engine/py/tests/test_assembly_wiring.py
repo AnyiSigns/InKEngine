@@ -480,6 +480,246 @@ def test_seed_edges_from_path_seeds():
     assert host._seed_edges_from_path_seeds(SeedDataBundle(root=missing_root)) == []
 
 
+class _Chunk:
+    def __init__(self, token="", tool_calls_delta=None):
+        self.token = token
+        self.tool_calls_delta = tool_calls_delta
+
+
+class _FakeDeciderLLM:
+    """llm_decider 桩：单 token 回复、无工具调用（一次收口）。"""
+
+    def __init__(self, reply="回复"):
+        self.reply = reply
+
+    async def astream(self, messages, tools=None, params=None):
+        yield _Chunk(token=self.reply)
+
+
+class _FakeDeciderCtx:
+    def __init__(self, state, round_id, assembled=None):
+        self.state = state
+        self.round_id = round_id
+        self._assembled = assembled
+        self.events = []
+
+    async def emit(self, name, payload, **kw):
+        self.events.append((name, payload))
+
+
+def test_llm_decider_round_opener_injection():
+    """P2：每回合开篇注入（round_input:{base_round}）——跨回合输入可达、
+    调配切片每轮新鲜、工具循环续接不重复、中断重入不重复。
+
+    - 回合 r1（链空）→ 开篇含 system + round_input:r1 + 调配文本；
+    - 回合 r2（续链）→ 追加 round_input:r2，system 不重复；
+    - 同回合工具循环续接（round_id 相同）→ 不重复注入；
+    - 审批卡中断重入（round_id=r2-resume-1）→ 沿用 round_input:r2 不重复；
+    - 调配产物（ctx._assembled.text）并入开篇消息。
+    """
+    gr = _load_graph_recipe()
+    holder = {"llm": _FakeDeciderLLM(), "specs": ()}
+    node = gr.make_llm_decider_factory(holder)({"system_prompt": "系统"})
+    assembled = type("A", (), {"text": "知识命中：A；记忆：B"})()
+    assembled.name = "assembled"
+
+    # r1：链空 → 开篇注入
+    ctx1 = _FakeDeciderCtx(
+        {"input": "第一轮", "messages": [], "tool_rounds": 0, "reply": ""},
+        "r1",
+        assembled=assembled,
+    )
+    out1 = asyncio.run(node(ctx1))
+    msgs1 = out1["messages"]
+    assert [m["role"] for m in msgs1] == ["system", "user", "assistant"]
+    assert msgs1[1]["id"] == "round_input:r1"
+    assert "第一轮" in msgs1[1]["content"] and "知识命中：A" in msgs1[1]["content"]
+
+    # r2：续链 → 追加 round_input:r2，system 不重复
+    ctx2 = _FakeDeciderCtx(
+        {"input": "第二轮", "messages": msgs1, "tool_rounds": 0, "reply": ""},
+        "r2",
+    )
+    out2 = asyncio.run(node(ctx2))
+    msgs2 = out2["messages"]
+    ids2 = [m["id"] for m in msgs2]
+    assert "round_input:r1" in ids2 and "round_input:r2" in ids2
+    assert sum(1 for m in msgs2 if m["role"] == "system") == 1
+    assert msgs2[-2]["content"].startswith("第二轮")
+
+    # 同回合工具循环续接：round_id 相同且链已含 round_input:r2 → 不重复
+    ctx3 = _FakeDeciderCtx(
+        {"input": "第二轮", "messages": msgs2, "tool_rounds": 1, "reply": ""},
+        "r2",
+    )
+    out3 = asyncio.run(node(ctx3))
+    msgs3 = out3["messages"]
+    assert sum(1 for m in msgs3 if m["id"] == "round_input:r2") == 1
+
+    # 审批卡中断重入：round_id=r2-resume-1 → 剥离后缀沿用 round_input:r2
+    ctx4 = _FakeDeciderCtx(
+        {"input": "第二轮", "messages": msgs2, "tool_rounds": 1, "reply": ""},
+        "r2-resume-1",
+    )
+    out4 = asyncio.run(node(ctx4))
+    msgs4 = out4["messages"]
+    assert sum(1 for m in msgs4 if m["id"] == "round_input:r2") == 1
+
+
+def test_collab_request_executor_spawns_registered_entity():
+    """collab_request 执行体：实体目录 → spawn 子图物化（fail-closed）。"""
+    from ink_engine.core.entities import EntityRegistry, EntitySpec
+
+    from inkling_host.host import make_collab_request_executor
+
+    registry = EntityRegistry()
+    registry.register(
+        EntitySpec.from_dict(
+            {"id": "analyst", "label": "研究分析师", "persona": "你是分析师"}
+        )
+    )
+
+    class _Runtime:
+        entity_registry = registry
+
+    executor = make_collab_request_executor(_Runtime())
+    spawned: list = []
+
+    class _Ctx:
+        def spawn(self, graph, state, *, index=None):
+            spawned.append((graph, dict(state)))
+
+    text = asyncio.run(
+        executor(_Ctx(), None, {"entity_id": "analyst", "task": "分析 X"}, None)
+    )
+    assert "已召唤协作者 研究分析师" in text
+    assert len(spawned) == 1
+    graph, state = spawned[0]
+    assert graph.name == "collab:analyst"
+    assert graph.entry == "llm_decider"
+    assert state["input"] == "分析 X"
+
+
+def test_collab_request_executor_fails_closed_unregistered():
+    from ink_engine.core.entities import EntityRegistry
+
+    from inkling_host.host import make_collab_request_executor
+
+    registry = EntityRegistry()
+
+    class _Runtime:
+        entity_registry = registry
+
+    executor = make_collab_request_executor(_Runtime())
+    text = asyncio.run(
+        executor(None, None, {"entity_id": "ghost", "task": "x"}, None)
+    )
+    assert "未注册" in text
+
+
+def test_collab_request_uses_entity_model_override():
+    """EntitySpec.model 声明时：协作者子图 llm_decider 注入专属模型。"""
+    from ink_engine.core.entities import EntityRegistry, EntitySpec
+
+    from inkling_host.host import make_collab_request_executor
+
+    registry = EntityRegistry()
+    registry.register(
+        EntitySpec(
+            id="analyst",
+            label="分析师",
+            persona="你是分析师",
+            model={"provider": "openai_compat", "model_id": "kimi"},
+        )
+    )
+
+    class _Runtime:
+        entity_registry = registry
+
+    class _Host:
+        def resolve_model_llm(self, provider, model_id):
+            return f"llm:{provider}:{model_id}"
+
+    executor = make_collab_request_executor(_Runtime(), host=_Host())
+    spawned: list = []
+
+    class _Ctx:
+        def spawn(self, graph, state, *, index=None):
+            spawned.append((graph, dict(state)))
+
+    text = asyncio.run(
+        executor(_Ctx(), None, {"entity_id": "analyst", "task": "x"}, None)
+    )
+    assert "已召唤协作者" in text
+    assert spawned
+    graph, _ = spawned[0]
+    binding = graph.node_bindings["llm_decider"]
+    assert binding.config["llm"] == "llm:openai_compat:kimi"
+    # persona 仍是实体独立提示词
+    assert binding.config["system_prompt"] == "你是分析师"
+    # 发言人身份（Message.name：前端发言人标签数据面）
+    assert binding.config["name"] == "分析师"
+
+
+def test_collab_request_model_unresolved_falls_back_default():
+    """EntitySpec.model 解析失败（host 返回 None）= 回落会话默认模型。"""
+    from ink_engine.core.entities import EntityRegistry, EntitySpec
+
+    from inkling_host.host import make_collab_request_executor
+
+    registry = EntityRegistry()
+    registry.register(
+        EntitySpec(
+            id="analyst",
+            label="分析师",
+            persona="你是分析师",
+            model={"provider": "openai_compat", "model_id": "kimi"},
+        )
+    )
+
+    class _Runtime:
+        entity_registry = registry
+
+    class _Host:
+        def resolve_model_llm(self, provider, model_id):
+            return None
+
+    executor = make_collab_request_executor(_Runtime(), host=_Host())
+    spawned: list = []
+
+    class _Ctx:
+        def spawn(self, graph, state, *, index=None):
+            spawned.append(graph)
+
+    text = asyncio.run(
+        executor(_Ctx(), None, {"entity_id": "analyst", "task": "x"}, None)
+    )
+    assert "已召唤协作者" in text
+    binding = spawned[0].node_bindings["llm_decider"]
+    assert "llm" not in binding.config  # 未注入覆盖 = 回落默认
+
+
+def test_entity_apply_target_registers():
+    """ENTITY 补丁活跃态生效：落链后实体进注册表（协作者即时可召唤）。"""
+    from ink_engine.core.entities import EntityRegistry
+
+    from inkling_host.recipe_loader import EntityApplyTarget
+
+    registry = EntityRegistry()
+
+    class _Runtime:
+        entity_registry = registry
+
+    target = EntityApplyTarget(_Runtime())
+    asyncio.run(
+        target.apply(
+            {"id": "analyst", "label": "研究分析师", "persona": "你是分析师"}, 1
+        )
+    )
+    assert registry.get("analyst") is not None
+    assert registry.get("analyst").label == "研究分析师"
+
+
 if __name__ == "__main__":
     asyncio.run(test_tool_contract_registration_enables_assembly())
     asyncio.run(test_assembly_candidate_specs_consumes_graph_data())
@@ -488,4 +728,5 @@ if __name__ == "__main__":
     asyncio.run(test_orchestrator_default_plan_filters_offline_steps())
     test_governed_proposal_sink_factory()
     test_seed_edges_from_path_seeds()
+    asyncio.run(test_llm_decider_round_opener_injection())
     print("assembly wiring all assertions passed")

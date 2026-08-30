@@ -50,7 +50,20 @@ const TOOL_DICTIONARY: Record<string, string> = {
   set_brightness: '设置亮度',
   shell_exec: '执行 Shell 命令',
   notify: '发送通知',
-  schedule: '设置定时任务',
+  sleep: '前台等待',
+  ui_click: '模拟点击',
+  ui_type: '模拟输入',
+  window_list: '窗口列表',
+  window_focus: '聚焦窗口',
+  window_minimize: '最小化窗口',
+  run_typecheck: '类型检查',
+  run_test_cargo: 'Rust 测试',
+  run_test_python: 'Python 测试',
+  run_test_web: '前端测试',
+  doc_parse: '解析文档',
+  doc_generate: '生成文档',
+  screenshot_capture: '屏幕截图',
+  material_import: '导入材料',
   // 网络域
   fetch: '抓取网页',
   web_search: '网页搜索',
@@ -148,7 +161,7 @@ export function classifyToolFamily(toolName: string): ToolFamily {
     name.startsWith('launch_') ||
     name.startsWith('set_') ||
     name.startsWith('os_') ||
-    /^(notify|schedule|open_file|file_query)$/.test(name)
+    /^(notify|sleep|ui_click|ui_type|window_list|window_focus|window_minimize|open_file|file_query)$/.test(name)
   ) {
     return 'os';
   }

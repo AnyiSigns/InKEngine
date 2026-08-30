@@ -102,7 +102,7 @@ pub async fn detect(data_dir: Option<&Path>) -> Result<serde_json::Value, String
 const OFFLINE_SETTINGS_FILE: &str = "offline_settings.json";
 
 /// 离线 settings 默认值（缺字段补默认，防双源漂移）。
-fn default_settings() -> serde_json::Value {
+pub(crate) fn default_settings() -> serde_json::Value {
     serde_json::json!({
         "enabled": false,
         "mode": "auto",

@@ -60,7 +60,7 @@
             "note": { "type": "string", "minLength": 1 },
             "files": {
               "type": "array",
-              "minItems": 21,
+              "minItems": 22,
               "uniqueItems": true,
               "items": {
                 "type": "object",

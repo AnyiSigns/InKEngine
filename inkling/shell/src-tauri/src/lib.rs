@@ -559,6 +559,7 @@ fn run_selftest(data_dir: &Path, phase: bool) -> Result<JsonValue, String> {
             step_args: None,
             orchestrate: None,
             inject: None,
+            model: None,
             auto_accept_review: true,
         })
         .map_err(|err| format!("回合失败: {err}"))?;

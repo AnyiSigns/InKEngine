@@ -189,8 +189,8 @@ async def test_boot_assembles_all_artifacts():
     assert saved is not None and saved.name == "forge"
     # 事件类型注册表（基线 + 装配期持久化）
     assert "reply_token" in runtime.event_type_registry.names()
-    # 元工具流水线（内省 5 + 自指 6（含 search_tools/request_tool））
-    assert len(runtime.introspection_specs) == 5
+    # 元工具流水线（内省 6（含 inspect_entities）+ 自指 6（含 search_tools/request_tool））
+    assert len(runtime.introspection_specs) == 6
     assert len(runtime.self_specs) == 6
     assert runtime.introspection_service is not None
     assert runtime.introspection_pipeline is not None

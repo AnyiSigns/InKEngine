@@ -75,7 +75,7 @@ describe('mock 后端契约', () => {
   function mockBackend(overrides: Partial<BackendAdapter> = {}): BackendAdapter {
     return {
       available: true,
-      modelArchiveSnapshot: vi.fn(async (): Promise<ModelArchiveSnapshot> => ({ profiles: [] })),
+      modelArchiveSnapshot: vi.fn(async (): Promise<ModelArchiveSnapshot> => ({ archives: [] })),
       metricsSnapshot: vi.fn(async (): Promise<TurnMetricsSnapshot> => ({
         turns: 1,
         failures: 0,
@@ -115,7 +115,7 @@ describe('mock 后端契约', () => {
   it('modelArchiveSnapshot 回传档案列表', async () => {
     const backend = mockBackend();
     const snap = await backend.modelArchiveSnapshot();
-    expect(snap.profiles).toEqual([]);
+    expect(snap.archives).toEqual([]);
     expect(backend.modelArchiveSnapshot).toHaveBeenCalledTimes(1);
   });
 });

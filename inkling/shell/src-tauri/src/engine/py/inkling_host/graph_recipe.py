@@ -26,6 +26,10 @@ from collections.abc import Callable, Sequence
 from typing import Any
 from weakref import WeakKeyDictionary
 
+from ink_engine.core.context import (
+    TOOL_RESULT_MAX_CHARS_FLOOR,
+    resolve_tool_result_max_chars,
+)
 from ink_engine.core.graph import Graph
 from ink_engine.core.plan import PLAN_KEY
 from ink_engine.core.runtime import GraphRecipeContext
@@ -76,8 +80,27 @@ def max_tool_rounds_override() -> int | None:
     return _MAX_TOOL_ROUNDS_OVERRIDE
 
 
-# 工具结果回填消息流的截断上限（上下文体积有界）
-TOOL_RESULT_MAX_CHARS = 4000
+# 工具结果回填消息流的截断下限（动态上限 = 0.05×当前模型窗口，见
+# resolve_tool_result_max_chars；本常量仅作下限与既有导出兼容）
+TOOL_RESULT_MAX_CHARS = TOOL_RESULT_MAX_CHARS_FLOOR
+
+# 当前模型档案 context_window（host.resolve_llm 装配后注入；None = 未注入，
+# 工具结果截断按 200k 兜底——动态上限 0.05×200k = 10k）
+_context_window: int | None = None
+
+
+def install_context_window(context_window: int | None) -> None:
+    """注入当前模型窗口（host.resolve_llm 装配后同步，供工具截断动态化）。
+
+    None = 未注入/档案缺失（按 200k 兜底解析），与压缩阈值同源数据。
+    """
+    global _context_window
+    _context_window = context_window
+
+
+def _tool_result_cap() -> int:
+    """当前模型窗口 → 工具结果截断上限（0.05×cw，下限 4000）。"""
+    return resolve_tool_result_max_chars(_context_window)
 # 组装轮次上限（候选展开执行的轮数护栏：超限回落默认规划；ENG9a-23——
 # 无失败回环，本值只护栏候选重复展开，不承载「失败重试」语义）
 ASSEMBLY_MAX_ROUNDS = 2
@@ -231,10 +254,16 @@ def workflow_spec_from_data(data: dict[str, Any]) -> WorkflowSpec:
     )
 
 
-def _tool_result_message(text: str, tool_call_id: str) -> dict:
-    """工具结果消息（tool 角色，回填消息流供模型/展示消费）。"""
+def _tool_result_message(text: str, tool_call_id: str, max_chars: int | None = None) -> dict:
+    """工具结果消息（tool 角色，回填消息流供模型/展示消费）。
+
+    max_chars 提供时截断（动态窗口上限 0.05×cw，防 LLM 上下文膨胀；
+    与 tool_end 事件负载同源，事件/消息流口径一致）。
+    """
     from ink_engine.core.llm.messages import tool_result
 
+    if max_chars is not None and len(text) > max_chars:
+        text = text[:max_chars]
     return tool_result(text, tool_call_id).to_dict()
 
 
@@ -557,7 +586,7 @@ def make_tool_pipeline_factory(
             {
                 "tool": name,
                 "success": success,
-                "message": text[:TOOL_RESULT_MAX_CHARS],
+                "message": text[:_tool_result_cap()],
                 "tool_call_id": call_id,
             },
             step_id=step_id,
@@ -593,7 +622,7 @@ def make_tool_pipeline_factory(
             call_id = str(call.get("id") or name)
             text, _success = await run_tool(ctx, name, args, f"tool:{call_id}")
             messages = list(state.get(STATE_MESSAGES) or [])
-            messages.append(_tool_result_message(text, call_id))
+            messages.append(_tool_result_message(text, call_id, _tool_result_cap()))
             return {
                 STATE_MESSAGES: messages,
                 STATE_PENDING: pending[1:],
@@ -629,38 +658,59 @@ def make_llm_decider_factory(
     def factory(config: dict[str, Any]) -> Callable[[Any], dict | None]:
         system_prompt = str(config.get("system_prompt") or "")
         default_max_rounds = int(config.get("max_tool_rounds") or MAX_TOOL_ROUNDS)
+        # 节点级模型覆盖（协作者子图按 EntitySpec.model 注入专属模型；
+        # 未注入 = 回落会话默认模型 holder）
+        node_llm = config.get("llm")
+        # 发言人身份（协作者子图 = 实体展示名；主 agent 缺省 = 无标签，
+        # 事件/消息不留 name，前端渲染默认形态）
+        node_name = str(config.get("name") or "")
 
         async def restore_messages(ctx: Any) -> list[Message]:
-            restored = ctx.state.get(STATE_MESSAGES) or []
-            if restored:
-                return [
-                    Message.from_dict(m) for m in restored if isinstance(m, dict)
-                ]
-            messages: list[Message] = []
-            if system_prompt:
+            chain = [
+                Message.from_dict(m)
+                for m in (ctx.state.get(STATE_MESSAGES) or [])
+                if isinstance(m, dict)
+            ]
+            # 每回合开篇消息 id = round_input:{base_round}（base_round 剥离
+            # "-resume-*" 后缀：审批卡中断重入沿用同回合 id，不重复注入）。
+            # add_messages 按 id 去重——工具循环续接/中断重入直接续链，
+            # 跨回合按新 round_id 重建开篇（本轮输入 + 本轮调配切片）。
+            # 历史靠 chain 续接，新鲜上下文靠每轮开篇切片注入（§设计 4.1）。
+            raw_round = getattr(ctx, "round_id", None)
+            base_round = str(raw_round or "").split("-resume-", 1)[0]
+            if base_round:
+                opener_id = f"round_input:{base_round}"
+                if any(m.id == opener_id for m in chain):
+                    return chain
+            elif chain:
+                return chain
+            messages = list(chain)
+            if not messages and system_prompt:
                 messages.append(system(system_prompt))
             # 输入调配产物接入（组装观察 2 接线）：预装配文本（多源统一
-            # 调配的产物——上下文/知识/工具/记忆/证据）并入首条用户消息，
-            # llm_decider 的 messages 不再只由 system_prompt + 原始输入构成
+            # 调配的产物——上下文/知识/工具/记忆/证据）并入本轮开篇用户
+            # 消息，llm_decider 的 messages = 历史链 + 本轮输入 + 本轮调配块
             assembled_text = ""
             assembled = getattr(ctx, "_assembled", None)
             if assembled is not None and getattr(assembled, "text", ""):
                 assembled_text = assembled.text
             base_input = str(ctx.state.get("input") or "")
-            if assembled_text:
-                messages.append(
-                    user(
+            if base_input or assembled_text:
+                body = base_input
+                if assembled_text:
+                    body = (
                         f"{base_input}\n\n【回合输入调配】\n{assembled_text}"
                         if base_input
                         else f"【回合输入调配】\n{assembled_text}"
                     )
-                )
-            else:
-                messages.append(user(base_input))
+                if base_round:
+                    messages.append(Message(role="user", content=body, id=opener_id))
+                else:
+                    messages.append(user(body))
             return messages
 
         async def node(ctx: Any) -> dict | None:
-            llm = holder.get("llm")
+            llm = node_llm if node_llm is not None else holder.get("llm")
             if llm is None:
                 await ctx.emit("error", {"message": "模型未装配（llm_decider 无模型可调）"})
                 return {}
@@ -700,7 +750,10 @@ def make_llm_decider_factory(
                     if getattr(chunk, "token", None):
                         content += chunk.token
                         reply += chunk.token
-                        await ctx.emit("reply_token", {"token": chunk.token})
+                        reply_payload: dict[str, Any] = {"token": chunk.token}
+                        if node_name:
+                            reply_payload["name"] = node_name
+                        await ctx.emit("reply_token", reply_payload)
                     if getattr(chunk, "tool_calls_delta", None):
                         deltas.extend(chunk.tool_calls_delta)
             except Exception as exc:
@@ -713,7 +766,13 @@ def make_llm_decider_factory(
                     "tool_rounds": 0,
                 }
             calls = accumulate_tool_calls(deltas)
-            messages.append(assistant(content, tool_calls=calls or None))
+            messages.append(
+                assistant(
+                    content,
+                    tool_calls=calls or None,
+                    name=node_name or None,
+                )
+            )
             if not calls:
                 return {
                     "reply": reply,
@@ -1129,6 +1188,7 @@ __all__ = [
     "TYPE_TOOL_PIPELINE",
     "assembly_candidate_specs",
     "build_round_graph",
+    "install_context_window",
     "install_mcp_server_probe",
     "make_assembler_factory",
     "make_llm_decider_factory",

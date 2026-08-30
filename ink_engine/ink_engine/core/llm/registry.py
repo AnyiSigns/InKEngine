@@ -1,11 +1,16 @@
 """LLM 适配器注册机制（新厂商 = 注册新适配器类，配置驱动选择）。
 
 注册表以适配器名 → 适配器类的映射承载「可插拔扩展点」：
-- 内置：openai_compat（规范名）+ 常见 OpenAI 兼容厂商别名
-  （openai/deepseek/zhipu/moonshot/ollama 均指向同一类，改 base_url 适配）；
+- 内置协议全名（用户可辨别的常见 API 协议）：openai_compatible
+  （chat/completions）/ openai_responses（Responses）/ anthropic_messages
+  （Messages）；旧简称 openai_compat / openai_response / anthropic 注册为
+  兼容别名（既有配置零迁移）；
+- 常见 OpenAI 兼容厂商别名（openai/deepseek/zhipu/moonshot/ollama 均指向
+  同一类，改 base_url 适配）；
 - 新厂商：register_adapter 注册适配器类，配置 dict 的 adapter 字段驱动选择；
-- 原生协议厂商：anthropic / gemini 内置注册（各自独立适配器，非 OpenAI 兼容包装）；
-- DashScope 兼容端点同样走 openai_compat（base_url = .../compatible-mode/v1），
+- 原生协议厂商：anthropic_messages / gemini 内置注册（各自独立适配器，
+  非 OpenAI 兼容包装）；
+- DashScope 兼容端点同样走 openai_compatible（base_url = .../compatible-mode/v1），
   专用原生协议适配待实际需要时再补（机制已预留）。
 
 **内置注册惰性化**：核心包零运行时依赖承诺——仅使用 messages/tools 等
@@ -25,7 +30,15 @@ _LLM_REGISTRY: dict[str, type[AsyncLLM]] = {}
 _BUILTINS_REGISTERED = False
 
 # OpenAI 兼容厂商别名 → 内置适配器（注册表按需扩容，未知厂商显式报错）
-_OPENAI_COMPAT_ALIASES = ("openai_compat", "openai", "deepseek", "zhipu", "moonshot", "ollama")
+_OPENAI_COMPAT_ALIASES = (
+    "openai_compatible",  # 协议全名（规范名）
+    "openai_compat",  # 兼容别名（旧配置零迁移）
+    "openai",
+    "deepseek",
+    "zhipu",
+    "moonshot",
+    "ollama",
+)
 
 
 def register_adapter(name: str, cls: type[AsyncLLM]) -> None:
@@ -60,12 +73,23 @@ def _ensure_builtins() -> None:
         raise
     for name in _OPENAI_COMPAT_ALIASES:
         _LLM_REGISTRY.setdefault(name, OpenAICompatibleLLM)
-    # 原生协议厂商：anthropic / gemini 各自独立适配器（非 OpenAI 兼容包装），
-    # 缺 httpx 时跳过（内置惰性，用不到即不依赖）
+    # 原生协议厂商：anthropic_messages / gemini 各自独立适配器（非 OpenAI
+    # 兼容包装），缺 httpx 时跳过（内置惰性，用不到即不依赖）
     try:
         from ink_engine.core.llm.anthropic import AnthropicLLM
 
-        _LLM_REGISTRY.setdefault("anthropic", AnthropicLLM)
+        _LLM_REGISTRY.setdefault("anthropic_messages", AnthropicLLM)
+        _LLM_REGISTRY.setdefault("anthropic", AnthropicLLM)  # 兼容别名
+    except ModuleNotFoundError as exc:
+        if getattr(exc, "name", None) == "httpx":
+            pass  # 缺 httpx 时跳过原生适配器注册
+        else:
+            raise
+    try:
+        from ink_engine.core.llm.openai_response import OpenAIResponsesLLM
+
+        _LLM_REGISTRY.setdefault("openai_responses", OpenAIResponsesLLM)
+        _LLM_REGISTRY.setdefault("openai_response", OpenAIResponsesLLM)  # 兼容别名
     except ModuleNotFoundError as exc:
         if getattr(exc, "name", None) == "httpx":
             pass  # 缺 httpx 时跳过原生适配器注册

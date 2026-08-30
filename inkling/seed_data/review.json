@@ -9,6 +9,7 @@
   "max_rounds": 2,
   "beam_width": 1,
   "neutral_score": 0.5,
+  "evolve_interval_rounds": 10,
   "web_verify": {
     "enabled": true,
     "hook": "web_verifier",

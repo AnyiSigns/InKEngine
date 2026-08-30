@@ -36,7 +36,9 @@ from .assembly import SOURCE_EVIDENCE, AssemblyConfig
 from .context import CompressionPolicy, ContextSource, ThresholdCompressionPolicy
 from .declarative_tools import endpoint_operation, endpoint_operation_failure_reason
 from .event_types import EventTypeRegistry, EventTypeSpec, event_types_collection
+from .entities import EntityRegistry, EntitySpec, entity_collection
 from .events import EngineTransport
+from .evolution_writer import DefaultEvolutionWriter, runtime_config_writer
 from .executor import Engine, RunOptions
 from .graph import Graph, TerminateReason
 from .harness import (
@@ -321,6 +323,7 @@ class AssemblyRecipe:
             种子是出厂数据不是演化。
         harness_definitions: 自举 harness 定义清单（注册 + 落库）。
         event_type_specs: 事件类型基线（装配期登记 + 集内演化类型加载）。
+        entity_specs: 实体基线（协作者目录出厂条目；集内演化实体加载）。
         ui_spec: 界面基线（装配期经三层白名单校验；损坏回落未定形）。
         ui_allowed_channels: 界面绑定通道白名单（默认仅回合状态通道
             "state"；产品需事件流/内省快照绑定通道时由装配数据放行，
@@ -355,6 +358,7 @@ class AssemblyRecipe:
     )
     harness_definitions: list[HarnessDefinition] = field(default_factory=list)
     event_type_specs: list[EventTypeSpec] = field(default_factory=list)
+    entity_specs: list[EntitySpec] = field(default_factory=list)
     ui_spec: dict | None = None
     ui_allowed_channels: tuple[str, ...] = DEFAULT_BIND_CHANNELS
     ui_allowed_components: tuple[str, ...] = ()
@@ -418,6 +422,10 @@ class Runtime:
         self.harness_registry: HarnessRegistry | None = None
         self.harness_repository: HarnessRepository | None = None
         self.event_type_registry: EventTypeRegistry | None = None
+        self.entity_registry: EntityRegistry | None = None
+        # 实体演化管线（协作者自学习闭环：失败信号 → 变异 → 三层闸门 →
+        # 严格更优替换 → 晋升；None = 未装配——镜像自学习管线）
+        self.entity_evolution_pipeline: Any | None = None
         self.validator: ProposalValidator | None = None
         self.vetting: ToolVetting | None = None
         self.introspection_service: IntrospectionService | None = None
@@ -648,6 +656,28 @@ class Runtime:
             await self.event_type_registry.load()
             await self.event_type_registry.save()
 
+        # ⑤b 实体注册表（协作者目录：基线登记 + 集内演化实体加载；脏记录跳过）。
+        #     集合按集隔离（entities:<set_id>）；基线实体由配方（宿主种子）提供
+        self.entity_registry = EntityRegistry(
+            storage=self.storage, set_id=recipe.set_id
+        )
+        for spec in recipe.entity_specs:
+            self.entity_registry.register(spec)
+        with self.storage.allow_mechanism(entity_collection(recipe.set_id)):
+            await self.entity_registry.load()
+            await self.entity_registry.save()
+
+        # ⑤c 实体演化管线（协作者自学习闭环）：失败信号 → 变异 → 三层
+        #     闸门 → 严格更优替换 → 晋升。出厂默认开启、后台机制（镜像
+        #     自学习管线装配）；重建引擎时注册进 settle 钩子链与事件
+        #     观察传输。
+        from .entity_evolution import EntityEvolutionPipeline
+
+        self.entity_evolution_pipeline = EntityEvolutionPipeline(
+            self.entity_registry,
+            DefaultEvolutionWriter(self.storage),
+        )
+
         # ⑥ 校验器与工具可信度闸门（配方白名单；提案形态的第一道闸门）。
         #    出厂界面组件启停恢复在此前装载：配方白名单 - 停用集 = 活跃
         #    白名单，校验器与初始界面校验（⑧）共用同一过滤结果
@@ -725,6 +755,7 @@ class Runtime:
                 harness_registry=self.harness_registry,
                 tools=(),
                 ui_spec=ui_spec,
+                entity_registry=self.entity_registry,
             )
         )
         self.introspection_pipeline = build_introspection_pipeline(
@@ -1160,10 +1191,13 @@ class Runtime:
             raise ValueError(f"未注册工具不能加入常驻必带集: {', '.join(unknown)}")
         self._apply_baseline(requested)
         if self.storage is not None:
-            await self.storage.put_record(
+            await runtime_config_writer(
+                DefaultEvolutionWriter(self.storage),
                 BASELINE_RECORD_COLLECTION,
                 BASELINE_RECORD_KEY,
                 {"tools": sorted(self._baseline_names)},
+                asset_id="tool_baseline",
+                note="set_baseline_names",
             )
         return self.baseline_names
 
@@ -1224,10 +1258,13 @@ class Runtime:
         if self.validator is not None:
             self.validator.set_allowed_components(self.ui_allowed_components)
         if self.storage is not None:
-            await self.storage.put_record(
+            await runtime_config_writer(
+                DefaultEvolutionWriter(self.storage),
                 UI_COMPONENTS_RECORD_COLLECTION,
                 UI_COMPONENTS_RECORD_KEY,
                 {"disabled": sorted(self._ui_components_disabled)},
+                asset_id="ui_components_disabled",
+                note="set_ui_components_disabled",
             )
         return self.ui_components_disabled
 
@@ -1321,12 +1358,21 @@ class Runtime:
         settle_hooks.register(_KnowledgeUsageSettleHook(self))
         # 自学习闭环（默认开）：回合收尾按需蒸馏 + 闸门落位知识集
         settle_hooks.register(self.growth_pipeline)
+        # 实体演化闭环（默认开）：失败信号 → 变异 → 闸门 → 晋升
+        if self.entity_evolution_pipeline is not None:
+            settle_hooks.register(self.entity_evolution_pipeline)
         options = RunOptions(
             storage=self.storage,
             registries=self.graph_registries,
             # 自学习管线观察回合事件流（观测不阻断执行；宿主各自注入
-            # 传输，此传输不向宿主外发——只进不出）
-            transports=[self.growth_pipeline],
+            # 传输，此传输不向宿主外发——只进不出）；实体演化管线同
+            # 流观察实体关联失败信号
+            transports=[
+                self.growth_pipeline,
+                self.entity_evolution_pipeline,
+            ]
+            if self.entity_evolution_pipeline is not None
+            else [self.growth_pipeline],
             system_events=context.system_events,
             assembly=context.assembly,
             assembly_sources=context.assembly_sources,
@@ -1354,6 +1400,17 @@ class Runtime:
                     payload,
                     thread_id="-",
                     node="growth",
+                )
+            )
+        # 实体演化管线发射回调接入引擎事件流（演化动态落引擎事件日志并
+        # 推送全部传输——前端演化页签数据面）
+        if self.entity_evolution_pipeline is not None:
+            self.entity_evolution_pipeline.set_emit(
+                lambda etype, payload: engine.publish_event(
+                    etype,
+                    payload,
+                    thread_id="-",
+                    node="entity_evolution",
                 )
             )
         self.engine = engine
@@ -1530,6 +1587,14 @@ class Runtime:
                 self.event_type_registry.register(spec)
             except Exception as exc:
                 logger.warning("事件类型恢复失败（跳过）: %s: %s", name, exc)
+        for entity_id, spec_data in (state.get("entities") or {}).items():
+            if not isinstance(spec_data, dict) or entity_id in self.entity_registry.names():
+                continue
+            try:
+                spec = EntitySpec.from_dict(spec_data)
+                self.entity_registry.register(spec)
+            except Exception as exc:
+                logger.warning("实体恢复失败（跳过）: %s: %s", entity_id, exc)
         knowledge_state = state.get("knowledge") or {}
         if isinstance(knowledge_state, dict) and knowledge_state:
             try:

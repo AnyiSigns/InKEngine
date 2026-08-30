@@ -191,20 +191,31 @@ export interface BackendStatus {
   bundled?: boolean;
 }
 
-/** 模型档案（按挡位分组，占用/上限联动显示）。 */
-export interface ModelProfile {
-  id: string;
-  name: string;
-  tier: string;
-  occupancy: number;
-  limit: number;
-  /** 多模态能力标记（壳侧模型档案 multimodal 标注的镜像；缺省回落 false）。 */
-  multimodal?: boolean;
+/** 回合级模型选择（输入框选定；无默认、无档位——选什么跑什么）。
+ * provider 缺省 = 当前唯一连接提供方（单提供方形态；多提供方扩展后由
+ * 输入框按已配置提供方分组传 provider）。 */
+export interface ModelSelection {
+  provider?: string;
+  model_id: string;
 }
 
-/** 模型档案快照（仪表/选择控件数据源）。 */
+/** 模型档案条目（壳侧 model_archive.sqlite 记录形态；多模态三态）。 */
+export interface ModelArchiveRow {
+  model_id: string;
+  context_window?: number;
+  multimodal?: boolean | 'true' | 'false' | 'unknown';
+  metadata?: Record<string, unknown>;
+  discovered_at?: string;
+}
+
+/** 模型档案快照（Rust model_archive_snapshot 契约：ok + archives）。
+ *
+ * 设计 §1.3：无默认、无档位——输入选择只消费模型目录（model_id +
+ * 多模态 + 窗口），不显示 tier/占用等无数据源字段。
+ */
 export interface ModelArchiveSnapshot {
-  profiles: ModelProfile[];
+  ok?: boolean;
+  archives: ModelArchiveRow[];
 }
 
 /**
@@ -310,6 +321,7 @@ export interface BackendAdapter {
     text: string,
     autoAccept?: boolean,
     attachments?: Array<{ kind: string; url: string; name?: string; mime?: string }>,
+    model?: ModelSelection,
   ): Promise<RoundResult>;
   roundAbort(roundId: string): Promise<{ aborted: boolean }>;
   roundResume(
@@ -579,10 +591,15 @@ export function createTauriBackend(invoker?: TauriInvoker): BackendAdapter {
     status: () => call('backend_status'),
     engineBoot: () => call('engine_boot'),
     firstRunDismiss: () => call('first_run_dismiss'),
-    roundSend: (threadId, roundId, text, autoAccept, attachments) =>
-      call('round_send', attachments
-        ? { threadId, roundId, text, autoAcceptReview: autoAccept, attachments }
-        : { threadId, roundId, text, autoAcceptReview: autoAccept }),
+    roundSend: (threadId, roundId, text, autoAccept, attachments, model) =>
+      call('round_send', {
+        threadId,
+        roundId,
+        text,
+        autoAcceptReview: autoAccept,
+        ...(attachments ? { attachments } : {}),
+        ...(model ? { model } : {}),
+      }),
     roundAbort: (roundId) => call('round_abort', { roundId }),
     roundResume: (threadId, key, decision, reason, editedContent) =>
       call('round_resume', { threadId, key, decision, reason, editedContent }),

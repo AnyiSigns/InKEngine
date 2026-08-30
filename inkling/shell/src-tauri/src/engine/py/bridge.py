@@ -3743,6 +3743,7 @@ async def execute_round_to_reply(
     step_args: dict | None = None,
     orchestrate: dict | None = None,
     inject: dict | None = None,
+    model: dict | None = None,
     auto_accept_review: bool = True,
     max_cards: int = 8,
 ):
@@ -3751,10 +3752,14 @@ async def execute_round_to_reply(
     生产宿主按审批卡交互决议；离线验证用 auto_accept_review 一次跑通。
     编排脚本（orchestrate）非空时注入回合入口状态——编排节点按
     plan/spawns/simulate 保留键驱动；缺省走工作流节点序默认规划。
+    model（可选 {provider, model_id}）= 输入框选定的 agent 模型：回合
+    级解析换入 llm_decider holder（fail-open——解析失败/缺引用回落
+    会话默认模型），回合结束恢复（防中断态/后续回合串模型）。
     回合收尾（E-P5）按结果失败信号调参（runtime.tune_after_round，
     best-effort）；llm_usage 事件帧随传输收集（指标快照消费）。
     """
     result = None
+    model_restore = _round_model_override(runtime, host, model)
     try:
         state = {"input": input_text, "step_args": step_args or {}}
         if orchestrate is not None:
@@ -3783,7 +3788,68 @@ async def execute_round_to_reply(
             )
         return {"reason": result.reason, "state": dict(getattr(result, "state", {}) or {})}
     finally:
+        _restore_round_model_override(model_restore)
         await _tune_round_end(runtime, result)
+
+
+def _round_model_override(runtime: Any, host: Any, model: Any) -> Any:
+    """回合级模型覆盖：按选模型解析换入 holder llm（fail-open 回落默认）。
+
+    Returns:
+        (holder, old_llm, old_window) 恢复元组；未解析/无注册表 = None。
+    """
+    if not model or not isinstance(model, dict):
+        return None
+    provider = str(model.get("provider") or "")
+    model_id = str(model.get("model_id") or "")
+    resolve = getattr(host, "resolve_model_llm", None)
+    if not provider or not model_id or not callable(resolve):
+        return None
+    llm = resolve(provider, model_id)
+    if llm is None:
+        return None
+    registries = getattr(runtime, "graph_registries", None)
+    if registries is None:
+        return None
+    from inkling_host.graph_recipe import (
+        _specs_holder,
+        install_context_window,
+    )
+    from inkling_host.host import _model_context_window_from_archive
+
+    holder = _specs_holder(registries)
+    old_llm = holder.get("llm")
+    holder["llm"] = llm
+    # 窗口参数按该模型档案同步（工具结果截断数据面；回合级覆盖不换
+    # 全局压缩策略——防中断态/后续回合串状态）
+    old_window = None
+    archive_window = _model_context_window_from_archive(
+        getattr(host, "_data_dir", None), model_id
+    )
+    if archive_window is not None:
+        from inkling_host.graph_recipe import _context_window
+
+        old_window = _context_window
+        install_context_window(archive_window)
+    return (holder, old_llm, old_window)
+
+
+def _restore_round_model_override(restore: Any) -> None:
+    """回合级模型覆盖恢复（holder llm + 窗口原样还原）。"""
+    if restore is None:
+        return
+    holder, old_llm, old_window = restore
+    try:
+        if old_llm is None:
+            holder.pop("llm", None)
+        else:
+            holder["llm"] = old_llm
+        if old_window is not None:
+            from inkling_host.graph_recipe import install_context_window
+
+            install_context_window(old_window)
+    except Exception as exc:  # 恢复失败不阻断回合结果回流
+        logger.warning("回合模型覆盖恢复失败（忽略）: %s", exc)
 
 
 async def stop_runtime(runtime) -> None:

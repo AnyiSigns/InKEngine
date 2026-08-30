@@ -20,6 +20,7 @@ import uuid
 from dataclasses import dataclass, field
 from typing import Any, Protocol, runtime_checkable
 
+from .evolution_writer import DefaultEvolutionWriter, memory_writer
 from .logging import get_logger
 from .source_grading import (  # 来源分级单源（ENG3-19：与知识/检索统一分级类型）
     _SOURCE_CREDIBILITY,
@@ -206,6 +207,7 @@ class StorageBackedMemoryStore:
         self._collection = collection
         self._locks: dict[str, asyncio.Lock] = {}
         self._recall = recall_policy or PriorityRecallPolicy()
+        self._writer = DefaultEvolutionWriter(storage)
 
     def _lock_for(self, entry_id: str) -> asyncio.Lock:
         lock = self._locks.get(entry_id)
@@ -225,7 +227,13 @@ class StorageBackedMemoryStore:
 
     async def save(self, entry: MemoryEntry) -> str:
         entry_id = entry.id or _make_id(entry)
-        await self._storage.put_record(self._collection, entry_id, _entry_to_record(entry, entry_id))
+        await memory_writer(
+            self._writer,
+            self._collection,
+            entry_id,
+            _entry_to_record(entry, entry_id),
+            note="save",
+        )
         return entry_id
 
     async def get(self, entry_id: str) -> MemoryEntry | None:
@@ -242,8 +250,10 @@ class StorageBackedMemoryStore:
                 return False
             # id/namespace/created_at 为不可变身份字段，更新忽略
             protected = {"id", "namespace", "created_at", "_deleted"}
-            rec.update({k: v for k, v in data.items() if k not in protected})
-            await self._storage.put_record(self._collection, entry_id, rec)
+            new_rec = {**rec, **{k: v for k, v in data.items() if k not in protected}}
+            await memory_writer(
+                self._writer, self._collection, entry_id, new_rec, note="update"
+            )
             return True
 
     async def delete(self, entry_id: str) -> bool:
@@ -251,10 +261,11 @@ class StorageBackedMemoryStore:
             rec = await self._storage.get_record(self._collection, entry_id)
             if not rec:
                 return False
-            rec = {**rec, "_deleted": True}
-            await self._storage.put_record(self._collection, entry_id, rec)
-            # 删除后移除锁（ENG3-6：失效条目不再占用锁表；后续同 id
-            # 重建走新锁，无状态残留）
+            # 非破坏性删除：标记失效而非物理擦除（与 Event Sourcing 哲学一致）
+            new_rec = {**rec, "_deleted": True}
+            await memory_writer(
+                self._writer, self._collection, entry_id, new_rec, note="delete"
+            )
             self._locks.pop(entry_id, None)
             return True
 

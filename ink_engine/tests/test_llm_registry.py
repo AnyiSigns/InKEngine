@@ -17,7 +17,13 @@ from ink_engine.core.llm.registry import (
 class TestRegistry:
     def test_builtin_adapters(self):
         names = adapter_names()
+        # 协议全名（用户可辨别的常见 API 协议）
+        assert "openai_compatible" in names
+        assert "openai_responses" in names
+        assert "anthropic_messages" in names
+        # 兼容别名（旧配置零迁移）
         assert "openai_compat" in names
+        assert "anthropic" in names
         # OpenAI 兼容厂商别名齐备（adapter 名直接可用）
         for alias in ("openai", "deepseek", "zhipu", "moonshot", "ollama"):
             assert alias in names
@@ -25,8 +31,19 @@ class TestRegistry:
     def test_builtin_aliases_share_class(self):
         cls = get_adapter_class("openai_compat")
         assert cls is OpenAICompatibleLLM
+        assert get_adapter_class("openai_compatible") is OpenAICompatibleLLM
         for alias in ("openai", "deepseek", "zhipu", "moonshot", "ollama"):
             assert get_adapter_class(alias) is cls
+
+    def test_protocol_adapters_resolve_by_full_name(self):
+        from ink_engine.core.llm.anthropic import AnthropicLLM
+        from ink_engine.core.llm.openai_response import OpenAIResponsesLLM
+
+        # 全名与兼容别名各自解析到对应协议适配器
+        assert get_adapter_class("anthropic_messages") is AnthropicLLM
+        assert get_adapter_class("anthropic") is AnthropicLLM
+        assert get_adapter_class("openai_responses") is OpenAIResponsesLLM
+        assert get_adapter_class("openai_response") is OpenAIResponsesLLM
 
     def test_create_llm_from_dict(self):
         llm = create_llm(

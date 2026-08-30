@@ -18,6 +18,18 @@ describe('MessageStream', () => {
     expect(screen.getByText('hi')).toBeTruthy();
   });
 
+  it('renders speaker label when assistant text carries name', () => {
+    render(<MessageStream entries={[{ id: '1', kind: 'text', role: 'assistant', content: '评审意见', name: '安全评审', roundId: 'r1' }]} streaming={false} onBranchFromMessage={() => {}} />);
+    expect(screen.getByText('评审意见')).toBeTruthy();
+    expect(screen.getByText('安全评审')).toBeTruthy();
+  });
+
+  it('renders speaker label on streaming collaborator reply', () => {
+    render(<MessageStream entries={[{ id: '1', kind: 'streaming', content: '分析中', name: '研究分析师', roundId: 'r1' }]} streaming onBranchFromMessage={() => {}} />);
+    expect(screen.getByText('分析中')).toBeTruthy();
+    expect(screen.getByText('研究分析师')).toBeTruthy();
+  });
+
   it('renders system text message', () => {
     render(<MessageStream entries={[{ id: '1', kind: 'text', role: 'system', content: '回合结束', roundId: 'r1' }]} streaming={false} onBranchFromMessage={() => {}} />);
     expect(screen.getByText('回合结束')).toBeTruthy();

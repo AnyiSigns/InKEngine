@@ -8,42 +8,75 @@ use super::error::CommandError;
 use crate::ShellState;
 use crate::{app_data_dir, ensure_engine, first_run_pending, load_workflow_data, exec_present};
 
+/// 宿主状态记录集合/键（引擎 records 通道；首启标记等宿主态）。
+const HOST_STATE_COLLECTION: &str = "host_state";
+const FIRST_RUN_KEY: &str = "first_run";
+
 /// 后端状态（前端启动探测：引擎是否就绪/工具面大小/安全模式标志/
 /// 首启引导/执行件随包就位/运行形态）。
 #[tauri::command]
-pub(crate) fn backend_status(app: AppHandle, state: State<'_, ShellState>) -> JsonValue {
-    let safe_mode = app_data_dir(&app)
-        .map(|dir| crate::domain::recovery::load_boot_state(&dir).safe_mode)
-        .unwrap_or(false);
-    let first_run = app_data_dir(&app)
-        .map(|dir| first_run_pending(&dir))
-        .unwrap_or(true);
+pub(crate) async fn backend_status(app: AppHandle, state: State<'_, ShellState>) -> Result<JsonValue, CommandError> {
+    let safe_mode = match app_data_dir(&app) {
+        Ok(dir) => {
+            crate::domain::recovery::load_boot_state_records_first(&dir)
+                .await
+                .safe_mode
+        }
+        Err(_) => false,
+    };
+    let first_run = match crate::engine::host::call_engine_op_async(
+        "engine.records_get",
+        serde_json::json!({ "collection": HOST_STATE_COLLECTION, "key": FIRST_RUN_KEY }),
+    )
+    .await
+    {
+        Ok(record) => {
+            !(record.get("dismissed_at").is_some()
+                || record.get("dismissed").and_then(JsonValue::as_bool) == Some(true))
+        }
+        Err(_) => app_data_dir(&app)
+            .map(|dir| first_run_pending(&dir))
+            .unwrap_or(true),
+    };
     let exec_ready = app_data_dir(&app)
         .map(|dir| exec_present(&dir))
         .unwrap_or(false);
-    json!({
+    Ok(json!({
         "engine_ready": state.backend.engine_ready(),
         "tool_count": state.backend.tool_provider.len(),
         "safe_mode": safe_mode,
         "first_run": first_run,
         "exec_ready": exec_ready,
         "bundled": crate::engine::runtime::bundled_mode(),
-    })
+    }))
 }
 
-/// 首启引导关闭（标记落位；下次启动不再展示引导）。
+/// 首启引导关闭（标记经引擎 records 通道落位；引擎不可用降级写本地标记）。
 #[tauri::command]
-pub(crate) fn first_run_dismiss(app: AppHandle) -> Result<JsonValue, CommandError> {
-    let data_dir = app_data_dir(&app)?;
-    std::fs::write(
-        data_dir.join(crate::FIRST_RUN_MARKER),
+pub(crate) async fn first_run_dismiss(app: AppHandle) -> Result<JsonValue, CommandError> {
+    let dismissed =
+        serde_json::json!({ "dismissed_at": chrono::Utc::now().timestamp_millis() });
+    match crate::engine::host::call_engine_op_async(
+        "engine.records_put",
         serde_json::json!({
-            "dismissed_at": chrono::Utc::now().timestamp_millis(),
-        })
-        .to_string(),
+            "collection": HOST_STATE_COLLECTION,
+            "key": FIRST_RUN_KEY,
+            "data": dismissed.clone(),
+        }),
     )
-    .map_err(|err| CommandError::io(format!("首启标记写入失败: {err}")))?;
-    Ok(json!({ "dismissed": true }))
+    .await
+    {
+        Ok(_) => Ok(json!({ "dismissed": true })),
+        Err(_) => {
+            let data_dir = app_data_dir(&app)?;
+            std::fs::write(
+                data_dir.join(crate::FIRST_RUN_MARKER),
+                dismissed.to_string(),
+            )
+            .map_err(|err| CommandError::io(format!("首启标记写入失败: {err}")))?;
+            Ok(json!({ "dismissed": true }))
+        }
+    }
 }
 
 /// 显式装配（懒装配的提前触发；失败 = 结构化错误）。
@@ -93,7 +126,7 @@ pub(crate) fn route_plan(state: State<'_, ShellState>, text: String, tier: Strin
 /// 运行时生命周期状态（组合引擎 `engine.runtime_state` + 既有 boot/safe/ready
 /// 取值逻辑，组装为前端 LifecycleStatus）。
 #[tauri::command]
-pub(crate) fn runtime_state(
+pub(crate) async fn runtime_state(
     app: AppHandle,
     state: State<'_, ShellState>,
 ) -> Result<JsonValue, CommandError> {
@@ -103,9 +136,14 @@ pub(crate) fn runtime_state(
         .get("state")
         .cloned()
         .unwrap_or_else(|| JsonValue::String("unknown".into()));
-    let safe_mode = app_data_dir(&app)
-        .map(|dir| crate::domain::recovery::load_boot_state(&dir).safe_mode)
-        .unwrap_or(false);
+    let safe_mode = match app_data_dir(&app) {
+        Ok(dir) => {
+            crate::domain::recovery::load_boot_state_records_first(&dir)
+                .await
+                .safe_mode
+        }
+        Err(_) => false,
+    };
     let boot_state = json!({ "safe_mode": safe_mode });
     let engine_ready = state.backend.engine_ready();
     Ok(json!({

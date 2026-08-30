@@ -156,9 +156,9 @@ function MessageItem({
     case 'text':
       if (entry.role === 'user') return <UserBubble content={entry.content} />;
       if (entry.role === 'system') return <SystemLine content={entry.content} />;
-      return <AssistantText content={entry.content} streaming={streaming} />;
+      return <AssistantText content={entry.content} streaming={streaming} name={entry.name} />;
     case 'streaming':
-      return <AssistantText content={entry.content} streaming />;
+      return <AssistantText content={entry.content} streaming name={entry.name} />;
     case 'thinking':
       return <ThinkingCard entry={entry} />;
     case 'plan': {
@@ -364,11 +364,27 @@ function UserBubble({ content }: { content: string }) {
   );
 }
 
-function AssistantText({ content, streaming }: { content: string; streaming?: boolean }) {
+function AssistantText({
+  content,
+  streaming,
+  name,
+}: {
+  content: string;
+  streaming?: boolean;
+  /** 发言人身份（协作者 label；主 agent 缺省无标签）。 */
+  name?: string;
+}) {
   return (
-    <div className="ink-markdown text-[15px] leading-relaxed">
-      {content}
-      {streaming && <span className="ink-caret-muted" />}
+    <div>
+      {name ? (
+        <div className="mb-1 flex items-center gap-1.5 px-1" data-ui="speaker_label">
+          <span className="ink-chip text-[10px]">{name}</span>
+        </div>
+      ) : null}
+      <div className="ink-markdown text-[15px] leading-relaxed">
+        {content}
+        {streaming && <span className="ink-caret-muted" />}
+      </div>
     </div>
   );
 }

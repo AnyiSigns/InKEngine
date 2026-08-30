@@ -165,11 +165,16 @@ export default function App({ backend, hub, sessionStore }: AppProps) {
       .catch(() => setRoutePlan(undefined));
   };
 
-  const handleSend = (text: string, attachments: AttachmentAsset[], sendMode: 'standard' | 'assembly') => {
+  const handleSend = (
+    text: string,
+    attachments: AttachmentAsset[],
+    sendMode: 'standard' | 'assembly',
+    model?: import('@/shared/backend/backendAdapter').ModelSelection,
+  ) => {
     if (sendMode === 'assembly') {
       void backend.pathSetAssemblerEnabled(true).catch(() => undefined);
     }
-    void send(text, attachments);
+    void send(text, attachments, model);
   };
 
   /** 会话窗口切换：从 perThread 桶恢复该会话的回合状态（演化/推演/来源/轨迹）。 */

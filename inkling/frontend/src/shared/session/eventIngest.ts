@@ -132,12 +132,26 @@ export function ingestEvent(hub: ChannelHub, event: HubEvent): void {
     case 'reply_token': {
       const token = String(payload.token ?? '');
       if (!token) break;
+      // 发言人身份透传（协作者 reply_token 携带 name；主 agent 无）
+      const speaker = typeof payload.name === 'string' && payload.name ? payload.name : undefined;
       const found = findStep(messages, stepId, roundId);
       const content = (found && found.kind === 'streaming' ? found.content : '') + token;
       if (found && found.kind === 'streaming') {
-        messages = messages.map((m) => (m === found ? { ...m, content } : m));
+        messages = messages.map((m) =>
+          m === found ? { ...m, content, ...(speaker ? { name: speaker } : {}) } : m,
+        );
       } else {
-        messages = [...messages, { kind: 'streaming', content, id: nextId(), stepId: stepId || undefined, roundId }];
+        messages = [
+          ...messages,
+          {
+            kind: 'streaming',
+            content,
+            id: nextId(),
+            stepId: stepId || undefined,
+            roundId,
+            ...(speaker ? { name: speaker } : {}),
+          },
+        ];
       }
       break;
     }

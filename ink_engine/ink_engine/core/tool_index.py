@@ -299,7 +299,7 @@ def build_default_embedder() -> object | None:
         from .llm.embeddings import create_embedder
 
         return create_embedder({
-            "adapter": os.environ.get("INK_EMBEDDING_ADAPTER", "openai_compat"),
+            "adapter": os.environ.get("INK_EMBEDDING_ADAPTER", "openai_compatible"),
             "model_id": model_id,
             "base_url": base_url,
             "api_key": os.environ.get("INK_EMBEDDING_API_KEY"),

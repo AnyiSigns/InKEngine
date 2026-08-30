@@ -17,6 +17,8 @@ export interface InkTextMessage extends InkMessageBase {
   kind: 'text';
   role: 'user' | 'assistant' | 'system';
   content: string;
+  /** 发言人身份（多 agent 协作：实体 label；主 agent 缺省无，不渲染标签）。 */
+  name?: string;
   /** 多模态附件（user 角色携带，对齐引擎 Attachment 契约：kind + url 必备）。 */
   attachments?: OutboundAttachment[];
 }
@@ -37,6 +39,8 @@ export interface OutboundAttachment {
 export interface InkStreamingMessage extends InkMessageBase {
   kind: 'streaming';
   content: string;
+  /** 发言人身份（多 agent 协作：实体 label；主 agent 缺省无）。 */
+  name?: string;
 }
 
 /** 思考过程（thinking_start/thinking_end 事件对）。 */

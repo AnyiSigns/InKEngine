@@ -40,7 +40,7 @@ if TYPE_CHECKING:
 
 
 class PatchKind(StrEnum):
-    """补丁类型（演化对象清单：界面/主题/工具/规则/知识/harness/事件/环境/产物）。"""
+    """补丁类型（演化对象清单：界面/主题/工具/规则/知识/harness/事件/环境/产物/实体）。"""
 
     UI = "ui"
     THEME = "theme"
@@ -51,6 +51,7 @@ class PatchKind(StrEnum):
     EVENT_TYPE = "event_type"
     ENVIRONMENT = "environment"
     ARTIFACT = "artifact"
+    ENTITY = "entity"
 
 
 # 产物哈希声明形态（sha256 hex，64 字符）
@@ -71,6 +72,10 @@ _PATCH_KIND_EXAMPLES: dict[str, str] = {
         '{"name": "<工具名>", "description": "...",'
         ' "permissions": ["filesystem:read:/workspace"],'
         ' "endpoint": "file_ops", "endpoint_config": {"root": "/workspace"}}'
+    ),
+    "entity": (
+        '{"id": "<实体 id>", "label": "<展示名>",'
+        ' "persona": "<独立系统提示词>", "model": {"provider": "...", "model_id": "..."}}'
     ),
     "rule": (
         '{"rule": {"id": "...", "predicate": "equals", "path": "status",'
@@ -352,6 +357,15 @@ class ProposalValidator:
         if not parsed.renderer and not parsed.system:
             return ["event_type 补丁须带 renderer（前端渲染组件引用）——"
                     "无渲染组件的事件只能折叠展示"]
+        return []
+
+    def _validate_entity(self, payload: dict[str, Any]) -> list[str]:
+        from .entities import EntitySpec
+
+        try:
+            EntitySpec.from_dict(payload)
+        except GraphDefinitionError as exc:
+            return self._violations("entity 补丁非法", exc)
         return []
 
     def _validate_environment(self, payload: dict[str, Any]) -> list[str]:

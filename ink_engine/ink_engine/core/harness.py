@@ -29,6 +29,7 @@ from .declarative_tools import (
     DeclarativeToolSpec,
     build_declarative_pipeline,
 )
+from .evolution_writer import DefaultEvolutionWriter, harness_writer
 from .exceptions import GraphDefinitionError
 from .graph import Graph
 from .llm.tools import ToolSpec
@@ -407,6 +408,7 @@ class HarnessRepository:
         self._legacy_collection = (
             HARNESS_COLLECTION if self._collection != HARNESS_COLLECTION else None
         )
+        self._writer = DefaultEvolutionWriter(storage)
 
     @property
     def collection(self) -> str:
@@ -490,8 +492,13 @@ class HarnessRepository:
             # 版本号 = 补丁数 + 1（首版 = base 无补丁；每次演进 append 一条
             # 替换补丁，旧版本经补丁链 partial 组装还原）
             version = len(chain.patches) + 1
-        await self._storage.put_record(
-            self._collection, self._chain_key(definition.name), chain.to_dict()
+        await harness_writer(
+            self._writer,
+            self._collection,
+            self._chain_key(definition.name),
+            chain.to_dict(),
+            asset_id=definition.name,
+            note=note,
         )
         versions = await self._get_versions_record(definition.name)
         entries = list(versions or [])
@@ -502,8 +509,13 @@ class HarnessRepository:
                 "note": note,
             }
         )
-        await self._storage.put_record(
-            self._collection, self._versions_key(definition.name), entries
+        await self._writer.write(
+            self._collection,
+            self._versions_key(definition.name),
+            entries,
+            kind="harness",
+            asset_id=f"versions:{definition.name}",
+            note="version_index",
         )
         return version
 

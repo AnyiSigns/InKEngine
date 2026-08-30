@@ -161,6 +161,7 @@ BOOT_METATOOLS: tuple[str, ...] = (
     "inspect_knowledge",
     "inspect_ui",
     "inspect_tools",
+    "inspect_entities",
     "propose_patch",
     "apply_patch",
     "revert_patch",

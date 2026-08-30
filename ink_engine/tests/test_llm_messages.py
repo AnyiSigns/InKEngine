@@ -130,6 +130,33 @@ class TestMessage:
         assert restored == msg
         assert restored.to_openai_dict() == msg.to_openai_dict()
 
+    def test_name_emitted_for_user_assistant_only(self):
+        # OpenAI 协议原生：user/assistant 消息带 name；system/tool 不带
+        assert assistant("答", name="security_reviewer").to_openai_dict() == {
+            "role": "assistant",
+            "content": "答",
+            "name": "security_reviewer",
+        }
+        assert user("问", name="user1").to_openai_dict() == {
+            "role": "user",
+            "content": "问",
+            "name": "user1",
+        }
+        assert system("s").to_openai_dict() == {"role": "system", "content": "s"}
+        assert tool_result("r", "c1").to_openai_dict() == {
+            "role": "tool",
+            "content": "r",
+            "tool_call_id": "c1",
+        }
+
+    def test_name_round_trip_and_default_omitted(self):
+        # 默认 None：输出与既往逐字段一致（回归零影响）
+        assert "name" not in assistant("a").to_openai_dict()
+        msg = assistant("答", name="security_reviewer")
+        restored = Message.from_dict(msg.to_dict())
+        assert restored == msg
+        assert restored.name == "security_reviewer"
+
 
 class TestToolCall:
     def test_parsed_arguments_ok(self):

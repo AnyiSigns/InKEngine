@@ -48,20 +48,29 @@ export interface ModelSectionValue {
 }
 
 const VENDORS = [
-  { id: 'openai', label: 'OpenAI', adapter: 'openai_compat', baseUrl: 'https://api.openai.com/v1' },
-  { id: 'deepseek', label: 'DeepSeek', adapter: 'openai_compat', baseUrl: 'https://api.deepseek.com/v1' },
-  { id: 'zhipu', label: '智谱 GLM', adapter: 'openai_compat', baseUrl: 'https://open.bigmodel.cn/api/paas/v4' },
-  { id: 'moonshot', label: 'Moonshot', adapter: 'openai_compat', baseUrl: 'https://api.moonshot.cn/v1' },
-  { id: 'ollama', label: 'Ollama（本地）', adapter: 'openai_compat', baseUrl: 'http://localhost:11434/v1' },
-  { id: 'dashscope', label: 'DashScope（通义千问）', adapter: 'openai_compat', baseUrl: 'https://dashscope.aliyuncs.com/compatible-mode/v1' },
-  { id: 'anthropic', label: 'Anthropic', adapter: 'anthropic', baseUrl: 'https://api.anthropic.com' },
-  { id: 'gemini', label: 'Google Gemini', adapter: 'openai_compat', baseUrl: 'https://generativelanguage.googleapis.com/v1beta' },
+  { id: 'openai', label: 'OpenAI（Compatible）', adapter: 'openai_compatible', baseUrl: 'https://api.openai.com/v1' },
+  { id: 'openai_responses', label: 'OpenAI Responses', adapter: 'openai_responses', baseUrl: 'https://api.openai.com/v1' },
+  { id: 'deepseek', label: 'DeepSeek', adapter: 'openai_compatible', baseUrl: 'https://api.deepseek.com/v1' },
+  { id: 'zhipu', label: '智谱 GLM', adapter: 'openai_compatible', baseUrl: 'https://open.bigmodel.cn/api/paas/v4' },
+  { id: 'moonshot', label: 'Moonshot', adapter: 'openai_compatible', baseUrl: 'https://api.moonshot.cn/v1' },
+  { id: 'ollama', label: 'Ollama（本地）', adapter: 'openai_compatible', baseUrl: 'http://localhost:11434/v1' },
+  { id: 'dashscope', label: 'DashScope（通义千问）', adapter: 'openai_compatible', baseUrl: 'https://dashscope.aliyuncs.com/compatible-mode/v1' },
+  { id: 'anthropic', label: 'Anthropic Messages', adapter: 'anthropic_messages', baseUrl: 'https://api.anthropic.com' },
+  { id: 'gemini', label: 'Google Gemini', adapter: 'gemini', baseUrl: 'https://generativelanguage.googleapis.com/v1beta' },
 ] as const;
 
-/** 预设厂商适配器（vendors 之外经 Provider API 自定义）。 */
+/** 预设厂商适配器（vendors 之外经 Provider API 自定义）。
+ * 协议全名（用户可辨别的常见 API 协议）：openai_compatible（chat
+ * completions）/ openai_responses（Responses）/ anthropic_messages（Messages）。
+ */
 function adapterOf(vendor: string): string {
   const v = VENDORS.find((x) => x.id === vendor);
-  return v?.adapter ?? 'openai_compat';
+  return v?.adapter ?? 'openai_compatible';
+}
+
+/** 当前编辑提供方的稳定标识（预设 id / 自定义 provider_id）。 */
+function providerIdOf(vendor: string, customProviderId: string): string {
+  return vendor === '__custom__' ? customProviderId : vendor;
 }
 
 const DEFAULT_CONTEXT = 128 * 1024;
@@ -85,14 +94,177 @@ interface ProbeModel {
   context_window?: number;
 }
 
+/** 提供方空态引导（厂商空 → 「填入各提供方的 API 密钥即可使用其模型」+ 添加提供方）。
+ *
+ * 设计 §1.4 首次空态：厂商空时整页空态引导，主按钮「+添加提供方」直接进入
+ * 配置流程；档位卡仍保留在下方（已有配置的局部可继续微调）。
+ */
+function EmptyProviderState({ onAdd }: { onAdd: () => void }): JSX.Element {
+  return (
+    <div className="ink-elevated flex flex-col items-center gap-2.5 px-4 py-8 text-center" data-ui="model_empty_state">
+      <p className="text-[14px] font-medium ink-text-base">填入各提供方的 API 密钥即可使用其模型</p>
+      <p className="max-w-md text-[11px] leading-relaxed ink-text-faint">
+        配置一个模型提供方（预设厂商自动带端点，或自定义端点 + 密钥）后，即可在对话输入框选择具体模型；未配置时先以离线形态使用。
+      </p>
+      <Button size="sm" variant="primary" onClick={onAdd} data-ui="model_add_provider">
+        + 添加提供方
+      </Button>
+    </div>
+  );
+}
+
+/** 提供方草稿（前端编辑态；providers 数组唯一权威——provider_id 稳定标识，
+ * vendor/custom_provider_id 随写随存供读回显忠实还原，壳侧/Python 忽略未知字段）。 */
+interface ProviderDraft {
+  provider_id: string;
+  vendor: string;
+  custom_provider_id: string;
+  label: string;
+  adapter: string;
+  base_url: string;
+  api_key: string;
+  main_model_id: string;
+  router_model_id: string;
+  audit_model_id: string;
+  context_window: number;
+  compression_percent: number;
+}
+
+function blankProvider(seed: string): ProviderDraft {
+  const vendor = VENDORS[0];
+  return {
+    provider_id: seed,
+    vendor: vendor.id,
+    custom_provider_id: 'custom_provider',
+    label: vendor.label,
+    adapter: vendor.adapter,
+    base_url: vendor.baseUrl,
+    api_key: '',
+    main_model_id: '',
+    router_model_id: '',
+    audit_model_id: '',
+    context_window: DEFAULT_CONTEXT,
+    compression_percent: 80,
+  };
+}
+
+function providerToJson(p: ProviderDraft): Record<string, unknown> {
+  return {
+    provider_id: p.provider_id,
+    vendor: p.vendor,
+    custom_provider_id: p.custom_provider_id,
+    label: p.label,
+    adapter: p.adapter,
+    base_url: p.base_url,
+    model_ids: {
+      ...(p.main_model_id ? { main: p.main_model_id } : {}),
+      ...(p.router_model_id ? { router: p.router_model_id } : {}),
+      ...(p.audit_model_id ? { audit: p.audit_model_id } : {}),
+    },
+    context_window: p.context_window,
+    compression_percent: p.compression_percent,
+    ...(p.api_key && p.api_key.trim() ? { api_key: p.api_key } : {}),
+  };
+}
+
+function providerFromJson(raw: unknown, index: number): ProviderDraft {
+  const p = (raw ?? {}) as Record<string, unknown>;
+  const modelIds = (p.model_ids ?? {}) as Record<string, unknown>;
+  const providerId = typeof p.provider_id === 'string' && p.provider_id ? p.provider_id : `provider_${index}`;
+  // vendor 字段缺省（旧数据）→ 按 provider_id 映射预设，否则自定义
+  const vendor =
+    typeof p.vendor === 'string' && p.vendor
+      ? p.vendor
+      : VENDORS.some((v) => v.id === providerId)
+        ? providerId
+        : '__custom__';
+  return {
+    provider_id: providerId,
+    vendor,
+    custom_provider_id:
+      typeof p.custom_provider_id === 'string'
+        ? p.custom_provider_id
+        : (typeof p.provider_id === 'string' ? p.provider_id : 'custom_provider'),
+    label:
+      typeof p.label === 'string' && p.label
+        ? p.label
+        : (VENDORS.find((v) => v.id === vendor)?.label ?? providerId),
+    adapter: typeof p.adapter === 'string' ? p.adapter : 'openai_compatible',
+    base_url: typeof p.base_url === 'string' ? p.base_url : '',
+    api_key: '', // 掩码不回显
+    main_model_id: typeof modelIds.main === 'string' ? modelIds.main : '',
+    router_model_id: typeof modelIds.router === 'string' ? modelIds.router : '',
+    audit_model_id: typeof modelIds.audit === 'string' ? modelIds.audit : '',
+    context_window: typeof p.context_window === 'number' ? p.context_window : DEFAULT_CONTEXT,
+    compression_percent: typeof p.compression_percent === 'number' ? p.compression_percent : 80,
+  };
+}
+
+/** 提供方列表（多卡：选中切换编辑 / 添加 / 删除；已配置主档模型摘要展示）。 */
+function ProviderList({
+  providers,
+  activeProviderId,
+  onSelect,
+  onAdd,
+  onDelete,
+}: {
+  providers: ProviderDraft[];
+  activeProviderId: string | null;
+  onSelect: (providerId: string) => void;
+  onAdd: () => void;
+  onDelete: (providerId: string) => void;
+}): JSX.Element {
+  return (
+    <div className="ink-elevated space-y-2.5 px-3.5 py-3" data-ui="provider_list">
+      <div className="flex items-center justify-between gap-2">
+        <div className="text-[11px] font-medium tracking-wide ink-text-muted">提供方</div>
+        <Button size="xs" variant="ghost" onClick={onAdd} data-ui="provider_add">
+          + 添加提供方
+        </Button>
+      </div>
+      <div className="flex flex-wrap gap-1.5">
+        {providers.map((p) => (
+          <button
+            key={p.provider_id}
+            type="button"
+            data-active={p.provider_id === activeProviderId}
+            data-ui="provider_card"
+            onClick={() => onSelect(p.provider_id)}
+            className="flex items-center gap-2 rounded-lg border border-[var(--ink-border)] px-2.5 py-1.5 text-[11px] ink-text-muted hover:border-[var(--ink-border-strong)] hover:bg-[var(--ink-bg-surface)] data-[active=true]:border-[var(--ink-accent-border)] data-[active=true]:text-[var(--ink-text-base)]"
+          >
+            <span className="max-w-[7rem] truncate">{p.label || p.provider_id}</span>
+            <span className="max-w-[6rem] truncate text-[10px] ink-text-faint">
+              {p.main_model_id || '未配置'}
+            </span>
+            <span
+              role="button"
+              aria-label={`删除 ${p.label || p.provider_id}`}
+              onClick={(e) => {
+                e.stopPropagation();
+                onDelete(p.provider_id);
+              }}
+              className="ml-0.5 shrink-0 ink-text-faint hover:text-[var(--ink-text-base)]"
+            >
+              ×
+            </span>
+          </button>
+        ))}
+      </div>
+    </div>
+  );
+}
+
 function TierModelBlock({
   value,
   onCommit,
   savePhase,
+  autoOpenMainPulse,
 }: {
   value: ModelSectionValue;
   onCommit: (patch: Partial<ModelSectionValue>) => void;
   savePhase: FeedbackPhase;
+  /** 空态「添加提供方」脉冲（自增计数：每次点击重新打开 main 档配置悬浮窗）。 */
+  autoOpenMainPulse?: number;
 }): JSX.Element {
   const backend = useMemo(() => createBackend(), []);
   const [editing, setEditing] = useState<GearTier | null>(null);
@@ -111,6 +283,12 @@ function TierModelBlock({
   const valueOf = (tier: GearTier): string =>
     tier === 'main' ? value.mainModelId : tier === 'router' ? value.routerModelId : value.auditModelId;
   const configured = (tier: GearTier): boolean => valueOf(tier).trim().length > 0;
+
+  // 空态「添加提供方」脉冲 → 打开 main 档配置悬浮窗（从空态引导进入配置）。
+  useEffect(() => {
+    if (autoOpenMainPulse && autoOpenMainPulse > 0) openEditor('main');
+    // eslint-disable-next-line react-hooks/exhaustive-deps
+  }, [autoOpenMainPulse]);
 
   const openEditor = (tier: GearTier): void => {
     setDraftVendor(value.vendor);
@@ -142,6 +320,7 @@ function TierModelBlock({
       await backend.modelsRefresh({
         base_url: probeBase,
         api_key: draftApiKey || undefined,
+        provider_id: providerIdOf(draftVendor, draftProviderId),
         models: [],
       });
       const archive = (await backend.modelArchiveSnapshot()) as unknown as {
@@ -362,21 +541,46 @@ function TierModelBlock({
 
 export function ModelSection(): JSX.Element {
   const backend = useMemo(() => createBackend(), []);
-  const [vendor, setVendor] = useState<string>(VENDORS[0].id);
-  const [providerId, setProviderId] = useState<string>('custom_provider');
-  const [baseUrl, setBaseUrl] = useState<string>(VENDORS[0].baseUrl);
-  const [apiKey, setApiKey] = useState('');
-  const [mainModelId, setMainModelId] = useState('');
-  const [routerModelId, setRouterModelId] = useState('');
-  const [auditModelId, setAuditModelId] = useState('');
-  const [contextWindow, setContextWindow] = useState<number>(DEFAULT_CONTEXT);
-  const [compressionPercent, setCompressionPercent] = useState<number>(80);
+  // 多提供方：providers 数组（唯一权威）+ 当前编辑提供方
+  const [providers, setProviders] = useState<ProviderDraft[]>([]);
+  const [activeProviderId, setActiveProviderId] = useState<string | null>(null);
   const [simulationTier, setSimulationTier] = useState<'off' | 'light' | 'full'>('light');
   const [savePhase, setSavePhase] = useState<FeedbackPhase>('idle');
+  // 提供方是否已配置（null = 尚未读回显；false = 空态引导）。
+  const [providerConfigured, setProviderConfigured] = useState<boolean | null>(null);
+  // 空态/列表「添加提供方」脉冲（自增计数触发 main 档悬浮窗打开）。
+  const [addProviderPulse, setAddProviderPulse] = useState(0);
+
+  const activeProvider = providers.find((p) => p.provider_id === activeProviderId) ?? providers[0];
+
+  // 当前编辑提供方 → 档位编辑器入参（ModelSectionValue 扁平形态）
+  const activeValue: ModelSectionValue = activeProvider
+    ? {
+        vendor: activeProvider.vendor,
+        providerId: activeProvider.custom_provider_id,
+        baseUrl: activeProvider.base_url,
+        apiKey: activeProvider.api_key,
+        mainModelId: activeProvider.main_model_id,
+        routerModelId: activeProvider.router_model_id,
+        auditModelId: activeProvider.audit_model_id,
+        contextWindow: activeProvider.context_window,
+        compressionPercent: activeProvider.compression_percent,
+      }
+    : {
+        vendor: VENDORS[0].id,
+        providerId: 'custom_provider',
+        baseUrl: VENDORS[0].baseUrl,
+        apiKey: '',
+        mainModelId: '',
+        routerModelId: '',
+        auditModelId: '',
+        contextWindow: DEFAULT_CONTEXT,
+        compressionPercent: 80,
+      };
 
   // 用 ref 持久化最新表单闭包，避免 handleSimChange 读到过期渲染闭包。
-  const formRef = useRef<ModelSectionValue>({ vendor, providerId, baseUrl, apiKey, mainModelId, routerModelId, auditModelId, contextWindow, compressionPercent });
-  formRef.current = { vendor, providerId, baseUrl, apiKey, mainModelId, routerModelId, auditModelId, contextWindow, compressionPercent };
+  const formRef = useRef<ModelSectionValue>(activeValue);
+  formRef.current = activeValue;
 
   // 标记推演档是否经用户切换（排除初始挂载）。
   const simTouchedRef = useRef(false);
@@ -384,11 +588,11 @@ export function ModelSection(): JSX.Element {
   // 推演档切换 → 读取最新表单值即时落盘（effect 在 committed state 上运行，无闭包过期）。
   useEffect(() => {
     if (!simTouchedRef.current) return;
-    void persist(formRef.current, simulationTier);
+    void persist(providers, simulationTier);
     // eslint-disable-next-line react-hooks/exhaustive-deps
   }, [simulationTier]);
 
-  // 读回显：进入设置页时把上次保存的模型连接配置回填（api_key 掩码不回显）。
+  // 读回显：providers 数组（多提供方唯一权威）；旧 flat 形态投影为单提供方。
   useEffect(() => {
     if (!backend.available) return;
     void backend
@@ -396,52 +600,45 @@ export function ModelSection(): JSX.Element {
       .then((raw) => {
         const cfg = (raw ?? {}) as Record<string, unknown>;
         if (typeof cfg !== 'object') return;
-        if (typeof cfg.vendor === 'string') setVendor(cfg.vendor);
-        // provider_id 仅自定义厂商回填：预设厂商该字段承载的是适配器标识
-        // （engine 读作 adapter），不是用户自定义 Provider ID——回填会
-        // 污染自定义 providerId 输入态（切到自定义时残留脏值）。
-        if (cfg.vendor === '__custom__' && typeof cfg.provider_id === 'string') {
-          setProviderId(cfg.provider_id);
-        }
-        if (typeof cfg.base_url === 'string') setBaseUrl(cfg.base_url);
-        if (typeof cfg.main_model_id === 'string') setMainModelId(cfg.main_model_id);
-        if (typeof cfg.router_model_id === 'string') setRouterModelId(cfg.router_model_id);
-        if (typeof cfg.audit_model_id === 'string') setAuditModelId(cfg.audit_model_id);
-        if (typeof cfg.context_window === 'number') setContextWindow(cfg.context_window);
-        if (typeof cfg.compression_percent === 'number') setCompressionPercent(cfg.compression_percent);
+        const isProvidersForm = Array.isArray(cfg.providers);
+        // 空配置（{}）→ 无提供方（空态引导）；旧 flat 形态投影为单提供方
+        const list: ProviderDraft[] = isProvidersForm
+          ? (cfg.providers as unknown[]).map((p, i) => providerFromJson(p, i))
+          : Object.keys(cfg).length > 0
+            ? [providerFromJson(cfg, 0)]
+            : [];
+        setProviders(list);
+        setActiveProviderId(list[0]?.provider_id ?? null);
+        // 提供方已配置判定（任一提供方端点 + 主档 model_id 齐备）；空态引导数据面
+        setProviderConfigured(
+          list.some((p) => p.base_url.trim() && p.main_model_id.trim()),
+        );
       })
-      .catch(() => undefined);
+      .catch(() => setProviderConfigured(false));
   }, [backend]);
 
-  // 压缩红线 = 上下文窗口 × 用户所选百分比（1%~100%）；40k 只作执行侧硬下限，不参与展示
+  // 压缩红线 = 当前编辑提供方上下文窗口 × 百分比（1%~100%）；40k 只作执行侧硬下限
   const redlineTokens = useMemo(() => {
-    const base = contextWindow > 0 ? contextWindow : DEFAULT_CONTEXT;
-    const pct = Number.isFinite(compressionPercent) ? Math.min(100, Math.max(1, compressionPercent)) : 80;
+    const base = activeProvider?.context_window && activeProvider.context_window > 0 ? activeProvider.context_window : DEFAULT_CONTEXT;
+    const pct = Number.isFinite(activeProvider?.compression_percent) ? Math.min(100, Math.max(1, activeProvider?.compression_percent ?? 80)) : 80;
     return Math.floor((base * pct) / 100);
-  }, [contextWindow, compressionPercent]);
+  }, [activeProvider]);
 
-  /** 落盘：档位确定 / 推演档切换即触发保存（不再集中「保存」按钮）。 */
-  const persist = async (next: ModelSectionValue, sim: typeof simulationTier): Promise<void> => {
+  /** 落盘：全量提供方数组（档位确定 / 推演档切换即触发保存，不再集中「保存」按钮）。
+   * 壳侧按 provider_id 逐提供方浅合并——api_key 未重填沿用已存值。 */
+  const persist = async (list: ProviderDraft[], sim: typeof simulationTier): Promise<void> => {
     setSavePhase('loading');
     try {
-      const payload: Record<string, unknown> = {
-        vendor: next.vendor,
-        provider_id: next.vendor === '__custom__' ? next.providerId : adapterOf(next.vendor),
-        base_url: next.baseUrl,
-        main_model_id: next.mainModelId,
-        router_model_id: next.routerModelId,
-        audit_model_id: next.auditModelId,
-        context_window: next.contextWindow,
-        compression_percent: next.compressionPercent,
-      };
-      // 留空沿用已保存密钥：仅当本档填写了 key 才覆盖。
-      if (next.apiKey && next.apiKey.trim()) payload.api_key = next.apiKey;
+      const payload = { providers: list.map(providerToJson) };
       if (backend.available) {
         await Promise.all([
           backend.modelsConfigPut(payload),
           backend.capabilityPut({ simulation_tier: sim }),
         ]);
       }
+      setProviderConfigured(
+        list.some((p) => p.base_url.trim() && p.main_model_id.trim()),
+      );
       setSavePhase('success');
       setTimeout(() => setSavePhase('idle'), 1200);
     } catch {
@@ -450,29 +647,52 @@ export function ModelSection(): JSX.Element {
     }
   };
 
-  /** 档位编辑确定 → 即时更新状态并落盘。 */
+  /** 档位编辑确定 → 更新当前提供方并即时落盘。 */
   const handleTierCommit = (patch: Partial<ModelSectionValue>): void => {
-    const next: ModelSectionValue = {
-      vendor: patch.vendor ?? vendor,
-      providerId: patch.providerId ?? providerId,
-      baseUrl: patch.baseUrl ?? baseUrl,
-      apiKey: patch.apiKey ?? apiKey,
-      mainModelId: patch.mainModelId ?? mainModelId,
-      routerModelId: patch.routerModelId ?? routerModelId,
-      auditModelId: patch.auditModelId ?? auditModelId,
-      contextWindow: patch.contextWindow ?? contextWindow,
-      compressionPercent: patch.compressionPercent ?? compressionPercent,
-    };
-    if (patch.vendor !== undefined) setVendor(patch.vendor);
-    if (patch.providerId !== undefined) setProviderId(patch.providerId);
-    if (patch.baseUrl !== undefined) setBaseUrl(patch.baseUrl);
-    if (patch.apiKey !== undefined && patch.apiKey.trim()) setApiKey(patch.apiKey);
-    if (patch.contextWindow !== undefined) setContextWindow(patch.contextWindow);
-    if (patch.compressionPercent !== undefined) setCompressionPercent(patch.compressionPercent);
-    if (patch.mainModelId !== undefined) setMainModelId(patch.mainModelId);
-    if (patch.routerModelId !== undefined) setRouterModelId(patch.routerModelId);
-    if (patch.auditModelId !== undefined) setAuditModelId(patch.auditModelId);
-    void persist(next, simulationTier);
+    if (!activeProvider) return;
+    const nextList = providers.map((p) => {
+      if (p.provider_id !== activeProvider.provider_id) return p;
+      const next: ProviderDraft = {
+        ...p,
+        vendor: patch.vendor ?? p.vendor,
+        custom_provider_id: patch.providerId ?? p.custom_provider_id,
+        base_url: patch.baseUrl ?? p.base_url,
+        main_model_id: patch.mainModelId ?? p.main_model_id,
+        router_model_id: patch.routerModelId ?? p.router_model_id,
+        audit_model_id: patch.auditModelId ?? p.audit_model_id,
+        context_window: patch.contextWindow ?? p.context_window,
+        compression_percent: patch.compressionPercent ?? p.compression_percent,
+      };
+      if (patch.apiKey && patch.apiKey.trim()) next.api_key = patch.apiKey;
+      // 厂商切换 → adapter/label 跟随（provider_id 保持稳定，避免已存配置身份漂移）
+      if (patch.vendor !== undefined) {
+        next.adapter = patch.vendor === '__custom__' ? next.custom_provider_id : adapterOf(patch.vendor);
+        next.label = patch.vendor === '__custom__' ? next.custom_provider_id : (VENDORS.find((v) => v.id === patch.vendor)?.label ?? patch.vendor);
+      }
+      return next;
+    });
+    setProviders(nextList);
+    void persist(nextList, simulationTier);
+  };
+
+  /** 添加提供方：追加默认草稿 → 选中 → 打开 main 档配置悬浮窗（空态/列表同入口）。 */
+  const handleAddProvider = (): void => {
+    const seed = providers.some((p) => p.provider_id === VENDORS[0].id)
+      ? `${VENDORS[0].id}_${providers.length}`
+      : VENDORS[0].id;
+    const nextList = [...providers, blankProvider(seed)];
+    setProviders(nextList);
+    setActiveProviderId(seed);
+    setProviderConfigured(false);
+    setAddProviderPulse((n) => n + 1);
+  };
+
+  /** 删除提供方（可删至空——空态引导覆盖无提供方场景）。 */
+  const handleDeleteProvider = (providerId: string): void => {
+    const nextList = providers.filter((p) => p.provider_id !== providerId);
+    setProviders(nextList);
+    if (activeProviderId === providerId) setActiveProviderId(nextList[0]?.provider_id ?? null);
+    void persist(nextList, simulationTier);
   };
 
   /** 推演档切换 → setSimulationTier 触发 effect 持久化（读 formRef 最新值，无闭包过期）。 */
@@ -483,11 +703,26 @@ export function ModelSection(): JSX.Element {
 
   return (
     <div className="space-y-4">
-      <TierModelBlock
-        value={{ vendor, providerId, baseUrl, apiKey, mainModelId, routerModelId, auditModelId, contextWindow, compressionPercent }}
-        onCommit={handleTierCommit}
-        savePhase={savePhase}
-      />
+      {providerConfigured === false && providers.length === 0 && (
+        <EmptyProviderState onAdd={handleAddProvider} />
+      )}
+      {providers.length > 0 && (
+        <ProviderList
+          providers={providers}
+          activeProviderId={activeProvider?.provider_id ?? null}
+          onSelect={setActiveProviderId}
+          onAdd={handleAddProvider}
+          onDelete={handleDeleteProvider}
+        />
+      )}
+      {activeProvider && (
+        <TierModelBlock
+          value={activeValue}
+          onCommit={handleTierCommit}
+          savePhase={savePhase}
+          autoOpenMainPulse={addProviderPulse}
+        />
+      )}
 
       <div className="ink-elevated space-y-3 px-3.5 py-3">
         <div className="text-[11px] font-medium tracking-wide ink-text-muted">推演档位</div>
@@ -515,7 +750,7 @@ export function ModelSection(): JSX.Element {
         <p className="text-[10px] leading-relaxed ink-text-faint">
           触发压缩 ≈ {redlineTokens.toLocaleString()} tokens（上下文窗口 × 压缩红线 %）；执行时保底下限 40k。
         </p>
-        {contextWindow >= 128 * 1024 && (
+        {(activeProvider?.context_window ?? DEFAULT_CONTEXT) >= 128 * 1024 && (
           <div className="flex items-center gap-1.5 text-[10px] ink-text-faint">
             <AlertTriangle size={10} strokeWidth={1.6} aria-hidden />
             128k 以上窗口需确保模型实际支持，避免截断降级。

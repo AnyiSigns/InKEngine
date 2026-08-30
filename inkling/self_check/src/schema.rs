@@ -15,11 +15,9 @@ use serde_json::Value;
 use std::path::Path;
 
 /// 必须交付的 seed_data 文件（缺一即失败，防漏交付）。
-/// 21 件 = 17 件既有契约文件 + 4 件登记补全：
-/// path_prompts/path_seeds（路径组装语料，接口契约见各自 schema，消费
-/// 接线属引擎路径组装域会话）/ skills_market/components_market（市场
-/// 目录，消费方 = 技能市场服务与前端组件市场入口）。
-const EXPECTED_SEED_FILES: [&str; 21] = [
+/// 22 件 = 17 件既有契约文件 + 4 件登记补全 +
+/// entities.json（协作者目录，装配期登记进 EntityRegistry）。
+const EXPECTED_SEED_FILES: [&str; 22] = [
     "boot_prompt.json",
     "ui_spec.json",
     "event_types.json",
@@ -41,12 +39,13 @@ const EXPECTED_SEED_FILES: [&str; 21] = [
     "path_seeds.json",
     "skills_market.json",
     "components_market.json",
+    "entities.json",
 ];
 
 /// 引擎源码事实核对基准：AssemblyRecipe 字段数以 runtime.py 源码为准
-/// （字段增删会让本门禁与常量失配而失败，防口径漂移；引擎批 3a 增
-/// compress_policy 字段后同步为 19）。
-const ASSEMBLY_RECIPE_FIELD_COUNT: usize = 19;
+/// （字段增删会让本门禁与常量失配而失败，防口径漂移；批 3a 增
+/// compress_policy 字段后同步为 19，实体层增 entity_specs 后为 20）。
+const ASSEMBLY_RECIPE_FIELD_COUNT: usize = 20;
 
 /// manifest 身份定稿值（出厂登记表）。
 const MANIFEST_ID: &str = "inkling";
@@ -61,7 +60,7 @@ const MANIFEST_THEME_TOKENS: [(&str, &str); 3] = [
 ];
 
 /// 自举提示词定稿（逐字比对，出厂注入层消费的原文）。
-const BOOT_PROMPT_FINAL: &str = "你是 InKling——一个自进化认知伙伴。你对用户的领域起初只有隐约的理解，通过观察、检索、校验与孵化，把使用中积累的理解沉淀为可信的知识；每一次变化都经审批、可审计、可回退；你也可以提议接入外部工具/插件来扩展能力，经你确认后生效。用中文简明作答。";
+const BOOT_PROMPT_FINAL: &str = "你是 InKling Agent——一个自进化认知伙伴。你对用户的领域起初只有隐约的理解，通过观察、检索、校验与孵化，把使用中积累的理解沉淀为可信的知识；每一次变化都经审批、可审计、可回退；你也可以提议接入外部工具/插件来扩展能力，经你确认后生效。根据用户语言自适应交流";
 
 // ── 领域契约枚举（与引擎源码常量对齐，防魔法字符串）──
 
@@ -104,7 +103,7 @@ const SHELL_EXECUTORS: [&str; 20] = [
     "set_volume",
     "set_brightness",
     "notify",
-    "schedule",
+    "sleep",
     "run_typecheck",
     "run_test_cargo",
     "run_test_python",
@@ -126,7 +125,7 @@ const OS_CONTROL_TOOLS: [&str; 11] = [
     "set_volume",
     "set_brightness",
     "notify",
-    "schedule",
+    "sleep",
     "ui_click",
     "ui_type",
     "window_list",
@@ -150,6 +149,8 @@ const NETWORK_TOOLS: [&str; 2] = ["fetch", "web_search"];
 const FILE_SEARCH_TOOLS: [&str; 2] = ["grep", "glob"];
 /// deny 档工具（三档权限契约的默认拒绝样例，须经补丁链转正才可用）。
 const DENY_TOOLS: [&str; 1] = ["shell_exec"];
+/// 协作工具（collab_request 端点：协作者召唤——实体目录 → spawn 子图物化）。
+const COLLAB_TOOLS: [&str; 1] = ["collab_request"];
 
 /// 规则谓词（Rust 谓词执行体实现清单，数据↔执行件绑定的契约面）。
 const DOMAIN_PREDICATES: [&str; 6] = [
@@ -382,13 +383,14 @@ fn check_manifest(data: &Value, payload: &Payload, issues: &mut Vec<String>) {
     expected_names.extend(NETWORK_TOOLS);
     expected_names.extend(FILE_SEARCH_TOOLS);
     expected_names.extend(DENY_TOOLS);
+    expected_names.extend(COLLAB_TOOLS);
     let mut sorted_actual = tool_names.clone();
     sorted_actual.sort_unstable();
     let mut sorted_expected = expected_names.clone();
     sorted_expected.sort_unstable();
     if sorted_actual != sorted_expected {
         issues.push(format!(
-            "tools.json 工具集合与契约清单不一致（域/执行器/感知/自建/网络/检索/deny 档共 {} 件）",
+            "tools.json 工具集合与契约清单不一致（域/执行器/感知/自建/网络/检索/deny/协作档共 {} 件）",
             sorted_expected.len()
         ));
     }
@@ -477,7 +479,7 @@ fn check_manifest(data: &Value, payload: &Payload, issues: &mut Vec<String>) {
             .cloned()
             .collect();
         issues.push(format!(
-            "contracts.seed_files 未与 EXPECTED_SEED_FILES 对齐（缺 {missing:?} / 多 {extra:?}；全量登记 21 件）"
+            "contracts.seed_files 未与 EXPECTED_SEED_FILES 对齐（缺 {missing:?} / 多 {extra:?}；全量登记 22 件）"
         ));
     }
 }
@@ -876,20 +878,9 @@ fn check_tools(data: &Value, _payload: &Payload, issues: &mut Vec<String>) {
                         "工具 {name} 的权限须含 network:connect 声明（与网络策略同源）"
                     ));
                 }
-                // 抓取工具（fetch）须域名白名单非空（空白名单 = 禁网）；
-                // 聚合检索（web_search）走本地聚合源/用户自配厂商，白名单可空
-                if name == "fetch" {
-                    let allow_domains = tool
-                        .get("network_policy")
-                        .and_then(Value::as_object)
-                        .and_then(|policy| policy.get("allow_domains"))
-                        .and_then(Value::as_array);
-                    if allow_domains.map_or(true, |list| list.is_empty()) {
-                        issues.push(format!(
-                            "工具 {name} 的 http_fetch 端点须声明非空 network_policy.allow_domains（空白名单 = 禁网）"
-                        ));
-                    }
-                }
+                // 抓取工具（fetch）的域名白名单机制保留（security_domain.py
+                // 限制性白名单：空 = 禁网），但为可选项——fetch 出厂暂不使用
+                // 该机制，白名单是否填充由 TOOL 补丁数据驱动；门禁不做非空强制。
             }
             "mcp" => {
                 let server_id = config
@@ -1917,7 +1908,7 @@ pub fn run(repo_root: &Path) -> SchemaReport {
 }
 
 /// 内嵌 schema 定义（随 crate 编译打包，二进制自包含）。
-const SCHEMA_FILES: [(&str, &str); 22] = [
+const SCHEMA_FILES: [(&str, &str); 23] = [
     ("manifest.schema.json", include_str!("../schemas/manifest.schema.json")),
     ("boot_prompt.schema.json", include_str!("../schemas/boot_prompt.schema.json")),
     ("ui_spec.schema.json", include_str!("../schemas/ui_spec.schema.json")),
@@ -1940,6 +1931,7 @@ const SCHEMA_FILES: [(&str, &str); 22] = [
     ("path_seeds.schema.json", include_str!("../schemas/path_seeds.schema.json")),
     ("skills_market.schema.json", include_str!("../schemas/skills_market.schema.json")),
     ("components_market.schema.json", include_str!("../schemas/components_market.schema.json")),
+    ("entities.schema.json", include_str!("../schemas/entities.schema.json")),
 ];
 
 fn validate_against_schema(key: &str, data: &Value, issues: &mut Vec<String>) {

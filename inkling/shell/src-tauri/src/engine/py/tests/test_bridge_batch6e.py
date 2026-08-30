@@ -330,6 +330,78 @@ def test_round_entry_tunes_after_round_on_exception():
     assert runtime.tune_calls == [(True, "回合执行异常（无结果）")]
 
 
+def test_round_model_override_swaps_holder_llm_and_restores():
+    """回合级选模型：holder llm 换入（llm_decider 数据面）→ 回合后恢复。"""
+    from ink_engine.core.registry import GraphRegistries
+
+    from inkling_host.graph_recipe import _specs_holder
+
+    registries = GraphRegistries()
+    holder = _specs_holder(registries)
+    holder["llm"] = "default-llm"
+
+    class _Engine:
+        def __init__(self):
+            self.seen_llm = None
+
+        async def ainvoke(self, state, **kwargs):
+            self.seen_llm = holder.get("llm")
+            return _FakeResult("reply")
+
+        async def get_latest_interrupt(self, thread_id):
+            return None
+
+    engine = _Engine()
+
+    class _Runtime:
+        def __init__(self):
+            self.engine = engine
+            self.graph_registries = registries
+
+        def tune_after_round(self, *, failed: bool = False, error: str = "") -> None:
+            pass
+
+        async def resume_run(self, thread_id, decision, **kwargs):
+            return _FakeResult("reply")
+
+    class _Host(_FakeHost):
+        def resolve_model_llm(self, provider, model_id):
+            return f"model-llm:{model_id}"
+
+    bridge = _load_bridge()
+    asyncio.run(
+        bridge.execute_round_to_reply(
+            _Runtime(),
+            _Host(),
+            input_text="hi",
+            thread_id="t1",
+            round_id="r1",
+            model={"provider": "openai_compat", "model_id": "kimi"},
+        )
+    )
+    # 回合内 llm_decider 读到选定的模型；回合后恢复会话默认
+    assert engine.seen_llm == "model-llm:kimi"
+    assert holder.get("llm") == "default-llm"
+
+
+def test_round_model_override_fail_open_without_resolver():
+    """选模型解析缺失（host 无 resolve_model_llm）= 回落默认，不报错。"""
+    bridge = _load_bridge()
+    engine = _FakeEngine(_FakeResult("reply"))
+    runtime = _FakeRuntime(engine)
+    asyncio.run(
+        bridge.execute_round_to_reply(
+            runtime,
+            _FakeHost(),
+            input_text="hi",
+            thread_id="t1",
+            round_id="r1",
+            model={"provider": "openai_compat", "model_id": "kimi"},
+        )
+    )
+    assert len(engine.calls) == 1  # 正常执行（fail-open）
+
+
 if __name__ == "__main__":
     test_web_search_bad_json_degrades_structurally()
     test_web_search_payload_carries_provider_not_key()
@@ -342,5 +414,7 @@ if __name__ == "__main__":
     test_round_entry_tunes_after_round_success()
     test_round_entry_tunes_after_round_failure_signal()
     test_round_entry_tunes_after_round_on_exception()
+    test_round_model_override_swaps_holder_llm_and_restores()
+    test_round_model_override_fail_open_without_resolver()
     test_round_entry_continues_chain_for_cross_round_context()
     print("batch 6e bridge fixes all assertions passed")

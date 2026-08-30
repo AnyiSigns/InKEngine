@@ -61,6 +61,7 @@ _PATH_RULES = "rules"
 _PATH_KNOWLEDGE = "knowledge"
 _PATH_HARNESS = "harness"
 _PATH_EVENT_TYPES = "event_types"
+_PATH_ENTITIES = "entities"
 _PATH_ENVIRONMENTS = "environments"
 _PATH_ARTIFACTS = "artifacts"
 
@@ -97,17 +98,19 @@ _GUARDED_COLLECTIONS: frozenset[str] = frozenset(
         "environments",
         "artifacts",
         "harness",
+        "entities",
     }
 )
 # 前缀集合（按集/按用户隔离的动态集合名一律前缀守卫）：
 # knowledge:<user_id>（知识/规则条目）、harness:<set_id>（能力包仓库）、
-# event_types:<set_id>（演化事件类型）——集合名带 set_id 后精确名匹配
-# 不再命中，缺前缀守卫 = 演化资产直写无闸门（上方精确名保留，历史遗留
-# 无 set_id 集合同样受守卫）
+# event_types:<set_id>（演化事件类型）、entities:<set_id>（协作者目录）——
+# 集合名带 set_id 后精确名匹配不再命中，缺前缀守卫 = 演化资产直写无闸门
+# （上方精确名保留，历史遗留无 set_id 集合同样受守卫）
 _GUARDED_PREFIXES: tuple[str, ...] = (
     "knowledge:",
     "harness:",
     "event_types:",
+    "entities:",
 )
 
 # 审批动作 key 前缀（挂卡/直过的依据；L0 名单按 key 注入策略）
@@ -199,6 +202,11 @@ def patch_path(kind: PatchKind, payload: dict[str, Any]) -> tuple[tuple[str, ...
         if not name:
             raise GraphDefinitionError("event_type 补丁缺 name")
         return (_PATH_EVENT_TYPES, name), payload
+    if kind is PatchKind.ENTITY:
+        entity_id = payload.get("id")
+        if not entity_id:
+            raise GraphDefinitionError("entity 补丁缺 id（实体注册名）")
+        return (_PATH_ENTITIES, str(entity_id)), payload
     if kind is PatchKind.ENVIRONMENT:
         name = payload.get("name")
         if not name:

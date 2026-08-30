@@ -1,14 +1,15 @@
 //! 回合命令面（round_send / round_resume / round_abort + 过程摘要链命令）。
 //!
-//! R1（种子续流接线）：`round_send` 收尾把步骤快照落盘 checkpoint；
-//! `round_resume` 读回 checkpoint 注入种子（不再恒 None）——中断续跑
-//! step_id 连续性闭环。
+//! R1（种子续流接线）：`round_send` 收尾把步骤快照经引擎 records 通道写
+//! checkpoint；`round_resume` 读回 checkpoint 注入种子（不再恒 None）——
+//! 中断续跑 step_id 连续性闭环。
 //! R15（账本自动记录）：`round_send` 收尾自动记录回合账本（决议 11，
 //! 可配开关：能力记录 `auto_round_ledger` / 环境变量
 //! `INKLING_AUTO_ROUND_LEDGER`），前端不再依赖主动调 round_ledger_record。
 
-use std::path::{Path, PathBuf};
-use std::sync::{Arc, Mutex};
+use std::future::Future;
+use std::path::Path;
+use std::sync::{Arc, Mutex, OnceLock};
 
 use serde_json::{json, Value as JsonValue};
 use tauri::{AppHandle, Emitter, State};
@@ -18,76 +19,94 @@ use crate::domain::steps::{RoundStepsTransport, ToolTitleResolver};
 use crate::engine::host::{RoundRequest, call_engine_op_async};
 use crate::{CAPABILITY_COLLECTION, CAPABILITY_KEY, ShellState, app_data_dir, block_on_op_async, ensure_engine};
 
-// ── 回合 checkpoint（R1：种子续流落盘/读回）──
+// ── 回合 checkpoint（R1：种子续流经引擎 records 通道）──
 
-/// checkpoint 目录名（data_dir 下；回合快照 + 线程最新回合指针）。
-const CHECKPOINT_DIR_NAME: &str = "round_checkpoints";
+/// checkpoint 集合名（引擎 records 通道；回合快照 + 线程最新回合指针）。
+const ROUND_CHECKPOINT_COLLECTION: &str = "round_checkpoints";
 
-/// 文件名安全化（非字母数字统一为下划线，防路径穿越；与账本同纪律）。
-fn sanitize_id(name: &str) -> String {
-    name.chars()
-        .map(|ch| if ch.is_alphanumeric() { ch } else { '_' })
-        .collect()
+/// 线程最新回合指针键（与回合快照同集合，键加 latest_ 前缀避免与 round id 冲突）。
+fn latest_checkpoint_key(thread_id: &str) -> String {
+    format!("latest_{}", thread_id)
 }
 
-fn checkpoint_dir(data_dir: &Path) -> PathBuf {
-    data_dir.join(CHECKPOINT_DIR_NAME)
-}
-
-fn checkpoint_path(data_dir: &Path, round_id: &str) -> PathBuf {
-    checkpoint_dir(data_dir).join(format!("round_{}.json", sanitize_id(round_id)))
-}
-
-fn latest_pointer_path(data_dir: &Path, thread_id: &str) -> PathBuf {
-    checkpoint_dir(data_dir).join(format!("latest_{}.json", sanitize_id(thread_id)))
-}
-
-/// 回合收尾 snapshot 落盘 checkpoint（含线程最新回合指针；供 resume 读回
-/// 注入种子）。已完成回合由调用方决定是否落盘。
-pub(crate) fn write_round_checkpoint(
-    data_dir: &Path,
+/// 回合收尾 snapshot 经 records 通道落 checkpoint（含线程最新回合指针；
+/// 供 resume 读回注入种子）。已完成回合由调用方决定是否落盘。
+async fn write_round_checkpoint(
     thread_id: &str,
     round_id: &str,
     steps: &[JsonValue],
 ) -> Result<(), String> {
-    std::fs::create_dir_all(checkpoint_dir(data_dir))
-        .map_err(|err| format!("checkpoint 目录创建失败: {err}"))?;
-    let data = json!({ "round_id": round_id, "thread_id": thread_id, "steps": steps });
-    let text = serde_json::to_string_pretty(&data)
-        .map_err(|err| format!("checkpoint 序列化失败: {err}"))?;
-    std::fs::write(checkpoint_path(data_dir, round_id), text)
-        .map_err(|err| format!("checkpoint 写入失败: {err}"))?;
-    std::fs::write(
-        latest_pointer_path(data_dir, thread_id),
-        serde_json::to_string(&json!({ "round_id": round_id }))
-            .map_err(|err| format!("回合指针序列化失败: {err}"))?,
+    call_engine_op_async(
+        "engine.records_put",
+        json!({
+            "collection": ROUND_CHECKPOINT_COLLECTION,
+            "key": round_id,
+            "data": json!({ "round_id": round_id, "thread_id": thread_id, "steps": steps }),
+        }),
     )
+    .await
+    .map_err(|err| format!("checkpoint 写入失败: {err}"))?;
+    call_engine_op_async(
+        "engine.records_put",
+        json!({
+            "collection": ROUND_CHECKPOINT_COLLECTION,
+            "key": latest_checkpoint_key(thread_id),
+            "data": json!({ "round_id": round_id }),
+        }),
+    )
+    .await
     .map_err(|err| format!("回合指针写入失败: {err}"))?;
     Ok(())
 }
 
 /// 读回合 checkpoint 步骤（种子；无 checkpoint = None）。
-pub(crate) fn read_round_checkpoint(data_dir: &Path, round_id: &str) -> Option<Vec<JsonValue>> {
-    let text = std::fs::read_to_string(checkpoint_path(data_dir, round_id)).ok()?;
-    let parsed: JsonValue = serde_json::from_str(&text).ok()?;
-    parsed.get("steps").and_then(JsonValue::as_array).cloned()
+async fn read_round_checkpoint(round_id: &str) -> Option<Vec<JsonValue>> {
+    let record = call_engine_op_async(
+        "engine.records_get",
+        json!({ "collection": ROUND_CHECKPOINT_COLLECTION, "key": round_id }),
+    )
+    .await
+    .ok()?;
+    record.get("steps").and_then(JsonValue::as_array).cloned()
 }
 
 /// 线程最近回合 id（resume 无 round_id 入参时定位 checkpoint 用）。
-fn read_latest_round_id(data_dir: &Path, thread_id: &str) -> Option<String> {
-    let text = std::fs::read_to_string(latest_pointer_path(data_dir, thread_id)).ok()?;
-    let parsed: JsonValue = serde_json::from_str(&text).ok()?;
-    parsed.get("round_id").and_then(JsonValue::as_str).map(str::to_string)
+async fn read_latest_round_id(thread_id: &str) -> Option<String> {
+    let record = call_engine_op_async(
+        "engine.records_get",
+        json!({ "collection": ROUND_CHECKPOINT_COLLECTION, "key": latest_checkpoint_key(thread_id) }),
+    )
+    .await
+    .ok()?;
+    record.get("round_id").and_then(JsonValue::as_str).map(str::to_string)
 }
 
 /// 清回合 checkpoint（回合完成不再续流）。
-fn clear_round_checkpoint(data_dir: &Path, round_id: &str) {
-    let _ = std::fs::remove_file(checkpoint_path(data_dir, round_id));
+async fn clear_round_checkpoint(round_id: &str) {
+    let _ = call_engine_op_async(
+        "engine.records_delete",
+        json!({ "collection": ROUND_CHECKPOINT_COLLECTION, "key": round_id }),
+    )
+    .await;
 }
 
 /// 清线程最新回合指针（checkpoint 清除后同步清指针，避免 resume 读到悬空 latest）。
-fn clear_latest_pointer(data_dir: &Path, thread_id: &str) {
-    let _ = std::fs::remove_file(latest_pointer_path(data_dir, thread_id));
+async fn clear_latest_pointer(thread_id: &str) {
+    let _ = call_engine_op_async(
+        "engine.records_delete",
+        json!({ "collection": ROUND_CHECKPOINT_COLLECTION, "key": latest_checkpoint_key(thread_id) }),
+    )
+    .await;
+}
+
+/// 同步驱动异步 checkpoint 操作（无 tokio 上下文的同步命令路径使用；
+/// 单线程运行时内完成，与引擎线程亲和纪律一致）。
+fn block_on<F: Future>(fut: F) -> F::Output {
+    tokio::runtime::Builder::new_current_thread()
+        .enable_all()
+        .build()
+        .expect("checkpoint 操作运行时创建失败")
+        .block_on(fut)
 }
 
 // ── 回合记录器 ──
@@ -95,7 +114,7 @@ fn clear_latest_pointer(data_dir: &Path, thread_id: &str) {
 /// 回合记录器（事件弧 + 中止信号 + 工具标题解析挂点）；种子读回既有
 /// checkpoint 步骤（R1：不再恒传 None——中断回合重发/resume 的 step_id
 /// 与中断前连续）。
-fn begin_round_recorder(state: &ShellState, round_id: &str, data_dir: &Path) -> RoundStepsTransport {
+async fn begin_round_recorder(state: &ShellState, round_id: &str) -> RoundStepsTransport {
     let resolver: ToolTitleResolver = {
         let provider = Arc::clone(&state.backend.tool_provider);
         Arc::new(move |name: &str| {
@@ -107,7 +126,7 @@ fn begin_round_recorder(state: &ShellState, round_id: &str, data_dir: &Path) -> 
             }
         })
     };
-    let seed = read_round_checkpoint(data_dir, round_id);
+    let seed = read_round_checkpoint(round_id).await;
     RoundStepsTransport::with_engine_handles(
         round_id,
         seed,
@@ -185,10 +204,11 @@ fn auto_extract_memory(
 ///
 /// 复用 `knowledge.evolve` 引擎 op——失败驱动反思式变异 + 三层闸门防退化，
 /// 变异体经 KNOWLEDGE 补丁落集补丁链。低频语义：每 N 回合触发一批（N =
-/// EVOLVE_INTERVAL_ROUNDS），批量小（单批 1 条防膨胀）。无候选 = 空结果。
+/// review.json evolve_interval_rounds / 缺省 10），批量小（单批 1 条防膨胀）。
+/// 无候选 = 空结果。
 fn auto_evolve(thread_id: &str, round_counter: &mut u64) -> Result<(), String> {
     *round_counter = round_counter.wrapping_add(1);
-    if *round_counter % EVOLVE_INTERVAL_ROUNDS != 0 {
+    if *round_counter % evolve_interval_rounds() != 0 {
         return Ok(());
     }
     let result = block_on_op_async(
@@ -211,7 +231,34 @@ fn auto_evolve(thread_id: &str, round_counter: &mut u64) -> Result<(), String> {
 }
 
 /// 演化触发频率（回合）：每 N 回合触发一批进化（低频防膨胀/防每回合开销）。
-const EVOLVE_INTERVAL_ROUNDS: u64 = 10;
+///
+/// N 取自评审配方数据 `review.json` 的 `evolve_interval_rounds`（缺省回落 10；
+/// 读档失败/字段缺失不报错——启动首次读取后缓存）。
+static EVOLVE_INTERVAL_ROUNDS: OnceLock<u64> = OnceLock::new();
+
+/// 读取评审配方数据（seed_data/review.json；与 load_workflow_data 同风格）。
+fn load_review_data() -> Result<JsonValue, String> {
+    let path = std::path::Path::new(env!("CARGO_MANIFEST_DIR"))
+        .join("..")
+        .join("..")
+        .join("..")
+        .join("inkling")
+        .join("seed_data")
+        .join("review.json");
+    let text = std::fs::read_to_string(&path)
+        .map_err(|err| format!("评审数据读取失败 {}: {err}", path.display()))?;
+    serde_json::from_str(&text).map_err(|err| format!("评审数据 JSON 非法: {err}"))
+}
+
+/// 演化触发间隔（回合）：读 review.json `evolve_interval_rounds`；缺失/失败回落 10。
+fn evolve_interval_rounds() -> u64 {
+    *EVOLVE_INTERVAL_ROUNDS.get_or_init(|| {
+        load_review_data()
+            .ok()
+            .and_then(|v| v.get("evolve_interval_rounds").and_then(JsonValue::as_u64))
+            .unwrap_or(10)
+    })
+}
 
 /// 引擎操作失败脱敏（R5：引擎内部错误串可能含路径/堆栈，不透传前端）。
 ///
@@ -244,11 +291,12 @@ pub(crate) fn round_send(
     round_id: String,
     text: String,
     auto_accept_review: Option<bool>,
+    model: Option<JsonValue>,
 ) -> Result<JsonValue, CommandError> {
     let data_dir = app_data_dir(&app)?;
     ensure_engine(&app, &state, &data_dir)?;
     state.backend.abort_signal.begin_round();
-    let mut recorder = begin_round_recorder(&state, &round_id, &data_dir);
+    let mut recorder = block_on(begin_round_recorder(&state, &round_id));
     {
         let mut slot = state.backend.round.lock().unwrap();
         *slot = Some(recorder.clone());
@@ -262,6 +310,7 @@ pub(crate) fn round_send(
         step_args: None,
         orchestrate: None,
         inject: None,
+        model,
         auto_accept_review: auto_accept_review.unwrap_or(true),
     };
     let engine_guard = state.backend.engine.lock().unwrap();
@@ -290,7 +339,7 @@ pub(crate) fn round_send(
     let steps = recorder.snapshot();
     // R1：中断回合快照落盘 checkpoint（已完成回合不落盘；失败仅观测日志）
     if outcome.reason != "reply" && !steps.is_empty() {
-        if let Err(err) = write_round_checkpoint(&data_dir, &thread_id, &round_id, &steps) {
+        if let Err(err) = block_on(write_round_checkpoint(&thread_id, &round_id, &steps)) {
             eprintln!("[rounds] checkpoint 落盘失败: {err}");
         }
     }
@@ -421,9 +470,9 @@ pub(crate) async fn resume_round_with_inject(
     // 轮询 abort_signal 早退 → 步骤恒空 → 误清 checkpoint）；与 round_send
     // 开头 begin_round 同口径。
     state.backend.abort_signal.begin_round();
-    let data_dir = app_data_dir(app)?;
-    let round_id = read_latest_round_id(&data_dir, thread_id).unwrap_or_default();
-    let recorder = Arc::new(Mutex::new(begin_round_recorder(state, &round_id, &data_dir)));
+    let _data_dir = app_data_dir(app)?;
+    let round_id = read_latest_round_id(thread_id).await.unwrap_or_default();
+    let recorder = Arc::new(Mutex::new(begin_round_recorder(state, &round_id).await));
     {
         let mut slot = state.backend.round.lock().unwrap();
         *slot = Some(recorder.lock().unwrap().clone());
@@ -498,11 +547,11 @@ pub(crate) async fn resume_round_with_inject(
         .to_string();
     // R1：回合完成清 checkpoint；仍挂起以新快照更新（下一轮 resume 续流）
     if resume_reason == "reply" || steps.is_empty() {
-        clear_round_checkpoint(&data_dir, &round_id);
+        clear_round_checkpoint(&round_id).await;
         // 同步清 latest 指针，避免后续 resume 读到已被清除的 round（seed 空 → 续流 step_id 连续性丢失）
-        clear_latest_pointer(&data_dir, thread_id);
+        clear_latest_pointer(thread_id).await;
     } else if let Err(err) =
-        write_round_checkpoint(&data_dir, thread_id, &round_id, &steps)
+        write_round_checkpoint(thread_id, &round_id, &steps).await
     {
         eprintln!("[rounds] checkpoint 续写失败: {err}");
     }
@@ -758,38 +807,15 @@ pub(crate) async fn round_memory_extract(
 mod tests {
     use super::*;
 
-    fn tmp_dir() -> PathBuf {
-        std::env::temp_dir().join(format!("rounds_test_{}", uuid::Uuid::new_v4().simple()))
+    #[test]
+    fn latest_checkpoint_key_prefixes_thread() {
+        assert_eq!(latest_checkpoint_key("th-1"), "latest_th-1");
     }
 
     #[test]
-    fn checkpoint_roundtrip_preserves_steps() {
-        let dir = tmp_dir();
-        let steps = vec![
-            json!({ "step_id": "think:1", "type": "thinking", "payload": { "content": "既有" } }),
-            json!({ "step_id": "card:1", "type": "review_card", "payload": { "payload": {} } }),
-        ];
-        write_round_checkpoint(&dir, "th-1", "r-1", &steps).expect("落盘须成功");
-        let read = read_round_checkpoint(&dir, "r-1").expect("读回须命中");
-        assert_eq!(read, steps, "checkpoint 步骤须原样读回");
-        assert_eq!(read_latest_round_id(&dir, "th-1").as_deref(), Some("r-1"));
-        clear_round_checkpoint(&dir, "r-1");
-        assert!(read_round_checkpoint(&dir, "r-1").is_none(), "清理后应无 checkpoint");
-        let _ = std::fs::remove_dir_all(&dir);
-    }
-
-    #[test]
-    fn checkpoint_absent_returns_none_seed() {
-        let dir = tmp_dir();
-        assert!(read_round_checkpoint(&dir, "missing").is_none());
-        assert!(read_latest_round_id(&dir, "missing").is_none());
-        let _ = std::fs::remove_dir_all(&dir);
-    }
-
-    #[test]
-    fn sanitize_prevents_path_traversal_in_ids() {
-        assert_eq!(sanitize_id("../evil"), "___evil");
-        assert_eq!(sanitize_id("a/b"), "a_b");
+    fn evolve_interval_rounds_reads_review_default() {
+        // review.json 含 evolve_interval_rounds = 10；读档/字段缺失回落 10
+        assert_eq!(evolve_interval_rounds(), 10);
     }
 
     #[test]

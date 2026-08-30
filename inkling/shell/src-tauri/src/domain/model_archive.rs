@@ -582,32 +582,154 @@ pub fn read_model_connection(data_dir: &Path) -> JsonValue {
     JsonValue::Object(Default::default())
 }
 
-/// 写入模型连接配置（合并写入：入参缺省的已存字段保留）。
+/// 连接配置文件形态：`providers` 数组（多提供方，唯一权威）或旧 flat 形态。
+///
+/// flat 只在迁移期出现（旧版本落盘）：任一写入都会把 flat 投影合并进
+/// providers 数组落盘，读取方经 :func:`read_connection_providers` 归一化，
+/// 不感知形态差异。
+fn project_flat_connection(obj: &serde_json::Map<String, JsonValue>) -> JsonValue {
+    let vendor = obj.get("vendor").and_then(JsonValue::as_str).unwrap_or("");
+    let provider_id_field = obj
+        .get("provider_id")
+        .and_then(JsonValue::as_str)
+        .unwrap_or("openai_compatible");
+    let is_custom = vendor == "__custom__";
+    // 自定义厂商：provider_id 字段 = 用户提供商标识（适配器 key）；
+    // 预设厂商：provider_id 字段 = 适配器、vendor = 预设 id。
+    let provider_id = if is_custom {
+        provider_id_field
+    } else if !vendor.is_empty() {
+        vendor
+    } else {
+        provider_id_field
+    };
+    let mut provider = serde_json::Map::new();
+    provider.insert(
+        "provider_id".to_string(),
+        JsonValue::String(provider_id.to_string()),
+    );
+    provider.insert(
+        "label".to_string(),
+        JsonValue::String(provider_id.to_string()),
+    );
+    provider.insert(
+        "adapter".to_string(),
+        JsonValue::String(provider_id_field.to_string()),
+    );
+    for (flat_key, target) in [
+        ("base_url", "base_url"),
+        ("api_key", "api_key"),
+        ("context_window", "context_window"),
+        ("compression_percent", "compression_percent"),
+    ] {
+        if let Some(v) = obj.get(flat_key) {
+            provider.insert(target.to_string(), v.clone());
+        }
+    }
+    let mut model_ids = serde_json::Map::new();
+    for (tier, key) in [
+        ("main", "main_model_id"),
+        ("router", "router_model_id"),
+        ("audit", "audit_model_id"),
+    ] {
+        if let Some(id) = obj
+            .get(key)
+            .and_then(JsonValue::as_str)
+            .filter(|s| !s.trim().is_empty())
+        {
+            model_ids.insert(tier.to_string(), JsonValue::String(id.to_string()));
+        }
+    }
+    if !model_ids.is_empty() {
+        provider.insert("model_ids".to_string(), JsonValue::Object(model_ids));
+    }
+    JsonValue::Object(provider)
+}
+
+/// 读取连接配置的提供方数组（单一权威形态：缺文件 = 空；flat 归一化投影）。
+pub fn read_connection_providers(data_dir: &Path) -> Vec<JsonValue> {
+    match read_model_connection(data_dir) {
+        JsonValue::Object(obj) => {
+            if let Some(JsonValue::Array(list)) = obj.get("providers") {
+                list.clone()
+            } else if !obj.is_empty() {
+                vec![project_flat_connection(&obj)]
+            } else {
+                vec![]
+            }
+        }
+        _ => vec![],
+    }
+}
+
+/// 提供方浅合并（缺省字段沿用已存值：api_key 未重填则保留；
+/// 嵌套对象递归深合并——model_ids 逐档位保留未写入的档位）。
+fn merge_provider(base: &JsonValue, incoming: &JsonValue) -> JsonValue {
+    let mut merged = match base {
+        JsonValue::Object(obj) => obj.clone(),
+        _ => serde_json::Map::new(),
+    };
+    if let JsonValue::Object(obj) = incoming {
+        for (k, v) in obj {
+            match (merged.get(k), v) {
+                (Some(JsonValue::Object(existing)), JsonValue::Object(next)) => {
+                    let mut nested = existing.clone();
+                    for (nk, nv) in next {
+                        nested.insert(nk.clone(), nv.clone());
+                    }
+                    merged.insert(k.clone(), JsonValue::Object(nested));
+                }
+                _ => {
+                    merged.insert(k.clone(), v.clone());
+                }
+            }
+        }
+    }
+    JsonValue::Object(merged)
+}
+
+/// 写入模型连接配置（providers 数组形态；按 provider_id 逐提供方浅合并）。
 ///
 /// 合并语义确保逐档保存（仅带本档字段）不会清空既有字段——典型如
 /// `api_key`：设置页各档编辑仅在重填密钥时带 `api_key`，否则沿用已存值；
 /// 探测回写（`models_refresh`）同样只带 base_url/api_key，须保留已存
-/// 的 main/router/audit model_id。覆盖写入会丢失这些字段，故此处做浅合并。
+/// 的 main/router/audit model_id。覆盖写入会丢失这些字段，故此处按
+/// provider_id 做逐提供方浅合并。入参为旧 flat 形态时投影进 providers[0]
+/// （迁移期兼容；落盘即新形态）。
 pub fn write_model_connection(data_dir: &Path, config: &JsonValue) -> JsonValue {
     let path = data_dir.join(MODEL_CONNECTION_FILE);
     let _ = std::fs::create_dir_all(data_dir);
     // 入参非对象（异常形态）直接原样落盘，不合并。
-    let merged = if let JsonValue::Object(incoming) = config {
-        let mut base = match read_model_connection(data_dir) {
-            JsonValue::Object(existing) => existing,
-            _ => serde_json::Map::new(),
-        };
-        for (k, v) in incoming {
-            base.insert(k.clone(), v.clone());
-        }
-        JsonValue::Object(base)
-    } else {
-        config.clone()
+    let JsonValue::Object(incoming) = config else {
+        return config.clone();
     };
-    if let Ok(text) = serde_json::to_string_pretty(&merged) {
+    let incoming_providers = match incoming.get("providers") {
+        Some(JsonValue::Array(list)) => list.clone(),
+        _ => vec![project_flat_connection(incoming)],
+    };
+    let mut merged: Vec<JsonValue> = read_connection_providers(data_dir);
+    for incoming_provider in &incoming_providers {
+        let pid = incoming_provider
+            .get("provider_id")
+            .and_then(JsonValue::as_str)
+            .unwrap_or("default");
+        match merged.iter().position(|p| {
+            p.get("provider_id").and_then(JsonValue::as_str) == Some(pid)
+        }) {
+            Some(idx) => {
+                merged[idx] = merge_provider(&merged[idx], incoming_provider);
+            }
+            None => merged.push(incoming_provider.clone()),
+        }
+    }
+    let out = JsonValue::Object(serde_json::Map::from_iter([(
+        "providers".to_string(),
+        JsonValue::Array(merged),
+    )]));
+    if let Ok(text) = serde_json::to_string_pretty(&out) {
         let _ = std::fs::write(&path, text);
     }
-    merged
+    out
 }
 
 #[cfg(test)]
@@ -709,22 +831,34 @@ mod tests {
         write_model_connection(
             &dir,
             &serde_json::json!({
-                "base_url": "http://a/v1",
-                "api_key": "sk-secret",
-                "main_model_id": "m1",
-                "router_model_id": "r1",
+                "providers": [{
+                    "provider_id": "openai",
+                    "adapter": "openai_compat",
+                    "base_url": "http://a/v1",
+                    "api_key": "sk-secret",
+                    "model_ids": { "main": "m1", "router": "r1" },
+                }],
             }),
         );
         // 逐档保存：仅带本档字段，且未重填 api_key。
         let merged = write_model_connection(
             &dir,
-            &serde_json::json!({ "base_url": "http://b/v1", "audit_model_id": "a1" }),
+            &serde_json::json!({
+                "providers": [{
+                    "provider_id": "openai",
+                    "base_url": "http://b/v1",
+                    "model_ids": { "audit": "a1" },
+                }],
+            }),
         );
-        assert_eq!(merged["base_url"], "http://b/v1");
-        assert_eq!(merged["api_key"], "sk-secret", "缺省 api_key 须沿用已存值");
-        assert_eq!(merged["main_model_id"], "m1", "未写入的 model_id 须保留");
-        assert_eq!(merged["router_model_id"], "r1");
-        assert_eq!(merged["audit_model_id"], "a1", "新字段须写入");
+        let providers = merged["providers"].as_array().expect("providers 数组");
+        assert_eq!(providers.len(), 1);
+        let p = &providers[0];
+        assert_eq!(p["base_url"], "http://b/v1");
+        assert_eq!(p["api_key"], "sk-secret", "缺省 api_key 须沿用已存值");
+        assert_eq!(p["model_ids"]["main"], "m1", "未写入的 model_id 须保留");
+        assert_eq!(p["model_ids"]["router"], "r1");
+        assert_eq!(p["model_ids"]["audit"], "a1", "新字段须写入");
         let _ = std::fs::remove_dir_all(&dir);
     }
 
@@ -736,25 +870,86 @@ mod tests {
         write_model_connection(
             &dir,
             &serde_json::json!({
-                "base_url": "http://a/v1",
-                "api_key": "sk-secret",
-                "main_model_id": "m1",
-                "router_model_id": "r1",
-                "audit_model_id": "a1",
+                "providers": [{
+                    "provider_id": "openai",
+                    "base_url": "http://a/v1",
+                    "api_key": "sk-secret",
+                    "model_ids": { "main": "m1", "router": "r1", "audit": "a1" },
+                }],
             }),
         );
         // 后续仅更新连接端点（不带 model_id）：已存档位 model_id 须保留，
         // 否则 resolve_llm 二次回落会丢主档而退化为空配置。
         let merged = write_model_connection(
             &dir,
-            &serde_json::json!({ "base_url": "http://b/v1" }),
+            &serde_json::json!({
+                "providers": [{ "provider_id": "openai", "base_url": "http://b/v1" }],
+            }),
         );
-        assert_eq!(merged["base_url"], "http://b/v1");
-        assert_eq!(merged["main_model_id"], "m1", "base_url-only 保存不得清空 model_id");
-        assert_eq!(merged["router_model_id"], "r1");
-        assert_eq!(merged["audit_model_id"], "a1");
-        assert_eq!(merged["api_key"], "sk-secret");
+        let p = &merged["providers"][0];
+        assert_eq!(p["base_url"], "http://b/v1");
+        assert_eq!(p["model_ids"]["main"], "m1", "base_url-only 保存不得清空 model_id");
+        assert_eq!(p["model_ids"]["router"], "r1");
+        assert_eq!(p["model_ids"]["audit"], "a1");
+        assert_eq!(p["api_key"], "sk-secret");
         let _ = std::fs::remove_dir_all(&dir);
+    }
+
+    #[test]
+    fn write_model_connection_migrates_flat_to_providers() {
+        let dir = std::env::temp_dir().join(format!("ink_model_conn_flat_{}", std::process::id()));
+        let _ = std::fs::create_dir_all(&dir);
+        // 旧 flat 形态写入 → 落盘为 providers 形态（迁移期兼容）。
+        let out = write_model_connection(
+            &dir,
+            &serde_json::json!({
+                "vendor": "moonshot",
+                "provider_id": "openai_compat",
+                "base_url": "http://m/v1",
+                "api_key": "sk-m",
+                "main_model_id": "kimi",
+                "audit_model_id": "kimi-lite",
+            }),
+        );
+        assert!(out.get("providers").is_some(), "flat 写入应落成 providers 形态");
+        let p = &out["providers"][0];
+        assert_eq!(p["provider_id"], "moonshot");
+        assert_eq!(p["adapter"], "openai_compat");
+        assert_eq!(p["base_url"], "http://m/v1");
+        assert_eq!(p["model_ids"]["main"], "kimi");
+        assert_eq!(p["model_ids"]["audit"], "kimi-lite");
+        // 读取方归一化：read_connection_providers 直接返回数组
+        let providers = read_connection_providers(&dir);
+        assert_eq!(providers.len(), 1);
+        assert_eq!(providers[0]["provider_id"], "moonshot");
+        let _ = std::fs::remove_dir_all(&dir);
+    }
+
+    #[test]
+    fn read_connection_providers_projects_legacy_flat_file() {
+        let dir = std::env::temp_dir().join(format!("ink_model_conn_legacy_{}", std::process::id()));
+        let _ = std::fs::create_dir_all(&dir);
+        std::fs::write(
+            dir.join(MODEL_CONNECTION_FILE),
+            serde_json::to_string_pretty(&serde_json::json!({
+                "vendor": "__custom__",
+                "provider_id": "my_llm",
+                "base_url": "http://c/v1",
+                "main_model_id": "cm",
+            }))
+            .expect("序列化"),
+        )
+        .expect("写文件");
+        let providers = read_connection_providers(&dir);
+        assert_eq!(providers.len(), 1, "旧 flat 文件应投影为单提供方");
+        assert_eq!(providers[0]["provider_id"], "my_llm");
+        assert_eq!(providers[0]["adapter"], "my_llm");
+        assert_eq!(providers[0]["model_ids"]["main"], "cm");
+        // 无文件 → 空数组
+        let empty = std::env::temp_dir().join(format!("ink_model_conn_none_{}", std::process::id()));
+        assert!(read_connection_providers(&empty).is_empty());
+        let _ = std::fs::remove_dir_all(&dir);
+        let _ = std::fs::remove_dir_all(&empty);
     }
 
     #[test]

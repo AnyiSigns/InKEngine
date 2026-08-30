@@ -925,7 +925,7 @@
       },
       "network_policy": {
         "allow_domains": [],
-        "note": "联网出网经审批网关裁决（出厂 review 档弹卡 + 记住域名直过）；allow_domains 为空 = 不做定义级白名单拦截（数据驱动，可经 TOOL 补丁演化）"
+        "note": "allow_domains 为引擎限制性白名单（security_domain.py：非名单域名一律不可达，审批通过也不放行；空 = 禁网）。fetch 出厂暂不使用该机制（留空 = 出厂禁网），是否启用由 TOOL 补丁数据驱动填充"
       },
       "meta": {
         "domain": "network",
@@ -1953,6 +1953,37 @@
         "executor": "host:propose_patch",
         "sandbox": "process_allowlist",
         "note": "执行器由宿主注册（提案接线）；审批链 = 按类型校验 → 审批分级 L0/L1/L2 → 补丁链落链（vetting 复用既有，可回退）"
+      }
+    },
+    {
+      "name": "collab_request",
+      "description": "行为意图：召唤协作者（多 agent 动态协作）——从实体目录选中协作者处理子任务，结果回流主 agent 汇总。\n\n使用时机：主 agent 判断子任务需要专才实体（如安全评审/研究分析师）时；默认单 agent，不固定团队，按需召唤。\n\n取舍与替代选项：自身可完成 = 不调用；并行子任务 = 多次调用；协作者目录经 inspect_entities 内省。\n\n参数语义：entity_id=实体目录 id（inspect_entities 可查）；task=子任务描述；context_refs=可选上下文引用（L2 消息 id 清单）；constraints=可选约束（max_tool_rounds 等）。\n\n边界与协作：实体未注册 = fail-closed 拒绝；执行体把 EntitySpec 物化为 spawn 子图，工具权限/审批/审计全走既有流水线。",
+      "parameters": {
+        "type": "object",
+        "properties": {
+          "entity_id": { "type": "string", "minLength": 1 },
+          "task": { "type": "string", "minLength": 1 },
+          "context_refs": { "type": "array", "items": { "type": "string" } },
+          "constraints": { "type": "object" }
+        },
+        "required": [
+          "entity_id",
+          "task"
+        ]
+      },
+      "permissions": [
+        "collab:request:*"
+      ],
+      "approval": "review",
+      "endpoint": "collab_request",
+      "endpoint_config": {},
+      "network_policy": {
+        "allow_domains": []
+      },
+      "meta": {
+        "domain": "collab",
+        "executor": "host:collab_request",
+        "note": "执行器由宿主注册（实体目录 → spawn 子图物化）；审批档 review = 用户对话弹卡确认召唤"
       }
     }
   ]

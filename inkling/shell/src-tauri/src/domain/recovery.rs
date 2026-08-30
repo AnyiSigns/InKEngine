@@ -15,11 +15,23 @@
 use std::path::{Path, PathBuf};
 
 use serde::{Deserialize, Serialize};
+use serde_json::{json, Value as JsonValue};
 
 use super::common::DomainError;
+use crate::engine::host::call_engine_op_async;
 
 /// 启动状态文件名（数据目录根；引擎不可用时仍可读写）。
 pub const BOOT_STATE_FILE: &str = "boot_state.json";
+
+/// 恢复元信息记录集合（引擎 records 通道；引擎可用时双写，文件层作
+/// 降级/回退路径；引擎不可用仍能从文件层读写）。
+pub const RECOVERY_COLLECTION: &str = "host_recovery";
+
+/// 启动状态记录键（集合 `host_recovery`）。
+pub const BOOT_STATE_KEY: &str = "boot_state";
+
+/// 启动快照索引记录键（集合 `host_recovery`；版本绑定/链版本号等元信息）。
+pub const SNAPSHOTS_KEY: &str = "snapshots";
 
 /// 启动快照目录名（数据目录根下）。
 pub const STARTUP_SNAPSHOTS_DIR: &str = "startup_snapshots";
@@ -101,6 +113,77 @@ fn save_boot_state(data_dir: &Path, state: &BootState) -> Result<(), DomainError
     Ok(())
 }
 
+/// 尽力将启动状态镜像进引擎 records（集合 `host_recovery`/键 `boot_state`）。
+///
+/// 引擎可用时双写，使 records 与文件层同源；引擎不可用（崩溃循环/
+/// 装配失败）时调用静默失败，不动恢复流程。经运行时句柄派生任务，
+/// 无运行时上下文（如同步测试）跳过，不阻断主路径。
+fn mirror_boot_state_records(state: &BootState) {
+    let Ok(handle) = tokio::runtime::Handle::try_current() else {
+        return;
+    };
+    let Ok(payload) = serde_json::to_value(state) else {
+        return;
+    };
+    handle.spawn(async move {
+        let _ = call_engine_op_async(
+            "engine.records_put",
+            json!({
+                "collection": RECOVERY_COLLECTION,
+                "key": BOOT_STATE_KEY,
+                "data": payload,
+            }),
+        )
+        .await;
+    });
+}
+
+/// 读取启动状态（优先引擎 records；引擎不可用/无记录降级文件层）。
+pub async fn load_boot_state_records_first(data_dir: &Path) -> BootState {
+    if let Ok(record) = call_engine_op_async(
+        "engine.records_get",
+        json!({ "collection": RECOVERY_COLLECTION, "key": BOOT_STATE_KEY }),
+    )
+    .await
+    {
+        if let Ok(state) = serde_json::from_value::<BootState>(record) {
+            return state;
+        }
+    }
+    load_boot_state(data_dir)
+}
+
+/// 读取启动快照索引（优先引擎 records；引擎不可用/无记录降级文件层）。
+pub async fn load_snapshot_index_records_first(data_dir: &Path) -> Vec<SnapshotMeta> {
+    if let Ok(record) = call_engine_op_async(
+        "engine.records_get",
+        json!({ "collection": RECOVERY_COLLECTION, "key": SNAPSHOTS_KEY }),
+    )
+    .await
+    {
+        if let Some(arr) = record.as_array() {
+            let metas: Vec<SnapshotMeta> = arr
+                .iter()
+                .filter_map(|v| {
+                    let name = v.get("name")?.as_str()?.to_string();
+                    let chain_version = v.get("chain_version")?.as_i64()?;
+                    let created_at = v.get("created_at")?.as_f64()?;
+                    Some(SnapshotMeta {
+                        name: name.clone(),
+                        path: snapshot_dir(data_dir).join(&name),
+                        chain_version,
+                        created_at,
+                    })
+                })
+                .collect();
+            if !metas.is_empty() {
+                return metas;
+            }
+        }
+    }
+    list_snapshots(data_dir)
+}
+
 /// 登记一次启动失败：计数 +1；达到阈值自动转入安全模式。返回新状态。
 pub fn record_boot_failure(data_dir: &Path) -> BootState {
     let mut state = load_boot_state(data_dir);
@@ -110,6 +193,7 @@ pub fn record_boot_failure(data_dir: &Path) -> BootState {
     }
     state.last_boot_at = now_epoch_ms();
     let _ = save_boot_state(data_dir, &state);
+    mirror_boot_state_records(&state);
     state
 }
 
@@ -121,6 +205,7 @@ pub fn record_boot_success(data_dir: &Path) -> BootState {
     state.consecutive_failures = 0;
     state.last_boot_at = now_epoch_ms();
     let _ = save_boot_state(data_dir, &state);
+    mirror_boot_state_records(&state);
     state
 }
 
@@ -131,6 +216,7 @@ pub fn clear_safe_mode(data_dir: &Path) -> BootState {
     state.safe_mode = false;
     state.last_boot_at = now_epoch_ms();
     let _ = save_boot_state(data_dir, &state);
+    mirror_boot_state_records(&state);
     state
 }
 
@@ -225,7 +311,38 @@ pub fn rotate_snapshot(
         created_at,
     };
     prune_snapshots(data_dir, SNAPSHOT_KEEP);
+    mirror_snapshot_index_records(data_dir);
     Ok(meta)
+}
+
+/// 尽力将启动快照索引（版本绑定/链版本号等元信息）镜像进引擎 records
+/// （集合 `host_recovery`/键 `snapshots`）。引擎可用时双写，使 records 与
+/// 文件层同源；引擎不可用静默失败，不动恢复流程。
+fn mirror_snapshot_index_records(data_dir: &Path) {
+    let Ok(handle) = tokio::runtime::Handle::try_current() else {
+        return;
+    };
+    let index: Vec<JsonValue> = list_snapshots(data_dir)
+        .iter()
+        .map(|m| {
+            json!({
+                "name": m.name,
+                "chain_version": m.chain_version,
+                "created_at": m.created_at,
+            })
+        })
+        .collect();
+    handle.spawn(async move {
+        let _ = call_engine_op_async(
+            "engine.records_put",
+            json!({
+                "collection": RECOVERY_COLLECTION,
+                "key": SNAPSHOTS_KEY,
+                "data": JsonValue::Array(index),
+            }),
+        )
+        .await;
+    });
 }
 
 /// 淘汰最旧快照：保留最新 `keep` 份，其余删除（删除失败跳过不击穿）。

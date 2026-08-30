@@ -10,12 +10,15 @@ import pytest
 
 from ink_engine.core.context import (
     COMPRESSION_CONTEXT_WINDOW_RATIO,
-    COMPRESSION_MIN_CHARS_FLOOR,
+    COMPRESSION_DEFAULT_CONTEXT_WINDOW,
+    COMPRESSION_DEFAULT_MIN_CHARS,
     CompressionPolicy,
+    TOOL_RESULT_MAX_CHARS_FLOOR,
+    TOOL_RESULT_WINDOW_RATIO,
     ThresholdCompressionPolicy,
     compress_message_history,
-    infer_compression_tier,
     resolve_compression_min_chars,
+    resolve_tool_result_max_chars,
 )
 from ink_engine.core.llm.messages import Message, assistant, system, user
 from ink_engine.core.patch_chain import (
@@ -194,38 +197,51 @@ def test_resolve_min_chars_scales_with_context_window():
     assert resolve_compression_min_chars(32 * 1024) == 26214
 
 
-def test_resolve_min_chars_falls_back_to_tier_default():
-    # 档案未知但有档位：按档位缺省 cw 推算（main 128k / router 32k）
-    assert resolve_compression_min_chars(None, tier="main") == 104857
-    assert resolve_compression_min_chars(None, tier="router") == 26214
+def test_resolve_min_chars_falls_back_to_default_window():
+    # 档案未知：回落 200k 兜底（不按档位推断）
+    assert resolve_compression_min_chars(None) == COMPRESSION_DEFAULT_MIN_CHARS
+    assert resolve_compression_min_chars(0) == COMPRESSION_DEFAULT_MIN_CHARS
+    assert COMPRESSION_DEFAULT_MIN_CHARS == int(
+        COMPRESSION_DEFAULT_CONTEXT_WINDOW * COMPRESSION_CONTEXT_WINDOW_RATIO
+    )
 
 
-def test_resolve_min_chars_floor_when_unknown():
-    # cw 与档位均未知：回落硬底线
-    assert resolve_compression_min_chars(None, None) == COMPRESSION_MIN_CHARS_FLOOR
-    assert resolve_compression_min_chars(0, "") == COMPRESSION_MIN_CHARS_FLOOR
-
-
-def test_infer_compression_tier():
-    assert infer_compression_tier("gpt-router-x") == "router"
-    assert infer_compression_tier("claude-main") == "main"
-    assert infer_compression_tier(None) == "main"
+def test_resolve_tool_result_max_chars_scales_with_window():
+    # 0.05 * cw（250k → 12.5k）
+    assert resolve_tool_result_max_chars(250 * 1024) == int(
+        250 * 1024 * TOOL_RESULT_WINDOW_RATIO
+    )
+    # 小窗口模型不跌破下限（32k → 1638 < 4000 → 4000）
+    assert resolve_tool_result_max_chars(32 * 1024) == TOOL_RESULT_MAX_CHARS_FLOOR
+    # 档案未知：0.05 * 200k 兜底 = 10k（≥ 下限）
+    assert resolve_tool_result_max_chars(None) == int(
+        COMPRESSION_DEFAULT_CONTEXT_WINDOW * TOOL_RESULT_WINDOW_RATIO
+    )
 
 
 def test_policy_from_context_window_dynamic():
     policy = ThresholdCompressionPolicy.from_context_window(128 * 1024)
     assert policy.min_chars == 104857
-    # 档位缺省（档案缺失但有档位）：main 128k → 104857
-    policy_main = ThresholdCompressionPolicy.from_context_window(tier="main")
-    assert policy_main.min_chars == 104857
-    policy_router = ThresholdCompressionPolicy.from_context_window(tier="router")
-    assert policy_router.min_chars == 26214
-    # cw 与档位均未知：硬底线
-    policy_floor = ThresholdCompressionPolicy.from_context_window(None, tier=None)
-    assert policy_floor.min_chars == COMPRESSION_MIN_CHARS_FLOOR
+    # 档案缺失：回落 200k 兜底（0.8 × 200k = 160k）
+    policy_floor = ThresholdCompressionPolicy.from_context_window()
+    assert policy_floor.min_chars == COMPRESSION_DEFAULT_MIN_CHARS
     # 阈值生效：128k 窗口下短消息不触发、超阈值触发
     assert not policy.should_compress({"messages": _messages(30, chars=1000)})
     assert policy.should_compress({"messages": _messages(30, chars=5000)})
+
+
+def test_policy_from_context_window_ratio_knob():
+    """压缩占比旋钮（0.8 唯一旋钮）：阈值 = 占比 × 模型档案窗口。"""
+    assert ThresholdCompressionPolicy.from_context_window(100_000).min_chars == 80_000
+    assert (
+        ThresholdCompressionPolicy.from_context_window(100_000, ratio=0.5).min_chars
+        == 50_000
+    )
+    # 档案缺失回落 200k 兜底 × 占比
+    assert (
+        ThresholdCompressionPolicy.from_context_window(None, ratio=0.6).min_chars
+        == 120_000
+    )
 
 
 # ── 消息压缩补丁链 ──

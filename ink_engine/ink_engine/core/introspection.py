@@ -64,6 +64,7 @@ class IntrospectionSources:
     harness_registry: HarnessRegistry | None = None
     tools: Sequence[ToolSpec] = field(default_factory=tuple)
     ui_spec: dict | None = None
+    entity_registry: Any | None = None
 
 
 def _edge_view(edge: Any) -> dict[str, Any]:
@@ -104,6 +105,8 @@ class IntrospectionService:
             return self.snapshot_ui()
         if tool_name == "inspect_tools":
             return self.snapshot_tools()
+        if tool_name == "inspect_entities":
+            return self.snapshot_entities()
         raise ValueError(f"未知内省工具: {tool_name!r}")
 
     def snapshot_graph(self) -> dict[str, Any]:
@@ -264,6 +267,26 @@ class IntrospectionService:
             snapshot["harnesses"] = list(registry.names())
         return snapshot
 
+    def snapshot_entities(self) -> dict[str, Any]:
+        """实体目录快照：已注册实体清单（id/label/model 引用）。
+
+        不含 persona 全文（目录概览保持有界；persona 随实体演化经
+        propose_patch(kind=entity) 落链）。实体是数据（可复用、可演化），
+        快照只出目录形态供 AI 认知可召唤的协作者。
+        """
+        registry = self._sources.entity_registry
+        if registry is None:
+            return {"entities": [], "count": 0}
+        entities = [
+            {
+                "id": spec.id,
+                "label": spec.label,
+                "model": dict(spec.model) if spec.model else None,
+            }
+            for spec in registry.specs()
+        ]
+        return {"entities": entities, "count": len(entities)}
+
 
 def introspection_tool_specs() -> list[ToolSpec]:
     """内省元工具的工具描述清单（注册进引擎工具表走标准流水线）。"""
@@ -309,6 +332,13 @@ def introspection_tool_specs() -> list[ToolSpec]:
             name="inspect_tools",
             description="读取工具表快照（已注册工具清单与权限声明），"
             "供 AI 内省自身能力清单与集内 harness 领域",
+            parameters={"type": "object", "properties": {}},
+            permissions=(INTROSPECTION_PERMISSION,),
+        ),
+        ToolSpec(
+            name="inspect_entities",
+            description="读取实体目录快照（已注册协作者清单：id/label/model 引用），"
+            "供 AI 了解可召唤的协作者",
             parameters={"type": "object", "properties": {}},
             permissions=(INTROSPECTION_PERMISSION,),
         ),

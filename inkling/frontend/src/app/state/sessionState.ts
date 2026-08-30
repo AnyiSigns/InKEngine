@@ -5,7 +5,7 @@
 import { useSyncExternalStore, useCallback } from 'react';
 import { ChannelHub } from '@/shared/session/channelHub';
 import { submitUserMessage, submitUserRound, toEngineAttachments, setStreaming, commitStreaming, type AttachmentAsset } from '@/shared/session/eventIngest';
-import type { BackendAdapter } from '@/shared/backend/backendAdapter';
+import type { BackendAdapter, ModelSelection } from '@/shared/backend/backendAdapter';
 import type { SessionStore } from '@/shared/session/sessionStore';
 import type { InkMessage } from '@/shared/session/types';
 
@@ -51,7 +51,7 @@ export function useSessionState(hub: ChannelHub, store: SessionStore, backend: B
 
 export function useSessionActions(hub: ChannelHub, store: SessionStore, backend: BackendAdapter) {
   const send = useCallback(
-    (text: string, attachments: AttachmentAsset[] = []) => {
+    (text: string, attachments: AttachmentAsset[] = [], model?: ModelSelection) => {
       if (!backend.available) {
         submitUserMessage(hub, text, attachments);
         return;
@@ -65,7 +65,7 @@ export function useSessionActions(hub: ChannelHub, store: SessionStore, backend:
         setStreaming(hub, false);
       };
       void backend
-        .roundSend(activeId, roundId, text, false, toEngineAttachments(attachments))
+        .roundSend(activeId, roundId, text, false, toEngineAttachments(attachments), model)
         .then(() => {
           finish();
           // 回合收尾刷新会话记录（标题生成/更新时间落库后镜像同步）

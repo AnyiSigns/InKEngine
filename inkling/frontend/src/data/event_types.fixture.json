@@ -19,7 +19,14 @@
     { "name": "swap_branch", "description": "换选分支", "bindable": true },
     { "name": "assembly_candidate", "description": "组装候选留痕（路径/边证据视图）", "bindable": true },
     { "name": "junction_verdict", "description": "汇流裁决留痕", "bindable": true },
+    { "name": "junction_verdict_audit", "description": "汇流裁决审计留痕", "bindable": true },
+    { "name": "assembly_audit", "description": "组装审计留痕", "bindable": true },
+    { "name": "fingerprint_replace_audit", "description": "指纹顶替审计留痕", "bindable": true },
+    { "name": "policy_edge_review_audit", "description": "策略边复审审计留痕", "bindable": true },
+    { "name": "recommended_prior_promotion", "description": "推荐先验自动晋升留痕", "bindable": true },
     { "name": "node_start", "description": "节点执行开始（架构实例追踪）", "bindable": true },
+    { "name": "node_end", "description": "节点执行完成（架构实例追踪）", "bindable": true },
+    { "name": "node_fail", "description": "节点执行失败（架构实例追踪）", "bindable": true },
     { "name": "signal_detected", "description": "孵化信号检测", "bindable": true },
     { "name": "distill_outcome", "description": "蒸馏产物", "bindable": true },
     { "name": "gate_verdict", "description": "闸门判定（放行/拦截）", "bindable": true },
@@ -34,10 +41,7 @@
     { "name": "vetting_result", "description": "vetting 结果", "bindable": true },
     { "name": "device_sensed", "description": "设备感知留痕", "bindable": true },
     { "name": "device_control", "description": "设备控制留痕", "bindable": true },
-    { "name": "task_start", "description": "后台任务启动", "bindable": true },
-    { "name": "task_update", "description": "后台任务进度更新", "bindable": true },
-    { "name": "task_done", "description": "后台任务完成", "bindable": true },
-    { "name": "task_cancelled", "description": "后台任务取消", "bindable": true },
+    { "name": "attachment", "description": "附件（引擎 Attachment 契约形态）", "bindable": true },
     { "name": "user_message", "description": "用户消息", "bindable": true }
   ]
 }

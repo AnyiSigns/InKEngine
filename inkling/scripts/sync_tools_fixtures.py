@@ -61,7 +61,6 @@ DIVERGED_SEED_PARAMS: dict[str, set[str]] = {
     "system_query": {"scope"},  # 执行器以 query 承载查询面（seed 的 scope 枚举为引擎面向）
     "set_volume": {"level"},  # 执行器以 percent 承载档位（0-100 边界守卫）
     "set_brightness": {"level"},  # 同上
-    "schedule": {"when"},  # 执行器以 seconds 承载延迟档位
     "screen_query": {"region"},  # 执行器以 target 承载查询面（resolution/work_area 白名单）
     "file_query": {"pattern"},  # 执行器侧暂未实现文件名过滤
     "shell_exec": {"argv"},  # deny 档样例：执行器签名空（argv 为引擎面向，壳侧恒拒绝）
@@ -77,7 +76,6 @@ PARAMS_MAPPING: dict[str, list[tuple[str, str, bool]]] = {
     "set_volume": [("percent", "integer", True)],
     "set_brightness": [("percent", "integer", True)],
     "notify": [("title", "string", True), ("body", "string", True)],
-    "schedule": [("seconds", "integer", True), ("action", "string", True)],
     "sleep": [("seconds", "integer", True)],
     "screen_query": [("target", "string", True)],
     "file_query": [("path", "string", True)],
@@ -124,7 +122,6 @@ SANDBOX_MAPPING: dict[str, dict[str, Any]] = {
     "set_volume": {"mode": "bounds", "min": 0, "max": 100},
     "set_brightness": {"mode": "bounds", "min": 0, "max": 100},
     "notify": {"mode": "length_caps", "title_max": 80, "body_max": 300},
-    "schedule": {"mode": "bounds", "min": 1, "max": 86400},
     "sleep": {"mode": "bounds", "min": 1, "max": 86400},
     "screen_query": {"mode": "query_allowlist", "allowlist": ["resolution", "work_area"]},
     "file_query": {"mode": "path_roots", "roots": ["~/.inkling/workspace"]},

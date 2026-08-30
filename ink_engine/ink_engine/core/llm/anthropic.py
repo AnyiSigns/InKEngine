@@ -79,9 +79,12 @@ async def _retry_backoff(attempt: int) -> None:
 
 
 class AnthropicLLM(AsyncLLM):
-    """Anthropic Messages API 适配器（chat/completions 等价，流式/非流式）。"""
+    """Anthropic Messages API 适配器（chat/completions 等价，流式/非流式）。
 
-    adapter = "anthropic"
+    协议全名 anthropic_messages（anthropic 为兼容别名）。
+    """
+
+    adapter = "anthropic_messages"
 
     def __init__(self, config: LLMConfig, *, transport: httpx.AsyncBaseTransport | None = None) -> None:
         super().__init__(config)

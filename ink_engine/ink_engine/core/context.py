@@ -607,42 +607,50 @@ class CompressionPolicy(Protocol):
         ...
 
 
-# ── 上下文压缩阈值动态化（按模型档案 context_window 推算）────────────
-# 压缩触发阈值 = 上下文窗口占比（避免短窗口模型被长历史撑爆、长窗口模型
-# 过早压缩）；档案未知回退硬底线（仅 cw 与档位均未知时生效）。
+# ── 上下文窗口参数动态化（按模型档案 context_window 推算）────────────
+# 窗口参数一律按「该调用所用模型」的模型档案（model_archive context_window），
+# 不做档位推断（档位只决定哪个通道用哪个模型，不决定窗口参数）；档案缺失
+# 回落 200k 兜底（现代长窗，避免短视压缩）。比例由宿主可调（全局占比）。
 COMPRESSION_CONTEXT_WINDOW_RATIO = 0.8
-COMPRESSION_MIN_CHARS_FLOOR = 40000
-# 档位缺省上下文窗口（main/router 来自 model_archive.rs 出厂常量；档案
-# 缺失时按档位取缺省再推算，保证阈值有界）。
-DEFAULT_TIER_CONTEXT_WINDOW: dict[str, int] = {
-    "main": 128 * 1024,
-    "router": 32 * 1024,
-}
+COMPRESSION_DEFAULT_CONTEXT_WINDOW = 200_000
+COMPRESSION_DEFAULT_MIN_CHARS = int(
+    COMPRESSION_DEFAULT_CONTEXT_WINDOW * COMPRESSION_CONTEXT_WINDOW_RATIO
+)
+# 工具结果截断（回填消息流/事件）：窗口占比 + 下限兜底（小窗口模型不虚高）
+TOOL_RESULT_WINDOW_RATIO = 0.05
+TOOL_RESULT_MAX_CHARS_FLOOR = 4000
 
 
 def resolve_compression_min_chars(
     context_window: int | None = None,
-    tier: str | None = None,
+    *,
+    ratio: float = COMPRESSION_CONTEXT_WINDOW_RATIO,
 ) -> int:
-    """压缩字符阈值（按 context_window 动态推算）。
+    """压缩字符阈值（按模型档案 context_window 动态推算）。
 
-    - 已知 context_window：取 ``int(0.8 * cw)``（128k→102k、32k→26k）；
-    - cw 未知但档位已知：按档位缺省 cw 推算（main/router）；
-    - 两者均未知：回落硬底线 40000（极端兜底，不按窗口比例）。
+    - 已知 context_window：取 ``int(ratio * cw)``（250k→200k、32k→26k）；
+    - 档案缺失：回落 ``ratio × 200k`` 兜底（不按档位推断）。
     """
     if context_window and context_window > 0:
-        return int(context_window * COMPRESSION_CONTEXT_WINDOW_RATIO)
-    if tier:
-        cw = DEFAULT_TIER_CONTEXT_WINDOW.get(tier, DEFAULT_TIER_CONTEXT_WINDOW["main"])
-        return int(cw * COMPRESSION_CONTEXT_WINDOW_RATIO)
-    return COMPRESSION_MIN_CHARS_FLOOR
+        return int(context_window * ratio)
+    return int(COMPRESSION_DEFAULT_CONTEXT_WINDOW * ratio)
 
 
-def infer_compression_tier(model_id: str | None) -> str:
-    """模型 id → 档位（含 ``router`` 关键词判路由档，其余归 main）。"""
-    if model_id and "router" in str(model_id).lower():
-        return "router"
-    return "main"
+def resolve_tool_result_max_chars(
+    context_window: int | None = None,
+    *,
+    ratio: float = TOOL_RESULT_WINDOW_RATIO,
+    floor: int = TOOL_RESULT_MAX_CHARS_FLOOR,
+) -> int:
+    """工具结果回填截断上限（按模型档案 context_window 动态推算）。
+
+    - 已知 context_window：``max(floor, int(ratio * cw))``（250k→12.5k）；
+    - 档案缺失：``max(floor, int(0.05 * 200k))``（10k）；
+    - 下限 = floor（小窗口模型不因比例跌破，零回归）。
+    """
+    if context_window and context_window > 0:
+        return max(floor, int(context_window * ratio))
+    return max(floor, int(COMPRESSION_DEFAULT_CONTEXT_WINDOW * ratio))
 
 
 class ThresholdCompressionPolicy:
@@ -659,7 +667,7 @@ class ThresholdCompressionPolicy:
         self,
         *,
         min_messages: int = 30,
-        min_chars: int = 40000,
+        min_chars: int = COMPRESSION_DEFAULT_MIN_CHARS,
         budget_chars: int = 8000,
     ) -> None:
         if min_messages < 1 or min_chars < 1 or budget_chars < 1:
@@ -673,12 +681,16 @@ class ThresholdCompressionPolicy:
         cls,
         context_window: int | None = None,
         *,
-        tier: str | None = None,
+        ratio: float = COMPRESSION_CONTEXT_WINDOW_RATIO,
         min_messages: int = 30,
         budget_chars: int = 8000,
     ) -> ThresholdCompressionPolicy:
-        """按上下文窗口动态构建（字符阈值 = 0.8 * cw，未知回落硬底线）。"""
-        min_chars = resolve_compression_min_chars(context_window, tier)
+        """按模型档案 context_window 动态构建（阈值 = 占比 × cw，档案缺失 200k 兜底）。
+
+        ratio = 压缩占比（全局唯一旋钮，默认 0.8；用户可在设置页调整，
+        引擎按模型档案窗口 × 占比动态推算阈值——不暴露 token 数）。
+        """
+        min_chars = resolve_compression_min_chars(context_window, ratio=ratio)
         return cls(
             min_messages=min_messages,
             min_chars=min_chars,
@@ -959,17 +971,19 @@ def archive_digest(
 
 __all__ = [
     "COMPRESSION_CONTEXT_WINDOW_RATIO",
-    "COMPRESSION_MIN_CHARS_FLOOR",
+    "COMPRESSION_DEFAULT_CONTEXT_WINDOW",
+    "COMPRESSION_DEFAULT_MIN_CHARS",
     "DEFAULT_BUDGET_CHARS",
     "DEFAULT_DIGEST_MAX_CHARS",
     "DEFAULT_MAX_TOOL_ROUNDS",
     "DEFAULT_RELEVANCE",
-    "DEFAULT_TIER_CONTEXT_WINDOW",
     "KEEP_FULL_THRESHOLD",
     "MIN_TRUNCATE_CHARS",
     "MODE_DROP",
     "MODE_KEEP_FULL",
     "MODE_TRUNCATE",
+    "TOOL_RESULT_MAX_CHARS_FLOOR",
+    "TOOL_RESULT_WINDOW_RATIO",
     "TRUNCATE_MIN_SCORE",
     "AssembledContext",
     "BudgetAllocator",
@@ -988,9 +1002,9 @@ __all__ = [
     "archive_digest",
     "build_domain_window",
     "compress_message_history",
-    "infer_compression_tier",
     "iter_tool_rounds",
     "last_body_message",
     "message_text",
     "resolve_compression_min_chars",
+    "resolve_tool_result_max_chars",
 ]

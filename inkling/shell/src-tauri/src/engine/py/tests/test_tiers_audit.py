@@ -145,12 +145,91 @@ def test_knowledge_review_attributes_to_audit_tier():
         _reset_tiers()
 
 
+def test_model_tier_configs_from_file_projection():
+    """文件连接配置 → 挡位投影（main/router/audit 各自成链）。"""
+    import json
+    import tempfile
+
+    from inkling_host.host import _model_tier_configs_from_file
+
+    with tempfile.TemporaryDirectory(ignore_cleanup_errors=True) as d:
+        with open(
+            os.path.join(d, "model_connection.json"), "w", encoding="utf-8"
+        ) as fh:
+            json.dump(
+                {
+                    "base_url": "http://a/v1",
+                    "provider_id": "openai_compat",
+                    "main_model_id": "m1",
+                    "router_model_id": "r1",
+                    "audit_model_id": "a1",
+                },
+                fh,
+            )
+        configs = _model_tier_configs_from_file(d)
+        assert set(configs) == {
+            "main_config",
+            "router_config",
+            "audit_config",
+        }
+        assert configs["main_config"]["model_id"] == "m1"
+        assert configs["router_config"]["model_id"] == "r1"
+        assert configs["audit_config"]["model_id"] == "a1"
+        assert configs["audit_config"]["adapter"] == "openai_compat"
+    # 缺 base_url / data_dir 缺失 → 空映射
+    assert _model_tier_configs_from_file(None) == {}
+
+
+def test_reload_model_config_rebuilds_tier_chains():
+    """model.reload 热重建挡位域：router/audit 文件配置即时生效。"""
+    import json
+    import tempfile
+
+    from ink_engine.core.tiers import (
+        current_tier_names,
+        set_tier_names,
+    )
+    from inkling_host.host import InKlingHost
+
+    _reset_tiers()
+    try:
+        with tempfile.TemporaryDirectory(ignore_cleanup_errors=True) as d:
+            with open(
+                os.path.join(d, "model_connection.json"), "w", encoding="utf-8"
+            ) as fh:
+                json.dump(
+                    {
+                        "base_url": "http://a/v1",
+                        "main_model_id": "m1",
+                        "router_model_id": "r1",
+                        "audit_model_id": "a1",
+                    },
+                    fh,
+                )
+            host = InKlingHost(data_dir=d)
+            host._tiers_data = {"tiers": ["main", "router", "audit"]}
+            host._review_data = {"pass_threshold": 0.75}
+            assert not host.tier_chains  # 装配前无链
+            host.reload_model_config()
+            assert current_tier_names() == ("main", "router", "audit")
+            assert host.tier_chains["router"] is not None
+            assert host.tier_chains["router"].configs[0].model_id == "r1"
+            assert host.tier_chains["audit"] is not None
+            assert host.tier_chains["audit"].configs[0].model_id == "a1"
+            assert host.review_pipeline is not None
+            assert host.incubation is None or host.incubation.distiller.chain is not None
+    finally:
+        _reset_tiers()
+
+
 if __name__ == "__main__":
     for _fn in (
         test_build_tier_chains_injects_declaration,
         test_resolve_tier_chain_audit_falls_back_to_main,
         test_review_pipeline_attributes_to_audit_tier,
         test_knowledge_review_attributes_to_audit_tier,
+        test_model_tier_configs_from_file_projection,
+        test_reload_model_config_rebuilds_tier_chains,
     ):
         _fn()
         print(f"PASS {_fn.__name__}")

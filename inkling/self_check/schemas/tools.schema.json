@@ -18,7 +18,7 @@
         "parameters": { "type": "object" },
         "permissions": { "type": "array", "items": { "type": "string", "minLength": 1 }, "minItems": 1 },
         "approval": { "type": "string", "enum": ["allow", "review", "deny"] },
-        "endpoint": { "type": "string", "enum": ["http_fetch", "process_exec", "file_ops", "mcp", "web_search"] },
+        "endpoint": { "type": "string", "enum": ["http_fetch", "process_exec", "file_ops", "mcp", "web_search", "collab_request"] },
         "endpoint_config": { "type": "object" },
         "network_policy": {
           "type": "object",

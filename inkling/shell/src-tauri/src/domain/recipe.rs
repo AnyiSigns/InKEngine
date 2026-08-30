@@ -471,7 +471,7 @@ pub struct EmbeddingEnvConfig {
 /// 读环境配置 → 内嵌 embedding 源声明。
 ///
 /// base_url 与 model_id 均声明才启用（缺任一 = 纯关键词基线，
-/// 语义层不降级）；adapter 缺省 openai_compat。
+/// 语义层不降级）；adapter 缺省 openai_compatible。
 pub fn embedding_from_env() -> Option<EmbeddingEnvConfig> {
     let base_url = std::env::var("INK_EMBEDDING_BASE_URL").unwrap_or_default();
     let model_id = std::env::var("INK_EMBEDDING_MODEL").unwrap_or_default();
@@ -481,7 +481,7 @@ pub fn embedding_from_env() -> Option<EmbeddingEnvConfig> {
     let api_key = std::env::var("INK_EMBEDDING_API_KEY").ok();
     Some(EmbeddingEnvConfig {
         adapter: std::env::var("INK_EMBEDDING_ADAPTER")
-            .unwrap_or_else(|_| "openai_compat".to_string()),
+            .unwrap_or_else(|_| "openai_compatible".to_string()),
         base_url,
         model_id,
         api_key,
@@ -804,13 +804,13 @@ mod tests {
         std::env::remove_var("INK_EMBEDDING_BASE_URL");
         std::env::remove_var("INK_EMBEDDING_MODEL");
         assert!(embedding_from_env().is_none());
-        // 齐全声明 = 启用（adapter 缺省 openai_compat）
+        // 齐全声明 = 启用（adapter 缺省 openai_compatible）
         std::env::set_var("INK_EMBEDDING_BASE_URL", "http://local:11434");
         std::env::set_var("INK_EMBEDDING_MODEL", "granite-97m");
         std::env::remove_var("INK_EMBEDDING_ADAPTER");
         std::env::remove_var("INK_EMBEDDING_API_KEY");
         let config = embedding_from_env().expect("声明齐全应启用");
-        assert_eq!(config.adapter, "openai_compat");
+        assert_eq!(config.adapter, "openai_compatible");
         assert_eq!(config.base_url, "http://local:11434");
         assert_eq!(config.model_id, "granite-97m");
         assert!(config.api_key.is_none());

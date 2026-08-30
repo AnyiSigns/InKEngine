@@ -18,6 +18,7 @@ from pathlib import Path
 from typing import Any
 
 from ink_engine.core.declarative_tools import DeclarativeToolSpec
+from ink_engine.core.entities import EntitySpec
 from ink_engine.core.event_types import EventTypeSpec
 from ink_engine.core.harness import HarnessDefinition
 from ink_engine.core.introspection import introspection_tool_specs
@@ -34,7 +35,7 @@ from ink_engine.core.self_tools import make_self_executor, operation_of, self_to
 
 from .graph_recipe import build_round_graph
 
-# seed_data 目录下的数据文件名（与 schema 校验脚本同源，17 个文件）
+# seed_data 目录下的数据文件名（与 schema 校验脚本同源，18 个文件）
 SEED_DATA_FILES: tuple[str, ...] = (
     "boot_prompt.json",
     "ui_spec.json",
@@ -53,6 +54,7 @@ SEED_DATA_FILES: tuple[str, ...] = (
     "env.json",
     "mcp_market.json",
     "build.json",
+    "entities.json",
 )
 
 # 域名种子注入清单名（稳定键，供幂等注入与回退锚点）
@@ -149,6 +151,14 @@ def map_event_type_specs(bundle: SeedDataBundle) -> list[EventTypeSpec]:
             )
         )
     return specs
+
+
+def map_entity_specs(bundle: SeedDataBundle) -> list[EntitySpec]:
+    """实体基线（协作者目录出厂条目：装配期登记 + 集内演化实体加载）。"""
+    return [
+        EntitySpec.from_dict(raw)
+        for raw in bundle.data["entities.json"].get("entities") or ()
+    ]
 
 
 def map_harness_definitions(bundle: SeedDataBundle) -> list[HarnessDefinition]:
@@ -334,7 +344,7 @@ def _embedder_from_env() -> Any | None:
     from ink_engine.core.llm.embeddings import create_embedder
 
     config: dict[str, str] = {
-        "adapter": os.environ.get("INK_EMBEDDING_ADAPTER", "openai_compat"),
+        "adapter": os.environ.get("INK_EMBEDDING_ADAPTER", "openai_compatible"),
         "base_url": base_url,
         "model_id": model_id,
     }
@@ -378,16 +388,34 @@ class EventTypeApplyTarget(ApplyTarget):
         self._runtime.event_type_registry.register(spec)
 
 
+class EntityApplyTarget(ApplyTarget):
+    """ENTITY 补丁落链后的活跃态生效：注册进实体注册表（协作者目录即时可召唤）。"""
+
+    name = "inkling.entity"
+
+    def __init__(self, runtime: Any) -> None:
+        self._runtime = runtime
+
+    async def apply(self, payload: dict[str, Any], patch_id: int) -> None:
+        spec = EntitySpec.from_dict(payload)
+        registry = self._runtime.entity_registry
+        if registry is not None:
+            registry.register(spec)
+            await registry.save()
+
+
 def map_apply_targets() -> dict[PatchKind, Callable[[Any], ApplyTarget]]:
     """活跃态应用目标工厂（补丁落链后的运行时生效钩子）。
 
     - TOOL：声明式定义进注册表 + 统一工具表（挂载工具即刻可调）；
-    - EVENT_TYPE：事件类型注册表即时生效（新事件类型可渲染/校验）。
+    - EVENT_TYPE：事件类型注册表即时生效（新事件类型可渲染/校验）；
+    - ENTITY：实体注册表即时生效（新协作者即刻可被 collab_request 召唤）。
     补丁链是权威记录，目标钩子只做活跃态同步（重启经链恢复）。
     """
     return {
         PatchKind.TOOL: lambda runtime: ToolApplyTarget(runtime),
         PatchKind.EVENT_TYPE: lambda runtime: EventTypeApplyTarget(runtime),
+        PatchKind.ENTITY: lambda runtime: EntityApplyTarget(runtime),
     }
 
 
@@ -449,6 +477,7 @@ def build_recipe(
         seeds=map_seed_providers(bundle),
         harness_definitions=map_harness_definitions(bundle),
         event_type_specs=map_event_type_specs(bundle),
+        entity_specs=map_entity_specs(bundle),
         ui_spec=dict(bundle.data["ui_spec.json"]),
         ui_allowed_channels=map_ui_allowed_channels(bundle),
         ui_allowed_components=map_ui_allowed_components(bundle),
@@ -483,6 +512,7 @@ __all__ = [
     "load_seed_data",
     "map_apply_targets",
     "map_approval_levels",
+    "map_entity_specs",
     "map_event_type_specs",
     "map_graph_recipe",
     "map_harness_definitions",

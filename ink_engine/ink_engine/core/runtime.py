@@ -86,6 +86,7 @@ from .tool_pipeline import ToolPipeline
 from .tool_vetting import ToolVetting
 from .tuning import MetaTuner, TuneResult, TurnMetrics
 from .ui_schema import DEFAULT_BIND_CHANNELS, UISchemaValidator
+from .verifier import LLMOutputVerifier
 
 logger = get_logger(__name__)
 
@@ -377,6 +378,13 @@ class AssemblyRecipe:
     run_options: RunOptions | None = None
     # 回合内上下文压缩策略（None = 引擎默认 ThresholdCompressionPolicy）
     compress_policy: CompressionPolicy | None = None
+    # VTM 验证器门控：违规驱动重做上限（0 = 不启用验证器；>0 = 装配 LLM
+    # 验证器（复用回合 LLM 链），节点声明 __verify__ 即评审产出、失败按
+    # 违规清单重做，上限为本次级）
+    verify_retry_limit: int = 0
+    # 组装时间线事件开关（turn_started/assembly_*/execution_started，顶层
+    # 图发射）：UX 指标（user_msg → 组装 → 真正执行用户任务的墙钟）
+    emit_timeline_events: bool = False
 
 
 class Runtime:
@@ -1364,6 +1372,16 @@ class Runtime:
         options = RunOptions(
             storage=self.storage,
             registries=self.graph_registries,
+            # VTM 验证器门控接线：配方 verify_retry_limit>0 且 LLM 链可用时
+            # 装配 LLM 验证器（复用回合 guard_llm——用量/压缩同链路）；
+            # 节点声明 __verify__ 才触发，失败按违规清单重做（Q9 +45% 语义）
+            output_verifier=(
+                LLMOutputVerifier(guard_llm)
+                if recipe.verify_retry_limit > 0 and guard_llm is not None
+                else None
+            ),
+            verify_retry_limit=recipe.verify_retry_limit,
+            emit_timeline_events=recipe.emit_timeline_events,
             # 自学习管线观察回合事件流（观测不阻断执行；宿主各自注入
             # 传输，此传输不向宿主外发——只进不出）；实体演化管线同
             # 流观察实体关联失败信号

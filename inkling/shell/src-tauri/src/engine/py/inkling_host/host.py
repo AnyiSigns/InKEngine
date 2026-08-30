@@ -641,6 +641,11 @@ async def boot_inkling(
                 gate=settle_gate,
                 store=evidence_store,
                 model_id=os.environ.get("INK_LLM_MODEL", ""),
+                # 写入键 = 组装查找侧同源（请求指纹）：经 callable 读取组装
+                # 运行期最近一次请求的缓存主键——键空间一致缓存才命中
+                context_fingerprint=lambda: getattr(
+                    get_default_assembly_runtime(), "last_request_fingerprint", ""
+                ),
             )
         )
         hooks.register(

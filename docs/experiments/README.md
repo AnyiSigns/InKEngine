@@ -13,6 +13,7 @@
 | `os/` | OS 感知/操作 | OSWorld 风格元素树+点击评测（simulated/live） |
 | `memory/` | 记忆/知识/检索 | 预留 |
 | `frontend/` | 前端/显示层 | 预留 |
+| `chains/` | 链级连通性实验 | agent 链逐环节断言（真实链 import + 驱动） |
 
 新区域出现时在 README 登记后再使用。
 

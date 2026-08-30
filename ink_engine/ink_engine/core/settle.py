@@ -535,7 +535,7 @@ class FingerprintSettleHook:
         store: EdgeEvidenceStore | None = None,
         *,
         model_id: str = "",
-        context_fingerprint: str | None = None,
+        context_fingerprint: str | Callable[[], str | None] | None = None,
     ) -> None:
         self._cache = cache
         self._gate = gate
@@ -544,6 +544,18 @@ class FingerprintSettleHook:
         self._context_fingerprint = context_fingerprint
         # 本次 run 是否尝试了入库（供测试断言 fail-closed 语义）
         self.attempts: list[dict[str, Any]] = []
+
+    def _resolve_fingerprint(self) -> str | None:
+        """解析缓存主键：静态字符串直取；callable 惰性求值（生产装配
+        读取组装运行期最近一次请求指纹——写入键与组装查找键同空间）。
+        """
+        value = self._context_fingerprint
+        if callable(value):
+            try:
+                value = value()
+            except Exception:
+                return None
+        return str(value) if value else None
 
     async def settle(self, ctx: SettleContext) -> None:
         if self._cache is None or self._gate is None:
@@ -567,8 +579,13 @@ class FingerprintSettleHook:
             path_data = top.to_dict()
         except GraphDefinitionError:
             path_data = {"fingerprint": top.digest()}
-        # 缓存主键：注入上下文指纹时与组装查找侧一致；未注入退化为图摘要
-        key = self._context_fingerprint or top.digest()
+        # 缓存主键：注入上下文指纹（静态或 callable）时与组装查找侧一致；
+        # 未注入退化为图摘要（向后兼容）。注入但解析失败 = 写入键不可得
+        # 的 fail-closed——不降级图摘要（降级会写进错误键空间污染缓存）
+        resolved = self._resolve_fingerprint()
+        if self._context_fingerprint is not None and resolved is None:
+            return
+        key = resolved or top.digest()
         await self._cache.upsert(
             key,
             path=path_data,

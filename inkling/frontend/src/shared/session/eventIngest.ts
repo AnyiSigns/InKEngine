@@ -477,6 +477,26 @@ export function ingestEvent(hub: ChannelHub, event: HubEvent): void {
       sourceTraces = traces.slice(-SOURCE_TRACES_MAX);
       break;
     }
+    case 'assembly_started':
+      upsertStep({ stepId: 'assembly', type: 'assembly', label: '组装', status: 'running' }, (s) => ({ ...s, status: 'running' as const }));
+      break;
+    case 'assembly_done': {
+      // 组装阶段折叠为一条轨迹步骤（耗时 = payload.ts 墙钟 − 步骤起点）
+      const ts = typeof payload.ts === 'number' ? payload.ts * 1000 : undefined;
+      upsertStep({ stepId: 'assembly', type: 'assembly', label: '组装', status: 'done' }, (s) => ({
+        ...s,
+        status: 'done' as const,
+        ...(ts != null && s.startedAt ? { elapsedMs: Math.max(0, ts - s.startedAt) } : {}),
+      }));
+      break;
+    }
+    case 'execution_started':
+      // 真正执行开始：组装阶段若尚在 running（未收尾）则定型为 done；
+      // 无组装步骤（未启用组装）不凭空建卡
+      roundSteps = roundSteps.map((s) =>
+        s.stepId === 'assembly' && s.status === 'running' ? { ...s, status: 'done' as const } : s,
+      );
+      break;
     case 'assembly_candidate':
     case 'node_start':
     case 'evolution_variant': {

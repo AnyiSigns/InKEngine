@@ -136,3 +136,31 @@ describe('tool_start title 通道', () => {
     expect(hub.getSnapshot().messages[0]).toMatchObject({ title: '网络抓取' });
   });
 });
+
+describe('组装时间线入轨迹（assembly_started/done 折叠为一条组装步骤）', () => {
+  it('assembly_started → done 折叠为一条「组装」步骤，done 携带耗时', () => {
+    const hub = new ChannelHub();
+    const startedAt = Date.now() - 2000;
+    ingestEvent(hub, { type: 'turn_started', payload: { round_id: 'r1' }, at: startedAt });
+    ingestEvent(hub, { type: 'assembly_started', payload: { ts: startedAt / 1000 }, at: startedAt });
+    ingestEvent(hub, {
+      type: 'assembly_done',
+      payload: { ts: (startedAt + 1500) / 1000 },
+      at: startedAt + 1500,
+    });
+    ingestEvent(hub, { type: 'execution_started', payload: { node: 'produce', ts: (startedAt + 1600) / 1000 }, at: startedAt + 1600 });
+    const steps = hub.getSnapshot().roundSteps;
+    const assembly = steps.find((s) => s.stepId === 'assembly');
+    expect(assembly).toBeDefined();
+    expect(assembly).toMatchObject({ type: 'assembly', label: '组装', status: 'done' });
+    expect(assembly?.elapsedMs).toBeCloseTo(1500, -1);
+    // 只折叠一条（不因 execution_started 重复建卡）
+    expect(steps.filter((s) => s.type === 'assembly')).toHaveLength(1);
+  });
+
+  it('未启用组装时 execution_started 不凭空建组装卡', () => {
+    const hub = new ChannelHub();
+    ingestEvent(hub, { type: 'execution_started', payload: { node: 'produce' }, at: Date.now() });
+    expect(hub.getSnapshot().roundSteps.filter((s) => s.type === 'assembly')).toHaveLength(0);
+  });
+});

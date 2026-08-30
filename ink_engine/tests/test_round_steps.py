@@ -442,6 +442,34 @@ def test_seed_ignores_non_dict_entries():
     assert [s["step_id"] for s in _steps_of(rs)] == ["user"]
 
 
+def test_assembly_phase_folds_to_single_step():
+    """组装阶段折叠为固定单步（start → end 定型 done + 耗时；重复进入
+    start 同 id 复用，端到端只一条轨迹步骤）。"""
+    rs = RoundSteps("r1")
+    rs.user("查询资料")
+    assert rs.assembly_start(1000.0) == "assembly"
+    assert rs.assembly_start(1200.0) == "assembly"  # 同 id 复用
+    assert rs.assembly_end(2500.0) == "assembly"
+    steps = _steps_of(rs)
+    assert [s["type"] for s in steps] == ["user", "assembly"]
+    assert steps[-1]["payload"] == {"status": "done", "elapsed_ms": 1300000, "started_at": 1200.0}
+
+
+def test_assembly_end_without_start_is_noop():
+    """无 assembly_start 的 assembly_end = 幂等空操作（不凭空建卡）。"""
+    rs = RoundSteps("r1")
+    assert rs.assembly_end(2500.0) == ""
+    assert _steps_of(rs) == []
+
+
+def test_assembly_end_backwards_clock_drops_elapsed():
+    """结束时间早于起点（墙钟回拨/乱序）→ 不写负耗时，仍定型 done。"""
+    rs = RoundSteps("r1")
+    rs.assembly_start(2000.0)
+    rs.assembly_end(1500.0)
+    assert _steps_of(rs)[0]["payload"] == {"status": "done", "started_at": 2000.0}
+
+
 def test_seed_counts_tool_without_call_id():
     """种子中无 id 的工具卡占计数，续流不与其重号。"""
     seed = [

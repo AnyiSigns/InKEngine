@@ -88,6 +88,11 @@ from .spawn import (
 )
 from .state import StateSchema, is_merge_reducer, subgraph_overlay_delta
 from .storage import ChainLink, CheckpointRecord, Storage
+from .verifier import (
+    VERIFY_FEEDBACK_KEY,
+    VERIFY_KEY,
+    OutputVerificationError,
+)
 
 logger = get_logger(__name__)
 
@@ -667,6 +672,58 @@ class Engine:
             )
         )
 
+    async def _verify_node_output(
+        self,
+        ctx: _NodeContextImpl,
+        node: str,
+        fn: Any,
+        overlay: dict,
+    ) -> dict:
+        """VTM 验证器门控：产出评审 + 违规驱动重做（有界）。
+
+        节点返回值携带 ``__verify__`` 保留键声明评审规格时才触发（缺省不评审，
+        既有图零行为变化）。流程：评审 → pass 放行；fail 把违规清单写入
+        ``state["__verify_feedback__"]`` 后重做节点（节点读反馈做定向修复），
+        重做上限 ``verify_retry_limit``；重做耗尽仍 fail 抛
+        ``OutputVerificationError``（消息带违规 → 演化 pitfall 定向教训）。
+        """
+        spec = overlay.get(VERIFY_KEY) if isinstance(overlay, dict) else None
+        if not isinstance(spec, dict):
+            return overlay
+        verifier = self.options.output_verifier
+        for attempt in range(self.options.verify_retry_limit + 1):
+            verdict = await verifier.verify(ctx, node=node, output=overlay, spec=spec)
+            passed = bool(verdict.get("pass"))
+            violations = [str(v) for v in (verdict.get("violations") or [])]
+            await ctx.emit(
+                "output_verdict",
+                {
+                    "node": node,
+                    "pass": passed,
+                    "attempt": attempt,
+                    "violations": violations,
+                },
+            )
+            if passed:
+                overlay.pop(VERIFY_KEY, None)
+                ctx.state.pop(VERIFY_FEEDBACK_KEY, None)
+                return overlay
+            if attempt >= self.options.verify_retry_limit:
+                ctx.state.pop(VERIFY_FEEDBACK_KEY, None)
+                detail = "；".join(violations) or "产出不满足硬性要求"
+                raise OutputVerificationError(
+                    f"节点产出未通过验证: {node}（{detail}）",
+                    entity_id=spec.get("entity_id"),
+                )
+            # 违规驱动重做：反馈写 state，节点重跑（定向修复）
+            ctx.state[VERIFY_FEEDBACK_KEY] = violations
+            ctx._spawns.clear()
+            ctx._terminated = None
+            result = fn(ctx)
+            if inspect.isawaitable(result):
+                result = await result
+            overlay = result if isinstance(result, dict) else {}
+
     async def run(
         self,
         state: dict,
@@ -1153,6 +1210,17 @@ class Engine:
             resume_map=resume_map,
             parent_step_id=parent_step_id,
         )
+        # ── 组装时间线事件（UX 指标：user_msg → 组装 → 真正开始执行用户任务
+        # 的墙钟；仅在 RunOptions.emit_timeline_events 开启且顶层图时发射，
+        # 子图/实例不重复）。turn_started = 本回合入口（用户消息到达），
+        # execution_started = 第一个节点真正开工。──
+        _top_level = graph_path == ()
+        _first_node = True
+        if self.options.emit_timeline_events and _top_level:
+            await ctx.emit(
+                "turn_started",
+                {"round_id": round_id, "ts": time.time()},
+            )
         # 恢复起点定位：
         # - 中断 checkpoint（reason=interrupted）：重入中断节点（节点内按注入值分支）；
         # - 异常 checkpoint（reason=error）：重入失败节点（该节点未完成，
@@ -1338,7 +1406,11 @@ class Engine:
             # 管线——源由 RunOptions.assembly_sources 提供（未注入时
             # 节点自行经 ctx.assemble 装配），装配结果节点内复用，
             # 激活记录只留痕一次
+            if self.options.emit_timeline_events and _top_level and _first_node:
+                await ctx.emit("assembly_started", {"ts": time.time()})
             await ctx.preassemble()
+            if self.options.emit_timeline_events and _top_level and _first_node:
+                await ctx.emit("assembly_done", {"ts": time.time()})
 
             # 结点级成败留痕：打开当前结点步骤（成败在结点块内标记，
             # 收尾在下一循环头或循环出口；不发射事件）
@@ -1357,11 +1429,19 @@ class Engine:
                 # 把 usage 帧记入本节点成本账并发射 llm_usage 指标事件
                 node_token = current_node_context.set(ctx)
                 try:
+                    if self.options.emit_timeline_events and _top_level and _first_node:
+                        await ctx.emit("execution_started", {"node": current, "ts": time.time()})
+                        _first_node = False
                     fn = graph.nodes[current]
                     result = fn(ctx)
                     if inspect.isawaitable(result):
                         result = await result
                     overlay = result
+                    # VTM 验证器门控：节点声明 __verify__ 且挂了 output_verifier
+                    # → 产出评审 + 违规驱动重做（有界）；终败抛
+                    # OutputVerificationError 由下方分支按节点失败收口
+                    if self.options.output_verifier is not None:
+                        overlay = await self._verify_node_output(ctx, current, fn, overlay)
                     break
                 except InterruptSignal as sig:
                     # 安全：中断负载（审批卡内容）经 RunResult 直返宿主，与
@@ -1373,6 +1453,28 @@ class Engine:
                         graph_path=ctx.graph_path,
                     )
                     reason = "interrupted"
+                    break
+                except OutputVerificationError as verr:
+                    # VTM 终败：违规驱动重做已在门控内耗尽（不占 max_node_retries
+                    # 盲重试槽位）。error 事件消息带违规清单 → 演化管线自动归为
+                    # pitfall 教训（定向变异）；entity_id 归因到实体。
+                    node_error = verr.message
+                    logger.warning(f"节点产出未通过验证 [{current}]: {verr.message}")
+                    await ctx.emit(
+                        "error",
+                        {
+                            "node": current,
+                            "message": node_error,
+                            "context": {"entity_id": verr.entity_id},
+                        },
+                    )
+                    if self.options.error_on_exception:
+                        error_msg = node_error
+                        reason = TerminateReason.ERROR
+                    else:
+                        logger.warning(
+                            f"节点产出未通过验证跳过（error_on_exception=False）[{current}]: {verr.message}"
+                        )
                     break
                 except Exception as exc:
                     if attempt < self.options.max_node_retries:
@@ -2759,7 +2861,7 @@ class Engine:
         # 被首条命中支流 consume 后其余支流会抛 InterruptError；把父
         # coordinator 的待消费注入快照传给支流执行器，由支流侧按分支
         # 隔离（每条支流各持副本消费）
-        return await runner.run(
+        result = await runner.run(
             request,
             candidates,
             entry_state=entry_state,
@@ -2771,6 +2873,16 @@ class Engine:
             synth_provider=data.get("synth_provider"),
             inject=dict(self._coordinator.pending_inject) or None,
         )
+        # 马尔可夫路径缓存回馈：多径实际执行结果回灌指纹缓存（命中成功
+        # → 计数+1；命中失败 → 条目失效，下次重组装）。观测不阻断：回馈
+        # 失败只记日志，不影响执行结果。
+        report = getattr(runtime, "report_cache_execution", None)
+        if report is not None and getattr(result, "triggered", False):
+            try:
+                await report(request, ok=getattr(result, "winner", None) is not None)
+            except Exception as exc:
+                logger.warning(f"路径缓存执行回馈失败（忽略）: {exc}")
+        return result
 
     async def _run_multipath_degraded_single(
         self, data: Mapping[str, Any], ctx: NodeContext

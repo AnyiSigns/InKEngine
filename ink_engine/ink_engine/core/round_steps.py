@@ -301,6 +301,37 @@ class RoundSteps:
         self._steps[-1]["payload"]["status"] = "completed"
         return step_id
 
+    # ---- 组装阶段（固定单步，折叠为一条轨迹步骤）----
+
+    def assembly_start(self, started_at: float) -> str:
+        """组装阶段开始（固定 ``assembly`` 步；重复进入同 id 复用）。
+
+        组装时间线事件（assembly_started → assembly_done）在回合中至多
+        折叠为一条「组装」步骤——承载组装阶段墙钟（耗时在收尾时定型）。
+        """
+        step_id = "assembly"
+        return self._append(
+            step_id,
+            step_id,
+            {"status": "running", "started_at": started_at},
+        )
+
+    def assembly_end(self, ended_at: float) -> str:
+        """组装阶段收尾（定型 done + 耗时；缺 start = 幂等空操作）。"""
+        step_id = "assembly"
+        record = self._index.get(step_id)
+        if record is None:
+            return ""
+        started = record["payload"].get("started_at")
+        elapsed = None
+        if isinstance(started, (int, float)) and ended_at > started:
+            elapsed = round((ended_at - started) * 1000)
+        patch: dict[str, Any] = {"status": "done"}
+        if elapsed is not None:
+            patch["elapsed_ms"] = elapsed
+        self._update(step_id, patch)
+        return step_id
+
     # ---- 记忆命中（挂所属步骤） ----
 
     def memory_hit(self, hits: list) -> str:

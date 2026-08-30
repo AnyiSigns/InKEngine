@@ -113,6 +113,17 @@ class RunOptions:
     domain: str | None = None
     # 沉淀钩子注册体（run 收尾触发；None = 关闭沉淀，运行侧零影响）
     settle: SettleHooks | None = None
+    # VTM 验证器门控：节点产出评审器（OutputVerifier 协议，async verify(...)
+    # -> {"pass", "violations"}）。None = 关闭（节点即使声明 __verify__ 也不评审，
+    # 既有图零行为变化）。
+    output_verifier: Any = None
+    # 评审失败后的违规驱动重做上限（0 = 失败即按节点失败收口；节点重跑时
+    # 读 state["__verify_feedback__"] 做定向修复）。
+    verify_retry_limit: int = 0
+    # 组装时间线事件开关（turn_started/assembly_started/assembly_done/
+    # execution_started，顶层图发射）：UX 指标（user_msg → 组装 → 真正执行
+    # 用户任务的墙钟）。默认关闭 = 既有事件协议零变化，宿主按需开启。
+    emit_timeline_events: bool = False
 
 
 @dataclass(slots=True)

@@ -2141,6 +2141,9 @@ class PathAssemblyRuntime:
             引擎缺省护栏：canary 态桩化 + 步数上限预算）。
         multipath_enabled: 多径机制开关（装配期按壳侧透传键注入；执行
             入口按此开关触发 MultipathRunner 调度）。
+        last_request_fingerprint: 最近一次组装请求的缓存主键（请求侧
+            纯函数 request_fingerprint 产出；沉淀钩子经 callable 读取，
+            保证写入键与组装查找键同空间——生产缓存命中的前提）。
     """
 
     registry: NodeTypeRegistry
@@ -2161,6 +2164,8 @@ class PathAssemblyRuntime:
     stats_total: dict[str, int] = field(default_factory=dict)
     # 技能先例提供器（异步；组装请求 → 候选技能链，见 bind() 转发到组装器）
     skill_provider: Callable[[Any], Awaitable[Sequence[Any]]] | None = None
+    # 最近一次组装请求的缓存主键（沉淀侧读取对齐写入键；空 = 尚未组装）
+    last_request_fingerprint: str = ""
 
     def bind(self) -> PathAssembler:
         """构造只读组装器（同源配置；单次绑定复用）。"""
@@ -2177,6 +2182,20 @@ class PathAssemblyRuntime:
             skill_provider=self.skill_provider,
         )
 
+    def _request_cache_key(self, request: AssemblyRequest) -> str:
+        """组装请求的缓存主键（请求侧纯函数；与组装查找/回馈同口径）。
+
+        沉淀钩子经 callable 读取本键作写入主键——写入与查找键空间一致，
+        缓存命中才成立（生产端 settle.py 侧同源）。
+        """
+        return request_fingerprint(
+            goal_fields=request.goal_fields(),
+            entry_fields=request.entry_fields,
+            domain=request.domain,
+            max_safety_tier=request.max_safety_tier,
+            model_id=self.model_id,
+        )
+
     async def report_cache_execution(self, request: AssemblyRequest, *, ok: bool) -> bool:
         """缓存路径执行结果回馈（执行失败强失效信号接线口）。
 
@@ -2186,13 +2205,7 @@ class PathAssemblyRuntime:
         """
         if self.cache is None:
             return False
-        key = request_fingerprint(
-            goal_fields=request.goal_fields(),
-            entry_fields=request.entry_fields,
-            domain=request.domain,
-            max_safety_tier=request.max_safety_tier,
-            model_id=self.model_id,
-        )
+        key = self._request_cache_key(request)
         return await self.cache.report(key, ok=ok)
 
     async def assemble_plan(
@@ -2227,6 +2240,10 @@ class PathAssemblyRuntime:
         if self.config is not None and not self.config.enabled:
             return AssemblyResult()
         assembler = self.bind()
+        # 记录最近一次组装请求的缓存主键（沉淀侧读取对齐写入键；发生
+        # 在组装请求有效时——零候选也记录，沉淀侧按失败路径不写入）。
+        # frozen 数据类下就地改写：与本类 stats_total 就地累积同语义
+        object.__setattr__(self, "last_request_fingerprint", self._request_cache_key(request))
         result = await assembler.assemble(request, envelope)
         ts = self.now if self.now is not None else time.time()
         hit_verdicts: list[CanaryVerdict] | None = None

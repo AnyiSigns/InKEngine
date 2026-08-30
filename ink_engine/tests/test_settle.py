@@ -367,6 +367,34 @@ async def test_fingerprint_hook_upserts_when_gate_passes():
     await store.close()
 
 
+async def test_fingerprint_hook_callable_key_resolved():
+    """callable context_fingerprint：写入键 = 组装请求指纹（与查找键同空间）；
+    callable 异常 = 降级不入缓存（安全 fail-closed）。"""
+    store = EdgeEvidenceStore()
+    cache = _FakeCache()
+    g = demo_linear_graph()
+    holder = {"key": "req-fp-1"}
+    hook = FingerprintSettleHook(
+        cache=cache,
+        gate=_FakeGate(True),
+        store=store,
+        context_fingerprint=lambda: holder["key"],
+    )
+    await hook.settle(_ctx(_steps(("start", "success"), ("mid", "success")), graph=g))
+    assert len(cache.upserts) == 1
+    assert cache.upserts[0]["fingerprint"] == "req-fp-1"
+    # callable 抛出 → 解析失败 = 不入缓存（写入键不可得的安全降级）
+    bad = FingerprintSettleHook(
+        cache=cache,
+        gate=_FakeGate(True),
+        store=store,
+        context_fingerprint=lambda: (_ for _ in ()).throw(RuntimeError("指纹不可得")),
+    )
+    await bad.settle(_ctx(_steps(("start", "success"), ("mid", "success")), graph=g))
+    assert len(cache.upserts) == 1  # 未新增
+    await store.close()
+
+
 # ── 失败审计 ──
 
 async def test_failure_audit_append_only():

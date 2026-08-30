@@ -16,6 +16,8 @@
 """
 from __future__ import annotations
 
+import time
+
 from collections.abc import Mapping
 
 from ink_engine.core.events import EngineEvent
@@ -92,6 +94,10 @@ class RoundStepsTransport:
             self.steps.plan_token(str(payload.get("token") or ""))
         elif etype == "plan_end":
             self.steps.plan_end()
+        elif etype == "assembly_started":
+            self.steps.assembly_start(float(payload.get("ts") or time.time()))
+        elif etype == "assembly_done":
+            self.steps.assembly_end(float(payload.get("ts") or time.time()))
         elif etype == "tool_start":
             tool_call_id = str(payload.get("tool_call_id") or "")
             # 兜底：payload 缺 tool_call_id 时从事件 step_id（tool:{call_id}）提取，

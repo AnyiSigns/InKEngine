@@ -1,0 +1,642 @@
+{
+ "runs": {
+  "h05": [
+   {
+    "answer": "6",
+    "ok": false,
+    "vpass": false,
+    "violations": [
+     "数值错误：100 以内（含 100）既是完全平方数又是完全立方数的正整数为 1（1⁶）和 64（2⁶），共 2 个，模型输出 6 不正确"
+    ]
+   },
+   {
+    "answer": "6",
+    "ok": false,
+    "vpass": false,
+    "violations": [
+     "数值错误：100 以内（含 100）既是完全平方数又是完全立方数的正整数有 2 个（1 和 64），而非 6 个"
+    ]
+   },
+   {
+    "answer": "6",
+    "ok": false,
+    "vpass": false,
+    "violations": [
+     "数值错误：100以内既是完全平方数又是完全立方数的正整数有2个（分别是1和64），模型输出6"
+    ]
+   }
+  ],
+  "h06": [
+   {
+    "answer": "74",
+    "ok": false,
+    "vpass": false,
+    "violations": [
+     "答案数值错误：满足条件的两位数最小为15，而非74。验证：交换15得51，51-15=36；而74交换后为47，47-74=-27≠36"
+    ]
+   },
+   {
+    "answer": "61",
+    "ok": false,
+    "vpass": false,
+    "violations": [
+     "数值计算错误：满足条件的最小两位数应为 15（51-15=36），而非 61；61 交换后为 16，16 比 61 小 45，不满足「交换后比原数大 36」的条件"
+    ]
+   },
+   {
+    "answer": "69",
+    "ok": false,
+    "vpass": false,
+    "violations": [
+     "答案69不符合交换后比原数大36的条件（实际差值为27）",
+     "最小符合条件的两位数应为15而非69"
+    ]
+   }
+  ],
+  "h08": [
+   {
+    "answer": "10^9 秒 = 1000000000 秒\n\n1000000000 ÷ 86400 = 11574 天零 1600 秒\n\n11574 ÷ 7 = 1653 周零 3 天\n\n所以 10^9 秒之后 = 星期一 + 3 天 = 星期四\n\n**Thursday**",
+    "ok": true,
+    "vpass": false,
+    "violations": [
+     "未遵循'只输出星期名'的格式要求，输出了计算过程和英文星期名，而非仅输出星期名"
+    ]
+   },
+   {
+    "answer": "星期二",
+    "ok": false,
+    "vpass": false,
+    "violations": [
+     "计算结果错误：10的9次方秒之后为星期四，模型输出星期二"
+    ]
+   },
+   {
+    "answer": "10^9 seconds = 10^9 ÷ 86400 ≈ 11574.07 days = 11574 days + 6 hours (remainder 0.074 days ≈ 1.78 hours, i.e., 1 hour 47 minutes 12 seconds, approximately 1.78 hours)\n\nActually, let's compute it more accurately:\n\n10^9 ÷ 86400 = 11574.074074... days\n\nInteger part: 11574 days\nFractional part: 0.074074... days × 24 hours/day = 1.777... hours\n\nSo total time difference = 11574 days + 1 hour + 48 minutes (approximately)\n\nNow, 11574 days modulo 7:\n11574 ÷ 7 = 1653.428...\n1653 × 7 = 11571\n11574 - 11571 = 3\n\nSo 11574 days is exactly 1653 weeks + 3 days.\n\nToday is Monday. Adding 3 days:\nMonday → Tuesday (1), Wednesday (2), Thursday (3)\n\nThe additional 1 hour 48 minutes does not cross a day boundary, so it doesn't affect the weekday.\n\nWait, but we need to be more precise about the fractional part.\n\nLet me recalculate:\n10^9 seconds ÷ 86400 seconds/day = 11574.074074... days\n\nThe integer part 11574 gives us 3 extra days (11574 mod 7 = 3).\nSo Monday + 3 = Thursday.\n\nBut wait - we have a fractional part of about 0.074 days, which is about 1 hour and 47 minutes.\nSince this is less than 24 hours, and we add it to Monday, it's still Monday for that day...\nBut actually, the question asks \"10^9 seconds later\", so we need the final day.\n\nStarting from Monday:\n- 11574 full days later = 3 days later = Thursday\n- Plus 1 hour 47 minutes into Thursday\n\nSo the answer is Thursday.\n\nActually wait - I need to think about whether the question is about \"today is Monday\" meaning we start counting from Monday (i.e., Monday 00:00), or today as in currently it's Monday (any time).\n\nBut since we're adding such a large number of seconds, the exact time of day doesn't matter - we just need:\n11574 days + ~1.78 hours later.\n\n11574 mod 7 = 3 days later from Monday = Thursday.\nThe extra ~1.78 hours don't push us into Friday.\n\nAnswer: 星期四",
+    "ok": true,
+    "vpass": false,
+    "violations": [
+     "输出包含大量解释性文字和计算过程，未满足'只输出星期名'的格式要求"
+    ]
+   }
+  ],
+  "h16": [
+   {
+    "answer": "gas",
+    "ok": false,
+    "vpass": true,
+    "violations": []
+   },
+   {
+    "answer": "液态",
+    "ok": false,
+    "vpass": true,
+    "violations": []
+   },
+   {
+    "answer": "气态",
+    "ok": true,
+    "vpass": true,
+    "violations": [],
+    "dt_solver": 3.9,
+    "dt_verify": 9.33,
+    "ts": 1788080789.4391656
+   }
+  ],
+  "t05": [
+   {
+    "answer": "7 × 4 + 3 × 2 = 28 + 6 = 34",
+    "ok": true,
+    "vpass": false,
+    "violations": [
+     "未只输出数字，输出了计算过程"
+    ]
+   },
+   {
+    "answer": "28",
+    "ok": false,
+    "vpass": false,
+    "violations": [
+     "计算错误：7只猫(28脚)和3只鸟(6脚)的总脚数应为34，但输出为28"
+    ]
+   },
+   {
+    "answer": "28",
+    "ok": false,
+    "vpass": false,
+    "violations": [
+     "数值计算错误：7只猫(4脚×7=28) + 3只鸟(2脚×3=6) 总计34只脚，但模型仅输出28，遗漏了鸟的6只脚"
+    ]
+   }
+  ],
+  "x01": [
+   {
+    "answer": "974207664",
+    "ok": false,
+    "vpass": false,
+    "violations": [
+     "计算结果错误：123456 × 789012 = 97408265472，模型输出 974207664"
+    ]
+   },
+   {
+    "answer": "97439373632",
+    "ok": false,
+    "vpass": false,
+    "violations": [
+     "计算结果错误：123456 × 789012 = 97408265472，模型输出 97439373632"
+    ]
+   },
+   {
+    "answer": "97408265472",
+    "ok": true,
+    "vpass": true,
+    "violations": []
+   }
+  ],
+  "x03": [
+   {
+    "answer": "软件真有趣工程程软",
+    "ok": false,
+    "vpass": false,
+    "violations": [
+     "输出内容不是原字符串的逐字倒序",
+     "输出字符串长度为8，原字符串长度为7，长度不符",
+     "输出包含重复字符'程'和'软'"
+    ]
+   },
+   {
+    "answer": "软趣有真工程软",
+    "ok": false,
+    "vpass": false,
+    "violations": [
+     "未正确执行逐字倒序：原句「软件工程真有趣」应倒序为「趣有真程工软」，模型输出「软趣有真工程软」错误地将「工程」保持原序且首尾多出字符"
+    ]
+   },
+   {
+    "answer": "软有趣真工程软件「」",
+    "ok": false,
+    "vpass": false,
+    "violations": [
+     "未逐字倒序，正确倒序应为「趣有真工程件软」，模型输出为「软有趣真工程软件「」」，内容错误且包含多余符号"
+    ]
+   }
+  ],
+  "x08": [
+   {
+    "answer": "97.656<tool_call>capacity_EVALuation_completed",
+    "ok": false,
+    "vpass": false,
+    "violations": [
+     "第5次落地总路程计算结果错误，正确值为361.12，模型输出97.656不符合要求",
+     "输出包含非数字的额外标签内容，违反仅输出数字的硬性要求"
+    ]
+   },
+   {
+    "answer": "100 + 120 + 72 + 43.2 + 25.92 + 15.552 + 9.3312 + 5.59872 + 3.359232 = 274.961152",
+    "ok": false,
+    "vpass": false,
+    "violations": [
+     "未只输出数字，输出了等式和计算表达式",
+     "计算结果数值错误（第5次落地时总路程应为361.2米，而非274.961152）",
+     "计算过程包含多余项数（列出9项，不符合第5次落地的时间节点）"
+    ]
+   },
+   {
+    "answer": "245.4426804",
+    "ok": false,
+    "vpass": false,
+    "violations": [
+     "第5次落地总路程计算结果错误，正确值应为361.12，模型输出245.4426804不符合要求"
+    ]
+   }
+  ],
+  "h07": [
+   {
+    "answer": "15",
+    "ok": false,
+    "vpass": false,
+    "violations": [
+     "7人两两握手一次的总次数计算错误，正确结果为21，输出结果为15"
+    ]
+   },
+   {
+    "answer": "15",
+    "ok": false,
+    "vpass": false,
+    "violations": [
+     "答案数值错误：7个人两两握手一次的正确次数是21（C(7,2)=21），不是15"
+    ]
+   },
+   {
+    "answer": "15",
+    "ok": false,
+    "vpass": false,
+    "violations": [
+     "答案数值错误：7个人两两握手的正确结果应为21（C(7,2)=21），模型输出15不符合数学计算结果"
+    ]
+   }
+  ]
+ },
+ "repairs": {
+  "h05": [
+   {
+    "run_idx": 0,
+    "kind": "violations",
+    "answer": "2",
+    "ok": true,
+    "vpass": true,
+    "violations": []
+   },
+   {
+    "run_idx": 0,
+    "kind": "control",
+    "answer": "6",
+    "ok": false,
+    "vpass": false,
+    "violations": [
+     "数值错误：100以内既是完全平方数又是完全立方数的正整数只有2个（1和64），模型输出6"
+    ]
+   },
+   {
+    "run_idx": 1,
+    "kind": "violations",
+    "answer": "2",
+    "ok": true,
+    "vpass": true,
+    "violations": []
+   },
+   {
+    "run_idx": 1,
+    "kind": "control",
+    "answer": "6",
+    "ok": false,
+    "vpass": false,
+    "violations": [
+     "数值错误：100 以内（含 100）既是完全平方数又是完全立方数的正整数有 2 个（1 和 64），模型输出 6"
+    ]
+   },
+   {
+    "run_idx": 2,
+    "kind": "violations",
+    "answer": "2",
+    "ok": true,
+    "vpass": true,
+    "violations": []
+   },
+   {
+    "run_idx": 2,
+    "kind": "control",
+    "answer": "6",
+    "ok": false,
+    "vpass": false,
+    "violations": [
+     "答案错误：100以内（含100）既是完全平方数又是完全立方数的正整数有2个（1和64），模型输出6"
+    ]
+   }
+  ],
+  "h06": [
+   {
+    "run_idx": 0,
+    "kind": "violations",
+    "answer": "15",
+    "ok": true,
+    "vpass": true,
+    "violations": []
+   },
+   {
+    "run_idx": 0,
+    "kind": "control",
+    "answer": "61",
+    "ok": false,
+    "vpass": false,
+    "violations": [
+     "答案错误，符合条件的两位数最小是15，模型输出61不符合要求"
+    ]
+   },
+   {
+    "run_idx": 1,
+    "kind": "violations",
+    "answer": "15",
+    "ok": true,
+    "vpass": true,
+    "violations": []
+   },
+   {
+    "run_idx": 1,
+    "kind": "control",
+    "answer": "15",
+    "ok": true,
+    "vpass": true,
+    "violations": []
+   },
+   {
+    "run_idx": 2,
+    "kind": "violations",
+    "answer": "15",
+    "ok": true,
+    "vpass": true,
+    "violations": []
+   },
+   {
+    "run_idx": 2,
+    "kind": "control",
+    "answer": "63",
+    "ok": false,
+    "vpass": false,
+    "violations": [
+     "数值错误：满足条件的最小两位数应为 15，而非 63。当 a=1、b=5 时，原数为 15，交换后为 51，51-15=36，符合条件且最小。"
+    ]
+   }
+  ],
+  "h08": [
+   {
+    "run_idx": 1,
+    "kind": "violations",
+    "answer": "10^9 秒 = 11574083.333... 天 = 11574083 天 + 8 小时。\n\n11574083 ÷ 7 = 1653440 周 + 3 天。\n\n因此，10^9 秒之后是星期一 + 3 天 = 星期四。\n\n**Thursday**",
+    "ok": true,
+    "vpass": false,
+    "violations": [
+     "未满足'只输出星期名'的格式要求，输出包含冗余的计算过程与加粗格式标记",
+     "输出的星期名为英文，不符合中文任务语境下的星期名输出要求"
+    ]
+   },
+   {
+    "run_idx": 1,
+    "kind": "control",
+    "answer": "星期四",
+    "ok": true,
+    "vpass": true,
+    "violations": []
+   }
+  ],
+  "h16": [
+   {
+    "run_idx": 0,
+    "kind": "violations",
+    "answer": "液态",
+    "ok": false,
+    "vpass": true,
+    "violations": []
+   },
+   {
+    "run_idx": 0,
+    "kind": "control",
+    "answer": "液体",
+    "ok": false,
+    "vpass": true,
+    "violations": []
+   },
+   {
+    "run_idx": 1,
+    "kind": "violations",
+    "answer": "气态",
+    "ok": true,
+    "vpass": true,
+    "violations": []
+   },
+   {
+    "run_idx": 1,
+    "kind": "control",
+    "answer": "气态",
+    "ok": true,
+    "vpass": true,
+    "violations": []
+   }
+  ],
+  "t05": [
+   {
+    "run_idx": 1,
+    "kind": "violations",
+    "answer": "34",
+    "ok": true,
+    "vpass": true,
+    "violations": []
+   },
+   {
+    "run_idx": 1,
+    "kind": "control",
+    "answer": "28",
+    "ok": false,
+    "vpass": false,
+    "violations": [
+     "计算结果错误：7只猫(28只脚)和3只鸟(6只脚)的脚总数应为34，模型仅计算了猫的脚数"
+    ]
+   },
+   {
+    "run_idx": 2,
+    "kind": "violations",
+    "answer": "34",
+    "ok": true,
+    "vpass": true,
+    "violations": []
+   }
+  ],
+  "x01": [
+   {
+    "run_idx": 0,
+    "kind": "violations",
+    "answer": "",
+    "ok": false,
+    "vpass": false,
+    "violations": [
+     "模型未输出任何结果，未提供 123456 × 789012 的计算结果"
+    ]
+   },
+   {
+    "run_idx": 0,
+    "kind": "control",
+    "answer": "97408104672",
+    "ok": false,
+    "vpass": false,
+    "violations": [
+     "计算结果错误：123456 × 789012 = 97408265472，模型输出 97408104672"
+    ]
+   },
+   {
+    "run_idx": 1,
+    "kind": "violations",
+    "answer": "97408265472",
+    "ok": true,
+    "vpass": true,
+    "violations": []
+   },
+   {
+    "run_idx": 1,
+    "kind": "control",
+    "answer": "97480009072872",
+    "ok": false,
+    "vpass": false,
+    "violations": [
+     "计算结果错误，123456 × 789012 的正确结果为 97408265472，模型输出为 97480009072872"
+    ]
+   }
+  ],
+  "x03": [
+   {
+    "run_idx": 0,
+    "kind": "violations",
+    "answer": "软工编有趣真有究软",
+    "ok": false,
+    "vpass": false,
+    "violations": [
+     "倒序结果错误，应为'趣有真程工软'；模型输出包含原文不存在的字符'编'和'究'；未正确完成逐字倒序任务"
+    ]
+   },
+   {
+    "run_idx": 0,
+    "kind": "control",
+    "answer": "趣有工程软「」输出序倒字逐 「软件工程真有趣」",
+    "ok": false,
+    "vpass": false,
+    "violations": [
+     "输出内容包含多余文字「」输出序倒字逐 「软件工程真有趣」",
+     "未正确逐字倒序，「软件工程真有趣」倒序应为「趣有真程工软件」，模型输出为「趣有工程软」且顺序错误",
+     "未满足只输出结果的要求"
+    ]
+   },
+   {
+    "run_idx": 1,
+    "kind": "violations",
+    "answer": "趣有真程工软",
+    "ok": false,
+    "vpass": false,
+    "violations": [
+     "未逐字倒序，遗漏了'件'字，正确结果应为'趣有真程工软'"
+    ]
+   },
+   {
+    "run_idx": 1,
+    "kind": "control",
+    "answer": "趣有真工程软",
+    "ok": false,
+    "vpass": false,
+    "violations": [
+     "原句「软件工程真有趣」共7字，模型输出仅6字；缺少「件」字；第4-6字倒序错误，应为「程工件」而非「工程软」"
+    ]
+   },
+   {
+    "run_idx": 2,
+    "kind": "violations",
+    "answer": "趣有真工程件软",
+    "ok": false,
+    "vpass": false,
+    "violations": [
+     "逐字倒序错误：原字符串「软件工程真有趣」应输出为「趣有真程工件事软」，但模型输出为「趣有真工程件软」，其中「工程」应为「程工」"
+    ]
+   },
+   {
+    "run_idx": 2,
+    "kind": "control",
+    "answer": "软趣有真工程软件",
+    "ok": false,
+    "vpass": false,
+    "violations": [
+     "未按任务要求将「软件工程真有趣」逐字倒序输出，正确倒序应为「趣有真程工软」，而模型输出为「软趣有真工程软件」"
+    ]
+   }
+  ],
+  "x08": [
+   {
+    "run_idx": 0,
+    "kind": "violations",
+    "answer": "361.12",
+    "ok": true,
+    "vpass": true,
+    "violations": []
+   },
+   {
+    "run_idx": 1,
+    "kind": "violations",
+    "answer": "361.2",
+    "ok": false,
+    "vpass": false,
+    "violations": [
+     "计算结果不精确，精确值应为361.12"
+    ],
+    "dt_solver": 6.73,
+    "dt_verify": 44.08,
+    "ts": 1788080840.25084
+   },
+   {
+    "run_idx": 2,
+    "kind": "violations",
+    "answer": "361.12",
+    "ok": true,
+    "vpass": true,
+    "violations": [],
+    "dt_solver": 13.83,
+    "dt_verify": 10.99,
+    "ts": 1788080884.4365177
+   }
+  ],
+  "h07": [
+   {
+    "run_idx": 0,
+    "kind": "violations",
+    "answer": "21",
+    "ok": true,
+    "vpass": true,
+    "violations": [],
+    "dt_solver": 5.33,
+    "dt_verify": 3.83,
+    "ts": 1788080968.4174035
+   },
+   {
+    "run_idx": 0,
+    "kind": "control",
+    "answer": "15",
+    "ok": false,
+    "vpass": false,
+    "violations": [
+     "计算结果错误，7个人两两握手一次应为21次而非15次"
+    ],
+    "dt_solver": 3.28,
+    "dt_verify": 8.28,
+    "ts": 1788080979.9790726
+   },
+   {
+    "run_idx": 1,
+    "kind": "violations",
+    "answer": "21",
+    "ok": true,
+    "vpass": true,
+    "violations": [],
+    "dt_solver": 7.39,
+    "dt_verify": 6.05,
+    "ts": 1788080993.4217758
+   },
+   {
+    "run_idx": 1,
+    "kind": "control",
+    "answer": "21",
+    "ok": true,
+    "vpass": true,
+    "violations": [],
+    "dt_solver": 2.05,
+    "dt_verify": 6.28,
+    "ts": 1788081001.7561526
+   },
+   {
+    "run_idx": 2,
+    "kind": "violations",
+    "answer": "21",
+    "ok": true,
+    "vpass": true,
+    "violations": [],
+    "dt_solver": 2.99,
+    "dt_verify": 11.43,
+    "ts": 1788081016.1771975
+   },
+   {
+    "run_idx": 2,
+    "kind": "control",
+    "answer": "21",
+    "ok": true,
+    "vpass": true,
+    "violations": [],
+    "dt_solver": 2.87,
+    "dt_verify": 5.39,
+    "ts": 1788081024.4412968
+   }
+  ]
+ }
+}

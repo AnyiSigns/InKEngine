@@ -1313,6 +1313,48 @@ async def test_runtime_stats_total_accumulates():
         await cache.close()
 
 
+async def test_runtime_records_last_request_fingerprint():
+    """assemble_plan 记录最近一次请求指纹（沉淀钩子 callable 读取的写入键）；
+    与组装查找键同空间——缓存写入/命中才可能对齐。"""
+    from ink_engine.core.fingerprint import request_fingerprint as _rf
+    from ink_engine.core.path_assembler import (
+        PathAssemblyRuntime,
+        assemble_plan,
+        get_default_assembly_runtime,
+        set_default_assembly_runtime,
+    )
+
+    registry = make_registry()
+    cache = FingerprintCacheStore(":memory:", now=DUMMY_NOW)
+    previous = get_default_assembly_runtime()
+    runtime = PathAssemblyRuntime(
+        registry=registry,
+        config=PathAssemblyConfig(enabled=True),
+        cache=cache,
+        cache_epsilon=0.0,
+        now=DUMMY_NOW,
+    )
+    set_default_assembly_runtime(runtime)
+    try:
+        req = _request(("answer",))
+        assert runtime.last_request_fingerprint == ""
+        await assemble_plan(req, audit_sink=lambda r: None)
+        expected = _rf(
+            goal_fields=req.goal_fields(),
+            entry_fields=req.entry_fields,
+            domain=req.domain,
+            max_safety_tier=req.max_safety_tier,
+            model_id="",
+        )
+        assert runtime.last_request_fingerprint == expected
+        # 沉淀侧 callable 读取即为写入键（与报告回馈键同空间）
+        resolved = runtime.last_request_fingerprint
+        assert resolved == runtime._request_cache_key(req)
+    finally:
+        set_default_assembly_runtime(previous)
+        await cache.close()
+
+
 # ── 契约视图/证据单查/EdgeIndexKey/stats 隔离/rng/补链 ──
 
 

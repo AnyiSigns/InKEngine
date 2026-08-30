@@ -261,6 +261,56 @@ def register_path_assembly_event_types(registry: EventTypeRegistry) -> None:
     registry.register(assembly_candidate_event_spec())
 
 
+# ── 组装时间线事件（UX 指标：user_msg → 组装 → 真正开始执行用户任务）──
+
+# 回合入口（用户消息到达，顶层图发射一次）
+EVENT_TURN_STARTED = "turn_started"
+# 输入调配预装配开始/完成（首个节点，顶层图发射）
+EVENT_ASSEMBLY_STARTED = "assembly_started"
+EVENT_ASSEMBLY_DONE = "assembly_done"
+# 第一个节点真正开工（execution_started 才是「开始做用户任务」的起点）
+EVENT_EXECUTION_STARTED = "execution_started"
+# VTM 验证器门控评审留痕（节点产出 pass/fail + 违规清单）
+EVENT_OUTPUT_VERDICT = "output_verdict"
+
+
+def output_gate_event_specs() -> tuple[EventTypeSpec, ...]:
+    """组装时间线 + 验证器门控事件类型声明（注册表注册用；类型是数据）。"""
+    return (
+        EventTypeSpec(
+            name=EVENT_TURN_STARTED,
+            schema=SchemaSpec(name="timeline.turn_started"),
+            meta={"purpose": "timeline"},
+        ),
+        EventTypeSpec(
+            name=EVENT_ASSEMBLY_STARTED,
+            schema=SchemaSpec(name="timeline.assembly_started"),
+            meta={"purpose": "timeline"},
+        ),
+        EventTypeSpec(
+            name=EVENT_ASSEMBLY_DONE,
+            schema=SchemaSpec(name="timeline.assembly_done"),
+            meta={"purpose": "timeline"},
+        ),
+        EventTypeSpec(
+            name=EVENT_EXECUTION_STARTED,
+            schema=SchemaSpec(name="timeline.execution_started"),
+            meta={"purpose": "timeline"},
+        ),
+        EventTypeSpec(
+            name=EVENT_OUTPUT_VERDICT,
+            schema=SchemaSpec(name="output_gate.verdict"),
+            meta={"purpose": "output_gate"},
+        ),
+    )
+
+
+def register_output_gate_event_types(registry: EventTypeRegistry) -> None:
+    """把组装时间线 + 验证器门控事件类型注册进注册表。"""
+    for spec in output_gate_event_specs():
+        registry.register(spec)
+
+
 class EventTypeRegistry:
     """事件类型注册表（注册/校验/分类/合成 system_events + 随集持久化）。
 
@@ -390,12 +440,17 @@ __all__ = [
     "DEFAULT_ATTACHMENT_RENDERER",
     "DEFAULT_MAX_EVENT_TYPES",
     "EVENT_ASSEMBLY_CANDIDATE",
+    "EVENT_ASSEMBLY_DONE",
+    "EVENT_ASSEMBLY_STARTED",
     "EVENT_AUDIT_ASSEMBLY",
     "EVENT_AUDIT_FINGERPRINT_REPLACE",
     "EVENT_AUDIT_JUNCTION",
     "EVENT_AUDIT_POLICY_REVIEW",
+    "EVENT_EXECUTION_STARTED",
+    "EVENT_OUTPUT_VERDICT",
     "EVENT_STATUS_REGISTERED",
     "EVENT_STATUS_UNKNOWN",
+    "EVENT_TURN_STARTED",
     "EVENT_TYPES_COLLECTION_PREFIX",
     "EventTypeRegistry",
     "EventTypeSpec",
@@ -404,6 +459,8 @@ __all__ = [
     "attachment_event_spec",
     "audit_event_specs",
     "event_types_collection",
+    "output_gate_event_specs",
     "register_audit_event_types",
+    "register_output_gate_event_types",
     "register_path_assembly_event_types",
 ]

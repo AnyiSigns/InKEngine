@@ -121,6 +121,8 @@ _ASSEMBLY_RECIPE_FIELDS: tuple[str, ...] = (
     "convergence_provider",
     "run_options",
     "compress_policy",
+    "verify_retry_limit",
+    "emit_timeline_events",
 )
 
 _ENGINE_ROOT = Path(__file__).resolve().parents[1] / "ink_engine"

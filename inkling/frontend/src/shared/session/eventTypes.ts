@@ -57,6 +57,11 @@ export const EVENT_TYPE_NAMES = [
   'device_control',
   // 附件（引擎 Attachment 契约形态，DEFAULT_ATTACHMENT_EVENT_NAME）
   'attachment',
+  // 组装时间线（UX 指标：turn_started → 组装 → execution_started 的墙钟）
+  'turn_started',
+  'assembly_started',
+  'assembly_done',
+  'execution_started',
 ] as const;
 
 export type EventTypeName = (typeof EVENT_TYPE_NAMES)[number];
@@ -110,6 +115,10 @@ export const EVENT_TYPE_SPECS: EventTypeSpec[] = [
   { name: 'device_sensed', description: '设备感知留痕', bindable: true },
   { name: 'device_control', description: '设备控制留痕', bindable: true },
   { name: 'attachment', description: '附件（引擎 Attachment 契约形态）', bindable: true },
+  { name: 'turn_started', description: '回合入口（用户消息到达，时间线起点）', bindable: true },
+  { name: 'assembly_started', description: '组装开始（时间线：组装阶段起点）', bindable: true },
+  { name: 'assembly_done', description: '组装完成（时间线：组装阶段耗时）', bindable: true },
+  { name: 'execution_started', description: '真正执行开始（时间线：首个节点开工）', bindable: true },
 ];
 
 export function isEventTypeName(name: string): name is EventTypeName {

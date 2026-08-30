@@ -47,6 +47,24 @@
   安全跳过；且失败任务的 head 全 ≥0.9，阈值顶不掉。改进方向：马尔可夫状态细化
   到（类型 × 特征）级才有低风险状态可跳；成本结构改三档（全验证/针对性验证/
   快路径）而非二元跳过。
+- Q6 三档验证阶梯（细化状态 × risk 触发 × 当前模式兜底，2026-08-30 实测）：
+  「risk 非空 → 针对性验证（1 单位）；risk 空 + 状态零败历史 → 快路径（0）；
+  否则全验证（2）」在 39 复杂任务/弱 solver 上：严格零败 N=3 → 33% 节省 @ 0 错
+  （0 快路径，节省全来自 risk 触发的针对性验证顶掉全验证）；N=2 → 38% @ 0 错；
+  若放宽为状态先验 θ=0.80 → 46% 但样本内零错含过拟合（快路径状态 90% 成功率，
+  样本外仍有 ~10% 风险）。结论：可用方案 = 置信度信号折入既有决策调用（零边际
+  成本）产出 p+risk 清单，risk 空必须走全验证（head 盲区样本全在 risk 空），
+  risk 非空走针对性点验，快路径仅由马尔可夫零败状态在线解锁；安全闸门不参与。
+- Q7 验证器门控（新算法，2026-08-30 实测）：把同一 LLM 信号从「预测成败」改造成
+  「评审产出」，漏抓率 19%（预测 p≥0.9 即跳过）→ 3%（验证器 pass 即跳过）——
+  39 任务中验证器抓到 7/8 失败（h05/h06/h08/t05/x01/x03/x08），只漏 h16；
+  代价是误杀率 30%（3 个误杀：x05/x06/x10，需仲裁）。h16 恰是 head 的 risk 清单
+  点名「沸腾」的样本——验证器盲区与风险清单互补。
+- 终版算法（VTM 三段门控，由数据合成）：执行产出 → ①验证器评审（pass/fail+违规，
+  漏抓 3%）→ fail 走二次仲裁（确定性检查/第二模型，解误杀）；②pass 走风险点验
+  （按 head risk 清单逐条点验，抓验证器盲区如 h16，漏抓→0）；③马尔可夫零败状态
+  直接提交（省①②）。安全闸门（权限/审批/出网）永不参与。三个信号各归其位：
+  验证器抓「产出不合格」、风险清单抓「验证器也放过的盲区」、马尔可夫管「何时可省」。
 
 结果落盘 tools/benchmarks/reports/confidence_head_report-<ts>.md 与 latest.md。
 """
@@ -452,12 +470,30 @@ class TaskRun:
     answer: str = ""
     head_p: float | None = None
     head_raw: str = ""
+    head: dict = None  # 完整 head JSON（risk 清单全量，供 Q6 阶梯分析）
+    verdict: dict = None  # 验证器评审（pass + violations）
     ok: bool | None = None
     env_error: bool = False
+
+    def __post_init__(self) -> None:
+        if self.head is None:
+            self.head = {}
+        if self.verdict is None:
+            self.verdict = {}
 
     @property
     def type(self) -> str:
         return self.task["type"]
+
+    @property
+    def risk_empty(self) -> bool:
+        r = self.head.get("risk")
+        return not isinstance(r, list) or len(r) == 0
+
+    @property
+    def verify_pass(self) -> bool | None:
+        p = self.verdict.get("pass")
+        return p if isinstance(p, bool) else None
 
 
 HEAD_SYSTEM = (
@@ -469,6 +505,20 @@ HEAD_SYSTEM = (
 
 SOLVER_SYSTEM = "你是一个任务执行器。严格按用户要求完成任务，只输出最终结果。"
 
+VERIFY_SYSTEM = (
+    "你是验收评审器。给定一个用户任务和模型产出的答案，判断该答案是否通过验收"
+    "（必须满足任务的全部硬性要求：格式、数值、包含/排除词、精确长度等）。\n"
+    "输出严格 JSON：{\"pass\": true/false, \"violations\": [\"违反了什么硬性要求\"]}\n"
+    "只输出 JSON。答案不合格就 pass=false，不要宽容。"
+)
+
+
+async def run_verify(lm_verify: Lm, task: dict, answer: str) -> dict:
+    text = await lm_verify.ask(
+        VERIFY_SYSTEM, f"任务：{task['task']}\n模型答案：\n{answer}\n"
+    )
+    return parse_json_lenient(text)
+
 
 async def run_task(lm_solver: Lm, lm_head: Lm, task: dict) -> TaskRun:
     run = TaskRun(task=task)
@@ -477,6 +527,7 @@ async def run_task(lm_solver: Lm, lm_head: Lm, task: dict) -> TaskRun:
         HEAD_SYSTEM, f"任务：{task['task']}\n执行方案：模型直接作答，无额外工具。"
     )
     head = parse_json_lenient(head_text)
+    run.head = head
     run.head_raw = json.dumps(head, ensure_ascii=False)[:300]
     run.head_p = _extract_float(head.get("p_success"))
     run.ok = bool(task["check"](run.answer or ""))
@@ -529,10 +580,42 @@ async def main() -> int:
     started = time.time()
     state = _load_state()
     redo = {x.strip() for x in _env("INKENGINE_EXP_REDO").split(",") if x.strip()}
+    head_only = bool(_env("INKENGINE_EXP_HEAD_ONLY"))
+    verify_only = bool(_env("INKENGINE_EXP_VERIFY_ONLY"))
+    if head_only:
+        # 只刷 head（复用已存答案，不重新调 solver）：补齐完整 head JSON 供 Q6 阶梯分析
+        log("[head刷新] 仅重取 head 调用，跳过 solver 与排序")
+        for i, task in enumerate(tasks, 1):
+            rec = state["tasks"].get(task["id"])
+            if not rec or rec.get("head"):
+                continue
+            try:
+                head_text = await lm_head.ask(
+                    HEAD_SYSTEM,
+                    f"任务：{task['task']}\n执行方案：模型直接作答，无额外工具。",
+                )
+                rec["head"] = parse_json_lenient(head_text)
+                _save_state(state)
+                log(f"[head刷新] {i:02d}/{len(tasks)} {task['id']} 完成")
+            except Exception as exc:  # noqa: BLE001 单条失败不中断，续跑补齐
+                log(f"[head刷新] {i:02d}/{len(tasks)} {task['id']} 环境错误: {type(exc).__name__} {str(exc)[:60]}")
+    if verify_only:
+        # 验证器评审（复用已存答案）：新算法验证「验证门控 vs 预测门控」
+        log("[验证器] 仅评审已有答案，跳过 solver 与排序")
+        for i, task in enumerate(tasks, 1):
+            rec = state["tasks"].get(task["id"])
+            if not rec or rec.get("verdict"):
+                continue
+            try:
+                rec["verdict"] = await run_verify(lm_head, task, rec.get("answer", ""))
+                _save_state(state)
+                log(f"[验证器] {i:02d}/{len(tasks)} {task['id']} 完成 pass={rec['verdict'].get('pass')}")
+            except Exception as exc:  # noqa: BLE001 单条失败不中断，续跑补齐
+                log(f"[验证器] {i:02d}/{len(tasks)} {task['id']} 环境错误: {type(exc).__name__} {str(exc)[:60]}")
     runs: list[TaskRun] = []
     env_errors = 0
-    if _env("INKENGINE_EXP_SKIP_MAIN"):
-        log("[主集] INKENGINE_EXP_SKIP_MAIN 已设——跳过主集（仅排序）")
+    if _env("INKENGINE_EXP_SKIP_MAIN") or head_only or verify_only:
+        log("[主集] SKIP_MAIN/HEAD_ONLY/VERIFY_ONLY 已设——跳过主集执行，从状态装载")
         for task in tasks:
             rec = state["tasks"].get(task["id"])
             if not rec:
@@ -540,6 +623,8 @@ async def main() -> int:
             run = TaskRun(task=task)
             run.answer = rec.get("answer", "")
             run.head_raw = rec.get("head_raw", "")
+            run.head = rec.get("head") or {}
+            run.verdict = rec.get("verdict") or {}
             run.head_p = rec.get("head_p")
             run.ok = rec.get("ok")
             run.env_error = rec.get("env_error", False)
@@ -555,6 +640,8 @@ async def main() -> int:
                 run = TaskRun(task=task)
                 run.answer = rec.get("answer", "")
                 run.head_raw = rec.get("head_raw", "")
+                run.head = rec.get("head") or {}
+                run.verdict = rec.get("verdict") or {}
                 run.head_p = rec.get("head_p")
                 run.ok = rec.get("ok")
                 run.env_error = rec.get("env_error", False)
@@ -576,6 +663,8 @@ async def main() -> int:
             state["tasks"][task["id"]] = {
                 "answer": run.answer,
                 "head_raw": run.head_raw,
+                "head": run.head,
+                "verdict": run.verdict,
                 "head_p": run.head_p,
                 "ok": run.ok,
                 "env_error": run.env_error,
@@ -635,8 +724,6 @@ async def main() -> int:
         return [w * p + (1 - w) * pr for p, pr in zip(probs, prior_probs)]
 
     # ---- Q5 三源互补融合（置信度阈值 × 马尔可夫 × 当前模式） ----
-    # 决策策略：仅当「置信度阈值命中 AND 马尔可夫先验命中」才走快路径（跳过验证），
-    # 否则回退当前模式（全验证/simulate，兜底零错）。测各规则在错误预算下的最大省量。
     n = len(valid)
 
     def _sweep(skip_fn, params_list):
@@ -669,6 +756,75 @@ async def main() -> int:
             [(w, k) for w in (0.3, 0.5, 0.7) for k in grid_tau],
         ),
     }
+
+    # ---- Q6 三档验证阶梯（细化状态 × risk 触发 × 当前模式兜底） ----
+    # 状态 = (类型, head 置信度档位)；阶梯：risk 清单非空 → targeted（按清单点验，
+    # 成本 1）；risk 空且状态先验 ≥ θ → fast（成本 0）；否则 full（成本 2）。
+    # 假定：risk 非空的失败会被 targeted 点验抓住（本数据 8 失败中 6 个 risk 点名了
+    # 实际失败维度）；残留错误只来自 fast 路径漏过的失败（risk 空盲区样本）。
+
+    def _head_bin(p: float | None) -> str | None:
+        if p is None:
+            return None
+        if p < 0.85:
+            return "0.7-0.85"
+        if p < 0.95:
+            return "0.85-0.95"
+        return "0.95-1.0"
+
+    state_counts: dict[tuple[str, str], tuple[int, int]] = {}
+    for r in valid:
+        st = (r.type, _head_bin(r.head_p))
+        k, c = state_counts.get(st, (0, 0))
+        state_counts[st] = (k + int(bool(r.ok)), c + 1)
+    state_prior = {st: (k + 1) / (c + 2) for st, (k, c) in state_counts.items()}
+
+    def _ladder(theta: float, zero_min: int = 0) -> dict:
+        cost = 0
+        err = 0
+        tiers = {"fast": 0, "targeted": 0, "full": 0}
+        fast_fails: list[str] = []
+        for r in valid:
+            st = (r.type, _head_bin(r.head_p))
+            k, c = state_counts[st]
+            if r.risk_empty:
+                safe_by_prior = state_prior[st] >= theta
+                safe_by_zero_fail = zero_min > 0 and k == c and c >= zero_min
+                if safe_by_zero_fail or (zero_min == 0 and safe_by_prior):
+                    tier = "fast"
+                else:
+                    tier = "full"
+            else:
+                tier = "targeted"
+            tiers[tier] += 1
+            cost += {"fast": 0, "targeted": 1, "full": 2}[tier]
+            if not r.ok and tier == "fast":
+                err += 1
+                fast_fails.append(r.task["id"])
+        return {"cost": cost / len(valid), "err": err / len(valid), **tiers, "fast_fails": fast_fails}
+
+    # ---- Q7 验证器门控（新算法：评审执行产出，而非预测成败） ----
+    verify_runs = [r for r in valid if r.verify_pass is not None]
+    vn = len(verify_runs)
+    tp = sum(1 for r in verify_runs if r.verify_pass and r.ok)
+    fp = sum(1 for r in verify_runs if r.verify_pass and not r.ok)  # 漏抓（判过但实际败）
+    tn = sum(1 for r in verify_runs if not r.verify_pass and not r.ok)
+    fn = sum(1 for r in verify_runs if not r.verify_pass and r.ok)  # 误杀（判败但实际过）
+    pass_rate = (tp + fp) / vn if vn else float("nan")
+    leak_v = fp / (tp + fp) if (tp + fp) else float("nan")
+    kill_v = fn / (tn + fn) if (tn + fn) else float("nan")
+    caught = [r.task["id"] for r in verify_runs if r.verify_pass is False and not r.ok]
+    leaked = [r.task["id"] for r in verify_runs if r.verify_pass is True and not r.ok]
+
+    def _policy_cost(pass_rate_p: float) -> float:
+        return 1.0 + (1.0 - pass_rate_p) * 2.0  # 决策调用1 + 未通过者全验证2
+
+    pred_pass = sum(1 for r in valid if (r.head_p or 0.0) >= 0.9) / len(valid)
+    pred_leak = sum(
+        1 for r in valid if not r.ok and (r.head_p or 0.0) >= 0.9
+    ) / sum(1 for r in valid if (r.head_p or 0.0) >= 0.9)
+    both_pass = [r for r in verify_runs if r.verify_pass and (r.head_p or 0.0) >= 0.9]
+    both_leak = sum(1 for r in both_pass if not r.ok) / len(both_pass) if both_pass else float("nan")
 
     # ---- 分析 ----
     lines: list[str] = []
@@ -752,6 +908,75 @@ async def main() -> int:
         lines.append("")
         lines.append("注：5% 预算行=实际错误率 ≤5%；若某规则 0% 预算下也有省量，说明它能零错地替代一部分验证。")
         lines.append("冷启动：类型无历史时先验回落全局率/0.5，w 应偏置信度阈值；历史充足后由马尔可夫主导纠偏。")
+        lines.append("")
+
+        lines.append("## Q6 三档验证阶梯（细化状态 × risk 触发 × 当前模式兜底）")
+        lines.append("")
+        lines.append("成本模型（调用单位）：fast=0（跳过）/ targeted=1（按 risk 清单点验一次）/ full=2（全验证/simulate 对比）。")
+        lines.append("阶梯规则：risk 清单非空 → targeted；risk 空且「类型×置信度档」状态先验 ≥ θ → fast；否则 full。")
+        lines.append("假定：risk 非空的失败被 targeted 点验抓住（本数据 8 失败中 6 个的 risk 点名了实际失败维度）；")
+        lines.append("残留错误只来自 fast 漏过（risk 空盲区）。")
+        lines.append("")
+        lines.append("| 配置 | 平均成本/任务 | 相对当前模式节省 | 残留错误 | fast/targeted/full | 漏过任务 |")
+        lines.append("|---|---|---|---|---|---|")
+        lines.append("| 当前模式（全验证） | 2.00 | 0% | 0% | 0/0/39 | - |")
+        for nm, zmin in (("严格零败快路径 N=3", 3), ("严格零败快路径 N=2", 2)):
+            r = _ladder(0.9, zero_min=zmin)
+            leak = ", ".join(r["fast_fails"]) or "-"
+            lines.append(
+                f"| {nm} | {r['cost']:.2f} | {1 - r['cost'] / 2.0:.0%} | "
+                f"{r['err']:.0%} | {r['fast']}/{r['targeted']}/{r['full']} | {leak} |"
+            )
+        for theta in (0.60, 0.70, 0.80, 0.90, 0.95):
+            res = _ladder(theta)
+            leak = ", ".join(res["fast_fails"]) or "-"
+            lines.append(
+                f"| 阶梯 θ={theta:.2f} | {res['cost']:.2f} | {1 - res['cost'] / 2.0:.0%} | "
+                f"{res['err']:.0%} | {res['fast']}/{res['targeted']}/{res['full']} | {leak} |"
+            )
+        lines.append("")
+        lines.append("细化状态成功率（类型 × 置信度档 → 经验成功率，n=样本数）：")
+        lines.append("")
+        for st in sorted(state_counts):
+            k, c = state_counts[st]
+            lines.append(f"- {st[0]}/{st[1]}: {k}/{c} = {k / c:.0%}（先验 {state_prior[st]:.2f}）")
+        lines.append("")
+
+        lines.append("## Q7 验证器门控（新算法：评审产出，不预测成败）")
+        lines.append("")
+        lines.append("核心假设（由数据提出）：预测模式问「执行会不会成功」——head 评的是任务难度，")
+        lines.append("不感知执行器，失败也打 ≥0.9；但验证模式问「这个产出满足硬性要求吗」——")
+        lines.append("同一模型对具体产出做判定，而 head 写 reason 时本就能解出正确答案（h06 解出 15、")
+        lines.append("t05 算出 34）。故把同一信号从「预测」改造成「验证」应显著降低漏抓。")
+        lines.append("")
+        if not verify_runs:
+            lines.append("（无验证器数据——先跑 INKENGINE_EXP_VERIFY_ONLY 补齐）")
+        else:
+            lines.append(f"验证器评审 {vn} 个：pass={tp + fp}（{pass_rate:.0%}），fail={tn + fn}。")
+            lines.append("混淆：真过且判过(TP)=" + f"{tp}，判过但实际败(FP/漏抓)={fp}，"
+                         f"判败但实际过(FN/误杀)={fn}，真败且判败(TN)={tn}。")
+            lines.append("")
+            lines.append("| 门控策略 | 决策调用 | 通过率 | 漏抓率（通过却失败） | 误杀率（判败却通过） | 平均成本/任务 | 相对当前模式 |")
+            lines.append("|---|---|---|---|---|---|---|")
+            lines.append("| 当前模式（全验证） | - | 100% | 0% | 0% | 2.00 | 0% |")
+            lines.append(
+                f"| 预测门控（head p≥0.9 即跳过） | 1 | {pred_pass:.0%} | {pred_leak:.0%} | 0% | "
+                f"{_policy_cost(pred_pass):.2f} | {1 - _policy_cost(pred_pass) / 2.0:.0%} |"
+            )
+            lines.append(
+                f"| 验证门控（verifier pass 即跳过） | 1 | {pass_rate:.0%} | {leak_v:.0%} | {kill_v:.0%} | "
+                f"{_policy_cost(pass_rate):.2f} | {1 - _policy_cost(pass_rate) / 2.0:.0%} |"
+            )
+            if both_pass:
+                bp_rate = len(both_pass) / vn
+                lines.append(
+                    f"| 复合门控（verifier pass 且 head p≥0.9） | 1 | {bp_rate:.0%} | "
+                    f"{both_leak:.0%} | - | {_policy_cost(bp_rate):.2f} | {1 - _policy_cost(bp_rate) / 2.0:.0%} |"
+                )
+            lines.append("")
+            lines.append(f"验证器抓住的失败：{', '.join(caught) or '-'}")
+            lines.append(f"验证器漏抓的失败：{', '.join(leaked) or '-'}")
+            lines.append("")
         lines.append("")
 
     lines.append("## Q3 排序能力（head 挑更优候选，不执行两条）")

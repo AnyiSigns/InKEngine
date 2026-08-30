@@ -188,6 +188,10 @@ fn schema_properties(spec: &super::executors::impls::ExecutorSpec) -> BTreeMap<S
                 super::executors::tool_decl::ParamType::Integer => json!({ "type": "integer" }),
                 super::executors::tool_decl::ParamType::Number => json!({ "type": "number" }),
                 super::executors::tool_decl::ParamType::Boolean => json!({ "type": "boolean" }),
+                super::executors::tool_decl::ParamType::StringArray => json!({
+                    "type": "array",
+                    "items": { "type": "string" }
+                }),
             };
             (param.name.to_string(), schema)
         })

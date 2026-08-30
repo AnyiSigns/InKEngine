@@ -20,17 +20,20 @@
 
 传输形态（Streamable HTTP 为主，stdio 次之，内存用于内嵌/测试）：
 - http：``streamable_http_client(url, http_client=...)``（MCP v2 规范主传输）；
-- stdio：``StdioServerParameters(command, args, env)`` 拉起本地进程；执行件
-  的 stderr（结构化日志通道）捕获进引擎日志，不裸露到终端；
+- stdio：自写传输（线程私有事件循环 + JSON-RPC 分帧，见
+  ``_ThreadedMcpTransport``）拉起本地进程——不依赖 mcp SDK 的 anyio
+  封装，跨 boot/round/stop 的事件循环切换稳定；执行件的 stderr（结构化
+  日志通道）捕获进引擎日志，不裸露到终端；
 - in_memory：宿主注入 ``server_factory``（返回 (read, write) 流对的异步
   上下文管理器），用于内嵌 server 或测试桩，不依赖真实网络/进程。
 """
 from __future__ import annotations
 
 import asyncio
+import concurrent.futures
 import contextlib
 import contextvars
-import inspect
+import itertools
 import json
 import logging
 import os
@@ -65,6 +68,13 @@ logger = get_logger(__name__)
 # 连接/调用超时（秒）：MCP 握手与工具调用均须有上界，避免无限挂起拖垮回合
 _CONNECT_TIMEOUT = 30.0
 _CALL_TIMEOUT = 60.0
+
+# stdio 帧协议形态：本环境 MCP stdio 生态（SDK 2.x 客户端/服务端、
+# 内置执行件 inkling_exec）均为 **JSON Lines**（每行一个 JSON，无
+# header）——协议层以 json_lines 为缺省；``Content-Length`` 分帧为
+# 旧标准兼容形态（读侧自适应，写侧按配置显式启用）。
+CONTENT_LENGTH_FRAMING = "content_length"
+JSON_LINES_FRAMING = "json_lines"
 
 # stdio 进程监督的保守缺省值（重启策略是数据字段，缺省取此处）：
 # 重启尝试 2 次、间隔 1s、连续 3 次「重试耗尽」即熔断（进程反复
@@ -188,6 +198,10 @@ class McpServerConfig:
         restart_policy: stdio 进程监督的重启策略（仅 stdio 生效；None =
             缺省保守值）。http 传输的会话重建由协议层（reconnect）承担，
             内存传输无进程可监督——两者不受此字段影响。
+        stdio_framing: stdio 帧协议形态（仅 stdio 生效）：``json_lines``
+            = 每行一个 JSON（本环境缺省：SDK 2.x 与内置执行件 inkling_exec
+            均为该形态）；``content_length`` = MCP 旧标准 Content-Length
+            分帧（兼容形态，读侧自适应、写侧显式启用）。
     """
 
     id: str
@@ -201,6 +215,7 @@ class McpServerConfig:
     signature: str | None = None
     server_factory: ServerFactory | None = field(default=None, repr=False)
     restart_policy: StdioRestartPolicy | None = None
+    stdio_framing: str = JSON_LINES_FRAMING
 
     def to_dict(self, *, redact_credentials: bool = False) -> dict[str, Any]:
         """序列化（可持久化进集数据通道）。
@@ -238,6 +253,8 @@ class McpServerConfig:
             data["signature"] = self.signature
         if self.restart_policy is not None:
             data["restart_policy"] = self.restart_policy.to_dict()
+        if self.stdio_framing != JSON_LINES_FRAMING:
+            data["stdio_framing"] = self.stdio_framing
         return data
 
     @classmethod
@@ -272,6 +289,12 @@ class McpServerConfig:
             raise GraphDefinitionError(
                 "MCP 配置 restart_policy 须为 dict（重启策略声明）"
             )
+        stdio_framing = data.get("stdio_framing", JSON_LINES_FRAMING)
+        if stdio_framing not in (CONTENT_LENGTH_FRAMING, JSON_LINES_FRAMING):
+            raise GraphDefinitionError(
+                f"MCP 配置 stdio_framing 非法: {stdio_framing!r}"
+                "（须为 content_length 或 json_lines）"
+            )
         return cls(
             id=server_id,
             transport=transport,
@@ -287,6 +310,7 @@ class McpServerConfig:
                 if restart_policy is not None
                 else None
             ),
+            stdio_framing=stdio_framing,
         )
 
 
@@ -304,6 +328,9 @@ BUILTIN_MCP_SERVERS: dict[str, McpServerConfig] = {
         transport=McpTransport.STDIO,
         source=ToolSource.GITHUB,
         signature="builtin:inkling_exec",
+        # 内置执行件以 ts_seed_pack 先例走 JSON Lines stdio（无
+        # Content-Length 头，每行一个 JSON）——自写传输按此形态收发。
+        stdio_framing=JSON_LINES_FRAMING,
     ),
     "inkling_shell": McpServerConfig(
         id="inkling_shell",
@@ -348,6 +375,7 @@ def builtin_mcp_server_config(
         signature=base.signature,
         server_factory=overrides.get("server_factory", base.server_factory),
         restart_policy=overrides.get("restart_policy", base.restart_policy),
+        stdio_framing=overrides.get("stdio_framing", base.stdio_framing),
     )
 
 
@@ -494,9 +522,12 @@ async def _suppress_stack_close(exit_stack: AsyncExitStack) -> None:
 def _is_connection_lost(exc: BaseException) -> bool:
     """连接层断流判定（决定拉起后是否重试一次原操作）。
 
-    覆盖 MCP/anyio 在嵌入环境的主要断流形态；业务错误（server 已
-    受理返回）不含这些标记，不判为连接丢失。
+    覆盖自写传输（``_McpConnectionLost``）与 MCP/anyio 在嵌入环境的
+    主要断流形态；业务错误（server 已受理返回）不含这些标记，不判为
+    连接丢失。
     """
+    if isinstance(exc, _McpConnectionLost):
+        return True
     text = str(exc).lower()
     return (
         "connection closed" in text
@@ -521,11 +552,17 @@ def _is_business_error(exc: BaseException) -> bool:
 def _is_mcp_business_reject(exc: BaseException) -> bool:
     """server 业务拒绝判定（JSON-RPC error 形态）。
 
-    SDK 对参数缺失/非法等 JSON-RPC error 抛 ``MCPError`` 异常（而非
-    ``result.isError``）——按异常类型名识别，惰性判定不 import mcp：
-    连接层异常（Connection closed 等）不含该类型名，原样透传。
+    自写传输的 ``_RpcError``：server 已受理并返回结构化 error 对象
+    （含 -32602 参数校验、-32601 方法不存在等）——都是业务结论，不是
+    连接断流（断流形态是 ``_McpConnectionLost``，走另一判据）。SDK 的
+    ``MCPError`` 区分依据 = 错误码：只把 -32602 判为业务拒绝（SDK 将
+    连接断流也表达为 MCPError，按 code 区分，断流原样透传交监督）。
     """
-    return type(exc).__name__ == "MCPError"
+    if isinstance(exc, _RpcError):
+        return True
+    if type(exc).__name__ != "MCPError":
+        return False
+    return getattr(exc, "code", None) == -32602
 
 
 class _ExecStderrBridge:
@@ -535,6 +572,10 @@ class _ExecStderrBridge:
     宿主连接方捕获该流逐行转发进引擎日志——执行件日志不再裸露到终端，
     并随引擎日志通道统一获得 trace_id 注入与敏感形态遮蔽；等级按行内
     ``level`` 字段映射，非结构化行（告警/panic 文本）按 info 落明不丢失。
+
+    说明：stdio 路径已改用自写传输（``_ThreadedMcpTransport._stderr_loop``，
+    线程私有事件循环内直接转发），本类保留为 SDK 传输形态的通用桥（供
+    显式走 SDK stdio 的宿主场景复用）。
     """
 
     def __init__(self, log: logging.Logger) -> None:
@@ -588,31 +629,550 @@ def _drain_exec_stderr(read_fd: int, log: logging.Logger) -> None:
             line = line.strip()
             if not line:
                 continue
-            try:
-                is_error = json.loads(line).get("level") == "error"
-            except ValueError:
-                is_error = False
-            if is_error:
-                log.error("执行件: %s", line)
+            _forward_exec_line(log, line)
+
+
+def _forward_exec_line(log: logging.Logger, line: str) -> None:
+    """单行执行件 stderr → 引擎日志通道（结构化行按 level 分级落明）。
+
+    执行件把 stderr 当结构化日志通道（JSON 行：事件/请求 id/耗时/成败）；
+    非结构化行（告警/panic 文本）按 info 落明不丢失。
+    """
+    try:
+        is_error = json.loads(line).get("level") == "error"
+    except ValueError:
+        is_error = False
+    if is_error:
+        log.error("执行件: %s", line)
+    else:
+        log.info("执行件: %s", line)
+
+
+# ── 自写 MCP stdio 传输（线程私有事件循环）────────────────────────────
+# 引擎主体是单进程 asyncio（README 契约：不做多 worker 分布式执行）；
+# 但 headless 壳每次 ``pyo3_async_runtimes::tokio::run`` 都会新建并销毁
+# asyncio event loop（crate generic::run = new_event_loop + close）——任何
+# 生命周期绑在「某一次 loop」上的异步资源（mcp SDK 的 anyio cancel
+# scope、asyncio 子进程句柄）都会在跨 op（boot/round/stop）时崩溃。
+# 自写传输把 stdio 会话整体放进**独立工作线程的私有 asyncio loop**：
+# 该 loop 生命周期 = 线程 = 连接生命周期（= 引擎生命周期）。引擎侧
+# 任意 loop/task 经 ``call_soon_threadsafe`` 提交请求、经
+# ``concurrent.futures.Future`` 回收结果——与调用侧 loop 完全解耦，
+# 无 task 亲和、无 cancel scope 约束。
+
+_MCP_PROTOCOL_VERSION = "2025-03-26"
+_MCP_CLIENT_NAME = "ink-engine"
+_MCP_CLIENT_VERSION = "1.0"
+
+
+class _RpcError(Exception):
+    """MCP JSON-RPC error（server 返回的 error 对象）。
+
+    自写传输以结构化 code/message 保留 server 的 JSON-RPC 错误结论，
+    供业务拒绝（-32602 参数校验）与连接断流判别。
+    """
+
+    def __init__(self, code: int, message: str) -> None:
+        super().__init__(f"MCP JSON-RPC 错误（code={code}）: {message}")
+        self.code = code
+        self.message = message
+
+
+class _McpConnectionLost(RuntimeError):
+    """自写 stdio 传输的连接断流（子进程退出/EOF/管道破裂）。"""
+
+
+def _encode_mcp_frame(
+    payload: dict[str, Any], framing: str = CONTENT_LENGTH_FRAMING
+) -> bytes:
+    """MCP stdio 帧编码。
+
+    - ``content_length``：LSP 风格 ``Content-Length`` 头 + UTF-8 JSON 体
+      （MCP 规范标准分帧）；
+    - ``json_lines``：JSON Lines——单行 JSON + ``\\n``（内置执行件
+      inkling_exec 的 ts_seed_pack 先例形态）。
+    """
+    body = json.dumps(
+        payload, ensure_ascii=False, separators=(",", ":")
+    ).encode("utf-8")
+    if framing == JSON_LINES_FRAMING:
+        return body + b"\n"
+    header = f"Content-Length: {len(body)}\r\n\r\n".encode("ascii")
+    return header + body
+
+
+def _parse_content_length(header: bytes) -> int:
+    """解析帧头行的 ``Content-Length`` 值（非法形态回落 0，读循环跳过）。"""
+    text = header.decode("ascii", errors="replace").strip()
+    if not text.lower().startswith("content-length:"):
+        return 0
+    try:
+        return int(text.split(":", 1)[1].strip())
+    except ValueError:
+        return 0
+
+
+class _ThreadedMcpTransport:
+    """自写 MCP stdio 客户端：线程私有事件循环 + JSON-RPC 分帧。
+
+    动机（嵌入环境的 task 亲和根修）：headless 壳每次 ``tokio::run``
+    新建并关闭 asyncio loop，mcp SDK 的 ``stdio_client``（anyio task
+    group + cancel scope）与 asyncio 子进程句柄都绑定某一次 loop——
+    跨 loop 即崩。本类把整个 stdio 会话放进独立工作线程的私有
+    asyncio loop（生命周期 = 线程 = 连接 = 引擎），引擎侧任意 loop
+    经 ``call_soon_threadsafe`` 提交、经 ``concurrent.futures.Future``
+    回收，关闭是确定性的（terminate + cancel + loop 关闭 + 线程
+    join），无 task 亲和约束。
+
+    协议面（MCP stdio = LSP 分帧 + JSON-RPC 2.0）：请求/响应按 id
+    配对（请求表）；server→client 请求应答 ping/roots/list（未知方法
+    回 -32601）；通知（progress 等）忽略。initialize 握手在线程启动
+    时完成，之后 tools/list、tools/call 即用。进程 stderr（结构化
+    日志通道）在线程内捕获，经启动时捕获的 contextvars 逐行转发进
+    引擎日志通道（trace_id 链路语义一致）。
+    """
+
+    def __init__(self, config: McpServerConfig) -> None:
+        self._config = config
+        self._log = get_logger(f"{__name__}.exec")
+        self._context = contextvars.copy_context()
+        self._loop: asyncio.AbstractEventLoop | None = None
+        self._thread: threading.Thread | None = None
+        self._started = threading.Event()
+        self._startup_error: BaseException | None = None
+        self._closed = False
+        self._next_id = itertools.count(1)
+        self._pending: dict[int, concurrent.futures.Future] = {}
+        self._proc: asyncio.subprocess.Process | None = None
+        self._write_queue: asyncio.Queue[bytes | None] | None = None
+        self._stop: asyncio.Event | None = None
+        # 写侧帧协议：按配置（标准 MCP = Content-Length；内置执行件 =
+        # JSON Lines）；读侧自适应（首行以 Content-Length 或 { 区分），
+        # server 以 JSON Lines 响应时写侧同步切换（容错未显式配置）。
+        self._write_framing = config.stdio_framing or CONTENT_LENGTH_FRAMING
+
+    # ── 生命周期 ──────────────────────────────────────────────────────
+
+    def start(self) -> None:
+        """启动工作线程并等待就绪（initialize 握手完成）。
+
+        同步阻塞至就绪/失败（上界 _CONNECT_TIMEOUT）；失败统一抛
+        ``McpToolImportError``（与 SDK 路径同收敛面）。``_started``
+        表示初始化阶段结束（成功或失败），start 据此立即返回，不空等
+        超时。
+        """
+        if self._thread is not None:
+            return
+        thread = threading.Thread(
+            target=self._run_thread,
+            name=f"mcp-stdio-{self._config.id}",
+            daemon=True,
+        )
+        self._thread = thread
+        thread.start()
+        if not self._started.wait(timeout=_CONNECT_TIMEOUT + 5):
+            self._closed = True
+            raise McpToolImportError(
+                f"MCP server {self._config.id} stdio 连接超时"
+                f"（{_CONNECT_TIMEOUT} 秒）"
+            )
+        if self._startup_error is not None:
+            error = self._startup_error
+            self._startup_error = None
+            raise McpToolImportError(
+                f"MCP server {self._config.id} stdio 连接失败: {error}"
+            ) from error
+
+    def _run_thread(self) -> None:
+        loop = asyncio.new_event_loop()
+        self._loop = loop
+        try:
+            loop.run_until_complete(self._serve())
+        except BaseException as exc:  # noqa: BLE001 启动/运行期失败统一收敛
+            if not self._started.is_set():
+                self._startup_error = exc
             else:
-                log.info("执行件: %s", line)
+                self._fail_pending(exc)
+            self._log.warning(
+                "MCP server %s stdio 传输线程退出: %s", self._config.id, exc
+            )
+        finally:
+            self._started.set()
+            self._loop = None
+            try:
+                loop.close()
+            except Exception:  # noqa: BLE001 清理噪音
+                pass
+
+    async def _serve(self) -> None:
+        config = self._config
+        self._stop = asyncio.Event()
+        env = None if config.env is None else dict(os.environ, **config.env)
+        proc = await asyncio.create_subprocess_exec(
+            config.command,
+            *list(config.args),
+            stdin=asyncio.subprocess.PIPE,
+            stdout=asyncio.subprocess.PIPE,
+            stderr=asyncio.subprocess.PIPE,
+            env=env,
+        )
+        self._proc = proc
+        self._write_queue = asyncio.Queue()
+        tasks = [
+            asyncio.create_task(self._writer_loop(proc)),
+            asyncio.create_task(self._stderr_loop(proc)),
+            asyncio.create_task(self._reader_loop(proc)),
+        ]
+        stop_task = asyncio.create_task(self._stop.wait())
+        try:
+            try:
+                await self._initialize()
+            except BaseException as exc:
+                self._startup_error = exc
+                raise
+            self._started.set()
+            await asyncio.wait(
+                [*tasks, stop_task],
+                return_when=asyncio.FIRST_COMPLETED,
+            )
+        finally:
+            stop_task.cancel()
+            await self._teardown_process(proc)
+            for task in tasks:
+                task.cancel()
+            for task in tasks:
+                with contextlib.suppress(BaseException):
+                    await task
+
+    async def _initialize(self) -> None:
+        result = await self._request(
+            "initialize",
+            {
+                "protocolVersion": _MCP_PROTOCOL_VERSION,
+                "capabilities": {},
+                "clientInfo": {
+                    "name": _MCP_CLIENT_NAME,
+                    "version": _MCP_CLIENT_VERSION,
+                },
+            },
+            timeout=_CONNECT_TIMEOUT,
+        )
+        self._server_info = (
+            result.get("serverInfo") if isinstance(result, dict) else None
+        )
+        self._queue_frame(
+            _encode_mcp_frame(
+                {"jsonrpc": "2.0", "method": "notifications/initialized"},
+                self._write_framing,
+            )
+        )
+
+    async def _teardown_process(
+        self, proc: asyncio.subprocess.Process
+    ) -> None:
+        try:
+            if proc.returncode is None:
+                with contextlib.suppress(ProcessLookupError):
+                    proc.terminate()
+                try:
+                    await asyncio.wait_for(proc.wait(), timeout=3.0)
+                except asyncio.TimeoutError:
+                    with contextlib.suppress(ProcessLookupError):
+                        proc.kill()
+                    await proc.wait()
+            else:
+                await proc.wait()
+        except ProcessLookupError:
+            pass
+
+    async def aclose(self) -> None:
+        """确定性关闭：通知私有 loop 终止子进程，等待线程退出。"""
+        self._closed = True
+        loop = self._loop
+        if loop is not None:
+            done = concurrent.futures.Future()
+            loop.call_soon_threadsafe(self._request_close, done)
+            try:
+                await asyncio.wait_for(
+                    asyncio.wrap_future(done), timeout=5.0
+                )
+            except (asyncio.TimeoutError, asyncio.CancelledError):
+                pass
+        thread = self._thread
+        if thread is not None and thread is not threading.current_thread():
+            thread.join(timeout=2.0)
+
+    def _request_close(self, done: concurrent.futures.Future) -> None:
+        stop = self._stop
+        if stop is not None:
+            stop.set()
+        proc = self._proc
+        if proc is not None and proc.returncode is None:
+            with contextlib.suppress(ProcessLookupError):
+                proc.terminate()
+        done.set_result(None)
+
+    # ── 协议收发 ──────────────────────────────────────────────────────
+
+    def _submit(
+        self, method: str, params: dict[str, Any]
+    ) -> tuple[int, concurrent.futures.Future]:
+        """跨线程提交请求（任意线程/loop 可调；幂等安全）。
+
+        Returns:
+            (req_id, future)：req_id 供超时/取消时精确摘除挂起表项。
+        """
+        req_id = next(self._next_id)
+        future: concurrent.futures.Future = concurrent.futures.Future()
+        loop = self._loop
+        if loop is None or self._closed:
+            future.set_exception(
+                _McpConnectionLost(
+                    f"MCP server {self._config.id} 连接已关闭"
+                )
+            )
+            return req_id, future
+        loop.call_soon_threadsafe(
+            self._enqueue_request, req_id, method, params, future
+        )
+        return req_id, future
+
+    def _enqueue_request(
+        self,
+        req_id: int,
+        method: str,
+        params: dict[str, Any],
+        future: concurrent.futures.Future,
+    ) -> None:
+        proc = self._proc
+        if proc is None or proc.returncode is not None:
+            future.set_exception(
+                _McpConnectionLost(
+                    f"MCP server {self._config.id} 连接已丢失"
+                )
+            )
+            return
+        self._pending[req_id] = future
+        self._queue_frame(
+            _encode_mcp_frame(
+                {
+                    "jsonrpc": "2.0",
+                    "id": req_id,
+                    "method": method,
+                    "params": params or {},
+                },
+                self._write_framing,
+            )
+        )
+
+    async def _request(
+        self, method: str, params: dict[str, Any], *, timeout: float
+    ) -> Any:
+        """提交请求并等待响应（引擎侧任意 loop 可调）。"""
+        req_id, future = self._submit(method, params)
+        try:
+            return await asyncio.wait_for(
+                asyncio.wrap_future(future), timeout=timeout
+            )
+        except (asyncio.TimeoutError, asyncio.CancelledError):
+            loop = self._loop
+            if loop is not None:
+                loop.call_soon_threadsafe(self._drop_pending, req_id)
+            raise
+
+    def _drop_pending(self, req_id: int) -> None:
+        future = self._pending.pop(req_id, None)
+        if future is not None and not future.done():
+            future.set_exception(
+                asyncio.TimeoutError(
+                    f"MCP server {self._config.id} 请求超时"
+                )
+            )
+
+    def _queue_frame(self, frame: bytes) -> None:
+        queue = self._write_queue
+        if queue is not None:
+            queue.put_nowait(frame)
+
+    async def _writer_loop(
+        self, proc: asyncio.subprocess.Process
+    ) -> None:
+        queue = self._write_queue
+        while True:
+            frame = await queue.get()
+            if frame is None:
+                return
+            proc.stdin.write(frame)
+            await proc.stdin.drain()
+
+    async def _reader_loop(
+        self, proc: asyncio.subprocess.Process
+    ) -> None:
+        stdout = proc.stdout
+        try:
+            while True:
+                line = await stdout.readline()
+                if not line:
+                    break  # EOF：子进程已退出
+                if line.startswith(b"Content-Length:"):
+                    # 标准 MCP 分帧：解析 header 后按字节数读 body
+                    content_length = _parse_content_length(line)
+                    while True:
+                        header = await stdout.readline()
+                        if header in (b"\r\n", b"\n", b""):
+                            break
+                        if header.lower().startswith(b"content-length:"):
+                            content_length = _parse_content_length(header)
+                    if content_length <= 0:
+                        continue
+                    body = await stdout.readexactly(content_length)
+                    msg = json.loads(body.decode("utf-8"))
+                else:
+                    # JSON Lines：整行即一条消息（内置执行件 ts_seed_pack
+                    # 先例形态）；server 以该形态响应时写侧同步切换（容错
+                    # 未显式配置的 json_lines server）
+                    if not line.strip():
+                        continue
+                    msg = json.loads(line.decode("utf-8", errors="replace"))
+                    if self._write_framing != JSON_LINES_FRAMING:
+                        self._write_framing = JSON_LINES_FRAMING
+                self._dispatch(msg)
+        finally:
+            self._fail_pending(
+                _McpConnectionLost(
+                    f"MCP server {self._config.id} 连接已关闭"
+                )
+            )
+
+    def _dispatch(self, msg: dict[str, Any]) -> None:
+        if "id" in msg:
+            if "result" in msg or "error" in msg:
+                future = self._pending.pop(msg["id"], None)
+                if future is not None and not future.done():
+                    if "error" in msg:
+                        err = msg["error"]
+                        future.set_exception(
+                            _RpcError(
+                                err.get("code", -32603),
+                                err.get("message", ""),
+                            )
+                        )
+                    else:
+                        future.set_result(msg.get("result"))
+                return
+            self._handle_server_request(msg)
+            return
+        # 无 id = 通知（progress 等）：记录不处理
+
+    def _handle_server_request(self, msg: dict[str, Any]) -> None:
+        method = msg.get("method")
+        req_id = msg.get("id")
+        if method == "ping":
+            result: Any = {}
+        elif method == "roots/list":
+            result = {"roots": []}
+        else:
+            self._queue_frame(
+                _encode_mcp_frame(
+                    {
+                        "jsonrpc": "2.0",
+                        "id": req_id,
+                        "error": {
+                            "code": -32601,
+                            "message": f"method not found: {method}",
+                        },
+                    },
+                    self._write_framing,
+                )
+            )
+            return
+        self._queue_frame(
+            _encode_mcp_frame(
+                {"jsonrpc": "2.0", "id": req_id, "result": result},
+                self._write_framing,
+            )
+        )
+
+    def _fail_pending(self, exc: BaseException) -> None:
+        pending, self._pending = self._pending, {}
+        for future in pending.values():
+            if not future.done():
+                future.set_exception(exc)
+
+    async def _stderr_loop(
+        self, proc: asyncio.subprocess.Process
+    ) -> None:
+        log = self._log
+        context = self._context
+        while True:
+            line = await proc.stderr.readline()
+            if not line:
+                break
+            text = line.decode("utf-8", errors="replace").strip()
+            if not text:
+                continue
+            context.run(_forward_exec_line, log, text)
+
+    # ── 能力面（协议方法）──────────────────────────────────────────────
+
+    async def list_tools(self) -> list[dict[str, Any]]:
+        result = await self._request("tools/list", {}, timeout=_CALL_TIMEOUT)
+        if not isinstance(result, dict):
+            return []
+        return list(result.get("tools") or [])
+
+    async def call_tool(self, name: str, arguments: dict[str, Any]) -> dict[str, Any]:
+        result = await self._request(
+            "tools/call",
+            {"name": name, "arguments": arguments or {}},
+            timeout=_CALL_TIMEOUT,
+        )
+        if not isinstance(result, dict):
+            return {
+                "content": [{"type": "text", "text": str(result)}],
+                "isError": False,
+            }
+        return result
+
+    async def ping(self) -> None:
+        await self._request("ping", {}, timeout=_CALL_TIMEOUT)
 
 
 class _SdkSession(McpSessionHandle):
-    """基于官方 mcp SDK 的会话句柄（惰性 import，未安装即报错）。
+    """MCP 会话句柄（双后端：SDK 会话或自写 stdio 传输）。
 
-    持有两个资源：``ClientSession``（协议会话）与 ``AsyncExitStack``
-    （传输流/会话的异步上下文，关闭时统一回收）。文本提取兼容 TextContent
-    与未知内容类型（非文本内容按类型标注落明，不静默丢弃）。
+    - http / in_memory：官方 mcp SDK 的 ``ClientSession``（惰性 import，
+      未安装即报错），文本提取兼容 TextContent 与未知内容类型；
+    - stdio：自写 ``_ThreadedMcpTransport``（线程私有事件循环，无 task
+      亲和约束）。这是嵌入环境的 task 亲和根修——SDK 的 ``stdio_client``
+      是 async generator，内部 anyio cancel scope 要求 enter/exit 在
+      **同一 asyncio task**；headless 壳每次 ``tokio::run`` 独立 task 且
+      独立 event loop（新建+销毁），任何绑在某一次 loop 上的资源跨
+      boot/round/stop 即崩。自写传输把 stdio 会话放进独立工作线程的
+      私有 loop（生命周期 = 引擎），引擎侧任意 loop 提交/回收，与调用
+      侧 loop 完全解耦。
     """
 
-    def __init__(self, session: Any, exit_stack: AsyncExitStack) -> None:
+    def __init__(
+        self,
+        session: Any = None,
+        exit_stack: AsyncExitStack | None = None,
+        transport_task: asyncio.Task | None = None,
+        closing: asyncio.Event | None = None,
+        transport: _ThreadedMcpTransport | None = None,
+    ) -> None:
         self._session = session
         self._exit_stack = exit_stack
+        self._transport_task = transport_task
+        self._closing = closing
+        self._transport = transport
 
     @classmethod
     async def open(cls, config: McpServerConfig) -> _SdkSession:
-        """按配置打开真实会话（惰性 import mcp，感知各传输形态）。
+        """按配置打开真实会话（stdio 走自写传输，其余惰性 import mcp）。
+
+        stdio 传输走线程私有事件循环（``_ThreadedMcpTransport``，无
+        task 亲和约束）；http/in_memory 传输维持 SDK 会话直管。
 
         Raises:
             McpToolImportError: 配置与传输形态不匹配（如 http 缺 url）、
@@ -620,6 +1180,21 @@ class _SdkSession(McpSessionHandle):
                 宿主只处理一个失败类型；SDK 内部取消（连接拒绝等失败
                 路径的表达方式）同样收敛；外层任务真被取消时原样传播。
         """
+        if config.transport is McpTransport.STDIO:
+            if not config.command:
+                raise McpToolImportError(
+                    f"MCP server {config.id} 的 stdio 传输缺 command"
+                )
+            transport = _ThreadedMcpTransport(config)
+            try:
+                transport.start()
+            except McpToolImportError:
+                raise
+            except BaseException as exc:
+                raise McpToolImportError(
+                    f"MCP server {config.id} stdio 连接失败: {exc}"
+                ) from exc
+            return cls(transport=transport)
         exit_stack: AsyncExitStack = AsyncExitStack()
         try:
             _require_mcp()
@@ -645,31 +1220,6 @@ class _SdkSession(McpSessionHandle):
                 read, write = await exit_stack.enter_async_context(
                     streamable_http_client(config.url, http_client=http_client)
                 )
-            elif config.transport is McpTransport.STDIO:
-                if not config.command:
-                    raise McpToolImportError(
-                        f"MCP server {config.id} 的 stdio 传输缺 command"
-                    )
-                from mcp import StdioServerParameters
-                from mcp.client.stdio import stdio_client
-
-                params = StdioServerParameters(
-                    command=config.command,
-                    args=list(config.args),
-                    env=config.env,
-                )
-                if "errlog" in inspect.signature(stdio_client).parameters:
-                    # SDK 支持 stderr 定向：执行件 stderr 捕获进引擎日志通道，
-                    # 不再继承终端（执行件把 stderr 当结构化日志通道）
-                    bridge = _ExecStderrBridge(get_logger(f"{__name__}.exec"))
-                    errlog = await exit_stack.enter_async_context(bridge)
-                    read, write = await exit_stack.enter_async_context(
-                        stdio_client(params, errlog=errlog)
-                    )
-                else:
-                    read, write = await exit_stack.enter_async_context(
-                        stdio_client(params)
-                    )
             elif config.transport is McpTransport.IN_MEMORY:
                 if config.server_factory is None:
                     raise McpToolImportError(
@@ -707,6 +1257,8 @@ class _SdkSession(McpSessionHandle):
             ) from exc
 
     async def list_tools(self) -> list[Any]:
+        if self._transport is not None:
+            return await self._transport.list_tools()
         try:
             result = await asyncio.wait_for(
                 self._session.list_tools(), timeout=_CALL_TIMEOUT
@@ -719,18 +1271,24 @@ class _SdkSession(McpSessionHandle):
 
     async def call_tool(self, name: str, args: dict[str, Any]) -> str:
         try:
-            result = await asyncio.wait_for(
-                self._session.call_tool(name, arguments=args or {}),
-                timeout=_CALL_TIMEOUT,
-            )
+            if self._transport is not None:
+                result = await self._transport.call_tool(name, args)
+            else:
+                result = await asyncio.wait_for(
+                    self._session.call_tool(name, arguments=args or {}),
+                    timeout=_CALL_TIMEOUT,
+                )
         except TimeoutError as exc:
             raise GraphDefinitionError(
                 f"MCP 工具调用超时: {name}（{_CALL_TIMEOUT} 秒）"
             ) from exc
+        except asyncio.CancelledError:
+            raise
         except Exception as exc:
             if _is_mcp_business_reject(exc):
                 # server 业务拒绝（参数缺失/非法等 JSON-RPC error，如 SDK
-                # 的 MCPError）：转明确业务错误——不当作进程崩溃传播
+                # 的 MCPError / 自写传输的 _RpcError）：转明确业务错误——
+                # 不当作进程崩溃传播
                 raise GraphDefinitionError(
                     f"MCP 工具执行失败: {name}: {exc}"
                 ) from exc
@@ -741,15 +1299,41 @@ class _SdkSession(McpSessionHandle):
             )
         return _extract_text(result)
 
+    async def ping(self) -> None:
+        """协议级存活探测（health_check 的判定依据）。
+
+        自写传输直接发 ping；SDK 版本无 send_ping 能力时按存活判定
+        （不抛错）。
+        """
+        if self._transport is not None:
+            await self._transport.ping()
+            return
+        ping = getattr(self._session, "send_ping", None)
+        if ping is not None:
+            await asyncio.wait_for(ping(), timeout=_CALL_TIMEOUT)
+
     async def aclose(self) -> None:
         """释放会话与底层传输（连接生命周期归 manager 调用）。
 
-        吞掉关闭期异常：stdio_client（async generator）的底层 anyio
-        TaskGroup 在嵌入 asyncio 环境可能跨 task 退出（cancel scope
-        归属不同 task 报 RuntimeError）——关闭异常归日志，不向上抛，
-        否则 asyncio 在 asyncgen 关闭/GC 路径会打印噪音且掩盖真正的
-        连接错误。
+        stdio 自写传输：确定性关闭（terminate + cancel + loop 关闭 +
+        线程 join），无 task 亲和约束，任何 loop 可调。SDK 路径维持
+        守护 task / AsyncExitStack 直管。
         """
+        if self._transport is not None:
+            await self._transport.aclose()
+            return
+        if self._transport_task is not None:
+            if self._closing is not None:
+                self._closing.set()
+            try:
+                await asyncio.wait_for(self._transport_task, timeout=5)
+            except (asyncio.TimeoutError, asyncio.CancelledError):
+                self._transport_task.cancel()
+                try:
+                    await asyncio.wait_for(self._transport_task, timeout=5)
+                except (asyncio.TimeoutError, asyncio.CancelledError):
+                    pass  # 守护 task 退出异常归日志，不向上抛（清理噪音）
+            return
         try:
             await self._exit_stack.aclose()
         except Exception as exc:  # noqa: BLE001 关闭失败是清理噪音，不影响调用面
@@ -759,12 +1343,12 @@ class _SdkSession(McpSessionHandle):
 class _SupervisedStdioSession(McpSessionHandle):
     """stdio 进程会话的受监督句柄：崩溃探测 + 按重启策略拉起。
 
-    在既有 spawn/退出清理/stderr 桥（``_SdkSession.open``）之上只补
-    监督，不重写底层：本句柄持有当前 ``_SdkSession``，调用失败视为
-    进程崩溃（stdio 传输 = 进程生命周期绑定，协议失败即进程死了），
-    走「拉起 → 回到服务」路径——拉起成功后**不透传重试原操作**：
-    失败的工具调用可能已在崩溃前被部分执行，重试有非幂等副作用
-    风险（fail-safe：诚实失败，下个调用命中新会话）。
+    在既有 spawn/退出清理/stderr 桥（``_SdkSession.open``，stdio 走自写
+    传输）之上只补监督，不重写底层：本句柄持有当前 ``_SdkSession``，
+    调用失败视为进程崩溃（stdio 传输 = 进程生命周期绑定，协议失败即
+    进程死了），走「拉起 → 回到服务」路径——拉起成功后**不透传重试原
+    操作**：失败的工具调用可能已在崩溃前被部分执行，重试有非幂等
+    副作用风险（fail-safe：诚实失败，下个调用命中新会话）。
 
     失败路径（重试耗尽 → 熔断打开 → 错误上报）：
     - 拉起尝试有界（``max_retries``，间隔 ``backoff`` 秒）；
@@ -888,10 +1472,12 @@ class _SupervisedStdioSession(McpSessionHandle):
         重试语义（E-P15）：连接类失败（Connection closed——请求未达
         server 或连接层断流）拉起成功后重试一次原操作：stdio 传输仅
         承载 inkling_exec（研究链确定性纯函数工具），重试无副作用
-        风险；首连会话在嵌入 asyncio 环境不稳定（SDK stdio_client 的
-        TaskGroup 生命周期与事件循环亲和），重试可覆盖该抖动。业务
-        错误（如「缺参数」——server 已受理并返回）不重试，诚实失败。
+        风险；首连会话在嵌入 asyncio 环境不稳定（事件循环亲和抖动），
+        重试可覆盖该抖动。业务错误（如「缺参数」——server 已受理并
+        返回）不重试，诚实失败。会话建立失败（进程启动即崩）同样走
+        拉起路径（按策略计数/熔断），不静默透传。
         """
+        respawned = False
         async with self._lock:
             try:
                 session = await self._ensure_open()
@@ -904,6 +1490,7 @@ class _SupervisedStdioSession(McpSessionHandle):
                         # 业务失败（server 已受理并返回 is_error，如参数
                         # 缺失）直接透传，不误判为进程崩溃、不触发拉起
                         raise
+                    respawned = True
                     connection_lost = _is_connection_lost(exc)
                     await self._respawn(exc)
                     if connection_lost:
@@ -920,8 +1507,15 @@ class _SupervisedStdioSession(McpSessionHandle):
                         f"MCP server {self._config.id} 的 stdio 进程在 {op_name} 期间崩溃"
                         f"（已按策略拉起，本次调用未重试——防非幂等副作用）: {exc}"
                     ) from exc
-            except McpToolImportError:
-                raise  # 熔断打开：直接拒绝
+            except McpToolImportError as exc:
+                if respawned or self._circuit_open:
+                    raise  # 已走拉起路径（耗尽/熔断）或拉起后诚实失败：透传
+                # 会话建立失败（进程启动即崩/不可用）：按策略拉起 + 计数
+                await self._respawn(exc)
+                raise McpToolImportError(
+                    f"MCP server {self._config.id} 的 stdio 会话在 {op_name} 期间失效"
+                    f"（已按策略拉起，本次调用未重试）: {exc}"
+                ) from exc
             except asyncio.CancelledError:
                 raise  # 外层取消原样穿透（不误判为进程崩溃）
             except Exception as exc:
@@ -970,11 +1564,15 @@ class _SupervisedStdioSession(McpSessionHandle):
                     return False
 
     async def _probe(self, session: _SdkSession) -> None:
+        ping = getattr(session, "ping", None)
+        if ping is not None:
+            await ping()
+            return
+        # 兼容旧形态：_session 上挂 send_ping（历史测试桩/自定义句柄）
         client = getattr(session, "_session", None)
         ping = getattr(client, "send_ping", None)
-        if ping is None:
-            return  # SDK 该版本无 ping 能力 → 无法探测，按存活判定
-        await asyncio.wait_for(ping(), timeout=_CALL_TIMEOUT)
+        if ping is not None:
+            await asyncio.wait_for(ping(), timeout=_CALL_TIMEOUT)
     async def aclose(self) -> None:
         """释放句柄（切断监督：后续访问按 ensure_open 重新拉起）。"""
         async with self._lock:
@@ -984,8 +1582,13 @@ class _SupervisedStdioSession(McpSessionHandle):
 
 
 def _result_is_error(result: Any) -> bool:
-    """MCP 调用结果的失败标记（2.x 字段形态 is_error；isError 仅为
-    1.x 遗留数据/自定义桩的防御性回退）。"""
+    """MCP 调用结果的失败标记（dict 与 SDK 对象两形态；2.x 字段
+    is_error，isError 仅为 1.x 遗留数据/自定义桩的防御性回退）。"""
+    if isinstance(result, dict):
+        marker = result.get("is_error")
+        if marker is None:
+            marker = result.get("isError")
+        return bool(marker)
     marker = getattr(result, "is_error", None)
     if marker is None:
         marker = getattr(result, "isError", None)
@@ -993,14 +1596,17 @@ def _result_is_error(result: Any) -> bool:
 
 
 def _extract_text(result: Any) -> str:
-    """从 MCP 调用结果提取文本（兼容 TextContent 与结构化内容）。
+    """从 MCP 调用结果提取文本（兼容 dict 与 SDK 对象两形态）。
 
     结果体 ``content`` 为内容项列表；内容项兼容 SDK 对象与 dict 两种
-    形态（dict 形态常见于经 JSON 往返的代理/测试桩）；文本项按 text
-    拼接并统一强转字符串，非文本项标注类型（``[<type>]``）后落明——
-    不静默丢弃任何回执信息，也不把二进制/资源内容伪装成纯文本。
+    形态（dict 形态常见于经 JSON 往返的代理/测试桩/自写传输）；文本项
+    按 text 拼接并统一强转字符串，非文本项标注类型（``[<type>]``）后
+    落明——不静默丢弃任何回执信息，也不把二进制/资源内容伪装成纯文本。
     """
-    content = getattr(result, "content", None)
+    if isinstance(result, dict):
+        content = result.get("content")
+    else:
+        content = getattr(result, "content", None)
     if not content:
         return ""
     parts: list[str] = []

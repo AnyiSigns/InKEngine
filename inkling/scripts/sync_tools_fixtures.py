@@ -11,10 +11,9 @@
 - 种子 = seed 中 ``meta.domain == "os"`` 的 OS 域工具（引擎代理目录的
   OS 能力面）；
 - 追加 = 壳执行器实现的 seed 非 OS 域工具（文档/导入/自指演化，固定清单）；
-- deny 档样例 = ``shell_exec``：seed 的 deny 档工具，壳侧以 deny 档执行器
-  fail-closed 仅登记（守卫恒拒绝，执行面不存在；转正须经补丁链审批改档，
-  守卫执行体见 inkling_host/security_domain.py 的 host:shell_exec_guard）——
-  声明进入夹具，签名与执行器逐项比对，与其它工具同纪律。
+- ``shell_exec`` = 工作区命令执行器（review 档 + 命令面白名单 + cwd 钉
+  工作区挂载根）：档位与命令面以 seed 声明为准（不再是 deny 硬拦样例），
+  桌面壳审批卡、headless 全量自动审批——agent 可在工作区内装依赖/跑命令。
 
 schema 形态差异映射（seed 嵌套 schema → 夹具扁平签名）：
 - 参数：取 seed ``parameters.properties`` 中除固定 ``command`` 枚举外的
@@ -63,7 +62,6 @@ DIVERGED_SEED_PARAMS: dict[str, set[str]] = {
     "set_brightness": {"level"},  # 同上
     "screen_query": {"region"},  # 执行器以 target 承载查询面（resolution/work_area 白名单）
     "file_query": {"pattern"},  # 执行器侧暂未实现文件名过滤
-    "shell_exec": {"argv"},  # deny 档样例：执行器签名空（argv 为引擎面向，壳侧恒拒绝）
 }
 
 # 夹具扁平参数（name/type/required）：seed 的固定 command 枚举参数与执行器
@@ -108,7 +106,10 @@ PARAMS_MAPPING: dict[str, list[tuple[str, str, bool]]] = {
         ("base_version", "integer", False),
         ("rationale", "string", False),
     ],
-    "shell_exec": [],  # deny 档样例：签名空（守卫恒拒绝，执行面不存在）
+    "shell_exec": [
+        ("command", "string", True),
+        ("argv", "stringarray", True),
+    ],
 }
 
 # 夹具沙箱规则（壳执行器守卫数据；与执行器签名契约同源，值以本表为唯一源）
@@ -172,7 +173,10 @@ SANDBOX_MAPPING: dict[str, dict[str, Any]] = {
         "filter_arg": "-t",
     },
     "propose_patch": {"mode": "command_allowlist", "allowlist": ["propose_patch"]},
-    "shell_exec": {"mode": "command_allowlist", "allowlist": ["shell_exec"]},
+    "shell_exec": {
+        "mode": "command_allowlist",
+        "allowlist": ["pip", "python", "uv", "git", "cargo", "npm", "npx"],
+    },
 }
 
 FIXTURE_NOTE = (

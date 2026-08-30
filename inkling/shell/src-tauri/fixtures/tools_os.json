@@ -182,14 +182,31 @@
       }
     },
     {
-      "description": "行为意图：任意命令执行——出厂三档权限契约的 deny 档样例：任何调用在门禁处拒绝，不得静默绕过。\n\n使用时机：理论上覆盖「想跑什么命令」；但出厂不可用——须经补丁链显式转正（如放开特定命令）后才是可用工具，转正属产品演化决策。\n\n取舍与替代选项：受控的常见操作——各专用工具（launch_app/open_file/system_query/…，白名单+审批档齐备）；「万能执行」——本工具但必须先转正；能不改权限解决就先不用它。\n\n参数语义：command=固定值 shell_exec（端点操作判定同源，调用方恒传）；argv=待执行命令参数。\n\n边界与协作：权限契约不得擅自放宽；转正须人工审批+补丁链留痕；未转正时调用被拒绝属预期行为，请勿绕过门禁。",
+      "description": "行为意图：在工作区中执行命令——装依赖（pip/uv）、跑脚本（python）、版本管理（git）、构建（cargo/npm/npx）等开发命令。cwd 钉在工作区挂载根，命令名须在出厂白名单内，review 档（桌面壳弹审批卡、headless 自动审批）。\n\n使用时机：需要实际运行命令时——安装测试依赖、执行脚本、查看工作区进程等。\n\n取舍与替代选项：跑测试优先用 run_test_python/run_typecheck（模板钉死更安全）；装依赖、跑自定义脚本这类专用工具覆盖不了的真实命令面用本工具。\n\n参数语义：command=固定值 shell_exec（端点操作判定同源，调用方恒传）；argv=待执行命令参数数组（argv[0]=命令名，须在出厂白名单内）。\n\n边界与协作：命令面白名单+审批档双闸；被拒属权限契约预期，须经补丁链审批转正（放开命令）。",
       "endpoint": "process_exec",
       "name": "shell_exec",
-      "params": [],
-      "permission": "deny",
+      "params": [
+        {
+          "name": "command",
+          "required": true,
+          "type": "string"
+        },
+        {
+          "name": "argv",
+          "required": true,
+          "type": "stringarray"
+        }
+      ],
+      "permission": "review",
       "sandbox": {
         "allowlist": [
-          "shell_exec"
+          "pip",
+          "python",
+          "uv",
+          "git",
+          "cargo",
+          "npm",
+          "npx"
         ],
         "mode": "command_allowlist"
       }

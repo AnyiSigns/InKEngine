@@ -1464,6 +1464,7 @@ _OS_BRIDGE_COMMANDS = (
     "doc_parse",
     "doc_generate",
     "screenshot_capture",
+    "shell_exec",
 )
 
 

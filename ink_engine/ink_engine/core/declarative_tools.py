@@ -329,12 +329,35 @@ def endpoint_operation(
         command_param = "command"
         if isinstance(config, dict):
             command_param = str(config.get("operation_param") or "command")
-        command = args.get(command_param)
-        return ("exec", command) if isinstance(command, str) else None
+        if command_param == "argv":
+            # 命令面 = 参数数组首元素（shell_exec：判定目标 = argv[0] 真实
+            # 命令，白名单按命令面校验）
+            argv = args.get("argv")
+            command = (
+                argv[0]
+                if isinstance(argv, list) and argv and isinstance(argv[0], str)
+                else None
+            )
+        else:
+            command = args.get(command_param)
+        return ("exec", command) if isinstance(command, str) and command else None
     if endpoint is EndpointType.FILE_OPS:
         operation = args.get("operation")
         if operation not in _ENDPOINT_ACTIONS[endpoint]:
-            return None
+            # 调用未传/传非法 operation：回落工具声明的固定操作（单操作
+            # 工具如 glob→search_paths——schema 约束 operation 为固定枚举，
+            # 但模型调用可能省略该「实现细节」参数；声明值仍属合法操作域
+            # 则判定目标成立，不做 fail-closed 误拒）
+            declared = (
+                (config or {}).get("operation")
+                if isinstance(config, dict)
+                else None
+            )
+            operation = (
+                declared if declared in _ENDPOINT_ACTIONS[endpoint] else None
+            )
+            if operation is None:
+                return None
         path = args.get("path")
         # 检索操作（search/search_paths）无 path 参数 = 全域检索：判定目标
         # 回落端点配置根目录（权限模式与沙箱按根目录校验，检索域 = 整个
@@ -388,6 +411,11 @@ def endpoint_operation_failure_reason(
         command_param = "command"
         if isinstance(config, dict):
             command_param = str(config.get("operation_param") or "command")
+        if command_param == "argv":
+            argv = args.get("argv")
+            if not (isinstance(argv, list) and argv and isinstance(argv[0], str)):
+                return f"argv 参数缺失或首元素非命令名"
+            return None
         command = args.get(command_param)
         if not isinstance(command, str) or not command:
             return f"{command_param} 参数缺失或非字符串"
@@ -395,8 +423,18 @@ def endpoint_operation_failure_reason(
     if endpoint is EndpointType.FILE_OPS:
         operation = args.get("operation")
         if operation not in _ENDPOINT_ACTIONS[endpoint]:
-            allowed = "/".join(_ENDPOINT_ACTIONS[endpoint])
-            return f"operation 字段缺失或非法（合法值：{allowed}）"
+            # 与 endpoint_operation 同口径：未传/非法时回落工具声明固定操作；
+            # 声明值合法 = 判定目标可成立（非缺参错误），不在此报缺 operation
+            declared = (
+                (config or {}).get("operation")
+                if isinstance(config, dict)
+                else None
+            )
+            if declared in _ENDPOINT_ACTIONS[endpoint]:
+                operation = declared
+            else:
+                allowed = "/".join(_ENDPOINT_ACTIONS[endpoint])
+                return f"operation 字段缺失或非法（合法值：{allowed}）"
         path = args.get("path")
         if not isinstance(path, str) or not path:
             return "path 参数缺失或非字符串"

@@ -34,6 +34,8 @@ pub enum ParamType {
     Integer,
     Number,
     Boolean,
+    /// 字符串数组（shell_exec 的 argv 等命令参数载体）
+    StringArray,
 }
 
 /// 沙箱规则（守卫断言面；模式与声明字段一一对应）

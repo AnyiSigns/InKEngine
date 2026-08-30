@@ -106,7 +106,10 @@ def self_tool_specs() -> list[ToolSpec]:
         ToolSpec(
             name="propose_patch",
             description="提出产品演化补丁（只校验不落链）：按类型校验 payload 形态与"
-            "基准版本，返回校验结果与当前集版本——合法提案的下一步是 apply_patch",
+            "基准版本，返回校验结果与当前集版本——合法提案的下一步是 apply_patch。"
+            "任务中工具不够用时可自举：kind=tool 新增/修改工具定义（含权限档位"
+            "approval、端点、命令白名单——如把 deny 档转正或放宽命令面），"
+            "apply_patch 落地后新工具即注入可用，无需等用户提需求",
             parameters={
                 "type": "object",
                 "properties": {
@@ -184,11 +187,13 @@ def self_tool_specs() -> list[ToolSpec]:
         ),
         ToolSpec(
             name="propose_domain_manifest",
-            description="领域生成器：根据自然语言领域需求生成最小可用领域清单"
-            "（harness 定义）并提案——输入领域名/描述/关键词（可选工具与图），"
-            "校验后产出 harness 补丁；经审批落地后该领域即出现在能力清单，"
-            "可被路由激活（长出新领域 = 真实产品演化）。生成时参考集内沉淀"
-            "的相关经验（related_knowledge 字段），复用优先于从头发明",
+            description="领域生成器（自举造工具）：根据自然语言领域需求生成最小可用"
+            "领域清单（harness 定义，含该领域的工具定义与执行图）并提案——输入"
+            "领域名/描述/关键词（可选工具与图），校验后产出 harness 补丁；经审批"
+            "落地后该领域即出现在能力清单，可被路由激活（长出新领域 = 真实产品演化）。"
+            "任务中现有工具覆盖不了需求时，用本工具为手头任务自举生成专用工具集，"
+            "apply_patch 落地后即可用新工具继续任务。生成时参考集内沉淀的"
+            "相关经验（related_knowledge 字段），复用优先于从头发明",
             parameters={
                 "type": "object",
                 "properties": {
@@ -239,6 +244,7 @@ def self_tool_specs() -> list[ToolSpec]:
                 },
                 "required": ["query"],
             },
+            permissions=(PERMISSION_PROPOSE,),
         ),
         ToolSpec(
             name="request_tool",

@@ -128,6 +128,31 @@ pub(crate) fn arg_i64(args: &BTreeMap<String, Value>, name: &str) -> Result<i64,
     }
 }
 
+/// 参数提取辅助：字符串数组（shell_exec argv 等；空数组/类型非法 → BadArgs）
+pub(crate) fn arg_str_list(
+    args: &BTreeMap<String, Value>,
+    name: &str,
+) -> Result<Vec<String>, ExecError> {
+    match args.get(name) {
+        Some(Value::Array(items)) => {
+            let mut out = Vec::with_capacity(items.len());
+            for item in items {
+                match item.as_str() {
+                    Some(value) if !value.is_empty() => out.push(value.to_string()),
+                    _ => return Err(ExecError::BadArgs(format!("{name} 须为字符串数组"))),
+                }
+            }
+            if out.is_empty() {
+                Err(ExecError::BadArgs(format!("{name} 不能为空数组")))
+            } else {
+                Ok(out)
+            }
+        }
+        Some(_) => Err(ExecError::BadArgs(format!("{name} 须为字符串数组"))),
+        None => Err(ExecError::BadArgs(format!("缺少必填参数 {name}"))),
+    }
+}
+
 /// 沙箱校验辅助：命令/查询面白名单
 pub(crate) fn check_allowlist(
     allowlist: &[String],
@@ -200,6 +225,13 @@ fn home_dir() -> Option<std::path::PathBuf> {
         .or_else(|_| std::env::var("HOME"))
         .ok()
         .map(std::path::PathBuf::from)
+}
+
+/// 工作区挂载根（进程模板执行 cwd / 路径沙箱根）：headless 经
+/// ``INKENGINE_WS_ROOT`` 环境变量覆盖挂载根（lib.rs wire_round_execution
+/// 与文件工具沙箱同源），桌面壳回落默认 ``WORKSPACE_ROOT``。
+fn workspace_root() -> String {
+    std::env::var("INKENGINE_WS_ROOT").unwrap_or_else(|_| WORKSPACE_ROOT.to_string())
 }
 
 /// 路径是否含 `..` 段（词法判定；与安全域 rule_matches 的 `..` 拒绝同纪律，
@@ -811,18 +843,29 @@ fn propose_patch_spec() -> ExecutorSpec {
     }
 }
 
-/// 任意命令执行执行器（出厂 deny 档样例：三档权限契约的默认拒绝——
-/// 任何调用在权限守卫处被拒，绝不落执行面；转正须经补丁链审批改档，
-/// 见 seed_data/tools.json shell_exec 声明。fail-closed 仅登记：签名
-/// 契约承载声明 ↔ 执行器一致性，守卫恒拒绝）。
+/// 工作区命令执行执行器（shell_exec：cwd 钉在工作区挂载根内，命令面
+/// 白名单 + review 档门禁——档位与命令面以声明为准（seed_data/tools.json
+/// → tools_os.json），不再硬编码 deny：出厂默认 review 档（桌面壳审批卡、
+/// headless 全量自动审批），agent 可在工作区内执行命令（装依赖/跑脚本）。
 fn shell_exec_spec() -> ExecutorSpec {
     ExecutorSpec {
         name: "shell_exec",
-        params: vec![],
-        permission: PermissionLevel::Deny,
+        params: vec![
+            ParamSpec { name: "command", param_type: ParamType::String, required: true },
+            ParamSpec { name: "argv", param_type: ParamType::StringArray, required: true },
+        ],
+        permission: PermissionLevel::Review,
         endpoint: Endpoint::ProcessExec,
         sandbox: SandboxRule::CommandAllowlist {
-            allowlist: vec!["shell_exec".into()],
+            allowlist: vec![
+                "pip".into(),
+                "python".into(),
+                "uv".into(),
+                "git".into(),
+                "cargo".into(),
+                "npm".into(),
+                "npx".into(),
+            ],
         },
     }
 }
@@ -1221,7 +1264,7 @@ fn run_process_template(
             argv.push(filter.to_string());
         }
     }
-    let cwd = normalize_abs(WORKSPACE_ROOT)?;
+    let cwd = normalize_abs(&workspace_root())?;
     let cwd_text = cwd.to_string_lossy().into_owned();
     let result = backend
         .run_process(&argv, &cwd_text, timeout_secs)
@@ -1284,19 +1327,33 @@ fn propose_patch_run(
     Ok(ExecOutcome { result: result.to_string(), sandbox_checked: true })
 }
 
-/// 任意命令执行运行体（fail-closed 仅登记：deny 档守卫恒拒绝，执行面
-/// 不存在——此处为签名承载位，防未来权限语义变更后静默放行）。
+/// 工作区命令执行运行体：权限守卫（review 档）→ 命令面白名单（argv[0]）
+/// → 工作区挂载根 cwd → 真实子进程执行（超时/截断由后端保证）。
 fn shell_exec_run(
     executor: &dyn Executor,
-    _args: &BTreeMap<String, Value>,
-    _backend: &dyn SystemBackend,
+    args: &BTreeMap<String, Value>,
+    backend: &dyn SystemBackend,
     auth: &Authorization,
 ) -> Result<ExecOutcome, ExecError> {
     let tool = executor.name();
     check_permission(tool, executor.spec().permission, auth)?;
-    Err(ExecError::PermissionDenied(format!(
-        "{tool} 出厂 deny 档（须经补丁链审批转正后方可用）"
-    )))
+    let argv = arg_str_list(args, "argv")?;
+    let Some(program) = argv.first() else {
+        return Err(ExecError::BadArgs("argv 不能为空（缺命令名）".into()));
+    };
+    if let SandboxRule::CommandAllowlist { allowlist } = &executor.spec().sandbox {
+        check_allowlist(allowlist, program, tool)?;
+    } else {
+        return Err(ExecError::SandboxViolation(
+            "沙箱模式非法（shell_exec 须声明命令白名单）".into(),
+        ));
+    }
+    let cwd = normalize_abs(&workspace_root())?;
+    let cwd_text = cwd.to_string_lossy().into_owned();
+    let result = backend
+        .run_process(&argv, &cwd_text, PROCESS_TEMPLATE_TIMEOUT_SECS)
+        .map_err(ExecError::ExecutionFailed)?;
+    Ok(ExecOutcome { result, sandbox_checked: true })
 }
 
 #[cfg(test)]

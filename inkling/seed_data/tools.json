@@ -24,7 +24,7 @@
       "permissions": [
         "mcp:call:inkling_exec"
       ],
-      "approval": "review",
+      "approval": "allow",
       "endpoint": "mcp",
       "endpoint_config": {
         "server_id": "inkling_exec"
@@ -339,7 +339,7 @@
       "permissions": [
         "mcp:call:inkling_exec"
       ],
-      "approval": "review",
+      "approval": "allow",
       "endpoint": "mcp",
       "endpoint_config": {
         "server_id": "inkling_exec"
@@ -404,7 +404,7 @@
       "permissions": [
         "mcp:call:inkling_exec"
       ],
-      "approval": "review",
+      "approval": "allow",
       "endpoint": "mcp",
       "endpoint_config": {
         "server_id": "inkling_exec"
@@ -855,7 +855,7 @@
     },
     {
       "name": "shell_exec",
-      "description": "行为意图：任意命令执行——出厂三档权限契约的 deny 档样例：任何调用在门禁处拒绝，不得静默绕过。\n\n使用时机：理论上覆盖「想跑什么命令」；但出厂不可用——须经补丁链显式转正（如放开特定命令）后才是可用工具，转正属产品演化决策。\n\n取舍与替代选项：受控的常见操作——各专用工具（launch_app/open_file/system_query/…，白名单+审批档齐备）；「万能执行」——本工具但必须先转正；能不改权限解决就先不用它。\n\n参数语义：command=固定值 shell_exec（端点操作判定同源，调用方恒传）；argv=待执行命令参数。\n\n边界与协作：权限契约不得擅自放宽；转正须人工审批+补丁链留痕；未转正时调用被拒绝属预期行为，请勿绕过门禁。",
+      "description": "行为意图：在工作区中执行命令——装依赖（pip/uv）、跑脚本（python）、版本管理（git）、构建（cargo/npm/npx）等开发命令。cwd 钉在工作区挂载根，命令名须在出厂白名单内，review 档（桌面壳弹审批卡、headless 自动审批）。\n\n使用时机：需要实际运行命令时——安装测试依赖、执行脚本、查看工作区进程等。\n\n取舍与替代选项：跑测试优先用 run_test_python/run_typecheck（模板钉死更安全）；装依赖、跑自定义脚本这类专用工具覆盖不了的真实命令面用本工具。\n\n参数语义：command=固定值 shell_exec（端点操作判定同源，调用方恒传）；argv=待执行命令参数数组（argv[0]=命令名，须在出厂白名单内）。\n\n边界与协作：命令面白名单+审批档双闸；被拒属权限契约预期，须经补丁链审批转正（放开命令）。",
       "parameters": {
         "type": "object",
         "properties": {
@@ -867,26 +867,35 @@
             "description": "命令名（固定值；与 process_exec 端点操作判定同源，调用方恒传）"
           },
           "argv": {
-            "type": "array",
+            "description": "待执行命令参数（argv[0]=命令名，须在命令白名单内；cwd=工作区挂载根）",
             "items": {
               "type": "string"
             },
-            "description": "待执行命令参数"
+            "type": "array"
           }
         },
         "required": [
-          "command"
+          "command",
+          "argv"
         ]
       },
       "permissions": [
-        "process:exec:shell_exec"
+        "process:exec:pip|python|uv|git|cargo|npm|npx"
       ],
-      "approval": "deny",
+      "approval": "review",
       "endpoint": "process_exec",
       "endpoint_config": {
         "allowlist": [
-          "shell_exec"
-        ]
+          "pip",
+          "python",
+          "uv",
+          "git",
+          "cargo",
+          "npm",
+          "npx"
+        ],
+        "root": "${workspace_root}",
+        "operation_param": "argv"
       },
       "network_policy": {
         "allow_domains": []
@@ -894,10 +903,10 @@
       "meta": {
         "domain": "os",
         "control": false,
-        "deny_by_default": true,
+        "deny_by_default": false,
         "executor": "host:shell_exec_guard",
         "sandbox": "process_allowlist",
-        "note": "三档权限契约的 deny 档样例：任何调用在门禁处拒绝，权限变更须经审批"
+        "note": "工作区命令执行：cwd 钉在工作区挂载根，命令面白名单 + review 档（桌面壳审批卡 / headless 自动审批）"
       }
     },
     {
@@ -1174,7 +1183,8 @@
       "approval": "allow",
       "endpoint": "file_ops",
       "endpoint_config": {
-        "root": "${workspace_root}"
+        "root": "${workspace_root}",
+        "operation": "read"
       },
       "network_policy": {
         "allow_domains": []
@@ -1224,7 +1234,8 @@
       "approval": "review",
       "endpoint": "file_ops",
       "endpoint_config": {
-        "root": "${workspace_root}"
+        "root": "${workspace_root}",
+        "operation": "write"
       },
       "network_policy": {
         "allow_domains": []
@@ -1279,7 +1290,8 @@
       "approval": "review",
       "endpoint": "file_ops",
       "endpoint_config": {
-        "root": "${workspace_root}"
+        "root": "${workspace_root}",
+        "operation": "write"
       },
       "network_policy": {
         "allow_domains": []
@@ -1386,10 +1398,11 @@
       "permissions": [
         "filesystem:search:${workspace_root}|${workspace_root}/**"
       ],
-      "approval": "review",
+      "approval": "allow",
       "endpoint": "file_ops",
       "endpoint_config": {
-        "root": "${workspace_root}"
+        "root": "${workspace_root}",
+        "operation": "search"
       },
       "network_policy": {
         "allow_domains": []
@@ -1440,10 +1453,11 @@
       "permissions": [
         "filesystem:search_paths:${workspace_root}|${workspace_root}/**"
       ],
-      "approval": "review",
+      "approval": "allow",
       "endpoint": "file_ops",
       "endpoint_config": {
-        "root": "${workspace_root}"
+        "root": "${workspace_root}",
+        "operation": "search_paths"
       },
       "network_policy": {
         "allow_domains": []
@@ -1961,10 +1975,23 @@
       "parameters": {
         "type": "object",
         "properties": {
-          "entity_id": { "type": "string", "minLength": 1 },
-          "task": { "type": "string", "minLength": 1 },
-          "context_refs": { "type": "array", "items": { "type": "string" } },
-          "constraints": { "type": "object" }
+          "entity_id": {
+            "type": "string",
+            "minLength": 1
+          },
+          "task": {
+            "type": "string",
+            "minLength": 1
+          },
+          "context_refs": {
+            "type": "array",
+            "items": {
+              "type": "string"
+            }
+          },
+          "constraints": {
+            "type": "object"
+          }
         },
         "required": [
           "entity_id",

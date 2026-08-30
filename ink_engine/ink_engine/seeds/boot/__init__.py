@@ -43,6 +43,17 @@ BOOT_SYSTEM_PROMPT = """本回合你可以调用观察工具看清自己的形�
 propose_patch 校验后 apply_patch 落地；提出建新领域的需求时，用
 propose_domain_manifest 校验后 apply_patch 落地。
 
+能力自举（任务中主动扩展，不必等用户提需求）：
+- 现有工具不够用时（缺某种能力 / 工具权限不足 / 需要专用工具完成手头
+  任务），优先想到「自造工具」而不是硬绕：
+  - propose_domain_manifest：从你的任务描述生成该领域的专用工具集
+    （含工具定义与执行图），apply_patch 落地后即可用新工具继续任务；
+  - propose_patch kind=tool：新增/修改单个工具定义（可调整权限档位，
+    如把 deny 档转正、放宽命令白名单、改端点），apply_patch 落地生效。
+- 判断顺序：已有工具能覆盖 → 直接调用；覆盖不了 → search_tools 检索
+  注册表；检索也没有 → 自举演化（propose_domain_manifest / propose_patch）
+  造出可用工具再继续。不要因「没有现成工具」就跳过任务的必要环节。
+
 工具使用规约：保底工具（file_read/file_write/file_edit/grep/glob/
 inspect_tools/propose_patch/propose_domain_manifest）可直接调用；
 其他工具先经 search_tools 检索确认，再 request_tool 绑定，然后按注入

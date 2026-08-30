@@ -556,17 +556,25 @@ def make_tool_pipeline_factory(
             {"tool": name, "args": args, "tool_call_id": call_id},
             step_id=step_id,
         )
-        specs = holder.get("specs") or ()
-        spec = next((s for s in specs if s.name == name), None)
+        # spec 解析面 = 全量工具表（单源：tool_registry 注册即存在）——
+        # 与注入面（llm_decider 的 tools 参数）解耦：计划步骤/spawn 子图
+        # 指定的工具、工具 tab 勾选/挂载的工具不依赖 agent 回合检索绑定
+        # 即可执行（注册 = 可用，离线 server 由 tool_server_offline 判定）
+        all_specs = holder.get(_HOLDER_ALL_SPECS) or holder.get("specs") or ()
+        spec = next((s for s in all_specs if s.name == name), None)
         if spec is not None:
             # 离线 server 独立标记：每次分发前按 TTL 刷新引用 server
             # 的可用性——离线 server 的挂载工具在此降级（不发起调用），
             # 其余 server/工具不受影响
-            await refresh_mcp_availability(specs)
+            await refresh_mcp_availability(all_specs)
         pipeline_now = resolve()
         if spec is None:
-            text, success = f"未知或未启用工具: {name}", False
-        elif tool_server_offline(specs, name):
+            diag = ",".join(sorted(s.name for s in all_specs))
+            text, success = (
+                f"未知或未启用工具: {name}（可用[{len(all_specs)}] {diag[:80]}）",
+                False,
+            )
+        elif tool_server_offline(all_specs, name):
             # 该 server 已标记离线 → 工具标记不可用（降级文案留痕，
             # 不污染消息历史为必失败调用）
             text, success = _MCP_OFFLINE_MESSAGE, False
@@ -740,7 +748,17 @@ def make_llm_decider_factory(
             content = ""
             deltas: list = []
             try:
-                specs = holder.get("specs") or ()
+                # 注入集 = 按当前会话 thread_id 现取（单源 + 标签：
+                # immutable ∪ baseline ∪ thread:<当前会话>）。agent 回合
+                # 经 request_tool 绑定后该会话窗口恒注入，跨回合/跨重启
+                # 保持（thread 标签持久化）；holder 注入 getter 实时引用
+                # runtime，不经重建缓存即取到最新绑定态。
+                inject = holder.get(_HOLDER_INJECT)
+                specs = (
+                    inject(getattr(ctx, "thread_id", None))
+                    if callable(inject)
+                    else holder.get("specs") or ()
+                )
                 stream = llm.astream(
                     messages,
                     tools=list(specs) or None,
@@ -1012,6 +1030,8 @@ _REGISTRIES_STATE: dict[str, Any] = {}
 
 # 持有者键（值 = 各刷新一次的快照；节点执行时现取）
 _HOLDER_SPECS = "specs"
+_HOLDER_ALL_SPECS = "all_specs"
+_HOLDER_INJECT = "inject"
 _HOLDER_PIPELINE = "pipeline"
 _HOLDER_LLM = "llm"
 
@@ -1042,6 +1062,8 @@ def register_node_types(ctx: GraphRecipeContext, workflow: WorkflowSpec) -> None
     _REGISTRIES_STATE["registries"] = registries
     holder = _specs_holder(registries)
     holder[_HOLDER_SPECS] = list(ctx.tool_specs)
+    holder[_HOLDER_ALL_SPECS] = list(ctx.all_tool_specs)
+    holder[_HOLDER_INJECT] = ctx.collect_specs
     holder[_HOLDER_PIPELINE] = ctx.tool_pipeline
     holder[_HOLDER_LLM] = ctx.llm
     if not registries.nodes.has(TYPE_ORCHESTRATOR):

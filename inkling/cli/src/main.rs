@@ -56,6 +56,19 @@ struct Cli {
     /// 透传 trace_id（缺省自动生成）
     #[arg(long = "trace-id")]
     trace_id: Option<String>,
+
+    /// 回合线程 id（缺省 hl-<trace_id>；固定后可测同线程多轮续链）
+    #[arg(long = "thread-id")]
+    thread_id: Option<String>,
+
+    /// 回合 id（缺省 hlr-<trace_id>）
+    #[arg(long = "round-id")]
+    round_id: Option<String>,
+
+    /// 回合步骤参数（JSON 字符串，缺省 {}）：计划步骤 spawn 子图的工具
+    /// 参数模板（state.step_args → 各工具名对应的参数段）
+    #[arg(long = "step-args")]
+    step_args: Option<String>,
 }
 
 fn main() {
@@ -103,6 +116,9 @@ fn main() {
                 &data_dir,
                 cli.round.as_deref().unwrap(),
                 &trace_id,
+                cli.thread_id.clone(),
+                cli.round_id.clone(),
+                cli.step_args.as_deref(),
             ),
             "op" => run_op(
                 &repo_root,

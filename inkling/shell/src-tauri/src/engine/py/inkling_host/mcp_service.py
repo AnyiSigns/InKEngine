@@ -931,6 +931,9 @@ class McpMountService:
                 removed.append(name)
                 self._runtime.tool_registry.pop(name, None)
                 self._runtime.harness_registry.declarative.unregister_definition(name)
+        if removed:
+            # 单源 + 标签：工具表移除后刷新检索索引（卸载即从检索面消失）
+            self._runtime.refresh_tool_index()
         return tuple(removed)
 
     def _sync_introspection(self) -> None:

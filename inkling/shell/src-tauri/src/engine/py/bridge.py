@@ -509,6 +509,7 @@ class _ToolApplyTarget:
         spec = DeclarativeToolSpec.from_dict(payload)
         self._runtime.harness_registry.declarative.register_definition(spec)
         self._runtime.tool_registry[spec.name] = spec.to_spec()
+        self._runtime.refresh_tool_index()
 
 
 class _EventTypeApplyTarget:
@@ -711,6 +712,7 @@ def _register_engine_core_ops() -> None:
         for spec in runtime.merged_specs():
             entry: dict = _jsonable(spec)
             entry["baseline"] = spec.name in baseline
+            entry["tags"] = sorted(runtime.tool_tags(spec.name))
             if spec.name in introspection_names:
                 entry["source"] = "introspection"
             elif spec.name in self_names:
@@ -838,6 +840,7 @@ def _register_engine_core_ops() -> None:
         runtime = runtime_handle()
         spec = DeclarativeToolSpec.from_dict(args["spec"])
         runtime.tool_registry[spec.name] = spec.to_spec()
+        runtime.refresh_tool_index()
         return None
 
     @op_sync("engine.introspection_refresh_tool_sources")
@@ -1063,6 +1066,8 @@ def _register_pipeline_ops() -> None:
     def _tool_registry_remove(args: dict) -> Any:
         runtime = runtime_handle()
         removed = runtime.tool_registry.pop(args["name"], None)
+        if removed is not None:
+            runtime.refresh_tool_index()
         return {"removed": removed is not None}
 
     @op_sync("pipeline.install_security_pipeline")
@@ -3745,7 +3750,7 @@ async def execute_round_to_reply(
     inject: dict | None = None,
     model: dict | None = None,
     auto_accept_review: bool = True,
-    max_cards: int = 8,
+    max_cards: int = 32,
 ):
     """执行一次回合直至终态：审批卡逐张决议（可指定接受决议），直到回复/终止。
 

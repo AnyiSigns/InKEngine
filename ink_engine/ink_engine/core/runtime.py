@@ -24,6 +24,7 @@ from __future__ import annotations
 import asyncio
 import contextlib
 import json
+import time
 import uuid
 from collections.abc import Callable, Sequence
 from dataclasses import dataclass, field, fields, is_dataclass
@@ -114,6 +115,19 @@ BASELINE_RECORD_KEY = "tool_baseline"
 # 动态注册机制工具（search_tools/request_tool）：语义检索绑定非必带工具
 # 的入口，永远强制常驻，用户不可摘除。
 BASELINE_IMMUTABLE_TOOLS: frozenset[str] = frozenset({"search_tools", "request_tool"})
+
+# 工具标签（单源 + 标签：tool_registry 是全量存储，标签区分注册状态）
+TAG_IMMUTABLE = "immutable"  # 内省/自指恒注入，不可注销
+TAG_BASELINE = "baseline"  # 必带恒注入（出厂 + 设置页勾选）
+TAG_THREAD_PREFIX = "thread:"  # agent 回合内绑定，会话窗口恒注入
+
+# thread 标签 TTL（秒）：到期惰性清理（无会话关闭语义，纯按时间回收）
+THREAD_TAG_TTL_SECONDS = 3 * 24 * 3600  # 默认 3 天
+
+# thread 标签持久化（records 通道；与常驻必带集同形态，重启经
+# _restore_thread_tags 装载）
+THREAD_TAG_RECORD_COLLECTION = "runtime_config"
+THREAD_TAG_RECORD_KEY = "tool_thread_tags"
 
 # 出厂界面组件启停持久化（records 通道；与常驻必带集同形态，重启经
 # _load_ui_components_disabled 装载）。禁用集 ⊆ 配方 ui_allowed_components
@@ -287,6 +301,8 @@ class GraphRecipeContext:
     llm: AsyncLLM | None = None
     tool_pipeline: ToolPipeline | None = None
     tool_specs: Sequence[ToolSpec] = ()
+    all_tool_specs: Sequence[ToolSpec] = ()
+    collect_specs: Callable[[str | None], list[ToolSpec]] | None = None
     storage: Storage | None = None
     registries: GraphRegistries | None = None
     system_events: frozenset[str] = frozenset()
@@ -451,6 +467,14 @@ class Runtime:
         self.turn_metrics: TurnMetrics | None = None
         # 宿主动态工具表（挂载/从链恢复的工具定义；统一分发第三路）
         self.tool_registry: dict[str, ToolSpec] = {}
+        # 工具标签表（单源 + 标签：tool_registry 是全量权威存储，标签
+        # 区分注册状态）——immutable = 内省/自指（恒注入不可注销）、
+        # baseline = 必带恒注入（出厂 + 设置页勾选）、thread:<id> =
+        # agent 回合内绑定（会话窗口恒注入，按 thread 隔离可多标签并存）
+        self._tool_tags: dict[str, set[str]] = {}
+        # thread 标签打标时间戳（(工具名, thread_id) → 时间戳）：TTL 到期
+        # 惰性清理（默认 THREAD_TAG_TTL_SECONDS 后自动回收，防泄漏）
+        self._thread_tag_created: dict[tuple[str, str], float] = {}
         # 池治理登记器（容量/淘汰/合并/预算四规则；只登记不执行）
         self.pool_governance: PoolGovernance | None = None
         # 本回合注入的知识条目 id（知识使用留痕：provide 命中即记，回合
@@ -757,6 +781,10 @@ class Runtime:
         self.self_specs = tuple(wiring.self_specs())
         introspection_names = {spec.name for spec in self.introspection_specs}
         self_names = {spec.name for spec in self.self_specs}
+        # 单源 + 标签：内省/自指工具以 immutable 标签恒注入、不可注销
+        # （merged_specs 全量含它们；collect_specs 按标签过滤含它们）
+        for spec in (*self.introspection_specs, *self.self_specs):
+            self._tool_tags.setdefault(spec.name, set()).add(TAG_IMMUTABLE)
         self.introspection_service = IntrospectionService(
             IntrospectionSources(
                 knowledge_set=self.knowledge_set,
@@ -850,6 +878,9 @@ class Runtime:
         # ⑬-a 用户常驻必带工具集恢复（records 通道；缺记录/坏形态沿用
         #    出厂基线；恢复在 _restore_set_state 之后——校验须见全量工具表）
         await self._restore_baseline()
+        # ⑬-a agent 回合 thread 标签恢复（records 通道；TTL 过期条目
+        #    丢弃——会话窗口恒注入跨重启保持，过期自动回收）
+        await self._restore_thread_tags()
 
         # ⑬-a 工具向量索引构建（工具注入瘦身）：全量工具 → 向量，
         #     search_tools/request_tool 检索后端；失败降级关键词基线
@@ -857,8 +888,10 @@ class Runtime:
         self._rebuild_tool_index()
 
         # ⑬-b 工具调配器接线（工具注入瘦身）：保底工具 priority 高 + 调用权重
+        #    默认注入上限 18（设置页工具 tab 可调，非硬锁——用户自定义
+        #    20/30/40/100 均可，capability_put → rebuild 路径刷新）
         self.tool_selector = ToolSelector(
-            max_tools=16,
+            max_tools=18,
             baseline_names=self._baseline_names,
         )
 
@@ -1139,8 +1172,9 @@ class Runtime:
     def merged_specs(self) -> list[ToolSpec]:
         """全量工具清单（内省 + 自指 + 动态），供工具索引构建与内省快照。
 
-        与 collect_specs 分工：collect_specs 只返回保底 8+2 常驻集（进
-        tools 参数），merged_specs 返回全部（检索/内省用）。
+        与 collect_specs 分工：collect_specs 返回注入集（按标签过滤：
+        immutable ∪ baseline ∪ 当前 thread），merged_specs 返回全部
+        （检索/内省/执行解析用——注册即存在，不依赖注入）。
         """
         return [
             *self.introspection_specs,
@@ -1148,18 +1182,75 @@ class Runtime:
             *self.tool_registry.values(),
         ]
 
-    def collect_specs(self) -> list[ToolSpec]:
-        """工具清单汇总（常驻必带集），供回合装配 tools 参数。
+    def tool_tags(self, name: str) -> frozenset[str]:
+        """某工具的当前标签集（immutable/baseline/thread:*）。"""
+        return frozenset(self._tool_tags.get(name, ()))
 
-        终稿注入策略：常驻 ≤12 个完整 schema（出厂保底 8 + 自指 2，用户
-        可在设置页增删），其余工具不再全量进 tools 参数——模型经
-        search_tools 检索、request_tool 绑定后注入下一轮。
+    def tag_tool(self, name: str, tag: str) -> None:
+        """给工具打标签（单源总表维护；工具不存在时静默忽略）。
+
+        thread 标签额外记录打标时间戳（TTL 惰性清理依据）；持久化由
+        调用方在事务边界异步落盘（_persist_thread_tags），本方法只管
+        活跃态内存。
         """
-        baseline = self._baseline_names
-        return [
-            spec for spec in self.merged_specs()
-            if spec.name in baseline
+        if name not in self.tool_registry and tag != TAG_IMMUTABLE:
+            return
+        self._tool_tags.setdefault(name, set()).add(tag)
+        if tag.startswith(TAG_THREAD_PREFIX):
+            thread_id = tag[len(TAG_THREAD_PREFIX):]
+            self._thread_tag_created[(name, thread_id)] = time.time()
+
+    def untag_tool(self, name: str, tag: str) -> None:
+        """摘除工具标签（immutable 不可摘除）。"""
+        if tag == TAG_IMMUTABLE:
+            return
+        tags = self._tool_tags.get(name)
+        if tags is None:
+            return
+        tags.discard(tag)
+        if tag.startswith(TAG_THREAD_PREFIX):
+            thread_id = tag[len(TAG_THREAD_PREFIX):]
+            self._thread_tag_created.pop((name, thread_id), None)
+        if not tags:
+            self._tool_tags.pop(name, None)
+
+    def _expire_thread_tags(self, now: float | None = None) -> None:
+        """惰性清理过期 thread 标签（TTL 到期自动回收，防泄漏）。"""
+        if not self._thread_tag_created:
+            return
+        now = now if now is not None else time.time()
+        expired = [
+            key for key, ts in self._thread_tag_created.items()
+            if now - ts > THREAD_TAG_TTL_SECONDS
         ]
+        for tool, thread_id in expired:
+            self._thread_tag_created.pop((tool, thread_id), None)
+            self._tool_tags.get(tool, set()).discard(f"{TAG_THREAD_PREFIX}{thread_id}")
+
+    def collect_specs(self, thread_id: str | None = None) -> list[ToolSpec]:
+        """工具注入集（按标签过滤），供回合装配 tools 参数。
+
+        单源 + 标签语义：注入集 = immutable（内省/自指恒注入）∪ baseline
+        （必带恒注入）∪ thread:<当前会话>（agent 回合内绑定，会话窗口
+        恒注入）。thread_id 缺省 = 无会话上下文（仅 immutable + baseline）。
+        其余工具不在注入面——模型经 search_tools 检索、request_tool
+        绑定后以 thread 标签注入当前会话窗口。
+        """
+        self._expire_thread_tags()
+        baseline = self._baseline_names
+        thread_tag = f"{TAG_THREAD_PREFIX}{thread_id}" if thread_id else None
+        keep: list[ToolSpec] = []
+        for spec in self.merged_specs():
+            name = spec.name
+            tags = self._tool_tags.get(name) or set()
+            if name in baseline or TAG_IMMUTABLE in tags:
+                keep.append(spec)
+                continue
+            if thread_tag and thread_tag in tags:
+                keep.append(spec)
+        # 预算护栏：常驻注入集默认上限（设置页可调，非硬锁）
+        budget = self.tool_selector.max_tools if self.tool_selector is not None else 18
+        return keep[:budget] if budget > 0 else keep
 
     # ── 常驻必带工具集（设置页「工具」管理面；出厂基线可增删）──
 
@@ -1169,9 +1260,20 @@ class Runtime:
         return tuple(sorted(self._baseline_names))
 
     def _apply_baseline(self, names: Iterable[str]) -> None:
-        """应用常驻必带集（不校验；校验归 set_baseline_names 调用面）。"""
+        """应用常驻必带集（不校验；校验归 set_baseline_names 调用面）。
+
+        单源 + 标签：baseline 集合 = baseline 标签。设置后同步标签表
+        （新增名打 baseline 标签；摘除名摘 baseline 标签；immutable
+        恒在，不受此影响）。
+        """
         next_set = frozenset(names) | BASELINE_IMMUTABLE_TOOLS
         changed = next_set != self._baseline_names
+        if changed:
+            for name in next_set - self._baseline_names:
+                if name in self.tool_registry:
+                    self.tag_tool(name, TAG_BASELINE)
+            for name in self._baseline_names - next_set:
+                self.untag_tool(name, TAG_BASELINE)
         self._baseline_names = next_set
         if changed:
             if self.tool_selector is not None:
@@ -1228,6 +1330,65 @@ class Runtime:
         tools = (record or {}).get("tools")
         if isinstance(tools, list):
             self._apply_baseline(tools)
+
+    # ── agent 回合 thread 标签（会话窗口恒注入；TTL 到期惰性清理）──
+
+    async def _persist_thread_tags(self) -> None:
+        """thread 标签落盘（records 通道；request_tool 绑定后事务边界调用）。
+
+        只持久化 thread 标签（immutable/baseline 有各自通道）；坏形态
+        吞掉不阻断（持久化是增强，活跃态内存才是权威运行态）。
+        """
+        if self.storage is None:
+            return
+        payload: dict[str, dict[str, float]] = {}
+        for (name, thread_id), ts in self._thread_tag_created.items():
+            payload.setdefault(name, {})[thread_id] = ts
+        try:
+            await runtime_config_writer(
+                DefaultEvolutionWriter(self.storage),
+                THREAD_TAG_RECORD_COLLECTION,
+                THREAD_TAG_RECORD_KEY,
+                {"tags": payload},
+                asset_id="tool_thread_tags",
+                note="persist_thread_tags",
+            )
+        except Exception as exc:
+            logger.warning("thread 标签持久化失败（忽略）: %s", exc)
+
+    async def _restore_thread_tags(self) -> None:
+        """重启装载 thread 标签（records 通道；TTL 过期条目直接丢弃）。
+
+        宽松应用：持久化名可能引用已卸载/未登记工具，标签在表内无对应
+        定义时注入面自然无效应，登记后即自动生效（与 baseline 同口径）。
+        """
+        if self.storage is None:
+            return
+        try:
+            record = await self.storage.get_record(
+                THREAD_TAG_RECORD_COLLECTION, THREAD_TAG_RECORD_KEY
+            )
+        except Exception as exc:
+            logger.warning("thread 标签读取失败（沿用空表）: %s", exc)
+            return
+        raw = (record or {}).get("tags")
+        if not isinstance(raw, dict):
+            return
+        now = time.time()
+        for name, threads in raw.items():
+            if not isinstance(threads, dict):
+                continue
+            for thread_id, ts in threads.items():
+                try:
+                    stamp = float(ts)
+                except (TypeError, ValueError):
+                    continue
+                if now - stamp > THREAD_TAG_TTL_SECONDS:
+                    continue
+                self._tool_tags.setdefault(name, set()).add(
+                    f"{TAG_THREAD_PREFIX}{thread_id}"
+                )
+                self._thread_tag_created[(name, thread_id)] = stamp
 
     # ── 出厂界面组件启停（组件 tab 管理面；出厂白名单可停用）──
 
@@ -1348,6 +1509,8 @@ class Runtime:
             llm=guard_llm,
             tool_pipeline=self.tool_pipeline,
             tool_specs=specs,
+            all_tool_specs=self.merged_specs(),
+            collect_specs=lambda thread_id=None: self.collect_specs(thread_id),
             storage=self.storage,
             registries=self.graph_registries,
             system_events=self.event_type_registry.system_events(),
@@ -1440,6 +1603,11 @@ class Runtime:
 
     # ── 内部装配辅助 ──
 
+    async def _tag_tool_persist(self, name: str, tag: str) -> None:
+        """打 thread 标签 + 持久化（request_tool 绑定落地面）。"""
+        self.tag_tool(name, tag)
+        await self._persist_thread_tags()
+
     def _self_context(self) -> SelfToolContext:
         """自指工具执行上下文（装配产物 + 配方钩子组装，运行期取用）。"""
         recipe = self._recipe
@@ -1455,6 +1623,7 @@ class Runtime:
             convergence=convergence,
             interrupt_policy=self._host_policy,
             tool_index=self.tool_index,
+            tool_tagger=self._tag_tool_persist,
         )
 
     def _rebuild_tool_index(self) -> None:

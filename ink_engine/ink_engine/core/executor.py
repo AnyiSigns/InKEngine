@@ -1240,24 +1240,15 @@ class Engine:
         work_step_signal = False
         active_plan: Plan | None = None
         if continue_chain:
-            # 新回合续链：链尾为基底（状态通道继承）、事件全新产生、不恢复
-            # 旧计划快照（新回合重新规划）。定位分流：
-            # - 链尾节点在新图存在（同图续链）：从链尾节点出边继续——宿主
-            #   回合语义「终止节点带出边，续链从出边继续」，不重跑终止节点；
-            # - 链尾节点在新图不存在（换图/同 thread 切 harness）：从
-            #   新图入口执行（current 保持 graph.entry）——按链尾定位会因
-            #   节点名缺失静默终态。
-            if last_checkpoint is not None and last_checkpoint.node:
-                if last_checkpoint.node not in graph.nodes:
-                    # 换图：链尾节点在新图不存在，从新图入口执行
-                    pass
-                else:
-                    nxt = await _select_next_node(graph, ctx, last_checkpoint.node)
-                    if nxt is not None:
-                        current = nxt
-                    else:
-                        # 链尾为出口/无出边：图已走完，终态收尾不重复执行
-                        skip_first_node = True
+            # 新回合续链：读链尾为基底（状态通道继承）、事件全新产生、不恢复
+            # 旧计划快照（新回合重新规划），一律从图入口执行——recovery 文档
+            # 契约（recovery.py「从入口执行」）。不做链尾节点定位：链尾仅作
+            # 状态基底，不承担「从链尾继续跑」的语义——图是数据可被任意
+            # 修改（同 thread 换图、出口形态各异），从链尾定位下一节点把
+            # 执行起点耦合进具体图形态，出口无出边/链尾未完成的图都会
+            # 静默错位（旧实现 bug：同 thread 第二轮起零执行）。从入口
+            # 执行只依赖 entry 契约，与图内容无关。
+            pass
         elif last_checkpoint is not None and last_checkpoint.node:
             if last_checkpoint.reason in ("interrupted", TerminateReason.ERROR):
                 current = last_checkpoint.node

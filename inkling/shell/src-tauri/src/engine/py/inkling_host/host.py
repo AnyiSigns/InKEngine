@@ -1017,6 +1017,12 @@ async def boot_inkling(
             if runtime.knowledge_set.get(seed_entry.id) is None:
                 runtime.knowledge_set.add(seed_entry)
     runtime.introspection_service._sources.tools = runtime.collect_specs()
+    # 内置 MCP server 自动连接（出厂能力非市场挂载）：tools.json 声明
+    # endpoint=mcp 且 server_id 属 BUILTIN_MCP_SERVERS 的工具随装配生效。
+    # exec 二进制（inkling_exec）路径按数据目录 exec/ 解析；连接失败只
+    # 记日志不阻断装配（server 离线降级，工具注册照常——单源 + 标签：
+    # 注册 = 存在，可用性由执行时在线判定）
+    await _connect_builtin_servers(runtime, data_dir, mount_service, seed_root=root)
     await runtime.rebuild_engine()
     return runtime, host, mount_service
 
@@ -1051,6 +1057,55 @@ def _resolve_data_dir(data_dir: Path | None) -> Path:
         data_dir.mkdir(parents=True, exist_ok=True)
         return data_dir
     return Path(tempfile.mkdtemp(prefix=_DEFAULT_DATA_DIR_PREFIX))
+
+
+async def _connect_builtin_servers(
+    runtime: Any, data_dir: Path, mount_service: Any, *, seed_root: Path | None = None
+) -> None:
+    """装配期连接内置 MCP server（出厂能力，非市场挂载）。
+
+    inkling_exec（stdio）需可执行二进制路径——优先数据目录 exec/
+    （bundled 解包落位），再回落仓库内 exec 构建产物（开发形态，
+    经 seed_root 即 repo/inkling 定位到 repo/inkling/exec/target）。
+    连接失败只记日志（离线降级：工具注册照常、执行时在线判定）。
+    """
+    from ink_engine.core.mcp_client import BUILTIN_MCP_SERVERS, builtin_mcp_server_config
+
+    seed_root = Path(seed_root) if seed_root is not None else Path(__file__).resolve().parent.parent
+    candidates = [
+        Path(data_dir) / "exec" / "inkling_exec.exe",
+        Path(data_dir) / "resources" / "exec" / "inkling_exec.exe",
+        seed_root / "exec" / "target" / "debug" / "inkling_exec.exe",
+        seed_root / "exec" / "target" / "release" / "inkling_exec.exe",
+    ]
+    exec_binary = next((p for p in candidates if p.is_file()), None)
+    if "inkling_exec" in BUILTIN_MCP_SERVERS and exec_binary is not None:
+        try:
+            config = builtin_mcp_server_config(
+                "inkling_exec",
+                command=str(exec_binary),
+                args=(),
+            )
+            await runtime.mcp_manager.connect(config)
+        except Exception as exc:
+            logger.warning("内置 server 连接失败（离线降级）: %s", exc)
+    # inkling_shell（in_memory）嵌入式 server：连接位经宿主装配注入，
+    # 未接线 = 离线（shell 侧工具照常注册、执行时判定）
+    for server_id in BUILTIN_MCP_SERVERS:
+        if server_id == "inkling_exec":
+            continue
+        factory = (
+            mount_service._server_factories.get(server_id)
+            if mount_service is not None
+            else None
+        )
+        if factory is None:
+            continue
+        try:
+            config = builtin_mcp_server_config(server_id, server_factory=factory)
+            await runtime.mcp_manager.connect(config)
+        except Exception as exc:
+            logger.warning("内置 server 连接失败（离线降级）: %s", exc)
 
 
 def _model_config_from_env() -> dict[str, str]:
@@ -1251,6 +1306,10 @@ def register_domain_tools(runtime: Runtime, bundle: SeedDataBundle) -> None:
             continue
         runtime.harness_registry.declarative.register_definition(spec)
         runtime.tool_registry[spec.name] = spec.to_spec()
+    # 工具表唯一权威 = tool_registry：检索/绑定与工具 tab 同源，注册后
+    # 必须刷新派生索引（tool_index 构建先于 register_domain_tools，否则
+    # search_tools/request_tool 查不到本批工具）
+    runtime.refresh_tool_index()
 
 
 def make_collab_request_executor(runtime: Runtime, host: Any = None) -> Any:

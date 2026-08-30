@@ -222,10 +222,11 @@ class OpenAIResponsesLLM(AsyncLLM):
             "stream": stream,
         }
         if tools:
-            # Responses 工具的 {type: "function"} 形态与 chat 工具段同构，
-            # 复用既有 to_openai_tools（name/description/parameters）。
+            # Responses 工具段为扁平 {type, name, description, parameters}
+            # （chat 段把 name/description/parameters 嵌套在 function 键下），
+            # 解包既有 to_openai_tools 的 function 段复用转换。
             payload["tools"] = [
-                dict(t, type="function")
+                {"type": "function", **t["function"]}
                 for t in to_openai_tools(list(tools))
             ]
         temperature = params.temperature if params and params.temperature is not None else self.config.temperature

@@ -727,8 +727,9 @@ def compress_message_history(
       ``keep_recent`` 条消息原样保留 + 中间旧消息段折叠为一条确定性
       摘要 user 消息（:func:`archive_digest`，预算 = ``policy.budget_chars``）。
 
-    触发阈值默认 30 条 / 40000 字符（:class:`ThresholdCompressionPolicy`
-    构造参数可配），仅极端膨胀回合触发；摘要以「历史上下文压缩摘要」
+    触发阈值默认 30 条 / 160000 字符（:class:`ThresholdCompressionPolicy`
+    构造参数可配；引擎按模型窗口占比动态推算，档案缺失回落 0.8×200k
+    兜底），仅极端膨胀回合触发；摘要以「历史上下文压缩摘要」
     标注前缀，模型可辨识该段为压缩锚点而非原始消息。
 
     Args:

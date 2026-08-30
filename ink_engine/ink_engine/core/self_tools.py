@@ -17,6 +17,7 @@
 """
 from __future__ import annotations
 
+import asyncio
 import json
 from dataclasses import dataclass
 from typing import Any, Protocol, runtime_checkable
@@ -34,6 +35,10 @@ from .tool_pipeline import DEFAULT_MAX_RESULT_CHARS
 # 权限声明（自定义域：self:propose / self:apply）
 PERMISSION_PROPOSE = "self:propose:*"
 PERMISSION_APPLY = "self:apply:*"
+
+# thread 标签前缀（单源 + 标签：绑定 = 给当前会话 thread 打标签；与
+# runtime 的 TAG_THREAD_PREFIX 同值，此处本地定义避免循环导入）
+TAG_THREAD_PREFIX = "thread:"
 
 # 契约工具清单（与 seeds/boot 的 BOOT_METATOOLS 演化子集同源；
 # 宿主装配据此登记，漏注册即违反契约）
@@ -90,6 +95,9 @@ class SelfToolContext:
     convergence: ConvergenceHook | None = None
     interrupt_policy: Any | None = None
     tool_index: ToolVectorIndex | None = None
+    # 工具标签写引用（单源 + 标签：绑定 = 给当前会话 thread 打标签，
+    # 会话窗口恒注入；None = 绑定不落标签——离线/单测形态退化为纯校验）
+    tool_tagger: Any = None
 
 
 def self_tool_specs() -> list[ToolSpec]:
@@ -217,9 +225,10 @@ def self_tool_specs() -> list[ToolSpec]:
         ),
         ToolSpec(
             name="search_tools",
-            description="检索工具集（保底集以外的工具经此发现）：输入自然语言查询，"
-            "返回匹配工具列表（名称/摘要/参数/权限档/端点，≤8 条），"
-            "供后续 request_tool 绑定后调用",
+            description="检索工具集（保底集以外的工具经此发现，注册但未注入的工具均可检索）："
+            "输入自然语言查询，返回匹配工具列表（名称/摘要/参数/权限档/端点，≤8 条）。"
+            "注意：检索到 ≠ 可用——挂载/注册只是进入总源，调用前须经 request_tool "
+            "绑定到当前会话窗口才注入",
             parameters={
                 "type": "object",
                 "properties": {
@@ -230,13 +239,14 @@ def self_tool_specs() -> list[ToolSpec]:
                 },
                 "required": ["query"],
             },
-            permissions=(PERMISSION_PROPOSE,),
         ),
         ToolSpec(
             name="request_tool",
-            description="绑定指定工具到下一轮 tools 参数：校验工具名合法性，"
-            "非法名返回明确错误；合法则注入完整 schema 到下一轮工具集，"
-            "返回「已绑定」确认——模型下一轮即可按 schema 生成 tool_call",
+            description="绑定指定工具到当前会话窗口（thread 内恒注入）：校验工具名合法性，"
+            "非法名返回明确错误；合法则打 thread 标签注入完整 schema，"
+            "返回「已绑定」确认——本会话后续轮次即可按 schema 生成 tool_call。"
+            "注意：绑定是会话级（thread 隔离），其它会话/新会话需重新绑定；"
+            "同一会话重复绑定幂等",
             parameters={
                 "type": "object",
                 "properties": {
@@ -534,10 +544,28 @@ async def _request_tool(ctx: Any, context: SelfToolContext, args: dict) -> str:
                 "error": f"未注册工具名 {name}（工具描述缺失）",
             }
         )
+    # 单源 + 标签：绑定 = 给当前会话 thread 打标签（会话窗口恒注入）。
+    # 同 thread 重复绑定幂等（标签集合语义）；不同 thread 各自打标互不
+    # 影响（thread 隔离）；ctx.thread_id 缺省（离线/单测）退化为纯校验。
+    # tagger 可为同步打标（调用方负责持久化）或 async 持久化闭包
+    thread_id = getattr(ctx, "thread_id", None)
+    tagger = getattr(context, "tool_tagger", None)
+    if tagger is not None and thread_id:
+        try:
+            result = tagger(name, f"{TAG_THREAD_PREFIX}{thread_id}")
+            if asyncio.iscoroutine(result):
+                await result
+        except Exception as exc:
+            return _json(
+                {
+                    "ok": False,
+                    "error": f"工具绑定失败（标签写入异常）: {exc}",
+                }
+            )
     return _json(
         {
             "ok": True,
-            "message": f"已绑定 {name}，可调用",
+            "message": f"已绑定 {name}，当前会话窗口（thread 内）可调用；其它会话/后续新会话需重新绑定",
             "spec": {
                 "name": spec.name,
                 "description": spec.description,

@@ -195,6 +195,13 @@ class Message:
             a if isinstance(a, Attachment) else Attachment.from_dict(a)
             for a in self.attachments
         )
+        # 工具调用同样归一（dict 形态的宽容入参 → ToolCall 规范形态，
+        # 序列化与各适配器统一按对象访问，与 from_dict 归一语义一致）
+        if self.tool_calls:
+            self.tool_calls = [
+                tc if isinstance(tc, ToolCall) else ToolCall(**tc)
+                for tc in self.tool_calls
+            ]
 
     def to_openai_dict(self) -> dict[str, Any]:
         """序列化为 OpenAI 兼容请求负载。

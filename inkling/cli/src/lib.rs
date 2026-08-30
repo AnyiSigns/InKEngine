@@ -85,9 +85,9 @@ fn percent_encode_path(path: &str) -> String {
 /// 稳定抵达回复态。
 ///
 /// 回合接线：装配后注册 os.dispatch 回调（引擎回合内 OS 工具调用转发到
-/// 本进程执行器注册表，PlatformBackend 真实执行）并以仓库根授权工作区
-/// （文件工具沙箱根，agent 可在仓库内读写）。headless 无审批交互面，
-/// 授权语义由调用方显式声明（等同 CLI --approve）。
+/// 本进程执行器注册表，PlatformBackend 真实执行）并以工作区根授权文件
+/// 工具沙箱（默认仓库根，可用 INKENGINE_WS_ROOT 覆盖到仓库外工作目录）。
+/// headless 无审批交互面，授权语义由调用方显式声明（等同 CLI --approve）。
 ///
 /// 返回值在调用方持有期间维持运行时绑定（op 通道依赖该绑定），用毕应 `stop`。
 pub fn boot_engine(repo_root: &Path, data_dir: &Path) -> Result<EngineHost, CliError> {
@@ -126,14 +126,19 @@ pub fn boot_engine(repo_root: &Path, data_dir: &Path) -> Result<EngineHost, CliE
 ///
 /// - os.dispatch：引擎回合内 OS 工具（run_typecheck/run_test_web 等）经回调
 ///   桥转发到本进程执行器注册表（PlatformBackend 真实子进程执行）；
-/// - workspace：以仓库根授权文件工具沙箱（agent 回合内读写仓库文件的
-///   前置条件）；记录落 sqlite，重启后经引擎 load 恢复同一根。
+/// - workspace：以工作区根授权文件工具沙箱（agent 回合内读写工作区文件的
+///   前置条件）；根默认取仓库根，可用环境变量 `INKENGINE_WS_ROOT` 覆盖
+///   （挂载到仓库外的工作目录，如实验工作点）；记录落 sqlite，重启后经
+///   引擎 load 恢复同一根。
 fn wire_round_execution(repo_root: &Path) -> Result<(), CliError> {
     inkling_shell_lib::executors::register_headless_os_dispatch(TOOLS_DECL_JSON)
         .map_err(|err| CliError::boot(format!("OS 分发注册失败: {err}")))?;
+    let workspace_root = std::env::var("INKENGINE_WS_ROOT")
+        .map(PathBuf::from)
+        .unwrap_or_else(|_| repo_root.to_path_buf());
     let auth = dispatch_op(
         "workspace.authorize_headless",
-        json!({ "root": repo_root.display().to_string() }),
+        json!({ "root": workspace_root.display().to_string() }),
     )
     .map_err(|err| {
         if is_bridge_not_ready(&err) {
@@ -252,19 +257,30 @@ pub fn run_round(
     data_dir: &Path,
     task: &str,
     trace_id: &str,
+    thread_id: Option<String>,
+    round_id: Option<String>,
+    step_args: Option<&str>,
 ) -> Result<Value, CliError> {
     let host = boot_engine(repo_root, data_dir)?;
     host.set_event_emitter(Some(Box::new(|event_json: &str| {
         live_progress(event_json);
     })));
+    let parsed_step_args: Option<serde_json::Value> = match step_args {
+        Some(text) if !text.trim().is_empty() => Some(
+            serde_json::from_str(text)
+                .map_err(|err| CliError::usage(format!("--step-args JSON 解析失败: {err}")))?,
+        ),
+        _ => None,
+    };
     let outcome = host
         .round(RoundRequest {
             input_text: task.to_string(),
-            thread_id: format!("hl-{trace_id}"),
-            round_id: format!("hlr-{trace_id}"),
-            step_args: None,
+            thread_id: thread_id.unwrap_or_else(|| format!("hl-{trace_id}")),
+            round_id: round_id.unwrap_or_else(|| format!("hlr-{trace_id}")),
+            step_args: parsed_step_args,
             orchestrate: None,
             inject: None,
+            model: None,
             auto_accept_review: true,
         })
         .map_err(|err| CliError::boot(format!("回合驱动失败: {err}")))?;

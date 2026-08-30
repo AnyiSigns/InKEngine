@@ -140,8 +140,9 @@ async def test_usage_tracking_forwards_aclose():
 
 # ── 回合内上下文压缩 ──
 
-# 默认策略（30 条/40000 字符）触发所需的历史规模：60 轮 × 700 字符
-_DEFAULT_TRIGGER_HISTORY = _long_history(60, chars=700)
+# 默认策略（30 条/160000 字符，0.8 × 200k 兜底窗口）触发所需的历史规模：
+# 100 轮 × 1000 字符 ≈ 200k 字符 ≥ 字符阈值
+_DEFAULT_TRIGGER_HISTORY = _long_history(100, chars=1000)
 
 
 def test_compress_under_threshold_passthrough():
@@ -154,7 +155,7 @@ def test_compress_under_threshold_passthrough():
 
 
 def test_compress_over_threshold_summary_and_tail():
-    messages = _DEFAULT_TRIGGER_HISTORY  # 121 条 × ~700 字 → 双阈值触发
+    messages = _DEFAULT_TRIGGER_HISTORY  # 201 条 × ~1000 字 → 双阈值触发
     inner = RecordingLLM()
     llm = CompressingLLM(inner, keep_recent=6)
     result = llm._apply(messages)

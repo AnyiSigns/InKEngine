@@ -516,28 +516,30 @@ async def test_recipe_run_options_override_applied():
 
 
 async def test_collect_specs_baseline_plus_dynamic():
-    """工具清单 = 保底 8+2 常驻集 + 动态注册表工具（工具注入瘦身）。"""
+    """工具清单 = immutable 恒注入 + baseline 必带（单源 + 标签注入集）。"""
     runtime = await Runtime().boot(FakeHost(), _minimal_recipe())
     # 模拟声明式工具注册（生产环境由 harness 定义载入）
     for name in ("file_read", "file_write", "file_edit", "grep", "glob"):
         runtime.tool_registry[name] = ToolSpec(name=name, description=f"{name} 工具")
     specs = runtime.collect_specs()
     names = {s.name for s in specs}
-    # 保底 8+2 常驻集（≤12）
-    assert len(specs) == 10
+    # 单源 + 标签注入集 = immutable（内省 6 + 自指 6）+ baseline file 5
+    assert len(specs) == 17
     assert names == {
+        "inspect_graph", "inspect_rules", "inspect_knowledge", "inspect_ui",
+        "inspect_tools", "inspect_entities",
+        "propose_patch", "apply_patch", "revert_patch",
+        "propose_domain_manifest", "search_tools", "request_tool",
         "file_read", "file_write", "file_edit", "grep", "glob",
-        "propose_patch", "propose_domain_manifest", "inspect_tools",
-        "search_tools", "request_tool",
     }
-    # 动态注册表新增的非基线工具不进 tools 参数（经 search_tools/request_tool 按需注入）
+    # 动态注册表新增的无标签工具不进 tools 参数（经 search_tools/request_tool 绑定后按 thread 注入）
     runtime.tool_registry["custom_dynamic"] = ToolSpec(
         name="custom_dynamic", description="动态注入"
     )
     specs2 = runtime.collect_specs()
-    assert len(specs2) == 10
+    assert len(specs2) == 17
     assert "custom_dynamic" not in {s.name for s in specs2}
-    # 但 merged_specs 全量可见
+    # 但 merged_specs 全量可见（工具 tab / 检索同源）
     all_names = {s.name for s in runtime.merged_specs()}
     assert "custom_dynamic" in all_names
 

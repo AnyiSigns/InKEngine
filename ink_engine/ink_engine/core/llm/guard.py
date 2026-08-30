@@ -5,7 +5,7 @@
   生产用量闭环接线：流式末帧 usage（``stream_options.include_usage``）
   与非流式 ``result.usage`` 统一上报，不再只活在测试里；
 - :class:`CompressingLLM`：LLM 调用前按 CompressPolicy 压缩消息流——
-  回合内上下文压缩：默认双阈值（30 条 / 40000 字符）触发，阈值
+  回合内上下文压缩：默认双阈值（30 条 / 160000 字符）触发，阈值
   与保留尾段长度可配，压缩是确定性非破坏视图（原始消息流不修改）。
 
 节点上下文经 :data:`current_node_context`（ContextVar）由执行器在节点
@@ -134,7 +134,7 @@ class CompressingLLM(AsyncLLM):
     """回合内上下文压缩包装：LLM 调用前按 CompressPolicy 压缩消息流。
 
     触发阈值与保留尾段长度可配（``policy``/``keep_recent``），默认
-    :class:`ThresholdCompressionPolicy`（30 条 / 40000 字符，构造参数可
+    :class:`ThresholdCompressionPolicy`（30 条 / 160000 字符，构造参数可
     覆盖）——触发前原样透传零改动；触发后旧消息段折叠为确定性摘要
     （:func:`compress_message_history`，非破坏性视图：原始消息流不修改）。
     """
@@ -153,7 +153,7 @@ class CompressingLLM(AsyncLLM):
         Args:
             inner: 被包装的模型/模型链（AsyncLLM 协议）。
             policy: 压缩策略（None = 引擎默认
-                :class:`ThresholdCompressionPolicy`，30 条/40000 字符）。
+                :class:`ThresholdCompressionPolicy`，30 条/160000 字符）。
             keep_recent: 压缩触发时保留的最近消息条数（system 消息恒保留）。
         """
         self._inner = inner

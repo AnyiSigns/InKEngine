@@ -373,6 +373,7 @@ class ToolApplyTarget(ApplyTarget):
         spec = DeclarativeToolSpec.from_dict(payload)
         self._runtime.harness_registry.declarative.register_definition(spec)
         self._runtime.tool_registry[spec.name] = spec.to_spec()
+        self._runtime.refresh_tool_index()
 
 
 class EventTypeApplyTarget(ApplyTarget):

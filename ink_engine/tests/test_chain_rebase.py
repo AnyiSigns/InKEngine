@@ -238,7 +238,8 @@ async def _put_rows(storage, rows):
 
 def _round_graph() -> Graph:
     """回合图：round 节点发事件并终止回合（reply），next 走回 round——
-    每轮都真实执行（宿主回合语义：终止节点带出边，续链从出边继续）。"""
+    每轮都真实执行（continue_chain 新回合从图入口重新执行；next 保留为
+    环形边合法性验证，续链路径不经过它）。"""
 
     async def round_node(ctx):
         await ctx.emit("log", {"n": ctx.state.get("count", 0)})
@@ -269,7 +270,8 @@ async def test_engine_rounds_keep_chain_bounded(memory_storage):
             continue_chain=last is not None,
         )
         last = result.state
-    # 单轮 2 行（终止节点行 = 终态 checkpoint），轮次入口压缩 → 上界 = keep + 2
+    # 单轮 1 行（每轮从入口重新执行，round 终止即终态 checkpoint），
+    # 轮次入口压缩 → 上界 = keep + 1
     links = await memory_storage.chain_index("t1")
     assert len(links) <= 5
     assert await validate_chain(memory_storage, "t1") == []
@@ -290,7 +292,8 @@ async def test_engine_edit_replay_skips_compaction(memory_storage):
     for i in range(5):
         await engine.ainvoke(state={"count": i}, thread_id="t1", continue_chain=True)
     links = await memory_storage.chain_index("t1")
-    assert len(links) > 5  # 禁用压缩时链完整
+    # 禁用压缩时链完整：新回合从入口重新执行，每轮 1 行（round 终态）
+    assert len(links) == 5
     # 开启压缩的分叉重放：入口跳过压缩，最老锚点仍可用
     old = links[-1]
     engine_fork = make_engine(_round_graph(), storage=memory_storage, checkpoint_keep=1)
@@ -301,7 +304,7 @@ async def test_engine_edit_replay_skips_compaction(memory_storage):
     )
     assert result.reason == TerminateReason.REPLY
     # 分叉后的普通轮次恢复压缩：链重新有界——分叉尾保留为第二叶根
-    # （keep=1 每叶 1 行：旧链尾 + 分叉尾 = 2 根），新轮 2 行 → 共 4
+    # （keep=1 每叶 1 行：旧链尾 + 分叉尾 = 2 根），新轮 1 行 → 共 3
     await engine_fork.ainvoke(
         state={}, thread_id="t1", continue_chain=True
     )

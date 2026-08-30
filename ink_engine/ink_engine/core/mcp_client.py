@@ -484,11 +484,48 @@ def _outer_cancellation_requested() -> bool:
 
 
 async def _suppress_stack_close(exit_stack: AsyncExitStack) -> None:
-    """清理路径：资源回收失败不掩盖原始失败（原始异常优先，仅记日志）。"""
+    """尽力关闭退出栈（失败只记日志：清理不掩盖原始错误）。"""
     try:
         await exit_stack.aclose()
     except BaseException as exc:
         logger.warning("MCP 连接清理失败（不掩盖原始错误）: %s", exc)
+
+
+def _is_connection_lost(exc: BaseException) -> bool:
+    """连接层断流判定（决定拉起后是否重试一次原操作）。
+
+    覆盖 MCP/anyio 在嵌入环境的主要断流形态；业务错误（server 已
+    受理返回）不含这些标记，不判为连接丢失。
+    """
+    text = str(exc).lower()
+    return (
+        "connection closed" in text
+        or "connection lost" in text
+        or "reset by peer" in text
+        or "broken pipe" in text
+        or "stream closed" in text
+        or "remote end closed" in text
+    )
+
+
+def _is_business_error(exc: BaseException) -> bool:
+    """业务失败判定（server 已受理并返回结构化错误）。
+
+    ``_SdkSession.call_tool`` 对 ``result.isError``（参数缺失/校验失败等）
+    抛 ``MCP 工具执行失败``——这是 server 端业务结论，不是进程崩溃：
+    直接透传给上层，不触发 stdio 拉起、不谎报「进程崩溃」。
+    """
+    return "MCP 工具执行失败" in str(exc)
+
+
+def _is_mcp_business_reject(exc: BaseException) -> bool:
+    """server 业务拒绝判定（JSON-RPC error 形态）。
+
+    SDK 对参数缺失/非法等 JSON-RPC error 抛 ``MCPError`` 异常（而非
+    ``result.isError``）——按异常类型名识别，惰性判定不 import mcp：
+    连接层异常（Connection closed 等）不含该类型名，原样透传。
+    """
+    return type(exc).__name__ == "MCPError"
 
 
 class _ExecStderrBridge:
@@ -690,6 +727,14 @@ class _SdkSession(McpSessionHandle):
             raise GraphDefinitionError(
                 f"MCP 工具调用超时: {name}（{_CALL_TIMEOUT} 秒）"
             ) from exc
+        except Exception as exc:
+            if _is_mcp_business_reject(exc):
+                # server 业务拒绝（参数缺失/非法等 JSON-RPC error，如 SDK
+                # 的 MCPError）：转明确业务错误——不当作进程崩溃传播
+                raise GraphDefinitionError(
+                    f"MCP 工具执行失败: {name}: {exc}"
+                ) from exc
+            raise  # 连接层异常（Connection closed 等）透传，交监督句柄处理
         if _result_is_error(result):
             raise GraphDefinitionError(
                 f"MCP 工具执行失败: {name}: {_extract_text(result)}"
@@ -697,7 +742,18 @@ class _SdkSession(McpSessionHandle):
         return _extract_text(result)
 
     async def aclose(self) -> None:
-        await self._exit_stack.aclose()
+        """释放会话与底层传输（连接生命周期归 manager 调用）。
+
+        吞掉关闭期异常：stdio_client（async generator）的底层 anyio
+        TaskGroup 在嵌入 asyncio 环境可能跨 task 退出（cancel scope
+        归属不同 task 报 RuntimeError）——关闭异常归日志，不向上抛，
+        否则 asyncio 在 asyncgen 关闭/GC 路径会打印噪音且掩盖真正的
+        连接错误。
+        """
+        try:
+            await self._exit_stack.aclose()
+        except Exception as exc:  # noqa: BLE001 关闭失败是清理噪音，不影响调用面
+            logger.warning("MCP 会话关闭异常（已吞掉，防 asyncio 后台报错）: %s", exc)
 
 
 class _SupervisedStdioSession(McpSessionHandle):
@@ -823,11 +879,18 @@ class _SupervisedStdioSession(McpSessionHandle):
         )
 
     async def _invoke(self, op: Callable[[_SdkSession], Any], op_name: str) -> Any:
-        """会话调用 + 崩溃拉起（失败不上抛原操作重试——见类注释）。
+        """会话调用 + 崩溃拉起（连接类失败拉起后重试一次；业务错误不重试）。
 
         按进程粒度串行（会话即进程：监督路径需要单一所有者，并发
         崩溃会双重拉起且失败互踩）。会话建立失败（进程秒崩）与
         调用期失败同走拉起路径——两者都是「进程不可用」。
+
+        重试语义（E-P15）：连接类失败（Connection closed——请求未达
+        server 或连接层断流）拉起成功后重试一次原操作：stdio 传输仅
+        承载 inkling_exec（研究链确定性纯函数工具），重试无副作用
+        风险；首连会话在嵌入 asyncio 环境不稳定（SDK stdio_client 的
+        TaskGroup 生命周期与事件循环亲和），重试可覆盖该抖动。业务
+        错误（如「缺参数」——server 已受理并返回）不重试，诚实失败。
         """
         async with self._lock:
             try:
@@ -837,7 +900,22 @@ class _SupervisedStdioSession(McpSessionHandle):
                 except asyncio.CancelledError:
                     raise
                 except Exception as exc:
+                    if _is_business_error(exc):
+                        # 业务失败（server 已受理并返回 is_error，如参数
+                        # 缺失）直接透传，不误判为进程崩溃、不触发拉起
+                        raise
+                    connection_lost = _is_connection_lost(exc)
                     await self._respawn(exc)
+                    if connection_lost:
+                        try:
+                            return await op(self._session)
+                        except asyncio.CancelledError:
+                            raise
+                        except Exception as exc2:
+                            raise McpToolImportError(
+                                f"MCP server {self._config.id} 的 stdio 进程在 {op_name} "
+                                f"期间崩溃（已按策略拉起并重试一次仍失败）: {exc2}"
+                            ) from exc2
                     raise McpToolImportError(
                         f"MCP server {self._config.id} 的 stdio 进程在 {op_name} 期间崩溃"
                         f"（已按策略拉起，本次调用未重试——防非幂等副作用）: {exc}"
@@ -847,6 +925,8 @@ class _SupervisedStdioSession(McpSessionHandle):
             except asyncio.CancelledError:
                 raise  # 外层取消原样穿透（不误判为进程崩溃）
             except Exception as exc:
+                if _is_business_error(exc):
+                    raise  # 业务失败（内层判定后透传）不被兜底误判
                 # 会话建立失败（首次拉起/进程秒崩）→ 走重试耗尽路径
                 await self._respawn(exc)
                 raise McpToolImportError(
@@ -895,7 +975,6 @@ class _SupervisedStdioSession(McpSessionHandle):
         if ping is None:
             return  # SDK 该版本无 ping 能力 → 无法探测，按存活判定
         await asyncio.wait_for(ping(), timeout=_CALL_TIMEOUT)
-
     async def aclose(self) -> None:
         """释放句柄（切断监督：后续访问按 ensure_open 重新拉起）。"""
         async with self._lock:

@@ -105,6 +105,9 @@ class ToolApplyTarget(ApplyTarget):
         self._runtime.tool_registry[spec.name] = spec.to_spec()
         # 同步内省工具源，使工具立即在界面/装配可见（与 rebuild_declarative_tools 一致）
         self._runtime.introspection_service._sources.tools = self._runtime.collect_specs()
+        # 单源 + 标签：tool_registry 变化后刷新检索索引（search_tools/
+        # request_tool 与工具 tab 同源，避免新增工具检索不可见）
+        self._runtime.refresh_tool_index()
 
 
 class EventTypeApplyTarget(ApplyTarget):
@@ -466,6 +469,7 @@ def rebuild_declarative_tools(
         registry.register_definition(spec)
         runtime.tool_registry[name] = spec.to_spec()
     runtime.introspection_service._sources.tools = runtime.collect_specs()
+    runtime.refresh_tool_index()
 
 
 __all__ = [

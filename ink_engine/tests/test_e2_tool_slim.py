@@ -111,14 +111,18 @@ async def test_collect_specs_baseline_count_and_limit():
         runtime.tool_registry[name] = ToolSpec(name=name, description=f"{name} 工具")
     specs = runtime.collect_specs()
     names = {s.name for s in specs}
-    assert len(specs) == 10
+    # 单源 + 标签注入集：immutable（内省 6 + 自指 6）+ baseline（file 5，
+    # 其中自指/内省名已在 immutable 内不去重计算）→ 12 + 5 = 17
+    assert len(specs) == 17
     assert names == {
+        "inspect_graph", "inspect_rules", "inspect_knowledge", "inspect_ui",
+        "inspect_tools", "inspect_entities",
+        "propose_patch", "apply_patch", "revert_patch",
+        "propose_domain_manifest", "search_tools", "request_tool",
         "file_read", "file_write", "file_edit", "grep", "glob",
-        "propose_patch", "propose_domain_manifest", "inspect_tools",
-        "search_tools", "request_tool",
     }
-    # 预算护栏：保底集永不超 12
-    assert len(specs) <= 12
+    # 预算护栏：注入集不超过默认上限 18
+    assert len(specs) <= 18
     await host.close()
 
 
@@ -136,7 +140,7 @@ async def test_tool_index_built_after_restore_before_rebuild():
     assert merged_names == {e.spec.name for e in runtime.tool_index._entries.values()}
     # 工具调配器已接线
     assert runtime.tool_selector is not None
-    assert runtime.tool_selector.max_tools == 16
+    assert runtime.tool_selector.max_tools == 18
     await host.close()
 
 
@@ -241,7 +245,8 @@ async def test_request_tool_binds_and_returns_spec():
     result = await executor(ctx, specs["request_tool"], {"name": "search_tools"}, None)
     data = json.loads(result)
     assert data["ok"] is True
-    assert data["message"] == "已绑定 search_tools，可调用"
+    assert data["message"].startswith("已绑定 search_tools")
+    assert "当前会话窗口" in data["message"]
     assert data["spec"]["name"] == "search_tools"
     assert "parameters" in data["spec"]
 
@@ -258,7 +263,7 @@ async def test_baseline_set_changes_collect_specs():
     runtime.tool_registry["mcp_new_tool"] = _spec("mcp_new_tool", "MCP 新挂载工具")
     before = {s.name for s in runtime.collect_specs()}
     assert "mcp_new_tool" not in before
-    assert len(before) == 10
+    assert len(before) == 17
     # 整集替换语义（前端勾选态全量提交）：加入 mcp_new_tool → 立即注入
     full = sorted({
         "file_read", "file_write", "file_edit", "grep", "glob",

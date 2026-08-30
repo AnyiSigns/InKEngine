@@ -54,8 +54,10 @@ STATE_RESULTS = "results"
 STATE_MESSAGES = "messages"
 STATE_PENDING = "pending"
 
-# LLM 决策循环护栏（回合工具循环上限；成本护栏与参考宿主同阶）
-MAX_TOOL_ROUNDS = 8
+# LLM 决策循环护栏（回合工具循环上限；成本护栏——24 轮 = 最多 24 次
+# LLM 决策调用，覆盖真实 agent 复杂任务（写项目+装依赖+跑测试+修复）
+# 的典型续航；护栏仍防成本失控，具体值可经能力记录设置项覆盖）
+MAX_TOOL_ROUNDS = 24
 
 # max_tool_rounds 用户覆盖（能力记录驱动；None = 用节点 config 默认值）。
 # 覆盖值在引擎重建前由宿主/桥从能力记录刷新（settings 保存 → capability_put

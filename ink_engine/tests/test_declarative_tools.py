@@ -247,6 +247,49 @@ def test_endpoint_operation_process_operation_param_declared():
     )
 
 
+def test_endpoint_operation_process_argv_stringified():
+    """process_exec argv 参数被模型字符串化时容错（JSON 字符串数组 → 数组）。
+
+    shell_exec 命令面 = argv[0]：模型常把嵌套数组输出为 JSON 字符串
+    （如 ``"[\\\"pip\\\", \\\"install\\\"]"``）——提取器须解析为数组再取
+    首元素作判定目标，否则 fail-closed 误拒（v8 实测 shell_exec 3/3 被拒）。
+    """
+    config = {
+        "operation_param": "argv",
+        "allowlist": ["pip", "python"],
+    }
+    op, target = endpoint_operation(
+        EndpointType.PROCESS_EXEC,
+        {"command": "shell_exec", "argv": '["pip", "install", "pytest"]'},
+        config=config,
+    )
+    assert (op, target) == ("exec", "pip")
+    # 失败原因：容错成功后返回 None（判定可成立）
+    assert (
+        endpoint_operation_failure_reason(
+            EndpointType.PROCESS_EXEC,
+            {"command": "shell_exec", "argv": '["pip", "install"]'},
+            config=config,
+        )
+        is None
+    )
+    # 非 JSON / 非数组字符串 = 无法判定（fail-closed），文案指引正确形态
+    assert (
+        endpoint_operation(
+            EndpointType.PROCESS_EXEC,
+            {"command": "shell_exec", "argv": "pip install"},
+            config=config,
+        )
+        is None
+    )
+    reason = endpoint_operation_failure_reason(
+        EndpointType.PROCESS_EXEC,
+        {"command": "shell_exec", "argv": "pip install"},
+        config=config,
+    )
+    assert reason and "字符串数组" in reason
+
+
 def test_endpoint_operation_file():
     """file_ops 端点：操作 + 路径作判定目标（非法操作不产生判定目标）。"""
     op, target = endpoint_operation(

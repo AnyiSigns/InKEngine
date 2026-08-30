@@ -28,6 +28,7 @@ docs/whitelist_audit.md 遗留 L1）。
 from __future__ import annotations
 
 import inspect
+import json
 import urllib.parse
 from collections.abc import Awaitable, Callable
 from dataclasses import dataclass, field
@@ -294,6 +295,26 @@ class DeclarativeToolSpec:
         )
 
 
+def coerce_argv(value: Any) -> list[str] | None:
+    """argv 参数规范化：数组直通；JSON 字符串数组尝试解析。
+
+    模型常把嵌套数组输出为 JSON 字符串（如 ``"[\"pip\", \"install\"]"``）——
+    判定/执行须统一收口为真正数组，否则 fail-closed 误拒（无法判定目标）
+    且执行体（命令面 = argv[0] 白名单）拿到字符串会拒绝。解析失败或
+    非字符串元素 = None（调用方按缺参处理）。
+    """
+    if isinstance(value, list):
+        return value if all(isinstance(x, str) for x in value) else None
+    if isinstance(value, str):
+        try:
+            parsed = json.loads(value)
+        except ValueError:
+            return None
+        if isinstance(parsed, list) and all(isinstance(x, str) for x in parsed):
+            return parsed
+    return None
+
+
 def endpoint_operation(
     endpoint: EndpointType, args: dict[str, Any], *, config: dict | None = None
 ) -> tuple[str, str] | None:
@@ -331,11 +352,11 @@ def endpoint_operation(
             command_param = str(config.get("operation_param") or "command")
         if command_param == "argv":
             # 命令面 = 参数数组首元素（shell_exec：判定目标 = argv[0] 真实
-            # 命令，白名单按命令面校验）
-            argv = args.get("argv")
+            # 命令，白名单按命令面校验）；argv 可能被模型字符串化，先规范化
+            argv = coerce_argv(args.get("argv"))
             command = (
                 argv[0]
-                if isinstance(argv, list) and argv and isinstance(argv[0], str)
+                if argv and isinstance(argv[0], str)
                 else None
             )
         else:
@@ -412,9 +433,9 @@ def endpoint_operation_failure_reason(
         if isinstance(config, dict):
             command_param = str(config.get("operation_param") or "command")
         if command_param == "argv":
-            argv = args.get("argv")
-            if not (isinstance(argv, list) and argv and isinstance(argv[0], str)):
-                return f"argv 参数缺失或首元素非命令名"
+            argv = coerce_argv(args.get("argv"))
+            if not (argv and isinstance(argv[0], str)):
+                return "argv 参数缺失或非法（应为字符串数组，如 [\"python\", \"--version\"]）"
             return None
         command = args.get(command_param)
         if not isinstance(command, str) or not command:
@@ -925,6 +946,7 @@ __all__ = [
     "DeclarativeToolSpec",
     "EndpointType",
     "build_declarative_pipeline",
+    "coerce_argv",
     "endpoint_operation",
     "make_declarative_extractor",
     "make_http_fetch_executor",

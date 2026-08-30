@@ -41,6 +41,7 @@ from ink_engine.core.declarative_tools import (
     DeclarativeToolExecutors,
     DeclarativeToolSpec,
     EndpointType,
+    coerce_argv,
 )
 from ink_engine.core.exceptions import SandboxViolation
 from ink_engine.core.logging import get_logger
@@ -1042,6 +1043,13 @@ def make_process_exec_executor(
                 },
                 ensure_ascii=False,
             )
+        # argv 参数规范化：模型可能把数组输出为 JSON 字符串（提取器已容错
+        # 判定，执行体须同步收口为数组——命令面/白名单按 argv[0] 真实命令）
+        if "argv" in args:
+            argv = coerce_argv(args["argv"])
+            if argv is not None:
+                args = dict(args)
+                args["argv"] = argv
         command = str(args.get("command") or "")
         if command != name:
             return json.dumps(
@@ -1217,6 +1225,7 @@ class SecurityDomain:
         runtime.tool_pipeline = SecurityToolPipeline(
             gate=self.gate,
             extractor=old.extractor,
+            failure_reason=old.failure_reason,
             executor=old.executor,
             sandboxes=(self.sandbox,),
             guards=old.guards,

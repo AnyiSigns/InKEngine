@@ -42,7 +42,7 @@ pub enum ParamType {
 #[derive(Debug, Clone, Deserialize)]
 #[serde(tag = "mode", rename_all = "snake_case")]
 pub enum SandboxRule {
-    /// 值白名单（launch_app 命令 / system_query、screen_query 查询面）
+    /// 值白名单（launch_app 命令 / system_query、ui_query 查询面）
     #[serde(alias = "query_allowlist")]
     CommandAllowlist { allowlist: Vec<String> },
     /// 路径根（open_file / file_query：须位于工作区挂载根内）
@@ -51,11 +51,6 @@ pub enum SandboxRule {
     Bounds { min: i64, max: i64 },
     /// 长度上限（notify）
     LengthCaps { title_max: usize, body_max: usize },
-    /// 进程模板（run_typecheck / run_test_*：钉死参数模板 + 超时上限）。
-    /// filter_arg = 受限筛选参数拼接位（None = 不接受筛选；Some(标志) =
-    /// 筛选值以 [标志, 值] 追加到模板尾部——仅测试/构建类工具声明，
-    /// 值本身经字符集/长度/前导符校验，杜绝参数注入面）
-    ProcessTemplate { argv: Vec<String>, timeout_secs: u64, filter_arg: Option<String> },
     /// 坐标点击（x/y 边界 + 按键白名单；UI 控制类 click 的沙箱，越界/越权按键拒绝）。
     CoordinateClick {
         x_min: i64,

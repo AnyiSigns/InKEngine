@@ -6,6 +6,9 @@
 //! 占比）。总分为四维加权均值（权重可经参数覆盖，缺省出厂口径）。
 //! 交叉验证是「样例库 = 数据 ↔ 执行件绑定」的运行时落点：samples.json
 //! 的 facts 是交叉验证的基准，测试断言两者不漂移。
+//!
+//! 已并入 review_material（phase=score 委托本模块执行）；本模块不再
+//! 单独对协议层暴露工具名，仍保留独立单测供回归。
 
 use crate::json::{object_from_pairs, Object, Value};
 use crate::tool::{number_schema, string_schema, ToolError, ToolErrorKind};
@@ -195,7 +198,8 @@ fn claim_overlap(claim_norm: &str, normalized_facts: &[String]) -> f64 {
         .fold(0.0_f64, f64::max)
 }
 
-/// score_material：参数 {answer: {claims, citations?}, sources?, weights?}。
+/// score 阶段执行体（经 review_material phase=score 委托）：参数
+/// {answer: {claims, citations?}, sources?, weights?}。
 pub fn run(args: &Value) -> Result<Value, ToolError> {
     let args = args
         .as_object()

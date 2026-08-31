@@ -33,13 +33,13 @@ const mockTools: ToolManifestEntry[] = [
     baseline: false,
   },
   {
-    name: 'screen_query',
-    description: '查询屏幕信息。',
+    name: 'ui_query',
+    description: '查询界面元素。',
     parameters: {},
     permissions: ['mcp:call:os'],
     approval: 'allow',
     endpoint: 'mcp',
-    meta: { domain: 'os', tier: 'main', sensor: 'screen' },
+    meta: { domain: 'os', tier: 'main', sensor: 'ui' },
     baseline: false,
   },
   {

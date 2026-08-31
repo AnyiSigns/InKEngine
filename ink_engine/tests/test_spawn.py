@@ -89,6 +89,41 @@ async def test_command_spawn_collects(memory_storage):
     assert SPAWN_KEY not in state  # 保留键不落状态
 
 
+async def test_spawn_emits_start_end_events(memory_storage):
+    """ENG3-12 回归：命令式 ctx.spawn 展开发射 spawn_start/spawn_end 事件
+    （事件类型已注册但此前命令式路径从未发射——机制专项误判「spawn 假
+    成功」：子图实际执行但事件计数 0）。"""
+    from ink_engine.core.events import CollectorTransport
+
+    async def sub_node(ctx):
+        return {"sub_done": True}
+
+    sub = Graph(name="sub", entry="s1")
+    sub.add_node("s1", sub_node)
+    sub.add_exit("s1")
+
+    async def route(ctx):
+        ctx.spawn(sub, {"seed": 1})
+        return {}
+
+    collector = CollectorTransport()
+    engine = make_engine(
+        _parent_graph(route),
+        storage=memory_storage,
+        transports=[collector],
+    )
+    state, result = await _run(engine, thread_id="t1")
+    assert result.reason == TerminateReason.REPLY
+    types = [e.type for e in collector.events]
+    assert "spawn_start" in types, f"应发射 spawn_start（实际 {types}）"
+    assert "spawn_end" in types, f"应发射 spawn_end（实际 {types}）"
+    start = next(e for e in collector.events if e.type == "spawn_start")
+    end = next(e for e in collector.events if e.type == "spawn_end")
+    assert start.payload.get("count") == 1
+    assert end.payload.get("succeeded") == 1
+    assert end.payload.get("failed") == 0
+
+
 async def test_instance_state_isolation(memory_storage):
     """实例隔离：入口状态自包含——实例看不到父状态通道。"""
 

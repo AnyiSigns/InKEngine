@@ -1069,7 +1069,7 @@ impl FileOpsExecutor {
                     .strip_prefix(&root)
                     .map(|p| p.to_string_lossy().replace('\\', "/"))
                     .unwrap_or_default();
-                if !glob_pattern.is_empty() && !fn_match(glob_pattern, &rel) {
+                if !glob_pattern.is_empty() && !glob_match(glob_pattern, &rel) {
                     continue;
                 }
                 if !include.is_empty() && !include_matches(include, &path) {
@@ -2362,7 +2362,7 @@ mod tests {
         std::fs::create_dir_all(ws.join("src").join("sub")).unwrap();
         std::fs::write(ws.join("src").join("main.rs"), "fn main() { println!(\"墨引擎\"); }").unwrap();
         std::fs::write(ws.join("src").join("sub").join("lib.rs"), "// 墨引擎注释\npub fn lib() {}").unwrap();
-        std::fs::write(ws.join("src").join("notes.txt"), "plain text").unwrap();
+        std::fs::write(ws.join("src").join("notes.txt"), "墨引擎 plain text").unwrap();
         let limits = SizeLimits { max_read: DEFAULT_MAX_READ_BYTES, max_write: DEFAULT_MAX_WRITE_BYTES };
         let mut executor = FileOpsExecutor::default();
 
@@ -2379,9 +2379,34 @@ mod tests {
         assert_eq!(matches[0]["line"], 1);
         assert!(matches[0]["snippet"].as_str().unwrap().contains("墨引擎"));
 
+        // grep glob `**` 根级文件匹配（ENG3-12 回归：**/*.txt 同时匹配
+        // 根级文件与任意深度子目录文件——根级曾因 fn_match 不跨 `**`
+        // 分隔符语义漏匹配，改用 glob_match 修复）
+        std::fs::write(ws.join("root.txt"), "墨引擎 root 文本").unwrap();
+        let root_glob = executor.call(
+            &json!({"operation": "search", "root": ws.to_string_lossy(),
+                    "pattern": "墨引擎", "glob": "**/*.txt"}),
+            &limits,
+        );
+        let root_parsed: JsonValue = serde_json::from_str(&root_glob).unwrap();
+        assert_eq!(root_parsed["ok"], true);
+        let root_matches = root_parsed["matches"].as_array().unwrap();
+        let root_paths: Vec<&str> = root_matches
+            .iter()
+            .map(|m| m["path"].as_str().unwrap())
+            .collect();
+        assert!(
+            root_paths.contains(&"root.txt"),
+            "`**` 前缀应匹配根级文件（实际 {root_paths:?}）"
+        );
+        assert!(
+            root_paths.contains(&"src/notes.txt"),
+            "`**` 应继续匹配子目录文件（实际 {root_paths:?}）"
+        );
+
         // include 类型过滤（.txt 后缀语义）
         let typed = executor.call(
-            &json!({"operation": "search", "root": ws.to_string_lossy(), "pattern": "plain", "include": ".txt"}),
+            &json!({"operation": "search", "root": ws.to_string_lossy(), "pattern": "plain text", "include": ".txt"}),
             &limits,
         );
         let typed_parsed: JsonValue = serde_json::from_str(&typed).unwrap();

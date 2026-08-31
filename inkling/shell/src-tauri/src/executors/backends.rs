@@ -24,15 +24,14 @@ pub trait SystemBackend: Send + Sync {
     fn run_process(&self, argv: &[String], cwd: &str, timeout_secs: u64) -> Result<String, String>;
     /// 元素树感知（只读）：枚举前台窗口 + 顶级窗口 + 子窗口层级，返回 JSON 元素树。
     ///
+    /// scope=foreground 只返回前台窗口子树；all（缺省）返回全部顶级窗口。
     /// 只读、无控制权；越权域（非桌面窗口/隐私控件）由上游作用域白名单拒绝，
     /// 本方法只负责收集当前桌面的窗口/控件层级。
-    fn ui_tree_query(&self) -> Result<String, String>;
+    fn ui_tree_query(&self, scope: &str) -> Result<String, String>;
     /// 鼠标点击（屏幕坐标 + 按键）；真实副作用仅经此触发。
     fn ui_click(&self, x: i32, y: i32, button: &str) -> Result<String, String>;
     /// 文本输入（键盘事件注入）；真实副作用仅经此触发。
     fn ui_type(&self, text: &str) -> Result<String, String>;
-    /// 窗口清单（JSON：句柄/标题/可见性）。
-    fn window_list(&self) -> Result<String, String>;
     /// 聚焦窗口（按句柄/标题/foreground 定位）。
     fn window_focus(&self, handle: &str) -> Result<String, String>;
     /// 最小化窗口（按句柄/标题/foreground 定位）。
@@ -252,8 +251,8 @@ impl SystemBackend for PlatformBackend {
         run_process_impl(argv, cwd, timeout_secs)
     }
 
-    fn ui_tree_query(&self) -> Result<String, String> {
-        windows_ui_ops::query_ui_tree()
+    fn ui_tree_query(&self, scope: &str) -> Result<String, String> {
+        windows_ui_ops::query_ui_tree(scope)
     }
 
     fn ui_click(&self, x: i32, y: i32, button: &str) -> Result<String, String> {
@@ -262,10 +261,6 @@ impl SystemBackend for PlatformBackend {
 
     fn ui_type(&self, text: &str) -> Result<String, String> {
         windows_ui_ops::type_text(text)
-    }
-
-    fn window_list(&self) -> Result<String, String> {
-        windows_ui_ops::list_windows()
     }
 
     fn window_focus(&self, handle: &str) -> Result<String, String> {
@@ -501,22 +496,26 @@ use serde_json::{json, Value};
         String::from_utf16_lossy(&buffer[..copied as usize])
     }
 
-    /// EnumWindows/EnumChildWindows 回调（经 lParam 回传收集容器，避免捕获）。
-    extern "system" fn collect_window(hwnd: *mut c_void, lparam: isize) -> i32 {
-        let list = unsafe { &mut *(lparam as *mut Vec<RawWindow>) };
+    /// 单窗口 → RawWindow（句柄/标题/类名/可见性/最小化态/屏幕矩形）。
+    fn raw_window_of(hwnd: *mut c_void) -> RawWindow {
         let mut rect = Rect { left: 0, top: 0, right: 0, bottom: 0 };
         unsafe {
             GetWindowRect(hwnd, &mut rect);
         }
-        let raw = RawWindow {
+        RawWindow {
             hwnd: hwnd as usize,
             title: unsafe { read_window_text(hwnd) },
             class_name: unsafe { read_class_name(hwnd) },
             visible: unsafe { IsWindowVisible(hwnd) != 0 },
             minimized: unsafe { IsIconic(hwnd) != 0 },
             rect,
-        };
-        list.push(raw);
+        }
+    }
+
+    /// EnumWindows/EnumChildWindows 回调（经 lParam 回传收集容器，避免捕获）。
+    extern "system" fn collect_window(hwnd: *mut c_void, lparam: isize) -> i32 {
+        let list = unsafe { &mut *(lparam as *mut Vec<RawWindow>) };
+        list.push(raw_window_of(hwnd));
         1
     }
 
@@ -567,8 +566,21 @@ use serde_json::{json, Value};
         })
     }
 
-    /// 元素树感知：前台窗口句柄 + 顶级窗口列表 + 每窗口子窗口层级。
-    pub fn query_ui_tree() -> Result<String, String> {
+    /// 元素树感知：scope=foreground 仅前台窗口子树；all（缺省）前台窗口
+    /// 句柄 + 顶级窗口列表 + 每窗口子窗口层级。
+    pub fn query_ui_tree(scope: &str) -> Result<String, String> {
+        if scope == "foreground" {
+            let fg = unsafe { GetForegroundWindow() };
+            if fg.is_null() {
+                return Ok(json!({ "foreground": Value::Null, "windows": [] }).to_string());
+            }
+            let w = raw_window_of(fg);
+            return Ok(json!({
+                "foreground": json!(w.hwnd.to_string()),
+                "windows": vec![window_to_json(&w)],
+            })
+            .to_string());
+        }
         let top = collect_top_level();
         let windows: Vec<Value> = top.iter().map(window_to_json).collect();
         let fg = unsafe { GetForegroundWindow() as usize };
@@ -670,24 +682,6 @@ use serde_json::{json, Value};
             .map(|w| w.hwnd as *mut c_void)
     }
 
-    /// 窗口清单（句柄/标题/可见性，不含子层级）。
-    pub fn list_windows() -> Result<String, String> {
-        let top = collect_top_level();
-        let windows: Vec<Value> = top
-            .iter()
-            .map(|w| {
-                json!({
-                    "handle": w.hwnd.to_string(),
-                    "title": w.title,
-                    "class": w.class_name,
-                    "visible": w.visible,
-                    "minimized": w.minimized,
-                })
-            })
-            .collect();
-        Ok(json!({ "windows": windows }).to_string())
-    }
-
     /// 聚焦窗口（定位失败 = 失败，fail-closed）。
     pub fn focus_window(handle: &str) -> Result<String, String> {
         let Some(hwnd) = find_window(handle) else {
@@ -735,8 +729,8 @@ use serde_json::{json, Value};
         }
 
         #[test]
-        fn window_list_entries_have_minimized_field() {
-            let result = list_windows().expect("窗口枚举应成功");
+        fn ui_tree_entries_have_minimized_and_rect() {
+            let result = query_ui_tree("all").expect("窗口枚举应成功");
             let json: Value = serde_json::from_str(&result).expect("应为 JSON");
             let windows = json["windows"].as_array().expect("应有 windows 数组");
             if windows.is_empty() {
@@ -744,9 +738,13 @@ use serde_json::{json, Value};
             }
             assert!(
                 windows[0].get("minimized").is_some(),
-                "window_list 每项应有 minimized 字段: {json}"
+                "ui_tree 每项应有 minimized 字段: {json}"
             );
             assert!(windows[0]["minimized"].is_boolean());
+            assert!(
+                windows[0].get("rect").is_some(),
+                "ui_tree 每项应有 rect 字段: {json}"
+            );
         }
 
         #[test]
@@ -776,7 +774,7 @@ use serde_json::{json, Value};
 
 #[cfg(not(windows))]
 mod windows_ui_ops {
-    pub fn query_ui_tree() -> Result<String, String> {
+    pub fn query_ui_tree(_scope: &str) -> Result<String, String> {
         Err("当前平台不支持 UI 元素树感知".to_string())
     }
     pub fn click(_x: i32, _y: i32, _button: &str) -> Result<String, String> {
@@ -784,9 +782,6 @@ mod windows_ui_ops {
     }
     pub fn type_text(_text: &str) -> Result<String, String> {
         Err("当前平台不支持文本输入".to_string())
-    }
-    pub fn list_windows() -> Result<String, String> {
-        Err("当前平台不支持窗口枚举".to_string())
     }
     pub fn focus_window(_handle: &str) -> Result<String, String> {
         Err("当前平台不支持窗口聚焦".to_string())
@@ -889,8 +884,8 @@ impl SystemBackend for ShellBackend {
         self.platform.run_process(argv, cwd, timeout_secs)
     }
 
-    fn ui_tree_query(&self) -> Result<String, String> {
-        self.platform.ui_tree_query()
+    fn ui_tree_query(&self, scope: &str) -> Result<String, String> {
+        self.platform.ui_tree_query(scope)
     }
 
     fn ui_click(&self, x: i32, y: i32, button: &str) -> Result<String, String> {
@@ -899,10 +894,6 @@ impl SystemBackend for ShellBackend {
 
     fn ui_type(&self, text: &str) -> Result<String, String> {
         self.platform.ui_type(text)
-    }
-
-    fn window_list(&self) -> Result<String, String> {
-        self.platform.window_list()
     }
 
     fn window_focus(&self, handle: &str) -> Result<String, String> {
@@ -970,8 +961,11 @@ impl SystemBackend for MockBackend {
         Ok(format!("mock:run {}（exit 0）", argv.join(" ")))
     }
 
-    fn ui_tree_query(&self) -> Result<String, String> {
-        self.calls.lock().unwrap().push("ui_tree_query".into());
+    fn ui_tree_query(&self, scope: &str) -> Result<String, String> {
+        self.calls
+            .lock()
+            .unwrap()
+            .push(format!("ui_tree_query:{scope}"));
         // 结构化元素树（前台窗口 + 窗口列表 + 子窗口层级），供断言 JSON 形态。
         Ok(serde_json::json!({
             "foreground": "1",
@@ -1007,21 +1001,6 @@ impl SystemBackend for MockBackend {
     fn ui_type(&self, text: &str) -> Result<String, String> {
         self.calls.lock().unwrap().push(format!("ui_type:{text}"));
         Ok(format!("mock:type {text}"))
-    }
-
-    fn window_list(&self) -> Result<String, String> {
-        self.calls.lock().unwrap().push("window_list".into());
-        Ok(serde_json::json!({
-            "windows": [
-                {
-                    "handle": "1",
-                    "title": "mock-window",
-                    "class": "MockWindow",
-                    "visible": true
-                }
-            ]
-        })
-        .to_string())
     }
 
     fn window_focus(&self, handle: &str) -> Result<String, String> {

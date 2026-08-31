@@ -128,8 +128,8 @@
 ```
 实体「security_reviewer」（entities.json 条目）
 └─ subgraph_recipe = Graph 数据：
-     nodes:  { intent_parse→pool, file_read→pool, score_material→pool, ... }  ← 引用结点池
-     edges:  { intent_parse→file_read, file_read→score_material, ... }          ← 内部边数据
+     nodes:  { intent_parse→pool, file_read→pool, review_material→pool, ... }  ← 引用结点池
+     edges:  { intent_parse→file_read, file_read→review_material, ... }          ← 内部边数据
      entry / exits
 ```
 

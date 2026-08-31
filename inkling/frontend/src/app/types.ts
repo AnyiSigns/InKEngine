@@ -76,7 +76,7 @@ export const RESEARCH_TOOLS = [
   'collect_material',
   'parse_material',
   'validate_material',
-  'score_material',
+  'review_material',
   'distill_knowledge',
   'mutate_knowledge',
 ] as const;

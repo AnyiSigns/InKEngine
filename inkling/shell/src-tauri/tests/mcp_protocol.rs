@@ -63,23 +63,22 @@ fn tools_list_exposes_only_device_endpoint_tools() {
         .iter()
         .map(|t| t["name"].as_str().unwrap().to_string())
         .collect();
-    assert!(names.contains(&"screen_query".to_string()));
+    assert!(names.contains(&"ui_query".to_string()));
     assert!(names.contains(&"file_query".to_string()));
     // process_exec 端点工具不出现在设备 server（端点隔离）
     assert!(!names.contains(&"launch_app".to_string()));
     // inputSchema 与执行器签名一致（声明驱动投影）
-    let screen = tools.iter().find(|t| t["name"] == "screen_query").unwrap();
-    assert!(screen["inputSchema"]["required"].as_array().unwrap().contains(&serde_json::json!("target")));
+    let ui = tools.iter().find(|t| t["name"] == "ui_query").unwrap();
+    assert!(ui["inputSchema"]["properties"].as_object().unwrap().contains_key("target"));
 }
 
 #[test]
-fn tools_call_screen_query_happy_path_after_engine_dispatch() {
-    let (server, ledger) = server();
-    // L2：引擎侧审批流水线先行裁决（放行态登记入台账）→ 同一裁决函数放行
-    ledger.record_engine_dispatch("screen_query", &args(&[("target", "resolution".into())]));
+fn tools_call_ui_query_happy_path() {
+    let (server, _ledger) = server();
+    // ui_query 为 allow 档只读感知（无需审批态），target=resolution 走屏幕参数面
     let response = call_line(
         &server,
-        r#"{"jsonrpc":"2.0","id":3,"method":"tools/call","params":{"name":"screen_query","arguments":{"target":"resolution"}}}"#,
+        r#"{"jsonrpc":"2.0","id":3,"method":"tools/call","params":{"name":"ui_query","arguments":{"target":"resolution"}}}"#,
     );
     assert_eq!(response["id"], 3);
     assert_eq!(response["result"]["isError"], false);
@@ -93,7 +92,7 @@ fn review_tool_rejected_without_approval_state() {
     let (server, _ledger) = server();
     let response = call_line(
         &server,
-        r#"{"jsonrpc":"2.0","id":30,"method":"tools/call","params":{"name":"screen_query","arguments":{"target":"resolution"}}}"#,
+        r#"{"jsonrpc":"2.0","id":30,"method":"tools/call","params":{"name":"file_query","arguments":{"path":"/tmp/x"}}}"#,
     );
     assert!(response["error"].is_object(), "无审批态须拒绝: {response}");
     assert!(
@@ -106,11 +105,10 @@ fn review_tool_rejected_without_approval_state() {
 
 #[test]
 fn tools_call_sandbox_violation_returns_error() {
-    let (server, ledger) = server();
-    ledger.record_engine_dispatch("screen_query", &args(&[("target", "spy_camera".into())]));
+    let (server, _ledger) = server();
     let response = call_line(
         &server,
-        r#"{"jsonrpc":"2.0","id":4,"method":"tools/call","params":{"name":"screen_query","arguments":{"target":"spy_camera"}}}"#,
+        r#"{"jsonrpc":"2.0","id":4,"method":"tools/call","params":{"name":"ui_query","arguments":{"target":"spy_camera"}}}"#,
     );
     assert!(response["error"].is_object(), "沙箱越界应返回 JSON-RPC 错误");
     assert!(response["error"]["message"].as_str().unwrap().contains("沙箱越界"));
@@ -152,10 +150,10 @@ fn notifications_are_ignored() {
 #[test]
 fn missing_args_reported_as_error() {
     let (server, ledger) = server();
-    ledger.record_engine_dispatch("screen_query", &args(&[]));
+    ledger.record_engine_dispatch("file_query", &args(&[]));
     let response = call_line(
         &server,
-        r#"{"jsonrpc":"2.0","id":7,"method":"tools/call","params":{"name":"screen_query","arguments":{}}}"#,
+        r#"{"jsonrpc":"2.0","id":7,"method":"tools/call","params":{"name":"file_query","arguments":{}}}"#,
     );
     assert!(response["error"].is_object(), "缺参应返回错误（参数校验在注册表层）");
 }

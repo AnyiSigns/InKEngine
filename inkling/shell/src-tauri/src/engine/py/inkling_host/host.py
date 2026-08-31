@@ -24,6 +24,7 @@ import itertools
 import json
 import os
 import tempfile
+import time
 from collections.abc import Callable
 from dataclasses import dataclass
 from pathlib import Path
@@ -1312,6 +1313,145 @@ def register_domain_tools(runtime: Runtime, bundle: SeedDataBundle) -> None:
     runtime.refresh_tool_index()
 
 
+def make_task_manager_executor(runtime: Runtime) -> Any:
+    """待办清单执行体：``todo:<thread_id>`` 持久化清单（agent 自我管理）。
+
+    args（tools.json task_manager 声明）：operation=create/update/complete/
+    list/clear + 条目字段。清单按 thread 隔离（各会话独立），操作即落库
+    （任何时刻收口不丢），变更写 set_audit（append-only 审计）。storage
+    不可用 = 纯内存降级（仍可操作，不落库）。
+    """
+
+    def _default() -> dict[str, Any]:
+        return {"entries": [], "next_order": 0}
+
+    async def _load(thread_id: str) -> dict[str, Any]:
+        storage = getattr(runtime, "storage", None)
+        if storage is None:
+            return _default()
+        rec = await storage.get_record(f"todo:{thread_id}", "list")
+        if not isinstance(rec, dict):
+            return _default()
+        entries = rec.get("entries")
+        if not isinstance(entries, list):
+            entries = []
+        return {"entries": entries, "next_order": int(rec.get("next_order") or len(entries))}
+
+    async def _save(thread_id: str, data: dict[str, Any]) -> None:
+        storage = getattr(runtime, "storage", None)
+        if storage is None:
+            return
+        await storage.put_record(f"todo:{thread_id}", "list", data)
+
+    async def _audit(record: dict[str, Any]) -> None:
+        storage = getattr(runtime, "storage", None)
+        if storage is None:
+            return
+        import uuid as _uuid
+
+        key = f"todo-{_uuid.uuid4().hex[:12]}"
+        try:
+            allow = getattr(storage, "allow_mechanism", None)
+            if callable(allow):
+                async with allow("set_audit"):
+                    await storage.put_record("set_audit", key, record)
+            else:
+                await storage.put_record("set_audit", key, record)
+        except Exception:  # noqa: BLE001 - 审计失败不阻断操作
+            pass
+
+    async def execute(ctx: Any, definition: Any, args: dict, approval: Any) -> str:
+        op = str(args.get("operation") or "")
+        thread_id = getattr(ctx, "thread_id", None) or "default"
+        data = await _load(thread_id)
+        entries = data["entries"]
+        now = time.time()
+        if op == "create":
+            title = str(args.get("title") or "").strip()
+            if not title:
+                return json.dumps({"ok": False, "error": "create 需 title 参数"}, ensure_ascii=False)
+            n = data["next_order"]
+            entry = {
+                "id": f"task-{n}",
+                "title": title,
+                "detail": str(args.get("detail") or "").strip() or None,
+                "priority": str(args.get("priority") or "medium"),
+                "status": "pending",
+                "evidence": None,
+                "order": n,
+                "created_at": now,
+                "updated_at": now,
+                "completed_at": None,
+            }
+            entries.append(entry)
+            data["next_order"] = n + 1
+            await _save(thread_id, data)
+            await _audit(
+                {"kind": "todo", "op": "create", "id": entry["id"], "thread_id": thread_id,
+                 "title": title, "ts": now}
+            )
+            return json.dumps({"ok": True, "id": entry["id"], "status": "pending"}, ensure_ascii=False)
+        if op in ("update", "complete"):
+            eid = str(args.get("id") or "")
+            entry = next((e for e in entries if e.get("id") == eid), None)
+            if entry is None:
+                return json.dumps({"ok": False, "error": f"待办条目不存在: {eid}"}, ensure_ascii=False)
+            if op == "complete":
+                entry["status"] = "done"
+                entry["completed_at"] = now
+                if args.get("evidence"):
+                    entry["evidence"] = str(args["evidence"])
+            else:
+                for field in ("title", "detail", "priority", "status", "evidence"):
+                    if field in args:
+                        value = args[field]
+                        entry[field] = str(value) if value is not None else None
+                if entry.get("status") == "done" and entry.get("completed_at") is None:
+                    entry["completed_at"] = now
+            entry["updated_at"] = now
+            await _save(thread_id, data)
+            await _audit(
+                {"kind": "todo", "op": op, "id": eid, "status": entry.get("status"),
+                 "thread_id": thread_id, "ts": now}
+            )
+            return json.dumps({"ok": True, "entry": entry}, ensure_ascii=False)
+        if op == "list":
+            status_filter = str(args.get("status_filter") or "").strip()
+            limit = max(1, min(int(args.get("limit") or 20), 100))
+            result = [e for e in entries if not status_filter or e.get("status") == status_filter]
+            result.sort(
+                key=lambda e: (
+                    {"high": 0, "medium": 1, "low": 2}.get(e.get("priority"), 1),
+                    e.get("order", 0),
+                )
+            )
+            return json.dumps(
+                {"ok": True, "entries": result[:limit], "total": len(entries)}, ensure_ascii=False
+            )
+        if op == "clear":
+            removed = [e["id"] for e in entries if e.get("status") == "done"]
+            entries[:] = [e for e in entries if e.get("status") != "done"]
+            await _save(thread_id, data)
+            await _audit(
+                {"kind": "todo", "op": "clear", "removed": removed, "thread_id": thread_id, "ts": now}
+            )
+            return json.dumps({"ok": True, "removed": removed}, ensure_ascii=False)
+        if op == "delete":
+            eid = str(args.get("id") or "")
+            entry = next((e for e in entries if e.get("id") == eid), None)
+            if entry is None:
+                return json.dumps({"ok": False, "error": f"待办条目不存在: {eid}"}, ensure_ascii=False)
+            entries[:] = [e for e in entries if e.get("id") != eid]
+            await _save(thread_id, data)
+            await _audit(
+                {"kind": "todo", "op": "delete", "id": eid, "thread_id": thread_id, "ts": now}
+            )
+            return json.dumps({"ok": True, "id": eid, "removed": True}, ensure_ascii=False)
+        return json.dumps({"ok": False, "error": f"未知 operation: {op}"}, ensure_ascii=False)
+
+    return execute
+
+
 def make_collab_request_executor(runtime: Runtime, host: Any = None) -> Any:
     """协作者召唤执行体：实体目录 → spawn 子图物化（多 agent 动态协作）。
 
@@ -1407,10 +1547,10 @@ def register_host_executors(
     """宿主声明式执行器注册（机制层不代注册执行实现，宿主职责）。
 
     - process_exec：propose_mcp_mount（对话式安装入口）走挂载服务；
-      OS 控制九件经 OS 执行器注册表分发——执行实现经回调桥转发到壳侧
+      OS 控制件经 OS 执行器注册表分发——执行实现经回调桥转发到壳侧
       执行器注册表（同一套运行体，引擎链路与壳命令共用；回调桥未接线
-      时降级为未注册明确失败，不崩溃）；deny 档（shell_exec）执行体
-      二次拒绝（纵深防御）；
+      时降级为未注册明确失败，不崩溃）；shell_exec（混合 shell）白名单
+      外命令经升级审批后带 _escalated 标记分发；
     - http_fetch：fetch 网络策略执行体（域名白名单二次核对，
       取回实现可注入，缺省 httpx）；
     - file_ops：文件开发执行体（工作区读写编辑 + 写前快照 + 大小上限）。
@@ -1438,6 +1578,10 @@ def register_host_executors(
         EndpointType.COLLAB_REQUEST,
         make_collab_request_executor(runtime, host=host),
     )
+    runtime.harness_registry.declarative.register(
+        EndpointType.TASK_MANAGER,
+        make_task_manager_executor(runtime),
+    )
 
 
 # 壳侧执行器注册表承载的 OS 命令清单（与 fixtures/tools_os.json 一一对应；
@@ -1450,15 +1594,10 @@ _OS_BRIDGE_COMMANDS = (
     "set_brightness",
     "notify",
     "sleep",
-    "screen_query",
     "file_query",
-    "run_typecheck",
-    "run_test_cargo",
-    "run_test_python",
-    "run_test_web",
+    "ui_query",
     "ui_click",
     "ui_type",
-    "window_list",
     "window_focus",
     "window_minimize",
     "doc_parse",

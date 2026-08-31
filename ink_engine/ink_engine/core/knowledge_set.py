@@ -51,6 +51,24 @@ logger = get_logger(__name__)
 # 合法地写入 None）
 _UNSET = object()
 
+
+def _has_cjk(text: str) -> bool:
+    """含 CJK 表意字符（中文无空格边界，分词缺陷的判定依据）。"""
+    return any("\u4e00" <= ch <= "\u9fff" for ch in text)
+
+
+def _cjk_bigrams(text: str) -> tuple[str, ...]:
+    """CJK 长 token 的 2-gram 滑窗展开（去重保序）。
+
+    中文长句（装配 query = 回合输入全文）无空格边界，空格分词会整段
+    塌缩为单个超长 token——按 2-gram 滑窗展开为关键片段，检索命中
+    「任一连续 2 字片段」即可进入候选并按命中数评分，中文 query 不再
+    必然 0 命中。
+    """
+    if len(text) < 2:
+        return (text,)
+    return tuple(dict.fromkeys(text[i : i + 2] for i in range(len(text) - 1)))
+
 # 知识层级（晋升方向固定：工作流水账 → 项目沉淀 → 用户毕业）
 LEVEL_WORK = "work"
 LEVEL_PROJECT = "project"
@@ -788,25 +806,49 @@ class KnowledgeSet:
         检索已有条目，命中复用而非从头蒸馏。实现为关键词子串匹配（无
         语义检索时仍可用的确定性基线；语义检索为可选扩展，可注入）。
 
+        中文长句缺陷修复（ENG3-11）：装配 query 为回合输入全文（中文
+        无空格边界），空格分词会整段塌缩为 1 个超长 token，``all()``
+        全词交集要求整段命中单一条目 = 必然 0 命中（机制专项 46 次
+        装配 0 命中实证）。修复 = CJK 长 token 按 2-gram 滑窗展开为
+        关键片段（子串交集降级为「任一 2-gram 命中」），并按命中片段
+        数评分——短 token（≤2 字符）/非 CJK 保持整串子串语义（多词
+        AND 不变），中文长 query 不再必然 0 命中。
+
         检索作用域 = 活跃索引（归档条目默认不参与检索——归档语义 =
         移出活跃索引；``include_archived=True`` 可显式检索归档条目）。
         """
         if not query or limit <= 0:
             return []
-        needles = [token for token in query.lower().split() if token]
-        if not needles:
+        tokens = [token for token in query.lower().split() if token]
+        if not tokens:
             return []
-        hits: list[KnowledgeEntry] = []
+        # 命中数评分：主键（命中片段越多越靠前），次键 credibility。
+        # 命中数=0 的 token 不阻断候选（长 query 部分命中可进候选），
+        # 但完全无命中的 token 使该条目不参与——多词 AND 语义仅对
+        # 「全 token 都有命中片段」的条目完整生效。
+        scored: list[tuple[int, KnowledgeEntry]] = []
         for entry in self.entries(level, include_archived=include_archived):
             if kind is not None and entry.kind != kind:
                 continue
             haystack = " ".join(
                 [entry.title, *entry.tags, entry.id, str(entry.data)]
             ).lower()
-            if all(needle in haystack for needle in needles):
-                hits.append(entry)
-        hits.sort(key=lambda e: (e.credibility, e.usage_count), reverse=True)
-        return hits[:limit]
+            total_hits = 0
+            zero_hit_tokens = 0
+            for token in tokens:
+                grams = _cjk_bigrams(token) if _has_cjk(token) and len(token) > 2 else (token,)
+                hits = sum(1 for gram in grams if gram in haystack)
+                total_hits += hits
+                if hits == 0:
+                    zero_hit_tokens += 1
+            if zero_hit_tokens:
+                continue
+            scored.append((total_hits, entry))
+        scored.sort(
+            key=lambda t: (t[0], t[1].credibility, t[1].usage_count),
+            reverse=True,
+        )
+        return [entry for _hits, entry in scored][:limit]
 
 
 def seed_knowledge_set(

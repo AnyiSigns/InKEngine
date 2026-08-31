@@ -26,7 +26,6 @@ const TOOL_DICTIONARY: Record<string, string> = {
   collect_material: '收集材料',
   parse_material: '解析材料',
   validate_material: '校验材料',
-  score_material: '评分材料',
   review_material: '复核材料',
   distill_knowledge: '蒸馏知识',
   mutate_knowledge: '变异知识',
@@ -40,9 +39,10 @@ const TOOL_DICTIONARY: Record<string, string> = {
   propose_patch: '提议补丁',
   propose_domain_manifest: '提议领域清单',
   propose_mcp_mount: '提议挂载 MCP',
+  task_manager: '维护待办清单',
   // OS 域（设备控制）
   system_query: '查询系统信息',
-  screen_query: '查询屏幕',
+  ui_query: '查询界面',
   file_query: '查询文件',
   launch_app: '启动应用',
   open_file: '打开文件',
@@ -53,13 +53,8 @@ const TOOL_DICTIONARY: Record<string, string> = {
   sleep: '前台等待',
   ui_click: '模拟点击',
   ui_type: '模拟输入',
-  window_list: '窗口列表',
   window_focus: '聚焦窗口',
   window_minimize: '最小化窗口',
-  run_typecheck: '类型检查',
-  run_test_cargo: 'Rust 测试',
-  run_test_python: 'Python 测试',
-  run_test_web: '前端测试',
   doc_parse: '解析文档',
   doc_generate: '生成文档',
   screenshot_capture: '屏幕截图',
@@ -161,7 +156,7 @@ export function classifyToolFamily(toolName: string): ToolFamily {
     name.startsWith('launch_') ||
     name.startsWith('set_') ||
     name.startsWith('os_') ||
-    /^(notify|sleep|ui_click|ui_type|window_list|window_focus|window_minimize|open_file|file_query)$/.test(name)
+    /^(notify|sleep|ui_click|ui_type|ui_query|window_focus|window_minimize|open_file|file_query)$/.test(name)
   ) {
     return 'os';
   }

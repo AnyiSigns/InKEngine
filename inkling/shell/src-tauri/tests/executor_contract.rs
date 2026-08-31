@@ -214,191 +214,101 @@ fn allow_tool_runs_without_approval() {
     assert_eq!(outcome.result, "mock:query os");
 }
 
-// ===== 进程模板工具（run_typecheck / run_test_*） =====
-
-const PROCESS_TEMPLATE_TOOLS: [&str; 4] = ["run_typecheck", "run_test_cargo", "run_test_python", "run_test_web"];
+// ===== shell_exec 混合级别（白名单内沙箱 + 白名单外升级放行） =====
 
 #[test]
-fn process_template_tools_registered_with_review_gate() {
-    let declarations = load_tool_declarations(TOOLS_DECL_JSON).unwrap();
-    let registry = registry_with(&declarations);
-    let ledger = ledger_with(&declarations);
-    for tool in PROCESS_TEMPLATE_TOOLS {
-        let executor = registry.get(tool).unwrap_or_else(|| panic!("{tool} 应已注册"));
-        assert_eq!(executor.spec().endpoint, Endpoint::ProcessExec, "{tool} 端点应为 process_exec");
-        assert_eq!(executor.spec().permission, PermissionLevel::Review, "{tool} 权限应为 review");
-        let template = match &executor.spec().sandbox {
-            SandboxRule::ProcessTemplate { argv, timeout_secs, .. } => {
-                assert!(!argv.is_empty(), "{tool} 模板不得为空");
-                assert!(*timeout_secs > 0, "{tool} 超时必须为正");
-                argv.clone()
-            }
-            other => panic!("{tool} 沙箱模式应为 process_template: {other:?}"),
-        };
-        // 无服务端审批态 → ApprovalRequired（review 档硬守，不注入 approved）
-        let backend = MockBackend::new();
-        let call = args(&[("command", tool.into())]);
-        let auth = adjudicate(&ledger, tool, &call);
-        assert!(!auth.approved, "无审批态时 review 档不得放行: {tool}");
-        let err = registry.run(tool, &call, &backend, &auth, &pgate()).unwrap_err();
-        assert_eq!(err, ExecError::ApprovalRequired(tool.into()));
-        // 台账预授权后经后端执行钉死模板
-        let auth = pre_approved(&ledger, tool, &call);
-        let outcome = registry
-            .run(tool, &call, &backend, &auth, &pgate())
-            .expect("台账批准后应放行");
-        assert!(outcome.sandbox_checked);
-        assert!(
-            outcome.result.contains(&template.join(" ")),
-            "{tool} 结果应含模板 argv: {}",
-            outcome.result
-        );
-        assert!(
-            backend
-                .calls
-                .lock()
-                .unwrap()
-                .iter()
-                .any(|call| call.starts_with("run_process:")),
-            "后端应记录进程模板调用"
-        );
-    }
-}
-
-#[test]
-fn process_template_command_is_routing_key() {
-    // L8：command 为真实路由键——按名选中钉死模板（不再「相等校验后丢弃」）；
-    // 未登记路由键/缺 command = 参数非法
-    let declarations = load_tool_declarations(TOOLS_DECL_JSON).unwrap();
-    let registry = registry_with(&declarations);
-    let ledger = ledger_with(&declarations);
-    let backend = MockBackend::new();
-    // command=run_typecheck 路由到 tsc 模板（即使经 run_test_cargo 工具调用）
-    let call = args(&[("command", "run_typecheck".into())]);
-    let auth = pre_approved(&ledger, "run_test_cargo", &call);
-    let outcome = registry
-        .run("run_test_cargo", &call, &backend, &auth, &pgate())
-        .expect("已登记路由键须放行");
-    assert!(outcome.result.contains("tsc --noEmit"), "应路由到 tsc 模板: {}", outcome.result);
-    // 未登记路由键 = 拒绝
-    let call = args(&[("command", "no_such_template".into())]);
-    let auth = pre_approved(&ledger, "run_test_cargo", &call);
-    let err = registry
-        .run("run_test_cargo", &call, &backend, &auth, &pgate())
-        .unwrap_err();
-    assert!(matches!(err, ExecError::BadArgs(_)), "未登记路由键必须拒绝: {err}");
-    // 缺 command = 参数非法
-    let call = args(&[]);
-    let auth = pre_approved(&ledger, "run_typecheck", &call);
-    let err = registry
-        .run("run_typecheck", &call, &backend, &auth, &pgate())
-        .unwrap_err();
-    assert!(matches!(err, ExecError::BadArgs(_)), "缺 command 必须拒绝: {err}");
-}
-
-#[test]
-fn process_template_wrong_sandbox_mode_rejected() {
-    // 声明沙箱模式与执行器不一致 = 注册失败（fail-closed，漂移启动即暴露）
-    let declarations = load_tool_declarations(TOOLS_DECL_JSON).unwrap();
-    let mut declarations = declarations;
-    for tool in &mut declarations.tools {
-        if tool.name == "run_typecheck" {
-            tool.sandbox = SandboxRule::CommandAllowlist { allowlist: vec!["tsc".into()] };
-        }
-    }
-    let message = expect_registration_error(&declarations);
-    assert!(message.contains("run_typecheck"), "模式漂移必须报错: {message}");
-}
-
-// ===== 受限筛选参数（filter：缩小范围重跑，值经字符集/前导符校验） =====
-
-#[test]
-fn process_template_filter_appends_per_declared_flag() {
+fn shell_exec_allowlisted_command_runs_in_workspace() {
     let declarations = load_tool_declarations(TOOLS_DECL_JSON).unwrap();
     let registry = registry_with(&declarations);
     let ledger = ledger_with(&declarations);
     let backend = MockBackend::new();
 
-    // cargo：模板尾部追加 ["--", 筛选]
-    let call = args(&[("command", "run_test_cargo".into()), ("filter", "parse_test".into())]);
-    let auth = pre_approved(&ledger, "run_test_cargo", &call);
+    let call = args(&[("command", "shell_exec".into()), ("argv", serde_json::json!(["python", "--version"]))]);
+    let auth = pre_approved(&ledger, "shell_exec", &call);
     let outcome = registry
-        .run("run_test_cargo", &call, &backend, &auth, &pgate())
-        .expect("cargo 筛选应放行");
-    assert!(outcome.result.contains("cargo test -- parse_test"), "{}", outcome.result);
-
-    // pytest：追加 ["-k", 关键词表达式]（and/or/not 是字母组合，放行）
-    let call = args(&[("command", "run_test_python".into()), ("filter", "parse and not live".into())]);
-    let auth = pre_approved(&ledger, "run_test_python", &call);
-    let outcome = registry
-        .run("run_test_python", &call, &backend, &auth, &pgate())
-        .expect("pytest 关键词组合应放行");
-    assert!(outcome.result.contains("pytest -k parse and not live"), "{}", outcome.result);
-
-    // vitest：追加 ["-t", 测试名子串]
-    let call = args(&[("command", "run_test_web".into()), ("filter", "settings_form".into())]);
-    let auth = pre_approved(&ledger, "run_test_web", &call);
-    let outcome = registry
-        .run("run_test_web", &call, &backend, &auth, &pgate())
-        .expect("vitest 筛选应放行");
-    assert!(outcome.result.contains("vitest run -t settings_form"), "{}", outcome.result);
-
-    // 空白 filter = 视同未传（整跑）
-    let call = args(&[("command", "run_test_cargo".into()), ("filter", "   ".into())]);
-    let auth = pre_approved(&ledger, "run_test_cargo", &call);
-    let outcome = registry
-        .run("run_test_cargo", &call, &backend, &auth, &pgate())
-        .expect("空白筛选应整跑");
-    assert!(outcome.result.contains("cargo test（exit 0）"), "{}", outcome.result);
+        .run("shell_exec", &call, &backend, &auth, &pgate())
+        .expect("白名单内命令应放行");
+    assert!(outcome.sandbox_checked);
+    assert!(outcome.result.contains("python --version"), "{}", outcome.result);
+    let call_log = backend.calls.lock().unwrap();
+    let recorded = call_log.iter().find(|c| c.starts_with("run_process:")).expect("应记录进程调用");
+    assert!(
+        recorded.contains("workspace"),
+        "cwd 应为工作区挂载根: {recorded}"
+    );
 }
 
 #[test]
-fn process_template_filter_injection_rejected() {
+fn shell_exec_non_allowlisted_rejected_without_escalation() {
     let declarations = load_tool_declarations(TOOLS_DECL_JSON).unwrap();
     let registry = registry_with(&declarations);
     let ledger = ledger_with(&declarations);
     let backend = MockBackend::new();
 
-    // 前导连字符 = 旗标注入（pytest --pdb 类交互面）→ 拒绝
-    let call = args(&[("command", "run_test_python".into()), ("filter", "--pdb".into())]);
-    let auth = pre_approved(&ledger, "run_test_python", &call);
+    let call = args(&[("command", "shell_exec".into()), ("argv", serde_json::json!(["where", "git"]))]);
+    let auth = pre_approved(&ledger, "shell_exec", &call);
     let err = registry
-        .run("run_test_python", &call, &backend, &auth, &pgate())
+        .run("shell_exec", &call, &backend, &auth, &pgate())
         .unwrap_err();
-    assert!(matches!(err, ExecError::BadArgs(_)), "旗标注入必须拒绝: {err}");
-
-    // 命令拼接符号 → 拒绝（纵深防御，即便未来引入 shell 层也不放大面）
-    for evil in ["parse; rm -rf .", "parse && cargo clean", "parse$(whoami)", "a|b", "x>y"] {
-        let call = args(&[("command", "run_test_cargo".into()), ("filter", evil.into())]);
-        let auth = pre_approved(&ledger, "run_test_cargo", &call);
-        let err = registry
-            .run("run_test_cargo", &call, &backend, &auth, &pgate())
-            .unwrap_err();
-        assert!(matches!(err, ExecError::BadArgs(_)), "拼接符号必须拒绝: {evil}");
-    }
-
-    // 超长 → 拒绝
-    let call = args(&[("command", "run_test_web".into()), ("filter", "x".repeat(65).into())]);
-    let auth = pre_approved(&ledger, "run_test_web", &call);
-    let err = registry
-        .run("run_test_web", &call, &backend, &auth, &pgate())
-        .unwrap_err();
-    assert!(matches!(err, ExecError::BadArgs(_)), "超长筛选必须拒绝: {err}");
+    assert!(matches!(err, ExecError::SandboxViolation(_)), "白名单外命令无升级标记必须拒绝: {err}");
+    assert!(backend.calls.lock().unwrap().is_empty(), "拒绝的调用不得触达后端");
 }
 
 #[test]
-fn process_template_filter_rejected_without_declared_slot() {
-    // run_typecheck 无 filter 声明位：传筛选 = 拒绝（模板钉死不收自由面）
+fn shell_exec_escalated_skips_allowlist_and_uses_home_cwd() {
     let declarations = load_tool_declarations(TOOLS_DECL_JSON).unwrap();
     let registry = registry_with(&declarations);
     let ledger = ledger_with(&declarations);
     let backend = MockBackend::new();
-    let call = args(&[("command", "run_typecheck".into()), ("filter", "app".into())]);
-    let auth = pre_approved(&ledger, "run_typecheck", &call);
-    let err = registry
-        .run("run_typecheck", &call, &backend, &auth, &pgate())
-        .unwrap_err();
-    assert!(matches!(err, ExecError::BadArgs(_)), "无声明位必须拒绝: {err}");
+
+    // 升级审批通过后引擎注入 _escalated 标记：白名单外命令放行，cwd 用系统主目录
+    let call = args(&[
+        ("command", "shell_exec".into()),
+        ("argv", serde_json::json!(["where", "git"])),
+        ("_escalated", serde_json::json!(true)),
+    ]);
+    let auth = pre_approved(&ledger, "shell_exec", &call);
+    let outcome = registry
+        .run("shell_exec", &call, &backend, &auth, &pgate())
+        .expect("升级放行后白名单外命令应执行");
+    assert!(outcome.sandbox_checked);
+    assert!(outcome.result.contains("where git"), "{}", outcome.result);
+    let call_log = backend.calls.lock().unwrap();
+    let recorded = call_log.iter().find(|c| c.starts_with("run_process:")).expect("应记录进程调用");
+    let cwd_part = recorded.split('|').nth(1).unwrap_or("");
+    let home = std::env::var("USERPROFILE")
+        .or_else(|_| std::env::var("HOME"))
+        .unwrap_or_default();
+    assert!(
+        !cwd_part.contains("workspace") && !cwd_part.is_empty(),
+        "升级放行 cwd 应为系统主目录而非工作区根: {recorded}"
+    );
+    assert!(
+        home.is_empty() || home == cwd_part,
+        "cwd 应为主目录（USERPROFILE/HOME）: {recorded}（home={home}）"
+    );
+}
+
+#[test]
+fn shell_exec_timeout_param_forwarded_to_backend() {
+    let declarations = load_tool_declarations(TOOLS_DECL_JSON).unwrap();
+    let registry = registry_with(&declarations);
+    let ledger = ledger_with(&declarations);
+    let backend = MockBackend::new();
+
+    let call = args(&[
+        ("command", "shell_exec".into()),
+        ("argv", serde_json::json!(["python", "-c", "x"])),
+        ("timeout", serde_json::json!(120)),
+    ]);
+    let auth = pre_approved(&ledger, "shell_exec", &call);
+    let outcome = registry
+        .run("shell_exec", &call, &backend, &auth, &pgate())
+        .expect("timeout 参数应放行");
+    assert!(outcome.result.contains("python"), "{}", outcome.result);
+    let call_log = backend.calls.lock().unwrap();
+    let recorded = call_log.iter().find(|c| c.starts_with("run_process:")).expect("应记录进程调用");
+    assert!(recorded.ends_with("|120s"), "timeout 应透传给后端: {recorded}");
 }
 
 // ===== 沙箱守卫 =====
@@ -587,16 +497,16 @@ fn device_tools_share_same_guards() {
     let backend = MockBackend::new();
 
     let call = args(&[("target", "webcam_stream".into())]);
-    let auth = pre_approved(&ledger, "screen_query", &call);
+    let auth = pre_approved(&ledger, "ui_query", &call);
     let err = registry
-        .run("screen_query", &call, &backend, &auth, &dgate())
+        .run("ui_query", &call, &backend, &auth, &dgate())
         .unwrap_err();
     assert!(matches!(err, ExecError::SandboxViolation(_)));
 
     let call = args(&[("target", "resolution".into())]);
-    let auth = pre_approved(&ledger, "screen_query", &call);
+    let auth = pre_approved(&ledger, "ui_query", &call);
     let outcome = registry
-        .run("screen_query", &call, &backend, &auth, &dgate())
+        .run("ui_query", &call, &backend, &auth, &dgate())
         .expect("白名单内应放行");
     assert_eq!(outcome.result, "mock:screen resolution");
 }

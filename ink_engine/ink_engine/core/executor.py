@@ -1506,6 +1506,12 @@ class Engine:
 
             # ── spawn 清单提取（保留键不落状态；与命令式收集项合并）──
             if self.options.max_spawns > 0:
+                # 数据驱动来源标记（collect_spawn_specs 会弹出 SPAWN_KEY，
+                # 须在提取前记录——数据驱动路径的节点已自行发射展示形态
+                # spawn_start，引擎兜底发射须跳过防重复）
+                data_driven_spawn = (
+                    isinstance(overlay, dict) and overlay.get(SPAWN_KEY) is not None
+                )
                 try:
                     spawn_specs = collect_spawn_specs(
                         overlay,
@@ -1649,6 +1655,11 @@ class Engine:
                         spawn_specs,
                         ctx,
                         concurrency=self.options.spawn_concurrency,
+                        # 数据驱动路径（节点 overlay 携带 __spawn__ 清单）由
+                        # 节点自身（orchestrator 等）已发射 spawn_start（展示
+                        # 形态分组）；命令式 ctx.spawn 路径无节点级发射——本
+                        # 次展开的事件发射仅对命令式来源兜底（防重复）。
+                        emit_events=not data_driven_spawn,
                     )
                 except InterruptSignal as sig:
                     # 实例内中断 → 提升为父图挂起卡（与静态子图同语义：中断
@@ -2502,6 +2513,7 @@ class Engine:
         parent_ctx: NodeContext,
         *,
         concurrency: int,
+        emit_events: bool = True,
     ) -> SpawnResult:
         """把子任务清单并发展开为子图实例，回收结果回流父图（公开接口）。
 
@@ -2509,6 +2521,8 @@ class Engine:
             specs: 子任务清单（路由节点产出，按 index 顺序回流合并）。
             parent_ctx: 父图节点上下文（事件透传/中断共享/版本链归属）。
             concurrency: 并发上限（fan_out 限流，成本护栏）。
+            emit_events: 是否发射 spawn_start/spawn_end 事件（数据驱动
+                路径由节点自身发射展示形态事件，此处传 False 防重复）。
 
         Returns:
             SpawnResult：成功实例回流增量（按 index 升序合并，确定性）+ 失败清单。
@@ -2519,6 +2533,26 @@ class Engine:
         parent: _NodeContextImpl = parent_ctx  # type: ignore[assignment]
         results: dict[int, dict] = {}
         failures: list[SpawnFailure] = []
+
+        # spawn 展开事件（ENG3-12）：命令式 ctx.spawn 路径此前从未发射
+        # spawn_start/spawn_end（事件类型已注册），机制专项误判「spawn 假
+        # 成功」——子图实际执行但事件计数 0。本处兜底发射（数据驱动路径
+        # 由节点自身发展示形态事件，emit_events=False 跳过）。仅可观测，
+        # 发射失败不阻断展开。
+        if emit_events:
+            try:
+                await parent_ctx.emit(
+                    "spawn_start",
+                    {
+                        "count": len(specs),
+                        "instances": [
+                            {"index": spec.index, "name": spec.subgraph.name}
+                            for spec in specs
+                        ],
+                    },
+                )
+            except Exception:  # noqa: BLE001
+                pass
 
         # 嵌套深度护栏（fail-closed）：子单元深度 = 当前子链深度 + 1；
         # 0 = 任意深度（按数据声明关闭校验）；超限直接拒绝展开——递归
@@ -2614,6 +2648,18 @@ class Engine:
         for spec in sorted(specs, key=lambda s: s.index):
             if spec.index in results:
                 overlay.update(results[spec.index])
+        if emit_events:
+            try:
+                await parent_ctx.emit(
+                    "spawn_end",
+                    {
+                        "count": len(specs),
+                        "succeeded": len(results),
+                        "failed": len(failures),
+                    },
+                )
+            except Exception:  # noqa: BLE001
+                pass
         return SpawnResult(overlay=overlay, failures=failures)
 
     async def run_simulated(

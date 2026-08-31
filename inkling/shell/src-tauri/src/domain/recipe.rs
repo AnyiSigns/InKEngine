@@ -748,9 +748,15 @@ mod tests {
             "network_policy 应折叠进 meta"
         );
         assert_eq!(meta["network_policy"]["allow_domains"].as_array().unwrap().len(), 0);
-        // 工具条目原样字段保留（approval/endpoint/permissions）
-        assert_eq!(collect["approval"], "review");
-        assert_eq!(collect["endpoint"], "mcp");
+        // 工具条目原样字段保留（approval/endpoint/permissions 与 seed 一致）
+        let raw = raw_tools["tools"]
+            .as_array()
+            .unwrap()
+            .iter()
+            .find(|t| t["name"] == "collect_material")
+            .expect("seed 缺 collect_material");
+        assert_eq!(collect["approval"], raw["approval"]);
+        assert_eq!(collect["endpoint"], raw["endpoint"]);
         assert!(collect["permissions"].as_array().unwrap().len() >= 1);
     }
 
@@ -787,7 +793,9 @@ mod tests {
         assert!(!recipe.ui_allowed_channels.is_empty());
         assert!(!recipe.ui_allowed_components.is_empty());
         assert!(!recipe.ui_allowed_theme_tokens.is_empty());
-        assert_eq!(recipe.event_type_specs.len(), 38);
+        let raw_events = seed_file("event_types.json");
+        let event_count = raw_events["events"].as_array().unwrap().len();
+        assert_eq!(recipe.event_type_specs.len(), event_count);
         assert_eq!(recipe.seeds.len(), 1);
         assert_eq!(recipe.approval_levels.len(), 9);
 

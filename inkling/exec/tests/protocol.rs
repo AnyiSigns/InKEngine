@@ -100,7 +100,7 @@ fn initialized_notification_then_full_flow() {
     // 服务端未被通知扰乱：随后的 tools/list 正常应答
     let resp = parse_response(&exec.roundtrip(r#"{"jsonrpc":"2.0","id":2,"method":"tools/list"}"#));
     let tools = result_of(&resp).get_array("tools").unwrap();
-    assert_eq!(tools.len(), 7);
+    assert_eq!(tools.len(), 6);
     exec.close_and_wait();
 }
 
@@ -113,15 +113,14 @@ fn tools_list_metadata_shape() {
     let tools = result_of(&resp).get_array("tools").unwrap();
     assert_eq!(
         tools.len(),
-        7,
-        "执行体清单 = 采集/解析/校验/评分/评审/蒸馏/变异"
+        6,
+        "执行体清单 = 采集/解析/校验/评审/蒸馏/变异（评分并入评审 phase=score）"
     );
     // 工具名 = seed_data/tools.json 声明名（决议 1：seed 为真源，exec 适配）
     let expected_names = [
         "collect_material",
         "parse_material",
         "validate_material",
-        "score_material",
         "review_material",
         "distill_knowledge",
         "mutate_knowledge",

@@ -427,7 +427,7 @@ mod tests {
         assert!(!layers.principles.is_empty(), "行为准则非空");
         assert!(!layers.product_facts.is_empty(), "产品事实非空");
         assert!(layers.soul.contains("InKling"), "身份段应含产品名");
-        assert!(layers.product_facts.contains("中文"), "产品事实段保留作答基调");
+        assert!(layers.product_facts.contains("自适应"), "产品事实段保留语言自适应作答基调");
         assert!(layers.principles.contains("审批"), "行为准则段含治理基调");
     }
 
@@ -435,8 +435,8 @@ mod tests {
     fn tool_name_map_from_seed_is_sorted_and_labeled() {
         let tools = seed_file("tools.json");
         let pairs = tool_name_map(&tools);
-        assert_eq!(pairs.len(), 40, "工具清单 40 条");
-        assert_eq!(pairs[0].tool, "collect_material");
+        assert_eq!(pairs.len(), 35, "工具清单 35 条");
+        assert_eq!(pairs[0].tool, "collab_request");
         let collect = pairs.iter().find(|p| p.tool == "collect_material").unwrap();
         assert_eq!(collect.zh, "把研究素材采集回来");
         let fetch = pairs.iter().find(|p| p.tool == "fetch").unwrap();

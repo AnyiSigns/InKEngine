@@ -964,10 +964,10 @@ mod tests {
     }
 
     #[test]
-    fn workflow_seed_yields_six_node_constraint_domain() {
+    fn workflow_seed_yields_five_node_constraint_domain() {
         let nodes = workflow_nodes();
         let ids = node_ids(&nodes);
-        assert_eq!(ids.len(), 6);
+        assert_eq!(ids.len(), 5);
         assert!(ids.contains(&"collect_material".to_string()));
         assert!(ids.contains(&"distill_knowledge".to_string()));
         let entry = nodes.iter().find(|n| n.is_entry).expect("有入口节点");
@@ -1095,7 +1095,7 @@ mod tests {
         let research = deterministic_plan(TaskKind::Research, &nodes);
         assert_eq!(research.source, PlanSource::Deterministic);
         assert_eq!(research.mode, PlanMode::PlanOnly);
-        assert_eq!(research.steps.len(), 6, "研究 = 全链");
+        assert_eq!(research.steps.len(), 5, "研究 = 全链");
         assert_eq!(research.entry.as_deref(), Some("collect_material"));
         assert!(research.spawn_groups.is_empty(), "确定性流程不含 spawn");
 
@@ -1109,7 +1109,7 @@ mod tests {
         let nodes = workflow_nodes();
         let bad = plan_for_task("调研知识链机制", &nodes, Some("{oops"));
         assert_eq!(bad.source, PlanSource::Deterministic);
-        assert_eq!(bad.steps.len(), 6);
+        assert_eq!(bad.steps.len(), 5);
         let foreign = plan_for_task(
             "调研知识链机制",
             &nodes,
@@ -1192,16 +1192,15 @@ mod tests {
             {"id": "collect_material", "type": "collect_material"},
             {"id": "parse_material", "type": "parse_material"},
             {"id": "validate_material", "type": "validate_material"},
-            {"id": "score_material", "type": "score_material"},
             {"id": "review_material", "type": "review_material"},
             {"id": "distill_knowledge", "type": "distill_knowledge"}
         ],
         "entry": "collect_material",
         "chains": [
             {"id": "research", "label": "研究链", "entry": "collect_material",
-             "nodes": ["collect_material", "parse_material", "validate_material", "score_material", "review_material", "distill_knowledge"]},
+             "nodes": ["collect_material", "parse_material", "validate_material", "review_material", "distill_knowledge"]},
             {"id": "dev", "label": "开发链", "entry": "collect_material",
-             "nodes": ["collect_material", "score_material", "review_material", "distill_knowledge"]},
+             "nodes": ["collect_material", "review_material", "distill_knowledge"]},
             {"id": "ops", "label": "运维链", "entry": "collect_material",
              "nodes": ["collect_material", "validate_material", "review_material"]}
         ],
@@ -1225,11 +1224,11 @@ mod tests {
         // 研究 → research 链
         let research = select_workflow_chain(TaskKind::Research, &chains).expect("研究链存在");
         assert_eq!(research.id, "research");
-        assert_eq!(research.nodes.len(), 6);
+        assert_eq!(research.nodes.len(), 5);
         // 开发 → dev 链
         let dev = select_workflow_chain(TaskKind::Development, &chains).expect("开发链存在");
         assert_eq!(dev.id, "dev");
-        assert_eq!(dev.nodes.len(), 4);
+        assert_eq!(dev.nodes.len(), 3);
         // 运维 → ops 链
         let ops = select_workflow_chain(TaskKind::Operations, &chains).expect("运维链存在");
         assert_eq!(ops.id, "ops");
@@ -1259,7 +1258,7 @@ mod tests {
         assert!(chains.iter().any(|c| c.id == "research"), "研究链随装配数据");
         assert!(chains.iter().any(|c| c.id == "dev"), "开发链随装配数据");
         let research = chains.iter().find(|c| c.id == "research").unwrap();
-        assert_eq!(research.nodes.len(), 6, "研究链 = 既有节点全链");
+        assert_eq!(research.nodes.len(), 5, "研究链 = 既有节点全链");
         assert_eq!(default_simulation_tier_from_data(&data), SimulationTier::Light);
         let light = simulation_policy_from_data(&data, SimulationTier::Light).unwrap();
         assert_eq!(light.max_simulations, 2);
@@ -1278,7 +1277,7 @@ mod tests {
         let chains = parse_workflow_chains(&data);
         let dev = select_workflow_chain(TaskKind::Development, &chains).unwrap();
         let plan = plan_from_chain(&dev, &nodes);
-        assert_eq!(plan.steps.len(), 4);
+        assert_eq!(plan.steps.len(), 3);
         assert_eq!(plan.entry.as_deref(), Some("collect_material"));
         assert_eq!(plan.source, PlanSource::Deterministic);
         assert!(plan.spawn_groups.is_empty());
@@ -1315,8 +1314,8 @@ mod tests {
         let nodes = parse_workflow_nodes(&data);
         let plan_text = r#"{
             "entry": "collect_material",
-            "steps": [{"node": "collect_material", "inputs": []}, {"node": "score_material", "inputs": []}],
-            "spawn_groups": [{"id": "g1", "nodes": ["collect_material", "score_material"], "parallel": true, "label": ""}],
+            "steps": [{"node": "collect_material", "inputs": []}, {"node": "review_material", "inputs": []}],
+            "spawn_groups": [{"id": "g1", "nodes": ["collect_material", "review_material"], "parallel": true, "label": ""}],
             "decision_points": [
                 {"id": "d1", "kind": "approval", "label": "选路"},
                 {"id": "d2", "kind": "approval", "label": "取优"}
@@ -1370,13 +1369,13 @@ mod tests {
         // 研究 → research 链（线性计划，默认轻探测档）
         let research = route_round("调研一下引用质量", &data, None, SimulationTier::Light).unwrap();
         assert_eq!(research.chain_id.as_deref(), Some("research"));
-        assert_eq!(research.plan.steps.len(), 6);
+        assert_eq!(research.plan.steps.len(), 5);
         assert_eq!(research.policy.max_simulations, 2);
         assert!(!research.quota_guarded);
-        // 开发 → dev 链（四节点线性）
+        // 开发 → dev 链（三节点线性）
         let dev = route_round("帮我开发一个挂载向导", &data, None, SimulationTier::Full).unwrap();
         assert_eq!(dev.chain_id.as_deref(), Some("dev"));
-        assert_eq!(dev.plan.steps.len(), 4);
+        assert_eq!(dev.plan.steps.len(), 3);
         // router 越界计划回落链线性（fail-closed）
         let bogus = serde_json::json!({"entry": "ghost", "steps": [{"node": "ghost", "inputs": []}]}).to_string();
         let routed = route_round("调研一下引用质量", &data, Some(&bogus), SimulationTier::Light).unwrap();
@@ -1391,7 +1390,7 @@ mod tests {
         let dev = select_workflow_chain(TaskKind::Development, &chains).unwrap();
         let plan = plan_from_chain(&dev, &nodes);
         let orchestrate = orchestrate_json(&plan);
-        assert_eq!(orchestrate["plan"].as_array().unwrap().len(), 4, "每步一个包裹");
+        assert_eq!(orchestrate["plan"].as_array().unwrap().len(), 3, "每步一个包裹");
         assert_eq!(orchestrate["plan"][0]["nodes"][0], "collect_material");
         assert_eq!(orchestrate["simulate"], false);
         assert_eq!(orchestrate["spawns"].as_array().unwrap().len(), 0);

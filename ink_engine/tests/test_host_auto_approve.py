@@ -19,26 +19,26 @@ from inkling_host.security_domain import SecurityToolPipeline, TieredGate  # noq
 def _gate() -> TieredGate:
     """出厂档位样例门禁（review 档两件 + 可登记集一件）。"""
     return TieredGate(
-        {"run_typecheck": "review", "launch_app": "review"},
-        auto_approvable=frozenset({"run_typecheck"}),
+        {"probe_check": "review", "launch_app": "review"},
+        auto_approvable=frozenset({"probe_check"}),
     )
 
 
 def test_review_tier_hangs_card_without_auto_approve() -> None:
     gate = _gate()
     verdict = gate.check(
-        "run_typecheck", "exec", "run_typecheck",
-        permissions=("process:exec:run_typecheck",),
+        "probe_check", "exec", "probe_check",
+        permissions=("process:exec:probe_check",),
     )
     assert verdict.decision == "review", "未预授权 = 保持弹卡"
 
 
 def test_auto_approve_hit_skips_review_only() -> None:
     gate = _gate()
-    gate.configure_auto_approve(["run_typecheck"], all_review=False)
+    gate.configure_auto_approve(["probe_check"], all_review=False)
     verdict = gate.check(
-        "run_typecheck", "exec", "run_typecheck",
-        permissions=("process:exec:run_typecheck",),
+        "probe_check", "exec", "probe_check",
+        permissions=("process:exec:probe_check",),
     )
     assert verdict.decision == "allow", "命中自动审批 = 跳过人审弹卡"
     # 未登记工具不受影响（仍 review）
@@ -53,8 +53,8 @@ def test_auto_approve_all_review_switch() -> None:
     gate = _gate()
     gate.configure_auto_approve([], all_review=True)
     verdict = gate.check(
-        "run_typecheck", "exec", "run_typecheck",
-        permissions=("process:exec:run_typecheck",),
+        "probe_check", "exec", "probe_check",
+        permissions=("process:exec:probe_check",),
     )
     assert verdict.decision == "allow", "全量开关对可登记集生效"
     # 全量开关不波及边界外工具（纵深防御）
@@ -77,25 +77,20 @@ def test_registration_boundary_rejects_control_tools() -> None:
 
 def test_snapshot_roundtrip() -> None:
     gate = _gate()
-    gate.configure_auto_approve(["run_typecheck"], all_review=True)
+    gate.configure_auto_approve(["probe_check"], all_review=True)
     tools, all_review = gate.auto_approve_snapshot()
-    assert tools == ["run_typecheck"]
+    assert tools == ["probe_check"]
     assert all_review is True
-    assert gate.auto_approvable_tools() == ["run_typecheck"]
+    assert gate.auto_approvable_tools() == ["probe_check"]
 
 
-def test_os_bridge_covers_process_template_tools() -> None:
-    """引擎宿主 → 壳执行器的桥接清单必须覆盖进程模板工具（否则
-    run_* 经 process_exec 端点分发恒拿 executor_not_registered）。"""
+def test_os_bridge_covers_shell_exec() -> None:
+    """引擎宿主 → 壳执行器的桥接清单必须覆盖 shell_exec（否则经
+    process_exec 端点分发恒拿 executor_not_registered）。"""
     from inkling_host import host as host_module
 
     bridged = set(host_module._OS_BRIDGE_COMMANDS)
-    assert {
-        "run_typecheck",
-        "run_test_cargo",
-        "run_test_python",
-        "run_test_web",
-    } <= bridged, "进程模板工具必须登记进 OS 执行体桥"
+    assert "shell_exec" in bridged, "shell_exec 必须登记进 OS 执行体桥"
 
 
 class _AuditCtx:
@@ -112,13 +107,13 @@ def test_audit_marker_auto_approved_by_user() -> None:
     import asyncio
 
     gate = _gate()
-    gate.configure_auto_approve(["run_typecheck"], all_review=False)
+    gate.configure_auto_approve(["probe_check"], all_review=False)
     pipeline = SecurityToolPipeline(gate=gate)
     ctx = _AuditCtx()
     asyncio.run(
         pipeline._audit(  # noqa: SLF001 直接验证留痕标记
             ctx,
-            {"tool": "run_typecheck", "decision": "ok", "overflow": False},
+            {"tool": "probe_check", "decision": "ok", "overflow": False},
         )
     )
     assert any(
@@ -149,16 +144,16 @@ def test_pipeline_auto_approve_zero_card_and_marked_audit() -> None:
 
     spec = DeclarativeToolSpec.from_dict(
         {
-            "name": "run_typecheck",
+            "name": "probe_check",
             "description": "类型检查（钉死参数模板）",
             "parameters": {
                 "type": "object",
                 "properties": {"command": {"type": "string"}},
                 "required": ["command"],
             },
-            "permissions": ["process:exec:run_typecheck"],
+            "permissions": ["process:exec:probe_check"],
             "endpoint": "process_exec",
-            "endpoint_config": {"allowlist": ["run_typecheck"]},
+            "endpoint_config": {"allowlist": ["probe_check"]},
             "meta": {},
         }
     )
@@ -179,7 +174,7 @@ def test_pipeline_auto_approve_zero_card_and_marked_audit() -> None:
         return "exit 0\n类型检查通过"
 
     def extractor(_spec: object, _args: dict) -> tuple[str, str]:
-        return ("exec", "run_typecheck")
+        return ("exec", "probe_check")
 
     gate = _gate()
     pipeline = SecurityToolPipeline(
@@ -189,16 +184,16 @@ def test_pipeline_auto_approve_zero_card_and_marked_audit() -> None:
 
     # 未预授权 = 弹卡（挂起等待人审）
     try:
-        asyncio.run(pipeline.execute(ctx, spec, {"command": "run_typecheck"}))
+        asyncio.run(pipeline.execute(ctx, spec, {"command": "probe_check"}))
     except InterruptSignal:
         pass
     else:
         raise AssertionError("未预授权必须挂卡等待人审")
 
     # 预授权后 = 零弹卡直过 + 审计标记
-    gate.configure_auto_approve(["run_typecheck"], all_review=False)
+    gate.configure_auto_approve(["probe_check"], all_review=False)
     ctx.events.clear()
-    result = asyncio.run(pipeline.execute(ctx, spec, {"command": "run_typecheck"}))
+    result = asyncio.run(pipeline.execute(ctx, spec, {"command": "probe_check"}))
     assert result.ok, "自动审批命中应直过执行"
     assert not any(etype == "review_card" for etype, _ in ctx.events), "不得出现审批卡"
     audit = [payload for etype, payload in ctx.events if etype == "tool_audit"]

@@ -11,9 +11,10 @@
 - 种子 = seed 中 ``meta.domain == "os"`` 的 OS 域工具（引擎代理目录的
   OS 能力面）；
 - 追加 = 壳执行器实现的 seed 非 OS 域工具（文档/导入/自指演化，固定清单）；
-- ``shell_exec`` = 工作区命令执行器（review 档 + 命令面白名单 + cwd 钉
-  工作区挂载根）：档位与命令面以 seed 声明为准（不再是 deny 硬拦样例），
-  桌面壳审批卡、headless 全量自动审批——agent 可在工作区内装依赖/跑命令。
+- ``shell_exec`` = 工作区命令执行器（混合级别：白名单内命令 cwd 钉
+  工作区挂载根；白名单外命令经引擎升级审批（L2 卡）通过后一次性系统级
+  放行，cwd=主目录——档位与命令面以 seed 声明为准，桌面壳审批卡、
+  headless 全量自动审批）。
 
 schema 形态差异映射（seed 嵌套 schema → 夹具扁平签名）：
 - 参数：取 seed ``parameters.properties`` 中除固定 ``command`` 枚举外的
@@ -60,7 +61,6 @@ DIVERGED_SEED_PARAMS: dict[str, set[str]] = {
     "system_query": {"scope"},  # 执行器以 query 承载查询面（seed 的 scope 枚举为引擎面向）
     "set_volume": {"level"},  # 执行器以 percent 承载档位（0-100 边界守卫）
     "set_brightness": {"level"},  # 同上
-    "screen_query": {"region"},  # 执行器以 target 承载查询面（resolution/work_area 白名单）
     "file_query": {"pattern"},  # 执行器侧暂未实现文件名过滤
 }
 
@@ -75,16 +75,17 @@ PARAMS_MAPPING: dict[str, list[tuple[str, str, bool]]] = {
     "set_brightness": [("percent", "integer", True)],
     "notify": [("title", "string", True), ("body", "string", True)],
     "sleep": [("seconds", "integer", True)],
-    "screen_query": [("target", "string", True)],
     "file_query": [("path", "string", True)],
-    "ui_tree_query": [("scope", "string", False)],
+    "ui_query": [
+        ("target", "string", False),
+        ("scope", "string", False),
+    ],
     "ui_click": [
         ("x", "integer", True),
         ("y", "integer", True),
         ("button", "string", True),
     ],
     "ui_type": [("text", "string", True)],
-    "window_list": [("scope", "string", False)],
     "window_focus": [("handle", "string", True)],
     "window_minimize": [("handle", "string", True)],
     "doc_parse": [("path", "string", True)],
@@ -96,10 +97,6 @@ PARAMS_MAPPING: dict[str, list[tuple[str, str, bool]]] = {
     ],
     "material_import": [("path", "string", True), ("recursive", "boolean", False)],
     "screenshot_capture": [("model_class", "string", True), ("destination", "string", False)],
-    "run_typecheck": [("command", "string", True)],
-    "run_test_cargo": [("command", "string", True), ("filter", "string", False)],
-    "run_test_python": [("command", "string", True), ("filter", "string", False)],
-    "run_test_web": [("command", "string", True), ("filter", "string", False)],
     "propose_patch": [
         ("kind", "string", True),
         ("payload", "string", True),
@@ -109,6 +106,7 @@ PARAMS_MAPPING: dict[str, list[tuple[str, str, bool]]] = {
     "shell_exec": [
         ("command", "string", True),
         ("argv", "stringarray", True),
+        ("timeout", "integer", False),
     ],
 }
 
@@ -124,9 +122,11 @@ SANDBOX_MAPPING: dict[str, dict[str, Any]] = {
     "set_brightness": {"mode": "bounds", "min": 0, "max": 100},
     "notify": {"mode": "length_caps", "title_max": 80, "body_max": 300},
     "sleep": {"mode": "bounds", "min": 1, "max": 86400},
-    "screen_query": {"mode": "query_allowlist", "allowlist": ["resolution", "work_area"]},
     "file_query": {"mode": "path_roots", "roots": ["~/.inkling/workspace"]},
-    "ui_tree_query": {"mode": "query_allowlist", "allowlist": ["foreground", "all"]},
+    "ui_query": {
+        "mode": "command_allowlist",
+        "allowlist": ["tree", "resolution", "work_area"],
+    },
     "ui_click": {
         "mode": "coordinate_click",
         "x_min": 0,
@@ -136,7 +136,6 @@ SANDBOX_MAPPING: dict[str, dict[str, Any]] = {
         "buttons": ["left", "right", "middle"],
     },
     "ui_type": {"mode": "text_input", "max_chars": 256},
-    "window_list": {"mode": "window_target", "scopes": ["all", "foreground"]},
     "window_focus": {"mode": "window_target", "scopes": []},
     "window_minimize": {"mode": "window_target", "scopes": []},
     "doc_parse": {
@@ -149,29 +148,6 @@ SANDBOX_MAPPING: dict[str, dict[str, Any]] = {
         "roots": ["~/.inkling/workspace", "~/.inkling/attachments", "~"],
     },
     "screenshot_capture": {"mode": "query_allowlist", "allowlist": ["local", "cloud"]},
-    "run_typecheck": {
-        "mode": "process_template",
-        "argv": ["tsc", "--noEmit"],
-        "timeout_secs": 180,
-    },
-    "run_test_cargo": {
-        "mode": "process_template",
-        "argv": ["cargo", "test"],
-        "timeout_secs": 180,
-        "filter_arg": "--",
-    },
-    "run_test_python": {
-        "mode": "process_template",
-        "argv": ["python", "-m", "pytest"],
-        "timeout_secs": 180,
-        "filter_arg": "-k",
-    },
-    "run_test_web": {
-        "mode": "process_template",
-        "argv": ["npx", "vitest", "run"],
-        "timeout_secs": 180,
-        "filter_arg": "-t",
-    },
     "propose_patch": {"mode": "command_allowlist", "allowlist": ["propose_patch"]},
     "shell_exec": {
         "mode": "command_allowlist",
@@ -182,8 +158,8 @@ SANDBOX_MAPPING: dict[str, dict[str, Any]] = {
 FIXTURE_NOTE = (
     "壳执行器声明生成物：由 seed_data/tools.json 经 inkling/scripts/"
     "sync_tools_fixtures.py 生成（seed=引擎代理工具目录真源，fixtures=壳执行器声明，"
-    "禁手工维护）；成员 = seed OS 域工具 ∪ 壳执行工具（含 deny 档样例 shell_exec，"
-    "fail-closed 仅登记），漂移由出厂自检跨注册表一致性闸门硬校验。"
+    "禁手工维护）；成员 = seed OS 域工具 ∪ 壳执行工具（shell_exec 为混合级别："
+    "白名单内沙箱执行 + 白名单外升级审批放行），漂移由出厂自检跨注册表一致性闸门硬校验。"
     "params 为扁平签名形态——声明 ↔ 执行器签名一致性校验的直接比对面；shell 只读声明，禁硬编码。"
 )
 

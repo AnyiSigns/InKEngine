@@ -85,18 +85,17 @@ const GRAPH_NODE_TYPES: [&str; 4] = [
 const GRAPH_EDGE_CONDITIONS: [&str; 2] = ["llm.pending_nonempty", "llm.pending_empty"];
 const ORCHESTRATOR_RESERVED_KEYS: [&str; 3] = ["__plan__", "__spawn__", "__simulate__"];
 
-/// 领域工具（exec 执行体一一对应：采集/解析/校验/评分/评审/蒸馏/变异）。
-const DOMAIN_TOOLS: [&str; 7] = [
+/// 领域工具（exec 执行体一一对应：采集/解析/校验/评审/蒸馏/变异）。
+const DOMAIN_TOOLS: [&str; 6] = [
     "collect_material",
     "parse_material",
     "validate_material",
-    "score_material",
     "review_material",
     "distill_knowledge",
     "mutate_knowledge",
 ];
 /// shell 执行器注册（感知/控制/进程模板；壳契约测试同源）。
-const SHELL_EXECUTORS: [&str; 20] = [
+const SHELL_EXECUTORS: [&str; 15] = [
     "launch_app",
     "open_file",
     "system_query",
@@ -104,13 +103,8 @@ const SHELL_EXECUTORS: [&str; 20] = [
     "set_brightness",
     "notify",
     "sleep",
-    "run_typecheck",
-    "run_test_cargo",
-    "run_test_python",
-    "run_test_web",
     "ui_click",
     "ui_type",
-    "window_list",
     "window_focus",
     "window_minimize",
     "doc_parse",
@@ -119,7 +113,7 @@ const SHELL_EXECUTORS: [&str; 20] = [
     "material_import",
 ];
 /// OS 控制类（system_query 属感知/状态查询，不计入）。
-const OS_CONTROL_TOOLS: [&str; 11] = [
+const OS_CONTROL_TOOLS: [&str; 10] = [
     "launch_app",
     "open_file",
     "set_volume",
@@ -128,27 +122,29 @@ const OS_CONTROL_TOOLS: [&str; 11] = [
     "sleep",
     "ui_click",
     "ui_type",
-    "window_list",
     "window_focus",
     "window_minimize",
 ];
-/// 设备感知类（屏幕/文件状态，经 inkling_shell 设备感知 server 挂载）。
-const DEVICE_SENSE_TOOLS: [&str; 3] = ["screen_query", "file_query", "ui_tree_query"];
+/// 设备感知类（屏幕/UI 元素树/文件状态，经 inkling_shell 设备感知 server 挂载）。
+const DEVICE_SENSE_TOOLS: [&str; 2] = ["file_query", "ui_query"];
 /// 挂载提案 + 文件开发工具 + 自指演化提案（对话式安装入口 / 工作区
-/// 沙箱端点 / 声明式补丁提案）。
-const SELF_AND_FILE_TOOLS: [&str; 5] = [
+/// 沙箱端点 / 声明式补丁提案 / 会话待办清单 / 命令升级执行）。
+const SELF_AND_FILE_TOOLS: [&str; 7] = [
     "propose_mcp_mount",
     "propose_patch",
     "file_read",
     "file_write",
     "file_edit",
+    "shell_exec",
+    "task_manager",
 ];
 /// 网络工具（http_fetch 端点：域名白名单策略的抓取与聚合检索）。
 const NETWORK_TOOLS: [&str; 2] = ["fetch", "web_search"];
 /// 工作区文件内容/路径检索工具（file_ops 端点只读检索）。
 const FILE_SEARCH_TOOLS: [&str; 2] = ["grep", "glob"];
-/// deny 档工具（三档权限契约的默认拒绝样例，须经补丁链转正才可用）。
-const DENY_TOOLS: [&str; 1] = ["shell_exec"];
+/// deny 档工具（三档权限契约的默认拒绝样例，须经补丁链转正才可用；
+/// 当前为零——shell_exec 已转 review+escalation 档，无出厂 deny 工具）。
+const DENY_TOOLS: [&str; 0] = [];
 /// 协作工具（collab_request 端点：协作者召唤——实体目录 → spawn 子图物化）。
 const COLLAB_TOOLS: [&str; 1] = ["collab_request"];
 

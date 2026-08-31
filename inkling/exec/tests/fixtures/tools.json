@@ -59,53 +59,12 @@
       }
     },
     {
-      "name": "score_material",
-      "description": "评分：候选答案的引用质量（引用可验证性）+ 交叉验证（断言与样例库基准事实重叠度）确定性评分",
-      "inputSchema": {
-        "type": "object",
-        "properties": {
-          "answer": {
-            "type": "object",
-            "properties": {
-              "text": { "type": "string" },
-              "claims": { "type": "array", "items": { "type": "object", "properties": { "text": { "type": "string" } }, "required": ["text"] } },
-              "citations": {
-                "type": "array",
-                "items": {
-                  "type": "object",
-                  "properties": {
-                    "claim_index": { "type": "integer" },
-                    "source_id": { "type": "string" },
-                    "quote": { "type": "string" }
-                  },
-                  "required": ["claim_index", "source_id", "quote"]
-                }
-              }
-            },
-            "required": ["claims"]
-          },
-          "sources": {
-            "type": "array",
-            "items": {
-              "type": "object",
-              "properties": { "id": { "type": "string" }, "title": { "type": "string" }, "text": { "type": "string" } },
-              "required": ["id", "text"]
-            }
-          },
-          "weights": {
-            "type": "object",
-            "description": "四维度权重覆盖（缺省 = 出厂默认口径，总和 1.0）"
-          }
-        },
-        "required": ["answer"]
-      }
-    },
-    {
       "name": "review_material",
-      "description": "评审：按 review.json 维度配置加权打分 + 阈值判定 + 收敛决策（镜像引擎 WeightedScorer 与 MaxRoundsConvergencePolicy 语义）",
+      "description": "评审：按 review.json 维度配置加权打分 + 阈值判定 + 收敛决策（镜像引擎 WeightedScorer 与 MaxRoundsConvergencePolicy 语义）；phase=score 委托确定性评分（引用质量/交叉验证，原 score_material 并入）",
       "inputSchema": {
         "type": "object",
         "properties": {
+          "phase": { "type": "string", "enum": ["score", "review"], "description": "执行阶段（score=确定性评分；review=评审收敛，缺省 review）" },
           "candidates": {
             "type": "array",
             "items": {
@@ -117,7 +76,7 @@
                 "topic": { "type": "string" }
               }
             },
-            "description": "待评审候选清单"
+            "description": "待评审候选清单（phase=review 用）"
           },
           "dimension_scores": {
             "type": "array",
@@ -132,9 +91,12 @@
               "required": ["candidate_index", "name", "score"]
             }
           },
-          "round_no": { "type": "integer", "description": "当前再生成轮次（收敛决策用）" }
+          "round_no": { "type": "integer", "description": "当前再生成轮次（收敛决策用）" },
+          "answer": { "type": "object", "description": "候选答案对象（phase=score 用，含 claims 断言清单，citations 引用清单可选）" },
+          "sources": { "type": "array", "description": "引用来源文本（phase=score 用，可验证性基准）" },
+          "weights": { "type": "object", "description": "四维度权重覆盖（phase=score 用，缺省 = 出厂默认口径，总和 1.0）" }
         },
-        "required": ["candidates"]
+        "required": []
       }
     },
     {

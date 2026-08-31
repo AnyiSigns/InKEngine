@@ -13,7 +13,6 @@
               { "nodes": ["collect_material"] },
               { "nodes": ["parse_material"] },
               { "nodes": ["validate_material"] },
-              { "nodes": ["score_material"] },
               { "nodes": ["review_material"] },
               { "nodes": ["distill_knowledge"] }
             ]
@@ -32,13 +31,13 @@
       "data": {
         "template": {
           "name": "material_analysis",
-          "description": "单材料深度分析：采集 → 解析 → 校验 → 评分",
+          "description": "单材料深度分析：采集 → 解析 → 校验 → 评审评分（phase=score）",
           "plan": {
             "steps": [
               { "nodes": ["collect_material"] },
               { "nodes": ["parse_material"] },
               { "nodes": ["validate_material"] },
-              { "nodes": ["score_material"] }
+              { "nodes": ["review_material"] }
             ]
           }
         }
@@ -55,11 +54,10 @@
       "data": {
         "template": {
           "name": "knowledge_review",
-          "description": "知识条目评审：评审打分 + 阈值判定（收敛循环入口）",
+          "description": "知识条目评审：评分 + 评审打分 + 阈值判定（收敛循环入口，phase 区分）",
           "plan": {
             "steps": [
-              { "nodes": ["review_material"] },
-              { "nodes": ["score_material"] }
+              { "nodes": ["review_material"] }
             ]
           }
         }

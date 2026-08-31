@@ -99,11 +99,13 @@ _ASSEMBLY_SOURCE_LIMIT = 8
 # 保底 8 = file_read/file_write/file_edit/grep/glob（声明式）
 #         + propose_patch/propose_domain_manifest（自指）+ inspect_tools（内省）
 # +2 自指 = search_tools/request_tool
+# +1 续航 = task_manager（待办清单常驻——跨回合续航锚点，agent 开局即拆解任务）
 BASELINE_TOOL_NAMES: frozenset[str] = frozenset({
     "file_read", "file_write", "file_edit", "grep", "glob",
     "propose_patch", "propose_domain_manifest",
     "inspect_tools",
     "search_tools", "request_tool",
+    "task_manager",
 })
 
 # 常驻必带集持久化（records 通道；集合不在演化资产守卫表内 = 直写放行）。

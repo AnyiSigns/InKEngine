@@ -399,9 +399,9 @@ mod tests {
     fn name_map_from_seed_is_sorted_and_grouped() {
         let data = tools_data();
         let entries = build_tool_name_map(&data);
-        assert_eq!(entries.len(), 40);
-        assert_eq!(entries[0].tool, "collect_material");
-        assert_eq!(entries[0].group, "research");
+        assert_eq!(entries.len(), 35);
+        assert_eq!(entries[0].tool, "collab_request");
+        assert_eq!(entries[0].group, "generic");
         let fetch = entries.iter().find(|e| e.tool == "fetch").unwrap();
         assert_eq!(fetch.zh, "网络抓取");
         assert_eq!(fetch.group, "network");
@@ -436,18 +436,18 @@ mod tests {
     fn provider_seed_and_lookup_snapshot_consistent() {
         let data = tools_data();
         let provider = ToolSpecsProvider::from_seed(&data);
-        assert_eq!(provider.len(), 40);
+        assert_eq!(provider.len(), 35);
         assert!(provider.lookup("file_read").is_some());
         assert!(provider.lookup("nope").is_none());
-        assert_eq!(provider.names().len(), 40);
+        assert_eq!(provider.names().len(), 35);
         assert_eq!(provider.resolve_label("fetch", None), "网络抓取");
         assert_eq!(
             provider.resolve_label("ghost_tool", Some("Some MCP tool description.")),
             "Some MCP tool description."
         );
         let map = provider.name_map();
-        assert_eq!(map.len(), 40);
-        assert_eq!(map[0].tool, "collect_material");
+        assert_eq!(map.len(), 35);
+        assert_eq!(map[0].tool, "collab_request");
         let empty = ToolSpecsProvider::empty();
         assert_eq!(empty.len(), 0);
         assert_eq!(empty.name_map().len(), 0);

@@ -147,13 +147,110 @@ class DeclarativeSandboxProxyGuardTests(unittest.TestCase):
         未登记工具 / 非法档位 = 显式拒绝。"""
         from inkling_host.security_domain import TieredGate
 
-        gate = TieredGate({"shell_exec": "deny", "fetch": "review"})
+        gate = TieredGate({"forbidden_ctl": "deny", "fetch": "review"})
         with self.assertRaises(ValueError):
-            gate.set_tier_override("shell_exec", "allow")
+            gate.set_tier_override("forbidden_ctl", "allow")
         with self.assertRaises(ValueError):
             gate.set_tier_override("unknown_tool", "allow")
         with self.assertRaises(ValueError):
             gate.set_tier_override("fetch", "bogus")
+
+    def test_shell_exec_escalation_gate_reviews_non_allowlisted(self):
+        """混合 shell（meta.escalation）：白名单外命令门禁升级为 REVIEW
+        （弹卡裁决）而非 fail-closed DENY；白名单内命令保持原判定。"""
+        from ink_engine.core.permissions import ALLOW, REVIEW
+
+        from inkling_host.security_domain import TieredGate
+
+        tool = _seed_tool("shell_exec")
+        gate = TieredGate({"shell_exec": "review"}, executors=self._build_executors([tool]))
+        # 白名单内命令：权限命中 + review 档 → REVIEW（弹卡）
+        inside = gate.check("shell_exec", "exec", "python")
+        self.assertEqual(inside.decision, REVIEW)
+        # 白名单外命令：升级审批（REVIEW + 升级语义），不 fail-closed 拒绝
+        outside = gate.check("shell_exec", "exec", "where")
+        self.assertEqual(outside.decision, REVIEW)
+        self.assertIn("升级", outside.reason)
+        # 非 escalation 工具（launch_app）：白名单外仍硬拒（fail-closed）
+        launcher = _seed_tool("launch_app")
+        gate2 = TieredGate({"launch_app": "review"}, executors=self._build_executors([launcher]))
+        verdict = gate2.check("launch_app", "exec", "evil.exe")
+        self.assertEqual(verdict.decision, "deny")
+
+    def test_shell_exec_sandbox_passes_non_allowlisted_for_escalation(self):
+        """混合 shell 沙箱：白名单外命令放行到审批闸（审批即网关），
+        不再 SEC_007 二次硬拦；非 escalation 工具照常拦截。"""
+        proxy = self._build_proxy([_seed_tool("shell_exec")])
+        self.assertEqual(
+            self._validate_as(proxy, "shell_exec", "exec", "where"),
+            "where",
+        )
+        self.assertEqual(
+            self._validate_as(proxy, "shell_exec", "exec", "python"),
+            "python",
+        )
+        # 非 escalation 工具白名单外仍拒绝
+        from ink_engine.core.exceptions import SandboxViolation
+
+        launcher_proxy = self._build_proxy([_seed_tool("launch_app")])
+        with self.assertRaises(SandboxViolation):
+            self._validate_as(launcher_proxy, "launch_app", "exec", "evil.exe")
+
+    def test_shell_exec_executor_marks_escalated_on_approved_non_allowlisted(self):
+        """混合 shell 执行体：审批通过 + 白名单外命令 → 分发带 _escalated
+        标记；白名单内命令不带标记。"""
+        import asyncio
+
+        from ink_engine.core.approval import ApprovalDecision, DECISION_ACCEPT
+
+        from inkling_host.security_domain import (
+            OsControlRegistry,
+            make_process_exec_executor,
+        )
+
+        tool = _seed_tool("shell_exec")
+        captured: dict = {}
+
+        def impl(ctx, definition, args):
+            captured["args"] = args
+            return "mock-ok"
+
+        registry = OsControlRegistry()
+        registry.register("shell_exec", impl)
+        executor = make_process_exec_executor(
+            mount_service=object(),
+            os_registry=registry,
+            tiers={"shell_exec": "review"},
+        )
+        approval = ApprovalDecision(
+            decision=DECISION_ACCEPT, action={"tool": "shell_exec"}, reason="升级审批通过"
+        )
+        # 白名单外命令 + 审批通过 → _escalated 标记注入
+        asyncio.run(
+            executor(
+                ctx=None,
+                definition=_spec_from_seed(tool),
+                args={"command": "shell_exec", "argv": ["where", "git"]},
+                approval=approval,
+            )
+        )
+        self.assertIs(captured["args"].get("_escalated"), True)
+        # 白名单内命令 → 不带标记
+        asyncio.run(
+            executor(
+                ctx=None,
+                definition=_spec_from_seed(tool),
+                args={"command": "shell_exec", "argv": ["python", "--version"]},
+                approval=approval,
+            )
+        )
+        self.assertNotIn("_escalated", captured["args"])
+
+
+def _spec_from_seed(tool: dict):
+    from ink_engine.core.declarative_tools import DeclarativeToolSpec
+
+    return DeclarativeToolSpec.from_dict(tool)
 
 
 if __name__ == "__main__":

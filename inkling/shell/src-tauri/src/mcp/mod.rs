@@ -2,7 +2,7 @@
 //!
 //! 供引擎侧 mcp_client 挂载（宿主进程 spawn 本 server 或进程内调用）；
 //! 协议与 M1 执行件 conformance 同构：initialize → tools/list → tools/call。
-//! 感知工具（screen_query/file_query，声明 endpoint=device_mcp）经统一
+//! 感知工具（ui_query/file_query，声明 endpoint=device_mcp）经统一
 //! 执行器注册表执行——同一套权限/沙箱守卫，无第二条执行路径。
 //!
 //! 挂载接线：DeviceServer::handle_line(line) 单行处理（stdin 逐行读 →

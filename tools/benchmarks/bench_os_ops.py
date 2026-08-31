@@ -1,12 +1,13 @@
 """OSWorld 风格 OS 操作评测（元素树 + click 序列断言）。
 
 评测集以「任务 = 步骤序列」描述：每个步骤对 UI 驱动层（UIDriver）调用
-ui_tree_query / ui_click / ui_type / window_list / focus / minimize，并做断言。
+ui_query（元素树/窗口清单/屏幕参数统一感知入口）/ ui_click / ui_type /
+focus / minimize，并做断言。
 驱动层有两种实现：
 
 - SimulatedUIDriver：内存态 UI 树，离线可复现，用于门禁冒烟（不依赖真实桌面）；
 - LiveUIDriver：经 inkling-headless 的 `--os-op` 通道调桌面壳执行器注册表
-  （launch_app / ui_tree_query / ui_click / ui_type / window_list / window_focus /
+  （launch_app / ui_query / ui_click / ui_type / window_focus /
   window_minimize；需真实桌面/窗口管理器）。
 
 达标线（真实执行体）：简化集 ≥40%。离线冒烟集用于验证评测框架本身与任务口径。
@@ -140,16 +141,17 @@ class LiveUIDriver(UIDriver):
       → 沙箱 → PlatformBackend），与壳 `process_exec` / `device_mcp_call` 同一套
       守卫；review 档工具缺 `--approve` 即 fail-closed 拒绝；
     - 工具名/参数按产品真实签名：`ui_click{x,y,button}`（坐标制，非元素制）、
-      `ui_type{text}`（只打到前台窗口）、`window_list{scope}`、`window_focus{handle}`、
-      `window_minimize{handle}`、`ui_tree_query{scope}`、`launch_app{app}`。
+      `ui_type{text}`（只打到前台窗口）、`ui_query{target,scope}`（感知统一入口：
+      tree=元素树/resolution/work_area=屏幕参数）、`window_focus{handle}`、
+      `window_minimize{handle}`、`launch_app{app}`。
 
     口径降级（真实命令面能力缺口，如实标注而非伪造）：
 
-    - 元素定位：`ui_tree_query` 只回传 HWND 层级（handle/title/class/visible），
+    - 元素定位：`ui_query` 只回传 HWND 层级（handle/title/class/visible），
       无控件矩形、无 UIA 名称，故 `ui_click(element_id)` 无法落地 → 显式报错；
     - 值回读：跨进程 `GetWindowTextW` 读不到控件文本（Edit 子窗口 title 恒为空），
       `ui_type` 后无法回读编辑框内容；
-    - 窗口态回读：`window_list` 无 minimized 字段（`IsWindowVisible` 最小化后仍为
+    - 窗口态回读：`ui_query` 无 minimized 回读（`IsWindowVisible` 最小化后仍为
       true），故 minimized 缺省按「执行体 ack」记账；置 `INKLING_OS_LIVE_STRICT=1`
       改为严格口径（只认产品回读面，ack 不算）。
     """
@@ -243,7 +245,7 @@ class LiveUIDriver(UIDriver):
         before = {w["id"] for w in self.window_list()}
         # launch_app 缺陷绕行：run_cmd(...).output() 会等到被启动应用退出才返回
         # （被启动进程继承管道写端 → 无 EOF），故 stdio 置 DEVNULL 后不等返回，
-        # 改由 window_list 轮询确认窗口出现，再终止该 headless 进程。
+        # 改由 ui_query 轮询确认窗口出现，再终止该 headless 进程。
         argv = [self._cli, "--os-op", "launch_app", "--args",
                 json.dumps({"app": command}), "--approve"]
         proc = subprocess.Popen(
@@ -276,7 +278,7 @@ class LiveUIDriver(UIDriver):
         return handle
 
     def ui_tree_query(self, root: str | None = None) -> dict:
-        tree = json.loads(self._op("ui_tree_query", {"scope": "all"}, approve=False))
+        tree = json.loads(self._op("ui_query", {"target": "tree", "scope": "all"}, approve=False))
         result: dict[str, dict] = {}
         for win in tree.get("windows", []):
             handle = win["handle"]
@@ -293,7 +295,7 @@ class LiveUIDriver(UIDriver):
 
     def ui_click(self, element_id: str) -> None:
         raise RuntimeError(
-            "真实命令面 ui_click 只接屏幕坐标（x/y/button），而 ui_tree_query 不回传"
+            "真实命令面 ui_click 只接屏幕坐标（x/y/button），而 ui_query 不回传"
             "控件矩形 → 无法由 element_id 定位可点击坐标"
         )
 
@@ -304,7 +306,7 @@ class LiveUIDriver(UIDriver):
         self._op("window_focus", {"handle": owner})
         # 键盘注入打到前台窗口：前台不匹配即中止，避免误注入无关窗口
         foreground = json.loads(
-            self._op("ui_tree_query", {"scope": "all"}, approve=False)
+            self._op("ui_query", {"target": "tree", "scope": "all"}, approve=False)
         ).get("foreground")
         if foreground != owner:
             raise RuntimeError(
@@ -313,7 +315,7 @@ class LiveUIDriver(UIDriver):
         self._op("ui_type", {"text": text})
 
     def window_list(self) -> list[dict]:
-        listed = json.loads(self._op("window_list", {"scope": "all"}))
+        listed = json.loads(self._op("ui_query", {"target": "tree", "scope": "all"}, approve=False))
         return [
             {
                 "id": win["handle"],
@@ -329,7 +331,7 @@ class LiveUIDriver(UIDriver):
 
     def minimize(self, window_id: str) -> None:
         self._op("window_minimize", {"handle": window_id})
-        # 产品面无 minimized 回读（window_list 只有 visible，最小化后仍 true）：
+        # 产品面无 minimized 回读（ui_query 元素树 minimized 仅状态位，最小化后仍 true）：
         # 非严格口径下以执行体 ack 记账，严格口径下不记（断言必然不通过）
         self._minimized_ack[window_id] = True
         if self._strict:

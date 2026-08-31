@@ -340,10 +340,9 @@ mod tests {
             Err(err) => panic!("注册失败: {err}"),
         };
         for name in [
-            "ui_tree_query",
+            "ui_query",
             "ui_click",
             "ui_type",
-            "window_list",
             "window_focus",
             "window_minimize",
             "shell_exec",
@@ -364,9 +363,9 @@ mod tests {
         let registry = build_registry_from_declarations(&declarations).expect("注册须成功");
         let backend = crate::executors::backends::MockBackend::new();
         let auth = Authorization { approved: true };
-        let call = args(&[("target", "resolution".into())]);
+        let call = args(&[("target", "tree".into())]);
         let err = registry
-            .run("screen_query", &call, &backend, &auth, &CallGate::new(Endpoint::ProcessExec))
+            .run("ui_query", &call, &backend, &auth, &CallGate::new(Endpoint::ProcessExec))
             .unwrap_err();
         assert!(
             matches!(err, ExecError::SandboxViolation(_)),

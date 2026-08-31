@@ -308,6 +308,27 @@ export interface RoundLedgerChain {
   chain: string[];
 }
 
+/** 待办清单条目（task_manager 维护的持久化清单）。 */
+export interface TodoEntry {
+  id: string;
+  title: string;
+  detail?: string | null;
+  priority: string;
+  status: 'pending' | 'doing' | 'done' | 'cancelled' | 'blocked';
+  evidence?: string | null;
+  order: number;
+  created_at: number;
+  updated_at: number;
+  completed_at?: number | null;
+}
+
+/** 待办清单读取结果（todo.get op）。 */
+export interface TodoList {
+  thread_id: string;
+  entries: TodoEntry[];
+  total: number;
+}
+
 /** 后端适配器接口（生产 = 宿主桥；测试 = mock）。 */
 export interface BackendAdapter {
   /** 宿主可用性（false = 回落夹具路径）。 */
@@ -388,6 +409,8 @@ export interface BackendAdapter {
   roundLedgerList(threadId: string): Promise<RoundLedgerList>;
   roundLedgerChain(threadId: string): Promise<RoundLedgerChain>;
   roundLedgerMerge(threadId: string): Promise<unknown>;
+  // 待办清单（task_manager 持久化清单只读面；顶栏临时标签数据源）
+  todoGet(threadId: string): Promise<TodoList>;
   toolsSnapshot(): Promise<{ tools: ToolSnapshotEntry[] }>;
   toolsManifest(): Promise<{ tools: ToolManifestEntry[]; baseline: string[] }>;
   toolsBaselineGet(): Promise<{ tools: string[] }>;
@@ -509,6 +532,7 @@ export function createUnavailableBackend(): BackendAdapter {
     roundLedgerList: unavailable as never,
     roundLedgerChain: unavailable as never,
     roundLedgerMerge: unavailable as never,
+    todoGet: unavailable as never,
     toolsSnapshot: unavailable as never,
     toolsManifest: unavailable as never,
     toolsBaselineGet: unavailable as never,
@@ -642,6 +666,7 @@ export function createTauriBackend(invoker?: TauriInvoker): BackendAdapter {
     roundLedgerList: (threadId) => call('round_ledger_list', { threadId }),
     roundLedgerChain: (threadId) => call('round_ledger_chain', { threadId }),
     roundLedgerMerge: (threadId) => call('round_ledger_merge', { threadId }),
+    todoGet: (threadId) => call('todo_get', { thread_id: threadId }),
     toolsSnapshot: () => call('tools_snapshot'),
     toolsManifest: () => call('tools_manifest'),
     toolsBaselineGet: () => call('tools_baseline_get'),

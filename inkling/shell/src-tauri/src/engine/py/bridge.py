@@ -2403,6 +2403,30 @@ async def _safe_storage_list(runtime: Any, collection: str) -> list[dict]:
         return []
 
 
+@op_async("todo.get")
+async def _todo_get(args: dict) -> Any:
+    """读取当前会话待办清单（todo:<thread_id> 持久化清单的只读面）。
+
+    前端顶栏「待办」临时标签的数据源：有清单（非空条目）才在顶栏出现。
+    storage 不可用/无清单 = 空态（{entries: [], total: 0}，不报错）。
+    """
+    runtime = runtime_handle()
+    thread_id = str(args.get("thread_id") or "")
+    if not thread_id:
+        return {"entries": [], "total": 0, "thread_id": ""}
+    storage = getattr(runtime, "storage", None)
+    if storage is None:
+        return {"entries": [], "total": 0, "thread_id": thread_id}
+    try:
+        rec = await storage.get_record(f"todo:{thread_id}", "list")
+    except Exception:  # noqa: BLE001 - 读取失败 = 空态
+        return {"entries": [], "total": 0, "thread_id": thread_id}
+    entries = (rec or {}).get("entries")
+    if not isinstance(entries, list):
+        entries = []
+    return {"entries": entries, "total": len(entries), "thread_id": thread_id}
+
+
 def _safe_attr_call(runtime: Any, attr: str, default: Any = None) -> Any:
     """安全取运行时属性并调用（无属性/异常 = 默认兜底）。"""
     target = getattr(runtime, attr, None)

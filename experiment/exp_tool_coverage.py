@@ -13,6 +13,7 @@ INKENGINE_WS_ROOT 覆盖，agent 的工具调用全部真实执行。
 """
 from __future__ import annotations
 
+import contextlib
 import json
 import os
 import subprocess
@@ -85,13 +86,36 @@ def run_round(
     deadline = time.time() + timeout
     try:
         while time.time() < deadline:
-            line = proc.stderr.readline()
-            if not line and proc.poll() is not None:
+            if proc.poll() is not None:
+                # headless 已退出：非阻塞排空剩余 stderr 后收口——孙进程
+                # （回合内 shell_exec 等起的子进程）可能持有管道写端，
+                # readline 会永久阻塞，必须转非阻塞读（EOF/BlockingIOError 即止）
+                fd = proc.stderr.fileno()
+                os.set_blocking(fd, False)
+                try:
+                    while True:
+                        try:
+                            chunk = os.read(fd, 65536)
+                        except (BlockingIOError, OSError):
+                            break
+                        if not chunk:
+                            break
+                        for raw in chunk.decode("utf-8", "replace").split("\n"):
+                            s = raw.strip()
+                            if s:
+                                live_lines.append(s)
+                finally:
+                    with contextlib.suppress(OSError):
+                        os.set_blocking(fd, True)
+                if live_lines:
+                    live_file.write_text("\n".join(live_lines) + "\n", encoding="utf-8")
                 break
-            if line:
-                line = line.rstrip("\n")
-                live_lines.append(line)
-                live_file.write_text("\n".join(live_lines) + "\n", encoding="utf-8")
+            line = proc.stderr.readline()
+            if not line:
+                continue
+            line = line.rstrip("\n")
+            live_lines.append(line)
+            live_file.write_text("\n".join(live_lines) + "\n", encoding="utf-8")
         else:
             proc.kill()
             raise subprocess.TimeoutExpired("inkling-headless", timeout)
@@ -140,10 +164,10 @@ TASK_COVERAGE = (
     "run_test_web/system_query 等）：用无害命令（如 python --version、"
     "pytest --version、git status）探测；\n"
     "   - MCP 研究链（collect_material/parse_material/validate_material/"
-    "score_material/review_material/distill_knowledge/mutate_knowledge/"
+    "review_material/distill_knowledge/mutate_knowledge/"
     "material_import）：用工具描述与参数 schema 构造合理样例数据真实调用"
     "（如 collect_material 传 text、parse_material 传文本+spec、"
-    "score_material 传 answer 与引用、validate_material 传 data、"
+    "review_material 传 candidates（phase=score 评分）、validate_material 传 data、"
     "distill_knowledge 传 signals）；\n"
     "   - 演化/补丁（propose_patch/apply_patch/revert_patch）：提交一个"
     "真实补丁提案并尝试应用；\n"
@@ -153,10 +177,17 @@ TASK_COVERAGE = (
     "sleep 等）：只读或最小副作用探测，被权限拒绝则如实记录拒绝原文；\n"
     "3. 每个工具记录：工具名、传入参数、结果（成功/失败/拒绝）、错误信息原文、"
     "对使用者的真实反馈（参数形态要求、白名单命令、审批档位、端点是否可用）；\n"
-    "4. 最后输出『工具覆盖矩阵』Markdown 表格：| 工具 | 状态（成功/失败/拒绝/"
-    "未调用）| 反馈要点 |，并汇总：哪些工具可用、哪些不可用或被拒、各自的改进建议。\n\n"
+    "4. 在全部工具调用完成后，**最后必须以『问题清单』形式汇报本次巡检发现的"
+    "每一个问题**（这是本任务最重要的产出，逐条列出，不得遗漏）：\n"
+    "   - 格式：| # | 工具/机制 | 现象（实际返回原文） | 根因判断 | 改进建议 |\n"
+    "   - 覆盖三类问题：a) 工具不可用/被拒/报错（含拒绝原因原文、白名单/审批/"
+    "端点档位）；b) 工具行为异常或契约不一致（schema 参数名 vs 执行器、路径"
+    "口径、返回抖动等）；c) 机制层面（工具调用成功但实际效果/持久化/消费链路"
+    "未达预期，如绑定≠可用、apply≠生效）。\n"
+    "   - 每个问题必须给出：可复现的现象描述、触发条件（参数/调用形态）、"
+    "对使用者的影响。\n\n"
     "测试数据自拟；所有工具调用务必真实执行，结果以实际返回为准，不得编造。"
-    "完成后给出完整覆盖矩阵与逐工具反馈汇总。"
+    "先完成工具覆盖矩阵，再逐条输出问题清单。"
 )
 
 
@@ -167,13 +198,13 @@ TASK_COVERAGE = (
 CHAIN_TOOLS = {
     "演化/补丁链": {"propose_patch", "apply_patch", "revert_patch"},
     "知识集": {"distill_knowledge", "mutate_knowledge", "material_import"},
-    "推演": {"validate_material", "score_material", "review_material", "parse_material"},
+    "推演": {"validate_material", "review_material", "parse_material"},
     "研究": {"collect_material", "fetch", "web_search"},
     "文件端点": {"file_read", "file_write", "file_edit", "grep", "glob", "file_query"},
     "命令端点": {"run_test_python", "run_typecheck", "run_test_cargo", "run_test_web", "shell_exec", "system_query"},
     "内省/装配": {"inspect_tools", "inspect_graph", "inspect_rules", "search_tools", "request_tool", "propose_mcp_mount", "collab_request"},
     "文档/解析": {"doc_generate", "doc_parse", "open_file"},
-    "系统控制": {"notify", "sleep", "set_volume", "set_brightness", "screenshot_capture", "screen_query", "ui_click", "ui_type", "ui_tree_query", "window_list", "window_focus", "window_minimize", "launch_app"},
+    "系统控制": {"notify", "sleep", "set_volume", "set_brightness", "screenshot_capture", "ui_query", "ui_click", "ui_type", "window_focus", "window_minimize", "launch_app"},
 }
 
 # 工具名 → 参数 schema 简表（供分析脚本标注「未覆盖工具」的归属链路；不强制）
@@ -181,6 +212,30 @@ TOOL_LINK = {}
 for chain, tools in CHAIN_TOOLS.items():
     for t in tools:
         TOOL_LINK[t] = chain
+
+
+TASK_COVERAGE_PLUS = (
+    "这是一个工具全覆盖补缺任务。前几轮巡检已覆盖大部分工具，但以下 9 个工具"
+    "从未被实际调用，本轮必须逐个真实调用它们并汇报结果：\n\n"
+    "待补缺工具：doc_generate、doc_parse、fetch、mutate_knowledge、"
+    "propose_mcp_mount、run_test_web、ui_click、web_search、window_minimize。\n\n"
+    "执行要求：\n"
+    "1. 这些工具大多在注册表但未注入本会话——先用 search_tools 确认其存在与状态，"
+    "再用 request_tool 逐个绑定到本会话；\n"
+    "2. 绑定后逐个真实调用：\n"
+    "   - doc_generate/doc_parse：生成一份简单 Markdown 文档并解析它；\n"
+    "   - fetch/web_search：用无害关键词（如 'python'）真实检索/获取；\n"
+    "   - mutate_knowledge：基于知识集里已有的种子条目（如 seed.inkling.source_"
+    "credibility）提交一次带 failure_logs 的变异提案；\n"
+    "   - propose_mcp_mount：用无效地址提交挂载提案（应被校验拒绝——记录返回原文）；\n"
+    "   - run_test_web：运行一次 web 测试探测；\n"
+    "   - ui_click/window_minimize：headless 环境可能无桌面会话——如实记录执行结果"
+    "（成功/报错/权限拒绝原文）。\n"
+    "3. 对每个工具记录：工具名、绑定结果、真实调用结果、返回原文、对使用者的影响；\n"
+    "4. 最后输出『补缺覆盖矩阵』（| 工具 | 绑定 | 调用结果 | 返回原文 |）与『问题清单』"
+    "（每个工具暴露的问题：不可用原因、环境限制、契约不一致等）。\n\n"
+    "所有调用务必真实执行，结果以实际返回为准，不得编造。"
+)
 
 
 def analyze(ev: dict) -> dict:
@@ -255,7 +310,7 @@ async def main() -> int:
     started = time.time()
     data_dir = Path(os.environ.get("TEMP", ".")) / f"exp-tool-coverage-{int(time.time())}"
     thread_id = f"e2e-coverage-{int(time.time())}"
-    round = {"id": "r1", "label": "工具全覆盖巡检", "text": TASK_COVERAGE}
+    round = {"id": "r1", "label": "工具全覆盖巡检", "text": TASK_COVERAGE_PLUS}
 
     ts = time.strftime("%Y%m%d-%H%M%S")
     out_dir = REPO_ROOT / "docs" / "experiments" / "chains" / "tool-coverage" / ts

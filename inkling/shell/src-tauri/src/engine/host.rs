@@ -1572,7 +1572,10 @@ mod tests {
             names.contains(&"embedding".to_string()),
             "出厂接通：注入本地嵌入器后检索源应含 embedding（实际 {names:?}）"
         );
-        assert!(names.contains(&"knowledge_set".to_string()));
+        assert!(
+            names.contains(&"knowledge".to_string()),
+            "出厂接通：知识集注册为检索源 knowledge（实际 {names:?}）"
+        );
 
         // 回合正常（检索源携带真实语义嵌入不影响 stub 回合闭环）
         let outcome = host
@@ -1799,8 +1802,8 @@ mod tests {
                     "spawns": [
                         {"id": "g1", "nodes": ["collect_material", "parse_material"],
                          "parallel": true, "label": "并行采集解析"},
-                        {"id": "g2", "nodes": ["validate_material", "score_material"],
-                         "parallel": false, "label": "串行校验评分"},
+                        {"id": "g2", "nodes": ["validate_material", "review_material"],
+                         "parallel": false, "label": "串行校验评审"},
                     ],
                 })),
                 inject: None,
@@ -1835,7 +1838,7 @@ mod tests {
                 event["payload"]["tool"].as_str().map(String::from)
             })
             .collect();
-        for tool in ["collect_material", "parse_material", "validate_material", "score_material"] {
+        for tool in ["collect_material", "parse_material", "validate_material", "review_material"] {
             assert!(executed.contains(&tool.to_string()), "实例工具 {tool} 未执行");
         }
 
@@ -1979,9 +1982,9 @@ mod tests {
             group_g1.set_item("label", "并行采集解析")?;
             let group_g2 = pyo3::types::PyDict::new(py);
             group_g2.set_item("id", "g2")?;
-            group_g2.set_item("nodes", vec!["validate_material", "score_material"])?;
+            group_g2.set_item("nodes", vec!["validate_material", "review_material"])?;
             group_g2.set_item("parallel", false)?;
-            group_g2.set_item("label", "串行校验评分")?;
+            group_g2.set_item("label", "串行校验评审")?;
             let spawns = pyo3::types::PyList::new(py, vec![group_g1, group_g2])?;
             let specs = graph_recipe.call_method1("spawn_group_specs", (workflow, spawns))?;
             let spec_items = specs.extract::<Vec<pyo3::Py<pyo3::PyAny>>>()?;

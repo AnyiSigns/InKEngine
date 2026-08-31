@@ -66,7 +66,7 @@ InKling 是本地单机桌面产品：引擎自学习、数据全本地（sqlite
 |---|---|
 | MCP 市场 | 出厂零预挂（mcp_market.json 目录）；一键挂载走 vetting → 观察 → L2 审批转正 → 补丁链；stdio/http/in_memory 三传输；卸载回退（链尾冲突预检） |
 | 组件通道 | 形态进渲染层：白名单渲染器 + ui_spec 三层白名单校验 + ErrorBoundary 组件隔离（渲染崩溃不拖垮会话） |
-| 执行件通道 | 出厂七体（collect/parse/validate/score/review/distill/mutate）+ OS 控制 11 件（launch_app/open_file/set_volume/set_brightness/notify/schedule/ui_click/ui_type/window_list/window_focus/window_minimize）+ 自写执行体（P1 契约测试） |
+| 执行件通道 | 出厂六体（collect/parse/validate/review/distill/mutate，评分并入 review phase=score）+ OS 控制 10 件（launch_app/open_file/set_volume/set_brightness/notify/sleep/ui_click/ui_type/window_focus/window_minimize）+ UI 感知统一入口（ui_query：元素树/窗口清单/屏幕参数）+ 自写执行体（P1 契约测试） |
 
 ### F 生长治理
 
@@ -141,7 +141,7 @@ boot_prompt 定稿 + 引擎源码事实核对 + 校验器自检夹具）/**cargo
    （mini/overlay 形态）→ typecheck+vitest 门禁 verdict → Artifact 补丁
    挂载（L2 内容寻址，含测试报告）→ 渲染器动态加载（overlay 壳窗口）→
    可回退。
-2. **感知 MCP 组合**：设备感知 server 挂载（screen_query/file_query，
+2. **感知 MCP 组合**：设备感知 server 挂载（ui_query/file_query，
    in_memory 嵌入式或 stdio 真执行件）→ vetting/L2/审批 → 补丁链 → 工具
    注册表出现 → 桌宠引用感知数据。
 3. **全流程可见可审计**：写 → 门禁 → 挂载 → 生效 → 回退，消息流内联 +

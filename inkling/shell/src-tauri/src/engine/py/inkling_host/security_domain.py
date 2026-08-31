@@ -36,7 +36,13 @@ from collections.abc import Callable, Mapping, Sequence
 from pathlib import Path
 from typing import Any
 
-from ink_engine.core.approval import DECISION_REJECT, DECISION_TERMINATE, approve_before_execute
+from ink_engine.core.approval import (
+    DECISION_ACCEPT,
+    DECISION_AUTO,
+    DECISION_REJECT,
+    DECISION_TERMINATE,
+    approve_before_execute,
+)
 from ink_engine.core.declarative_tools import (
     DeclarativeToolExecutors,
     DeclarativeToolSpec,
@@ -281,6 +287,22 @@ class TieredGate:
                         DENY, tool, operation, target,
                         "工作区未授权（请先在设置页「连接」完成工作区授权确认）",
                     )
+                # 混合 shell（声明 meta.escalation）：白名单外命令不再
+                # fail-closed 拒绝，升级为审批弹卡（L2 升级卡）——审批
+                # 通过后一次性系统级放行；审批卡为唯一防线（无二次白名单）。
+                if (
+                    (definition.meta or {}).get("escalation") is True
+                    and definition.endpoint is EndpointType.PROCESS_EXEC
+                    and operation == "exec"
+                ):
+                    allowlist = tuple(
+                        definition.endpoint_config.get("allowlist") or ()
+                    )
+                    if target not in allowlist:
+                        return GateResult(
+                            REVIEW, tool, operation, target,
+                            "命令不在白名单，升级系统级审批（审批通过后一次性放行）",
+                        )
         return self._inner.check(tool, operation, target, permissions=effective)
 
 
@@ -430,6 +452,11 @@ class DeclarativeSandboxProxy:
             # Builder 的 ProcessSandbox 各自注入 PATH）
             allowlist = tuple(definition.endpoint_config.get("allowlist") or ())
             if target not in allowlist:
+                if (definition.meta or {}).get("escalation") is True:
+                    # 混合 shell：白名单外命令放行到审批闸（门禁已升级
+                    # REVIEW 弹卡，审批通过才执行——审批即网关，此处
+                    # 不再二次硬拦；命令是否放行由审批卡裁决）
+                    return target
                 raise SandboxViolation(
                     f"命令不在端点白名单: {target!r}（{ErrorCode.PROCESS_NOT_ALLOWLISTED}）"
                 )
@@ -706,10 +733,17 @@ class FileOpsExecutor:
         self._snapshots: dict[str, bytes] = {}
 
     def rollback(self, path: Path) -> bool:
-        """回退一次写操作（快照存在 = 还原原内容；缺失 = False）。"""
+        """回退一次写操作（快照存在 = 还原原内容；缺失 = False）。
+
+        空快照（写前文件不存在 = 新建语义）回退 = 删除该文件，回到
+        「写前不存在」状态（与写前快照语义严格一致）。
+        """
         snapshot = self._snapshots.pop(str(path), None)
         if snapshot is None:
             return False
+        if not snapshot:
+            path.unlink(missing_ok=True)
+            return True
         path.parent.mkdir(parents=True, exist_ok=True)
         path.write_bytes(snapshot)
         return True
@@ -772,7 +806,6 @@ class FileOpsExecutor:
     def _search(self, args: dict, definition: Any) -> str:
         """grep：工作区文本内容检索（正则 + 路径 glob 过滤 + 类型过滤 +
         超限截断；只读，结果 = 命中文件/行号/摘要）。"""
-        import fnmatch
         import re
 
         root = self._search_base(definition)
@@ -816,7 +849,7 @@ class FileOpsExecutor:
                         rel = full.relative_to(root).as_posix()
                     except ValueError:
                         continue
-                    if glob_pattern and not fnmatch.fnmatch(rel, glob_pattern):
+                    if glob_pattern and not _glob_match(glob_pattern, rel):
                         continue
                     if include:
                         if include.startswith("."):
@@ -989,8 +1022,11 @@ class FileOpsExecutor:
 
     def _write(self, path_text: str, content: str) -> str:
         path = Path(path_text)
-        if path.is_file():
-            self._snapshots[str(path)] = path.read_bytes()
+        # 写前快照统一（file_write/file_edit 同语义）：不论文件是否存在
+        # 均记录写前原内容（新建文件 = 空快照，回退 = 删除该文件），
+        # snapshot 恒 true——「写前快照已建立」与 file_edit 一致
+        # （此前新建文件 snapshot: false 与 edit 的 true 语义不一致）。
+        self._snapshots[str(path)] = path.read_bytes() if path.is_file() else b""
         path.parent.mkdir(parents=True, exist_ok=True)
         path.write_text(content, encoding="utf-8")
         return json.dumps(
@@ -998,7 +1034,7 @@ class FileOpsExecutor:
                 "ok": True,
                 "path": str(path),
                 "bytes": len(content.encode("utf-8")),
-                "snapshot": str(path) in self._snapshots,
+                "snapshot": True,
             },
             ensure_ascii=False,
         )
@@ -1009,6 +1045,14 @@ def make_file_ops_executor() -> FileOpsExecutor:
     return FileOpsExecutor()
 
 
+def argv_program(args: Mapping[str, Any]) -> str | None:
+    """argv 参数数组的首元素（命令名）；缺参/非数组/空 = None。"""
+    argv = coerce_argv(args.get("argv"))
+    if argv and isinstance(argv[0], str) and argv[0]:
+        return argv[0]
+    return None
+
+
 def make_process_exec_executor(
     mount_service: Any,
     os_registry: OsControlRegistry,
@@ -1017,10 +1061,11 @@ def make_process_exec_executor(
 ) -> Callable[..., Any]:
     """process_exec 端点执行体（宿主注册进声明式执行体表）。
 
-    分发规则：propose_mcp_mount → 挂载服务；deny 档（shell_exec）→
-    守卫拒绝（纵深防御，门禁已拒，执行体再拒一次）；其余 → OS 控制
-    注册表分发。command 固定枚举与工具名不符 = 明确拒绝
-    （COMMAND_ENUM_MISMATCH 语义，与端点操作判定同源）。
+    分发规则：propose_mcp_mount → 挂载服务；混合 shell（shell_exec，
+    meta.escalation）白名单外命令经升级审批后带 _escalated 标记分发
+    （白名单内命令照常）；其余 → OS 控制注册表分发。command 固定枚举
+    与工具名不符 = 明确拒绝（COMMAND_ENUM_MISMATCH 语义，与端点操作
+    判定同源）。
     """
 
     async def execute(ctx: Any, definition: Any, args: dict[str, Any], approval: Any) -> str:
@@ -1069,6 +1114,20 @@ def make_process_exec_executor(
                 },
                 ensure_ascii=False,
             )
+        # 混合 shell（meta.escalation）：白名单外命令经审批升级放行。
+        # 审批已通过（approval 决议 = accept/auto）且 argv[0] 不在白名单
+        # → 给壳侧执行器打 escalated 标记（一次性系统级放行，cwd=主目录）；
+        # 审批未通过 = 流水线在门禁阶段已拦截，不会走到执行体。
+        if (
+            (definition.meta or {}).get("escalation") is True
+            and approval is not None
+            and approval.decision in (DECISION_ACCEPT, DECISION_AUTO)
+        ):
+            program = argv_program(args)
+            allowlist = tuple(definition.endpoint_config.get("allowlist") or ())
+            if program and program not in allowlist:
+                args = dict(args)
+                args["_escalated"] = True
         return await os_registry.dispatch(command, ctx, definition, args)
 
     return execute

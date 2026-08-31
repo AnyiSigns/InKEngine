@@ -22,7 +22,7 @@ from __future__ import annotations
 
 import json
 import time
-from collections.abc import Callable, Sequence
+from collections.abc import Awaitable, Callable, Sequence
 from typing import Any
 from weakref import WeakKeyDictionary
 
@@ -54,10 +54,11 @@ STATE_RESULTS = "results"
 STATE_MESSAGES = "messages"
 STATE_PENDING = "pending"
 
-# LLM 决策循环护栏（回合工具循环上限；成本护栏——24 轮 = 最多 24 次
-# LLM 决策调用，覆盖真实 agent 复杂任务（写项目+装依赖+跑测试+修复）
-# 的典型续航；护栏仍防成本失控，具体值可经能力记录设置项覆盖）
-MAX_TOOL_ROUNDS = 24
+# LLM 决策循环护栏（回合工具循环上限；成本护栏——48 轮 = 最多 48 次
+# LLM 决策调用，按项目级 agent 任务（装依赖+写代码+写测试+跑测试+修复）
+# 的实测续航取值：24 轮仅覆盖「装依赖 + 建骨架」；具体值可经能力记录
+# 设置项覆盖，前端档位 1-200）
+MAX_TOOL_ROUNDS = 48
 
 # max_tool_rounds 用户覆盖（能力记录驱动；None = 用节点 config 默认值）。
 # 覆盖值在引擎重建前由宿主/桥从能力记录刷新（settings 保存 → capability_put
@@ -85,6 +86,93 @@ def max_tool_rounds_override() -> int | None:
 # 工具结果回填消息流的截断下限（动态上限 = 0.05×当前模型窗口，见
 # resolve_tool_result_max_chars；本常量仅作下限与既有导出兼容）
 TOOL_RESULT_MAX_CHARS = TOOL_RESULT_MAX_CHARS_FLOOR
+
+
+# ── 研究链链条节点参数传递（spawn 链式子图节点间传上游产物） ──
+#
+# 断链根因（ENG3-12 遗留实证）：spawn 链式子图节点 = tool_pipeline
+# （config.tool=工具名），参数只从 step_args/config.args 取；链条下游
+# 节点（parse/validate/score/review/distill）无参调用 → 执行体缺参失败
+# （parse 缺 text、validate 缺 data、score 缺 answer、review 缺 candidates）。
+# 子图内 state.results 是节点间累积共享的（每节点 results[tool]=文本 后
+# 返回 {results}）——下游缺参时按研究链契约从上游产物推导参数，链条
+# 真正走通。推导是确定性加工（上游产物 → 下游契约参数），非伪造 LLM
+# 内容：链条把「当前素材文本」逐级传递加工（采集→解析→校验→评分→
+# 评审→蒸馏），缺参即回落素材载体，保证 spawn 子图可执行可审计。
+
+
+def _parse_chain_result(raw: Any) -> Any:
+    """链条上游产物解析：results[tool] 为工具返回文本（JSON 字符串）。"""
+    if isinstance(raw, dict):
+        return raw
+    if isinstance(raw, str):
+        try:
+            return json.loads(raw)
+        except ValueError:
+            return None
+    return None
+
+
+def _chain_source_text(results: dict[str, Any]) -> str | None:
+    """链条素材文本：优先 collect 产物 content，其次任意上游字符串字段。"""
+    for name in ("collect_material", "collect"):
+        obj = _parse_chain_result(results.get(name))
+        content = obj.get("content") if isinstance(obj, dict) else None
+        if isinstance(content, str) and content:
+            return content
+    for raw in results.values():
+        obj = _parse_chain_result(raw)
+        if isinstance(obj, dict):
+            for value in obj.values():
+                if isinstance(value, str) and value:
+                    return value
+    return None
+
+
+def _chain_upstream_field(
+    results: dict[str, Any], tool: str, key: str
+) -> Any:
+    """上游指定工具产物的字段（无产物/字段缺失 = None）。"""
+    obj = _parse_chain_result(results.get(tool))
+    if isinstance(obj, dict):
+        value = obj.get(key)
+        if value is not None:
+            return value
+    return None
+
+
+def chain_derived_args(
+    tool: str, results: dict[str, Any], input_text: str
+) -> dict[str, Any] | None:
+    """研究链链条节点缺参时从上游产物推导参数（确定性，非伪造）。
+
+    Args:
+        tool: 当前链条节点工具名。
+        results: 子图累积的 state.results（上游工具产物）。
+        input_text: 回合输入文本（collect 入料源）。
+
+    Returns:
+        推导出的工具参数；无可推导素材（链条首节点且无输入）返回 None
+        （保持空参，由执行体缺参指引文案引导）。
+    """
+    if tool.startswith("collect_"):
+        return {"text": input_text[:2000]} if input_text else None
+    source_text = _chain_source_text(results)
+    if not source_text:
+        return None
+    if tool == "parse_material":
+        return {"text": source_text, "spec": []}
+    if tool == "validate_material":
+        fields = _chain_upstream_field(results, "parse_material", "fields")
+        data = fields if isinstance(fields, dict) and fields else {"content": source_text}
+        return {"data": data}
+    if tool == "review_material":
+        return {"candidates": [{"text": source_text, "claims": [{"text": source_text}]}]}
+    if tool == "distill_knowledge":
+        return {
+            "signals": [{"kind": "insight", "message": source_text, "source": "model"}]
+        }
+    return None
 
 # 当前模型档案 context_window（host.resolve_llm 装配后注入；None = 未注入，
 # 工具结果截断按 200k 兜底——动态上限 0.05×200k = 10k）
@@ -542,7 +630,6 @@ def make_tool_pipeline_factory(
         # 只确认「图合法 + 走通」，真实工具调用（文件写/shell/MCP）不得
         # 在 canary 态发生——工具层桩执行并标记成功，路径完整走完
         from ink_engine.core.path_assembler import canary_active
-
         # step_id 形如 "tool:{call_id}"，反向取出 call_id 放进事件负载，
         # 保证与事件流 step_id（tool:{call_id}）一致（round_steps_feed 侧优先
         # 用 event.step_id 提取，二者应同源）
@@ -614,6 +701,19 @@ def make_tool_pipeline_factory(
             if tool is not None:
                 step_args = state.get(STATE_STEP_ARGS) or {}
                 args = step_args.get(tool) or config.get("args") or {}
+                # 研究链链条参数传递（ENG3-12 遗留修复）：spawn 链式子图
+                # 节点间参数不传递，链条下游缺参失败——缺参时从上游产物
+                # （state.results）按研究链契约推导参数（collect 以回合输入
+                # 作 text 入料，parse 取上游 content、validate 取上游 fields、
+                # score/review/distill 以素材文本构造最小契约形态）。
+                if not args:
+                    derived = chain_derived_args(
+                        tool,
+                        state.get(STATE_RESULTS) or {},
+                        str(ctx.state.get("input") or ""),
+                    )
+                    if derived:
+                        args = derived
                 text, _success = await run_tool(ctx, tool, args, f"tool:{tool}")
                 results = dict(state.get(STATE_RESULTS) or {})
                 results[tool] = text
@@ -621,6 +721,11 @@ def make_tool_pipeline_factory(
             pending = state.get(STATE_PENDING) or []
             if not pending:
                 return {}
+            # 逐项消费 pending[0]：工具循环由图条件边驱动（llm_decider 在
+            # pending 未清空时短路不重调模型，控制权持续回到本节点，直到
+            # 并行调用全部执行完才回 llm_decider）——并行 tool_calls 一个
+            # 不丢，且审批挂起中断语义保留（每项独立 node 执行，挂起发生在
+            # 执行前，重入 = 首次执行不重复）。
             call = pending[0]
             name = str(call.get("name") or "")
             args = call.get("arguments") or {}
@@ -713,6 +818,16 @@ def make_llm_decider_factory(
                         if base_input
                         else f"【回合输入调配】\n{assembled_text}"
                     )
+                # 待办清单注入：回合开篇附带当前清单（跨回合保留的续航锚点）。
+                # 注入失败静默跳过（清单是增强，不阻断回合）。
+                todo_injector = holder.get(_HOLDER_TODO)
+                if callable(todo_injector):
+                    try:
+                        todo_text = await todo_injector(getattr(ctx, "thread_id", None))
+                    except Exception:  # noqa: BLE001
+                        todo_text = ""
+                    if todo_text:
+                        body = f"{body}\n\n{todo_text}"
                 if base_round:
                     messages.append(Message(role="user", content=body, id=opener_id))
                 else:
@@ -720,6 +835,13 @@ def make_llm_decider_factory(
             return messages
 
         async def node(ctx: Any) -> dict | None:
+            # 工具循环续接：上一轮产出的 pending 未消费完时（并行调用
+            # 多个 tool_calls 只执行了部分），本轮不重调模型——直接让
+            # COND_PENDING 条件边把控制交回 tool_pipeline 继续消费剩余
+            # 项。此前 llm_decider 每轮重调会覆盖剩余 pending（并行调用
+            # 第二个被丢/参数错位，ENG3-12 实证），此处显式短路。
+            if ctx.state.get(STATE_PENDING):
+                return None
             llm = node_llm if node_llm is not None else holder.get("llm")
             if llm is None:
                 await ctx.emit("error", {"message": "模型未装配（llm_decider 无模型可调）"})
@@ -1036,6 +1158,47 @@ _HOLDER_ALL_SPECS = "all_specs"
 _HOLDER_INJECT = "inject"
 _HOLDER_PIPELINE = "pipeline"
 _HOLDER_LLM = "llm"
+# 待办清单注入器（host 经 ctx.storage 构建；llm_decider 开篇注入当前清单）
+_HOLDER_TODO = "todo_injector"
+
+# 待办清单开篇注入上限（条数与单条字符，防挤占上下文预算）
+_TODO_INJECT_LIMIT = 20
+_TODO_INJECT_ENTRY_CHARS = 200
+
+
+def make_todo_injector(storage: Any) -> Callable[[str | None], Awaitable[str]] | None:
+    """待办清单注入器：读 ``todo:<thread_id>`` → 摘要文本（跨回合保留）。
+
+    storage 不可用/无清单 = 返回空串（注入是增强，不阻断回合）。
+    """
+
+    if storage is None:
+        return None
+
+    async def inject(thread_id: str | None) -> str:
+        if not thread_id:
+            return ""
+        try:
+            rec = await storage.get_record(f"todo:{thread_id}", "list")
+        except Exception:  # noqa: BLE001 - 读取失败不阻断回合
+            return ""
+        entries = (rec or {}).get("entries")
+        if not isinstance(entries, list) or not entries:
+            return ""
+        active = [e for e in entries if e.get("status") not in ("done", "cancelled")]
+        if not active:
+            return ""
+        lines = []
+        marks = {"pending": "[ ]", "doing": "[>]", "blocked": "[!]"}
+        for e in active[:_TODO_INJECT_LIMIT]:
+            mark = marks.get(e.get("status"), "[ ]")
+            title = str(e.get("title") or "")[:_TODO_INJECT_ENTRY_CHARS]
+            detail = str(e.get("detail") or "")[:_TODO_INJECT_ENTRY_CHARS]
+            suffix = f"（{detail}）" if detail else ""
+            lines.append(f"{mark} {e.get('id')} {title}{suffix}")
+        return "当前待办清单（task_manager 维护，跨回合保留）：\n" + "\n".join(lines)
+
+    return inject
 
 
 def _specs_holder(registries: Any) -> dict[str, Any]:
@@ -1068,6 +1231,7 @@ def register_node_types(ctx: GraphRecipeContext, workflow: WorkflowSpec) -> None
     holder[_HOLDER_INJECT] = ctx.collect_specs
     holder[_HOLDER_PIPELINE] = ctx.tool_pipeline
     holder[_HOLDER_LLM] = ctx.llm
+    holder[_HOLDER_TODO] = make_todo_injector(ctx.storage)
     if not registries.nodes.has(TYPE_ORCHESTRATOR):
         registries.nodes.register(
             TYPE_ORCHESTRATOR, make_orchestrator_factory(workflow, holder)
@@ -1212,6 +1376,7 @@ __all__ = [
     "TYPE_TOOL_PIPELINE",
     "assembly_candidate_specs",
     "build_round_graph",
+    "chain_derived_args",
     "install_context_window",
     "install_mcp_server_probe",
     "make_assembler_factory",

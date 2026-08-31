@@ -379,14 +379,32 @@ fn sleep_spec() -> ExecutorSpec {
     }
 }
 
-fn screen_query_spec() -> ExecutorSpec {
+/// 屏幕坐标范围（Windows 坐标空间上限；与 fixture 坐标点击沙箱同源）。
+const CLICK_X_MIN: i64 = 0;
+const CLICK_X_MAX: i64 = 32767;
+const CLICK_Y_MIN: i64 = 0;
+const CLICK_Y_MAX: i64 = 32767;
+/// 点击按键白名单（与 fixture 坐标点击沙箱 buttons 同源）。
+const CLICK_BUTTONS: &[&str] = &["left", "right", "middle"];
+/// 文本输入长度上限（字符；与 fixture 文本输入沙箱 max_chars 同源）。
+const UI_TEXT_MAX_CHARS: usize = 256;
+/// 元素树作用域白名单（ui_query 的 scope 用；与 fixture window_target scopes 同源）。
+const UI_QUERY_SCOPES: &[&str] = &["all", "foreground"];
+
+/// 桌面 UI 感知签名契约（原 window_list/screen_query/ui_tree_query 三合一）：
+/// target 选感知面（tree=元素树/resolution/work_area=屏幕几何参数），
+/// scope 只约束元素树范围（foreground/all）。只读感知 = allow 档。
+fn ui_query_spec() -> ExecutorSpec {
     ExecutorSpec {
-        name: "screen_query",
-        params: vec![ParamSpec { name: "target", param_type: ParamType::String, required: true }],
-        permission: PermissionLevel::Review,
+        name: "ui_query",
+        params: vec![
+            ParamSpec { name: "target", param_type: ParamType::String, required: false },
+            ParamSpec { name: "scope", param_type: ParamType::String, required: false },
+        ],
+        permission: PermissionLevel::Allow,
         endpoint: Endpoint::DeviceMcp,
         sandbox: SandboxRule::CommandAllowlist {
-            allowlist: vec!["resolution".into(), "work_area".into()],
+            allowlist: vec!["tree".into(), "resolution".into(), "work_area".into()],
         },
     }
 }
@@ -398,30 +416,6 @@ fn file_query_spec() -> ExecutorSpec {
         permission: PermissionLevel::Review,
         endpoint: Endpoint::DeviceMcp,
         sandbox: SandboxRule::PathRoots { roots: vec![WORKSPACE_ROOT.into()] },
-    }
-}
-
-/// 屏幕坐标范围（Windows 坐标空间上限；与 fixture 坐标点击沙箱同源）。
-const CLICK_X_MIN: i64 = 0;
-const CLICK_X_MAX: i64 = 32767;
-const CLICK_Y_MIN: i64 = 0;
-const CLICK_Y_MAX: i64 = 32767;
-/// 点击按键白名单（与 fixture 坐标点击沙箱 buttons 同源）。
-const CLICK_BUTTONS: &[&str] = &["left", "right", "middle"];
-/// 文本输入长度上限（字符；与 fixture 文本输入沙箱 max_chars 同源）。
-const UI_TEXT_MAX_CHARS: usize = 256;
-/// 窗口作用域白名单（window_list 用；与 fixture window_target scopes 同源）。
-const WINDOW_SCOPES: &[&str] = &["all", "foreground"];
-
-fn ui_tree_query_spec() -> ExecutorSpec {
-    ExecutorSpec {
-        name: "ui_tree_query",
-        params: vec![ParamSpec { name: "scope", param_type: ParamType::String, required: false }],
-        permission: PermissionLevel::Allow,
-        endpoint: Endpoint::DeviceMcp,
-        sandbox: SandboxRule::CommandAllowlist {
-            allowlist: vec!["foreground".into(), "all".into()],
-        },
     }
 }
 
@@ -452,18 +446,6 @@ fn ui_type_spec() -> ExecutorSpec {
         permission: PermissionLevel::Review,
         endpoint: Endpoint::ProcessExec,
         sandbox: SandboxRule::TextInput { max_chars: UI_TEXT_MAX_CHARS },
-    }
-}
-
-fn window_list_spec() -> ExecutorSpec {
-    ExecutorSpec {
-        name: "window_list",
-        params: vec![ParamSpec { name: "scope", param_type: ParamType::String, required: false }],
-        permission: PermissionLevel::Review,
-        endpoint: Endpoint::ProcessExec,
-        sandbox: SandboxRule::WindowTarget {
-            scopes: WINDOW_SCOPES.iter().map(|item| item.to_string()).collect(),
-        },
     }
 }
 
@@ -752,77 +734,6 @@ fn tokio_block_on<F: std::future::Future>(future: F) -> F::Output {
         .block_on(future)
 }
 
-/// 进程模板工具的超时上限（秒；钉死在声明侧，与夹具一致）。
-const PROCESS_TEMPLATE_TIMEOUT_SECS: u64 = 180;
-
-/// 测试筛选值长度上限（字符；足够承载测试名子串/关键词组合）。
-const FILTER_MAX_CHARS: usize = 64;
-
-fn run_typecheck_spec() -> ExecutorSpec {
-    ExecutorSpec {
-        name: "run_typecheck",
-        params: vec![ParamSpec { name: "command", param_type: ParamType::String, required: true }],
-        permission: PermissionLevel::Review,
-        endpoint: Endpoint::ProcessExec,
-        sandbox: SandboxRule::ProcessTemplate {
-            argv: vec!["tsc".into(), "--noEmit".into()],
-            timeout_secs: PROCESS_TEMPLATE_TIMEOUT_SECS,
-            filter_arg: None,
-        },
-    }
-}
-
-fn run_test_cargo_spec() -> ExecutorSpec {
-    ExecutorSpec {
-        name: "run_test_cargo",
-        params: vec![
-            ParamSpec { name: "command", param_type: ParamType::String, required: true },
-            ParamSpec { name: "filter", param_type: ParamType::String, required: false },
-        ],
-        permission: PermissionLevel::Review,
-        endpoint: Endpoint::ProcessExec,
-        sandbox: SandboxRule::ProcessTemplate {
-            argv: vec!["cargo".into(), "test".into()],
-            timeout_secs: PROCESS_TEMPLATE_TIMEOUT_SECS,
-            filter_arg: Some("--".into()),
-        },
-    }
-}
-
-fn run_test_python_spec() -> ExecutorSpec {
-    ExecutorSpec {
-        name: "run_test_python",
-        params: vec![
-            ParamSpec { name: "command", param_type: ParamType::String, required: true },
-            ParamSpec { name: "filter", param_type: ParamType::String, required: false },
-        ],
-        permission: PermissionLevel::Review,
-        endpoint: Endpoint::ProcessExec,
-        sandbox: SandboxRule::ProcessTemplate {
-            argv: vec!["python".into(), "-m".into(), "pytest".into()],
-            timeout_secs: PROCESS_TEMPLATE_TIMEOUT_SECS,
-            filter_arg: Some("-k".into()),
-        },
-    }
-}
-
-fn run_test_web_spec() -> ExecutorSpec {
-    ExecutorSpec {
-        name: "run_test_web",
-        params: vec![
-            ParamSpec { name: "command", param_type: ParamType::String, required: true },
-            ParamSpec { name: "filter", param_type: ParamType::String, required: false },
-        ],
-        permission: PermissionLevel::Review,
-        endpoint: Endpoint::ProcessExec,
-        sandbox: SandboxRule::ProcessTemplate {
-            argv: vec!["npx".into(), "vitest".into(), "run".into()],
-            timeout_secs: PROCESS_TEMPLATE_TIMEOUT_SECS,
-            filter_arg: Some("-t".into()),
-        },
-    }
-}
-
 /// 自指演化提案执行器：把工具调用转发给引擎接线桥的 propose_patch op
 /// （审批分级 L0/L1/L2 与补丁链 vetting 全部在引擎侧既有管线内执行，
 /// 壳侧只做签名校验与转发，不做域逻辑）。
@@ -843,16 +754,24 @@ fn propose_patch_spec() -> ExecutorSpec {
     }
 }
 
-/// 工作区命令执行执行器（shell_exec：cwd 钉在工作区挂载根内，命令面
-/// 白名单 + review 档门禁——档位与命令面以声明为准（seed_data/tools.json
-/// → tools_os.json），不再硬编码 deny：出厂默认 review 档（桌面壳审批卡、
-/// headless 全量自动审批），agent 可在工作区内执行命令（装依赖/跑脚本）。
+/// shell_exec 执行超时上限（秒；agent 可控时长的上界，与声明一致）。
+const SHELL_EXEC_TIMEOUT_MAX: i64 = 3600;
+/// shell_exec 执行超时缺省值（秒；未传 timeout 时回落）。
+const SHELL_EXEC_DEFAULT_TIMEOUT_SECS: u64 = 180;
+
+/// 工作区命令执行执行器（shell_exec 混合级别：白名单内命令 cwd 钉在
+/// 工作区挂载根、命令面白名单 + review 档门禁；白名单外命令经引擎侧
+/// 升级审批（L2 卡）通过后一次性系统级放行——escalated 标记由引擎
+/// 审批通过后注入 argv，壳侧跳过命令面白名单并改用系统主目录 cwd。
+/// timeout 参数由 agent 控制执行时长（1-3600 秒，缺省 180）。档位与
+/// 命令面以声明为准（seed_data/tools.json → tools_os.json）。
 fn shell_exec_spec() -> ExecutorSpec {
     ExecutorSpec {
         name: "shell_exec",
         params: vec![
             ParamSpec { name: "command", param_type: ParamType::String, required: true },
             ParamSpec { name: "argv", param_type: ParamType::StringArray, required: true },
+            ParamSpec { name: "timeout", param_type: ParamType::Integer, required: false },
         ],
         permission: PermissionLevel::Review,
         endpoint: Endpoint::ProcessExec,
@@ -880,22 +799,16 @@ pub fn executor_impl(name: &str) -> Option<(ExecutorSpec, RunFn)> {
         "set_brightness" => (set_brightness_spec(), set_brightness_run),
         "notify" => (notify_spec(), notify_run),
         "sleep" => (sleep_spec(), sleep_run),
-        "screen_query" => (screen_query_spec(), screen_query_run),
         "file_query" => (file_query_spec(), file_query_run),
-        "ui_tree_query" => (ui_tree_query_spec(), ui_tree_query_run),
+        "ui_query" => (ui_query_spec(), ui_query_run),
         "ui_click" => (ui_click_spec(), ui_click_run),
         "ui_type" => (ui_type_spec(), ui_type_run),
-        "window_list" => (window_list_spec(), window_list_run),
         "window_focus" => (window_focus_spec(), window_focus_run),
         "window_minimize" => (window_minimize_spec(), window_minimize_run),
         "doc_parse" => (doc_parse_spec(), doc_parse_run),
         "material_import" => (material_import_spec(), material_import_run),
         "doc_generate" => (doc_generate_spec(), doc_generate_run),
         "screenshot_capture" => (screenshot_capture_spec(), screenshot_capture_run),
-        "run_typecheck" => (run_typecheck_spec(), run_process_template),
-        "run_test_cargo" => (run_test_cargo_spec(), run_process_template),
-        "run_test_python" => (run_test_python_spec(), run_process_template),
-        "run_test_web" => (run_test_web_spec(), run_process_template),
         "propose_patch" => (propose_patch_spec(), propose_patch_run),
         "shell_exec" => (shell_exec_spec(), shell_exec_run),
         _ => return None,
@@ -1035,7 +948,11 @@ fn sleep_run(
     Ok(ExecOutcome { result, sandbox_checked: true })
 }
 
-fn screen_query_run(
+/// 桌面 UI 感知运行体（只读：target 白名单 + scope 白名单收口，越权域拒绝）。
+///
+/// ui_query 为 allow 档（只读感知无副作用），但感知面/作用域越界仍按沙箱
+/// 拒绝——只读不代表可越权感知任意桌面控件层级。
+fn ui_query_run(
     executor: &dyn Executor,
     args: &BTreeMap<String, Value>,
     backend: &dyn SystemBackend,
@@ -1043,11 +960,29 @@ fn screen_query_run(
 ) -> Result<ExecOutcome, ExecError> {
     let tool = executor.name();
     check_permission(tool, executor.spec().permission, auth)?;
-    let target = arg_str(args, "target")?.to_string();
+    let target = args
+        .get("target")
+        .and_then(Value::as_str)
+        .unwrap_or("tree")
+        .to_string();
     if let SandboxRule::CommandAllowlist { allowlist } = &executor.spec().sandbox {
         check_allowlist(allowlist, &target, tool)?;
     }
-    let result = backend.screen_query(&target).map_err(ExecError::ExecutionFailed)?;
+    let scope = args
+        .get("scope")
+        .and_then(Value::as_str)
+        .unwrap_or("all")
+        .to_string();
+    if !UI_QUERY_SCOPES.iter().any(|item| *item == scope) {
+        return Err(ExecError::SandboxViolation(format!(
+            "{tool} 不支持的感知范围: {scope}"
+        )));
+    }
+    let result = match target.as_str() {
+        "resolution" | "work_area" => backend.screen_query(&target),
+        _ => backend.ui_tree_query(&scope),
+    }
+    .map_err(ExecError::ExecutionFailed)?;
     Ok(ExecOutcome { result, sandbox_checked: true })
 }
 
@@ -1070,30 +1005,6 @@ fn file_query_run(
     let result = backend
         .file_query(&resolved.to_string_lossy())
         .map_err(ExecError::ExecutionFailed)?;
-    Ok(ExecOutcome { result, sandbox_checked: true })
-}
-
-/// 元素树感知运行体（只读：作用域白名单收口，越权域拒绝）。
-///
-/// ui_tree_query 为 allow 档（只读感知无副作用），但作用域（foreground/all）
-/// 越界仍按沙箱拒绝——只读不代表可越权感知任意桌面控件层级。
-fn ui_tree_query_run(
-    executor: &dyn Executor,
-    args: &BTreeMap<String, Value>,
-    backend: &dyn SystemBackend,
-    auth: &Authorization,
-) -> Result<ExecOutcome, ExecError> {
-    let tool = executor.name();
-    check_permission(tool, executor.spec().permission, auth)?;
-    let scope = args
-        .get("scope")
-        .and_then(Value::as_str)
-        .unwrap_or("all")
-        .to_string();
-    if let SandboxRule::CommandAllowlist { allowlist } = &executor.spec().sandbox {
-        check_allowlist(allowlist, &scope, tool)?;
-    }
-    let result = backend.ui_tree_query().map_err(ExecError::ExecutionFailed)?;
     Ok(ExecOutcome { result, sandbox_checked: true })
 }
 
@@ -1145,31 +1056,6 @@ fn ui_type_run(
     Ok(ExecOutcome { result, sandbox_checked: true })
 }
 
-/// 窗口清单运行体（作用域白名单收口；审批档 review）。
-fn window_list_run(
-    executor: &dyn Executor,
-    args: &BTreeMap<String, Value>,
-    backend: &dyn SystemBackend,
-    auth: &Authorization,
-) -> Result<ExecOutcome, ExecError> {
-    let tool = executor.name();
-    check_permission(tool, executor.spec().permission, auth)?;
-    let scope = args
-        .get("scope")
-        .and_then(Value::as_str)
-        .unwrap_or("all")
-        .to_string();
-    if let SandboxRule::WindowTarget { scopes } = &executor.spec().sandbox {
-        if !scopes.is_empty() && !scopes.iter().any(|item| item == &scope) {
-            return Err(ExecError::SandboxViolation(format!(
-                "{tool} 不支持的作用域: {scope}"
-            )));
-        }
-    }
-    let result = backend.window_list().map_err(ExecError::ExecutionFailed)?;
-    Ok(ExecOutcome { result, sandbox_checked: true })
-}
-
 /// 聚焦窗口运行体（句柄非空校验；审批档 review）。
 fn window_focus_run(
     executor: &dyn Executor,
@@ -1202,86 +1088,6 @@ fn window_minimize_run(
     }
     let result = backend.window_minimize(&handle).map_err(ExecError::ExecutionFailed)?;
     Ok(ExecOutcome { result, sandbox_checked: true })
-}
-
-/// 测试筛选值校验（run_test_* 的 filter 参数）。
-///
-/// 直接 argv 数组传给测试运行器（不经 shell，无命令拼接面），校验
-/// 只关两点：值不得以 `-` 开头（防被解析为运行器旗标，如 pytest 的
-/// --pdb 交互式调试器）且仅限安全字符集（关键词/文件名子串语义够用，
-/// 排除 `;` `&` `|` `$` 反引号等一切可作逃逸/拼接的符号——纵深防御，
-/// 即便未来某层引入 shell 拼接也不放大攻击面）。
-fn validate_test_filter(filter: &str) -> Result<(), ExecError> {
-    let len = filter.chars().count();
-    if !(1..=FILTER_MAX_CHARS).contains(&len) {
-        return Err(ExecError::BadArgs(format!(
-            "filter 长度须在 1..={FILTER_MAX_CHARS} 字符内（实际 {len}）"
-        )));
-    }
-    let head = filter.chars().next().unwrap_or_default();
-    if head == '-' || head == ' ' {
-        return Err(ExecError::BadArgs(
-            "filter 不得以 `-` 或空格开头（防旗标注入）".into(),
-        ));
-    }
-    if !filter.chars().all(|ch| ch.is_ascii_alphanumeric() || matches!(ch, '_' | '-' | '.' | '/' | ' ')) {
-        return Err(ExecError::BadArgs(
-            "filter 仅限字母/数字/`_`/`-`/`.`/`/`/空格（无命令拼接面）".into(),
-        ));
-    }
-    Ok(())
-}
-
-/// 进程模板运行体（run_typecheck / run_test_* 共用）：
-///
-/// 调用参数 = 进程模板路由键（command：真实路由键——按名选中钉死模板，
-/// 不再是「相等校验后丢弃」；路由面 = 声明的进程模板工具闭集，未登记
-/// 路由键 = 拒绝）+ 可选的受限筛选（filter：仅声明 filter_arg 的工具接受；
-/// 值经字符集/长度/前导符校验后以 [标志, 值] 追加到模板尾部）。可执行面 =
-/// 声明侧钉死的参数模板，工作目录 = 工作区挂载根，超时与输出截断由
-/// 后端保证。守卫 = 权限档 + 模板路由校验 + 筛选校验。
-fn run_process_template(
-    executor: &dyn Executor,
-    args: &BTreeMap<String, Value>,
-    backend: &dyn SystemBackend,
-    auth: &Authorization,
-) -> Result<ExecOutcome, ExecError> {
-    let tool = executor.name();
-    check_permission(tool, executor.spec().permission, auth)?;
-    let command = arg_str(args, "command")?;
-    let (mut argv, timeout_secs, filter_arg) = process_template_of(command).ok_or_else(|| {
-        ExecError::BadArgs(format!("command 未登记为进程模板路由键: {command}"))
-    })?;
-    if let Some(filter) = args.get("filter").and_then(Value::as_str) {
-        if !filter.trim().is_empty() {
-            let Some(flag) = filter_arg else {
-                return Err(ExecError::BadArgs(format!(
-                    "{tool} 不接受筛选参数（模板钉死，无 filter 声明位）"
-                )));
-            };
-            validate_test_filter(filter)?;
-            argv.push(flag);
-            argv.push(filter.to_string());
-        }
-    }
-    let cwd = normalize_abs(&workspace_root())?;
-    let cwd_text = cwd.to_string_lossy().into_owned();
-    let result = backend
-        .run_process(&argv, &cwd_text, timeout_secs)
-        .map_err(ExecError::ExecutionFailed)?;
-    Ok(ExecOutcome { result, sandbox_checked: true })
-}
-
-/// 进程模板路由表：command 路由键 → 钉死模板（L8——路由键与签名同源：
-/// 经 executor_impl 取已注册模板的沙箱声明，路由面 = 进程模板工具闭集）。
-fn process_template_of(command: &str) -> Option<(Vec<String>, u64, Option<String>)> {
-    let (spec, _) = executor_impl(command)?;
-    match &spec.sandbox {
-        SandboxRule::ProcessTemplate { argv, timeout_secs, filter_arg } => {
-            Some((argv.clone(), *timeout_secs, filter_arg.clone()))
-        }
-        _ => None,
-    }
 }
 
 /// 自指演化提案运行体：签名校验 + 转发引擎接线桥 op。
@@ -1327,8 +1133,10 @@ fn propose_patch_run(
     Ok(ExecOutcome { result: result.to_string(), sandbox_checked: true })
 }
 
-/// 工作区命令执行运行体：权限守卫（review 档）→ 命令面白名单（argv[0]）
-/// → 工作区挂载根 cwd → 真实子进程执行（超时/截断由后端保证）。
+/// 工作区命令执行运行体：权限守卫（review 档）→ 命令面白名单（argv[0]，
+/// escalated 标记 = 引擎升级审批通过后注入，跳过白名单并用系统主目录
+/// cwd）→ 工作区挂载根/主目录 cwd → 真实子进程执行（超时/截断由后端
+/// 保证；timeout 参数由 agent 控制，1-3600 秒，缺省 180）。
 fn shell_exec_run(
     executor: &dyn Executor,
     args: &BTreeMap<String, Value>,
@@ -1341,17 +1149,39 @@ fn shell_exec_run(
     let Some(program) = argv.first() else {
         return Err(ExecError::BadArgs("argv 不能为空（缺命令名）".into()));
     };
-    if let SandboxRule::CommandAllowlist { allowlist } = &executor.spec().sandbox {
-        check_allowlist(allowlist, program, tool)?;
-    } else {
-        return Err(ExecError::SandboxViolation(
-            "沙箱模式非法（shell_exec 须声明命令白名单）".into(),
-        ));
+    // 升级审批放行标记：引擎侧审批通过后注入（一次调用一次有效，随
+    // args 透传），命中 = 跳过命令面白名单（审批卡为唯一防线）
+    let escalated = args
+        .get("_escalated")
+        .and_then(Value::as_bool)
+        .unwrap_or(false);
+    if !escalated {
+        if let SandboxRule::CommandAllowlist { allowlist } = &executor.spec().sandbox {
+            check_allowlist(allowlist, program, tool)?;
+        } else {
+            return Err(ExecError::SandboxViolation(
+                "沙箱模式非法（shell_exec 须声明命令白名单）".into(),
+            ));
+        }
     }
-    let cwd = normalize_abs(&workspace_root())?;
-    let cwd_text = cwd.to_string_lossy().into_owned();
+    // cwd：白名单内 = 工作区挂载根（沙箱级）；升级放行 = 系统主目录
+    // （系统级一次性放行，不钉工作区）
+    let cwd_text = if escalated {
+        home_dir()
+            .unwrap_or_else(|| std::env::current_dir().unwrap_or_default())
+            .to_string_lossy()
+            .into_owned()
+    } else {
+        normalize_abs(&workspace_root())?.to_string_lossy().into_owned()
+    };
+    // timeout：agent 可控时长（1-3600，缺省 180）
+    let timeout_secs = args
+        .get("timeout")
+        .and_then(Value::as_i64)
+        .map(|v| v.clamp(1, SHELL_EXEC_TIMEOUT_MAX) as u64)
+        .unwrap_or(SHELL_EXEC_DEFAULT_TIMEOUT_SECS);
     let result = backend
-        .run_process(&argv, &cwd_text, PROCESS_TEMPLATE_TIMEOUT_SECS)
+        .run_process(&argv, &cwd_text, timeout_secs)
         .map_err(ExecError::ExecutionFailed)?;
     Ok(ExecOutcome { result, sandbox_checked: true })
 }
@@ -1396,28 +1226,55 @@ mod tests {
         run(&executor, args, backend, auth)
     }
 
-    /// deny 档样例工具（shell_exec）：任何调用在守卫处恒拒绝——审批
-    /// 通过也不得执行（转正须改档，属补丁链演化决策）。
+    /// shell_exec 混合级别：缺 argv / 白名单外命令无升级标记 = 拒绝；
+    /// 白名单内命令照常执行。
     #[test]
-    fn shell_exec_deny_tier_always_rejected() {
+    fn shell_exec_missing_argv_rejected() {
         let backend = MockBackend::new();
         let args = BTreeMap::new();
         let auth = Authorization { approved: true };
         let err = run_via("shell_exec", &args, &backend, &auth).unwrap_err();
-        assert!(matches!(err, ExecError::PermissionDenied(_)), "deny 档须恒拒绝: {err}");
+        assert!(matches!(err, ExecError::BadArgs(_)), "缺 argv 须拒绝: {err}");
         assert!(
             backend.calls.lock().unwrap().is_empty(),
-            "deny 档不得触达后端副作用"
+            "拒绝的调用不得触达后端副作用"
         );
     }
 
     #[test]
-    fn ui_tree_query_mock_returns_json_structure() {
+    fn shell_exec_non_allowlisted_rejected_without_escalation() {
         let backend = MockBackend::new();
         let mut args = BTreeMap::new();
+        args.insert("argv".into(), Value::Array(vec![Value::String("where".into()), Value::String("git".into())]));
+        let auth = Authorization { approved: true };
+        let err = run_via("shell_exec", &args, &backend, &auth).unwrap_err();
+        assert!(matches!(err, ExecError::SandboxViolation(_)), "白名单外命令无升级标记须拒绝: {err}");
+        assert!(backend.calls.lock().unwrap().is_empty(), "拒绝的调用不得触达后端");
+    }
+
+    #[test]
+    fn shell_exec_escalated_bypasses_allowlist() {
+        let backend = MockBackend::new();
+        let mut args = BTreeMap::new();
+        args.insert("argv".into(), Value::Array(vec![Value::String("where".into()), Value::String("git".into())]));
+        args.insert("_escalated".into(), Value::Bool(true));
+        let auth = Authorization { approved: true };
+        let outcome = run_via("shell_exec", &args, &backend, &auth).expect("升级放行后白名单外命令应执行");
+        assert!(outcome.result.contains("where git"), "{}", outcome.result);
+        assert!(
+            backend.calls.lock().unwrap().iter().any(|c| c.starts_with("run_process:")),
+            "升级放行应触达后端执行"
+        );
+    }
+
+    #[test]
+    fn ui_query_tree_mock_returns_json_structure() {
+        let backend = MockBackend::new();
+        let mut args = BTreeMap::new();
+        args.insert("target".into(), Value::String("tree".into()));
         args.insert("scope".into(), Value::String("all".into()));
         let auth = Authorization { approved: true };
-        let outcome = run_via("ui_tree_query", &args, &backend, &auth).expect("须成功");
+        let outcome = run_via("ui_query", &args, &backend, &auth).expect("须成功");
         let tree: Value = serde_json::from_str(&outcome.result).expect("须为 JSON");
         assert!(tree.get("foreground").is_some(), "缺 foreground 字段");
         let windows = tree.get("windows").and_then(Value::as_array).expect("缺 windows 数组");
@@ -1425,24 +1282,46 @@ mod tests {
         let first = &windows[0];
         assert!(first.get("handle").is_some());
         assert!(first.get("children").is_some(), "顶级窗口须含子窗口层级");
+        assert!(backend.calls.lock().unwrap().iter().any(|c| c == "ui_tree_query:all"));
     }
 
     #[test]
-    fn ui_tree_query_overreach_scope_denied() {
+    fn ui_query_resolution_dispatches_screen_query() {
+        let backend = MockBackend::new();
+        let mut args = BTreeMap::new();
+        args.insert("target".into(), Value::String("resolution".into()));
+        let auth = Authorization { approved: true };
+        let outcome = run_via("ui_query", &args, &backend, &auth).expect("须成功");
+        assert_eq!(outcome.result, "mock:screen resolution");
+        assert!(backend.calls.lock().unwrap().iter().any(|c| c == "screen_query:resolution"));
+    }
+
+    #[test]
+    fn ui_query_overreach_scope_denied() {
         let backend = MockBackend::new();
         let mut args = BTreeMap::new();
         args.insert("scope".into(), Value::String("camera".into()));
         let auth = Authorization { approved: true };
-        let err = run_via("ui_tree_query", &args, &backend, &auth).unwrap_err();
+        let err = run_via("ui_query", &args, &backend, &auth).unwrap_err();
         assert!(matches!(err, ExecError::SandboxViolation(_)), "越权域须被拒: {err}");
     }
 
     #[test]
-    fn ui_tree_query_allow_tier_needs_no_approval() {
+    fn ui_query_overreach_target_denied() {
+        let backend = MockBackend::new();
+        let mut args = BTreeMap::new();
+        args.insert("target".into(), Value::String("spy_camera".into()));
+        let auth = Authorization { approved: true };
+        let err = run_via("ui_query", &args, &backend, &auth).unwrap_err();
+        assert!(matches!(err, ExecError::SandboxViolation(_)), "越权感知面须被拒: {err}");
+    }
+
+    #[test]
+    fn ui_query_allow_tier_needs_no_approval() {
         let backend = MockBackend::new();
         let args = BTreeMap::new();
         let auth = Authorization { approved: false };
-        let outcome = run_via("ui_tree_query", &args, &backend, &auth).expect("allow 档无需审批");
+        let outcome = run_via("ui_query", &args, &backend, &auth).expect("allow 档无需审批");
         assert!(outcome.result.contains("windows"));
     }
 
@@ -1516,16 +1395,6 @@ mod tests {
     }
 
     #[test]
-    fn window_list_invalid_scope_denied() {
-        let backend = MockBackend::new();
-        let mut args = BTreeMap::new();
-        args.insert("scope".into(), Value::String("secrets".into()));
-        let auth = Authorization { approved: true };
-        let err = run_via("window_list", &args, &backend, &auth).unwrap_err();
-        assert!(matches!(err, ExecError::SandboxViolation(_)), "非法作用域须被拒: {err}");
-    }
-
-    #[test]
     fn window_focus_empty_handle_denied() {
         let backend = MockBackend::new();
         let mut args = BTreeMap::new();
@@ -1574,10 +1443,9 @@ mod tests {
     #[test]
     fn new_executors_registered() {
         for name in [
-            "ui_tree_query",
+            "ui_query",
             "ui_click",
             "ui_type",
-            "window_list",
             "window_focus",
             "window_minimize",
         ] {

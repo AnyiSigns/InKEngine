@@ -47,11 +47,11 @@ pub struct ToolDef {
 
 /// 工具声明名（与 seed_data/tools.json 的 inkling_exec 工具一一对应，
 /// 绑定测试断言双侧不漂移）。改名必须双侧同步。
-pub const DECLARED_TOOL_NAMES: [&str; 7] = [
+/// 注：score_material 已并入 review_material（phase=score），不再独立成工具。
+pub const DECLARED_TOOL_NAMES: [&str; 6] = [
     "collect_material",
     "parse_material",
     "validate_material",
-    "score_material",
     "review_material",
     "distill_knowledge",
     "mutate_knowledge",
@@ -80,14 +80,8 @@ fn build_registry() -> Vec<ToolDef> {
             run: crate::executors::validate::run,
         },
         ToolDef {
-            name: "score_material",
-            description: "评分：候选答案的引用质量（引用可验证性）+ 交叉验证（断言与样例库基准事实重叠度）确定性评分",
-            input_schema: crate::executors::score::schema(),
-            run: crate::executors::score::run,
-        },
-        ToolDef {
             name: "review_material",
-            description: "评审：按 review.json 维度配置加权打分 + 阈值判定 + 收敛决策（镜像引擎 WeightedScorer 与 MaxRoundsConvergencePolicy 语义）",
+            description: "评审：按 review.json 维度配置加权打分 + 阈值判定 + 收敛决策（镜像引擎 WeightedScorer 与 MaxRoundsConvergencePolicy 语义）；phase=score 委托确定性评分（引用质量/交叉验证，原 score_material 并入）",
             input_schema: crate::executors::review::schema(),
             run: crate::executors::review::run,
         },

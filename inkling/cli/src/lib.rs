@@ -124,7 +124,7 @@ pub fn boot_engine(repo_root: &Path, data_dir: &Path) -> Result<EngineHost, CliE
 
 /// headless 回合执行接线：os.dispatch 回调 + 工作区授权（幂等，可重复调用）。
 ///
-/// - os.dispatch：引擎回合内 OS 工具（run_typecheck/run_test_web 等）经回调
+/// - os.dispatch：引擎回合内 OS 工具（shell_exec/launch_app 等）经回调
 ///   桥转发到本进程执行器注册表（PlatformBackend 真实子进程执行）；
 /// - workspace：以工作区根授权文件工具沙箱（agent 回合内读写工作区文件的
 ///   前置条件）；根默认取仓库根，可用环境变量 `INKENGINE_WS_ROOT` 覆盖

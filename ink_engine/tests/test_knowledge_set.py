@@ -349,6 +349,30 @@ def test_search_hits_by_tags_and_title():
     assert ks.search("不存在词") == []
 
 
+def test_search_chinese_long_query_partial_hits():
+    """ENG3-11 回归：中文长句（装配 query = 回合输入全文，无空格边界）
+    不再必然 0 命中——CJK 2-gram 滑窗展开 + 部分命中评分。"""
+    ks = KnowledgeSet("u1")
+    ks.add(_entry("k-1", credibility=0.5, tags=("伏笔",)))
+    ks.add(
+        _entry(
+            "k-2",
+            credibility=0.9,
+            tags=("角色",),
+            data={"rule": {"message": "来源可信度 领域基线 一致性"}},
+        )
+    )
+    # 长句含「来源可信度」「领域基线」等关键片段 → 命中 k-2（原实现整段
+    # 塌缩为 1 token，all() 全词交集 → 必然 0 命中）
+    hits = ks.search("请基于来源可信度验证领域基线并确保角色一致性")
+    assert hits, "中文长句装配检索不应 0 命中"
+    assert hits[0].id == "k-2"
+    # 命中片段数多的条目排前（评分语义：非全有全无）
+    ks.add(_entry("k-3", credibility=0.8, tags=("角色",)))
+    hits2 = ks.search("角色一致性")
+    assert hits2[0].id == "k-2"  # 命中片段更多（角色+一致性）
+
+
 # ── 归档/淘汰（生命周期 = 归档不删除，可恢复）──
 
 

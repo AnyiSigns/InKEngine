@@ -290,6 +290,23 @@ def test_endpoint_operation_process_argv_stringified():
     assert reason and "字符串数组" in reason
 
 
+def test_endpoint_operation_task_manager():
+    """task_manager 判定目标 = operation 值（todo:manage:<op>）。"""
+    op, target = endpoint_operation(
+        EndpointType.TASK_MANAGER,
+        {"operation": "create", "title": "任务"},
+    )
+    assert (op, target) == ("manage", "create")
+    # 缺 operation = fail-closed，失败原因给出操作集指引
+    assert (
+        endpoint_operation(EndpointType.TASK_MANAGER, {"title": "任务"})
+        is None
+    )
+    reason = endpoint_operation_failure_reason(
+        EndpointType.TASK_MANAGER, {"title": "任务"}
+    )
+    assert reason and "create/update/complete/list/clear/delete" in reason
+
 def test_endpoint_operation_file():
     """file_ops 端点：操作 + 路径作判定目标（非法操作不产生判定目标）。"""
     op, target = endpoint_operation(

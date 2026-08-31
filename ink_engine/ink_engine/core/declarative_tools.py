@@ -72,6 +72,10 @@ class EndpointType(StrEnum):
     COLLAB_REQUEST: 协作者召唤（宿主执行体把 EntitySpec 物化为 spawn
         子图——多 agent 动态协作入口；权限动作 = 独立 collab 域，
         判定目标 = 实体 id（collab:request:<entity_id>），fail-closed）。
+    TASK_MANAGER: 待办清单管理（agent 自维护的持久化任务清单，按 thread
+        隔离；单工具多操作 = operation 参数区分 create/update/complete/
+        list/clear；判定目标 = 操作名（todo:manage:<operation>），
+        缺 operation = fail-closed）。
     """
 
     HTTP_FETCH = "http_fetch"
@@ -80,6 +84,7 @@ class EndpointType(StrEnum):
     MCP = "mcp"
     WEB_SEARCH = "web_search"
     COLLAB_REQUEST = "collab_request"
+    TASK_MANAGER = "task_manager"
 
 
 # 各端点类型的判定动作（endpoint_operation 的映射依据；与权限域动作对齐）
@@ -100,6 +105,9 @@ _ENDPOINT_ACTIONS: dict[EndpointType, tuple[str, ...]] = {
     # collab_request：独立 collab 域（collab:request:<entity_id>），
     # 与文件/进程/网络域分离——召唤协作者是编排动作不是资源访问
     EndpointType.COLLAB_REQUEST: ("request",),
+    # task_manager：待办清单管理域（todo:manage:<operation>），agent
+    # 自维护清单的编排动作，不涉及资源访问
+    EndpointType.TASK_MANAGER: ("manage",),
 }
 
 # 端点配置的必填白名单键（沙箱自动接线的声明依据：process_exec 须声明
@@ -405,6 +413,11 @@ def endpoint_operation(
         # 缺实体 id = 无法判定目标 = fail-closed 拒绝
         entity_id = args.get("entity_id")
         return ("request", entity_id) if isinstance(entity_id, str) and entity_id else None
+    if endpoint is EndpointType.TASK_MANAGER:
+        # 待办清单：判定目标 = 操作名（todo:manage:<operation>）；缺
+        # operation = 无法判定目标 = fail-closed 拒绝
+        operation = args.get("operation")
+        return ("manage", operation) if isinstance(operation, str) and operation else None
     return None
 
 
@@ -474,6 +487,11 @@ def endpoint_operation_failure_reason(
         entity_id = args.get("entity_id")
         if not isinstance(entity_id, str) or not entity_id:
             return "entity_id 参数缺失或非法（须为已注册实体 id）"
+        return None
+    if endpoint is EndpointType.TASK_MANAGER:
+        operation = args.get("operation")
+        if not isinstance(operation, str) or not operation:
+            return "operation 参数缺失或非法（须为 create/update/complete/list/clear/delete 之一）"
         return None
     return None
 

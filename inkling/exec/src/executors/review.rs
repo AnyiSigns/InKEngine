@@ -65,12 +65,25 @@ pub fn schema() -> Value {
     ]);
     crate::tool::schema_of(
         vec![
+            ("phase", {
+                let mut s = object_from_pairs(vec![("type", Value::String("string".to_string()))]);
+                if let Value::Object(o) = &mut s {
+                    o.insert(
+                        "enum".to_string(),
+                        Value::Array(vec![
+                            Value::String("score".to_string()),
+                            Value::String("review".to_string()),
+                        ]),
+                    );
+                }
+                s
+            }),
             (
                 "candidates",
                 object_from_pairs(vec![
                     ("type", Value::String("array".to_string())),
                     ("items", candidate_schema),
-                    ("description", Value::String("待评审候选清单".to_string())),
+                    ("description", Value::String("待评审候选清单（phase=review 用）".to_string())),
                 ]),
             ),
             (
@@ -85,8 +98,29 @@ pub fn schema() -> Value {
                 ]),
             ),
             ("round_no", integer_schema("当前再生成轮次（收敛决策用）")),
+            (
+                "answer",
+                object_from_pairs(vec![(
+                    "description",
+                    Value::String("候选答案对象（phase=score 用，含 claims 断言清单，citations 引用清单可选）".to_string()),
+                )]),
+            ),
+            (
+                "sources",
+                object_from_pairs(vec![(
+                    "description",
+                    Value::String("引用来源文本（phase=score 用，可验证性基准）".to_string()),
+                )]),
+            ),
+            (
+                "weights",
+                object_from_pairs(vec![(
+                    "description",
+                    Value::String("四维度权重覆盖（phase=score 用，缺省 = 出厂默认口径，总和 1.0）".to_string()),
+                )]),
+            ),
         ],
-        vec!["candidates"],
+        vec![],
     )
 }
 
@@ -442,11 +476,16 @@ fn decide(reviews: &[Review], config: &ReviewConfig, round_no: i64) -> Decision 
     }
 }
 
-/// review_material：参数 {candidates, dimension_scores?, round_no?}。
+/// review_material：phase=review 参数 {candidates, dimension_scores?, round_no?}；
+/// phase=score 参数 {answer, sources?, weights?}（原 score_material 并入）。
 pub fn run(args: &Value) -> Result<Value, ToolError> {
     let args = args
         .as_object()
         .ok_or_else(|| ToolError::new(ToolErrorKind::InvalidParams, "参数须为对象".to_string()))?;
+    // phase=score：确定性评分（引用质量/交叉验证，绑定 samples.json 基准事实）
+    if args.get_str("phase").unwrap_or("review") == "score" {
+        return crate::executors::score::run(&Value::Object(args.clone()));
+    }
     let raw_candidates = args
         .get_array("candidates")
         .ok_or_else(|| ToolError::new(ToolErrorKind::InvalidParams, "缺 candidates".to_string()))?;
@@ -612,6 +651,35 @@ pub fn run(args: &Value) -> Result<Value, ToolError> {
 mod tests {
     use super::*;
     use crate::json::parse;
+
+    #[test]
+    fn phase_score_delegates_to_deterministic_scorer() {
+        // score 并入 review：phase=score 产出确定性评分形态（checks/total），
+        // 与 review 收敛判定形态（reviews/decision）区分。
+        let args = parse(
+            r#"{
+                "phase": "score",
+                "answer": {
+                    "text": "自进化系统把使用中积累的理解沉淀为可信的知识",
+                    "claims": [{"text": "自进化系统把使用中积累的理解沉淀为可信的知识"}]
+                }
+            }"#,
+        )
+        .unwrap();
+        let out = run(&args).unwrap();
+        let obj = out.as_object().unwrap();
+        assert_eq!(obj.get_bool("ok"), Some(true));
+        assert!(obj.get_f64("total").is_some(), "评分阶段应产出 total");
+        let checks = obj.get_array("checks").expect("评分阶段应产出 checks");
+        assert_eq!(checks.len(), 4, "确定性评分四维度");
+        assert!(obj.get("reviews").is_none(), "评分阶段不产出评审收敛形态");
+    }
+
+    #[test]
+    fn review_phase_default_requires_candidates() {
+        let args = parse(r#"{"phase": "review"}"#).unwrap();
+        assert!(run(&args).is_err(), "review 阶段缺 candidates 应报错");
+    }
 
     #[test]
     fn weighted_total_matches_hand_calculation() {

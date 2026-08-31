@@ -47,7 +47,7 @@ fn gate_resolves_real_seed_when_env_set() {
         data::ENV_SEED_DATA,
         resolved.display()
     );
-    // 真实种子工具数应远大于 exec 的 7 个（含 shell 侧工具）
+    // 真实种子工具数应远大于 exec 的 6 个（含 shell 侧工具）
     let tools = load("tools.json");
     let declared = tools.as_object().unwrap().get_array("tools").unwrap();
     assert!(declared.len() > 7, "真实种子应含 shell 侧工具（>7）");
@@ -480,6 +480,38 @@ fn score_cross_validation_binds_to_samples_facts() {
         claim
     );
     let out = run_tool(score::run, &args);
+    let details = out.as_object().unwrap().get_object("details").unwrap();
+    let claim_details = details.get_array("claims").unwrap();
+    assert_eq!(
+        claim_details[0]
+            .as_object()
+            .unwrap()
+            .get_bool("cross_validated"),
+        Some(true)
+    );
+    assert_eq!(
+        claim_details[1]
+            .as_object()
+            .unwrap()
+            .get_bool("cross_validated"),
+        Some(false)
+    );
+}
+
+#[test]
+fn score_phase_via_review_binds_to_samples_facts() {
+    // score 并入 review：review_material(phase=score) 委托确定性评分，
+    // 交叉验证仍绑定 samples.json 基准事实（合并不改绑定语义）。
+    let samples = load("samples.json");
+    let facts = samples.as_object().unwrap().get_array("facts").unwrap();
+    assert!(!facts.is_empty());
+    let statement = facts[0].as_object().unwrap().get_str("statement").unwrap();
+    let claim = statement.split('的').next().unwrap_or(statement);
+    let args = format!(
+        r#"{{"phase": "score", "answer": {{"claims": [{{"text": "{}"}}, {{"text": "完全无关的断言文本"}}], "citations": []}}}}"#,
+        claim
+    );
+    let out = run_tool(review::run, &args);
     let details = out.as_object().unwrap().get_object("details").unwrap();
     let claim_details = details.get_array("claims").unwrap();
     assert_eq!(

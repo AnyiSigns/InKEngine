@@ -64,12 +64,11 @@
             "sleep",
             "ui_click",
             "ui_type",
-            "window_list",
             "window_focus",
             "window_minimize"
           ],
           "require": "review 审批；首次越界操作强制 L2 人工审批",
-          "note": "OS 控制工具声明必须走补丁链演化管线产出，禁硬编码固定功能；清单与 tools.json meta.control=true 的 11 件一致（感知/查询类不计入）"
+          "note": "OS 控制工具声明必须走补丁链演化管线产出，禁硬编码固定功能；清单与 tools.json meta.control=true 的 10 件一致（感知/查询类不计入）"
         }
       },
       "source": "model",

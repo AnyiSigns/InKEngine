@@ -20,6 +20,7 @@ import { MessageStream } from '@/app/session/MessageStream';
 import { EvolutionFeed } from '@/app/session/EvolutionFeed';
 import { LedgerView } from '@/app/session/LedgerView';
 import { TrajectoryView } from '@/app/session/TrajectoryView';
+import { TodoView } from '@/app/session/TodoView';
 import { useSessionState, useSessionActions } from '@/app/state/sessionState';
 import { SettingsFloater } from '@/app/settings/settings_floater';
 import { TaskCapsule } from '@/app/tasks/TaskCapsule';
@@ -89,6 +90,21 @@ export default function App({ backend, hub, sessionStore }: AppProps) {
           next_step: taskState.subtasks.find((s) => s.status === 'running')?.progress,
         }
       : null;
+
+  // 待办清单检测（agent 用 task_manager 建清单后顶栏临时出现「待办」标签）：
+  // 消息流每新增条目 + 切换会话时刷新（todo_get 轻量只读；空清单快速返回）
+  const [todoState, setTodoState] = useState<{ has: boolean; pending: number }>({ has: false, pending: 0 });
+  useEffect(() => {
+    if (!backend.available || !state.activeSessionId) return;
+    void backend
+      .todoGet(state.activeSessionId)
+      .then((data) => {
+        const entries = data.entries ?? [];
+        const pending = entries.filter((e) => !['done', 'cancelled'].includes(e.status)).length;
+        setTodoState({ has: entries.length > 0, pending });
+      })
+      .catch(() => undefined);
+  }, [backend, state.activeSessionId, state.entries.length]);
 
   // 子代理实例清单（由 spawn 消息卡派生；空 = 面板不渲染）
   const spawnInstances: SpawnInstance[] = state.entries
@@ -240,6 +256,8 @@ export default function App({ backend, hub, sessionStore }: AppProps) {
               setTitle(nextTitle);
               if (state.activeSessionId) sessionStore.rename(state.activeSessionId, nextTitle);
             }}
+            hasTodo={todoState.has}
+            todoPending={todoState.pending}
           />
         </div>
         <main className="flex min-h-0 flex-1 flex-col overflow-hidden">
@@ -282,6 +300,8 @@ export default function App({ backend, hub, sessionStore }: AppProps) {
             <LedgerView backend={backend} threadId={state.activeSessionId} />
           ) : tab === 'trajectory' ? (
             <TrajectoryView steps={roundSteps} />
+          ) : tab === 'todo' ? (
+            <TodoView backend={backend} threadId={state.activeSessionId} />
           ) : (
             <EvolutionFeed
               incubation={hub.getSnapshot().incubation}

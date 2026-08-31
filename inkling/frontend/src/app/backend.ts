@@ -641,7 +641,7 @@ export function createAppBackend(options: AppBackendOptions = {}): AppBackend {
 const FACTORY_BASELINE = [
   'file_read', 'file_write', 'file_edit', 'grep', 'glob',
   'propose_patch', 'propose_domain_manifest', 'inspect_tools',
-  'search_tools', 'request_tool',
+  'search_tools', 'request_tool', 'task_manager',
 ] as const;
 
 /** dev 夹具：从种子 tools.json 构建全量工具清单（无宿主时视图可渲染）。 */

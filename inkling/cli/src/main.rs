@@ -33,7 +33,7 @@ struct Cli {
     #[arg(long)]
     audit: Option<String>,
 
-    /// 单 OS 操作调用（桌面壳执行器名，如 window_list / ui_tree_query / ui_click）
+    /// 单 OS 操作调用（桌面壳执行器名，如 ui_query / ui_click）
     #[arg(long = "os-op")]
     os_op: Option<String>,
 

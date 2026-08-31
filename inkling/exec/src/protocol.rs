@@ -567,7 +567,7 @@ mod tests {
     }
 
     #[test]
-    fn tools_list_has_seven_tools() {
+    fn tools_list_has_six_tools() {
         let resp = call(r#"{"jsonrpc": "2.0", "id": 2, "method": "tools/list"}"#).unwrap();
         let value = json::parse(&resp).unwrap();
         let tools = value
@@ -577,7 +577,7 @@ mod tests {
             .unwrap()
             .get_array("tools")
             .unwrap();
-        assert_eq!(tools.len(), 7);
+        assert_eq!(tools.len(), 6);
         assert!(tools
             .iter()
             .all(|t| t.as_object().unwrap().get_str("name").is_some()));

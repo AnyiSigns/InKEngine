@@ -817,7 +817,7 @@ async def test_connect_builtin_in_memory_shell_server():
         return ListToolsResult(
             tools=[
                 Tool(
-                    name="ui_tree_query",
+                    name="ui_query",
                     description="设备感知",
                     input_schema={"type": "object"},
                 )
@@ -845,7 +845,7 @@ async def test_connect_builtin_in_memory_shell_server():
     try:
         tools = await handle.list_tools()
         assert len(tools) == 1
-        assert tools[0].name == "ui_tree_query"
+        assert tools[0].name == "ui_query"
     finally:
         await handle.aclose()
 

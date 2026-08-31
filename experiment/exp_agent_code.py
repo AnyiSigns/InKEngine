@@ -193,7 +193,7 @@ TASK_WRAPUP = (
 CHAIN_TOOLS = {
     "演化": {"propose_patch", "apply_patch", "revert_patch"},
     "知识集": {"distill_knowledge", "mutate_knowledge", "material_import"},
-    "推演": {"validate_material", "score_material", "review_material", "parse_material"},
+    "推演": {"validate_material", "review_material", "parse_material"},
     "研究": {"collect_material", "fetch", "web_search"},
     "文件端点": {"file_read", "file_write", "file_edit", "grep", "glob"},
     "命令端点": {"run_test_python", "run_typecheck", "shell_exec", "system_query"},

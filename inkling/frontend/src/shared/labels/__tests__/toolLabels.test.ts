@@ -89,11 +89,11 @@ describe('工具族判定 + 语义化渲染', () => {
 
   it('研究族：步骤 + 指标（摘要中数字提取）', () => {
     const semantics = describeToolSemantics({
-      tool: 'score_material',
+      tool: 'review_material',
       permission: 'allow',
-      summary: '评分结果：0.85 分',
+      summary: '评审结果：0.85 分',
     });
-    expect(semantics.action).toBe('评分材料');
+    expect(semantics.action).toBe('复核材料');
     expect(semantics.lines[0].key).toBe('步骤');
     expect(semantics.lines[1]).toEqual({ key: '指标', value: '0.85 分' });
     expect(extractMetric('暂无指标')).toBeUndefined();

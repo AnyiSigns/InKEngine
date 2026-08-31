@@ -11,7 +11,7 @@
 //! 单独对协议层暴露工具名，仍保留独立单测供回归。
 
 use crate::json::{object_from_pairs, Object, Value};
-use crate::tool::{number_schema, string_schema, ToolError, ToolErrorKind};
+use crate::tool::{ToolError, ToolErrorKind};
 
 /// 出厂默认权重（总和 1.0：引用可验证性/完备性/交叉验证各 0.3，覆盖率 0.1）。
 const DEFAULT_WEIGHTS: [(&str, f64); 4] = [
@@ -20,126 +20,6 @@ const DEFAULT_WEIGHTS: [(&str, f64); 4] = [
     ("cross_validation", 0.3),
     ("coverage", 0.1),
 ];
-
-pub fn schema() -> Value {
-    let claim_schema = object_from_pairs(vec![
-        ("type", Value::String("object".to_string())),
-        (
-            "properties",
-            Value::Object({
-                let mut props = crate::json::Object::new();
-                props.insert("text".to_string(), string_schema("断言文本"));
-                props
-            }),
-        ),
-        (
-            "required",
-            Value::Array(vec![Value::String("text".to_string())]),
-        ),
-    ]);
-    let citation_schema = object_from_pairs(vec![
-        ("type", Value::String("object".to_string())),
-        (
-            "properties",
-            Value::Object({
-                let mut props = crate::json::Object::new();
-                props.insert("claim_index".to_string(), number_schema("断言下标"));
-                props.insert("source_id".to_string(), string_schema("来源 id"));
-                props.insert("quote".to_string(), string_schema("引用原文"));
-                props
-            }),
-        ),
-        (
-            "required",
-            Value::Array(vec![
-                Value::String("claim_index".to_string()),
-                Value::String("source_id".to_string()),
-                Value::String("quote".to_string()),
-            ]),
-        ),
-    ]);
-    let source_schema = object_from_pairs(vec![
-        ("type", Value::String("object".to_string())),
-        (
-            "properties",
-            Value::Object({
-                let mut props = crate::json::Object::new();
-                props.insert("id".to_string(), string_schema("来源 id"));
-                props.insert("title".to_string(), string_schema("来源标题"));
-                props.insert("text".to_string(), string_schema("来源正文"));
-                props
-            }),
-        ),
-        (
-            "required",
-            Value::Array(vec![
-                Value::String("id".to_string()),
-                Value::String("text".to_string()),
-            ]),
-        ),
-    ]);
-    crate::tool::schema_of(
-        vec![
-            (
-                "answer",
-                object_from_pairs(vec![
-                    ("type", Value::String("object".to_string())),
-                    (
-                        "properties",
-                        Value::Object({
-                            let mut props = crate::json::Object::new();
-                            props.insert("text".to_string(), string_schema("候选答案文本"));
-                            props.insert("claims".to_string(), {
-                                let mut s = object_from_pairs(vec![(
-                                    "type",
-                                    Value::String("array".to_string()),
-                                )]);
-                                if let Value::Object(o) = &mut s {
-                                    o.insert("items".to_string(), claim_schema);
-                                }
-                                s
-                            });
-                            props.insert("citations".to_string(), {
-                                let mut s = object_from_pairs(vec![(
-                                    "type",
-                                    Value::String("array".to_string()),
-                                )]);
-                                if let Value::Object(o) = &mut s {
-                                    o.insert("items".to_string(), citation_schema);
-                                }
-                                s
-                            });
-                            props
-                        }),
-                    ),
-                    (
-                        "required",
-                        Value::Array(vec![Value::String("claims".to_string())]),
-                    ),
-                ]),
-            ),
-            (
-                "sources",
-                object_from_pairs(vec![
-                    ("type", Value::String("array".to_string())),
-                    ("items", source_schema),
-                    (
-                        "description",
-                        Value::String("引用来源文本（可验证性基准）".to_string()),
-                    ),
-                ]),
-            ),
-            (
-                "weights",
-                object_from_pairs(vec![(
-                    "description",
-                    Value::String("四维度权重覆盖（缺省 = 出厂默认口径，总和 1.0）".to_string()),
-                )]),
-            ),
-        ],
-        vec!["answer"],
-    )
-}
 
 /// 归一化：小写 + 折叠空白（交叉验证的宽松匹配基准）。
 fn normalize(text: &str) -> String {

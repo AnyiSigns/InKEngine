@@ -230,7 +230,7 @@ class LiveUIDriver(UIDriver):
         return sink
 
     def _owner_of(self, element_id: str) -> str | None:
-        tree = json.loads(self._op("ui_tree_query", {"scope": "all"}, approve=False))
+        tree = json.loads(self._op("ui_query", {"target": "tree", "scope": "all"}, approve=False))
         for win in tree.get("windows", []):
             if element_id in self._flatten(win, {}):
                 return win["handle"]

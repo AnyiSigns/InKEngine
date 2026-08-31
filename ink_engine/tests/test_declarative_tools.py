@@ -661,7 +661,66 @@ async def test_pipeline_default_gate_fail_closed():
 
 
 async def test_network_policy_sandbox_wired():
-    """network_policy 并入沙箱环节：http_fetch 域名白名单真实生效。"""
+    """network_policy 并入流水线：白名单 = 免审批快速路径；白名单外转审批。
+
+    审批即网关：非白名单域名强制挂卡（_NetworkReviewGate），审批 accept
+    后放行、reject 后拒绝——不再 fail-closed 硬拒。
+    """
+    from ink_engine.core.permissions import NetworkPolicy
+
+    definition = _declarative(
+        permissions=("network:connect:*",)  # 宽权限：域名收口归网络守卫/审批
+    )
+    executors = DeclarativeToolExecutors()
+    executors.register_definition(definition)
+    calls: list[str] = []
+
+    async def http_executor(ctx, defn, args, approval):
+        calls.append(args["url"])
+        return "body"
+
+    executors.register(EndpointType.HTTP_FETCH, http_executor)
+    pipeline = build_declarative_pipeline(
+        executors,
+        network_policy=NetworkPolicy(allow_domains=("*.example.com",)),
+    )
+
+    class Ctx:
+        """审批卡上下文：未预设注入值 = 拒绝（fail-closed 兜底）。"""
+
+        def __init__(self, inject=None):
+            self._inject = dict(inject or {})
+            self.cards = []
+
+        async def interrupt(self, key, payload):
+            self.cards.append((key, payload))
+            return self._inject.pop(key, "reject")
+
+        async def get_interrupt_payload(self, key):
+            return None
+
+    spec = definition.to_spec()
+    # 白名单域名 → 门禁放行、沙箱放行（免审批快速路径）
+    allowed = await pipeline.execute(Ctx(), spec, {"url": "https://sub.example.com/a"})
+    assert allowed.ok is True
+    assert calls == ["https://sub.example.com/a"]
+    # 非白名单域名 → 审批卡裁决（默认 reject → 拒绝，不执行）
+    ctx = Ctx()
+    denied = await pipeline.execute(ctx, spec, {"url": "https://other.org/a"})
+    assert denied.ok is False
+    assert denied.decision == "reject"
+    assert ctx.cards, "非白名单域名必须挂审批卡"
+    assert calls == ["https://sub.example.com/a"]
+    # 审批 accept → 放行执行（审批即网关，白名单不再是执行期硬边界）
+    ctx = Ctx(inject={"gate:mytool": {"decision": "accept"}})
+    accepted = await pipeline.execute(ctx, spec, {"url": "https://other.org/a"})
+    assert accepted.ok is True
+    assert calls == ["https://sub.example.com/a", "https://other.org/a"]
+    assert ctx.cards, "非白名单域名必须挂审批卡"
+
+
+async def test_network_policy_deny_mode_keeps_fail_closed():
+    """unlisted_policy=deny：白名单外域名保持 fail-closed 硬拒（收紧面）。"""
     from ink_engine.core.permissions import NetworkPolicy
 
     definition = _declarative(
@@ -679,6 +738,7 @@ async def test_network_policy_sandbox_wired():
     pipeline = build_declarative_pipeline(
         executors,
         network_policy=NetworkPolicy(allow_domains=("*.example.com",)),
+        network_unlisted_policy="deny",
     )
 
     class Ctx:
@@ -686,11 +746,10 @@ async def test_network_policy_sandbox_wired():
             pass
 
     spec = definition.to_spec()
-    # 白名单域名 → 门禁放行、沙箱放行
     allowed = await pipeline.execute(Ctx(), spec, {"url": "https://sub.example.com/a"})
     assert allowed.ok is True
     assert calls == ["https://sub.example.com/a"]
-    # 非白名单域名 → 沙箱拒绝（NetworkPolicySandbox 违规，权限层已放行）
+    # 非白名单域名 → 沙箱硬拒（NetworkPolicySandbox 违规，权限层已放行）
     denied = await pipeline.execute(Ctx(), spec, {"url": "https://other.org/a"})
     assert denied.ok is False
     assert denied.decision == "deny"

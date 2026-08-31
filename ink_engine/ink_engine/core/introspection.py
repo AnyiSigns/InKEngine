@@ -55,7 +55,9 @@ class IntrospectionSources:
         graph: 当前执行图（节点/边/出口/子图结构）。
         knowledge_set: 用户集知识实体（规则/知识条目）。
         harness_registry: 集内 harness 注册表（领域能力清单）。
-        tools: 已注册的工具描述清单（含本组元工具自身）。
+        tools: 当前注入面工具描述清单（保底/内省/自指 + 本会话绑定）。
+        registered_tools: 全量已注册工具描述清单（含未注入、经
+            request_tool 可绑定的工具；缺省 = 空清单）。
         ui_spec: 当前界面描述（JSON 布局，宿主渲染器消费；缺省 = 未定形）。
     """
 
@@ -63,6 +65,7 @@ class IntrospectionSources:
     knowledge_set: KnowledgeSet | None = None
     harness_registry: HarnessRegistry | None = None
     tools: Sequence[ToolSpec] = field(default_factory=tuple)
+    registered_tools: Sequence[ToolSpec] = field(default_factory=tuple)
     ui_spec: dict | None = None
     entity_registry: Any | None = None
 
@@ -255,13 +258,40 @@ class IntrospectionService:
         return {"ui_spec": copy.deepcopy(self._sources.ui_spec)}
 
     def snapshot_tools(self) -> dict[str, Any]:
-        """工具表快照：已注册工具清单与权限声明（AI 内省自身能力清单）。"""
-        specs = list(self._sources.tools)
+        """工具表快照：注入面清单 + 全量注册面清单（AI 内省自身能力清单）。
+
+        注入面（tools）= 本回合工具参数实际携带的工具（保底/内省/自指 +
+        本会话 request_tool 绑定）；全量注册面（registered_tools）= 工具
+        注册表全部已注册工具（含未注入、经 request_tool 绑定即可调用的）。
+        两张清单分开呈现：以注入面为准做本回合可用性判断，以注册面为准
+        了解「还能绑定什么」——避免把未注入工具误当本回合直接可调。
+        """
+        injected = list(self._sources.tools)
+        injected_names = {spec.name for spec in injected}
+        registered = list(self._sources.registered_tools)
         tools = [
             {"name": spec.name, "description": spec.description, "permissions": list(spec.permissions)}
-            for spec in specs
+            for spec in injected
         ]
-        snapshot: dict[str, Any] = {"tools": tools, "count": len(tools)}
+        # 注册面条目精简（name + 权限 + 摘要首行）：全量描述塞进单条工具
+        # 结果会被宿主按模型窗口截断，count/registered_count 必须靠前且
+        # 清单整体控制在工具结果预算内——模型需要「能绑什么」，细节走
+        # search_tools/request_tool 的完整 schema。
+        registered_only = [
+            {
+                "name": spec.name,
+                "description": spec.description.splitlines()[0] if spec.description else "",
+                "permissions": list(spec.permissions),
+            }
+            for spec in registered
+            if spec.name not in injected_names
+        ]
+        snapshot: dict[str, Any] = {
+            "count": len(tools),
+            "tools": tools,
+            "registered_count": len(registered_only),
+            "registered_tools": registered_only,
+        }
         registry = self._sources.harness_registry
         if registry is not None:
             snapshot["harnesses"] = list(registry.names())
@@ -330,7 +360,9 @@ def introspection_tool_specs() -> list[ToolSpec]:
         ),
         ToolSpec(
             name="inspect_tools",
-            description="读取工具表快照（已注册工具清单与权限声明），"
+            description="读取工具表快照：注入面（本回合工具参数实际携带的工具，"
+            "含完整描述）与全量注册面（未注入、经 request_tool 绑定即可调用的工具，"
+            "条目为摘要形态）两个清单，附 count/registered_count 计数，"
             "供 AI 内省自身能力清单与集内 harness 领域",
             parameters={"type": "object", "properties": {}},
             permissions=(INTROSPECTION_PERMISSION,),

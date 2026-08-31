@@ -273,6 +273,30 @@ def test_snapshot_tools_includes_harness(memory_storage) -> None:
     assert snapshot["tools"][0]["permissions"] == [INTROSPECTION_PERMISSION]
 
 
+def test_snapshot_tools_injected_vs_registered(memory_storage) -> None:
+    # 注入面与全量注册面分开呈现：注册面含未注入工具（request_tool 可绑定）
+    registry = HarnessRegistry()
+    registry.register(
+        HarnessDefinition(name="novel", description="小说领域", keywords=("小说",))
+    )
+    injected = introspection_tool_specs()
+    registered = [*injected, ToolSpec(name="shell_exec", description="执行命令", parameters={})]
+    service = IntrospectionService(
+        IntrospectionSources(
+            graph=_data_graph(),
+            harness_registry=registry,
+            tools=injected,
+            registered_tools=registered,
+            ui_spec={"layout": "panel"},
+        )
+    )
+    snapshot = service.snapshot_tools()
+    assert snapshot["count"] == 6
+    assert len(snapshot["registered_tools"]) == 1
+    assert snapshot["registered_tools"][0]["name"] == "shell_exec"
+    assert snapshot["registered_count"] == 1
+
+
 def test_snapshot_dispatch_unknown_rejected(memory_storage) -> None:
     service = _service(memory_storage, graph=_data_graph())
     with pytest.raises(ValueError, match="未知内省工具"):

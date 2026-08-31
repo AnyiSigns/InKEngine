@@ -901,7 +901,13 @@ async def boot_inkling(
     host.skill_market = skill_market_service
     runtime.skill_market = skill_market_service
     register_domain_tools(runtime, bundle)
-    register_host_executors(runtime, mount_service, security, host=host)
+    _auto_approve_all = (
+        os.environ.get("INK_HEADLESS_AUTO_APPROVE_ALL", "").strip().lower()
+        in ("1", "true", "yes")
+    )
+    register_host_executors(
+        runtime, mount_service, security, host=host, auto_approve_all=_auto_approve_all
+    )
     # 环境装配域（storage 在 boot 后可用：审计/恢复）
     env_allowlist = tuple(
         (bundle.data["build.json"].get("builder") or {}).get("allowlist") or ()
@@ -1009,6 +1015,8 @@ async def boot_inkling(
         )
         # MCP 挂载登记恢复（链内 mcp 端点工具按 server 回填；补丁序占位）
         mount_service.restore_mount_log(assembled)
+        # 挂载 server 连接还原（持久化配置重建会话；失败离线降级）
+        await mount_service.load_persisted_mount_configs()
     # 种子条目重注入：引擎链恢复在种子注入之后整体替换知识集实例，
     # 出厂基线条目（内存态、不在链上）随之丢失——按既定语义「种子 =
     # 启动注入基线，链只承载演化」，此处重注入并与链段条目按 id 去重
@@ -1018,6 +1026,7 @@ async def boot_inkling(
             if runtime.knowledge_set.get(seed_entry.id) is None:
                 runtime.knowledge_set.add(seed_entry)
     runtime.introspection_service._sources.tools = runtime.collect_specs()
+    runtime.introspection_service._sources.registered_tools = runtime.merged_specs()
     # 内置 MCP server 自动连接（出厂能力非市场挂载）：tools.json 声明
     # endpoint=mcp 且 server_id 属 BUILTIN_MCP_SERVERS 的工具随装配生效。
     # exec 二进制（inkling_exec）路径按数据目录 exec/ 解析；连接失败只
@@ -1542,7 +1551,12 @@ def _build_collaborator_graph(spec: Any, llm: Any = None) -> Any:
 
 
 def register_host_executors(
-    runtime: Runtime, mount_service: McpMountService, security: SecurityDomain, host: Any = None
+    runtime: Runtime,
+    mount_service: McpMountService,
+    security: SecurityDomain,
+    host: Any = None,
+    *,
+    auto_approve_all: bool = False,
 ) -> None:
     """宿主声明式执行器注册（机制层不代注册执行实现，宿主职责）。
 
@@ -1551,15 +1565,23 @@ def register_host_executors(
       执行器注册表（同一套运行体，引擎链路与壳命令共用；回调桥未接线
       时降级为未注册明确失败，不崩溃）；shell_exec（混合 shell）白名单
       外命令经升级审批后带 _escalated 标记分发；
-    - http_fetch：fetch 网络策略执行体（域名白名单二次核对，
+    - http_fetch：fetch 网络策略执行体（出网经审批网关裁决，
       取回实现可注入，缺省 httpx）；
     - file_ops：文件开发执行体（工作区读写编辑 + 写前快照 + 大小上限）。
+
+    auto_approve_all=True（headless 离线验证/自动化巡检形态）：挂载类
+    工具（propose_mcp_mount）跳过挂载审批卡直接放行（等同手动挂载的
+    一键授权语义），与回合级 auto_accept_review 配套构成统一自动审批
+    开关；生产宿主保持缺省 False（外部能力接入一律过审批卡）。
     """
     _register_os_bridge(security)
     runtime.harness_registry.declarative.register(
         EndpointType.PROCESS_EXEC,
         make_process_exec_executor(
-            mount_service, security.os_registry, tiers=security.tiers
+            mount_service,
+            security.os_registry,
+            tiers=security.tiers,
+            require_approval=not auto_approve_all,
         ),
     )
     runtime.harness_registry.declarative.register(

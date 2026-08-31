@@ -35,7 +35,7 @@ from typing import Any, Iterable, Protocol, runtime_checkable
 from .approval import InterruptPolicy
 from .assembly import SOURCE_EVIDENCE, AssemblyConfig
 from .context import CompressionPolicy, ContextSource, ThresholdCompressionPolicy
-from .declarative_tools import endpoint_operation, endpoint_operation_failure_reason
+from .declarative_tools import EndpointType, endpoint_operation, endpoint_operation_failure_reason
 from .event_types import EventTypeRegistry, EventTypeSpec, event_types_collection
 from .entities import EntityRegistry, EntitySpec, entity_collection
 from .events import EngineTransport
@@ -912,6 +912,7 @@ class Runtime:
 
         # ⑰ 引擎重建（按当前模型配置装配回合图；工具表/配置变更重建）
         self.introspection_service._sources.tools = self.collect_specs()
+        self.introspection_service._sources.registered_tools = self.merged_specs()
         await self.rebuild_engine()
 
     def pause(self) -> None:
@@ -1285,6 +1286,7 @@ class Runtime:
                 )
             if self.introspection_service is not None:
                 self.introspection_service._sources.tools = self.collect_specs()
+                self.introspection_service._sources.registered_tools = self.merged_specs()
 
     async def set_baseline_names(self, names: list[str] | tuple[str, ...]) -> list[str]:
         """设置常驻必带工具集（设置页勾选落地面）。
@@ -1626,7 +1628,32 @@ class Runtime:
             interrupt_policy=self._host_policy,
             tool_index=self.tool_index,
             tool_tagger=self._tag_tool_persist,
+            endpoint_probe=self._probe_tool_endpoint,
         )
+
+    def _probe_tool_endpoint(self, name: str) -> dict | None:
+        """工具端点探活（绑定/检索响应标注：绑定 ≠ 端点可用）。
+
+        声明式工具按定义端点判定：MCP 端点按 server 会话是否已连接；
+        本地端点（file_ops/process_exec/web_search 等）恒可用。内省/自指
+        工具无外部端点 = 恒可用。未注册工具返回 None（调用方自行兜底）。
+        """
+        definition = None
+        declarative = self.harness_registry.declarative
+        if declarative is not None:
+            definition = declarative.definitions.get(name)
+        if definition is None:
+            return None
+        endpoint = definition.endpoint
+        if endpoint is EndpointType.MCP:
+            server_id = (definition.endpoint_config or {}).get("server_id")
+            connected = bool(server_id and server_id in self.mcp_manager.list_servers())
+            return {
+                "endpoint": "mcp",
+                "server_id": server_id,
+                "connected": connected,
+            }
+        return {"endpoint": endpoint.value, "connected": True}
 
     def _rebuild_tool_index(self) -> None:
         """重建工具向量索引（全量 merged_specs → 向量）。"""

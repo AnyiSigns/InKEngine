@@ -207,10 +207,26 @@ class NetworkPolicy:
 class NetworkPolicySandbox(NetworkPolicy):
     """网络守卫的沙箱接线形态（ToolPipeline 沙箱环节消费）。
 
-    http_fetch 端点经此做域名白名单判定：操作须为 connect（其余操作
-    一律违规），域名未命中白名单抛 :class:`SandboxViolation`（默认
-    禁网）；判定通过返回原 host（守卫只做判定，不改写执行参数）。
+    http_fetch 端点经此做域名判定：操作须为 connect（其余操作一律
+    违规）；白名单域名放行（快速路径）。
+
+    ``unlisted_policy`` 决定白名单外域名的处置：
+    - ``"deny"``（默认）：域名未命中白名单抛 :class:`SandboxViolation`
+      （默认禁网，fail-closed）——审批卡也不能放行（收紧面）；
+    - ``"review"``：白名单外域名**不再硬拦**，而是由流水线门禁桥
+      （``_NetworkReviewGate``）强制转审批——审批决议 accept 后放行
+      （审批即网关；白名单 = 免审批快速路径，非执行期网关）。
     """
+
+    unlisted_policy: str = "deny"
+
+    def requires_review(self, operation: str, target: str) -> bool:
+        """白名单外域名是否须转审批（review 档）；deny 档恒 False。"""
+        return (
+            operation == "connect"
+            and self.unlisted_policy == "review"
+            and not self.allows(target)
+        )
 
     def guards_operation(self, operation: str) -> bool:
         """是否本沙箱守卫的操作域（多端点流水线各司其职的依据）。"""
@@ -220,6 +236,10 @@ class NetworkPolicySandbox(NetworkPolicy):
         if operation != "connect":
             raise SandboxViolation(f"不支持的网络操作: {operation}")
         if not self.allows(target):
+            if self.unlisted_policy == "review":
+                # 白名单外域名已由门禁桥强制转审批；审批通过后此处放行
+                # （审批即网关，沙箱不再二次硬拦）
+                return target
             raise SandboxViolation(f"域名不在白名单: {target}")
         return target
 

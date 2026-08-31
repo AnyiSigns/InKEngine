@@ -44,8 +44,10 @@ const EXPECTED_SEED_FILES: [&str; 22] = [
 
 /// 引擎源码事实核对基准：AssemblyRecipe 字段数以 runtime.py 源码为准
 /// （字段增删会让本门禁与常量失配而失败，防口径漂移；批 3a 增
-/// compress_policy 字段后同步为 19，实体层增 entity_specs 后为 20）。
-const ASSEMBLY_RECIPE_FIELD_COUNT: usize = 20;
+/// compress_policy 字段后同步为 19，实体层增 entity_specs 后为 20，
+/// VTM 验证器增 verify_retry_limit、组装时间线增 emit_timeline_events 后
+/// 同步为 22）。
+const ASSEMBLY_RECIPE_FIELD_COUNT: usize = 22;
 
 /// manifest 身份定稿值（出厂登记表）。
 const MANIFEST_ID: &str = "inkling";

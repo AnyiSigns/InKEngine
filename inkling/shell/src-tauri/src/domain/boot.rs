@@ -159,7 +159,10 @@ fn search_keys_from_env(args: &JsonValue) -> super::web_search::SearchKeys {
 /// 并返回结构化结果 JSON。key 优先级：显式注入（payload keys）>
 /// 环境变量（INK_SEARCH_KEY）> 设置档（search_keys.json）> 本地聚合源。
 /// H3：共享 Client/运行时复用，不随调用重建。
-async fn wire_web_search(data_dir: std::path::PathBuf) -> Result<(), String> {
+///
+/// pub：headless（cli 回合驱动）与桌面壳共用同一回调注册，联网搜索
+/// 免费本地聚合源在两种形态下都可用。
+pub async fn wire_web_search(data_dir: std::path::PathBuf) -> Result<(), String> {
     crate::engine::bridge::register_callback(
         "host.web_search",
         Box::new(move |payload: String| -> PyResult<String> {

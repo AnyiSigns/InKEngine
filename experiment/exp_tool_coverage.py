@@ -160,8 +160,7 @@ TASK_COVERAGE = (
     "2. 逐个真实调用每个工具（不得跳过；无法调用的如实记录原因）：\n"
     "   - 文件类（file_read/file_write/file_edit/grep/glob/file_query 等）："
     "在工作区创建并读写一个测试文件、做检索/通配符匹配；\n"
-    "   - 命令执行类（shell_exec/run_test_python/run_typecheck/run_test_cargo/"
-    "run_test_web/system_query 等）：用无害命令（如 python --version、"
+    "   - 命令执行类（shell_exec/system_query 等）：用无害命令（如 python --version、"
     "pytest --version、git status）探测；\n"
     "   - MCP 研究链（collect_material/parse_material/validate_material/"
     "review_material/distill_knowledge/mutate_knowledge/"
@@ -201,7 +200,7 @@ CHAIN_TOOLS = {
     "推演": {"validate_material", "review_material", "parse_material"},
     "研究": {"collect_material", "fetch", "web_search"},
     "文件端点": {"file_read", "file_write", "file_edit", "grep", "glob", "file_query"},
-    "命令端点": {"run_test_python", "run_typecheck", "run_test_cargo", "run_test_web", "shell_exec", "system_query"},
+    "命令端点": {"shell_exec", "system_query"},
     "内省/装配": {"inspect_tools", "inspect_graph", "inspect_rules", "search_tools", "request_tool", "propose_mcp_mount", "collab_request"},
     "文档/解析": {"doc_generate", "doc_parse", "open_file"},
     "系统控制": {"notify", "sleep", "set_volume", "set_brightness", "screenshot_capture", "ui_query", "ui_click", "ui_type", "window_focus", "window_minimize", "launch_app"},
@@ -218,7 +217,7 @@ TASK_COVERAGE_PLUS = (
     "这是一个工具全覆盖补缺任务。前几轮巡检已覆盖大部分工具，但以下 9 个工具"
     "从未被实际调用，本轮必须逐个真实调用它们并汇报结果：\n\n"
     "待补缺工具：doc_generate、doc_parse、fetch、mutate_knowledge、"
-    "propose_mcp_mount、run_test_web、ui_click、web_search、window_minimize。\n\n"
+    "propose_mcp_mount、ui_click、web_search、window_minimize。\n\n"
     "执行要求：\n"
     "1. 这些工具大多在注册表但未注入本会话——先用 search_tools 确认其存在与状态，"
     "再用 request_tool 逐个绑定到本会话；\n"
@@ -228,7 +227,6 @@ TASK_COVERAGE_PLUS = (
     "   - mutate_knowledge：基于知识集里已有的种子条目（如 seed.inkling.source_"
     "credibility）提交一次带 failure_logs 的变异提案；\n"
     "   - propose_mcp_mount：用无效地址提交挂载提案（应被校验拒绝——记录返回原文）；\n"
-    "   - run_test_web：运行一次 web 测试探测；\n"
     "   - ui_click/window_minimize：headless 环境可能无桌面会话——如实记录执行结果"
     "（成功/报错/权限拒绝原文）。\n"
     "3. 对每个工具记录：工具名、绑定结果、真实调用结果、返回原文、对使用者的影响；\n"
@@ -310,7 +308,7 @@ async def main() -> int:
     started = time.time()
     data_dir = Path(os.environ.get("TEMP", ".")) / f"exp-tool-coverage-{int(time.time())}"
     thread_id = f"e2e-coverage-{int(time.time())}"
-    round = {"id": "r1", "label": "工具全覆盖巡检", "text": TASK_COVERAGE_PLUS}
+    round = {"id": "r1", "label": "工具全覆盖巡检", "text": TASK_COVERAGE}
 
     ts = time.strftime("%Y%m%d-%H%M%S")
     out_dir = REPO_ROOT / "docs" / "experiments" / "chains" / "tool-coverage" / ts

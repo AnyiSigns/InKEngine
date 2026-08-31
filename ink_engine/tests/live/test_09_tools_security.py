@@ -122,13 +122,15 @@ async def test_http_fetch_whitelist_real(fault_server, live_tmp):
     pipeline = build_declarative_pipeline(
         executors,
         network_policy=NetworkPolicy(allow_domains=(host,)),
+        # deny 档验证沙箱硬边界（review 档默认 = 白名单外转审批）
+        network_unlisted_policy="deny",
     )
     tool_spec = spec.to_spec()
     ctx = _FakeCtx()
     result = await pipeline.execute(ctx, tool_spec, {"url": fault_server.base_url + "/docs"})
     assert result.ok is True
     assert "非流式标准响应" in result.output  # 真实抓取内容
-    # 域外拒绝（fail-closed）
+    # 域外拒绝（deny 档 fail-closed）
     denied = await pipeline.execute(ctx, tool_spec, {"url": "http://example.com/x"})
     assert denied.ok is False
 

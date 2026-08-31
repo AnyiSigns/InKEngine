@@ -253,5 +253,182 @@ def _spec_from_seed(tool: dict):
     return DeclarativeToolSpec.from_dict(tool)
 
 
+class HttpFetchExecutorTest(unittest.TestCase):
+    """http_fetch 执行体：审批即网关，不再按 allow_domains 二次硬拦。
+
+    与 Rust 侧 ``execute_http_fetch`` 同口径：只做协议收口（http/https），
+    域名放行与否由审批卡裁决（fetch 出厂 review 档弹卡）。
+    """
+
+    def _seed(self):
+        return _seed_tool("fetch")
+
+    def test_unlisted_domain_passes_to_fetch(self):
+        """allow_domains 空白名单不再拦截：审批即网关（取回实现注入 stub）。"""
+        import asyncio
+
+        from inkling_host.security_domain import make_http_fetch_executor
+
+        captured: dict = {}
+
+        def fetch(definition, args):
+            captured["url"] = args["url"]
+            return "body-ok"
+
+        executor = make_http_fetch_executor(fetch=fetch)
+        spec = _spec_from_seed(self._seed())
+        # 出厂 allow_domains=[]（留空）+ 非白名单域名 → 仍可执行（审批已裁决）
+        result = asyncio.run(
+            executor(
+                ctx=None,
+                definition=spec,
+                args={"url": "https://arxiv.org/abs/2401.12345"},
+                approval=None,
+            )
+        )
+        self.assertEqual(captured["url"], "https://arxiv.org/abs/2401.12345")
+        self.assertIn("body-ok", str(result))
+
+    def test_scheme_enforced(self):
+        """协议收口：非 http/https 拒绝（SEC_006），http/https 放行。"""
+        import asyncio
+
+        from inkling_host.security_domain import ErrorCode, make_http_fetch_executor
+
+        def fetch(definition, args):
+            return "body-ok"
+
+        executor = make_http_fetch_executor(fetch=fetch)
+        spec = _spec_from_seed(self._seed())
+        blocked = asyncio.run(
+            executor(
+                ctx=None,
+                definition=spec,
+                args={"url": "file:///etc/passwd"},
+                approval=None,
+            )
+        )
+        self.assertIn(ErrorCode.NETWORK_DOMAIN_BLOCKED, str(blocked))
+        ok = asyncio.run(
+            executor(
+                ctx=None,
+                definition=spec,
+                args={"url": "http://127.0.0.1/x"},
+                approval=None,
+            )
+        )
+        self.assertIn("body-ok", str(ok))
+
+
+class GrepSearchIncludeRegressionTest(unittest.TestCase):
+    """grep（file_ops search）带 include 类型过滤回归：fnmatch 须可用。
+
+    预存缺陷：`_search` 在 include 分支调用 ``fnmatch.fnmatch`` 但未导入
+    （导入只在 ``_search_paths`` 局部），带 include 参数的 grep 检索
+    报 ``name 'fnmatch' is not defined``——工具全覆盖巡检实测捕获。
+    """
+
+    def _search_with_include(self, root: Path, include: str) -> dict:
+        import dataclasses
+
+        from inkling_host.security_domain import make_file_ops_executor
+
+        executor = make_file_ops_executor()
+        definition = _spec_from_seed(_seed_tool("grep"))
+        definition = dataclasses.replace(
+            definition, endpoint_config={"root": str(root), "operation": "search"}
+        )
+        text = executor._search(
+            {"pattern": "hello", "include": include, "max_results": 100},
+            definition,
+        )
+        return json.loads(text)
+
+    def test_search_include_does_not_raise(self):
+        import tempfile
+
+        with tempfile.TemporaryDirectory() as tmp:
+            root = Path(tmp)
+            (root / "a.py").write_text("print('hello')\n", encoding="utf-8")
+            (root / "b.txt").write_text("hello\n", encoding="utf-8")
+            result = self._search_with_include(root, "*.py")
+            self.assertTrue(result["ok"], result)
+            self.assertEqual(result["total"], 1)
+            self.assertEqual(result["matches"][0]["path"], "a.py")
+
+    def test_search_include_extension_variant(self):
+        import tempfile
+
+        with tempfile.TemporaryDirectory() as tmp:
+            root = Path(tmp)
+            (root / "a.py").write_text("hello\n", encoding="utf-8")
+            (root / "b.txt").write_text("hello\n", encoding="utf-8")
+            result = self._search_with_include(root, "py")
+            self.assertTrue(result["ok"], result)
+            self.assertEqual(result["total"], 1)
+
+
+class AutoApproveAllMountTest(unittest.TestCase):
+    """统一自动审批开关：auto_approve_all=True 时 propose_mcp_mount
+    跳过挂载审批卡（require_approval=False 传入挂载服务）。
+
+    headless 离线验证/自动化巡检形态需要「所有工具共用同一个自动审批
+    开关」：propose_mcp_mount 的挂载审批卡（L2 挂载）在回合级
+    auto_accept_review 覆盖不到（executor 内部 interrupt），须在此
+    处放行。
+    """
+
+    def _build_executor(self, auto_approve_all: bool, captured: dict):
+        import asyncio
+
+        from inkling_host.security_domain import (
+            OsControlRegistry,
+            make_process_exec_executor,
+        )
+
+        class FakeMount:
+            async def propose_mount(self, ctx, address, *, require_approval=True):
+                captured["require_approval"] = require_approval
+                captured["ctx"] = ctx
+                return type(
+                    "Outcome",
+                    (),
+                    {
+                        "ok": True,
+                        "status": "mounted",
+                        "server_id": "fake",
+                        "tool_names": ["fake_tool"],
+                        "error": None,
+                    },
+                )()
+
+        executor = make_process_exec_executor(
+            mount_service=FakeMount(),
+            os_registry=OsControlRegistry(),
+            tiers={"propose_mcp_mount": "review"},
+            require_approval=not auto_approve_all,
+        )
+        return asyncio.run(
+            executor(
+                ctx=None,
+                definition=_spec_from_seed(_seed_tool("propose_mcp_mount")),
+                args={"address": "npm:@modelcontextprotocol/server-filesystem"},
+                approval=None,
+            )
+        )
+
+    def test_auto_approve_all_skips_mount_card(self):
+        captured: dict = {}
+        result = self._build_executor(True, captured)
+        self.assertIs(captured["require_approval"], False)
+        self.assertIn("mounted", str(result))
+
+    def test_default_keeps_mount_approval(self):
+        captured: dict = {}
+        result = self._build_executor(False, captured)
+        self.assertIs(captured["require_approval"], True)
+        self.assertIn("mounted", str(result))
+
+
 if __name__ == "__main__":
     unittest.main()

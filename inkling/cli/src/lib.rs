@@ -118,21 +118,33 @@ pub fn boot_engine(repo_root: &Path, data_dir: &Path) -> Result<EngineHost, CliE
         tool_provider: None,
     };
     let host = EngineHost::boot(options).map_err(CliError::boot)?;
-    wire_round_execution(repo_root)?;
+    wire_round_execution(repo_root, data_dir)?;
     Ok(host)
 }
 
-/// headless 回合执行接线：os.dispatch 回调 + 工作区授权（幂等，可重复调用）。
+/// headless 回合执行接线：os.dispatch 回调 + 工作区授权 + 联网搜索回调
+/// （幂等，可重复调用）。
 ///
 /// - os.dispatch：引擎回合内 OS 工具（shell_exec/launch_app 等）经回调
 ///   桥转发到本进程执行器注册表（PlatformBackend 真实子进程执行）；
 /// - workspace：以工作区根授权文件工具沙箱（agent 回合内读写工作区文件的
 ///   前置条件）；根默认取仓库根，可用环境变量 `INKENGINE_WS_ROOT` 覆盖
 ///   （挂载到仓库外的工作目录，如实验工作点）；记录落 sqlite，重启后经
-///   引擎 load 恢复同一根。
-fn wire_round_execution(repo_root: &Path) -> Result<(), CliError> {
+///   引擎 load 恢复同一根；
+/// - web_search：联网搜索回调注册（web_search 工具经回调桥转发到壳侧
+///   域实现——本地聚合源免费无 key 默认，INK_SEARCH_KEY 配厂商源降级），
+///   headless 与桌面壳共用同一注册（boot.rs wire_web_search）。
+fn wire_round_execution(repo_root: &Path, data_dir: &Path) -> Result<(), CliError> {
     inkling_shell_lib::executors::register_headless_os_dispatch(TOOLS_DECL_JSON)
         .map_err(|err| CliError::boot(format!("OS 分发注册失败: {err}")))?;
+    tokio::runtime::Builder::new_current_thread()
+        .enable_all()
+        .build()
+        .map_err(|err| CliError::boot(format!("联网搜索回调运行时创建失败: {err}")))?
+        .block_on(inkling_shell_lib::domain::boot::wire_web_search(
+            data_dir.to_path_buf(),
+        ))
+        .map_err(|err| CliError::boot(format!("联网搜索回调注册失败: {err}")))?;
     let workspace_root = std::env::var("INKENGINE_WS_ROOT")
         .map(PathBuf::from)
         .unwrap_or_else(|_| repo_root.to_path_buf());

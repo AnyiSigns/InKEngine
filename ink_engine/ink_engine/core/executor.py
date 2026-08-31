@@ -132,6 +132,28 @@ class _QueueTransport:
         await self._queue.put(event)
 
 
+class _TransportSequencer:
+    """事件推送保序协调器（父引擎与 spawn 实例/嵌套子图共享）。
+
+    落库 seq 来自存储（thread 事件日志全局计数器）——父引擎与并发
+    实例交错推进同一 seq 空间、推送同一传输链。若各引擎独立维护
+    next_seq/pending，实例的后续事件会因本引擎 seq 缺孔永远无法补齐
+    （事件静默卡在各自缓冲，跨引擎的兄弟事件补不了孔）。共享同一
+    协调器后，seq 连续即冲刷，跨引擎不丢事件。
+    """
+
+    __slots__ = ("lock", "pending", "next_seq")
+
+    def __init__(self) -> None:
+        self.lock = asyncio.Lock()
+        self.pending: dict[int, EngineEvent] = {}
+        self.next_seq: int | None = None
+
+    def reset(self) -> None:
+        self.pending.clear()
+        self.next_seq = None
+
+
 @dataclass(slots=True)
 class _PlanAdvance:
     """计划游标推进结果（计划步执行/取节点的控制流传递）。
@@ -473,10 +495,10 @@ class Engine:
         # seq 锚点登记（防丢更新/乱序覆盖导致恢复重放重复事件）
         self._event_lock = asyncio.Lock()
         # 传输推送保序锁 + 缓冲区：并行组并发 emit 经 seq 排定顺序推送，
-        # 避免事件顺序违背落库/执行顺序（见 :meth:`_deliver_event`）
-        self._transport_lock = asyncio.Lock()
-        self._transport_pending: dict[int, EngineEvent] = {}
-        self._transport_next_seq: int | None = None
+        # 避免事件顺序违背落库/执行顺序（见 :meth:`_deliver_event`）。
+        # 协调器跨引擎共享（spawn 实例/嵌套子图推进同一 thread 事件日志
+        # 的全局 seq，见 _TransportSequencer）——各引擎不得独立持有
+        self._transport_seq = _TransportSequencer()
         # 图内容指纹（checkpoint 图版本）：本图执行产生的 checkpoint 均携带，
         # 恢复时与锚点比对（图定义变了 = 恢复语义不保证，拒绝续跑）
         self._graph_digest = graph.digest()
@@ -562,9 +584,14 @@ class Engine:
         落库 seq 已在事件锁内分配；此处仅负责传输推送的保序：seq 连续到达
         即依次发送并冲刷后续已缓冲事件。seq 缺失（无存储/落库失败）则立即
         发送（无 seq 可排序，退化为到达序）。换 run 时由调用方复位
-        :attr:`_transport_next_seq`。
+        保序协调器（``_transport_seq.reset``）。
+
+        保序协调器跨引擎共享：父引擎与 spawn 实例/嵌套子图推进同一
+        thread 事件日志（seq 全局），推送同一传输链——缺孔只能由全局
+        协调器补齐，任何单引擎独立缓冲都会永久卡住后续事件。
         """
-        async with self._transport_lock:
+        seqr = self._transport_seq
+        async with seqr.lock:
             if seq is None:
                 for transport in transports:
                     try:
@@ -572,23 +599,23 @@ class Engine:
                     except Exception as exc:
                         logger.warning(f"事件传输失败（忽略）: {event.type}: {exc}")
                 return
-            if self._transport_next_seq is None:
-                self._transport_next_seq = seq
-            if seq != self._transport_next_seq:
+            if seqr.next_seq is None:
+                seqr.next_seq = seq
+            if seq != seqr.next_seq:
                 # 不是下一个预期 seq：先缓冲，待缺孔补齐后由后续冲刷统一发送
-                self._transport_pending[seq] = event
+                seqr.pending[seq] = event
                 return
             # 从当前 seq 起连续冲刷已到达事件（含本事件）
             cur_seq = seq
             cur_event = event
             while True:
-                self._transport_next_seq = cur_seq + 1
+                seqr.next_seq = cur_seq + 1
                 for transport in transports:
                     try:
                         await transport.send(cur_event)
                     except Exception as exc:
                         logger.warning(f"事件传输失败（忽略）: {cur_event.type}: {exc}")
-                nxt = self._transport_pending.pop(cur_seq + 1, None)
+                nxt = seqr.pending.pop(cur_seq + 1, None)
                 if nxt is None:
                     break
                 cur_seq += 1
@@ -770,8 +797,7 @@ class Engine:
         self._latest_event_seq = None
         self._chain_advanced = False
         # 传输推送保序状态复位（同 thread 跨 run 不串台）
-        self._transport_pending.clear()
-        self._transport_next_seq = None
+        self._transport_seq.reset()
         self._validate_entry_mode(resume_from=resume_from, continue_chain=continue_chain)
         try:
             if inject:
@@ -851,8 +877,7 @@ class Engine:
         self._latest_event_seq = None
         self._chain_advanced = False
         # 传输推送保序状态复位（同 thread 跨 run 不串台）
-        self._transport_pending.clear()
-        self._transport_next_seq = None
+        self._transport_seq.reset()
         self._validate_entry_mode(resume_from=resume_from, continue_chain=continue_chain)
         try:
             if inject:
@@ -2505,6 +2530,10 @@ class Engine:
             ),
         )
         sub_engine._coordinator = self._coordinator
+        # 事件推送保序协调器跨引擎共享：实例与父引擎推进同一 thread 事件
+        # 日志（seq 全局）、推送同一传输链——独立协调器会让实例后续事件
+        # 因本引擎缺孔永远卡在缓冲（见 _TransportSequencer）
+        sub_engine._transport_seq = self._transport_seq
         return sub_engine
 
     async def run_spawned(
@@ -3013,6 +3042,9 @@ async def run_subgraph(subgraph: Graph, parent_ctx: NodeContext) -> dict | None:
         engine._subgraph_engines[subgraph.digest()] = sub_engine
     # 共享父引擎 coordinator：子图内 interrupt 重入与父图同一通道
     sub_engine._coordinator = engine._coordinator
+    # 事件推送保序协调器跨引擎共享（子图与父引擎同一 thread 事件日志/
+    # 传输链；独立协调器会让子图后续事件卡在自身缓冲，见 _TransportSequencer）
+    sub_engine._transport_seq = engine._transport_seq
     entry_state = dict(parent_ctx.state)
     # 入口剥离合并累加族通道（merge_metrics/merge_dicts）：子图内从 0 起算，
     # 回流增量 = 子图内新增（父图 reducer 加和恰好一次，防二次加和翻倍）。

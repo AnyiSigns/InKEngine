@@ -568,6 +568,34 @@
       "renderer": "message_list",
       "system": false,
       "meta": { "note": "附件事件类别（引擎 Attachment 契约形态，DEFAULT_ATTACHMENT_EVENT_NAME；负载为宿主/前端协商形态，不作 schema 约束）" }
+    },
+    {
+      "name": "turn_started",
+      "schema": { "name": "timeline.turn_started", "fields": [] },
+      "renderer": "message_list",
+      "system": true,
+      "meta": { "note": "回合入口（用户消息到达，时间线起点，顶层图发射一次）", "purpose": "timeline" }
+    },
+    {
+      "name": "assembly_started",
+      "schema": { "name": "timeline.assembly_started", "fields": [] },
+      "renderer": "message_list",
+      "system": true,
+      "meta": { "note": "组装开始（输入调配预装配起点，时间线：组装阶段起点）", "purpose": "timeline" }
+    },
+    {
+      "name": "assembly_done",
+      "schema": { "name": "timeline.assembly_done", "fields": [] },
+      "renderer": "message_list",
+      "system": true,
+      "meta": { "note": "组装完成（时间线：组装阶段耗时）", "purpose": "timeline" }
+    },
+    {
+      "name": "execution_started",
+      "schema": { "name": "timeline.execution_started", "fields": [] },
+      "renderer": "message_list",
+      "system": true,
+      "meta": { "note": "第一个节点真正开工（execution_started 才是「开始做用户任务」的起点）", "purpose": "timeline" }
     }
   ]
 }

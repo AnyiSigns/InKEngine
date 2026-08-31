@@ -1090,6 +1090,21 @@ mod tests {
         (dir.clone(), Scratch(dir))
     }
 
+    /// 测试环境 Python 兜底：部分开发机 PATH 的 `python` 是 Windows 商店
+    /// 占位桩（App Execution Alias，退出码 9009），导致 spawn python 的
+    /// 用例误判为执行失败。此处把仓库 venv 真实解释器目录前插到进程 PATH，
+    /// 保证子进程 `python` 可解析（与本 crate 构建的 PYO3_PYTHON 同源）。
+    fn ensure_test_python_on_path() {
+        use std::sync::Once;
+        static ONCE: Once = Once::new();
+        ONCE.call_once(|| {
+            let prefixed = super::super::common::test_python_prefixed_path(
+                &std::env::var("PATH").unwrap_or_default(),
+            );
+            std::env::set_var("PATH", prefixed);
+        });
+    }
+
     // ── env.json → 三环境声明 ──
 
     #[test]
@@ -1142,6 +1157,7 @@ mod tests {
 
     #[tokio::test]
     async fn test_local_env_ensure_run_destroy_idempotent() {
+        ensure_test_python_on_path();
         let (dir, _keep) = envs_dir("local-loop");
         let domain = EnvironmentDomain::new(
             &seed_env(),

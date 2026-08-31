@@ -87,6 +87,10 @@ class SelfToolContext:
             None = 宿主扩展自带默认策略）。
         tool_index: 工具向量索引（search_tools/request_tool 的检索后端；
             None = 关键词基线降级）。
+        endpoint_probe: 端点探活回调（``name -> dict | None``）：返回工具
+            端点是否可用（MCP 工具如 ``{"endpoint": "mcp", "server_id": ...,
+            "connected": bool}``，本地端点 ``{"endpoint": ..., "connected":
+            True}``）；None = 不探活——绑定/检索响应不带端点状态。
     """
 
     self_pipeline: SelfApplicationPipeline
@@ -98,6 +102,7 @@ class SelfToolContext:
     # 工具标签写引用（单源 + 标签：绑定 = 给当前会话 thread 打标签，
     # 会话窗口恒注入；None = 绑定不落标签——离线/单测形态退化为纯校验）
     tool_tagger: Any = None
+    endpoint_probe: Any = None
 
 
 def self_tool_specs() -> list[ToolSpec]:
@@ -107,6 +112,12 @@ def self_tool_specs() -> list[ToolSpec]:
             name="propose_patch",
             description="提出产品演化补丁（只校验不落链）：按类型校验 payload 形态与"
             "基准版本，返回校验结果与当前集版本——合法提案的下一步是 apply_patch。"
+            "payload 是嵌套声明形态，不是扁平字段：kind=rule 须为 "
+            "payload.rule={id,predicate,path,config,severity,description}；"
+            "kind=knowledge 须为 payload.entry={id,level,kind,data}；"
+            "kind=tool 须为 payload={name,description,permissions,endpoint,"
+            "endpoint_config}；其余类型同样以类型对应的嵌套声明为 payload。"
+            "校验失败会随违规清单回传合法形态示例骨架。"
             "任务中工具不够用时可自举：kind=tool 新增/修改工具定义（含权限档位"
             "approval、端点、命令白名单——如把 deny 档转正或放宽命令面），"
             "apply_patch 落地后新工具即注入可用，无需等用户提需求",
@@ -121,8 +132,10 @@ def self_tool_specs() -> list[ToolSpec]:
                     },
                     "payload": {
                         "type": "object",
-                        "description": "补丁内容（按类型校验：界面描述/工具定义/"
-                        "规则声明/知识条目/harness 定义/事件类型/环境声明/产物声明）",
+                        "description": "补丁内容（按类型校验的嵌套声明形态："
+                        "rule 走 payload.rule，knowledge 走 payload.entry，"
+                        "tool 走 name/description/permissions/endpoint/endpoint_config，"
+                        "harness 走 payload.definition）",
                     },
                     "rationale": {
                         "type": "string",
@@ -231,9 +244,9 @@ def self_tool_specs() -> list[ToolSpec]:
         ToolSpec(
             name="search_tools",
             description="检索工具集（保底集以外的工具经此发现，注册但未注入的工具均可检索）："
-            "输入自然语言查询，返回匹配工具列表（名称/摘要/参数/权限档/端点，≤8 条）。"
+            "输入自然语言查询，返回匹配工具列表（名称/摘要/参数/权限档/端点/端点可用性，≤8 条）。"
             "注意：检索到 ≠ 可用——挂载/注册只是进入总源，调用前须经 request_tool "
-            "绑定到当前会话窗口才注入",
+            "绑定到当前会话窗口才注入，且绑定响应会标注端点是否已连接",
             parameters={
                 "type": "object",
                 "properties": {
@@ -251,6 +264,8 @@ def self_tool_specs() -> list[ToolSpec]:
             description="绑定指定工具到当前会话窗口（thread 内恒注入）：校验工具名合法性，"
             "非法名返回明确错误；合法则打 thread 标签注入完整 schema，"
             "返回「已绑定」确认——本会话后续轮次即可按 schema 生成 tool_call。"
+            "绑定响应携带端点状态（endpoint_status）：MCP/远程端点未连接时"
+            "标注 connected=false——绑定≠端点可用，调用前须确认端点状态。"
             "注意：绑定是会话级（thread 隔离），其它会话/新会话需重新绑定；"
             "同一会话重复绑定幂等",
             parameters={
@@ -508,22 +523,34 @@ async def _search_tools(ctx: Any, context: SelfToolContext, args: dict) -> str:
         return _json({"ok": False, "violations": ["query 须为非空字符串"]})
     index = context.tool_index
     if index is None or len(index) == 0:
-        return _json({"ok": True, "results": [], "degraded": True})
+        return _json({"ok": True, "results": [], "degraded": True, "degraded_reason": "工具索引未装配"})
     results = index.search(query.strip(), limit=8)
+    probe = getattr(context, "endpoint_probe", None)
+    result_rows = []
+    for r in results:
+        row: dict = {
+            "name": r.name,
+            "description": r.description,
+            "parameters_summary": r.parameters_summary,
+            "tier": r.tier,
+            "endpoint": r.endpoint,
+        }
+        if probe is not None:
+            try:
+                row["endpoint_status"] = probe(r.name)
+            except Exception:
+                row["endpoint_status"] = None
+        result_rows.append(row)
     return _json(
         {
             "ok": True,
-            "results": [
-                {
-                    "name": r.name,
-                    "description": r.description,
-                    "parameters_summary": r.parameters_summary,
-                    "tier": r.tier,
-                    "endpoint": r.endpoint,
-                }
-                for r in results
-            ],
+            "results": result_rows,
             "degraded": not index.uses_vectors(),
+            "degraded_reason": (
+                None
+                if index.uses_vectors()
+                else "向量嵌入不可用，已降级为关键词基线匹配——结果可能不含语义相近工具"
+            ),
         }
     )
 
@@ -568,18 +595,30 @@ async def _request_tool(ctx: Any, context: SelfToolContext, args: dict) -> str:
                     "error": f"工具绑定失败（标签写入异常）: {exc}",
                 }
             )
-    return _json(
-        {
-            "ok": True,
-            "message": f"已绑定 {name}，当前会话窗口（thread 内）可调用；其它会话/后续新会话需重新绑定",
-            "spec": {
-                "name": spec.name,
-                "description": spec.description,
-                "parameters": spec.parameters,
-                "permissions": list(spec.permissions),
-            },
-        }
-    )
+    # 端点探活：绑定 ≠ 端点可用——MCP/远程端点未连接时如实标注，
+    # 不让「已绑定」误导调用方（绑定只是注册表校验 + schema 注入）
+    endpoint_status = None
+    probe = getattr(context, "endpoint_probe", None)
+    if probe is not None:
+        try:
+            endpoint_status = probe(name)
+        except Exception as exc:
+            endpoint_status = {"endpoint": "unknown", "connected": False, "reason": str(exc)}
+    response: dict = {
+        "ok": True,
+        "message": f"已绑定 {name}，当前会话窗口（thread 内）可调用；其它会话/后续新会话需重新绑定",
+        "spec": {
+            "name": spec.name,
+            "description": spec.description,
+            "parameters": spec.parameters,
+            "permissions": list(spec.permissions),
+        },
+    }
+    if endpoint_status is not None:
+        response["endpoint_status"] = endpoint_status
+        if not endpoint_status.get("connected", True):
+            response["message"] += f"（注意：端点未连接 connected=false，调用前须先恢复端点）"
+    return _json(response)
 
 
 def _build_proposal(ctx: Any, args: dict, *, base_version_hint: Any) -> SelfProposal:

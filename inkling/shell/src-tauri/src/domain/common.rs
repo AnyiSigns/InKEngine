@@ -378,8 +378,41 @@ mod tests {
     fn host_path_env() -> HashMap<String, String> {
         let mut env = HashMap::new();
         if let Ok(path) = std::env::var("PATH") {
-            env.insert("PATH".to_string(), path);
+            env.insert("PATH".to_string(), test_python_prefixed_path(&path));
         }
         env
     }
+}
+
+/// 测试用真实 Python 可执行目录（venv 优先；缺省回落 PATH 原样）。
+///
+/// 环境兜底：部分开发机 PATH 上的 `python` 解析为 Windows 应用商店占位
+/// 桩（App Execution Alias，启动即退 9009），导致 spawn python 的域测试
+/// 误判为执行失败。测试在子进程 PATH 前插入仓库 venv 的真实解释器目录，
+/// 保证 `python` 解析到可用解释器（与本 crate 构建的 PYO3_PYTHON 同源）。
+pub fn test_python_prefixed_path(path: &str) -> String {
+    let mut candidates = Vec::new();
+    if let Ok(pyo3_python) = std::env::var("PYO3_PYTHON") {
+        if let Some(parent) = Path::new(&pyo3_python).parent() {
+            candidates.push(parent.to_path_buf());
+        }
+    }
+    candidates.push(
+        Path::new(env!("CARGO_MANIFEST_DIR"))
+            .join("../../../.venv/Scripts"),
+    );
+    for dir in candidates {
+        let python = if cfg!(windows) {
+            dir.join("python.exe")
+        } else {
+            dir.join("python")
+        };
+        if python.is_file() {
+            let dir_text = dir.to_string_lossy();
+            if !path.split(';').any(|part| part == dir_text) {
+                return format!("{};{}", dir_text, path);
+            }
+        }
+    }
+    path.to_string()
 }

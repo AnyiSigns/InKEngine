@@ -40,7 +40,7 @@ InKling 是本地单机桌面产品：引擎自学习、数据全本地（sqlite
 |---|---|
 | web_search | 本地聚合源免费默认；用户自配 Exa/parallel/bocha 任一 key 后降级厂商源（设置页配置，数据驱动）；域名白名单越域拒绝 |
 | fetch | 单页抓取（http_fetch 端点，出厂域名白名单，越域拒绝，超限截断）；「先检索后取证」与 web_search 串行标准顺序 |
-| 研究链 | collect_material 采集 → parse 结构化 → validate 校验 → score 评分 → review 评审 → distill 蒸馏 → mutate 变异（Rust 执行件，样例闸门绑定） |
+| 研究链 | collect_material 采集 → parse 结构化 → validate 校验 → review 评审（phase=score 确定性评分已并入）→ distill 蒸馏 → mutate 变异（Rust 执行件，样例闸门绑定） |
 | 知识孵化 | 信号（pitfall/纠偏/insight/缺口/根因）→ 蒸馏 → L1 安全扫描 / L2 形态语义 / L3 目标筛查 → 知识集条目补丁链落位（`knowledge:<user>` 链 append-only 可回退，后台静默沉淀零审批）；演化/技能导入走集补丁链（KNOWLEDGE 补丁审批+审计） |
 
 ### C 文件与开发循环

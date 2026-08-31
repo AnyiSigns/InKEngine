@@ -2,8 +2,8 @@
 """E2 自举实证驱动：产品 agent 经产品自身管线完成真实任务。
 
 任务选型（Q15 已定）：新事件类型 + 自定义渲染器。
-管线 = 读代码 → 写 TSX + vitest 测试 → run_typecheck/run_test_web
-验证 → propose_patch 挂载 event_type 补丁 → 审批链 → 补丁链生效
+管线 = 读代码 → 写 TSX + vitest 测试 → shell_exec 验证
+（类型检查/测试）→ propose_patch 挂载 event_type 补丁 → 审批链 → 补丁链生效
 → 渲染生效验证 → revert 回退演练（链上状态还原）。
 
 驱动方式：inkling-headless --round（真实模型，经 INK_LLM_* env 注入）。
@@ -156,8 +156,8 @@ RENDERER_TEST_TSX 内容：
         f"""你已在 inkling/frontend 创建了 {RENDERER}.tsx 与对应测试。
 
 请严格依次调用两个工具，缺一不可：
-1. 先用 run_typecheck 检查前端类型（filter 可留空或限定 milestone）；
-2. 再用 run_test_web 运行 vitest（filter 限定 {RENDERER} 测试），
+1. 先用 shell_exec 执行前端类型检查（如 npx tsc --noEmit）；
+2. 再用 shell_exec 运行 vitest（filter 限定 {RENDERER} 测试），
    确认渲染器测试通过。
 分别汇报两项命令的通过/失败与关键输出（不要只跑其中一个就收口）。""",
     ),
@@ -195,7 +195,7 @@ RENDERER_TEST_TSX 内容：
         "阶段4 渲染生效验证",
         f"""验证事件类型 {EVENT_TYPE} 的渲染已生效。
 
-用 run_test_web（filter 限定 {RENDERER}）确认渲染器测试仍通过，
+用 shell_exec 运行 vitest（filter 限定 {RENDERER}）确认渲染器测试仍通过，
 再用 file_read 读取事件类型注册相关文件确认 {EVENT_TYPE} 已登记。
 汇报验证结果。""",
     ),
@@ -354,9 +354,9 @@ def main() -> None:
     stages = {r[0]: r[1] for r in ROUNDS}
     expect = {
         "阶段1 写码": {"file_write"},
-        "阶段2 验证": {"run_typecheck", "run_test_web"},
+        "阶段2 验证": {"shell_exec"},
         "阶段3 挂载": {"propose_patch", "apply_patch"},
-        "阶段4 渲染生效验证": {"run_test_web"},
+        "阶段4 渲染生效验证": {"shell_exec"},
         "阶段5 回退演练": {"revert_patch"},
     }
     ok = True

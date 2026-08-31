@@ -6,13 +6,14 @@
 //!   [`TieredGate`]——allow 直过 / review 弹卡审批 / deny 默认拒绝
 //!   （deny 档无条件拒绝，与权限命中与否无关）；
 //! - **声明式沙箱代理**：[`DeclarativeSandboxProxy`] 按调用时定义现取守卫——
-//!   http_fetch 经 network_policy.allow_domains 域名白名单、process_exec 经
-//!   命令白名单、file_ops 经工作区根目录 + 授权门；非声明式工具（内省/
+//!   process_exec 经命令白名单、file_ops 经工作区根目录 + 授权门、http_fetch
+//!   connect 直接放行（出网经审批网关裁决）；非声明式工具（内省/
 //!   自指/MCP 挂载）不误伤（守卫只对声明式端点生效）；
 //! - **文件工具沙箱**：[`WorkspaceGuard`] 工作区授权 → 根目录占位符替换 →
 //!   越界路径/符号链接逃逸/大小上限全部拒绝（fail-closed）；
-//! - **网络策略**：allow_domains 在端点执行时核对（沙箱层先行判定，
-//!   执行体二次核对，越域拒绝）；
+//! - **网络策略**：http_fetch 出网经审批网关裁决（出厂 review 档弹卡 +
+//!   记住域名直过）——allow_domains 是装配提示（免审批快速路径）而非
+//!   执行期网关，执行体只做协议收口（仅 http/https）；
 //! - **vetting L2 影子运行**：[`ShadowVettingStore`] 记录导入期工具清单
 //!   （不真执行），TOOL 补丁（MCP 端点类）落链前比对，不一致拒绝挂载；
 //! - **shell 执行器进工具表**：进程端点分发（执行器注册表插拔，stub
@@ -1084,25 +1085,33 @@ impl FileOpsExecutor {
                 let Ok(text) = std::fs::read_to_string(&path) else {
                     continue;
                 };
-                let Some(hit) = regex.find(&text) else {
-                    continue;
-                };
-                let line = text[..hit.start()].matches('\n').count() + 1;
-                let line_start = text[..hit.start()].rfind('\n').map(|i| i + 1).unwrap_or(0);
-                let line_end = text[hit.start()..]
-                    .find('\n')
-                    .map(|i| hit.start() + i)
-                    .unwrap_or(text.len());
-                let snippet: String = text[line_start..line_end]
-                    .trim()
-                    .chars()
-                    .take(200)
-                    .collect();
-                matches.push(serde_json::json!({
-                    "path": rel,
-                    "line": line,
-                    "snippet": snippet,
-                }));
+                // 行级命中：同一文件多处命中逐行汇报（regex.find 只取首个
+                // 命中会漏报同文件后续行——total 应计行数而非命中文件数）
+                for hit in regex.find_iter(&text) {
+                    if matches.len() >= max_results {
+                        truncated = true;
+                        break;
+                    }
+                    let line = text[..hit.start()].matches('\n').count() + 1;
+                    let line_start = text[..hit.start()].rfind('\n').map(|i| i + 1).unwrap_or(0);
+                    let line_end = text[hit.start()..]
+                        .find('\n')
+                        .map(|i| hit.start() + i)
+                        .unwrap_or(text.len());
+                    let snippet: String = text[line_start..line_end]
+                        .trim()
+                        .chars()
+                        .take(200)
+                        .collect();
+                    matches.push(serde_json::json!({
+                        "path": rel.clone(),
+                        "line": line,
+                        "snippet": snippet,
+                    }));
+                }
+            }
+            if truncated {
+                break;
             }
             stack.extend(subdirs);
         }
@@ -2411,6 +2420,25 @@ mod tests {
         );
         let typed_parsed: JsonValue = serde_json::from_str(&typed).unwrap();
         assert_eq!(typed_parsed["matches"].as_array().unwrap().len(), 1);
+
+        // 行级命中：同一文件多处命中逐行汇报（首个命中即止会漏报后续行）
+        std::fs::write(
+            ws.join("multi.txt"),
+            "第一行墨引擎\n第二行普通\n第三行墨引擎\n",
+        )
+        .unwrap();
+        let multi = executor.call(
+            &json!({"operation": "search", "root": ws.to_string_lossy(),
+                    "pattern": "墨引擎", "include": "multi.txt"}),
+            &limits,
+        );
+        let multi_parsed: JsonValue = serde_json::from_str(&multi).unwrap();
+        let multi_matches = multi_parsed["matches"].as_array().unwrap();
+        assert_eq!(multi_matches.len(), 2, "同文件两处命中应产出两条");
+        assert_eq!(multi_matches[0]["line"], 1);
+        assert_eq!(multi_matches[1]["line"], 3);
+        assert_eq!(multi_parsed["total"], 2);
+        std::fs::remove_file(ws.join("multi.txt")).unwrap();
 
         // 非法正则结构化失败
         let invalid = executor.call(

@@ -7,10 +7,11 @@ parameters/permissions/endpoint），而非编写一个执行函数——执行�
 安全边界（fail-closed 底线）：
 - 强制权限声明：permissions 缺失或为空 = 校验失败（未声明权限的工具
   默认拒绝是 PermissionGate 的兜底语义，声明式注册把它提前到建表期）；
-- 端点类型与沙箱守卫联动：http_fetch 经 NetworkPolicy 域名白名单、
-  process_exec 经 ProcessSandbox 命令白名单、file_ops 经 FileSandbox
-  根目录——操作提取器（endpoint_operation）按端点类型从参数推导判定
-  目标，供 ToolPipeline 的 gate/sandbox 环节消费；
+- 端点类型与沙箱守卫联动：http_fetch 经 NetworkPolicy 网络守卫（白名单
+  命中 = 免审批快速路径；unlisted_policy=review 档白名单外域名转审批、
+  deny 档硬拒）、process_exec 经 ProcessSandbox 命令白名单、file_ops
+  经 FileSandbox 根目录——操作提取器（endpoint_operation）按端点类型
+  从参数推导判定目标，供 ToolPipeline 的 gate/sandbox 环节消费；
 - 执行体注册表缺省为空：未注册端点类型的调用在分发处显式拒绝
   （不静默失败也不穿出）。
 
@@ -42,7 +43,15 @@ from .contracts import NodeContract
 from .exceptions import GraphDefinitionError, SandboxViolation
 from .llm.tools import ToolSpec
 from .logging import get_logger
-from .permissions import NetworkPolicy, NetworkPolicySandbox, PermissionGate, parse_permission
+from .permissions import (
+    DENY,
+    REVIEW,
+    GateResult,
+    NetworkPolicy,
+    NetworkPolicySandbox,
+    PermissionGate,
+    parse_permission,
+)
 from .sandbox import FS_OPERATIONS as _FS_GUARDED_OPS
 from .sandbox import FileSandbox, ProcessSandbox
 from .schema_validator import (
@@ -61,7 +70,8 @@ logger = get_logger(__name__)
 class EndpointType(StrEnum):
     """声明式工具的端点类型（分发/守卫接线的依据）。
 
-    HTTP_FETCH: 网络抓取/调用（NetworkPolicy 域名白名单守卫）。
+    HTTP_FETCH: 网络抓取/调用（NetworkPolicy 网络守卫：白名单直过，
+       白名单外按 unlisted_policy 转审批或硬拒）。
     PROCESS_EXEC: 受限子进程执行（ProcessSandbox 命令白名单守卫）。
     FILE_OPS: 文件读写删除（FileSandbox 根目录守卫）。
     MCP: 外部 MCP server 工具调用（按 server_id 路由会话；挂载须经
@@ -625,6 +635,39 @@ class _DefinitionGate:
         )
 
 
+class _NetworkReviewGate:
+    """网络域名审批桥：白名单外 connect → 强制转审批（审批即网关）。
+
+    放开语义：``NetworkPolicySandbox.unlisted_policy="review"`` 时，白名单
+    外域名不再 fail-closed 拒绝，而是在门禁层强制 REVIEW——挂卡审批，
+    审批决议 accept 后放行执行（沙箱同态放行）；白名单命中保持内层
+    判定（免审批快速路径）。
+
+    内层判定为 DENY 不升级（工具声明权限是边界，审批不越过声明权限
+    拒绝——审批只救「权限已放行但白名单未命中」的域名）。
+    """
+
+    def __init__(self, inner: Any, sandbox: NetworkPolicySandbox) -> None:
+        self._inner = inner
+        self._sandbox = sandbox
+
+    def check(self, name: str, operation: str, target: str, permissions=None):
+        verdict = self._inner.check(
+            name, operation, target, permissions=permissions
+        )
+        if verdict.decision != DENY and self._sandbox.requires_review(
+            operation, target
+        ):
+            return GateResult(
+                REVIEW,
+                name,
+                operation,
+                target,
+                "域名不在白名单（已转审批，审批通过后放行）",
+            )
+        return verdict
+
+
 class _AutoDefinitionSandbox:
     """按调用时定义现取守卫的声明式沙箱（懒解析接线）。
 
@@ -677,6 +720,7 @@ def build_declarative_pipeline(
     gate: Any = None,
     sandboxes: tuple[Any, ...] = (),
     network_policy: NetworkPolicy | None = None,
+    network_unlisted_policy: str = "review",
     guards: tuple[Callable[..., Any], ...] = (),
     audit: Callable[..., Any] | None = None,
     max_result_chars: int = DEFAULT_MAX_RESULT_CHARS,
@@ -691,24 +735,36 @@ def build_declarative_pipeline(
     门禁默认 fail-closed：未注入 gate 时按 :class:`PermissionGate`
     默认策略（未声明权限/未命中 = 拒绝）兜底；判定一律按**定义声明的
     权限**（:class:`_DefinitionGate` 包装，调用方 spec 权限不参与）；
-    沙箱自动接线：http_fetch 经 ``network_policy`` 并入域名白名单，
+    沙箱自动接线：http_fetch 经 ``network_policy`` 并入网络守卫，
     process_exec/file_ops 由 :class:`_AutoDefinitionSandbox` 按调用时
     定义现取守卫（白名单/根目录在定义期强制声明，缺声明注册即拒绝；
     事后注册的新定义同样立即获得守卫）——三类端点全部有对应守卫，
     判定目标推导失败恒 fail-closed 拒绝。
+
+    ``network_unlisted_policy`` 控制白名单外域名的处置（默认
+    ``"review"`` = 转审批，审批即网关；``"deny"`` = fail-closed
+    硬拒，与沙箱原语一致）。review 档时白名单外域名由
+    :class:`_NetworkReviewGate` 强制挂卡，审批通过后放行；白名单命中
+    保持直过（免审批快速路径）。
     """
     from .tool_pipeline import ToolPipeline
 
     if gate is None:
         gate = PermissionGate()
     gate = _DefinitionGate(executors, gate)
+    net_sandbox: NetworkPolicySandbox | None = None
     if network_policy is not None:
-        sandbox = (
+        net_sandbox = (
             network_policy
             if isinstance(network_policy, NetworkPolicySandbox)
-            else NetworkPolicySandbox(allow_domains=network_policy.allow_domains)
+            else NetworkPolicySandbox(
+                allow_domains=network_policy.allow_domains,
+                unlisted_policy=network_unlisted_policy,
+            )
         )
-        sandboxes = (*sandboxes, sandbox)
+        sandboxes = (*sandboxes, net_sandbox)
+    if net_sandbox is not None and net_sandbox.unlisted_policy == "review":
+        gate = _NetworkReviewGate(gate, net_sandbox)
     sandboxes = (*sandboxes, _AutoDefinitionSandbox(executors))
 
     return ToolPipeline(

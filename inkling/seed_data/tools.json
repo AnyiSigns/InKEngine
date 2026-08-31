@@ -53,7 +53,7 @@
   },
   {
    "name": "parse_material",
-   "description": "行为意图：把原始材料结构化——按声明式抽取规格从文本中抽出标题/正文/要点/来源引用，是「采集→知识」之间的整形环节。\n\n使用时机：collect_material 产出原始材料后、做校验/评分/评审之前；材料是纯文本、后续要复用其内容时。\n\n取舍与替代选项：一次性问答场景直接用原始文本即可，不必 parse；需要内容化沉淀时再结构化；与 validate_material 的分工——本工具只整形不管好坏，校验管「合规与否」，评分管「证据强弱」。\n\n参数语义：text=待解析文本；spec=抽取规格清单（每条声明 name/kind/start/end/prefix/needle）。\n\n边界与协作：纯计算无副作用、无出网（allow 档）；解析产物被 review_material 消费（phase=score 评分 / phase=review 评审）；关键字段缺失时回落原文，不以空壳数据进下游链。",
+   "description": "行为意图：把原始材料结构化——按声明式抽取规格从文本中抽出标题/正文/要点/来源引用，是「采集→知识」之间的整形环节。\n\n使用时机：collect_material 产出原始材料后、做校验/评分/评审之前；材料是纯文本、后续要复用其内容时。\n\n取舍与替代选项：一次性问答场景直接用原始文本即可，不必 parse；需要内容化沉淀时再结构化；与 validate_material 的分工——本工具只整形不管好坏，校验管「合规与否」，评分管「证据强弱」。\n\n参数语义：text=待解析文本；spec=抽取规格清单（每条声明 name/kind/start/end/prefix/needle）。spec 直接传 JSON 数组，勿把数组序列化成字符串。\n\n边界与协作：纯计算无副作用、无出网（allow 档）；解析产物被 review_material 消费（phase=score 评分 / phase=review 评审）；关键字段缺失时回落原文，不以空壳数据进下游链。",
    "parameters": {
     "type": "object",
     "properties": {
@@ -133,13 +133,13 @@
   },
   {
    "name": "validate_material",
-   "description": "行为意图：按规则集（rules.json）对数据对象做确定性违规评估——输出违规清单（每项含规则/类别/原因），是知识链的合规闸门执行体。\n\n使用时机：材料/知识条目/蒸馏变异产物入库前；任何要进知识集的数据对象，先过一遍本工具。\n\n取舍与替代选项：只要「合规与否」的裁决——本工具；需要加权分与收敛判定——review_material(phase=review)；需要交叉验证评分——review_material(phase=score)；选择取决于「要的是违规裁决，还是质量与取舍建议」。\n\n参数语义：data=待校验的数据对象（材料/知识条目）；rules=规则 id 子集（缺省按全量规则评估）。\n\n边界与协作：纯只读、无副作用；评估语义与样例闸门同源（fail-open 留痕：规则不命中不拦但记痕）；违规清单是知识闸门拦截的留痕依据，规则集数据驱动、可经补丁链演化。",
+   "description": "行为意图：按规则集（rules.json）对数据对象做确定性违规评估——输出违规清单（每项含 规则/类别/严重级/原因），是知识链的合规闸门执行体。\n\n使用时机：材料/知识条目/蒸馏变异产物入库前；任何要进知识集的数据对象，先过一遍本工具。\n\n取舍与替代选项：只要「合规与否」的裁决——本工具；需要加权分与收敛判定——review_material(phase=review)；需要交叉验证评分——review_material(phase=score)；选择取决于「要的是违规裁决，还是质量与取舍建议」。\n\n参数语义（以执行器真实 schema 为准）：data=待校验的数据对象（材料/知识条目，必填）；rules=规则 id 字符串数组（可选；缺省按全量规则评估；未知 id 显式拒绝）；context=可选的求值上下文对象。\n\n边界与协作：纯只读、无副作用；评估语义与样例闸门同源（fail-open 留痕：规则不命中不拦但记痕）；违规清单是知识闸门拦截的留痕依据，规则集数据驱动、可经补丁链演化。",
    "parameters": {
     "type": "object",
     "properties": {
      "data": {
       "type": "object",
-      "description": "待校验的数据对象（材料/知识条目）"
+      "description": "待校验的数据对象（材料/知识条目；必填字段按规则要求，如 id/kind/source 等缺失会命中对应规则）"
      },
      "rules": {
       "type": "array",
@@ -147,6 +147,10 @@
        "type": "string"
       },
       "description": "规则 id 子集（缺省全量）"
+     },
+     "context": {
+      "type": "object",
+      "description": "求值上下文对象（可选；供带上下文依赖的规则求值）"
      }
     },
     "required": [
@@ -172,7 +176,7 @@
   },
   {
    "name": "review_material",
-   "description": "行为意图：知识质量执行体——按 phase 二态：phase=review（缺省）评审收敛循环（按 review.json 的维度/阈值/轮次上限对候选输出打分、给出 failing_dimensions 与改进意见，并输出收敛决策 接受/再生成/呈交现状）；phase=score 确定性评分（引用质量/交叉验证，原 score_material 并入，交叉验证绑定 samples.json 基准事实）。\n\n使用时机：候选输出定稿前必须过一遍；「生成→评审→再生成」循环每轮调用（phase=review）；需要量化证据强度读数时用 phase=score。\n\n取舍与替代选项：单项内容检查/量化评分——phase=score；合规性裁决——validate_material；「该不该收、要不要再改」的加权总评与轮次判定——phase=review。\n\n参数语义：phase=执行阶段（score/review，缺省 review）；candidates=候选输出清单（review 阶段，每条含 text 与可选的 claims/citations）；dimension_scores=显式维度得分（缺省 = 确定性启发式默认口径）；round_no=当前再生成轮次；answer/sources/weights=score 阶段参数（answer 含 claims/citations，sources 为引用来源文本，weights 为四维权重覆盖）。\n\n边界与协作：维度/阈值/轮次上限全部数据驱动（review.json）；达到轮次上限呈交现状并附 notes，不无限循环；评审卡经审批管线对用户可见，评审通过后方可沉淀；评分不改材料本身。",
+   "description": "行为意图：知识质量执行体——按 phase 二态：phase=review（缺省）评审收敛循环（按 review.json 的维度/阈值/轮次上限对候选输出打分、给出 failing_dimensions 与改进意见，并输出收敛决策 接受/再生成/呈交现状）；phase=score 确定性评分（引用质量/交叉验证，原 score_material 并入，交叉验证绑定 samples.json 基准事实）。\n\n使用时机：候选输出定稿前必须过一遍；「生成→评审→再生成」循环每轮调用（phase=review）；需要量化证据强度读数时用 phase=score。\n\n取舍与替代选项：单项内容检查/量化评分——phase=score；合规性裁决——validate_material；「该不该收、要不要再改」的加权总评与轮次判定——phase=review。\n\n参数语义（以执行器真实 schema 为准）：phase=score 时 answer=候选答案对象，answer.claims 为断言对象数组（每项含 text），answer.citations 为引用对象数组（每项含 claim_index/source_id/quote），sources=来源对象数组（每项含 id/text），weights=四维权重覆盖；phase=review 时 candidates=候选对象数组（每项含 text 与可选的 claims/citations/topic），dimension_scores=显式维度得分数组（每项含 candidate_index/name/score），round_no=当前轮次。数组参数直接传 JSON 数组，勿把数组序列化成字符串。\n\n边界与协作：维度/阈值/轮次上限全部数据驱动（review.json）；达到轮次上限呈交现状并附 notes，不无限循环；评审卡经审批管线对用户可见，评审通过后方可沉淀；评分不改材料本身。",
    "parameters": {
     "type": "object",
     "properties": {
@@ -199,7 +203,7 @@
         }
        }
       },
-      "description": "候选输出清单"
+      "description": "候选输出清单（phase=review 用）"
      },
      "dimension_scores": {
       "type": "array",
@@ -241,11 +245,60 @@
      },
      "answer": {
       "type": "object",
-      "description": "候选答案对象（phase=score 用，含 claims 断言清单，citations 引用清单可选）"
+      "description": "候选答案对象（phase=score 用）：claims=断言对象数组（每项必含 text），citations=引用对象数组（每项含 claim_index 整数 + source_id + quote，可选）",
+      "properties": {
+       "claims": {
+        "type": "array",
+        "items": {
+         "type": "object",
+         "properties": {
+          "text": {
+           "type": "string",
+           "description": "断言文本"
+          }
+         }
+        },
+        "description": "断言对象数组（每项须含 text）"
+       },
+       "citations": {
+        "type": "array",
+        "items": {
+         "type": "object",
+         "properties": {
+          "claim_index": {
+           "type": "integer",
+           "description": "指向 claims 的下标"
+          },
+          "source_id": {
+           "type": "string",
+           "description": "来源 id（对应 sources 项的 id）"
+          },
+          "quote": {
+           "type": "string",
+           "description": "引用原文"
+          }
+         }
+        },
+        "description": "引用对象数组（每项含 claim_index/source_id/quote）"
+       }
+      }
      },
      "sources": {
       "type": "array",
-      "description": "引用来源文本（phase=score 用，可验证性基准）"
+      "items": {
+       "type": "object",
+       "properties": {
+        "id": {
+         "type": "string",
+         "description": "来源 id"
+        },
+        "text": {
+         "type": "string",
+         "description": "来源正文"
+        }
+       }
+      },
+      "description": "来源对象数组（phase=score 用；每项须含 id 与 text，可验证性基准）"
      },
      "weights": {
       "type": "object",
@@ -273,7 +326,7 @@
   },
   {
    "name": "distill_knowledge",
-   "description": "行为意图：把执行信号序列（五类）蒸馏成结构化知识数据（rule 形态声明）——丢弃试错分支，只保留可落库的心得。\n\n使用时机：一轮执行产生了信号（gap/insight/pitfall/repeated_root_cause/user_correction）需要沉淀时；失败/纠正经验入库前。\n\n取舍与替代选项：只要归档单条事实——直接记知识条目；要从信号归纳「规则形态」的教训——本工具；已有条目要进化——mutate_knowledge；先蒸馏得到母体，再谈变异，两者是先后关系。\n\n参数语义：signals=执行信号序列（每条含 kind/message，source/context 可选）；complexity=任务复杂度；interventions=用户干预次数（双阈值按需触发判定用）。\n\n边界与协作：产物为 rule 形态声明，须过校验闸门（validate_material/样例闸门）才可入集；蒸馏先于变异；不产证据支持的教训会被拦截（无依据不落库）。",
+   "description": "行为意图：把执行信号序列（五类）蒸馏成结构化知识数据（rule 形态声明）——丢弃试错分支，只保留可落库的心得。\n\n使用时机：一轮执行产生了信号（gap/insight/pitfall/repeated_root_cause/user_correction）需要沉淀时；失败/纠正经验入库前。\n\n取舍与替代选项：只要归档单条事实——直接记知识条目；要从信号归纳「规则形态」的教训——本工具；已有条目要进化——mutate_knowledge；先蒸馏得到母体，再谈变异，两者是先后关系。\n\n参数语义：signals=执行信号序列（每条含 kind/message，source/context 可选）；complexity=任务复杂度；interventions=用户干预次数（双阈值按需触发判定用）。signals 直接传 JSON 数组，勿把数组序列化成字符串。\n\n边界与协作：产物为 rule 形态声明，须过校验闸门（validate_material/样例闸门）才可入集；蒸馏先于变异；不产证据支持的教训会被拦截（无依据不落库）。",
    "parameters": {
     "type": "object",
     "properties": {
@@ -338,13 +391,27 @@
   },
   {
    "name": "mutate_knowledge",
-   "description": "行为意图：按失败日志对母体知识条目做反思式变异——产出携 _mutation 留痕（variant_of/based_on）的变体，数量随失败信号动态，是进化工厂的变异执行体。\n\n使用时机：某条知识实际使用失败率偏高、需要候选变体时；failure_logs 是必须输入（无失败日志=零变异，不做无依据变异）。\n\n取舍与替代选项：从信号做全新归纳——distill_knowledge；只是略改文案——直接改，不必变异；本工具=「失败反思驱动」的规则进化入口。\n\n参数语义：entry=母体知识条目（data 须为对象，变异基底）；failure_logs=近期失败日志清单；max_variants=变体数量上限；failure_rate=母体失败率（≥0.3 高失败率 → 多探索）。\n\n边界与协作：变体不自动替换母体，须过三层验证闸门与评审筛选取舍；变异留痕保证可追溯回母体与失败日志；与 distill_knowledge 的分工：前者造新、本工具改旧。",
+   "description": "行为意图：按失败日志对母体知识条目做反思式变异——产出携 _mutation 留痕（variant_of/based_on）的变体，数量随失败信号动态，是进化工厂的变异执行体。\n\n使用时机：某条知识实际使用失败率偏高、需要候选变体时；failure_logs 是必须输入（无失败日志=零变异，不做无依据变异）。\n\n取舍与替代选项：从信号做全新归纳——distill_knowledge；只是略改文案——直接改，不必变异；本工具=「失败反思驱动」的规则进化入口。\n\n参数语义（以执行器真实 schema 为准）：entry=母体知识条目对象，须同时含 id（字符串）与 data（对象，变异基底）两个键；failure_logs=失败日志字符串数组；max_variants=变体数量上限；failure_rate=母体失败率（≥0.3 高失败率 → 多探索）。\n\n边界与协作：变体不自动替换母体，须过三层验证闸门与评审筛选取舍；变异留痕保证可追溯回母体与失败日志；与 distill_knowledge 的分工：前者造新、本工具改旧。",
    "parameters": {
     "type": "object",
     "properties": {
      "entry": {
       "type": "object",
-      "description": "母体知识条目"
+      "description": "母体知识条目（须同时含 id 字符串与 data 对象两键；变异基底）",
+      "properties": {
+       "id": {
+        "type": "string",
+        "description": "条目 id（顶层键）"
+       },
+       "data": {
+        "type": "object",
+        "description": "条目数据（变异基底）"
+       }
+      },
+      "required": [
+       "id",
+       "data"
+      ]
      },
      "failure_logs": {
       "type": "array",
@@ -523,7 +590,7 @@
   },
   {
    "name": "open_file",
-   "description": "行为意图：以系统默认程序打开指定文件——把文件交付给用户/宿主环境，是「打开这个文件」的执行体。\n\n使用时机：用户要求打开某文件/文档时；输出需要「用户亲眼看到」而不仅是文本回答时。\n\n取舍与替代选项：只是读内容分析——file_read（不触发宿主程序）；要编辑——file_edit；本工具=系统级打开动作；工作区外路径须审批。\n\n参数语义：command=固定值 open_file（端点操作判定同源，调用方恒传）；path=待打开文件路径。\n\n边界与协作：工作区外路径经审批放行；被打开程序的行为不受本工具约束；打开失败（文件不存在/无默认程序）由结果回执反馈，不静默。",
+   "description": "行为意图：以系统默认程序打开指定文件——把文件交付给用户/宿主环境，是「打开这个文件」的执行体。\n\n使用时机：用户要求打开某文件/文档时；输出需要「用户亲眼看到」而不仅是文本回答时。\n\n取舍与替代选项：只是读内容分析——file_read（不触发宿主程序）；要编辑——file_edit；本工具=系统级打开动作。\n\n参数语义：command=固定值 open_file（端点操作判定同源，调用方恒传）；path=待打开文件路径，须为绝对路径且位于工作区挂载根内（沙箱按工作区挂载根校验，相对路径会被拒绝）。\n\n边界与协作：路径越出工作区挂载根被拒（路径须为绝对路径/路径不在工作区挂载根内）；被打开程序的行为不受本工具约束；打开失败（文件不存在/无默认程序）由结果回执反馈，不静默。",
    "parameters": {
     "type": "object",
     "properties": {
@@ -829,7 +896,7 @@
    },
    "network_policy": {
     "allow_domains": [],
-    "note": "allow_domains 为引擎限制性白名单（security_domain.py：非名单域名一律不可达，审批通过也不放行；空 = 禁网）。fetch 出厂暂不使用该机制（留空 = 出厂禁网），是否启用由 TOOL 补丁数据驱动填充"
+    "note": "审批即网关：出网经审批卡裁决，allow_domains 为免审批快速路径提示（非执行期硬边界，审批通过即可放行）；留空 = 每次出网都弹卡"
    },
    "meta": {
     "domain": "network",
@@ -883,7 +950,7 @@
   },
   {
    "name": "file_read",
-   "description": "行为意图：读取工作区文件内容——file_ops 端点、工作区根沙箱、只读，返回文件文本供分析。\n\n使用时机：需要查看/分析项目内文件内容时；写或改之前先读上下文时。\n\n取舍与替代选项：找文件名——glob；按内容检索——grep；文件状态——file_query；写——file_write；精准改——file_edit；本工具=读内容（只读，allow 档无审批负担）；工作区外读取走 file_query（只读扫描，不含内容）。\n\n参数语义：operation=固定值 read（与 file_ops 端点操作判定同源，调用方恒传）；path=工作区相对路径。\n\n边界与协作：根目录占位符 ${workspace_root} 在装配期由设置页「工作区授权」替换；大小超限截断（sandbox_limits）；「内容是什么」找本工具，「内容在哪」找 grep/glob。",
+   "description": "行为意图：读取工作区文件内容——file_ops 端点、工作区根沙箱、只读，返回文件文本供分析。\n\n使用时机：需要查看/分析项目内文件内容时；写或改之前先读上下文时。\n\n取舍与替代选项：找文件名——glob；按内容检索——grep；文件状态——file_query；写——file_write；精确改——file_edit；本工具=读内容（只读，allow 档无审批负担）；工作区外读取走 file_query（只读扫描，不含内容）。\n\n参数语义：operation=固定值 read（与 file_ops 端点操作判定同源，调用方恒传）；path=工作区相对路径或工作区挂载根内绝对路径。\n\n边界与协作：根目录占位符 ${workspace_root} 在装配期由设置页「工作区授权」替换；大小超限截断（sandbox_limits）；「内容是什么」找本工具，「内容在哪」找 grep/glob。",
    "parameters": {
     "type": "object",
     "properties": {
@@ -929,7 +996,7 @@
   },
   {
    "name": "file_write",
-   "description": "行为意图：写入/覆盖工作区文件——写前快照可回退；AI 开发模式的「写→构建→冒烟→失败信号回流」的写执行体。\n\n使用时机：新建文件或整体重写内容时；与 file_edit 的分工：整文件/大段→write，小段精准→edit。\n\n取舍与替代选项：小段替换——file_edit；只读——file_read；本工具=整文件写；修改前先 file_read 了解现状，避免覆盖盲写。\n\n参数语义：operation=固定值 write（与 file_ops 端点操作判定同源，调用方恒传）；path=工作区相对路径；content=写入内容。\n\n边界与协作：工作区根沙箱+review 审批；写前快照支持回退；构建失败信号回流供 round 学习（失败信号→知识沉淀→下次避坑）。",
+   "description": "行为意图：写入/覆盖工作区文件——写前快照可回退；AI 开发模式的「写→构建→冒烟→失败信号回流」的写执行体。\n\n使用时机：新建文件或整体重写内容时；与 file_edit 的分工：整文件/大段→write，小段精准→edit。\n\n取舍与替代选项：小段替换——file_edit；只读——file_read；本工具=整文件写；修改前先 file_read 了解现状，避免覆盖盲写。\n\n参数语义：operation=固定值 write（与 file_ops 端点操作判定同源，调用方恒传）；path=工作区相对路径或工作区挂载根内绝对路径；content=写入内容。\n\n边界与协作：工作区根沙箱+review 审批；写前快照支持回退；构建失败信号回流传供 round 学习（失败信号→知识沉淀→下次避坑）。",
    "parameters": {
     "type": "object",
     "properties": {

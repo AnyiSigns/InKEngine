@@ -13,8 +13,9 @@
   根目录占位符替换 → 越界路径/符号链接逃逸/大小上限全部拒绝
   （fail-closed；路径边界由引擎 FileSandbox 解析，大小上限按工具
   声明在守卫期核对）；
-- **网络策略**：定义 ``network_policy.allow_domains`` 在端点执行时
-  核对（沙箱层先行判定，执行体二次核对，越域拒绝）；
+- **网络策略**：http_fetch 出网经审批网关裁决（出厂 review 档弹卡），
+  定义 ``network_policy.allow_domains`` 是装配提示（免审批快速路径）
+  而非执行期网关——执行体不做域名二次硬拦（与 Rust 侧同口径）；
 - **vetting L2 影子运行**：挂载工具的清单一致性核对——影子记录 =
   导入期工具清单（不真执行），TOOL 补丁（MCP 端点类）落链前比对，
   不一致拒绝挂载；
@@ -29,6 +30,7 @@ from __future__ import annotations
 
 import asyncio
 import contextvars
+import fnmatch
 import json
 import os
 import time
@@ -663,30 +665,32 @@ def make_http_fetch_executor(
     fetch: Callable[..., Any] | None = None,
     max_chars: int = 100_000,
 ) -> Callable[..., Any]:
-    """http_fetch 端点执行体（网络策略二次核对 + 可选取回实现）。
+    """http_fetch 端点执行体（出网经审批网关裁决 + 可选取回实现）。
 
-    执行体不自行决定出网：域名白名单在沙箱层先行判定，执行体按定义
-    声明（meta.network_policy）再次核对（纵深防御），越域 = 结构化
-    失败（NETWORK_DOMAIN_BLOCKED）。取回实现可注入（e2e 用 stub 免
-    真实出网；缺省 = httpx，可选依赖缺失时明确报错）。
+    审批即网关：出网许可由门禁审批卡裁决（http_fetch 出厂 review 档
+    弹卡），执行体不再按 allow_domains 二次硬拦（与 Rust 侧
+    ``execute_http_fetch`` 同口径）——定义级 allow_domains 是装配提示
+    而非执行期网关。执行体只做协议收口（仅 http/https 出网，越域 =
+    结构化失败 NETWORK_DOMAIN_BLOCKED）。取回实现可注入（e2e 用 stub
+    免真实出网；缺省 = httpx，可选依赖缺失时明确报错）。
     """
 
     async def execute(ctx: Any, definition: Any, args: dict, approval: Any) -> str:
         import urllib.parse
 
-        policy = (definition.meta or {}).get("network_policy") or {}
-        allow_domains = frozenset(policy.get("allow_domains") or ())
         url = str(args.get("url") or "")
         try:
-            host = urllib.parse.urlsplit(url).hostname
+            scheme = urllib.parse.urlsplit(url).scheme.lower()
         except ValueError:
-            host = None
-        if not host or not _allowed_hosts(allow_domains, host):
+            scheme = ""
+        if scheme not in ("http", "https"):
             return json.dumps(
                 {
                     "ok": False,
                     "status": "network_domain_blocked",
-                    "error": f"域名不在网络策略白名单: {host!r}（越域拒绝）",
+                    "error": (
+                        f"http_fetch 仅支持 http/https 出网（{ErrorCode.NETWORK_DOMAIN_BLOCKED}）"
+                    ),
                 },
                 ensure_ascii=False,
             )
@@ -707,13 +711,6 @@ def make_http_fetch_executor(
         return f"HTTP {response.status_code}\n{body}"
 
     return execute
-
-
-def _allowed_hosts(allow_domains: frozenset[str], host: str) -> bool:
-    """白名单后缀匹配（与引擎 NetworkPolicy.network_matches 同语义）。"""
-    from ink_engine.core.permissions import network_matches
-
-    return any(network_matches(p, host) for p in allow_domains)
 
 
 # ── 文件开发执行体（file_ops 端点）──
@@ -1058,6 +1055,7 @@ def make_process_exec_executor(
     os_registry: OsControlRegistry,
     *,
     tiers: Mapping[str, str],
+    require_approval: bool = True,
 ) -> Callable[..., Any]:
     """process_exec 端点执行体（宿主注册进声明式执行体表）。
 
@@ -1077,7 +1075,9 @@ def make_process_exec_executor(
                     {"ok": False, "status": "resolve_failed", "error": "挂载地址为空"},
                     ensure_ascii=False,
                 )
-            outcome = await mount_service.propose_mount(ctx, address)
+            outcome = await mount_service.propose_mount(
+                ctx, address, require_approval=require_approval
+            )
             return json.dumps(
                 {
                     "ok": outcome.ok,

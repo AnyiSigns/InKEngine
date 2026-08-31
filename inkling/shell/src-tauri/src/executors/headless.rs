@@ -66,7 +66,16 @@ pub fn register_headless_os_dispatch(tools_os_json: &str) -> Result<(), String> 
             // 经同一裁决函数放行；执行器层只强制沙箱/签名
             approval.record_engine_dispatch(&tool, &args_map);
             let auth = approval.adjudicate(&tool, &args_map);
-            let gate = CallGate::new(Endpoint::ProcessExec);
+            // 动态挂载根：headless 经 INKENGINE_WS_ROOT 授权工作区（与桌面壳
+            // state.mounts 并入路径根沙箱同语义）——open_file/file_query 等
+            // 路径根工具按「声明根 + 实际工作区根」裁决，不钉死出厂默认根
+            let mut gate = CallGate::new(Endpoint::ProcessExec);
+            if let Ok(ws) = std::env::var("INKENGINE_WS_ROOT") {
+                let ws = ws.trim();
+                if !ws.is_empty() {
+                    gate = CallGate::with_roots(Endpoint::ProcessExec, vec![ws.to_string()]);
+                }
+            }
             match registry.run(&tool, &args_map, &backend, &auth, &gate) {
                 Ok(outcome) => Ok(serde_json::json!({
                     "ok": true,

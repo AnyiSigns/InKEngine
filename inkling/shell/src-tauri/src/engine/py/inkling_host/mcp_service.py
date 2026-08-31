@@ -17,6 +17,7 @@
 from __future__ import annotations
 
 import asyncio
+import os
 import re
 from collections.abc import Callable
 from contextlib import asynccontextmanager, suppress
@@ -40,7 +41,10 @@ _PREFIX_NPM = "npm:"
 _PREFIX_GIT = "git:"
 
 # stdio 命令推导模板参数（npx -y <包>，仅提案不执行）
-_NPX_COMMAND = "npx"
+# Windows 平台用 npx.cmd：asyncio.create_subprocess_exec 直接 exec 不
+# 解析 .cmd/.ps1 扩展（npx 裸名在 Windows 上 WinError 2 启动失败），
+# .cmd 变体经 CreateProcess 可解析；POSIX 平台保持 npx 裸名。
+_NPX_COMMAND = "npx.cmd" if os.name == "nt" else "npx"
 _NPX_ARGS_PREFIX = ("-y",)
 
 # 包名合法性（npm 包名规则子集：小写字母数字/连字符/点，可带 @scope/ 前缀）
@@ -51,6 +55,9 @@ _PACKAGE_NAME_RE = re.compile(
 # 用户市场持久化集合与键（storage records；配置形态，不参与旁路写守卫）
 _MARKETS_COLLECTION = "mcp_markets"
 _MARKETS_KEY = "registry"
+# 挂载 server 配置持久化（重启还原连接；配置往返保持明文——需还原重连）
+_MOUNT_CONFIGS_COLLECTION = "mcp_mounts"
+_MOUNT_CONFIGS_KEY = "server_configs"
 # 市场目录抓取超时（秒）
 _CATALOG_FETCH_TIMEOUT = 15.0
 # 市场目录校验枚举
@@ -448,6 +455,66 @@ class McpMountService:
             if isinstance(server_id, str) and server_id:
                 self._mount_log.setdefault(server_id, [])
 
+    async def load_persisted_mount_configs(self) -> None:
+        """启动还原挂载 server 连接（storage 持久化的配置；失败只记日志）。
+
+        挂载 = 持久授权：重启后工具注册已随链恢复（restore_mount_log），
+        连接的 server 会话按持久化配置重建——stdio 拉起进程（npx/git）、
+        http 直连。连接失败不击穿启动：工具照常注册，执行时在线判定
+        （离线降级与未挂载 server 一致）。
+        """
+        try:
+            record = await self._runtime.storage.get_record(
+                _MOUNT_CONFIGS_COLLECTION, _MOUNT_CONFIGS_KEY
+            )
+        except Exception as exc:
+            logger.warning("挂载 server 配置装载失败（忽略）: %s", exc)
+            return
+        configs = (record or {}).get("configs") or {}
+        manager = self._runtime.mcp_manager
+        for server_id, payload in configs.items():
+            if not isinstance(payload, dict):
+                continue
+            try:
+                config = McpServerConfig.from_dict(payload)
+            except Exception as exc:
+                logger.warning("挂载配置还原失败（跳过 %s）: %s", server_id, exc)
+                continue
+            try:
+                await manager.connect(config)
+                logger.info("挂载 server 连接还原: %s", server_id)
+            except Exception as exc:
+                logger.warning("挂载 server 重连失败（离线降级）: %s: %s", server_id, exc)
+
+    async def _persist_mount_configs(self) -> None:
+        """挂载 server 配置落库（单记录 {configs: {server_id: config}}）。"""
+        configs = {}
+        for server_id in self._mount_log:
+            resolved = self._resolve_persisted_config(server_id)
+            if resolved is not None:
+                configs[server_id] = resolved
+        await self._runtime.storage.put_record(
+            _MOUNT_CONFIGS_COLLECTION, _MOUNT_CONFIGS_KEY, {"configs": configs}
+        )
+
+    def _resolve_persisted_config(self, server_id: str) -> dict | None:
+        """按 server_id 反推可重连配置（npm/git stdio 或市场内条目）。
+
+        不可反推（非 npm/git/http 形态）返回 None——不落库，重启后该
+        server 以「注册在、连接离线」降级（卸载判定仍可用）。
+        """
+        if server_id.startswith("npm."):
+            return self.resolve_address(f"npm:{server_id[4:]}").to_dict()
+        if server_id.startswith("git."):
+            return self.resolve_address(f"git:{server_id[4:]}").to_dict()
+        if server_id.startswith("http://") or server_id.startswith("https://"):
+            return self.resolve_address(server_id).to_dict()
+        for market in self._markets.values():
+            for server in market.get("servers") or ():
+                if str(server.get("id") or "") == server_id:
+                    return self._config_from_market_entry(server).to_dict()
+        return None
+
     async def preview_market(self, link: str) -> dict[str, Any]:
         """市场摄入预览（vetting 静态核对 + 摘要；不落注册表）。"""
         try:
@@ -801,6 +868,8 @@ class McpMountService:
             base_version = outcome.patch_id
         self._mount_log[config.id] = list(patch_ids)
         self._sync_introspection()
+        with suppress(Exception):
+            await self._persist_mount_configs()
         await self._runtime.rebuild_engine()
         return MountOutcome(
             ok=True, server_id=config.id,
@@ -886,6 +955,8 @@ class McpMountService:
             )
         removed = self._remove_server_tools(server_id)
         self._mount_log.pop(server_id, None)
+        with suppress(Exception):
+            await self._persist_mount_configs()
         manager = self._runtime.mcp_manager
         if manager is not None:
             await manager.disconnect(server_id)

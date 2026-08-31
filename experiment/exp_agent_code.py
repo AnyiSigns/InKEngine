@@ -196,7 +196,7 @@ CHAIN_TOOLS = {
     "推演": {"validate_material", "review_material", "parse_material"},
     "研究": {"collect_material", "fetch", "web_search"},
     "文件端点": {"file_read", "file_write", "file_edit", "grep", "glob"},
-    "命令端点": {"run_test_python", "run_typecheck", "shell_exec", "system_query"},
+    "命令端点": {"shell_exec", "system_query"},
     "内省/装配": {"inspect_tools", "inspect_graph", "inspect_rules", "search_tools", "request_tool"},
 }
 

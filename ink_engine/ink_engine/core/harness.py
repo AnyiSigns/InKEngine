@@ -335,6 +335,7 @@ class HarnessRegistry:
         gate: Any = None,
         sandboxes: tuple[Any, ...] = (),
         network_policy: Any = None,
+        network_unlisted_policy: str = "review",
         guards: tuple[Callable[..., Any], ...] = (),
         audit: Callable[..., Any] | None = None,
         max_result_chars: int = DEFAULT_MAX_RESULT_CHARS,
@@ -346,8 +347,9 @@ class HarnessRegistry:
         执行体分发）——声明式工具经此走全流水线（门禁 → 沙箱 → 守卫 →
         审批 → 审计）。门禁默认 fail-closed（未注入时按默认拒绝策略
         兜底），沙箱/守卫由宿主注入（白名单与资源绑定归宿主）；传入
-        ``network_policy`` 时 http_fetch 经域名白名单守卫；判定目标
-        推导失败恒 fail-closed 拒绝。
+        ``network_policy`` 时 http_fetch 经网络守卫（``network_unlisted_policy``
+        = review 档白名单外域名转审批 / deny 档硬拒）；判定目标推导
+        失败恒 fail-closed 拒绝。
         """
         self.build_tools(name)
         return build_declarative_pipeline(
@@ -355,6 +357,7 @@ class HarnessRegistry:
             gate=gate,
             sandboxes=sandboxes,
             network_policy=network_policy,
+            network_unlisted_policy=network_unlisted_policy,
             guards=guards,
             audit=audit,
             max_result_chars=max_result_chars,

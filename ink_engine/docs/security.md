@@ -49,7 +49,12 @@
 - **deny**：未命中/未声明权限（`default_policy=DENY`，可放宽为
   review/allow——放宽是显式声明，不是默认）。
 
-`NetworkPolicy` 默认禁网，白名单域名后缀匹配。判定仅信任**定义声明的
+`NetworkPolicy` 默认禁网，白名单域名后缀匹配。白名单外域名的处置由
+`NetworkPolicySandbox.unlisted_policy` 决定：**deny**（默认）= 硬拒
+（fail-closed，审批也不放行）；**review** = 白名单外域名强制转审批
+（`_NetworkReviewGate`），审批 accept 后放行——**审批即网关**，白名单
+降级为免审批快速路径。`build_declarative_pipeline` / `harness.build_pipeline`
+默认 review（`network_unlisted_policy="review"`）。判定仅信任**定义声明的
 权限**（`_DefinitionGate`，调用方 spec 不参与），封「伪造宽松权限」窗口。
 
 ## 沙箱守卫

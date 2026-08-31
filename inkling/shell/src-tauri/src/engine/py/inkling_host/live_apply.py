@@ -108,6 +108,11 @@ class ToolApplyTarget(ApplyTarget):
         # 单源 + 标签：tool_registry 变化后刷新检索索引（search_tools/
         # request_tool 与工具 tab 同源，避免新增工具检索不可见）
         self._runtime.refresh_tool_index()
+        # 引擎重建：holder 是建图时快照，不重建 = 同回合继续分发仍按旧工具表
+        # （新工具「注册在、回合内调不到」）。与 MCP 挂载路径同语义
+        # （mcp_service.mount_config 落链后显式 rebuild）；重建键随工具表
+        # 变化自动失效，幂等无副作用。
+        await self._runtime.rebuild_engine()
 
 
 class EventTypeApplyTarget(ApplyTarget):

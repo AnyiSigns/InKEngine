@@ -856,7 +856,10 @@ fn string_list_from(value: &JsonValue) -> Vec<String> {
 fn host_path_env() -> HashMap<String, String> {
     let mut env = HashMap::new();
     if let Ok(path) = std::env::var("PATH") {
-        env.insert("PATH".to_string(), path);
+        env.insert(
+            "PATH".to_string(),
+            super::common::test_python_prefixed_path(&path),
+        );
     }
     env
 }

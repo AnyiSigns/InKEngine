@@ -47,7 +47,7 @@ class TaskManagerTest(unittest.TestCase):
         return json.loads(raw)
 
     def test_operations_full_chain(self):
-        r = self._call("t1", {"operation": "create", "title": "绑定 run_test_python"})
+        r = self._call("t1", {"operation": "create", "title": "绑定 shell_exec"})
         self.assertTrue(r["ok"])
         tid = r["id"]
         r = self._call("t1", {"operation": "create", "title": "跑测试", "detail": "全部通过", "priority": "high"})

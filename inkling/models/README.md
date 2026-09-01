@@ -31,6 +31,11 @@
 - 目录：`inkling/models/granite-97m` / `data_dir/assets/granite-97m`
 - 与语音识别同构的本地 ONNX 推理链路（granite-97m 已随包，详情见嵌入域）。
 - 离线支持级复用该模型作为本地嵌入来源。
+- 许可：模型 = `granite-embedding-97m-multilingual-r2`（IBM Granite Embedding
+  Team，Apache-2.0，模型卡
+  `https://huggingface.co/ibm-granite/granite-embedding-97m-multilingual-r2`）；
+  打包脚本随模型放置 `LICENSE`（Apache-2.0 全文，取自
+  `inkling/licenses/Apache-2.0.txt`），再分发须保留。
 
 ## 离线支持级
 

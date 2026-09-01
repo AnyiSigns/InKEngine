@@ -141,6 +141,8 @@ if (-not (Test-Path (Join-Path $modelDir "model_quint8_avx2.onnx"))) {
 } else {
     Log "OK 向量模型已就位"
 }
+# 模型许可随模型分发（Apache-2.0，取自仓库规范副本；models/ 目录不入库）
+Copy-Item (Join-Path $root "inkling\licenses\Apache-2.0.txt") (Join-Path $modelDir "LICENSE") -Force
 
 # ── 5. exec 执行件（release 构建 + 随包拷贝）────────────────────────
 $execBin = Join-Path $res "exec\inkling_exec.exe"
@@ -153,6 +155,17 @@ if (-not (Test-Path $execBin)) {
     Copy-Item (Join-Path $root "inkling\exec\target\release\inkling_exec.exe") $execBin -Force
 } else {
     Log "OK exec 执行件已就位"
+}
+
+# ── 5.5 第三方组件声明与许可证（发行合规：随包分发）──────────────────
+$noticeDest = Join-Path $res "THIRD_PARTY_NOTICES.md"
+if (-not (Test-Path $noticeDest)) {
+    Log "拷贝第三方组件声明与许可证 -> $res"
+    Copy-Item (Join-Path $root "inkling\THIRD_PARTY_NOTICES.md") $noticeDest -Force
+    New-Item -ItemType Directory -Force -Path (Join-Path $res "licenses") | Out-Null
+    Copy-Item (Join-Path $root "inkling\licenses\*") (Join-Path $res "licenses") -Recurse -Force
+} else {
+    Log "OK 第三方组件声明与许可证已就位"
 }
 
 # ── 6. 前端产物 ─────────────────────────────────────────────────────

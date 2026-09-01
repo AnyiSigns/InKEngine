@@ -1149,20 +1149,25 @@ fn shell_exec_run(
     let Some(program) = argv.first() else {
         return Err(ExecError::BadArgs("argv 不能为空（缺命令名）".into()));
     };
-    // 升级审批放行标记：引擎侧审批通过后注入（一次调用一次有效，随
-    // args 透传），命中 = 跳过命令面白名单（审批卡为唯一防线）
-    let escalated = args
-        .get("_escalated")
-        .and_then(Value::as_bool)
-        .unwrap_or(false);
-    if !escalated {
-        if let SandboxRule::CommandAllowlist { allowlist } = &executor.spec().sandbox {
-            check_allowlist(allowlist, program, tool)?;
-        } else {
+    // 升级审批放行判定（S-2 修复）：不再信任 args 中的 `_escalated` 标记
+    // ——渲染进程可直接伪造该参数提权绕过白名单。放行 = 审批台账已批准
+    // （auth.approved：review 档工具须经引擎审批流水线/自动放行配置，
+    // 审批卡为唯一防线）+ 命令不在白名单（白名单内本就放行）。args 中
+    // 的下划线内部键已在命令面/台账登记处剥离，不参与裁决指纹。
+    let allowlist = match &executor.spec().sandbox {
+        SandboxRule::CommandAllowlist { allowlist } => allowlist,
+        _ => {
             return Err(ExecError::SandboxViolation(
                 "沙箱模式非法（shell_exec 须声明命令白名单）".into(),
             ));
         }
+    };
+    let in_allowlist = allowlist.iter().any(|item| item == program);
+    let escalated = auth.approved
+        && matches!(executor.spec().permission, PermissionLevel::Review)
+        && !in_allowlist;
+    if !escalated {
+        check_allowlist(allowlist, program, tool)?;
     }
     // cwd：白名单内 = 工作区挂载根（沙箱级）；升级放行 = 系统主目录
     // （系统级一次性放行，不钉工作区）
@@ -1242,22 +1247,29 @@ mod tests {
     }
 
     #[test]
-    fn shell_exec_non_allowlisted_rejected_without_escalation() {
-        let backend = MockBackend::new();
-        let mut args = BTreeMap::new();
-        args.insert("argv".into(), Value::Array(vec![Value::String("where".into()), Value::String("git".into())]));
-        let auth = Authorization { approved: true };
-        let err = run_via("shell_exec", &args, &backend, &auth).unwrap_err();
-        assert!(matches!(err, ExecError::SandboxViolation(_)), "白名单外命令无升级标记须拒绝: {err}");
-        assert!(backend.calls.lock().unwrap().is_empty(), "拒绝的调用不得触达后端");
-    }
-
-    #[test]
-    fn shell_exec_escalated_bypasses_allowlist() {
+    fn shell_exec_forged_escalation_without_approval_rejected() {
+        // S-2 安全回归：args 中伪造 `_escalated: true` 而无审批批准态，
+        // 白名单外命令必须被拒（审批卡为唯一防线，标记不再被信任）。
         let backend = MockBackend::new();
         let mut args = BTreeMap::new();
         args.insert("argv".into(), Value::Array(vec![Value::String("where".into()), Value::String("git".into())]));
         args.insert("_escalated".into(), Value::Bool(true));
+        let auth = Authorization { approved: false };
+        let err = run_via("shell_exec", &args, &backend, &auth).unwrap_err();
+        assert!(
+            matches!(err, ExecError::ApprovalRequired(_) | ExecError::SandboxViolation(_)),
+            "伪造升级标记无批准态须拒绝: {err}"
+        );
+        assert!(backend.calls.lock().unwrap().is_empty(), "拒绝的调用不得触达后端");
+    }
+
+    #[test]
+    fn shell_exec_approved_non_allowlisted_executes() {
+        // 升级放行 = 审批批准态本身（无需 args 标记）：review 档工具
+        // 已批准 + 命令不在白名单 → 执行（系统主目录 cwd）。
+        let backend = MockBackend::new();
+        let mut args = BTreeMap::new();
+        args.insert("argv".into(), Value::Array(vec![Value::String("where".into()), Value::String("git".into())]));
         let auth = Authorization { approved: true };
         let outcome = run_via("shell_exec", &args, &backend, &auth).expect("升级放行后白名单外命令应执行");
         assert!(outcome.result.contains("where git"), "{}", outcome.result);

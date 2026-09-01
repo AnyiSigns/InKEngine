@@ -21,6 +21,11 @@ step_id 在回合内稳定唯一（前端渲染 key 与 SSE 配对更新依赖�
 
 领域中立：节点展示标签由宿主经 ``node_labels`` 注入（引擎不内置任何
 业务节点名或界面文案），其余语义对各类 agent 通用。
+
+预留扩展点（2026-09-01 审查确认）：本模块为引擎通用回合步骤累积
+原语（有完整测试），InKling 产品宿主以 Rust 侧 ``domain/steps.rs``
+（RoundStepsTransport）原生实现同一职责（rounds.rs 消费），未调用
+本模块——供 stdio 等其它宿主消费或未来宿主切换时启用。
 """
 from __future__ import annotations
 

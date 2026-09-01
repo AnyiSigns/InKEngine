@@ -200,7 +200,10 @@ class DeclarativeToolSpec:
                 f"工具 {self.name} 参数 schema 须为 JSON Schema dict"
             )
         if self.endpoint not in EndpointType:
-            raise GraphDefinitionError(f"工具 {self.name} 端点类型非法: {self.endpoint!r}")
+            raise GraphDefinitionError(
+                f"工具 {self.name} 端点类型非法: {self.endpoint!r}"
+                "（如需新端点类型请扩展 EndpointType 枚举并登记分发/守卫）"
+            )
         for key in _ENDPOINT_CONFIG_REQUIREMENTS.get(self.endpoint, ()):
             if not self.endpoint_config.get(key):
                 raise GraphDefinitionError(

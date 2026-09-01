@@ -10,7 +10,7 @@
  * 真接线；模型档快照装配层加载后注入输入胶囊。
  */
 
-import { useEffect, useRef, useState } from 'react';
+import { useEffect, useMemo, useRef, useState } from 'react';
 
 import { TopBar, type MainTab } from '@/app/shell/TopBar';
 import { LeftRail } from '@/app/shell/LeftRail';
@@ -106,14 +106,19 @@ export default function App({ backend, hub, sessionStore }: AppProps) {
       .catch(() => undefined);
   }, [backend, state.activeSessionId, state.entries.length]);
 
-  // 子代理实例清单（由 spawn 消息卡派生；空 = 面板不渲染）
-  const spawnInstances: SpawnInstance[] = state.entries
-    .filter((e): e is Extract<InkMessage, { kind: 'spawn' }> => e.kind === 'spawn')
-    .map((e, index) => ({
-      index,
-      label: e.label || `子代理 ${index + 1}`,
-      status: e.status === 'running' ? 'running' : 'completed',
-    }));
+  // 子代理实例清单（由 spawn 消息卡派生；空 = 面板不渲染）。
+  // R-6：useMemo 包裹——消息流长列表时避免每次渲染重复 filter/map
+  const spawnInstances: SpawnInstance[] = useMemo(
+    () =>
+      state.entries
+        .filter((e): e is Extract<InkMessage, { kind: 'spawn' }> => e.kind === 'spawn')
+        .map((e, index) => ({
+          index,
+          label: e.label || `子代理 ${index + 1}`,
+          status: e.status === 'running' ? 'running' : 'completed',
+        })),
+    [state.entries],
+  );
   const [selectedSpawnIndex, setSelectedSpawnIndex] = useState<number | null>(null);
 
   // 线程分支树（session_tree 真接线；空 = 分支 mini 树不渲染）

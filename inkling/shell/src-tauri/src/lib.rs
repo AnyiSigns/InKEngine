@@ -297,6 +297,10 @@ fn wire_os_dispatch(app: &tauri::AppHandle, state: &ShellState) -> Result<(), St
                         .unwrap_or_default()
                         .into_iter()
                         .collect();
+                    // 内部信令键剥离（S-2）：`_escalated` 等内部标记不参与
+                    // 台账裁决指纹（登记/裁决两侧同口径），引擎升级放行的
+                    // 信任依据 = 批准态本身
+                    let args_map = commands::approval::strip_internal_keys(&args_map);
                     let os_state = os_bridge_app.state::<ShellState>();
                     let shell_backend =
                         os_bridge_app.state::<executors::backends::ShellBackend>();
@@ -373,6 +377,17 @@ fn take_startup_snapshot(data_dir: &Path) -> Result<(), String> {
     domain::recovery::rotate_snapshot(data_dir, &fresh, chain_version)
         .map(|_| ())
         .map_err(|err| err.to_string())
+}
+
+/// 同步驱动任意 Future（命令面同步路径使用；单线程运行时内完成，
+/// 与引擎线程亲和纪律一致）。统一辅助：rounds 等命令模块不再各自
+/// 重建运行时（W-1 修复）。
+pub(crate) fn block_on<F: std::future::Future>(fut: F) -> F::Output {
+    tokio::runtime::Builder::new_current_thread()
+        .enable_all()
+        .build()
+        .expect("同步驱动运行时创建失败")
+        .block_on(fut)
 }
 
 /// 同步驱动异步引擎操作（装配/恢复路径无 tokio 上下文时使用；
@@ -560,6 +575,7 @@ fn run_selftest(data_dir: &Path, phase: bool) -> Result<JsonValue, String> {
             orchestrate: None,
             inject: None,
             model: None,
+            attachments: None,
             auto_accept_review: true,
         })
         .map_err(|err| format!("回合失败: {err}"))?;

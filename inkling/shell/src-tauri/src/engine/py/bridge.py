@@ -1553,7 +1553,14 @@ def _register_mcp_ops() -> None:
     @op_async("mcp.import_tools")
     async def _mcp_import_tools(args: dict) -> Any:
         runtime = runtime_handle()
-        specs = await runtime.mcp_manager.import_tools(args["server_id"])
+        # 双闸门（S-4 接线）：引擎 ToolVetting 实例并入导入路径——逐工具
+        # 生成清单经 vet（VERIFIED 才放行；REVIEW/REJECTED 不导入）并跑
+        # 影子观察探针（untrusted 行为证据累积）。宿主侧 vetting 链
+        # （mcp_service 静态核对 → 审批 → L2 登记）仍先行，此处为引擎
+        # 层第二道闸门。
+        specs = await runtime.mcp_manager.import_tools(
+            args["server_id"], vetting=getattr(runtime, "vetting", None)
+        )
         return {"tools": [_jsonable(spec) for spec in specs]}
 
     @op_async("mcp.disconnect")
@@ -3775,6 +3782,7 @@ async def execute_round_to_reply(
     model: dict | None = None,
     auto_accept_review: bool = True,
     max_cards: int = 32,
+    attachments: list | None = None,
 ):
     """执行一次回合直至终态：审批卡逐张决议（可指定接受决议），直到回复/终止。
 
@@ -3784,13 +3792,20 @@ async def execute_round_to_reply(
     model（可选 {provider, model_id}）= 输入框选定的 agent 模型：回合
     级解析换入 llm_decider holder（fail-open——解析失败/缺引用回落
     会话默认模型），回合结束恢复（防中断态/后续回合串模型）。
+    attachments（可选）= 引擎 Attachment 契约数组（{kind, url, name?,
+    mime?, alt?}）：随回合开篇用户消息注入（llm 多模态消息面），
+    空/缺省 = 纯文本回合。
     回合收尾（E-P5）按结果失败信号调参（runtime.tune_after_round，
     best-effort）；llm_usage 事件帧随传输收集（指标快照消费）。
     """
     result = None
     model_restore = _round_model_override(runtime, host, model)
     try:
-        state = {"input": input_text, "step_args": step_args or {}}
+        state = {
+            "input": input_text,
+            "step_args": step_args or {},
+            "attachments": attachments or [],
+        }
         if orchestrate is not None:
             state["orchestrate"] = orchestrate
         result = await runtime.engine.ainvoke(

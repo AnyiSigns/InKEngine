@@ -92,7 +92,12 @@ def _run_async_blocking(coro) -> Any:
         asyncio.get_running_loop()
         thread = threading.Thread(target=_runner, daemon=True)
         thread.start()
-        thread.join()
+        # 超时防护（W-5）：嵌入协程异常卡死时 join 不无限阻塞调用线程；
+        # 超时后记警告并回落（调用方按 None/异常路径降级关键词基线）
+        thread.join(timeout=30)
+        if thread.is_alive():
+            logger.warning("工具嵌入协程 30s 未完成（线程仍存活，回落关键词基线）")
+            return None
     except RuntimeError:
         # 当前线程无 running loop：直接新建循环执行（单线程主路径）
         loop = asyncio.new_event_loop()

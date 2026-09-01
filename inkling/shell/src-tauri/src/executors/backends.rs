@@ -313,12 +313,12 @@ mod windows_ops {
     }
 
     pub fn set_brightness(percent: u32) -> Result<String, String> {
-        // WMI WmiSetBrightness（经 PowerShell；执行器已做边界守卫）
-        let script = format!(
-            "(Get-WmiObject -Namespace root\\wmi -Class WmiMonitorBrightnessMethods).WmiSetBrightness(1,{percent})"
-        );
+        // WMI WmiSetBrightness（经 PowerShell；执行器已做边界守卫）。
+        // S-4 修复：percent 经独立参数位传入（-Command 尾参绑定 $args[0]），
+        // 不再字符串拼接进脚本——消除任何形态的注入面
+        let script = "(Get-WmiObject -Namespace root\\wmi -Class WmiMonitorBrightnessMethods).WmiSetBrightness(1,[int]$args[0])";
         let output = std::process::Command::new("powershell")
-            .args(["-NoProfile", "-NonInteractive", "-Command", &script])
+            .args(["-NoProfile", "-NonInteractive", "-Command", script, &percent.to_string()])
             .output()
             .map_err(|err| format!("亮度设置失败: {err}"))?;
         if output.status.success() {

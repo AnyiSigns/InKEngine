@@ -293,6 +293,7 @@ pub fn run_round(
             orchestrate: None,
             inject: None,
             model: None,
+            attachments: None,
             auto_accept_review: true,
         })
         .map_err(|err| CliError::boot(format!("回合驱动失败: {err}")))?;

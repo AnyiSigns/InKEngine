@@ -7,7 +7,6 @@
 //! 可配开关：能力记录 `auto_round_ledger` / 环境变量
 //! `INKLING_AUTO_ROUND_LEDGER`），前端不再依赖主动调 round_ledger_record。
 
-use std::future::Future;
 use std::path::Path;
 use std::sync::{Arc, Mutex, OnceLock};
 
@@ -17,7 +16,7 @@ use tauri::{AppHandle, Emitter, State};
 use super::error::CommandError;
 use crate::domain::steps::{RoundStepsTransport, ToolTitleResolver};
 use crate::engine::host::{RoundRequest, call_engine_op_async};
-use crate::{CAPABILITY_COLLECTION, CAPABILITY_KEY, ShellState, app_data_dir, block_on_op_async, ensure_engine};
+use crate::{CAPABILITY_COLLECTION, CAPABILITY_KEY, ShellState, app_data_dir, block_on, block_on_op_async, ensure_engine};
 
 // ── 回合 checkpoint（R1：种子续流经引擎 records 通道）──
 
@@ -97,16 +96,6 @@ async fn clear_latest_pointer(thread_id: &str) {
         json!({ "collection": ROUND_CHECKPOINT_COLLECTION, "key": latest_checkpoint_key(thread_id) }),
     )
     .await;
-}
-
-/// 同步驱动异步 checkpoint 操作（无 tokio 上下文的同步命令路径使用；
-/// 单线程运行时内完成，与引擎线程亲和纪律一致）。
-fn block_on<F: Future>(fut: F) -> F::Output {
-    tokio::runtime::Builder::new_current_thread()
-        .enable_all()
-        .build()
-        .expect("checkpoint 操作运行时创建失败")
-        .block_on(fut)
 }
 
 // ── 回合记录器 ──
@@ -237,14 +226,10 @@ fn auto_evolve(thread_id: &str, round_counter: &mut u64) -> Result<(), String> {
 static EVOLVE_INTERVAL_ROUNDS: OnceLock<u64> = OnceLock::new();
 
 /// 读取评审配方数据（seed_data/review.json；与 load_workflow_data 同风格）。
+/// W-7 修复：路径经 seed_root() 定位（与装配数据装载同源，git worktree
+/// 形态下不再依赖 CARGO_MANIFEST_DIR 多级相对回溯）。
 fn load_review_data() -> Result<JsonValue, String> {
-    let path = std::path::Path::new(env!("CARGO_MANIFEST_DIR"))
-        .join("..")
-        .join("..")
-        .join("..")
-        .join("inkling")
-        .join("seed_data")
-        .join("review.json");
+    let path = crate::seed_root().join("seed_data").join("review.json");
     let text = std::fs::read_to_string(&path)
         .map_err(|err| format!("评审数据读取失败 {}: {err}", path.display()))?;
     serde_json::from_str(&text).map_err(|err| format!("评审数据 JSON 非法: {err}"))
@@ -292,6 +277,7 @@ pub(crate) fn round_send(
     text: String,
     auto_accept_review: Option<bool>,
     model: Option<JsonValue>,
+    attachments: Option<JsonValue>,
 ) -> Result<JsonValue, CommandError> {
     let data_dir = app_data_dir(&app)?;
     ensure_engine(&app, &state, &data_dir)?;
@@ -311,6 +297,8 @@ pub(crate) fn round_send(
         orchestrate: None,
         inject: None,
         model,
+        // 附件（引擎 Attachment 契约数组）：随回合开篇用户消息注入
+        attachments,
         auto_accept_review: auto_accept_review.unwrap_or(true),
     };
     let engine_guard = state.backend.engine.lock().unwrap();

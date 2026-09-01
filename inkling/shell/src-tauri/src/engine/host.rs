@@ -57,7 +57,10 @@ fn register_host_package(py: Python<'_>) -> PyResult<()> {
         .getattr("modules")?
         .set_item("inkling_host", package.unbind())?;
     for (name, source) in HOST_PACKAGE_SOURCES {
-        let code = std::ffi::CString::new(*source).expect("内嵌宿主模块源码含 NUL 字节");
+        // W-5 修复：断言消息带模块名（误编辑引入 NUL 时错误直接定位模块）
+        let code = std::ffi::CString::new(*source).unwrap_or_else(|_| {
+            panic!("内嵌模块 inkling_host.{name} 源码含 NUL 字节")
+        });
         let full_name = format!("inkling_host.{name}");
         let module_name =
             std::ffi::CString::new(full_name.as_str()).expect("模块名含 NUL 字节");
@@ -307,6 +310,9 @@ pub struct RoundRequest {
     /// 回合级模型选择（{provider, model_id}：输入框选定的 agent 模型；
     /// None = 会话默认模型）。解析经宿主 resolve_model_llm，fail-open。
     pub model: Option<JsonValue>,
+    /// 回合附件（引擎 Attachment 契约数组：{kind, url, name?, mime?, alt?}；
+    /// 随开篇用户消息进 llm 多模态消息面）。None = 纯文本回合。
+    pub attachments: Option<JsonValue>,
     pub auto_accept_review: bool,
 }
 
@@ -676,6 +682,7 @@ impl EngineHost {
         let orchestrate = request.orchestrate.map(|v| v.to_string());
         let inject = request.inject.map(|v| v.to_string());
         let model = request.model.map(|v| v.to_string());
+        let attachments = request.attachments.map(|v| v.to_string());
         let auto_accept = request.auto_accept_review;
 
         let (reason, output) = Python::attach(|py| -> PyResult<(String, Option<String>)> {
@@ -699,6 +706,10 @@ impl EngineHost {
             if let Some(model) = model.as_deref() {
                 let rendered = py.import("json")?.call_method1("loads", (model,))?;
                 kwargs.set_item("model", rendered)?;
+            }
+            if let Some(attachments) = attachments.as_deref() {
+                let rendered = py.import("json")?.call_method1("loads", (attachments,))?;
+                kwargs.set_item("attachments", rendered)?;
             }
             kwargs.set_item("auto_accept_review", auto_accept)?;
             let kwargs = kwargs.unbind();
@@ -962,6 +973,7 @@ mod tests {
                 orchestrate: None,
                 inject: None,
                 model: None,
+                attachments: None,
                 auto_accept_review: true,
             })
             .expect("回合失败");
@@ -1289,6 +1301,7 @@ mod tests {
                 orchestrate: None,
                 inject: None,
                 model: None,
+                attachments: None,
                 auto_accept_review: true,
             })
             .expect("回合失败");
@@ -1587,6 +1600,7 @@ mod tests {
                 orchestrate: None,
                 inject: None,
                 model: None,
+                attachments: None,
                 auto_accept_review: true,
             })
             .expect("回合失败");
@@ -1808,6 +1822,7 @@ mod tests {
                 })),
                 inject: None,
                 model: None,
+                attachments: None,
                 auto_accept_review: true,
             })
             .expect("回合失败");
@@ -1875,6 +1890,7 @@ mod tests {
                 })),
                 inject: None,
                 model: None,
+                attachments: None,
                 auto_accept_review: true,
             })
             .expect("回合失败");

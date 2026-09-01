@@ -331,7 +331,14 @@ export function ingestEvent(hub: ChannelHub, event: HubEvent): void {
     }
     case 'error':
       upsertStep({ stepId, type: 'error', label: '错误', status: 'error' }, (s) => ({ ...s, status: 'error' as const }));
-      messages = [...messages, { kind: 'error', content: String(payload.message ?? ''), id: nextId(), stepId: stepId || undefined, roundId }];
+      messages = [...messages, {
+        kind: 'error',
+        content: String(payload.message ?? ''),
+        node: payload.node ? String(payload.node) : undefined,
+        id: nextId(),
+        stepId: stepId || undefined,
+        roundId,
+      }];
       break;
     case 'memory_recall': {
       const hits = Array.isArray(payload.hits)
@@ -690,8 +697,7 @@ export function setStreaming(hub: ChannelHub, streaming: boolean): void {
  * 流式回复定型（回合 end 时驱动侧调用）：把回合内残留的 streaming 行
  * 提交为正式 text/assistant 消息——消除永久闪烁光标（流式中途离开的语义）。
  */
-export function commitStreaming(hub: ChannelHub, at = Date.now()): void {
-  void at;
+export function commitStreaming(hub: ChannelHub): void {
   const snapshot = hub.getSnapshot();
   if (!snapshot.messages.some((m) => m.kind === 'streaming')) return;
   const messages = snapshot.messages.map((m) =>

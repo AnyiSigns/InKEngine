@@ -270,6 +270,7 @@ mod tests {
             orchestrate: None,
             inject: Some(inject),
             model: None,
+            attachments: None,
             auto_accept_review: true,
         };
         let inj = req.inject.expect("inject 应透传");
@@ -303,6 +304,7 @@ mod tests {
             orchestrate: None,
             inject: Some(inject),
             model: None,
+            attachments: None,
             auto_accept_review: true,
         };
         assert_eq!(req.inject.as_ref().unwrap()["project_task"]["goal"], "实现特性");
@@ -340,6 +342,7 @@ mod tests {
             orchestrate: None,
             inject: Some(inject),
             model: None,
+            attachments: None,
             auto_accept_review: true,
         };
         assert_eq!(req.inject.as_ref().unwrap()["project_task"]["goal"], "端到端目标");

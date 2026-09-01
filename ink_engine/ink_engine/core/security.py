@@ -36,10 +36,7 @@ SENSITIVE_KEYS: frozenset[str] = frozenset(
 )
 
 # 常见凭据键后缀（openai_api_key/client_secret/auth_token 等前后缀形态，
-# 精确匹配覆盖不到；后缀命中基本即凭据，误伤面小）。
-# 注意：启发式为保守剥离——任何以 _key/_token/_secret/_password 结尾的
-# 非凭据字段也会被置空（当前 state 通道无此形态键；未来新增通道若属
-# 业务数据且恰以此后缀命名，须在 SENSITIVE_KEYS 之外显式豁免）。
+# 精确匹配覆盖不到；分隔符后缀命中基本即凭据，误伤面小）。
 _SENSITIVE_SUFFIXES: tuple[str, ...] = (
     "_key",
     "_token",
@@ -52,40 +49,65 @@ _SENSITIVE_SUFFIXES: tuple[str, ...] = (
     "_credentials",
 )
 
-# 无下划线后缀形态（clientSecret/openAiKey/authToken 等驼峰键在
-# 归一化后按词尾命中；secret/token/key/password 为完整词尾——误伤面
-# 说明：以这些词结尾的非凭据字段（如英文单词 monkey）也会被剥离，
-# 与 _SENSITIVE_SUFFIXES 同属保守剥离纪律，须显式豁免）。
-_SENSITIVE_WORD_SUFFIXES: tuple[str, ...] = (
-    "secret",
-    "token",
-    "key",
-    "password",
-    "credentials",
+# 凭据词末组件集合（组件化判定：仅当键名的「末组件」为凭据词时才命中）。
+# 与后缀启发式的区别：monkey/keyboard/turkey 等以 key 结尾的普通英文词
+# 末组件不是独立凭据词，不再被误伤（S-1 修复：词尾启发式过宽）。
+_CREDENTIAL_WORDS: frozenset[str] = frozenset(
+    {
+        "key",
+        "keys",
+        "token",
+        "tokens",
+        "secret",
+        "secrets",
+        "password",
+        "passwords",
+        "credential",
+        "credentials",
+    }
 )
 
-# 驼峰边界归一（clientSecret → client_secret；仅插入下划线不改变词尾）
-_CAMEL_BOUNDARY_RE = re.compile(r"(?<=[a-z0-9])(?=[A-Z])")
+# 组件分隔符（_ / - / . 任一分隔后末组件为凭据词 → 敏感）
+_COMPONENT_SEPARATORS = ("_", "-", ".")
+
+# 驼峰边界（clientSecret/openAiKey/authToken 等拼接形态的判定依据：
+# 原键存在小写→大写边界 + 词尾为凭据词 → 敏感——camelCase 标识符是
+# 代码产物形态，出现以 key/token/secret 结尾的驼峰词基本即凭据）
+_CAMEL_BOUNDARY_RE = re.compile(r"(?<=[a-z])(?=[A-Z])")
 
 
 def is_sensitive_key(key: Any) -> bool:
-    """判定键名是否携带凭据语义（精确集合 + 后缀启发式 + 驼峰归一）。
+    """判定键名是否携带凭据语义（精确集合 + 后缀 + 组件化词尾判定）。
 
-    精确集合与下划线后缀优先；驼峰键归一为下划线后按词尾命中——
-    词尾命中要求后缀前有前缀（裸 ``key`` 字段名是业务通用形态，如
-    中断键 InterruptState.key，不视为凭据；``monkey`` 等以 key 结尾
-    的非凭据英文词仍会被保守剥离，须显式豁免）。
+    判定顺序（fail-closed 优先）：
+    1. 精确集合（api_key/token/authorization/常见驼峰小写形态）——恒敏感；
+    2. 分隔符后缀（openai_api_key/client_secret/auth_token 等）——恒敏感；
+    3. 末组件判定：_ / - / . 分隔的末组件为凭据词（``auth-token``、
+       ``my.secret`` 等，需存在分隔符——裸 ``key`` 字段名是业务通用形态，
+       如中断键 InterruptState.key，不视为凭据）；
+    4. 驼峰拼接判定：原键存在驼峰边界且词尾为凭据词（``clientSecret``/
+       ``masterToken``/``userPassword``；``monkey``/``keyboard`` 无驼峰
+       边界不命中）。极少见的全小写无分隔拼接形态（如 ``myapikey``）
+       不再命中——精确集合已覆盖常见形态，此类键应显式入集合。
     """
-    k = str(key).lower()
+    original = str(key)
+    k = original.lower()
     if k in SENSITIVE_KEYS or k.endswith(_SENSITIVE_SUFFIXES):
         return True
-    # 驼峰形态：clientSecret/openAiKey/authToken 归一为下划线后按
-    # 后缀命中（纯下划线键已在上一分支命中，此处零重复开销）
-    normalized = _CAMEL_BOUNDARY_RE.sub("_", k)
-    return any(
-        normalized.endswith(suffix) and len(normalized) > len(suffix)
-        for suffix in _SENSITIVE_WORD_SUFFIXES
+    # 末组件判定（须有分隔符：末组件完整词才命中，token_count 等指标键
+    # 末组件为 count 不误伤；secret_note 末组件 note 不误伤；裸 key 无
+    # 分隔符不命中）
+    last_sep = max(
+        (k.rfind(sep) for sep in _COMPONENT_SEPARATORS),
+        default=-1,
     )
+    if last_sep > 0 and last_sep < len(k) - 1:
+        if k[last_sep + 1 :] in _CREDENTIAL_WORDS:
+            return True
+    # 驼峰拼接形态（原键判边界：lower 化后边界信息丢失，须用原键）
+    if _CAMEL_BOUNDARY_RE.search(original) and k.endswith(tuple(_CREDENTIAL_WORDS)):
+        return True
+    return False
 
 
 def _strip_from_dict(data: dict[str, Any]) -> dict[str, Any]:

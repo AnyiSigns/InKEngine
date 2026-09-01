@@ -351,7 +351,13 @@ export interface BackendAdapter {
     decision: string,
     reason?: string,
     editedContent?: unknown,
-  ): Promise<{ reason: string | null; state: Record<string, unknown> }>;
+  ): Promise<{
+    reason: string;
+    output: unknown;
+    events: unknown[];
+    steps: unknown[];
+    round_id: string;
+  }>;
   routePlan(text: string, tier: string): Promise<RoutePlanResult>;
   sessionList(): Promise<SessionRemoteRecord[]>;
   sessionCreate(): Promise<SessionRemoteRecord>;
@@ -709,11 +715,14 @@ export function createTauriBackend(invoker?: TauriInvoker): BackendAdapter {
     modelReload: () => call('model.reload'),
     searchKeysPut: (keys) => call('search_keys_put', { keys }),
     growthReport: () => call('growth_report'),
-    modelsRefresh: (config) => call('models_refresh', { config }),
+    modelsRefresh: (config) => call('models_refresh', config),
     modelsConfigGet: () => call('models_config_get'),
-    modelsConfigPut: (config) => call('models_config_put', { config }),
+    modelsConfigPut: (config) => call('models_config_put', config),
     openDirectoryDialog: (options) =>
-      call<string | string[] | null>('plugin:dialog|open', { options }).then((picked) => {
+      // tauri-plugin-dialog 的 open 命令入参为扁平形态（title/directory/
+      // multiple 顶层字段），不能包一层 options（B1 修复：此前嵌套导致
+      // 目录选择器始终按文件单选打开/参数丢失）
+      call<string | string[] | null>('plugin:dialog|open', options).then((picked) => {
         if (Array.isArray(picked)) return picked.filter((p): p is string => typeof p === 'string');
         return picked ? [picked] : null;
       }),

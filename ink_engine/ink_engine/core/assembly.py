@@ -563,12 +563,15 @@ class InputAssembler:
             reverse=True,
         )
         truncated_chars = 0
-        while blocks and len(text) > budget:
-            _removed_text, removed_activations = blocks.pop()
-            truncated_chars += len(text) - len(
-                "\n\n".join(block[0] for block in blocks)
-            )
-            text = "\n\n".join(block[0] for block in blocks)
+        # 运行长度跟踪（W-1 修复）：迭代回退用累计字符数递减代替每轮
+        # 重新 join 全文（块数上百时 O(n²) 不可忽视）；被丢块 = 块文本 +
+        # 尾部分隔符（2 字符），末块无分隔符
+        total_chars = len(text)
+        while blocks and total_chars > budget:
+            removed_text, removed_activations = blocks.pop()
+            removed_chars = len(removed_text) + (2 if blocks else 0)
+            total_chars -= removed_chars
+            truncated_chars += removed_chars
             for act in removed_activations:
                 if act.char_limit <= 0:
                     continue
@@ -581,6 +584,7 @@ class InputAssembler:
                             note="全局预算回退：按源块边界丢整块（粘合开销超预算）",
                         )
                         break
+        text = "\n\n".join(block[0] for block in blocks)
         # 兜底防线：单块仍超预算（组装器异常，理论不可达）时最后硬截断
         if len(text) > budget:
             truncated_chars += len(text) - budget

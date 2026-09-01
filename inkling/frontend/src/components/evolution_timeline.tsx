@@ -1,9 +1,9 @@
 /**
  * 演化时间线（演化视图）：补丁链可视化。
  *
- * 数据源：inspect_graph 快照的 patchChain（bind.path = "patchChain"，
- * 五元工具快照投影）。状态色：proposed=待审/applied=已应用/reverted=已回退
- * （回退可逆——补丁链尾部回退是演化安全网）。
+ * 数据源：state.patchChannel 通道（patch_proposed/patch_applied/
+ * patch_reverted 事件归约，bindValue 注入）。状态色：proposed=待审/
+ * applied=已应用/reverted=已回退（回退可逆——补丁链尾部回退是演化安全网）。
  *
  * 纯渲染组件：数据 props 注入，无写入通道。
  */

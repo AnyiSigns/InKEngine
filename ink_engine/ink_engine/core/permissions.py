@@ -28,6 +28,7 @@ from __future__ import annotations
 from collections.abc import Callable
 from dataclasses import dataclass
 from fnmatch import fnmatch
+from pathlib import PurePosixPath
 
 from .exceptions import SandboxViolation
 
@@ -98,7 +99,7 @@ def rule_matches(rule: PermissionRule, operation: str, target: str) -> bool:
         # 匹配，``/book/**`` 可放行 ``/book/../../etc/passwd``，权限层必须先
         # 守住路径边界（``..`` 归一到沙箱/调用方再判等于放行穿越）
         t = target.replace("\\", "/")
-        if ".." in t.split("/"):
+        if ".." in PurePosixPath(t).parts:
             return False
         return _fnmatch_any(rule.pattern.replace("\\", "/"), t)
     if rule.domain in _KNOWN_DOMAINS:

@@ -7,6 +7,7 @@ use std::path::PathBuf;
 
 use tauri::State;
 
+use super::approval::strip_internal_keys;
 use super::error::CommandError;
 use crate::executors::backends::ShellBackend;
 use crate::executors::registry::CallGate;
@@ -56,6 +57,9 @@ pub(crate) fn process_exec(
         .cloned()
         .map(|map| map.into_iter().collect::<BTreeMap<String, serde_json::Value>>())
         .ok_or_else(|| CommandError::invalid_arg(format!("工具参数须为对象: {tool}")))?;
+    // 内部信令键剥离（S-2）：`_escalated` 等下划线内部键不参与裁决指纹，
+    // 渲染进程伪造的内部标记在裁决前清除（升级放行 = 台账批准态本身）
+    let args_map = strip_internal_keys(&args_map);
     let auth = state.approval.adjudicate(&tool, &args_map);
     let gate = CallGate::with_roots(Endpoint::ProcessExec, dynamic_roots(&state));
     let outcome = state
@@ -91,6 +95,8 @@ pub(crate) fn device_mcp_call(
         .cloned()
         .map(|map| map.into_iter().collect::<BTreeMap<String, serde_json::Value>>())
         .ok_or_else(|| CommandError::invalid_arg(format!("工具参数须为对象: {tool}")))?;
+    // 内部信令键剥离（S-2）：与 process_exec 同口径（裁决指纹不含内部键）
+    let args_map = strip_internal_keys(&args_map);
     let auth = state.approval.adjudicate(&tool, &args_map);
     let gate = CallGate::with_roots(Endpoint::DeviceMcp, dynamic_roots(&state));
     let outcome = state
@@ -105,5 +111,6 @@ pub(crate) fn device_mcp_call(
     Ok(serde_json::json!({
         "tool": tool,
         "result": redact_workspace(&outcome.result, &workspace_root()),
+        "sandbox": outcome.sandbox_checked,
     }))
 }

@@ -883,19 +883,19 @@ class Runtime:
         if self.growth_pipeline is not None:
             self.growth_pipeline.knowledge_set = self.knowledge_set
 
-        # ⑬-a 用户常驻必带工具集恢复（records 通道；缺记录/坏形态沿用
+        # ⑬-b 用户常驻必带工具集恢复（records 通道；缺记录/坏形态沿用
         #    出厂基线；恢复在 _restore_set_state 之后——校验须见全量工具表）
         await self._restore_baseline()
-        # ⑬-a agent 回合 thread 标签恢复（records 通道；TTL 过期条目
+        # ⑬-c agent 回合 thread 标签恢复（records 通道；TTL 过期条目
         #    丢弃——会话窗口恒注入跨重启保持，过期自动回收）
         await self._restore_thread_tags()
 
-        # ⑬-a 工具向量索引构建（工具注入瘦身）：全量工具 → 向量，
+        # ⑬-d 工具向量索引构建（工具注入瘦身）：全量工具 → 向量，
         #     search_tools/request_tool 检索后端；失败降级关键词基线
         self.tool_index = ToolVectorIndex(embedder=build_default_embedder())
         self._rebuild_tool_index()
 
-        # ⑬-b 工具调配器接线（工具注入瘦身）：保底工具 priority 高 + 调用权重
+        # ⑬-e 工具调配器接线（工具注入瘦身）：保底工具 priority 高 + 调用权重
         #    默认注入上限 18（设置页工具 tab 可调，非硬锁——用户自定义
         #    20/30/40/100 均可，capability_put → rebuild 路径刷新）
         self.tool_selector = ToolSelector(
@@ -913,7 +913,8 @@ class Runtime:
         self.meta_tuner = MetaTuner(knowledge_set=self.knowledge_set)
         self.turn_metrics = TurnMetrics()
 
-        # ⑯ 池治理登记器（容量/淘汰/合并/预算四规则；只登记不执行决策）
+        # ⑯ 池治理登记器（容量/淘汰/合并/预算四规则；只登记不执行决策——
+        #    规则定稿后在此接入 settle 钩子或回合收尾路径执行）
         self.pool_governance = PoolGovernance()
 
         # ⑰ 引擎重建（按当前模型配置装配回合图；工具表/配置变更重建）

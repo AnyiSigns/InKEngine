@@ -825,7 +825,11 @@ class McpMountService:
                 status="connect_failed", error=f"连接失败: {exc}",
             )
         try:
-            specs = await manager.import_tools(config.id)
+            # 双闸门（S-4 接线）：引擎 ToolVetting 并入挂载导入路径（逐
+            # 工具清单 vet + 影子观察探针），与宿主侧 vetting 链叠加
+            specs = await manager.import_tools(
+                config.id, vetting=getattr(self._runtime, "vetting", None)
+            )
         except asyncio.CancelledError:
             await manager.disconnect(config.id)
             raise

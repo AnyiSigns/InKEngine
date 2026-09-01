@@ -670,7 +670,7 @@ fn parse_args() -> Args {
             other => {
                 if other.starts_with("--root=") {
                     args.root = Some(other["--root=".len()..].to_string());
-                } else if ["schema", "cargo", "frontend", "e2e", "discipline", "benchmark", "symbols", "all"]
+                } else if ["schema", "cargo", "cargo_test", "frontend", "e2e", "discipline", "benchmark", "symbols", "all"]
                     .contains(&other)
                 {
                     args.gate = other.to_string();
@@ -771,11 +771,13 @@ fn main() {
         results.push(result);
     };
 
-    // 子命令直调 = manifest 命令指向的同一门禁在本进程内执行（快速局部复验）
+    // 子命令直调 = manifest 命令指向的同一门禁在本进程内执行（快速局部复验）。
+    // W-8 修复：manifest key（cargo_test）与子命令名（cargo）双名同义，两种
+    // 写法都可直调（manifest.json 是单一事实源，key 形态不被破坏）。
     let manifest_key_of = |sub: &str| -> &'static str {
         match sub {
             "schema" => "schema",
-            "cargo" => "cargo_test",
+            "cargo" | "cargo_test" => "cargo_test",
             "frontend" => "frontend",
             "e2e" => "e2e",
             "discipline" => "discipline",
@@ -789,7 +791,7 @@ fn main() {
         let command = command_of(key);
         let (result, full) = match args.gate.as_str() {
             "schema" => gate_schema_full(&repo_root, command),
-            "cargo" => gate_cargo_full(&repo_root, command),
+            "cargo" | "cargo_test" => gate_cargo_full(&repo_root, command),
             "frontend" => gate_frontend_full(&repo_root, command),
             "e2e" => gate_e2e_full(&repo_root, command, args.live),
             "discipline" => gate_discipline_full(&repo_root, command),

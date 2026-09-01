@@ -108,7 +108,15 @@ class EngineEvent:
                 f"事件负载含不可 JSON 序列化对象，已字符串化降级"
                 f"（回放类型降级）: type={self.type} node={self.node}"
             )
-            return json.dumps(self.to_dict(), ensure_ascii=False, default=str)
+            try:
+                return json.dumps(self.to_dict(), ensure_ascii=False, default=str)
+            except (TypeError, ValueError):
+                # 兜底（W-12）：default=str 二次序列化仍失败（极端形态）时
+                # 落最小契约，保证事件传输线不击穿主流程
+                return json.dumps(
+                    {"type": self.type, "node": self.node, "error": "serialization failed"},
+                    ensure_ascii=False,
+                )
 
 
 def parse_event_lenient(data: dict) -> EngineEvent | None:

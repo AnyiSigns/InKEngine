@@ -280,6 +280,74 @@ def test_round_entry_continues_chain_for_cross_round_context():
     assert engine.calls[0].get("thread_id") == "t1"
 
 
+def test_round_entry_carries_attachments_into_state():
+    """B1：回合附件（引擎 Attachment 契约数组）随入口 state 注入。
+
+    前端 round_send attachments → RoundRequest → execute_round_to_reply →
+    state["attachments"] → llm 多模态用户消息面；空/缺省 = 纯文本回合。
+    """
+    bridge = _load_bridge()
+
+    captured: dict = {}
+
+    class _CaptureEngine(_FakeEngine):
+        async def ainvoke(self, state, **kwargs):
+            captured["state"] = state
+            captured["kwargs"] = kwargs
+            return self._result
+
+    runtime = _FakeRuntime(_CaptureEngine(_FakeResult("reply")))
+    host = _FakeHost()
+    asyncio.run(
+        bridge.execute_round_to_reply(
+            runtime,
+            host,
+            input_text="描述这张图",
+            thread_id="t1",
+            round_id="r1",
+            attachments=[
+                {
+                    "kind": "image",
+                    "url": "~/inkling/attachments/a.png",
+                    "name": "a.png",
+                    "mime": "image/png",
+                }
+            ],
+        )
+    )
+    assert captured["state"]["attachments"] == [
+        {
+            "kind": "image",
+            "url": "~/inkling/attachments/a.png",
+            "name": "a.png",
+            "mime": "image/png",
+        }
+    ]
+    assert captured["state"]["input"] == "描述这张图"
+    assert captured["state"]["step_args"] == {}
+
+
+def test_round_entry_attachments_default_empty():
+    """B1：未传附件 → state.attachments = []（纯文本回合契约）。"""
+    bridge = _load_bridge()
+
+    captured: dict = {}
+
+    class _CaptureEngine(_FakeEngine):
+        async def ainvoke(self, state, **kwargs):
+            captured["state"] = state
+            return self._result
+
+    runtime = _FakeRuntime(_CaptureEngine(_FakeResult("reply")))
+    host = _FakeHost()
+    asyncio.run(
+        bridge.execute_round_to_reply(
+            runtime, host, input_text="hi", thread_id="t1", round_id="r1"
+        )
+    )
+    assert captured["state"]["attachments"] == []
+
+
 def test_round_entry_tunes_after_round_success():
     """E-P5：主回合入口正常收尾 → tune_after_round(failed=False)。"""
     bridge = _load_bridge()

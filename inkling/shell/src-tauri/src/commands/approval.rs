@@ -21,6 +21,16 @@ fn fingerprint_key(tool: &str, args: &BTreeMap<String, JsonValue>) -> String {
     format!("{tool}\u{1f}{args_text}")
 }
 
+/// 剥离下划线开头的内部信令键（`_escalated` 等引擎内部标记）：内部
+/// 信令不得进入裁决指纹，渲染进程伪造的内部键在裁决前被清除（S-2——
+/// 升级放行的信任依据 = 审批台账批准态本身，而非 args 中的标记）。
+pub fn strip_internal_keys(args: &BTreeMap<String, JsonValue>) -> BTreeMap<String, JsonValue> {
+    args.iter()
+        .filter(|(key, _)| !key.starts_with('_'))
+        .map(|(key, value)| (key.clone(), value.clone()))
+        .collect()
+}
+
 /// 壳侧审批台账（决议 4：命令面裁决的档位表与决议态；与引擎侧
 /// `security.auto_approve_set` 门禁同口径）。
 #[derive(Clone)]
@@ -76,7 +86,7 @@ impl ApprovalLedger {
             self.resolutions
                 .lock()
                 .unwrap()
-                .insert(fingerprint_key(tool, args), true);
+                .insert(fingerprint_key(tool, &strip_internal_keys(args)), true);
         }
     }
 
@@ -96,7 +106,7 @@ impl ApprovalLedger {
                     self.resolutions
                         .lock()
                         .unwrap()
-                        .insert(fingerprint_key(tool, &map), accepted);
+                        .insert(fingerprint_key(tool, &strip_internal_keys(&map)), accepted);
                 }
             }
         }

@@ -57,6 +57,11 @@ def test_is_sensitive_key_detects_credential_forms(key):
         "key_insight",  # 业务键：_insight 词尾不误伤
         "keywords",
         "keyboard",
+        "monkey",  # S-1 回归：以 key 结尾的普通英文词不再被词尾启发式误伤
+        "turkey",
+        "donkey",
+        "secret_note",  # 业务键：末组件 note 不是凭据词
+        "token_count",  # 指标键：末组件 count 不是凭据词
     ],
 )
 def test_is_sensitive_key_does_not_误伤(key):

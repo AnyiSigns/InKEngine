@@ -15,8 +15,6 @@ export interface SessionState {
   entries: InkMessage[];
   streaming: boolean;
   pendingReview: Record<string, unknown> | null;
-  models?: { profiles: Array<{ id: string; name: string; tier: string; occupancy: number; limit: number; multimodal?: boolean }> };
-  authorized: boolean;
 }
 
 export function createSessionState(hub: ChannelHub, store: SessionStore, _backend: BackendAdapter): SessionState {
@@ -26,8 +24,6 @@ export function createSessionState(hub: ChannelHub, store: SessionStore, _backen
     get entries() { return hub.getSnapshot().messages || []; },
     get streaming() { return hub.getSnapshot().streaming as boolean || false; },
     get pendingReview() { return hub.getSnapshot().pendingReview as Record<string, unknown> | null || null; },
-    get authorized() { return false; },
-    get models() { return undefined; },
   };
 }
 

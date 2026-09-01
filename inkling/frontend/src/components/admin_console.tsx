@@ -38,8 +38,12 @@ function AdminConsoleInner({ store, onOpenBackupWizard }: { store: AppRegistrySt
     .filter((group) => group.entries.length > 0);
 
   const run = (action: () => void): void => {
-    action();
-    setPhase('success');
+    try {
+      action();
+      setPhase('success');
+    } catch {
+      setPhase('fail');
+    }
   };
 
   return (

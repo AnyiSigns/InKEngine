@@ -583,9 +583,9 @@ export class AppBackend {
   }
 
   /**
-    * 获取 knowledgeGraph 拓扑（用于视图初始化）。
-    * 当前后端仅暴露单一 knowledge_graph 接口；五元 inspect 快照
-    * 尚无独立 op，回传节点/边拓扑供视图消费。
+    * 获取知识图拓扑（用于视图初始化）。
+    * 后端命令名 = knowledge.graph（与 BackendAdapter.knowledgeGraph 对齐，
+    * 点号命名是后端 #[command(rename)] 的既定形态）。
     */
   async getKnowledgeGraph(): Promise<KnowledgeGraphResult | null> {
     if (!this.backend?.available) return null;

@@ -121,10 +121,11 @@ export interface InkSuggestionsMessage extends InkMessageBase {
   items: string[];
 }
 
-/** 错误（error 事件）。 */
+/** 错误（error 事件；node 字段 = 引擎发出错误的图节点标识）。 */
 export interface InkErrorMessage extends InkMessageBase {
   kind: 'error';
   content: string;
+  node?: string;
 }
 
 /**

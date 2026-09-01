@@ -763,6 +763,7 @@ def make_llm_decider_factory(
     工具循环护栏（MAX_TOOL_ROUNDS）超限强制收口，防成本失控。
     """
     from ink_engine.core.llm.messages import (
+        Attachment,
         Message,
         accumulate_tool_calls,
         assistant,
@@ -828,10 +829,31 @@ def make_llm_decider_factory(
                         todo_text = ""
                     if todo_text:
                         body = f"{body}\n\n{todo_text}"
+                # 附件注入（B1 接线）：回合状态 attachments 形态 = 引擎
+                # Attachment 契约数组（{kind, url, name?, mime?, alt?}），
+                # 随开篇用户消息进 llm 多模态消息面；非法条目跳过，空 = 不带
+                attachments: tuple[Any, ...] = ()
+                if ctx.state.get("attachments"):
+                    parsed: list[Attachment] = []
+                    for a in ctx.state["attachments"]:
+                        if not isinstance(a, dict):
+                            continue
+                        try:
+                            parsed.append(Attachment.from_dict(a))
+                        except Exception:  # noqa: BLE001 —— 非法附件条目跳过不阻断回合
+                            continue
+                    attachments = tuple(parsed)
                 if base_round:
-                    messages.append(Message(role="user", content=body, id=opener_id))
+                    messages.append(
+                        Message(
+                            role="user",
+                            content=body,
+                            id=opener_id,
+                            attachments=attachments,
+                        )
+                    )
                 else:
-                    messages.append(user(body))
+                    messages.append(user(body, attachments=attachments))
             return messages
 
         async def node(ctx: Any) -> dict | None:

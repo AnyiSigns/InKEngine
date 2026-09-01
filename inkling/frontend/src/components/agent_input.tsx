@@ -13,9 +13,9 @@
 
 import { useEffect, useRef, useState, type ClipboardEvent } from 'react';
 
-import { Cpu, FileText, Image as ImageIcon, Paperclip, Send, Square } from 'lucide-react';
+import { FileText, Image as ImageIcon, Paperclip, Send, Square } from 'lucide-react';
 
-import type { GearTier, ModeTier } from '@/shared/session/types';
+import type { ModeTier } from '@/shared/session/types';
 import type { AttachmentAsset } from '@/shared/session/eventIngest';
 import type { FilePicker, PickedFile } from '@/shared/media/filePicker';
 import { createDomFilePicker } from '@/shared/media/filePicker';
@@ -39,15 +39,9 @@ export interface ModelProfile {
 
 export interface AgentInputBindValue {
   streaming?: boolean;
-  activeGear?: GearTier;
   modeTier?: ModeTier;
   roundId?: string | null;
 }
-
-const GEAR_LABELS: Record<GearTier, string> = {
-  router: 'router',
-  main: 'main',
-};
 
 const MODE_LABELS: Record<ModeTier, string> = {
   default: '默认',
@@ -98,7 +92,6 @@ export function AgentInput({
   const noteTimer = useRef<ReturnType<typeof setTimeout> | null>(null);
   const data = (bindValue as AgentInputBindValue | undefined) ?? {};
   const streaming = data.streaming === true;
-  const gear = data.activeGear ?? 'main';
   const mode = data.modeTier ?? 'default';
 
   // 暂存附件提示是轻量瞬时态：组件卸载（含测试拆卸）时清掉待触发的定时器，
@@ -110,12 +103,6 @@ export function AgentInput({
   const modelList = models ?? [];
   const [modelId, setModelId] = useState<string>(selectedModel ?? modelList[0]?.id ?? '');
   const selectedModelObj = modelList.find((m) => m.id === modelId);
-  const tierGroups = new Map<string, ModelProfile[]>();
-  for (const m of modelList) {
-    const group = tierGroups.get(m.tier) ?? [];
-    group.push(m);
-    tierGroups.set(m.tier, group);
-  }
   const onModelChange = (id: string): void => {
     setModelId(id);
     onModelSelect?.(id);
@@ -265,10 +252,6 @@ export function AgentInput({
               <Paperclip size={12} strokeWidth={1.8} aria-hidden />
             </button>
           )}
-          <span className="ink-chip ink-text-muted">
-            <Cpu size={9} strokeWidth={1.8} aria-hidden />
-            挡位 {GEAR_LABELS[gear]}
-          </span>
           <span className="ink-chip ink-text-muted">模式 {MODE_LABELS[mode]}</span>
           <span className="ink-chip ink-text-muted" data-ui="model_selector">
             <select
@@ -278,14 +261,13 @@ export function AgentInput({
               onChange={(e) => onModelChange(e.target.value)}
               className="bg-transparent text-[9px] outline-none ink-text-muted"
             >
-              {[...tierGroups.entries()].map(([tier, list]) => (
-                <optgroup key={tier} label={`挡位 ${tier}`}>
-                  {list.map((m) => (
-                    <option key={m.id} value={m.id}>
-                      {m.name}
-                    </option>
-                  ))}
-                </optgroup>
+              {/* 输入框模型选择只设「默认值」：已配置厂商模型平铺列表，
+                  不按 main/audit/router 挡位分组（inkling.ui.input_box_
+                  model_selection_default_only 决策） */}
+              {modelList.map((m) => (
+                <option key={m.id} value={m.id}>
+                  {m.name}
+                </option>
               ))}
             </select>
           </span>
@@ -334,9 +316,6 @@ export function AgentInput({
             </button>
           )}
         </div>
-      </div>
-      <div className="mx-auto mt-2 w-full max-w-3xl px-1 font-mono text-[9px] tracking-wide ink-text-faint">
-        挡位:{gear}({GEAR_LABELS[gear]}) · 模式:{mode}({MODE_LABELS[mode]})
       </div>
     </div>
   );

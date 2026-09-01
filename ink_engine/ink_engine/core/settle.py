@@ -81,7 +81,7 @@ def classify_failure(message: str | None) -> str:
         return FAIL_CAT_VALIDATION
     if any(k in text for k in ("network", "timeout", "connection", "dns", "502", "503", "504")):
         return FAIL_CAT_NETWORK
-    if any(k in text for k in ("model", "llm", "context length", "rate limit", "429", "token")):
+    if any(k in text for k in ("model", "llm", "context length", "context_length", "max tokens", "max_tokens", "rate limit", "rate_limit", "429", "token", "quota", "insufficient", "billing")):
         return FAIL_CAT_MODEL
     return FAIL_CAT_UNKNOWN
 

@@ -50,6 +50,9 @@ const MODE_LABELS: Record<ModeTier, string> = {
   sandbox: '沙箱',
 };
 
+/** 附件提示瞬时态自动隐藏时长（ms）。 */
+const NOTE_AUTO_HIDE_MS = 2600;
+
 interface AgentInputProps {
   bindValue?: unknown;
   placeholder?: string;
@@ -90,6 +93,18 @@ export function AgentInput({
   const [degradeHint, setDegradeHint] = useState<string | null>(null);
   const textareaRef = useRef<HTMLTextAreaElement>(null);
   const noteTimer = useRef<ReturnType<typeof setTimeout> | null>(null);
+  // 粘贴产生的 objectURL 引用（移除/清空/卸载时回收，防内存泄漏）
+  const pastedUrls = useRef<string[]>([]);
+  const revokePastedUrls = (): void => {
+    for (const url of pastedUrls.current) {
+      try {
+        URL.revokeObjectURL(url);
+      } catch {
+        // 环境无 revoke（测试桩）时忽略
+      }
+    }
+    pastedUrls.current = [];
+  };
   const data = (bindValue as AgentInputBindValue | undefined) ?? {};
   const streaming = data.streaming === true;
   const mode = data.modeTier ?? 'default';
@@ -98,11 +113,21 @@ export function AgentInput({
   // 避免环境回收后回调落到已销毁的 jsdom 上（window 引用缺失的未捕获异常）。
   useEffect(() => () => {
     if (noteTimer.current) clearTimeout(noteTimer.current);
+    revokePastedUrls();
   }, []);
 
   const modelList = models ?? [];
   const [modelId, setModelId] = useState<string>(selectedModel ?? modelList[0]?.id ?? '');
   const selectedModelObj = modelList.find((m) => m.id === modelId);
+  // 模型档案/选中模型异步到达时同步选择（此前仅读取初值，晚到不更新）
+  useEffect(() => {
+    if (selectedModel) {
+      setModelId(selectedModel);
+    } else if (modelList.length > 0 && !modelList.some((m) => m.id === modelId)) {
+      setModelId(modelList[0].id);
+    }
+    // eslint-disable-next-line react-hooks/exhaustive-deps
+  }, [selectedModel, modelList.length]);
   const onModelChange = (id: string): void => {
     setModelId(id);
     onModelSelect?.(id);
@@ -122,6 +147,7 @@ export function AgentInput({
       setStaged([]);
       setDegradeHint('当前模型非多模态，附件已转为文本引用；切换到多模态模型以直发原附件');
       onSend?.(degraded, []);
+      revokePastedUrls();
       textareaRef.current?.focus();
       return;
     }
@@ -130,6 +156,7 @@ export function AgentInput({
     onSend?.(text, staged);
     setStaged([]);
     setDegradeHint(null);
+    revokePastedUrls();
     textareaRef.current?.focus();
   };
 
@@ -165,7 +192,7 @@ export function AgentInput({
           : null,
     );
     if (noteTimer.current) clearTimeout(noteTimer.current);
-    noteTimer.current = setTimeout(() => setAttachNote(null), 2600);
+    noteTimer.current = setTimeout(() => setAttachNote(null), NOTE_AUTO_HIDE_MS);
   };
 
   const pickAssets = async (): Promise<void> => {
@@ -180,6 +207,7 @@ export function AgentInput({
     const files: PickedFile[] = Array.from(items).map((file, index) => {
       const name = file.name || `粘贴图片-${index + 1}.png`;
       const url = typeof URL !== 'undefined' && URL.createObjectURL ? URL.createObjectURL(file) : name;
+      if (url !== name) pastedUrls.current.push(url);
       return { name, mime: file.type || 'image/png', size: file.size, path: url };
     });
     stageAssets(files);

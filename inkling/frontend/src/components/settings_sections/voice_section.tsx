@@ -1,7 +1,6 @@
 /**
- * 设置「语音与离线」节：本地语音能力（麦克风 / STT / TTS）+ always-on
- * 监听控件（approval 档 + 隐私提示）+ 离线支持级（Ollama / 本地嵌入 /
- * 本地记忆 / settings 档）。
+ * 设置「语音与离线」节：本地语音能力（麦克风 / STT / TTS）+ 离线支持级
+ * （Ollama / 本地嵌入 / 本地记忆 / settings 档）。
  *
  * 复用设置面板交互形态：能力芯片 + 开关 + 下拉，调用宿主 voice 与
  * offline 命令（经 tauriBridge 直调，缺宿主回落禁用态）。
@@ -9,10 +8,11 @@
 
 import { useEffect, useState } from 'react';
 
-import { Mic, AudioLines, Volume2, ShieldAlert, WifiOff } from 'lucide-react';
+import { Mic, Volume2, WifiOff } from 'lucide-react';
 
 import { Button } from '@/shared/ui/Button';
 import { createBackend, type BackendAdapter } from '@/shared/backend/backendAdapter';
+import { logger } from '@/shared/logger';
 
 interface VoiceStatus {
   mic: boolean;
@@ -67,7 +67,6 @@ export function VoiceSection({ backend: backendProp }: VoiceSectionProps) {
   const [status, setStatus] = useState<VoiceStatus | null>(null);
   const [offline, setOffline] = useState<OfflineDetect | null>(null);
   const [settings, setSettings] = useState<OfflineSettings>(DEFAULT_OFFLINE);
-  const [alwaysOn, setAlwaysOn] = useState(false);
   const [speakTest, setSpeakTest] = useState<string | null>(null);
 
   useEffect(() => {
@@ -107,7 +106,10 @@ export function VoiceSection({ backend: backendProp }: VoiceSectionProps) {
     void backend
       .voiceSynthesize('语音合成链路自检')
       .then(() => setSpeakTest('已朗读'))
-      .catch((e: unknown) => setSpeakTest(`失败：${String(e)}`));
+      .catch((e: unknown) => {
+        logger.error('voice', '语音合成自检失败', { err: String(e) });
+        setSpeakTest('自检失败');
+      });
   };
 
   return (
@@ -136,25 +138,6 @@ export function VoiceSection({ backend: backendProp }: VoiceSectionProps) {
           {status.note}（模型由 CI/用户放置，缺失即降级）
         </p>
       )}
-
-      <div className="flex items-center justify-between rounded-md ink-elevated px-3.5 py-2.5">
-        <span className="flex items-center gap-2 text-[11px]">
-          <AudioLines size={13} strokeWidth={1.6} aria-hidden />
-          always-on 监听
-        </span>
-        <input
-          type="checkbox"
-          className="ink-checkbox"
-          data-ui="voice_always_on"
-          checked={alwaysOn}
-          onChange={(e) => setAlwaysOn(e.target.checked)}
-          aria-label="always-on 监听"
-        />
-      </div>
-      <p className="flex items-start gap-1.5 text-[10px] leading-relaxed ink-text-faint">
-        <ShieldAlert size={12} strokeWidth={1.8} aria-hidden className="mt-0.5 shrink-0" />
-        隐私提示：监听仅在本地完成音频采集与识别，录音不上云；开启后语音将转为回合输入，请确保处于私人环境。
-      </p>
 
       <div className="flex items-center gap-2">
         <Button size="sm" variant="secondary" data-ui="voice_speak_test" onClick={testSpeak}>

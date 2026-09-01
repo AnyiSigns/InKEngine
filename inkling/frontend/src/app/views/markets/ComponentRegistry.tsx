@@ -16,6 +16,7 @@ import { Boxes, PackageOpen, Power } from 'lucide-react';
 
 import type { AppBackend } from '../../backend';
 import type { AppArtifactEntry } from '../../types';
+import { logger } from '../../../shared/logger';
 
 interface ComponentRegistryProps {
   backend: AppBackend;
@@ -66,7 +67,8 @@ export function ComponentRegistry({ backend }: ComponentRegistryProps) {
       setDisabled(new Set(result.disabled ?? []));
       await backend.syncUiComponentGate();
     } catch (err) {
-      setNotice(`出厂组件设置失败：${String(err)}`);
+      logger.error('components', '出厂组件启停失败', { name, err: String(err) });
+      setNotice('出厂组件设置失败，请稍后重试');
     } finally {
       setSaving(false);
     }

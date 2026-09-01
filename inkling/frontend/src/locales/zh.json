@@ -112,6 +112,7 @@
   "settings.saving": "保存中…",
   "settings.saved": "已保存",
   "settings.save_failed": "保存失败",
+  "settings.read_failed": "读取失败",
 
   "backup.section": "备份",
   "backup.mode.export": "导出",

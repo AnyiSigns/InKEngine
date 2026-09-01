@@ -25,11 +25,13 @@ describe('产物组件注册', () => {
     expect(registerArtifactComponent('x'.repeat(80), () => null)).toBe(false);
   });
 
-  it('清单注册：合法条目入表，缺字段/非法 URL 跳过', () => {
+  it('清单注册：合法条目入表，缺字段/非法 URL/坏哈希跳过', () => {
     const entries: ArtifactManifestEntry[] = [
-      { name: 'artifact_a', url: 'http://localhost:4321/a.js', hash: 'h1', version: '0.1.0' },
-      { name: '', url: 'http://x/b.js', hash: 'h2', version: '0.1.0' },
-      { name: 'artifact_b', url: 'http://localhost:4321/b.js', hash: 'h3', version: '0.1.0' },
+      { name: 'artifact_a', url: 'http://localhost:4321/a.js', hash: 'a1b2c3d4e5f6a7b8c9d0e1f2a3b4c5d6', version: '0.1.0' },
+      { name: '', url: 'http://x/b.js', hash: 'a1b2c3d4e5f6a7b8c9d0e1f2a3b4c5d6', version: '0.1.0' },
+      { name: 'artifact_b', url: 'http://localhost:4321/b.js', hash: 'c1d2e3f4a5b6c7d8e9f0a1b2c3d4e5f6', version: '0.1.0' },
+      { name: 'artifact_bad_hash', url: 'http://localhost:4321/x.js', hash: 'not-a-hex-hash', version: '0.1.0' },
+      { name: 'artifact_bad_scheme', url: 'javascript:alert(1)', hash: 'a1b2c3d4e5f6a7b8c9d0e1f2a3b4c5d6', version: '0.1.0' },
     ];
     const registered = registerArtifactManifest(entries);
     expect(registered).toBe(2);
@@ -45,7 +47,9 @@ describe('宿主清单刷新（挂载后注册表刷新）', () => {
     const backend = {
       available: true,
       componentsManifest: vi.fn(async () => ({
-        artifacts: [{ name: 'artifact_c', url: 'http://localhost:4321/c.js', hash: 'h', version: '0.1.0' }],
+        artifacts: [
+          { name: 'artifact_c', url: 'http://localhost:4321/c.js', hash: 'a1b2c3d4e5f6a7b8c9d0e1f2a3b4c5d6', version: '0.1.0' },
+        ],
       })),
     } as unknown as BackendAdapter;
     const count = await refreshArtifactManifest(backend);

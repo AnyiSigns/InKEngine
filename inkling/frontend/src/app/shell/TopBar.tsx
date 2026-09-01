@@ -16,11 +16,9 @@ export type MainTab = 'chat' | 'evolution' | 'ledger' | 'trajectory' | 'todo';
 
 interface TopBarProps {
   title: string;
-  unreadCount: number;
   tab: MainTab;
   onTabChange: (tab: MainTab) => void;
   onTitleChange: (title: string) => void;
-  onOpenEvolution?: () => void;
   /** 待办清单非空（agent 已建清单）→ 顶栏临时展示「待办」标签 */
   hasTodo?: boolean;
   /** 待办未完成计数（标签旁角标） */

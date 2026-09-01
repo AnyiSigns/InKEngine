@@ -9,14 +9,33 @@ import { CHART_PALETTE, type ChartSpec } from './chart_spec';
 
 interface Box { width: number; height: number; pad: number; }
 
+/** 色值安全字符集 + 危险片段拒绝（防 SVG 属性注入；CSS 色值/命名色/token 引用均可）。 */
+const SAFE_COLOR_CHARS = /^[a-zA-Z0-9#(),.%\s-]+$/;
+const UNSAFE_COLOR_FRAGMENT = /[<>"'=;\\]|url|expression/i;
+
+function sanitizeColor(value: unknown, fallback: string): string {
+  const trimmed = typeof value === 'string' ? value.trim() : '';
+  if (trimmed !== '' && SAFE_COLOR_CHARS.test(trimmed) && !UNSAFE_COLOR_FRAGMENT.test(trimmed)) {
+    return trimmed;
+  }
+  return fallback;
+}
+
+function sanitizeDim(value: unknown, fallback: number): number {
+  return typeof value === 'number' && Number.isFinite(value) && value > 0 ? Math.min(Math.round(value), 4096) : fallback;
+}
+
 function box(spec: ChartSpec): Box {
-  const width = spec.style?.width ?? 360;
-  const height = spec.style?.height ?? 220;
+  const width = sanitizeDim(spec.style?.width, 360);
+  const height = sanitizeDim(spec.style?.height, 220);
   return { width, height, pad: 28 };
 }
 
 function palette(spec: ChartSpec): string[] {
-  return spec.style?.palette ?? CHART_PALETTE;
+  const raw = spec.style?.palette ?? CHART_PALETTE;
+  if (!Array.isArray(raw) || raw.length === 0) return CHART_PALETTE;
+  const cleaned = raw.map((c, i) => sanitizeColor(c, CHART_PALETTE[i % CHART_PALETTE.length]));
+  return cleaned;
 }
 
 function esc(text: string): string {

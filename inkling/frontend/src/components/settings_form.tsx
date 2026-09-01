@@ -7,7 +7,7 @@
  * 试穿与主题档切换即时生效、不动会话/草稿/折叠状态（独立存储面）。
  */
 
-import { useEffect, useState } from 'react';
+import { useEffect, useRef, useState } from 'react';
 import {
   Check, ChevronDown, Cpu, FileText, FlaskConical, GitBranch, Info,
   KeyRound, Paintbrush, PlugZap, RotateCcw, ShieldCheck, Sparkles,
@@ -32,7 +32,6 @@ import { AppearanceSection, DEFAULT_APPEARANCE } from './settings_sections/appea
 import type { AppearanceValue } from './settings_sections/appearance_section';
 
 interface SettingsFormProps {
-  bindValue?: unknown;
   /** 分区定位（Tab 容器下只渲染对应分区；省略则双栏全量形态） */
   form?: SectionId;
   onNavigate?: (view: ViewId) => void;
@@ -51,6 +50,8 @@ interface SettingsFormProps {
   onOpenBackupWizard?: (mode: 'export' | 'restore') => void;
   /** 崩溃回退操作面（安全信任节接线：回上一稳定版本 / 出厂重置） */
   recovery?: SecurityTrustRecovery | null;
+  /** 审计导出数据源（安全信任节接线；缺省 = 导出按钮禁用） */
+  backend?: BackendAdapter;
   /** 既有资料批量导入操作面（搬进 InKEngine 第一步） */
   materialImport?: BackendAdapter;
 }
@@ -75,7 +76,6 @@ const ENTRY_ITEMS: Array<{ view: ViewId; label: string; icon: typeof FlaskConica
 ];
 
 export function SettingsForm({
-  bindValue,
   form,
   onNavigate,
   onApplySettings,
@@ -85,10 +85,10 @@ export function SettingsForm({
   autoApprovableTools,
   onOpenBackupWizard,
   recovery,
+  backend,
   materialImport,
   onRememberedDomainsChange,
 }: SettingsFormProps) {
-  void bindValue;
   const [active, setActive] = useState<SectionId>('capability');
   const [capability, setCapability] = useState<CapabilityValue>({ ...DEFAULT_CAPABILITY, ...initialCapability });
   const [security, setSecurity] = useState<SecurityValue>({
@@ -102,11 +102,31 @@ export function SettingsForm({
   const [appearance, setAppearance] = useState<AppearanceValue>(DEFAULT_APPEARANCE);
   const [aboutOpen, setAboutOpen] = useState(false);
 
-  // 宿主能力档装载（启动后异步到达：合并覆盖缺省档，不覆盖用户已编辑）
+  // 启动装载脏标：用户已编辑的分区不被后到的宿主初值覆盖（注释承诺的
+  // 「不覆盖用户已编辑」落地；capability 与 security 各自独立判定）
+  const capDirty = useRef(false);
+  const secDirty = useRef(false);
+
+  // 宿主能力档装载（启动后异步到达：仅当用户未编辑过该分区时合并覆盖）
   useEffect(() => {
-    if (!initialCapability) return;
+    if (!initialCapability || capDirty.current) return;
     setCapability((prev) => ({ ...prev, ...initialCapability }));
   }, [initialCapability]);
+
+  // 自动审批/已记住域名同样异步到达：补 effect（仅未编辑安全分区时装载）
+  useEffect(() => {
+    if (!initialAutoApprove || secDirty.current) return;
+    setSecurity((prev) => ({
+      ...prev,
+      autoApproveTools: initialAutoApprove.tools,
+      autoApproveAllReview: initialAutoApprove.allReview,
+    }));
+  }, [initialAutoApprove]);
+
+  useEffect(() => {
+    if (!initialRememberedDomains || secDirty.current) return;
+    setSecurity((prev) => ({ ...prev, rememberedDomains: initialRememberedDomains }));
+  }, [initialRememberedDomains]);
 
   const patchSection = <T,>(setter: React.Dispatch<React.SetStateAction<T>>, patch: Partial<T>): void => {
     setter((prev) => ({ ...prev, ...patch }));
@@ -127,7 +147,15 @@ export function SettingsForm({
   const renderSection = (id: SectionId): React.ReactNode => {
     switch (id) {
       case 'capability':
-        return <AppCapabilitySection value={capability} patch={(next) => patchSection(setCapability, next)} />;
+        return (
+          <AppCapabilitySection
+            value={capability}
+            patch={(next) => {
+              capDirty.current = true;
+              patchSection(setCapability, next);
+            }}
+          />
+        );
       case 'growth':
         return (
           <>
@@ -139,9 +167,13 @@ export function SettingsForm({
         return (
           <SecurityTrust
             value={security}
-            patch={(next) => patchSection(setSecurity, next)}
+            patch={(next) => {
+              secDirty.current = true;
+              patchSection(setSecurity, next);
+            }}
             onOpenBackupWizard={onOpenBackupWizard}
             recovery={recovery}
+            backend={backend}
             autoApprovableTools={autoApprovableTools ?? []}
             onRememberedDomainsChange={onRememberedDomainsChange}
           />

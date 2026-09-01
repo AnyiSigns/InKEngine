@@ -30,6 +30,7 @@ import { TOOL_LAYER_LABELS } from '../../types';
 import type { ToolManifestEntry } from '@/shared/backend/backendAdapter';
 import { resolveToolLabel, permissionLabel } from '@/shared/labels/toolLabels';
 import { classifyToolFamily, FAMILY_LABELS } from '@/shared/labels/toolLabels';
+import { logger } from '@/shared/logger';
 import { useT } from '@/i18n/useT';
 
 function interpolate(template: string, vars: Record<string, string | number>): string {
@@ -269,8 +270,9 @@ export function ToolsPanel({ backend }: ToolsPanelProps) {
       if (capability.maxToolRounds !== undefined) {
         setMaxToolRounds(capability.maxToolRounds);
       }
-    } catch (err: unknown) {
-      setError(String(err));
+    } catch (err) {
+      logger.error('tools', '工具清单装载失败', { err: String(err) });
+      setError('请稍后重试');
     } finally {
       setLoading(false);
     }

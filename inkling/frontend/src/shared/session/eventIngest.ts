@@ -683,6 +683,8 @@ export function createIngester(hub: ChannelHub): (event: HubEvent) => void {
     }
     if (event.type === 'end') {
       clearStreamingTimer();
+      // 事件流结束：批次指标统一输出（承诺落空修复）
+      counter.flush(true);
     }
     ingestEvent(hub, event);
   };
@@ -723,37 +725,8 @@ export function toEngineAttachments(assets: AttachmentAsset[]): OutboundAttachme
 }
 
 /**
- * 用户输入提交（会话驱动侧本地动作）：message_list 的用户气泡 + 演示占位回复。
- * 集成期此处由引擎回合接管（该路径不产生引擎事件，仅落位本地面）。
- * 带附件时把资产按引擎 Attachment 契约序列化进 user 消息（多模态直发形态）。
- */
-export function submitUserMessage(hub: ChannelHub, text: string, attachments?: AttachmentAsset[], at = Date.now()): void {
-  const snapshot = hub.getSnapshot();
-  if (snapshot.streaming) return;
-  const roundId = snapshot.roundId ?? `round-${at}`;
-  const payload = toEngineAttachments(attachments ?? []);
-  const userMsg: InkMessage = {
-    kind: 'text',
-    role: 'user',
-    content: text,
-    id: nextId(),
-    roundId,
-    ...(payload.length > 0 ? { attachments: payload } : {}),
-  };
-  const reply: InkMessage = {
-    kind: 'text',
-    role: 'assistant',
-    content: `收到：「${text}」。演示形态下回合由夹具事件驱动；集成期此处为引擎回合入口（route → tools → review → reply）。`,
-    id: nextId(),
-    roundId,
-  };
-  hub.setState({ ...snapshot, messages: [...snapshot.messages, userMsg, reply], roundId });
-}
-
-/**
  * 真实回合提交（宿主驱动侧）：只落用户气泡 + 开启流式态，回复由
  * 回合事件流（round_event）增量渲染；返回 roundId 供宿主下发 round_send。
- * 区别于 submitUserMessage（演示占位回复），本路径不产生假回复。
  */
 export function submitUserRound(
   hub: ChannelHub,

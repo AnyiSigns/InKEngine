@@ -5,11 +5,3 @@ export interface TaskCapsuleData {
   total: number;
   next_step?: string;
 }
-
-export interface RoundTaskSummaryData {
-  goal: string;
-  status: string;
-  changed_files: string[];
-  next_step: string;
-  summary_ref: string;
-}

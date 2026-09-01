@@ -12,6 +12,25 @@ const INK_PREFIX = '--ink-';
 const PROP_RE = new RegExp('^\\s*(' + INK_PREFIX + '[a-z0-9-]+)\\s*:\\s*(.+?)\\s*$', 'i');
 const UNSAFE_FRAGMENT = /url\(|expression\(|<|>|;|}|@/i;
 
+/** CSS 转义解码（`\72`/`\72 ` 十六进制 与 `\c` 单字符）；解码后仍含 \ = 残留转义。 */
+function decodeCssEscapes(value: string): string {
+  return value.replace(/\\([0-9a-fA-F]{1,6}\s?|.)/g, (whole, esc: string) => {
+    const trimmed = esc.trim();
+    if (/^[0-9a-fA-F]{1,6}$/.test(trimmed)) {
+      const code = parseInt(trimmed, 16);
+      if (code > 0 && code <= 0x10ffff) {
+        try {
+          return String.fromCodePoint(code);
+        } catch {
+          return '';
+        }
+      }
+      return '';
+    }
+    return whole;
+  });
+}
+
 export interface InjectResult {
   ok: boolean;
   /** 拒绝原因（ok=false 时存在） */
@@ -35,7 +54,9 @@ export function sanitizeUserStyle(css: string): InjectResult {
       return { ok: false, reason: `越界样式声明被拒绝：${text}` };
     }
     const value = match[2].trim();
-    if (UNSAFE_FRAGMENT.test(value)) {
+    // 解码 CSS 转义后复核：u\72l( 解码为 url( 即拒绝；原始与解码双重判定
+    const decoded = decodeCssEscapes(value);
+    if (UNSAFE_FRAGMENT.test(value) || UNSAFE_FRAGMENT.test(decoded)) {
       return { ok: false, reason: `样式值含危险片段被拒绝：${value}` };
     }
     out.push(`${match[1]}: ${value};`);

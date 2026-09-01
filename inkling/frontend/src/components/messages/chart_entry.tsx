@@ -7,6 +7,7 @@
  */
 
 import { Download } from 'lucide-react';
+import DOMPurify from 'dompurify';
 
 import type { InkChartMessage } from '@/shared/session/types';
 import { isRenderableSpec, type ChartSpec } from '@/shared/charts/chart_spec';
@@ -68,7 +69,14 @@ export function ChartEntry({ message, onExport }: ChartEntryProps) {
           </button>
         </div>
       }
-      body={<div className="ink-chart-host" data-chart-type={spec.type} dangerouslySetInnerHTML={{ __html: svg }} />}
+      body={
+        <div
+          className="ink-chart-host"
+          data-chart-type={spec.type}
+          // 序列化端已做属性白名单净化；注入前再经 DOMPurify 兜底（spec 来源不可信）
+          dangerouslySetInnerHTML={{ __html: DOMPurify.sanitize(svg) }}
+        />
+      }
     />
   );
 }

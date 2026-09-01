@@ -6,7 +6,7 @@
  * 即改即存（有 write 通道）或仅展示。
  */
 
-import { useState, useEffect } from 'react';
+import { useState, useEffect, useRef } from 'react';
 
 import { Field, TextInput, Select } from '@/shared/ui/Field';
 import type { SettingsItemSpec } from './types';
@@ -22,6 +22,11 @@ export function SettingsItemRenderer({ item, backendAvailable }: SettingsItemRen
   const [value, setValue] = useState<string>('');
   const [phase, setPhase] = useState<'idle' | 'saving' | 'saved' | 'error'>('idle');
   const [error, setError] = useState<string | null>(null);
+  const phaseTimer = useRef<ReturnType<typeof setTimeout> | null>(null);
+
+  useEffect(() => () => {
+    if (phaseTimer.current) clearTimeout(phaseTimer.current);
+  }, []);
 
   /** 项标签/提示：翻译键优先（settings.item.<key> / settings.item.hint.<key>），未登记回落注册文案。 */
   const itemLabel = (): string => {
@@ -36,16 +41,25 @@ export function SettingsItemRenderer({ item, backendAvailable }: SettingsItemRen
     return translated === key ? item.hint : translated;
   };
 
+  const disabled = !!item.disabledReason || !backendAvailable;
+  const disabledReason = item.disabledReason ?? (backendAvailable ? '' : t('settings.data_driven'));
+
   useEffect(() => {
+    if (disabled) return;
     let cancelled = false;
-    void item.read().then((val) => {
-      if (cancelled) return;
-      setValue(String(val ?? ''));
-    });
+    void item
+      .read()
+      .then((val) => {
+        if (cancelled) return;
+        setValue(String(val ?? ''));
+      })
+      .catch(() => {
+        if (!cancelled) setError(t('settings.read_failed'));
+      });
     return () => {
       cancelled = true;
     };
-  }, [item.key, item.read]);
+  }, [item.key, item.read, disabled, t]);
 
   const writeValue = async (next: string): Promise<void> => {
     if (!item.write) return;
@@ -59,15 +73,14 @@ export function SettingsItemRenderer({ item, backendAvailable }: SettingsItemRen
     try {
       await item.write(next);
       setPhase('saved');
-      setTimeout(() => setPhase('idle'), 1200);
+      if (phaseTimer.current) clearTimeout(phaseTimer.current);
+      phaseTimer.current = setTimeout(() => setPhase('idle'), 1200);
     } catch {
       setPhase('error');
-      setTimeout(() => setPhase('idle'), 2000);
+      if (phaseTimer.current) clearTimeout(phaseTimer.current);
+      phaseTimer.current = setTimeout(() => setPhase('idle'), 2000);
     }
   };
-
-  const disabled = !!item.disabledReason || !backendAvailable;
-  const disabledReason = item.disabledReason ?? (backendAvailable ? '' : t('settings.data_driven'));
 
   const input = (() => {
     switch (item.kind) {

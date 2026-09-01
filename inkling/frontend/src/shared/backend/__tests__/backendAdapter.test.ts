@@ -119,7 +119,48 @@ describe('Tauri 桥适配器', () => {
     await backend.uiComponentsGet();
     await backend.uiComponentsSetDisabled(['message_list']);
     expect(calls.map((call) => call.cmd)).toEqual(['ui_components.get', 'ui_components.set_disabled']);
-    expect(calls[1].args).toEqual({ disabled: ['message_list'] });
+    // 薄转发命令 args 键包裹（壳侧 args: Option<JsonValue>，键名须为 args）
+    expect(calls[1].args).toEqual({ args: { disabled: ['message_list'] } });
+  });
+
+  it('薄转发命令 args 键包裹 + 命令名对齐（todo/growth/models/dialog/knowledge/memory/graph/ui_spec/path）', async () => {
+    const { invoker, calls } = mockInvoker();
+    const backend = createTauriBackend(invoker);
+    await backend.todoGet('thread-a');
+    await backend.growthReport();
+    await backend.modelsRefresh({ base_url: 'http://x', models: [] });
+    await backend.modelsConfigPut({ providers: [] });
+    await backend.openDirectoryDialog({ title: '选目录', directory: true, multiple: false });
+    await backend.knowledgePromote('k-1');
+    await backend.skillImport('text:hello', true);
+    await backend.memoryInvalidate('m-1');
+    await backend.graphInstanceSnapshot('thread-a');
+    await backend.uiSpecApply({ root: { type: 'panel' } });
+    await backend.pathSetAssemblerEnabled(true);
+    expect(calls.map((call) => call.cmd)).toEqual([
+      'todo.get',
+      'growth.report',
+      'models_refresh',
+      'models_config_put',
+      'plugin:dialog|open',
+      'knowledge.promote',
+      'knowledge.skill_import',
+      'memory.invalidate',
+      'graph_instance_snapshot',
+      'ui_spec.apply',
+      'path_set_assembler_enabled',
+    ]);
+    expect(calls[0].args).toEqual({ args: { thread_id: 'thread-a' } });
+    expect(calls[1].args).toEqual({});
+    expect(calls[2].args).toEqual({ config: { base_url: 'http://x', models: [] } });
+    expect(calls[3].args).toEqual({ config: { providers: [] } });
+    expect(calls[4].args).toEqual({ options: { title: '选目录', directory: true, multiple: false } });
+    expect(calls[5].args).toEqual({ args: { id: 'k-1' } });
+    expect(calls[6].args).toEqual({ args: { source: 'text:hello', preview: true } });
+    expect(calls[7].args).toEqual({ args: { id: 'm-1' } });
+    expect(calls[8].args).toEqual({ args: { thread_id: 'thread-a' } });
+    expect(calls[9].args).toEqual({ args: { spec: { root: { type: 'panel' } } } });
+    expect(calls[10].args).toEqual({ args: { enabled: true } });
   });
 });
 

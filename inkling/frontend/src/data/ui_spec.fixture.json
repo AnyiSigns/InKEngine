@@ -171,7 +171,7 @@
                 "type": "group_card",
                 "props": { "title": "依据链", "collapsed": true },
                 "children": [
-                  { "kind": "component", "type": "source_trace", "props": { "source": "round_state" }, "bind": { "channel": "state", "path": "round_steps" } },
+                  { "kind": "component", "type": "source_trace", "props": { "source": "round_state" }, "bind": { "channel": "state.round_steps", "path": "" } },
                   { "kind": "component", "type": "source_trace", "props": { "source": "memory" }, "bind": { "channel": "events.memory_recall", "path": "" } },
                   { "kind": "component", "type": "source_trace", "props": { "source": "tuning" }, "bind": { "channel": "events.tuning_update", "path": "" } },
                   { "kind": "component", "type": "source_trace", "props": { "source": "vetting" }, "bind": { "channel": "events.vetting_result", "path": "" } },

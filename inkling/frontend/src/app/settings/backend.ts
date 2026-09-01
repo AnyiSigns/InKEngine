@@ -19,7 +19,7 @@ export interface SettingsBackend {
   offlineSettingsPut(settings: Record<string, unknown>): Promise<unknown>;
   metricsSnapshot(): Promise<Record<string, unknown>>;
   assembleStats(): Promise<Record<string, unknown>>;
-  cacheInvalidate(scope: string): Promise<{ cleared: string }>;
+  cacheInvalidate(scope: string): Promise<Record<string, unknown>>;
   voiceStatus(): Promise<Record<string, unknown>>;
   offlineDetect(): Promise<Record<string, unknown>>;
   backendStatus(): Promise<Record<string, unknown>>;

@@ -7,7 +7,7 @@
  * 宿主不可用 = 空态提示；切线程自动刷新。
  */
 
-import { useCallback, useEffect, useState } from 'react';
+import { useCallback, useEffect, useRef, useState } from 'react';
 import { BookOpen, FileClock, Loader2, RefreshCw, Shrink } from 'lucide-react';
 
 import type { BackendAdapter, RoundLedgerItem } from '@/shared/backend/backendAdapter';
@@ -48,6 +48,11 @@ export function LedgerView({ backend, threadId }: LedgerViewProps): JSX.Element 
   const [chain, setChain] = useState<string[] | null>(null);
   const [phase, setPhase] = useState<'idle' | 'loading' | 'success' | 'fail'>('idle');
   const [mergePhase, setMergePhase] = useState<'idle' | 'loading' | 'success' | 'fail'>('idle');
+  const mergeTimer = useRef<ReturnType<typeof setTimeout> | null>(null);
+
+  useEffect(() => () => {
+    if (mergeTimer.current) clearTimeout(mergeTimer.current);
+  }, []);
 
   const load = useCallback(() => {
     if (!backend.available || !threadId) {
@@ -77,12 +82,14 @@ export function LedgerView({ backend, threadId }: LedgerViewProps): JSX.Element 
       .roundLedgerMerge(threadId)
       .then(() => {
         setMergePhase('success');
-        setTimeout(() => setMergePhase('idle'), 1500);
+        if (mergeTimer.current) clearTimeout(mergeTimer.current);
+        mergeTimer.current = setTimeout(() => setMergePhase('idle'), 1500);
         load();
       })
       .catch(() => {
         setMergePhase('fail');
-        setTimeout(() => setMergePhase('idle'), 2000);
+        if (mergeTimer.current) clearTimeout(mergeTimer.current);
+        mergeTimer.current = setTimeout(() => setMergePhase('idle'), 2000);
       });
   };
 

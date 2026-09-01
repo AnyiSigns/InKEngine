@@ -451,12 +451,13 @@ export interface BackendAdapter {
   cacheStats(): Promise<unknown>;
   cacheClear(): Promise<unknown>;
   // 干预 op（前端契约；壳侧落地由另一道负责）
-  chooseCandidate(candidateId: string | null): Promise<{ chosen: string | null }>;
-  setMultipath(enabled: boolean): Promise<{ multipath: boolean }>;
-  invalidateCache(scope: string): Promise<{ cleared: string }>;
-  downgradeEdgeTier(edgeId: string): Promise<{ edge: string; tier: string }>;
-  rebuildCache(scope: string): Promise<{ rebuilt: string }>;
-  restoreEdgeTier(edgeId: string): Promise<{ edge: string; tier: string }>;
+  // 返回形态由引擎 op 决定（键名引擎侧定），此处统一宽松透传、不做假契约
+  chooseCandidate(candidateId: string | null): Promise<Record<string, unknown>>;
+  setMultipath(enabled: boolean): Promise<Record<string, unknown>>;
+  invalidateCache(scope: string): Promise<Record<string, unknown>>;
+  downgradeEdgeTier(edgeId: string): Promise<Record<string, unknown>>;
+  rebuildCache(scope: string): Promise<Record<string, unknown>>;
+  restoreEdgeTier(edgeId: string): Promise<Record<string, unknown>>;
   // 既有资料批量导入（搬进 InKEngine 第一步）：扫描预览 + 入料
   materialScan(path: string, recursive?: boolean): Promise<MaterialScanResult>;
   materialIngest(path: string, recursive?: boolean): Promise<MaterialImportResult>;
@@ -674,13 +675,14 @@ export function createTauriBackend(invoker?: TauriInvoker): BackendAdapter {
     roundLedgerList: (threadId) => call('round_ledger_list', { threadId }),
     roundLedgerChain: (threadId) => call('round_ledger_chain', { threadId }),
     roundLedgerMerge: (threadId) => call('round_ledger_merge', { threadId }),
-    todoGet: (threadId) => call('todo_get', { thread_id: threadId }),
+    // todo.get 走薄转发 args 面（引擎 op 按 thread_id 取键）
+    todoGet: (threadId) => call('todo.get', { args: { thread_id: threadId } }),
     toolsSnapshot: () => call('tools_snapshot'),
     toolsManifest: () => call('tools_manifest'),
     toolsBaselineGet: () => call('tools_baseline_get'),
     toolsBaselineSet: (tools) => call('tools_baseline_set', { tools }),
     uiComponentsGet: () => call('ui_components.get'),
-    uiComponentsSetDisabled: (disabled) => call('ui_components.set_disabled', { disabled }),
+    uiComponentsSetDisabled: (disabled) => call('ui_components.set_disabled', { args: { disabled } }),
     componentsManifest: () => call('components_manifest'),
     mcpMarketStatus: () => call('mcp_market_status'),
     mcpMarketMount: (serverId) => call('mcp_market_mount', { serverId }),
@@ -689,18 +691,20 @@ export function createTauriBackend(invoker?: TauriInvoker): BackendAdapter {
     mcpMarketAdd: (link) => call('mcp_market_add', { link }),
     mcpMarketRemove: (marketId) => call('mcp_market_remove', { marketId }),
     modelArchiveSnapshot: () => call('model_archive_snapshot'),
-    metricsSnapshot: () => call('metrics_snapshot'),
+    // metrics.snapshot 壳命令参数为 args（非 Option），无参调用须显式空对象
+    metricsSnapshot: () => call('metrics_snapshot', { args: {} }),
     assembleStats: () => call('assemble_stats'),
     graphSnapshot: () => call('graph_snapshot'),
-    graphInstanceSnapshot: (threadId) => call('graph_instance_snapshot', { threadId }),
+    graphInstanceSnapshot: (threadId) => call('graph_instance_snapshot', { args: { thread_id: threadId } }),
     poolSnapshot: () => call('pool_snapshot'),
     poolEvaluate: () => call('pool_evaluate'),
     entitiesSnapshot: () => call('entities_snapshot'),
     edgeEvidenceList: () => call('edge_evidence_list'),
-    edgeEvidenceUpdate: (edgeId, patch) => call('edge_evidence_update', { edgeId, patch }),
+    edgeEvidenceUpdate: (edgeId, patch) =>
+      call('edge_evidence_update', { args: { edgeId, ...(patch as Record<string, unknown>) } }),
     pathAssemble: () => call('path_assemble'),
     pathClearCandidate: () => call('path_clear_candidate'),
-    pathSetAssemblerEnabled: (enabled) => call('path_set_assembler_enabled', { enabled }),
+    pathSetAssemblerEnabled: (enabled) => call('path_set_assembler_enabled', { args: { enabled } }),
     cacheStats: () => call('cache_stats'),
     cacheClear: () => call('cache_clear'),
     chooseCandidate: (candidateId) => call('path_choose_candidate', { candidateId }),
@@ -713,33 +717,33 @@ export function createTauriBackend(invoker?: TauriInvoker): BackendAdapter {
     materialScan: (path, recursive) => call('material_import', { path, recursive, ingest: false }),
     materialIngest: (path, recursive) => call('material_import', { path, recursive, ingest: true }),
     uiSpecGet: () => call('ui_spec.get'),
-    uiSpecApply: (spec) => call('ui_spec.apply', { spec }),
+    uiSpecApply: (spec) => call('ui_spec.apply', { args: { spec } }),
     uiSpecRevert: () => call('ui_spec.revert_latest'),
     modelReload: () => call('model.reload'),
     searchKeysPut: (keys) => call('search_keys_put', { keys }),
-    growthReport: () => call('growth_report'),
-    modelsRefresh: (config) => call('models_refresh', config),
+    growthReport: () => call('growth.report'),
+    modelsRefresh: (config) => call('models_refresh', { config }),
     modelsConfigGet: () => call('models_config_get'),
-    modelsConfigPut: (config) => call('models_config_put', config),
+    modelsConfigPut: (config) => call('models_config_put', { config }),
     openDirectoryDialog: (options) =>
-      // tauri-plugin-dialog 的 open 命令入参为扁平形态（title/directory/
-      // multiple 顶层字段），不能包一层 options（B1 修复：此前嵌套导致
-      // 目录选择器始终按文件单选打开/参数丢失）
-      call<string | string[] | null>('plugin:dialog|open', options).then((picked) => {
+      // tauri-plugin-dialog 2.x 的 open 命令参数为 options: OpenDialogOptions（单键），
+      // 须包一层 options；扁平 title/directory/multiple 顶层字段会缺 options 键报错
+      call<string | string[] | null>('plugin:dialog|open', { options }).then((picked) => {
         if (Array.isArray(picked)) return picked.filter((p): p is string => typeof p === 'string');
         return picked ? [picked] : null;
       }),
     knowledgeList: () => call('knowledge.list'),
-    knowledgeAdd: (input) => call('knowledge.add', input),
-    knowledgePromote: (id) => call('knowledge.promote', { id }),
-    knowledgeArchive: (id) => call('knowledge.archive', { id }),
-    knowledgeRestore: (id) => call('knowledge.restore', { id }),
-    knowledgeExport: (id) => call('knowledge.export', { id }),
-    skillImport: (source, preview) => call('knowledge.skill_import', { source, preview }),
-    skillReimport: (id) => call('knowledge.skill_reimport', { id }),
+    knowledgeAdd: (input) => call('knowledge.add', { args: input }),
+    knowledgePromote: (id) => call('knowledge.promote', { args: { id } }),
+    knowledgeArchive: (id) => call('knowledge.archive', { args: { id } }),
+    knowledgeRestore: (id) => call('knowledge.restore', { args: { id } }),
+    knowledgeExport: (id) => call('knowledge.export', { args: { id } }),
+    skillImport: (source, preview) => call('knowledge.skill_import', { args: { source, preview } }),
+    skillReimport: (id) => call('knowledge.skill_reimport', { args: { id } }),
     memoryList: () => call('memory.list'),
-    memoryInvalidate: (id) => call('memory.invalidate', { id }),
-    memoryUpdateFrontmatter: (id, frontmatter) => call('memory.update_frontmatter', { id, frontmatter }),
+    memoryInvalidate: (id) => call('memory.invalidate', { args: { id } }),
+    memoryUpdateFrontmatter: (id, frontmatter) =>
+      call('memory.update_frontmatter', { args: { id, frontmatter } }),
     auditList: () => call('audit.list'),
     voiceRecord: (durationMs) => call('voice_record', { durationMs }),
     voiceTranscribe: (audio) => call('voice_transcribe', { audio }),

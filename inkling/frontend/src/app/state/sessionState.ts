@@ -4,7 +4,7 @@
 
 import { useSyncExternalStore, useCallback } from 'react';
 import { ChannelHub } from '@/shared/session/channelHub';
-import { submitUserMessage, submitUserRound, toEngineAttachments, setStreaming, commitStreaming, type AttachmentAsset } from '@/shared/session/eventIngest';
+import { submitUserRound, toEngineAttachments, setStreaming, commitStreaming, type AttachmentAsset } from '@/shared/session/eventIngest';
 import type { BackendAdapter, ModelSelection } from '@/shared/backend/backendAdapter';
 import type { SessionStore } from '@/shared/session/sessionStore';
 import type { InkMessage } from '@/shared/session/types';
@@ -49,7 +49,7 @@ export function useSessionActions(hub: ChannelHub, store: SessionStore, backend:
   const send = useCallback(
     (text: string, attachments: AttachmentAsset[] = [], model?: ModelSelection) => {
       if (!backend.available) {
-        submitUserMessage(hub, text, attachments);
+        // 无宿主 = 不产生假回复（演示占位路径已移除）；由装配层提示宿主不可用
         return;
       }
       if (hub.getSnapshot().streaming) return;

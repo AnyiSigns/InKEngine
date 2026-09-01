@@ -3,15 +3,17 @@
  * 崩溃回退（启动快照回上一稳定版本 / 出厂重置）。
  */
 
-import { useCallback, useState } from 'react';
+import { useCallback, useEffect, useState } from 'react';
 
 import { Download, FileClock, History, RotateCcw, ShieldCheck, Upload } from 'lucide-react';
 
 import { Button } from '@/shared/ui/Button';
 import { TextInput } from '@/shared/ui/Field';
+import { cn } from '@/shared/cn';
 import { Feedback } from '@/components/floaters/feedback';
 import type { FeedbackPhase } from '@/components/floaters/feedback';
 import type { BackendAdapter, RecoverySnapshot } from '@/shared/backend/backendAdapter';
+import { logger } from '@/shared/logger';
 
 export const APPROVAL_LEVELS = ['L0', 'L1', 'L2'] as const;
 export const APPROVAL_KINDS = ['rule', 'knowledge', 'tool', 'harness', 'theme', 'event_type', 'environment', 'artifact'] as const;
@@ -72,6 +74,8 @@ function formatSnapshotTime(createdAt: number): string {
 interface SecurityTrustProps {
   value: SecurityValue;
   patch: (next: Partial<SecurityValue>) => void;
+  /** 审计导出数据源（audit.list）；缺省 = 导出按钮禁用并提示未接线 */
+  backend?: BackendAdapter;
   /** 备份/恢复向导入口（宿主接线：导出 = 一键打包；恢复 = 校验预览 + 快照） */
   onOpenBackupWizard?: (mode: 'export' | 'restore') => void;
   /** 崩溃回退操作面（回上一稳定版本 / 出厂重置的宿主接线） */
@@ -83,7 +87,15 @@ interface SecurityTrustProps {
   onRememberedDomainsChange?: (domains: string[]) => void;
 }
 
-export function SecurityTrust({ value, patch, onOpenBackupWizard, recovery, autoApprovableTools = [], onRememberedDomainsChange }: SecurityTrustProps) {
+export function SecurityTrust({
+  value,
+  patch,
+  backend,
+  onOpenBackupWizard,
+  recovery,
+  autoApprovableTools = [],
+  onRememberedDomainsChange,
+}: SecurityTrustProps) {
   const [auditPhase, setAuditPhase] = useState<FeedbackPhase>('idle');
   const [snapshots, setSnapshots] = useState<RecoverySnapshot[]>([]);
   const [snapshotsPhase, setSnapshotsPhase] = useState<FeedbackPhase>('idle');
@@ -91,6 +103,7 @@ export function SecurityTrust({ value, patch, onOpenBackupWizard, recovery, auto
   const [resetPhase, setResetPhase] = useState<FeedbackPhase>('idle');
   const [safeMode, setSafeMode] = useState(false);
   const [confirmAction, setConfirmAction] = useState<'restore' | 'reset' | null>(null);
+  const [selectedSnapshot, setSelectedSnapshot] = useState<string | null>(null);
   const [domainDraft, setDomainDraft] = useState('');
   const [rememberedPhase, setRememberedPhase] = useState<FeedbackPhase>('idle');
 
@@ -113,6 +126,11 @@ export function SecurityTrust({ value, patch, onOpenBackupWizard, recovery, auto
       .catch(() => setSafeMode(false));
   }, [recovery]);
 
+  // 挂载即装载快照与安全模式（此前仅在点击「刷新快照」时装载，初始恒空）
+  useEffect(() => {
+    refreshSnapshots();
+  }, [refreshSnapshots]);
+
   const runRestore = useCallback(() => {
     if (!recovery) {
       setRestorePhase('fail');
@@ -120,13 +138,13 @@ export function SecurityTrust({ value, patch, onOpenBackupWizard, recovery, auto
     }
     setRestorePhase('loading');
     recovery
-      .restore(snapshots[0]?.name ?? '')
+      .restore(selectedSnapshot ?? snapshots[0]?.name ?? '')
       .then(() => {
         setRestorePhase('success');
         setConfirmAction(null);
       })
       .catch(() => setRestorePhase('fail'));
-  }, [recovery, snapshots]);
+  }, [recovery, snapshots, selectedSnapshot]);
 
   const runFactoryReset = useCallback(() => {
     if (!recovery) {
@@ -142,6 +160,37 @@ export function SecurityTrust({ value, patch, onOpenBackupWizard, recovery, auto
       })
       .catch(() => setResetPhase('fail'));
   }, [recovery]);
+
+  /** 审计流水导出（audit.list → JSON 下载）；未接线/失败 = 明确失败反馈。 */
+  const handleExportAudit = useCallback((): void => {
+    if (!backend?.available) {
+      setAuditPhase('fail');
+      return;
+    }
+    setAuditPhase('loading');
+    backend
+      .auditList()
+      .then((result) => {
+        const canDownload = typeof URL !== 'undefined' && typeof URL.createObjectURL === 'function';
+        if (canDownload) {
+          const blob = new Blob([JSON.stringify(result, null, 2)], { type: 'application/json' });
+          const url = URL.createObjectURL(blob);
+          const anchor = document.createElement('a');
+          anchor.href = url;
+          anchor.download = `audit_log_${new Date().toISOString().slice(0, 19).replace(/[:T]/g, '-')}.json`;
+          document.body.appendChild(anchor);
+          anchor.click();
+          anchor.remove();
+          URL.revokeObjectURL(url);
+        }
+        // 无下载能力（测试环境等）= 数据已拉取仍报成功，避免假失败
+        setAuditPhase('success');
+      })
+      .catch((err) => {
+        logger.error('settings', '审计日志导出失败', { err: String(err) });
+        setAuditPhase('fail');
+      });
+  }, [backend]);
 
   const commitRememberedDomains = useCallback(
     (next: string[]) => {
@@ -317,9 +366,9 @@ export function SecurityTrust({ value, patch, onOpenBackupWizard, recovery, auto
             size="sm"
             variant="secondary"
             data-ui="audit_export"
-            onClick={() => {
-              setAuditPhase('success');
-            }}
+            disabled={!backend?.available}
+            title={backend?.available ? '导出审计流水（JSON）' : '宿主不可用，审计导出未接线'}
+            onClick={handleExportAudit}
           >
             <FileClock size={11} strokeWidth={1.6} /> 导出审计日志
           </Button>
@@ -342,7 +391,9 @@ export function SecurityTrust({ value, patch, onOpenBackupWizard, recovery, auto
           >
             <Upload size={11} strokeWidth={1.6} /> 恢复向导
           </Button>
-          <Button size="sm" variant="ghost">清除本地配置</Button>
+          <Button size="sm" variant="ghost" disabled title="清除本地配置未接线（恢复清空请用出厂重置）">
+            清除本地配置
+          </Button>
         </div>
         <p className="flex items-center gap-1.5 text-[10px] leading-relaxed ink-text-faint">
           <ShieldCheck size={10} strokeWidth={1.6} className="shrink-0" aria-hidden />
@@ -374,6 +425,7 @@ export function SecurityTrust({ value, patch, onOpenBackupWizard, recovery, auto
             variant="secondary"
             data-ui="recovery_restore"
             disabled={!latestSnapshot}
+            title={latestSnapshot ? `将恢复 ${latestSnapshot.name}` : '暂无启动快照'}
             onClick={() => {
               if (confirmAction === 'restore') {
                 runRestore();
@@ -408,14 +460,28 @@ export function SecurityTrust({ value, patch, onOpenBackupWizard, recovery, auto
         </div>
         {latestSnapshot ? (
           <ul className="divide-y divide-[var(--ink-border)] overflow-hidden rounded">
-            {snapshots.slice(0, 5).map((snapshot) => (
-              <li key={snapshot.name} className="flex items-center justify-between gap-2 px-1 py-1.5">
-                <span className="truncate font-mono text-[10px] ink-text-muted">{snapshot.name}</span>
-                <span className="shrink-0 text-[10px] ink-text-faint">
-                  v{snapshot.chain_version} · {formatSnapshotTime(snapshot.created_at)}
-                </span>
-              </li>
-            ))}
+            {snapshots.slice(0, 5).map((snapshot) => {
+              const isSelected = selectedSnapshot === snapshot.name;
+              return (
+                <li
+                  key={snapshot.name}
+                  data-ui={`recovery_snapshot_${snapshot.name}`}
+                  data-selected={isSelected}
+                  onClick={() => setSelectedSnapshot(snapshot.name)}
+                  className="flex cursor-pointer items-center justify-between gap-2 px-1 py-1.5 hover:bg-[var(--ink-bg-elevated)]"
+                  role="button"
+                  aria-pressed={isSelected}
+                >
+                  <span className={cn('truncate font-mono text-[10px]', isSelected ? 'font-medium ink-text-base' : 'ink-text-muted')}>
+                    {isSelected ? '› ' : ''}
+                    {snapshot.name}
+                  </span>
+                  <span className="shrink-0 text-[10px] ink-text-faint">
+                    v{snapshot.chain_version} · {formatSnapshotTime(snapshot.created_at)}
+                  </span>
+                </li>
+              );
+            })}
           </ul>
         ) : (
           <p className="text-[10px] ink-text-faint">暂无启动快照（成功启动后按链版本自动轮换生成）。</p>

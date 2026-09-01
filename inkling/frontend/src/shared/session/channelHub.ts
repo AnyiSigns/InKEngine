@@ -29,7 +29,6 @@ export interface SessionSnapshot {
   activeGear: GearTier;
   modeTier: ModeTier;
   pendingReview: Record<string, unknown> | null;
-  reviewHistory: Array<{ id: string; title: string; verdict: string; at: number }>;
   simulations: SimulationBranch[];
   incubation: IncubationEntry[];
   sourceTraces: SourceTraceEntry[];
@@ -72,7 +71,6 @@ export function emptySessionSnapshot(): SessionSnapshot {
     activeGear: 'main',
     modeTier: 'default',
     pendingReview: null,
-    reviewHistory: [],
     simulations: [],
     incubation: [],
     sourceTraces: [],

@@ -40,13 +40,18 @@ function renderSecurityTrust(recovery: RecoveryOps | null = ops) {
 }
 
 describe('安全信任节崩溃回退', () => {
-  it('刷新快照 → 列表展示（链版本 + 时间）', async () => {
-    const user = userEvent.setup();
+  it('挂载即装载快照 → 列表展示（链版本 + 时间）', async () => {
     renderSecurityTrust();
-    await user.click(ui('recovery_refresh'));
     expect(await screen.findByText(/chain-v5-1720000001000-a\.sqlite/)).toBeInTheDocument();
     expect(screen.getByText(/v5 ·/)).toBeInTheDocument();
-    expect(ops.snapshots).toHaveBeenCalledTimes(1);
+  });
+
+  it('手动刷新快照 → 列表更新', async () => {
+    const user = userEvent.setup();
+    renderSecurityTrust();
+    await screen.findByText(/chain-v5/);
+    await user.click(ui('recovery_refresh'));
+    expect(await screen.findByText(/chain-v5-1720000001000-a\.sqlite/)).toBeInTheDocument();
   });
 
   it('回上一稳定版本 = 两步确认 → 恢复最新快照 → 成功反馈', async () => {

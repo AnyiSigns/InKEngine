@@ -31,6 +31,23 @@ interface ArtifactModule {
   default: ComponentType<ArtifactComponentProps>;
 }
 
+/** 产物 URL 协议白名单：http(s) 绝对地址或站内相对路径；其余拒绝（fail-closed）。 */
+export function isSafeArtifactUrl(url: string): boolean {
+  if (url.startsWith('/') || url.startsWith('./') || url.startsWith('../')) return true;
+  try {
+    const parsed = new URL(url);
+    return parsed.protocol === 'https:' || parsed.protocol === 'http:';
+  } catch {
+    return false;
+  }
+}
+
+/** 哈希形态校验（十六进制串；清单条目带 hash 时须通过，否则整条拒绝）。 */
+const ARTIFACT_HASH_RE = /^[a-f0-9]{16,128}$/i;
+function isPlausibleHash(hash: string): boolean {
+  return ARTIFACT_HASH_RE.test(hash);
+}
+
 /** 惰性组件注册（同名覆盖：产物可接管既有组件；未声明名拒绝）。 */
 export function registerArtifactComponent(name: string, lazyComp: ComponentType<ArtifactComponentProps>): boolean {
   if (!name || !/^[a-z][a-z0-9_]{1,63}$/.test(name)) return false;
@@ -41,6 +58,10 @@ export function registerArtifactComponent(name: string, lazyComp: ComponentType<
 /** 哈希 URL 惰性组件（import 失败 = 灰化占位 + 审计，不抛穿）。 */
 export function lazyArtifactComponent(url: string, name: string): ComponentType<ArtifactComponentProps> {
   return lazy(async () => {
+    if (!isSafeArtifactUrl(url)) {
+      logger.error('artifact', `产物组件 URL 协议非法已拒绝: ${name}`, { name, url });
+      return artifactFailedPlaceholder(name);
+    }
     try {
       const mod = (await import(/* @vite-ignore */ url)) as ArtifactModule;
       if (!mod || typeof mod.default !== 'function') {
@@ -49,15 +70,20 @@ export function lazyArtifactComponent(url: string, name: string): ComponentType<
       return { default: mod.default };
     } catch (err) {
       logger.error('artifact', `产物组件加载失败: ${name} @ ${url}`, { name, url });
-      return {
-        default: () => (
-          <div className="border border-dashed px-3 py-2 text-[11px] ink-border ink-text-faint" data-ui={`artifact_failed_${name}`}>
-            {name} 加载失败，已灰化（可在管理台卸载后重试）
-          </div>
-        ),
-      };
+      return artifactFailedPlaceholder(name);
     }
   });
+}
+
+/** 产物组件加载失败的灰化占位（不抛穿，允许管理台卸载后重试）。 */
+function artifactFailedPlaceholder(name: string): { default: ComponentType<ArtifactComponentProps> } {
+  return {
+    default: () => (
+      <div className="border border-dashed px-3 py-2 text-[11px] ink-border ink-text-faint" data-ui={`artifact_failed_${name}`}>
+        {name} 加载失败，已灰化（可在管理台卸载后重试）
+      </div>
+    ),
+  };
 }
 
 /** 产物渲染错误边界：单组件崩 → 灰化 + 事件上报，不拖垮 UI。 */
@@ -86,6 +112,10 @@ export class ArtifactBoundary extends Component<{ name: string; children: ReactN
 
 /** 产物组件挂载点（Suspense + 错误边界 + 灰化）。 */
 export function ArtifactComponent({ name, url, props }: { name: string; url: string; props?: Record<string, unknown> }) {
+  if (!isSafeArtifactUrl(url)) {
+    const Placeholder = artifactFailedPlaceholder(name).default;
+    return <Placeholder />;
+  }
   const Comp = lazyArtifactComponent(url, name);
   return (
     <ArtifactBoundary name={name}>
@@ -102,12 +132,14 @@ export function ArtifactComponent({ name, url, props }: { name: string; url: str
   );
 }
 
-/** 清单 → 注册表构件（逐条校验：名称合法性 + 哈希 URL 形态）。 */
+/** 清单 → 注册表构件（逐条校验：名称合法性 + 哈希 URL 形态 + 协议白名单）。 */
 export function registerArtifactManifest(entries: ArtifactManifestEntry[]): number {
   let registered = 0;
   for (const entry of entries) {
     if (!entry.name || !entry.url) continue;
-    if (!/^https?:\/\//.test(entry.url) && !entry.url.startsWith('.') && !entry.url.startsWith('/')) continue;
+    if (!isSafeArtifactUrl(entry.url)) continue;
+    // 清单条目带 hash 时须为十六进制形态（宿主产物哈希），否则整条拒绝
+    if (entry.hash && !isPlausibleHash(entry.hash)) continue;
     const lazyComp = lazyArtifactComponent(entry.url, entry.name);
     if (registerArtifactComponent(entry.name, lazyComp)) {
       registered += 1;

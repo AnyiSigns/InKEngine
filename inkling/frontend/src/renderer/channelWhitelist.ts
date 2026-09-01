@@ -24,7 +24,6 @@ export const STATE_SUB_CHANNELS = [
   'activeGear',
   'modeTier',
   'pendingReview',
-  'reviewHistory',
   'simulations',
   'incubation',
   'sourceTraces',

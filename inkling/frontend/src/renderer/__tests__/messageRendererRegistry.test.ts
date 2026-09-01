@@ -69,7 +69,7 @@ describe('产物清单 renderer_key 注入注册表', () => {
       {
         name: 'artifact_chart',
         url: 'http://localhost:4321/chart.js',
-        hash: 'h1',
+        hash: 'a1b2c3d4e5f6a7b8c9d0e1f2a3b4c5d6',
         version: '0.1.0',
         renderer_key: 'custom_chart',
         view_forms: ['mini', 'overlay'],
@@ -83,7 +83,7 @@ describe('产物清单 renderer_key 注入注册表', () => {
 
   it('无 renderer_key 的清单条目不污染渲染器键白名单', () => {
     const entries: ArtifactManifestEntry[] = [
-      { name: 'plain_artifact', url: 'http://localhost:4321/plain.js', hash: 'h', version: '0.1.0' },
+      { name: 'plain_artifact', url: 'http://localhost:4321/plain.js', hash: 'c1d2e3f4a5b6c7d8e9f0a1b2c3d4e5f6', version: '0.1.0' },
     ];
     registerArtifactManifest(entries);
     expect(isRendererKeyAllowed('plain_artifact')).toBe(false);

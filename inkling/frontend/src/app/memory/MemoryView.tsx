@@ -3,6 +3,7 @@ import { Brain, ChevronDown, ChevronRight, Trash2 } from 'lucide-react';
 
 import { Button } from '@/shared/ui/Button';
 import { createMemoryOps, type MemoryData, type MemoryEntry, type MemoryOps, sourceLabel, kindLabel } from './backend';
+import { logger } from '@/shared/logger';
 import { useT } from '@/i18n/useT';
 
 export function MemoryView() {
@@ -13,12 +14,18 @@ export function MemoryView() {
   const [expanded, setExpanded] = useState<Set<string>>(new Set());
   const [editing, setEditing] = useState<string | null>(null);
   const [editContent, setEditContent] = useState('');
+  const [actionError, setActionError] = useState('');
 
   const load = async () => {
-    const result = await opsRef.current.list();
-    setData(result);
-    if (result.namespaces.length > 0 && selectedNs === null) {
-      setSelectedNs(result.namespaces[0].name);
+    try {
+      const result = await opsRef.current.list();
+      setData(result);
+      if (result.namespaces.length > 0 && selectedNs === null) {
+        setSelectedNs(result.namespaces[0].name);
+      }
+    } catch (err) {
+      logger.error('memory', '记忆条目读取失败', { err: String(err) });
+      setActionError('记忆读取失败，请稍后重试');
     }
   };
 
@@ -38,14 +45,24 @@ export function MemoryView() {
   };
 
   const handleInvalidate = async (id: string) => {
-    await opsRef.current.invalidate(id);
-    await load();
+    try {
+      await opsRef.current.invalidate(id);
+      await load();
+    } catch (err) {
+      logger.error('memory', '记忆条目失效失败', { id, err: String(err) });
+      setActionError('操作失败，请稍后重试');
+    }
   };
 
   const handleSaveContent = async (id: string) => {
-    await opsRef.current.updateFrontmatter(id, { content: editContent });
-    setEditing(null);
-    await load();
+    try {
+      await opsRef.current.updateFrontmatter(id, { content: editContent });
+      setEditing(null);
+      await load();
+    } catch (err) {
+      logger.error('memory', '记忆条目更新失败', { id, err: String(err) });
+      setActionError('保存失败，请稍后重试');
+    }
   };
 
   return (
@@ -53,6 +70,11 @@ export function MemoryView() {
       <div className="flex items-center gap-2">
         <Brain size={14} strokeWidth={1.6} className="text-[var(--ink-text-muted)]" />
         <h3 className="text-[13px] font-medium text-[var(--ink-text-base)]">{t('memory.title')}</h3>
+        {actionError && (
+          <span className="rounded px-2 py-0.5 text-[10px] ink-feedback-fail" data-ui="memory_action_error">
+            {actionError}
+          </span>
+        )}
       </div>
 
       {!data || data.entries.length === 0 ? (

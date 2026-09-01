@@ -12,17 +12,15 @@
  * 仅挂载/授权类操作在无宿主时降级为本地状态记录。
  */
 
-import { createBackend, type BackendAdapter, type ArtifactManifestEntry, type ToolSnapshotEntry, type BackendStatus, type KnowledgeGraphResult } from '@/shared/backend/backendAdapter';
+import { createBackend, type BackendAdapter, type ArtifactManifestEntry, type ToolSnapshotEntry, type BackendStatus } from '@/shared/backend/backendAdapter';
 import { registerArtifactManifest } from '@/renderer/artifactLoader';
 import { setUiComponentsDisabled } from '@/renderer/componentRegistry';
 import { logger } from '@/shared/logger';
-import { ChannelHub, type SessionSnapshot, type HubEvent } from '@/shared/session/channelHub';
-import { isEventTypeName } from '@/shared/session/eventTypes';
 import type { UISpec } from '@/renderer/uiSpecTypes';
 
 import { isFixtureMode } from './wiring/env';
 
-import type { McpMarketEntry, ToolDetail, AppArtifactEntry } from './types';
+import type { McpMarketEntry, AppArtifactEntry } from './types';
 import type {
   McpMarketSummary,
   McpMountOutcome,
@@ -38,7 +36,6 @@ import productManifest from '../../../manifest.json';
 
 export interface AppBackendOptions {
   backend?: BackendAdapter | null;
-  channelHub?: ChannelHub | null;
 }
 
 /**
@@ -47,12 +44,10 @@ export interface AppBackendOptions {
  */
 export class AppBackend {
   private backend: BackendAdapter | null;
-  private hub: ChannelHub | null;
   public readonly available: boolean;
 
   constructor(options: AppBackendOptions = {}) {
     this.backend = options.backend ?? createBackend();
-    this.hub = options.channelHub ?? null;
     this.available = this.backend?.available ?? false;
   }
 
@@ -393,36 +388,7 @@ export class AppBackend {
     }
   }
 
-  /** MCP 市场挂载策略 */
-  getMcpMountPolicy(): { required: string[]; note: string } {
-    const seed = mcpMarketSeed as { mount_policy?: { required?: string[]; note?: string } };
-    return {
-      required: seed.mount_policy?.required ?? [],
-      note: seed.mount_policy?.note ?? '',
-    };
-  }
-
-  /** MCP 出厂零预挂标记 */
-  isMcpPremounted(): boolean {
-    return (mcpMarketSeed as { premounted?: boolean }).premounted ?? false;
-  }
-
-  /**
-   * 工具详情（行为手册）：从种子 tools.json 驱动完整 schema。
-   * 供工具面板的详情抽屉展示（description/参数 schema/权限档/端点）。
-   */
-  getToolDetails(): ToolDetail[] {
-    if (!isFixtureMode()) return [];
-    return (toolsSeed as { tools?: unknown[] }).tools?.map((t) => t as unknown as ToolDetail) ?? [];
-  }
-
-  /** 获取指定工具的详情 */
-  getToolDetail(name: string): ToolDetail | null {
-    return this.getToolDetails().find((t) => t.name === name) ?? null;
-  }
-
-  /**
-   * ui_spec 拉取（W4.1）：生产环境经 introspection 活跃界面快照
+  /** ui_spec 拉取（W4.1）：生产环境经 introspection 活跃界面快照
    * （ui_spec.get —— 与渲染器同一数据源），宿主不可用时回落种子
    * ui_spec.json（dev 夹具）。
    */
@@ -581,63 +547,12 @@ export class AppBackend {
       return null;
     }
   }
-
-  /**
-    * 获取知识图拓扑（用于视图初始化）。
-    * 后端命令名 = knowledge.graph（与 BackendAdapter.knowledgeGraph 对齐，
-    * 点号命名是后端 #[command(rename)] 的既定形态）。
-    */
-  async getKnowledgeGraph(): Promise<KnowledgeGraphResult | null> {
-    if (!this.backend?.available) return null;
-    try {
-      return await this.backend.knowledgeGraph();
-    } catch {
-      return null;
-    }
-  }
-
-  /**
-   * 引擎就绪检查。
-   */
-  async isEngineReady(): Promise<boolean> {
-    const status = await this.getStatus();
-    const ready = status?.engine_ready ?? false;
-    if (!ready) {
-      logger.warn('app', '引擎未就绪', { available: Boolean(this.backend?.available), status: String(status ?? '') });
-    }
-    return ready;
-  }
-
-  /**
-   * 创建 ChannelHub（用于视图绑定消费）。
-   */
-  createChannelHub(): ChannelHub {
-    return new ChannelHub();
-  }
-
-  /**
-   * 分发事件到 ChannelHub（用于测试/夹具）。
-   */
-  dispatchEvent(event: HubEvent): void {
-    if (this.hub) {
-      this.hub.dispatch(event);
-    }
-  }
-
-  /**
-   * 是否为事件类型（校验助手）。
-   */
-  isEventTypeName(name: string): boolean {
-    return isEventTypeName(name);
-  }
 }
 
 /** 便捷工厂：创建 AppBackend 实例。 */
 export function createAppBackend(options: AppBackendOptions = {}): AppBackend {
   return new AppBackend(options);
 }
-
-/** 出厂常驻必带工具集（与引擎 BASELINE_TOOL_NAMES 同源；dev 夹具口径）。 */
 const FACTORY_BASELINE = [
   'file_read', 'file_write', 'file_edit', 'grep', 'glob',
   'propose_patch', 'propose_domain_manifest', 'inspect_tools',
@@ -677,9 +592,4 @@ function fixtureToolsManifest(): { tools: ToolManifestEntry[]; baseline: string[
     if (baseline.includes(tool.name)) tool.baseline = true;
   }
   return { tools, baseline };
-}
-
-/** 回放当前会话状态（用于视图初始化）。 */
-export function getSessionSnapshot(hub: ChannelHub | null): SessionSnapshot | null {
-  return hub ? hub.getSnapshot() : null;
 }

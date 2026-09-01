@@ -15,10 +15,11 @@ import { Globe, Terminal, AlertTriangle, CheckCircle, XCircle, Copy } from 'luci
 import type { AppBackend } from '../../backend';
 import type {
   McpMarketEntrySummary,
+  McpMountOutcome,
   McpMountStatus,
 } from '../../../shared/backend/backendAdapter';
-import type { McpMarketEntry } from '../../types';
 import { RISK_LABELS } from '../../types';
+import { logger } from '../../../shared/logger';
 
 const TRANSPORT_ICONS: Record<string, ReactNode> = {
   http: <Globe size={14} strokeWidth={1.5} className="ink-text-faint" aria-hidden />,
@@ -152,8 +153,8 @@ function McpServerDetail({ entry, mounted, onClose, onMount, onUnmount }: McpSer
 
 interface McpMarketProps {
   backend: AppBackend;
-  onMount?: (entry: McpMarketEntry) => void | Promise<unknown>;
-  onUnmount?: (entry: McpMarketEntry) => void | Promise<unknown>;
+  onMount?: (entry: McpMarketEntrySummary) => Promise<McpMountOutcome>;
+  onUnmount?: (entry: McpMarketEntrySummary) => Promise<McpMountOutcome>;
 }
 
 export function McpMarket({ backend, onMount, onUnmount }: McpMarketProps) {
@@ -175,10 +176,15 @@ export function McpMarket({ backend, onMount, onUnmount }: McpMarketProps) {
     setBusyId(entry.id);
     setNotice(null);
     try {
-      await onMount?.(entry);
+      const outcome = await onMount?.(entry);
+      if (outcome && outcome.ok === false) {
+        setNotice(outcome.error ?? '挂载失败，请查看宿主日志');
+        return;
+      }
       await refresh();
     } catch (err) {
-      setNotice(`挂载失败：${String(err)}`);
+      logger.error('market', 'MCP 挂载失败', { serverId: entry.id, err: String(err) });
+      setNotice('挂载失败，请稍后重试');
     } finally {
       setBusyId(null);
     }
@@ -188,10 +194,15 @@ export function McpMarket({ backend, onMount, onUnmount }: McpMarketProps) {
     setBusyId(entry.id);
     setNotice(null);
     try {
-      await onUnmount?.(entry);
+      const outcome = await onUnmount?.(entry);
+      if (outcome && outcome.ok === false) {
+        setNotice(outcome.error ?? '取消挂载失败，请查看宿主日志');
+        return;
+      }
       await refresh();
     } catch (err) {
-      setNotice(`取消挂载失败：${String(err)}`);
+      logger.error('market', 'MCP 取消挂载失败', { serverId: entry.id, err: String(err) });
+      setNotice('取消挂载失败，请稍后重试');
     } finally {
       setBusyId(null);
     }

@@ -73,10 +73,14 @@ export default function App({ backend, hub, sessionStore }: AppProps) {
 
   useEffect(() => () => {
     if (topbarTimer.current !== null) window.clearTimeout(topbarTimer.current);
+    if (routePlanTimer.current !== null) window.clearTimeout(routePlanTimer.current);
   }, []);
 
   const [openPanel, setOpenPanel] = useState<'none' | 'settings'>('none');
   const [routePlan, setRoutePlan] = useState<RoutePlanPreview | undefined>(undefined);
+  // route_plan 预览防抖 + 过期响应丢弃（快速打字不每键打 IPC，旧请求不覆盖新结果）
+  const routePlanSeq = useRef(0);
+  const routePlanTimer = useRef<number | null>(null);
   // 跨回合长任务数据源接线点：plan/spawn/tool 事件经 task_state 子通道
   // 归约，胶囊仅在长任务（planActive/步进>0）期间出现。
   const taskState = hub.getSnapshot().taskState;
@@ -171,19 +175,34 @@ export default function App({ backend, hub, sessionStore }: AppProps) {
   };
 
   const handleRoutePlanPreview = (text: string) => {
+    if (routePlanTimer.current !== null) {
+      window.clearTimeout(routePlanTimer.current);
+      routePlanTimer.current = null;
+    }
     if (!text.trim()) {
+      routePlanSeq.current += 1;
       setRoutePlan(undefined);
       return;
     }
-    void backend.routePlan(text, 'light')
-      .then((r) => {
-        setRoutePlan({
-          chainLabel: r.chain_id ?? r.kind,
-          quota: r.policy.quota_per_round,
-          tier: r.policy.tier,
+    const seq = routePlanSeq.current + 1;
+    routePlanSeq.current = seq;
+    routePlanTimer.current = window.setTimeout(() => {
+      routePlanTimer.current = null;
+      void backend
+        .routePlan(text, 'light')
+        .then((r) => {
+          if (seq !== routePlanSeq.current) return;
+          setRoutePlan({
+            chainLabel: r.chain_id ?? r.kind,
+            quota: r.policy.quota_per_round,
+            tier: r.policy.tier,
+          });
+        })
+        .catch(() => {
+          if (seq !== routePlanSeq.current) return;
+          setRoutePlan(undefined);
         });
-      })
-      .catch(() => setRoutePlan(undefined));
+    }, 300);
   };
 
   const handleSend = (
@@ -192,9 +211,8 @@ export default function App({ backend, hub, sessionStore }: AppProps) {
     sendMode: 'standard' | 'assembly',
     model?: import('@/shared/backend/backendAdapter').ModelSelection,
   ) => {
-    if (sendMode === 'assembly') {
-      void backend.pathSetAssemblerEnabled(true).catch(() => undefined);
-    }
+    // 装配开关随发送模式双向翻转（此前仅在 assembly 时开启、切回标准永不关闭）
+    void backend.pathSetAssemblerEnabled(sendMode === 'assembly').catch(() => undefined);
     void send(text, attachments, model);
   };
 
@@ -254,7 +272,6 @@ export default function App({ backend, hub, sessionStore }: AppProps) {
         >
           <TopBar
             title={title}
-            unreadCount={0}
             tab={tab}
             onTabChange={setTab}
             onTitleChange={(nextTitle) => {
@@ -320,7 +337,7 @@ export default function App({ backend, hub, sessionStore }: AppProps) {
       <RightRail
         collapsed={rightCollapsed}
         onToggle={() => setRightCollapsed(!rightCollapsed)}
-        sessions={state.sessions.map((s) => ({ thread_id: s.id, title: s.title, created_at: 0, updated_at: s.updated_at, message_count: 0, current_leaf: null, rename_count: 0 }))}
+        sessions={state.sessions.map((s) => ({ thread_id: s.id, title: s.title, updated_at: s.updated_at }))}
         activeSessionId={state.activeSessionId}
         branchTrees={branchTrees}
         onBranchFromLeaf={(sessionId, leaf) => {

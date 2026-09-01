@@ -150,6 +150,11 @@ pub(crate) async fn model_reload(args: Option<JsonValue>) -> Result<JsonValue, C
     forward_async("model.reload", args).await
 }
 
+#[command(rename = "todo.get")]
+pub(crate) async fn todo_get(args: Option<JsonValue>) -> Result<JsonValue, CommandError> {
+    forward_async("todo.get", args).await
+}
+
 #[command(rename = "ui_components.get")]
 pub(crate) async fn ui_components_get(args: Option<JsonValue>) -> Result<JsonValue, CommandError> {
     forward_sync("engine.ui_components_get", args)

@@ -14,13 +14,14 @@
  * 网络白名单判定面归 OS 层沙箱（设置「工作区授权」→ OS 层），不在用户设置重复。
  */
 
-import { useCallback, useEffect, useMemo, useState } from 'react';
+import { useCallback, useEffect, useMemo, useRef, useState } from 'react';
 
 import { Plus, Search, Server, Trash2 } from 'lucide-react';
 
 import { Button } from '@/shared/ui/Button';
 import { Field, Select, TextInput } from '@/shared/ui/Field';
 import { createBackend } from '@/shared/backend/backendAdapter';
+import { logger } from '@/shared/logger';
 import type {
   McpMarketPreview,
   McpMountStatus,
@@ -40,13 +41,19 @@ export function ConnectSection(): JSX.Element {
   const [preview, setPreview] = useState<McpMarketPreview | null>(null);
   const [busy, setBusy] = useState(false);
   const [notice, setNotice] = useState<string | null>(null);
+  const saveTimer = useRef<ReturnType<typeof setTimeout> | null>(null);
+
+  useEffect(() => () => {
+    if (saveTimer.current) clearTimeout(saveTimer.current);
+  }, []);
 
   const refresh = useCallback(async (): Promise<void> => {
     if (!backend.available) return;
     try {
       setStatus(await backend.mcpMarketStatus());
     } catch (err) {
-      setNotice(`mcp_market_status 失败：${String(err)}`);
+      logger.error('settings', 'MCP 市场状态读取失败', { err: String(err) });
+      setNotice('市场状态读取失败，请稍后重试');
     }
   }, [backend]);
 
@@ -71,7 +78,8 @@ export function ConnectSection(): JSX.Element {
         setNotice(result.error ?? result.violations?.join('；') ?? '目录未通过核对');
       }
     } catch (err) {
-      setNotice(`mcp_market_preview 失败：${String(err)}`);
+      logger.error('settings', 'MCP 市场预览失败', { err: String(err) });
+      setNotice('目录预览失败，请检查链接后重试');
     } finally {
       setBusy(false);
     }
@@ -97,7 +105,8 @@ export function ConnectSection(): JSX.Element {
         setNotice(result.error ?? '添加失败');
       }
     } catch (err) {
-      setNotice(`mcp_market_add 失败：${String(err)}`);
+      logger.error('settings', 'MCP 市场添加失败', { err: String(err) });
+      setNotice('市场添加失败，请稍后重试');
     } finally {
       setBusy(false);
     }
@@ -115,7 +124,8 @@ export function ConnectSection(): JSX.Element {
         setNotice(result.error ?? '删除失败');
       }
     } catch (err) {
-      setNotice(`mcp_market_remove 失败：${String(err)}`);
+      logger.error('settings', 'MCP 市场删除失败', { err: String(err) });
+      setNotice('市场删除失败，请稍后重试');
     } finally {
       setBusy(false);
     }
@@ -131,10 +141,12 @@ export function ConnectSection(): JSX.Element {
         });
       }
       setSavePhase('saved');
-      setTimeout(() => setSavePhase('idle'), 1200);
+      if (saveTimer.current) clearTimeout(saveTimer.current);
+      saveTimer.current = setTimeout(() => setSavePhase('idle'), 1200);
     } catch {
       setSavePhase('error');
-      setTimeout(() => setSavePhase('idle'), 2000);
+      if (saveTimer.current) clearTimeout(saveTimer.current);
+      saveTimer.current = setTimeout(() => setSavePhase('idle'), 2000);
     }
   };
 
@@ -221,6 +233,8 @@ export function ConnectSection(): JSX.Element {
         <div className="text-[11px] font-medium tracking-wide ink-text-muted">联网搜索</div>
         <Field label="search_key" hint="env INK_SEARCH_KEY 显式优先、设置档兜底；仅本地持有。">
           <TextInput
+            type="password"
+            autoComplete="off"
             value={searchKey}
             onChange={(e) => setSearchKey(e.target.value)}
             aria-label="search_key"

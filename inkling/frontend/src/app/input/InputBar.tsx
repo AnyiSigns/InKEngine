@@ -49,8 +49,6 @@ interface InputBarProps {
   onAbort: () => void;
   onOpenSettings: () => void;
   onAttachments: (files: AttachmentAsset[]) => void;
-  /** 回合模式切换（组装=path.set_assembler_enabled 真透传由装配层执行）。 */
-  onModeChange?: (mode: 'standard' | 'assembly') => void;
   /** 发送前路线预览（route_plan 壳命令真调用由装配层执行）。 */
   onRoutePlanPreview?: (text: string) => void;
 }
@@ -64,7 +62,6 @@ export function InputBar({
   onAbort,
   onOpenSettings,
   onAttachments,
-  onModeChange,
   onRoutePlanPreview,
 }: InputBarProps) {
   const { t } = useT();
@@ -182,7 +179,6 @@ export function InputBar({
 
   const switchMode = (next: 'standard' | 'assembly') => {
     setMode(next);
-    onModeChange?.(next);
   };
 
   return (

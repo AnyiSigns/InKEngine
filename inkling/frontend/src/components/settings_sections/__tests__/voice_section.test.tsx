@@ -1,6 +1,6 @@
 /**
- * 语音与离线节测试：能力芯片 / always-on 控件 / 隐私提示 / 离线档，
- * 缺宿主回落禁用态；mock invoker 注入验证状态装载。
+ * 语音与离线节测试：能力芯片 / 离线档，缺宿主回落禁用态；
+ * mock invoker 注入验证状态装载。
  */
 
 import { describe, expect, it, vi } from 'vitest';
@@ -32,19 +32,10 @@ function makeBackend(overrides: Partial<BackendAdapter>): BackendAdapter {
 }
 
 describe('VoiceSection', () => {
-  it('缺宿主时渲染禁用态与隐私提示', () => {
+  it('缺宿主时渲染禁用态', () => {
     render(<VoiceSection />);
-    expect(screen.getByText(/隐私提示/)).toBeTruthy();
     expect(ui('voice_cap_mic')).toBeTruthy();
     expect(screen.getByText(/宿主不可用/)).toBeTruthy();
-  });
-
-  it('always-on 监听控件可切换', () => {
-    render(<VoiceSection />);
-    const box = ui('voice_always_on') as HTMLInputElement;
-    expect(box.checked).toBe(false);
-    box.click();
-    expect((ui('voice_always_on') as HTMLInputElement).checked).toBe(true);
   });
 
   it('mock backend 装载状态后显示能力可用性', async () => {

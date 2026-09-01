@@ -137,13 +137,13 @@ describe('settings_form：双栏导航 + 主题 token 试穿再应用（白名�
     expect(screen.getByText('main')).toBeInTheDocument();
   });
 
-  it('MCP 市场挂载管理（出厂零预挂 → 一键挂载）', async () => {
+  it('连接节：手动添加 → 已挂载清单即时同步', async () => {
     const user = userEvent.setup();
     render(<SettingsForm />);
     await user.click(screen.getByRole('button', { name: /连接/ }));
-    expect(screen.getByText(/mcp_market 市场（出厂零预挂/)).toBeInTheDocument();
-    const mountButtons = screen.getAllByText('挂载');
-    await user.click(mountButtons[0]);
-    expect(screen.getByText(/已挂载：web_search/)).toBeInTheDocument();
+    expect(screen.getByText(/连接服务管理：生产形态走「市场」节/)).toBeInTheDocument();
+    await user.type(screen.getByLabelText('手动添加 MCP'), 'http://localhost:3000/mcp');
+    await user.click(screen.getByText('添加'));
+    expect(await screen.findByText(/已挂载：http:\/\/localhost:3000\/mcp/)).toBeInTheDocument();
   });
 });

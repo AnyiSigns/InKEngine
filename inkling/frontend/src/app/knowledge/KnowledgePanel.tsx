@@ -15,6 +15,7 @@ import { Archive, BookOpen, ChevronDown, ChevronRight, Download, Plus, RefreshCw
 import { Button } from '@/shared/ui/Button';
 import { TextInput } from '@/shared/ui/Field';
 import { createBackend } from '@/shared/backend/backendAdapter';
+import { logger } from '@/shared/logger';
 import { buildChartSpec, type ChartSpec } from '@/shared/charts/chart_spec';
 import { chartSpecToSvgString } from '@/shared/charts/chart_export';
 import {
@@ -82,10 +83,16 @@ export function KnowledgePanel(): JSX.Element {
   const [importRejected, setImportRejected] = useState<Array<{ id: string; reason: string }>>([]);
   const [importError, setImportError] = useState('');
   const [importing, setImporting] = useState(false);
+  const [actionError, setActionError] = useState('');
 
   const load = async () => {
-    const result = await opsRef.current.list();
-    setData(result);
+    try {
+      const result = await opsRef.current.list();
+      setData(result);
+    } catch (err) {
+      logger.error('knowledge', '知识集读取失败', { err: String(err) });
+      setActionError('知识集读取失败，请稍后重试');
+    }
   };
 
   const loadGrowth = async () => {
@@ -140,36 +147,66 @@ export function KnowledgePanel(): JSX.Element {
 
   const handleAdd = async () => {
     if (!newTitle.trim()) return;
-    await opsRef.current.add({ title: newTitle, content: newContent, kind: newKind, level: newLevel });
-    setNewTitle('');
-    setNewContent('');
-    setShowAdd(false);
-    await load();
+    try {
+      await opsRef.current.add({ title: newTitle, content: newContent, kind: newKind, level: newLevel });
+      setNewTitle('');
+      setNewContent('');
+      setShowAdd(false);
+      await load();
+    } catch (err) {
+      logger.error('knowledge', '知识添加失败', { err: String(err) });
+      setActionError('知识添加失败，请稍后重试');
+    }
   };
 
   const handleArchive = async (id: string) => {
-    await opsRef.current.archive(id);
-    await load();
+    try {
+      await opsRef.current.archive(id);
+      await load();
+    } catch (err) {
+      logger.error('knowledge', '知识归档失败', { id, err: String(err) });
+      setActionError('归档失败，请稍后重试');
+    }
   };
 
   const handleRestore = async (id: string) => {
-    await opsRef.current.restore(id);
-    await load();
+    try {
+      await opsRef.current.restore(id);
+      await load();
+    } catch (err) {
+      logger.error('knowledge', '知识恢复失败', { id, err: String(err) });
+      setActionError('恢复失败，请稍后重试');
+    }
   };
 
   const handlePromote = async (id: string) => {
-    await opsRef.current.promote(id);
-    await load();
+    try {
+      await opsRef.current.promote(id);
+      await load();
+    } catch (err) {
+      logger.error('knowledge', '知识提升失败', { id, err: String(err) });
+      setActionError('提升失败，请稍后重试');
+    }
   };
 
   const handleExport = async (id: string) => {
-    await opsRef.current.export(id);
+    try {
+      await opsRef.current.export(id);
+    } catch (err) {
+      logger.error('knowledge', '知识导出失败', { id, err: String(err) });
+      setActionError('导出失败，请稍后重试');
+    }
   };
 
   const handleReimport = async (id: string) => {
-    const outcome = await opsRef.current.skillReimport(id);
-    if (outcome?.ok) {
-      await load();
+    try {
+      const outcome = await opsRef.current.skillReimport(id);
+      if (outcome?.ok) {
+        await load();
+      }
+    } catch (err) {
+      logger.error('knowledge', '技能重导入失败', { id, err: String(err) });
+      setActionError('同步失败，请稍后重试');
     }
   };
 
@@ -177,34 +214,46 @@ export function KnowledgePanel(): JSX.Element {
     if (!importSource.trim()) return;
     setImporting(true);
     setImportError('');
-    const outcome = await opsRef.current.skillImport(importSource, true);
-    setImporting(false);
-    if (!outcome || outcome.ok === false) {
-      setImportError(outcome?.error ?? '预览失败');
-      setImportPreview(null);
-      setImportRejected([]);
-      return;
+    try {
+      const outcome = await opsRef.current.skillImport(importSource, true);
+      if (!outcome || outcome.ok === false) {
+        setImportError(outcome?.error ?? '预览失败');
+        setImportPreview(null);
+        setImportRejected([]);
+        return;
+      }
+      setImportPreview(outcome.added ?? []);
+      setImportRejected(outcome.rejected ?? []);
+    } catch (err) {
+      logger.error('knowledge', '技能导入预览失败', { err: String(err) });
+      setImportError('预览失败，请稍后重试');
+    } finally {
+      setImporting(false);
     }
-    setImportPreview(outcome.added ?? []);
-    setImportRejected(outcome.rejected ?? []);
   };
 
   const handleImport = async () => {
     if (!importSource.trim()) return;
     setImporting(true);
     setImportError('');
-    const outcome = await opsRef.current.skillImport(importSource, false);
-    setImporting(false);
-    if (!outcome || outcome.ok === false) {
-      setImportError(outcome?.error ?? '导入失败');
-      return;
+    try {
+      const outcome = await opsRef.current.skillImport(importSource, false);
+      if (!outcome || outcome.ok === false) {
+        setImportError(outcome?.error ?? '导入失败');
+        return;
+      }
+      setImportPreview(null);
+      setImportRejected([]);
+      setImportSource('');
+      setShowImport(false);
+      await load();
+      await loadGrowth();
+    } catch (err) {
+      logger.error('knowledge', '技能导入失败', { err: String(err) });
+      setImportError('导入失败，请稍后重试');
+    } finally {
+      setImporting(false);
     }
-    setImportPreview(null);
-    setImportRejected([]);
-    setImportSource('');
-    setShowImport(false);
-    await load();
-    await loadGrowth();
   };
 
   const passRate = growth?.gate_pass_rate !== undefined ? Math.round(growth.gate_pass_rate * 100) : null;
@@ -289,6 +338,11 @@ export function KnowledgePanel(): JSX.Element {
       <div className="flex items-center gap-2">
         <BookOpen size={14} strokeWidth={1.6} className="text-[var(--ink-text-muted)]" aria-hidden />
         <h3 className="text-[13px] font-medium text-[var(--ink-text-base)]">知识集</h3>
+        {actionError && (
+          <span className="rounded px-2 py-0.5 text-[10px] ink-feedback-fail" data-ui="knowledge_action_error">
+            {actionError}
+          </span>
+        )}
         <div className="flex-1" />
         <Button size="xs" variant="secondary" onClick={() => setShowImport(!showImport)}>
           <Download size={10} strokeWidth={1.6} aria-hidden />

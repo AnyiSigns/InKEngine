@@ -5,7 +5,7 @@
  * 再镜像到本文件。
  */
 
-import type { ArtifactManifestEntry, ToolSnapshotEntry, McpMarketEntrySummary } from '@/shared/backend/backendAdapter';
+import type { ArtifactManifestEntry, McpMarketEntrySummary } from '@/shared/backend/backendAdapter';
 
 /**
  * MCP 服务器市场条目（宿主 mcp_market_status 回传；与 seed_data/mcp_market.json
@@ -14,24 +14,10 @@ import type { ArtifactManifestEntry, ToolSnapshotEntry, McpMarketEntrySummary } 
  */
 export type McpMarketEntry = McpMarketEntrySummary;
 
-/** MCP 市场数据（与 seed_data/mcp_market.json 同源）。 */
-export interface McpMarketData {
-  premounted: boolean;
-  mount_policy: { required: string[]; note: string };
-  servers: McpMarketEntry[];
-}
-
 /** 组件构件清单条目（扩展 artifactLoader 的 ArtifactManifestEntry）。 */
 export interface AppArtifactEntry extends ArtifactManifestEntry {
   category?: string;
   note?: string;
-}
-
-/** 工具快照条目（扩展 ToolSnapshotEntry）。 */
-export interface AppToolEntry extends ToolSnapshotEntry {
-  endpoint?: string;
-  permission?: string;
-  auto_approvable?: boolean;
 }
 
 /** 工具详情（与 seed_data/tools.json 同源）：行为手册渲染层。 */
@@ -71,32 +57,9 @@ export const TOOL_LAYER_LABELS: Record<ToolLayer, string> = {
   dynamic: '动态',
 };
 
-/** research 域 6 工具名称 */
-export const RESEARCH_TOOLS = [
-  'collect_material',
-  'parse_material',
-  'validate_material',
-  'review_material',
-  'distill_knowledge',
-  'mutate_knowledge',
-] as const;
-
 /** 风险等级中文标签 */
 export const RISK_LABELS: Record<string, string> = {
   low: '低风险',
   medium: '中风险',
   high: '高风险',
 };
-
-/** 维护状态中文标签 */
-export const MAINTENANCE_LABELS: Record<string, string> = {
-  maintained: '维护中',
-  experimental: '实验性',
-  deprecated: '已弃用',
-};
-
-/** 传输方式图标映射 key */
-export type TransportType = 'http' | 'stdio';
-
-/** 审批级别 */
-export type ApprovalLevel = 'allow' | 'review' | 'deny';

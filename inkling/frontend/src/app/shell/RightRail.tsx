@@ -12,8 +12,15 @@
 
 import { useEffect, useRef, useState } from 'react';
 import { Plus, Search, MoreVertical, ChevronRight, ChevronDown, MessageSquare, Trash2, Pencil, PanelRightClose, PanelRightOpen, GitBranch } from 'lucide-react';
-import type { SessionRemoteRecord, SessionBranchTree } from '@/shared/backend/backendAdapter';
+import type { SessionBranchTree } from '@/shared/backend/backendAdapter';
 import { useT } from '@/i18n/useT';
+
+/** 会话行展示面（只消费真实字段；thread_id/title/updated_at）。 */
+export interface RailSession {
+  thread_id: string;
+  title: string;
+  updated_at: number;
+}
 
 /** 相对时间（会话行右侧：刚刚 / N 分钟 / N 小时 / N 天，超一周落月-日）。 */
 function relativeTime(at: number, t: (key: string) => string, lang: 'zh' | 'en'): string {
@@ -44,7 +51,7 @@ const BUCKET_KEYS = ['rightrail.bucket.today', 'rightrail.bucket.yesterday', 'ri
 interface RightRailProps {
   collapsed: boolean;
   onToggle: () => void;
-  sessions: SessionRemoteRecord[];
+  sessions: RailSession[];
   activeSessionId: string;
   onSelectSession: (id: string) => void;
   onCreateSession: () => void;
@@ -70,7 +77,7 @@ export function RightRail({
 }: RightRailProps) {
   const { t } = useT();
   const [query, setQuery] = useState('');
-  const filtered = (list: SessionRemoteRecord[]) =>
+  const filtered = (list: RailSession[]) =>
     list.filter((s) => s.title.toLowerCase().includes(query.toLowerCase()));
   const buckets = [0, 1, 2, 3]
     .map((bucket) => ({
@@ -241,7 +248,7 @@ function SessionRow({
   onDelete,
   onBranchFromMessage,
 }: {
-  session: SessionRemoteRecord;
+  session: RailSession;
   active: boolean;
   onSelect: () => void;
   onRename: (title: string) => void;
@@ -251,6 +258,7 @@ function SessionRow({
   const { t, lang } = useT();
   const [menuOpen, setMenuOpen] = useState(false);
   const [renaming, setRenaming] = useState(false);
+  const [confirmingDelete, setConfirmingDelete] = useState(false);
   const [draft, setDraft] = useState(session.title);
   const menuRef = useRef<HTMLDivElement>(null);
 
@@ -308,8 +316,21 @@ function SessionRow({
             <button type="button" className="ink-menu-item" onClick={(e) => { e.stopPropagation(); onBranchFromMessage(session.thread_id, '从此分支'); setMenuOpen(false); }}>
               <GitBranch size={12} strokeWidth={1.6} /> {t('rightrail.branch_from')}
             </button>
-            <button type="button" className="ink-menu-item" data-danger="true" onClick={(e) => { e.stopPropagation(); onDelete(); setMenuOpen(false); }}>
-              <Trash2 size={12} strokeWidth={1.6} /> {t('rightrail.delete')}
+            <button
+              type="button"
+              className="ink-menu-item"
+              data-danger="true"
+              onClick={(e) => {
+                e.stopPropagation();
+                if (confirmingDelete) {
+                  onDelete();
+                  setMenuOpen(false);
+                } else {
+                  setConfirmingDelete(true);
+                }
+              }}
+            >
+              <Trash2 size={12} strokeWidth={1.6} /> {confirmingDelete ? `${t('rightrail.delete')}？再次点击确认` : t('rightrail.delete')}
             </button>
           </div>
         )}

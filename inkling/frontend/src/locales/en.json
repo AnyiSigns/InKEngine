@@ -112,6 +112,7 @@
   "settings.saving": "Saving…",
   "settings.saved": "Saved",
   "settings.save_failed": "Save failed",
+  "settings.read_failed": "Read failed",
 
   "backup.section": "Backup",
   "backup.mode.export": "Export",

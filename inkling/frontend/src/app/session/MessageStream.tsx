@@ -338,13 +338,19 @@ function EmptyHero() {
 
 function UserBubble({ content }: { content: string }) {
   const [copied, setCopied] = useState(false);
+  const copyTimer = useRef<ReturnType<typeof setTimeout> | null>(null);
+
+  useEffect(() => () => {
+    if (copyTimer.current) clearTimeout(copyTimer.current);
+  }, []);
 
   const copy = () => {
     void navigator.clipboard
       ?.writeText(content)
       .then(() => {
         setCopied(true);
-        setTimeout(() => setCopied(false), 1200);
+        if (copyTimer.current) clearTimeout(copyTimer.current);
+        copyTimer.current = setTimeout(() => setCopied(false), 1200);
       })
       .catch(() => undefined);
   };

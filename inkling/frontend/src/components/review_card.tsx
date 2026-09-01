@@ -60,6 +60,7 @@ export function ReviewCard({ bindValue, onResolve }: ReviewCardProps) {
   const [visible, setVisible] = useState(false);
   const [editing, setEditing] = useState(false);
   const [editText, setEditText] = useState('');
+  const [resolving, setResolving] = useState(false);
 
   // 新审批卡事件到达 → 弹层（任何视图下均弹出）
   useEffect(() => {
@@ -67,6 +68,7 @@ export function ReviewCard({ bindValue, onResolve }: ReviewCardProps) {
       setVisible(true);
       setEditing(false);
       setEditText('');
+      setResolving(false);
     }
   }, [event]);
 
@@ -77,6 +79,8 @@ export function ReviewCard({ bindValue, onResolve }: ReviewCardProps) {
   const reason = data.reason ?? '';
 
   const resolve = (resolution: ReviewResolution, editedContent?: string): void => {
+    if (resolving) return;
+    setResolving(true);
     setVisible(false);
     onResolve?.(resolution, editedContent);
   };

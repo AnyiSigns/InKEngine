@@ -62,6 +62,18 @@ describe('用户样式注入：越界拒绝（fail-closed）', () => {
     expect(res.reason).toContain('危险片段');
   });
 
+  it('CSS 转义绕过的 url() 拒绝（u\\72l → url）', () => {
+    const res = sanitizeUserStyle('--ink-x: u\\72l(https://evil/x.png)');
+    expect(res.ok).toBe(false);
+    expect(res.reason).toContain('危险片段');
+  });
+
+  it('CSS 十六进制转义绕过 expression() 拒绝（e\\78pression）', () => {
+    const res = sanitizeUserStyle('--ink-x: e\\78pression(alert(1))');
+    expect(res.ok).toBe(false);
+    expect(res.reason).toContain('危险片段');
+  });
+
   it('空输入 / 无白名单声明拒绝', () => {
     expect(sanitizeUserStyle('   ').ok).toBe(false);
     expect(sanitizeUserStyle('color: red;').ok).toBe(false);

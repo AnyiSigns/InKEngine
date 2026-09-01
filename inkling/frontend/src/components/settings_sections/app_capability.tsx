@@ -137,6 +137,8 @@ export function AppCapabilitySection({ value, patch }: AppCapabilitySectionProps
         <div className="text-[11px] font-medium tracking-wide ink-text-muted">搜索 key 配置</div>
         <Field label="search_key" hint="仅本地持有；集成期走宿主密钥通道，不写入事件流。">
           <TextInput
+            type="password"
+            autoComplete="off"
             value={value.searchKey}
             onChange={(e) => patch({ searchKey: e.target.value })}
             aria-label="search_key"

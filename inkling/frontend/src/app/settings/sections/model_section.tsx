@@ -322,14 +322,18 @@ function AddProviderModal({
   const [probePhase, setProbePhase] = useState<'idle' | 'loading' | 'success' | 'fail'>('idle');
   const [probeNote, setProbeNote] = useState('');
   const probeTimer = useRef<ReturnType<typeof setTimeout> | null>(null);
+  const probeSeq = useRef(0);
 
   const probe = async (url: string): Promise<void> => {
     if (!url.trim()) {
+      probeSeq.current += 1;
       setProbed([]);
       setChecked(new Set());
       setProbePhase('idle');
       return;
     }
+    const seq = probeSeq.current + 1;
+    probeSeq.current = seq;
     setProbePhase('loading');
     try {
       if (!backend.available) throw new Error('宿主不可用');
@@ -343,12 +347,14 @@ function AddProviderModal({
       const archive = (await backend.modelArchiveSnapshot()) as unknown as {
         archives?: Array<{ model_id: string; context_window?: number }>;
       };
+      if (seq !== probeSeq.current) return;
       const list = (archive?.archives ?? []).map((m) => ({ id: m.model_id, context_window: m.context_window }));
       setProbed(list);
       setChecked(new Set(list.map((m) => m.id)));
       setProbePhase('success');
       setProbeNote(`探测到 ${list.length} 个模型，默认全部勾选`);
     } catch {
+      if (seq !== probeSeq.current) return;
       setProbePhase('fail');
       setProbeNote('探测失败：检查端点与密钥');
     }
@@ -553,6 +559,11 @@ export function ModelSection(): JSX.Element {
 
   const simTouchedRef = useRef(false);
   const readyRef = useRef(false);
+  const saveTimer = useRef<ReturnType<typeof setTimeout> | null>(null);
+
+  useEffect(() => () => {
+    if (saveTimer.current) clearTimeout(saveTimer.current);
+  }, []);
 
   useEffect(() => {
     if (!simTouchedRef.current || !readyRef.current) return;
@@ -602,10 +613,12 @@ export function ModelSection(): JSX.Element {
         ]);
       }
       setSavePhase('success');
-      setTimeout(() => setSavePhase('idle'), 1200);
+      if (saveTimer.current) clearTimeout(saveTimer.current);
+      saveTimer.current = setTimeout(() => setSavePhase('idle'), 1200);
     } catch {
       setSavePhase('fail');
-      setTimeout(() => setSavePhase('idle'), 2000);
+      if (saveTimer.current) clearTimeout(saveTimer.current);
+      saveTimer.current = setTimeout(() => setSavePhase('idle'), 2000);
     }
   };
 

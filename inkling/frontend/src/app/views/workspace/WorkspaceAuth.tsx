@@ -9,7 +9,7 @@
  * 目录选择一律走系统原生文件选择器（Tauri dialog），不做手动路径输入。
  */
 
-import { useState, useCallback, useEffect } from 'react';
+import { useState, useCallback, useEffect, useRef } from 'react';
 import { FolderOpen, CheckCircle, XCircle, Shield, ExternalLink, List, Plus } from 'lucide-react';
 
 import type { AppBackend } from '../../backend';
@@ -35,6 +35,11 @@ export function WorkspaceAuth({ backend, state: externalState, onStateChange }: 
   const [mountOpen, setMountOpen] = useState(false);
   const [mounts, setMounts] = useState<string[] | null>(null);
   const [mountPhase, setMountPhase] = useState<FeedbackPhase>('idle');
+  const mountTimer = useRef<ReturnType<typeof setTimeout> | null>(null);
+
+  useEffect(() => () => {
+    if (mountTimer.current) clearTimeout(mountTimer.current);
+  }, []);
 
   const updateAuthState = useCallback((next: AuthorizationState) => {
     setAuthState(next);
@@ -126,7 +131,8 @@ export function WorkspaceAuth({ backend, state: externalState, onStateChange }: 
     } catch {
       setMountPhase('fail');
     }
-    setTimeout(() => setMountPhase('idle'), 1200);
+    if (mountTimer.current) clearTimeout(mountTimer.current);
+    mountTimer.current = setTimeout(() => setMountPhase('idle'), 1200);
   }, [backend]);
 
   useEffect(() => {

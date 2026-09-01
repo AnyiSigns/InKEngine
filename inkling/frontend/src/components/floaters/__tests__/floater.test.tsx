@@ -1,14 +1,12 @@
 /**
- * 悬浮窗工厂测试：拖拽 / 缩放 / 关闭 / 层级 token / 三态反馈 / 挂载向导。
+ * 悬浮窗工厂测试：拖拽 / 缩放 / 关闭 / 层级 token / 三态反馈。
  */
 
 import { render, screen } from '@testing-library/react';
-import userEvent from '@testing-library/user-event';
 import { fireEvent } from '@testing-library/react';
 
 import { FloaterWindow } from '@/components/floaters/floater_window';
 import { Feedback } from '@/components/floaters/feedback';
-import { MountWizardFloater } from '@/components/floaters/mount_wizard_floater';
 import { Z_VARIANTS } from '@/renderer/designTokens';
 
 describe('悬浮窗工厂', () => {
@@ -85,30 +83,5 @@ describe('三态反馈（无静默变化）', () => {
   it('idle 不占位', () => {
     const { container } = render(<Feedback phase="idle" okText="完成" failText="失败" />);
     expect(container.querySelector('[data-ui="feedback"]')).toBeNull();
-  });
-});
-
-describe('挂载向导（多步悬浮窗）', () => {
-  it('选服务 → 配置 → 观察 → 挂载确认 → onMounted 回调', async () => {
-    const user = userEvent.setup();
-    const onMounted = vi.fn();
-    const onClose = vi.fn();
-    render(<MountWizardFloater onClose={onClose} onMounted={onMounted} />);
-    // 步骤 0：未选服务时下一步禁用
-    const next0 = document.querySelector('[data-ui="wizard_next_0"]') as HTMLButtonElement;
-    expect(next0.disabled).toBe(true);
-    await user.click(screen.getByText('web_search'));
-    await user.click(next0);
-    // 步骤 1（配置）→ 下一步 → 步骤 2（观察）
-    await user.click(document.querySelector('[data-ui="wizard_next_1"]') as HTMLButtonElement);
-    // 观察步骤 120ms 后进入挂载
-    await new Promise((resolve) => setTimeout(resolve, 150));
-    expect(screen.getByText(/vetting 静态钩子核对/)).toBeInTheDocument();
-    await user.click(document.querySelector('[data-ui="wizard_next_2"]') as HTMLButtonElement);
-    await new Promise((resolve) => setTimeout(resolve, 150));
-    expect(document.querySelector('[data-ui="wizard_next_3"]')).not.toBeNull();
-    await user.click(document.querySelector('[data-ui="wizard_next_3"]') as HTMLButtonElement);
-    expect(onMounted).toHaveBeenCalledWith(expect.objectContaining({ name: 'web_search' }));
-    expect(onClose).toHaveBeenCalled();
   });
 });

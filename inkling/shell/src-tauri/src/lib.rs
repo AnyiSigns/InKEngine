@@ -839,6 +839,7 @@ pub fn run() {
             commands::ops::ui_spec_apply,
             commands::ops::ui_spec_revert_latest,
             commands::ops::model_reload,
+            commands::ops::todo_get,
             commands::ops::ui_components_get,
             commands::ops::ui_components_set_disabled,
         ])

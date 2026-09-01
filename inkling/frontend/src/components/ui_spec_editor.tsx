@@ -94,6 +94,10 @@ export function UiSpecEditor({ uiSpec, onApplyUiSpec, onClose }: UiSpecEditorPro
   };
 
   const removeSelected = (): void => {
+    if (selected === 'root') {
+      setError('根节点不可删除（删除根 = 清空整份界面描述，请整体回退）');
+      return;
+    }
     const pathObj = findPathOf(draft.root ?? emptyNode(), selected);
     if (!pathObj) return;
     const siblings = (pathObj.parent.children ?? []).filter((_, index) => index !== pathObj.index);

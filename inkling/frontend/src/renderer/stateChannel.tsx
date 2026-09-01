@@ -29,8 +29,14 @@ export function readPath(obj: unknown, path: string): unknown {
 }
 
 /** 通道 → 快照字段名（state.session = 整快照，路径为空）。 */
+const FIELD_ALIASES: Record<string, string> = {
+  // 白名单通道名 task_state ↔ 快照字段 taskState（camelCase）
+  task_state: 'taskState',
+};
+
 function stateFieldOf(channel: string): string {
-  return channel.slice('state.'.length);
+  const field = channel.slice('state.'.length);
+  return FIELD_ALIASES[field] ?? field;
 }
 
 /** 按通道订阅取值：state.* 状态通道 / inspect_* 快照通道。 */

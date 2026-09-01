@@ -43,6 +43,9 @@
   --ink-accent-soft: color-mix(in srgb, var(--ink-accent-approval) 12%, transparent);
   --ink-accent-border: color-mix(in srgb, var(--ink-accent-approval) 40%, transparent);
 
+  /* 警示（安全模式/阈值告警等非决策语义强调） */
+  --ink-warning: #b45309;
+
   /* 透明组（状层）：alpha 全部 ≄17 0.5 */
   --ink-status-bubble-fill: color-mix(in srgb, var(--ink-text-base) 18%, transparent);
   --ink-status-bubble-edge: color-mix(in srgb, var(--ink-text-base) 30%, transparent);
@@ -111,6 +114,7 @@
     --ink-bg-base: #0c0d10;
     --ink-text-base: #e8e9ed;
     --ink-accent-approval: #f59e0b;
+    --ink-warning: #f59e0b;
 
     --ink-elev-1:
       0 1px 2px rgb(0 0 0 / 0.4),
@@ -129,6 +133,7 @@
   --ink-bg-base: #0c0d10;
   --ink-text-base: #e8e9ed;
   --ink-accent-approval: #f59e0b;
+  --ink-warning: #f59e0b;
 
   --ink-elev-1:
     0 1px 2px rgb(0 0 0 / 0.4),

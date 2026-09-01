@@ -1,13 +1,21 @@
 /**
  * 设置页扩展测试：四节（应用能力/成长状态/安全信任）+
  * 连接/外观；推理档声明渲染（param=null 隐藏 + 提示）；推演档位；
- * 搜索 key；挂载向导端到端。
+ * 搜索 key；审计导出（接 audit.list）。
  */
 
-import { render, screen, waitFor } from '@testing-library/react';
+import { render, screen } from '@testing-library/react';
 import userEvent from '@testing-library/user-event';
 
 import { SettingsForm } from '@/components/settings_form';
+import type { BackendAdapter } from '@/shared/backend/backendAdapter';
+
+function auditBackend(): BackendAdapter {
+  return {
+    available: true,
+    auditList: vi.fn(async () => ({ records: [{ at: 1, kind: 'test' }] })),
+  } as unknown as BackendAdapter;
+}
 
 describe('四节导航 + 默认内容', () => {
   it('导航含四节 + 连接/外观/关于；默认分区 = 应用能力（模型挡位）', () => {
@@ -74,9 +82,9 @@ describe('成长状态节', () => {
 });
 
 describe('安全信任节', () => {
-  it('权限矩阵/默认权限档/已记住域名/审计入口/导出恢复入口', async () => {
+  it('权限矩阵/默认权限档/已记住域名/审计导出/导出恢复入口', async () => {
     const user = userEvent.setup();
-    render(<SettingsForm />);
+    render(<SettingsForm backend={auditBackend()} />);
     await user.click(screen.getByRole('button', { name: /安全信任/ }));
     expect(screen.getByText('权限矩阵（kind → L0/L1/L2）')).toBeInTheDocument();
     expect(screen.getByText('默认权限档')).toBeInTheDocument();
@@ -92,21 +100,13 @@ describe('安全信任节', () => {
   });
 });
 
-describe('连接节：挂载向导悬浮窗端到端', () => {
-  it('向导四步完成挂载 → 已挂载清单即时同步', async () => {
+describe('连接节', () => {
+  it('本地演示清单：手动添加 → 已挂载清单即时同步', async () => {
     const user = userEvent.setup();
     render(<SettingsForm />);
     await user.click(screen.getByRole('button', { name: /连接/ }));
-    expect(screen.getByText('mcp_market 市场（出厂零预挂，一键挂载走 vetting → 观察 → L2 审批转正）')).toBeInTheDocument();
-    await user.click(screen.getByText('挂载向导'));
-    expect(screen.getByRole('dialog', { name: '挂载向导' })).toBeInTheDocument();
-    await user.click(document.querySelector('[data-ui="wizard_market_web_search"]') as HTMLElement);
-    await user.click(document.querySelector('[data-ui="wizard_next_0"]') as HTMLElement);
-    await user.click(document.querySelector('[data-ui="wizard_next_1"]') as HTMLElement);
-    await waitFor(() => expect(document.querySelector('[data-ui="wizard_next_2"]')).not.toBeNull());
-    await user.click(document.querySelector('[data-ui="wizard_next_2"]') as HTMLElement);
-    await waitFor(() => expect(document.querySelector('[data-ui="wizard_next_3"]')).not.toBeNull());
-    await user.click(document.querySelector('[data-ui="wizard_next_3"]') as HTMLElement);
-    await screen.findByText('已挂载：web_search（可回退）');
+    await user.type(screen.getByLabelText('手动添加 MCP'), 'npx -y @inkling/demo');
+    await user.click(screen.getByText('添加'));
+    expect(await screen.findByText('已挂载：npx -y @inkling/demo（可回退）')).toBeInTheDocument();
   });
 });

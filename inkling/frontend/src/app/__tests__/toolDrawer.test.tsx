@@ -20,4 +20,18 @@ describe('ToolDrawer', () => {
     fireEvent.click(screen.getByRole('button'));
     expect(onClose).toHaveBeenCalled();
   });
+
+  it('calls onClose on Escape key when open', () => {
+    const onClose = vi.fn();
+    render(<ToolDrawer open={true} onClose={onClose} title="tool output"><div>content</div></ToolDrawer>);
+    fireEvent.keyDown(window, { key: 'Escape' });
+    expect(onClose).toHaveBeenCalledTimes(1);
+  });
+
+  it('does not react to Escape when closed', () => {
+    const onClose = vi.fn();
+    render(<ToolDrawer open={false} onClose={onClose} title="tool output"><div>content</div></ToolDrawer>);
+    fireEvent.keyDown(window, { key: 'Escape' });
+    expect(onClose).not.toHaveBeenCalled();
+  });
 });

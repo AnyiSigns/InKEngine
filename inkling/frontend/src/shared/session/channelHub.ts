@@ -48,6 +48,8 @@ export interface ThreadBucket {
   incubation: IncubationEntry[];
   sourceTraces: SourceTraceEntry[];
   patchChain: PatchChainEntry[];
+  /** 桶最后活跃时间（事件落位即刷新）；跨会话清理 TTL 依据。 */
+  lastSeenAt: number;
 }
 
 export function emptyThreadBucket(): ThreadBucket {
@@ -58,6 +60,7 @@ export function emptyThreadBucket(): ThreadBucket {
     incubation: [],
     sourceTraces: [],
     patchChain: [],
+    lastSeenAt: Date.now(),
   };
 }
 

@@ -28,6 +28,13 @@ const STREAMING_TIMEOUT_MS = 30_000;
 const SOURCE_TRACES_MAX = 200;
 
 /**
+ * 会话桶跨会话清理 TTL：超过该时长未收到任何事件的 perThread 桶自动
+ * 逐出（与「标签/会话内存 3 天自动清理」口径一致），防长会话进程内
+ * 无限累积无活动会话的回合状态。活跃桶每次事件落位刷新 lastSeenAt。
+ */
+const THREAD_BUCKET_TTL_MS = 3 * 24 * 60 * 60 * 1000;
+
+/**
  * 引擎事件（EngineEvent.to_dict 信封）→ HubEvent 归一。
  * 引擎把 round_id/step_id 放信封顶层，前端归约从 payload 读取——
  * 归一注入 payload，与夹具/绑定协议形态统一；未登记类型原样透传
@@ -637,11 +644,18 @@ export function ingestEvent(hub: ChannelHub, event: HubEvent): void {
     incubation,
     sourceTraces,
     patchChain,
+    lastSeenAt: at,
   };
+  // 跨会话清理：逐出超过 TTL 未活跃的桶（当前桶刚刷新，不受影响）
+  const perThread: Record<string, ThreadBucket> = {};
+  for (const [tid, b] of Object.entries(state.perThread)) {
+    if (at - b.lastSeenAt <= THREAD_BUCKET_TTL_MS) perThread[tid] = b;
+  }
+  perThread[targetThread] = nextBucket;
   hub.setState({
     ...next,
     messages: isActive ? messages : state.messages,
-    perThread: { ...state.perThread, [targetThread]: nextBucket },
+    perThread,
     roundId: isActive ? state.roundId ?? nextRoundId : state.roundId,
     taskState,
     // 当前会话桶 → 全局镜像（既有组件零改动读快照即得当前会话数据）

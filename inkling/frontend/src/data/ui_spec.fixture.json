@@ -27,7 +27,15 @@
                   {
                     "kind": "component",
                     "type": "file_tree",
-                    "props": { "collapsible": true }
+                    "props": {
+                      "collapsible": true,
+                      "files": [
+                        { "name": "知识集", "kind": "dir", "children": [{ "name": "sessions.md", "kind": "file" }, { "name": "patterns.md", "kind": "file" }] },
+                        { "name": "领域包", "kind": "dir", "children": [{ "name": "tools.json", "kind": "file" }] },
+                        { "name": "规则", "kind": "dir", "children": [{ "name": "security.json", "kind": "file" }] },
+                        { "name": "patch_chain", "kind": "file" }
+                      ]
+                    }
                   },
                   {
                     "kind": "container",

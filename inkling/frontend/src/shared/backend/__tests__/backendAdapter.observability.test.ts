@@ -77,19 +77,18 @@ describe('mock 后端契约', () => {
       available: true,
       modelArchiveSnapshot: vi.fn(async (): Promise<ModelArchiveSnapshot> => ({ archives: [] })),
       metricsSnapshot: vi.fn(async (): Promise<TurnMetricsSnapshot> => ({
-        turns: 1,
-        failures: 0,
-        failure_rate: 0,
-        avg_review_score: 1,
-        llm_calls: 3,
-        round_duration_ms: 100,
+        ok: true,
+        turn_metrics: { turns: 1, failures: 0 },
+        llm: { prompt_tokens_total: 30, completion_tokens_total: 15, tokens_total: 45, last_prompt_tokens: 30, last_completion_tokens: 15, calls_total: 3 },
+        cache: { hits: 9, misses: 1, invalidations: 0, replacements: 0, hit_rate: 0.9, caching_llm: {} },
+        edges: { count: 1, avg_cost_mean: 0.1, avg_cost_min: 0.1, avg_cost_max: 0.1 },
+        cache_entries: 4,
+        occupancy: null,
       })),
       assembleStats: vi.fn(async (): Promise<AssembleStats> => ({
-        cache_hits: 9,
-        cache_misses: 1,
-        cache_invalidations: 0,
-        cache_replacements: 0,
-        avg_cost: 0.1,
+        ok: true,
+        stats: { cache_hits: 9, cache_misses: 1, cache_invalidations: 0, cache_replacements: 0 },
+        cache_entries: 4,
       })),
       chooseCandidate: vi.fn(async () => ({ chosen: 'c1' })),
       setMultipath: vi.fn(async () => ({ multipath: true })),
@@ -108,8 +107,9 @@ describe('mock 后端契约', () => {
   it('assembleStats 仅消费聚合统计（不引用缓存存储内部 API）', async () => {
     const backend = mockBackend();
     const stats = await backend.assembleStats();
-    expect(stats.cache_hits).toBe(9);
-    expect(stats.avg_cost).toBe(0.1);
+    expect(stats.stats.cache_hits).toBe(9);
+    expect(stats.cache_entries).toBe(4);
+    expect(stats.ok).toBe(true);
   });
 
   it('modelArchiveSnapshot 回传档案列表', async () => {

@@ -2,6 +2,7 @@
  * 工具输出抽屉（C 区侧浮）：结果类截断后「查看完整」触发。
  */
 
+import { useEffect } from 'react';
 import { X } from 'lucide-react';
 
 export interface ToolDrawerProps {
@@ -12,6 +13,15 @@ export interface ToolDrawerProps {
 }
 
 export function ToolDrawer({ open, onClose, title, children }: ToolDrawerProps) {
+  useEffect(() => {
+    if (!open) return;
+    const onKeyDown = (e: KeyboardEvent): void => {
+      if (e.key === 'Escape') onClose();
+    };
+    window.addEventListener('keydown', onKeyDown);
+    return () => window.removeEventListener('keydown', onKeyDown);
+  }, [open, onClose]);
+
   if (!open) return null;
 
   return (

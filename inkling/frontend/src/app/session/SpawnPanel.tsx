@@ -2,7 +2,7 @@
  * 子代理会话面板（右侧滑入浮窗）：实例清单 + 选中实例独立会话流 + 补充指令。
  */
 
-import { useState } from 'react';
+import { useEffect, useState } from 'react';
 import { ChevronLeft, Send, Loader2 } from 'lucide-react';
 
 export interface SpawnInstance {
@@ -26,6 +26,15 @@ export interface SpawnPanelProps {
 export function SpawnPanel({ open, onClose, instances, selectedIndex, onSelectIndex, onSendInstruction, streaming }: SpawnPanelProps) {
   const [instruction, setInstruction] = useState('');
   const selected = instances.find((i) => i.index === selectedIndex) ?? instances[0] ?? null;
+
+  useEffect(() => {
+    if (!open) return;
+    const onKeyDown = (e: KeyboardEvent): void => {
+      if (e.key === 'Escape') onClose();
+    };
+    window.addEventListener('keydown', onKeyDown);
+    return () => window.removeEventListener('keydown', onKeyDown);
+  }, [open, onClose]);
 
   if (!open) return null;
 

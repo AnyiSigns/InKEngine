@@ -56,6 +56,14 @@ interface McpServerDetailProps {
 }
 
 function McpServerDetail({ entry, mounted, onClose, onMount, onUnmount }: McpServerDetailProps) {
+  useEffect(() => {
+    const onKeyDown = (e: KeyboardEvent): void => {
+      if (e.key === 'Escape') onClose();
+    };
+    window.addEventListener('keydown', onKeyDown);
+    return () => window.removeEventListener('keydown', onKeyDown);
+  }, [onClose]);
+
   const handleCopyConfig = (): void => {
     const config = JSON.stringify({ transport: entry.transport, url: entry.url, command: entry.command, args: entry.args }, null, 2);
     void navigator.clipboard.writeText(config);

@@ -9,6 +9,7 @@ import { MessageList } from '@/components/message_list';
 import { ReviewCard } from '@/components/review_card';
 import { SimulationTree } from '@/components/simulation_tree';
 import { SettingsForm } from '@/components/settings_form';
+import { FileTree } from '@/components/file_tree';
 import { ChannelHub } from '@/shared/session/channelHub';
 import type { HubEvent } from '@/shared/session/channelHub';
 
@@ -145,5 +146,34 @@ describe('settings_form：双栏导航 + 主题 token 试穿再应用（白名�
     await user.type(screen.getByLabelText('手动添加 MCP'), 'http://localhost:3000/mcp');
     await user.click(screen.getByText('添加'));
     expect(await screen.findByText(/已挂载：http:\/\/localhost:3000\/mcp/)).toBeInTheDocument();
+  });
+});
+
+describe('file_tree：树行可操作（点击文件置 active + 回调宿主）', () => {
+  const files = [
+    {
+      name: '知识集',
+      kind: 'dir' as const,
+      children: [
+        { name: 'sessions.md', kind: 'file' as const },
+        { name: 'patterns.md', kind: 'file' as const },
+      ],
+    },
+  ];
+
+  it('文件行点击回调 onOpenFile 并置 active', async () => {
+    const user = userEvent.setup();
+    const onOpenFile = vi.fn();
+    render(<FileTree files={files} activeFile="" onOpenFile={onOpenFile} />);
+    await user.click(screen.getByText('sessions.md'));
+    expect(onOpenFile).toHaveBeenCalledWith('sessions.md');
+    expect(screen.getByText('sessions.md').closest('button')).toHaveClass('bg-[var(--ink-bg-elevated)]');
+  });
+
+  it('无回调注入时本地选中不崩', async () => {
+    const user = userEvent.setup();
+    render(<FileTree files={files} activeFile="" />);
+    await user.click(screen.getByText('patterns.md'));
+    expect(screen.getByText('patterns.md')).toBeInTheDocument();
   });
 });

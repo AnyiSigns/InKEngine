@@ -27,10 +27,13 @@ interface FileTreeProps {
   files?: FileNode[];
   activeFile?: string;
   onNavigate?: (view: ViewId) => void;
+  /** 文件行点击回调（宿主接线：打开展示/路由）；未注入时仍本地置 active。 */
+  onOpenFile?: (name: string) => void;
 }
 
-export function FileTree({ collapsible = false, files = [], activeFile = '', onNavigate }: FileTreeProps) {
+export function FileTree({ collapsible = false, files = [], activeFile = '', onNavigate, onOpenFile }: FileTreeProps) {
   const [collapsed, setCollapsed] = useState(false);
+  const [selected, setSelected] = useState(activeFile);
 
   if (collapsed) {
     return (
@@ -73,7 +76,16 @@ export function FileTree({ collapsible = false, files = [], activeFile = '', onN
       </div>
       <div className="min-h-0 flex-1 overflow-y-auto px-2 pb-1">
         {files.map((node) => (
-          <FileRow key={node.name} node={node} depth={0} activeFile={activeFile} />
+          <FileRow
+            key={node.name}
+            node={node}
+            depth={0}
+            activeFile={activeFile || selected}
+            onOpenFile={(name) => {
+              setSelected(name);
+              onOpenFile?.(name);
+            }}
+          />
         ))}
       </div>
       <div className="border-t px-2 py-1.5 ink-border">
@@ -90,7 +102,7 @@ export function FileTree({ collapsible = false, files = [], activeFile = '', onN
   );
 }
 
-function FileRow({ node, depth, activeFile }: { node: FileNode; depth: number; activeFile: string }) {
+function FileRow({ node, depth, activeFile, onOpenFile }: { node: FileNode; depth: number; activeFile: string; onOpenFile: (name: string) => void }) {
   const [open, setOpen] = useState(depth === 0);
   const isDir = node.kind === 'dir';
   const active = !isDir && node.name === activeFile;
@@ -118,7 +130,7 @@ function FileRow({ node, depth, activeFile }: { node: FileNode; depth: number; a
         </button>
         {open &&
           node.children?.map((child) => (
-            <FileRow key={child.name} node={child} depth={depth + 1} activeFile={activeFile} />
+            <FileRow key={child.name} node={child} depth={depth + 1} activeFile={activeFile} onOpenFile={onOpenFile} />
           ))}
       </div>
     );
@@ -127,6 +139,8 @@ function FileRow({ node, depth, activeFile }: { node: FileNode; depth: number; a
   return (
     <button
       data-ui={`tree_file_${node.name}`}
+      title={node.name}
+      onClick={() => onOpenFile(node.name)}
       style={{ paddingLeft: depth * 12 + 6 }}
       className={cn(
         'relative flex w-full items-center gap-1.5 rounded-lg py-1 pr-2 text-left cursor-pointer',

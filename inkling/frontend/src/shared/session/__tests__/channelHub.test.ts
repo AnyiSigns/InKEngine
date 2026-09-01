@@ -204,4 +204,18 @@ describe('thread 分桶（演化/推演按会话窗口区分）', () => {
     ingestEvent(hub, ev('tool_start', { step_id: 'tool:1', tool: 'grep', thread_id: 'thread-b' }));
     expect(hub.getSnapshot().messages).toHaveLength(0);
   });
+
+  it('超过 TTL 未活跃的会话桶自动逐出（防跨会话内存累积）', () => {
+    const hub = new ChannelHub();
+    hub.setState({ activeSessionId: 'thread-a' });
+    // thread-b 桶最后活跃在 3 天前 → 后续落位应被清理
+    const staleAt = Date.now() - 3 * 24 * 60 * 60 * 1000 - 1000;
+    ingestEvent(hub, { type: 'signal_detected', payload: { signal_id: 'sig-old', signal: '旧', thread_id: 'thread-b' }, at: staleAt });
+    expect(hub.getSnapshot().perThread['thread-b']).toBeDefined();
+    // 新事件落位触发清理：旧桶逐出，当前桶保留
+    ingestEvent(hub, ev('signal_detected', { signal_id: 'sig-new', signal: '新' }));
+    const snap = hub.getSnapshot();
+    expect(snap.perThread['thread-b']).toBeUndefined();
+    expect(snap.perThread['thread-a']).toBeDefined();
+  });
 });

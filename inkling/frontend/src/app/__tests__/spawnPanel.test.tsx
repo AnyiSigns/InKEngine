@@ -27,4 +27,18 @@ describe('SpawnPanel', () => {
     fireEvent.keyDown(screen.getByPlaceholderText('补充指令：让这个子代理…'), { key: 'Enter', code: 'Enter', charCode: 13 });
     expect(onSend).toHaveBeenCalledWith('继续');
   });
+
+  it('calls onClose on Escape key when open', () => {
+    const onClose = vi.fn();
+    render(<SpawnPanel open={true} onClose={onClose} instances={instances} selectedIndex={0} onSelectIndex={() => {}} onSendInstruction={() => {}} streaming={false} />);
+    fireEvent.keyDown(window, { key: 'Escape' });
+    expect(onClose).toHaveBeenCalledTimes(1);
+  });
+
+  it('does not react to Escape when closed', () => {
+    const onClose = vi.fn();
+    render(<SpawnPanel open={false} onClose={onClose} instances={instances} selectedIndex={0} onSelectIndex={() => {}} onSendInstruction={() => {}} streaming={false} />);
+    fireEvent.keyDown(window, { key: 'Escape' });
+    expect(onClose).not.toHaveBeenCalled();
+  });
 });

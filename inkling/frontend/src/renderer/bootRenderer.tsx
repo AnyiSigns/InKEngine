@@ -233,6 +233,8 @@ function UINodeView({
 export interface RendererChrome {
   /** 视图切换（顶栏导航） */
   onNavigate?: (view: ViewId) => void;
+  /** 文件树条目打开（宿主接线：工作区文件打开展示/路由） */
+  onOpenFile?: (name: string) => void;
   /** 审批卡决议（accept/reject/edit/terminate） */
   onResolveReview?: (resolution: 'accept' | 'reject' | 'edit' | 'terminate', editedContent?: string) => void;
   /** 输入提交（宿主接线：引擎回合入口；附件随多模态直发或降级为文本引用） */
@@ -287,6 +289,7 @@ export function UIRenderer({
   hub,
   activeView,
   onNavigate,
+  onOpenFile,
   onResolveReview,
   onSend,
   onAbort,
@@ -323,6 +326,7 @@ export function UIRenderer({
 
   const chromeProps: Record<string, unknown> = {};
   if (onNavigate) chromeProps.onNavigate = onNavigate;
+  if (onOpenFile) chromeProps.onOpenFile = onOpenFile;
   if (onResolveReview) chromeProps.onResolveReview = onResolveReview;
   if (onSend) chromeProps.onSend = onSend;
   if (onAbort) chromeProps.onAbort = onAbort;

@@ -219,29 +219,52 @@ export interface ModelArchiveSnapshot {
 }
 
 /**
- * 回合指标快照（TurnMetrics 形态）：回合数 / 失败数 / 失败率 /
- * 平均评审分 + 扩展面（LLM 调用数 / 回合耗时）。
+ * 回合指标快照（metrics.snapshot op 回传聚合形态）：回合/LLM/缓存/
+ * 边证据/占用汇成单一观测快照。各块缺省容错（缺块 = 0/空，不报错）。
  */
 export interface TurnMetricsSnapshot {
-  turns: number;
-  failures: number;
-  failure_rate: number;
-  avg_review_score: number;
-  llm_calls: number;
-  round_duration_ms: number;
+  ok: boolean;
+  turn_metrics: Record<string, unknown>;
+  llm: {
+    prompt_tokens_total: number;
+    completion_tokens_total: number;
+    tokens_total: number;
+    last_prompt_tokens: number | null;
+    last_completion_tokens: number | null;
+    calls_total: number;
+  };
+  cache: {
+    hits: number;
+    misses: number;
+    invalidations: number;
+    replacements: number;
+    hit_rate: number;
+    caching_llm: Record<string, unknown>;
+  };
+  edges: {
+    count: number;
+    avg_cost_mean: number;
+    avg_cost_min: number | null;
+    avg_cost_max: number | null;
+  };
+  cache_entries: number;
+  occupancy: { current: number; limit: number; over_threshold: boolean } | null;
 }
 
 /**
- * 组装路径统计（path.assemble op 回传 stats，命中率钉死取此）：
- * 缓存命/失/失效/顶替 + 边平均成本。注意：不引用任何缓存存储的
- * 内部 stats 方法，仅消费 op 回传的聚合统计。
+ * 组装路径统计（assemble_stats op 回传）：stats 四计数器（进程内跨
+ * 调用累计）+ 缓存条目量。注意：不引用任何缓存存储的内部 stats 方法，
+ * 仅消费 op 回传的聚合统计。
  */
 export interface AssembleStats {
-  cache_hits: number;
-  cache_misses: number;
-  cache_invalidations: number;
-  cache_replacements: number;
-  avg_cost: number;
+  ok: boolean;
+  stats: {
+    cache_hits: number;
+    cache_misses: number;
+    cache_invalidations: number;
+    cache_replacements: number;
+  };
+  cache_entries: number;
 }
 
 /** 单条归一结果（既有资料批量导入扫描预览）。 */

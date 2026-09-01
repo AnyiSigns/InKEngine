@@ -367,7 +367,9 @@ def _file_size(path: Path) -> int:
     try:
         return path.stat().st_size
     except OSError:
-        return 0
+        # fail-closed：无法 stat 的文件不当作 0 字节放行（大小上限会
+        # 被绕过）；返回超限值触发拒绝，让沙箱给出明确错误
+        raise SandboxViolation(f"无法获取文件大小: {path}")
 
 
 def _size_limit(definition: DeclarativeToolSpec, key: str, default: int) -> int:
@@ -429,7 +431,7 @@ class DeclarativeSandboxProxy:
     沙箱语义（会话/装配边界），不误伤。
     """
 
-    _FS_OPS = frozenset(("read", "write", "delete", "search", "search_paths"))
+    _FS_OPS = frozenset(("read", "write", "edit", "delete", "search", "search_paths"))
 
     def __init__(
         self,
@@ -808,7 +810,7 @@ class FileOpsExecutor:
         root = self._search_base(definition)
         if not root or not root.is_dir():
             return json.dumps(
-                {"ok": False, "status": "no_root", "error": f"检索根不可用: {root}"},
+                {"ok": False, "status": "no_root", "error": "检索根不可用（工作区未授权或目录缺失）"},
                 ensure_ascii=False,
             )
         pattern = str(args.get("pattern") or "")
@@ -885,9 +887,9 @@ class FileOpsExecutor:
                             "snippet": text[line_start:line_end].strip()[:200],
                         }
                     )
-        except OSError as exc:
+        except OSError:
             return json.dumps(
-                {"ok": False, "status": "search_failed", "error": f"检索失败: {exc}"},
+                {"ok": False, "status": "search_failed", "error": "检索失败（目录不可读或已删除）"},
                 ensure_ascii=False,
             )
         if len(matches) >= max_results:
@@ -910,7 +912,7 @@ class FileOpsExecutor:
         root = self._search_base(definition)
         if not root or not root.is_dir():
             return json.dumps(
-                {"ok": False, "status": "no_root", "error": f"检索根不可用: {root}"},
+                {"ok": False, "status": "no_root", "error": "检索根不可用（工作区未授权或目录缺失）"},
                 ensure_ascii=False,
             )
         pattern = str(args.get("pattern") or "")
@@ -922,7 +924,7 @@ class FileOpsExecutor:
         base = Path(str(args.get("path") or "")).resolve() if args.get("path") else root
         if not base.is_relative_to(root):
             return json.dumps(
-                {"ok": False, "status": "out_of_root", "error": f"检索起点越界: {base}"},
+                {"ok": False, "status": "out_of_root", "error": "检索起点越界（须在工作区根内）"},
                 ensure_ascii=False,
             )
         try:
@@ -950,9 +952,9 @@ class FileOpsExecutor:
                         continue
                     if rel and _glob_match(pattern_norm, rel):
                         matches.append(entry.as_posix())
-        except OSError as exc:
+        except OSError:
             return json.dumps(
-                {"ok": False, "status": "search_failed", "error": f"检索失败: {exc}"},
+                {"ok": False, "status": "search_failed", "error": "检索失败（目录不可读或已删除）"},
                 ensure_ascii=False,
             )
         if len(matches) >= max_results:

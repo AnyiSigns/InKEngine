@@ -24,6 +24,7 @@ from __future__ import annotations
 import asyncio
 import contextlib
 import json
+import threading
 import time
 import uuid
 from collections.abc import Callable, Sequence
@@ -79,7 +80,7 @@ from .self_application import (
     SelfApplicationPipeline,
 )
 from .self_proposal import PatchKind, ProposalValidator
-from .self_tools import ConvergenceHook, SelfToolContext
+from .self_tools import TAG_THREAD_PREFIX, ConvergenceHook, SelfToolContext
 from .storage import CheckpointRecord, Storage
 from .tool_index import ToolVectorIndex, build_default_embedder
 from .tool_orchestrator import ToolSelector
@@ -121,7 +122,8 @@ BASELINE_IMMUTABLE_TOOLS: frozenset[str] = frozenset({"search_tools", "request_t
 # 工具标签（单源 + 标签：tool_registry 是全量存储，标签区分注册状态）
 TAG_IMMUTABLE = "immutable"  # 内省/自指恒注入，不可注销
 TAG_BASELINE = "baseline"  # 必带恒注入（出厂 + 设置页勾选）
-TAG_THREAD_PREFIX = "thread:"  # agent 回合内绑定，会话窗口恒注入
+# agent 回合内绑定，会话窗口恒注入（thread 标签前缀单源定义在
+# self_tools，经顶部 import 复用——绑定打标与注入面过滤同一常量）
 
 # thread 标签 TTL（秒）：到期惰性清理（无会话关闭语义，纯按时间回收）
 THREAD_TAG_TTL_SECONDS = 3 * 24 * 3600  # 默认 3 天
@@ -477,6 +479,10 @@ class Runtime:
         # thread 标签打标时间戳（(工具名, thread_id) → 时间戳）：TTL 到期
         # 惰性清理（默认 THREAD_TAG_TTL_SECONDS 后自动回收，防泄漏）
         self._thread_tag_created: dict[tuple[str, str], float] = {}
+        # 标签表并发保护：request_tool 绑定（async 路径）与 collect_specs
+        # /_expire_thread_tags（回合装配路径）可并发触及同一 dict——加锁
+        # 防 dictionary changed size during iteration 竞态
+        self._tags_lock = threading.Lock()
         # 池治理登记器（容量/淘汰/合并/预算四规则；只登记不执行）
         self.pool_governance: PoolGovernance | None = None
         # 本回合注入的知识条目 id（知识使用留痕：provide 命中即记，回合
@@ -1196,39 +1202,42 @@ class Runtime:
         调用方在事务边界异步落盘（_persist_thread_tags），本方法只管
         活跃态内存。
         """
-        if name not in self.tool_registry and tag != TAG_IMMUTABLE:
-            return
-        self._tool_tags.setdefault(name, set()).add(tag)
-        if tag.startswith(TAG_THREAD_PREFIX):
-            thread_id = tag[len(TAG_THREAD_PREFIX):]
-            self._thread_tag_created[(name, thread_id)] = time.time()
+        with self._tags_lock:
+            if name not in self.tool_registry and tag != TAG_IMMUTABLE:
+                return
+            self._tool_tags.setdefault(name, set()).add(tag)
+            if tag.startswith(TAG_THREAD_PREFIX):
+                thread_id = tag[len(TAG_THREAD_PREFIX):]
+                self._thread_tag_created[(name, thread_id)] = time.time()
 
     def untag_tool(self, name: str, tag: str) -> None:
         """摘除工具标签（immutable 不可摘除）。"""
         if tag == TAG_IMMUTABLE:
             return
-        tags = self._tool_tags.get(name)
-        if tags is None:
-            return
-        tags.discard(tag)
-        if tag.startswith(TAG_THREAD_PREFIX):
-            thread_id = tag[len(TAG_THREAD_PREFIX):]
-            self._thread_tag_created.pop((name, thread_id), None)
-        if not tags:
-            self._tool_tags.pop(name, None)
+        with self._tags_lock:
+            tags = self._tool_tags.get(name)
+            if tags is None:
+                return
+            tags.discard(tag)
+            if tag.startswith(TAG_THREAD_PREFIX):
+                thread_id = tag[len(TAG_THREAD_PREFIX):]
+                self._thread_tag_created.pop((name, thread_id), None)
+            if not tags:
+                self._tool_tags.pop(name, None)
 
     def _expire_thread_tags(self, now: float | None = None) -> None:
         """惰性清理过期 thread 标签（TTL 到期自动回收，防泄漏）。"""
-        if not self._thread_tag_created:
-            return
-        now = now if now is not None else time.time()
-        expired = [
-            key for key, ts in self._thread_tag_created.items()
-            if now - ts > THREAD_TAG_TTL_SECONDS
-        ]
-        for tool, thread_id in expired:
-            self._thread_tag_created.pop((tool, thread_id), None)
-            self._tool_tags.get(tool, set()).discard(f"{TAG_THREAD_PREFIX}{thread_id}")
+        with self._tags_lock:
+            if not self._thread_tag_created:
+                return
+            now = now if now is not None else time.time()
+            expired = [
+                key for key, ts in self._thread_tag_created.items()
+                if now - ts > THREAD_TAG_TTL_SECONDS
+            ]
+            for tool, thread_id in expired:
+                self._thread_tag_created.pop((tool, thread_id), None)
+                self._tool_tags.get(tool, set()).discard(f"{TAG_THREAD_PREFIX}{thread_id}")
 
     def collect_specs(self, thread_id: str | None = None) -> list[ToolSpec]:
         """工具注入集（按标签过滤），供回合装配 tools 参数。
@@ -1243,14 +1252,15 @@ class Runtime:
         baseline = self._baseline_names
         thread_tag = f"{TAG_THREAD_PREFIX}{thread_id}" if thread_id else None
         keep: list[ToolSpec] = []
-        for spec in self.merged_specs():
-            name = spec.name
-            tags = self._tool_tags.get(name) or set()
-            if name in baseline or TAG_IMMUTABLE in tags:
-                keep.append(spec)
-                continue
-            if thread_tag and thread_tag in tags:
-                keep.append(spec)
+        with self._tags_lock:
+            for spec in self.merged_specs():
+                name = spec.name
+                tags = self._tool_tags.get(name) or set()
+                if name in baseline or TAG_IMMUTABLE in tags:
+                    keep.append(spec)
+                    continue
+                if thread_tag and thread_tag in tags:
+                    keep.append(spec)
         # 预算护栏：常驻注入集默认上限（设置页可调，非硬锁）
         budget = self.tool_selector.max_tools if self.tool_selector is not None else 18
         return keep[:budget] if budget > 0 else keep
@@ -1346,8 +1356,9 @@ class Runtime:
         if self.storage is None:
             return
         payload: dict[str, dict[str, float]] = {}
-        for (name, thread_id), ts in self._thread_tag_created.items():
-            payload.setdefault(name, {})[thread_id] = ts
+        with self._tags_lock:
+            for (name, thread_id), ts in self._thread_tag_created.items():
+                payload.setdefault(name, {})[thread_id] = ts
         try:
             await runtime_config_writer(
                 DefaultEvolutionWriter(self.storage),
@@ -1379,20 +1390,21 @@ class Runtime:
         if not isinstance(raw, dict):
             return
         now = time.time()
-        for name, threads in raw.items():
-            if not isinstance(threads, dict):
-                continue
-            for thread_id, ts in threads.items():
-                try:
-                    stamp = float(ts)
-                except (TypeError, ValueError):
+        with self._tags_lock:
+            for name, threads in raw.items():
+                if not isinstance(threads, dict):
                     continue
-                if now - stamp > THREAD_TAG_TTL_SECONDS:
-                    continue
-                self._tool_tags.setdefault(name, set()).add(
-                    f"{TAG_THREAD_PREFIX}{thread_id}"
-                )
-                self._thread_tag_created[(name, thread_id)] = stamp
+                for thread_id, ts in threads.items():
+                    try:
+                        stamp = float(ts)
+                    except (TypeError, ValueError):
+                        continue
+                    if now - stamp > THREAD_TAG_TTL_SECONDS:
+                        continue
+                    self._tool_tags.setdefault(name, set()).add(
+                        f"{TAG_THREAD_PREFIX}{thread_id}"
+                    )
+                    self._thread_tag_created[(name, thread_id)] = stamp
 
     # ── 出厂界面组件启停（组件 tab 管理面；出厂白名单可停用）──
 

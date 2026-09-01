@@ -305,6 +305,7 @@
   "message.candidate_paths": "{n} 条候选路径",
   "message.selected": "已选",
   "message.round_fail": "本轮运行失败",
+  "message.attachment": "附件",
   "message.system": "系统消息",
   "message.empty_title": "开始你的第一个任务",
   "message.empty_hint": "描述你想要构建的内容，智能体将自主规划、执行并演化",

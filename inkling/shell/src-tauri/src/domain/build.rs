@@ -25,12 +25,11 @@ use std::collections::{HashMap, HashSet};
 use std::path::{Path, PathBuf};
 use std::pin::Pin;
 use std::sync::{Arc, RwLock};
-use std::time::{SystemTime, UNIX_EPOCH};
 
 use serde_json::Value as JsonValue;
 use sha2::Digest;
 
-use super::common::{run_command, DomainError};
+use super::common::{run_command, DomainError, now_epoch, truncate_chars};
 use crate::engine::host::call_engine_op;
 
 // ── 构建/冒烟/挂载失败的错误码（结构化可观测，防魔法字符串）──
@@ -822,23 +821,6 @@ fn sha256_hex(data: &[u8]) -> String {
 fn shorten_sha256<D: sha2::digest::Digest>(hasher: D) -> String {
     let digest = hasher.finalize();
     hex::encode(digest)
-}
-
-fn now_epoch() -> f64 {
-    SystemTime::now()
-        .duration_since(UNIX_EPOCH)
-        .map(|d| d.as_secs_f64())
-        .unwrap_or(0.0)
-}
-
-fn truncate_chars(text: &str, max: usize) -> String {
-    if text.len() <= max {
-        text.to_string()
-    } else {
-        let mut head = text.to_string();
-        head.truncate(max);
-        head
-    }
 }
 
 fn string_list_from(value: &JsonValue) -> Vec<String> {

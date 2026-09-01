@@ -24,6 +24,7 @@ from contextlib import asynccontextmanager, suppress
 from dataclasses import dataclass
 from typing import Any
 
+from ink_engine.core.declarative_tools import EndpointType
 from ink_engine.core.mcp_client import (
     McpServerConfig,
     McpTransport,
@@ -866,11 +867,19 @@ class McpMountService:
             patch_ids.append(outcome.patch_id)
             tool_names.append(spec.name)
             base_version = outcome.patch_id
-        self._mount_log[config.id] = list(patch_ids)
         self._sync_introspection()
         with suppress(Exception):
             await self._persist_mount_configs()
-        await self._runtime.rebuild_engine()
+        try:
+            await self._runtime.rebuild_engine()
+        except BaseException:
+            # 引擎重建失败：不登记 _mount_log（卸载回退按它走链尾——
+            # 登记了但链态异常会导致卸载找不到对应链尾），回滚已落补丁
+            # 后原样上抛，调用方收到失败结果
+            await self._rollback_patches(ctx, patch_ids, round_id=round_id)
+            await manager.disconnect(config.id)
+            raise
+        self._mount_log[config.id] = list(patch_ids)
         return MountOutcome(
             ok=True, server_id=config.id,
             patch_ids=tuple(patch_ids), tool_names=tuple(tool_names),
@@ -907,6 +916,14 @@ class McpMountService:
             if not isinstance(edited, dict):
                 return "vetting_rejected"
             edited_config = _config_from_edited(config, edited)
+            # edit 决议可能改写传输/url/command：除静态核对外，http 传输
+            # 改后的 url 必须重走 SSRF 防线（公网地址校验）——vetting_checks
+            # 只核对清单一致性与命令白名单，不覆盖可达性/SSRF 防护
+            if edited_config.transport is McpTransport.HTTP:
+                try:
+                    _assert_public_http_host(edited_config.url)
+                except McpMountError:
+                    return "vetting_rejected"
             if self.vetting_checks(edited_config):
                 return "vetting_rejected"
             return "accept"
@@ -955,6 +972,9 @@ class McpMountService:
             )
         removed = self._remove_server_tools(server_id)
         self._mount_log.pop(server_id, None)
+        # 卸载清理 vetting 登记：重挂载须重新过 vetting（影子比对防
+        # 复用旧工具集的放行状态）
+        self._vetted_set.discard(server_id)
         with suppress(Exception):
             await self._persist_mount_configs()
         manager = self._runtime.mcp_manager
@@ -998,7 +1018,12 @@ class McpMountService:
         for name, definition in list(
             self._runtime.harness_registry.declarative.definitions.items()
         ):
-            if definition.meta.get("mcp_server") == server_id:
+            # 端点守卫：仅移除确为 MCP 端点且归属该 server 的工具
+            # （meta.mcp_server 单独匹配会被污染的定义误删本地工具）
+            if (
+                definition.meta.get("mcp_server") == server_id
+                and definition.endpoint is EndpointType.MCP
+            ):
                 removed.append(name)
                 self._runtime.tool_registry.pop(name, None)
                 self._runtime.harness_registry.declarative.unregister_definition(name)

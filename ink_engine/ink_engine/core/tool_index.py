@@ -18,6 +18,7 @@ import math
 import re
 from collections.abc import Iterable
 from dataclasses import dataclass, field
+from typing import Any
 
 from .llm.tools import ToolSpec
 from .logging import get_logger
@@ -59,16 +60,51 @@ def _embed_texts(embedder, texts: list[str]) -> list[list[float]] | None:
         import asyncio
 
         if asyncio.iscoroutinefunction(embedder.aembed_documents):
-            # 同步上下文：新建事件循环跑异步嵌入
-            loop = asyncio.new_event_loop()
-            try:
-                return loop.run_until_complete(embedder.aembed_documents(texts))
-            finally:
-                loop.close()
+            return _run_async_blocking(embedder.aembed_documents(texts))
         return embedder.aembed_documents(texts)
     except Exception as exc:
         logger.warning("工具嵌入失败，降级关键词基线: %s", exc)
         return None
+
+
+def _run_async_blocking(coro) -> Any:
+    """同步上下文运行协程（兼容既有事件循环：不在当前线程新建嵌套循环）。
+
+    ``asyncio.new_event_loop().run_until_complete`` 在已有 running loop 的
+    线程内会抛 RuntimeError（嵌套循环）。这里把协程交给专用线程的独立
+    事件循环执行——调用线程既有的 loop 不受影响，线程循环关闭即释放。
+    """
+    import asyncio
+    import threading
+
+    result: dict[str, Any] = {}
+
+    def _runner() -> None:
+        loop = asyncio.new_event_loop()
+        try:
+            result["value"] = loop.run_until_complete(coro)
+        except BaseException as exc:
+            result["error"] = exc
+        finally:
+            loop.close()
+
+    try:
+        asyncio.get_running_loop()
+        thread = threading.Thread(target=_runner, daemon=True)
+        thread.start()
+        thread.join()
+    except RuntimeError:
+        # 当前线程无 running loop：直接新建循环执行（单线程主路径）
+        loop = asyncio.new_event_loop()
+        try:
+            result["value"] = loop.run_until_complete(coro)
+        except BaseException as exc:
+            result["error"] = exc
+        finally:
+            loop.close()
+    if "error" in result:
+        raise result["error"]
+    return result.get("value")
 
 
 def _cosine(a: list[float], b: list[float]) -> float:
@@ -162,22 +198,40 @@ class ToolVectorIndex:
             logger.info("工具向量索引：嵌入不可用，启用关键词基线（%d 工具）", len(self._entries))
 
     def refresh(self, specs: Iterable[ToolSpec], endpoints: dict[str, str] | None = None) -> None:
-        """增量刷新：只重新嵌入新增/变更的条目。"""
+        """增量刷新：只重新嵌入新增/变更的条目。
+
+        只收集需要重嵌的条目（新增 / 描述为空且无向量 / 端点或权限档
+        变更），不重建全量；spec 与 name 成对收集，避免 zip 错位。
+        """
         endpoints = endpoints or {}
         texts: list[str] = []
-        names: list[str] = []
+        targets: list[tuple[str, ToolSpec]] = []
         for spec in specs:
             entry = self._entries.get(spec.name)
-            if entry is not None and entry.vector is not None and not spec.description:
+            if (
+                entry is not None
+                and entry.vector is not None
+                and spec.description
+                and entry.endpoint == endpoints.get(spec.name, "declarative")
+                and entry.tier == _tier_of(spec)
+            ):
+                # 已嵌入且内容/端点/档位未变：仅同步 spec 元数据（描述
+                # 更新走重嵌路径，不在此静默跳过）
+                self._entries[spec.name] = ToolIndexEntry(
+                    spec=spec,
+                    vector=entry.vector,
+                    endpoint=entry.endpoint,
+                    tier=entry.tier,
+                )
                 continue
             texts.append(self._embed_text(spec))
-            names.append(spec.name)
-        if not texts:
+            targets.append((spec.name, spec))
+        if not targets:
             return
         vectors = _embed_texts(self.embedder, texts) if texts else []
         if vectors is None:
-            vectors = [None] * len(names)
-        for name, spec, vector in zip(names, specs, vectors, strict=False):
+            vectors = [None] * len(targets)
+        for (name, spec), vector in zip(targets, vectors, strict=False):
             self._entries[name] = ToolIndexEntry(
                 spec=spec,
                 vector=vector if vector else None,
@@ -204,11 +258,7 @@ class ToolVectorIndex:
             import asyncio
 
             if asyncio.iscoroutinefunction(self.embedder.aembed_query):
-                loop = asyncio.new_event_loop()
-                try:
-                    query_vector = loop.run_until_complete(self.embedder.aembed_query(query))
-                finally:
-                    loop.close()
+                query_vector = _run_async_blocking(self.embedder.aembed_query(query))
             else:
                 query_vector = self.embedder.aembed_query(query)
         except Exception as exc:

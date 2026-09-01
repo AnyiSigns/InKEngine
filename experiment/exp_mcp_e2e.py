@@ -31,9 +31,14 @@ def _headless_env() -> dict[str, str]:
     env["PATH"] = f"{PYTHON_ROOT};{env.get('PATH', '')}"
     env["INKENGINE_WS_ROOT"] = str(WS_ROOT)
     env["INK_HEADLESS_AUTO_APPROVE_ALL"] = "1"
-    env["INK_LLM_BASE_URL"] = "https://ws-6rnv50cb3kvs261t.cn-beijing.maas.aliyuncs.com/compatible-mode/v1"
-    env["INK_LLM_MODEL"] = "qwen3.8-2.4t-a95b"
-    env["INK_LLM_API_KEY"] = "sk-da98029948304384b660c0f07656e020"
+    env["INK_LLM_BASE_URL"] = os.environ.get(
+        "INK_LLM_BASE_URL",
+        "https://ws-6rnv50cb3kvs261t.cn-beijing.maas.aliyuncs.com/compatible-mode/v1",
+    )
+    env["INK_LLM_MODEL"] = os.environ.get("INK_LLM_MODEL", "qwen3.8-2.4t-a95b")
+    if not os.environ.get("INK_LLM_API_KEY"):
+        print("[warn] 未设置 INK_LLM_API_KEY 环境变量（凭据不得硬编码进脚本）")
+    env["INK_LLM_API_KEY"] = os.environ.get("INK_LLM_API_KEY", "")
     return env
 
 

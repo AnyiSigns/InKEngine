@@ -76,6 +76,11 @@ _CALL_TIMEOUT = 60.0
 CONTENT_LENGTH_FRAMING = "content_length"
 JSON_LINES_FRAMING = "json_lines"
 
+# stdio 单帧上限（字节）：Content-Length 分帧的可信上界。恶意/异常
+# server 可声明超大 Content-Length 诱导引擎分配巨量缓冲（内存耗尽），
+# 读侧按此上限 fail-closed 断开连接。
+MAX_STDIO_FRAME_BYTES = 16 * 1024 * 1024
+
 # stdio 进程监督的保守缺省值（重启策略是数据字段，缺省取此处）：
 # 重启尝试 2 次、间隔 1s、连续 3 次「重试耗尽」即熔断（进程反复
 # 秒崩是环境性故障，持续拉起只会拖垮回合——fail-closed 上报）。
@@ -958,6 +963,13 @@ class _ThreadedMcpTransport:
                             content_length = _parse_content_length(header)
                     if content_length <= 0:
                         continue
+                    if content_length > MAX_STDIO_FRAME_BYTES:
+                        # 帧大小超可信上界：断开连接（fail-closed）——
+                        # 不按声明值分配缓冲，防恶意超大 Content-Length
+                        raise _McpConnectionLost(
+                            f"MCP server {self._config.id} 帧大小超限"
+                            f"（{content_length} > {MAX_STDIO_FRAME_BYTES} 字节），连接已断开"
+                        )
                     body = await stdout.readexactly(content_length)
                     msg = json.loads(body.decode("utf-8"))
                 else:

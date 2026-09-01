@@ -204,6 +204,8 @@ function MessageItem({
     }
     case 'chart':
       return <ChartEntry message={entry} />;
+    case 'attachment':
+      return <AttachmentLine entry={entry} />;
     case 'unknown':
       return <UnknownLine entry={entry} />;
     default:
@@ -528,6 +530,18 @@ function SystemLine({ content }: { content: string }) {
     <div className="flex items-center gap-2 px-1 text-[12px] ink-text-faint">
       <Clock size={12} strokeWidth={1.6} />
       <span>{content || t('message.system')}</span>
+    </div>
+  );
+}
+
+/** 附件单行（attachment 事件：引擎 Attachment 契约形态，仅展示名称）。 */
+function AttachmentLine({ entry }: { entry: Extract<InkMessage, { kind: 'attachment' }> }) {
+  const { t } = useT();
+  return (
+    <div className="flex items-center gap-2 px-1 text-[12px] ink-text-muted" data-ui="attachment_line">
+      <Database size={12} strokeWidth={1.6} className="ink-text-faint" />
+      <span className="truncate">{t('message.attachment')}</span>
+      {entry.content ? <span className="truncate font-medium ink-text-base">{entry.content}</span> : null}
     </div>
   );
 }

@@ -5,7 +5,7 @@
       "schema": {
         "name": "reply_token",
         "fields": [
-          { "name": "text", "required": true, "kind": "string" }
+          { "name": "token", "required": true, "kind": "string" }
         ]
       },
       "renderer": "message_list",
@@ -66,17 +66,28 @@
       "meta": { "note": "规划结束（步骤清单定型）" }
     },
     {
-      "name": "spawn_start",
+      "name": "plan_token",
       "schema": {
-        "name": "spawn_start",
+        "name": "plan_token",
         "fields": [
-          { "name": "spawn_id", "required": true, "kind": "string" },
-          { "name": "task", "required": true, "kind": "string" }
+          { "name": "token", "kind": "string" }
         ]
       },
       "renderer": "message_list",
       "system": false,
-      "meta": { "note": "子任务展开（__spawn__ 落点），主会话轻量子代理卡（界面复审 R8：按事件语义覆盖分派，spawn→子代理卡；simulate_*→推演树）" }
+      "meta": { "note": "规划流式增量 token（计划文本逐片追加）" }
+    },
+    {
+      "name": "spawn_start",
+      "schema": {
+        "name": "spawn_start",
+        "fields": [
+          { "name": "spawns", "required": true, "kind": "array" }
+        ]
+      },
+      "renderer": "message_list",
+      "system": false,
+      "meta": { "note": "子任务展开（__spawn__ 落点），主会话轻量子代理卡（界面复审 R8：按事件语义覆盖分派，spawn→子代理卡；simulate_*→推演树）；spawns = [{id, nodes[], parallel, label}] 展示形态" }
     },
     {
       "name": "spawn_end",

@@ -305,6 +305,7 @@
   "message.candidate_paths": "{n} candidate paths",
   "message.selected": "Selected",
   "message.round_fail": "Round failed",
+  "message.attachment": "Attachment",
   "message.system": "System message",
   "message.empty_title": "Start your first task",
   "message.empty_hint": "Describe what you want to build; the agent will plan, execute, and evolve autonomously",

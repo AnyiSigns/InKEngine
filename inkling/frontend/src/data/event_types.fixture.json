@@ -6,6 +6,7 @@
     { "name": "thinking_end", "description": "思考结束", "bindable": true },
     { "name": "plan_start", "description": "规划开始", "bindable": true },
     { "name": "plan_end", "description": "规划结束", "bindable": true },
+    { "name": "plan_token", "description": "规划流式增量 token", "bindable": true },
     { "name": "tool_start", "description": "工具调用开始（工具名/权限判定）", "bindable": true },
     { "name": "tool_end", "description": "工具调用结束（结果摘要）", "bindable": true },
     { "name": "review_card", "description": "审批卡弹出（朱砂 accent）", "bindable": true },

@@ -482,15 +482,26 @@ async def _apply(ctx: Any, context: SelfToolContext, args: dict) -> str:
                 }
             )
     outcome = await context.self_pipeline.apply(ctx, proposal)
-    return _json(
-        {
-            "ok": outcome.applied,
-            "status": outcome.status,
-            "decision": outcome.decision,
-            "patch_id": outcome.patch_id,
-            "reason": outcome.reason,
-        }
-    )
+    response: dict = {
+        "ok": outcome.applied,
+        "status": outcome.status,
+        "decision": outcome.decision,
+        "patch_id": outcome.patch_id,
+        "reason": outcome.reason,
+    }
+    if outcome.applied and proposal.kind == PatchKind.TOOL:
+        # 工具补丁落地提示：新工具已进入工具表，经 request_tool 绑定后
+        # 从下一回合起注入（当前回合 tools 参数在回合开始已固化，绑定
+        # 不改变本回合已生成的 tool_call 面——同回合自写→自调用不在
+        # 支持范围）
+        tool_name = (proposal.payload or {}).get("name")
+        response["hint"] = (
+            f"工具 {tool_name!r} 已注册；调用 request_tool（name={tool_name!r}）"
+            "绑定到当前会话后，下一回合即可调用"
+            if tool_name
+            else "工具已注册；调用 request_tool 绑定后下一回合即可调用"
+        )
+    return _json(response)
 
 
 async def _revert(ctx: Any, context: SelfToolContext, args: dict) -> str:
@@ -563,10 +574,25 @@ async def _request_tool(ctx: Any, context: SelfToolContext, args: dict) -> str:
     name = name.strip()
     index = context.tool_index
     if index is None or not index.has(name):
+        # 错误提示避免死循环：search_tools 依赖同一索引，索引缺失时
+        # 「检索后绑定」同样找不到——明确区分未注册与索引未含两种形态
+        registered = False
+        registry = getattr(context, "harness_registry", None)
+        if registry is not None:
+            registered = name in registry.declarative.definitions
+        if registered:
+            return _json(
+                {
+                    "ok": False,
+                    "error": f"工具 {name} 已注册但索引尚未刷新，当前回合无法绑定；"
+                    "请在新回合（或索引重建后）重试",
+                }
+            )
         return _json(
             {
                 "ok": False,
-                "error": f"未注册工具名 {name}（可用 search_tools 检索可用工具）",
+                "error": f"未注册工具名 {name}（可用 propose_patch/apply_patch 自写工具，"
+                "或 search_tools 检索已注册工具）",
             }
         )
     spec = index.spec(name)
@@ -588,11 +614,11 @@ async def _request_tool(ctx: Any, context: SelfToolContext, args: dict) -> str:
             result = tagger(name, f"{TAG_THREAD_PREFIX}{thread_id}")
             if asyncio.iscoroutine(result):
                 await result
-        except Exception as exc:
+        except Exception:
             return _json(
                 {
                     "ok": False,
-                    "error": f"工具绑定失败（标签写入异常）: {exc}",
+                    "error": "工具绑定失败（会话标签写入异常），请稍后重试",
                 }
             )
     # 端点探活：绑定 ≠ 端点可用——MCP/远程端点未连接时如实标注，
@@ -602,8 +628,8 @@ async def _request_tool(ctx: Any, context: SelfToolContext, args: dict) -> str:
     if probe is not None:
         try:
             endpoint_status = probe(name)
-        except Exception as exc:
-            endpoint_status = {"endpoint": "unknown", "connected": False, "reason": str(exc)}
+        except Exception:
+            endpoint_status = {"endpoint": "unknown", "connected": False, "reason": "端点探活失败"}
     response: dict = {
         "ok": True,
         "message": f"已绑定 {name}，当前会话窗口（thread 内）可调用；其它会话/后续新会话需重新绑定",

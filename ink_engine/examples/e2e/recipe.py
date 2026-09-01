@@ -9,7 +9,7 @@ from __future__ import annotations
 
 from typing import Any
 
-from ink_engine.core.declarative_tools import DeclarativeToolSpec, EndpointType
+from ink_engine.core.declarative_tools import DeclarativeToolSpec
 from ink_engine.core.graph import Graph
 from ink_engine.core.runtime import (
     AssemblyRecipe,
@@ -40,16 +40,11 @@ class _ToolApplyTarget(ApplyTarget):
         self._runtime = runtime
 
     async def apply(self, payload: dict[str, Any], patch_id: int) -> None:
-        spec = DeclarativeToolSpec(
-            name=payload["name"],
-            description=str(payload.get("description") or ""),
-            parameters=payload.get("parameters", {"type": "object"}),
-            permissions=tuple(payload.get("permissions") or ()),
-            endpoint=EndpointType(payload["endpoint"]),
-            endpoint_config=dict(payload.get("endpoint_config") or {}),
-        )
+        spec = DeclarativeToolSpec.from_dict(payload)
         self._runtime.harness_registry.declarative.register_definition(spec)
         self._runtime.tool_registry[spec.name] = spec.to_spec()
+        # 工具索引增量刷新：新注册工具对 search_tools/request_tool 立即可见
+        self._runtime.refresh_tool_index()
 
 
 def build_reference_recipe(*, set_id: str = "e2e") -> AssemblyRecipe:

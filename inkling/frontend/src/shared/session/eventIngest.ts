@@ -210,13 +210,32 @@ export function ingestEvent(hub: ChannelHub, event: HubEvent): void {
         (m) => (m.kind === 'plan' ? { ...m, status: 'completed' as const } : m),
       );
       break;
+    case 'plan_token': {
+      // 规划流式增量（seed schema: token）——追加到运行中的 plan 卡内容
+      const token = String(payload.token ?? '');
+      if (!token) break;
+      const found = findStep(messages, stepId, roundId);
+      if (found && found.kind === 'plan') {
+        messages = messages.map((m) =>
+          m === found ? { ...m, content: m.content + token, status: 'running' as const } : m,
+        );
+      } else {
+        upsert(
+          { kind: 'plan', content: token, status: 'running', id: nextId() },
+          (m) => (m.kind === 'plan' ? { ...m, content: m.content + token, status: 'running' as const } : m),
+        );
+      }
+      break;
+    }
     case 'tool_start': {
       const tool = String(payload.tool ?? payload.tool_name ?? '');
       if (!tool) break;
       const args = normalizeToolArgs(payload.args ?? payload.parameters);
-      const title = typeof payload.title === 'string' && payload.title.trim() !== ''
-        ? payload.title
-        : undefined;
+      // 展示名通道：seed schema 为 summary；兼容历史 title 通道（测试/旧
+      // 事件形态），两者均缺省时回落原始工具名
+      const title =
+        (typeof payload.summary === 'string' && payload.summary.trim() !== '' ? payload.summary : undefined) ??
+        (typeof payload.title === 'string' && payload.title.trim() !== '' ? payload.title : undefined);
       upsertStep(
         { stepId, type: 'tool', label: title ?? tool, status: 'running' },
         (s) => ({ ...s, label: title ?? s.label ?? tool, status: 'running' as const }),
@@ -265,22 +284,33 @@ export function ingestEvent(hub: ChannelHub, event: HubEvent): void {
       );
       break;
     }
-    case 'spawn_start':
+    case 'spawn_start': {
+      // 引擎发射 {spawns: [{id, nodes[], parallel, label}]}（展示形态）；
+      // 展示标签取首个分组的 label/id，节点关联取首个分组 id
+      const spawns = Array.isArray(payload.spawns) ? (payload.spawns as Array<Record<string, unknown>>) : [];
+      const first = spawns[0] ?? {};
+      const spawnLabel = typeof first.label === 'string' && first.label.trim() !== ''
+        ? first.label
+        : (typeof payload.label === 'string' ? payload.label : undefined);
+      const spawnId = typeof first.id === 'string' && first.id.trim() !== ''
+        ? first.id
+        : (typeof payload.spawn_id === 'string' ? payload.spawn_id : undefined);
       upsertStep(
-        { stepId, type: 'spawn', label: String(payload.label ?? '子代理'), status: 'running' },
+        { stepId, type: 'spawn', label: String(spawnLabel ?? spawnId ?? '子代理'), status: 'running' },
         (s) => ({ ...s, status: 'running' as const }),
       );
       upsert(
         {
           kind: 'spawn',
-          nodeId: payload.node_id as string | undefined,
-          label: payload.label as string | undefined,
+          nodeId: spawnId ?? (payload.node_id as string | undefined),
+          label: spawnLabel as string | undefined,
           status: 'running',
           id: nextId(),
         },
         (m) => (m.kind === 'spawn' ? { ...m, status: 'running' as const } : m),
       );
       break;
+    }
     case 'spawn_end':
       upsertStep({ stepId, type: 'spawn', label: '子代理', status: 'completed' }, (s) => ({ ...s, status: 'completed' as const }));
       upsert(
@@ -498,6 +528,12 @@ export function ingestEvent(hub: ChannelHub, event: HubEvent): void {
       );
       break;
     case 'assembly_candidate':
+    case 'junction_verdict':
+    case 'junction_verdict_audit':
+    case 'assembly_audit':
+    case 'fingerprint_replace_audit':
+    case 'policy_edge_review_audit':
+    case 'recommended_prior_promotion':
     case 'node_start':
     case 'evolution_variant': {
       if (type === 'node_start') {
@@ -506,12 +542,36 @@ export function ingestEvent(hub: ChannelHub, event: HubEvent): void {
           (s) => ({ ...s, status: 'running' as const }),
         );
       }
-      // 引擎观察/审计事件，无对应消息 kind：dev 模式折叠记录，避免静默丢
+      // 审计/观察事件消费：生产模式也落位 sourceTraces（证据溯源），
+      // 避免后端产出、前端静默丢弃；dev 模式额外折叠进消息流
+      const auditTitle =
+        typeof payload.summary === 'string' && payload.summary
+          ? payload.summary
+          : (typeof payload.tool === 'string' ? `工具：${payload.tool}` : event.type);
+      const traces = [...sourceTraces];
+      traces.push({
+        id: nextId(),
+        sourceType: 'evidence',
+        title: auditTitle,
+        detail: typeof payload.reason === 'string' ? payload.reason : '',
+        createdAt: at,
+      });
+      sourceTraces = traces.slice(-SOURCE_TRACES_MAX);
       if (getUiStateStore().get<boolean>(DEV_MODE_KEY)) {
         const keys = typeof payload === 'object' && payload ? Object.keys(payload).slice(0, 8) : [];
         const digest = keys.length ? ` · ${keys.join(', ')}` : '';
         messages = [...messages, { kind: 'unknown', token: `观察事件：${event.type}${digest}`, id: nextId(), stepId: stepId || undefined, roundId }];
       }
+      break;
+    }
+    case 'turn_started':
+      // 回合入口：与 user_message 同语义重置回合步骤序列（时间线起点）
+      roundSteps = [{ stepId: 'user', type: 'user', label: '用户', status: 'done', startedAt: at }];
+      break;
+    case 'attachment': {
+      // 附件事件落位消息流（引擎 Attachment 契约形态；负载为协商形态）
+      const name = String(payload.name ?? payload.url ?? '附件');
+      messages = [...messages, { kind: 'attachment', content: name, id: nextId(), stepId: stepId || undefined, roundId }];
       break;
     }
     case 'node_end':
@@ -527,12 +587,20 @@ export function ingestEvent(hub: ChannelHub, event: HubEvent): void {
       );
       break;
     case 'tuning_update': {
+      // seed schema: metric(required)/delta(number)/snapshot(boolean)；
+      // detail 通道不在 schema 中（历史读取已失效），改按 metric+delta 组合
+      const metric = String(payload.metric ?? '');
+      const delta = typeof payload.delta === 'number' ? payload.delta : undefined;
+      const detail = [
+        metric ? `指标：${metric}` : '',
+        delta != null ? `Δ${delta >= 0 ? '+' : ''}${delta}` : '',
+      ].filter(Boolean).join(' · ');
       const traces = [...sourceTraces];
       traces.push({
         id: nextId(),
         sourceType: 'evidence',
-        title: '调优应用',
-        detail: String(payload.detail ?? ''),
+        title: metric ? `调优：${metric}` : '调优应用',
+        detail: detail || String(payload.detail ?? ''),
         createdAt: at,
       });
       sourceTraces = traces.slice(-SOURCE_TRACES_MAX);

@@ -252,10 +252,12 @@ class ToolPipeline:
                 if verdict.decision == _ALLOW:
                     pass
                 elif verdict.decision == _REVIEW:
+                    # 审批卡 action 负载脱敏：args 可能含 URL/命令（url 参数
+                    # 可带 query token），凭据不得经审批卡扩散到前端卡面
                     approval = await approve_before_execute(
                         ctx,
                         f"gate:{spec.name}",
-                        {"tool": spec.name, "args": args},
+                        {"tool": spec.name, "args": strip_sensitive(dict(args))},
                         policy=self.approval_policy,
                     )
                     if approval.decision in (DECISION_REJECT, DECISION_TERMINATE):

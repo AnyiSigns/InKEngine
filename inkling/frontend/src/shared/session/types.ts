@@ -175,6 +175,12 @@ export interface InkUnknownMessage extends InkMessageBase {
   token: string;
 }
 
+/** 附件事件（引擎 Attachment 契约形态；负载为协商形态，仅展示名称）。 */
+export interface InkAttachmentMessage extends InkMessageBase {
+  kind: 'attachment';
+  content: string;
+}
+
 export type InkMessage =
   | InkTextMessage
   | InkStreamingMessage
@@ -192,7 +198,8 @@ export type InkMessage =
   | InkVideoMessage
   | InkDocumentMessage
   | InkChartMessage
-  | InkUnknownMessage;
+  | InkUnknownMessage
+  | InkAttachmentMessage;
 
 /** 回合步骤快照（state.round_steps 通道：来源明细/演化时间线消费）。 */
 export interface RoundStep {

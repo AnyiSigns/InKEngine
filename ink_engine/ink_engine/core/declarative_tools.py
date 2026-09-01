@@ -628,10 +628,18 @@ class _DefinitionGate:
 
     def check(self, name: str, operation: str, target: str, permissions=None):
         definition = self._executors.definitions.get(name)
-        if definition is not None:
-            permissions = definition.permissions
+        if definition is None:
+            # 无声明式定义 = 未登记工具：显式拒绝（fail-closed）——回退到
+            # 调用方权限会放开「未登记定义但已登记权限」的绕过窗口
+            return GateResult(
+                DENY,
+                name,
+                operation,
+                target,
+                f"工具 {name} 无声明式定义（未登记），拒绝执行",
+            )
         return self._inner.check(
-            name, operation, target, permissions=permissions
+            name, operation, target, permissions=definition.permissions
         )
 
 

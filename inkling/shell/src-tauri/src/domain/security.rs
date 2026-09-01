@@ -434,6 +434,18 @@ impl TieredGate {
                 }
             };
         }
+        // 网络域审批桥（与 Python _NetworkReviewGate 同口径）：白名单外
+        // connect → 强制 REVIEW（审批即网关）。权限命中且 default deny
+        // 的判定不为 DENY 才可升级；deny 判定不升级（声明权限是边界）。
+        if operation == "connect" && target_is_unlisted_connect(operation, target, definitions, tool) {
+            return GateResult::new(
+                REVIEW,
+                tool,
+                operation,
+                target,
+                "域名不在白名单（已转审批，审批通过后放行）",
+            );
+        }
         if self.review_needed(tool) {
             return GateResult::new(REVIEW, tool, operation, target, "门控分级需审批");
         }
@@ -586,6 +598,40 @@ pub fn size_limit(meta: &HashMap<String, JsonValue>, key: &str, default: u64) ->
         .filter(|value| *value > 0.0)
         .map(|value| value as u64)
         .unwrap_or(default)
+}
+
+/// 网络域审批桥判定（与 Python _NetworkReviewGate 同口径）：connect 操作
+/// 且目标域名不在声明 allow_domains、且 unlisted_policy 为 review 时
+/// 强制转审批（审批即网关）。缺省 unlisted_policy 按 review（流水线
+/// 装配默认），与 Python harness.build_pipeline 默认值一致。
+fn target_is_unlisted_connect(
+    operation: &str,
+    target: &str,
+    definitions: Option<&HashMap<String, DeclarativeSpec>>,
+    tool: &str,
+) -> bool {
+    if operation != "connect" {
+        return false;
+    }
+    let Some(definition) = definitions.and_then(|defs| defs.get(tool)) else {
+        return false;
+    };
+    let allow_domains = definition.allow_domains();
+    if allow_domains.is_empty() {
+        // 未声明白名单 = 无免审批快速路径：走内层判定（放行/审批/拒绝
+        // 由权限声明与门控分级裁决），不凭空升级审批
+        return false;
+    }
+    let unlisted_policy = definition
+        .meta
+        .get("network_policy")
+        .and_then(|v| v.get("unlisted_policy"))
+        .and_then(|v| v.as_str())
+        .unwrap_or("review");
+    if unlisted_policy != "review" {
+        return false;
+    }
+    !allow_domains.iter().any(|pattern| network_matches(pattern, target))
 }
 
 /// 权限模式占位符替换（路径统一正斜杠，与 rule_matches 归一一致）。
@@ -755,6 +801,18 @@ impl DeclarativeSandboxProxy {
                     .map(string_list_from)
                     .unwrap_or_default();
                 if !allowlist.iter().any(|allowed| allowed == target) {
+                    // 混合 shell（meta.escalation=true）：白名单外命令放行到
+                    // 审批闸（门禁已升级 REVIEW 弹卡，审批通过才执行——与
+                    // Python 侧 security_domain 同口径；命令是否放行由审批
+                    // 卡裁决，此处不二次硬拦）
+                    let escalated = definition
+                        .meta
+                        .get("escalation")
+                        .and_then(|v| v.as_bool())
+                        .unwrap_or(false);
+                    if escalated {
+                        return Ok(target.to_string());
+                    }
                     return Err(SandboxViolation(format!(
                         "命令不在端点白名单: {target:?}（{}）",
                         ErrorCode::PROCESS_NOT_ALLOWLISTED

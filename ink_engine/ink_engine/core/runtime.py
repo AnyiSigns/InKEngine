@@ -1666,7 +1666,7 @@ class Runtime:
                 "server_id": server_id,
                 "connected": connected,
             }
-        return {"endpoint": endpoint.value, "connected": True}
+        return {"endpoint": getattr(endpoint, "value", endpoint), "connected": True}
 
     def _rebuild_tool_index(self) -> None:
         """重建工具向量索引（全量 merged_specs → 向量）。"""

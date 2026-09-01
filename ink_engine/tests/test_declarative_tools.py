@@ -16,13 +16,17 @@ from ink_engine.core.declarative_tools import (
     DeclarativeToolExecutors,
     DeclarativeToolSpec,
     EndpointType,
+    EndpointTypeSpec,
     build_declarative_pipeline,
     endpoint_operation,
     endpoint_operation_failure_reason,
+    endpoint_registry,
     make_declarative_extractor,
+    tool_contract_from_declaration,
 )
-from ink_engine.core.exceptions import GraphDefinitionError
+from ink_engine.core.exceptions import GraphDefinitionError, SandboxViolation
 from ink_engine.core.llm.tools import ToolSpec
+from ink_engine.core.schema_validator import FIELD_ARRAY, SchemaField
 from ink_engine.core.tool_orchestrator import ToolTraceStore
 from ink_engine.core.tool_pipeline import ToolPipeline
 
@@ -54,8 +58,8 @@ def test_invalid_permission_rejected():
 
 
 def test_invalid_endpoint_rejected():
-    """未知端点类型 → 定义期拒绝。"""
-    with pytest.raises(GraphDefinitionError, match="端点类型非法"):
+    """未注册端点类型（非内置且未登记）→ 定义期拒绝。"""
+    with pytest.raises(GraphDefinitionError, match="端点类型未注册"):
         _declarative(endpoint="unknown_endpoint")  # type: ignore[arg-type]
 
 
@@ -1098,3 +1102,189 @@ async def test_http_fetch_streams_with_cap(monkeypatch):
     body = out.split("\n", 1)[1]
     assert len(body) < 6000
     assert streamed == [("GET", "https://example.com/doc")]
+
+
+# ── 端点类型注册表（EndpointTypeRegistry）──────────────────────────────
+
+
+def test_builtin_endpoints_registered():
+    """引擎内置 7 种端点类型在模块加载期登记（注册表非空、名全）。"""
+    names = set(endpoint_registry.names)
+    assert {
+        "http_fetch",
+        "process_exec",
+        "file_ops",
+        "mcp",
+        "web_search",
+        "collab_request",
+        "task_manager",
+    } <= names
+    assert endpoint_registry.has("file_ops")
+    assert endpoint_registry.get("file_ops").actions == (
+        "read",
+        "write",
+        "delete",
+        "edit",
+        "search",
+        "search_paths",
+    )
+
+
+def test_custom_endpoint_registration_and_dispatch():
+    """宿主注册自定义端点：构造期校验通过、判定目标按注册钩子分发。"""
+    endpoint_registry.register(
+        EndpointTypeSpec(
+            name="database_query",
+            actions=("query",),
+            config_requirements=("engine",),
+            extractor=lambda args, config: (
+                ("query", args["table"]) if args.get("table") else None
+            ),
+            failure_reason=lambda args, config: (
+                None if args.get("table") else "table 参数缺失"
+            ),
+            output_fields=(SchemaField(name="rows", required=True, kind=FIELD_ARRAY),),
+        )
+    )
+    try:
+        spec = DeclarativeToolSpec(
+            name="db_query",
+            description="数据库查询",
+            parameters={"type": "object", "properties": {"table": {"type": "string"}}},
+            permissions=("database:query:*",),
+            endpoint="database_query",
+            endpoint_config={"engine": "sqlite"},
+        )
+        # 自定义端点保留字符串形态（非枚举），构造期校验通过
+        assert spec.endpoint == "database_query"
+        assert endpoint_operation("database_query", {"table": "books"}) == (
+            "query",
+            "books",
+        )
+        assert endpoint_operation("database_query", {}) is None
+        reason = endpoint_operation_failure_reason("database_query", {})
+        assert reason and "table 参数缺失" in reason
+        # 契约输出形态按注册表条目取数
+        contract = tool_contract_from_declaration(spec)
+        assert contract.output_schema.fields[0].name == "rows"
+        # 序列化往返保持字符串形态
+        restored = DeclarativeToolSpec.from_dict(spec.to_dict())
+        assert restored.endpoint == "database_query"
+        assert restored.endpoint_config["engine"] == "sqlite"
+    finally:
+        endpoint_registry._specs.pop("database_query", None)
+
+
+def test_custom_endpoint_config_requirements_enforced():
+    """自定义端点 config_requirements 定义期强制（缺声明即拒绝）。"""
+    endpoint_registry.register(
+        EndpointTypeSpec(
+            name="db_req_test",
+            actions=("query",),
+            config_requirements=("engine",),
+            extractor=lambda args, config: (("query", args["table"]) if args.get("table") else None),
+        )
+    )
+    try:
+        with pytest.raises(GraphDefinitionError, match="engine"):
+            DeclarativeToolSpec(
+                name="db_bad",
+                description="缺配置",
+                parameters={},
+                permissions=("database:query:*",),
+                endpoint="db_req_test",
+            )
+    finally:
+        endpoint_registry._specs.pop("db_req_test", None)
+
+
+def test_endpoint_duplicate_registration_rejected():
+    """重复注册（含覆盖内置）= 显式拒绝（防静默覆盖引擎安全语义）。"""
+    with pytest.raises(GraphDefinitionError, match="重复注册"):
+        endpoint_registry.register(endpoint_registry.get("file_ops"))
+
+
+def test_endpoint_unregistered_spec_rejected():
+    """未注册端点名的工具定义 → 构造期拒绝（fail-closed 于定义期）。"""
+    with pytest.raises(GraphDefinitionError, match="端点类型未注册"):
+        DeclarativeToolSpec(
+            name="ghost",
+            description="未注册端点",
+            parameters={},
+            permissions=("filesystem:read:*",),
+            endpoint="no_such_endpoint",
+        )
+
+
+def test_endpoint_sandbox_ops_without_builder_rejected():
+    """声明了守卫域但无守卫构造器 = 注册即拒绝（一致性校验）。"""
+    with pytest.raises(GraphDefinitionError, match="sandbox_builder"):
+        EndpointTypeSpec(
+            name="incomplete_endpoint",
+            actions=("query",),
+            sandbox_ops=("query",),
+        )
+
+
+class _AllowlistTargetSandbox:
+    """自定义端点守卫桩：只放行白名单 target（validate 契约与引擎沙箱同）。"""
+
+    def __init__(self, allowed: tuple[str, ...]) -> None:
+        self._allowed = allowed
+
+    def guards_operation(self, operation: str) -> bool:
+        return operation == "query"
+
+    def validate(self, operation: str, target: str) -> str | None:
+        if target not in self._allowed:
+            raise SandboxViolation(f"目标不在白名单: {target}")
+        return target
+
+
+async def test_custom_endpoint_pipeline_guard_wired():
+    """自定义端点走全流水线：注册表守卫自动接线，违规 target 被沙箱拒绝。
+
+    注册表无「跳过流水线环节」开关：自定义端点与内置端点同等经过
+    门禁 → 沙箱 → 守卫 → 审批 → 审计；声明了 sandbox_ops 的端点
+    其守卫在流水线中自动生效（无需宿主手动注入沙箱）。
+    """
+    endpoint_registry.register(
+        EndpointTypeSpec(
+            name="guarded_query",
+            actions=("query",),
+            extractor=lambda args, config: (
+                ("query", args["target"]) if args.get("target") else None
+            ),
+            sandbox_ops=("query",),
+            sandbox_builder=lambda definition: _AllowlistTargetSandbox(("ok",)),
+        )
+    )
+    try:
+        definition = DeclarativeToolSpec(
+            name="gq",
+            description="带守卫查询",
+            parameters={"type": "object", "properties": {"target": {"type": "string"}}},
+            permissions=("database:query:*",),
+            endpoint="guarded_query",
+        )
+        executors = DeclarativeToolExecutors()
+        executors.register_definition(definition)
+        executors.register(
+            "guarded_query",
+            lambda ctx, spec, args, approval: f"executed:{args['target']}",
+        )
+        pipeline = build_declarative_pipeline(executors)
+
+        class Ctx:
+            async def emit(self, *args, **kwargs):
+                pass
+
+        ok = await pipeline.execute(Ctx(), definition.to_spec(), {"target": "ok"})
+        assert ok.ok is True
+        assert ok.output == "executed:ok"
+        denied = await pipeline.execute(Ctx(), definition.to_spec(), {"target": "bad"})
+        assert denied.ok is False
+        assert denied.decision == "deny"
+        assert "目标不在白名单" in (denied.error or "")
+    finally:
+        endpoint_registry._specs.pop("guarded_query", None)

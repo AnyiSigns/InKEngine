@@ -319,12 +319,17 @@ class ToolPipeline:
             for sb in self.sandboxes:
                 # 操作域过滤：沙箱只守卫自己声明的操作（多端点流水线
                 # 自动接线时各沙箱各司其职——进程调用不被文件/网络沙箱
-                # 误拒，反之亦然）；未声明守卫域 = 全量判定（旧语义）
-                if (
-                    getattr(sb, "guards_operation", None) is not None
-                    and not sb.guards_operation(operation)
-                ):
-                    continue
+                # 误拒，反之亦然）；未声明守卫域 = 全量判定（旧语义）。
+                # 定义反查型沙箱（_AutoDefinitionSandbox）接受 name：
+                # 守卫域按当前调用工具自身端点判定，透传 spec.name
+                guards_fn = getattr(sb, "guards_operation", None)
+                if guards_fn is not None:
+                    if "name" in inspect.signature(guards_fn).parameters:
+                        guarded = guards_fn(operation, name=spec.name)
+                    else:
+                        guarded = guards_fn(operation)
+                    if not guarded:
+                        continue
                 try:
                     if "name" in inspect.signature(sb.validate).parameters:
                         # 定义反查型沙箱（_AutoDefinitionSandbox）按当前
@@ -412,11 +417,14 @@ class ToolPipeline:
         抛 ``SandboxViolation`` 由调用方收口（拒绝），不在此吞。
         """
         for sb in self.sandboxes:
-            if (
-                getattr(sb, "guards_operation", None) is not None
-                and not sb.guards_operation(operation)
-            ):
-                continue
+            guards_fn = getattr(sb, "guards_operation", None)
+            if guards_fn is not None:
+                if "name" in inspect.signature(guards_fn).parameters:
+                    guarded = guards_fn(operation, name=spec.name)
+                else:
+                    guarded = guards_fn(operation)
+                if not guarded:
+                    continue
             if "name" in inspect.signature(sb.validate).parameters:
                 resolved = sb.validate(operation, target, name=spec.name)
             else:

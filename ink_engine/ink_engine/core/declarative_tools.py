@@ -19,12 +19,13 @@ parameters/permissions/endpoint），而非编写一个执行函数——执行�
 经 make_http_fetch_executor 提供（httpx 可选依赖，缺失时显式报错），
 宿主可注册自定义执行体覆盖。
 
-白名单审计：``EndpointType`` / ``_ENDPOINT_ACTIONS`` /
-``_ENDPOINT_CONFIG_REQUIREMENTS`` = **机制固有**——端点类型决定分发
-（执行体注册表 key）、守卫接线（沙箱/配置要求）与操作推导语义；
-执行体注册为数据化扩展位（宿主 register 注入）。端点类型集合封闭
-（StrEnum 运行期不可扩展）：新产品端点类型须引擎扩展（见
-docs/whitelist_audit.md 遗留 L1）。
+白名单审计：端点类型 = **声明式注册表 + 引擎默认内置**（谓词注册表同
+哲学）——``EndpointTypeSpec`` 条目携带判定动作域/配置必填键/契约输出
+形态/判定目标提取与失败原因钩子/沙箱守卫接线，内置 7 种在模块加载期
+登记，宿主经 :class:`EndpointTypeRegistry` 增补自定义端点（注册 =
+装配期代码动作，非 agent 可写数据）。自定义端点与内置端点同等走全
+流水线（门禁 → 沙箱 → 守卫 → 审批 → 审计），注册表无「跳过流水线
+环节」开关；未注册端点 = 定义期拒绝 + 分发处 fail-closed。
 """
 from __future__ import annotations
 
@@ -98,38 +99,362 @@ class EndpointType(StrEnum):
 
 
 # 各端点类型的判定动作（endpoint_operation 的映射依据；与权限域动作对齐）
-_ENDPOINT_ACTIONS: dict[EndpointType, tuple[str, ...]] = {
-    EndpointType.HTTP_FETCH: ("connect",),
-    EndpointType.PROCESS_EXEC: ("exec",),
-    # search = 工作区文本内容检索（grep）/ search_paths = 工作区路径检索
-    # （glob）——同属只读文件操作域；edit = 就地改写，一等操作域（权限
-    # 动作 filesystem:edit、沙箱守卫与审计可独立区分）
-    EndpointType.FILE_OPS: ("read", "write", "delete", "edit", "search", "search_paths"),
-    EndpointType.MCP: ("call",),
-    # web_search 用独立动作 search（ENG6-10）：查询串不能做域名白名单
-    # 匹配，挂 connect 语义 = 白名单永远无法生效（只能全开/全拒）——
-    # 独立动作后权限声明语义明确（network:search:* = 允许联网搜索，
-    # pattern 是通配标记而非域名）；既有 network:connect:* 声明经
-    # permissions.rule_matches 的兼容分支继续生效
-    EndpointType.WEB_SEARCH: ("search",),
-    # collab_request：独立 collab 域（collab:request:<entity_id>），
-    # 与文件/进程/网络域分离——召唤协作者是编排动作不是资源访问
-    EndpointType.COLLAB_REQUEST: ("request",),
-    # task_manager：待办清单管理域（todo:manage:<operation>），agent
-    # 自维护清单的编排动作，不涉及资源访问
-    EndpointType.TASK_MANAGER: ("manage",),
-}
+# search = 工作区文本内容检索（grep）/ search_paths = 工作区路径检索
+# （glob）——同属只读文件操作域；edit = 就地改写，一等操作域（权限
+# 动作 filesystem:edit、沙箱守卫与审计可独立区分）
+_FILE_OPS_ACTIONS = ("read", "write", "delete", "edit", "search", "search_paths")
 
-# 端点配置的必填白名单键（沙箱自动接线的声明依据：process_exec 须声明
-# 命令白名单、file_ops 须声明根目录——缺失即定义期拒绝，fail-closed）。
-# MCP 端点无本地沙箱（调用经远程 server 会话转发），不自动构造守卫；
-# server_id 是路由密钥，定义期必须声明（会话缺失 = 分发处拒绝）
-_ENDPOINT_CONFIG_REQUIREMENTS: dict[EndpointType, tuple[str, ...]] = {
-    EndpointType.HTTP_FETCH: (),
-    EndpointType.PROCESS_EXEC: ("allowlist",),
-    EndpointType.FILE_OPS: ("root",),
-    EndpointType.MCP: ("server_id",),
-}
+
+@dataclass(frozen=True, slots=True)
+class EndpointTypeSpec:
+    """端点类型注册表条目：分发/守卫/契约语义的数据化封装（宿主扩展位）。
+
+    与 :class:`rules.RuleTypeRegistry` 同哲学：内置端点 = 引擎默认（机制
+    语义），宿主可经 :meth:`EndpointTypeRegistry.register` 增补自定义端点
+    ——每个端点必须连带声明它的判定动作域、配置必填键、契约输出形态、
+    判定目标提取/失败原因钩子、沙箱守卫接线。全部字段构成该端点的
+    **完整接线语义**：自定义端点与内置端点同等走全流水线（门禁 → 沙箱
+    → 守卫 → 审批 → 审计），不存在「跳过流水线环节」的开关。
+
+    Attributes:
+        name: 端点类型名（注册键，工具声明 ``endpoint`` 字段引用）。
+        actions: 判定动作域（operation 集合；file_ops 定义期校验
+            operation 枚举不得超出此域）。
+        config_requirements: 定义期必填配置键（缺失即拒绝，fail-closed）。
+        output_fields: 契约输出形态（tool_contract_from_declaration 取数）。
+        extractor: 判定目标提取钩子 ``(args, config) -> (operation, target)
+            | None``——None = 无法判定目标（fail-closed）。
+        failure_reason: 判定失败原因钩子 ``(args, config) -> str | None``。
+        sandbox_ops: 需沙箱守卫的操作集合（空 = 无本地沙箱，门禁+审批为
+            边界——与 mcp/web_search 同语义）。
+        sandbox_builder: 守卫构造器 ``(definition) -> sandbox``（按定义
+            强制声明的配置键构造守卫）。``sandbox_ops`` 非空而构造器缺失
+            = 注册即拒绝（一致性校验，fail-closed）。
+    """
+
+    name: str
+    actions: tuple[str, ...] = ()
+    config_requirements: tuple[str, ...] = ()
+    output_fields: tuple[SchemaField, ...] = ()
+    extractor: (
+        Callable[[dict[str, Any], dict | None], tuple[str, str] | None] | None
+    ) = None
+    failure_reason: Callable[[dict[str, Any], dict | None], str | None] | None = None
+    sandbox_ops: tuple[str, ...] = ()
+    sandbox_builder: Callable[[DeclarativeToolSpec], Any] | None = None
+
+    def __post_init__(self) -> None:
+        if not self.name:
+            raise GraphDefinitionError("端点类型名不能为空")
+        if self.sandbox_ops and self.sandbox_builder is None:
+            raise GraphDefinitionError(
+                f"端点类型 {self.name} 声明了沙箱守卫域 {self.sandbox_ops} "
+                "但未提供守卫构造器（sandbox_builder）"
+            )
+
+
+class EndpointTypeRegistry:
+    """端点类型注册表：内置默认 + 宿主注册扩展位（谓词注册表同哲学）。
+
+    引擎内置 7 种端点类型在模块加载时登记（机制语义）；宿主自定义端点
+    经 :meth:`register` 增补。重复注册（含覆盖内置）= 编程错误，显式
+    拒绝——防静默覆盖引擎安全语义。注册是**装配期代码动作**，不是
+    agent 可写数据：agent 只能引用已注册端点创建工具，不能注册端点。
+    """
+
+    def __init__(self) -> None:
+        self._specs: dict[str, EndpointTypeSpec] = {}
+
+    def register(self, spec: EndpointTypeSpec) -> None:
+        """登记端点类型（重复登记抛错，防静默覆盖语义）。"""
+        if spec.name in self._specs:
+            raise GraphDefinitionError(f"端点类型重复注册: {spec.name}")
+        self._specs[spec.name] = spec
+
+    def get(self, name: str) -> EndpointTypeSpec | None:
+        return self._specs.get(str(name))
+
+    def has(self, name: str) -> bool:
+        return str(name) in self._specs
+
+    @property
+    def names(self) -> tuple[str, ...]:
+        return tuple(self._specs)
+
+
+def _extract_http_fetch(
+    args: dict[str, Any], config: dict | None = None
+) -> tuple[str, str] | None:
+    url = args.get("url")
+    if not isinstance(url, str) or not url:
+        return None
+    try:
+        parsed = urllib.parse.urlsplit(url)
+    except ValueError:
+        return None
+    # 协议白名单 + host 形式校验：仅 http/https 可出网，凭据/非标准
+    # 协议的 host 提取一律拒绝（无法判定目标 = fail-closed）
+    if parsed.scheme not in ("http", "https") or not parsed.hostname:
+        return None
+    return ("connect", parsed.hostname)
+
+
+def _extract_process_exec(
+    args: dict[str, Any], config: dict | None = None
+) -> tuple[str, str] | None:
+    command_param = "command"
+    if isinstance(config, dict):
+        command_param = str(config.get("operation_param") or "command")
+    if command_param == "argv":
+        # 命令面 = 参数数组首元素（shell_exec：判定目标 = argv[0] 真实
+        # 命令，白名单按命令面校验）；argv 可能被模型字符串化，先规范化
+        argv = coerce_argv(args.get("argv"))
+        command = argv[0] if argv and isinstance(argv[0], str) else None
+    else:
+        command = args.get(command_param)
+    return ("exec", command) if isinstance(command, str) and command else None
+
+
+def _extract_file_ops(
+    args: dict[str, Any], config: dict | None = None
+) -> tuple[str, str] | None:
+    operation = args.get("operation")
+    if operation not in _FILE_OPS_ACTIONS:
+        # 调用未传/传非法 operation：回落工具声明的固定操作（单操作
+        # 工具如 glob→search_paths——schema 约束 operation 为固定枚举，
+        # 但模型调用可能省略该「实现细节」参数；声明值仍属合法操作域
+        # 则判定目标成立，不做 fail-closed 误拒）
+        declared = (
+            (config or {}).get("operation")
+            if isinstance(config, dict)
+            else None
+        )
+        operation = declared if declared in _FILE_OPS_ACTIONS else None
+        if operation is None:
+            return None
+    path = args.get("path")
+    # 检索操作（search/search_paths）无 path 参数 = 全域检索：判定目标
+    # 回落端点配置根目录（权限模式与沙箱按根目录校验，检索域 = 整个
+    # 工作区根；带 path 时目标 = 该路径，检索域 = 路径内）
+    if operation in ("search", "search_paths") and (
+        not isinstance(path, str) or not path
+    ) and isinstance(config, dict):
+        path = config.get("root")
+    if not isinstance(path, str) or not path:
+        return None
+    return (operation, path)
+
+
+def _extract_mcp(
+    args: dict[str, Any], config: dict | None = None
+) -> tuple[str, str] | None:
+    server_id = (config or {}).get("server_id") if isinstance(config, dict) else None
+    return ("call", server_id) if isinstance(server_id, str) and server_id else None
+
+
+def _extract_web_search(
+    args: dict[str, Any], config: dict | None = None
+) -> tuple[str, str] | None:
+    query = args.get("query")
+    return ("search", query) if isinstance(query, str) and query else None
+
+
+def _extract_collab_request(
+    args: dict[str, Any], config: dict | None = None
+) -> tuple[str, str] | None:
+    entity_id = args.get("entity_id")
+    return ("request", entity_id) if isinstance(entity_id, str) and entity_id else None
+
+
+def _extract_task_manager(
+    args: dict[str, Any], config: dict | None = None
+) -> tuple[str, str] | None:
+    operation = args.get("operation")
+    return ("manage", operation) if isinstance(operation, str) and operation else None
+
+
+def _reason_http_fetch(
+    args: dict[str, Any], config: dict | None = None
+) -> str | None:
+    url = args.get("url")
+    if not isinstance(url, str) or not url:
+        return "url 参数缺失或非法"
+    try:
+        parsed = urllib.parse.urlsplit(url)
+    except ValueError:
+        return "url 无法解析"
+    if parsed.scheme not in ("http", "https") or not parsed.hostname:
+        return "url 协议/主机非法（仅 http/https 且须含主机名）"
+    return None
+
+
+def _reason_process_exec(
+    args: dict[str, Any], config: dict | None = None
+) -> str | None:
+    command_param = "command"
+    if isinstance(config, dict):
+        command_param = str(config.get("operation_param") or "command")
+    if command_param == "argv":
+        argv = coerce_argv(args.get("argv"))
+        if not (argv and isinstance(argv[0], str)):
+            return "argv 参数缺失或非法（应为字符串数组，如 [\"python\", \"--version\"]）"
+        return None
+    command = args.get(command_param)
+    if not isinstance(command, str) or not command:
+        return f"{command_param} 参数缺失或非字符串"
+    return None
+
+
+def _reason_file_ops(
+    args: dict[str, Any], config: dict | None = None
+) -> str | None:
+    operation = args.get("operation")
+    if operation not in _FILE_OPS_ACTIONS:
+        declared = (
+            (config or {}).get("operation")
+            if isinstance(config, dict)
+            else None
+        )
+        if declared in _FILE_OPS_ACTIONS:
+            operation = declared
+        else:
+            allowed = "/".join(_FILE_OPS_ACTIONS)
+            return f"operation 字段缺失或非法（合法值：{allowed}）"
+    path = args.get("path")
+    if not isinstance(path, str) or not path:
+        return "path 参数缺失或非字符串"
+    return None
+
+
+def _reason_mcp(
+    args: dict[str, Any], config: dict | None = None
+) -> str | None:
+    server_id = (config or {}).get("server_id") if isinstance(config, dict) else None
+    if not (isinstance(server_id, str) and server_id):
+        return "server_id 未配置（无法路由）"
+    return None
+
+
+def _reason_web_search(
+    args: dict[str, Any], config: dict | None = None
+) -> str | None:
+    query = args.get("query")
+    if not isinstance(query, str) or not query:
+        return "query 参数缺失"
+    return None
+
+
+def _reason_collab_request(
+    args: dict[str, Any], config: dict | None = None
+) -> str | None:
+    entity_id = args.get("entity_id")
+    if not isinstance(entity_id, str) or not entity_id:
+        return "entity_id 参数缺失或非法（须为已注册实体 id）"
+    return None
+
+
+def _reason_task_manager(
+    args: dict[str, Any], config: dict | None = None
+) -> str | None:
+    operation = args.get("operation")
+    if not isinstance(operation, str) or not operation:
+        return "operation 参数缺失或非法（须为 create/update/complete/list/clear/delete 之一）"
+    return None
+
+
+# 内置端点类型注册表（模块加载期登记；重复登记 = 编程错误）
+endpoint_registry = EndpointTypeRegistry()
+
+
+def _register_builtin_endpoint(spec: EndpointTypeSpec) -> None:
+    endpoint_registry.register(spec)
+
+
+_register_builtin_endpoint(
+    EndpointTypeSpec(
+        name=EndpointType.HTTP_FETCH.value,
+        actions=("connect",),
+        extractor=_extract_http_fetch,
+        failure_reason=_reason_http_fetch,
+        output_fields=(
+            SchemaField(name="status_code", required=True, kind=FIELD_NUMBER),
+            SchemaField(name="body", required=True, kind=FIELD_STRING),
+        ),
+    )
+)
+_register_builtin_endpoint(
+    EndpointTypeSpec(
+        name=EndpointType.PROCESS_EXEC.value,
+        actions=("exec",),
+        config_requirements=("allowlist",),
+        extractor=_extract_process_exec,
+        failure_reason=_reason_process_exec,
+        output_fields=(
+            SchemaField(name="stdout", required=True, kind=FIELD_STRING),
+            SchemaField(name="exit_code", required=True, kind=FIELD_NUMBER),
+        ),
+        sandbox_ops=("exec",),
+        sandbox_builder=lambda definition: ProcessSandbox(
+            allowlist=tuple(definition.endpoint_config["allowlist"]),
+            path=definition.endpoint_config.get("path"),
+        ),
+    )
+)
+_register_builtin_endpoint(
+    EndpointTypeSpec(
+        name=EndpointType.FILE_OPS.value,
+        actions=_FILE_OPS_ACTIONS,
+        config_requirements=("root",),
+        extractor=_extract_file_ops,
+        failure_reason=_reason_file_ops,
+        output_fields=(
+            SchemaField(name="result", required=True, kind=FIELD_STRING),
+        ),
+        sandbox_ops=_FILE_OPS_ACTIONS,
+        sandbox_builder=lambda definition: FileSandbox(
+            root=definition.endpoint_config["root"]
+        ),
+    )
+)
+_register_builtin_endpoint(
+    EndpointTypeSpec(
+        name=EndpointType.MCP.value,
+        actions=("call",),
+        config_requirements=("server_id",),
+        extractor=_extract_mcp,
+        failure_reason=_reason_mcp,
+        output_fields=(
+            SchemaField(name="result", required=True, kind=FIELD_OBJECT),
+        ),
+    )
+)
+_register_builtin_endpoint(
+    EndpointTypeSpec(
+        name=EndpointType.WEB_SEARCH.value,
+        actions=("search",),
+        extractor=_extract_web_search,
+        failure_reason=_reason_web_search,
+        output_fields=(
+            SchemaField(name="results", required=True, kind=FIELD_ARRAY),
+        ),
+    )
+)
+_register_builtin_endpoint(
+    EndpointTypeSpec(
+        name=EndpointType.COLLAB_REQUEST.value,
+        actions=("request",),
+        extractor=_extract_collab_request,
+        failure_reason=_reason_collab_request,
+    )
+)
+_register_builtin_endpoint(
+    EndpointTypeSpec(
+        name=EndpointType.TASK_MANAGER.value,
+        actions=("manage",),
+        extractor=_extract_task_manager,
+        failure_reason=_reason_task_manager,
+    )
+)
 
 
 @dataclass(frozen=True, slots=True)
@@ -156,7 +481,9 @@ class DeclarativeToolSpec:
     description: str
     parameters: dict[str, Any] = field(default_factory=dict)
     permissions: tuple[str, ...] = ()
-    endpoint: EndpointType = EndpointType.HTTP_FETCH
+    # 端点类型：内置端点 = EndpointType 枚举成员；自定义端点 = 注册表名
+    # （str，经 EndpointTypeRegistry 校验，构造期即 fail-closed）
+    endpoint: EndpointType | str = EndpointType.HTTP_FETCH
     endpoint_config: dict[str, Any] = field(default_factory=dict)
     meta: dict[str, Any] = field(default_factory=dict)
     network_policy: NetworkPolicy | None = None
@@ -164,15 +491,15 @@ class DeclarativeToolSpec:
     def __post_init__(self) -> None:
         # 端点归一：宿主可传字符串形态（"file_ops"）——构造期强制转为枚举，
         # 后续 is 比较/分发/序列化全部按枚举工作（构造成功即运行期可用，
-        # 字符串形态不再出现「校验放行但 is 全 False」的静默失效）
+        # 字符串形态不再出现「校验放行但 is 全 False」的静默失效）；非内置
+        # 字符串 = 自定义端点（经 EndpointTypeRegistry 注册），保留字符串
+        # 形态，经注册表解析/校验（构造期即 fail-closed）。
         if not isinstance(self.endpoint, EndpointType):
             endpoint = self.endpoint
             try:
                 endpoint = EndpointType(endpoint)
-            except ValueError as exc:
-                raise GraphDefinitionError(
-                    f"工具 {self.name} 端点类型非法: {endpoint!r}"
-                ) from exc
+            except ValueError:
+                endpoint = str(endpoint)
             object.__setattr__(self, "endpoint", endpoint)
         self.validate()
 
@@ -199,15 +526,17 @@ class DeclarativeToolSpec:
             raise GraphDefinitionError(
                 f"工具 {self.name} 参数 schema 须为 JSON Schema dict"
             )
-        if self.endpoint not in EndpointType:
+        spec = endpoint_registry.get(str(self.endpoint))
+        if spec is None:
             raise GraphDefinitionError(
-                f"工具 {self.name} 端点类型非法: {self.endpoint!r}"
-                "（如需新端点类型请扩展 EndpointType 枚举并登记分发/守卫）"
+                f"工具 {self.name} 端点类型未注册: {self.endpoint!r}"
+                "（须为内置端点或经 EndpointTypeRegistry.register 注册的自定义端点）"
             )
-        for key in _ENDPOINT_CONFIG_REQUIREMENTS.get(self.endpoint, ()):
+        endpoint_label = getattr(self.endpoint, "value", self.endpoint)
+        for key in spec.config_requirements:
             if not self.endpoint_config.get(key):
                 raise GraphDefinitionError(
-                    f"工具 {self.name} 的 {self.endpoint.value} 端点须声明"
+                    f"工具 {self.name} 的 {endpoint_label} 端点须声明"
                     f" {key}（沙箱守卫白名单，缺失即拒绝）"
                 )
         if self.endpoint is EndpointType.PROCESS_EXEC:
@@ -228,7 +557,7 @@ class DeclarativeToolSpec:
             # 引擎操作域内（防「file_edit 自诞生起即不可达」类静默缺口——
             # 声明与提取器白名单不一致会在定义期暴露而非运行期 fail-closed）。
             op_enum = self._declared_operation_enum()
-            allowed = set(_ENDPOINT_ACTIONS[EndpointType.FILE_OPS])
+            allowed = set(spec.actions)
             unsupported = op_enum - allowed
             if unsupported:
                 raise GraphDefinitionError(
@@ -272,7 +601,7 @@ class DeclarativeToolSpec:
             "description": self.description,
             "parameters": self.parameters,
             "permissions": list(self.permissions),
-            "endpoint": self.endpoint.value,
+            "endpoint": getattr(self.endpoint, "value", self.endpoint),
             "endpoint_config": self.endpoint_config,
             "meta": self.meta,
         }
@@ -287,8 +616,10 @@ class DeclarativeToolSpec:
         endpoint = data.get("endpoint", EndpointType.HTTP_FETCH.value)
         try:
             endpoint_enum = EndpointType(endpoint)
-        except ValueError as exc:
-            raise GraphDefinitionError(f"端点类型非法: {endpoint!r}") from exc
+        except ValueError:
+            # 自定义端点：保留字符串形态，构造期经 EndpointTypeRegistry 校验
+            # （未注册 = 构造即拒绝，fail-closed）
+            endpoint_enum = str(endpoint)
         network_policy: NetworkPolicy | None = None
         raw_policy = data.get("network_policy")
         if raw_policy is not None:
@@ -337,176 +668,41 @@ def coerce_argv(value: Any) -> list[str] | None:
 
 
 def endpoint_operation(
-    endpoint: EndpointType, args: dict[str, Any], *, config: dict | None = None
+    endpoint: EndpointType | str, args: dict[str, Any], *, config: dict | None = None
 ) -> tuple[str, str] | None:
     """按端点类型从调用参数推导 (operation, target) 判定目标。
 
-    - http_fetch: ("connect", url 的 host)；
-    - process_exec: ("exec", 命令名)——命令参数名可经 config 的
-      ``operation_param`` 声明（如声明 "cmd" 则读 args["cmd"]），缺省
-      回落现有推导（读 ``command``）；声明优先 = 工具 schema 无需为
-      判定补固定枚举参数；
-    - file_ops: (参数中声明的操作, 路径)，操作非法 = None（无法判定目标，
-       由流水线按缺判定目标拒绝）；
-    - mcp: ("call", server_id)，server_id 取自定义配置（缺省无法路由
-       时返回 None = fail-closed 拒绝）。
+    端点语义经 :data:`endpoint_registry` 分发：内置端点的提取钩子与
+    历史实现等价（http_fetch → ("connect", url host)；process_exec →
+    ("exec", 命令名)，命令参数名可经 config 的 ``operation_param`` 声明；
+    file_ops → (参数中声明的操作, 路径)；mcp → ("call", server_id)；
+    web_search → ("search", query)；collab_request → ("request",
+    entity_id)；task_manager → ("manage", operation)）；自定义端点取
+    其注册表条目声明的 extractor 钩子。端点未注册 = None（无法判定目标，
+    由流水线按缺判定目标 fail-closed 拒绝）。
 
     供 ToolPipeline 的 extractor 接线：声明式工具经此推导后走权限门禁
     与沙箱守卫（判定目标与执行参数一致，防二次拼接逃逸）。
     """
-    if endpoint is EndpointType.HTTP_FETCH:
-        url = args.get("url")
-        if not isinstance(url, str) or not url:
-            return None
-        try:
-            parsed = urllib.parse.urlsplit(url)
-        except ValueError:
-            return None
-        # 协议白名单 + host 形式校验：仅 http/https 可出网，凭据/非标准
-        # 协议的 host 提取一律拒绝（无法判定目标 = fail-closed）
-        if parsed.scheme not in ("http", "https") or not parsed.hostname:
-            return None
-        return ("connect", parsed.hostname)
-    if endpoint is EndpointType.PROCESS_EXEC:
-        command_param = "command"
-        if isinstance(config, dict):
-            command_param = str(config.get("operation_param") or "command")
-        if command_param == "argv":
-            # 命令面 = 参数数组首元素（shell_exec：判定目标 = argv[0] 真实
-            # 命令，白名单按命令面校验）；argv 可能被模型字符串化，先规范化
-            argv = coerce_argv(args.get("argv"))
-            command = (
-                argv[0]
-                if argv and isinstance(argv[0], str)
-                else None
-            )
-        else:
-            command = args.get(command_param)
-        return ("exec", command) if isinstance(command, str) and command else None
-    if endpoint is EndpointType.FILE_OPS:
-        operation = args.get("operation")
-        if operation not in _ENDPOINT_ACTIONS[endpoint]:
-            # 调用未传/传非法 operation：回落工具声明的固定操作（单操作
-            # 工具如 glob→search_paths——schema 约束 operation 为固定枚举，
-            # 但模型调用可能省略该「实现细节」参数；声明值仍属合法操作域
-            # 则判定目标成立，不做 fail-closed 误拒）
-            declared = (
-                (config or {}).get("operation")
-                if isinstance(config, dict)
-                else None
-            )
-            operation = (
-                declared if declared in _ENDPOINT_ACTIONS[endpoint] else None
-            )
-            if operation is None:
-                return None
-        path = args.get("path")
-        # 检索操作（search/search_paths）无 path 参数 = 全域检索：判定目标
-        # 回落端点配置根目录（权限模式与沙箱按根目录校验，检索域 = 整个
-        # 工作区根；带 path 时目标 = 该路径，检索域 = 路径内）
-        if operation in ("search", "search_paths") and (
-            not isinstance(path, str) or not path
-        ) and isinstance(config, dict):
-            path = config.get("root")
-        if not isinstance(path, str) or not path:
-            return None
-        return (operation, path)
-    if endpoint is EndpointType.MCP:
-        server_id = (config or {}).get("server_id") if isinstance(config, dict) else None
-        return ("call", server_id) if isinstance(server_id, str) and server_id else None
-    if endpoint is EndpointType.WEB_SEARCH:
-        # 联网搜索：独立权限动作 search（ENG6-10）——判定目标 = 查询语句
-        # （白名单按动作表达：network:search:* = 允许搜索，pattern 是通配
-        # 标记；不再伪装成 connect 域名白名单）；出网域名收口在实现层
-        # （结果域名过滤在实现内完成——与 fetch 的单 URL 出网语义不同）
-        query = args.get("query")
-        return ("search", query) if isinstance(query, str) and query else None
-    if endpoint is EndpointType.COLLAB_REQUEST:
-        # 协作者召唤：判定目标 = 实体 id（collab:request:<entity_id>）；
-        # 缺实体 id = 无法判定目标 = fail-closed 拒绝
-        entity_id = args.get("entity_id")
-        return ("request", entity_id) if isinstance(entity_id, str) and entity_id else None
-    if endpoint is EndpointType.TASK_MANAGER:
-        # 待办清单：判定目标 = 操作名（todo:manage:<operation>）；缺
-        # operation = 无法判定目标 = fail-closed 拒绝
-        operation = args.get("operation")
-        return ("manage", operation) if isinstance(operation, str) and operation else None
-    return None
+    spec = endpoint_registry.get(str(endpoint))
+    if spec is None or spec.extractor is None:
+        return None
+    return spec.extractor(args, config)
 
 
 def endpoint_operation_failure_reason(
-    endpoint: EndpointType, args: dict[str, Any], *, config: dict | None = None
+    endpoint: EndpointType | str, args: dict[str, Any], *, config: dict | None = None
 ) -> str | None:
     """判定目标推导失败的结构化原因（供流水线 fail-closed 文案指引模型）。
 
-    与 :func:`endpoint_operation` 分支一一对应：推导成功或不属于本端点
-    返回 None；推导失败返回具体缺参/非法原因，让拒绝文案可指导模型
-    自我纠正（如 file_ops 缺 operation 时列出合法值）。
+    与 :func:`endpoint_operation` 同源分发：推导成功或端点未注册返回
+    None；推导失败返回具体缺参/非法原因，让拒绝文案可指导模型自我纠正
+    （如 file_ops 缺 operation 时列出合法值）。
     """
-    if endpoint is EndpointType.HTTP_FETCH:
-        url = args.get("url")
-        if not isinstance(url, str) or not url:
-            return "url 参数缺失或非法"
-        try:
-            parsed = urllib.parse.urlsplit(url)
-        except ValueError:
-            return "url 无法解析"
-        if parsed.scheme not in ("http", "https") or not parsed.hostname:
-            return "url 协议/主机非法（仅 http/https 且须含主机名）"
+    spec = endpoint_registry.get(str(endpoint))
+    if spec is None or spec.failure_reason is None:
         return None
-    if endpoint is EndpointType.PROCESS_EXEC:
-        command_param = "command"
-        if isinstance(config, dict):
-            command_param = str(config.get("operation_param") or "command")
-        if command_param == "argv":
-            argv = coerce_argv(args.get("argv"))
-            if not (argv and isinstance(argv[0], str)):
-                return "argv 参数缺失或非法（应为字符串数组，如 [\"python\", \"--version\"]）"
-            return None
-        command = args.get(command_param)
-        if not isinstance(command, str) or not command:
-            return f"{command_param} 参数缺失或非字符串"
-        return None
-    if endpoint is EndpointType.FILE_OPS:
-        operation = args.get("operation")
-        if operation not in _ENDPOINT_ACTIONS[endpoint]:
-            # 与 endpoint_operation 同口径：未传/非法时回落工具声明固定操作；
-            # 声明值合法 = 判定目标可成立（非缺参错误），不在此报缺 operation
-            declared = (
-                (config or {}).get("operation")
-                if isinstance(config, dict)
-                else None
-            )
-            if declared in _ENDPOINT_ACTIONS[endpoint]:
-                operation = declared
-            else:
-                allowed = "/".join(_ENDPOINT_ACTIONS[endpoint])
-                return f"operation 字段缺失或非法（合法值：{allowed}）"
-        path = args.get("path")
-        if not isinstance(path, str) or not path:
-            return "path 参数缺失或非字符串"
-        return None
-    if endpoint is EndpointType.MCP:
-        server_id = (config or {}).get("server_id") if isinstance(config, dict) else None
-        if not (isinstance(server_id, str) and server_id):
-            return "server_id 未配置（无法路由）"
-        return None
-    if endpoint is EndpointType.WEB_SEARCH:
-        query = args.get("query")
-        if not isinstance(query, str) or not query:
-            return "query 参数缺失"
-        return None
-    if endpoint is EndpointType.COLLAB_REQUEST:
-        entity_id = args.get("entity_id")
-        if not isinstance(entity_id, str) or not entity_id:
-            return "entity_id 参数缺失或非法（须为已注册实体 id）"
-        return None
-    if endpoint is EndpointType.TASK_MANAGER:
-        operation = args.get("operation")
-        if not isinstance(operation, str) or not operation:
-            return "operation 参数缺失或非法（须为 create/update/complete/list/clear/delete 之一）"
-        return None
-    return None
+    return spec.failure_reason(args, config)
 
 
 # 执行体签名：async (ctx, spec, args, approval) -> str（ToolPipeline.executor 契约）
@@ -520,20 +716,22 @@ class DeclarativeToolExecutors:
     """
 
     def __init__(self) -> None:
-        self._executors: dict[EndpointType, DeclarativeExecutor] = {}
+        self._executors: dict[str, DeclarativeExecutor] = {}
         # 声明式定义登记表（工具名 → 定义）：执行体分发反查端点类型的来源
         self._definitions: dict[str, DeclarativeToolSpec] = {}
 
-    def register(self, endpoint: EndpointType, executor: DeclarativeExecutor) -> None:
+    def register(
+        self, endpoint: EndpointType | str, executor: DeclarativeExecutor
+    ) -> None:
         if not callable(executor):
             raise GraphDefinitionError(f"执行体须为可调用对象: {endpoint}")
-        self._executors[endpoint] = executor
+        self._executors[str(endpoint)] = executor
 
-    def get(self, endpoint: EndpointType) -> DeclarativeExecutor | None:
-        return self._executors.get(endpoint)
+    def get(self, endpoint: EndpointType | str) -> DeclarativeExecutor | None:
+        return self._executors.get(str(endpoint))
 
-    def has(self, endpoint: EndpointType) -> bool:
-        return endpoint in self._executors
+    def has(self, endpoint: EndpointType | str) -> bool:
+        return str(endpoint) in self._executors
 
     async def dispatch(
         self, ctx: Any, spec: ToolSpec, args: dict, approval: Any = None
@@ -554,10 +752,11 @@ class DeclarativeToolExecutors:
         definition = self._definitions.get(spec.name)
         if definition is None:
             raise GraphDefinitionError(f"工具 {spec.name} 无声明式定义（未登记）")
-        executor = self._executors.get(definition.endpoint)
+        executor = self._executors.get(str(definition.endpoint))
         if executor is None:
             raise GraphDefinitionError(
-                f"工具 {spec.name} 的端点类型未注册执行体: {definition.endpoint.value}"
+                f"工具 {spec.name} 的端点类型未注册执行体: "
+                f"{getattr(definition.endpoint, 'value', definition.endpoint)}"
             )
         result = executor(ctx, definition, args, approval)
         if inspect.isawaitable(result):
@@ -689,11 +888,24 @@ class _AutoDefinitionSandbox:
     定义立即获得硬边界，且守卫语义与构建期接线等价（定义即权威）。
     """
 
-    def __init__(self, executors: DeclarativeToolExecutors) -> None:
+    def __init__(
+        self,
+        executors: DeclarativeToolExecutors,
+        registry: EndpointTypeRegistry | None = None,
+    ) -> None:
         self._executors = executors
+        self._registry = registry if registry is not None else endpoint_registry
 
-    def guards_operation(self, operation: str) -> bool:
-        # 守卫域由定义端点决定：process_exec → exec；file_ops → FS 操作
+    def guards_operation(self, operation: str, name: str | None = None) -> bool:
+        # 守卫域由定义端点决定（ToolPipeline 透传 name 按调用工具判定）：
+        # 端点声明了沙箱守卫操作才拦（process_exec → exec、file_ops →
+        # FS 操作、自定义带沙箱端点）；无 name（旧调用面）回落端点无关
+        # 的 exec/FS 操作域
+        if name is not None:
+            definition = self._executors.definitions.get(name)
+            if definition is not None:
+                spec = self._registry.get(str(definition.endpoint))
+                return spec is not None and operation in spec.sandbox_ops
         return operation in ("exec",) or operation in _FS_GUARDED_OPS
 
     def validate(
@@ -702,23 +914,18 @@ class _AutoDefinitionSandbox:
         # 按当前调用工具自身定义构造沙箱：跨工具共享注册表时，工具 A
         # 的 root 硬边界不得被工具 B 的 root 放过（修复前取第一个匹配
         # 定义——同端点多定义时边界可被绕过）。定义缺失 = fail-closed
-        # 拒绝（无沙箱边界的操作不得放行）。
+        # 拒绝（无沙箱边界的操作不得放行）；已注册端点按其注册表条目
+        # 的 sandbox_builder 构造守卫，未声明本地沙箱的端点（mcp/
+        # web_search/…）以门禁+审批为边界。
         definition = self._executors.definitions.get(name) if name else None
         if definition is not None:
-            if definition.endpoint is EndpointType.PROCESS_EXEC and operation == "exec":
-                sandbox = ProcessSandbox(
-                    allowlist=tuple(definition.endpoint_config["allowlist"]),
-                    path=definition.endpoint_config.get("path"),
-                )
-                sandbox.validate(operation, target)
+            spec = self._registry.get(str(definition.endpoint))
+            if spec is not None:
+                if spec.sandbox_builder is not None:
+                    sandbox = spec.sandbox_builder(definition)
+                    resolved = sandbox.validate(operation, target)
+                    return resolved if resolved is not None else target
                 return target
-            if (
-                definition.endpoint is EndpointType.FILE_OPS
-                and operation in _FS_GUARDED_OPS
-            ):
-                sandbox = FileSandbox(root=definition.endpoint_config["root"])
-                resolved = sandbox.validate(operation, target)
-                return resolved if resolved is not None else target
         raise SandboxViolation(
             f"无声明式定义守卫操作 {operation!r}（工具 {name!r} 目标 {target!r}"
             " 无沙箱边界）"
@@ -736,6 +943,7 @@ def build_declarative_pipeline(
     audit: Callable[..., Any] | None = None,
     max_result_chars: int = DEFAULT_MAX_RESULT_CHARS,
     trace_sink: Callable[..., Any] | None = None,
+    registry: EndpointTypeRegistry | None = None,
 ) -> ToolPipeline:
     """声明式工具执行流水线装配（轻路径的引擎侧桥接）。
 
@@ -747,10 +955,14 @@ def build_declarative_pipeline(
     默认策略（未声明权限/未命中 = 拒绝）兜底；判定一律按**定义声明的
     权限**（:class:`_DefinitionGate` 包装，调用方 spec 权限不参与）；
     沙箱自动接线：http_fetch 经 ``network_policy`` 并入网络守卫，
-    process_exec/file_ops 由 :class:`_AutoDefinitionSandbox` 按调用时
-    定义现取守卫（白名单/根目录在定义期强制声明，缺声明注册即拒绝；
-    事后注册的新定义同样立即获得守卫）——三类端点全部有对应守卫，
-    判定目标推导失败恒 fail-closed 拒绝。
+    带沙箱的端点（process_exec/file_ops/自定义声明 sandbox_ops 者）由
+    :class:`_AutoDefinitionSandbox` 按调用时定义现取守卫（白名单/根目录
+    在定义期强制声明，缺声明注册即拒绝；事后注册的新定义同样立即获得
+    守卫）——声明了守卫域的端点全部有对应守卫，判定目标推导失败恒
+    fail-closed 拒绝。
+
+    ``registry`` 指定端点类型注册表（缺省 = 模块级 :data:`endpoint_registry`
+    ——宿主自定义端点注册进同一注册表后此处自动生效）。
 
     ``network_unlisted_policy`` 控制白名单外域名的处置（默认
     ``"review"`` = 转审批，审批即网关；``"deny"`` = fail-closed
@@ -776,7 +988,7 @@ def build_declarative_pipeline(
         sandboxes = (*sandboxes, net_sandbox)
     if net_sandbox is not None and net_sandbox.unlisted_policy == "review":
         gate = _NetworkReviewGate(gate, net_sandbox)
-    sandboxes = (*sandboxes, _AutoDefinitionSandbox(executors))
+    sandboxes = (*sandboxes, _AutoDefinitionSandbox(executors, registry))
 
     return ToolPipeline(
         gate=gate,
@@ -865,26 +1077,8 @@ _APPROVAL_TO_SAFETY_TIER: dict[str, int] = {
     "deny": 2,
 }
 
-# 端点操作结果形态（output schema 字段声明；与各端点执行体返回语义对齐）
-_ENDPOINT_OUTPUT_FIELDS: dict[EndpointType, tuple[SchemaField, ...]] = {
-    EndpointType.PROCESS_EXEC: (
-        SchemaField(name="stdout", required=True, kind=FIELD_STRING),
-        SchemaField(name="exit_code", required=True, kind=FIELD_NUMBER),
-    ),
-    EndpointType.FILE_OPS: (
-        SchemaField(name="result", required=True, kind=FIELD_STRING),
-    ),
-    EndpointType.MCP: (
-        SchemaField(name="result", required=True, kind=FIELD_OBJECT),
-    ),
-    EndpointType.HTTP_FETCH: (
-        SchemaField(name="status_code", required=True, kind=FIELD_NUMBER),
-        SchemaField(name="body", required=True, kind=FIELD_STRING),
-    ),
-    EndpointType.WEB_SEARCH: (
-        SchemaField(name="results", required=True, kind=FIELD_ARRAY),
-    ),
-}
+# 端点操作结果形态已折叠进 EndpointTypeSpec.output_fields（注册表条目）——
+# tool_contract_from_declaration 按端点注册表取数，无独立模块级清单。
 
 
 def _field_from_property(name: str, prop: Any, required: bool) -> SchemaField:
@@ -937,9 +1131,12 @@ def tool_contract_from_declaration(
         _field_from_property(str(name), prop, str(name) in required)
         for name, prop in properties.items()
     )
-    output_fields = _ENDPOINT_OUTPUT_FIELDS.get(spec.endpoint) or (
-        SchemaField(name="result", required=True, kind=FIELD_STRING),
-    )
+    endpoint_spec = endpoint_registry.get(str(spec.endpoint))
+    output_fields = endpoint_spec.output_fields if endpoint_spec is not None else ()
+    if not output_fields:
+        output_fields = (
+            SchemaField(name="result", required=True, kind=FIELD_STRING),
+        )
     contract_version = version
     if contract_version is None:
         raw = spec.meta.get("contract_version")
@@ -1030,9 +1227,12 @@ __all__ = [
     "DeclarativeToolExecutors",
     "DeclarativeToolSpec",
     "EndpointType",
+    "EndpointTypeRegistry",
+    "EndpointTypeSpec",
     "build_declarative_pipeline",
     "coerce_argv",
     "endpoint_operation",
+    "endpoint_registry",
     "make_declarative_extractor",
     "make_http_fetch_executor",
     "node_contracts_from_tools",

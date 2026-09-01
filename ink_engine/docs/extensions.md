@@ -17,6 +17,7 @@
 | 建图注册表 | `registry.GraphRegistries` | 注册节点/边类型（数据形态解析） | 图定义数据重建/计划条件解析 |
 | harness 定义/仓库 | `harness.HarnessRegistry`/`HarnessRepository` | 注册/保存定义（图数据 + 工具清单） | 能力路由/建图/版本回退 |
 | 声明式工具 | `declarative_tools`/`tool_pipeline` | 声明工具定义 + 端点执行体注册 | 全流水线执行（门禁→沙箱→守卫→审批→审计） |
+| 端点类型 | `declarative_tools.EndpointTypeRegistry`/`EndpointTypeSpec` | 注册自定义端点类型（动作域/配置必填键/契约输出形态/提取与失败原因钩子/沙箱守卫接线） | 判定目标推导/守卫自动接线/契约生成 |
 | 工具可信度闸门 | `tool_vetting.ToolVetting` | 提供 ToolManifest/静态钩子/影子运行 | 外部工具导入过滤 |
 | MCP 外部生态 | `mcp_client.McpClientManager`/`McpServerConfig` | 提供 server 配置（http/stdio/in_memory） | 工具导入/调用/会话生命周期 |
 | 计划编排 | `plan.Plan` | 节点返回 `__plan__` 清单 | 执行一段后重规划 |
@@ -427,6 +428,42 @@ result = await pipeline.execute(ctx, spec.to_spec(), {"url": "https://x.example.
 判定目标 `endpoint_operation(endpoint, args, config)` 返回
 `(operation, target)`，无法判定返回 None → 流水线 fail-closed 拒绝；
 **判定一律按定义声明的权限**（调用方 spec 不参与，封「伪造宽松权限」窗口）。
+
+**端点类型注册表**（`EndpointTypeRegistry`，谓词注册表同哲学）：端点类型
+集合不再封闭——内置 7 种（http_fetch/process_exec/file_ops/mcp/web_search/
+collab_request/task_manager）为引擎默认；宿主自定义端点经注册表条目登记：
+
+```python
+from ink_engine.core.declarative_tools import (
+    EndpointTypeRegistry, EndpointTypeSpec, DeclarativeToolSpec,
+    DeclarativeToolExecutors, build_declarative_pipeline,
+)
+from ink_engine.core.schema_validator import FIELD_ARRAY, SchemaField
+
+endpoint_registry.register(EndpointTypeSpec(
+    name="database_query",                    # 注册键 = 工具声明 endpoint 引用
+    actions=("query",),                       # 判定动作域
+    config_requirements=("engine",),          # 定义期必填配置键（缺失即拒绝）
+    output_fields=(SchemaField(name="rows", required=True, kind=FIELD_ARRAY),),
+    extractor=lambda args, config: (("query", args["table"]) if args.get("table") else None),
+    failure_reason=lambda args, config: None if args.get("table") else "table 参数缺失",
+    sandbox_ops=("query",),                   # 需沙箱守卫的操作（空 = 无本地沙箱）
+    sandbox_builder=lambda definition: MyDbSandbox(...),  # 守卫构造器
+))
+spec = DeclarativeToolSpec(
+    name="db_query", description="数据库查询", parameters={...},
+    permissions=("database:query:*",), endpoint="database_query",
+    endpoint_config={"engine": "sqlite"},
+)
+```
+
+安全语义：**注册 = 装配期代码动作，不是 agent 可写数据**（agent 只能引用已
+注册端点创建工具，不能注册端点——`PatchKind` 不新增端点注册类型）；注册表
+没有「跳过流水线环节」开关，自定义端点与内置端点同等走门禁 → 沙箱 → 守卫
+→ 审批 → 审计；`sandbox_ops` 非空而 `sandbox_builder` 缺失 = 注册即拒绝
+（一致性校验）；未注册端点 = 工具定义期拒绝 + 分发处 fail-closed。壳侧 Rust
+对自定义端点宽容载入（`Endpoint::Unknown` 透传不接线守卫，守卫语义由引擎
+侧注册表承担）。
 
 ## 14. 领域知识数据化（产品侧契约）
 

@@ -190,8 +190,12 @@ from ink_engine.core.approval import (
 - `ProcessSandbox(allowlist=(), timeout=30.0, cwd=None, max_output=100_000, env=None)`：
   `run(command, args=())` → `ProcessResult(exit_code, stdout, stderr, timed_out)`
 - `DeclarativeToolSpec(name, description, parameters, permissions, endpoint,
-  endpoint_config, meta=None)`；`EndpointType`：`http_fetch/process_exec/
-  file_ops/mcp`；`endpoint_operation(endpoint, args, *, config=None)`；
+  endpoint_config, meta=None)`；`EndpointType`（内置）：`http_fetch/
+  process_exec/file_ops/mcp/web_search/collab_request/task_manager`；
+  `endpoint_operation(endpoint, args, *, config=None)`；
+  `EndpointTypeRegistry`/`EndpointTypeSpec`（自定义端点注册：动作域/
+  配置必填键/契约输出形态/提取与失败原因钩子/沙箱守卫接线）；
+  `endpoint_registry`（模块级内置注册表）；
   `DeclarativeToolExecutors.register_definition/register/dispatch`；
   `build_declarative_pipeline(executors)`（自动接线沙箱）；
   `make_http_fetch_executor(timeout=30.0, max_chars=100_000)`

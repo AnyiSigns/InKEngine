@@ -177,6 +177,15 @@ InkEngine 遵循 [语义化版本](https://semver.org/lang/zh-CN/)（`MAJOR.MINO
 
 ### 变更
 
+- **端点类型注册表化（L1 关闭）**：端点类型集合从封闭枚举（StrEnum）改为
+  `EndpointTypeRegistry` 声明式注册表 + 引擎默认内置 7 种（谓词注册表同
+  哲学）——自定义端点经 `EndpointTypeSpec` 连带声明判定动作域/配置必填键/
+  契约输出形态/提取与失败原因钩子/沙箱守卫接线，与内置端点同等走全流水线；
+  `sandbox_ops` 非空而 `sandbox_builder` 缺失 = 注册即拒绝（一致性校验）；
+  未注册端点 = 工具定义期拒绝 + 分发处 fail-closed。注册 = 装配期代码动作
+  （非 agent 可写数据），壳侧 Rust `Endpoint::Unknown` 宽容载入透传（守卫
+  语义由引擎侧注册表承担）。`endpoint_operation`/`endpoint_operation_failure_
+  reason` 改为注册表分发，签名不变（向后兼容）。
 - 引擎包零业务依赖（仅标准库；sqlite/postgres/llm/mcp 为可选 extra）。
 - 存储 schema 与旧引擎时代不兼容（新表，旧库删表重建）。
 - 包结构收敛（历史沿革）：包归属曾重划为 core / components / novel_harness，

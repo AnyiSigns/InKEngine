@@ -28,6 +28,7 @@
 //! 操作通道与 [`crate::engine::bridge::register_callback`] 回调桥
 //! （薄包装在 engine/py/bridge.py），装配编排发生在 [`super::boot`]。
 
+use std::borrow::Cow;
 use std::collections::{HashMap, HashSet};
 use std::path::{Path, PathBuf};
 use std::sync::{Arc, Mutex, RwLock};
@@ -456,34 +457,44 @@ impl TieredGate {
 // ── 声明式工具定义（数据形态：tools.json 条目）──
 
 /// 声明式工具端点类型（分发/守卫接线的依据）。
-#[derive(Debug, Clone, Copy, PartialEq, Eq)]
+///
+/// 集合与引擎侧注册表同源语义：内置 5 种为引擎默认；其余自定义端点
+/// （引擎侧经 ``EndpointTypeRegistry`` 登记的宿主扩展）在壳侧以
+/// [`Endpoint::Unknown`] 宽容载入——壳只做「不拒载」，不接线本地守卫
+/// （自定义端点的守卫语义由引擎侧注册表条目承担，走完整流水线）。
+#[derive(Debug, Clone, PartialEq, Eq)]
 pub enum Endpoint {
     HttpFetch,
     ProcessExec,
     FileOps,
     Mcp,
     WebSearch,
+    /// 引擎侧注册的自定义端点（壳无对应守卫/执行器，透传不拦截）。
+    Unknown(String),
 }
 
 impl Endpoint {
+    /// 解析端点名：内置 5 种映射到枚举成员；其余按自定义端点宽容载入
+    /// （不再拒载——新端点类型由引擎注册表声明，壳侧不持有白名单）。
     pub fn parse(value: &str) -> Result<Self, DomainError> {
-        match value {
-            "http_fetch" => Ok(Self::HttpFetch),
-            "process_exec" => Ok(Self::ProcessExec),
-            "file_ops" => Ok(Self::FileOps),
-            "mcp" => Ok(Self::Mcp),
-            "web_search" => Ok(Self::WebSearch),
-            other => Err(DomainError::InvalidData(format!("工具端点类型非法: {other:?}"))),
-        }
+        Ok(match value {
+            "http_fetch" => Self::HttpFetch,
+            "process_exec" => Self::ProcessExec,
+            "file_ops" => Self::FileOps,
+            "mcp" => Self::Mcp,
+            "web_search" => Self::WebSearch,
+            other => Self::Unknown(other.to_string()),
+        })
     }
 
-    pub fn as_str(&self) -> &'static str {
+    pub fn as_str(&self) -> Cow<'_, str> {
         match self {
-            Self::HttpFetch => "http_fetch",
-            Self::ProcessExec => "process_exec",
-            Self::FileOps => "file_ops",
-            Self::Mcp => "mcp",
-            Self::WebSearch => "web_search",
+            Self::HttpFetch => Cow::Borrowed("http_fetch"),
+            Self::ProcessExec => Cow::Borrowed("process_exec"),
+            Self::FileOps => Cow::Borrowed("file_ops"),
+            Self::Mcp => Cow::Borrowed("mcp"),
+            Self::WebSearch => Cow::Borrowed("web_search"),
+            Self::Unknown(name) => Cow::Borrowed(name.as_str()),
         }
     }
 }
@@ -791,7 +802,7 @@ impl DeclarativeSandboxProxy {
         let Some(definition) = definitions.get(tool) else {
             return Ok(target.to_string()); // 非声明式工具无本地沙箱语义
         };
-        match definition.endpoint {
+        match &definition.endpoint {
             Endpoint::ProcessExec if operation == "exec" => {
                 // 端点级守卫 = 命令白名单成员判定（执行体是宿主分发而非
                 // 子进程 spawn，PATH 语义归实际执行通道注入）
@@ -2315,6 +2326,25 @@ mod tests {
         // 文件工具 + 未授权工作区 → 拒绝
         let unauth = proxy.validate("read", "note.txt", "file_read", &definitions).unwrap_err();
         assert!(unauth.0.contains("工作区未授权"));
+    }
+
+    #[test]
+    fn custom_endpoint_unknown_not_rejected() {
+        // 引擎侧注册的自定义端点：壳侧宽容载入（不拒载），守卫语义由
+        // 引擎侧注册表条目承担——壳只做透传
+        let endpoint = Endpoint::parse("database_query").expect("自定义端点不得拒载");
+        assert_eq!(endpoint, Endpoint::Unknown("database_query".to_string()));
+        assert_eq!(endpoint.as_str(), "database_query");
+
+        // DeclarativeSpec 载入未知端点工具 = 正常，不经 as_str 丢失名称
+        let spec = spec_of("db_query", "database_query", json!({"engine": "sqlite"}), vec![]);
+        assert_eq!(spec.endpoint, Endpoint::Unknown("database_query".to_string()));
+        let mut definitions = HashMap::new();
+        definitions.insert("db_query".to_string(), spec);
+        // 无本地沙箱语义：任一操作透传（与 mcp 同口径——守卫在引擎侧注册表）
+        let guard = WorkspaceGuard::default();
+        let proxy = DeclarativeSandboxProxy::new(guard);
+        assert!(proxy.validate("query", "books", "db_query", &definitions).is_ok());
     }
 
     #[test]

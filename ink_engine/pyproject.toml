@@ -5,7 +5,7 @@ build-backend = "setuptools.build_meta"
 [project]
 name = "ink_engine"
 version = "0.1.0"
-description = "InkEngine 墨引擎：通用 agent 机制引擎内核（图执行/checkpoint 版本链/事件流/interrupt/补丁链/运行时重规划/决策点推演/知识集孵化/输入调配管线/自指演化/宿主运行时装配）"
+description = "InkEngine 墨引擎：受控自进化运行时（Controlled Self-Evolving Runtime）——通用 agent 机制运行时内核（图执行/checkpoint 版本链/事件流/interrupt/补丁链/运行时重规划/决策点推演/知识孵化/输入调配管线/实体协作者/自指演化/宿主运行时装配），一切演化经审批、可审计、可回退"
 readme = "README.md"
 requires-python = ">=3.11"
 license = "MIT"
@@ -13,7 +13,8 @@ license-files = ["LICENSE"]
 authors = [{ name = "Anyi" }]
 keywords = [
     "agent-engine", "graph-execution", "checkpoint", "event-sourcing",
-    "self-evolving", "knowledge-incubation", "llm", "mcp", "runtime",
+    "controlled-self-evolving", "self-evolving", "runtime",
+    "knowledge-incubation", "llm", "mcp",
 ]
 classifiers = [
     "Development Status :: 3 - Alpha",

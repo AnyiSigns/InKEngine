@@ -1,10 +1,12 @@
-﻿//! InKling 出厂自检编排：六门禁一键矩阵化报告。
+﻿//! InKling 出厂自检编排：七门禁一键矩阵化报告。
 //!
-//! 单个命令跑六项门禁（schema 数据一致性 / cargo 三 crate /
-//! frontend typecheck+vitest / 接线 e2e / 代码纪律 / 公开评测基准），输出每项的命令、状态、
-//! 耗时与输出摘要；任一失败结构化显示并以非零退出码结束。
+//! 单个命令跑七项门禁（schema 数据一致性 / cargo 三 crate /
+//! frontend typecheck+vitest / 接线 e2e / 代码纪律 / 公开评测基准 /
+//! 符号引用计数），输出每项的命令、状态、耗时与输出摘要；任一失败结构化
+//! 显示并以非零退出码结束。
 //!
-//! 子命令：`schema` / `cargo` / `frontend` / `e2e` / `discipline` / `benchmark` / `all`（默认）。
+//! 子命令：`schema` / `cargo` / `frontend` / `e2e` / `discipline` /
+//! `benchmark` / `symbols` / `all`（默认）。
 //! 门禁命令的事实源 = manifest.json `self_check` 表：`all` 聚合模式**真正执行**
 //! 表内声明的命令（单一事实源不名不副实——声明命令与实际执行同一路径），
 //! 子命令直调模式 = 该命令指向的同一门禁在本进程内执行（快速局部复验）。
@@ -116,7 +118,7 @@ const GATE_HINTS: [(&str, &str); 7] = [
     ),
 ];
 
-/// 自检命令事实源：manifest.json self_check 表（六门禁命令单一事实源；
+/// 自检命令事实源：manifest.json self_check 表（七门禁命令单一事实源；
 /// `all` 聚合模式按此表真实执行，不重复声明命令）。
 fn load_self_check_commands(manifest_path: &Path) -> Result<Vec<(String, String)>, String> {
     let text = std::fs::read_to_string(manifest_path)

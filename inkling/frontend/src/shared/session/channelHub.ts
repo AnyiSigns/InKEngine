@@ -4,7 +4,7 @@
  * 绑定协议：{"bind":{"channel":"...","path":"..."}}
  * - state.* 通道：会话状态快照（messages/round_steps 等），订阅 = 状态变更；
  * - events.* 通道：事件流（按事件类型细粒度订阅，互不干扰）；
- * - inspect_* 通道：五元工具快照（演化时间线/孵化面板数据源）。
+ * - inspect_* 通道：六元工具快照（演化时间线/孵化面板数据源）。
  *
  * 白名单判定不在这里（renderer/channelWhitelist 负责），本类只做
  * 通道注册与分发；未知通道订阅直接拒绝（fail-closed）。
@@ -110,6 +110,7 @@ export class ChannelHub {
       inspect_knowledge: { version: 0, entries: [] },
       inspect_ui: { version: 0, componentWhitelist: [], bindChannelWhitelist: [], themeTokenWhitelist: [] },
       inspect_tools: { version: 0, tools: [] },
+      inspect_entities: { version: 0, entities: [], count: 0 },
       ...(inspectInitial ?? {}),
     };
   }
@@ -169,7 +170,7 @@ export class ChannelHub {
     return this.lastEvents.get(type);
   }
 
-  // ===== inspect_* 五元快照 =====
+  // ===== inspect_* 六元快照 =====
 
   getInspect(channel: InspectChannelName): InspectSnapshot {
     return this.inspect[channel];

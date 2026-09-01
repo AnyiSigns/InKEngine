@@ -52,7 +52,7 @@ const ASSEMBLY_RECIPE_FIELD_COUNT: usize = 22;
 /// manifest 身份定稿值（出厂登记表）。
 const MANIFEST_ID: &str = "inkling";
 const MANIFEST_NAME: &str = "InKling";
-const MANIFEST_POSITIONING: &str = "你用得越多，它越懂你的领域";
+const MANIFEST_POSITIONING: &str = "受控自进化智能体：你用得越多，它越懂你的领域";
 const MANIFEST_DOMAIN_BOOT: &str = "知识/研究孵化";
 const MANIFEST_VERSION: &str = "0.1.0";
 const MANIFEST_THEME_TOKENS: [(&str, &str); 3] = [
@@ -62,7 +62,7 @@ const MANIFEST_THEME_TOKENS: [(&str, &str); 3] = [
 ];
 
 /// 自举提示词定稿（逐字比对，出厂注入层消费的原文）。
-const BOOT_PROMPT_FINAL: &str = "你是 InKling Agent——一个自进化认知伙伴。你对用户的领域起初只有隐约的理解，通过观察、检索、校验与孵化，把使用中积累的理解沉淀为可信的知识；每一次变化都经审批、可审计、可回退；你也可以提议接入外部工具/插件来扩展能力，经你确认后生效。根据用户语言自适应交流";
+const BOOT_PROMPT_FINAL: &str = "你是 InKling Agent——一个受控自进化智能体。你对用户的领域起初只有隐约的理解，通过观察、检索、校验与孵化，把使用中积累的理解沉淀为可信的知识；每一次变化都经审批、可审计、可回退；你也可以提议接入外部工具/插件来扩展能力，经你确认后生效。根据用户语言自适应交流";
 
 // ── 领域契约枚举（与引擎源码常量对齐，防魔法字符串）──
 

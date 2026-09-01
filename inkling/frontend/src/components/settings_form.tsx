@@ -17,6 +17,7 @@ import {
 import type { ViewId } from '@/renderer/uiSpecTypes';
 import { Button } from '@/shared/ui/Button';
 import { cn } from '@/shared/cn';
+import { PRODUCT_NAME, PRODUCT_TAGLINE, PRODUCT_VERSION } from '@/shared/identity';
 import { AppCapabilitySection, DEFAULT_CAPABILITY } from './settings_sections/app_capability';
 import type { CapabilityValue } from './settings_sections/app_capability';
 import { GrowthSection } from '@/app/settings/sections/growth_section';
@@ -156,8 +157,8 @@ export function SettingsForm({
           <div className="space-y-2.5">
             <div className="ink-elevated space-y-2 px-3.5 py-3">
               <div className="flex items-center gap-2">
-                <span className="text-[var(--ink-font-xs)] font-semibold">InKling 0.1.0</span>
-                <span className="ink-chip ink-text-faint">自进化认知伙伴</span>
+                <span className="text-[var(--ink-font-xs)] font-semibold">{PRODUCT_NAME} {PRODUCT_VERSION}</span>
+                <span className="ink-chip ink-text-faint">{PRODUCT_TAGLINE}</span>
               </div>
               <div className="text-[10px] leading-relaxed ink-text-muted">engine_version_compat：按当前 ink_engine 锁定</div>
               <div className="text-[10px] leading-relaxed ink-text-faint">契约：inkling_exec（执行件）· inkling_shell（宿主件）· 渲染组件白名单 · 事件类型清单 · 工具清单</div>

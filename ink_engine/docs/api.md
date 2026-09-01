@@ -5,8 +5,8 @@
 示例为准；`python -c "from ink_engine.core.xxx import Y; help(Y)"` 可
 读任意符号的详细文档。
 
-> 引擎是库，无 HTTP API——HTTP 端点属宿主层（text_forge_evo 的
-> /api/*），不进本文档。
+> 引擎是库，无 HTTP API——HTTP 端点属宿主层（InKling 智能体的
+> 桌面壳/CLI），不进本文档。
 
 ## 图与执行（core.graph / core.executor）
 
@@ -26,7 +26,7 @@ from ink_engine.core.storage import create_storage
 **Engine**：`Engine(graph, *, options: RunOptions)`
 - `run(initial, *, thread_id, resume_from=None, continue_chain=False, inject=None)` → `AsyncGenerator[EngineEvent]`
 - `ainvoke(...)` → `RunResult`（`reason`/`state`/`checkpoint_id`/`interrupt`/`events_emitted`）
-- `update_state(thread_id, patch)` 外部补丁；`get_latest_interrupt(thread_id)`
+- `update_state(thread_id, values)` 外部补丁；`get_latest_interrupt(thread_id)`
 - `swap_branch(...)` 推演回溯换选；`decision_anchor(...)` 决策点锚点反查
 
 **节点约定**：`async (ctx) -> PartialState | None`；`ctx` 为 NodeContext：
@@ -148,32 +148,45 @@ from ink_engine.core.approval import (
 
 - `Host` 协议：`create_storage()` / `resolve_llm()` / `interrupt_policy()` /
   `build_transport()` / `close()`
-- `AssemblyRecipe` 17 字段：`set_id/seeds/harness_definitions/
-  event_type_specs/ui_spec/ui_allowed_components/ui_allowed_theme_tokens/
-  tool_wiring/vetting_static_hooks/vetting_l2_hook/approval_levels/
-  retrieval_sources/apply_targets/graph_recipe/on_reverted/convergence_provider`
+- `AssemblyRecipe` 22 字段：`set_id/seeds/harness_definitions/
+  event_type_specs/entity_specs/ui_spec/ui_allowed_channels/
+  ui_allowed_components/ui_allowed_theme_tokens/tool_wiring/
+  vetting_static_hooks/vetting_l2_hook/approval_levels/retrieval_sources/
+  apply_targets/graph_recipe/on_reverted/convergence_provider/run_options/
+  compress_policy/verify_retry_limit/emit_timeline_events`
 - `Runtime`：`await boot(host, recipe)`（幂等）→ 自返回；`state()` /
   `pause()` / `resume()` / `await stop()`；`begin_run()` / `end_run(ticket)`；
   `await resume_run(thread_id, inject)`（审批决议重入样板）；
-  `await rebuild_engine(llm=None)`（缓存键 = 模型 + 存储 + 工具集）；
+  `await rebuild_engine(llm=None)`（缓存键 = 模型身份 + 存储身份 +
+  工具结构身份）；
   `engine` 属性（当前装配产物）
 - `ToolWiring(self_specs, self_executor_factory, self_operation_of)` 工具三路分发
 
-## 自指演化（core.self_tools / core.self_proposal / core.self_application）
+## 自指演化与实体（core.self_tools / core.self_proposal / core.self_application / core.entities / core.entity_evolution）
 
 - 契约工具：`self_tool_specs` / `make_self_executor` / `operation_of` /
-  `SelfToolContext`；`SELF_TOOL_CONTRACT` = 4 演化工具名
-  （propose_patch/apply_patch/revert_patch/propose_domain_manifest）
-- 观察工具：`introspection_tool_specs` / `make_introspection_executor`（五
+  `SelfToolContext`；`SELF_TOOL_CONTRACT` = 6 演化工具名
+  （propose_patch/apply_patch/revert_patch/propose_domain_manifest/
+  search_tools/request_tool）
+- 观察工具：`introspection_tool_specs` / `make_introspection_executor`（六
   inspect_*，恒定 JSON 信封，只读 + 敏感键剥离）
 - `SelfProposal(kind, payload, base_version=1, rationale=None, meta=None)`；
   `PatchKind`：`ui/theme/tool/rule/knowledge/harness/event_type/environment/
-  artifact`（9 类）；`ProposalValidator.validate(proposal) -> list[str]`
+  artifact/entity`（10 类）；`ProposalValidator.validate(proposal) -> list[str]`
 - `ApprovalLevel`：`L0`（策略直过）/`L1`（弹卡）/`L2`（沙箱验证 fail-closed）
 - `SelfApplicationPipeline(storage, validator, policy, levels, l2_vetting,
   targets)`：`await apply(ctx, proposal, round_id)` → `PatchOutcome`；
   `await revert(ctx, patch_id, reason, round_id)`（仅链尾）；
-  `audit_log(limit=100)`；`GuardedStorage` 旁路写防护（演化资产集合直写拒绝）
+  `audit_log(limit=100)`；`GuardedStorage` 旁路写防护（演化资产集合 +
+  `knowledge:`/`harness:`/`event_types:`/`entities:` 前缀直写拒绝）
+- `EntityRegistry`：`EntitySpec(id, label, persona=None, model=None,
+  meta=None)`，`register`/`get`/`list`/`replace`（`entities:<set_id>` 集）；
+  `EntityEvolutionPipeline`（失败信号 → 变异 → 三层闸门 → 替换/晋升）
+- `GrowthPipeline`（`GrowthConfig(enabled=True, ...)`）：回合事件 → 信号
+  缓冲 → 按需蒸馏 → `KnowledgeGate` 三层 → 知识集落位（引擎自承载，
+  装配自动接线）
+- 输出验证：`OutputVerifier`/`LLMOutputVerifier` + `OutputVerificationError`
+  （`RunOptions.output_verifier` + 装配配方 `verify_retry_limit`）
 
 ## 工具与安全（core.tool_pipeline / core.permissions / core.sandbox / core.declarative_tools / core.tool_vetting / core.mcp_client）
 
@@ -190,14 +203,15 @@ from ink_engine.core.approval import (
 - `ProcessSandbox(allowlist=(), timeout=30.0, cwd=None, max_output=100_000, env=None)`：
   `run(command, args=())` → `ProcessResult(exit_code, stdout, stderr, timed_out)`
 - `DeclarativeToolSpec(name, description, parameters, permissions, endpoint,
-  endpoint_config, meta=None)`；`EndpointType`（内置）：`http_fetch/
-  process_exec/file_ops/mcp/web_search/collab_request/task_manager`；
+  endpoint_config, meta=None, network_policy=None)`；`EndpointType`（内置）：
+  `http_fetch/process_exec/file_ops/mcp/web_search/collab_request/task_manager`；
   `endpoint_operation(endpoint, args, *, config=None)`；
   `EndpointTypeRegistry`/`EndpointTypeSpec`（自定义端点注册：动作域/
   配置必填键/契约输出形态/提取与失败原因钩子/沙箱守卫接线）；
   `endpoint_registry`（模块级内置注册表）；
   `DeclarativeToolExecutors.register_definition/register/dispatch`；
-  `build_declarative_pipeline(executors)`（自动接线沙箱）；
+  `build_declarative_pipeline(executors, network_policy=None,
+  network_unlisted_policy="review")`（自动接线沙箱，默认网络审批即网关）；
   `make_http_fetch_executor(timeout=30.0, max_chars=100_000)`
 - `ToolVetting(*, static_hooks=())`：`vet(manifest, code_paths=(), *,
   strict=False)`；`shadow_run(executor, args, *, workdir)`（结果恒 untrusted）；
@@ -217,6 +231,11 @@ from ink_engine.core.approval import (
 - `LLMConfig(adapter, model_id, base_url, api_key=None, temperature=None,
   max_tokens=None, request_timeout=None, extra=None)`；`create_llm(config)`；
   `register_adapter(name, cls)`；`LLMChunk`/`LLMResult`/`collect_result`
+- 内置适配器：`openai_compatible`（规范名，chat/completions）/
+  `openai_responses`（Responses）/`anthropic_messages`（Messages）/`gemini`
+  + 兼容别名（`openai_compat`/`openai_response`/`anthropic`）+ 厂商别名
+  （openai/deepseek/zhipu/moonshot/ollama，改 base_url 适配）；DashScope
+  走 compatible-mode 端点
 - `ModelChain(configs, retry=RetryPolicy(attempts=3, base_delay=1.0,
   max_delay=10.0), create=create_llm)`：`ainvoke`/`astream`（认证失败
   fail-closed 不切备用）

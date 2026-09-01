@@ -48,6 +48,11 @@ pub(crate) async fn pool_snapshot(args: Option<JsonValue>) -> Result<JsonValue, 
 }
 
 #[command]
+pub(crate) async fn entities_snapshot(args: Option<JsonValue>) -> Result<JsonValue, CommandError> {
+    forward_sync("entities.snapshot", args)
+}
+
+#[command]
 pub(crate) async fn pool_evaluate(args: Option<JsonValue>) -> Result<JsonValue, CommandError> {
     forward_sync("pool.evaluate", args)
 }

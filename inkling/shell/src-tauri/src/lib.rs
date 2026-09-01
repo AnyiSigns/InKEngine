@@ -803,6 +803,7 @@ pub fn run() {
             commands::ops::graph_instance_snapshot,
             commands::ops::pool_snapshot,
             commands::ops::pool_evaluate,
+            commands::ops::entities_snapshot,
             commands::ops::edge_evidence_list,
             commands::ops::edge_evidence_update,
             commands::ops::path_assemble,

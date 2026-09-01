@@ -37,6 +37,11 @@
 | 事件类型数据化 | `event_types.EventTypeSpec`/`EventTypeRegistry` | 注册事件类型（schema/renderer/system） | 发射校验/前端渲染接线 |
 | 界面描述数据化 | `ui_schema.UISpec`/`UISchemaValidator` | 声明布局树（三层白名单） | UIRenderer 契约渲染 |
 | 自指演化 | `self_proposal`/`self_application` | 宿主扩展经 `SelfToolContext` 钩子 + apply 目标注册 | 提案校验/分级审批/补丁链/审计/回退 |
+| 实体协作者 | `entities.EntityRegistry`/`EntitySpec` | 声明实体规格（`entity_specs` 配方直注） | 注册/召唤/演化/替换/晋升 |
+| 实体演化 | `entity_evolution.EntityEvolutionPipeline` | —（引擎自承载） | 失败信号变异 → 闸门 → 严格更优替换 |
+| 成长管线 | `growth.GrowthPipeline`/`GrowthConfig` | 配置启用/蒸馏器（可注入） | 信号→蒸馏→闸门→知识集落位（默认开） |
+| 输出验证 | `verifier.OutputVerifier` | 注入验证器 + `verify_retry_limit` | 节点输出违规驱动重做 |
+| 工具检索 | `tool_index.ToolVectorIndex` | 注入 embedder/向量库 | `search_tools`/`request_tool` 动态注册 |
 | 领域校验语义 | 产品侧规则数据 + 谓词 | 注入领域状态视图（JSON 数据）+ 可选 LLM 钩子 | 写时校验（规则集 + 注册谓词） |
 | 门控分级/卡模型 | `core.review_card` | 注册表 + 校验器 | 卡回路 |
 | 工具权限声明 | `core.permissions.PermissionGate` | `ToolSpec.permissions` + `default_policy`（宿主配置） | 流水线调用前判定 |
@@ -83,9 +88,13 @@ class MyVendorLLM(AsyncLLM):  # 实现 ainvoke/astream
 register_adapter("my_vendor", MyVendorLLM)  # 配置 {"adapter": "my_vendor"} 驱动选择
 ```
 
-内置：`openai_compat`（规范名）+ openai/deepseek/zhipu/moonshot/ollama
-别名（同指 OpenAI 兼容类）；DashScope 走 compatible-mode 端点
-（改 base_url，不入 chat 注册表；embeddings 注册表另含 dashscope）。
+内置：`openai_compatible`（协议全名，规范名）+ openai/deepseek/zhipu/
+moonshot/ollama 厂商别名（同指 OpenAI 兼容类）；原生协议厂商各配独立
+适配器——`openai_responses`（Responses）/`anthropic_messages`（Messages）/
+`gemini`；旧简称 `openai_compat`/`openai_response`/`anthropic` 注册为兼容
+别名（既有配置零迁移）；DashScope 走 openai_compatible 的
+compatible-mode 端点（改 base_url，不入 chat 注册表；embeddings 注册表
+另含 dashscope）。
 未知适配器显式报错（不静默回退，防配错白跑）；适配器构造惰性（缺
 httpx 时才提示）。流式增量统一为 `LLMChunk`（token/reasoning_token/
 tool_calls_delta/finish_reason/usage），厂商差异收敛在适配器内。
@@ -501,7 +510,7 @@ from ink_engine.core.self_application import (
     ApprovalLevel, ApplyTarget, SelfApplicationPipeline,
 )
 
-# 1) 元工具契约：4 契约工具 + 5 观察工具随机制层走补丁链（无需宿主实现）
+# 1) 元工具契约：6 契约工具 + 6 观察工具随机制层走补丁链（无需宿主实现）
 # 2) 宿主扩展钩子（如种子沉淀）：
 class MyHarvestHook:
     async def __call__(self, ctx: SelfToolContext, payload: dict) -> dict: ...
@@ -529,10 +538,10 @@ recipe = AssemblyRecipe(
 )
 ```
 
-要点：9 类补丁 kind（ui/theme/tool/rule/knowledge/harness/event_type/
-environment/artifact）复用既有校验器；GuardedStorage 拦截演化资产集合
-直写（旁路写 fail-closed）；回退仅链尾单步（存储层强制）；审计
-append-only（`set_audit` 集合）。
+要点：10 类补丁 kind（ui/theme/tool/rule/knowledge/harness/event_type/
+environment/artifact/entity）复用既有校验器；GuardedStorage 拦截演化资产
+集合（含 `entities:` 守卫）直写（旁路写 fail-closed）；回退仅链尾单步
+（存储层强制）；审计 append-only（`set_audit` 集合）。
 
 ## 16. MCP 外部生态挂载
 
@@ -572,14 +581,19 @@ tools = await manager.import_tools(
 | `seeds` | 种子提供器列表 `(domain, provider)`（boot/domain_a/…） |
 | `harness_definitions` | harness 定义（图数据 + 工具清单） |
 | `event_type_specs` | 事件类型（前端渲染接线） |
-| `ui_spec` / `ui_allowed_components` / `ui_allowed_theme_tokens` | 界面布局树 + 三层白名单 |
+| `entity_specs` | 实体规格（协作者目录，进 EntityRegistry） |
+| `ui_spec` / `ui_allowed_channels` / `ui_allowed_components` / `ui_allowed_theme_tokens` | 界面布局树 + 三层白名单 |
 | `tool_wiring` | 工具三路分发（内省/自指/声明式） |
 | `vetting_static_hooks` / `vetting_l2_hook` | 外部工具 vetting 钩子 |
 | `approval_levels` | 补丁分级审批表（PatchKind → ApprovalLevel） |
-| `retrieval_sources` | 知识检索源（Retriever 注册表） |
-| `apply_targets` | 补丁活跃态应用目标 |
+| `retrieval_sources` | 检索源工厂（`Callable[[Any], Retriever]`） |
+| `apply_targets` | 补丁活跃态应用目标（`dict[PatchKind, Callable[[Any], ApplyTarget]]`） |
 | `graph_recipe` | 图配方（装配期以 ctx 编译为可执行图） |
 | `on_reverted` / `convergence_provider` | 回退通知 / apply 前置收敛闸门 |
+| `run_options` | RunOptions 覆盖（装配期并入运行时选项） |
+| `compress_policy` | 上下文压缩策略（CompressionPolicy） |
+| `verify_retry_limit` | 输出验证重试上限（VTM 门） |
+| `emit_timeline_events` | 时间线事件发射开关 |
 
 ## 扩展纪律
 

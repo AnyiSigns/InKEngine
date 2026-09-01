@@ -34,7 +34,7 @@
       "icons/icon.ico",
       "icons/icon.png"
     ],
-    "shortDescription": "InKling：你用得越多，它越懂你的领域",
+    "shortDescription": "InKling：受控自进化智能体，你用得越多，它越懂你的领域",
     "windows": {
       "nsis": {
         "installerHooks": "./windows/hooks.nsh"

@@ -63,7 +63,7 @@ _DOMAIN_SEED_NAME = "inkling.domain"
 # 挂载类工具名：外部能力接入须 L2 人工审批（工具规则条目 seed.inkling.tool_rule.mcp_mount）
 _MOUNT_TOOL_NAME = "propose_mcp_mount"
 
-# 内省五元工具名（与引擎 introspection_tool_specs 同源，防魔法字符串漂移）
+# 内省六元工具名（与引擎 introspection_tool_specs 同源，防魔法字符串漂移）
 _INSPECT_TOOL_NAMES: frozenset[str] = frozenset(
     spec.name for spec in introspection_tool_specs()
 )
@@ -108,7 +108,7 @@ def map_ui_allowed_channels(bundle: SeedDataBundle) -> tuple[str, ...]:
     1. ui_spec 布局树实际使用的 bind.channel；
     2. event_types.json 全部事件名（以 ``events.<name>`` 形态放行——
        事件流绑定通道按注册表放行，未注册事件名不进入白名单）；
-    3. 内省五元快照通道（inspect_*，引擎 introspection 工具名同源）。
+    3. 内省六元快照通道（inspect_*，引擎 introspection 工具名同源）。
     """
     ui_spec = bundle.data["ui_spec.json"]
     channels: set[str] = set()
@@ -452,7 +452,7 @@ def build_recipe(
     embedder: Any | None = None,
     run_options: Any | None = None,
 ) -> AssemblyRecipe:
-    """把 seed_data 数据映射为完整装配配方（17 字段全落值）。
+    """把 seed_data 数据映射为完整装配配方（22 字段全落值）。
 
     Args:
         bundle: 装载产物（load_seed_data）。

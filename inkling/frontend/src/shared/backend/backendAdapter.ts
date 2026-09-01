@@ -442,6 +442,7 @@ export interface BackendAdapter {
   graphInstanceSnapshot(threadId: string): Promise<unknown>;
   poolSnapshot(): Promise<unknown>;
   poolEvaluate(): Promise<unknown>;
+  entitiesSnapshot(): Promise<unknown>;
   edgeEvidenceList(): Promise<unknown>;
   edgeEvidenceUpdate(edgeId: string, patch: Record<string, unknown>): Promise<unknown>;
   pathAssemble(): Promise<unknown>;
@@ -562,6 +563,7 @@ export function createUnavailableBackend(): BackendAdapter {
     graphInstanceSnapshot: unavailable as never,
     poolSnapshot: unavailable as never,
     poolEvaluate: unavailable as never,
+    entitiesSnapshot: unavailable as never,
     edgeEvidenceList: unavailable as never,
     edgeEvidenceUpdate: unavailable as never,
     pathAssemble: unavailable as never,
@@ -693,6 +695,7 @@ export function createTauriBackend(invoker?: TauriInvoker): BackendAdapter {
     graphInstanceSnapshot: (threadId) => call('graph_instance_snapshot', { threadId }),
     poolSnapshot: () => call('pool_snapshot'),
     poolEvaluate: () => call('pool_evaluate'),
+    entitiesSnapshot: () => call('entities_snapshot'),
     edgeEvidenceList: () => call('edge_evidence_list'),
     edgeEvidenceUpdate: (edgeId, patch) => call('edge_evidence_update', { edgeId, patch }),
     pathAssemble: () => call('path_assemble'),

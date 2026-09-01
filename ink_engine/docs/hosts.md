@@ -1,10 +1,11 @@
 # InkEngine 宿主接入指南
 
-引擎作为**可嵌入运行时**交付：宿主 = 任何「实现 Host 五件套 + 提供
-AssemblyRecipe 配方」的进程形态——web 服务、CLI、桌面应用、stdio
-进程皆为宿主之一（web 只是形态之一，不是绑定形态）。当前参考宿主：
-Forge（text_forge_evo，Tauri + FastAPI + SSE）与 stdio_host
-（examples/stdio_host.py，最小非 web 宿主）。
+引擎作为**可嵌入的受控自进化运行时**交付：宿主 = 任何「实现 Host
+五件套 + 提供 AssemblyRecipe 配方」的进程形态——web 服务、CLI、桌面
+应用、stdio 进程皆为宿主之一（web 只是形态之一，不是绑定形态）。
+当前参考宿主：InKling 受控自进化智能体（inkling/，Tauri 桌面壳 +
+嵌入式 Python 引擎桥）与 stdio_host（examples/stdio_host.py，最小
+非 web 宿主）。
 
 ## 三步挂载
 
@@ -26,9 +27,11 @@ recipe = AssemblyRecipe(
     seeds=[("boot", build_boot_seed_entries)],          # 种子按名注入
     harness_definitions=[boot_harness_definition()],
     event_type_specs=list(BOOT_EVENT_TYPES),
+    entity_specs=[...],                                 # 协作者目录（可选）
     ui_spec=BOOT_UI_SPEC,                                # 界面布局树数据
-    ui_allowed_components=frozenset({"message_list", "agent_input"}),
-    ui_allowed_theme_tokens=frozenset({"bg", "fg", "accent"}),
+    ui_allowed_channels=("state", "events.reply_token"),
+    ui_allowed_components=("message_list", "agent_input"),
+    ui_allowed_theme_tokens=("bg", "fg", "accent"),
     tool_wiring=ToolWiring(
         self_specs=self_tool_specs,                      # 工具三路分发（内省/自指/声明式）
         self_executor_factory=make_self_executor,
@@ -66,7 +69,7 @@ await runtime.stop()                               # 拒新 → 排空 → 关 M
 - `close()` 在 Runtime.stop 的收尾序列中最后调用（顺序：拒新 → 排空
   → 关 MCP → 关存储 → 宿主钩子）。
 
-## AssemblyRecipe 17 字段
+## AssemblyRecipe 22 字段
 
 装配决策全部数据化（可校验、可替换）；字段注解类型只允许核心类型与
 鸭子协议（架构门禁白名单强制，宿主类型不得进入配方）。
@@ -74,21 +77,27 @@ await runtime.stop()                               # 拒新 → 排空 → 关 M
 | 字段 | 类型 | 说明 |
 |---|---|---|
 | `set_id` | `str` | 装配集标识（命名空间/路由） |
-| `seeds` | `Sequence[(str, SeedProvider)]` | 种子提供器（boot 自举种子等，配方直注） |
-| `harness_definitions` | `Sequence[HarnessDefinition]` | harness 能力包（图数据 + 工具清单） |
-| `event_type_specs` | `Sequence[EventTypeSpec]` | 事件类型（schema/renderer/system） |
-| `ui_spec` | `UISpec \| None` | 界面布局树数据 |
-| `ui_allowed_components` | `frozenset[str]` | 界面组件白名单 |
-| `ui_allowed_theme_tokens` | `frozenset[str]` | 主题 token 白名单 |
-| `tool_wiring` | `ToolWiring` | 工具三路分发（内省/自指/声明式 executor 接线） |
-| `vetting_static_hooks` | `Sequence[StaticHook]` | 外部工具 vetting 静态钩子 |
+| `seeds` | `list[tuple[str, SeedProvider]]` | 种子提供器（boot 自举种子等，配方直注） |
+| `harness_definitions` | `list[HarnessDefinition]` | harness 能力包（图数据 + 工具清单） |
+| `event_type_specs` | `list[EventTypeSpec]` | 事件类型（schema/renderer/system） |
+| `entity_specs` | `list[EntitySpec]` | 实体基线（协作者目录，进 EntityRegistry） |
+| `ui_spec` | `dict \| None` | 界面布局树数据 |
+| `ui_allowed_channels` | `tuple[str, ...]` | 界面绑定通道白名单（默认仅 `state`） |
+| `ui_allowed_components` | `tuple[str, ...]` | 界面组件白名单 |
+| `ui_allowed_theme_tokens` | `tuple[str, ...]` | 主题 token 白名单 |
+| `tool_wiring` | `ToolWiring \| None` | 工具三路分发（内省/自指/声明式 executor 接线） |
+| `vetting_static_hooks` | `list[StaticHook] \| None` | 外部工具 vetting 静态钩子 |
 | `vetting_l2_hook` | `Callable \| None` | L2 沙箱验证钩子（无则 L2 fail-closed） |
-| `approval_levels` | `Mapping[PatchKind, ApprovalLevel]` | 补丁分级审批表（L0 直过/L1 弹卡/L2 沙箱） |
-| `retrieval_sources` | `Sequence[Retriever]` | 知识检索源 |
-| `apply_targets` | `Mapping[str, ApplyTarget]` | 补丁活跃态应用目标 |
-| `graph_recipe` | `Callable[[GraphRecipeContext], Graph]` | 图配方（装配期编译为可执行图） |
+| `approval_levels` | `dict[PatchKind, ApprovalLevel]` | 补丁分级审批表（L0 直过/L1 弹卡/L2 沙箱） |
+| `retrieval_sources` | `list[Callable[[Any], Retriever]]` | 检索源工厂（接收装配产物返回 Retriever） |
+| `apply_targets` | `dict[PatchKind, Callable[[Any], ApplyTarget]]` | 补丁活跃态应用目标工厂 |
+| `graph_recipe` | `Callable[[GraphRecipeContext], Graph] \| None` | 图配方（装配期编译为可执行图） |
 | `on_reverted` | `Callable \| None` | 补丁回退通知钩子 |
-| `convergence_provider` | `Callable \| None` | apply_patch 前置收敛闸门（Protocol 钩子依赖倒置） |
+| `convergence_provider` | `Callable[[], ConvergenceHook \| None] \| None` | apply_patch 前置收敛闸门（依赖倒置） |
+| `run_options` | `RunOptions \| None` | 执行域选项覆盖（字段级并入装配默认） |
+| `compress_policy` | `CompressionPolicy \| None` | 回合内上下文压缩策略（默认 ThresholdCompressionPolicy） |
+| `verify_retry_limit` | `int` | VTM 输出验证重做上限（0 = 不启用验证器） |
+| `emit_timeline_events` | `bool` | 组装时间线事件开关（UX 指标：user_msg → 组装 → 执行） |
 
 ## Runtime 生命周期
 
@@ -102,8 +111,8 @@ uninitialized ──boot(幂等)──▶ running ◀──resume── paused
 
 - `begin_run()`/`end_run(ticket)`：在途 run 登记——pause 拒新不打断
   在途、stop 排空在途后才关停；
-- `rebuild_engine()`：引擎重建（缓存键 = 模型 id + 存储 id + 工具名
-  集合——配置/工具表变更才重建，避免无谓重建）；
+- `rebuild_engine()`：引擎重建（缓存键 = 模型身份 + 存储身份 + 工具
+  结构身份——配置/工具表变更才重建，避免无谓重建）；
 - `resume_run(thread_id, inject)`：审批决议重入样板（挂起卡 → 锚点 →
   `ainvoke(resume_from, inject)`）；
 - 装配动作是机制（不可被补丁链修改），装配决策是数据（宿主可换）。
@@ -131,8 +140,8 @@ class JsonLinesTransport:  # stdio_host 形态
 
 | 路 | 来源 | 说明 |
 |---|---|---|
-| 内省 | `introspection_tool_specs` + `make_introspection_executor` | 五个 inspect_* 只读观察元工具 |
-| 自指 | `self_tool_specs` + `make_self_executor` + `operation_of` | 4 契约演化元工具（随机制层走补丁链） |
+| 内省 | `introspection_tool_specs` + `make_introspection_executor` | 六个 inspect_* 只读观察元工具 |
+| 自指 | `self_tool_specs` + `make_self_executor` + `operation_of` | 6 契约演化元工具（propose_patch/apply_patch/revert_patch/propose_domain_manifest/search_tools/request_tool，随机制层走补丁链） |
 | 声明式 | `DeclarativeToolExecutors`（宿主注册端点执行体） | 业务工具（端点受限 + 强制权限） |
 
 三路统一进工具表，走同一 `ToolPipeline`（门禁→沙箱→守卫→审批→审计→

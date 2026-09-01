@@ -5,7 +5,8 @@
  * - state.<字段>：回合状态通道——字段 = 会话快照声明键（messages / round_steps
  *   为主用法，session 为整快照通道）；bind.path 进一步细选；
  * - events.<type>：事件流通道，type 必须是事件类型注册表登记名（细粒度订阅）；
- * - inspect_graph / inspect_rules / inspect_knowledge / inspect_ui / inspect_tools：五元快照。
+ * - inspect_graph / inspect_rules / inspect_knowledge / inspect_ui /
+ *   inspect_tools / inspect_entities：六元快照。
  *
  * 内部通道纪律：「_」前缀通道禁绑（防信息泄漏）——顶层通道名与
  * 绑定路径的任何段都不允许以 _ 开头。

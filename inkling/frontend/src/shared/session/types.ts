@@ -241,7 +241,7 @@ export interface IncubationEntry {
   createdAt: number;
 }
 
-/** 补丁链条目（演化时间线：数据源 = inspect_* 五元快照）。 */
+/** 补丁链条目（演化时间线：数据源 = inspect_* 六元快照）。 */
 export interface PatchChainEntry {
   patchId: string;
   kind: string;

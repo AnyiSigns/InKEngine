@@ -1,12 +1,21 @@
 # InkEngine 概念文档
 
 引擎的心智模型：**「机制是引擎，知识是数据，变化是补丁，汇入靠调配」**。
+
+InkEngine 是**受控自进化运行时**（Controlled Self-Evolving Runtime）：
+可嵌入的通用 agent 机制运行时。「自进化」指引擎自身形态（图/规则/
+知识/工具/界面/事件类型/harness/环境/产物/实体/参数）随使用演化；
+「受控」指演化全程受约束——每次变化经分级审批（L0/L1/L2）、可审计
+（append-only）、可回退（链尾单步），孵化与变异过三层验证闸门，
+权限/沙箱/审批/旁路写全环节 fail-closed，收敛管制防重复提案，
+运行时骨架本身不可被补丁链修改。
+
 本文档按概念介绍引擎的独创体系，作为框架心智模型与宣传点；机制在
 `ink_engine/core`（engine-core，纯机制唯一 seam，架构门禁保证零领域词/
 零宿主词），领域深度归宿主产品层（领域规则/样例/谓词由产品自写并成对
-维护，机制层只带通用种子与 boot 自举基线）；Forge（text_forge_evo）与
-stdio_host 作为宿主消费方，读取 core API 与自举数据组装自身流程，
-不复写机制；`examples/` 附可独立运行的示例。
+维护，机制层只带通用种子与 boot 自举基线）；InKling 受控自进化智能体
+（`inkling/`）与 stdio_host 作为宿主消费方，读取 core API 与自举数据
+组装自身流程，不复写机制；`examples/` 附可独立运行的示例。
 
 ## 卡回路（Review Loop）
 
@@ -215,24 +224,62 @@ meta 节点读执行统计自动调整参数（探索宽度/重试预算/web 验
 
 ## 自指演化（Self-evolution）
 
-引擎自身形态（图/规则/知识/工具/界面/事件类型/harness/环境/产物）
+引擎自身形态（图/规则/知识/工具/界面/事件类型/harness/环境/产物/实体）
 也是补丁链数据——**引擎观察自己、提案修改自己、经审批后演化自己**，
-随机制层走补丁链，不随宿主壳漂移。
+随机制层走补丁链，不随宿主壳漂移。「受控」即此处的全套约束：审批分级、
+审计、回退、收敛管制、旁路写 fail-closed、补丁链不能补丁自己。
 
 - **观察**：`inspect_graph/inspect_rules/inspect_knowledge/inspect_ui/
-  inspect_tools` 五元工具（恒定 JSON 信封、函数节点降级视图、快照深拷贝、
-  出口统一敏感键剥离），注册进工具表经只读流水线执行（权限
-  `introspection:read:*`）；
-- **提案**：`propose_patch` 9 类补丁（ui/theme/tool/rule/knowledge/
-  harness/event_type/environment/artifact），复用既有校验器
+  inspect_tools/inspect_entities` 六元工具（恒定 JSON 信封、函数节点
+  降级视图、快照深拷贝、出口统一敏感键剥离），注册进工具表经只读流水线
+  执行（权限 `introspection:read:*`）；
+- **提案**：`propose_patch` 10 类补丁（ui/theme/tool/rule/knowledge/
+  harness/event_type/environment/artifact/entity），复用既有校验器
   （UISchemaValidator/RuleSet/HarnessDefinition/…），非法提案建期拒绝；
 - **应用**：`apply_patch` 分级审批（L0 策略直过 / L1 弹卡 / L2 沙箱验证
   fail-closed，7 天超时过期回滚）→ 补丁链 append → 活跃态应用（异常只
   告警，重启装配恢复）→ 审计 append-only；`GuardedStorage` 拦截演化
   资产直写（旁路写 fail-closed）；
 - **回退**：`revert_patch` 仅链尾单步回退（存储层强制），保持链完整；
-- **契约**：SELF_TOOL_CONTRACT 契约清单（9 元工具）随 boot 种子发布，
-  单测强制 engine-resident 元工具 ⊆ 清单——换宿主不失明、新宿主直接用。
+- **契约**：`SELF_TOOL_CONTRACT` 契约清单（6 契约工具：propose_patch/
+  apply_patch/revert_patch/propose_domain_manifest/search_tools/
+  request_tool）+ `BOOT_METATOOLS`（12 元工具 = 6 观察 + 6 契约）随 boot
+  种子发布，单测强制 engine-resident 元工具 ⊆ 清单——换宿主不失明、
+  新宿主直接用；
+- **收敛管制**：`ConvergenceHook` 前置闸门（宿主注入）——同目标冷却/
+  冻结期显式拒绝提案，AI 换方向而非反复撞闸。
+
+## 实体协作者（Entity Collaborators）
+
+多 agent 协作是受控自进化的组成部分：实体（协作者）= 数据（`EntitySpec`
+条目：id/label/persona/model 引用），注册表 + 补丁链版本化，守卫集合
+`entities:` 拦截旁路写。
+
+- **默认单 agent**：主 agent 判断需协作者时调 `collab_request` 工具
+  （声明式端点，review 档弹卡确认）→ 宿主执行体把 EntitySpec 物化为
+  spawn 子图（`{thread}:spawn:{i}` 独立子链 + 事件落父链）；
+- **模型侧身份**：`Message.name` 是引擎/前端/留痕数据（协议原生精度），
+  模型侧「谁在说话」统一走每轮注入（参与者清单 + 当前发言人），
+  Anthropic/Gemini 上同样成立；
+- **演化受控**：`EntityEvolutionPipeline`——失败信号归因实体 → 回合
+  收尾确定性变异（教训指纹去重）→ 三层闸门（复用 KnowledgeGate）→
+  严格更优才替换 → 晋升（工作/项目/用户级）；所有写经
+  `EvolutionWriter`（补丁链 + 审计）。
+
+## 成长管线（Growth Pipeline）
+
+自学习管线由引擎自承载（`core/growth.py`，`GrowthConfig.enabled=True`
+默认开）：回合事件 → 信号分类（五类：踩坑/用户修正/洞见/流程缺口/
+重复根因）→ 按需蒸馏 → 三层验证闸门 → 知识集落位。GrowthPipeline 同时
+实现 EngineTransport 与 settle 钩子，装配时自动接线——宿主零介入，
+背景静默沉淀；`skill_crystal.py` 技能结晶、`pool_governance.py` 结点池
+治理随回合收尾 settle 钩子自动执行。
+
+## 输出验证器（VTM Gate）
+
+`core/verifier.py`：节点输出过 `__verify__` 验证门（`OutputVerifier`/
+`LLMOutputVerifier`）——违规驱动重做（`verify_retry_limit`，装配配方
+可配），防「低质量输出直接进状态」。
 
 ## 事件与界面即数据（Event & UI as Data）
 
@@ -281,11 +328,15 @@ meta 节点读执行统计自动调整参数（探索宽度/重试预算/web 验
 4. **机制通用、策略可插**：机制在内核（唯一 seam），策略在领域/业务层——
    评审策略/调配策略/评估策略/调参策略全部可注入替换；
 5. **一切皆数据**：图/计划/harness/工具/规则/知识/参数/分支/事件类型/
-   界面描述皆为数据，一切演化皆为补丁链（append-only、可回退、可分支、
+   界面描述/实体皆为数据，一切演化皆为补丁链（append-only、可回退、可分支、
    可审计）；
-6. **装配动作是机制，装配决策是数据**：换壳 = 换配方，机制层不感知宿主；
-7. **OpenAI 兼容优先**：模型层以 OpenAI 兼容协议为基线；
-8. **显式化哲学**：上下文显式调配、变化显式留痕、状态显式追踪、
+6. **受控自进化**：自进化是默认值，受控是承诺——每次变化经审批、
+   可审计、可回退，孵化/变异过三层闸门，收敛管制防失控，运行时骨架
+   不可被补丁链修改；
+7. **装配动作是机制，装配决策是数据**：换壳 = 换配方，机制层不感知宿主；
+8. **OpenAI 兼容优先**：模型层以 OpenAI 兼容协议为基线（原生协议厂商
+   各配独立适配器）；
+9. **显式化哲学**：上下文显式调配、变化显式留痕、状态显式追踪、
    信息显式管理——把关键状态从隐式上下文移出为引擎可追踪的数据层；
-9. **fail-closed 兜底**：凡安全相关判定（权限/沙箱/提取器/vetting/
-   审批超时/旁路写）默认拒绝，宁可误杀不放过。
+10. **fail-closed 兜底**：凡安全相关判定（权限/沙箱/提取器/vetting/
+    审批超时/旁路写）默认拒绝，宁可误杀不放过。

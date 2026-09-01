@@ -12,6 +12,7 @@ import { ChevronRight, FolderOpen, Globe, MessageSquare, Rocket, SkipForward, X 
 
 import { Button } from '@/shared/ui/Button';
 import { createBackend } from '@/shared/backend/backendAdapter';
+import { PRODUCT_NAME, PRODUCT_TAGLINE } from '@/shared/identity';
 
 type Step = 1 | 2 | 3 | 4 | 5;
 
@@ -22,7 +23,7 @@ interface OnboardingFlowProps {
 }
 
 const STEPS: Array<{ step: Step; title: string; body: string; icon: typeof Rocket }> = [
-  { step: 1, title: '欢迎使用 InKling', body: '你的自进化认知伙伴。所有数据默认本地存储，你拥有完全的数据主权。', icon: Rocket },
+  { step: 1, title: `欢迎使用 ${PRODUCT_NAME}`, body: `你的${PRODUCT_TAGLINE}。所有数据默认本地存储，你拥有完全的数据主权。`, icon: Rocket },
   { step: 2, title: '配置模型', body: '选择 Ollama 本地模型、自定义端点，或暂时跳过稍后配置。', icon: Globe },
   { step: 3, title: '授权工作区', body: '选择要授予 AI 访问权限的工作区目录，文件操作前会再次确认。', icon: FolderOpen },
   { step: 4, title: '试试示例任务', body: '选择一项开始体验，或直接进入主界面。', icon: MessageSquare },

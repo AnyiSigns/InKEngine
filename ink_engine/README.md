@@ -1,13 +1,19 @@
 # InkEngine 墨引擎
 
-可嵌入的自进化运行时（Self-Evolving Runtime）：进程内中间层——
-位于宿主应用之下、OS 之上，宿主（web/CLI/桌面/stdio）嵌入引擎并实现
-五件套嵌入契约，引擎不依赖任何应用框架、也不直接触碰平台细节
+可嵌入的**受控自进化运行时**（Controlled Self-Evolving Runtime）：进程内
+中间层——位于宿主应用之下、OS 之上，宿主（web/CLI/桌面/stdio）嵌入引擎
+并实现五件套嵌入契约，引擎不依赖任何应用框架、也不直接触碰平台细节
 （托盘/沙箱实现/安装器等隔离在宿主适配侧）。引擎只提供执行机制与
 运行时身份（Host 嵌入契约 + 装配数据 + 生命周期），不约束策略；web
-只是宿主形态之一，不是引擎的绑定形态。当前宿主生态：Forge 自举产品壳
-（text_forge_evo）+ stdio 最小宿主。领域深度归宿主产品层：领域规则/
+只是宿主形态之一，不是引擎的绑定形态。当前宿主生态：InKling 受控自进化
+智能体（inkling/）+ stdio 最小宿主。领域深度归宿主产品层：领域规则/
 样例/谓词由产品自写并成对维护，机制层零领域内容。
+
+「受控」是引擎的信任承诺：一切演化（图/规则/知识/工具/界面/事件类型/
+环境/产物/实体/参数）都是补丁链数据，**每次变化经审批（分级 L0/L1/L2）、
+可审计（append-only）、可回退（链尾单步）**；孵化与变异过三层验证闸门；
+权限门禁/沙箱/审批/旁路写全环节 fail-closed；收敛管制防重复提案。
+运行时骨架本身不可被补丁链修改（补丁链不能补丁自己）。
 
 **核心思想：机制是引擎，知识是数据，变化是补丁，汇入靠调配。**
 引擎只保留不可降维的机制骨架（图执行/补丁链/调配器/推演/验证闸门/
@@ -19,14 +25,14 @@
 ## 包结构
 
 - `ink_engine.core`：纯机制引擎内核——图执行/checkpoint 版本链/事件流/
-  interrupt/存储/补丁链/LLM/安全剥离/沙箱与审批/自指演化/运行时装配
-  与生命周期（唯一 seam，API 即协议）；
+  interrupt/存储/补丁链/LLM/安全剥离/沙箱与审批/自指演化/实体协作者/
+  成长孵化/运行时装配与生命周期（唯一 seam，API 即协议）；
 - `ink_engine.seeds`：种子机制——通用种子恒注（机制基线）+ boot 自举
   种子（随带引导数据，装配配方直注）；
 - `examples/`：可独立运行的示例（stdio_host 为最小非 web 宿主，
   另有调配/审批/沙箱/MCP 生态实验演示）；
-- `docs/`：文档集（概念/扩展点/架构/宿主接入/安全模型）；
-- `tests/`：测试（默认 1182 项，全量 1191 项，含性能门禁与架构门禁）。
+- `docs/`：文档集（概念/扩展点/架构/宿主接入/安全模型/证据仲裁等）；
+- `tests/`：测试（默认 2065 项，全量 2380 项，含性能门禁与架构门禁）。
 
 ## 安装
 
@@ -46,8 +52,12 @@ pip install -e ".[test]"     # 测试与 lint 依赖（pytest/ruff）
 |---|---|
 | `graph.py` / `executor.py` | 图定义 DSL + 执行循环（checkpoint 版本链/恢复重放/interrupt 注入/预算钩子/异常策略/编辑重放）；图 = 可序列化数据（round-trip + 指纹版本）；`Engine`/`RunOptions`（checkpoint_keep/plan_workflow/预算/护栏/装配） |
 | `plan.py` / `spawn.py` / `simulation.py` | 运行时重规划（`__plan__` 下一跳编排，随 checkpoint 版本化）；子任务展开（`__spawn__`，独立子链 + 数据形态子图）；决策点推演-回溯-换选（`__simulate__` 分支独立子链 + Evaluator 评估 + BranchMixer 择优 + 轨迹树引用） |
+| `multipath.py` / `path_assembler.py` / `fanout.py` | 多径执行与汇流裁决（Junction 汇聚 + 边证据写回）；路径/候选组装（只读规划/canary 试跑/候选选择，路径组装运行时）；`fan_out` 并发发散原语 |
+| `edge_evidence.py` / `settle.py` / `fingerprint_cache.py` / `source_grading.py` | 边证据存储与纯算法评分（p̂·w_n·d(t)·τ，信任档晋级）；回合收尾 settle 钩子链（证据/失败审计/指纹/提案/策略边复审/池治理）；装配指纹缓存（上下文指纹 + 漂移失效）；来源可信度分级（web/dialog/model/user 单一事实源） |
 | `rules.py` / `scoring.py` / `schema_validator.py` | 规则 DSL（约束/状态转换 + 内置谓词 + 样例库机制）；加权打分器（维度+权重+阈值）；Schema 声明校验（L1 准入机制件） |
 | `knowledge_set.py` / `knowledge_signals.py` / `knowledge_gate.py` / `evolution.py` | 知识集封装（条目/补丁链演化/分层晋升/可移植/检索/注入适配）；五类信号感知与蒸馏（复用优先于生成）；三层验证闸门（L1 准入/L2 样例/L3 目标筛选）；进化工厂（反思式变异/防退化） |
+| `skill_crystal.py` / `pool_governance.py` / `audit_log.py` / `ledger.py` | 技能结晶（SkillStore 命名缓存条目 + 可重建 sqlite 存储 + settle 自动结晶）；结点池治理（容量/驱逐/合并/预算规则，只注册）；append-only 审计（emit_audit）；回合账本合并（on-demand 廉价 LLM） |
+| `memory.py` / `memory_extract.py` / `perception.py` / `bridge.py` | 记忆策略原语（MemoryStore/召回策略/非破坏性失效）；无缝记忆提取与冲突仲裁（账本 → 条目）；感知节点（视觉理解 + 双通道交叉验证 + 截图导出档位）；宿主接线桥（op channel：agent 可调 op 映射既有引擎管线） |
 | `tuning.py` | 自适应调优（回合指标聚合/参数快照/低分反馈降权/L2 回归） |
 | `assembly.py` / `context.py` | 输入调配管线（多源统一预算/激活留痕/一键开关）；上下文调配器（源元数据/预算分配/加权组装/融合钩子/域窗口投影与归档摘要） |
 | `state.py` / `patch_chain.py` | 状态通道 + reducer 注册表；内容型补丁链（append/replace/delete + assemble/rebase/branch/truncate） |
@@ -61,13 +71,15 @@ pip install -e ".[test]"     # 测试与 lint 依赖（pytest/ruff）
 | `builder.py` / `environments.py` | 构建管线（白名单沙箱 + 内容寻址产物 + 冒烟门禁）；环境管理（环境 = 数据，提供器 = 机制：local/web_bridge，安装/运行经沙箱白名单 + 审计链） |
 | `interrupt.py` / `approval.py` / `review_card.py` | interrupt 挂起/注入重入（弹卡审批一等能力）；挂卡审批标准姿势（单动作/合并卡/策略直过/超时 fail-closed）；四类审批卡数据模型 + 门控分级注册表 |
 | `registry.py` / `workflow.py` | 节点/边类型注册表（数据形态解析建图）；WorkflowSpec 声明式工作流 → 图转换（可执行的计划空间） |
-| `security.py` / `logging.py` | 敏感信息剥离（递归置空保留键，落库/出网/日志同规格）；结构化 JSON 日志 + trace_id 链路追踪 |
-| `introspection.py` / `self_tools.py` | 自指层观察原语（五个 inspect_* 元工具：图/规则/知识/界面/工具表 JSON 快照，只读流水线 + 权限门禁 + 敏感键剥离）；自指层演化原语（4 契约元工具：propose_patch/apply_patch/revert_patch/propose_domain_manifest，随机制层走补丁链演化） |
-| `self_proposal.py` / `self_application.py` | 自指层提案协议（9 类补丁 kind：ui/theme/tool/rule/knowledge/harness/event_type/environment/artifact，复用既有校验器）；应用管线（分级审批 L0/L1/L2 + 补丁链 append + 审计 append-only + GuardedStorage 旁路写防护 + 链尾回退） |
-| `runtime.py` | 运行时装配与生命周期（不可演化骨架成员）：Host 嵌入契约（存储工厂/模型解析/审批策略/传输工厂/关停钩子五件套）+ AssemblyRecipe 装配数据（17 字段，全核心类型白名单）+ Runtime 状态机（uninitialized→running→paused→stopped + 在途 run 登记 + 审批决议重入样板 + 引擎重建缓存） |
-| `state_machine.py` / `memory.py` / `tiers.py` | 通用状态机原语（转换 = 补丁，append-only 推导）；记忆策略原语（MemoryStore 协议/召回策略/非破坏性失效）；模型分层挡位（router/tool/main/audit 配置解析/按挡位建链/调用统计钩子） |
+| `security.py` / `logging.py` | 敏感信息剥离（组件化判定：精确集合 ∪ 后缀启发式 ∪ 末段凭据词 ∪ camelCase 边界，递归置空保留键，落库/出网/日志同规格）；结构化 JSON 日志 + trace_id 链路追踪 |
+| `introspection.py` / `self_tools.py` / `tool_index.py` | 自指层观察原语（六个 inspect_* 元工具：图/规则/知识/界面/工具表/实体目录 JSON 快照，只读流水线 + 权限门禁 + 敏感键剥离）；自指层演化原语（6 契约元工具：propose_patch/apply_patch/revert_patch/propose_domain_manifest/search_tools/request_tool，随机制层走补丁链演化）；工具向量索引（动态注册检索，支撑 search_tools/request_tool） |
+| `self_proposal.py` / `self_application.py` / `evolution_writer.py` | 自指层提案协议（10 类补丁 kind：ui/theme/tool/rule/knowledge/harness/event_type/environment/artifact/entity，复用既有校验器）；应用管线（分级审批 L0/L1/L2 + 补丁链 append + 审计 append-only + GuardedStorage 旁路写防护 + 链尾回退）；统一演化资产写协议（补丁链 append + 机制豁免活写 + 审计，harness/event_type/entity/memory/edge_tier/runtime_config 各写器） |
+| `entities.py` / `entity_evolution.py` | 实体（协作者）注册表与数据形态（EntitySpec，`entities:<set_id>`）；实体演化闭环（失败信号 → 确定性变异 → 三层闸门 → 严格更优替换 → 晋升） |
+| `growth.py` / `verifier.py` | 成长管线（GrowthPipeline：回合事件 → 信号缓冲 → 按需蒸馏 → 三层闸门 → 知识集落位，引擎自承载的孵化闭环）；输出验证器（VTM `__verify__` 门 + verify_retry_limit 违规驱动重做） |
+| `runtime.py` | 运行时装配与生命周期（不可演化骨架成员）：Host 嵌入契约（存储工厂/模型解析/审批策略/传输工厂/关停钩子五件套）+ AssemblyRecipe 装配数据（22 字段，全核心类型白名单）+ Runtime 状态机（uninitialized→running→paused→stopped + 在途 run 登记 + 审批决议重入样板 + 引擎重建缓存） |
+| `state_machine.py` / `tiers.py` | 通用状态机原语（转换 = 补丁，append-only 推导）；模型分层挡位（router/tool/main/audit 配置解析/按挡位建链/调用统计钩子） |
 | `seeds.py` / `seeds/boot` | 通用种子恒注（模板 + 权重基线）；boot 自举种子（系统提示词/界面基线/事件类型/自举 harness/元工具契约清单，装配配方直注） |
-| `llm/` | AsyncLLM 统一协议 + OpenAI 兼容适配器（自写 SSE 流式解析，零第三方 SDK，reasoning_content 透传）+ 工具 schema 转换 + fallback 链（重试/退避/备用切换/认证 fail-closed/取消穿透）+ embedding 接口（可选 extra `[llm]`） |
+| `llm/` | AsyncLLM 统一协议 + 自写 SSE 流式解析（零第三方 SDK，reasoning_content 透传）+ 内置协议适配器（`openai_compatible` 规范名/`openai_responses`/`anthropic_messages`/`gemini` + openai/deepseek/zhipu/moonshot/ollama 厂商别名）+ 工具 schema 转换 + fallback 链（重试/退避/备用切换/认证 fail-closed/取消穿透）+ 压缩/用量守卫 + embedding 接口（可选 extra `[llm]`） |
 
 领域深度归宿主产品层：领域规则集/样例库/谓词由产品自写并成对维护
 （样例库 fixture 全绿 = 新规则落库的非谈判项），以知识条目直接注入
@@ -166,15 +178,17 @@ await runtime.stop()                               # 拒新 → 排空 → 关 M
   决议回流通道不在协议内（web 的 resume 端点、stdio 的 stdin 循环是
   宿主自己的请求入口），Runtime 提供 `resume_run` 样板（挂起卡 → 锚点
   → 注入重入）两宿主共用；
-- **AssemblyRecipe 是数据**（17 字段）：图配方/种子/harness/事件类型/
-  界面基线（spec + 组件/主题白名单）/工具三路分发（内省/自指/声明式）/
-  vetting 钩子/分级审批表/检索源/apply 目标/收敛钩子/回退钩子全部数据
-  注入——换壳 = 换配方，机制层不感知宿主形态；配方字段类型只允许核心
-  类型与鸭子协议（架构门禁白名单强制，宿主类型不得进入配方）；
+- **AssemblyRecipe 是数据**（22 字段）：图配方/种子/harness/事件类型/
+  实体规格/界面基线（spec + 通道/组件/主题白名单）/工具三路分发（内省/
+  自指/声明式）/vetting 钩子/分级审批表/检索源/apply 目标/收敛钩子/
+  回退钩子/run_options 覆盖/压缩策略/输出验证重试上限/时间线事件开关
+  全部数据注入——换壳 = 换配方，机制层不感知宿主形态；配方字段类型
+  只允许核心类型与鸭子协议（架构门禁白名单强制，宿主类型不得进入配方）；
 - **Runtime 与 Engine 分工**：Engine = 单次 run 执行；Runtime = 进程级
   装配产物与生命周期（boot/pause/resume/stop + 在途 run 登记 + 引擎
-  重建缓存——配置/工具表变更才重建）；
-- **自指元工具已内核化**：4 契约演化工具随机制层走补丁链演化，stdio
+  重建缓存——配置/工具表变更才重建，缓存键 = 模型身份 + 存储身份 +
+  工具结构身份）；
+- **自指元工具已内核化**：6 契约演化工具随机制层走补丁链演化，stdio
   等新宿主直接复用；宿主扩展（如种子沉淀）经 `SelfToolContext` 钩子接入；
 - **外部生态只经 MCP 消费**：MCP server（含 Cursor 风格插件经标准
   MCP 服务器包装）以 `McpServerConfig` 挂载，工具进工具表走统一流水线；
@@ -226,38 +240,54 @@ await runtime.stop()                               # 拒新 → 排空 → 关 M
   web/CLI/桌面/stdio 皆为宿主之一，嵌入门槛从「复制装配样板」降到
   「五件套 + 配方三步挂载」；装配动作是机制（不可被补丁链修改），
   装配决策是数据（宿主可换）。
-- **自指演化**：观察（inspect_* 五元工具）→ 提案（propose_patch 9 类
-  补丁）→ 应用（分级审批 L0/L1/L2 + 补丁链 append + 审计）→ 回退
-  （链尾回退）——引擎自身形态随机制层走补丁链演化，不随宿主壳漂移；
-  GuardedStorage 拦截演化资产直写，旁路写 fail-closed。
+- **自指演化**：观察（inspect_* 六元工具）→ 提案（propose_patch 10 类
+  补丁，含 entity）→ 应用（分级审批 L0/L1/L2 + 补丁链 append + 审计）→
+  回退（链尾回退）——引擎自身形态随机制层走补丁链演化，不随宿主壳漂移；
+  GuardedStorage 拦截演化资产直写，旁路写 fail-closed；收敛管制钩子
+  防重复提案（冷却/冻结显式拒绝）。
+- **实体协作者**：EntitySpec 数据形态（注册表 + 补丁链版本化，`entities:`
+  守卫集合）——多 agent 协作是受控自进化的组成部分：默认单 agent，
+  `collab_request` 按需召唤，实体沿失败信号变异、过三层闸门、严格更优
+  才替换（entity_evolution），主 agent 不固定团队。
+- **成长管线（孵化）**：GrowthPipeline 引擎自承载——回合事件 → 信号
+  分类（五类）→ 按需蒸馏 → 三层验证闸门 → 知识集落位，默认开、
+  后台静默沉淀；技能结晶/结点池治理随回合收尾 settle 钩子自动执行。
 - **工具安全纵深**：权限门禁（默认拒绝）→ 沙箱守卫（逃逸检测/写前
   快照）→ 挂卡审批 → 执行 → 审计 → 观察，全环节机制化装配；声明式
-  工具强制权限声明、端点受限（http_fetch/process_exec/file_ops/mcp）；
-  外部工具经 vetting 闸门（清单/静态钩子/影子运行）后才进工具表。
+  工具强制权限声明、端点受限（http_fetch/process_exec/file_ops/mcp/
+  web_search/collab_request/task_manager 七内置 + 注册表扩展）；出网
+  走网络策略沙箱（unlisted_policy deny=硬拒 / review=审批即网关，
+  流水线默认 review）；外部工具经 vetting 闸门（清单/静态钩子/影子
+  运行）后才进工具表。
 - **测试时专才化**：生成 → 评审 → 校验 → 收敛（不微调权重），
   web 验证钩子按需触发。
 
 详见 `docs/concepts.md`（概念体系）、`docs/extensions.md`（扩展点目录）、
 `docs/architecture.md`（架构）、`docs/hosts.md`（宿主接入）、
-`docs/api.md`（公开 API 速查）、`docs/security.md`（安全模型）。
+`docs/api.md`（公开 API 速查）、`docs/security.md`（安全模型）、
+`docs/evidence_arbitration.md`（记忆整合仲裁）。
 
 ## 测试与质量门禁
 
 ```bash
-pytest                     # 单测全绿（默认 1182 项；含架构门禁，排除基准/冒烟）
-pytest -m benchmark        # 性能门禁断言（checkpoint 写入/事件吞吐/补丁组装/压扁）
+pytest                     # 单测全绿（默认 2065 项；含架构门禁，排除性能门禁与 live）
+pytest -m benchmark        # 性能门禁断言（checkpoint 写入/事件吞吐/补丁组装/压扁，6 项）
 pytest --benchmark-only -m benchmark  # 精确基准统计（pytest-benchmark）
-POSTGRES_TEST_URL=... pytest -m postgres  # 真实 postgres 后端冒烟
+POSTGRES_TEST_URL=... pytest -m postgres  # 真实 postgres 后端冒烟（3 项）
 ruff check .               # lint（E/F/W/I/UP/B/C4/SIM/RUF 规则集）
 ```
+
+全量共 2380 项（默认 2065 项 + 性能门禁 6 项 + live 309 项；live 需
+`INKENGINE_LIVE_*` 环境变量）。
 
 验收基准：checkpoint 写入 <10ms、事件流吞吐 ≥500 事件/s、
 100 补丁组装 <5ms、rebase <10ms（本地实测：0.94ms / 千级 eps / 90µs）。
 
 架构门禁（tests/test_architecture_gate.py，随 pytest 执行）：机制层
-core/ 零领域词（12 个词含注释与字符串）、零宿主框架字样（6 个词，
-大小写不敏感防绕行）、AssemblyRecipe 注解类型白名单（23 项文本级
-检查）。门禁当前为本地命令，仓库未接入 CI 编排（无 .github 配置）。
+core/ 零领域词（13 个词含注释与字符串）、零宿主框架字样（6 个词，
+大小写不敏感防绕行）、AssemblyRecipe 注解类型白名单（29 项文本级
+检查）、装配字段清单与源码声明逐一对应。门禁当前为本地命令，仓库
+未接入 CI 编排（无 .github 配置）。
 
 ## 运维说明
 

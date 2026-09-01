@@ -1,7 +1,7 @@
 {
   "id": "inkling",
   "name": "InKling",
-  "positioning": "你用得越多，它越懂你的领域",
+  "positioning": "受控自进化智能体：你用得越多，它越懂你的领域",
   "domain_boot": "知识/研究孵化",
   "version": "0.1.0",
   "engine_version_compat": "0.1.0",
@@ -99,7 +99,7 @@
         { "name": "skills_market.json", "role": "技能市场目录（SkillMarketService 消费）" },
         { "name": "templates.json", "role": "模板集声明" },
         { "name": "tiers.json", "role": "档位/推演档声明" },
-        { "name": "tools.json", "role": "引擎代理工具目录真源（40 工具声明）" },
+        { "name": "tools.json", "role": "引擎代理工具目录真源（35 工具声明）" },
         { "name": "ui_spec.json", "role": "界面规格（白名单渲染器/组件）" },
         { "name": "workflow.json", "role": "工作流分流声明" }
       ]

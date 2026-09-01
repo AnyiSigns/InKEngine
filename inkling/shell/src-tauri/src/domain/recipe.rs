@@ -27,13 +27,14 @@ pub const DOMAIN_SEED_NAME: &str = "inkling.domain";
 /// 挂载类工具名：外部能力接入须人工审批（知识集工具规则条目同源）。
 const MOUNT_TOOL_NAME: &str = "propose_mcp_mount";
 
-/// 内省五元工具名（与引擎内省工具清单同源，防魔法字符串漂移）。
-const INSPECT_TOOL_NAMES: [&str; 5] = [
+/// 内省六元工具名（与引擎内省工具清单同源，防魔法字符串漂移）。
+const INSPECT_TOOL_NAMES: [&str; 6] = [
     "inspect_graph",
     "inspect_rules",
     "inspect_knowledge",
     "inspect_ui",
     "inspect_tools",
+    "inspect_entities",
 ];
 
 /// 挂载工具升级后的 TOOL 补丁审批档位（外部能力接入 = 高风险形态）。
@@ -119,7 +120,7 @@ fn walk_bind_channels(node: &JsonValue, out: &mut Vec<String>) {
 /// 1. ui_spec 布局树实际使用的 bind.channel；
 /// 2. event_types.json 全部事件名（以 `events.<name>` 形态放行——
 ///    事件流绑定通道按注册表放行，未注册事件名不进入白名单）；
-/// 3. 内省五元快照通道（inspect_*，与引擎内省工具名同源）。
+/// 3. 内省六元快照通道（inspect_*，与引擎内省工具名同源）。
 pub fn map_ui_allowed_channels(bundle: &SeedDataBundle) -> Vec<String> {
     let mut channels: Vec<String> = Vec::new();
     let ui_spec = bundle.file("ui_spec.json");
@@ -580,7 +581,7 @@ mod tests {
     }
 
     #[test]
-    fn load_seed_data_reads_all_17_files() {
+    fn load_seed_data_reads_all_seed_files() {
         let bundle = bundle();
         for name in SEED_DATA_FILES {
             assert!(
@@ -596,7 +597,7 @@ mod tests {
         let manifest = load_manifest(&bundle()).expect("manifest 读取失败");
         assert_eq!(manifest["id"], "inkling");
         assert_eq!(manifest["name"], "InKling");
-        assert_eq!(manifest["positioning"], "你用得越多，它越懂你的领域");
+        assert_eq!(manifest["positioning"], "受控自进化智能体：你用得越多，它越懂你的领域");
         assert_eq!(manifest["domain_boot"], "知识/研究孵化");
         assert_eq!(manifest["version"], "0.1.0");
         assert_eq!(manifest["engine_version_compat"], "0.1.0");
@@ -620,7 +621,7 @@ mod tests {
     fn ui_channels_union_of_three_sources() {
         let bundle = bundle();
         let channels = map_ui_allowed_channels(&bundle);
-        // 三源并集：ui_spec bind 通道 + 事件名 + 内省五元
+        // 三源并集：ui_spec bind 通道 + 事件名 + 内省六元
         let mut expected: Vec<String> = Vec::new();
         walk_bind_channels(bundle.file("ui_spec.json").get("root").unwrap(), &mut expected);
         let events = bundle.file("event_types.json");

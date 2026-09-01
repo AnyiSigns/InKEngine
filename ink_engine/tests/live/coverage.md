@@ -52,9 +52,9 @@
 | 38 | core/tool_vetting | vet(manifest, code_paths)/shadow_run/ToolManifest/静态钩子 | test_09_tools_security::* | ☑ |
 | 39 | core/builder | 白名单构建命令/产物内容寻址哈希/冒烟门禁（cwd 限定） | test_09_tools_security::* | ☑ |
 | 40 | core/environments | local 提供器安装/运行/env_audit 补丁链留痕/环境=数据 round-trip | test_09_tools_security::* | ☑ |
-| 41 | core/introspection | inspect_* 五工具（恒定信封/降级视图/敏感剥离） | test_10_self_evolution::* | ☑ |
-| 42 | core/self_tools | 4 契约演化工具/SELF_TOOL_CONTRACT/SelfToolContext/operation_of | test_10_self_evolution::* | ☑ |
-| 43 | core/self_proposal | SelfProposal 9 类 kind/ProposalValidator 建期拒绝 | test_10_self_evolution::* | ☑ |
+| 41 | core/introspection | inspect_* 六工具（恒定信封/降级视图/敏感剥离） | test_10_self_evolution::* | ☑ |
+| 42 | core/self_tools | 6 契约演化工具/SELF_TOOL_CONTRACT/SelfToolContext/operation_of | test_10_self_evolution::* | ☑ |
+| 43 | core/self_proposal | SelfProposal 10 类 kind/ProposalValidator 建期拒绝 | test_10_self_evolution::* | ☑ |
 | 44 | core/self_application | SelfApplicationPipeline apply/revert/audit_log/GuardedStorage 旁路写拒绝/L0/L1/L2 分级 | test_10_self_evolution::* | ☑ |
 | 45 | core/ui_schema | UISpec/UISchemaValidator 三层白名单/UIRenderer 契约/绑定路径前缀防护 | test_10_self_evolution::* | ☑ |
 | 46 | core/runtime | Host 五件套/AssemblyRecipe/boot 幂等/生命周期状态机/begin_run/end_run/resume_run/rebuild_engine/stop 排空 | test_11_runtime::* | ☑ |

@@ -6,15 +6,29 @@
  * - patchChain 补丁链：提案 → 应用 / 回退
  * - instance 最近回合实例图：按当前会话 thread_id 查 graph.instance_snapshot
  *   （只读展示实际执行图与节点运行态；无数据/无会话 = 空态不白屏）
+ * - entities 协作者目录：查 entities.snapshot（与 inspect_entities 工具
+ *   同源，只读展示可召唤的协作者；无注册表 = 空态不白屏）
  */
 
 import { useEffect, useState } from 'react';
-import { CheckCircle2, Circle, GitCommitVertical, Loader2, Network, ShieldAlert, Sparkles, XCircle } from 'lucide-react';
+import { Bot, CheckCircle2, Circle, GitCommitVertical, Loader2, Network, ShieldAlert, Sparkles, XCircle } from 'lucide-react';
 
 import { DagRenderer } from '@/app/dag';
 import type { BackendAdapter } from '@/shared/backend/backendAdapter';
 import type { IncubationEntry, PatchChainEntry } from '@/shared/session/types';
 import { mapInstanceSnapshot, type InstanceGraph } from '@/app/views/architecture/backend';
+
+/** 实体目录快照（与引擎 introspection.snapshot_entities 同构）。 */
+interface EntitySnapshotData {
+  version: number;
+  count: number;
+  entities: Array<{
+    id: string;
+    label: string;
+    model: { provider: string; model_id: string } | null;
+  }>;
+  degraded?: boolean;
+}
 
 interface EvolutionFeedProps {
   incubation: IncubationEntry[];
@@ -87,7 +101,31 @@ export function EvolutionFeed({ incubation, patchChain, backend, threadId }: Evo
     };
   }, [backend, threadId]);
 
-  if (incubation.length === 0 && patchChain.length === 0 && !instance) {
+  // 协作者目录（entities.snapshot，与 inspect_entities 工具同源；只读展示）
+  const [entities, setEntities] = useState<EntitySnapshotData | null>(null);
+
+  useEffect(() => {
+    let alive = true;
+    if (!backend.available) {
+      setEntities(null);
+      return;
+    }
+    void backend
+      .entitiesSnapshot()
+      .then((raw) => {
+        if (alive) setEntities(raw as EntitySnapshotData);
+      })
+      .catch(() => {
+        if (alive) setEntities(null);
+      });
+    return () => {
+      alive = false;
+    };
+  }, [backend]);
+
+  const hasEntities = Boolean(entities && Array.isArray(entities.entities) && entities.entities.length > 0 && !entities.degraded);
+
+  if (!hasEntities && incubation.length === 0 && patchChain.length === 0 && !instance) {
     return (
       <div className="flex h-full flex-col items-center justify-center gap-1 text-[12px] ink-text-faint">
         <p>还没有演化动态</p>
@@ -99,6 +137,33 @@ export function EvolutionFeed({ incubation, patchChain, backend, threadId }: Evo
   return (
     <div className="ink-scroll-auto flex-1 overflow-y-auto px-4 py-5">
       <div className="mx-auto max-w-2xl">
+        {/* 协作者目录（只读：已注册的协作者清单，模型引用来自 EntitySpec） */}
+        {entities && Array.isArray(entities.entities) && entities.entities.length > 0 && !entities.degraded && (
+          <div className="mb-5 rounded-xl border ink-border p-4">
+            <div className="mb-2 flex items-center gap-2">
+              <Bot size={14} strokeWidth={1.6} className="ink-text-faint" />
+              <span className="text-[13px] font-medium">协作者目录</span>
+              <span className="text-[11px] ink-text-faint">{entities.count} 个协作者 · 只读</span>
+            </div>
+            <ul className="grid grid-cols-1 gap-2">
+              {entities.entities.map((entity) => (
+                <li key={entity.id} className="flex items-center gap-3 rounded-lg px-2 py-2 hover:bg-[var(--ink-bg-surface)]">
+                  <div className="min-w-0 flex-1">
+                    <div className="flex items-center gap-2">
+                      <span className="truncate text-[13px]">{entity.label || entity.id}</span>
+                      {entity.id !== entity.label && <span className="shrink-0 text-[10px] ink-text-faint">{entity.id}</span>}
+                    </div>
+                  </div>
+                  {entity.model && (
+                    <span className="ink-chip py-px text-[10px]">
+                      {entity.model.provider}/{entity.model.model_id}
+                    </span>
+                  )}
+                </li>
+              ))}
+            </ul>
+          </div>
+        )}
         {/* 最近回合实例图（只读） */}
         {instance && (
           <div className="mb-5 rounded-xl border ink-border p-4">

@@ -1,6 +1,8 @@
 # 桌面壳 Windows 真实启动冒烟记录（2026-08-22）
 
-> 前置：shell 契约测试 33/33 全绿（23 执行器契约 + 9 MCP 协议 + 1 lib）；
+> 前置：shell 契约测试全绿（当前 `tests/`：executor_contract.rs 21 例 +
+> mcp_protocol.rs 10 例 + command_face_security.rs 9 例，合计 40 例；
+> 记录时点为 33/33 = 23+9+1，计数为历史快照，以 `cargo test` 实测为准）；
 > 本记录补真实桌面启动验证——进程/窗口/内容/截图/退出码全链。
 > 复跑：`powershell -ExecutionPolicy Bypass -File inkling/shell/smoke_windows.ps1`
 > （需先 `cargo build --manifest-path inkling/shell/src-tauri/Cargo.toml
@@ -66,7 +68,9 @@
 | WM_CLOSE 关闭 | 进程退出 |
 | 退出码 | 0（PASS） |
 
-截图确认三栏布局完整渲染（文件树 / 消息流 / 会话列表，浅色主题形态）。
+截图确认三栏布局完整渲染（左栏工作区/设置入口 + 主区消息流/输入胶囊 +
+右栏会话列表 + 顶栏悬停磨砂覆盖层，浅色/深色随系统主题；记录时点为
+文件树/消息流/会话列表形态）。
 
 ## 装配语义（真实进程内验证）
 

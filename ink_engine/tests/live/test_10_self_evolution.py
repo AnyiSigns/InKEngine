@@ -1,8 +1,8 @@
 """族 10：自指演化（test_10_self_evolution.py）｜introspection/self_tools/
 self_proposal/self_application/ui_schema。
 
-- inspect_* 五工具真实快照：恒定信封、函数直挂降级视图、敏感键剥离
-- propose_patch 9 类补丁 kind 全量校验（非法提案建期拒绝）
+- inspect_* 六工具真实快照：恒定信封、函数直挂降级视图、敏感键剥离
+- propose_patch 10 类补丁 kind 全量校验（非法提案建期拒绝）
 - apply 分级审批 L0/L1/L2（L2 沙箱验证）→ 审计 → revert 链尾；
   base 并发冲突重提；GuardedStorage 旁路写全前缀拒绝
 - ui_schema（v3 补）：UISchemaValidator 三层白名单（结构/组件/
@@ -212,7 +212,7 @@ async def test_inspect_tool_specs_permission_shape() -> None:
 
 
 # ----------------------------------------------------------------------
-# propose_patch 9 类补丁 kind 全量校验
+# propose_patch 10 类补丁 kind 全量校验
 # ----------------------------------------------------------------------
 
 def _nine_valid_proposals() -> list[SelfProposal]:

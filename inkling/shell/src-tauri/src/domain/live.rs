@@ -704,7 +704,7 @@ mod tests {
     }
 
     fn allowed_channels() -> Vec<String> {
-        // 出厂通道集 = ui_spec bind 通道 + 事件名 + 内省五元（与配方映射同源）
+        // 出厂通道集 = ui_spec bind 通道 + 事件名 + 内省六元（与配方映射同源）
         let ui_spec = seed_ui_spec();
         let mut channels = Vec::new();
         let mut queue: Vec<&JsonValue> = vec![ui_spec.get("root").unwrap_or(&JsonValue::Null)];

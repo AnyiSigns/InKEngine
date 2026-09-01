@@ -1,6 +1,9 @@
 # InKling 多 Agent 动态协作 设计稿
 
-> 状态：设计定稿（2026-08-30）｜ 范围：模型层 / 实体层 / 执行层 / 上下文层
+> 状态：设计定稿（2026-08-30），P1-P5 已全部实现（P4 实体层含前端闭环，
+> P5 实体演化收口）——本文件为设计定稿 + 实施记录；落地现状与设计的
+> 差异见文末「落地现状 vs 设计差异」。
+> 范围：模型层 / 实体层 / 执行层 / 上下文层
 > 定位：产品层（宿主）设计，机制全部复用 `ink_engine.core` 既有原语，core 仅增最小通用件。
 
 ---
@@ -48,16 +51,17 @@
 - **内部通道模型**：router（路由判定/蒸馏）、audit（评审收敛/L3 终审/vetting 影子）绑定内部模型，窗口同样按各自档案取；
 - **协作者模型**：`{provider, model_id}` 引用，从模型目录解析（不受任何档位限制）。
 
-### 1.4 模型 tab（主页面）
+### 1.4 模型节（设置页内，非主页面）
 
 ```
-模型 tab
+设置页「模型」节
 ├─ 全局策略区：上下文压缩占比  ████░░░░░░  80%   ← 唯一用户模型参数旋钮
 ├─ 提供方列表区：厂商卡片(状态点+编辑/删除)
 │   ├─ DeepSeek ●        [编辑][删除]
 │   ├─ moonshotai-cn ●   [编辑][删除]
 │   └─ [+添加提供方][+添加自定义提供方]   ← 弹悬浮窗(apikey/base_url)
-└─ 内部通道绑定：router/audit 模型（只读/一次性设置，不对外作为 agent 模型选择）
+└─ 内部通道绑定：router/audit 模型（下拉勾选可编辑，留空回落主模型；
+   main 不是设置项——由对话输入框携带模型，选什么跑什么）
 ```
 
 - **首次进入 = 空态引导**：空态页「填入各提供方的 API 密钥即可使用其模型」+ 主按钮
@@ -186,9 +190,9 @@ L3 调配切片  每轮新鲜注入：知识命中/记忆召回/证据/上下文
 
 | 层 | 改动 |
 |---|---|
-| **core**（机制） | `Message.name`（可选字段+序列化；`to_openai_dict` 输出，anthropic/gemini 忽略——协议无此字段，模型侧身份走每轮注入的参与者清单，见 §2.1.1）；`EntitySpec`（EventTypeSpec 同构：注册表+补丁链）；`PatchKind.ENTITY`；`inspect_entities`（上 SELF_TOOL_CONTRACT）；窗口参数改「按模型档案」：删 `infer_compression_tier`，`resolve_compression_min_chars` 兜底 40000→200k、比例可调，新增 `resolve_tool_result_max_chars` |
+| **core**（机制） | `Message.name`（可选字段+序列化；`to_openai_dict` 输出，anthropic/gemini 忽略——协议无此字段，模型侧身份走每轮注入的参与者清单，见 §2.1.1）；`EntitySpec`（EventTypeSpec 同构：注册表+补丁链）；`PatchKind.ENTITY`；`inspect_entities`（上 SELF_TOOL_CONTRACT）；窗口参数改「按模型档案」：删 `infer_compression_tier`，`resolve_compression_min_chars` 兜底 200k、比例可调，新增 `resolve_tool_result_max_chars` |
 | **宿主**（inkling_host） | `seed_data/entities.json` + loader + schema；`collab_request` 执行体（EntitySpec→spawn specs）；`graph_recipe.py` `restore_messages` 每轮注入调配块 + 工具截断按模型动态；模型选择接线（输入框从厂商选、`{provider,model_id}` 解析） |
-| **前端** | 模型 tab（全局压缩占比 + 提供方列表 + 内部通道绑定）；添加/编辑厂商悬浮窗；首次空态引导；`MessageStream` 按 `Message.name` 渲染发言人标签 |
+| **前端** | 设置页「模型」节（全局压缩占比 + 提供方列表 + 内部通道绑定）；添加/编辑厂商悬浮窗；首次空态引导；`MessageStream` 按 `Message.name` 渲染发言人标签 |
 | **新增种子** | `entities.json`（协作者目录，进 boot 装载） |
 
 ---
@@ -244,13 +248,36 @@ L3 调配切片  每轮新鲜注入：知识命中/记忆召回/证据/上下文
 
 ## 附：改动点索引（现状文件锚点）
 
+> 行号锚点随代码演进漂移，此处为「现状文件锚点」；以代码为准。
+
 | 现状 | 位置 | 改动 |
 |---|---|---|
-| `TOOL_RESULT_MAX_CHARS = 4000` | `inkling/.../inkling_host/graph_recipe.py:80` | 改为按模型解析（0.05×cw，下限 4000） |
-| `graph_recipe.py:560` 截断消费点 | 同上 | 改用解析值 |
-| `infer_compression_tier` 字符串推断 | `ink_engine/core/context.py:641` | 废弃，改按模型档案 |
-| `COMPRESSION_MIN_CHARS_FLOOR = 40000` | `ink_engine/core/context.py:614` | 40000 → 200_000 |
-| `COMPRESSION_CONTEXT_WINDOW_RATIO = 0.8` | `ink_engine/core/context.py:613` | 改可调项（全局占比，用户唯一旋钮） |
-| `PatchKind` 9 类 | `ink_engine/core/self_proposal.py:42` | 加第 10 类 `entity` |
-| `continue_chain=True` 回合入口 | `inkling/.../bridge.py:3768` | 保留（历史连续性），调配每轮注入切片 |
-| `restore_messages` 链空才注入调配 | `inkling/.../inkling_host/graph_recipe.py:640-659` | 改为每轮注入「本轮调配」块 |
+| `TOOL_RESULT_MAX_CHARS = TOOL_RESULT_MAX_CHARS_FLOOR` | `inkling/.../inkling_host/graph_recipe.py:88` | 已改为按模型解析（`resolve_tool_result_max_chars`，0.05×cw，下限 4000） |
+| `graph_recipe.py` 截断消费点 | 同上 | 改用解析值 |
+| `infer_compression_tier` 字符串推断 | `ink_engine/core/context.py` | 已废弃删除，改按模型档案 |
+| `COMPRESSION_DEFAULT_CONTEXT_WINDOW = 200_000` | `ink_engine/core/context.py:615` | 兜底 200k；`resolve_compression_min_chars`（:624）按档案取窗口 |
+| `COMPRESSION_CONTEXT_WINDOW_RATIO = 0.8` | `ink_engine/core/context.py:614` | 可调项（全局占比，用户唯一旋钮） |
+| `PatchKind` 10 类 | `ink_engine/core/self_proposal.py:42` | 加第 10 类 `entity` |
+| `continue_chain=True` 回合入口 | `inkling/.../bridge.py` | 保留（历史连续性），调配每轮注入切片 |
+| `restore_messages` 链空才注入调配 | `inkling/.../inkling_host/graph_recipe.py` | 已改为每轮注入「本轮调配」块（P2 落地） |
+
+---
+
+## 落地现状 vs 设计差异
+
+P1-P5 全部实现后，与设计稿的现状差异（读者勿按旧路径理解）：
+
+- **「模型 tab（主页面）」→ 设置页「模型」节**：模型管理不再是主界面
+  tab，位于设置页注册表驱动浮层（key=`model`）；主区页签为 对话/演化/
+  账本/轨迹/待办。
+- **内部通道绑定可编辑**：router/audit 模型在模型节下拉勾选（可编辑，
+  留空回落主模型）；main 不是设置页配置项——对话输入框直接携带所选
+  模型（无默认、无档位）。
+- **窗口参数**：`infer_compression_tier` 已删除；`resolve_compression_min_chars`
+  （兜底 200k）、`resolve_tool_result_max_chars`（0.05×cw 下限 4000）
+  为现行入口（`ink_engine/core/context.py`）。
+- **实体层全闭环**：`entities.json` 出厂 3 条目（主 Agent + security_reviewer
+  + research_analyst）、`collab_request` 工具（review 档弹卡）、发言人标签、
+  实体演化（P5）——见 `mechanism_coverage_matrix.md` 十一节。
+- **Level 2 协作（共享流轮流发言）**仍列为后续增量（数据拓扑问题，非
+  机制问题），当前为 Level 1（spawn 隔离）。

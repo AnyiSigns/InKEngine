@@ -318,7 +318,7 @@ class GraphRecipeContext:
 class ToolWiring:
     """统一工具分发的宿主差异声明（三路路由机制本身在 Runtime）。
 
-    self_specs: 宿主自指工具清单工厂（内核 4 契约工具 + 宿主扩展）。
+    self_specs: 宿主自指工具清单工厂（内核 6 契约工具 + 宿主扩展）。
     self_executor_factory: 宿主自指执行器工厂 (pipeline, context_getter)，
         契约工具走内核行为、扩展工具走宿主实现。
     self_operation_of: 宿主合并后的自指操作判定（单一判定来源）。

@@ -10,6 +10,7 @@ import { CheckCircle2, Database, KeyRound, ShieldCheck } from 'lucide-react';
 
 import { Button } from '@/shared/ui/Button';
 import type { BackendAdapter } from '@/shared/backend/backendAdapter';
+import { PRODUCT_POSITIONING } from '@/shared/identity';
 
 interface FirstRunGuideProps {
   backend: BackendAdapter | null;
@@ -53,7 +54,7 @@ export function FirstRunGuide({ backend, onDismissed }: FirstRunGuideProps) {
         <div className="first-run-guide__head">
           <h1 className="first-run-guide__title">欢迎使用 InKling</h1>
           <p className="first-run-guide__subtitle">
-            你用得越多，它越懂你的领域。三个要点先交代清楚：
+            {PRODUCT_POSITIONING}。三个要点先交代清楚：
           </p>
         </div>
         <div className="first-run-guide__points">

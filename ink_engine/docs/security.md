@@ -142,9 +142,9 @@
 ## 补丁应用安全（Self-application）
 
 - **GuardedStorage**：演化资产集合（ui/theme/tool_defs/event_types/
-  environments/artifacts/harness/set_patch_chain/set_audit +
-  `knowledge:` 前缀）直写拒绝；放行 = 守卫令牌或机制上下文（旁路写
-  fail-closed）；
+  environments/artifacts/harness/entities/set_patch_chain/set_audit +
+  `knowledge:`/`harness:`/`event_types:`/`entities:` 前缀）直写拒绝；
+  放行 = 守卫令牌或机制上下文（旁路写 fail-closed）；
 - 补丁链 append-only + 并发 base 校验（冲突拒绝重提）+ 回退仅链尾
   单步（存储层强制）；
 - 审计 append-only（`set_audit` 集合，状态 pending/applied/rejected/
@@ -163,11 +163,12 @@
 
 `tests/test_architecture_gate.py`（随 pytest 执行）：
 
-1. core/ 零领域词（12 词，大小写敏感，含注释与字符串）——机制层不
+1. core/ 零领域词（13 词，大小写敏感，含注释与字符串）——机制层不
    认识领域；
 2. core/ 零宿主框架字样（6 词，大小写不敏感）——机制层不认识宿主；
-3. AssemblyRecipe 注解类型 ∈ 23 项白名单（文本级检查）——宿主类型
-   不得进入装配数据。
+3. AssemblyRecipe 注解类型 ∈ 29 项白名单（文本级检查）——宿主类型
+   不得进入装配数据；
+4. 装配字段清单与 runtime.py 声明逐一对应——防「文档-源码漂移」。
 
 门禁为本地命令（仓库未接入 CI 编排），是安全基线的自动防线。
 

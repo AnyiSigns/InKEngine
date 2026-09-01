@@ -1382,6 +1382,29 @@ def _register_graph_ops() -> None:
             result["degraded"] = True
         return result
 
+    @op_sync("entities.snapshot")
+    def _entities_snapshot(args: dict) -> Any:
+        """实体目录快照 op：注册的协作者清单（id/label/model 引用）。
+
+        与 inspect_entities 工具同源（introspection.snapshot_entities）——
+        前端协作者目录展示位的数据源。无运行时 / 无注册表 = 显式空态
+        （degraded=true + 空 entities，不白屏）。
+        """
+        try:
+            runtime = runtime_handle()
+        except RuntimeError:
+            return {"entities": [], "count": 0, "degraded": True}
+        introspection = getattr(runtime, "introspection_service", None)
+        if introspection is None or not hasattr(introspection, "snapshot_entities"):
+            return {"entities": [], "count": 0, "degraded": True}
+        try:
+            snapshot = introspection.snapshot_entities()
+            entities = snapshot.get("entities") or []
+            count = snapshot.get("count") or len(entities)
+            return {"version": count, "entities": entities, "count": count}
+        except Exception:
+            return {"version": 0, "entities": [], "count": 0, "degraded": True}
+
     @op_sync("pool.snapshot")
     def _pool_snapshot(args: dict) -> Any:
         """池快照 op：PoolNodeSnapshot 列表 + GovernanceVerdict 最近记录。

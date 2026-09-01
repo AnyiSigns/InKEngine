@@ -1,7 +1,7 @@
 # inkling_self_check — InKling 出厂自检编排
 
 Rust 自检编排（零重依赖：仅 serde/serde_json + std 进程 spawn；不依赖壳
-crate，避免 tauri/pyo3/ort 编译地狱）。六门禁一键矩阵化报告，命令事实源
+crate，避免 tauri/pyo3/ort 编译地狱）。七门禁一键矩阵化报告，命令事实源
 = `inkling/manifest.json` 的 `self_check` 表——`all` 聚合模式**真正执行**
 表内声明的命令（单一事实源不名不副实），子命令直调 = 同一门禁本进程快速
 复验。
@@ -10,13 +10,14 @@ crate，避免 tauri/pyo3/ort 编译地狱）。六门禁一键矩阵化报告�
 
 | 子命令 | 门禁内容 | 超时 |
 | --- | --- | --- |
-| `schema` | seed_data 21 文件逐文件 schema 校验 + 跨文件一致性 + 工具声明跨注册表一致性闸门 + manifest 身份定稿（含 contracts.seed_files 全量登记）+ boot_prompt 定稿 + 引擎源码事实核对（AssemblyRecipe 字段数/引擎版本）+ 工具名长度 ≤ 24 全量 + 校验器自检夹具 | 秒级 |
+| `schema` | seed_data 22 文件逐文件 schema 校验 + 跨文件一致性 + 工具声明跨注册表一致性闸门 + manifest 身份定稿（含 contracts.seed_files 全量登记）+ boot_prompt 定稿 + 引擎源码事实核对（AssemblyRecipe 字段数/引擎版本）+ 工具名长度 ≤ 24 全量 + 校验器自检夹具 | 秒级 |
 | `cargo` | 三 crate cargo test：`inkling/exec` / `inkling/shell/src-tauri` / 本 crate | exec 600s / shell 1800s / 自身 300s |
 | `frontend` | `npm run typecheck` + `npm run test`（vitest） | 900s |
 | `e2e` | 壳 crate 集成测试全量（pyo3 内嵌引擎 stub 回合）；运行前校验解释器与引擎可导入并给出修复指引；`--live` 追加 `tools/probe_reasoning_clean.py`（需 LLM key） | 2400s（探针 900s） |
 | `discipline` | 代码纪律（零计划痕迹）：注释/文案含计划编号或推进字眼即违例 | 秒级 |
 | `benchmark` | 公开评测基准：`tools/benchmarks/run_benchmarks.py`（引擎基准 + 自举回归硬门禁；OS/复杂基准离线冒烟口径） | 900s |
-| `all`（默认） | 六门禁一键矩阵化报告：**按 manifest `self_check` 表命令逐一真实执行**，任一失败非零退出 | — |
+| `symbols` | 符号引用计数（孤儿扫描）：Python def / Rust pub 项在文件内仅出现 1 次 = 孤儿（greylist 见 `orphan_allowlist.txt`） | 120s |
+| `all`（默认） | 七门禁一键矩阵化报告：**按 manifest `self_check` 表命令逐一真实执行**，任一失败非零退出 | — |
 
 ## 用法（仓库根）
 

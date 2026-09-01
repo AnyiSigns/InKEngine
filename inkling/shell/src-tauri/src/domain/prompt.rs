@@ -270,7 +270,7 @@ pub fn compose_behavior_injection(layers: &BehaviorLayers, catalog_text: &str) -
         lines.pop();
     }
     let goal_text = format!(
-        "目标：构建可信的自进化认知伙伴——把使用中积累的理解沉淀为可审计、可回退的知识。\n{}",
+        "目标：构建可信的受控自进化智能体——把使用中积累的理解沉淀为可审计、可回退的知识。\n{}",
         lines.join("\n")
     );
     let guide_len = goal_text.chars().count();

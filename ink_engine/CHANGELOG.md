@@ -101,12 +101,12 @@ InkEngine 遵循 [语义化版本](https://semver.org/lang/zh-CN/)（`MAJOR.MINO
 - **链级安全与日志**：敏感键剥离（落库/出网/日志同规格）；结构化 JSON
   日志 + trace_id 链路追踪（幂等挂载，不抢占宿主日志）。
 
-### 自指层与产品壳（Forge）
+### 自指层与产品壳（InKling）
 
-- **自指层观察原语（core/introspection.py）**：内省服务 + 五个 `inspect_*`
-  元工具（图/规则/知识/界面/工具表 JSON 快照），注册进工具表经只读流水线
-  执行——恒定信封（graph+digest）、函数节点降级视图带 degraded 标记、
-  默认严重度补全、快照深拷贝、limit 钳制；快照出口统一过敏感键剥离。
+- **自指层观察原语（core/introspection.py）**：内省服务 + 六个 `inspect_*`
+  元工具（图/规则/知识/界面/工具表/实体目录 JSON 快照），注册进工具表经
+  只读流水线执行——恒定信封（graph+digest）、函数节点降级视图带 degraded
+  标记、默认严重度补全、快照深拷贝、limit 钳制；快照出口统一过敏感键剥离。
 - **界面数据化（core/ui_schema.py）**：布局树 schema + 组件/绑定通道/
   主题 token 三层白名单 + 绑定路径保留前缀防内部数据泄漏 + UIRenderer
   契约。
@@ -114,11 +114,11 @@ InkEngine 遵循 [语义化版本](https://semver.org/lang/zh-CN/)（`MAJOR.MINO
   （schema 校验/宽松发射折叠/随补丁链持久化），system 标记注入
   RunOptions.system_events 接线。
 - **补丁应用管线（core/self_proposal.py + core/self_application.py）**：
-  9 类补丁类型（ui/theme/tool/rule/knowledge/harness/event_type/
-  environment/artifact）提案校验；分级审批（L0 auto_approve_keys 直过 /
-  L1 弹卡 / L2 沙箱验证 fail-closed / 7 天超时过期回滚）、补丁链
+  10 类补丁类型（ui/theme/tool/rule/knowledge/harness/event_type/
+  environment/artifact/entity）提案校验；分级审批（L0 auto_approve_keys
+  直过 / L1 弹卡 / L2 沙箱验证 fail-closed / 7 天超时过期回滚）、补丁链
   append-only + 并发 base 校验 + 链尾单步回退存储层强制、GuardedStorage
-  旁路写拦截（harness/knowledge 前缀全覆盖）、审计 append-only。
+  旁路写拦截（harness/knowledge/entities 前缀全覆盖）、审计 append-only。
 - **构建与环境原语**：core/builder.py（白名单构建 + 产物内容寻址哈希 +
   冒烟门禁 cwd 限定）；core/environments.py（环境 = 数据，提供器 = 机制：
   local/web_bridge，安装/运行经沙箱白名单 + env_audit 补丁链留痕）；
@@ -137,7 +137,7 @@ InkEngine 遵循 [语义化版本](https://semver.org/lang/zh-CN/)（`MAJOR.MINO
   按 server_id 路由，定义期必填）。
 - **自举种子（seeds/boot）**：自举提示词/界面基线/事件类型/自举 harness/
   元工具契约清单种子化，导入即自注册。
-- **孵化闭环与演化收敛管制（宿主侧 Forge evolution + 引擎自指钩子）**：
+- **孵化闭环与演化收敛管制（宿主侧 InKling evolution + 引擎自指钩子）**：
   行为信号 → 蒸馏 → 知识沉淀（审计增量消费 + 锚点身份集合游标 + 新鲜度
   窗口 + origin=incubation 防自我强化 + 内容哈希幂等）；收敛管制
   （拒批/回退/重写近窗口冷却、连续触发升级冻结、状态持久化）；种子沉淀池
@@ -157,18 +157,19 @@ InkEngine 遵循 [语义化版本](https://semver.org/lang/zh-CN/)（`MAJOR.MINO
 
 - **运行时装配与生命周期（core/runtime.py）**：Host 嵌入契约五件套
   （存储工厂/模型解析/审批策略/传输工厂/关停钩子）+ AssemblyRecipe 装配
-  数据（17 字段：种子/harness/事件类型/界面基线/工具三路分发/vetting/
-  分级审批表/检索源/apply 目标/收敛钩子/回退钩子，字段注解核心类型白名单
+  数据（22 字段：种子/harness/事件类型/实体规格/界面基线/工具三路分发/
+  vetting/分级审批表/检索源/apply 目标/收敛钩子/回退钩子/run_options 覆盖/
+  压缩策略/输出验证重试上限/时间线事件开关，字段注解核心类型白名单
   架构门禁强制）+ Runtime 状态机（uninitialized→running→paused→stopped，
   非法转换显式拒绝，stop 幂等按序关停 MCP→存储→宿主钩子）+ 在途 run 登记
   （begin_run/end_run，pause 拒新不打断）+ resume_run 审批决议重入样板 +
   rebuild_engine 重建缓存（配置/工具表变更才重建）+ 从链恢复集状态 +
   apply 目标注册。
-- **契约自指元工具内核化（core/self_tools.py）**：4 契约演化工具
-  （propose_patch/apply_patch/revert_patch/propose_domain_manifest）下沉
-  引擎能力，随机制层走补丁链演化、不随宿主壳漂移；SELF_TOOL_CONTRACT
-  契约清单 + SelfToolContext（convergence 前置闸门 + 宿主审批策略透传）；
-  宿主扩展经钩子接入（harvest_seed 等）。
+- **契约自指元工具内核化（core/self_tools.py）**：6 契约演化工具
+  （propose_patch/apply_patch/revert_patch/propose_domain_manifest/
+  search_tools/request_tool）下沉引擎能力，随机制层走补丁链演化、不随宿主
+  壳漂移；SELF_TOOL_CONTRACT 契约清单 + SelfToolContext（convergence
+  前置闸门 + 宿主审批策略透传）；宿主扩展经钩子接入（harvest_seed 等）。
 - **stdio 第二宿主（examples/stdio_host.py）**：最小非 web 宿主——Runtime
   三步挂载 + stdin 回合 + 终端 y/n/e/d 决议回流；真模型冒烟跑通内省快照
   →结构化拒绝→inspect_ui→L0 主题补丁 auto 落链。
@@ -177,6 +178,12 @@ InkEngine 遵循 [语义化版本](https://semver.org/lang/zh-CN/)（`MAJOR.MINO
 
 ### 变更
 
+- **重定位（受控自进化运行时）**：引擎定位从「自进化 agent 引擎」收敛为
+  「受控自进化运行时」（Controlled Self-Evolving Runtime）——只承载
+  agent 机制运行时（执行/演化/装配），产品形态（受控自进化智能体）由
+  宿主产品层（InKling）承担。「受控」落点为既有全套约束：演化经分级
+  审批/审计/回退、孵化过三层闸门、收敛管制、运行时骨架不可被补丁链
+  修改——文档与种子身份文案同步更新。
 - **端点类型注册表化（L1 关闭）**：端点类型集合从封闭枚举（StrEnum）改为
   `EndpointTypeRegistry` 声明式注册表 + 引擎默认内置 7 种（谓词注册表同
   哲学）——自定义端点经 `EndpointTypeSpec` 连带声明判定动作域/配置必填键/
@@ -204,13 +211,12 @@ InkEngine 遵循 [语义化版本](https://semver.org/lang/zh-CN/)（`MAJOR.MINO
 
 ## 发布形态
 
-- 引擎为独立仓库包（本仓库为 ink_engine 与 text_forge_evo 双根仓库，
-  各自完整历史保留）；`pip install -e .` 本地开发，
-  text_forge_evo 经 `[tool.uv.sources]` 路径依赖引擎源码。
-- sdist 含 docs/ 与 examples/（MANIFEST.in）；文档集五篇：概念/扩展点/
-  架构/宿主接入/安全模型。
-- 质量门禁：pytest 单测（默认 1182 项，全量 1191）+ 性能门禁
+- 引擎为独立仓库包（本仓库为 ink_engine 与 inkling 双根仓库，各自完整
+  历史保留）；`pip install -e .` 本地开发，inkling 经路径依赖引擎源码。
+- sdist 含 docs/ 与 examples/（MANIFEST.in）；文档集：概念/扩展点/架构/
+  宿主接入/安全模型/证据仲裁/审计/历史决策等（`docs/` 共 9 篇 + 索引）。
+- 质量门禁：pytest 单测（默认 2065 项，全量 2380 项）+ 性能门禁
   （checkpoint 写入 <10ms / 事件吞吐 ≥500 事件/s / 100 补丁组装 <5ms /
-  rebase <10ms）+ 架构门禁（领域词零出现/宿主框架零出现/配方注解白名单）
-  + ruff lint——均为本地命令，仓库未接入 CI 编排。
+  rebase <10ms）+ 架构门禁（领域词零出现/宿主框架零出现/配方注解白名单/
+  装配字段对照）+ ruff lint——均为本地命令，仓库未接入 CI 编排。
 - license 字段已标 MIT（见 LICENSE）。

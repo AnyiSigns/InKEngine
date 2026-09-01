@@ -19,16 +19,16 @@
 |---|---|---|
 | manifest 身份定稿值（id/name/positioning/domain_boot/version/theme 逐字比对） | recipe.rs `manifest_identity_fields_are_frozen` | 绿 |
 | 自举提示词定稿（逐字比对设计文档第五节第一小节原文） | prompt.rs `boot_prompt_seed_loads_and_layers_split` / `injection_meets_tenfold_ratio_with_real_seed`（结构 + 关键段 + 注入比例） | 绿（等价降级：定稿全文逐字比对属数据规格校验，随 Python 校验脚本退场，由出厂自检 schema 门禁恢复；Rust 断言结构/段/比例不变式） |
-| seed_data 17 文件 schema 全量校验（缺失/多余/类型/空值边界） | recipe.rs `load_seed_data_reads_all_17_files` / `load_seed_data_errors_on_missing_file`（17 文件齐备 + 对象形态 + 缺文件报错） | 绿（等价降级：JSON-schema 类型/空值深度校验随 Python 校验脚本退场，由出厂自检恢复；Rust 断言装载完整性 + 各域字段契约） |
-| 跨文件一致性（graph↔workflow、ui_spec↔event_types↔manifest、rules↔review、tools↔workflow、samples↔rules） | recipe.rs `ui_channels_union_of_three_sources` / `ui_components_match_manifest_contracts` / `ui_theme_tokens_from_ui_spec_theme` / `event_type_specs_mirror_seed_data`；graph.rs `workflow_spec_parses_seed_data_generically`；tools.rs `domain_groups_match_seed_tool_families`；prompt.rs `tool_name_map_from_seed_is_sorted_and_labeled`；exec `tests/binding.rs`（谓词↔样例绑定） | 绿 |
-| 自检矩阵六项门禁命令真实可执行（一键聚合入口） | 出厂自检编排（Rust 自检：schema/data 一致性 / cargo 三 crate / frontend / 接线 e2e / 代码纪律 / 公开评测基准，`inkling/self_check/` 二进制；manifest.json self_check 为命令单一事实源，`all` 聚合模式真实执行表内命令） | 绿（Rust 自检编排已落地：六门禁一键矩阵化报告，门禁命令经 manifest 登记并由编排器真实执行；schema/e2e 门禁随编排恢复） |
+| seed_data 22 文件 schema 全量校验（缺失/多余/类型/空值边界） | recipe.rs `load_seed_data_reads_all_seed_files`（循环遍历 SEED_DATA_FILES=21 + entities.json 单独装载）/ `load_seed_data_errors_on_missing_file`（齐备 + 对象形态 + 缺文件报错） | 绿（等价降级：JSON-schema 类型/空值深度校验随 Python 校验脚本退场，由出厂自检 schema 门禁恢复（22 件）；Rust 断言装载完整性 + 各域字段契约） |
+| 跨文件一致性（graph↔workflow、ui_spec↔event_types↔manifest、rules↔review、tools↔workflow、samples↔rules） | recipe.rs `ui_channels_union_of_three_sources` / `ui_components_match_manifest_contracts` / `ui_theme_tokens_from_ui_spec_theme` / `event_type_specs_mirror_seed_data`；prompt.rs `tool_name_map_from_seed_is_sorted_and_labeled`；exec `tests/binding.rs`（谓词↔样例绑定）；工作流/工具族一致性由 schema 门禁跨文件校验承担 | 绿 |
+| 自检矩阵七项门禁命令真实可执行（一键聚合入口） | 出厂自检编排（Rust 自检：schema/data 一致性 / cargo 三 crate / frontend / 接线 e2e / 代码纪律 / 公开评测基准 / 符号引用计数，`inkling/self_check/` 二进制；manifest.json self_check 为命令单一事实源，`all` 聚合模式真实执行表内命令） | 绿（Rust 自检编排已落地：七门禁一键矩阵化报告，门禁命令经 manifest 登记并由编排器真实执行；schema/e2e 门禁随编排恢复） |
 | 引擎零改动（种子侧装配无引擎源码变更） | git diff 仅壳/文档（本阶段提交范围） | 绿（等价降级：工作流约束，经 git diff 审计，非断言落点） |
 
 ## 二、装配与界面
 
 | 检查 | Rust 侧落点 | 状态 |
 |---|---|---|
-| AssemblyRecipe 18 字段全落值 | recipe.rs `recipe_assembles_all_data_fields`（set_id/ui_spec/白名单/事件类型/种子/审批分级全落值，断言按字段自省） | 绿 |
+| AssemblyRecipe 22 字段全落值 | recipe.rs `recipe_assembles_all_data_fields`（set_id/ui_spec/白名单/事件类型/种子/审批分级全落值，断言按字段自省）；schema 门禁以 runtime.py 源码核对字段数=22 | 绿 |
 | UI 三层白名单与 seed_data 同源推导 | recipe.rs `ui_channels_union_of_three_sources` / `ui_components_match_manifest_contracts` / `ui_theme_tokens_from_ui_spec_theme` | 绿 |
 | 基线 ui_spec 过三层白名单校验 | live.rs `validate_ui_spec_enforces_three_whitelists`（种子界面零违规） | 绿 |
 | 渲染器契约同源（前端注册组件集 = manifest 白名单） | recipe.rs `ui_components_match_manifest_contracts`（组件集 = manifest contracts.renderer_components）+ `ui_theme_tokens_from_ui_spec_theme` | 绿 |
@@ -59,9 +59,9 @@
 | plan_workflow 约束域（越域失败） | policy.rs `out_of_domain_node_fails_closed` / `workflow_seed_yields_six_node_constraint_domain` / `router_plan_within_node_set_but_foreign_decision_rejected` | 绿 |
 | max_plan_steps 护栏（0 = 禁用规划） | 引擎执行机制（test_plan/test_runtime retain：护栏/零禁用规划）；Rust 侧 policy.rs 覆盖确定性回退与计划形态 | 绿（等价降级：护栏执行语义 = 引擎 retain 覆盖） |
 | spawn 子任务展开与合并 + max_spawns 护栏 | policy.rs `spawn_groupings` / `router_plan_with_simulate_needs_groups` / `downgrade_plan_strips_spawn_and_simulate`（分组/降档翻译）；引擎展开合并语义（test_spawn/test_plan retain） | 绿（等价降级：引擎侧展开/合并/护栏 retain 覆盖） |
-| 推演评估择优（review.json 打分配置 + 事实锚点 + 分支上限） | score.rs `cross_validation_scored_by_facts_hit_ratio` / `scorer_is_deterministic_with_real_seed_facts` / `review_config_mirrors_seed_data`；review.rs 管线；分支上限 = 引擎 simulation retain（test_simulation） | 绿（等价降级：择优/上限执行语义 = 引擎 retain 覆盖） |
+| 推演评估择优（review.json 打分配置 + 事实锚点 + 分支上限） | exec `tests/binding.rs` `score_cross_validation_binds_to_samples_facts`（样例事实锚点评分绑定）+ review.rs 管线；分支上限 = 引擎 simulation retain（test_simulation） | 绿（等价降级：择优/上限执行语义 = 引擎 retain 覆盖；样例锚点评分落点在 exec 执行件测试） |
 | branch_mixer 注入（调配策略换选） | 引擎 simulation 机制（test_simulation retain：mixer 注入） | 绿（等价降级：注入语义 = 引擎 retain 覆盖） |
-| 预算护栏（超限自动终止） | 引擎执行机制（test_executor retain：预算超限终止）；Rust 侧 assembly.rs `pool_budgets_allocate_by_ratios` 覆盖调配预算分配 | 绿（等价降级：执行期预算护栏 = 引擎 retain 覆盖） |
+| 预算护栏（超限自动终止） | 引擎执行机制（test_executor retain：预算超限终止）；Rust 侧 policy.rs 覆盖计划域预算翻译；调配预算分配 = 引擎 assembly retain（test_assembly） | 绿（等价降级：执行期预算护栏/调配预算分配 = 引擎 retain 覆盖） |
 | checkpoint_keep 链压缩窗口 | 引擎链机制（test_chain_rebase retain：checkpoint 窗口折叠）；Rust 侧 session.rs 分支树 + boot.rs `chain_version_counts_patches_plus_one` 覆盖链形态 | 绿（等价降级：压缩执行语义 = 引擎 retain 覆盖） |
 | 异常策略（重试/跳过/终止） | 引擎执行机制（test_executor retain：三态）；Rust 侧 policy.rs 覆盖降档/回退翻译 | 绿（等价降级：执行期异常策略 = 引擎 retain 覆盖） |
 | StateSchema reducer 注册表 | 引擎状态机制（test_state/test_executor retain：reducer 注册表） | 绿（等价降级：reducer 注册 = 引擎 retain 覆盖） |
@@ -71,20 +71,20 @@
 
 | 检查 | Rust 侧落点 | 状态 |
 |---|---|---|
-| 五源统一预算（分池裁剪 + 激活留痕） | assembly.rs `pool_budgets_allocate_by_ratios` / `five_source_provider_assembles_all_sources` / `source_to_json_serializes_all_fields`（留痕形态） | 绿 |
-| 记忆源（MemoryStore + 失效窗口 + 优先级召回） | assembly.rs `memory_expiry_window_defaults_to_90_days` / `priority_recall_filters_expired_and_orders` / `recall_memory_via_store_contract` | 绿 |
-| 检索源注册表注入与合并（注入文本剔除） | assembly.rs `knowledge_set_retriever_chunks_with_credibility_ranking` / `embedding_retriever_semantic_mount_and_baseline` / `five_source_provider_assembles_all_sources`（源合并）；注册表注入 = 引擎装配 retain（test_assembly） | 绿（等价降级：注册表装配注入 = 引擎 retain 覆盖） |
-| Embedding 检索可选（缺省关键词基线） | assembly.rs `embedding_retriever_semantic_mount_and_baseline`（未挂 embedding = 关键词基线，挂载后 semantic 标位） | 绿 |
+| 五源统一预算（分池裁剪 + 激活留痕） | 引擎 assembly retain（test_assembly：InputAssembler 分级分配 + 激活记录序列化）；壳侧 boot.rs `path_assemble_op_stub_pool_roundtrip_and_tier_mapping` 覆盖路径组装池映射 | 绿（等价降级：五源装配为引擎机制，retain 覆盖） |
+| 记忆源（MemoryStore + 失效窗口 + 优先级召回） | 引擎 memory retain（test_memory：MemoryStore/召回策略/非破坏性失效；memory.json 默认失效窗口 90 天） | 绿（等价降级：记忆机制 = 引擎 retain 覆盖） |
+| 检索源注册表注入与合并（注入文本剔除） | 引擎装配 retain（test_assembly：注册表装配注入 + 注入扫描剔除）；知识集检索 = knowledge_set retain（test_knowledge_set：可信度分级排序） | 绿（等价降级：注册表装配注入 = 引擎 retain 覆盖） |
+| Embedding 检索可选（缺省关键词基线） | engine host.rs `boot_without_embedder_stays_keyword_baseline`（未挂 embedding = 关键词基线）+ `boot_injects_local_embedder_into_retrieval_sources` / `local_onnx_bridge_embeds_with_real_model`（挂载后语义检索） | 绿 |
 | 上下文融合钩子失败自动回退 | 引擎 ContextMixer 机制（test_context retain：fusion_hook 失败/None → fail-open 回落） | 绿（等价降级：融合钩子 = 引擎 core 机制，retain 覆盖回退语义） |
-| 域窗口投影 / 归档摘要 | assembly.rs `domain_window_projection_slices_groups_and_keeps_body` / `archive_digest_is_deterministic_summary` | 绿 |
-| 五源源提供者进回合（引擎预装配闭环） | assembly.rs `five_source_provider_assembles_all_sources` / `five_source_single_failure_does_not_block`（单源故障不阻断）；回合注入 = 引擎装配 retain | 绿（等价降级：进回合装配闭环 = 引擎 retain 覆盖） |
+| 域窗口投影 / 归档摘要 | 引擎 context retain（test_context：域窗口投影切片/归档摘要确定性） | 绿（等价降级：域窗口机制 = 引擎 retain 覆盖） |
+| 五源源提供者进回合（引擎预装配闭环） | 引擎 assembly retain（test_assembly：五源装配闭环 + 单源故障不阻断） | 绿（等价降级：进回合装配闭环 = 引擎 retain 覆盖） |
 
 ## 六、模型层
 
 | 检查 | Rust 侧落点 | 状态 |
 |---|---|---|
-| 双挡位建链（main/router） | tiers.rs `tiers_json_declares_main_and_router` / `two_tiers_chains_built_from_seed_declaration` / `tier_call_stats_follows_data_declared_tiers` | 绿 |
-| 缺省回退链（挡位配置缺失回落主挡位） | tiers.rs `missing_tier_config_falls_back_to_main_config` / `fallback_configs_become_chain_slots` / `unknown_tier_falls_back_to_main`；阈值联动 review.rs `review_config_reads_seed_thresholds` | 绿 |
+| 档位解析与模型档案（main/router/audit + 按档案取窗口） | model_archive.rs `default_context_window_follows_tier` / `fallback_archive_uses_tier_window_and_unknown_multimodal` / `refresh_failure_falls_back_to_default_tier_window`（档案缺省兜底）；security.rs `security_domain_from_tool_data_builds_tiers_and_file_defs`（工具数据档位解析） | 绿 |
+| 缺省回退（档位配置缺失回落主配置） | 档位链构建 = 引擎 tiers retain（test_tiers：build_tier_chain/回退链）；Rust 侧 model_archive.rs 档案缺省兜底 + policy.rs 档位翻译 | 绿（等价降级：链构建/回退执行语义 = 引擎 retain 覆盖） |
 
 ## 七、工具安全纵深
 
@@ -93,8 +93,8 @@
 | 权限分级判定（allow/review/deny + 网络策略） | security.rs `gate_deny_tier_unconditional` / `gate_allow_tier_passes_on_hit` / `gate_review_tier_requires_review_that_override_can_lower` / `gate_untiered_tools_pass_by_declaration` / `network_matches_suffix_and_glob` / `http_fetch_executor_network_policy_second_layer` | 绿 |
 | 文件/进程沙箱（写前快照/超时 kill/越界拒绝） | security.rs `file_ops_executor_write_read_edit_rollback` / `workspace_validate_file_bounds_and_size` / `workspace_symlink_escape_rejected`；common.rs `run_command_timeout_kills_child` | 绿 |
 | vetting（静态钩子 + L2 影子运行 fail-closed） | security.rs `shadow_vetting_store_mismatch_detection` / `l2_vetting_hook_fail_closed_chain` / `l2_vetting_hook_inner_passthrough`；mcp.rs `l2_hook_requires_vetted_server` | 绿 |
-| 工具调配器按子任务动态组装（去重/留痕） | assembly.rs `tool_source_prefetch_caps_at_48`（工具源预算上限）；次回合动态纳入 = 引擎装配源 retain（test_assembly） | 绿（等价降级：回合间动态组装 = 引擎装配 retain 覆盖） |
-| OS 七件 command 固定枚举（白名单） | security.rs `resolve_process_exec_enum_mismatch_and_deny`（枚举外拒绝）+ `os_registry_dispatch_and_unregistered_degrade` | 绿 |
+| 工具调配器按子任务动态组装（去重/留痕） | 引擎 assembly retain（test_assembly：工具源预算上限 + 次回合动态纳入） | 绿（等价降级：回合间动态组装 = 引擎装配 retain 覆盖） |
+| OS 十件 command 固定枚举（白名单） | security.rs `resolve_process_exec_enum_mismatch_and_deny`（枚举外拒绝）；OS 控制清单 = `seed_data/tools.json` 真源（sync_tools_fixtures 生成物） | 绿 |
 | 审批策略全姿势（单动作/合并卡/策略直过/超时 fail-closed） | 引擎审批机制 retain（test_approval/test_interrupt_persistence）；Rust 侧 security.rs `gate_*` 分级判定 + engine host.rs `approval.gate_card_request` op 闭环 | 绿（等价降级：审批卡/超时姿势 = 引擎审批 retain 覆盖） |
 | 决议重入样板（resume_run 旧卡恢复/过期拒绝/已决去重） | 引擎审批机制 retain（test_runtime/test_interrupt_persistence：恢复/过期/去重） | 绿（等价降级：决议重入 = 引擎审批 retain 覆盖） |
 | 工作区授权与撤销（授权卡 → 文件工具生效/失效） | security.rs `workspace_authorize_revoke_is_idempotent` / `workspace_validate_file_bounds_and_size` / `sandbox_proxy_file_ops_after_authorization` / `authorization_record_shapes_authorize_and_tombstone` | 绿 |
@@ -139,10 +139,10 @@
 
 | 检查 | Rust 侧落点 | 状态 |
 |---|---|---|
-| 9 类补丁全枚举全钩子（落链 → 即时生效 → 审计 → 回退撤销）：theme/ui/tool/rule/knowledge/harness/event_type/environment/artifact | 九类枚举：recipe.rs `recipe_assembles_all_data_fields`（approval_levels 9 类齐备）；活跃态钩子：live.rs `apply_ui_payload_switches_snapshot_when_root_present` / `apply_theme_payload_merges_tokens_into_theme_segment` / `apply_harness_payload_parses_definition` / `apply_rule_payload_builds_project_rule_entry` / `apply_knowledge_payload_upsert_protects_identity` + env.rs 环境目标 + build.rs 产物目标 + mcp.rs 工具目标 + live.rs `restore_event_types_unregisters_out_of_chain_types`；审计形态：env.rs `test_audit_record_and_key_shapes` / security.rs `authorization_record_shapes_authorize_and_tombstone` | 绿 |
+| 10 类补丁全枚举全钩子（落链 → 即时生效 → 审计 → 回退撤销）：theme/ui/tool/rule/knowledge/harness/event_type/environment/artifact/entity | 十类枚举：recipe.rs `recipe_assembles_all_data_fields`（approval_levels 10 类齐备）；活跃态钩子：live.rs `apply_ui_payload_switches_snapshot_when_root_present` / `apply_theme_payload_merges_tokens_into_theme_segment` / `apply_harness_payload_parses_definition` / `apply_rule_payload_builds_project_rule_entry` / `apply_knowledge_payload_upsert_protects_identity` + env.rs 环境目标 + build.rs 产物目标 + mcp.rs 工具目标 + live.rs `restore_event_types_unregisters_out_of_chain_types`；实体目标 = engine host（EntityApplyTarget）+ `entities:` 守卫 retain；审计形态：env.rs `test_audit_record_and_key_shapes` / security.rs `authorization_record_shapes_authorize_and_tombstone` | 绿 |
 | on_reverted 通知钩子（(patch_id, reason) 回调） | 回退动作 = 链恢复重放段（boot.rs `assemble_chain` + live.rs `restore_*` + env.rs `test_restore_applies_chain_values_and_ensures` + build.rs 产物工具同步） | 绿（等价降级：回调触发点 = 引擎 self_application retain（on_reverted 调用语义）；宿主回退动作以 boot.rs 重放段 + 各域恢复测试覆盖同语义） |
 | GuardedStorage 旁路写防护（直写拒绝/令牌/豁免上下文） | 引擎存储守卫机制 retain（test_self_application：GuardedStorage 直写拒绝/令牌/豁免） | 绿（等价降级：存储守卫 = 引擎 retain 覆盖） |
-| convergence_provider 收敛管制（同目标冷却，数据驱动 review.json max_rounds） | convergence.rs `convergence_max_rounds_driven_by_review_data` / `assess_allows_below_limit_and_cools_at_limit` / `assess_counts_only_same_target` / `target_key_covers_all_patch_kinds` / `audit_window_limits_scan_to_recent_records` | 绿 |
+| convergence_provider 收敛管制（同目标冷却，数据驱动 review.json max_rounds） | recipe.rs `convergence_max_rounds`（配方解析 2 / None）+ shell 内嵌 Python `convergence_domain`（冷却/冻结评估）；裁决执行 = 引擎 self_tools ConvergenceHook retain | 绿（等价降级：评估/冷却执行语义 = 引擎收敛钩子 retain 覆盖） |
 | 同一链语义（挂载/环境/产物与其余类型同链互操作 + 链尾折叠回退） | mcp.rs `patch_belongs_to_server_checks_meta` / `unmount_precheck_detects_tail_conflict`；同链落链/回退 = `patch.apply` / `patch.revert` op（engine host.rs `op_channel_domain_actions` 回退闭环） | 绿（等价降级：链互操作/折叠执行语义 = 引擎链机制 retain（test_chain_rebase）覆盖） |
 | 审批分级矩阵（L0 直过 / L1 弹卡 / L2 vetting 前置） | recipe.rs `approval_levels_mount_tool_upgrades_tool_to_l2`（分级数据装配）+ security.rs 门禁分级判定；L0/L1/L2 执行姿势 = 引擎审批 retain（test_approval：分级矩阵） | 绿（等价降级：审批执行矩阵 = 引擎 retain 覆盖） |
 
@@ -168,15 +168,15 @@
 | 脱敏与 trace_id（日志 redact + trace_id 贯穿回合 + 存储剥离敏感值） | 引擎机制 retain（test_llm_messages：redact；test_events/test_executor：trace_id 贯穿与剥离） | 绿（等价降级：脱敏/剥离 = 引擎 retain 覆盖） |
 | 存储三后端（memory / sqlite 内存 / sqlite 文件落盘 + 重启链延续） | 引擎存储 retain（test_storage 三后端）；壳侧装配参数 storage_uri 透传（engine host.rs BootOptions） | 绿（等价降级：三后端 = 引擎 retain 覆盖） |
 | UI 三层白名单深度（拒绝/回落/同源） | live.rs `validate_ui_spec_enforces_three_whitelists` / `restore_ui_theme_falls_back_to_baseline_and_validates` / recipe.rs 同源推导 | 绿 |
-| 宿主件执行器注册契约（声明↔签名一致 + 权限/沙箱断言） | 壳 crate 集成测试（`tests/executor_contract.rs` 17 例：声明↔执行器签名契约 + 权限/沙箱断言；`tests/mcp_protocol.rs` 9 例；lib 1 例） | 绿 |
+| 宿主件执行器注册契约（声明↔签名一致 + 权限/沙箱断言） | 壳 crate 集成测试（`tests/executor_contract.rs` 21 例：声明↔执行器签名契约 + 权限/沙箱断言；`tests/mcp_protocol.rs` 10 例；`tests/command_face_security.rs` 9 例） | 绿 |
 
 ## 十四、决策编号 21/22 专项验收（发行前核对）
 
 | 检查 | Rust 侧落点 | 状态 |
 |---|---|---|
-| canary 合法图通过（种子图可试跑 → 关键路径走通） | canary.rs `seed_graph_is_valid_and_maps_to_spec` / `clean_run_reaches_terminal_and_key_path` + engine host.rs `op_channel_canary_rounds_on_seed_graph`（种子图试跑回合） | 绿 |
-| canary 非法图拒绝（结构非法/悬空边/缺入口 → 拒绝 + 留痕） | canary.rs `dangling_edge_and_missing_entry_are_rejected` / `graph_without_nodes_is_invalid_structurally` / `graph_violations_reject_even_with_clean_run` | 绿 |
-| canary 关键路径崩溃拒绝（崩溃事件/非终态原因/关键路径节点缺失 → 拒绝） | canary.rs `crash_event_rejects_run` / `non_terminal_reason_rejects_even_without_crash` / `missing_key_path_node_rejects_clean_run` | 绿 |
+| canary 合法图通过（种子图可试跑 → 关键路径走通） | engine host.rs `op_channel_canary_rounds_on_seed_graph`（种子图试跑回合，canary op 闭环） | 绿 |
+| canary 非法图拒绝（结构非法/悬空边/缺入口 → 拒绝 + 留痕） | canary 拒绝语义 = 引擎 path_assembler retain（test_path_assembler：非法候选拒绝）+ 壳侧 canary op 闭环（engine host.rs） | 绿（等价降级：图结构校验 = 引擎 retain 覆盖） |
+| canary 关键路径崩溃拒绝（崩溃事件/非终态原因/关键路径节点缺失 → 拒绝） | 关键路径校验 = 引擎 path_assembler retain（test_path_assembler：canary 关键路径）+ 壳侧 canary op 闭环 | 绿（等价降级：执行期崩溃判定 = 引擎 retain 覆盖） |
 | 提示词生效断言（LLM 调用消息流含 boot_prompt 引导语 + 打标分类准则） | prompt.rs `boot_prompt_seed_loads_and_layers_split` / `injection_meets_tenfold_ratio_with_real_seed` / `strategy_variants_cover_both_kinds`（组成）+ engine host.rs `stub_llm_messages_contain_behavior_guidance`（端到端：行为准则层经协议代理前置为系统消息，模型桩消息流可观测断言） | 绿 |
 | 行为准则层注入（soul/准则/事实 + 目标设定 10× 工具清单 + 交错引导语 + 工具名对照表） | prompt.rs `compose_round_behavior`（装配期组成）+ BehaviorLLM 协议代理（resolve_llm 出口包装，覆盖评审/蒸馏/路由全部调用点） | 绿（发行落地：此前为尸体态——boot_prompt 只装载未注入，本次接线闭环） |
 
@@ -184,7 +184,7 @@
 
 | 检查 | Rust 侧落点 | 状态 |
 |---|---|---|
-| 全新机器路径（无仓库/无 Python 环境：资源解包 → 内嵌解释器 → 装配 → 回合 → 会话持久 → 导出校验 → 执行件就位） | engine runtime.rs `provision`/`prepare_bundled_python`（捆绑形态资源与解释器准备）+ `--selftest` 双阶段自检（release 实测 phase1/phase2 全过：bundled=true、LocalOnnx、36 事件、会话持久、导出含库、exec_ready）+ **真安装形态**（NSIS 静默安装 → 安装目录二进制 selftest 双阶段全过，hooks.nsh DLL 装载位验证） | 绿 |
+| 全新机器路径（无仓库/无 Python 环境：资源解包 → 内嵌解释器 → 装配 → 回合 → 会话持久 → 导出校验 → 执行件就位） | engine runtime.rs `provision`/`prepare_bundled_python`（捆绑形态资源与解释器准备）+ `--selftest` 双阶段自检（release 实测 phase1/phase2 全过：bundled=true、LocalOnnx、事件流、会话持久、导出含库、exec_ready）+ **真安装形态**（NSIS 静默安装 → 安装目录二进制 selftest 双阶段全过，hooks.nsh DLL 装载位验证）——事件数为某次实测快照，重跑以 selftest 输出为准（event_types.json 现登记 47 个事件） | 绿 |
 | 嵌入式 Python runtime 打包（embed 发行包 + 出厂第三方依赖 site-packages + 自定义 PyConfig 确定性路径） | 打包脚本 `inkling/scripts/package_windows.ps1`（含 `-Proxy` 参数透传，规避 tauri-cli 下载不走系统代理的坑）+ engine runtime.rs `init_embedded_interpreter`（显式 module_search_paths，环境不参与）+ 解释器 DLL 装载位（exe 同目录 + NSIS hooks.nsh POSTINSTALL） | 绿（NSIS 安装器本机产出并通过安装验收） |
 | 向量检索出厂接通（无环境变量 = 本地内嵌语义检索；懒加载/降级保底可观测） | engine host.rs 注入 LocalOnnx（granite-97m）→ 检索源清单含 embedding（`boot_injects_local_embedder_into_retrieval_sources`）+ 真实推理断言（`local_onnx_bridge_embeds_with_real_model`：384 维 L2 归一）；无注入回落关键词基线（`boot_without_embedder_stays_keyword_baseline`） | 绿 |
 | 首启引导（数据目录/模型配置/权限默认档三点 + 标记落位） | lib.rs `backend_status.first_run` + `first_run_dismiss`（标记文件）+ 前端 `FirstRunGuide` 浮层（vitest 3 例） | 绿 |

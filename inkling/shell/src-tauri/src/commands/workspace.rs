@@ -93,11 +93,25 @@ pub(crate) async fn shell_open_path(path: String) -> Result<JsonValue, CommandEr
         return Err(CommandError::io("路径不是目录"));
     }
     #[cfg(target_os = "windows")]
-    let _ = std::process::Command::new("explorer").arg(&target).spawn();
+    let opened = std::process::Command::new("explorer")
+        .arg(&target)
+        .spawn()
+        .map(|_| ())
+        .map_err(|err| CommandError::io(format!("打开路径失败: {err}")))?;
     #[cfg(target_os = "macos")]
-    let _ = std::process::Command::new("open").arg(&target).spawn();
+    let opened = std::process::Command::new("open")
+        .arg(&target)
+        .spawn()
+        .map(|_| ())
+        .map_err(|err| CommandError::io(format!("打开路径失败: {err}")))?;
     #[cfg(all(unix, not(target_os = "macos")))]
-    let _ = std::process::Command::new("xdg-open").arg(&target).spawn();
+    let opened = std::process::Command::new("xdg-open")
+        .arg(&target)
+        .spawn()
+        .map(|_| ())
+        .map_err(|err| CommandError::io(format!("打开路径失败: {err}")))?;
+    #[cfg(any(target_os = "windows", target_os = "macos", all(unix, not(target_os = "macos"))))]
+    let _ = opened;
     Ok(json!({ "opened": target.display().to_string() }))
 }
 

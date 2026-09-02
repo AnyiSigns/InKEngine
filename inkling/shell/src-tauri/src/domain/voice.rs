@@ -333,6 +333,10 @@ pub fn list_devices() -> serde_json::Value {
 
 #[cfg(windows)]
 mod windows_audio {
+    // WAV/MME FFI 结构体字段沿用 Win32 命名（wFormatTag 等）：布局须与
+    // 系统头一致，显式声明非 snake_case 为有意匹配，防改名破坏布局
+    #![allow(non_snake_case)]
+
     use std::ffi::c_void;
     use std::ptr;
 

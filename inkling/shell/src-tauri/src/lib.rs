@@ -33,7 +33,7 @@ pub mod executors;
 pub mod mcp;
 
 pub use commands::approval::ApprovalLedger;
-pub use commands::process::redact_workspace;
+pub use domain::common::redact_workspace;
 
 /// 工具声明文件（include_str 内嵌：声明 = 数据，随补丁链演化管线产出）
 const TOOLS_DECL_JSON: &str = include_str!("../fixtures/tools_os.json");
@@ -65,6 +65,9 @@ struct ShellBackendState {
     abort_signal: domain::steps::RoundAbortSignal,
     /// 演化触发回合计数（每 N 回合触发一批知识进化）。
     evolution_round_counter: Mutex<u64>,
+    /// 引擎装配成功标志（装配完成后置位；就绪探测先查原子标志，未装配
+    /// 时不再逐次经 Python `report()` 往返探测——轮询抢 GIL 且阻塞在途回合）。
+    engine_ready_flag: std::sync::atomic::AtomicBool,
 }
 
 impl ShellBackendState {
@@ -75,14 +78,19 @@ impl ShellBackendState {
             round: Mutex::new(None),
             abort_signal,
             evolution_round_counter: Mutex::new(0),
+            engine_ready_flag: std::sync::atomic::AtomicBool::new(false),
         }
     }
 
-    /// 引擎就绪（装配成功且可出报告）。
+    /// 引擎就绪（装配成功且可出报告）。未装配（标志未置位）= 直接短路
+    /// 返回 false，避免每次轮询触发 Python 桥往返。
     fn engine_ready(&self) -> bool {
+        if !self.engine_ready_flag.load(std::sync::atomic::Ordering::SeqCst) {
+            return false;
+        }
         self.engine
             .lock()
-            .unwrap()
+            .unwrap_or_else(std::sync::PoisonError::into_inner)
             .as_ref()
             .map(|host| host.report().is_ok())
             .unwrap_or(false)
@@ -179,7 +187,7 @@ fn load_workflow_data() -> Result<JsonValue, String> {
 /// 本地日志留痕完整错误，对外仅回传粗粒度提示，trace_id 关联排障。
 fn assembly_failure(stage: &str, detail: impl std::fmt::Display) -> String {
     let trace_id = uuid::Uuid::new_v4().simple().to_string();
-    eprintln!("[assembly] {stage} 失败 trace_id={trace_id}: {detail}");
+    tracing::error!(target: "assembly", stage, trace_id, error = %detail, "引擎装配失败");
     format!("引擎装配失败（{stage}，trace_id={trace_id}；详见本地日志）")
 }
 
@@ -193,7 +201,11 @@ fn assembly_failure(stage: &str, detail: impl std::fmt::Display) -> String {
 /// - 启动快照轮换：装配成功后按链版本落一份存储快照（N 份轮换，绑定
 ///   链版本号），供「回到上一稳定版本」一键回落取用。
 fn ensure_engine(app: &tauri::AppHandle, state: &ShellState, data_dir: &Path) -> Result<(), String> {
-    let mut engine = state.backend.engine.lock().unwrap();
+    let mut engine = state
+        .backend
+        .engine
+        .lock()
+        .unwrap_or_else(std::sync::PoisonError::into_inner);
     if engine.is_some() {
         return Ok(());
     }
@@ -234,8 +246,11 @@ fn ensure_engine(app: &tauri::AppHandle, state: &ShellState, data_dir: &Path) ->
                 Ok(host) => host,
                 Err(safe_err) => {
                     let trace_id = uuid::Uuid::new_v4().simple().to_string();
-                    eprintln!(
-                        "[assembly] 装配失败（自动安全模式亦失败）trace_id={trace_id}: {err} / {safe_err}"
+                    tracing::error!(
+                        target: "assembly",
+                        trace_id,
+                        error = %format_args!("{err} / {safe_err}"),
+                        "引擎装配失败（自动安全模式亦失败）"
                     );
                     return Err(format!(
                         "引擎装配失败（自动安全模式亦失败，trace_id={trace_id}；详见本地日志）"
@@ -254,6 +269,15 @@ fn ensure_engine(app: &tauri::AppHandle, state: &ShellState, data_dir: &Path) ->
         let _ = state.backend.tool_provider.refresh();
     }
     *engine = Some(host);
+    state
+        .backend
+        .engine_ready_flag
+        .store(true, std::sync::atomic::Ordering::SeqCst);
+    // 回合事实规则契约守卫（S3 修复）：引擎权威集合（memory_extract.
+    // ROUND_FACT_EVENTS）经 `ledger.fact_rules` op 导出，壳侧归约保留集
+    // 必须为其子集——漂移会静默漏确认类 → 记忆抽不到。此处装配期核对，
+    // 漂移 = 结构化错误（fail-closed，启动即暴露而非静默漏账）。
+    check_ledger_fact_rules()?;
     // OS 执行体接桥（引擎桥就绪后注册，避免装配前触碰 Python 模块）：
     // process_exec 端点 → 宿主 os_registry 分发经回调桥转发到本注册表；
     // 同一套运行体，两处调度点合一；回调执行在引擎回合线程，经 AppHandle
@@ -263,13 +287,19 @@ fn ensure_engine(app: &tauri::AppHandle, state: &ShellState, data_dir: &Path) ->
     // 既有稳定快照；失败仅留观测日志，不阻断装配）
     if !domain::recovery::load_boot_state(data_dir).safe_mode {
         if let Err(snap_err) = take_startup_snapshot(data_dir) {
-            eprintln!("[recovery] 启动快照失败: {snap_err}");
+            tracing::warn!(target: "recovery", error = %snap_err, "启动快照失败");
         }
     }
     Ok(())
 }
 
 /// OS 执行体回调注册（引擎装配成功后执行一次）。
+///
+/// 回调经 JSON 回调桥在引擎事件循环线程同步执行（持 GIL）。阻塞型执行
+/// （shell_exec 子进程 / sleep 等最长可达小时级）若占用引擎循环线程并
+/// 持 GIL，事件流停摆 + 其它线程 `abort_current_run` 挂 GIL 不可达——
+/// 执行器运行体整体在 `allow_threads` 内运行（释放 GIL，引擎循环线程
+/// 可继续驱动事件流；中止信号置位后执行器侧 kill 子进程即返回）。
 fn wire_os_dispatch(app: &tauri::AppHandle, state: &ShellState) -> Result<(), String> {
     state
         .os_dispatch
@@ -301,45 +331,51 @@ fn wire_os_dispatch(app: &tauri::AppHandle, state: &ShellState) -> Result<(), St
                     // 台账裁决指纹（登记/裁决两侧同口径），引擎升级放行的
                     // 信任依据 = 批准态本身
                     let args_map = commands::approval::strip_internal_keys(&args_map);
-                    let os_state = os_bridge_app.state::<ShellState>();
-                    let shell_backend =
-                        os_bridge_app.state::<executors::backends::ShellBackend>();
-                    // 引擎通道：审批流水线在引擎侧先行裁决（approval 档 seed
-                    // 单源），壳侧将引擎放行态记入审批台账后经同一裁决函数
-                    // 放行（决议 4：无硬编码放行，客户端通道与引擎通道共用
-                    // 台账裁决；执行器层守卫 deny/沙箱/签名照常强制）
-                    os_state.approval.record_engine_dispatch(&tool, &args_map);
-                    let auth = os_state.approval.adjudicate(&tool, &args_map);
-                    let dynamic_roots: Vec<String> = os_state
-                        .mounts
-                        .lock()
-                        .unwrap()
-                        .iter()
-                        .map(|p| p.display().to_string())
-                        .collect();
-                    let gate = executors::registry::CallGate::with_roots(
-                        executors::tool_decl::Endpoint::ProcessExec,
-                        dynamic_roots,
-                    );
-                    match os_state.registry.run(
-                        &tool,
-                        &args_map,
-                        shell_backend.inner(),
-                        &auth,
-                        &gate,
-                    ) {
-                        Ok(outcome) => Ok(serde_json::json!({
-                            "ok": true,
-                            "result": outcome.result,
+                    // 执行器运行体释放 GIL 运行（阻塞型工具不冻结引擎循环）
+                    let response = pyo3::Python::attach(|py| {
+                        py.detach(|| {
+                            let os_state = os_bridge_app.state::<ShellState>();
+                            let shell_backend =
+                                os_bridge_app.state::<executors::backends::ShellBackend>();
+                            // 引擎通道：审批流水线在引擎侧先行裁决（approval 档
+                            // seed 单源），壳侧将引擎放行态记入一次性审批台账后
+                            // 经同一裁决函数放行（决议 4：无硬编码放行；一次性
+                            // 消费防渲染进程重放引擎批准的同参数调用）
+                            os_state.approval.record_engine_dispatch(&tool, &args_map);
+                            let auth = os_state.approval.adjudicate(&tool, &args_map);
+                            let dynamic_roots: Vec<String> = os_state
+                                .mounts
+                                .lock()
+                                .unwrap_or_else(std::sync::PoisonError::into_inner)
+                                .iter()
+                                .map(|p| p.display().to_string())
+                                .collect();
+                            let gate = executors::registry::CallGate::with_roots(
+                                executors::tool_decl::Endpoint::ProcessExec,
+                                dynamic_roots,
+                            );
+                            match os_state.registry.run(
+                                &tool,
+                                &args_map,
+                                shell_backend.inner(),
+                                &auth,
+                                &gate,
+                            ) {
+                                Ok(outcome) => serde_json::json!({
+                                    "ok": true,
+                                    "result": outcome.result,
+                                })
+                                .to_string(),
+                                Err(err) => serde_json::json!({
+                                    "ok": false,
+                                    "status": "executor_error",
+                                    "error": err.to_string(),
+                                })
+                                .to_string(),
+                            }
                         })
-                        .to_string()),
-                        Err(err) => Ok(serde_json::json!({
-                            "ok": false,
-                            "status": "executor_error",
-                            "error": err.to_string(),
-                        })
-                        .to_string()),
-                    }
+                    });
+                    Ok(response)
                 }),
             )
             .expect("os.dispatch 回调注册失败");
@@ -398,6 +434,40 @@ fn block_on_op_async(op: &str, args: serde_json::Value) -> Result<serde_json::Va
         .build()
         .map_err(|err| format!("操作运行时创建失败: {err}"))?
         .block_on(engine::host::call_engine_op_async(op, args))
+}
+
+/// 回合事实规则契约守卫（S3 修复）：引擎权威集合（`memory_extract.
+/// ROUND_FACT_EVENTS`）经 `ledger.fact_rules` op 导出，壳侧归约保留集
+/// 必须为其子集——两套清单漂移会静默漏确认类 → 记忆永远抽不到。
+/// 装配期（ensure_engine 成功后）核对一次：漂移 = fail-closed 错误，
+/// 启动即暴露而非静默漏账。
+fn check_ledger_fact_rules() -> Result<(), String> {
+    let outcome = block_on_op_async("ledger.fact_rules", serde_json::json!({}))
+        .map_err(|err| format!("回合事实规则契约核对失败: {err}"))?;
+    let engine_events: Vec<String> = outcome
+        .get("round_fact_events")
+        .and_then(serde_json::Value::as_array)
+        .map(|list| {
+            list.iter()
+                .filter_map(serde_json::Value::as_str)
+                .map(str::to_string)
+                .collect()
+        })
+        .ok_or_else(|| "回合事实规则契约核对失败：引擎未返回 round_fact_events".to_string())?;
+    let drift: Vec<&str> = crate::domain::round_ledger::RECOGNIZED_EVENTS
+        .iter()
+        .copied()
+        .filter(|kind| !engine_events.iter().any(|engine_kind| engine_kind == kind))
+        .collect();
+    if drift.is_empty() {
+        Ok(())
+    } else {
+        Err(format!(
+            "回合事实规则契约漂移：壳侧保留事件不在引擎权威集合内: {}（引擎：{}）",
+            drift.join(", "),
+            engine_events.join(", ")
+        ))
+    }
 }
 
 /// 首启标记判定（未标记 = 首启引导待展示）。
@@ -481,13 +551,71 @@ fn build_tray(app: &AppHandle) -> tauri::Result<()> {
 /// 自检持久化标记文件名（selftest 二次运行的会话持久断言基准）。
 const SELFTEST_PHASE_MARKER: &str = ".selftest_phase";
 
+/// 运行日志文件句柄（`enable_log_file` 装配后置位；release GUI 子系统
+/// 无控制台，tracing 事件经 TeeWriter 同时落文件——仓库约束「输出和事件
+/// 应落成文件并实时刷新，勿只打日志」的落地形态）。
+static LOG_FILE: std::sync::Mutex<Option<std::fs::File>> = std::sync::Mutex::new(None);
+
+/// tracing 复合写入器：事件同时写控制台（dev 可观测）与运行日志文件
+/// （生产可查；release 无控制台时控制台写被忽略，文件层照常）。
+struct TeeWriter;
+
+impl<'a> tracing_subscriber::fmt::writer::MakeWriter<'a> for TeeWriter {
+    type Writer = TeeWriter;
+
+    fn make_writer(&'a self) -> Self::Writer {
+        TeeWriter
+    }
+}
+
+impl std::io::Write for TeeWriter {
+    fn write(&mut self, buf: &[u8]) -> std::io::Result<usize> {
+        let _ = std::io::stdout().write_all(buf);
+        if let Ok(mut guard) = LOG_FILE.lock() {
+            if let Some(file) = guard.as_mut() {
+                let _ = file.write_all(buf);
+                let _ = file.flush();
+            }
+        }
+        Ok(buf.len())
+    }
+
+    fn flush(&mut self) -> std::io::Result<()> {
+        if let Ok(mut guard) = LOG_FILE.lock() {
+            if let Some(file) = guard.as_mut() {
+                let _ = file.flush();
+            }
+        }
+        Ok(())
+    }
+}
+
+/// 装配运行日志文件（数据目录 logs/inkling.log，追加写，实时刷新）。
+/// 在 setup 期（app_data_dir 已知）调用；装配失败仅跳过（dev 控制台仍在）。
+pub fn enable_log_file(data_dir: &Path) {
+    let dir = data_dir.join("logs");
+    if std::fs::create_dir_all(&dir).is_err() {
+        return;
+    }
+    let path = dir.join("inkling.log");
+    if let Ok(file) = std::fs::OpenOptions::new()
+        .create(true)
+        .append(true)
+        .open(&path)
+    {
+        *LOG_FILE.lock().unwrap_or_else(std::sync::PoisonError::into_inner) = Some(file);
+    }
+}
+
 /// 结构化日志订阅器装配（FA17：tracing 正式接入——进程级一次；默认
-/// info 级到 stderr，`RUST_LOG` 可调）。
+/// info 级，控制台 + 日志文件双层，`RUST_LOG` 可调）。
 pub fn init_tracing() {
     static TRACING: std::sync::OnceLock<()> = std::sync::OnceLock::new();
     TRACING.get_or_init(|| {
         let _ = tracing_subscriber::fmt()
             .with_max_level(tracing::Level::INFO)
+            .with_writer(TeeWriter)
+            .with_ansi(false)
             .try_init();
     });
 }
@@ -696,6 +824,10 @@ pub fn run() {
         .setup(move |app| {
             // 嵌入解释器就绪（引擎桥前置；进程内一次）
             engine::host::ensure_python();
+            // 运行日志文件层（数据目录已知；release 无控制台，事件落文件）
+            if let Ok(dir) = app_data_dir(&app.handle()) {
+                enable_log_file(&dir);
+            }
             // 声明加载 + 执行器注册 + 签名自检（不一致 = 启动失败，fail-closed）
             let declarations: executors::tool_decl::ToolDeclarations =
                 executors::tool_decl::load_tool_declarations(TOOLS_DECL_JSON)
@@ -724,17 +856,11 @@ pub fn run() {
             Ok(())
         })
         .invoke_handler(tauri::generate_handler![
-            commands::process::process_exec,
             commands::workspace::mount_authorize,
             commands::workspace::mount_list,
-            commands::process::device_mcp_call,
             commands::lifecycle::backend_status,
             commands::lifecycle::engine_boot,
             commands::lifecycle::first_run_dismiss,
-            commands::lifecycle::runtime_state,
-            commands::lifecycle::runtime_pause,
-            commands::lifecycle::runtime_resume,
-            commands::lifecycle::runtime_stop,
             commands::rounds::round_send,
             commands::rounds::round_abort,
             commands::rounds::round_resume,
@@ -792,7 +918,6 @@ pub fn run() {
             commands::voice::voice_transcribe,
             commands::voice::voice_synthesize,
             commands::voice::voice_record,
-            commands::voice::voice_devices,
             commands::offline::offline_detect,
             commands::offline::offline_settings_get,
             commands::offline::offline_settings_put,
@@ -811,9 +936,6 @@ pub fn run() {
             commands::ops::path_set_assembler_enabled,
             commands::ops::cache_stats,
             commands::ops::cache_clear,
-            commands::ops::why_audit,
-            commands::ops::sovereignty_snapshot,
-            commands::ops::suggestion_scan,
             commands::ops::growth_report,
             commands::ops::audit_list,
             commands::knowledge::knowledge_list,
@@ -828,13 +950,9 @@ pub fn run() {
             commands::memory::memory_list,
             commands::memory::memory_invalidate,
             commands::memory::memory_update_frontmatter,
-            commands::rounds::round_ledger_record,
             commands::rounds::round_ledger_chain,
             commands::rounds::round_ledger_list,
-            commands::rounds::round_ledger_roll,
             commands::rounds::round_ledger_merge,
-            commands::rounds::round_memory_extract,
-            commands::rounds::round_resume_with_summary,
             commands::ops::ui_spec_get,
             commands::ops::ui_spec_apply,
             commands::ops::ui_spec_revert_latest,

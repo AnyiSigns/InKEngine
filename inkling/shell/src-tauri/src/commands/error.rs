@@ -58,9 +58,13 @@ impl CommandError {
 
     /// 带命令名的失败留痕（审计侧日志：trace_id + 命令 + 码）。
     pub fn log(&self, command: &str) {
-        eprintln!(
-            "[commands] {command} 失败 code={} trace_id={} message={}",
-            self.code, self.trace_id, self.message
+        tracing::error!(
+            target: "commands",
+            command,
+            code = %self.code,
+            trace_id = %self.trace_id,
+            error = %self.message,
+            "命令失败"
         );
     }
 }

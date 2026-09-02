@@ -125,7 +125,8 @@ pub fn parse_search_keys(config: &JsonValue) -> SearchKeys {
             .or_else(|| section.get(&format!("{name}_key")))
             .and_then(JsonValue::as_str)
             .filter(|s| !s.trim().is_empty())
-            .map(str::to_string)
+            // DPAPI 加密形态还原（壳侧落盘保护；未加密旧值原样透传）
+            .map(|s| crate::domain::crypto::restore_secret(s))
     };
     SearchKeys {
         exa: key_of("exa"),

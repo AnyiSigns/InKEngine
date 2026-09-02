@@ -59,26 +59,34 @@ def _capture_engine_loop() -> None:
 
 
 def _run_on_engine_loop(coro_factory: Callable[[], Any]) -> Any:
-    """同步通道驱动引擎异步 API（run_coroutine_threadsafe 派发到宿主循环）。
+    """同步通道驱动引擎异步 API（与异步通道同语义：优先复用宿主循环，
+    否则在调用线程新建临时循环运行）。
 
-    同步 op（Rust 经 invoke 通道调用）运行在 Rust 线程，引擎异步对象
-    与宿主循环绑定——新建循环驱动会破坏绑定（storage 连接跨循环失效）。
-    本函数把协程调度到宿主循环并阻塞等待结果；超时/循环未就绪显式
-    报错（fail-closed，不静默回退）。
+    同步 op（Rust 经 invoke 通道调用）运行在 Rust 线程。异步通道每次经
+    pyo3 桥在新建的事件循环上驱动协程（循环即建即用即关），引擎异步
+    API 不绑定单一循环生命周期——本函数同口径：宿主循环可用时经
+    ``run_coroutine_threadsafe`` 派发（保持既有语义），否则在调用线程
+    新建临时循环 ``run_until_complete``（修复此前 ``_ENGINE_LOOP`` 恒指
+    向已关闭循环导致同步 op 派发必失败的缺陷）。失败 fail-closed，不
+    静默回退。
     """
     loop = _ENGINE_LOOP
-    if loop is None or loop.is_closed():
-        raise RuntimeError(
-            "引擎事件循环未就绪（同步 op 派发失败：先经任一异步 op 建立循环）"
-        )
-    running = asyncio.get_running_loop()
-    if running is loop:
-        raise RuntimeError(
-            "引擎事件循环上不可同步等待自身调度（死锁防护：同步 op 应在"
-            " Rust 线程调用）"
-        )
-    future = asyncio.run_coroutine_threadsafe(coro_factory(), loop)
-    return future.result(timeout=_SYNC_OP_AWAIT_TIMEOUT)
+    if loop is not None and not loop.is_closed() and loop.is_running():
+        running = asyncio.get_running_loop()
+        if running is loop:
+            raise RuntimeError(
+                "引擎事件循环上不可同步等待自身调度（死锁防护：同步 op 应在"
+                " Rust 线程调用）"
+            )
+        future = asyncio.run_coroutine_threadsafe(coro_factory(), loop)
+        return future.result(timeout=_SYNC_OP_AWAIT_TIMEOUT)
+    temp_loop = asyncio.new_event_loop()
+    try:
+        asyncio.set_event_loop(temp_loop)
+        return temp_loop.run_until_complete(coro_factory())
+    finally:
+        asyncio.set_event_loop(None)
+        temp_loop.close()
 
 
 # 同步 op 驱动引擎异步 API 的等待上限（秒）：Rust 侧同步阻塞等待，
@@ -174,7 +182,9 @@ def _jsonable(value: Any) -> Any:
 def invoke(name: str, args_json: str) -> str:
     """同步操作通道：JSON 进、JSON 出（域模块调用引擎公开 API 的薄包装）。
 
-    未知 op = 显式空态标记（不白屏）：返回 {"op": name, "found": false}。
+    未知 op = 显式空态标记（不白屏）：返回 {"ok": false, "error":
+    "unregistered_op", "op": name}（P9 结构化错误信封，Rust 侧解析并
+    映射为可判别错误码）。
     """
     fn = _OPS_SYNC.get(name)
     if fn is None:
@@ -192,7 +202,8 @@ def invoke(name: str, args_json: str) -> str:
 async def invoke_async(name: str, args_json: str) -> str:
     """异步操作通道：JSON 进、JSON 出（引擎异步 API 的薄包装）。
 
-    未知 op = 显式空态标记（不白屏）：返回 {"op": name, "found": false}。
+    未知 op = 显式空态标记（不白屏）：返回 {"ok": false, "error":
+    "unregistered_op", "op": name}（P9 结构化错误信封，同 invoke 口径）。
     """
     _capture_engine_loop()  # 宿主循环锚点（同步 op 派发目标）
     fn = _OPS_ASYNC.get(name)
@@ -849,11 +860,6 @@ def _register_engine_core_ops() -> None:
         runtime.introspection_service._sources.tools = runtime.collect_specs()
         return None
 
-    @op_async("engine.event_types_names")
-    async def _event_types_names(args: dict) -> Any:
-        runtime = runtime_handle()
-        return list(runtime.event_type_registry.names())
-
 def _register_patch_ops() -> None:
     # ── 补丁链（应用/回退/提案/目标注册）──
 
@@ -979,85 +985,6 @@ def _register_patch_ops() -> None:
         for kind, target in targets.items():
             runtime.self_pipeline.register_target(kind, target)
         return {"registered": [target.name for target in targets.values()]}
-
-def _register_skill_ops() -> None:
-    # ── 技能结晶 / 技能市场 ──
-
-    @op_async("skill.list")
-    async def _skill_list(args: dict) -> Any:
-        """列出已结晶技能（按名+版本升序；domain 可选过滤）。"""
-        runtime = runtime_handle()
-        store = getattr(runtime, "skill_store", None)
-        if store is None:
-            return {"skills": []}
-        entries = await store.list(args.get("domain"))
-        return {"skills": [_jsonable(e) for e in entries]}
-
-    @op_async("skill.export")
-    async def _skill_export(args: dict) -> Any:
-        """导出技能为可分享 JSON（导出格式与市场导入同构）。
-
-        dest 给定时落盘文件，返回结构含导出路径；缺失技能 = found=False。
-        """
-        from ink_engine.core.skill_crystal import export_skill
-
-        runtime = runtime_handle()
-        store = getattr(runtime, "skill_store", None)
-        if store is None:
-            raise RuntimeError("技能存储未装配（技能结晶未启用）")
-        name = args["name"]
-        entry = await store.get(name)
-        if entry is None:
-            return {"found": False, "skill": None}
-        payload = export_skill(entry, dest=args.get("dest"))
-        return {"found": True, "skill": payload}
-
-    @op_async("skill.delete")
-    async def _skill_delete(args: dict) -> Any:
-        """删除某技能全部版本（派生数据可重建）。"""
-        runtime = runtime_handle()
-        store = getattr(runtime, "skill_store", None)
-        if store is None:
-            return {"deleted": False}
-        removed = await store.delete(args["name"])
-        return {"deleted": removed}
-
-    @op_async("skill.market_list")
-    async def _skill_market_list(args: dict) -> Any:
-        """浏览技能市场目录（候选清单，不预装）。"""
-        runtime = runtime_handle()
-        market = getattr(runtime, "skill_market", None)
-        if market is None:
-            return {"entries": [], "premounted": False, "mount_policy": {}}
-        return {
-            "entries": market.list_entries(),
-            "premounted": market.premounted,
-            "mount_policy": market.mount_policy,
-        }
-
-    @op_async("skill.market_install")
-    async def _skill_market_install(args: dict) -> Any:
-        """安装市场技能（目录取条目 → vetting → 审批 → 补丁链落链）。
-
-        decision 预填（accept/reject）走 StandaloneApprovalContext 同键语义；
-        缺省 = 拒绝（fail-closed）。落链同时写入本地技能存储。
-        """
-        from inkling_host.skill_market import SkillMarketService
-
-        runtime = runtime_handle()
-        market = getattr(runtime, "skill_market", None)
-        if market is None or not isinstance(market, SkillMarketService):
-            raise RuntimeError("技能市场未装配")
-        ctx = StandaloneApprovalContext(args.get("thread_id"))
-        decision = args.get("decision")
-        if decision is not None:
-            _APPROVAL_DECISIONS[
-                ctx._key("skill_install:" + str(args["skill_id"]))
-            ] = {"decision": decision, "reason": args.get("reason")}
-        outcome = await market.propose_install(
-            ctx, args["skill_id"], round_id=args.get("round_id")
-        )
-        return outcome.to_dict()
 
 def _register_pipeline_ops() -> None:
     # ── 工具表/流水线/审批──
@@ -1509,15 +1436,22 @@ def _register_graph_ops() -> None:
 
         契约：target_tier ∈ {observing, regular}（只降级不晋级）；
         update 只做信任档降级/停用，不改计数细节（计数由运行期归集）。
+        边标识支持 ``key``（EdgeKey dict 形态）或 ``edgeId``（
+        ``src|dst|srcVer|dstVer|domain`` 串 / dict 形态，与
+        ``edge.downgrade_tier`` 同解析），修复命令面端到端断链。
         """
         runtime = runtime_handle()
         store = _safe_attr_call(runtime, "edge_evidence_store")
         if store is None:
             raise RuntimeError("边证据存储未装配")
-        key_data = args["key"]
+        key_data = args.get("key") or args.get("edgeId") or args.get("edge_id")
+        if key_data is None:
+            raise RuntimeError("边标识缺失（key / edgeId 至少一项）")
         from ink_engine.core.edge_evidence import EdgeKey, downgrade_edge_tier
 
-        key = EdgeKey.from_dict(key_data)
+        key = _edge_key_from_id(key_data)
+        if key is None:
+            raise RuntimeError(f"边标识非法: {key_data!r}")
         target_tier = args.get("target_tier", "observing")
         storage = getattr(runtime, "storage", None)
         result = await downgrade_edge_tier(
@@ -1530,39 +1464,6 @@ def _register_graph_ops() -> None:
 
 def _register_mcp_ops() -> None:
     # ── MCP 挂载（连接/工具导入/断开）──
-
-    @op_sync("mcp.builtin_registry")
-    def _mcp_builtin_registry(args: dict) -> Any:
-        """内置 server 注册表（tools.json mcp 工具 server_id 的权威定义）。
-
-        返回 server_id → 传输形态/来源/签名（连接位由宿主按环境填充后
-        经 ``mcp.builtin_connect`` 建立真实连接）。
-        """
-        from ink_engine.core.mcp_client import BUILTIN_MCP_SERVERS
-
-        return {
-            "servers": [
-                {
-                    "server_id": server_id,
-                    "transport": config.transport.value,
-                    "source": config.source.value,
-                    "signature": config.signature,
-                }
-                for server_id, config in BUILTIN_MCP_SERVERS.items()
-            ]
-        }
-
-    @op_async("mcp.builtin_connect")
-    async def _mcp_builtin_connect(args: dict) -> Any:
-        """连接内置 server（tools.json 声明 server 的真实连接入口）。
-
-        server_id 须在注册表内；连接位（stdio 的 command/args、内存
-        传输的 server_factory 等）随 args 透传，注册表字段不可覆盖。
-        """
-        runtime = runtime_handle()
-        overrides = dict(args.get("overrides") or {})
-        await runtime.mcp_manager.connect_builtin(args["server_id"], **overrides)
-        return {"connected": True, "server_id": args["server_id"]}
 
     @op_async("mcp.connect")
     async def _mcp_connect(args: dict) -> Any:
@@ -1766,8 +1667,13 @@ def _register_thread_ops() -> None:
         anchor = await storage.get_checkpoint(int(args["checkpoint_id"]))
         if anchor is None:
             raise RuntimeError(f"续跑锚点检查点不存在: {args['checkpoint_id']}")
+        # 续跑注入态：input 缺省时不携带该键——避免空串覆盖 checkpoint
+        # 恢复的输入字段（整包 state 合并语义下旧键会被覆盖）
+        inject_state: dict[str, Any] = {}
+        if args.get("input"):
+            inject_state["input"] = args["input"]
         result = await runtime.engine.ainvoke(
-            {"input": args.get("input") or ""},
+            inject_state,
             thread_id=args["thread_id"],
             round_id=args.get("round_id") or _uuid.uuid4().hex,
             resume_from=anchor.checkpoint_id,
@@ -2409,7 +2315,6 @@ def register_builtin_ops() -> None:
     """
     _register_engine_core_ops()
     _register_patch_ops()
-    _register_skill_ops()
     _register_pipeline_ops()
     _register_graph_ops()
     _register_mcp_ops()

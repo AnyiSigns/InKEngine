@@ -239,18 +239,21 @@ fn shell_exec_allowlisted_command_runs_in_workspace() {
 }
 
 #[test]
-fn shell_exec_non_allowlisted_rejected_without_escalation() {
+fn shell_exec_non_approved_rejected_without_approval_state() {
     let declarations = load_tool_declarations(TOOLS_DECL_JSON).unwrap();
     let registry = registry_with(&declarations);
     let ledger = ledger_with(&declarations);
     let backend = MockBackend::new();
 
+    // 无审批态（未登记台账/未自动放行）：review 档 shell_exec 一律拒绝
+    // （fail-closed，客户端无法自证授权；升级放行 = 批准态本身，args 中
+    // 伪造 `_escalated` 不再生效——S-2 修复）
     let call = args(&[("command", "shell_exec".into()), ("argv", serde_json::json!(["where", "git"]))]);
-    let auth = pre_approved(&ledger, "shell_exec", &call);
+    let auth = adjudicate(&ledger, "shell_exec", &call);
     let err = registry
         .run("shell_exec", &call, &backend, &auth, &pgate())
         .unwrap_err();
-    assert!(matches!(err, ExecError::SandboxViolation(_)), "白名单外命令无升级标记必须拒绝: {err}");
+    assert!(matches!(err, ExecError::ApprovalRequired(_)), "未授权 review 档必须拒绝: {err}");
     assert!(backend.calls.lock().unwrap().is_empty(), "拒绝的调用不得触达后端");
 }
 
@@ -261,11 +264,12 @@ fn shell_exec_escalated_skips_allowlist_and_uses_home_cwd() {
     let ledger = ledger_with(&declarations);
     let backend = MockBackend::new();
 
-    // 升级审批通过后引擎注入 _escalated 标记：白名单外命令放行，cwd 用系统主目录
+    // 审批通过（批准态 = 升级放行信号，S-2：不读 args 中的 `_escalated`
+    // 标记——渲染进程伪造的内部键被裁决前剥离）：白名单外命令放行，
+    // cwd 用系统主目录
     let call = args(&[
         ("command", "shell_exec".into()),
         ("argv", serde_json::json!(["where", "git"])),
-        ("_escalated", serde_json::json!(true)),
     ]);
     let auth = pre_approved(&ledger, "shell_exec", &call);
     let outcome = registry

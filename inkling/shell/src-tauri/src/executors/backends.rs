@@ -110,6 +110,18 @@ fn run_process_impl(
     cwd: &str,
     timeout_secs: u64,
 ) -> Result<String, String> {
+    run_process_impl_polling(argv, cwd, timeout_secs, None)
+}
+
+/// 进程模板执行（可中止形态）：在 [`run_process_impl`] 语义上叠加中止
+/// 信号轮询——`should_abort()` 置真即 kill 子进程并以「用户停止」标记
+/// 返回（回合停止按钮对长命令立即可中断，不等自身超时兜底）。
+fn run_process_impl_polling(
+    argv: &[String],
+    cwd: &str,
+    timeout_secs: u64,
+    should_abort: Option<&dyn Fn() -> bool>,
+) -> Result<String, String> {
     let Some(program) = argv.first() else {
         return Err("进程模板为空（缺程序名）".to_string());
     };
@@ -125,6 +137,7 @@ fn run_process_impl(
     let stderr_reader = child.stderr.take().map(spawn_pipe_reader);
     let deadline = std::time::Instant::now() + std::time::Duration::from_secs(timeout_secs.max(1));
     let mut timed_out = false;
+    let mut aborted = false;
     let mut exit_code: Option<i32> = None;
     loop {
         match child.try_wait() {
@@ -137,6 +150,12 @@ fn run_process_impl(
                 let _ = child.kill();
                 return Err(format!("等待子进程失败: {err}"));
             }
+        }
+        if should_abort.is_some_and(|check| check()) {
+            let _ = child.kill();
+            let _ = child.wait();
+            aborted = true;
+            break;
         }
         if std::time::Instant::now() >= deadline {
             let _ = child.kill();
@@ -152,10 +171,12 @@ fn run_process_impl(
     let stderr = stderr_reader
         .and_then(|handle| handle.join().ok())
         .unwrap_or_default();
-    let code = if timed_out { -1 } else { exit_code.unwrap_or(-1) };
+    let code = if timed_out || aborted { -1 } else { exit_code.unwrap_or(-1) };
     let mut text = String::new();
     if timed_out {
         text.push_str(&format!("exit {code}（执行超时 {timeout_secs}s，已终止）\n"));
+    } else if aborted {
+        text.push_str(&format!("exit {code}（用户停止回合，已终止）\n"));
     } else {
         text.push_str(&format!("exit {code}\n"));
     }
@@ -648,19 +669,17 @@ use serde_json::{json, Value};
         for ch in text.chars() {
             let mut units = [0u16; 2];
             for unit in ch.encode_utf16(&mut units) {
-                inputs.push(unsafe {
-                    Input {
-                        kind: INPUT_KEYBOARD,
-                        data: InputData {
-                            keyboard: KeyboardInput {
-                                wvk: 0,
-                                wscan: *unit,
-                                flags: KEYEVENTF_UNICODE | KEYEVENTF_KEYUP,
-                                time: 0,
-                                extra_info: 0,
-                            },
+                inputs.push(Input {
+                    kind: INPUT_KEYBOARD,
+                    data: InputData {
+                        keyboard: KeyboardInput {
+                            wvk: 0,
+                            wscan: *unit,
+                            flags: KEYEVENTF_UNICODE | KEYEVENTF_KEYUP,
+                            time: 0,
+                            extra_info: 0,
                         },
-                    }
+                    },
                 });
             }
         }
@@ -881,7 +900,10 @@ impl SystemBackend for ShellBackend {
     }
 
     fn run_process(&self, argv: &[String], cwd: &str, timeout_secs: u64) -> Result<String, String> {
-        self.platform.run_process(argv, cwd, timeout_secs)
+        // 中止信号轮询：回合停止（round_abort 置位）即 kill 子进程——
+        // 长命令不再等自身超时兜底（最高 3600s），引擎取消检查点
+        // 依赖本调用返回才能抵达。
+        run_process_impl_polling(argv, cwd, timeout_secs, Some(&|| self.abort_signal.is_aborted()))
     }
 
     fn ui_tree_query(&self, scope: &str) -> Result<String, String> {

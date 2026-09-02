@@ -862,7 +862,7 @@ enum XmlToken<'a> {
     Text(&'a str),
 }
 
-fn tokenize(xml: &str) -> Result<Vec<XmlToken>, DocError> {
+fn tokenize<'a>(xml: &'a str) -> Result<Vec<XmlToken<'a>>, DocError> {
     let bytes = xml.as_bytes();
     let mut tokens = Vec::new();
     let mut depth = 0usize;

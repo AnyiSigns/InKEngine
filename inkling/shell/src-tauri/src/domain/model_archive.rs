@@ -572,14 +572,37 @@ pub const MODEL_ARCHIVE_DB_NAME: &str = "model_archive.sqlite";
 const MODEL_CONNECTION_FILE: &str = "model_connection.json";
 
 /// 读取模型连接配置（缺文件/解析失败回落空对象）。
+///
+/// 读取即还原：``dpapi:`` 前缀的 api_key 解密回明文（引擎/探测消费点
+/// 拿真实 key；回传前端处另行打码）。
 pub fn read_model_connection(data_dir: &Path) -> JsonValue {
     let path = data_dir.join(MODEL_CONNECTION_FILE);
     if let Ok(text) = std::fs::read_to_string(&path) {
-        if let Ok(value) = serde_json::from_str::<JsonValue>(&text) {
+        if let Ok(mut value) = serde_json::from_str::<JsonValue>(&text) {
+            transform_provider_keys(&mut value, |key| {
+                crate::domain::crypto::restore_secret(key)
+            });
             return value;
         }
     }
     JsonValue::Object(Default::default())
+}
+
+/// 逐提供方变换 api_key 字段（读还原 / 写加密两侧共用遍历）。
+fn transform_provider_keys(value: &mut JsonValue, mut transform: impl FnMut(&str) -> String) {
+    if let JsonValue::Object(map) = value {
+        if let Some(JsonValue::Array(providers)) = map.get_mut("providers") {
+            for provider in providers.iter_mut() {
+                if let JsonValue::Object(pmap) = provider {
+                    if let Some(JsonValue::String(key)) = pmap.get_mut("api_key") {
+                        *key = transform(key);
+                    }
+                }
+            }
+        } else if let Some(JsonValue::String(key)) = map.get_mut("api_key") {
+            *key = transform(key);
+        }
+    }
 }
 
 /// 连接配置文件形态：`providers` 数组（多提供方，唯一权威）或旧 flat 形态。
@@ -726,6 +749,13 @@ pub fn write_model_connection(data_dir: &Path, config: &JsonValue) -> JsonValue 
         "providers".to_string(),
         JsonValue::Array(merged),
     )]));
+    // 落盘前加密 api_key（DPAPI；打码占位/已加密值幂等跳过）——明文
+    // 不再落盘（Windows 无 DPAPI 保护的历史形态迁移：读侧识别 dpapi:
+    // 前缀还原，旧明文值照常可读）
+    let mut out = out;
+    transform_provider_keys(&mut out, |key| {
+        crate::domain::crypto::protect_secret(key)
+    });
     if let Ok(text) = serde_json::to_string_pretty(&out) {
         let _ = std::fs::write(&path, text);
     }
@@ -855,10 +885,22 @@ mod tests {
         assert_eq!(providers.len(), 1);
         let p = &providers[0];
         assert_eq!(p["base_url"], "http://b/v1");
-        assert_eq!(p["api_key"], "sk-secret", "缺省 api_key 须沿用已存值");
+        assert!(
+            p["api_key"]
+                .as_str()
+                .unwrap_or("")
+                .starts_with(crate::domain::crypto::DPAPI_PREFIX),
+            "api_key 落盘须为 DPAPI 加密形态（明文不落盘）"
+        );
         assert_eq!(p["model_ids"]["main"], "m1", "未写入的 model_id 须保留");
         assert_eq!(p["model_ids"]["router"], "r1");
         assert_eq!(p["model_ids"]["audit"], "a1", "新字段须写入");
+        // 读侧还原：加密 → 明文（缺省 api_key 须沿用已存值）
+        let roundtrip = read_model_connection(&dir);
+        assert_eq!(
+            roundtrip["providers"][0]["api_key"], "sk-secret",
+            "读侧还原 api_key 须为明文"
+        );
         let _ = std::fs::remove_dir_all(&dir);
     }
 
@@ -891,7 +933,16 @@ mod tests {
         assert_eq!(p["model_ids"]["main"], "m1", "base_url-only 保存不得清空 model_id");
         assert_eq!(p["model_ids"]["router"], "r1");
         assert_eq!(p["model_ids"]["audit"], "a1");
-        assert_eq!(p["api_key"], "sk-secret");
+        // api_key 加密落盘；读侧还原明文
+        assert!(
+            p["api_key"]
+                .as_str()
+                .unwrap_or("")
+                .starts_with(crate::domain::crypto::DPAPI_PREFIX),
+            "api_key 落盘须为 DPAPI 加密形态"
+        );
+        let roundtrip = read_model_connection(&dir);
+        assert_eq!(roundtrip["providers"][0]["api_key"], "sk-secret");
         let _ = std::fs::remove_dir_all(&dir);
     }
 

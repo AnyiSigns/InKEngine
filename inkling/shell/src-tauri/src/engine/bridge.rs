@@ -15,10 +15,16 @@ use serde_json::Value as JsonValue;
 /// 引擎事件传输回桥：Python 侧 `transport.send(event)` 推 JSON 进 Rust 侧缓冲，
 /// 同时（若已挂发射钩子）把事件实时转发到前端事件通道——回合返回体保留为
 /// 兼容/回落形态，流式通道保证首事件早于回合返回到达。
+///
+/// 缓冲上限（防长回合全量事件常驻内存）：超过上限丢弃最旧事件并累计
+/// 溢出计数（尾部保留最新事件，前端流式消费不受影响）。
+const TRANSPORT_EVENT_BUFFER_CAP: usize = 20_000;
+
 #[pyclass]
 pub struct RustTransport {
     events: Arc<Mutex<Vec<String>>>,
     emitter: Arc<Mutex<Option<Box<dyn Fn(&str) + Send + Sync>>>>,
+    overflow: std::sync::atomic::AtomicU64,
 }
 
 impl RustTransport {
@@ -26,12 +32,18 @@ impl RustTransport {
         Self {
             events: Arc::new(Mutex::new(Vec::new())),
             emitter: Arc::new(Mutex::new(None)),
+            overflow: std::sync::atomic::AtomicU64::new(0),
         }
     }
 
     /// 取走全部已收事件（JSON 字符串；取后清空，回合驱动侧按序消费）。
     pub fn take_events(&self) -> Vec<String> {
         std::mem::take(&mut *self.events.lock().unwrap())
+    }
+
+    /// 缓冲溢出计数（上限丢弃的旧事件数；观测长回合事件规模）。
+    pub fn overflow_count(&self) -> u64 {
+        self.overflow.load(std::sync::atomic::Ordering::SeqCst)
     }
 
     /// 挂接/摘除实时发射钩子（事件到达即调用；钩子失败不影响事件收集）。
@@ -52,7 +64,15 @@ impl RustTransport {
         let json_str: String = event
             .call_method0(pyo3::intern!(py, "to_json"))?
             .extract()?;
-        self.events.lock().unwrap().push(json_str.clone());
+        {
+            let mut buffer = self.events.lock().unwrap();
+            if buffer.len() >= TRANSPORT_EVENT_BUFFER_CAP {
+                buffer.remove(0);
+                self.overflow
+                    .fetch_add(1, std::sync::atomic::Ordering::SeqCst);
+            }
+            buffer.push(json_str.clone());
+        }
         let emitter = self.emitter.lock().unwrap();
         if let Some(emit) = emitter.as_ref() {
             // 发射闭包可能 panic（如前端通道异常）：catch 住，避免 panic 经

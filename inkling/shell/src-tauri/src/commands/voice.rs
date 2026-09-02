@@ -35,9 +35,3 @@ pub(crate) fn voice_synthesize(text: String) -> Result<JsonValue, CommandError> 
 pub(crate) fn voice_record(duration_ms: u32) -> Result<Vec<u8>, CommandError> {
     crate::domain::voice::record_wav(duration_ms).map_err(CommandError::internal)
 }
-
-/// 麦克风设备清单。
-#[tauri::command]
-pub(crate) fn voice_devices() -> JsonValue {
-    crate::domain::voice::list_devices()
-}

@@ -167,9 +167,10 @@ fn translate_pattern(pattern: &str) -> String {
                     let mut stuff: String = chars[i..j].iter().collect();
                     if stuff.starts_with('!') {
                         stuff = format!("^{}", &stuff[1..]);
-                    } else if stuff.starts_with('^') {
-                        stuff = format!("\\{stuff}");
                     }
+                    // 与 CPython fnmatch.translate 对偶：`[^...]`（正则取反类）
+                    // 不再转义为字面量（此前对 `^` 加反斜杠会改变权限模式语义，
+                    // 收紧/放宽边界用例与引擎侧 security_domain.py 不一致）
                     res.push('[');
                     res.push_str(&stuff);
                     res.push(']');

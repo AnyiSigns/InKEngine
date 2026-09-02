@@ -21,11 +21,26 @@ pub(crate) fn model_archive_snapshot(app: AppHandle) -> Result<JsonValue, Comman
     Ok(json!({ "ok": true, "archives": archives }))
 }
 
-/// 读取模型连接配置（上次探测保存的 base_url / api_key）。
+/// 读取模型连接配置（上次探测保存的 base_url / api_key；api_key 回传
+/// 打码——完整密钥只落盘于 DPAPI 加密形态，前端仅展示尾 4 位）。
 #[tauri::command]
 pub(crate) fn models_config_get(app: AppHandle) -> Result<JsonValue, CommandError> {
     let data_dir = app_data_dir(&app)?;
-    Ok(crate::domain::model_archive::read_model_connection(&data_dir))
+    let mut config = crate::domain::model_archive::read_model_connection(&data_dir);
+    if let JsonValue::Object(map) = &mut config {
+        if let Some(JsonValue::Array(providers)) = map.get_mut("providers") {
+            for provider in providers.iter_mut() {
+                if let JsonValue::Object(pmap) = provider {
+                    if let Some(JsonValue::String(key)) = pmap.get_mut("api_key") {
+                        *key = crate::domain::crypto::mask_secret(key);
+                    }
+                }
+            }
+        } else if let Some(JsonValue::String(key)) = map.get_mut("api_key") {
+            *key = crate::domain::crypto::mask_secret(key);
+        }
+    }
+    Ok(config)
 }
 
 /// 触发模型清单探测与回写（连接配置保存/变更时调用）。

@@ -107,7 +107,7 @@ fn load_behavior_tools(seed_root: &str) -> Result<serde_json::Value, String> {
 /// 关联日志定位，对外只回传粗粒度文案）。
 fn engine_op_failure(op: &str, err: pyo3::PyErr) -> String {
     let trace_id = uuid::Uuid::new_v4().simple().to_string();
-    eprintln!("[engine] 操作失败 op={op} trace_id={trace_id}: {err}");
+    tracing::error!(target: "engine", op, trace_id, error = %err, "引擎操作失败");
     format!("引擎操作失败（code=ENGINE_OP_FAILED, op={op}, trace_id={trace_id}）")
 }
 

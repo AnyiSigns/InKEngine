@@ -103,6 +103,14 @@ pub fn now_epoch() -> f64 {
         .unwrap_or(0.0)
 }
 
+/// 用户可见结果脱敏（S10）：工作区绝对路径 → `<workspace>` 占位（双斜杠
+/// 形态一并替换）。完整结果只进本地日志，回传前端的结果为脱敏形态。
+pub fn redact_workspace(text: &str, root: &std::path::Path) -> String {
+    let root_text = root.to_string_lossy();
+    text.replace(&*root_text, "<workspace>")
+        .replace(&root_text.replace('\\', "/"), "<workspace>")
+}
+
 /// 文本截断（字节上限；超限截断并追加截断标记）。
 ///
 /// 统一行为口径（H11）：所有域内 truncate_chars 副本收敛到本函数——

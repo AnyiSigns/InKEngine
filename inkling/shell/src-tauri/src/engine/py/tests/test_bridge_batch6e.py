@@ -153,13 +153,13 @@ def test_unregistered_op_returns_structured_error():
 
 
 def test_domain_ops_registered_after_split():
-    """P10：register_builtin_ops 按域拆分后，九域代表 op 均仍在注册表。"""
+    """P10：register_builtin_ops 按域拆分后，各域代表 op 均仍在注册表。"""
     bridge = _load_bridge()
     registered = set(bridge._OPS_SYNC) | set(bridge._OPS_ASYNC)
     for name in (
         "engine.rebuild",  # 引擎核心组
         "patch.apply",  # 补丁链组
-        "skill.list",  # 技能组
+        "engine.knowledge_add",  # 知识组
         "approval.gate_card_request",  # 流水线/审批组
         "graph.register_node_types",  # 图配方组
         "mcp.connect",  # MCP 组

@@ -852,7 +852,7 @@ fn copy_file_retry(source: &Path, dest: &Path) -> std::io::Result<()> {
     for attempt in 0..4 {
         match std::fs::copy(source, dest) {
             Ok(_) => return Ok(()),
-            Err(err) if attempt < 3 => {
+            Err(_) if attempt < 3 => {
                 std::thread::sleep(std::time::Duration::from_millis(50 * (attempt as u64 + 1)));
             }
             Err(err) => return Err(err),

@@ -19,10 +19,16 @@ async fn forward_async(op: &str, args: Option<JsonValue>) -> Result<JsonValue, C
         .map_err(CommandError::engine)
 }
 
-/// 转发到同步引擎 op（参数缺省时回退空对象；在异步命令体内同步阻塞派发）。
-fn forward_sync(op: &str, args: Option<JsonValue>) -> Result<JsonValue, CommandError> {
+/// 转发到同步引擎 op（参数缺省时回退空对象；同步引擎调用在 tokio 阻塞
+/// 池内执行——异步命令体内直接同步调会长时间占用 async worker）。
+async fn forward_sync(op: &str, args: Option<JsonValue>) -> Result<JsonValue, CommandError> {
     let args = args.unwrap_or_else(|| json!({}));
-    crate::engine::host::call_engine_op(op, args).map_err(CommandError::engine)
+    let op = op.to_string();
+    tauri::async_runtime::spawn_blocking(move || {
+        crate::engine::host::call_engine_op(&op, args).map_err(CommandError::engine)
+    })
+    .await
+    .map_err(|err| CommandError::internal(format!("同步 op 派发任务失败: {err}")))?
 }
 
 #[command]
@@ -32,7 +38,7 @@ pub(crate) async fn assemble_stats(args: Option<JsonValue>) -> Result<JsonValue,
 
 #[command]
 pub(crate) async fn graph_snapshot(args: Option<JsonValue>) -> Result<JsonValue, CommandError> {
-    forward_sync("graph.snapshot", args)
+    forward_sync("graph.snapshot", args).await
 }
 
 #[command]
@@ -44,17 +50,17 @@ pub(crate) async fn graph_instance_snapshot(
 
 #[command]
 pub(crate) async fn pool_snapshot(args: Option<JsonValue>) -> Result<JsonValue, CommandError> {
-    forward_sync("pool.snapshot", args)
+    forward_sync("pool.snapshot", args).await
 }
 
 #[command]
 pub(crate) async fn entities_snapshot(args: Option<JsonValue>) -> Result<JsonValue, CommandError> {
-    forward_sync("entities.snapshot", args)
+    forward_sync("entities.snapshot", args).await
 }
 
 #[command]
 pub(crate) async fn pool_evaluate(args: Option<JsonValue>) -> Result<JsonValue, CommandError> {
-    forward_sync("pool.evaluate", args)
+    forward_sync("pool.evaluate", args).await
 }
 
 #[command]
@@ -81,7 +87,7 @@ pub(crate) async fn path_clear_candidate(args: Option<JsonValue>) -> Result<Json
 pub(crate) async fn path_set_assembler_enabled(
     args: Option<JsonValue>,
 ) -> Result<JsonValue, CommandError> {
-    forward_sync("path.set_assembler_enabled", args)
+    forward_sync("path.set_assembler_enabled", args).await
 }
 
 #[command]
@@ -94,28 +100,16 @@ pub(crate) async fn cache_clear(args: Option<JsonValue>) -> Result<JsonValue, Co
     forward_async("cache.clear", args).await
 }
 
-#[command(rename = "why.audit")]
-pub(crate) async fn why_audit(args: Option<JsonValue>) -> Result<JsonValue, CommandError> {
-    forward_async("why.audit", args).await
-}
-
-#[command(rename = "sovereignty.snapshot")]
-pub(crate) async fn sovereignty_snapshot(args: Option<JsonValue>) -> Result<JsonValue, CommandError> {
-    forward_async("sovereignty.snapshot", args).await
-}
-
-#[command(rename = "suggestion.scan")]
-pub(crate) async fn suggestion_scan(args: Option<JsonValue>) -> Result<JsonValue, CommandError> {
-    forward_sync("suggestion.scan", args)
-}
-
 #[command(rename = "growth.report")]
 pub(crate) async fn growth_report(args: Option<JsonValue>) -> Result<JsonValue, CommandError> {
     forward_async("report.growth", args).await
 }
 
 /// 审计流水（只读）：读取 `set_audit` 集合（append-only 干预/自修改留痕）。
-/// 洞察事件时间线的历史底账源；集合缺省 set_audit，可由参数覆盖。
+/// 洞察事件时间线的历史底账源。集合仅允许白名单内的只读集合（默认
+/// `set_audit`）——拒绝前端任意指定集合名（防越权读取引擎其它记录面）。
+const AUDIT_READABLE_COLLECTIONS: &[&str] = &["set_audit", "sessions"];
+
 #[command(rename = "audit.list")]
 pub(crate) async fn audit_list(args: Option<JsonValue>) -> Result<JsonValue, CommandError> {
     let collection = args
@@ -125,12 +119,17 @@ pub(crate) async fn audit_list(args: Option<JsonValue>) -> Result<JsonValue, Com
         .and_then(JsonValue::as_str)
         .map(String::from)
         .unwrap_or_else(|| "set_audit".to_string());
+    if !AUDIT_READABLE_COLLECTIONS.contains(&collection.as_str()) {
+        return Err(CommandError::invalid_arg(format!(
+            "审计集合不可读: {collection}"
+        )));
+    }
     forward_async("engine.records_list", Some(json!({ "collection": collection }))).await
 }
 
 #[command(rename = "ui_spec.get")]
 pub(crate) async fn ui_spec_get(args: Option<JsonValue>) -> Result<JsonValue, CommandError> {
-    forward_sync("ui_spec.get", args)
+    forward_sync("ui_spec.get", args).await
 }
 
 #[command(rename = "ui_spec.apply")]
@@ -157,7 +156,7 @@ pub(crate) async fn todo_get(args: Option<JsonValue>) -> Result<JsonValue, Comma
 
 #[command(rename = "ui_components.get")]
 pub(crate) async fn ui_components_get(args: Option<JsonValue>) -> Result<JsonValue, CommandError> {
-    forward_sync("engine.ui_components_get", args)
+    forward_sync("engine.ui_components_get", args).await
 }
 
 #[command(rename = "ui_components.set_disabled")]

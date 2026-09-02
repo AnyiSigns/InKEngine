@@ -184,7 +184,7 @@ fn auto_extract_memory(
     )?;
     let stored = result.get("stored").and_then(JsonValue::as_array).map(|v| v.len()).unwrap_or(0);
     if stored > 0 {
-        eprintln!("[rounds] 回合账本 → 记忆提取完成（{} 条落记忆库）", stored);
+        tracing::info!(target: "rounds", stored, "回合账本 → 记忆提取完成");
     }
     Ok(())
 }
@@ -214,7 +214,7 @@ fn auto_evolve(thread_id: &str, round_counter: &mut u64) -> Result<(), String> {
         .map(|o| o.get("variants").and_then(JsonValue::as_array).map(|v| v.len()).unwrap_or(0))
         .sum();
     if landed > 0 {
-        eprintln!("[rounds] 知识演化批次完成（{} 变异体落位）", landed);
+        tracing::info!(target: "rounds", landed, "知识演化批次完成");
     }
     Ok(())
 }
@@ -251,10 +251,7 @@ fn evolve_interval_rounds() -> u64 {
 /// 留痕（trace_id 与信封联动，排障经日志定位）。
 fn engine_failure(command: &str, detail: impl std::fmt::Display) -> CommandError {
     let err = CommandError::engine(format!("{command}失败"));
-    eprintln!(
-        "[rounds] {command} 失败 trace_id={} detail={detail}",
-        err.trace_id
-    );
+    tracing::error!(target: "rounds", command, trace_id = %err.trace_id, error = %detail, "引擎操作失败");
     err
 }
 
@@ -299,7 +296,9 @@ pub(crate) fn round_send(
         model,
         // 附件（引擎 Attachment 契约数组）：随回合开篇用户消息注入
         attachments,
-        auto_accept_review: auto_accept_review.unwrap_or(true),
+        // 安全默认值：生产宿主按审批卡交互——缺省不自动接受（前端显式
+        // 传 true 才开启自动决议；漏传参数 = 保守拒绝而非静默放行）
+        auto_accept_review: auto_accept_review.unwrap_or(false),
     };
     let engine_guard = state.backend.engine.lock().unwrap();
     let engine = engine_guard
@@ -311,7 +310,7 @@ pub(crate) fn round_send(
     engine.set_event_emitter(Some(Box::new(move |event_json: &str| {
         let parsed: JsonValue = serde_json::from_str(event_json).unwrap_or(JsonValue::Null);
         if let Err(err) = stream_app.emit("inkling://round_event", parsed) {
-            eprintln!("[events] 流式事件发射失败: {err}");
+            tracing::warn!(target: "events", error = %err, "流式事件发射失败");
         }
     })));
     let outcome = engine
@@ -328,7 +327,7 @@ pub(crate) fn round_send(
     // R1：中断回合快照落盘 checkpoint（已完成回合不落盘；失败仅观测日志）
     if outcome.reason != "reply" && !steps.is_empty() {
         if let Err(err) = block_on(write_round_checkpoint(&thread_id, &round_id, &steps)) {
-            eprintln!("[rounds] checkpoint 落盘失败: {err}");
+            tracing::warn!(target: "rounds", error = %err, "checkpoint 落盘失败");
         }
     }
     // R15：回合账本自动记录（决议 11——收尾自动触发；失败仅观测日志）
@@ -345,24 +344,26 @@ pub(crate) fn round_send(
             Ok(ledger) => {
                 // 账本 → 记忆闭环（意图/结论/确认事件规则抽取入记忆库）
                 if let Err(err) = auto_extract_memory(&thread_id, ledger) {
-                    eprintln!("[rounds] 回合账本记忆提取失败: {err}");
+                    tracing::warn!(target: "rounds", error = %err, "回合账本记忆提取失败");
                 }
             }
-            Err(err) => eprintln!("[rounds] 回合账本自动记录失败: {err}"),
+            Err(err) => {
+                tracing::warn!(target: "rounds", error = %err, "回合账本自动记录失败")
+            }
         }
     }
     // R15b：账本摘要链自动合并（阈值触发：自上次合并后新增账本 ≥ 10 条；
     // 零 LLM 确定性压缩；失败仅观测日志，不阻断回合返回）
     if auto_round_ledger_enabled() {
         if let Err(err) = block_on_ledger_merge(&data_dir, &thread_id) {
-            eprintln!("[rounds] 账本摘要链自动合并失败: {err}");
+            tracing::warn!(target: "rounds", error = %err, "账本摘要链自动合并失败");
         }
     }
     // 演化闭环：知识集低频批次（每 N 回合触发一批；失败仅观测日志）
     {
         let mut counter = state.backend.evolution_round_counter.lock().unwrap();
         if let Err(err) = auto_evolve(&thread_id, &mut counter) {
-            eprintln!("[rounds] 知识演化自动触发失败: {err}");
+            tracing::warn!(target: "rounds", error = %err, "知识演化自动触发失败");
         }
     }
     Ok(json!({
@@ -406,43 +407,8 @@ pub(crate) async fn round_resume(
     .await
 }
 
-/// 回合续跑并附最新摘要：加载线程摘要链最新一条，注入 `ledger_summary`
-/// 续跑（引擎零改动感知，压缩前事实快照随续跑上下文回流）。
-#[tauri::command]
-pub(crate) async fn round_resume_with_summary(
-    app: AppHandle,
-    state: State<'_, ShellState>,
-    thread_id: String,
-    key: String,
-    decision: String,
-    reason: Option<String>,
-    edited_content: Option<JsonValue>,
-) -> Result<JsonValue, CommandError> {
-    let data_dir = app_data_dir(&app)?;
-    let dir = crate::domain::round_ledger::ledger_dir(&data_dir);
-    let latest_summary = crate::domain::round_ledger::load_summary_chain(&dir, &thread_id)
-        .last()
-        .cloned();
-    let extra = match latest_summary {
-        Some(summary) => json!({ "ledger_summary": summary }),
-        None => json!({}),
-    };
-    resume_round_with_inject(
-        &app,
-        &state,
-        &thread_id,
-        &key,
-        &decision,
-        reason.as_deref(),
-        edited_content,
-        extra,
-    )
-    .await
-}
-
-/// 续跑共享实现（round_resume / round_resume_with_summary 共用）：
-/// 读回 checkpoint 种子 → 链式捕获续跑事件 → thread_resume →
-/// 快照随返回体回传 + checkpoint 更新/清理。
+/// 续跑共享实现（round_resume 使用）：读回 checkpoint 种子 → 链式捕获
+/// 续跑事件 → thread_resume → 快照随返回体回传 + checkpoint 更新/清理。
 #[allow(clippy::too_many_arguments)]
 pub(crate) async fn resume_round_with_inject(
     app: &AppHandle,
@@ -473,11 +439,11 @@ pub(crate) async fn resume_round_with_inject(
         if let Some(engine) = guard.as_ref() {
             let stream_app = app.clone();
             engine.set_event_emitter(Some(Box::new(move |event_json: &str| {
-                let parsed: JsonValue = serde_json::from_str(event_json).unwrap_or(JsonValue::Null);
-                if let Err(err) = stream_app.emit("inkling://round_event", parsed) {
-                    eprintln!("[events] 流式事件发射失败: {err}");
-                }
-            })));
+        let parsed: JsonValue = serde_json::from_str(event_json).unwrap_or(JsonValue::Null);
+        if let Err(err) = stream_app.emit("inkling://round_event", parsed) {
+            tracing::warn!(target: "events", error = %err, "流式事件发射失败");
+        }
+    })));
         }
     }
 
@@ -541,7 +507,7 @@ pub(crate) async fn resume_round_with_inject(
     } else if let Err(err) =
         write_round_checkpoint(thread_id, &round_id, &steps).await
     {
-        eprintln!("[rounds] checkpoint 续写失败: {err}");
+        tracing::warn!(target: "rounds", error = %err, "checkpoint 续写失败");
     }
     let mut response = outcome;
     response["steps"] = json!(steps);
@@ -553,6 +519,11 @@ pub(crate) async fn resume_round_with_inject(
 /// engine.abort_current_run 操作通道——引擎侧在途回合在下一个取消检查点
 /// 退出；操作调用失败仅留观测日志——中止信号已置位，事件弧已关断，
 /// 本地回合通道的取消语义不依赖该 op 成功）。
+///
+/// 并发纪律（H12 修复）：`round_send` 全程持有 `state.backend.engine`
+/// 外层锁跨越整个回合（可长达数分钟）——引擎取消调用必须放在取该锁
+/// 之前执行（`block_on_op_async` 是独立桥通道，不需要外层锁），否则
+/// 停止按钮的引擎侧取消只能等回合自然结束后才发生，中止语义失效。
 #[tauri::command]
 pub(crate) fn round_abort(state: State<'_, ShellState>, round_id: String) -> Result<JsonValue, CommandError> {
     {
@@ -564,6 +535,16 @@ pub(crate) fn round_abort(state: State<'_, ShellState>, round_id: String) -> Res
         }
     }
     state.backend.abort_signal.abort();
+    // 引擎在途回合取消：先于外层锁调用（round_send 持锁跨整个回合，
+    // 等待锁 = 中止只能发生在回合结束后）。执行器侧 sleep/run_process
+    // 已轮询中止信号即时中断，此处取消在途 ainvoke（取消检查点退出）。
+    let engine_abort = match crate::block_on_op_async("engine.abort_current_run", json!({})) {
+        Ok(outcome) => outcome,
+        Err(err) => {
+            tracing::warn!(target: "rounds", error = %err, "引擎回合取消调用失败（中止信号已置位，不阻断）");
+            json!({ "ok": false })
+        }
+    };
     // 关断事件弧同时清 emitter（中止后不再有在途回合推前端；与 round_send
     // 收尾同口径，避免 emitter 泄漏到后续不设 emitter 的回合，#1）。
     {
@@ -572,13 +553,6 @@ pub(crate) fn round_abort(state: State<'_, ShellState>, round_id: String) -> Res
             engine.set_event_emitter(None);
         }
     }
-    let engine_abort = match crate::block_on_op_async("engine.abort_current_run", json!({})) {
-        Ok(outcome) => outcome,
-        Err(err) => {
-            eprintln!("[rounds] 引擎回合取消调用失败（中止信号已置位，不阻断）: {err}");
-            json!({ "ok": false })
-        }
-    };
     Ok(json!({
         "round_id": round_id,
         "aborted": state.backend.abort_signal.is_aborted(),
@@ -587,53 +561,6 @@ pub(crate) fn round_abort(state: State<'_, ShellState>, round_id: String) -> Res
 }
 
 // ── 过程摘要链命令（回合账本 / 摘要合并 / 记忆无感提取）──
-
-/// 回合账本记录：壳侧确定性归约回合事件 → 结构化账本落记忆目录，引擎零改动。
-///
-/// 归约不调模型（零成本、可审计）；账本 = 压缩前的事实快照，留待引擎侧
-/// `ledger.merge` op 按需增量压缩。返回落盘路径与账本 JSON。
-///
-/// 注：命令签名为前端固定契约（Tauri invoke 入参形态），参数数超 lint
-/// 阈值属命令面固有形态，维持不动。
-#[allow(clippy::too_many_arguments)]
-#[tauri::command]
-pub(crate) fn round_ledger_record(
-    app: AppHandle,
-    thread_id: String,
-    round_id: String,
-    intent: Option<String>,
-    conclusion: Option<String>,
-    events: JsonValue,
-    turn_metrics: Option<JsonValue>,
-    audit_events: Option<JsonValue>,
-) -> Result<JsonValue, CommandError> {
-    let data_dir = app_data_dir(&app)?;
-    let dir = crate::domain::round_ledger::ledger_dir(&data_dir);
-    let ev_array = events
-        .get("events")
-        .cloned()
-        .unwrap_or_else(|| events.clone())
-        .as_array()
-        .cloned()
-        .unwrap_or_default();
-    let tm = turn_metrics.unwrap_or_else(|| json!({}));
-    let au = audit_events.unwrap_or_else(|| json!([]));
-    let ledger = crate::domain::round_ledger::reduce_round(
-        &thread_id,
-        &round_id,
-        intent.as_deref(),
-        conclusion.as_deref(),
-        &ev_array,
-        &tm,
-        &au,
-    );
-    let path = crate::domain::round_ledger::write_ledger(&dir, &ledger)
-        .map_err(|err| CommandError::io(format!("回合账本落盘失败: {err}")))?;
-    Ok(json!({
-        "path": path.to_string_lossy(),
-        "ledger": ledger.to_json(),
-    }))
-}
 
 /// 回合账本摘要链读取（append-only 可回溯）。
 #[tauri::command]
@@ -652,36 +579,6 @@ pub(crate) fn round_ledger_list(app: AppHandle, thread_id: String) -> Result<Jso
     let mut ledgers = crate::domain::round_ledger::load_ledger_jsons(&dir, &thread_id);
     ledgers.sort_by_key(|l| l.get("created_at").and_then(JsonValue::as_i64).unwrap_or(0));
     Ok(json!({ "thread_id": thread_id, "ledgers": ledgers }))
-}
-
-/// 回合账本容量滚动（按 N 周或 N MB 上限，与 fingerprint_cache 同语义）：
-/// 超龄最旧删、超限最旧删；不传 thread_id 则全量线程滚动。
-#[tauri::command]
-pub(crate) fn round_ledger_roll(
-    app: AppHandle,
-    thread_id: Option<String>,
-    max_bytes: Option<i64>,
-    max_age_days: Option<i64>,
-) -> Result<JsonValue, CommandError> {
-    let data_dir = app_data_dir(&app)?;
-    let dir = crate::domain::round_ledger::ledger_dir(&data_dir);
-    let max_bytes = max_bytes
-        .unwrap_or(crate::domain::round_ledger::DEFAULT_MAX_BYTES as i64)
-        as u64;
-    let max_age = max_age_days.unwrap_or(crate::domain::round_ledger::DEFAULT_MAX_AGE_DAYS);
-    let removed = match thread_id {
-        Some(t) => crate::domain::round_ledger::roll_ledgers(&dir, &t, max_bytes, max_age)
-            .map_err(CommandError::internal)?,
-        None => {
-            let mut total = 0usize;
-            for t in crate::domain::round_ledger::list_thread_ids(&dir) {
-                total += crate::domain::round_ledger::roll_ledgers(&dir, &t, max_bytes, max_age)
-                    .map_err(CommandError::internal)?;
-            }
-            total
-        }
-    };
-    Ok(json!({ "removed": removed }))
 }
 
 /// 回合账本摘要合并：汇总线程最新摘要 + 账本事实快照，经引擎 `ledger.merge`
@@ -774,19 +671,6 @@ fn block_on_ledger_merge(data_dir: &Path, thread_id: &str) -> Result<(), String>
         .build()
         .map_err(|err| format!("合并运行时创建失败: {err}"))?
         .block_on(auto_merge_ledger_chain(data_dir, thread_id))
-}
-
-/// 记忆无感提取：回合账本（用户意图/结论/确认）经引擎 `memory.extract` op
-/// 规则抽取（零 LLM）→ 冲突仲裁（新旧并存留痕）入记忆。
-#[tauri::command]
-pub(crate) async fn round_memory_extract(
-    thread_id: String,
-    ledger: JsonValue,
-) -> Result<JsonValue, CommandError> {
-    let _ = thread_id;
-    call_engine_op_async("memory.extract", json!({ "ledger": ledger }))
-        .await
-        .map_err(|err| engine_failure("记忆提取", err))
 }
 
 // ── 单元测试 ──

@@ -49,9 +49,9 @@ const MERGE_MARKER_PREFIX: &str = "merge_marker_";
 /// 口径对齐（防漂移）：与引擎 `memory_extract.ROUND_FACT_EVENTS`
 /// 一致——执行轨迹事实 + 确认类事实。确认类必须保留：`memory.extract`
 /// 从账本 events 里按确认事件抽记忆，账本漏确认类 → 记忆永远抽不到。
-/// 契约守卫：`ledger.fact_rules` op 导出引擎权威集合，壳侧启动时校验
-/// 本常量为其子集（rounds.rs 契约检查 + 测试断言）。
-const RECOGNIZED_EVENTS: &[&str] = &[
+/// 契约守卫：`ledger.fact_rules` op 导出引擎权威集合，壳侧装配期校验
+/// 本常量为其子集（lib.rs check_ledger_fact_rules + 测试断言）。
+pub(crate) const RECOGNIZED_EVENTS: &[&str] = &[
     "tool_start",
     "tool_end",
     "plan_start",

@@ -470,7 +470,7 @@ fn window_minimize_spec() -> ExecutorSpec {
 }
 
 /// 文档解析沙箱根（工作区挂载根 + 附件落点；上传/截图文件均在此域）。
-const DOC_PARSE_ROOTS: &[&str] = &["~/.inkling/workspace", "~/.inkling/attachments"];
+pub(crate) const DOC_PARSE_ROOTS: &[&str] = &["~/.inkling/workspace", "~/.inkling/attachments"];
 
 fn doc_parse_spec() -> ExecutorSpec {
     ExecutorSpec {
@@ -638,7 +638,7 @@ fn doc_generate_run(
         .map_err(|err| ExecError::ExecutionFailed(format!("输出目录创建失败: {err}")))?;
     let stamp = std::time::SystemTime::now()
         .duration_since(std::time::UNIX_EPOCH)
-        .map(|d| d.as_secs())
+        .map(|d| d.as_millis())
         .unwrap_or(0);
     let safe_title: String = title
         .chars()

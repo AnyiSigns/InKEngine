@@ -61,13 +61,6 @@ def test_engine_propose_patch_registered_both_channels():
     assert "engine.propose_patch" in bridge._OPS_ASYNC
 
 
-def test_builtin_mcp_ops_registered():
-    """内置 server 入口：注册表查询与真实连接 op 均已登记。"""
-    bridge = _load_bridge()
-    assert "mcp.builtin_registry" in bridge._OPS_SYNC
-    assert "mcp.builtin_connect" in bridge._OPS_ASYNC
-
-
 def test_assembly_batch_ops_registered():
     """第二批组装域新增 op：assemble_stats（ENG9a-8）与 path.clear_candidate
     （ENG9a-9）须在异步注册表（前端仪表盘/clearChoice 消费）。"""
@@ -108,7 +101,6 @@ def test_backend_gap_commands_registered():
 if __name__ == "__main__":
     test_all_rust_op_names_registered_in_bridge()
     test_engine_propose_patch_registered_both_channels()
-    test_builtin_mcp_ops_registered()
     test_assembly_batch_ops_registered()
     test_backend_gap_commands_registered()
     print("op 契约全部通过")

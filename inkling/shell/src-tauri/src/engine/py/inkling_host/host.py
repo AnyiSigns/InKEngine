@@ -1167,6 +1167,52 @@ def _project_flat_connection(cfg: dict[str, Any]) -> dict[str, Any]:
     return provider
 
 
+def _restore_connection_secret(value: Any) -> Any:
+    """还原壳侧 DPAPI 加密的 api_key（``dpapi:<hex>`` 前缀 → 解密明文；
+    其余原样透传——旧明文值迁移兼容）。非 Windows 无 DPAPI，透传原值。
+    """
+    if not isinstance(value, str) or not value.startswith("dpapi:"):
+        return value
+    if os.name != "nt":
+        return value
+    try:
+        import ctypes
+        from ctypes import wintypes
+
+        class DATA_BLOB(ctypes.Structure):
+            _fields_ = [("cbData", wintypes.DWORD), ("pbData", ctypes.POINTER(ctypes.c_byte))]
+
+        crypt32 = ctypes.WinDLL("crypt32", use_last_error=True)
+        kernel32 = ctypes.WinDLL("kernel32", use_last_error=True)
+        crypt32.CryptUnprotectData.argtypes = [
+            ctypes.POINTER(DATA_BLOB),
+            ctypes.POINTER(ctypes.c_void_p),
+            ctypes.POINTER(DATA_BLOB),
+            ctypes.c_void_p,
+            ctypes.c_void_p,
+            wintypes.DWORD,
+            ctypes.POINTER(DATA_BLOB),
+        ]
+        crypt32.CryptUnprotectData.restype = wintypes.BOOL
+        blob = bytes.fromhex(value[len("dpapi:"):])
+        in_blob = DATA_BLOB(len(blob), ctypes.cast(
+            ctypes.create_string_buffer(blob), ctypes.POINTER(ctypes.c_byte)
+        ))
+        out_blob = DATA_BLOB()
+        ok = crypt32.CryptUnprotectData(
+            ctypes.byref(in_blob), None, None, None, None, 0x1, ctypes.byref(out_blob)
+        )
+        if not ok:
+            raise ctypes.WinError(ctypes.get_last_error())
+        try:
+            return ctypes.string_at(out_blob.pbData, out_blob.cbData).decode("utf-8")
+        finally:
+            kernel32.LocalFree(ctypes.cast(out_blob.pbData, ctypes.c_void_p))
+    except Exception:
+        # 解密失败（跨用户/密钥不可用）保留原值，交由调用方降级
+        return value
+
+
 def _read_connection_providers(data_dir: Path | None) -> list[dict[str, Any]]:
     """model_connection.json → 提供方数组（多提供方唯一权威形态）。
 
@@ -1174,7 +1220,8 @@ def _read_connection_providers(data_dir: Path | None) -> list[dict[str, Any]]:
     - 旧 flat 形态 = 投影为单提供方（迁移期兼容读）；
     - 缺文件/非法 = 空数组（回落离线桩）。
     与壳侧 :func:`read_connection_providers` 归一化语义一致，读写单一
-    权威，读取方不感知文件形态。
+    权威，读取方不感知文件形态。api_key 经壳侧 DPAPI 加密落盘
+    （``dpapi:`` 前缀），此处还原为明文供真实模型建链。
     """
     if data_dir is None:
         return []
@@ -1190,8 +1237,13 @@ def _read_connection_providers(data_dir: Path | None) -> list[dict[str, Any]]:
         return []
     providers = cfg.get("providers")
     if isinstance(providers, list):
-        return [p for p in providers if isinstance(p, dict)]
-    return [_project_flat_connection(cfg)]
+        result = [p for p in providers if isinstance(p, dict)]
+    else:
+        result = [_project_flat_connection(cfg)]
+    for provider in result:
+        if isinstance(provider.get("api_key"), str):
+            provider["api_key"] = _restore_connection_secret(provider["api_key"])
+    return result
 
 
 def _model_config_from_file(data_dir: Path | None) -> dict[str, str]:

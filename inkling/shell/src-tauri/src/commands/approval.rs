@@ -39,6 +39,9 @@ pub struct ApprovalLedger {
     auto_all_review: Arc<Mutex<bool>>,
     auto_tools: Arc<Mutex<HashSet<String>>>,
     resolutions: Arc<Mutex<HashMap<String, bool>>>,
+    /// 引擎通道一次性放行（`os.dispatch` 回调登记；命中即消费，防渲染
+    /// 进程经命令面重放引擎已批准的同参数调用——引擎放行态不常驻台账）
+    engine_approvals: Arc<Mutex<HashSet<String>>>,
 }
 
 impl ApprovalLedger {
@@ -63,6 +66,7 @@ impl ApprovalLedger {
             auto_all_review: Arc::new(Mutex::new(false)),
             auto_tools: Arc::new(Mutex::new(HashSet::new())),
             resolutions: Arc::new(Mutex::new(HashMap::new())),
+            engine_approvals: Arc::new(Mutex::new(HashSet::new())),
         }
     }
 
@@ -79,14 +83,14 @@ impl ApprovalLedger {
 
     /// 引擎通道放行态登记（`os.dispatch` 回调）：引擎审批流水线先行裁决
     /// （approval.gate_card_request / 自动审批 / 策略档，seed 单源），壳侧
-    /// 将引擎放行态记入台账——台账由引擎审批卡决议态驱动，客户端通道与
-    /// 引擎通道共用同一裁决函数，无任何硬编码放行。
+    /// 将引擎放行态记入一次性台账——仅引擎通道本次放行消费，不留常驻
+    /// 批准（防渲染进程重放同参数调用）。
     pub fn record_engine_dispatch(&self, tool: &str, args: &BTreeMap<String, JsonValue>) {
         if self.gate.review_needed(tool) {
-            self.resolutions
+            self.engine_approvals
                 .lock()
                 .unwrap()
-                .insert(fingerprint_key(tool, &strip_internal_keys(args)), true);
+                .insert(fingerprint_key(tool, &strip_internal_keys(args)));
         }
     }
 
@@ -130,11 +134,19 @@ impl ApprovalLedger {
         if self.auto_tools.lock().unwrap().contains(tool) {
             return true;
         }
-        self.resolutions
+        let fingerprint = fingerprint_key(tool, args);
+        if self
+            .resolutions
             .lock()
             .unwrap()
-            .get(&fingerprint_key(tool, args))
+            .get(&fingerprint)
             .copied()
             .unwrap_or(false)
+        {
+            return true;
+        }
+        // 引擎通道一次性放行：命中即消费（remove 原子完成判中 + 失效），
+        // 命令面后续同参数调用不再命中（防重放）
+        self.engine_approvals.lock().unwrap().remove(&fingerprint)
     }
 }

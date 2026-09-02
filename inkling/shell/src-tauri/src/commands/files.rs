@@ -7,9 +7,17 @@ use super::error::CommandError;
 use crate::{DEFAULT_MOUNT_ROOT, expand_home};
 
 /// 文档解析（PDF/Office → 结构化 JSON；与壳执行器同源域函数，路径根收口）。
+///
+/// 命令面与执行器面沙箱同根（`DOC_PARSE_ROOTS`）：任意路径读取 =
+/// 渲染进程可越界读主目录任意文档，须与执行器一致收口。
 #[tauri::command]
 pub(crate) fn doc_parse(path: String) -> Result<JsonValue, CommandError> {
-    let resolved = expand_home(&path);
+    let roots: Vec<String> = crate::executors::impls::DOC_PARSE_ROOTS
+        .iter()
+        .map(|root| root.to_string())
+        .collect();
+    let resolved = crate::executors::impls::check_path_roots(&roots, &path)
+        .map_err(|err| CommandError::new("SANDBOX", err.to_string()))?;
     let bytes = std::fs::read(&resolved)
         .map_err(|err| CommandError::io(format!("读取文档失败: {err}")))?;
     crate::domain::doc_ops::parse_document(&bytes).map_err(CommandError::internal)

@@ -16,7 +16,6 @@ pub mod memory;
 pub mod ops;
 pub mod models;
 pub mod offline;
-pub mod process;
 pub mod rounds;
 pub mod search;
 pub mod sessions;

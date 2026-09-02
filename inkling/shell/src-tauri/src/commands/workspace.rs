@@ -57,7 +57,7 @@ pub(crate) async fn workspace_authorize(
     Ok(json!({ "authorized": true, "root": canonical.display().to_string() }))
 }
 
-/// 撤销授权（记录置空；重启后不再恢复）。
+/// 撤销授权（记录置空 + 同会话执行器动态根回收；重启后不再恢复）。
 #[tauri::command]
 pub(crate) async fn workspace_revoke(
     app: AppHandle,
@@ -65,6 +65,22 @@ pub(crate) async fn workspace_revoke(
 ) -> Result<JsonValue, CommandError> {
     let data_dir = app_data_dir(&app).map_err(CommandError::internal)?;
     ensure_engine(&app, &state, &data_dir).map_err(CommandError::internal)?;
+    // 回收本会话执行器动态根（state.mounts）：授权与挂载双根集合——
+    // 只清记录不动 mounts = 撤销后该目录仍是 open_file/shell_exec 路径根
+    // （os.dispatch 每次用 mounts 重建 CallGate::with_roots），权限语义不闭合。
+    let security = security_domain_from_seed().map_err(CommandError::internal)?;
+    let root = crate::domain::security::load_authorization(&security)
+        .await
+        .map_err(CommandError::internal)?;
+    if let Some(root) = root {
+        let canonical = std::fs::canonicalize(&root).ok();
+        let mut mounts = state.mounts.lock().unwrap();
+        if let Some(canonical) = canonical {
+            mounts.retain(|mount| !mount.starts_with(&canonical));
+        } else {
+            mounts.clear();
+        }
+    }
     crate::domain::security::persist_authorization(json!({ "root": "" }))
         .await
         .map_err(CommandError::internal)?;

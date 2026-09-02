@@ -540,7 +540,9 @@ export function ModelSection(): JSX.Element {
   const [auditModelId, setAuditModelId] = useState('');
   const [archiveModels, setArchiveModels] = useState<string[]>([]);
 
-  // 模型清单 = 各提供方已勾选 models ∪ 档案库（旧数据兜底）；输入框/档位共用。
+  // 模型清单 = 当前（激活）提供方的已勾选 models ∪ 档案库（旧数据兜底）；
+  // 换当前提供方后档位候选随当前连接切换（不再跨提供方并集——档位模型
+  // 归属当前连接，候选同样只列当前连接可用的模型，配错端点必失败的场景消除）。
   useEffect(() => {
     if (!backend.available) return;
     void backend
@@ -553,9 +555,15 @@ export function ModelSection(): JSX.Element {
   }, [backend]);
 
   const allModels = useMemo(() => {
-    const fromProviders = providers.flatMap((p) => p.models);
-    return Array.from(new Set([...fromProviders, ...archiveModels])).sort((a, b) => a.localeCompare(b));
-  }, [providers, archiveModels]);
+    const current = activeProvider?.models ?? [];
+    const fromCurrent = Array.isArray(current) ? current : [];
+    // 候选 = 当前提供方模型清单；无清单（旧配置/未探测补录）才回落全局
+    // 档案，避免跨提供方候选与端点错配（当前连接消费 providers[0] 同源）。
+    if (fromCurrent.length > 0) {
+      return Array.from(new Set(fromCurrent)).sort((a, b) => a.localeCompare(b));
+    }
+    return Array.from(new Set(archiveModels)).sort((a, b) => a.localeCompare(b));
+  }, [activeProvider, archiveModels]);
 
   const simTouchedRef = useRef(false);
   const readyRef = useRef(false);
@@ -625,30 +633,61 @@ export function ModelSection(): JSX.Element {
   const syncTierModels = (next: { router?: string; audit?: string }): void => {
     if (next.router !== undefined) setRouterModelId(next.router);
     if (next.audit !== undefined) setAuditModelId(next.audit);
-    const first = providers[0];
-    if (!first) return;
-    const nextFirst: ProviderDraft = {
-      ...first,
-      router_model_id: next.router ?? first.router_model_id,
-      audit_model_id: next.audit ?? first.audit_model_id,
+    const current = activeProvider;
+    if (!current) return;
+    const nextCurrent: ProviderDraft = {
+      ...current,
+      router_model_id: next.router ?? current.router_model_id,
+      audit_model_id: next.audit ?? current.audit_model_id,
     };
-    const nextList = listWithFirst(nextFirst);
+    const nextList = replaceProvider(nextCurrent);
     setProviders(nextList);
     void persist(nextList, simulationTier, globalCompression);
   };
 
-  const listWithFirst = (first: ProviderDraft): ProviderDraft[] =>
-    providers.map((p, i) => (i === 0 ? first : p));
+  /** 替换指定提供方（按 provider_id；缺席追加——当前提供方落位保持）。
+   *  档位编辑归属 = 当前（激活）提供方：入参已是当前项的更新副本。 */
+  const replaceProvider = (draft: ProviderDraft): ProviderDraft[] =>
+    providers.some((p) => p.provider_id === draft.provider_id)
+      ? providers.map((p) => (p.provider_id === draft.provider_id ? draft : p))
+      : [...providers, draft];
+
+  /** 切换当前提供方（点选即设当前连接）：选中项升为 providers[0] 并落盘。
+   *  引擎消费 providers[0]（当前连接解析同源）——换提供方后档位候选与
+   *  消费同步切换，不在「显示 A、消费 B」的错配上编辑档位。 */
+  const makeCurrent = (providerId: string): void => {
+    if (providerId === (activeProvider?.provider_id ?? providers[0]?.provider_id)) return;
+    const target = providers.find((p) => p.provider_id === providerId);
+    if (!target) return;
+    const nextList = [target, ...providers.filter((p) => p.provider_id !== providerId)];
+    setProviders(nextList);
+    setActiveProviderId(providerId);
+    setRouterModelId(target.router_model_id);
+    setAuditModelId(target.audit_model_id);
+    void persist(nextList, simulationTier, globalCompression);
+  };
 
   const handleCommitProvider = (draft: ProviderDraft): void => {
     const existing = providers.some((p) => p.provider_id === draft.provider_id);
-    const nextList = existing
-      ? providers.map((p) => (p.provider_id === draft.provider_id ? draft : p))
-      : [...providers, draft];
-    setProviders(nextList);
-    setActiveProviderId(draft.provider_id);
+    // 新增提供方升为当前连接（后续探测/勾选/档位候选与消费立即指向新
+    // 端点）；编辑当前提供方保持其当前连接位并同步档位选中态；编辑非
+    // 当前提供方不改变当前连接（避免「显示 A、消费 B」——引擎消费
+    // providers[0]，UI 候选/档位归属 = 同一当前连接）。
+    const wasCurrent = providers[0]?.provider_id === draft.provider_id;
+    let effective: ProviderDraft[];
+    if (existing) {
+      effective = providers.map((p) => (p.provider_id === draft.provider_id ? draft : p));
+    } else {
+      effective = [draft, ...providers.filter((p) => p.provider_id !== draft.provider_id)];
+    }
+    setProviders(effective);
+    if (wasCurrent || !existing) {
+      setActiveProviderId(draft.provider_id);
+      setRouterModelId(draft.router_model_id ?? '');
+      setAuditModelId(draft.audit_model_id ?? '');
+    }
     setModal(null);
-    void persist(nextList, simulationTier, globalCompression);
+    void persist(effective, simulationTier, globalCompression);
   };
 
   const handleAdd = (mode: 'template' | 'custom'): void => {
@@ -664,7 +703,15 @@ export function ModelSection(): JSX.Element {
   const handleDelete = (providerId: string): void => {
     const nextList = providers.filter((p) => p.provider_id !== providerId);
     setProviders(nextList);
-    if (activeProviderId === providerId) setActiveProviderId(nextList[0]?.provider_id ?? null);
+    // 删除当前提供方：后继第一个自动成为新当前连接（档位候选/消费随
+    // 切换，providers[0] 永远 = 引擎消费的当前连接）。
+    if (activeProviderId === providerId || providers[0]?.provider_id === providerId) {
+      const successor = nextList[0];
+      setActiveProviderId(successor?.provider_id ?? null);
+      setRouterModelId(successor?.router_model_id ?? '');
+      setAuditModelId(successor?.audit_model_id ?? '');
+      if (successor?.compression_percent) setGlobalCompression(successor.compression_percent);
+    }
     void persist(nextList, simulationTier, globalCompression);
   };
 
@@ -690,7 +737,7 @@ export function ModelSection(): JSX.Element {
       <ProviderList
         providers={providers}
         activeProviderId={activeProvider?.provider_id ?? null}
-        onSelect={setActiveProviderId}
+        onSelect={makeCurrent}
         onEdit={handleEdit}
         onDelete={handleDelete}
         onAddTemplate={() => handleAdd('template')}

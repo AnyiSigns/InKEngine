@@ -14,6 +14,7 @@ use serde_json::{json, Value as JsonValue};
 use tauri::{AppHandle, Emitter, State};
 
 use super::error::CommandError;
+use crate::domain::session as session_domain;
 use crate::domain::steps::{RoundStepsTransport, ToolTitleResolver};
 use crate::engine::host::{RoundRequest, call_engine_op_async};
 use crate::{CAPABILITY_COLLECTION, CAPABILITY_KEY, ShellState, app_data_dir, block_on, block_on_op_async, ensure_engine};
@@ -172,15 +173,14 @@ fn record_round_ledger_auto(
 /// 自动记忆提取（账本 → 记忆闭环：回合收尾静默触发，失败仅观测日志）。
 ///
 /// 复用 `memory.extract` 引擎 op——零 LLM 规则抽取（意图/结论/确认事件）
-/// + 冲突仲裁（新旧并存留痕），把回合账本沉淀为可召回记忆。账本已落盘，
-/// 提取失败不影响回合返回（观测侧语义）。
-fn auto_extract_memory(
-    thread_id: &str,
-    ledger_json: &JsonValue,
-) -> Result<(), String> {
+/// + 冲突仲裁（新旧并存留痕），把回合账本沉淀为可召回记忆。记忆口径 =
+/// 用户级长程共享：抽取不带 thread 维度（thread_id 无意义——抽取落用户级
+/// 命名空间，跨线程回合事实同域积累，经 memory.list 整面可管）。账本已
+/// 落盘，提取失败不影响回合返回（观测侧语义）。
+fn auto_extract_memory(ledger_json: &JsonValue) -> Result<(), String> {
     let result = block_on_op_async(
         "memory.extract",
-        json!({ "thread_id": thread_id, "ledger": ledger_json }),
+        json!({ "ledger": ledger_json }),
     )?;
     let stored = result.get("stored").and_then(JsonValue::as_array).map(|v| v.len()).unwrap_or(0);
     if stored > 0 {
@@ -315,7 +315,12 @@ pub(crate) fn round_send(
     })));
     let outcome = engine
         .round(request)
-        .map_err(|err| engine_failure("回合执行", err))?;
+        .map_err(|err| {
+            // 失败路径同样清 emitter：避免 emitter 悬挂到后续回合把后台 op
+            // 事件误推前端（#1 同口径——此前仅在成功路径清，失败泄漏）
+            engine.set_event_emitter(None);
+            engine_failure("回合执行", err)
+        })?;
     // 收尾清 emitter：避免上一轮 emitter 泄漏到后续不设 emitter 的回合，
     // 把事件误推前端、混入错误 round（#1）。
     engine.set_event_emitter(None);
@@ -343,7 +348,7 @@ pub(crate) fn round_send(
         match &ledger_json {
             Ok(ledger) => {
                 // 账本 → 记忆闭环（意图/结论/确认事件规则抽取入记忆库）
-                if let Err(err) = auto_extract_memory(&thread_id, ledger) {
+                if let Err(err) = auto_extract_memory(ledger) {
                     tracing::warn!(target: "rounds", error = %err, "回合账本记忆提取失败");
                 }
             }
@@ -359,12 +364,23 @@ pub(crate) fn round_send(
             tracing::warn!(target: "rounds", error = %err, "账本摘要链自动合并失败");
         }
     }
+    // R15c：账本容量滚动（回合收尾接线：只滚已合并入摘要链的旧账本，
+    // 未合并增量保留；容量界 90 天 / 50MB 生效，失败仅观测日志）
+    if auto_round_ledger_enabled() {
+        if let Err(err) = roll_round_ledgers(&data_dir, &thread_id) {
+            tracing::warn!(target: "rounds", error = %err, "账本容量滚动失败");
+        }
+    }
     // 演化闭环：知识集低频批次（每 N 回合触发一批；失败仅观测日志）
     {
         let mut counter = state.backend.evolution_round_counter.lock().unwrap();
         if let Err(err) = auto_evolve(&thread_id, &mut counter) {
             tracing::warn!(target: "rounds", error = %err, "知识演化自动触发失败");
         }
+    }
+    // 回合收尾会话刷新（标题生成/消息计数/活跃时间落库；幂等，失败仅观测）
+    if let Err(err) = block_on(session_domain::refresh_session_after_round(&thread_id)) {
+        tracing::warn!(target: "rounds", error = %err, "回合后会话刷新失败");
     }
     Ok(json!({
         "round_id": round_id,
@@ -461,6 +477,7 @@ pub(crate) async fn resume_round_with_inject(
     inject[key] = match decision {
         "reject" => json!("reject"),
         "edit" => json!(edited_content.unwrap_or_else(|| json!("accept"))),
+        "terminate" => json!("terminate"),
         _ => json!("accept"),
     };
     if let JsonValue::Object(extra) = extra_inject {
@@ -508,6 +525,10 @@ pub(crate) async fn resume_round_with_inject(
         write_round_checkpoint(thread_id, &round_id, &steps).await
     {
         tracing::warn!(target: "rounds", error = %err, "checkpoint 续写失败");
+    }
+    // 续跑收尾会话刷新（标题/消息计数/活跃时间落库；幂等，失败仅观测）
+    if let Err(err) = session_domain::refresh_session_after_round(thread_id).await {
+        tracing::warn!(target: "rounds", error = %err, "续跑后会话刷新失败");
     }
     let mut response = outcome;
     response["steps"] = json!(steps);
@@ -671,6 +692,18 @@ fn block_on_ledger_merge(data_dir: &Path, thread_id: &str) -> Result<(), String>
         .build()
         .map_err(|err| format!("合并运行时创建失败: {err}"))?
         .block_on(auto_merge_ledger_chain(data_dir, thread_id))
+}
+
+/// 回合账本容量滚动（收尾接线）：按默认容量界（90 天 / 50MB）滚动该线程
+/// 已合并账本——合并标记之后的未合并增量保留（`roll_ledgers_merged` 语义）。
+fn roll_round_ledgers(data_dir: &Path, thread_id: &str) -> Result<usize, String> {
+    let dir = crate::domain::round_ledger::ledger_dir(data_dir);
+    crate::domain::round_ledger::roll_ledgers_merged(
+        &dir,
+        thread_id,
+        crate::domain::round_ledger::DEFAULT_MAX_BYTES,
+        crate::domain::round_ledger::DEFAULT_MAX_AGE_DAYS,
+    )
 }
 
 // ── 单元测试 ──

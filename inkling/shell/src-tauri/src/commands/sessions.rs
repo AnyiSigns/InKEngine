@@ -54,6 +54,15 @@ pub(crate) async fn session_refresh(thread_id: String) -> Result<JsonValue, Comm
         .map_err(CommandError::internal)
 }
 
+/// 会话消息回取（冷启动/切会话历史恢复：最新检查点消息；无回合 = 空数组）。
+#[tauri::command]
+pub(crate) async fn session_messages(thread_id: String) -> Result<JsonValue, CommandError> {
+    let messages = session::fetch_thread_messages(&thread_id)
+        .await
+        .map_err(CommandError::internal)?;
+    Ok(json!({ "thread_id": thread_id, "messages": messages }))
+}
+
 /// 会话分支树（链索引 → 叶树；新建会话 = 空树）。
 #[tauri::command]
 pub(crate) async fn session_tree(thread_id: String) -> Result<JsonValue, CommandError> {

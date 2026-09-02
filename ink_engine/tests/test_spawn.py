@@ -471,3 +471,90 @@ async def test_instance_step_limit_marks_instance_failed(memory_storage):
         for e in collector.events
         if e.type == "error"
     )
+
+
+async def test_collab_spawn_flowback_preserves_parent_history(memory_storage):
+    """P0 回归：协作者 spawn 只回流结果通道，父会话历史不被整表替换。
+
+    复现根因：协作者（decider 形态）子图在 spawn 时以无 schema 实例执行，
+    ``subgraph_overlay_delta`` 对 schema=None 直接 return dict(final_state)
+    ——实例完整终态（messages/input/tool_rounds）裸覆盖父状态，父 agent
+    消息链被整表替换。修复后：子图声明 schema（messages=add_messages +
+    reply 结果通道），spawn 回流经 ``subgraph_flowback_overlay`` 只携带
+    声明的结果通道（additive 族须父引擎同族承接）；父 messages/input/
+    tool_rounds/step_args 原样保留。
+    """
+    from ink_engine.core.state import StateSchema
+
+    # ── 协作者子图（真实 decider 形态：llm_decider 终态返回整条消息链 +
+    #     input 回显 + tool_rounds + reply；schema 与宿主 _build_collaborator_graph
+    #     同款：messages=add_messages，reply=结果摘要通道）──
+    async def collab_decider(ctx):
+        task = ctx.state.get("input", "")
+        return {
+            "messages": [
+                {"role": "system", "content": "（协作者 persona：你是分析师）"},
+                {"id": "round_input:r1", "role": "user", "content": task},
+                {
+                    "role": "assistant",
+                    "content": "评审意见：方案可行，补充边界用例。",
+                    "name": "分析师",
+                },
+            ],
+            "input": task,
+            "tool_rounds": 3,
+            "step_args": {},
+            "reply": "评审通过，附边界用例建议。",
+        }
+
+    collab = Graph(name="collab:analyst", entry="llm_decider")
+    collab.add_node("llm_decider", collab_decider)
+    collab.add_exit("llm_decider")
+    collab.schema = StateSchema({"messages": "add_messages", "reply": None})
+
+    parent_history = [
+        {"role": "system", "content": "主 agent persona"},
+        {"id": "round_input:r1", "role": "user", "content": "请帮我修改 X 并评审"},
+        {"role": "assistant", "content": "开始处理，召唤协作者评审。"},
+        {
+            "role": "tool",
+            "tool_call_id": "c1",
+            "content": "已召唤协作者 分析师 处理子任务（结果将回流汇总）。",
+        },
+    ]
+
+    async def route(ctx):
+        # 主 agent 判断需协作者 → ctx.spawn 物化（宿主 make_collab_request_executor
+        # 同路径：{input: task, step_args: {}}）
+        ctx.spawn(collab, {"input": "分析 X", "step_args": {}})
+        return {}
+
+    engine = make_engine(_parent_graph(route), storage=memory_storage)
+    state, result = await _run(
+        engine,
+        state={
+            "messages": parent_history,
+            "input": "请帮我修改 X 并评审",
+            "tool_rounds": 2,
+            "step_args": {"collect": {"tool": "collect", "args": {}}},
+        },
+        thread_id="t1",
+        round_id="r1",
+    )
+    assert result.reason == TerminateReason.REPLY
+    # 父会话历史保留：messages 链不被整表替换（无协作者消息混入）
+    assert state["messages"] == parent_history
+    assert state["input"] == "请帮我修改 X 并评审"
+    assert state["tool_rounds"] == 2
+    assert state["step_args"] == {"collect": {"tool": "collect", "args": {}}}
+    assert "known_lessons" not in state  # 子图内部结构键不回流
+    # 只回流结果摘要通道：协作者终态 reply 进父状态（主 agent 可收口汇总）
+    assert state["reply"] == "评审通过，附边界用例建议。"
+    # 实例消息链确在子链内产生（隔离执行不丢），但未污染父消息
+    cps = await memory_storage.list_checkpoints("t1:spawn:0")
+    assert cps
+    assert any(
+        "评审意见：方案可行" in m["content"]
+        for cp in cps
+        for m in (cp.state.get("messages") or [])
+    )

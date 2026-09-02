@@ -34,7 +34,11 @@ from ink_engine.core.approval import DefaultInterruptPolicy, InterruptPolicy
 from ink_engine.core.context import (
     ThresholdCompressionPolicy,
 )
-from ink_engine.core.declarative_tools import EndpointType
+from ink_engine.core.declarative_tools import (
+    RETRIEVAL_CONTROLLED_FETCH,
+    EndpointType,
+    make_controlled_fetch_executor,
+)
 from ink_engine.core.events import CollectorTransport, EngineEvent, EngineTransport
 from ink_engine.core.llm import AsyncLLM, create_llm
 from ink_engine.core.logging import get_logger
@@ -581,22 +585,24 @@ async def boot_inkling(
         except Exception as exc:  # 调度失败只记日志，不阻断沉淀
             logger.warning("路径装配审计落库调度失败（忽略）: %s", exc)
 
-    if (
-        path_flags.edge_evidence_enabled
-        or path_flags.settle_hooks_enabled
-        or path_flags.assembler_enabled
-    ):
+    # 边证据库/指纹缓存随数据目录落盘（派生数据，可由运行历史重建）；
+    # 审计 sink 经 storage 落 append-only 审计集合（storage 在 boot 后
+    # 可用，经 holder 惰性取用）。
+    # 注意：不再按 path_flags 门控创建——干预 op（edge.*/cache.*）与
+    # 架构页边证据视图须读真实落盘库；门控只决定机制是否参与回合
+    # （settle/assembler hook 注册），存储本身恒装配并挂 runtime。
+    if data_dir:
         from ink_engine.core.edge_evidence import EdgeEvidenceStore
 
         evidence_store = EdgeEvidenceStore(
             db_path=str(data_dir / "edge_evidence.sqlite")
         )
-    if path_flags.fingerprint_cache_enabled:
         from ink_engine.core.fingerprint_cache import FingerprintCacheStore
 
         fingerprint_store = FingerprintCacheStore(
             db_path=str(data_dir / "fingerprint_cache.sqlite")
         )
+    if path_flags.fingerprint_cache_enabled:
         from ink_engine.core.skill_crystal import KnowledgeSkillStore
 
         # 合并容器：技能 = 知识集 kind=path 条目（单一权威 = 知识集；
@@ -763,6 +769,13 @@ async def boot_inkling(
     runtime = await InkRuntime(_five_source_factory(bundle)).boot(host, recipe)
     runtime_holder["runtime"] = runtime
     revert_state["runtime"] = runtime
+    # 干预 op / 架构页边证据视图消费的运行期存储挂载（桥接层
+    # runtime.edge_evidence_store / runtime.fingerprint_cache_store）：
+    # 真实落盘实例，干预不再自建 :memory: 假库。
+    if evidence_store is not None:
+        runtime.edge_evidence_store = evidence_store
+    if fingerprint_store is not None:
+        runtime.fingerprint_cache_store = fingerprint_store
     # 回合工具上限覆盖（能力记录设置项）启动装载：默认无记录 = 回落
     # seed graph.json 节点 config 值；设置保存后经 capability_put →
     # engine.rebuild 路径刷新
@@ -1570,6 +1583,7 @@ def _build_collaborator_graph(spec: Any, llm: Any = None) -> Any:
     优先取 config 覆盖，回落会话默认模型）。
     """
     from ink_engine.core.graph import Graph
+    from ink_engine.core.state import StateSchema
 
     from .graph_recipe import (
         COND_FINISHED,
@@ -1580,6 +1594,15 @@ def _build_collaborator_graph(spec: Any, llm: Any = None) -> Any:
     )
 
     graph = Graph(name=f"collab:{spec.id}", entry="llm_decider")
+    # 协作者子图状态 schema（决策：「只回流结果通道」）：
+    # - messages = add_messages：子图内消息按 id/内容追加归约（协作者自己
+    #   的工具循环续接/中断重入不整链覆盖），且随 spawn 回流按 additive
+    #   语义求差——不会整表替换父消息链；
+    # - reply = 产出/结果摘要通道（终态回复文本），spawn 回流即它；
+    # - 未声明的键（input/tool_rounds/step_args/results 等子图内部结构）
+    #   不随 spawn 回流——父回合历史不被实例终态裸覆盖（引擎
+    #   subgraph_flowback_overlay：声明结果通道才回流）。
+    graph.schema = StateSchema({"messages": "add_messages", "reply": None})
     decider_config: dict[str, Any] = {
         "system_prompt": spec.persona,
         "max_tool_rounds": MAX_TOOL_ROUNDS,
@@ -1639,6 +1662,13 @@ def register_host_executors(
     runtime.harness_registry.declarative.register(
         EndpointType.HTTP_FETCH,
         make_http_fetch_executor(),
+    )
+    # 受控取回（collect_material url 档）：单声明内拆语义——url 档走受控
+    # 执行体（策略/审批已在门禁先行，执行体只做协议收口 + 契约产物），
+    # file/text 档仍经 MCP 分发到 inkling_exec（exec 保持 fail-closed 深度防御）。
+    runtime.harness_registry.declarative.register(
+        RETRIEVAL_CONTROLLED_FETCH,
+        make_controlled_fetch_executor(),
     )
     runtime.harness_registry.declarative.register(
         EndpointType.FILE_OPS,

@@ -47,6 +47,17 @@ mod dpapi {
     /// CRYPTPROTECT_UI_FORBIDDEN（无 UI 提示，静默加密/解密）。
     const CRYPTPROTECT_UI_FORBIDDEN: u32 = 0x1;
 
+    /// 测试注入口：按线程置位后 protect 恒失败（隔离其它线程真实加密）。
+    #[cfg(test)]
+    thread_local! {
+        static FAIL_PROTECT: std::cell::Cell<bool> = const { std::cell::Cell::new(false) };
+    }
+
+    #[cfg(test)]
+    pub(crate) fn set_fail_protect(fail: bool) {
+        FAIL_PROTECT.with(|flag| flag.set(fail));
+    }
+
     fn protect_bytes(plaintext: &[u8]) -> Result<Vec<u8>, String> {
         let in_blob = DataBlob {
             cb_data: plaintext.len() as u32,
@@ -112,6 +123,10 @@ mod dpapi {
     }
 
     pub fn protect(plaintext: &str) -> Result<String, String> {
+        #[cfg(test)]
+        if FAIL_PROTECT.with(|flag| flag.get()) {
+            return Err("注入：DPAPI 加密失败（测试桩）".to_string());
+        }
         let blob = protect_bytes(plaintext.as_bytes())?;
         Ok(format!("{DPAPI_PREFIX}{}", hex::encode(blob)))
     }
@@ -138,16 +153,53 @@ mod dpapi {
     }
 }
 
-/// 落盘保护：Windows = DPAPI 加密（``dpapi:<hex>``）；已加密/打码值
-/// 幂等透传；非 Windows = 明文透传。
+/// 落盘保护（写入侧主入口）：Windows = DPAPI 加密（``dpapi:<hex>``）；
+/// 已加密/打码值幂等透传；非 Windows = 明文透传。
+///
+/// 打码占位值（``****`` 前缀）是「前端未变更」形态，不是新密钥——跳过
+/// 落盘原样透传，防把打码占位当作明文密钥加密写盘（批次 5 凭据链路）。
+///
+/// fail-closed（R1）：加密失败不产出明文——返回空串由调用方留痕，
+/// 调用方须避免把空串当作新密钥落盘（写盘侧失败即中止保存见
+/// [`super::model_archive`] / [`super::web_search`]）。
 pub fn protect_secret(plaintext: &str) -> String {
+    match protect_secret_checked(plaintext) {
+        Ok(value) => value,
+        Err(err) => {
+            tracing::warn!(target: "crypto", error = %err, "DPAPI 加密失败（不落明文，回落空串）");
+            String::new()
+        }
+    }
+}
+
+/// DPAPI 加密保护（明文 → 密文；失败 = Err 带原因，绝不产出明文）。
+///
+/// - 空串 = Ok("")；
+/// - ``dpapi:`` 前缀/打码占位值 = Ok(原值)（幂等透传）；
+/// - Windows = `dpapi::protect` 成功 Ok(密文)、失败 Err(带原因)；
+/// - 非 Windows = Ok(明文透传，符合既有跨平台回落设计)。
+pub fn protect_secret_checked(plaintext: &str) -> Result<String, String> {
     if plaintext.is_empty() {
-        return String::new();
+        return Ok(String::new());
     }
     if plaintext.starts_with(DPAPI_PREFIX) || is_masked(plaintext) {
-        return plaintext.to_string();
+        return Ok(plaintext.to_string());
     }
-    dpapi::protect(plaintext).unwrap_or_else(|_| plaintext.to_string())
+    #[cfg(windows)]
+    {
+        dpapi::protect(plaintext)
+    }
+    #[cfg(not(windows))]
+    {
+        Ok(plaintext.to_string())
+    }
+}
+
+/// 测试注入：Windows 下置位后 dpapi::protect 恒失败（按线程隔离，
+/// 不影响其它测试线程的真实加密）。
+#[cfg(all(windows, test))]
+pub(crate) fn force_dpapi_protect_failure(fail: bool) {
+    dpapi::set_fail_protect(fail);
 }
 
 /// 存储还原：``dpapi:`` 前缀 = DPAPI 解密；其余 = 原样（明文/旧值）。
@@ -190,4 +242,65 @@ pub fn mask_secret(value: &str) -> String {
 /// 打码值判定（写入侧识别「未变更」形态，跳过重写）。
 pub fn is_masked(value: &str) -> bool {
     value.starts_with(MASK_PREFIX)
+}
+
+#[cfg(test)]
+mod tests {
+    use super::*;
+
+    #[test]
+    fn protect_skips_masked_placeholder_and_encrypted_prefix() {
+        // 打码占位（前端「未变更」）不是新密钥：原样透传，防打码值被当
+        // 明文密钥加密落盘（批次 5 凭据链路）。
+        assert_eq!(protect_secret("****abcd"), "****abcd");
+        assert_eq!(protect_secret("dpapi:abc"), "dpapi:abc");
+        assert_eq!(protect_secret(""), "");
+    }
+
+    #[test]
+    fn mask_secret_roundtrip_keeps_placeholder() {
+        assert_eq!(mask_secret("****abcd"), "****abcd");
+        assert_eq!(mask_secret(""), "");
+    }
+
+    #[test]
+    fn is_masked_recognizes_only_star_prefix() {
+        assert!(is_masked("****1234"));
+        assert!(!is_masked("sk-1234"));
+        assert!(!is_masked(""));
+    }
+
+    #[test]
+    fn protect_secret_checked_passthrough_masked_and_prefix() {
+        // 幂等透传不打保护器（空串/打码占位/已加密值）
+        assert_eq!(protect_secret_checked("").unwrap(), "");
+        assert_eq!(protect_secret_checked("****abcd").unwrap(), "****abcd");
+        assert_eq!(protect_secret_checked("dpapi:abc").unwrap(), "dpapi:abc");
+    }
+
+    #[cfg(windows)]
+    #[test]
+    fn protect_secret_checked_returns_error_on_dpapi_failure() {
+        // Windows 保护失败：Err 带原因（不产明文）——由调用方决定是否
+        // 中止保存，杜绝「加密失败静默落明文」。
+        super::force_dpapi_protect_failure(true);
+        let checked = protect_secret_checked("sk-plain");
+        let legacy = protect_secret("sk-plain");
+        super::force_dpapi_protect_failure(false);
+        assert!(checked.is_err(), "保护失败应 Err（不回落明文）");
+        let message = checked.unwrap_err();
+        assert!(message.contains("DPAPI") || message.contains("注入"), "Err 须带原因");
+        assert_eq!(legacy, "", "protect_secret 失败回落空串而非明文（不落盘明文）");
+        // 打码/前缀值不受注入影响（幂等透传不触保护器）
+        assert_eq!(protect_secret_checked("****abcd").unwrap(), "****abcd");
+        assert_eq!(protect_secret_checked("dpapi:abc").unwrap(), "dpapi:abc");
+    }
+
+    #[cfg(windows)]
+    #[test]
+    fn protect_secret_success_encrypts_on_windows() {
+        let value = protect_secret("sk-real");
+        assert!(value.starts_with(DPAPI_PREFIX), "Windows 加密成功应带 dpapi 前缀");
+        assert_ne!(value, "sk-real", "不得产出明文");
+    }
 }

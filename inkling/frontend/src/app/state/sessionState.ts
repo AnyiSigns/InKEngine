@@ -4,10 +4,19 @@
 
 import { useSyncExternalStore, useCallback } from 'react';
 import { ChannelHub } from '@/shared/session/channelHub';
-import { submitUserRound, toEngineAttachments, setStreaming, commitStreaming, type AttachmentAsset } from '@/shared/session/eventIngest';
+import {
+  submitUserRound,
+  toEngineAttachments,
+  setStreaming,
+  setRoundInflight,
+  finalizeThreadStreaming,
+  setThreadRoundActive,
+  type AttachmentAsset,
+} from '@/shared/session/eventIngest';
 import type { BackendAdapter, ModelSelection } from '@/shared/backend/backendAdapter';
 import type { SessionStore } from '@/shared/session/sessionStore';
 import type { InkMessage } from '@/shared/session/types';
+import type { ReviewResolution } from '@/components/review_card';
 
 export interface SessionState {
   activeSessionId: string;
@@ -56,30 +65,83 @@ export function useSessionActions(hub: ChannelHub, store: SessionStore, backend:
       const activeId = hub.getSnapshot().activeSessionId as string || store.list()[0]?.id || '';
       if (!activeId) return;
       const roundId = submitUserRound(hub, text, attachments);
-      const finish = () => {
-        commitStreaming(hub);
-        setStreaming(hub, false);
+      // 回合收尾线程化：定型的是「发起的线程」的消息流，窗口切走后不得
+      // 污染当前窗口（commitStreaming 只作用于桶/该线程镜像）
+      const finishThread = () => {
+        setRoundInflight(false);
+        finalizeThreadStreaming(hub, activeId);
+        setThreadRoundActive(hub, activeId, false);
+        if (hub.getSnapshot().activeSessionId === activeId) {
+          setStreaming(hub, false);
+        }
       };
+      setRoundInflight(true);
       void backend
         .roundSend(activeId, roundId, text, false, toEngineAttachments(attachments), model)
         .then(() => {
-          finish();
+          finishThread();
           // 回合收尾刷新会话记录（标题生成/更新时间落库后镜像同步）
           void (store as { reload?: () => Promise<void> }).reload?.();
         })
-        .catch(() => finish());
+        .catch(() => finishThread());
     },
     [hub, store, backend],
   );
 
   const abort = useCallback(() => {
+    setRoundInflight(false);
     const roundId = hub.getSnapshot().roundId;
+    const threadId = hub.getSnapshot().activeSessionId;
     if (backend.available && roundId) {
       void backend.roundAbort(roundId).catch(() => undefined);
     }
+    if (threadId) setThreadRoundActive(hub, threadId, false);
     setStreaming(hub, false);
     hub.setState({ streaming: false, roundId: null });
   }, [hub, backend]);
 
-  return { send, abort };
+  /**
+   * 审批卡决议续跑：回合内工具审批卡（review_card 事件）决议后，把回合
+   * 从引擎 checkpoint 续跑（round_resume 注入真实中断 key）。决议形态
+   * accept/reject/terminate 直传壳，edit 携带编辑内容。回合未终态时引擎
+   * 会再发新卡（事件流重设 pendingReview），用户逐卡决议直至回复。
+   */
+  const resolveReview = useCallback(
+    (key: string, resolution: ReviewResolution, editedContent?: string, targetThread?: string) => {
+      const activeId = hub.getSnapshot().activeSessionId as string || store.list()[0]?.id || '';
+      if (!backend.available || !activeId) {
+        hub.setState({ pendingReview: null });
+        return;
+      }
+      hub.setState({ pendingReview: null });
+      // 决议目标线程 = 卡所属线程（payload.thread_id，卡线程可能已非活动
+      // 窗口）；缺省回落当前窗口。引擎 round_resume 以该线程续跑。
+      const threadId =
+        targetThread && targetThread !== '-' && targetThread !== '' ? targetThread : activeId;
+      setThreadRoundActive(hub, threadId, true);
+      setRoundInflight(true);
+      if (hub.getSnapshot().activeSessionId === threadId) {
+        setStreaming(hub, true);
+      }
+      const finishThread = () => {
+        setRoundInflight(false);
+        finalizeThreadStreaming(hub, threadId);
+        setThreadRoundActive(hub, threadId, false);
+        if (hub.getSnapshot().activeSessionId === threadId) {
+          setStreaming(hub, false);
+        }
+      };
+      void backend
+        .roundResume(threadId, key, resolution, undefined, resolution === 'edit' ? editedContent : undefined)
+        .then(() => {
+          finishThread();
+          // 回合收尾刷新会话记录（与 send 同口径）
+          void (store as { reload?: () => Promise<void> }).reload?.();
+        })
+        .catch(() => finishThread());
+    },
+    [hub, store, backend],
+  );
+
+  return { send, abort, resolveReview };
 }

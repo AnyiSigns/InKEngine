@@ -40,6 +40,7 @@
     { "name": "memory_recall", "description": "记忆召回", "bindable": true },
     { "name": "tuning_update", "description": "调优更新", "bindable": true },
     { "name": "vetting_result", "description": "vetting 结果", "bindable": true },
+    { "name": "output_verdict", "description": "节点产出评审裁决（VTM 验证器留痕）", "bindable": true },
     { "name": "device_sensed", "description": "设备感知留痕", "bindable": true },
     { "name": "device_control", "description": "设备控制留痕", "bindable": true },
     { "name": "attachment", "description": "附件（引擎 Attachment 契约形态）", "bindable": true },

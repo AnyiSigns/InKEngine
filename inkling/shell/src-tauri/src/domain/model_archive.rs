@@ -502,6 +502,19 @@ impl ModelArchiveStore {
         Ok(count)
     }
 
+    /// 批量删除（按 model_id；不存在静默跳过）。返回实际删除条数。
+    pub fn delete_many(&mut self, model_ids: &[String]) -> Result<usize, DomainError> {
+        let mut removed = 0usize;
+        for model_id in model_ids {
+            let n = self
+                .conn
+                .execute("DELETE FROM model_archive WHERE model_id = ?1", params![model_id])
+                .map_err(|e| DomainError::Storage(format!("档案删除失败 ({model_id}): {e}")))?;
+            removed += n;
+        }
+        Ok(removed)
+    }
+
     /// 读取单条档案（不存在 = None）。
     pub fn get(&self, model_id: &str) -> Result<Option<ModelArchive>, DomainError> {
         let row = self
@@ -719,23 +732,67 @@ fn merge_provider(base: &JsonValue, incoming: &JsonValue) -> JsonValue {
 /// 的 main/router/audit model_id。覆盖写入会丢失这些字段，故此处按
 /// provider_id 做逐提供方浅合并。入参为旧 flat 形态时投影进 providers[0]
 /// （迁移期兼容；落盘即新形态）。
-pub fn write_model_connection(data_dir: &Path, config: &JsonValue) -> JsonValue {
+///
+/// `replace_table`（整表替换）：前端整表保存/删除提供方时打开——入参
+/// providers 数组是**权威全量**，缺席的既有提供方被删除（含其 DPAPI
+/// 密文一并清除），在场提供方仍按浅合并补缺省字段（api_key 未重填
+/// 沿用已存值）。探测回写等单提供方增量写保持合并（false）。
+///
+/// 写盘纪律（R2）：api_key 加密（`protect_secret_checked`）任一失败 /
+/// 目录创建失败 / 序列化失败 / 写盘失败 = Err，不落盘（不留明文、不留
+/// 半态文件）；落盘经临时文件 + rename 原子替换，杜绝读到写一半的 JSON。
+pub fn write_model_connection(data_dir: &Path, config: &JsonValue) -> Result<JsonValue, String> {
+    write_model_connection_mode(data_dir, config, false)
+}
+
+/// 整表替换形态的写入口（前端整表保存/删除提供方；缺席提供方落删）。
+pub fn write_model_connection_replace(data_dir: &Path, config: &JsonValue) -> Result<JsonValue, String> {
+    write_model_connection_mode(data_dir, config, true)
+}
+
+fn write_model_connection_mode(
+    data_dir: &Path,
+    config: &JsonValue,
+    replace_table: bool,
+) -> Result<JsonValue, String> {
     let path = data_dir.join(MODEL_CONNECTION_FILE);
-    let _ = std::fs::create_dir_all(data_dir);
-    // 入参非对象（异常形态）直接原样落盘，不合并。
+    std::fs::create_dir_all(data_dir)
+        .map_err(|err| format!("连接配置目录创建失败 {}: {err}", data_dir.display()))?;
+    // 入参非对象（异常形态）直接原样透传，不合并不落盘。
     let JsonValue::Object(incoming) = config else {
-        return config.clone();
+        return Ok(config.clone());
     };
     let incoming_providers = match incoming.get("providers") {
         Some(JsonValue::Array(list)) => list.clone(),
         _ => vec![project_flat_connection(incoming)],
     };
-    let mut merged: Vec<JsonValue> = read_connection_providers(data_dir);
+    let previous = read_connection_providers(data_dir);
+    let mut merged: Vec<JsonValue> = if replace_table {
+        // 整表替换：缺席既有提供方删除（含其加密 api_key 密文清除——
+        // 删除即不回写密文，重启不复活）。在场提供方经下方浅合并保留
+        // 未重填字段（api_key 未带 = 沿用已存值）。
+        vec![]
+    } else {
+        previous.clone()
+    };
     for incoming_provider in &incoming_providers {
         let pid = incoming_provider
             .get("provider_id")
             .and_then(JsonValue::as_str)
             .unwrap_or("default");
+        if replace_table {
+            // 整表替换：在场提供方与其既有存储副本浅合并（api_key 未带 =
+            // 沿用已存值、model_ids 未带 = 保留已存档位）；前一次合并结果
+            // 不回写（缺席删除语义由下方 removed_model_ids 判定，基于入参
+            // 全集而非本循环增量）。
+            match previous.iter().position(|p| {
+                p.get("provider_id").and_then(JsonValue::as_str) == Some(pid)
+            }) {
+                Some(idx) => merged.push(merge_provider(&previous[idx], incoming_provider)),
+                None => merged.push(incoming_provider.clone()),
+            }
+            continue;
+        }
         match merged.iter().position(|p| {
             p.get("provider_id").and_then(JsonValue::as_str) == Some(pid)
         }) {
@@ -745,21 +802,106 @@ pub fn write_model_connection(data_dir: &Path, config: &JsonValue) -> JsonValue 
             None => merged.push(incoming_provider.clone()),
         }
     }
+    // 整表替换 = 删除语义生效：被删除提供方的档案一并清理（档案/候选
+    // 按当前连接过滤，删除端点后旧模型不留在候选与档案库中）。
+    let mut removed_model_ids: Vec<String> = Vec::new();
+    if replace_table {
+        let incoming_ids: std::collections::HashSet<String> = incoming_providers
+            .iter()
+            .filter_map(|p| p.get("provider_id").and_then(JsonValue::as_str))
+            .map(str::to_string)
+            .collect();
+        let removed_providers: Vec<&JsonValue> = previous
+            .iter()
+            .filter(|p| {
+                let pid = p.get("provider_id").and_then(JsonValue::as_str).unwrap_or("default");
+                !incoming_ids.contains(pid)
+            })
+            .collect();
+        if !removed_providers.is_empty() {
+            // R4：先取「仍在场提供方」（merged 中保留的全部 providers）
+            // 的 models 引用集合；两提供方共享同一 model_id 时，删除其一
+            // 不得清掉在场方仍引用的档案——removed 与在场集合差集后才删。
+            let mut present_ids: std::collections::HashSet<String> = std::collections::HashSet::new();
+            for provider in &merged {
+                if let Some(list) = provider.get("models").and_then(JsonValue::as_array) {
+                    for item in list {
+                        if let Some(id) = item.as_str() {
+                            present_ids.insert(id.to_string());
+                        }
+                    }
+                }
+            }
+            removed_model_ids = removed_providers
+                .iter()
+                .flat_map(|p| {
+                    p.get("models")
+                        .and_then(JsonValue::as_array)
+                        .map(|arr| {
+                            arr.iter()
+                                .filter_map(|m| m.as_str().map(str::to_string))
+                                .collect::<Vec<_>>()
+                        })
+                        .unwrap_or_default()
+                })
+                .filter(|id| !present_ids.contains(id))
+                .collect();
+        }
+    }
     let out = JsonValue::Object(serde_json::Map::from_iter([(
         "providers".to_string(),
         JsonValue::Array(merged),
     )]));
     // 落盘前加密 api_key（DPAPI；打码占位/已加密值幂等跳过）——明文
     // 不再落盘（Windows 无 DPAPI 保护的历史形态迁移：读侧识别 dpapi:
-    // 前缀还原，旧明文值照常可读）
+    // 前缀还原，旧明文值照常可读）。任一提供方加密失败 = Err 中止保存
+    // （不落盘、不留半态），杜绝「加密失败静默落明文」。
     let mut out = out;
-    transform_provider_keys(&mut out, |key| {
-        crate::domain::crypto::protect_secret(key)
-    });
-    if let Ok(text) = serde_json::to_string_pretty(&out) {
-        let _ = std::fs::write(&path, text);
+    try_encrypt_provider_keys(&mut out)?;
+    let text = serde_json::to_string_pretty(&out)
+        .map_err(|err| format!("连接配置序列化失败: {err}"))?;
+    let tmp = data_dir.join(format!(
+        "{MODEL_CONNECTION_FILE}.{}.tmp",
+        uuid::Uuid::new_v4().simple()
+    ));
+    std::fs::write(&tmp, text)
+        .map_err(|err| format!("连接配置临时写入失败 {}: {err}", tmp.display()))?;
+    std::fs::rename(&tmp, &path)
+        .map_err(|err| format!("连接配置原子替换失败 {}: {err}", path.display()))?;
+    // 档案联动清理在配置落盘成功后才执行（失败不删档，状态自洽）。
+    if !removed_model_ids.is_empty() {
+        if let Ok(mut store) = ModelArchiveStore::open_in_data_dir(data_dir) {
+            if let Err(err) = store.delete_many(&removed_model_ids) {
+                tracing::warn!(target: "model_archive", error = %err, "删除提供方档案清理失败（忽略）");
+            }
+        }
     }
-    out
+    Ok(out)
+}
+
+/// 逐提供方加密 api_key（fail-closed 版：任一失败 = Err，调用方不落盘）。
+fn try_encrypt_provider_keys(value: &mut JsonValue) -> Result<(), String> {
+    if let JsonValue::Object(map) = value {
+        match map.get_mut("providers").and_then(JsonValue::as_array_mut) {
+            Some(providers) => {
+                for provider in providers.iter_mut() {
+                    if let JsonValue::Object(pmap) = provider {
+                        if let Some(JsonValue::String(key)) = pmap.get_mut("api_key") {
+                            *key = crate::domain::crypto::protect_secret_checked(key)
+                                .map_err(|err| format!("api_key 加密失败（{err}）"))?;
+                        }
+                    }
+                }
+            }
+            None => {
+                if let Some(JsonValue::String(key)) = map.get_mut("api_key") {
+                    *key = crate::domain::crypto::protect_secret_checked(key)
+                        .map_err(|err| format!("api_key 加密失败（{err}）"))?;
+                }
+            }
+        }
+    }
+    Ok(())
 }
 
 #[cfg(test)]
@@ -869,7 +1011,8 @@ mod tests {
                     "model_ids": { "main": "m1", "router": "r1" },
                 }],
             }),
-        );
+        )
+        .expect("首写成功");
         // 逐档保存：仅带本档字段，且未重填 api_key。
         let merged = write_model_connection(
             &dir,
@@ -880,7 +1023,8 @@ mod tests {
                     "model_ids": { "audit": "a1" },
                 }],
             }),
-        );
+        )
+        .expect("逐档保存成功");
         let providers = merged["providers"].as_array().expect("providers 数组");
         assert_eq!(providers.len(), 1);
         let p = &providers[0];
@@ -919,7 +1063,8 @@ mod tests {
                     "model_ids": { "main": "m1", "router": "r1", "audit": "a1" },
                 }],
             }),
-        );
+        )
+        .expect("首写成功");
         // 后续仅更新连接端点（不带 model_id）：已存档位 model_id 须保留，
         // 否则 resolve_llm 二次回落会丢主档而退化为空配置。
         let merged = write_model_connection(
@@ -927,7 +1072,8 @@ mod tests {
             &serde_json::json!({
                 "providers": [{ "provider_id": "openai", "base_url": "http://b/v1" }],
             }),
-        );
+        )
+        .expect("端点更新成功");
         let p = &merged["providers"][0];
         assert_eq!(p["base_url"], "http://b/v1");
         assert_eq!(p["model_ids"]["main"], "m1", "base_url-only 保存不得清空 model_id");
@@ -961,7 +1107,8 @@ mod tests {
                 "main_model_id": "kimi",
                 "audit_model_id": "kimi-lite",
             }),
-        );
+        )
+        .expect("flat 写入成功");
         assert!(out.get("providers").is_some(), "flat 写入应落成 providers 形态");
         let p = &out["providers"][0];
         assert_eq!(p["provider_id"], "moonshot");
@@ -1157,5 +1304,213 @@ mod tests {
             let _ = refresh_archives(&mut store, &fetcher, "http://x", "k2", &declared).await.unwrap();
             assert_eq!(fetcher.calls.get(), 2, "配置变更应触发两次重探测");
         });
+    }
+
+    // ── 批 5：整表替换删除语义 + 档案联动清理 ──
+
+    #[test]
+    fn replace_table_removes_absent_provider_and_its_secret() {
+        let dir = std::env::temp_dir().join(format!("ink_model_conn_replace_{}", std::process::id()));
+        let _ = std::fs::create_dir_all(&dir);
+        // 双提供方基线。
+        write_model_connection(
+            &dir,
+            &serde_json::json!({
+                "providers": [
+                    { "provider_id": "openai", "base_url": "http://a/v1", "api_key": "sk-a", "models": ["gpt-4o"] },
+                    { "provider_id": "moonshot", "base_url": "http://m/v1", "api_key": "sk-m", "models": ["kimi"] },
+                ],
+            }),
+        )
+        .expect("基线写入成功");
+        // 整表替换：只保留 openai → moonshot（含其加密 api_key 密文）应删除。
+        let out = write_model_connection_replace(
+            &dir,
+            &serde_json::json!({
+                "providers": [
+                    { "provider_id": "openai", "base_url": "http://a/v2", "api_key": "" },
+                ],
+            }),
+        )
+        .expect("整表替换成功");
+        let providers = out["providers"].as_array().expect("providers 数组");
+        assert_eq!(providers.len(), 1, "缺席提供方应被删除");
+        assert_eq!(providers[0]["provider_id"], "openai");
+        assert_eq!(providers[0]["base_url"], "http://a/v2");
+        // 重启（重读文件）不复活：moonshot 与其密文不存在于落盘配置。
+        let roundtrip = read_model_connection(&dir);
+        let providers = roundtrip["providers"].as_array().expect("providers 数组");
+        assert_eq!(providers.len(), 1, "删除必须持久化（重启不复活）");
+        assert!(!roundtrip.to_string().contains("sk-m"), "被删除提供方密文不得残留");
+        let _ = std::fs::remove_dir_all(&dir);
+    }
+
+    #[test]
+    fn replace_table_purges_removed_provider_archives() {
+        let dir = std::env::temp_dir().join(format!("ink_model_conn_purge_{}", std::process::id()));
+        let _ = std::fs::create_dir_all(&dir);
+        // 档案库预置两提供方的模型档案。
+        {
+            let mut store = ModelArchiveStore::open_in_data_dir(&dir).unwrap();
+            store.upsert_many(&[
+                archive("gpt-4o", Some(128000), Multimodal::True),
+                archive("kimi", Some(64000), Multimodal::False),
+            ]).unwrap();
+        }
+        // 双提供方配置（各自 models 清单）。
+        write_model_connection(
+            &dir,
+            &serde_json::json!({
+                "providers": [
+                    { "provider_id": "openai", "base_url": "http://a/v1", "api_key": "sk-a", "models": ["gpt-4o"] },
+                    { "provider_id": "moonshot", "base_url": "http://m/v1", "api_key": "sk-m", "models": ["kimi"] },
+                ],
+            }),
+        )
+        .expect("基线写入成功");
+        // 整表替换删除 moonshot → 其模型档案联动清理。
+        write_model_connection_replace(
+            &dir,
+            &serde_json::json!({
+                "providers": [
+                    { "provider_id": "openai", "base_url": "http://a/v1" },
+                ],
+            }),
+        )
+        .expect("整表替换成功");
+        let store = ModelArchiveStore::open_in_data_dir(&dir).unwrap();
+        let remaining = store.list().unwrap();
+        assert_eq!(remaining.len(), 1, "被删提供方档案应联动清理");
+        assert_eq!(remaining[0].model_id, "gpt-4o");
+        let _ = std::fs::remove_dir_all(&dir);
+    }
+
+    #[test]
+    fn replace_table_keeps_existing_provider_when_field_omitted() {
+        let dir = std::env::temp_dir().join(format!("ink_model_conn_replace_keep_{}", std::process::id()));
+        let _ = std::fs::create_dir_all(&dir);
+        write_model_connection(
+            &dir,
+            &serde_json::json!({
+                "providers": [
+                    { "provider_id": "openai", "base_url": "http://a/v1", "api_key": "sk-a", "model_ids": { "router": "r1" } },
+                ],
+            }),
+        )
+        .expect("基线写入成功");
+        // 前端整表保存：仍带 openai，未重填 api_key/model_ids → 沿用已存值。
+        let out = write_model_connection_replace(
+            &dir,
+            &serde_json::json!({
+                "providers": [
+                    { "provider_id": "openai", "base_url": "http://a/v2" },
+                ],
+            }),
+        )
+        .expect("整表替换成功");
+        let p = &out["providers"][0];
+        assert_eq!(p["base_url"], "http://a/v2");
+        assert_eq!(p["model_ids"]["router"], "r1", "在场提供方未重填字段沿用已存值");
+        let roundtrip = read_model_connection(&dir);
+        assert_eq!(roundtrip["providers"][0]["api_key"], "sk-a");
+        let _ = std::fs::remove_dir_all(&dir);
+    }
+
+    #[test]
+    fn delete_many_only_removes_named_model_ids() {
+        let mut store = ModelArchiveStore::open_in_memory().unwrap();
+        store.upsert_many(&[
+            archive("a", None, Multimodal::Unknown),
+            archive("b", None, Multimodal::Unknown),
+        ]).unwrap();
+        let removed = store.delete_many(&["a".to_string(), "missing".to_string()]).unwrap();
+        assert_eq!(removed, 1, "存在的删除，缺失的静默跳过");
+        let list = store.list().unwrap();
+        assert_eq!(list.len(), 1);
+        assert_eq!(list[0].model_id, "b");
+    }
+
+    #[test]
+    fn replace_table_keeps_shared_model_id_archive_when_one_provider_removed() {
+        // R4：两提供方共享 model_id gpt-4o（openai 与 proxy 均引用），
+        // 整表替换删除 proxy → gpt-4o 仍在场（openai）引用，档案不得删除。
+        let dir = std::env::temp_dir().join(format!("ink_model_conn_shared_{}", std::process::id()));
+        let _ = std::fs::create_dir_all(&dir);
+        {
+            let mut store = ModelArchiveStore::open_in_data_dir(&dir).unwrap();
+            store.upsert_many(&[
+                archive("gpt-4o", Some(128000), Multimodal::True),
+                archive("kimi", Some(64000), Multimodal::False),
+            ]).unwrap();
+        }
+        write_model_connection(
+            &dir,
+            &serde_json::json!({
+                "providers": [
+                    { "provider_id": "openai", "base_url": "http://a/v1", "api_key": "sk-a", "models": ["gpt-4o"] },
+                    { "provider_id": "proxy", "base_url": "http://p/v1", "api_key": "sk-p", "models": ["gpt-4o", "kimi"] },
+                ],
+            }),
+        )
+        .expect("基线写入成功");
+        // 删除 proxy：gpt-4o 仍由 openai 引用 → 保留；kimi 无在场引用 → 清掉。
+        write_model_connection_replace(
+            &dir,
+            &serde_json::json!({
+                "providers": [
+                    { "provider_id": "openai", "base_url": "http://a/v1" },
+                ],
+            }),
+        )
+        .expect("整表替换成功");
+        let store = ModelArchiveStore::open_in_data_dir(&dir).unwrap();
+        let remaining = store.list().unwrap();
+        let ids: Vec<&str> = remaining.iter().map(|a| a.model_id.as_str()).collect();
+        assert!(
+            ids.contains(&"gpt-4o"),
+            "共享 model_id 由在场提供方引用，档案须保留（实际 {ids:?}）"
+        );
+        assert!(
+            !ids.contains(&"kimi"),
+            "无在场提供方引用的档案应联动清理（实际 {ids:?}）"
+        );
+        let _ = std::fs::remove_dir_all(&dir);
+    }
+
+    #[cfg(windows)]
+    #[test]
+    fn write_connection_fails_closed_when_api_key_encryption_fails() {
+        // R2：api_key 加密失败 = Err 中止保存，原文件不被覆盖（不留明文）。
+        let dir = std::env::temp_dir().join(format!("ink_model_conn_fc_{}", std::process::id()));
+        let _ = std::fs::create_dir_all(&dir);
+        write_model_connection(
+            &dir,
+            &serde_json::json!({
+                "providers": [
+                    { "provider_id": "openai", "base_url": "http://a/v1", "api_key": "sk-a" },
+                ],
+            }),
+        )
+        .expect("基线写入成功");
+        let before = std::fs::read_to_string(dir.join(MODEL_CONNECTION_FILE)).unwrap();
+        crate::domain::crypto::force_dpapi_protect_failure(true);
+        let outcome = write_model_connection_replace(
+            &dir,
+            &serde_json::json!({
+                "providers": [
+                    { "provider_id": "openai", "base_url": "http://b/v1", "api_key": "sk-new" },
+                ],
+            }),
+        );
+        crate::domain::crypto::force_dpapi_protect_failure(false);
+        assert!(outcome.is_err(), "加密失败应 Err（中止保存）");
+        assert!(outcome.unwrap_err().contains("加密失败"), "Err 须带加密原因");
+        let after = std::fs::read_to_string(dir.join(MODEL_CONNECTION_FILE)).unwrap();
+        assert_eq!(before, after, "加密失败不得覆盖原文件（不留半态/明文）");
+        assert!(
+            !after.contains("sk-new"),
+            "新明文不得出现在落盘配置（实际: {after}）"
+        );
+        let _ = std::fs::remove_dir_all(&dir);
     }
 }

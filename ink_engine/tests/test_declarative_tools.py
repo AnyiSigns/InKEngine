@@ -1288,3 +1288,282 @@ async def test_custom_endpoint_pipeline_guard_wired():
         assert "目标不在白名单" in (denied.error or "")
     finally:
         endpoint_registry._specs.pop("guarded_query", None)
+
+
+# ── ：collect_material url 档受控取回（meta.retrieval 单声明内拆）───────
+
+
+def _controlled_collect(**kw) -> DeclarativeToolSpec:
+    """collect_material 形态声明式定义（endpoint=mcp + 受控取回标记）。"""
+    base = {
+        "name": "collect_material",
+        "description": "采集研究素材（text 直取 / url 受控取回）",
+        "parameters": {
+            "type": "object",
+            "properties": {
+                "url": {"type": "string"},
+                "text": {"type": "string"},
+                "max_bytes": {"type": "integer"},
+            },
+        },
+        "permissions": ("mcp:call:inkling_exec", "network:connect:*"),
+        "endpoint": EndpointType.MCP,
+        "endpoint_config": {"server_id": "inkling_exec"},
+        "meta": {"retrieval": "controlled_fetch", "domain": "research"},
+    }
+    base.update(kw)
+    return DeclarativeToolSpec(**base)
+
+
+def test_collect_url_mode_derives_connect_target():
+    """url 档判定目标 = 网络语义（connect/域名，http_fetch 同源）；
+    file/text 档回落端点原语义（mcp call:inkling_exec）。"""
+    from ink_engine.core.declarative_tools import (
+        RETRIEVAL_CONTROLLED_FETCH,
+        make_declarative_failure_reason,
+        make_declarative_extractor,
+    )
+
+    definition = _controlled_collect()
+    executors = DeclarativeToolExecutors()
+    executors.register_definition(definition)
+    extractor = make_declarative_extractor(executors)
+    reason = make_declarative_failure_reason(executors)
+    spec = definition.to_spec()
+    # url 档 → connect 域名（审批/审计挂 fetch 语义，工具名不变）
+    assert extractor(spec, {"url": "https://example.com/doc"}) == (
+        "connect",
+        "example.com",
+    )
+    assert extractor(spec, {"url": "http://example.com/a", "max_bytes": 64}) == (
+        "connect",
+        "example.com",
+    )
+    # file/text 档 → mcp call 原路径（零变化）
+    assert extractor(spec, {"text": "素材"}) == ("call", "inkling_exec")
+    assert extractor(spec, {}) == ("call", "inkling_exec")
+    # url 非法（非 http/https / 不可解析）→ 无法判定目标（fail-closed）+
+    # 结构化原因指引
+    assert extractor(spec, {"url": "ftp://example.com/x"}) is None
+    assert "仅 http/https" in (reason(spec, {"url": "ftp://example.com/x"}) or "")
+    assert extractor(spec, {"url": "not-a-url"}) is None
+    # 模式由声明标记驱动（无标记工具不受影响）
+    assert definition.meta.get("retrieval") == RETRIEVAL_CONTROLLED_FETCH
+
+
+async def test_controlled_fetch_dispatch_routes_url_mode_only():
+    """分发：url 档改走受控执行体（注册键 = meta.retrieval 声明值，
+    声明驱动非按名写死）；file/text 档仍走端点执行体（mcp）。"""
+    from ink_engine.core.declarative_tools import RETRIEVAL_CONTROLLED_FETCH
+
+    executors = DeclarativeToolExecutors()
+    executors.register_definition(_controlled_collect())
+    calls: list[str] = []
+
+    async def mcp_executor(ctx, defn, args, approval):
+        calls.append(f"mcp:{args.get('text')}")
+        return "mcp-ok"
+
+    async def controlled_executor(ctx, defn, args, approval):
+        calls.append(f"cf:{args.get('url')}")
+        return '{"ok": true, "source": "url"}'
+
+    executors.register(EndpointType.MCP, mcp_executor)
+    executors.register(RETRIEVAL_CONTROLLED_FETCH, controlled_executor)
+    spec = _controlled_collect().to_spec()
+    # url 档 → 受控执行体
+    result = await executors.dispatch(None, spec, {"url": "https://example.com/x"})
+    assert result == '{"ok": true, "source": "url"}'
+    assert calls == ["cf:https://example.com/x"]
+    # file/text 档 → mcp 端点执行体（回落 exec 原路径）
+    result = await executors.dispatch(None, spec, {"text": "素材"})
+    assert result == "mcp-ok"
+    assert calls[-1] == "mcp:素材"
+
+
+async def test_controlled_fetch_unregistered_executor_fails_closed():
+    """受控取回执行体未注册：url 档显式拒绝（不静默回落 mcp/exec）。"""
+    from ink_engine.core.declarative_tools import RETRIEVAL_CONTROLLED_FETCH
+
+    executors = DeclarativeToolExecutors()
+    executors.register_definition(_controlled_collect())
+    calls: list[str] = []
+
+    async def mcp_executor(ctx, defn, args, approval):
+        calls.append("mcp")
+        return "should-not-run"
+
+    executors.register(EndpointType.MCP, mcp_executor)
+    spec = _controlled_collect().to_spec()
+    with pytest.raises(GraphDefinitionError, match="受控取回执行体未注册"):
+        await executors.dispatch(None, spec, {"url": "https://example.com/x"})
+    assert calls == []
+    assert RETRIEVAL_CONTROLLED_FETCH not in executors._executors
+
+
+async def test_collect_url_mode_network_policy_gating():
+    """url 档网络策略（NetworkPolicySandbox）：allow_domains 命中直取回；
+    白名单外域名强制转审批——reject 拒绝不执行、accept 放行执行。"""
+    from ink_engine.core.declarative_tools import RETRIEVAL_CONTROLLED_FETCH
+    from ink_engine.core.permissions import NetworkPolicy
+
+    definition = _controlled_collect(
+        network_policy=NetworkPolicy(allow_domains=frozenset({"*.example.com"}))
+    )
+    executors = DeclarativeToolExecutors()
+    executors.register_definition(definition)
+    calls: list[str] = []
+
+    async def controlled_executor(ctx, defn, args, approval):
+        calls.append(args["url"])
+        return '{"ok": true, "source": "url"}'
+
+    executors.register(RETRIEVAL_CONTROLLED_FETCH, controlled_executor)
+    pipeline = build_declarative_pipeline(
+        executors,
+        network_policy=NetworkPolicy(allow_domains=frozenset({"*.example.com"})),
+    )
+
+    class Ctx:
+        """审批卡上下文：未预设注入值 = 拒绝（fail-closed 兜底）。"""
+
+        def __init__(self, inject=None):
+            self._inject = dict(inject or {})
+            self.cards = []
+
+        async def interrupt(self, key, payload):
+            self.cards.append((key, payload))
+            return self._inject.pop(key, "reject")
+
+        async def get_interrupt_payload(self, key):
+            return None
+
+    spec = definition.to_spec()
+    # allow_domains 命中 → 免审批直取回（网络快速路径）
+    allowed = await pipeline.execute(
+        Ctx(), spec, {"url": "https://sub.example.com/doc"}
+    )
+    assert allowed.ok is True
+    assert calls == ["https://sub.example.com/doc"]
+    # 白名单外域名 → 审批卡裁决：默认 reject → 拒绝且执行体未被调用
+    ctx = Ctx()
+    denied = await pipeline.execute(ctx, spec, {"url": "https://other.org/doc"})
+    assert denied.ok is False
+    assert denied.decision == "reject"
+    assert ctx.cards and ctx.cards[0][0] == "gate:collect_material"
+    assert calls == ["https://sub.example.com/doc"]
+    # 审批 accept → 放行执行（审批即网关，approve 后取回）
+    ctx = Ctx(inject={"gate:collect_material": {"decision": "accept"}})
+    accepted = await pipeline.execute(ctx, spec, {"url": "https://other.org/doc"})
+    assert accepted.ok is True
+    assert calls == [
+        "https://sub.example.com/doc",
+        "https://other.org/doc",
+    ]
+
+
+async def test_collect_text_mode_unchanged_via_pipeline():
+    """file/text 档回归：text 调用仍走 mcp 端点执行体（不经受控取回）。"""
+    from ink_engine.core.declarative_tools import RETRIEVAL_CONTROLLED_FETCH
+
+    definition = _controlled_collect()
+    executors = DeclarativeToolExecutors()
+    executors.register_definition(definition)
+    calls: list[str] = []
+
+    async def mcp_executor(ctx, defn, args, approval):
+        calls.append("mcp")
+        return "mcp-ok"
+
+    async def controlled_executor(ctx, defn, args, approval):
+        calls.append("cf")
+        return "cf-ok"
+
+    executors.register(EndpointType.MCP, mcp_executor)
+    executors.register(RETRIEVAL_CONTROLLED_FETCH, controlled_executor)
+    pipeline = build_declarative_pipeline(executors)
+    spec = definition.to_spec()
+
+    class Ctx:
+        async def emit(self, *args, **kwargs):
+            pass
+
+    result = await pipeline.execute(Ctx(), spec, {"text": "直接粘贴的素材"})
+    assert result.ok is True
+    assert result.output == "mcp-ok"
+    assert calls == ["mcp"]
+
+
+async def test_controlled_fetch_executor_contract_and_truncation(monkeypatch):
+    """受控取回执行体产物契约 = inkling/exec collect.rs url 分支同形态：
+    ok/source/url/status/content_type/bytes/truncated/content；体积上限、
+    截断与 UTF-8 文本语义对齐 exec（字节封顶 + 溢出标记）。"""
+    import json as _json
+
+    import httpx
+
+    if not hasattr(httpx, "AsyncClient"):
+        pytest.skip("httpx 不可用")
+    from ink_engine.core.declarative_tools import make_controlled_fetch_executor
+
+    class FakeStreamResponse:
+        status_code = 200
+        headers = {"content-type": "text/plain; charset=utf-8"}
+
+        async def __aenter__(self):
+            return self
+
+        async def __aexit__(self, *exc):
+            return False
+
+        def aiter_bytes(self):
+            async def gen():
+                yield b"0123456789abcdef"
+
+            return gen()
+
+    class FakeClient:
+        def __init__(self, *args, **kwargs):
+            pass
+
+        async def __aenter__(self):
+            return self
+
+        async def __aexit__(self, *exc):
+            return False
+
+        def stream(self, method, url, headers=None):
+            return FakeStreamResponse()
+
+    monkeypatch.setattr(httpx, "AsyncClient", FakeClient)
+    executor = make_controlled_fetch_executor()
+    spec = _controlled_collect()
+    # 超限截断：max_bytes=5 → 字节封顶 + 溢出标记 + lossy 文本同 exec
+    out = await executor(None, spec, {"url": "https://example.com/doc", "max_bytes": 5}, None)
+    payload = _json.loads(out)
+    assert payload["ok"] is True
+    assert payload["source"] == "url"
+    assert payload["url"] == "https://example.com/doc"
+    assert payload["status"] == 200
+    assert payload["content_type"] == "text/plain; charset=utf-8"
+    assert payload["bytes"] == 5
+    assert payload["truncated"] is True
+    assert payload["content"] == "01234"
+    # 未超限：完整内容原样返回
+    out = await executor(None, spec, {"url": "https://example.com/doc"}, None)
+    payload = _json.loads(out)
+    assert payload["bytes"] == 16
+    assert payload["truncated"] is False
+    assert payload["content"] == "0123456789abcdef"
+    # 协议收口：仅 http/https（与 exec parse_url 同口径）
+    try:
+        await executor(None, spec, {"url": "ftp://example.com/x"}, None)
+        raise AssertionError("非 http(s) URL 应被拒绝")
+    except ValueError as exc:
+        assert "http(s)" in str(exc)
+    # url 与 text 二选一（与 exec 同契约）
+    try:
+        await executor(None, spec, {"url": "https://example.com/x", "text": "y"}, None)
+        raise AssertionError("url 与 text 并存应被拒绝")
+    except ValueError as exc:
+        assert "二选一" in str(exc)

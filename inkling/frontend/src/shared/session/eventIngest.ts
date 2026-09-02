@@ -9,7 +9,7 @@ import { BatchCounter } from '../logger';
 import type { ChannelHub, HubEvent, ThreadBucket } from './channelHub';
 import { emptyThreadBucket } from './channelHub';
 import type { InkMessage, OutboundAttachment, RoundStep } from './types';
-import { reduceTaskEvent } from './taskState';
+import { reduceTaskEvent, emptyTaskState } from './taskState';
 import { getUiStateStore } from '../ui/uiStateStore';
 import { DEV_MODE_KEY } from '../ui/devMode';
 import type { EventTypeName } from './eventTypes';
@@ -21,8 +21,21 @@ function nextId(): string {
   return `m-${Date.now()}-${messageSeq}`;
 }
 
+/**
+ * 回合在途标记（round_send/round_resume 命令未落定 = true）。流式超时
+ * 兜底据此不打断执行中回合（长工具执行可能长时间无事件）；命令落定后
+ * 由驱动侧复位并手动定型。
+ */
+let roundInflight = false;
+export function setRoundInflight(value: boolean): void {
+  roundInflight = value;
+}
+
 /** streaming 超时兜底：无 reply_token 更新超时后自动定型，防永久闪烁。 */
 const STREAMING_TIMEOUT_MS = 30_000;
+/** 连续 reply_token 批写阈值：达 24 条或距上批 40ms 落位一次。 */
+const TOKEN_BATCH_MAX = 24;
+const TOKEN_FLUSH_MS = 40;
 
 /** sourceTraces 容量上限：超限截尾保留最近 N 条，防长会话无限增长。 */
 const SOURCE_TRACES_MAX = 200;
@@ -101,10 +114,15 @@ export function ingestEvent(hub: ChannelHub, event: HubEvent): void {
   const bucket = state.perThread[targetThread] ?? emptyThreadBucket();
   const roundId = (payload.round_id as string | undefined) ?? bucket.roundId ?? undefined;
   const stepId = (payload.step_id as string | undefined) ?? '';
-  // 任务面事件归约（task_state 子通道）；非任务事件归约为原样（不崩）
-  const taskState = reduceTaskEvent(state.taskState, event);
+  // 任务面事件归约（task_state 子通道）：窗口隔离——后台线程事件在
+  // 其桶内归约，不污染当前窗口的胶囊/中止入口
+  const baseTask = isActive ? state.taskState : (bucket.taskState ?? emptyTaskState());
+  const taskState = reduceTaskEvent(baseTask, event);
 
-  let messages = state.messages;
+  // 消息流归约种子：当前会话用窗口消息；后台线程用其桶内消息镜像——
+  // 窗口切走后回合事件持续落桶，回切不丢中途内容（perThread streaming 收口）
+  let messages = isActive ? state.messages : (bucket.messages ?? []);
+  let roundActive = bucket.roundActive;
   let next: Partial<typeof state> = {};
   // 桶内回合状态（归约目标 = 对应会话窗口）
   let roundSteps = bucket.roundSteps;
@@ -134,6 +152,7 @@ export function ingestEvent(hub: ChannelHub, event: HubEvent): void {
     case 'user_message': {
       // 回合边界：重置本回合步骤序列并落位用户步（消息气泡由提交侧本地落位）。
       roundSteps = [{ stepId: 'user', type: 'user', label: '用户', status: 'done', startedAt: at }];
+      roundActive = true;
       break;
     }
     case 'reply_token': {
@@ -265,7 +284,9 @@ export function ingestEvent(hub: ChannelHub, event: HubEvent): void {
     }
     case 'tool_end': {
       const tool = String(payload.tool ?? payload.tool_name ?? '');
-      const summary = String(payload.summary ?? payload.result_preview ?? '');
+      // 结果摘要通道：引擎 tool_end 结果截断放 message（graph_recipe
+      // tool_result 契约），history 兼容 summary/result_preview 两通道
+      const summary = String(payload.summary ?? payload.message ?? payload.result_preview ?? '');
       const failed = payload.success === false;
       upsertStep(
         { stepId, type: 'tool', label: tool, status: failed ? 'error' : 'done' },
@@ -521,6 +542,27 @@ export function ingestEvent(hub: ChannelHub, event: HubEvent): void {
       sourceTraces = traces.slice(-SOURCE_TRACES_MAX);
       break;
     }
+    case 'output_verdict': {
+      // 节点产出评审裁决（executor VTM 验证器 emit）：证据溯源落位 sourceTrace
+      const node = String(payload.node ?? '');
+      const passed = payload.pass === true;
+      const violations = Array.isArray(payload.violations) ? payload.violations.map(String) : [];
+      const attempt = typeof payload.attempt === 'number' ? payload.attempt : 0;
+      const detail = [
+        passed ? '产出评审通过' : `产出评审未通过（第 ${attempt + 1} 次尝试）`,
+        violations.length > 0 ? `违规：${violations.join('；')}` : '',
+      ].filter(Boolean).join(' · ');
+      const traces = [...sourceTraces];
+      traces.push({
+        id: nextId(),
+        sourceType: 'evidence',
+        title: node ? `VTM 校验：${node}` : 'VTM 校验',
+        detail,
+        createdAt: at,
+      });
+      sourceTraces = traces.slice(-SOURCE_TRACES_MAX);
+      break;
+    }
     case 'assembly_started':
       upsertStep({ stepId: 'assembly', type: 'assembly', label: '组装', status: 'running' }, (s) => ({ ...s, status: 'running' as const }));
       break;
@@ -581,6 +623,7 @@ export function ingestEvent(hub: ChannelHub, event: HubEvent): void {
     case 'turn_started':
       // 回合入口：与 user_message 同语义重置回合步骤序列（时间线起点）
       roundSteps = [{ stepId: 'user', type: 'user', label: '用户', status: 'done', startedAt: at }];
+      roundActive = true;
       break;
     case 'attachment': {
       // 附件事件落位消息流（引擎 Attachment 契约形态；负载为协商形态）
@@ -621,7 +664,8 @@ export function ingestEvent(hub: ChannelHub, event: HubEvent): void {
       break;
     }
     case 'end':
-      // 回合结束信号：不建卡（消息流/指标已承载），仅推进状态
+      // 回合结束信号：不建卡（消息流/指标已承载），仅推进状态；清回合在途标记
+      roundActive = false;
       break;
     default: {
       // 未落位的事件类型：原始负载属诊断信息，仅开发者模式建折叠兜底卡；
@@ -644,6 +688,9 @@ export function ingestEvent(hub: ChannelHub, event: HubEvent): void {
     incubation,
     sourceTraces,
     patchChain,
+    messages,
+    roundActive,
+    taskState,
     lastSeenAt: at,
   };
   // 跨会话清理：逐出超过 TTL 未活跃的桶（当前桶刚刷新，不受影响）
@@ -657,7 +704,7 @@ export function ingestEvent(hub: ChannelHub, event: HubEvent): void {
     messages: isActive ? messages : state.messages,
     perThread,
     roundId: isActive ? state.roundId ?? nextRoundId : state.roundId,
-    taskState,
+    ...(isActive ? { taskState } : {}),
     // 当前会话桶 → 全局镜像（既有组件零改动读快照即得当前会话数据）
     ...(isActive ? { roundSteps, simulations, incubation, sourceTraces, patchChain } : {}),
   });
@@ -668,12 +715,44 @@ export function ingestEvent(hub: ChannelHub, event: HubEvent): void {
  * 批次指标在事件流结束后统一输出（避免逐事件噪音）。
  *
  * streaming 超时兜底：回合异常终止未发 end 事件时，若 STREAMING_TIMEOUT_MS
- * 内无 reply_token 更新，自动把残留 streaming 消息定型为 text/assistant
- * （保留已收内容、停止闪烁）。定时器随 ingest 调用重置，end 事件清除。
+ * 内无任何事件，自动把残留 streaming 消息定型为 text/assistant（保留已收
+ * 内容、停止闪烁）。定时器随每次事件落位重置，end 事件清除；回合在途
+ * （round_send/round_resume 未落定，长工具执行可无事件）时不触发定型。
  */
 export function createIngester(hub: ChannelHub): (event: HubEvent) => void {
   const counter = new BatchCounter('session', '事件流批次');
   let streamingTimer: ReturnType<typeof setTimeout> | null = null;
+  // reply_token 批写缓冲：连续 token 先入批，达阈值或延迟落位——避免
+  // 每 token 对消息整表拷贝/镜像重建（长回复逐 token O(n) 引用拷贝）
+  let pendingTokens: HubEvent[] = [];
+  let tokenTimer: ReturnType<typeof setTimeout> | null = null;
+
+  const clearTokenTimer = () => {
+    if (tokenTimer) {
+      clearTimeout(tokenTimer);
+      tokenTimer = null;
+    }
+  };
+
+  /** 落位缓冲的 token 批（保持入批顺序，逐事件 ingest → 线程桶/窗口镜像）。 */
+  const flushTokens = () => {
+    clearTokenTimer();
+    if (pendingTokens.length === 0) return;
+    const batch = pendingTokens;
+    pendingTokens = [];
+    for (const ev of batch) {
+      ingestEvent(hub, ev);
+    }
+  };
+
+  const scheduleTokenFlush = () => {
+    if (tokenTimer || pendingTokens.length === 0) return;
+    tokenTimer = setTimeout(() => {
+      tokenTimer = null;
+      flushTokens();
+      resetStreamingTimer();
+    }, TOKEN_FLUSH_MS);
+  };
 
   const clearStreamingTimer = () => {
     if (streamingTimer) {
@@ -686,13 +765,42 @@ export function createIngester(hub: ChannelHub): (event: HubEvent) => void {
     clearStreamingTimer();
     streamingTimer = setTimeout(() => {
       streamingTimer = null;
-      commitStreaming(hub);
+      flushTokens();
+      // 回合在途（命令未落定）或当前窗口仍在流式态：不触发定型，重新
+      // 武装兜底（长工具执行无事件/在途等待）
+      const snapshot = hub.getSnapshot();
+      if (roundInflight || snapshot.streaming) {
+        resetStreamingTimer();
+        return;
+      }
+      // 线程化定型：窗口消息与其线程桶镜像同写（避免只定型全局、
+      // 桶内残留 streaming 行，回切后旧行复现）
+      const activeThread = snapshot.activeSessionId;
+      if (activeThread) {
+        finalizeThreadStreaming(hub, activeThread);
+      } else {
+        commitStreaming(hub);
+      }
     }, STREAMING_TIMEOUT_MS);
   };
 
   return (event) => {
     counter.add(event.type, event.type === 'reply_token' ? String(event.payload.token ?? '').length : 0);
+    // 连续 token 入批：达阈值立即落位，否则延迟批量落位（省整表拷贝）
     if (event.type === 'reply_token') {
+      pendingTokens.push(event);
+      if (pendingTokens.length >= TOKEN_BATCH_MAX) {
+        flushTokens();
+        resetStreamingTimer();
+      } else {
+        scheduleTokenFlush();
+      }
+      return;
+    }
+    flushTokens();
+    // 任一事件到达都重置：工具执行/thinking 阶段同样推进窗口，避免
+    // 长工具中途被定型（此前仅 reply_token 重置 → 工具 >30s 误定型）
+    if (event.type !== 'end') {
       resetStreamingTimer();
     }
     if (event.type === 'end') {
@@ -702,6 +810,33 @@ export function createIngester(hub: ChannelHub): (event: HubEvent) => void {
     }
     ingestEvent(hub, event);
   };
+}
+
+/**
+ * 引擎历史消息（会话检查点 state.messages：role/content/name）→ 会话消息流。
+ * 仅文本 role（user/assistant）落位（tool/system 内部帧不渲染）；供冷启动/
+ * 切会话时从引擎回取历史（session_messages）。
+ */
+export function messagesFromHistory(rows: unknown[]): InkMessage[] {
+  const out: InkMessage[] = [];
+  for (const raw of rows) {
+    const r = (raw && typeof raw === 'object' ? raw : {}) as Record<string, unknown>;
+    const role = r.role;
+    if (role !== 'user' && role !== 'assistant') continue;
+    const content = typeof r.content === 'string' ? r.content : '';
+    if (!content) continue;
+    const name = typeof r.name === 'string' ? r.name : undefined;
+    const roundId = typeof r.round_id === 'string' ? r.round_id : undefined;
+    out.push({
+      kind: 'text',
+      role,
+      content,
+      id: nextId(),
+      ...(name ? { name } : {}),
+      ...(roundId ? { roundId } : {}),
+    });
+  }
+  return out;
 }
 
 /** 回合流式状态（事件驱动侧维护，组件只读消费）。 */
@@ -720,6 +855,42 @@ export function commitStreaming(hub: ChannelHub): void {
     m.kind === 'streaming' ? { ...m, kind: 'text' as const, role: 'assistant' as const } : m,
   );
   hub.setState({ ...snapshot, messages, streaming: false });
+}
+
+/**
+ * 线程级流式定型：把指定线程桶内残留 streaming 行定型为 text/assistant。
+ * 当前窗口即该线程时同步更新全局镜像；否则只更新桶（后台回合收尾不污染
+ * 当前窗口）。返回定型后完整消息列表（无可定型行返回 undefined）。
+ */
+export function finalizeThreadStreaming(hub: ChannelHub, threadId: string): InkMessage[] | undefined {
+  const snapshot = hub.getSnapshot();
+  const bucket = snapshot.perThread[threadId];
+  if (!bucket) {
+    // 无桶（夹具/纯全局流）：退回全局定型，避免残留闪烁行
+    if (threadId === snapshot.activeSessionId) commitStreaming(hub);
+    return undefined;
+  }
+  const msgs = bucket.messages ?? [];
+  if (!msgs.some((m) => m.kind === 'streaming')) return undefined;
+  const committed = msgs.map((m) =>
+    m.kind === 'streaming' ? { ...m, kind: 'text' as const, role: 'assistant' as const } : m,
+  );
+  const nextBucket = { ...bucket, messages: committed, lastSeenAt: Date.now() };
+  hub.setState({
+    perThread: { ...snapshot.perThread, [threadId]: nextBucket },
+    ...(threadId === snapshot.activeSessionId ? { messages: committed, streaming: false } : {}),
+  });
+  return committed;
+}
+
+/** 线程回合在途标记写回（end 事件/驱动收尾/切会话恢复时使用）。 */
+export function setThreadRoundActive(hub: ChannelHub, threadId: string, roundActive: boolean): void {
+  const snapshot = hub.getSnapshot();
+  const bucket = snapshot.perThread[threadId];
+  if (!bucket || bucket.roundActive === roundActive) return;
+  hub.setState({
+    perThread: { ...snapshot.perThread, [threadId]: { ...bucket, roundActive, lastSeenAt: Date.now() } },
+  });
 }
 
 /**
@@ -758,7 +929,17 @@ export function submitUserRound(
     roundId,
     ...(payload.length > 0 ? { attachments: payload } : {}),
   };
-  hub.setState({ ...snapshot, messages: [...snapshot.messages, userMsg], roundId, streaming: true });
+  const active = snapshot.activeSessionId;
+  const perThread = { ...snapshot.perThread };
+  const activeBucket = perThread[active] ?? emptyThreadBucket();
+  perThread[active] = {
+    ...activeBucket,
+    roundId,
+    messages: [...(activeBucket.messages ?? []), userMsg],
+    roundActive: true,
+    lastSeenAt: Date.now(),
+  };
+  hub.setState({ ...snapshot, messages: [...snapshot.messages, userMsg], roundId, streaming: true, perThread });
   return roundId;
 }
 
@@ -799,5 +980,15 @@ export function submitAttachments(hub: ChannelHub, assets: AttachmentAsset[], at
     }
     return { ...base, kind: 'document', name: asset.name, size: asset.size, url: asset.url };
   });
-  hub.setState({ ...snapshot, messages: [...snapshot.messages, ...created] });
+  const active = snapshot.activeSessionId;
+  const perThread = { ...snapshot.perThread };
+  if (active) {
+    const activeBucket = perThread[active] ?? emptyThreadBucket();
+    perThread[active] = {
+      ...activeBucket,
+      messages: [...(activeBucket.messages ?? []), ...created],
+      lastSeenAt: at,
+    };
+  }
+  hub.setState({ ...snapshot, messages: [...snapshot.messages, ...created], perThread });
 }

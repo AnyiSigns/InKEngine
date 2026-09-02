@@ -18,8 +18,8 @@ pub(crate) fn doc_parse(path: String) -> Result<JsonValue, CommandError> {
         .collect();
     let resolved = crate::executors::impls::check_path_roots(&roots, &path)
         .map_err(|err| CommandError::new("SANDBOX", err.to_string()))?;
-    let bytes = std::fs::read(&resolved)
-        .map_err(|err| CommandError::io(format!("读取文档失败: {err}")))?;
+    let bytes = crate::domain::doc_ops::read_document_file(&resolved)
+        .map_err(|err| CommandError::new("DOC", err.to_string()))?;
     crate::domain::doc_ops::parse_document(&bytes).map_err(CommandError::internal)
 }
 
@@ -82,8 +82,17 @@ pub(crate) async fn material_import(
     ingest: Option<bool>,
 ) -> Result<JsonValue, CommandError> {
     let recursive = recursive.unwrap_or(false);
-    let scan = crate::domain::import_material::scan_and_normalize(&path, recursive)
-        .map_err(CommandError::internal)?;
+    // 命令面与执行器面沙箱同根（MATERIAL_ROOTS）：越根路径拒绝——
+    // 与 material_import 执行器 check_path_roots 前置一致，命令面不旁路
+    let roots: Vec<String> = crate::domain::import_material::MATERIAL_ROOTS
+        .iter()
+        .map(|root| root.to_string())
+        .collect();
+    let resolved = crate::executors::impls::check_path_roots(&roots, &path)
+        .map_err(|err| CommandError::new("SANDBOX", err.to_string()))?;
+    let scan =
+        crate::domain::import_material::scan_and_normalize(&resolved.to_string_lossy(), recursive)
+            .map_err(CommandError::internal)?;
     if !ingest.unwrap_or(false) {
         return serde_json::to_value(&scan).map_err(CommandError::internal);
     }

@@ -10,11 +10,41 @@ use crate::ShellState;
 use crate::{app_data_dir, ensure_engine};
 
 /// 一键导出（data_dir 打包 → 目标文件；含引擎存储快照）。
+///
+/// 引擎运行中 = 一致性导出：先经引擎存储快照 op（sqlite backup API 一致
+/// 副本）取主库一致形态，再以快照内容替换活动库入包——不裸读运行中库
+/// （可能取到未含 WAL 提交的中间形态）。引擎未挂载 = 无运行写入者，
+/// 直接读盘打包（磁盘即一致源）。
 #[tauri::command]
-pub(crate) async fn backup_export(app: AppHandle, dest: String) -> Result<JsonValue, CommandError> {
+pub(crate) async fn backup_export(
+    app: AppHandle,
+    state: State<'_, ShellState>,
+    dest: String,
+) -> Result<JsonValue, CommandError> {
     let data_dir = app_data_dir(&app)?;
-    let manifest = crate::domain::backup::pack_data_dir(&data_dir, Path::new(&dest))
+    let engine_live = state.backend.engine.lock().unwrap().is_some();
+    let manifest = if engine_live {
+        let tmp_dir = std::env::temp_dir();
+        let snap_path = tmp_dir.join(format!(
+            "inkling-export-{}.sqlite",
+            uuid::Uuid::new_v4().simple()
+        ));
+        crate::domain::backup::engine_storage_snapshot(&snap_path.to_string_lossy())
+            .await
+            .map_err(CommandError::engine)?;
+        let manifest = crate::domain::backup::pack_data_dir_with_snapshot(
+            &data_dir,
+            Path::new(&dest),
+            "inkling.sqlite",
+            &snap_path,
+        )
         .map_err(CommandError::io)?;
+        let _ = std::fs::remove_file(&snap_path);
+        manifest
+    } else {
+        crate::domain::backup::pack_data_dir(&data_dir, Path::new(&dest))
+            .map_err(CommandError::io)?
+    };
     Ok(json!({
         "entries": manifest.entries.len(),
         "size": manifest.entries.iter().map(|e| e.size).sum::<u64>(),
@@ -39,25 +69,46 @@ pub(crate) async fn backup_preview(path: String) -> Result<JsonValue, CommandErr
     }))
 }
 
-/// 恢复执行（校验 → 当前态快照 → 解包落位；失败留快照不击穿）。
+/// 恢复执行（停引擎 → 校验 → 当前态快照 → 解包落位；失败留快照不击穿）。
+///
+/// 一致性纪律（与 recovery_restore_snapshot 对齐）：恢复前先停引擎——运行中
+/// 引擎持有 sqlite 句柄，Windows 共享锁下解包直接覆盖主库会失败，且引擎
+/// 内存态（记录/链缓存）在文件被替换后失效；停机后磁盘为唯一一致源，
+/// 恢复前快照亦为一致形态。恢复完成后引擎由下次命令懒装配（重挂），
+/// 并退出安全模式（用户显式恢复已知状态，回正常启动路径）。
 #[tauri::command]
-pub(crate) async fn backup_restore(app: AppHandle, path: String) -> Result<JsonValue, CommandError> {
+pub(crate) async fn backup_restore(
+    app: AppHandle,
+    state: State<'_, ShellState>,
+    path: String,
+) -> Result<JsonValue, CommandError> {
     let data_dir = app_data_dir(&app)?;
-    let snapshots_dir = data_dir.join("snapshots");
-    let (preview, snapshot) = crate::domain::backup::execute_restore(
-        Path::new(&path),
-        &data_dir,
-        &snapshots_dir,
-    )
-    .map_err(CommandError::io)?;
-    Ok(json!({
-        "restored_entries": preview.entries_total,
-        "will_overwrite": preview.will_overwrite,
-        "total_size": preview.total_size,
-        "has_db": preview.has_db,
-        "snapshot": snapshot.display().to_string(),
-        "restore_from": path,
-    }))
+    // R6：恢复全程持禁装闸——停机解包写盘窗口内并发命令不得 ensure_engine
+    // 用半态库装配；失败/成功均须解除（闸解除后下次命令懒装配新库形态）。
+    crate::set_restore_in_progress(true);
+    let outcome = (|| -> Result<JsonValue, CommandError> {
+        if let Some(host) = state.backend.engine.lock().unwrap().take() {
+            let _ = host.stop();
+        }
+        let snapshots_dir = data_dir.join("snapshots");
+        let (preview, snapshot) = crate::domain::backup::execute_restore(
+            Path::new(&path),
+            &data_dir,
+            &snapshots_dir,
+        )
+        .map_err(CommandError::io)?;
+        crate::domain::recovery::clear_safe_mode(&data_dir);
+        Ok(json!({
+            "restored_entries": preview.entries_total,
+            "will_overwrite": preview.will_overwrite,
+            "total_size": preview.total_size,
+            "has_db": preview.has_db,
+            "snapshot": snapshot.display().to_string(),
+            "restore_from": path,
+        }))
+    })();
+    crate::set_restore_in_progress(false);
+    outcome
 }
 
 /// 启动快照清单（「回到上一稳定版本」的取用入口：绑定链版本 + 时间序）。
@@ -104,10 +155,13 @@ pub(crate) async fn recovery_restore_snapshot(
     if outcome.get("restored").and_then(JsonValue::as_bool) != Some(true) {
         return Err(CommandError::engine("快照恢复未确认落位"));
     }
-    // 引擎停机重挂：恢复后一致态由下次装配保证（会话/记忆/链回到快照时刻）
+    // 引擎停机重挂：恢复后一致态由下次装配保证（会话/记忆/链回到快照时刻）。
+    // R6：停机窗口持禁装闸，防并发命令在半态库上重挂。
+    crate::set_restore_in_progress(true);
     if let Some(host) = state.backend.engine.lock().unwrap().take() {
         let _ = host.stop();
     }
+    crate::set_restore_in_progress(false);
     crate::domain::recovery::clear_safe_mode(&data_dir);
     Ok(json!({
         "restored": meta.name,
@@ -167,10 +221,13 @@ pub(crate) async fn recovery_factory_reset(
         }
         reverted.push(version);
     }
-    // 引擎停机重挂：下次装配 = 出厂基线（链已空 + 种子重注入）
+    // 引擎停机重挂：下次装配 = 出厂基线（链已空 + 种子重注入）。
+    // R6：停机窗口持禁装闸，防并发命令在半态库上重挂。
+    crate::set_restore_in_progress(true);
     if let Some(host) = state.backend.engine.lock().unwrap().take() {
         let _ = host.stop();
     }
+    crate::set_restore_in_progress(false);
     crate::domain::recovery::clear_safe_mode(&data_dir);
     Ok(json!({
         "reverted_patches": reverted,

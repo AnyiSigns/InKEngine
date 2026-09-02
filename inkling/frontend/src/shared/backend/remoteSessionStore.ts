@@ -135,10 +135,18 @@ export class RemoteSessionStore implements SessionStore {
   }
 
   remove(id: string): void {
-    if (!this.records.delete(id)) return;
+    const record = this.records.get(id);
+    if (!record) return;
+    this.records.delete(id);
     this.commit();
     if (this.backend.available) {
-      void this.backend.sessionDelete(id).catch(() => undefined);
+      // 删除失败回滚镜像（引擎删除/墓碑失败不静默丢失会话）：会话重现
+      void this.backend.sessionDelete(id).catch(() => {
+        if (!this.records.has(id)) {
+          this.records.set(id, record);
+          this.commit();
+        }
+      });
     }
   }
 

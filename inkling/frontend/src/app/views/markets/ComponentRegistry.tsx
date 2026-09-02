@@ -74,6 +74,26 @@ export function ComponentRegistry({ backend }: ComponentRegistryProps) {
     }
   };
 
+  const resetAll = async (): Promise<void> => {
+    setSaving(true);
+    setNotice(null);
+    try {
+      const result = await backend.setUiComponentsDisabled([]);
+      if (!result.ok) {
+        setNotice(`恢复出厂失败：${result.error ?? '未知错误'}`);
+        return;
+      }
+      setDisabled(new Set());
+      await backend.syncUiComponentGate();
+      setNotice('已恢复出厂组件启停（全部启用）');
+    } catch (err) {
+      logger.error('components', '出厂组件恢复出厂失败', { err: String(err) });
+      setNotice('恢复出厂失败，请稍后重试');
+    } finally {
+      setSaving(false);
+    }
+  };
+
   return (
     <section className="ink-panel p-4" data-ui="component_registry">
       <div className="flex items-center gap-2.5">
@@ -83,6 +103,23 @@ export function ComponentRegistry({ backend }: ComponentRegistryProps) {
           {loading ? '加载中…' : `${factory.length} 出厂 · ${entries.length} 已挂载`}
         </span>
       </div>
+
+      {disabled.size > 0 ? (
+        <div className="mt-3 flex items-center justify-between gap-2">
+          <span className="text-[10px] ink-text-faint">
+            已停用 {disabled.size} 个出厂组件（停用即产品面渲染占位/隐藏）
+          </span>
+          <button
+            type="button"
+            data-testid="reset_all_components"
+            disabled={saving}
+            onClick={() => void resetAll()}
+            className="shrink-0 rounded-md border border-[var(--ink-border)] px-2 py-1 text-[9px] ink-text-muted hover:text-[var(--ink-text-base)] cursor-pointer bg-transparent disabled:opacity-50"
+          >
+            恢复出厂（全部启用）
+          </button>
+        </div>
+      ) : null}
 
       {notice ? (
         <div className="mt-3 rounded-xl border border-dashed px-3 py-2 text-[10px] ink-border ink-text-muted" data-ui="component_notice">

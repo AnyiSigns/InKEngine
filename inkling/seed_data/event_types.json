@@ -527,6 +527,21 @@
       "meta": { "note": "工具可信度审查留痕（静态钩子/L2 影子运行）" }
     },
     {
+      "name": "output_verdict",
+      "schema": {
+        "name": "output_verdict",
+        "fields": [
+          { "name": "node", "kind": "string" },
+          { "name": "pass", "required": true, "kind": "boolean" },
+          { "name": "attempt", "kind": "number" },
+          { "name": "violations", "kind": "array" }
+        ]
+      },
+      "renderer": "source_trace",
+      "system": false,
+      "meta": { "note": "节点产出评审裁决（executor VTM 验证器 emit：node/pass/attempt/violations）" }
+    },
+    {
       "name": "device_sensed",
       "schema": {
         "name": "device_sensed",

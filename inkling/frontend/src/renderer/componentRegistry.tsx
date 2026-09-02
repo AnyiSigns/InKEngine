@@ -11,7 +11,7 @@
  * 渲染异常回退占位（错误边界），不击穿面板；未知事件类型折叠兜底。
  */
 
-import { Component } from 'react';
+import { Component, useSyncExternalStore } from 'react';
 import type { ComponentType, ErrorInfo, ReactNode } from 'react';
 
 import { isBindChannelAllowed } from './channelWhitelist';
@@ -24,6 +24,23 @@ export type PlainComponent = ComponentType<Record<string, unknown>>;
 const components = new Map<string, PlainComponent>();
 /** 已停用出厂组件（组件 tab 勾选落地面；停用组件渲染占位拒绝）。 */
 const disabledComponents = new Set<string>();
+const gateListeners = new Set<() => void>();
+let gateVersion = 0;
+
+function notifyComponentGate(): void {
+  gateVersion += 1;
+  for (const listener of gateListeners) listener();
+}
+
+/** 出厂组件启停订阅（启停即时生效：产品面渲染闸随启停变化重渲）。 */
+export function subscribeComponentGate(listener: () => void): () => void {
+  gateListeners.add(listener);
+  return () => gateListeners.delete(listener);
+}
+
+function getComponentGateVersion(): number {
+  return gateVersion;
+}
 
 /** 注册组件（同名覆盖——内置基线优先，演化产物可接管）。 */
 export function registerComponent(name: string, component: PlainComponent): void {
@@ -40,6 +57,7 @@ export function isComponentRegistered(name: string): boolean {
 export function setUiComponentsDisabled(names: string[]): void {
   disabledComponents.clear();
   for (const name of names) disabledComponents.add(name);
+  notifyComponentGate();
 }
 
 /** 组件是否启用（停用集排除；与注册白名单并存的第二道闸）。 */
@@ -50,6 +68,37 @@ export function isComponentEnabled(name: string): boolean {
 /** 解析组件：未注册返回 null（渲染占位拒绝）。 */
 export function resolveComponent(name: string): PlainComponent | null {
   return components.get(name) ?? null;
+}
+
+/**
+ * 出厂组件门闸（接真实渲染面）：把产品面直接渲染的组件套进该闸——
+ * 停用即整区替换为占位（与引擎 ui_allowed_components 过滤同语义），
+ * 启停变化经订阅即时生效，不再是只约束规格渲染的死闸。
+ * mode="hidden" 时停用组件直接不渲染（侧栏等布局位不占位）。
+ */
+export function ComponentGate({
+  name,
+  children,
+  mode = 'placeholder',
+  className,
+}: {
+  name: string;
+  children: ReactNode;
+  mode?: 'placeholder' | 'hidden';
+  className?: string;
+}) {
+  const version = useSyncExternalStore(subscribeComponentGate, getComponentGateVersion, getComponentGateVersion);
+  void version;
+  if (isComponentEnabled(name)) return <>{children}</>;
+  if (mode === 'hidden') return null;
+  return (
+    <div
+      className={`flex h-full min-h-[120px] w-full items-center justify-center border border-dashed px-4 text-center text-[11px] ink-border ink-text-faint ${className ?? ''}`}
+      data-ui={`component_disabled_${name}`}
+    >
+      组件「{name}」已停用（出厂组件启停，可在设置 → 组件中恢复）
+    </div>
+  );
 }
 
 interface ErrorBoundaryProps {

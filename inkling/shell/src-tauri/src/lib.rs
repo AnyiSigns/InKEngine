@@ -191,6 +191,32 @@ fn assembly_failure(stage: &str, detail: impl std::fmt::Display) -> String {
     format!("引擎装配失败（{stage}，trace_id={trace_id}；详见本地日志）")
 }
 
+/// 恢复/回退/重置禁装闸：置位期间禁止引擎（懒）装配——恢复全程停机
+/// 操作磁盘（半态库），并发命令若在此期间 ensure_engine 会用中间形态库
+/// 装配引擎，恢复完成后内存态与磁盘新态不一致。见 [`set_restore_in_progress`]。
+static RESTORE_IN_PROGRESS: AtomicBool = AtomicBool::new(false);
+
+/// 置位/清除恢复禁装闸（恢复、快照回退、出厂重置全程持闸）。
+pub(crate) fn set_restore_in_progress(flag: bool) {
+    RESTORE_IN_PROGRESS.store(flag, Ordering::SeqCst);
+}
+
+/// 恢复禁装闸判定（装配路径读取；置位 = 引擎暂不可用）。
+pub(crate) fn restore_in_progress() -> bool {
+    RESTORE_IN_PROGRESS.load(Ordering::SeqCst)
+}
+
+/// 装配可用性判定：引擎在槽（活）或不在恢复禁装窗口 = 可装配。
+fn assembly_available(engine_live: bool) -> Result<(), String> {
+    if engine_live {
+        return Ok(());
+    }
+    if restore_in_progress() {
+        return Err("引擎暂不可用：备份恢复/快照回退/出厂重置进行中，完成后自动就绪".to_string());
+    }
+    Ok(())
+}
+
 /// 懒装配（幂等）：首次调用执行引擎机制装配 + 工具快照刷新。
 ///
 /// 装配 = 嵌入装配域包的 `boot_inkling`（机制装配 + 安全纵深 + 活跃态
@@ -209,6 +235,9 @@ fn ensure_engine(app: &tauri::AppHandle, state: &ShellState, data_dir: &Path) ->
     if engine.is_some() {
         return Ok(());
     }
+    // R6：恢复/回退/重置期间禁装——引擎槽空（停机恢复窗口）时并发命令
+    // 不得用半态库重新装配；闸解除后下次命令正常懒装配（恢复完成再挂载）。
+    assembly_available(false)?;
     let boot_state = domain::recovery::load_boot_state(data_dir);
     let repo_root = repo_root_for(data_dir);
     // FA12：回合行为层工具对照表取运行时快照——装配前先以种子装载
@@ -870,6 +899,7 @@ pub fn run() {
             commands::sessions::session_rename,
             commands::sessions::session_delete,
             commands::sessions::session_refresh,
+            commands::sessions::session_messages,
             commands::sessions::session_tree,
             commands::sessions::session_branch,
             commands::workspace::authorization_state,
@@ -969,4 +999,28 @@ pub fn run() {
             stop.store(true, Ordering::Relaxed);
         }
     });
+}
+
+#[cfg(test)]
+mod tests {
+    use super::*;
+
+    #[test]
+    fn restore_gate_blocks_assembly_when_engine_slot_empty() {
+        // R6 并发窗口：恢复期间引擎槽空（停机恢复/回退/重置）= 装配被拒，
+        // 并发命令拿「引擎暂不可用」而非用半态库重挂；活引擎与闸解除后
+        // 的正常装配不受影响。
+        set_restore_in_progress(false);
+        assert!(assembly_available(true).is_ok(), "引擎在槽 = 可装配");
+        assert!(assembly_available(false).is_ok(), "无恢复进行 = 可装配");
+        set_restore_in_progress(true);
+        assert!(assembly_available(true).is_ok(), "引擎在槽不受闸影响");
+        let err = assembly_available(false).expect_err("槽空 + 恢复中应拒绝装配");
+        assert!(
+            err.contains("恢复") || err.contains("重置"),
+            "拒绝原因须说明恢复窗口（实际: {err}）"
+        );
+        set_restore_in_progress(false);
+        assert!(assembly_available(false).is_ok(), "闸解除 = 恢复装配");
+    }
 }

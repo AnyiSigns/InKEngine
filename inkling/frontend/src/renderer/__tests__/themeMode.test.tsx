@@ -3,17 +3,12 @@
  * 可注入持久化、首启解析、状态独立（主题层不触碰会话侧状态）。
  */
 
-import { render, screen } from '@testing-library/react';
-import { fireEvent } from '@testing-library/react';
-
 import {
   ThemeModeController,
   createMemoryPersist,
   resolveEffectiveTheme,
-  getThemeController,
 } from '@/renderer/themeMode';
-import { ALPHA_TOKEN_GROUP, THEME_TOKEN_WHITELIST, tokenVariableOf } from '@/renderer/themeTokens';
-import { AppearanceSection } from '@/components/settings_sections/appearance_section';
+import { ALPHA_TOKEN_GROUP, tokenVariableOf } from '@/renderer/themeTokens';
 
 describe('resolveEffectiveTheme 三档解析', () => {
   it('system 跟随系统暗色；显式档位钉住', () => {
@@ -117,46 +112,5 @@ describe('主题 token（透明组）', () => {
     expect(percent('color-mix(in srgb, var(--ink-text-base) 18%, transparent)')).toBeLessThanOrEqual(50);
     expect(percent('color-mix(in srgb, var(--ink-text-base) 30%, transparent)')).toBeLessThanOrEqual(50);
     expect(ALPHA_TOKEN_GROUP).toEqual(['status.bubble.fill', 'status.bubble.edge', 'status.card.edge']);
-  });
-});
-
-describe('外观节：三档切换（首选档数据独立）', () => {
-  beforeEach(() => {
-    try {
-      localStorage.clear();
-    } catch {
-      // jsdom 无存储时跳过
-    }
-    delete document.documentElement.dataset.theme;
-    // 重建共享控制器状态（清持久化后回到 system）
-    getThemeController().setMode('system');
-  });
-
-  it('三档选择器渲染：system 默认选中', () => {
-    render(<AppearanceSection value={{ themeDraft: {} }} patch={() => undefined} />);
-    const system = screen.getByRole('radio', { name: '跟随系统' });
-    expect(system).toHaveAttribute('aria-checked', 'true');
-  });
-
-  it('切换到深色即时落 data-theme，再随系统档还原', () => {
-    render(<AppearanceSection value={{ themeDraft: {} }} patch={() => undefined} />);
-    fireEvent.click(screen.getByRole('radio', { name: '深色' }));
-    expect(document.documentElement.dataset.theme).toBe('dark');
-    fireEvent.click(screen.getByRole('radio', { name: '跟随系统' }));
-    expect(document.documentElement.dataset.theme === 'dark' || document.documentElement.dataset.theme === 'light').toBe(true);
-  });
-
-  it('外观节切换不触碰会话侧状态键（状态独立面）', () => {
-    render(<AppearanceSection value={{ themeDraft: {} }} patch={() => undefined} />);
-    fireEvent.click(screen.getByRole('radio', { name: '浅色' }));
-    fireEvent.click(screen.getByRole('radio', { name: '深色' }));
-    // 主题层不写 uiStateStore 键（折叠/草稿键独立）
-    expect(document.documentElement.dataset.theme).toBe('dark');
-  });
-
-  it('token 试穿白名单落地（透明组含）', () => {
-    render(<AppearanceSection value={{ themeDraft: { 'status.bubble.fill': 'color-mix(in srgb, #fff 20%, transparent)' } }} patch={() => undefined} />);
-    expect(screen.getByLabelText('status.bubble.fill 色值')).toBeInTheDocument();
-    expect(THEME_TOKEN_WHITELIST).toContain('status.bubble.fill');
   });
 });

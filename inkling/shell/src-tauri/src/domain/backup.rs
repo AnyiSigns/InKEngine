@@ -137,9 +137,41 @@ fn parse_manifest(bytes: &[u8]) -> Result<BackupManifest, DomainError> {
 
 // ── 导出 ──
 
+/// sqlite 在线伴随文件后缀（-wal / -shm / -journal）：在线库的写缓存/
+/// 共享内存/回滚日志，脱离连接上下文即无意义——导出打包时跳过（引擎
+/// 存储快照已产出一致主库，随伴文件带进包会在恢复后污染主库一致态）。
+const SQLITE_SIDE_FILE_SUFFIXES: [&str; 3] = ["-wal", "-shm", "-journal"];
+
+fn is_sqlite_side_file(rel: &str) -> bool {
+    SQLITE_SIDE_FILE_SUFFIXES.iter().any(|suffix| rel.ends_with(suffix))
+}
+
 /// 一键导出：data_dir 递归打包 → 单文件容器（sqlite + md + 补丁链
 /// 快照形态 = 数据目录全部运行数据；顺序确定，可复现导出）。
 pub fn pack_data_dir(data_dir: &Path, dest: &Path) -> Result<BackupManifest, DomainError> {
+    pack_data_dir_impl(data_dir, dest, None)
+}
+
+/// 一致性导出（运行中引擎）：以引擎存储快照（sqlite backup API 一致
+/// 副本）替换活动主库内容入包。
+///
+/// 活动库在线时裸读主库文件 = 可能取到未含 WAL 提交的中间形态（内存
+/// 态与磁盘不一致）；走存储快照 op 后，`db_rel`（如 `inkling.sqlite`）
+/// 条目以快照文件内容落包，其余文件照常读盘。
+pub fn pack_data_dir_with_snapshot(
+    data_dir: &Path,
+    dest: &Path,
+    db_rel: &str,
+    db_snapshot: &Path,
+) -> Result<BackupManifest, DomainError> {
+    pack_data_dir_impl(data_dir, dest, Some((db_rel, db_snapshot)))
+}
+
+fn pack_data_dir_impl(
+    data_dir: &Path,
+    dest: &Path,
+    db_override: Option<(&str, &Path)>,
+) -> Result<BackupManifest, DomainError> {
     if !data_dir.is_dir() {
         return Err(DomainError::InvalidData("数据目录不存在".to_string()));
     }
@@ -160,11 +192,19 @@ pub fn pack_data_dir(data_dir: &Path, dest: &Path) -> Result<BackupManifest, Dom
             .map_err(|err| DomainError::Storage(format!("路径剥离失败: {err}")))?
             .to_string_lossy()
             .replace('\\', "/");
-        if rel.is_empty() {
+        if rel.is_empty() || is_sqlite_side_file(&rel) {
             continue;
         }
-        let data = std::fs::read(&path)
-            .map_err(|err| DomainError::Storage(format!("读取失败: {err}")))?;
+        let overridden = db_override.is_some_and(|(db_rel, _)| rel == db_rel);
+        let data = match db_override {
+            Some((db_rel, snapshot_path)) if rel == db_rel => {
+                std::fs::read(snapshot_path)
+                    .map_err(|err| DomainError::Storage(format!("快照读取失败: {err}")))?
+            }
+            _ => std::fs::read(&path)
+                .map_err(|err| DomainError::Storage(format!("读取失败: {err}")))?,
+        };
+        let _ = overridden;
         if rel.ends_with(".sqlite") || rel.ends_with(".db") {
             has_db = true;
         }
@@ -463,9 +503,11 @@ fn commit_staged(
         if let Err(err) = write_result {
             let mut message = format!("恢复写入失败: {err}");
             if let Err(rollback_err) = rollback_committed(&committed, target_dir, snapshot) {
-                eprintln!(
-                    "backup: 恢复回滚未完整执行（快照留于 {}）: {rollback_err}",
-                    snapshot.display()
+                tracing::error!(
+                    target: "backup",
+                    snapshot = %snapshot.display(),
+                    error = %rollback_err,
+                    "恢复回滚未完整执行（快照已留，可手动还原）"
                 );
                 message.push_str("；回滚未完整执行（快照已留，可手动还原）");
             }
@@ -600,6 +642,48 @@ mod tests {
         assert_eq!(manifest.compression, "stored");
         let revalidated = validate_backup(&backup).expect("校验通过");
         assert_eq!(revalidated, manifest);
+    }
+
+    #[test]
+    fn pack_skips_sqlite_side_files() {
+        // 在线伴随文件（-wal/-shm/-journal）脱离连接上下文无意义，导出跳过
+        let (ws, data_dir) = fixture_data_dir();
+        write(&data_dir, "inkling.sqlite-wal", b"wal-pages");
+        write(&data_dir, "inkling.sqlite-shm", b"shm");
+        write(&data_dir, "memory/main.md-journal", b"j");
+        let backup = ws.0.join("out.inkb");
+        let manifest = pack_data_dir(&data_dir, &backup).expect("导出成功");
+        let paths: Vec<&str> = manifest.entries.iter().map(|e| e.path.as_str()).collect();
+        assert_eq!(paths.len(), 4, "伴随文件不应入包");
+        assert!(!paths.iter().any(|p| p.ends_with("-wal") || p.ends_with("-shm") || p.ends_with("-journal")));
+    }
+
+    #[test]
+    fn pack_with_snapshot_replaces_live_db_content() {
+        // 运行中引擎的一致性导出：主库条目内容 = 引擎存储快照文件，
+        // 非活动库裸读（快照 op 一致副本替换）
+        let (ws, data_dir) = fixture_data_dir();
+        let snapshot = ws.0.join("consistent.sqlite");
+        std::fs::write(&snapshot, b"consistent-snapshot-bytes").unwrap();
+        let backup = ws.0.join("out.inkb");
+        let manifest = pack_data_dir_with_snapshot(&data_dir, &backup, "inkling.sqlite", &snapshot)
+            .expect("一致性导出成功");
+        assert!(manifest.engine_snapshot);
+        let revalidated = validate_backup(&backup).expect("校验通过");
+        let sqlite = revalidated
+            .entries
+            .iter()
+            .find(|e| e.path == "inkling.sqlite")
+            .expect("主库条目在包内");
+        assert_eq!(sqlite.size, std::fs::metadata(&snapshot).unwrap().len(), "主库条目 = 快照文件内容而非活动库形态");
+        // 非主库文件照常读盘
+        let md = revalidated
+            .entries
+            .iter()
+            .find(|e| e.path == "memory/main.md")
+            .expect("记忆文件在包内");
+        let expected_md = std::fs::metadata(data_dir.join("memory/main.md")).unwrap().len();
+        assert_eq!(md.size, expected_md);
     }
 
     #[test]

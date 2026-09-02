@@ -2,7 +2,7 @@
  * 设置页激活入口（对外固定签名：activate(): void）。
  *
  * 全部节对所有用户开放（不再有开发者模式门控）：通用/模型/连接/
- * 知识集/架构；管理台各节内嵌（记忆/洞察/备份）；账本由主区
+ * 知识集/架构；管理台各节内嵌（记忆/洞察/审计与恢复/备份）；账本由主区
  * 「账本」页签承载（round_ledger_list 事实快照 + 摘要链）；
  * 市场/组件/工具/OS/工作区授权/界面编辑器（wave4 归一注册，见 app/activate）。
  * 模型页承载档位/厂商/端点/推演档；连接页承载 MCP 与搜索 key；
@@ -15,11 +15,12 @@
  * 统一走前台 sleep 工具（后台任务域废弃）。
  */
 
-import { BookOpen, Database, Eye, Network, PlugZap, Settings2, ShieldCheck } from 'lucide-react';
+import { BookOpen, Database, Eye, FileClock, Network, PlugZap, Settings2, ShieldCheck } from 'lucide-react';
 
 import { GeneralSection } from './sections/general_section';
 import { ModelSection } from './sections/model_section';
 import { ConnectSection } from './sections/connect_section';
+import { AuditRecoverySection } from './sections/audit_recovery';
 import { KnowledgePanel } from '@/app/knowledge/KnowledgePanel';
 import { ArchitectureView } from '@/app/views/architecture/ArchitectureView';
 import { BackupSection } from '@/app/console/sections/BackupSection';
@@ -83,6 +84,14 @@ export function registerSettingsSections(): void {
     icon: <Eye size={16} strokeWidth={1.6} aria-hidden />,
     order: 74,
     render: () => <InsightSection />,
+  });
+
+  registerSettingsSection({
+    key: 'audit_recovery',
+    label: '审计与恢复',
+    icon: <FileClock size={16} strokeWidth={1.6} aria-hidden />,
+    order: 75,
+    render: () => <AuditRecoverySection />,
   });
 
   registerSettingsSection({

@@ -656,6 +656,82 @@ def _runtime_recipe_context(runtime: Any) -> Any:
     )
 
 
+# ── records_list 可选窗口下推（引擎读取侧；通用可选，缺省 = 现状）──
+# 壳 audit_list 的窗口语义（limit/after/before + ts/created_at 时间戳）随
+# 窗口参数透传到本 op，引擎在返回前过滤/排序/截断——审计集合长文件场景
+# 不再整表 JSON 序列化 + 跨边界传输。无窗口参数 = 原集合顺序/全量直通
+# （records_list 其它调用方（knowledge/entities 等）行为零变化）。
+
+_RECORD_TS_KEYS = ("ts", "created_at")
+
+
+def _record_ts(record: dict) -> float | None:
+    """记录时间戳提取：`ts`（秒）或 `created_at`；无时间戳 = None。"""
+    for key in _RECORD_TS_KEYS:
+        value = record.get(key)
+        if isinstance(value, (int, float)) and not isinstance(value, bool):
+            return float(value)
+    return None
+
+
+def _coerce_window_limit(value: Any) -> int | None:
+    """limit 参数规整：缺省 None；非法形态显式报错（不静默吞掉）。"""
+    if value is None:
+        return None
+    if isinstance(value, bool) or not isinstance(value, (int, float)):
+        raise TypeError("窗口 limit 须为正整数")
+    limit = int(value)
+    if limit <= 0:
+        raise ValueError("窗口 limit 须为正整数")
+    return limit
+
+
+def _coerce_window_ts(value: Any) -> float | None:
+    """after/before 参数规整：epoch 秒数值；非法形态显式报错。"""
+    if value is None:
+        return None
+    if isinstance(value, bool) or not isinstance(value, (int, float)):
+        raise TypeError("窗口 after/before 须为 epoch 秒数值")
+    return float(value)
+
+
+def _apply_records_window(
+    records: list[dict],
+    *,
+    limit: int | None = None,
+    after: float | None = None,
+    before: float | None = None,
+    asc: bool = False,
+) -> list[dict]:
+    """记录清单窗口（纯函数；与壳侧 apply_audit_window 语义一致）。
+
+    仅当 limit/after/before 任一带参才激活窗口；全缺省 = 原样直通。
+    - 时间窗：ts ∈ [after, before]（含端点）；无时间戳记录仅当无窗界
+      （after/before 均缺）时保留（排序按 0 兜底）；
+    - 排序：缺省时间倒序（最新在前）；asc=True 转正序；
+    - 截断：limit 显式传入才截断（壳侧窗口缺省/上限归一化在壳完成，
+      引擎只按显式 limit 收敛返回体）。
+    """
+    if limit is None and after is None and before is None:
+        return list(records)
+    windowed: list[tuple[float, dict]] = []
+    for record in records:
+        ts = _record_ts(record)
+        if ts is None:
+            if after is None and before is None:
+                windowed.append((0.0, record))
+            continue
+        if after is not None and ts < after:
+            continue
+        if before is not None and ts > before:
+            continue
+        windowed.append((ts, record))
+    windowed.sort(key=lambda pair: pair[0], reverse=not asc)
+    if limit is not None:
+        windowed = windowed[:limit]
+    return [record for _, record in windowed]
+
+
 def _register_engine_core_ops() -> None:
     """引擎核心操作组（engine.* 基础：装配/记录/知识/声明式注册表）。"""
 
@@ -812,7 +888,22 @@ def _register_engine_core_ops() -> None:
     @op_async("engine.records_list")
     async def _records_list(args: dict) -> Any:
         runtime = runtime_handle()
-        return [_jsonable(rec) for rec in await runtime.storage.list_records(args["collection"])]
+        records = await runtime.storage.list_records(args["collection"])
+        limit = args.get("limit")
+        after = args.get("after")
+        before = args.get("before")
+        asc = bool(args.get("asc", False))
+        if limit is None and after is None and before is None:
+            # 无窗口参数 = 原集合顺序/全量（历史契约：默认不做排序/截断）
+            return [_jsonable(rec) for rec in records]
+        windowed = _apply_records_window(
+            records,
+            limit=_coerce_window_limit(limit),
+            after=_coerce_window_ts(after),
+            before=_coerce_window_ts(before),
+            asc=asc,
+        )
+        return [_jsonable(rec) for rec in windowed]
 
     @op_sync("engine.knowledge_add")
     def _knowledge_add(args: dict) -> Any:
@@ -1810,8 +1901,6 @@ def _register_memory_ops() -> None:
                 "source": entry.source,
                 "credibility": entry.weight,
                 "expires_at": entry.expires_at,
-                # 引擎无 invalid 概念（失效 = expires_at 过期），前端语义暂恒 False
-                "invalid": False,
                 "created_at": entry.created_at,
             })
         return _jsonable({
@@ -2060,6 +2149,23 @@ def _register_runtime_ops() -> None:
         return {"state": "stopped"}
 
 
+async def _knowledge_set_save(runtime: Any) -> None:
+    """知识集落库（守卫感知：经集合名豁免上下文放行，受控直写 + 钩子审计）。
+
+    面板写操作 = 用户策展（受控直写通道），不是旁路：对守卫存储须走
+    ``allow_mechanism(collection)`` 上下文；无守卫（纯内存/测试）直接 save。
+    """
+    ks = getattr(runtime, "knowledge_set", None)
+    if ks is None or getattr(ks, "storage", None) is None:
+        return
+    allow = getattr(ks.storage, "allow_mechanism", None)
+    if allow is None:
+        await ks.save()
+        return
+    with allow(ks.collection):
+        await ks.save()
+
+
 def _register_knowledge_ops() -> None:
     # ── 知识集（用户集知识 CRUD / 晋升 / 归档 / 导出）──
 
@@ -2204,36 +2310,28 @@ def _register_knowledge_ops() -> None:
             credibility=0.5,
         )
         runtime.knowledge_set.add(entry)
-        ks = runtime.knowledge_set
-        if getattr(ks, "storage", None) is not None:
-            await ks.save()
+        await _knowledge_set_save(runtime)
         return {"id": entry_id}
 
     @op_async("knowledge.promote")
     async def _knowledge_promote(args: dict) -> Any:
         runtime = runtime_handle()
         entry = runtime.knowledge_set.promote(args["id"])
-        ks = runtime.knowledge_set
-        if getattr(ks, "storage", None) is not None:
-            await ks.save()
+        await _knowledge_set_save(runtime)
         return {"id": entry.id, "level": entry.level}
 
     @op_async("knowledge.archive")
     async def _knowledge_archive(args: dict) -> Any:
         runtime = runtime_handle()
         entry = runtime.knowledge_set.archive(args["id"])
-        ks = runtime.knowledge_set
-        if getattr(ks, "storage", None) is not None:
-            await ks.save()
+        await _knowledge_set_save(runtime)
         return {"id": entry.id}
 
     @op_async("knowledge.restore")
     async def _knowledge_restore(args: dict) -> Any:
         runtime = runtime_handle()
         entry = runtime.knowledge_set.unarchive(args["id"])
-        ks = runtime.knowledge_set
-        if getattr(ks, "storage", None) is not None:
-            await ks.save()
+        await _knowledge_set_save(runtime)
         return {"id": entry.id}
 
     @op_async("knowledge.export")
@@ -2290,10 +2388,7 @@ def _register_knowledge_ops() -> None:
         outcomes = await incubation.evolve(
             ctx, limit=limit, round_id=args.get("round_id")
         )
-        if runtime.knowledge_set is not None:
-            ks = runtime.knowledge_set
-            if getattr(ks, "storage", None) is not None:
-                await ks.save()
+        await _knowledge_set_save(runtime)
         return _jsonable(
             {
                 "outcomes": [
@@ -3158,6 +3253,43 @@ async def _path_set_multipath(args: dict) -> dict[str, Any]:
     return _jsonable(result)
 
 
+def _assembly_runtime_store(kind: str) -> Any:
+    """干预 op 的运行时存储解析（弃 :memory: 假库）：优先 runtime 挂载实例，
+    其次默认路径装配运行期（evidence_store/cache）；未装配 = 结构化报错。
+
+    此前各干预 op 各自 ``EdgeEvidenceStore/FingerprintCacheStore(db_path=
+    ":memory:")`` 在空内存库上操作——降级恒「边不存在」、失效恒 0 且无审计，
+    真实落盘库（data_dir/*.sqlite）从不被干预。统一改走装配实例。
+    """
+    runtime = runtime_handle()
+    attr = (
+        "edge_evidence_store"
+        if kind == "edge"
+        else "fingerprint_cache_store"
+    )
+    store = getattr(runtime, attr, None)
+    if store is not None:
+        return store
+    try:
+        from ink_engine.core.path_assembler import get_default_assembly_runtime
+    except Exception:
+        get_default_assembly_runtime = None
+    if get_default_assembly_runtime is not None:
+        default = get_default_assembly_runtime()
+        if default is not None:
+            candidate = getattr(
+                default,
+                "evidence_store" if kind == "edge" else "cache",
+                None,
+            )
+            if candidate is not None:
+                return candidate
+    label = "边证据" if kind == "edge" else "指纹缓存"
+    raise RuntimeError(
+        f"{label}存储未装配（路径装配机制未启用，干预 op 不可用）"
+    )
+
+
 @op_async("cache.invalidate")
 async def _cache_invalidate(args: dict) -> dict[str, Any]:
     """指纹缓存语义化失效 op（复用 FingerprintCacheStore.invalidate 机制）。
@@ -3169,16 +3301,12 @@ async def _cache_invalidate(args: dict) -> dict[str, Any]:
     scope = args.get("scope") or ""
     runtime = runtime_handle()
     storage = getattr(runtime, "storage", None)
-    db_path = str(args.get("db_path") or ":memory:")
-    from ink_engine.core.fingerprint_cache import FingerprintCacheStore, invalidate_cache
+    from ink_engine.core.fingerprint_cache import invalidate_cache
 
-    store = FingerprintCacheStore(db_path=db_path)
-    try:
-        result = await invalidate_cache(
-            store, scope, storage=storage, reason=args.get("reason") or "人工失效"
-        )
-    finally:
-        await store.close()
+    store = _assembly_runtime_store("cache")
+    result = await invalidate_cache(
+        store, scope, storage=storage, reason=args.get("reason") or "人工失效"
+    )
     return _jsonable({"ok": True, **result})
 
 
@@ -3210,16 +3338,12 @@ async def _cache_rebuild(args: dict) -> dict[str, Any]:
     scope = f"domain:{domain}" if domain else "*"
     runtime = runtime_handle()
     storage = getattr(runtime, "storage", None)
-    db_path = str(args.get("db_path") or ":memory:")
-    from ink_engine.core.fingerprint_cache import FingerprintCacheStore, invalidate_cache
+    from ink_engine.core.fingerprint_cache import invalidate_cache
 
-    store = FingerprintCacheStore(db_path=db_path)
-    try:
-        result = await invalidate_cache(
-            store, scope, storage=storage, reason=args.get("reason") or "人工重建"
-        )
-    finally:
-        await store.close()
+    store = _assembly_runtime_store("cache")
+    result = await invalidate_cache(
+        store, scope, storage=storage, reason=args.get("reason") or "人工重建"
+    )
     return _jsonable({"ok": True, "rebuilt": True, "domain": domain, **result})
 
 
@@ -3233,17 +3357,13 @@ async def _edge_restore_tier(args: dict) -> dict[str, Any]:
     edge_id = args.get("edgeId") or args.get("edge_id") or ""
     runtime = runtime_handle()
     storage = getattr(runtime, "storage", None)
-    db_path = str(args.get("db_path") or ":memory:")
-    from ink_engine.core.edge_evidence import EdgeEvidenceStore, restore_edge_tier
+    from ink_engine.core.edge_evidence import restore_edge_tier
 
     key = _edge_key_from_id(edge_id)
-    store = EdgeEvidenceStore(db_path=db_path)
-    try:
-        if key is None:
-            raise ValueError(f"边标识非法: {edge_id!r}")
-        result = await restore_edge_tier(store, key, storage=storage)
-    finally:
-        await store.close()
+    if key is None:
+        raise ValueError(f"边标识非法: {edge_id!r}")
+    store = _assembly_runtime_store("edge")
+    result = await restore_edge_tier(store, key, storage=storage)
     if result is None:
         return _jsonable({"ok": True, "restored": False, "reason": "无降级快照"})
     return _jsonable({"ok": True, **result})
@@ -3261,25 +3381,19 @@ async def _edge_downgrade_tier(args: dict) -> dict[str, Any]:
     target = args.get("tier") or args.get("target_tier") or ""
     runtime = runtime_handle()
     storage = getattr(runtime, "storage", None)
-    db_path = str(args.get("db_path") or ":memory:")
-    from ink_engine.core.edge_evidence import EdgeEvidenceStore, EdgeKey
+    from ink_engine.core.edge_evidence import EdgeKey, downgrade_edge_tier
 
     key = _edge_key_from_id(edge_id)
-    store = EdgeEvidenceStore(db_path=db_path)
-    try:
-        if key is None:
-            raise ValueError(f"边标识非法: {edge_id!r}")
-        from ink_engine.core.edge_evidence import downgrade_edge_tier
-
-        result = await downgrade_edge_tier(
-            store,
-            key,
-            target_tier=target,
-            storage=storage,
-            reason=args.get("reason") or "人工降级",
-        )
-    finally:
-        await store.close()
+    if key is None:
+        raise ValueError(f"边标识非法: {edge_id!r}")
+    store = _assembly_runtime_store("edge")
+    result = await downgrade_edge_tier(
+        store,
+        key,
+        target_tier=target,
+        storage=storage,
+        reason=args.get("reason") or "人工降级",
+    )
     return _jsonable({"ok": True, **result})
 
 
@@ -3571,9 +3685,12 @@ def _ledger_fact_rules(_args: dict) -> Any:
 async def _memory_extract(args: dict) -> Any:
     """记忆无感提取 + 冲突仲裁（零 LLM 规则抽取，新旧并存留痕）。
 
-    输入：``ledger``（回合账本 JSON：intent/conclusion/events）。抽取条目
-    经 ``StorageBackedMemoryStore`` 存储，同 namespace+kind 内容冲突 →
-    新旧并存留痕（不静默覆盖），内容相同 → 去重跳过。
+    输入：``ledger``（回合账本 JSON：intent/conclusion/events）。抽取
+    语义 = 用户级长程共享：rounds 回合收尾经本 op 沉淀回合事实，抽取
+    条目统一落用户级命名空间（``memory_extract.DEFAULT_NAMESPACE``），
+    不带 thread 维度；条目经 ``StorageBackedMemoryStore`` 存储，同
+    namespace+kind 内容冲突 → 新旧并存留痕（不静默覆盖），内容相同 →
+    去重跳过。
     """
     from ink_engine.core.memory_extract import (
         arbitrate_and_store,

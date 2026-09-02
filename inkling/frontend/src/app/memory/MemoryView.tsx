@@ -14,7 +14,9 @@ export function MemoryView() {
   const [expanded, setExpanded] = useState<Set<string>>(new Set());
   const [editing, setEditing] = useState<string | null>(null);
   const [editContent, setEditContent] = useState('');
+  const [confirmingDelete, setConfirmingDelete] = useState<string | null>(null);
   const [actionError, setActionError] = useState('');
+  const [actionInfo, setActionInfo] = useState('');
 
   const load = async () => {
     try {
@@ -45,8 +47,17 @@ export function MemoryView() {
   };
 
   const handleInvalidate = async (id: string) => {
+    if (confirmingDelete !== id) {
+      setConfirmingDelete(id);
+      setActionError('');
+      setActionInfo('');
+      return;
+    }
     try {
       await opsRef.current.invalidate(id);
+      setConfirmingDelete(null);
+      setActionError('');
+      setActionInfo('记忆已永久删除，不可恢复');
       await load();
     } catch (err) {
       logger.error('memory', '记忆条目失效失败', { id, err: String(err) });
@@ -75,6 +86,11 @@ export function MemoryView() {
             {actionError}
           </span>
         )}
+        {!actionError && actionInfo && (
+          <span className="rounded px-2 py-0.5 text-[10px] ink-feedback-ok" data-ui="memory_action_info">
+            {actionInfo}
+          </span>
+        )}
       </div>
 
       {!data || data.entries.length === 0 ? (
@@ -89,7 +105,10 @@ export function MemoryView() {
                 key={ns.name}
                 type="button"
                 data-ui={`memory_ns_${ns.name}`}
-                onClick={() => setSelectedNs(ns.name)}
+                onClick={() => {
+                  setSelectedNs(ns.name);
+                  setConfirmingDelete(null);
+                }}
                 className={`rounded border px-2 py-1 text-[10px] cursor-pointer ${
                   selectedNs === ns.name
                     ? 'border-[var(--ink-border-strong)] text-[var(--ink-text-base)]'
@@ -109,6 +128,7 @@ export function MemoryView() {
                 expanded={expanded.has(entry.id)}
                 editing={editing === entry.id}
                 editContent={editContent}
+                confirmingDelete={confirmingDelete === entry.id}
                 t={t}
                 onToggle={() => toggleExpand(entry.id)}
                 onEdit={() => {
@@ -118,6 +138,7 @@ export function MemoryView() {
                 onSave={() => handleSaveContent(entry.id)}
                 onCancel={() => setEditing(null)}
                 onInvalidate={() => handleInvalidate(entry.id)}
+                onCancelDelete={() => setConfirmingDelete(null)}
                 onEditContentChange={setEditContent}
               />
             ))}
@@ -133,20 +154,21 @@ interface MemoryRowProps {
   expanded: boolean;
   editing: boolean;
   editContent: string;
+  confirmingDelete: boolean;
   t: (k: string) => string;
   onToggle: () => void;
   onEdit: () => void;
   onSave: () => void;
   onCancel: () => void;
   onInvalidate: () => void;
+  onCancelDelete: () => void;
   onEditContentChange: (v: string) => void;
 }
 
-function MemoryRow({ entry, expanded, editing, editContent, t, onToggle, onEdit, onSave, onCancel, onInvalidate, onEditContentChange }: MemoryRowProps) {
+function MemoryRow({ entry, expanded, editing, editContent, confirmingDelete, t, onToggle, onEdit, onSave, onCancel, onInvalidate, onCancelDelete, onEditContentChange }: MemoryRowProps) {
   return (
     <div
       data-ui={`memory_entry_${entry.id}`}
-      data-invalid={entry.invalid}
       className="flex flex-col gap-1 rounded border border-[var(--ink-border)] p-2"
     >
       <div className="flex items-center gap-2">
@@ -157,11 +179,6 @@ function MemoryRow({ entry, expanded, editing, editContent, t, onToggle, onEdit,
         <span className="rounded border border-[var(--ink-border)] px-1 py-0.5 text-[9px] text-[var(--ink-text-faint)]">
           {kindLabel(entry.kind)}
         </span>
-        {entry.invalid && (
-          <span className="rounded border border-[var(--ink-border)] px-1 py-0.5 text-[9px] text-[var(--ink-text-faint)]">
-            {t('memory.invalid')}
-          </span>
-        )}
         <span className="ml-auto text-[9px] text-[var(--ink-text-faint)]">
           {sourceLabel(entry.source)}
         </span>
@@ -182,17 +199,28 @@ function MemoryRow({ entry, expanded, editing, editContent, t, onToggle, onEdit,
                 <Button size="xs" variant="ghost" onClick={onCancel}>{t('memory.cancel')}</Button>
               </div>
             </>
+          ) : confirmingDelete ? (
+            <>
+              <div className="flex items-center gap-1 text-[11px] text-[var(--ink-accent-approval)]">
+                <Trash2 size={10} strokeWidth={1.6} />
+                {t('memory.delete_confirm')}
+              </div>
+              <div className="flex gap-1">
+                <Button size="xs" variant="accent" data-ui="memory_confirm_delete" onClick={onInvalidate}>
+                  {t('memory.confirm_delete')}
+                </Button>
+                <Button size="xs" variant="ghost" onClick={onCancelDelete}>{t('memory.cancel')}</Button>
+              </div>
+            </>
           ) : (
             <>
               <div className="text-[11px] text-[var(--ink-text-muted)] whitespace-pre-wrap">{entry.content}</div>
               <div className="flex gap-1">
                 <Button size="xs" variant="ghost" onClick={onEdit}>{t('memory.edit')}</Button>
-                {!entry.invalid && (
-                  <Button size="xs" variant="ghost" onClick={onInvalidate}>
-                    <Trash2 size={10} strokeWidth={1.6} />
-                    {t('memory.mark_invalid')}
-                  </Button>
-                )}
+                <Button size="xs" variant="ghost" data-ui="memory_invalidate" onClick={onInvalidate}>
+                  <Trash2 size={10} strokeWidth={1.6} />
+                  {t('memory.mark_invalid')}
+                </Button>
               </div>
             </>
           )}

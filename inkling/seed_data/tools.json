@@ -1,56 +1,58 @@
 {
  "tools": [
-  {
-   "name": "collect_material",
-   "description": "行为意图：把研究素材采集回来——文本直取或 URL 取回，产物是未经解析的原始材料（title/text/source），只入料不加工。\n\n使用时机：研究课题/知识沉淀需要素材时；用户直接粘贴长文本、或给出一个待研究的 URL 时。\n\n取舍与替代选项：粘贴的文本走 text，URL 取回走 url，一次调用只采一个来源；与 fetch 工具的分工——fetch 是即时抓取单个网页原文直接支撑回答（出厂域名白名单），collect_material 是研究流程的入料环节（走 inkling_exec 会话）；判断标准是「是否要进知识沉淀链」，要进链用本工具。\n\n参数语义：url=待取回的 URL（经宿主 web_bridge 代理取回，与 text 二选一）；text=直接粘贴的文本内容（与 url 二选一）；max_bytes=大小上限保护（默认 1 MiB，超出截断并标记）。\n\n边界与协作：URL 取回经宿主 web_bridge 代理（域名白名单/禁重定向/截断/超时整体收口，代理契约以引擎侧 E-P7 后 mcp_client.py 为准）；exec 侧禁直接出网，契约未接线前 url 调用返回结构化错误；原始材料不得直接作为知识条目，须经 parse_material 结构化、validate_material 校验后才有资格沉淀；多个来源分别调用，一次一料。",
-   "parameters": {
-    "type": "object",
-    "properties": {
-     "url": {
-      "type": "string",
-      "description": "待取回的 URL（经宿主 web_bridge 代理取回，与 text 二选一）"
+   {
+    "name": "collect_material",
+    "description": "行为意图：把研究素材采集回来——文本直取或 URL 取回，产物是未经解析的原始材料（title/text/source），只入料不加工。\n\n使用时机：研究课题/知识沉淀需要素材时；用户直接粘贴长文本、或给出一个待研究的 URL 时。\n\n取舍与替代选项：粘贴的文本走 text，URL 取回走 url，一次调用只采一个来源；与 fetch 工具的分工——fetch 是即时抓取单个网页原文直接支撑回答（每次出网弹审批卡），collect_material 是研究流程的入料环节（走 inkling_exec 会话）；判断标准是「是否要进知识沉淀链」，要进链用本工具。\n\n参数语义：url=待取回的 URL（url 档受控取回：走网络审批网关，域名不在白名单时弹审批卡、审批通过后放行，与 text 二选一）；text=直接粘贴的文本内容（纯本地直取，无出网，与 url 二选一）；max_bytes=大小上限保护（默认 1 MiB，超出截断并标记）。\n\n边界与协作：url 取回仅 http/https，经引擎受控 fetch 通道（定义级 allow_domains = 免审批快速路径白名单，未命中域名强制审批即网关，审批是唯一防线）；exec 侧保持 fail-closed（深度防御，url 档不经 inkling_exec 直取）；原始材料不得直接作为知识条目，须经 parse_material 结构化、validate_material 校验后才有资格沉淀；多个来源分别调用，一次一料。",
+    "parameters": {
+     "type": "object",
+     "properties": {
+      "url": {
+       "type": "string",
+       "description": "待取回的 URL（url 档受控取回：非白名单域名经审批卡裁决，与 text 二选一）"
+      },
+      "text": {
+       "type": "string",
+       "description": "直接粘贴的文本内容（纯本地直取，与 url 二选一）"
+      },
+      "max_bytes": {
+       "type": "integer",
+       "description": "大小上限保护（默认 1 MiB，超出截断并标记）"
+      }
      },
-     "text": {
-      "type": "string",
-      "description": "直接粘贴的文本内容（与 url 二选一）"
-     },
-     "max_bytes": {
-      "type": "integer",
-      "description": "大小上限保护（默认 1 MiB，超出截断并标记）"
-     }
+     "required": [],
+     "anyOf": [
+      {
+       "required": [
+        "text"
+       ]
+      },
+      {
+       "required": [
+        "url"
+       ]
+      }
+     ]
     },
-    "required": [],
-    "anyOf": [
-     {
-      "required": [
-       "text"
-      ]
-     },
-     {
-      "required": [
-       "url"
-      ]
-     }
-    ]
+    "permissions": [
+     "mcp:call:inkling_exec",
+     "network:connect:*"
+    ],
+    "approval": "allow",
+    "endpoint": "mcp",
+    "endpoint_config": {
+     "server_id": "inkling_exec"
+    },
+    "network_policy": {
+     "allow_domains": [],
+     "note": "url 档网络策略（同 fetch 审批即网关）：allow_domains 为免审批快速路径白名单，未命中域名强制转审批、审批通过后放行；留空 = 每次 url 取回都弹卡"
+    },
+    "meta": {
+     "domain": "research",
+     "executor": "inkling_exec:inkling_collect",
+     "sandbox": "server_session",
+     "retrieval": "controlled_fetch"
+    }
    },
-   "permissions": [
-    "mcp:call:inkling_exec"
-   ],
-   "approval": "allow",
-   "endpoint": "mcp",
-   "endpoint_config": {
-    "server_id": "inkling_exec"
-   },
-   "network_policy": {
-    "allow_domains": [],
-    "note": "出网行为由 inkling_exec server 侧策略约束，挂载时经 vetting 核对"
-   },
-   "meta": {
-    "domain": "research",
-    "executor": "inkling_exec:inkling_collect",
-    "sandbox": "server_session"
-   }
-  },
   {
    "name": "parse_material",
    "description": "行为意图：把原始材料结构化——按声明式抽取规格从文本中抽出标题/正文/要点/来源引用，是「采集→知识」之间的整形环节。\n\n使用时机：collect_material 产出原始材料后、做校验/评分/评审之前；材料是纯文本、后续要复用其内容时。\n\n取舍与替代选项：一次性问答场景直接用原始文本即可，不必 parse；需要内容化沉淀时再结构化；与 validate_material 的分工——本工具只整形不管好坏，校验管「合规与否」，评分管「证据强弱」。\n\n参数语义：text=待解析文本；spec=抽取规格清单（每条声明 name/kind/start/end/prefix/needle）。spec 直接传 JSON 数组，勿把数组序列化成字符串。\n\n边界与协作：纯计算无副作用、无出网（allow 档）；解析产物被 review_material 消费（phase=score 评分 / phase=review 评审）；关键字段缺失时回落原文，不以空壳数据进下游链。",

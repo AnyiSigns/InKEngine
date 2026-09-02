@@ -748,7 +748,7 @@ pub async fn assemble_runtime(options: &BootOptions) -> Result<AssemblyReport, S
     // 熔断已装配块；开关关闭时零生效——op fail-closed + 导入跳过，
     // 重放幂等；边证据库是派生数据，可由运行历史重建）
     if let Err(err) = wire_path_assembly(options, &bundle, &data_dir).await {
-        eprintln!("[boot] 路径组装机制接线降级（记录不阻断装配）: {err}");
+        tracing::warn!(target: "boot", error = %err, "路径组装机制接线降级（记录不阻断装配）");
     }
     finish_assembly().await?;
 

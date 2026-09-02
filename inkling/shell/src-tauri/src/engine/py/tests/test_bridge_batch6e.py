@@ -281,7 +281,7 @@ def test_round_entry_continues_chain_for_cross_round_context():
 
 
 def test_round_entry_carries_attachments_into_state():
-    """B1：回合附件（引擎 Attachment 契约数组）随入口 state 注入。
+    """：回合附件（引擎 Attachment 契约数组）随入口 state 注入。
 
     前端 round_send attachments → RoundRequest → execute_round_to_reply →
     state["attachments"] → llm 多模态用户消息面；空/缺省 = 纯文本回合。
@@ -328,7 +328,7 @@ def test_round_entry_carries_attachments_into_state():
 
 
 def test_round_entry_attachments_default_empty():
-    """B1：未传附件 → state.attachments = []（纯文本回合契约）。"""
+    """：未传附件 → state.attachments = []（纯文本回合契约）。"""
     bridge = _load_bridge()
 
     captured: dict = {}

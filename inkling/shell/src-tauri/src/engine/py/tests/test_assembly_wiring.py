@@ -598,6 +598,14 @@ def test_collab_request_executor_spawns_registered_entity():
     assert graph.name == "collab:analyst"
     assert graph.entry == "llm_decider"
     assert state["input"] == "分析 X"
+    # 决策「只回流结果通道」：协作者子图声明状态 schema——messages 走
+    # add_messages（子图内消息追加归约、回流不整链覆盖），reply = 产出/
+    # 结果摘要通道（回流到父）；未声明键不回流父会话历史
+    assert graph.schema is not None
+    channels = graph.schema.channels
+    assert channels["messages"].reducer == "add_messages"
+    assert channels["reply"].reducer is None  # 结果摘要 = 裸覆盖通道
+    assert "input" not in channels and "tool_rounds" not in channels
 
 
 def test_collab_request_executor_fails_closed_unregistered():
@@ -718,6 +726,51 @@ def test_entity_apply_target_registers():
     )
     assert registry.get("analyst") is not None
     assert registry.get("analyst").label == "研究分析师"
+
+
+def test_entity_apply_target_modifies_existing():
+    """ENTITY 补丁修改语义（设计稿  创建/修改）：既有实体按存在与否
+    register/replace——重复 id 不抛重复注册，字段（label/persona/model 等）
+    整版更新，补丁链 REPLACE 语义可对已注册实体生效。"""
+    from ink_engine.core.entities import EntityRegistry
+
+    from inkling_host.recipe_loader import EntityApplyTarget
+
+    registry = EntityRegistry()
+
+    class _Runtime:
+        entity_registry = registry
+
+    target = EntityApplyTarget(_Runtime())
+    asyncio.run(
+        target.apply(
+            {
+                "id": "analyst",
+                "label": "研究分析师",
+                "persona": "你是分析师",
+                "model": {"provider": "openai_compat", "model_id": "gpt-5"},
+            },
+            1,
+        )
+    )
+    asyncio.run(
+        target.apply(
+            {
+                "id": "analyst",
+                "label": "研究分析师 v2",
+                "persona": "你是分析师，评审意见须附证据",
+                "meta": {"role": "senior"},
+            },
+            2,
+        )
+    )
+    spec = registry.get("analyst")
+    assert spec is not None
+    assert spec.label == "研究分析师 v2"
+    assert "评审意见须附证据" in spec.persona
+    assert spec.model is None  # 更新 payload 未携带 model = 清空（整版 REPLACE）
+    assert spec.meta.get("role") == "senior"
+    assert len(registry.names()) == 1  # 修改不产生第二条实体
 
 
 if __name__ == "__main__":

@@ -46,6 +46,7 @@ from ink_engine.core.approval import (
     approve_before_execute,
 )
 from ink_engine.core.declarative_tools import (
+    RETRIEVAL_CONTROLLED_FETCH,
     DeclarativeToolExecutors,
     DeclarativeToolSpec,
     EndpointType,
@@ -59,6 +60,7 @@ from ink_engine.core.permissions import (
     REVIEW,
     GateResult,
     PermissionGate,
+    network_matches,
 )
 from ink_engine.core.review_card import GatingTier, gating_tier_of
 from ink_engine.core.sandbox import FileSandbox
@@ -206,10 +208,12 @@ class TieredGate:
         self._auto_approve_all_review = bool(all_review)
 
     def auto_approved(self, tool: str) -> bool:
-        """自动审批命中判定（边界外工具恒不命中，纵深防御）。"""
-        if tool not in self._auto_approvable:
-            return False
-        return self._auto_approve_all_review or tool in self._auto_approve_tools
+        """自动审批命中判定（全量开关开启 = 任何 review/升级档工具直过；
+        否则按逐工具登记集命中——不再要求工具在 auto_approvable 标记内，
+        全量直过开关才真正产生直过）。审计不因自动审批短路。"""
+        if self._auto_approve_all_review:
+            return True
+        return tool in self._auto_approve_tools
 
     def auto_approve_snapshot(self) -> tuple[list[str], bool]:
         """当前自动审批集快照（设置页装载形态）。"""
@@ -268,6 +272,13 @@ class TieredGate:
         *,
         permissions: tuple[str, ...] = (),
     ) -> GateResult:
+        # 逐工具档位覆盖 deny 视同出厂 deny 无条件拒绝：UI 设 deny 后引擎
+        # 运行判定须立即生效（此前只查出厂档位表，override deny 漏网降为弹卡）
+        if self._tier_overrides.get(tool) == DENY:
+            return GateResult(
+                DENY, tool, operation, target,
+                "档位覆盖 deny（权限矩阵手动拒绝；改回须在工具 tab 操作）",
+            )
         if self._tiers.get(tool) == DENY:
             return GateResult(
                 DENY, tool, operation, target,
@@ -292,6 +303,8 @@ class TieredGate:
                 # 混合 shell（声明 meta.escalation）：白名单外命令不再
                 # fail-closed 拒绝，升级为审批弹卡（L2 升级卡）——审批
                 # 通过后一次性系统级放行；审批卡为唯一防线（无二次白名单）。
+                # 全量自动审批开启时：升级命令同样直过（用户已在原生对话框
+                # 显式确认「含升级全自动放行」；审计仍走 allow 路径留痕）。
                 if (
                     (definition.meta or {}).get("escalation") is True
                     and definition.endpoint is EndpointType.PROCESS_EXEC
@@ -301,10 +314,46 @@ class TieredGate:
                         definition.endpoint_config.get("allowlist") or ()
                     )
                     if target not in allowlist:
+                        if self.auto_approved(tool):
+                            return GateResult(
+                                ALLOW, tool, operation, target,
+                                "全量自动审批放行（含升级命令；用户已在设置显式开启）",
+                            )
                         return GateResult(
                             REVIEW, tool, operation, target,
                             "命令不在白名单，升级系统级审批（审批通过后一次性放行）",
                         )
+                # 受控取回 url 档（collect_material meta.retrieval=controlled_fetch）：
+                # url 取回走网络审批网关——档位按工具整体档位表（allow）会直过，
+                # 但 url 档出网须与 http_fetch 同档（review 弹卡）；定义级
+                # allow_domains 白名单命中 = 免审批快速路径，未命中域名强制转
+                # 审批（审批即网关，approve 后放行；auto 自动审批语义同 review
+                # 档：命中只跳过人审弹卡，审计不跳过）。file/text 档 operation
+                # = call，不经此分支（行为零变化）。
+                if (
+                    operation == "connect"
+                    and (definition.meta or {}).get("retrieval")
+                    == RETRIEVAL_CONTROLLED_FETCH
+                ):
+                    allow_domains = (
+                        definition.network_policy.allow_domains
+                        if definition.network_policy is not None
+                        else frozenset()
+                    )
+                    if any(network_matches(pattern, target) for pattern in allow_domains):
+                        return GateResult(
+                            ALLOW, tool, operation, target,
+                            "域名在白名单（url 取回免审批快速路径）",
+                        )
+                    if self.auto_approved(tool):
+                        return GateResult(
+                            ALLOW, tool, operation, target,
+                            "自动审批放行 url 取回（用户已预授权）",
+                        )
+                    return GateResult(
+                        REVIEW, tool, operation, target,
+                        "域名不在白名单，url 取回转审批（审批通过后放行）",
+                    )
         return self._inner.check(tool, operation, target, permissions=effective)
 
 

@@ -67,6 +67,12 @@ from .tool_pipeline import DEFAULT_MAX_RESULT_CHARS
 
 logger = get_logger(__name__)
 
+# 声明式工具的单工具内拆语义（：不新增端点类型、不改 exec 协议）——
+# seed tools.json 的 collect 单工具声明内标记 url 档走受控取回：分发按
+# ``meta.retrieval`` 查受控执行体注册键，非 url 档（file/text）仍走声明
+# 端点原路径（mcp → inkling_exec）。端点注册表零新增。
+RETRIEVAL_CONTROLLED_FETCH = "controlled_fetch"
+
 
 class EndpointType(StrEnum):
     """声明式工具的端点类型（分发/守卫接线的依据）。
@@ -705,6 +711,53 @@ def endpoint_operation_failure_reason(
     return spec.failure_reason(args, config)
 
 
+def controlled_fetch_call(
+    definition: DeclarativeToolSpec | None, args: dict[str, Any]
+) -> bool:
+    """受控取回 url 档判定：声明 retrieval 标记且本次调用携带 url 参数。
+
+    与端点类型正交：声明了 ``meta.retrieval == "controlled_fetch"`` 的
+    工具（单声明内拆语义）在入参含 url 时判定目标挂网络语义
+    （connect/域名，走网络审批网关），file/text 档回落声明端点原路径。
+    """
+    return bool(
+        definition is not None
+        and (definition.meta or {}).get("retrieval") == RETRIEVAL_CONTROLLED_FETCH
+        and isinstance(args.get("url"), str)
+        and bool(args["url"])
+    )
+
+
+def declarative_operation(
+    definition: DeclarativeToolSpec, args: dict[str, Any]
+) -> tuple[str, str] | None:
+    """声明式工具判定目标推导（extractor 接线共用入口）。
+
+    受控取回 url 档 → 网络语义（connect，http_fetch 同源推导：仅
+    http/https 且须含主机名）；否则按声明端点类型推导。
+    """
+    if controlled_fetch_call(definition, args):
+        return _extract_http_fetch(args, config=None)
+    return endpoint_operation(
+        definition.endpoint, args, config=definition.endpoint_config
+    )
+
+
+def declarative_failure_reason(
+    definition: DeclarativeToolSpec, args: dict[str, Any]
+) -> str | None:
+    """声明式工具判定失败的结构化原因（failure_reason 接线共用入口）。
+
+    与 :func:`declarative_operation` 同源分发：受控取回 url 档的失败
+    原因挂 http_fetch 语义（协议/主机非法等，指引模型纠正）。
+    """
+    if controlled_fetch_call(definition, args):
+        return _reason_http_fetch(args, config=None)
+    return endpoint_operation_failure_reason(
+        definition.endpoint, args, config=definition.endpoint_config
+    )
+
+
 # 执行体签名：async (ctx, spec, args, approval) -> str（ToolPipeline.executor 契约）
 DeclarativeExecutor = Callable[..., Awaitable[str]]
 class DeclarativeToolExecutors:
@@ -752,11 +805,26 @@ class DeclarativeToolExecutors:
         definition = self._definitions.get(spec.name)
         if definition is None:
             raise GraphDefinitionError(f"工具 {spec.name} 无声明式定义（未登记）")
-        executor = self._executors.get(str(definition.endpoint))
+        # 受控取回 url 档：按声明 retrieval 标记查受控执行体（注册键 =
+        # meta.retrieval，声明驱动非按名写死）；file/text 档回落端点执行体。
+        retrieval = definition.meta.get("retrieval")
+        endpoint_key = str(definition.endpoint)
+        if (
+            retrieval == RETRIEVAL_CONTROLLED_FETCH
+            and isinstance(args.get("url"), str)
+            and bool(args["url"])
+        ):
+            executor = self._executors.get(RETRIEVAL_CONTROLLED_FETCH)
+            if executor is None:
+                raise GraphDefinitionError(
+                    f"工具 {spec.name} 的受控取回执行体未注册: "
+                    f"{RETRIEVAL_CONTROLLED_FETCH}（url 档不得回落端点执行体）"
+                )
+        else:
+            executor = self._executors.get(endpoint_key)
         if executor is None:
             raise GraphDefinitionError(
-                f"工具 {spec.name} 的端点类型未注册执行体: "
-                f"{getattr(definition.endpoint, 'value', definition.endpoint)}"
+                f"工具 {spec.name} 的端点类型未注册执行体: {endpoint_key}"
             )
         result = executor(ctx, definition, args, approval)
         if inspect.isawaitable(result):
@@ -791,7 +859,7 @@ def make_declarative_extractor(
         definition = executors.definitions.get(spec.name)
         if definition is None:
             return None
-        return endpoint_operation(definition.endpoint, args, config=definition.endpoint_config)
+        return declarative_operation(definition, args)
 
     return extract
 
@@ -809,9 +877,7 @@ def make_declarative_failure_reason(
         definition = executors.definitions.get(spec.name)
         if definition is None:
             return None
-        return endpoint_operation_failure_reason(
-            definition.endpoint, args, config=definition.endpoint_config
-        )
+        return declarative_failure_reason(definition, args)
 
     return reason
 
@@ -1058,6 +1124,77 @@ def make_http_fetch_executor(
     return execute
 
 
+def make_controlled_fetch_executor(
+    *,
+    timeout: float = 15.0,
+    default_max_bytes: int = 1024 * 1024,
+) -> DeclarativeExecutor:
+    """collect_material url 档受控取回执行体（引擎默认；宿主可注入覆盖）。
+
+    契约对齐 = inkling/exec collect.rs url 分支产物（exec 为真源，本执行体
+    与 exec 出参同形态）：``{ok, source:"url", url, status, content_type,
+    bytes, truncated, content}``——体积上限（缺省 1 MiB）、字节封顶截断
+    + 溢出标记、UTF-8 文本（字节截断后 lossy 解码，与 exec 代理契约
+    同口径）。仅 http/https 出网；域名策略/审批在门禁与沙箱环节先行
+    （NetworkPolicySandbox + 网络审批网关），执行体不再自行判定域名。
+    """
+    async def execute(ctx: Any, definition: DeclarativeToolSpec, args: dict, approval: Any) -> str:
+        url = args.get("url")
+        if not isinstance(url, str) or not url:
+            raise ValueError(f"工具 {definition.name} url 档缺 url 参数")
+        text = args.get("text")
+        if isinstance(text, str) and text:
+            raise ValueError("url 与 text 二选一（一次调用只采一个来源）")
+        try:
+            scheme = urllib.parse.urlsplit(url).scheme.lower()
+        except ValueError as exc:
+            raise ValueError("url 无法解析") from exc
+        if scheme not in ("http", "https"):
+            raise ValueError("仅支持 http(s):// 取回")
+        raw_max = args.get("max_bytes")
+        try:
+            max_bytes = int(raw_max)
+        except (TypeError, ValueError):
+            max_bytes = default_max_bytes
+        max_bytes = max(1, max_bytes)
+        try:
+            import httpx
+        except ImportError as exc:
+            raise RuntimeError(
+                "collect_material url 档执行体依赖 httpx"
+                "（pip install ink-engine[llm]），未安装"
+            ) from exc
+        raw = bytearray()
+        overflow = False
+        async with httpx.AsyncClient(
+            timeout=timeout, follow_redirects=False
+        ) as client, client.stream("GET", url) as response:
+            async for chunk in response.aiter_bytes():
+                room = max_bytes - len(raw)
+                if room <= 0:
+                    overflow = True
+                    break
+                raw.extend(chunk[:room])
+                if len(chunk) > room:
+                    overflow = True
+                    break
+        return json.dumps(
+            {
+                "ok": True,
+                "source": "url",
+                "url": url,
+                "status": int(response.status_code),
+                "content_type": str(response.headers.get("content-type") or ""),
+                "bytes": len(raw),
+                "truncated": overflow,
+                "content": bytes(raw).decode("utf-8", "replace"),
+            },
+            ensure_ascii=False,
+        )
+
+    return execute
+
+
 # ── 声明 → 结点契约（契约映射：input=parameters，output=端点操作结果形态）──
 
 # JSON Schema 类型 → SchemaField 类型映射（未知类型回落字符串，宁宽松不误拒）
@@ -1229,10 +1366,15 @@ __all__ = [
     "EndpointType",
     "EndpointTypeRegistry",
     "EndpointTypeSpec",
+    "RETRIEVAL_CONTROLLED_FETCH",
     "build_declarative_pipeline",
     "coerce_argv",
+    "controlled_fetch_call",
+    "declarative_failure_reason",
+    "declarative_operation",
     "endpoint_operation",
     "endpoint_registry",
+    "make_controlled_fetch_executor",
     "make_declarative_extractor",
     "make_http_fetch_executor",
     "node_contracts_from_tools",

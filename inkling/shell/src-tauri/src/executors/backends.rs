@@ -47,6 +47,7 @@ pub struct PlatformBackend;
 /// 若等待（output()）且子进程继承了输出管道句柄，回合线程会阻塞在
 /// 子进程整个生命周期上（实测 `cmd /C start` 拉起 GUI 应用后永不返回）。
 /// 这里丢弃输出并 detach 句柄，只校验「启动动作本身成功」。
+#[cfg_attr(target_os = "windows", allow(dead_code))]
 fn run_cmd(program: &str, args: &[&str]) -> Result<String, String> {
     std::process::Command::new(program)
         .args(args)
@@ -55,6 +56,59 @@ fn run_cmd(program: &str, args: &[&str]) -> Result<String, String> {
         .spawn()
         .map_err(|err| format!("命令启动失败: {err}"))?;
     Ok(String::new())
+}
+
+/// 启动类副作用（launch_app / open_file 共用）：Windows 走 ShellExecuteW
+/// 「open」动作——不经 cmd 解析，路径含 ``& | < > ^ %`` 等 cmd 元字符也不
+/// 可能产生追加命令执行（修复 ``cmd /C start`` 命令注入面）；非 Windows
+/// 回落 cmd start（历史形态；本产品 Windows 优先）。
+fn start_open_target(target: &str) -> Result<String, String> {
+    #[cfg(windows)]
+    {
+        use std::ffi::OsStr;
+        use std::os::windows::ffi::OsStrExt;
+        use std::ptr;
+        #[link(name = "shell32")]
+        unsafe extern "system" {
+            fn ShellExecuteW(
+                hwnd: isize,
+                operation: *const u16,
+                file: *const u16,
+                parameters: *const u16,
+                directory: *const u16,
+                show: i32,
+            ) -> isize;
+        }
+        fn wide(value: &str) -> Vec<u16> {
+            OsStr::new(value).encode_wide().chain(std::iter::once(0)).collect()
+        }
+        let file = wide(target);
+        let operation = wide("open");
+        let result = unsafe {
+            ShellExecuteW(
+                ptr::null_mut::<u8>() as isize,
+                operation.as_ptr(),
+                file.as_ptr(),
+                ptr::null(),
+                ptr::null(),
+                1, // SW_SHOWNORMAL
+            )
+        };
+        if result <= 32 {
+            // ShellExecuteW 返回 SE_ERR_*（≤32）= 失败；不做裸错误外泄
+            return Err(format!("启动失败（目标不可用或类型未关联）: {target}"));
+        }
+        return Ok(String::new());
+    }
+    #[cfg(not(windows))]
+    {
+        // 非 Windows 回落：cmd start 前拒绝 cmd 元字符目标（防注入退化面）
+        if target.contains(['&', '|', '<', '>', '^', '%', '"']) {
+            return Err("目标含 shell 元字符，拒绝启动（防命令注入）".to_string());
+        }
+        let quoted = format!("\"{target}\"");
+        run_cmd("cmd", &["/C", "start", "", quoted.as_str()])
+    }
 }
 
 /// 进程模板输出单流截断上限（字符；与回合工具结果上限同量级，
@@ -196,13 +250,12 @@ impl Default for PlatformBackend {
 
 impl SystemBackend for PlatformBackend {
     fn launch_app(&self, app: &str) -> Result<String, String> {
-        // Windows: start 解析 PATH/注册表（执行器已做白名单守卫）
-        run_cmd("cmd", &["/C", "start", "", app])?;
+        start_open_target(app)?;
         Ok(format!("已启动应用: {app}"))
     }
 
     fn open_file(&self, path: &str) -> Result<String, String> {
-        run_cmd("cmd", &["/C", "start", "", path])?;
+        start_open_target(path)?;
         Ok(format!("已打开: {path}"))
     }
 

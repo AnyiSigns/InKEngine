@@ -136,4 +136,69 @@ describe('ModelSection 空态引导', () => {
     const values = payload.providers.map((p) => p.compression_percent);
     expect(new Set(values).size).toBe(1);
   });
+
+  it('取消添加弹窗不落盘（探测仅预览，持久化只发生在显式保存）', async () => {
+    const user = userEvent.setup();
+    mockConfig = {};
+    render(<ModelSection />);
+    backendMock.modelsConfigPut.mockClear();
+    await user.click(await screen.findByText('+ 添加自定义提供方'));
+    // 填 url/api_key 触发探测（models_refresh 只探测不写连接配置）
+    const url = screen.getByLabelText('provider_url');
+    await user.type(url, 'http://probe/v1');
+    await user.click(screen.getByText('取消'));
+    expect(backendMock.modelsConfigPut).not.toHaveBeenCalled();
+    // 弹窗关闭后无幽灵 provider
+    expect(screen.queryByText(/http:\/\/probe\/v1/)).toBeNull();
+  });
+
+  it('删除提供方 = 整表替换（被删提供方不再出现在落盘 providers）', async () => {
+    const user = userEvent.setup();
+    mockConfig = {
+      providers: [
+        { provider_id: 'a', vendor: 'a', base_url: 'http://a/v1', api_key: 'sk-a' },
+        { provider_id: 'b', vendor: 'b', base_url: 'http://b/v1', api_key: 'sk-b' },
+      ],
+    };
+    const { container } = render(<ModelSection />);
+    await screen.findByText('a');
+    backendMock.modelsConfigPut.mockClear();
+    const deleteButtons = container.querySelectorAll('[data-ui="provider_delete"]');
+    await user.click(deleteButtons[1] as HTMLElement);
+    await vi.waitFor(() => expect(backendMock.modelsConfigPut).toHaveBeenCalled());
+    const payload = backendMock.modelsConfigPut.mock.calls.at(-1)![0] as unknown as { providers: Array<Record<string, unknown>> };
+    const ids = payload.providers.map((p) => p.provider_id);
+    expect(ids).toEqual(['a']);
+  });
+
+  it('选择提供方 = 切当前连接：档位候选跟随该提供方模型清单', async () => {
+    const user = userEvent.setup();
+    mockConfig = {
+      providers: [
+        { provider_id: 'a', vendor: 'a', label: 'ProviderA', base_url: 'http://a/v1', api_key: 'sk-a', model_ids: {}, models: ['a-model'] },
+        { provider_id: 'b', vendor: 'b', label: 'ProviderB', base_url: 'http://b/v1', api_key: 'sk-b', model_ids: {}, models: ['b-model'] },
+      ],
+    };
+    const { container } = render(<ModelSection />);
+    await screen.findByText('ProviderA');
+    // 默认当前连接 = a（首提供方），档位候选为 a-model
+    const rows = Array.from(container.querySelectorAll('[data-ui="provider_row"]')) as HTMLElement[];
+    expect(rows[0].dataset.active).toBe('true');
+    const initialToggle = container.querySelector('[data-ui="tier_model_toggle_router"]') as HTMLElement;
+    await user.click(initialToggle);
+    expect(await screen.findByText('a-model')).toBeTruthy();
+    expect(screen.queryByText('b-model')).toBeNull();
+    // 点选 b → 升为当前连接（providers[0]），候选切为 b-model
+    await user.click(await screen.findByText('ProviderB'));
+    await vi.waitFor(() => {
+      const first = container.querySelector('[data-ui="provider_row"]');
+      const label = first?.textContent ?? '';
+      expect(label).toContain('ProviderB');
+      expect(first?.getAttribute('data-active')).toBe('true');
+    });
+    const routerToggle = container.querySelector('[data-ui="tier_model_toggle_router"]') as HTMLElement;
+    await user.click(routerToggle);
+    expect(await screen.findByText('b-model')).toBeTruthy();
+    expect(screen.queryByText('a-model')).toBeNull();
+  });
 });

@@ -108,6 +108,77 @@ class DeclarativeSandboxProxyGuardTests(unittest.TestCase):
             "127.0.0.1",
         )
 
+    def test_collect_url_connect_passes_sandbox(self):
+        """collect_material url 档 connect 过沙箱（url 取回经审批网关裁决，
+        url 档=connect/call 的分发由引擎 declarative dispatch 按声明驱动）。"""
+        proxy = self._build_proxy([_seed_tool("collect_material")])
+        self.assertEqual(
+            self._validate_as(proxy, "collect_material", "connect", "arxiv.org"),
+            "arxiv.org",
+        )
+        self.assertEqual(
+            self._validate_as(proxy, "collect_material", "call", "inkling_exec"),
+            "inkling_exec",
+        )
+
+    def test_collect_url_mode_gate_reviews_like_fetch(self):
+        """collect_material url 档审批档位 = 同 http_fetch：connect 一律转
+        审批弹卡（工具整体档位表为 allow，file/text 档仍直过零变化）。"""
+        from ink_engine.core.permissions import ALLOW, REVIEW
+
+        from inkling_host.security_domain import TieredGate
+
+        tiers = {"collect_material": "allow"}
+        executors = self._build_executors([_seed_tool("collect_material")])
+        gate = TieredGate(tiers, executors=executors)
+        # url 档（connect）→ 弹卡（审批即网关，非白名单域名）
+        result = gate.check("collect_material", "connect", "arxiv.org")
+        self.assertEqual(result.decision, REVIEW)
+        self.assertIn("审批", result.reason)
+        # file/text 档（mcp call）→ 按工具档位 allow 直过（行为零变化）
+        result = gate.check("collect_material", "call", "inkling_exec")
+        self.assertEqual(result.decision, ALLOW)
+        # 全量自动审批开启 → url 档直过（审计仍留痕；语义同 review 档）
+        gate.configure_auto_approve([], True)
+        result = gate.check("collect_material", "connect", "arxiv.org")
+        self.assertEqual(result.decision, ALLOW)
+
+    def test_collect_url_allow_domains_fast_path(self):
+        """url 档 allow_domains 白名单命中 = 免审批快速路径（限制性白名单
+        语义：白名单直过、白名单外一律弹卡审批）。"""
+        from ink_engine.core.permissions import ALLOW, REVIEW
+
+        from inkling_host.security_domain import TieredGate
+
+        tool = dict(_seed_tool("collect_material"))
+        tool["network_policy"] = {"allow_domains": ["*.example.com"]}
+        executors = self._build_executors([tool])
+        gate = TieredGate({"collect_material": "allow"}, executors=executors)
+        result = gate.check("collect_material", "connect", "sub.example.com")
+        self.assertEqual(result.decision, ALLOW)
+        self.assertIn("白名单", result.reason)
+        result = gate.check("collect_material", "connect", "other.org")
+        self.assertEqual(result.decision, REVIEW)
+
+    def test_collect_url_mode_review_tier_override(self):
+        """档位覆盖不破坏 url 档网络网关：覆盖 allow 后 url 档仍弹卡
+        （网络语义独立于工具整体档位，白名单命中才直过）。"""
+        from ink_engine.core.permissions import ALLOW, REVIEW
+
+        from inkling_host.security_domain import TieredGate
+
+        executors = self._build_executors([_seed_tool("collect_material")])
+        gate = TieredGate({"collect_material": "allow"}, executors=executors)
+        gate.set_tier_override("collect_material", "review")
+        result = gate.check("collect_material", "call", "inkling_exec")
+        self.assertEqual(result.decision, REVIEW)
+        # url 档弹卡语义不因档位覆盖丢失
+        result = gate.check("collect_material", "connect", "arxiv.org")
+        self.assertEqual(result.decision, REVIEW)
+        gate.set_tier_override("collect_material", "allow")
+        result = gate.check("collect_material", "connect", "arxiv.org")
+        self.assertEqual(result.decision, REVIEW)
+
     def test_file_ops_unauthorized_fail_closed(self):
         """file_ops 守卫：工作区未授权即拒绝（占位符未解析 = 无根可越）。"""
         from ink_engine.core.exceptions import SandboxViolation

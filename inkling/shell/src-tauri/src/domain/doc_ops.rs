@@ -16,6 +16,7 @@
 //! 依赖纪律：本模块不调用其它域模块；压缩特例依赖 flate2，其余为纯逻辑。
 
 use std::collections::HashMap;
+use std::path::Path;
 
 use serde_json::Value as JsonValue;
 
@@ -30,6 +31,32 @@ const PDF_BLOCK_Y_TOLERANCE: f64 = 20.0;
 
 /// 工作表/幻灯片条目遍历上限（防御性兜底；正常路径按声明条目数遍历）。
 const MAX_SHEET_ENTRIES: usize = 256;
+
+/// 文档解析文件体积上限（字节；20MB，对齐资料导入/附件体积口径）。
+///
+/// 读前 stat 先行拦截：GB 级/zip 炸弹型 docx 不整包读入内存拖垮宿主
+/// （doc_parse 执行器与命令面统一经 [`read_document_file`] 落读）。
+pub const MAX_DOCUMENT_BYTES: u64 = 20 * 1024 * 1024;
+
+/// 文档文件受控读取：stat 先验 + 体积上限 + 读入。超大文件结构化拒绝
+/// （fail-closed，不读入内存），与 parse_document 内存输入形态配套。
+pub fn read_document_file(path: &Path) -> Result<Vec<u8>, DocError> {
+    let meta = std::fs::metadata(path).map_err(|err| {
+        DocError::new(DocErrorKind::Parse, format!("读取文档元数据失败: {err}"))
+    })?;
+    if meta.len() > MAX_DOCUMENT_BYTES {
+        return Err(DocError::new(
+            DocErrorKind::Parse,
+            format!(
+                "文档体积超解析上限（≤{}MB）：{}",
+                MAX_DOCUMENT_BYTES / (1024 * 1024),
+                path.display()
+            ),
+        ));
+    }
+    std::fs::read(path)
+        .map_err(|err| DocError::new(DocErrorKind::Parse, format!("读取文档失败: {err}")))
+}
 
 /// 依赖纪律：文档格式枚举（PDF 与 OOXML 三件套）。
 #[derive(Debug, Clone, Copy, PartialEq, Eq)]
@@ -1839,15 +1866,19 @@ pub fn parse_document(bytes: &[u8]) -> Result<JsonValue, DocError> {
         )),
     };
     match &result {
-        Ok(json) => eprintln!(
-            "[doc_ops] parse ok format={}",
-            json.get("format")
+        Ok(json) => tracing::info!(
+            target: "doc_ops",
+            format = %json
+                .get("format")
                 .and_then(JsonValue::as_str)
-                .unwrap_or("?")
+                .unwrap_or("?"),
+            "parse ok"
         ),
-        Err(err) => eprintln!(
-            "[doc_ops] parse_failed kind={:?} err={}",
-            err.kind, err.message
+        Err(err) => tracing::error!(
+            target: "doc_ops",
+            kind = ?err.kind,
+            error = %err.message,
+            "parse_failed"
         ),
     }
     result

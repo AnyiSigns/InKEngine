@@ -48,7 +48,11 @@ pub(crate) fn models_config_get(app: AppHandle) -> Result<JsonValue, CommandErro
 /// 入参：`base_url`/`api_key`（连接配置）+ `models`（宣告模型列表
 /// `[{ "tier": "main"|"router", "model_id": "..." }]`，降级补录用）。
 /// 探测失败/非 JSON/缺字段 → 结构化降级（按档位缺省窗口回落），不崩溃。
-/// 连接配置探测成功后持久化供下次 / 真实模型注入回落使用。
+///
+/// 批 5 语义：探测 = 只探测 + 写档案库（models_archive.sqlite，派生数据）；
+/// 连接配置持久化只在显式保存（`models_config_put`）发生——探测成功/
+/// 降级失败都不落盘连接配置（此前成功即写、取消弹窗不回收、失败覆盖
+/// 原配置）。`api_key` 不回传密文原文（打码，凭据不透传前端）。
 #[tauri::command]
 pub(crate) async fn models_refresh(app: AppHandle, config: JsonValue) -> Result<JsonValue, CommandError> {
     let base_url = config
@@ -91,28 +95,13 @@ pub(crate) async fn models_refresh(app: AppHandle, config: JsonValue) -> Result<
     )
     .await
     .map_err(CommandError::internal)?;
-    let saved = if report.mode == crate::domain::model_archive::RefreshMode::Success {
-        // 提供方数组形态回写（provider_id 透传；旧 flat 由写入侧投影迁移）
-        crate::domain::model_archive::write_model_connection(
-            &data_dir,
-            &json!({
-                "providers": [{
-                    "provider_id": config.get("provider_id").and_then(JsonValue::as_str).unwrap_or("default"),
-                    "base_url": base_url,
-                    "api_key": api_key,
-                }],
-            }),
-        )
-    } else {
-        json!({ "base_url": base_url, "api_key": api_key })
-    };
+    // 探测结果仅供预览：不写连接配置（持久化只发生在显式 models_config_put）
     Ok(json!({
         "ok": true,
         "mode": if report.mode == crate::domain::model_archive::RefreshMode::Success { "success" } else { "fallback" },
         "probed": report.probed,
         "stored": report.stored,
         "reason": report.reason,
-        "connection_saved": saved,
     }))
 }
 
@@ -204,13 +193,30 @@ pub(crate) async fn edge_restore_tier(edge_id: String) -> Result<JsonValue, Comm
 }
 
 /// 模型连接配置落盘（settings_put 的替代：前端 model_section 改调此名）。
+///
+/// 整表替换语义（批 5）：前端整表保存/删除提供方——入参 providers 数组
+/// 是权威全量，缺席既有提供方被删除（含其 DPAPI 密文清除，重启不复活）。
+/// api_key 仅密文落盘；回传打码形态（不透传明文/密文原文给前端）。
 #[tauri::command]
 pub(crate) async fn models_config_put(
     app: AppHandle,
     config: JsonValue,
 ) -> Result<JsonValue, CommandError> {
     let data_dir = app_data_dir(&app)?;
-    crate::domain::model_archive::write_model_connection(&data_dir, &config);
+    let saved = crate::domain::model_archive::write_model_connection_replace(&data_dir, &config)
+        .map_err(CommandError::internal)?;
+    let mut response = saved;
+    if let JsonValue::Object(map) = &mut response {
+        if let Some(JsonValue::Array(providers)) = map.get_mut("providers") {
+            for provider in providers.iter_mut() {
+                if let JsonValue::Object(pmap) = provider {
+                    if let Some(JsonValue::String(key)) = pmap.get_mut("api_key") {
+                        *key = crate::domain::crypto::mask_secret(key);
+                    }
+                }
+            }
+        }
+    }
     // 运行期生效：通知引擎重载模型配置（宿未装配 = 下次启动生效，不报错）
     let reloaded = crate::engine::host::call_engine_op_async(
         "model.reload",
@@ -220,5 +226,5 @@ pub(crate) async fn models_config_put(
     if let Err(err) = reloaded {
         tracing::warn!("模型配置已落盘，但运行期重载未生效（下次启动生效）: {err}");
     }
-    Ok(config)
+    Ok(response)
 }

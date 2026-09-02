@@ -15,7 +15,7 @@ import { createSessionStoreFrom } from '@/shared/backend/remoteSessionStore';
 import { createBackend } from '@/shared/backend/backendAdapter';
 import { listenHostEvent } from '@/shared/backend/tauriBridge';
 import { registerBuiltinComponents } from '@/components';
-import { createIngester, toHubEvent, setStreaming, commitStreaming } from '@/shared/session/eventIngest';
+import { createIngester, toHubEvent, setStreaming, finalizeThreadStreaming, setThreadRoundActive } from '@/shared/session/eventIngest';
 import { registerComponent, type PlainComponent } from '@/renderer/componentRegistry';
 import { AppBackend } from './backend';
 import { registerSettingsSections } from './settings/activate';
@@ -77,14 +77,20 @@ export function activate(): void {
       // 仅 isActive 时镜像到全局窗口；非活跃会话数据只入桶不污染当前窗口。
       ingest(event);
       if (event.type === 'end') {
-        setStreaming(hub, false);
-        commitStreaming(hub);
-        // 回合结束回写当前会话消息到会话存储（历史落库）
+        // 回合结束收尾按事件自身线程执行（end 事件的 thread_id）：
+        // 窗口切走后结束的后台回合只定型并回写其桶/存储，不污染当前窗口
+        const rawThread = typeof event.payload.thread_id === 'string' ? event.payload.thread_id : '';
+        const snap0 = hub.getSnapshot();
+        const threadId = rawThread && rawThread !== '-' ? rawThread : snap0.activeSessionId;
+        const bucket0 = snap0.perThread[threadId];
+        finalizeThreadStreaming(hub, threadId);
+        setThreadRoundActive(hub, threadId, false);
         const snap = hub.getSnapshot();
-        const storeThread = snap.activeSessionId;
-        if (storeThread && typeof sessionStore.replaceMessages === 'function') {
+        const finalMsgs = snap.perThread[threadId]?.messages ?? bucket0?.messages ?? [];
+        if (threadId === snap.activeSessionId) setStreaming(hub, false);
+        if (finalMsgs.length > 0 && typeof sessionStore.replaceMessages === 'function') {
           try {
-            sessionStore.replaceMessages(storeThread, snap.messages);
+            sessionStore.replaceMessages(threadId, finalMsgs);
           } catch {
             // 回写失败不影响实时流
           }

@@ -202,6 +202,22 @@ def _read_file(path: str) -> str:
 # ── 导入编排（拉取 → 解析 → 闸门 → 知识集）──
 
 
+async def _guarded_knowledge_save(knowledge_set: Any) -> None:
+    """知识集落库（守卫感知：经集合名豁免上下文放行）。
+
+    与 knowledge.* op 同持久化语义（受控直写通道）——显式 save 须过
+    ``allow_mechanism(collection)``，否则触发旁路写拦截；无守卫直接 save。
+    """
+    if getattr(knowledge_set, "storage", None) is None:
+        return
+    allow = getattr(knowledge_set.storage, "allow_mechanism", None)
+    if allow is None:
+        await knowledge_set.save()
+        return
+    with allow(knowledge_set.collection):
+        await knowledge_set.save()
+
+
 async def import_skill_source(
     runtime: Any,
     source: str,
@@ -254,8 +270,7 @@ async def import_skill_source(
                     "title": entry.title,
                 }
             )
-        if getattr(knowledge_set, "storage", None) is not None:
-            await knowledge_set.save()
+        await _guarded_knowledge_save(knowledge_set)
     else:
         added = [
             {"id": e.id, "kind": e.kind, "title": e.title} for e in accepted
@@ -304,6 +319,7 @@ async def reimport_skill_source(
     if fresh.data.get("content") != existing.data.get("content"):
         changed = True
         knowledge_set.update(entry_id, data=fresh.data)
+        await _guarded_knowledge_save(knowledge_set)
     return {
         "ok": True,
         "changed": changed,

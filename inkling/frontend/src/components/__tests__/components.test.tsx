@@ -1,5 +1,5 @@
 /**
- * 组件行为测试：消息流增量渲染 / 审批卡弹层与决议 / 推演换选 / 设置页试穿。
+ * 组件行为测试：消息流增量渲染 / 审批卡弹层与决议 / 推演换选 / 文件树操作。
  */
 
 import { render, screen } from '@testing-library/react';
@@ -8,7 +8,6 @@ import userEvent from '@testing-library/user-event';
 import { MessageList } from '@/components/message_list';
 import { ReviewCard } from '@/components/review_card';
 import { SimulationTree } from '@/components/simulation_tree';
-import { SettingsForm } from '@/components/settings_form';
 import { FileTree } from '@/components/file_tree';
 import { ChannelHub } from '@/shared/session/channelHub';
 import type { HubEvent } from '@/shared/session/channelHub';
@@ -117,35 +116,6 @@ describe('simulation_tree：分支对比 + 换选', () => {
   it('空数据态', () => {
     render(<SimulationTree bindValue={[]} />);
     expect(screen.getByText(/暂无推演/)).toBeInTheDocument();
-  });
-});
-
-describe('settings_form：双栏导航 + 主题 token 试穿再应用（白名单内）', () => {
-  it('白名单 token 可编辑，试穿即时落地 CSS 变量', async () => {
-    const user = userEvent.setup();
-    render(<SettingsForm />);
-    await user.click(screen.getByRole('button', { name: /外观/ }));
-    const input = screen.getByLabelText('bg.base 色值');
-    await user.clear(input);
-    await user.type(input, '#101014');
-    // 试穿生效（白名单 token → CSS 变量）
-    expect(document.documentElement.style.getPropertyValue('--ink-bg-base')).toBe('#101014');
-  });
-
-  it('双挡位模型配置表单渲染（默认分区）', () => {
-    render(<SettingsForm />);
-    expect(screen.getByText('router')).toBeInTheDocument();
-    expect(screen.getByText('main')).toBeInTheDocument();
-  });
-
-  it('连接节：手动添加 → 已挂载清单即时同步', async () => {
-    const user = userEvent.setup();
-    render(<SettingsForm />);
-    await user.click(screen.getByRole('button', { name: /连接/ }));
-    expect(screen.getByText(/连接服务管理：生产形态走「市场」节/)).toBeInTheDocument();
-    await user.type(screen.getByLabelText('手动添加 MCP'), 'http://localhost:3000/mcp');
-    await user.click(screen.getByText('添加'));
-    expect(await screen.findByText(/已挂载：http:\/\/localhost:3000\/mcp/)).toBeInTheDocument();
   });
 });
 

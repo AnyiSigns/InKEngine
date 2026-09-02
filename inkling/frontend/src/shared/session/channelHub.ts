@@ -40,9 +40,15 @@ export interface SessionSnapshot {
   perThread: Record<string, ThreadBucket>;
 }
 
-/** 单会话窗口的回合状态桶（与 messages 分储：消息随 sessionStore，桶随 hub）。 */
+/** 单会话窗口的回合状态桶（messages 随窗口演进：事件按 thread 落桶镜像）。 */
 export interface ThreadBucket {
   roundId: string | null;
+  /** 该线程的消息流镜像（窗口切走后后台回合继续收事件，回切不丢内容）。 */
+  messages: InkMessage[];
+  /** 回合在途标记（该线程真实执行中 = true，end/驱动收尾清除）。 */
+  roundActive: boolean;
+  /** 该线程的任务级执行状态（窗口隔离：后台回合不污染当前窗口胶囊）。 */
+  taskState: TaskState;
   roundSteps: RoundStep[];
   simulations: SimulationBranch[];
   incubation: IncubationEntry[];
@@ -55,6 +61,9 @@ export interface ThreadBucket {
 export function emptyThreadBucket(): ThreadBucket {
   return {
     roundId: null,
+    messages: [],
+    roundActive: false,
+    taskState: emptyTaskState(),
     roundSteps: [],
     simulations: [],
     incubation: [],

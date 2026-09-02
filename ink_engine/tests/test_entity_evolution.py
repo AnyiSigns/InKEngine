@@ -395,3 +395,133 @@ class TestRuntimeWiring:
         assert runtime.entity_registry.collection.endswith(":default")
         # 最小配方无实体种子：快照实体面为空（管线已就绪）
         assert pipeline.snapshot()["entities"] == {}
+
+
+class TestRestartRestoresEvolution:
+    """存储/补丁链优先于种子基线：出厂实体演化重启不退回种子（重启回归锁）。
+
+    装配序回归：修复前启动先 register 种子 → load（同 id 跳过存储记录）→
+    save（用注册表当前态 = 种子覆盖存储），演化变异/晋升写实的
+    ``entities:<set_id>`` 记录重启后不被加载，被种子基线覆写。修复后先
+    load 持久化实体、种子只补缺——变异 → 落库 → 重启 → 恢复。
+    """
+
+    async def test_mutation_persists_across_restart(self):
+        from ink_engine.core.approval import DefaultInterruptPolicy
+        from ink_engine.core.event_types import EventTypeSpec
+        from ink_engine.core.graph import Graph
+        from ink_engine.core.harness import HarnessDefinition
+        from ink_engine.core.runtime import (
+            AssemblyRecipe,
+            GraphRecipeContext,
+            Runtime,
+            RuntimeState,
+            ToolWiring,
+        )
+        from ink_engine.core.self_application import ApprovalLevel
+        from ink_engine.core.self_proposal import PatchKind
+        from ink_engine.core.self_tools import (
+            make_self_executor,
+            operation_of,
+            self_tool_specs,
+        )
+        from ink_engine.core.storage import create_storage
+        from ink_engine.seeds.boot import BOOT_UI_SPEC, build_boot_seed_entries
+
+        raw_storage = create_storage("memory://")
+
+        class _SharedStorageHost:
+            async def create_storage(self):
+                return raw_storage
+
+            async def resolve_llm(self):
+                return None
+
+            def interrupt_policy(self):
+                return DefaultInterruptPolicy()
+
+            def build_transport(self):
+                class _T:
+                    events = []
+
+                    async def send(self, event):
+                        self.events.append(event)
+
+                return _T()
+
+            async def close(self):
+                return None
+
+        async def _agent(ctx):
+            return {"reply": "ok"}
+
+        def _graph_recipe(ctx: GraphRecipeContext) -> Graph:
+            g = Graph(name="echo", entry="agent")
+            g.add_node("agent", _agent)
+            g.add_exit("agent")
+            return g
+
+        seed = EntitySpec(
+            id="security_reviewer",
+            label="安全评审",
+            persona="你是安全评审专家。",
+        )
+
+        def _recipe() -> AssemblyRecipe:
+            return AssemblyRecipe(
+                set_id="default",
+                seeds=[("boot", build_boot_seed_entries)],
+                entity_specs=[
+                    seed,
+                    EntitySpec(id="copy_editor", label="文字编辑", persona="你负责润色。"),
+                ],
+                harness_definitions=[
+                    HarnessDefinition(
+                        name="forge", description="自举领域", keywords=("自举",)
+                    )
+                ],
+                event_type_specs=[
+                    EventTypeSpec(name="reply_token", renderer="StreamingRow")
+                ],
+                ui_spec=BOOT_UI_SPEC,
+                ui_allowed_components=("column", "message_list", "agent_input"),
+                ui_allowed_theme_tokens=("bg", "fg", "accent"),
+                tool_wiring=ToolWiring(
+                    self_specs=self_tool_specs,
+                    self_executor_factory=make_self_executor,
+                    self_operation_of=operation_of,
+                ),
+                approval_levels={PatchKind.THEME: ApprovalLevel.L0},
+                graph_recipe=_graph_recipe,
+            )
+
+        # 首次装配：种子进注册表 + 演化管线（真实 DefaultEvolutionWriter
+        # 落 GuardedStorage 包裹的共享存储）
+        r1 = await Runtime().boot(_SharedStorageHost(), _recipe())
+        assert r1.state is RuntimeState.RUNNING
+        pipeline = r1.entity_evolution_pipeline
+        # 变异 → 落库（entities:<set_id> live 记录 + 演化补丁链 + 审计）
+        await pipeline.send(_tool_start("c1", "security_reviewer"))
+        await pipeline.send(
+            _tool_end("c1", success=False, message="召唤协作者时未传 task 参数")
+        )
+        await pipeline.flush_round()
+        spec1 = r1.entity_registry.get("security_reviewer")
+        assert spec1 is not None and spec1.meta["evolution"]["version"] == 1
+        live = await raw_storage.get_record(
+            r1.entity_registry.collection, "security_reviewer"
+        )
+        assert live is not None and "已知教训" in live["persona"]
+        # 未变异种子仍为出厂基线
+        assert r1.entity_registry.get("copy_editor").persona == "你负责润色。"
+
+        # 重启（同一存储）：持久化实体优先于种子基线——演化产物还原，
+        # 同 id 种子不再覆盖；缺 id 的种子仍补缺
+        r2 = await Runtime().boot(_SharedStorageHost(), _recipe())
+        restored = r2.entity_registry.get("security_reviewer")
+        assert restored is not None
+        assert "已知教训" in restored.persona
+        assert restored.meta["evolution"]["version"] == 1
+        assert restored.meta["evolution"]["level"] == "work"
+        assert r2.entity_registry.get("copy_editor") is not None  # 种子只补缺
+        assert r2.entity_registry.get("copy_editor").persona == "你负责润色。"

@@ -85,7 +85,14 @@ export function UiEditorHost({ backend, spec: externalSpec, onPatchApplied, onRe
     Promise.resolve(
       backend
         .saveUiSpec(draft)
-        .then(() => {
+        .then((result) => {
+          // 引擎回执分流：{applied:false}= 白名单/审批拒绝，不得乐观成功
+          // （此前丢弃回执 → 未落链草稿被置为 live，编辑态与补丁链分叉）
+          const applied = (result as { applied?: boolean })?.applied !== false;
+          if (!applied) {
+            setSavePhase('fail');
+            return;
+          }
           setLiveSpec(draft);
           setSavePhase('success');
           onPatchApplied?.(draft);
@@ -102,6 +109,11 @@ export function UiEditorHost({ backend, spec: externalSpec, onPatchApplied, onRe
       backend
         .revertUiSpec()
         .then((result) => {
+          const reverted = (result as RevertResult)?.reverted === true;
+          if (!reverted) {
+            setRevertPhase('fail');
+            return;
+          }
           setRevertPhase('success');
           onRevert?.(result);
           refreshSpec();

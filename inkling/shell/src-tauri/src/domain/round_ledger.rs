@@ -374,6 +374,139 @@ pub fn new_ledgers_since_marker(dir: &Path, thread_id: &str) -> Vec<JsonValue> {
     }
 }
 
+/// 账本文件记录（滚动用：路径 + mtime + 大小；round_id 由文件名解析，
+/// 不整读文件内容）。
+struct LedgerFileRecord {
+    path: PathBuf,
+    mtime: i64,
+    size: u64,
+}
+
+/// 收集某线程全部账本文件（按 mtime 升序）。
+///
+/// R7：round_id 只用于定位合并标记文件（marker 保护语义），改由文件名
+/// 解析（`ledger_<sanitize(thread)>_<sanitize(round)>.json`）——不再整读
+/// 每个文件内容，滚动 O(文件数) 内完成。
+fn scan_thread_files(dir: &Path, thread_id: &str) -> Result<Vec<LedgerFileRecord>, String> {
+    let prefix = format!("{}{}_", LEDGER_FILE_PREFIX, sanitize(thread_id));
+    let mut files: Vec<LedgerFileRecord> = Vec::new();
+    let entries = std::fs::read_dir(dir).map_err(|err| format!("账本目录读取失败: {err}"))?;
+    for entry in entries.flatten() {
+        let path = entry.path();
+        let name = match path.file_name().and_then(|n| n.to_str()) {
+            Some(n) => n,
+            None => continue,
+        };
+        if name.starts_with(&prefix) && name.ends_with(".json") {
+            let meta =
+                std::fs::metadata(&path).map_err(|err| format!("账本元信息读取失败: {err}"))?;
+            let mtime = meta
+                .modified()
+                .ok()
+                .and_then(|t| t.duration_since(UNIX_EPOCH).ok())
+                .map(|d| d.as_secs() as i64)
+                .unwrap_or(0);
+            files.push(LedgerFileRecord {
+                path,
+                mtime,
+                size: meta.len(),
+            });
+        }
+    }
+    files.sort_by_key(|record| record.mtime);
+    Ok(files)
+}
+
+/// 合并标记对应账本文件名（`ledger_<sanitize(thread)>_<sanitize(round)>.json`）。
+///
+/// R7：标记匹配按「文件名相等」判定，不做 round_id 内容还原——文件名
+/// 里的 round 段是 sanitize 形态（`-` 等已损），与标记里原始 id 逐字符
+/// 比较会错配；对同一原始 round 的账本与标记，两侧 sanitize 后必同形。
+fn merge_marker_file_name(thread_id: &str, round_id: &str) -> String {
+    format!(
+        "{}{}_{}.json",
+        LEDGER_FILE_PREFIX,
+        sanitize(thread_id),
+        sanitize(round_id)
+    )
+}
+
+/// 账本容量滚动实现（合并安全边界可选）。
+///
+/// `protect_after` 提供时 = 仅滚「已合并入摘要链」的账本：合并标记
+/// （`merge_marker_<thread>.json` 指向的 round_id）之前的文件可淘汰，
+/// 标记之后（未合并新账本）原样保留——容量滚动不吞待压缩事实；合并标记
+/// 对应文件本身已在链中，可淘汰。未提供 = 全量可淘汰（旧语义）。
+fn roll_impl(
+    dir: &Path,
+    thread_id: &str,
+    max_bytes: u64,
+    max_age_days: i64,
+    protect_after: Option<&str>,
+) -> Result<usize, String> {
+    let records = scan_thread_files(dir, thread_id)?;
+    let mut removable = vec![true; records.len()];
+    if let Some(marker_round) = protect_after {
+        let marker_name = merge_marker_file_name(thread_id, marker_round);
+        let marker_idx = records
+            .iter()
+            .position(|record| {
+                record
+                    .path
+                    .file_name()
+                    .and_then(|n| n.to_str())
+                    .map(|name| name == marker_name)
+                    .unwrap_or(false)
+            });
+        let Some(idx) = marker_idx else {
+            return Ok(0);
+        };
+        for removable_flag in removable.iter_mut().skip(idx + 1) {
+            *removable_flag = false;
+        }
+    }
+    let cutoff = chrono::Utc::now().timestamp() - max_age_days * 86400;
+    let mut removed = 0usize;
+    // 年龄淘汰后一次性归约出「可淘汰存活」的总字节与条数；后续体积滚动
+    // 删除时递减（R7：不再每轮全量 sum + 线性扫最旧）。
+    let mut alive = 0usize;
+    let mut total: u64 = 0;
+    for (index, record) in records.iter().enumerate() {
+        if !removable[index] {
+            continue;
+        }
+        if record.mtime <= cutoff {
+            if std::fs::remove_file(&record.path).is_ok() {
+                removed += 1;
+                removable[index] = false;
+                continue;
+            }
+        }
+        alive += 1;
+        total += record.size;
+    }
+    // 体积滚动：按 mtime 升序单调下移游标删最旧（records 已排序，删除
+    // 只发生在游标前方，无需重扫）。
+    let mut cursor = 0usize;
+    while total > max_bytes && alive > 1 {
+        while cursor < records.len() && !removable[cursor] {
+            cursor += 1;
+        }
+        if cursor >= records.len() {
+            break;
+        }
+        let record = &records[cursor];
+        if std::fs::remove_file(&record.path).is_ok() {
+            removed += 1;
+        }
+        removable[cursor] = false;
+        total = total.saturating_sub(record.size);
+        alive -= 1;
+        cursor += 1;
+    }
+    Ok(removed)
+}
+
 /// 账本容量滚动：按年龄（最旧先删）与体积（超限最旧删）淘汰，返回删除数。
 ///
 /// 与 fingerprint_cache 容量淘汰同语义：先清过期（> max_age_days），再按
@@ -384,48 +517,26 @@ pub fn roll_ledgers(
     max_bytes: u64,
     max_age_days: i64,
 ) -> Result<usize, String> {
-    let prefix = format!("{}{}_", LEDGER_FILE_PREFIX, sanitize(thread_id));
-    let mut files: Vec<(PathBuf, i64, u64)> = Vec::new();
-    let entries = std::fs::read_dir(dir).map_err(|err| format!("账本目录读取失败: {err}"))?;
-    for entry in entries.flatten() {
-        let path = entry.path();
-        let name = match path.file_name().and_then(|n| n.to_str()) {
-            Some(n) => n,
-            None => continue,
-        };
-        if name.starts_with(&prefix) && name.ends_with(".json") {
-            let meta = std::fs::metadata(&path).map_err(|err| format!("账本元信息读取失败: {err}"))?;
-            let mtime = meta
-                .modified()
-                .ok()
-                .and_then(|t| t.duration_since(UNIX_EPOCH).ok())
-                .map(|d| d.as_secs() as i64)
-                .unwrap_or(0);
-            files.push((path, mtime, meta.len()));
+    roll_impl(dir, thread_id, max_bytes, max_age_days, None)
+}
+
+/// 账本容量滚动（回合收尾接线版）：只滚「已合并入摘要链」的账本。
+///
+/// 合并标记（`merge_marker_<thread>.json`）之后 = 尚未经 `ledger.merge`
+/// 压缩的账本，原样保留；无合并标记（从未合并）= 全部保留。滚动在回合
+/// 收尾（自动合并推进标记后）调用，容量界生效且不吞未合并事实。
+pub fn roll_ledgers_merged(
+    dir: &Path,
+    thread_id: &str,
+    max_bytes: u64,
+    max_age_days: i64,
+) -> Result<usize, String> {
+    match load_merge_marker(dir, thread_id) {
+        Some(marker_round) => {
+            roll_impl(dir, thread_id, max_bytes, max_age_days, Some(&marker_round))
         }
+        None => Ok(0),
     }
-    files.sort_by_key(|(_, mtime, _)| *mtime);
-    let cutoff = chrono::Utc::now().timestamp() - max_age_days * 86400;
-    let mut removed = 0usize;
-    let mut i = 0;
-    while i < files.len() {
-        if files[i].1 <= cutoff {
-            let _ = std::fs::remove_file(&files[i].0);
-            files.remove(i);
-            removed += 1;
-        } else {
-            i += 1;
-        }
-    }
-    let mut total: u64 = files.iter().map(|(_, _, s)| *s).sum();
-    // 体积淘汰从最旧开始删；最新一条始终保留（单文件超限不误删，界 = 账本条数有界）
-    while total > max_bytes && files.len() > 1 {
-        let (p, _, s) = files.remove(0);
-        let _ = std::fs::remove_file(&p);
-        total -= s;
-        removed += 1;
-    }
-    Ok(removed)
 }
 
 #[cfg(test)]
@@ -634,6 +745,65 @@ mod tests {
         let removed = roll_ledgers(&dir, "th", DEFAULT_MAX_BYTES, 0).unwrap();
         assert!(removed >= 1, "超龄账本应被删");
         assert!(!p1.exists());
+        let _ = std::fs::remove_dir_all(&tmp);
+    }
+
+    #[test]
+    fn roll_merged_keeps_unmerged_and_referenced() {
+        // 合并安全滚动：标记（r3）之后未合并账本保留，已合并旧账本按上限淘汰
+        let tmp = std::env::temp_dir().join(format!("rl_mrg_{}", uuid::Uuid::new_v4().simple()));
+        let dir = ledger_dir(&tmp);
+        std::fs::create_dir_all(&dir).unwrap();
+        let mut paths = Vec::new();
+        for i in 1..=4 {
+            let ledger = reduce_round("th", &format!("r{i}"), None, None, &sample_events(), &json!({}), &json!([]));
+            let path = write_ledger(&dir, &ledger).unwrap();
+            paths.push(path);
+        }
+        // mtime 拉开时间序（同秒写入抖动消除）：r1 最旧
+        set_mtime_ago(&paths[0], 8);
+        set_mtime_ago(&paths[1], 6);
+        set_mtime_ago(&paths[2], 4);
+        set_mtime_ago(&paths[3], 2);
+        save_merge_marker(&dir, "th", "r3").unwrap();
+        // 体积上限 1 字节：只滚已合并（r1/r2 淘汰、标记 r3 保留）、未合并 r4 保留
+        let removed = roll_ledgers_merged(&dir, "th", 1, DEFAULT_MAX_AGE_DAYS).unwrap();
+        assert_eq!(removed, 2, "仅已合并旧账本被淘汰");
+        assert!(!paths[0].exists(), "r1（已合并最旧）应被删");
+        assert!(!paths[1].exists(), "r2（已合并）应被删");
+        assert!(paths[2].exists(), "r3（合并标记引用）应保留");
+        assert!(paths[3].exists(), "r4（未合并）应保留");
+        let _ = std::fs::remove_dir_all(&tmp);
+    }
+
+    #[test]
+    fn roll_merged_without_marker_keeps_all() {
+        // 从未合并过 = 全部账本视为未合并：容量滚动不删任何文件
+        let tmp = std::env::temp_dir().join(format!("rl_mrk_{}", uuid::Uuid::new_v4().simple()));
+        let dir = ledger_dir(&tmp);
+        std::fs::create_dir_all(&dir).unwrap();
+        let ledger = reduce_round("th", "r1", None, None, &sample_events(), &json!({}), &json!([]));
+        let path = write_ledger(&dir, &ledger).unwrap();
+        let removed = roll_ledgers_merged(&dir, "th", 1, DEFAULT_MAX_AGE_DAYS).unwrap();
+        assert_eq!(removed, 0, "无标记 = 无已合并账本，不滚动");
+        assert!(path.exists());
+        let _ = std::fs::remove_dir_all(&tmp);
+    }
+
+    #[test]
+    fn roll_merged_skips_when_marker_file_rolled_away() {
+        // 标记账本已被（外部）删除 = 剩余全部视为新账本，不滚
+        let tmp = std::env::temp_dir().join(format!("rl_mrkw_{}", uuid::Uuid::new_v4().simple()));
+        let dir = ledger_dir(&tmp);
+        std::fs::create_dir_all(&dir).unwrap();
+        for i in 1..=3 {
+            let ledger = reduce_round("th", &format!("r{i}"), None, None, &sample_events(), &json!({}), &json!([]));
+            write_ledger(&dir, &ledger).unwrap();
+        }
+        save_merge_marker(&dir, "th", "r1").unwrap();
+        std::fs::remove_file(dir.join("ledger_th_r1.json")).unwrap();
+        let removed = roll_ledgers_merged(&dir, "th", 1, DEFAULT_MAX_AGE_DAYS).unwrap();
+        assert_eq!(removed, 0);
         let _ = std::fs::remove_dir_all(&tmp);
     }
 

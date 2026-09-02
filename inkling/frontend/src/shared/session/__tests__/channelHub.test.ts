@@ -117,6 +117,30 @@ describe('事件落位（ingest）', () => {
     expect(hub.getSnapshot().messages.at(-1)).toMatchObject({ kind: 'review_card', live: true });
   });
 
+  it('同轮同工具第二次审批（不同 key）→ 新卡落位且不覆盖历史留痕', () => {
+    // 审批键调用级唯一指纹（gate:write_file → gate:write_file#2）：第二张卡
+    // 与首卡同工具但键不同——pending 卡身份 = key，二次弹卡不被旧决议吞掉。
+    const hub = new ChannelHub();
+    ingestEvent(hub, ev('review_card', { title: '写入文件', tool: 'write_file', key: 'gate:write_file', review_type: 'gate' }));
+    const card1 = hub.getSnapshot().pendingReview;
+    expect(card1).toMatchObject({ key: 'gate:write_file' });
+    ingestEvent(hub, ev('review_card', { title: '写入文件（升级）', tool: 'write_file', key: 'gate:write_file#2', review_type: 'gate' }));
+    const card2 = hub.getSnapshot().pendingReview;
+    expect(card2).toMatchObject({ key: 'gate:write_file#2' });
+    // 历史留痕两张卡并存（决议续跑不按同名工具互相覆盖）
+    const cards = hub.getSnapshot().messages.filter((m) => m.kind === 'review_card');
+    expect(cards).toHaveLength(2);
+    expect(cards.map((c) => c.payload.key)).toEqual(['gate:write_file', 'gate:write_file#2']);
+  });
+
+  it('pendingReview 清除后同工具新卡可再次弹出（决议 → 再弹卡）', () => {
+    const hub = new ChannelHub();
+    ingestEvent(hub, ev('review_card', { tool: 'write_file', key: 'gate:write_file' }));
+    hub.setState({ pendingReview: null });
+    ingestEvent(hub, ev('review_card', { tool: 'write_file', key: 'gate:write_file#2' }));
+    expect(hub.getSnapshot().pendingReview).toMatchObject({ key: 'gate:write_file#2' });
+  });
+
   it('memory_recall → knowledge_hit 消息 + 来源留痕', () => {
     const hub = new ChannelHub();
     ingestEvent(hub, ev('memory_recall', { hits: [{ id: 'k-1', title: '条目', snippet: '片段' }] }));

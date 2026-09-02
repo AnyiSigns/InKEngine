@@ -44,7 +44,12 @@ from .exceptions import (
 )
 from .fanout import fan_out
 from .graph import Graph, NodeContext, TerminateReason
-from .interrupt import InterruptCoordinator, InterruptSignal, InterruptState
+from .interrupt import (
+    InterruptCoordinator,
+    InterruptSignal,
+    InterruptState,
+    interrupt_key_matches,
+)
 from .llm.guard import current_node_context
 from .logging import get_logger, trace_id_var
 from .multipath import MULTIPATH_KEY
@@ -86,7 +91,12 @@ from .spawn import (
     instance_entry_state,
     instance_thread_id,
 )
-from .state import StateSchema, is_merge_reducer, subgraph_overlay_delta
+from .state import (
+    StateSchema,
+    is_merge_reducer,
+    subgraph_flowback_overlay,
+    subgraph_overlay_delta,
+)
 from .storage import ChainLink, CheckpointRecord, Storage
 from .verifier import (
     VERIFY_FEEDBACK_KEY,
@@ -287,26 +297,36 @@ class _NodeContextImpl(NodeContext):
     async def interrupt(self, review_key: str, payload: dict) -> Any:
         """声明中断点：无注入值时挂起（InterruptSignal 被引擎捕获持久化）；
         外部注入后重入，本调用返回注入值，节点继续执行剩余逻辑。
+
+        gate 审批第二次起（同轮同工具再审批）发卡键掺入调用级唯一指纹
+        （``base#N``，见 InterruptCoordinator.next_gate_key）：注入按基底
+        宽容消费（base 与 base#N 命中同一中断），确保新卡决议不命中旧中断。
         """
-        if self._engine._coordinator.has_inject(review_key):
-            return self._engine._coordinator.consume(review_key)
-        raise InterruptSignal(review_key, payload)
+        decision = self._engine._coordinator.consume_review(review_key)
+        if decision is not None:
+            return decision
+        raise InterruptSignal(
+            self._engine._coordinator.next_gate_key(self._thread_id, review_key),
+            payload,
+        )
 
     async def get_interrupt_payload(self, review_key: str) -> dict | None:
-        """读取链尾挂起卡负载（重入场景）：链尾中断 checkpoint 的 key 匹配
-        时返回卡负载（审批超时窗口等挂起时状态），否则 None。
+        """读取链尾挂起卡负载（重入场景）：链尾中断 checkpoint 的 key 命中
+        判定面键时返回卡负载（审批超时窗口等挂起时状态），否则 None。
+
+        带指纹后缀的挂起键（``base#N``）对基底键（``base``）宽容命中——
+        审批超时窗口/重入读卡按基底键取同一中断的负载。
         """
         if self._engine.options.storage is None:
             return None
         latest = await self._engine.options.storage.get_latest_checkpoint(
             self._thread_id
         )
-        if (
-            latest is not None
-            and latest.interrupt is not None
-            and latest.interrupt.key == review_key
-        ):
-            return latest.interrupt.payload
+        if latest is not None and latest.interrupt is not None:
+            from .interrupt import interrupt_key_matches
+
+            if interrupt_key_matches(latest.interrupt.key, review_key):
+                return latest.interrupt.payload
         return None
 
     def spawn(self, subgraph, state: dict, *, index: int | None = None) -> None:
@@ -800,6 +820,10 @@ class Engine:
         self._transport_seq.reset()
         self._validate_entry_mode(resume_from=resume_from, continue_chain=continue_chain)
         try:
+            # 新回合入口（无 resume_from）：清 gate 发卡计数（上一回合的
+            # 审批序号不漂移到本回合——同回合同工具第二次审批才掺指纹）
+            if resume_from is None:
+                self._coordinator.reset_thread_gate_count(thread_id)
             if inject:
                 self._coordinator.inject(inject)
             if truncate_log_after is not None and self.options.storage is not None:
@@ -880,6 +904,9 @@ class Engine:
         self._transport_seq.reset()
         self._validate_entry_mode(resume_from=resume_from, continue_chain=continue_chain)
         try:
+            # 新回合入口（无 resume_from）：清 gate 发卡计数（与 run() 同口径）
+            if resume_from is None:
+                self._coordinator.reset_thread_gate_count(thread_id)
             if inject:
                 self._coordinator.inject(inject)
             if truncate_log_after is not None and self.options.storage is not None:
@@ -1929,9 +1956,14 @@ class Engine:
         # 前端据此渲染审批卡。挂起语义住引擎——传输层/渲染器可换，换栈
         # 不丢审批通道（事件信封不变，只加类型）。payload 与落库口径一致
         # （敏感键已在中断状态构造处剥离）。resume 重放仅发生在队列模式，
-        # 锚点之后的增量不含本卡（checkpoint 已记录该 seq），不会重复发射
+        # 锚点之后的增量不含本卡（checkpoint 已记录该 seq），不会重复发射。
+        # key 补入 payload：前端决议后须按真实中断键续跑（round_resume 的
+        # inject 按 interrupt_state.key 对齐），缺键则回落到错误兜底键。
         if interrupt_state is not None:
-            await ctx.emit("review_card", interrupt_state.payload)
+            card_payload = interrupt_state.payload
+            if isinstance(card_payload, dict):
+                card_payload = {**card_payload, "key": interrupt_state.key}
+            await ctx.emit("review_card", card_payload)
 
         # ── 终态 checkpoint（携带终止原因/异常快照/计划快照，入轨迹与审计）──
         if storage is not None:
@@ -2656,10 +2688,15 @@ class Engine:
                 raise RuntimeError(
                     sub_result.error or f"spawn 实例执行失败（index={index}）"
                 )
-            results[spec.index] = subgraph_overlay_delta(
+            # 回流增量（父结构键保护）：子图声明 schema 时只回流声明通道
+            # （additive 族须父引擎同族承接），messages/input/tool_rounds
+            # 等子图内部结构键不裸覆盖父会话历史（协作者 spawn 全量终态
+            # 回流毁父消息链的修复——schema 声明结果通道才回流）
+            results[spec.index] = subgraph_flowback_overlay(
                 instance_entry_state(spec, sub_engine.options.schema),
                 final_state,
                 sub_engine.options.schema,
+                self.options.schema,
             )
 
         # 并发展开：部分失败剔除（成功结果回流，父链继续）；实例内中断为

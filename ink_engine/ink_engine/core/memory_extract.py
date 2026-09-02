@@ -4,6 +4,11 @@
 （规则抽取优先——用户指令 / 最终回复 / 确认，零 LLM）；冲突消解 = 同
 namespace + kind 条目按可信度 / 时间序仲裁（新旧并存留痕，不静默覆盖）。
 
+记忆口径 = 「用户级长程共享」：回合账本来自任一会话（thread），但抽取
+落位统一到用户级命名空间（``DEFAULT_NAMESPACE`` = ``user:default``），
+不带 thread 维度——多线程的回合事实在同一用户命名空间下积累、经
+``memory.list`` 整面可取可管理（条目 meta 保留 ``ledger_round`` 溯源）。
+
 逻辑全在 ink_engine 包内（不新增 inkling_host 模块），复用
 ``StorageBackedMemoryStore`` 同一记忆接口；语义归并（可选弱模型档）留作
 扩展点，本模块默认零 LLM 规则抽取。
@@ -49,7 +54,8 @@ ROUND_FACT_EVENTS = (
 # 历史虚构类型（confirmation/approval_accept）已移除，防永远抽不到。
 CONFIRMATION_EVENTS = ("accept", "edit", "reject", "user_correction", "user_confirm")
 
-# 默认记忆域（用户级）。
+# 默认记忆域 = 用户级长程共享命名空间（跨线程回合事实统一落此域；
+# 无 thread_id 维度——thread 语义由回合账本承载，记忆本身用户级共享）。
 DEFAULT_NAMESPACE = "user:default"
 
 # 抽取条目的优先级档（数据化，ENG1-13：旧实现硬编码 6/5/7 魔法数字）。

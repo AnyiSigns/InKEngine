@@ -502,8 +502,8 @@ fn doc_parse_run(
             "沙箱模式非法（doc_parse 须声明路径根）".into(),
         ));
     };
-    let bytes = std::fs::read(&resolved)
-        .map_err(|err| ExecError::ExecutionFailed(format!("读取文档失败: {err}")))?;
+    let bytes = crate::domain::doc_ops::read_document_file(&resolved)
+        .map_err(|err| ExecError::ExecutionFailed(err.to_string()))?;
     let parsed = crate::domain::doc_ops::parse_document(&bytes)
         .map_err(|err| ExecError::ExecutionFailed(err.to_string()))?;
     Ok(ExecOutcome { result: parsed.to_string(), sandbox_checked: true })

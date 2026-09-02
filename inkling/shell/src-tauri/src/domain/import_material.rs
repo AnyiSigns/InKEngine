@@ -77,13 +77,14 @@ pub fn scan_and_normalize(root: &str, recursive: bool) -> Result<MaterialScanRes
         skipped: Vec::new(),
     };
     walk(&root_path, 0, recursive, &mut result)?;
-    eprintln!(
-        "[import_material] scan root={} recursive={} scanned={} files={} skipped={}",
-        result.root,
-        result.recursive,
-        result.scanned,
-        result.files.len(),
-        result.skipped.len()
+    tracing::info!(
+        target: "import_material",
+        root = %result.root,
+        recursive = result.recursive,
+        scanned = result.scanned,
+        files = result.files.len(),
+        skipped = result.skipped.len(),
+        "scan"
     );
     Ok(result)
 }

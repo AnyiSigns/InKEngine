@@ -122,15 +122,45 @@ if ($mismatches -gt 0) { throw "引擎包副本与源不一致（$mismatches 处
 Log "OK 引擎包校验通过（$($srcFiles.Count) 个文件哈希一致）"
 
 # ── 3. 种子根（seed_data + manifest）───────────────────────────────
+# 与引擎包同纪律：每次打包强制从源重拷 + 内容哈希校验（防本机
+# resources/inkling/seed_data 旧 seed 混入发行包——旧 25 件含已废弃
+# schedule/score_material/screen_query，漂移 seed 不得进发行包）。
 $seedDir = Join-Path $res "inkling"
-if (-not (Test-Path (Join-Path $seedDir "seed_data\tools.json"))) {
-    Log "拷贝种子根 -> $seedDir"
-    New-Item -ItemType Directory -Force -Path $seedDir | Out-Null
-    Copy-Item (Join-Path $root "inkling\seed_data") $seedDir -Recurse -Force
-    Copy-Item (Join-Path $root "inkling\manifest.json") $seedDir -Force
-} else {
-    Log "OK 种子根已就位"
+$seedSrc = Join-Path $root "inkling\seed_data"
+Log "拷贝种子根（源 -> $seedDir；哈希校验）"
+if (Test-Path $seedDir) {
+    Remove-Item -LiteralPath $seedDir -Recurse -Force
 }
+New-Item -ItemType Directory -Force -Path $seedDir | Out-Null
+Copy-Item $seedSrc $seedDir -Recurse -Force
+Copy-Item (Join-Path $root "inkling\manifest.json") $seedDir -Force
+$seedMismatches = 0
+$seedFiles = Get-ChildItem -LiteralPath $seedSrc -Recurse -File
+foreach ($file in $seedFiles) {
+    $rel = $file.FullName.Substring($seedSrc.Length).TrimStart("\")
+    $dst = Join-Path $seedDir $rel
+    if (-not (Test-Path -LiteralPath $dst)) {
+        Log "  漂移: 种子副本缺文件 $rel"
+        $seedMismatches++
+        continue
+    }
+    $srcHash = (Get-FileHash -LiteralPath $file.FullName -Algorithm SHA256).Hash
+    $dstHash = (Get-FileHash -LiteralPath $dst -Algorithm SHA256).Hash
+    if ($srcHash -ne $dstHash) {
+        Log "  漂移: 种子文件内容不一致 $rel"
+        $seedMismatches++
+    }
+}
+$manifestSrc = Join-Path $root "inkling\manifest.json"
+$manifestDst = Join-Path $seedDir "manifest.json"
+$srcHash = (Get-FileHash -LiteralPath $manifestSrc -Algorithm SHA256).Hash
+$dstHash = (Get-FileHash -LiteralPath $manifestDst -Algorithm SHA256).Hash
+if ($srcHash -ne $dstHash) {
+    Log "  漂移: manifest.json 内容不一致"
+    $seedMismatches++
+}
+if ($seedMismatches -gt 0) { throw "种子副本与源不一致（$seedMismatches 处漂移）——发行包禁止携带旧 seed" }
+Log "OK 种子根校验通过（$($seedFiles.Count) 个 seed_data 文件哈希一致）"
 
 # ── 4. 向量模型（granite-97m，98MB ONNX + tokenizer）───────────────
 $modelDir = Join-Path $res "granite-97m"

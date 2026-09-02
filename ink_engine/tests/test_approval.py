@@ -390,3 +390,109 @@ async def test_engine_hang_without_inject_keeps_card(memory_storage):
     assert again.reason == "interrupted"
     assert again.interrupt is not None and again.interrupt.key == "approve_write"
     assert "executed" not in again.state
+
+
+# ── 同轮同工具两次审批：调用级唯一指纹（第二次审批新 key 新卡）──
+
+
+def _two_approvals_same_tool_graph():
+    """两个节点依次对同一工具挂卡（首卡拒绝后升级重试 = 同轮二次审批）。"""
+
+    async def first_gate(ctx):
+        decision = await approve_before_execute(ctx, "gate:write_file", ACTION_WRITE)
+        return {"first": decision.decision}
+
+    async def second_gate(ctx):
+        decision = await approve_before_execute(ctx, "gate:write_file", ACTION_WRITE)
+        return {"second": decision.decision}
+
+    g = Graph(name="two_gates", entry="first")
+    g.add_node("first", first_gate)
+    g.add_node("second", second_gate)
+    g.add_edge("first", "second")
+    g.add_exit("second")
+    return g
+
+
+async def test_engine_same_tool_two_approvals_get_distinct_keys(memory_storage):
+    """同轮同工具两次审批：第二次中断键掺调用级唯一指纹（#2），不撞首键。
+
+    回归目标：审批中断键曾为工具名粒度（gate:write_file）——首卡拒绝后
+    同轮升级重试复用同一键 → 前端按键去重丢第二张卡、决议续跑命中旧卡。
+    """
+    engine = make_engine(_two_approvals_same_tool_graph(), storage=memory_storage)
+    # 首卡挂起：键 = 基底（首次不掺指纹，向后兼容既有续跑断言）
+    first = await engine.ainvoke({}, thread_id="t5")
+    assert first.reason == "interrupted"
+    assert first.interrupt is not None and first.interrupt.key == "gate:write_file"
+    # 拒绝首卡 → 重入：second 节点再挂同工具审批 → 新 key 新卡（#2）
+    rejected = await engine.ainvoke(
+        {},
+        thread_id="t5",
+        resume_from=first.checkpoint_id,
+        inject={"gate:write_file": "reject"},
+    )
+    assert rejected.reason == "interrupted"
+    assert rejected.interrupt is not None
+    assert rejected.interrupt.key == "gate:write_file#2"
+    assert rejected.state.get("first") == "reject"
+    # 第二张卡决议只命中第二次中断（#2 键），顺序续跑不串卡
+    done = await engine.ainvoke(
+        {},
+        thread_id="t5",
+        resume_from=rejected.checkpoint_id,
+        inject={"gate:write_file#2": "accept"},
+    )
+    assert done.reason == TerminateReason.REPLY
+    assert done.state.get("first") == "reject"
+    assert done.state.get("second") == "accept"
+
+
+async def test_engine_same_tool_two_approvals_second_accept_resumes(memory_storage):
+    """两次审批均 accept：首键 accept 续跑 + #2 键 accept 续跑，互不干扰。"""
+    engine = make_engine(_two_approvals_same_tool_graph(), storage=memory_storage)
+    first = await engine.ainvoke({}, thread_id="t6")
+    assert first.reason == "interrupted"
+    second_round = await engine.ainvoke(
+        {},
+        thread_id="t6",
+        resume_from=first.checkpoint_id,
+        inject={"gate:write_file": "accept"},
+    )
+    assert second_round.reason == "interrupted"
+    assert second_round.interrupt.key == "gate:write_file#2"
+    assert second_round.state.get("first") == "accept"
+    done = await engine.ainvoke(
+        {},
+        thread_id="t6",
+        resume_from=second_round.checkpoint_id,
+        inject={"gate:write_file#2": "accept"},
+    )
+    assert done.reason == TerminateReason.REPLY
+    assert done.state.get("second") == "accept"
+
+
+async def test_engine_new_round_same_tool_resets_fingerprint(memory_storage):
+    """新回合（用户消息边界）同工具首卡回到基底键：指纹作用域 = 回合内。"""
+    engine = make_engine(_two_approvals_same_tool_graph(), storage=memory_storage)
+    # 回合 1：两卡两决议（产生 #2 指纹）
+    first = await engine.ainvoke({}, thread_id="t7")
+    second_round = await engine.ainvoke(
+        {},
+        thread_id="t7",
+        resume_from=first.checkpoint_id,
+        inject={"gate:write_file": "accept"},
+    )
+    assert second_round.interrupt.key == "gate:write_file#2"
+    await engine.ainvoke(
+        {},
+        thread_id="t7",
+        resume_from=second_round.checkpoint_id,
+        inject={"gate:write_file#2": "accept"},
+    )
+    # 回合 2：同工具首卡 = 基底键（计数器已随回合边界复位）
+    fresh = await engine.ainvoke(
+        {}, thread_id="t7", continue_chain=True
+    )
+    assert fresh.reason == "interrupted"
+    assert fresh.interrupt.key == "gate:write_file"

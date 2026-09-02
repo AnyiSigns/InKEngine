@@ -302,6 +302,49 @@ def subgraph_overlay_delta(
     return delta
 
 
+def subgraph_flowback_overlay(
+    entry_state: dict,
+    final_state: dict,
+    sub_schema: StateSchema | None,
+    parent_schema: StateSchema | None,
+) -> dict:
+    """spawn 实例回流增量（父结构键保护：声明结果通道才回流）。
+
+    与 :func:`subgraph_overlay_delta` 的分工：
+    - 子图未声明 schema（None）= 历史全量回流——无 schema 子图（研究链/
+      组装/工具链 spawn）保持既有语义，回流量大但保真，零行为变化；
+    - 子图声明 schema = 只回流子图 schema **声明**的通道。未声明键是子图
+      内部结构（messages/input/tool_rounds/step_args…），整链/增量裸覆盖
+      父图会毁父会话历史（协作者 spawn 实例把终态 messages 整表替换父
+      messages、input/tool_rounds 被实例值覆盖的实证根因）：
+      - delta 中未声明的键直接丢弃（不回流）；
+      - additive（add_messages 族）通道只在父引擎以同族 reducer 承接时
+        才回流（父按追加语义并入；父未声明 = 无承接 = 丢弃，防整链/
+        增量替换父历史——两端归约一致才移交，与 ENG2-7 同源判定）。
+    """
+    if sub_schema is None:
+        return dict(final_state)
+    delta = subgraph_overlay_delta(entry_state, final_state, sub_schema)
+    if not delta:
+        return {}
+    overlay: dict = {}
+    for key, value in delta.items():
+        channel = sub_schema.channels.get(key)
+        if channel is None:
+            continue  # 未声明通道 = 子图内部结构键，不回流
+        reducer = channel.reducer
+        if is_additive_reducer(reducer):
+            parent_channel = (
+                parent_schema.channels.get(key) if parent_schema is not None else None
+            )
+            if parent_channel is None or not is_additive_reducer(
+                parent_channel.reducer
+            ):
+                continue  # 父无 additive 承接：丢弃，防整链/增量替换父历史
+        overlay[key] = value
+    return overlay
+
+
 def get_reducer(name: str | None) -> Reducer | None:
     """按名取 reducer；None 表示裸通道（覆盖语义）。"""
     if name is None:
@@ -411,5 +454,6 @@ __all__ = [
     "merge_metrics",
     "patch_chain_reducer",
     "register_reducer",
+    "subgraph_flowback_overlay",
     "subgraph_overlay_delta",
 ]

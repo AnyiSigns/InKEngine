@@ -52,7 +52,9 @@ export function createKnowledgeOps(): KnowledgeOps {
   return {
     list: async () => {
       if (!backend.available) return { entries: [] };
-      const result = await backend.knowledgeList();
+      // 一次取全量（含归档）：面板"显示归档/隐藏归档"只做客户端过滤，
+      // 归档条目由后端 includeArchived 透传（此前恒取活跃，归档不可达）
+      const result = await backend.knowledgeList(true);
       return { entries: (Array.isArray(result.entries) ? result.entries : []) as KnowledgeEntry[] };
     },
     add: async (input) => {

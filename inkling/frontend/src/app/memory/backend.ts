@@ -11,7 +11,6 @@ export interface MemoryEntry {
   source: MemorySource;
   credibility: number;
   expires_at: number | null;
-  invalid: boolean;
   created_at: number;
 }
 

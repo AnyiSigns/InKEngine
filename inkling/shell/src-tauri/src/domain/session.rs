@@ -476,6 +476,14 @@ pub async fn fetch_latest_checkpoint(thread_id: &str) -> Result<Option<JsonValue
     }
 }
 
+/// 会话消息回取（冷启动/切会话历史恢复：最新检查点 state.messages；无回合 = 空）。
+pub async fn fetch_thread_messages(thread_id: &str) -> Result<Vec<JsonValue>, String> {
+    let checkpoint = fetch_latest_checkpoint(thread_id).await?;
+    Ok(checkpoint
+        .map(|checkpoint| checkpoint_messages(&checkpoint))
+        .unwrap_or_default())
+}
+
 /// 标题生成消息清单（router 轻挡输入形态：系统 + 用户消息）。
 ///
 /// 用户消息 = 会话消息压缩面（首条/末条上下文 + 消息条数锚点），

@@ -138,12 +138,101 @@ pub fn parse_search_keys(config: &JsonValue) -> SearchKeys {
 /// 搜索 key 配置文件名（数据目录）。
 const SEARCH_KEYS_FILE: &str = "search_keys.json";
 
-/// 从设置档读取搜索 key（缺文件/解析失败回落空配置）。
+/// 归一化搜索 key 配置 → 运行期形态（parse_search_keys 同源读取面）。
+///
+/// 兼容两类入参（S3 通道统一：records 通道废弃，设置档文件 = 单一权威，
+/// 运行期 `read_search_keys` 每次调用读同一文件——保存即生效）：
+/// - 设置表单形态 ``{search_key, search_provider}`` → ``{search: {provider: key}}``
+///   （provider 归一为 exa/parallel/bocha 裸名，key 空 = 空节 = 本地聚合）；
+/// - 已嵌套运行期形态 ``{search: {...}}``/``{search_keys: {...}}`` → 透传
+///   并归一节内 provider 键（``exa_key`` 后缀剔除为 ``exa``），防形态漂移。
+pub fn normalize_search_key_config(config: &JsonValue) -> JsonValue {
+    let empty = JsonValue::Object(Default::default());
+    let runtime_section = config
+        .get("search")
+        .or_else(|| config.get("search_keys"))
+        .unwrap_or(&empty);
+    let mut section = serde_json::Map::new();
+    if let Some(obj) = runtime_section.as_object() {
+        for (key, value) in obj {
+            let bare = key.strip_suffix("_key").unwrap_or(key);
+            if matches!(bare, "exa" | "parallel" | "bocha") {
+                section.insert(bare.to_string(), value.clone());
+            }
+        }
+    }
+    if section.is_empty() {
+        // 未识别嵌套形态：按设置表单字段投影
+        let key = config
+            .get("search_key")
+            .and_then(JsonValue::as_str)
+            .unwrap_or("")
+            .trim()
+            .to_string();
+        let provider = config
+            .get("search_provider")
+            .and_then(JsonValue::as_str)
+            .unwrap_or("exa");
+        let bare = if matches!(provider, "parallel" | "bocha") {
+            provider
+        } else {
+            "exa"
+        };
+        if !key.is_empty() {
+            section.insert(bare.to_string(), JsonValue::String(key));
+        }
+    }
+    JsonValue::Object(serde_json::Map::from_iter([(
+        "search".to_string(),
+        JsonValue::Object(section),
+    )]))
+}
+
+/// 设置档落盘（唯一权威通道：data_dir/search_keys.json；保存即运行期
+/// 生效——运行期按文件读取，不再写 engine records，避免双通道断链）。
+/// 落盘前 provider 密钥经 DPAPI 保护（打码占位值幂等透传）。
+///
+/// 写盘纪律（R3）：密钥加密（`protect_secret_checked`）失败 / 目录创建
+/// 失败 / 序列化失败 / 写盘失败 = Err，不落盘（不留明文、不留半态文件）；
+/// 落盘经临时文件 + rename 原子替换，杜绝读到写一半的 JSON。
+pub fn write_search_keys(data_dir: &Path, config: &JsonValue) -> Result<JsonValue, String> {
+    let mut stored = normalize_search_key_config(config);
+    if let Some(search) = stored.get_mut("search") {
+        if let Some(section) = search.as_object_mut() {
+            for value in section.values_mut() {
+                if let JsonValue::String(key) = value {
+                    *key = crate::domain::crypto::protect_secret_checked(key)
+                        .map_err(|err| format!("搜索 key 加密失败（{err}）"))?;
+                }
+            }
+        }
+    }
+    std::fs::create_dir_all(data_dir)
+        .map_err(|err| format!("搜索 key 目录创建失败 {}: {err}", data_dir.display()))?;
+    let path = data_dir.join(SEARCH_KEYS_FILE);
+    let text = serde_json::to_string_pretty(&stored)
+        .map_err(|err| format!("搜索 key 序列化失败: {err}"))?;
+    let tmp = data_dir.join(format!(
+        "{SEARCH_KEYS_FILE}.{}.tmp",
+        uuid::Uuid::new_v4().simple()
+    ));
+    std::fs::write(&tmp, text)
+        .map_err(|err| format!("搜索 key 临时写入失败 {}: {err}", tmp.display()))?;
+    std::fs::rename(&tmp, &path)
+        .map_err(|err| format!("搜索 key 原子替换失败 {}: {err}", path.display()))?;
+    Ok(stored)
+}
+
+/// 从设置档读取搜索 key（缺文件回落空配置；解析失败留痕后回落空配置，
+/// 不静默吞坏档）。
 pub fn read_search_keys(data_dir: &Path) -> SearchKeys {
     let path = data_dir.join(SEARCH_KEYS_FILE);
     if let Ok(text) = std::fs::read_to_string(&path) {
-        if let Ok(value) = serde_json::from_str::<JsonValue>(&text) {
-            return parse_search_keys(&value);
+        match serde_json::from_str::<JsonValue>(&text) {
+            Ok(value) => return parse_search_keys(&value),
+            Err(err) => {
+                tracing::warn!(target: "web_search", error = %err, path = %path.display(), "搜索 key 配置解析失败，回落默认");
+            }
         }
     }
     SearchKeys::default()
@@ -772,6 +861,69 @@ mod tests {
     }
 
     #[test]
+    fn normalize_search_key_projects_settings_form_to_runtime_shape() {
+        // S3：设置表单形态（前端 {search_key, search_provider}）→ 运行期
+        // 形态 {search: {provider: key}}——parse_search_keys 可读。
+        let out = normalize_search_key_config(&serde_json::json!({
+            "search_key": "sk-exa",
+            "search_provider": "exa",
+        }));
+        assert_eq!(out["search"]["exa"], "sk-exa");
+        assert!(out["search"].get("parallel").is_none());
+        let bocha = normalize_search_key_config(&serde_json::json!({
+            "search_key": "sk-bocha",
+            "search_provider": "bocha",
+        }));
+        assert_eq!(bocha["search"]["bocha"], "sk-bocha");
+        // 空 key = 空节（回落本地聚合）
+        let empty = normalize_search_key_config(&serde_json::json!({
+            "search_key": "",
+            "search_provider": "exa",
+        }));
+        assert_eq!(empty["search"].as_object().map(|o| o.len()), Some(0));
+    }
+
+    #[test]
+    fn normalize_search_key_passthrough_runtime_shape_and_rekeys_suffix() {
+        // 已嵌套运行期形态透传；exa_key 后缀归并为裸名 exa（防形态漂移）。
+        let nested = normalize_search_key_config(&serde_json::json!({
+            "search": { "exa": "k1", "bocha_key": "k2" },
+        }));
+        assert_eq!(nested["search"]["exa"], "k1");
+        assert_eq!(nested["search"]["bocha"], "k2");
+        assert!(nested["search"].get("bocha_key").is_none());
+        let old = normalize_search_key_config(&serde_json::json!({
+            "search_keys": { "parallel": "pk" },
+        }));
+        assert_eq!(old["search"]["parallel"], "pk", "search_keys 节同样归一");
+    }
+
+    #[test]
+    fn write_search_keys_then_read_makes_save_effective() {
+        // S3：保存 → 运行期同源文件可读（设置页保存的搜索 key 真实生效）。
+        let dir = std::env::temp_dir().join(format!("ink_search_keys_{}", std::process::id()));
+        let _ = std::fs::create_dir_all(&dir);
+        write_search_keys(
+            &dir,
+            &serde_json::json!({ "search_key": "sk-rt", "search_provider": "parallel" }),
+        )
+        .expect("保存成功");
+        let keys = read_search_keys(&dir);
+        assert_eq!(keys.parallel.as_deref(), Some("sk-rt"), "保存即运行期可读");
+        assert_eq!(resolve_provider(&keys), ProviderKind::Vendor("parallel"));
+        // 覆盖写入（换 provider）不残留旧厂商 key
+        write_search_keys(
+            &dir,
+            &serde_json::json!({ "search_key": "sk-2", "search_provider": "exa" }),
+        )
+        .expect("覆盖保存成功");
+        let keys = read_search_keys(&dir);
+        assert_eq!(keys.exa.as_deref(), Some("sk-2"));
+        assert!(keys.parallel.is_none(), "换提供方后旧 key 不残留");
+        let _ = std::fs::remove_dir_all(&dir);
+    }
+
+    #[test]
     fn aggregate_html_parsers_extract_results() {
         let ddg = r#"<html><body>
             <a class="result__a" href="https://example.com/a">Example 论文 A</a>
@@ -918,5 +1070,43 @@ mod tests {
             .find(|t| t["name"] == "web_search")
             .expect("web_search 工具存在");
         assert_eq!(spec["meta"]["domain"], "network");
+    }
+
+    #[test]
+    fn read_search_keys_falls_back_on_corrupt_file() {
+        // R3：解析失败不静默空配置误导——warn 留痕后回落默认（行为保持）。
+        let dir = std::env::temp_dir().join(format!("ink_search_keys_bad_{}", std::process::id()));
+        let _ = std::fs::create_dir_all(&dir);
+        std::fs::write(dir.join(SEARCH_KEYS_FILE), "{ not-json").unwrap();
+        let keys = read_search_keys(&dir);
+        assert_eq!(keys, SearchKeys::default(), "坏档回落默认空配置");
+        assert_eq!(resolve_provider(&keys), ProviderKind::LocalAggregate);
+        let _ = std::fs::remove_dir_all(&dir);
+    }
+
+    #[cfg(windows)]
+    #[test]
+    fn write_search_keys_fails_closed_when_encryption_fails() {
+        // R3：密钥加密失败 = Err 中止保存，原文件不被覆盖（不留明文）。
+        let dir = std::env::temp_dir().join(format!("ink_search_keys_fc_{}", std::process::id()));
+        let _ = std::fs::create_dir_all(&dir);
+        write_search_keys(
+            &dir,
+            &serde_json::json!({ "search_key": "sk-old", "search_provider": "exa" }),
+        )
+        .expect("基线保存成功");
+        let before = std::fs::read_to_string(dir.join(SEARCH_KEYS_FILE)).unwrap();
+        crate::domain::crypto::force_dpapi_protect_failure(true);
+        let outcome = write_search_keys(
+            &dir,
+            &serde_json::json!({ "search_key": "sk-new", "search_provider": "bocha" }),
+        );
+        crate::domain::crypto::force_dpapi_protect_failure(false);
+        assert!(outcome.is_err(), "加密失败应 Err（中止保存）");
+        assert!(outcome.unwrap_err().contains("加密失败"), "Err 须带加密原因");
+        let after = std::fs::read_to_string(dir.join(SEARCH_KEYS_FILE)).unwrap();
+        assert_eq!(before, after, "加密失败不得覆盖原文件");
+        assert!(!after.contains("sk-new"), "新明文不得出现在落盘配置（实际: {after}）");
+        let _ = std::fs::remove_dir_all(&dir);
     }
 }

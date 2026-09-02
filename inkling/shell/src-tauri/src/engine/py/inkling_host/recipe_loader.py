@@ -390,7 +390,13 @@ class EventTypeApplyTarget(ApplyTarget):
 
 
 class EntityApplyTarget(ApplyTarget):
-    """ENTITY 补丁落链后的活跃态生效：注册进实体注册表（协作者目录即时可召唤）。"""
+    """ENTITY 补丁落链后的活跃态生效：实体进注册表（协作者目录即时可召唤）。
+
+    创建/修改双语义（设计稿 ）：id 未注册 = 新建（register）；id 已存在
+    = 整版更新（replace——设计稿「创建/修改」的修改语义，补丁对既有实体
+    可更新 label/persona/model/meta 等字段）。重复 register 会抛重复注册
+    （entities.py 显式拒绝）——既有实体只能经 replace 更新，不误建不改删。
+    """
 
     name = "inkling.entity"
 
@@ -400,9 +406,13 @@ class EntityApplyTarget(ApplyTarget):
     async def apply(self, payload: dict[str, Any], patch_id: int) -> None:
         spec = EntitySpec.from_dict(payload)
         registry = self._runtime.entity_registry
-        if registry is not None:
+        if registry is None:
+            return
+        if registry.get(spec.id) is not None:
+            registry.replace(spec)
+        else:
             registry.register(spec)
-            await registry.save()
+        await registry.save()
 
 
 def map_apply_targets() -> dict[PatchKind, Callable[[Any], ApplyTarget]]:
@@ -410,7 +420,8 @@ def map_apply_targets() -> dict[PatchKind, Callable[[Any], ApplyTarget]]:
 
     - TOOL：声明式定义进注册表 + 统一工具表（挂载工具即刻可调）；
     - EVENT_TYPE：事件类型注册表即时生效（新事件类型可渲染/校验）；
-    - ENTITY：实体注册表即时生效（新协作者即刻可被 collab_request 召唤）。
+    - ENTITY：实体注册表即时生效（新协作者即刻可被 collab_request 召唤；
+      既有实体整版更新 = replace，不改删注册表既有条目）。
     补丁链是权威记录，目标钩子只做活跃态同步（重启经链恢复）。
     """
     return {

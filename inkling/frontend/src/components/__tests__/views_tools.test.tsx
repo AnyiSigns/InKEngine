@@ -1,6 +1,5 @@
 /**
- * 视图补全测试：管理台（三来源分组 + 停用/重置/卸载）、工具注册表
- * 分组、架构 DAG diff 高亮、界面树编辑器白名单拒绝与合法编辑。
+ * 视图补全测试：架构 DAG diff 高亮、界面树编辑器白名单拒绝与合法编辑。
  */
 
 import { render, screen } from '@testing-library/react';
@@ -8,90 +7,13 @@ import { fireEvent } from '@testing-library/react';
 import userEvent from '@testing-library/user-event';
 
 import { registerBuiltinComponents } from '@/components';
-import { AdminConsole } from '@/components/admin_console';
-import { AdminTools } from '@/components/admin_tools';
 import { ArchitectureView, diffGraphs } from '@/components/architecture_view';
 import { UiSpecEditor } from '@/components/ui_spec_editor';
-import { MemoryAppRegistryStore } from '@/shared/registry/appRegistry';
-import type { AppRegistryEntry } from '@/shared/registry/appRegistry';
-import type { GraphSnapshot, ToolsSnapshot } from '@/shared/session/inspectTypes';
+import type { GraphSnapshot } from '@/shared/session/inspectTypes';
 import type { UISpec } from '@/renderer/uiSpecTypes';
 
 beforeEach(() => {
   registerBuiltinComponents();
-});
-
-const FIXTURE_ENTRIES: AppRegistryEntry[] = [
-  { id: 'b1', name: 'message_list', type: 'component', version: '1.4.0', source: 'baseline', status: 'active', changedAt: 1724131200000, description: '消息流' },
-  { id: 'm1', name: 'web_search', type: 'mcp_server', version: '0.2.1', source: 'mcp', status: 'active', changedAt: 1724178600000, patchChainId: 'p-011', description: '搜索' },
-  { id: 'a1', name: 'knowledge_row_refined', type: 'component', version: '0.5.0', source: 'ai', status: 'active', changedAt: 1724191800000, patchChainId: 'p-007', description: '知识行变体' },
-];
-
-describe('管理台：应用注册表三来源分组', () => {
-  it('三来源分组 + 条目字段（名称/类型/版本/来源/状态/最近变化/补丁链）', () => {
-    const store = new MemoryAppRegistryStore(FIXTURE_ENTRIES);
-    render(<AdminConsole registryStore={store} />);
-    expect(document.querySelector('[data-ui="registry_group_baseline"]')).not.toBeNull();
-    expect(document.querySelector('[data-ui="registry_group_mcp"]')).not.toBeNull();
-    expect(document.querySelector('[data-ui="registry_group_ai"]')).not.toBeNull();
-    expect(screen.getByText(/补丁链 p-011/)).toBeInTheDocument();
-    expect(screen.getAllByText('渲染组件').length).toBeGreaterThan(0);
-  });
-
-  it('出厂基线条目：可停用（切换状态）/ 重置（链清空）', async () => {
-    const user = userEvent.setup();
-    const store = new MemoryAppRegistryStore(FIXTURE_ENTRIES);
-    render(<AdminConsole registryStore={store} />);
-    await user.click(document.querySelector('[data-ui="registry_disable_b1"]') as HTMLElement);
-    expect(store.list().find((e) => e.id === 'b1')?.status).toBe('disabled');
-    await user.click(document.querySelector('[data-ui="registry_reset_b1"]') as HTMLElement);
-    const reset = store.list().find((e) => e.id === 'b1');
-    expect(reset?.patchChainId).toBeUndefined();
-    expect(reset?.status).toBe('active');
-  });
-
-  it('MCP/AI 条目可卸载（基线条目不可卸载）', async () => {
-    const user = userEvent.setup();
-    const store = new MemoryAppRegistryStore(FIXTURE_ENTRIES);
-    render(<AdminConsole registryStore={store} />);
-    expect(document.querySelector('[data-ui="registry_uninstall_b1"]')).toBeNull();
-    await user.click(document.querySelector('[data-ui="registry_uninstall_m1"]') as HTMLElement);
-    expect(store.list().find((e) => e.id === 'm1')).toBeUndefined();
-    await user.click(document.querySelector('[data-ui="registry_uninstall_a1"]') as HTMLElement);
-    expect(store.list().find((e) => e.id === 'a1')).toBeUndefined();
-    expect(store.list().map((e) => e.id)).toEqual(['b1']);
-  });
-});
-
-describe('管理台：工具注册表分组（OS 控制/文件/网络/研究自指）+ description 全文', () => {
-  const TOOLS: ToolsSnapshot = {
-    version: 1,
-    tools: [
-      { name: 'launch_app', permission: 'review', endpoint: 'process_exec', description: '启动应用（会话焦点切换）' },
-      { name: 'file_read', permission: 'allow', endpoint: 'file_ops', description: '读取工作区文件（路径白名单内）' },
-      { name: 'fetch', permission: 'review', endpoint: 'http_fetch', description: '按 URL 抓取网页正文' },
-      { name: 'inspect_knowledge', permission: 'allow', endpoint: 'process_exec', description: '知识集快照' },
-      { name: 'propose_patch', permission: 'review', endpoint: 'process_exec', description: '提议补丁（自进化提案）' },
-      { name: 'mcp_call', permission: 'deny', endpoint: 'mcp', description: 'MCP 调用' },
-    ],
-  };
-
-  it('分组标签：OS 控制/文件/网络/研究自指/MCP 连接 + description 全文', () => {
-    render(<AdminTools bindValue={TOOLS} />);
-    expect(screen.getByText('OS 控制')).toBeInTheDocument();
-    expect(screen.getByText('文件')).toBeInTheDocument();
-    expect(screen.getByText('网络')).toBeInTheDocument();
-    expect(screen.getByText('研究自指')).toBeInTheDocument();
-    expect(screen.getByText('MCP 连接')).toBeInTheDocument();
-    expect(screen.getByText('提议补丁（自进化提案）')).toBeInTheDocument();
-  });
-
-  it('权限档中文展示', () => {
-    render(<AdminTools bindValue={TOOLS} />);
-    expect(screen.getAllByText('待审批').length).toBeGreaterThan(0);
-    expect(screen.getAllByText('自动放行').length).toBeGreaterThan(0);
-    expect(screen.getByText('已拒绝')).toBeInTheDocument();
-  });
 });
 
 describe('架构视图：DAG 读 + 视觉 diff 高亮', () => {

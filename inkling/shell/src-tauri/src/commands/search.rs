@@ -1,17 +1,16 @@
-//! 联网搜索 key 命令面（环境变量优先 + 设置页输入联动）。
+//! 联网搜索 key 命令面（设置档文件 = 单一权威；环境变量显式优先覆盖）。
 
-use serde_json::{json, Value as JsonValue};
+use serde_json::Value as JsonValue;
 use tauri::AppHandle;
 
 use super::error::CommandError;
 use crate::app_data_dir;
 
-/// 搜索 key 记录集合/键（引擎 records 通道；引擎不可用时降级文件层）。
-const SEARCH_KEYS_COLLECTION: &str = "search_keys";
-const SEARCH_KEYS_KEY: &str = "keys";
-
-/// 搜索 key 配置文件名（数据目录；降级读写路径）。
-const SEARCH_KEYS_FILE: &str = "search_keys.json";
+/// 搜索 key 配置文件路径（数据目录；唯一权威通道——运行期 web_search
+/// 每次调用读同一文件，保存即生效）。
+fn search_keys_path(dir: &std::path::Path) -> std::path::PathBuf {
+    dir.join("search_keys.json")
+}
 
 /// 变换搜索 key 配置中的厂商密钥字段（exa/parallel/bocha/`*_key`，
 /// 顶层与 `search`/`search_keys` 嵌套形态均覆盖）。
@@ -32,62 +31,37 @@ fn transform_key_values(value: &mut JsonValue, mut transform: impl FnMut(&str) -
     walk(value, &mut transform);
 }
 
-/// 读取搜索 key 配置（优先引擎 records；引擎不可用降级文件层）。
-/// api_key 还原（dpapi: 解密）后按打码形态回传（完整密钥不落前端）。
+/// 读取搜索 key 配置（设置档文件；api_key 还原后按打码形态回传——完整
+/// 密钥不落前端）。兼容旧嵌套形态与设置表单形态读取（normalize 收敛）。
 #[tauri::command]
 pub(crate) async fn search_keys_get(app: AppHandle) -> Result<JsonValue, CommandError> {
-    let mut record = if let Ok(record) = crate::engine::host::call_engine_op_async(
-        "engine.records_get",
-        json!({ "collection": SEARCH_KEYS_COLLECTION, "key": SEARCH_KEYS_KEY }),
-    )
-    .await
-    {
-        if record.is_object() {
-            record
-        } else {
-            JsonValue::Object(Default::default())
-        }
+    let dir = app_data_dir(&app)?;
+    let path = search_keys_path(&dir);
+    let raw: JsonValue = if path.is_file() {
+        let text = std::fs::read_to_string(&path).map_err(CommandError::io)?;
+        serde_json::from_str(&text).map_err(CommandError::internal)?
     } else {
-        let dir = app_data_dir(&app)?;
-        let path = dir.join(SEARCH_KEYS_FILE);
-        if path.is_file() {
-            let text = std::fs::read_to_string(&path).map_err(CommandError::io)?;
-            serde_json::from_str(&text).map_err(CommandError::internal)?
-        } else {
-            JsonValue::Object(Default::default())
-        }
+        JsonValue::Object(Default::default())
     };
+    let mut record = crate::domain::web_search::normalize_search_key_config(&raw);
     transform_key_values(&mut record, crate::domain::crypto::restore_secret);
     transform_key_values(&mut record, crate::domain::crypto::mask_secret);
     Ok(record)
 }
 
-/// 写入搜索 key 配置（优先引擎 records；引擎不可用降级文件层）。
-/// 落盘前厂商密钥经 DPAPI 加密（dpapi: 前缀），明文不落盘。
+/// 写入搜索 key 配置（设置档文件；records 通道废弃——统一文件通道，
+/// 运行期 web_search 同源读取，引擎在线/离线都生效）。落盘前厂商密钥经
+/// DPAPI 加密（dpapi: 前缀），明文不落盘；打码占位（未变更）幂等透传。
+/// 返回打码后的运行期形态（不透传明文/密文原文给前端）。
 #[tauri::command]
 pub(crate) async fn search_keys_put(
     app: AppHandle,
     keys: JsonValue,
 ) -> Result<JsonValue, CommandError> {
-    let mut stored = keys.clone();
-    transform_key_values(&mut stored, crate::domain::crypto::protect_secret);
-    match crate::engine::host::call_engine_op_async(
-        "engine.records_put",
-        json!({
-            "collection": SEARCH_KEYS_COLLECTION,
-            "key": SEARCH_KEYS_KEY,
-            "data": stored,
-        }),
-    )
-    .await
-    {
-        Ok(_) => Ok(keys),
-        Err(_) => {
-            let dir = app_data_dir(&app)?;
-            let path = dir.join(SEARCH_KEYS_FILE);
-            let text = serde_json::to_string_pretty(&stored).map_err(CommandError::internal)?;
-            std::fs::write(&path, text).map_err(CommandError::io)?;
-            Ok(keys)
-        }
-    }
+    let dir = app_data_dir(&app)?;
+    let stored = crate::domain::web_search::write_search_keys(&dir, &keys)
+        .map_err(CommandError::internal)?;
+    let mut response = stored;
+    transform_key_values(&mut response, crate::domain::crypto::mask_secret);
+    Ok(response)
 }

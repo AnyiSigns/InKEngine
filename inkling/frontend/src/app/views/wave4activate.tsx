@@ -1,9 +1,11 @@
 /**
  * InKling 前端重做激活入口：注册市场/工具/OS/工作区视图 + 渲染器映射 + 设置节。
  *
- * 约定：对外暴露 activate(backend) 注册函数。activate 不 import 波 2 目录，
- * 只构造符合 SettingsSectionSpec / SettingsItemSpec 契约的对象。
- * 最终接线由后继集成 agent 在 src/app/activate.tsx 中组合调用。
+ * 约定：对外暴露 activate() 注册函数。activate 不 import 波 2 目录，
+ * 只构造符合 SettingsSectionSpec 契约的对象；条目 read/write 已下线——
+ * wave4 全为 'component' 形态，装配层 normalizeWave4Sections 丢弃
+ * read/write、按 key 直接渲染组件（每条 read/write 均无消费）。
+ * 最终接线由 src/app/activate.tsx 组合调用。
  */
 
 import { type ReactNode } from 'react';
@@ -20,17 +22,14 @@ import { ToolsPanel } from './tools/ToolsPanel';
 import { WorkspaceAuth } from './workspace/WorkspaceAuth';
 import { UiEditorHost } from './uieditor/UiEditorHost';
 
-/** 设置节契约（波 2 registry 签名） */
+/** 设置条目声明形态（fe4 装配层用：组件条目经 key 渲染，承载展示字段） */
 export interface SettingsItemSpec {
   key: string;
   label: string;
   hint?: string;
   kind: 'boolean' | 'select' | 'text' | 'button' | 'component';
   options?: Array<{ value: string; label: string }>;
-  read: () => unknown;
-  write: (value: unknown) => void;
   disabledReason?: string;
-  validate?: (value: unknown) => boolean;
 }
 
 export interface SettingsSectionSpec {
@@ -43,7 +42,7 @@ export interface SettingsSectionSpec {
 }
 
 /** 激活函数：注册所有视图/渲染器/设置节。 */
-export function activate(backend: AppBackend): { sections: SettingsSectionSpec[] } {
+export function activate(_backend: AppBackend): { sections: SettingsSectionSpec[] } {
   registerComponent('mcp_market', McpMarket as unknown as PlainComponent);
   registerComponent('component_registry', ComponentRegistry as unknown as PlainComponent);
   registerComponent('tools_panel', ToolsPanel as unknown as PlainComponent);
@@ -64,8 +63,6 @@ export function activate(backend: AppBackend): { sections: SettingsSectionSpec[]
           label: 'MCP 市场',
           hint: '浏览并挂载 MCP 服务（出厂零预挂）',
           kind: 'component',
-          read: () => backend.getMcpMarket(),
-          write: () => {},
         },
       ],
     },
@@ -80,8 +77,6 @@ export function activate(backend: AppBackend): { sections: SettingsSectionSpec[]
           label: '已注册组件',
           hint: '补丁链登记的组件清单（agent 自写 / 外部拉取注册，非市场目录）',
           kind: 'component',
-          read: () => backend.getComponentsManifest(),
-          write: () => {},
         },
       ],
     },
@@ -96,8 +91,6 @@ export function activate(backend: AppBackend): { sections: SettingsSectionSpec[]
           label: '工具',
           hint: '常驻必带工具集（每回合直接注入）+ 全量工具视图（含 MCP 挂载），tools_manifest 真实数据',
           kind: 'component',
-          read: () => backend.getToolsManifest(),
-          write: () => {},
         },
       ],
     },
@@ -112,8 +105,6 @@ export function activate(backend: AppBackend): { sections: SettingsSectionSpec[]
           label: '授权目录',
           hint: 'authorization_state / workspace_authorize / workspace_revoke',
           kind: 'component',
-          read: () => backend.getAuthorizationState(),
-          write: () => {},
         },
       ],
     },
@@ -128,8 +119,6 @@ export function activate(backend: AppBackend): { sections: SettingsSectionSpec[]
           label: '界面树编辑器',
           hint: 'inspect_ui 拉取 setLiveSpec；产物到补丁链落链可回退',
           kind: 'component',
-          read: () => backend.getUiSpec(),
-          write: () => {},
         },
       ],
     },

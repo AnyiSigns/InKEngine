@@ -585,11 +585,12 @@ impl McpMountService {
         self.mark_vetted(&prepared.id);
         let outcome = self.mount_execute(&prepared).await;
         if !outcome.ok {
-            eprintln!(
-                "[mcp] mount_failed server={} status={} err={}",
-                outcome.server_id,
-                outcome.status,
-                outcome.error.as_deref().unwrap_or("")
+            tracing::error!(
+                target: "mcp",
+                server = %outcome.server_id,
+                status = %outcome.status,
+                error = %outcome.error.as_deref().unwrap_or(""),
+                "mount_failed"
             );
         }
         outcome
@@ -733,8 +734,12 @@ impl McpMountService {
                 &format!("引擎重建失败: {err}"),
             );
         }
-        eprintln!(
-            "[mcp] mount server={server_id} tools={tool_names:?} patches={patch_ids:?}"
+        tracing::info!(
+            target: "mcp",
+            server = %server_id,
+            tools = ?tool_names,
+            patches = ?patch_ids,
+            "mount"
         );
         MountOutcome {
             ok: true,
@@ -942,8 +947,12 @@ impl McpMountService {
             .write()
             .unwrap_or_else(std::sync::PoisonError::into_inner)
             .remove(server_id);
-        eprintln!(
-            "[mcp] unmount server={server_id} tools={tool_names:?} patches={patch_ids:?}"
+        tracing::info!(
+            target: "mcp",
+            server = %server_id,
+            tools = ?tool_names,
+            patches = ?patch_ids,
+            "unmount"
         );
         MountOutcome {
             ok: true,

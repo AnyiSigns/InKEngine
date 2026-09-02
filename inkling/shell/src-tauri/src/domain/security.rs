@@ -360,6 +360,20 @@ impl TieredGate {
         permissions: &[String],
         definitions: Option<&HashMap<String, DeclarativeSpec>>,
     ) -> GateResult {
+        // 档位覆盖 deny 视同出厂 deny 无条件拒绝（与引擎侧对称；权限矩阵
+        // 手动设 deny 后命令面裁决立即生效，不得降级为弹卡）
+        if self.overrides.get(tool).map(|t| t == DENY).unwrap_or(false) {
+            return GateResult::new(
+                DENY,
+                tool,
+                operation,
+                target,
+                format!(
+                    "档位覆盖 deny（权限矩阵手动拒绝）（{}）",
+                    ErrorCode::PERMISSION_DENIED
+                ),
+            );
+        }
         if self.tiers.get(tool).map(|t| t == DENY).unwrap_or(false) {
             return GateResult::new(
                 DENY,
@@ -1962,8 +1976,8 @@ pub async fn persist_authorization(record: JsonValue) -> Result<(), String> {
 
 // ── 结构化判定留痕 ──
 
-/// 结构化记录一次权限/沙箱判定（当前经 stderr 输出；宿主 logger 接线
-/// 时替换出口——消息形态与引擎日志字段粒度一致）。
+/// 结构化记录一次权限/沙箱判定（经 tracing 事件出口，随 TeeWriter 落
+/// 文件实时可查——消息形态与引擎日志字段粒度一致）。
 pub fn log_decision(
     tool: &str,
     decision: &str,
@@ -1972,17 +1986,16 @@ pub fn log_decision(
     error_code: Option<&str>,
     reason: &str,
 ) {
-    let mut detail = format!(
-        "tool={tool} op={operation} target={} -> {decision}",
-        truncate_chars(target, 200)
+    tracing::info!(
+        target: "security",
+        tool,
+        op = operation,
+        decision,
+        target = %truncate_chars(target, 200),
+        error_code = error_code.unwrap_or(""),
+        reason = %truncate_chars(reason, 300),
+        "security_decision"
     );
-    if let Some(code) = error_code {
-        detail.push_str(&format!(" code={code}"));
-    }
-    if !reason.is_empty() {
-        detail.push_str(&format!(" reason={}", truncate_chars(reason, 300)));
-    }
-    eprintln!("security_decision {detail}");
 }
 
 #[cfg(test)]

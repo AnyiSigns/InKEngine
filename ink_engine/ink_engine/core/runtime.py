@@ -36,7 +36,11 @@ from typing import Any, Iterable, Protocol, runtime_checkable
 from .approval import InterruptPolicy
 from .assembly import SOURCE_EVIDENCE, AssemblyConfig
 from .context import CompressionPolicy, ContextSource, ThresholdCompressionPolicy
-from .declarative_tools import EndpointType, endpoint_operation, endpoint_operation_failure_reason
+from .declarative_tools import (
+    EndpointType,
+    declarative_failure_reason,
+    declarative_operation,
+)
 from .event_types import EventTypeRegistry, EventTypeSpec, event_types_collection
 from .entities import EntityRegistry, EntitySpec, entity_collection
 from .events import EngineTransport
@@ -641,9 +645,13 @@ class Runtime:
         # 变更钩子持有（链恢复替换知识集实例后重新挂钩，否则恢复后的
         # 实例无钩子 = 演化仍不落库）
         self._knowledge_mutation_hook = _on_knowledge_mutated
-        self.knowledge_set = KnowledgeSet(
-            recipe.set_id, storage=self.storage, on_mutation=_on_knowledge_mutated
+        # 先读回持久化知识集（受控直写通道的读回：用户策展/演化沉淀跨
+        # 重启存活），无记录 = 空集；随后幂等种子注入只补缺、不覆盖沉淀
+        # （seed_knowledge_set 同 id 跳过，含通用基线 + 配方领域种子）。
+        self.knowledge_set = await KnowledgeSet.load(
+            recipe.set_id, storage=self.storage
         )
+        self.knowledge_set.on_mutation = _on_knowledge_mutated
         with self.storage.allow_mechanism():
             seed_general(self.knowledge_set)
             for _domain, provider in recipe.seeds:
@@ -696,15 +704,20 @@ class Runtime:
             await self.event_type_registry.load()
             await self.event_type_registry.save()
 
-        # ⑤b 实体注册表（协作者目录：基线登记 + 集内演化实体加载；脏记录跳过）。
-        #     集合按集隔离（entities:<set_id>）；基线实体由配方（宿主种子）提供
+        # ⑤b 实体注册表（协作者目录：基线登记 + 集内演化实体加载）。
+        #     集合按集隔离（entities:<set_id>）。存储/补丁链优先于种子基线：
+        #     先读回持久化实体记录（用户 ENTITY 补丁与实体演化变异/晋升的
+        #     落库产物），再幂等注入种子基线只补缺——同 id 已有实体绝不被
+        #     种子覆盖（重启后演化产物不退回出厂基线）。
         self.entity_registry = EntityRegistry(
             storage=self.storage, set_id=recipe.set_id
         )
-        for spec in recipe.entity_specs:
-            self.entity_registry.register(spec)
         with self.storage.allow_mechanism(entity_collection(recipe.set_id)):
             await self.entity_registry.load()
+        for spec in recipe.entity_specs:
+            if self.entity_registry.get(spec.id) is None:
+                self.entity_registry.register(spec)
+        with self.storage.allow_mechanism(entity_collection(recipe.set_id)):
             await self.entity_registry.save()
 
         # ⑤c 实体演化管线（协作者自学习闭环）：失败信号 → 变异 → 三层
@@ -845,9 +858,7 @@ class Runtime:
             )
             if definition is None:
                 return None
-            return endpoint_operation(
-                definition.endpoint, args, config=definition.endpoint_config
-            )
+            return declarative_operation(definition, args)
 
         async def unified_executor(ctx, spec, args, approval):
             if spec.name in introspection_names:
@@ -864,9 +875,7 @@ class Runtime:
             )
             if definition is None:
                 return None
-            return endpoint_operation_failure_reason(
-                definition.endpoint, args, config=definition.endpoint_config
-            )
+            return declarative_failure_reason(definition, args)
 
         self.tool_pipeline = ToolPipeline(
             gate=PermissionGate(),
@@ -1554,7 +1563,7 @@ class Runtime:
             registries=self.graph_registries,
             # VTM 验证器门控接线：配方 verify_retry_limit>0 且 LLM 链可用时
             # 装配 LLM 验证器（复用回合 guard_llm——用量/压缩同链路）；
-            # 节点声明 __verify__ 才触发，失败按违规清单重做（Q9 +45% 语义）
+            # 节点声明 __verify__ 才触发，失败按违规清单重做（ +45% 语义）
             output_verifier=(
                 LLMOutputVerifier(guard_llm)
                 if recipe.verify_retry_limit > 0 and guard_llm is not None
@@ -1817,11 +1826,21 @@ class Runtime:
             except Exception as exc:
                 logger.warning("事件类型恢复失败（跳过）: %s: %s", name, exc)
         for entity_id, spec_data in (state.get("entities") or {}).items():
-            if not isinstance(spec_data, dict) or entity_id in self.entity_registry.names():
+            if not isinstance(spec_data, dict):
                 continue
             try:
                 spec = EntitySpec.from_dict(spec_data)
-                self.entity_registry.register(spec)
+            except Exception as exc:
+                logger.warning("实体恢复失败（跳过）: %s: %s", entity_id, exc)
+                continue
+            # 链是权威记录：id 已注册（种子基线/存储加载）时以链内版本整版
+            # 替换——重启后 ENTITY 修改补丁（register/replace 双语义）对
+            # 既有实体同样还原，不被种子/存储版本压过；未注册 = 新建。
+            try:
+                if entity_id in self.entity_registry.names():
+                    self.entity_registry.replace(spec)
+                else:
+                    self.entity_registry.register(spec)
             except Exception as exc:
                 logger.warning("实体恢复失败（跳过）: %s: %s", entity_id, exc)
         knowledge_state = state.get("knowledge") or {}

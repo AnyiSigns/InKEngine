@@ -50,6 +50,12 @@ def test_auto_approve_hit_skips_review_only() -> None:
 
 
 def test_auto_approve_all_review_switch() -> None:
+    """全量直过开关语义（产品决策：auto_approve_all = 全量直过，含升级档）。
+
+    开启后任何 review/升级档工具（含可登记边界之外的工具）一律直过；
+    逐工具登记（configure_auto_approve 的边界外硬拒）不受影响——那是对
+    具名登记集的约束，不是全量开关的约束。
+    """
     gate = _gate()
     gate.configure_auto_approve([], all_review=True)
     verdict = gate.check(
@@ -57,12 +63,20 @@ def test_auto_approve_all_review_switch() -> None:
         permissions=("process:exec:probe_check",),
     )
     assert verdict.decision == "allow", "全量开关对可登记集生效"
-    # 全量开关不波及边界外工具（纵深防御）
+    # 全量直过含边界外工具（升级/OS 控制档同样直过，人审不弹卡）
     other = gate.check(
         "launch_app", "exec", "launch_app",
         permissions=("process:exec:launch_app",),
     )
-    assert other.decision == "review", "边界外工具即使全量开启也不放行"
+    assert other.decision == "allow", "全量直过开关对全部 review/升级档工具生效"
+
+    # 逐工具登记仍受边界约束（登记集硬拒与全量开关互不影响）
+    gate.configure_auto_approve([], all_review=False)
+    back = gate.check(
+        "launch_app", "exec", "launch_app",
+        permissions=("process:exec:launch_app",),
+    )
+    assert back.decision == "review", "关闭全量开关后边界外工具恢复弹卡"
 
 
 def test_registration_boundary_rejects_control_tools() -> None:

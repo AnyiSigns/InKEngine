@@ -210,7 +210,7 @@ export interface ModelArchiveRow {
 
 /** 模型档案快照（Rust model_archive_snapshot 契约：ok + archives）。
  *
- * 设计 §1.3：无默认、无档位——输入选择只消费模型目录（model_id +
+ * 设计 ：无默认、无档位——输入选择只消费模型目录（model_id +
  * 多模态 + 窗口），不显示 tier/占用等无数据源字段。
  */
 export interface ModelArchiveSnapshot {
@@ -387,6 +387,8 @@ export interface BackendAdapter {
   sessionRename(threadId: string, title: string): Promise<SessionRemoteRecord>;
   sessionDelete(threadId: string): Promise<unknown>;
   sessionRefresh(threadId: string): Promise<SessionRemoteRecord>;
+  /** 会话历史消息回取（冷启动/切会话：引擎最新检查点消息恢复）。 */
+  sessionMessages(threadId: string): Promise<unknown[]>;
   sessionTree(threadId: string): Promise<SessionBranchTree>;
   sessionBranch(
     threadId: string,
@@ -498,7 +500,7 @@ export interface BackendAdapter {
   modelsConfigPut(config: Record<string, unknown>): Promise<unknown>;
   openDirectoryDialog(options: { title: string; directory: boolean; multiple: boolean }): Promise<string[] | null>;
   // 知识集条目管理（knowledge.* 命令；知识面板数据面）
-  knowledgeList(): Promise<{ entries: unknown[] }>;
+  knowledgeList(includeArchived?: boolean): Promise<{ entries: unknown[] }>;
   knowledgeAdd(input: Record<string, unknown>): Promise<unknown>;
   knowledgePromote(id: string): Promise<unknown>;
   knowledgeArchive(id: string): Promise<unknown>;
@@ -510,8 +512,9 @@ export interface BackendAdapter {
   memoryList(): Promise<{ entries: unknown[] }>;
   memoryInvalidate(id: string): Promise<unknown>;
   memoryUpdateFrontmatter(id: string, frontmatter: Record<string, unknown>): Promise<unknown>;
-  // 审计流水（audit.list；洞察时间线底账）
-  auditList(): Promise<unknown>;
+  // 审计流水（audit.list；洞察时间线底账）。可选窗口参数：limit（条数
+  // 上限）/ before / after（epoch 秒时间窗）——防前端一次拉全量审计集合。
+  auditList(opts?: { limit?: number; before?: number; after?: number }): Promise<unknown>;
   // 语音（输入胶囊语音入口）
   voiceRecord(durationMs: number): Promise<number[]>;
   voiceTranscribe(audio: number[]): Promise<{ text?: string }>;
@@ -537,6 +540,7 @@ export function createUnavailableBackend(): BackendAdapter {
     sessionRename: unavailable as never,
     sessionDelete: unavailable as never,
     sessionRefresh: unavailable as never,
+    sessionMessages: unavailable as never,
     sessionTree: unavailable as never,
     sessionBranch: unavailable as never,
     authorizationState: unavailable as never,
@@ -669,6 +673,10 @@ export function createTauriBackend(invoker?: TauriInvoker): BackendAdapter {
       call('session_rename', { threadId, title }),
     sessionDelete: (threadId) => call('session_delete', { threadId }),
     sessionRefresh: (threadId) => call('session_refresh', { threadId }),
+    sessionMessages: async (threadId) => {
+      const result = await call<{ messages: unknown[] }>('session_messages', { threadId });
+      return result.messages ?? [];
+    },
     sessionTree: (threadId) => call('session_tree', { threadId }),
     sessionBranch: (threadId, action, targetLeaf, editText) =>
       call('session_branch', { threadId, action, targetLeaf, editText }),
@@ -755,7 +763,8 @@ export function createTauriBackend(invoker?: TauriInvoker): BackendAdapter {
         if (Array.isArray(picked)) return picked.filter((p): p is string => typeof p === 'string');
         return picked ? [picked] : null;
       }),
-    knowledgeList: () => call('knowledge.list'),
+    knowledgeList: (includeArchived) =>
+      call('knowledge.list', { args: { includeArchived: !!includeArchived } }),
     knowledgeAdd: (input) => call('knowledge.add', { args: input }),
     knowledgePromote: (id) => call('knowledge.promote', { args: { id } }),
     knowledgeArchive: (id) => call('knowledge.archive', { args: { id } }),
@@ -767,7 +776,7 @@ export function createTauriBackend(invoker?: TauriInvoker): BackendAdapter {
     memoryInvalidate: (id) => call('memory.invalidate', { args: { id } }),
     memoryUpdateFrontmatter: (id, frontmatter) =>
       call('memory.update_frontmatter', { args: { id, frontmatter } }),
-    auditList: () => call('audit.list'),
+    auditList: (opts) => (opts ? call('audit.list', { args: opts }) : call('audit.list')),
     voiceRecord: (durationMs) => call('voice_record', { durationMs }),
     voiceTranscribe: (audio) => call('voice_transcribe', { audio }),
     voiceSynthesize: (text) => call('voice_synthesize', { text }),

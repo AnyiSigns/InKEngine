@@ -187,7 +187,7 @@ pub fn run_grep(request: &GrepRequest) -> Result<GrepResult, DomainError> {
             continue;
         }
         if let Err(err) = file.seek(SeekFrom::Start(0)) {
-            eprintln!("[code_tools] grep seek_failed path={} err={err}", entry.path().display());
+            tracing::warn!(target: "code_tools", path = %entry.path().display(), error = %err, "grep seek_failed");
             continue;
         }
         let mut reader = BufReader::new(file);

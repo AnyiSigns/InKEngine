@@ -26,9 +26,10 @@ import { SettingsFloater } from '@/app/settings/settings_floater';
 import { TaskCapsule } from '@/app/tasks/TaskCapsule';
 import type { TaskCapsuleData } from '@/app/tasks/types';
 import { ReviewCard, type ReviewResolution } from '@/components/review_card';
+import { ComponentGate } from '@/renderer/componentRegistry';
 import type { BackendAdapter, ModelArchiveSnapshot, SessionBranchTree } from '@/shared/backend/backendAdapter';
-import { submitAttachments, type AttachmentAsset } from '@/shared/session/eventIngest';
-import type { ChannelHub } from '@/shared/session/channelHub';
+import { submitAttachments, messagesFromHistory, type AttachmentAsset } from '@/shared/session/eventIngest';
+import type { ChannelHub, ThreadBucket } from '@/shared/session/channelHub';
 import { emptyThreadBucket } from '@/shared/session/channelHub';
 import type { SessionStore } from '@/shared/session/sessionStore';
 import type { InkMessage, SimulationBranch } from '@/shared/session/types';
@@ -48,7 +49,7 @@ interface RoutePlanPreview {
 
 export default function App({ backend, hub, sessionStore }: AppProps) {
   const state = useSessionState(hub, sessionStore, backend);
-  const { send, abort } = useSessionActions(hub, sessionStore, backend);
+  const { send, abort, resolveReview } = useSessionActions(hub, sessionStore, backend);
 
   const [leftCollapsed, setLeftCollapsed] = useState(false);
   const [rightCollapsed, setRightCollapsed] = useState(false);
@@ -216,30 +217,95 @@ export default function App({ backend, hub, sessionStore }: AppProps) {
     void send(text, attachments, model);
   };
 
-  /** 会话窗口切换：从 perThread 桶恢复该会话的回合状态（演化/推演/来源/轨迹）。 */
+  /** 会话窗口切换：从 perThread 桶恢复该会话的回合状态与消息流。 */
   const restoreThread = (id: string, messages: InkMessage[]) => {
     const current = hub.getSnapshot();
-    // 先回写当前会话在途消息与回合状态（窗口切换不丢失中途流式内容）
-    if (typeof sessionStore.replaceMessages === 'function' && current.activeSessionId) {
+    const outId = current.activeSessionId;
+    const bucket = current.perThread[id] ?? emptyThreadBucket();
+    // 后台回合收口：该线程有桶消息（含切走后新收事件）优先，否则用给定
+    // 消息（本地镜像/引擎回取）。窗口消息与桶镜像保持同一份内容。
+    const effective = bucket.messages.length > 0 ? bucket.messages : messages;
+    const perThread: Record<string, ThreadBucket> = {};
+    for (const [tid, b] of Object.entries(current.perThread)) {
+      const keep = tid === id
+        ? { ...b, messages: effective, lastSeenAt: Date.now() }
+        : b;
+      perThread[tid] = keep;
+    }
+    if (outId && outId !== id) {
+      const outBucket = perThread[outId] ?? emptyThreadBucket();
+      perThread[outId] = { ...outBucket, messages: current.messages, taskState: current.taskState, lastSeenAt: Date.now() };
+      if (typeof sessionStore.replaceMessages === 'function') {
+        try {
+          sessionStore.replaceMessages(outId, current.messages);
+        } catch {
+          // 回写失败不影响切换
+        }
+      }
+    }
+    if (typeof sessionStore.replaceMessages === 'function' && effective.length > 0) {
       try {
-        sessionStore.replaceMessages(current.activeSessionId, current.messages);
+        sessionStore.replaceMessages(id, effective);
       } catch {
         // 回写失败不影响切换
       }
     }
-    const bucket = current.perThread[id] ?? emptyThreadBucket();
     hub.setState({
       activeSessionId: id,
-      messages,
+      messages: effective,
+      taskState: bucket.taskState ?? current.taskState,
       roundSteps: bucket.roundSteps ?? [],
       roundId: bucket.roundId ?? null,
-      streaming: false,
+      streaming: bucket.roundActive === true,
       simulations: bucket.simulations ?? [],
       incubation: bucket.incubation ?? [],
       sourceTraces: bucket.sourceTraces ?? [],
       patchChain: bucket.patchChain ?? [],
+      perThread,
     });
   };
+
+  /**
+   * 会话选择（含历史恢复）：本地已有消息直接落窗口；冷启动/切换时本地
+   * 为空则从引擎回取最新检查点消息（session_messages），落库镜像后再显示。
+   */
+  const selectSession = (id: string) => {
+    const s = sessionStore.get(id);
+    const local = s?.messages ?? [];
+    if (local.length > 0) {
+      restoreThread(id, local);
+      return;
+    }
+    if (!backend.available) {
+      restoreThread(id, []);
+      return;
+    }
+    void backend
+      .sessionMessages(id)
+      .then((rows) => {
+        const msgs = messagesFromHistory(rows);
+        const cur = sessionStore.get(id);
+        if (cur) sessionStore.replaceMessages(id, msgs);
+        const snap = hub.getSnapshot();
+        // 仅当仍指向该会话（或尚无活动会话）时落窗口，避免旧请求覆盖新会话
+        if (snap.activeSessionId === id || !snap.activeSessionId) restoreThread(id, msgs);
+      })
+      .catch(() => {
+        const cur = sessionStore.get(id);
+        if (!cur || cur.messages.length === 0) restoreThread(id, []);
+      });
+  };
+
+  // 冷启动自动选中最近活跃会话并回取历史（store 远程 reload 完成后触发一次）
+  const didAutoSelect = useRef(false);
+  useEffect(() => {
+    if (didAutoSelect.current || !backend.available) return;
+    if (state.activeSessionId) return;
+    const first = sessionStore.list().find((r) => !r.deleted);
+    if (!first) return;
+    didAutoSelect.current = true;
+    selectSession(first.id);
+  }, [backend, sessionStore, state.activeSessionId, state.sessions.length]);
 
   const openSettings = () => {
     setOpenPanel('settings');
@@ -251,16 +317,18 @@ export default function App({ backend, hub, sessionStore }: AppProps) {
 
   return (
     <div className="ink-app flex h-screen w-full flex-row overflow-hidden">
-      <LeftRail
-        collapsed={leftCollapsed}
-        onToggle={() => setLeftCollapsed(!leftCollapsed)}
-        authorized={authorized}
-        workspaceRoot={workspaceRoot}
-        onAddWorkspace={handleAddWorkspace}
-        onOpenSettings={() => {
-          setOpenPanel('settings');
-        }}
-      />
+      <ComponentGate name="file_tree" mode="hidden">
+        <LeftRail
+          collapsed={leftCollapsed}
+          onToggle={() => setLeftCollapsed(!leftCollapsed)}
+          authorized={authorized}
+          workspaceRoot={workspaceRoot}
+          onAddWorkspace={handleAddWorkspace}
+          onOpenSettings={() => {
+            setOpenPanel('settings');
+          }}
+        />
+      </ComponentGate>
       <div className="relative flex min-w-0 flex-1 flex-col overflow-hidden">
         {/* 顶栏自动隐藏：悬停触发带 + 磨砂覆盖层（不推挤主区布局） */}
         <div className="ink-topbar-trigger" onMouseEnter={showTopbar} />
@@ -285,38 +353,42 @@ export default function App({ backend, hub, sessionStore }: AppProps) {
         <main className="flex min-h-0 flex-1 flex-col overflow-hidden">
           {tab === 'chat' ? (
             <>
-              <MessageStream
-                entries={state.entries}
-                streaming={state.streaming}
-                roundSteps={roundSteps}
-                pulseText={state.streaming ? '正在思考…' : undefined}
-                pulseColor={state.streaming ? 'approval' : undefined}
-                simulations={simulations}
-                spawnInstances={spawnInstances}
-                onSpawnSelect={(idx) => setSelectedSpawnIndex(idx)}
-                selectedSpawnIndex={selectedSpawnIndex}
-                onSpawnSendInstruction={(text) => send(text, [])}
-                spawnStreaming={state.streaming}
-                onBranchFromMessage={handleBranchFromMessage}
-              />
+              <ComponentGate name="message_list" className="min-h-0 flex-1">
+                <MessageStream
+                  entries={state.entries}
+                  streaming={state.streaming}
+                  roundSteps={roundSteps}
+                  pulseText={state.streaming ? '正在思考…' : undefined}
+                  pulseColor={state.streaming ? 'approval' : undefined}
+                  simulations={simulations}
+                  spawnInstances={spawnInstances}
+                  onSpawnSelect={(idx) => setSelectedSpawnIndex(idx)}
+                  selectedSpawnIndex={selectedSpawnIndex}
+                  onSpawnSendInstruction={(text) => send(text, [])}
+                  spawnStreaming={state.streaming}
+                  onBranchFromMessage={handleBranchFromMessage}
+                />
+              </ComponentGate>
               {task && (
                 <div className="mx-auto w-full max-w-3xl px-4 pb-2">
                   <TaskCapsule task={task} onCancel={abort} onOpen={openSettings} />
                 </div>
               )}
-              <InputBar
-                disabled={!authorized}
-                streaming={state.streaming}
-                models={models}
-                routePlan={routePlan}
-                roundCount={roundCount}
-                stepCount={roundSteps.length}
-                onSend={handleSend}
-                onAbort={abort}
-                onOpenSettings={() => setOpenPanel('settings')}
-                onAttachments={(assets) => submitAttachments(hub, assets)}
-                onRoutePlanPreview={handleRoutePlanPreview}
-              />
+              <ComponentGate name="agent_input" mode="hidden">
+                <InputBar
+                  disabled={!authorized}
+                  streaming={state.streaming}
+                  models={models}
+                  routePlan={routePlan}
+                  roundCount={roundCount}
+                  stepCount={roundSteps.length}
+                  onSend={handleSend}
+                  onAbort={abort}
+                  onOpenSettings={() => setOpenPanel('settings')}
+                  onAttachments={(assets) => submitAttachments(hub, assets)}
+                  onRoutePlanPreview={handleRoutePlanPreview}
+                />
+              </ComponentGate>
             </>
           ) : tab === 'ledger' ? (
             <LedgerView backend={backend} threadId={state.activeSessionId} />
@@ -334,27 +406,28 @@ export default function App({ backend, hub, sessionStore }: AppProps) {
           )}
         </main>
       </div>
-      <RightRail
-        collapsed={rightCollapsed}
-        onToggle={() => setRightCollapsed(!rightCollapsed)}
-        sessions={state.sessions.map((s) => ({ thread_id: s.id, title: s.title, updated_at: s.updated_at }))}
-        activeSessionId={state.activeSessionId}
-        branchTrees={branchTrees}
-        onBranchFromLeaf={(sessionId, leaf) => {
-          void backend.sessionBranch(sessionId, 'branch', leaf).catch(() => undefined);
-        }}
-        onSelectSession={(id) => {
-          const s = sessionStore.get(id);
-          if (s) restoreThread(id, s.messages);
-        }}
-        onCreateSession={() => {
-          const pending = sessionStore.create();
-          restoreThread(pending.id, pending.messages);
-        }}
-        onRenameSession={(id, newTitle) => sessionStore.rename(id, newTitle)}
-        onDeleteSession={(id) => sessionStore.remove(id)}
-        onBranchFromMessage={handleBranchFromMessage}
-      />
+      <ComponentGate name="session_list" mode="hidden">
+        <RightRail
+          collapsed={rightCollapsed}
+          onToggle={() => setRightCollapsed(!rightCollapsed)}
+          sessions={state.sessions.map((s) => ({ thread_id: s.id, title: s.title, updated_at: s.updated_at }))}
+          activeSessionId={state.activeSessionId}
+          branchTrees={branchTrees}
+          onBranchFromLeaf={(sessionId, leaf) => {
+            void backend.sessionBranch(sessionId, 'branch', leaf).catch(() => undefined);
+          }}
+          onSelectSession={(id) => {
+            selectSession(id);
+          }}
+          onCreateSession={() => {
+            const pending = sessionStore.create();
+            restoreThread(pending.id, pending.messages);
+          }}
+          onRenameSession={(id, newTitle) => sessionStore.rename(id, newTitle)}
+          onDeleteSession={(id) => sessionStore.remove(id)}
+          onBranchFromMessage={handleBranchFromMessage}
+        />
+      </ComponentGate>
 
       {openPanel === 'settings' && (
         <SettingsFloater
@@ -368,17 +441,23 @@ export default function App({ backend, hub, sessionStore }: AppProps) {
         />
       )}
 
-      {/* 审批卡：review_card 事件到达即弹（任何视图下），决议走 approval_resolve */}
+      {/* 审批卡：review_card 事件到达即弹（任何视图下），决议走 round_resume
+          续跑（引擎 checkpoint 挂起卡以真实中断 key 注入决议；回合未终态
+          会再发新卡逐张决议）。 */}
       {state.pendingReview && (
         <ReviewCard
           bindValue={state.pendingReview ? { type: 'review_card' as const, payload: state.pendingReview, at: Date.now() } : undefined}
           onResolve={(resolution: ReviewResolution, editedContent?: string) => {
             const payload = state.pendingReview as Record<string, unknown>;
-            const key = String(payload.key ?? payload.review_key ?? 'review');
-            void backend
-              .approvalResolve(state.activeSessionId, key, resolution, undefined, editedContent)
-              .catch(() => undefined);
-            hub.setState({ pendingReview: null });
+            const key = String(payload.key ?? payload.review_key ?? '');
+            if (!key) {
+              hub.setState({ pendingReview: null });
+              return;
+            }
+            // 卡所属线程透传：切到其它会话后决议仍续跑原线程（不把 A 的
+            // 卡键打到 B 线程）
+            const thread = payload.thread_id as string | undefined;
+            resolveReview(key, resolution, editedContent, thread);
           }}
         />
       )}

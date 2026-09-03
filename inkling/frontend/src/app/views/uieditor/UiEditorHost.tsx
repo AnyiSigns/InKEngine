@@ -151,7 +151,7 @@ export function UiEditorHost({ backend, spec: externalSpec, onPatchApplied, onRe
         <UiSpecEditor
           uiSpec={liveSpec}
           onApplyUiSpec={handleApply}
-          onClose={() => {}}
+          embedded
         />
       </div>
     </section>

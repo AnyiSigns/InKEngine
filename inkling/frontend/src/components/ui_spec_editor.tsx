@@ -31,9 +31,11 @@ interface UiSpecEditorProps {
   uiSpec?: UISpec | null;
   onApplyUiSpec?: (spec: UISpec) => void;
   onClose?: () => void;
+  /** 内嵌面板模式：跳过悬浮窗外壳（设置页内嵌时悬浮窗 X 无宿主关闭语义）。 */
+  embedded?: boolean;
 }
 
-export function UiSpecEditor({ uiSpec, onApplyUiSpec, onClose }: UiSpecEditorProps) {
+export function UiSpecEditor({ uiSpec, onApplyUiSpec, onClose, embedded }: UiSpecEditorProps) {
   const [draft, setDraft] = useState<UISpec>(() => uiSpec ?? fallbackSpec());
   const [selected, setSelected] = useState<string>('root');
   const [error, setError] = useState<string | null>(null);
@@ -182,15 +184,8 @@ export function UiSpecEditor({ uiSpec, onApplyUiSpec, onClose }: UiSpecEditorPro
     setDraftValidated({ ...draft, root: newRoot });
   };
 
-  return (
-    <FloaterWindow
-      title="界面树编辑器"
-      floaterKey="ui_spec_editor"
-      onClose={onClose}
-      initialRect={{ x: 160, y: 72, width: 520, height: 460 }}
-      dataUi="ui_spec_editor"
-    >
-      <div className="flex h-full flex-col gap-2.5 p-3.5">
+  const editorBody = (
+    <div className="flex h-full min-h-[420px] flex-col gap-2.5 p-3.5" data-ui="ui_spec_editor">
         <div className="flex items-center gap-2">
           <span className="text-[11px] ink-text-muted">root.{selected === 'root' ? '' : selected}</span>
           {error && <span className="shrink-0 text-[10px] ink-accent" data-ui="editor_error">{error}</span>}
@@ -280,7 +275,18 @@ export function UiSpecEditor({ uiSpec, onApplyUiSpec, onClose }: UiSpecEditorPro
             </div>
           </div>
         )}
-      </div>
+    </div>
+  );
+  if (embedded) return editorBody;
+  return (
+    <FloaterWindow
+      title="界面树编辑器"
+      floaterKey="ui_spec_editor"
+      onClose={onClose}
+      initialRect={{ x: 160, y: 72, width: 520, height: 460 }}
+      dataUi="ui_spec_editor"
+    >
+      {editorBody}
     </FloaterWindow>
   );
 }

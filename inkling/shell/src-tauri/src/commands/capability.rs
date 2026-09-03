@@ -23,11 +23,6 @@ pub(crate) async fn capability_get(state: State<'_, ShellState>) -> Result<JsonV
         JsonValue::Object(map) => JsonValue::Object(map),
         _ => json!({}),
     };
-    if merged.get("simulation_tier").and_then(JsonValue::as_str).is_none() {
-        let workflow = load_workflow_data().map_err(CommandError::internal)?;
-        let default = crate::domain::policy::default_simulation_tier_from_data(&workflow);
-        merged["simulation_tier"] = json!(default.as_str());
-    }
     if merged.get("auto_approve_tools").is_none() {
         merged["auto_approve_tools"] = json!([]);
     }
@@ -66,6 +61,14 @@ pub(crate) async fn capability_get(state: State<'_, ShellState>) -> Result<JsonV
         .and_then(JsonValue::as_bool)
         .unwrap_or(false);
     state.approval.set_auto_approve(auto_tools, auto_all);
+    // 推演档位仅响应侧缺省（seed default），不落盘缺省值：未显式设置档位
+    // = 能力记录无该字段 = 引擎回落 spawn-all 既有语义（显式切换才写档，
+    // 见 capability_put 白名单校验 + 值变化才重建）。
+    if merged.get("simulation_tier").and_then(JsonValue::as_str).is_none() {
+        let workflow = load_workflow_data().map_err(CommandError::internal)?;
+        let default = crate::domain::policy::default_simulation_tier_from_data(&workflow);
+        merged["simulation_tier"] = json!(default.as_str());
+    }
     Ok(merged)
 }
 
@@ -90,6 +93,14 @@ pub(crate) async fn capability_put(
             ));
         }
     }
+    // 能力记录是整体存储：先取既有记录——字段变化判定（值未变不重建）与
+    // 后文合并同源，避免「值没变也触发引擎重建/单字段写清空其余字段」。
+    let existing = crate::engine::host::call_engine_op_async(
+        "engine.records_get",
+        json!({ "collection": CAPABILITY_COLLECTION, "key": CAPABILITY_KEY }),
+    )
+    .await
+    .map_err(CommandError::engine)?;
     // 回合工具上限覆盖（max_tool_rounds 设置项）：正整数校验，越界拒绝
     // 不落盘；保存后触发引擎重建使 llm_decider 立即按新值收口。
     let mut rebuild_after = false;
@@ -106,6 +117,27 @@ pub(crate) async fn capability_put(
             ));
         }
         rebuild_after = true;
+    }
+    // 推演档位（simulation_tier）：白名单校验 + 值实际变化才触发引擎重建
+    // （重建前桥侧刷新 override，编排节点立即按新档位收敛候选推演分支
+    // 预算；档位不影响图节点声明，无需其它重装配动作——值未变时不重建，
+    // 避免无关保存（压缩阈值等）每次全量 rebuild）。
+    if record.get("simulation_tier").is_some() {
+        let tier = record
+            .get("simulation_tier")
+            .and_then(JsonValue::as_str)
+            .ok_or_else(|| {
+                CommandError::invalid_arg("simulation_tier 须为 off/light/full")
+            })?;
+        crate::domain::policy::SimulationTier::parse(tier)
+            .map_err(|err| CommandError::invalid_arg(err.to_string()))?;
+        let stored = existing
+            .get("simulation_tier")
+            .and_then(JsonValue::as_str)
+            .unwrap_or("");
+        if stored != tier {
+            rebuild_after = true;
+        }
     }
     if record.get("auto_approve_tools").is_some() || record.get("auto_approve_all_review").is_some() {
         let auto_tools = record
@@ -138,12 +170,6 @@ pub(crate) async fn capability_put(
     // 合并语义：能力记录是「整体存储」，但调用方（推演档 / ui_spec /
     // 自动审批）各写各自字段——先读既有记录再并入，避免单字段写清空
     // 其余字段（如切换推演档清空自动审批集 / 保存 ui_spec 清空档位）。
-    let existing = crate::engine::host::call_engine_op_async(
-        "engine.records_get",
-        json!({ "collection": CAPABILITY_COLLECTION, "key": CAPABILITY_KEY }),
-    )
-    .await
-    .map_err(CommandError::engine)?;
     let mut merged = match existing {
         JsonValue::Object(map) => map,
         _ => serde_json::Map::new(),

@@ -56,7 +56,12 @@ export function useSessionState(hub: ChannelHub, store: SessionStore, backend: B
 
 export function useSessionActions(hub: ChannelHub, store: SessionStore, backend: BackendAdapter) {
   const send = useCallback(
-    (text: string, attachments: AttachmentAsset[] = [], model?: ModelSelection) => {
+    (
+      text: string,
+      attachments: AttachmentAsset[] = [],
+      mode: 'standard' | 'assembly' = 'standard',
+      model?: ModelSelection,
+    ) => {
       if (!backend.available) {
         // 无宿主 = 不产生假回复（演示占位路径已移除）；由装配层提示宿主不可用
         return;
@@ -77,7 +82,7 @@ export function useSessionActions(hub: ChannelHub, store: SessionStore, backend:
       };
       setRoundInflight(true);
       void backend
-        .roundSend(activeId, roundId, text, false, toEngineAttachments(attachments), model)
+        .roundSend(activeId, roundId, text, false, toEngineAttachments(attachments), mode, model)
         .then(() => {
           finishThread();
           // 回合收尾刷新会话记录（标题生成/更新时间落库后镜像同步）

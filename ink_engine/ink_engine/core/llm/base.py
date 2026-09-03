@@ -30,6 +30,14 @@ _CONFIG_KEYS = (
     "request_timeout",
 )
 
+# 推理档位取值（None = 不注入，跟随模型/厂商默认；off/low/medium/high =
+# 显式档）。适配器按 LLMConfig.extra.reasoning_style 决定协议映射：
+#   effort  → reasoning_effort / reasoning.effort（OpenAI 标准族）
+#   boolean → enable_thinking 开关（通义 qwen3 等）
+#   budget  → thinking budget（Anthropic/Gemini）
+#   none    → 无开关（如 deepseek reasoner，固定推理，档位不注入）
+REASONING_EFFORTS = ("off", "low", "medium", "high")
+
 
 @dataclass(frozen=True, slots=True)
 class LLMConfig:
@@ -88,12 +96,18 @@ class LLMParams:
             ``extra_body={"enable_thinking": ...}``——独立字段避免
             调用方反复拼 extra_body 字典；适配层检测到非 None 时按
             厂商协议透传到请求体；None = 走厂商默认/引擎默认）。
+        reasoning_effort: 推理档位（off/low/medium/high，取值见模块级
+            REASONING_EFFORTS）。None = 不注入（跟随模型/厂商默认，
+            上游显式 enable_thinking/extra_body 仍生效）；显式档位时
+            适配器按 ``LLMConfig.extra.reasoning_style`` 映射为厂商协议
+            参数（reasoning_effort / enable_thinking / thinking budget）。
     """
 
     temperature: float | None = None
     max_tokens: int | None = None
     extra_body: dict[str, Any] | None = None
     enable_thinking: bool | None = None
+    reasoning_effort: str | None = None
 
 
 @dataclass(frozen=True, slots=True)

@@ -23,6 +23,7 @@ from typing import Any
 import httpx
 
 from ink_engine.core.llm.base import (
+    REASONING_EFFORTS,
     AsyncLLM,
     LLMChunk,
     LLMConfig,
@@ -202,6 +203,20 @@ class OpenAICompatibleLLM(AsyncLLM):
         # 体）下发到请求体
         if params is not None and params.enable_thinking is not None:
             payload["enable_thinking"] = bool(params.enable_thinking)
+        # 推理档位（LLMParams.reasoning_effort 显式档）：按配置声明的
+        # 厂商推理样式（LLMConfig.extra.reasoning_style）映射——
+        #   effort  → reasoning_effort（OpenAI 标准族；off = 不携带）
+        #   boolean → enable_thinking 开关（通义 qwen3 等；关 = False）
+        #   none    → 无开关（如 deepseek reasoner 固定推理，不注入）
+        effort = params.reasoning_effort if params is not None else None
+        if effort is not None and effort in REASONING_EFFORTS:
+            style = "effort"
+            if self.config.extra and isinstance(self.config.extra, dict):
+                style = str(self.config.extra.get("reasoning_style") or "effort")
+            if style == "boolean":
+                payload["enable_thinking"] = effort != "off"
+            elif style == "effort" and effort != "off":
+                payload["reasoning_effort"] = effort
         return payload
 
     # ------------------------------------------------------------------

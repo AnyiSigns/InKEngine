@@ -1227,6 +1227,13 @@ select {
     var(--ink-elev-2);
 }
 
+/* 文本区聚焦不另描边：胶囊单框反馈（focus-within 加深边框 + 外光晕），
+ * 去掉 textarea 自带的 focus-visible 内框避免双重框。 */
+.ink-composer textarea:focus,
+.ink-composer textarea:focus-visible {
+  outline: none;
+}
+
 /* ===== 顶栏自动隐藏（悬停 veil 覆盖层） =====
  * 顶栏非常驻：主区顶部一条触发带，悬停滑出磨砂覆盖层（不推挤布局），
  * 移出后延迟收回；触发带本身透明，仅承接指针事件。 */

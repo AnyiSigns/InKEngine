@@ -606,6 +606,15 @@ export function ModelSection(): JSX.Element {
           setGlobalCompression(list[0].compression_percent || 80);
         }
         readyRef.current = true;
+        void backend
+          .capabilityGet()
+          .then((cap) => {
+            const t = (cap ?? {}).simulation_tier;
+            if ((t === 'off' || t === 'light' || t === 'full') && !simTouchedRef.current) {
+              setSimulationTier(t);
+            }
+          })
+          .catch(() => undefined);
       })
       .catch(() => undefined);
   }, [backend]);
@@ -615,10 +624,14 @@ export function ModelSection(): JSX.Element {
     try {
       const payload = { providers: list.map((p) => providerToJson(p, compression)) };
       if (backend.available) {
-        await Promise.all([
-          backend.modelsConfigPut(payload),
-          backend.capabilityPut({ simulation_tier: sim }),
-        ]);
+        // 推演档位只在用户显式触碰后随保存写入（simTouchedRef）：未设置的
+        // 用户做无关保存（改模型档/压缩/提供方）不写档，避免把本地默认
+        // 档静默固化进能力记录。
+        const ops = [backend.modelsConfigPut(payload)];
+        if (simTouchedRef.current) {
+          ops.push(backend.capabilityPut({ simulation_tier: sim }));
+        }
+        await Promise.all(ops);
       }
       setSavePhase('success');
       if (saveTimer.current) clearTimeout(saveTimer.current);

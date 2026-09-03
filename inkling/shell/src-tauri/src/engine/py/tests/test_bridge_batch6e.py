@@ -470,6 +470,47 @@ def test_round_model_override_fail_open_without_resolver():
     assert len(engine.calls) == 1  # 正常执行（fail-open）
 
 
+def test_round_entry_injects_round_mode_assembly():
+    """回合档位：mode=assembly → state.round_mode=assembly（编排节点消费）。"""
+    bridge = _load_bridge()
+    captured: dict = {}
+
+    class _CaptureEngine(_FakeEngine):
+        async def ainvoke(self, state, **kwargs):
+            captured["state"] = state
+            return self._result
+
+    runtime = _FakeRuntime(_CaptureEngine(_FakeResult("reply")))
+    asyncio.run(
+        bridge.execute_round_to_reply(
+            runtime, _FakeHost(), input_text="hi", thread_id="t1", round_id="r1", mode="assembly"
+        )
+    )
+    assert captured["state"]["round_mode"] == "assembly"
+
+
+def test_round_entry_round_mode_default_and_invalid_fallback_standard():
+    """回合档位缺省/非法值 → round_mode=standard（标准档默认规划语义）。"""
+    bridge = _load_bridge()
+
+    def run(mode=None):
+        captured: dict = {}
+
+        class _CaptureEngine(_FakeEngine):
+            async def ainvoke(self, state, **kwargs):
+                captured["state"] = state
+                return self._result
+
+        kwargs = dict(input_text="hi", thread_id="t1", round_id="r1")
+        if mode is not None:
+            kwargs["mode"] = mode
+        asyncio.run(bridge.execute_round_to_reply(_FakeRuntime(_CaptureEngine(_FakeResult("reply"))), _FakeHost(), **kwargs))
+        return captured["state"]["round_mode"]
+
+    assert run() == "standard"
+    assert run("ultra") == "standard"
+
+
 if __name__ == "__main__":
     test_web_search_bad_json_degrades_structurally()
     test_web_search_payload_carries_provider_not_key()
@@ -484,5 +525,7 @@ if __name__ == "__main__":
     test_round_entry_tunes_after_round_on_exception()
     test_round_model_override_swaps_holder_llm_and_restores()
     test_round_model_override_fail_open_without_resolver()
+    test_round_entry_injects_round_mode_assembly()
+    test_round_entry_round_mode_default_and_invalid_fallback_standard()
     test_round_entry_continues_chain_for_cross_round_context()
     print("batch 6e bridge fixes all assertions passed")

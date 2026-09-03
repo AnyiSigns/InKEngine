@@ -10,7 +10,7 @@
  * 真接线；模型档快照装配层加载后注入输入胶囊。
  */
 
-import { useEffect, useMemo, useRef, useState } from 'react';
+import { useCallback, useEffect, useMemo, useRef, useState } from 'react';
 
 import { TopBar, type MainTab } from '@/app/shell/TopBar';
 import { LeftRail } from '@/app/shell/LeftRail';
@@ -139,8 +139,16 @@ export default function App({ backend, hub, sessionStore }: AppProps) {
   // 工作区授权态（真接线：authorizationState 轮询 + workspace_authorize 写）
   const [authorized, setAuthorized] = useState(false);
   const [workspaceRoot, setWorkspaceRoot] = useState<string | null>(null);
-  // 模型档快照（输入胶囊 chip / 发送门槛）
+  // 模型档快照（输入胶囊 chip / 发送门槛）：挂载取一次；设置页配置厂商/
+  // 模型后经 reloadModels 重取，输入框即时出现新模型（无需重启应用）
   const [models, setModels] = useState<ModelArchiveSnapshot | undefined>(undefined);
+  const reloadModels = useCallback(() => {
+    if (!backend.available) return;
+    void backend
+      .modelArchiveSnapshot()
+      .then((snapshot) => setModels(snapshot))
+      .catch(() => undefined);
+  }, [backend]);
 
   useEffect(() => {
     if (!backend.available) return;
@@ -150,10 +158,8 @@ export default function App({ backend, hub, sessionStore }: AppProps) {
         setWorkspaceRoot(s.root);
       })
       .catch(() => undefined);
-    void backend.modelArchiveSnapshot()
-      .then((snapshot) => setModels(snapshot))
-      .catch(() => undefined);
-  }, [backend]);
+    reloadModels();
+  }, [backend, reloadModels]);
 
   const handleAddWorkspace = () => {
     void (async () => {
@@ -212,9 +218,9 @@ export default function App({ backend, hub, sessionStore }: AppProps) {
     sendMode: 'standard' | 'assembly',
     model?: import('@/shared/backend/backendAdapter').ModelSelection,
   ) => {
-    // 装配开关随发送模式双向翻转（此前仅在 assembly 时开启、切回标准永不关闭）
-    void backend.pathSetAssemblerEnabled(sendMode === 'assembly').catch(() => undefined);
-    void send(text, attachments, model);
+    // 回合档位随发送载荷下发（round_send.mode → state.round_mode）：
+    // standard = 跳过组装候选走默认规划；assembly = 组装候选 spawn 展开
+    void send(text, attachments, sendMode, model);
   };
 
   /** 会话窗口切换：从 perThread 桶恢复该会话的回合状态与消息流。 */
@@ -376,7 +382,7 @@ export default function App({ backend, hub, sessionStore }: AppProps) {
               )}
               <ComponentGate name="agent_input" mode="hidden">
                 <InputBar
-                  disabled={!authorized}
+                  disabled={backend.available && !authorized}
                   streaming={state.streaming}
                   models={models}
                   routePlan={routePlan}
@@ -384,7 +390,6 @@ export default function App({ backend, hub, sessionStore }: AppProps) {
                   stepCount={roundSteps.length}
                   onSend={handleSend}
                   onAbort={abort}
-                  onOpenSettings={() => setOpenPanel('settings')}
                   onAttachments={(assets) => submitAttachments(hub, assets)}
                   onRoutePlanPreview={handleRoutePlanPreview}
                 />
@@ -432,7 +437,10 @@ export default function App({ backend, hub, sessionStore }: AppProps) {
       {openPanel === 'settings' && (
         <SettingsFloater
           open
-          onClose={() => setOpenPanel('none')}
+          onClose={() => {
+            setOpenPanel('none');
+            reloadModels();
+          }}
           backend={{
             available: backend.available,
             status: backend.status,

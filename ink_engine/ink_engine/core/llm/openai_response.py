@@ -25,6 +25,7 @@ from typing import Any
 import httpx
 
 from ink_engine.core.llm.base import (
+    REASONING_EFFORTS,
     AsyncLLM,
     LLMChunk,
     LLMConfig,
@@ -243,9 +244,15 @@ class OpenAIResponsesLLM(AsyncLLM):
                     if k not in _CORE_PAYLOAD_KEYS
                 }
             )
-        # 推理链开关（与 openai_compat 对齐语义）：Responses 协议经
-        # reasoning.effort 群体现（medium 默认档；关闭 = 不携带）
-        if params is not None and params.enable_thinking is True:
+        # 推理链开关 / 推理档位（与 openai_compat 对齐语义）：Responses 协议
+        # 经 reasoning.effort 群体现。显式档位优先于 enable_thinking 布尔：
+        #   off      → 不携带 reasoning（模型默认/无思考路径）
+        #   low/med/high → reasoning.effort 对应档
+        #   enable_thinking=True（无显式档）→ 默认 medium 档
+        if params is not None and params.reasoning_effort is not None:
+            if params.reasoning_effort in REASONING_EFFORTS and params.reasoning_effort != "off":
+                payload["reasoning"] = {"effort": params.reasoning_effort}
+        elif params is not None and params.enable_thinking is True:
             payload["reasoning"] = {"effort": "medium"}
         return payload
 

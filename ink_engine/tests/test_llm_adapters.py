@@ -14,7 +14,7 @@ import httpx
 import pytest
 
 from ink_engine.core.llm.anthropic import AnthropicLLM
-from ink_engine.core.llm.base import LLMConfig, collect_result
+from ink_engine.core.llm.base import LLMConfig, LLMParams, collect_result
 from ink_engine.core.llm.errors import (
     LLMAuthError,
     LLMBadRequestError,
@@ -366,3 +366,38 @@ class TestRegistrySelection:
             }
         )
         assert isinstance(llm, GeminiLLM)
+
+
+class TestAnthropicReasoningEffort:
+    async def test_medium_sets_thinking_budget(self):
+        llm, seen = _anthropic(lambda r: ok_json({"content": [{"type": "text", "text": "ok"}]}))
+        await llm.ainvoke([user("hi")], params=LLMParams(reasoning_effort="medium"))
+        body = body_of(seen)
+        assert body["thinking"] == {"type": "enabled", "budget_tokens": 8192}
+        assert "temperature" not in body
+        # 默认 max_tokens=1024 < budget，自动抬升到 budget+1024
+        assert body["max_tokens"] > 8192
+
+    async def test_off_omits_thinking_and_keeps_temperature(self):
+        llm, seen = _anthropic(
+            lambda r: ok_json({"content": [{"type": "text", "text": "ok"}]}),
+            temperature=0.3,
+        )
+        await llm.ainvoke([user("hi")], params=LLMParams(reasoning_effort="off"))
+        body = body_of(seen)
+        assert "thinking" not in body
+        assert body["temperature"] == 0.3
+
+
+class TestGeminiReasoningEffort:
+    async def test_high_sets_thinking_budget(self):
+        llm, seen = _gemini(lambda r: ok_json({"candidates": [{"content": {"parts": [{"text": "ok"}]}}]}))
+        await llm.ainvoke([user("hi")], params=LLMParams(reasoning_effort="high"))
+        body = body_of(seen)
+        assert body["generationConfig"]["thinkingConfig"] == {"thinkingBudget": 16384}
+
+    async def test_off_sets_zero_budget(self):
+        llm, seen = _gemini(lambda r: ok_json({"candidates": [{"content": {"parts": [{"text": "ok"}]}}]}))
+        await llm.ainvoke([user("hi")], params=LLMParams(reasoning_effort="off"))
+        body = body_of(seen)
+        assert body["generationConfig"]["thinkingConfig"] == {"thinkingBudget": 0}

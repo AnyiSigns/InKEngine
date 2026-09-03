@@ -303,6 +303,10 @@ pub struct RoundRequest {
     pub thread_id: String,
     pub round_id: String,
     pub step_args: Option<JsonValue>,
+    /// 回合模式（standard/assembly；None/缺省 = standard）。standard =
+    /// 跳过组装候选直走默认规划（单 agent 回环）；assembly = 允许组装
+    /// 候选路径 spawn 展开。round 驱动侧按此注入引擎 state.round_mode。
+    pub mode: Option<String>,
     /// 编排脚本（state.orchestrate 形态：plan/spawns/simulate 保留键；
     /// 缺省时图配方按工作流节点序产出默认规划）。
     pub orchestrate: Option<JsonValue>,
@@ -711,6 +715,9 @@ impl EngineHost {
                 let rendered = py.import("json")?.call_method1("loads", (attachments,))?;
                 kwargs.set_item("attachments", rendered)?;
             }
+            if let Some(mode) = request.mode.as_deref() {
+                kwargs.set_item("mode", mode)?;
+            }
             kwargs.set_item("auto_accept_review", auto_accept)?;
             let kwargs = kwargs.unbind();
             let runtime_ref = inner.runtime.clone_ref(py);
@@ -970,6 +977,7 @@ mod tests {
                 thread_id: "bridge-t1".to_string(),
                 round_id: "bridge-r1".to_string(),
                 step_args: None,
+                mode: None,
                 orchestrate: None,
                 inject: None,
                 model: None,
@@ -1298,6 +1306,7 @@ mod tests {
                 thread_id: "ops-chain-t1".to_string(),
                 round_id: "ops-chain-r1".to_string(),
                 step_args: None,
+                mode: None,
                 orchestrate: None,
                 inject: None,
                 model: None,
@@ -1597,6 +1606,7 @@ mod tests {
                 thread_id: "embed-t1".to_string(),
                 round_id: "embed-r1".to_string(),
                 step_args: None,
+                mode: None,
                 orchestrate: None,
                 inject: None,
                 model: None,
@@ -1810,6 +1820,7 @@ mod tests {
                 thread_id: "spawn-t1".to_string(),
                 round_id: "spawn-r1".to_string(),
                 step_args: None,
+                mode: None,
                 // 编排脚本：单步规划 + 两个分组（并行组 2 节点 + 串行组 2 节点）
                 orchestrate: Some(serde_json::json!({
                     "plan": [{"nodes": ["collect_material"]}],
@@ -1881,6 +1892,7 @@ mod tests {
                 thread_id: "spawn-t2".to_string(),
                 round_id: "spawn-r2".to_string(),
                 step_args: None,
+                mode: None,
                 orchestrate: Some(serde_json::json!({
                     "plan": [{"nodes": ["collect_material"]}],
                     "spawns": [

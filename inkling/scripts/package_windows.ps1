@@ -138,7 +138,9 @@ $seedMismatches = 0
 $seedFiles = Get-ChildItem -LiteralPath $seedSrc -Recurse -File
 foreach ($file in $seedFiles) {
     $rel = $file.FullName.Substring($seedSrc.Length).TrimStart("\")
-    $dst = Join-Path $seedDir $rel
+    # 落位形态：resources\inkling\seed_data\<rel>（Copy-Item 源文件夹 → 目标
+    # 目录 = 源目录嵌套进目标，seed_data 段随目录进入）
+    $dst = Join-Path (Join-Path $seedDir "seed_data") $rel
     if (-not (Test-Path -LiteralPath $dst)) {
         Log "  漂移: 种子副本缺文件 $rel"
         $seedMismatches++

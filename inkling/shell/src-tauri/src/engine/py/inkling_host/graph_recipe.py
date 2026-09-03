@@ -87,6 +87,120 @@ def max_tool_rounds_override() -> int | None:
 # resolve_tool_result_max_chars；本常量仅作下限与既有导出兼容）
 TOOL_RESULT_MAX_CHARS = TOOL_RESULT_MAX_CHARS_FLOOR
 
+# ── 推演档位策略（workflow.json simulation_policy 段；seed = 单一事实源）──
+#
+# 设置页「推演档位」（off/light/full）经能力记录存档后由宿主/桥刷新到本
+# 模块级 override；编排节点按 override 收敛决策点推演成本。tier → 分支数
+# 上限/回合配额的数值映射以装配数据 simulation_policy 为准（build_recipe
+# 读到 seed 时注册，configure_simulation_policy 幂等覆盖）；未注册/离线
+# 测试回落出厂常量（与 seed 当前取值同源，见 seed_data/workflow.json）。
+SIMULATION_TIERS = ("off", "light", "full")
+SIMULATION_DEFAULT_TIER = "light"
+_SIMULATION_FALLBACK_POLICY: dict[str, Any] = {
+    "default": SIMULATION_DEFAULT_TIER,
+    "tiers": {
+        "off": {"max_simulations": 0, "quota_per_round": 0},
+        "light": {"max_simulations": 2, "quota_per_round": 3},
+        "full": {"max_simulations": 4, "quota_per_round": 2},
+    },
+}
+_simulation_policy: dict[str, Any] = {
+    "default": SIMULATION_DEFAULT_TIER,
+    "tiers": dict(_SIMULATION_FALLBACK_POLICY["tiers"]),
+}
+
+
+def configure_simulation_policy(policy: Any) -> None:
+    """注册装配数据推演档策略（build_recipe 读到 seed 时调用；幂等）。
+
+    校验与 Rust domain/policy.rs simulation_policy_from_data 同口径：三档
+    齐备、每档 max_simulations/quota_per_round 均为非负整数，缺字段/负数/
+    残缺段 = 配置错误显式抛错（与 Rust InvalidData 一致，不静默保留旧策略
+    ——避免 Python 编排预算与 Rust 路由配额漂移）。None = 回落出厂常量
+    （测试隔离 / 无 seed 环境）。
+    """
+    global _simulation_policy
+    if policy is None:
+        _simulation_policy = {
+            "default": SIMULATION_DEFAULT_TIER,
+            "tiers": {t: dict(e) for t, e in _SIMULATION_FALLBACK_POLICY["tiers"].items()},
+        }
+        return
+    if not isinstance(policy, dict) or not isinstance(policy.get("tiers"), dict):
+        raise ValueError("装配数据 simulation_policy 段须为 {tiers: {...}} 形态")
+    raw_tiers = policy["tiers"]
+    parsed: dict[str, dict[str, Any]] = {}
+    for tier in SIMULATION_TIERS:
+        entry = raw_tiers.get(tier)
+        if not isinstance(entry, dict):
+            raise ValueError(f"装配数据缺推演档位: {tier}")
+        budget: dict[str, int] = {}
+        for field in ("max_simulations", "quota_per_round"):
+            raw_value = entry.get(field)
+            if raw_value is None:
+                raise ValueError(f"推演档位 {tier} 缺 {field}")
+            try:
+                value = int(raw_value)
+            except (TypeError, ValueError) as exc:
+                raise ValueError(f"推演档位 {tier}.{field} 须为整数") from exc
+            if value < 0:
+                raise ValueError(f"推演档位 {tier}.{field} 须为非负: {value}")
+            budget[field] = value
+        parsed[tier] = budget
+    default = policy.get("default")
+    if default not in SIMULATION_TIERS:
+        default = SIMULATION_DEFAULT_TIER
+    _simulation_policy = {"default": default, "tiers": parsed}
+
+
+def simulation_default_tier() -> str:
+    """当前策略的缺省档（能力记录无覆盖时的生效档）。"""
+    default = _simulation_policy.get("default")
+    return default if default in SIMULATION_TIERS else SIMULATION_DEFAULT_TIER
+
+
+def simulation_tier_budget(tier: str | None) -> int:
+    """档位 → 决策点推演分支数上限（成本护栏；off/未知档 = 0 禁用）。"""
+    if tier not in SIMULATION_TIERS or tier == "off":
+        return 0
+    entry = _simulation_policy.get("tiers", {}).get(tier)
+    if not isinstance(entry, dict):
+        return 0
+    try:
+        return int(entry.get("max_simulations") or 0)
+    except (TypeError, ValueError):
+        return 0
+
+
+# ── 推演档位用户 override（能力记录驱动；None = 用策略缺省档）──
+_simulation_tier_override: str | None = None
+
+
+def set_simulation_tier_override(value: str | None) -> None:
+    """设置推演档位覆盖（None = 清除覆盖回落策略缺省档）。
+
+    非法档位按配置错误拒绝（与 set_max_tool_rounds_override 同口径）；
+    刷新方对能力记录异常整体兜底（清除覆盖），不携带过期闭包。
+    """
+    global _simulation_tier_override
+    if value is None:
+        _simulation_tier_override = None
+        return
+    if value not in SIMULATION_TIERS:
+        raise ValueError(f"推演档位非法: {value}")
+    _simulation_tier_override = value
+
+
+def simulation_tier_override() -> str | None:
+    """当前用户档位覆盖（None = 未覆盖，用策略缺省档）。"""
+    return _simulation_tier_override
+
+
+def effective_simulation_tier() -> str:
+    """回合生效档位 = 用户覆盖或策略缺省档（off/light/full）。"""
+    override = _simulation_tier_override
+    return override if override in SIMULATION_TIERS else simulation_default_tier()
+
 
 # ── 研究链链条节点参数传递（spawn 链式子图节点间传上游产物） ──
 #
@@ -313,6 +427,50 @@ def assembly_candidate_specs(
             }
         )
     return specs
+
+
+def candidate_simulation_branches(
+    candidates: Sequence[dict],
+    step_args: dict[str, Any] | None = None,
+    max_branches: int = 0,
+) -> dict[str, Any] | None:
+    """组装候选（图定义数据）→ 决策点推演信封（候选择优；None = 不推演）。
+
+    候选择优推演（组装档回合语义）：把至多 ``max_branches`` 条候选链转为
+    ``__simulate__`` 分支——subgraph = candidate.graph 直接消费（与
+    assembly_candidate_specs 同形态：候选图内结点类型都须已登记），state
+    携带回合步骤参数，引擎对每个分支独立子链执行 → Evaluator 打分 →
+    择优提交主线，落选分支留痕（simulate_decision 事件 + 轨迹树引用）。
+
+    返回 None 的场景 = 保持既有 spawn 全量展开：候选不足 2 条（无取舍）、
+    分支预算 ≤ 0（档位 off/未注册策略）。候选图缺 graph 定义数据按配置
+    错误显式报错（与 assembly_candidate_specs 同口径，不静默降级）。
+    """
+    if max_branches <= 0 or not candidates or len(candidates) < 2:
+        return None
+    shared_args = dict(step_args or {})
+    branches: list[dict[str, Any]] = []
+    for rank, candidate in enumerate(candidates[:max_branches], start=1):
+        if not isinstance(candidate, dict):
+            raise TypeError(f"组装候选 {rank} 须为 dict")
+        graph_data = candidate.get("graph")
+        if not isinstance(graph_data, dict):
+            raise TypeError(f"组装候选 {rank} 缺图定义数据（candidate.graph）")
+        chain = candidate.get("chain") or ()
+        label = str(
+            candidate.get("id")
+            or "→".join(str(n) for n in chain)
+            or f"候选 {rank}"
+        )
+        branches.append(
+            {
+                "subgraph": graph_data,
+                "state": {"step_args": shared_args},
+                "index": rank * 100,
+                "description": f"组装候选 {rank}（{label}）",
+            }
+        )
+    return {"branches": branches}
 
 
 def _current_registries() -> Any:
@@ -1078,7 +1236,13 @@ def make_assembler_factory(
                     await ctx.emit("plan_end", {})
                     return {PLAN_KEY: fallback}
                 return {}
-            candidates, note, result = await assemble_candidates(ctx)
+            # 标准档（round_mode=standard）：跳过组装候选，直走默认规划
+            # （单 agent 回环语义）；组装档（assembly/缺省装配开启）才调
+            # assemble_candidates 出候选路径 spawn 展开
+            if ctx.state.get("round_mode") == "standard":
+                candidates, note, result = [], "标准档：跳过组装候选（默认规划）", None
+            else:
+                candidates, note, result = await assemble_candidates(ctx)
             # 离线 server 独立标记：链含离线 server 挂载工具的候选
             # 整条剔除（该 server 工具降级），其余候选不受影响
             specs = await _refresh_specs_availability(holder)
@@ -1129,6 +1293,24 @@ def make_assembler_factory(
                     },
                     "assembly_rounds": rounds + 1,
                 }
+            # 候选择优推演（组装档 + 用户显式档位 light/full + 候选 ≥2）：
+            # 候选链转 __simulate__ 分支——引擎对每个分支独立子链执行 +
+            # Evaluator 打分择优，只沿胜者继续（落选分支留痕不入主线）。
+            # 用户未显式设置档位（无能力记录 / override=None）时回落既有
+            # spawn 全量展开，不静默改变默认组装回合语义；档位 off/单候选
+            # 同样回落 spawn（现状语义不变）。
+            tier_override = simulation_tier_override()
+            if tier_override in ("light", "full"):
+                envelope = candidate_simulation_branches(
+                    candidates,
+                    step_args=ctx.state.get(STATE_STEP_ARGS),
+                    max_branches=simulation_tier_budget(tier_override),
+                )
+                if envelope is not None:
+                    return {
+                        SIMULATE_KEY: envelope,
+                        "assembly_rounds": rounds + 1,
+                    }
             # 候选图定义数据直接作 spawn subgraph 消费（ENG9a-2：不再降级
             # 为工具名列表）；展示形态（spawn_start 事件）仍按候选链给前端
             spawn_groups: list[dict] = []
@@ -1386,6 +1568,8 @@ def build_round_graph(
 __all__ = [
     "ASSEMBLY_MAX_ROUNDS",
     "MAX_TOOL_ROUNDS",
+    "SIMULATION_DEFAULT_TIER",
+    "SIMULATION_TIERS",
     "STATE_MESSAGES",
     "STATE_ORCHESTRATE",
     "STATE_PENDING",
@@ -1398,7 +1582,10 @@ __all__ = [
     "TYPE_TOOL_PIPELINE",
     "assembly_candidate_specs",
     "build_round_graph",
+    "candidate_simulation_branches",
     "chain_derived_args",
+    "configure_simulation_policy",
+    "effective_simulation_tier",
     "install_context_window",
     "install_mcp_server_probe",
     "make_assembler_factory",
@@ -1414,6 +1601,10 @@ __all__ = [
     "register_tool_node_types",
     "server_availability_snapshot",
     "set_max_tool_rounds_override",
+    "set_simulation_tier_override",
+    "simulation_default_tier",
+    "simulation_tier_budget",
+    "simulation_tier_override",
     "spawn_group_specs",
     "tool_server_offline",
     "workflow_spec_from_data",

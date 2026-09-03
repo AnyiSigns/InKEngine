@@ -477,6 +477,12 @@ def build_recipe(
         run_options: 执行域选项覆盖（None = 引擎默认；沉淀钩子等运行期
             扩展经此注入——引擎按字段级覆盖装配默认）。
     """
+    # 推演档位策略注册（装配数据单一事实源；档位→分支预算供编排收敛）
+    from .graph_recipe import configure_simulation_policy
+
+    configure_simulation_policy(
+        bundle.data.get("workflow.json", {}).get("simulation_policy")
+    )
     hook, _mark = build_mcp_l2_vetting_hook()
     if convergence_provider is None:
         from .convergence_domain import build_convergence_provider

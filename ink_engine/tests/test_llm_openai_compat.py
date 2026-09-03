@@ -195,6 +195,39 @@ class TestRequestPayload:
         await llm.ainvoke([user("hi")])
         assert "authorization" not in seen["request"].headers
 
+    async def test_reasoning_effort_style_effort(self):
+        """effort 样式（默认）：低/中/高 → reasoning_effort；off = 不携带。"""
+        def handler(request):
+            return ok_json({"choices": [{"message": {"content": "ok"}}]})
+
+        llm, seen = make_adapter(handler)
+        await llm.ainvoke([user("hi")], params=LLMParams(reasoning_effort="high"))
+        assert self._body(seen)["reasoning_effort"] == "high"
+        await llm.ainvoke([user("hi")], params=LLMParams(reasoning_effort="off"))
+        assert "reasoning_effort" not in self._body(seen)
+
+    async def test_reasoning_effort_style_boolean(self):
+        """boolean 样式（通义 qwen3 等）：开启 = enable_thinking True；关 = False。"""
+        def handler(request):
+            return ok_json({"choices": [{"message": {"content": "ok"}}]})
+
+        llm, seen = make_adapter(handler, extra={"reasoning_style": "boolean"})
+        await llm.ainvoke([user("hi")], params=LLMParams(reasoning_effort="medium"))
+        assert self._body(seen)["enable_thinking"] is True
+        await llm.ainvoke([user("hi")], params=LLMParams(reasoning_effort="off"))
+        assert self._body(seen)["enable_thinking"] is False
+
+    async def test_reasoning_effort_style_none_noop(self):
+        """none 样式（deepseek reasoner 固定推理）：档位不注入任何参数。"""
+        def handler(request):
+            return ok_json({"choices": [{"message": {"content": "ok"}}]})
+
+        llm, seen = make_adapter(handler, extra={"reasoning_style": "none"})
+        await llm.ainvoke([user("hi")], params=LLMParams(reasoning_effort="high"))
+        body = self._body(seen)
+        assert "reasoning_effort" not in body
+        assert "enable_thinking" not in body
+
 
 # ---------------------------------------------------------------------------
 # 非流式（ainvoke）

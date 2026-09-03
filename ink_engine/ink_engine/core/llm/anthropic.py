@@ -20,6 +20,7 @@ from typing import Any
 import httpx
 
 from ink_engine.core.llm.base import (
+    REASONING_EFFORTS,
     AsyncLLM,
     LLMChunk,
     LLMConfig,
@@ -48,6 +49,14 @@ _RETRY_BASE_DELAY = 1.0
 _RETRY_MAX_DELAY = 4.0
 
 _ANTHROPIC_VERSION = "2023-06-01"
+
+# 推理档位 → extended thinking budget_tokens（低/中/高；Anthropic 最低 1024）。
+# max_tokens 不足时适配器自动抬升（须大于 budget），temperature 同时不设。
+_ANTHROPIC_THINKING_BUDGET: dict[str, int] = {
+    "low": 2048,
+    "medium": 8192,
+    "high": 16384,
+}
 
 # Anthropic stop_reason → 统一 finish_reason（不命中则原样透传）
 _STOP_REASON_MAP: dict[str, str] = {
@@ -211,8 +220,21 @@ class AnthropicLLM(AsyncLLM):
         anthropic_tools = self._to_tools(list(tools)) if tools else None
         if anthropic_tools:
             payload["tools"] = anthropic_tools
+        # 推理档位（extended thinking）：低/中/高映射 budget_tokens；
+        # 开启思考时 Anthropic 不允许显式 temperature（须 unset=1），
+        # 且 max_tokens 必须大于 budget——不足自动抬升。off = 不携带
+        # thinking（模型默认无 extended thinking）。
+        thinking_on = False
+        effort = params.reasoning_effort if params is not None else None
+        if effort is not None and effort in REASONING_EFFORTS and effort != "off":
+            budget = _ANTHROPIC_THINKING_BUDGET[effort]
+            if max_tokens is not None and max_tokens <= budget:
+                max_tokens = budget + 1024
+            payload["max_tokens"] = max_tokens
+            payload["thinking"] = {"type": "enabled", "budget_tokens": budget}
+            thinking_on = True
         temperature = params.temperature if params and params.temperature is not None else self.config.temperature
-        if temperature is not None:
+        if temperature is not None and not thinking_on:
             payload["temperature"] = temperature
         if params and params.extra_body:
             # extra_body 仅透传厂商扩展键：核心字段由适配器统一装配

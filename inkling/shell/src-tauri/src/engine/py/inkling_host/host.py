@@ -41,6 +41,7 @@ from ink_engine.core.declarative_tools import (
 )
 from ink_engine.core.events import CollectorTransport, EngineEvent, EngineTransport
 from ink_engine.core.llm import AsyncLLM, create_llm
+from ink_engine.core.llm.base import REASONING_EFFORTS
 from ink_engine.core.logging import get_logger
 from ink_engine.core.runtime import Host, Runtime
 from ink_engine.core.self_application import (
@@ -125,6 +126,68 @@ class BehaviorLLM:
 
     async def aclose(self) -> None:
         return await self._inner.aclose()
+
+
+def _infer_reasoning_style(provider_id: str | None, adapter: str | None) -> str:
+    """按提供方推断 OpenAI 兼容端点的推理参数样式（写进 LLMConfig.extra）。
+
+    返回 effort/boolean/none：
+    - effort  → reasoning_effort（OpenAI/OpenRouter 等标准族，默认）；
+    - boolean → enable_thinking 开关（通义 qwen3/百炼、Moonshot、智谱、
+      Ollama 本地等国产/开关族端点）；
+    - none    → 无开关（DeepSeek reasoner 固定深度推理，档位不注入）。
+    anthropic/gemini/responses 走各自适配器固有协议，不读此样式。
+    """
+    ad = (adapter or "").lower()
+    if "anthropic" in ad or "gemini" in ad or "responses" in ad:
+        return "effort"
+    pid = (provider_id or "").lower()
+    if "deepseek" in pid:
+        return "none"
+    if any(tok in pid for tok in ("dashscope", "aliyun", "tongyi", "qwen", "moonshot", "kimi", "zhipu", "glm", "ollama")):
+        return "boolean"
+    return "effort"
+
+
+class ReasoningTierLLM:
+    """推理档位默认注入代理（AsyncLLM 鸭子类型包装）。
+
+    把回合级推理档位（off/low/medium/high）作为 LLMParams 默认值注入：
+    只填调用方未显式给定的字段（None 才填，显式参数优先），档位缺省
+    （None）= 不注入（跟随模型/厂商默认）。与 BehaviorLLM 同构：纯协议
+    代理，不触碰消息流，装配在回合主模型 LLM 出口。
+    """
+
+    def __init__(self, inner: AsyncLLM, tier: str | None) -> None:
+        self._inner = inner
+        self._tier = tier
+
+    def _effective(self, params: Any) -> Any:
+        if self._tier is None or self._tier not in REASONING_EFFORTS:
+            return params
+        if params is not None and getattr(params, "reasoning_effort", None) is not None:
+            return params
+        from dataclasses import replace
+
+        from ink_engine.core.llm import LLMParams
+
+        base = params if params is not None else LLMParams()
+        return replace(base, reasoning_effort=self._tier)
+
+    async def ainvoke(self, messages, *, tools=None, params=None):
+        return await self._inner.ainvoke(
+            messages, tools=tools, params=self._effective(params)
+        )
+
+    async def astream(self, messages, *, tools=None, params=None):
+        async for chunk in self._inner.astream(
+            messages, tools=tools, params=self._effective(params)
+        ):
+            yield chunk
+
+    async def aclose(self) -> None:
+        return await self._inner.aclose()
+
 
 # 环境/产物等运行数据目录缺省形态：进程级临时目录（可销毁重建的会话态
 # 数据；正式宿主经 data_dir 注入持久目录）
@@ -343,7 +406,10 @@ class InKlingHost(Host):
         return getattr(self, "_compression_policy", None)
 
     def resolve_model_llm(
-        self, provider: str | None, model_id: str | None
+        self,
+        provider: str | None,
+        model_id: str | None,
+        reasoning_effort: str | None = None,
     ) -> AsyncLLM | None:
         """按模型引用解析 LLM（EntitySpec.model / 输入框选模型路径）。
 
@@ -352,12 +418,18 @@ class InKlingHost(Host):
         - 提供方数组（model_connection.json）逐项匹配 provider（provider_id
           或 adapter；缺省 = 第一项=当前连接），用该项 base_url/api_key 建链
           并覆盖 model_id——无匹配提供方 = 该提供方未配置 → None；
+        - reasoning_effort（off/low/medium/high，回合级档位）非空时经
+          ReasoningTierLLM 注入为调用默认参数（None 字段才填，显式调用
+          参数优先）；提供方适配器与协议映射经 _infer_reasoning_style 落到
+          LLMConfig.extra.reasoning_style；
         - 产物统一经行为准则层包装（与 resolve_llm 同语义）；压缩策略
           按该 model_id 档案 context_window 动态推算（调用方按需取
           compression_policy，不暴露 token 数）。
         """
         if not model_id or not str(model_id).strip():
             return None
+        if reasoning_effort not in (None, *REASONING_EFFORTS):
+            reasoning_effort = None
         providers = _read_connection_providers(self._data_dir)
         if not providers:
             return None
@@ -377,23 +449,28 @@ class InKlingHost(Host):
         if not base_url.strip():
             return None
         try:
-            llm = create_llm(
-                {
-                    "adapter": target.get("adapter")
-                    or target.get("provider_id")
-                    or "openai_compatible",
-                    "base_url": base_url,
-                    "model_id": str(model_id),
-                    **(
-                        {"api_key": str(target["api_key"])}
-                        if target.get("api_key")
-                        else {}
-                    ),
-                }
-            )
+            config: dict[str, Any] = {
+                "adapter": target.get("adapter")
+                or target.get("provider_id")
+                or "openai_compatible",
+                "base_url": base_url,
+                "model_id": str(model_id),
+                **(
+                    {"api_key": str(target["api_key"])}
+                    if target.get("api_key")
+                    else {}
+                ),
+                "reasoning_style": _infer_reasoning_style(
+                    str(target.get("provider_id") or ""),
+                    str(target.get("adapter") or ""),
+                ),
+            }
+            llm = create_llm(config)
         except Exception as exc:
             logger.warning("按模型引用建链失败（回落默认）: %s: %s", model_id, exc)
             return None
+        if reasoning_effort is not None:
+            llm = ReasoningTierLLM(llm, reasoning_effort)
         if self._behavior is not None:
             llm = BehaviorLLM(llm, self._behavior)
         return llm
@@ -776,15 +853,23 @@ async def boot_inkling(
         runtime.edge_evidence_store = evidence_store
     if fingerprint_store is not None:
         runtime.fingerprint_cache_store = fingerprint_store
-    # 回合工具上限覆盖（能力记录设置项）启动装载：默认无记录 = 回落
-    # seed graph.json 节点 config 值；设置保存后经 capability_put →
-    # engine.rebuild 路径刷新
+    # 回合护栏覆盖（能力记录设置项）启动装载：默认无记录 = 回落
+    # seed graph.json 节点 config 默认值 / 推演档策略缺省档；设置保存后经
+    # capability_put → engine.rebuild 路径刷新
     try:
-        from .graph_recipe import set_max_tool_rounds_override
+        from .graph_recipe import (
+            set_max_tool_rounds_override,
+            set_simulation_tier_override,
+        )
 
         cap = await runtime.storage.get_record("app_capabilities", "capability")
         raw = None if cap is None else cap.get("max_tool_rounds")
         set_max_tool_rounds_override(None if raw is None else int(raw))
+        tier = None if cap is None else cap.get("simulation_tier")
+        try:
+            set_simulation_tier_override(tier)
+        except ValueError:
+            set_simulation_tier_override(None)
     except Exception:
         pass
     # 技能存储挂知识集（合并容器：技能 = 知识集 kind=path 条目；未开指纹

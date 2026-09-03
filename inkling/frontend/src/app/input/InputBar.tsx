@@ -2,14 +2,14 @@
  * 输入胶囊（会话主输入面）。
  *
  * 形态（参考桌面 agent 产品空态）：居中 max-w-4xl 大胶囊（近白实底 + 柔发
- * 阴影 + focus-within 光晕抬升），文本区双行起步自适应伸展，控件全部收进
+ * 阴影 + focus-within 光晕抬升），文本区单行起步自适应伸展，控件全部收进
  * 胶囊底排——圆形附件 +、语音、回合档位下拉、模型/推理档位下拉、右侧大号
  * 圆形发送钮；胶囊下方居中「N 轮 · M 步」回合计数。
  * route_plan 发送前预览置于胶囊上方（已落定语义，不抢占胶囊内空间）。
  */
 
 import { useState, useRef, useEffect } from 'react';
-import { ArrowUp, ChevronDown, Loader2, Mic, Plus, Route, Settings2, SlidersHorizontal, Sparkles, Square, Image, Video, FileText } from 'lucide-react';
+import { ArrowUp, Brain, ChevronDown, Loader2, Mic, Plus, Route, SlidersHorizontal, Sparkles, Square, Image, Video, FileText } from 'lucide-react';
 import type { ModelArchiveRow, ModelArchiveSnapshot, ModelSelection } from '@/shared/backend/backendAdapter';
 import { createBackend } from '@/shared/backend/backendAdapter';
 import { useT } from '@/i18n/useT';
@@ -17,6 +17,33 @@ import { useT } from '@/i18n/useT';
 /** 多模态三态归一（壳侧档案标注 true/'true'/unknown）。 */
 function isMultimodal(m: ModelArchiveRow): boolean {
   return m.multimodal === true || m.multimodal === 'true';
+}
+
+/** 推理档位取值（发送携带；'auto' 仅 UI 用 = 不注入，跟随模型默认）。 */
+export type ReasoningEffort = 'off' | 'low' | 'medium' | 'high';
+const REASONING_LEVELS: Array<'auto' | ReasoningEffort> = ['auto', 'off', 'low', 'medium', 'high'];
+
+// 推理能力启发式门控：名字命中以下标记/前缀即视为推理模型（可后续扩展
+// 为档案能力标注）。非推理模型不显示档位 chip，避免给不支持端点发多余参数。
+const REASONING_ID_MARKERS = [
+  'reasoner',
+  'reasoning',
+  'qwq',
+  'qwen3',
+  'kimi-thinking',
+  'kimi-k2',
+  'thinking',
+  'glm-z1',
+  'glm-4.6',
+  'minimax-m1',
+  'doubao-thinking',
+  'deepseek-r1',
+  'gpt-5',
+];
+function isReasoningModel(modelId: string): boolean {
+  const id = modelId.trim().toLowerCase();
+  if (REASONING_ID_MARKERS.some((m) => id.includes(m))) return true;
+  return /^(o1|o3|o4)-/.test(id) || /claude-(3-7|sonnet-4|opus-4)/.test(id) || /gemini-2\.5/.test(id);
 }
 
 function interpolate(template: string, vars: Record<string, string | number>): string {
@@ -47,7 +74,6 @@ interface InputBarProps {
   stepCount?: number;
   onSend: (text: string, attachments: AttachmentAsset[], mode: 'standard' | 'assembly', model?: ModelSelection) => void;
   onAbort: () => void;
-  onOpenSettings: () => void;
   onAttachments: (files: AttachmentAsset[]) => void;
   /** 发送前路线预览（route_plan 壳命令真调用由装配层执行）。 */
   onRoutePlanPreview?: (text: string) => void;
@@ -60,7 +86,6 @@ export function InputBar({
   routePlan,
   onSend,
   onAbort,
-  onOpenSettings,
   onAttachments,
   onRoutePlanPreview,
 }: InputBarProps) {
@@ -79,6 +104,9 @@ export function InputBar({
   const modelRef = useRef<HTMLDivElement>(null);
   const [modelMenuOpen, setModelMenuOpen] = useState(false);
   const [selectedModelId, setSelectedModelId] = useState<string | null>(null);
+  const [reasoningEffort, setReasoningEffort] = useState<'auto' | ReasoningEffort>('auto');
+  const reasoningRef = useRef<HTMLDivElement>(null);
+  const [reasoningMenuOpen, setReasoningMenuOpen] = useState(false);
 
   const archives = models?.archives ?? [];
   const selectedModel = archives.find((m) => m.model_id === selectedModelId) ?? archives[0];
@@ -101,6 +129,15 @@ export function InputBar({
     document.addEventListener('mousedown', onDocClick);
     return () => document.removeEventListener('mousedown', onDocClick);
   }, [modelMenuOpen]);
+
+  useEffect(() => {
+    if (!reasoningMenuOpen) return;
+    const onDocClick = (e: MouseEvent) => {
+      if (reasoningRef.current && !reasoningRef.current.contains(e.target as Node)) setReasoningMenuOpen(false);
+    };
+    document.addEventListener('mousedown', onDocClick);
+    return () => document.removeEventListener('mousedown', onDocClick);
+  }, [reasoningMenuOpen]);
 
   useEffect(() => {
     if (!backendRef.current.available) return;
@@ -145,12 +182,18 @@ export function InputBar({
   const submit = () => {
     if (!canSend) return;
     // 选定的 agent 模型随发送携带（无默认、无档位——选什么跑什么；
-    // provider 缺省 = 当前唯一连接，宿主 resolve_model_llm fail-open）
+    // provider 缺省 = 当前唯一连接，宿主 resolve_model_llm fail-open；
+    // 推理档位仅显式选择时携带，'auto' = 不注入跟随模型默认）
     onSend(
       text.trim(),
       attachments,
       mode,
-      selectedModel ? { model_id: selectedModel.model_id } : undefined,
+      selectedModel
+        ? {
+            model_id: selectedModel.model_id,
+            ...(reasoningEffort !== 'auto' ? { reasoning_effort: reasoningEffort } : {}),
+          }
+        : undefined,
     );
     setText('');
     setAttachments([]);
@@ -184,15 +227,6 @@ export function InputBar({
   return (
     <div className="px-5 pb-4 pt-2">
       <div className="mx-auto max-w-4xl">
-        {!selectedModel && (
-          <div className="mb-2.5 flex items-center justify-between rounded-xl border border-dashed ink-border px-4 py-2.5 text-[13px] ink-text-muted">
-            <span>{t('input.need_model')}</span>
-            <button type="button" onClick={onOpenSettings} className="flex items-center gap-1 font-medium hover:underline" data-ui="input_goto_settings">
-              <Settings2 size={12} strokeWidth={1.6} /> {t('input.goto_settings')}
-            </button>
-          </div>
-        )}
-
         {routePlan && (
           <div
             className="mb-2 inline-flex items-center gap-2 rounded-lg border ink-border bg-[var(--ink-bg-surface)] px-2.5 py-1.5 text-[12px] ink-text-muted"
@@ -223,16 +257,16 @@ export function InputBar({
 
           <textarea
             ref={textareaRef}
-            rows={2}
-            className="min-h-[52px] w-full resize-none bg-transparent px-1.5 pb-2 text-[15px] leading-relaxed outline-none placeholder:text-[var(--ink-text-faint)]"
-            placeholder={selectedModel ? t('input.placeholder') : t('input.need_model')}
+            rows={1}
+            className="min-h-[44px] w-full resize-none bg-transparent px-1.5 pb-2 text-[15px] leading-relaxed outline-none placeholder:text-[var(--ink-text-faint)]"
+            placeholder={t('input.placeholder')}
             value={text}
             onChange={(e) => {
               setText(e.target.value);
               onRoutePlanPreview?.(e.target.value);
             }}
             onKeyDown={handleKeyDown}
-            disabled={disabled || !selectedModel}
+            disabled={disabled}
             data-ui="input_textarea"
           />
 
@@ -338,7 +372,7 @@ export function InputBar({
                         type="button"
                         role="menuitem"
                         data-active={m.model_id === selectedModel?.model_id}
-                        onClick={() => { setSelectedModelId(m.model_id); setModelMenuOpen(false); }}
+                        onClick={() => { setSelectedModelId(m.model_id); setReasoningEffort('auto'); setReasoningMenuOpen(false); setModelMenuOpen(false); }}
                         className="ink-menu-item"
                       >
                         <span className="flex-1 truncate">{m.model_id}</span>
@@ -346,6 +380,41 @@ export function InputBar({
                         {typeof m.context_window === 'number' && (
                           <span className="ml-2 shrink-0 text-[10px] tabular-nums ink-text-faint">{Math.round(m.context_window / 1024)}k</span>
                         )}
+                      </button>
+                    ))}
+                  </div>
+                )}
+              </div>
+            )}
+
+            {selectedModel && isReasoningModel(selectedModel.model_id) && (
+              <div className="relative" ref={reasoningRef}>
+                <button
+                  type="button"
+                  onClick={() => setReasoningMenuOpen((v) => !v)}
+                  aria-haspopup="menu"
+                  aria-expanded={reasoningMenuOpen}
+                  aria-label={t('input.reasoning')}
+                  title={t('input.reasoning')}
+                  data-ui="input_reasoning_chip"
+                  className="flex h-7 items-center gap-1 rounded-lg border ink-border px-2 text-[11px] ink-text-muted hover:bg-[var(--ink-bg-elevated)] hover:text-[var(--ink-text-base)]"
+                >
+                  <Brain size={12} strokeWidth={1.6} />
+                  <span>{t(`input.reasoning_${reasoningEffort}`)}</span>
+                  <ChevronDown size={12} strokeWidth={1.6} className={`text-[var(--ink-text-faint)] transition-transform ${reasoningMenuOpen ? 'rotate-180' : ''}`} />
+                </button>
+                {reasoningMenuOpen && (
+                  <div className="ink-menu-pop ink-menu-pop-left ink-menu-pop-up" role="menu" aria-label={t('input.reasoning')}>
+                    {REASONING_LEVELS.map((level) => (
+                      <button
+                        key={level}
+                        type="button"
+                        role="menuitem"
+                        data-active={level === reasoningEffort}
+                        onClick={() => { setReasoningEffort(level); setReasoningMenuOpen(false); }}
+                        className="ink-menu-item"
+                      >
+                        {t(`input.reasoning_${level}`)}
                       </button>
                     ))}
                   </div>

@@ -150,6 +150,21 @@ class TestRequestPayload:
         assert body["max_output_tokens"] == 100
         assert body["temperature"] == 0.2
 
+    async def test_reasoning_effort_maps_to_reasoning(self):
+        llm, seen = make_adapter(lambda r: ok_json({"output": [], "finish_reason": "stop"}))
+        await _ainvoke(llm, [user("hi")], params=LLMParams(reasoning_effort="high"))
+        assert self._body(seen)["reasoning"] == {"effort": "high"}
+
+    async def test_reasoning_effort_off_omits_reasoning(self):
+        llm, seen = make_adapter(lambda r: ok_json({"output": [], "finish_reason": "stop"}))
+        await _ainvoke(llm, [user("hi")], params=LLMParams(reasoning_effort="off"))
+        assert "reasoning" not in self._body(seen)
+
+    async def test_enable_thinking_defaults_medium_when_no_effort(self):
+        llm, seen = make_adapter(lambda r: ok_json({"output": [], "finish_reason": "stop"}))
+        await _ainvoke(llm, [user("hi")], params=LLMParams(enable_thinking=True))
+        assert self._body(seen)["reasoning"] == {"effort": "medium"}
+
 
 # ---------------------------------------------------------------------------
 # 非流式解析

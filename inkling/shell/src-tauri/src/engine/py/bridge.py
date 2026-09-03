@@ -2470,23 +2470,34 @@ def _safe_attr_call(runtime: Any, attr: str, default: Any = None) -> Any:
 
 
 async def _refresh_max_tool_rounds(runtime: Any) -> None:
-    """引擎重建前刷新回合工具上限覆盖（能力记录 app_capabilities/capability）。
+    """引擎重建前刷新回合护栏覆盖（能力记录 app_capabilities/capability）。
 
-    覆盖 = 设置项（max_tool_rounds）；无记录/缺失/非法 = 清除覆盖回落
-    节点 config 默认。异常吞掉（设置项缺失不阻断引擎重建主流程）。
+    覆盖 = 设置项（max_tool_rounds / simulation_tier）；无记录/缺失/非法
+    = 清除覆盖回落节点 config 默认 / 策略缺省档。异常吞掉（设置项缺失
+    不阻断引擎重建主流程）。
     """
-    from inkling_host.graph_recipe import set_max_tool_rounds_override
+    from inkling_host.graph_recipe import (
+        set_max_tool_rounds_override,
+        set_simulation_tier_override,
+    )
 
     try:
         storage = getattr(runtime, "storage", None)
         if storage is None:
             set_max_tool_rounds_override(None)
+            set_simulation_tier_override(None)
             return
         record = await storage.get_record("app_capabilities", "capability")
         raw = None if record is None else record.get("max_tool_rounds")
         set_max_tool_rounds_override(None if raw is None else int(raw))
+        tier = None if record is None else record.get("simulation_tier")
+        try:
+            set_simulation_tier_override(tier)
+        except ValueError:
+            set_simulation_tier_override(None)
     except Exception:
         set_max_tool_rounds_override(None)
+        set_simulation_tier_override(None)
 
 
 @op_async("why.audit")
@@ -3828,12 +3839,16 @@ async def execute_round_to_reply(
     auto_accept_review: bool = True,
     max_cards: int = 32,
     attachments: list | None = None,
+    mode: str = "standard",
 ):
     """执行一次回合直至终态：审批卡逐张决议（可指定接受决议），直到回复/终止。
 
     生产宿主按审批卡交互决议；离线验证用 auto_accept_review 一次跑通。
     编排脚本（orchestrate）非空时注入回合入口状态——编排节点按
     plan/spawns/simulate 保留键驱动；缺省走工作流节点序默认规划。
+    mode（standard/assembly，缺省 standard）= 输入框回合档位：注入
+    state.round_mode 供编排节点消费——standard 跳过组装候选直走默认
+    规划（单 agent 回环）；assembly 允许组装候选路径 spawn 展开。
     model（可选 {provider, model_id}）= 输入框选定的 agent 模型：回合
     级解析换入 llm_decider holder（fail-open——解析失败/缺引用回落
     会话默认模型），回合结束恢复（防中断态/后续回合串模型）。
@@ -3850,6 +3865,7 @@ async def execute_round_to_reply(
             "input": input_text,
             "step_args": step_args or {},
             "attachments": attachments or [],
+            "round_mode": mode if mode in ("standard", "assembly") else "standard",
         }
         if orchestrate is not None:
             state["orchestrate"] = orchestrate
@@ -3884,6 +3900,10 @@ async def execute_round_to_reply(
 def _round_model_override(runtime: Any, host: Any, model: Any) -> Any:
     """回合级模型覆盖：按选模型解析换入 holder llm（fail-open 回落默认）。
 
+    model 载荷 {provider, model_id, reasoning_effort?}——reasoning_effort
+    （off/low/medium/high）为输入框选定的推理档位，随模型解析注入
+    ReasoningTierLLM（不选/非法值回落默认，不注入档位）。
+
     Returns:
         (holder, old_llm, old_window) 恢复元组；未解析/无注册表 = None。
     """
@@ -3891,10 +3911,14 @@ def _round_model_override(runtime: Any, host: Any, model: Any) -> Any:
         return None
     provider = str(model.get("provider") or "")
     model_id = str(model.get("model_id") or "")
+    reasoning_effort = model.get("reasoning_effort")
     resolve = getattr(host, "resolve_model_llm", None)
     if not provider or not model_id or not callable(resolve):
         return None
-    llm = resolve(provider, model_id)
+    if reasoning_effort is not None:
+        llm = resolve(provider, model_id, reasoning_effort=reasoning_effort)
+    else:
+        llm = resolve(provider, model_id)
     if llm is None:
         return None
     registries = getattr(runtime, "graph_registries", None)
@@ -3908,18 +3932,35 @@ def _round_model_override(runtime: Any, host: Any, model: Any) -> Any:
 
     holder = _specs_holder(registries)
     old_llm = holder.get("llm")
-    holder["llm"] = llm
     # 窗口参数按该模型档案同步（工具结果截断数据面；回合级覆盖不换
     # 全局压缩策略——防中断态/后续回合串状态）
     old_window = None
-    archive_window = _model_context_window_from_archive(
-        getattr(host, "_data_dir", None), model_id
-    )
-    if archive_window is not None:
-        from inkling_host.graph_recipe import _context_window
+    try:
+        archive_window = _model_context_window_from_archive(
+            getattr(host, "_data_dir", None), model_id
+        )
+        holder["llm"] = llm
+        if archive_window is not None:
+            from inkling_host.graph_recipe import _context_window
 
-        old_window = _context_window
-        install_context_window(archive_window)
+            old_window = _context_window
+            install_context_window(archive_window)
+    except Exception:
+        # 中途失败必须还原已改写的 holder/窗口：回合入口的恢复 finally 只
+        # 覆盖其 try 段（本函数先于 try 调用），此处自建回滚防选中模型
+        # 泄漏到后续回合（fail-closed 同口径：宁可回合失败不留串态）
+        try:
+            if old_llm is None:
+                holder.pop("llm", None)
+            else:
+                holder["llm"] = old_llm
+            if old_window is not None:
+                from inkling_host.graph_recipe import install_context_window
+
+                install_context_window(old_window)
+        except Exception as exc:
+            logger.warning("回合模型覆盖中途失败回滚异常（忽略）: %s", exc)
+        raise
     return (holder, old_llm, old_window)
 
 

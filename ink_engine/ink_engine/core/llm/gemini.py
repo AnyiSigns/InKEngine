@@ -21,6 +21,7 @@ from typing import Any
 import httpx
 
 from ink_engine.core.llm.base import (
+    REASONING_EFFORTS,
     AsyncLLM,
     LLMChunk,
     LLMConfig,
@@ -53,6 +54,14 @@ _FINISH_REASON_MAP: dict[str, str] = {
     "STOP": "stop",
     "MAX_TOKENS": "length",
     "END_TURN": "stop",
+}
+
+# 推理档位 → thinkingConfig.thinkingBudget（低/中/高 token 预算；
+# off = 0 显式关闭——仅 Gemini 2.5 Flash 等支持关闭的模型生效）。
+_GEMINI_THINKING_BUDGET: dict[str, int] = {
+    "low": 1024,
+    "medium": 8192,
+    "high": 16384,
 }
 
 
@@ -170,6 +179,16 @@ class GeminiLLM(AsyncLLM):
         max_tokens = params.max_tokens if params and params.max_tokens is not None else self.config.max_tokens
         if max_tokens is not None:
             gen_config["maxOutputTokens"] = max_tokens
+        # 推理档位（Gemini thinkingConfig）：显式档写入 generationConfig。
+        # off = budget 0（模型支持关闭时生效）；低/中/高 = token 预算。
+        effort = params.reasoning_effort if params is not None else None
+        if effort is not None and effort in REASONING_EFFORTS:
+            if effort == "off":
+                gen_config["thinkingConfig"] = {"thinkingBudget": 0}
+            else:
+                gen_config["thinkingConfig"] = {
+                    "thinkingBudget": _GEMINI_THINKING_BUDGET[effort]
+                }
         if gen_config:
             payload["generationConfig"] = gen_config
         # 厂商缓存参数（各一行）：extra.cached_content 为真时引用已缓存上下文

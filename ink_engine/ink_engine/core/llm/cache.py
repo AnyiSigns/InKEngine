@@ -202,6 +202,8 @@ class CachingLLM(AsyncLLM):
                     ("temperature", params.temperature),
                     ("max_tokens", params.max_tokens),
                     ("extra_body", params.extra_body),
+                    ("enable_thinking", params.enable_thinking),
+                    ("reasoning_effort", params.reasoning_effort),
                 )
                 if value is not None
             }

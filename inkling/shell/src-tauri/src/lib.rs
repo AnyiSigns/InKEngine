@@ -157,11 +157,14 @@ fn boot_options(
         safe_mode,
         bundled: engine::runtime::bundled_mode(),
         embedder_model_dir: embedder_model_dir(&data_dir),
-        // 引擎路径装配机制（实验性机制）出厂默认
-        // 全关——缩小装配爆炸半径（红线二仅靠崩溃循环回退）；用户显式
-        // 开启（BootOptions 注入 / 未来设置项）后逐块独立，单块异常可
-        // 单独关闭回滚。
-        path_assembly: engine::host::PathAssemblyFlags::default(),
+        // 引擎路径装配机制出厂默认：组装器出厂开启——对话「组装」档位 =
+        // 组装候选 spawn 展开（round_mode=assembly）；「标准」档经
+        // round_mode=standard 跳过候选直走默认规划。其余装配机制
+        // （多径/契约/边证据/指纹缓存等）默认关闭，逐块独立可回滚。
+        path_assembly: engine::host::PathAssemblyFlags {
+            assembler_enabled: true,
+            ..engine::host::PathAssemblyFlags::default()
+        },
         // FA12：回合行为层工具对照表经运行时快照（装配前种子装载 +
         // 装配后内省刷新；MCP 挂载/补丁后随 refresh 更新）
         tool_provider,
@@ -729,6 +732,7 @@ fn run_selftest(data_dir: &Path, phase: bool) -> Result<JsonValue, String> {
             thread_id: "selftest-t1".to_string(),
             round_id: "selftest-r1".to_string(),
             step_args: None,
+            mode: None,
             orchestrate: None,
             inject: None,
             model: None,

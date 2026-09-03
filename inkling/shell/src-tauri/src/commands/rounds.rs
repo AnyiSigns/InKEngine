@@ -273,6 +273,7 @@ pub(crate) fn round_send(
     round_id: String,
     text: String,
     auto_accept_review: Option<bool>,
+    mode: Option<String>,
     model: Option<JsonValue>,
     attachments: Option<JsonValue>,
 ) -> Result<JsonValue, CommandError> {
@@ -291,6 +292,7 @@ pub(crate) fn round_send(
         thread_id: thread_id.clone(),
         round_id: round_id.clone(),
         step_args: None,
+        mode,
         orchestrate: None,
         inject: None,
         model,

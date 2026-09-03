@@ -37,6 +37,6 @@ InKling（inkling/）。
 
 ## 历史形态
 
-本仓库原为 TextForge 仓库（含 Forge 桌面壳 `text_forge_evo/`），经
+本仓库原为 TextForge 仓库，经
 subtree split 分离，各自完整历史保留于本仓库（`git log` 可见双根）。
-Forge 未来可能移除——本仓库的产品重心是 InKling 单一产品。
+——本仓库的产品重心是 InKling 单一产品。

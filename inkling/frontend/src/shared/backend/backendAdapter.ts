@@ -193,10 +193,13 @@ export interface BackendStatus {
 
 /** 回合级模型选择（输入框选定；无默认、无档位——选什么跑什么）。
  * provider 缺省 = 当前唯一连接提供方（单提供方形态；多提供方扩展后由
- * 输入框按已配置提供方分组传 provider）。 */
+ * 输入框按已配置提供方分组传 provider）。
+ * reasoning_effort（off/low/medium/high）= 输入框显式选择的推理档位；
+ * 缺省 = 不注入，跟随模型/厂商默认。 */
 export interface ModelSelection {
   provider?: string;
   model_id: string;
+  reasoning_effort?: 'off' | 'low' | 'medium' | 'high';
 }
 
 /** 模型档案条目（壳侧 model_archive.sqlite 记录形态；多模态三态）。 */
@@ -365,6 +368,7 @@ export interface BackendAdapter {
     text: string,
     autoAccept?: boolean,
     attachments?: Array<{ kind: string; url: string; name?: string; mime?: string }>,
+    mode?: 'standard' | 'assembly',
     model?: ModelSelection,
   ): Promise<RoundResult>;
   roundAbort(roundId: string): Promise<{ aborted: boolean }>;
@@ -651,13 +655,14 @@ export function createTauriBackend(invoker?: TauriInvoker): BackendAdapter {
     status: () => call('backend_status'),
     engineBoot: () => call('engine_boot'),
     firstRunDismiss: () => call('first_run_dismiss'),
-    roundSend: (threadId, roundId, text, autoAccept, attachments, model) =>
+    roundSend: (threadId, roundId, text, autoAccept, attachments, mode, model) =>
       call('round_send', {
         threadId,
         roundId,
         text,
         autoAcceptReview: autoAccept,
         ...(attachments ? { attachments } : {}),
+        ...(mode && mode !== 'standard' ? { mode } : {}),
         ...(model ? { model } : {}),
       }),
     roundAbort: (roundId) => call('round_abort', { roundId }),

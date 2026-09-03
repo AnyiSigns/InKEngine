@@ -1330,6 +1330,10 @@ select {
 .ink-menu-pop-up {
   top: auto;
   bottom: calc(100% + 6px);
+  /* 视口内高度封顶 + 内部滚动：模型清单可能很长，无滚动容器时菜单
+   * 向上越过视口顶部，滚轮无响应且远处选项不可达 */
+  max-height: min(22rem, 50vh);
+  overflow-y: auto;
   animation-name: ink-pop-up;
 }
 

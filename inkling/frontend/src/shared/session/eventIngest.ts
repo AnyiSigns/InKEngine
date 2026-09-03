@@ -943,6 +943,33 @@ export function submitUserRound(
   return roundId;
 }
 
+/**
+ * 回合级失败气泡（宿主下发失败路径）：引擎不可用/回合发送被拒时把错误
+ * 落进发起线程的消息流（与引擎 error 事件同形），替代静默吞错（此前
+ * catch 只复位流式态，用户看到的是「发了没反应」）。
+ */
+export function appendRoundError(hub: ChannelHub, threadId: string, content: string): void {
+  const snapshot = hub.getSnapshot();
+  const msg: InkMessage = {
+    kind: 'error',
+    content,
+    id: nextId(),
+    roundId: snapshot.roundId ?? undefined,
+  };
+  const perThread = { ...snapshot.perThread };
+  const bucket = perThread[threadId] ?? emptyThreadBucket();
+  perThread[threadId] = {
+    ...bucket,
+    messages: [...(bucket.messages ?? []), msg],
+    lastSeenAt: Date.now(),
+  };
+  const next: Partial<Record<string, unknown>> = { perThread };
+  if (snapshot.activeSessionId === threadId) {
+    next.messages = [...(snapshot.messages ?? []), msg];
+  }
+  hub.setState(next);
+}
+
 export function setGear(hub: ChannelHub, activeGear: Parameters<ChannelHub['setState']>[0]['activeGear']): void {
   hub.setState({ activeGear });
 }

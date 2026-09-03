@@ -3,17 +3,18 @@
  */
 
 import { useSyncExternalStore, useCallback } from 'react';
-import { ChannelHub } from '@/shared/session/channelHub';
+import { ChannelHub, emptyThreadBucket } from '@/shared/session/channelHub';
 import {
   submitUserRound,
   toEngineAttachments,
+  appendRoundError,
   setStreaming,
   setRoundInflight,
   finalizeThreadStreaming,
   setThreadRoundActive,
   type AttachmentAsset,
 } from '@/shared/session/eventIngest';
-import type { BackendAdapter, ModelSelection } from '@/shared/backend/backendAdapter';
+import type { BackendAdapter, ModelSelection, SessionRemoteRecord } from '@/shared/backend/backendAdapter';
 import type { SessionStore } from '@/shared/session/sessionStore';
 import type { InkMessage } from '@/shared/session/types';
 import type { ReviewResolution } from '@/components/review_card';
@@ -55,8 +56,34 @@ export function useSessionState(hub: ChannelHub, store: SessionStore, backend: B
 }
 
 export function useSessionActions(hub: ChannelHub, store: SessionStore, backend: BackendAdapter) {
+  /**
+   * 无会话兜底：冷启/首次装配后引擎会话表为空时，发送前先经宿主建真实
+   * 会话并激活（复用 remote store 的 applyRemote 落镜像）。否则输入框常驻
+   * 渲染、用户已输入却因缺 activeSessionId 被静默丢弃——消息不落流、回合
+   * 不下发，表现为「发送没反应」。
+   */
+  const ensureSession = useCallback(async (): Promise<string> => {
+    const current = hub.getSnapshot().activeSessionId as string || store.list()[0]?.id || '';
+    if (current) return current;
+    if (!backend.available) return '';
+    try {
+      const remote = await backend.sessionCreate();
+      const id = remote.thread_id;
+      const applier = (store as unknown as { applyRemote?: (r: SessionRemoteRecord) => void })
+        .applyRemote;
+      applier?.(remote);
+      const snapshot = hub.getSnapshot();
+      const perThread = { ...(snapshot.perThread ?? {}) };
+      perThread[id] = emptyThreadBucket();
+      hub.setState({ activeSessionId: id, messages: [], perThread });
+      return id;
+    } catch {
+      return '';
+    }
+  }, [hub, store, backend]);
+
   const send = useCallback(
-    (
+    async (
       text: string,
       attachments: AttachmentAsset[] = [],
       mode: 'standard' | 'assembly' = 'standard',
@@ -67,7 +94,7 @@ export function useSessionActions(hub: ChannelHub, store: SessionStore, backend:
         return;
       }
       if (hub.getSnapshot().streaming) return;
-      const activeId = hub.getSnapshot().activeSessionId as string || store.list()[0]?.id || '';
+      const activeId = await ensureSession();
       if (!activeId) return;
       const roundId = submitUserRound(hub, text, attachments);
       // 回合收尾线程化：定型的是「发起的线程」的消息流，窗口切走后不得
@@ -88,7 +115,14 @@ export function useSessionActions(hub: ChannelHub, store: SessionStore, backend:
           // 回合收尾刷新会话记录（标题生成/更新时间落库后镜像同步）
           void (store as { reload?: () => Promise<void> }).reload?.();
         })
-        .catch(() => finishThread());
+        .catch((err: unknown) => {
+          finishThread();
+          appendRoundError(
+            hub,
+            activeId,
+            `回合发送失败：${err instanceof Error ? err.message : String(err ?? '引擎未就绪或已断开')}`,
+          );
+        });
     },
     [hub, store, backend],
   );
@@ -143,7 +177,14 @@ export function useSessionActions(hub: ChannelHub, store: SessionStore, backend:
           // 回合收尾刷新会话记录（与 send 同口径）
           void (store as { reload?: () => Promise<void> }).reload?.();
         })
-        .catch(() => finishThread());
+        .catch((err: unknown) => {
+          finishThread();
+          appendRoundError(
+            hub,
+            threadId,
+            `回合续跑失败：${err instanceof Error ? err.message : String(err ?? '引擎未就绪或已断开')}`,
+          );
+        });
     },
     [hub, store, backend],
   );

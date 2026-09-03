@@ -173,18 +173,16 @@ pub(crate) fn screenshot_capture(
     };
     let out_dir = expand_home("~/.inkling/attachments");
     let capturer = WindowsScreenCapturer;
-    let attachment = tokio::runtime::Builder::new_current_thread()
-        .enable_all()
-        .build()
-        .map_err(|err| CommandError::internal(format!("截图运行时构建失败: {err}")))?
-        .block_on(capture_and_feed(
-            &capturer,
-            &gate,
-            model,
-            &destination,
-            &out_dir,
-            &None,
-        ))
-        .map_err(CommandError::internal)?;
+    // tauri 同步命令在 tokio worker 上执行：阻塞驱动经 crate::block_on
+    // （已处运行时上下文时自动挪到专用线程，避免嵌套运行时 panic）
+    let attachment = crate::block_on(capture_and_feed(
+        &capturer,
+        &gate,
+        model,
+        &destination,
+        &out_dir,
+        &None,
+    ))
+    .map_err(CommandError::internal)?;
     Ok(attachment.to_dict())
 }

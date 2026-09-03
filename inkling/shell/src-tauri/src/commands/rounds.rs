@@ -688,13 +688,9 @@ async fn auto_merge_ledger_chain(data_dir: &Path, thread_id: &str) -> Result<(),
 
 /// 同步驱动账本自动合并（round_send 无 tokio 上下文时使用；单线程运行时
 /// 内完成，与 `block_on_op_async` 的引擎线程亲和纪律一致）。
-fn block_on_ledger_merge(data_dir: &Path, thread_id: &str) -> Result<(), String> {
-    tokio::runtime::Builder::new_current_thread()
-        .enable_all()
-        .build()
-        .map_err(|err| format!("合并运行时创建失败: {err}"))?
-        .block_on(auto_merge_ledger_chain(data_dir, thread_id))
-}
+    fn block_on_ledger_merge(data_dir: &Path, thread_id: &str) -> Result<(), String> {
+        crate::block_on(auto_merge_ledger_chain(data_dir, thread_id))
+    }
 
 /// 回合账本容量滚动（收尾接线）：按默认容量界（90 天 / 50MB）滚动该线程
 /// 已合并账本——合并标记之后的未合并增量保留（`roll_ledgers_merged` 语义）。

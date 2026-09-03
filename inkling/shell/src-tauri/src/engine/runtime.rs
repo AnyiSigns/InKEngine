@@ -1,9 +1,13 @@
-//! 捆绑运行时的装配准备：资源解包（首启 provision）+ 内嵌解释器定位。
+//! 捆绑运行时的装配准备：资源解包（provision）+ 内嵌解释器定位。
 //!
 //! 发行形态 = 用户零 Python 前置：嵌入式 Python 运行时（embed 发行包）、
 //! 引擎包、种子数据、向量模型、执行件二进制的原始拷贝都随安装包放在
-//! 资源目录（Tauri resources）；首次装配时按需解包到运行数据目录
-//! （用户可写、路径稳定），此后直接复用（幂等：缺才拷）。
+//! 资源目录（Tauri resources）；装配时解包到运行数据目录（用户可写、
+//! 路径稳定）。解包以资源为权威并做**内容漂移自愈**：代码/运行时/模型/
+//! 执行件分量每次比对源目录与数据副本的指纹，内容不一致（部分拷贝、
+//! 旧版本残留、升级换代）即删除重拷，避免「目录已存在即跳过」导致
+//! 发行资源更新后数据目录仍跑旧引擎；种子根为演化可写区，只回填
+//! 缺失文件、不清除运行时新增内容（幂等：无漂移时零拷贝）。
 //!
 //! 定位规则：
 //! - 资源根：`INKLING_RESOURCE_DIR` 环境覆盖（本地模拟/测试用）→
@@ -20,6 +24,9 @@
 //! sys.path 插前），两者互不依赖。
 
 use std::path::{Path, PathBuf};
+
+use pyo3::prelude::*;
+use pyo3::types::PyList;
 
 /// 资源根目录名（Tauri bundle.resources 的落位名；安装形态与 exe 同级）。
 pub const RESOURCE_DIR_NAME: &str = "resources";
@@ -103,16 +110,12 @@ pub fn exec_dir_in(data_dir: &Path) -> PathBuf {
     data_dir.join(EXEC_DIR_NAME)
 }
 
-/// 递归拷贝（缺目标才拷：幂等 provision 语义）。
+/// 递归拷贝（整树覆盖落位；供全新落位与漂移重拷使用）。
 ///
-/// 目标已存在（目录或哨兵文件）即跳过——首启之后重复启动零拷贝。
 /// 源缺失 = 显式错误（资源未打包 = 安装不完整，不静默跳过）。
-fn copy_tree_skip_existing(source: &Path, target: &Path) -> Result<(), String> {
+fn copy_tree(source: &Path, target: &Path) -> Result<(), String> {
     if !source.is_dir() {
         return Err(format!("资源缺失: {}", source.display()));
-    }
-    if target.is_dir() {
-        return Ok(());
     }
     std::fs::create_dir_all(target)
         .map_err(|err| format!("目录创建失败 {}: {err}", target.display()))?;
@@ -126,7 +129,115 @@ fn copy_tree_skip_existing(source: &Path, target: &Path) -> Result<(), String> {
             .file_type()
             .map_err(|err| format!("资源条目类型失败 {}: {err}", from.display()))?;
         if kind.is_dir() {
-            copy_tree_skip_existing(&from, &to)?;
+            copy_tree(&from, &to)?;
+        } else {
+            std::fs::copy(&from, &to)
+                .map_err(|err| format!("拷贝失败 {} → {}: {err}", from.display(), to.display()))?;
+        }
+    }
+    Ok(())
+}
+
+/// 目录内容指纹（递归相对路径 + 文件长度排序后哈希）。
+///
+/// 用于源资源与数据副本的内容比对：部分拷贝 / 旧版残留 / 升级换代
+/// 均使指纹改变，纯字节级小改也会因长度变化被检出（发行分量以整包
+/// 换代为主，无需逐字节哈希的成本）。
+fn dir_fingerprint(dir: &Path) -> Result<u64, String> {
+    use std::hash::{Hash, Hasher};
+    fn collect(base: &Path, dir: &Path, out: &mut Vec<(String, u64)>) -> Result<(), String> {
+        for entry in std::fs::read_dir(dir)
+            .map_err(|err| format!("目录读取失败 {}: {err}", dir.display()))?
+        {
+            let entry = entry.map_err(|err| format!("目录条目失败: {err}"))?;
+            let path = entry.path();
+            let ft = entry
+                .file_type()
+                .map_err(|err| format!("条目类型失败 {}: {err}", path.display()))?;
+            if ft.is_dir() {
+                collect(base, &path, out)?;
+            } else if ft.is_file() {
+                let rel = path
+                    .strip_prefix(base)
+                    .map_err(|_| "路径前缀计算失败".to_string())?
+                    .to_string_lossy()
+                    .replace('\\', "/");
+                let len = entry
+                    .metadata()
+                    .map_err(|err| format!("文件元数据失败 {}: {err}", path.display()))?
+                    .len();
+                out.push((rel, len));
+            }
+        }
+        Ok(())
+    }
+    let mut files = Vec::new();
+    collect(dir, dir, &mut files)?;
+    files.sort();
+    let mut hasher = std::collections::hash_map::DefaultHasher::new();
+    for (rel, len) in &files {
+        rel.hash(&mut hasher);
+        len.hash(&mut hasher);
+    }
+    Ok(hasher.finish())
+}
+
+/// 只读分量同步：源与目标内容一致（或源缺失跳过）即零拷贝；不一致则
+/// 删除目标整树重拷（修复部分拷贝/旧版残留；目标是纯代码/运行时/模型，
+/// 运行时不会往里写演化数据，重拷无副作用）。
+fn sync_readonly_component(source: &Path, target: &Path) -> Result<bool, String> {
+    if !source.is_dir() {
+        return Ok(false);
+    }
+    let source_fp = dir_fingerprint(source)?;
+    let up_to_date = target.is_dir() && dir_fingerprint(target)? == source_fp;
+    if up_to_date {
+        return Ok(false);
+    }
+    if target.is_dir() {
+        std::fs::remove_dir_all(target)
+            .map_err(|err| format!("删除过期副本失败 {}: {err}", target.display()))?;
+    }
+    copy_tree(source, target)?;
+    Ok(true)
+}
+
+/// 种子根同步（演化可写区）：目标缺失整树落位；目标已存在只回填源里
+/// 缺失的文件——不清除运行时新增的演化内容，也不覆盖内容已漂移的既有
+/// 文件（发行种子与演化产物在同一目录，无法整树判定一致）。
+fn sync_seed_component(source: &Path, target: &Path) -> Result<bool, String> {
+    if !source.is_dir() {
+        return Ok(false);
+    }
+    if target.is_dir() {
+        copy_missing_files(source, target)?;
+        return Ok(false);
+    }
+    copy_tree(source, target)?;
+    Ok(true)
+}
+
+/// 只回填源中缺失的文件（目标保留既有内容，含运行时演化新增）。
+fn copy_missing_files(source: &Path, target: &Path) -> Result<(), String> {
+    if !target.is_dir() {
+        std::fs::create_dir_all(target)
+            .map_err(|err| format!("目录创建失败 {}: {err}", target.display()))?;
+    }
+    for entry in std::fs::read_dir(source)
+        .map_err(|err| format!("资源读取失败 {}: {err}", source.display()))?
+    {
+        let entry = entry.map_err(|err| format!("资源条目读取失败: {err}"))?;
+        let from = entry.path();
+        let to = target.join(entry.file_name());
+        let kind = entry
+            .file_type()
+            .map_err(|err| format!("资源条目类型失败 {}: {err}", from.display()))?;
+        if kind.is_dir() {
+            if to.is_dir() {
+                copy_missing_files(&from, &to)?;
+            } else {
+                copy_tree(&from, &to)?;
+            }
         } else if !to.exists() {
             std::fs::copy(&from, &to)
                 .map_err(|err| format!("拷贝失败 {} → {}: {err}", from.display(), to.display()))?;
@@ -147,7 +258,8 @@ pub struct ProvisionReport {
     pub provisioned: Vec<String>,
 }
 
-/// 首启解包：资源目录 → 数据目录（缺才拷，幂等）。
+/// 解包：资源目录 → 数据目录（源为权威；只读分量漂移即重拷、种子
+/// 回填缺失，无漂移零拷贝）。
 ///
 /// 解包分量 = 运行时（embed 发行包）/ 引擎包 / 种子根 / 向量模型 /
 /// 执行件；种子根与引擎包保持「仓库同名相对布局」，装配期按
@@ -166,30 +278,37 @@ pub fn provision(data_dir: &Path) -> Result<ProvisionReport, String> {
         provisioned: Vec::new(),
     };
     if let Some(source) = resource_subdir(&root, RUNTIME_DIR_NAME) {
-        copy_tree_skip_existing(&source, &report.runtime_dir)?;
-        report.provisioned.push(RUNTIME_DIR_NAME.to_string());
+        if sync_readonly_component(&source, &report.runtime_dir)? {
+            report.provisioned.push(RUNTIME_DIR_NAME.to_string());
+        }
     }
     if let Some(source) = resource_subdir(&root, ENGINE_DIR_NAME) {
-        copy_tree_skip_existing(&source, &report.engine_dir)?;
-        report.provisioned.push(ENGINE_DIR_NAME.to_string());
+        if sync_readonly_component(&source, &report.engine_dir)? {
+            report.provisioned.push(ENGINE_DIR_NAME.to_string());
+        }
     }
     if let Some(source) = resource_subdir(&root, SEED_DIR_NAME) {
-        copy_tree_skip_existing(&source, &report.seed_dir)?;
-        report.provisioned.push(SEED_DIR_NAME.to_string());
+        if sync_seed_component(&source, &report.seed_dir)? {
+            report.provisioned.push(SEED_DIR_NAME.to_string());
+        }
     }
     if let Some(source) = resource_subdir(&root, MODEL_DIR_NAME) {
         let target = report.model_dir.clone();
-        copy_tree_skip_existing(&source, &target)?;
-        report.provisioned.push(MODEL_DIR_NAME.to_string());
+        if sync_readonly_component(&source, &target)? {
+            report.provisioned.push(MODEL_DIR_NAME.to_string());
+        }
     }
     if let Some(source) = resource_subdir(&root, VOICE_MODEL_DIR_NAME) {
         let target = report.voice_model_dir.clone();
-        copy_tree_skip_existing(&source, &target)?;
-        report.provisioned.push(VOICE_MODEL_DIR_NAME.to_string());
+        if sync_readonly_component(&source, &target)? {
+            report.provisioned.push(VOICE_MODEL_DIR_NAME.to_string());
+        }
     }
     if let Some(source) = resource_subdir(&root, EXEC_DIR_NAME) {
-        copy_tree_skip_existing(&source, &report.exec_dir)?;
-        report.provisioned.push(EXEC_DIR_NAME.to_string());
+        let target = report.exec_dir.clone();
+        if sync_readonly_component(&source, &target)? {
+            report.provisioned.push(EXEC_DIR_NAME.to_string());
+        }
     }
     Ok(report)
 }
@@ -317,6 +436,41 @@ fn init_embedded_interpreter(runtime_dir: &Path) -> Result<(), String> {
     Ok(())
 }
 
+/// 解释器路径补挂（自定义初始化之外的第二道保险）：把「标准库 zip +
+/// 运行时目录 + 随包 site-packages」置入 sys.path 前部（去重）。自定义
+/// PyConfig 首次初始化时这些路径已就位；但若解释器已被 pyo3 自动初始化
+/// 抢先（宿主命令早于装配触碰 Python，或运行时目录存在 python3xx._pth
+/// 把 sys.path 固化为 zip+运行目录），site-packages 不会自动进入
+/// sys.path——发行装完引擎依赖（aiosqlite/mcp/httpx 等）会全部 import
+/// 失败。此处无论解释器由谁、以何种配置初始化，都补齐确定路径。
+fn ensure_bundled_search_paths(runtime_dir: &Path) -> Result<(), String> {
+    let zip_name = stdlib_zip_name(runtime_dir)?;
+    let mut entries = vec![runtime_dir.join(&zip_name), runtime_dir.to_path_buf()];
+    let site_packages = runtime_dir.join("Lib").join("site-packages");
+    if site_packages.is_dir() {
+        entries.push(site_packages);
+    }
+    let paths_repr: Vec<String> = entries
+        .iter()
+        .map(|p| p.to_string_lossy().into_owned())
+        .collect();
+    pyo3::Python::attach(|py| -> PyResult<()> {
+        let sys = py.import("sys")?;
+        let path = sys.getattr("path")?.cast_into::<PyList>()?;
+        for entry in &paths_repr {
+            let present = path
+                .iter()
+                .any(|item| item.extract::<String>().map(|s| s == *entry).unwrap_or(false));
+            if !present {
+                path.insert(0, entry.as_str())?;
+            }
+        }
+        Ok(())
+    })
+    .map_err(|err| format!("解释器搜索路径补挂失败: {err}"))?;
+    Ok(())
+}
+
 /// 捆绑模式解释器准备：运行时目录入搜索路径 + 自定义初始化。
 ///
 /// 必须在任何 Python API 触碰之前调用（pyo3 auto-initialize 首次
@@ -342,7 +496,9 @@ pub fn prepare_bundled_python(data_dir: &Path) -> Result<(), String> {
         };
         std::env::set_var(&search_env, joined);
     }
-    init_embedded_interpreter(&runtime_dir)
+    init_embedded_interpreter(&runtime_dir)?;
+    // 二次保险：无论解释器是否刚由自定义配置初始化，都补挂确定搜索路径
+    ensure_bundled_search_paths(&runtime_dir)
 }
 
 #[cfg(test)]
@@ -399,7 +555,83 @@ mod tests {
         assert_eq!(report.provisioned.len(), 5, "五个分量全解包");
 
         let report2 = provision(&data_dir).expect("二次解包成功");
-        assert!(report2.provisioned.len() == 5, "幂等：分量缺才拷");
+        assert!(
+            report2.provisioned.is_empty(),
+            "无漂移时零拷贝（指纹一致，目录已就位即跳过）"
+        );
+        assert!(
+            report2.engine_dir.join("ink_engine/__init__.py").is_file(),
+            "二次解包不破坏既有落位"
+        );
+        std::env::remove_var("INKLING_RESOURCE_DIR");
+    }
+
+    /// 漂移自愈：数据副本内容不一致（部分拷贝/旧版残留）时删除重拷，
+    /// 缺失文件补回、多余残留清除。
+    #[test]
+    fn provision_refreshes_stale_partial_component() {
+        let _env = ENV_GUARD.lock().unwrap();
+        let ws = Scratch::new("stale");
+        let resources = ws.0.join("resources");
+        touch(&resources.join("ink_engine/ink_engine/core/__init__.py"));
+        touch(&resources.join("ink_engine/ink_engine/core/runtime.py"));
+        touch(&resources.join("inkling/seed_data/tools.json"));
+        std::env::set_var("INKLING_RESOURCE_DIR", resources.to_string_lossy().into_owned());
+        let data_dir = ws.0.join("data");
+        let _first = provision(&data_dir).expect("解包成功");
+        assert!(data_dir.join("ink_engine/ink_engine/core/runtime.py").is_file());
+
+        // 模拟早期版本残留的部分拷贝：删掉核心文件 + 塞入残留文件。
+        let engine_dir = data_dir.join("ink_engine");
+        std::fs::remove_file(engine_dir.join("ink_engine/core/runtime.py")).unwrap();
+        std::fs::remove_file(engine_dir.join("ink_engine/core/__init__.py")).unwrap();
+        touch(&engine_dir.join("ink_engine/core/stale_old_file.py"));
+        let data_dir = data_dir.clone();
+        let report = provision(&data_dir).expect("漂移重拷成功");
+        assert!(
+            report.provisioned.contains(&"ink_engine".to_string()),
+            "内容漂移分量应被重拷"
+        );
+        assert!(
+            engine_dir.join("ink_engine/core/runtime.py").is_file(),
+            "缺失文件应被补回"
+        );
+        assert!(
+            !engine_dir.join("ink_engine/core/stale_old_file.py").exists(),
+            "残留文件应被清除（整树重拷以源为权威）"
+        );
+        std::env::remove_var("INKLING_RESOURCE_DIR");
+    }
+
+    /// 种子根是演化可写区：回填缺失文件但不清除运行时新增内容。
+    #[test]
+    fn provision_seed_backfills_missing_but_keeps_evolved_files() {
+        let _env = ENV_GUARD.lock().unwrap();
+        let ws = Scratch::new("seedevo");
+        let resources = ws.0.join("resources");
+        touch(&resources.join("inkling/seed_data/tools.json"));
+        touch(&resources.join("inkling/seed_data/event_types.json"));
+        std::env::set_var("INKLING_RESOURCE_DIR", resources.to_string_lossy().into_owned());
+        let data_dir = ws.0.join("data");
+        let _first = provision(&data_dir).expect("解包成功");
+        let seed_dir = data_dir.join("inkling/seed_data");
+        // 运行时演化：删除一个源文件 + 新增一个源里没有的文件。
+        std::fs::remove_file(seed_dir.join("tools.json")).unwrap();
+        touch(&seed_dir.join("evolved_by_runtime.json"));
+
+        let report = provision(&data_dir).expect("种子回填成功");
+        assert!(
+            seed_dir.join("tools.json").is_file(),
+            "缺失的源文件应被回填"
+        );
+        assert!(
+            seed_dir.join("evolved_by_runtime.json").is_file(),
+            "运行时演化新增文件不应被清除"
+        );
+        assert!(
+            !report.provisioned.contains(&"inkling".to_string()),
+            "回填不算整树重拷"
+        );
         std::env::remove_var("INKLING_RESOURCE_DIR");
     }
 

@@ -450,22 +450,41 @@ fn take_startup_snapshot(data_dir: &Path) -> Result<(), String> {
 /// 同步驱动任意 Future（命令面同步路径使用；单线程运行时内完成，
 /// 与引擎线程亲和纪律一致）。统一辅助：rounds 等命令模块不再各自
 /// 重建运行时（W-1 修复）。
-pub(crate) fn block_on<F: std::future::Future>(fut: F) -> F::Output {
+///
+/// tauri 的同步命令也在其 tokio 运行时 worker 上执行——若直接在此
+/// 上下文内再建 current-thread 运行时并 block_on，会触发
+/// 「Cannot start a runtime from within a runtime」panic。因此检测到
+/// 已处 tokio 上下文时，把阻塞驱动挪到专用线程完成（调用线程 join
+/// 等待），结果一致且不依赖外层运行时是单/多线程。
+pub(crate) fn block_on<F>(fut: F) -> F::Output
+where
+    F: std::future::Future + Send,
+    F::Output: Send,
+{
+    if tokio::runtime::Handle::try_current().is_ok() {
+        std::thread::scope(|s| {
+            let handle = s.spawn(move || blocking_runtime().block_on(fut));
+            handle
+                .join()
+                .unwrap_or_else(|_| panic!("同步驱动线程执行失败"))
+        })
+    } else {
+        blocking_runtime().block_on(fut)
+    }
+}
+
+/// 单线程阻塞运行时构造（专用线程/无运行时上下文共用）。
+fn blocking_runtime() -> tokio::runtime::Runtime {
     tokio::runtime::Builder::new_current_thread()
         .enable_all()
         .build()
         .expect("同步驱动运行时创建失败")
-        .block_on(fut)
 }
 
 /// 同步驱动异步引擎操作（装配/恢复路径无 tokio 上下文时使用；
 /// 单线程运行时内完成，与引擎线程亲和纪律一致）。
 fn block_on_op_async(op: &str, args: serde_json::Value) -> Result<serde_json::Value, String> {
-    tokio::runtime::Builder::new_current_thread()
-        .enable_all()
-        .build()
-        .map_err(|err| format!("操作运行时创建失败: {err}"))?
-        .block_on(engine::host::call_engine_op_async(op, args))
+    block_on(engine::host::call_engine_op_async(op, args))
 }
 
 /// 回合事实规则契约守卫（S3 修复）：引擎权威集合（`memory_extract.

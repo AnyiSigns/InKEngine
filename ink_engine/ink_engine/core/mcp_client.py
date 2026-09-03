@@ -746,6 +746,10 @@ class _ThreadedMcpTransport:
         config = self._config
         self._stop = asyncio.Event()
         env = None if config.env is None else dict(os.environ, **config.env)
+        # 内嵌 stdio 服务端（inkling_exec 等控制台子系统二进制）：Windows 下
+        # 不带 CREATE_NO_WINDOW 会为每个服务进程弹出控制台窗口（选工作区/
+        # 装配期尤为显眼）；随包服务一律隐藏窗口，stdio 管道承载全部通信。
+        creationflags = 0x08000000 if os.name == "nt" else 0  # noqa: PLW2004 CREATE_NO_WINDOW
         proc = await asyncio.create_subprocess_exec(
             config.command,
             *list(config.args),
@@ -753,6 +757,7 @@ class _ThreadedMcpTransport:
             stdout=asyncio.subprocess.PIPE,
             stderr=asyncio.subprocess.PIPE,
             env=env,
+            creationflags=creationflags,
         )
         self._proc = proc
         self._write_queue = asyncio.Queue()

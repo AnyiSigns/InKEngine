@@ -1,0 +1,12 @@
+{
+  "name": "@ink-ts/cli",
+  "version": "0.0.0",
+  "private": true,
+  "type": "module",
+  "description": "唯一进程载体/宿主执行体：stdio JSON-RPC 服务（dev/测试/无人值守），approval 仅 --approve 显式声明",
+  "scripts": {
+    "start": "tsx src/index.ts",
+    "test": "vitest run",
+    "typecheck": "tsc -p tsconfig.json"
+  }
+}

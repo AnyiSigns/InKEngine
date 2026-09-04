@@ -1,0 +1,61 @@
+{
+  "$schema": "http://json-schema.org/draft-07/schema#",
+  "title": "端点注册表（单一真源：引擎 7 内置 + 宿主增补注册位）",
+  "description": "冻结引擎 EndpointType/EndpointTypeSpec（core/declarative_tools.py:77-463）、壳 tool_decl.rs 2 态枚举与 security.rs 5 态枚举、self_check schema.rs 硬编码桥三处双套语义为单一数据面。钩子面（extractor/failure_reason/sandbox_builder）不落 JSON。",
+  "type": "object",
+  "required": ["version", "builtin_endpoints"],
+  "additionalProperties": false,
+  "properties": {
+    "version": { "type": "integer", "minimum": 1, "const": 1 },
+    "builtin_endpoints": {
+      "type": "array",
+      "minItems": 7,
+      "uniqueItems": true,
+      "items": { "$ref": "#/definitions/endpoint_type" }
+    }
+  },
+  "definitions": {
+    "endpoint_type": {
+      "type": "object",
+      "required": ["name", "actions", "config_requirements", "output_fields", "sandbox_ops"],
+      "additionalProperties": false,
+      "properties": {
+        "name": { "type": "string", "pattern": "^[a-z][a-z0-9_]*$" },
+        "actions": {
+          "type": "array",
+          "uniqueItems": true,
+          "items": { "type": "string", "pattern": "^[a-z][a-z0-9_]*$" }
+        },
+        "config_requirements": {
+          "type": "array",
+          "uniqueItems": true,
+          "items": { "type": "string", "pattern": "^[a-z][a-z0-9_]*$" }
+        },
+        "output_fields": {
+          "type": "array",
+          "uniqueItems": true,
+          "items": { "$ref": "#/definitions/output_field" }
+        },
+        "sandbox_ops": {
+          "type": "array",
+          "uniqueItems": true,
+          "items": { "type": "string", "pattern": "^[a-z][a-z0-9_]*$" }
+        }
+      }
+    },
+    "output_field": {
+      "type": "object",
+      "required": ["name", "required", "kind"],
+      "additionalProperties": false,
+      "properties": {
+        "name": { "type": "string", "minLength": 1 },
+        "required": { "type": "boolean" },
+        "kind": { "type": "string", "enum": ["string", "number", "object", "array", "boolean"] }
+      }
+    },
+    "endpoint_name": {
+      "type": "string",
+      "enum": ["http_fetch", "process_exec", "file_ops", "mcp", "web_search", "collab_request", "task_manager"]
+    }
+  }
+}

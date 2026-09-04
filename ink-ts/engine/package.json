@@ -1,0 +1,11 @@
+{
+  "name": "@ink-ts/engine",
+  "version": "0.0.0",
+  "private": true,
+  "type": "module",
+  "description": "L3 TS 引擎纯函数库（core/ 零框架依赖、零 IO，JSON 进 JSON 出）",
+  "scripts": {
+    "test": "vitest run",
+    "typecheck": "tsc -p tsconfig.json"
+  }
+}

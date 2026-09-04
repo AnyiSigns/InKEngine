@@ -1,0 +1,12 @@
+{
+  "name": "@ink-ts/contracts",
+  "version": "0.0.0",
+  "private": true,
+  "type": "module",
+  "description": "引擎 TS 迁移 P0 契约包：schema + fixtures + 类型生成器（数据面唯一真源）",
+  "scripts": {
+    "generate": "node scripts/generate.mjs",
+    "check": "python scripts/check_contract_sources.py",
+    "typecheck": "tsc -p tsconfig.json"
+  }
+}

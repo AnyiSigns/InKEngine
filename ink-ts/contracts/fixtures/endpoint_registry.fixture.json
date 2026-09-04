@@ -1,0 +1,60 @@
+{
+  "version": 1,
+  "builtin_endpoints": [
+    {
+      "name": "http_fetch",
+      "actions": ["connect"],
+      "config_requirements": [],
+      "output_fields": [
+        { "name": "status_code", "required": true, "kind": "number" },
+        { "name": "body", "required": true, "kind": "string" }
+      ],
+      "sandbox_ops": []
+    },
+    {
+      "name": "process_exec",
+      "actions": ["exec"],
+      "config_requirements": ["allowlist"],
+      "output_fields": [
+        { "name": "stdout", "required": true, "kind": "string" },
+        { "name": "exit_code", "required": true, "kind": "number" }
+      ],
+      "sandbox_ops": ["exec"]
+    },
+    {
+      "name": "file_ops",
+      "actions": ["read", "write", "delete", "edit", "search", "search_paths"],
+      "config_requirements": ["root"],
+      "output_fields": [{ "name": "result", "required": true, "kind": "string" }],
+      "sandbox_ops": ["read", "write", "delete", "edit", "search", "search_paths"]
+    },
+    {
+      "name": "mcp",
+      "actions": ["call"],
+      "config_requirements": ["server_id"],
+      "output_fields": [{ "name": "result", "required": true, "kind": "object" }],
+      "sandbox_ops": []
+    },
+    {
+      "name": "web_search",
+      "actions": ["search"],
+      "config_requirements": [],
+      "output_fields": [{ "name": "results", "required": true, "kind": "array" }],
+      "sandbox_ops": []
+    },
+    {
+      "name": "collab_request",
+      "actions": ["request"],
+      "config_requirements": [],
+      "output_fields": [],
+      "sandbox_ops": []
+    },
+    {
+      "name": "task_manager",
+      "actions": ["manage"],
+      "config_requirements": [],
+      "output_fields": [],
+      "sandbox_ops": []
+    }
+  ]
+}

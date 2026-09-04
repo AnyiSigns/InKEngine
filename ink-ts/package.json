@@ -1,0 +1,24 @@
+{
+  "name": "ink-ts",
+  "version": "0.0.0",
+  "private": true,
+  "type": "module",
+  "description": "受控自进化运行时 + 智能体的 TypeScript 单语言重表达（引擎 TS 迁移）",
+  "workspaces": ["contracts", "engine", "gate", "backend", "cli", "frontend"],
+  "scripts": {
+    "typecheck": "npm run typecheck --workspaces --if-present",
+    "test": "vitest run --root gate && vitest run --root cli && vitest run --root engine",
+    "gate": "tsx gate/src/check.ts",
+    "contracts:check": "..\\.venv\\Scripts\\python.exe contracts/scripts/check_contract_sources.py",
+    "contracts:generate": "npm run generate -w @ink-ts/contracts"
+  },
+  "devDependencies": {
+    "@types/node": "^24.0.0",
+    "tsx": "^4.19.0",
+    "typescript": "~5.8.2",
+    "vitest": "^3.0.5"
+  },
+  "allowScripts": {
+    "esbuild": true
+  }
+}

@@ -1,0 +1,11 @@
+{
+  "name": "@ink-ts/gate",
+  "version": "0.0.0",
+  "private": true,
+  "type": "module",
+  "description": "开发/CI 静态纪律工具：行数/import/词汇/生成文件检查（vitest 随跑，不打包进运行时）",
+  "scripts": {
+    "test": "vitest run",
+    "typecheck": "tsc -p tsconfig.json"
+  }
+}

@@ -1,0 +1,80 @@
+{
+  "$schema": "http://json-schema.org/draft-07/schema#",
+  "title": "补丁协议枚举层（补丁类型/审批分级/审计状态/补丁操作/守卫集合）",
+  "description": "冻结引擎补丁协议真源为单一数据面。真源：PatchKind core/self_proposal.py:42-54（10）；ApprovalLevel core/self_application.py:130-139（L0/L1/L2）；默认分级 :145-155（9 项，ENTITY 无默认）；审计状态 :120-127（6）；PatchOp core/patch_chain.py:32-35（append/replace/delete）；守卫集合 :91-114（7 精确 + 4 前缀）。",
+  "type": "object",
+  "required": [
+    "version",
+    "patch_kinds",
+    "approval_levels",
+    "default_approval_levels",
+    "audit_statuses",
+    "patch_ops",
+    "guarded_collections",
+    "guarded_prefixes"
+  ],
+  "additionalProperties": false,
+  "properties": {
+    "version": { "type": "integer", "minimum": 1, "const": 1 },
+    "patch_kinds": {
+      "type": "array",
+      "uniqueItems": true,
+      "items": {
+        "type": "string",
+        "enum": ["ui", "theme", "tool", "rule", "knowledge", "harness", "event_type", "environment", "artifact", "entity"]
+      }
+    },
+    "approval_levels": {
+      "type": "array",
+      "uniqueItems": true,
+      "items": { "type": "string", "enum": ["L0", "L1", "L2"] }
+    },
+    "default_approval_levels": {
+      "type": "object",
+      "required": ["ui", "theme", "tool", "rule", "knowledge", "harness", "event_type", "environment", "artifact"],
+      "additionalProperties": false,
+      "properties": {
+        "ui": { "const": "L0" },
+        "theme": { "const": "L0" },
+        "tool": { "const": "L1" },
+        "rule": { "const": "L1" },
+        "knowledge": { "const": "L1" },
+        "harness": { "const": "L1" },
+        "event_type": { "const": "L1" },
+        "environment": { "const": "L1" },
+        "artifact": { "const": "L2" }
+      }
+    },
+    "audit_statuses": {
+      "type": "array",
+      "uniqueItems": true,
+      "items": {
+        "type": "string",
+        "enum": ["applied", "rejected", "conflict", "invalid", "reverted", "reverted_with_notify_error"]
+      }
+    },
+    "patch_ops": {
+      "type": "array",
+      "uniqueItems": true,
+      "items": { "type": "string", "enum": ["append", "replace", "delete"] }
+    },
+    "guarded_collections": {
+      "type": "array",
+      "uniqueItems": true,
+      "items": { "type": "string", "pattern": "^[a-z_][a-z0-9_]*$" }
+    },
+    "guarded_prefixes": {
+      "type": "array",
+      "uniqueItems": true,
+      "items": { "type": "string", "pattern": "^[a-z_]+:$" }
+    }
+  },
+  "definitions": {
+    "patch_kind": {
+      "type": "string",
+      "enum": ["ui", "theme", "tool", "rule", "knowledge", "harness", "event_type", "environment", "artifact", "entity"]
+    },
+    "approval_level": { "type": "string", "enum": ["L0", "L1", "L2"] },
+    "patch_op": { "type": "string", "enum": ["append", "replace", "delete"] }
+  }
+}

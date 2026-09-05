@@ -1,0 +1,25 @@
+{
+  "signal_kinds": [
+    { "kind": "pitfall", "name": "踩坑", "distiller": "deterministic", "produced_kind": null, "note": "预期外失败：作为教训来源汇入蒸馏产物 note，不直接产出知识（试错分支丢弃）" },
+    { "kind": "user_correction", "name": "用户修正", "distiller": "deterministic", "produced_kind": "rule", "note": "卡回路 accept/edit 反例：最可靠规则素材，蒸馏为 rule 条目（主来源）" },
+    { "kind": "insight", "name": "洞见", "distiller": "deterministic", "produced_kind": "rule", "note": "成功路径可复用经验：蒸馏为 rule 条目（次级来源）" },
+    { "kind": "gap", "name": "流程缺口", "distiller": "deterministic", "produced_kind": null, "note": "缺某类能力：产出能力候选（propose_domain_manifest/工具候选入口），不直接产出知识" },
+    { "kind": "repeated_root_cause", "name": "重复根因", "distiller": "deterministic", "produced_kind": null, "note": "同一问题出现 ≥ 3 次：升级为人工确认候选（转人工修规范），不直接落库" }
+  ],
+  "distill": {
+    "enabled": true,
+    "tier": "router",
+    "complexity_threshold": 5,
+    "intervention_threshold": 1,
+    "repeat_threshold": 3,
+    "note": "阈值与引擎 knowledge_signals 常量对齐（DEFAULT_COMPLEXITY_THRESHOLD=5 / DEFAULT_INTERVENTION_THRESHOLD=1 / REPEAT_THRESHOLD=3）；蒸馏建链走 router 挡位，配置缺失回落 main 挡位"
+  },
+  "produced_kinds": {
+    "rule": "规则条目（data.rule.message 声明形态，与规则 DSL 兼容）",
+    "template": "编排模板条目",
+    "tool_rule": "工具使用规则条目",
+    "weight": "权重/阈值条目",
+    "capability_candidate": "能力候选（gap 信号产物，交 propose_domain_manifest 或工具提案管线）",
+    "human_confirmation": "人工确认候选（repeated_root_cause 产物）"
+  }
+}

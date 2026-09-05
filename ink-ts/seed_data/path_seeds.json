@@ -1,0 +1,51 @@
+{
+  "seed_paths": [
+    {
+      "id": "seed.path.general_template",
+      "domain": "default",
+      "title": "通用模板：意图 → 检索 → 生成 → 质检",
+      "description": "通用四步路径（意图解析 → 证据检索 → 结果生成 → 质量检测）：冷启动期不靠裸奔的核心骨架，任何域都可作为初始先验",
+      "chain": ["intent_parse", "retrieval_search", "answer_generate", "quality_detect"],
+      "edge_stats": { "success_count": 5, "fail_count": 1 }
+    },
+    {
+      "id": "seed.path.research_incubation",
+      "domain": "research",
+      "title": "研究孵化：意图 → 入料 → 解析 → 校验 → 蒸馏",
+      "description": "知识/研究孵化闭环路径（与既有研究模板同源）：喂资料 → 解析 → 校验 ← 蒸馏沉淀，样例闸门在蒸馏结点前拦截",
+      "chain": ["intent_parse", "collect_material", "parse_material", "validate_material", "distill_knowledge"],
+      "edge_stats": { "success_count": 5, "fail_count": 1 }
+    },
+    {
+      "id": "seed.path.development_loop",
+      "domain": "development",
+      "title": "开发闭环：意图 → 设计 → 编码 → 测试 → 构建检查",
+      "description": "开发循环路径（设计决断 → 代码生成 → 测试生成 → 构建检查）：失败信号回流回合再改，质检结点为回流入口",
+      "chain": ["intent_parse", "design_generate", "code_generate", "test_generate", "build_check"],
+      "edge_stats": { "success_count": 4, "fail_count": 2 }
+    },
+    {
+      "id": "seed.path.direct_answer",
+      "domain": "default",
+      "title": "直答：意图 → 直答",
+      "description": "轻路径（意图解析后直接回答）：低成本先验——收益不对称前提不成立时（直答型任务）默认走单结点路径",
+      "chain": ["intent_parse", "answer_direct"],
+      "edge_stats": { "success_count": 6, "fail_count": 0 }
+    },
+    {
+      "id": "seed.path.document_delivery",
+      "domain": "documentation",
+      "title": "文档交付：意图 → 入料 → 文档生成 → 质检",
+      "description": "文档域路径：材料收集 → 文档生成 → 质量检测（跨域合成场景的文档支流产出路径）",
+      "chain": ["intent_parse", "collect_material", "doc_generate", "quality_detect"],
+      "edge_stats": { "success_count": 4, "fail_count": 1 }
+    }
+  ],
+  "edge_defaults": {
+    "success_count": 3,
+    "fail_count": 1,
+    "avg_cost": 0.0,
+    "src_contract_version": "1",
+    "dst_contract_version": "1"
+  }
+}

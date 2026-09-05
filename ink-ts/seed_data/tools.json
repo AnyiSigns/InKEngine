@@ -1,0 +1,1864 @@
+{
+ "tools": [
+   {
+    "name": "collect_material",
+    "description": "行为意图：把研究素材采集回来——文本直取或 URL 取回，产物是未经解析的原始材料（title/text/source），只入料不加工。\n\n使用时机：研究课题/知识沉淀需要素材时；用户直接粘贴长文本、或给出一个待研究的 URL 时。\n\n取舍与替代选项：粘贴的文本走 text，URL 取回走 url，一次调用只采一个来源；与 fetch 工具的分工——fetch 是即时抓取单个网页原文直接支撑回答（每次出网弹审批卡），collect_material 是研究流程的入料环节（走 inkling_exec 会话）；判断标准是「是否要进知识沉淀链」，要进链用本工具。\n\n参数语义：url=待取回的 URL（url 档受控取回：走网络审批网关，域名不在白名单时弹审批卡、审批通过后放行，与 text 二选一）；text=直接粘贴的文本内容（纯本地直取，无出网，与 url 二选一）；max_bytes=大小上限保护（默认 1 MiB，超出截断并标记）。\n\n边界与协作：url 取回仅 http/https，经引擎受控 fetch 通道（定义级 allow_domains = 免审批快速路径白名单，未命中域名强制审批即网关，审批是唯一防线）；exec 侧保持 fail-closed（深度防御，url 档不经 inkling_exec 直取）；原始材料不得直接作为知识条目，须经 parse_material 结构化、validate_material 校验后才有资格沉淀；多个来源分别调用，一次一料。",
+    "parameters": {
+     "type": "object",
+     "properties": {
+      "url": {
+       "type": "string",
+       "description": "待取回的 URL（url 档受控取回：非白名单域名经审批卡裁决，与 text 二选一）"
+      },
+      "text": {
+       "type": "string",
+       "description": "直接粘贴的文本内容（纯本地直取，与 url 二选一）"
+      },
+      "max_bytes": {
+       "type": "integer",
+       "description": "大小上限保护（默认 1 MiB，超出截断并标记）"
+      }
+     },
+     "required": [],
+     "anyOf": [
+      {
+       "required": [
+        "text"
+       ]
+      },
+      {
+       "required": [
+        "url"
+       ]
+      }
+     ]
+    },
+    "permissions": [
+     "mcp:call:inkling_exec",
+     "network:connect:*"
+    ],
+    "approval": "allow",
+    "endpoint": "mcp",
+    "endpoint_config": {
+     "server_id": "inkling_exec"
+    },
+    "network_policy": {
+     "allow_domains": [],
+     "note": "url 档网络策略（同 fetch 审批即网关）：allow_domains 为免审批快速路径白名单，未命中域名强制转审批、审批通过后放行；留空 = 每次 url 取回都弹卡"
+    },
+    "meta": {
+     "domain": "research",
+     "executor": "inkling_exec:inkling_collect",
+     "sandbox": "server_session",
+     "retrieval": "controlled_fetch"
+    }
+   },
+  {
+   "name": "parse_material",
+   "description": "行为意图：把原始材料结构化——按声明式抽取规格从文本中抽出标题/正文/要点/来源引用，是「采集→知识」之间的整形环节。\n\n使用时机：collect_material 产出原始材料后、做校验/评分/评审之前；材料是纯文本、后续要复用其内容时。\n\n取舍与替代选项：一次性问答场景直接用原始文本即可，不必 parse；需要内容化沉淀时再结构化；与 validate_material 的分工——本工具只整形不管好坏，校验管「合规与否」，评分管「证据强弱」。\n\n参数语义：text=待解析文本；spec=抽取规格清单（每条声明 name/kind/start/end/prefix/needle）。spec 直接传 JSON 数组，勿把数组序列化成字符串。\n\n边界与协作：纯计算无副作用、无出网（allow 档）；解析产物被 review_material 消费（phase=score 评分 / phase=review 评审）；关键字段缺失时回落原文，不以空壳数据进下游链。",
+   "parameters": {
+    "type": "object",
+    "properties": {
+     "text": {
+      "type": "string",
+      "description": "待解析文本"
+     },
+     "spec": {
+      "type": "array",
+      "items": {
+       "type": "object",
+       "properties": {
+        "name": {
+         "type": "string",
+         "description": "字段名"
+        },
+        "kind": {
+         "type": "string",
+         "enum": [
+          "between",
+          "line_prefix",
+          "count",
+          "contains"
+         ],
+         "description": "抽取方式"
+        },
+        "start": {
+         "type": "string",
+         "description": "between：起始标记"
+        },
+        "end": {
+         "type": "string",
+         "description": "between：结束标记"
+        },
+        "prefix": {
+         "type": "string",
+         "description": "line_prefix：行前缀"
+        },
+        "include_prefix": {
+         "type": "boolean",
+         "description": "line_prefix：结果是否含前缀"
+        },
+        "needle": {
+         "type": "string",
+         "description": "count/contains：查找串"
+        }
+       },
+       "required": [
+        "name",
+        "kind"
+       ]
+      },
+      "description": "抽取规格清单"
+     }
+    },
+    "required": [
+     "text",
+     "spec"
+    ]
+   },
+   "permissions": [
+    "mcp:call:inkling_exec"
+   ],
+   "approval": "allow",
+   "endpoint": "mcp",
+   "endpoint_config": {
+    "server_id": "inkling_exec"
+   },
+   "network_policy": {
+    "allow_domains": []
+   },
+   "meta": {
+    "domain": "research",
+    "executor": "inkling_exec:inkling_parse",
+    "sandbox": "server_session"
+   }
+  },
+  {
+   "name": "validate_material",
+   "description": "行为意图：按规则集（rules.json）对数据对象做确定性违规评估——输出违规清单（每项含 规则/类别/严重级/原因），是知识链的合规闸门执行体。\n\n使用时机：材料/知识条目/蒸馏变异产物入库前；任何要进知识集的数据对象，先过一遍本工具。\n\n取舍与替代选项：只要「合规与否」的裁决——本工具；需要加权分与收敛判定——review_material(phase=review)；需要交叉验证评分——review_material(phase=score)；选择取决于「要的是违规裁决，还是质量与取舍建议」。\n\n参数语义（以执行器真实 schema 为准）：data=待校验的数据对象（材料/知识条目，必填）；rules=规则 id 字符串数组（可选；缺省按全量规则评估；未知 id 显式拒绝）；context=可选的求值上下文对象。\n\n边界与协作：纯只读、无副作用；评估语义与样例闸门同源（fail-open 留痕：规则不命中不拦但记痕）；违规清单是知识闸门拦截的留痕依据，规则集数据驱动、可经补丁链演化。",
+   "parameters": {
+    "type": "object",
+    "properties": {
+     "data": {
+      "type": "object",
+      "description": "待校验的数据对象（材料/知识条目；必填字段按规则要求，如 id/kind/source 等缺失会命中对应规则）"
+     },
+     "rules": {
+      "type": "array",
+      "items": {
+       "type": "string"
+      },
+      "description": "规则 id 子集（缺省全量）"
+     },
+     "context": {
+      "type": "object",
+      "description": "求值上下文对象（可选；供带上下文依赖的规则求值）"
+     }
+    },
+    "required": [
+     "data"
+    ]
+   },
+   "permissions": [
+    "mcp:call:inkling_exec"
+   ],
+   "approval": "allow",
+   "endpoint": "mcp",
+   "endpoint_config": {
+    "server_id": "inkling_exec"
+   },
+   "network_policy": {
+    "allow_domains": []
+   },
+   "meta": {
+    "domain": "research",
+    "executor": "inkling_exec:inkling_validate",
+    "sandbox": "server_session"
+   }
+  },
+  {
+   "name": "review_material",
+   "description": "行为意图：知识质量执行体——按 phase 二态：phase=review（缺省）评审收敛循环（按 review.json 的维度/阈值/轮次上限对候选输出打分、给出 failing_dimensions 与改进意见，并输出收敛决策 接受/再生成/呈交现状）；phase=score 确定性评分（引用质量/交叉验证，原 score_material 并入，交叉验证绑定 samples.json 基准事实）。\n\n使用时机：候选输出定稿前必须过一遍；「生成→评审→再生成」循环每轮调用（phase=review）；需要量化证据强度读数时用 phase=score。\n\n取舍与替代选项：单项内容检查/量化评分——phase=score；合规性裁决——validate_material；「该不该收、要不要再改」的加权总评与轮次判定——phase=review。\n\n参数语义（以执行器真实 schema 为准）：phase=score 时 answer=候选答案对象，answer.claims 为断言对象数组（每项含 text），answer.citations 为引用对象数组（每项含 claim_index/source_id/quote），sources=来源对象数组（每项含 id/text），weights=四维权重覆盖；phase=review 时 candidates=候选对象数组（每项含 text 与可选的 claims/citations/topic），dimension_scores=显式维度得分数组（每项含 candidate_index/name/score），round_no=当前轮次。数组参数直接传 JSON 数组，勿把数组序列化成字符串。\n\n边界与协作：维度/阈值/轮次上限全部数据驱动（review.json）；达到轮次上限呈交现状并附 notes，不无限循环；评审卡经审批管线对用户可见，评审通过后方可沉淀；评分不改材料本身。",
+   "parameters": {
+    "type": "object",
+    "properties": {
+     "candidates": {
+      "type": "array",
+      "items": {
+       "type": "object",
+       "properties": {
+        "text": {
+         "type": "string",
+         "description": "候选文本"
+        },
+        "claims": {
+         "type": "array",
+         "description": "断言清单（完备性启发式用）"
+        },
+        "citations": {
+         "type": "array",
+         "description": "引用清单（证据启发式用）"
+        },
+        "topic": {
+         "type": "string",
+         "description": "主题（相关性启发式用）"
+        }
+       }
+      },
+      "description": "候选输出清单（phase=review 用）"
+     },
+     "dimension_scores": {
+      "type": "array",
+      "items": {
+       "type": "object",
+       "properties": {
+        "candidate_index": {
+         "type": "integer",
+         "description": "候选下标"
+        },
+        "name": {
+         "type": "string",
+         "description": "维度名"
+        },
+        "score": {
+         "type": "number",
+         "description": "得分（0-1）"
+        }
+       },
+       "required": [
+        "candidate_index",
+        "name",
+        "score"
+       ]
+      },
+      "description": "显式维度得分（缺省 = 确定性启发式默认口径）；显式提供时该候选全部配置维度须齐全"
+     },
+     "round_no": {
+      "type": "integer",
+      "description": "当前再生成轮次（收敛决策用）"
+     },
+     "phase": {
+      "type": "string",
+      "enum": [
+       "score",
+       "review"
+      ],
+      "description": "执行阶段（score=确定性评分；review=评审收敛，缺省 review）"
+     },
+     "answer": {
+      "type": "object",
+      "description": "候选答案对象（phase=score 用）：claims=断言对象数组（每项必含 text），citations=引用对象数组（每项含 claim_index 整数 + source_id + quote，可选）",
+      "properties": {
+       "claims": {
+        "type": "array",
+        "items": {
+         "type": "object",
+         "properties": {
+          "text": {
+           "type": "string",
+           "description": "断言文本"
+          }
+         }
+        },
+        "description": "断言对象数组（每项须含 text）"
+       },
+       "citations": {
+        "type": "array",
+        "items": {
+         "type": "object",
+         "properties": {
+          "claim_index": {
+           "type": "integer",
+           "description": "指向 claims 的下标"
+          },
+          "source_id": {
+           "type": "string",
+           "description": "来源 id（对应 sources 项的 id）"
+          },
+          "quote": {
+           "type": "string",
+           "description": "引用原文"
+          }
+         }
+        },
+        "description": "引用对象数组（每项含 claim_index/source_id/quote）"
+       }
+      }
+     },
+     "sources": {
+      "type": "array",
+      "items": {
+       "type": "object",
+       "properties": {
+        "id": {
+         "type": "string",
+         "description": "来源 id"
+        },
+        "text": {
+         "type": "string",
+         "description": "来源正文"
+        }
+       }
+      },
+      "description": "来源对象数组（phase=score 用；每项须含 id 与 text，可验证性基准）"
+     },
+     "weights": {
+      "type": "object",
+      "description": "四维度权重覆盖（phase=score 用，缺省 = 出厂默认口径，总和 1.0）"
+     }
+    },
+    "required": []
+   },
+   "permissions": [
+    "mcp:call:inkling_exec"
+   ],
+   "approval": "allow",
+   "endpoint": "mcp",
+   "endpoint_config": {
+    "server_id": "inkling_exec"
+   },
+   "network_policy": {
+    "allow_domains": []
+   },
+   "meta": {
+    "domain": "research",
+    "executor": "inkling_exec:inkling_review",
+    "sandbox": "server_session"
+   }
+  },
+  {
+   "name": "distill_knowledge",
+   "description": "行为意图：把执行信号序列（五类）蒸馏成结构化知识数据（rule 形态声明）——丢弃试错分支，只保留可落库的心得。\n\n使用时机：一轮执行产生了信号（gap/insight/pitfall/repeated_root_cause/user_correction）需要沉淀时；失败/纠正经验入库前。\n\n取舍与替代选项：只要归档单条事实——直接记知识条目；要从信号归纳「规则形态」的教训——本工具；已有条目要进化——mutate_knowledge；先蒸馏得到母体，再谈变异，两者是先后关系。\n\n参数语义：signals=执行信号序列（每条含 kind/message，source/context 可选）；complexity=任务复杂度；interventions=用户干预次数（双阈值按需触发判定用）。signals 直接传 JSON 数组，勿把数组序列化成字符串。\n\n边界与协作：产物为 rule 形态声明，须过校验闸门（validate_material/样例闸门）才可入集；蒸馏先于变异；不产证据支持的教训会被拦截（无依据不落库）。",
+   "parameters": {
+    "type": "object",
+    "properties": {
+     "signals": {
+      "type": "array",
+      "items": {
+       "type": "object",
+       "properties": {
+        "kind": {
+         "type": "string",
+         "description": "信号类别"
+        },
+        "message": {
+         "type": "string",
+         "description": "信号内容"
+        },
+        "source": {
+         "type": "string",
+         "description": "来源（web/dialog/model/user）"
+        },
+        "context": {
+         "type": "object",
+         "description": "关联上下文"
+        }
+       },
+       "required": [
+        "kind",
+        "message"
+       ]
+      },
+      "description": "执行信号序列（五类）"
+     },
+     "complexity": {
+      "type": "integer",
+      "description": "任务复杂度（蒸馏按需触发判定用）"
+     },
+     "interventions": {
+      "type": "integer",
+      "description": "用户干预次数（蒸馏按需触发判定用）"
+     }
+    },
+    "required": [
+     "signals"
+    ]
+   },
+   "permissions": [
+    "mcp:call:inkling_exec"
+   ],
+   "approval": "allow",
+   "endpoint": "mcp",
+   "endpoint_config": {
+    "server_id": "inkling_exec"
+   },
+   "network_policy": {
+    "allow_domains": []
+   },
+   "meta": {
+    "domain": "research",
+    "executor": "inkling_exec:inkling_distill",
+    "sandbox": "server_session"
+   }
+  },
+  {
+   "name": "mutate_knowledge",
+   "description": "行为意图：按失败日志对母体知识条目做反思式变异——产出携 _mutation 留痕（variant_of/based_on）的变体，数量随失败信号动态，是进化工厂的变异执行体。\n\n使用时机：某条知识实际使用失败率偏高、需要候选变体时；failure_logs 是必须输入（无失败日志=零变异，不做无依据变异）。\n\n取舍与替代选项：从信号做全新归纳——distill_knowledge；只是略改文案——直接改，不必变异；本工具=「失败反思驱动」的规则进化入口。\n\n参数语义（以执行器真实 schema 为准）：entry=母体知识条目对象，须同时含 id（字符串）与 data（对象，变异基底）两个键；failure_logs=失败日志字符串数组；max_variants=变体数量上限；failure_rate=母体失败率（≥0.3 高失败率 → 多探索）。\n\n边界与协作：变体不自动替换母体，须过三层验证闸门与评审筛选取舍；变异留痕保证可追溯回母体与失败日志；与 distill_knowledge 的分工：前者造新、本工具改旧。",
+   "parameters": {
+    "type": "object",
+    "properties": {
+     "entry": {
+      "type": "object",
+      "description": "母体知识条目（须同时含 id 字符串与 data 对象两键；变异基底）",
+      "properties": {
+       "id": {
+        "type": "string",
+        "description": "条目 id（顶层键）"
+       },
+       "data": {
+        "type": "object",
+        "description": "条目数据（变异基底）"
+       }
+      },
+      "required": [
+       "id",
+       "data"
+      ]
+     },
+     "failure_logs": {
+      "type": "array",
+      "items": {
+       "type": "string"
+      },
+      "description": "近期失败日志"
+     },
+     "max_variants": {
+      "type": "integer",
+      "description": "变体数量上限（默认 3）"
+     },
+     "failure_rate": {
+      "type": "number",
+      "description": "母体失败率（≥0.3 高失败率 → 多探索）"
+     }
+    },
+    "required": [
+     "entry",
+     "failure_logs"
+    ]
+   },
+   "permissions": [
+    "mcp:call:inkling_exec"
+   ],
+   "approval": "review",
+   "endpoint": "mcp",
+   "endpoint_config": {
+    "server_id": "inkling_exec"
+   },
+   "network_policy": {
+    "allow_domains": []
+   },
+   "meta": {
+    "domain": "research",
+    "executor": "inkling_exec:inkling_mutate",
+    "sandbox": "server_session"
+   }
+  },
+  {
+   "name": "file_query",
+   "description": "行为意图：设备感知——对工作区外路径做只读状态扫描（存在性/大小/时间戳/目录结构/文件名过滤），不读内容不写。\n\n使用时机：任务涉及工作区外路径（桌面/下载/系统目录）需要先摸清状态时；移动/打开前先确认存在与位置时。\n\n取舍与替代选项：要读工作区内容——file_read；要按内容找——grep；要按文件名找——glob；本工具=文件状态与边界（不含内容）；工作区内的内容操作全部交给 file 家族专用工具，本工具只补「工作区外看一眼」的空位。\n\n参数语义：path=待查询路径；pattern=文件名过滤模式。\n\n边界与协作：只读扫描，绝不写；工作区外敏感目录受限，越界被拒；查到路径后的打开动作另行走 open_file/launch_app，本工具不代行。",
+   "parameters": {
+    "type": "object",
+    "properties": {
+     "path": {
+      "type": "string",
+      "description": "待查询路径"
+     },
+     "pattern": {
+      "type": "string",
+      "description": "文件名过滤模式"
+     }
+    },
+    "required": [
+     "path"
+    ]
+   },
+   "permissions": [
+    "mcp:call:inkling_shell"
+   ],
+   "approval": "review",
+   "endpoint": "mcp",
+   "endpoint_config": {
+    "server_id": "inkling_shell"
+   },
+   "network_policy": {
+    "allow_domains": []
+   },
+   "meta": {
+    "domain": "os",
+    "sensor": "screen",
+    "executor": "shell:device_sense",
+    "sandbox": "server_session"
+   }
+  },
+  {
+   "name": "system_query",
+   "description": "行为意图：系统状态查询——CPU/内存/进程概览/磁盘，只读快照，无副作用。\n\n使用时机：排障/性能判断前先取一次基线；用户问「机器怎么样/进程情况」时。\n\n取舍与替代选项：只看状态——本工具；要控制——用具体控制工具（launch_app 等）；与 ui_query 的分工：那边看屏幕感知，本工具看系统；进程细节敏感，展示即受限。\n\n参数语义：command=固定值 system_query（端点操作判定同源，调用方恒传）；scope=查询范围（system/process/disk）。\n\n边界与协作：只读（allow 档，不挂审批卡）；经 process_exec 端点白名单收口；查询结果供分析，不自动执行任何动作。",
+   "parameters": {
+    "type": "object",
+    "properties": {
+     "command": {
+      "type": "string",
+      "enum": [
+       "system_query"
+      ],
+      "description": "命令名（固定值；与 process_exec 端点操作判定同源，调用方恒传）"
+     },
+     "query": {
+      "type": "string",
+      "enum": [
+       "os",
+       "arch",
+       "hostname",
+       "home",
+       "cwd",
+       "uptime"
+      ],
+      "description": "查询项（与 process_exec 执行器 query 参数同源）"
+     }
+    },
+    "required": [
+     "command",
+     "query"
+    ]
+   },
+   "permissions": [
+    "process:exec:system_query"
+   ],
+   "approval": "allow",
+   "endpoint": "process_exec",
+   "endpoint_config": {
+    "allowlist": [
+     "system_query"
+    ]
+   },
+   "network_policy": {
+    "allow_domains": []
+   },
+   "meta": {
+    "domain": "os",
+    "executor": "shell:system_query",
+    "sandbox": "process_allowlist"
+   }
+  },
+  {
+   "name": "launch_app",
+   "description": "行为意图：启动应用——经命令白名单的 shell 执行器拉起用户指定应用（含参数），是「用户要求打开某个应用」的执行体。\n\n使用时机：用户说「打开 微信/浏览器/VSCode」等具体应用时；带参数启动（如带 URL 打开浏览器）时。\n\n取舍与替代选项：打开文件（默认程序）——open_file；跑任意命令——shell_exec（出厂 deny 档，须显式转正）；本工具=应用级白名单入口，白名单外应用直接拒绝而非静默失败；首次越界操作强制 L2 人工审批。\n\n参数语义：command=固定值 launch_app（端点操作判定同源，调用方恒传）；app=应用名或启动标识；args=启动参数（可选）。\n\n边界与协作：命令白名单收口；审批档 review；启动后的应用行为超出工具管辖；与 open_file 的分工：本工具拉起「应用」，open_file 交付「文件」。",
+   "parameters": {
+    "type": "object",
+    "properties": {
+     "command": {
+      "type": "string",
+      "enum": [
+       "launch_app"
+      ],
+      "description": "命令名（固定值；与 process_exec 端点操作判定同源，调用方恒传）"
+     },
+     "app": {
+      "type": "string",
+      "description": "应用名或启动标识"
+     },
+     "args": {
+      "type": "array",
+      "items": {
+       "type": "string"
+      },
+      "description": "启动参数"
+     }
+    },
+    "required": [
+     "command",
+     "app"
+    ]
+   },
+   "permissions": [
+    "process:exec:launch_app"
+   ],
+   "approval": "review",
+   "endpoint": "process_exec",
+   "endpoint_config": {
+    "allowlist": [
+     "launch_app"
+    ]
+   },
+   "network_policy": {
+    "allow_domains": []
+   },
+   "meta": {
+    "domain": "os",
+    "control": true,
+    "executor": "shell:launch_app",
+    "sandbox": "process_allowlist"
+   }
+  },
+  {
+   "name": "open_file",
+   "description": "行为意图：以系统默认程序打开指定文件——把文件交付给用户/宿主环境，是「打开这个文件」的执行体。\n\n使用时机：用户要求打开某文件/文档时；输出需要「用户亲眼看到」而不仅是文本回答时。\n\n取舍与替代选项：只是读内容分析——file_read（不触发宿主程序）；要编辑——file_edit；本工具=系统级打开动作。\n\n参数语义：command=固定值 open_file（端点操作判定同源，调用方恒传）；path=待打开文件路径，须为绝对路径且位于工作区挂载根内（沙箱按工作区挂载根校验，相对路径会被拒绝）。\n\n边界与协作：路径越出工作区挂载根被拒（路径须为绝对路径/路径不在工作区挂载根内）；被打开程序的行为不受本工具约束；打开失败（文件不存在/无默认程序）由结果回执反馈，不静默。",
+   "parameters": {
+    "type": "object",
+    "properties": {
+     "command": {
+      "type": "string",
+      "enum": [
+       "open_file"
+      ],
+      "description": "命令名（固定值；与 process_exec 端点操作判定同源，调用方恒传）"
+     },
+     "path": {
+      "type": "string",
+      "description": "待打开文件路径"
+     }
+    },
+    "required": [
+     "command",
+     "path"
+    ]
+   },
+   "permissions": [
+    "process:exec:open_file"
+   ],
+   "approval": "review",
+   "endpoint": "process_exec",
+   "endpoint_config": {
+    "allowlist": [
+     "open_file"
+    ]
+   },
+   "network_policy": {
+    "allow_domains": []
+   },
+   "meta": {
+    "domain": "os",
+    "control": true,
+    "executor": "shell:open_file",
+    "sandbox": "process_allowlist"
+   }
+  },
+  {
+   "name": "set_volume",
+   "description": "行为意图：调节系统音量——shell 执行器按 0-100 数值设置音量档位。\n\n使用时机：用户明确要求「调大/调小/静音/音量到 x」时。\n\n取舍与替代选项：亮度——set_brightness；通知——notify；本工具只改音量，播放控制等其它音频行为不在本工具范围。\n\n参数语义：command=固定值 set_volume（端点操作判定同源，调用方恒传）；level=音量百分比（0-100）。\n\n边界与协作：越界取值被参数 schema 拒绝；实际音量受系统硬件/策略限制，以系统反馈为准；无副作用于文件/网络。",
+   "parameters": {
+    "type": "object",
+    "properties": {
+     "command": {
+      "type": "string",
+      "enum": [
+       "set_volume"
+      ],
+      "description": "命令名（固定值；与 process_exec 端点操作判定同源，调用方恒传）"
+     },
+     "percent": {
+      "type": "number",
+      "minimum": 0,
+      "maximum": 100,
+      "description": "百分比（与执行器 percent 参数同源）"
+     }
+    },
+    "required": [
+     "command",
+     "percent"
+    ]
+   },
+   "permissions": [
+    "process:exec:set_volume"
+   ],
+   "approval": "review",
+   "endpoint": "process_exec",
+   "endpoint_config": {
+    "allowlist": [
+     "set_volume"
+    ]
+   },
+   "network_policy": {
+    "allow_domains": []
+   },
+   "meta": {
+    "domain": "os",
+    "control": true,
+    "executor": "shell:set_volume",
+    "sandbox": "process_allowlist"
+   }
+  },
+  {
+   "name": "set_brightness",
+   "description": "行为意图：调节屏幕亮度——shell 执行器按 0-100 数值设置亮度档位。\n\n使用时机：用户要求「调亮/调暗」等亮度操作时；夜间用眼前降低亮度时。\n\n取舍与替代选项：音量——set_volume；屏幕感知——ui_query；本工具只改亮度。\n\n参数语义：command=固定值 set_brightness（端点操作判定同源，调用方恒传）；level=亮度百分比（0-100）。\n\n边界与协作：越界取值被 schema 拒绝；硬件/系统策略不支持的档位以系统反馈为准；笔记本与显示器差异由执行器适配。",
+   "parameters": {
+    "type": "object",
+    "properties": {
+     "command": {
+      "type": "string",
+      "enum": [
+       "set_brightness"
+      ],
+      "description": "命令名（固定值；与 process_exec 端点操作判定同源，调用方恒传）"
+     },
+     "percent": {
+      "type": "number",
+      "minimum": 0,
+      "maximum": 100,
+      "description": "百分比（与执行器 percent 参数同源）"
+     }
+    },
+    "required": [
+     "command",
+     "percent"
+    ]
+   },
+   "permissions": [
+    "process:exec:set_brightness"
+   ],
+   "approval": "review",
+   "endpoint": "process_exec",
+   "endpoint_config": {
+    "allowlist": [
+     "set_brightness"
+    ]
+   },
+   "network_policy": {
+    "allow_domains": []
+   },
+   "meta": {
+    "domain": "os",
+    "control": true,
+    "executor": "shell:set_brightness",
+    "sandbox": "process_allowlist"
+   }
+  },
+  {
+   "name": "notify",
+   "description": "行为意图：发送系统通知——通知中心/托盘提示，是对话之外的提醒通道（长任务完成、等待触达）。\n\n使用时机：用户离开对话、任务需异步同步时；sleep 到点后组合本工具实现「到点提醒」时。\n\n取舍与替代选项：对话内反馈——直接文本回复（更快）；需要独立可见提醒——本工具；等待后提醒——sleep（等待）+ notify（出口）；本工具不做定时。\n\n参数语义：command=固定值 notify（端点操作判定同源，调用方恒传）；title=通知标题；body=通知正文。\n\n边界与协作：无副作用、allow 档；通知不自动确认、不读回执；与 sleep 组合是「等待→提醒」的完成路径。",
+   "parameters": {
+    "type": "object",
+    "properties": {
+     "command": {
+      "type": "string",
+      "enum": [
+       "notify"
+      ],
+      "description": "命令名（固定值；与 process_exec 端点操作判定同源，调用方恒传）"
+     },
+     "title": {
+      "type": "string"
+     },
+     "body": {
+      "type": "string"
+     }
+    },
+    "required": [
+     "command",
+     "title",
+     "body"
+    ]
+   },
+   "permissions": [
+    "process:exec:notify"
+   ],
+   "approval": "allow",
+   "endpoint": "process_exec",
+   "endpoint_config": {
+    "allowlist": [
+     "notify"
+    ]
+   },
+   "network_policy": {
+    "allow_domains": []
+   },
+   "meta": {
+    "domain": "os",
+    "control": true,
+    "executor": "shell:notify",
+    "sandbox": "process_allowlist"
+   }
+  },
+  {
+   "name": "sleep",
+   "description": "行为意图：前台等待——在当前回合内休眠指定秒数，睡醒后继续执行；是「时间维度操作」的唯一入口。\n\n使用时机：用户要求「等一会儿再继续」「N 秒后执行某动作」等需要经过一段时间的动作；等待期间回合保持前台，用户停止会话即打断本次休眠与整个回合。\n\n取舍与替代选项：立等可做的动作——直接执行，不该 sleep；后台到点触发——不提供后台驻留机制，统一用本工具前台等待（停止会话即可打断，无后台幽灵任务）。\n\n参数语义：command=固定值 sleep（端点操作判定同源，调用方恒传）；seconds=等待秒数。\n\n边界与协作：休眠为前台工具调用，回合事件正常留痕；等待可被停止按钮打断；无需审批（无害等待）。",
+   "parameters": {
+    "type": "object",
+    "properties": {
+     "command": {
+      "type": "string",
+      "enum": [
+       "sleep"
+      ],
+      "description": "命令名（固定值；与 process_exec 端点操作判定同源，调用方恒传）"
+     },
+     "seconds": {
+      "type": "integer",
+      "description": "等待秒数"
+     }
+    },
+    "required": [
+     "command",
+     "seconds"
+    ]
+   },
+   "permissions": [
+    "process:exec:sleep"
+   ],
+   "approval": "allow",
+   "endpoint": "process_exec",
+   "endpoint_config": {
+    "allowlist": [
+     "sleep"
+    ]
+   },
+   "network_policy": {
+    "allow_domains": []
+   },
+   "meta": {
+    "domain": "os",
+    "control": true,
+    "executor": "shell:sleep",
+    "sandbox": "process_allowlist"
+   }
+  },
+  {
+   "name": "shell_exec",
+   "description": "行为意图：在工作区中执行命令——装依赖（pip/uv）、跑脚本（python）、版本管理（git）、构建（cargo/npm/npx）等开发命令。混合级别：白名单内命令 cwd 钉在工作区挂载根（沙箱级）；白名单外命令经升级审批卡（L2，弹卡说明命令与参数）通过后一次性系统级放行（cwd=系统主目录），审批卡为唯一防线。timeout 参数由 agent 控制执行时长（1-3600 秒，缺省 180）。\n\n使用时机：需要实际运行命令时——安装测试依赖、执行脚本、查看工作区进程等；需要跑白名单外命令时经审批升级放行。\n\n取舍与替代选项：跑测试直接用 shell_exec（python -m pytest / cargo test / npx vitest run / npx tsc --noEmit）；不再需要单独的 run_test_* 模板工具。\n\n参数语义：command=固定值 shell_exec（端点操作判定同源，调用方恒传）；argv=待执行命令参数数组（argv[0]=命令名；白名单内 = 工作区沙箱执行，白名单外 = 审批卡升级放行）；timeout=执行超时秒数（可选，agent 可控时长，1-3600，缺省 180）。\n\n边界与协作：白名单内命令面白名单+审批档双闸；白名单外命令升级审批 = 一次性放行，审批卡为唯一防线（无二次白名单）；被拒属权限契约预期，须经补丁链审批转正（放开命令）。",
+   "parameters": {
+    "type": "object",
+    "properties": {
+     "command": {
+      "type": "string",
+      "enum": [
+       "shell_exec"
+      ],
+      "description": "命令名（固定值；与 process_exec 端点操作判定同源，调用方恒传）"
+     },
+     "argv": {
+      "description": "待执行命令参数（argv[0]=命令名；白名单内命令 cwd=工作区挂载根，白名单外命令经升级审批后 cwd=系统主目录）",
+      "items": {
+       "type": "string"
+      },
+      "type": "array"
+     },
+     "timeout": {
+      "type": "integer",
+      "description": "执行超时秒数（可选；agent 可控时长，1-3600，缺省 180）"
+     }
+    },
+    "required": [
+     "command",
+     "argv"
+    ]
+   },
+   "permissions": [
+    "process:exec:pip|python|uv|git|cargo|npm|npx"
+   ],
+   "approval": "review",
+   "endpoint": "process_exec",
+   "endpoint_config": {
+    "allowlist": [
+     "pip",
+     "python",
+     "uv",
+     "git",
+     "cargo",
+     "npm",
+     "npx"
+    ],
+    "root": "${workspace_root}",
+    "operation_param": "argv"
+   },
+   "network_policy": {
+    "allow_domains": []
+   },
+   "meta": {
+    "domain": "os",
+    "control": false,
+    "deny_by_default": false,
+    "escalation": true,
+    "executor": "host:shell_exec_guard",
+    "sandbox": "process_allowlist",
+    "note": "工作区命令执行：白名单内命令 cwd 钉工作区挂载根；白名单外命令经升级审批（L2 卡）后一次性系统级放行（cwd=主目录），审批卡为唯一防线"
+   }
+  },
+  {
+   "name": "fetch",
+   "description": "行为意图：网络抓取——经 http_fetch 端点以 GET 取回网页原文，出网走审批卡（出厂 review 档），已记住域名直过，超限截断。\n\n使用时机：回答需要「某个网页当前原文」时（事实核查/取原文引文）；web_search 定位出 URL 之后的抓取步骤。\n\n取舍与替代选项：找网页——web_search（检索定位）；研究链批量入料——collect_material；本工具=检索后的单页抓取；只抓不存，结果直接支撑回答。\n\n参数语义：url=待抓取 URL（每次出网弹审批卡；勾选「记住此域名」后该域直过）。\n\n边界与协作：审批即网关（可经 TOOL 补丁演化）；仅 http/https、超限截断（size_limit_bytes）；结果不自动进知识集；与 web_search 串行使用是「先定位后取证」的标准顺序。",
+   "parameters": {
+    "type": "object",
+    "properties": {
+     "url": {
+      "type": "string",
+      "description": "待抓取 URL（出网经审批卡裁决；已记住域名直过）"
+     }
+    },
+    "required": [
+     "url"
+    ]
+   },
+   "permissions": [
+    "network:connect:*"
+   ],
+   "approval": "review",
+   "endpoint": "http_fetch",
+   "endpoint_config": {
+    "method": "GET"
+   },
+   "network_policy": {
+    "allow_domains": [],
+    "note": "审批即网关：出网经审批卡裁决，allow_domains 为免审批快速路径提示（非执行期硬边界，审批通过即可放行）；留空 = 每次出网都弹卡"
+   },
+   "meta": {
+    "domain": "network",
+    "executor": "host:fetch",
+    "sandbox": "approval_gate",
+    "size_limit_bytes": 100000
+   }
+  },
+  {
+   "name": "propose_mcp_mount",
+   "description": "行为意图：对话式安装入口——地址解析→McpServerConfig 推导→vetting 核对→审批卡预览→L2 批准→补丁链挂载（可回退）；只做提案，不直接执行。\n\n使用时机：用户要求安装市场条目/git 仓库/npm 包形式的 MCP/插件时；浏览 mcp_market.json 之后决定挂载时。\n\n取舍与替代选项：直接执行挂载——不存在此路径（挂载必须经审批链，防匿名插件注入）；卸载——补丁链回退；本工具=唯一「走流程」入口，提案卡由用户拍板。\n\n参数语义：command=固定值 propose_mcp_mount（端点操作判定同源，调用方恒传）；address=插件地址（市场条目 id/git 仓库/npm 包名）。\n\n边界与协作：挂载后走 vetting→观察→L2 审批转正→补丁链可回退；出厂零预挂第三方；执行器由宿主注册（挂载接线）；提案不落链，批准后才挂载。",
+   "parameters": {
+    "type": "object",
+    "properties": {
+     "command": {
+      "type": "string",
+      "enum": [
+       "propose_mcp_mount"
+      ],
+      "description": "命令名（固定值；与 process_exec 端点操作判定同源，调用方恒传）"
+     },
+     "address": {
+      "type": "string",
+      "description": "插件地址（市场条目 id / git 仓库 / npm 包名）"
+     }
+    },
+    "required": [
+     "command",
+     "address"
+    ]
+   },
+   "permissions": [
+    "process:exec:propose_mcp_mount"
+   ],
+   "approval": "review",
+   "endpoint": "process_exec",
+   "endpoint_config": {
+    "allowlist": [
+     "propose_mcp_mount"
+    ]
+   },
+   "network_policy": {
+    "allow_domains": []
+   },
+   "meta": {
+    "domain": "self",
+    "executor": "host:propose_mcp_mount",
+    "sandbox": "process_allowlist",
+    "note": "执行器由宿主注册（挂载接线）；挂载链路 = vetting 静态钩子 → 审批卡 → L2 → 补丁链"
+   }
+  },
+  {
+   "name": "file_read",
+   "description": "行为意图：读取工作区文件内容——file_ops 端点、工作区根沙箱、只读，返回文件文本供分析。\n\n使用时机：需要查看/分析项目内文件内容时；写或改之前先读上下文时。\n\n取舍与替代选项：找文件名——glob；按内容检索——grep；文件状态——file_query；写——file_write；精确改——file_edit；本工具=读内容（只读，allow 档无审批负担）；工作区外读取走 file_query（只读扫描，不含内容）。\n\n参数语义：operation=固定值 read（与 file_ops 端点操作判定同源，调用方恒传）；path=工作区相对路径或工作区挂载根内绝对路径。\n\n边界与协作：根目录占位符 ${workspace_root} 在装配期由设置页「工作区授权」替换；大小超限截断（sandbox_limits）；「内容是什么」找本工具，「内容在哪」找 grep/glob。",
+   "parameters": {
+    "type": "object",
+    "properties": {
+     "operation": {
+      "type": "string",
+      "enum": [
+       "read"
+      ],
+      "description": "文件操作（固定值；与 file_ops 端点操作判定同源，调用方恒传）"
+     },
+     "path": {
+      "type": "string",
+      "description": "工作区相对路径"
+     }
+    },
+    "required": [
+     "operation",
+     "path"
+    ]
+   },
+   "permissions": [
+    "filesystem:read:${workspace_root}/**"
+   ],
+   "approval": "allow",
+   "endpoint": "file_ops",
+   "endpoint_config": {
+    "root": "${workspace_root}",
+    "operation": "read"
+   },
+   "network_policy": {
+    "allow_domains": []
+   },
+   "meta": {
+    "domain": "file",
+    "executor": "host:file_ops",
+    "sandbox": "file_root",
+    "sandbox_limits": {
+     "max_read_bytes": 1048576,
+     "max_write_bytes": 1048576
+    },
+    "note": "根目录占位符 ${workspace_root} 在装配期由设置页「工作区授权」替换为实际挂载点"
+   }
+  },
+  {
+   "name": "file_write",
+   "description": "行为意图：写入/覆盖工作区文件——写前快照可回退；AI 开发模式的「写→构建→冒烟→失败信号回流」的写执行体。\n\n使用时机：新建文件或整体重写内容时；与 file_edit 的分工：整文件/大段→write，小段精准→edit。\n\n取舍与替代选项：小段替换——file_edit；只读——file_read；本工具=整文件写；修改前先 file_read 了解现状，避免覆盖盲写。\n\n参数语义：operation=固定值 write（与 file_ops 端点操作判定同源，调用方恒传）；path=工作区相对路径或工作区挂载根内绝对路径；content=写入内容。\n\n边界与协作：工作区根沙箱+review 审批；写前快照支持回退；构建失败信号回流传供 round 学习（失败信号→知识沉淀→下次避坑）。",
+   "parameters": {
+    "type": "object",
+    "properties": {
+     "operation": {
+      "type": "string",
+      "enum": [
+       "write"
+      ],
+      "description": "文件操作（固定值；与 file_ops 端点操作判定同源，调用方恒传）"
+     },
+     "path": {
+      "type": "string",
+      "description": "工作区相对路径"
+     },
+     "content": {
+      "type": "string",
+      "description": "写入内容"
+     }
+    },
+    "required": [
+     "operation",
+     "path",
+     "content"
+    ]
+   },
+   "permissions": [
+    "filesystem:write:${workspace_root}/**"
+   ],
+   "approval": "review",
+   "endpoint": "file_ops",
+   "endpoint_config": {
+    "root": "${workspace_root}",
+    "operation": "write"
+   },
+   "network_policy": {
+    "allow_domains": []
+   },
+   "meta": {
+    "domain": "file",
+    "executor": "host:file_ops",
+    "sandbox": "file_root",
+    "sandbox_limits": {
+     "max_read_bytes": 1048576,
+     "max_write_bytes": 1048576
+    },
+    "note": "AI 开发模式：写 → 构建 → 冒烟 → 失败信号回流回合再改"
+   }
+  },
+  {
+   "name": "file_edit",
+   "description": "行为意图：精准编辑工作区文件——按 old_text 定位、替换为 new_text，写前快照可回退。\n\n使用时机：对既有文件做小段修改时；比整文件重写更省更准：只需给出最少上下文即可命中。\n\n取舍与替代选项：整文件重写——file_write；只读——file_read；本工具=替换段落；old_text 不唯一时先 file_read 取上下文再定位，不猜测命中位置。\n\n参数语义：operation=固定值 write（编辑属于写操作，与 file_ops 端点操作判定同源，调用方恒传）；path=工作区相对路径；old_text=待替换原文；new_text=替换后文本。\n\n边界与协作：同 file_write 沙箱/审批/快照回退；编辑后构建冒烟验证；「失败信号→改一行」的闭环入口。",
+   "parameters": {
+    "type": "object",
+    "properties": {
+     "operation": {
+      "type": "string",
+      "enum": [
+       "write"
+      ],
+      "description": "文件操作（固定值；编辑属于写操作，与 file_ops 端点操作判定同源，调用方恒传）"
+     },
+     "path": {
+      "type": "string",
+      "description": "工作区相对路径"
+     },
+     "old_text": {
+      "type": "string",
+      "description": "待替换原文"
+     },
+     "new_text": {
+      "type": "string",
+      "description": "替换后文本"
+     }
+    },
+    "required": [
+     "operation",
+     "path",
+     "old_text",
+     "new_text"
+    ]
+   },
+   "permissions": [
+    "filesystem:write:${workspace_root}/**"
+   ],
+   "approval": "review",
+   "endpoint": "file_ops",
+   "endpoint_config": {
+    "root": "${workspace_root}",
+    "operation": "write"
+   },
+   "network_policy": {
+    "allow_domains": []
+   },
+   "meta": {
+    "domain": "file",
+    "executor": "host:file_ops",
+    "sandbox": "file_root",
+    "sandbox_limits": {
+     "max_read_bytes": 1048576,
+     "max_write_bytes": 1048576
+    }
+   }
+  },
+  {
+   "name": "web_search",
+   "description": "行为意图：网络搜索——把自然语言查询发往搜索聚合源，返回结果清单（标题/摘要/链接），是「先找到网页」的入口。\n\n使用时机：问题涉及最新/外部事实、需要先定位信息源再读原文时；与 fetch 工具的分工——本工具检索定位，fetch 抓取单页原文，两者常串行使用（先检索后取证）。\n\n取舍与替代选项：已知确切 URL——直接用 fetch；研究链批量采集——collect_material；本工具=检索层，结果不是原文，引用前须经 fetch 校验原文。\n\n参数语义：query=查询语句（必填）；limit=返回条数（缺省 5，范围 1-20）；domains=域名过滤子集（可选，收窄检索面）。\n\n边界与协作：默认走本地聚合源（metasearch 类免费无 key）；用户自配 Exa/parallel/bocha 任一 key 后降级到厂商源（键在设置页配置，数据驱动）；失败时提示可重试（瞬时错误/超时），不静默重放；出网目标白名单化（outbound_domains = 本地聚合 + 厂商后端，内网 CIDR 一律不放行）；allow_domains 语义同 fetch（越域结果丢弃），出厂白名单条目由装配/TOOL 补丁数据驱动补齐；sandbox=network_policy。",
+   "parameters": {
+    "type": "object",
+    "properties": {
+     "query": {
+      "type": "string",
+      "description": "查询语句"
+     },
+     "limit": {
+      "type": "number",
+      "minimum": 1,
+      "maximum": 20,
+      "description": "返回条数（缺省 5）"
+     },
+     "domains": {
+      "type": "array",
+      "items": {
+       "type": "string"
+      },
+      "description": "域名过滤子集（可选，收窄检索面）"
+     }
+    },
+    "required": [
+     "query"
+    ]
+   },
+   "permissions": [
+    "network:connect:*"
+   ],
+   "approval": "review",
+   "endpoint": "web_search",
+   "endpoint_config": {},
+   "network_policy": {
+    "allow_domains": [],
+    "outbound_domains": [
+     "html.duckduckgo.com",
+     "www.bing.com",
+     "api.exa.ai",
+     "api.parallel.ai",
+     "api.bochaai.com"
+    ],
+    "note": "出网目标白名单（outbound_domains = 搜索实现真实后端：本地聚合 html.duckduckgo.com/www.bing.com + 用户自配厂商 api.exa.ai/api.parallel.ai/api.bochaai.com，数据驱动可经 TOOL 补丁演化）；内网 CIDR（回环/私网/链路本地/云元数据地址）一律不放行；permissions 的 network:connect:* 是门禁语义通配（web_search 判定目标 = 查询语句，结果域名过滤在实现内），出网域名收口以 outbound_domains 为唯一声明源（实现层同源消费）；allow_domains 为结果域名过滤（空 = 结果不过滤，语义勿混）"
+   },
+   "meta": {
+    "domain": "network",
+    "executor": "host:web_search",
+    "sandbox": "network_policy",
+    "size_limit_bytes": 200000
+   }
+  },
+  {
+   "name": "grep",
+   "description": "行为意图：工作区文本内容检索——glob 模式限定文件路径范围、正则匹配文件内容、文件类型过滤、超限截断；只读。\n\n使用时机：记得内容/模式、不知道在哪个文件时；「哪些文件里出现了 xx」的定位问题；批量确认改点覆盖情况时。\n\n取舍与替代选项：文件名定位——glob；文件状态——file_query；文件内容——file_read；三方分工：grep=内容、glob=文件名/路径、file_query=文件状态与边界；命中过多时收紧 glob/include 再查。\n\n参数语义：operation=固定值 search（与 file_ops 端点操作判定同源，调用方恒传）；pattern=检索正则（必填）；glob=文件路径 glob 模式（可选，如 **/*.py）；include=文件类型过滤（可选）；max_results=结果条数上限（超限截断）。\n\n边界与协作：permissions=filesystem:search:${workspace_root}/**（只读检索权限）；approval=review（只读但结果可能大）；sandbox=file_root；截断后结果不完整——收紧条件重查，不要基于截断结果下结论。",
+   "parameters": {
+    "type": "object",
+    "properties": {
+     "operation": {
+      "type": "string",
+      "enum": [
+       "search"
+      ],
+      "description": "文件操作（固定值；与 file_ops 端点操作判定同源，调用方恒传）"
+     },
+     "pattern": {
+      "type": "string",
+      "description": "检索正则（必填）"
+     },
+     "glob": {
+      "type": "string",
+      "description": "文件路径 glob 模式（可选，如 **/*.py）"
+     },
+     "include": {
+      "type": "string",
+      "description": "文件类型过滤（可选）"
+     },
+     "max_results": {
+      "type": "number",
+      "minimum": 1,
+      "maximum": 1000,
+      "description": "结果条数上限（超限截断）"
+     }
+    },
+    "required": [
+     "operation",
+     "pattern"
+    ]
+   },
+   "permissions": [
+    "filesystem:search:${workspace_root}|${workspace_root}/**"
+   ],
+   "approval": "allow",
+   "endpoint": "file_ops",
+   "endpoint_config": {
+    "root": "${workspace_root}",
+    "operation": "search"
+   },
+   "network_policy": {
+    "allow_domains": []
+   },
+   "meta": {
+    "domain": "file",
+    "executor": "host:file_ops",
+    "sandbox": "file_root",
+    "sandbox_limits": {
+     "max_read_bytes": 1048576,
+     "max_write_bytes": 1048576
+    }
+   }
+  },
+  {
+   "name": "glob",
+   "description": "行为意图：工作区路径递归检索（目录树）——按 glob 模式列出匹配的路径，只读；是「按名字找文件/目录」的定位工具。\n\n使用时机：记得文件名/目录结构、需要路径时；先 glob 定位、后 file_read 读取的常见组合。\n\n取舍与替代选项：内容检索——grep；状态——file_query；读内容——file_read；三方分工：glob=文件名/路径、grep=内容、file_query=文件状态与边界；本工具不返回文件内容。\n\n参数语义：operation=固定值 search_paths（与 file_ops 端点操作判定同源，调用方恒传）；pattern=glob 路径模式（必填，如 **/*.json）；path=检索起点（可选，缺省工作区根）；max_results=结果条数上限（超限截断）。\n\n边界与协作：permissions=filesystem:search_paths:${workspace_root}/**（只读检索权限）；approval=review；sandbox=file_root；截断后收紧模式重查；只列路径不读内容（内容用 file_read）。",
+   "parameters": {
+    "type": "object",
+    "properties": {
+     "operation": {
+      "type": "string",
+      "enum": [
+       "search_paths"
+      ],
+      "description": "文件操作（固定值；与 file_ops 端点操作判定同源，调用方恒传）"
+     },
+     "pattern": {
+      "type": "string",
+      "description": "glob 路径模式（必填，如 **/*.json）"
+     },
+     "path": {
+      "type": "string",
+      "description": "检索起点（可选，缺省工作区根）"
+     },
+     "max_results": {
+      "type": "number",
+      "minimum": 1,
+      "maximum": 1000,
+      "description": "结果条数上限（超限截断）"
+     }
+    },
+    "required": [
+     "operation",
+     "pattern"
+    ]
+   },
+   "permissions": [
+    "filesystem:search_paths:${workspace_root}|${workspace_root}/**"
+   ],
+   "approval": "allow",
+   "endpoint": "file_ops",
+   "endpoint_config": {
+    "root": "${workspace_root}",
+    "operation": "search_paths"
+   },
+   "network_policy": {
+    "allow_domains": []
+   },
+   "meta": {
+    "domain": "file",
+    "executor": "host:file_ops",
+    "sandbox": "file_root",
+    "sandbox_limits": {
+     "max_read_bytes": 1048576,
+     "max_write_bytes": 1048576
+    }
+   }
+  },
+  {
+   "name": "ui_query",
+   "description": "行为意图：桌面 UI 感知——只读枚举前台窗口 + 顶级窗口 + 子窗口层级（每节点含 handle/title/class/visible/minimized/rect 屏幕矩形），并可按 target 查询屏幕分辨率/工作区；是「桌面上现在有哪些窗口/控件」与「屏幕几何参数」的统一感知入口（原 window_list/screen_query/ui_tree_query 合并）。\n\n使用时机：任务需要感知当前桌面窗口布局/可交互控件、或需要屏幕分辨率/工作区参数时；用户问「现在开着哪些窗口」「屏幕多大」而模型无视觉信息时。\n\n取舍与替代选项：只读感知，不能改任何东西——要控制请 ui_click/ui_type/window_focus/window_minimize；本工具统一承载窗口清单/元素树/屏幕参数三种感知面，按 target 区分粒度（tree=元素树含窗口清单，resolution/work_area=屏幕几何参数）；感知结果仅作指路依据，不代用户操作。\n\n参数语义：target=感知面（tree=窗口/控件元素树，resolution=屏幕分辨率，work_area=工作区矩形，缺省 tree）；scope=元素树范围（foreground=仅前台窗口；all=全部可见窗口，缺省 all）。\n\n边界与协作：只读、无控制权（approval=allow，纯感知无副作用）；越权感知（非桌面窗口/隐私控件）被作用域白名单拒绝；宿主件挂载接线后才可用，感知面随挂载核对。",
+   "parameters": {
+    "type": "object",
+    "properties": {
+     "target": {
+      "type": "string",
+      "enum": [
+       "tree",
+       "resolution",
+       "work_area"
+      ],
+      "description": "感知面（tree=窗口/控件元素树；resolution=屏幕分辨率；work_area=工作区矩形；缺省 tree）"
+     },
+     "scope": {
+      "type": "string",
+      "description": "元素树范围（foreground=仅前台窗口；all=全部可见窗口，缺省 all）"
+     }
+    },
+    "required": []
+   },
+   "permissions": [
+    "mcp:call:inkling_shell"
+   ],
+   "approval": "allow",
+   "endpoint": "mcp",
+   "endpoint_config": {
+    "server_id": "inkling_shell"
+   },
+   "network_policy": {
+    "allow_domains": []
+   },
+   "meta": {
+    "domain": "os",
+    "sensor": "ui",
+    "executor": "shell:device_sense",
+    "sandbox": "server_session"
+   }
+  },
+  {
+   "name": "ui_click",
+   "description": "行为意图：鼠标点击——经坐标 + 按键的壳执行器在屏幕指定位置触发鼠标按下/抬起；是「用户要求点一下某个位置」的执行体。\n\n使用时机：用户要求点击屏幕某坐标/某控件位置时；自动化操作桌面 UI 时。\n\n取舍与替代选项：输入文本——ui_type；移动/聚焦窗口——window_focus；本工具=单点鼠标动作，坐标须由上游感知（ui_query）提供；越界坐标被边界守卫拒绝。\n\n参数语义：command=固定值 ui_click（端点操作判定同源，调用方恒传）；x/y=屏幕坐标（0–32767）；button=按键（left/right/middle）。\n\n边界与协作：坐标边界 + 按键白名单收口；审批档 review（每次点击经引擎审批链、每步审计、可链回退）；实际点击效果受前台窗口/权限约束，不保证命中目标控件。",
+   "parameters": {
+    "type": "object",
+    "properties": {
+     "command": {
+      "type": "string",
+      "enum": [
+       "ui_click"
+      ],
+      "description": "命令名（固定值；与 process_exec 端点操作判定同源，调用方恒传）"
+     },
+     "x": {
+      "type": "integer",
+      "description": "屏幕 X 坐标（0–32767）"
+     },
+     "y": {
+      "type": "integer",
+      "description": "屏幕 Y 坐标（0–32767）"
+     },
+     "button": {
+      "type": "string",
+      "enum": [
+       "left",
+       "right",
+       "middle"
+      ],
+      "description": "按键"
+     }
+    },
+    "required": [
+     "command",
+     "x",
+     "y",
+     "button"
+    ]
+   },
+   "permissions": [
+    "process:exec:ui_click"
+   ],
+   "approval": "review",
+   "endpoint": "process_exec",
+   "endpoint_config": {
+    "allowlist": [
+     "ui_click"
+    ]
+   },
+   "network_policy": {
+    "allow_domains": []
+   },
+   "meta": {
+    "domain": "os",
+    "control": true,
+    "executor": "shell:ui_click",
+    "sandbox": "process_allowlist"
+   }
+  },
+  {
+   "name": "ui_type",
+   "description": "行为意图：文本输入——经 SendInput+KEYEVENTF_UNICODE 键盘事件注入把文本键入前台窗口；是「用户要求在当前焦点处输入一段文字」的执行体。\n\n使用时机：用户要求往某输入框/文档填写内容时；自动化填表/回复时。\n\n取舍与替代选项：点击定位——ui_click（先点后输入）；本工具只管键入，不负责把焦点移到目标；按 UTF-16 码元直送，绕开输入法转换，字符内容不受 IME 影响。\n\n参数语义：command=固定值 ui_type（端点操作判定同源，调用方恒传）；text=待输入文本（长度上限 256 字符）。\n\n边界与协作：长度上限收口；审批档 review（每次输入经引擎审批链、每步审计、可链回退）；输入目标由前台焦点决定，执行器不指定接收窗口。",
+   "parameters": {
+    "type": "object",
+    "properties": {
+     "command": {
+      "type": "string",
+      "enum": [
+       "ui_type"
+      ],
+      "description": "命令名（固定值；与 process_exec 端点操作判定同源，调用方恒传）"
+     },
+     "text": {
+      "type": "string",
+      "description": "待输入文本（≤ 256 字符）"
+     }
+    },
+    "required": [
+     "command",
+     "text"
+    ]
+   },
+   "permissions": [
+    "process:exec:ui_type"
+   ],
+   "approval": "review",
+   "endpoint": "process_exec",
+   "endpoint_config": {
+    "allowlist": [
+     "ui_type"
+    ]
+   },
+   "network_policy": {
+    "allow_domains": []
+   },
+   "meta": {
+    "domain": "os",
+    "control": true,
+    "executor": "shell:ui_type",
+    "sandbox": "process_allowlist"
+   }
+  },
+  {
+   "name": "window_focus",
+   "description": "行为意图：聚焦窗口——把指定窗口提到前台（按句柄/标题/foreground 关键字定位）；是「切到某个窗口」的执行体。\n\n使用时机：用户要求「切到浏览器/记事本」等多窗口切换时；自动化工序切换焦点时。\n\n取舍与替代选项：看清单——ui_query（先列后选）；最小化——window_minimize；本工具只管聚焦，不读窗口内容。\n\n参数语义：command=固定值 window_focus（端点操作判定同源，调用方恒传）；handle=窗口句柄（十进制 HWND）/标题/foreground 关键字。\n\n边界与协作：句柄非空校验；审批档 review（每步审计、可链回退）；定位失败结构化返回错误，不静默成功。",
+   "parameters": {
+    "type": "object",
+    "properties": {
+     "command": {
+      "type": "string",
+      "enum": [
+       "window_focus"
+      ],
+      "description": "命令名（固定值；与 process_exec 端点操作判定同源，调用方恒传）"
+     },
+     "handle": {
+      "type": "string",
+      "description": "窗口句柄（十进制 HWND）/标题/foreground 关键字"
+     }
+    },
+    "required": [
+     "command",
+     "handle"
+    ]
+   },
+   "permissions": [
+    "process:exec:window_focus"
+   ],
+   "approval": "review",
+   "endpoint": "process_exec",
+   "endpoint_config": {
+    "allowlist": [
+     "window_focus"
+    ]
+   },
+   "network_policy": {
+    "allow_domains": []
+   },
+   "meta": {
+    "domain": "os",
+    "control": true,
+    "executor": "shell:window_focus",
+    "sandbox": "process_allowlist"
+   }
+  },
+  {
+   "name": "window_minimize",
+   "description": "行为意图：最小化窗口——把指定窗口收进任务栏（按句柄/标题/foreground 关键字定位）；是「收起某个窗口」的执行体。\n\n使用时机：用户要求「把这个窗口最小化」保持桌面清爽时；自动化工序收起干扰窗口时。\n\n取舍与替代选项：聚焦——window_focus；看清单——ui_query；本工具只管最小化，不读窗口内容。\n\n参数语义：command=固定值 window_minimize（端点操作判定同源，调用方恒传）；handle=窗口句柄（十进制 HWND）/标题/foreground 关键字。\n\n边界与协作：句柄非空校验；审批档 review（每步审计、可链回退）；定位失败结构化返回错误，不静默成功。",
+   "parameters": {
+    "type": "object",
+    "properties": {
+     "command": {
+      "type": "string",
+      "enum": [
+       "window_minimize"
+      ],
+      "description": "命令名（固定值；与 process_exec 端点操作判定同源，调用方恒传）"
+     },
+     "handle": {
+      "type": "string",
+      "description": "窗口句柄（十进制 HWND）/标题/foreground 关键字"
+     }
+    },
+    "required": [
+     "command",
+     "handle"
+    ]
+   },
+   "permissions": [
+    "process:exec:window_minimize"
+   ],
+   "approval": "review",
+   "endpoint": "process_exec",
+   "endpoint_config": {
+    "allowlist": [
+     "window_minimize"
+    ]
+   },
+   "network_policy": {
+    "allow_domains": []
+   },
+   "meta": {
+    "domain": "os",
+    "control": true,
+    "executor": "shell:window_minimize",
+    "sandbox": "process_allowlist"
+   }
+  },
+  {
+   "name": "doc_parse",
+   "description": "行为意图：把文档解析成结构化数据——PDF（文本+版面）/ Word / Excel / PPT 识别并抽取为 JSON，是「喂论文/表格/演示进分析链」的入料环节。\n\n使用时机：用户上传或指路 PDF/Office 文件，需要 agent 读懂内容时；研究链要从论文/表格提取要点时。\n\n取舍与替代选项：只看文件状态——file_query；读纯文本——file_read；本工具=格式识别+结构化解析，产出 JSON 供分析/入库；不支持解压/改写文档。\n\n参数语义：path=待解析文件路径（工作区或附件域内）。\n\n边界与协作：只读解析，不写原文件；坏文件/截断输入结构化报错不崩溃；解析产物可继续走研究链（收集→解析→校验→评分→蒸馏）。",
+   "parameters": {
+    "type": "object",
+    "properties": {
+     "path": {
+      "type": "string",
+      "description": "待解析文档路径（工作区/附件域内）"
+     }
+    },
+    "required": [
+     "path"
+    ]
+   },
+   "permissions": [
+    "mcp:call:inkling_shell"
+   ],
+   "approval": "review",
+   "endpoint": "mcp",
+   "endpoint_config": {
+    "server_id": "inkling_shell"
+   },
+   "network_policy": {
+    "allow_domains": []
+   },
+   "meta": {
+    "domain": "file",
+    "sensor": "doc",
+    "executor": "shell:doc_parse",
+    "sandbox": "server_session"
+   }
+  },
+  {
+   "name": "doc_generate",
+   "description": "行为意图：把结构化内容落成 Office 文档——docx 报告/纪要、xlsx 表格导出，是「把分析结论变成可交付文件」的执行体。\n\n使用时机：用户要报告/纪要/表格文件时；研究链收尾需要导出产物时。\n\n取舍与替代选项：仅生成不进工作区根外；要解析文档——doc_parse；本工具=生成落盘，返回路径与字节数。\n\n参数语义：command=固定值 doc_generate（端点操作判定同源，调用方恒传）；format=docx/xlsx；title=文档标题（同时作文件名基础）；body=正文（docx，多行用换行分隔）；table=表格 JSON 文本（xlsx，二维字符串数组）。\n\n边界与协作：写文件仅限工作区根内；正文 20000 字符/表格 500 行上限；审批档 review（每次生成经审批链、每步审计、可链回退）。",
+   "parameters": {
+    "type": "object",
+    "properties": {
+     "command": {
+      "type": "string",
+      "enum": [
+       "doc_generate"
+      ],
+      "description": "命令名（固定值；与 process_exec 端点操作判定同源，调用方恒传）"
+     },
+     "format": {
+      "type": "string",
+      "enum": [
+       "docx",
+       "xlsx"
+      ],
+      "description": "文档格式"
+     },
+     "title": {
+      "type": "string",
+      "description": "文档标题（兼文件名基础）"
+     },
+     "body": {
+      "type": "string",
+      "description": "正文（docx；多行用换行分隔，≤20000 字符）"
+     },
+     "table": {
+      "type": "string",
+      "description": "表格 JSON 文本（xlsx；二维字符串数组，≤500 行）"
+     }
+    },
+    "required": [
+     "command",
+     "format",
+     "title"
+    ]
+   },
+   "permissions": [
+    "process:exec:doc_generate"
+   ],
+   "approval": "review",
+   "endpoint": "process_exec",
+   "endpoint_config": {
+    "allowlist": [
+     "doc_generate"
+    ]
+   },
+   "network_policy": {
+    "allow_domains": []
+   },
+   "meta": {
+    "domain": "file",
+    "executor": "shell:doc_generate",
+    "sandbox": "process_allowlist"
+   }
+  },
+  {
+   "name": "screenshot_capture",
+   "description": "行为意图：截取当前屏幕并走隐私分级——本地模型直喂；云端模型默认禁止外发（屏幕内容不出网），须显式授权加审批后放行；产出引擎附件形态供多模态消费。\n\n使用时机：任务需要视觉理解屏幕（图表/图片/非标准控件）且已配多模态模型时；无多模态模型时走纯元素树感知。\n\n取舍与替代选项：要窗口/控件层级——ui_query；要点击/输入——ui_click/ui_type；本工具=像素通道，与元素树互为双通道交叉验证。\n\n参数语义：model_class=目标模型类别（local=本地直喂；cloud=云端，受隐私闸门约束）；destination=消费方标识。\n\n边界与协作：云端外发默认拒绝（fail-closed），授权开关持久化于数据根、每次外发经审批；外发事件落审计；截图写附件域，不进入工作区。",
+   "parameters": {
+    "type": "object",
+    "properties": {
+     "model_class": {
+      "type": "string",
+      "enum": [
+       "local",
+       "cloud"
+      ],
+      "description": "目标模型类别（local=本地直喂；cloud=受隐私闸门）"
+     },
+     "destination": {
+      "type": "string",
+      "description": "消费方标识（缺省 engine）"
+     }
+    },
+    "required": [
+     "model_class"
+    ]
+   },
+   "permissions": [
+    "mcp:call:inkling_shell"
+   ],
+   "approval": "review",
+   "endpoint": "mcp",
+   "endpoint_config": {
+    "server_id": "inkling_shell"
+   },
+   "network_policy": {
+    "allow_domains": []
+   },
+   "meta": {
+    "domain": "os",
+    "sensor": "screen",
+    "executor": "shell:screenshot_capture",
+    "sandbox": "server_session"
+   }
+  },
+  {
+   "name": "material_import",
+   "description": "行为意图：把用户主目录域内的既有资料（PDF/Office/Markdown/JSON/CSV 等）批量扫描并结构化归一，搬进 InKEngine 知识链——是「迁移既有知识资产」的入料环节。\n\n使用时机：用户要把散落在目录里的文档/表格/演示/纯文本成批导入时；迁移或归档既有资料时。\n\n取舍与替代选项：只解析单文件——doc_parse；本工具=目录级批量扫描+归一，产出待入料清单；不支持改写/删除原文件。\n\n参数语义：path=待扫描目录（须落在用户主目录域内）；recursive=是否递归子目录（默认否）。\n\n边界与协作：只读扫描，不写原文件；递归深度/文件数/单文件体积三道硬上限防滥用；归一产物经既有样例闸门/知识集入料链（patch.propose_knowledge）入集，闸门拒绝即落 rejected。",
+   "parameters": {
+    "type": "object",
+    "properties": {
+     "path": {
+      "type": "string",
+      "description": "待扫描目录路径（须落在用户主目录域内）"
+     },
+     "recursive": {
+      "type": "boolean",
+      "description": "是否递归子目录（默认否）"
+     }
+    },
+    "required": [
+     "path"
+    ]
+   },
+   "permissions": [
+    "mcp:call:inkling_shell"
+   ],
+   "approval": "review",
+   "endpoint": "mcp",
+   "endpoint_config": {
+    "server_id": "inkling_shell"
+   },
+   "network_policy": {
+    "allow_domains": []
+   },
+   "meta": {
+    "domain": "file",
+    "sensor": "material",
+    "executor": "shell:material_import",
+    "sandbox": "server_session"
+   }
+  },
+  {
+   "name": "propose_patch",
+   "description": "行为意图：自指演化提案——把变更意图整理为声明式补丁（kind 覆盖界面/主题/工具/规则/知识/harness/事件类型/环境/产物全类），经按类型校验与审批分级后交补丁链落链（可回退），是 AI 修改产品形态的唯一入口形态。\n\n使用时机：需要新增或修订界面/主题/工具声明/规则/知识条目/harness/事件类型/环境/构建产物时；改进建议已成型、要进入审批流时；本工具只做提案，批准前不落任何变更。\n\n取舍与替代选项：只挂载 MCP/插件——propose_mcp_mount；本工具=其余全部演化对象（ui/theme/tool/rule/knowledge/harness/event_type/environment/artifact）；不提案直接改——不存在此路径，变更必须走补丁链留痕。\n\n参数语义：kind=补丁类型（枚举九类）；payload=补丁内容（按类型校验，ui/theme 走界面 schema，tool/rule/knowledge/harness/event_type/environment 走各自声明构造，artifact 走产物哈希声明）；base_version=提案时的集补丁链版本（基准校验用）；rationale=提案理由（审批卡展示与审计留痕）。\n\n边界与协作：校验失败 = 违规清单直接返回，不落审批卡；审批分级（L0/L1/L2）与补丁链 vetting 复用既有管线，批准后落链可回退；本工具只产提案，应用/回退归既有 self_application 通道。",
+   "parameters": {
+    "type": "object",
+    "properties": {
+     "command": {
+      "type": "string",
+      "enum": [
+       "propose_patch"
+      ],
+      "description": "命令名（固定值；与 process_exec 端点操作判定同源，调用方恒传）"
+     },
+     "kind": {
+      "type": "string",
+      "enum": [
+       "ui",
+       "theme",
+       "tool",
+       "rule",
+       "knowledge",
+       "harness",
+       "event_type",
+       "environment",
+       "artifact"
+      ],
+      "description": "补丁类型（与引擎 PatchKind 枚举同源，全量九类）"
+     },
+     "payload": {
+      "type": "object",
+      "description": "补丁内容（按类型校验的声明形态）"
+     },
+     "base_version": {
+      "type": "integer",
+      "description": "提案时的集补丁链版本（基准校验；并发冲突须基于最新态重提）"
+     },
+     "rationale": {
+      "type": "string",
+      "description": "提案理由（审批卡展示与审计留痕）"
+     }
+    },
+    "required": [
+     "command",
+     "kind",
+     "payload"
+    ]
+   },
+   "permissions": [
+    "process:exec:propose_patch"
+   ],
+   "approval": "review",
+   "endpoint": "process_exec",
+   "endpoint_config": {
+    "allowlist": [
+     "propose_patch"
+    ]
+   },
+   "network_policy": {
+    "allow_domains": []
+   },
+   "meta": {
+    "domain": "self",
+    "executor": "host:propose_patch",
+    "sandbox": "process_allowlist",
+    "note": "执行器由宿主注册（提案接线）；审批链 = 按类型校验 → 审批分级 L0/L1/L2 → 补丁链落链（vetting 复用既有，可回退）"
+   }
+  },
+  {
+   "name": "collab_request",
+   "description": "行为意图：召唤协作者（多 agent 动态协作）——从实体目录选中协作者处理子任务，结果回流主 agent 汇总。\n\n使用时机：主 agent 判断子任务需要专才实体（如安全评审/研究分析师）时；默认单 agent，不固定团队，按需召唤。\n\n取舍与替代选项：自身可完成 = 不调用；并行子任务 = 多次调用；协作者目录经 inspect_entities 内省。\n\n参数语义：entity_id=实体目录 id（inspect_entities 可查）；task=子任务描述；context_refs=可选上下文引用（L2 消息 id 清单）；constraints=可选约束（max_tool_rounds 等）。\n\n边界与协作：实体未注册 = fail-closed 拒绝；执行体把 EntitySpec 物化为 spawn 子图，工具权限/审批/审计全走既有流水线。",
+   "parameters": {
+    "type": "object",
+    "properties": {
+     "entity_id": {
+      "type": "string",
+      "minLength": 1
+     },
+     "task": {
+      "type": "string",
+      "minLength": 1
+     },
+     "context_refs": {
+      "type": "array",
+      "items": {
+       "type": "string"
+      }
+     },
+     "constraints": {
+      "type": "object"
+     }
+    },
+    "required": [
+     "entity_id",
+     "task"
+    ]
+   },
+   "permissions": [
+    "collab:request:*"
+   ],
+   "approval": "review",
+   "endpoint": "collab_request",
+   "endpoint_config": {},
+   "network_policy": {
+    "allow_domains": []
+   },
+   "meta": {
+    "domain": "collab",
+    "executor": "host:collab_request",
+    "note": "执行器由宿主注册（实体目录 → spawn 子图物化）；审批档 review = 用户对话弹卡确认召唤"
+   }
+  },
+  {
+   "name": "task_manager",
+   "description": "行为意图：维护当前会话的持久化待办清单——agent 自拆解任务、逐项更新/完成，跨回合保留（早收口/护栏收口后续回合可接续，进度不丢）。\n\n使用时机：收到需要多步执行的任务时开局拆解为清单；每完成一步更新状态；回合收口前确保清单反映真实进度；续回合先 list 读回再继续。\n\n取舍与替代选项：只记脑中不落清单 = 跨回合不保（早收口即丢）；spawn 子任务清单 = 子代理分配，本工具 = agent 自我管理。\n\n参数语义：operation=create/update/complete/list/clear；create 需 title（detail=验收标准，建议填）；update 按 id 改字段；complete 快捷置 done（evidence=完成证据）；list 按 status_filter 过滤读回；clear 清已完成条目防膨胀。\n\n边界与协作：清单按 thread 隔离（各会话独立）；操作即落库（任何时刻收口不丢）；条目存在性校验（update/complete 不存在 id 明确报错）；allow 档无审批负担。",
+   "parameters": {
+    "type": "object",
+    "properties": {
+     "operation": {
+      "type": "string",
+      "enum": [
+       "create",
+       "update",
+       "complete",
+       "list",
+       "clear",
+       "delete"
+      ],
+      "description": "清单操作（delete = 按 id 移除条目；取消语义用 update status=cancelled）"
+     },
+     "id": {
+      "type": "string",
+      "description": "条目 id（update/complete 必填）"
+     },
+     "title": {
+      "type": "string",
+      "description": "任务描述（create 必填；update 可改）"
+     },
+     "detail": {
+      "type": "string",
+      "description": "验收标准/完成判据（create/update）"
+     },
+     "priority": {
+      "type": "string",
+      "enum": [
+       "high",
+       "medium",
+       "low"
+      ],
+      "description": "优先级（默认 medium）"
+     },
+     "status": {
+      "type": "string",
+      "enum": [
+       "pending",
+       "doing",
+       "done",
+       "cancelled",
+       "blocked"
+      ],
+      "description": "状态（update 可改；blocked=卡住待续回合处理）"
+     },
+     "evidence": {
+      "type": "string",
+      "description": "完成证据（complete 建议填，留痕可追溯）"
+     },
+     "status_filter": {
+      "type": "string",
+      "description": "list 按状态过滤（默认全部）"
+     },
+     "limit": {
+      "type": "integer",
+      "minimum": 1,
+      "maximum": 100,
+      "description": "list 上限（默认 20，防注入体积）"
+     }
+    },
+    "required": [
+     "operation"
+    ]
+   },
+   "permissions": [
+    "todo:manage:*"
+   ],
+   "approval": "allow",
+   "endpoint": "task_manager",
+   "endpoint_config": {},
+   "network_policy": {
+    "allow_domains": []
+   },
+   "meta": {
+    "domain": "self",
+    "executor": "host:task_manager",
+    "note": "执行器由宿主注册（todo:<thread_id> 持久化清单 + 审计）；allow 档 agent 自我管理"
+   }
+  }
+ ]
+}

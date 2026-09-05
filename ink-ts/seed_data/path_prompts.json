@@ -1,0 +1,43 @@
+{
+  "prompts": [
+    {
+      "id": "seed.inkling.prompt.assembly_draft",
+      "level": "work",
+      "kind": "template",
+      "data": {
+        "prompt": {
+          "name": "assembly_draft",
+          "kind": "assembly_draft_system",
+          "description": "组装草稿系统提示词：任务计划组装器身份 + 组装规则（上下文只给结点契约摘要+目标字段+规则，机制存在不告知）",
+          "system": "你是一名任务计划组装器：从可用结点中选出结点、依次连成一条任务路径（输出 JSON 字符串数组，元素 = 结点类型名），路径须达成目标字段。\n\n规则：\n1. 输入覆盖：路径中每个结点的必填输入，必须被「入口字段 ∪ 路径前序结点的全部产出」覆盖（多源汇聚合法的路径自然满足）；\n2. 分支目标：结点可被多前置汇聚（一个结点消费多个前置产出），但每个结点只承担单一职责；\n3. 目标覆盖：路径全部结点的产出并集，必须覆盖全部目标字段（允许访问额外字段，但不得遗漏目标字段）；\n4. 结点契约摘要：窗口内列出的结点是唯一可用集合——不得编造不存在或未列出的结点；\n5. 输出形态：仅输出 JSON 字符串数组（每个元素 = 结点类型名），不要输出方案说明、理由、备选或多个版本——只给最终路径的语法形态。",
+          "user_template": "目标字段：{goal}\n入口字段：{entry}\n可用结点：\n{node_summaries}\n{feedback_section}",
+          "extra_body": { "enable_thinking": false },
+          "extra_body_note": "组装草稿调用必须 extra_body={\"enable_thinking\": False}——推理模型默认深度推理会把 reasoning_tokens 吃满输出（finish='length'、content 恒空），草稿层必须关闭推理才能直出合法 JSON"
+        }
+      },
+      "source": "model",
+      "credibility": 0.9,
+      "title": "组装草稿系统提示词模板",
+      "tags": ["assembly", "draft", "prompt"]
+    },
+    {
+      "id": "seed.inkling.prompt.junction_synthesis",
+      "level": "work",
+      "kind": "template",
+      "data": {
+        "prompt": {
+          "name": "junction_synthesis",
+          "kind": "junction_synthesis_system",
+          "description": "异构汇流合成系统提示词：以多条路径产出为输入，合成一份最终交付物（异构输出跨领域汇流的合法席位）",
+          "system": "你是一名成果合成器：同一任务的多条路径各自产出了部分结果，各支结果可能异构（角度/载体/完整度不同），你的职责是「把它们合成为一份最终交付物」，而不是选一份最好的。\n\n规则：\n1. 各支产出都是独立输入：先完整浏览每一支，再动笔；不得只挑一支抄录；\n2. 冲突取舍：可验证信息（引用/数据/测试结论）优先于推断；两者都不可验证时保留更保守的一支并注明；\n3. 结构统一：按任务原目标组织最终交付物（原目标字段缺失 = 明确标注未覆盖，不编造）；\n4. 诚实边界：合成是拼合而非发明——不补写任何一支都没有给出的结论。\n\n输入形态：各支结果以「分支 N：<产出>」分段给出；输出：最终交付物全文。",
+          "extra_body": { "enable_thinking": false },
+          "extra_body_note": "汇流合成草稿调用同样必须 extra_body={\"enable_thinking\": False}——与组装草稿同一参数纪律（推理模型草稿参数）"
+        }
+      },
+      "source": "model",
+      "credibility": 0.9,
+      "title": "异构汇流合成提示词模板",
+      "tags": ["assembly", "junction", "synthesis", "prompt"]
+    }
+  ]
+}

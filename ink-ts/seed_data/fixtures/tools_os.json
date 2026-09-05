@@ -1,0 +1,451 @@
+{
+  "note": "执行器声明生成物：由 seed_data/tools.json 经 ink-ts/seed_data/scripts/sync_tools_fixtures.mjs 生成（seed=引擎代理工具目录真源，fixtures=执行器声明，禁手工维护）；成员 = seed OS 域工具 ∪ 执行工具（shell_exec 为混合级别：白名单内沙箱执行 + 白名单外升级审批放行），漂移由 --check 硬校验。params 为扁平签名形态。",
+  "tools": [
+    {
+      "name": "file_query",
+      "description": "行为意图：设备感知——对工作区外路径做只读状态扫描（存在性/大小/时间戳/目录结构/文件名过滤），不读内容不写。\n\n使用时机：任务涉及工作区外路径（桌面/下载/系统目录）需要先摸清状态时；移动/打开前先确认存在与位置时。\n\n取舍与替代选项：要读工作区内容——file_read；要按内容找——grep；要按文件名找——glob；本工具=文件状态与边界（不含内容）；工作区内的内容操作全部交给 file 家族专用工具，本工具只补「工作区外看一眼」的空位。\n\n参数语义：path=待查询路径；pattern=文件名过滤模式。\n\n边界与协作：只读扫描，绝不写；工作区外敏感目录受限，越界被拒；查到路径后的打开动作另行走 open_file/launch_app，本工具不代行。",
+      "permission": "review",
+      "endpoint": "device_mcp",
+      "sandbox": {
+        "mode": "path_roots",
+        "roots": [
+          "~/.inkling/workspace"
+        ]
+      },
+      "params": [
+        {
+          "name": "path",
+          "type": "string",
+          "required": true
+        }
+      ]
+    },
+    {
+      "name": "system_query",
+      "description": "行为意图：系统状态查询——CPU/内存/进程概览/磁盘，只读快照，无副作用。\n\n使用时机：排障/性能判断前先取一次基线；用户问「机器怎么样/进程情况」时。\n\n取舍与替代选项：只看状态——本工具；要控制——用具体控制工具（launch_app 等）；与 ui_query 的分工：那边看屏幕感知，本工具看系统；进程细节敏感，展示即受限。\n\n参数语义：command=固定值 system_query（端点操作判定同源，调用方恒传）；scope=查询范围（system/process/disk）。\n\n边界与协作：只读（allow 档，不挂审批卡）；经 process_exec 端点白名单收口；查询结果供分析，不自动执行任何动作。",
+      "permission": "allow",
+      "endpoint": "process_exec",
+      "sandbox": {
+        "mode": "query_allowlist",
+        "allowlist": [
+          "os",
+          "arch",
+          "hostname",
+          "home",
+          "cwd",
+          "uptime"
+        ]
+      },
+      "params": [
+        {
+          "name": "query",
+          "type": "string",
+          "required": true
+        }
+      ]
+    },
+    {
+      "name": "launch_app",
+      "description": "行为意图：启动应用——经命令白名单的 shell 执行器拉起用户指定应用（含参数），是「用户要求打开某个应用」的执行体。\n\n使用时机：用户说「打开 微信/浏览器/VSCode」等具体应用时；带参数启动（如带 URL 打开浏览器）时。\n\n取舍与替代选项：打开文件（默认程序）——open_file；跑任意命令——shell_exec（出厂 deny 档，须显式转正）；本工具=应用级白名单入口，白名单外应用直接拒绝而非静默失败；首次越界操作强制 L2 人工审批。\n\n参数语义：command=固定值 launch_app（端点操作判定同源，调用方恒传）；app=应用名或启动标识；args=启动参数（可选）。\n\n边界与协作：命令白名单收口；审批档 review；启动后的应用行为超出工具管辖；与 open_file 的分工：本工具拉起「应用」，open_file 交付「文件」。",
+      "permission": "review",
+      "endpoint": "process_exec",
+      "sandbox": {
+        "mode": "command_allowlist",
+        "allowlist": [
+          "notepad",
+          "calc",
+          "mspaint"
+        ]
+      },
+      "params": [
+        {
+          "name": "app",
+          "type": "string",
+          "required": true
+        }
+      ]
+    },
+    {
+      "name": "open_file",
+      "description": "行为意图：以系统默认程序打开指定文件——把文件交付给用户/宿主环境，是「打开这个文件」的执行体。\n\n使用时机：用户要求打开某文件/文档时；输出需要「用户亲眼看到」而不仅是文本回答时。\n\n取舍与替代选项：只是读内容分析——file_read（不触发宿主程序）；要编辑——file_edit；本工具=系统级打开动作。\n\n参数语义：command=固定值 open_file（端点操作判定同源，调用方恒传）；path=待打开文件路径，须为绝对路径且位于工作区挂载根内（沙箱按工作区挂载根校验，相对路径会被拒绝）。\n\n边界与协作：路径越出工作区挂载根被拒（路径须为绝对路径/路径不在工作区挂载根内）；被打开程序的行为不受本工具约束；打开失败（文件不存在/无默认程序）由结果回执反馈，不静默。",
+      "permission": "review",
+      "endpoint": "process_exec",
+      "sandbox": {
+        "mode": "path_roots",
+        "roots": [
+          "~/.inkling/workspace"
+        ]
+      },
+      "params": [
+        {
+          "name": "path",
+          "type": "string",
+          "required": true
+        }
+      ]
+    },
+    {
+      "name": "set_volume",
+      "description": "行为意图：调节系统音量——shell 执行器按 0-100 数值设置音量档位。\n\n使用时机：用户明确要求「调大/调小/静音/音量到 x」时。\n\n取舍与替代选项：亮度——set_brightness；通知——notify；本工具只改音量，播放控制等其它音频行为不在本工具范围。\n\n参数语义：command=固定值 set_volume（端点操作判定同源，调用方恒传）；level=音量百分比（0-100）。\n\n边界与协作：越界取值被参数 schema 拒绝；实际音量受系统硬件/策略限制，以系统反馈为准；无副作用于文件/网络。",
+      "permission": "review",
+      "endpoint": "process_exec",
+      "sandbox": {
+        "mode": "bounds",
+        "min": 0,
+        "max": 100
+      },
+      "params": [
+        {
+          "name": "percent",
+          "type": "integer",
+          "required": true
+        }
+      ]
+    },
+    {
+      "name": "set_brightness",
+      "description": "行为意图：调节屏幕亮度——shell 执行器按 0-100 数值设置亮度档位。\n\n使用时机：用户要求「调亮/调暗」等亮度操作时；夜间用眼前降低亮度时。\n\n取舍与替代选项：音量——set_volume；屏幕感知——ui_query；本工具只改亮度。\n\n参数语义：command=固定值 set_brightness（端点操作判定同源，调用方恒传）；level=亮度百分比（0-100）。\n\n边界与协作：越界取值被 schema 拒绝；硬件/系统策略不支持的档位以系统反馈为准；笔记本与显示器差异由执行器适配。",
+      "permission": "review",
+      "endpoint": "process_exec",
+      "sandbox": {
+        "mode": "bounds",
+        "min": 0,
+        "max": 100
+      },
+      "params": [
+        {
+          "name": "percent",
+          "type": "integer",
+          "required": true
+        }
+      ]
+    },
+    {
+      "name": "notify",
+      "description": "行为意图：发送系统通知——通知中心/托盘提示，是对话之外的提醒通道（长任务完成、等待触达）。\n\n使用时机：用户离开对话、任务需异步同步时；sleep 到点后组合本工具实现「到点提醒」时。\n\n取舍与替代选项：对话内反馈——直接文本回复（更快）；需要独立可见提醒——本工具；等待后提醒——sleep（等待）+ notify（出口）；本工具不做定时。\n\n参数语义：command=固定值 notify（端点操作判定同源，调用方恒传）；title=通知标题；body=通知正文。\n\n边界与协作：无副作用、allow 档；通知不自动确认、不读回执；与 sleep 组合是「等待→提醒」的完成路径。",
+      "permission": "allow",
+      "endpoint": "process_exec",
+      "sandbox": {
+        "mode": "length_caps",
+        "title_max": 80,
+        "body_max": 300
+      },
+      "params": [
+        {
+          "name": "title",
+          "type": "string",
+          "required": true
+        },
+        {
+          "name": "body",
+          "type": "string",
+          "required": true
+        }
+      ]
+    },
+    {
+      "name": "sleep",
+      "description": "行为意图：前台等待——在当前回合内休眠指定秒数，睡醒后继续执行；是「时间维度操作」的唯一入口。\n\n使用时机：用户要求「等一会儿再继续」「N 秒后执行某动作」等需要经过一段时间的动作；等待期间回合保持前台，用户停止会话即打断本次休眠与整个回合。\n\n取舍与替代选项：立等可做的动作——直接执行，不该 sleep；后台到点触发——不提供后台驻留机制，统一用本工具前台等待（停止会话即可打断，无后台幽灵任务）。\n\n参数语义：command=固定值 sleep（端点操作判定同源，调用方恒传）；seconds=等待秒数。\n\n边界与协作：休眠为前台工具调用，回合事件正常留痕；等待可被停止按钮打断；无需审批（无害等待）。",
+      "permission": "allow",
+      "endpoint": "process_exec",
+      "sandbox": {
+        "mode": "bounds",
+        "min": 1,
+        "max": 86400
+      },
+      "params": [
+        {
+          "name": "seconds",
+          "type": "integer",
+          "required": true
+        }
+      ]
+    },
+    {
+      "name": "shell_exec",
+      "description": "行为意图：在工作区中执行命令——装依赖（pip/uv）、跑脚本（python）、版本管理（git）、构建（cargo/npm/npx）等开发命令。混合级别：白名单内命令 cwd 钉在工作区挂载根（沙箱级）；白名单外命令经升级审批卡（L2，弹卡说明命令与参数）通过后一次性系统级放行（cwd=系统主目录），审批卡为唯一防线。timeout 参数由 agent 控制执行时长（1-3600 秒，缺省 180）。\n\n使用时机：需要实际运行命令时——安装测试依赖、执行脚本、查看工作区进程等；需要跑白名单外命令时经审批升级放行。\n\n取舍与替代选项：跑测试直接用 shell_exec（python -m pytest / cargo test / npx vitest run / npx tsc --noEmit）；不再需要单独的 run_test_* 模板工具。\n\n参数语义：command=固定值 shell_exec（端点操作判定同源，调用方恒传）；argv=待执行命令参数数组（argv[0]=命令名；白名单内 = 工作区沙箱执行，白名单外 = 审批卡升级放行）；timeout=执行超时秒数（可选，agent 可控时长，1-3600，缺省 180）。\n\n边界与协作：白名单内命令面白名单+审批档双闸；白名单外命令升级审批 = 一次性放行，审批卡为唯一防线（无二次白名单）；被拒属权限契约预期，须经补丁链审批转正（放开命令）。",
+      "permission": "review",
+      "endpoint": "process_exec",
+      "sandbox": {
+        "mode": "command_allowlist",
+        "allowlist": [
+          "pip",
+          "python",
+          "uv",
+          "git",
+          "cargo",
+          "npm",
+          "npx"
+        ]
+      },
+      "params": [
+        {
+          "name": "command",
+          "type": "string",
+          "required": true
+        },
+        {
+          "name": "argv",
+          "type": "stringarray",
+          "required": true
+        },
+        {
+          "name": "timeout",
+          "type": "integer",
+          "required": false
+        }
+      ]
+    },
+    {
+      "name": "ui_query",
+      "description": "行为意图：桌面 UI 感知——只读枚举前台窗口 + 顶级窗口 + 子窗口层级（每节点含 handle/title/class/visible/minimized/rect 屏幕矩形），并可按 target 查询屏幕分辨率/工作区；是「桌面上现在有哪些窗口/控件」与「屏幕几何参数」的统一感知入口（原 window_list/screen_query/ui_tree_query 合并）。\n\n使用时机：任务需要感知当前桌面窗口布局/可交互控件、或需要屏幕分辨率/工作区参数时；用户问「现在开着哪些窗口」「屏幕多大」而模型无视觉信息时。\n\n取舍与替代选项：只读感知，不能改任何东西——要控制请 ui_click/ui_type/window_focus/window_minimize；本工具统一承载窗口清单/元素树/屏幕参数三种感知面，按 target 区分粒度（tree=元素树含窗口清单，resolution/work_area=屏幕几何参数）；感知结果仅作指路依据，不代用户操作。\n\n参数语义：target=感知面（tree=窗口/控件元素树，resolution=屏幕分辨率，work_area=工作区矩形，缺省 tree）；scope=元素树范围（foreground=仅前台窗口；all=全部可见窗口，缺省 all）。\n\n边界与协作：只读、无控制权（approval=allow，纯感知无副作用）；越权感知（非桌面窗口/隐私控件）被作用域白名单拒绝；宿主件挂载接线后才可用，感知面随挂载核对。",
+      "permission": "allow",
+      "endpoint": "device_mcp",
+      "sandbox": {
+        "mode": "command_allowlist",
+        "allowlist": [
+          "tree",
+          "resolution",
+          "work_area"
+        ]
+      },
+      "params": [
+        {
+          "name": "target",
+          "type": "string",
+          "required": false
+        },
+        {
+          "name": "scope",
+          "type": "string",
+          "required": false
+        }
+      ]
+    },
+    {
+      "name": "ui_click",
+      "description": "行为意图：鼠标点击——经坐标 + 按键的壳执行器在屏幕指定位置触发鼠标按下/抬起；是「用户要求点一下某个位置」的执行体。\n\n使用时机：用户要求点击屏幕某坐标/某控件位置时；自动化操作桌面 UI 时。\n\n取舍与替代选项：输入文本——ui_type；移动/聚焦窗口——window_focus；本工具=单点鼠标动作，坐标须由上游感知（ui_query）提供；越界坐标被边界守卫拒绝。\n\n参数语义：command=固定值 ui_click（端点操作判定同源，调用方恒传）；x/y=屏幕坐标（0–32767）；button=按键（left/right/middle）。\n\n边界与协作：坐标边界 + 按键白名单收口；审批档 review（每次点击经引擎审批链、每步审计、可链回退）；实际点击效果受前台窗口/权限约束，不保证命中目标控件。",
+      "permission": "review",
+      "endpoint": "process_exec",
+      "sandbox": {
+        "mode": "coordinate_click",
+        "x_min": 0,
+        "x_max": 32767,
+        "y_min": 0,
+        "y_max": 32767,
+        "buttons": [
+          "left",
+          "right",
+          "middle"
+        ]
+      },
+      "params": [
+        {
+          "name": "x",
+          "type": "integer",
+          "required": true
+        },
+        {
+          "name": "y",
+          "type": "integer",
+          "required": true
+        },
+        {
+          "name": "button",
+          "type": "string",
+          "required": true
+        }
+      ]
+    },
+    {
+      "name": "ui_type",
+      "description": "行为意图：文本输入——经 SendInput+KEYEVENTF_UNICODE 键盘事件注入把文本键入前台窗口；是「用户要求在当前焦点处输入一段文字」的执行体。\n\n使用时机：用户要求往某输入框/文档填写内容时；自动化填表/回复时。\n\n取舍与替代选项：点击定位——ui_click（先点后输入）；本工具只管键入，不负责把焦点移到目标；按 UTF-16 码元直送，绕开输入法转换，字符内容不受 IME 影响。\n\n参数语义：command=固定值 ui_type（端点操作判定同源，调用方恒传）；text=待输入文本（长度上限 256 字符）。\n\n边界与协作：长度上限收口；审批档 review（每次输入经引擎审批链、每步审计、可链回退）；输入目标由前台焦点决定，执行器不指定接收窗口。",
+      "permission": "review",
+      "endpoint": "process_exec",
+      "sandbox": {
+        "mode": "text_input",
+        "max_chars": 256
+      },
+      "params": [
+        {
+          "name": "text",
+          "type": "string",
+          "required": true
+        }
+      ]
+    },
+    {
+      "name": "window_focus",
+      "description": "行为意图：聚焦窗口——把指定窗口提到前台（按句柄/标题/foreground 关键字定位）；是「切到某个窗口」的执行体。\n\n使用时机：用户要求「切到浏览器/记事本」等多窗口切换时；自动化工序切换焦点时。\n\n取舍与替代选项：看清单——ui_query（先列后选）；最小化——window_minimize；本工具只管聚焦，不读窗口内容。\n\n参数语义：command=固定值 window_focus（端点操作判定同源，调用方恒传）；handle=窗口句柄（十进制 HWND）/标题/foreground 关键字。\n\n边界与协作：句柄非空校验；审批档 review（每步审计、可链回退）；定位失败结构化返回错误，不静默成功。",
+      "permission": "review",
+      "endpoint": "process_exec",
+      "sandbox": {
+        "mode": "window_target",
+        "scopes": []
+      },
+      "params": [
+        {
+          "name": "handle",
+          "type": "string",
+          "required": true
+        }
+      ]
+    },
+    {
+      "name": "window_minimize",
+      "description": "行为意图：最小化窗口——把指定窗口收进任务栏（按句柄/标题/foreground 关键字定位）；是「收起某个窗口」的执行体。\n\n使用时机：用户要求「把这个窗口最小化」保持桌面清爽时；自动化工序收起干扰窗口时。\n\n取舍与替代选项：聚焦——window_focus；看清单——ui_query；本工具只管最小化，不读窗口内容。\n\n参数语义：command=固定值 window_minimize（端点操作判定同源，调用方恒传）；handle=窗口句柄（十进制 HWND）/标题/foreground 关键字。\n\n边界与协作：句柄非空校验；审批档 review（每步审计、可链回退）；定位失败结构化返回错误，不静默成功。",
+      "permission": "review",
+      "endpoint": "process_exec",
+      "sandbox": {
+        "mode": "window_target",
+        "scopes": []
+      },
+      "params": [
+        {
+          "name": "handle",
+          "type": "string",
+          "required": true
+        }
+      ]
+    },
+    {
+      "name": "screenshot_capture",
+      "description": "行为意图：截取当前屏幕并走隐私分级——本地模型直喂；云端模型默认禁止外发（屏幕内容不出网），须显式授权加审批后放行；产出引擎附件形态供多模态消费。\n\n使用时机：任务需要视觉理解屏幕（图表/图片/非标准控件）且已配多模态模型时；无多模态模型时走纯元素树感知。\n\n取舍与替代选项：要窗口/控件层级——ui_query；要点击/输入——ui_click/ui_type；本工具=像素通道，与元素树互为双通道交叉验证。\n\n参数语义：model_class=目标模型类别（local=本地直喂；cloud=云端，受隐私闸门约束）；destination=消费方标识。\n\n边界与协作：云端外发默认拒绝（fail-closed），授权开关持久化于数据根、每次外发经审批；外发事件落审计；截图写附件域，不进入工作区。",
+      "permission": "review",
+      "endpoint": "device_mcp",
+      "sandbox": {
+        "mode": "query_allowlist",
+        "allowlist": [
+          "local",
+          "cloud"
+        ]
+      },
+      "params": [
+        {
+          "name": "model_class",
+          "type": "string",
+          "required": true
+        },
+        {
+          "name": "destination",
+          "type": "string",
+          "required": false
+        }
+      ]
+    },
+    {
+      "name": "doc_parse",
+      "description": "行为意图：把文档解析成结构化数据——PDF（文本+版面）/ Word / Excel / PPT 识别并抽取为 JSON，是「喂论文/表格/演示进分析链」的入料环节。\n\n使用时机：用户上传或指路 PDF/Office 文件，需要 agent 读懂内容时；研究链要从论文/表格提取要点时。\n\n取舍与替代选项：只看文件状态——file_query；读纯文本——file_read；本工具=格式识别+结构化解析，产出 JSON 供分析/入库；不支持解压/改写文档。\n\n参数语义：path=待解析文件路径（工作区或附件域内）。\n\n边界与协作：只读解析，不写原文件；坏文件/截断输入结构化报错不崩溃；解析产物可继续走研究链（收集→解析→校验→评分→蒸馏）。",
+      "permission": "review",
+      "endpoint": "device_mcp",
+      "sandbox": {
+        "mode": "path_roots",
+        "roots": [
+          "~/.inkling/workspace",
+          "~/.inkling/attachments"
+        ]
+      },
+      "params": [
+        {
+          "name": "path",
+          "type": "string",
+          "required": true
+        }
+      ]
+    },
+    {
+      "name": "doc_generate",
+      "description": "行为意图：把结构化内容落成 Office 文档——docx 报告/纪要、xlsx 表格导出，是「把分析结论变成可交付文件」的执行体。\n\n使用时机：用户要报告/纪要/表格文件时；研究链收尾需要导出产物时。\n\n取舍与替代选项：仅生成不进工作区根外；要解析文档——doc_parse；本工具=生成落盘，返回路径与字节数。\n\n参数语义：command=固定值 doc_generate（端点操作判定同源，调用方恒传）；format=docx/xlsx；title=文档标题（同时作文件名基础）；body=正文（docx，多行用换行分隔）；table=表格 JSON 文本（xlsx，二维字符串数组）。\n\n边界与协作：写文件仅限工作区根内；正文 20000 字符/表格 500 行上限；审批档 review（每次生成经审批链、每步审计、可链回退）。",
+      "permission": "review",
+      "endpoint": "process_exec",
+      "sandbox": {
+        "mode": "path_roots",
+        "roots": [
+          "~/.inkling/workspace"
+        ]
+      },
+      "params": [
+        {
+          "name": "format",
+          "type": "string",
+          "required": true
+        },
+        {
+          "name": "title",
+          "type": "string",
+          "required": true
+        },
+        {
+          "name": "body",
+          "type": "string",
+          "required": false
+        },
+        {
+          "name": "table",
+          "type": "string",
+          "required": false
+        }
+      ]
+    },
+    {
+      "name": "material_import",
+      "description": "行为意图：把用户主目录域内的既有资料（PDF/Office/Markdown/JSON/CSV 等）批量扫描并结构化归一，搬进 InKEngine 知识链——是「迁移既有知识资产」的入料环节。\n\n使用时机：用户要把散落在目录里的文档/表格/演示/纯文本成批导入时；迁移或归档既有资料时。\n\n取舍与替代选项：只解析单文件——doc_parse；本工具=目录级批量扫描+归一，产出待入料清单；不支持改写/删除原文件。\n\n参数语义：path=待扫描目录（须落在用户主目录域内）；recursive=是否递归子目录（默认否）。\n\n边界与协作：只读扫描，不写原文件；递归深度/文件数/单文件体积三道硬上限防滥用；归一产物经既有样例闸门/知识集入料链（patch.propose_knowledge）入集，闸门拒绝即落 rejected。",
+      "permission": "review",
+      "endpoint": "device_mcp",
+      "sandbox": {
+        "mode": "path_roots",
+        "roots": [
+          "~/.inkling/workspace",
+          "~/.inkling/attachments",
+          "~"
+        ]
+      },
+      "params": [
+        {
+          "name": "path",
+          "type": "string",
+          "required": true
+        },
+        {
+          "name": "recursive",
+          "type": "boolean",
+          "required": false
+        }
+      ]
+    },
+    {
+      "name": "propose_patch",
+      "description": "行为意图：自指演化提案——把变更意图整理为声明式补丁（kind 覆盖界面/主题/工具/规则/知识/harness/事件类型/环境/产物全类），经按类型校验与审批分级后交补丁链落链（可回退），是 AI 修改产品形态的唯一入口形态。\n\n使用时机：需要新增或修订界面/主题/工具声明/规则/知识条目/harness/事件类型/环境/构建产物时；改进建议已成型、要进入审批流时；本工具只做提案，批准前不落任何变更。\n\n取舍与替代选项：只挂载 MCP/插件——propose_mcp_mount；本工具=其余全部演化对象（ui/theme/tool/rule/knowledge/harness/event_type/environment/artifact）；不提案直接改——不存在此路径，变更必须走补丁链留痕。\n\n参数语义：kind=补丁类型（枚举九类）；payload=补丁内容（按类型校验，ui/theme 走界面 schema，tool/rule/knowledge/harness/event_type/environment 走各自声明构造，artifact 走产物哈希声明）；base_version=提案时的集补丁链版本（基准校验用）；rationale=提案理由（审批卡展示与审计留痕）。\n\n边界与协作：校验失败 = 违规清单直接返回，不落审批卡；审批分级（L0/L1/L2）与补丁链 vetting 复用既有管线，批准后落链可回退；本工具只产提案，应用/回退归既有 self_application 通道。",
+      "permission": "review",
+      "endpoint": "process_exec",
+      "sandbox": {
+        "mode": "command_allowlist",
+        "allowlist": [
+          "propose_patch"
+        ]
+      },
+      "params": [
+        {
+          "name": "kind",
+          "type": "string",
+          "required": true
+        },
+        {
+          "name": "payload",
+          "type": "string",
+          "required": true
+        },
+        {
+          "name": "base_version",
+          "type": "integer",
+          "required": false
+        },
+        {
+          "name": "rationale",
+          "type": "string",
+          "required": false
+        }
+      ]
+    }
+  ]
+}

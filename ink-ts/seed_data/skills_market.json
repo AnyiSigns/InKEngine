@@ -1,0 +1,132 @@
+{
+  "premounted": false,
+  "mount_policy": {
+    "required": ["vetting 静态核对（清单一致性/必填字段/来源声明）", "审批卡预览（可 edit 改条目）", "L2 人工审批", "补丁链落链可回退"],
+    "note": "出厂零预装：市场目录是候选清单，任何安装都须走既有 vetting → 审批 → 补丁链链路（与 mcp_market 同形）"
+  },
+  "skills": [
+    {
+      "id": "market.skill.path.research_incubation",
+      "name": "path.research",
+      "kind": "path",
+      "domain": "research",
+      "version": 1,
+      "description": "研究孵化路径技能（真实结晶产物）：意图 → 入料 → 解析 → 校验 → 蒸馏，样例闸门在蒸馏结点前拦截",
+      "fingerprint": "25b28047432231466115228885514e2deaa74163db91883096c33ecc28a79965",
+      "source_path": "25b28047432231466115228885514e2deaa74163db91883096c33ecc28a79965",
+      "model_id": "inkling-exec",
+      "hit_count": 5,
+      "fail_count": 1,
+      "contract_snapshot": [
+        ["intent_parse", "1"],
+        ["collect_material", "1"],
+        ["parse_material", "1"],
+        ["validate_material", "1"],
+        ["distill_knowledge", "1"]
+      ],
+      "evidence_snapshot": [
+        {"src_type": "intent_parse", "dst_type": "collect_material", "src_contract_version": "1", "dst_contract_version": "1", "context_domain": "research", "success_count": 5, "fail_count": 1},
+        {"src_type": "collect_material", "dst_type": "parse_material", "src_contract_version": "1", "dst_contract_version": "1", "context_domain": "research", "success_count": 5, "fail_count": 1},
+        {"src_type": "parse_material", "dst_type": "validate_material", "src_contract_version": "1", "dst_contract_version": "1", "context_domain": "research", "success_count": 5, "fail_count": 1},
+        {"src_type": "validate_material", "dst_type": "distill_knowledge", "src_contract_version": "1", "dst_contract_version": "1", "context_domain": "research", "success_count": 5, "fail_count": 1}
+      ],
+      "path": {
+        "name": "cand",
+        "entry": "intent_parse",
+        "nodes": {
+          "intent_parse": {"type": "intent_parse", "config": {}, "contract": {"input_schema": null, "output_schema": null, "safety_tier": 0, "version": 1}},
+          "collect_material": {"type": "collect_material", "config": {}, "contract": {"input_schema": null, "output_schema": null, "safety_tier": 0, "version": 1}},
+          "parse_material": {"type": "parse_material", "config": {}, "contract": {"input_schema": null, "output_schema": null, "safety_tier": 0, "version": 1}},
+          "validate_material": {"type": "validate_material", "config": {}, "contract": {"input_schema": null, "output_schema": null, "safety_tier": 0, "version": 1}},
+          "distill_knowledge": {"type": "distill_knowledge", "config": {}, "contract": {"input_schema": null, "output_schema": null, "safety_tier": 0, "version": 1}}
+        },
+        "edges": {
+          "intent_parse": [{"target": "collect_material"}],
+          "collect_material": [{"target": "parse_material"}],
+          "parse_material": [{"target": "validate_material"}],
+          "validate_material": [{"target": "distill_knowledge"}]
+        },
+        "exits": [],
+        "subgraphs": {},
+        "schema": null
+      },
+      "test_report": {
+        "skill_name": "path.research",
+        "version": 1,
+        "skill_kind": "path",
+        "domain": "research",
+        "model_id": "inkling-exec",
+        "success_rate": 0.8333,
+        "hit_count": 5,
+        "fail_count": 1,
+        "sample_edges": [
+          {"src_type": "intent_parse", "dst_type": "collect_material", "success_count": 5, "fail_count": 1},
+          {"src_type": "collect_material", "dst_type": "parse_material", "success_count": 5, "fail_count": 1},
+          {"src_type": "parse_material", "dst_type": "validate_material", "success_count": 5, "fail_count": 1},
+          {"src_type": "validate_material", "dst_type": "distill_knowledge", "success_count": 5, "fail_count": 1}
+        ],
+        "generated_at": 1788039900.0,
+        "note": "自动结晶：命中数达阈值且命中率达标（来源指纹缓存条目）"
+      }
+    },
+    {
+      "id": "market.skill.path.doc_delivery",
+      "name": "path.documentation",
+      "kind": "path",
+      "domain": "documentation",
+      "version": 1,
+      "description": "文档交付路径技能（真实结晶产物）：意图 → 入料 → 文档生成 → 质检（跨域合成场景的文档支流产出路径）",
+      "fingerprint": "f0fd226967280f4dcc45948e9ff10fa0aa1f187b2f10e9af7596a5f36ff6c9dc",
+      "source_path": "f0fd226967280f4dcc45948e9ff10fa0aa1f187b2f10e9af7596a5f36ff6c9dc",
+      "model_id": "inkling-exec",
+      "hit_count": 4,
+      "fail_count": 1,
+      "contract_snapshot": [
+        ["intent_parse", "1"],
+        ["collect_material", "1"],
+        ["doc_generate", "1"],
+        ["quality_detect", "1"]
+      ],
+      "evidence_snapshot": [
+        {"src_type": "intent_parse", "dst_type": "collect_material", "src_contract_version": "1", "dst_contract_version": "1", "context_domain": "documentation", "success_count": 4, "fail_count": 1},
+        {"src_type": "collect_material", "dst_type": "doc_generate", "src_contract_version": "1", "dst_contract_version": "1", "context_domain": "documentation", "success_count": 4, "fail_count": 1},
+        {"src_type": "doc_generate", "dst_type": "quality_detect", "src_contract_version": "1", "dst_contract_version": "1", "context_domain": "documentation", "success_count": 4, "fail_count": 1}
+      ],
+      "path": {
+        "name": "cand",
+        "entry": "intent_parse",
+        "nodes": {
+          "intent_parse": {"type": "intent_parse", "config": {}, "contract": {"input_schema": null, "output_schema": null, "safety_tier": 0, "version": 1}},
+          "collect_material": {"type": "collect_material", "config": {}, "contract": {"input_schema": null, "output_schema": null, "safety_tier": 0, "version": 1}},
+          "doc_generate": {"type": "doc_generate", "config": {}, "contract": {"input_schema": null, "output_schema": null, "safety_tier": 0, "version": 1}},
+          "quality_detect": {"type": "quality_detect", "config": {}, "contract": {"input_schema": null, "output_schema": null, "safety_tier": 0, "version": 1}}
+        },
+        "edges": {
+          "intent_parse": [{"target": "collect_material"}],
+          "collect_material": [{"target": "doc_generate"}],
+          "doc_generate": [{"target": "quality_detect"}]
+        },
+        "exits": [],
+        "subgraphs": {},
+        "schema": null
+      },
+      "test_report": {
+        "skill_name": "path.documentation",
+        "version": 1,
+        "skill_kind": "path",
+        "domain": "documentation",
+        "model_id": "inkling-exec",
+        "success_rate": 0.8,
+        "hit_count": 4,
+        "fail_count": 1,
+        "sample_edges": [
+          {"src_type": "intent_parse", "dst_type": "collect_material", "success_count": 4, "fail_count": 1},
+          {"src_type": "collect_material", "dst_type": "doc_generate", "success_count": 4, "fail_count": 1},
+          {"src_type": "doc_generate", "dst_type": "quality_detect", "success_count": 4, "fail_count": 1}
+        ],
+        "generated_at": 1788039900.0,
+        "note": "自动结晶：命中数达阈值且命中率达标（来源指纹缓存条目）"
+      }
+    }
+  ]
+}

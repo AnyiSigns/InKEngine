@@ -14,6 +14,7 @@ import { ArrowUp, Brain, ChevronDown, Loader2, Mic, Plus, Route, SlidersHorizont
 import type { ModelArchiveRow, ModelArchiveSnapshot, ModelSelection } from '@/shared/backend/backendAdapter';
 import { createBackend } from '@/shared/backend/backendAdapter';
 import { useT } from '@/i18n/useT';
+import { fileToDataUrl, uploadThenAsset } from '@/shared/upload/fileAsset';
 
 /** 多模态三态归一（壳侧档案标注 true/'true'/unknown）。 */
 function isMultimodal(m: ModelArchiveRow): boolean {
@@ -57,6 +58,8 @@ interface AttachmentAsset {
   name: string;
   size: number;
   mime: string;
+  /** 服务端落盘路径（serve /upload 回填；宿主 doc.parse/工具取用）。 */
+  path?: string;
 }
 
 export interface RoutePlanResult {
@@ -207,15 +210,34 @@ export function InputBar({
     }
   };
 
-  const handleFiles = (e: React.ChangeEvent<HTMLInputElement>) => {
+  /**
+   * 附件入载荷：
+   * - 图片：FileReader.readAsDataURL → url=data:image/... 直发（对齐引擎
+   *   Attachment image_url 段；远端端点不支持多模态时由上层降级文本引用）；
+   * - 文档/视频：先经 serve 通道 /upload 落白名单目录，回填可解析的
+   *   url/path（宿主 doc.parse 提取文本注入 round）；无 serve URL 时保持
+   *   既有占位（blob object URL，仅预览面）。
+   */
+  const handleFiles = async (e: React.ChangeEvent<HTMLInputElement>) => {
     const files = Array.from(e.target.files ?? []);
-    const mapped: AttachmentAsset[] = files.map((f) => ({
-      kind: f.type.startsWith('image') ? 'image' : f.type.startsWith('video') ? 'video' : 'document',
-      url: URL.createObjectURL(f),
-      name: f.name,
-      size: f.size,
-      mime: f.type,
-    }));
+    const mapped: AttachmentAsset[] = [];
+    for (const f of files) {
+      const kind = f.type.startsWith('image') ? 'image' : f.type.startsWith('video') ? 'video' : 'document';
+      const base = { name: f.name, size: f.size, mime: f.type };
+      if (kind === 'image') {
+        const dataUrl = await fileToDataUrl(f).catch(() => null);
+        if (dataUrl !== null) {
+          mapped.push({ ...base, kind, url: dataUrl });
+          continue;
+        }
+      }
+      const receipt = await uploadThenAsset(f).catch(() => null);
+      if (receipt !== null) {
+        mapped.push({ ...base, kind, url: receipt.url, path: receipt.path });
+      } else {
+        mapped.push({ ...base, kind, url: URL.createObjectURL(f) });
+      }
+    }
     setAttachments((prev) => [...prev, ...mapped]);
     onAttachments(mapped);
     e.target.value = '';

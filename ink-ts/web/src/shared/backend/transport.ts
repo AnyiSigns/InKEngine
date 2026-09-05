@@ -48,6 +48,17 @@ export interface ServeChannel {
   request<T>(method: string, params?: unknown): Promise<T>;
   /** 订阅事件 topic（serve 推送；返回注销函数，宿主不可用返回空操作）。 */
   subscribe(topic: string, handler: (payload: unknown) => void): Promise<() => void>;
+  /** 附件上传（POST /upload → 白名单落盘；通道不可用 = null）。 */
+  upload(file: File): Promise<UploadReceipt | null>;
+}
+
+/** /upload 落盘回执（path 为宿主侧本地路径；url 为 serve 下载面）。 */
+export interface UploadReceipt {
+  path: string;
+  url: string;
+  name: string;
+  size: number;
+  mime: string;
 }
 
 /** 事件信封载荷（serve 推送回调控件形态）。 */
@@ -75,6 +86,7 @@ export function createUnavailableChannel(): ServeChannel {
     available: false,
     request: unavailable as never,
     subscribe: async () => () => undefined,
+    upload: async () => null,
   };
 }
 
@@ -247,11 +259,38 @@ export function createServeChannel(config: ServeChannelConfig, deps: ServeChanne
     });
   };
 
+  /** 附件上传：multipart → serve /upload（白名单落盘）；失败抛统一信封。 */
+  const upload = async (file: File): Promise<UploadReceipt | null> => {
+    const form = new FormData();
+    form.append('file', file, file.name);
+    const headers: Record<string, string> = {};
+    if (token !== '') headers['authorization'] = `Bearer ${token}`;
+    let response: Response;
+    try {
+      // multipart 边界由浏览器自动生成：不手动设 content-type
+      response = await fetchImpl(`${baseUrl}/upload`, { method: 'POST', headers, body: form });
+    } catch (error) {
+      throw { code: 'NETWORK', message: `serve 不可达: ${String(error instanceof Error ? error.message : error)}` };
+    }
+    if (!response.ok) {
+      let detail = `serve 返回 ${response.status}`;
+      try {
+        const parsed = (await response.json()) as { error?: unknown };
+        if (typeof parsed.error === 'string') detail = parsed.error;
+      } catch {
+        // 非 JSON 错误体忽略细节
+      }
+      throw { code: `HTTP_${response.status}`, message: detail };
+    }
+    return (await response.json()) as UploadReceipt;
+  };
+
   return {
     available: true,
     baseUrl,
     request,
     subscribe,
+    upload,
   };
 }
 
@@ -288,4 +327,11 @@ export async function listenHostEvent<T = unknown>(
     const typed = raw as ServeEventEnvelope<T>;
     handler(typed?.payload ?? (raw as T));
   });
+}
+
+/** 附件上传（供 InputBar 等附件链路消费；通道不可用 = null，走夹具路径）。 */
+export async function uploadAttachment(file: File): Promise<UploadReceipt | null> {
+  const channel = getServeChannel();
+  if (!channel.available) return null;
+  return channel.upload(file);
 }

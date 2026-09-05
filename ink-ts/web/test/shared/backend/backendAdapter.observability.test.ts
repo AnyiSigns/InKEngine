@@ -24,6 +24,7 @@ function mockChannel(): { channel: ServeChannel; calls: Array<{ cmd: string; arg
       return {};
     }) as ServeChannel['request'],
     subscribe: async () => () => undefined,
+    upload: async () => null,
   };
   return { channel, calls };
 }

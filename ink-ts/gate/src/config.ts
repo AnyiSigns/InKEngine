@@ -21,7 +21,7 @@ export interface GateConfig {
 
 export const defaultConfig: GateConfig = {
   maxLines: 350,
-  lineScanDirs: ['engine/src', 'engine/test', 'host/src', 'host/test', 'cli/src', 'cli/test', 'web/src'],
+  lineScanDirs: ['engine/src', 'engine/test', 'host/src', 'host/test', 'cli/src', 'cli/test', 'web/src', 'web/test'],
   coreDirs: ['engine/src/core'],
   coreForbiddenTokens: ['cordis', 'tauri', 'electron', 'vitest', 'react', 'inkling'],
   coreOpaqueTokens: ['inkling.skill/v1'],

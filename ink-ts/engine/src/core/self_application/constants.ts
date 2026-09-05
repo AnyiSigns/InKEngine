@@ -11,10 +11,10 @@
  * 路径段（集状态结构）、段 → 类型映射（SEGMENT_TO_KIND）、旁路写
  * 防护的演化资产集合与前缀、审批动作 key 前缀与审计状态常量。
  *
- * 数据面单源：守卫集合/前缀/审计状态值集合 = contracts generated
- * （GUARDED_COLLECTIONS / GUARDED_PREFIXES / AUDIT_STATUSES）——本地
- * 不维护同值第二套字面量；一致性由编译期绑定与 assert_constants_contract
- * 运行时兜底（测试调用）。
+ * 数据面单源：守卫集合/前缀/审计状态值集合 = 引擎内置生成物
+ * （GUARDED_COLLECTIONS / GUARDED_PREFIXES / AUDIT_STATUSES，engine/
+ * schemas + fixtures 生成）——本地不维护同值第二套字面量；一致性由
+ * 编译期绑定与 assert_constants_contract 运行时兜底（测试调用）。
  */
 
 import {
@@ -22,7 +22,7 @@ import {
   GUARDED_COLLECTIONS as CONTRACT_GUARDED_COLLECTIONS,
   GUARDED_PREFIXES as CONTRACT_GUARDED_PREFIXES,
   type AuditStatus,
-} from '@ink-ts/contracts';
+} from '../contracts/generated/index.js';
 import { GraphDefinitionError } from '../errors.js';
 
 // 集补丁链持久化集合与键（通用存储服务 records 通道）
@@ -80,14 +80,14 @@ export const _GUARDED_COLLECTIONS: ReadonlySet<string> = new Set<string>([
  * knowledge:<user_id>（知识/规则条目）、harness:<set_id>（能力包仓库）、
  * event_types:<set_id>（演化事件类型）、entities:<set_id>（协作者目录）——
  * 集合名带 set_id 后精确名匹配不再命中，缺前缀守卫 = 演化资产直写无闸门。
- * 值来源 = contracts generated GUARDED_PREFIXES（本地无第二套字面量）。
+ * 值来源 = 引擎内置生成物 GUARDED_PREFIXES（本地无第二套字面量）。
  */
 export const _GUARDED_PREFIXES: readonly string[] = CONTRACT_GUARDED_PREFIXES;
 
 // 审批动作 key 前缀（挂卡/直过的依据；L0 名单按 key 注入策略）
 export const _APPROVAL_KEY_PREFIX = 'patch';
 
-// 审计状态（声明式枚举，防魔法字符串；值面绑定 contracts AuditStatus 类型，
+// 审计状态（声明式枚举，防魔法字符串；值面绑定数据面 AuditStatus 类型，
 // 集合相等由 assert_constants_contract 校验）
 export const AUDIT_STATUS_APPLIED: AuditStatus = 'applied';
 export const AUDIT_STATUS_REJECTED: AuditStatus = 'rejected';
@@ -109,8 +109,8 @@ const _AUDIT_STATUS_VALUES = [
 ] as const satisfies readonly AuditStatus[];
 
 /**
- * 运行时断言：守卫集合/前缀与审计状态 ↔ contracts generated 一致（防绕过
- * 类型层的运行时漂移，由引擎测试调用）。
+ * 运行时断言：守卫集合/前缀与审计状态 ↔ 数据面生成物一致（防绕过类型层
+ * 的运行时漂移，由引擎测试调用）。
  */
 export function assert_constants_contract(): void {
   const collections = [..._GUARDED_COLLECTIONS].sort();
@@ -120,8 +120,8 @@ export function assert_constants_contract(): void {
     || collections.some((name, index) => name !== contractCollections[index])
   ) {
     throw new GraphDefinitionError(
-      '守卫集合与 contracts GUARDED_COLLECTIONS 不一致: '
-        + `engine=[${collections.join(', ')}] vs contracts=[${contractCollections.join(', ')}]`,
+      '守卫集合与数据面 GUARDED_COLLECTIONS 不一致: '
+        + `engine=[${collections.join(', ')}] vs generated=[${contractCollections.join(', ')}]`,
     );
   }
   const prefixes = [..._GUARDED_PREFIXES];
@@ -131,8 +131,8 @@ export function assert_constants_contract(): void {
     || prefixes.some((prefix, index) => prefix !== contractPrefixes[index])
   ) {
     throw new GraphDefinitionError(
-      '守卫前缀与 contracts GUARDED_PREFIXES 不一致: '
-        + `engine=[${prefixes.join(', ')}] vs contracts=[${contractPrefixes.join(', ')}]`,
+      '守卫前缀与数据面 GUARDED_PREFIXES 不一致: '
+        + `engine=[${prefixes.join(', ')}] vs generated=[${contractPrefixes.join(', ')}]`,
     );
   }
   const statuses = [..._AUDIT_STATUS_VALUES];
@@ -142,8 +142,8 @@ export function assert_constants_contract(): void {
     || statuses.some((status, index) => status !== contractStatuses[index])
   ) {
     throw new GraphDefinitionError(
-      '审计状态与 contracts AUDIT_STATUSES 不一致: '
-        + `engine=[${statuses.join(', ')}] vs contracts=[${contractStatuses.join(', ')}]`,
+      '审计状态与数据面 AUDIT_STATUSES 不一致: '
+        + `engine=[${statuses.join(', ')}] vs generated=[${contractStatuses.join(', ')}]`,
     );
   }
 }

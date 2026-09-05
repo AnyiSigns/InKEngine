@@ -13,7 +13,7 @@ import { describe, expect, it } from 'vitest';
 import {
   APPROVAL_LEVELS,
   DEFAULT_APPROVAL_LEVELS as CONTRACT_DEFAULT_APPROVAL_LEVELS,
-} from '@ink-ts/contracts';
+} from '../../../src/core/contracts/generated/index.js';
 import {
   ApprovalLevel,
   DEFAULT_APPROVAL_LEVELS,
@@ -30,7 +30,7 @@ function levelOf(
 }
 
 describe('approval_levels 空表语义（对齐 Python falsy 回落）', () => {
-  it('engine 分级 ↔ contracts generated 一致（数据面单源断言）', () => {
+  it('engine 分级 ↔ 数据面生成物一致（引擎内置单源断言）', () => {
     expect(() => assert_approval_levels_contract()).not.toThrow();
     expect(Object.values(ApprovalLevel)).toEqual([...APPROVAL_LEVELS]);
     expect(DEFAULT_APPROVAL_LEVELS).toEqual(CONTRACT_DEFAULT_APPROVAL_LEVELS);

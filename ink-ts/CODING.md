@@ -16,7 +16,10 @@
     兼容端点）只发协议级 HTTP，不 import 任何厂商 SDK；storage 驱动
     （sqlite/memory 驱动，postgres 暂不提供）实现 core 仓储契约；mcp client 同层。本层允许
     node:* 与驱动必需的第三方，但不得反向依赖 core 私有文件。
-- `contracts/`：L0/L1 数据面契约唯一真源（JSON schema + fixtures + 生成类型）。
+- `contracts` 已收编入 engine：数据面契约资产随引擎内置（JSON 真源
+  `engine/schemas/` + `engine/fixtures/` 与生成器 `engine/scripts/`；生成 TS
+  常量/类型入 `engine/src/core/contracts/generated/`，随 engine tsc/gate 守门，
+  禁手改由 contracts:verify 强制），不再有独立契约包。
 - `gate/`：开发/CI 静态纪律工具（行数、UTF-8、import 白名单、词汇、src-test
   检查），真实扫描挂在 root `npm test` 与 CI（不再只手动），不打包进运行时。
 - `host/`（原 `backend/`）：宿主装配层 / composition root——装配 engine
@@ -32,15 +35,16 @@
 术语（§3 对齐，写入本文）：**host（原 backend）** = 宿主装配层 / composition
 root；**cli** = 唯一进程载体（含 main + 三形态）；**web** = 前端纯渲染（L5，
 只连 cli serve 通道）；exec/infer 为 Rust 原生机制件子进程（OS 执行 / 本地
-嵌入推理）。包间依赖单向：`web/host/cli → engine → contracts`。域间不跨目录
-import 私有模块。
+嵌入推理）。包间依赖单向：`web/host/cli → engine`；engine 数据面契约内置
+（schemas/fixtures/生成物同包），上层一律经 `@ink-ts/engine` 公共面消费。
+域间不跨目录 import 私有模块。
 
-当前实现状态：`engine → contracts` 依赖已声明（`engine/package.json`
-dependencies = workspace 包）并经生成物消费落地——engine 数据面枚举
-（端点名/补丁类型/审批分级/守卫集合/审计状态/FieldKind 等）直接消费
-`@ink-ts/contracts` generated 常量与类型，本地不维护同值第二套字面量；
-core 层 import 白名单仅放行 `@ink-ts/contracts` 这一个数据契约包（gate
-精确 allowlist，见 §7）。
+当前实现状态：数据面枚举（端点名/补丁类型/审批分级/守卫集合/审计状态/
+FieldKind 等）经 engine 内置生成物单源（`engine/schemas` + `engine/fixtures`
+→ `engine/src/core/contracts/generated`），engine core 模块以相对 import
+直接消费，本地不维护同值第二套字面量；core 层 import 无裸包白名单（gate
+精确拒绝，见 §7）。生成物再经 `@ink-ts/engine` index 公共面导出，供
+host/cli/web 取用。
 
 ## 2. 文件拆分纪律
 
@@ -76,16 +80,19 @@ core 层 import 白名单仅放行 `@ink-ts/contracts` 这一个数据契约包�
 1. 错误处理闭环：每个可失败路径有明确错误语义；重试/降级策略显式声明而非
    隐式吞错；边界条件全覆盖（空输入、超长、并发、非法值）。
 2. 服务稳定不崩溃：宿主可兜底重启，但机制层不依赖兜底。
-3. 禁止魔法数字/字符串散落：抽为常量/枚举/contracts 常量。
+3. 禁止魔法数字/字符串散落：抽为常量/枚举/引擎数据面契约常量。
 
 ## 5. 数据面 / 钩子面
 
-1. 可 JSON 表达的契约（枚举、注册表条目、配方数据）只放 `contracts/`，
-   全仓同构消费，禁止第二套语义枚举。
+1. 可 JSON 表达的契约（枚举、注册表条目、配方数据）只落 `engine/schemas` +
+   `engine/fixtures`（JSON 真源），生成 TS 常量/类型入
+   `engine/src/core/contracts/generated`，core 模块相对 import 消费，
+   host/cli/web 经 `@ink-ts/engine` 公共面取用，全仓同构，禁止第二套语义
+   枚举。
 2. 行为钩子（Callable/执行体接线）不落 JSON，只以 seam/类型存在于消费层，
    命名带明确职责后缀。
-3. 新端点类型/谓词/补丁类型注册进 contracts 后全流水线走通，不存在「跳过
-   流水线环节」的开关。
+3. 新端点类型/谓词/补丁类型注册进 engine 数据面契约（schemas/fixtures →
+   generated 重生成）后全流水线走通，不存在「跳过流水线环节」的开关。
 
 ## 6. 可测试性与可观测性
 
@@ -102,10 +109,10 @@ core 层 import 白名单仅放行 `@ink-ts/contracts` 这一个数据契约包�
 | 文件行数 ≤350（例外须标注） | engine/host/cli/web 源码与测试 | 拒绝 |
 | src 内夹测试文件（`.test` 在 src 目录） | 各包 `src/**` | 拒绝 |
 | 源文件非法 UTF-8 字节（含损坏转码） | 各包 `src/**` | 拒绝（utf8-valid） |
-| core 禁 node:* 与第三方 import | `engine/src/core/**` | 拒绝（`node:async_hooks` 白名单例外：镜像 Python core contextvars，清单见 gate config；裸包仅精确放行 `@ink-ts/contracts`——engine→contracts 数据契约层唯一入口，不放行其它 @ink-ts/*、adapters 与第三方） |
+| core 禁 node:* 与第三方 import | `engine/src/core/**` | 拒绝（`node:async_hooks` 白名单例外：镜像 Python core contextvars，清单见 gate config；core 无裸包放行——数据面契约经相对 import 引用同包内置生成物，不放行其它 @ink-ts/*、adapters 与第三方） |
 | core 禁反向依赖 adapters | `engine/src/core/**` | 拒绝 |
 | core 禁宿主/框架词 | `engine/src/core/**` | 拒绝 |
-| 生成文件禁手改 | `contracts/src/generated/**` | 由 `contracts:verify`（复制 schemas/fixtures 后重生成，与仓库生成物归一化逐文件 diff）在 root `npm test` 与 CI 强制；不做文本扫描 |
+| 生成文件禁手改 | `engine/src/core/contracts/generated/**` | 由 `contracts:verify`（engine/scripts/verify_generated.mjs：复制 engine/schemas + fixtures 后重生成，与仓库生成物归一化逐文件 diff）在 root `npm test` 与 CI 强制；不做文本扫描 |
 
 gate 实现与正反样例位于 `gate/src/` 与 `gate/test/`；**真实扫描链** =
 root `npm test` 首段 `tsx gate/src/check.ts`（对 engine/host/cli/web

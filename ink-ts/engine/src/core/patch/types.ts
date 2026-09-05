@@ -1,6 +1,7 @@
 /**
  * patch 域数据形态（内容型补丁链 Event Sourcing 原语）。
- * op 字符串与 contracts patch_protocol fixture 保持一致，由一致性测试钉住。
+ * op 字符串与数据面 patch_protocol fixture（engine/fixtures）保持一致，
+ * 由一致性测试钉住。
  */
 
 import type { Json, JsonRecord } from '../json.js';

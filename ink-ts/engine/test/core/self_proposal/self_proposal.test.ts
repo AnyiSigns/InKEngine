@@ -14,7 +14,7 @@
 
 import { describe, expect, it } from 'vitest';
 
-import { PATCH_KINDS } from '@ink-ts/contracts';
+import { PATCH_KINDS } from '../../../src/core/contracts/generated/index.js';
 import { GraphDefinitionError } from '../../../src/core/errors.js';
 import { PatchKind, SelfProposal } from '../../../src/core/self_proposal/index.js';
 import { assert_patch_kinds_contract } from '../../../src/core/self_proposal/self_proposal.js';
@@ -34,7 +34,7 @@ function _proposal(
 }
 
 describe('SelfProposal 提案数据形态', () => {
-  it('engine PatchKind ↔ contracts PATCH_KINDS 一致（数据面单源断言）', () => {
+  it('engine PatchKind ↔ 数据面 PATCH_KINDS 一致（引擎内置单源断言）', () => {
     expect(() => assert_patch_kinds_contract()).not.toThrow();
     expect(Object.values(PatchKind)).toEqual([...PATCH_KINDS]);
   });

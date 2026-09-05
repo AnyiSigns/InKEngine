@@ -23,13 +23,13 @@
  * 本文件承载 PatchKind / SelfProposal 与形态示例骨架；ProposalValidator
  * 在 proposal_validator.ts（≤350 行纪律拆分）。
  *
- * 数据面单源：PatchKind 值集合 = contracts generated PATCH_KINDS（schema/
- * fixture）；本对象为引擎本地名常量（代码各处按成员引用），取值经编译期
- * 集合相等绑定 + 运行时 assert_patch_kinds_contract 双向校验，不维护
- * 第二套语义枚举。
+ * 数据面单源：PatchKind 值集合 = 引擎内置生成物 PATCH_KINDS（engine/
+ * schemas + fixtures 生成）；本对象为引擎本地名常量（代码各处按成员引用），
+ * 取值经编译期集合相等绑定 + 运行时 assert_patch_kinds_contract 双向校验，
+ * 不维护第二套语义枚举。
  */
 
-import { PATCH_KINDS, type PatchKind as ContractPatchKind } from '@ink-ts/contracts';
+import { PATCH_KINDS, type PatchKind as ContractPatchKind } from '../contracts/generated/index.js';
 import { GraphDefinitionError } from '../errors.js';
 import { isRecord, typeName } from '../json.js';
 
@@ -71,7 +71,7 @@ export const _PATCH_KIND_VALUES: readonly PatchKind[] = PATCH_KINDS;
 export const _PATCH_KIND_VALUES_REPR = `[${_PATCH_KIND_VALUES.map((value) => pyRepr(value)).join(', ')}]`;
 
 /**
- * 运行时断言：PatchKind 值集合 ↔ contracts PATCH_KINDS 一致（防绕过类型层
+ * 运行时断言：PatchKind 值集合 ↔ 数据面生成物 PATCH_KINDS 一致（防绕过类型层
  * 的运行时漂移，由引擎测试调用）。
  */
 export function assert_patch_kinds_contract(): void {
@@ -82,8 +82,8 @@ export function assert_patch_kinds_contract(): void {
     || !engineValues.every((value) => contractValues.includes(value))
   ) {
     throw new GraphDefinitionError(
-      'PatchKind 与 contracts PATCH_KINDS 不一致: '
-        + `engine=[${engineValues.join(', ')}] vs contracts=[${contractValues.join(', ')}]`,
+      'PatchKind 与数据面 PATCH_KINDS 不一致: '
+        + `engine=[${engineValues.join(', ')}] vs generated=[${contractValues.join(', ')}]`,
     );
   }
 }

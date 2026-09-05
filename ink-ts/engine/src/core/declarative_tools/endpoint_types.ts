@@ -16,12 +16,12 @@
  * 值比较即恒等比较，JSON 反序列化的 "file_ops" 与 EndpointType.FILE_OPS
  * 恒等，归一语义天然成立；非内置字符串 = 自定义端点（经注册表校验）。
  *
- * 数据面单源：端点名集合的唯一真源 = contracts generated
- * BUILTIN_ENDPOINT_NAMES（schema/fixture）；本对象为引擎本地名常量
- * （代码各处以枚举成员引用），取值经编译期集合相等绑定 + 运行时
- * assert_endpoint_contract 双向校验，不维护第二套字面量。
+ * 数据面单源：端点名集合的唯一真源 = 引擎内置生成物
+ * BUILTIN_ENDPOINT_NAMES（engine/schemas + fixtures 生成）；本对象为
+ * 引擎本地名常量（代码各处以枚举成员引用），取值经编译期集合相等绑定 +
+ * 运行时 assert_endpoint_contract 双向校验，不维护第二套字面量。
  */
-import { BUILTIN_ENDPOINT_NAMES, BUILTIN_ENDPOINTS, type BuiltinEndpointName } from '@ink-ts/contracts';
+import { BUILTIN_ENDPOINT_NAMES, BUILTIN_ENDPOINTS, type BuiltinEndpointName } from '../contracts/generated/index.js';
 import { GraphDefinitionError } from '../errors.js';
 import type { SchemaField } from '../schema/schemaValidator.js';
 import type { SandboxSeam } from '../tool_pipeline/_types.js';
@@ -64,7 +64,7 @@ const _endpointNamesCoverContract: true = true as _StringSetEqual<
 >;
 
 /**
- * 运行时断言：EndpointType 值集合 ↔ contracts BUILTIN_ENDPOINT_NAMES 一致
+ * 运行时断言：EndpointType 值集合 ↔ 数据面 BUILTIN_ENDPOINT_NAMES 一致
  * （防绕过类型层的运行时漂移，由引擎测试调用）。
  */
 export function assert_endpoint_contract(): void {
@@ -75,8 +75,8 @@ export function assert_endpoint_contract(): void {
     || !engineValues.every((value) => builtinNames.includes(value))
   ) {
     throw new GraphDefinitionError(
-      '端点类型枚举与 contracts BUILTIN_ENDPOINT_NAMES 不一致: '
-        + `engine=[${engineValues.join(', ')}] vs contracts=[${builtinNames.join(', ')}]`,
+      '端点类型枚举与数据面 BUILTIN_ENDPOINT_NAMES 不一致: '
+        + `engine=[${engineValues.join(', ')}] vs generated=[${builtinNames.join(', ')}]`,
     );
   }
 }
@@ -84,8 +84,8 @@ export function assert_endpoint_contract(): void {
 /** 全部内置端点值（注册表内置登记与测试断言共用）。 */
 export const ENDPOINT_TYPE_VALUES: readonly string[] = Object.values(EndpointType);
 
-// file_ops 动作域（数据面来源 = contracts BUILTIN_ENDPOINTS 条目，本地无
-// 第二套字面量；registry 数据驱动后仍供 _hooks 判定与错误文案引用）
+// file_ops 动作域（数据面来源 = 引擎内置生成物 BUILTIN_ENDPOINTS 条目，
+// 本地无第二套字面量；registry 数据驱动后仍供 _hooks 判定与错误文案引用）
 // search = 工作区文本内容检索（grep）/ search_paths = 工作区路径检索
 // （glob）——同属只读文件操作域；edit = 就地改写，一等操作域（权限
 // 动作 filesystem:edit、沙箱守卫与审计可独立区分）

@@ -4,16 +4,15 @@
   "private": true,
   "type": "module",
   "description": "受控自进化运行时 + 智能体的 TypeScript 单语言重表达（引擎 TS 迁移）",
-  "workspaces": ["contracts", "engine", "gate", "cli", "host", "web"],
+  "workspaces": ["engine", "gate", "cli", "host", "web"],
   "scripts": {
     "typecheck": "npm run typecheck --workspaces --if-present",
-    "test": "tsx gate/src/check.ts && vitest run --root gate && vitest run --root cli && vitest run --root engine && vitest run --root host && vitest run --root web && node contracts/scripts/verify_generated.mjs",
+    "test": "tsx gate/src/check.ts && vitest run --root gate && vitest run --root cli && vitest run --root engine && vitest run --root host && vitest run --root web && node engine/scripts/verify_generated.mjs",
     "gate": "tsx gate/src/check.ts",
     "dev": "tsx watch --clear-screen=false cli/src/index.ts serve",
     "self-check": "node --import tsx self_check/index.ts all",
-    "contracts:verify": "node contracts/scripts/verify_generated.mjs",
-    "contracts:check": "..\\.venv\\Scripts\\python.exe contracts/scripts/check_contract_sources.py",
-    "contracts:generate": "npm run generate -w @ink-ts/contracts"
+    "contracts:verify": "node engine/scripts/verify_generated.mjs",
+    "contracts:generate": "node engine/scripts/generate.mjs"
   },
   "devDependencies": {
     "@types/node": "^24.0.0",

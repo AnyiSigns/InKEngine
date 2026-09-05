@@ -3,16 +3,16 @@ import { dirname, join } from 'node:path';
 import { fileURLToPath } from 'node:url';
 
 const HERE = dirname(fileURLToPath(import.meta.url));
-const CONTRACTS = join(HERE, '..');
-const OUT = join(CONTRACTS, 'src', 'generated');
+const ENGINE = join(HERE, '..');
+const OUT = join(ENGINE, 'src', 'core', 'contracts', 'generated');
 
-const readJson = (p) => JSON.parse(readFileSync(join(CONTRACTS, p), 'utf-8'));
+const readJson = (p) => JSON.parse(readFileSync(join(ENGINE, p), 'utf-8'));
 const schema = (name) => readJson(`schemas/${name}.schema.json`);
 const fixture = (name) => readJson(`fixtures/${name}.fixture.json`);
 
 const HEADER =
-  '// 生成文件（generated）：由 scripts/generate.mjs 依据 contracts/schemas 与 ' +
-  'fixtures 生成，勿手改。数据面契约以 JSON 为准。';
+  '// 生成文件（generated）：由 engine/scripts/generate.mjs 依据 engine/schemas 与 ' +
+  'engine/fixtures 生成，勿手改。数据面契约以 JSON 为准。';
 
 const erSchema = schema('endpoint_registry');
 const erFixture = fixture('endpoint_registry');
@@ -108,4 +108,4 @@ writeGenerated(
   ["export * from './endpointTypes.js';", "export * from './patchProtocol.js';"].join('\n'),
 );
 
-console.log('generated src/generated/{endpointTypes,patchProtocol,index}.ts');
+console.log('generated engine/src/core/contracts/generated/{endpointTypes,patchProtocol,index}.ts');

@@ -2,11 +2,11 @@
  * 内置端点类型注册表单例（模块加载期登记；重复登记 = 编程错误）。
  *
  * 内置 7 种端点的**数据面**（name/actions/config_requirements/
- * output_fields/sandbox_ops）直接消费 contracts generated BUILTIN_ENDPOINTS
- * ——schema/fixture 为唯一真源，本地不维护第二套字面量；output_fields 的
- * kind 语义 = 数据面 FieldKind（经 schemaValidator.FieldKind 与
- * @ink-ts/contracts 同值域单源化，形状一致，无窄映射缺口；若日后两端
- * 形状分叉，在此做一次显式窄映射）。
+ * output_fields/sandbox_ops）直接消费引擎内置生成物 BUILTIN_ENDPOINTS
+ * ——engine/schemas + fixtures 为唯一真源，本地不维护第二套字面量；
+ * output_fields 的 kind 语义 = 数据面 FieldKind（经 schemaValidator.FieldKind
+ * 与本包生成物同值域单源化，形状一致，无窄映射缺口；若日后两端形状
+ * 分叉，在此做一次显式窄映射）。
  *
  * 引擎特有**钩子面**（判定目标提取 extractor / 失败原因 failure_reason /
  * 沙箱守卫 sandbox_builder）不落 JSON，按端点名在下方本地注册表登记
@@ -17,7 +17,7 @@
  * 宿主自定义端点经 EndpointTypeRegistry.register 增补到同一注册表后，
  * build_declarative_pipeline 缺省自动生效。
  */
-import { BUILTIN_ENDPOINTS, type BuiltinEndpointName } from '@ink-ts/contracts';
+import { BUILTIN_ENDPOINTS, type BuiltinEndpointName } from '../contracts/generated/index.js';
 import { FileSandbox, ProcessSandbox } from '../sandbox/index.js';
 import { SchemaField } from '../schema/schemaValidator.js';
 import type { SandboxSeam } from '../tool_pipeline/_types.js';

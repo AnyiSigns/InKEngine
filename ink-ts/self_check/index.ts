@@ -2,10 +2,10 @@
  * ink-ts 出厂等价自检编排（TS 版）：单个 tsx 命令跑通全部门禁并矩阵化汇报。
  *
  * 语义随迁自 inkling/self_check（Rust 七门禁）的等价物，面向 TS 工作区：
- * - contracts：contracts fixtures↔generated 权威性校验（verify_generated）；
+ * - contracts：engine 数据面 fixtures↔generated 权威性校验（verify_generated）；
  * - vitest：各包（gate/cli/engine/host/web）vitest 全量；
  * - discipline：代码纪律 gate（gate/src/check.ts，行数/import/词汇/src-test）；
- * - data：seed_data 与 contracts fixtures 数据一致性核（事件/工具/端点）；
+ * - data：seed_data 与 engine 数据面 fixtures 数据一致性核（事件/工具/端点）；
  * - e2e：接线 e2e（spawn cli serve → /health + ws 订阅到事件帧）；
  * - bench：启动/回合耗时最小基准（serve 冷启动→listen→一轮 stub 回合）；
  * - symbols：符号引用计数最小等价（engine core 顶层导出孤儿扫描）。
@@ -84,10 +84,10 @@ export function resolveRoots(start: string): SelfCheckContext {
 }
 
 const GATES: ReadonlyArray<{ key: string; label: string; run: (ctx: SelfCheckContext) => Promise<GateResult> }> = [
-  { key: 'contracts', label: 'contracts fixtures↔generated', run: runGateContracts },
+  { key: 'contracts', label: 'engine 数据面 fixtures↔generated', run: runGateContracts },
   { key: 'vitest', label: '各包 vitest（gate/cli/engine/host/web）', run: runGateVitest },
   { key: 'discipline', label: '代码纪律 gate', run: runGateDiscipline },
-  { key: 'data', label: '数据一致性核（seed↔contracts）', run: runGateData },
+  { key: 'data', label: '数据一致性核（seed↔engine fixtures）', run: runGateData },
   { key: 'e2e', label: '接线 e2e（serve→health+ws）', run: runGateE2e },
   { key: 'bench', label: '启动/回合耗时基准', run: runGateBench },
   { key: 'symbols', label: '符号引用计数', run: runGateSymbols },

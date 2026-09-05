@@ -7,9 +7,6 @@
   "exports": {
     ".": "./src/index.ts"
   },
-  "dependencies": {
-    "@ink-ts/contracts": "*"
-  },
   "scripts": {
     "test": "vitest run",
     "typecheck": "tsc -p tsconfig.json"

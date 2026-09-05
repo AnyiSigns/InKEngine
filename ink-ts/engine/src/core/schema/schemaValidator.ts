@@ -3,12 +3,13 @@
  * SchemaValidator 执行体。约束取「声明式够用」子集（必填/类型/枚举/数值
  * 范围/正则），未知字段忽略（演进宽容），违规清单可读可审计。
  *
- * FieldKind 值域与 contracts generated endpointTypes.FieldKind 同源
- * （数据面 schema 的 output_field.kind 枚举），type 直接引用该数据面类型，
- * VALID_KINDS 经 satisfies + 编译期集合相等绑定，不维护第二套语义枚举。
+ * FieldKind 值域与引擎内置生成物 endpointTypes.FieldKind 同源（数据面
+ * schema 的 output_field.kind 枚举，engine/schemas + fixtures 生成），
+ * type 直接引用该数据面类型，VALID_KINDS 经 satisfies + 编译期集合相等
+ * 绑定，不维护第二套语义枚举。
  */
 
-import type { FieldKind as ContractFieldKind } from '@ink-ts/contracts';
+import type { FieldKind as ContractFieldKind } from '../contracts/generated/endpointTypes.js';
 import { GraphDefinitionError } from '../errors.js';
 import { isRecord } from '../json.js';
 
@@ -26,7 +27,7 @@ export const VALID_KINDS = [
   FIELD_ARRAY,
 ] as const satisfies readonly ContractFieldKind[];
 
-/** 字段类型联合（数据面单一来源 = contracts FieldKind；值面经
+/** 字段类型联合（数据面单一来源 = 引擎内置生成物 FieldKind；值面经
  *  VALID_KINDS 编译期集合相等绑定，任一方向新增类型 → 类型错误）。 */
 export type FieldKind = ContractFieldKind;
 

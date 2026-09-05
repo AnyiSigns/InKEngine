@@ -1,9 +1,9 @@
 /**
- * data 门禁：seed_data 与 contracts fixtures 及前端镜像的数据一致性核。
+ * data 门禁：seed_data 与 engine 数据面 fixtures 及前端镜像的数据一致性核。
  *
  * 核对边：
  * 1. seed_data/event_types.json 事件名集合 == web EVENT_TYPE_NAMES 镜像集合；
- * 2. seed_data/tools.json 工具 endpoint 使用集 ⊆ contracts endpoint_registry
+ * 2. seed_data/tools.json 工具 endpoint 使用集 ⊆ engine endpoint_registry
  *    fixture 内置端点集，且内置端点全部被使用（双向覆盖）；
  * 3. seed_data/fixtures/tools_os.json 由 tools.json 派生的夹具与派生产物一致
  *    （执行 seed_data/scripts/sync_tools_fixtures.mjs --check）；
@@ -47,11 +47,11 @@ export async function runGateData(ctx: SelfCheckContext): Promise<GateResult> {
   const started = Date.now();
   const issues: string[] = [];
   const seedRoot = join(ctx.inkTsRoot, 'seed_data');
-  const contractsRoot = join(ctx.inkTsRoot, 'contracts');
+  const engineFixtureRoot = join(ctx.inkTsRoot, 'engine', 'fixtures');
 
   const events = parseJson<EventTypesFile>(join(seedRoot, 'event_types.json'));
   const tools = parseJson<ToolsFile>(join(seedRoot, 'tools.json'));
-  const endpointRegistry = parseJson<EndpointRegistryFile>(join(contractsRoot, 'fixtures', 'endpoint_registry.fixture.json'));
+  const endpointRegistry = parseJson<EndpointRegistryFile>(join(engineFixtureRoot, 'endpoint_registry.fixture.json'));
 
   const seedEventNames = events.events.map((e) => e.name);
   const seedUnique = new Set(seedEventNames);
@@ -99,8 +99,8 @@ export async function runGateData(ctx: SelfCheckContext): Promise<GateResult> {
   const counts = `事件 ${seedEventNames.length} / 工具 ${toolNames.length} / 内置端点 ${builtinNames.length}`;
   return {
     key: 'data',
-    label: '数据一致性核（seed↔contracts）',
-    command: 'seed_data + contracts fixtures + sync_tools_fixtures --check',
+    label: '数据一致性核（seed↔engine fixtures）',
+    command: 'seed_data + engine fixtures + sync_tools_fixtures --check',
     passed,
     seconds,
     summary: passed ? `${counts}，全部分支一致` : `${counts}，存在 ${issues.length} 处不一致`,

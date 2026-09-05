@@ -1,0 +1,6 @@
+{
+  "name": "@ink-ts/self-check",
+  "version": "0.0.0",
+  "private": true,
+  "type": "module"
+}

@@ -1,10 +1,13 @@
 /**
- * 模型节新布局测试（提供方列表 → 添加按钮 → router/audit 档位选择 → 推演档位 → 全局压缩阈值）：
+ * 模型节布局测试（提供方列表 → 添加按钮 → router 档位选择 → 推演档位 → 全局压缩阈值）：
  * - 空态：整页引导 + 「+ 添加提供方」「+ 添加自定义提供方」两入口；
  * - 添加提供方 → 弹窗（厂商模板：自动带端点 + 探测模型默认全选）；
  * - 添加自定义提供方 → 弹窗（APi 协议按协议添加）；
- * - 读回显 providers 数组形态 → 提供方行渲染 + router/audit 回填 + 不显示空态；
+ * - 读回显 providers 数组形态 → 提供方行渲染 + router 回填 + 不显示空态；
  * - 全局压缩阈值（单值）落盘所有提供方。
+ *
+ * 档位槽只有 router：agent = 对话主模型在输入框自选，不占设置页槽位；
+ * audit 复核槽已从引擎角色收敛中删除，不渲染、不落盘。
  */
 
 import { describe, expect, it, vi } from 'vitest';
@@ -73,7 +76,7 @@ describe('ModelSection 空态引导', () => {
     expect(screen.getByLabelText('provider_id')).toBeTruthy();
   });
 
-  it('读回显 providers 数组形态：渲染提供方行 + router/audit 回填 + 无「暂无提供方」', async () => {
+  it('读回显 providers 数组形态：渲染提供方行 + router 回填 + 无「暂无提供方」', async () => {
     mockConfig = {
       providers: [
         {
@@ -82,7 +85,7 @@ describe('ModelSection 空态引导', () => {
           adapter: 'openai_compatible',
           base_url: 'http://m/v1',
           api_key: 'sk-m',
-          model_ids: { router: 'kimi-lite', audit: 'kimi-audit' },
+          model_ids: { router: 'kimi-lite' },
           models: ['kimi', 'kimi-lite', 'kimi-audit'],
           compression_percent: 70,
         },
@@ -91,9 +94,9 @@ describe('ModelSection 空态引导', () => {
     render(<ModelSection />);
     expect(await screen.findByText('Moonshot')).toBeTruthy();
     expect(screen.queryByText('暂无提供方，请添加一个提供方以使用模型。')).toBeNull();
-    // router/audit 回填
+    // router 回填；audit 槽位不再渲染
     expect(screen.getByText('kimi-lite')).toBeTruthy();
-    expect(screen.getByText('kimi-audit')).toBeTruthy();
+    expect(screen.queryByText('kimi-audit')).toBeNull();
   });
 
   it('切换 router 档位模型 → 落盘携带该档位 model_id', async () => {

@@ -905,7 +905,14 @@ export function toEngineAttachments(assets: AttachmentAsset[]): OutboundAttachme
   for (const asset of assets) {
     const url = asset.url;
     if (!url) continue;
-    out.push({ kind: asset.kind, url, name: asset.name, mime: asset.mime || undefined, alt: asset.name });
+    out.push({
+      kind: asset.kind,
+      url,
+      ...(asset.path ? { path: asset.path } : {}),
+      name: asset.name,
+      mime: asset.mime || undefined,
+      alt: asset.name,
+    });
   }
   return out;
 }
@@ -986,6 +993,8 @@ export interface AttachmentAsset {
   mime: string;
   size: number;
   url?: string;
+  /** 服务端落盘路径（serve /upload 回填；宿主 doc.parse 取用面）。 */
+  path?: string;
   width?: number;
   height?: number;
 }

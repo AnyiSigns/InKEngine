@@ -47,5 +47,18 @@ export interface HostBridgeDeps {
   runtime: Runtime;
   host: InkHost;
   autoApprove: boolean;
+  /** 附件目录（serve /upload 落盘根；rounds 文档附件解析的授权根）。 */
+  attachment_dir?: string;
+  /** 单附件文本注入上限（null = 构造缺省）。 */
+  docTextCap?: number | null;
+  /** 文档解析执行体（rounds 文本注入；缺省 = 跳过解析仅文件名引用）。 */
+  docParse?: DocParser;
+  /** 检索密钥域（search.keys.set/get + web_search 执行体共用；内存不落盘）。 */
+  searchKeys?: SearchKeysStore;
   /** 最近在途 run 取消句柄登记（rounds.abort 经 runtime 中止）。 */
 }
+
+import type { DocParser } from '../doc/_types.js';
+import type { SearchKeysStore } from '../search/keys.js';
+export type { DocParser };
+export type { SearchKeysStore };

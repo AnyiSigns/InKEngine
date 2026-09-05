@@ -22,6 +22,7 @@ pub fn op_allows_endpoint(op: &str, endpoint: &str) -> bool {
         "process" => endpoint == "os",
         "file" => endpoint == "file",
         "http" => endpoint == "network",
+        "doc" => endpoint == "file",
         _ => false,
     }
 }

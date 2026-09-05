@@ -369,7 +369,7 @@ export interface BackendAdapter {
     roundId: string,
     text: string,
     autoAccept?: boolean,
-    attachments?: Array<{ kind: string; url: string; name?: string; mime?: string }>,
+    attachments?: Array<{ kind: string; url: string; path?: string; name?: string; mime?: string }>,
     mode?: 'standard' | 'assembly',
     model?: ModelSelection,
   ): Promise<RoundResult>;

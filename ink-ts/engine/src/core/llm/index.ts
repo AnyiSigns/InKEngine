@@ -42,6 +42,7 @@ export {
 // messages：消息 + 角色工厂 + 工具调用增量累积（ToolCall/ToolCallDelta 经
 // messages 中转导出，与 python 侧从 messages/base 取同名符号对齐）
 export {
+  Attachment,
   Message,
   ToolCall,
   ToolCallDelta,

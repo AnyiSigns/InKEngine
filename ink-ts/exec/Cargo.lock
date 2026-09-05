@@ -676,7 +676,9 @@ dependencies = [
 name = "ink_ts_exec"
 version = "0.1.0"
 dependencies = [
+ "flate2",
  "ink_ts_rpc",
+ "regex",
  "reqwest",
  "serde",
  "serde_json",

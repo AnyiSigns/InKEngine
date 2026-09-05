@@ -13,10 +13,12 @@
 import type { BridgeHandler, HostBridgeDeps } from './_types.js';
 import { buildApprovalHandlers } from './approval.js';
 import { buildAuditHandlers } from './audit.js';
+import { buildMaterialHandlers } from './material.js';
 import { buildOsHandlers } from './os.js';
 import { buildRecordsHandlers } from './records.js';
 import { buildRecoveryHandlers } from './recovery.js';
 import { buildRoundsHandlers } from './rounds.js';
+import { buildSearchHandlers } from './search.js';
 import { buildSessionsHandlers } from './sessions.js';
 import { buildToolsHandlers } from './tools.js';
 
@@ -48,6 +50,11 @@ export const BRIDGE_METHODS = [
   'recovery.rollback',
   // os：受控 OS 执行器调用（headless 显式 --approve 语义）
   'os.run',
+  // search：web_search 密钥存取（内存不落盘，web 只回显掩码）
+  'search.keys.set',
+  'search.keys.get',
+  // material：既有资料批量导入（扫描 → doc.parse → 文本/引用入会话）
+  'material.import',
 ] as const;
 
 export type BridgeMethod = (typeof BRIDGE_METHODS)[number];
@@ -67,6 +74,8 @@ export function buildBridge(deps: HostBridgeDeps): ReadonlyMap<string, BridgeHan
     buildToolsHandlers(deps),
     buildRecoveryHandlers(deps),
     buildOsHandlers(deps),
+    buildSearchHandlers(deps),
+    buildMaterialHandlers(deps),
   ];
   const methods = new Map<string, BridgeHandler>();
   for (const group of groups) {

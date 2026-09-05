@@ -11,6 +11,7 @@
 import type { BridgeHandler } from '@ink-ts/host';
 
 import type { Handler, HandlerContext } from './rpc.js';
+import { installLegacyAliases } from './legacy_aliases.js';
 
 export interface HostInfo {
   name: string;
@@ -40,5 +41,7 @@ export function buildHandlers(deps: BuildHandlersDeps = {}): ReadonlyMap<string,
   for (const [method, bridgeHandler] of deps.bridge ?? []) {
     handlers.set(method, bridgeHandler as Handler);
   }
+  // 扁平旧命令名 ↔ 点分 bridge 方法别名（web 真通道连接面；无落点跳过）。
+  installLegacyAliases(handlers);
   return handlers;
 }

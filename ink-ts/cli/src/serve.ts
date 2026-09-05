@@ -1,3 +1,4 @@
+// gate: 超限(507 行) - serve 单一路由面（health/rpc/upload/uploads/静态/Vite 代理成对同文件防漂移）
 /**
  * serve 形态：本地 http/ws（鉴权）+ 静态托管/Vite 代理占位 + 事件订阅通道。
  *
@@ -16,14 +17,14 @@
  */
 
 import { randomUUID } from 'node:crypto';
-import { createReadStream, existsSync, statSync } from 'node:fs';
+import { createReadStream, existsSync, mkdirSync, statSync, writeFileSync } from 'node:fs';
 import {
   createServer,
   type IncomingMessage,
   type Server as HttpServer,
   type ServerResponse,
 } from 'node:http';
-import { extname, isAbsolute, join, normalize, resolve, sep } from 'node:path';
+import { basename, extname, isAbsolute, join, normalize, resolve, sep } from 'node:path';
 import { fileURLToPath } from 'node:url';
 
 import type { HostHandle } from '@ink-ts/host';
@@ -41,6 +42,8 @@ import { attachWsChannel } from './serve_ws.js';
 export const DEFAULT_SERVE_PORT = 18731;
 /** /rpc 请求体上限（JSON-RPC 信封；超限 413）。 */
 const MAX_RPC_BODY_BYTES = 4 * 1024 * 1024;
+/** /upload 请求体上限（附件整包；与 web mediaPolicy 文档/视频体积同量级）。 */
+const MAX_UPLOAD_BODY_BYTES = 100 * 1024 * 1024;
 
 const MIME: Record<string, string> = {
   '.html': 'text/html; charset=utf-8',
@@ -201,6 +204,189 @@ async function proxyToVite(req: IncomingMessage, res: ServerResponse, target: st
   }
 }
 
+/** 附件上传解析结果。 */
+interface UploadedFile {
+  name: string;
+  mime: string;
+  data: Buffer;
+}
+
+/** 原始字节体读取（/upload 用；超限 413 且立即断流）。 */
+function readBodyRaw(
+  req: IncomingMessage,
+  limit: number,
+): Promise<{ ok: true; buf: Buffer } | { ok: false; status: number }> {
+  return new Promise((finish) => {
+    const chunks: Buffer[] = [];
+    let size = 0;
+    req.on('data', (chunk: Buffer) => {
+      size += chunk.length;
+      if (size > limit) {
+        finish({ ok: false, status: 413 });
+        req.destroy();
+        return;
+      }
+      chunks.push(chunk);
+    });
+    req.on('end', () => finish({ ok: true, buf: Buffer.concat(chunks) }));
+    req.on('error', () => finish({ ok: false, status: 400 }));
+  });
+}
+
+/** multipart 边界提取（Content-Type: multipart/form-data; boundary=...）。 */
+function multipartBoundary(contentType: string): string | null {
+  const match = /boundary=(?:"([^"]+)"|([^;]+))/i.exec(contentType);
+  const boundary = match?.[1] ?? match?.[2];
+  return boundary !== undefined ? boundary.trim() : null;
+}
+
+/** 解析 multipart 单文件载荷（字段取首个带 filename 的 part）。 */
+function parseMultipartFile(buf: Buffer, boundary: string): UploadedFile | null {
+  const delim = Buffer.from(`--${boundary}`);
+  const crlfcrlf = Buffer.from('\r\n\r\n');
+  const lflf = Buffer.from('\n\n');
+  let index = buf.indexOf(delim);
+  if (index < 0) return null;
+  index += delim.length;
+  for (;;) {
+    let headEnd = buf.indexOf(crlfcrlf, index);
+    let sep = 4;
+    if (headEnd < 0) {
+      headEnd = buf.indexOf(lflf, index);
+      sep = 2;
+    }
+    if (headEnd < 0) return null;
+    const headerBlock = buf.subarray(index, headEnd).toString('utf8');
+    const bodyStart = headEnd + sep;
+    const next = buf.indexOf(delim, bodyStart);
+    if (next < 0) return null;
+    let bodyEnd = next;
+    if (bodyEnd - bodyStart >= 2 && buf[bodyEnd - 2] === 0x0d && buf[bodyEnd - 1] === 0x0a) {
+      bodyEnd -= 2;
+    } else if (bodyEnd - bodyStart >= 1 && buf[bodyEnd - 1] === 0x0a) {
+      bodyEnd -= 1;
+    }
+    const body = buf.subarray(bodyStart, Math.max(bodyStart, bodyEnd));
+    const disposition = /content-disposition:\s*form-data;([^\r\n]*)/i.exec(headerBlock);
+    const filename = /filename="([^"]*)"/i.exec(disposition?.[1] ?? '');
+    if (filename !== null) {
+      const mime = /content-type:\s*([^\r\n]+)/i.exec(headerBlock);
+      return {
+        name: filename[1] ?? 'file',
+        mime: (mime?.[1] ?? '').trim() || 'application/octet-stream',
+        data: body as Buffer,
+      };
+    }
+    // 跳过无 filename 字段 part，继续找文件 part
+    if (buf.subarray(next + delim.length, next + delim.length + 2).toString() === '--') return null;
+    index = next + delim.length;
+  }
+}
+
+/** 文件名净化（防路径穿越；仅保留安全字符，缺省 file）。 */
+function sanitizeUploadName(raw: string): string {
+  const base = basename(raw.trim()).replace(/[^A-Za-z0-9._-]/g, '_');
+  return base === '' || base === '.' || base === '..' ? 'file' : base;
+}
+
+/** 附件目录内落盘（白名单目录：仅本地写读）。 */
+function storeUpload(rt: ServeRuntime, file: UploadedFile): { path: string; name: string } {
+  const dir = rt.handle.config.attachment_dir;
+  mkdirSync(dir, { recursive: true });
+  const stored = `${Date.now().toString(36)}-${randomUUID().slice(0, 8)}-${sanitizeUploadName(file.name)}`;
+  const target = join(dir, stored);
+  writeFileSync(target, file.data);
+  return { path: target, name: file.name };
+}
+
+/** /upload：附件上传（鉴权）→ 白名单附件目录落盘 → {path,url,name,size,mime}。 */
+async function handleUpload(req: IncomingMessage, res: ServerResponse, rt: ServeRuntime): Promise<void> {
+  if (req.method !== 'POST') {
+    jsonResponse(res, 405, { error: 'method not allowed' }, true);
+    return;
+  }
+  const body = await readBodyRaw(req, MAX_UPLOAD_BODY_BYTES);
+  if (!body.ok) {
+    jsonResponse(res, body.status, { error: 'body too large' }, true);
+    return;
+  }
+  if (body.buf.length === 0) {
+    jsonResponse(res, 400, { error: 'empty body' }, true);
+    return;
+  }
+  const contentType = req.headers['content-type'] ?? '';
+  let file: UploadedFile;
+  if (contentType.toLowerCase().startsWith('multipart/form-data')) {
+    const boundary = multipartBoundary(contentType);
+    const parsed = boundary === null ? null : parseMultipartFile(body.buf, boundary);
+    if (parsed === null) {
+      jsonResponse(res, 400, { error: 'multipart 形态非法（缺文件 part）' }, true);
+      return;
+    }
+    file = parsed;
+  } else {
+    // raw body：文件名取自 x-file-name / content-disposition，缺省 file
+    const rawName = (req.headers['x-file-name'] as string | undefined) ?? 'file';
+    file = { name: rawName, mime: contentType || 'application/octet-stream', data: body.buf };
+  }
+  const stored = storeUpload(rt, file);
+  const base = `http://${req.headers.host ?? '127.0.0.1'}`;
+  const url = `${base}/uploads/${encodeURIComponent(basename(stored.path))}`;
+  jsonResponse(
+    res,
+    200,
+    {
+      path: stored.path,
+      url,
+      name: stored.name,
+      size: file.data.length,
+      mime: file.mime,
+    },
+    true,
+  );
+}
+
+/** /uploads/*：附件目录只读下载（鉴权；回读路径穿越防护）。 */
+function serveUpload(req: IncomingMessage, res: ServerResponse, rt: ServeRuntime): boolean {
+  const pathname = (req.url ?? '/').split('?')[0] ?? '';
+  if (!pathname.startsWith('/uploads/')) return false;
+  const method = req.method ?? 'GET';
+  if (method !== 'GET' && method !== 'HEAD') {
+    jsonResponse(res, 405, { error: 'method not allowed' }, true);
+    return true;
+  }
+  if (!isAuthorized(req, rt.token)) {
+    jsonResponse(res, 401, { error: 'unauthorized' }, true);
+    return true;
+  }
+  const name = decodeURIComponent(pathname.slice('/uploads/'.length));
+  if (name === '' || name.includes('\0') || name.includes('/') || name.includes('\\')) {
+    jsonResponse(res, 400, { error: 'illegal file name' }, true);
+    return true;
+  }
+  const root = rt.handle.config.attachment_dir;
+  const target = join(root, name);
+  const rootPrefix = root.endsWith(sep) ? root : `${root}${sep}`;
+  if (!target.startsWith(rootPrefix) || !existsSync(target) || statSync(target).isDirectory()) {
+    jsonResponse(res, 404, { error: 'not found' }, true);
+    return true;
+  }
+  setTokenCookie(res, rt.token);
+  res.writeHead(200, {
+    'content-type': MIME[extname(target).toLowerCase()] ?? 'application/octet-stream',
+    'access-control-allow-origin': '*',
+    'content-length': statSync(target).size,
+  });
+  if (method === 'HEAD') {
+    res.end();
+    return true;
+  }
+  createReadStream(target)
+    .on('error', () => jsonResponse(res, 500, { error: 'internal error' }))
+    .pipe(res);
+  return true;
+}
+
 async function route(req: IncomingMessage, res: ServerResponse, rt: ServeRuntime): Promise<void> {
   const pathname = (req.url ?? '/').split('?')[0] ?? '/';
   if (pathname === '/health') {
@@ -216,6 +402,15 @@ async function route(req: IncomingMessage, res: ServerResponse, rt: ServeRuntime
     await handleRpc(req, res, rt);
     return;
   }
+  if (pathname === '/upload') {
+    if (!isAuthorized(req, rt.token)) {
+      jsonResponse(res, 401, { error: 'unauthorized' }, true);
+      return;
+    }
+    await handleUpload(req, res, rt);
+    return;
+  }
+  if (serveUpload(req, res, rt)) return;
   if (serveStatic(req, res, rt.staticDir, rt.token)) return;
   if (rt.viteProxy !== null && (req.method === 'GET' || req.method === 'HEAD')) {
     await proxyToVite(req, res, rt.viteProxy);

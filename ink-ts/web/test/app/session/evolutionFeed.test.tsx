@@ -15,6 +15,7 @@ function mockChannel(respond: (cmd: string) => unknown): ServeChannel {
     available: true,
     request: (async (cmd: string) => respond(String(cmd))) as ServeChannel['request'],
     subscribe: async () => () => undefined,
+    upload: async () => null,
   };
 }
 

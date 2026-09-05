@@ -30,6 +30,8 @@ export interface InkTextMessage extends InkMessageBase {
 export interface OutboundAttachment {
   kind: 'image' | 'video' | 'document';
   url: string;
+  /** 服务端落盘路径（serve /upload 回填；宿主 doc.parse 与工具取用面）。 */
+  path?: string;
   name?: string;
   mime?: string;
   alt?: string;

@@ -13,7 +13,8 @@
  * core/sandbox 的 SpawnSeam 进程沙箱 seam 与 adapters/mcp 的 SpawnSeam
  * stdio 生成 seam）按语义保留 core 名、adapters 名显式别名导出
  * （McpSpawnSeam），不做 export * 撞名。不导出 `_` 前缀私有文件；值面
- * 枚举与 data plane 常量经 @ink-ts/contracts 单一真源。
+ * 枚举与 data plane 常量收编自引擎内置数据面生成物（engine/schemas +
+ * fixtures → core/contracts/generated，见下方「数据面契约」组），单一真源。
  */
 
 // ── 4. 引擎错误类型族 ──
@@ -88,7 +89,7 @@ export type { AsyncEmbedderType, EndpointsType } from './core/tool_index/tool_in
 export * from './core/environments/index.js';
 
 // Schema 校验（SchemaField/SchemaSpec/SchemaValidator；FieldKind 与
-// @ink-ts/contracts 数据面同源）
+// 引擎内置数据面生成物同源）
 export * from './core/schema/schemaValidator.js';
 
 // UI schema（三层白名单校验/渲染器 seam）
@@ -144,6 +145,28 @@ export type { RoleModelChain } from './core/model_roles/index.js';
 export { SELF_TOOL_CONTRACT } from './core/self_tools/index.js';
 export { make_self_executor, operation_of, self_tool_specs } from './core/self_tools/index.js';
 export type { SelfToolContext } from './core/self_tools/index.js';
+
+// 数据面契约（引擎内置生成物再导出：engine/schemas + fixtures →
+// core/contracts/generated，勿手改；宿主/上层一律经本公共面取用，
+// 不再存在独立契约包）
+export {
+  APPROVAL_LEVELS,
+  AUDIT_STATUSES,
+  BUILTIN_ENDPOINT_NAMES,
+  BUILTIN_ENDPOINTS,
+  GUARDED_COLLECTIONS,
+  GUARDED_PREFIXES,
+  PATCH_KINDS,
+  PATCH_OPS,
+} from './core/contracts/generated/index.js';
+export type {
+  AuditStatus,
+  BuiltinEndpointName,
+  BuiltinEndpointSpec,
+  EndpointOutputField,
+  KnownDefaultPatchKind,
+  PatchKind,
+} from './core/contracts/generated/index.js';
 
 // ── 3. adapters 工厂面 ──
 

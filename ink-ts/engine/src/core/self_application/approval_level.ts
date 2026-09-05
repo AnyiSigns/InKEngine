@@ -12,16 +12,17 @@
  * 沙箱验证 + 人工审批。宿主可整体替换（如把 artifact promote 提升 L2）。
  *
  * 数据面单源：ApprovalLevel 值集合与 DEFAULT_APPROVAL_LEVELS 分级表 =
- * contracts generated（APPROVAL_LEVELS / DEFAULT_APPROVAL_LEVELS）；
- * 本地对象为命名映射（引擎取值入口），经编译期集合相等绑定 + 运行时
- * assert_approval_levels_contract 双向校验，不维护第二套语义枚举。
+ * 引擎内置生成物（APPROVAL_LEVELS / DEFAULT_APPROVAL_LEVELS，engine/
+ * schemas + fixtures 生成）；本地对象为命名映射（引擎取值入口），经编译期
+ * 集合相等绑定 + 运行时 assert_approval_levels_contract 双向校验，不维护
+ * 第二套语义枚举。
  */
 
 import {
   APPROVAL_LEVELS,
   DEFAULT_APPROVAL_LEVELS as CONTRACT_DEFAULT_APPROVAL_LEVELS,
   type ApprovalLevel as ContractApprovalLevel,
-} from '@ink-ts/contracts';
+} from '../contracts/generated/index.js';
 import type { PatchKind, SelfProposal } from '../self_proposal/index.js';
 import { GraphDefinitionError } from '../errors.js';
 
@@ -52,7 +53,7 @@ const _approvalLevelsCoverContract: true = true as _StringSetEqual<
 
 /**
  * 默认分级表（kind → L0/L1/L2；ENTITY 未登记 = 缺省 L1 弹卡）。
- * 值来源 = contracts generated DEFAULT_APPROVAL_LEVELS（数据面单源，本地
+ * 值来源 = 引擎内置生成物 DEFAULT_APPROVAL_LEVELS（数据面单源，本地
  * 只保留引擎取值入口形态；逐项相等由 assert_approval_levels_contract
  * 校验）。键集合为机制固有（PatchKind），分级值为装配数据（宿主可整体
  * 替换）。
@@ -62,7 +63,7 @@ export const DEFAULT_APPROVAL_LEVELS: Readonly<Partial<Record<PatchKind, Approva
 };
 
 /**
- * 运行时断言：ApprovalLevel 值集合与默认分级表 ↔ contracts generated 一致
+ * 运行时断言：ApprovalLevel 值集合与默认分级表 ↔ 数据面生成物一致
  * （防绕过类型层的运行时漂移，由引擎测试调用）。
  */
 export function assert_approval_levels_contract(): void {
@@ -73,8 +74,8 @@ export function assert_approval_levels_contract(): void {
     || !engineValues.every((value) => contractValues.includes(value))
   ) {
     throw new GraphDefinitionError(
-      'ApprovalLevel 与 contracts APPROVAL_LEVELS 不一致: '
-        + `engine=[${engineValues.join(', ')}] vs contracts=[${contractValues.join(', ')}]`,
+      'ApprovalLevel 与数据面 APPROVAL_LEVELS 不一致: '
+        + `engine=[${engineValues.join(', ')}] vs generated=[${contractValues.join(', ')}]`,
     );
   }
   const engineEntries = Object.entries(DEFAULT_APPROVAL_LEVELS).sort(([a], [b]) => a.localeCompare(b));
@@ -85,8 +86,8 @@ export function assert_approval_levels_contract(): void {
     `{${entries.map(([k, v]) => `${k}: ${String(v)}`).join(', ')}}`;
   if (JSON.stringify(engineEntries) !== JSON.stringify(contractEntries)) {
     throw new GraphDefinitionError(
-      'DEFAULT_APPROVAL_LEVELS 与 contracts 不一致: '
-        + `engine=${repr(engineEntries)} vs contracts=${repr(contractEntries)}`,
+      'DEFAULT_APPROVAL_LEVELS 与数据面生成物不一致: '
+        + `engine=${repr(engineEntries)} vs generated=${repr(contractEntries)}`,
     );
   }
 }

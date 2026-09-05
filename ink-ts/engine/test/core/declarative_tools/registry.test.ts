@@ -14,7 +14,7 @@
  */
 import { afterEach, describe, expect, it } from 'vitest';
 
-import { BUILTIN_ENDPOINT_NAMES, BUILTIN_ENDPOINTS } from '@ink-ts/contracts';
+import { BUILTIN_ENDPOINT_NAMES, BUILTIN_ENDPOINTS } from '../../../src/core/contracts/generated/index.js';
 import { SandboxViolation } from '../../../src/core/errors.js';
 import { FIELD_ARRAY, SchemaField } from '../../../src/core/schema/schemaValidator.js';
 import {
@@ -222,7 +222,7 @@ describe('重复注册拒绝', () => {
   });
 });
 
-describe('engine 端点枚举 ↔ contracts generated 一致（数据面单源）', () => {
+describe('engine 端点枚举 ↔ 数据面生成物一致（引擎内置单源）', () => {
   it('EndpointType 值集合与注册表名 ↔ BUILTIN_ENDPOINT_NAMES 一致', () => {
     expect(() => assert_endpoint_contract()).not.toThrow();
     expect(endpoint_registry.names).toEqual([...BUILTIN_ENDPOINT_NAMES]);

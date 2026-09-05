@@ -1,0 +1,102 @@
+{
+  "$schema": "http://json-schema.org/draft-07/schema#",
+  "title": "装配配方数据面（AssemblyRecipe data plane）",
+  "description": "AssemblyRecipe 拆两层：本 schema 冻结数据面（壳侧 AssemblyRecipeData recipe.rs:499-523 为字段真源，11 字段；由 seed_data 经 build_recipe 映射）；钩子面（seeds 提供器/hooks/graph_recipe/收敛钩子等 Callable）不进 JSON，只进 contracts TS 类型层。schema.rs:50 的 ASSEMBLY_RECIPE_FIELD_COUNT=22 文本扫描（Python 22 字段全量）在 TS 迁走后由本 schema（数据面 11 字段）+ TS 类型层（钩子面）共同替代。",
+  "type": "object",
+  "required": [
+    "version",
+    "set_id",
+    "seeds",
+    "harness_definitions",
+    "event_type_specs",
+    "ui_spec",
+    "ui_allowed_channels",
+    "ui_allowed_components",
+    "ui_allowed_theme_tokens",
+    "approval_levels",
+    "retrieval",
+    "convergence_max_rounds"
+  ],
+  "additionalProperties": false,
+  "properties": {
+    "version": { "type": "integer", "minimum": 1, "const": 1 },
+    "set_id": { "type": "string", "minLength": 1 },
+    "seeds": {
+      "type": "array",
+      "items": {
+        "type": "object",
+        "required": ["name"],
+        "properties": {
+          "name": { "type": "string", "pattern": "^[a-z][a-z0-9_]*$" },
+          "source": { "type": "string", "enum": ["builtin", "knowledge.json", "templates.json"] }
+        }
+      }
+    },
+    "harness_definitions": {
+      "type": "array",
+      "items": {
+        "type": "object",
+        "required": ["name"],
+        "properties": {
+          "name": { "type": "string", "minLength": 1 },
+          "description": { "type": "string" }
+        }
+      }
+    },
+    "event_type_specs": {
+      "type": "array",
+      "items": {
+        "type": "object",
+        "required": ["name", "renderer", "system"],
+        "additionalProperties": true,
+        "properties": {
+          "name": { "type": "string", "minLength": 1 },
+          "renderer": { "type": "string", "minLength": 1 },
+          "system": { "type": "boolean" }
+        }
+      }
+    },
+    "ui_spec": { "type": "object", "description": "结构与 theme/root/bind 白名单由 ui_spec.schema.json 跨文件校验（脚本比对），此处不复制节点定义以防双套。" },
+    "ui_allowed_channels": { "type": "array", "uniqueItems": true, "items": { "type": "string", "minLength": 1 } },
+    "ui_allowed_components": { "type": "array", "uniqueItems": true, "items": { "type": "string", "minLength": 1 } },
+    "ui_allowed_theme_tokens": { "type": "array", "uniqueItems": true, "items": { "type": "string", "minLength": 1 } },
+    "approval_levels": {
+      "type": "array",
+      "uniqueItems": true,
+      "description": "kind→L0/L1/L2 映射（默认 9 项见 patch_protocol.schema.json；宿主可整体替换）。JSON Schema 子集无 propertyNames，故用数组形态承载。",
+      "items": {
+        "type": "object",
+        "required": ["kind", "level"],
+        "additionalProperties": false,
+        "properties": {
+          "kind": {
+            "type": "string",
+            "enum": ["ui", "theme", "tool", "rule", "knowledge", "harness", "event_type", "environment", "artifact", "entity"]
+          },
+          "level": { "type": "string", "enum": ["L0", "L1", "L2"] }
+        }
+      }
+    },
+    "retrieval": {
+      "type": "object",
+      "required": ["enabled"],
+      "properties": {
+        "enabled": { "type": "boolean" },
+        "max_sources": { "type": "integer", "minimum": 0 }
+      }
+    },
+    "convergence_max_rounds": { "type": ["integer", "null"], "minimum": 1 }
+  },
+  "definitions": {
+    "event_type_spec": {
+      "type": "object",
+      "required": ["name", "renderer", "system"],
+      "additionalProperties": true,
+      "properties": {
+        "name": { "type": "string", "minLength": 1 },
+        "renderer": { "type": "string", "minLength": 1 },
+        "system": { "type": "boolean" }
+      }
+    }
+  }
+}

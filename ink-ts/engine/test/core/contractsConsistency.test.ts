@@ -1,10 +1,11 @@
 /**
- * engine 枚举 ↔ contracts generated 一致性（数据面单源集成断言）。
+ * engine 枚举 ↔ 数据面生成物一致性（引擎内置单源集成断言）。
  *
  * engine 各机制的数据面枚举/注册表（端点名/补丁类型/审批分级/守卫集合/
- * 前缀/审计状态）唯一真源 = @ink-ts/contracts generated；模块内已挂
- * 编译期集合相等绑定（值集合双向精确 → 类型错误），本文件对每个消费模块
- * 调用导出的 assert_* 运行时兜底，并对守卫集合/前缀做逐项遍历比对。
+ * 前缀/审计状态）唯一真源 = core/contracts/generated（engine/schemas +
+ * fixtures 生成）；模块内已挂编译期集合相等绑定（值集合双向精确 → 类型
+ * 错误），本文件对每个消费模块调用导出的 assert_* 运行时兜底，并对守卫
+ * 集合/前缀做逐项遍历比对。
  */
 import { describe, expect, it } from 'vitest';
 
@@ -15,7 +16,7 @@ import {
   GUARDED_COLLECTIONS,
   GUARDED_PREFIXES,
   PATCH_KINDS,
-} from '@ink-ts/contracts';
+} from '../../src/core/contracts/generated/index.js';
 import { assert_endpoint_contract } from '../../src/core/declarative_tools/endpoint_types.js';
 import { EndpointType } from '../../src/core/declarative_tools/index.js';
 import { assert_patch_kinds_contract } from '../../src/core/self_proposal/self_proposal.js';
@@ -36,7 +37,7 @@ import {
   assert_approval_levels_contract,
 } from '../../src/core/self_application/approval_level.js';
 
-describe('engine 枚举 ↔ contracts generated 一致性', () => {
+describe('engine 枚举 ↔ 数据面生成物一致性', () => {
   it('各数据面 assert_* 一致函数通过（运行时兜底）', () => {
     expect(() => assert_endpoint_contract()).not.toThrow();
     expect(() => assert_patch_kinds_contract()).not.toThrow();

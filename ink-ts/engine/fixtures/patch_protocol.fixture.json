@@ -1,0 +1,20 @@
+{
+  "version": 1,
+  "patch_kinds": ["ui", "theme", "tool", "rule", "knowledge", "harness", "event_type", "environment", "artifact", "entity"],
+  "approval_levels": ["L0", "L1", "L2"],
+  "default_approval_levels": {
+    "ui": "L0",
+    "theme": "L0",
+    "tool": "L1",
+    "rule": "L1",
+    "knowledge": "L1",
+    "harness": "L1",
+    "event_type": "L1",
+    "environment": "L1",
+    "artifact": "L2"
+  },
+  "audit_statuses": ["applied", "rejected", "conflict", "invalid", "reverted", "reverted_with_notify_error"],
+  "patch_ops": ["append", "replace", "delete"],
+  "guarded_collections": ["set_patch_chain", "set_audit", "ui", "tool_defs", "event_types", "environments", "artifacts", "harness", "entities"],
+  "guarded_prefixes": ["knowledge:", "harness:", "event_types:", "entities:"]
+}

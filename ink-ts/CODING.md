@@ -170,8 +170,13 @@ CI 的 ink-ts job 同链执行。规则增删须同步本表。
 | `search.keys.set` | search | web_search 密钥写入（宿主内存域；不落盘，web 只回显掩码） |
 | `search.keys.get` | search | web_search 密钥掩码查询（无明文外泄） |
 | `material.import` | material | 既有资料批量导入（目录扫描 → 逐文件 doc.parse → 文本/引用归一入会话；三重上限 fail-closed） |
+| `models.config.get` | models | 模型运行配置掩码态查询（config.json 明文不出进程；含 agent/router 槽已配置态） |
+| `models.config.put` | models | 模型配置保存（`{config: <角色槽/备用链端点形状>}`：校验 → host apply → 原子落 data_dir/config.json → 引擎重建，下轮生效） |
+| `models.config.reload` | models | 模型配置重载（从 data_dir/config.json 重读 → apply → 引擎重建；冷启态再装配） |
 
 host bridge 与 cli `host.ping`/`host.info` 命名空间独立并存（方法表并入 cli 命令面）。
 JSON-RPC 信封错误只回通用、细节走 diag（复用 `cli/src/diag.ts` 形态）。
 serve/transport 方法面另设扁平↔点分别名层（`cli/src/legacy_aliases.ts`）：web 旧扁平命令名
-（round_send/session_*/search_keys_put/material_import 等）映射到上表点分方法；无点分落点不注册。
+（round_send/session_*/search_keys_put/material_import/models_config_* 等）映射到上表点分方法；
+`models_config_*`/`model.reload` 落 models.config.*（models_refresh 语义 = 保存 + 刷新，
+最小实现即 models.config.put）；无点分落点不注册。

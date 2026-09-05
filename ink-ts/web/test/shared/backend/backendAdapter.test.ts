@@ -165,6 +165,25 @@ describe('serve 通道适配器', () => {
     expect(calls[9].args).toEqual({ args: { spec: { root: { type: 'panel' } } } });
     expect(calls[10].args).toEqual({ args: { enabled: true } });
   });
+
+  it('模型配置旧扁平面命令名不回归（get/reload 直调、put/refresh 带 config）', async () => {
+    const { channel, calls } = mockChannel();
+    const backend = createServeBackend(channel);
+    await backend.modelsConfigGet();
+    await backend.modelReload();
+    await backend.modelsConfigPut({ providers: [] });
+    await backend.modelsRefresh({ base_url: 'http://x', models: [] });
+    expect(calls.map((call) => call.cmd)).toEqual([
+      'models_config_get',
+      'model.reload',
+      'models_config_put',
+      'models_refresh',
+    ]);
+    expect(calls[0].args).toEqual({});
+    expect(calls[1].args).toEqual({});
+    expect(calls[2].args).toEqual({ config: { providers: [] } });
+    expect(calls[3].args).toEqual({ config: { base_url: 'http://x', models: [] } });
+  });
 });
 
 describe('远端会话存储（真实数据源注入 mock 后端）', () => {

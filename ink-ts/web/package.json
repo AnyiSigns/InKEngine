@@ -1,0 +1,10 @@
+{
+  "name": "@ink-ts/web",
+  "version": "0.0.0",
+  "private": true,
+  "type": "module",
+  "description": "L5 前端纯渲染层（web/）：React/TS 只渲染数据（ui_spec/事件流）+ 触发补丁，经 cli serve 通道接入；组件白名单注册制",
+  "scripts": {
+    "typecheck": "tsc -p tsconfig.json"
+  }
+}

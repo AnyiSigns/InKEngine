@@ -4,7 +4,7 @@
  *
  * 覆盖范围：构建/刷新/检索/降级/权限档判定/参数摘要。Python 端
  * ``engine-executor`` 路径走 Rust 嵌入层（host spawn bridge），TS 侧属宿主
- * 注入能力，本测试不模拟；改写需在 ``backend`` 层做嵌入层接线。
+ * 注入能力，本测试不模拟；改写需在 ``host`` 层做嵌入层接线。
  *
  * Deferred（待引擎执行体 seam 接入后再补）：
  * - ``test_uses_engine_embedder_when_available`` — Rust embedder.rs 桥接测试

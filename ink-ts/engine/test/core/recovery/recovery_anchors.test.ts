@@ -4,7 +4,7 @@
  *
  * 范围说明：collect_resume_anchors/tail_checkpoint 的纯机制经内存 seam
  * 双端覆盖；依赖真实存储后端与执行器恢复接线的用例延后（随
- * backend/executor 移植补齐）。resolve_resume 主路径见
+ * host/exec 落地补齐）。resolve_resume 主路径见
  * recovery.test.ts。
  */
 

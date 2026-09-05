@@ -13,7 +13,7 @@
  * 延后用例（真实 fs IO，宿主 seam 实弹回归）：test_resolve_* 的 tmp_path
  * 真实目录/symlink 建链、test_snapshot_restore_* 的真实文件读写——
  * 本文件以内存 FileOps/realpath 注入验证机制编排，真实 fs 实现随宿主
- * 装配（backend/cli）落地后对标。
+ * 装配（host/cli）落地后对标。
  */
 import { describe, expect, it } from 'vitest';
 

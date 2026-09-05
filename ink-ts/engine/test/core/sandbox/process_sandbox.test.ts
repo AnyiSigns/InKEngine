@@ -12,7 +12,7 @@
  * 延后用例（真实子进程 IO，宿主 seam 实弹回归）：test_process_run_* 的
  * sys.executable 真实执行（成功/超时 kill/输出截断/环境清理/白名单外拒
  * 绝）——本文件以内存 SpawnSeam 假体验证编排，真实 spawn 随宿主装配
- * （backend/cli）落地后对标。
+ * （host/cli）落地后对标。
  */
 import { describe, expect, it } from 'vitest';
 

@@ -19,14 +19,20 @@
 - `contracts/`：L0/L1 数据面契约唯一真源（JSON schema + fixtures + 生成类型）。
 - `gate/`：开发/CI 静态纪律工具（行数、UTF-8、import 白名单、词汇、src-test
   检查），真实扫描挂在 root `npm test` 与 CI（不再只手动），不打包进运行时。
-- `backend/`：宿主装配层（自有轻量 DI/effect/dispose），只做「选哪个适配、
-  读配置、注入 seam」与产品宿主级领域服务 + bridge 命令面接线；**不写厂商
+- `host/`（原 `backend/`）：宿主装配层 / composition root——装配 engine
+  Runtime、实现 `Host` 五件套、构建产品配方（AssemblyRecipe）、出宿主命令面
+  bridge；只做「选哪个适配、读配置、注入 seam」与宿主薄服务接线；**不写厂商
   适配与存储驱动**（那是 engine/adapters 的职责）。机制语义（审批/补丁链/
-  审计/闸门/沙箱判定）属 engine core，不得在此复制。
-- `cli/`：唯一进程载体与宿主执行体（stdio/服务/运行三形态），注入实现到 seam。
-- `frontend/`：React/TS 纯渲染层，只渲染数据 + 触发补丁，逻辑不进组件。
+  审计/闸门/沙箱判定）属 engine core，不得在此复制。不写 main、不监听端口、
+  不是进程——被 cli / web 进程 / vitest import。
+- `cli/`：唯一进程载体与宿主执行体（stdio/serve/run 三形态），注入实现到 seam。
+- `web/`（原 `frontend/`）：前端纯渲染层，只渲染数据 + 触发补丁，逻辑不进组件；
+  本质非服务进程（无 main/不监听），服务承载方 = cli serve。
 
-包间依赖单向：`frontend/backend/cli → engine → contracts`。域间不跨目录
+术语（§3 对齐，写入本文）：**host（原 backend）** = 宿主装配层 / composition
+root；**cli** = 唯一进程载体（含 main + 三形态）；**web** = 前端纯渲染（L5，
+只连 cli serve 通道）；exec/infer 为 Rust 原生机制件子进程（OS 执行 / 本地
+嵌入推理）。包间依赖单向：`web/host/cli → engine → contracts`。域间不跨目录
 import 私有模块。
 
 当前实现状态：`engine → contracts` 依赖已声明（`engine/package.json`
@@ -49,12 +55,12 @@ core 层 import 白名单仅放行 `@ink-ts/contracts` 这一个数据契约包�
    独立注册组件，禁止「上帝组件」。
 5. 需要存储/LLM 等 IO 的机制：接口与仓储契约在 `engine/src/core`（纯 seam），
    IO 实现在 `engine/src/adapters`（可选装载、DI 注入）——core 保持纯函数无
-   全局状态，宿主/backend 只装配不实现。
+    全局状态，宿主/host 只装配不实现。
 6. 超过 350 行仍膨胀 → 按「子机制/子渲染区」拆目录，不凑文件。
 7. **测试与源码分离**：vitest 测试一律放所属包 `test/` 目录（镜像被测 src
    路径，文件仍名 `<机制>.test.ts`），禁止与业务源码同目录——`src/**` 内
    出现 `.test` 文件即门禁拒绝（规则 `src-test`）；门禁另扫描
-   `engine/test` 与 `cli/test` 的行数上限。
+   `engine/test`、`cli/test` 与 `host/test` 的行数上限。
 
 ## 3. 注释纪律
 
@@ -93,7 +99,7 @@ core 层 import 白名单仅放行 `@ink-ts/contracts` 这一个数据契约包�
 
 | 检查 | 对象 | 强度 |
 |---|---|---|
-| 文件行数 ≤350（例外须标注） | engine/backend/cli/frontend 源码与测试 | 拒绝 |
+| 文件行数 ≤350（例外须标注） | engine/host/cli/web 源码与测试 | 拒绝 |
 | src 内夹测试文件（`.test` 在 src 目录） | 各包 `src/**` | 拒绝 |
 | 源文件非法 UTF-8 字节（含损坏转码） | 各包 `src/**` | 拒绝（utf8-valid） |
 | core 禁 node:* 与第三方 import | `engine/src/core/**` | 拒绝（`node:async_hooks` 白名单例外：镜像 Python core contextvars，清单见 gate config；裸包仅精确放行 `@ink-ts/contracts`——engine→contracts 数据契约层唯一入口，不放行其它 @ink-ts/*、adapters 与第三方） |
@@ -102,7 +108,7 @@ core 层 import 白名单仅放行 `@ink-ts/contracts` 这一个数据契约包�
 | 生成文件禁手改 | `contracts/src/generated/**` | 由 `contracts:verify`（复制 schemas/fixtures 后重生成，与仓库生成物归一化逐文件 diff）在 root `npm test` 与 CI 强制；不做文本扫描 |
 
 gate 实现与正反样例位于 `gate/src/` 与 `gate/test/`；**真实扫描链** =
-root `npm test` 首段 `tsx gate/src/check.ts`（对 engine/backend/cli/frontend
+root `npm test` 首段 `tsx gate/src/check.ts`（对 engine/host/cli/web
 工作树实际执行全部规则）→ `vitest run --root gate`（规则样例自测），
 CI 的 ink-ts job 同链执行。规则增删须同步本表。
 
@@ -132,3 +138,19 @@ CI 的 ink-ts job 同链执行。规则增删须同步本表。
    「main_config 回落」的挡位化表述；下列既有非模型档位术语不受此限（字段
    与语义不同，勿混淆）：`edge/trust-tier`、`safety_tier`、approval 档、
    reasoning 档。
+
+## 9. host bridge 命令面清单（方法增删须同步本表与 `host/src/bridge/index.ts` 的 `BRIDGE_METHODS`）
+
+| 方法 | 域 | 语义（机制在 engine，host 只接线） |
+|---|---|---|
+| `rounds.send` | rounds | 回合驱动（Runtime 在途 run 登记 + engine.ainvoke 续链 + 事件落文件传输） |
+| `rounds.abort` | rounds | 中止当前在途 run（Runtime.abort_current_run；JS 取消模型降级见代码注） |
+| `rounds.resume` | rounds | 审批决议重入（Runtime.resume_run） |
+| `records.sessions` | records | 会话索引查询（host 薄数据，S6 会话域服务定稿） |
+| `records.chain` | records | 链记录（chain_index + checkpoint to_dict，engine 权威） |
+| `approval.list` | approval | 审批卡查询（engine.get_latest_interrupt 挂起卡） |
+| `approval.resolve` | approval | 审批裁决（决议注入 → resume_run） |
+| `audit.export` | audit | 审计导出（SET_AUDIT_COLLECTION 只读窗口） |
+
+host bridge 与 cli `host.ping`/`host.info` 命名空间独立并存（S4 注入）。
+JSON-RPC 信封错误只回通用、细节走 diag（复用 `cli/src/diag.ts` 形态）。

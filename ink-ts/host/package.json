@@ -1,0 +1,17 @@
+{
+  "name": "@ink-ts/host",
+  "version": "0.0.0",
+  "private": true,
+  "type": "module",
+  "description": "L4 宿主装配层 composition root：机制语义在 engine，host 只装配不复制——实现 Host 五件套、构建产品配方（AssemblyRecipe）并出宿主命令面 bridge；不写 main、不监听端口、不是进程",
+  "exports": {
+    ".": "./src/index.ts"
+  },
+  "dependencies": {
+    "@ink-ts/engine": "*"
+  },
+  "scripts": {
+    "test": "vitest run",
+    "typecheck": "tsc -p tsconfig.json"
+  }
+}

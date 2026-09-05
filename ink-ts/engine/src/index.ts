@@ -130,7 +130,34 @@ export type { BudgetPolicy, BudgetQuery } from './core/budget/budget.js';
 // 结点契约（NodeContract/PathAssemblyConfig/QualityGate 等公开类型）
 export * from './core/contracts/contracts.js';
 
+// 角色槽模型配置解析（模型按角色槽配置/回落语义，CODING §8 锚点；宿主
+// config 按槽解析模型配置形态并建链，不复制回落语义）
+export {
+  ROLE_AGENT,
+  ROLE_AUDIT,
+  ROLE_ROUTER,
+  build_role_model_chain,
+  resolve_role_model,
+} from './core/model_roles/index.js';
+export type { RoleModelChain } from './core/model_roles/index.js';
+
+// 自指契约工具三路声明（tool_wiring 配方组件：宿主只装配声明，机制不复制）
+export { SELF_TOOL_CONTRACT } from './core/self_tools/index.js';
+export { make_self_executor, operation_of, self_tool_specs } from './core/self_tools/index.js';
+export type { SelfToolContext } from './core/self_tools/index.js';
+
 // ── 3. adapters 工厂面 ──
+
+// boot 引导种子（装配期数据资产：宿主配方经 AssemblyRecipe 直注消费）
+export {
+  BOOT_EVENT_TYPES,
+  BOOT_METATOOLS,
+  BOOT_PROMPT_SEED_ID,
+  BOOT_SYSTEM_PROMPT,
+  BOOT_UI_SPEC,
+  boot_harness_definition,
+  build_boot_seed_entries,
+} from './adapters/boot/index.js';
 
 // 存储后端工厂（memory:// / sqlite:// 路由）
 export * from './adapters/storage/index.js';

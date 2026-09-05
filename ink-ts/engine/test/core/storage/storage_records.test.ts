@@ -4,7 +4,7 @@
  *
  * 范围：storage_records.ts + storage_constants.ts 的纯数据面行为。
  * 后端实现（memory/sqlite/postgres）属于宿主侧 IO，本套件不覆盖——
- * create_storage 与各后端实现延后到 backend/ 层做接口对接测试。
+ * create_storage 与各后端实现延后到 host/ 层做接口对接测试。
  *
  * 对标 pytest test_storage.py 中不依赖真实后端的纯语义用例：
  * to_dict/from_dict 往返、敏感键剥离、PatchChain/Message/ToolCall

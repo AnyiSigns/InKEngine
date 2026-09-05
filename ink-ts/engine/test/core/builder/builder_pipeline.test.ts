@@ -16,7 +16,7 @@
  *
  * 延后用例（真实子进程 IO，宿主 seam 实弹回归）：test_build_* 的 python
  * 真实执行（成功/超时 kill/产物产出）——真实 spawn 与真实 fs 随宿主装配
- * （backend/cli）落地后对标，本文件不触碰真实进程/磁盘。
+ * （host/cli）落地后对标，本文件不触碰真实进程/磁盘。
  */
 import { describe, expect, it } from 'vitest';
 

@@ -5,7 +5,7 @@
  * 范围说明：本文件用内存 seam 双端（helpers.ts 的 FakeStorage，镜像
  * Python conftest 的 memory_storage 行为）覆盖 pure 解析机制的
  * resolve_resume 主路径。依赖真实存储后端（sqlite/postgres 集成）与
- * 执行器恢复接线的用例延后（随 backend/executor 移植补齐）；
+ * 执行器恢复接线的用例延后（随 host/exec 落地补齐）；
  * collect_resume_anchors/链线程契约见 recovery_anchors.test.ts。
  */
 

@@ -196,26 +196,47 @@ async function runAudit(
   }
 }
 
-/** os_op 命令：exec 原生件执行路径未接线，命令面 fail-closed 占位拒绝。 */
-function runOsOp(
+/**
+ * os_op 命令：受控 OS 执行器调用（host bridge os.run；显式 --approve 放行）。
+ *
+ * params 形态（--args JSON）：{op:'process'|'file'|'http', args, roots,
+ * allowlist?, allow_domains?, timeout_secs?, max_chars?, cwd?, env?}——
+ * 约束随请求现取，host 裁决面门拦截越权/越根（exec 只收复核通过的信封）。
+ * 缺省 fail-closed：无 --approve 即拒绝（approval_required）。
+ */
+async function runOsOp(
+  handle: HostHandle,
   run: RunFlags,
+  approve: boolean,
   trace_id: string,
-): RunOutcome {
+): Promise<RunOutcome> {
   const parsed = parseArgsJson(run.args);
   if (!parsed.ok) {
     return { exitCode: 2, envelope: errorEnvelope(trace_id, 'os_op', 'usage', parsed.error) };
   }
-  return {
-    exitCode: 1,
-    envelope: errorEnvelope(
-      trace_id,
-      'os_op',
-      'os_op',
-      `OS 执行器未装配：--os-op 需 ink-ts/exec 原生件接线；`
-        + `当前 fail-closed 拒绝。tool=${run.arg}（--approve 显式放行语义保留，`
-        + `执行路径就绪后仅显式 --approve 放行）`,
-    ),
-  };
+  if (!approve) {
+    return {
+      exitCode: 1,
+      envelope: errorEnvelope(
+        trace_id,
+        'os_op',
+        'os_op',
+        `OS 执行需显式放行：--os-op 仅 --approve 显式放行（fail-closed 缺省）`,
+      ),
+    };
+  }
+  try {
+    const handler = handle.bridge.get('os.run');
+    if (handler === undefined) throw new Error('os.run 不可用（bridge 未装配）');
+    const body = (parsed.value as Record<string, unknown> | null) ?? {};
+    const data = await handler({ tool: run.arg, ...body, trace_id }, { autoApprove: true });
+    return { exitCode: 0, envelope: envelope(trace_id, 'os_op', data) };
+  } catch (error) {
+    return {
+      exitCode: 1,
+      envelope: errorEnvelope(trace_id, 'os_op', 'os_op', errorMessage(error)),
+    };
+  }
 }
 
 /** run 形态主流程：一次性装配 + 驱动 + 输出信封。返回 exit code。 */
@@ -225,29 +246,40 @@ export async function runOnce(options: CliOptions, io: RunIo = defaultIo()): Pro
   const command = run.command;
   let handle: HostHandle | null = null;
   let outcome: RunOutcome;
-  try {
-    if (command === 'os_op') {
-      outcome = runOsOp(run, trace_id);
-    } else {
+  if (command === 'os_op' && !options.approve) {
+    // 冷启前短路：无 --approve 的 OS 工具调用 fail-closed（不装配宿主）
+    outcome = {
+      exitCode: 1,
+      envelope: errorEnvelope(
+        trace_id,
+        'os_op',
+        'os_op',
+        'OS 执行需显式放行：--os-op 仅 --approve 显式放行（fail-closed 缺省）',
+      ),
+    };
+  } else {
+    try {
       handle = await assembleCliHost(options);
       outcome =
         command === 'round'
           ? await runRound(handle, run, options.approve, trace_id, io)
           : command === 'op'
             ? await runOp(handle, run, options.approve, trace_id)
-            : await runAudit(handle, options.approve, trace_id);
-    }
-  } catch (error) {
-    outcome = {
-      exitCode: 1,
-      envelope: errorEnvelope(trace_id, command, 'boot', errorMessage(error)),
-    };
-  } finally {
-    if (handle !== null) {
-      try {
-        await handle.dispose();
-      } catch {
-        // dispose 失败不覆盖主结果
+            : command === 'os_op'
+              ? await runOsOp(handle, run, options.approve, trace_id)
+              : await runAudit(handle, options.approve, trace_id);
+    } catch (error) {
+      outcome = {
+        exitCode: 1,
+        envelope: errorEnvelope(trace_id, command, 'boot', errorMessage(error)),
+      };
+    } finally {
+      if (handle !== null) {
+        try {
+          await handle.dispose();
+        } catch {
+          // dispose 失败不覆盖主结果
+        }
       }
     }
   }

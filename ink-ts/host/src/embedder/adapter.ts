@@ -8,7 +8,7 @@
  *   模型缺失/内核不满足时 infer 进程内落确定性保底（来源 note 可观测）。
  *
  * 本对象为**异步面**（aembed_* 返回 Promise）；引擎 seam 同步直返形态由
- * 接线层（语义检索接线，波 3）await 收口后注入——本模块不提供进程侧等待。
+ * 接线层（语义检索消费方）await 收口后注入——本模块不提供进程侧等待。
  */
 
 import type { RestartPolicy } from '../exec/_types.js';

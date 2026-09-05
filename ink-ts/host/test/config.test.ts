@@ -1,5 +1,5 @@
 /**
- * host 运行配置读取单测：协议按角色槽三键 + 备用链；审批 fail-closed
+ * host 运行配置读取单测：协议按角色槽双键 + 备用链；审批 fail-closed
  * （autoApprove 显式才放行）；目录定稿（events 落 data_dir/events）。
  */
 
@@ -15,6 +15,7 @@ import {
   normalize_model_config,
   resolve_host_config,
 } from '../src/config.js';
+import type { HostConfigInput } from '../src/config.js';
 
 describe('config 解析（角色槽/协议/目录）', () => {
   it('默认值：memory:// + autoApprove=false（fail-closed）+ events 落 data/events', () => {
@@ -26,7 +27,7 @@ describe('config 解析（角色槽/协议/目录）', () => {
     expect(config.events_dir).toBe(path.join('C:/work', '.ink-host', 'events'));
   });
 
-  it('agent/router/audit 三键 + {role}_fallback_configs 备用链按协议归一', () => {
+  it('agent/router 双键 + {role}_fallback_configs 备用链按协议归一', () => {
     const input = {
       storage_uri: 'sqlite:///tmp/h.db',
       model_config: {
@@ -35,7 +36,6 @@ describe('config 解析（角色槽/协议/目录）', () => {
           { adapter: 'anthropic_messages', base_url: 'http://b', model_id: 'm2' },
         ],
         router_config: { protocol: 'anthropic_messages', base_url: 'http://c', model_id: 'm3' },
-        audit_config: { protocol: 'openai_responses', base_url: 'http://d', model_id: 'm4' },
       },
     };
     const config = resolve_host_config(input);
@@ -45,8 +45,19 @@ describe('config 解析（角色槽/协议/目录）', () => {
       'anthropic_messages',
     );
     expect((slots['router_config'] as { adapter: string }).adapter).toBe('anthropic_messages');
-    expect((slots['audit_config'] as { adapter: string }).adapter).toBe('openai_responses');
     expect(config.storage_uri).toBe('sqlite:///tmp/h.db');
+  });
+
+  it('非引擎角色槽键（如 audit_config）不按槽归一（原样透传；引擎不消费）', () => {
+    const input = {
+      model_config: {
+        audit_config: { base_url: 'http://d', model_id: 'm4' },
+      },
+    } as unknown as HostConfigInput;
+    const config = resolve_host_config(input);
+    const raw = config.model_config['audit_config'] as Record<string, unknown> | undefined;
+    expect(raw).toBeDefined();
+    expect(raw!['adapter']).toBeUndefined();
   });
 
   it('endpoint 校验：未知协议 / 缺 base_url/model_id / 无 adapter 均显式报错', () => {

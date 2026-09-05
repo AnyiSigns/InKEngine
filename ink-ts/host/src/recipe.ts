@@ -1,7 +1,7 @@
 /**
  * 产品配方（AssemblyRecipe）构建 + 产品配方默认表。
  *
- * 机制接线靠引擎默认装配直接接上（cfe47b9，宿主零代码接线）；本文件只出
+ * 机制接线靠引擎默认装配直接接上（宿主零代码接线）；本文件只出
  * 两样东西：
  * 1. PRODUCT_SWITCH_DEFAULTS——产品配方开关默认表（一处种子默认表，非逐
  *    机制接线代码）：PathAssemblyFlags 七位与各布尔开关默认全开 true（含
@@ -10,9 +10,9 @@
  *    审批姿态不在本表（默认 fail-closed，autoApprove 显式才放行）。
  * 2. build_product_recipe——boot 种子 / 事件类型 / harness / ui_spec 白名单
  *    / tool_wiring / approval_levels 的装配（engine 已具 boot 种子 → 直接
- *    引用不复制）；graph_recipe 为调用方注入位（产品图未内置，由调用方注入
- *    或显式留空——Runtime 装配要求非空图配方，留空由 index 装配入口给出
- *    明确错误而非静默装配）。
+ *    引用不复制）；graph_recipe 缺省 = 产品默认 chat 图（graph.ts），调用方
+ *    可覆写；检索源（vector/fts）由 createHost 装配后直注
+ *    recipe.retrieval_sources（属宿主领域层，见 retrieval/domain.ts）。
  *
  * boot 资产真源在 engine adapters/boot 与 core/self_tools：此处只引用。
  */
@@ -30,7 +30,9 @@ import {
 } from '@ink-ts/engine';
 import type { Graph, GraphRecipeContext, ToolWiring } from '@ink-ts/engine';
 
-/** 图配方注入位形态（产品图未内置；由测试/调用方注入）。 */
+import { productChatGraphRecipe } from './graph.js';
+
+/** 图配方注入位形态（缺省 = 产品默认 chat 图；调用方可覆写）。 */
 export type RecipeGraph = (ctx: GraphRecipeContext) => Graph;
 
 /** 产品机制开关默认表（机制开关全开；关闭只走显式产品配置）。 */
@@ -111,8 +113,8 @@ export function assert_product_switches_all_on(): void {
 
 /**
  * 构建产品 AssemblyRecipe（boot 资产直接引用 engine；机制开关默认全开）。
- * graph_recipe 缺省 null（结构化空位）——Runtime 装配要求非空，装配入口
- * （createHost）对 null 给出明确错误，不静默装配空图。
+ * graph_recipe 缺省 = 产品默认 chat 图（调用方可覆写）；检索源由装配方
+ * （createHost）注入 recipe.retrieval_sources。
  */
 export function build_product_recipe(
   init: ProductRecipeInit = {},
@@ -133,7 +135,7 @@ export function build_product_recipe(
     tool_wiring: product_tool_wiring(),
     approval_levels: (init.approval_levels ?? {}) as Record<string, unknown>,
   });
-  recipe.graph_recipe = init.graph_recipe ?? null;
+  recipe.graph_recipe = init.graph_recipe ?? productChatGraphRecipe;
   recipe.run_options = run_options_from(init);
   return recipe;
 }

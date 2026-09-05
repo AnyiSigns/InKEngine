@@ -2,11 +2,13 @@
  * @ink-ts/host 装配入口（createHost）：composition root。
  *
  * 读配置（config.ts）→ 实现 Host 五件套（host.ts）→ 构建产品配方
- * （recipe.ts，机制开关默认全开）→ Runtime.boot 装配 → buildBridge 出
- * 宿主命令面。机制语义全在 engine；本包只装配不复制。
+ * （recipe.ts：机制开关默认全开 + 产品默认 chat 图）→ 装配宿主检索域
+ * （retrieval/domain.ts：向量/FTS 检索源 + data_dir 文档库）→
+ * Runtime.boot 装配 → buildBridge 出宿主命令面。机制语义全在 engine；
+ * 本包只装配不复制。
  *
- * graph_recipe 为产品配方注入位：产品图未内置，由调用方/测试注入演示
- * 图；未注入时给出明确错误，不静默装配空图。
+ * graph_recipe 缺省 = 产品默认 chat 图；调用方可经 recipe 覆写。检索源
+ * 属宿主领域层：装配时直注 recipe.retrieval_sources（引擎注册表消费）。
  */
 
 import { mkdirSync } from 'node:fs';
@@ -21,22 +23,27 @@ import type { HostConfigInput, ResolvedHostConfig } from './config.js';
 import { InkHost } from './host.js';
 import { build_product_recipe } from './recipe.js';
 import type { ProductRecipeInit } from './recipe.js';
+import { buildHostRetrieval } from './retrieval/domain.js';
+import type { HostRetrievalDomain } from './retrieval/domain.js';
 
 /** createHost 装配产物（cli/web/vitest 消费面）。 */
 export interface HostHandle {
   runtime: Runtime;
   bridge: ReadonlyMap<string, BridgeHandler>;
   config: ResolvedHostConfig;
-  /** 幂等关停：Runtime.stop（拒新 → 等在途 → 关 MCP/LLM/存储 → host 关停钩子）。 */
+  /** 宿主检索域（向量/FTS 文档库 + 嵌入适配器；数据落 config.data_dir）。 */
+  retrieval: HostRetrievalDomain;
+  /** 幂等关停：Runtime.stop（拒新 → 等在途 → 关 MCP/LLM/存储 → host 关停钩子）
+   *   → 检索域适配器收口。 */
   dispose(): Promise<void>;
 }
 
 /**
- * 装配 host：配置解析 → 五件套 + 配方 → Runtime.boot → bridge 命令面。
+ * 装配 host：配置解析 → 五件套 + 配方 → 检索域 → Runtime.boot → bridge。
  *
  * @param config 运行配置（storage uri / 角色槽模型端点 / autoApprove 等；
  *   缺省 memory:// + fail-closed，见 config.ts）。
- * @param recipe 配方覆写（graph_recipe 注入位必需——产品图由调用方提供）。
+ * @param recipe 配方覆写（graph_recipe 缺省 = 产品默认 chat 图）。
  */
 export async function createHost(
   config: HostConfigInput | null | undefined = null,
@@ -45,14 +52,12 @@ export async function createHost(
   const resolved = resolve_host_config(config);
   mkdirSync(resolved.events_dir, { recursive: true });
   mkdirSync(resolved.data_dir, { recursive: true });
-  if ((recipe?.graph_recipe ?? null) === null) {
-    throw new HostConfigError(
-      'createHost 需注入 graph_recipe（产品图配方在 host 域服务阶段定稿前，'
-        + '由调用方/测试注入演示图；结构化空位不静默装配）',
-    );
-  }
+  const retrieval = buildHostRetrieval(resolved.data_dir);
   const inkHost = new InkHost(resolved);
   const assemblyRecipe = build_product_recipe(recipe ?? undefined);
+  for (const factory of retrieval.sourceFactories()) {
+    assemblyRecipe.retrieval_sources.push(factory as never);
+  }
   const runtime = new Runtime();
   await runtime.boot(inkHost as unknown as Host, assemblyRecipe);
   const bridge = buildBridge({
@@ -64,8 +69,10 @@ export async function createHost(
     runtime,
     bridge,
     config: resolved,
+    retrieval,
     dispose: async (): Promise<void> => {
       await runtime.stop();
+      await retrieval.close();
     },
   };
   return handle;
@@ -90,6 +97,34 @@ export type {
 } from './config.js';
 export { PRODUCT_SWITCH_DEFAULTS, build_product_recipe } from './recipe.js';
 export type { ProductRecipeInit, ProductSwitchName, RecipeGraph } from './recipe.js';
+export { productChatGraphRecipe, STUB_REPLY } from './graph.js';
+
+// ── 会话宿主薄服务 ──
+export { HostSessionStore, SessionServiceError } from './sessions/store.js';
+export type { SessionTouchInput } from './sessions/store.js';
+export {
+  HOST_SESSIONS_COLLECTION,
+  SESSION_TITLE_MAX,
+  branch_tree_from_chain,
+  fallback_title,
+  normalize_title,
+  parse_session_record,
+  session_record_to_json,
+} from './sessions/model.js';
+export type {
+  HostSessionRecord,
+  SessionBranchNode,
+  SessionBranchTree,
+} from './sessions/model.js';
+
+// ── 宿主检索域（向量/FTS 检索源 + AsyncEmbedder seam）──
+export { buildHostRetrieval, FtsRetriever, RetrievalStore, VectorRetriever, SOURCE_FTS, SOURCE_VECTOR } from './retrieval/domain.js';
+export type { HostRetriever, HostRetrievalDomain, RetrievalChunk, RetrievalDoc } from './retrieval/domain.js';
+export { SyncEmbedderSeam, attachToolIndexEmbedder } from './retrieval/sync_seam.js';
+
+// ── 受控 OS 执行器域 ──
+export { HostOsRunner, OsError, writeOsAudit } from './os/runner.js';
+export type { OsApproval, OsToolRequest } from './os/runner.js';
 
 // ── 原生机制件 client / 嵌入适配器（exec + infer + AsyncEmbedder）──
 export { locateNativeBinary } from './exec/binary.js';

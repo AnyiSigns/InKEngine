@@ -2,10 +2,10 @@
  * host 运行配置读取（L4 composition root 的数据入口）。
  *
  * 只做「读配置 + 校验形状」，不做任何装配/接线（那是 host.ts/recipe.ts 的
- * 事）。配置形态与 CODING §8 措辞对齐：模型端点按协议、按角色槽三键
- * {agent_config, router_config, audit_config} + `{role}_fallback_configs`
- * 备用链（main_config 等别名兼容由引擎 model_roles 解析，本层不复制回落
- * 语义）；厂商只是端点配置（协议决定适配器）。审批姿态 fail-closed：
+ * 事）。配置形态与引擎 model_roles 措辞对齐：模型端点按协议、按角色槽双键
+ * {agent_config, router_config} + `{role}_fallback_configs` 备用链
+ * （main_config 等别名兼容由引擎 model_roles 解析，本层不复制回落语义）；
+ * 厂商只是端点配置（协议决定适配器）。审批姿态 fail-closed：
  * autoApprove 缺省 false，仅显式配置才放行。
  *
  * 键形态：文件/对象输入采用 RoleEndpoint 各槽形态；环境覆盖走 INK_* 前缀
@@ -37,14 +37,12 @@ export interface RoleEndpointConfig {
   request_timeout?: number | null;
 }
 
-/** 角色槽模型配置（键名 = CODING §8 {role}_config / {role}_fallback_configs）。 */
+/** 角色槽模型配置（键名 = 引擎 {role}_config / {role}_fallback_configs）。 */
 export interface ModelConfigInput {
   agent_config?: RoleEndpointConfig;
   agent_fallback_configs?: RoleEndpointConfig[];
   router_config?: RoleEndpointConfig;
   router_fallback_configs?: RoleEndpointConfig[];
-  audit_config?: RoleEndpointConfig;
-  audit_fallback_configs?: RoleEndpointConfig[];
 }
 
 /** host 配置输入（JSON 文件 / 对象 / 环境覆盖）。 */
@@ -89,11 +87,10 @@ export const ENV_KEYS = {
   seedDir: 'INK_SEED_DIR',
 } as const;
 
-/** 角色槽主配置键（CODING §8；别名/回落归引擎，本层不复制）。 */
+/** 角色槽主配置键（引擎 model_roles 消费；别名/回落归引擎，本层不复制）。 */
 export const ROLE_SLOT_KEYS = [
   'agent_config',
   'router_config',
-  'audit_config',
 ] as const;
 
 /** 缺省存储连接串（内存后端；持久化需显式 sqlite:///path）。 */

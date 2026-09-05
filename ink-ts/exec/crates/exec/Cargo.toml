@@ -1,0 +1,20 @@
+[package]
+name = "ink_ts_exec"
+version = "0.1.0"
+edition = "2021"
+rust-version = "1.82"
+description = "ink-ts 原生机制件：OS 执行器子进程（信封驱动零声明表——复核签名与信封约束后机械执行，fail-closed；零裁决零台账）"
+
+[[bin]]
+name = "exec"
+path = "src/main.rs"
+
+[dependencies]
+serde = { version = "1", features = ["derive"] }
+serde_json = "1"
+sha2 = "0.10"
+ink-ts-rpc = { package = "ink_ts_rpc", path = "../rpc" }
+reqwest = { version = "0.12", default-features = false, features = ["blocking", "rustls-tls"] }
+
+[dev-dependencies]
+uuid = { version = "1", features = ["v4"] }

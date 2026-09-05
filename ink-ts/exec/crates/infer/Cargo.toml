@@ -1,0 +1,23 @@
+[package]
+name = "ink_ts_infer"
+version = "0.1.0"
+edition = "2021"
+rust-version = "1.82"
+description = "ink-ts 原生机制件：本地嵌入推理子进程（granite-97m ONNX；ort+tokenizers 懒加载/CLS 池化按 config bos 归一/L2/384 维/确定性保底/INK_EMBEDDING_* 覆盖全保留）"
+
+[[bin]]
+name = "infer"
+path = "src/main.rs"
+
+[dependencies]
+serde_json = "1"
+ink-ts-rpc = { package = "ink_ts_rpc", path = "../rpc" }
+tokio = { version = "1", features = ["full"] }
+reqwest = { version = "0.12", default-features = false, features = ["rustls-tls", "json"] }
+ort = "=2.0.0-rc.10"
+tokenizers = { version = "0.20", default-features = false, features = ["onig"] }
+tracing = "0.1"
+tracing-subscriber = { version = "0.3", default-features = false, features = ["fmt", "ansi"] }
+
+[dev-dependencies]
+uuid = { version = "1", features = ["v4"] }

@@ -1,0 +1,32 @@
+# ink-ts 原生机制件 workspace：exec（OS 执行器子进程）+ infer（本地嵌入推理
+# 子进程）+ rpc（两者共享的 stdio JSON-RPC 行帧底座）。
+#
+# 依赖纪律（D3/D10）：exec 只做信封驱动的机械守门 + 物理执行体（零声明表、
+# 零裁决）；infer 承载 ort/tokenizers 重依赖并原样承载 embedder.rs 语义；
+# rpc 不携带任何业务。infer 因 ort 构建期需下载 ONNX Runtime 二进制，独立
+# 成 crate 并从 default-members 排除——`cargo test/build --manifest-path
+# ink-ts/exec/Cargo.toml`（默认成员 exec+rpc）不触发重型下载，CI/开发门禁
+# 稳定；infer 用 `-p ink_ts_infer`（或 --manifest-path crates/infer）单独构建。
+# 二进制输出约定：target/{debug,release}/exec(.exe) 与 infer(.exe)（宿主侧
+# 二进制定位与 exec_proc 前缀逻辑据此约定，见 host/src/exec/binary.ts）。
+
+[workspace]
+resolver = "2"
+members = ["crates/rpc", "crates/exec", "crates/infer"]
+default-members = ["crates/rpc", "crates/exec"]
+
+# 依赖以开发档 opt-level=1 预编译（依赖不变只编一次）+ debug=1 行号表 +
+# codegen-units 限制（4C8G 低配机防 OOM，与壳 crate 同口径）。
+[profile.dev]
+debug = 1
+codegen-units = 16
+
+[profile.dev.package."*"]
+opt-level = 1
+
+[profile.release]
+codegen-units = 16
+lto = "thin"
+opt-level = "s"
+panic = "abort"
+strip = true

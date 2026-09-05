@@ -13,7 +13,12 @@ import { ChannelHub } from '@/shared/session/channelHub';
 import { MemorySessionStore } from '@/shared/session/sessionStore';
 import { createSessionStoreFrom } from '@/shared/backend/remoteSessionStore';
 import { createBackend } from '@/shared/backend/backendAdapter';
-import { ROUND_EVENT_TOPIC, listenHostEvent } from '@/shared/backend/transport';
+import {
+  ROUND_EVENT_TOPIC,
+  listenHostEvent,
+  resolveServeChannel,
+  setServeChannel,
+} from '@/shared/backend/transport';
 import { registerBuiltinComponents } from '@/components';
 import { createIngester, toHubEvent, setStreaming, finalizeThreadStreaming, setThreadRoundActive } from '@/shared/session/eventIngest';
 import { registerComponent, type PlainComponent } from '@/renderer/componentRegistry';
@@ -26,6 +31,10 @@ import { normalizeWave4Sections } from './wiring/normalizeWave4';
 import App from '../App';
 
 export function activate(): void {
+  // serve 通道装配：环境配置 VITE_SERVE_URL（+VITE_SERVE_TOKEN）即注入真
+  // transport，backendAdapter 与事件订阅共用；无配置保持 stub（available:false）。
+  setServeChannel(resolveServeChannel(import.meta.env as Record<string, string | undefined>));
+
   // 出厂基线组件注册（渲染器白名单基线；wave4 视图/产物清单按同名覆盖接管）
   registerBuiltinComponents();
 

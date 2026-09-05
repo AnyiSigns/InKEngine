@@ -1,20 +1,20 @@
 // gate: 超限(846 行) - 模型连接配置节（单节表单：角色槽/提供方/自定义/全局阈值同面）
 /**
- * 设置「模型」节：提供方管理（模板/自定义协议）+ router/audit 档位模型选择 +
+ * 设置「模型」节：提供方管理（模板/自定义协议）+ router 档位模型选择 +
  * 推演档位 + 全局压缩阈值。
  *
  * 布局（自上而下，参考「模型」页）：
  *  1. 已连接提供方列表（名称 + 状态点 + 编辑/删除）；
  *  2. `+ 添加提供方`（已适配厂商模板，自动带端点）与 `+ 添加自定义提供方`
  *     （按 API 协议添加，用户填端点 + Provider ID）；
- *  3. router / audit 档位模型选择（下拉复选框，从全部已添加模型列表勾选）；
+ *  3. router 档位模型选择（下拉复选框，从全部已添加模型列表勾选）；
  *  4. 推演档位（关/轻探测/全量）；
  *  5. 自动压缩阈值（全局单值，页面级，三档共用）。
  *
- * 档位语义变化（用户拍板）：main 不再是设置页配置项——它是对话页主模型
- * （输入框选模型，协作者仍经 EntitySpec.model 指定）；本页只配 router 与
- * audit。model_ids 仍按 providers[].model_ids.{router,audit} 落盘（引擎
- * 挡位链按当前连接读取），全局压缩阈值经 providers[].compression_percent
+ * 档位语义（引擎角色槽收口为 agent/router）：agent = 对话主模型，是对话页
+ * 输入框的自选模型（协作者仍经 EntitySpec.model 指定），不在设置页占档位；
+ * 本页只配 router（决策档）。model_ids 按 providers[].model_ids.router 落盘
+ * （引擎挡位链按当前连接读取），全局压缩阈值经 providers[].compression_percent
  * 落盘（后端取首提供方 = 当前连接）。
  */
 
@@ -72,12 +72,11 @@ interface ProviderDraft {
   /** 该提供方已添加的模型清单（probing 默认全选 + 自定义 model_id）。 */
   models: string[];
   router_model_id: string;
-  audit_model_id: string;
   context_window: number;
   compression_percent: number;
 }
 
-/** 提供方落盘（main 档不再写入；只写 router/audit + models + 全局压缩）。 */
+/** 提供方落盘（agent = 对话主模型随输入框自选，不写此档位；只写 router + models + 全局压缩）。 */
 function providerToJson(p: ProviderDraft, globalCompression: number): Record<string, unknown> {
   return {
     provider_id: p.provider_id,
@@ -88,7 +87,6 @@ function providerToJson(p: ProviderDraft, globalCompression: number): Record<str
     base_url: p.base_url,
     model_ids: {
       ...(p.router_model_id ? { router: p.router_model_id } : {}),
-      ...(p.audit_model_id ? { audit: p.audit_model_id } : {}),
     },
     models: p.models,
     context_window: p.context_window,
@@ -127,7 +125,6 @@ function providerFromJson(raw: unknown, index: number): ProviderDraft {
     api_key: '',
     models: Array.isArray(p.models) ? (p.models as unknown[]).map((m) => String(m)) : [],
     router_model_id: typeof modelIds.router === 'string' ? modelIds.router : '',
-    audit_model_id: typeof modelIds.audit === 'string' ? modelIds.audit : '',
     context_window: typeof p.context_window === 'number' ? p.context_window : DEFAULT_CONTEXT,
     compression_percent: typeof p.compression_percent === 'number' ? p.compression_percent : 80,
   };
@@ -406,7 +403,6 @@ function AddProviderModal({
       api_key: apiKey,
       models: Array.from(checked),
       router_model_id: initial?.router_model_id ?? '',
-      audit_model_id: initial?.audit_model_id ?? '',
       context_window: initial?.context_window ?? DEFAULT_CONTEXT,
       compression_percent: globalCompression,
     });
@@ -538,7 +534,6 @@ export function ModelSection(): JSX.Element {
   const activeProvider = providers.find((p) => p.provider_id === activeProviderId) ?? providers[0];
 
   const [routerModelId, setRouterModelId] = useState('');
-  const [auditModelId, setAuditModelId] = useState('');
   const [archiveModels, setArchiveModels] = useState<string[]>([]);
 
   // 模型清单 = 当前（激活）提供方的已勾选 models ∪ 档案库（旧数据兜底）；
@@ -603,7 +598,6 @@ export function ModelSection(): JSX.Element {
         setActiveProviderId(list[0]?.provider_id ?? null);
         if (list[0]) {
           setRouterModelId(list[0].router_model_id);
-          setAuditModelId(list[0].audit_model_id);
           setGlobalCompression(list[0].compression_percent || 80);
         }
         readyRef.current = true;
@@ -644,15 +638,13 @@ export function ModelSection(): JSX.Element {
     }
   };
 
-  const syncTierModels = (next: { router?: string; audit?: string }): void => {
+  const syncTierModels = (next: { router?: string }): void => {
     if (next.router !== undefined) setRouterModelId(next.router);
-    if (next.audit !== undefined) setAuditModelId(next.audit);
     const current = activeProvider;
     if (!current) return;
     const nextCurrent: ProviderDraft = {
       ...current,
       router_model_id: next.router ?? current.router_model_id,
-      audit_model_id: next.audit ?? current.audit_model_id,
     };
     const nextList = replaceProvider(nextCurrent);
     setProviders(nextList);
@@ -677,7 +669,6 @@ export function ModelSection(): JSX.Element {
     setProviders(nextList);
     setActiveProviderId(providerId);
     setRouterModelId(target.router_model_id);
-    setAuditModelId(target.audit_model_id);
     void persist(nextList, simulationTier, globalCompression);
   };
 
@@ -698,7 +689,6 @@ export function ModelSection(): JSX.Element {
     if (wasCurrent || !existing) {
       setActiveProviderId(draft.provider_id);
       setRouterModelId(draft.router_model_id ?? '');
-      setAuditModelId(draft.audit_model_id ?? '');
     }
     setModal(null);
     void persist(effective, simulationTier, globalCompression);
@@ -723,7 +713,6 @@ export function ModelSection(): JSX.Element {
       const successor = nextList[0];
       setActiveProviderId(successor?.provider_id ?? null);
       setRouterModelId(successor?.router_model_id ?? '');
-      setAuditModelId(successor?.audit_model_id ?? '');
       if (successor?.compression_percent) setGlobalCompression(successor.compression_percent);
     }
     void persist(nextList, simulationTier, globalCompression);
@@ -745,7 +734,7 @@ export function ModelSection(): JSX.Element {
   return (
     <div className="space-y-4">
       <p className="text-[11px] leading-relaxed ink-text-faint">
-        填入各提供方的 API 密钥即可使用其模型。添加后可在对话输入框选择模型；router / audit 档位在此指定。
+        填入各提供方的 API 密钥即可使用其模型。添加后可在对话输入框选择模型；router 档位在此指定。
       </p>
 
       <ProviderList
@@ -764,7 +753,7 @@ export function ModelSection(): JSX.Element {
           <Feedback phase={savePhase} okText="已保存" failText="保存失败" />
         </div>
         <p className="text-[11px] leading-relaxed ink-text-faint">
-          档位分工：router 决策 / audit 复核；main 即对话页主模型（在输入框选择，协作者经指定模型）。留空回落 main。
+          档位分工：router 决策；agent（对话主模型）在输入框自选，协作者经指定模型。router 留空回落对话主模型。
         </p>
         <div className="space-y-3">
           <TierModelSelect
@@ -774,14 +763,6 @@ export function ModelSection(): JSX.Element {
             value={routerModelId}
             models={allModels}
             onChange={(id) => syncTierModels({ router: id })}
-          />
-          <TierModelSelect
-            tier="audit"
-            label="audit"
-            hint="审批点复核与裁决；留空回落对话主模型。"
-            value={auditModelId}
-            models={allModels}
-            onChange={(id) => syncTierModels({ audit: id })}
           />
         </div>
       </div>

@@ -1,0 +1,18 @@
+# 孤儿导出灰名单：engine core 顶层导出中当前无消费引用的已知项。
+# 每行 <name>@<relpath>，空行与 # 注释跳过。新孤儿不被豁免，需接线或删除。
+#
+# 以下各项承载显式契约/镜像面（版本号、协议常量、规范工厂），保留导出以待
+# 外部消费或跨语言对码核对：
+resolve_tool_result_max_chars@engine/src/core/context/context_compression.ts
+DEFAULT_DIGEST_MAX_CHARS@engine/src/core/context/context_window.ts
+ENDPOINT_TYPE_VALUES@engine/src/core/declarative_tools/endpoint_types.ts
+DEFAULT_ATTACHMENT_RENDERER@engine/src/core/event_types/eventTypeSpec.ts
+attachment_event_spec@engine/src/core/event_types/eventTypeSpecs.ts
+register_output_gate_event_types@engine/src/core/event_types/eventTypeSpecs.ts
+entryShapeError@engine/src/core/knowledge_set/_types.ts
+contract_version_of@engine/src/core/path_assembler/snapshot.ts
+VISION_CONTRACT_VERSION@engine/src/core/perception/perception.ts
+VISION_CONTEXT_DOMAIN@engine/src/core/perception/perception.ts
+buildToolCtx@engine/src/core/round_steps/round_steps_internals.ts
+isCollection@engine/src/core/rules/_py.ts
+STORAGE_PROTOCOL_VERSION@engine/src/core/storage/storage_constants.ts

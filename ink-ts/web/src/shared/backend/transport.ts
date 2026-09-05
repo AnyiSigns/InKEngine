@@ -1,16 +1,15 @@
 /**
- * 前端宿主通道抽象（serve transport stub）：web 与引擎宿主之间唯一传输面。
+ * 前端宿主通道抽象（serve transport）：web 与引擎宿主之间唯一传输面。
  *
  * 形态随迁自旧侧前端的 transport 分界：宿主交互 = request(method, params)；
  * 事件流 = subscribe(topic, handler)。桌面 IPC 假设整体移除：生产通道 =
- * cli serve http/ws，本文件 = **接口契约 + serve 就绪前 stub**
- * （available=false）。serve 落地时经 `setServeChannel` 注入真 transport，
- * 后端适配器与视图零改动。
+ * cli serve http/ws，本文件 = **接口契约 + 真传输实现**（配置 VITE_SERVE_URL
+ * 即建立 JSON-RPC fetch 通道 + WebSocket 事件订阅）。未配置 serve 端点时
+ * 回落 stub（available=false），调用方走夹具路径。
  *
  * - request 方法命名 = 引擎/宿主域方法（round_send / session_list / todo.get /
- *   ui_spec.apply / knowledge.list 等，与 host bridge 域命名
- *   rounds.* 、records.* 、approval.* 、audit.* 的映射注释见 backendAdapter
- *   命令面），serve 侧按宿主命令面映射；
+ *   ui_spec.apply / knowledge.list 等；serve 宿主按命令面解析同名方法，
+ *   未注册方法回 JSON-RPC 错误信封，错误细节走 serve diag 面）；
  * - subscribe 事件 topic = ROUND_EVENT_TOPIC（引擎回合事件信封流：payload 为
  *   {type, thread_id, round_id, step_id, …}，经 app/activate 归约进 ChannelHub）；
  *   serve 侧的 state.* / events.* 细分通道由真 transport 实现承载本单一订阅；
@@ -64,10 +63,13 @@ export const ROUND_EVENT_TOPIC = 'round_event';
 /** serve 端点解析环境键（dev/集成期预置；如 http://127.0.0.1:8010）。 */
 export const SERVE_URL_ENV_KEY = 'VITE_SERVE_URL';
 
+/** serve 访问令牌环境键（与 URL 成对；serve listen 行同字段）。 */
+export const SERVE_TOKEN_ENV_KEY = 'VITE_SERVE_TOKEN';
+
 /** 通道未就绪的 stub：available=false，请求一律显式拒绝（不静默假成功）。 */
 export function createUnavailableChannel(): ServeChannel {
   const unavailable = (): never => {
-    throw new Error('宿主 serve 通道未就绪（web transport stub；cli serve 就绪后经 setServeChannel 接入）');
+    throw new Error('宿主 serve 通道未就绪（web transport stub；配置 VITE_SERVE_URL 后注入真通道）');
   };
   return {
     available: false,
@@ -76,13 +78,191 @@ export function createUnavailableChannel(): ServeChannel {
   };
 }
 
-/** 由环境解析 serve 通道：未配置 VITE_SERVE_URL = stub（当前默认形态）。 */
-export function resolveServeChannel(env?: { [SERVE_URL_ENV_KEY]?: string }): ServeChannel {
+/** 把 base http url 规范化为 JSON-RPC 端点（去尾斜杠 + /rpc）。 */
+function rpcEndpoint(baseUrl: string): string {
+  return `${baseUrl.replace(/\/+$/, '')}/rpc`;
+}
+
+/** 从 base http url 推导 /ws 订阅端点（http→ws，保留 host/port）。 */
+function wsEndpoint(baseUrl: string): string {
+  const normalized = baseUrl.replace(/\/+$/, '');
+  return normalized.replace(/^http/, 'ws') + '/ws';
+}
+
+/** serve ws topic 模式匹配（相等或 `前缀.*` 通配，镜像 serve 事件面）。 */
+function topicMatches(topic: string, pattern: string): boolean {
+  if (pattern === topic || pattern === '*') return true;
+  if (pattern.endsWith('.*')) {
+    return topic.startsWith(pattern.slice(0, -1));
+  }
+  return false;
+}
+
+/** web 订阅 topic → serve ws topics（round_event = 引擎回合事件信封流）。 */
+export function serveTopicsForWebTopic(topic: string): readonly string[] {
+  if (topic === ROUND_EVENT_TOPIC) return ['events.*', 'state.*'];
+  if (topic === '*') return ['events.*', 'state.*'];
+  return [topic];
+}
+
+/** JSON-RPC 错误信封 → 统一错误形态（code 取字符串；HTTP 层错误自带 message）。 */
+function toEnvelope(input: {
+  code?: unknown;
+  message?: unknown;
+  data?: unknown;
+}): EngineErrorEnvelope {
+  const code = input.code === undefined || input.code === null ? 'JSON_RPC_ERROR' : String(input.code);
+  const message = typeof input.message === 'string' ? input.message : 'serve 请求失败';
+  const data = (typeof input.data === 'object' && input.data !== null ? input.data : {}) as Record<string, unknown>;
+  const traceId = typeof data['trace_id'] === 'string' ? data['trace_id'] : undefined;
+  return { code, message, ...(traceId !== undefined ? { trace_id: traceId } : {}) };
+}
+
+export interface ServeChannelConfig {
+  /** serve http 基址（如 http://127.0.0.1:18731）。 */
+  baseUrl: string;
+  /** 访问令牌（serve listen 行同字段；缺省走同源 cookie）。 */
+  token?: string;
+}
+
+/** ws 客户端最小面（浏览器 WebSocket 兼容；测试可注入实现）。 */
+export interface ServeWsLike {
+  onopen: (() => void) | null;
+  onmessage: ((event: MessageEvent) => void) | null;
+  onerror: (() => void) | null;
+  onclose: (() => void) | null;
+  send(payload: string): void;
+  close(): void;
+}
+
+export type ServeWsCtor = new (url: string) => ServeWsLike;
+
+export interface ServeChannelDeps {
+  fetchImpl?: typeof fetch;
+  WebSocketImpl?: ServeWsCtor;
+}
+
+/** 真 serve 通道（fetch JSON-RPC + WebSocket 订阅）；依赖可注入便于测试。 */
+export function createServeChannel(config: ServeChannelConfig, deps: ServeChannelDeps = {}): ServeChannel {
+  const baseUrl = config.baseUrl.replace(/\/+$/, '');
+  const token = config.token ?? '';
+  const fetchImpl = deps.fetchImpl ?? globalThis.fetch.bind(globalThis);
+  const WebSocketImpl = deps.WebSocketImpl ?? (globalThis.WebSocket as ServeWsCtor | undefined);
+  let seq = 0;
+
+  const authHeaders = (): Record<string, string> => {
+    const headers: Record<string, string> = { 'content-type': 'application/json' };
+    if (token !== '') headers['authorization'] = `Bearer ${token}`;
+    return headers;
+  };
+
+  const request = async <T>(method: string, params?: unknown): Promise<T> => {
+    seq += 1;
+    const id = seq;
+    let response: Response;
+    try {
+      response = await fetchImpl(rpcEndpoint(baseUrl), {
+        method: 'POST',
+        headers: authHeaders(),
+        body: JSON.stringify({ jsonrpc: '2.0', id, method, ...(params === undefined ? {} : { params }) }),
+      });
+    } catch (error) {
+      throw { code: 'NETWORK', message: `serve 不可达: ${String(error instanceof Error ? error.message : error)}` };
+    }
+    let body: { error?: { code?: unknown; message?: unknown; data?: unknown } } = {};
+    try {
+      body = (await response.json()) as typeof body;
+    } catch {
+      if (!response.ok) {
+        throw { code: `HTTP_${response.status}`, message: `serve 返回 ${response.status}` };
+      }
+      throw { code: 'BAD_RESPONSE', message: 'serve 响应非 JSON' };
+    }
+    if (!response.ok) {
+      const envelope = toEnvelope({
+        code: `HTTP_${response.status}`,
+        message: typeof body.error?.message === 'string' ? body.error.message : `serve 返回 ${response.status}`,
+      });
+      throw envelope;
+    }
+    if (body.error) throw toEnvelope(body.error);
+    return (body as unknown as { result: T }).result;
+  };
+
+  /** 打开一条 ws 订阅：注册回调后 resolve 注销函数；连接失败回落空操作。 */
+  const subscribe = (topic: string, handler: (payload: unknown) => void): Promise<() => void> => {
+    if (WebSocketImpl === undefined) return Promise.resolve(() => undefined);
+    const topics = serveTopicsForWebTopic(topic);
+    const wsUrl = token !== '' ? `${wsEndpoint(baseUrl)}?token=${encodeURIComponent(token)}` : wsEndpoint(baseUrl);
+    let ws: ServeWsLike | null = null;
+    let closed = false;
+    let open = false;
+    try {
+      ws = new WebSocketImpl(wsUrl);
+    } catch {
+      return Promise.resolve(() => undefined);
+    }
+    ws.onopen = () => {
+      if (closed) return;
+      open = true;
+      ws?.send(JSON.stringify({ type: 'subscribe', topics: [...topics] }));
+    };
+    ws.onmessage = (event: MessageEvent) => {
+      if (closed || !open) return;
+      let parsed: unknown = null;
+      try {
+        parsed = JSON.parse(String(event.data));
+      } catch {
+        return;
+      }
+      const frame = parsed as { type?: unknown; topic?: unknown; data?: unknown };
+      if (frame.type !== 'event' || typeof frame.topic !== 'string') return;
+      if (!topics.some((pattern) => topicMatches(frame.topic as string, pattern))) return;
+      seq += 1;
+      const envelope: ServeEventEnvelope<unknown> = {
+        event: frame.topic as string,
+        id: seq,
+        payload: frame.data,
+      };
+      try {
+        handler(envelope);
+      } catch (error) {
+        logger.warn('transport', 'serve 事件回调失败', { err: String(error) });
+      }
+    };
+    ws.onerror = () => {
+      logger.warn('transport', 'serve ws 连接错误', { url: wsUrl });
+    };
+    ws.onclose = () => {
+      closed = true;
+    };
+    return Promise.resolve(() => {
+      if (closed) return;
+      closed = true;
+      try {
+        ws?.close();
+      } catch {
+        // 连接已关闭
+      }
+    });
+  };
+
+  return {
+    available: true,
+    baseUrl,
+    request,
+    subscribe,
+  };
+}
+
+/** 由环境解析 serve 通道：配置 VITE_SERVE_URL = 真通道，否则 stub。 */
+export function resolveServeChannel(env?: {
+  [SERVE_URL_ENV_KEY]?: string;
+  [SERVE_TOKEN_ENV_KEY]?: string;
+}): ServeChannel {
   const url = env?.[SERVE_URL_ENV_KEY];
-  if (!url) return createUnavailableChannel();
-  // 真通道实现（request → HTTP JSON-RPC，subscribe → WebSocket 事件订阅）
-  // 在此落位；serve 通道注入前不在此硬编码传输细节。
-  return createUnavailableChannel();
+  if (!url || url.trim() === '') return createUnavailableChannel();
+  return createServeChannel({ baseUrl: url.trim(), token: env?.[SERVE_TOKEN_ENV_KEY] ?? '' });
 }
 
 let serveChannel: ServeChannel = createUnavailableChannel();

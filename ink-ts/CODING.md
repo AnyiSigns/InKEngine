@@ -160,6 +160,11 @@ CI 的 ink-ts job 同链执行。规则增删须同步本表。
 | `recovery.checkpoints` | recovery | 可回退点查询（engine recovery） |
 | `recovery.rollback` | recovery | 回退入口（删链节点 + set_audit 留痕，调 engine recovery） |
 | `os.run` | os | 受控 OS 执行器调用（host 裁决面门 + exec 信封机械复核；headless 仅显式 --approve 放行） |
+| `search.keys.set` | search | web_search 密钥写入（宿主内存域；不落盘，web 只回显掩码） |
+| `search.keys.get` | search | web_search 密钥掩码查询（无明文外泄） |
+| `material.import` | material | 既有资料批量导入（目录扫描 → 逐文件 doc.parse → 文本/引用归一入会话；三重上限 fail-closed） |
 
 host bridge 与 cli `host.ping`/`host.info` 命名空间独立并存（方法表并入 cli 命令面）。
 JSON-RPC 信封错误只回通用、细节走 diag（复用 `cli/src/diag.ts` 形态）。
+serve/transport 方法面另设扁平↔点分别名层（`cli/src/legacy_aliases.ts`）：web 旧扁平命令名
+（round_send/session_*/search_keys_put/material_import 等）映射到上表点分方法；无点分落点不注册。

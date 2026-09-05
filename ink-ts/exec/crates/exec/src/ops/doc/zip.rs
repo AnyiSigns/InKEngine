@@ -246,6 +246,7 @@ pub fn store_entries(entries: &[(String, &[u8])]) -> Vec<u8> {
     out
 }
 
+#[cfg(test)]
 fn crc32(data: &[u8]) -> u32 {
     let mut table = [0u32; 256];
     for n in 0..256u32 {

@@ -20,7 +20,9 @@ import type { BridgeHandler } from './bridge/_types.js';
 import { buildBridge } from './bridge/index.js';
 import { HostConfigError, resolve_host_config } from './config.js';
 import type { HostConfigInput, ResolvedHostConfig } from './config.js';
+import { DocService } from './doc/service.js';
 import { InkHost } from './host.js';
+import { buildHostSearch } from './search/wiring.js';
 import { build_product_recipe } from './recipe.js';
 import type { ProductRecipeInit } from './recipe.js';
 import { buildHostRetrieval } from './retrieval/domain.js';
@@ -60,10 +62,21 @@ export async function createHost(
   }
   const runtime = new Runtime();
   await runtime.boot(inkHost as unknown as Host, assemblyRecipe);
+  mkdirSync(resolved.attachment_dir, { recursive: true });
+  const docService = new DocService({ maxChars: resolved.round_doc_text_cap ?? undefined });
+  const search = buildHostSearch();
+  const declarative = runtime.harness_registry?.declarative;
+  if (declarative !== null && declarative !== undefined) {
+    search.register(declarative as never);
+  }
   const bridge = buildBridge({
     runtime,
     host: inkHost,
     autoApprove: resolved.autoApprove,
+    attachment_dir: resolved.attachment_dir,
+    docTextCap: resolved.round_doc_text_cap,
+    docParse: docService,
+    searchKeys: search.keys,
   });
   const handle: HostHandle = {
     runtime,
@@ -125,6 +138,49 @@ export { SyncEmbedderSeam, attachToolIndexEmbedder } from './retrieval/sync_seam
 // ── 受控 OS 执行器域 ──
 export { HostOsRunner, OsError, writeOsAudit } from './os/runner.js';
 export type { OsApproval, OsToolRequest } from './os/runner.js';
+
+// ── 文档解析执行体域（exec doc.parse 消费面；rounds/material 注入）──
+export { DEFAULT_DOC_TEXT_CAP, DocService } from './doc/service.js';
+export type { DocParser, DocParseResult } from './doc/_types.js';
+export {
+  normalizeAttachment,
+  prepareRoundInput,
+} from './bridge/round_attachments.js';
+export type { AttachmentPayload, PreparedRound } from './bridge/round_attachments.js';
+
+// ── 既有资料导入域（material.import 消费面）──
+export { MaterialError, scanMaterial } from './material/scan.js';
+export {
+  DEFAULT_MATERIAL_MAX_BYTES,
+  DEFAULT_MATERIAL_MAX_DEPTH,
+  DEFAULT_MATERIAL_MAX_FILES,
+  MATERIAL_DOC_EXTS,
+  MATERIAL_TEXT_EXTS,
+} from './material/scan.js';
+export type {
+  MaterialFile,
+  MaterialScanOptions,
+  MaterialScanOutcome,
+  MaterialSkipped,
+} from './material/scan.js';
+
+// ── 检索域（web_search 执行体注入 + 密钥内存存取）──
+export { SearchKeysStore, maskKey } from './search/keys.js';
+export {
+  SEARCH_PROVIDERS,
+  WebSearchError,
+  makeWebSearchExecutor,
+  normalizeResults,
+  renderSearchResults,
+} from './search/executor.js';
+export type {
+  SearchFetch,
+  SearchProviderDef,
+  SearchResultItem,
+  WebSearchExecutorDeps,
+} from './search/executor.js';
+export { buildHostSearch, webSearchSeedDefinition } from './search/wiring.js';
+export type { HostSearch } from './search/wiring.js';
 
 // ── 原生机制件 client / 嵌入适配器（exec + infer + AsyncEmbedder）──
 export { locateNativeBinary } from './exec/binary.js';

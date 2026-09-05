@@ -56,6 +56,10 @@ export interface HostConfigInput {
   data_dir?: string;
   events_dir?: string;
   seed_dir?: string;
+  /** 附件目录（serve /upload 落盘 + doc.parse 挂载根；缺省 data_dir/attachments）。 */
+  attachment_dir?: string;
+  /** 文档附件文本注入单附件上限（字符；缺省见 doc 常量）。 */
+  round_doc_text_cap?: number;
 }
 
 /** 解析后的运行配置（目录已定稿；model_config 为角色槽 record 形态）。 */
@@ -68,6 +72,8 @@ export interface ResolvedHostConfig {
   data_dir: string;
   events_dir: string;
   seed_dir: string;
+  attachment_dir: string;
+  round_doc_text_cap: number | null;
 }
 
 /** 配置错误（形状非法显式报错，不静默吞）。 */
@@ -85,6 +91,8 @@ export const ENV_KEYS = {
   dataDir: 'INK_DATA_DIR',
   eventsDir: 'INK_EVENTS_DIR',
   seedDir: 'INK_SEED_DIR',
+  attachmentDir: 'INK_ATTACHMENT_DIR',
+  roundDocTextCap: 'INK_ROUND_DOC_TEXT_CAP',
 } as const;
 
 /** 角色槽主配置键（引擎 model_roles 消费；别名/回落归引擎，本层不复制）。 */
@@ -180,16 +188,19 @@ export function normalize_model_config(input: unknown): Record<string, unknown> 
   return out;
 }
 
-/** 目录字段解析：events 缺省落在 data_dir/events（事件落文件出口）。 */
+/** 目录字段解析：events 缺省落在 data_dir/events（事件落文件出口）；
+ *  attachment 缺省落在 data_dir/attachments（附件目录）。 */
 function resolve_dirs(
   input: HostConfigInput,
   env: NodeJS.ProcessEnv,
   dataFallback: string,
-): { data_dir: string; events_dir: string; seed_dir: string } {
+): { data_dir: string; events_dir: string; seed_dir: string; attachment_dir: string } {
   const data_dir = env[ENV_KEYS.dataDir] ?? input.data_dir ?? dataFallback;
   const events_dir = env[ENV_KEYS.eventsDir] ?? input.events_dir ?? path.join(data_dir, 'events');
   const seed_dir = env[ENV_KEYS.seedDir] ?? input.seed_dir ?? '';
-  return { data_dir, events_dir, seed_dir };
+  const attachment_dir =
+    env[ENV_KEYS.attachmentDir] ?? input.attachment_dir ?? path.join(data_dir, 'attachments');
+  return { data_dir, events_dir, seed_dir, attachment_dir };
 }
 
 /**
@@ -210,11 +221,22 @@ export function resolve_host_config(
     throw new HostConfigError(`INK_AUTO_APPROVE 非布尔取值: '${autoApproveRaw}'`);
   }
   const dirs = resolve_dirs(base, env, path.join(cwd, '.ink-host'));
+  const roundDocTextCapRaw = env[ENV_KEYS.roundDocTextCap];
+  let round_doc_text_cap: number | null =
+    typeof base.round_doc_text_cap === 'number' ? base.round_doc_text_cap : null;
+  if (roundDocTextCapRaw !== undefined && roundDocTextCapRaw !== '') {
+    const parsed = Number(roundDocTextCapRaw);
+    if (!Number.isInteger(parsed) || parsed <= 0) {
+      throw new HostConfigError(`INK_ROUND_DOC_TEXT_CAP 须为正整数: '${roundDocTextCapRaw}'`);
+    }
+    round_doc_text_cap = parsed;
+  }
   return {
     storage_uri,
     model_config: normalize_model_config(base.model_config ?? null),
     autoApprove,
     approval_timeout: base.approval_timeout ?? null,
+    round_doc_text_cap,
     ...dirs,
   };
 }

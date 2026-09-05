@@ -157,10 +157,10 @@ function gateCoverage(input: ExecRequest, decision: AdjudicatedDecision): void {
       throw new ExecRefusedError(`越根拒绝（host 裁决面）：cwd 不在挂载根内: ${cwd}`);
     }
   }
-  if (input.op === 'file') {
+  if (input.op === 'file' || input.op === 'doc') {
     const target = input.args['path'];
     if (typeof target !== 'string') {
-      throw new ExecRefusedError('file 缺 path（须为绝对路径）');
+      throw new ExecRefusedError(`${input.op} 缺 path（须为绝对路径）`);
     }
     if (pathHasDotdot(target)) {
       throw new ExecRefusedError(`越根拒绝（host 裁决面）：路径含 .. 段: ${target}`);

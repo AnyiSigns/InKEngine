@@ -1,3 +1,4 @@
+// gate: 超限(385 行) - 回合驱动单一命令面（队列保护/在途登记/附件文档注入与簿记收尾成对同文件防漂移）
 /**
  * rounds 命令面（send/abort/resume/branch）——宿主薄驱动，不复制引擎机制。
  *
@@ -17,12 +18,16 @@ import { HostSessionStore } from '../sessions/store.js';
 import type { FileEventsTransport } from '../transport.js';
 import { BridgeError, type BridgeHandler } from './_types.js';
 import type { HostBridgeDeps } from './_types.js';
+import { prepareRoundInput } from './round_attachments.js';
+import type { PreparedRound } from './round_attachments.js';
 
 interface RoundParams {
   input: string;
   thread_id?: string | null;
   round_id?: string | null;
   trace_id?: string | null;
+  /** 附件载荷（image/video/document；document 文本经 doc 执行体注入）。 */
+  attachments?: unknown;
 }
 
 /** rounds.send 参数校验。 */
@@ -33,6 +38,9 @@ function asParams(raw: unknown): RoundParams {
   }
   if (params.input === '') {
     throw new BridgeError('rounds.send input 不能为空', 'invalid_params');
+  }
+  if (params.attachments !== undefined && !Array.isArray(params.attachments)) {
+    throw new BridgeError('rounds.send attachments 须为数组', 'invalid_params');
   }
   return params;
 }
@@ -192,6 +200,38 @@ export function buildRoundsHandlers(deps: HostBridgeDeps): ReadonlyMap<string, B
     });
   }
 
+/** 附件归一 + 文档文本注入（失败 = 显式拒绝，不静默降级入会话）。 */
+async function prepare(
+  params: Pick<RoundParams, 'input' | 'attachments'>,
+  deps: HostBridgeDeps,
+): Promise<PreparedRound> {
+  try {
+    return await prepareRoundInput(params.input, params.attachments, {
+      docParse: deps.docParse,
+      attachmentDir: deps.attachment_dir,
+      docTextCap: deps.docTextCap,
+    });
+  } catch (error) {
+    throw new BridgeError(
+      `附件处理失败: ${error instanceof Error ? error.message : String(error)}`,
+      'attachment_error',
+    );
+  }
+}
+
+/** 种子 state（input 含文档注入文本；attachments 随载荷入引擎，保留 path）。 */
+function seedState(prepared: PreparedRound): Record<string, unknown> {
+  return {
+    input: prepared.input,
+    ...(prepared.attachments.length > 0 ? { attachments: prepared.attachments } : {}),
+  };
+}
+
+/** 回合结果附可见告警（warnings 非空才带）。 */
+function resultWarnings(warnings: string[]): Record<string, unknown> {
+  return warnings.length > 0 ? { warnings } : {};
+}
+
   const send: BridgeHandler = async (raw): Promise<unknown> => {
     const params = asParams(raw);
     const runtime = deps.runtime;
@@ -202,12 +242,13 @@ export function buildRoundsHandlers(deps: HostBridgeDeps): ReadonlyMap<string, B
     const thread_id = params.thread_id ?? shortId('t');
     const round_id = params.round_id ?? shortId('r');
     const trace_id = params.trace_id ?? shortId('trace');
+    const prepared = await prepare(params, deps);
 
     let result: RoundOutcome;
     let transport: FileEventsTransport;
     try {
       const ran = await serialized((t) =>
-        driveRun(engine, thread_id, round_id, { input: params.input }, {
+        driveRun(engine, thread_id, round_id, seedState(prepared), {
           continue_chain: true,
           trace_id,
           transport: t,
@@ -237,6 +278,7 @@ export function buildRoundsHandlers(deps: HostBridgeDeps): ReadonlyMap<string, B
         count: transport.events.length,
         types: [...new Set(transport.events.map((event) => event.type))].sort(),
       },
+      ...resultWarnings(prepared.warnings),
     };
   };
 
@@ -300,10 +342,13 @@ export function buildRoundsHandlers(deps: HostBridgeDeps): ReadonlyMap<string, B
       throw new BridgeError(`分支锚点不在该会话链上: #${anchor}`, 'invalid_leaf');
     }
     const round_id = shortId('r');
+    const prepared = await prepare({ input: params.input ?? '', attachments: undefined }, deps);
+    // branch 无附件语义：仅沿用 input（与历史分支行为一致）；保留注入函数
+    // 以统一载荷路径——若未来分支带附件在此扩展。
     let result: RoundOutcome;
     try {
       const ran = await serialized((t) =>
-        driveRun(engine, params.thread_id, round_id, { input: params.input }, {
+        driveRun(engine, params.thread_id, round_id, { input: prepared.input }, {
           resume_from: anchor,
           trace_id: shortId('trace'),
           transport: t,
@@ -327,6 +372,7 @@ export function buildRoundsHandlers(deps: HostBridgeDeps): ReadonlyMap<string, B
       round_id,
       leaf: result.checkpoint_id,
       tree,
+      ...resultWarnings(prepared.warnings),
     };
   };
 

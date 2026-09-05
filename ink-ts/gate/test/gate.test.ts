@@ -63,20 +63,20 @@ describe('gate 规则', () => {
     expect(violations).toEqual([]);
   });
 
-  it('core import 数据契约包 @ink-ts/contracts 放行（engine → contracts 单源）', async () => {
+  it('core 相对 import 内置数据面生成物放行（engine 单源消费，无外部契约包）', async () => {
     const root = await makeRoot();
     await write(
       root,
       'engine/src/core/c.ts',
-      `import { PATCH_KINDS } from '@ink-ts/contracts';\nimport type { FieldKind } from '@ink-ts/contracts';\n`,
+      `import { PATCH_KINDS } from '../contracts/generated/index.js';\nimport type { FieldKind } from '../contracts/generated/endpointTypes.js';\n`,
     );
     const violations = await scan({ root, config: cfg });
     expect(violations.map((v) => v.rule)).not.toContain('core-import');
   });
 
-  it('core import 其它 @ink-ts/* 包（自引用/下层）仍被拒绝', async () => {
+  it('core import 裸包一律拒绝（数据面契约已内置 engine，无裸包放行）', async () => {
     const root = await makeRoot();
-    await write(root, 'engine/src/core/d.ts', `import { Engine } from '@ink-ts/engine';\n`);
+    await write(root, 'engine/src/core/d.ts', `import { PATCH_KINDS } from '@ink-ts/engine';\n`);
     const violations = await scan({ root, config: cfg });
     expect(violations.map((v) => v.rule)).toContain('core-import');
   });

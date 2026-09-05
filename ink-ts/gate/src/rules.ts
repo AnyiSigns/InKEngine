@@ -42,16 +42,16 @@ export function checkUtf8Valid(content: string, path: string): Violation | null 
 
 const IMPORT_RE = /(?:from\s+|import\s*\(\s*)['"]([^'"]+)['"]|import\s+['"]([^'"]+)['"]/g;
 
-/** core 区放行的外部包白名单（精确匹配，全字比较）：仅数据契约层
- *  @ink-ts/contracts ——CODING §1 ``engine → contracts`` 依赖方向的实现点
- *  （L0/L1 数据面 schema/fixture/generated 真源，core 零 IO 纯数据）。
- *  不放行其它 @ink-ts/*（自引用/adapters）、第三方与 node:。 */
-const CORE_ALLOWED_PACKAGES: readonly string[] = ['@ink-ts/contracts'];
+/** core 区放行的外部裸包白名单（精确匹配，全字比较）：当前为空——
+ *  数据面契约随引擎内置生成物入 core/contracts/generated（相对 import
+ *  消费），core 不再依赖任何外部包层（无数据契约包）。不放行 @ink-ts/*、
+ *  adapters、第三方与 node:（node 仅 coreAllowedNode 白名单例外）。 */
+const CORE_ALLOWED_PACKAGES: readonly string[] = [];
 
 /** core 区禁 node:* 与第三方 import（相对 import 允许；类型 import 同规）。
  *  相对 import 命中 forbiddenRel 子串 = 反向依赖下方层（adapters），拒绝；
  *  node: 内置仅 coreAllowedNode 白名单放行（如 async_hooks 镜像 contextvars）；
- *  裸包名仅 CORE_ALLOWED_PACKAGES 精确放行（数据契约层）。 */
+ *  裸包名一律拒绝（数据面契约已随引擎内置生成物，core 内相对引用）。 */
 export function checkCoreImports(
   content: string,
   path: string,

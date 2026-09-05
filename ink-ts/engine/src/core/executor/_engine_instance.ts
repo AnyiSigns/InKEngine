@@ -21,7 +21,7 @@ import { EngineRun } from './_engine_run.js';
  * 子引擎配置继承（镜像 Python 各子引擎 RunOptions 的传播字段集）。
  *
  * Python 侧在 _make_instance_engine/run_subgraph 处显式列出的传播字段：
- * 未列出字段（metrics/settle/output_verifier/domain 等）按 RunOptions
+ * 未列出字段（metrics/settle/domain 等）按 RunOptions
  * 默认值落——子引擎不漂移也不外带观测件。
  */
 export function _sub_engine_options(

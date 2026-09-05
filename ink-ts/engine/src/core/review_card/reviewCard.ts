@@ -1,7 +1,7 @@
 /**
  * 审批卡模型与门控分级注册表（通用审批原语）——review_card.py 移植。
  *
- * 四类审核卡（gate/body/audit/candidate）的数据模型与构造/校验/截断逻辑，
+ * 三类审核卡（gate/body/candidate）的数据模型与构造/校验/截断逻辑，
  * 以及门控分级（GatingTier）注册表机制：
  *
  * - REVIEW_TYPES：卡类型枚举（新增卡类型必须在此登记，防「新卡忘登记
@@ -9,7 +9,7 @@
  * - validate_card / truncate_preview：统一契约校验与预览截断（按 node_id
  *   分档限额由宿主注入，上限随卡携带——SSE 出口与发卡点共用同一规则，
  *   出口零配置）；
- * - build_*_card 四构造器：四类卡唯一构建源——卡形态一律经构造器产出 +
+ * - build_*_card 三构造器：三类卡唯一构建源——卡形态一律经构造器产出 +
  *   validate_card 统一契约校验，宿主只提供 payload 数据与语义字段，
  *   不在发卡点手工拼卡；
  * - gating_tier_of：门控分级判定（l1 直落库 / l2 弹卡 / l3 破坏类预留；
@@ -34,7 +34,7 @@ export { GATING_TIER_NAMES } from './reviewCard_types.js';
 
 /** 各卡必填字段（validate_card 校验依据；缺字段视为契约破坏，宁可拒绝发卡）。
  * 只列「结构必填」：卡类型标识 + 定位字段；值允许为空的次要字段
- * （audit.workflow_id / candidate.target_id / output_preview 等）不在此列
+ * （candidate.target_id / output_preview 等）不在此列
  * ——原发卡点允许空值发送，校验过严会破坏既有行为。 */
 const REQUIRED_FIELDS: Readonly<Record<ReviewType, readonly string[]>> = {
   gate: ['node_id', 'node_label', 'review_type'],
@@ -46,7 +46,6 @@ const REQUIRED_FIELDS: Readonly<Record<ReviewType, readonly string[]>> = {
     'chapter_index',
     'chapter_total',
   ],
-  audit: ['node_id', 'node_label', 'review_type'],
   candidate: ['node_id', 'node_label', 'review_type', 'candidates'],
 };
 
@@ -226,35 +225,6 @@ export function build_body_card(
   card['preview_limit'] = preview_limit_for(node_id || '', limits);
   if (conflicts && conflicts.length > 0) card['conflicts'] = conflicts;
   return validate_card(card);
-}
-
-/** 质量卡（audit）：输出未过质量审计的拦截卡（接受/重试/终止）。
- *
- * 截断统一交给 truncate_preview（validate_card 内按 preview_limit 执行）——
- * 宿主注入的大额上限真实生效，不存在双实现重复。 */
-export function build_audit_card(
-  node_id: string,
-  node_label: string,
-  workflow_id: string,
-  output: string,
-  reason: string,
-  target_id: number | null,
-  tokens = 0,
-  elapsed_ms = 0,
-  limits?: Readonly<Record<string, number>> | null,
-): CardPayload {
-  return validate_card({
-    node_id,
-    node_label,
-    workflow_id,
-    output_preview: output || '',
-    reason: reason || '输出质量不满足节点要求',
-    review_type: 'audit',
-    target_id,
-    tokens,
-    elapsed_ms,
-    preview_limit: preview_limit_for(node_id || '', limits),
-  });
 }
 
 /** 候选选择卡（candidate）：全量文本按候选顺序划分，操作 = 选择/编辑/取消。

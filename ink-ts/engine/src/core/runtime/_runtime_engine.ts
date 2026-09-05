@@ -17,7 +17,6 @@ import { EventTypeSpec } from '../event_types/eventTypeSpec.js';
 import { EntitySpec } from '../entities/entities.js';
 import { Engine, RunOptions } from '../executor/index.js';
 import { CompressingLLM, UsageTrackingLLM } from '../llm/guard.js';
-import { Message } from '../llm/messages.js';
 import type { AsyncLLM } from '../llm/_guard_types.js';
 import { HarnessDefinition } from '../harness/index.js';
 import { KnowledgeSet } from '../knowledge_set/index.js';
@@ -25,7 +24,6 @@ import { SettleHooks, PoolGovernanceSettleHook } from '../settle/index.js';
 import { emit_audit } from '../audit_log/audit_log.js';
 import type { EngineTransport } from '../events/events.js';
 import { UISchemaValidator } from '../ui_schema/uiSchema.js';
-import { LLMOutputVerifier } from '../verifier/verifier.js';
 import type { Graph } from '../graph/graph.js';
 import type { AssemblyRecipe } from './_types.js';
 import { _spec_identity } from './_helpers.js';
@@ -111,32 +109,17 @@ export abstract class RuntimeRebuild extends RuntimeContexts {
     if (this.round_steps_recorder !== null) {
       transports.push(this.round_steps_recorder);
     }
-    // VTM 验证器门控：guard_llm 结构上不满足 verifier 的窄 ainvoke 契约
-    // （verifier 消息 = 扁平 {role, content}），显式适配为 Message 形态再
-    // 调用（行为与 Python 把 guard LLM 交给 verifier 一致，无宽形态透传）
-    const needsVerifier = recipe.verify_retry_limit > 0 && guard_llm !== null;
     const options = new RunOptions({
       storage: this.storage,
       registries: context.registries,
-      output_verifier: needsVerifier
-        ? new LLMOutputVerifier({
-            ainvoke: async (messages) => {
-              const result = await guard_llm!.ainvoke(
-                messages.map((m) => new Message(m.role, m.content)),
-              );
-              return { content: result.content };
-            },
-          })
-        : null,
-      verify_retry_limit: recipe.verify_retry_limit,
-      emit_timeline_events: recipe.emit_timeline_events,
+      emit_timeline_events: this._recipe.emit_timeline_events,
       transports,
       system_events: context.system_events,
       assembly: context.assembly,
       assembly_sources: context.assembly_sources,
       settle: settleHooks,
     });
-    this._apply_run_options_override(options, recipe.run_options as RunOptions | null);
+    this._apply_run_options_override(options, this._recipe.run_options as RunOptions | null);
     const engine = new Engine(graph, options);
     // 自学习/实体演化发射回调接入引擎事件流（观测不阻断沉淀链路）
     if (this.growth_pipeline !== null) {

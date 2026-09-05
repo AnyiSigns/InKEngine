@@ -3,13 +3,12 @@
  * ParameterSnapshot / TunableParams 段）。
  *
  * 语义检查点：
- * - TurnMetrics 聚合失败率/评审分/收敛轮数/角色槽调用，快照可还原；
+ * - TurnMetrics 聚合失败率/角色槽调用，快照可还原；
  * - ParameterSnapshot 随评估记录落库（规则版本 + 权重快照——推演回放
  *   按快照重算，避免「标尺在动」）；
  * - TunableParams 序列化 round-trip；
  * - 角色槽调用统计非正计数不并入（观测噪声/清零信号过滤）；回落条目以
- *   `{role}→agent` 键留存（来源回落可观测）；指标窗口有界（长跑留痕只留
- *   近期，防无限膨胀）。
+ *   `{role}→agent` 键留存（来源回落可观测）。
  *
  * 延后（defer）：executor/LLM-钩子集成用例（LLM 判定谓词经规则钩子接入
  * 样例闸门的 fail-open/fail-closed 语义归 rules 套件；参数回归执行器的
@@ -27,51 +26,37 @@ import {
 } from '../../../src/core/tuning/index.js';
 
 describe('TurnMetrics：回合指标聚合', () => {
-  it('失败率/评审分/收敛轮数/角色槽调用聚合', () => {
+  it('失败率/角色槽调用聚合', () => {
     const metrics = new TurnMetrics();
     metrics.record_turn();
     metrics.record_turn({ failed: true, error: '超时' });
-    metrics.record_review(0.8);
-    metrics.record_review(0.6);
-    metrics.record_convergence(2);
-    metrics.record_convergence(4);
     const roleStats = new RoleModelStats();
     roleStats.record('agent', {}, 3);
     roleStats.record('router');
-    roleStats.record('audit', { via_fallback: true });
+    roleStats.record('router', { via_fallback: true });
     metrics.record_llm_calls(roleStats.snapshot());
     const later = new RoleModelStats();
     later.record('agent', {}, 2);
     metrics.record_llm_calls(later.snapshot());
     expect(metrics.failure_rate).toBe(0.5);
-    expect(metrics.avg_review_score).toBe(0.7);
-    expect(metrics.llm_calls_by_role).toEqual({ agent: 5, router: 1, 'audit→agent': 1 });
+    expect(metrics.llm_calls_by_role).toEqual({ agent: 5, router: 1, 'router→agent': 1 });
     expect(metrics.last_error).toBe('超时');
   });
 
   it('无回合 = 失败率 0（不除零）', () => {
     const metrics = new TurnMetrics();
     expect(metrics.failure_rate).toBe(0.0);
-    expect(metrics.avg_review_score).toBe(0.0);
   });
 
   it('指标快照可还原（评估记录落库/回放契约）', () => {
     const metrics = new TurnMetrics();
     metrics.record_turn({ failed: true });
-    metrics.record_review(0.9);
     const roleStats = new RoleModelStats();
     roleStats.record('router', { via_fallback: true });
     metrics.record_llm_calls(roleStats.snapshot());
     const rebuilt = TurnMetrics.from_snapshot(metrics.snapshot());
     expect(rebuilt.failure_rate).toBe(1.0);
-    expect(rebuilt.avg_review_score).toBe(0.9);
     expect(rebuilt.llm_calls_by_role).toEqual({ 'router→agent': 1 });
-  });
-
-  it('评审分越界拒绝（口径防线）', () => {
-    const metrics = new TurnMetrics();
-    expect(() => metrics.record_review(1.5)).toThrow(/评审分/);
-    expect(() => metrics.record_review(1.5)).toThrow(GraphDefinitionError);
   });
 
   it('角色槽调用统计非正计数不并入（观测噪声与清零信号过滤）', () => {
@@ -81,20 +66,10 @@ describe('TurnMetrics：回合指标聚合', () => {
     stats.record('agent', {}, -10);
     metrics.record_llm_calls([
       { role: 'agent', via_fallback: false, count: 0 },
-      { role: 'audit', via_fallback: false, count: -1 },
+      { role: 'router', via_fallback: false, count: -1 },
     ]);
     metrics.record_llm_calls(stats.snapshot());
     expect(metrics.llm_calls_by_role).toEqual({ agent: 5 });
-  });
-
-  it('指标窗口有界：长跑留痕只保留近期窗口（防无限膨胀）', () => {
-    const metrics = new TurnMetrics();
-    for (let i = 0; i < 1200; i++) {
-      metrics.record_review(0.5);
-      metrics.record_convergence(1);
-    }
-    expect(metrics.review_scores.length).toBeLessThanOrEqual(600);
-    expect(metrics.convergence_rounds.length).toBeLessThanOrEqual(600);
   });
 });
 

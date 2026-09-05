@@ -1,5 +1,5 @@
 /**
- * 审批卡域数据形态：四类卡类型枚举、payload 容器与门控分级常量。
+ * 审批卡域数据形态：三类卡类型枚举、payload 容器与门控分级常量。
  *
  * 审批卡 payload 是字典形态的通用数据（`{ [key: string]: unknown }`），
  * 字段名与宿主事件协议强绑定（target_id / chapter_index 等字段名协议锁定，
@@ -12,8 +12,8 @@
 /** 审批卡 payload：通用字典容器（字段由发卡方与协议共同决定）。 */
 export type CardPayload = { [key: string]: unknown };
 
-/** 四类审核卡类型（新卡类型必须在此登记，防「新卡忘登记 → 前端渲染漂移」）。 */
-export const REVIEW_TYPES = ['gate', 'body', 'audit', 'candidate'] as const;
+/** 三类审核卡类型（新卡类型必须在此登记，防「新卡忘登记 → 前端渲染漂移」）。 */
+export const REVIEW_TYPES = ['gate', 'body', 'candidate'] as const;
 export type ReviewType = (typeof REVIEW_TYPES)[number];
 
 /**

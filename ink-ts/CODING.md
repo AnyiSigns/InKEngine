@@ -114,14 +114,13 @@ CI 的 ink-ts job 同链执行。规则增删须同步本表。
 
 ## 8. 模型角色槽（配置语义与措辞纪律）
 
-1. 模型按**角色槽**配置，不按档位。引擎固定三只语义槽：`agent`（对话主
+1. 模型按**角色槽**配置，不按档位。引擎固定两只语义槽：`agent`（对话主
    模型——身份/会话默认模型/图运行主链，**唯一兜底槽**）与功能槽
-   `router`（蒸馏判定/轻量决策）、`audit`（复核/质检；消费方 = vetting/
-   review/output 质检等宿主实现）。扩展功能槽 = 引擎侧角色槽模块加角色常量
+   `router`（蒸馏判定/轻量决策）。扩展功能槽 = 引擎侧角色槽模块加角色常量
    并注释用途即生效（无需声明式装配注入）；未知/None 角色一律归一 agent，
    防拼写错误静默换槽。
 2. 配置形态：`model_config` 为 dict，角色配置键 =
-   `model_config.{agent_config, router_config, audit_config}`，各角色备用链
+   `model_config.{agent_config, router_config}`，各角色备用链
    键 = `{role}_fallback_configs`。`main_config`/`main_fallback_configs` 仅作
    agent 槽兼容别名（`agent_config` 优先），是挡位→角色迁移期入口，新代码
    不再新增别名使用面。

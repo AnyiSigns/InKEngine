@@ -2,14 +2,14 @@
  * 角色模型槽原语（角色槽配置模型 / 按角色建链 / 角色调用统计钩子）。
  *
  * 本模块替代 core/tiers（模型分层挡位）。语义差异：
- * - 角色槽是**固定语义命名**（agent/router/audit），不是数据驱动的可变挡位
+ * - 角色槽是**固定语义命名**（agent/router），不是数据驱动的可变挡位
  *   声明——`set_tier_names`/`current_tier_names` 的模块级可变状态不再存在，
  *   引擎机制零模块级可变状态；角色名想扩展（新增功能槽）直接在机制侧声明
  *   新常量，未知角色一律归一 agent 兜底（防拼写错误静默换用其它槽）。
  * - agent 槽 = 会话/主链模型：唯一带身份/连续性语义的角色，是会话默认模型
- *   （实体 model:None 落它）与**唯一兜底槽**。router/audit 等为功能槽：非
+ *   （实体 model:None 落它）与**唯一兜底槽**。router 为功能槽：非
  *   agent、无 persona，被引擎机制按明确用途调用（router = 蒸馏判定/轻量
- *   决策；audit = 复核/质检）。功能槽未配置 → **显式回落 agent**（source_role/
+ *   决策）。功能槽未配置 → **显式回落 agent**（source_role/
  *   fallback 标记来源，可观测不静默）。
  * - 配置形态：model_config 为 dict，角色配置键 = `{role}_config`（agent 槽
  *   另兼容历史别名 main_config，agent_config 优先），备用链键 =
@@ -29,13 +29,10 @@ import { isRecord, type JsonRecord } from '../json.js';
 export const ROLE_AGENT = 'agent';
 /** router 槽角色名（功能槽）：蒸馏判定/轻量决策（非 agent、无 persona）。 */
 export const ROLE_ROUTER = 'router';
-/** audit 槽角色名（功能槽）：复核/质检。本轮只立槽与解析，消费方
- *  （vetting/review/output 质检默认实现）由宿主后续适配。 */
-export const ROLE_AUDIT = 'audit';
 
-/** 出厂固定角色槽声明。router/audit 之后仍可扩展功能角色（机制侧加常量即
- *  生效，无需声明式装配注入）；扩展角色与 agent/router/audit 同等解析。 */
-export const MODEL_ROLES = ['agent', 'router', 'audit'] as const;
+/** 出厂固定角色槽声明。router 之后仍可扩展功能角色（机制侧加常量即
+ *  生效，无需声明式装配注入）；扩展角色与 agent/router 同等解析。 */
+export const MODEL_ROLES = ['agent', 'router'] as const;
 
 /** 默认角色槽：agent（唯一兜底锚点；未知/None 角色归一于此）。 */
 export const DEFAULT_ROLE = ROLE_AGENT;

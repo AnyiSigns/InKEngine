@@ -3,7 +3,7 @@
  *
  * 收敛目标：rules/_py.ts / ui_schema.uiSchemaSupport / environments._repr /
  * tool_vetting._types / builder._types / link_validator / pool_governance /
- * verifier / review_card / growth._helpers / self_tools._json /
+ * review_card / growth._helpers / self_tools._json /
  * knowledge_signals._types 等近似拷贝统一迁移点（镜像 Python 标量语义，
  * 数据面限定 JSON 兼容值）。pyRepr/pyStr/pyTruthy 按 rules/_py.ts（本族最
  * 完整实现）口径定义；typeName/typeNameOf 直连 core/json.typeName（该处已

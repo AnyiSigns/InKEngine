@@ -3,7 +3,7 @@
  * 功能槽回落）、按角色槽建链与角色调用统计钩子。
  *
  * 语义检查点（替代原 tiers 测试的「数据驱动换挡位」语义，已废弃）：
- * - 固定三槽（agent/router/audit），无可变全局档位声明；未知/None 角色归
+ * - 固定槽（agent/router），无可变全局档位声明；未知/None 角色归
  *   一 agent（兜底锚点）；
  * - agent 槽兼容历史 main_config 别名（agent_config 优先）；功能槽未配置
  *   （缺失或显式空 {}）→ 显式回落 agent（source_role/fallback 标记来源，
@@ -18,7 +18,6 @@ import {
   DEFAULT_ROLE,
   MODEL_ROLES,
   ROLE_AGENT,
-  ROLE_AUDIT,
   ROLE_ROUTER,
   RoleModelStats,
   build_role_model_chain,
@@ -36,19 +35,17 @@ function model_config(extra: JsonRecord = {}): JsonRecord {
   };
 }
 
-describe('角色常量与键归一（固定三槽，无可变声明）', () => {
-  it('MODEL_ROLES 固定三槽', () => {
-    expect(MODEL_ROLES).toEqual(['agent', 'router', 'audit']);
+describe('角色常量与键归一（固定槽，无可变声明）', () => {
+  it('MODEL_ROLES 固定双槽', () => {
+    expect(MODEL_ROLES).toEqual(['agent', 'router']);
     expect(DEFAULT_ROLE).toBe('agent');
     expect(ROLE_AGENT).toBe('agent');
     expect(ROLE_ROUTER).toBe('router');
-    expect(ROLE_AUDIT).toBe('audit');
   });
 
   it('role_config_key：已知角色直取，未知/None 归一 agent', () => {
     expect(role_config_key(ROLE_AGENT)).toBe('agent_config');
     expect(role_config_key(ROLE_ROUTER)).toBe('router_config');
-    expect(role_config_key(ROLE_AUDIT)).toBe('audit_config');
     expect(role_config_key('bogus')).toBe('agent_config');
     expect(role_config_key(null)).toBe('agent_config');
     expect(role_config_key(undefined)).toBe('agent_config');
@@ -126,18 +123,6 @@ describe('resolve_role_model 功能槽解析与回落', () => {
     expect(resolved.fallback).toBe(true);
   });
 
-  it('audit 槽：已配置直接取；缺失回落 agent', () => {
-    const cfg = model_config({
-      audit_config: { adapter: 'openai_compat', model_id: 'audit' },
-      audit_fallback_configs: [{ model_id: 'fb' }],
-    });
-    const present = resolve_role_model(cfg, ROLE_AUDIT);
-    expect(present.config).toEqual(cfg['audit_config']);
-    expect(present.fallbacks).toEqual([{ model_id: 'fb' }]);
-    expect(present.fallback).toBe(false);
-    expect(resolve_role_model(model_config(), ROLE_AUDIT).fallback).toBe(true);
-  });
-
   it('未知角色归 agent 槽解析（防拼写错误静默换槽）', () => {
     const cfg = model_config();
     const resolved = resolve_role_model(cfg, 'bogus');
@@ -161,7 +146,7 @@ describe('resolve_role_model 功能槽解析与回落', () => {
       main_config: { adapter: 'openai_compat', model_id: 'm' },
       main_fallback_configs: [{ model_id: 'mfb' }],
     };
-    const resolved = resolve_role_model(cfg, ROLE_AUDIT);
+    const resolved = resolve_role_model(cfg, ROLE_ROUTER);
     expect(resolved.fallback).toBe(true);
     expect(resolved.fallbacks).toEqual([{ model_id: 'mfb' }]);
   });
@@ -207,7 +192,6 @@ describe('role_call_label / RoleModelStats 角色调用统计', () => {
     expect(role_call_label('agent', false)).toBe('agent');
     expect(role_call_label('router', false)).toBe('router');
     expect(role_call_label('router', true)).toBe('router→agent');
-    expect(role_call_label('audit', true)).toBe('audit→agent');
     expect(role_call_label('bogus', false)).toBe('agent');
   });
 
@@ -216,12 +200,10 @@ describe('role_call_label / RoleModelStats 角色调用统计', () => {
     stats.record(ROLE_AGENT);
     stats.record(ROLE_ROUTER, { via_fallback: false }, 2);
     stats.record(ROLE_ROUTER, { via_fallback: true });
-    stats.record(ROLE_AUDIT, { via_fallback: true });
     expect(stats.snapshot()).toEqual([
       { role: 'agent', via_fallback: false, count: 1 },
       { role: 'router', via_fallback: false, count: 2 },
       { role: 'router', via_fallback: true, count: 1 },
-      { role: 'audit', via_fallback: true, count: 1 },
     ]);
   });
 

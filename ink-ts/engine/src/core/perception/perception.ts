@@ -43,7 +43,7 @@ export const EXPORT_DENY = 'deny';
 
 // 双通道交叉验证决策
 export const VALIDATE_PROCEED = 'proceed';
-export const VALIDATE_REVIEW = 'review';
+export const VALIDATE_RECHECK = 'recheck';
 
 // ── 结点契约与登记 ──
 
@@ -128,20 +128,20 @@ export function register_perception_nodes(registry: NodeTypeRegistry): void {
 /** 双通道交叉验证结果（一致 = 直进；不一致 = 复核信号 + 降级决策）。 */
 export class CrossValidationResult {
   readonly consistent: boolean;
-  readonly review_signal: boolean;
+  readonly recheck_signal: boolean;
   readonly decision: string;
-  readonly detail: string;
+  readonly note: string;
 
   constructor(
     consistent: boolean,
-    review_signal: boolean,
+    recheck_signal: boolean,
     decision: string,
-    detail = '',
+    note = '',
   ) {
     this.consistent = consistent;
-    this.review_signal = review_signal;
+    this.recheck_signal = recheck_signal;
     this.decision = decision;
-    this.detail = detail;
+    this.note = note;
   }
 }
 
@@ -205,7 +205,7 @@ export function cross_validate_channels(
     return new CrossValidationResult(
       false,
       true,
-      VALIDATE_REVIEW,
+      VALIDATE_RECHECK,
       '单通道缺失，触发复核',
     );
   }
@@ -227,7 +227,7 @@ export function cross_validate_channels(
   return new CrossValidationResult(
     false,
     true,
-    VALIDATE_REVIEW,
+    VALIDATE_RECHECK,
     `两通道不一致（重合度 ${score.toFixed(2)} < 阈值 ${threshold}），触发复核`,
   );
 }

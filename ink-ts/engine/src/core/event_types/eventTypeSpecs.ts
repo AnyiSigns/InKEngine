@@ -1,5 +1,5 @@
 /**
- * 事件类型声明族：附件/审计/组装候选/组装时间线 + 验证器门控。
+ * 事件类型声明族：附件/审计/组装候选/组装时间线。
  * 只声明类型（类型是数据），事件由使用方在对应时机产出。
  */
 
@@ -18,7 +18,6 @@ export const EVENT_TURN_STARTED = 'turn_started';
 export const EVENT_ASSEMBLY_STARTED = 'assembly_started';
 export const EVENT_ASSEMBLY_DONE = 'assembly_done';
 export const EVENT_EXECUTION_STARTED = 'execution_started';
-export const EVENT_OUTPUT_VERDICT = 'output_verdict';
 
 const AUDIT_TS = new SchemaField({ name: 'ts', kind: FIELD_NUMBER });
 const AUDIT_DOMAIN = new SchemaField({ name: 'domain', required: true, kind: FIELD_STRING });
@@ -87,7 +86,6 @@ export function output_gate_event_specs(): EventTypeSpec[] {
     new EventTypeSpec({ name: EVENT_ASSEMBLY_STARTED, schema: new SchemaSpec({ name: 'timeline.assembly_started' }), meta: { purpose: 'timeline' } }),
     new EventTypeSpec({ name: EVENT_ASSEMBLY_DONE, schema: new SchemaSpec({ name: 'timeline.assembly_done' }), meta: { purpose: 'timeline' } }),
     new EventTypeSpec({ name: EVENT_EXECUTION_STARTED, schema: new SchemaSpec({ name: 'timeline.execution_started' }), meta: { purpose: 'timeline' } }),
-    new EventTypeSpec({ name: EVENT_OUTPUT_VERDICT, schema: new SchemaSpec({ name: 'output_gate.verdict' }), meta: { purpose: 'output_gate' } }),
   ];
 }
 

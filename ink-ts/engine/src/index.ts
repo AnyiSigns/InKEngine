@@ -134,7 +134,6 @@ export * from './core/contracts/contracts.js';
 // config 按槽解析模型配置形态并建链，不复制回落语义）
 export {
   ROLE_AGENT,
-  ROLE_AUDIT,
   ROLE_ROUTER,
   build_role_model_chain,
   resolve_role_model,

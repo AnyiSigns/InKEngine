@@ -13,8 +13,7 @@
  *
  * Python 差异：
  * - ``system_events`` 的 frozenset 以 ReadonlySet 承载（构造传 Set/ReadonlySet）；
- * - ``settle`` 引用 settle.SettleHooks 注册体、``output_verifier`` 引用
- *   verifier.OutputVerifier 协议、``plan_workflow`` 引用 workflow.WorkflowSpec、
+ * - ``settle`` 引用 settle.SettleHooks 注册体、``plan_workflow`` 引用 workflow.WorkflowSpec、
  *   ``assembly_sources`` 为结构化装配源提供者协议（Python 侧 Any/TYPE_CHECKING
  *   前向引用；TS 直接引用对应类型面，无 unknown 占位）。
  */
@@ -29,7 +28,6 @@ import type { AssemblyConfig } from '../assembly/assembly_config.js';
 import type { ActivationAggregator } from '../assembly/activation_aggregator.js';
 import type { TurnMetrics } from '../tuning/_turn_metrics.js';
 import type { SettleHooks } from '../settle/index.js';
-import type { OutputVerifier } from '../verifier/verifier.js';
 import type { WorkflowSpec } from '../workflow/workflow_types.js';
 import { DEFAULT_MAX_PLAN_STEPS } from '../plan/plan.js';
 import { DEFAULT_MAX_SIMULATIONS } from '../simulation/simulation.js';
@@ -176,8 +174,8 @@ export class RunOptions {
    *  聚合（输入调配器按原语义运行）。 */
   assembly_aggregator: ActivationAggregator | null = null;
 
-  /** 回合指标聚合（引擎自承载的观测件）：注入后顶层 run 收尾时自动记录回合成败
-   *  与错误摘要（评审分/收敛轮数/角色槽调用由使用方按事件语义填报——引擎只采集
+  /*   * 回合指标聚合（引擎自承载的观测件）：注入后顶层 run 收尾时自动记录回合成败
+   *  与错误摘要（角色槽调用由使用方按事件语义填报——引擎只采集
    *  自身可见的执行事实）；null = 不采集。 */
   metrics: TurnMetrics | null = null;
 
@@ -187,15 +185,6 @@ export class RunOptions {
 
   /** 沉淀钩子注册体（run 收尾触发；null = 关闭沉淀，运行侧零影响）。 */
   settle: SettleHooks | null = null;
-
-  /** VTM 验证器门控：节点产出评审器（OutputVerifier 协议，async verify(...) ->
-   *  {"pass", "violations"}）。null = 关闭（节点即使声明 __verify__ 也不评审，
-   *  既有图零行为变化）。 */
-  output_verifier: OutputVerifier | null = null;
-
-  /** 评审失败后的违规驱动重做上限（0 = 失败即按节点失败收口；节点重跑时读
-   *  state["__verify_feedback__"] 做定向修复）。 */
-  verify_retry_limit: number = 0;
 
   /** 组装时间线事件开关（turn_started/assembly_started/assembly_done/
    *  execution_started，顶层图发射）：UX 指标（user_msg -> 组装 -> 真正执行

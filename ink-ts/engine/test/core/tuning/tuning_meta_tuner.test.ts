@@ -3,11 +3,11 @@
  * 「执行统计驱动的机制参数调整」段）。
  *
  * 语义检查点：
- * - 模拟低分反馈 → 维度权重自动下调 → 评审评分随权重调整变化符合预期
+ * - 模拟低分反馈 → 维度权重自动下调 → 打分随权重调整变化符合预期
  *   （基准断言：劣质维度降权后总分抬升、可复算）；
  * - 降权/升权上下限保护（维度不因反馈被降没/失衡主导）；
  * - 历史遗留越界权重在调参入口收敛到边界（不阻塞后续调参）；
- * - 失败率/收敛轮数驱动的机制参数调整（重试预算/web 阈值/探索宽度）；
+ * - 失败率驱动的机制参数调整（重试预算/web 验证阈值）；
  * - 快照随规则版本落库（回放语义）；边界封顶不产生虚假变更说明。
  *
  * 延后（defer）：executor/LLM-钩子集成用例（L2 参数回归整链过闸、宿主
@@ -31,7 +31,7 @@ function scorer(weights: Record<string, number>): WeightedScorer {
   );
 }
 
-describe('低分反馈降权（基准：评审评分随权重调整变化）', () => {
+describe('低分反馈降权（基准：打分随权重调整变化）', () => {
   it('模拟低分反馈 → 权重自动下调（劣质维度降权）', () => {
     const params = new TunableParams({ weights: { 质量: 0.7, 一致性: 0.3 } });
     const metrics = new TurnMetrics();
@@ -41,7 +41,7 @@ describe('低分反馈降权（基准：评审评分随权重调整变化）', (
     expect(result.changes.some((change) => change.includes('降权'))).toBe(true);
   });
 
-  it('基准：评审评分随权重调整变化符合预期（劣质维度主导减弱，总分抬升）', () => {
+  it('基准：打分随权重调整变化符合预期（劣质维度主导减弱，总分抬升）', () => {
     const params = new TunableParams({ weights: { A: 0.5, B: 0.5 } });
     const metrics = new TurnMetrics();
     const tuned = new MetaTuner().tune(params, metrics, { feedback: { B: 0.2 } });
@@ -129,28 +129,6 @@ describe('执行统计驱动的机制参数调整', () => {
       metrics,
     );
     expect(result.params.retry_budget).toBe(1);
-  });
-
-  it('平均收敛轮数偏高 → 发散宽度加宽（探索更多候选）', () => {
-    const metrics = new TurnMetrics();
-    metrics.record_convergence(3);
-    metrics.record_convergence(4);
-    const result = new MetaTuner().tune(
-      new TunableParams({ divergence_width: 3 }),
-      metrics,
-    );
-    expect(result.params.divergence_width).toBe(4);
-  });
-
-  it('平均收敛轮数偏低 → 发散宽度收窄（收敛更快）', () => {
-    const metrics = new TurnMetrics();
-    metrics.record_convergence(1);
-    metrics.record_convergence(1);
-    const result = new MetaTuner().tune(
-      new TunableParams({ divergence_width: 3 }),
-      metrics,
-    );
-    expect(result.params.divergence_width).toBe(2);
   });
 
   it('无指标驱动变化时返回原参数（changes 空，不空转调参）', () => {

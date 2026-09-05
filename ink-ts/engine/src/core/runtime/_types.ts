@@ -135,7 +135,6 @@ export interface AssemblyRecipeInit {
    *  装配默认不注入 = 零触发）。 */
   run_options?: unknown;
   compress_policy?: CompressionPolicy | null;
-  verify_retry_limit?: number;
   emit_timeline_events?: boolean;
 }
 
@@ -167,7 +166,6 @@ export class AssemblyRecipe {
   convergence_provider: (() => ConvergenceHook | null) | null = null;
   run_options: unknown = null;
   compress_policy: CompressionPolicy | null = null;
-  verify_retry_limit = 0;
   emit_timeline_events = false;
 
   constructor(init: AssemblyRecipeInit = {}) {
@@ -209,9 +207,6 @@ export class AssemblyRecipe {
     }
     if (init.run_options !== undefined) this.run_options = init.run_options;
     if (init.compress_policy !== undefined) this.compress_policy = init.compress_policy;
-    if (init.verify_retry_limit !== undefined) {
-      this.verify_retry_limit = init.verify_retry_limit;
-    }
     if (init.emit_timeline_events !== undefined) {
       this.emit_timeline_events = init.emit_timeline_events;
     }

@@ -1,6 +1,6 @@
 /**
  * review_card 移植对标测试（语义逐点对标 ink_engine/tests/test_review_card.py）：
- * 四类卡（gate/body/audit/candidate）契约校验/预览截断/构造，与门控分级判定。
+ * 三类卡（gate/body/candidate）契约校验/预览截断/构造，与门控分级判定。
  *
  * 错误映射沿用移植口径：数值越界（负数下标等）→ RangeError；未知类型 /
  * 缺必填字段等契约类 ValueError → Error。Python 的 StrEnum 挡位在 TS 侧为
@@ -12,7 +12,6 @@ import { describe, expect, it } from 'vitest';
 import {
   GATING_OVERRIDE_VALUES,
   PREVIEW_LIMIT_DEFAULT,
-  build_audit_card,
   build_body_card,
   build_candidate_card,
   build_gate_card,
@@ -189,40 +188,6 @@ describe('build_body_card：内容卡构造与 node_id 必传', () => {
 
   it('缺 node_id 被必填校验拒绝', () => {
     expect(() => build_body_card(1, 2, 3, '正文内容', '生成章节')).toThrow(/缺少必填字段/);
-  });
-});
-
-describe('build_audit_card：质量拦截卡构造与注入上限生效', () => {
-  it('字段透传（workflow_id 等）', () => {
-    const card = build_audit_card('writer', '执笔', 'wf-1', '输出', '不合格', 1);
-    expect(card['review_type']).toBe('audit');
-    expect(card['workflow_id']).toBe('wf-1');
-  });
-
-  it('预览截断统一走卡内 preview_limit（注入大额上限真实生效）', () => {
-    const longOutput = 'x'.repeat(5000);
-    const tail = '…（已截断）';
-    const injected = build_audit_card(
-      'long_content',
-      '长内容',
-      'wf-1',
-      longOutput,
-      '不合格',
-      1,
-      0,
-      0,
-      { long_content: 2000 },
-    );
-    expect(String(injected['output_preview']).length).toBeLessThanOrEqual(
-      2000 + 1 + tail.length,
-    );
-    expect(String(injected['output_preview'])).toContain('已截断');
-    const defaulted = build_audit_card('writer', '执笔', 'wf-1', longOutput, '不合格', 1);
-    expect(String(defaulted['output_preview']).length).toBeLessThanOrEqual(
-      PREVIEW_LIMIT_DEFAULT + 1 + tail.length,
-    );
-    const short = build_audit_card('writer', '执笔', 'wf-1', '输出', '不合格', 1);
-    expect(short['output_preview']).toBe('输出');
   });
 });
 

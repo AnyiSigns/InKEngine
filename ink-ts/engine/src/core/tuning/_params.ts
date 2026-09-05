@@ -32,8 +32,8 @@ export interface TunableParamsInit {
  *
  * divergence_width：探索宽度（探索收敛的探索候选数）；retry_budget：
  * 重试预算（节点/调用的重试次数上限）；web_verify_threshold：web 验证
- * 触发阈值（存疑声明的置信度门槛）；weights：评审维度权重表（维度名 →
- * 权重；与 WeightedScorer 同构）；thresholds：校验/评审阈值表（阈值名 →
+ * 触发阈值（存疑声明的置信度门槛）；weights：打分维度权重表（维度名 →
+ * 权重；与 WeightedScorer 同构）；thresholds：校验阈值表（阈值名 →
  * 数值；与规则集/打分器同构）。
  */
 export class TunableParams {

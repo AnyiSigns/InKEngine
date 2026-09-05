@@ -6,7 +6,6 @@ export {
   DEFAULT_ROLE,
   MODEL_ROLES,
   ROLE_AGENT,
-  ROLE_AUDIT,
   ROLE_CONFIG_ALIASES,
   ROLE_ROUTER,
   RoleModelConfig,

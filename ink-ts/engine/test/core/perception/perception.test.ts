@@ -25,7 +25,7 @@ import {
   MODEL_CLOUD,
   MODEL_LOCAL,
   VALIDATE_PROCEED,
-  VALIDATE_REVIEW,
+  VALIDATE_RECHECK,
   VISION_PERCEIVE_TYPE,
   CrossValidationResult,
   VisionExportDecision,
@@ -116,7 +116,7 @@ describe('双通道交叉验证', () => {
     );
     expect(result).toBeInstanceOf(CrossValidationResult);
     expect(result.consistent).toBe(true);
-    expect(result.review_signal).toBe(false);
+    expect(result.recheck_signal).toBe(false);
     expect(result.decision).toBe(VALIDATE_PROCEED);
   });
 
@@ -126,21 +126,21 @@ describe('双通道交叉验证', () => {
       _chan('window,link,image'),
     );
     expect(result.consistent).toBe(false);
-    expect(result.review_signal).toBe(true);
-    expect(result.decision).toBe(VALIDATE_REVIEW);
+    expect(result.recheck_signal).toBe(true);
+    expect(result.decision).toBe(VALIDATE_RECHECK);
   });
 
   it('test_cross_validate_single_channel_missing_triggers_review：单通道缺失 = 复核', () => {
     const result = cross_validate_channels(_chan('window,button'), _chan(''));
     expect(result.consistent).toBe(false);
-    expect(result.review_signal).toBe(true);
-    expect(result.decision).toBe(VALIDATE_REVIEW);
+    expect(result.recheck_signal).toBe(true);
+    expect(result.decision).toBe(VALIDATE_RECHECK);
   });
 
   it('两通道均无元素 = 按空一致处理直进（Python 空一致分支）', () => {
     const result = cross_validate_channels(_chan(''), _chan(''));
     expect(result.consistent).toBe(true);
-    expect(result.review_signal).toBe(false);
+    expect(result.recheck_signal).toBe(false);
     expect(result.decision).toBe(VALIDATE_PROCEED);
   });
 
@@ -159,7 +159,7 @@ describe('双通道交叉验证', () => {
       _chan('window,link,image'),
     ] as const;
     const strict = cross_validate_channels(...channels(), { threshold: 0.5 });
-    expect(strict.decision).toBe(VALIDATE_REVIEW);
+    expect(strict.decision).toBe(VALIDATE_RECHECK);
     const lenient = cross_validate_channels(...channels(), { threshold: 0.2 });
     expect(lenient.consistent).toBe(true);
     expect(lenient.decision).toBe(VALIDATE_PROCEED);

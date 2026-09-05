@@ -56,8 +56,6 @@ describe('RunOptions 默认值', () => {
     expect(options.metrics).toBeNull();
     expect(options.domain).toBeNull();
     expect(options.settle).toBeNull();
-    expect(options.output_verifier).toBeNull();
-    expect(options.verify_retry_limit).toBe(0);
     expect(options.emit_timeline_events).toBe(false);
   });
 
@@ -97,7 +95,6 @@ describe('RunOptions 覆盖与引擎运行时语义', () => {
       simulate_concurrency: 1,
       branch_pick: 2,
       assembly,
-      verify_retry_limit: 5,
       emit_timeline_events: true,
     });
     expect(options.storage).toBe(storage);
@@ -120,7 +117,6 @@ describe('RunOptions 覆盖与引擎运行时语义', () => {
     expect(options.simulate_concurrency).toBe(1);
     expect(options.branch_pick).toBe(2);
     expect(options.assembly).toBe(assembly);
-    expect(options.verify_retry_limit).toBe(5);
     expect(options.emit_timeline_events).toBe(true);
   });
 

@@ -207,7 +207,7 @@ export abstract class EngineRun extends EngineTrace {
    * 回合指标采集（引擎自承载：记录自身可见的执行事实）。
    *
    * 顶层 run 收尾调用一次：回合成败（错误终止 = 失败）与错误摘要入回合指标；
-   * 评审分/收敛轮数/角色槽调用由使用方按事件语义填报（引擎只采集执行本身
+   * 角色槽调用由使用方按事件语义填报（引擎只采集执行本身
    * 可见的统计，语义化指标不替使用方猜）。
    */
   _record_run_metrics(result: RunResult): void {

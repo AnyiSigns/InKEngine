@@ -17,22 +17,15 @@ export const WEIGHT_DECAY = 0.9;
 // 单次调整的权重加成（高分反馈维度升权步长）
 export const WEIGHT_GAIN = 1.1;
 
-// 指标聚合窗口上限（评审分/收敛轮数只留近期窗口，防长跑留痕无限膨胀）
-export const _METRICS_WINDOW = 500;
-
-// 失败率档位（重试预算/探索宽度的调整依据）
+// 失败率档位（重试预算/web 验证阈值的调整依据）
 export const FAILURE_RATE_HIGH = 0.4;
 export const FAILURE_RATE_LOW = 0.1;
 
 // 机制参数调整边界（参数级进化护栏：上下限保护防失控）
-export const DIVERGENCE_WIDTH_MIN = 1;
-export const DIVERGENCE_WIDTH_MAX = 6;
 export const RETRY_BUDGET_FLOOR = 2; // 失败率高时的重试预算保底值
 export const WEB_THRESHOLD_MIN = 0.1;
 export const WEB_THRESHOLD_MAX = 0.9;
 export const WEB_THRESHOLD_STEP = 0.1;
-export const CONVERGENCE_AVG_HIGH = 3.0;
-export const CONVERGENCE_AVG_LOW = 1.0;
 
 // 参数回归的默认取值边界（fixture 未显式声明 bounds 时的兜底口径：
 // 权重下限 = 调参下限保护，阈值非负）

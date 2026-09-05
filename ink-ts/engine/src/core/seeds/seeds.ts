@@ -48,7 +48,7 @@ type SeedProvider = () => KnowledgeEntry[];
  *
  * 通用种子不含任何领域成品——「能跑、能学、能存」的基线：
  * - 模板条目：默认编排模板（工作流数据形态，节点名由使用方按图适配）；
- * - 权重条目：评审/校验的默认权重与阈值（调参基线，参数快照的初始形态）。
+ * - 权重条目：打分/校验的默认权重与阈值（调参基线，参数快照的初始形态）。
  */
 function build_general_seed_entries(): KnowledgeEntry[] {
   return [

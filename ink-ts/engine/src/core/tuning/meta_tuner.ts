@@ -4,12 +4,10 @@
  *
  * 调整语义（可解释、可断言）：
  * - 卡回路反馈降权：反馈中低分维度（< 反馈阈值）的权重乘衰减系数（下限
- *   保护 MIN_WEIGHT）——评审评分随权重调整变化，避免劣质维度主导总分；
+ *   保护 MIN_WEIGHT）——打分维度权重随反馈调整变化，避免劣质维度主导总分；
  * - 失败率 → 重试预算：失败率高则上调重试预算（容错），低则回落（省成本）；
  * - 失败率 → web 验证阈值：失败率高下调验证阈值（更早触发验证），低则
- *   上调（减少无谓验证）；
- * - 收敛轮数 → 探索宽度：平均收敛轮数偏高则加宽探索（探索更多候选），
- *   偏低则收窄（收敛更快）。
+ *   上调（减少无谓验证）。
  *
  * 参数变更过 L2 效果评估回归（参数不走 L1/L3——参数无「旧版」可比）；
  * 与知识孵化闭环：调参结果经知识集回写（种子条目同 id，幂等不覆盖演化），
@@ -30,10 +28,6 @@ import {
 import type { FixtureSet } from '../rules/index.js';
 import { GENERAL_WEIGHTS_SEED_ID } from '../seeds/seeds.js';
 import {
-  CONVERGENCE_AVG_HIGH,
-  CONVERGENCE_AVG_LOW,
-  DIVERGENCE_WIDTH_MAX,
-  DIVERGENCE_WIDTH_MIN,
   FAILURE_RATE_HIGH,
   FAILURE_RATE_LOW,
   MAX_WEIGHT,
@@ -212,32 +206,8 @@ export class MetaTuner {
       }
     }
 
-    let divergenceWidth = params.divergence_width;
-    if (metrics.convergence_rounds.length > 0) {
-      const avgRounds =
-        metrics.convergence_rounds.reduce((sum, round) => sum + round, 0) /
-        metrics.convergence_rounds.length;
-      if (avgRounds >= CONVERGENCE_AVG_HIGH) {
-        const newWidth = Math.min(divergenceWidth + 1, DIVERGENCE_WIDTH_MAX);
-        if (newWidth !== divergenceWidth) {
-          divergenceWidth = newWidth;
-          changes.push(
-            `平均收敛轮数 ${_fmt1(avgRounds)} 偏高，探索宽度加宽至 ${divergenceWidth}`,
-          );
-        }
-      } else if (
-        avgRounds <= CONVERGENCE_AVG_LOW &&
-        divergenceWidth > DIVERGENCE_WIDTH_MIN
-      ) {
-        divergenceWidth -= 1;
-        changes.push(
-          `平均收敛轮数 ${_fmt1(avgRounds)} 偏低，探索宽度收窄至 ${divergenceWidth}`,
-        );
-      }
-    }
-
     const newParams = new TunableParams({
-      divergence_width: divergenceWidth,
+      divergence_width: params.divergence_width,
       retry_budget: retryBudget,
       web_verify_threshold: webVerifyThreshold,
       weights,

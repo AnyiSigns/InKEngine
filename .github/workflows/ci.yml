@@ -130,10 +130,10 @@ jobs:
       - run: pip install -e "ink_engine[test,sqlite,llm,mcp]"
       - run: python tools/benchmarks/run_benchmarks.py
 
-  # ── ink-ts：TS 迁移工作区（typecheck → gate 真实扫描 → vitest 全量 →
-  #    契约生成物权威校验 → 契约旧侧双向断言）──
-  # contracts:verify 已并入 root test（生成物 regen-diff 比对），另单列以
-  # 隔离失败；check_contract_sources.py 读旧侧引擎源码，走 setup-python。
+  # ── ink-ts：TS 工作区（typecheck → gate 真实扫描 → vitest 全量 →
+  #    契约生成物权威校验）──
+  # contracts:verify 已并入 root test（engine 单源生成物 regen-diff 比对），
+  # 另单列以隔离失败。
   ink-ts:
     name: ink-ts typecheck + gate + test + contracts 校验
     runs-on: ubuntu-latest
@@ -149,8 +149,3 @@ jobs:
       - run: npm --prefix ink-ts run gate
       - run: npm --prefix ink-ts test
       - run: npm --prefix ink-ts run contracts:verify
-      - uses: actions/setup-python@v5
-        with:
-          python-version: ${{ env.PYTHON_VERSION }}
-      - run: pip install -e "ink_engine[test]"
-      - run: python ink-ts/contracts/scripts/check_contract_sources.py

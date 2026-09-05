@@ -1,0 +1,9 @@
+[package]
+name = "ink_ts_rpc"
+version = "0.1.0"
+edition = "2021"
+rust-version = "1.82"
+description = "ink-ts 原生机制件共享底座：stdio JSON-RPC 行帧读取/服务主循环/错误码与响应构造（exec 与 infer 共用，零业务）"
+
+[dependencies]
+serde_json = "1"

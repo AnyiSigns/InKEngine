@@ -90,3 +90,48 @@ export type {
 } from './config.js';
 export { PRODUCT_SWITCH_DEFAULTS, build_product_recipe } from './recipe.js';
 export type { ProductRecipeInit, ProductSwitchName, RecipeGraph } from './recipe.js';
+
+// ── 原生机制件 client / 嵌入适配器（S5：exec + infer + AsyncEmbedder）──
+export { locateNativeBinary } from './exec/binary.js';
+export type { NativeBinaryKind } from './exec/_types.js';
+export {
+  buildSignedExecEnvelope,
+  hmacHex,
+  hostAllowed,
+  isPathWithinRoots,
+  parseUrlHost,
+  pathHasDotdot,
+  randomSessionKey,
+  verifySignature,
+} from './exec/envelope.js';
+export type { AdjudicatedDecision, ExecRequest } from './exec/envelope.js';
+export { ExecClient, EXEC_SESSION_KEY_ENV } from './exec/client.js';
+export { SupervisedNativeSession } from './exec/session.js';
+export type { SessionOpener } from './exec/session.js';
+export { StdioProcessSession } from './exec/transport.js';
+export type { NativeSpawnOptions } from './exec/transport.js';
+export {
+  DEFAULT_RESTART_POLICY,
+  ExecRefusedError,
+  RpcError,
+  SessionLostError,
+} from './exec/_types.js';
+export type {
+  ExecDecision,
+  ExecEnvelope,
+  ExecOp,
+  ExecOutcome,
+  RestartPolicy,
+} from './exec/_types.js';
+export { EmbeddingAdapter } from './embedder/adapter.js';
+export type { EmbedOutput, EmbeddingAdapterOptions } from './embedder/adapter.js';
+export { deterministicVector, l2Normalize } from './embedder/deterministic.js';
+export { InferClient } from './embedder/infer_client.js';
+export type { InferEmbedWire, InferPlanWire } from './embedder/infer_client.js';
+export { remoteEmbed } from './embedder/remote.js';
+export { GRANITE_97M_DIM, GRANITE_MODEL_DIR_DEFAULT, resolveEmbeddingPlan } from './embedder/resolve_plan.js';
+export type {
+  EmbeddingPlan,
+  EmbeddingSourceName,
+  RemoteEmbeddingEndpoint,
+} from './embedder/resolve_plan.js';

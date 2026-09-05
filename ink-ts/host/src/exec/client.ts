@@ -1,5 +1,5 @@
 /**
- * exec 受监督 client：spawn/看护/重启 + 信封签发调用（D3/S5）。
+ * exec 受监督 client：spawn/看护/重启 + 信封签发调用。
  *
  * - 二进制定位走 binary.ts（INK_EXEC_BINARY / INK_NATIVE_DIR / 工作树
  *   target 布局）；spawn 期注入随机会话密钥（INK_EXEC_SESSION_KEY），

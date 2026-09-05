@@ -2,11 +2,11 @@
  * @ink-ts/host 装配入口（createHost）：composition root。
  *
  * 读配置（config.ts）→ 实现 Host 五件套（host.ts）→ 构建产品配方
- * （recipe.ts，D14 开关默认全开）→ Runtime.boot 装配 → buildBridge 出
+ * （recipe.ts，机制开关默认全开）→ Runtime.boot 装配 → buildBridge 出
  * 宿主命令面。机制语义全在 engine；本包只装配不复制。
  *
- * graph_recipe 为产品配方预留注入位：S6 前由调用方/测试注入（S2/S3 阶段
- * 无产品图成品）；未注入时给出明确错误，不静默装配空图。
+ * graph_recipe 为产品配方注入位：产品图未内置，由调用方/测试注入演示
+ * 图；未注入时给出明确错误，不静默装配空图。
  */
 
 import { mkdirSync } from 'node:fs';
@@ -36,7 +36,7 @@ export interface HostHandle {
  *
  * @param config 运行配置（storage uri / 角色槽模型端点 / autoApprove 等；
  *   缺省 memory:// + fail-closed，见 config.ts）。
- * @param recipe 配方覆写（graph_recipe 注入位必需——S6 前由调用方提供）。
+ * @param recipe 配方覆写（graph_recipe 注入位必需——产品图由调用方提供）。
  */
 export async function createHost(
   config: HostConfigInput | null | undefined = null,
@@ -91,7 +91,7 @@ export type {
 export { PRODUCT_SWITCH_DEFAULTS, build_product_recipe } from './recipe.js';
 export type { ProductRecipeInit, ProductSwitchName, RecipeGraph } from './recipe.js';
 
-// ── 原生机制件 client / 嵌入适配器（S5：exec + infer + AsyncEmbedder）──
+// ── 原生机制件 client / 嵌入适配器（exec + infer + AsyncEmbedder）──
 export { locateNativeBinary } from './exec/binary.js';
 export type { NativeBinaryKind } from './exec/_types.js';
 export {

@@ -1,4 +1,4 @@
-//! 本地嵌入推理子进程（granite-97m；D10/§1.3）。
+//! 本地嵌入推理子进程（granite-97m）。
 //!
 //! embedder.rs 为「原样摘入」壳 domain/embedder.rs（ort + tokenizers：
 //! 懒加载、CLS 池化按 config.json bos_token_id 归一、L2、384 维、确定性

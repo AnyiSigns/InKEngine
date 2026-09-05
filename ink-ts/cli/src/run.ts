@@ -3,7 +3,7 @@
  *
  * --round / --op / --os-op / --audit 互斥；JSON 信封走 stdout（不泄漏半成品），
  * 诊断走 stderr `[run]` 通道；成功 exit 0、运行失败 exit 1、用法错误 exit 2。
- * 审批按 D8：仅 --approve 显式放行，缺省 fail-closed——gate 挂卡回合在无
+ * 审批：仅 --approve 显式放行，缺省 fail-closed——gate 挂卡回合在无
  * --approve 下以 approval 错误信封退出。
  *
  * 装配复用 host 冷启一次（assembleCliHost），用毕 dispose。round 模式把
@@ -196,7 +196,7 @@ async function runAudit(
   }
 }
 
-/** os_op 命令：exec 原生件（S5/T3）未接线前 fail-closed 占位。 */
+/** os_op 命令：exec 原生件执行路径未接线，命令面 fail-closed 占位拒绝。 */
 function runOsOp(
   run: RunFlags,
   trace_id: string,
@@ -211,8 +211,8 @@ function runOsOp(
       trace_id,
       'os_op',
       'os_op',
-      `OS 执行器未装配：--os-op 需 ink-ts/exec 原生件（S5）接线；`
-        + `本阶段 fail-closed 拒绝。tool=${run.arg}（--approve 已由 D8 语义保留，`
+      `OS 执行器未装配：--os-op 需 ink-ts/exec 原生件接线；`
+        + `当前 fail-closed 拒绝。tool=${run.arg}（--approve 显式放行语义保留，`
         + `执行路径就绪后仅显式 --approve 放行）`,
     ),
   };

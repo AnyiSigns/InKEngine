@@ -6,7 +6,7 @@
  * 装配一次、进程生命周期内复用；run 形态一次性使用、serve/stdio 长驻。
  *
  * 图配方 = cli 产品占位图（graphs.ts），审批姿态 --approve 显式声明传入
- * 宿主 config（D8 fail-closed 缺省）。
+ * 宿主 config（fail-closed 缺省）。
  */
 
 import { mkdtempSync } from 'node:fs';

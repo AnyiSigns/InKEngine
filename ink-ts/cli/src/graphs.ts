@@ -1,5 +1,5 @@
 /**
- * CLI 产品占位图配方（S4 接线阶段；产品图语义在 S6 host 域服务定稿）。
+ * CLI 产品占位图配方（产品成品图未内置，CLI 以占位图装配）。
  *
  * 机制全在 engine；本文件只出图数据（宿主产品语义）。图名清单与 argv
  * GRAPH_NAMES 对应（assistant=默认占位 / gate=审批挂卡演示）。
@@ -8,7 +8,7 @@
  *   stub_script 语义——无真实模型也能稳定抵达回复态），有模型 = 流式聊天
  *   （token 经 reply_token 事件发射，web 事件订阅可观测）；
  * - gate：对 demo 动作走 approve_before_execute。决议策略由 CLI 审批姿态
- *   （--approve 显式声明，D8）构造——显式放行 = 策略直过（should_approve
+ *   （--approve 显式声明）构造——显式放行 = 策略直过（should_approve
  *   恒 false），否则全量挂起（fail-closed）。
  */
 
@@ -89,7 +89,7 @@ export function assistantGraphRecipe(ctx: GraphRecipeContext): Graph {
   return graph;
 }
 
-/** gate 图配方（审批挂卡演示；决议策略随 --approve 姿态，D8）。 */
+/** gate 图配方（审批挂卡演示；决议策略随 --approve 显式声明姿态）。 */
 export function gateGraphRecipe(
   autoApprove: boolean,
 ): (ctx: GraphRecipeContext) => Graph {

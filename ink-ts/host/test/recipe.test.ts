@@ -1,5 +1,5 @@
 /**
- * 产品配方默认表单测（D14：机制开关默认全开 true；关闭只走显式产品配置）。
+ * 产品配方默认表单测（机制开关默认全开 true；关闭只走显式产品配置）。
  */
 
 import { describe, expect, it } from 'vitest';
@@ -11,7 +11,7 @@ import {
 } from '../src/recipe.js';
 import { echoGraphRecipe } from './_graphs.js';
 
-describe('产品配方默认表（D14 全开）', () => {
+describe('产品配方默认表（机制开关全开）', () => {
   it('默认表所有开关全 true（PathAssemblyFlags 七位 + canary + 多域窗口 + 时间线）', () => {
     assert_product_switches_all_on();
     const entries = Object.entries(PRODUCT_SWITCH_DEFAULTS);

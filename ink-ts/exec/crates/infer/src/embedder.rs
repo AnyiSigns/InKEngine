@@ -46,9 +46,9 @@ use crate::error::DomainError;
 
 /// 模型目录默认位置（相对进程当前目录；可用 `INK_EMBEDDING_MODEL_DIR` 覆盖）。
 ///
-/// 资产现位于旧侧 `inkling/models/granite-97m`（T4 产品资产随迁 ink-ts 后
-/// 按新落位对齐默认路径；宿主 spawn 时也可经 `INK_EMBEDDING_MODEL_DIR`
-/// 显式注入，默认路径只是保底形态）。
+/// 资产现位于旧侧 `inkling/models/granite-97m`；宿主 spawn 时经
+/// `INK_EMBEDDING_MODEL_DIR` 显式注入对齐资产实际落位，默认路径只是
+/// 保底形态。
 pub const GRANITE_MODEL_DIR_DEFAULT: &str = "inkling/models/granite-97m";
 
 /// 模型维度（`config.json` hidden_size=384，池化声明 CLS；写码断言至此）。

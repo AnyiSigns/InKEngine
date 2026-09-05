@@ -6,9 +6,9 @@
  * - resolve_llm：引擎 model_roles 按 agent 槽解析主配置 + 备用链
  *   （resolve_role_model，CODING §8 回落语义单点），经 llm/registry
  *   create_llm 或 ModelChain 装配为 AsyncLLM 形态——厂商只是端点配置，
- *   协议决定适配器（D7）；
+ *   协议决定适配器；
  * - interrupt_policy：默认 fail-closed（autoApprove 仅显式 true 才直过）；
- * - build_transport：事件落文件实时刷新（D9），每轮一个 JSONL 文件；
+ * - build_transport：事件落文件实时刷新，每轮一个 JSONL 文件；
  * - close：幂等关停（LLM 链 aclose + 未关传输收口），由 Runtime.stop 调用。
  *
  * 类型说明：engine 公开 AsyncLLM 契约（core/llm/base）与 Runtime 装配内部

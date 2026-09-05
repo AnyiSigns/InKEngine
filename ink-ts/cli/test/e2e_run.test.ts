@@ -5,7 +5,7 @@
  * - 运行失败（gate 挂起无 --approve / 未知方法 / os_op 未装配）exit 1，
  *   信封 ok=false + error.kind；
  * - 用法错误（互斥参数）exit 2（无信封，走 stderr + 帮助）；
- * - approval 按 D8：仅显式 --approve 放行（fail-closed 缺省）。
+ * - approval：仅显式 --approve 放行（fail-closed 缺省）。
  */
 
 import { mkdtempSync } from 'node:fs';
@@ -53,7 +53,7 @@ describe('run 形态：round 回合驱动', () => {
   });
 });
 
-describe('run 形态：approval --approve 语义（D8）', () => {
+describe('run 形态：approval --approve 显式放行语义', () => {
   it('gate 挂卡无 --approve → fail-closed exit 1（kind=approval）', async () => {
     const { exitCode, env } = await runOnce(['run', '--round', 'go', '--graph', 'gate', ...dataArgs()]);
     expect(exitCode).toBe(1);
@@ -94,7 +94,7 @@ describe('run 形态：op / audit / os-op', () => {
     expect(env?.error?.message).toContain('未知方法');
   });
 
-  it('--os-op 未接线（exec S5 依赖）：fail-closed exit 1 + kind=os_op', async () => {
+  it('--os-op 未接线（依赖 exec 原生件）：fail-closed exit 1 + kind=os_op', async () => {
     const { exitCode, env } = await runOnce(['run', '--os-op', 'process_exec', '--approve', ...dataArgs()]);
     expect(exitCode).toBe(1);
     expect(env?.ok).toBe(false);

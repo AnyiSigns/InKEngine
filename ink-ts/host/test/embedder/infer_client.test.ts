@@ -1,5 +1,5 @@
 /**
- * host ↔ infer 进程级集成（S5/D10 验收：spawn → plan/embed → 响应）。
+ * host ↔ infer 进程级集成（spawn → plan/embed → 响应）。
  *
  * 走确定性保底路径（INK_EMBEDDING_LOCAL=off）不必载模型；断言来源
  * deterministic、384 维单位向量、与 TS 侧确定性保底算法跨语言对拍

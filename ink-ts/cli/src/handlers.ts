@@ -1,5 +1,5 @@
 /**
- * 最小宿主方法集合 = host.ping/host.info + host bridge 注入（S4）。
+ * 最小宿主方法集合 = host.ping/host.info + host bridge 方法表并入。
  *
  * buildHandlers 委托装配产物：cli 冷启一次 createHost（见 host.ts），把
  * bridge 方法表（rounds、records、approval、audit.export 等域）并入命令面，
@@ -15,7 +15,7 @@ import type { Handler, HandlerContext } from './rpc.js';
 export interface HostInfo {
   name: string;
   protocol: 'json-rpc-2.0';
-  /** approvals 值（explicit-only）：审批放行仅在 --approve 显式声明（D8）。 */
+  /** approvals 值（explicit-only）：审批放行仅在 --approve 显式声明时成立。 */
   approvals: 'explicit-only';
   autoApprove: boolean;
 }

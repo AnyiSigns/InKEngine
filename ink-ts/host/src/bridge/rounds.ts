@@ -2,7 +2,7 @@
  * rounds 命令面（send/abort/resume）——宿主薄驱动，不复制引擎机制。
  *
  * send 走 Runtime 在途 run 登记 + engine.ainvoke（续链语义），每轮挂一条
- * 事件文件传输（D9）；abort 经 Runtime.abort_current_run（JS 平台取消模型
+ * 事件文件传输；abort 经 Runtime.abort_current_run（JS 平台取消模型
  * 降级：取消投递后引擎后台自然收尾，CANCELLED 快照锚点由 runtime 写）；
  * resume = 审批决议重入（runtime.resume_run，挂起卡读取/注入校验仍归引擎）。
  * 并发纪律：单 host 串行跑回合（引擎顶层 run 非并发安全，先进先出队列）。
@@ -36,7 +36,7 @@ function shortId(prefix: string): string {
   return `${prefix}-${Math.random().toString(36).slice(2, 10)}`;
 }
 
-/** 会话索引 upsert（薄宿主数据；S6 会话域服务在此基础上定稿）。 */
+/** 会话索引 upsert（宿主薄数据；rounds 收尾写入索引记录）。 */
 async function upsertSession(
   deps: HostBridgeDeps,
   thread_id: string,

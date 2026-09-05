@@ -5,7 +5,7 @@
  * 事）。配置形态与 CODING §8 措辞对齐：模型端点按协议、按角色槽三键
  * {agent_config, router_config, audit_config} + `{role}_fallback_configs`
  * 备用链（main_config 等别名兼容由引擎 model_roles 解析，本层不复制回落
- * 语义）；厂商只是端点配置（协议决定适配器，见 D7）。审批姿态 fail-closed：
+ * 语义）；厂商只是端点配置（协议决定适配器）。审批姿态 fail-closed：
  * autoApprove 缺省 false，仅显式配置才放行。
  *
  * 键形态：文件/对象输入采用 RoleEndpoint 各槽形态；环境覆盖走 INK_* 前缀
@@ -183,7 +183,7 @@ export function normalize_model_config(input: unknown): Record<string, unknown> 
   return out;
 }
 
-/** 目录字段解析：events 缺省落在 data_dir/events（D9 事件落文件出口）。 */
+/** 目录字段解析：events 缺省落在 data_dir/events（事件落文件出口）。 */
 function resolve_dirs(
   input: HostConfigInput,
   env: NodeJS.ProcessEnv,

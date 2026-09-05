@@ -1,7 +1,7 @@
 /**
  * 远端 OpenAI 兼容 /embeddings（embedder.rs remote_embed 的 TS 同位）。
  *
- * 只发协议级 HTTP（D7：厂商仅是端点配置）；单/多输入同批次语义与 Rust
+ * 只发协议级 HTTP（厂商仅是端点配置）；单/多输入同批次语义与 Rust
  * 一致（data 数组按 index 排序、逐项 L2 归一保持单位球面、维度与计划
  * 不符拒绝）。超时经 AbortController（秒）。fetch 可注入（测试）。
  */

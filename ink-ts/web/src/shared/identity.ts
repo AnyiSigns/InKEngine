@@ -4,8 +4,8 @@
  * 身份文案只在 `inkling/manifest.json` 维护（schema 门禁以定稿常量核对
  * `positioning`/`name` 原文，recipe 测试钉同源）；前端一律经本模块取用，
  * 不再硬编码产品名 / 定位语 / 版本——改定位只改 manifest 一处。
- * 随迁期 manifest 仍在旧侧真源（双项目并存，D5）；S10 旧侧存档时统一
- * 收口身份单一事实源到 ink-ts 数据面。
+ * 双项目并存期身份 manifest 真源仍在旧侧 inkling/；旧侧停用后统一收口
+ * 身份单一事实源到 ink-ts 数据面。
  */
 import manifest from '../../../../inkling/manifest.json';
 

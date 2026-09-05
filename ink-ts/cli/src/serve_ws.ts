@@ -1,7 +1,7 @@
 /**
  * serve /ws 事件订阅通道（ws 协议适配层）。
  *
- * 帧协议（T6 契约）：
+ * 帧协议：
  * - 客户端 → 服务端：`{"type":"subscribe","topics":["events.*","state.*",...]}`
  *   （重复 subscribe 覆盖旧 topics）；服务端回 `{"type":"subscribed","topics":[...]}`。
  * - 服务端 → 客户端：`{"type":"event","topic":"events.<type>|state.<name>","data":{...}}`；

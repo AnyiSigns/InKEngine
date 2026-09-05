@@ -11,7 +11,7 @@ import type { Runtime } from '@ink-ts/engine';
 
 import type { InkHost } from '../host.js';
 
-/** bridge 处理器上下文（与 cli rpc HandlerContext 结构一致，供 S4 直注合并）。 */
+/** bridge 处理器上下文（与 cli rpc HandlerContext 结构一致，供 cli 直接并入命令面）。 */
 export interface BridgeContext {
   autoApprove: boolean;
   signal?: AbortSignal;
@@ -37,7 +37,7 @@ export class BridgeError extends Error {
   }
 }
 
-/** 会话索引集合（宿主薄服务数据；S6 会话域服务在此基础上定稿）。 */
+/** 会话索引集合（宿主薄服务数据所在存储集合键；rounds 收尾 upsert）。 */
 export const HOST_SESSIONS_COLLECTION = 'host.sessions';
 
 /** 单条会话索引记录（rounds.send 回合收尾 upsert）。 */

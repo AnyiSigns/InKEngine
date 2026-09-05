@@ -1,7 +1,7 @@
 /**
  * CLI 进程入口（三形态）：解析参数 → stdio（JSON-RPC）/ run（一次性驱动）/
  * serve（本地 http+ws）。宿主层允许 node 内置 IO；审批放行仅来自 --approve
- * 显式声明，从不默认放行（D8）。未知启动参数即拒绝：stdio exit 1、
+ * 显式声明，从不默认放行。未知启动参数即拒绝：stdio exit 1、
  * run/serve exit 2（headless 语义）；help exit 0。
  *
  * stdio：冷启一次装配 host（createHost，见 host.ts）→ buildHandlers 并入

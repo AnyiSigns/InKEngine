@@ -82,7 +82,7 @@ describe('config 解析（角色槽/协议/目录）', () => {
     ).toThrow(HostConfigError);
   });
 
-  it('内置协议枚举完整（D7 三协议）', () => {
+  it('内置协议枚举完整（三协议齐备）', () => {
     expect([...LLM_PROTOCOLS]).toEqual([
       'openai_compatible',
       'openai_responses',

@@ -1,7 +1,7 @@
 /**
  * 事件订阅 hub（serve 形态事件订阅通道的事件源侧）。
  *
- * topics 订阅形态（T6 web 前端将按此连接）：
+ * topics 订阅形态（serve /ws 通道按此订阅分发）：
  * - events.*           全部引擎事件（EngineTransport 输入面）；
  * - events.<type>      单事件类型（如 events.reply_token）；
  * - state.* / state.<n> serve 侧状态事件（round 驱动完成 / server 就绪等）。

@@ -33,7 +33,7 @@ import type {
 import mcpMarketSeed from '../../../seed_data/mcp_market.json';
 import toolsSeed from '../../../seed_data/tools.json';
 import uiSpecSeed from '../../../seed_data/ui_spec.json';
-// 随迁期身份 manifest 真源在旧侧 inkling/（双项目并存 D5），S10 统一收口。
+// 双项目并存期身份 manifest 真源在旧侧 inkling/（import 路径即真源位）；旧侧停用后统一收口。
 import productManifest from '../../../../inkling/manifest.json';
 
 export interface AppBackendOptions {

@@ -1,5 +1,5 @@
 /**
- * host 装配冒烟（S2 验收对标 engine e2e：真存储 + 假 OpenAI 本地服务 +
+ * host 装配冒烟（对标 engine e2e：真存储 + 假 OpenAI 本地服务 +
  * Runtime.boot 装配跑通一轮 round，事件流非空 + 事件落文件实时刷新）。
  *
  * 覆盖：createHost 装配（memory 与 sqlite 两真存储后端）、rounds.send 一轮

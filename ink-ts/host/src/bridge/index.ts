@@ -2,7 +2,7 @@
  * host bridge 命令面装配（buildBridge）：首批方法集按域分组注册——
  * rounds（send/abort/resume）、records（sessions/链记录）、approval（卡
  * 查询/裁决）、audit（导出）。与 cli 现有 host.ping/host.info 并存不冲突
- * （命名空间独立；S4 由 cli 注入本表）。
+ * （命名空间独立；方法表由 cli 并入命令面）。
  *
  * 方法增删纪律（AGENTS 纪律 3）：本文件是 bridge 方法表单一事实源——
  * 增删方法须同步修改 CODING.md §9 命令面清单。

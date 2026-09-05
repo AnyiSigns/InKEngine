@@ -4,9 +4,9 @@
  * 形态：stdio = 长驻 JSON-RPC（dev/测试/无人值守，缺省形态，兼容旧调用）；
  * run = 一次性驱动面（--round/--op/--os-op/--audit 互斥 + JSON 信封 stdout +
  * exit 0/1/2，镜像 inkling/cli headless 语义，仅取语义）；serve = 本地
- * http/ws（回环鉴权 + 事件订阅通道，S8 前端通道）。
+ * http/ws（回环鉴权 + 事件订阅通道，web 前端连接面）。
  *
- * 审批语义（D8）：autoApprove 只在显式 --approve 时成立（fail-closed 缺省）。
+ * 审批语义：autoApprove 只在显式 --approve 时成立（fail-closed 缺省）。
  * 用法错误：stdio 形态沿用旧约定 exit 1；run/serve 形态按 headless 语义
  * exit 2（参数用法问题）。未知参数一律拒绝。
  */
@@ -232,10 +232,10 @@ const HELP_TEXT = [
   '         启动时 stdout 打印 listen 行（含 url/ws/token）',
   '',
   '公共:',
-  '  --approve    显式声明允许审批直过（仅限可信自动化；缺省拒绝放行，D8）',
+  '  --approve    显式声明允许审批直过（仅限可信自动化；缺省拒绝放行）',
   '  --graph      装配图配方（assistant=默认产品占位/gate=审批挂卡演示）',
   '  --data-dir   运行数据目录（缺省每进程独立临时目录）',
-  '  --events-dir 事件 JSONL 目录（缺省 data_dir/events；D9）',
+  '  --events-dir 事件 JSONL 目录（缺省 data_dir/events）',
   '  --help/-h    显示本帮助',
   '',
   'run 专用:',

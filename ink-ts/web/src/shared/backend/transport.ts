@@ -39,11 +39,11 @@ export function handleEngineError(cmd: string, err: unknown): void {
   });
 }
 
-/** 宿主通道（cli serve http/ws 传输契约；T6 真实现按本接口注入）。 */
+/** 宿主通道接口（cli serve http/ws 传输契约；真实现按本接口经 setServeChannel 注入）。 */
 export interface ServeChannel {
   /** 通道可用性（false = serve 未连接/未就绪，调用方回落夹具路径）。 */
   available: boolean;
-  /** serve http 基址（T6 真通道填写；stub 为空）。 */
+  /** serve http 基址（真通道注入时填写；stub 不填）。 */
   baseUrl?: string;
   /** 请求宿主方法（JSON-RPC 信封形态由 serve 承载；错误信封归一上抛）。 */
   request<T>(method: string, params?: unknown): Promise<T>;
@@ -76,18 +76,18 @@ export function createUnavailableChannel(): ServeChannel {
   };
 }
 
-/** 由环境解析 serve 通道：VITE_SERVE_URL 未配置 = stub（T4 默认）。 */
+/** 由环境解析 serve 通道：未配置 VITE_SERVE_URL = stub（当前默认形态）。 */
 export function resolveServeChannel(env?: { [SERVE_URL_ENV_KEY]?: string }): ServeChannel {
   const url = env?.[SERVE_URL_ENV_KEY];
   if (!url) return createUnavailableChannel();
-  // 真通道实现（T6 接 cli serve http/ws）在此落位：request → HTTP JSON-RPC，
-  // subscribe → WebSocket 事件订阅。serve 就绪前不在此硬编码传输细节。
+  // 真通道实现（request → HTTP JSON-RPC，subscribe → WebSocket 事件订阅）
+  // 在此落位；serve 通道注入前不在此硬编码传输细节。
   return createUnavailableChannel();
 }
 
 let serveChannel: ServeChannel = createUnavailableChannel();
 
-/** 注入真 serve 通道（T6/集成测试在装配期调用一次；stub 期为默认）。 */
+/** 注入真 serve 通道（装配期/集成测试调用一次；未注入 = stub 默认）。 */
 export function setServeChannel(channel: ServeChannel): void {
   serveChannel = channel;
 }

@@ -1,7 +1,7 @@
 /**
  * serve 形态：本地 http/ws（鉴权）+ 静态托管/Vite 代理占位 + 事件订阅通道。
  *
- * 端点（T6 web 契约）：
+ * 端点（web 侧 serve transport 对接面）：
  * - GET  /health              健康检查（回环免鉴权）→ {ok:true,...}；
  * - POST /rpc                 JSON-RPC 2.0 单请求（host.ping/info + host
  *   bridge 方法面）；鉴权见 serve_auth.ts；信封错误只回通用、细节走 stderr
@@ -9,7 +9,7 @@
  * - WS   /ws?token=<token>    事件订阅（state.* 与 events.*，帧协议见 serve_ws.ts）；
  * - GET  /                    静态托管（缺省 cli/assets 占位；--static 覆盖）
  *   + Set-Cookie ink_ts_token（同源浏览器免显式 token）；
- * - 非静态 GET/HEAD + --vite <url> → Vite dev 代理占位（S8 web 开发连接面）。
+ * - 非静态 GET/HEAD + --vite <url> → Vite dev 代理（web 开发连接面）。
  *
  * 启动成功打印一行 listen JSON 到 stdout（url/ws/token）；SIGINT/SIGTERM
  * 优雅关停（先关 ws/http 再 dispose host，2s 兜底强退）。
@@ -37,7 +37,7 @@ import { handleRequest, parseLine } from './rpc.js';
 import { isAuthorized } from './serve_auth.js';
 import { attachWsChannel } from './serve_ws.js';
 
-/** 缺省本地监听端口（T6 契约常量；--port 0 = 系统分配）。 */
+/** 缺省本地监听端口（--port 0 = 系统分配）。 */
 export const DEFAULT_SERVE_PORT = 18731;
 /** /rpc 请求体上限（JSON-RPC 信封；超限 413）。 */
 const MAX_RPC_BODY_BYTES = 4 * 1024 * 1024;
@@ -180,7 +180,7 @@ function serveStatic(req: IncomingMessage, res: ServerResponse, root: string, to
   return true;
 }
 
-/** Vite dev 代理占位（目标不可达 → 502 JSON；S8 web dev 连接面）。 */
+/** Vite dev 代理（目标不可达 → 502 JSON；web 开发期连接面）。 */
 async function proxyToVite(req: IncomingMessage, res: ServerResponse, target: string): Promise<boolean> {
   const method = req.method ?? 'GET';
   if (method !== 'GET' && method !== 'HEAD') return false;

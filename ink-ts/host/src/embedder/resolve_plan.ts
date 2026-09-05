@@ -15,8 +15,7 @@ import path from 'node:path';
 /** 模型维度（config.json hidden_size=384；与 infer GRANITE_97M_DIM 对偶）。 */
 export const GRANITE_97M_DIM = 384;
 
-/** 模型目录默认位置（相对进程当前目录；可用 INK_EMBEDDING_MODEL_DIR 覆盖；
- *  T4 资产随迁 ink-ts 后按新落位对齐）。 */
+/** 模型目录默认位置（相对进程当前目录；可用 INK_EMBEDDING_MODEL_DIR 覆盖）。 */
 export const GRANITE_MODEL_DIR_DEFAULT = 'inkling/models/granite-97m';
 
 /** 本地 ONNX 图/分词器/配置文件约定名（与 infer 常量对偶）。 */

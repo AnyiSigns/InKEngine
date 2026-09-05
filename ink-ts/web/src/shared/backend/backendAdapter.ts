@@ -765,7 +765,7 @@ export function createServeBackend(channel?: ServeChannel): BackendAdapter {
     modelsConfigPut: (config) => call('models_config_put', { config }),
     openDirectoryDialog: (options) =>
       // 目录选择器非 web 原生面：serve 通道若提供 dialog.open_directory 则
-      // 直连，否则 serve 侧降级（桌面壳能力不随迁，D2/D6）。
+      // 直连，否则 serve 侧无此能力时降级处理。
       call<string | string[] | null>('dialog.open_directory', { options }).then((picked) => {
         if (Array.isArray(picked)) return picked.filter((p): p is string => typeof p === 'string');
         return picked ? [picked] : null;

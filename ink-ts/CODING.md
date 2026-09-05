@@ -145,11 +145,11 @@ CI 的 ink-ts job 同链执行。规则增删须同步本表。
 | `rounds.send` | rounds | 回合驱动（Runtime 在途 run 登记 + engine.ainvoke 续链 + 事件落文件传输） |
 | `rounds.abort` | rounds | 中止当前在途 run（Runtime.abort_current_run；JS 取消模型降级见代码注） |
 | `rounds.resume` | rounds | 审批决议重入（Runtime.resume_run） |
-| `records.sessions` | records | 会话索引查询（host 薄数据，S6 会话域服务定稿） |
+| `records.sessions` | records | 会话索引查询（host 薄数据：rounds 收尾 upsert 的索引记录） |
 | `records.chain` | records | 链记录（chain_index + checkpoint to_dict，engine 权威） |
 | `approval.list` | approval | 审批卡查询（engine.get_latest_interrupt 挂起卡） |
 | `approval.resolve` | approval | 审批裁决（决议注入 → resume_run） |
 | `audit.export` | audit | 审计导出（SET_AUDIT_COLLECTION 只读窗口） |
 
-host bridge 与 cli `host.ping`/`host.info` 命名空间独立并存（S4 注入）。
+host bridge 与 cli `host.ping`/`host.info` 命名空间独立并存（方法表并入 cli 命令面）。
 JSON-RPC 信封错误只回通用、细节走 diag（复用 `cli/src/diag.ts` 形态）。

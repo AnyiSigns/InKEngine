@@ -1,7 +1,7 @@
 # ink-ts 原生机制件 workspace：exec（OS 执行器子进程）+ infer（本地嵌入推理
 # 子进程）+ rpc（两者共享的 stdio JSON-RPC 行帧底座）。
 #
-# 依赖纪律（D3/D10）：exec 只做信封驱动的机械守门 + 物理执行体（零声明表、
+# 依赖纪律：exec 只做信封驱动的机械守门 + 物理执行体（零声明表、
 # 零裁决）；infer 承载 ort/tokenizers 重依赖并原样承载 embedder.rs 语义；
 # rpc 不携带任何业务。infer 因 ort 构建期需下载 ONNX Runtime 二进制，独立
 # 成 crate 并从 default-members 排除——`cargo test/build --manifest-path

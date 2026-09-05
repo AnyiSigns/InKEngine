@@ -11,7 +11,7 @@
   </head>
   <body>
     <h1>ink-ts cli serve（静态托管占位）</h1>
-    <p>serve 形态为 web 前端（S8 @ink-ts/web）预留的连接面。占位页说明通道契约：</p>
+    <p>serve 形态为 web 前端（@ink-ts/web）预留的连接面（web 接入前此页为静态托管占位）。占位页说明通道契约：</p>
     <ul>
       <li><code>GET /health</code> — 健康检查</li>
       <li><code>POST /rpc</code> — JSON-RPC 2.0（host.ping / host.info / host bridge 方法面），
@@ -19,6 +19,6 @@
       <li><code>WS /ws?token=&lt;token&gt;</code> — 事件订阅：<code>events.*</code>（引擎事件）与
         <code>state.*</code>（serve/回合状态）</li>
     </ul>
-    <p>web 迁入（S8/T6）后由 cli 托管 Vite 构建静态产物，此处即产品 UI 挂载点。</p>
+    <p>web 构建产物接入 serve 后由 cli 托管（--static 指向构建目录），此处即产品 UI 挂载点。</p>
   </body>
 </html>

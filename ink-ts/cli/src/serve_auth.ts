@@ -1,7 +1,7 @@
 /**
  * serve 形态本地 http/ws 鉴权与请求解析（回环 token）。
  *
- * 鉴权形态（本阶段自定，T6 web 按此契约接入）：
+ * 鉴权形态（serve 本地 http/ws 通道约定）：
  * - /rpc   ：`Authorization: Bearer <token>` 或 `x-ink-token: <token>`
  *   或 `ink_ts_token` cookie（serve 在静态响应 Set-Cookie，同源浏览器可用）；
  * - /ws    ：`?token=<token>` 或 `ink_ts_token` cookie（浏览器 WS 无法自设头）；

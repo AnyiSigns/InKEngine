@@ -1,5 +1,5 @@
 /**
- * host ↔ exec 进程级集成（S5 验收：spawn → 信封调用 → 响应）。
+ * host ↔ exec 进程级集成（spawn → 信封调用 → 响应）。
  *
  * 二进制经 binary.ts 定位（target/{debug,release}/exec(.exe)）；定位不到 =
  * 未构建 cargo → 整组跳过（CI 无 Rust 工具链不炸，本地/出厂门禁必须先

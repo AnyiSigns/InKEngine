@@ -1,5 +1,5 @@
 /**
- * 产品配方（AssemblyRecipe）构建 + 产品配方默认表（D14）。
+ * 产品配方（AssemblyRecipe）构建 + 产品配方默认表。
  *
  * 机制接线靠引擎默认装配直接接上（cfe47b9，宿主零代码接线）；本文件只出
  * 两样东西：
@@ -7,10 +7,10 @@
  *    机制接线代码）：PathAssemblyFlags 七位与各布尔开关默认全开 true（含
  *    canary 验证链、context_window 多域模式、回合时间线事件）；关闭只走
  *    显式产品配置（assembly.switches / assembly.run_options 覆写）。安全/
- *    审批姿态不在本表（D8：默认 fail-closed，autoApprove 显式才放行）。
+ *    审批姿态不在本表（默认 fail-closed，autoApprove 显式才放行）。
  * 2. build_product_recipe——boot 种子 / 事件类型 / harness / ui_spec 白名单
  *    / tool_wiring / approval_levels 的装配（engine 已具 boot 种子 → 直接
- *    引用不复制）；graph_recipe 为预留注入位（S6 填充，本阶段由调用方注入
+ *    引用不复制）；graph_recipe 为调用方注入位（产品图未内置，由调用方注入
  *    或显式留空——Runtime 装配要求非空图配方，留空由 index 装配入口给出
  *    明确错误而非静默装配）。
  *
@@ -30,10 +30,10 @@ import {
 } from '@ink-ts/engine';
 import type { Graph, GraphRecipeContext, ToolWiring } from '@ink-ts/engine';
 
-/** 图配方注入位形态（S6 填充产品图；本阶段测试/调用方注入）。 */
+/** 图配方注入位形态（产品图未内置；由测试/调用方注入）。 */
 export type RecipeGraph = (ctx: GraphRecipeContext) => Graph;
 
-/** 产品机制开关默认表（D14 全开；关闭只走显式产品配置）。 */
+/** 产品机制开关默认表（机制开关全开；关闭只走显式产品配置）。 */
 export const PRODUCT_SWITCH_DEFAULTS = {
   // ── PathAssemblyFlags 七位（域装配开关组；engine 构造缺省 false，
   //    产品默认表全开——逐机制读取点按需消费，无空转） ──

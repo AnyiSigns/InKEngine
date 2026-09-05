@@ -1,8 +1,7 @@
 /**
  * records 命令面（sessions / 链记录）——宿主只读查询，语义留在引擎。
  *
- * sessions = host 会话索引薄数据（rounds 收尾 upsert；S6 会话域服务在
- * 此基础上定稿，补分支/标题）；链记录 = engine storage 权威（checkpoint
+ * sessions = host 会话索引薄数据（rounds 收尾 upsert 的索引记录）；链记录 = engine storage 权威（checkpoint
  * 版本链 chain_index + 最近快照 to_dict），host 只透传 JSON 化，不复制
  * 台账。
  */

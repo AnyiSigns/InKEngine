@@ -16,7 +16,7 @@ import { mkdirSync } from 'node:fs';
 import { Runtime } from '@ink-ts/engine';
 import type { Host } from '@ink-ts/engine';
 
-import type { BridgeHandler } from './bridge/_types.js';
+import type { BridgeHandler, ModelConfigHandles } from './bridge/_types.js';
 import { buildBridge } from './bridge/index.js';
 import { HostConfigError, resolve_host_config } from './config.js';
 import type { HostConfigInput, ResolvedHostConfig } from './config.js';
@@ -38,6 +38,15 @@ export interface HostHandle {
   /** 幂等关停：Runtime.stop（拒新 → 等在途 → 关 MCP/LLM/存储 → host 关停钩子）
    *   → 检索域适配器收口。 */
   dispose(): Promise<void>;
+}
+
+/** 模型运行配置句柄（models.config.* 消费面；闭包绑定 InkHost 运行态）。 */
+function modelConfigHandles(host: InkHost): ModelConfigHandles {
+  return {
+    apply: (input) => host.apply_model_config(input),
+    persist: () => host.persist_model_config(),
+    reload: () => host.reload_model_config(),
+  };
 }
 
 /**
@@ -77,6 +86,7 @@ export async function createHost(
     docTextCap: resolved.round_doc_text_cap,
     docParse: docService,
     searchKeys: search.keys,
+    modelConfig: modelConfigHandles(inkHost),
   });
   const handle: HostHandle = {
     runtime,
@@ -91,11 +101,22 @@ export async function createHost(
   return handle;
 }
 
-export type { BridgeContext, BridgeError, BridgeHandler, HostBridgeDeps } from './bridge/_types.js';
+export type { BridgeContext, BridgeError, BridgeHandler, HostBridgeDeps, ModelConfigHandles } from './bridge/_types.js';
 export { BRIDGE_METHODS, buildBridge } from './bridge/index.js';
 export type { BridgeMethod } from './bridge/index.js';
 export { FileEventsTransport } from './transport.js';
 export { InkHost } from './host.js';
+
+// ── 运行模型配置管理（config.json 持久化/掩码回显；cli 冷启装配消费）──
+export {
+  RUNTIME_CONFIG_FILE,
+  load_persisted_model_config,
+  masked_model_config,
+  merge_model_config,
+  runtime_config_path,
+  write_runtime_model_config,
+} from './model_config_runtime.js';
+export type { ModelConfigState } from './model_config_runtime.js';
 export {
   ENV_KEYS,
   HostConfigError,

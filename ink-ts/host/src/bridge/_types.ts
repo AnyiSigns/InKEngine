@@ -42,11 +42,22 @@ export class BridgeError extends Error {
 export { HOST_SESSIONS_COLLECTION };
 export type { HostSessionRecord };
 
+/** 模型运行配置句柄（models.config.* 消费面；createHost 以 InkHost 装配）。
+ *  apply = 校验 + 合并 + 关停并置空 _llm（返回掩码当前值）；persist = 当前
+ *  model_config 原子写 data_dir/config.json；reload = 从 config.json 重读并应用。 */
+export interface ModelConfigHandles {
+  apply(input: unknown): Promise<Record<string, unknown>>;
+  persist(): Promise<void>;
+  reload(): Promise<Record<string, unknown>>;
+}
+
 /** bridge 依赖（createHost 装配产物；rounds/records/approval/audit 消费）。 */
 export interface HostBridgeDeps {
   runtime: Runtime;
   host: InkHost;
   autoApprove: boolean;
+  /** 模型运行配置句柄（models.config.*；缺省 = models 域不可用）。 */
+  modelConfig?: ModelConfigHandles;
   /** 附件目录（serve /upload 落盘根；rounds 文档附件解析的授权根）。 */
   attachment_dir?: string;
   /** 单附件文本注入上限（null = 构造缺省）。 */

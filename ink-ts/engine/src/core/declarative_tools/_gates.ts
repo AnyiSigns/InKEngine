@@ -24,17 +24,31 @@
 import { SandboxViolation } from '../errors.js';
 import { FS_OPERATIONS } from '../sandbox/index.js';
 import { DENY, REVIEW, GateResult } from '../permissions/permissions.js';
-import type { NetworkPolicySandbox } from '../permissions/networkPolicy.js';
+import { NetworkPolicySandbox } from '../permissions/networkPolicy.js';
+import { pyRepr } from '../py_repr.js';
 import type { GateSeam, SandboxSeam } from '../tool_pipeline/_types.js';
 import type { DeclarativeToolExecutors } from './executors.js';
 import { endpoint_registry } from './endpoint_registry.js';
 import type { EndpointTypeRegistry } from './endpoint_types.js';
 
-/** Python repr 口径的字符串渲染（SandboxViolation 文案 {!r} 形态）。 */
-function _pyRepr(value: unknown): string {
-  if (typeof value === 'string') return `'${value}'`;
-  if (value === null) return 'None';
-  return String(value);
+/**
+ * 定义级网络策略解析：调用工具声明自带 network_policy 时返回其策略沙箱
+ * （逐工具生效——每次调用按当前定义现取，事后注册的定义同样立即生效）；
+ * 工具无声明或定义缺失 = null（不施加定义级网络边界）。unlisted 处置档
+ * 与流水线 build 级同一旋钮（主机级 deny 收紧时定义级同样 fail-closed）。
+ */
+export function _definition_network_sandbox(
+  executors: DeclarativeToolExecutors,
+  name: string,
+  unlisted: string,
+): NetworkPolicySandbox | null {
+  const definition = name !== undefined && name !== null && name !== ''
+    ? executors.definitions[name]
+    : undefined;
+  if (definition === undefined || definition.network_policy === null) {
+    return null;
+  }
+  return new NetworkPolicySandbox(definition.network_policy.allow_domains, unlisted);
 }
 
 /** 定义级权限门禁：按声明式定义声明的权限判定（防宽松 spec 覆盖）。 */
@@ -65,14 +79,23 @@ export class _DefinitionGate implements GateSeam {
   }
 }
 
-/** 网络域名审批桥：白名单外 connect → 强制转审批（审批即网关）。 */
+/** 网络域名审批桥：白名单外 connect → 强制转审批（审批即网关）。
+ *
+ * 策略集按工具名解析（流水线装配注入）：宿主级网络策略（review 档）+
+ * 定义级网络策略（review 档）并集——任一策略判 connect 域名需 review 即
+ * 升级挂卡（AND 保守方向：两套白名单都命中才免审批）。deny 档策略的硬拒
+ * 由沙箱环节承担（unlisted_policy=deny 的策略不入审批集，requires_review
+ * 恒 False，见 NetworkPolicySandbox）。 */
 export class _NetworkReviewGate implements GateSeam {
   readonly _inner: GateSeam;
-  readonly _sandbox: NetworkPolicySandbox;
+  readonly _policies: (name: string) => readonly NetworkPolicySandbox[];
 
-  constructor(inner: GateSeam, sandbox: NetworkPolicySandbox) {
+  constructor(
+    inner: GateSeam,
+    policies: (name: string) => readonly NetworkPolicySandbox[],
+  ) {
     this._inner = inner;
-    this._sandbox = sandbox;
+    this._policies = policies;
   }
 
   check(
@@ -82,10 +105,52 @@ export class _NetworkReviewGate implements GateSeam {
     options: { permissions?: readonly string[] } = {},
   ): GateResult {
     const verdict = this._inner.check(name, operation, target, options);
-    if (verdict.decision !== DENY && this._sandbox.requires_review(operation, target)) {
-      return new GateResult(REVIEW, name, operation, target, '域名不在白名单（已转审批，审批通过后放行）');
+    if (verdict.decision !== DENY) {
+      for (const sandbox of this._policies(name)) {
+        if (sandbox.requires_review(operation, target)) {
+          return new GateResult(REVIEW, name, operation, target, '域名不在白名单（已转审批，审批通过后放行）');
+        }
+      }
     }
     return verdict;
+  }
+}
+
+/**
+ * 定义级网络策略沙箱：声明自带 network_policy 的工具按其定义级白名单
+ * 守卫（非名单域名按 unlisted 档：review 放行交审批桥 / deny 硬拒）。
+ *
+ * 逐工具生效 + 懒解析：每次校验按当前调用工具自身定义现取策略，事后注册
+ * 的定义立即获得守卫（与 _AutoDefinitionSandbox 同哲学）。与宿主级网络
+ * 沙箱并存时 = AND（两套策略都通过才放行——安全保守方向）；工具无定义级
+ * 策略时本沙箱直通（宿主级沙箱另行把关）。操作域只在 connect（http_fetch
+ * 域），其余操作不属网络边界。
+ */
+export class _DefinitionNetworkSandbox implements SandboxSeam {
+  readonly _executors: DeclarativeToolExecutors;
+  readonly _host: NetworkPolicySandbox | null;
+  readonly _unlisted: string;
+
+  constructor(
+    executors: DeclarativeToolExecutors,
+    host: NetworkPolicySandbox | null,
+    unlisted: string,
+  ) {
+    this._executors = executors;
+    this._host = host;
+    this._unlisted = unlisted;
+  }
+
+  guards_operation(operation: string, name: string): boolean {
+    if (operation !== 'connect') return false;
+    if (this._host !== null) return true; // 宿主级网络守卫全局生效 → 定义级并列判定（AND）
+    return _definition_network_sandbox(this._executors, name, this._unlisted) !== null;
+  }
+
+  validate(operation: string, target: string, name: string): string | null {
+    const policy = _definition_network_sandbox(this._executors, name, this._unlisted);
+    if (policy === null) return target; // 无定义级策略：宿主级沙箱另行把关（或本无网络边界）
+    return policy.validate(operation, target);
   }
 }
 
@@ -133,7 +198,7 @@ export class _AutoDefinitionSandbox implements SandboxSeam {
       }
     }
     throw new SandboxViolation(
-      `无声明式定义守卫操作 ${_pyRepr(operation)}（工具 ${_pyRepr(name)} 目标 ${_pyRepr(target)} 无沙箱边界）`,
+      `无声明式定义守卫操作 ${pyRepr(operation)}（工具 ${pyRepr(name)} 目标 ${pyRepr(target)} 无沙箱边界）`,
     );
   }
 }

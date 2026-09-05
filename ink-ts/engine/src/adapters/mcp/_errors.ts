@@ -82,8 +82,3 @@ export function is_connection_lost(exc: unknown): boolean {
 export function is_business_error(exc: unknown): boolean {
   return exc instanceof Error && exc.message.includes('MCP 工具执行失败');
 }
-
-/** server 业务拒绝判定（JSON-RPC error 形态）。 */
-export function is_mcp_business_reject(exc: unknown): boolean {
-  return exc instanceof RpcError;
-}

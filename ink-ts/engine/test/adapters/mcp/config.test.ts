@@ -66,6 +66,38 @@ describe('McpServerConfig 序列化与校验', () => {
     expect(restored.equals(cfg)).toBe(true);
   });
 
+  it('http 传输的 url 仅接受 http/https scheme（非法协议拒绝）', () => {
+    expect(
+      () => new McpServerConfig({ id: 'x', url: 'ftp://mcp.example' }),
+    ).toThrow(/必须使用 http\/https/);
+    expect(
+      () => new McpServerConfig({ id: 'x', url: 'file:///tmp/srv' }),
+    ).toThrow(/必须使用 http\/https/);
+    expect(
+      () => new McpServerConfig({ id: 'x', url: 'localhost:8000' }),
+    ).toThrow(/必须使用 http\/https/);
+    // from_dict 路径同规（持久化/外部数据入口 fail-closed）
+    expect(() =>
+      McpServerConfig.from_dict({ id: 'x', url: 'ws://mcp.example' }),
+    ).toThrow(/必须使用 http\/https/);
+    expect(
+      () => new McpServerConfig({ id: 'x', url: 'https://mcp.example' }),
+    ).not.toThrow();
+    expect(
+      () => new McpServerConfig({ id: 'x', url: 'http://mcp.example' }),
+    ).not.toThrow();
+    // 非 http 传输的 url 不受 scheme 约束（stdio/内存无此语义）
+    expect(
+      () =>
+        new McpServerConfig({
+          id: 'x',
+          transport: McpTransport.STDIO,
+          command: 'cmd',
+          url: 'not-a-url',
+        }),
+    ).not.toThrow();
+  });
+
   it('headers/env 凭据遮蔽自文案面（repr/toString 不泄漏子进程凭据）', () => {
     const cfg = new McpServerConfig({
       id: 'svc',

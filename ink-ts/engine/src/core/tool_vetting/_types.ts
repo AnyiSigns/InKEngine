@@ -10,6 +10,9 @@
 import { GraphDefinitionError } from '../errors.js';
 import { isRecord, typeName } from '../json.js';
 
+// 族收敛：pyRepr 近似拷贝的统一迁移点 = core/py_repr.ts 单源（已就绪）；
+// 本实现与 rules/_py.ts pyRepr 语义一致。后续批次可按批迁移，本文件暂不
+// 改实现。
 /** Python repr() 口径渲染（错误消息携带注入值形态；字符串带单引号）。 */
 export function pyRepr(value: unknown): string {
   if (value === null || value === undefined) return 'None';

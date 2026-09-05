@@ -1,3 +1,4 @@
+// gate: 超限(365 行) - sqlite 全后端行为契约单文件成组（版本链/事件/records/序列化 marker），便于对照 pytest 参数化
 /**
  * SqliteStorage 后端行为测试（:memory: 库）：checkpoint 版本链 + 乐观锁、链一致性不变量、
  * 事件日志 append-only + 截断、structured records、安全剥离与 marker 内联还原。对标 pytest
@@ -69,7 +70,7 @@ describe('sqlite checkpoint 版本链', () => {
         { expected_version: rec.version },
       ),
     ).rejects.toBeInstanceOf(CheckpointConflictError);
-    // P1：更新路径父指针不可变（注入非法 parent_id 被忽略）
+    // 更新路径父指针不可变（注入非法 parent_id 被忽略）
     const child = await s.put_checkpoint(cp({ state: { v: 9 }, parent_id: rec.checkpoint_id }));
     const updatedChild = await s.put_checkpoint(
       cp({ checkpoint_id: child.checkpoint_id, state: { v: 10 }, parent_id: 999, version: child.version }),
@@ -87,6 +88,23 @@ describe('sqlite checkpoint 版本链', () => {
       cp({ checkpoint_id: rec.checkpoint_id, state: { v: 2 }, version: rec.version }),
     );
     expect(updated.version).toBe(rec.version + 1);
+  });
+
+  it('异线程 checkpoint_id 更新被拒：不迁移线程（WHERE thread_id 归属校验）', async () => {
+    const c1 = await s.put_checkpoint(cp({ state: { v: 1 } }));
+    await expect(
+      s.put_checkpoint(
+        cp({ checkpoint_id: c1.checkpoint_id, thread_id: 't2', state: { v: 2 }, version: c1.version }),
+      ),
+    ).rejects.toBeInstanceOf(CheckpointConflictError);
+    await expect(
+      s.put_checkpoint(
+        cp({ checkpoint_id: c1.checkpoint_id, thread_id: 't2', state: { v: 2 }, version: c1.version }),
+      ),
+    ).rejects.toThrow(/归属他线程/);
+    const got = await s.get_checkpoint(c1.checkpoint_id);
+    expect(got!.thread_id).toBe('t1');
+    expect(await s.get_latest_checkpoint('t2')).toBeNull();
   });
 
   it('链尾已前进时续链冲突；fork=True 允许指向历史链节点', async () => {
@@ -172,14 +190,14 @@ describe('sqlite checkpoint 版本链', () => {
     expect(got!.state['ok']).toBe(1);
   });
 
-  it('P1：写入后修改调用方状态不影响库内快照（SQL 真快照语义）', async () => {
+  it('写入后修改调用方状态不影响库内快照（SQL 真快照语义）', async () => {
     const rec = await s.put_checkpoint(cp({ state: { items: [1] } }));
     (rec.state['items'] as number[]).push(2);
     const got = await s.get_checkpoint(rec.checkpoint_id);
     expect(got!.state['items']).toEqual([1]);
   });
 
-  it('P1：更新路径保持 graph_path 形态（readonly 数组）与 version 递增', async () => {
+  it('更新路径保持 graph_path 形态（readonly 数组）与 version 递增', async () => {
     const rec = await s.put_checkpoint(cp({ state: { v: 1 } }));
     const updated = await s.put_checkpoint(
       cp({ checkpoint_id: rec.checkpoint_id, state: { v: 2 }, version: rec.version }),
@@ -188,13 +206,13 @@ describe('sqlite checkpoint 版本链', () => {
     expect(updated.version).toBe(rec.version + 1);
   });
 
-  it('P1：更新不存在的 checkpoint 抛 StorageError', async () => {
+  it('更新不存在的 checkpoint 抛 StorageError', async () => {
     await expect(
       s.put_checkpoint(cp({ checkpoint_id: 12345, state: { v: 1 } })),
     ).rejects.toBeInstanceOf(StorageError);
   });
 
-  it('P1：状态含不可 JSON 序列化对象 → StorageError（与切 sqlite 报错口径一致）', async () => {
+  it('状态含不可 JSON 序列化对象 → StorageError（与切 sqlite 报错口径一致）', async () => {
     class Obj {
       // 空类实例：TS 侧 JSON.stringify 会静默序列化，strictDumps 显式拒绝
     }

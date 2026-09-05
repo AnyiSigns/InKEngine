@@ -6,14 +6,15 @@
  * 或候选并行执行 → 汇流裁决 → 证据回写 → 审计组装。只执行不判定触发
  * （触发信号由组装侧判定后传入）。
  *
- * 支流执行（_execute_branches，见 _runner_base.ts）依赖引擎执行器
- * （core/executor.Engine），executor 模块未迁移——按 defer 预留：凡需真实
- * 支流执行的用例（集成/中断/预算降级单径/k=3 门限/嵌套护栏复位等）随
- * executor 落地后接线补测；开关关闭/无候选的零生效路径已可直接运行。
+ * 支流执行（_execute_branches，见 _runner_base.ts）经父引擎执行器真接线：
+ * 每条候选独立实例引擎执行 + 子链 checkpoint 续跑 + 事件并轨（与 spawn/
+ * 推演分支同构）。运行器只持父引擎结构面（MultipathEngineLike），实例由
+ * executor 侧注入——开关关闭/无候选的零生效路径不触达引擎内部。
  */
 
 import type { BudgetRemaining } from '../budget/budget_types.js';
 import type { QualityGate } from '../contracts/contracts.js';
+import type { EngineTransport } from '../events/events.js';
 import type { AssemblyCandidate, AssemblyRequest } from '../path_assembler/types.js';
 import { check_multipath_budget, multipath_budget_required, MultiPathConfig } from './config.js';
 import {
@@ -70,6 +71,8 @@ export class MultipathRunner extends MultipathRunnerBase {
    * @param opts.quality_gate 质量闸门（缺省 = 请求注入；同构择优用）。
    * @param opts.synth_provider 合成源（异构输出合成用；合成源归使用方）。
    * @param opts.inject 中断注入值（{key: value} 一次性；重入语义与引擎一致）。
+   * @param opts.transports 支流事件传输链（null = 父引擎 options.transports；
+   *   引擎 run 队列等顶层链路经此下传——事件统一父链）。
    * @param opts.budget_remaining 预算余量（缺省 = 经引擎 BudgetManager 只读
    *   查询；预检 fail-closed）。
    */
@@ -86,6 +89,7 @@ export class MultipathRunner extends MultipathRunnerBase {
       quality_gate?: QualityGate | null;
       synth_provider?: JunctionSynthProvider | null;
       inject?: Record<string, unknown> | null;
+      transports?: EngineTransport[] | null;
       budget_remaining?: readonly BudgetRemaining[] | null;
     },
   ): Promise<MultiPathResult> {
@@ -144,6 +148,7 @@ export class MultipathRunner extends MultipathRunnerBase {
             concurrency: 1,
             inject,
             evidence_index,
+            transports: opts.transports ?? null,
           },
         );
       }
@@ -203,6 +208,7 @@ export class MultipathRunner extends MultipathRunnerBase {
           concurrency: 1,
           inject,
           evidence_index,
+          transports: opts.transports ?? null,
         },
       );
       const degraded = degradations.length > 0 ? degradations.join('; ') : null;
@@ -245,6 +251,7 @@ export class MultipathRunner extends MultipathRunnerBase {
             : config.concurrency,
         inject,
         evidence_index,
+        transports: opts.transports ?? null,
       },
     );
     const failed_indexes = branch_results

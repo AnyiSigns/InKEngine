@@ -10,8 +10,8 @@
  * 提供只读预检口——check 为 fail-closed 终止式无查询口；预检语义
  * fail-closed（查询故障/超预算 = 不可放行，见 can_afford）。
  *
- * 注：BudgetExceededError 定义于此（Python 侧在 core.exceptions，待其模块
- * 移植后应收敛至 ../errors.js），消息形态与 Python 逐字对齐。
+ * 注：BudgetExceededError 暂居本模块（消息形态与 Python 逐字对齐）——
+ * 收敛至 errors.ts（EngineError 继承面）待办，活跃使用方均自本模块导入。
  */
 
 import { BudgetRemaining } from './budget_types.js';

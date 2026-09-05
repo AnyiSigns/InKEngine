@@ -14,6 +14,11 @@
  * 移植说明：适配层 boot 模块（镜像 Python ink_engine/seeds/boot），
  * snake_case 命名与 __all__ 镜像，常量与 id 严格保留 Python 字面；
  * JSON 数据直接字面，机制依赖只取 migrated 的类型形态。
+ *
+ * 状态标注（机制就绪 / 宿主接线点待定）：引导种子装配位——runtime 已接
+ * seed_general（通用种子，引擎侧 seed_knowledge_set 直注）；boot 引导数据
+ * （系统提示词/界面/事件/自举 harness）由宿主配方 AssemblyRecipe.seeds
+ * 直注装配。
  */
 
 import { EventTypeSpec } from '../../core/event_types/eventTypeSpec.js';

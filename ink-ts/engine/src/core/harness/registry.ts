@@ -131,10 +131,19 @@ export class HarnessRegistry {
    *
    * 注销原语与注册对称：注册→注销→再注册可用（回退 = 注销当前定义 +
    * 重新登记旧版本）；重复注销不报错（幂等）。声明式工具定义登记
-   * （build_tools 的副作用）由挂载/卸载路径经 declarative.unregister_definition
-   * 管理，本原语只退役注册表条目本身。
+   * （build_tools 的副作用）随注销批量清理——按该 harness 的工具名逐条
+   * declarative.unregister_definition（build_tools 再注册时重新登记，
+   * 与「注册→注销→再注册」对称语义一致）。
    */
   unregister(name: string): void {
+    const definition = this._definitions.get(name);
+    if (definition === undefined) return;
+    for (const tool_data of definition.tools) {
+      const toolName = (tool_data as { name?: unknown }).name;
+      if (typeof toolName === 'string' && toolName !== '') {
+        this.declarative.unregister_definition(toolName);
+      }
+    }
     this._definitions.delete(name);
   }
 

@@ -7,7 +7,7 @@ import { readdir, readFile, stat } from 'node:fs/promises';
 import { join, normalize, relative, sep } from 'node:path';
 
 import { defaultConfig, type GateConfig } from './config.js';
-import { checkCoreImports, checkCoreTokens, checkLineLimit, type Violation } from './rules.js';
+import { checkCoreImports, checkCoreTokens, checkLineLimit, checkUtf8Valid, type Violation } from './rules.js';
 
 const SOURCE_RE = /\.(ts|tsx)$/;
 
@@ -53,6 +53,10 @@ export async function scan({ root, config }: ScanOptions): Promise<Violation[]> 
       const content = await readFile(file, 'utf-8');
       const rel = relative(rootNorm, file);
       const inSourceDir = rel.split(sep).includes('src');
+      if (inSourceDir) {
+        const utf8Violation = checkUtf8Valid(content, rel);
+        if (utf8Violation) violations.push(utf8Violation);
+      }
       if (inSourceDir && /\.test\.(ts|tsx)$/.test(rel)) {
         violations.push({
           path: rel,

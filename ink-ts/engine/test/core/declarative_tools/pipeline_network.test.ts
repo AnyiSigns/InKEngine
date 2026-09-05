@@ -1,4 +1,4 @@
-// gate: 超限(352 行) - 网络策略流水线用例共享同一组接线条断言，拆文件降低整链回归可读性
+// gate: 超限(415 行) - 网络策略流水线用例共享同一组接线条断言，拆文件降低整链回归可读性
 /**
  * 声明式工具流水线的网络/沙箱/权限接线单测——对标 ink_engine/tests/
  * test_declarative_tools.py 的网络策略、自动沙箱接线、定义权限收口与
@@ -158,6 +158,87 @@ describe('network_policy 并网', () => {
     expect(denied.decision).toBe('deny');
     expect(denied.error).toContain('域名不在白名单');
     expect(calls).toEqual(['https://sub.example.com/a']);
+  });
+
+  it('定义级 network_policy 自动消费：仅定义声明 allow_domains（无宿主策略）也逐工具生效', async () => {
+    // 目标：工具声明自带 network_policy 时，无宿主 build 级配置同样获得守卫——
+    // 名单内直过、名单外转审批（审批 accept 放行 / reject 拒绝）
+    const definition = declarative(EndpointType.HTTP_FETCH, {
+      permissions: ['network:connect:*'], // 宽权限：域名收口归定义级策略/审批
+      network_policy: new NetworkPolicy(['*.example.com']),
+    });
+    const executors = new DeclarativeToolExecutors();
+    executors.register_definition(definition);
+    const calls: string[] = [];
+    const httpExecutor = async (
+      ctx: unknown,
+      defn: DeclarativeToolSpec,
+      args: Record<string, unknown>,
+      approval: unknown,
+    ): Promise<string> => {
+      calls.push(String(args['url']));
+      return 'body';
+    };
+    executors.register(EndpointType.HTTP_FETCH, httpExecutor);
+    // 关键：不传 network_policy（宿主级策略缺失）——策略只来自定义声明
+    const pipeline = build_declarative_pipeline(executors);
+
+    const spec = definition.to_spec();
+    // 名单内 → 免审批直过
+    const allowed = await pipeline.execute(new ApprovalCtx(), spec, { url: 'https://sub.example.com/a' });
+    expect(allowed.ok).toBe(true);
+    expect(calls).toEqual(['https://sub.example.com/a']);
+    // 名单外 → 强制挂审批卡（默认 reject → 拒绝且不执行）
+    const ctx = new ApprovalCtx();
+    const denied = await pipeline.execute(ctx, spec, { url: 'https://other.org/a' });
+    expect(denied.ok).toBe(false);
+    expect(denied.decision).toBe('reject');
+    expect(ctx.cards.length).toBeGreaterThan(0);
+    expect(calls).toEqual(['https://sub.example.com/a']);
+    // 审批 accept → 放行（审批即网关）
+    const acceptCtx = new ApprovalCtx({ 'gate:mytool': { decision: 'accept' } });
+    const accepted = await pipeline.execute(acceptCtx, spec, { url: 'https://other.org/a' });
+    expect(accepted.ok).toBe(true);
+    expect(calls).toEqual(['https://sub.example.com/a', 'https://other.org/a']);
+  });
+
+  it('定义级策略按工具隔离：未声明策略的并发工具不受他人定义策略约束', async () => {
+    const executors = new DeclarativeToolExecutors();
+    const calls: string[] = [];
+    const httpExecutor = async (
+      ctx: unknown,
+      defn: DeclarativeToolSpec,
+      args: Record<string, unknown>,
+      approval: unknown,
+    ): Promise<string> => {
+      calls.push(String(args['url']));
+      return 'body';
+    };
+    executors.register(EndpointType.HTTP_FETCH, httpExecutor);
+    const withPolicy = declarative(EndpointType.HTTP_FETCH, {
+      name: 'guarded_tool',
+      permissions: ['network:connect:*'],
+      network_policy: new NetworkPolicy(['*.example.com']),
+    });
+    const bareTool = declarative(EndpointType.HTTP_FETCH, {
+      name: 'bare_tool',
+      permissions: ['network:connect:*.open.org'],
+    });
+    executors.register_definition(withPolicy);
+    executors.register_definition(bareTool);
+    const pipeline = build_declarative_pipeline(executors);
+
+    // 未声明定义级策略的工具按其权限判定放行（不受 guarded_tool 的策略约束）
+    const ok = await pipeline.execute(new ApprovalCtx(), bareTool.to_spec(), {
+      url: 'https://sub.open.org/x',
+    });
+    expect(ok.ok).toBe(true);
+    expect(calls).toEqual(['https://sub.open.org/x']);
+    // 带定义级策略的工具名单外域名挂卡（reject 拒绝）
+    const ctx = new ApprovalCtx();
+    const denied = await pipeline.execute(ctx, withPolicy.to_spec(), { url: 'https://other.org/a' });
+    expect(denied.ok).toBe(false);
+    expect(ctx.cards.length).toBeGreaterThan(0);
   });
 });
 

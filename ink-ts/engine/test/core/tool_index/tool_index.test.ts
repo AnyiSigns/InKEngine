@@ -1,3 +1,4 @@
+// gate: 超限(380 行) - seam 收窄（同步直返）与降级可观测用例并入同一条检索语义断言装置
 /**
  * 工具向量索引（search_tools 后端检索引擎）对标测试。
  *
@@ -305,5 +306,58 @@ describe('ToolVectorIndex / 接口契约', () => {
   it('namespace 字段保留（架构层语义，TS 仅持有）', () => {
     const idx = new ToolVectorIndex({ embedder: null, namespace: 'tools' });
     expect(idx.namespace).toBe('tools');
+  });
+});
+
+describe('ToolVectorIndex / seam 同步契约与降级可观测', () => {
+  it('同步直返 seam：文档/query 向量可获取，degraded_reason 保持 null', () => {
+    const embed = fake_embedder((texts) =>
+      texts.map((t) => (t.includes('read') ? [1, 0] : [0, 1])),
+    );
+    const idx = new ToolVectorIndex({ embedder: embed });
+    idx.build([spec('read_file', '读文件'), spec('write_file', '写文件')]);
+    expect(idx.uses_vectors()).toBe(true);
+    expect(idx.degraded_reason).toBeNull();
+    const res = idx.search('read');
+    expect(res[0]?.name).toBe('read_file');
+    expect(res[0]?.score).toBeGreaterThan(0);
+  });
+
+  it('宿主未先 await（嵌入器返回 Promise）= seam 契约违规：降级关键词 + 明确原因上报（不静默）', () => {
+    // 运行时仍返回 thenable = 宿主未按同步契约 await 收口（类型层为违规，
+    // 测试以 untyped 注入模拟宿主绕开契约的形态）
+    const unawaited = {
+      aembed_documents: () => Promise.resolve([[1, 0], [0, 1]]),
+      aembed_query: () => Promise.resolve([1, 0]),
+    } as unknown as AsyncEmbedder;
+    const reasons: string[] = [];
+    const idx = new ToolVectorIndex({ embedder: unawaited, on_degraded: (r) => reasons.push(r) });
+    idx.build([spec('a', 'A'), spec('b', 'B')]);
+    // 不崩 + 明确降级标记（曾为静默恒 null → 关键词基线无信号）
+    expect(idx.uses_vectors()).toBe(false);
+    expect(reasons.length).toBeGreaterThan(0);
+    expect(reasons.join(';')).toContain('await');
+    expect(idx.degraded_reason).toContain('await');
+    const res = idx.search('A');
+    expect(res.length).toBeGreaterThan(0); // 关键词基线兜底仍可检索
+  });
+
+  it('嵌入失败不崩：降级关键词基线且降级原因经 on_degraded 上报', () => {
+    const failing: AsyncEmbedder = {
+      aembed_documents: () => {
+        throw new Error('model missing');
+      },
+      aembed_query: () => {
+        throw new Error('model missing');
+      },
+    };
+    const reasons: string[] = [];
+    const idx = new ToolVectorIndex({ embedder: failing, on_degraded: (r) => reasons.push(r) });
+    idx.build([spec('read_file', '读文件')]);
+    expect(idx.uses_vectors()).toBe(false);
+    expect(reasons.some((r) => r.includes('model missing'))).toBe(true);
+    expect(idx.degraded_reason).toContain('model missing');
+    const res = idx.search('read_file');
+    expect(res.length).toBeGreaterThan(0); // 失败不崩
   });
 });

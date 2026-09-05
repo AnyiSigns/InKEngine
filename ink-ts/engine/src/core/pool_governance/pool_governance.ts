@@ -87,6 +87,9 @@ function get(record: Record<string, unknown>, key: string): unknown {
   return Object.prototype.hasOwnProperty.call(record, key) ? record[key] : undefined;
 }
 
+// 族收敛：真值/str/int 近似拷贝的统一迁移点 = core/py_repr.ts 单源（已就绪）；
+// pyStr 语义与其一致，pyInt/pyFloat 属数值镜像不在该单源范围。后续批次可
+// 按批迁移，本文件暂不改实现。
 /** Python 真值口径：null/undefined/False/0/''/空容器一律为假。 */
 function isTruthy(value: unknown): boolean {
   if (value === null || value === undefined) return false;

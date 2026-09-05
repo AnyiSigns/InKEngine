@@ -23,6 +23,13 @@
  * - logger.warning 留痕属可观测性副作用，TS core 零 IO 不落。
  * - 非法并发上限抛 RangeError（Python ValueError 按既有移植口径映射，
  *   见 patch_chain 的裁剪点越界先例）。
+ *
+ * 已知边界（多径/子图展开的中断收口场景）：JS 无协作取消，传播（propagate）
+ * 取消只对监听 AbortSignal 的兄弟任务生效——不监听的任务可能继续在途运行，
+ * 其事件写入可能落后于调用方已落定的终态 checkpoint；若该在途任务属于带
+ * checkpoint 子链的展开（spawn/推演分支/多径支流），resume 重放该子链时可能
+ * 携带这批「迟到事件」。消费方（恢复解析/审计）须容忍重放集为超集；需要
+ * 协作退出的任务应在内部 await 点监听注入的 AbortSignal。
  */
 
 /** 哨兵：仅标记「未成功（剔除/未跑）」，区别于合法的 null/undefined 成功值。 */

@@ -10,7 +10,9 @@
  * - 增量刷新：工具增改 / MCP 挂载 hook 触发 ``refresh``，只重新嵌入变更条目
  *   （不重建全量）。
  * - 降级：嵌入层不可用（无配置 / 模型缺失 / 推理失败）= 关键词基线
- *   （子串 + 分词匹配），永不明返回空。
+ *   （子串 + 分词匹配），永不明返回空。嵌入失败**可观测**：seam 收窄为
+ *   同步直返（宿主先 await 收口再注入，见 _types.ts），失败经 degraded
+ *   on_degraded 回调/字段上报——不再把 Promise 轮询成「恒空向量」静默降级。
  *
  * core 零 IO / 零宿主词：日志走 console seam，副作用均由宿主注入。
  */
@@ -28,43 +30,19 @@ import {
 } from './_types.js';
 import { ToolSpec } from '../llm/tools.js';
 
-/**
- * 解析可能的 Promise 嵌入结果（吞错返 null，调用方按 null 走降级）。
- *
- * TS 侧 ``AsyncEmbedder`` seam 同时兼容同步与 Promise 形态：同步结果
- * 直返；异步结果需宿主在调用本模块前 ``await`` 解开——core 检索接口是
- * 同步路径，宿主在装配层负责把异步适配器收口成同步值（与 Python 端
- * ``asyncio.iscoroutinefunction`` + 专用线程循环等价位）。
- */
-function resolve_embed<R>(value: Promise<R> | R): R | null {
-  if (!(value instanceof Promise)) return value as R;
-  let resolved: R | null = null;
-  let settled = false;
-  value
-    .then((v: R) => {
-      resolved = v;
-      settled = true;
-    })
-    .catch(() => {
-      settled = true;
-    });
-  return settled ? resolved : null;
+/** 嵌入异常消息字符串化（Python str(exc) 口径：Error 取 message，其余兜底）。 */
+function errMessage(err: unknown): string {
+  if (err instanceof Error) return err.message;
+  return String(err);
 }
 
-/** 批量嵌入；失败返回 null（调用方降级关键词基线）。 */
-function embed_texts(
-  embedder: AsyncEmbedder | null,
-  texts: readonly string[],
-): readonly (readonly number[])[] | null {
-  if (embedder === null) return null;
-  try {
-    const out = embedder.aembed_documents(texts);
-    const resolved = resolve_embed(out);
-    if (resolved === null) return null;
-    return resolved as readonly (readonly number[])[];
-  } catch {
-    return null;
-  }
+/** thenable 判定：async 函数/Promise 结果 = seam 契约违规（宿主未先 await）。 */
+function isThenable(value: unknown): value is PromiseLike<unknown> {
+  return (
+    value !== null &&
+    value !== undefined &&
+    typeof (value as { then?: unknown }).then === 'function'
+  );
 }
 
 /** 余弦相似度（零向量防御）。 */
@@ -154,16 +132,55 @@ export class ToolVectorIndex {
   embedder: AsyncEmbedder | null;
   /** 命名空间（默认 ``tools``，隔离不同检索域；架构层保留字段）。 */
   readonly namespace: string;
+  /** 嵌入降级上报回调（core 零日志：失败经注入面可观测，不静默）。 */
+  readonly on_degraded: ((reason: string) => void) | null;
+  /** 最近一次嵌入降级原因（null = 未降级；失败不静默的可观测标记）。 */
+  degraded_reason: string | null;
   /** 索引条目表（name → entry）。 */
   entries: Map<string, ToolIndexEntry>;
   /** 任意条目已嵌入则 True（向量检索可用）。 */
   vectors_built: boolean;
 
-  constructor(init: { embedder?: AsyncEmbedder | null; namespace?: string } = {}) {
+  constructor(init: {
+    embedder?: AsyncEmbedder | null;
+    namespace?: string;
+    on_degraded?: ((reason: string) => void) | null;
+  } = {}) {
     this.embedder = init.embedder ?? null;
     this.namespace = init.namespace ?? 'tools';
+    this.on_degraded = init.on_degraded ?? null;
+    this.degraded_reason = null;
     this.entries = new Map();
     this.vectors_built = false;
+  }
+
+  /** 记录嵌入降级（标记 + 上报回调；失败不静默，供宿主/可观测层消费）。 */
+  private _degrade(reason: string): void {
+    this.degraded_reason = reason;
+    if (this.on_degraded !== null) this.on_degraded(reason);
+  }
+
+  /**
+   * 批量嵌入（同步契约）：嵌入器异常/返回 thenable（宿主未先 await）= 降级
+   * 并上报（返回 null → 调用方回落关键词基线）；向量形态为空表 = 正常返回
+   * 空表（条目级无向量由调用方置 null）。
+   */
+  private _embed_texts(texts: readonly string[]): readonly (readonly number[])[] | null {
+    if (this.embedder === null) return null;
+    let out: unknown;
+    try {
+      out = this.embedder.aembed_documents(texts);
+    } catch (err) {
+      this._degrade(`文档嵌入失败: ${errMessage(err)}`);
+      return null;
+    }
+    if (isThenable(out)) {
+      // seam 契约违规：AsyncEmbedder 已收窄为同步直返（宿主须先 await）。
+      // 处理 = 降级关键词基线 + 明确原因上报（不静默吞成恒空向量）。
+      this._degrade('嵌入 seam 契约违规：宿主未先 await 收口（AsyncEmbedder 为同步直返契约）');
+      return null;
+    }
+    return out as readonly (readonly number[])[];
   }
 
   /** 构造嵌入文本（name 加权 + description）。 */
@@ -179,7 +196,7 @@ export class ToolVectorIndex {
     const epMap = endpoints ?? {};
     const texts = items.map((s) => this.embed_text(s));
     const vectors =
-      items.length === 0 ? [] : embed_texts(this.embedder, texts) ?? items.map(() => empty_vector());
+      items.length === 0 ? [] : this._embed_texts(texts) ?? items.map(() => empty_vector());
     this.entries.clear();
     items.forEach((spec, i) => {
       const vector = vectors[i];
@@ -223,7 +240,7 @@ export class ToolVectorIndex {
     }
     if (targets.length === 0) return;
     const vectors =
-      texts.length === 0 ? [] : embed_texts(this.embedder, texts) ?? targets.map(() => empty_vector());
+      texts.length === 0 ? [] : this._embed_texts(texts) ?? targets.map(() => empty_vector());
     targets.forEach((t, i) => {
       const vector = vectors[i];
       const vec =
@@ -246,7 +263,7 @@ export class ToolVectorIndex {
     if (this.vectors_built && this.embedder !== null) {
       return this.vector_search(trimmed, limit);
     }
-    return this.keyword_search(trimmed, limit);
+    return this._search_keyword(trimmed, limit);
   }
 
   /** 向量检索（query 嵌入 + 余弦相似度排序）。 */
@@ -255,15 +272,20 @@ export class ToolVectorIndex {
     if (this.embedder !== null) {
       try {
         const out = this.embedder.aembed_query(query);
-        query_vector = resolve_embed(out);
-        if (query_vector === null) {
-          return this.keyword_search(query, limit);
+        if (isThenable(out)) {
+          this._degrade('query 嵌入 seam 契约违规：宿主未先 await 收口（AsyncEmbedder 为同步直返契约）');
+          return this._search_keyword(query, limit);
         }
-      } catch {
+        query_vector = out as readonly number[];
+        if (query_vector === null || query_vector.length === 0) {
+          return this._search_keyword(query, limit);
+        }
+      } catch (err) {
+        this._degrade(`query 嵌入失败: ${errMessage(err)}`);
         query_vector = null;
       }
     }
-    if (!query_vector) return this.keyword_search(query, limit);
+    if (!query_vector) return this._search_keyword(query, limit);
     const scored: Array<{ score: number; entry: ToolIndexEntry }> = [];
     for (const entry of this.entries.values()) {
       if (entry.vector === null) continue;
@@ -277,8 +299,8 @@ export class ToolVectorIndex {
       .map((s) => to_result(s.entry, s.score));
   }
 
-  /** 关键词基线检索（子串 + 分词匹配）。 */
-  keyword_search(query: string, limit: number): SearchResult[] {
+  /** 检索退化路径的单一内部出口：关键词基线（子串 + 分词匹配）。 */
+  private _search_keyword(query: string, limit: number): SearchResult[] {
     const query_tokens = tokenize(query);
     const query_lower = query.toLowerCase();
     const scored: Array<{ score: number; entry: ToolIndexEntry }> = [];
@@ -291,6 +313,10 @@ export class ToolVectorIndex {
     }
     scored.sort((a, b) => b.score - a.score);
     return scored.slice(0, limit).map((s) => to_result(s.entry, s.score));
+  }
+  /** 关键词基线检索（公开面：search/vector_search 的统一退化出口委托）。 */
+  keyword_search(query: string, limit: number): SearchResult[] {
+    return this._search_keyword(query, limit);
   }
 
   /** 索引是否含某工具名。 */

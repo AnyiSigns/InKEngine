@@ -14,14 +14,14 @@
  * 返回 'break' = 迭代在展开/定位处终止；'continue' = 下一迭代。
  */
 import { TerminateReason } from '../graph/graph_types.js';
-import { InterruptSignal, InterruptState } from '../interrupt/interrupt_types.js';
+import { InterruptSignal } from '../interrupt/interrupt_types.js';
 import { SimulationError } from '../errors.js';
-import { strip_sensitive } from '../security/security.js';
 import { SimulationResult } from '../simulation/simulation.js';
 import type { MultiPathResult } from '../multipath/results.js';
 import type { JsonRecord } from '../json.js';
-import { _locate_next, _merge_overlay, _warn } from './_internals.js';
+import { _interrupt_state, _locate_next, _merge_overlay, _warn } from './_internals.js';
 import { EngineLoopFront } from './_engine_loop_front.js';
+import type { MultipathData } from './_engine_multipath.js';
 import type { LoopState } from './_loop_types.js';
 
 /** 主循环后半段分层段（Engine 方法群）。 */
@@ -86,13 +86,7 @@ export abstract class EngineLoopBack extends EngineLoopFront {
         }
       } catch (exc) {
         if (exc instanceof InterruptSignal) {
-          const sig = exc as InterruptSignal;
-          ls.interrupt_state = new InterruptState(
-            sig.key,
-            strip_sensitive(sig.payload) as Record<string, unknown>,
-            ls.current,
-            ctx.graph_path,
-          );
+          ls.interrupt_state = _interrupt_state(exc, ls.current, ctx.graph_path);
           this._trace_mark_skipped();
           ls.reason = 'interrupted';
           return 'break';
@@ -112,13 +106,7 @@ export abstract class EngineLoopBack extends EngineLoopFront {
         });
       } catch (exc) {
         if (exc instanceof InterruptSignal) {
-          const sig = exc as InterruptSignal;
-          ls.interrupt_state = new InterruptState(
-            sig.key,
-            strip_sensitive(sig.payload) as Record<string, unknown>,
-            ls.current,
-            ctx.graph_path,
-          );
+          ls.interrupt_state = _interrupt_state(exc, ls.current, ctx.graph_path);
           this._trace_mark_skipped();
           ls.reason = 'interrupted';
           return 'break';
@@ -169,16 +157,10 @@ export abstract class EngineLoopBack extends EngineLoopFront {
     if (ls.multipath_data !== undefined) {
       let mp_result: MultiPathResult;
       try {
-        mp_result = (await this._run_multipath(ls.multipath_data as never, ctx)) as MultiPathResult;
+        mp_result = (await this._run_multipath(ls.multipath_data as MultipathData, ctx)) as MultiPathResult;
       } catch (exc) {
         if (exc instanceof InterruptSignal) {
-          const sig = exc as InterruptSignal;
-          ls.interrupt_state = new InterruptState(
-            sig.key,
-            strip_sensitive(sig.payload) as Record<string, unknown>,
-            ls.current,
-            ctx.graph_path,
-          );
+          ls.interrupt_state = _interrupt_state(exc, ls.current, ctx.graph_path);
           this._trace_mark_skipped();
           ls.reason = 'interrupted';
           return 'break';

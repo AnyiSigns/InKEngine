@@ -1,10 +1,8 @@
 /**
  * 执行引擎计划/并行组/重放单测（C 批：ENG2-13 计划工作步 checkpoint 标记、
- * 并行组首信号取消、旧锚点续流重放去重）——test_executor.py 计划/重放面
+ * 并行组首信号取消、并行组成员异常归一（预装配失败不产生 unhandledRejection
+ * 且入 errors[]）、旧锚点续流重放去重）——test_executor.py 计划/重放面
  * 移植（纯内存 seam）。
- *
- * defer 注记：计划 spawn 步（子任务清单实例展开的完整评估/换选、多径展开）
- * 依赖宿主导入评估器与多径运行期，留待装配接线后补。
  */
 import { describe, expect, it } from 'vitest';
 import { MemoryStorage, _execute, make_engine } from './helpers.js';
@@ -12,6 +10,7 @@ import { Engine } from '../../../src/core/executor/index.js';
 import { Graph } from '../../../src/core/graph/graph.js';
 import { TerminateReason } from '../../../src/core/graph/graph_types.js';
 import { PLAN_KEY } from '../../../src/core/plan/plan.js';
+import { AssemblyConfig } from '../../../src/core/assembly/assembly_config.js';
 import type { EngineEvent } from '../../../src/core/events/events.js';
 
 async function collect(engine: Engine, state: Record<string, unknown>, opts: Record<string, unknown> = {}): Promise<EngineEvent[]> {
@@ -69,6 +68,47 @@ describe('Engine 计划推进/并行组', () => {
     expect(result.reason).toBe(TerminateReason.REPLY);
     expect(elapsed).toBeLessThan(400);
     expect(state['lead']).toBe(true);
+  });
+
+  it('并行组成员预装配失败：归一为成员失败入 errors[]（无 unhandledRejection、不静默丢）', async () => {
+    const provider = async (ctx: { node?: string | null }): Promise<unknown[]> => {
+      if (ctx.node === 'x') {
+        throw new Error('preassemble boom');
+      }
+      return [];
+    };
+    const x = async (_ctx: unknown): Promise<Record<string, unknown>> => ({ xv: 1 });
+    const y = async (_ctx: unknown): Promise<Record<string, unknown>> => ({ yv: 2 });
+    const route = async (_ctx: unknown): Promise<Record<string, unknown>> => ({
+      [PLAN_KEY]: [{ parallel: ['x', 'y'] }],
+    });
+    const g = new Graph({ name: 'pg-preassemble', entry: 'route' });
+    g.add_node('route', route as never);
+    g.add_node('x', x as never);
+    g.add_node('y', y as never);
+    g.add_exit('route');
+    const engine = make_engine(g, {
+      extra: {
+        assembly: new AssemblyConfig(),
+        assembly_sources: provider,
+      },
+    });
+    // preassemble 失败此前会让成员 promise rejection 逃出（void p.finally 吞成
+    // unhandledRejection 且成员失败静默丢）；修复后成员失败归一入 errors[]
+    const unhandled: unknown[] = [];
+    const handler = (reason: unknown): void => {
+      unhandled.push(reason);
+    };
+    process.on('unhandledRejection', handler);
+    try {
+      const [, result] = await _execute(engine, null, { thread_id: 't-preassemble' });
+      expect(result.reason).toBe(TerminateReason.ERROR);
+      expect(result.error).toContain('并行组失败 1 个成员');
+      expect(result.error).toContain('x');
+      expect(unhandled).toEqual([]);
+    } finally {
+      process.off('unhandledRejection', handler);
+    }
   });
 
   it('旧锚点续流重放去重：锚点之后增量事件只投递一次', async () => {

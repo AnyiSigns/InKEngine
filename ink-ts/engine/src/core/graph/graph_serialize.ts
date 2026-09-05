@@ -200,21 +200,21 @@ export function loadGraphFromDict(
       if (typeof target !== 'string') {
         throw new GraphDefinitionError(`节点 ${source} 的边声明非法（缺 target）`);
       }
-const conditionName = edgeData['condition'];
-        if (conditionName === null || conditionName === undefined) {
-          g.add_edge(source, target);
-        } else if (typeof conditionName === 'string') {
-          if (ctx.edge_registry === null || !ctx.edge_registry.has(conditionName)) {
-            throw new GraphDefinitionError(
-              `条件边 ${source}->${target} 的条件未注册: ${conditionName}`,
-            );
-          }
-          g.add_conditional_edge_by_name(source, target, conditionName);
-        } else {
+      const conditionName = edgeData['condition'];
+      if (conditionName === null || conditionName === undefined) {
+        g.add_edge(source, target);
+      } else if (typeof conditionName === 'string') {
+        if (ctx.edge_registry === null || !ctx.edge_registry.has(conditionName)) {
           throw new GraphDefinitionError(
-            `节点 ${source} 的边 condition 字段类型非法: 期望 str`,
+            `条件边 ${source}->${target} 的条件未注册: ${conditionName}`,
           );
         }
+        g.add_conditional_edge_by_name(source, target, conditionName);
+      } else {
+        throw new GraphDefinitionError(
+          `节点 ${source} 的边 condition 字段类型非法: 期望 str`,
+        );
+      }
     }
   }
 

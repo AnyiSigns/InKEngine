@@ -1,17 +1,17 @@
 /**
- * ˆøúÌ—¬®/”ñ—¬®“üŒû–Êiexecutor.py Engine “I run/ainvoke/??’iˆÚAjB
+ * å¼•æ“æµå¼/éæµå¼å…¥å£é¢ï¼ˆexecutor.py Engine çš„ run/ainvoke/æ¢é€‰æ®µç§»æ¤ï¼‰ã€‚
  *
- * run = —¬®?s“üŒûF?o–Œ—¬iŠÜq?–ŒC?˜ = ?Ë?˜jCÁ?•û
- * ’€ğæ–ŒGainvoke = ”ñ—¬®?si“Æ—§q?/ˆêŸ«”C???jF?s“?~C
- * •Ô‰ñ?? RunResulti–Œ˜¹? options.transports + –{Q” transports „‘—jB
+ * run = æµå¼æ‰§è¡Œå…¥å£ï¼šäº§å‡ºäº‹ä»¶æµï¼ˆå«å­å›¾äº‹ä»¶ï¼Œé¡ºåº = å‘å°„é¡ºåºï¼‰ï¼Œæ¶ˆè´¹æ–¹
+ * é€æ¡å–äº‹ä»¶ï¼›ainvoke = éæµå¼æ‰§è¡Œï¼ˆç‹¬ç«‹å­å›¾/ä¸€æ¬¡æ€§ä»»åŠ¡è¯­ä¹‰ï¼‰ï¼šæ‰§è¡Œåˆ°ç»ˆæ­¢ï¼Œ
+ * è¿”å›ç»ˆæ€ RunResultï¼ˆäº‹ä»¶ä»ç» options.transports + æœ¬å‚æ•° transports æ¨é€ï¼‰ã€‚
  *
- * ?Ò·?—^ Python ˆê’vFrun ‘½kˆêğ?—ñ??i_QueueTransportjC–Œ?
- * ?—ñ—¬®?oG’“ü?“¯?ˆêŸ«´—i–hc—¯Ÿ•˜RC—^ run “¯??jB
+ * ä¸¤è€…å·®å¼‚ä¸ Python ä¸€è‡´ï¼šrun å¤šæŒ‚ä¸€æ¡é˜Ÿåˆ—ä¼ è¾“ï¼ˆ_QueueTransportï¼‰ï¼Œäº‹ä»¶ç»
+ * é˜Ÿåˆ—æµå¼äº§å‡ºï¼›æ³¨å…¥å€¼åŒæ ·ä¸€æ¬¡æ€§æ¸…ç†ï¼ˆé˜²æ®‹ç•™æ³„æ¼ï¼Œä¸ run åŒè¯­ä¹‰ï¼‰ã€‚
  *
- * TS ·?’?FPython asyncio.Task xå?æÁiÁ?•û’ñ‘O‘Şo?æÁ@‘ä
- * ?s”C?C–h? LLM/Ê checkpoint “I”˜Ÿ•˜RjGJS Promise Ù?æÁŒ´?C
- * Á?•û’ñ‘O‘Şo?@‘ä _execute ???Š©gŠ®¬i?‰Ê•sÄ“Š?jCc—¯“I
- * ’“ü´—??•s????¥•½‘äæÁ–ÍŒ^“I??~?“_B
+ * TS å·®å¼‚è¯´æ˜ï¼šPython asyncio.Task æ”¯æŒä¸»åŠ¨å–æ¶ˆï¼ˆæ¶ˆè´¹æ–¹æå‰é€€å‡ºæ—¶å–æ¶ˆåå°
+ * æ‰§è¡Œä»»åŠ¡ï¼Œé˜²æ­¢ LLM/å†™ checkpoint é€ æˆæˆæœ¬ä¸æ•°æ®æ³„æ¼ï¼‰ï¼›JS Promise æ— å–æ¶ˆ
+ * åŸè¯­ï¼Œæ¶ˆè´¹æ–¹æå‰é€€å‡ºååå° _execute ç»§ç»­è·‘è‡³è‡ªèº«å®Œæˆï¼ˆç»“æœä¸å†æŠ•é€’ï¼‰ï¼Œ
+ * æ®‹ç•™çš„æ³¨å…¥æ¸…ç†ä»ä¼šç…§å¸¸æ‰§è¡Œâ€”â€”è¿™æ˜¯å¹³å°å–æ¶ˆæ¨¡å‹å·®å¼‚å¸¦æ¥çš„å…³é”®é™çº§ç‚¹ã€‚
  */
 import { RunResult } from '../run_result/run_result.js';
 import { TerminateReason } from '../graph/graph_types.js';
@@ -20,7 +20,7 @@ import { GraphDefinitionError, SimulationError } from '../errors.js';
 import { EngineTrace } from './_engine_trace.js';
 import { _AsyncQueue, _QueueTransport, _default_id } from './_internals.js';
 
-/** run/ainvoke “I“üŒû??i?‘œ Python ??šQG‘S•”‰Â?jB */
+/** run/ainvoke çš„å…¥å£é€‰é¡¹ï¼ˆé•œåƒ Python å…³é”®å­—å‚ï¼›å…¨éƒ¨å¯é€‰ï¼‰ã€‚ */
 export interface EngineRunOptions {
   thread_id?: string | null;
   round_id?: string | null;
@@ -33,41 +33,41 @@ export interface EngineRunOptions {
   transports?: EngineTransport[] | null;
 }
 
-/** “üŒû/??•ª?’iiEngine •û–@ŒQjB */
+/** å…¥å£/æ¢é€‰åˆ†å±‚æ®µï¼ˆEngine æ–¹æ³•ç¾¤ï¼‰ã€‚ */
 export abstract class EngineRun extends EngineTrace {
   /**
-   * —¬®?s“üŒûF?o–Œ—¬iŠÜq?–ŒC?˜ = ?Ë?˜jB
+   * æµå¼æ‰§è¡Œå…¥å£ï¼šäº§å‡ºäº‹ä»¶æµï¼ˆå«å­å›¾äº‹ä»¶ï¼Œé¡ºåº = å‘å°„é¡ºåºï¼‰ã€‚
    *
-   * @param state ‰nó?iÙ checkpoint ?jB
-   * @param opts.thread_id ‰ï?/?’ö idi”Å–{??‘®CãÈ©?¶¬jB
-   * @param opts.round_id ‰ñ‡ idi–ŒŒ_?jB
-   * @param opts.resume_from checkpoint_id ?“_i‰ø?/?—¬Gnull = ˜¸??sjB
-   *   ‰ø???“ü state ì?•¢á³?icheckpoint ?æC?“ü?ã/’Ç‰ÁjB
-   * @param opts.continue_chain V‰ñ‡??iTrue = ??”ö checkpoint ?Šî’êC
-   *   ?“ü state •¢á³@˜¸“üŒû?sC”Å–{??Ú?”öG•sd•ú–ŒjB
-   * @param opts.inject interrupt ’“ü?i{review_key: value}Cd“ü??jB
-   * @param opts.truncate_log_after ??d•úFæB’f?s“úu seq ”V@CÄ??B
-   * @param opts.parent_checkpoint ??d•úFV checkpoint ?“I•ƒ?“_i•ª³jB
-   * @param opts.transports ’Ç‰Á–Œ??i—^ options.transports ?‰ÁjB
+   * @param state åˆå§‹çŠ¶æ€ï¼ˆæ—  checkpoint æ—¶ï¼‰ã€‚
+   * @param opts.thread_id ä¼šè¯/çº¿ç¨‹ idï¼ˆç‰ˆæœ¬é“¾å½’å±ï¼Œç¼ºçœè‡ªåŠ¨ç”Ÿæˆï¼‰ã€‚
+   * @param opts.round_id å›åˆ idï¼ˆäº‹ä»¶å¥‘çº¦ï¼‰ã€‚
+   * @param opts.resume_from checkpoint_id é”šç‚¹ï¼ˆæ¢å¤/ç»­æµï¼›null = ä»å¤´æ‰§è¡Œï¼‰ã€‚
+   *   æ¢å¤æ—¶è¾“å…¥ state ä½œä¸ºè¦†ç›–å±‚ï¼ˆcheckpoint ä¼˜å…ˆï¼Œè¾“å…¥è¡¥ç¼º/è¿½åŠ ï¼‰ã€‚
+   * @param opts.continue_chain æ–°å›åˆç»­é“¾ï¼ˆTrue = è¯»é“¾å°¾ checkpoint ä¸ºåŸºåº•ï¼Œ
+   *   è¾“å…¥ state è¦†ç›–åä»å…¥å£æ‰§è¡Œï¼Œç‰ˆæœ¬é“¾ç»­æ¥é“¾å°¾ï¼›ä¸é‡æ”¾äº‹ä»¶ï¼‰ã€‚
+   * @param opts.inject interrupt æ³¨å…¥å€¼ï¼ˆ{review_key: value}ï¼Œé‡å…¥è¯­ä¹‰ï¼‰ã€‚
+   * @param opts.truncate_log_after ç¼–è¾‘é‡æ”¾ï¼šå…ˆæˆªæ–­æ‰§è¡Œæ—¥å¿— seq ä¹‹åï¼Œå†ç»­è·‘ã€‚
+   * @param opts.parent_checkpoint ç¼–è¾‘é‡æ”¾ï¼šæ–° checkpoint é“¾çš„çˆ¶é”šç‚¹ï¼ˆåˆ†å‰ï¼‰ã€‚
+   * @param opts.transports è¿½åŠ äº‹ä»¶ä¼ è¾“ï¼ˆä¸ options.transports å åŠ ï¼‰ã€‚
    */
   async *run(state: Record<string, unknown>, opts: EngineRunOptions = {}): AsyncGenerator<EngineEvent> {
     const thread_id = opts.thread_id ?? _default_id('thread');
     const trace_id = opts.trace_id ?? _default_id('trace');
     const queue = new _AsyncQueue<EngineEvent | null>();
-    // –Œ—¬?o’Ê“¹k“??—ñ•\i?˜ = ?Ë?˜Gk?@–ŒŠù—“úu–”??—ñj
+    // äº‹ä»¶æµäº§å‡ºé€šé“æŒ‚åˆ°ä¼ è¾“åˆ—è¡¨ï¼ˆé¡ºåº = å‘å°„é¡ºåºï¼›æŒ‚è½½åäº‹ä»¶æ—¢è½æ—¥å¿—åˆè¿›é˜Ÿåˆ—ï¼‰
     const senders = [...this.options.transports, ...(opts.transports ?? []), new _QueueTransport(queue)];
     let task: Promise<[Record<string, unknown>, RunResult]> | null = null;
-    // per-run ó??ˆÊFrun ¥??“üŒûi›Æ“…q?/spawn ‘– _execute •s??
-    // Ÿ?j??“¯?—á‹øs‘½ run “I?”/seq ?“_/?”ö?u•sŒ× run c—¯
+    // per-run çŠ¶æ€å¤ä½ï¼šrun æ˜¯é¡¶å±‚å…¥å£ï¼ˆåµŒå¥—å­å›¾/spawn èµ° _execute ä¸ç»è¿‡
+    // æ­¤å¤„ï¼‰â€”â€”åŒå®ä¾‹ä¸²è¡Œå¤š run çš„è®¡æ•°/seq é”šç‚¹/é“¾å°¾æ ‡å¿—ä¸è·¨ run æ®‹ç•™
     this._event_counter = 0;
     this._latest_event_seq = null;
     this._chain_advanced = false;
-    // ??„‘—•Û˜ó??ˆÊi“¯ thread Œ× run •s‹ø‘äj
+    // ä¼ è¾“æ¨é€ä¿åºçŠ¶æ€å¤ä½ï¼ˆåŒ thread è·¨ run ä¸ä¸²å°ï¼‰
     this._transport_seq.reset();
     this._validate_entry_mode({ resume_from: opts.resume_from ?? null, continue_chain: opts.continue_chain ?? false });
     try {
-      // V‰ñ‡“üŒûiÙ resume_fromjF´ gate ???”iãˆê‰ñ‡“I?”á˜†
-      // •s•YˆÚ“–{‰ñ‡??“¯‰ñ‡“¯H‹ï‘æ“ñŸ?”áË?w?j
+      // æ–°å›åˆå…¥å£ï¼ˆæ—  resume_fromï¼‰ï¼šæ¸… gate å‘å¡è®¡æ•°ï¼ˆä¸Šä¸€å›åˆçš„å®¡æ‰¹åºå·
+      // ä¸æ¼‚ç§»åˆ°æœ¬å›åˆâ€”â€”åŒå›åˆåŒå·¥å…·ç¬¬äºŒæ¬¡å®¡æ‰¹æ‰æºæŒ‡çº¹ï¼‰
       if (opts.resume_from === null || opts.resume_from === undefined) {
         this._coordinator.reset_thread_gate_count(thread_id);
       }
@@ -80,9 +80,9 @@ export abstract class EngineRun extends EngineTrace {
       ) {
         await this.options.storage.truncate_events(thread_id, opts.truncate_log_after);
       }
-      // ?? rebaseF??“üŒû???j‘O?i”Å–{?s”?“x—LŠE‰»jB??d•ú
-      // iparent_checkpoint •ª³?“_wŒü?j?j—^‰ø???iresume_from —“_
-      // ‰Â”\—İ•Û—¯âxŒûŠOj‹Ï’µ???C”ğ–Æ?{•ª³–Ú?/‰ø??“_B
+      // é“¾çº§ rebaseï¼šé¡¶å±‚å…¥å£å‹ç¼©å†å²å‰ç¼€ï¼ˆç‰ˆæœ¬é“¾è¡Œæ•°ç»´åº¦æœ‰ç•ŒåŒ–ï¼‰ã€‚ç¼–è¾‘é‡æ”¾
+      // ï¼ˆparent_checkpoint åˆ†å‰é”šç‚¹æŒ‡å‘å†å²é“¾ï¼‰ä¸æ¢å¤ç»­è·‘ï¼ˆresume_from è½ç‚¹
+      // å¯èƒ½è½åœ¨ä¿ç•™çª—å£å¤–ï¼‰å‡è·³è¿‡å‹ç¼©ï¼Œé¿å…åˆ æ‰åˆ†å‰ç›®æ ‡/æ¢å¤é”šç‚¹ã€‚
       if (
         (opts.parent_checkpoint === null || opts.parent_checkpoint === undefined) &&
         (opts.resume_from === null || opts.resume_from === undefined)
@@ -100,7 +100,7 @@ export abstract class EngineRun extends EngineTrace {
         queue,
         transports: senders,
       });
-      // £•ºF”C??‘©iŠÜ?íj?“ü?C–Œ—¬˜Ÿ¾?CÙ’´???
+      // å“¨å…µï¼šä»»åŠ¡ç»“æŸï¼ˆå«å¼‚å¸¸ï¼‰æ—¶å…¥é˜Ÿï¼Œäº‹ä»¶æµæ®æ­¤æ”¶æ•›ï¼Œæ— è¶…æ—¶è½®è¯¢
       void task.then(
         () => {
           void queue.put(null);
@@ -118,9 +118,9 @@ export abstract class EngineRun extends EngineTrace {
       this._record_run_metrics(runResult);
       await this._settle_run(runResult, { thread_id, round_id: opts.round_id ?? null, trace_id });
     } finally {
-      // Á?•û’ñ‘O‘Şoi’f?/breakjF@‘ä”C?Ù–@?æÁi•½‘ä??~?C
-      // ?•¶Œ?’jC’A’“üc—¯˜¹?´—??’“ü?ˆêŸ«i›ß’“ü™rô“I?”á
-      // ??•úœPC–h?T??jCc—¯‰ïŸ•˜R“‰ºˆêŸ run ”íÃàÒÁ?
+      // æ¶ˆè´¹æ–¹æå‰é€€å‡ºï¼ˆæ–­è¿/breakï¼‰ï¼šåå°ä»»åŠ¡æ— æ³•è¢«å–æ¶ˆï¼ˆå¹³å°èƒ½åŠ›é™çº§ï¼Œ
+      // è§æ–‡ä»¶æ³¨é‡Šï¼‰ï¼Œä½†æ³¨å…¥æ®‹ç•™ä»ä¼šæ¸…ç†â€”â€”æ³¨å…¥å€¼ä¸€æ¬¡æ€§ï¼ˆå·²æ³¨å…¥å†³ç­–çš„å®¡æ‰¹
+      // è§†ä¸ºæ”¾å¼ƒï¼Œé˜²é—¨æ§ç»•è¿‡ï¼‰ï¼Œæ®‹ç•™ä¼šæ³„æ¼åˆ°ä¸‹ä¸€æ¬¡ run è¢«é™é»˜æ¶ˆè´¹
       if (opts.inject !== null && opts.inject !== undefined) {
         for (const key of Object.keys(opts.inject)) {
           this._coordinator.pending_inject.delete(key);
@@ -130,24 +130,24 @@ export abstract class EngineRun extends EngineTrace {
   }
 
   /**
-   * ”ñ—¬®?si“Æ—§q?/ˆêŸ«”C???jF?s“?~C•Ô‰ñ?? RunResultB
+   * éæµå¼æ‰§è¡Œï¼ˆç‹¬ç«‹å­å›¾/ä¸€æ¬¡æ€§ä»»åŠ¡è¯­ä¹‰ï¼‰ï¼šæ‰§è¡Œåˆ°ç»ˆæ­¢ï¼Œè¿”å›ç»ˆæ€ RunResultã€‚
    *
-   * —^ run “I·?F•s?o–Œ?—ñi–Œ˜¹? options.transports + –{Q”
-   * transports „‘—C?‡ CollectorTransport ¾W/??“úu?ŒijC’¼Ú•Ô‰ñ
-   * Å??‰ÊB’“ü?“¯?ˆêŸ«´—i–hc—¯Ÿ•˜RC—^ run “¯??jB
+   * ä¸ run çš„å·®å¼‚ï¼šä¸äº§å‡ºäº‹ä»¶é˜Ÿåˆ—ï¼ˆäº‹ä»¶ä»ç» options.transports + æœ¬å‚æ•°
+   * transports æ¨é€ï¼Œé€‚åˆ CollectorTransport æ”¶é›†/å®¡è®¡æ—¥å¿—åœºæ™¯ï¼‰ï¼Œç›´æ¥è¿”å›
+   * æœ€ç»ˆç»“æœã€‚æ³¨å…¥å€¼åŒæ ·ä¸€æ¬¡æ€§æ¸…ç†ï¼ˆé˜²æ®‹ç•™æ³„æ¼ï¼Œä¸ run åŒè¯­ä¹‰ï¼‰ã€‚
    */
   async ainvoke(state: Record<string, unknown>, opts: EngineRunOptions = {}): Promise<RunResult> {
     const thread_id = opts.thread_id ?? _default_id('thread');
     const trace_id = opts.trace_id ?? _default_id('trace');
-    // per-run ó??ˆÊi—^ run() “¯??F??“üŒû•sŒ× run c—¯j
+    // per-run çŠ¶æ€å¤ä½ï¼ˆä¸ run() åŒè¯­ä¹‰ï¼šé¡¶å±‚å…¥å£ä¸è·¨ run æ®‹ç•™ï¼‰
     this._event_counter = 0;
     this._latest_event_seq = null;
     this._chain_advanced = false;
-    // ??„‘—•Û˜ó??ˆÊi“¯ thread Œ× run •s‹ø‘äj
+    // ä¼ è¾“æ¨é€ä¿åºçŠ¶æ€å¤ä½ï¼ˆåŒ thread è·¨ run ä¸ä¸²å°ï¼‰
     this._transport_seq.reset();
     this._validate_entry_mode({ resume_from: opts.resume_from ?? null, continue_chain: opts.continue_chain ?? false });
     try {
-      // V‰ñ‡“üŒûiÙ resume_fromjF´ gate ???”i—^ run() “¯ŒûŒaj
+      // æ–°å›åˆå…¥å£ï¼ˆæ—  resume_fromï¼‰ï¼šæ¸… gate å‘å¡è®¡æ•°ï¼ˆä¸ run() åŒå£å¾„ï¼‰
       if (opts.resume_from === null || opts.resume_from === undefined) {
         this._coordinator.reset_thread_gate_count(thread_id);
       }
@@ -160,8 +160,8 @@ export abstract class EngineRun extends EngineTrace {
       ) {
         await this.options.storage.truncate_events(thread_id, opts.truncate_log_after);
       }
-      // ??d•úiparent_checkpoint •ª³j—^‰ø???iresume_from ?“_‰Â”\
-      // —İ•Û—¯âxŒûŠOj‹Ï’µ???C”ğ–Æ?{•ª³–Ú?/‰ø??“_
+      // ç¼–è¾‘é‡æ”¾ï¼ˆparent_checkpoint åˆ†å‰ï¼‰ä¸æ¢å¤ç»­è·‘ï¼ˆresume_from é”šç‚¹å¯èƒ½
+      // è½åœ¨ä¿ç•™çª—å£å¤–ï¼‰å‡è·³è¿‡å‹ç¼©ï¼Œé¿å…åˆ æ‰åˆ†å‰ç›®æ ‡/æ¢å¤é”šç‚¹
       if (
         (opts.parent_checkpoint === null || opts.parent_checkpoint === undefined) &&
         (opts.resume_from === null || opts.resume_from === undefined)
@@ -177,8 +177,8 @@ export abstract class EngineRun extends EngineTrace {
         trace_id,
         queue: null,
         parent_checkpoint: opts.parent_checkpoint ?? null,
-        // ?‰Á§”ñ‘Ö?F–Œ? options.transports + –{Q” transports „‘—
-        // i—^ run() “¯ŒûŒaC–hÃ???/—???”íÃàÒ’â{j
+        // å åŠ è€Œéæ›¿æ¢ï¼šäº‹ä»¶ç» options.transports + æœ¬å‚æ•° transports æ¨é€
+        // ï¼ˆä¸ run() åŒå£å¾„ï¼Œé˜²é™æ€å®¡è®¡/è½åº“ä¼ è¾“è¢«é™é»˜åœæ‰ï¼‰
         transports: [...this.options.transports, ...(opts.transports ?? [])],
       });
       this._record_run_metrics(result);
@@ -193,22 +193,22 @@ export abstract class EngineRun extends EngineTrace {
     }
   }
 
-  /** “üŒû–Í®Œ_?F??—^?“_‰ø???ŒİËC“¯’u?®‹‘?B */
+  /** å…¥å£æ¨¡å¼å¥‘çº¦ï¼šç»­é“¾ä¸é”šç‚¹æ¢å¤è¯­ä¹‰äº’æ–¥ï¼ŒåŒç½®æ˜¾å¼æ‹’ç»ã€‚ */
   _validate_entry_mode(opts: { resume_from: number | null; continue_chain: boolean }): void {
     if (opts.continue_chain && opts.resume_from !== null) {
       throw new GraphDefinitionError(
-        'continue_chain —^ resume_from ??ŒİËi?? = ˜¸?”ö?Ú•sd•úG' +
-          '‰ø? = ˆÂ?“_‰õÆ + –Œd•új',
+        'continue_chain ä¸ resume_from è¯­ä¹‰äº’æ–¥ï¼ˆç»­é“¾ = ä»é“¾å°¾ç»­æ¥ä¸é‡æ”¾ï¼›' +
+          'æ¢å¤ = æŒ‰é”šç‚¹å¿«ç…§ + äº‹ä»¶é‡æ”¾ï¼‰',
       );
     }
   }
 
   /**
-   * ‰ñ‡w?ÑWiˆøúÌ©³?F??©g‰Â?“I?s–?jB
+   * å›åˆæŒ‡æ ‡é‡‡é›†ï¼ˆå¼•æ“è‡ªæ‰¿è½½ï¼šè®°å½•è‡ªèº«å¯è§çš„æ‰§è¡Œäº‹å®ï¼‰ã€‚
    *
-   * ?? run ¾”ö?—pˆêŸF‰ñ‡¬?i???~ = ¸?j—^??“E—v“ü‰ñ‡w?G
-   * ??•ª/¾??”/?ˆÊ?—p—Rg—p•ûˆÂ–Œ??“U?iˆøúÌ‘üÑW?s–{g
-   * ‰Â?“I??C??‰»w?•s‘Ög—p•ûàÈjB
+   * é¡¶å±‚ run æ”¶å°¾è°ƒç”¨ä¸€æ¬¡ï¼šå›åˆæˆè´¥ï¼ˆé”™è¯¯ç»ˆæ­¢ = å¤±è´¥ï¼‰ä¸é”™è¯¯æ‘˜è¦å…¥å›åˆæŒ‡æ ‡ï¼›
+   * è¯„å®¡åˆ†/æ”¶æ•›è½®æ•°/æŒ¡ä½è°ƒç”¨ç”±ä½¿ç”¨æ–¹æŒ‰äº‹ä»¶è¯­ä¹‰å¡«æŠ¥ï¼ˆå¼•æ“åªé‡‡é›†æ‰§è¡Œæœ¬èº«
+   * å¯è§çš„ç»Ÿè®¡ï¼Œè¯­ä¹‰åŒ–æŒ‡æ ‡ä¸æ›¿ä½¿ç”¨æ–¹çŒœï¼‰ã€‚
    */
   _record_run_metrics(result: RunResult): void {
     const metrics = this.options.metrics;
@@ -218,13 +218,13 @@ export abstract class EngineRun extends EngineTrace {
   }
 
   /**
-   * ‰ñŸè??F˜¸™rô“_‘O?“_‰ø?C?§‰ü?w’è•ªxd•ú@?B
+   * å›æº¯æ¢é€‰ï¼šä»å†³ç­–ç‚¹å‰é”šç‚¹æ¢å¤ï¼Œå¼ºåˆ¶æ”¹é€‰æŒ‡å®šåˆ†æ”¯é‡æ”¾åç»­ã€‚
    *
-   * „‰‰-‰ñŸè-??“I?s??F™rô“_Š®¬@å?’ñŒğ“I¥???‰ÊG?—?•ªx
-   * ˜ô‰ñŸè?”ä/?? = ‰ñ“™rô“_?“_?s‘O“I checkpoint ?“_i™rô“_©g“I
-   * checkpoint ›ß¥??@ó?jC?§w’è•ªx˜†d•ú??d•ú‘ü?s–Ú?•ªx
-   * i‘´—]•ªx“I?‰Ê•Û—¯İŠe©“Æ—§q?C‰Â‰ñŸè?”äjCå?ó?Å? = –Ú?
-   * •ªx“I?‰ÊB?“_‰Â—p Engine.decision_anchor ˜¸™rô–Œ”½?B
+   * æ¨æ¼”-å›æº¯-æ¢é€‰çš„æ‰§è¡Œè¯­ä¹‰ï¼šå†³ç­–ç‚¹å®Œæˆåä¸»çº¿æäº¤çš„æ˜¯æ‹©ä¼˜ç»“æœï¼›å¯¹è½é€‰åˆ†æ”¯
+   * åšå›æº¯å¯¹æ¯”/æ¢é€‰ = å›åˆ°å†³ç­–ç‚¹èŠ‚ç‚¹æ‰§è¡Œå‰çš„ checkpoint é”šç‚¹ï¼ˆå†³ç­–ç‚¹è‡ªèº«çš„
+   * checkpoint å·²æ˜¯é€‰æ‹©åçŠ¶æ€ï¼‰ï¼Œå¼ºåˆ¶æŒ‡å®šåˆ†æ”¯åºå·é‡æ”¾â€”â€”é‡æ”¾åªæ‰§è¡Œç›®æ ‡åˆ†æ”¯
+   * ï¼ˆå…¶ä½™åˆ†æ”¯çš„ç»“æœä¿ç•™åœ¨å„è‡ªç‹¬ç«‹å­é“¾ï¼Œå¯å›æº¯å¯¹æ¯”ï¼‰ï¼Œä¸»çº¿çŠ¶æ€æœ€ç»ˆ = ç›®æ ‡
+   * åˆ†æ”¯çš„ç»“æœã€‚é”šç‚¹å¯ç”¨ Engine.decision_anchor ä»å†³ç­–äº‹ä»¶åæŸ¥ã€‚
    */
   async swap_branch(opts: {
     thread_id: string;
@@ -238,12 +238,12 @@ export abstract class EngineRun extends EngineTrace {
     if (this.options.storage !== null) {
       const anchor = await this.options.storage.get_checkpoint(opts.before_checkpoint_id);
       if (anchor === null) {
-        throw new SimulationError(`???“_•s‘¶İ: ${opts.before_checkpoint_id}`);
+        throw new SimulationError(`æ¢é€‰é”šç‚¹ä¸å­˜åœ¨: ${opts.before_checkpoint_id}`);
       }
       if (anchor.reason !== null && anchor.reason !== 'interrupted') {
         throw new SimulationError(
-          '???“_??™rô“_?s‘O“I checkpoint' +
-            `i“–‘O?“_›ß¥??: ${anchor.reason}j`,
+          'æ¢é€‰é”šç‚¹é¡»ä¸ºå†³ç­–ç‚¹æ‰§è¡Œå‰çš„ checkpoint' +
+            `ï¼ˆå½“å‰é”šç‚¹å·²æ˜¯ç»ˆæ€: ${anchor.reason}ï¼‰`,
         );
       }
     }

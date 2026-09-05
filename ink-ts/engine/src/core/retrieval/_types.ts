@@ -9,9 +9,9 @@
  * 向量库 = 领域层，不落引擎）；未知检索源/空结果 = 空清单（检索是增强，
  * 不阻断回合）。
  *
- * 指令注入扫描 seam：knowledge_gate.scan_text_injection 未迁移，检出面
- * 以 InjectionScanner 表达——缺省 no-op（不剔除任何块），检出动作由宿主
- * 注入等价实现；接通后的剔除行为在测试中以假扫描器覆盖。
+ * 指令注入扫描 seam：默认扫描器 = knowledge_gate.scan_text_injection
+ * （真实指令措辞检出：中英文句式 + 混淆熵启发）；宿主可注入等价实现
+ * 覆盖（如更严/领域专属措辞表）。
  *
  * 来源分级常量/顺序/默认可信度基准经 source_grading 单源重导出（与知识
  * 集/记忆同口径，无第二份定义）。
@@ -26,6 +26,7 @@ import {
   SOURCE_WEB,
   _SOURCE_CREDIBILITY,
 } from '../source_grading/sourceGrading.js';
+import { scan_text_injection } from '../knowledge_gate/_injection.js';
 
 // 来源分级重导出（来源分级常量与默认可信度基准 = source_grading 单源；
 // 知识集/记忆消费方沿用 retrieval.SOURCE_* 形态）
@@ -53,16 +54,12 @@ export const DEFAULT_MAX_RETRIEVERS = 32;
 export const DEFAULT_LIMIT = 8;
 export const MAX_LIMIT = 50;
 
-/** 指令注入扫描面：检索文本 → 命中清单（knowledge_gate.scan_text_injection
- *  未迁移前的注入点；检出即剔除，不放行）。 */
+/** 指令注入扫描面：检索文本 → 命中清单（检出即剔除，不放行）。 */
 export type InjectionScanner = (content: string) => readonly string[];
 
-/** 缺省指令注入扫描器：no-op（不剔除任何块）——knowledge_gate 未迁，
- *  检出逻辑待迁移（语义面先保留，见文件头差异说明）。 */
-export const DEFAULT_INJECTION_SCANNER: InjectionScanner = (content: string) => {
-  void content;
-  return [];
-};
+/** 缺省指令注入扫描器 = 真实指令措辞检出（knowledge_gate.scan_text_injection：
+ *  中英文指令句式归一命中 + 混淆熵启发）；宿主可注入等价实现覆盖。 */
+export const DEFAULT_INJECTION_SCANNER: InjectionScanner = scan_text_injection;
 
 /** RetrievedChunk 构造选项（dataclass 字段映射；meta 缺省空表）。 */
 export interface RetrievedChunkOptions {

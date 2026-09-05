@@ -1,3 +1,4 @@
+// gate: 超限(378 行) - checkpoint 版本链契约覆盖（创建/更新/乐观锁/链一致性/归属校验），单文件成组便于对照 pytest
 /**
  * MemoryStorage checkpoint 版本链测试（对标 pytest test_storage.py memory://
  * 分支：创建/读取/最新/列表、乐观锁、链一致性不变量、敏感键剥离、深拷贝
@@ -142,6 +143,37 @@ describe('checkpoint 乐观锁与更新路径', () => {
     );
     expect(updated.graph_path).toEqual([]);
     expect(updated.version).toBe(rec.version + 1);
+    await store.close();
+  });
+
+  it('异线程 checkpoint_id 更新被拒：不迁移线程、不污染他线程链尾', async () => {
+    const store = new MemoryStorage();
+    const rec = await store.put_checkpoint(cp({ state: { v: 1 } }));
+    await expect(
+      store.put_checkpoint(
+        new CheckpointRecord({
+          checkpoint_id: rec.checkpoint_id,
+          thread_id: 't2',
+          node: 'n2',
+          state: { v: 2 },
+          version: rec.version,
+        }),
+      ),
+    ).rejects.toThrow(CheckpointConflictError);
+    await expect(
+      store.put_checkpoint(
+        new CheckpointRecord({
+          checkpoint_id: rec.checkpoint_id,
+          thread_id: 't2',
+          node: 'n2',
+          state: { v: 2 },
+          version: rec.version,
+        }),
+      ),
+    ).rejects.toThrow(/归属他线程/);
+    // 记录仍归原线程（未迁移），t2 无链尾
+    expect((await store.get_checkpoint(rec.checkpoint_id))?.thread_id).toBe('t1');
+    expect(await store.get_latest_checkpoint('t2')).toBeNull();
     await store.close();
   });
 

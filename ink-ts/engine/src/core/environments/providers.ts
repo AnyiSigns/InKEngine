@@ -8,6 +8,11 @@
  * EnvironmentProviders：提供器注册表（插拔：新运行时 = 注册新提供器）；缺省
  * 装配 local/web_bridge/container，宿主可覆盖注册（同名覆盖 = 配置驱动）；
  * 取用未注册提供器显式报错（fail-closed，不静默回落）。
+ *
+ * 状态标注（机制就绪 / 宿主接线点待定）：EnvironmentProviders 为宿主装配
+ * 按需接线能力——引擎侧当前无装配消费方；运行/安装须宿主提供 fs/进程
+ * seam（LocalProvider 的 which/mkdirs/ProcessSandbox.spawner），缺省注册表
+ * 提供 local/web_bridge/container 三形态但未接线。
  */
 import { GraphDefinitionError } from '../errors.js';
 

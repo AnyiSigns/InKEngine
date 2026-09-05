@@ -1,3 +1,4 @@
+// gate: 超限(385 行) - 数据面核心：内联 marker 三类精确还原 + 值级脱敏接入，注释承载往返语义
 /**
  * 存储数据形态：CheckpointRecord / ChainLink + 内联 marker 的 JSON 化
  * / 还原（_jsonable_strip / _from_jsonable）。storage.py 移植的纯数据
@@ -9,8 +10,10 @@
  * 内联 marker（PATCH_CHAIN_MARKER / MESSAGE_MARKER / TOOL_CALL_MARKER）
  * 让 checkpoint JSON 列可承载非 JSON 形态（PatchChain / Message / ToolCall）
  * —— 写入侧打标、读取侧认标精确还原；不命中 marker 的子树按普通递归
- * （dict/list 容器/标量）处理。敏感键剥离与序列化合并为单次遍历（热
- * 路径零拷贝：子树无敏感键即返回原对象）。
+ * （dict/list 容器/标量）处理。敏感信息剥离与序列化合并为单次遍历（热
+ * 路径零拷贝：子树无敏感信息即返回原对象）；剥离为键级 + 值级合一——
+ * 字符串叶子整体嵌入的 URL query token / 序列化 JSON 内嵌凭据属性同样
+ * 遮蔽（ToolCall.arguments 等 JSON 串参数负载不原样落 checkpoint）。
  *
  * 字段口径：与 Python 字段一一对应；graph_path 防御拷贝为 readonly 数组
  * （元组不可变语义）；构造期不调 time.time/Date.now，由调用方经
@@ -20,7 +23,7 @@
 import { InterruptState } from '../interrupt/interrupt_types.js';
 import { Message, ToolCall } from '../llm/messages.js';
 import { PatchChain } from '../patch/patchChain.js';
-import { is_sensitive_key } from '../security/security.js';
+import { is_sensitive_key, strip_sensitive_text } from '../security/security.js';
 import type { Json, JsonRecord } from '../json.js';
 
 import {
@@ -35,11 +38,30 @@ function isPlainObject(value: unknown): value is JsonRecord {
   return proto === Object.prototype || proto === null;
 }
 
-/** 浅拷贝 dict；浅保留 list/tuple 引用（无敏感键子树零拷贝）。 */
-function shallowCopyRecord(value: JsonRecord): JsonRecord {
-  const out: JsonRecord = {};
-  for (const k of Object.keys(value)) out[k] = value[k] as Json;
-  return out;
+/**
+ * state 深拷贝（marker 实例感知）：嵌套纯 JSON 容器逐层拷贝（快照持有期
+ * 内外部改动隔离），PatchChain / Message / ToolCall 实例按原子保留同一
+ * 引用——它们是经内联 marker 序列化的值对象，deepCopy 的 Object.entries
+ * 拷贝会把实例摊平成普通 dict、毁掉 marker 还原语义（marker 序列化在
+ * to_dict 的 jsonableStrip 阶段进行）。纯 JSON 子树走 core/json.ts deepCopy。
+ */
+function copyStateValue(value: unknown): unknown {
+  if (value instanceof PatchChain || value instanceof Message || value instanceof ToolCall) {
+    return value;
+  }
+  if (Array.isArray(value)) {
+    const out: unknown[] = new Array(value.length);
+    for (let i = 0; i < value.length; i++) out[i] = copyStateValue(value[i]);
+    return out;
+  }
+  if (isPlainObject(value)) {
+    const out: JsonRecord = {};
+    for (const key of Object.keys(value)) {
+      out[key] = copyStateValue(value[key]) as Json;
+    }
+    return out;
+  }
+  return value;
 }
 
 /**
@@ -67,7 +89,10 @@ export function jsonableStrip(value: unknown): unknown {
       [TOOL_CALL_MARKER]: true,
       id: value.id,
       name: value.name,
-      arguments: value.arguments,
+      // 值级脱敏：arguments 是 JSON 串参数负载，可能内嵌 URL query token /
+      // 序列化凭据属性——不原样落 checkpoint（键级剥离看不到字符串体内）
+      arguments:
+        value.arguments.length > 0 ? strip_sensitive_text(value.arguments) : value.arguments,
     };
   }
   if (isPlainObject(value)) {
@@ -94,6 +119,11 @@ export function jsonableStrip(value: unknown): unknown {
       out[i] = stripped;
     }
     return changed ? out : value;
+  }
+  if (typeof value === 'string') {
+    // 值级脱敏：字符串叶子整体嵌入的 URL query token / JSON 文本内嵌
+    // 凭据属性随单次遍历遮蔽（无命中原样返回，零拷贝语义不变）
+    return value.length > 0 ? strip_sensitive_text(value) : value;
   }
   return value;
 }
@@ -233,7 +263,12 @@ export class CheckpointRecord {
     this.thread_id = init.thread_id;
     this.node = init.node ?? null;
     this.graph_path = [...(init.graph_path ?? [])];
-    this.state = init.state ? shallowCopyRecord(init.state) : {};
+    // 深拷贝 state：快照持有期内嵌套引用可被外部改动（浅拷贝只隔离顶层），
+    // 深拷贝保证版本链节点互不干扰（marker 实例原子保留见 copyStateValue——
+    // 内联 marker 序列化在 to_dict 阶段，state 拷贝不得摊平实例）
+    this.state = init.state !== undefined && init.state !== null
+      ? (copyStateValue(init.state) as JsonRecord)
+      : {};
     this.parent_id = init.parent_id ?? null;
     this.reason = init.reason ?? null;
     const optNow = init.options?.now;

@@ -53,6 +53,9 @@ const REQUIRED_FIELDS: Readonly<Record<ReviewType, readonly string[]>> = {
 /** 数值型必填字段的下界（0 合法，负数为越界/异常卡）。 */
 const NUMERIC_FIELDS = ['chapter_index', 'chapter_total'] as const;
 
+// 族收敛：pyStr/pyRepr 近似拷贝的统一迁移点 = core/py_repr.ts 单源（已就绪）。
+// 本实现差异：pyRepr 非递归（对象/数组直接 String()）。后续批次可按批迁移，
+// 本文件暂不改实现。
 /** Python str() 口径渲染（None → 'None'、布尔 True/False，其余 String()）。 */
 function pyStr(value: unknown): string {
   if (value === null || value === undefined) return 'None';

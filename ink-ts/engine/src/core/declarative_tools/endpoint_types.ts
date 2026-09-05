@@ -15,7 +15,13 @@
  * 字符串形态归一为枚举（后续 is 比较恒真）。TS 端以常量字符串承载——
  * 值比较即恒等比较，JSON 反序列化的 "file_ops" 与 EndpointType.FILE_OPS
  * 恒等，归一语义天然成立；非内置字符串 = 自定义端点（经注册表校验）。
+ *
+ * 数据面单源：端点名集合的唯一真源 = contracts generated
+ * BUILTIN_ENDPOINT_NAMES（schema/fixture）；本对象为引擎本地名常量
+ * （代码各处以枚举成员引用），取值经编译期集合相等绑定 + 运行时
+ * assert_endpoint_contract 双向校验，不维护第二套字面量。
  */
+import { BUILTIN_ENDPOINT_NAMES, BUILTIN_ENDPOINTS, type BuiltinEndpointName } from '@ink-ts/contracts';
 import { GraphDefinitionError } from '../errors.js';
 import type { SchemaField } from '../schema/schemaValidator.js';
 import type { SandboxSeam } from '../tool_pipeline/_types.js';
@@ -43,21 +49,50 @@ export const EndpointType = {
 /** 内置端点值联合类型。 */
 export type EndpointTypeValue = (typeof EndpointType)[keyof typeof EndpointType];
 
+// 编译期绑定：EndpointType 值集合必须与 generated BUILTIN_ENDPOINT_NAMES
+// 双向精确相等（两端任一方向新增/删除/改名 → 类型错误）。键名（大写
+// 常量名）无法用 satisfies 直接覆盖小写值联合，故用集合相等条件类型校验；
+// 运行时一致性由 assert_endpoint_contract 兜底（测试调用）。
+type _StringSetEqual<A extends string, B extends string> = Exclude<A, B> extends never
+  ? Exclude<B, A> extends never
+    ? true
+    : false
+  : false;
+const _endpointNamesCoverContract: true = true as _StringSetEqual<
+  BuiltinEndpointName,
+  EndpointTypeValue
+>;
+
+/**
+ * 运行时断言：EndpointType 值集合 ↔ contracts BUILTIN_ENDPOINT_NAMES 一致
+ * （防绕过类型层的运行时漂移，由引擎测试调用）。
+ */
+export function assert_endpoint_contract(): void {
+  const engineValues = Object.values(EndpointType);
+  const builtinNames = BUILTIN_ENDPOINT_NAMES as readonly string[];
+  if (
+    engineValues.length !== builtinNames.length
+    || !engineValues.every((value) => builtinNames.includes(value))
+  ) {
+    throw new GraphDefinitionError(
+      '端点类型枚举与 contracts BUILTIN_ENDPOINT_NAMES 不一致: '
+        + `engine=[${engineValues.join(', ')}] vs contracts=[${builtinNames.join(', ')}]`,
+    );
+  }
+}
+
 /** 全部内置端点值（注册表内置登记与测试断言共用）。 */
 export const ENDPOINT_TYPE_VALUES: readonly string[] = Object.values(EndpointType);
 
-// 各端点类型的判定动作（endpoint_operation 的映射依据；与权限域动作对齐）
+// file_ops 动作域（数据面来源 = contracts BUILTIN_ENDPOINTS 条目，本地无
+// 第二套字面量；registry 数据驱动后仍供 _hooks 判定与错误文案引用）
 // search = 工作区文本内容检索（grep）/ search_paths = 工作区路径检索
 // （glob）——同属只读文件操作域；edit = 就地改写，一等操作域（权限
 // 动作 filesystem:edit、沙箱守卫与审计可独立区分）
-export const _FILE_OPS_ACTIONS: readonly string[] = [
-  'read',
-  'write',
-  'delete',
-  'edit',
-  'search',
-  'search_paths',
-];
+const _actions_by_name: ReadonlyMap<string, readonly string[]> = new Map(
+  BUILTIN_ENDPOINTS.map((entry) => [entry.name, entry.actions]),
+);
+export const _FILE_OPS_ACTIONS: readonly string[] = _actions_by_name.get(EndpointType.FILE_OPS) ?? [];
 
 /** 判定目标提取钩子：(args, config) -> (operation, target) | null。 */
 export type EndpointExtractor = (

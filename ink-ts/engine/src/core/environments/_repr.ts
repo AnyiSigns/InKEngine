@@ -6,6 +6,9 @@
  * 运行时类非法值等错误消息会出现的形态，非通用序列化。
  */
 
+// 族收敛：pyRepr 近似拷贝的统一迁移点 = core/py_repr.ts 单源（已就绪）。
+// 本实现差异：字符串内 \\ ' 换行/回车/tab 转义；语义一致的可迁移族见
+// rules/_py.ts 头注，后续批次可按批迁移（防行为漂移，本文件暂不改实现）。
 /** Python repr() 窄面渲染（null→None；字符串引号/换行转义）。 */
 export function pyRepr(value: unknown): string {
   if (value === null || value === undefined) return 'None';

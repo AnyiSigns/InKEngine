@@ -168,6 +168,9 @@ function stringifyViolations(raw: unknown): string[] {
 }
 
 /** Python str() 口径的标量渲染（None→None、布尔大写）；复合值走 jsonDumps。 */
+// 族收敛：pyStr 近似拷贝的统一迁移点 = core/py_repr.ts 单源（已就绪）。
+// 本实现差异：复合值（对象/数组）走 jsonDumps 而非递归 str；字符串不做
+// 引号包裹。后续批次可按批迁移，本文件暂不改实现。
 function pyStr(value: unknown): string {
   if (value === null || value === undefined) return 'None';
   if (typeof value === 'boolean') return value ? 'True' : 'False';

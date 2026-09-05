@@ -17,6 +17,8 @@ import { NetworkPolicy } from '../../../src/core/permissions/networkPolicy.js';
 import {
   DeclarativeToolSpec,
   EndpointType,
+  EndpointTypeSpec,
+  endpoint_registry,
   endpoint_operation,
 } from '../../../src/core/declarative_tools/index.js';
 import { DeclarativeToolExecutors } from '../../../src/core/declarative_tools/index.js';
@@ -206,6 +208,37 @@ describe('端点配置定义期强制声明', () => {
   it('file_ops 端点强制声明根目录：缺失即拒绝（fail-closed）', () => {
     expect(() => declarative(EndpointType.FILE_OPS)).toThrow('root');
     declarative(EndpointType.FILE_OPS, { endpoint_config: { root: '/book' } });
+  });
+
+  it('必填配置存在性判定：0/false/空串 等 falsy 合法值不误拒（truthiness → presence）', () => {
+    endpoint_registry.register(
+      new EndpointTypeSpec({
+        name: 'limits_endpoint',
+        actions: ['call'],
+        config_requirements: ['limit', 'enabled', 'label'],
+      }),
+    );
+    // 键已声明但值为 0/false/空串：存在即满足必填（值语义由执行体校验）
+    const def = new DeclarativeToolSpec({
+      name: 'limits_tool',
+      description: '带数值配置的工具',
+      parameters: { type: 'object' },
+      permissions: ['custom:call:*'],
+      endpoint: 'limits_endpoint',
+      endpoint_config: { limit: 0, enabled: false, label: '' },
+    });
+    expect(def.endpoint_config['limit']).toBe(0);
+    // 键整体缺失仍 fail-closed 拒绝（必填语义 = 键必须声明）
+    expect(() =>
+      new DeclarativeToolSpec({
+        name: 'limits_tool2',
+        description: '缺键',
+        parameters: { type: 'object' },
+        permissions: ['custom:call:*'],
+        endpoint: 'limits_endpoint',
+        endpoint_config: { limit: 1 },
+      }),
+    ).toThrow('须声明');
   });
 
   it('file_ops 定义期硬校验：operation enum 必须 ⊆ 引擎操作域', () => {

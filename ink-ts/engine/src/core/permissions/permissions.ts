@@ -51,6 +51,10 @@ const FS_ACTIONS = DOMAIN_ACTIONS['filesystem']!;
 
 const REGEX_SPECIAL = new Set(['\\', '^', '$', '.', '|', '?', '*', '+', '(', ')', '[', ']', '{', '}']);
 
+// fnmatch 编译缓存：pattern → RegExp。容量上限 + 最旧即弃（Map 迭代序 =
+// 插入序，超限淘汰最先插入的键）——模块级缓存不可无界膨胀（权限声明/
+// 域名判定均可能输入不可信/高基数 pattern 串）
+const FNMATCH_CACHE_MAX = 512;
 const FNMATCH_CACHE = new Map<string, RegExp>();
 
 /** 正则特殊字面量（类外）反斜杠转义。 */
@@ -121,10 +125,14 @@ function fnmatchTranslate(pattern: string): string {
   return res;
 }
 
-/** 单段 fnmatch 匹配（大小写敏感；结果按 pattern 缓存）。 */
+/** 单段 fnmatch 匹配（大小写敏感；结果按 pattern 缓存，超限最旧即弃）。 */
 function fnmatch(name: string, pattern: string): boolean {
   let re = FNMATCH_CACHE.get(pattern);
   if (re === undefined) {
+    if (FNMATCH_CACHE.size >= FNMATCH_CACHE_MAX) {
+      const oldest = FNMATCH_CACHE.keys().next();
+      if (!oldest.done) FNMATCH_CACHE.delete(oldest.value);
+    }
     re = new RegExp(`^(?:${fnmatchTranslate(pattern)})$`, 's');
     FNMATCH_CACHE.set(pattern, re);
   }

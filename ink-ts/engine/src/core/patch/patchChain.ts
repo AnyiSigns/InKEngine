@@ -17,6 +17,12 @@ import { ASSEMBLE_MODE_VALUES } from './types.js';
 export type AssembleMode = (typeof ASSEMBLE_MODE_VALUES)[number];
 export type { Json, Patch, PatchOp, Path };
 
+/** 补丁链的序列化形态（to_dict/from_dict 的类型面，链持久化格式）。 */
+export interface PatchChainSerialized {
+  base: { [key: string]: Json };
+  patches: { op: PatchOp; path: (string | number)[]; value: Json }[];
+}
+
 function deepCopy(value: Json): Json {
   if (Array.isArray(value)) return value.map(deepCopy);
   if (value !== null && typeof value === 'object') {
@@ -194,7 +200,7 @@ export class PatchChain {
     return new PatchChain(this.base, this.patches.slice(0, cut));
   }
 
-  to_dict(): { base: { [key: string]: Json }; patches: { op: PatchOp; path: (string | number)[]; value: Json }[] } {
+  to_dict(): PatchChainSerialized {
     return {
       base: deepCopyRecord(this.base),
       patches: this.patches.map((p) => ({
@@ -205,9 +211,7 @@ export class PatchChain {
     };
   }
 
-  static from_dict(
-    data: { base?: { [key: string]: Json }; patches?: { op: PatchOp; path: (string | number)[]; value: Json }[] },
-  ): PatchChain {
+  static from_dict(data: Partial<PatchChainSerialized>): PatchChain {
     const patches = (data.patches ?? []).map((p) => ({
       op: p.op,
       path: [...p.path] as Path,

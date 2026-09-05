@@ -9,8 +9,7 @@
  * - 非流式缺 output / 非对象响应抛 LLMFormatError。
  */
 
-import type { Json } from '../../core/llm/_shapes.js';
-import { ToolCall, ToolCallDelta } from '../../core/llm/_shapes.js';
+import { ToolCall, ToolCallDelta, type Json } from '../../core/llm/messages.js';
 import { LLMChunk, LLMResult } from '../../core/llm/base.js';
 import { LLMFormatError, classify_llm_error } from '../../core/llm/errors.js';
 
@@ -97,8 +96,21 @@ export function _finish_from_event_type(event_type: string): string | null {
   return null;
 }
 
+/** 单流解析状态：function_call 完成事件的工具调用 index 自增（跨调用分桶）。 */
+export interface ResponsesParseState {
+  next_function_index: number;
+}
+
+/** 新流解析状态（每次 astream 请求/重试前新建，index 从 0 起）。 */
+export function new_responses_state(): ResponsesParseState {
+  return { next_function_index: 0 };
+}
+
 /** 把一个 Responses SSE 事件解析为 LLMChunk（无信息事件返回 null 跳过）。 */
-export function _chunk_from_event(obj: Record<string, unknown>): LLMChunk | null {
+export function _chunk_from_event(
+  obj: Record<string, unknown>,
+  state: ResponsesParseState | null = null,
+): LLMChunk | null {
   const event_type = obj['type'];
   if (typeof event_type !== 'string') return null;
   // 文本增量
@@ -106,17 +118,21 @@ export function _chunk_from_event(obj: Record<string, unknown>): LLMChunk | null
     const delta = obj['delta'];
     return new LLMChunk({ token: typeof delta === 'string' ? delta : null });
   }
-  // 工具调用定型（done 事件携带完整 function_call 项）
+  // 工具调用定型（done 事件携带完整 function_call 项；同一响应流的多个
+  // function_call 各自独立成工具调用，index 按完成事件次序自增分桶——
+  // 硬编码 index=0 会把连续多次调用合并成单个 ToolCall 且参数拼成坏 JSON）
   if (event_type === 'response.output_item.done') {
     const item = obj['item'];
     if (_is_record(item) && item['type'] === 'function_call') {
       const arguments_ = _arguments_to_string(item['arguments']);
       const name = item['name'];
       const call_id = item['call_id'];
+      const index = state === null ? 0 : state.next_function_index;
+      if (state !== null) state.next_function_index += 1;
       return new LLMChunk({
         tool_calls_delta: [
           new ToolCallDelta({
-            index: 0,
+            index,
             id: typeof call_id === 'string' ? call_id : null,
             name: typeof name === 'string' ? name : null,
             arguments_delta: typeof arguments_ === 'string' ? arguments_ : null,
@@ -139,7 +155,10 @@ export function _chunk_from_event(obj: Record<string, unknown>): LLMChunk | null
 }
 
 /** 解析单条 SSE data 帧（[DONE] 忽略；error 帧抛分类后 LLMError）。 */
-export function _parse_sse_line(line: string): LLMChunk | null {
+export function _parse_sse_line(
+  line: string,
+  state: ResponsesParseState | null = null,
+): LLMChunk | null {
   const text = line.trim();
   if (!text.startsWith('data:')) return null;
   const data = text.slice('data:'.length).trim();
@@ -164,7 +183,7 @@ export function _parse_sse_line(line: string): LLMChunk | null {
     }
     throw classify_llm_error(_status_hint(code), detail);
   }
-  return _chunk_from_event(obj);
+  return _chunk_from_event(obj, state);
 }
 
 /** 非流式响应体 → LLMResult（output 数组展开内容/工具调用/终态/用量）。 */

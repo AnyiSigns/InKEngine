@@ -171,7 +171,9 @@ export class HarnessRepository {
    *  _chain_key 同形调用）。 */
   _versions_key(name: string): string {
     return `versions:${name}`;
-  }  /**
+  }
+
+  /**
    * 写入新版本（首版 = 链 base，后续 = append 替换补丁）。
    *
    * @returns 新版本号。

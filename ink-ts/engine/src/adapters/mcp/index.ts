@@ -27,7 +27,6 @@ export {
   TaskCancelled,
   is_business_error,
   is_connection_lost,
-  is_mcp_business_reject,
 } from './_errors.js';
 export {
   CALL_TIMEOUT,

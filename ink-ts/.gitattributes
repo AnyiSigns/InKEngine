@@ -1,0 +1,7 @@
+# ink-ts 工作区文本行尾归一（LF 入库）
+# contracts 生成器（scripts/generate.mjs）以 LF 写生成物；仓内 autocrlf
+# 下若按 CRLF 检出会在「重新生成 → diff」时假报差异。文本文件统一 LF 入库，
+# Windows 检出按需转换由 core.autocrlf 处理。
+*.ts text eol=lf
+*.json text eol=lf
+*.md text eol=lf

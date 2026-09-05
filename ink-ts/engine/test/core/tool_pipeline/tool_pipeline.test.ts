@@ -1,3 +1,4 @@
+// gate: 超限(390 行) - 审批卡/轨迹脱敏集成用例沿用同一条断言装置，整链回归可读性优先
 /**
  * 工具执行流水线本体单测（门禁/沙箱/守卫/审计/轨迹的机制环节）——逐点对标
  * ink_engine/tests/test_tool_pipeline.py。
@@ -343,5 +344,55 @@ describe('审批决议', () => {
     await expect(pipeline.execute(new HangingCtx(), makeSpec(), { path: 'a.md' })).rejects.toThrow(
       InterruptSignal,
     );
+  });
+});
+
+describe('审批卡与轨迹值级脱敏', () => {
+  it('审批卡负载：url 参数内嵌 query token 不扩散到卡面', async () => {
+    const captured: Array<[string, Record<string, unknown>]> = [];
+    const cardCtx = {
+      async interrupt(key: string, payload: Record<string, unknown>): Promise<string> {
+        captured.push([key, payload]);
+        return 'reject';
+      },
+      async get_interrupt_payload(): Promise<unknown> {
+        return null;
+      },
+      async emit(): Promise<void> {},
+    };
+    const pipeline = new ToolPipeline({
+      gate: new PermissionGate(REVIEW), // 全部转审批 → 借拒绝路径验卡负载
+      extractor: (spec, args) => ['write', args['path'] as string],
+      executor: okExecutor,
+    });
+    const result = await pipeline.execute(cardCtx as never, makeSpec(), {
+      path: 'a.md',
+      url: 'https://host/p?token=sk-embed-9',
+      body: '{"api_key":"sk-body"}',
+    });
+    expect(result.ok).toBe(false);
+    expect(captured.length).toBeGreaterThan(0);
+    const action = captured[0]![1]['action'] as Record<string, unknown>;
+    const args = action['args'] as Record<string, unknown>;
+    expect(args['url']).not.toContain('sk-embed-9');
+    expect(args['body']).not.toContain('sk-body');
+    expect(args['path']).toBe('a.md');
+  });
+
+  it('轨迹落库：字符串体内嵌凭据同样不随轨迹持久化', async () => {
+    const traces: Array<{ args: Record<string, unknown> }> = [];
+    const pipeline = new ToolPipeline({
+      gate: new PermissionGate(ALLOW),
+      extractor: (spec, args) => ['exec', args['command'] as string],
+      executor: okExecutor,
+      trace_sink: (trace) => traces.push(trace as { args: Record<string, unknown> }),
+    });
+    await pipeline.execute(new FakeCtx(), makeSpec(), {
+      command: 'git',
+      note: 'https://a.b?access_token=live-secret',
+    });
+    expect(traces.length).toBe(1);
+    expect(traces[0]!.args['note']).not.toContain('live-secret');
+    expect(traces[0]!.args['command']).toBe('git');
   });
 });

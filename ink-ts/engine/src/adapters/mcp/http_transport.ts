@@ -17,6 +17,7 @@ import { McpConnectionLost, McpToolImportError, RpcError } from './_errors.js';
 import {
   CALL_TIMEOUT,
   CONNECT_TIMEOUT,
+  MAX_STDIO_FRAME_BYTES,
   MCP_CLIENT_NAME,
   MCP_CLIENT_VERSION,
   MCP_PROTOCOL_VERSION,
@@ -103,27 +104,49 @@ export class HttpMcpTransport implements RawMcpSession {
     }
     const id = this._next_id;
     this._next_id += 1;
-    const response = await this._post({
-      jsonrpc: '2.0',
-      id,
-      method: 'initialize',
-      params: {
-        protocolVersion: MCP_PROTOCOL_VERSION,
-        capabilities: {},
-        clientInfo: { name: MCP_CLIENT_NAME, version: MCP_CLIENT_VERSION },
-      },
-    });
-    const sessionHeader = response.headers.get('mcp-session-id');
-    if (sessionHeader !== null && sessionHeader !== '') {
-      this._session_id = sessionHeader;
+    // initialize 握手带连接超时（与 stdio/memory 的 CONNECT_TIMEOUT 同口径）：
+    // AbortController + 计时中止在途 fetch/正文读取，超时收敛为连接失败文案
+    const controller = new AbortController();
+    let timedOut = false;
+    const timer = setTimeout(() => {
+      timedOut = true;
+      controller.abort();
+    }, Math.round(CONNECT_TIMEOUT * 1000));
+    try {
+      const response = await this._post(
+        {
+          jsonrpc: '2.0',
+          id,
+          method: 'initialize',
+          params: {
+            protocolVersion: MCP_PROTOCOL_VERSION,
+            capabilities: {},
+            clientInfo: { name: MCP_CLIENT_NAME, version: MCP_CLIENT_VERSION },
+          },
+        },
+        controller.signal,
+      );
+      const sessionHeader = response.headers.get('mcp-session-id');
+      if (sessionHeader !== null && sessionHeader !== '') {
+        this._session_id = sessionHeader;
+      }
+      const text = await this._text_bounded(response);
+      const contentType = response.headers.get('content-type') ?? '';
+      const init = await this._resolve_collected(text, contentType, id);
+      this._server_info =
+        typeof init === 'object' && init !== null
+          ? (init as Record<string, unknown>)
+          : null;
+    } catch (exc) {
+      if (timedOut) {
+        throw new McpToolImportError(
+          `MCP server ${this._config.id} 连接超时（${CONNECT_TIMEOUT} 秒）`,
+        );
+      }
+      throw exc;
+    } finally {
+      clearTimeout(timer);
     }
-    const text = await response.text();
-    const contentType = response.headers.get('content-type') ?? '';
-    const init = await this._resolve_collected(text, contentType, id);
-    this._server_info =
-      typeof init === 'object' && init !== null
-        ? (init as Record<string, unknown>)
-        : null;
     await this._post_notification('notifications/initialized', {});
   }
 
@@ -242,15 +265,28 @@ export class HttpMcpTransport implements RawMcpSession {
           `MCP server ${this._config.id} 返回 202 但缺 Location（无法拉取异步响应）`,
         );
       }
-      const stream = await this._fetch(location, {
-        method: 'GET',
-        headers: { Accept: 'text/event-stream' },
-      });
-      const streamText = await stream.text();
+      // 异步响应仍属同一会话：GET 回带 Mcp-Session-Id（server 按会话鉴权/路由）
+      const headers: Record<string, string> = { Accept: 'text/event-stream' };
+      if (this._session_id !== null) {
+        headers['Mcp-Session-Id'] = this._session_id;
+      }
+      const stream = await this._fetch(location, { method: 'GET', headers });
+      const streamText = await this._text_bounded(stream);
       return await this._resolve_collected(streamText, 'text/event-stream', id);
     }
-    const text = await response.text();
+    const text = await this._text_bounded(response);
     return await this._resolve_collected(text, contentType, id);
+  }
+
+  /** 响应体文本读取（带大小上界：超限 fail-closed，防恶意超大 JSON/SSE 体）。 */
+  private async _text_bounded(response: FetchResponseLike): Promise<string> {
+    const text = await response.text();
+    if (Buffer.byteLength(text, 'utf8') > MAX_STDIO_FRAME_BYTES) {
+      throw new McpConnectionLost(
+        `MCP server ${this._config.id} 响应体超限（> ${MAX_STDIO_FRAME_BYTES} 字节）`,
+      );
+    }
+    return text;
   }
 
   /** 通知（fire-and-forget POST；失败静默——通知无响应语义）。 */

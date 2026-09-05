@@ -13,9 +13,9 @@
  *   reader，不悬挂连接（fetch 传输实现自带）；
  * - 坏 SSE 帧容错跳过（不中断整个流）。
  *
- * 瞬时故障指数退避重试（429/5xx/超时/网络/空流等）：最多 3 次尝试
- * （1 原始 + 2 重试），退避 1s→2s→4s，吸收网关抖动与限流尖峰；
- * 确定性失败（认证/404/400）不重试，fail-closed 语义不变。
+ * 重试纪律与 openai_compat/openai_responses 对齐：适配器默认单次尝试——
+ * 瞬时故障（429/5xx/超时/网络/空流等）重试归链层 RetryPolicy；独立直用
+ * 场景经构造参数注入 RetryPolicy（指数退避，计时可注入假时钟）显式开重试。
  */
 
 import {
@@ -32,28 +32,15 @@ import {
   classify_llm_error,
   is_transient_llm_error,
 } from '../../core/llm/errors.js';
-import type { Message } from '../../core/llm/messages.js';
+import { Message, ToolCall, type Json } from '../../core/llm/messages.js';
 import type { ToolSpec } from '../../core/llm/tools.js';
-import { ToolCall, type Json } from '../../core/llm/_shapes.js';
 import { build_anthropic_payload } from './anthropic_payload.js';
 import { AnthropicStreamParser, STOP_REASON_MAP } from './anthropic_sse.js';
 import { fetch_transport, type LlmResponse, type LlmTransport } from './anthropic_transport.js';
+import { RetryPolicy, retry_backoff } from './retry.js';
 
 const DEFAULT_REQUEST_TIMEOUT = 120.0;
-const _RETRY_MAX_ATTEMPTS = 3;
-const _RETRY_BASE_DELAY = 1.0;
-const _RETRY_MAX_DELAY = 4.0;
 const _ANTHROPIC_VERSION = '2023-06-01';
-
-function sleep(ms: number): Promise<void> {
-  return new Promise((resolve) => setTimeout(resolve, ms));
-}
-
-/** 瞬时故障重试前的指数退避（attempt = 已失败次数，0 起）。 */
-async function retry_backoff(attempt: number): Promise<void> {
-  const delay = Math.min(_RETRY_BASE_DELAY * 2 ** attempt, _RETRY_MAX_DELAY);
-  await sleep(delay * 1000);
-}
 
 /** 把任意传输异常归一为 LLMError（已分类的直通）。 */
 function to_llm_error(exc: unknown): LLMError {
@@ -84,11 +71,18 @@ export class AnthropicLLM extends AsyncLLM {
   readonly adapter = 'anthropic_messages';
 
   private readonly _transport: LlmTransport;
+  private readonly _retry: RetryPolicy | null;
 
-  constructor(config: LLMConfig, options: { transport?: LlmTransport | null } = {}) {
+  constructor(
+    config: LLMConfig,
+    options: { transport?: LlmTransport | null; retry?: RetryPolicy | null } = {},
+  ) {
     super(config);
-    // 测试注入 fake 传输；缺省全局 fetch 传输（openai 适配器共用同一 seam）
+    // 测试注入 fake 传输；缺省全局 fetch 传输（openai 适配器共用同一 seam）。
+    // 重试默认单次（null=关闭）；独立直用可注入 RetryPolicy（与 openai_compat
+    // 同形态），瞬时故障重试归链层/显式注入策略，杜绝「适配器 × 链」叠加。
     this._transport = options.transport ?? fetch_transport();
+    this._retry = options.retry ?? null;
   }
 
   // ------------------------------------------------------------------
@@ -192,27 +186,27 @@ export class AnthropicLLM extends AsyncLLM {
       opts.params ?? null,
       false,
     );
-    let response: LlmResponse | null = null;
-    for (let attempt = 0; attempt < _RETRY_MAX_ATTEMPTS; attempt++) {
+    const attempts = this._retry !== null ? Math.max(1, this._retry.attempts) : 1;
+    for (let attempt = 0; attempt < attempts; attempt++) {
       try {
-        response = await this._transport.post(this._endpoint, {
+        const response = await this._transport.post(this._endpoint, {
           headers: this._headers(),
           json: payload,
           timeout_ms: this._timeout_ms(),
         });
         await this._raise_for_status(response);
-        break;
+        const body = await response.body_text();
+        return this._parse_response(body);
       } catch (exc) {
         const error = to_llm_error(exc);
-        if (is_transient_llm_error(error) && attempt + 1 < _RETRY_MAX_ATTEMPTS) {
-          await retry_backoff(attempt);
+        if (is_transient_llm_error(error) && attempt + 1 < attempts && this._retry !== null) {
+          await retry_backoff(this._retry, attempt);
           continue;
         }
         throw error;
       }
     }
-    const body = await (response as LlmResponse).body_text();
-    return this._parse_response(body);
+    throw new LLMError('LLM 调用未产生结果');
   }
 
   async *astream(
@@ -226,7 +220,8 @@ export class AnthropicLLM extends AsyncLLM {
       opts.params ?? null,
       true,
     );
-    for (let attempt = 0; attempt < _RETRY_MAX_ATTEMPTS; attempt++) {
+    const attempts = this._retry !== null ? Math.max(1, this._retry.attempts) : 1;
+    for (let attempt = 0; attempt < attempts; attempt++) {
       let emitted = false;
       const parser = new AnthropicStreamParser();
       try {
@@ -250,8 +245,8 @@ export class AnthropicLLM extends AsyncLLM {
           // 已产出内容后的中断：重试会重复已消费帧，直接上抛不重试
           throw error;
         }
-        if (is_transient_llm_error(error) && attempt + 1 < _RETRY_MAX_ATTEMPTS) {
-          await retry_backoff(attempt);
+        if (is_transient_llm_error(error) && attempt + 1 < attempts && this._retry !== null) {
+          await retry_backoff(this._retry, attempt);
           continue;
         }
         throw error;

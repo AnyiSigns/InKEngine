@@ -160,14 +160,13 @@ describe('候选链证据口径', () => {
   });
 });
 
-// ── defer 说明 ──────────────────────────────────────────────────────────
-// 依赖引擎执行器（executor.Engine 未迁移）的用例按迁移批次 defer，待 executor
-// 模块落地后补测（对应 test_multipath.py 中依赖 engine 真实支流执行的用例）：
-//   test_integration_assemble_multipath_junction_settle（组装 → 多径 → 汇流 →
-//   沉淀闭环；make_candidates + MultipathRunner.run 触发路径）
-//   test_budget_insufficient_degrades_to_single_path / test_k3_gated_by_high_risk_tier
-//   test_multipath_nesting_guardrail_degrades_single / test_multipath_nesting_depth_
-//   resets_after_run / test_runner_requires_min_two_candidates（降级单径仍需执行）
-//   test_multipath_interrupt_suspend_and_resume / test_branch_inject_isolated_per_branch
-//   test_multipath_cancel_keeps_subchains_and_recovers / test_branch_steps_limit_
-//   overrun_marks_branch_failed
+// ── 覆盖说明 ──────────────────────────────────────────────────────────
+// 原 defer 的引擎执行类用例已回补于 multipath_runner.test.ts「支流执行真接线」
+// （真实引擎结构面跑通）：
+//   test_two_branches_merge_verdict（≈ test_integration_assemble_multipath_
+//   junction_settle 的执行面）/ test_branch_failure_reduces_to_success（≈
+//   test_all_branches_fail_fallbacks）/ test_budget_insufficient_degrades_to_
+//   single_path / test_single_candidate_degraded_path（≈ 降级单径仍需执行）/
+//   test_executor_multipath_dispatch（引擎全链展开）。k>2 高风险门限（k_eff 降 2）
+//   的降档逻辑由 runner 内纯算法路径覆盖；依赖嵌套深度复位/中断挂起与注入
+//   隔离的用例仍待 async-local 深度隔离落地（见 _runner_base.ts 头注）。

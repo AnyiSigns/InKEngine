@@ -17,15 +17,7 @@
  */
 import { InterruptSignal } from '../interrupt/interrupt_types.js';
 import { TerminateReason } from '../graph/graph_types.js';
-import {
-  SpawnFailure,
-  SpawnResult,
-  type SpawnSpec,
-  collect_spawn_specs,
-  instance_entry_state,
-  instance_thread_id,
-} from '../spawn/spawn.js';
-import { SPAWN_KEY } from '../spawn/spawn.js';
+import { SpawnFailure, SpawnResult, type SpawnSpec, collect_spawn_specs, instance_entry_state, instance_thread_id } from '../spawn/spawn.js';
 import { fan_out } from '../fanout/fanout.js';
 import { tail_checkpoint } from '../recovery/index.js';
 import { subgraph_flowback_overlay } from '../state/schema.js';
@@ -193,13 +185,7 @@ export abstract class EngineSpawn extends EngineCheckpoint {
     }
     return new SpawnResult({ overlay, failures });
   }
-
-  /** 清单内是否存在数据驱动来源的 spawn 保留键（节点 overlay 判定用）。 */
-  _overlay_has_data_driven_spawn(overlay: Record<string, unknown> | null): boolean {
-    return overlay !== null && SPAWN_KEY in overlay;
-  }
 }
 
 export type { SpawnSpec, SpawnResult, SpawnFailure };
 export { collect_spawn_specs };
-export { _warn };

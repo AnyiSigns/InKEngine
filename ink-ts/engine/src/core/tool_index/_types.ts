@@ -54,11 +54,19 @@ export type Endpoints = Readonly<Record<string, string>>;
 /**
  * 引擎侧 AsyncEmbedder 抽象（由宿主实现）。
  *
- * ``aembed_documents`` / ``aembed_query`` 可返回 Promise 也可同步直返——core
- * 既要消费协程形态，也要兼容同步形态。失败由宿主抛错，core 捕获后降级
- * 关键词基线。
+ * 同步契约（seam 收窄）：``aembed_documents`` / ``aembed_query`` 一律
+ * **同步直返**嵌入结果——本 seam 不接收 Promise。宿主接入真异步嵌入器时
+ * 必须在注入前先把异步结果 await/收口成同步值（引擎侧检索/构建为同步
+ * 路径，无法在调用面轮询 Promise；等价 Python 端 asyncio + 专用线程循环
+ * 的收口位点）。嵌入失败由宿主抛错，core 捕获后降级关键词基线并上报
+ * on_degraded（见 ToolVectorIndex，失败不静默）。
+ *
+ * 运行时若仍返回 thenable（宿主未收口）= seam 契约违规：core 按降级处理
+ * 并携带明确降级原因（degraded 标记/回调可见），不静默吞成「恒空向量」。
  */
 export interface AsyncEmbedder {
-  aembed_documents(texts: readonly string[]): Promise<readonly number[][]> | readonly number[][];
-  aembed_query(text: string): Promise<readonly number[]> | readonly number[];
+  /** 批量嵌入（同步直返：宿主须先 await 收口后再注入）。 */
+  aembed_documents(texts: readonly string[]): readonly (readonly number[])[];
+  /** 单条 query 嵌入（同步直返）。 */
+  aembed_query(text: string): readonly number[];
 }

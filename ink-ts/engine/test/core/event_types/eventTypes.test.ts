@@ -188,6 +188,39 @@ describe('随集持久化（seam）', () => {
     expect(registry.names()).toEqual(['good']);
   });
 
+  it('load 超配额不入册：与 register 配额口径一致且 on_skip 上报', async () => {
+    const store = memoryStore();
+    const registry = new EventTypeRegistry({ recordsStore: store, set_id: 'q', max_types: 2 });
+    await store.put_record(registry.collection, 'a', new EventTypeSpec({ name: 'a' }).to_dict());
+    await store.put_record(registry.collection, 'b', new EventTypeSpec({ name: 'b' }).to_dict());
+    await store.put_record(registry.collection, 'c', new EventTypeSpec({ name: 'c' }).to_dict());
+    const skipped: string[] = [];
+    const loaded = new EventTypeRegistry({
+      recordsStore: store,
+      set_id: 'q',
+      max_types: 2,
+      on_skip: (reason, name) => skipped.push(`${reason}:${name}`),
+    });
+    expect(await loaded.load()).toBe(2);
+    expect(loaded.names()).toEqual(['a', 'b']);
+    expect(skipped).toEqual(['quota:c']);
+    expect(() => loaded.register(new EventTypeSpec({ name: 'd' }))).toThrow(/配额上限/);
+  });
+
+  it('load on_skip 上报畸形记录（不再静默吞）', async () => {
+    const store = memoryStore();
+    await store.put_record('event_types', 'ok', new EventTypeSpec({ name: 'ok' }).to_dict());
+    await store.put_record('event_types', 'bad', { name: 42 });
+    const skipped: string[] = [];
+    const registry = new EventTypeRegistry({
+      recordsStore: store,
+      on_skip: (reason, name) => skipped.push(`${reason}:${name}`),
+    });
+    expect(await registry.load()).toBe(1);
+    expect(registry.names()).toEqual(['ok']);
+    expect(skipped).toEqual(['malformed:42']);
+  });
+
   it('无存储 load/save 静默跳过', async () => {
     const registry = new EventTypeRegistry();
     registry.register(spec('a'));

@@ -24,6 +24,10 @@
  * - 无 logger；时间 seam 确定性：built_at 经注入 clock 取 epoch 秒，未
  *   注入按 0（core 零时间依赖，宿主装配时注入真实时钟）；
  * - 哈希为纯 TS sha256（_sha256.ts，core 禁 node:crypto）。
+ *
+ * 状态标注（机制就绪 / 宿主接线点待定）：构建 + 冒烟门禁，由 build 类
+ * 补丁/自进化产物路径在配方开关开启时调用（默认开关：关——未启用前机制
+ * 可用但不经引擎自动触发；BuildFs 须宿主注入）。
  */
 import { GraphDefinitionError } from '../errors.js';
 import { is_absolute } from '../sandbox/_path.js';

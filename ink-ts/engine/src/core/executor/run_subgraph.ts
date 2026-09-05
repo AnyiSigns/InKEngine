@@ -32,6 +32,26 @@ import { _sub_engine_options } from './_engine_instance.js';
 import { Engine } from './_engine_execute.js';
 
 /**
+ * 嵌套子图占位注入：子图名 → run_subgraph 包装（递归到全部嵌套子图；
+ * 幂等：已挂载跳过）。
+ *
+ * 由叶节点 Engine 构造在 super(graph, options) 之前调用——编译期节点存在性/
+ * 边目标/出口校验与 Python add_subgraph（nodes[name] = runner）后的形态一致，
+ * 主循环按普通节点函数取用即可（嵌套语义集中在 run_subgraph）。挂载职责落
+ * 在本模块而非引擎基座，消除 base→subgraph→leaf→base 的模块评估环。
+ */
+export function _install_subgraph_runners(graph: Graph): void {
+  for (const subgraph of Object.values(graph.subgraphs)) {
+    _install_subgraph_runners(subgraph);
+  }
+  for (const [name, subgraph] of Object.entries(graph.subgraphs)) {
+    if (graph.nodes[name] !== undefined) continue;
+    const mounted = subgraph;
+    graph.nodes[name] = (ctx: unknown) => run_subgraph(mounted, ctx as NodeContext);
+  }
+}
+
+/**
  * 子图 schema 与父图 merge reducer 分类的继承检查（ENG2-7）。
  *
  * 回流语义依赖两端的 merge 分类一致：子图入口按**自身** schema 剥离合并

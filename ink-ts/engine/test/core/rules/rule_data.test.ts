@@ -18,6 +18,7 @@ import {
   Rule,
   RuleSet,
   RuleTypeRegistry,
+  RuleViolation,
   SEVERITY_ERROR,
   SEVERITY_WARNING,
 } from '../../../src/core/rules/index.js';
@@ -118,5 +119,81 @@ describe('规则数据形态', () => {
       ],
     });
     expect(() => RuleSet.parse(dup.to_dict(), registry)).toThrow(/重复/);
+  });
+});
+
+describe('RuleViolation entity_id 往返对称', () => {
+  it('数字/布尔实体锚点：构造期归一并往返稳定（反序列化不再炸）', () => {
+    // 谓词/钩子可产出数字（如列表索引）实体锚点；构造期归一 string|null
+    const numeric = new RuleViolation({
+      rule_id: 'r',
+      kind: 'rule',
+      severity: SEVERITY_ERROR,
+      message: '重复项',
+      entity_id: 5,
+    });
+    expect(numeric.entity_id).toBe('5');
+    const rebuilt = RuleViolation.from_dict(numeric.to_dict());
+    expect(rebuilt.entity_id).toBe('5');
+    expect(rebuilt.message).toBe('重复项');
+
+    const flag = new RuleViolation({
+      rule_id: 'r',
+      kind: 'rule',
+      severity: SEVERITY_ERROR,
+      message: '状态位违规',
+      entity_id: false,
+    });
+    expect(flag.entity_id).toBe('false');
+    expect(RuleViolation.from_dict(flag.to_dict()).entity_id).toBe('false');
+  });
+
+  it('字符串/null 实体锚点往返稳定；对象/数组锚点归一为 null（不留垃圾串）', () => {
+    const str = new RuleViolation({
+      rule_id: 'r',
+      kind: 'rule',
+      severity: SEVERITY_ERROR,
+      message: 'm',
+      entity_id: 'c1',
+    });
+    expect(RuleViolation.from_dict(str.to_dict()).entity_id).toBe('c1');
+    const none = new RuleViolation({
+      rule_id: 'r',
+      kind: 'rule',
+      severity: SEVERITY_ERROR,
+      message: 'm',
+    });
+    expect(none.entity_id).toBeNull();
+    expect(RuleViolation.from_dict(none.to_dict()).entity_id).toBeNull();
+    // 对象形态（无稳定标识）→ null 兜底，不再产生不可反序列化的记录
+    const objectish = new RuleViolation({
+      rule_id: 'r',
+      kind: 'rule',
+      severity: SEVERITY_ERROR,
+      message: 'm',
+      entity_id: { chapter: 1 } as unknown,
+    });
+    expect(objectish.entity_id).toBeNull();
+  });
+
+  it('遗留数字记录（to_dict 曾落 number）读取侧归一：from_dict 不炸', () => {
+    const legacy = RuleViolation.from_dict({
+      rule_id: 'r',
+      kind: 'rule',
+      severity: SEVERITY_ERROR,
+      message: 'm',
+      entity_id: 7,
+    });
+    expect(legacy.entity_id).toBe('7');
+    // 对象形态仍拒绝（不是合法实体锚点）
+    expect(() =>
+      RuleViolation.from_dict({
+        rule_id: 'r',
+        kind: 'rule',
+        severity: SEVERITY_ERROR,
+        message: 'm',
+        entity_id: { chapter: 1 },
+      }),
+    ).toThrow(/entity_id/);
   });
 });

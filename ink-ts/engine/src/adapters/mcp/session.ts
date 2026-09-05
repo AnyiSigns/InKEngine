@@ -35,11 +35,6 @@ export abstract class McpSessionHandle {
   abstract aclose(): Promise<void>;
 }
 
-/** 带协议级存活探测能力的句柄（health_check 的判定依据；可选能力）。 */
-export interface McpPingable {
-  ping(): Promise<void>;
-}
-
 /** 会话打开选项（传输 seam 注入面：spawn/fetch/执行件 stderr 通道）。 */
 export interface SessionOpenOptions {
   spawn_seam?: SpawnSeam;

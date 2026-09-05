@@ -7,8 +7,8 @@
  *   limit 截断（钳制注入上下文体积）；
  * - 注入防线：可信度分级按 levels 过滤（只放行允许分级）；检索文本检出
  *   指令型措辞 = 剔除（检索结果不可信——web/外部来源可能携带恶意指令，
- *   命中不入上下文），扫描经 scanner seam 注入（knowledge_gate 未迁，
- *   缺省 no-op）；
+ *   命中不入上下文），扫描经 scanner seam 注入（缺省 = scan_text_injection
+ *   真实检出；宿主可注入等价实现覆盖）；
  * - 单源失败静默跳过（检索是增强不是收紧），空结果 = 空清单。
  */
 
@@ -26,7 +26,7 @@ import type { InjectionScanner, Retriever, RetrievedChunk } from './_types.js';
 export interface RetrieverRegistryOptions {
   /** 注册配额上限（超限显式拒绝；缺省 DEFAULT_MAX_RETRIEVERS）。 */
   max_retrievers?: number;
-  /** 指令注入扫描器（缺省 = no-op，见文件头迁移边界说明）。 */
+  /** 指令注入扫描器（缺省 = scan_text_injection 真实检出，见 _types）。 */
   scanner?: InjectionScanner | null;
 }
 

@@ -12,9 +12,8 @@
  * 预检落 config；候选链证据口径落 evidence；汇流数据形态落 junction_types；
  * 裁决核心落 verdict；归因/审计落 updates；Junction 节点类型落
  * junction_node；收口结果落 results；运行器按段拆成 _runner_base（接缝/
- * 审计/支流 defer 预留）→ runner（run 编排）。引擎执行器（core/executor
- * .Engine）未迁移：支流执行按 defer 预留，集成/中断等执行类用例随测试
- * 文件头注一并 defer。
+ * 审计/支流执行——经父引擎结构面 MultipathEngineLike 真接线 executor
+ * Engine）→ runner（run 编排）。
  */
 
 // ── 常数（镜像 __all__ 常量段）──────────────────────────────────

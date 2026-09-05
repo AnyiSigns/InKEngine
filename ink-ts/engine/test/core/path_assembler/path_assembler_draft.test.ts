@@ -4,8 +4,9 @@
  * 上限 / 空响应与超时直接兜底）/ 反馈消毒 / 检索器协议注入草稿窗口 / 组装审计
  * 记录 / 请求 JSON 往返 / canary 重建级校验 / 候选事件类型注册。
  *
- * 依赖引擎执行器的 canary 单回合执行类用例已 defer（见文件尾注）：canary_round
- * 在 executor 未迁移前抛未迁移错误（canary.ts defer 预留）。
+ * 依赖引擎执行器的 canary 单回合执行类用例已回补：见
+ * path_assembler_canary.test.ts（候选重建 + 单回合试跑/破坏性执行拒绝/
+ * canary 态标记/步数护栏/超时中止）。
  */
 
 import { describe, expect, it } from 'vitest';
@@ -263,9 +264,9 @@ class SlowDraftProvider {
   }
 }
 
-// ── defer 说明 ──────────────────────────────────────────────────────────
-// 依赖引擎执行器（executor.Engine 未迁移）的执行类用例按迁移批次 defer，待
-// executor 模块落地后补测：
-//   test_integration_candidate_roundtrip_and_canary_run（engine 试跑）
-//   test_canary_round_rejects_broken_execution / test_canary_active_context_flag
+// ── 覆盖说明 ──────────────────────────────────────────────────────────
+// 原 defer 的执行类用例（canary 单回合试跑）已随 executor 接线回补，落位
+// path_assembler_canary.test.ts：
+//   test_integration_candidate_roundtrip_and_canary_run / test_canary_round_
+//   rejects_broken_execution / test_canary_active_context_flag /
 //   test_canary_step_budget_caps_execution / test_canary_timeout_aborts

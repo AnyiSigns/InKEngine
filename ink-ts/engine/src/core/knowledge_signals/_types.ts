@@ -56,6 +56,9 @@ export const _SIGNAL_KINDS: readonly string[] = [
 export const _SOURCES: readonly string[] = [SOURCE_WEB, SOURCE_DIALOG, SOURCE_MODEL, SOURCE_USER];
 
 // Python repr 口径的错误消息装配（信号/配置声明文案携带可读形态）
+// 族收敛：repr 近似拷贝的统一迁移点 = core/py_repr.ts 单源（已就绪）。
+// 本实现差异：_str_repr 非递归（字符串/None 特判，其余 String）；
+// _tuple_repr 单引号引元组项。后续批次可按批迁移，本文件暂不改实现。
 export function _str_repr(value: unknown): string {
   if (value === null || value === undefined) return 'None';
   if (typeof value === 'string') return `'${value}'`;

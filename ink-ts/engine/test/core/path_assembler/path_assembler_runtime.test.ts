@@ -1,12 +1,12 @@
 /**
  * 路径组装器组装指令入口单测（test_path_assembler.py「组装指令入口」段移植，
- * canary=False 变体）。
+ * canary=False 变体 + canary=True 全链用例）。
  *
- * Python 原用例走 canary=True（单回合执行依赖 executor.Engine）；executor 未迁移
- * → 执行类用例 defer，本文件以 canary=False 变体验证装配层链路：模块级默认运行期
- * 未挂载零生效 / 开关关闭零生效 / 最近一次请求指纹记录（ENG9a-24）/ stats 运行期
- * 累计（ENG9a-8）。canary=True 的指令入口用例（含命中候选验证复用 ENG9a-7）随
- * executor 迁移后补测。
+ * canary 默认关闭（重建级校验交付，不替宿主跑成本敏感的单回合）；canary=True
+ * 的指令入口用例（单候选单回合执行 + 审计、命中候选验证复用）见
+ * path_assembler_canary.test.ts。本文件以 canary=False 变体验证装配层链路：
+ * 模块级默认运行期未挂载零生效 / 开关关闭零生效 / 最近一次请求指纹记录
+ * （ENG9a-24）/ stats 运行期累计（ENG9a-8）。
  */
 
 import { afterEach, describe, expect, it } from 'vitest';
@@ -162,12 +162,9 @@ describe('运行期统计累计 / 最近请求指纹（canary=False 变体）', 
   });
 });
 
-// ── defer 说明 ──────────────────────────────────────────────────────────
-// 依赖引擎执行器（executor.Engine 未迁移）的指令入口用例按迁移批次 defer，
-// 待 executor 模块落地后补测（Python 原用例默认 canary=True 走单回合执行）：
-//   test_assemble_plan_runtime_canary_and_audit（canary=True 验证链路）
-//   test_runtime_canary_options_propagate_to_execution（预算掐断 → canary 失败）
-//   test_cache_hit_candidates_canary_verified_once（ENG9a-7 命中验证一次复用）
-//   test_assemble_plan_envelope_reaches_draft_layer（ENG9a-3 envelope 透传）
-//   test_runtime_assemble_plan_envelope_beam_and_draft（beam 宽度/草稿开关直通）
-// 本文件的 stats 累计 / 指纹记录用例以 canary=False 重建级变体覆盖装配层链路。
+// ── 覆盖说明 ──────────────────────────────────────────────────────────
+// canary=True 的指令入口用例（test_assemble_plan_runtime_canary_and_audit
+// /test_runtime_canary_options_propagate_to_execution/ENG9a-7 命中验证一次
+// 复用）已回补于 path_assembler_canary.test.ts（单回合真实执行 + canary 态 +
+// 步数/超时护栏）。本文件的 stats 累计 / 指纹记录用例以 canary=False 重建级
+// 变体覆盖装配层链路。

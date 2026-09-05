@@ -12,7 +12,39 @@
  * （_runtime_contexts/_runtime_engine）→ 装配（_runtime_assemble）→ 本叶类。
  */
 
+import { ROUND_LEDGER_COLLECTION } from './_settle.js';
+import type { StepRecord } from '../round_steps/index.js';
 import { RuntimeAssemble } from './_runtime_assemble.js';
 
 /** 运行时叶类（完整公开形态 = 分层链全量方法）。 */
-export class Runtime extends RuntimeAssemble {}
+export class Runtime extends RuntimeAssemble {
+  /** 线程最近回合账本（ledger 集合；未记账/未装配返回 null）。 */
+  async ledger(thread_id: string): Promise<Record<string, unknown> | null> {
+    const storage = this.storage;
+    if (storage === null) return null;
+    let best: Record<string, unknown> | null = null;
+    let bestIndex = -1;
+    try {
+      for (const record of await storage.list_records(ROUND_LEDGER_COLLECTION)) {
+        if (record['thread_id'] !== thread_id) continue;
+        const index = Number(record['round_index'] ?? -1);
+        if (!Number.isFinite(index) || index < 0) continue;
+        if (index > bestIndex) {
+          bestIndex = index;
+          best = record;
+        }
+      }
+    } catch {
+      // 账本读取失败（返回 null）
+      return null;
+    }
+    return best;
+  }
+
+  /** 线程最近回合步骤序列（round_steps 记录器；缺省当前在途线程）。 */
+  round_steps(thread_id?: string | null): StepRecord[] {
+    const recorder = this.round_steps_recorder;
+    if (recorder === null) return [];
+    return recorder.steps(thread_id ?? this._active_run_thread ?? null);
+  }
+}

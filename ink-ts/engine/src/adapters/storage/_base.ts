@@ -120,12 +120,21 @@ export class MemoryStorageBase {
       if (parsed.records === null || typeof parsed.records !== 'object') {
         throw new Error('缺 records');
       }
+      // 计数器缺省 1（旧快照无此字段）；在则须为正整数（NaN/负数/非整即损坏）
+      const nextCheckpointId = Number(parsed.next_checkpoint_id ?? 1);
+      const nextEventSeq = Number(parsed.next_event_seq ?? 1);
+      if (!Number.isInteger(nextCheckpointId) || nextCheckpointId < 1) {
+        throw new Error(`next_checkpoint_id 非法: ${JSON.stringify(parsed.next_checkpoint_id)}`);
+      }
+      if (!Number.isInteger(nextEventSeq) || nextEventSeq < 1) {
+        throw new Error(`next_event_seq 非法: ${JSON.stringify(parsed.next_event_seq)}`);
+      }
       payload = {
         checkpoints: parsed.checkpoints,
         events: parsed.events,
         records: parsed.records,
-        next_checkpoint_id: Number(parsed.next_checkpoint_id),
-        next_event_seq: Number(parsed.next_event_seq),
+        next_checkpoint_id: nextCheckpointId,
+        next_event_seq: nextEventSeq,
         latest_checkpoint_by_thread:
           (parsed.latest_checkpoint_by_thread as Record<string, number> | undefined) ?? {},
       };

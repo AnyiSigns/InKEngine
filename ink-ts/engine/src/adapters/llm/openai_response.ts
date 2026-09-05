@@ -30,32 +30,18 @@ import type { Message } from '../../core/llm/messages.js';
 import type { ToolSpec } from '../../core/llm/tools.js';
 
 import { RESPONSES_CORE_PAYLOAD_KEYS, response_tools, to_input_items } from './_responses_payload.js';
-import { _error_detail, _parse_sse_line, parse_response_body } from './_responses_parse.js';
+import {
+  _error_detail,
+  _parse_sse_line,
+  new_responses_state,
+  parse_response_body,
+} from './_responses_parse.js';
 import { fetch_transport } from './_responses_transport.js';
 import type { LlmPostRequest, LlmResponse, LlmTransport } from './_responses_transport.js';
+import { RetryPolicy, retry_backoff } from './retry.js';
 
 /** 请求默认超时（秒）；与 Python DEFAULT_REQUEST_TIMEOUT 对齐。 */
 export const DEFAULT_REQUEST_TIMEOUT = 120;
-
-/** 重试策略（每次调用，与备用切换叠加；镜像 fallback.py RetryPolicy）。 */
-export class RetryPolicy {
-  readonly attempts: number;
-  readonly base_delay: number;
-  readonly max_delay: number;
-
-  constructor(init: { attempts?: number; base_delay?: number; max_delay?: number } = {}) {
-    this.attempts = init.attempts ?? 3;
-    this.base_delay = init.base_delay ?? 1.0;
-    this.max_delay = init.max_delay ?? 10.0;
-    Object.freeze(this);
-  }
-}
-
-/** 退避等待（attempt = 已失败次数，0 起：base_delay * 2^attempt，封顶）。 */
-async function _retry_backoff(policy: RetryPolicy, attempt: number): Promise<void> {
-  const delay = Math.min(policy.base_delay * Math.pow(2, attempt), policy.max_delay);
-  await new Promise((resolve) => setTimeout(resolve, delay * 1000));
-}
 
 /** 把传输异常分类为 LLMError（失败安全：未知异常兜底包装）。 */
 function _wrap_transport_error(exc: unknown): LLMError {
@@ -188,7 +174,7 @@ export class OpenAIResponsesLLM extends AsyncLLM {
       } catch (exc) {
         const error = exc instanceof LLMError ? exc : _wrap_transport_error(exc);
         if (is_transient_llm_error(error) && attempt + 1 < attempts) {
-          await _retry_backoff(this._retry as RetryPolicy, attempt);
+          await retry_backoff(this._retry as RetryPolicy, attempt);
           continue;
         }
         throw error;
@@ -211,8 +197,10 @@ export class OpenAIResponsesLLM extends AsyncLLM {
       try {
         const response = await transport.post(this._endpoint, request);
         await this._raise_for_status(response);
+        // 单流内 function_call 按完成事件次序自增 index（跨调用独立成桶）
+        const tool_index = new_responses_state();
         for await (const line of response.aiter_lines()) {
-          const chunk = _parse_sse_line(line);
+          const chunk = _parse_sse_line(line, tool_index);
           if (chunk === null) continue;
           emitted = true;
           yield chunk;
@@ -223,7 +211,7 @@ export class OpenAIResponsesLLM extends AsyncLLM {
         const error = exc instanceof LLMError ? exc : _wrap_transport_error(exc);
         if (emitted) throw error; // 已产出内容后的中断不重试（重试会重复已消费帧）
         if (is_transient_llm_error(error) && attempt + 1 < attempts) {
-          await _retry_backoff(this._retry as RetryPolicy, attempt);
+          await retry_backoff(this._retry as RetryPolicy, attempt);
           continue;
         }
         throw error;

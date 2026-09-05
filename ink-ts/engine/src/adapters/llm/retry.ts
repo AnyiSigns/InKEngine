@@ -8,16 +8,33 @@
  * 落地后统一从 core 侧引用。
  */
 
-/** 重试策略（attempts = 总尝试次数，含首次）。 */
+/** 退避睡眠注入面（毫秒）：缺省真实计时，测试注入录制/假时钟零等待。 */
+export type BackoffSleeper = (ms: number) => Promise<void>;
+
+const _default_sleeper: BackoffSleeper = async (ms: number): Promise<void> => {
+  await new Promise<void>((resolve) => {
+    setTimeout(resolve, ms);
+  });
+};
+
+/** 重试策略（attempts = 总尝试次数，含首次；单一源，openai_compat /
+ *  openai_responses / anthropic 适配器共用同一形态）。 */
 export class RetryPolicy {
   readonly attempts: number;
   readonly base_delay: number;
   readonly max_delay: number;
+  readonly _sleeper: BackoffSleeper;
 
-  constructor(init: { attempts?: number; base_delay?: number; max_delay?: number } = {}) {
+  constructor(init: {
+    attempts?: number;
+    base_delay?: number;
+    max_delay?: number;
+    sleeper?: BackoffSleeper | null;
+  } = {}) {
     this.attempts = init.attempts ?? 3;
     this.base_delay = init.base_delay ?? 1.0;
     this.max_delay = init.max_delay ?? 10.0;
+    this._sleeper = init.sleeper ?? _default_sleeper;
     Object.freeze(this);
   }
 }
@@ -28,8 +45,7 @@ export function backoff_delay_ms(policy: RetryPolicy, attempt: number): number {
   return delay * 1000;
 }
 
-/** 指数退避睡眠（attempt = 已失败次数，0 起）。 */
+/** 指数退避睡眠（attempt = 已失败次数，0 起；计时经 policy 注入的 sleeper）。 */
 export async function retry_backoff(policy: RetryPolicy, attempt: number): Promise<void> {
-  const ms = backoff_delay_ms(policy, attempt);
-  await new Promise<void>((resolve) => setTimeout(resolve, ms));
+  await policy._sleeper(backoff_delay_ms(policy, attempt));
 }

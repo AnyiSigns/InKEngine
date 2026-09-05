@@ -117,6 +117,48 @@ describe('快照/恢复', () => {
     await store.close();
   });
 
+  it('旧快照缺 next 计数器时兜底为 1（不再 Number(undefined)=NaN 毒化自增）', async () => {
+    const legacy = snapPath('legacy-no-counters.json');
+    writeFileSync(
+      legacy,
+      JSON.stringify({ checkpoints: [], events: {}, records: {} }),
+      'utf8',
+    );
+    const store = create_memory_storage();
+    await store.restore(legacy);
+    const rec = await store.put_checkpoint(
+      new CheckpointRecord({ checkpoint_id: 0, thread_id: 't1', node: 'n1', state: {} }),
+    );
+    expect(rec.checkpoint_id).toBe(1); // 计数器从 1 起，非 NaN
+    expect(Number.isNaN(rec.checkpoint_id)).toBe(false);
+    await store.close();
+  });
+
+  it('next 计数器非正整数显式拒绝（快照损坏 fail-closed）', async () => {
+    const bad = snapPath('bad-counter.json');
+    writeFileSync(
+      bad,
+      JSON.stringify({ checkpoints: [], events: {}, records: {}, next_checkpoint_id: -3 }),
+      'utf8',
+    );
+    const store = create_memory_storage();
+    await expect(store.restore(bad)).rejects.toThrow(StorageError);
+    await expect(store.restore(bad)).rejects.toThrow(/恢复失败/);
+    await store.close();
+  });
+
+  it('next 计数器非法取值（字符串/NaN）同样拒绝', async () => {
+    const bad = snapPath('bad-counter-str.json');
+    writeFileSync(
+      bad,
+      JSON.stringify({ checkpoints: [], events: {}, records: {}, next_event_seq: 'abc' }),
+      'utf8',
+    );
+    const store = create_memory_storage();
+    await expect(store.restore(bad)).rejects.toThrow(/恢复失败/);
+    await store.close();
+  });
+
   it('snapshot 目标目录不存在抛 StorageError', async () => {
     const store = create_memory_storage();
     await expect(

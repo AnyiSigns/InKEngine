@@ -216,6 +216,26 @@ describe('DefaultEvolutionWriter.write 三闸门顺序', () => {
       writer.write('a', 'k', { v: 1 }, opts('harness', 'h')),
     ).rejects.toThrow('disk full');
   });
+
+  it('构造注入自增键源/时钟：多次演化写审计键互不覆盖', async () => {
+    const store = new MemStore();
+    let seq = 0;
+    const writer = new DefaultEvolutionWriter(store, {
+      keyGen: () => {
+        seq += 1;
+        return seq.toString(16).padStart(12, '0');
+      },
+      now: () => 1000,
+    });
+    await writer.write('a', 'k1', { v: 1 }, opts('harness', 'h1'));
+    await writer.write('a', 'k2', { v: 2 }, opts('harness', 'h2'));
+    const audits = store.puts.filter((p) => p.collection === AUDIT_COLLECTION);
+    expect(audits.length).toBe(2);
+    // 键源注入后两次写产出不同键（未注入时固定 op-000000000000 会互相覆盖）
+    expect(audits[0]!.key).toBe('op-000000000001');
+    expect(audits[1]!.key).toBe('op-000000000002');
+    expect(audits.every((p) => p.data['ts'] === 1000)).toBe(true);
+  });
 });
 
 describe('DefaultEvolutionWriter 受守卫存储（duck-check allow_mechanism）', () => {

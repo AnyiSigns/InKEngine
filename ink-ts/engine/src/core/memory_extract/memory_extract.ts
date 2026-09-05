@@ -13,6 +13,11 @@
  * 逻辑全在 engine core 内（不新增宿主模块），复用 StorageBackedMemoryStore
  * 同一记忆接口；语义归并（可选弱模型档）留作扩展点，本模块默认零 LLM
  * 规则抽取。
+ *
+ * 状态标注（机制就绪 / 宿主接线点待定）：回合记忆抽取默认不随回合自动
+ * 执行（规则抽取零 LLM；语义归并档消耗 LLM）——接线点：runtime settle
+ * 钩子（引擎已接归因/账本 settle，记忆抽取钩子未接），开关默认关；存储
+ * 面 = memory 域（当前无 runtime 默认装配，宿主按需挂 StorageBackedMemoryStore）。
  */
 
 import { isRecord, type JsonRecord } from '../json.js';

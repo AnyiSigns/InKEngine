@@ -32,6 +32,9 @@ export type EdgeCondition = (ctx: NodeContext) => boolean | Promise<boolean>;
 /**
  * 结点契约（登记面镜像 core.contracts.NodeContract 的数据形态）。
  *
+ * 过渡桥：收敛到 core/contracts NodeContract（登记面数据形态镜像，
+ * contracts 移植后统一为同一类型）。
+ *
  * 契约是数据：注册表随类型登记后原样保存/返回，只读 version 供链接校验的
  * 版本存在性判定，其余字段不解释含义。完整契约类（frozen dataclass、字段
  * 校验、SchemaSpec 形态）随 contracts 模块移植后收敛为同一类型，此处接口

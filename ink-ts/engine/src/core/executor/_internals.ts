@@ -1,4 +1,4 @@
-// gate: 超限(371 行) - 引擎内部件集中层（裁剪/队列/定位/互斥多机制同文件共享状态类型），拆分即扩散内部契约
+// gate: 超限(365 行) - 引擎内部件集中层（裁剪/队列/定位/互斥多机制同文件共享状态类型），拆分即扩散内部契约
 /**
  * 执行引擎内部件（executor.py 移植——模块级机制/数据形态层）。
  *
@@ -15,7 +15,8 @@
 import { EngineEvent, type EngineTransport } from '../events/events.js';
 import { TerminateReason } from '../graph/graph_types.js';
 import type { Graph } from '../graph/graph.js';
-import { InterruptState } from '../interrupt/interrupt_types.js';
+import { InterruptSignal, InterruptState } from '../interrupt/interrupt_types.js';
+import { strip_sensitive } from '../security/security.js';
 import type { Plan } from '../plan/plan.js';
 import type { StateSchema } from '../state/schema.js';
 import type { ResumeMap } from '../recovery/recovery_types.js';
@@ -38,6 +39,24 @@ export function _warn(message: string): void {
 /** error 留痕（观察面副作用；注入后收集，缺省静默）。 */
 export function _error(message: string): void {
   if (_error_sink !== null) _error_sink(message);
+}
+
+/**
+ * InterruptSignal → InterruptState（挂起态统一收敛构造：敏感键剥离 + 节点/
+ * 路径归属）。多展开路径（spawn/推演/计划/并行组）捕获中断后共用同一构造，
+ * 避免各文件重复「catch→InterruptState→trace_mark_skipped」样板。
+ */
+export function _interrupt_state(
+  sig: InterruptSignal,
+  node: string | null,
+  graph_path: readonly string[],
+): InterruptState {
+  return new InterruptState(
+    sig.key,
+    strip_sensitive(sig.payload) as Record<string, unknown>,
+    node,
+    graph_path,
+  );
 }
 
 // ── 确定性 seam（时间/默认 id）─────────────────────────────────────────

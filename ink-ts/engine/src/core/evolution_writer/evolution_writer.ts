@@ -74,6 +74,19 @@ function isGuarded(storage: EvolutionStorage): storage is GuardedEvolutionStorag
 }
 
 /**
+ * DefaultEvolutionWriter 构造选项（审计键/时钟 seam，可选）。
+ * 未提供时沿用 audit_log 的确定性缺省（键固定 12 位 hex、时间 0）——
+ * unit 级直接构造保持可复现；Runtime 装配注入实例内唯一键源 + 时钟后，
+ * 多次演化写的审计记录键互不覆盖（append-only 历史不撒谎）。
+ */
+export interface DefaultEvolutionWriterOptions {
+  /** 审计键片段源（等价 uuid4().hex[:12]）；缺省 = audit_log 固定缺省。 */
+  keyGen?: (() => string) | null;
+  /** 审计时间源（epoch 秒）；缺省 = audit_log 固定缺省（0）。 */
+  now?: (() => number) | null;
+}
+
+/**
  * EvolutionWriter 默认实现（内容型补丁链 + 实时写 + 审计）。
  *
  * 构造接受 storage（可为 GuardedStorage 或非守卫存储）。目标集合为受守卫
@@ -83,9 +96,13 @@ function isGuarded(storage: EvolutionStorage): storage is GuardedEvolutionStorag
  */
 export class DefaultEvolutionWriter {
   readonly #storage: EvolutionStorage;
+  readonly #keyGen: (() => string) | null;
+  readonly #now: (() => number) | null;
 
-  constructor(storage: EvolutionStorage) {
+  constructor(storage: EvolutionStorage, options: DefaultEvolutionWriterOptions = {}) {
     this.#storage = storage;
+    this.#keyGen = options.keyGen ?? null;
+    this.#now = options.now ?? null;
   }
 
   async #loadChain(): Promise<PatchChain> {
@@ -134,15 +151,25 @@ export class DefaultEvolutionWriter {
       chain.to_dict() as unknown as EvolutionRecord,
     );
     await this.#putLive(collection, key, data);
-    await emit_audit(this.#storage, {
-      type: EVOLUTION_AUDIT_TYPE,
-      evolution_kind: kind,
-      asset_id,
-      collection,
-      key,
-      note,
-      meta: meta === null ? {} : { ...meta },
-    });
+    const auditOptions: {
+      keyGen?: () => string;
+      now?: () => number;
+    } = {};
+    if (this.#keyGen !== null) auditOptions.keyGen = this.#keyGen;
+    if (this.#now !== null) auditOptions.now = this.#now;
+    await emit_audit(
+      this.#storage,
+      {
+        type: EVOLUTION_AUDIT_TYPE,
+        evolution_kind: kind,
+        asset_id,
+        collection,
+        key,
+        note,
+        meta: meta === null ? {} : { ...meta },
+      },
+      Object.keys(auditOptions).length > 0 ? auditOptions : undefined,
+    );
   }
 }
 

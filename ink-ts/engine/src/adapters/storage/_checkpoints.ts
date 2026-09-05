@@ -58,6 +58,14 @@ export class MemoryStorageCheckpoints extends MemoryStorageBase {
       if (existing === undefined) {
         throw new StorageError(`checkpoint 不存在: ${rec.checkpoint_id}`);
       }
+      // 归属校验：checkpoint_id 归他线程的更新拒绝（不静默迁移线程、不污染
+      // 他线程链尾），与 sqlite UPDATE ... AND thread_id=? 同口径
+      if (rec.thread_id !== existing.thread_id) {
+        throw new CheckpointConflictError(
+          `checkpoint 写入被拒绝（checkpoint_id 归属他线程）: `
+            + `thread=${rec.thread_id} checkpoint=#${rec.checkpoint_id}`,
+        );
+      }
       // expected_version=None = 自动读当前版本
       const expected = expected_version ?? existing.version;
       if (existing.version !== expected) {
@@ -66,14 +74,16 @@ export class MemoryStorageCheckpoints extends MemoryStorageBase {
             + `expected version=${expected}, actual=${existing.version}`,
         );
       }
-      // 更新经 to_dict/from_dict 规范化；父指针不可变（保留链上原有父指针）
+      // 更新经 to_dict/from_dict 规范化；父指针不可变（保留链上原有父指针）、
+      // 线程不可迁移（沿用 existing.thread_id，与 sqlite 更新不含 thread_id 同口径）
       const updated = CheckpointRecord.from_dict({
         ...rec.to_dict(),
+        thread_id: existing.thread_id,
         version: existing.version + 1,
         parent_id: existing.parent_id,
       });
       this.checkpoints.set(rec.checkpoint_id, updated);
-      this.advance_tail(rec.thread_id, rec.checkpoint_id);
+      this.advance_tail(existing.thread_id, rec.checkpoint_id);
       return copyCheckpointRecord(updated);
     });
   }

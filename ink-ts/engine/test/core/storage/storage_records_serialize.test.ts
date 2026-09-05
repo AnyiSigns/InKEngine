@@ -138,6 +138,40 @@ describe('PatchChain / Message / ToolCall 内联 marker 还原', () => {
     expect(back.name).toBe('lookup');
     expect(back.arguments).toBe('{}');
   });
+
+  it('ToolCall arguments（JSON 串参数负载）落 checkpoint 前值级脱敏', () => {
+    const tc = new ToolCall({
+      id: 'c1',
+      name: 'http_fetch',
+      arguments: JSON.stringify({
+        url: 'https://api.demo/x?token=sk-live-9',
+        headers: { Authorization: 'Bearer abc' },
+      }),
+    });
+    const json = jsonableStrip(tc) as Record<string, unknown>;
+    const args = json['arguments'] as string;
+    expect(args).not.toContain('sk-live-9');
+    expect(args).not.toContain('Bearer abc');
+    // 仍是合法 JSON，结构保留（值同长 '*' 遮蔽）
+    const parsed = JSON.parse(args) as Record<string, string>;
+    expect(parsed['url']).toMatch(/\?token=\*+/);
+    expect(parsed['headers']).toEqual({ Authorization: '**********' });
+    // 还原侧得到同一份脱敏形态（往返不复活凭据）
+    const back = fromJsonable(json) as ToolCall;
+    expect(back.arguments).toBe(args);
+  });
+
+  it('字符串叶子整体嵌入的凭据同样遮蔽（checkpoint state 值级面）', () => {
+    const cp = makeCheckpoint({
+      url: 'https://host/a?access_token=top-secret',
+      body: '{"client_secret":"s3"}',
+      keep: 1,
+    });
+    const state = cp.to_dict()['state'] as Record<string, unknown>;
+    expect(state['url']).not.toContain('top-secret');
+    expect(state['body']).not.toContain('s3');
+    expect(state['keep']).toBe(1);
+  });
 });
 
 describe('嵌套递归 + copy-on-write + 元组归一', () => {

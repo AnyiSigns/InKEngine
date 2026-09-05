@@ -13,9 +13,10 @@
  *
  * Python 差异：
  * - ``system_events`` 的 frozenset 以 ReadonlySet 承载（构造传 Set/ReadonlySet）；
- * - ``settle``/``output_verifier``/``assembly_sources``/``plan_workflow`` 在
- *   Python 为 ``Any``/TYPE_CHECKING 前向引用（settle 模块未移植），此处以
- *   unknown 占位——契约模块移植后收敛为对应类型。
+ * - ``settle`` 引用 settle.SettleHooks 注册体、``output_verifier`` 引用
+ *   verifier.OutputVerifier 协议、``plan_workflow`` 引用 workflow.WorkflowSpec、
+ *   ``assembly_sources`` 为结构化装配源提供者协议（Python 侧 Any/TYPE_CHECKING
+ *   前向引用；TS 直接引用对应类型面，无 unknown 占位）。
  */
 import type { Storage } from '../storage/storage.js';
 import type { StateSchema } from '../state/schema.js';
@@ -27,8 +28,35 @@ import type { BranchMixer, Evaluator } from '../simulation/simulation_types.js';
 import type { AssemblyConfig } from '../assembly/assembly_config.js';
 import type { ActivationAggregator } from '../assembly/activation_aggregator.js';
 import type { TurnMetrics } from '../tuning/_turn_metrics.js';
+import type { SettleHooks } from '../settle/index.js';
+import type { OutputVerifier } from '../verifier/verifier.js';
+import type { WorkflowSpec } from '../workflow/workflow_types.js';
 import { DEFAULT_MAX_PLAN_STEPS } from '../plan/plan.js';
 import { DEFAULT_MAX_SIMULATIONS } from '../simulation/simulation.js';
+
+/**
+ * 装配源提供者的上下文面（节点执行器注入；提供者按需读取以取输入/身份）。
+ * 运行期传入的 ctx 是执行器节点上下文（结构超集），提供者只声明自己消费的
+ * 最小读面。
+ */
+export interface AssemblySourceContext {
+  readonly state?: Record<string, unknown>;
+  readonly node?: string | null;
+  readonly thread_id?: string;
+}
+
+/**
+ * 装配源提供者返回值：源清单，或 (源清单, 版本快照) 二元组（快照供留痕/
+ * 激活归档；见 node_context.preassemble 的消费口径）。
+ */
+export type AssemblySourcesResult =
+  | readonly unknown[]
+  | [readonly unknown[], Record<string, unknown> | null];
+
+/** 装配源提供者（RunOptions.assembly_sources；null = 引擎不自动装配）。 */
+export type AssemblySourcesProvider = (
+  ctx: AssemblySourceContext,
+) => AssemblySourcesResult | Promise<AssemblySourcesResult>;
 
 /**
  * RunOptions 构造选项（对齐 Python dataclass 关键字参：字段同名可选；
@@ -104,7 +132,7 @@ export class RunOptions {
   max_plan_steps: number = DEFAULT_MAX_PLAN_STEPS;
 
   /** 工作流约束域（WorkflowSpec：计划节点/边须落在其内；null = 按图校验）。 */
-  plan_workflow: unknown = null;
+  plan_workflow: WorkflowSpec | null = null;
 
   /** 并行节点组并发上限。 */
   parallel_concurrency: number = 4;
@@ -124,6 +152,12 @@ export class RunOptions {
   /** 推演分支并发上限。 */
   simulate_concurrency: number = 2;
 
+  /** 多径展开机制开关（引擎级：默认关 = 零触发）。开启后引擎把编排节点产出的
+   *  ``__multipath__`` 候选交给 MultipathRunner 执行（k≥2 支流并行 + 汇流裁决）；
+   *  关闭时同类数据按防御性单径降级（执行首候选，候选不静默丢弃）。由 runtime
+   *  装配层按配方开关注入（本字段不随子引擎传播——子链内多径以显式配置为准）。 */
+  multipath_enabled: boolean = false;
+
   /** 换选分支序号（null = 正常择优）：回溯换选时强制改选指定分支——经
    *  Engine.swap_branch 设置，重放期间决策点按该分支提交主线。 */
   branch_pick: number | null = null;
@@ -135,7 +169,7 @@ export class RunOptions {
   /** 装配源提供者（null = 引擎不自动装配，节点自行经 ctx.assemble 提供源）：
    *  节点执行前引擎自动调用一次取源并统一调配，节点内 assemble 复用预装配
    *  结果（不重复装配/不重复留痕）。 */
-  assembly_sources: unknown = null;
+  assembly_sources: AssemblySourcesProvider | null = null;
 
   /** 激活聚合器（ENG12 接线4：InputAssembler 挂载点）：随 InputAssembler 实例化
    *  时注入，每次装配留痕同步喂聚合器，衔接知识集归档/进化优先级；null = 不
@@ -151,14 +185,13 @@ export class RunOptions {
    *  到缺省域）。 */
   domain: string | null = null;
 
-  /** 沉淀钩子注册体（run 收尾触发；null = 关闭沉淀，运行侧零影响）。settle
-   *  模块未移植，类型以 unknown 占位（迁移后收敛为 SettleHooks）。 */
-  settle: unknown = null;
+  /** 沉淀钩子注册体（run 收尾触发；null = 关闭沉淀，运行侧零影响）。 */
+  settle: SettleHooks | null = null;
 
   /** VTM 验证器门控：节点产出评审器（OutputVerifier 协议，async verify(...) ->
    *  {"pass", "violations"}）。null = 关闭（节点即使声明 __verify__ 也不评审，
    *  既有图零行为变化）。 */
-  output_verifier: unknown = null;
+  output_verifier: OutputVerifier | null = null;
 
   /** 评审失败后的违规驱动重做上限（0 = 失败即按节点失败收口；节点重跑时读
    *  state["__verify_feedback__"] 做定向修复）。 */
@@ -169,7 +202,7 @@ export class RunOptions {
    *  用户任务的墙钟）。默认关闭 = 既有事件协议零变化，宿主按需开启。 */
   emit_timeline_events: boolean = false;
 
-  constructor(init: RunOptionsInit = {}) {
+  constructor(init?: RunOptionsInit) {
     Object.assign(this, init);
   }
 }

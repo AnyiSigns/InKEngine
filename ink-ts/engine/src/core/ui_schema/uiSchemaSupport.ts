@@ -22,6 +22,9 @@ export const DEFAULT_BIND_CHANNELS: readonly string[] = ['state'];
  *  机制内部态），禁止作为绑定路径——通道白名单之外的第二道路径级防线。 */
 export const RESERVED_BIND_PREFIXES: readonly string[] = ['_'];
 
+// 族收敛：pyRepr/pyTruthy/typeNameOf 近似拷贝的统一迁移点 = core/py_repr.ts
+// 单源（已就绪，typeNameOf 与 core/json.typeName 同源）；本实现差异：
+// pyTruthy 对 NaN 判假。后续批次可按批迁移，本文件暂不改实现。
 /** Python repr() 口径（错误消息呈现；None → 'None'、字符串单引号）。 */
 export function pyRepr(value: unknown): string {
   if (value === null || value === undefined) return 'None';
@@ -84,5 +87,3 @@ export function typeNameOf(value: unknown): string {
 export function tupleHas(items: readonly string[], value: unknown): boolean {
   return items.includes(value as string);
 }
-
-/** 界面数据绑定声明（组件数据挂到状态通道的指定路径）。 */

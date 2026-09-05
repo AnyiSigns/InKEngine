@@ -23,6 +23,7 @@ import type { Storage } from '../storage/storage.js';
 import type { SelfApplicationPipeline } from '../self_application/index.js';
 import type { ConvergenceHook, SelfToolContext } from '../self_tools/index.js';
 import type { ToolPipeline } from '../tool_pipeline/tool_pipeline.js';
+import type { AssemblySourcesProvider } from '../run_result/run_result.js';
 import { DEFAULT_BIND_CHANNELS } from '../ui_schema/uiSchemaSupport.js';
 
 /** 回合装配源提供者形态（检索结果 + 知识注入 → 装配源清单）。 */
@@ -72,7 +73,22 @@ export interface GraphRecipeContext {
   registries: GraphRegistries | null;
   system_events: ReadonlySet<string>;
   assembly: AssemblyConfig | null;
-  assembly_sources: unknown;
+  assembly_sources: AssemblySourcesProvider | null;
+}
+
+/**
+ * Runtime 实例级可覆写默认（宿主构造时注入；缺省 = runtime 内部确定性
+ * 默认，见 _runtime_base）。键源/时钟为运行时装配注入机制件（审计/成长/
+ * 回合账本等）的确定性 seam——unit 级机制模块直接构造仍用其自身确定性
+ * 缺省，本面只影响 Runtime 装配产物。
+ */
+export interface RuntimeConfigInit {
+  /** 时间源（epoch 秒）；缺省 = 实时钟（模块时钟 seam，可 set_runtime_clock 冻结）。 */
+  now?: (() => number) | null;
+  /** 审计键片段源（12 位 hex）；缺省 = 每 Runtime 实例自增确定序列。 */
+  audit_key_gen?: (() => string) | null;
+  /** 成长条目 id 片段源（12 位 hex）；缺省 = 每 Runtime 实例自增确定序列。 */
+  growth_uuid_gen?: (() => string) | null;
 }
 
 /**
@@ -114,6 +130,9 @@ export interface AssemblyRecipeInit {
   graph_recipe?: ((ctx: GraphRecipeContext) => Graph) | null;
   on_reverted?: ((patch_id: number, reason: string) => unknown) | null;
   convergence_provider?: (() => ConvergenceHook | null) | null;
+  /** 执行域选项（RunOptions 形态；非 None 字段覆盖装配默认——多径开关
+   *  multipath_enabled 默认 false、多径支流 canary 默认 false 均可经此覆写，
+   *  装配默认不注入 = 零触发）。 */
   run_options?: unknown;
   compress_policy?: CompressionPolicy | null;
   verify_retry_limit?: number;

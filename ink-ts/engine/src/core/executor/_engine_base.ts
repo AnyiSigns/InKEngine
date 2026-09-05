@@ -12,6 +12,10 @@
  * 且带 ``_`` 前缀（Python 下划线私有约定在 TS 不做硬封装——测试与嵌套
  * 引擎需要同族访问，与 Python 语义一致）。
  *
+ * 嵌套子图占位不在此挂载（引擎基座不依赖 run_subgraph，避免
+ * base→subgraph→leaf→base 模块评估环）：子图占位由叶节点 Engine 构造前经
+ * run_subgraph._install_subgraph_runners 注入（见 _engine_execute.ts 构造）。
+ *
  * 确定性 seam：checkpoint/事件的时间戳与默认 thread/trace id 经
  * ``_internals`` 的时钟/id 注入面提供（core 零 IO 确定性），构造零副作用。
  */
@@ -24,7 +28,6 @@ import { EngineEvent, type EngineTransport } from '../events/events.js';
 import { TraceStep, TRACE_SUCCESS, TRACE_FAILED, TRACE_SKIPPED } from '../settle/index.js';
 import type { Graph as GraphType } from '../graph/graph.js';
 
-import { run_subgraph } from './run_subgraph.js';
 import type { _AsyncQueue, NodeContext } from './_internals.js';
 import { _TransportSequencer, _Mutex } from './_internals.js';
 
@@ -107,11 +110,6 @@ export abstract class EngineBase {
       graph.resolve_conditions(this.options.registries.edges);
       graph.resolve_types(this.options.registries.nodes);
     }
-    // 嵌套图占位由执行器注入（图模块不放占位 fn，执行语义归执行器）：
-    // 子图名挂载 run_subgraph 包装——编译期节点存在性/边目标/出口校验与
-    // Python add_subgraph（nodes[name] = runner）后的形态一致，主循环按
-    // 普通节点函数取用即可（嵌套语义集中在 run_subgraph）。
-    this._mount_subgraph_nodes(graph);
     this.compiled = graph.compile();
     this._coordinator = new InterruptCoordinator();
     this._event_counter = 0;
@@ -138,19 +136,6 @@ export abstract class EngineBase {
     this._trace_graphs = new Map<string, GraphType>();
     this._pending_step = null;
     this._trace_lock = new _Mutex();
-  }
-
-  /** 嵌套子图占位注入：子图名 → run_subgraph 包装（递归到全部嵌套子图；
-   *  幂等：已挂载跳过）。 */
-  private _mount_subgraph_nodes(graph: Graph): void {
-    for (const subgraph of Object.values(graph.subgraphs)) {
-      this._mount_subgraph_nodes(subgraph);
-    }
-    for (const [name, subgraph] of Object.entries(graph.subgraphs)) {
-      if (graph.nodes[name] !== undefined) continue;
-      const mounted = subgraph;
-      graph.nodes[name] = (ctx: unknown) => run_subgraph(mounted, ctx as NodeContext);
-    }
   }
 
   /** 以本实例具体类新建子引擎（同类型实例；嵌套/spawn/分支共用）。 */

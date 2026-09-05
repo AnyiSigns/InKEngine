@@ -21,6 +21,7 @@ export type {
   AssemblySourceProvider,
   GraphRecipeContext,
   Host,
+  RuntimeConfigInit,
   StaticVettingHook,
   ToolWiring,
 } from './_types.js';

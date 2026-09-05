@@ -7,9 +7,9 @@
  * 分级按源类别分配预算，层级供常驻基线/任务激活的判定消费）。预算分配、
  * 跨源去重、逐源留痕全由 context 模块承接（本模块零重复实现）。
  *
- * 差异说明（迁移边界）：指令注入扫描（scan_text_injection，knowledge_gate
- * 未迁移）在本层以 InjectionScanner seam 表达——未注入扫描器时不做剔除
- * （injection_scan 保持默认开，检出动作由宿主注入等价实现补齐）。
+ * 指令注入扫描在本层经 InjectionScanner seam 执行：缺省扫描器 =
+ * knowledge_gate.scan_text_injection（真实指令措辞检出），injection_scan
+ * 默认开——检出指令型措辞的条目剔除，不放行进上下文。
  */
 
 import { ContextSource } from '../context/context_types.js';
@@ -19,17 +19,15 @@ import {
   SEED_ID_PREFIX,
   type InjectionScanner,
 } from './_types.js';
+import { scan_text_injection } from '../knowledge_gate/_injection.js';
 import type { KnowledgeEntry } from './knowledge_entry.js';
 import type { KnowledgeSet } from './knowledge_set.js';
 
 export type { InjectionScanner } from './_types.js';
 
-/** 缺省指令注入扫描器：knowledge_gate.scan_text_injection 未迁移前的
- *  no-op（不剔除任何条目）——injection_scan 语义面保留，检出逻辑待迁移。 */
-export const DEFAULT_INJECTION_SCANNER: InjectionScanner = (content: string) => {
-  void content;
-  return [];
-};
+/** 缺省指令注入扫描器 = 真实指令措辞检出（knowledge_gate.scan_text_injection：
+ *  中英文指令句式归一命中 + 混淆熵启发）；宿主可注入等价实现覆盖。 */
+export const DEFAULT_INJECTION_SCANNER: InjectionScanner = scan_text_injection;
 
 /** 种子注入：批量写入最小可用种子（幂等——同 id 跳过，不覆盖演化）。
  *
@@ -59,11 +57,11 @@ export interface BuildKnowledgeSourcesOptions {
   max_chars?: number | null;
   /** 知识注入开关（false = 回退种子基线：只保留 seed. 前缀条目）。 */
   injection_enabled?: boolean;
-  /** 注入前指令注入扫描（true = 检出剔除；扫描器经 scanner 注入）。 */
+  /** 注入前指令注入扫描（true = 检出剔除；缺省开，默认扫描器 = 真实检出）。 */
   injection_scan?: boolean;
   /** 装配源类别（知识池的分配键；须在输入调配管线的源类别集合内）。 */
   source_type?: string;
-  /** 指令注入扫描器（缺省 = no-op，见文件头差异说明）。 */
+  /** 指令注入扫描器（缺省 = scan_text_injection；宿主可注入等价实现覆盖）。 */
   scanner?: InjectionScanner | null;
 }
 
@@ -72,9 +70,10 @@ export interface BuildKnowledgeSourcesOptions {
  *
  * injection_enabled=false = 一键关闭知识注入：只保留种子条目（id 以 seed.
  * 前缀）作为注入源——回退到种子基线（引擎内置最小可用），演化沉淀的
- * 知识不再进入上下文。injection_scan=true + 注入扫描器 = 注入防线：检出
- * 指令型措辞的条目剔除，不放行进提示词（web/用户来源知识条目可能携带
- * 指令型措辞；扫描与注入开关正交——种子基线同样过防线）。
+ * 知识不再进入上下文。injection_scan=true（缺省）= 注入防线开：按默认
+ * 扫描器（scan_text_injection）检出指令型措辞的条目剔除，不放行进提示词
+ * （web/用户来源知识条目可能携带指令型措辞；扫描与注入开关正交——种子
+ * 基线同样过防线）。
  *
  * 执行类 kind（path/script）剔除：执行物非 prompt 文本，不进上下文注入，
  * 消费分派（path=路径组装先例 / script=工具执行）与注入面分离。

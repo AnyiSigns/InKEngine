@@ -12,6 +12,12 @@
  *
  * 副作用纪律：存储/时间/随机一律走 seam（TraceRecordsStore / Clock /
  * UuidFn，见 _types.ts），缺省确定值——core 纯逻辑，单测可复现。
+ *
+ * 状态标注（机制就绪 / 宿主接线点待定）：ToolSelector/ToolTraceStore 为
+ * 宿主装配按需接线能力——runtime 已装配 ToolSelector（_runtime_specs /
+ * _runtime_assemble）；ToolTraceStore 暂无 src 消费方，轨迹 sink 位在
+ * ToolPipeline.trace_sink（构建期注入，缺省 null 不落轨迹），records
+ * 后端由宿主注入。
  */
 
 import { strip_sensitive } from '../security/security.js';

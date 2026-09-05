@@ -219,7 +219,10 @@ function predFalsy(target: unknown, config: JsonRecord, _context: JsonRecord | n
   return issue(config, `字段 ${path || '<root>'} 应为假`);
 }
 
-/** 状态转换谓词的状态机实例缓存（同一声明不重复构建——高频评估热路径）。 */
+/** 状态转换谓词的状态机实例缓存（同一声明不重复构建——高频评估热路径）。
+ *  容量上限 + 最旧即弃（Map 迭代序 = 插入序）：状态机 config 由声明数据
+ *  驱动，规则集会随补丁链版本化累积新声明——模块级缓存不可无界膨胀。 */
+const TRANSITION_MACHINE_CACHE_MAX = 512;
 const transitionMachines = new Map<string, StateMachine>();
 
 /** 按 config 声明取状态机实例（缓存命中直接复用；缓存键按声明折叠为规范形）。 */
@@ -243,6 +246,10 @@ function transitionMachine(config: JsonRecord): StateMachine {
   });
   let machine = transitionMachines.get(key);
   if (machine === undefined) {
+    if (transitionMachines.size >= TRANSITION_MACHINE_CACHE_MAX) {
+      const oldest = transitionMachines.keys().next();
+      if (!oldest.done) transitionMachines.delete(oldest.value);
+    }
     machine = new StateMachine(
       ((config['states'] as unknown[] | undefined) ?? []) as string[],
       {

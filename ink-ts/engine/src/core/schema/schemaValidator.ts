@@ -2,8 +2,13 @@
  * Schema 校验器（L1 准入机制件）：SchemaSpec/SchemaField 声明数据形态 +
  * SchemaValidator 执行体。约束取「声明式够用」子集（必填/类型/枚举/数值
  * 范围/正则），未知字段忽略（演进宽容），违规清单可读可审计。
+ *
+ * FieldKind 值域与 contracts generated endpointTypes.FieldKind 同源
+ * （数据面 schema 的 output_field.kind 枚举），type 直接引用该数据面类型，
+ * VALID_KINDS 经 satisfies + 编译期集合相等绑定，不维护第二套语义枚举。
  */
 
+import type { FieldKind as ContractFieldKind } from '@ink-ts/contracts';
 import { GraphDefinitionError } from '../errors.js';
 import { isRecord } from '../json.js';
 
@@ -13,8 +18,27 @@ export const FIELD_BOOL = 'boolean';
 export const FIELD_OBJECT = 'object';
 export const FIELD_ARRAY = 'array';
 
-export const VALID_KINDS = [FIELD_STRING, FIELD_NUMBER, FIELD_BOOL, FIELD_OBJECT, FIELD_ARRAY] as const;
-export type FieldKind = (typeof VALID_KINDS)[number];
+export const VALID_KINDS = [
+  FIELD_STRING,
+  FIELD_NUMBER,
+  FIELD_BOOL,
+  FIELD_OBJECT,
+  FIELD_ARRAY,
+] as const satisfies readonly ContractFieldKind[];
+
+/** 字段类型联合（数据面单一来源 = contracts FieldKind；值面经
+ *  VALID_KINDS 编译期集合相等绑定，任一方向新增类型 → 类型错误）。 */
+export type FieldKind = ContractFieldKind;
+
+type _StringSetEqual<A extends string, B extends string> = Exclude<A, B> extends never
+  ? Exclude<B, A> extends never
+    ? true
+    : false
+  : false;
+const _fieldKindsCoverContract: true = true as _StringSetEqual<
+  ContractFieldKind,
+  (typeof VALID_KINDS)[number]
+>;
 
 const FIELD_DECL_EXAMPLE = '{"name": "<字段名>", "kind": "string"[, "required": true]}';
 const SCHEMA_DECL_EXAMPLE = '{"name": "<schema 名>", "fields": [{"name": "<字段名>", "kind": "string"}]}';

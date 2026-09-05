@@ -91,3 +91,17 @@ describe('CheckpointRecord 默认值与 from_dict 缺省回落', () => {
     expect(() => CheckpointRecord.from_dict(123)).toThrow(TypeError);
   });
 });
+
+describe('CheckpointRecord state 深拷贝隔离', () => {
+  it('构造后改动原 state 不影响快照（浅拷贝曾共享嵌套引用）', () => {
+    const original = { config: { model: 'm', retries: 0 }, ok: 1 };
+    const cp = new CheckpointRecord({ checkpoint_id: 1, thread_id: 't', state: original });
+    // 外部在构造后改动嵌套对象：版本链快照不得随之漂移
+    (original['config'] as Record<string, unknown>)['model'] = 'mutated';
+    original['ok'] = 99;
+    const state = cp.state as Record<string, unknown>;
+    expect((state['config'] as Record<string, unknown>)['model']).toBe('m');
+    expect(state['config'] as Record<string, unknown>).not.toBe(original['config']);
+    expect(state['ok']).toBe(1);
+  });
+});

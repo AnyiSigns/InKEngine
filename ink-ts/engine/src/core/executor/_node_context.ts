@@ -24,8 +24,11 @@ import { EngineEvent, type EngineTransport } from '../events/events.js';
 import { strip_sensitive } from '../security/security.js';
 import { isRecord, type JsonRecord } from '../json.js';
 import { GraphDefinitionError } from '../errors.js';
-import { TraceStep, TRACE_SUCCESS } from '../settle/index.js';
+import { TraceStep } from '../settle/index.js';
 import type { AssemblyResult } from '../assembly/assembly_types.js';
+import type { AssemblySourcesProvider } from '../run_result/run_result.js';
+import type { ContextSource } from '../context/context_types.js';
+import type { Graph } from '../graph/graph.js';
 import type { ResumeMap } from '../recovery/recovery_types.js';
 import type { EngineBase } from './_engine_base.js';
 import type { NodeContext } from './_internals.js';
@@ -38,12 +41,6 @@ function isPromiseLike(value: unknown): value is PromiseLike<unknown> {
     typeof (value as PromiseLike<unknown>).then === 'function'
   );
 }
-
-/** 装配源提供者返回形态（源清单 或 (源清单, 版本快照) 二元组）。 */
-type AssemblySourcesResult =
-  | readonly unknown[]
-  | [readonly unknown[], Record<string, unknown> | null]
-  | Record<string, unknown>;
 
 /**
  * 执行器注入的节点上下文（emit/interrupt/terminate 挂载引擎 publish）。
@@ -190,7 +187,7 @@ export class _NodeContextImpl implements NodeContext {
     // 统一展开收集的清单。index 缺省按收集顺序自动分配。
     this._spawns.push(
       new SpawnSpec({
-        subgraph: subgraph as never,
+        subgraph: subgraph as Graph,
         state: { ...state },
         index: opts.index !== null && opts.index !== undefined ? opts.index : this._spawns.length,
       }),
@@ -212,7 +209,7 @@ export class _NodeContextImpl implements NodeContext {
     if (assembler === null) {
       throw new GraphDefinitionError('输入调配未启用（RunOptions.assembly=null），调用点应走旧装配路径');
     }
-    const result = assembler.assemble(sources as never, {
+    const result = assembler.assemble(sources as readonly ContextSource[], {
       total_budget: opts.total_budget ?? null,
       version_snapshot: opts.version_snapshot ?? null,
     });
@@ -231,11 +228,8 @@ export class _NodeContextImpl implements NodeContext {
     // 装配结果缓存，节点内 assemble 复用。
     if (this._assembled !== null) return;
     const config = this._engine.options.assembly;
-    const provider = this._engine.options.assembly_sources as
-      | ((ctx: _NodeContextImpl) => AssemblySourcesResult | Promise<AssemblySourcesResult>)
-      | null
-      | undefined;
-    if (config === null || !config.enabled || provider === null || provider === undefined) {
+    const provider: AssemblySourcesProvider | null = this._engine.options.assembly_sources;
+    if (config === null || !config.enabled || provider === null) {
       return;
     }
     let supplied = provider(this);
@@ -253,7 +247,7 @@ export class _NodeContextImpl implements NodeContext {
         sources = supplied as unknown as readonly unknown[];
       }
     } else {
-      sources = supplied as unknown as readonly unknown[];
+      sources = supplied;
     }
     if (sources.length === 0) {
       // 无源可激活 = 无事可调：跳过装配与留痕（空激活记录是噪音）
@@ -294,6 +288,3 @@ export class _NodeContextImpl implements NodeContext {
 
 // 轨迹步骤形态（settle TraceStep 复用；本文件不复用 Engine，仅类型）
 export type { TraceStep };
-
-/** 并行组成员直入轨迹用的成员标记状态（与主循环同三态）。 */
-export const _MEMBER_TRACE_SUCCESS = TRACE_SUCCESS;

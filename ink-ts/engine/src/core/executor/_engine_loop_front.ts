@@ -237,7 +237,7 @@ export abstract class EngineLoopFront extends EngineExecuteHelpers {
           edge_registry: registries !== null ? registries.edges : null,
           policy: this.options.plan_policy,
           max_steps: this.options.max_plan_steps,
-          workflow: this.options.plan_workflow as never,
+          workflow: this.options.plan_workflow,
         });
       } catch (exc) {
         const nodeError = `计划清单非法: ${String(exc)}`;

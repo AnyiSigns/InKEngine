@@ -110,8 +110,8 @@ export interface KnowledgeStorage {
   put_record(collection: string, key: string, data: Record<string, unknown>): Promise<void>;
 }
 
-/** 指令注入扫描面：渲染内容 → 命中清单（knowledge_gate.scan_text_injection
- *  未迁移前的注入点；检出即剔除，不放行）。 */
+/** 指令注入扫描面：渲染内容 → 命中清单（检出即剔除，不放行；默认扫描器
+ *  见 _sources.DEFAULT_INJECTION_SCANNER = knowledge_gate.scan_text_injection）。 */
 export type InjectionScanner = (content: string) => readonly string[];
 
 /** 落库闸门单项结果（L1 准入/L2 效果评估/L3 目标筛选共形）。 */

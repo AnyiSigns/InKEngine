@@ -40,6 +40,8 @@ export interface EntityRegistryOptions {
   writer?: EvolutionWriter;
   set_id?: string;
   max_entities?: number;
+  /** 加载期跳过诊断（重复/畸形/超配额）；缺省 = 静默跳过不阻断启动。 */
+  on_skip?: (reason: 'duplicate' | 'malformed' | 'quota', entity_id: string) => void;
 }
 
 export class EntitySpec {
@@ -143,6 +145,7 @@ export class EntityRegistry {
   #specs = new Map<string, EntitySpec>();
   #recordsStore?: EntityRecordsStore;
   #writer?: EvolutionWriter;
+  #onSkip?: (reason: 'duplicate' | 'malformed' | 'quota', entity_id: string) => void;
   #setId: string;
   readonly collection: string;
   readonly maxEntities: number;
@@ -153,6 +156,7 @@ export class EntityRegistry {
     this.#setId = opts.set_id ?? '-';
     this.collection = entity_collection(this.#setId);
     this.maxEntities = opts.max_entities ?? DEFAULT_MAX_ENTITIES;
+    this.#onSkip = opts.on_skip;
   }
 
   register(spec: EntitySpec): void {
@@ -198,7 +202,16 @@ export class EntityRegistry {
     let loaded = 0;
     for (const record of await this.#recordsStore.list_records(this.collection)) {
       const entity_id = record['id'];
-      if (!entity_id || typeof entity_id !== 'string' || this.#specs.has(entity_id)) {
+      if (!entity_id || typeof entity_id !== 'string') {
+        this.#onSkip?.('malformed', String(entity_id ?? ''));
+        continue;
+      }
+      if (this.#specs.has(entity_id)) {
+        this.#onSkip?.('duplicate', entity_id);
+        continue;
+      }
+      if (this.#specs.size >= this.maxEntities) {
+        this.#onSkip?.('quota', entity_id);
         continue;
       }
       try {
@@ -206,7 +219,7 @@ export class EntityRegistry {
         this.#specs.set(entity_id, spec);
         loaded += 1;
       } catch {
-        continue;
+        this.#onSkip?.('malformed', entity_id);
       }
     }
     return loaded;

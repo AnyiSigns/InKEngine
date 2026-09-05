@@ -114,12 +114,12 @@ INSERT INTO checkpoints (thread_id, node, graph_path, state, parent_id, reason,
   created_at, version, event_seq, error, interrupt, graph_version, plan)
   VALUES (?,?,?,?,?,?,?,?,?,?,?,?,?)`;
 
-/** 乐观锁更新（父指针不可变；version 期望校验，冲突 0 行）。 */
+/** 乐观锁更新（父指针不可变；thread 归属校验 + version 期望校验，冲突 0 行）。 */
 export const UPDATE_CHECKPOINT_SQL = `
 UPDATE checkpoints SET state = ?, node = ?, graph_path = ?, reason = ?,
   event_seq = ?, error = ?, interrupt = ?, graph_version = ?, plan = ?,
   version = version + 1
-  WHERE checkpoint_id = ? AND version = ?`;
+  WHERE checkpoint_id = ? AND version = ? AND thread_id = ?`;
 
 /**
  * 插入新链节点（checkpoint_id=0）。guarded=true 走链尾守卫条件插入；
@@ -184,7 +184,9 @@ export function insertCheckpoint(
 
 /**
  * 乐观锁更新已存在节点；expected=null 时自动读当前版本。返回库中真值
- * （父指针不可变，忽略调用方传入 parent_id——防下游按返回值续链用错锚点）。
+ * （父指针不可变，忽略调用方传入 parent_id——防下游按返回值续链用错锚点；
+ * checkpoint_id 归属他线程的更新显式拒绝——版本链不跨线程，与删除/
+ * 父指针改写同口径）。
  */
 export function updateCheckpoint(
   db: DatabaseSync,
@@ -192,12 +194,24 @@ export function updateCheckpoint(
   checkpointId: number,
   expected: number | null,
 ): CheckpointRecord {
-  if (expected === null || expected === undefined) {
-    const row = db
-      .prepare('SELECT version FROM checkpoints WHERE checkpoint_id = ?')
-      .get(checkpointId);
-    if (row === undefined) throw new StorageError(`checkpoint 不存在: ${checkpointId}`);
-    expected = Number(row['version']);
+  const existing = db
+    .prepare('SELECT version, thread_id FROM checkpoints WHERE checkpoint_id = ?')
+    .get(checkpointId);
+  if (existing === undefined) {
+    throw new StorageError(`checkpoint 不存在: ${checkpointId}`);
+  }
+  const actualVersion = Number(existing['version']);
+  if (String(existing['thread_id']) !== data['thread_id']) {
+    throw new CheckpointConflictError(
+      `checkpoint 写入被拒绝（checkpoint_id 归属他线程）: ` +
+        `thread=${data['thread_id']} checkpoint=#${checkpointId}`,
+    );
+  }
+  const expectedVersion = expected === null || expected === undefined ? actualVersion : Number(expected);
+  if (expectedVersion !== actualVersion) {
+    throw new CheckpointConflictError(
+      `checkpoint ${checkpointId} 并发写冲突: expected version=${expectedVersion}, actual=${actualVersion}`,
+    );
   }
   const interrupt = jsonColumn(data['interrupt']);
   const plan = jsonColumn(data['plan']);
@@ -212,11 +226,12 @@ export function updateCheckpoint(
     data['graph_version'],
     plan,
     checkpointId,
-    expected,
+    expectedVersion,
+    data['thread_id'],
   );
   if (Number(res.changes) === 0) {
     throw new CheckpointConflictError(
-      `checkpoint ${checkpointId} 并发写冲突: expected version=${expected}`,
+      `checkpoint ${checkpointId} 并发写冲突: expected version=${expectedVersion}`,
     );
   }
   const row = db

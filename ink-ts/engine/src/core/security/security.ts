@@ -13,6 +13,10 @@
  *   masterToken 等；monkey/keyboard 无驼峰边界不命中）。极少见的全小写
  *   无分隔拼接形态不再命中——精确集合已覆盖常见形态，此类键应显式入集合。
  *
+ * 值级脱敏（值整体嵌在字符串中的形态，见 strip_sensitive_text）：url 带
+ * query token、序列化 JSON 文本内嵌凭据属性等，随递归在全部字符串叶子
+ * 上按保守锚定遮蔽——键级与值级单次遍历合一。
+ *
  * 剥离是纯函数（不改原结构）：dict 按键剔除——敏感键置空保留（下游
  * .get("api_key") 恒返回空串，防残留密钥）；PatchChain 是引擎主内容通道
  * （内容工作区），其 base 与每条补丁 value 同样递归剥离，否则序列化会让
@@ -90,6 +94,53 @@ const COMPONENT_SEPARATORS: readonly string[] = ['_', '-', '.'];
 // 产物形态，出现以 key/token/secret 结尾的驼峰词基本即凭据）
 const CAMEL_BOUNDARY_RE = /(?<=[a-z])(?=[A-Z])/;
 
+// ── 值级脱敏（凭据整体嵌在字符串值里的形态）──
+//
+// 键级剥离只处理「键名敏感」的容器字段；凭据还可能整体嵌在某个字符串值
+// 中——http url 带 query token（?token=sk-…）、序列化 JSON 文本 body 内嵌
+// api_key 等，键级剥离看不到、原样随审批卡负载/checkpoint 持久化带出。
+// 值级脱敏在全部字符串叶子上扫描两类保守锚定的形态（不命中即原样返回）：
+// - JSON 字符串属性对（"name": "value"），属性名按 is_sensitive_key 同
+//   口径判定（与字典级剥离语义一致，token/api_key/clientSecret/… 命中，
+//   token_count/secret_note 等业务键不误伤）→ 值整段遮蔽；
+// - URL query 凭据参数（紧邻 ? 或 & 的参数名命中常见凭据白名单
+//   token/api_key/key/secret/authorization/access_token 等，含 _/- 分隔
+//   变体）→ 等号后值整段遮蔽（普通文本里的 token 词不锚定不误伤）。
+// 遮蔽采用同长 '*'（等长替换不破坏后续扫描偏移），匹配的键名/引号/分隔
+// 符全部保留——URL 仍可解析、JSON 仍是合法文本，只有值不可读。
+const JSON_STRING_PROP_RE = /"((?:[^"\\]|\\.)*)"[ \t]*:[ \t]*("(?:[^"\\]|\\.)*")/g;
+
+const URL_CRED_PARAM_RE =
+  /(?<=[?&])(?:api[_-]?key|apikey|access[_-]?token|refresh[_-]?token|client[_-]?secret|auth[_-]?token|authorization|token|secret|key)=[^&#\s"]*/gi;
+
+/** 同长遮蔽：值以同长 '*' 填充（等长替换不破坏整串的扫描/结构偏移）。 */
+function maskValue(value: string): string {
+  if (value === '') return value;
+  let out = '';
+  for (let i = 0; i < value.length; i++) out += '*';
+  return out;
+}
+
+/**
+ * 字符串值级脱敏：剥除整体嵌在字符串里的凭据（URL query token / 序列化
+ * JSON 文本内嵌凭据属性）。纯文本不含上述锚定形态时原样返回（热路径零
+ * 拷贝：JS replace 无命中返回原串）。
+ */
+export function strip_sensitive_text(text: string): string {
+  // 1) JSON 字符串属性对（键级同口径；值遮蔽为同长 '*'）
+  const jsonMasked = text.replace(JSON_STRING_PROP_RE, (whole, name, quoted) => {
+    if (!is_sensitive_key(name)) return whole;
+    const value = quoted.slice(1, -1);
+    return `"${name}": "${maskValue(value)}"`;
+  });
+  // 2) URL query 凭据参数（参数名白名单；等号后值遮蔽）
+  return jsonMasked.replace(URL_CRED_PARAM_RE, (whole) => {
+    const eq = whole.indexOf('=');
+    if (eq === -1) return whole;
+    return whole.slice(0, eq + 1) + maskValue(whole.slice(eq + 1));
+  });
+}
+
 /**
  * 判定键名是否携带凭据语义（精确集合 + 后缀 + 组件化词尾判定）。
  * 词尾为任一凭据词即命中；大小写不敏感（先 lower 化再做集合/后缀/末组件
@@ -124,7 +175,9 @@ export function is_sensitive_key(key: unknown): boolean {
 /**
  * 递归剥离单值的内部实现（unknown 域；对外出口 strip_sensitive 以泛型
  * 保留调用侧类型）。容器判定顺序与 Python 对齐：PatchChain → Set → 数组 →
- * 普通记录，其余原样返回。
+ * 普通记录，其余原样返回。字符串叶子追加值级脱敏（URL query token /
+ * JSON 文本内嵌凭据属性见 strip_sensitive_text）——键级与值级在此单次
+ * 遍历合一，热路径零拷贝语义不变（无命中的字符串原样返回）。
  */
 function stripSensitiveUnknown(value: unknown): unknown {
   if (value instanceof PatchChain) return stripPatchChain(value);
@@ -150,6 +203,9 @@ function stripSensitiveUnknown(value: unknown): unknown {
   }
   if (isRecord(value)) {
     return stripDict(value);
+  }
+  if (typeof value === 'string' && value.length > 0) {
+    return strip_sensitive_text(value);
   }
   return value;
 }
@@ -189,8 +245,10 @@ function stripPatchChain(chain: PatchChain): PatchChain {
 }
 
 /**
- * 递归剥离敏感键（dict 按键剔除；list/Set 逐项递归；其余原样返回）。
- * 纯函数：不改原结构，copy-on-write——子树不含敏感键时返回原对象。
+ * 递归剥离敏感信息（键级：dict 按键剔除——敏感键置空保留；值级：字符串
+ * 叶子整体嵌入的 URL query token / JSON 文本凭据属性按 strip_sensitive_text
+ * 遮蔽）。list/Set 逐项递归，其余原样返回。纯函数：不改原结构，
+ * copy-on-write——子树不含敏感信息时返回原对象（热路径零拷贝）。
  */
 export function strip_sensitive<T>(value: T): T {
   return stripSensitiveUnknown(value) as T;

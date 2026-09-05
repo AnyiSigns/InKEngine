@@ -19,6 +19,12 @@ async function write(root: string, rel: string, content: string): Promise<void> 
   await writeFile(full, content);
 }
 
+async function writeBytes(root: string, rel: string, bytes: Buffer): Promise<void> {
+  const full = join(root, rel);
+  await mkdir(join(full, '..'), { recursive: true });
+  await writeFile(full, bytes);
+}
+
 afterEach(async () => {
   await Promise.all(roots.splice(0).map((r) => rm(r, { recursive: true, force: true })));
 });
@@ -57,6 +63,24 @@ describe('gate 规则', () => {
     expect(violations).toEqual([]);
   });
 
+  it('core import 数据契约包 @ink-ts/contracts 放行（engine → contracts 单源）', async () => {
+    const root = await makeRoot();
+    await write(
+      root,
+      'engine/src/core/c.ts',
+      `import { PATCH_KINDS } from '@ink-ts/contracts';\nimport type { FieldKind } from '@ink-ts/contracts';\n`,
+    );
+    const violations = await scan({ root, config: cfg });
+    expect(violations.map((v) => v.rule)).not.toContain('core-import');
+  });
+
+  it('core import 其它 @ink-ts/* 包（自引用/下层）仍被拒绝', async () => {
+    const root = await makeRoot();
+    await write(root, 'engine/src/core/d.ts', `import { Engine } from '@ink-ts/engine';\n`);
+    const violations = await scan({ root, config: cfg });
+    expect(violations.map((v) => v.rule)).toContain('core-import');
+  });
+
   it('core 禁宿主/框架词', async () => {
     const root = await makeRoot();
     await write(root, 'engine/src/core/bad.ts', `const framework = 'cordis';\n`);
@@ -86,5 +110,23 @@ describe('gate 规则', () => {
     await write(root, 'cli/src/server.test.ts', `import { describe, it } from 'vitest';\n`);
     const violations = await scan({ root, config: cfg });
     expect(violations.map((v) => v.rule)).toContain('src-test');
+  });
+
+  it('src 文件非合法 UTF-8（损坏编码）被拒', async () => {
+    const root = await makeRoot();
+    const bytes = Buffer.concat([
+      Buffer.from(`const title = '引擎测试';\n`),
+      Buffer.from([0x88, 0xf8, 0x0a]),
+    ]);
+    await writeBytes(root, 'engine/src/gbk_encoded.ts', bytes);
+    const violations = await scan({ root, config: cfg });
+    expect(violations.map((v) => v.rule)).toContain('utf8-valid');
+  });
+
+  it('src 文件合法 UTF-8（含中文注释）通过', async () => {
+    const root = await makeRoot();
+    await write(root, 'engine/src/ok.ts', `// 引擎测试注释\nconst x = 1;\n`);
+    const violations = await scan({ root, config: cfg });
+    expect(violations.map((v) => v.rule)).not.toContain('utf8-valid');
   });
 });

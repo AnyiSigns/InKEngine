@@ -26,6 +26,7 @@ import { isRecord } from '../json.js';
 import { ToolSpec } from '../llm/tools.js';
 import { parse_permission } from '../permissions/permissions.js';
 import { NetworkPolicy } from '../permissions/networkPolicy.js';
+import { pyRepr } from '../py_repr.js';
 import { endpoint_registry } from './endpoint_registry.js';
 import { EndpointType } from './endpoint_types.js';
 
@@ -48,13 +49,6 @@ export interface DeclarativeToolSpecInit {
   /** 定义级网络策略（http_fetch 端点的域名白名单声明；None = 不声明，
    *  走流水线全局策略）。 */
   network_policy?: NetworkPolicy | null;
-}
-
-/** Python repr 口径的字符串渲染（错误文案 {endpoint!r} 形态）。 */
-function _pyRepr(value: unknown): string {
-  if (typeof value === 'string') return `'${value}'`;
-  if (value === null) return 'None';
-  return String(value);
 }
 
 /**
@@ -112,12 +106,15 @@ export class DeclarativeToolSpec {
     const spec = endpoint_registry.get(this.endpoint);
     if (spec === undefined) {
       throw new GraphDefinitionError(
-        `工具 ${this.name} 端点类型未注册: ${_pyRepr(this.endpoint)}` +
+        `工具 ${this.name} 端点类型未注册: ${pyRepr(this.endpoint)}` +
           '（须为内置端点或经 EndpointTypeRegistry.register 注册的自定义端点）',
       );
     }
     for (const key of spec.config_requirements) {
-      if (!this.endpoint_config[key]) {
+      // 存在性判定而非真值判定：合法配置值可能为 0/false/空串等 falsy 值
+      // （如数值型参数），truthiness 会把「键已声明但值为 falsy」误拒——
+      // 必填语义 = 键必须声明，值形态由端点执行体/守卫各自校验
+      if (!(key in this.endpoint_config)) {
         throw new GraphDefinitionError(
           `工具 ${this.name} 的 ${this.endpoint} 端点须声明 ${key}（沙箱守卫白名单，缺失即拒绝）`,
         );

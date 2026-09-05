@@ -8,6 +8,9 @@
  * 内建 ``repr()``（错误文案呈现用，字符串单引号、None → 'None'）。
  */
 
+// 族收敛：pyRepr 近似拷贝的统一迁移点 = core/py_repr.ts 单源（已就绪）；
+// 本实现与 rules/_py.ts pyRepr 语义一致。后续批次可按批迁移，本文件暂不
+// 改实现。
 /** Python repr() 口径（错误文案呈现；字符串单引号、None → 'None'）。 */
 export function pyRepr(value: unknown): string {
   if (value === null || value === undefined) return 'None';

@@ -7,8 +7,8 @@
  * 协议失败即进程死了），走「拉起 → 回到服务」路径——拉起成功后不透传
  * 重试原操作：失败的工具调用可能已在崩溃前被部分执行，重试有非幂等
  * 副作用风险（fail-safe：诚实失败，下个调用命中新会话）。连接断流类
- * （请求未达 server）拉起成功后重试一次原操作（E-P15：stdio 仅承载
- * 确定性纯函数工具，重试无副作用风险）。
+ * （请求未达 server）拉起成功后重试一次原操作（stdio 仅承载确定性纯函数
+ * 工具，重试无副作用风险）。
  *
  * 失败路径（重试耗尽 → 熔断打开 → 错误上报）：
  * - 拉起尝试有界（max_retries，间隔 backoff 秒）；
@@ -248,21 +248,13 @@ export class SupervisedStdioSession extends McpSessionHandle {
     });
   }
 
-  /** 协议探测（ping 能力优先；兼容内层 send_ping 的历史测试桩形态）。 */
+  /** 协议探测：ping 能力判定（存活与否 = 进程可服务性）。句柄均带 ping
+   *  （SdkSession 及其下各传输实现）；缺失视为不可探测即健康通过（无历史
+   *  测试桩的 send_ping 双形态，语义已收紧为单一 ping 面）。 */
   private async _probe(session: McpSessionHandle): Promise<void> {
-    const handle = session as unknown as {
-      ping?: () => Promise<void>;
-      _session?: { send_ping?: () => Promise<void> };
-    };
-    const ping = handle.ping;
-    if (ping !== undefined) {
-      await ping.call(session);
-      return;
-    }
-    const inner = handle._session;
-    if (inner !== undefined && inner.send_ping !== undefined) {
-      await inner.send_ping();
-    }
+    const ping = (session as { ping?: () => Promise<void> }).ping;
+    if (ping === undefined) return;
+    await ping.call(session);
   }
 
   /** 释放句柄（切断监督：后续访问按 ensure_open 重新拉起）。 */

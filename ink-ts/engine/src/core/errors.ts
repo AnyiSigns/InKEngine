@@ -59,27 +59,6 @@ export class InterruptError extends EngineError {
   }
 }
 
-/** 执行预算超限（步骤上限/轮数上限等，触发图终止）。 */
-export class BudgetExceededError extends EngineError {
-  readonly kind: string;
-  readonly limit: number;
-  readonly current: number;
-  readonly detail: string | null;
-
-  constructor(kind: string, limit: number, current: number, detail: string | null = null) {
-    let message = `执行预算超限[${kind}]: ${current} >= ${limit}`;
-    if (detail !== null) {
-      message = `${message}（原始异常: ${detail}）`;
-    }
-    super(message);
-    this.kind = kind;
-    this.limit = limit;
-    this.current = current;
-    this.detail = detail;
-    this.name = 'BudgetExceededError';
-  }
-}
-
 /** 存储服务错误（后端不可用/写入失败等）。 */
 export class StorageError extends EngineError {
   constructor(message: string) {
@@ -117,13 +96,5 @@ export class SimulationError extends EngineError {
   constructor(message: string) {
     super(message);
     this.name = 'SimulationError';
-  }
-}
-
-/** 事件协议版本不兼容（增量演进范围内加字段兼容，破坏性变更需升级版本）。 */
-export class ProtocolVersionError extends EngineError {
-  constructor(found: unknown, expected: number) {
-    super(`事件协议版本不兼容: found=${String(found)}, expected=${expected}`);
-    this.name = 'ProtocolVersionError';
   }
 }

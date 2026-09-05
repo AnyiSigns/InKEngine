@@ -10,7 +10,20 @@
  * 本文件只承载模块级常量：集补丁链/审计持久化集合与键、补丁落点
  * 路径段（集状态结构）、段 → 类型映射（SEGMENT_TO_KIND）、旁路写
  * 防护的演化资产集合与前缀、审批动作 key 前缀与审计状态常量。
+ *
+ * 数据面单源：守卫集合/前缀/审计状态值集合 = contracts generated
+ * （GUARDED_COLLECTIONS / GUARDED_PREFIXES / AUDIT_STATUSES）——本地
+ * 不维护同值第二套字面量；一致性由编译期绑定与 assert_constants_contract
+ * 运行时兜底（测试调用）。
  */
+
+import {
+  AUDIT_STATUSES,
+  GUARDED_COLLECTIONS as CONTRACT_GUARDED_COLLECTIONS,
+  GUARDED_PREFIXES as CONTRACT_GUARDED_PREFIXES,
+  type AuditStatus,
+} from '@ink-ts/contracts';
+import { GraphDefinitionError } from '../errors.js';
 
 // 集补丁链持久化集合与键（通用存储服务 records 通道）
 export const _SET_CHAIN_COLLECTION = 'set_patch_chain';
@@ -59,15 +72,7 @@ export const SEGMENT_TO_KIND: Record<string, string> = {
  * "knowledge" 集合——动态用户集只能前缀守卫。
  */
 export const _GUARDED_COLLECTIONS: ReadonlySet<string> = new Set<string>([
-  _SET_CHAIN_COLLECTION,
-  _SET_AUDIT_COLLECTION,
-  'ui',
-  'tool_defs',
-  'event_types',
-  'environments',
-  'artifacts',
-  'harness',
-  'entities',
+  ...CONTRACT_GUARDED_COLLECTIONS,
 ]);
 
 /**
@@ -75,23 +80,70 @@ export const _GUARDED_COLLECTIONS: ReadonlySet<string> = new Set<string>([
  * knowledge:<user_id>（知识/规则条目）、harness:<set_id>（能力包仓库）、
  * event_types:<set_id>（演化事件类型）、entities:<set_id>（协作者目录）——
  * 集合名带 set_id 后精确名匹配不再命中，缺前缀守卫 = 演化资产直写无闸门。
+ * 值来源 = contracts generated GUARDED_PREFIXES（本地无第二套字面量）。
  */
-export const _GUARDED_PREFIXES: readonly string[] = [
-  'knowledge:',
-  'harness:',
-  'event_types:',
-  'entities:',
-];
+export const _GUARDED_PREFIXES: readonly string[] = CONTRACT_GUARDED_PREFIXES;
 
 // 审批动作 key 前缀（挂卡/直过的依据；L0 名单按 key 注入策略）
 export const _APPROVAL_KEY_PREFIX = 'patch';
 
-// 审计状态（声明式枚举，防魔法字符串）
-export const AUDIT_STATUS_APPLIED = 'applied';
-export const AUDIT_STATUS_REJECTED = 'rejected';
-export const AUDIT_STATUS_CONFLICT = 'conflict';
-export const AUDIT_STATUS_INVALID = 'invalid';
-export const AUDIT_STATUS_REVERTED = 'reverted';
+// 审计状态（声明式枚举，防魔法字符串；值面绑定 contracts AuditStatus 类型，
+// 集合相等由 assert_constants_contract 校验）
+export const AUDIT_STATUS_APPLIED: AuditStatus = 'applied';
+export const AUDIT_STATUS_REJECTED: AuditStatus = 'rejected';
+export const AUDIT_STATUS_CONFLICT: AuditStatus = 'conflict';
+export const AUDIT_STATUS_INVALID: AuditStatus = 'invalid';
+export const AUDIT_STATUS_REVERTED: AuditStatus = 'reverted';
 // 回退已落链但回退后通知（活跃态回滚钩子）失败：审计不得记成功态
 // （链已回退 ≠ 运行时态已回滚——两者分叉必须可观测，见 revert）
-export const AUDIT_STATUS_REVERTED_NOTIFY_FAILED = 'reverted_with_notify_error';
+export const AUDIT_STATUS_REVERTED_NOTIFY_FAILED: AuditStatus = 'reverted_with_notify_error';
+
+/** 审计状态取值（声明序，随命名常量集合构建——单点维护无第二份字面量）。 */
+const _AUDIT_STATUS_VALUES = [
+  AUDIT_STATUS_APPLIED,
+  AUDIT_STATUS_REJECTED,
+  AUDIT_STATUS_CONFLICT,
+  AUDIT_STATUS_INVALID,
+  AUDIT_STATUS_REVERTED,
+  AUDIT_STATUS_REVERTED_NOTIFY_FAILED,
+] as const satisfies readonly AuditStatus[];
+
+/**
+ * 运行时断言：守卫集合/前缀与审计状态 ↔ contracts generated 一致（防绕过
+ * 类型层的运行时漂移，由引擎测试调用）。
+ */
+export function assert_constants_contract(): void {
+  const collections = [..._GUARDED_COLLECTIONS].sort();
+  const contractCollections = [...CONTRACT_GUARDED_COLLECTIONS].sort();
+  if (
+    collections.length !== contractCollections.length
+    || collections.some((name, index) => name !== contractCollections[index])
+  ) {
+    throw new GraphDefinitionError(
+      '守卫集合与 contracts GUARDED_COLLECTIONS 不一致: '
+        + `engine=[${collections.join(', ')}] vs contracts=[${contractCollections.join(', ')}]`,
+    );
+  }
+  const prefixes = [..._GUARDED_PREFIXES];
+  const contractPrefixes = [...CONTRACT_GUARDED_PREFIXES];
+  if (
+    prefixes.length !== contractPrefixes.length
+    || prefixes.some((prefix, index) => prefix !== contractPrefixes[index])
+  ) {
+    throw new GraphDefinitionError(
+      '守卫前缀与 contracts GUARDED_PREFIXES 不一致: '
+        + `engine=[${prefixes.join(', ')}] vs contracts=[${contractPrefixes.join(', ')}]`,
+    );
+  }
+  const statuses = [..._AUDIT_STATUS_VALUES];
+  const contractStatuses = [...AUDIT_STATUSES];
+  if (
+    statuses.length !== contractStatuses.length
+    || statuses.some((status, index) => status !== contractStatuses[index])
+  ) {
+    throw new GraphDefinitionError(
+      '审计状态与 contracts AUDIT_STATUSES 不一致: '
+        + `engine=[${statuses.join(', ')}] vs contracts=[${contractStatuses.join(', ')}]`,
+    );
+  }
+}

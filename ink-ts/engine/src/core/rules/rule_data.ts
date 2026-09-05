@@ -1,9 +1,12 @@
+// gate: 超限(356 行) - 规则数据形态（Rule/RuleSet/RuleViolation 三类共享校验语义，entity_id 往返归一逻辑就地承载）
 /**
  * 规则数据形态：RuleViolation / Rule / RuleSet（rules.py 数据段移植）。
  *
  * 三种数据全部可 JSON 序列化，随补丁链版本化/回退；from_dict 构造即
  * 校验——字段形态/枚举值非法建图期拒绝，不以 str() 静默强转（int 5
- * 不会被吞成 "5"）。RuleSet.parse 额外做谓词存在性与 config 形态校验，
+ * 不会被吞成 "5"）。entity_id 例外：谓词产出形态自由，构造边界统一归
+ * 一 string|null（见 normalize_entity_id），数字/布尔违规记录往返稳定。
+ * RuleSet.parse 额外做谓词存在性与 config 形态校验，
  * 声明错误在建图期暴露，不延后到执行期 fail-open 静默失效。
  */
 
@@ -21,6 +24,22 @@ import {
 import { pyRepr } from './_py.js';
 import type { RuleTypeRegistry } from './registry.js';
 
+/**
+ * entity_id 归一：违规记录往返稳定的字符串化（数字/布尔 = 列表索引/状态位
+ * 等遗留可序列化形态，字符串化保留；undefined/null → null；对象/数组无
+ * 稳定字符串标识，按 null 兜底——不留 "[object Object]" 类垃圾）。
+ *
+ * 谓词/钩子允许产出任意形态的实体锚点；统一在构造边界归一为 string|null
+ * 后 to_dict/from_dict 才对称（修复：数字实体违规此前 to_dict 落数字、
+ * from_dict 强制 string 反序列化即炸）。
+ */
+export function normalize_entity_id(value: unknown): string | null {
+  if (value === undefined || value === null) return null;
+  if (typeof value === 'string') return value;
+  if (typeof value === 'number' || typeof value === 'boolean') return String(value);
+  return null;
+}
+
 /** 一条规则违规（可序列化，审核卡 conflicts 字段的可对齐单元）。 */
 export class RuleViolation {
   /** 来源规则 id（钩子违规为 "__llm_hook__"）。 */
@@ -33,8 +52,8 @@ export class RuleViolation {
   readonly message: string;
   /** 关联实体类型（character/event/foreshadowing 等）。 */
   readonly entity_type: string | null;
-  /** 关联实体 id。 */
-  readonly entity_id: unknown;
+  /** 关联实体 id（构造期归一 string|null——往返对称见 normalize_entity_id）。 */
+  readonly entity_id: string | null;
 
   constructor(init: {
     rule_id: string;
@@ -49,7 +68,7 @@ export class RuleViolation {
     this.severity = init.severity;
     this.message = init.message;
     this.entity_type = init.entity_type === undefined ? null : init.entity_type;
-    this.entity_id = init.entity_id === undefined ? null : init.entity_id;
+    this.entity_id = normalize_entity_id(init.entity_id);
     Object.freeze(this);
   }
 
@@ -60,7 +79,7 @@ export class RuleViolation {
       severity: this.severity,
       message: this.message,
       entity_type: this.entity_type,
-      entity_id: (this.entity_id ?? null) as Json,
+      entity_id: this.entity_id,
     };
   }
 
@@ -68,8 +87,9 @@ export class RuleViolation {
    * 从存储/传输数据还原（构造即校验：字段形态非法建图期拒绝）。
    *
    * 与 Rule.from_dict 对齐——强类型校验，非法类型抛 GraphDefinitionError，
-   * 不以 str() 静默强转（int 5 不会被吞成 "5"）。rule_id / message 为
-   * 必填，缺失或类型非法拒绝。
+   * 不以 str() 静默强转。rule_id / message 为必填，缺失或类型非法拒绝。
+   * entity_id 例外：写入侧构造期已归一 string|null（数字/布尔遗留记录读
+   * 取侧同样归一为 string——修复反序列化即炸的不对称，见 normalize_entity_id）。
    */
   static from_dict(data: unknown): RuleViolation {
     if (!isRecord(data)) {
@@ -100,8 +120,18 @@ export class RuleViolation {
       throw new GraphDefinitionError('违规声明的 entity_type 须为字符串或省略');
     }
     const entity_id = data['entity_id'];
-    if (entity_id !== undefined && entity_id !== null && typeof entity_id !== 'string') {
-      throw new GraphDefinitionError('违规声明的 entity_id 须为字符串或省略');
+    if (
+      entity_id !== undefined &&
+      entity_id !== null &&
+      typeof entity_id !== 'string' &&
+      typeof entity_id !== 'number' &&
+      typeof entity_id !== 'boolean'
+    ) {
+      // 对象/数组等无稳定标识形态拒绝（不是合法实体锚点）；数字/布尔为
+      // 遗留可序列化形态（构造期已归一为 string 写入），读取侧一并归一
+      throw new GraphDefinitionError(
+        '违规声明的 entity_id 须为字符串/数字/布尔或省略',
+      );
     }
     return new RuleViolation({
       rule_id,
@@ -109,7 +139,7 @@ export class RuleViolation {
       severity,
       message,
       entity_type: entity_type === undefined || entity_type === null ? null : entity_type,
-      entity_id: entity_id === undefined || entity_id === null ? null : entity_id,
+      entity_id,
     });
   }
 }

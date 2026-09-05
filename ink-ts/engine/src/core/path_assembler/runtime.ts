@@ -2,10 +2,10 @@
  * 组装指令运行期 PathAssemblyRuntime（path_assembler.py「组装指令入口」段移植）。
  *
  * 指令运行期：注册表/证据/开关/缓存/草稿源/技能先例的持有者；提供组装指令
- * 执行入口（assemble_plan）——组装 + canary 验证链路 + 审计留痕。canary 单回
- * 合执行依赖引擎执行器（executor 未迁移，见 canary.ts defer 预留），本层在
- * canary=True 时的执行验证会抛明确的未迁移错误；重建级验证与组装/审计/统计
- * 累计（canary=False 路径）完整可用。
+ * 执行入口（assemble_plan）——组装 + canary 验证链路 + 审计留痕。canary
+ * 默认关闭（canary=False = 重建级校验，不执行单回合；宿主按需开启 canary +
+ * 注入 canary_options 后，单候选走真实单回合试跑——canary_round 复用 executor
+ * 执行器，见 canary.ts）。重建级验证与组装/审计/统计累计完整可用。
  */
 
 import { request_fingerprint } from '../fingerprint/fingerprint.js';
@@ -14,6 +14,7 @@ import type { EdgeEvidenceStore } from '../edge_evidence/index.js';
 import type { Retriever } from '../retrieval/index.js';
 import type { NodeContract, PathAssemblyConfig } from '../contracts/contracts.js';
 import type { FingerprintCacheStore } from '../fingerprint_cache/index.js';
+import type { RunOptions } from '../run_result/run_result.js';
 import type { AssemblyRequest } from './types.js';
 import { AssemblyCandidate, AssemblyEnvelope, PathAssemblyResult } from './types.js';
 import { CanaryVerdict } from './canary.js';
@@ -42,7 +43,7 @@ export class PathAssemblyRuntime {
   readonly model_id: string;
   readonly cache_epsilon: number;
   readonly canary_timeout: number | null;
-  readonly canary_options: unknown | null;
+  readonly canary_options: RunOptions | Partial<RunOptions> | null;
   readonly multipath_enabled: boolean;
   /** 组装统计累计（进程内跨调用聚合：stats 最后一跳的数据源）。 */
   stats_total: Record<string, number>;
@@ -63,7 +64,7 @@ export class PathAssemblyRuntime {
     model_id?: string;
     cache_epsilon?: number;
     canary_timeout?: number | null;
-    canary_options?: unknown | null;
+    canary_options?: RunOptions | Partial<RunOptions> | null;
     multipath_enabled?: boolean;
     stats_total?: Record<string, number>;
     skill_provider?: ((request: AssemblyRequest) => Promise<readonly unknown[]>) | null;
@@ -74,7 +75,9 @@ export class PathAssemblyRuntime {
     this.config = init.config ?? null;
     this.sink = init.sink ?? null;
     this.now = init.now ?? null;
-    this.canary = init.canary ?? true;
+    // canary 默认关（重建级校验即可交付；单回合试跑由宿主显式开启——canary
+    // 试跑会真实执行候选图节点，成本敏感，不默认替宿主跑）
+    this.canary = init.canary ?? false;
     this.cache = init.cache ?? null;
     this.model_id = init.model_id ?? '';
     this.cache_epsilon = init.cache_epsilon ?? DEFAULT_CACHE_EPSILON;
@@ -209,8 +212,9 @@ export class PathAssemblyRuntime {
     }
   }
 
-  /** 单候选验证：重建（结构校验）→ 可选单回合（stub 执行）。
-   *  canary=True 时的单回合执行依赖 executor（未迁移），会抛未迁移错误。 */
+  /** 单候选验证：重建（结构校验）→ 可选单回合（canary 开启时真实试跑）。
+   *  canary=False 仅重建级校验（ok=true 不执行）；canary=True 走 canary_round
+   *  单回合执行（正常收尾 = 通过；执行异常/超时 = 未通过并留错误原因）。 */
   async _verify_candidate(candidate: AssemblyCandidate, opts: { ts: number }): Promise<CanaryVerdict> {
     const graphData = candidate.to_dict()['graph'] as Record<string, unknown>;
     let rebuilt;
@@ -234,6 +238,7 @@ export class PathAssemblyRuntime {
     }
     try {
       const round_result = await canary_round(rebuilt, {
+        entry_state: {},
         options: this.canary_options,
         canary_timeout: this.canary_timeout,
       });
@@ -247,7 +252,6 @@ export class PathAssemblyRuntime {
       });
     } catch (exc) {
       void opts.ts;
-      if (exc instanceof Error && exc.message.includes('未迁移')) throw exc;
       return new CanaryVerdict({
         rank: candidate.rank,
         digest: rebuilt.digest(),

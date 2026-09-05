@@ -1,13 +1,14 @@
 /**
  * gate 检查规则（纯函数）：行数上限（例外须标注）/core import 纪律/core 词汇/
- * 生成文件禁改。CODING.md 第 7 节为规则与仓库一致关系的单一事实源。
+ * 源文件 UTF-8 合法性/生成文件禁改。CODING.md 第 7 节为规则与仓库一致关系的
+ * 单一事实源。
  */
 
 import type { GateConfig } from './config.js';
 
 export interface Violation {
   path: string;
-  rule: 'line-limit' | 'core-import' | 'core-token' | 'src-test';
+  rule: 'line-limit' | 'core-import' | 'core-token' | 'src-test' | 'utf8-valid';
   message: string;
 }
 
@@ -28,11 +29,29 @@ export function checkLineLimit(content: string, path: string, maxLines: number):
   };
 }
 
+/** 源文件字节须为合法 UTF-8：content 为按替换字符解码后的文本，出现 U+FFFD
+ *  即原字节含非法 UTF-8 序列（合法文件整文件 UTF-8 往返一致，无替换）。 */
+export function checkUtf8Valid(content: string, path: string): Violation | null {
+  if (!content.includes('\uFFFD')) return null;
+  return {
+    path,
+    rule: 'utf8-valid',
+    message: '源文件含非法 UTF-8 字节（整文件须为合法 UTF-8 编码，中文注释/文案不得转码为其他编码）',
+  };
+}
+
 const IMPORT_RE = /(?:from\s+|import\s*\(\s*)['"]([^'"]+)['"]|import\s+['"]([^'"]+)['"]/g;
+
+/** core 区放行的外部包白名单（精确匹配，全字比较）：仅数据契约层
+ *  @ink-ts/contracts ——CODING §1 ``engine → contracts`` 依赖方向的实现点
+ *  （L0/L1 数据面 schema/fixture/generated 真源，core 零 IO 纯数据）。
+ *  不放行其它 @ink-ts/*（自引用/adapters）、第三方与 node:。 */
+const CORE_ALLOWED_PACKAGES: readonly string[] = ['@ink-ts/contracts'];
 
 /** core 区禁 node:* 与第三方 import（相对 import 允许；类型 import 同规）。
  *  相对 import 命中 forbiddenRel 子串 = 反向依赖下方层（adapters），拒绝；
- *  node: 内置仅 coreAllowedNode 白名单放行（如 async_hooks 镜像 contextvars）。 */
+ *  node: 内置仅 coreAllowedNode 白名单放行（如 async_hooks 镜像 contextvars）；
+ *  裸包名仅 CORE_ALLOWED_PACKAGES 精确放行（数据契约层）。 */
 export function checkCoreImports(
   content: string,
   path: string,
@@ -55,6 +74,7 @@ export function checkCoreImports(
       }
       continue;
     }
+    if (CORE_ALLOWED_PACKAGES.includes(specifier)) continue;
     if (specifier.startsWith('node:')) {
       if (coreAllowedNode.includes(specifier)) continue;
       out.push({

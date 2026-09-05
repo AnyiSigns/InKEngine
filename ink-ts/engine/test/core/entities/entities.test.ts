@@ -173,6 +173,39 @@ describe('EntityRegistry 随集持久化（seam）', () => {
     expect(await registry.load()).toBe(0);
   });
 
+  it('load 超配额不入册：与 register 配额口径一致且 on_skip 上报', async () => {
+    const store = memoryStore();
+    await store.put_record('entities:q', 'a', spec('a').to_dict());
+    await store.put_record('entities:q', 'b', spec('b').to_dict());
+    await store.put_record('entities:q', 'c', spec('c').to_dict());
+    const skipped: string[] = [];
+    const registry = new EntityRegistry({
+      recordsStore: store,
+      set_id: 'q',
+      max_entities: 2,
+      on_skip: (reason, id) => skipped.push(`${reason}:${id}`),
+    });
+    expect(await registry.load()).toBe(2);
+    expect(registry.names()).toEqual(['a', 'b']);
+    expect(skipped).toEqual(['quota:c']);
+    expect(() => registry.register(spec('d'))).toThrow(/配额上限/);
+  });
+
+  it('load on_skip 上报畸形记录（不再静默吞）', async () => {
+    const store = memoryStore();
+    await store.put_record('entities:bad', 'ok', spec('ok').to_dict());
+    await store.put_record('entities:bad', 'bad', { id: 'bad', label: 1 });
+    const skipped: string[] = [];
+    const registry = new EntityRegistry({
+      recordsStore: store,
+      set_id: 'bad',
+      on_skip: (reason, id) => skipped.push(`${reason}:${id}`),
+    });
+    expect(await registry.load()).toBe(1);
+    expect(registry.names()).toEqual(['ok']);
+    expect(skipped).toEqual(['malformed:bad']);
+  });
+
   it('无存储 load/save 静默跳过', async () => {
     const registry = new EntityRegistry();
     registry.register(spec('a'));

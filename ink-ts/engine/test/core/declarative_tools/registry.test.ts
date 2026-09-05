@@ -14,6 +14,7 @@
  */
 import { afterEach, describe, expect, it } from 'vitest';
 
+import { BUILTIN_ENDPOINT_NAMES, BUILTIN_ENDPOINTS } from '@ink-ts/contracts';
 import { SandboxViolation } from '../../../src/core/errors.js';
 import { FIELD_ARRAY, SchemaField } from '../../../src/core/schema/schemaValidator.js';
 import {
@@ -26,6 +27,7 @@ import {
   endpoint_registry,
   tool_contract_from_declaration,
 } from '../../../src/core/declarative_tools/index.js';
+import { assert_endpoint_contract } from '../../../src/core/declarative_tools/endpoint_types.js';
 
 /** 清空测试期登记的自定义端点（内置 7 种保留）。 */
 function removeCustom(name: string): void {
@@ -217,5 +219,25 @@ describe('重复注册拒绝', () => {
     const spec = endpoint_registry.get('file_ops');
     expect(spec).toBeDefined();
     expect(() => endpoint_registry.register(spec!)).toThrow('重复注册');
+  });
+});
+
+describe('engine 端点枚举 ↔ contracts generated 一致（数据面单源）', () => {
+  it('EndpointType 值集合与注册表名 ↔ BUILTIN_ENDPOINT_NAMES 一致', () => {
+    expect(() => assert_endpoint_contract()).not.toThrow();
+    expect(endpoint_registry.names).toEqual([...BUILTIN_ENDPOINT_NAMES]);
+  });
+
+  it('内置注册条目字段 ↔ BUILTIN_ENDPOINTS 全字段一致（数据驱动注册）', () => {
+    for (const contract of BUILTIN_ENDPOINTS) {
+      const spec = endpoint_registry.get(contract.name);
+      expect(spec, `内置端点 ${contract.name} 已登记`).toBeDefined();
+      expect(spec!.actions).toEqual([...contract.actions]);
+      expect(spec!.config_requirements).toEqual([...contract.config_requirements]);
+      expect(spec!.sandbox_ops).toEqual([...contract.sandbox_ops]);
+      expect(spec!.output_fields.map((f) => [f.name, f.required, f.kind])).toEqual(
+        contract.output_fields.map((f) => [f.name, f.required, f.kind]),
+      );
+    }
   });
 });

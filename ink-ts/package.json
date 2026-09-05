@@ -7,8 +7,9 @@
   "workspaces": ["contracts", "engine", "gate", "backend", "cli", "frontend"],
   "scripts": {
     "typecheck": "npm run typecheck --workspaces --if-present",
-    "test": "vitest run --root gate && vitest run --root cli && vitest run --root engine",
+    "test": "tsx gate/src/check.ts && vitest run --root gate && vitest run --root cli && vitest run --root engine && node contracts/scripts/verify_generated.mjs",
     "gate": "tsx gate/src/check.ts",
+    "contracts:verify": "node contracts/scripts/verify_generated.mjs",
     "contracts:check": "..\\.venv\\Scripts\\python.exe contracts/scripts/check_contract_sources.py",
     "contracts:generate": "npm run generate -w @ink-ts/contracts"
   },

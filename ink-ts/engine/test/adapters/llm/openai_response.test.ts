@@ -9,7 +9,7 @@
 
 import { describe, expect, it } from 'vitest';
 
-import { LLMChunk } from '../../../src/core/llm/base.js';
+import { LLMChunk, collect_result } from '../../../src/core/llm/base.js';
 import { LLMConfig, LLMParams } from '../../../src/core/llm/base.js';
 import { LLMAuthError, LLMEmptyStreamError, LLMRateLimitError } from '../../../src/core/llm/errors.js';
 import { Attachment, ToolCall, assistant, system, tool_result, user } from '../../../src/core/llm/messages.js';
@@ -249,6 +249,50 @@ describe('astream 流式解析', () => {
     expect(finishes).toEqual(['completed']);
     const usages = chunks.filter((c) => c.usage).map((c) => c.usage);
     expect(usages[usages.length - 1]).toEqual({ output_tokens: 5 });
+  });
+
+  it('连续多 function_call 逐帧独立成桶：index 自增、参数完整（防塌缩合并）', async () => {
+    const lines = [
+      sse({ type: 'response.output_text.delta', delta: '先' }),
+      sse({
+        type: 'response.output_item.done',
+        item: {
+          type: 'function_call',
+          call_id: 'fc_1',
+          name: 'web_search',
+          arguments: { q: '第一问', limit: 3 },
+        },
+      }),
+      sse({ type: 'response.output_text.delta', delta: '后' }),
+      sse({
+        type: 'response.output_item.done',
+        item: {
+          type: 'function_call',
+          call_id: 'fc_2',
+          name: 'read_file',
+          arguments: { path: '/etc/hosts' },
+        },
+      }),
+      sse({ type: 'response.completed' }),
+    ];
+    const { llm } = make_adapter(() => stream_response(200, lines));
+    const result = await collect_result(llm.astream([user('hi')]));
+    expect(result.content).toBe('先后');
+    expect(result.tool_calls).not.toBeNull();
+    expect(result.tool_calls?.length).toBe(2); // 不再被 index=0 塌缩成单条
+    const calls = result.tool_calls as unknown as {
+      name: string;
+      id: string;
+      arguments: string;
+    }[];
+    const first = calls[0]!;
+    const second = calls[1]!;
+    expect(first.name).toBe('web_search');
+    expect(first.id).toBe('fc_1');
+    expect(JSON.parse(first.arguments)).toEqual({ q: '第一问', limit: 3 });
+    expect(second.name).toBe('read_file');
+    expect(second.id).toBe('fc_2');
+    expect(JSON.parse(second.arguments)).toEqual({ path: '/etc/hosts' });
   });
 
   it('空流抛 LLMEmptyStreamError', async () => {

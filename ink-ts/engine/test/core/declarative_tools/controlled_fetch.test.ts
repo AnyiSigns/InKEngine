@@ -26,6 +26,8 @@ import {
   make_declarative_extractor,
   make_declarative_failure_reason,
 } from '../../../src/core/declarative_tools/index.js';
+import { HARD_MAX_FETCH_BYTES } from '../../../src/core/declarative_tools/_http_executors.js';
+import type { HttpStreamClient } from '../../../src/core/declarative_tools/index.js';
 
 /** collect_material 形态声明式定义（endpoint=mcp + 受控取回标记）。 */
 function controlledCollect(
@@ -192,5 +194,78 @@ describe('受控取回执行体参数校验（无需网络 seam）', () => {
     );
     // 缺 url
     await expect(executor(null, spec, {}, null)).rejects.toThrow('缺 url');
+  });
+});
+
+describe('受控取回执行体流式语义（HttpStreamClient seam）', () => {
+  /** 字节流假响应（按 max_bytes 封顶消费的输入源）。 */
+  function byteResponse(chunks: readonly Uint8Array[]) {
+    return {
+      status_code: 200,
+      headers: {},
+      async *aiter_text(): AsyncIterable<string> {
+        for (const chunk of chunks) yield new TextDecoder('utf-8').decode(chunk);
+      },
+      async *aiter_bytes(): AsyncIterable<Uint8Array> {
+        for (const chunk of chunks) yield chunk;
+      },
+    };
+  }
+
+  /** 记录 stream 第四参（timeout 透传断言）的假客户端。 */
+  function fakeClient(chunks: readonly Uint8Array[]): {
+    client: HttpStreamClient;
+    streamCalls: Array<{ method: string; url: string; options?: { timeout?: number } }>;
+  } {
+    const streamCalls: Array<{ method: string; url: string; options?: { timeout?: number } }> = [];
+    const client: HttpStreamClient = {
+      stream: async (method: string, url: string, _headers: unknown, options) => {
+        streamCalls.push({ method, url, options });
+        return byteResponse(chunks);
+      },
+    };
+    return { client, streamCalls };
+  }
+
+  it('超大响应：按请求预算截断（bytes 封顶 + truncated + 已读前缀保留）', async () => {
+    const { client } = fakeClient([
+      new TextEncoder().encode('0123456789abcdef'),
+      new TextEncoder().encode('0123456789abcdef'),
+      new TextEncoder().encode('0123456789abcdef'), // 48 字节总长
+    ]);
+    const executor = make_controlled_fetch_executor({ client });
+    const spec = controlledCollect();
+    const out = await executor(null, spec, { url: 'https://example.com/big', max_bytes: 32 }, null);
+    const parsed = JSON.parse(out) as {
+      bytes: number;
+      truncated: boolean;
+      content: string;
+    };
+    expect(parsed.bytes).toBe(32);
+    expect(parsed.truncated).toBe(true);
+    expect(parsed.content).toBe('0123456789abcdef0123456789abcdef'); // 前缀保留
+  });
+
+  it('请求 max_bytes 超过硬顶（10MiB）→ fail-closed 拒绝（不按请求预算累积）', async () => {
+    const { client, streamCalls } = fakeClient([new Uint8Array(0)]);
+    const executor = make_controlled_fetch_executor({ client });
+    const spec = controlledCollect();
+    const oversized = HARD_MAX_FETCH_BYTES + 1024;
+    await expect(
+      executor(null, spec, { url: 'https://example.com/big', max_bytes: oversized }, null),
+    ).rejects.toThrow('硬上限');
+    expect(streamCalls.length).toBe(0); // 拒绝发生在发起请求之前
+  });
+
+  it('timeout 透传给 stream seam（缺省 30s；执行体配置可覆盖）', async () => {
+    const { client, streamCalls } = fakeClient([new TextEncoder().encode('hello')]);
+    const spec = controlledCollect();
+    const defaultExec = make_controlled_fetch_executor({ client });
+    await defaultExec(null, spec, { url: 'https://example.com/a' }, null);
+    expect(streamCalls[0]!.options).toEqual({ timeout: 30 });
+
+    const customExec = make_controlled_fetch_executor({ client, timeout: 5.0 });
+    await customExec(null, spec, { url: 'https://example.com/a' }, null);
+    expect(streamCalls[1]!.options).toEqual({ timeout: 5 });
   });
 });

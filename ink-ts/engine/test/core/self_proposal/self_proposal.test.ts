@@ -14,11 +14,10 @@
 
 import { describe, expect, it } from 'vitest';
 
+import { PATCH_KINDS } from '@ink-ts/contracts';
 import { GraphDefinitionError } from '../../../src/core/errors.js';
-import {
-  PatchKind,
-  SelfProposal,
-} from '../../../src/core/self_proposal/index.js';
+import { PatchKind, SelfProposal } from '../../../src/core/self_proposal/index.js';
+import { assert_patch_kinds_contract } from '../../../src/core/self_proposal/self_proposal.js';
 
 function _proposal(
   kind: PatchKind,
@@ -35,6 +34,11 @@ function _proposal(
 }
 
 describe('SelfProposal 提案数据形态', () => {
+  it('engine PatchKind ↔ contracts PATCH_KINDS 一致（数据面单源断言）', () => {
+    expect(() => assert_patch_kinds_contract()).not.toThrow();
+    expect(Object.values(PatchKind)).toEqual([...PATCH_KINDS]);
+  });
+
   it('proposal round-trip（序列化往返无损）', () => {
     const proposal = _proposal(PatchKind.THEME, { tokens: { bg: '#000' } }, 3);
     const restored = SelfProposal.from_dict(proposal.to_dict());

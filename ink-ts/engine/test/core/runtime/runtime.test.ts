@@ -23,6 +23,11 @@ import { describe, it, expect } from 'vitest';
 import { Runtime, RuntimeState, AssemblyRecipe, _KnowledgeUsageSettleHook } from '../../../src/core/runtime/index.js';
 import type { Host } from '../../../src/core/runtime/index.js';
 import type { GraphRecipeContext } from '../../../src/core/runtime/index.js';
+import { EngineEvent } from '../../../src/core/events/events.js';
+import type { JsonRecord } from '../../../src/core/json.js';
+import { EVOLUTION_AUDIT_TYPE } from '../../../src/core/evolution_writer/evolution_writer.js';
+import { ROUND_LEDGER_COLLECTION } from '../../../src/core/runtime/_settle.js';
+import { GOV_VERDICT_ALLOW, GOV_VERDICT_REJECT } from '../../../src/core/pool_governance/pool_governance.js';
 import { Graph } from '../../../src/core/graph/graph.js';
 import { RunResult, RunOptions } from '../../../src/core/run_result/run_result.js';
 import { DefaultInterruptPolicy } from '../../../src/core/approval/approval.js';
@@ -429,6 +434,20 @@ describe('runtime 生命周期状态机', () => {
     expect(engine.options.registries).toBe(runtime.graph_registries);
     expect(engine.options.error_on_exception).toBe(true);
   });
+
+  it('multipath_enabled 可经配方 run_options 覆写（默认不注入 = false）', async () => {
+    const r1 = await new Runtime().boot(toHost(new FakeHost()), _minimal_recipe());
+    expect(r1.engine!.options.multipath_enabled).toBe(false);
+    await r1.stop();
+    const r2 = await new Runtime().boot(
+      toHost(new FakeHost()),
+      _minimal_recipe({
+        run_options: new RunOptions({ multipath_enabled: true }),
+      }),
+    );
+    expect(r2.engine!.options.multipath_enabled).toBe(true);
+    await r2.stop();
+  });
 });
 
 describe('runtime 审批决议重入', () => {
@@ -701,5 +720,186 @@ describe('runtime 中止（abort_current_run）', () => {
     expect(runtime.state).toBe(RuntimeState.RUNNING);
     await runtime.stop(); // 无悬挂登记 → 立即关停
     expect(runtime.state).toBe(RuntimeState.STOPPED);
+  });
+});
+
+// ---------------------------------------------------------------------------
+// 引擎自接线批次（拍板 = 引擎自接线 ON）：回合账本/成长键源/审计键/池治理
+// 自动跑/回合步骤记录器——全部在 Runtime 装配默认（每实例唯一键源 + 运行时
+// 时钟）之上验证确定性语义。
+// ---------------------------------------------------------------------------
+
+/** 取内存存储某集合记录（records 通道透传底层 MemoryStorage）。 */
+async function _recordsOf(runtime: Runtime, collection: string): Promise<Record<string, unknown>[]> {
+  if (runtime.storage === null) return [];
+  return runtime.storage.list_records(collection);
+}
+
+/** 事件构造（growth/记录器运输测试用）。 */
+function _ev(type: string, payload: JsonRecord = {}, extra: Partial<EngineEvent> = {}): EngineEvent {
+  return new EngineEvent({ type, payload, thread_id: extra.thread_id ?? 't', round_id: extra.round_id ?? null, step_id: extra.step_id ?? null });
+}
+
+describe('runtime 回合账本归约（ledger 每回合自动产出）', () => {
+  it('连续两回合两账本不覆盖；runtime.ledger 读最近账本', async () => {
+    const runtime = await new Runtime().boot(toHost(new FakeHost()), _minimal_recipe());
+    const first = await runtime.engine!.ainvoke(
+      { input: '账本一' },
+      { thread_id: 't-led', round_id: 'r1' },
+    );
+    expect((first.state as Record<string, unknown>)['reply']).toBe('ok');
+    const ledger1 = await runtime.ledger('t-led');
+    expect(ledger1).not.toBeNull();
+    expect(ledger1!['round_id']).toBe('r1');
+    await runtime.engine!.ainvoke(
+      { input: '账本二' },
+      { thread_id: 't-led', round_id: 'r2', continue_chain: true },
+    );
+    const ledger2 = await runtime.ledger('t-led');
+    expect(ledger2).not.toBeNull();
+    expect(ledger2!['round_id']).toBe('r2');
+    // 两回合两账本不覆盖：r1 账本仍在集合内
+    const all = await _recordsOf(runtime, ROUND_LEDGER_COLLECTION);
+    expect(all.map((r) => r['round_id'])).toEqual(expect.arrayContaining(['r1', 'r2']));
+    // 摘要链推进：r2 摘要包含 r1 意图（merge_ledger 增量旧摘要前缀）
+    expect(String(ledger1!['summary'])).toContain('意图: 账本一');
+    expect(String(ledger2!['summary'])).toContain('意图: 账本一');
+    await runtime.stop();
+  });
+
+  it('无记录回合不产出（空 ctx 直驱钩子）', async () => {
+    const runtime = await new Runtime().boot(toHost(new FakeHost()), _minimal_recipe());
+    const { _LedgerSettleHook } = await import('../../../src/core/runtime/_settle.js');
+    const hook = new _LedgerSettleHook(runtime);
+    const empty = new SettleContext({
+      thread_id: 't-empty',
+      round_id: 'r-x',
+      trace_id: 'tr',
+      domain: 'default',
+      steps: [],
+      result: new RunResult({ state: {}, reason: 'reply' }),
+    });
+    await hook.settle(empty);
+    expect(await _recordsOf(runtime, ROUND_LEDGER_COLLECTION)).toEqual([]);
+    await runtime.stop();
+  });
+});
+
+describe('runtime growth uuid 源（同知识集二次落位实例内唯一）', () => {
+  it('两次不同信号蒸馏两次落位成功：landed 递增且条目 id 不冲突', async () => {
+    const runtime = await new Runtime().boot(toHost(new FakeHost()), _minimal_recipe());
+    const grow = runtime.growth_pipeline!;
+    expect(grow).toBeTruthy();
+    const rounds: ReadonlyArray<readonly [string, string]> = [
+      ['第一次失败教训', 'r1'],
+      ['第二次失败教训', 'r2'],
+    ];
+    for (const [message, round] of rounds) {
+      await grow.send(_ev('review_pass', { message }, { thread_id: 't-g', round_id: round }));
+      await grow.flush_round({ complexity: 5 });
+    }
+    const snap = grow.snapshot();
+    expect(snap['landed']).toBe(2);
+    const insights = runtime
+      .knowledge_set!.entries()
+      .filter((entry) => entry.id.startsWith('insight:g:'));
+    expect(insights.length).toBe(2);
+    expect(insights[0]!.id).not.toBe(insights[1]!.id);
+    await runtime.stop();
+  });
+});
+
+describe('runtime audit 键唯一（多次演化写不互相覆盖）', () => {
+  it('set_baseline_names 两次 → set_audit 两条 tool_baseline 记录（不同键）', async () => {
+    const runtime = await new Runtime().boot(toHost(new FakeHost()), _minimal_recipe());
+    runtime.tool_registry['custom_audit_a'] = new ToolSpec({ name: 'custom_audit_a', description: 'a' });
+    runtime.tool_registry['custom_audit_b'] = new ToolSpec({ name: 'custom_audit_b', description: 'b' });
+    await runtime.set_baseline_names(['custom_audit_a']);
+    await runtime.set_baseline_names(['custom_audit_a', 'custom_audit_b']);
+    const auditRecords = (await _recordsOf(runtime, 'set_audit')).filter(
+      (r) => r['kind'] === EVOLUTION_AUDIT_TYPE && r['asset_id'] === 'tool_baseline',
+    );
+    // 若两次写共用固定键（同键覆盖）此处只有 1 条——两键断言 = 防互相覆盖
+    expect(auditRecords.length).toBe(2);
+    await runtime.stop();
+  });
+});
+
+describe('runtime 池治理每回合自动跑', () => {
+  function failing_graph_recipe(_ctx: GraphRecipeContext): Graph {
+    const agent = async (): Promise<Record<string, unknown>> => ({ started: true });
+    const boom = async (): Promise<never> => {
+      throw new Error('节点失败');
+    };
+    const g = new Graph({ name: 'fail', entry: 'start' });
+    g.add_node('start', agent as never);
+    g.add_node('boom', boom as never);
+    g.add_edge('start', 'boom');
+    g.add_exit('boom');
+    return g;
+  }
+
+  it('失败回合自动治理：预算内 allow，耗尽后稳定 reject（不震荡）', async () => {
+    const runtime = await new Runtime().boot(
+      toHost(new FakeHost()),
+      _minimal_recipe({ graph_recipe: failing_graph_recipe }),
+    );
+    const gov = runtime.pool_governance!;
+    expect(gov).toBeTruthy();
+    for (let i = 1; i <= 4; i += 1) {
+      await runtime.engine!.ainvoke(
+        { input: `回合${i}` },
+        { thread_id: 't-gov', round_id: `r${i}`, continue_chain: i > 1 },
+      );
+    }
+    expect(gov.log.length).toBe(4);
+    const verdicts = gov.log.map((r) => r['verdict']);
+    expect(verdicts.slice(0, 3)).toEqual([GOV_VERDICT_ALLOW, GOV_VERDICT_ALLOW, GOV_VERDICT_ALLOW]);
+    expect(verdicts[3]).toBe(GOV_VERDICT_REJECT);
+    // 治理判定留审计（set_audit append-only 不覆盖）
+    const audits = (await _recordsOf(runtime, 'set_audit')).filter(
+      (r) => r['kind'] === 'pool_governance_audit',
+    );
+    expect(audits.length).toBeGreaterThanOrEqual(4);
+    await runtime.stop();
+  });
+});
+
+describe('runtime 回合步骤记录器接线', () => {
+  function emit_graph_recipe(_ctx: GraphRecipeContext): Graph {
+    const agent = async (ctx: unknown): Promise<Record<string, unknown>> => {
+      const nodeCtx = ctx as {
+        state: Record<string, unknown>;
+        emit(type: string, payload: Record<string, unknown>, opts?: { step_id?: string | null }): Promise<void>;
+      };
+      const n = Number(nodeCtx.state['count'] ?? 0);
+      await nodeCtx.emit('node_trace', { index: n }, { step_id: `trace-${n}` });
+      return { count: n + 1, reply: 'done' };
+    };
+    const g = new Graph({ name: 'emit', entry: 'agent' });
+    g.add_node('agent', agent as never);
+    g.add_exit('agent');
+    return g;
+  }
+
+  it('回合内事件 → 有界步骤记录；线程隔离；round 边界重置', async () => {
+    const runtime = await new Runtime().boot(
+      toHost(new FakeHost()),
+      _minimal_recipe({ graph_recipe: emit_graph_recipe }),
+    );
+    await runtime.engine!.ainvoke({ input: 'x' }, { thread_id: 't-steps', round_id: 'r1' });
+    const steps = runtime.round_steps('t-steps');
+    expect(steps.length).toBeGreaterThan(0);
+    expect(steps.every((s) => s.type === 'node_trace' && s.step_id.startsWith('trace-'))).toBe(true);
+    expect(runtime.round_steps('other-thread')).toEqual([]);
+    // 回合边界：新回合开启后旧回合步骤丢弃
+    await runtime.engine!.ainvoke(
+      { input: 'y' },
+      { thread_id: 't-steps', round_id: 'r2', continue_chain: true },
+    );
+    const after = runtime.round_steps('t-steps');
+    // 回合边界重置：新回合只保留本回合的 1 步（不叠加旧回合步骤）
+    expect(after.length).toBe(1);
+    await runtime.stop();
   });
 });

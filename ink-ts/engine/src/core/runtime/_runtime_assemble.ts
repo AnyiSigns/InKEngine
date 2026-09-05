@@ -47,10 +47,12 @@ import { ToolSelector } from '../tool_orchestrator/tool_orchestrator.js';
 import { ToolVectorIndex } from '../tool_index/tool_index.js';
 import { ToolVetting } from '../tool_vetting/tool_vetting.js';
 import { PoolGovernance } from '../pool_governance/pool_governance.js';
+import { EdgeEvidenceStore } from '../edge_evidence/store.js';
 import { UISchemaValidator } from '../ui_schema/uiSchema.js';
 import type { ToolSpec } from '../llm/tools.js';
 import type { Host, AssemblyRecipe } from './_types.js';
 import { _uuid_hex } from './_runtime_base.js';
+import { _RoundStepsRecorder } from './_round_steps_recorder.js';
 import { RuntimeRebuild } from './_runtime_engine.js';
 /** 装配基座（步骤 ①–⑰ 实现；boot 失败清理见状态机层）。 */
 export abstract class RuntimeAssemble extends RuntimeRebuild {
@@ -104,8 +106,13 @@ export abstract class RuntimeAssemble extends RuntimeRebuild {
     } finally {
       seedScope.exit();
     }
+    // 回合记录/边证据装配产物（引擎自接线状态跨引擎重建持有）
+    this.round_steps_recorder = new _RoundStepsRecorder();
+    this.edge_evidence_store = new EdgeEvidenceStore();
     this.growth_pipeline = new GrowthPipeline(this.knowledge_set, {
       metric_store: guarded as never,
+      now: () => this._r_now(),
+      uuid_gen: () => this._r_growth_uuid(),
     });
     this.harness_registry = new HarnessRegistry({ registries: this.graph_registries });
     this.harness_repository = new HarnessRepository(guarded, null, {
@@ -134,7 +141,11 @@ export abstract class RuntimeAssemble extends RuntimeRebuild {
         scope.exit();
       }
     }
-    const writer = new DefaultEvolutionWriter(guarded);
+    this._mechanism_writer = new DefaultEvolutionWriter(guarded, {
+      now: () => this._r_now(),
+      keyGen: () => this._r_audit_key(),
+    });
+    const writer = this._mechanism_writer;
     this.event_type_registry = new EventTypeRegistry({
       recordsStore: guarded as never,
       writer: {
@@ -208,6 +219,9 @@ export abstract class RuntimeAssemble extends RuntimeRebuild {
       l2_vetting: recipe.vetting_l2_hook as never,
       on_reverted: recipe.on_reverted as never,
       guard_token: guardToken,
+      // 审计键/时钟注入：runtime 实例唯一键源 + 运行时时钟（见第 2 节）
+      now: () => this._r_now(),
+      audit_key_gen: () => this._r_audit_key(),
     });
     let uiSpec: Record<string, unknown> | null = recipe.ui_spec;
     const uiViolations = new UISchemaValidator().validate(recipe.ui_spec ?? {}, {
@@ -318,7 +332,9 @@ export abstract class RuntimeAssemble extends RuntimeRebuild {
     }
     this.meta_tuner = new MetaTuner({ knowledge_set: this.knowledge_set! });
     this.turn_metrics = new TurnMetrics();
-    this.pool_governance = new PoolGovernance();
+    this.pool_governance = new PoolGovernance({
+      now: () => this._r_now(),
+    });
     const sources = (
       this.introspection_service as unknown as {
         _sources: { tools: unknown; registered_tools: unknown };

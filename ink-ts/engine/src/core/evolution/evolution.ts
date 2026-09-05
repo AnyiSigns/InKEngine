@@ -12,6 +12,10 @@
  * 语义 = readonly + Object.freeze；拒绝留痕中 l1.errors 取 list repr（与
  * knowledge_gate.ts 内部 _list_repr 同口径，python tuple repr 括号差异不落
  * 语义）。
+ *
+ * 状态标注（机制就绪 / 宿主接线点待定）：EvolutionFactory 为离线变异-
+ * 择优工厂，由收敛/批量流程经引擎 API 调用——无回合内自动调度（默认
+ * 开关：引擎不内置调度器，入队/择优时机由调用方驱动）。
  */
 
 import { deepCopy } from '../json.js';

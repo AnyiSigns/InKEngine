@@ -15,6 +15,10 @@
  * exit_code，file_ops → result，mcp → result 对象，http_fetch →
  * status_code/body，web_search → results 数组），条目缺省 = result 字符串。
  * 契约版本缺省取声明 meta.contract_version，无则 1。
+ *
+ * 状态标注（机制就绪 / 宿主接线点待定）：离线一致性审计（工具表 ↔ 结点
+ * 池），供引擎侧自检工具使用——非运行时机制，无回合内自动接线（默认
+ * 开关：自检入口按需调用）。
  */
 import { NodeContract } from '../contracts/contracts.js';
 import { GraphDefinitionError } from '../errors.js';

@@ -125,7 +125,15 @@ export class SelfApplicationPipeline {
     // L1 弹卡；L2 沙箱验证后弹卡。审批策略 = 宿主注入优先（宿主直过
     // 白名单/超时窗口对补丁审批同样生效）；未注入时按 L0 分级自建默认
     // 策略。``policy`` 为历史形参别名，二者并存以 interrupt_policy 为准。
-    this._levels = { ...(init.approval_levels ?? DEFAULT_APPROVAL_LEVELS) };
+    // Python 语义 = ``approval_levels or DEFAULT``（空 dict falsy → 回落
+    // 默认分级表；非空 dict 原样整体替换，不合并）。空/未提供一律 DEFAULT。
+    const provided = init.approval_levels;
+    this._levels =
+      provided !== null
+        && provided !== undefined
+        && Object.keys(provided).length > 0
+        ? ({ ...provided } as Partial<Record<PatchKind, ApprovalLevel>>)
+        : DEFAULT_APPROVAL_LEVELS;
     const autoKeys = new Set<string>(
       (Object.entries(this._levels) as [PatchKind, ApprovalLevel][])
         .filter(([, level]) => level === ApprovalLevel.L0)

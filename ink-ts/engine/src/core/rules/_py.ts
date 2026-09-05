@@ -5,6 +5,10 @@
  * 直接影响消息文案与谓词判定（如空列表在 Python 为假、1 == True、
  * 混合类型不可比较）。本模块集中实现这几个标量语义，避免在每个谓词里
  * 重复特判；数据面限定 JSON 兼容值，对象/数组/标量即全部形态。
+ *
+ * 收敛方向：本族语义与 tool_vetting._types / ui_schema.uiSchemaSupport /
+ * environments._repr / link_validator 等近似拷贝存在——收敛到
+ * core/py_repr.ts 单源（见引擎整理批次）；本实现暂保留，不做行为迁移。
  */
 
 import { deepEqual, isRecord } from '../json.js';

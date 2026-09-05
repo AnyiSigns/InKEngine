@@ -10,7 +10,7 @@
  * (graph_path, node) token 账键 = settle/token_key——与 SettleContext 同源，
  * 沉淀回放取用同一把键）。
  */
-import { SettleContext, SettleHooks, TraceStep } from '../settle/index.js';
+import { SettleContext, TraceStep } from '../settle/index.js';
 import { DEFAULT_DOMAIN } from '../settle/index.js';
 import { path_key, token_key } from '../settle/types.js';
 import { TRACE_SUCCESS, TRACE_FAILED, TRACE_SKIPPED } from '../settle/index.js';
@@ -18,7 +18,6 @@ import type { Graph } from '../graph/graph.js';
 import type { RunResult } from '../run_result/run_result.js';
 import { EngineEvents } from './_engine_events.js';
 import { _error } from './_internals.js';
-
 /** 可并入轨迹的嵌套引擎形态（子图/实例/分支引擎共有的留痕字段面）。 */
 export interface _TraceCarrier {
   _run_trace: TraceStep[];
@@ -109,7 +108,7 @@ export abstract class EngineTrace extends EngineEvents {
    * 未注入沉淀钩子（RunOptions.settle=null）= 关闭，零影响。
    */
   async _settle_run(result: RunResult, opts: { thread_id: string; round_id: string | null; trace_id: string }): Promise<void> {
-    const hooks = this.options.settle as SettleHooks | null;
+    const hooks = this.options.settle;
     if (hooks === null) return;
     const ctx = new SettleContext({
       thread_id: opts.thread_id,

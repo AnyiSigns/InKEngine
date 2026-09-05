@@ -11,6 +11,9 @@ import { EngineEvent } from '../events/events.js';
 import { SOURCE_MODEL, SOURCE_USER } from '../knowledge_set/index.js';
 import { SOURCE_RANK } from '../knowledge_signals/index.js';
 
+// 族收敛：pyTruthy 近似拷贝的统一迁移点 = core/py_repr.ts 单源（已就绪）；
+// 本实现与 rules/_py.ts pyTruthy 语义一致。后续批次可按批迁移，本文件暂不
+// 改实现。
 /** Python 真值口径（message 装配/来源守卫用；空容器同样为假）。 */
 export function pyTruthy(value: unknown): boolean {
   if (value === null || value === undefined) return false;

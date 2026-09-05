@@ -161,9 +161,11 @@ export abstract class EngineSimulate extends EngineSpawn {
       { propagate: InterruptSignal },
     );
     for (const failure of outcome.failures) {
-      // 失败索引用真实分支/实例序号（fan_out 的 index 是任务列表位置；换选
-      // 路径只跑目标分支时二者不对齐）
-      const realIndex = failure.index < specs.length ? (specs[failure.index] as SimulateSpec).index : failure.index;
+      // 失败索引用真实分支序号：fan_out 的 index 是任务列表位置（换选路径只
+      // 跑目标分支时列表长度 = 1，位置 0 并不代表分支 0）；先经 run_indexes
+      // 映回 specs 位置，再取该分支声明的 index（分支序号可能稀疏）
+      const specPos = run_indexes[failure.index] ?? failure.index;
+      const realIndex = specPos < specs.length ? (specs[specPos] as SimulateSpec).index : specPos;
       failures.push(`#${realIndex}: ${failure.error}`);
     }
 

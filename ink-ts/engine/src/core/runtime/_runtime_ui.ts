@@ -55,8 +55,10 @@ export abstract class RuntimeUiComponents extends RuntimeSpecs {
   private async _write_ui_disabled_record(): Promise<void> {
     const { DefaultEvolutionWriter, runtime_config_writer } =
       await import('../evolution_writer/evolution_writer.js');
+    const writer =
+      this._mechanism_writer ?? new DefaultEvolutionWriter(this.storage!);
     await runtime_config_writer(
-      new DefaultEvolutionWriter(this.storage!),
+      writer,
       UI_COMPONENTS_RECORD_COLLECTION,
       UI_COMPONENTS_RECORD_KEY,
       { disabled: [...this._ui_components_disabled].sort() },

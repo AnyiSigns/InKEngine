@@ -22,7 +22,6 @@ import type { NodeExecutionError } from '../errors.js';
 import { strip_sensitive } from '../security/security.js';
 import { current_node_context } from '../llm/guard.js';
 import { VERIFY_FEEDBACK_KEY, VERIFY_KEY, OutputVerificationError } from '../verifier/verifier.js';
-import type { OutputVerifier } from '../verifier/verifier.js';
 import type { Graph } from '../graph/graph.js';
 import type { JsonRecord } from '../json.js';
 import type { _NodeContextImpl } from './_node_context.js';
@@ -74,7 +73,7 @@ export abstract class EngineExecuteHelpers extends EngineMultipath {
     if (spec === null || typeof spec !== 'object' || Array.isArray(spec)) {
       return overlay;
     }
-    const verifier = this.options.output_verifier as OutputVerifier | null;
+    const verifier = this.options.output_verifier;
     if (verifier === null) return overlay;
     const limit = this.options.verify_retry_limit;
     for (let attempt = 0; attempt <= limit; attempt++) {

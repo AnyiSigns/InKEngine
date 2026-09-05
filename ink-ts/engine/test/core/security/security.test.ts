@@ -14,6 +14,7 @@ import {
   SENSITIVE_KEYS,
   is_sensitive_key,
   strip_sensitive,
+  strip_sensitive_text,
 } from '../../../src/core/security/security.js';
 
 // 凭据形态（与 pytest 参数表同集）：精确集合 + 下划线后缀 + 驼峰词尾
@@ -159,5 +160,77 @@ describe('strip_sensitive PatchChain 剥离', () => {
     expect(session['api_key']).toBe('sk-live');
     expect(session['keep']).toBe(1);
     expect(chain.patches[0]!.value).toEqual({ client_secret: 's3', keep: 2 });
+  });
+});
+
+describe('strip_sensitive_text 值级脱敏（凭据整体嵌在字符串值里）', () => {
+  it('URL query token 遮蔽（值被剥除，键/分隔符保留）', () => {
+    const out = strip_sensitive_text('https://api.demo/data?a=1&token=sk-abc123&b=2');
+    expect(out).not.toContain('sk-abc123');
+    expect(out).toMatch(/a=1&token=\*+&b=2/); // 等长 '*' 遮蔽
+    expect(out.startsWith('https://api.demo/data?a=1&token=')).toBe(true);
+  });
+
+  it('URL 首参（? 直接后随凭据参数）同样遮蔽', () => {
+    const out = strip_sensitive_text('https://api.demo/x?api_key=secret-value');
+    expect(out).not.toContain('secret-value');
+    expect(out).toMatch(/^https:\/\/api\.demo\/x\?api_key=\*+$/);
+    expect(out.startsWith('https://api.demo/x?api_key=')).toBe(true);
+  });
+
+  it('JSON 串 body 内嵌凭据属性遮蔽（嵌套位置同样命中，值同长遮蔽）', () => {
+    const payload = JSON.stringify({
+      body: { client: 'x', config: { api_key: 'sk-1', model: 'm' } },
+    });
+    const out = strip_sensitive_text(payload);
+    expect(out).not.toContain('sk-1');
+    expect(out).toContain('"api_key": "****"');
+    expect(out).toContain('"model":"m"'); // 非凭据属性不受影响
+    expect(JSON.parse(out)).toBeTruthy(); // 仍是合法 JSON 文本
+  });
+
+  it('驼峰/分隔符变体键名同样命中（与键级同口径）', () => {
+    const out = strip_sensitive_text('{"clientSecret":"abc","openai_api_key":"def","keep":1}');
+    expect(out).not.toContain('abc');
+    expect(out).not.toContain('def');
+    expect(out).toContain('"keep":1');
+  });
+
+  it('普通文本不误伤（无 query 锚定 / 无键级凭据语义）', () => {
+    const plain = 'token 是常见英文词；key 指键盘按键；url=https://a.b/c?a=1';
+    expect(strip_sensitive_text(plain)).toBe(plain);
+    const benign = '{"token_count": 3, "secret_note": "业务备注"}';
+    expect(strip_sensitive_text(benign)).toBe(benign);
+  });
+
+  it('无命中返回原串（热路径零拷贝）', () => {
+    const text = '普通内容 https://example.com/x?a=1';
+    expect(strip_sensitive_text(text)).toBe(text);
+  });
+});
+
+describe('strip_sensitive 值级脱敏接入（键级 + 值级合一）', () => {
+  it('url 值内嵌 query token：非敏感键下的字符串叶子同样剥离', () => {
+    const dirty = { url: 'https://host/path?token=sk-live-123', count: 1 };
+    const out = strip_sensitive(dirty);
+    expect(out.url).not.toContain('sk-live-123');
+    expect(out.count).toBe(1);
+  });
+
+  it('JSON 串 body 内嵌凭据：嵌套字符串叶子剥离（审批卡/轨迹负载形态）', () => {
+    const args = {
+      command: 'curl',
+      body: '{"api_key":"sk-embedded","q":"x"}',
+      list: ['https://a.b/c?key=secret-value'],
+    };
+    const out = strip_sensitive(args);
+    expect(out.body).not.toContain('sk-embedded');
+    expect(out.list[0]).not.toContain('secret-value');
+    expect(out.command).toBe('curl');
+  });
+
+  it('无敏感信息字符串的整树仍零拷贝', () => {
+    const plain = { url: 'https://example.com/a?x=1', body: '{"model":"m"}' };
+    expect(strip_sensitive(plain)).toBe(plain);
   });
 });

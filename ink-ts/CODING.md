@@ -17,8 +17,8 @@
     （sqlite/memory 驱动，postgres 暂不提供）实现 core 仓储契约；mcp client 同层。本层允许
     node:* 与驱动必需的第三方，但不得反向依赖 core 私有文件。
 - `contracts/`：L0/L1 数据面契约唯一真源（JSON schema + fixtures + 生成类型）。
-- `gate/`：开发/CI 静态纪律工具（行数、import、词汇、拆分检查），随 vitest
-  运行，不打包进运行时。
+- `gate/`：开发/CI 静态纪律工具（行数、UTF-8、import 白名单、词汇、src-test
+  检查），真实扫描挂在 root `npm test` 与 CI（不再只手动），不打包进运行时。
 - `backend/`：宿主装配层（自有轻量 DI/effect/dispose），只做「选哪个适配、
   读配置、注入 seam」与产品宿主级领域服务 + bridge 命令面接线；**不写厂商
   适配与存储驱动**（那是 engine/adapters 的职责）。机制语义（审批/补丁链/
@@ -28,6 +28,13 @@
 
 包间依赖单向：`frontend/backend/cli → engine → contracts`。域间不跨目录
 import 私有模块。
+
+当前实现状态：`engine → contracts` 依赖已声明（`engine/package.json`
+dependencies = workspace 包）并经生成物消费落地——engine 数据面枚举
+（端点名/补丁类型/审批分级/守卫集合/审计状态/FieldKind 等）直接消费
+`@ink-ts/contracts` generated 常量与类型，本地不维护同值第二套字面量；
+core 层 import 白名单仅放行 `@ink-ts/contracts` 这一个数据契约包（gate
+精确 allowlist，见 §7）。
 
 ## 2. 文件拆分纪律
 
@@ -88,9 +95,13 @@ import 私有模块。
 |---|---|---|
 | 文件行数 ≤350（例外须标注） | engine/backend/cli/frontend 源码与测试 | 拒绝 |
 | src 内夹测试文件（`.test` 在 src 目录） | 各包 `src/**` | 拒绝 |
-| core 禁 node:* 与第三方 import | `engine/src/core/**` | 拒绝（`node:async_hooks` 白名单例外：镜像 Python core contextvars，清单见 gate config） |
+| 源文件非法 UTF-8 字节（含损坏转码） | 各包 `src/**` | 拒绝（utf8-valid） |
+| core 禁 node:* 与第三方 import | `engine/src/core/**` | 拒绝（`node:async_hooks` 白名单例外：镜像 Python core contextvars，清单见 gate config；裸包仅精确放行 `@ink-ts/contracts`——engine→contracts 数据契约层唯一入口，不放行其它 @ink-ts/*、adapters 与第三方） |
 | core 禁反向依赖 adapters | `engine/src/core/**` | 拒绝 |
 | core 禁宿主/框架词 | `engine/src/core/**` | 拒绝 |
-| 生成文件禁手改 | `contracts/src/generated/**` | 由「重新生成后 diff 校验」在 CI 强制（重新生成产出确定性内容），不做文本扫描 |
+| 生成文件禁手改 | `contracts/src/generated/**` | 由 `contracts:verify`（复制 schemas/fixtures 后重生成，与仓库生成物归一化逐文件 diff）在 root `npm test` 与 CI 强制；不做文本扫描 |
 
-以上规则实现与样例位于 `gate/src/`（含正反样例测试），规则增删须同步本表。
+gate 实现与正反样例位于 `gate/src/` 与 `gate/test/`；**真实扫描链** =
+root `npm test` 首段 `tsx gate/src/check.ts`（对 engine/backend/cli/frontend
+工作树实际执行全部规则）→ `vitest run --root gate`（规则样例自测），
+CI 的 ink-ts job 同链执行。规则增删须同步本表。

@@ -22,15 +22,17 @@
  *   节点名判据兼容）。
  */
 import { Plan } from '../plan/plan.js';
-import { RunResult } from '../run_result/run_result.js';
+import { RunOptions, RunResult } from '../run_result/run_result.js';
 import { TerminateReason } from '../graph/graph_types.js';
 import { InterruptState } from '../interrupt/interrupt_types.js';
 import { resolve_resume } from '../recovery/index.js';
 import type { CheckpointRecord } from '../storage/storage_records.js';
 import type { JsonRecord } from '../json.js';
+import type { Graph } from '../graph/graph.js';
 import { _NodeContextImpl } from './_node_context.js';
 import { EngineLoopBack } from './_engine_loop_back.js';
 import type { EngineBase, ExecuteOptions } from './_engine_base.js';
+import { _install_subgraph_runners } from './run_subgraph.js';
 import { LoopState } from './_loop_types.js';
 import {
   _locate_next,
@@ -45,6 +47,14 @@ import {
  * 计划/多径/子过程 + 主循环装配，镜像 Python executor.Engine）。
  */
 export class Engine extends EngineLoopBack {
+  constructor(graph: Graph, options?: RunOptions) {
+    // 嵌套子图占位在 super 之前挂载（编译校验须在占位就位后进行）；挂载职责
+    // 在 run_subgraph 侧，基座不依赖本模块——消除 base→subgraph→leaf→base
+    // 的模块评估环
+    _install_subgraph_runners(graph);
+    super(graph, options);
+  }
+
   /**
    * 主执行循环（顶层与嵌套子图/实例共用）。
    *

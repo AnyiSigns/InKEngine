@@ -66,6 +66,9 @@ export class FileSandbox {
 
   constructor(root: string, realpath?: (path: string) => string) {
     this.root = root;
+    // 无注入 = 缺省恒等（纯词法解析）：此时 resolve 不具 symlink 跟随语义，
+    // 指向根外的链接逃逸无法被本层检出——宿主必须在真实文件后端注入
+    // fs 版 realpath（如 realpathSync.native），沙箱才是完整的安全边界
     this.realpath = realpath ?? ((p) => p);
     this._root_abs = is_absolute(root) ? lexical_abs(root, root) : lexical_abs('/', root);
   }

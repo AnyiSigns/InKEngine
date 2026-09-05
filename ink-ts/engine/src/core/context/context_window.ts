@@ -6,6 +6,10 @@
  *
  * 工具轮归属：轮内**任一**工具属于本域（或公共集）则整轮保留——宁多勿少，
  * 防上下文撕裂（只留半轮会让模型看到无结果的调用或无调用的结果）。
+ *
+ * 状态标注（机制就绪 / 宿主接线点待定）：域投影机制，运行时预留多域开关
+ * 默认 OFF——多域配方启用后接入 executor 域窗口生成（已有镜像测试钉住
+ * 行为；当前引擎无多域配方消费方）。
  */
 
 import { message_role } from '../llm/messages.js';
@@ -35,6 +39,11 @@ const SHARED_GROUP = null;
  * 边界）停止——工具轮只取最近回合的；完成性回复 assistant 消息（无
  * tool_calls）不属任何轮，清空未配对缓冲后继续向前扫（其前可能仍有更早
  * 的工具轮）。
+ *
+ * 轮内 tool 序修复：反向扫描使缓冲内 tool 消息呈倒序（[t3,t2,t1]），配对
+ * 时反转为消息流原序（[t1,t2,t3]）——本处与 Python parity 同病（Python
+ * 母版同样产出倒序轮内 tool 清单），拍板已定引擎侧先行修复，允许偏离
+ * parity；轮间顺序仍经尾部整体 reverse() 保持消息流原序。
  */
 export function iter_tool_rounds(messages: readonly unknown[]): Array<[unknown, unknown[]]> {
   const rounds: Array<[unknown, unknown[]]> = [];
@@ -46,7 +55,7 @@ export function iter_tool_rounds(messages: readonly unknown[]): Array<[unknown, 
       pending.push(msg);
     } else if (role === 'assistant') {
       if (tool_calls_of(msg).length > 0) {
-        rounds.push([msg, [...pending]]);
+        rounds.push([msg, [...pending].reverse()]);
       }
       // 完成性回复：其后的未配对缓冲不属任何轮（回复在消息流中位于轮后）
       pending = [];

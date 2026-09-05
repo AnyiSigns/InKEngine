@@ -33,7 +33,11 @@ import type { ToolSpec } from '../llm/tools.js';
 import type { AsyncLLM } from '../llm/_guard_types.js';
 import type { GrowthPipeline } from '../growth/index.js';
 import type { EntityEvolutionPipeline } from '../entity_evolution/index.js';
-import type { AssemblyRecipe, Host } from './_types.js';
+import type { DefaultEvolutionWriter } from '../evolution_writer/evolution_writer.js';
+import type { EdgeEvidenceStore } from '../edge_evidence/store.js';
+import type { Storage } from '../storage/storage.js';
+import type { _RoundStepsRecorder } from './_round_steps_recorder.js';
+import type { AssemblyRecipe, Host, RuntimeConfigInit } from './_types.js';
 import { BASELINE_TOOL_NAMES, TAG_IMMUTABLE } from './_constants.js';
 
 /** 确定性在途 run 凭证 id 源（自增 32 位十六进制）。 */
@@ -52,8 +56,48 @@ export function _time_now(): number {
   return _runtime_clock();
 }
 
-/** Runtime 抽象基座：字段/构造 + 状态观察 + 在途落库收口。 */
+/** 12 位十六进制自增序列（装配键源缺省：每实例独立计数，实例内唯一）。 */
+function _seq12(seq: { value: number }): string {
+  seq.value += 1;
+  return seq.value.toString(16).padStart(12, '0');
+}
+
+/**
+ * Runtime 抽象基座：字段/构造 + 状态观察 + 在途落库收口。
+ */
 export abstract class RuntimeBase {
+  // ── 实例级确定性 seam（RuntimeConfigInit 覆写面；见 _types.ts）──
+  // 装配层默认：audit/growth 键源 = 每实例自增序列（杜绝同键互相覆盖/
+  // 二次落位冲突）；时钟 = 模块时钟 seam（可 set_runtime_clock 冻结）。
+  private readonly _seq_audit = { value: 0 };
+  private readonly _seq_growth = { value: 0 };
+  private readonly _cfg_now: () => number;
+  private readonly _cfg_audit_key_gen: () => string;
+  private readonly _cfg_growth_uuid_gen: () => string;
+
+  constructor(config: RuntimeConfigInit = {}) {
+    this._cfg_now = config.now ?? _time_now;
+    this._cfg_audit_key_gen =
+      config.audit_key_gen ?? ((): string => _seq12(this._seq_audit));
+    this._cfg_growth_uuid_gen =
+      config.growth_uuid_gen ?? ((): string => _seq12(this._seq_growth));
+  }
+
+  /** 运行时装配时钟（epoch 秒；测试可注入或经 set_runtime_clock 冻结）。 */
+  _r_now(): number {
+    return this._cfg_now();
+  }
+
+  /** 运行时装配审计键片段源（每次调用返回实例内唯一 12 位 hex）。 */
+  _r_audit_key(): string {
+    return this._cfg_audit_key_gen();
+  }
+
+  /** 运行时装配成长条目 id 片段源（每次调用返回实例内唯一 12 位 hex）。 */
+  _r_growth_uuid(): string {
+    return this._cfg_growth_uuid_gen();
+  }
+
   _state: string = 'uninitialized';
   _host: Host | null = null;
   _recipe: AssemblyRecipe | null = null;
@@ -118,6 +162,22 @@ export abstract class RuntimeBase {
   _ui_components_disabled: ReadonlySet<string> = new Set();
   engine: Engine | null = null;
   engine_llm: AsyncLLM | null = null;
+
+  // ── 回合沉淀/记录器装配产物（引擎自接线：ledger/池治理/回合步骤）──
+  // 机制层写入统一走受控 EvolutionWriter（构造注入运行时键源/时钟，审计
+  // 记录键实例内唯一不互相覆盖）；ledger/池治理/回合步骤状态挂在 Runtime
+  // 实例（引擎重建只重挂钩子，状态跨 rebuild 连续）。
+  _mechanism_writer: DefaultEvolutionWriter | null = null;
+  edge_evidence_store: EdgeEvidenceStore | null = null;
+  round_steps_recorder: _RoundStepsRecorder | null = null;
+  /** 每线程回合序号（ledger 记录键 = thread\u001fseq，序号实例内单调）。 */
+  _ledger_seq: Record<string, number> = {};
+  /** 每线程最近一次账本的 merged summary（merge_ledger 旧摘要入参）。 */
+  _ledger_latest_summary: Record<string, string> = {};
+  /** 每线程最近一次已记账的回合 id（同 round 幂等：不重复产出）。 */
+  _ledger_rounds: Record<string, string> = {};
+  /** 池治理每回合自动跑开关（默认开；宿主可经装配关闭）。 */
+  _pool_governance_enabled = true;
 
   // 生命周期状态（观察侧；转换只能经 pause/resume/stop）
   get state(): string {

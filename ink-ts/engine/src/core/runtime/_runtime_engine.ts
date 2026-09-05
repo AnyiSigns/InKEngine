@@ -10,23 +10,27 @@
  * 知识按最新组装形态重建运行时视图；恢复失败只跳过不击穿启动（回落基线）。
  */
 
-import { AssemblyConfig, SOURCE_EVIDENCE } from '../assembly/index.js';
+import { AssemblyConfig } from '../assembly/index.js';
 import { ThresholdCompressionPolicy } from '../context/context_compression.js';
 import { DeclarativeToolSpec } from '../declarative_tools/index.js';
 import { EventTypeSpec } from '../event_types/eventTypeSpec.js';
 import { EntitySpec } from '../entities/entities.js';
 import { Engine, RunOptions } from '../executor/index.js';
 import { CompressingLLM, UsageTrackingLLM } from '../llm/guard.js';
+import { Message } from '../llm/messages.js';
 import type { AsyncLLM } from '../llm/_guard_types.js';
 import { HarnessDefinition } from '../harness/index.js';
 import { KnowledgeSet } from '../knowledge_set/index.js';
 import { SettleHooks, PoolGovernanceSettleHook } from '../settle/index.js';
+import { emit_audit } from '../audit_log/audit_log.js';
+import type { EngineTransport } from '../events/events.js';
 import { UISchemaValidator } from '../ui_schema/uiSchema.js';
 import { LLMOutputVerifier } from '../verifier/verifier.js';
 import type { Graph } from '../graph/graph.js';
 import type { AssemblyRecipe } from './_types.js';
 import { _spec_identity } from './_helpers.js';
-import { _KnowledgeUsageSettleHook } from './_settle.js';
+import { _KnowledgeUsageSettleHook, _LedgerSettleHook } from './_settle.js';
+import { _RoundStepsRecorder } from './_round_steps_recorder.js';
 import { RuntimeContexts } from './_runtime_contexts.js';
 
 /** 引擎重建/集状态恢复基座。 */
@@ -72,37 +76,65 @@ export abstract class RuntimeRebuild extends RuntimeContexts {
     const recipe = this._recipe;
     const context = this._graph_context(guard_llm, specs);
     const graph = recipe.graph_recipe!(context) as Graph;
+    // 沉淀钩子链（引擎自接线，默认 ON）：
+    // ① 池治理每回合自动跑（评估边证据 → 判定 → 审计/失效登记）；
+    // ② 知识使用归因（失败知识 → 进化候选）；
+    // ③ 回合账本归约（当轮可归约记录 → ledger 集合）；
+    // ④ 自学习闭环（growth，回合收尾按需蒸馏）；
+    // ⑤ 实体演化闭环（失败信号 → 变异 → 晋升）。
     const settleHooks = new SettleHooks();
-    if (this.pool_governance !== null) {
-      settleHooks.register(new PoolGovernanceSettleHook(this.pool_governance));
+    if (this.pool_governance !== null && this._pool_governance_enabled) {
+      settleHooks.register(
+        new PoolGovernanceSettleHook(this.pool_governance, {
+          store: this.edge_evidence_store,
+          now: () => this._r_now(),
+          audit_sink: (record) => this._pool_governance_audit(record),
+        }),
+      );
     }
-    settleHooks.register(new _KnowledgeUsageSettleHook(this as never));
+    settleHooks.register(new _KnowledgeUsageSettleHook(this));
+    settleHooks.register(new _LedgerSettleHook(this));
     if (this.growth_pipeline !== null) {
-      settleHooks.register(this.growth_pipeline as never);
+      settleHooks.register(this.growth_pipeline);
     }
     if (this.entity_evolution_pipeline !== null) {
-      settleHooks.register(this.entity_evolution_pipeline as never);
+      settleHooks.register(this.entity_evolution_pipeline);
     }
+    // 回合事件观察传输：growth/实体演化 + 回合步骤记录器（同一流订阅）
+    const transports: EngineTransport[] = [];
+    if (this.entity_evolution_pipeline !== null) {
+      transports.push(this.entity_evolution_pipeline);
+    }
+    if (this.growth_pipeline !== null) {
+      transports.push(this.growth_pipeline);
+    }
+    if (this.round_steps_recorder !== null) {
+      transports.push(this.round_steps_recorder);
+    }
+    // VTM 验证器门控：guard_llm 结构上不满足 verifier 的窄 ainvoke 契约
+    // （verifier 消息 = 扁平 {role, content}），显式适配为 Message 形态再
+    // 调用（行为与 Python 把 guard LLM 交给 verifier 一致，无宽形态透传）
+    const needsVerifier = recipe.verify_retry_limit > 0 && guard_llm !== null;
     const options = new RunOptions({
-      storage: this.storage as never,
+      storage: this.storage,
       registries: context.registries,
-      output_verifier:
-        recipe.verify_retry_limit > 0 && guard_llm !== null
-          ? new LLMOutputVerifier(guard_llm as never)
-          : null,
+      output_verifier: needsVerifier
+        ? new LLMOutputVerifier({
+            ainvoke: async (messages) => {
+              const result = await guard_llm!.ainvoke(
+                messages.map((m) => new Message(m.role, m.content)),
+              );
+              return { content: result.content };
+            },
+          })
+        : null,
       verify_retry_limit: recipe.verify_retry_limit,
       emit_timeline_events: recipe.emit_timeline_events,
-      // 自学习管线观察回合事件流（观测不阻断执行；宿主各自注入传输）
-      transports:
-        this.entity_evolution_pipeline !== null && this.growth_pipeline !== null
-          ? ([this.growth_pipeline, this.entity_evolution_pipeline] as never)
-          : this.growth_pipeline !== null
-            ? [this.growth_pipeline] as never
-            : ([] as never),
+      transports,
       system_events: context.system_events,
       assembly: context.assembly,
       assembly_sources: context.assembly_sources,
-      settle: settleHooks as never,
+      settle: settleHooks,
     });
     this._apply_run_options_override(options, recipe.run_options as RunOptions | null);
     const engine = new Engine(graph, options);
@@ -123,10 +155,23 @@ export abstract class RuntimeRebuild extends RuntimeContexts {
     }
     this.engine = engine;
     this.engine_llm = resolvedLlm;
-    this._engine_storage = this.storage as never;
+    this._engine_storage = this.storage;
     this._engine_spec_key = specKey;
     this.introspection_service?.set_graph(graph);
     return engine;
+  }
+
+  /** 池治理判定留痕 → set_audit（append-only；审计不阻断治理主流程）。 */
+  _pool_governance_audit(record: Record<string, unknown>): unknown {
+    try {
+      return emit_audit(
+        this.storage,
+        { ...record },
+        { now: () => this._r_now(), keyGen: () => this._r_audit_key() },
+      );
+    } catch {
+      return null;
+    }
   }
 
   /** 图配方装配期上下文（GraphRecipeContext）。 */
@@ -140,7 +185,7 @@ export abstract class RuntimeRebuild extends RuntimeContexts {
       tool_specs: specs,
       all_tool_specs: this.merged_specs(),
       collect_specs: (thread_id?: string | null) => this.collect_specs(thread_id),
-      storage: this.storage as never,
+      storage: this.storage,
       registries: this.graph_registries,
       system_events: this.event_type_registry?.system_events() ?? new Set<string>(),
       assembly: new AssemblyConfig(),

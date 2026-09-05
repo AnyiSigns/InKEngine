@@ -22,8 +22,14 @@
  *
  * 本文件承载 PatchKind / SelfProposal 与形态示例骨架；ProposalValidator
  * 在 proposal_validator.ts（≤350 行纪律拆分）。
+ *
+ * 数据面单源：PatchKind 值集合 = contracts generated PATCH_KINDS（schema/
+ * fixture）；本对象为引擎本地名常量（代码各处按成员引用），取值经编译期
+ * 集合相等绑定 + 运行时 assert_patch_kinds_contract 双向校验，不维护
+ * 第二套语义枚举。
  */
 
+import { PATCH_KINDS, type PatchKind as ContractPatchKind } from '@ink-ts/contracts';
 import { GraphDefinitionError } from '../errors.js';
 import { isRecord, typeName } from '../json.js';
 
@@ -44,11 +50,43 @@ export const PatchKind = {
 /** PatchKind 取值联合（与 StrEnum 值集合同源）。 */
 export type PatchKind = (typeof PatchKind)[keyof typeof PatchKind];
 
-/** 全部补丁类型值（声明序，镜像 StrEnum 成员序）。 */
-export const _PATCH_KIND_VALUES: readonly PatchKind[] = Object.values(PatchKind);
+// 编译期绑定：PatchKind 值集合必须与 generated PATCH_KINDS 双向精确相等
+// （任一方向新增/删除/改名 → 类型错误）；运行时一致性由
+// assert_patch_kinds_contract 兜底（测试调用）。
+type _StringSetEqual<A extends string, B extends string> = Exclude<A, B> extends never
+  ? Exclude<B, A> extends never
+    ? true
+    : false
+  : false;
+const _patchKindsCoverContract: true = true as _StringSetEqual<
+  ContractPatchKind,
+  (typeof PatchKind)[keyof typeof PatchKind]
+>;
+
+/** 全部补丁类型值（声明序，数据面直接消费 generated PATCH_KINDS，本地无
+ *  第二套字面量；PATCH_KINDS 条目以 generated 类型约束于 PatchKind 联合）。 */
+export const _PATCH_KIND_VALUES: readonly PatchKind[] = PATCH_KINDS;
 
 /** 类型集合可读形态（Python list repr：``['ui', 'theme', ...]``）。 */
 export const _PATCH_KIND_VALUES_REPR = `[${_PATCH_KIND_VALUES.map((value) => pyRepr(value)).join(', ')}]`;
+
+/**
+ * 运行时断言：PatchKind 值集合 ↔ contracts PATCH_KINDS 一致（防绕过类型层
+ * 的运行时漂移，由引擎测试调用）。
+ */
+export function assert_patch_kinds_contract(): void {
+  const engineValues = Object.values(PatchKind);
+  const contractValues = PATCH_KINDS as readonly string[];
+  if (
+    engineValues.length !== contractValues.length
+    || !engineValues.every((value) => contractValues.includes(value))
+  ) {
+    throw new GraphDefinitionError(
+      'PatchKind 与 contracts PATCH_KINDS 不一致: '
+        + `engine=[${engineValues.join(', ')}] vs contracts=[${contractValues.join(', ')}]`,
+    );
+  }
+}
 
 /** Python repr() 口径（错误文案呈现；字符串单引号、None → 'None'）。 */
 export function pyRepr(value: unknown): string {

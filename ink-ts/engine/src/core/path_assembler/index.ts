@@ -11,10 +11,10 @@
  * 候选链校验落 validate；草稿解析落 draft_parse；schema 反推落 search；修复
  * 算子落 repair；内存检索兜底落 retrieval；组装私助落 snapshot；组装器按
  * 机制段拆成继承链 _assembler_cache（缓存/证据）→ _assembler_pipeline（草稿/
- * 评分/多径）→ assembler（assemble 编排）；canary 重建/单回合预留落 canary；
+ * 评分/多径）→ assembler（assemble 编排）；canary 重建 + 单回合试跑落
+ * canary（canary_round 复用 executor.Engine，canary 默认关闭见 runtime.ts）；
  * 指令运行期落 runtime；模块级默认运行期落 module_runtime；干预能力落
- * intervention。executor（core/executor.Engine）未迁移：canary 单回合执行按
- * defer 预留（见 canary.ts），canary 执行类测试随测试文件头注一并 defer。
+ * intervention。
  */
 
 // ── 常数（镜像 __all__ 常量段）──────────────────────────────────

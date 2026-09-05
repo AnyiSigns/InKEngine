@@ -20,6 +20,7 @@ import {
 } from '../knowledge_set/index.js';
 import type { ToolSpec } from '../llm/tools.js';
 import type { RetrievedChunk } from '../retrieval/index.js';
+import type { AssemblySourcesProvider } from '../run_result/run_result.js';
 import { SelfToolContext } from '../self_tools/index.js';
 import { RuntimeUiComponents } from './_runtime_ui.js';
 import { _ASSEMBLY_SOURCE_LIMIT } from './_constants.js';
@@ -111,7 +112,7 @@ export abstract class RuntimeContexts extends RuntimeUiComponents {
   }
 
   /** 调配器源提供者：检索结果 + 知识注入 → 装配源清单。 */
-  _assembly_sources(): (ctx: AssemblyCtx) => Promise<unknown[]> {
+  _assembly_sources(): AssemblySourcesProvider {
     return async (ctx: AssemblyCtx): Promise<unknown[]> => {
       const query = String(ctx.state?.['input'] ?? '').trim();
       if (!query) return [];

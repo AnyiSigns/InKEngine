@@ -13,8 +13,8 @@
  * 传输接口化：EngineTransport = 事件消费者（SSE/WS/队列可换实现），引擎只
  * 负责产出事件流，消费方式由宿主注入（引擎提供内存传输/收集器）。
  *
- * ProtocolVersionError 暂居本模块（Python 侧在 core.exceptions，待其模块
- * 移植后应收敛至 ../errors.js）。Python 侧的 warning 留痕属可观测性副作用，
+ * ProtocolVersionError 暂居本模块——收敛至 errors.ts（EngineError 继承面）
+ * 待办。Python 侧的 warning 留痕属可观测性副作用，
  * TS core 零 IO 不落；容错语义（跳过返回 null/字符串化降级）原样保留。
  */
 

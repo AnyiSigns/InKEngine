@@ -72,6 +72,9 @@ export function produced_field_names(schema: SchemaSpec | null): ReadonlySet<str
   return new Set(schema.fields.map((f) => f.name));
 }
 
+// 族收敛：pyRepr 近似拷贝的统一迁移点 = core/py_repr.ts 单源（已就绪）。
+// 本实现差异：非递归（对象/数组直接 String()），undefined 走 String(undefined)。
+// 后续批次可按批迁移，本文件暂不改实现。
 /** Python repr 口径（错误消息对齐：布尔大写/字符串带引号）。 */
 function pyRepr(value: unknown): string {
   if (value === null) return 'None';

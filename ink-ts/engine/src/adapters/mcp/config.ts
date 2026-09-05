@@ -151,6 +151,19 @@ export class McpServerConfig {
     this.server_factory = init.server_factory ?? null;
     this.restart_policy = init.restart_policy ?? null;
     this.stdio_framing = init.stdio_framing ?? JSON_LINES_FRAMING;
+    this._validate();
+  }
+
+  /** 构造校验（fail-closed）：http 传输的 url 仅接受 http/https 协议。 */
+  private _validate(): void {
+    if (this.transport !== McpTransport.HTTP) return;
+    if (this.url === null || this.url === '') return;
+    const scheme = this.url.match(/^([a-zA-Z][a-zA-Z0-9+.-]*):/)?.[1] ?? '';
+    if (scheme !== 'http' && scheme !== 'https') {
+      throw new GraphDefinitionError(
+        `MCP 配置 url 必须使用 http/https 协议（非法 scheme=${JSON.stringify(scheme)}）`,
+      );
+    }
   }
 
   /** Python dataclass repr 口径（headers/env 凭据字段遮蔽不落文案）。 */

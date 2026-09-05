@@ -23,12 +23,4 @@ export interface Patch {
   value?: Json;
 }
 
-export interface PatchChainState {
-  base: { [key: string]: Json };
-  patches: Patch[];
-}
-
-export interface PatchChainSerialized {
-  base: { [key: string]: Json };
-  patches: { op: PatchOp; path: (string | number)[]; value: Json }[];
-}
+export type { PatchChainSerialized } from './patchChain.js';

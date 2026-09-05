@@ -5,6 +5,10 @@
  *
  * 文件拆分纪律：提取规则 / 冲突消解逻辑单文件（memory_extract），
  * 存储复用 memory 域（MemoryEntry / StorageBackedMemoryStore）。
+ *
+ * 状态标注（机制就绪 / 宿主接线点待定）：回合记忆抽取，settle 钩子预留，
+ * 默认关（消耗 LLM 的语义归并档留扩展）；存储面 = memory 域（当前无
+ * runtime 默认装配，宿主按需挂 StorageBackedMemoryStore）。
  */
 
 export {

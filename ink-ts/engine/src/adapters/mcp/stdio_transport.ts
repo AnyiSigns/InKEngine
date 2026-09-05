@@ -1,4 +1,4 @@
-// gate: 超限(361 行) - stdio 传输单段（子进程生命周期+双工 framing+重启恢复），拆文件即破状态机
+// gate: 超限(367 行) - stdio 传输单段（子进程生命周期+双工 framing+重启恢复），拆文件即破状态机
 /**
  * 自写 MCP stdio 客户端（镜像 Python mcp_client.py 的 _ThreadedMcpTransport）。
  *
@@ -24,6 +24,7 @@ import {
   CALL_TIMEOUT,
   CONNECT_TIMEOUT,
   JSON_LINES_FRAMING,
+  MAX_STDIO_FRAME_BYTES,
   MCP_CLIENT_NAME,
   MCP_CLIENT_VERSION,
   MCP_PROTOCOL_VERSION,
@@ -241,19 +242,43 @@ export class StdioMcpTransport implements RawMcpSession {
   }
 
   private async _run_stderr(child: SpawnedMcpProcess): Promise<void> {
-    for await (const chunk of child.stderr) {
-      this._stderr_buffer += chunk.toString('utf-8');
-      let index: number;
-      while ((index = this._stderr_buffer.indexOf('\n')) >= 0) {
-        const line = this._stderr_buffer.slice(0, index);
-        this._stderr_buffer = this._stderr_buffer.slice(index + 1);
-        const text = line.replace(/\r$/, '').trim();
-        if (text === '') continue;
-        // 执行件把 stderr 当结构化日志通道；无注入通道时也消费（防管道
-        // 缓冲写满阻塞子进程），行数据丢弃
-        if (this._on_exec_line === null) continue;
-        const level = exec_line_is_error(text) ? 'error' : 'info';
-        this._on_exec_line(level, text);
+    try {
+      for await (const chunk of child.stderr) {
+        this._stderr_buffer += chunk.toString('utf-8');
+        let index: number;
+        while ((index = this._stderr_buffer.indexOf('\n')) >= 0) {
+          const line = this._stderr_buffer.slice(0, index);
+          this._stderr_buffer = this._stderr_buffer.slice(index + 1);
+          const text = line.replace(/\r$/, '').trim();
+          if (text === '') continue;
+          // 执行件把 stderr 当结构化日志通道；无注入通道时也消费（防管道
+          // 缓冲写满阻塞子进程），行数据丢弃
+          if (this._on_exec_line === null) continue;
+          const level = exec_line_is_error(text) ? 'error' : 'info';
+          this._on_exec_line(level, text);
+        }
+        // 无行终止的残段缓冲有上界：进程失控（超大单行/乱码洪泛）不得无限
+        // 累积内存，超限按读侧帧超限同口径 fail-closed 断开
+        if (this._stderr_buffer.length > MAX_STDIO_FRAME_BYTES) {
+          throw new McpConnectionLost(
+            `MCP server ${this._config.id} stderr 无行终止输出超 ` +
+              `${MAX_STDIO_FRAME_BYTES} 字节（进程失控），连接已断开`,
+          );
+        }
+      }
+    } catch {
+      // stderr 通道异常/缓冲超限：进程视为失控 fail-closed 断开（与读侧
+      // 帧超限断开同语义）。清理噪音不重抛——task 已无悬挂值可拒绝，断流
+      // 收敛交给读侧（挂起表以连接断流失败）
+      try {
+        this._channel?.close();
+      } catch {
+        // 关闭失败由读侧断流收敛
+      }
+      try {
+        child.kill();
+      } catch {
+        // 进程已退出时的 kill 噪音忽略
       }
     }
   }

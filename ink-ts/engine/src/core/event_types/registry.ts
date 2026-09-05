@@ -33,12 +33,15 @@ export interface EventTypeRegistryOptions {
   writer?: EventTypeSpecWriter;
   set_id?: string;
   max_types?: number;
+  /** 加载期跳过诊断（重复/畸形/超配额）；缺省 = 静默跳过不阻断启动。 */
+  on_skip?: (reason: 'duplicate' | 'malformed' | 'quota', name: string) => void;
 }
 
 export class EventTypeRegistry implements EventTypeRegistryLike {
   #specs = new Map<string, EventTypeSpec>();
   #recordsStore?: EventTypeRecordsStore;
   #writer?: EventTypeSpecWriter;
+  #onSkip?: (reason: 'duplicate' | 'malformed' | 'quota', name: string) => void;
   #setId: string;
   readonly collection: string;
   readonly maxTypes: number;
@@ -49,6 +52,7 @@ export class EventTypeRegistry implements EventTypeRegistryLike {
     this.#setId = opts.set_id ?? '-';
     this.collection = event_types_collection(this.#setId);
     this.maxTypes = opts.max_types ?? DEFAULT_MAX_EVENT_TYPES;
+    this.#onSkip = opts.on_skip;
   }
 
   register(spec: EventTypeSpec): void {
@@ -100,7 +104,7 @@ export class EventTypeRegistry implements EventTypeRegistryLike {
     return out;
   }
 
-  /** 从存储加载集内事件类型（读取顺序：按集集合 → 历史集合；脏记录跳过）。 */
+  /** 从存储加载集内事件类型（读取顺序：按集集合 → 历史集合；脏记录跳过不阻断启动）。 */
   async load(): Promise<number> {
     if (this.#recordsStore === undefined) return 0;
     let loaded = 0;
@@ -108,15 +112,25 @@ export class EventTypeRegistry implements EventTypeRegistryLike {
       const records = await this.#recordsStore.list_records(collection);
       for (const record of records) {
         const name = record['name'];
-        if (!name || typeof name !== 'string' || this.#specs.has(name)) continue;
-        let spec: EventTypeSpec;
-        try {
-          spec = EventTypeSpec.from_dict(record);
-        } catch {
-          continue; // 脏记录跳过不阻断启动
+        if (!name || typeof name !== 'string') {
+          this.#onSkip?.('malformed', String(name ?? ''));
+          continue;
         }
-        this.#specs.set(name, spec);
-        loaded += 1;
+        if (this.#specs.has(name)) {
+          this.#onSkip?.('duplicate', name);
+          continue;
+        }
+        if (this.#specs.size >= this.maxTypes) {
+          this.#onSkip?.('quota', name);
+          continue;
+        }
+        try {
+          const spec = EventTypeSpec.from_dict(record);
+          this.#specs.set(name, spec);
+          loaded += 1;
+        } catch {
+          this.#onSkip?.('malformed', name);
+        }
       }
     }
     return loaded;

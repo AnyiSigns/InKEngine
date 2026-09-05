@@ -14,6 +14,11 @@
  * 缺省 fail-closed（触碰即抛错提示注入）；执行经 ProcessSandbox.spawner seam。
  * 审计的 ts/key 本属 time/uuid 副作用，改为注入 now/keyGen（缺省确定值，
  * 纯函数可复现）。
+ *
+ * 状态标注（机制就绪 / 宿主接线点待定）：本地环境提供器为默认形态，运行
+ * 前须宿主注入 fs/进程 seam（which/mkdirs/ProcessSandbox.spawner 与审计
+ * 存储）；引擎侧当前无装配消费方（接线点：宿主运行时装配
+ * EnvironmentProviders）。
  */
 import { GraphDefinitionError } from '../errors.js';
 import { ProcessResult, ProcessSandbox } from '../sandbox/index.js';

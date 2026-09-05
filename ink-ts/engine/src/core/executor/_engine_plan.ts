@@ -13,9 +13,8 @@
  * 计划步内的终止/中断（并行组成员 terminate、spawn 实例 interrupt）以控制流
  * 信号返回（不落 checkpoint——终态快照由主循环统一写入）。
  */
-import { InterruptSignal, InterruptState } from '../interrupt/interrupt_types.js';
+import { InterruptSignal } from '../interrupt/interrupt_types.js';
 import { TerminateReason } from '../graph/graph_types.js';
-import { strip_sensitive } from '../security/security.js';
 import { KIND_NODES, KIND_PARALLEL, KIND_SPAWNS, PLAN_KEY, Plan } from '../plan/plan.js';
 import type { PlanStep } from '../plan/plan.js';
 import { GraphDefinitionError } from '../errors.js';
@@ -26,7 +25,7 @@ import type { Storage } from '../storage/storage.js';
 import type { JsonRecord } from '../json.js';
 import type { NodeContext } from './_internals.js';
 import { _NodeContextImpl } from './_node_context.js';
-import { _PlanAdvance, _PlanWorkOutcome, _merge_overlay, _warn } from './_internals.js';
+import { _PlanAdvance, _PlanWorkOutcome, _interrupt_state, _merge_overlay, _warn } from './_internals.js';
 import { EngineParallel } from './_engine_parallel.js';
 
 function isPromiseLike(value: unknown): value is PromiseLike<unknown> {
@@ -210,12 +209,7 @@ export abstract class EnginePlan extends EngineParallel {
       });
     } catch (exc) {
       if (exc instanceof InterruptSignal) {
-        outcome.interrupt = new InterruptState(
-          exc.key,
-          strip_sensitive(exc.payload) as Record<string, unknown>,
-          ctx.node,
-          ctx.graph_path,
-        );
+        outcome.interrupt = _interrupt_state(exc, ctx.node, ctx.graph_path);
         return outcome;
       }
       throw exc;

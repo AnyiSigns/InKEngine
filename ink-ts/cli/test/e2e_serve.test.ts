@@ -7,10 +7,11 @@
  * 收尾 kill 子进程。
  */
 
-import { mkdtempSync } from 'node:fs';
+import { existsSync, mkdtempSync, readFileSync } from 'node:fs';
 import { tmpdir } from 'node:os';
 import path from 'node:path';
 
+import { locateNativeBinary } from '@ink-ts/host';
 import { afterEach, describe, expect, it } from 'vitest';
 import WebSocket from 'ws';
 import type { RawData } from 'ws';
@@ -189,6 +190,113 @@ describe('serve e2e：ws 事件订阅到引擎事件', () => {
       expect(frame.topic).toBe('events.reply_token');
       expect((frame.data ?? {})['type']).toBe('reply_token');
       expect(typeof (frame.data ?? {})['payload']).toBe('object');
+    } finally {
+      await stopServe(child);
+    }
+  }, 120_000);
+});
+
+describe('serve e2e：附件上传 + 扁平↔点分别名 round', () => {
+  it('/upload 落白名单目录并回读；flat round_send 经别名驱动真回合', async () => {
+    const { listen, child } = await startServe();
+    try {
+      const payload = 'hello attachment 附件';
+      const form = new FormData();
+      form.append('file', new Blob([payload], { type: 'text/plain' }), 'note.txt');
+      const upload = await fetch(`${listen.url}/upload`, {
+        method: 'POST',
+        headers: { authorization: `Bearer ${listen.token}` },
+        body: form,
+      });
+      expect(upload.status).toBe(200);
+      const receipt = (await upload.json()) as {
+        path: string;
+        url: string;
+        name: string;
+        size: number;
+        mime: string;
+      };
+      expect(receipt.name).toBe('note.txt');
+      expect(receipt.size).toBe(Buffer.byteLength(payload));
+      expect(receipt.mime).toBe('text/plain');
+      expect(existsSync(receipt.path)).toBe(true);
+      expect(readFileSync(receipt.path, 'utf8')).toBe(payload);
+      expect(receipt.url).toContain('/uploads/');
+
+      const downloaded = await fetch(receipt.url, {
+        headers: { authorization: `Bearer ${listen.token}` },
+      });
+      expect(downloaded.status).toBe(200);
+      expect(await downloaded.text()).toBe(payload);
+
+      // 扁平旧命令名 round_send（camelCase 载荷）→ rounds.send 点分别名
+      const alias = await fetch(`${listen.url}/rpc`, {
+        method: 'POST',
+        headers: { 'content-type': 'application/json', authorization: `Bearer ${listen.token}` },
+        body: JSON.stringify({
+          jsonrpc: '2.0',
+          id: 21,
+          method: 'round_send',
+          params: { threadId: 'alias-thread-1', roundId: 'alias-round-1', text: 'alias 回合' },
+        }),
+      });
+      expect(alias.status).toBe(200);
+      const body = (await alias.json()) as {
+        result?: { thread_id: string; round_id: string; reply: string };
+        error?: { message: string };
+      };
+      expect(body.error).toBeUndefined();
+      expect(body.result?.thread_id).toBe('alias-thread-1');
+      expect(body.result?.round_id).toBe('alias-round-1');
+      expect(body.result?.reply).toBe(STUB_REPLY);
+    } finally {
+      await stopServe(child);
+    }
+  }, 120_000);
+});
+
+const EXEC_AVAILABLE = locateNativeBinary('exec') !== null;
+
+describe('serve e2e：/upload → doc.parse → round 文档文本注入链路', () => {
+  const run = EXEC_AVAILABLE ? it : it.skip;
+
+  run('上传非法 PDF → rounds.send 文档附件 → 解析失败可见告警（warnings）', async () => {
+    const { listen, child } = await startServe();
+    try {
+      const broken = new Uint8Array([0x4e, 0x4f, 0x54, 0x50, 0x44, 0x46, 0x2e, 0x2e, 0x2e]); // NOTPDF...
+      const form = new FormData();
+      form.append('file', new Blob([broken], { type: 'application/pdf' }), 'broken.pdf');
+      const upload = await fetch(`${listen.url}/upload`, {
+        method: 'POST',
+        headers: { authorization: `Bearer ${listen.token}` },
+        body: form,
+      });
+      expect(upload.status).toBe(200);
+      const receipt = (await upload.json()) as { path: string; url: string };
+
+      const response = await fetch(`${listen.url}/rpc`, {
+        method: 'POST',
+        headers: { 'content-type': 'application/json', authorization: `Bearer ${listen.token}` },
+        body: JSON.stringify({
+          jsonrpc: '2.0',
+          id: 30,
+          method: 'rounds.send',
+          params: {
+            input: '读这个文件',
+            attachments: [
+              { kind: 'document', url: receipt.url, path: receipt.path, name: 'broken.pdf', mime: 'application/pdf' },
+            ],
+          },
+        }),
+      });
+      const body = (await response.json()) as {
+        result?: { reply: string; warnings?: string[] };
+        error?: { message: string };
+      };
+      expect(body.error).toBeUndefined();
+      expect(body.result?.reply).toBe(STUB_REPLY);
+      expect((body.result?.warnings ?? []).length).toBeGreaterThan(0);
+      expect((body.result?.warnings ?? []).join('\n')).toContain('解析失败');
     } finally {
       await stopServe(child);
     }

@@ -3,10 +3,19 @@
   "version": "0.0.0",
   "private": true,
   "type": "module",
-  "description": "唯一进程载体/宿主执行体：stdio JSON-RPC 服务（dev/测试/无人值守），approval 仅 --approve 显式声明",
+  "description": "唯一进程载体/宿主执行体：三形态 cli（stdio JSON-RPC / run 一次性驱动 / serve 本地 http+ws），approval 仅 --approve 显式放行（fail-closed）",
   "scripts": {
     "start": "tsx src/index.ts",
+    "stdio": "tsx src/index.ts stdio",
+    "run": "tsx src/index.ts run",
+    "serve": "tsx src/index.ts serve",
     "test": "vitest run",
     "typecheck": "tsc -p tsconfig.json"
+  },
+  "dependencies": {
+    "ws": "^8.21.3"
+  },
+  "devDependencies": {
+    "@types/ws": "^8.18.1"
   }
 }

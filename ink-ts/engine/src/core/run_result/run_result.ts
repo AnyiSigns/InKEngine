@@ -177,7 +177,7 @@ export class RunOptions {
   assembly_aggregator: ActivationAggregator | null = null;
 
   /** 回合指标聚合（引擎自承载的观测件）：注入后顶层 run 收尾时自动记录回合成败
-   *  与错误摘要（评审分/收敛轮数/挡位调用由使用方按事件语义填报——引擎只采集
+   *  与错误摘要（评审分/收敛轮数/角色槽调用由使用方按事件语义填报——引擎只采集
    *  自身可见的执行事实）；null = 不采集。 */
   metrics: TurnMetrics | null = null;
 

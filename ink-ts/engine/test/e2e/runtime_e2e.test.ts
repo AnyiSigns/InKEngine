@@ -171,7 +171,7 @@ describe('CachingLLM + 真 MemoryStorage 缓存闭环', () => {
           base_url: server.baseUrl,
           api_key: 'sk-e2e',
         }),
-        { storage, tier: 'e2e' },
+        { storage, tag: 'e2e' },
       );
       const messages = [user('缓存问题')];
       const first = await cached.ainvoke(messages);
@@ -181,7 +181,7 @@ describe('CachingLLM + 真 MemoryStorage 缓存闭环', () => {
       expect(server.requestCount).toBe(1); // 第二次命中缓存，不再打服务
       const records = await storage.list_records(CACHE_COLLECTION);
       expect(records.length).toBe(1);
-      expect(records[0]!['tier']).toBe('e2e');
+      expect(records[0]!['tag']).toBe('e2e');
       const stats = await cached.stats();
       expect(stats.hits).toBe(1);
       expect(stats.misses).toBe(1);

@@ -6,16 +6,16 @@
  * 语义，只改对应段落，不重写整条知识，见 reuse.ts 的 build_precise_patch
  * 契约点）。本文件承载蒸馏器协议（Distiller）、蒸馏产物（DistillOutcome）、
  * 蒸馏配置（DistillConfig）与零 LLM 的确定性基线（DeterministicDistiller）；
- * 蒸馏的挡位建链（resolve_distill_chain）与挡位蒸馏器（TieredDistiller）
- * 落 tiered.ts。
+ * 蒸馏的 router 角色槽建链（resolve_distill_chain）与角色槽蒸馏器
+ * （RoleDistiller）落 distill_role.ts。
  */
 
 import { GraphDefinitionError } from '../errors.js';
 import { isRecord, type JsonRecord, typeName } from '../json.js';
+import { ROLE_ROUTER } from '../model_roles/index.js';
 import { KIND_INSIGHT } from '../knowledge_set/_types.js';
 import {
   DEFAULT_COMPLEXITY_THRESHOLD,
-  DEFAULT_DISTILL_TIER,
   DEFAULT_INTERVENTION_THRESHOLD,
   SIGNAL_INSIGHT,
   SIGNAL_PITFALL,
@@ -95,25 +95,25 @@ export class DistillOutcome {
 }
 
 /**
- * 蒸馏配置（引擎配置开关 + 建链挡位）。
+ * 蒸馏配置（引擎配置开关 + 建链角色槽）。
  *
  * 属性：
  * - enabled: distill_enabled 引擎配置开关（False = 关闭蒸馏——
  *   should_distill 恒 False、distill 恒 null，一键回到「无蒸馏」）。
- * - tier: 蒸馏建链挡位（默认 router 挡位；该挡位配置缺失回落
- *   main_config——挡位机制统一语义）。
+ * - role: 蒸馏建链角色槽（默认 router 功能槽；router 槽未配置回落 agent
+ *   槽——角色槽统一回落语义，见 model_roles.resolve_role_model）。
  */
 export class DistillConfig {
   readonly enabled: boolean;
-  readonly tier: string;
+  readonly role: string;
 
-  constructor(options: { enabled?: boolean; tier?: string } = {}) {
+  constructor(options: { enabled?: boolean; role?: string } = {}) {
     this.enabled = options.enabled ?? true;
-    this.tier = options.tier ?? DEFAULT_DISTILL_TIER;
+    this.role = options.role ?? ROLE_ROUTER;
   }
 
   to_dict(): JsonRecord {
-    return { enabled: this.enabled, tier: this.tier };
+    return { enabled: this.enabled, role: this.role };
   }
 
   static from_dict(data: unknown): DistillConfig {
@@ -125,7 +125,12 @@ export class DistillConfig {
     return new DistillConfig({
       enabled:
         data.enabled === undefined || data.enabled === null ? true : Boolean(data.enabled),
-      tier: data.tier ? String(data.tier) : DEFAULT_DISTILL_TIER,
+      // 兼容历史挡位字段名 tier（旧构建期字典）读入；新写一律 role
+      role: data.role
+        ? String(data.role)
+        : data.tier
+          ? String(data.tier)
+          : ROLE_ROUTER,
     });
   }
 }

@@ -60,7 +60,7 @@ describe('core/llm 公开导出面', () => {
     }
   });
 
-  it('fallback 面：ModelChain + RetryPolicy（挡位级模型链）', () => {
+  it('fallback 面：ModelChain + RetryPolicy（链级重试/备用模型链）', () => {
     for (const name of ['ModelChain', 'RetryPolicy']) {
       expect(name in llm, `缺 fallback 导出 ${name}`).toBe(true);
     }

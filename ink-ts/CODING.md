@@ -105,3 +105,30 @@ gate 实现与正反样例位于 `gate/src/` 与 `gate/test/`；**真实扫描�
 root `npm test` 首段 `tsx gate/src/check.ts`（对 engine/backend/cli/frontend
 工作树实际执行全部规则）→ `vitest run --root gate`（规则样例自测），
 CI 的 ink-ts job 同链执行。规则增删须同步本表。
+
+## 8. 模型角色槽（配置语义与措辞纪律）
+
+1. 模型按**角色槽**配置，不按档位。引擎固定三只语义槽：`agent`（对话主
+   模型——身份/会话默认模型/图运行主链，**唯一兜底槽**）与功能槽
+   `router`（蒸馏判定/轻量决策）、`audit`（复核/质检；消费方 = vetting/
+   review/output 质检等宿主实现）。扩展功能槽 = 引擎侧角色槽模块加角色常量
+   并注释用途即生效（无需声明式装配注入）；未知/None 角色一律归一 agent，
+   防拼写错误静默换槽。
+2. 配置形态：`model_config` 为 dict，角色配置键 =
+   `model_config.{agent_config, router_config, audit_config}`，各角色备用链
+   键 = `{role}_fallback_configs`。`main_config`/`main_fallback_configs` 仅作
+   agent 槽兼容别名（`agent_config` 优先），是挡位→角色迁移期入口，新代码
+   不再新增别名使用面。
+3. 回落语义：功能槽缺失或显式空 `{}` = 该槽未配置 → **显式回落 agent**，
+   可观测不静默（来源 `source_role=agent`/`fallback=true` 随 RoleModelStats
+   与审计以 `role→agent` 键记录）；agent 槽缺失/空 → 该角色机制停用或
+   确定性降级（如蒸馏走确定性基线），绝不跨槽顶替、不隐式换用其它模型。
+4. 实现锚点：角色槽原语收敛于 `engine/src/core/model_roles/modelRoles.ts`
+   （`resolve_role_model` / `build_role_model_chain` / `RoleModelStats`，
+   机制层零模块级可变状态）；knowledge_signals 蒸馏链走 router 槽；
+   `llm/cache` 的 `tag` 仅为通用用途桶标签（随指纹与记录落库，供命中率/
+   审计按桶统计），与角色槽机制无关。
+5. 措辞纪律：凡涉及模型配置与回落的引擎注释/评审，禁用模型「档位/tier」与
+   「main_config 回落」的挡位化表述；下列既有非模型档位术语不受此限（字段
+   与语义不同，勿混淆）：`edge/trust-tier`、`safety_tier`、approval 档、
+   reasoning 档。

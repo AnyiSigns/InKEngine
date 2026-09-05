@@ -9,7 +9,7 @@
  * 实体复用当前 agent 全部机制：
  * - 工具全量共享：无 tools 字段；
  * - 模型按 model 引用（{provider, model_id}；None = 会话默认模型），窗口参数
- *   一律按该模型档案 context_window（不做档位推断）；
+ *   一律按该模型档案 context_window（不做角色槽推断）；
  * - persona 独立（每实体系统提示词不共用）；身份引导走每轮注入的参与者清单，
  *   Message.name 仅承担展示/留痕；
  * - 知识单份共享（KnowledgeSet 三级分层），实体不分割知识库。

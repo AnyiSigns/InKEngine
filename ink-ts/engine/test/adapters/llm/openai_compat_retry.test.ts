@@ -3,7 +3,7 @@
  * TestTransientRetry 子集移植，零真实网络）。
  *
  * 重试唯一权威：适配器默认单次尝试——重试经构造参数显式注入 RetryPolicy
- * （独立直用场景）或由挡位链 ModelChain 统一负责。ModelChain 集成用例随
+ * （独立直用场景）或由链级 ModelChain 统一负责。ModelChain 集成用例随
  * core/llm/fallback.py 迁移（deferred），此处覆盖适配器自身的重试语义。
  */
 import { describe, expect, it } from 'vitest';

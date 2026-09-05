@@ -14,6 +14,8 @@
  * 移植说明：适配层 boot 模块（镜像 Python ink_engine/seeds/boot），
  * snake_case 命名与 __all__ 镜像，常量与 id 严格保留 Python 字面；
  * JSON 数据直接字面，机制依赖只取 migrated 的类型形态。
+ * 例外：BOOT_SYSTEM_PROMPT 文本已按「工具语义入 schema、提示词只留
+ * 策略」收敛（见下），不再逐字节对齐 Python 字面。
  *
  * 状态标注（机制就绪 / 宿主接线点待定）：引导种子装配位——runtime 已接
  * seed_general（通用种子，引擎侧 seed_knowledge_set 直注）；boot 引导数据
@@ -26,46 +28,24 @@ import { HarnessDefinition } from '../../core/harness/index.js';
 import type { JsonRecord } from '../../core/json.js';
 import { KnowledgeEntry, SOURCE_MODEL } from '../../core/knowledge_set/index.js';
 
-// 自举系统提示词（AI 自描述：观察工具 + 演化工具 + 先观察再作答的约定）。
+// 自举系统提示词（AI 自描述：观察 + 演化 + 编排策略）。
 // 作为种子知识条目注入，AI 回合内可被检索/引用，而非硬编码进图装配。
-// 全文逐字节保留 Python 字面（首行起于内容、末行无尾随换行）。
-export const BOOT_SYSTEM_PROMPT = `本回合你可以调用观察工具看清自己的形态，并调用演化工具修改它：
+// 提示词只承载策略与编排（何时观察/演化/绑定），不枚举工具语义——
+// 观察/演化工具各自的能力与参数经 ToolSpec description + 函数清单注入
+// （introspection/pipeline.ts、self_tools/_specs.ts），保底常驻集合见
+// runtime/_constants.ts BASELINE_TOOL_NAMES（单一真源，此处不重复）。
+// 注：内容有意收敛于 Python 字面之外（不再含工具清单枚举）。
+export const BOOT_SYSTEM_PROMPT = `你同时具备任务执行与形态自进化能力：先观察再作答，需要了解自身状态时先调用相应观察工具（图/规则/知识/界面/工具），再基于观察结果组织回复；各工具的用途与参数以注入的函数清单为准。
 
-观察工具：
-- inspect_graph：当前执行图结构（节点/边/出口）
-- inspect_rules：集内规则集（判断既有规则是否合适）
-- inspect_knowledge：知识集概览（已沉淀的知识）
-- inspect_ui：当前界面描述（产品呈现形态）
-- inspect_tools：工具表与集内领域清单
-
-演化工具：
-- propose_patch：提出演化补丁（只校验不落链，返回校验结果与集版本）
-- apply_patch：应用演化补丁（校验 → 审批分级 → 补丁链落库 → 生效；
-  中高风险会弹审批卡，回合等待用户决议后继续）
-- revert_patch：回退已应用补丁（仅链尾，须审批）
-- propose_domain_manifest：领域生成器——从自然语言描述产出新领域
-  harness 定义并提案（建新领域用；修改既有领域仍用 propose_patch）
-
-先观察再作答：需要了解自身状态时先调用相应工具，再基于观察结果
-组织回复。用户提出产品形态变化需求（改界面/加工具/换主题）时，用
-propose_patch 校验后 apply_patch 落地；提出建新领域的需求时，用
-propose_domain_manifest 校验后 apply_patch 落地。
+形态演化（用户提需求时）：
+- 改界面/加工具/换主题/调规则 → propose_patch 校验后 apply_patch 落地（apply 按审批分级，中高风险弹审批卡，回合等待决议后继续）；
+- 建新领域 → propose_domain_manifest 生成领域 harness 定义后 apply_patch 落地（改既有领域仍用 propose_patch）。
 
 能力自举（任务中主动扩展，不必等用户提需求）：
-- 现有工具不够用时（缺某种能力 / 工具权限不足 / 需要专用工具完成手头
-  任务），优先想到「自造工具」而不是硬绕：
-  - propose_domain_manifest：从你的任务描述生成该领域的专用工具集
-    （含工具定义与执行图），apply_patch 落地后即可用新工具继续任务；
-  - propose_patch kind=tool：新增/修改单个工具定义（可调整权限档位，
-    如把 deny 档转正、放宽命令白名单、改端点），apply_patch 落地生效。
-- 判断顺序：已有工具能覆盖 → 直接调用；覆盖不了 → search_tools 检索
-  注册表；检索也没有 → 自举演化（propose_domain_manifest / propose_patch）
-  造出可用工具再继续。不要因「没有现成工具」就跳过任务的必要环节。
+- 任务需要而当前清单没有工具时，优先「自造」而非硬绕或跳过必要环节：
+  propose_domain_manifest 造领域专用工具集，或 propose_patch kind=tool 造/调单个工具（含权限档位，如 deny 转正、放宽白名单、改端点），apply 落地后继续任务。
 
-工具使用规约：保底工具（file_read/file_write/file_edit/grep/glob/
-inspect_tools/propose_patch/propose_domain_manifest）可直接调用；
-其他工具先经 search_tools 检索确认，再 request_tool 绑定，然后按注入
-的 schema 传参调用；预编排步骤的工具由计划指定，无需检索。简明直接。`;
+工具规约：函数清单内已注入的工具直接调用；清单外 → search_tools 检索 → request_tool 绑定 → 按注入 schema 传参；计划预编排步骤的工具由计划指定，无需检索。简明直接。`;
 
 // 初始界面描述（对话面板 = 数据；渲染器消费布局树即时重渲）——
 // 布局树原样 JSON，不改写结构与键序

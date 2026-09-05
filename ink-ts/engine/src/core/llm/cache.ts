@@ -9,11 +9,11 @@
  * 设计要点：
  * - **协议形态**：实现 AsyncLLM（与 fallback.ModelChain 同族包装），宿主
  *   在模型链外层套一层即可（CachingLLM(ModelChain(...), storage=...)）；
- * - **指纹**：sha256(messages + tools + model + tier + params)——messages
+ * - **指纹**：sha256(messages + tools + model + tag + params)——messages
  *   取 to_openai_dict 形态（不含自动生成的 id，重构造消息指纹稳定）；
  *   params 纳入指纹（温度/最大长度改变生成分布，宁可多 miss）；
  * - **持久化**：走 Storage records 通道（collection 名 llm_cache，记录
- *   fingerprint/response/tier/created_at/patch_version 五字段）；敏感键剥
+ *   fingerprint/response/tag/created_at/patch_version 五字段）；敏感键剥
  *   离属存储后端契约，缓存侧原样透传；
  * - **失效**：记录携带 patch_version（外部版本提供者或本地失效代际），
  *   读取时与当前版本比对，不一致 = miss（逻辑清空）；clear() 经
@@ -83,8 +83,8 @@ export interface CachingLLMOptions {
   storage?: Storage | null;
   /** 记录保质期（秒；0 = 恒过期，仅诊断用途；负值拒绝）。 */
   ttl?: number;
-  /** 挡位标签（随记录落库，审计/命中率按挡位统计用）。 */
-  tier?: string;
+  /** 用途桶标签（如会话/角色等），随记录落库与命中率统计。 */
+  tag?: string;
   /** 版本提供者（补丁链等外部版本源；返回值随记录落库、读取时比对）。 */
   patch_version?: PatchVersionProvider | null;
   /** 时钟注入（epoch 秒；测试用假时钟推进 TTL；缺省 Date.now 秒）。 */
@@ -98,7 +98,7 @@ export class CachingLLM extends AsyncLLM {
   private readonly _model_label: string;
   private readonly _storage: Storage | null;
   private readonly _ttl: number;
-  private readonly _tier: string;
+  private readonly _tag: string;
   private readonly _patch_version_provider: PatchVersionProvider | null;
   private readonly _clock: CacheClock;
   /** 本地失效代际：无外部版本提供者时作为记录的 patch_version 语义。 */
@@ -111,7 +111,7 @@ export class CachingLLM extends AsyncLLM {
     const {
       storage = null,
       ttl = DEFAULT_CACHE_TTL,
-      tier = '',
+      tag = '',
       patch_version = null,
       clock = _default_clock,
     } = options;
@@ -132,7 +132,7 @@ export class CachingLLM extends AsyncLLM {
     this._model_label = model_label;
     this._storage = storage;
     this._ttl = ttl;
-    this._tier = tier;
+    this._tag = tag;
     this._patch_version_provider = patch_version;
     this._clock = clock;
   }
@@ -167,7 +167,7 @@ export class CachingLLM extends AsyncLLM {
       messages: messages.map((m) => m.to_openai_dict()),
       tools: tools && tools.length > 0 ? to_openai_tools(tools) : null,
       model: this._model_label,
-      tier: this._tier,
+      tag: this._tag,
     };
     if (params !== null && params !== undefined) {
       const picked: Record<string, unknown> = {};
@@ -222,7 +222,7 @@ export class CachingLLM extends AsyncLLM {
     const data: Record<string, unknown> = {
       fingerprint,
       response: _result_to_dict(result),
-      tier: this._tier,
+      tag: this._tag,
       created_at: this._clock(),
       patch_version: String(patch_version),
     };

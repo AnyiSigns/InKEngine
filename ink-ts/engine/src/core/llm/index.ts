@@ -55,7 +55,7 @@ export {
 // tools：工具 schema 声明 + OpenAI function 形态转换
 export { ToolSpec, to_openai_tools } from './tools.js';
 
-// fallback：挡位级模型链（重试/备用切换/流式中断语义，mirror __all__）
+// fallback：模型链（主配置 + 备用切换 + 指数退避重试/流式中断，mirror __all__）
 export { ModelChain, RetryPolicy } from './fallback.js';
 
 // cache：LLM 调用缓存包装器（Storage records 通道持久化，mirror __all__）

@@ -1,5 +1,5 @@
 /**
- * 挡位级模型链：主模型 + 备用列表 + 指数退避重试 + 流式中断语义
+ * 模型链：主配置 + 备用列表 + 指数退避重试 + 流式中断语义
  * （Python core/llm/fallback.py 移植，__all__ = [ModelChain, RetryPolicy] 1:1）。
  *
  * 吸收 text_forge_backend/core/llm_retry 语义（引擎自包含，宿主不再重复实现）：
@@ -79,10 +79,11 @@ function _backoff_delay(policy: RetryPolicy, n: number): number {
 }
 
 /**
- * 主模型 + 备用模型链（挡位级容错：重试 → 备用 → 上抛）。
+ * 主配置 + 备用配置的模型链（链级容错：重试 → 备用 → 上抛）。
  *
- * 配置形态：主配置在前，fallback 链为其后的配置列表；层级调用方（挡位装配）
- * 把 main_config + main_fallback_configs 组装为 configs 传入。模型实例惰性构建
+ * 配置形态：主配置在前，fallback 链为其后的配置列表；层级调用方（角色槽
+ * 装配，见 core/model_roles）经 build_role_model_chain 把单槽主配置 + 该槽
+ * 备用链组装为 configs 传入。模型实例惰性构建
  * （链上备用模型只在需要时创建），aclass aclose() 释放已建实例（幂等）。
  */
 export class ModelChain {

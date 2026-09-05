@@ -2,7 +2,7 @@
  * 上下文窗口压缩策略与历史压缩（context.py 移植）。
  *
  * 窗口参数一律按「该调用所用模型」的模型档案（model_archive context_window），
- * 不做档位推断（档位只决定哪个通道用哪个模型，不决定窗口参数）；档案缺失
+ * 不做角色槽推断（角色槽只决定哪个通道用哪个模型，不决定窗口参数）；档案缺失
  * 回落 200k 兜底（现代长窗，避免短视压缩）。比例由宿主可调（全局占比）。
  */
 
@@ -26,7 +26,7 @@ export const TOOL_RESULT_MAX_CHARS_FLOOR = 4000;
  * 压缩字符阈值（按模型档案 context_window 动态推算）。
  *
  * - 已知 context_window：取 ``int(ratio * cw)``（250k→200k、32k→26k）；
- * - 档案缺失：回落 ``ratio × 200k`` 兜底（不按档位推断）。
+ * - 档案缺失：回落 ``ratio × 200k`` 兜底（不按角色槽推断）。
  */
 export function resolve_compression_min_chars(
   context_window: number | null | undefined,

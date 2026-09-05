@@ -4,13 +4,15 @@
  * 触发条件与聚合语义：meta 节点回合收尾时调用 record_*，snapshot 汇出
  * 结构化指标（调参输入，随评估记录可落库）。聚合口径：失败率 = 失败/回合
  * （无回合 = 0，不除零）；评审分/收敛轮数只留近期窗口（_METRICS_WINDOW
- * 上限，防长跑留痕无限膨胀）；挡位调用统计与 TierCallStats.snapshot 同
- * 口径——非正计数为观测噪声（清零/非法输入），不并入。
+ * 上限，防长跑留痕无限膨胀）；角色槽调用统计按 RoleModelStats 结构化
+ * 快照并入——回落条目（via_fallback）以 `{role}→agent` 键留存（回落可
+ * 观测不静默），非正计数为观测噪声（清零/非法输入），不并入。
  */
 
 import { GraphDefinitionError } from '../errors.js';
 import type { JsonRecord } from '../json.js';
 import { isRecord } from '../json.js';
+import { role_call_label, type RoleCallStat } from '../model_roles/index.js';
 import { _METRICS_WINDOW } from './_constants.js';
 
 /** TurnMetrics 构造选项（Python dataclass 默认字段的 TS 映射）。 */
@@ -19,19 +21,19 @@ export interface TurnMetricsInit {
   failures?: number;
   review_scores?: readonly number[];
   convergence_rounds?: readonly number[];
-  llm_calls_by_tier?: Readonly<Record<string, number>>;
+  llm_calls_by_role?: Readonly<Record<string, number>>;
   last_error?: string;
 }
 
 /**
- * 回合指标聚合（引擎自承载：失败率/评审分/收敛轮数/挡位调用）。
+ * 回合指标聚合（引擎自承载：失败率/评审分/收敛轮数/角色槽调用）。
  */
 export class TurnMetrics {
   turns: number;
   failures: number;
   review_scores: number[];
   convergence_rounds: number[];
-  llm_calls_by_tier: Record<string, number>;
+  llm_calls_by_role: Record<string, number>;
   last_error: string;
 
   constructor(init: TurnMetricsInit = {}) {
@@ -41,8 +43,8 @@ export class TurnMetrics {
     this.convergence_rounds = init.convergence_rounds
       ? [...init.convergence_rounds]
       : [];
-    this.llm_calls_by_tier = init.llm_calls_by_tier
-      ? { ...init.llm_calls_by_tier }
+    this.llm_calls_by_role = init.llm_calls_by_role
+      ? { ...init.llm_calls_by_role }
       : {};
     this.last_error = init.last_error ?? '';
   }
@@ -82,17 +84,19 @@ export class TurnMetrics {
     }
   }
 
-  /** 并入挡位调用统计（TierCallStats.snapshot 产物，逐挡位累加）。
+  /** 并入角色槽调用统计（RoleModelStats.snapshot 结构化条目，逐角色累加）。
    *
-   * 与挡位统计同口径：非正计数为观测噪声（清零/非法输入），不并入。
+   * 与角色槽统计同口径：回落条目（via_fallback）记作 `{role}→agent` 键
+   * （来源回落可观测），非正计数为观测噪声（清零/非法输入），不并入。
    */
-  record_llm_calls(tier_stats: Readonly<Record<string, unknown>> | null = null): void {
-    for (const [tier, count] of Object.entries(tier_stats ?? {})) {
-      const value = Math.trunc(Number(count));
+  record_llm_calls(stats: ReadonlyArray<RoleCallStat> | null = null): void {
+    for (const entry of stats ?? []) {
+      const value = Math.trunc(Number(entry.count));
       if (value <= 0) {
         continue;
       }
-      this.llm_calls_by_tier[tier] = (this.llm_calls_by_tier[tier] ?? 0) + value;
+      const key = role_call_label(entry.role, entry.via_fallback);
+      this.llm_calls_by_role[key] = (this.llm_calls_by_role[key] ?? 0) + value;
     }
   }
 
@@ -119,7 +123,7 @@ export class TurnMetrics {
       review_count: this.review_scores.length,
       review_scores: [...this.review_scores],
       convergence_rounds: [...this.convergence_rounds],
-      llm_calls_by_tier: { ...this.llm_calls_by_tier },
+      llm_calls_by_role: { ...this.llm_calls_by_role },
       last_error: this.last_error,
     };
   }
@@ -131,11 +135,11 @@ export class TurnMetrics {
     }
     const rawReviews = data['review_scores'];
     const rawConvergence = data['convergence_rounds'];
-    const rawCalls = data['llm_calls_by_tier'];
+    const rawCalls = data['llm_calls_by_role'] ?? data['llm_calls_by_tier']; // 兼容历史挡位键
     const calls: Record<string, number> = {};
     if (isRecord(rawCalls)) {
-      for (const [tier, count] of Object.entries(rawCalls)) {
-        calls[String(tier)] = Math.trunc(Number(count));
+      for (const [role, count] of Object.entries(rawCalls)) {
+        calls[String(role)] = Math.trunc(Number(count));
       }
     }
     return new TurnMetrics({
@@ -147,7 +151,7 @@ export class TurnMetrics {
       convergence_rounds: Array.isArray(rawConvergence)
         ? rawConvergence.map((round) => Math.trunc(Number(round)))
         : [],
-      llm_calls_by_tier: calls,
+      llm_calls_by_role: calls,
       last_error:
         data['last_error'] === undefined || data['last_error'] === null
           ? ''

@@ -1,60 +1,63 @@
 /**
- * 蒸馏挡位建链与挡位蒸馏器（knowledge_signals.py 挡位面移植）。
+ * 蒸馏角色槽建链与角色槽蒸馏器（knowledge_signals.py 蒸馏 enablement 面
+ * 移植；替代原「蒸馏挡位建链与挡位蒸馏器 tiered.py 移植」语义）。
  *
- * 组装语义（计划「复用双挡位（router 建链，router_config 缺失回落
- * main_config，distill_enabled 为引擎配置开关）」落地）：
- * - resolve_distill_chain：按挡位构建蒸馏模型链（router 建链，配置
- *   缺失回落 main_config）——经 tiers.build_tier_chain 走与引擎其余
- *   挡位消费方同一条回落路径，无独立配置形态；主/router 挡位均无配置
- *   时返回 null（由 TieredDistiller 回落确定性蒸馏基线，不静默降级到
- *   错误）；
- * - TieredDistiller：开关关闭 → 蒸馏整体停用（触发判定恒 False、蒸馏
- *   恒无产物）；开关开启且有模型链 → 可走 LLM 蒸馏（异步入口
- *   distill_async，LLM 调用回调由实现方注入），链缺失 → 回落确定性
- *   蒸馏基线（零 LLM 调用，可测试可断言）；触发阈值（复杂度/干预双
- *   阈值）委托确定性基线，防「蒸馏垃圾进垃圾出」的保守语义不被开关/
- *   链配置削弱。
+ * 组装语义：
+ * - resolve_distill_chain：按 router 功能槽构建蒸馏模型链——经
+ *   model_roles.build_role_model_chain(model_config, ROLE_ROUTER) 走与引擎
+ *   其余角色槽消费方同一条回落路径（router_config 缺失/空 {} → 回落
+ *   agent_config，agent_config 缺失兼容历史别名 main_config）；router 与
+ *   agent 槽均无配置时返回 null（由 RoleDistiller 回落确定性蒸馏基线，
+ *   不静默降级到错误）；
+ * - RoleDistiller：distill_enabled 开关关闭 → 蒸馏整体停用（触发判定恒
+ *   False、蒸馏恒无产物）；开关开启且有模型链 → 可走 LLM 蒸馏（异步入口
+ *   distill_async，LLM 调用回调由实现方注入），链缺失 → 回落确定性蒸馏
+ *   基线（零 LLM 调用，可测试可断言）；触发阈值（复杂度/干预双阈值）委托
+ *   确定性基线，防「蒸馏垃圾进垃圾出」的保守语义不被开关/链配置削弱。
  */
 
 import { isRecord, type JsonRecord } from '../json.js';
-import { build_tier_chain } from '../tiers/tiers.js';
+import {
+  ROLE_ROUTER,
+  build_role_model_chain,
+} from '../model_roles/index.js';
 import {
   DEFAULT_COMPLEXITY_THRESHOLD,
-  DEFAULT_DISTILL_TIER,
   DEFAULT_INTERVENTION_THRESHOLD,
 } from './_types.js';
 import { DeterministicDistiller, DistillConfig } from './distill.js';
 import type { ExecutionSignal } from './signals.js';
 
 /**
- * 按挡位构建蒸馏模型链（router 建链，配置缺失回落 main_config）。
+ * 按 router 角色槽构建蒸馏模型链（router 功能槽，未配置回落 agent 槽）。
  *
  * Args:
- *   model_config: 用户模型配置字典（可含 router_config/main_config）。
- *   tier: 建链挡位（默认 router）。
- *   options.create/retry: 适配器工厂与重试策略注入（透传挡位建链）。
+ *   model_config: 用户模型配置字典（可含 router_config/agent_config，
+ *     兼容历史 main_config 别名）。
+ *   role: 建链角色槽（默认 router；未知角色归一 agent）。
+ *   options.create/retry: 适配器工厂与重试策略注入（透传角色槽建链）。
  *
  * Returns:
- *   模型链（configs 观察面）；主/router 挡位均无配置时返回 null——
- *   由 TieredDistiller 回落确定性蒸馏基线，不静默降级到错误。
+ *   模型链（configs 观察面）；router 与 agent 槽均无配置时返回 null——
+ *   由 RoleDistiller 回落确定性蒸馏基线，不静默降级到错误。
  */
 export function resolve_distill_chain(
   model_config: JsonRecord | null | undefined,
-  tier: string | null = null,
+  role: string | null | undefined = null,
   options: { create?: (config: JsonRecord) => unknown; retry?: unknown } = {},
-): ReturnType<typeof build_tier_chain> {
-  return build_tier_chain(model_config, tier ?? DEFAULT_DISTILL_TIER, options);
+): ReturnType<typeof build_role_model_chain> {
+  return build_role_model_chain(model_config, role ?? ROLE_ROUTER, options);
 }
 
 /**
- * 挡位蒸馏器：distill_enabled 开关 + router 挡位建链 + 确定性回落。
+ * 角色槽蒸馏器：distill_enabled 开关 + router 角色槽建链 + 确定性回落。
  *
  * deterministic 基线注入面按蒸馏器协议（Distiller）放开的语义落为
  * DeterministicDistiller（协议扩展方自带蒸馏策略、共用本类的触发判定）。
  */
-export class TieredDistiller {
+export class RoleDistiller {
   readonly config: DistillConfig;
-  readonly chain: ReturnType<typeof build_tier_chain>;
+  readonly chain: ReturnType<typeof build_role_model_chain>;
   readonly deterministic: DeterministicDistiller;
 
   constructor(
@@ -67,7 +70,7 @@ export class TieredDistiller {
     } = {},
   ) {
     this.config = options.config ?? new DistillConfig();
-    this.chain = (options.chain ?? null) as ReturnType<typeof build_tier_chain>;
+    this.chain = (options.chain ?? null) as ReturnType<typeof build_role_model_chain>;
     this.deterministic =
       options.deterministic ??
       new DeterministicDistiller({

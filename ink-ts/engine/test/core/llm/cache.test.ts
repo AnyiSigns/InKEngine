@@ -1,6 +1,6 @@
 /**
  * LLM 调用缓存单测（对标 Python test_llm_cache.py 命中/分桶/往返/直通段）：
- * 同参命中、messages/tools/params/model/tier 指纹分桶、结果往返（usage 计费
+ * 同参命中、messages/tools/params/model/tag 指纹分桶、结果往返（usage 计费
  * 键经存储剥离）、落库记录字段、存储写失败 fail-open、流式直通/无存储直通/
  * aclose 委托。
  */
@@ -56,14 +56,14 @@ describe('命中与指纹分桶', () => {
     expect(inner.ainvoke_calls).toBe(2);
   });
 
-  it('tier 标签分桶：同模型不同挡位互不复用', async () => {
+  it('tag 标签分桶：同模型不同用途桶互不复用', async () => {
     const storage = new MemStorage();
     const inner = new CountingLLM();
-    const cached = new CachingLLM(inner, { storage, tier: 'router' });
+    const cached = new CachingLLM(inner, { storage, tag: 'router' });
     await cached.ainvoke([user('a')]);
-    const cached2 = new CachingLLM(inner, { storage, tier: 'main' });
+    const cached2 = new CachingLLM(inner, { storage, tag: 'main' });
     await cached2.ainvoke([user('a')]);
-    expect(inner.ainvoke_calls).toBe(2); // tier 不同 → 分桶
+    expect(inner.ainvoke_calls).toBe(2); // tag 不同 → 分桶
   });
 
   it('model id 分桶：同存储不同模型互不复用', async () => {
@@ -123,17 +123,17 @@ describe('结果往返', () => {
 });
 
 describe('落库记录字段', () => {
-  it('五字段齐全：fingerprint/response/tier/created_at/patch_version', async () => {
+  it('五字段齐全：fingerprint/response/tag/created_at/patch_version', async () => {
     const storage = new MemStorage();
-    const { cached } = makeCached(storage, { tier: 'router' });
+    const { cached } = makeCached(storage, { tag: 'router' });
     await cached.ainvoke([user('r')]);
     const records = await storage.list_records(CACHE_COLLECTION);
     expect(records.length).toBe(1);
     const record = records[0]!;
-    for (const key of ['fingerprint', 'response', 'tier', 'created_at', 'patch_version']) {
+    for (const key of ['fingerprint', 'response', 'tag', 'created_at', 'patch_version']) {
       expect(record).toHaveProperty(key);
     }
-    expect(record['tier']).toBe('router');
+    expect(record['tag']).toBe('router');
     expect((record['response'] as Record<string, unknown>)['content']).toBe('default-answer');
     expect(typeof record['created_at']).toBe('number');
     expect(record['fingerprint']).toMatch(/^[0-9a-f]{64}$/); // sha256 hex

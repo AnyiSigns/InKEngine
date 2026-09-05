@@ -53,7 +53,7 @@ import {
   SIGNAL_USER_CORRECTION,
   SOURCE_RANK,
   SignalClassifier,
-  TieredDistiller,
+  RoleDistiller,
 } from '../knowledge_signals/index.js';
 import {
   _EMPTY_FIXTURES,
@@ -74,7 +74,7 @@ import { pitfall_message, source_from_event } from './_helpers.js';
 /** GrowthPipeline 构造选项（python __init__ 关键字参数 + 确定性 seam）。 */
 export interface GrowthPipelineOptions {
   config?: GrowthConfig | null;
-  distiller?: TieredDistiller | null;
+  distiller?: RoleDistiller | null;
   gate?: KnowledgeGate | null;
   emit?: GrowthEmit | null;
   metric_store?: MetricStore | null;
@@ -99,7 +99,7 @@ const DEFAULT_UUID_GEN = (): string => '000000000000';
 export class GrowthPipeline {
   readonly config: GrowthConfig;
   readonly knowledge_set: KnowledgeSet;
-  readonly distiller: TieredDistiller;
+  readonly distiller: RoleDistiller;
   // 自动放行人工层：自我进化是后台机制，落位只过三层闸门
   readonly gate: KnowledgeGate;
   readonly _classifier = new SignalClassifier();
@@ -128,7 +128,7 @@ export class GrowthPipeline {
     this.knowledge_set = knowledge_set;
     this.distiller =
       options.distiller ??
-      new TieredDistiller({ config: new DistillConfig(), chain: null });
+      new RoleDistiller({ config: new DistillConfig(), chain: null });
     // 自动放行人工层：自我进化是后台机制，落位只过三层闸门
     this.gate = options.gate ?? new KnowledgeGate({ human_review_enabled: false });
     this._metric_store = options.metric_store ?? null;

@@ -10,6 +10,8 @@
 import type { Runtime } from '@ink-ts/engine';
 
 import type { InkHost } from '../host.js';
+import { HOST_SESSIONS_COLLECTION } from '../sessions/model.js';
+import type { HostSessionRecord } from '../sessions/model.js';
 
 /** bridge 处理器上下文（与 cli rpc HandlerContext 结构一致，供 cli 直接并入命令面）。 */
 export interface BridgeContext {
@@ -37,18 +39,8 @@ export class BridgeError extends Error {
   }
 }
 
-/** 会话索引集合（宿主薄服务数据所在存储集合键；rounds 收尾 upsert）。 */
-export const HOST_SESSIONS_COLLECTION = 'host.sessions';
-
-/** 单条会话索引记录（rounds.send 回合收尾 upsert）。 */
-export interface HostSessionRecord {
-  thread_id: string;
-  title: string;
-  created_at: string;
-  updated_at: string;
-  round_count: number;
-  last_round_id: string | null;
-}
+export { HOST_SESSIONS_COLLECTION };
+export type { HostSessionRecord };
 
 /** bridge 依赖（createHost 装配产物；rounds/records/approval/audit 消费）。 */
 export interface HostBridgeDeps {

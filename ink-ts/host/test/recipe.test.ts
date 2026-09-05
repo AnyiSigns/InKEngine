@@ -9,7 +9,6 @@ import {
   assert_product_switches_all_on,
   build_product_recipe,
 } from '../src/recipe.js';
-import { echoGraphRecipe } from './_graphs.js';
 
 describe('产品配方默认表（机制开关全开）', () => {
   it('默认表所有开关全 true（PathAssemblyFlags 七位 + canary + 多域窗口 + 时间线）', () => {
@@ -26,7 +25,7 @@ describe('产品配方默认表（机制开关全开）', () => {
     expect(PRODUCT_SWITCH_DEFAULTS.emit_timeline_events).toBe(true);
   });
 
-  it('build_product_recipe：boot 种子直接引用 engine，graph_recipe 注入位缺省 null', () => {
+  it('build_product_recipe：boot 种子直接引用 engine；graph_recipe 缺省 = 产品默认图', () => {
     const recipe = build_product_recipe();
     expect(recipe.set_id).toBe('default');
     expect(recipe.seeds.length).toBe(1);
@@ -34,7 +33,7 @@ describe('产品配方默认表（机制开关全开）', () => {
     expect(recipe.harness_definitions.length).toBeGreaterThan(0);
     expect(recipe.event_type_specs.length).toBeGreaterThan(0);
     expect(recipe.tool_wiring).not.toBeNull();
-    expect(recipe.graph_recipe).toBeNull();
+    expect(recipe.graph_recipe).toBeTypeOf('function');
     // 执行域选项经引擎 run_options 通道消费（多径 + 时间线默认开）
     const runOptions = recipe.run_options as { multipath_enabled: boolean } | null;
     expect(runOptions).not.toBeNull();
@@ -53,8 +52,9 @@ describe('产品配方默认表（机制开关全开）', () => {
     expect(runOptions!.emit_timeline_events).toBe(false);
   });
 
-  it('注入 graph_recipe 后 recipe.graph_recipe 生效', () => {
-    const recipe = build_product_recipe({ graph_recipe: echoGraphRecipe });
-    expect(recipe.graph_recipe).toBeTypeOf('function');
+  it('注入 graph_recipe 后 recipe.graph_recipe 生效（覆写默认图）', () => {
+    const injected = (): unknown => ({});
+    const recipe = build_product_recipe({ graph_recipe: injected as never });
+    expect(recipe.graph_recipe).toBe(injected as never);
   });
 });

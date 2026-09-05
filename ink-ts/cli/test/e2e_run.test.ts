@@ -15,6 +15,7 @@ import path from 'node:path';
 import { describe, expect, it } from 'vitest';
 
 import { parseEnvelope, runCli } from './_spawn.js';
+import { locateNativeBinary } from '@ink-ts/host';
 
 const STUB_REPLY = '（cli stub 回合已执行）';
 
@@ -94,12 +95,24 @@ describe('run 形态：op / audit / os-op', () => {
     expect(env?.error?.message).toContain('未知方法');
   });
 
-  it('--os-op 未接线（依赖 exec 原生件）：fail-closed exit 1 + kind=os_op', async () => {
+  it('--os-op 显式 --approve：有 exec 原生件走参数校验，无则 fail-closed exit 1', async () => {
     const { exitCode, env } = await runOnce(['run', '--os-op', 'process_exec', '--approve', ...dataArgs()]);
     expect(exitCode).toBe(1);
     expect(env?.ok).toBe(false);
     expect(env?.error?.kind).toBe('os_op');
-    expect(env?.error?.message).toContain('未装配');
+    if (locateNativeBinary('exec') === null) {
+      expect(env?.error?.message).toContain('未装配');
+    } else {
+      expect(env?.error?.message).toContain('需 op');
+    }
+  });
+
+  it('--os-op 无 --approve：fail-closed 拒绝（approval 提示）', async () => {
+    const { exitCode, env } = await runOnce(['run', '--os-op', 'process_exec', ...dataArgs()]);
+    expect(exitCode).toBe(1);
+    expect(env?.ok).toBe(false);
+    expect(env?.error?.kind).toBe('os_op');
+    expect(env?.error?.message).toContain('--approve');
   });
 });
 

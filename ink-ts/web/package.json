@@ -3,8 +3,37 @@
   "version": "0.0.0",
   "private": true,
   "type": "module",
-  "description": "L5 前端纯渲染层（web/）：React/TS 只渲染数据（ui_spec/事件流）+ 触发补丁，经 cli serve 通道接入；组件白名单注册制",
+  "description": "受控自进化智能体 L5 纯渲染层（web/）：React/TS 只渲染数据（ui_spec 数据树 + 事件流）与触发补丁，逻辑/渲染分离；组件白名单注册制 + bind 通道（state.*/events.*）；生产通道 = cli serve http/ws（serve 就绪前 transport stub 契约，T6 接真实现只换 transport）",
   "scripts": {
-    "typecheck": "tsc -p tsconfig.json"
+    "dev": "vite",
+    "build": "tsc --noEmit && vite build",
+    "typecheck": "tsc --noEmit",
+    "test": "vitest run",
+    "test:watch": "vitest",
+    "preview": "vite preview"
+  },
+  "dependencies": {
+    "clsx": "^2.1.1",
+    "dompurify": "^3.4.14",
+    "lucide-react": "^0.469.0",
+    "marked": "^18.0.10",
+    "react": "^18.3.1",
+    "react-dom": "^18.3.1",
+    "tailwind-merge": "^2.6.0"
+  },
+  "devDependencies": {
+    "@tailwindcss/vite": "^4.0.0",
+    "@testing-library/jest-dom": "^6.6.3",
+    "@testing-library/react": "^16.2.0",
+    "@testing-library/user-event": "^14.6.1",
+    "@types/node": "^26.2.0",
+    "@types/react": "^18.3.12",
+    "@types/react-dom": "^18.3.1",
+    "@vitejs/plugin-react": "^4.3.4",
+    "jsdom": "^26.0.0",
+    "tailwindcss": "^4.0.0",
+    "typescript": "~5.8.2",
+    "vite": "^6.0.7",
+    "vitest": "^3.0.5"
   }
 }

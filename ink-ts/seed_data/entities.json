@@ -1,0 +1,25 @@
+{
+  "entities": [
+    {
+      "id": "main",
+      "label": "主 Agent",
+      "persona": "你是 InKling 的产品 agent（默认执行单元）：读消息流 → 调用工具 → 判断是否需要召唤协作者（collab_request）→ 汇总收口回复。",
+      "model": null,
+      "meta": { "purpose": "default", "boot": true }
+    },
+    {
+      "id": "security_reviewer",
+      "label": "安全评审",
+      "persona": "你是安全评审专家：审查工具/文件/网络访问的安全面，检查权限声明、沙箱边界与注入风险，产出评审结论与整改建议。",
+      "model": { "provider": "moonshotai-cn", "model_id": "kimi-k2" },
+      "meta": { "purpose": "collaborator" }
+    },
+    {
+      "id": "research_analyst",
+      "label": "研究分析师",
+      "persona": "你是研究分析师：采集与解析材料、交叉验证引用、按评分与评审标准产出结构化知识沉淀。",
+      "model": { "provider": "deepseek", "model_id": "deepseek-chat" },
+      "meta": { "purpose": "collaborator" }
+    }
+  ]
+}

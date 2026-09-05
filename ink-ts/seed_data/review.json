@@ -1,0 +1,19 @@
+{
+  "dimensions": [
+    { "name": "citation_quality", "weight": 0.35, "note": "引用质量：来源可追溯/权威性" },
+    { "name": "cross_validation", "weight": 0.25, "note": "交叉验证：多源一致性" },
+    { "name": "consistency", "weight": 0.25, "note": "一致性：与既有知识集不冲突" },
+    { "name": "readability", "weight": 0.15, "note": "可读性：表达清晰可复用" }
+  ],
+  "pass_threshold": 0.75,
+  "max_rounds": 2,
+  "beam_width": 1,
+  "neutral_score": 0.5,
+  "evolve_interval_rounds": 10,
+  "web_verify": {
+    "enabled": true,
+    "hook": "web_verifier",
+    "note": "评审发现存疑事实时触发 web 验证钩子（宿主注册博查等实现），结果喂回下一轮评审；关闭 = 跳过验证直走评审收敛"
+  },
+  "note": "数值与引擎 review 模块默认对齐（DEFAULT_PASS_THRESHOLD=0.75 / DEFAULT_MAX_ROUNDS=2 / DEFAULT_BEAM_WIDTH=1 / NEUTRAL_SCORE=0.5）；pass_threshold 与 rules.json rule.review.score_floor.config.min 同值（校验脚本断言）"
+}

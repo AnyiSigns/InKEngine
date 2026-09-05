@@ -1,0 +1,113 @@
+/**
+ * 前端激活入口：供壳/测试注入调用，启动 InKling 产品面。
+ *
+ * 装配顺序：
+ *  1. fe2 设置引擎注册各节（registerSettingsSections，含架构 tab）；
+ *  2. fe3 市场/工具/OS/工作区/界面组件注册 + 五个 section 归一进设置注册表；
+ *  3. 会话层（backend + channelHub + sessionStore）→ App 渲染。
+ */
+
+import { createElement, type ComponentType } from 'react';
+import { createRoot } from 'react-dom/client';
+import { ChannelHub } from '@/shared/session/channelHub';
+import { MemorySessionStore } from '@/shared/session/sessionStore';
+import { createSessionStoreFrom } from '@/shared/backend/remoteSessionStore';
+import { createBackend } from '@/shared/backend/backendAdapter';
+import { ROUND_EVENT_TOPIC, listenHostEvent } from '@/shared/backend/transport';
+import { registerBuiltinComponents } from '@/components';
+import { createIngester, toHubEvent, setStreaming, finalizeThreadStreaming, setThreadRoundActive } from '@/shared/session/eventIngest';
+import { registerComponent, type PlainComponent } from '@/renderer/componentRegistry';
+import { AppBackend } from './backend';
+import { registerSettingsSections } from './settings/activate';
+import { registerSettingsSection } from './settings/registry';
+import { activate as activateWave4, viewRegistrations } from './views/wave4activate';
+import { KnowledgePanel } from './knowledge/KnowledgePanel';
+import { normalizeWave4Sections } from './wiring/normalizeWave4';
+import App from '../App';
+
+export function activate(): void {
+  // 出厂基线组件注册（渲染器白名单基线；wave4 视图/产物清单按同名覆盖接管）
+  registerBuiltinComponents();
+
+  const backend = createBackend();
+  const appBackend = new AppBackend({ backend });
+
+  // 出厂组件启停同步到渲染器白名单（停用组件渲染占位拒绝；读取失败保持出厂全量）
+  void appBackend.syncUiComponentGate();
+
+  registerSettingsSections();
+
+  const wave4 = activateWave4(appBackend);
+  for (const section of normalizeWave4Sections(wave4.sections)) {
+    registerSettingsSection(section);
+  }
+
+  // 视图组件经 DynamicComponent 渲染时注入 AppBackend（白名单键原样保留，
+  // 同名覆盖：装配层闭包提供 backend，组件未声明 backend 的忽略该额外属性）。
+  // 已注册组件清单视图自取 components_manifest 并刷新 artifactLoader 注册；
+  // MCP 市场挂载动作接真：市场一键挂载（手动挂载，免审批卡）。
+  for (const [key, Comp] of Object.entries(viewRegistrations)) {
+    const C = Comp as unknown as ComponentType<Record<string, unknown>>;
+    const extraProps: Record<string, unknown> = { backend: appBackend };
+    if (key === 'mcp_market') {
+      extraProps.onMount = (entry: { id: string }) => appBackend.mountMcp(entry.id);
+      extraProps.onUnmount = (entry: { id: string }) => appBackend.unmountMcp(entry.id);
+    }
+    registerComponent(
+      key,
+      ((props: Record<string, unknown> = {}) => createElement(C, { ...props, ...extraProps })) as PlainComponent,
+    );
+  }
+
+  registerComponent('knowledge_panel', KnowledgePanel as unknown as PlainComponent);
+
+  const hub = new ChannelHub({});
+  const fixtureStore = new MemorySessionStore([]);
+  const sessionStore = createSessionStoreFrom(backend, () => fixtureStore);
+
+  // serve 通道→前端回合事件流接线：round_event 订阅 → 会话状态归约。
+  // 引擎信封（EngineEvent）与前端 HubEvent 形态归一后逐条落位，消息流/
+  // 审批卡/任务胶囊/模拟分支全部由此驱动；通道不可用（serve 未就绪，
+  // transport stub）时订阅为空操作，测试注入 mock 后端即自驱。
+  if (backend.available) {
+    const ingest = createIngester(hub);
+    void listenHostEvent<Record<string, unknown>>(ROUND_EVENT_TOPIC, (raw) => {
+      if (!raw || typeof raw !== 'object') return;
+      const event = toHubEvent(raw as Record<string, unknown>);
+      // 跨会话事件一律交给 ingest 分桶：ingest 已按 targetThread 正确分桶，
+      // 仅 isActive 时镜像到全局窗口；非活跃会话数据只入桶不污染当前窗口。
+      ingest(event);
+      if (event.type === 'end') {
+        // 回合结束收尾按事件自身线程执行（end 事件的 thread_id）：
+        // 窗口切走后结束的后台回合只定型并回写其桶/存储，不污染当前窗口
+        const rawThread = typeof event.payload.thread_id === 'string' ? event.payload.thread_id : '';
+        const snap0 = hub.getSnapshot();
+        const threadId = rawThread && rawThread !== '-' ? rawThread : snap0.activeSessionId;
+        const bucket0 = snap0.perThread[threadId];
+        finalizeThreadStreaming(hub, threadId);
+        setThreadRoundActive(hub, threadId, false);
+        const snap = hub.getSnapshot();
+        const finalMsgs = snap.perThread[threadId]?.messages ?? bucket0?.messages ?? [];
+        if (threadId === snap.activeSessionId) setStreaming(hub, false);
+        if (finalMsgs.length > 0 && typeof sessionStore.replaceMessages === 'function') {
+          try {
+            sessionStore.replaceMessages(threadId, finalMsgs);
+          } catch {
+            // 回写失败不影响实时流
+          }
+        }
+      }
+    });
+  }
+
+  const rootEl = document.getElementById('root');
+  if (!rootEl) throw new Error('缺少 #root 挂载点');
+
+  createRoot(rootEl).render(
+    <App
+      backend={backend}
+      hub={hub}
+      sessionStore={sessionStore}
+    />,
+  );
+}

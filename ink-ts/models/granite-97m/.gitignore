@@ -1,0 +1,5 @@
+# 模型二进制与词表数据（出厂随包分发，不入版本库——随迁 inkling/models/
+# 的 gitignore 语义；配置/许可/声明文件保留在版本库，供 infer 目录定位与
+# 许可追溯。落位覆盖见 INK_EMBEDDING_MODEL_DIR）
+model_quint8_avx2.onnx
+tokenizer.json

@@ -1,0 +1,627 @@
+{
+  "events": [
+    {
+      "name": "reply_token",
+      "schema": {
+        "name": "reply_token",
+        "fields": [
+          { "name": "token", "required": true, "kind": "string" }
+        ]
+      },
+      "renderer": "message_list",
+      "system": false,
+      "meta": { "note": "流式回复增量 token，消息流追加渲染" }
+    },
+    {
+      "name": "thinking_start",
+      "schema": {
+        "name": "thinking_start",
+        "fields": [
+          { "name": "content", "kind": "string" },
+          { "name": "node", "kind": "string" },
+          { "name": "step_id", "kind": "string" }
+        ]
+      },
+      "renderer": "message_list",
+      "system": false,
+      "meta": { "note": "思考卡（消息流流式追加：thinking_start 携带内容分片逐片追加，thinking_end 定型）" }
+    },
+    {
+      "name": "thinking_end",
+      "schema": {
+        "name": "thinking_end",
+        "fields": [
+          { "name": "content", "kind": "string" },
+          { "name": "step_id", "kind": "string" }
+        ]
+      },
+      "renderer": "message_list",
+      "system": false,
+      "meta": { "note": "思考结束定型（同 step_id 收敛为完成态）" }
+    },
+    {
+      "name": "plan_start",
+      "schema": {
+        "name": "plan_start",
+        "fields": [
+          { "name": "plan", "required": true, "kind": "object" },
+          { "name": "note", "kind": "string" }
+        ]
+      },
+      "renderer": "message_list",
+      "system": false,
+      "meta": { "note": "重规划开始（__plan__ 落点），推演轨迹树与消息流内联行消费" }
+    },
+    {
+      "name": "plan_end",
+      "schema": {
+        "name": "plan_end",
+        "fields": [
+          { "name": "content", "kind": "string" },
+          { "name": "step_id", "kind": "string" }
+        ]
+      },
+      "renderer": "message_list",
+      "system": false,
+      "meta": { "note": "规划结束（步骤清单定型）" }
+    },
+    {
+      "name": "plan_token",
+      "schema": {
+        "name": "plan_token",
+        "fields": [
+          { "name": "token", "kind": "string" }
+        ]
+      },
+      "renderer": "message_list",
+      "system": false,
+      "meta": { "note": "规划流式增量 token（计划文本逐片追加）" }
+    },
+    {
+      "name": "spawn_start",
+      "schema": {
+        "name": "spawn_start",
+        "fields": [
+          { "name": "spawns", "required": true, "kind": "array" }
+        ]
+      },
+      "renderer": "message_list",
+      "system": false,
+      "meta": { "note": "子任务展开（__spawn__ 落点），主会话轻量子代理卡（界面复审 R8：按事件语义覆盖分派，spawn→子代理卡；simulate_*→推演树）；spawns = [{id, nodes[], parallel, label}] 展示形态" }
+    },
+    {
+      "name": "spawn_end",
+      "schema": {
+        "name": "spawn_end",
+        "fields": [
+          { "name": "node_id", "kind": "string" },
+          { "name": "spawn_id", "kind": "string" }
+        ]
+      },
+      "renderer": "message_list",
+      "system": false,
+      "meta": { "note": "子任务实例结束（按实例 graph_path 归属回收），子代理卡实例行状态推进" }
+    },
+    {
+      "name": "assembly_candidate",
+      "schema": {
+        "name": "assembly_candidate",
+        "fields": [
+          { "name": "domain", "required": true, "kind": "string" },
+          { "name": "ts", "kind": "number" },
+          { "name": "fingerprint", "kind": "string" }
+        ]
+      },
+      "renderer": "path_dag",
+      "system": false,
+      "meta": { "note": "组装候选留痕（候选计划登记，只观察不执行；路径/边证据视图消费，旧前端 path_dag 已注册渲染器）" }
+    },
+    {
+      "name": "junction_verdict",
+      "schema": {
+        "name": "junction_verdict",
+        "fields": [
+          { "name": "domain", "required": true, "kind": "string" },
+          { "name": "winner", "kind": "string" },
+          { "name": "losers", "kind": "array" },
+          { "name": "ts", "kind": "number" }
+        ]
+      },
+      "renderer": "path_dag",
+      "system": false,
+      "meta": { "note": "汇流裁决留痕（胜者/败者/裁决理由；路径/边证据视图消费）" }
+    },
+    {
+      "name": "junction_verdict_audit",
+      "schema": {
+        "name": "audit.junction",
+        "fields": [
+          { "name": "domain", "required": true, "kind": "string" },
+          { "name": "ts", "kind": "number" }
+        ]
+      },
+      "renderer": "path_dag",
+      "system": false,
+      "meta": { "note": "汇流裁决审计留痕（append-only 审计出口；与引擎 EVENT_AUDIT_JUNCTION 同源）" }
+    },
+    {
+      "name": "assembly_audit",
+      "schema": {
+        "name": "audit.assembly",
+        "fields": [
+          { "name": "domain", "required": true, "kind": "string" },
+          { "name": "ts", "kind": "number" },
+          { "name": "fingerprint", "kind": "string" }
+        ]
+      },
+      "renderer": "path_dag",
+      "system": false,
+      "meta": { "note": "组装审计留痕（候选计划登记；与引擎 EVENT_AUDIT_ASSEMBLY 同源）" }
+    },
+    {
+      "name": "fingerprint_replace_audit",
+      "schema": {
+        "name": "audit.fingerprint_replace",
+        "fields": [
+          { "name": "domain", "required": true, "kind": "string" },
+          { "name": "ts", "kind": "number" },
+          { "name": "fingerprint", "kind": "string" }
+        ]
+      },
+      "renderer": "path_dag",
+      "system": false,
+      "meta": { "note": "指纹顶替审计留痕（旧条目失效与新条目落位；与引擎 EVENT_AUDIT_FINGERPRINT_REPLACE 同源）" }
+    },
+    {
+      "name": "policy_edge_review_audit",
+      "schema": {
+        "name": "audit.policy_review",
+        "fields": [
+          { "name": "domain", "required": true, "kind": "string" },
+          { "name": "ts", "kind": "number" }
+        ]
+      },
+      "renderer": "path_dag",
+      "system": false,
+      "meta": { "note": "策略边复审审计留痕（对抗证据触发复审/降级；与引擎 EVENT_AUDIT_POLICY_REVIEW 同源）" }
+    },
+    {
+      "name": "recommended_prior_promotion",
+      "schema": {
+        "name": "audit.promotion",
+        "fields": [
+          { "name": "domain", "required": true, "kind": "string" },
+          { "name": "ts", "kind": "number" }
+        ]
+      },
+      "renderer": "path_dag",
+      "system": false,
+      "meta": { "note": "推荐先验自动晋升留痕（高强度证据路径自动晋升；与引擎 EVENT_AUDIT_PROMOTION 同源）" }
+    },
+    {
+      "name": "node_start",
+      "schema": {
+        "name": "node_start",
+        "fields": [
+          { "name": "node_id", "required": true, "kind": "string" },
+          { "name": "label", "kind": "string" }
+        ]
+      },
+      "renderer": "NodeRow",
+      "system": false,
+      "meta": { "note": "节点执行开始（架构视图实例 tab 节点执行态追踪，随 node_start/end 推进；boot 常量有/seed 补登记）" }
+    },
+    {
+      "name": "node_end",
+      "schema": {
+        "name": "node_end",
+        "fields": [
+          { "name": "node_id", "kind": "string" },
+          { "name": "label", "kind": "string" },
+          { "name": "tokens", "kind": "number" }
+        ]
+      },
+      "renderer": "NodeRow",
+      "system": false,
+      "meta": { "note": "节点执行完成（轨迹/实例 tab 节点状态回填；与 node_start 配对）" }
+    },
+    {
+      "name": "node_fail",
+      "schema": {
+        "name": "node_fail",
+        "fields": [
+          { "name": "node_id", "kind": "string" },
+          { "name": "label", "kind": "string" },
+          { "name": "reason", "kind": "string" }
+        ]
+      },
+      "renderer": "NodeRow",
+      "system": false,
+      "meta": { "note": "节点执行失败（轨迹/实例 tab 节点失败态回填；与 node_start 配对）" }
+    },
+    {
+      "name": "tool_start",
+      "schema": {
+        "name": "tool_start",
+        "fields": [
+          { "name": "tool", "required": true, "kind": "string" },
+          { "name": "permission", "required": true, "kind": "string" },
+          { "name": "summary", "kind": "string" }
+        ]
+      },
+      "renderer": "message_list",
+      "system": false,
+      "meta": { "note": "工具调用留痕（工具名·权限判定·结果摘要），内联一行" }
+    },
+    {
+      "name": "tool_end",
+      "schema": {
+        "name": "tool_end",
+        "fields": [
+          { "name": "tool", "required": true, "kind": "string" },
+          { "name": "success", "kind": "boolean" },
+          { "name": "message", "kind": "string" },
+          { "name": "summary", "kind": "string" }
+        ]
+      },
+      "renderer": "message_list",
+      "system": false,
+      "meta": { "note": "工具调用结束（成败 + 截断结果回填）" }
+    },
+    {
+      "name": "review_card",
+      "schema": {
+        "name": "review_card",
+        "fields": [
+          { "name": "key", "required": true, "kind": "string" },
+          { "name": "kind", "required": true, "kind": "string" },
+          { "name": "payload", "kind": "object" }
+        ]
+      },
+      "renderer": "review_card",
+      "system": false,
+      "meta": { "note": "审批卡（居中弹层），朱砂 accent；kind 携带补丁类型/审批档位" }
+    },
+    {
+      "name": "suggestions",
+      "schema": {
+        "name": "suggestions",
+        "fields": [
+          { "name": "items", "required": true, "kind": "array" }
+        ]
+      },
+      "renderer": "message_list",
+      "system": false,
+      "meta": { "note": "候选建议清单（评审再生成/分支对比产物）" }
+    },
+    {
+      "name": "error",
+      "schema": {
+        "name": "error",
+        "fields": [
+          { "name": "node", "required": true, "kind": "string" },
+          { "name": "message", "required": true, "kind": "string" }
+        ]
+      },
+      "renderer": "message_list",
+      "system": false,
+      "meta": { "note": "节点执行异常（引擎 error 事件），消息流告警展示" }
+    },
+    {
+      "name": "end",
+      "schema": {
+        "name": "end",
+        "fields": []
+      },
+      "renderer": "message_list",
+      "system": false,
+      "meta": { "note": "回合结束信号（不建卡，仅推进状态）" }
+    },
+    {
+      "name": "simulate_decision",
+      "schema": {
+        "name": "simulate_decision",
+        "fields": [
+          { "name": "node", "kind": "string" },
+          { "name": "step_id", "kind": "string" },
+          { "name": "selected", "kind": "array" },
+          { "name": "branches", "kind": "array" }
+        ]
+      },
+      "renderer": "simulation_tree",
+      "system": false,
+      "meta": { "note": "决策点推演（__simulate__ 落点）：branches = [{index, description, score, passed, note}] 分支对比，selected = 选中分支索引" }
+    },
+    {
+      "name": "branch_result",
+      "schema": {
+        "name": "branch_result",
+        "fields": [
+          { "name": "branch_id", "required": true, "kind": "string" },
+          { "name": "score", "kind": "number" },
+          { "name": "rationale", "kind": "string" }
+        ]
+      },
+      "renderer": "simulation_tree",
+      "system": false,
+      "meta": { "note": "分支评分结果回填（同 branch_id 更新评分与理由）" }
+    },
+    {
+      "name": "swap_branch",
+      "schema": {
+        "name": "swap_branch",
+        "fields": [
+          { "name": "branch_id", "required": true, "kind": "string" }
+        ]
+      },
+      "renderer": "simulation_tree",
+      "system": false,
+      "meta": { "note": "换选分支（selected 归属切换）" }
+    },
+    {
+      "name": "signal_detected",
+      "schema": {
+        "name": "signal_detected",
+        "fields": [
+          { "name": "signal_id", "required": true, "kind": "string" },
+          { "name": "signal", "required": true, "kind": "string" },
+          { "name": "signal_type", "kind": "string" }
+        ]
+      },
+      "renderer": "incubator_panel",
+      "system": false,
+      "meta": { "note": "孵化入口：信号检测留痕（signal_id 关联后续蒸馏/闸门判定）" }
+    },
+    {
+      "name": "distill_outcome",
+      "schema": {
+        "name": "distill_outcome",
+        "fields": [
+          { "name": "signal_id", "required": true, "kind": "string" },
+          { "name": "distilled", "kind": "string" }
+        ]
+      },
+      "renderer": "incubator_panel",
+      "system": false,
+      "meta": { "note": "蒸馏产物回填（同 signal_id 孵化条目进入已蒸馏态）" }
+    },
+    {
+      "name": "gate_verdict",
+      "schema": {
+        "name": "gate_verdict",
+        "fields": [
+          { "name": "signal_id", "required": true, "kind": "string" },
+          { "name": "level", "kind": "string", "enum": ["L1", "L2", "L3"] },
+          { "name": "passed", "required": true, "kind": "boolean" },
+          { "name": "reason", "kind": "string" }
+        ]
+      },
+      "renderer": "incubator_panel",
+      "system": false,
+      "meta": { "note": "三层闸门判定留痕（同 signal_id 放行/拦截及原因）" }
+    },
+    {
+      "name": "mutation_proposed",
+      "schema": {
+        "name": "mutation_proposed",
+        "fields": [
+          { "name": "mutation_id", "required": true, "kind": "string" },
+          { "name": "mutation", "kind": "string" },
+          { "name": "title", "kind": "string" }
+        ]
+      },
+      "renderer": "incubator_panel",
+      "system": false,
+      "meta": { "note": "进化工厂变异体提案（孵化流水条目）" }
+    },
+    {
+      "name": "regression_guard",
+      "schema": {
+        "name": "regression_guard",
+        "fields": [
+          { "name": "mutation_id", "required": true, "kind": "string" },
+          { "name": "passed", "kind": "boolean" },
+          { "name": "reason", "kind": "string" }
+        ]
+      },
+      "renderer": "incubator_panel",
+      "system": false,
+      "meta": { "note": "防退化守卫判定（变异体回归拦截留痕）" }
+    },
+    {
+      "name": "evolution_variant",
+      "schema": {
+        "name": "evolution_variant",
+        "fields": [
+          { "name": "entry_id", "required": true, "kind": "string" },
+          { "name": "variant_id", "kind": "string" },
+          { "name": "rejected", "kind": "boolean" },
+          { "name": "reason", "kind": "string" }
+        ]
+      },
+      "renderer": "evolution_factory",
+      "system": false,
+      "meta": { "note": "进化工厂变异体产出/拒绝留痕（防退化展示）" }
+    },
+    {
+      "name": "patch_applied",
+      "schema": {
+        "name": "patch_applied",
+        "fields": [
+          { "name": "patch_id", "required": true, "kind": "string" },
+          { "name": "kind", "kind": "string" },
+          { "name": "title", "kind": "string" }
+        ]
+      },
+      "renderer": "evolution_timeline",
+      "system": false,
+      "meta": { "note": "补丁应用回填（同 patch_id 补丁链条目 → 已应用态）" }
+    },
+    {
+      "name": "patch_proposed",
+      "schema": {
+        "name": "patch_proposed",
+        "fields": [
+          { "name": "patch_id", "required": true, "kind": "string" },
+          { "name": "kind", "kind": "string" },
+          { "name": "title", "kind": "string" },
+          { "name": "level", "kind": "string" }
+        ]
+      },
+      "renderer": "evolution_timeline",
+      "system": false,
+      "meta": { "note": "补丁提案（待审批/待落链条目）" }
+    },
+    {
+      "name": "patch_reverted",
+      "schema": {
+        "name": "patch_reverted",
+        "fields": [
+          { "name": "patch_id", "required": true, "kind": "string" },
+          { "name": "reason", "kind": "string" }
+        ]
+      },
+      "renderer": "evolution_timeline",
+      "system": false,
+      "meta": { "note": "补丁回退回填（同 patch_id 补丁链条目 → 已回退态）" }
+    },
+    {
+      "name": "memory_recall",
+      "schema": {
+        "name": "memory_recall",
+        "fields": [
+          { "name": "query", "required": true, "kind": "string" },
+          { "name": "hits", "kind": "array" }
+        ]
+      },
+      "renderer": "source_trace",
+      "system": false,
+      "meta": { "note": "记忆召回留痕（hits = [{id, title, snippet}]，来源明细溯源）" }
+    },
+    {
+      "name": "tuning_update",
+      "schema": {
+        "name": "tuning_update",
+        "fields": [
+          { "name": "metric", "required": true, "kind": "string" },
+          { "name": "delta", "kind": "number" },
+          { "name": "snapshot", "kind": "boolean" }
+        ]
+      },
+      "renderer": "source_trace",
+      "system": false,
+      "meta": { "note": "调优留痕（指标聚合/参数快照回放）" }
+    },
+    {
+      "name": "vetting_result",
+      "schema": {
+        "name": "vetting_result",
+        "fields": [
+          { "name": "tool", "required": true, "kind": "string" },
+          { "name": "verdict", "required": true, "kind": "string", "enum": ["pass", "fail", "review"] },
+          { "name": "reason", "kind": "string" }
+        ]
+      },
+      "renderer": "source_trace",
+      "system": false,
+      "meta": { "note": "工具可信度审查留痕（静态钩子/L2 影子运行）" }
+    },
+    {
+      "name": "output_verdict",
+      "schema": {
+        "name": "output_verdict",
+        "fields": [
+          { "name": "node", "kind": "string" },
+          { "name": "pass", "required": true, "kind": "boolean" },
+          { "name": "attempt", "kind": "number" },
+          { "name": "violations", "kind": "array" }
+        ]
+      },
+      "renderer": "source_trace",
+      "system": false,
+      "meta": { "note": "节点产出评审裁决（executor VTM 验证器 emit：node/pass/attempt/violations）" }
+    },
+    {
+      "name": "device_sensed",
+      "schema": {
+        "name": "device_sensed",
+        "fields": [
+          { "name": "sensor", "required": true, "kind": "string" },
+          { "name": "payload", "kind": "object" }
+        ]
+      },
+      "renderer": "message_list",
+      "system": false,
+      "meta": { "note": "OS 感知留痕（屏幕/文件/系统状态，宿主挂载设备感知 server）" }
+    },
+    {
+      "name": "device_control",
+      "schema": {
+        "name": "device_control",
+        "fields": [
+          { "name": "action", "required": true, "kind": "string" },
+          { "name": "target", "kind": "string" },
+          { "name": "result", "kind": "string" }
+        ]
+      },
+      "renderer": "message_list",
+      "system": false,
+      "meta": { "note": "OS 控制留痕（launch_app/open_file/notify 等执行器动作）" }
+    },
+    {
+      "name": "user_message",
+      "schema": {
+        "name": "user_message",
+        "fields": [
+          { "name": "text", "required": true, "kind": "string" },
+          { "name": "attachments", "kind": "array" }
+        ]
+      },
+      "renderer": "message_list",
+      "system": false,
+      "meta": { "note": "用户消息（输入行发送内容，消息流气泡渲染）" }
+    },
+    {
+      "name": "attachment",
+      "schema": {
+        "name": "attachment",
+        "fields": [
+          { "name": "kind", "kind": "string" },
+          { "name": "url", "kind": "string" },
+          { "name": "name", "kind": "string" }
+        ]
+      },
+      "renderer": "message_list",
+      "system": false,
+      "meta": { "note": "附件事件类别（引擎 Attachment 契约形态，DEFAULT_ATTACHMENT_EVENT_NAME；负载为宿主/前端协商形态，不作 schema 约束）" }
+    },
+    {
+      "name": "turn_started",
+      "schema": { "name": "timeline.turn_started", "fields": [] },
+      "renderer": "message_list",
+      "system": true,
+      "meta": { "note": "回合入口（用户消息到达，时间线起点，顶层图发射一次）", "purpose": "timeline" }
+    },
+    {
+      "name": "assembly_started",
+      "schema": { "name": "timeline.assembly_started", "fields": [] },
+      "renderer": "message_list",
+      "system": true,
+      "meta": { "note": "组装开始（输入调配预装配起点，时间线：组装阶段起点）", "purpose": "timeline" }
+    },
+    {
+      "name": "assembly_done",
+      "schema": { "name": "timeline.assembly_done", "fields": [] },
+      "renderer": "message_list",
+      "system": true,
+      "meta": { "note": "组装完成（时间线：组装阶段耗时）", "purpose": "timeline" }
+    },
+    {
+      "name": "execution_started",
+      "schema": { "name": "timeline.execution_started", "fields": [] },
+      "renderer": "message_list",
+      "system": true,
+      "meta": { "note": "第一个节点真正开工（execution_started 才是「开始做用户任务」的起点）", "purpose": "timeline" }
+    }
+  ]
+}

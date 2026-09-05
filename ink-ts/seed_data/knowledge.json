@@ -1,0 +1,125 @@
+{
+  "entries": [
+    {
+      "id": "seed.inkling.domain_guide",
+      "level": "project",
+      "kind": "rule",
+      "data": {
+        "rule": {
+          "message": "起点领域为知识/研究孵化：闭环 = 采集 → 解析 → 校验 → 评分 → 评审 → 蒸馏 → 沉淀；新知识落库须过三层闸门（L1 形式 / L2 样例全绿 / L3 不劣于旧版）",
+          "context": {
+            "domain": "knowledge_research",
+            "rule_ref": ["rule.material.required_fields", "rule.knowledge.rule_entry_shape", "rule.review.score_floor"]
+          }
+        }
+      },
+      "source": "model",
+      "credibility": 0.9,
+      "title": "领域基线：知识/研究孵化闭环",
+      "tags": ["domain", "baseline", "incubation"]
+    },
+    {
+      "id": "seed.inkling.source_credibility",
+      "level": "project",
+      "kind": "weight",
+      "data": {
+        "weights": { "web": 0.3, "dialog": 0.6, "model": 0.7, "user": 0.9 },
+        "thresholds": { "pass": 0.75 },
+        "note": "来源 → 默认可信度基准（web 最低，防注入污染知识集）；与引擎 default_credibility 同值"
+      },
+      "source": "model",
+      "credibility": 0.9,
+      "title": "来源可信度权重基线",
+      "tags": ["weights", "credibility", "source"]
+    },
+    {
+      "id": "seed.inkling.tool_rule.mcp_mount",
+      "level": "project",
+      "kind": "tool_rule",
+      "data": {
+        "tool_rule": {
+          "tool": "propose_mcp_mount",
+          "require": "L2 人工审批",
+          "gate": "vetting 静态钩子核对（清单一致性/命令白名单守卫）",
+          "note": "外部工具/插件接入一律走挂载提案 → 审批 → 补丁链，出厂零预挂"
+        }
+      },
+      "source": "model",
+      "credibility": 0.9,
+      "title": "工具规则：MCP 挂载须经审批",
+      "tags": ["tool_rule", "mcp", "approval"]
+    },
+    {
+      "id": "seed.inkling.tool_rule.os_control",
+      "level": "project",
+      "kind": "tool_rule",
+      "data": {
+        "tool_rule": {
+          "tools": [
+            "launch_app",
+            "open_file",
+            "set_volume",
+            "set_brightness",
+            "notify",
+            "sleep",
+            "ui_click",
+            "ui_type",
+            "window_focus",
+            "window_minimize"
+          ],
+          "require": "review 审批；首次越界操作强制 L2 人工审批",
+          "note": "OS 控制工具声明必须走补丁链演化管线产出，禁硬编码固定功能；清单与 tools.json meta.control=true 的 10 件一致（感知/查询类不计入）"
+        }
+      },
+      "source": "model",
+      "credibility": 0.9,
+      "title": "工具规则：OS 控制走审批分级",
+      "tags": ["tool_rule", "os", "approval"]
+    },
+    {
+      "id": "seed.inkling.incubation_policy",
+      "level": "project",
+      "kind": "rule",
+      "data": {
+        "rule": {
+          "message": "孵化按需触发（任务复杂度 ≥ 5 或用户干预 ≥ 1 次才蒸馏，防垃圾进垃圾出）；蒸馏产物继承信号来源与可信度分级",
+          "context": { "complexity_threshold": 5, "intervention_threshold": 1 }
+        }
+      },
+      "source": "model",
+      "credibility": 0.9,
+      "title": "孵化触发策略",
+      "tags": ["incubation", "policy", "distill"]
+    },
+    {
+      "id": "seed.inkling.reuse_before_collect",
+      "level": "project",
+      "kind": "rule",
+      "data": {
+        "rule": {
+          "message": "研究/文档任务入料前先检索既有知识集与技能（复用优先）：命中相关记忆先引用再决定是否新采集——避免重复劳动与知识集冗余，蒸馏沉淀的复利依赖复用而非堆料",
+          "context": { "domain": "knowledge_research", "rule_ref": ["rule.material.required_fields"] }
+        }
+      },
+      "source": "model",
+      "credibility": 0.9,
+      "title": "复用优先：入料前先检索既有知识集",
+      "tags": ["reuse", "retrieval", "research"]
+    },
+    {
+      "id": "seed.inkling.correction_authority",
+      "level": "project",
+      "kind": "rule",
+      "data": {
+        "rule": {
+          "message": "用户修正信号是最可靠的蒸馏素材（来源分级最高）：知识冲突或不确定时以用户最近的修正为准，并把反例沉淀为规则条目；重复出现 ≥ 3 次的同一根因升级为人工确认候选，不直接落库",
+          "context": { "source_rank": ["user", "dialog", "model", "web"], "repeat_threshold": 3 }
+        }
+      },
+      "source": "model",
+      "credibility": 0.9,
+      "title": "用户修正权威：冲突以用户修正为准",
+      "tags": ["user_correction", "distill", "authority"]
+    }
+  ]
+}

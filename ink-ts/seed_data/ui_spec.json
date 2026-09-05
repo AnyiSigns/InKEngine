@@ -1,0 +1,264 @@
+{
+  "name": "inkling.ui",
+  "version": 2,
+  "theme": {
+    "bg.base": "#09090b",
+    "text.base": "#e4e4e7",
+    "accent.approval": "#f59e0b"
+  },
+  "root": {
+    "kind": "container",
+    "type": "app",
+    "props": { "note": "主界面是干活面，深看靠独立视图，配置全进设置；机制内容全部内联进消息流/独立视图，主界面不常驻机制面板" },
+    "children": [
+      {
+        "kind": "container",
+        "type": "views",
+        "props": { "note": "按需打开的独立视图；机制态 = 发布演示/审计时可见" },
+        "children": [
+          {
+            "kind": "container",
+            "type": "column",
+            "props": { "view": "main", "gap": 0 },
+            "children": [
+              {
+                "kind": "component",
+                "type": "view_header",
+                "props": { "title": "InKling", "actions": [{ "label": "演化", "view": "evolution" }, { "label": "设置", "view": "settings" }] }
+              },
+              {
+                "kind": "container",
+                "type": "row",
+                "props": { "grow": true, "gap": 0 },
+                "children": [
+                  {
+                    "kind": "component",
+                    "type": "file_tree",
+                    "props": { "collapsible": true }
+                  },
+                  {
+                    "kind": "container",
+                    "type": "column",
+                    "props": { "grow": true },
+                    "children": [
+                      {
+                        "kind": "component",
+                        "type": "message_list",
+                        "props": { "variant": "history", "note": "回合消息流（流式/思考/工具调用内联行）" },
+                        "bind": { "channel": "state.messages", "path": "" }
+                      },
+                      {
+                        "kind": "component",
+                        "type": "knowledge_row",
+                        "props": { "note": "检索命中/孵化信号内联微卡（领域组件经 domains 加载器注册）" },
+                        "bind": { "channel": "events.memory_recall", "path": "" }
+                      },
+                      {
+                        "kind": "component",
+                        "type": "agent_input",
+                        "props": { "note": "底部输入行，小字提示当前挡位与模式档" },
+                        "bind": { "channel": "state.session", "path": "" }
+                      }
+                    ]
+                  },
+                  {
+                    "kind": "component",
+                    "type": "session_list",
+                    "props": { "collapsible": true }
+                  }
+                ]
+              }
+            ]
+          },
+          {
+            "kind": "container",
+            "type": "column",
+            "props": { "view": "settings" },
+            "children": [
+              {
+                "kind": "component",
+                "type": "view_header",
+                "props": { "title": "设置", "hint": "系统配置分区" }
+              },
+              {
+                "kind": "container",
+                "type": "tab",
+                "props": { "note": "设置页 Tab 化：每个 tab 只渲染对应 form" },
+                "children": [
+                  { "kind": "component", "type": "settings_form", "props": { "form": "capability", "tab": "capability", "label": "应用能力" } },
+                  { "kind": "component", "type": "settings_form", "props": { "form": "growth", "tab": "growth", "label": "成长状态" } },
+                  { "kind": "component", "type": "settings_form", "props": { "form": "security", "tab": "security", "label": "安全信任" } },
+                  { "kind": "component", "type": "settings_form", "props": { "form": "connect", "tab": "connect", "label": "连接" } },
+                  { "kind": "component", "type": "settings_form", "props": { "form": "appearance", "tab": "appearance", "label": "外观" } },
+                  { "kind": "component", "type": "settings_form", "props": { "form": "about", "tab": "about", "label": "关于" } }
+                ]
+              }
+            ]
+          },
+          {
+            "kind": "container",
+            "type": "column",
+            "props": { "view": "evolution", "scroll": true },
+            "children": [
+              {
+                "kind": "component",
+                "type": "view_header",
+                "props": { "title": "演化", "hint": "孵化 · 进化 · 补丁链" }
+              },
+              {
+                "kind": "component",
+                "type": "summary_bar",
+                "props": { "label": "演化动态" },
+                "bind": { "channel": "events.signal_detected", "path": "" }
+              },
+              {
+                "kind": "container",
+                "type": "group_card",
+                "props": { "title": "孵化与闸门", "collapsed": true },
+                "children": [
+                  { "kind": "component", "type": "incubator_panel", "props": { "stage": "signal" }, "bind": { "channel": "events.signal_detected", "path": "" } },
+                  { "kind": "component", "type": "incubator_panel", "props": { "stage": "distill" }, "bind": { "channel": "events.distill_outcome", "path": "" } },
+                  { "kind": "component", "type": "incubator_panel", "props": { "stage": "gate" }, "bind": { "channel": "events.gate_verdict", "path": "" } }
+                ]
+              },
+              {
+                "kind": "container",
+                "type": "group_card",
+                "props": { "title": "进化与补丁链", "collapsed": true },
+                "children": [
+                  { "kind": "component", "type": "evolution_factory", "bind": { "channel": "events.evolution_variant", "path": "" } },
+                  { "kind": "component", "type": "evolution_timeline", "bind": { "channel": "inspect_graph", "path": "patchChain" } }
+                ]
+              }
+            ]
+          },
+          {
+            "kind": "container",
+            "type": "column",
+            "props": { "view": "simulation", "scroll": true },
+            "children": [
+              {
+                "kind": "component",
+                "type": "view_header",
+                "props": { "title": "推演", "hint": "simulate_decision · 分支对比" }
+              },
+              {
+                "kind": "component",
+                "type": "summary_bar",
+                "props": { "label": "推演动态" },
+                "bind": { "channel": "events.simulate_decision", "path": "" }
+              },
+              {
+                "kind": "container",
+                "type": "group_card",
+                "props": { "title": "分支对比", "collapsed": true },
+                "children": [
+                  { "kind": "component", "type": "simulation_tree", "props": { "branch": "replan" }, "bind": { "channel": "events.plan_start", "path": "" } },
+                  { "kind": "component", "type": "simulation_tree", "props": { "branch": "spawn" }, "bind": { "channel": "events.spawn_start", "path": "" } },
+                  { "kind": "component", "type": "simulation_tree", "props": { "branch": "decision" }, "bind": { "channel": "events.simulate_decision", "path": "" } }
+                ]
+              }
+            ]
+          },
+          {
+            "kind": "container",
+            "type": "column",
+            "props": { "view": "source", "scroll": true },
+            "children": [
+              {
+                "kind": "component",
+                "type": "view_header",
+                "props": { "title": "来源", "hint": "依据链溯源" }
+              },
+              {
+                "kind": "component",
+                "type": "summary_bar",
+                "props": { "label": "来源动态" },
+                "bind": { "channel": "events.memory_recall", "path": "" }
+              },
+              {
+                "kind": "container",
+                "type": "group_card",
+                "props": { "title": "依据链", "collapsed": true },
+                "children": [
+                  { "kind": "component", "type": "source_trace", "props": { "source": "round_state" }, "bind": { "channel": "state", "path": "round_steps" } },
+                  { "kind": "component", "type": "source_trace", "props": { "source": "memory" }, "bind": { "channel": "events.memory_recall", "path": "" } },
+                  { "kind": "component", "type": "source_trace", "props": { "source": "tuning" }, "bind": { "channel": "events.tuning_update", "path": "" } },
+                  { "kind": "component", "type": "source_trace", "props": { "source": "vetting" }, "bind": { "channel": "events.vetting_result", "path": "" } },
+                  { "kind": "component", "type": "source_trace", "props": { "source": "device_sensed" }, "bind": { "channel": "events.device_sensed", "path": "" } },
+                  { "kind": "component", "type": "source_trace", "props": { "source": "device_control" }, "bind": { "channel": "events.device_control", "path": "" } }
+                ]
+              }
+            ]
+          },
+          {
+            "kind": "container",
+            "type": "column",
+            "props": { "view": "admin", "scroll": true },
+            "children": [
+              {
+                "kind": "component",
+                "type": "view_header",
+                "props": { "title": "管理台", "hint": "应用注册表 · 工具注册表" }
+              },
+              {
+                "kind": "component",
+                "type": "admin_console"
+              },
+              {
+                "kind": "component",
+                "type": "admin_tools",
+                "bind": { "channel": "inspect_tools", "path": "" }
+              }
+            ]
+          },
+          {
+            "kind": "container",
+            "type": "column",
+            "props": { "view": "architecture", "scroll": true },
+            "children": [
+              {
+                "kind": "component",
+                "type": "view_header",
+                "props": { "title": "架构", "hint": "agent_graph DAG · 视觉 diff" }
+              },
+              {
+                "kind": "component",
+                "type": "architecture_view",
+                "bind": { "channel": "inspect_graph", "path": "" }
+              }
+            ]
+          },
+          {
+            "kind": "container",
+            "type": "column",
+            "props": { "view": "edit_ui", "scroll": true },
+            "children": [
+              {
+                "kind": "component",
+                "type": "view_header",
+                "props": { "title": "界面树", "hint": "ui_spec 编辑（悬浮窗承载）" }
+              },
+              {
+                "kind": "component",
+                "type": "ui_spec_editor"
+              }
+            ]
+          }
+        ]
+      },
+      {
+        "kind": "container",
+        "type": "overlay",
+        "children": [
+          {
+            "kind": "component",
+            "type": "review_card",
+            "props": { "note": "居中弹层，任何视图可弹；朱砂 accent（accent.approval token，出厂默认）" },
+            "bind": { "channel": "events.review_card", "path": "" }
+          }
+        ]
+      }
+    ]
+  }
+}

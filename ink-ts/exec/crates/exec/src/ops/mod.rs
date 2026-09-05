@@ -3,6 +3,7 @@
 //! 副作用只在守门通过后经物理 runner 触发；守门失败一律 fail-closed 返回
 //! Deny（reason 分类），不触碰系统。
 
+pub mod doc;
 pub mod file_op;
 pub mod http_op;
 pub mod process_op;
@@ -28,6 +29,7 @@ pub fn execute(envelope: &Envelope) -> Result<JsonValue, Deny> {
         "process" => process_op::run(envelope),
         "file" => file_op::run(envelope),
         "http" => http_op::run(envelope),
+        "doc" => doc::run(envelope),
         other => Err(Deny::new("op", format!("未知物理 op: {other}"))),
     }
 }

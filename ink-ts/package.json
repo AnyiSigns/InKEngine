@@ -9,6 +9,7 @@
     "typecheck": "npm run typecheck --workspaces --if-present",
     "test": "tsx gate/src/check.ts && vitest run --root gate && vitest run --root cli && vitest run --root engine && vitest run --root host && vitest run --root web && node contracts/scripts/verify_generated.mjs",
     "gate": "tsx gate/src/check.ts",
+    "self-check": "node --import tsx self_check/index.ts all",
     "contracts:verify": "node contracts/scripts/verify_generated.mjs",
     "contracts:check": "..\\.venv\\Scripts\\python.exe contracts/scripts/check_contract_sources.py",
     "contracts:generate": "npm run generate -w @ink-ts/contracts"

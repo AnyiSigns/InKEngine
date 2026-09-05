@@ -85,25 +85,31 @@ export class HostOsRunner {
     private readonly binary: string | null = locateNativeBinary('exec'),
   ) {}
 
-  private client(): ExecClient {
+  /** exec 原生二进制可用性（未装配即抛 exec_unavailable；调用前先查）。 */
+  assertExecAvailable(): void {
     if (this.binary === null || this.binary === '') {
       throw new OsError(
         'OS 执行器未装配：未定位 exec 原生二进制（先 cargo build ink-ts/exec）',
         'exec_unavailable',
       );
     }
-    return new ExecClient({ binary: this.binary });
+  }
+
+  private client(): ExecClient {
+    this.assertExecAvailable();
+    return new ExecClient({ binary: this.binary! });
   }
 
   /** 执行一次受控 OS 工具调用（host 裁决 → exec 信封；审计留痕）。 */
   async run(request: OsToolRequest, approval: OsApproval): Promise<ExecOutcome> {
-    validate(request);
     if (!approval.approved) {
       throw new OsError(
         `OS 执行未获显式放行（by=${approval.by ?? 'unknown'}）；headless 仅 --approve 显式放行`,
         'approval_required',
       );
     }
+    this.assertExecAvailable();
+    validate(request);
     const client = this.client();
     try {
       const outcome = await client.call(

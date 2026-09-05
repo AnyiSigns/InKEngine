@@ -69,6 +69,7 @@ export function buildOsHandlers(deps: HostBridgeDeps): ReadonlyMap<string, Bridg
         'approval_required',
       );
     }
+    runner.assertExecAvailable();
     const { request, trace_id } = asOsRequest(raw);
     try {
       const outcome = await runner.run(request, {

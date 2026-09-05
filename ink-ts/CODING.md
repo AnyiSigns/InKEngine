@@ -145,11 +145,21 @@ CI 的 ink-ts job 同链执行。规则增删须同步本表。
 | `rounds.send` | rounds | 回合驱动（Runtime 在途 run 登记 + engine.ainvoke 续链 + 事件落文件传输） |
 | `rounds.abort` | rounds | 中止当前在途 run（Runtime.abort_current_run；JS 取消模型降级见代码注） |
 | `rounds.resume` | rounds | 审批决议重入（Runtime.resume_run） |
+| `rounds.branch` | rounds | 分支续跑（引擎 resume_from 锚点起新叶） |
 | `records.sessions` | records | 会话索引查询（host 薄数据：rounds 收尾 upsert 的索引记录） |
 | `records.chain` | records | 链记录（chain_index + checkpoint to_dict，engine 权威） |
+| `sessions.create` | sessions | 会话薄服务：建会话（host 数据目录持久化，引擎无 session 域） |
+| `sessions.rename` | sessions | 会话重命名 |
+| `sessions.delete` | sessions | 会话删除（tombstone；引擎无 per-thread 全删原语，事件日志保留） |
+| `sessions.refresh` | sessions | 会话簿刷新 |
+| `sessions.tree` | sessions | 会话/分支树查询 |
 | `approval.list` | approval | 审批卡查询（engine.get_latest_interrupt 挂起卡） |
 | `approval.resolve` | approval | 审批裁决（决议注入 → resume_run） |
 | `audit.export` | audit | 审计导出（SET_AUDIT_COLLECTION 只读窗口） |
+| `tools.snapshot` | tools | 工具注册表快照（读 engine tool_index/merged_specs，零副本） |
+| `recovery.checkpoints` | recovery | 可回退点查询（engine recovery） |
+| `recovery.rollback` | recovery | 回退入口（删链节点 + set_audit 留痕，调 engine recovery） |
+| `os.run` | os | 受控 OS 执行器调用（host 裁决面门 + exec 信封机械复核；headless 仅显式 --approve 放行） |
 
 host bridge 与 cli `host.ping`/`host.info` 命名空间独立并存（方法表并入 cli 命令面）。
 JSON-RPC 信封错误只回通用、细节走 diag（复用 `cli/src/diag.ts` 形态）。

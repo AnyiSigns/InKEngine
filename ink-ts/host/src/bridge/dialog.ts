@@ -40,7 +40,6 @@ export function buildDialogHandlers(): ReadonlyMap<string, BridgeHandler> {
               endpoint: 'dialog',
               roots: [],
               allowlist: [],
-              allow_domains: [],
               timeout_secs: 120,
               max_chars: 1024,
             },

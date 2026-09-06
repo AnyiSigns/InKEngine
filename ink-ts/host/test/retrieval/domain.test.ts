@@ -136,7 +136,6 @@ describe('tool_index 语义检索（AsyncEmbedder seam 接通）', () => {
     try {
       const index = handle.runtime.tool_index;
       expect(index).not.toBeNull();
-      expect(index!.uses_vectors()).toBe(false);
 
       const adapter = new EmbeddingAdapter({
         env: { INK_EMBEDDING_LOCAL: 'off' },

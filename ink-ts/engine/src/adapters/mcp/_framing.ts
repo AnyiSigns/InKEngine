@@ -1,10 +1,10 @@
 /**
  * MCP stdio 帧协议面（镜像 Python mcp_client.py 的自写分帧）。
  *
- * 本环境 MCP stdio 生态（SDK 2.x 客户端/服务端、内置执行件 inkling_exec）
- * 均为 **JSON Lines**（每行一个 JSON，无 header）——协议层以 json_lines
- * 为缺省；``Content-Length`` 分帧为旧标准兼容形态（读侧自适应，写侧按
- * 配置显式启用）。
+ * 读侧自适应两种形态：``Content-Length``（MCP 标准分帧；内置 server
+ * ink_ts_mcp 即此形态）与 **JSON Lines**（每行一个 JSON，无 header——旧
+ * 内置执行件的兼容形态）。写侧按配置显式启用（本环境缺省 json_lines；内置
+ * server 注册表已显式配 content_length）。
  *
  * 帧编码/解码是纯函数；流式读侧需要按块缓冲的字节读取器（ByteReader）
  * 与消息解码循环（read_messages）——读侧同时支持两种形态，恶意/异常

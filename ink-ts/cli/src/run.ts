@@ -20,7 +20,7 @@ import type { CliOptions, RunFlags } from './argv.js';
 import { attachEngineTransport } from './engine_attach.js';
 import { buildHandlers } from './handlers.js';
 import { assembleCliHost } from './host.js';
-import type { HandlerContext } from './rpc.js';
+import type { Handler, HandlerContext } from './rpc.js';
 
 export interface StreamLike {
   write(text: string): unknown;
@@ -97,23 +97,22 @@ function parseArgsJson(args: string | undefined): { ok: true; value: unknown } |
   }
 }
 
-/** host.ping/host.info + host bridge 的 run 可调方法表（--op 面）。 */
+/** host.ping/host.info + host bridge 的 run 可调方法表（--op 面）。
+ * 命令面由 runOnce 冷启装配一次长驻（别名 Map 不每次重建）。 */
 async function dispatchCommand(
   handle: HostHandle,
+  handlers: ReadonlyMap<string, Handler>,
   method: string,
   params: unknown,
   ctx: HandlerContext,
 ): Promise<unknown> {
-  const handlers = buildHandlers({ bridge: handle.bridge });
-  if (method === 'host.ping') return handlers.get('host.ping')!(params, ctx);
-  if (method === 'host.info') return handlers.get('host.info')!(params, ctx);
-  const bridgeHandler = handle.bridge.get(method);
-  if (bridgeHandler === undefined) {
+  const handler = handlers.get(method);
+  if (handler === undefined) {
     throw new Error(
       `未知方法: ${method}（可用: ${[...handle.bridge.keys()].join(', ')}）`,
     );
   }
-  return bridgeHandler(params, ctx);
+  return handler(params, ctx);
 }
 
 /** round 命令：bridge rounds.send；无 --approve 的挂起 = fail-closed。 */
@@ -155,9 +154,10 @@ async function runRound(
   }
 }
 
-/** op 命令：调 bridge 方法（参数经 --args）。 */
+/** op 命令：调 bridge 方法（参数经 --args；handlers 为 runOnce 冷启装配一次的命令面）。 */
 async function runOp(
   handle: HostHandle,
+  handlers: ReadonlyMap<string, Handler>,
   run: RunFlags,
   approve: boolean,
   trace_id: string,
@@ -167,7 +167,7 @@ async function runOp(
     return { exitCode: 2, envelope: errorEnvelope(trace_id, 'op', 'usage', parsed.error) };
   }
   try {
-    const data = await dispatchCommand(handle, run.arg, parsed.value, { autoApprove: approve });
+    const data = await dispatchCommand(handle, handlers, run.arg, parsed.value, { autoApprove: approve });
     return { exitCode: 0, envelope: envelope(trace_id, 'op', data) };
   } catch (error) {
     return {
@@ -199,9 +199,11 @@ async function runAudit(
 /**
  * os_op 命令：受控 OS 执行器调用（host bridge os.run；显式 --approve 放行）。
  *
- * params 形态（--args JSON）：{op:'process'|'file'|'http', args, roots,
- * allowlist?, allow_domains?, timeout_secs?, max_chars?, cwd?, env?}——
- * 约束随请求现取，host 裁决面门拦截越权/越根（exec 只收复核通过的信封）。
+ * params 形态（--args JSON）：{op:'process'|'file', args, roots, allowlist?,
+ * timeout_secs?, max_chars?, cwd?, env?}——约束随请求现取，host 裁决面门拦截
+ * 越权/越根（exec 只收复核通过的信封）。http 出网 op 已从 exec 移除
+ * （2026-09），doc/dialog 走各自专用面（material.import / rounds 附件
+ * doc.parse 与 dialog.open_directory），不经 os.run。
  * 缺省 fail-closed：无 --approve 即拒绝（approval_required）。
  */
 async function runOsOp(
@@ -260,11 +262,14 @@ export async function runOnce(options: CliOptions, io: RunIo = defaultIo()): Pro
   } else {
     try {
       handle = await assembleCliHost(options);
+      // 命令面冷启装配一次（host.ping/info + bridge 方法表 + 别名），
+      // 本次进程内 --op dispatch 复用同一 Map
+      const handlers = buildHandlers({ bridge: handle.bridge });
       outcome =
         command === 'round'
           ? await runRound(handle, run, options.approve, trace_id, io)
           : command === 'op'
-            ? await runOp(handle, run, options.approve, trace_id)
+            ? await runOp(handle, handlers, run, options.approve, trace_id)
             : command === 'os_op'
               ? await runOsOp(handle, run, options.approve, trace_id)
               : await runAudit(handle, options.approve, trace_id);

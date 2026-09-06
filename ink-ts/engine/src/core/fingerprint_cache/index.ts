@@ -26,5 +26,10 @@ export type { FingerprintCacheStats } from './store.js';
 
 export type { FingerprintCacheRow, FingerprintCacheStorage } from './storage_seam.js';
 
+export {
+  FINGERPRINT_CACHE_COLLECTION,
+  RecordsFingerprintCacheStorage,
+} from './records_storage.js';
+
 export { invalidate_cache } from './invalidate.js';
 export type { InvalidateCacheResult } from './invalidate.js';

@@ -8,7 +8,7 @@ import type { GateConfig } from './config.js';
 
 export interface Violation {
   path: string;
-  rule: 'line-limit' | 'core-import' | 'core-token' | 'src-test' | 'utf8-valid';
+  rule: 'line-limit' | 'core-import' | 'core-token' | 'src-test' | 'utf8-valid' | 'private-seam' | 'json-valid';
   message: string;
 }
 
@@ -124,4 +124,74 @@ function isInsideOpaqueToken(content: string, start: number, len: number, token:
     if (p <= start && start + len <= p + t.length) return true;
     from = p + t.length;
   }
+}
+
+/** 跨域私有模块的例外标注：core 私有模块文件头含此标记即视为共享 seam。 */
+export function hasCrossDomainSeamMarker(content: string, marker: string): boolean {
+  if (marker === '') return false;
+  const head = content.split('\n', 12).join('\n');
+  return head.includes(marker);
+}
+
+/** JSON 重复键检测（轻量扫描器：只关心对象成员键，跳字符串与转义）。 */
+export function findDuplicateJsonKeys(text: string): string[] {
+  const duplicates = new Set<string>();
+  const seenAtDepth: Array<Set<string> | null> = [];
+  let i = 0;
+  while (i < text.length) {
+    const c = text[i];
+    if (c === '"') {
+      let j = i + 1;
+      while (j < text.length && text[j] !== '"') {
+        if (text[j] === '\\') j += 1;
+        j += 1;
+      }
+      const keyEnd = j;
+      let k = j + 1;
+      while (k < text.length && (text[k] === ' ' || text[k] === '\t' || text[k] === '\n' || text[k] === '\r')) k += 1;
+      if (text[k] === ':') {
+        const top = seenAtDepth[seenAtDepth.length - 1];
+        if (top !== null && top !== undefined) {
+          const key = text.slice(i + 1, keyEnd);
+          if (top.has(key)) duplicates.add(key);
+          top.add(key);
+        }
+      }
+      i = j + 1;
+      continue;
+    }
+    if (c === '{') seenAtDepth.push(new Set<string>());
+    else if (c === '[') seenAtDepth.push(null);
+    else if (c === '}' || c === ']') seenAtDepth.pop();
+    i += 1;
+  }
+  return [...duplicates];
+}
+
+/** JSON 纪律：必须可 parse、无重复键、缩进为 2 空格格线（禁 tab、禁奇数缩进）。 */
+export function checkJsonValid(content: string, path: string): Violation | null {
+  let parsed: unknown;
+  try {
+    parsed = JSON.parse(content);
+  } catch (error) {
+    const message = error instanceof Error ? error.message : String(error);
+    return { path, rule: 'json-valid', message: `JSON parse 失败: ${message}` };
+  }
+  const duplicates = findDuplicateJsonKeys(content);
+  if (duplicates.length > 0) {
+    return { path, rule: 'json-valid', message: `JSON 重复键: ${[...new Set(duplicates)].join(', ')}` };
+  }
+  const lines = content.split('\n');
+  for (let index = 0; index < lines.length; index++) {
+    const line = lines[index]!;
+    if (/^\t/.test(line)) return { path, rule: 'json-valid', message: `JSON 禁 tab 缩进（统一 2 空格）第 ${index + 1} 行` };
+    const m = /^ +/.exec(line);
+    if (m !== null && m[0].length % 2 !== 0) {
+      return { path, rule: 'json-valid', message: `JSON 缩进非 2 空格格线（第 ${index + 1} 行前导 ${m[0].length} 空格）` };
+    }
+  }
+  if (parsed === null || typeof parsed !== 'object' || Array.isArray(parsed)) {
+    return { path, rule: 'json-valid', message: 'JSON 顶层须为对象' };
+  }
+  return null;
 }

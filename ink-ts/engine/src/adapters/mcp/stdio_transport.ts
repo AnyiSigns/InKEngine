@@ -1,4 +1,4 @@
-// gate: 超限(367 行) - stdio 传输单段（子进程生命周期+双工 framing+重启恢复），拆文件即破状态机
+// gate: 超限(385 行) - stdio 传输单段（子进程生命周期+双工 framing+重启恢复），拆文件即破状态机
 /**
  * 自写 MCP stdio 客户端（镜像 Python mcp_client.py 的 _ThreadedMcpTransport）。
  *

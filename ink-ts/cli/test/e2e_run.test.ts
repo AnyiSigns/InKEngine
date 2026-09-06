@@ -12,12 +12,10 @@ import { mkdtempSync } from 'node:fs';
 import { tmpdir } from 'node:os';
 import path from 'node:path';
 
+import { STUB_REPLY, locateNativeBinary } from '@ink-ts/host';
 import { describe, expect, it } from 'vitest';
 
 import { parseEnvelope, runCli } from './_spawn.js';
-import { locateNativeBinary } from '@ink-ts/host';
-
-const STUB_REPLY = '（cli stub 回合已执行）';
 
 function tempDir(prefix: string): string {
   return mkdtempSync(path.join(tmpdir(), prefix));

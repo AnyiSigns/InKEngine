@@ -40,16 +40,15 @@ export interface ExecRequest {
   args: Record<string, unknown>;
 }
 
-/** 宿主侧裁决（引擎审批/权限机制的产出；约束集 = 本次放行的边界）。 */
+/** 宿主侧裁决（引擎审批/权限机制的产出；约束集 = 本次放行的边界）。
+ *  网络出网不在此面：exec http op 已移除，出网由引擎声明式端点承载。 */
 export interface AdjudicatedDecision extends ExecDecision {
-  /** 端点归属名（如 os/file/network；与 op 归属表机械比对在 exec）。 */
+  /** 端点归属名（如 os/file/dialog；与 op 归属表机械比对在 exec）。 */
   endpoint: string;
-  /** 路径根 + 动态挂载根（process/file 必填）。 */
+  /** 路径根 + 动态挂载根（process/file/doc 必填）。 */
   roots?: string[];
   /** 命令白名单（process 必填；越权 = argv[0] 不在其中）。 */
   allowlist?: string[];
-  /** 出网域名白名单（http 必填；`*` = host 显式全放行）。 */
-  allow_domains?: string[];
   timeout_secs?: number;
   max_chars?: number;
   cwd?: string | null;
@@ -90,7 +89,8 @@ export function isPathWithinRoots(roots: readonly string[], target: string): boo
   });
 }
 
-/** 域名白名单命中（镜像 exec http_op host_allowed）。 */
+/** 域名白名单命中（检索出网白名单判定，非 exec op——http op 已从 exec
+ *  移除；web_search 等声明式端点消费本函数做 provider 域名过滤）。 */
 export function hostAllowed(patterns: readonly string[], host: string): boolean {
   const normalized = host.toLowerCase();
   return patterns.some((pattern) => {
@@ -105,23 +105,6 @@ export function hostAllowed(patterns: readonly string[], host: string): boolean 
   });
 }
 
-/** URL → host（scheme 校验 + userinfo 拒绝；镜像 exec parse_url_host）。 */
-export function parseUrlHost(raw: string): { scheme: string; host: string } {
-  const match = /^([a-zA-Z][a-zA-Z0-9+.-]*):\/\/([^/?#]+)/.exec(raw.trim());
-  if (match === null) throw new ExecRefusedError(`url 非法（缺 scheme://）: ${raw}`);
-  const scheme = match[1]?.toLowerCase() ?? '';
-  const authority = match[2] ?? '';
-  if (scheme !== 'http' && scheme !== 'https') {
-    throw new ExecRefusedError(`仅支持 http/https 出网: ${scheme}://`);
-  }
-  if (authority.includes('@')) {
-    throw new ExecRefusedError('url 含用户信息（userinfo）拒绝');
-  }
-  const host = authority.split(':')[0] ?? '';
-  if (host === '') throw new ExecRefusedError(`url host 为空: ${raw}`);
-  return { scheme, host: host.toLowerCase() };
-}
-
 /** 宿主侧裁决面门复核（不通过抛 ExecRefusedError，进程不触达）。 */
 function gateCoverage(input: ExecRequest, decision: AdjudicatedDecision): void {
   if (!decision.approved) {
@@ -131,7 +114,7 @@ function gateCoverage(input: ExecRequest, decision: AdjudicatedDecision): void {
     throw new ExecRefusedError('裁决缺端点归属（endpoint）');
   }
   const roots = decision.roots ?? [];
-  if (input.op !== 'http' && input.op !== 'dialog' && roots.length === 0) {
+  if (input.op !== 'dialog' && roots.length === 0) {
     throw new ExecRefusedError(`${input.op} 需要路径根（roots 为空无法保证根内执行）`);
   }
   if (input.op === 'dialog') {
@@ -172,20 +155,6 @@ function gateCoverage(input: ExecRequest, decision: AdjudicatedDecision): void {
       throw new ExecRefusedError(`越根拒绝（host 裁决面）：路径不在挂载根内: ${target}`);
     }
   }
-  if (input.op === 'http') {
-    const allowDomains = decision.allow_domains ?? [];
-    if (allowDomains.length === 0) {
-      throw new ExecRefusedError('http 需要出网域名白名单（裁决未给出放行域名）');
-    }
-    const url = input.args['url'];
-    if (typeof url !== 'string') {
-      throw new ExecRefusedError('http 缺 url');
-    }
-    const { host } = parseUrlHost(url);
-    if (!hostAllowed(allowDomains, host)) {
-      throw new ExecRefusedError(`越权拒绝（host 裁决面）：域名不在放行白名单内: ${host}`);
-    }
-  }
 }
 
 /** 组装信封 + 签名（先裁决面门，后签发）。 */
@@ -206,9 +175,8 @@ export function buildSignedExecEnvelope(
   }
   const roots = decision.roots ?? [];
   const allowlist = decision.allowlist ?? [];
-  const allowDomains = decision.allow_domains ?? [];
-  if (roots.length > EXEC_LIMITS.roots_max || allowlist.length > EXEC_LIMITS.list_max || allowDomains.length > EXEC_LIMITS.list_max) {
-    throw new ExecRefusedError('roots/allowlist/allow_domains 数量超限');
+  if (roots.length > EXEC_LIMITS.roots_max || allowlist.length > EXEC_LIMITS.list_max) {
+    throw new ExecRefusedError('roots/allowlist 数量超限');
   }
   const envelope: ExecEnvelope = {
     version: ENVELOPE_VERSION,
@@ -219,7 +187,6 @@ export function buildSignedExecEnvelope(
     endpoint: decision.endpoint,
     roots,
     allowlist,
-    allow_domains: allowDomains,
     cwd: decision.cwd ?? null,
     env: decision.env ?? null,
     timeout_secs: timeout,

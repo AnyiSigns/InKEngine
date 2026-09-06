@@ -1,54 +1,33 @@
-// gate: 超限(599 行) - 知识集面板单一渲染面（列表/条目管理/导入入口同节数据源）
 /**
- * 知识集（合并视图）：生产闭环状态头 + 统一条目管理 + 外部技能导入。
+ * 知识集面板（只读面）：成长状态头（growth.report）+ 知识条目只读列表。
  *
- * 单一容器（知识集）的不同读法：
- * - 状态头：成长状态（孵化中信号/闸门通过率/知识集规模 + kind 分布）——只读；
- * - 条目列表：统一 kind（rule/template/insight/weight/tool_rule/path/script），
- *   按 kind 筛选、按可信度排序，管理（晋升/归档/恢复/导出/重导入）；
- * - 添加知识：人工录入声明类条目（含 script）；
- * - 导入外部技能：SKILL.md 多形态源（url:/git:/npm:/file:/text:）→ 预览 → 过闸门落位。
+ * W1 命令面收敛：知识写操作（add/promote/archive/restore/skill_import）
+ * 无真源不提供——本面板只保留读面（knowledge.list 条目窗口 +
+ * knowledge.export JSON 导出）；条目行不提供写按钮，统一标注只读。
  */
 
 import { useEffect, useMemo, useRef, useState } from 'react';
-import { Archive, BookOpen, ChevronDown, ChevronRight, Download, Plus, RefreshCw, Search, Upload } from 'lucide-react';
+import { BookOpen, Download, RefreshCw, Search, Sparkles } from 'lucide-react';
 
 import { Button } from '@/shared/ui/Button';
 import { TextInput } from '@/shared/ui/Field';
 import { createBackend } from '@/shared/backend/backendAdapter';
 import { logger } from '@/shared/logger';
-import { buildChartSpec, type ChartSpec } from '@/shared/charts/chart_spec';
-import { chartSpecToSvgString } from '@/shared/charts/chart_export';
 import {
   compareCredibility,
   createKnowledgeOps,
   credibilityClass,
   credibilityLabel,
   credibilityLevel,
-  type ImportedEntry,
   type KnowledgeData,
   type KnowledgeEntry,
-  type KnowledgeOps,
 } from './backend';
 
-interface GrowthStatus {
+interface GrowthReportView {
   enabled?: boolean;
-  incubating_signals?: number;
-  knowledge_count?: number;
-  gate_checked?: number;
-  gate_passed?: number;
-  gate_pass_rate?: number;
-  landed?: number;
-  last_flush_note?: string;
-}
-
-interface GrowthMetricPoint {
-  ts?: number;
-  knowledge_count?: number;
-  landed?: number;
-  collected_total?: number;
-  incubating_signals?: number;
-  gate_passed?: number;
+  config_summary?: Record<string, unknown> | null;
+  weights_snapshot?: Record<string, unknown> | null;
+  last_tuned_at?: number | null;
 }
 
 const KIND_LABELS: Record<string, string> = {
@@ -63,53 +42,59 @@ const KIND_LABELS: Record<string, string> = {
 
 const KIND_FILTERS = ['', 'rule', 'template', 'insight', 'path', 'script', 'weight', 'tool_rule'] as const;
 
+function fmtTs(ts?: number | null): string {
+  if (!ts || !Number.isFinite(ts)) return '—';
+  const ms = ts > 1e12 ? ts : ts * 1000;
+  const d = new Date(ms);
+  if (Number.isNaN(d.getTime())) return '—';
+  return d.toLocaleString('zh-CN', { hour12: false });
+}
+
 export function KnowledgePanel(): JSX.Element {
   const backendRef = useRef(createBackend());
-  const opsRef = useRef<KnowledgeOps>(createKnowledgeOps());
+  const opsRef = useRef(createKnowledgeOps());
   const [data, setData] = useState<KnowledgeData | null>(null);
-  const [growth, setGrowth] = useState<GrowthStatus | null>(null);
-  const [metrics, setMetrics] = useState<GrowthMetricPoint[]>([]);
+  const [growth, setGrowth] = useState<GrowthReportView | null>(null);
+  const [loadState, setLoadState] = useState<'loading' | 'ready' | 'empty' | 'unavailable' | 'error'>('loading');
   const [search, setSearch] = useState('');
   const [kindFilter, setKindFilter] = useState<string>('');
   const [expanded, setExpanded] = useState<Set<string>>(new Set());
-  const [showAdd, setShowAdd] = useState(false);
-  const [newTitle, setNewTitle] = useState('');
-  const [newContent, setNewContent] = useState('');
-  const [newKind, setNewKind] = useState('rule');
-  const [newLevel, setNewLevel] = useState('project');
   const [showArchived, setShowArchived] = useState(false);
-  const [showImport, setShowImport] = useState(false);
-  const [importSource, setImportSource] = useState('');
-  const [importPreview, setImportPreview] = useState<ImportedEntry[] | null>(null);
-  const [importRejected, setImportRejected] = useState<Array<{ id: string; reason: string }>>([]);
-  const [importError, setImportError] = useState('');
-  const [importing, setImporting] = useState(false);
-  const [actionError, setActionError] = useState('');
+  const [exportPhase, setExportPhase] = useState<'idle' | 'loading' | 'done'>('idle');
 
   const load = async () => {
+    setLoadState('loading');
+    if (!backendRef.current.available) {
+      setData(null);
+      setGrowth(null);
+      setLoadState('unavailable');
+      return;
+    }
     try {
-      const result = await opsRef.current.list();
+      const result = await opsRef.current.list(true);
       setData(result);
+      setLoadState(result.entries.length > 0 ? 'ready' : 'empty');
     } catch (err) {
       logger.error('knowledge', '知识集读取失败', { err: String(err) });
-      setActionError('知识集读取失败，请稍后重试');
+      setLoadState('error');
     }
   };
 
   const loadGrowth = async () => {
-    if (!backendRef.current.available) return;
+    if (!backendRef.current.available) {
+      setGrowth(null);
+      return;
+    }
     try {
       const result = await backendRef.current.growthReport();
-      const growth = (result?.growth ?? {}) as GrowthStatus;
       setGrowth({
-        ...growth,
-        knowledge_count: growth.knowledge_count ?? result?.knowledge_count ?? 0,
+        enabled: result?.enabled ?? false,
+        config_summary: result?.config_summary ?? null,
+        weights_snapshot: result?.weights_snapshot ?? null,
+        last_tuned_at: result?.last_tuned_at ?? null,
       });
-      if (Array.isArray(result?.metrics)) {
-        setMetrics(result.metrics as GrowthMetricPoint[]);
-      }
     } catch {
-      // 宿主未就绪 = 空态说明（只读状态不阻断条目管理）
+      setGrowth(null);
     }
   };
 
@@ -120,7 +105,7 @@ export function KnowledgePanel(): JSX.Element {
   }, []);
 
   const allEntries = data?.entries ?? [];
-  const activeEntries = allEntries.filter((e) => (showArchived ? e.archived : !e.archived));
+  const activeEntries = allEntries.filter((e) => (showArchived ? true : !e.archived));
   const kindCounts = useMemo(() => {
     const counts: Record<string, number> = {};
     for (const e of activeEntries) counts[e.kind] = (counts[e.kind] ?? 0) + 1;
@@ -146,265 +131,96 @@ export function KnowledgePanel(): JSX.Element {
     });
   };
 
-  const handleAdd = async () => {
-    if (!newTitle.trim()) return;
-    try {
-      await opsRef.current.add({ title: newTitle, content: newContent, kind: newKind, level: newLevel });
-      setNewTitle('');
-      setNewContent('');
-      setShowAdd(false);
-      await load();
-    } catch (err) {
-      logger.error('knowledge', '知识添加失败', { err: String(err) });
-      setActionError('知识添加失败，请稍后重试');
-    }
+  const handleExport = async (): Promise<void> => {
+    if (exportPhase === 'loading') return;
+    setExportPhase('loading');
+    const json = await opsRef.current.exportJson();
+    setExportPhase('done');
+    if (json === null) return;
+    const blob = new Blob([json], { type: 'application/json' });
+    const url = URL.createObjectURL(blob);
+    const anchor = document.createElement('a');
+    anchor.href = url;
+    anchor.download = `knowledge_export_${new Date().toISOString().slice(0, 10)}.json`;
+    document.body.appendChild(anchor);
+    anchor.click();
+    anchor.remove();
+    URL.revokeObjectURL(url);
   };
 
-  const handleArchive = async (id: string) => {
-    try {
-      await opsRef.current.archive(id);
-      await load();
-    } catch (err) {
-      logger.error('knowledge', '知识归档失败', { id, err: String(err) });
-      setActionError('归档失败，请稍后重试');
-    }
-  };
-
-  const handleRestore = async (id: string) => {
-    try {
-      await opsRef.current.restore(id);
-      await load();
-    } catch (err) {
-      logger.error('knowledge', '知识恢复失败', { id, err: String(err) });
-      setActionError('恢复失败，请稍后重试');
-    }
-  };
-
-  const handlePromote = async (id: string) => {
-    try {
-      await opsRef.current.promote(id);
-      await load();
-    } catch (err) {
-      logger.error('knowledge', '知识提升失败', { id, err: String(err) });
-      setActionError('提升失败，请稍后重试');
-    }
-  };
-
-  const handleExport = async (id: string) => {
-    try {
-      await opsRef.current.export(id);
-    } catch (err) {
-      logger.error('knowledge', '知识导出失败', { id, err: String(err) });
-      setActionError('导出失败，请稍后重试');
-    }
-  };
-
-  const handleReimport = async (id: string) => {
-    try {
-      const outcome = await opsRef.current.skillReimport(id);
-      if (outcome?.ok) {
-        await load();
-      }
-    } catch (err) {
-      logger.error('knowledge', '技能重导入失败', { id, err: String(err) });
-      setActionError('同步失败，请稍后重试');
-    }
-  };
-
-  const handleImportPreview = async () => {
-    if (!importSource.trim()) return;
-    setImporting(true);
-    setImportError('');
-    try {
-      const outcome = await opsRef.current.skillImport(importSource, true);
-      if (!outcome || outcome.ok === false) {
-        setImportError(outcome?.error ?? '预览失败');
-        setImportPreview(null);
-        setImportRejected([]);
-        return;
-      }
-      setImportPreview(outcome.added ?? []);
-      setImportRejected(outcome.rejected ?? []);
-    } catch (err) {
-      logger.error('knowledge', '技能导入预览失败', { err: String(err) });
-      setImportError('预览失败，请稍后重试');
-    } finally {
-      setImporting(false);
-    }
-  };
-
-  const handleImport = async () => {
-    if (!importSource.trim()) return;
-    setImporting(true);
-    setImportError('');
-    try {
-      const outcome = await opsRef.current.skillImport(importSource, false);
-      if (!outcome || outcome.ok === false) {
-        setImportError(outcome?.error ?? '导入失败');
-        return;
-      }
-      setImportPreview(null);
-      setImportRejected([]);
-      setImportSource('');
-      setShowImport(false);
-      await load();
-      await loadGrowth();
-    } catch (err) {
-      logger.error('knowledge', '技能导入失败', { err: String(err) });
-      setImportError('导入失败，请稍后重试');
-    } finally {
-      setImporting(false);
-    }
-  };
-
-  const passRate = growth?.gate_pass_rate !== undefined ? Math.round(growth.gate_pass_rate * 100) : null;
-
-  /** 成长趋势图（时序曲线：知识集规模 / 已落位 / 累计收集）。 */
-  const growthChart = useMemo((): ChartSpec | null => {
-    if (metrics.length < 2) return null;
-    const points = metrics.filter((m) => typeof m.ts === 'number');
-    if (points.length < 2) return null;
-    const labels = points.map((m) => {
-      const d = new Date((m.ts ?? 0) * 1000);
-      return `${String(d.getMonth() + 1).padStart(2, '0')}-${String(d.getDate()).padStart(2, '0')} ${String(d.getHours()).padStart(2, '0')}:${String(d.getMinutes()).padStart(2, '0')}`;
-    });
-    return buildChartSpec(
-      {
-        type: 'line',
-        labels,
-        series: [
-          { name: '知识集规模', values: points.map((m) => m.knowledge_count ?? 0) },
-          { name: '已落位', values: points.map((m) => m.landed ?? 0) },
-          { name: '累计收集信号', values: points.map((m) => m.collected_total ?? 0) },
-        ],
-        style: { width: 560, height: 200 },
-      },
-      { type: 'line' },
-    );
-  }, [metrics]);
+  const weightsKeys = growth?.weights_snapshot ? Object.keys(growth.weights_snapshot) : [];
+  const configSummary = growth?.config_summary ?? null;
 
   return (
     <div data-ui="knowledge_panel" className="flex flex-col gap-3">
-      {/* ── 状态头：成长状态（生产端只读）── */}
+      {/* ── 状态头：成长状态（growth.report 只读）── */}
       <div className="ink-elevated space-y-2 px-3.5 py-2.5">
         <div className="flex items-center justify-between">
-          <span className="text-[10px] ink-text-faint">自学习管线（孵化闭环）</span>
+          <span className="text-[10px] ink-text-faint">自学习管线（growth.report · 只读）</span>
           <span
             className="ink-chip"
             data-ui="growth_enabled"
             data-active={growth?.enabled ?? true}
           >
-            {growth?.enabled === false ? '停用' : '默认开启'}
+            {growth === null ? '宿主不可用' : growth.enabled ? '默认开启' : '停用'}
           </span>
         </div>
-        <div className="grid grid-cols-4 gap-2">
-          <div data-ui="growth_incubating">
-            <div className="text-[9px] ink-text-faint">孵化中信号</div>
-            <div className="text-[var(--ink-font-md)] font-semibold">{growth?.incubating_signals ?? 0}</div>
-          </div>
-          <div data-ui="growth_knowledge">
-            <div className="text-[9px] ink-text-faint">知识集规模</div>
-            <div className="text-[var(--ink-font-md)] font-semibold">{growth?.knowledge_count ?? 0}</div>
-          </div>
-          <div data-ui="growth_gate_rate">
-            <div className="text-[9px] ink-text-faint">闸门通过率</div>
+        <div className="grid grid-cols-3 gap-2">
+          <div>
+            <div className="text-[9px] ink-text-faint">reuse_first</div>
             <div className="text-[var(--ink-font-md)] font-semibold">
-              {passRate !== null ? `${passRate}%` : '—'}
+              {configSummary && typeof configSummary['reuse_first'] === 'boolean'
+                ? (configSummary['reuse_first'] as boolean) ? '开启' : '关闭'
+                : '—'}
             </div>
           </div>
+          <div data-ui="growth_weights">
+            <div className="text-[9px] ink-text-faint">权重条目</div>
+            <div className="text-[var(--ink-font-md)] font-semibold">{weightsKeys.length}</div>
+          </div>
           <div>
-            <div className="text-[9px] ink-text-faint">已落位</div>
-            <div className="text-[var(--ink-font-md)] font-semibold">{growth?.landed ?? 0}</div>
+            <div className="text-[9px] ink-text-faint">最近调参</div>
+            <div className="text-[var(--ink-font-md)] font-semibold">{fmtTs(growth?.last_tuned_at)}</div>
           </div>
         </div>
         <p className="text-[9px] ink-text-faint" data-ui="growth_flush_note">
-          {growth?.last_flush_note ?? '自学习管线就绪（回合收尾按需蒸馏）'}
+          {weightsKeys.length > 0
+            ? `权重键：${weightsKeys.slice(0, 6).join('、')}${weightsKeys.length > 6 ? ` 等 ${weightsKeys.length} 个` : ''}`
+            : '无权重快照（知识集无 kind=weight 条目或引擎未装配）'}
         </p>
-        {growthChart ? (
-          <div className="mt-1 overflow-x-auto" data-ui="growth_trend">
-            <div
-              className="text-[10px] font-medium tracking-wide ink-text-muted mb-1"
-            >
-              成长趋势（回合指标时序 · 复利曲线）
-            </div>
-            <div
-              // eslint-disable-next-line react/no-danger
-              dangerouslySetInnerHTML={{ __html: chartSpecToSvgString(growthChart) }}
-            />
-          </div>
-        ) : null}
       </div>
 
       {/* ── 工具行 ── */}
       <div className="flex items-center gap-2">
         <BookOpen size={14} strokeWidth={1.6} className="text-[var(--ink-text-muted)]" aria-hidden />
         <h3 className="text-[13px] font-medium text-[var(--ink-text-base)]">知识集</h3>
-        {actionError && (
-          <span className="rounded px-2 py-0.5 text-[10px] ink-feedback-fail" data-ui="knowledge_action_error">
-            {actionError}
-          </span>
-        )}
+        <span className="ink-chip py-px text-[9px] ink-text-faint">只读</span>
         <div className="flex-1" />
-        <Button size="xs" variant="secondary" onClick={() => setShowImport(!showImport)}>
+        <Button size="xs" variant="secondary" onClick={() => void handleExport()} disabled={exportPhase === 'loading'}>
           <Download size={10} strokeWidth={1.6} aria-hidden />
-          导入外部技能
-        </Button>
-        <Button size="xs" variant="secondary" onClick={() => setShowAdd(!showAdd)}>
-          <Plus size={10} strokeWidth={1.6} aria-hidden />
-          添加知识
+          {exportPhase === 'loading' ? '导出中…' : '导出 JSON'}
         </Button>
       </div>
 
-      {/* ── 导入外部技能 ── */}
-      {showImport && (
-        <div className="flex flex-col gap-2 rounded border border-[var(--ink-border)] p-3">
-          <div className="flex items-center gap-2">
-            <TextInput
-              value={importSource}
-              onChange={(e) => setImportSource(e.target.value)}
-              placeholder="url:https://…/SKILL.md / git:owner/repo / npm:pkg / file:路径 / text:内联内容"
-              className="flex-1"
-              aria-label="外部技能来源"
-            />
-            <Button size="xs" variant="secondary" onClick={() => void handleImportPreview()} disabled={importing}>
-              预览
-            </Button>
-            <Button size="xs" variant="primary" onClick={() => void handleImport()} disabled={importing}>
-              {importing ? '处理中…' : '导入'}
-            </Button>
-          </div>
-          <p className="text-[9px] ink-text-faint">
-            外部 SKILL.md 不直接挂载——拆解转换为统一条目（指令→模板、脚本→脚本），过闸门 + 来源分级后落知识集；provenance 留痕支持重导入同步。
-          </p>
-          {importError && (
-            <p className="rounded border border-[var(--ink-border)] px-2 py-1.5 text-[10px] text-red-600" data-ui="import_error">
-              {importError}
-            </p>
-          )}
-          {importPreview && (
-            <div className="flex flex-col gap-1 rounded border border-[var(--ink-border)] px-2 py-1.5">
-              <div className="text-[10px] font-medium ink-text-muted">将导入 {importPreview.length} 条</div>
-              {importPreview.map((e) => (
-                <div key={e.id} className="flex items-center gap-2 text-[11px]">
-                  <span className="ink-chip">{KIND_LABELS[e.kind] ?? e.kind}</span>
-                  <span className="truncate">{e.title}</span>
-                </div>
-              ))}
-              {importRejected.map((r) => (
-                <div key={r.id} className="text-[10px] text-amber-600">
-                  拒绝：{r.reason}
-                </div>
-              ))}
-            </div>
-          )}
+      {loadState === 'unavailable' && (
+        <div className="rounded border border-dashed border-[var(--ink-border)] px-3 py-8 text-center text-[12px] text-[var(--ink-text-faint)]">
+          宿主不可用——知识集仅在宿主运行时可用
         </div>
       )}
-
-      {!data || allEntries.length === 0 ? (
+      {loadState === 'error' && (
+        <div className="rounded border border-dashed border-[var(--ink-border)] px-3 py-8 text-center text-[12px] text-[var(--ink-text-faint)]">
+          知识集读取失败
+          <button type="button" className="ink-link ml-2 text-[11px]" onClick={() => void load()}>
+            重试
+          </button>
+        </div>
+      )}
+      {loadState === 'empty' && (
         <div className="rounded border border-dashed border-[var(--ink-border)] px-3 py-8 text-center text-[12px] text-[var(--ink-text-faint)]">
           知识集为空
         </div>
-      ) : (
+      )}
+      {loadState === 'ready' && (
         <>
           {/* ── kind 筛选 + 搜索 ── */}
           <div className="flex items-center gap-2">
@@ -435,47 +251,9 @@ export function KnowledgePanel(): JSX.Element {
               />
             </div>
             <Button size="xs" variant="ghost" onClick={() => setShowArchived(!showArchived)}>
-              <Archive size={10} strokeWidth={1.6} aria-hidden />
               {showArchived ? '隐藏归档' : '显示归档'}
             </Button>
           </div>
-
-          {showAdd && (
-            <div className="flex flex-col gap-2 rounded border border-[var(--ink-border)] p-3">
-              <TextInput value={newTitle} onChange={(e) => setNewTitle(e.target.value)} placeholder="标题" />
-              <textarea
-                value={newContent}
-                onChange={(e) => setNewContent(e.target.value)}
-                placeholder="内容"
-                className="w-full rounded border border-[var(--ink-border)] p-2 text-[11px] text-[var(--ink-text-base)] bg-[var(--ink-bg-base)]"
-                rows={3}
-              />
-              <div className="flex gap-2">
-                <select
-                  value={newKind}
-                  onChange={(e) => setNewKind(e.target.value)}
-                  className="rounded border border-[var(--ink-border)] px-2 py-1 text-[11px] bg-[var(--ink-bg-base)]"
-                >
-                  {Object.entries(KIND_LABELS).map(([value, label]) => (
-                    <option key={value} value={value}>{label}</option>
-                  ))}
-                </select>
-                <select
-                  value={newLevel}
-                  onChange={(e) => setNewLevel(e.target.value)}
-                  className="rounded border border-[var(--ink-border)] px-2 py-1 text-[11px] bg-[var(--ink-bg-base)]"
-                >
-                  <option value="work">工作</option>
-                  <option value="project">项目</option>
-                  <option value="user">用户</option>
-                </select>
-              </div>
-              <div className="flex gap-1">
-                <Button size="xs" variant="primary" onClick={() => void handleAdd()}>添加</Button>
-                <Button size="xs" variant="ghost" onClick={() => setShowAdd(false)}>取消</Button>
-              </div>
-            </div>
-          )}
 
           <div className="flex flex-col gap-2">
             {filtered.map((entry) => (
@@ -484,11 +262,6 @@ export function KnowledgePanel(): JSX.Element {
                 entry={entry}
                 expanded={expanded.has(entry.id)}
                 onToggle={() => toggleExpand(entry.id)}
-                onArchive={() => handleArchive(entry.id)}
-                onRestore={() => handleRestore(entry.id)}
-                onPromote={() => handlePromote(entry.id)}
-                onExport={() => handleExport(entry.id)}
-                onReimport={() => handleReimport(entry.id)}
               />
             ))}
             {filtered.length === 0 && (
@@ -501,7 +274,7 @@ export function KnowledgePanel(): JSX.Element {
       )}
 
       <div className="flex items-center justify-between px-1">
-        <p className="text-[9px] ink-text-faint">统一条目容器（补丁链版本化 · 回退可溯 · 外部导入 provenance 留痕）</p>
+        <p className="text-[9px] ink-text-faint">知识集只读（写操作由机制自进化通道维护，不提供用户写面）</p>
         <button
           type="button"
           onClick={() => { void load(); void loadGrowth(); }}
@@ -519,16 +292,10 @@ interface KnowledgeRowProps {
   entry: KnowledgeEntry;
   expanded: boolean;
   onToggle: () => void;
-  onArchive: () => void;
-  onRestore: () => void;
-  onPromote: () => void;
-  onExport: () => void;
-  onReimport: () => void;
 }
 
-function KnowledgeRow({ entry, expanded, onToggle, onArchive, onRestore, onPromote, onExport, onReimport }: KnowledgeRowProps): JSX.Element {
+function KnowledgeRow({ entry, expanded, onToggle }: KnowledgeRowProps): JSX.Element {
   const level = credibilityLevel(entry.credibility);
-
   return (
     <div
       data-ui={`knowledge_entry_${entry.id}`}
@@ -537,7 +304,7 @@ function KnowledgeRow({ entry, expanded, onToggle, onArchive, onRestore, onPromo
     >
       <div className="flex items-center gap-2">
         <button type="button" onClick={onToggle} className="cursor-pointer" aria-label="展开">
-          {expanded ? <ChevronDown size={12} strokeWidth={1.6} aria-hidden /> : <ChevronRight size={12} strokeWidth={1.6} aria-hidden />}
+          <Sparkles size={12} strokeWidth={1.6} className="ink-text-faint" aria-hidden />
         </button>
         <span className="ink-chip">{KIND_LABELS[entry.kind] ?? entry.kind}</span>
         <span className="truncate text-[11px] font-medium text-[var(--ink-text-base)]">{entry.title}</span>
@@ -566,31 +333,13 @@ function KnowledgeRow({ entry, expanded, onToggle, onArchive, onRestore, onPromo
               <div className="text-[10px] font-medium text-[var(--ink-text-muted)]">失败记录</div>
               {entry.usage_failures.map((f, i) => (
                 <div key={i} className="text-[10px] text-[var(--ink-text-faint)]">
-                  {f.at !== null ? `${new Date(f.at * 1000).toLocaleString()} · ` : ''}{f.reason}
+                  {f.reason}
                 </div>
               ))}
             </div>
           )}
-          <div className="flex flex-wrap gap-1 mt-1">
-            <Button size="xs" variant="ghost" onClick={onPromote}>提升</Button>
-            <Button size="xs" variant="ghost" onClick={onExport}>
-              <Upload size={10} strokeWidth={1.6} aria-hidden />
-              导出
-            </Button>
-            {entry.kind === 'template' && (
-              <Button size="xs" variant="ghost" onClick={onReimport}>
-                <Download size={10} strokeWidth={1.6} aria-hidden />
-                同步
-              </Button>
-            )}
-            {entry.archived ? (
-              <Button size="xs" variant="ghost" onClick={onRestore}>恢复</Button>
-            ) : (
-              <Button size="xs" variant="ghost" onClick={onArchive}>
-                <Archive size={10} strokeWidth={1.6} aria-hidden />
-                归档
-              </Button>
-            )}
+          <div className="text-[9px] ink-text-faint">
+            {entry.source || '—'} · 级别 {entry.level} · 更新 {fmtTs(entry.updated_at)}
           </div>
         </div>
       )}

@@ -1,4 +1,4 @@
-// gate: 超限(365 行) - 引擎内部件集中层（裁剪/队列/定位/互斥多机制同文件共享状态类型），拆分即扩散内部契约
+// gate: 超限(391 行) - 引擎内部件集中层（裁剪/队列/定位/互斥多机制同文件共享状态类型），拆分即扩散内部契约
 /**
  * 执行引擎内部件（executor.py 移植——模块级机制/数据形态层）。
  *
@@ -262,6 +262,8 @@ export interface NodeContext {
   node: string | null;
   readonly terminated: boolean;
   readonly terminate_reason: string | null;
+  /** 当前是否处于 canary 试跑态（结点层桩化真实 IO 执行体/拒绝的读取门）。 */
+  readonly canary_active: boolean;
   /** 节点边界步数计数（预算策略可据此按步数终止）。 */
   step_count: number;
 

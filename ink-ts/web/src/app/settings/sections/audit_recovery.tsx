@@ -1,10 +1,12 @@
 /**
- * 「审计与恢复」生产设置节：审计流水导出（audit.list → JSON 下载）+ 崩溃
- * 回退快照恢复（recovery_snapshots 列表 → recovery_restore_snapshot 回到
- * 上一稳定版本；恢复后引擎停机重挂，下次命令自动装配快照时刻形态）。
+ * 「审计与恢复」设置节：审计导出 + 会话链回退（checkpoints/rollback 以当前
+ * 活动会话 thread_id 为上下文）+ 出厂重置。
  *
- * 全部经 BackendAdapter 命令面接线（受控通道）；宿主不可用 / 下载能力
- * 缺失 = 明确失败反馈，不报假成功。
+ * 数据源：
+ * - audit.list 只读窗口 → JSON 下载；
+ * - recovery.checkpoints / recovery.rollback（per-thread 回退点与回退入口）；
+ * - recovery.reset（出厂重置，危险操作确认词 fail-closed）。
+ * 无活动会话 = 回退区空态文案（不误触发空目标/全量操作）；确认词流程保持。
  */
 
 import { useCallback, useEffect, useState } from 'react';
@@ -14,17 +16,12 @@ import { Button } from '@/shared/ui/Button';
 import { TextInput } from '@/shared/ui/Field';
 import { cn } from '@/shared/cn';
 import { createBackend } from '@/shared/backend/backendAdapter';
-import type { BackendAdapter, RecoverySnapshot } from '@/shared/backend/backendAdapter';
+import type { BackendAdapter, RecoveryCheckpoint } from '@/shared/backend/backendAdapter';
 import { Feedback, type FeedbackPhase } from '@/components/floaters/feedback';
 import { logger } from '@/shared/logger';
+import { useActiveThreadId } from '@/app/state/activeThread';
 
-/** 审计导出单次上限（与壳侧 audit.list 默认窗口一致，防全量膨胀）。 */
 const AUDIT_EXPORT_LIMIT = 2000;
-
-function formatSnapshotTime(createdAt: number): string {
-  if (!createdAt) return '—';
-  return new Date(createdAt).toLocaleString('zh-CN', { hour12: false });
-}
 
 function downloadJson(records: unknown): void {
   const blob = new Blob([JSON.stringify(records, null, 2)], { type: 'application/json' });
@@ -38,38 +35,50 @@ function downloadJson(records: unknown): void {
   URL.revokeObjectURL(url);
 }
 
+/** 可回退链状态（无活动会话/无父锚点 = 不可回退空态）。 */
+function rollbackAvailable(points: RecoveryCheckpoint[]): boolean {
+  return points.length >= 2;
+}
+
 export function AuditRecoverySection({ backend }: { backend?: BackendAdapter }) {
   const host = backend ?? createBackend();
+  const threadId = useActiveThreadId();
   const [auditPhase, setAuditPhase] = useState<FeedbackPhase>('idle');
   const [auditCount, setAuditCount] = useState(0);
-  const [snapshots, setSnapshots] = useState<RecoverySnapshot[]>([]);
-  const [snapshotsPhase, setSnapshotsPhase] = useState<FeedbackPhase>('idle');
-  const [restorePhase, setRestorePhase] = useState<FeedbackPhase>('idle');
-  const [confirmingRestore, setConfirmingRestore] = useState(false);
+  const [points, setPoints] = useState<RecoveryCheckpoint[]>([]);
+  const [pointsPhase, setPointsPhase] = useState<FeedbackPhase>('idle');
+  const [rollbackPhase, setRollbackPhase] = useState<FeedbackPhase>('idle');
+  const [confirmingRollback, setConfirmingRollback] = useState(false);
   const [resetPhase, setResetPhase] = useState<FeedbackPhase>('idle');
   const [resetConfirmWord, setResetConfirmWord] = useState('');
 
-  const refreshSnapshots = useCallback(() => {
-    if (!host.available) {
-      setSnapshotsPhase('fail');
+  const hasThread = threadId.trim() !== '';
+
+  const refreshPoints = useCallback(() => {
+    if (!host.available || !hasThread) {
+      setPoints([]);
+      setPointsPhase(hasThread ? 'fail' : 'idle');
       return;
     }
-    setSnapshotsPhase('loading');
+    setPointsPhase('loading');
     host
-      .recoverySnapshots()
-      .then(({ snapshots: list }) => {
-        setSnapshots(list);
-        setSnapshotsPhase('success');
+      .recoverySnapshots(threadId)
+      .then((view) => {
+        setPoints(view.points ?? []);
+        setPointsPhase('success');
       })
       .catch(() => {
-        logger.error('settings', '启动快照清单读取失败');
-        setSnapshotsPhase('fail');
+        logger.error('settings', '会话链回退点读取失败');
+        setPoints([]);
+        setPointsPhase('fail');
       });
-  }, [host]);
+  }, [host, threadId, hasThread]);
 
   useEffect(() => {
-    refreshSnapshots();
-  }, [refreshSnapshots]);
+    setPoints([]);
+    setConfirmingRollback(false);
+    refreshPoints();
+  }, [refreshPoints, threadId]);
 
   const handleExportAudit = useCallback(async () => {
     if (!host.available) {
@@ -84,9 +93,10 @@ export function AuditRecoverySection({ backend }: { backend?: BackendAdapter }) 
     }
     setAuditPhase('loading');
     try {
-      const result = (await host.auditList({ limit: AUDIT_EXPORT_LIMIT })) as unknown[];
-      downloadJson(result);
-      setAuditCount(Array.isArray(result) ? result.length : 0);
+      const result = await host.auditList({ limit: AUDIT_EXPORT_LIMIT });
+      const records = Array.isArray(result?.records) ? result.records : [];
+      downloadJson(records);
+      setAuditCount(records.length);
       setAuditPhase('success');
     } catch (err) {
       logger.error('settings', '审计日志导出失败', { err: String(err) });
@@ -94,29 +104,26 @@ export function AuditRecoverySection({ backend }: { backend?: BackendAdapter }) 
     }
   }, [host]);
 
-  const restoreSnapshot = useCallback(async () => {
-    if (!host.available) {
-      setRestorePhase('fail');
+  const runRollback = useCallback(async () => {
+    if (!host.available || !hasThread) {
+      setRollbackPhase('fail');
       return;
     }
-    const target = snapshots[0];
-    if (!target) {
-      setRestorePhase('fail');
+    if (!rollbackAvailable(points)) {
+      setRollbackPhase('fail');
       return;
     }
-    setRestorePhase('loading');
+    setRollbackPhase('loading');
     try {
-      await host.recoveryRestoreSnapshot(target.name);
-      setRestorePhase('success');
-      setConfirmingRestore(false);
-      refreshSnapshots();
+      await host.recoveryRestoreSnapshot(threadId);
+      setRollbackPhase('success');
+      setConfirmingRollback(false);
+      refreshPoints();
     } catch (err) {
-      logger.error('settings', '快照恢复失败', { err: String(err), name: target.name });
-      setRestorePhase('fail');
+      logger.error('settings', '会话链回退失败', { err: String(err), threadId });
+      setRollbackPhase('fail');
     }
-  }, [host, snapshots, refreshSnapshots]);
-
-  const latestSnapshot = snapshots[0] ?? null;
+  }, [host, threadId, hasThread, points, refreshPoints]);
 
   const runFactoryReset = useCallback(async () => {
     if (!host.available) {
@@ -128,12 +135,12 @@ export function AuditRecoverySection({ backend }: { backend?: BackendAdapter }) 
       await host.recoveryFactoryReset();
       setResetConfirmWord('');
       setResetPhase('success');
-      refreshSnapshots();
+      refreshPoints();
     } catch (err) {
       logger.error('settings', '出厂重置失败', { err: String(err) });
       setResetPhase('fail');
     }
-  }, [host, refreshSnapshots]);
+  }, [host, refreshPoints]);
 
   return (
     <div data-ui="audit_recovery_section" className="flex flex-col gap-3 p-4">
@@ -170,76 +177,91 @@ export function AuditRecoverySection({ backend }: { backend?: BackendAdapter }) 
       <div className="flex flex-col gap-2 rounded border border-[var(--ink-border)] p-3">
         <div className="flex items-center gap-2">
           <History size={11} strokeWidth={1.6} className="text-[var(--ink-text-muted)]" />
-          <span className="text-[11px] font-medium text-[var(--ink-text-base)]">崩溃回退（回到上一稳定版本）</span>
+          <span className="text-[11px] font-medium text-[var(--ink-text-base)]">会话链回退（撤销最近回合）</span>
         </div>
         <div className="text-[10px] leading-relaxed text-[var(--ink-text-faint)]">
-          启动快照按链版本轮换保留（成功启动自动生成）。恢复 = 从最新快照经引擎存储
-          契约 restore → 引擎停机重挂，下次命令自动回到快照时刻形态。
+          回退点按当前活动会话 thread_id 查询；回退 = 删除链尾派生 checkpoint 并留审计，
+          回退后引擎停机重挂，下次命令自动回到目标检查点形态。
         </div>
-        <div className="flex flex-wrap items-center gap-2">
-          <Button size="sm" variant="ghost" data-ui="recovery_refresh" onClick={refreshSnapshots}>
-            <History size={11} strokeWidth={1.6} />
-            刷新快照
-          </Button>
-          {latestSnapshot && (
-            <Button
-              size="sm"
-              variant="secondary"
-              data-ui="recovery_restore"
-              onClick={() => {
-                if (confirmingRestore) {
-                  void restoreSnapshot();
-                } else {
-                  setConfirmingRestore(true);
-                }
-              }}
-            >
-              <RotateCcw size={11} strokeWidth={1.6} />
-              {confirmingRestore ? `确认恢复 ${latestSnapshot.name}？` : '恢复到上一稳定版本'}
-            </Button>
-          )}
-          {confirmingRestore && (
-            <Button size="sm" variant="ghost" data-ui="recovery_restore_cancel" onClick={() => setConfirmingRestore(false)}>
-              取消
-            </Button>
-          )}
-          <Feedback phase={restorePhase} okText="已恢复到上一稳定版本" failText="恢复失败" />
-          <Feedback phase={snapshotsPhase} okText="快照已刷新" failText="快照读取失败" />
-        </div>
-        {latestSnapshot ? (
-          <ul className="divide-y divide-[var(--ink-border)] overflow-hidden rounded">
-            {snapshots.slice(0, 5).map((snapshot) => (
-              <li
-                key={snapshot.name}
-                data-ui={`recovery_snapshot_${snapshot.name}`}
-                className="flex items-center justify-between gap-2 px-1 py-1.5"
-              >
-                <span className={cn('truncate font-mono text-[10px]', 'text-[var(--ink-text-muted)]')}>
-                  {snapshot.name}
-                </span>
-                <span className="shrink-0 text-[10px] text-[var(--ink-text-faint)]">
-                  v{snapshot.chain_version} · {formatSnapshotTime(snapshot.created_at)}
-                </span>
-              </li>
-            ))}
-          </ul>
-        ) : (
-          <p className="text-[10px] text-[var(--ink-text-faint)]">
-            {snapshotsPhase === 'fail'
-              ? '快照清单读取失败（宿主未接线或不可用）。'
-              : '暂无启动快照（成功启动后按链版本自动轮换生成）。'}
+        {!hasThread ? (
+          <p className="text-[10px] text-[var(--ink-text-faint)]" data-ui="recovery_no_thread">
+            无活动会话上下文：请先在对话区选择/新建一个会话，再回到本页查看该会话链回退点。
           </p>
+        ) : pointsPhase === 'fail' ? (
+          <p className="text-[10px] text-[var(--ink-text-faint)]">
+            回退点读取失败（宿主未接线或该会话无链数据）。
+          </p>
+        ) : points.length === 0 ? (
+          <p className="text-[10px] text-[var(--ink-text-faint)]">
+            本会话还没有回退点（回合产生 checkpoint 后出现）。
+          </p>
+        ) : (
+          <>
+            <div className="flex flex-wrap items-center gap-2">
+              <Button size="sm" variant="ghost" data-ui="recovery_refresh" onClick={refreshPoints}>
+                <History size={11} strokeWidth={1.6} />
+                刷新回退点
+              </Button>
+              {rollbackAvailable(points) && (
+                <Button
+                  size="sm"
+                  variant="secondary"
+                  data-ui="recovery_rollback"
+                  onClick={() => {
+                    if (confirmingRollback) {
+                      void runRollback();
+                    } else {
+                      setConfirmingRollback(true);
+                    }
+                  }}
+                >
+                  <RotateCcw size={11} strokeWidth={1.6} />
+                  {confirmingRollback ? '确认回退链尾（撤销最近回合）？' : '回退链尾'}
+                </Button>
+              )}
+              {confirmingRollback && (
+                <Button
+                  size="sm"
+                  variant="ghost"
+                  data-ui="recovery_rollback_cancel"
+                  onClick={() => setConfirmingRollback(false)}
+                >
+                  取消
+                </Button>
+              )}
+              <Feedback phase={rollbackPhase} okText="已回退到上一检查点" failText="回退失败" />
+              <Feedback phase={pointsPhase} okText="回退点已刷新" failText="回退点读取失败" />
+            </div>
+            <ul className="divide-y divide-[var(--ink-border)] overflow-hidden rounded">
+              {points.slice(0, 10).map((point) => (
+                <li
+                  key={point.checkpoint_id}
+                  data-ui={`recovery_point_${point.checkpoint_id}`}
+                  className="flex items-center justify-between gap-2 px-1 py-1.5"
+                >
+                  <span className={cn('truncate font-mono text-[10px]', 'text-[var(--ink-text-muted)]')}>
+                    #{point.checkpoint_id}
+                    {point.reason ? ` · ${point.reason}` : ''}
+                  </span>
+                  <span className="shrink-0 text-[10px] text-[var(--ink-text-faint)]">
+                    {point.checkpoint_id === points[0]?.checkpoint_id ? '链尾 · ' : ''}父 {point.parent_id ?? '—'}
+                  </span>
+                </li>
+              ))}
+            </ul>
+          </>
         )}
       </div>
 
       <div className="flex flex-col gap-2 rounded border border-[var(--ink-accent-border)] p-3">
         <div className="flex items-center gap-1 text-[11px] text-[var(--ink-accent-approval)]">
           <ShieldAlert size={11} strokeWidth={1.6} />
-          <span className="font-medium text-[var(--ink-text-base)]">出厂重置（清除本地配置）</span>
+          <span className="font-medium text-[var(--ink-text-base)]">出厂重置（清除本地会话与事件）</span>
         </div>
         <div className="text-[10px] leading-relaxed text-[var(--ink-text-faint)]">
-          补丁链逐尾回退至基线（每条回退留审计）；链记录损坏时清空回基线并留痕。
-          完成后引擎停机重挂 = 出厂基线 + 种子重注入。请输入确认词「重置」。
+          清空全部会话链、回合账本与事件日志（事件已同步清除）；知识集与审计留痕
+          （set_audit）保留不参与本次重置。完成后引擎停机重挂 = 出厂基线 + 种子重注入。
+          请输入确认词「重置」。
         </div>
         <div className="flex flex-wrap items-center gap-2">
           <TextInput

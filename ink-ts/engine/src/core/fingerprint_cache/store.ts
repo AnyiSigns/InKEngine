@@ -115,7 +115,7 @@ export class FingerprintCacheStore {
     fingerprint: string,
     opts: {
       path: Record<string, unknown>;
-      evidence_snapshot: readonly Record<string, unknown>[];
+      evidence_snapshot: readonly unknown[];
       model_id: string;
       gate_passed: boolean;
       path_fingerprint?: string;
@@ -171,6 +171,37 @@ export class FingerprintCacheStore {
     } catch (exc) {
       throw new StorageError(`指纹缓存读取失败: ${String(exc)}`);
     }
+  }
+
+  /**
+   * 变更探测（R7-3）：既有行与拟写入内容逐项比对（path 数据/图指纹/
+   * evidence 快照摘要/模型），全等 = true。false = 行缺失或内容有变，
+   * 调用方按变化路径重建快照并重写。命中率/失效标记不参与比对（快照
+   * 内容未变时保留旧命中计数，不被冗余顶替清零）。
+   */
+  async has_unchanged(
+    fingerprint: string,
+    opts: {
+      path: Record<string, unknown>;
+      evidence_snapshot: readonly unknown[];
+      model_id: string;
+      path_fingerprint?: string;
+      domain?: string;
+    },
+  ): Promise<boolean> {
+    this.#assertOpen();
+    let row: FingerprintCacheRow | null;
+    try {
+      row = await this.#storage.get_row(fingerprint);
+    } catch (exc) {
+      throw new StorageError(`指纹缓存读取失败（变更探测）: ${String(exc)}`);
+    }
+    if (row === null) return false;
+    if (row.path_fingerprint !== (opts.path_fingerprint ?? '')) return false;
+    if (row.model_id !== opts.model_id) return false;
+    if (row.path_data !== stable_json(opts.path)) return false;
+    if (row.evidence_snapshot !== stable_json([...opts.evidence_snapshot])) return false;
+    return true;
   }
 
   /** 标记失效（降级不命中）：计数保留，被顶替/淘汰时移除。reason 在

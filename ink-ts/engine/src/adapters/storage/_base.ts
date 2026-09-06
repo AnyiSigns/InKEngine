@@ -21,7 +21,7 @@ import type { Json, JsonRecord } from '../../core/json.js';
 import { StorageError } from '../../core/errors.js';
 import { CheckpointRecord } from '../../core/storage/storage_records.js';
 
-import { AsyncLock } from './_mutex.js';
+import { AsyncLock } from '../_lock.js';
 import { errMsg, normalizeCheckpointRecord } from './_serialize.js';
 
 /** 快照落盘暂存文件命名计数（同目录原子替换前先写临时文件）。 */
@@ -105,6 +105,9 @@ export class MemoryStorageBase {
         latest_checkpoint_by_thread: latest,
       };
     });
+    // 落盘在锁外执行：payload 已在临界区内快照完成（不可变副本），磁盘
+    // 写入不触碰内存状态，锁只需保护状态序列化一致性；并发 snapshot 各自
+    // 写唯一临时文件后原子 rename（同目标最后写入胜出）。
     await atomicWriteJson(dest, payload);
   }
 

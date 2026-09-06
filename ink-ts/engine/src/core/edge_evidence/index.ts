@@ -33,6 +33,8 @@ export {
 
 export type { EdgeEvidence, EdgeKey, EdgeScore } from './_types.js';
 
+export { now, set_now } from './_time.js';
+
 export {
   derive_edge_tier,
   edge_score,
@@ -63,7 +65,13 @@ export {
   edge_key_from_dict,
   edge_key_to_dict,
 } from './store.js';
+export type { EdgeApplyRoundOptions, EdgeRoundDelta } from './store.js';
 export type { EdgeEvidenceStorage, EdgeKeyTuple } from './storage_seam.js';
+
+export {
+  EDGE_EVIDENCE_COLLECTION,
+  RecordsEdgeEvidenceStorage,
+} from './records_storage.js';
 
 export { downgrade_edge_tier, restore_edge_tier } from './intervention.js';
 export type { DowngradeResult, RestoreResult } from './intervention.js';

@@ -22,11 +22,15 @@ export type {
   GraphRecipeContext,
   Host,
   RuntimeConfigInit,
-  StaticVettingHook,
   ToolWiring,
 } from './_types.js';
 
 export { Runtime } from './runtime.js';
+
+export type {
+  EvolveOfflineOptions,
+  EvolveOfflineResult,
+} from './_runtime_self_learning.js';
 
 export { _KnowledgeUsageSettleHook } from './_settle.js';
 export { _spec_identity } from './_helpers.js';

@@ -37,7 +37,17 @@ export interface FingerprintCacheUpsertOpts {
 
 /** 指纹缓存接口（接口先行；缓存本体与顶替机制后置）。 */
 export interface FingerprintCache {
-  upsert(fingerprint: string, opts: FingerprintCacheUpsertOpts): Promise<void>;
+  /** upsert 结果 = 是否真实落位（gate 拒绝/存储拒绝 = false）。 */
+  upsert(fingerprint: string, opts: FingerprintCacheUpsertOpts): Promise<boolean>;
+  /**
+   * 变更探测（可选）：实现支持时 settle 在写前先按 key 比对既有行
+   * （path_digest/快照摘要/模型），内容未变 = 跳过写（R7-3 少 IO）。
+   * 未实现 = 缺省每次 upsert（旧全量写语义，向后兼容）。
+   */
+  has_unchanged?(
+    fingerprint: string,
+    opts: FingerprintCacheUpsertOpts,
+  ): Promise<boolean> | boolean;
 }
 
 /** 上下文指纹提供形态：静态字符串或惰性求值 callable。 */
@@ -115,12 +125,6 @@ export class FingerprintSettleHook {
     if (!gatePassed) {
       return;
     }
-    let snapshot: unknown[] = [];
-    if (this.#store !== null) {
-      snapshot = (await this.#store.list_edges(ctx.domain)).map((e) =>
-        edge_evidence_to_dict(e),
-      );
-    }
     // 路径数据 = 图定义序列化；直挂函数图不可序列化时退化携带指纹
     // （缓存体只读身份，指纹即身份）
     let pathData: Record<string, unknown>;
@@ -141,6 +145,29 @@ export class FingerprintSettleHook {
       return;
     }
     const key = resolved ?? top.digest();
+    let snapshot: unknown[] = [];
+    if (this.#store !== null) {
+      // 域边列表单次读取（同回合 settle 链共享预读点），快照随用随建
+      snapshot = (await this.#store.list_edges(ctx.domain)).map((e) =>
+        edge_evidence_to_dict(e),
+      );
+    }
+    // 变更检测（R7-3）：缓存实现支持时先按 key 读行比对（path 数据 + 边计数
+    // 快照摘要 + 模型），内容未变 = 跳过写与容量淘汰扫描（快照只在变化时
+    // 重建；缓存体仍保留旧命中计数，不被冗余顶替清零）
+    if (this.#cache.has_unchanged !== undefined) {
+      const unchanged = await this.#cache.has_unchanged(key, {
+        path: pathData,
+        evidence_snapshot: snapshot,
+        model_id: this.#modelId,
+        gate_passed: true,
+        path_fingerprint: top.digest(),
+        domain: ctx.domain,
+      });
+      if (unchanged) {
+        return;
+      }
+    }
     await this.#cache.upsert(key, {
       path: pathData,
       evidence_snapshot: snapshot,

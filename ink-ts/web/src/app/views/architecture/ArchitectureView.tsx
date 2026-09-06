@@ -1,35 +1,29 @@
 import { useState } from 'react';
-import { Boxes, GitBranch, GitMerge } from 'lucide-react';
+import { Boxes, GitMerge } from 'lucide-react';
 
 import '../w3.css';
 import { createLiveArchitectureBackend } from './mockBackend';
-import type { ArchitectureBackend, AssemblyResult } from './backend';
-import { TemplateTab } from './tabs/TemplateTab';
+import type { ArchitectureBackend } from './backend';
 import { PoolTab } from './tabs/PoolTab';
 import { EdgeEvidenceTab } from './tabs/EdgeEvidenceTab';
 
-type ArchTab = 'template' | 'pool' | 'edge';
+type ArchTab = 'pool' | 'edge';
 
-const TABS: Array<{ id: ArchTab; label: string; icon: typeof GitBranch }> = [
-  { id: 'template', label: '模板', icon: GitBranch },
+const TABS: Array<{ id: ArchTab; label: string; icon: typeof GitMerge }> = [
   { id: 'pool', label: '结点池', icon: Boxes },
   { id: 'edge', label: '边证据', icon: GitMerge },
 ];
 
-/** 架构视图容器：三层 tab（模板/池/边证据）。 */
+/** 架构视图容器：结点池/边证据（只读投影）。模板编辑/试跑为假演示已移除。 */
 export function ArchitectureView({
   backend = createLiveArchitectureBackend(),
-  assemblyResult = null,
-  onOpenAssembly,
 }: {
   backend?: ArchitectureBackend;
-  assemblyResult?: AssemblyResult | null;
-  onOpenAssembly?: () => void;
 }) {
   // 稳定后端实例：默认参数每次渲染新建对象，直接传给子 tab 会使其
   // useEffect[backend] 每次渲染重跑（无限重渲循环）。
   const [instance] = useState(() => backend);
-  const [tab, setTab] = useState<ArchTab>('template');
+  const [tab, setTab] = useState<ArchTab>('pool');
 
   return (
     <div className="w3" data-view="architecture">
@@ -52,9 +46,8 @@ export function ArchitectureView({
         })}
       </div>
       <div className="w3-body">
-        {tab === 'template' && <TemplateTab backend={instance} />}
         {tab === 'pool' && <PoolTab backend={instance} />}
-        {tab === 'edge' && <EdgeEvidenceTab backend={instance} assemblyResult={assemblyResult} onOpenAssembly={onOpenAssembly} />}
+        {tab === 'edge' && <EdgeEvidenceTab backend={instance} />}
       </div>
     </div>
   );

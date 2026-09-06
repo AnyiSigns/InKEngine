@@ -13,9 +13,10 @@
  * knowledge_gate.ts 内部 _list_repr 同口径，python tuple repr 括号差异不落
  * 语义）。
  *
- * 状态标注（机制就绪 / 宿主接线点待定）：EvolutionFactory 为离线变异-
- * 择优工厂，由收敛/批量流程经引擎 API 调用——无回合内自动调度（默认
- * 开关：引擎不内置调度器，入队/择优时机由调用方驱动）。
+ * 状态标注（机制已接线）：EvolutionFactory 为离线变异-择优工厂，产品内调度
+ * 入口 = runtime.evolve_offline（宿主显式调用，见 runtime/_runtime_self_learning）；
+ * 默认保守：无回合内自动调度（不引入每回合开销），由收敛/批量流程经引擎
+ * API 驱动。
  */
 
 import { deepCopy } from '../json.js';

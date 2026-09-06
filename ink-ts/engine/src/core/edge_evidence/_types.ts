@@ -1,3 +1,4 @@
+// 跨域契约模块 - 跨域类型 seam：settle 域引用边证据数据形态
 /**
  * 边证据与评分类型（对标 ink_engine.core.edge_evidence）。
  *

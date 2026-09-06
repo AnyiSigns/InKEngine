@@ -1,0 +1,25 @@
+[package]
+name = "ink_ts_mcp"
+version = "0.1.0"
+edition = "2021"
+rust-version = "1.82"
+description = "ink-ts 内置 MCP server（stdio Content-Length 分帧）：exec/shell 双 profile——in-process 复用 exec ops 做 file/process/doc 工具、shell 复用 infer 嵌入做 embed 工具；INK_MCP_ROOT 沙箱 fail-closed"
+
+[[bin]]
+name = "ink_ts_mcp"
+path = "src/main.rs"
+
+[features]
+# embed = 链接 ink_ts_infer（本地嵌入推理，ort 重依赖；shell profile 提供
+# embed 工具）。关闭时 shell profile 不提供 embed（无 ort 环境的裁剪构建）。
+default = ["embed"]
+embed = ["dep:ink-ts-infer"]
+
+[dependencies]
+serde_json = "1"
+ink-ts-rpc = { package = "ink_ts_rpc", path = "../rpc" }
+ink-ts-exec = { package = "ink_ts_exec", path = "../exec" }
+ink-ts-infer = { package = "ink_ts_infer", path = "../infer", optional = true }
+
+[dev-dependencies]
+uuid = { version = "1", features = ["v4"] }

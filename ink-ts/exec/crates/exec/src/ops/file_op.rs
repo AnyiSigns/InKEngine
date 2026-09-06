@@ -6,11 +6,9 @@
 
 use std::path::PathBuf;
 
-use serde_json::{Value as JsonValue, json};
+use serde_json::{json, Value as JsonValue};
 
-use super::super::envelope::{
-    Deny, Envelope, FILE_LIST_ENTRIES_MAX, FILE_READ_BYTES_MAX,
-};
+use super::super::envelope::{Deny, Envelope, FILE_LIST_ENTRIES_MAX, FILE_READ_BYTES_MAX};
 
 const MAX_WRITE_BYTES: u64 = 1 << 20;
 
@@ -93,27 +91,40 @@ fn run_read(envelope: &Envelope) -> Result<JsonValue, Deny> {
 }
 
 /// list：目录列举（排序 + 条目上界；只回条目名与类型，不泄露绝对路径）。
+///
+/// 条目在收集时即按上界熔断（巨型目录不撑内存）；收齐后按名升序排序，
+/// 输出顺序确定（与 read_dir 平台序解耦，测试断言精确顺序可复现）。
 fn run_list(envelope: &Envelope) -> Result<JsonValue, Deny> {
     let target = prepare(envelope, true)?;
     if !target.path.is_dir() {
         return Err(Deny::new("params", "目标不是目录（file list 须指向目录）"));
     }
-    let entries = std::fs::read_dir(&target.path)
+    let mut entries: Vec<JsonValue> = Vec::new();
+    for entry in std::fs::read_dir(&target.path)
         .map_err(|err| Deny::new("execution", format!("目录读取失败: {err}")))?
-        .filter_map(|entry| entry.ok())
-        .map(|entry| {
-            let name = entry.file_name().to_string_lossy().to_string();
-            let kind = if entry.file_type().map(|t| t.is_dir()).unwrap_or(false) {
-                "dir"
-            } else {
-                "file"
-            };
-            json!({ "name": name, "kind": kind })
-        })
-        .collect::<Vec<JsonValue>>();
-    if entries.len() > FILE_LIST_ENTRIES_MAX {
-        return Err(Deny::new("size", format!("目录条目超限（≤{FILE_LIST_ENTRIES_MAX}）")));
+    {
+        let entry = match entry {
+            Ok(entry) => entry,
+            Err(_) => continue,
+        };
+        if entries.len() >= FILE_LIST_ENTRIES_MAX {
+            return Err(Deny::new(
+                "size",
+                format!("目录条目超限（≤{FILE_LIST_ENTRIES_MAX}）"),
+            ));
+        }
+        let name = entry.file_name().to_string_lossy().to_string();
+        let kind = if entry.file_type().map(|t| t.is_dir()).unwrap_or(false) {
+            "dir"
+        } else {
+            "file"
+        };
+        entries.push(json!({ "name": name, "kind": kind }));
     }
+    entries.sort_by(|a, b| match (a["name"].as_str(), b["name"].as_str()) {
+        (Some(left), Some(right)) => left.cmp(right),
+        _ => std::cmp::Ordering::Equal,
+    });
     Ok(json!({ "subop": "list", "entries": entries, "count": entries.len() }))
 }
 
@@ -184,7 +195,6 @@ mod tests {
             endpoint: "file".into(),
             roots: vec![root.to_string_lossy().into_owned()],
             allowlist: vec![],
-            allow_domains: vec![],
             cwd: None,
             env: None,
             timeout_secs: 20,
@@ -252,8 +262,11 @@ mod tests {
     #[test]
     fn list_returns_sorted_entries() {
         let dir = scratch_dir("list");
-        std::fs::write(dir.join("a.txt"), b"a").unwrap();
+        // 乱序创建（read_dir 平台序不保证）→ 输出须按名升序稳定
+        std::fs::write(dir.join("z.txt"), b"z").unwrap();
         std::fs::create_dir(dir.join("sub")).unwrap();
+        std::fs::write(dir.join("a.txt"), b"a").unwrap();
+        std::fs::create_dir(dir.join("mid")).unwrap();
         let env = envelope_for(
             &dir,
             "list",
@@ -261,11 +274,11 @@ mod tests {
         );
         let listed = run(&env).expect("列举成功");
         let entries = listed["entries"].as_array().unwrap();
-        assert_eq!(entries.len(), 2);
+        assert_eq!(entries.len(), 4);
         let names: Vec<&str> = entries
             .iter()
             .map(|e| e["name"].as_str().unwrap())
             .collect();
-        assert_eq!(names, vec!["a.txt", "sub"]);
+        assert_eq!(names, vec!["a.txt", "mid", "sub", "z.txt"]);
     }
 }

@@ -15,6 +15,7 @@ import { mkdirSync } from 'node:fs';
 
 import { Runtime } from '@ink-ts/engine';
 import type { Host } from '@ink-ts/engine';
+import type { McpClientManager } from '@ink-ts/engine';
 
 import type { BridgeHandler, ModelConfigHandles } from './bridge/_types.js';
 import { buildBridge } from './bridge/index.js';
@@ -30,6 +31,10 @@ import { build_product_recipe } from './recipe.js';
 import type { ProductRecipeInit } from './recipe.js';
 import { buildHostRetrieval } from './retrieval/domain.js';
 import type { HostRetrievalDomain } from './retrieval/domain.js';
+import { SyncEmbedderSeam } from './retrieval/sync_seam.js';
+import { attachToolIndexEmbedder } from './retrieval/sync_seam.js';
+import { assembleHostMcp } from './mcp/assembly.js';
+import type { HostMcpConfig, McpConnectStatus } from './mcp/assembly.js';
 
 /** createHost 装配产物（cli/web/vitest 消费面）。 */
 export interface HostHandle {
@@ -38,6 +43,12 @@ export interface HostHandle {
   config: ResolvedHostConfig;
   /** 宿主检索域（向量/FTS 文档库 + 嵌入适配器；数据落 config.data_dir）。 */
   retrieval: HostRetrievalDomain;
+  /** tool_index 语义检索同步 seam（createHost 已把检索域嵌入器接入工具索引）。 */
+  toolEmbedder: SyncEmbedderSeam | null;
+  /** MCP 管理器（声明式执行器已注册；工具导入/备份桥经此取用）。 */
+  mcpManager: McpClientManager | null;
+  /** MCP 内置 server 连接结果（连接失败只记诊断，fail-closed 不击穿 boot）。 */
+  mcpStatus: McpConnectStatus[];
   /** 幂等关停：Runtime.stop（拒新 → 等在途 → 关 MCP/LLM/存储 → host 关停钩子）
    *   → 检索域适配器收口。 */
   dispose(): Promise<void>;
@@ -67,15 +78,28 @@ export async function createHost(
   mkdirSync(resolved.events_dir, { recursive: true });
   mkdirSync(resolved.data_dir, { recursive: true });
   const retrieval = buildHostRetrieval(resolved.data_dir);
-  const inkHost = new InkHost(resolved);
   const workspaceStore = createWorkspaceStore(resolved.data_dir);
   const capabilityStore = createCapabilityStore(resolved.data_dir);
-  const assemblyRecipe = build_product_recipe(recipe ?? undefined);
+  const inkHost = new InkHost(resolved, () => capabilityStore.get());
+  const assemblyRecipe = build_product_recipe({
+    ...(recipe ?? {}),
+    maxToolRounds: recipe?.maxToolRounds ?? (() => capabilityStore.get().max_tool_rounds ?? null),
+  });
   for (const factory of retrieval.sourceFactories()) {
     assemblyRecipe.retrieval_sources.push(factory as never);
   }
   const runtime = new Runtime();
   await runtime.boot(inkHost as unknown as Host, assemblyRecipe);
+  // tool_index 语义检索：把检索域嵌入器接入引擎工具索引（真向量态预热，
+  // tools.full 随 uses_vectors=true 可观测；失败只跳过不击穿 boot）。
+  let toolEmbedder: SyncEmbedderSeam | null = null;
+  try {
+    toolEmbedder = await attachToolIndexEmbedder(runtime, retrieval.adapter);
+  } catch {
+    toolEmbedder = null;
+  }
+  // MCP 装配：管理器 → 引擎声明式执行器 + runtime seam；配置连接内置 server。
+  const mcp = await assembleHostMcp(runtime, resolved.mcp);
   mkdirSync(resolved.attachment_dir, { recursive: true });
   const docService = new DocService({ maxChars: resolved.round_doc_text_cap ?? undefined });
   const search = buildHostSearch();
@@ -94,12 +118,18 @@ export async function createHost(
     workspace: workspaceStore,
     capability: capabilityStore,
     modelConfig: modelConfigHandles(inkHost),
+    data_dir: resolved.data_dir,
+    seed_dir: resolved.seed_dir,
+    mcpManager: mcp.manager,
   });
   const handle: HostHandle = {
     runtime,
     bridge,
     config: resolved,
     retrieval,
+    toolEmbedder,
+    mcpManager: mcp.manager,
+    mcpStatus: mcp.status,
     dispose: async (): Promise<void> => {
       await runtime.stop();
       await retrieval.close();
@@ -107,6 +137,9 @@ export async function createHost(
   };
   return handle;
 }
+
+export type { HostMcpConfig, McpConnectStatus } from './mcp/assembly.js';
+export { assembleHostMcp } from './mcp/assembly.js';
 
 export type { BridgeContext, BridgeError, BridgeHandler, HostBridgeDeps, ModelConfigHandles } from './bridge/_types.js';
 export { BRIDGE_METHODS, buildBridge } from './bridge/index.js';
@@ -138,7 +171,12 @@ export type {
 } from './config.js';
 export { PRODUCT_SWITCH_DEFAULTS, build_product_recipe } from './recipe.js';
 export type { ProductRecipeInit, ProductSwitchName, RecipeGraph } from './recipe.js';
-export { productChatGraphRecipe, STUB_REPLY } from './graph.js';
+export {
+  PRODUCT_TOOL_ROUNDS_DEFAULT,
+  STUB_REPLY,
+  buildProductChatGraph,
+  productChatGraphRecipe,
+} from './graph.js';
 
 // ── 会话宿主薄服务 ──
 export { HostSessionStore, SessionServiceError } from './sessions/store.js';
@@ -201,12 +239,11 @@ export type { WorkspaceState, WorkspaceStore } from './workspace/store.js';
 
 // ── 能力记录域（data_dir/capability.json 持久化）──
 export {
-  SIMULATION_TIERS,
   CapabilityError,
   createCapabilityStore,
   defaultCapabilityRecord,
 } from './capability/store.js';
-export type { CapabilityRecord, CapabilityStore, SimulationTier } from './capability/store.js';
+export type { CapabilityRecord, CapabilityStore } from './capability/store.js';
 export {
   SEARCH_PROVIDERS,
   WebSearchError,
@@ -231,7 +268,6 @@ export {
   hmacHex,
   hostAllowed,
   isPathWithinRoots,
-  parseUrlHost,
   pathHasDotdot,
   randomSessionKey,
   verifySignature,
@@ -267,3 +303,16 @@ export type {
   EmbeddingSourceName,
   RemoteEmbeddingEndpoint,
 } from './embedder/resolve_plan.js';
+
+// ── data_dir 快照域（backup.export/preview/restore 消费的宿主领域层）──
+export {
+  BackupError,
+  applyRestore,
+  collectDirFiles,
+  exportDataDir,
+  readBackupFile,
+  snapshotDataDir,
+} from './backup/snapshot.js';
+export type { BackupManifest, DirFile } from './backup/snapshot.js';
+export { crc32, packStoreZip, unpackStoreZip } from './backup/zip_codec.js';
+export type { ZipEntryInput, ZipEntryOutput } from './backup/zip_codec.js';

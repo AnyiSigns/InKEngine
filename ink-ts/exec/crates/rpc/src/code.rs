@@ -5,7 +5,7 @@
 //! -32000（MCP server 错误区间，ts_seed_pack 同款）。无 id 消息按规范
 //! 视为通知、不响应（由调用方的 handle_line 判定，本模块只提供构造件）。
 
-use serde_json::{Value, json};
+use serde_json::{json, Value};
 
 /// 解析错误：非法 JSON 文本。
 pub const PARSE_ERROR: i64 = -32700;

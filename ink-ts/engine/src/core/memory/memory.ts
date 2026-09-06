@@ -33,13 +33,13 @@ export const DEFAULT_NOW: NowFn = (): number => 0;
 /** 缺省 id 源：固定 32 位十六进制，保证确定性可复现。 */
 export const DEFAULT_ID_GEN: IdGenFn = (): string => '00000000000000000000000000000000';
 
-// 来源分级 → 默认召回权重（复用 source_grading 分级基准）。记忆来源取值
-// 宿主语义，但当来源落在统一分级词汇表（web/dialog/model/user）内时，
-// 默认权重 = 该级可信度基准——与知识条目 credibility、检索 chunk level
-// 同源同口径；词汇表外来源回落中性 1.0（非可信度语义的来源不套用分级）。
-export const SOURCE_WEIGHT_BY_SOURCE: Readonly<Record<string, number>> = {
-  ..._SOURCE_CREDIBILITY,
-};
+// 来源分级 → 默认召回权重（复用 source_grading 分级基准，直接引用其
+// 单一数值表：记忆/知识/检索三侧同表同口径，不另设第二份拷贝）。记忆
+// 来源取值宿主语义，但当来源落在统一分级词汇表（web/dialog/model/user）
+// 内时，默认权重 = 该级可信度基准；词汇表外来源回落中性 1.0（非可信度
+// 语义的来源不套用分级）。
+export const SOURCE_WEIGHT_BY_SOURCE: Readonly<Record<string, number>> =
+  _SOURCE_CREDIBILITY;
 
 /** MemoryEntry 构造入参（缺省字段走默认值；created_at 缺省取注入 now）。 */
 export interface MemoryEntryInput {

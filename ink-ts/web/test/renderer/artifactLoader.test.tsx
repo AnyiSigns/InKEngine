@@ -3,7 +3,7 @@
  * 挂载后刷新（数据源 = mock 后端清单）。
  */
 
-import { describe, expect, it, vi } from 'vitest';
+import { describe, expect, it } from 'vitest';
 import { render, screen } from '@testing-library/react';
 import { Suspense } from 'react';
 import { act } from 'react-dom/test-utils';
@@ -11,11 +11,10 @@ import { act } from 'react-dom/test-utils';
 import {
   ArtifactBoundary,
   lazyArtifactComponent,
-  refreshArtifactManifest,
   registerArtifactManifest,
   registerArtifactComponent,
 } from '@/renderer/artifactLoader';
-import type { BackendAdapter, ArtifactManifestEntry } from '@/shared/backend/backendAdapter';
+import type { ArtifactManifestEntry } from '@/shared/backend/backendAdapter';
 
 describe('产物组件注册', () => {
   it('合法名注册放行；非法名/空名拒绝', () => {
@@ -35,25 +34,6 @@ describe('产物组件注册', () => {
     ];
     const registered = registerArtifactManifest(entries);
     expect(registered).toBe(2);
-  });
-});
-
-describe('宿主清单刷新（挂载后注册表刷新）', () => {
-  it('宿主不可用 = 零注册不报错', async () => {
-    await expect(refreshArtifactManifest(null)).resolves.toBe(0);
-  });
-
-  it('宿主可用 = 拉取清单并注册', async () => {
-    const backend = {
-      available: true,
-      componentsManifest: vi.fn(async () => ({
-        artifacts: [
-          { name: 'artifact_c', url: 'http://localhost:4321/c.js', hash: 'a1b2c3d4e5f6a7b8c9d0e1f2a3b4c5d6', version: '0.1.0' },
-        ],
-      })),
-    } as unknown as BackendAdapter;
-    const count = await refreshArtifactManifest(backend);
-    expect(count).toBe(1);
   });
 });
 

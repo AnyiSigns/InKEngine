@@ -1,18 +1,18 @@
 /**
  * 产品配方（AssemblyRecipe）构建 + 产品配方默认表。
  *
- * 机制接线靠引擎默认装配直接接上（宿主零代码接线）；本文件只出
- * 两样东西：
- * 1. PRODUCT_SWITCH_DEFAULTS——产品配方开关默认表（一处种子默认表，非逐
- *    机制接线代码）：PathAssemblyFlags 七位与各布尔开关默认全开 true（含
- *    canary 验证链、context_window 多域模式、回合时间线事件）；关闭只走
- *    显式产品配置（assembly.switches / assembly.run_options 覆写）。安全/
- *    审批姿态不在本表（默认 fail-closed，autoApprove 显式才放行）。
- * 2. build_product_recipe——boot 种子 / 事件类型 / harness / ui_spec 白名单
- *    / tool_wiring / approval_levels 的装配（engine 已具 boot 种子 → 直接
- *    引用不复制）；graph_recipe 缺省 = 产品默认 chat 图（graph.ts），调用方
- *    可覆写；检索源（vector/fts）由 createHost 装配后直注
- *    recipe.retrieval_sources（属宿主领域层，见 retrieval/domain.ts）。
+ * 机制开关默认表 PRODUCT_SWITCH_DEFAULTS 十位全开，每位都经 build 映射到
+ * AssemblyRecipe 机制开关字段（edge_evidence/settle/pool/assembler/
+ * fingerprint/canary/context_window/contract）或执行域 run_options
+ * （multipath/时间线事件）——引擎逐位消费，关闭只走显式产品配置
+ * （assembly.switches / assembly.run_options 覆写）。安全/审批姿态不在本表
+ * （默认 fail-closed，autoApprove 显式才放行）。
+ *
+ * 其余装配（boot 种子 / 事件类型 / harness / ui_spec 白名单 / tool_wiring /
+ * approval_levels）：engine 已具 boot 种子 → 直接引用不复制；graph_recipe
+ * 缺省 = 产品默认 chat 图（graph.ts），调用方可覆写；检索源（vector/fts）由
+ * createHost 装配后直注 recipe.retrieval_sources（属宿主领域层，见
+ * retrieval/domain.ts）。
  *
  * boot 资产真源在 engine adapters/boot 与 core/self_tools：此处只引用。
  */
@@ -28,27 +28,26 @@ import {
   operation_of,
   self_tool_specs,
 } from '@ink-ts/engine';
-import type { Graph, GraphRecipeContext, ToolWiring } from '@ink-ts/engine';
+import type { AssemblyRecipeInit, Graph, GraphRecipeContext, ToolWiring } from '@ink-ts/engine';
 
-import { productChatGraphRecipe } from './graph.js';
+import { buildProductChatGraph } from './graph.js';
 
 /** 图配方注入位形态（缺省 = 产品默认 chat 图；调用方可覆写）。 */
 export type RecipeGraph = (ctx: GraphRecipeContext) => Graph;
 
 /** 产品机制开关默认表（机制开关全开；关闭只走显式产品配置）。 */
 export const PRODUCT_SWITCH_DEFAULTS = {
-  // ── PathAssemblyFlags 七位（域装配开关组；engine 构造缺省 false，
-  //    产品默认表全开——逐机制读取点按需消费，无空转） ──
+  // ── AssemblyRecipe 机制开关位（引擎逐位消费；关闭 = 对应机制块不装配）──
   contract_enabled: true,
   edge_evidence_enabled: true,
   settle_hooks_enabled: true,
   pool_governance_enabled: true,
   assembler_enabled: true,
-  multipath_enabled: true,
   fingerprint_cache_enabled: true,
-  // ── 布尔机制开关（含 canary 验证链 / context_window 多域模式 / 时间线） ──
+  // ── 执行域/独立机制开关（canary 试跑验证 / context 多域混合 / 多径）──
   canary_verification: true,
   context_window_multidomain: true,
+  multipath_enabled: true,
   emit_timeline_events: true,
 } as const;
 
@@ -68,11 +67,45 @@ export interface ProductRecipeInit extends ProductSwitchOverrides {
   approval_levels?: Record<string, unknown> | null;
   ui_allowed_components?: readonly string[];
   ui_allowed_theme_tokens?: readonly string[];
+  /** 工具回合上限提供者（agent 图消费；null = 产品默认轮次上限）。
+   *  每次引擎重建（rebuild）求值一次——能力记录 max_tool_rounds 装配位。 */
+  maxToolRounds?: (() => number | null) | null;
 }
 
-/** 出厂界面白名单（与 boot BOOT_UI_SPEC 渲染面一致的最小集合）。 */
-const DEFAULT_UI_COMPONENTS = ['column', 'message_list', 'agent_input'] as const;
-const DEFAULT_UI_THEME_TOKENS = ['bg', 'fg', 'accent'] as const;
+/**
+ * 出厂界面白名单（与 seed ui_spec / manifest renderer_components 同源）：
+ * canonical 组件 = 产品 spec 直渲主壳引用的组件集（映射到前端产品实现，
+ * 见 web/src/app/rendererAdapters）；引擎 boot 最小面板（message_list/
+ * agent_input）为子集。改动白名单须同步 seed ui_spec 使用集 + manifest
+ * contracts.renderer_components + web 组件注册表（gate 对码测试守门）。
+ */
+const DEFAULT_UI_COMPONENTS = [
+  'agent_input',
+  'evolution_feed',
+  'file_tree',
+  'ledger_view',
+  'mechanism_view',
+  'message_list',
+  'review_card',
+  'session_list',
+  'settings_floater',
+  'task_capsule',
+  'todo_view',
+  'top_bar',
+  'trajectory_view',
+] as const;
+/** 主题 token 白名单 = 引擎 boot 面板 token（bg/fg/accent）∪ 前端语义 token。 */
+const DEFAULT_UI_THEME_TOKENS = [
+  'bg',
+  'fg',
+  'accent',
+  'bg.base',
+  'text.base',
+  'accent.approval',
+  'status.bubble.fill',
+  'status.bubble.edge',
+  'status.card.edge',
+] as const;
 
 /** 工具三路声明（engine core/self_tools 契约工具；host 只装配不复制）。 */
 function product_tool_wiring(): ToolWiring {
@@ -84,16 +117,39 @@ function product_tool_wiring(): ToolWiring {
   };
 }
 
-/** 开关表 → 配方执行域选项（引擎执行面消费项；false = 显式关）。 */
+/** 开关取值解析（显式覆写优先；未列键 = 默认表值）。 */
+function switchValue(
+  overrides: ProductSwitchOverrides | null | undefined,
+  name: ProductSwitchName,
+): boolean {
+  return overrides?.switches?.[name] ?? PRODUCT_SWITCH_DEFAULTS[name];
+}
+
+/** 开关表 → AssemblyRecipe 机制开关位（引擎 init 直配，逐位真实消费）。
+ *  memory_extract/skill_crystal 自学习族开关不在产品表（引擎默认开）。 */
+function assembly_flags_from(
+  overrides: ProductSwitchOverrides | null | undefined,
+): AssemblyRecipeInit {
+  return {
+    contract_enabled: switchValue(overrides, 'contract_enabled'),
+    edge_evidence_enabled: switchValue(overrides, 'edge_evidence_enabled'),
+    settle_hooks_enabled: switchValue(overrides, 'settle_hooks_enabled'),
+    pool_governance_enabled: switchValue(overrides, 'pool_governance_enabled'),
+    assembler_enabled: switchValue(overrides, 'assembler_enabled'),
+    fingerprint_cache_enabled: switchValue(overrides, 'fingerprint_cache_enabled'),
+    canary_verification: switchValue(overrides, 'canary_verification'),
+    context_window_multidomain: switchValue(overrides, 'context_window_multidomain'),
+    emit_timeline_events: switchValue(overrides, 'emit_timeline_events'),
+  };
+}
+
+/** 开关表 → 配方执行域选项（引擎执行面消费项：多径 + 时间线双通道）。 */
 function run_options_from(
   overrides: ProductSwitchOverrides | null | undefined,
 ): Partial<RunOptions> | null {
   const base: Partial<RunOptions> = {};
-  const user = overrides?.switches;
-  const multipath = user?.multipath_enabled ?? PRODUCT_SWITCH_DEFAULTS.multipath_enabled;
-  const timeline = user?.emit_timeline_events ?? PRODUCT_SWITCH_DEFAULTS.emit_timeline_events;
-  base.multipath_enabled = multipath;
-  base.emit_timeline_events = timeline;
+  base.multipath_enabled = switchValue(overrides, 'multipath_enabled');
+  base.emit_timeline_events = switchValue(overrides, 'emit_timeline_events');
   Object.assign(base, overrides?.run_options ?? {});
   const effective = Object.entries(base).filter(
     ([, value]) => value !== null && value !== undefined,
@@ -101,7 +157,7 @@ function run_options_from(
   return effective.length > 0 ? (Object.fromEntries(effective) as Partial<RunOptions>) : null;
 }
 
-/** 开关默认表断言（防默认表被误改关；单测亦断言）。 */
+/** 开关默认表断言（防默认表被误改关；与开关表同删同留——删表须同步删断言）。 */
 export function assert_product_switches_all_on(): void {
   const off = (Object.entries(PRODUCT_SWITCH_DEFAULTS) as Array<[string, boolean]>).filter(
     ([, value]) => value !== true,
@@ -112,9 +168,9 @@ export function assert_product_switches_all_on(): void {
 }
 
 /**
- * 构建产品 AssemblyRecipe（boot 资产直接引用 engine；机制开关默认全开）。
- * graph_recipe 缺省 = 产品默认 chat 图（调用方可覆写）；检索源由装配方
- * （createHost）注入 recipe.retrieval_sources。
+ * 构建产品 AssemblyRecipe：十位机制开关经 init 字段/run_options 逐位真实
+ * 消费（见 PRODUCT_SWITCH_DEFAULTS）。graph_recipe 缺省 = 产品默认 chat 图
+ * （调用方可覆写）；检索源由装配方（createHost）注入 recipe.retrieval_sources。
  */
 export function build_product_recipe(
   init: ProductRecipeInit = {},
@@ -134,8 +190,19 @@ export function build_product_recipe(
     ],
     tool_wiring: product_tool_wiring(),
     approval_levels: (init.approval_levels ?? {}) as Record<string, unknown>,
+    ...assembly_flags_from(init),
   });
-  recipe.graph_recipe = init.graph_recipe ?? productChatGraphRecipe;
+  recipe.graph_recipe = defaultGraphRecipe(init);
   recipe.run_options = run_options_from(init);
   return recipe;
+}
+
+/** 缺省图配方：产品默认 chat 图（工具回合上限 = init.maxToolRounds 现值）。
+ *  每次引擎重建求值一次：能力 max_tool_rounds 变更经重建生效。 */
+function defaultGraphRecipe(init: ProductRecipeInit): RecipeGraph {
+  if (init.graph_recipe !== null && init.graph_recipe !== undefined) {
+    return init.graph_recipe;
+  }
+  const rounds = init.maxToolRounds ?? null;
+  return (ctx) => buildProductChatGraph(ctx, { maxToolRounds: rounds === null ? null : rounds() });
 }

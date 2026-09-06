@@ -8,7 +8,7 @@ import { describe, expect, it, vi } from 'vitest';
 import {
   fetch_transport,
   type LlmPostRequest,
-} from '../../../src/adapters/llm/anthropic_transport.js';
+} from '../../../src/adapters/llm/fetch_transport.js';
 
 /** fetch 注入面（seam 类型未导出：经构造参数反推）。 */
 type FetchImpl = NonNullable<Parameters<typeof fetch_transport>[0]>;

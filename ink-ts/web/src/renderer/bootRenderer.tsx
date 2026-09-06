@@ -212,8 +212,10 @@ function UINodeView({
     const gap = typeof node.props?.gap === 'number' ? Math.min(Math.max(node.props.gap, 0), 3) : 2;
     const growClass = grow || node.props?.grow === true ? 'flex-1 min-h-0 min-w-0' : 'min-h-0 min-w-0';
     const scrollClass = !isRow && node.props?.scroll === true ? 'overflow-y-auto' : '';
+    // relative：绝对定位层（顶栏 veil 触发带等）以本容器为锚
+    const posClass = node.props?.relative === true ? 'relative' : '';
     return (
-      <div className={`flex ${isRow ? 'flex-row' : 'flex-col'} ${GAP_CLASSES[gap]} ${growClass} ${scrollClass}`}>
+      <div className={`flex ${isRow ? 'flex-row' : 'flex-col'} ${GAP_CLASSES[gap]} ${growClass} ${scrollClass} ${posClass}`}>
         {children.map((child, index) => (
           <UINodeView
             key={`${path}.${index}`}
@@ -266,7 +268,7 @@ export interface RendererChrome {
   initialRememberedDomains?: string[] | undefined;
   /** 已记住域名持久化写（设置页增删 / 审批卡记住域名共用） */
   onRememberedDomainsChange?: (domains: string[]) => void | undefined;
-  /** 自动审批可登记工具清单（tools_snapshot 的 auto_approvable 过滤面） */
+  /** 自动审批可登记工具清单（tools.full / 能力记录 auto_approve_tools 面） */
   autoApprovableTools?: string[];
   /** 活动界面描述（界面树编辑器的读入面） */
   uiSpec?: UISpec | null;
@@ -278,6 +280,8 @@ export interface RendererChrome {
   architectureBaseline?: unknown;
   /** 既有资料批量导入操作面（搬进 InKEngine 第一步） */
   materialImport?: BackendAdapter;
+  /** 产品壳装配数据（宿主视图模型；canonical 适配器按名消费，机制回调不进布局数据） */
+  product?: Record<string, unknown> | null;
 }
 
 /**
@@ -312,6 +316,7 @@ export function UIRenderer({
   activeSessionId,
   architectureBaseline,
   materialImport,
+  product,
 }: {
   spec: UISpec | null;
   hub: ChannelHub | null;
@@ -349,6 +354,7 @@ export function UIRenderer({
   if (activeSessionId !== undefined) chromeProps.activeSessionId = activeSessionId;
   if (architectureBaseline !== undefined) chromeProps.architectureBaseline = architectureBaseline;
   if (materialImport !== undefined) chromeProps.materialImport = materialImport;
+  if (product !== undefined && product !== null) chromeProps.product = product;
   // 追加式挂接：自定义消息渲染器通道经 chromeProps 暴露组件消费，由注册表
   // 侧 resolveMessageRenderer 按 (键, 形态) 选择，不重构既有布局树。
   chromeProps.resolveMessageRenderer = resolveMessageRenderer;

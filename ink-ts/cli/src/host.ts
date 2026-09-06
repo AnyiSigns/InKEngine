@@ -11,9 +11,13 @@
  * 模型配置冷启装配：data_dir/config.json 持久化的 model_config（设置页
  * models.config.put 落盘）启动读入并合并进 HostConfigInput——显式传入槽
  * （CLI 参数/env 面）优先，缺席槽取持久化值；重启后运行期配置仍生效。
+ *
+ * 数据目录生命周期：data_dir 缺省 = 本模块自建临时目录（每进程独立）；
+ * assembleCliHost 记住该归属，dispose 时先关停 host 再删除临时目录（进程
+ * 收尾不留垃圾）；显式传入的 data_dir 属调用方所有，dispose 不触碰。
  */
 
-import { mkdtempSync } from 'node:fs';
+import { mkdtempSync, rmSync } from 'node:fs';
 import { tmpdir } from 'node:os';
 import path from 'node:path';
 
@@ -55,17 +59,40 @@ function mergePersistedModelConfig(
 export async function assembleCliHost(
   options: CliHostOptions,
 ): Promise<HostHandle> {
+  const ownsDataDir = options.data_dir === undefined;
   const data_dir = options.data_dir ?? defaultDataDir();
   const config: HostConfigInput = {
     autoApprove: options.approve,
     data_dir,
     events_dir: options.events_dir ?? path.join(data_dir, 'events'),
   };
-  const persisted = load_persisted_model_config(data_dir);
-  if (persisted !== null) {
-    config.model_config = mergePersistedModelConfig(options.model_config, persisted);
+  try {
+    const persisted = load_persisted_model_config(data_dir);
+    if (persisted !== null) {
+      config.model_config = mergePersistedModelConfig(options.model_config, persisted);
+    }
+    const handle = await createHost(config, {
+      graph_recipe: buildCliGraphRecipe(options.graph, options.approve),
+    });
+    return ownsDataDir ? withTempDirCleanup(handle, data_dir) : handle;
+  } catch (error) {
+    // 装配失败不泄漏自建临时目录（显式 data_dir 属调用方，不动）
+    if (ownsDataDir) rmSync(data_dir, { recursive: true, force: true });
+    throw error;
   }
-  return createHost(config, {
-    graph_recipe: buildCliGraphRecipe(options.graph, options.approve),
-  });
+}
+
+/** 包一层 dispose：原 host 关停后删除自建临时 data_dir（幂等）。 */
+function withTempDirCleanup(handle: HostHandle, data_dir: string): HostHandle {
+  let cleaned = false;
+  const dispose = async (): Promise<void> => {
+    if (cleaned) return;
+    cleaned = true;
+    try {
+      await handle.dispose();
+    } finally {
+      rmSync(data_dir, { recursive: true, force: true });
+    }
+  };
+  return { ...handle, dispose };
 }

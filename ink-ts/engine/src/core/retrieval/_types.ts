@@ -18,6 +18,7 @@
  */
 
 import { KIND_PATH, KIND_SCRIPT } from '../knowledge_set/_types.js';
+import { DEFAULT_INJECTION_SCANNER } from '../knowledge_set/index.js';
 import {
   SOURCE_DIALOG,
   SOURCE_MODEL,
@@ -26,7 +27,6 @@ import {
   SOURCE_WEB,
   _SOURCE_CREDIBILITY,
 } from '../source_grading/sourceGrading.js';
-import { scan_text_injection } from '../knowledge_gate/_injection.js';
 
 // 来源分级重导出（来源分级常量与默认可信度基准 = source_grading 单源；
 // 知识集/记忆消费方沿用 retrieval.SOURCE_* 形态）
@@ -57,9 +57,10 @@ export const MAX_LIMIT = 50;
 /** 指令注入扫描面：检索文本 → 命中清单（检出即剔除，不放行）。 */
 export type InjectionScanner = (content: string) => readonly string[];
 
-/** 缺省指令注入扫描器 = 真实指令措辞检出（knowledge_gate.scan_text_injection：
- *  中英文指令句式归一命中 + 混淆熵启发）；宿主可注入等价实现覆盖。 */
-export const DEFAULT_INJECTION_SCANNER: InjectionScanner = scan_text_injection;
+// 缺省指令注入扫描器 = knowledge_set._sources 的 DEFAULT_INJECTION_SCANNER
+// （绑定 knowledge_gate.scan_text_injection）——单源收敛：本域只做别名
+// re-export，不保留第二份绑定（宿主可注入等价实现覆盖）。
+export { DEFAULT_INJECTION_SCANNER };
 
 /** RetrievedChunk 构造选项（dataclass 字段映射；meta 缺省空表）。 */
 export interface RetrievedChunkOptions {

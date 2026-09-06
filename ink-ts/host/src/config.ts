@@ -14,6 +14,8 @@
 
 import path from 'node:path';
 
+import type { HostMcpConfig } from './mcp/assembly.js';
+
 /** 三个内置协议（引擎注册表 canonical 适配器名；厂商仅是端点配置）。 */
 export const LLM_PROTOCOLS = [
   'openai_compatible',
@@ -60,6 +62,8 @@ export interface HostConfigInput {
   attachment_dir?: string;
   /** 文档附件文本注入单附件上限（字符；缺省见 doc 常量）。 */
   round_doc_text_cap?: number;
+  /** MCP 装配（内置 server 连接位注入；null = 装配管理器但不连接）。 */
+  mcp?: HostMcpConfig | null;
 }
 
 /** 解析后的运行配置（目录已定稿；model_config 为角色槽 record 形态）。 */
@@ -74,6 +78,7 @@ export interface ResolvedHostConfig {
   seed_dir: string;
   attachment_dir: string;
   round_doc_text_cap: number | null;
+  mcp: HostMcpConfig | null;
 }
 
 /** 配置错误（形状非法显式报错，不静默吞）。 */
@@ -242,6 +247,36 @@ export function resolve_host_config(
     autoApprove,
     approval_timeout: base.approval_timeout ?? null,
     round_doc_text_cap,
+    mcp: normalize_mcp_config(base.mcp ?? null),
     ...dirs,
   };
+}
+
+/** MCP 装配形状校验（connect 条目：server_id 非空、command 可空字符串）。 */
+function normalize_mcp_config(raw: unknown): HostMcpConfig | null {
+  if (raw === undefined || raw === null) return null;
+  if (!isRecord(raw)) {
+    throw new HostConfigError('mcp 配置期望对象形态');
+  }
+  const rawConnect = raw['connect'];
+  const connect: Array<{ server_id: string; command: string | null }> = [];
+  if (rawConnect !== undefined && rawConnect !== null) {
+    if (!Array.isArray(rawConnect)) {
+      throw new HostConfigError('mcp.connect 期望列表');
+    }
+    for (const [index, entry] of rawConnect.entries()) {
+      if (!isRecord(entry) || typeof entry['server_id'] !== 'string' || entry['server_id'] === '') {
+        throw new HostConfigError(`mcp.connect[${index}] 缺非空 server_id`);
+      }
+      const command = entry['command'];
+      if (command !== undefined && command !== null && typeof command !== 'string') {
+        throw new HostConfigError(`mcp.connect[${index}] command 须为字符串/null`);
+      }
+      connect.push({
+        server_id: entry['server_id'],
+        command: typeof command === 'string' && command !== '' ? command : null,
+      });
+    }
+  }
+  return connect.length > 0 ? { connect } : { connect: [] };
 }

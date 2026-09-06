@@ -1,13 +1,13 @@
-// gate: 超限(352 行) - 策略边复审 + 池治理 settle 钩子同文件（同一 settle 域协议面，拆文件破坏评审/治理钩子索引面）
+// gate: 超限(398 行) - 策略边复审 + 池治理 settle 钩子同文件（同一 settle 域协议面，拆文件破坏评审/治理钩子索引面）
 /**
  * 池治理登记钩子与策略边对抗复审钩子。
  *
  * 对标 ink_engine.core.settle 的 PoolGovernanceSettleHook /
  * PolicyEdgeReviewSettleHook：
- * - PoolGovernanceSettleHook：把 PoolGovernance 挂入 settle 钩子链（只登记
- *   不执行）。钩子本身不在 settle 路径做治理判定——治理判定由桥 op 触发
- *   （pool.snapshot 读快照、pool.evaluate 判定提案）；本钩子只把登记器注册
- *   进钩子链，使运行时持有可观测的治理状态（settle 占位 no-op）；
+ * - PoolGovernanceSettleHook：真实现——每回合自动跑，从本回合失败边的 dst
+ *   结点类型提炼池候选，按四规则（容量/死结点淘汰/近重复合并/提案预算）
+ *   经 PoolGovernance.evaluate 产出治理判定并应用安全收敛（裁决反写/失效
+ *   登记见下方 writable seam；无引擎可写实体 = 登记 + 审计）;
  * - PolicyEdgeReviewSettleHook：策略边对抗复审（对抗证据 → 自动提请 L2
  *   复审 + 复审前降级）。判据（评审文档第十三节坑六）：策略边失败累计≥5，
  *   或所在域非策略边证据均值反超其承诺 → 自动提请人工复审（L2 审批）并把
@@ -41,6 +41,44 @@ export const POOL_GOVERNANCE_MERGE_CAP_PER_ROUND = 1;
 /** 池治理审计记录 type（set_audit 集合；与干预审计同集合 append-only）。 */
 export const POOL_GOVERNANCE_AUDIT_TYPE = 'pool_governance_audit';
 
+/**
+ * 池治理裁决的可写实体 seam（D06「执行」边界）：裁决对象在引擎存在可写
+ * 实体（实体注册表/知识/结点链中的对象）时经此反写。实现方 = 真实存在
+ * 对象的受守卫写通道（实体注册表/宿主装配的演化写通道），每个写操作自身
+ * 幂等：对象不存在 = no-op，回落钩子的登记 + 审计（不硬造越权路径）。
+ *
+ * 语义对齐 R3（决策 A）：dead → evict/archive（本钩子落 archive = 软归档；
+ * 物理剔除经 evict 由宿主/实体源按需调用）、near-duplicate → merge 保权威
+ * （drop_ids 并入 keep_id）。list() = 当前可写对象 id（可见列表，裁决目标
+ * 须在列）。
+ */
+export interface GovernanceWriteTarget {
+  /** 可写对象 id 清单（裁决目标存在性判定；空 = 无对象可写）。 */
+  list(): readonly string[] | Promise<readonly string[]>;
+  /** 归档（软删除/失效标记，对象不再可见）；幂等：不存在 = no-op。 */
+  archive(
+    id: string,
+    opts: { domain: string; reason: string },
+  ): Promise<void> | void;
+  /** 剔除（物理删除）；幂等：不存在 = no-op。 */
+  evict(id: string, opts: { domain: string; reason: string }): Promise<void> | void;
+  /** 近重复合并（drop_ids 并入保权威的 keep_id；drop 落归档留痕）；幂等。 */
+  merge(
+    keep_id: string,
+    drop_ids: readonly string[],
+    opts: { domain: string; reason: string },
+  ): Promise<void> | void;
+}
+
+/** 无对象可写回落 seam（登记 + 审计缺省由钩子统一落）：可见列表恒空，
+ *  全部写调用 no-op。宿主未注入实体源/注册表空载时的显式注入面。 */
+export const GOVERNANCE_WRITE_TARGET_NOOP: GovernanceWriteTarget = {
+  list: () => [],
+  archive: () => undefined,
+  evict: () => undefined,
+  merge: () => undefined,
+};
+
 /** 池治理 settle 钩子的可注入面（store 缺失 = fail-closed 跳过并记原因）。 */
 export interface PoolGovernanceSettleOptions {
   /** 引擎边证据存储（缺省 null = 无法判定，skip 留痕）。 */
@@ -53,6 +91,8 @@ export interface PoolGovernanceSettleOptions {
   node_fields?: ((node_type: string) => readonly string[]) | null;
   /** 单回合合并应用次数上限（缺省 = POOL_GOVERNANCE_MERGE_CAP_PER_ROUND）。 */
   merge_cap?: number;
+  /** 裁决可写实体 seam（缺省 null = 裁决对象无引擎可写实体 → 登记 + 审计）。 */
+  writable?: GovernanceWriteTarget | null;
 }
 
 /**
@@ -61,12 +101,18 @@ export interface PoolGovernanceSettleOptions {
  * 每回合对引擎的边证据存储跑 PoolGovernance.evaluate：从本回合失败边的
  * dst 结点类型提炼池候选，按四规则（容量/死结点淘汰/近重复合并/提案预算）
  * 产出治理判定并应用**安全收敛**：
- * - allow（含 eviction_candidates）→ 死结点候选登记失效（invalidation
- *   审计，标记失效不物理删），预算扣减经治理日志计数；
+ * - allow（含 eviction_candidates）→ 死结点候选登记失效（archive 审计，
+ *   标记失效不物理删），预算扣减经治理日志计数；
  * - merge（字段近重复命中池内既有结点）→ 落 resolved 去重（后续回合同
  *   候选不再重复提请，跨回合稳定不震荡），单回合合并应用次数受
  *   merge_cap 上限护栏；
  * - reject（预算耗尽/容量满等）→ 只留痕，治理日志按周窗口扣预算。
+ *
+ * 执行边界（D06）：裁决对象在引擎存在可写实体（entities/registry/知识/
+ * 结点链）时经 writable seam 反写（dead → archive 软归档、near-duplicate
+ * → merge(drop_ids 并入保权威的 keep_id)）；未注入 seam 或对象不存在 =
+ * 仅登记 + 审计（fallback，不硬造越权路径；审计已由每条判定/失效记录的
+ * #record 统一落）。
  *
  * fail-closed 且确定性：store 缺失/空池/无候选 = 跳过并留 skip 原因
  * （不做「空数据全放行」的 fail-open 评估）；判定纯函数（pool_governance
@@ -83,6 +129,7 @@ export class PoolGovernanceSettleHook {
   readonly #sink: ReviewSink | null;
   readonly #nodeFields: ((node_type: string) => readonly string[]) | null;
   readonly #mergeCap: number;
+  readonly #writable: GovernanceWriteTarget | null;
   /** 判定审计记录（append-only；audit_sink 的镜像源）。 */
   readonly audits: Record<string, unknown>[] = [];
   /** 跳过原因（append-only；空池/无候选/store 缺失可观测）。 */
@@ -99,6 +146,7 @@ export class PoolGovernanceSettleHook {
     this.#sink = options.audit_sink ?? null;
     this.#nodeFields = options.node_fields ?? null;
     this.#mergeCap = Math.max(1, options.merge_cap ?? POOL_GOVERNANCE_MERGE_CAP_PER_ROUND);
+    this.#writable = options.writable ?? null;
   }
 
   get governance(): PoolGovernance {
@@ -211,6 +259,20 @@ export class PoolGovernanceSettleHook {
         }
         mergesApplied += 1;
         this._merge_resolved.add(resolveKey);
+        // D06 执行边界：可写实体 seam 注入时反写（dst 并入保权威的
+        // merge_target）；目标对象不存在/无可写实体 = 仅登记 + 审计
+        // （下方 #record 统一留痕，seam 实现自身对缺失对象 no-op）
+        const mergeTarget = verdict.merge_target;
+        if (mergeTarget !== '' && this.#writable !== null) {
+          try {
+            await this.#writable.merge(mergeTarget, [dst], {
+              domain: ctx.domain,
+              reason: String(verdict.reasons[0] ?? '近重复合并'),
+            });
+          } catch {
+            // 反写失败只留登记（审计已由下方 record 落；不阻断回合收尾）
+          }
+        }
       }
       if (verdict.eviction_required) {
         for (const nodeId of verdict.eviction_candidates) {
@@ -218,13 +280,25 @@ export class PoolGovernanceSettleHook {
           this._invalidated.add(`${ctx.domain}\u001f${nodeId}`);
           const invalidation: Record<string, unknown> = {
             type: POOL_GOVERNANCE_AUDIT_TYPE,
-            action: 'invalidate',
+            action: 'archive',
             ts: nowValue,
             domain: ctx.domain,
             node_id: nodeId,
             reason: '死结点淘汰（零调用且超龄，池治理自动登记）',
           };
           this.#record(invalidation);
+          // dead → archive（软归档，保可追溯；物理剔除走 evict 由实体源
+          // 按需调用）。对象不存在 = seam no-op，登记 + 审计已落。
+          if (this.#writable !== null) {
+            try {
+              await this.#writable.archive(nodeId, {
+                domain: ctx.domain,
+                reason: '死结点淘汰（零调用且超龄，池治理反写）',
+              });
+            } catch {
+              // 反写失败只留登记（审计已由 #record 落；不阻断回合收尾）
+            }
+          }
         }
       }
       this.#record(record);

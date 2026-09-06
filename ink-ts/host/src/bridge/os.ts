@@ -3,8 +3,10 @@
  *
  * headless 显式放行语义：ctx.autoApprove=true（cli --approve）才签发授权
  * 信封；否则 fail-closed 拒绝（approval_required）。约束随请求现取（roots/
- * allowlist/allow_domains），host 裁决面门在 envelope.ts 拦截越权/越根，
- * exec 只收复核通过的信封。审计留痕写 set_audit（os_tool_exec）。
+ * allowlist），host 裁决面门在 envelope.ts 拦截越权/越根，exec 只收复核
+ * 通过的信封。审计留痕写 set_audit（os_tool_exec）。网络出网（http op）
+ * 已从 exec 移除，os.run 不再受理 http。env 保留键黑名单在 os/runner
+ * validate 拦截。
  */
 
 import type { GuardedStorage } from '@ink-ts/engine';
@@ -20,8 +22,8 @@ function asOsRequest(raw: unknown): { request: OsToolRequest; trace_id: string |
     throw new BridgeError('os.run 需参数对象', 'invalid_params');
   }
   const op = params['op'];
-  if (op !== 'process' && op !== 'file' && op !== 'http') {
-    throw new BridgeError('os.run 需 op（process/file/http）', 'invalid_params');
+  if (op !== 'process' && op !== 'file') {
+    throw new BridgeError('os.run 需 op（process/file）', 'invalid_params');
   }
   const request: OsToolRequest = {
     tool: String(params['tool'] ?? ''),
@@ -29,7 +31,6 @@ function asOsRequest(raw: unknown): { request: OsToolRequest; trace_id: string |
     args: (params['args'] as Record<string, unknown> | null | undefined) ?? {},
     roots: asStringArray(params['roots'], 'roots'),
     allowlist: asStringArray(params['allowlist'], 'allowlist'),
-    allow_domains: asStringArray(params['allow_domains'], 'allow_domains'),
   };
   const timeout = params['timeout_secs'];
   if (timeout !== undefined && timeout !== null && Number.isFinite(Number(timeout))) {

@@ -14,10 +14,10 @@
  * 同一记忆接口；语义归并（可选弱模型档）留作扩展点，本模块默认零 LLM
  * 规则抽取。
  *
- * 状态标注（机制就绪 / 宿主接线点待定）：回合记忆抽取默认不随回合自动
- * 执行（规则抽取零 LLM；语义归并档消耗 LLM）——接线点：runtime settle
- * 钩子（引擎已接归因/账本 settle，记忆抽取钩子未接），开关默认关；存储
- * 面 = memory 域（当前无 runtime 默认装配，宿主按需挂 StorageBackedMemoryStore）。
+ * 状态标注（机制已接线）：回合记忆抽取 settle 钩子（MemoryExtractSettleHook，
+ * 见同目录 settle.ts）默认随 Runtime 装配（AssemblyRecipe.memory_extract_
+ * enabled，默认开），每回合收尾一次；存储面 = StorageBackedMemoryStore
+ * （EvolutionWriter kind=memory 受控通道），由 runtime 默认装配。
  */
 
 import { isRecord, type JsonRecord } from '../json.js';
@@ -26,17 +26,17 @@ import type { StorageBackedMemoryStore } from '../memory/store.js';
 
 // ── 回合事实提取规则（权威口径，防跨侧漂移）──
 //
-// 单一事实来源：壳侧回合账本归约（round_ledger.rs RECOGNIZED_EVENTS）
-// 与引擎信号分类（SignalClassifier.classify）都引用本集合——
-// 「哪些事件构成回合事实要点」的口径统一由本模块定义，壳侧/Rust 侧
-// 不得自建一套事件清单（契约守卫：test/core/memory_extract 断言集合形态，
-// 壳侧有同口径常量经桥 op 导出校验）。
+// 单一事实来源：运行时回合账本事实事件集由本集合给出口径——「哪些事件
+// 构成回合事实要点」统一由本模块定义，各侧不得自建一套事件清单（契约
+// 守卫：test/core/memory_extract 断言集合形态）。
+//
+// TS 运行时账本实际产出（_round_ledger_facts）：轨迹步骤归约为 kind =
+// node（成功步骤）/ error（失败步骤），resume 用户决议（accept/edit/reject）
+// 并入 kind = 决议名的事件。本集合为跨侧全集词汇（含事件流扩展名，壳侧
+// 归约保留口径），抽取只消费其中 CONFIRMATION_EVENTS 子集。
 
-// 账本事实事件全集：回合事件流中值得沉淀为「事实快照」的类型
-// （壳侧账本归约保留集 + 确认类）——memory_extract 从账本 events 里
-// 按本集合找确认事件；壳侧 reduce_round 保留本集合内的事件进账本。
 export const ROUND_FACT_EVENTS: readonly string[] = [
-  // 执行轨迹事实（账本归约保留的步骤要点）
+  // 执行轨迹事实（账本归约保留的步骤要点；TS 账本归约 = node/error 两型）
   'tool_start',
   'tool_end',
   'plan_start',
@@ -53,8 +53,9 @@ export const ROUND_FACT_EVENTS: readonly string[] = [
   'user_confirm',
 ];
 
-// 确认类事件类型（规则抽取触发点）——真实引擎事件类型（审批卡决议
-// accept/reject、修正 edit/user_correction、洞见确认 user_confirm）；
+// 确认类事件类型（规则抽取触发点）——真实引擎决议事件类型（resume 决议
+// accept/reject、修正 edit；user_correction/user_confirm 为信号侧洞见/修正
+// 类型保留）；运行时回合决议入账本时按本集合补事件记录，抽取有输入。
 // 历史虚构类型（confirmation/approval_accept）已移除，防永远抽不到。
 export const CONFIRMATION_EVENTS: readonly string[] = [
   'accept',

@@ -53,7 +53,7 @@ describe('host bridge 命令面', () => {
       'sessions.tree',
       'approval.list',
       'audit.export',
-      'tools.snapshot',
+      'tools.full',
       'recovery.checkpoints',
       'os.run',
     ]) {
@@ -117,18 +117,6 @@ describe('host bridge 命令面', () => {
         CTX,
       ),
     ).rejects.toMatchObject({ code: 'invalid_decision' });
-  });
-
-  it('tools.snapshot 只读快照（注册工具 + 向量状态可观测）', async () => {
-    const snapshot = (await handle.bridge.get('tools.snapshot')!(null, CTX)) as {
-      count: number;
-      uses_vectors: boolean;
-      tools: Array<{ name: string }>;
-    };
-    expect(snapshot.count).toBeGreaterThan(0);
-    expect(snapshot.tools.length).toBe(snapshot.count);
-    expect(snapshot.tools.some((tool) => tool.name === 'search_tools')).toBe(true);
-    expect(typeof snapshot.uses_vectors).toBe('boolean');
   });
 
   it('sessions.create/rename/delete/refresh 薄簿记闭环', async () => {
@@ -232,7 +220,7 @@ describe('host bridge approval（gate 图挂卡 → 查询 → 裁决续跑）',
     await handle.dispose();
   });
 
-  it('rounds.send 触发审批卡；approval.list 可见；resolve reject → skipped', async () => {
+  it('rounds.send 触发审批卡；approval.list 可见；resolve reject → 决议原样抵达', async () => {
     const send = handle.bridge.get('rounds.send')!;
     const first = (await send({ input: '触发审批' }, CTX)) as { thread_id: string };
     const cards = (await handle.bridge.get('approval.list')!({}, CTX)) as Array<{
@@ -246,7 +234,7 @@ describe('host bridge approval（gate 图挂卡 → 查询 → 裁决续跑）',
       { thread_id: first.thread_id, decision: 'reject' },
       CTX,
     )) as { result: { state: Record<string, unknown> } };
-    expect((resolved.result.state as Record<string, unknown>)['reply']).toBe('skipped');
+    expect((resolved.result.state as Record<string, unknown>)['reply']).toBe('reject');
 
     // 卡已消费：再次 resolve → no_pending_approval
     await expect(
@@ -255,6 +243,42 @@ describe('host bridge approval（gate 图挂卡 → 查询 → 裁决续跑）',
         CTX,
       ),
     ).rejects.toMatchObject({ code: 'no_pending_approval' });
+  });
+
+  it('approval.resolve 裸决议正例：accept/terminate/edit 均原样抵达引擎裁决', async () => {
+    const send = handle.bridge.get('rounds.send')!;
+    const resolve = handle.bridge.get('approval.resolve')!;
+    const runCard = async (): Promise<string> => {
+      const started = (await send({ input: '卡' }, CTX)) as { thread_id: string };
+      const cards = (await handle.bridge.get('approval.list')!({}, CTX)) as Array<{
+        thread_id: string;
+      }>;
+      expect(cards.some((card) => card.thread_id === started.thread_id)).toBe(true);
+      return started.thread_id;
+    };
+
+    const acceptThread = await runCard();
+    const accepted = (await resolve({ thread_id: acceptThread, decision: 'accept' }, CTX)) as {
+      result: { state: Record<string, unknown> };
+    };
+    expect((accepted.result.state as Record<string, unknown>)['reply']).toBe('accept');
+
+    const editThread = await runCard();
+    const edited = (await resolve(
+      {
+        thread_id: editThread,
+        decision: { decision: 'edit', edited_content: { tool: 'demo_tool', summary: '已编辑' }, reason: '改摘要' },
+      },
+      CTX,
+    )) as { result: { state: Record<string, unknown> } };
+    expect((edited.result.state as Record<string, unknown>)['reply']).toBe('edit');
+
+    const terminateThread = await runCard();
+    const terminated = (await resolve(
+      { thread_id: terminateThread, decision: 'terminate' },
+      CTX,
+    )) as { result: { state: Record<string, unknown> } };
+    expect((terminated.result.state as Record<string, unknown>)['reply']).toBe('terminate');
   });
 
   it('approval.list 按 thread_id 过滤查询', async () => {

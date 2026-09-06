@@ -1,3 +1,4 @@
+// gate: 超限(375 行) - 边证据核心域存储：EdgeKey/Evidence 互转 + in-memory seam + 注入适配 + 回合级聚合写同文件（同一存储域，拆文件破坏 to_dict/from_dict 与 seam 的单一形态）
 /**
  * EdgeEvidenceStore：边证据核心域存储 + 注入 seam 适配层。
  *
@@ -75,6 +76,27 @@ export function edge_evidence_from_dict(data: Record<string, unknown>): EdgeEvid
 }
 
 // ── 默认 in-memory seam（测试 / 无宿主注入时使用；非生产路径）──
+
+/** 边证据 store.ts 内的边主键字符串编码（与 settle.edge_key_str 同口径）。 */
+function _key_str(key: EdgeKey): string {
+  return edge_key_tuple(key).join('::');
+}
+
+/** 回合级归因增量（settle 聚合后的每边 delta；kind 区分成功/失败归因）。 */
+export interface EdgeRoundDelta {
+  key: EdgeKey;
+  kind: 'success' | 'fail';
+  /** 本回合该边累计增量（同一归因方向逐遍历合并）。 */
+  delta: number;
+  /** 本回合该边累计成本（合并入平均成本账）。 */
+  cost: number;
+}
+
+/** apply_round 选项（preloaded = 回合内已读证据行，省一次存储读）。 */
+export interface EdgeApplyRoundOptions {
+  now?: number | null;
+  preloaded?: ReadonlyMap<string, EdgeEvidence> | null;
+}
 
 /** 纯内存 seam；零 IO、零第三方依赖。 */
 export class InMemoryEdgeEvidenceStorage implements EdgeEvidenceStorage {
@@ -256,6 +278,84 @@ export class EdgeEvidenceStore {
     } catch {
       throw new StorageError('边证据整行写入失败（详情见日志）');
     }
+  }
+
+  /**
+   * 回合级归因批量写（R7-5：settle 回合内先内存聚合再落写）：
+   * 聚合入参（同 key 同 kind 已合并）→ 每边一次读改写（preloaded 行可省
+   * 读）。逐边数学与 record_success/failure 顺序累计等价（加权平均线性、
+   * 归因同方向），行为等价但单回合每边只落一次 put。
+   */
+  async apply_round(
+    deltas: readonly EdgeRoundDelta[],
+    opts: EdgeApplyRoundOptions = {},
+  ): Promise<EdgeEvidence[]> {
+    await this.#assertOpen();
+    const ts = opts.now ?? null;
+    const preloaded = opts.preloaded ?? null;
+    const merged = new Map<
+      string,
+      { key: EdgeKey; kind: 'success' | 'fail'; delta: number; cost: number }
+    >();
+    for (const delta of deltas) {
+      const keyStr = _key_str(delta.key);
+      const current = merged.get(keyStr);
+      if (current === undefined) {
+        merged.set(keyStr, {
+          key: { ...delta.key },
+          kind: delta.kind,
+          delta: delta.delta,
+          // 成本按增量加权累计（镜像 record_* 的 avg = (avg*n0 + cost*delta)/n1）
+          cost: delta.cost * delta.delta,
+        });
+      } else {
+        current.delta += delta.delta;
+        current.cost += delta.cost * delta.delta;
+      }
+    }
+    const rows: EdgeEvidence[] = [];
+    for (const entry of merged.values()) {
+      let existing: EdgeEvidence | null = null;
+      if (preloaded !== null) {
+        existing = preloaded.get(_key_str(entry.key)) ?? null;
+      }
+      if (existing === null) {
+        try {
+          existing = await this.#storage.get(edge_key_tuple(entry.key));
+        } catch {
+          throw new StorageError('边证据读取失败（回合聚合写，详情见日志）');
+        }
+      }
+      const prevN =
+        existing === null ? 0 : existing.success_count + existing.fail_count;
+      const newN = prevN + entry.delta;
+      const newSuccess =
+        (existing?.success_count ?? 0) + (entry.kind === 'success' ? entry.delta : 0);
+      const newFail =
+        (existing?.fail_count ?? 0) + (entry.kind === 'fail' ? entry.delta : 0);
+      let avgCost = existing?.avg_cost ?? 0.0;
+      if (entry.delta > 0 && newN > 0) {
+        // 成本按增量加权累计（含零成本增量：新样本入账摊薄平均成本）
+        avgCost = (avgCost * prevN + entry.cost) / newN;
+      }
+      const origin = entry.delta > 0 ? ORIGIN_RUNTIME : existing?.origin ?? ORIGIN_RUNTIME;
+      const ev: EdgeEvidence = {
+        key: { ...entry.key },
+        success_count: newSuccess,
+        fail_count: newFail,
+        avg_cost: avgCost,
+        policy: existing?.policy ?? false,
+        origin,
+        last_used_at: ts,
+        created_at: existing?.created_at ?? (ts ?? 0),
+      };
+      try {
+        rows.push(await this.#storage.put(ev));
+      } catch {
+        throw new StorageError('边证据写入失败（回合聚合写，详情见日志）');
+      }
+    }
+    return rows;
   }
 
   async list_edges(domain: string | null = null): Promise<EdgeEvidence[]> {

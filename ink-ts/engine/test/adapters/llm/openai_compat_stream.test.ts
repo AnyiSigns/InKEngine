@@ -16,7 +16,7 @@ import {
   LLMServerError,
   LLMTimeoutError,
 } from '../../../src/core/llm/errors.js';
-import { TimeoutError } from '../../../src/adapters/llm/transport.js';
+import { TimeoutError } from '../../../src/adapters/llm/fetch_transport.js';
 import {
   body_of,
   capture,

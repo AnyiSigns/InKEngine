@@ -13,6 +13,7 @@
  * - 路径穿越防护：剥离前导 '/' 后仍含 ``..`` 片段 = 拒绝。
  */
 
+import { createRequire } from 'node:module';
 import type { Storage } from '../../core/storage/storage.js';
 import {
   SCHEME_MEMORY,
@@ -23,10 +24,28 @@ import {
 import { MemoryStorage, create_memory_storage } from './memory.js';
 import { SqliteStorage } from './sqlite.js';
 
+/** 本模块内同步探测用 require（node:sqlite 为内置模块）。 */
+const _require = createRequire(import.meta.url);
+
 /** scheme 提取（镜像 urllib.parse.urlsplit().scheme：首个 ':' 前前缀，小写）。 */
 function urlScheme(connString: string): string {
   const match = /^([A-Za-z][A-Za-z0-9+.-]*):/.exec(connString);
   return match === null ? '' : match[1]!.toLowerCase();
+}
+
+/**
+ * sqlite 能力探测（node:sqlite 为 Node 22.13+ 内置驱动；老版本/精简运行时
+ * 缺失时给友好错误而非裸 ERR_UNKNOWN_BUILTIN_MODULE）。
+ */
+function _probe_sqlite(): void {
+  try {
+    _require('node:sqlite');
+  } catch (exc) {
+    const detail = exc instanceof Error ? exc.message : String(exc);
+    throw new Error(
+      `sqlite 后端不可用：node:sqlite 需要 Node ≥22.13（当前 ${process.versions.node}）: ${detail}`,
+    );
+  }
 }
 
 /** 存储后端工厂：连接串协议前缀决定后端（内存/sqlite；postgres 未移植）。 */
@@ -36,6 +55,7 @@ export function create_storage(connString: string): Storage {
     return create_memory_storage();
   }
   if (scheme === SCHEME_SQLITE) {
+    _probe_sqlite();
     if (!connString.startsWith('sqlite://')) {
       // 显式前缀校验：sqlite:/path 等少斜杠形态会静默截断成错误相对路径并新建空库
       throw new Error(

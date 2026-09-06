@@ -1,33 +1,21 @@
-// gate: 超限(475 行) - 产品壳组合层（主区页签/左右栏/设置浮层单一装配点，拆分即需跨面板状态总线）
+// gate: 超限(409 行) - 产品壳组合层（宿主数据/动作装配单一点，布局已让位 ui_spec 直渲）
 /**
- * InKling 前端产品面装配：左栏（工作区）+ 主区（页签：对话/演化/账本）+ 右栏（会话）。
+ * InKling 产品壳宿主：装配会话数据与机制动作 → 注入 UIRenderer（唯一产品渲染
+ * 入口），布局结构完全由 seed ui_spec 组件树表达（不再硬编码三栏/页签 JSX）。
  *
- * 布局形态（参考桌面 agent 产品）：左右栏全高贯穿窗口两侧，顶栏不再常驻——
- * 主区顶部悬停触发带滑出磨砂覆盖层承载顶栏（标题/页签），主区
- * 视觉让位于消息流与输入胶囊。
- *
- * 主界面只保留会话产品面：机制/市场/管理台视图统一收纳在设置页各节
- * （全部节对用户开放）；工作区授权走原生目录选择器 + workspace.set
- * 真接线；模型档快照装配层加载后注入输入胶囊。
+ * canonical 组件（file_tree/session_list/message_list/agent_input/...）经
+ * app/rendererAdapters 注册，binding 载荷与宿主 product chrome 在此归一。
+ * 会话数据/回合归约仍走 channelHub + sessionStore；审批决议续跑线程化语义
+ * 与切会话恢复保持在宿主（机制动作不进布局数据）。
  */
 
 import { useCallback, useEffect, useMemo, useRef, useState } from 'react';
 
-import { TopBar, type MainTab } from '@/app/shell/TopBar';
-import { LeftRail } from '@/app/shell/LeftRail';
-import { RightRail } from '@/app/shell/RightRail';
-import { InputBar } from '@/app/input/InputBar';
-import { MessageStream } from '@/app/session/MessageStream';
-import { EvolutionFeed } from '@/app/session/EvolutionFeed';
-import { LedgerView } from '@/app/session/LedgerView';
-import { TrajectoryView } from '@/app/session/TrajectoryView';
-import { TodoView } from '@/app/session/TodoView';
+import { UIRenderer } from '@/renderer/bootRenderer';
+import type { UISpec } from '@/renderer/uiSpecTypes';
 import { useSessionState, useSessionActions } from '@/app/state/sessionState';
-import { SettingsFloater } from '@/app/settings/settings_floater';
-import { TaskCapsule } from '@/app/tasks/TaskCapsule';
-import type { TaskCapsuleData } from '@/app/tasks/types';
-import { ReviewCard, type ReviewResolution } from '@/components/review_card';
-import { ComponentGate } from '@/renderer/componentRegistry';
+import { setActiveThreadId } from '@/app/state/activeThread';
+import type { ProductShellChrome } from '@/app/shell/productView';
 import type { BackendAdapter, ModelArchiveSnapshot, SessionBranchTree } from '@/shared/backend/backendAdapter';
 import { submitAttachments, messagesFromHistory, type AttachmentAsset } from '@/shared/session/eventIngest';
 import type { ChannelHub, ThreadBucket } from '@/shared/session/channelHub';
@@ -35,6 +23,11 @@ import { emptyThreadBucket } from '@/shared/session/channelHub';
 import type { SessionStore } from '@/shared/session/sessionStore';
 import type { InkMessage, SimulationBranch } from '@/shared/session/types';
 import type { SpawnInstance } from '@/app/session/SpawnPanel';
+import type { TaskCapsuleData } from '@/app/tasks/types';
+import type { MainTab } from '@/app/shell/TopBar';
+import type { ReviewResolution } from '@/components/review_card';
+
+import uiSpecSeed from '../../seed_data/ui_spec.json';
 
 interface AppProps {
   backend: BackendAdapter;
@@ -52,39 +45,20 @@ export default function App({ backend, hub, sessionStore }: AppProps) {
   const state = useSessionState(hub, sessionStore, backend);
   const { send, abort, resolveReview } = useSessionActions(hub, sessionStore, backend);
 
-  const [leftCollapsed, setLeftCollapsed] = useState(false);
-  const [rightCollapsed, setRightCollapsed] = useState(false);
+  // 活动会话上下文（审计恢复回退点/后续 per-thread 读面共享）
+  useEffect(() => {
+    setActiveThreadId(state.activeSessionId);
+  }, [state.activeSessionId]);
+
   const [title, setTitle] = useState('新会话');
   const [tab, setTab] = useState<MainTab>('chat');
-  // 顶栏自动隐藏：悬停触发带展开，移出延迟收回（避免掠过抖动）
-  const [topbarOpen, setTopbarOpen] = useState(false);
-  const topbarTimer = useRef<number | null>(null);
-
-  const showTopbar = () => {
-    if (topbarTimer.current !== null) {
-      window.clearTimeout(topbarTimer.current);
-      topbarTimer.current = null;
-    }
-    setTopbarOpen(true);
-  };
-
-  const hideTopbar = () => {
-    if (topbarTimer.current !== null) window.clearTimeout(topbarTimer.current);
-    topbarTimer.current = window.setTimeout(() => setTopbarOpen(false), 240);
-  };
-
-  useEffect(() => () => {
-    if (topbarTimer.current !== null) window.clearTimeout(topbarTimer.current);
-    if (routePlanTimer.current !== null) window.clearTimeout(routePlanTimer.current);
-  }, []);
-
   const [openPanel, setOpenPanel] = useState<'none' | 'settings'>('none');
   const [routePlan, setRoutePlan] = useState<RoutePlanPreview | undefined>(undefined);
-  // route_plan 预览防抖 + 过期响应丢弃（快速打字不每键打 IPC，旧请求不覆盖新结果）
   const routePlanSeq = useRef(0);
   const routePlanTimer = useRef<number | null>(null);
-  // 跨回合长任务数据源接线点：plan/spawn/tool 事件经 task_state 子通道
-  // 归约，胶囊仅在长任务（planActive/步进>0）期间出现。
+
+  // 跨回合长任务数据源接线点：plan/spawn/tool 事件经 task_state 子通道归约，
+  // 胶囊仅在长任务期间出现（task_capsule canonical 组件消费）。
   const taskState = hub.getSnapshot().taskState;
   const task: TaskCapsuleData | null =
     taskState.planActive || taskState.stepsTotal > 0
@@ -97,23 +71,21 @@ export default function App({ backend, hub, sessionStore }: AppProps) {
         }
       : null;
 
-  // 待办清单检测（agent 用 task_manager 建清单后顶栏临时出现「待办」标签）：
-  // 消息流每新增条目 + 切换会话时刷新（todo_get 轻量只读；空清单快速返回）
+  // 待办清单检测（rounds.todos 有值 = 顶栏出现「待办」标签）
   const [todoState, setTodoState] = useState<{ has: boolean; pending: number }>({ has: false, pending: 0 });
   useEffect(() => {
     if (!backend.available || !state.activeSessionId) return;
     void backend
       .todoGet(state.activeSessionId)
       .then((data) => {
-        const entries = data.entries ?? [];
-        const pending = entries.filter((e) => !['done', 'cancelled'].includes(e.status)).length;
-        setTodoState({ has: entries.length > 0, pending });
+        const rows = data.todo ?? [];
+        const pending = rows.filter((r) => r.status !== 'done' && r.status !== 'cancelled').length;
+        setTodoState({ has: rows.length > 0, pending });
       })
       .catch(() => undefined);
   }, [backend, state.activeSessionId, state.entries.length]);
 
-  // 子代理实例清单（由 spawn 消息卡派生；空 = 面板不渲染）。
-  // R-6：useMemo 包裹——消息流长列表时避免每次渲染重复 filter/map
+  // 子代理实例清单（由 spawn 消息卡派生；空 = 面板不渲染）
   const spawnInstances: SpawnInstance[] = useMemo(
     () =>
       state.entries
@@ -127,7 +99,7 @@ export default function App({ backend, hub, sessionStore }: AppProps) {
   );
   const [selectedSpawnIndex, setSelectedSpawnIndex] = useState<number | null>(null);
 
-  // 线程分支树（session_tree 真接线；空 = 分支 mini 树不渲染）
+  // 线程分支树（session_tree 真接线）
   const [branchTrees, setBranchTrees] = useState<Record<string, SessionBranchTree>>({});
   useEffect(() => {
     if (!state.activeSessionId || !backend.available) return;
@@ -137,13 +109,10 @@ export default function App({ backend, hub, sessionStore }: AppProps) {
       .catch(() => undefined);
   }, [state.activeSessionId, backend]);
 
-  // 工作区授权态（真接线：workspace.state 轮询 + workspace.set 写）
+  // 工作区授权态（workspace.state 轮询 + workspace.set 写）
   const [authorized, setAuthorized] = useState(false);
   const [workspaceRoot, setWorkspaceRoot] = useState<string | null>(null);
-  // 模型档快照（输入胶囊 chip / 发送门槛）：挂载取一次；设置页配置厂商/
-  // 模型后经 reloadModels 重取，输入框即时出现新模型（无需重启应用）
   const [models, setModels] = useState<ModelArchiveSnapshot | undefined>(undefined);
-  // 当前 agent（对话主模型）槽所指 model_id：输入框 chip 展示/改选来源
   const [agentModelId, setAgentModelId] = useState<string | null>(null);
   const reloadModels = useCallback(() => {
     if (!backend.available) return;
@@ -166,7 +135,6 @@ export default function App({ backend, hub, sessionStore }: AppProps) {
       .catch(() => undefined);
   }, [backend]);
 
-  /** 输入框改选 agent 模型：写 agent_pick（角色槽派生 + 持久化 + 重建）后刷新。 */
   const handleAgentModelSelect = (modelId: string, providerId?: string): void => {
     if (!backend.available || !providerId) return;
     void backend
@@ -177,7 +145,8 @@ export default function App({ backend, hub, sessionStore }: AppProps) {
 
   useEffect(() => {
     if (!backend.available) return;
-    void backend.authorizationState()
+    void backend
+      .authorizationState()
       .then((s) => {
         setAuthorized(s.authorized);
         setWorkspaceRoot(s.root);
@@ -243,8 +212,7 @@ export default function App({ backend, hub, sessionStore }: AppProps) {
     sendMode: 'standard' | 'assembly',
     model?: import('@/shared/backend/backendAdapter').ModelSelection,
   ) => {
-    // 回合档位随发送载荷下发（round_send.mode → state.round_mode）：
-    // standard = 跳过组装候选走默认规划；assembly = 组装候选 spawn 展开
+    // 回合恒为组装（standard = 兼容别名，走同一发送面）
     void send(text, attachments, sendMode, model);
   };
 
@@ -253,8 +221,6 @@ export default function App({ backend, hub, sessionStore }: AppProps) {
     const current = hub.getSnapshot();
     const outId = current.activeSessionId;
     const bucket = current.perThread[id] ?? emptyThreadBucket();
-    // 后台回合收口：该线程有桶消息（含切走后新收事件）优先，否则用给定
-    // 消息（本地镜像/引擎回取）。窗口消息与桶镜像保持同一份内容。
     const effective = bucket.messages.length > 0 ? bucket.messages : messages;
     const perThread: Record<string, ThreadBucket> = {};
     for (const [tid, b] of Object.entries(current.perThread)) {
@@ -296,10 +262,6 @@ export default function App({ backend, hub, sessionStore }: AppProps) {
     });
   };
 
-  /**
-   * 会话选择（含历史恢复）：本地已有消息直接落窗口；冷启动/切换时本地
-   * 为空则从引擎回取最新检查点消息（session_messages），落库镜像后再显示。
-   */
   const selectSession = (id: string) => {
     const s = sessionStore.get(id);
     const local = s?.messages ?? [];
@@ -318,7 +280,6 @@ export default function App({ backend, hub, sessionStore }: AppProps) {
         const cur = sessionStore.get(id);
         if (cur) sessionStore.replaceMessages(id, msgs);
         const snap = hub.getSnapshot();
-        // 仅当仍指向该会话（或尚无活动会话）时落窗口，避免旧请求覆盖新会话
         if (snap.activeSessionId === id || !snap.activeSessionId) restoreThread(id, msgs);
       })
       .catch(() => {
@@ -327,7 +288,6 @@ export default function App({ backend, hub, sessionStore }: AppProps) {
       });
   };
 
-  // 冷启动自动选中最近活跃会话并回取历史（store 远程 reload 完成后触发一次）
   const didAutoSelect = useRef(false);
   useEffect(() => {
     if (didAutoSelect.current || !backend.available) return;
@@ -342,160 +302,104 @@ export default function App({ backend, hub, sessionStore }: AppProps) {
     setOpenPanel('settings');
   };
 
+  const closeSettings = useCallback(() => {
+    setOpenPanel('none');
+    reloadModels();
+  }, [reloadModels]);
+
+  /** 审批卡决议：从卡负载取 key/thread（负载在 bind 事件或 hub 挂起态），
+   *  决议续跑该线程（切走不误伤其它窗口）。 */
+  const handleResolveReview = useCallback(
+    (resolution: ReviewResolution, editedContent?: string, payload?: Record<string, unknown>) => {
+      const data = payload ?? hub.getSnapshot().pendingReview;
+      if (!data || typeof data !== 'object') {
+        hub.setState({ pendingReview: null });
+        return;
+      }
+      const key = String((data as Record<string, unknown>).key ?? (data as Record<string, unknown>).review_key ?? '');
+      if (!key) {
+        hub.setState({ pendingReview: null });
+        return;
+      }
+      const thread = (data as Record<string, unknown>).thread_id as string | undefined;
+      resolveReview(key, resolution, editedContent, thread);
+    },
+    [hub, resolveReview],
+  );
+
+  const spec = uiSpecSeed as unknown as UISpec;
   const roundSteps = hub.getSnapshot().roundSteps ?? [];
   const simulations = (hub.getSnapshot().simulations as SimulationBranch[]) || [];
   const roundCount = state.entries.filter((e) => e.kind === 'text' && e.role === 'user').length;
 
+  // 装配 product chrome（绑定载荷之外的产品面数据/动作统一经此通道注入）
+  const chrome: Record<string, unknown> = {
+    backend,
+    hub,
+    sessionStore,
+    activeSessionId: state.activeSessionId,
+    title,
+    tab,
+    streaming: state.streaming,
+    entries: state.entries,
+    roundSteps,
+    simulations,
+    incubation: hub.getSnapshot().incubation,
+    patchChain: hub.getSnapshot().patchChain,
+    pendingReview: state.pendingReview,
+    task,
+    spawnInstances,
+    selectedSpawnIndex,
+    sessions: state.sessions.map((s) => ({ thread_id: s.id, title: s.title, updated_at: s.updated_at })),
+    branchTrees,
+    authorized,
+    workspaceRoot,
+    models,
+    agentModelId,
+    routePlan,
+    roundCount,
+    stepCount: roundSteps.length,
+    hasTodo: todoState.has,
+    todoPending: todoState.pending,
+    settingsOpen: openPanel === 'settings',
+    autoApprovableTools: [],
+    onTabChange: (next: MainTab) => setTab(next),
+    onTitleChange: (nextTitle: string) => {
+      setTitle(nextTitle);
+      if (state.activeSessionId) sessionStore.rename(state.activeSessionId, nextTitle);
+    },
+    onOpenSettings: openSettings,
+    onCloseSettings: closeSettings,
+    onAddWorkspace: handleAddWorkspace,
+    onSend: handleSend,
+    onAbort: abort,
+    onAttachments: (assets: AttachmentAsset[]) => submitAttachments(hub, assets),
+    onRoutePlanPreview: handleRoutePlanPreview,
+    onAgentModelSelect: handleAgentModelSelect,
+    onSpawnSelect: (idx: number) => setSelectedSpawnIndex(idx),
+    onSpawnSendInstruction: (text: string) => send(text, []),
+    onBranchFromMessage: handleBranchFromMessage,
+    onBranchFromLeaf: (sessionId: string, leaf: number) => {
+      void backend.sessionBranch(sessionId, 'branch', leaf).catch(() => undefined);
+    },
+    onSelectSession: (id: string) => selectSession(id),
+    onCreateSession: () => {
+      const pending = sessionStore.create();
+      restoreThread(pending.id, pending.messages);
+    },
+    onRenameSession: (id: string, titleText: string) => sessionStore.rename(id, titleText),
+    onDeleteSession: (id: string) => sessionStore.remove(id),
+    onResolveReview: handleResolveReview,
+  } as ProductShellChrome;
+
   return (
-    <div className="ink-app flex h-screen w-full flex-row overflow-hidden">
-      <ComponentGate name="file_tree" mode="hidden">
-        <LeftRail
-          collapsed={leftCollapsed}
-          onToggle={() => setLeftCollapsed(!leftCollapsed)}
-          authorized={authorized}
-          workspaceRoot={workspaceRoot}
-          onAddWorkspace={handleAddWorkspace}
-          onOpenSettings={() => {
-            setOpenPanel('settings');
-          }}
-        />
-      </ComponentGate>
-      <div className="relative flex min-w-0 flex-1 flex-col overflow-hidden">
-        {/* 顶栏自动隐藏：悬停触发带 + 磨砂覆盖层（不推挤主区布局） */}
-        <div className="ink-topbar-trigger" onMouseEnter={showTopbar} />
-        <div
-          className="ink-topbar-veil"
-          data-open={topbarOpen || undefined}
-          onMouseEnter={showTopbar}
-          onMouseLeave={hideTopbar}
-        >
-          <TopBar
-            title={title}
-            tab={tab}
-            onTabChange={setTab}
-            onTitleChange={(nextTitle) => {
-              setTitle(nextTitle);
-              if (state.activeSessionId) sessionStore.rename(state.activeSessionId, nextTitle);
-            }}
-            hasTodo={todoState.has}
-            todoPending={todoState.pending}
-          />
-        </div>
-        <main className="flex min-h-0 flex-1 flex-col overflow-hidden">
-          {tab === 'chat' ? (
-            <>
-              <ComponentGate name="message_list" className="min-h-0 flex-1">
-                <MessageStream
-                  entries={state.entries}
-                  streaming={state.streaming}
-                  roundSteps={roundSteps}
-                  pulseText={state.streaming ? '正在思考…' : undefined}
-                  pulseColor={state.streaming ? 'approval' : undefined}
-                  simulations={simulations}
-                  spawnInstances={spawnInstances}
-                  onSpawnSelect={(idx) => setSelectedSpawnIndex(idx)}
-                  selectedSpawnIndex={selectedSpawnIndex}
-                  onSpawnSendInstruction={(text) => send(text, [])}
-                  spawnStreaming={state.streaming}
-                  onBranchFromMessage={handleBranchFromMessage}
-                />
-              </ComponentGate>
-              {task && (
-                <div className="mx-auto w-full max-w-3xl px-4 pb-2">
-                  <TaskCapsule task={task} onCancel={abort} onOpen={openSettings} />
-                </div>
-              )}
-              <ComponentGate name="agent_input" mode="hidden">
-                <InputBar
-                  disabled={backend.available && !authorized}
-                  streaming={state.streaming}
-                  models={models}
-                  routePlan={routePlan}
-                  agentModelId={agentModelId}
-                  onAgentModelSelect={handleAgentModelSelect}
-                  roundCount={roundCount}
-                  stepCount={roundSteps.length}
-                  onSend={handleSend}
-                  onAbort={abort}
-                  onAttachments={(assets) => submitAttachments(hub, assets)}
-                  onRoutePlanPreview={handleRoutePlanPreview}
-                />
-              </ComponentGate>
-            </>
-          ) : tab === 'ledger' ? (
-            <LedgerView backend={backend} threadId={state.activeSessionId} />
-          ) : tab === 'trajectory' ? (
-            <TrajectoryView steps={roundSteps} />
-          ) : tab === 'todo' ? (
-            <TodoView backend={backend} threadId={state.activeSessionId} />
-          ) : (
-            <EvolutionFeed
-              incubation={hub.getSnapshot().incubation}
-              patchChain={hub.getSnapshot().patchChain}
-              backend={backend}
-              threadId={state.activeSessionId}
-            />
-          )}
-        </main>
-      </div>
-      <ComponentGate name="session_list" mode="hidden">
-        <RightRail
-          collapsed={rightCollapsed}
-          onToggle={() => setRightCollapsed(!rightCollapsed)}
-          sessions={state.sessions.map((s) => ({ thread_id: s.id, title: s.title, updated_at: s.updated_at }))}
-          activeSessionId={state.activeSessionId}
-          branchTrees={branchTrees}
-          onBranchFromLeaf={(sessionId, leaf) => {
-            void backend.sessionBranch(sessionId, 'branch', leaf).catch(() => undefined);
-          }}
-          onSelectSession={(id) => {
-            selectSession(id);
-          }}
-          onCreateSession={() => {
-            const pending = sessionStore.create();
-            restoreThread(pending.id, pending.messages);
-          }}
-          onRenameSession={(id, newTitle) => sessionStore.rename(id, newTitle)}
-          onDeleteSession={(id) => sessionStore.remove(id)}
-          onBranchFromMessage={handleBranchFromMessage}
-        />
-      </ComponentGate>
-
-      {openPanel === 'settings' && (
-        <SettingsFloater
-          open
-          onClose={() => {
-            setOpenPanel('none');
-            reloadModels();
-          }}
-          backend={{
-            available: backend.available,
-            status: backend.status,
-            firstRunDismiss: backend.firstRunDismiss,
-          }}
-        />
-      )}
-
-      {/* 审批卡：review_card 事件到达即弹（任何视图下），决议走 round_resume
-          续跑（引擎 checkpoint 挂起卡以真实中断 key 注入决议；回合未终态
-          会再发新卡逐张决议）。 */}
-      {state.pendingReview && (
-        <ReviewCard
-          bindValue={state.pendingReview ? { type: 'review_card' as const, payload: state.pendingReview, at: Date.now() } : undefined}
-          onResolve={(resolution: ReviewResolution, editedContent?: string) => {
-            const payload = state.pendingReview as Record<string, unknown>;
-            const key = String(payload.key ?? payload.review_key ?? '');
-            if (!key) {
-              hub.setState({ pendingReview: null });
-              return;
-            }
-            // 卡所属线程透传：切到其它会话后决议仍续跑原线程（不把 A 的
-            // 卡键打到 B 线程）
-            const thread = payload.thread_id as string | undefined;
-            resolveReview(key, resolution, editedContent, thread);
-          }}
-        />
-      )}
-    </div>
+    <UIRenderer
+      spec={spec}
+      hub={hub}
+      activeView={tab}
+      sessionStore={sessionStore}
+      activeSessionId={state.activeSessionId}
+      product={chrome}
+    />
   );
 }

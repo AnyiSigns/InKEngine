@@ -332,7 +332,7 @@ describe('capability.get/put（能力记录持久化 + 白名单）', () => {
     for (const handle of list) await handle.dispose();
   });
 
-  it('get 注入缺省字段；put 单字段并入 + simulation_tier 白名单校验', async () => {
+  it('get 注入缺省字段；put 单字段并入；simulation_tier 语义已移除', async () => {
     const ctx = tempContext();
     const handle = await createHost(
       { data_dir: ctx.dir, events_dir: ctx.events },
@@ -340,35 +340,25 @@ describe('capability.get/put（能力记录持久化 + 白名单）', () => {
     );
     handled.push(handle);
     const initial = (await handle.bridge.get('capability.get')!(null, { autoApprove: false })) as {
-      simulation_tier: string;
+      simulation_tier?: string;
       auto_approve_tools: unknown[];
       auto_approve_all_review: boolean;
     };
-    expect(initial.simulation_tier).toBe('full'); // 推演档位已取消，默认全开
+    expect(initial.simulation_tier).toBeUndefined(); // 推演档位已移除，不设档位直接开启
     expect(initial.auto_approve_tools).toEqual([]);
     expect(initial.auto_approve_all_review).toBe(false);
 
-    const put = (await handle.bridge.get('capability.put')!(
+    // 档位键不再受理：写入被丢弃，不回显
+    await handle.bridge.get('capability.put')!(
       { simulation_tier: 'full', auto_approve_tools: ['shell_exec'] },
       { autoApprove: false },
-    )) as { simulation_tier: string };
-    expect(put.simulation_tier).toBe('full');
-
+    );
     const after = (await handle.bridge.get('capability.get')!(null, { autoApprove: false })) as {
-      simulation_tier: string;
+      simulation_tier?: string;
       auto_approve_tools: string[];
     };
-    expect(after.simulation_tier).toBe('full');
+    expect(after.simulation_tier).toBeUndefined();
     expect(after.auto_approve_tools).toEqual(['shell_exec']);
-
-    await expect(
-      handle.bridge.get('capability.put')!({ simulation_tier: 'wild' }, { autoApprove: false }),
-    ).rejects.toMatchObject({ code: 'invalid_params' });
-    // 非法档位不落盘：仍回显已保存的 full
-    const still = (await handle.bridge.get('capability.get')!(null, { autoApprove: false })) as {
-      simulation_tier: string;
-    };
-    expect(still.simulation_tier).toBe('full');
   });
 });
 

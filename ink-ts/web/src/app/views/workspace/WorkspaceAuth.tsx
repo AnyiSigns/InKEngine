@@ -10,7 +10,7 @@
  */
 
 import { useState, useCallback, useEffect, useRef } from 'react';
-import { FolderOpen, CheckCircle, XCircle, Shield, ExternalLink, List, Plus } from 'lucide-react';
+import { FolderOpen, CheckCircle, XCircle, Shield, List, Plus } from 'lucide-react';
 
 import type { AppBackend } from '../../backend';
 import { Button } from '@/shared/ui/Button';
@@ -168,15 +168,6 @@ export function WorkspaceAuth({ backend, state: externalState, onStateChange }: 
           <span className="font-mono text-[9px] break-all">
             {authState.root}
           </span>
-          <button
-            type="button"
-            data-ui="workspace_open_root"
-            onClick={() => backend.openPath(authState.root ?? '')}
-            className="shrink-0 rounded-md p-1 text-[9px] ink-text-muted hover:text-[var(--ink-text-base)] cursor-pointer border border-[var(--ink-border)] bg-transparent"
-            title="在文件管理器中打开"
-          >
-            <ExternalLink size={10} strokeWidth={1.5} aria-hidden />
-          </button>
         </div>
       ) : null}
 
@@ -235,14 +226,6 @@ export function WorkspaceAuth({ backend, state: externalState, onStateChange }: 
                   <li key={m} className="flex items-center gap-1.5 text-[10px] font-mono ink-text-muted">
                     <CheckCircle size={10} strokeWidth={1.5} className="shrink-0 ink-text-muted" aria-hidden />
                     <span className="min-w-0 flex-1 break-all">{m}</span>
-                    <button
-                      type="button"
-                      className="shrink-0 rounded p-0.5 text-[10px] ink-text-muted hover:text-[var(--ink-text-base)]"
-                      title="在文件管理器中打开"
-                      onClick={() => backend.openPath(m)}
-                    >
-                      <ExternalLink size={10} strokeWidth={1.5} />
-                    </button>
                   </li>
                 ))}
               </ul>

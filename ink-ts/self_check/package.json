@@ -2,5 +2,9 @@
   "name": "@ink-ts/self-check",
   "version": "0.0.0",
   "private": true,
-  "type": "module"
+  "type": "module",
+  "scripts": {
+    "sync:web-command-surface": "tsx scripts/sync_web_command_surface.ts",
+    "verify:web-command-surface": "tsx scripts/sync_web_command_surface.ts --check"
+  }
 }

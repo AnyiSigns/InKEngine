@@ -12,7 +12,12 @@
  */
 
 import type { EntitySpec } from '../entities/entities.js';
-import { LEVEL_PROJECT, LEVEL_USER, LEVEL_WORK } from '../knowledge_set/index.js';
+import {
+  _LEVEL_ORDER,
+  LEVEL_PROJECT,
+  LEVEL_USER,
+  LEVEL_WORK,
+} from '../knowledge_set/index.js';
 
 // 协作者召唤工具名（宿主声明式工具；tool_start/tool_end 归因锚）
 export const COLLAB_TOOL_NAME = 'collab_request';
@@ -28,12 +33,9 @@ export const _LESSON_CHAR_LIMIT = 160;
 // 后新教训不再追加——变异被 L3 严格更优判定自然拒绝）
 export const _MAX_PERSONA_LESSONS = 16;
 
-// 层级晋升方向（工作 → 项目 → 用户；顺序固定，与知识集同语义）
-export const _LEVEL_ORDER: Readonly<Record<string, number>> = {
-  [LEVEL_WORK]: 0,
-  [LEVEL_PROJECT]: 1,
-  [LEVEL_USER]: 2,
-};
+// 层级数值表 = 知识集域单源（工作→项目→用户秩表；变异/晋升判定共用，
+// 不在本域另设第二份 LEVEL → 数值映射）
+export { _LEVEL_ORDER };
 
 /** EntityEvolutionConfig 构造选项（缺省 = 出厂默认：开启、阈值 1、晋升 3 回合）。 */
 export interface EntityEvolutionConfigOptions {

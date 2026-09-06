@@ -36,6 +36,15 @@ describe('native 二进制定位', () => {
     }
   });
 
+  it('mcp 二进制文件名为 ink_ts_mcp（与 exec/infer 不同名）', () => {
+    const name = binaryFileName('mcp');
+    if (process.platform === 'win32') {
+      expect(name).toBe('ink_ts_mcp.exe');
+    } else {
+      expect(name).toBe('ink_ts_mcp');
+    }
+  });
+
   it('显式环境变量单文件覆盖优先', () => {
     const dir = tempDir('explicit');
     const fake = path.join(dir, 'custom-exec-name.exe');
@@ -50,6 +59,22 @@ describe('native 二进制定位', () => {
     writeFileSync(path.join(dir, fileName), 'MZ fake');
     const found = locateNativeBinary('exec', { env: { INK_NATIVE_DIR: dir } });
     expect(found).toBe(path.join(dir, fileName));
+  });
+
+  it('INK_NATIVE_DIR 内定位 ink_ts_mcp（mcp 种类）', () => {
+    const dir = tempDir('mcp-dir');
+    const fileName = process.platform === 'win32' ? 'ink_ts_mcp.exe' : 'ink_ts_mcp';
+    writeFileSync(path.join(dir, fileName), 'MZ fake');
+    const found = locateNativeBinary('mcp', { env: { INK_NATIVE_DIR: dir } });
+    expect(found).toBe(path.join(dir, fileName));
+  });
+
+  it('INK_MCP_BINARY 单文件覆盖（mcp 种类）', () => {
+    const dir = tempDir('mcp-explicit');
+    const fake = path.join(dir, 'custom-ink-ts-mcp.exe');
+    writeFileSync(fake, 'MZ fake');
+    const found = locateNativeBinary('mcp', { env: { INK_MCP_BINARY: fake } });
+    expect(found).toBe(fake);
   });
 
   it('目录内找不到 = null（不静默回落无关文件）', () => {

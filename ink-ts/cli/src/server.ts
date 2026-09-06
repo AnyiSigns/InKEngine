@@ -2,6 +2,12 @@
  * stdio JSON-RPC 服务：逐行读输入、受限并发处理，响应只写 stdout、诊断只写
  * stderr（默认）；流与诊断可注入便于单测。默认值即最小健壮基线：行上限
  * 1MiB、并发上限 64、单请求超时 60s、close 后排空在飞请求再退出。
+ *
+ * 超时语义（见 settleRequest）：超时只中止**对响应包的等待**（回通用
+ * -32603）并把取消信号透传给 handler ctx（bridge 协作式中断）。handler
+ * 若不协作，其任务会在**后台游离**继续执行至完成（rounds 等长任务的事件
+ * 照常发生）——服务不等待游离任务；stdio 关闭后仅收口在飞 dispatch 的
+ * 响应，不阻塞退出。
  */
 
 import { createInterface } from 'node:readline';
@@ -42,7 +48,9 @@ function writeJson(output: Writable, response: RpcResponse): void {
   }
 }
 
-/** 单请求执行：AbortSignal 超时中止；超时/异常均只回通用 -32603，细节进 diag。 */
+/** 单请求执行：AbortSignal 超时中止；超时/异常均只回通用 -32603，细节进 diag。
+ * 注：abort 只负责「不等了」——底层 handler 的 Promise 不被取消（能透则透：
+ * ctx.signal 已传给协作式 bridge；不协作的继续后台游离执行，见模块头）。 */
 function settleRequest(
   request: RpcRequest,
   handlers: ReadonlyMap<string, Handler>,
@@ -70,6 +78,7 @@ function settleRequest(
       () => {
         clearTimeout(timer);
         diag({ kind: 'request-timeout', id: request.id ?? null, method: request.method });
+        // 响应侧立即收口；handleRequest 内部仍在等待 handler（后台游离）
         resolve(internalErrorResponse(request.id ?? null));
       },
       { once: true },

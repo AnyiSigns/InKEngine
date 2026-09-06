@@ -1,4 +1,4 @@
-﻿//! 本地嵌入器域：granite-97m 本地 ONNX 嵌入 + 远端/降级语义的协议同位件。
+//! 本地嵌入器域：granite-97m 本地 ONNX 嵌入 + 远端/降级语义的协议同位件。
 //!
 //! 定位：检索链路的文本 → 向量入口，与桥层 `RustEmbedder` 同构
 //! （`aembed_query` / `aembed_documents` / `aclose`），本模块是纯 Rust
@@ -78,8 +78,7 @@ const SESSION_INTRA_THREADS: usize = 2;
 
 /// 模型输出名优先序（sentence-transformers 导出形态名；按名取 hidden
 /// state 输出，避免依赖输出顺序——无命中时取首个输出）。
-const HIDDEN_STATE_OUTPUT_PRIORITY: [&str; 3] =
-    ["last_hidden_state", "hidden_states", "output"];
+const HIDDEN_STATE_OUTPUT_PRIORITY: [&str; 3] = ["last_hidden_state", "hidden_states", "output"];
 
 /// 嵌入来源（计划解析结果；向量产出按此路由）。
 #[derive(Debug, Clone, Copy, PartialEq, Eq)]
@@ -183,7 +182,8 @@ where
 
     if !model_dir.is_dir() {
         tracing::warn!(target: "embedder", "模型目录不存在: {}", model_dir.display());
-        return EmbedderPlan::deterministic(default_dim, "模型目录不存在");    }
+        return EmbedderPlan::deterministic(default_dim, "模型目录不存在");
+    }
 
     // 维度从模型配置断言（本地模型信息是权威：缺失/不一致不得静默猜测）
     let dim = match read_model_config(model_dir) {
@@ -317,11 +317,10 @@ fn load_local_runtime(model_dir: &Path) -> Result<LocalRuntime, String> {
         ));
     }
     let tokenizer_path = model_dir.join(LOCAL_TOKENIZER_FILE);
-    let tokenizer = tokenizers::Tokenizer::from_file(&tokenizer_path)
-        .map_err(|e| {
-            tracing::warn!(target: "embedder", "分词器加载失败 ({}): {e}", tokenizer_path.display());
-            "分词器加载失败".to_string()
-        })?;
+    let tokenizer = tokenizers::Tokenizer::from_file(&tokenizer_path).map_err(|e| {
+        tracing::warn!(target: "embedder", "分词器加载失败 ({}): {e}", tokenizer_path.display());
+        "分词器加载失败".to_string()
+    })?;
     let session = ort::session::Session::builder()
         .map_err(|e| format!("ONNX 会话构建器初始化失败: {e}"))?
         .with_intra_threads(SESSION_INTRA_THREADS)
@@ -397,7 +396,11 @@ async fn infer_vector(runtime: &LocalRuntime, text: &str) -> Result<Vec<f64>, St
         .await
         .map_err(|e| format!("ONNX 推理失败: {e}"))?;
     if outputs.len() <= output_idx {
-        return Err(format!("模型输出缺 {} 号输出（共 {})", output_idx, outputs.len()));
+        return Err(format!(
+            "模型输出缺 {} 号输出（共 {})",
+            output_idx,
+            outputs.len()
+        ));
     }
     let (shape, data) = outputs[output_idx]
         .try_extract_tensor::<f32>()
@@ -591,15 +594,14 @@ impl LocalOnnxEmbedder {
             return Ok(Vec::new());
         }
         let plan = self.plan();
-        let remote = plan.remote.as_ref().ok_or_else(|| {
-            DomainError::Other("远端计划不含端点信息（不应到达）".to_string())
-        })?;
+        let remote = plan
+            .remote
+            .as_ref()
+            .ok_or_else(|| DomainError::Other("远端计划不含端点信息（不应到达）".to_string()))?;
         let input: serde_json::Value = if texts.len() == 1 {
             serde_json::Value::String(texts[0].clone())
         } else {
-            serde_json::Value::Array(
-                texts.into_iter().map(serde_json::Value::String).collect(),
-            )
+            serde_json::Value::Array(texts.into_iter().map(serde_json::Value::String).collect())
         };
         let body = serde_json::json!({ "model": remote.model_id, "input": input });
         let endpoint = format!("{}/embeddings", remote.base_url.trim_end_matches('/'));
@@ -647,7 +649,9 @@ fn coerce_remote_vectors(
         let embedding = obj
             .get("embedding")
             .and_then(|v| v.as_array())
-            .ok_or_else(|| DomainError::External("远端 embedding 响应缺 embedding 数组".to_string()))?;
+            .ok_or_else(|| {
+                DomainError::External("远端 embedding 响应缺 embedding 数组".to_string())
+            })?;
         let floats: Vec<f64> = embedding
             .iter()
             .map(|v| v.as_f64())
@@ -679,8 +683,8 @@ mod tests {
 
     impl TestDir {
         fn new(label: &str) -> Self {
-            let dir = std::env::temp_dir()
-                .join(format!("inkling-embedder-{label}-{}", Uuid::new_v4()));
+            let dir =
+                std::env::temp_dir().join(format!("inkling-embedder-{label}-{}", Uuid::new_v4()));
             std::fs::create_dir_all(&dir).unwrap();
             Self(dir)
         }
@@ -715,7 +719,8 @@ mod tests {
     /// 真实模型目录（工作区缺模型时静默跳过——本地资产，非外部 key，
     /// 模型文件存在于工作区即可直接跑）。
     fn real_model_dir() -> Option<PathBuf> {
-        let dir = Path::new(env!("CARGO_MANIFEST_DIR")).join("../../../../inkling/models/granite-97m");
+        let dir =
+            Path::new(env!("CARGO_MANIFEST_DIR")).join("../../../../inkling/models/granite-97m");
         dir.is_dir().then_some(dir)
     }
 
@@ -732,7 +737,9 @@ mod tests {
     fn deterministic_vectors_are_stable_and_unit_norm() {
         let plan = EmbedderPlan::deterministic(384, "测试保底");
         let embedder = LocalOnnxEmbedder::with_plan(plan);
-        let v1 = tokio_rt().block_on(embedder.aembed_query("测试输入")).unwrap();
+        let v1 = tokio_rt()
+            .block_on(embedder.aembed_query("测试输入"))
+            .unwrap();
         assert_eq!(v1.len(), 384);
         let norm: f64 = v1.iter().map(|x| x * x).sum::<f64>().sqrt();
         assert!((norm - 1.0).abs() < 1e-6, "输出须为单位向量, norm={norm}");
@@ -770,10 +777,15 @@ mod tests {
         write_fake_model_dir(dir.path(), GRANITE_97M_DIM);
         let embedder = LocalOnnxEmbedder::with_model_dir(dir.path());
         assert_eq!(embedder.source(), EmbedSource::LocalOnnx);
-        let v = tokio_rt().block_on(embedder.aembed_query("测试输入")).unwrap();
+        let v = tokio_rt()
+            .block_on(embedder.aembed_query("测试输入"))
+            .unwrap();
         assert_eq!(v, deterministic_vector("测试输入", GRANITE_97M_DIM));
         let note = embedder.note().expect("装载失败原因应可观测");
-        assert!(note.contains("分词器") || note.contains("ONNX"), "note={note}");
+        assert!(
+            note.contains("分词器") || note.contains("ONNX"),
+            "note={note}"
+        );
     }
 
     #[test]
@@ -864,8 +876,8 @@ mod tests {
     /// 的真实 `inkling/models/granite-97m` 上验证约定文件名与 dimension）。
     #[test]
     fn real_granite_model_dir_detected_with_expected_files() {
-        let dir = Path::new(env!("CARGO_MANIFEST_DIR"))
-            .join("../../../../inkling/models/granite-97m");
+        let dir =
+            Path::new(env!("CARGO_MANIFEST_DIR")).join("../../../../inkling/models/granite-97m");
         if !dir.is_dir() {
             return;
         }
@@ -880,11 +892,15 @@ mod tests {
 
     #[test]
     fn real_onnx_embeds_384_dim_unit_norm() {
-        let Some(dir) = real_model_dir() else { return; };
+        let Some(dir) = real_model_dir() else {
+            return;
+        };
         let embedder = LocalOnnxEmbedder::with_model_dir(dir);
         assert_eq!(embedder.source(), EmbedSource::LocalOnnx);
         assert!(embedder.note().is_none(), "计划期不应有降级原因");
-        let vector = tokio_rt().block_on(embedder.aembed_query("写一个函数计算斐波那契数列")).unwrap();
+        let vector = tokio_rt()
+            .block_on(embedder.aembed_query("写一个函数计算斐波那契数列"))
+            .unwrap();
         assert_eq!(vector.len(), GRANITE_97M_DIM, "真实推理维度 = 模型配置 384");
         let norm: f64 = vector.iter().map(|x| x * x).sum::<f64>().sqrt();
         assert!((norm - 1.0).abs() < 1e-6, "输出须为单位向量, norm={norm}");
@@ -892,12 +908,20 @@ mod tests {
 
     #[test]
     fn real_onnx_similar_texts_cosine_above_dissimilar() {
-        let Some(dir) = real_model_dir() else { return; };
+        let Some(dir) = real_model_dir() else {
+            return;
+        };
         let embedder = LocalOnnxEmbedder::with_model_dir(dir);
         let rt = tokio_rt();
-        let similar_a = rt.block_on(embedder.aembed_query("写一个函数计算斐波那契数列")).unwrap();
-        let similar_b = rt.block_on(embedder.aembed_query("实现一个计算斐波那契数列的函数")).unwrap();
-        let dissimilar = rt.block_on(embedder.aembed_query("今天天气怎么样")).unwrap();
+        let similar_a = rt
+            .block_on(embedder.aembed_query("写一个函数计算斐波那契数列"))
+            .unwrap();
+        let similar_b = rt
+            .block_on(embedder.aembed_query("实现一个计算斐波那契数列的函数"))
+            .unwrap();
+        let dissimilar = rt
+            .block_on(embedder.aembed_query("今天天气怎么样"))
+            .unwrap();
         let cosine = |a: &[f64], b: &[f64]| a.iter().zip(b.iter()).map(|(x, y)| x * y).sum::<f64>();
         let similar = cosine(&similar_a, &similar_b);
         let unrelated = cosine(&similar_a, &dissimilar);
@@ -912,18 +936,26 @@ mod tests {
 
     #[test]
     fn real_onnx_is_deterministic_across_calls() {
-        let Some(dir) = real_model_dir() else { return; };
+        let Some(dir) = real_model_dir() else {
+            return;
+        };
         let embedder = LocalOnnxEmbedder::with_model_dir(dir);
         let rt = tokio_rt();
         let first = rt.block_on(embedder.aembed_query("同一段输入")).unwrap();
         let second = rt.block_on(embedder.aembed_query("同一段输入")).unwrap();
         assert_eq!(first, second, "同一模型同文应产出同一向量");
-        assert_ne!(first, deterministic_vector("同一段输入", GRANITE_97M_DIM), "真实向量应不同于保底向量");
+        assert_ne!(
+            first,
+            deterministic_vector("同一段输入", GRANITE_97M_DIM),
+            "真实向量应不同于保底向量"
+        );
     }
 
     #[test]
     fn real_onnx_long_text_truncates_to_max_sequence() {
-        let Some(dir) = real_model_dir() else { return; };
+        let Some(dir) = real_model_dir() else {
+            return;
+        };
         let embedder = LocalOnnxEmbedder::with_model_dir(dir);
         let long = "长文本".repeat(MAX_SEQUENCE_LEN * 2);
         let vector = tokio_rt().block_on(embedder.aembed_query(&long)).unwrap();

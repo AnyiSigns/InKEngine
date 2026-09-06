@@ -4,6 +4,7 @@
  * 零裁决证明（host 侧拒绝面）：越权（argv[0] 不在白名单）/ 越根（file
  * path 或 process cwd 不在挂载根）/ 未批准 → ExecRefusedError 由 host
  * 拒绝、进程不触达（本文件为纯函数面；进程级拒绝对拍见 client.test.ts）。
+ * hostAllowed 保留为检索出网白名单纯函数（exec http op 已移除）。
  */
 
 import { mkdtempSync } from 'node:fs';
@@ -19,7 +20,6 @@ import {
   hmacHex,
   hostAllowed,
   isPathWithinRoots,
-  parseUrlHost,
   verifySignature,
 } from '../../src/exec/envelope.js';
 
@@ -32,7 +32,6 @@ function decision(overrides: Partial<AdjudicatedDecision> = {}): AdjudicatedDeci
     endpoint: 'os',
     roots: [],
     allowlist: [],
-    allow_domains: [],
     timeout_secs: 30,
     max_chars: 4096,
     cwd: null,
@@ -103,14 +102,14 @@ describe('宿主侧裁决面门（越权/越根由 host 拒绝）', () => {
     ).toThrow(/越根拒绝/);
   });
 
-  it('http 越权：域名不在白名单 = host 拒绝', () => {
+  it('http op 已从 exec 移除：请求面门直接拒绝（不签发信封）', () => {
     expect(() =>
       buildSignedExecEnvelope(
-        { tool: 'fetch', op: 'http', args: { url: 'https://evil.example/x' } },
-        decision({ endpoint: 'network', allow_domains: ['good.example'] }),
+        { tool: 'fetch', op: 'http' as never, args: { url: 'https://evil.example/x' } },
+        decision({ endpoint: 'network' }),
         KEY,
       ),
-    ).toThrow(/越权拒绝/);
+    ).toThrow(ExecRefusedError);
   });
 
   it('合法信封产出签名且成功', () => {
@@ -132,17 +131,11 @@ describe('路径与域名纯函数', () => {
     expect(isPathWithinRoots([], ws)).toBe(false);
   });
 
-  it('域名白名单命中', () => {
+  it('域名白名单命中（检索出网白名单纯函数）', () => {
     expect(hostAllowed(['example.com'], 'example.com')).toBe(true);
     expect(hostAllowed(['*.example.com'], 'www.example.com')).toBe(true);
     expect(hostAllowed(['*.example.com'], 'example.com')).toBe(false);
     expect(hostAllowed(['*'], 'anything.else')).toBe(true);
     expect(hostAllowed([], 'example.com')).toBe(false);
-  });
-
-  it('URL host 解析', () => {
-    expect(parseUrlHost('https://raw.githubusercontent.com/a').host).toBe('raw.githubusercontent.com');
-    expect(() => parseUrlHost('ftp://x.com/a')).toThrow();
-    expect(() => parseUrlHost('https://user:pw@x.com/')).toThrow();
   });
 });

@@ -29,13 +29,13 @@ export interface TimelineEntry {
   source: 'history' | 'live';
 }
 
-/** 审计流水（只读）：读取 set_audit 集合。 */
+/** 审计流水（只读）：读取 set_audit 集合（audit.list → {records} 窗口）。 */
 export async function listAudit(): Promise<AuditRecord[] | null> {
   const backend = createBackend();
   if (!backend.available) return null;
   try {
     const result = await backend.auditList();
-    return Array.isArray(result) ? (result as AuditRecord[]) : null;
+    return Array.isArray(result?.records) ? (result.records as AuditRecord[]) : null;
   } catch {
     return null;
   }

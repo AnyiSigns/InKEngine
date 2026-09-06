@@ -7,7 +7,7 @@
   "workspaces": ["engine", "gate", "cli", "host", "web"],
   "scripts": {
     "typecheck": "npm run typecheck --workspaces --if-present",
-    "test": "tsx gate/src/check.ts && vitest run --root gate && vitest run --root cli && vitest run --root engine && vitest run --root host && vitest run --root web && node engine/scripts/verify_generated.mjs",
+    "test": "npm run typecheck --workspace engine && tsx gate/src/check.ts && vitest run --root gate && vitest run --root cli && vitest run --root engine && vitest run --root host && vitest run --root web && node engine/scripts/verify_generated.mjs",
     "gate": "tsx gate/src/check.ts",
     "dev": "tsx watch --clear-screen=false cli/src/index.ts serve",
     "self-check": "node --import tsx self_check/index.ts all",

@@ -22,6 +22,7 @@
 import type { KnowledgeSet } from '../knowledge_set/index.js';
 import { merge_ledger, type Ledger } from '../ledger/ledger.js';
 import { TRACE_FAILED } from '../settle/_constants.js';
+import { terminal_failure_reason } from '../settle/attribution.js';
 import type { SettleContext } from '../settle/types.js';
 
 /** 知识使用归因钩子的运行时访问面（结构契约，避免钩子依赖叶类）。 */
@@ -58,8 +59,9 @@ type ResultLike = {
   interrupt?: unknown;
 };
 
-/** 回合失败判定（与证据归因 run_verdict 同语义：有失败结点 / 错误收尾 /
- *  预算截断 = 失败；中断挂起中性不算失败但也不记成功）。 */
+/** 回合失败判定（与证据归因 run_verdict 共享 error/budget 终态判定——
+ *  run_verdict 对失败终态归中性（路径未走完无证据裁决），本判定对同一终态
+ *  归失败（知识注入未促成成功收尾 = 失败经验）；中断挂起中性不算失败。 */
 export function _round_failed(ctx: SettleContext): boolean {
   const steps = ctx.steps as readonly StepLike[] | null;
   if (steps !== null && steps !== undefined) {
@@ -68,7 +70,7 @@ export function _round_failed(ctx: SettleContext): boolean {
     }
   }
   const reason = (ctx.result as ResultLike | null)?.reason;
-  return reason === 'error' || reason === 'budget_exceeded';
+  return terminal_failure_reason(reason === null || reason === undefined ? null : String(reason));
 }
 
 /** 失败原因摘要（记入失败日志，供进化工厂反思）。 */
@@ -126,20 +128,35 @@ export class _KnowledgeUsageSettleHook {
 
 // ── 回合账本归约（引擎每回合自动产出）──────────────────────────────────────
 
+/** 回合用户决议事件（resume 注入 accept/reject/edit 等；账本事实事件集的
+ *  确认类成分——运行时侧入账本形态）。 */
+export interface _RoundReviewEvent {
+  kind: string;
+  detail: Record<string, unknown>;
+}
+
 /** 当轮可归约事实（merge_ledger 新账本形态：intent/conclusion/events）。 */
-export function _round_ledger_facts(ctx: SettleContext): Ledger | null {
+export function _round_ledger_facts(
+  ctx: SettleContext,
+  review_events: readonly _RoundReviewEvent[] | null = null,
+): Ledger | null {
   const state = (ctx.result.state ?? {}) as Record<string, unknown>;
   // 事件要点形态对齐 ledger.ledgerText 的读取面（kind + detail）；值全部
   // 为 JSON 标量（枚举/数字/文本），形态即 Ledger
   const events: Array<{
     kind: string;
-    detail: { node: string; status: string; tokens: number };
+    detail: Record<string, unknown>;
   }> = [];
   for (const step of ctx.steps) {
     events.push({
       kind: step.status === TRACE_FAILED ? 'error' : 'node',
       detail: { node: step.node, status: step.status, tokens: step.tokens },
     });
+  }
+  // 用户决议事件并入账本事实（accept/reject/edit 确认类——抽取确认条目的
+  // 输入；_record_review_decision 在决议重入点写入）
+  for (const review of review_events ?? []) {
+    events.push({ kind: review.kind, detail: { ...review.detail } });
   }
   const intent = _str(state['input']) ?? _str(state['intent']);
   const conclusion = _str(state['reply']) ?? _str(state['conclusion']);
@@ -156,6 +173,9 @@ export interface _LedgerRuntime {
   _ledger_seq: Record<string, number>;
   _ledger_latest_summary: Record<string, string>;
   _ledger_rounds: Record<string, string>;
+  /** 每线程待并入账本的用户决议事件（resume 决议写入；不在此消费，
+   *  回合边界由收尾钩子清理——记忆抽取与账本持久化共用同一事件集合）。 */
+  _round_review_events: Record<string, readonly _RoundReviewEvent[]>;
   storage: {
     put_record(collection: string, key: string, data: Record<string, unknown>): Promise<void>;
   } | null;
@@ -178,7 +198,8 @@ export class _LedgerSettleHook {
     if (storage === null || storage === undefined) return;
     const thread_id = ctx.thread_id || '-';
     const round_id = ctx.round_id ?? '';
-    const facts = _round_ledger_facts(ctx);
+    const reviewEvents = rt._round_review_events[thread_id] ?? [];
+    const facts = _round_ledger_facts(ctx, reviewEvents);
     if (facts === null) return; // 无记录回合不产出
     if (round_id !== '' && rt._ledger_rounds[thread_id] === round_id) {
       return; // 同 round 幂等（resume/重放不重复产出）

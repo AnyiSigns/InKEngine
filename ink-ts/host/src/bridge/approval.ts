@@ -113,13 +113,18 @@ export function buildApprovalHandlers(deps: HostBridgeDeps): ReadonlyMap<string,
       throw new BridgeError('approval.resolve 需 params.thread_id', 'invalid_params');
     }
     const decision = validateDecision(params.decision);
-    const engineInstance = engine();
-    const interrupt = await engineInstance.get_latest_interrupt(params.thread_id);
-    if (interrupt === null) {
-      throw new BridgeError('该会话无挂起审批卡', 'no_pending_approval');
+    // 决议直传裸决议：resume_run 内部读链尾挂起卡并按 interrupt key 包装注入
+    // （宿主不再手工按 key 包装——双重包装会让决议命中 invalid 回落 reject）。
+    let result: unknown;
+    try {
+      result = await deps.runtime.resume_run(params.thread_id, decision as never);
+    } catch (error) {
+      const message = error instanceof Error ? error.message : String(error);
+      if (message.includes('无挂起审批卡') || message.includes('挂起卡已失效')) {
+        throw new BridgeError(message, 'no_pending_approval');
+      }
+      throw error;
     }
-    const injection = { [interrupt.key]: decision };
-    const result = await deps.runtime.resume_run(params.thread_id, injection);
     return { thread_id: params.thread_id, resolved: true, result: toJsonSafe(result) };
   };
 

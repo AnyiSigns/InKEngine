@@ -11,15 +11,14 @@ import { existsSync, mkdtempSync, readFileSync } from 'node:fs';
 import { tmpdir } from 'node:os';
 import path from 'node:path';
 
-import { locateNativeBinary } from '@ink-ts/host';
+import { locateNativeBinary, STUB_REPLY } from '@ink-ts/host';
 import { afterEach, describe, expect, it } from 'vitest';
 import WebSocket from 'ws';
 import type { RawData } from 'ws';
 
-import { firstJsonLine, spawnCli, type CliChild } from './_spawn.js';
+import { firstJsonLine, runCli, spawnCli, type CliChild } from './_spawn.js';
 
 const TEST_TOKEN = 'serve-e2e-token-0123456789abcdef';
-const STUB_REPLY = '（cli stub 回合已执行）';
 
 interface ListenLine {
   event: string;
@@ -253,6 +252,42 @@ describe('serve e2e：附件上传 + 扁平↔点分别名 round', () => {
       await stopServe(child);
     }
   }, 120_000);
+});
+
+describe('serve e2e：缺省随机 token 鉴权', () => {
+  it('无 --token 启动：token 随机恒非空；/rpc 无 token 与错 token 401、带 token 200', async () => {
+    const child = spawnCli(['serve', '--port', '0', '--data-dir', tempDir()]);
+    children.push(child);
+    const listen = (await firstJsonLine(child, 60_000)) as unknown as ListenLine;
+    expect(listen.event).toBe('listen');
+    expect(typeof listen.token).toBe('string');
+    expect(listen.token.length).toBeGreaterThan(0);
+
+    const rpc = (headers: Record<string, string>): Promise<Response> =>
+      fetch(`${listen.url}/rpc`, {
+        method: 'POST',
+        headers: { 'content-type': 'application/json', ...headers },
+        body: JSON.stringify({ jsonrpc: '2.0', id: 1, method: 'host.ping' }),
+      });
+
+    const bare = await rpc({});
+    expect(bare.status).toBe(401);
+
+    const wrong = await rpc({ authorization: 'Bearer wrong-token-not-matching' });
+    expect(wrong.status).toBe(401);
+
+    const authorized = await rpc({ authorization: `Bearer ${listen.token}` });
+    expect(authorized.status).toBe(200);
+    const ping = (await authorized.json()) as { result: string };
+    expect(ping.result).toBe('pong');
+  }, 120_000);
+
+  it('非回环 --host 未显式 --token → 启动失败（exit 2 清晰错误）', async () => {
+    const result = await runCli(['serve', '--port', '0', '--host', '0.0.0.0'], { timeoutMs: 30_000 });
+    expect(result.exitCode).toBe(2);
+    expect(result.stderr).toContain('非回环');
+    expect(result.stderr).toContain('--token');
+  }, 60_000);
 });
 
 const EXEC_AVAILABLE = locateNativeBinary('exec') !== null;

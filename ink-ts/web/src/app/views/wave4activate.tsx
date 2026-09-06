@@ -9,7 +9,7 @@
  */
 
 import { type ReactNode } from 'react';
-import { Server, Wrench, Shield, Settings, Boxes } from 'lucide-react';
+import { Server, Wrench, Shield, Settings } from 'lucide-react';
 
 import type { UISpec } from '@/renderer/uiSpecTypes';
 import { registerEventRenderers } from '../renderers/eventRenderers';
@@ -17,7 +17,6 @@ import { registerComponent, type PlainComponent } from '@/renderer/componentRegi
 import type { AppBackend } from '../backend';
 
 import { McpMarket } from './markets/McpMarket';
-import { ComponentRegistry } from './markets/ComponentRegistry';
 import { ToolsPanel } from './tools/ToolsPanel';
 import { WorkspaceAuth } from './workspace/WorkspaceAuth';
 import { UiEditorHost } from './uieditor/UiEditorHost';
@@ -44,7 +43,6 @@ export interface SettingsSectionSpec {
 /** 激活函数：注册所有视图/渲染器/设置节。 */
 export function activate(_backend: AppBackend): { sections: SettingsSectionSpec[] } {
   registerComponent('mcp_market', McpMarket as unknown as PlainComponent);
-  registerComponent('component_registry', ComponentRegistry as unknown as PlainComponent);
   registerComponent('tools_panel', ToolsPanel as unknown as PlainComponent);
   registerComponent('workspace_auth', WorkspaceAuth as unknown as PlainComponent);
   registerComponent('ui_editor_host', UiEditorHost as unknown as PlainComponent);
@@ -61,21 +59,7 @@ export function activate(_backend: AppBackend): { sections: SettingsSectionSpec[
         {
           key: 'mcp_market',
           label: 'MCP 市场',
-          hint: '浏览并挂载 MCP 服务（出厂零预挂）',
-          kind: 'component',
-        },
-      ],
-    },
-    {
-      key: 'components',
-      label: '组件',
-      icon: <Boxes size={14} strokeWidth={1.5} />,
-      order: 15,
-      items: [
-        {
-          key: 'component_registry',
-          label: '已注册组件',
-          hint: '补丁链登记的组件清单（agent 自写 / 外部拉取注册，非市场目录）',
+          hint: '浏览并挂载 MCP 服务（seed 单源；stdio 挂载前确认 command）',
           kind: 'component',
         },
       ],
@@ -89,7 +73,7 @@ export function activate(_backend: AppBackend): { sections: SettingsSectionSpec[
         {
           key: 'tools_panel',
           label: '工具',
-          hint: '常驻必带工具集（每回合直接注入）+ 全量工具视图（含 MCP 挂载），tools_manifest 真实数据',
+          hint: '常驻必带工具集 + 全量工具视图（tools.full 真实数据）',
           kind: 'component',
         },
       ],
@@ -117,8 +101,9 @@ export function activate(_backend: AppBackend): { sections: SettingsSectionSpec[
         {
           key: 'ui_editor_host',
           label: '界面树编辑器',
-          hint: 'inspect_ui 拉取 setLiveSpec；产物到补丁链落链可回退',
+          hint: '界面描述开发模式（ui_spec 命令面待 W2 接线，生产入口开发模式标注）',
           kind: 'component',
+          disabledReason: '界面描述开发模式',
         },
       ],
     },
@@ -132,7 +117,6 @@ export type Wave4SettingsSection = SettingsSectionSpec;
 
 export const viewRegistrations = {
   mcp_market: McpMarket,
-  component_registry: ComponentRegistry,
   tools_panel: ToolsPanel,
   workspace_auth: WorkspaceAuth,
   ui_editor_host: UiEditorHost,

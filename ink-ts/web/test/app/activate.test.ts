@@ -12,8 +12,8 @@ describe('activate (W4/W5)', () => {
     const backend = createAppBackend({ backend: { available: false } as never });
     const { sections } = activate(backend);
 
-    expect(sections.length).toBe(5);
-    expect(sections.map((s) => s.key)).toEqual(['markets', 'components', 'tools', 'workspace', 'ui_editor']);
+    expect(sections.length).toBe(4);
+    expect(sections.map((s) => s.key)).toEqual(['markets', 'tools', 'workspace', 'ui_editor']);
   });
 
   it('settings sections 按顺序排列', () => {
@@ -24,7 +24,7 @@ describe('activate (W4/W5)', () => {
     expect(orders).toEqual([...orders].sort((a, b) => a - b));
   });
 
-  it('market section 只含 MCP 市场（组件已分离）', () => {
+  it('market section 只含 MCP 市场', () => {
     const backend = createAppBackend({ backend: { available: false } as never });
     const { sections } = activate(backend);
 
@@ -32,19 +32,9 @@ describe('activate (W4/W5)', () => {
     expect(marketSection).toBeTruthy();
     const keys = marketSection!.items!.map((i) => i.key);
     expect(keys).toEqual(['mcp_market']);
-    expect(keys).not.toContain('component_market');
   });
 
-  it('components section 展示已注册组件清单', () => {
-    const backend = createAppBackend({ backend: { available: false } as never });
-    const { sections } = activate(backend);
-
-    const componentsSection = sections.find((s) => s.key === 'components');
-    expect(componentsSection).toBeTruthy();
-    expect(componentsSection!.items![0].key).toBe('component_registry');
-  });
-
-  it('tools section 包含工具注册表', () => {
+  it('tools section 包含工具面板', () => {
     const backend = createAppBackend({ backend: { available: false } as never });
     const { sections } = activate(backend);
 
@@ -63,18 +53,18 @@ describe('activate (W4/W5)', () => {
     expect(keys).toContain('workspace_auth');
   });
 
-  it('ui_editor section 包含界面树编辑器', () => {
+  it('ui_editor section 标注界面描述开发模式（ui_spec 命令面待 W2）', () => {
     const backend = createAppBackend({ backend: { available: false } as never });
     const { sections } = activate(backend);
 
     const uiSection = sections.find((s) => s.key === 'ui_editor');
     expect(uiSection).toBeTruthy();
     expect(uiSection!.items![0].key).toBe('ui_editor_host');
+    expect(uiSection!.items![0].disabledReason).toContain('界面描述开发模式');
   });
 
   it('viewRegistrations 导出所有视图组件', () => {
     expect(viewRegistrations.mcp_market).toBeTruthy();
-    expect(viewRegistrations.component_registry).toBeTruthy();
     expect(viewRegistrations.tools_panel).toBeTruthy();
     expect(viewRegistrations.workspace_auth).toBeTruthy();
     expect(viewRegistrations.ui_editor_host).toBeTruthy();

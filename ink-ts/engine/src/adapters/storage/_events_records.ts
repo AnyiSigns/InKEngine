@@ -17,8 +17,13 @@ import { EngineEvent } from '../../core/events/events.js';
 import { StorageError } from '../../core/errors.js';
 import { deepCopy, type JsonRecord } from '../../core/json.js';
 import { strip_sensitive } from '../../core/security/security.js';
+import type {
+  RecordListOptions,
+  RecordListResult,
+} from '../../core/storage/storage.js';
 
 import { MemoryStorageCheckpoints } from './_checkpoints.js';
+import { memory_keys_in_window, page_limit, slice_paged_rows } from './_records_page.js';
 import { assertStrictJson, copyEngineEvent, errMsg, toLenientJson } from './_serialize.js';
 
 /** 事件 + records 方法层（MemoryStorage 的中间基类，状态在基座）。 */
@@ -131,6 +136,31 @@ export class MemoryStorageEventsRecords extends MemoryStorageCheckpoints {
         out.push(deepCopy(record) as JsonRecord);
       }
       return out;
+    });
+  }
+
+  /** records 分页/前缀下推（R7-6）：与 sqlite 驱动同口径（key 升序窗口 +
+   *  limit + cursor；无参 = 旧全量语义）。 */
+  async list_records_page(
+    collection: string,
+    opts: RecordListOptions = {},
+  ): Promise<RecordListResult> {
+    return this.lock.run(() => {
+      const store = this.records.get(collection);
+      if (store === undefined) return { records: [], next_cursor: null };
+      const keys = memory_keys_in_window(store, opts);
+      const keyRows = keys.map((key) => ({ key }));
+      const { taken, next_cursor } = slice_paged_rows(
+        keyRows,
+        opts.cursor ?? null,
+        page_limit(opts.limit ?? null),
+      );
+      return {
+        records: taken.map(
+          (row) => deepCopy(store.get(row.key)!) as Record<string, unknown>,
+        ),
+        next_cursor,
+      };
     });
   }
 

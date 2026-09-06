@@ -9,7 +9,7 @@
 //! OOXML zip 中央目录 + docx/xlsx/pptx 文本提取），在 exec 内自行实现，
 //! 不 import 壳 crate、不读策略文件。
 
-use serde_json::{Value as JsonValue, json};
+use serde_json::{json, Value as JsonValue};
 
 use crate::envelope::{Deny, Envelope};
 
@@ -145,7 +145,10 @@ fn run_parse(envelope: &Envelope) -> Result<JsonValue, Deny> {
     let (text, truncated) = truncate_chars(&parsed.text, envelope.max_chars as usize);
     let mut warnings: Vec<String> = Vec::new();
     if truncated {
-        warnings.push(format!("输出文本超上限截断（≤{} 字符）", envelope.max_chars));
+        warnings.push(format!(
+            "输出文本超上限截断（≤{} 字符）",
+            envelope.max_chars
+        ));
     }
     let mut out = json!({
         "subop": "parse",
@@ -193,7 +196,6 @@ mod tests {
             endpoint: "file".into(),
             roots: vec![root.to_string_lossy().into_owned()],
             allowlist: vec![],
-            allow_domains: vec![],
             cwd: None,
             env: None,
             timeout_secs: 20,
@@ -251,10 +253,7 @@ mod tests {
         assert_eq!(detect_format(&make_pdf(false)), Some(DocFormat::Pdf));
         assert_eq!(detect_format(&make_pdf(true)), Some(DocFormat::Pdf));
         assert_eq!(detect_format(&make_docx()), Some(DocFormat::Docx));
-        let xlsx = zip::store_entries(&vec![(
-            "xl/workbook.xml".to_string(),
-            b"<x/>" as &[u8],
-        )]);
+        let xlsx = zip::store_entries(&vec![("xl/workbook.xml".to_string(), b"<x/>" as &[u8])]);
         assert_eq!(detect_format(&xlsx), Some(DocFormat::Xlsx));
         assert_eq!(detect_format(b""), None);
         assert_eq!(detect_format(b"plain bytes"), None);
@@ -268,7 +267,10 @@ mod tests {
         let value = run(&envelope_for(&dir, &path)).expect("PDF 解析成功");
         assert_eq!(value["format"], "pdf");
         assert_eq!(value["page_count"], 1);
-        assert!(value["text"].as_str().unwrap().contains("First line of text"));
+        assert!(value["text"]
+            .as_str()
+            .unwrap()
+            .contains("First line of text"));
         assert!(value["text"].as_str().unwrap().contains("Second line"));
         assert_eq!(value["truncated"], false);
     }
@@ -279,7 +281,10 @@ mod tests {
         let path = dir.join("sample.pdf");
         std::fs::write(&path, make_pdf(true)).unwrap();
         let value = run(&envelope_for(&dir, &path)).expect("flate PDF 解析成功");
-        assert!(value["text"].as_str().unwrap().contains("First line of text"));
+        assert!(value["text"]
+            .as_str()
+            .unwrap()
+            .contains("First line of text"));
     }
 
     #[test]
@@ -317,7 +322,8 @@ mod tests {
     #[test]
     fn out_of_root_path_is_refused() {
         let dir = scratch_dir("outside");
-        let outside = std::env::temp_dir().join(format!("ink-exec-doc-outside-{}.pdf", Uuid::new_v4()));
+        let outside =
+            std::env::temp_dir().join(format!("ink-exec-doc-outside-{}.pdf", Uuid::new_v4()));
         std::fs::write(&outside, make_pdf(false)).unwrap();
         let deny = run(&envelope_for(&dir, &outside)).expect_err("根外路径须拒绝");
         assert_eq!(deny.reason, "root");
@@ -343,6 +349,8 @@ mod tests {
         assert_eq!(value["truncated"], true);
         assert!(value["text"].as_str().unwrap().contains("（已截断）"));
         let warnings = value["warnings"].as_array().unwrap();
-        assert!(warnings.iter().any(|w| w.as_str().unwrap().contains("截断")));
+        assert!(warnings
+            .iter()
+            .any(|w| w.as_str().unwrap().contains("截断")));
     }
 }

@@ -129,7 +129,12 @@ export class GrowthPipeline {
     this.distiller =
       options.distiller ??
       new RoleDistiller({ config: new DistillConfig(), chain: null });
-    // 自动放行人工层：自我进化是后台机制，落位只过三层闸门
+    // 自动放行人工层：自我进化是后台机制，落位只过三层闸门。
+    // 闸门编排差异说明（不收敛为单一工厂的原因）：三层闸门按域样例配置，
+    // growth 落位 = insight 教训条目（无执行语义，L2 空样例库 + 本域 L1
+    // schema _INSIGHT_SCHEMA）；进化/tuning/实体演化各自注入域样例与闸门
+    // 形态（EntityMutationGate 检查对象是实体声明而非知识条目），共享工厂
+    // 会把域差异强行并轨，故各域显式 new。
     this.gate = options.gate ?? new KnowledgeGate({ human_review_enabled: false });
     this._metric_store = options.metric_store ?? null;
     this._emit = options.emit ?? null;
@@ -234,6 +239,32 @@ export class GrowthPipeline {
     const signals = this._classifier.aggregate(this._buffer);
     this._buffer = [];
     const anchor = signals.length > 0 ? signals[0]! : null;
+    // 复用优先于生成：已有同主题知识即跳过重新蒸馏（knowledge_signals
+    // reuse 判定接入本蒸馏决策点）。检索命中按**整串包含**复核——知识集
+    // 检索的 2-gram 命中口径对中文相似句过度宽松（如「第一次/第二次失败
+    // 教训」半数 bigram 重叠即命中），会把不同教训误判为同主题；整串包含
+    // 判定保守 = 同教训重复才复用，不同教训照常蒸馏（默认行为不劣化）
+    if (anchor !== null && this.config.reuse_first) {
+      const needle = anchor.message.trim().toLowerCase();
+      const reused = this.knowledge_set
+        .search(anchor.message, { kind: KIND_INSIGHT, limit: 5 })
+        .find((entry) =>
+          [entry.title, JSON.stringify(entry.data)]
+            .join(' ')
+            .toLowerCase()
+            .includes(needle),
+        );
+      if (reused !== undefined) {
+        try {
+          this.knowledge_set.record_usage(reused.id, {});
+        } catch {
+          // 复用命中留痕失败只跳过（记录不阻断复用语义）
+        }
+        this.last_flush_note =
+          `复用命中已有知识（${reused.id}），跳过蒸馏落位（防知识膨胀）`;
+        return;
+      }
+    }
     const data = this.distiller.distill(signals);
     if (data === null) {
       this.last_flush_note = '蒸馏无产物（无可沉淀素材，轨迹噪音已过滤）';

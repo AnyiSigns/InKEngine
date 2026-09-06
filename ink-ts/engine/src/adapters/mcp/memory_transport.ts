@@ -6,6 +6,11 @@
  * factory 契约 = 消息级双工端口（McpMessagePort：read 收方向异步可迭代、
  * write 发方向）——宿主以 create_message_duplex_pair 构造客户端/服务端
  * 成对端口（或自实现），会话驱动与 stdio 共用 RpcChannel 消息层。
+ *
+ * 预留实现（宿主暂无激活路径：本机 stdio/内嵌 shell 走 stdio/in_memory
+ * 由宿主注入装配）；适配器侧就绪语义由 test/adapters/mcp/
+ * memory_transport.test.ts 的 echo 服务端直测兜底（握手/工具列举/调用/ping
+ * 全链路零网络覆盖）。
  */
 import { RpcChannel } from './_rpc_channel.js';
 import {

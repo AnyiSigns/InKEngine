@@ -19,7 +19,10 @@ describe('BUILTIN_MCP_SERVERS 内置注册表', () => {
       'inkling_shell',
     ]);
     expect(BUILTIN_MCP_SERVERS['inkling_exec']!.transport).toBe(McpTransport.STDIO);
-    expect(BUILTIN_MCP_SERVERS['inkling_shell']!.transport).toBe(McpTransport.IN_MEMORY);
+    expect(BUILTIN_MCP_SERVERS['inkling_shell']!.transport).toBe(McpTransport.STDIO);
+    // 两个内置 server 都由 ink_ts_mcp stdio 二进制承载（Content-Length 分帧）
+    expect(BUILTIN_MCP_SERVERS['inkling_exec']!.stdio_framing).toBe('content_length');
+    expect(BUILTIN_MCP_SERVERS['inkling_shell']!.stdio_framing).toBe('content_length');
     for (const config of Object.values(BUILTIN_MCP_SERVERS)) {
       expect(config.signature).toBeTruthy(); // 连接身份签名齐备（vetting 不缺项）
       expect(config.source).toBe(ToolSource.GITHUB);

@@ -9,7 +9,6 @@ function makeMockBackend(state: { authorized: boolean; root: string | null } = {
   vi.spyOn(backend, 'getAuthorizationState').mockResolvedValue(state);
   vi.spyOn(backend, 'authorizeWorkspace').mockResolvedValue({ authorized: true, root: '/workspace/authorized' });
   vi.spyOn(backend, 'revokeWorkspace').mockResolvedValue({ authorized: false });
-  vi.spyOn(backend, 'openPath').mockImplementation(() => {});
   return backend;
 }
 

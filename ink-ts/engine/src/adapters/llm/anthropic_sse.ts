@@ -4,6 +4,8 @@
  *
  * 从单条 `data:` 帧解析为统一增量 LLMChunk，携带跨帧解析状态
  * （message_start 暂存输入用量，message_delta 合并输出用量/终止原因）。
+ * SSE 帧解码/错误 detail/状态码提示收敛于 sse_common.ts（三协议复用，
+ * anthropic 的 error type 枚举词已并入共享状态码词汇表）。
  *
  * 事件分类约定（与 python 对齐）：
  * - 坏 SSE 帧（非 JSON）容错跳过，不中断整个流；
@@ -13,7 +15,8 @@
 
 import { classify_llm_error } from '../../core/llm/errors.js';
 import { LLMChunk } from '../../core/llm/base.js';
-import { ToolCallDelta } from '../../core/llm/_shapes.js';
+import { ToolCallDelta } from '../../core/llm/messages.js';
+import { error_parts, is_record, sse_data_json, status_hint } from './sse_common.js';
 
 /** Anthropic stop_reason → 统一 finish_reason（不命中则原样透传）。 */
 export const STOP_REASON_MAP: Readonly<Record<string, string>> = {
@@ -23,33 +26,8 @@ export const STOP_REASON_MAP: Readonly<Record<string, string>> = {
   max_tokens: 'length',
 };
 
-/** Anthropic 上游错误 type → HTTP 状态码（分类提示，无则 null）。 */
-export const ERROR_TYPE_STATUS: Readonly<Record<string, number>> = {
-  authentication_error: 401,
-  permission_error: 403,
-  not_found_error: 404,
-  rate_limit_error: 429,
-  invalid_request_error: 400,
-  request_too_large: 400,
-  api_error: 500,
-  overloaded_error: 503,
-  service_unavailable: 503,
-  timeout: 408,
-};
-
-function is_record(value: unknown): value is Record<string, unknown> {
-  return typeof value === 'object' && value !== null && !Array.isArray(value);
-}
-
 function as_record(value: unknown): Record<string, unknown> {
   return is_record(value) ? value : {};
-}
-
-/** 从 Anthropic 错误 type 猜测 HTTP 状态码（分类提示；非串返回 null）。 */
-export function error_status_hint(code: unknown): number | null {
-  if (typeof code !== 'string') return null;
-  const status = ERROR_TYPE_STATUS[code];
-  return status === undefined ? null : status;
 }
 
 /**
@@ -66,29 +44,12 @@ export class AnthropicStreamParser {
 
   /** 解析单条 SSE data 帧为 LLMChunk（坏帧/null 事件返回 null）。 */
   parse_sse_line(line: string): LLMChunk | null {
-    const text = line.trim();
-    if (!text.startsWith('data:')) return null;
-    const data = text.slice('data:'.length).trim();
-    if (!data || data === '[DONE]') return null;
-    let obj: unknown;
-    try {
-      obj = JSON.parse(data);
-    } catch {
-      return null;
-    }
+    const obj = sse_data_json(line);
     if (!is_record(obj)) return null;
     const etype = obj['type'];
     if (etype === 'error') {
-      const errRaw = obj['error'];
-      const err = is_record(errRaw) ? errRaw : null;
-      const message =
-        err !== null && typeof err['message'] === 'string'
-          ? err['message']
-          : typeof errRaw === 'string'
-            ? errRaw
-            : null;
-      const code = err !== null ? err['type'] : null;
-      throw classify_llm_error(error_status_hint(code), message);
+      const parts = error_parts(obj['error']);
+      throw classify_llm_error(status_hint(parts.code), parts.detail);
     }
     if (etype === 'message_start') {
       const msg = as_record(obj['message']);

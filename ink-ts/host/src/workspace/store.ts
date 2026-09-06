@@ -2,8 +2,15 @@
  * 工作区授权存储（host 本地持久化）。
  *
  * 授权根/挂载目录清单落 data_dir/workspace.json：单授权根（root，可为空）
- * + 额外挂载目录集合（mounts）。目录须为绝对路径且存在（授权前校验）；
- * 引擎侧消费由装配方把本状态喂给工具执行根（roots）。
+ * + 额外挂载目录集合（mounts）。目录须为绝对路径且存在（授权前校验）。
+ *
+ * 信任模型 = 「纯授权台账 + 调用方自述」：workspace.json 只记录用户显式
+ * 授权的工作区根/挂载清单（台账），本身不参与 os.run/doc 的工具执行裁决。
+ * os.run/doc 请求中的 roots/allowlist 由请求方参数自述（随请求现取），宿主
+ * 裁决面门（exec/envelope gateCoverage：越权命令/越根路径）做 fail-closed
+ * 信封校验，不与 workspace.json 强制求交——工具执行面需要哪些根由调用侧
+ * 按需声明并受信封校验约束；workspace 台账是授权根的用户可查记录与后续
+ * 装配（如需给工具执行提供根集合）的数据源，不是裁决真源。
  */
 
 import { existsSync, mkdirSync, readFileSync, renameSync, writeFileSync } from 'node:fs';

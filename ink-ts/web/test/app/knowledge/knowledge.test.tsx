@@ -6,9 +6,10 @@ import { credibilityLevel, credibilityLabel, compareCredibility } from '@/app/kn
 import type { KnowledgeEntry } from '@/app/knowledge/backend';
 
 describe('KnowledgePanel', () => {
-  it('空态渲染', () => {
+  it('宿主不可用（无 serve 通道）= unavailable 三态', async () => {
     render(<KnowledgePanel />);
-    expect(screen.getByText(/知识集为空/)).toBeInTheDocument();
+    const matches = await screen.findAllByText(/宿主不可用/);
+    expect(matches.length).toBeGreaterThan(0);
   });
 });
 

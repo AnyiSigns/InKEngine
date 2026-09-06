@@ -124,10 +124,18 @@ export async function crystallize_from_cache(
   return created;
 }
 
+/** 低频兜底扫描间隔（未检测到内容变化时也周期性重扫，兜底外部直写）。 */
+export const CRYSTALLIZE_SCAN_INTERVAL = 32;
+
 /** SkillCrystallizeHook 构造选项（与结晶阈值同源，可配置）。 */
 export interface SkillCrystallizeHookOptions {
   hit_min?: number;
   success_rate?: number;
+  /** 内容变更源（缓存写/命中回馈计数标量；注入后做水位门控——未变化
+   *  回合不重扫 entries，避免每回合全库 list_records + JSON.parse）。 */
+  mutation_source?: (() => number) | null;
+  /** 低频兜底扫描间隔（变化未检测到时每 N 回合强制重扫一次）。 */
+  scan_interval?: number;
 }
 
 /**
@@ -135,12 +143,22 @@ export interface SkillCrystallizeHookOptions {
  *
  * 零 LLM：纯算法读缓存 entries，达「命中数 ≥ N 且命中率 ≥ 阈值」即结晶，
  * 阈值可配置。未注入缓存/技能存储 = fail-closed 不结晶（与指纹缓存同纪律）。
+ *
+ * 扫描门控（R7-4）：注入 mutation_source 后按水位跳过未变化回合——内容
+ * （写/命中回馈计数）与上次扫描一致 = 不重扫 entries（零 DB 读零解析）；
+ * 变化才重扫，另以低频间隔兜底外部直写（不经本钩子计数源的变更）。
  */
 export class SkillCrystallizeHook {
   readonly #cache_store: CacheEntrySource | null;
   readonly #skill_store: SkillStoreLike | null;
   readonly #hit_min: number;
   readonly #success_rate: number;
+  readonly #mutation_source: (() => number) | null;
+  readonly #scan_interval: number;
+  /** 上次实际扫描时的内容计数（水位基准；NaN = 尚未扫过 → 首轮必扫）。 */
+  #last_mutations = Number.NaN;
+  /** 距上次实际扫描的回合数（低频兜底用）。 */
+  #rounds_since_scan = 0;
   /** 本次 run 结晶的技能名（供测试断言自动结晶语义）。 */
   crystallized: string[] = [];
 
@@ -153,10 +171,30 @@ export class SkillCrystallizeHook {
     this.#skill_store = skill_store;
     this.#hit_min = opts.hit_min ?? SKILL_HIT_MIN_DEFAULT;
     this.#success_rate = opts.success_rate ?? SKILL_SUCCESS_RATE_DEFAULT;
+    this.#mutation_source = opts.mutation_source ?? null;
+    this.#scan_interval = Math.max(1, opts.scan_interval ?? CRYSTALLIZE_SCAN_INTERVAL);
+  }
+
+  /** 距上次扫描的回合数（观测侧；测试断言低频兜底用）。 */
+  get rounds_since_scan(): number {
+    return this.#rounds_since_scan;
   }
 
   async settle(_ctx: unknown): Promise<void> {
     if (this.#cache_store === null || this.#skill_store === null) return;
+    const source = this.#mutation_source;
+    if (source !== null) {
+      const current = source();
+      this.#rounds_since_scan += 1;
+      const changed = current !== this.#last_mutations;
+      const due = this.#rounds_since_scan >= this.#scan_interval;
+      if (!changed && !due) {
+        this.crystallized = [];
+        return; // 未变化回合不扫描（水位门控，零 DB 读）
+      }
+      this.#last_mutations = current;
+      this.#rounds_since_scan = 0;
+    }
     this.crystallized = await crystallize_from_cache(
       this.#cache_store,
       this.#skill_store,

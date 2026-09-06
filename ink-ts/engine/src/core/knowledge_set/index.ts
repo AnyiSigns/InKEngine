@@ -32,6 +32,10 @@ export {
 // knowledge_set._SOURCE_CREDIBILITY 形态；缺省可信度经 default_credibility）
 export { _SOURCE_CREDIBILITY } from './_types.js';
 
+// 层级数值表（私有但重导出：entity_evolution 等域同源取用，杜绝第二份
+// LEVEL → 数值映射；晋升/变异判定共享同一秩表）
+export { _LEVEL_ORDER } from './_types.js';
+
 export type { KnowledgeStorage } from './_types.js';
 
 export { default_credibility } from './_types.js';

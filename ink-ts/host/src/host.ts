@@ -8,6 +8,8 @@
  *   create_llm 或 ModelChain 装配为 AsyncLLM 形态——厂商只是端点配置，
  *   协议决定适配器；
  * - interrupt_policy：默认 fail-closed（autoApprove 仅显式 true 才直过）；
+ *   能力记录 auto_approve_tools / auto_approve_all_review 并入策略——策略
+ *   实例为活读面（每次判定读当前记录），capability.put 后下个请求生效；
  * - build_transport：事件落文件实时刷新，每轮一个 JSONL 文件；
  * - 运行模型配置面（models.config.* 消费）：apply_model_config 校验并合并
  *   变更（关停并置空 _llm 使下轮重解析）、persist/reload 走
@@ -35,6 +37,7 @@ import type { EngineTransport, InterruptPolicy, Storage } from '@ink-ts/engine';
 
 import { normalize_model_config } from './config.js';
 import type { ResolvedHostConfig } from './config.js';
+import type { CapabilityRecord } from './capability/store.js';
 import { applyProvidersConfig, isRecord } from './model_providers.js';
 import {
   load_persisted_model_config,
@@ -46,14 +49,39 @@ import {
 import type { ModelConfigState } from './model_config_runtime.js';
 import { FileEventsTransport } from './transport.js';
 
-/** 显式 autoApprove 放行策略：所有动作直过（should_approve=false）。 */
-class AutoApprovePolicy implements InterruptPolicy {
-  should_approve(): boolean {
-    return false;
+/**
+ * 宿主审批策略（活读面）：autoApprove 显式 true = 全量直过；否则按能力
+ * 记录并入——auto_approve_all_review = 全量直过；auto_approve_tools 工具
+ * 命中 = 该工具直过；其余 fail-closed 全量挂起（超时窗口 = 配置值）。
+ * 每次判定现取 capability.get()，put 后即生效（无需重建）。
+ */
+class HostInterruptPolicy implements InterruptPolicy {
+  private readonly base: DefaultInterruptPolicy;
+
+  constructor(
+    private readonly config: ResolvedHostConfig,
+    private readonly capability: (() => CapabilityRecord) | null,
+  ) {
+    this.base = new DefaultInterruptPolicy(
+      new Set<string>(),
+      new Set<string>(),
+      this.config.approval_timeout,
+    );
+  }
+
+  should_approve(key: string, action: Record<string, unknown>): boolean {
+    if (this.config.autoApprove) return false;
+    if (this.capability === null) return this.base.should_approve(key, action);
+    const record = this.capability();
+    if (record.auto_approve_all_review) return false;
+    const tool = action['tool'];
+    if (typeof tool === 'string' && record.auto_approve_tools.includes(tool)) return false;
+    return this.base.should_approve(key, action);
   }
 
   timeout_for(): number | null {
-    return null;
+    if (this.config.autoApprove) return null;
+    return this.config.approval_timeout;
   }
 }
 
@@ -63,9 +91,15 @@ export class InkHost {
   private _llm: AsyncLLM | null = null;
   private readonly _transports: FileEventsTransport[] = [];
   private _closed = false;
+  private readonly _capability: (() => CapabilityRecord) | null;
+  private _policy: InterruptPolicy | null = null;
 
-  constructor(config: ResolvedHostConfig) {
+  constructor(
+    config: ResolvedHostConfig,
+    capability: (() => CapabilityRecord) | null = null,
+  ) {
     this.config = config;
+    this._capability = capability;
   }
 
   /** 存储工厂：engine adapters 路由 memory:// / sqlite:///path。 */
@@ -151,14 +185,13 @@ export class InkHost {
     return this.apply_model_config(persisted ?? {});
   }
 
-  /** 审批策略：autoApprove 显式 true = 直过；否则 fail-closed 全量挂起。 */
+  /** 审批策略（惰性单实例活读面）：autoApprove 显式 true = 直过；能力
+   *  记录 auto 字段并入（判定时现取，capability.put 后下个请求生效）。 */
   interrupt_policy(): InterruptPolicy {
-    if (this.config.autoApprove) return new AutoApprovePolicy();
-    return new DefaultInterruptPolicy(
-      new Set<string>(),
-      new Set<string>(),
-      this.config.approval_timeout,
-    );
+    if (this._policy === null) {
+      this._policy = new HostInterruptPolicy(this.config, this._capability);
+    }
+    return this._policy;
   }
 
   /** 事件传输工厂：每轮一个 JSONL 事件文件（events 目录，实时 flush）。 */

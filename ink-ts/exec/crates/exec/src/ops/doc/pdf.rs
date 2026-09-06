@@ -75,7 +75,11 @@ fn extract_object_body(bytes: &[u8], after_obj: usize) -> &[u8] {
     match (stream_pos, endobj_pos) {
         (Some(sp), Some(ep)) if sp < ep => {
             let dict = &bytes[after_obj..sp];
-            let eol = if bytes.get(sp + 6) == Some(&b'\r') { 2 } else { 1 };
+            let eol = if bytes.get(sp + 6) == Some(&b'\r') {
+                2
+            } else {
+                1
+            };
             let data_start = sp + 6 + eol;
             let end = data_start + parse_stream_length(dict).unwrap_or(0);
             let es = end + skip_stream_eol(bytes, end);
@@ -174,7 +178,10 @@ fn find_keyword(hay: &[u8], needle: &[u8], from: usize) -> Option<usize> {
 
 fn is_delim(b: u8) -> bool {
     b.is_ascii_whitespace()
-        || matches!(b, b'(' | b')' | b'<' | b'>' | b'/' | b'%' | b'{' | b'}' | b'[' | b']')
+        || matches!(
+            b,
+            b'(' | b')' | b'<' | b'>' | b'/' | b'%' | b'{' | b'}' | b'[' | b']'
+        )
 }
 
 /// dict 段内 `/Length` 值（字面量状态跟踪，不误读字符串体内的 /Length）。
@@ -191,7 +198,10 @@ fn parse_stream_length(dict: &[u8]) -> Option<usize> {
     if i == start {
         return None;
     }
-    std::str::from_utf8(&dict[start..i]).ok()?.parse::<usize>().ok()
+    std::str::from_utf8(&dict[start..i])
+        .ok()?
+        .parse::<usize>()
+        .ok()
 }
 
 /// 对象内内容流（解压或原文）；边界不可信 = None。
@@ -310,7 +320,12 @@ fn scan_page_lines(stream: &[u8]) -> String {
             .y
             .partial_cmp(&runs[a].y)
             .unwrap_or(std::cmp::Ordering::Equal)
-            .then(runs[a].x.partial_cmp(&runs[b].x).unwrap_or(std::cmp::Ordering::Equal))
+            .then(
+                runs[a]
+                    .x
+                    .partial_cmp(&runs[b].x)
+                    .unwrap_or(std::cmp::Ordering::Equal),
+            )
     });
     let mut lines: Vec<(f64, Vec<String>)> = Vec::new();
     for &i in &idx {
@@ -350,7 +365,11 @@ fn scan_content_stream(stream: &[u8]) -> Vec<TextRun> {
                 x += parse_f64(p[0]);
                 y += parse_f64(p[1]);
             }
-        } else if let Some(m) = c.name("tj").or_else(|| c.name("tjq")).or_else(|| c.name("tjqq")) {
+        } else if let Some(m) = c
+            .name("tj")
+            .or_else(|| c.name("tjq"))
+            .or_else(|| c.name("tjqq"))
+        {
             let lit = extract_literals(m.as_bytes()).into_iter().next();
             if let Some(l) = lit {
                 runs.push(TextRun {
@@ -462,7 +481,8 @@ mod tests {
 
     /// 合成 PDF：use_flate 时内容流经 Zlib 压缩。
     fn make_pdf(use_flate: bool) -> Vec<u8> {
-        let content = b"BT\n1 0 0 1 50 750 Tm\n(First line of text) Tj\n0 -20 Td\n(Second line) Tj\nET";
+        let content =
+            b"BT\n1 0 0 1 50 750 Tm\n(First line of text) Tj\n0 -20 Td\n(Second line) Tj\nET";
         let (dict, payload): (String, Vec<u8>) = if use_flate {
             use flate2::write::ZlibEncoder;
             use flate2::Compression;
@@ -568,9 +588,7 @@ mod tests {
             PdfErrorKind::NotPdf
         );
         assert_eq!(
-            extract_pdf(b"%PDF-1.4\nno objects here")
-                .unwrap_err()
-                .kind,
+            extract_pdf(b"%PDF-1.4\nno objects here").unwrap_err().kind,
             PdfErrorKind::Parse
         );
     }

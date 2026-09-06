@@ -20,19 +20,17 @@ import { CompressingLLM, UsageTrackingLLM } from '../llm/guard.js';
 import type { AsyncLLM } from '../llm/_guard_types.js';
 import { HarnessDefinition } from '../harness/index.js';
 import { KnowledgeSet } from '../knowledge_set/index.js';
-import { SettleHooks, PoolGovernanceSettleHook } from '../settle/index.js';
 import { emit_audit } from '../audit_log/audit_log.js';
 import type { EngineTransport } from '../events/events.js';
 import { UISchemaValidator } from '../ui_schema/uiSchema.js';
 import type { Graph } from '../graph/graph.js';
 import type { AssemblyRecipe } from './_types.js';
 import { _spec_identity } from './_helpers.js';
-import { _KnowledgeUsageSettleHook, _LedgerSettleHook } from './_settle.js';
 import { _RoundStepsRecorder } from './_round_steps_recorder.js';
-import { RuntimeContexts } from './_runtime_contexts.js';
+import { RuntimeMechanisms } from './_runtime_mechanisms.js';
 
 /** 引擎重建/集状态恢复基座。 */
-export abstract class RuntimeRebuild extends RuntimeContexts {
+export abstract class RuntimeRebuild extends RuntimeMechanisms {
   /** 重建回合图引擎（配置/工具表变更才重建；llm 缺省 = 宿主解析）。 */
   async rebuild_engine(llm?: AsyncLLM | null): Promise<Engine> {
     if (this._host === null || this._recipe === null) {
@@ -74,30 +72,9 @@ export abstract class RuntimeRebuild extends RuntimeContexts {
     const recipe = this._recipe;
     const context = this._graph_context(guard_llm, specs);
     const graph = recipe.graph_recipe!(context) as Graph;
-    // 沉淀钩子链（引擎自接线，默认 ON）：
-    // ① 池治理每回合自动跑（评估边证据 → 判定 → 审计/失效登记）；
-    // ② 知识使用归因（失败知识 → 进化候选）；
-    // ③ 回合账本归约（当轮可归约记录 → ledger 集合）；
-    // ④ 自学习闭环（growth，回合收尾按需蒸馏）；
-    // ⑤ 实体演化闭环（失败信号 → 变异 → 晋升）。
-    const settleHooks = new SettleHooks();
-    if (this.pool_governance !== null && this._pool_governance_enabled) {
-      settleHooks.register(
-        new PoolGovernanceSettleHook(this.pool_governance, {
-          store: this.edge_evidence_store,
-          now: () => this._r_now(),
-          audit_sink: (record) => this._pool_governance_audit(record),
-        }),
-      );
-    }
-    settleHooks.register(new _KnowledgeUsageSettleHook(this));
-    settleHooks.register(new _LedgerSettleHook(this));
-    if (this.growth_pipeline !== null) {
-      settleHooks.register(this.growth_pipeline);
-    }
-    if (this.entity_evolution_pipeline !== null) {
-      settleHooks.register(this.entity_evolution_pipeline);
-    }
+    // 沉淀钩子链（引擎自接线，机制开关默认 ON，见 _runtime_mechanisms
+    // _assemble_settle_chain：六钩子 + 池治理 + 归因/账本 + growth/实体演化）
+    const settleHooks = this._assemble_settle_chain();
     // 回合事件观察传输：growth/实体演化 + 回合步骤记录器（同一流订阅）
     const transports: EngineTransport[] = [];
     if (this.entity_evolution_pipeline !== null) {
@@ -118,6 +95,10 @@ export abstract class RuntimeRebuild extends RuntimeContexts {
       assembly: context.assembly,
       assembly_sources: context.assembly_sources,
       settle: settleHooks,
+      // 回合指标聚合注入：顶层 run/ainvoke 收尾引擎自动记录回合成败
+      // （_record_run_metrics；此前不注入 = 判 null 跳过）——收尾调参
+      // settle 钩子读同一实例聚合，不再由运行时侧重复记录
+      metrics: this.turn_metrics,
     });
     this._apply_run_options_override(options, this._recipe.run_options as RunOptions | null);
     const engine = new Engine(graph, options);
@@ -190,13 +171,21 @@ export abstract class RuntimeRebuild extends RuntimeContexts {
     }
   }
 
-  /** 从集补丁链组装恢复活跃态（重启/回退后集状态一致；链损坏回落基线）。 */
+  /** 从集补丁链组装恢复活跃态（重启/回退后集状态一致；链损坏回落基线）。
+   *  各段恢复失败只跳过不击穿启动；失败原因逐段汇总到 _restore_diag
+   *  （可观测：回落基线是显式降级而非静默吞错）。 */
   async _restore_set_state(recipe: AssemblyRecipe): Promise<void> {
+    const diag: string[] = [];
+    const chain = this.self_pipeline?.chain ?? null;
+    if (chain === null) {
+      this._restore_diag = ['集补丁链未装配（自指管线缺链），集状态恢复跳过'];
+      return;
+    }
     let state: Record<string, unknown>;
     try {
-      state = (await this.self_pipeline!.chain.assemble()) as Record<string, unknown>;
-    } catch {
-      // 集状态组装失败，回落基线
+      state = (await chain.assemble()) as Record<string, unknown>;
+    } catch (exc) {
+      this._restore_diag = [`集状态组装失败（回落基线）: ${String(exc)}`];
       return;
     }
     const uiState = state['ui'];
@@ -212,77 +201,97 @@ export abstract class RuntimeRebuild extends RuntimeContexts {
           });
           if (violations.length === 0) {
             (this.introspection_service as unknown as { _sources: { ui_spec: Record<string, unknown> | null } })._sources.ui_spec = spec as Record<string, unknown>;
+          } else {
+            diag.push(`界面恢复未通过白名单校验（${violations.length} 项违规，回落基线）`);
           }
-        } catch {
-          // 界面恢复校验失败（跳过）
+        } catch (exc) {
+          diag.push(`界面恢复校验失败（跳过）: ${String(exc)}`);
         }
       }
     }
     const harnessState = state['harness'];
     if (harnessState && typeof harnessState === 'object') {
-      for (const [name, data] of Object.entries(
-        harnessState as Record<string, unknown>,
-      )) {
-        if (!data || typeof data !== 'object' || Array.isArray(data)) continue;
-        try {
-          const parsed = HarnessDefinition.from_dict(data as never);
-          this.harness_registry!.register(parsed);
-        } catch {
-          // harness 恢复失败（跳过）
-          void name;
+      const registry = this.harness_registry;
+      if (registry === null) {
+        diag.push('harness 段存在但注册表未装配（跳过恢复）');
+      } else {
+        for (const [name, data] of Object.entries(
+          harnessState as Record<string, unknown>,
+        )) {
+          if (!data || typeof data !== 'object' || Array.isArray(data)) continue;
+          try {
+            const parsed = HarnessDefinition.from_dict(data as never);
+            registry.register(parsed);
+          } catch (exc) {
+            diag.push(`harness 恢复失败（跳过）: ${name} ${String(exc)}`);
+          }
         }
       }
     }
     const toolsState = state['tools'];
     if (toolsState && typeof toolsState === 'object') {
-      for (const [name, toolData] of Object.entries(
-        toolsState as Record<string, unknown>,
-      )) {
-        if (!toolData || typeof toolData !== 'object' || Array.isArray(toolData)) continue;
-        try {
-          const declarative = DeclarativeToolSpec.from_dict(toolData as never);
-          this.harness_registry!.declarative.register_definition(declarative);
-          this.tool_registry[name] = declarative.to_spec();
-        } catch {
-          // 工具恢复失败（跳过）
+      const registry = this.harness_registry;
+      if (registry === null) {
+        diag.push('工具段存在但 harness 注册表未装配（跳过恢复）');
+      } else {
+        for (const [name, toolData] of Object.entries(
+          toolsState as Record<string, unknown>,
+        )) {
+          if (!toolData || typeof toolData !== 'object' || Array.isArray(toolData)) continue;
+          try {
+            const declarative = DeclarativeToolSpec.from_dict(toolData as never);
+            registry.declarative.register_definition(declarative);
+            this.tool_registry[name] = declarative.to_spec();
+          } catch (exc) {
+            diag.push(`工具恢复失败（跳过）: ${name} ${String(exc)}`);
+          }
         }
       }
     }
     const eventState = state['event_types'];
     if (eventState && typeof eventState === 'object') {
-      const existing = new Set(this.event_type_registry!.names());
-      for (const [name, specData] of Object.entries(
-        eventState as Record<string, unknown>,
-      )) {
-        if (!specData || typeof specData !== 'object' || Array.isArray(specData)) continue;
-        if (existing.has(name)) continue;
-        try {
-          this.event_type_registry!.register(EventTypeSpec.from_dict(specData as never));
-        } catch {
-          // 事件类型恢复失败（跳过）
+      const registry = this.event_type_registry;
+      if (registry === null) {
+        diag.push('事件类型段存在但注册表未装配（跳过恢复）');
+      } else {
+        const existing = new Set(registry.names());
+        for (const [name, specData] of Object.entries(
+          eventState as Record<string, unknown>,
+        )) {
+          if (!specData || typeof specData !== 'object' || Array.isArray(specData)) continue;
+          if (existing.has(name)) continue;
+          try {
+            registry.register(EventTypeSpec.from_dict(specData as never));
+          } catch (exc) {
+            diag.push(`事件类型恢复失败（跳过）: ${name} ${String(exc)}`);
+          }
         }
       }
     }
     const entityState = state['entities'];
     if (entityState && typeof entityState === 'object') {
-      const registry = this.entity_registry!;
-      const existing = new Set(registry.names());
-      for (const [entity_id, specData] of Object.entries(
-        entityState as Record<string, unknown>,
-      )) {
-        if (!specData || typeof specData !== 'object' || Array.isArray(specData)) continue;
-        let spec: EntitySpec | null = null;
-        try {
-          spec = EntitySpec.from_dict(specData as never);
-        } catch {
-          // 实体恢复失败（跳过）
-          continue;
-        }
-        try {
-          if (existing.has(entity_id)) registry.replace(spec);
-          else registry.register(spec);
-        } catch {
-          // 实体恢复失败（跳过）
+      const registry = this.entity_registry;
+      if (registry === null) {
+        diag.push('实体段存在但实体注册表未装配（跳过恢复）');
+      } else {
+        const existing = new Set(registry.names());
+        for (const [entity_id, specData] of Object.entries(
+          entityState as Record<string, unknown>,
+        )) {
+          if (!specData || typeof specData !== 'object' || Array.isArray(specData)) continue;
+          let spec: EntitySpec | null = null;
+          try {
+            spec = EntitySpec.from_dict(specData as never);
+          } catch (exc) {
+            diag.push(`实体反序列化失败（跳过）: ${entity_id} ${String(exc)}`);
+            continue;
+          }
+          try {
+            if (existing.has(entity_id)) registry.replace(spec);
+            else registry.register(spec);
+          } catch (exc) {
+            diag.push(`实体恢复失败（跳过）: ${entity_id} ${String(exc)}`);
+          }
         }
       }
     }
@@ -310,9 +319,10 @@ export abstract class RuntimeRebuild extends RuntimeContexts {
         if (this.introspection_service !== null) {
           (this.introspection_service as unknown as { _sources: { knowledge_set: KnowledgeSet } })._sources.knowledge_set = rebuilt;
         }
-      } catch {
-        // 知识集恢复失败（跳过）
+      } catch (exc) {
+        diag.push(`知识集恢复失败（跳过）: ${String(exc)}`);
       }
     }
+    this._restore_diag = diag;
   }
 }

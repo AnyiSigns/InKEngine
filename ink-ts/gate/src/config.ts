@@ -9,6 +9,12 @@ export interface GateConfig {
   lineScanDirs: readonly string[];
   /** core 区相对路径（import/词汇规则只扫这里）。 */
   coreDirs: readonly string[];
+  /** adapters 区相对路径（反向依赖 core 私有模块检查）。 */
+  adapterDirs: readonly string[];
+  /** JSON 纪律扫描目录（parse/重复键/缩进，相对 ink-ts 根）。 */
+  jsonScanDirs: readonly string[];
+  /** core 私有模块「跨域契约模块」标注：目标文件头含此标记即放行跨域 import。 */
+  coreSeamMarker: string;
   /** core 禁用的宿主/框架词（词边界匹配，命中即拒绝）。 */
   coreForbiddenTokens: readonly string[];
   /** core 允许的不透明协议串（锁定宿主字段/格式标识，命中词但不属协议串即拒绝）。 */
@@ -23,6 +29,9 @@ export const defaultConfig: GateConfig = {
   maxLines: 350,
   lineScanDirs: ['engine/src', 'engine/test', 'host/src', 'host/test', 'cli/src', 'cli/test', 'web/src', 'web/test'],
   coreDirs: ['engine/src/core'],
+  adapterDirs: ['engine/src/adapters'],
+  jsonScanDirs: ['seed_data', 'engine/schemas', 'engine/fixtures'],
+  coreSeamMarker: '跨域契约模块',
   coreForbiddenTokens: ['cordis', 'tauri', 'electron', 'vitest', 'react', 'inkling'],
   coreOpaqueTokens: ['inkling.skill/v1'],
   coreAllowedNodeModules: ['node:async_hooks'],

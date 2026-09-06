@@ -5,7 +5,8 @@
  * 指纹与 id 的确定性 seam：Python 侧 sha1/hash() 的随机进程种子在本重表达
  * 中替换为纯 TS 确定性实现——教训指纹取 sha256（_sha256.ts，与 builder 域
  * 同源纯实现）12 hex 前缀；信号 id 取 FNV-1a 32 位稳定哈希（`% 1e8` 与
- * Python 对齐）。时间 seam now=0（纯逻辑不进 Date.now）。
+ * Python 对齐）。时间 seam = 模块时钟注入面（对齐 growth 注入式时钟：
+ * 未注入按确定值 0，测试可经 set_entity_evolution_now 冻结/推进）。
  */
 
 import { sha256_hex } from '../builder/_sha256.js';
@@ -15,9 +16,17 @@ import { SOURCE_MODEL, SOURCE_RANK, SOURCE_USER } from '../knowledge_signals/_ty
 import type { ExecutionSignal } from '../knowledge_signals/signals.js';
 import { LEVEL_WORK } from '../knowledge_set/index.js';
 
-/** 时间 seam（确定性：纯逻辑不进 Date.now，now=0 可复现）。 */
+/** 模块时钟源（epoch 秒；缺省确定值 0——纯逻辑可复现）。 */
+let _entity_evolution_now: () => number = (): number => 0;
+
+/** 时钟 seam 注入面（Runtime 装配/测试按需注入；null = 回落确定值 0）。 */
+export function set_entity_evolution_now(fn: (() => number) | null): void {
+  _entity_evolution_now = fn ?? ((): number => 0);
+}
+
+/** 时间 seam（epoch 秒；缺省确定值 0）。 */
 export function _now(): number {
-  return 0;
+  return _entity_evolution_now();
 }
 
 /** 字典判定/规约（镜像 dict(x or {})：非 dict 形态按空 dict 兜底）。 */

@@ -64,7 +64,9 @@ export function gateGraphRecipe(_ctx: GraphRecipeContext): Graph {
       { tool: 'demo_tool', summary: 'host bridge 审批冒烟' },
       { payload: { kind: 'demo' } },
     );
-    return { reply: decision.decision === 'accept' ? 'approved' : 'skipped' };
+    // reply = 决议原文（accept/edit/reject/terminate/auto），供桥侧单测断言
+    // 每种决议都原样抵达引擎裁决层（不经宿主侧双重包装回落 invalid/reject）。
+    return { reply: decision.decision };
   };
   const graph = new Graph({ name: 'gate', entry: 'agent' });
   graph.add_node('agent', agent as never);

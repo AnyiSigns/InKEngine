@@ -1,8 +1,9 @@
-# 孤儿导出灰名单：engine core 顶层导出中当前无消费引用的已知项。
+# 孤儿导出灰名单：engine core 顶层导出中当前无消费引用的已知项（共 13 项）。
 # 每行 <name>@<relpath>，空行与 # 注释跳过。新孤儿不被豁免，需接线或删除。
 #
-# 以下各项承载显式契约/镜像面（版本号、协议常量、规范工厂），保留导出以待
-# 外部消费或跨语言对码核对：
+# 以下各项承载显式对外契约面（版本号、协议常量、规范工厂），保留导出以待外部
+# 消费或宿主装配取用；旧侧（inkling/ink_engine）不再维护，无跨语言对码义务，
+# 若某导出确认无 TS 侧消费面应接线或删除，而非长期挂灰名单。
 resolve_tool_result_max_chars@engine/src/core/context/context_compression.ts
 DEFAULT_DIGEST_MAX_CHARS@engine/src/core/context/context_window.ts
 ENDPOINT_TYPE_VALUES@engine/src/core/declarative_tools/endpoint_types.ts

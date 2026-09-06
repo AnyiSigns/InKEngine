@@ -1,3 +1,4 @@
+// 跨域契约模块 - 跨域类型 seam：declarative_tools/harness/introspection/self_tools 消费流水线数据形态
 /**
  * 工具执行流水线的数据形态与注入 seam（tool_pipeline.py 移植的数据面）。
  *

@@ -3,10 +3,13 @@
  * 镜像 Python mcp_client.py 的 BUILTIN_MCP_SERVERS/builtin_mcp_server_config。
  *
  * tools.json 中 endpoint=mcp 工具的 server_id 归并后仅两个：inkling_exec
- * （研究链/OS 感知执行件，随包二进制的 stdio 服务，JSON Lines 分帧）与
- * inkling_shell（壳自身能力，宿主注入的内存嵌入服务）。本表 = TS 侧权威
- * 定义（server_id → 传输形态/来源/签名）；环境相关连接位（stdio 命令路径、
- * in_memory 工厂）由宿主装配期经 builtin_mcp_server_config 填充。
+ * 与 inkling_shell。两个内置 server 都由 ink-ts 产物内的原生 MCP server
+ * 二进制承载（`ink_ts_mcp <profile>`：exec = file/process/doc 工具集、
+ * shell = exec 工具集 + embed；stdio Content-Length 分帧，INK_MCP_ROOT
+ * 沙箱 fail-closed）——本表 = TS 侧权威定义（server_id → 传输形态/来源/
+ * 签名）；环境相关连接位（stdio 命令路径、profile 参数等）由宿主装配期经
+ * builtin_mcp_server_config 填充（host/src/mcp/assembly.ts 定位二进制后
+ * 以 command/args 覆盖注入）。
  *
  * overrides 只允许覆盖环境相关连接参数；传输形态/来源/签名以注册表为准
  * （宿主不得改写——防改头换面挂载）。未知 server_id 返回 null（fail-closed：
@@ -14,7 +17,7 @@
  */
 import { GraphDefinitionError } from '../../core/errors.js';
 import { ToolSource } from '../../core/tool_vetting/tool_vetting.js';
-import { JSON_LINES_FRAMING } from './_framing.js';
+import { CONTENT_LENGTH_FRAMING } from './_framing.js';
 import type { ServerFactory } from './_types.js';
 import { McpServerConfig, McpTransport, StdioRestartPolicy } from './config.js';
 
@@ -25,15 +28,16 @@ export const BUILTIN_MCP_SERVERS: Readonly<Record<string, McpServerConfig>> = {
     transport: McpTransport.STDIO,
     source: ToolSource.GITHUB,
     signature: 'builtin:inkling_exec',
-    // 内置执行件以 ts_seed_pack 先例走 JSON Lines stdio（无 Content-Length
-    // 头，每行一个 JSON）——自写传输按此形态收发。
-    stdio_framing: JSON_LINES_FRAMING,
+    // 由 ink_ts_mcp exec profile 承载（装配期注入 command/args）。
+    stdio_framing: CONTENT_LENGTH_FRAMING,
   }),
   inkling_shell: new McpServerConfig({
     id: 'inkling_shell',
-    transport: McpTransport.IN_MEMORY,
+    transport: McpTransport.STDIO,
     source: ToolSource.GITHUB,
     signature: 'builtin:inkling_shell',
+    // 由 ink_ts_mcp shell profile 承载（exec 工具集 + embed）。
+    stdio_framing: CONTENT_LENGTH_FRAMING,
   }),
 };
 

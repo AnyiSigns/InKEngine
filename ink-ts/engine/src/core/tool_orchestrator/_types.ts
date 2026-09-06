@@ -1,3 +1,4 @@
+// 跨域契约模块 - 跨域类型 seam：assembly/tool_pipeline 引用调配器数据形态
 /**
  * 工具调配器数据形态（镜像 Python tool_orchestrator.py 数据面）：候选 +
  * 打分/匹配策略接口 + 调用轨迹。

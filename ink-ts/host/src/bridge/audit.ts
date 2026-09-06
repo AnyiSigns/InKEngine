@@ -36,6 +36,43 @@ function sortByTs(records: Array<Record<string, unknown>>): Array<Record<string,
   });
 }
 
+/** audit.list 窗口参数（limit/after/kind；形态非法显式拒绝）。 */
+function parseListParams(raw: unknown): { limit: number; after: number | null; kind: string | null } {
+  const params = raw as { limit?: unknown; after?: unknown; kind?: unknown } | null;
+  let limit = DEFAULT_EXPORT_LIMIT;
+  if (params !== null && params.limit !== undefined && params.limit !== null) {
+    const value = Number(params.limit);
+    if (!Number.isFinite(value) || value <= 0) {
+      throw new BridgeError('audit.list limit 须为正数', 'invalid_params');
+    }
+    limit = Math.min(Math.floor(value), 10_000);
+  }
+  let after: number | null = null;
+  if (params !== null && params.after !== undefined && params.after !== null) {
+    const value = Number(params.after);
+    if (!Number.isFinite(value)) {
+      throw new BridgeError('audit.list after 须为 epoch 秒数值', 'invalid_params');
+    }
+    after = value;
+  }
+  let kind: string | null = null;
+  if (params !== null && params.kind !== undefined && params.kind !== null) {
+    if (typeof params.kind !== 'string' || params.kind === '') {
+      throw new BridgeError('audit.list kind 须为非空字符串', 'invalid_params');
+    }
+    kind = params.kind;
+  }
+  return { limit, after, kind };
+}
+
+/** 记录 kind 判定（审计记录按 kind 字段归类；type 为历史兼容别名）。 */
+function recordKind(record: Record<string, unknown>): string {
+  const kind = record['kind'];
+  if (typeof kind === 'string' && kind !== '') return kind;
+  const type = record['type'];
+  return typeof type === 'string' ? type : '';
+}
+
 export function buildAuditHandlers(deps: HostBridgeDeps): ReadonlyMap<string, BridgeHandler> {
   const auditExport: BridgeHandler = async (raw): Promise<unknown[]> => {
     const storage = deps.runtime.storage;
@@ -47,5 +84,31 @@ export function buildAuditHandlers(deps: HostBridgeDeps): ReadonlyMap<string, Br
     return sortByTs(records).slice(0, limit).map((record) => toJsonSafe(record));
   };
 
-  return new Map<string, BridgeHandler>([['audit.export', auditExport]]);
+  /** 审计窗口（读 set_audit 只读窗口：kind 过滤 + ts>=after + limit 截断，
+   *  时间倒序；与壳 audit_list 窗口语义对齐。独立方法，非 audit.export 别名）。 */
+  const auditList: BridgeHandler = async (raw): Promise<unknown> => {
+    const storage = deps.runtime.storage;
+    if (storage === null) {
+      throw new BridgeError('运行时存储未装配', 'runtime_unavailable');
+    }
+    const { limit, after, kind } = parseListParams(raw);
+    const records = await storage.list_records(SET_AUDIT_COLLECTION).catch(() => []);
+    const windowed = records
+      .filter((record) => {
+        if (kind !== null && recordKind(record) !== kind) return false;
+        if (after !== null) {
+          const ts = record['ts'];
+          if (typeof ts !== 'number' || ts < after) return false;
+        }
+        return true;
+      });
+    return {
+      records: sortByTs(windowed).slice(0, limit).map((record) => toJsonSafe(record)),
+    };
+  };
+
+  return new Map<string, BridgeHandler>([
+    ['audit.export', auditExport],
+    ['audit.list', auditList],
+  ]);
 }

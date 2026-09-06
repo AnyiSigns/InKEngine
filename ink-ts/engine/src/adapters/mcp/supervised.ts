@@ -19,34 +19,18 @@
  * 业务错误（server 已受理返回 is_error/JSON-RPC error）与任务取消
  * （TaskCancelled，镜像 CancelledError）原样穿透，不误判为进程崩溃。
  */
-import { McpToolImportError, TaskCancelled, is_business_error } from './_errors.js';
+import { McpToolImportError, TaskCancelled, exc_text, is_business_error } from './_errors.js';
 import { is_connection_lost } from './_errors.js';
 import { StdioRestartPolicy } from './config.js';
 import { SdkSession, McpSessionHandle } from './session.js';
+import { AsyncLock } from '../_lock.js';
 import type { McpToolRecord } from './_types.js';
 import type { McpServerConfig } from './config.js';
 
+export { AsyncLock };
+
 /** 会话打开器（默认 = SdkSession.open；测试注入假打开器/计数）。 */
 export type SessionOpener = (config: McpServerConfig) => Promise<McpSessionHandle>;
-
-/** 简单异步互斥（镜像 asyncio.Lock 的调用串行化）。 */
-export class AsyncLock {
-  private _tail: Promise<void> = Promise.resolve();
-
-  async acquire_run<T>(fn: () => Promise<T>): Promise<T> {
-    const prev = this._tail;
-    let release!: () => void;
-    this._tail = new Promise<void>((resolve) => {
-      release = resolve;
-    });
-    await prev;
-    try {
-      return await fn();
-    } finally {
-      release();
-    }
-  }
-}
 
 const _sleep = (ms: number): Promise<void> =>
   new Promise((resolve) => setTimeout(resolve, ms));
@@ -145,7 +129,7 @@ export class SupervisedStdioSession extends McpSessionHandle {
     if (this._consecutive_failures >= this._policy.circuit_break_threshold) {
       this._circuit_open = true;
     }
-    const detail = lastError instanceof Error ? lastError.message : String(lastError);
+    const detail = exc_text(lastError);
     throw new McpToolImportError(
       `MCP server ${this._config.id} 的 stdio 进程崩溃且重启失败` +
         `（${attempts} 次尝试，熔断=${this._circuit_open}）: ${detail}`,
@@ -180,13 +164,13 @@ export class SupervisedStdioSession extends McpSessionHandle {
               if (exc2 instanceof TaskCancelled) throw exc2;
               throw new McpToolImportError(
                 `MCP server ${this._config.id} 的 stdio 进程在 ${op_name} ` +
-                  `期间崩溃（已按策略拉起并重试一次仍失败）: ${_detail(exc2)}`,
+                  `期间崩溃（已按策略拉起并重试一次仍失败）: ${exc_text(exc2)}`,
               );
             }
           }
           throw new McpToolImportError(
             `MCP server ${this._config.id} 的 stdio 进程在 ${op_name} 期间崩溃` +
-              `（已按策略拉起，本次调用未重试——防非幂等副作用）: ${_detail(exc)}`,
+              `（已按策略拉起，本次调用未重试——防非幂等副作用）: ${exc_text(exc)}`,
           );
         }
       } catch (exc) {
@@ -196,7 +180,7 @@ export class SupervisedStdioSession extends McpSessionHandle {
           await this._respawn(exc);
           throw new McpToolImportError(
             `MCP server ${this._config.id} 的 stdio 会话在 ${op_name} 期间失效` +
-              `（已按策略拉起，本次调用未重试）: ${_detail(exc)}`,
+              `（已按策略拉起，本次调用未重试）: ${exc_text(exc)}`,
           );
         }
         if (exc instanceof TaskCancelled) throw exc; // 外层取消原样穿透
@@ -205,7 +189,7 @@ export class SupervisedStdioSession extends McpSessionHandle {
         await this._respawn(exc);
         throw new McpToolImportError(
           `MCP server ${this._config.id} 的 stdio 会话在 ${op_name} 期间失效` +
-            `（已按策略拉起，本次调用未重试）: ${_detail(exc)}`,
+            `（已按策略拉起，本次调用未重试）: ${exc_text(exc)}`,
         );
       }
     });
@@ -265,8 +249,4 @@ export class SupervisedStdioSession extends McpSessionHandle {
       await this._teardown();
     });
   }
-}
-
-function _detail(exc: unknown): string {
-  return exc instanceof Error ? exc.message : String(exc);
 }

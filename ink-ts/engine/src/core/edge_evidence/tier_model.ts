@@ -32,6 +32,7 @@ import {
   ORIGIN_RUNTIME,
 } from './_types.js';
 import type { EdgeEvidence, EdgeScore } from './_types.js';
+import { now } from './_time.js';
 
 // ── 数据驱动注入锚点（注入即权威；不传 = 出厂默认）──
 let _decay_half_days = DECAY_HALF_DAYS;
@@ -135,7 +136,7 @@ export function edge_score(
   const weight = sample_weight(s + f);
   let age_days: number;
   if (opts.age_days === null || opts.age_days === undefined) {
-    const ts = opts.now === null || opts.now === undefined ? Date.now() / 1000 : opts.now;
+    const ts = opts.now === null || opts.now === undefined ? now() : opts.now;
     const last = evidence.last_used_at ?? evidence.created_at;
     age_days = Math.max(0, (ts - last) / 86400);
   } else {

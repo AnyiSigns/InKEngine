@@ -2,18 +2,14 @@ import { useEffect, useRef, useState } from 'react';
 import { Brain, ChevronDown, ChevronRight, Trash2 } from 'lucide-react';
 
 import { Button } from '@/shared/ui/Button';
-import { createMemoryOps, type MemoryData, type MemoryEntry, type MemoryOps, sourceLabel, kindLabel } from './backend';
+import { createMemoryOps, type MemoryData, type MemoryEntry, sourceLabel, kindLabel } from './backend';
 import { logger } from '@/shared/logger';
-import { useT } from '@/i18n/useT';
 
 export function MemoryView() {
-  const { t } = useT();
-  const opsRef = useRef<MemoryOps>(createMemoryOps());
+  const opsRef = useRef(createMemoryOps());
   const [data, setData] = useState<MemoryData | null>(null);
   const [selectedNs, setSelectedNs] = useState<string | null>(null);
   const [expanded, setExpanded] = useState<Set<string>>(new Set());
-  const [editing, setEditing] = useState<string | null>(null);
-  const [editContent, setEditContent] = useState('');
   const [confirmingDelete, setConfirmingDelete] = useState<string | null>(null);
   const [actionError, setActionError] = useState('');
   const [actionInfo, setActionInfo] = useState('');
@@ -53,26 +49,15 @@ export function MemoryView() {
       setActionInfo('');
       return;
     }
-    try {
-      await opsRef.current.invalidate(id);
-      setConfirmingDelete(null);
+    const ok = await opsRef.current.invalidate(id);
+    setConfirmingDelete(null);
+    if (ok) {
       setActionError('');
-      setActionInfo('记忆已永久删除，不可恢复');
+      setActionInfo('记忆已标记失效（非破坏性，记录可追溯）');
       await load();
-    } catch (err) {
-      logger.error('memory', '记忆条目失效失败', { id, err: String(err) });
+    } else {
+      logger.error('memory', '记忆条目失效失败', { id });
       setActionError('操作失败，请稍后重试');
-    }
-  };
-
-  const handleSaveContent = async (id: string) => {
-    try {
-      await opsRef.current.updateFrontmatter(id, { content: editContent });
-      setEditing(null);
-      await load();
-    } catch (err) {
-      logger.error('memory', '记忆条目更新失败', { id, err: String(err) });
-      setActionError('保存失败，请稍后重试');
     }
   };
 
@@ -80,7 +65,7 @@ export function MemoryView() {
     <div data-ui="memory_view" className="flex flex-col gap-3 p-4">
       <div className="flex items-center gap-2">
         <Brain size={14} strokeWidth={1.6} className="text-[var(--ink-text-muted)]" />
-        <h3 className="text-[13px] font-medium text-[var(--ink-text-base)]">{t('memory.title')}</h3>
+        <h3 className="text-[13px] font-medium text-[var(--ink-text-base)]">记忆</h3>
         {actionError && (
           <span className="rounded px-2 py-0.5 text-[10px] ink-feedback-fail" data-ui="memory_action_error">
             {actionError}
@@ -95,7 +80,7 @@ export function MemoryView() {
 
       {!data || data.entries.length === 0 ? (
         <div className="rounded border border-dashed border-[var(--ink-border)] px-3 py-8 text-center text-[12px] text-[var(--ink-text-faint)]">
-          {t('memory.empty')}
+          尚无记忆，使用后会逐渐积累
         </div>
       ) : (
         <>
@@ -126,20 +111,10 @@ export function MemoryView() {
                 key={entry.id}
                 entry={entry}
                 expanded={expanded.has(entry.id)}
-                editing={editing === entry.id}
-                editContent={editContent}
                 confirmingDelete={confirmingDelete === entry.id}
-                t={t}
-                onToggle={() => toggleExpand(entry.id)}
-                onEdit={() => {
-                  setEditing(entry.id);
-                  setEditContent(entry.content);
-                }}
-                onSave={() => handleSaveContent(entry.id)}
-                onCancel={() => setEditing(null)}
+                                onToggle={() => toggleExpand(entry.id)}
                 onInvalidate={() => handleInvalidate(entry.id)}
                 onCancelDelete={() => setConfirmingDelete(null)}
-                onEditContentChange={setEditContent}
               />
             ))}
           </div>
@@ -152,20 +127,13 @@ export function MemoryView() {
 interface MemoryRowProps {
   entry: MemoryEntry;
   expanded: boolean;
-  editing: boolean;
-  editContent: string;
   confirmingDelete: boolean;
-  t: (k: string) => string;
   onToggle: () => void;
-  onEdit: () => void;
-  onSave: () => void;
-  onCancel: () => void;
   onInvalidate: () => void;
   onCancelDelete: () => void;
-  onEditContentChange: (v: string) => void;
 }
 
-function MemoryRow({ entry, expanded, editing, editContent, confirmingDelete, t, onToggle, onEdit, onSave, onCancel, onInvalidate, onCancelDelete, onEditContentChange }: MemoryRowProps) {
+function MemoryRow({ entry, expanded, confirmingDelete, onToggle, onInvalidate, onCancelDelete }: MemoryRowProps) {
   return (
     <div
       data-ui={`memory_entry_${entry.id}`}
@@ -186,40 +154,30 @@ function MemoryRow({ entry, expanded, editing, editContent, confirmingDelete, t,
 
       {expanded && (
         <div className="flex flex-col gap-1 pl-5">
-          {editing ? (
-            <>
-              <textarea
-                value={editContent}
-                onChange={(e) => onEditContentChange(e.target.value)}
-                className="w-full rounded border border-[var(--ink-border)] p-2 text-[11px] text-[var(--ink-text-base)] bg-[var(--ink-bg-base)]"
-                rows={4}
-              />
-              <div className="flex gap-1">
-                <Button size="xs" variant="primary" onClick={onSave}>{t('memory.save')}</Button>
-                <Button size="xs" variant="ghost" onClick={onCancel}>{t('memory.cancel')}</Button>
-              </div>
-            </>
-          ) : confirmingDelete ? (
+          {confirmingDelete ? (
             <>
               <div className="flex items-center gap-1 text-[11px] text-[var(--ink-accent-approval)]">
                 <Trash2 size={10} strokeWidth={1.6} />
-                {t('memory.delete_confirm')}
+                标记失效为不可用（非破坏性标记，记录可追溯），确认？
               </div>
               <div className="flex gap-1">
                 <Button size="xs" variant="accent" data-ui="memory_confirm_delete" onClick={onInvalidate}>
-                  {t('memory.confirm_delete')}
+                  确认标记失效
                 </Button>
-                <Button size="xs" variant="ghost" onClick={onCancelDelete}>{t('memory.cancel')}</Button>
+                <Button size="xs" variant="ghost" onClick={onCancelDelete}>取消</Button>
               </div>
             </>
           ) : (
             <>
               <div className="text-[11px] text-[var(--ink-text-muted)] whitespace-pre-wrap">{entry.content}</div>
+              <div className="flex flex-wrap items-center gap-x-3 gap-y-0.5 text-[9px] ink-text-faint">
+                <span>可信度 {entry.credibility.toFixed(2)}</span>
+                <span>{new Date(entry.created_at * 1000).toLocaleString('zh-CN', { hour12: false })}</span>
+              </div>
               <div className="flex gap-1">
-                <Button size="xs" variant="ghost" onClick={onEdit}>{t('memory.edit')}</Button>
                 <Button size="xs" variant="ghost" data-ui="memory_invalidate" onClick={onInvalidate}>
                   <Trash2 size={10} strokeWidth={1.6} />
-                  {t('memory.mark_invalid')}
+                  标记失效
                 </Button>
               </div>
             </>

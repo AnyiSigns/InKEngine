@@ -53,6 +53,8 @@ export interface EntityEvolutionPipelineOptions {
   config?: EntityEvolutionConfigOptions | EntityEvolutionConfig | null;
   mutate?: EntityMutateFn | null;
   emit?: EntityEmitFn | null;
+  /** 时间源 seam（epoch 秒；缺省 = 模块时钟 _util._now，未注入确定值 0）。 */
+  now?: (() => number) | null;
 }
 /** 实体演化闭环：失败信号缓冲 → 变异 → 三层闸门 → 严格更优替换 → 晋升。 */
 export class EntityEvolutionPipeline {
@@ -81,6 +83,7 @@ export class EntityEvolutionPipeline {
   _last_mutated_at: number | null = null;
   private _mutate: EntityMutateFn | null;
   private _emit: EntityEmitFn | null;
+  private readonly _nowFn: () => number;
 
   constructor(
     registry: EntityRegistry,
@@ -95,6 +98,7 @@ export class EntityEvolutionPipeline {
     this.writer = writer;
     this._mutate = options.mutate ?? null;
     this._emit = options.emit ?? null;
+    this._nowFn = options.now ?? _now;
   }
 
   /** 注入事件发射回调（引擎装配后接引擎事件流；null = 静默）。 */
@@ -231,7 +235,7 @@ export class EntityEvolutionPipeline {
       if (await this._apply_mutation(entity_id, result.spec)) {
         this.mutation_passed += 1;
         this._clean_rounds.set(entity_id, 0);
-        this._last_mutated_at = _now();
+        this._last_mutated_at = this._nowFn();
         const version = to_int(
           as_dict(result.spec.meta['evolution'])['version'],
         );

@@ -1,16 +1,19 @@
 /**
  * 渲染器三层白名单测试：未声明组件 / 绑定通道 / 主题 token 拒绝渲染。
+ *
+ * 绑定面以 registered test component（test_list，注册即白名单放行）替代
+ * 产品组件——本套测试验证渲染器白名单机制，不耦合具体产品组件内容。
  */
 
 import { render, screen } from '@testing-library/react';
 
-import { registerBuiltinComponents } from '@/components';
 import { ChannelHub } from '@/shared/session/channelHub';
 import { registerComponent } from '@/renderer/componentRegistry';
 import { bindChannelWhitelist, isBindChannelAllowed } from '@/renderer/channelWhitelist';
 import { applyThemeTokens, rejectedThemeTokens, THEME_TOKEN_DEFAULTS } from '@/renderer/themeTokens';
 import { UIRenderer } from '@/renderer/bootRenderer';
 import type { UISpec } from '@/renderer/uiSpecTypes';
+import { registerProductComponents } from '@/app/rendererAdapters';
 
 function makeSpec(overrides: Partial<UISpec> = {}): UISpec {
   return {
@@ -21,7 +24,7 @@ function makeSpec(overrides: Partial<UISpec> = {}): UISpec {
       kind: 'container',
       type: 'column',
       children: [
-        { kind: 'component', type: 'message_list', bind: { channel: 'state.messages', path: '' } },
+        { kind: 'component', type: 'test_list', bind: { channel: 'state.messages', path: '' } },
       ],
     },
     ...overrides,
@@ -29,7 +32,16 @@ function makeSpec(overrides: Partial<UISpec> = {}): UISpec {
 }
 
 beforeEach(() => {
-  registerBuiltinComponents();
+  registerProductComponents();
+  registerComponent('test_list', ({ bindValue }: { bindValue?: unknown }) => (
+    <div>
+      {Array.isArray(bindValue) && bindValue.length > 0
+        ? bindValue.map((m, index) => (
+            <div key={index}>{(m as { content?: string }).content ?? (m as { id?: string }).id ?? '条目'}</div>
+          ))
+        : '空态占位'}
+    </div>
+  ));
 });
 
 describe('一层防线：未声明组件拒绝渲染', () => {
@@ -47,7 +59,7 @@ describe('一层防线：未声明组件拒绝渲染', () => {
 
   it('注册组件正常渲染（注册即白名单放行）', () => {
     render(<UIRenderer spec={makeSpec()} hub={new ChannelHub()} />);
-    expect(screen.getByText(/消息流为空/)).toBeInTheDocument();
+    expect(screen.getByText('空态占位')).toBeInTheDocument();
   });
 });
 
@@ -58,7 +70,7 @@ describe('二层防线：绑定通道白名单拒绝', () => {
         kind: 'container',
         type: 'column',
         children: [
-          { kind: 'component', type: 'message_list', bind: { channel: 'state.unknown_channel', path: '' } },
+          { kind: 'component', type: 'test_list', bind: { channel: 'state.unknown_channel', path: '' } },
         ],
       },
     });
@@ -72,7 +84,7 @@ describe('二层防线：绑定通道白名单拒绝', () => {
         kind: 'container',
         type: 'column',
         children: [
-          { kind: 'component', type: 'message_list', bind: { channel: '_internal.state', path: '' } },
+          { kind: 'component', type: 'test_list', bind: { channel: '_internal.state', path: '' } },
         ],
       },
     });
@@ -86,7 +98,7 @@ describe('二层防线：绑定通道白名单拒绝', () => {
         kind: 'container',
         type: 'column',
         children: [
-          { kind: 'component', type: 'message_list', bind: { channel: 'state.messages', path: '_secret' } },
+          { kind: 'component', type: 'test_list', bind: { channel: 'state.messages', path: '_secret' } },
         ],
       },
     });
@@ -104,6 +116,13 @@ describe('二层防线：绑定通道白名单拒绝', () => {
     expect(isBindChannelAllowed('inspect_tools')).toBe(true);
     expect(isBindChannelAllowed('inspect_entities')).toBe(true);
     expect(isBindChannelAllowed('inspect_secret')).toBe(false);
+  });
+
+  it('state.* camelCase 快照键（roundSteps/taskState）放行', () => {
+    expect(isBindChannelAllowed('state.roundSteps')).toBe(true);
+    expect(isBindChannelAllowed('state.taskState')).toBe(true);
+    expect(isBindChannelAllowed('state.round_steps')).toBe(true);
+    expect(isBindChannelAllowed('state.notAField')).toBe(false);
   });
 });
 
@@ -134,7 +153,7 @@ describe('三层防线：主题 token 白名单拒绝', () => {
     const spec = makeSpec();
     const bad = { ...spec, theme: 'oops' as unknown as Record<string, string> };
     render(<UIRenderer spec={bad} hub={new ChannelHub()} />);
-    expect(screen.getByText(/消息流为空/)).toBeInTheDocument();
+    expect(screen.getByText(/已回落基线布局/)).toBeInTheDocument();
   });
 });
 
@@ -163,7 +182,7 @@ describe('损坏 ui_spec 回落基线不崩溃', () => {
         kind: 'container',
         type: 'column',
         children: [
-          { kind: 'component', type: 'message_list', bind: { channel: 42 } } as never,
+          { kind: 'component', type: 'test_list', bind: { channel: 42 } } as never,
         ],
       },
     });
@@ -188,7 +207,7 @@ describe('绑定协议直渲', () => {
 
   it('无 hub 时绑定组件显示空态不崩', () => {
     render(<UIRenderer spec={makeSpec()} hub={null} />);
-    expect(screen.getByText(/消息流为空/)).toBeInTheDocument();
+    expect(screen.getByText('空态占位')).toBeInTheDocument();
   });
 });
 
@@ -211,9 +230,9 @@ describe('动态注册与覆盖', () => {
 });
 
 describe('task_state 子通道（纯追加）', () => {
-  it('state.task_state 白名单放行且列入清单', () => {
-    expect(isBindChannelAllowed('state.task_state')).toBe(true);
+  it('state.taskState 白名单放行且列入清单', () => {
+    expect(isBindChannelAllowed('state.taskState')).toBe(true);
     const list = bindChannelWhitelist();
-    expect(list).toContain('state.task_state');
+    expect(list).toContain('state.taskState');
   });
 });

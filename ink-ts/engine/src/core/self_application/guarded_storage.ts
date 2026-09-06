@@ -20,7 +20,11 @@
 
 import type { EngineEvent } from '../events/events.js';
 import type { ChainLink, CheckpointRecord } from '../storage/storage_records.js';
-import type { Storage } from '../storage/storage.js';
+import type {
+  RecordListOptions,
+  RecordListResult,
+  Storage,
+} from '../storage/storage.js';
 import { GraphDefinitionError } from '../errors.js';
 
 import {
@@ -224,6 +228,23 @@ export class GuardedStorage implements Storage {
 
   async list_records(collection: string): Promise<Record<string, unknown>[]> {
     return this._inner.list_records(collection);
+  }
+
+  /**
+   * records 分页/前缀下推（R7-6）：底层驱动实现时透传；未实现 = 显式报错
+   * （list_records 全量语义仍可用，分页原语属驱动能力面）。
+   */
+  async list_records_page(
+    collection: string,
+    opts: RecordListOptions = {},
+  ): Promise<RecordListResult> {
+    const paged = this._inner.list_records_page;
+    if (typeof paged !== 'function') {
+      throw new GraphDefinitionError(
+        `底层存储未实现 list_records_page（分页原语缺失）: ${this._inner.constructor?.name ?? 'Storage'}`,
+      );
+    }
+    return paged.call(this._inner, collection, opts);
   }
 
   async close(): Promise<void> {

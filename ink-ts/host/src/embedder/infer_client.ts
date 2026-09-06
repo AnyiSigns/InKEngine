@@ -63,6 +63,8 @@ export class InferClient {
 
   /** 当前嵌入计划（来源/维度/降级原因；懒触发进程内解析）。 */
   async plan(): Promise<InferPlanWire> {
+    // 来源名直接取线协议（R2 已归一：本地推理 wire 名 = local_infer，
+    // TS 侧无兼容映射）
     return (await this.session.request('infer.plan', {})) as InferPlanWire;
   }
 
@@ -74,7 +76,9 @@ export class InferClient {
     if (texts.length > EMBED_TEXTS_MAX) {
       throw new Error(`infer.embed texts 条数超限（≤${EMBED_TEXTS_MAX}）`);
     }
-    return (await this.session.request('infer.embed', { texts: [...texts] })) as InferEmbedWire;
+    return (await this.session.request('infer.embed', {
+      texts: [...texts],
+    })) as InferEmbedWire;
   }
 
   /** 存活探测。 */

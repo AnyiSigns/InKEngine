@@ -7,6 +7,11 @@
  * 完成后挂到引擎知识集，装配期前后无需二阶段写入）。技能 = 知识集内
  * kind=path 条目：补丁链即唯一演化史（版本/回退/审计随知识集），持久化
  * 由知识集容器承接（本类零独立存储）。
+ *
+ * 双实现分工（引擎默认接线）：本容器承接**引擎结晶产物**（Runtime
+ * 装配的 SkillCrystallizeHook 以本容器为落点，产物经知识集补丁链受控
+ * 落位）；SkillStore 为宿主自管存储态（自研/sqlite seam）的可选存储，
+ * 两者接口同形但演化史不同，不同时并行接线。
  */
 
 import { StorageError } from '../errors.js';
@@ -15,9 +20,10 @@ import { KIND_PATH, KnowledgeEntry, KnowledgeSet } from '../knowledge_set/index.
 import { knowledge_entry_to_skill, skill_to_knowledge_entry } from './knowledge_merge.js';
 import { SkillEntry } from './skill_entry.js';
 
-/** KnowledgeSkillStore 构造选项（now 为新增条目的 updated_at 时间 seam）。 */
+/** KnowledgeSkillStore 构造选项（now = updated_at 时间 seam；函数或固定值，
+ *  缺省确定值 0——core 零时钟可复现）。 */
 export interface KnowledgeSkillStoreOptions {
-  now?: number | null;
+  now?: (() => number) | number | null;
 }
 
 /** 条目 data.skill 载荷（非 skill 形态 = null，调用方显式拒绝）。 */
@@ -29,7 +35,7 @@ function skill_payload(entry: KnowledgeEntry): Record<string, unknown> | null {
 /** 技能存储 = 知识集 kind=path 条目的访问器（见文件头拆分说明）。 */
 export class KnowledgeSkillStore {
   #knowledge_set: KnowledgeSet | null;
-  readonly #now: number | null;
+  readonly #now: (() => number) | number | null;
 
   constructor(
     knowledge_set: KnowledgeSet | null = null,
@@ -55,6 +61,7 @@ export class KnowledgeSkillStore {
   }
 
   #ts(): number {
+    if (typeof this.#now === 'function') return this.#now();
     return this.#now ?? 0;
   }
 

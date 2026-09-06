@@ -1,3 +1,4 @@
+// 跨域契约模块 - 跨域类型 seam：entity_evolution 蒸馏引用信号/蒸馏数据形态
 /**
  * 信号感知/蒸馏域常量与校验集（knowledge_signals.py 常量面移植）。
  *
@@ -10,7 +11,13 @@
 
 import type { Clock } from '../context/context_types.js';
 import type { JsonRecord } from '../json.js';
-import { SOURCE_DIALOG, SOURCE_MODEL, SOURCE_USER, SOURCE_WEB } from '../knowledge_set/_types.js';
+import {
+  SOURCE_DIALOG,
+  SOURCE_MODEL,
+  SOURCE_ORDER,
+  SOURCE_USER,
+  SOURCE_WEB,
+} from '../knowledge_set/_types.js';
 
 export { SOURCE_DIALOG, SOURCE_MODEL, SOURCE_USER, SOURCE_WEB };
 export type { Clock, JsonRecord };
@@ -32,14 +39,13 @@ export const DEFAULT_INTERVENTION_THRESHOLD = 1;
 // 蒸馏产物的来源归属（无信号可推导时回落模型来源）
 export const _FALLBACK_SOURCE = SOURCE_MODEL;
 
-// 来源可信度基准（数值仅供排序，不产出可信度字段）——模块级单一来源，
-// DeterministicDistiller 与 reuse_or_distill 共用
-export const SOURCE_RANK: Record<string, number> = {
-  [SOURCE_USER]: 4,
-  [SOURCE_MODEL]: 3,
-  [SOURCE_DIALOG]: 2,
-  [SOURCE_WEB]: 1,
-};
+// 来源可信度基准（数值仅供排序，不产出可信度字段）——单一数值表从
+// source_grading.SOURCE_ORDER（web<dialog<model<user 升序）派生（rank =
+// 序位 + 1），与来源分级档同源同向，杜绝第二份硬编码数值表；确定性蒸馏
+// 与 reuse_or_distill 共用
+export const SOURCE_RANK: Record<string, number> = Object.fromEntries(
+  SOURCE_ORDER.map((name, index) => [name, index + 1] as [string, number]),
+);
 
 // 信号类别与来源白名单（校验集；定义在 ExecutionSignal.from_dict 消费前，
 // 避免「类方法引用定义在后的模块常量」的顺序误导——ENG1-14 语义保留）

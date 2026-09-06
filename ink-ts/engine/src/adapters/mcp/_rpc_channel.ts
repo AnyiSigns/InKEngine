@@ -12,6 +12,7 @@
  * （内存队列承载，零网络/进程）。
  */
 import { McpConnectionLost, RpcError, RpcTimeout } from './_errors.js';
+import { AsyncQueue } from './_types.js';
 import type { McpJsonRpcMessage, McpMessagePort } from './_types.js';
 
 /** 请求/通知带上界（无响应不无限挂起）。 */
@@ -207,53 +208,30 @@ export class RpcChannel {
 }
 
 // ── 内存消息队列（成对端口与测试桩的收方向承载）────────────────────────
+// 队列实现收敛于 _types.ts 的 AsyncQueue（stdio 写侧与 in_memory 读侧共用
+// 同一队列原语，本文件不再维护近逐字副本）；端口收方向经 next() 轮询成
+// 异步可迭代，close 以 undefined 哨兵结束读循环。
 
-class _MemoryQueue {
-  private _items: McpJsonRpcMessage[] = [];
-  private _waiters: Array<(value: McpJsonRpcMessage | undefined) => void> = [];
-  private _closed = false;
-
-  push(message: McpJsonRpcMessage): void {
-    if (this._closed) return;
-    const waiter = this._waiters.shift();
-    if (waiter !== undefined) {
-      waiter(message);
-      return;
-    }
-    this._items.push(message);
-  }
-
-  close(): void {
-    if (this._closed) return;
-    this._closed = true;
-    const waiters = this._waiters;
-    this._waiters = [];
-    for (const waiter of waiters) waiter(undefined);
-  }
-
-  private async _take(): Promise<McpJsonRpcMessage | undefined> {
-    if (this._items.length > 0) return this._items.shift();
-    if (this._closed) return undefined;
-    return await new Promise<McpJsonRpcMessage | undefined>((resolve) => {
-      this._waiters.push(resolve);
-    });
-  }
-
-  async *readable(): AsyncGenerator<McpJsonRpcMessage> {
-    for (;;) {
-      const message = await this._take();
-      if (message === undefined) return;
-      yield message;
-    }
+/** AsyncQueue → 异步可迭代（next 轮询；undefined = 队列已关闭收尾）。 */
+async function* _queue_reader(
+  queue: AsyncQueue<McpJsonRpcMessage>,
+): AsyncGenerator<McpJsonRpcMessage> {
+  for (;;) {
+    const message = await queue.next();
+    if (message === undefined) return;
+    yield message;
   }
 }
 
 /** 构造成对消息端口（in_memory 传输/测试桩：client 与 server 各执一端）。 */
 export function create_message_duplex_pair(): [McpMessagePort, McpMessagePort] {
-  const a = new _MemoryQueue();
-  const b = new _MemoryQueue();
-  const port = (selfQueue: _MemoryQueue, peerQueue: _MemoryQueue): McpMessagePort => ({
-    read: selfQueue.readable(),
+  const a = new AsyncQueue<McpJsonRpcMessage>();
+  const b = new AsyncQueue<McpJsonRpcMessage>();
+  const port = (
+    selfQueue: AsyncQueue<McpJsonRpcMessage>,
+    peerQueue: AsyncQueue<McpJsonRpcMessage>,
+  ): McpMessagePort => ({
+    read: _queue_reader(selfQueue),
     write: async (message: McpJsonRpcMessage) => {
       peerQueue.push(message);
     },

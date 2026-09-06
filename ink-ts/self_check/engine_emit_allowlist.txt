@@ -1,0 +1,18 @@
+# 引擎发射事件 internal 允许表：engine/src 内 emit 发射的事件名允许豁免于
+# seed_data/event_types.json 登记的清单（data 门禁：emit 字面量 ⊆ seed ∪ 本表）。
+#
+# 事件名语义分三类（data 门禁判定）：
+# - bindable：绑定通道面事件，必须在 seed_data/event_types.json 登记（经 web
+#   EVENT_TYPE_NAMES 镜像白名单），不落本表；
+# - timeline：system=true 时间线事件，同属 seed 登记面（meta.purpose=timeline），
+#   不落本表；
+# - internal：引擎内部事件——不经绑定通道直渲前端（无 seed 登记/无 web 渲染器），
+#   落本表豁免；internal 项须带用途注释。
+#
+# 每行格式：`<name> <用途注释>`；空行与 # 注释跳过。新增内部发射事件须登记本表
+# （带用途注释），新增 UI 事件须登记 seed 而非本表。
+#
+input_assembly 预装配输入组装留痕（节点上下文事件：记录输入调配结果，走执行日志，UI 不绑定渲染）
+llm_usage LLM 用量指标帧事件（节点成本账外的用量指标流；guard 用量闭环发射，指标消费不进 UI 渲染）
+multipath_result 多径展开汇流裁决结果留痕（loop_back 发射，path/边证据内部追踪，UI 无直渲）
+tool_audit 工具调用默认审计事件（tool_pipeline 缺省审计钩子发射，审计留痕不直渲 UI）

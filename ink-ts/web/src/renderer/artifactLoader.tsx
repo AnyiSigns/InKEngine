@@ -15,7 +15,7 @@ import type { ComponentType, ErrorInfo, ReactNode } from 'react';
 
 import { registerComponent } from './componentRegistry';
 import { logger } from '@/shared/logger';
-import type { ArtifactManifestEntry, BackendAdapter } from '@/shared/backend/backendAdapter';
+import type { ArtifactManifestEntry } from '@/shared/backend/backendAdapter';
 import {
   registerMessageRenderer,
   registerRendererKey,
@@ -160,16 +160,3 @@ export function registerArtifactManifest(entries: ArtifactManifestEntry[]): numb
   return registered;
 }
 
-/**
- * 宿主清单刷新（挂载后注册表刷新的数据源入口）：拉取宿主产物清单 →
- * 注册表构件；宿主不可用 = 零注册（既有组件照常）。
- */
-export async function refreshArtifactManifest(backend: BackendAdapter | null): Promise<number> {
-  if (!backend?.available) return 0;
-  try {
-    const manifest = await backend.componentsManifest();
-    return registerArtifactManifest(manifest.artifacts ?? []);
-  } catch {
-    return 0;
-  }
-}

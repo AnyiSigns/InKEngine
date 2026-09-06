@@ -2,14 +2,15 @@
  * host 原生机制件（exec/infer）连接与信封的共享数据形态。
  *
  * 信封 = host 裁决结果下发给 exec 的机器可读授权：工具名/物理 op/端点归属/
- * 路径根与动态挂载根/命令白名单/出网域名白名单/尺寸与超时上界全部随请求
- * 现取，exec 侧零声明表只复核。裁决判定（approval/auto_allow）属引擎侧
- * 机制（host 只接线），本模块只承载数据结构与协议的 TS 面。
+ * 路径根与动态挂载根/命令白名单/尺寸与超时上界全部随请求现取，exec 侧零
+ * 声明表只复核。裁决判定（approval/auto_allow）属引擎侧机制（host 只接线），
+ * 本模块只承载数据结构与协议的 TS 面。出网（http op）已从 exec 移除——网络
+ * 出网走引擎统一 ToolPipeline/声明式端点（web_search 等），不经 exec 原生件。
  */
 
 /** 物理执行体族（exec 端点归属的机械形态；doc = 文档解析归 file 端点；
  *  dialog = 宿主 UI 原生目录选择，独立 dialog 端点，不经 agent 工具）。 */
-export type ExecOp = 'process' | 'file' | 'http' | 'doc' | 'dialog';
+export type ExecOp = 'process' | 'file' | 'doc' | 'dialog';
 
 /** 裁决元信息（host 侧审批/自动放行的留痕；exec 只要求 approved=true）。 */
 export interface ExecDecision {
@@ -29,7 +30,6 @@ export interface ExecEnvelope {
   endpoint: string;
   roots: string[];
   allowlist: string[];
-  allow_domains: string[];
   cwd: string | null;
   env: Record<string, string> | null;
   timeout_secs: number;
@@ -54,8 +54,9 @@ export interface ExecOutcome {
   output: Record<string, unknown>;
 }
 
-/** 原生二进制定位种类（exec OS 执行器 / infer 本地嵌入推理）。 */
-export type NativeBinaryKind = 'exec' | 'infer';
+/** 原生二进制定位种类（exec OS 执行器 / infer 本地嵌入推理 / mcp 内置
+ * MCP server——文件名 ink_ts_mcp）。 */
+export type NativeBinaryKind = 'exec' | 'infer' | 'mcp';
 
 /** JSON-RPC 协议错误（业务失败 = server 已受理并返回 error，不视为崩溃）。 */
 export class RpcError extends Error {

@@ -1,9 +1,9 @@
 //! 授权信封（host 已裁决签发的执行授权形态）。
 //!
 //! 信封是「host 裁决结果」的机器可读表达：工具名/参数/物理 op/端点归属/
-//! 路径根与动态挂载根/命令白名单/出网域名白名单/尺寸与超时上界全部随
-//! 请求下发，exec 侧只复核不另读策略。签名覆盖 body 原文（见 hmac.rs），
-//! 本模块只负责反序列化与上界常量（机械约束的边界在 guard/ops 校验）。
+//! 路径根与动态挂载根/命令白名单/尺寸与超时上界全部随请求下发，exec 侧
+//! 只复核不另读策略。签名覆盖 body 原文（见 hmac.rs），本模块只负责
+//! 反序列化与上界常量（机械约束的边界在 guard/ops 校验）。
 
 use serde::Deserialize;
 use serde_json::Value as JsonValue;
@@ -29,8 +29,6 @@ pub const ENV_ENTRIES_MAX: usize = 64;
 pub const ENV_KEY_MAX_CHARS: usize = 128;
 /// 环境变量值长度上界。
 pub const ENV_VALUE_MAX_CHARS: usize = 4096;
-/// http 请求体读取上界（字节；与文件读同量级）。
-pub const HTTP_BODY_BYTES_MAX: usize = 1 << 20;
 /// 信封内文本字段（id/nonce/tool 等）长度上界。
 pub const TEXT_FIELD_MAX_CHARS: usize = 256;
 
@@ -75,8 +73,6 @@ pub struct Envelope {
     #[serde(default)]
     pub allowlist: Vec<String>,
     #[serde(default)]
-    pub allow_domains: Vec<String>,
-    #[serde(default)]
     pub cwd: Option<String>,
     #[serde(default)]
     pub env: Option<JsonValue>,
@@ -93,7 +89,10 @@ pub fn validate(envelope: &Envelope) -> Result<(), Deny> {
     if envelope.version != ENVELOPE_VERSION {
         return Err(Deny::new(
             "version",
-            format!("信封版本 {} 不受支持（当前 {ENVELOPE_VERSION}）", envelope.version),
+            format!(
+                "信封版本 {} 不受支持（当前 {ENVELOPE_VERSION}）",
+                envelope.version
+            ),
         ));
     }
     if !envelope.decision.approved {
@@ -144,8 +143,8 @@ pub fn validate(envelope: &Envelope) -> Result<(), Deny> {
     if envelope.roots.len() > 32 {
         return Err(Deny::new("size", "roots 数量超限（≤32）"));
     }
-    if envelope.allowlist.len() > 64 || envelope.allow_domains.len() > 64 {
-        return Err(Deny::new("size", "allowlist/allow_domains 数量超限（≤64）"));
+    if envelope.allowlist.len() > 64 {
+        return Err(Deny::new("size", "allowlist 数量超限（≤64）"));
     }
     Ok(())
 }

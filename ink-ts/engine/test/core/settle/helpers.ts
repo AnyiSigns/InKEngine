@@ -129,8 +129,9 @@ export class FakeCache implements FingerprintCache {
   async upsert(
     fingerprint: string,
     opts: FingerprintCacheUpsertOpts,
-  ): Promise<void> {
+  ): Promise<boolean> {
     this.upserts.push({ fingerprint, ...opts });
+    return true;
   }
 }
 

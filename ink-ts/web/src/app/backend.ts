@@ -1,34 +1,26 @@
-// gate: 超限(597 行) - App 视图层后端封装（BackendAdapter 方法与种子夹具回落同一面成对维护）
+// gate: 超限(415 行) - App 视图层后端封装（BackendAdapter 方法与种子夹具回落同一面成对维护）
 /**
  * App 视图层后端封装：面向各视图提供类型化的后端访问接口。
  *
  * 职责：
- * - 组件市场（W4）：获取 components_manifest，动态注册 artifact 组件；
- * - 工具面板（W5.2）：获取 tools_snapshot，按族分组；
- * - MCP 市场（W5.1）：从种子 mcp_market.json 驱动（无后端依赖）；
- * - 工作区授权（W5.5）：获取 workspace.state，执行 workspace.set/revoke；
- * - OS 层（W5.3）：复用 tools_snapshot + workspace.state；
+ * - 工具面板：tools.full（全量视图 + baseline/approved/enabled 消费旗标）、
+ *   capability.*（auto 审批/档位登记/回合上限）、ui_components 启停；
+ * - MCP 市场：mcp.market/mount/unmount（seed 单源；preview/add/remove 无真源）；
+ * - 工作区授权：workspace.state/set/revoke + mount.add + 原生目录选择；
+ * - 界面编辑器（W2 前）：ui_spec.* 无真源，仅 dev 夹具承载（生产标注开发模式）。
  *
  * 宿主不可用（浏览器 dev / 无壳）时回落到种子数据夹具：视图仍可渲染，
  * 仅挂载/授权类操作在无宿主时降级为本地状态记录。
  */
 
-import { createBackend, type BackendAdapter, type ArtifactManifestEntry, type ToolSnapshotEntry, type BackendStatus } from '@/shared/backend/backendAdapter';
-import { registerArtifactManifest } from '@/renderer/artifactLoader';
+import { createBackend, type BackendAdapter, type ToolFullView, type McpMarketData } from '@/shared/backend/backendAdapter';
 import { setUiComponentsDisabled } from '@/renderer/componentRegistry';
 import { logger } from '@/shared/logger';
 import type { UISpec } from '@/renderer/uiSpecTypes';
 
 import { isFixtureMode } from './wiring/env';
 
-import type { McpMarketEntry, AppArtifactEntry } from './types';
-import type {
-  McpMarketSummary,
-  McpMountOutcome,
-  McpMountStatus,
-  McpMarketPreview,
-  ToolManifestEntry,
-} from '@/shared/backend/backendAdapter';
+import type { McpMountOutcome } from '@/shared/backend/backendAdapter';
 
 import mcpMarketSeed from '../../../seed_data/mcp_market.json';
 import toolsSeed from '../../../seed_data/tools.json';
@@ -47,61 +39,17 @@ export interface AppBackendOptions {
 export class AppBackend {
   private backend: BackendAdapter | null;
   public readonly available: boolean;
-
   constructor(options: AppBackendOptions = {}) {
     this.backend = options.backend ?? createBackend();
     this.available = this.backend?.available ?? false;
   }
 
-  /** 后端状态快照 */
-  async getStatus(): Promise<BackendStatus | null> {
-    if (!this.backend?.available) return null;
-    try {
-      return await this.backend.status();
-    } catch (err) {
-      logger.warn('app', '获取后端状态失败', { err: String(err) });
-      return null;
-    }
-  }
-
-  /**
-   * 组件清单刷新（W4.3）：
-   * 拉取 components_manifest → artifactLoader.registerArtifactManifest → 动态注册。
-   * 宿主不可用 = 零注册（既有组件照常）。
-   */
-  async refreshComponentManifest(): Promise<ArtifactManifestEntry[]> {
-    if (!this.backend?.available) return [];
-    try {
-      const manifest = await this.backend.componentsManifest();
-      const entries = manifest.artifacts ?? [];
-      const count = registerArtifactManifest(entries);
-      logger.info('app', '组件清单已刷新', { count, total: entries.length });
-      return entries;
-    } catch (err) {
-      logger.warn('app', '组件清单刷新失败', { err: String(err) });
-      return [];
-    }
-  }
-
-  /** tools_snapshot（W5.2）：仅从后端获取，不从 collect_specs。 */
-  async getToolsSnapshot(): Promise<ToolSnapshotEntry[]> {
-    if (!this.backend?.available) return [];
-    try {
-      const result = await this.backend.toolsSnapshot();
-      return result.tools ?? [];
-    } catch (err) {
-      logger.warn('app', '获取工具快照失败', { err: String(err) });
-      return [];
-    }
-  }
-
-  /** 全量工具清单（设置页「工具」管理面）：引擎真实数据 + 常驻必带标记。
+  /** 全量工具视图（设置页「工具」管理面）：tools.full 消费旗标同源。
    *
-   * 与 getToolsSnapshot 分工：快照 = 常驻必带集口径（自动审批勾选项）；
-   * 本方法 = merged_specs 全部工具（含 MCP 挂载），附来源/端点/mcp_server
-   * 归属与 baseline 标记，供工具管理界面展示与勾选。
+   * baseline/approved/enabled 均为引擎运行态消费旗标；无宿主（fixture
+   * 模式）时由种子 tools.json 合成 name-only 行（旗标缺省全 false）。
    */
-  async getToolsManifest(): Promise<{ tools: ToolManifestEntry[]; baseline: string[] }> {
+  async getToolsManifest(): Promise<ToolFullView> {
     if (this.backend?.available) {
       try {
         return await this.backend.toolsManifest();
@@ -109,10 +57,10 @@ export class AppBackend {
         logger.warn('app', '获取工具清单失败', { err: String(err) });
       }
     }
-    return isFixtureMode() ? fixtureToolsManifest() : { tools: [], baseline: [] };
+    return isFixtureMode() ? fixtureToolsFull() : { uses_vectors: false, tools: [] };
   }
 
-  /** 常驻必带工具集读取（设置页勾选态；宿主不可用回落出厂基线）。 */
+  /** 常驻必带工具集读取（capability.baseline.get；宿主不可用回落空集）。 */
   async getToolBaseline(): Promise<string[]> {
     if (this.backend?.available) {
       try {
@@ -122,10 +70,10 @@ export class AppBackend {
         logger.warn('app', '获取常驻必带工具失败', { err: String(err) });
       }
     }
-    return isFixtureMode() ? fixtureToolsManifest().baseline : [];
+    return isFixtureMode() ? fixtureBaselineNames() : [];
   }
 
-  /** 常驻必带工具集写入（整集替换；非法名结构化拒绝）。 */
+  /** 常驻必带工具集写入（capability.baseline.set 整集替换；白名单校验失败 = ok:false）。 */
   async setToolBaseline(tools: string[]): Promise<{ ok: boolean; tools?: string[]; error?: string }> {
     if (!this.backend?.available) {
       logger.info('app', '常驻必带工具设置（dev 回退）', { tools });
@@ -140,7 +88,7 @@ export class AppBackend {
     }
   }
 
-  /** 能力记录读取（权限矩阵数据面：自动审批勾选 + 档位覆盖 + 回合工具上限）。 */
+  /** 能力记录读取（capability.get：auto 审批勾选 + 档位覆盖 + 回合工具上限）。 */
   async getCapability(): Promise<{
     autoApproveTools: string[];
     autoApproveAllReview: boolean;
@@ -164,7 +112,7 @@ export class AppBackend {
     }
   }
 
-  /** 回合工具上限写入（执行参数：llm_decider 单回合工具调用护栏）。 */
+  /** 回合工具上限写入（capability.put max_tool_rounds）。 */
   async setMaxToolRounds(rounds: number): Promise<{ ok: boolean; error?: string }> {
     if (!this.backend?.available) {
       logger.info('app', '回合工具上限设置（dev 回退）', { rounds });
@@ -179,7 +127,7 @@ export class AppBackend {
     }
   }
 
-  /** 逐工具档位覆盖写入（权限矩阵写面；deny 出厂档/非法值安全域硬拒）。 */
+  /** 逐工具档位覆盖写入（capability.tier.set 登记面；白名单值 allow/review）。 */
   async setTierOverrides(overrides: Record<string, string>): Promise<{ ok: boolean; error?: string }> {
     if (!this.backend?.available) {
       logger.info('app', '档位覆盖设置（dev 回退）', { overrides });
@@ -194,7 +142,7 @@ export class AppBackend {
     }
   }
 
-  /** 自动审批写入（用户预授权：只读感知/测试构建类工具；边界外安全域硬拒）。 */
+  /** 自动审批写入（capability.put：auto_approve_tools + auto_approve_all_review）。 */
   async setAutoApprove(tools: string[], allReview: boolean): Promise<{ ok: boolean; error?: string }> {
     if (!this.backend?.available) {
       logger.info('app', '自动审批设置（dev 回退）', { tools, allReview });
@@ -209,63 +157,64 @@ export class AppBackend {
     }
   }
 
-  /** MCP 市场数据：宿主优先（多市场状态），宿主不可用回落种子夹具。 */
-  async getMcpMarket(): Promise<McpMarketEntry[]> {
+  /** MCP 市场数据（mcp.market 单源 + mounted 连接态；宿主不可用回落种子夹具）。 */
+  async getMcpMarket(): Promise<McpMarketData> {
     if (this.backend?.available) {
       try {
-        const status = await this.backend.mcpMarketStatus();
-        const entries = status.markets.flatMap((m) => m.servers);
-        if (entries.length > 0) return entries;
+        return await this.backend.mcpMarketStatus();
       } catch (err) {
         logger.warn('app', '获取 MCP 市场失败', { err: String(err) });
       }
     }
-    if (!isFixtureMode()) return [];
-    return (mcpMarketSeed as { servers?: unknown[] }).servers?.map((s) => s as unknown as McpMarketEntry) ?? [];
+    if (!isFixtureMode()) {
+      return { source: '', premounted: false, mount_policy: {}, servers: [] };
+    }
+    const seed = (mcpMarketSeed as { servers?: unknown[] }).servers ?? [];
+    return {
+      source: '',
+      premounted: (mcpMarketSeed as { premounted?: boolean }).premounted === true,
+      mount_policy: {},
+      servers: seed.map((s) => {
+        const row = s as Record<string, unknown>;
+        return {
+          id: String(row['id'] ?? ''),
+          name: String(row['name'] ?? row['id'] ?? ''),
+          source: String(row['source'] ?? ''),
+          transport: String(row['transport'] ?? ''),
+          url: typeof row['url'] === 'string' ? row['url'] : null,
+          command: typeof row['command'] === 'string' ? row['command'] : null,
+          args: Array.isArray(row['args']) ? (row['args'] as unknown[]).filter((a): a is string => typeof a === 'string') : [],
+          risk: typeof row['risk'] === 'string' ? row['risk'] : undefined,
+          risk_note: typeof row['risk_note'] === 'string' ? row['risk_note'] : undefined,
+          category: typeof row['category'] === 'string' ? row['category'] : undefined,
+          credentials: { required: false, note: '' },
+          mounted: false,
+        };
+      }),
+    };
   }
 
-  /** MCP 市场 + 挂载状态（连接页市场管理 / 市场页数据源）。 */
-  async getMcpMarketStatus(): Promise<McpMountStatus> {
+  /** 市场服务挂载（mcp.mount：config 由条目 + 用户 command/url 覆盖组成）。 */
+  async mountMcp(server: {
+    id: string;
+    transport?: string;
+    command?: string | null;
+    url?: string | null;
+    args?: string[];
+  }): Promise<McpMountOutcome> {
     if (!this.backend?.available) {
-      const seed = isFixtureMode()
-        ? (mcpMarketSeed as unknown as { servers?: McpMarketEntry[] }).servers ?? []
-        : [];
-      return {
-        markets: [
-          {
-            id: 'market',
-            name: '内置市场',
-            source: '',
-            builtin: true,
-            servers: seed,
-          },
-        ],
-        mounted: {},
-      };
+      logger.info('app', 'MCP 挂载（dev 回退）', { serverId: server.id });
+      return { ok: true, server_id: server.id, status: 'mounted' };
     }
     try {
-      return await this.backend.mcpMarketStatus();
+      return await this.backend.mcpMarketMount(server);
     } catch (err) {
-      logger.warn('app', '获取 MCP 挂载状态失败', { err: String(err) });
-      return { markets: [], mounted: {} };
+      logger.warn('app', 'MCP 挂载失败', { serverId: server.id, err: String(err) });
+      return { ok: false, server_id: server.id, status: 'mount_failed', error: String(err) };
     }
   }
 
-  /** 市场一键挂载（手动挂载：免审批卡）。 */
-  async mountMcp(serverId: string): Promise<McpMountOutcome> {
-    if (!this.backend?.available) {
-      logger.info('app', 'MCP 挂载（dev 回退）', { serverId });
-      return { ok: true, server_id: serverId, status: 'mounted' };
-    }
-    try {
-      return await this.backend.mcpMarketMount(serverId);
-    } catch (err) {
-      logger.warn('app', 'MCP 挂载失败', { serverId, err: String(err) });
-      return { ok: false, server_id: serverId, status: 'mount_failed', error: String(err) };
-    }
-  }
-
-  /** 市场服务取消挂载。 */
+  /** 市场服务取消挂载（mcp.unmount）。 */
   async unmountMcp(serverId: string): Promise<McpMountOutcome> {
     if (!this.backend?.available) {
       logger.info('app', 'MCP 卸载（dev 回退）', { serverId });
@@ -279,64 +228,6 @@ export class AppBackend {
     }
   }
 
-  /** 市场摄入预览（vetting + 摘要）。 */
-  async previewMarket(link: string): Promise<McpMarketPreview> {
-    if (!this.backend?.available) {
-      return { ok: false, error: '宿主不可用（预览需真实引擎）' };
-    }
-    try {
-      return await this.backend.mcpMarketPreview(link);
-    } catch (err) {
-      logger.warn('app', 'MCP 市场预览失败', { link, err: String(err) });
-      return { ok: false, error: String(err) };
-    }
-  }
-
-  /** 添加市场（外部目录摄入，落注册表持久化）。 */
-  async addMarket(link: string): Promise<{ ok: boolean; market?: McpMarketSummary; error?: string }> {
-    if (!this.backend?.available) {
-      return { ok: false, error: '宿主不可用（添加市场需真实引擎）' };
-    }
-    try {
-      return await this.backend.mcpMarketAdd(link);
-    } catch (err) {
-      logger.warn('app', 'MCP 市场添加失败', { link, err: String(err) });
-      return { ok: false, error: String(err) };
-    }
-  }
-
-  /** 删除市场（内置不可删；级联卸载其下服务）。 */
-  async removeMarket(marketId: string): Promise<{ ok: boolean; error?: string }> {
-    if (!this.backend?.available) {
-      return { ok: false, error: '宿主不可用（删除市场需真实引擎）' };
-    }
-    try {
-      const result = await this.backend.mcpMarketRemove(marketId);
-      if (!result.ok) return { ok: false, error: result.error };
-      return { ok: true };
-    } catch (err) {
-      logger.warn('app', 'MCP 市场删除失败', { marketId, err: String(err) });
-      return { ok: false, error: String(err) };
-    }
-  }
-
-  /** 已注册/已挂载组件清单：拉取宿主 components_manifest（链为权威）。
-   *
-   * 与 MCP 市场分离：组件不再是「可挂载市场目录」，而是补丁链产物的
-   * 已注册清单（agent 自写 / 外部 URL 组件经 ARTIFACT 补丁落链登记）。
-   * 宿主不可用 = 空清单（无夹具回落）。
-   */
-  async getComponentsManifest(): Promise<AppArtifactEntry[]> {
-    if (!this.backend?.available) return [];
-    try {
-      const manifest = await this.backend.componentsManifest();
-      return (manifest.artifacts ?? []) as AppArtifactEntry[];
-    } catch (err) {
-      logger.warn('app', '获取组件清单失败', { err: String(err) });
-      return [];
-    }
-  }
-
   /** 出厂界面组件清单（种子 manifest 契约段；组件 tab 合并展示的 factory 源）。 */
   getFactoryComponents(): string[] {
     return (
@@ -346,9 +237,8 @@ export class AppBackend {
   }
 
   /**
-   * 出厂界面组件启停状态（组件 tab 数据源）：
-   * 宿主经 engine.ui_components_get（factory 权威 = 配方白名单未过滤全集）；
-   * 无宿主回落种子 manifest 契约清单（出厂全量、零停用）。
+   * 出厂界面组件启停状态（ui_components.get）：factory 权威 = 配方白名单
+   * 未过滤全集；无宿主回落种子 manifest 契约清单（出厂全量、零停用）。
    */
   async getUiComponentsState(): Promise<{ factory: string[]; disabled: string[]; active: string[] }> {
     const factory = this.getFactoryComponents();
@@ -363,7 +253,7 @@ export class AppBackend {
     }
   }
 
-  /** 停用/恢复出厂组件（组件 tab 勾选落地面；非法名结构化拒绝）。 */
+  /** 停用/恢复出厂组件（ui_components.set_disabled 整集替换）。 */
   async setUiComponentsDisabled(
     disabled: string[],
   ): Promise<{ ok: boolean; disabled?: string[]; error?: string }> {
@@ -390,90 +280,27 @@ export class AppBackend {
     }
   }
 
-  /** ui_spec 拉取（W4.1）：生产环境经 introspection 活跃界面快照
-   * （ui_spec.get —— 与渲染器同一数据源），宿主不可用时回落种子
-   * ui_spec.json（dev 夹具）。
-   */
+  /** ui_spec 拉取（W2 前开发模式）：ui_spec.* 无真源，仅 dev 夹具承载。
+   *  宿主可用（生产）时返回 null + 开发模式标注（由 UI 呈现，不发命令）。 */
   async getUiSpec(): Promise<UISpec | null> {
-    if (!this.backend?.available) {
-      return isFixtureMode() ? (uiSpecSeed as unknown as UISpec) : null;
-    }
-    try {
-      const result = await this.backend.uiSpecGet();
-      return (result?.spec as unknown as UISpec) ?? (isFixtureMode() ? (uiSpecSeed as unknown as UISpec) : null);
-    } catch (err) {
-      logger.warn('app', '获取 ui_spec 失败', { err: String(err) });
-      return isFixtureMode() ? (uiSpecSeed as unknown as UISpec) : null;
-    }
+    if (this.backend?.available) return null;
+    return isFixtureMode() ? (uiSpecSeed as unknown as UISpec) : null;
   }
 
-  /**
-   * ui_spec 保存（W4.2）：经 ui_spec.apply 落补丁链（kind=ui），
-   * 活跃界面即时生效 + 可回退；产物到补丁链落链（不再直写能力记录）。
-   * 宿主不可用时记录到日志（dev 回退）。
-   */
-  async saveUiSpec(spec: UISpec): Promise<{ applied: boolean }> {
-    if (!this.backend?.available) {
-      logger.info('app', 'ui_spec 保存（dev 回退）', { version: spec.version, name: spec.name });
-      return { applied: true };
-    }
-    try {
-      const result = await this.backend.uiSpecApply(spec as unknown as Record<string, unknown>);
-      const outcome = (result?.outcome ?? {}) as { applied?: boolean; decision?: string; status?: string };
-      const applied = outcome.applied === true || outcome.decision === 'accept' || outcome.status === 'applied';
-      return { applied };
-    } catch (err) {
-      logger.warn('app', '保存 ui_spec 失败', { err: String(err) });
-      return { applied: false };
-    }
+  /** ui_spec 保存（W2 前开发模式）：无真源不落链，仅返回未应用。 */
+  async saveUiSpec(_spec: UISpec): Promise<{ applied: boolean }> {
+    logger.info('app', 'ui_spec 保存未接线（ui_spec.* 无真源，W2 处理）');
+    return { applied: false };
   }
 
-  /**
-   * ui_spec 回退（W4.2）：回退最近一笔界面补丁（补丁链级，非整库快照）。
-   * 宿主不可用时 dev 回退（成功）。
-   */
+  /** ui_spec 回退（W2 前开发模式）：无真源不落链，仅返回未回退。 */
   async revertUiSpec(): Promise<{ reverted: boolean; chain_version?: number }> {
-    if (!this.backend?.available) {
-      logger.info('app', 'ui_spec 回退（dev 回退）');
-      return { reverted: true, chain_version: 0 };
-    }
-    try {
-      const result = await this.backend.uiSpecRevert();
-      const outcome = (result?.outcome ?? {}) as {
-        applied?: boolean;
-        decision?: string;
-        status?: string;
-        patch_id?: number;
-      };
-      if (!outcome || outcome.status === 'rejected' || outcome.decision === 'reject') {
-        logger.warn('app', '回退 ui_spec 未生效', { reason: result?.reason ?? '未知原因' });
-        return { reverted: false };
-      }
-      const chain_version = outcome.patch_id !== undefined ? Math.max(0, outcome.patch_id - 1) : undefined;
-      return { reverted: true, ...(chain_version !== undefined ? { chain_version } : {}) };
-    } catch (err) {
-      logger.warn('app', '回退 ui_spec 失败', { err: String(err) });
-      return { reverted: false };
-    }
+    logger.info('app', 'ui_spec 回退未接线（ui_spec.* 无真源，W2 处理）');
+    return { reverted: false };
   }
 
   /**
-   * 打开路径（W5.5 工作区授权视图使用）：在系统文件管理器中打开授权工作区。
-   * 宿主不可用时不执行任何操作。
-   */
-  openPath(path: string): void {
-    if (!this.backend?.available) {
-      logger.info('app', '打开路径（dev 回退）', { path });
-      return;
-    }
-    void this.backend
-      .openPath(path)
-      .then(() => logger.info('app', '打开路径', { path }))
-      .catch((err) => logger.warn('app', '打开路径失败', { path, err: String(err) }));
-  }
-
-  /**
-   * 工作区授权状态（W5.5）。
+   * 工作区授权状态（workspace.state）。
    */
   async getAuthorizationState(): Promise<{ authorized: boolean; root: string | null }> {
     if (!this.backend?.available) return { authorized: false, root: null };
@@ -486,7 +313,7 @@ export class AppBackend {
   }
 
   /**
-   * 工作区授权（W5.5）：授权访问指定路径。
+   * 工作区授权（workspace.set）。
    */
   async authorizeWorkspace(path: string): Promise<{ authorized: boolean; root: string } | null> {
     if (!this.backend?.available) return null;
@@ -499,7 +326,7 @@ export class AppBackend {
   }
 
   /**
-   * 撤销工作区授权（W5.5）。
+   * 撤销工作区授权（workspace.revoke）。
    */
   async revokeWorkspace(): Promise<{ authorized: boolean } | null> {
     if (!this.backend?.available) return null;
@@ -555,43 +382,44 @@ export class AppBackend {
 export function createAppBackend(options: AppBackendOptions = {}): AppBackend {
   return new AppBackend(options);
 }
+
 const FACTORY_BASELINE = [
   'file_read', 'file_write', 'file_edit', 'grep', 'glob',
   'propose_patch', 'propose_domain_manifest', 'inspect_tools',
   'search_tools', 'request_tool', 'task_manager',
 ] as const;
 
-/** dev 夹具：从种子 tools.json 构建全量工具清单（无宿主时视图可渲染）。 */
-function fixtureToolsManifest(): { tools: ToolManifestEntry[]; baseline: string[] } {
-  const seedTools = (toolsSeed as { tools?: Array<Record<string, unknown>> }).tools ?? [];
-  const tools: ToolManifestEntry[] = seedTools.map((t) => ({
-    name: t.name as string,
-    description: (t.description as string) ?? '',
-    parameters: (t.parameters as Record<string, unknown>) ?? {},
-    permissions: (t.permissions as string[]) ?? [],
-    source: 'declarative',
-    endpoint: (t.endpoint as string) ?? 'mcp',
-    endpoint_config: (t.endpoint_config as Record<string, unknown>) ?? {},
-    meta: (t.meta as ToolManifestEntry['meta']) ?? {},
-    approval: (t.approval as string) ?? 'review',
-    baseline: false,
-  }));
-  for (const name of ['search_tools', 'request_tool'] as const) {
-    tools.push({
+/** dev 夹具：常驻必带集（种子工具名须在清单中才计入）。 */
+function fixtureBaselineNames(): string[] {
+  const present = new Set(
+    ((toolsSeed as { tools?: Array<Record<string, unknown>> }).tools ?? []).map((t) => t.name),
+  );
+  return FACTORY_BASELINE.filter((name) => present.has(name));
+}
+
+/** dev 夹具：从种子 tools.json 合成 tools.full 视图（name-only 消费旗标）。 */
+function fixtureToolsFull(): ToolFullView {
+  const baseline = new Set(fixtureBaselineNames());
+  const rows = ((toolsSeed as { tools?: Array<Record<string, unknown>> }).tools ?? [])
+    .map((t) => t.name)
+    .filter((name): name is string => typeof name === 'string')
+    .map((name) => ({
       name,
-      description:
-        name === 'search_tools'
-          ? '语义检索未常驻工具并按相关度返回候选清单。'
-          : '绑定检索命中的工具到本回合，注入完整 schema 后按参调用。',
-      parameters: {},
-      source: 'self',
+      uses_vectors: false,
+      vector: false,
+      baseline: baseline.has(name),
+      approved: false,
+      enabled: true,
+    }));
+  for (const name of ['search_tools', 'request_tool'] as const) {
+    rows.push({
+      name,
+      uses_vectors: false,
+      vector: false,
       baseline: true,
+      approved: false,
+      enabled: true,
     });
   }
-  const present = new Set(tools.map((t) => t.name));
-  const baseline: string[] = FACTORY_BASELINE.filter((n) => present.has(n));
-  for (const tool of tools) {
-    if (baseline.includes(tool.name)) tool.baseline = true;
-  }
-  return { tools, baseline };
+  return { uses_vectors: false, tools: rows };
 }

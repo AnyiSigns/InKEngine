@@ -1,3 +1,4 @@
+// 跨域契约模块 - 跨域类型 seam：introspection 规则 DSL 数据形态引用
 /**
  * 声明式规则 DSL 的常量与类型面（rules.py 头段移植）。
  *

@@ -8,7 +8,7 @@
 import * as fs from 'node:fs';
 import * as os from 'node:os';
 import * as path from 'node:path';
-import type { FsSeam } from '../../core/tool_vetting/_types.js';
+import type { FsSeam } from '../../core/tool_vetting/tool_vetting.js';
 
 function _safeStatSize(p: string): number | null {
   try {

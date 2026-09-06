@@ -814,7 +814,9 @@ export function createIngester(hub: ChannelHub): (event: HubEvent) => void {
 }
 
 /**
- * 引擎历史消息（会话检查点 state.messages：role/content/name）→ 会话消息流。
+ * 引擎历史消息（session_messages 行 / 会话检查点消息）→ 会话消息流。
+ * 行形态 = {id, kind('message'|'tool'), text?, role, created_at, meta?}——
+ * text 为引擎消息 content 的投影；兼容旧 {role/content/name} 形态。
  * 仅文本 role（user/assistant）落位（tool/system 内部帧不渲染）；供冷启动/
  * 切会话时从引擎回取历史（session_messages）。
  */
@@ -824,7 +826,7 @@ export function messagesFromHistory(rows: unknown[]): InkMessage[] {
     const r = (raw && typeof raw === 'object' ? raw : {}) as Record<string, unknown>;
     const role = r.role;
     if (role !== 'user' && role !== 'assistant') continue;
-    const content = typeof r.content === 'string' ? r.content : '';
+    const content = typeof r.text === 'string' ? r.text : typeof r.content === 'string' ? r.content : '';
     if (!content) continue;
     const name = typeof r.name === 'string' ? r.name : undefined;
     const roundId = typeof r.round_id === 'string' ? r.round_id : undefined;

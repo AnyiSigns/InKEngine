@@ -4,11 +4,19 @@
  * web 前端适配面仍以旧壳扁平命名发请求（round_send/session_list/...），
  * host bridge 只出点分方法表（rounds.send/sessions.*）；本层把仍可映射的
  * 扁平名对齐到新落点（参数 camel→snake 适配 + 结果形态归一），使 web 真
- * 通道端到端可达。已废弃桌面能力（voice/mount/backup 等）无桥接落点，
- * 不进别名表（命中走 -32601 method not found，web 归一为不可用）。
+ * 通道端到端可达。H2 桥面补桥后：备份/恢复/市场/知识/记忆/成长等域均落
+ * 点分方法（round_ledger_merge/mcp_market_preview|add|remove/
+ * memory.update_frontmatter 无真源 → 不注册，命中走 -32601）；H2b 补桥
+ * 后架构/演化**读取类**（graph_instance_snapshot/pool_snapshot/pool_evaluate/
+ * edge_evidence_list/metrics_snapshot/assemble_stats/cache_stats/
+ * path_state/entities_snapshot）落点分只读方法；graph_snapshot/tools_snapshot
+ * 无产品消费已删，不注册。path 干预与 edge_downgrade_tier/restore_tier 等
+ * 写类不在本批，不注册。
  *
- * 纪律：别名只做名字/形状翻译，不做语义判断；新增点分方法如需 web 旧面
- * 使用在此补一行（目标缺失 = 跳过，不击穿最小方法面）。
+ * 纪律：别名只做名字/形状翻译，不做语义判断；危险操作（recovery.reset /
+ * backup.restore）确认标记不回代（缺 confirm 走 fail-closed 拒绝，web 批次
+ * 改发标记）；新增点分方法如需 web 旧面使用在此补一行（目标缺失 = 跳过，
+ * 不击穿最小方法面）。
  */
 
 import type { Handler, HandlerContext } from './rpc.js';
@@ -75,10 +83,16 @@ const ALIASES: readonly AliasSpec[] = [
     dotted: 'rounds.resume',
     adaptParams: (raw) => {
       const p = recordFrom(raw);
-      return {
-        thread_id: p['threadId'] ?? null,
-        decision: { key: p['key'] ?? null, decision: p['decision'] ?? null, reason: p['reason'] ?? null },
+      const out: Record<string, unknown> = {
+        decision: typeof p['decision'] === 'string' ? p['decision'] : null,
       };
+      // 裸决议重入：引擎按链尾 interrupt key 自包装（宿主不再手工 key 包装）；
+      // edit 决议的编辑内容经 editedContent → edited_content 正确映射
+      if (typeof p['reason'] === 'string' && p['reason'] !== '') out['reason'] = p['reason'];
+      if (p['editedContent'] !== undefined && p['editedContent'] !== null) {
+        out['edited_content'] = p['editedContent'];
+      }
+      return { thread_id: p['threadId'] ?? null, decision: out };
     },
   },
   {
@@ -103,7 +117,97 @@ const ALIASES: readonly AliasSpec[] = [
       };
     },
   },
-  { flat: 'tools_snapshot', dotted: 'tools.snapshot' },
+  // H2 桥面：会话消息/回合账本/待办/重置/审计窗口/全量工具/基线/档位登记
+  {
+    flat: 'session_messages',
+    dotted: 'sessions.messages',
+    adaptParams: camelToSnake,
+  },
+  { flat: 'round_ledger_chain', dotted: 'records.chain', adaptParams: camelToSnake },
+  { flat: 'round_ledger_list', dotted: 'records.ledger', adaptParams: camelToSnake },
+  { flat: 'todo_get', dotted: 'rounds.todos', adaptParams: camelToSnake },
+  { flat: 'todo.get', dotted: 'rounds.todos', adaptParams: camelToSnake },
+  // recovery 旧扁平面：reset 确认标记不回代（缺 confirm fail-closed 拒绝）
+  {
+    flat: 'recovery_factory_reset',
+    dotted: 'recovery.reset',
+    adaptParams: (raw) => {
+      const p = recordFrom(raw);
+      const out: Record<string, unknown> = {};
+      if (typeof p['threadId'] === 'string') out['thread_id'] = p['threadId'];
+      return out;
+    },
+  },
+  {
+    flat: 'recovery_snapshots',
+    dotted: 'recovery.checkpoints',
+    adaptParams: camelToSnake,
+  },
+  {
+    flat: 'recovery_restore_snapshot',
+    dotted: 'recovery.rollback',
+    adaptParams: camelToSnake,
+  },
+  { flat: 'audit.list', dotted: 'audit.list' },
+  { flat: 'tools_manifest', dotted: 'tools.full' },
+  { flat: 'tools_baseline_get', dotted: 'capability.baseline.get' },
+  { flat: 'tools_baseline_set', dotted: 'capability.baseline.set' },
+  {
+    flat: 'security_tier_overrides_set',
+    dotted: 'capability.tier.set',
+    adaptParams: (raw) => {
+      const p = recordFrom(raw);
+      return {
+        tier_overrides:
+          p['overrides'] !== undefined && p['overrides'] !== null ? p['overrides'] : p,
+      };
+    },
+  },
+  // H2 桥面：备份/恢复/市场/知识/记忆/成长
+  { flat: 'backup_export', dotted: 'backup.export' },
+  { flat: 'backup_preview', dotted: 'backup.preview' },
+  { flat: 'backup_restore', dotted: 'backup.restore' },
+  { flat: 'mcp_market_status', dotted: 'mcp.market' },
+  {
+    flat: 'mcp_market_mount',
+    dotted: 'mcp.mount',
+    adaptParams: (raw) => {
+      const p = recordFrom(raw);
+      const id =
+        typeof p['serverId'] === 'string' ? p['serverId']
+          : typeof p['server_id'] === 'string' ? p['server_id'] : '';
+      return { config: { id } };
+    },
+  },
+  {
+    flat: 'mcp_market_unmount',
+    dotted: 'mcp.unmount',
+    adaptParams: (raw) => {
+      const p = recordFrom(raw);
+      const id =
+        typeof p['serverId'] === 'string' ? p['serverId']
+          : typeof p['server_id'] === 'string' ? p['server_id']
+            : typeof p['name'] === 'string' ? p['name'] : '';
+      return { name: id };
+    },
+  },
+  { flat: 'knowledge.list', dotted: 'knowledge.list' },
+  { flat: 'knowledge.graph', dotted: 'knowledge.graph' },
+  { flat: 'knowledge.export', dotted: 'knowledge.export' },
+  { flat: 'memory.list', dotted: 'memory.list' },
+  { flat: 'memory.invalidate', dotted: 'memory.invalidate' },
+  { flat: 'growth.report', dotted: 'growth.report' },
+  // H2b 桥面：架构/演化读取类扁平旧名 → 点分只读方法（无写类落点不注册；
+  // tools_snapshot/graph_snapshot 无产品消费已删，不提供）
+  { flat: 'graph_instance_snapshot', dotted: 'graph.instance', adaptParams: camelToSnake },
+  { flat: 'pool_snapshot', dotted: 'pool.snapshot' },
+  { flat: 'pool_evaluate', dotted: 'pool.evaluate' },
+  { flat: 'edge_evidence_list', dotted: 'edge_evidence.list' },
+  { flat: 'metrics_snapshot', dotted: 'metrics.snapshot' },
+  { flat: 'assemble_stats', dotted: 'assemble.stats' },
+  { flat: 'cache_stats', dotted: 'cache.stats' },
+  { flat: 'path_state', dotted: 'path.state' },
+  { flat: 'entities_snapshot', dotted: 'entities.snapshot' },
   { flat: 'material_import', dotted: 'material.import' },
   { flat: 'search_keys_put', dotted: 'search.keys.set' },
   { flat: 'search_keys_get', dotted: 'search.keys.get' },

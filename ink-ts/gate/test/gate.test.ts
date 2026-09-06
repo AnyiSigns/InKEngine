@@ -129,4 +129,80 @@ describe('gate 规则', () => {
     const violations = await scan({ root, config: cfg });
     expect(violations.map((v) => v.rule)).not.toContain('utf8-valid');
   });
+
+  it('core 域间跨目录 import 私有模块被拒（无跨域契约标注）', async () => {
+    const root = await makeRoot();
+    await write(root, 'engine/src/core/x/_types.ts', `export const X = 'x';\n`);
+    await write(root, 'engine/src/core/a/b.ts', `import { X } from '../x/_types.js';\n`);
+    const violations = await scan({ root, config: cfg });
+    expect(violations.map((v) => v.rule)).toContain('private-seam');
+  });
+
+  it('core 域间跨目录 import 已标注跨域契约模块的 seam 放行', async () => {
+    const root = await makeRoot();
+    await write(root, 'engine/src/core/x/_types.ts', `// 跨域契约模块 - 跨域类型 seam：共享数据形态\n/** 类型 seam。 */\nexport const X = 'x';\n`);
+    await write(root, 'engine/src/core/a/b.ts', `import { X } from '../x/_types.js';\n`);
+    const violations = await scan({ root, config: cfg });
+    expect(violations.map((v) => v.rule)).not.toContain('private-seam');
+  });
+
+  it('core 同域私有 import 放行', async () => {
+    const root = await makeRoot();
+    await write(root, 'engine/src/core/a/_types.ts', `export const X = 'x';\n`);
+    await write(root, 'engine/src/core/a/b.ts', `import { X } from './_types.js';\n`);
+    const violations = await scan({ root, config: cfg });
+    expect(violations.map((v) => v.rule)).not.toContain('private-seam');
+  });
+
+  it('adapters 反向 import core 私有模块被拒（无公共 seam 标注）', async () => {
+    const root = await makeRoot();
+    await write(root, 'engine/src/core/llm/_shapes.ts', `export interface Shape { a: string }\n`);
+    await write(root, 'engine/src/adapters/llm/x.ts', `import type { Shape } from '../../core/llm/_shapes.js';\n`);
+    const violations = await scan({ root, config: cfg });
+    expect(violations.map((v) => v.rule)).toContain('private-seam');
+  });
+
+  it('adapters 反向 import 已标注公共 seam 的 core 私有模块放行', async () => {
+    const root = await makeRoot();
+    await write(root, 'engine/src/core/llm/_shapes.ts', `// 跨域契约模块 - 公共 seam：adapters 厂商载荷消费数据形态\n/** 类型 seam。 */\nexport interface Shape { a: string }\n`);
+    await write(root, 'engine/src/adapters/llm/x.ts', `import type { Shape } from '../../core/llm/_shapes.js';\n`);
+    const violations = await scan({ root, config: cfg });
+    expect(violations.map((v) => v.rule)).not.toContain('private-seam');
+  });
+
+  it('JSON 非对象顶层被拒', async () => {
+    const root = await makeRoot();
+    await write(root, 'seed_data/bad.json', `[1, 2, 3]\n`);
+    const violations = await scan({ root, config: cfg });
+    expect(violations.map((v) => v.rule)).toContain('json-valid');
+  });
+
+  it('JSON 重复键被拒', async () => {
+    const root = await makeRoot();
+    await write(root, 'engine/fixtures/dup.json', `{\n  "a": 1,\n  "a": 2\n}\n`);
+    const violations = await scan({ root, config: cfg });
+    expect(violations.map((v) => v.rule)).toContain('json-valid');
+    expect(violations.map((v) => v.message).join('\n')).toContain('重复键');
+  });
+
+  it('JSON 奇数空格缩进被拒（非 2 空格格线）', async () => {
+    const root = await makeRoot();
+    await write(root, 'seed_data/odd.json', `{\n   "a": 1\n}\n`);
+    const violations = await scan({ root, config: cfg });
+    expect(violations.map((v) => v.rule)).toContain('json-valid');
+  });
+
+  it('JSON tab 缩进被拒', async () => {
+    const root = await makeRoot();
+    await write(root, 'seed_data/tab.json', `{\n\t"a": 1\n}\n`);
+    const violations = await scan({ root, config: cfg });
+    expect(violations.map((v) => v.rule)).toContain('json-valid');
+  });
+
+  it('JSON 合法且 2 空格缩进通过', async () => {
+    const root = await makeRoot();
+    await write(root, 'seed_data/ok.json', `{\n  "a": 1\n}\n`);
+    const violations = await scan({ root, config: cfg });
+    expect(violations.map((v) => v.rule)).not.toContain('json-valid');
+  });
 });

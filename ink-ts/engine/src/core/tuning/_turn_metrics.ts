@@ -1,3 +1,4 @@
+// 跨域契约模块 - 跨域类型 seam：run_result 回合指标聚合引用
 /**
  * 回合指标聚合（tuning.py TurnMetrics dataclass 段移植）。
  *

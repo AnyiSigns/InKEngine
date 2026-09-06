@@ -8,6 +8,10 @@
  * user_correction）中最可信者（ENG1-12：SOURCE_RANK 取最高者，user >
  * model > dialog > web；同分取先到达者——旧实现取 signals[0].source 会
  * 掩盖更早到达的更高可信来源）。
+ *
+ * 现消费方：growth 蒸馏决策点（GrowthPipeline.flush_round 的 reuse_first
+ * 判定——同主题检索命中即跳过蒸馏落位，防知识膨胀）；reuse_or_distill
+ * 完整组合入口供宿主/自管编排取用（测试见 knowledge_signals/reuse.test）。
  */
 
 import type { JsonRecord } from '../json.js';

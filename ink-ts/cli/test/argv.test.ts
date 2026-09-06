@@ -109,4 +109,19 @@ describe('parseArgs serve 形态', () => {
     expect(expectError(['serve', '--port', '99999']).error).toContain('0-65535');
     expect(expectError(['serve', '--port', 'abc']).error).toContain('0-65535');
   });
+
+  it('serve token 恒非空：空 token 拒绝；非回环 --host 须显式 --token', () => {
+    const empty = expectError(['serve', '--host', '127.0.0.1', '--token', '']);
+    expect(empty.error).toContain('--token 不能为空');
+    const nonLoop = expectError(['serve', '--host', '0.0.0.0']);
+    expect(nonLoop.error).toContain('非回环');
+    expect(expectOptions(['serve', '--host', '0.0.0.0', '--token', 'x']).serve).toMatchObject({
+      host: '0.0.0.0',
+      token: 'x',
+    });
+    expect(expectOptions(['serve', '--host', '127.0.0.1']).serve?.token).toBeUndefined();
+    expect(expectOptions(['serve', '--host', '::1']).serve?.token).toBeUndefined();
+    // --help 短路不校验（帮助姿态放行）
+    expect(expectOptions(['serve', '--help', '--host', '0.0.0.0']).help).toBe(true);
+  });
 });

@@ -1,3 +1,4 @@
+// gate: 超限(371 行) - Runtime 装配段（①–⑰ 单一装配序，拆文件破坏步骤顺序可读性）
 /**
  * Runtime 装配（runtime.py ``_assemble`` 移植）：装配步骤 ①–⑰——存储/注册表/
  * 种子/成长管线/harness/事件类型/实体/校验器/自指管线/界面/元工具/检索源/
@@ -37,6 +38,8 @@ import {
   declarative_operation,
 } from '../declarative_tools/index.js';
 import { EntityEvolutionPipeline } from '../entity_evolution/index.js';
+import { entity_writer } from '../evolution_writer/evolution_writer.js';
+import { entity_registry_governance_target } from '../entities/governance_target.js';
 import { GuardedStorage, SelfApplicationPipeline } from '../self_application/index.js';
 import { GraphRegistries } from '../registry/registry.js';
 import { ProposalValidator } from '../self_proposal/index.js';
@@ -47,15 +50,14 @@ import { ToolSelector } from '../tool_orchestrator/tool_orchestrator.js';
 import { ToolVectorIndex } from '../tool_index/tool_index.js';
 import { ToolVetting } from '../tool_vetting/tool_vetting.js';
 import { PoolGovernance } from '../pool_governance/pool_governance.js';
-import { EdgeEvidenceStore } from '../edge_evidence/store.js';
 import { UISchemaValidator } from '../ui_schema/uiSchema.js';
 import type { ToolSpec } from '../llm/tools.js';
 import type { Host, AssemblyRecipe } from './_types.js';
 import { _uuid_hex } from './_runtime_base.js';
 import { _RoundStepsRecorder } from './_round_steps_recorder.js';
-import { RuntimeRebuild } from './_runtime_engine.js';
+import { RuntimeSelfLearning } from './_runtime_self_learning.js';
 /** 装配基座（步骤 ①–⑰ 实现；boot 失败清理见状态机层）。 */
-export abstract class RuntimeAssemble extends RuntimeRebuild {
+export abstract class RuntimeAssemble extends RuntimeSelfLearning {
   protected async _assemble(host: Host, recipe: AssemblyRecipe): Promise<void> {
     const rawStorage = await host.create_storage();
     const guardToken = _uuid_hex();
@@ -66,6 +68,7 @@ export abstract class RuntimeAssemble extends RuntimeRebuild {
     try {
       register_perception_nodes(this.graph_registries.nodes);
     } catch {
+      // 感知结点登记失败只跳过（视觉结点缺装配 = 该能力不启用，不击穿 boot）
     }
     this._persist_tasks = new Set();
     const persistKnowledgeSet = async (): Promise<void> => {
@@ -106,9 +109,8 @@ export abstract class RuntimeAssemble extends RuntimeRebuild {
     } finally {
       seedScope.exit();
     }
-    // 回合记录/边证据装配产物（引擎自接线状态跨引擎重建持有）
+    // 回合步骤记录器（引擎自接线状态跨引擎重建持有）
     this.round_steps_recorder = new _RoundStepsRecorder();
-    this.edge_evidence_store = new EdgeEvidenceStore();
     this.growth_pipeline = new GrowthPipeline(this.knowledge_set, {
       metric_store: guarded as never,
       now: () => this._r_now(),
@@ -197,6 +199,7 @@ export abstract class RuntimeAssemble extends RuntimeRebuild {
     this.entity_evolution_pipeline = new EntityEvolutionPipeline(
       this.entity_registry,
       writer,
+      { now: () => this._r_now() },
     );
     this._ui_factory_components = new Set(recipe.ui_allowed_components);
     this._ui_components_disabled = await this._load_ui_components_disabled();
@@ -207,9 +210,7 @@ export abstract class RuntimeAssemble extends RuntimeRebuild {
       allowed_theme_tokens: recipe.ui_allowed_theme_tokens,
       graph_registries: this.graph_registries,
     });
-    this.vetting = new ToolVetting({
-      static_hooks: (recipe.vetting_static_hooks ?? []) as never,
-    });
+    this.vetting = new ToolVetting();
     this._host_policy = host.interrupt_policy();
     this.self_pipeline = new SelfApplicationPipeline({
       storage: guarded,
@@ -335,6 +336,25 @@ export abstract class RuntimeAssemble extends RuntimeRebuild {
     this.pool_governance = new PoolGovernance({
       now: () => this._r_now(),
     });
+    // R3 池治理写回 seam 装配：实体注册表存在 = 接注册表受守卫写实现
+    // （entity_writer 管线：受守卫实时写 + 补丁链 + 审计）；注册表缺装配
+    // = 回落 null（settle 侧仅登记 + 审计，注释见 _runtime_base）。池治理
+    // 候选（结点类型）通常不是实体 id——目标缺失 = seam no-op + 登记审计，
+    // 待宿主装配实体源后写回自动生效。
+    if (this.entity_registry !== null && this._mechanism_writer !== null) {
+      const registry = this.entity_registry;
+      const writer = this._mechanism_writer;
+      const persist = async (
+        entity_id: string,
+        spec_dict: Record<string, unknown>,
+        note: string,
+      ): Promise<void> => {
+        await entity_writer(writer, registry.collection, entity_id, spec_dict, { note });
+      };
+      this.pool_governance_writable = entity_registry_governance_target(registry, persist);
+    } else {
+      this.pool_governance_writable = null;
+    }
     const sources = (
       this.introspection_service as unknown as {
         _sources: { tools: unknown; registered_tools: unknown };
@@ -342,6 +362,10 @@ export abstract class RuntimeAssemble extends RuntimeRebuild {
     )._sources;
     sources.tools = this.collect_specs();
     sources.registered_tools = this.merged_specs();
+    // 引擎自承载装配产物（evidence/cache/环境/多域）→ 自学习族（记忆/结晶）
+    await this._assemble_mechanism_products(guarded, recipe);
+    await this._assemble_self_learning(guarded, recipe);
+    this._mount_assembly_runtime(recipe);
     await this.rebuild_engine();
   }
 }

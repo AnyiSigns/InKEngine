@@ -14,7 +14,7 @@
  * 超时上界统一：连接 CONNECT_TIMEOUT、调用 CALL_TIMEOUT（秒）。
  */
 import { GraphDefinitionError } from '../../core/errors.js';
-import { McpToolImportError, RpcError, RpcTimeout } from './_errors.js';
+import { McpToolImportError, RpcError, RpcTimeout, exc_text } from './_errors.js';
 import { CALL_TIMEOUT } from './_framing.js';
 import { extract_text, result_is_error } from './_result.js';
 import { HttpMcpTransport, type FetchLike } from './http_transport.js';
@@ -40,11 +40,6 @@ export interface SessionOpenOptions {
   spawn_seam?: SpawnSeam;
   fetch_impl?: FetchLike;
   on_exec_line?: (level: 'error' | 'info', line: string) => void;
-}
-
-/** 异常 → 文案（统一包装错误消息形态）。 */
-export function _detail(exc: unknown): string {
-  return exc instanceof Error ? exc.message : String(exc);
 }
 
 /**
@@ -82,7 +77,7 @@ export class SdkSession extends McpSessionHandle {
       } catch (exc) {
         if (exc instanceof McpToolImportError) throw exc;
         throw new McpToolImportError(
-          `MCP server ${config.id} stdio 连接失败: ${_detail(exc)}`,
+          `MCP server ${config.id} stdio 连接失败: ${exc_text(exc)}`,
         );
       }
       return new SdkSession(config.id, transport);
@@ -116,7 +111,7 @@ export class SdkSession extends McpSessionHandle {
       );
     } catch (exc) {
       if (exc instanceof McpToolImportError) throw exc;
-      throw new McpToolImportError(`MCP server ${config.id} 连接失败: ${_detail(exc)}`);
+      throw new McpToolImportError(`MCP server ${config.id} 连接失败: ${exc_text(exc)}`);
     }
   }
 

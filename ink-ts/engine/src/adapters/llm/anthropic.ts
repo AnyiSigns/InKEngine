@@ -15,7 +15,8 @@
  *
  * 重试纪律与 openai_compat/openai_responses 对齐：适配器默认单次尝试——
  * 瞬时故障（429/5xx/超时/网络/空流等）重试归链层 RetryPolicy；独立直用
- * 场景经构造参数注入 RetryPolicy（指数退避，计时可注入假时钟）显式开重试。
+ * 场景经构造参数注入 RetryPolicy（指数退避，计时经注入 sleeper 假时钟）
+ * 显式开重试，骨架见 ./retry_once.ts（三适配器共享）。
  */
 
 import {
@@ -27,55 +28,33 @@ import {
 } from '../../core/llm/base.js';
 import {
   LLMEmptyStreamError,
-  LLMError,
   LLMFormatError,
-  classify_llm_error,
-  is_transient_llm_error,
 } from '../../core/llm/errors.js';
+import { RetryPolicy } from '../../core/llm/fallback.js';
 import { Message, ToolCall, type Json } from '../../core/llm/messages.js';
 import type { ToolSpec } from '../../core/llm/tools.js';
 import { build_anthropic_payload } from './anthropic_payload.js';
 import { AnthropicStreamParser, STOP_REASON_MAP } from './anthropic_sse.js';
-import { fetch_transport, type LlmResponse, type LlmTransport } from './anthropic_transport.js';
-import { RetryPolicy, retry_backoff } from './retry.js';
+import { raise_for_status, request_timeout_ms } from './sse_common.js';
+import { to_llm_error, with_retry, with_stream_retry, type Sleeper } from './retry_once.js';
+import { fetch_transport, type LlmTransport } from './fetch_transport.js';
 
-const DEFAULT_REQUEST_TIMEOUT = 120.0;
 const _ANTHROPIC_VERSION = '2023-06-01';
-
-/** 把任意传输异常归一为 LLMError（已分类的直通）。 */
-function to_llm_error(exc: unknown): LLMError {
-  if (exc instanceof LLMError) return exc;
-  return classify_llm_error(null, null, exc instanceof Error ? exc : new Error(String(exc)));
-}
-
-/** 非 JSON/非预期正文的容错提取（解码失败返回 null）。 */
-function error_detail(text: string | null): string | null {
-  if (!text) return null;
-  let obj: unknown;
-  try {
-    obj = JSON.parse(text);
-  } catch {
-    return null;
-  }
-  const record = typeof obj === 'object' && obj !== null && !Array.isArray(obj) ? obj : null;
-  const error = record === null ? null : (record as Record<string, unknown>)['error'];
-  if (typeof error === 'string') return error;
-  if (typeof error === 'object' && error !== null && !Array.isArray(error)) {
-    const message = (error as Record<string, unknown>)['message'];
-    return typeof message === 'string' ? message : JSON.stringify(error);
-  }
-  return null;
-}
 
 export class AnthropicLLM extends AsyncLLM {
   readonly adapter = 'anthropic_messages';
 
   private readonly _transport: LlmTransport;
   private readonly _retry: RetryPolicy | null;
+  private readonly _sleep: Sleeper | null;
 
   constructor(
     config: LLMConfig,
-    options: { transport?: LlmTransport | null; retry?: RetryPolicy | null } = {},
+    options: {
+      transport?: LlmTransport | null;
+      retry?: RetryPolicy | null;
+      sleep?: Sleeper | null;
+    } = {},
   ) {
     super(config);
     // 测试注入 fake 传输；缺省全局 fetch 传输（openai 适配器共用同一 seam）。
@@ -83,6 +62,7 @@ export class AnthropicLLM extends AsyncLLM {
     // 同形态），瞬时故障重试归链层/显式注入策略，杜绝「适配器 × 链」叠加。
     this._transport = options.transport ?? fetch_transport();
     this._retry = options.retry ?? null;
+    this._sleep = options.sleep ?? null;
   }
 
   // ------------------------------------------------------------------
@@ -102,23 +82,12 @@ export class AnthropicLLM extends AsyncLLM {
   }
 
   _timeout_ms(): number {
-    const raw = this.config.request_timeout ?? DEFAULT_REQUEST_TIMEOUT;
-    return Math.max(1, Math.round(raw * 1000));
+    return request_timeout_ms(this.config.request_timeout);
   }
 
   // ------------------------------------------------------------------
   // 响应解析
   // ------------------------------------------------------------------
-  async _raise_for_status(response: LlmResponse): Promise<void> {
-    if (response.status < 400) return;
-    let body: string | null = null;
-    try {
-      body = await response.body_text();
-    } catch {
-      body = null;
-    }
-    throw classify_llm_error(response.status, error_detail(body));
-  }
 
   /** 非流式响应 → LLMResult（content 块拼串、tool_use 块收集、usage 归一）。 */
   _parse_response(text: string): LLMResult {
@@ -179,78 +148,73 @@ export class AnthropicLLM extends AsyncLLM {
     messages: readonly Message[],
     opts: { tools?: readonly ToolSpec[] | null; params?: LLMParams | null } = {},
   ): Promise<LLMResult> {
-    const payload = build_anthropic_payload(
-      this.config,
-      messages,
-      opts.tools ?? null,
-      opts.params ?? null,
-      false,
-    );
-    const attempts = this._retry !== null ? Math.max(1, this._retry.attempts) : 1;
-    for (let attempt = 0; attempt < attempts; attempt++) {
-      try {
-        const response = await this._transport.post(this._endpoint, {
-          headers: this._headers(),
-          json: payload,
-          timeout_ms: this._timeout_ms(),
-        });
-        await this._raise_for_status(response);
-        const body = await response.body_text();
-        return this._parse_response(body);
-      } catch (exc) {
-        const error = to_llm_error(exc);
-        if (is_transient_llm_error(error) && attempt + 1 < attempts && this._retry !== null) {
-          await retry_backoff(this._retry, attempt);
-          continue;
+    return await with_retry(
+      this._retry,
+      async () => {
+        const payload = build_anthropic_payload(
+          this.config,
+          messages,
+          opts.tools ?? null,
+          opts.params ?? null,
+          false,
+        );
+        try {
+          const response = await this._transport.post(this._endpoint, {
+            headers: this._headers(),
+            json: payload,
+            timeout_ms: this._timeout_ms(),
+          });
+          await raise_for_status(response);
+          const body = await response.body_text();
+          return this._parse_response(body);
+        } catch (exc) {
+          throw to_llm_error(exc);
         }
-        throw error;
-      }
-    }
-    throw new LLMError('LLM 调用未产生结果');
+      },
+      { sleep: this._sleep ?? undefined },
+    );
   }
 
   async *astream(
     messages: readonly Message[],
     opts: { tools?: readonly ToolSpec[] | null; params?: LLMParams | null } = {},
   ): AsyncIterable<LLMChunk> {
-    const payload = build_anthropic_payload(
-      this.config,
-      messages,
-      opts.tools ?? null,
-      opts.params ?? null,
-      true,
+    yield* with_stream_retry(
+      this._retry,
+      () => this._stream_once(messages, opts.tools ?? null, opts.params ?? null),
+      { sleep: this._sleep ?? undefined },
     );
-    const attempts = this._retry !== null ? Math.max(1, this._retry.attempts) : 1;
-    for (let attempt = 0; attempt < attempts; attempt++) {
-      let emitted = false;
-      const parser = new AnthropicStreamParser();
+  }
+
+  private async *_stream_once(
+    messages: readonly Message[],
+    tools: readonly ToolSpec[] | null,
+    params: LLMParams | null,
+  ): AsyncGenerator<LLMChunk> {
+    const payload = build_anthropic_payload(this.config, messages, tools, params, true);
+    const parser = new AnthropicStreamParser();
+    let produced = false;
+    try {
+      const response = await this._transport.post(this._endpoint, {
+        headers: this._headers(),
+        json: payload,
+        timeout_ms: this._timeout_ms(),
+      });
       try {
-        const response = await this._transport.post(this._endpoint, {
-          headers: this._headers(),
-          json: payload,
-          timeout_ms: this._timeout_ms(),
-        });
-        await this._raise_for_status(response);
+        await raise_for_status(response);
         for await (const line of response.aiter_lines()) {
           const chunk = parser.parse_sse_line(line);
           if (chunk === null) continue;
-          emitted = true;
+          produced = true;
           yield chunk;
         }
-        if (!emitted) throw new LLMEmptyStreamError('', `${this._endpoint} 流为空`);
-        return;
-      } catch (exc) {
-        const error = to_llm_error(exc);
-        if (emitted) {
-          // 已产出内容后的中断：重试会重复已消费帧，直接上抛不重试
-          throw error;
-        }
-        if (is_transient_llm_error(error) && attempt + 1 < attempts && this._retry !== null) {
-          await retry_backoff(this._retry, attempt);
-          continue;
-        }
-        throw error;
+        // 整流零产出（无 data 帧）才算空流：已产内容正常收尾
+        if (!produced) throw new LLMEmptyStreamError('', `${this._endpoint} 流为空`);
+      } finally {
+        // 正常退出/异常/消费方取消均由 aiter_lines 退出路径关闭上游连接
       }
+    } catch (exc) {
+      throw to_llm_error(exc);
     }
   }
 }

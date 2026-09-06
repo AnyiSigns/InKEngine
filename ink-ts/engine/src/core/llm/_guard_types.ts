@@ -1,3 +1,4 @@
+// 跨域契约模块 - 跨域类型 seam：runtime 引用 guard 包装 seam（Usage/包装结构）
 /**
  * guard 包装器依赖的 AsyncLLM seam 结构形态（Python llm/base.py 的包装侧视图）。
  *

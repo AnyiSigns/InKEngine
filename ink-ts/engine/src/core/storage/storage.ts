@@ -56,12 +56,32 @@ export interface Storage {
   list_records(collection: string): Promise<Record<string, unknown>[]>;
   delete_collection(collection: string): Promise<number>;
 
+  // ── records 分页/前缀下推（R7-6：key 前缀下推 + limit/cursor 游标；
+  //    可选实现——驱动未实现时调用方回落全量 list_records 语义）──
+  list_records_page?(
+    collection: string,
+    opts?: RecordListOptions,
+  ): Promise<RecordListResult>;
+
   // ── 全量快照（备份/迁移/归档） ──
   readonly snapshot_capable: boolean;
   snapshot(dest: string): Promise<void>;
   restore(src: string): Promise<void>;
 
   close(): Promise<void>;
+}
+
+/** records 分页列表选项（prefix = 集合内 key 前缀下推；cursor = 上页尾键）。 */
+export interface RecordListOptions {
+  prefix?: string | null;
+  limit?: number | null;
+  cursor?: string | null;
+}
+
+/** records 分页结果（next_cursor = 下页游标；null = 无更多页）。 */
+export interface RecordListResult {
+  records: Record<string, unknown>[];
+  next_cursor: string | null;
 }
 
 /** validate_chain 选项。 */

@@ -29,6 +29,9 @@ const _CONFIG_KEYS = [
   'request_timeout',
 ] as const;
 
+/** extra 疑似凭据键过滤（toJSON 出站面；防 api_key 别名/令牌类配置明文外泄）。 */
+const _CREDENTIAL_KEY_RE = /(key|token|secret|password|authorization)/i;
+
 /** 推理档位取值（None = 不注入，跟随模型/厂商默认；off/low/medium/high =
  *  显式档）。适配器按 LLMConfig.extra.reasoning_style 决定协议映射：
  *  effort → reasoning_effort / reasoning.effort（OpenAI 标准族）
@@ -74,6 +77,28 @@ export class LLMConfig {
       );
     }
     Object.freeze(this);
+  }
+
+  /** JSON.stringify 出站序列化：去 api_key，extra 中疑似凭据键过滤——防
+   *  配置对象被整对象 JSON.stringify 明文落日志/库（序列化面遮蔽，对象
+   *  本身保留原值供发送）。 */
+  toJSON(): Record<string, unknown> {
+    const out: Record<string, unknown> = {
+      adapter: this.adapter,
+      model_id: this.model_id,
+      base_url: this.base_url,
+      temperature: this.temperature,
+      max_tokens: this.max_tokens,
+      request_timeout: this.request_timeout,
+    };
+    if (this.extra !== null) {
+      const extra: Record<string, unknown> = {};
+      for (const [key, value] of Object.entries(this.extra)) {
+        if (!_CREDENTIAL_KEY_RE.test(key)) extra[key] = value;
+      }
+      out['extra'] = extra;
+    }
+    return out;
   }
 
   /** 从配置字典构建（模型配置形态兼容，未知键收进 extra）。 */

@@ -1,3 +1,4 @@
+// 跨域契约模块 - 跨域类型 seam：adapters 厂商载荷/解析消费消息附件与工具调用形态（公共 seam）
 /**
  * 消息附件与工具调用数据形态（Attachment / ToolCallDelta / ToolCall）。
  *

@@ -1,18 +1,23 @@
 # ink-ts 原生机制件 workspace：exec（OS 执行器子进程）+ infer（本地嵌入推理
-# 子进程）+ rpc（两者共享的 stdio JSON-RPC 行帧底座）。
+# 子进程）+ mcp-server（内置 MCP server 二进制 ink_ts_mcp）+ rpc（共享的
+# stdio JSON-RPC 行帧底座）。
 #
 # 依赖纪律：exec 只做信封驱动的机械守门 + 物理执行体（零声明表、
 # 零裁决）；infer 承载 ort/tokenizers 重依赖并原样承载 embedder.rs 语义；
-# rpc 不携带任何业务。infer 因 ort 构建期需下载 ONNX Runtime 二进制，独立
-# 成 crate 并从 default-members 排除——`cargo test/build --manifest-path
-# ink-ts/exec/Cargo.toml`（默认成员 exec+rpc）不触发重型下载，CI/开发门禁
-# 稳定；infer 用 `-p ink_ts_infer`（或 --manifest-path crates/infer）单独构建。
-# 二进制输出约定：target/{debug,release}/exec(.exe) 与 infer(.exe)（宿主侧
-# 二进制定位与 exec_proc 前缀逻辑据此约定，见 host/src/exec/binary.ts）。
+# mcp-server 复用 exec ops（in-process 工具执行）与 infer 嵌入（shell
+# profile 的 embed 工具），不另写执行逻辑；rpc 不携带任何业务。infer 因 ort
+# 构建期需下载 ONNX Runtime 二进制，独立成 crate 并从 default-members 排除
+# ——`cargo test/build --manifest-path ink-ts/exec/Cargo.toml`（默认成员
+# exec+rpc）不触发重型下载，CI/开发门禁稳定；infer 与 mcp-server（依赖
+# infer）用 `-p ink_ts_infer -p ink_ts_mcp` 单独构建/测试。
+# 二进制输出约定：target/{debug,release}/exec(.exe)、infer(.exe) 与
+# ink_ts_mcp(.exe)（宿主侧二进制定位与 exec_proc 前缀逻辑据此约定，见
+# host/src/exec/binary.ts）。
+# 环境变量全集 / 线协议 / 二进制定位规范见同目录 CONFIG.md（双语言共同基线）。
 
 [workspace]
 resolver = "2"
-members = ["crates/rpc", "crates/exec", "crates/infer"]
+members = ["crates/rpc", "crates/exec", "crates/infer", "crates/mcp-server"]
 default-members = ["crates/rpc", "crates/exec"]
 
 # 依赖以开发档 opt-level=1 预编译（依赖不变只编一次）+ debug=1 行号表 +

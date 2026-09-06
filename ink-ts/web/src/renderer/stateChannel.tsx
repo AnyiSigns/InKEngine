@@ -28,10 +28,14 @@ export function readPath(obj: unknown, path: string): unknown {
   return current;
 }
 
-/** 通道 → 快照字段名（state.session = 整快照，路径为空）。 */
+/** 通道 → 快照字段名（state.session = 整快照，路径为空；蛇形别名归一）。 */
 const FIELD_ALIASES: Record<string, string> = {
-  // 白名单通道名 task_state ↔ 快照字段 taskState（camelCase）
+  // 历史蛇形通道名 ↔ 快照 camelCase 字段（取值归一，杜绝 round_steps 错位）
+  round_steps: 'roundSteps',
   task_state: 'taskState',
+  // camelCase 直通（无别名也命中；此处保留供显式对照）
+  roundSteps: 'roundSteps',
+  taskState: 'taskState',
 };
 
 function stateFieldOf(channel: string): string {

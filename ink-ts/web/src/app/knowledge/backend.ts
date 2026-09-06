@@ -14,71 +14,35 @@ export interface KnowledgeEntry {
   archived: boolean;
   usage_failures: Array<{ at: number | null; reason: string }>;
   created_at: number;
+  updated_at: number;
 }
 
 export interface KnowledgeData {
   entries: KnowledgeEntry[];
 }
 
+/** 知识集只读面（写操作不提供；面板无写按钮）。 */
 export interface KnowledgeOps {
-  list(): Promise<KnowledgeData>;
-  add(input: { title: string; content: string; kind: string; level: string }): Promise<void>;
-  promote(id: string): Promise<void>;
-  archive(id: string): Promise<void>;
-  restore(id: string): Promise<void>;
-  export(id: string): Promise<void>;
-  skillImport(source: string, preview?: boolean): Promise<ImportOutcome | null>;
-  skillReimport(id: string): Promise<ImportOutcome | null>;
-}
-
-export interface ImportedEntry {
-  id: string;
-  kind: string;
-  title: string;
-}
-
-export interface ImportOutcome {
-  ok?: boolean;
-  error?: string;
-  source_type?: string;
-  added?: ImportedEntry[];
-  rejected?: Array<{ id: string; reason: string }>;
-  changed?: boolean;
-  note?: string;
+  list(includeArchived?: boolean): Promise<KnowledgeData>;
+  /** 知识 JSON 导出串（无 kind = 全量补丁链可移植）。 */
+  exportJson(kind?: string): Promise<string | null>;
 }
 
 export function createKnowledgeOps(): KnowledgeOps {
   const backend = createBackend();
   return {
-    list: async () => {
+    list: async (includeArchived = false) => {
       if (!backend.available) return { entries: [] };
-      // 一次取全量（含归档）：面板"显示归档/隐藏归档"只做客户端过滤，
-      // 归档条目由后端 includeArchived 透传（此前恒取活跃，归档不可达）
-      const result = await backend.knowledgeList(true);
+      const result = await backend.knowledgeList(includeArchived);
       return { entries: (Array.isArray(result.entries) ? result.entries : []) as KnowledgeEntry[] };
     },
-    add: async (input) => {
-      if (backend.available) await backend.knowledgeAdd(input);
-    },
-    promote: async (id: string) => {
-      if (backend.available) await backend.knowledgePromote(id);
-    },
-    archive: async (id: string) => {
-      if (backend.available) await backend.knowledgeArchive(id);
-    },
-    restore: async (id: string) => {
-      if (backend.available) await backend.knowledgeRestore(id);
-    },
-    export: async (id: string) => {
-      if (backend.available) await backend.knowledgeExport(id);
-    },
-    skillImport: async (source, preview = false) => {
+    exportJson: async (kind) => {
       if (!backend.available) return null;
-      return (await backend.skillImport(source, preview)) as ImportOutcome;
-    },
-    skillReimport: async (id: string) => {
-      if (!backend.available) return null;
-      return (await backend.skillReimport(id)) as ImportOutcome;
+      try {
+        return await backend.knowledgeExport(kind);
+      } catch {
+        return null;
+      }
     },
   };
 }

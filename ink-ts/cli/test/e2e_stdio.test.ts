@@ -8,11 +8,10 @@ import { tmpdir } from 'node:os';
 import path from 'node:path';
 import { createInterface } from 'node:readline';
 
+import { STUB_REPLY } from '@ink-ts/host';
 import { afterEach, describe, expect, it } from 'vitest';
 
 import { spawnCli } from './_spawn.js';
-
-const STUB_REPLY = '（cli stub 回合已执行）';
 
 interface StdioRequest {
   jsonrpc: '2.0';

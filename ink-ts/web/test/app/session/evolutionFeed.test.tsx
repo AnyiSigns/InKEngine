@@ -101,8 +101,8 @@ describe('演化页·协作者目录', () => {
         incubation={[]}
         patchChain={[]}
         backend={mockBackendByCommand({
-          graph_instance_snapshot: null,
-          entities_snapshot: entitiesSnapshot,
+          'graph.instance': null,
+          'entities.snapshot': entitiesSnapshot,
         })}
         threadId="thread-a"
       />,

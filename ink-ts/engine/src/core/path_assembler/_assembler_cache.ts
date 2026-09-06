@@ -53,6 +53,9 @@ export interface PathAssemblerOptions {
   cache_epsilon?: number;
   rng?: (() => number) | null;
   skill_provider?: ((request: AssemblyRequest) => Promise<readonly unknown[]>) | null;
+  /** 结点契约语义开关（缺省 true = 组装池带契约；false = 池恒空——组装
+   *  零候选，路径组装不携带契约语义，对应 PathAssemblyFlags.contract_enabled）。 */
+  contract_enabled?: boolean;
 }
 
 type Stats = Record<string, number>;
@@ -78,6 +81,7 @@ export class PathAssemblerBase {
   protected readonly _skill_provider:
     | ((request: AssemblyRequest) => Promise<readonly unknown[]>)
     | null;
+  protected readonly _contract_enabled: boolean;
 
   constructor(options: PathAssemblerOptions) {
     this._registry = options.registry;
@@ -91,10 +95,13 @@ export class PathAssemblerBase {
     this._cache_epsilon = Math.max(0.0, Number(options.cache_epsilon ?? DEFAULT_CACHE_EPSILON));
     this._rng = options.rng ?? Math.random;
     this._skill_provider = options.skill_provider ?? null;
+    this._contract_enabled = options.contract_enabled ?? true;
   }
 
-  /** 池子快照：注册表内全部带契约的类型（类型名 → 契约）。 */
+  /** 池子快照：注册表内全部带契约的类型（类型名 → 契约）。契约语义开关
+   *  关闭 = 恒空池（路径组装不携带契约语义，零候选零组装）。 */
   contract_pool(): Record<string, NodeContract> {
+    if (!this._contract_enabled) return {};
     const pool: Record<string, NodeContract> = {};
     for (const type_name of this._registry.types()) {
       const contract = this._registry.contract_for(type_name);

@@ -39,7 +39,7 @@ describe('SettingsFloater', () => {
       <SettingsFloater
         open
         onClose={onClose}
-        backend={{ available: true, status: async () => ({ engine_ready: true }), firstRunDismiss: async () => ({ dismissed: false }) }}
+        backend={{ available: true }}
       />,
     );
 
@@ -58,7 +58,7 @@ describe('SettingsFloater', () => {
       <SettingsFloater
         open
         onClose={() => {}}
-        backend={{ available: true, status: async () => ({ engine_ready: true }), firstRunDismiss: async () => ({ dismissed: false }) }}
+        backend={{ available: true }}
       />,
     );
 
@@ -76,7 +76,7 @@ describe('SettingsFloater', () => {
       <SettingsFloater
         open
         onClose={onClose}
-        backend={{ available: true, status: async () => ({ engine_ready: true }), firstRunDismiss: async () => ({ dismissed: false }) }}
+        backend={{ available: true }}
       />,
     );
 

@@ -16,7 +16,7 @@ import path from 'node:path';
 export const GRANITE_97M_DIM = 384;
 
 /** 模型目录默认位置（相对进程当前目录；可用 INK_EMBEDDING_MODEL_DIR 覆盖）。 */
-export const GRANITE_MODEL_DIR_DEFAULT = 'inkling/models/granite-97m';
+export const GRANITE_MODEL_DIR_DEFAULT = 'ink-ts/models/granite-97m';
 
 /** 本地 ONNX 图/分词器/配置文件约定名（与 infer 常量对偶）。 */
 export const LOCAL_MODEL_FILES = ['model_quint8_avx2.onnx', 'tokenizer.json', 'config.json'] as const;

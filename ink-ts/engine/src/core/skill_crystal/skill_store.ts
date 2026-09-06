@@ -6,6 +6,10 @@
  * Python aiosqlite 的依赖 fail-fast（ENG1-11：缺失 = 装配期显式拒绝，不拖到
  * 运行期静默失效）在 TS 面由「依赖探测在宿主 sqlite seam 注入侧」承接——
  * core 本身零依赖，宿主接 sqlite 库时于装配期探测即报（同纪律）。
+ *
+ * 双实现分工：本类 = 宿主自管存储态（宿主装配注入后端 seam）；引擎默认
+ * 结晶接线落 KnowledgeSkillStore（知识集 kind=path，补丁链 = 演化史）——
+ * 两者接口同形不同演化史，不同时并行接线（见 knowledge_skill_store）。
  */
 
 import { StorageError } from '../errors.js';

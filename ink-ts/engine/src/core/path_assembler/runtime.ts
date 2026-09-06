@@ -45,6 +45,9 @@ export class PathAssemblyRuntime {
   readonly canary_timeout: number | null;
   readonly canary_options: RunOptions | Partial<RunOptions> | null;
   readonly multipath_enabled: boolean;
+  /** 结点契约语义开关（false = 组装不携带契约语义；对应
+   *  PathAssemblyFlags.contract_enabled，缺省 true）。 */
+  readonly contract_enabled: boolean;
   /** 组装统计累计（进程内跨调用聚合：stats 最后一跳的数据源）。 */
   stats_total: Record<string, number>;
   /** 技能先例提供器（异步；组装请求 → 候选技能链）。 */
@@ -66,6 +69,7 @@ export class PathAssemblyRuntime {
     canary_timeout?: number | null;
     canary_options?: RunOptions | Partial<RunOptions> | null;
     multipath_enabled?: boolean;
+    contract_enabled?: boolean;
     stats_total?: Record<string, number>;
     skill_provider?: ((request: AssemblyRequest) => Promise<readonly unknown[]>) | null;
   }) {
@@ -84,6 +88,7 @@ export class PathAssemblyRuntime {
     this.canary_timeout = init.canary_timeout ?? null;
     this.canary_options = init.canary_options ?? null;
     this.multipath_enabled = init.multipath_enabled ?? false;
+    this.contract_enabled = init.contract_enabled ?? true;
     this.stats_total = { ...(init.stats_total ?? {}) };
     this.skill_provider = init.skill_provider ?? null;
     this.last_request_fingerprint = '';
@@ -102,6 +107,7 @@ export class PathAssemblyRuntime {
       model_id: this.model_id,
       cache_epsilon: this.cache_epsilon,
       skill_provider: this.skill_provider,
+      contract_enabled: this.contract_enabled,
     };
     return new PathAssembler(options);
   }

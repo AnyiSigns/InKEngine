@@ -20,8 +20,6 @@ interface SettingsFloaterProps {
   onClose: () => void;
   backend: {
     available: boolean;
-    status(): Promise<{ engine_ready: boolean; first_run?: boolean }>;
-    firstRunDismiss(): Promise<{ dismissed: boolean }>;
   };
 }
 

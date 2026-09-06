@@ -26,8 +26,8 @@ export interface MemoryData {
 
 export interface MemoryOps {
   list(): Promise<MemoryData>;
-  invalidate(id: string): Promise<void>;
-  updateFrontmatter(id: string, frontmatter: Record<string, string>): Promise<void>;
+  /** 标记失效（memory.invalidate 批量语义：非破坏性，缺失条目记 not_found）。 */
+  invalidate(id: string): Promise<boolean>;
 }
 
 export function createMemoryOps(): MemoryOps {
@@ -42,10 +42,13 @@ export function createMemoryOps(): MemoryOps {
       };
     },
     invalidate: async (id: string) => {
-      if (backend.available) await backend.memoryInvalidate(id);
-    },
-    updateFrontmatter: async (id: string, frontmatter: Record<string, string>) => {
-      if (backend.available) await backend.memoryUpdateFrontmatter(id, frontmatter);
+      if (!backend.available) return false;
+      try {
+        await backend.memoryInvalidate(id);
+        return true;
+      } catch {
+        return false;
+      }
     },
   };
 }

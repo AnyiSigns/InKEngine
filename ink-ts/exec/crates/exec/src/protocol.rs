@@ -5,15 +5,15 @@
 //! HMAC-SHA256(body) 十六进制。复核与执行对象是同一串 body 字节——先验
 //! 签名（fail-closed：无密钥/签名不符一律拒绝），再解析信封并走守门执行。
 
-use serde_json::{Value as JsonValue, json};
+use serde_json::{json, Value as JsonValue};
 
 use super::envelope::Deny;
 use super::hmac::{constant_time_eq, hex_encode, hmac_sha256};
 use super::ops;
 use super::Executor;
 use ink_ts_rpc::code::{
-    EXEC_ERROR, INVALID_PARAMS, INVALID_REQUEST, METHOD_NOT_FOUND, PARSE_ERROR,
-    error_response, log_line, message_id, response,
+    error_response, log_line, message_id, response, EXEC_ERROR, INVALID_PARAMS, INVALID_REQUEST,
+    METHOD_NOT_FOUND, PARSE_ERROR,
 };
 
 /// 信封 body 文本长度上界（字符；防超大 body 轰炸解析）。
@@ -89,7 +89,12 @@ pub fn handle_line(line: &str, executor: &Executor) -> Option<String> {
         None => {
             let message = "消息缺 method".to_string();
             log_line("rpc", "error", "", &id, 0, Some(&message));
-            return Some(json_string(error_response(&id, INVALID_REQUEST, message, None)));
+            return Some(json_string(error_response(
+                &id,
+                INVALID_REQUEST,
+                message,
+                None,
+            )));
         }
     };
     let params = obj.get("params").cloned().unwrap_or(JsonValue::Null);
@@ -99,9 +104,6 @@ pub fn handle_line(line: &str, executor: &Executor) -> Option<String> {
             Ok(result) => Ok(Some(response(&id, result))),
             Err(failure) => Err(failure),
         },
-        _ if method.starts_with("notifications/") => {
-            Ok(Some(response(&id, JsonValue::Object(Default::default()))))
-        }
         _ => Err(RpcFailure {
             code: METHOD_NOT_FOUND,
             message: format!("方法未实现: {method}"),
@@ -135,7 +137,8 @@ fn handle_exec_call(executor: &Executor, params: &JsonValue) -> Result<JsonValue
     let Some(session_key) = &executor.key else {
         return Err(RpcFailure {
             code: EXEC_ERROR,
-            message: "exec 会话密钥缺失（宿主须经 INK_EXEC_SESSION_KEY 注入）——fail-closed".to_string(),
+            message: "exec 会话密钥缺失（宿主须经 INK_EXEC_SESSION_KEY 注入）——fail-closed"
+                .to_string(),
             reason: "no_key",
         });
     };
@@ -168,13 +171,12 @@ fn handle_exec_call(executor: &Executor, params: &JsonValue) -> Result<JsonValue
             reason: "signature",
         });
     }
-    let envelope: super::envelope::Envelope = serde_json::from_str(body).map_err(|err| {
-        RpcFailure {
+    let envelope: super::envelope::Envelope =
+        serde_json::from_str(body).map_err(|err| RpcFailure {
             code: INVALID_PARAMS,
             message: format!("信封解析失败: {err}"),
             reason: "params",
-        }
-    })?;
+        })?;
     let output = ops::execute(&envelope).map_err(RpcFailure::deny)?;
     Ok(json!({
         "tool": envelope.tool,
@@ -224,7 +226,6 @@ mod tests {
             "endpoint": "os",
             "roots": [std::env::temp_dir().to_string_lossy()],
             "allowlist": ["echo"],
-            "allow_domains": [],
             "cwd": std::env::temp_dir().to_string_lossy(),
             "env": null,
             "timeout_secs": 10,
@@ -277,7 +278,6 @@ mod tests {
                 "endpoint": "os",
                 "roots": [std::env::temp_dir().to_string_lossy()],
                 "allowlist": ["cmd", "echo"],
-                "allow_domains": [],
                 "cwd": std::env::temp_dir().to_string_lossy(),
                 "env": null, "timeout_secs": 10, "max_chars": 4096,
                 "nonce": "n1", "issued_at": 1,
@@ -290,7 +290,6 @@ mod tests {
                 "endpoint": "os",
                 "roots": [std::env::temp_dir().to_string_lossy()],
                 "allowlist": ["echo"],
-                "allow_domains": [],
                 "cwd": std::env::temp_dir().to_string_lossy(),
                 "env": null, "timeout_secs": 10, "max_chars": 4096,
                 "nonce": "n1", "issued_at": 1,
@@ -302,7 +301,10 @@ mod tests {
         let result = parse_response(&resp)["result"].clone();
         assert_eq!(result["tool"], "process_exec");
         assert_eq!(result["output"]["exit_code"], 0);
-        assert!(result["output"]["stdout"].as_str().unwrap().contains("signed-ok"));
+        assert!(result["output"]["stdout"]
+            .as_str()
+            .unwrap()
+            .contains("signed-ok"));
     }
 
     #[test]
@@ -313,12 +315,12 @@ mod tests {
             "endpoint": "os",
             "roots": [std::env::temp_dir().to_string_lossy()],
             "allowlist": ["git"],
-            "allow_domains": [],
             "cwd": std::env::temp_dir().to_string_lossy(),
             "env": null, "timeout_secs": 10, "max_chars": 4096,
             "nonce": "n2", "issued_at": 1,
             "decision": { "approved": true, "by": "test", "trace_id": null }
-        }).to_string();
+        })
+        .to_string();
         let resp = call_exec("k", &body, &sign("k", &body)).unwrap();
         let error = parse_response(&resp)["error"].clone();
         assert_eq!(error["data"]["reason"], "allowlist");
@@ -338,6 +340,17 @@ mod tests {
     #[test]
     fn unknown_method_is_32601() {
         let resp = call("k", r#"{"jsonrpc":"2.0","id":9,"method":"no/such"}"#).unwrap();
+        let error = parse_response(&resp)["error"].clone();
+        assert_eq!(error["code"], METHOD_NOT_FOUND as f64);
+    }
+
+    #[test]
+    fn notifications_prefix_with_id_is_unknown_method() {
+        let resp = call(
+            "k",
+            r#"{"jsonrpc":"2.0","id":10,"method":"notifications/initialized"}"#,
+        )
+        .unwrap();
         let error = parse_response(&resp)["error"].clone();
         assert_eq!(error["code"], METHOD_NOT_FOUND as f64);
     }

@@ -9,8 +9,7 @@
  * to_openai_tools 的 function 嵌套段复用转换。
  */
 
-import type { Json } from '../../core/llm/_shapes.js';
-import type { Message } from '../../core/llm/messages.js';
+import type { Json, Message } from '../../core/llm/messages.js';
 import type { ToolSpec } from '../../core/llm/tools.js';
 import { to_openai_tools } from '../../core/llm/tools.js';
 

@@ -1,3 +1,4 @@
+// 跨域契约模块 - 跨域类型 seam：knowledge_signals/introspection/retrieval/knowledge_gate 消费知识集数据形态
 /**
  * 知识集域数据形态与常量（knowledge_set.py 常量/哨兵/seam 面移植）。
  *

@@ -6,7 +6,8 @@
  *
  * - assistant：无模型 = 确定性 stub 回复（镜像 inkling/cli headless 的
  *   stub_script 语义——无真实模型也能稳定抵达回复态），有模型 = 流式聊天
- *   （token 经 reply_token 事件发射，web 事件订阅可观测）；
+ *   （token 经 reply_token 事件发射，web 事件订阅可观测）。stub 文案取宿主
+ *   侧常量（host/src/graph.ts STUB_REPLY 单源，cli 不另立第二套回复文案）；
  * - gate：对 demo 动作走 approve_before_execute。决议策略由 CLI 审批姿态
  *   （--approve 显式声明）构造——显式放行 = 策略直过（should_approve
  *   恒 false），否则全量挂起（fail-closed）。
@@ -22,10 +23,9 @@ import {
   type InterruptPolicy,
 } from '@ink-ts/engine';
 
-import type { GraphName } from './argv.js';
+import { STUB_REPLY } from '@ink-ts/host';
 
-/** 确定性 stub 回复文案（无模型兜底；与 headless stub 同语义）。 */
-const STUB_REPLY = '（cli stub 回合已执行）';
+import type { GraphName } from './argv.js';
 
 /** 直过审批策略：所有动作 should_approve=false（与 host AutoApprovePolicy 等价）。 */
 class CliAutoApprovePolicy implements InterruptPolicy {

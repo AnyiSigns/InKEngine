@@ -2,26 +2,23 @@
 //!
 //! 零裁决红线：本模块只做「信封约束 vs 请求形态」的一致性复核（fail-closed），
 //! 不读策略文件、不做审批判定。约束对象 = 信封内现取的 roots/allowlist/
-//! allow_domains/端点名——exec 没有本地副本，信封里没有的能力本进程不存在。
+//! 端点名——exec 没有本地副本，信封里没有的能力本进程不存在。
 //!
 //! 端点归属表（CallGate 的机械形态，L7）：每种物理 op 只能由固定端点族
-//! 承载——进程执行只归 os 端点、文件 IO 只归 file 端点、出网抓取只归
-//! network 端点。这是「能力归属」而非权限声明（不随工具声明变化）。
-//! 新端点类型（如 database）如要复用物理执行体，归属表是 exec 侧唯一需要
-//! 开口的机械点（由收口方评审，不开给 agent）。
+//! 承载——进程执行只归 os 端点、文件 IO 与文档解析只归 file 端点、原生
+//! 目录对话框只归 dialog 端点。这是「能力归属」而非权限声明（不随工具
+//! 声明变化）。新端点类型（如 database）如要复用物理执行体，归属表是
+//! exec 侧唯一需要开口的机械点（由收口方评审，不开给 agent）。
 
 use std::path::{Path, PathBuf};
 
-use super::envelope::{
-    Deny, ENV_ENTRIES_MAX, ENV_KEY_MAX_CHARS, ENV_VALUE_MAX_CHARS,
-};
+use super::envelope::{Deny, ENV_ENTRIES_MAX, ENV_KEY_MAX_CHARS, ENV_VALUE_MAX_CHARS};
 
 /// 物理 op ↔ 端点归属（机械常量；op 不在表内 = 未知能力，拒绝）。
 pub fn op_allows_endpoint(op: &str, endpoint: &str) -> bool {
     match op {
         "process" => endpoint == "os",
         "file" => endpoint == "file",
-        "http" => endpoint == "network",
         "doc" => endpoint == "file",
         "dialog" => endpoint == "dialog",
         _ => false,
@@ -52,7 +49,10 @@ pub fn normalize_root(text: &str) -> Result<PathBuf, Deny> {
         return Err(Deny::new("root", format!("路径根须为绝对路径: {trimmed}")));
     }
     if has_dotdot(&path) {
-        return Err(Deny::new("root", format!("路径根含 `..` 段，拒绝: {trimmed}")));
+        return Err(Deny::new(
+            "root",
+            format!("路径根含 `..` 段，拒绝: {trimmed}"),
+        ));
     }
     Ok(resolve_non_strict(&path))
 }
@@ -71,7 +71,10 @@ pub fn resolve_within_roots(roots: &[PathBuf], target: &str) -> Result<PathBuf, 
         return Err(Deny::new("root", format!("路径须为绝对路径: {raw}")));
     }
     if has_dotdot(&path) {
-        return Err(Deny::new("root", format!("路径含 `..` 段，拒绝穿越: {raw}")));
+        return Err(Deny::new(
+            "root",
+            format!("路径含 `..` 段，拒绝穿越: {raw}"),
+        ));
     }
     let resolved = resolve_non_strict(&path);
     let inside = roots
@@ -150,7 +153,9 @@ pub fn check_allowlist(allowlist: &[String], program: &str, tool: &str) -> Resul
 
 /// 显式 env 面校验：entries ≤ 上界、值全为字符串、键/值长度收口。
 /// 返回扁平 HashMap（不含平台继承——env=None 时由 runner 注入最小面）。
-pub fn normalize_env(raw: Option<&serde_json::Value>) -> Result<Option<std::collections::HashMap<String, String>>, Deny> {
+pub fn normalize_env(
+    raw: Option<&serde_json::Value>,
+) -> Result<Option<std::collections::HashMap<String, String>>, Deny> {
     let Some(raw) = raw else {
         return Ok(None);
     };
@@ -158,7 +163,10 @@ pub fn normalize_env(raw: Option<&serde_json::Value>) -> Result<Option<std::coll
         .as_object()
         .ok_or_else(|| Deny::new("params", "env 须为对象（string→string）"))?;
     if obj.len() > ENV_ENTRIES_MAX {
-        return Err(Deny::new("env", format!("env 条数超限（≤{ENV_ENTRIES_MAX}）")));
+        return Err(Deny::new(
+            "env",
+            format!("env 条数超限（≤{ENV_ENTRIES_MAX}）"),
+        ));
     }
     let mut out = std::collections::HashMap::with_capacity(obj.len());
     for (key, value) in obj {

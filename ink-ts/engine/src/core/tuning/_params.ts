@@ -33,8 +33,14 @@ export interface TunableParamsInit {
  * divergence_width：探索宽度（探索收敛的探索候选数）；retry_budget：
  * 重试预算（节点/调用的重试次数上限）；web_verify_threshold：web 验证
  * 触发阈值（存疑声明的置信度门槛）；weights：打分维度权重表（维度名 →
- * 权重；与 WeightedScorer 同构）；thresholds：校验阈值表（阈值名 →
+ * 权重；与 scoring.WeightedScorer 同构）；thresholds：校验阈值表（阈值名 →
  * 数值；与规则集/打分器同构）。
+ *
+ * 参数注册机制：参数整体以知识集 kind=weight 条目（GENERAL_WEIGHTS_SEED_ID）
+ * 持久化——调参回写同一条目、下次调参读回（注册表在知识集，非散落旁路）；
+ * 生产消费面：收尾调参钩子读该条目调整基线，weights/thresholds 供宿主打分/
+ * 验证器按同一条目取用（维度打分器等宿主执行语义属宿主批次接线点，见
+ * runtime 交付说明）。
  */
 export class TunableParams {
   readonly divergence_width: number;

@@ -52,6 +52,21 @@ interface ChainView {
   checkpoints: unknown[];
 }
 
+/** records.ledger 单条账本事实行（kind + action + 节点定位 + 细节 + 时间）。 */
+export interface LedgerEntryView {
+  kind: string;
+  action: string;
+  node_id: string | null;
+  detail?: Record<string, unknown>;
+  ts: number;
+}
+
+/** records.ledger 查询结果。 */
+export interface LedgerView {
+  thread_id: string;
+  entries: LedgerEntryView[];
+}
+
 function requireThread(raw: unknown): string {
   const params = raw as { thread_id?: unknown } | null;
   if (
@@ -84,6 +99,82 @@ export function sessionToView(record: HostSessionRecord): SessionView {
   return view;
 }
 
+/** 单条 ledger 记录 → 事实行（round 意图/结论 + events 逐条投影）。 */
+function ledgerRecordToEntries(record: Record<string, unknown>): LedgerEntryView[] {
+  const ts = typeof record['created_at'] === 'number' ? record['created_at'] : 0;
+  const out: LedgerEntryView[] = [];
+  if (typeof record['intent'] === 'string' && record['intent'] !== '') {
+    out.push({
+      kind: 'intent',
+      action: 'round',
+      node_id: null,
+      detail: { text: record['intent'] },
+      ts,
+    });
+  }
+  if (typeof record['conclusion'] === 'string' && record['conclusion'] !== '') {
+    out.push({
+      kind: 'conclusion',
+      action: 'round',
+      node_id: null,
+      detail: { text: record['conclusion'] },
+      ts,
+    });
+  }
+  const rawEvents = record['events'];
+  const events: unknown[] = Array.isArray(rawEvents) ? rawEvents : [];
+  for (const rawEvent of events) {
+    if (typeof rawEvent !== 'object' || rawEvent === null) continue;
+    const event = rawEvent as Record<string, unknown>;
+    const kind = typeof event['kind'] === 'string' && event['kind'] !== ''
+      ? event['kind']
+      : 'event';
+    const detail =
+      typeof event['detail'] === 'object' && event['detail'] !== null
+        ? (event['detail'] as Record<string, unknown>)
+        : {};
+    const node = typeof detail['node'] === 'string' ? detail['node'] : null;
+    const status = typeof detail['status'] === 'string' ? detail['status'] : null;
+    const detailView: Record<string, unknown> = {};
+    for (const [key, value] of Object.entries(detail)) {
+      if (key === 'node') continue;
+      detailView[key] = value;
+    }
+    out.push({
+      kind,
+      action: status ?? (kind === 'error' ? 'error' : 'round'),
+      node_id: node,
+      ...(Object.keys(detailView).length > 0 ? { detail: detailView } : {}),
+      ts,
+    });
+  }
+  return out;
+}
+
+/** records.ledger 查询窗口（round_index 升序全量后按 ts 倒序 + limit 截取）。 */
+const LEDGER_DEFAULT_LIMIT = 200;
+
+function parseLedgerParams(raw: unknown): { thread_id: string; limit: number } {
+  const params = raw as { thread_id?: unknown; limit?: unknown } | null;
+  if (
+    typeof params !== 'object'
+    || params === null
+    || typeof params.thread_id !== 'string'
+    || params.thread_id === ''
+  ) {
+    throw new BridgeError('records.ledger 需 params.thread_id', 'invalid_params');
+  }
+  let limit = LEDGER_DEFAULT_LIMIT;
+  if (params.limit !== undefined && params.limit !== null) {
+    const value = Number(params.limit);
+    if (!Number.isInteger(value) || value <= 0) {
+      throw new BridgeError('records.ledger limit 须为正整数', 'invalid_params');
+    }
+    limit = Math.min(value, 1000);
+  }
+  return { thread_id: params.thread_id, limit };
+}
+
 export function buildRecordsHandlers(deps: HostBridgeDeps): ReadonlyMap<string, BridgeHandler> {
   const sessionsStore = new HostSessionStore(() => deps.runtime.storage as unknown as Storage | null);
 
@@ -109,8 +200,55 @@ export function buildRecordsHandlers(deps: HostBridgeDeps): ReadonlyMap<string, 
     };
   };
 
+  /**
+   * 回合账本窗口（引擎 ledger 集合 = runtime.ledger 读面同源；事实行投影）。
+   * 取数走 storage.list_records_page：按 `thread_id\u001f` 键前缀 + 游标分页
+   * 下推，只取该线程的账本行（引擎 ledger 键 = `${thread_id}\u001f${seq}`，
+   * 升序 = 回合序），保持滑动窗口不整集物化。
+   */
+  const ledger: BridgeHandler = async (raw): Promise<LedgerView> => {
+    const storage = deps.runtime.storage;
+    if (storage === null) {
+      throw new BridgeError('运行时存储未装配', 'runtime_unavailable');
+    }
+    const { thread_id, limit } = parseLedgerParams(raw);
+    const prefix = `${thread_id}\u001f`;
+    const rows: LedgerEntryView[] = [];
+    let cursor: string | null = null;
+    let paged = true;
+    for (;;) {
+      const page: { records: Array<Record<string, unknown>>; next_cursor: string | null } | null =
+        await storage
+          .list_records_page('ledger', { prefix, limit: 200, cursor })
+          .catch(() => null);
+      if (page === null) {
+        // 分页原语不可得 = 回落全量过滤语义（旧行为；当前驱动均实现分页）
+        paged = false;
+        break;
+      }
+      for (const record of page.records) {
+        rows.push(...ledgerRecordToEntries(record));
+        if (rows.length > limit) rows.splice(0, rows.length - limit);
+      }
+      if (page.next_cursor === null) break;
+      cursor = page.next_cursor;
+    }
+    if (!paged) {
+      const records = (await storage.list_records('ledger').catch(() => [])) as Array<
+        Record<string, unknown>
+      >;
+      for (const record of records) {
+        if (record['thread_id'] !== thread_id) continue;
+        rows.push(...ledgerRecordToEntries(record));
+      }
+    }
+    rows.sort((a, b) => b.ts - a.ts || (a.node_id ?? '').localeCompare(b.node_id ?? ''));
+    return { thread_id, entries: rows.slice(0, limit) };
+  };
+
   return new Map<string, BridgeHandler>([
     ['records.sessions', sessions],
     ['records.chain', chain],
+    ['records.ledger', ledger],
   ]);
 }

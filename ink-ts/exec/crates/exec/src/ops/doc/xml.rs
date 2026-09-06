@@ -36,7 +36,11 @@ pub fn tokenize(xml: &str) -> Result<Vec<XmlToken<'_>>, String> {
                 let gt = find(bytes, b'>', i + 1).ok_or("起始标签未闭合")?;
                 let inner = &xml[i + 1..gt];
                 let self_close = inner.ends_with('/');
-                let inner_body = if self_close { &inner[..inner.len() - 1] } else { inner };
+                let inner_body = if self_close {
+                    &inner[..inner.len() - 1]
+                } else {
+                    inner
+                };
                 let mut parts =
                     inner_body.splitn(2, |c| c == ' ' || c == '\t' || c == '\n' || c == '\r');
                 let raw_name = parts.next().unwrap_or("").trim();
@@ -137,10 +141,7 @@ pub fn attr_val<'a>(attrs: &[(&'a str, &'a str)], name: &str) -> Option<&'a str>
 
 /// 原名精确匹配取属性值（带命名空间前缀的属性须精确匹配）。
 pub fn attr_val_exact<'a>(attrs: &[(&'a str, &'a str)], name: &str) -> Option<&'a str> {
-    attrs
-        .iter()
-        .find(|(k, _)| *k == name)
-        .map(|(_, v)| *v)
+    attrs.iter().find(|(k, _)| *k == name).map(|(_, v)| *v)
 }
 
 pub fn xml_unescape(s: &str) -> String {

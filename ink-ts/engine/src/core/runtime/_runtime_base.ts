@@ -29,12 +29,19 @@ import type { PoolGovernance } from '../pool_governance/pool_governance.js';
 import type { MetaTuner, TurnMetrics } from '../tuning/index.js';
 import type { ToolVectorIndex } from '../tool_index/tool_index.js';
 import type { ToolSelector } from '../tool_orchestrator/tool_orchestrator.js';
+import type { PathAssemblyFlags } from '../contracts/contracts.js';
 import type { ToolSpec } from '../llm/tools.js';
 import type { AsyncLLM } from '../llm/_guard_types.js';
 import type { GrowthPipeline } from '../growth/index.js';
 import type { EntityEvolutionPipeline } from '../entity_evolution/index.js';
 import type { DefaultEvolutionWriter } from '../evolution_writer/evolution_writer.js';
 import type { EdgeEvidenceStore } from '../edge_evidence/store.js';
+import type { FingerprintCacheStore } from '../fingerprint_cache/store.js';
+import type { StorageBackedMemoryStore } from '../memory/store.js';
+import type { KnowledgeSkillStore } from '../skill_crystal/knowledge_skill_store.js';
+import type { PathAssemblyRuntime } from '../path_assembler/runtime.js';
+import type { EnvironmentProviders } from '../environments/providers.js';
+import type { ContextMixer } from '../context/context_mixer.js';
 import type { Storage } from '../storage/storage.js';
 import type { _RoundStepsRecorder } from './_round_steps_recorder.js';
 import type { AssemblyRecipe, Host, RuntimeConfigInit } from './_types.js';
@@ -119,6 +126,9 @@ export abstract class RuntimeBase {
   // 在途知识落库任务集合 + 变更钩子
   _persist_tasks: Set<Promise<unknown>> = new Set();
   _knowledge_mutation_hook: (() => void) | null = null;
+  /** 最近一次集状态恢复的失败诊断（恢复失败只跳过不击穿启动；可观测）。
+   *  写入只经 _runtime_engine._restore_set_state；对外只读经 restore_diag。 */
+  _restore_diag: readonly string[] = [];
 
   /** MCP 会话管理器 seam（宿主适配器；未注入 = 不启用，stop 跳过）。
    *  Python 侧 McpClientManager 属引擎 adapters/宿主装配面，未迁入 core。 */
@@ -154,6 +164,9 @@ export abstract class RuntimeBase {
   _thread_tag_created: Record<string, number> = {};
   _tags_lock = false;
   pool_governance: PoolGovernance | null = null;
+  /** 池治理裁决可写 seam（R3：实体注册表存在 = 接注册表受守卫写实现；
+   *  未装配/无实体源 = null → settle 回落登记 + 审计）。 */
+  pool_governance_writable: import('../settle/index.js').GovernanceWriteTarget | null = null;
   _round_knowledge_hits: Set<string> = new Set();
   tool_index: ToolVectorIndex | null = null;
   tool_selector: ToolSelector | null = null;
@@ -176,8 +189,43 @@ export abstract class RuntimeBase {
   _ledger_latest_summary: Record<string, string> = {};
   /** 每线程最近一次已记账的回合 id（同 round 幂等：不重复产出）。 */
   _ledger_rounds: Record<string, string> = {};
-  /** 池治理每回合自动跑开关（默认开；宿主可经装配关闭）。 */
-  _pool_governance_enabled = true;
+  // 引擎自承载装配产物（证据/缓存/组装运行期/环境/多域调配器；见
+  // _runtime_mechanisms 装配段；null = 机制开关关闭未装配）
+  fingerprint_cache_store: FingerprintCacheStore | null = null;
+  assembly_runtime: PathAssemblyRuntime | null = null;
+  /** 机制装配开关组（配方解析产物；由 _mount_assembly_runtime 写出，
+   *  挂载的组装运行期与引擎状态按位消费——见 D01/D02）。 */
+  assembly_flags: PathAssemblyFlags | null = null;
+  environment_providers: EnvironmentProviders | null = null;
+  context_mixer: ContextMixer | null = null;
+
+  // ── 自学习族装配产物（回合记忆抽取/技能结晶/调参；null = 开关关闭）──
+  // 记忆存储 = 受守卫演化资产通道（EvolutionWriter kind=memory）；技能存储
+  // = 知识集 kind=path 条目访问器（KnowledgeSkillStore）；结晶钩子随引擎重建
+  // 装配（观察侧结晶结果清单）。结晶器由引擎内部装配/重建写入（带 _ 前缀
+  // 内部字段），对外只读经 skill_crystallizer getter（host 经 assemble 状态
+  // 读接续观察）。
+  memory_store: StorageBackedMemoryStore | null = null;
+  knowledge_skill_store: KnowledgeSkillStore | null = null;
+  _skill_crystallizer: { crystallized: string[] } | null = null;
+  /** 每线程待入账本的用户决议事件（resume 决议 accept/edit/reject 等；回合
+   *  收尾并入账本事实事件集，供记忆抽取确认类条目；决议后清空见账本钩子）。 */
+  _round_review_events: Record<
+    string,
+    Array<{ kind: string; detail: Record<string, unknown> }>
+  > = {};
+
+  // 只读状态面（host 经 assemble 状态读取用；V3-8 只读暴露只写字段，
+  // 防止宿主/观察侧误写引擎内部状态）
+  /** 最近一次集状态恢复诊断（只读视图；空 = 无失败回落记录）。 */
+  get restore_diag(): readonly string[] {
+    return this._restore_diag;
+  }
+
+  /** 技能结晶器观察面（只读视图；最近一轮结晶结果清单可读）。 */
+  get skill_crystallizer(): { readonly crystallized: readonly string[] } | null {
+    return this._skill_crystallizer;
+  }
 
   // 生命周期状态（观察侧；转换只能经 pause/resume/stop）
   get state(): string {

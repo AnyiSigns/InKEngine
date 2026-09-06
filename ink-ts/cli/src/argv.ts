@@ -38,7 +38,7 @@ export interface ServeFlags {
   static_dir?: string;
   /** Vite dev 代理目标（缺省不代理）。 */
   vite_proxy?: string;
-  /** 显式鉴权 token（缺省进程内随机生成）。 */
+  /** 显式鉴权 token（缺省进程内随机生成；--host 非回环时必须显式提供）。 */
   token?: string;
 }
 
@@ -208,6 +208,18 @@ export function parseArgs(argv: readonly string[]): ParseArgsResult {
     if (run.command === 'audit' && run.arg !== 'export') {
       return fail(`不支持的审计动作: ${run.arg}（仅 export）`);
     }
+  } else if (mode === 'serve') {
+    const serve = options.serve;
+    if (serve !== undefined) {
+      if (serve.token === '') {
+        return fail('--token 不能为空（serve 鉴权令牌须非空；缺省为进程内随机生成）');
+      }
+      const host = serve.host !== undefined ? serve.host.trim() : '';
+      const loopback = host === '' || host === '127.0.0.1' || host === '::1' || host === 'localhost';
+      if (!loopback && serve.token === undefined) {
+        return fail('非回环 --host 须显式 --token（随机 token 缺省仅用于回环监听）');
+      }
+    }
   } else if (mode === 'stdio' && (options.run !== undefined || options.serve !== undefined)) {
     return fail('run/serve 专属参数不能用于当前形态（缺省形态 = stdio）');
   }
@@ -241,9 +253,14 @@ const HELP_TEXT = [
   'run 专用:',
   '  --round      发起一次回合（回合输入文本）',
   '  --op         调一次 host bridge 方法（rounds.* / records.* / approval.* /',
-  '               audit.export / host.ping / host.info；参数经 --args JSON）',
+  '               recovery.* / audit.export / os.run / workspace.* / models.* /',
+  '               capability.* / policy.* / search.* / dialog.* / material.* /',
+  '               host.ping / host.info；其余域 sessions.* / tools.full /',
+  '               model_archive.snapshot / ui_components.* 见 CODING.md §9；',
+  '               桌面旧扁平别名见 legacy_aliases；参数经 --args JSON）',
   '  --os-op      单 OS 工具调用（host 受控执行器：--approve 显式放行；',
-  '               参数经 --args：op/args/roots/allowlist/allow_domains 等）',
+  '               参数经 --args：op/args/roots/allowlist 等；doc/dialog 走各自',
+  '               专用方法面不经 os.run）',
   '  --audit      审计动作（当前仅 export）',
   '  --args       参数 JSON 串（缺省 {}）',
   '  --trace-id   透传 trace_id（缺省自动生成）',
@@ -252,11 +269,12 @@ const HELP_TEXT = [
   '',
   'serve 专用:',
   '  --port       监听端口（缺省 0 = 系统分配；输出 listen 行可读）',
-  '  --host       监听地址（缺省 127.0.0.1 回环）',
+  '  --host       监听地址（缺省 127.0.0.1 回环；非回环地址须显式 --token）',
   '  --static     静态托管目录（缺省 cli 内置占位）',
   '  --vite       Vite dev 代理目标（缺省不代理）',
-  '  --token      鉴权 token（缺省随机生成；/rpc 走 Authorization Bearer 或',
-  '               x-ink-token，/ws 走 ?token= 或 ink_ts_token cookie）',
+  '  --token      鉴权 token（缺省进程内随机生成，恒非空；/rpc 走',
+  '               Authorization Bearer 或 x-ink-token，/ws 走 ?token= 或',
+  '               ink_ts_token cookie）',
 ].join('\n');
 
 export { HELP_TEXT };

@@ -60,8 +60,7 @@ pub fn list_entries(zip: &[u8]) -> Result<Vec<ZipEntryInfo>, ZipError> {
         if name_start + name_len > zip.len() {
             return Err(ZipError::new(ZipErrorKind::BadZip, "条目名截断"));
         }
-        let name =
-            String::from_utf8_lossy(&zip[name_start..name_start + name_len]).into_owned();
+        let name = String::from_utf8_lossy(&zip[name_start..name_start + name_len]).into_owned();
         entries.push(ZipEntryInfo { name, method });
         pos += 46 + name_len + extra_len + comment_len;
     }
@@ -252,7 +251,11 @@ fn crc32(data: &[u8]) -> u32 {
     for n in 0..256u32 {
         let mut c = n;
         for _ in 0..8 {
-            c = if c & 1 != 0 { 0xEDB88320 ^ (c >> 1) } else { c >> 1 };
+            c = if c & 1 != 0 {
+                0xEDB88320 ^ (c >> 1)
+            } else {
+                c >> 1
+            };
         }
         table[n as usize] = c;
     }

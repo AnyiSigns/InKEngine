@@ -16,7 +16,6 @@ sha2 = "0.10"
 flate2 = "1"
 regex = "1"
 ink-ts-rpc = { package = "ink_ts_rpc", path = "../rpc" }
-reqwest = { version = "0.12", default-features = false, features = ["blocking", "rustls-tls"] }
 rfd = { version = "0.15", default-features = false }
 
 [dev-dependencies]

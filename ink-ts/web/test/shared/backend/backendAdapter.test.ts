@@ -2,7 +2,7 @@
  * 后端适配器契约测试：可注入后端（真实数据源 mock 形态）+ 远端会话存储。
  *
  * 断言面：serve 通道形态（channel.request 直调命令名/参数）、通道不可用
- * 回落、会话 CRUD 经适配器下发、标题/消息刷新落库。
+ * 回落、会话 CRUD 经适配器下发、标题/消息刷新落库、危险操作 confirm 标记。
  */
 
 import { describe, expect, it, vi } from 'vitest';
@@ -82,51 +82,50 @@ describe('serve 通道适配器', () => {
     expect(calls[6].args).toEqual({ threadId: 'thread-a', action: 'branch', targetLeaf: 5, editText: '编辑文本' });
   });
 
-  it('回合/审批/能力档/备份/崩溃回退命令参数对齐宿主', async () => {
+  it('回合/能力档/备份/崩溃回退命令参数对齐宿主（危险操作带 confirm）', async () => {
     const { channel, calls } = mockChannel();
     const backend = createServeBackend(channel);
     await backend.roundSend('thread-a', 'round-1', '调研', false);
     await backend.roundAbort('round-1');
     await backend.roundResume('thread-a', 'patch.rule', 'accept');
-    await backend.approvalRequest('thread-a', 'patch.rule', { tool: 'x' }, null);
-    await backend.capabilityPut({ simulation_tier: 'full' });
+    await backend.capabilityPut({ max_tool_rounds: 8 });
+    await backend.securityTierOverridesSet({ shell_exec: 'review' });
     await backend.backupExport('C:\\backup.inkbk');
     await backend.backupPreview('C:\\backup.inkbk');
     await backend.backupRestore('C:\\backup.inkbk');
-    await backend.recoverySnapshots();
-    await backend.recoveryRestoreSnapshot('chain-v3-1720000000000-abc.sqlite');
+    await backend.recoverySnapshots('thread-a');
+    await backend.recoveryRestoreSnapshot('thread-a', 2);
     await backend.recoveryFactoryReset();
-    await backend.componentsManifest();
     expect(calls.map((call) => call.cmd)).toEqual([
       'round_send',
       'round_abort',
       'round_resume',
-      'approval_request',
       'capability_put',
+      'security_tier_overrides_set',
       'backup_export',
       'backup_preview',
-      'backup_restore',
+      'backup.restore',
       'recovery_snapshots',
       'recovery_restore_snapshot',
-      'recovery_factory_reset',
-      'components_manifest',
+      'recovery.reset',
     ]);
     expect(calls[0].args).toEqual({ threadId: 'thread-a', roundId: 'round-1', text: '调研', autoAcceptReview: false });
     expect(calls[2].args).toEqual({ threadId: 'thread-a', key: 'patch.rule', decision: 'accept' });
-    expect(calls[9].args).toEqual({ name: 'chain-v3-1720000000000-abc.sqlite' });
+    // 危险操作：backup.restore / recovery.reset 须携带固定 confirm 标记
+    expect(calls[7].args).toEqual({ path: 'C:\\backup.inkbk', confirm: 'backup-restore' });
+    expect(calls[10].args).toEqual({ confirm: 'factory-reset' });
   });
 
-  it('出厂组件启停命令经 request 直调（命令名/参数形态对齐 serve 通道）', async () => {
+  it('出厂组件启停命令经 request 直调（点分方法 + disabled 直收）', async () => {
     const { channel, calls } = mockChannel();
     const backend = createServeBackend(channel);
     await backend.uiComponentsGet();
     await backend.uiComponentsSetDisabled(['message_list']);
     expect(calls.map((call) => call.cmd)).toEqual(['ui_components.get', 'ui_components.set_disabled']);
-    // ui_components 域点分方法：set_disabled 直收 disabled（无 args 包裹）
     expect(calls[1].args).toEqual({ disabled: ['message_list'] });
   });
 
-  it('薄转发命令 args 键包裹 + 命令名对齐（todo/growth/models/dialog/knowledge/memory/graph/ui_spec/path）', async () => {
+  it('命令名对齐点分/别名面（todo/growth/mcp/knowledge/memory/graph/audit 直调）', async () => {
     const { channel, calls } = mockChannel();
     const backend = createServeBackend(channel);
     await backend.todoGet('thread-a');
@@ -134,36 +133,52 @@ describe('serve 通道适配器', () => {
     await backend.modelsRefresh({ base_url: 'http://x', models: [] });
     await backend.modelsConfigPut({ providers: [] });
     await backend.openDirectoryDialog({ title: '选目录', directory: true, multiple: false });
-    await backend.knowledgePromote('k-1');
-    await backend.skillImport('text:hello', true);
+    await backend.mcpMarketStatus();
+    await backend.mcpMarketUnmount('market.fs_access');
+    await backend.knowledgeList(true);
+    await backend.knowledgeExport();
+    await backend.memoryList();
     await backend.memoryInvalidate('m-1');
     await backend.graphInstanceSnapshot('thread-a');
-    await backend.uiSpecApply({ root: { type: 'panel' } });
-    await backend.pathSetAssemblerEnabled(true);
+    await backend.auditList({ limit: 100 });
     expect(calls.map((call) => call.cmd)).toEqual([
-      'todo.get',
+      'rounds.todos',
       'growth.report',
       'models_refresh',
       'models_config_put',
       'dialog.open_directory',
-      'knowledge.promote',
-      'knowledge.skill_import',
+      'mcp.market',
+      'mcp.unmount',
+      'knowledge.list',
+      'knowledge.export',
+      'memory.list',
       'memory.invalidate',
-      'graph_instance_snapshot',
-      'ui_spec.apply',
-      'path_set_assembler_enabled',
+      'graph.instance',
+      'audit.list',
     ]);
-    expect(calls[0].args).toEqual({ args: { thread_id: 'thread-a' } });
+    expect(calls[0].args).toEqual({ thread_id: 'thread-a' });
     expect(calls[1].args).toEqual({});
     expect(calls[2].args).toEqual({ config: { base_url: 'http://x', models: [] } });
     expect(calls[3].args).toEqual({ config: { providers: [] } });
     expect(calls[4].args).toEqual({ options: { title: '选目录', directory: true, multiple: false } });
-    expect(calls[5].args).toEqual({ args: { id: 'k-1' } });
-    expect(calls[6].args).toEqual({ args: { source: 'text:hello', preview: true } });
-    expect(calls[7].args).toEqual({ args: { id: 'm-1' } });
-    expect(calls[8].args).toEqual({ args: { thread_id: 'thread-a' } });
-    expect(calls[9].args).toEqual({ args: { spec: { root: { type: 'panel' } } } });
-    expect(calls[10].args).toEqual({ args: { enabled: true } });
+    expect(calls[5].args).toEqual({});
+    expect(calls[6].args).toEqual({ name: 'market.fs_access' });
+    expect(calls[7].args).toEqual({ args: { includeArchived: true } });
+    expect(calls[8].args).toEqual({});
+    expect(calls[9].args).toEqual({});
+    expect(calls[10].args).toEqual({ ids: ['m-1'] });
+    expect(calls[11].args).toEqual({ thread_id: 'thread-a' });
+    expect(calls[12].args).toEqual({ limit: 100 });
+  });
+
+  it('mcp.mount config 组装（stdio command/url 透传）', async () => {
+    const { channel, calls } = mockChannel();
+    const backend = createServeBackend(channel);
+    await backend.mcpMarketMount({ id: 'market.fs_access', transport: 'stdio', command: 'npx', args: ['-y', 'x'] });
+    expect(calls[0].cmd).toBe('mcp.mount');
+    expect(calls[0].args).toEqual({
+      config: { id: 'market.fs_access', transport: 'stdio', command: 'npx', args: ['-y', 'x'] },
+    });
   });
 
   it('模型配置旧扁平面命令名不回归（get/reload 直调、put/refresh 带 config）', async () => {
@@ -215,8 +230,6 @@ describe('远端会话存储（真实数据源注入 mock 后端）', () => {
       sessionRename: vi.fn(async (_threadId, title) => ({ ...seed[0], title, rename_count: 1 })),
       sessionDelete: vi.fn(async () => ({ deleted: true })),
       sessionRefresh: vi.fn(async () => ({ ...seed[0], title: '自动标题', message_count: 4 })),
-      status: vi.fn(async () => ({ engine_ready: true, tool_count: 3 })),
-      engineBoot: vi.fn(async () => ({ snapshot: {} })),
       roundSend: vi.fn(),
       roundAbort: vi.fn(),
       roundResume: vi.fn(),
@@ -226,18 +239,15 @@ describe('远端会话存储（真实数据源注入 mock 后端）', () => {
       authorizationState: vi.fn(),
       workspaceAuthorize: vi.fn(),
       workspaceRevoke: vi.fn(),
-      approvalRequest: vi.fn(),
-      approvalResolve: vi.fn(),
       capabilityGet: vi.fn(),
       capabilityPut: vi.fn(),
+      securityTierOverridesSet: vi.fn(),
       backupExport: vi.fn(),
       backupPreview: vi.fn(),
       backupRestore: vi.fn(),
       recoverySnapshots: vi.fn(),
       recoveryRestoreSnapshot: vi.fn(),
       recoveryFactoryReset: vi.fn(),
-      toolsSnapshot: vi.fn(),
-      componentsManifest: vi.fn(async () => ({ artifacts: [] })),
       ...overrides,
     } as BackendAdapter;
   }

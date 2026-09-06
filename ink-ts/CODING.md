@@ -34,8 +34,9 @@
 
 术语（§3 对齐，写入本文）：**host（原 backend）** = 宿主装配层 / composition
 root；**cli** = 唯一进程载体（含 main + 三形态）；**web** = 前端纯渲染（L5，
-只连 cli serve 通道）；exec/infer 为 Rust 原生机制件子进程（OS 执行 / 本地
-嵌入推理）。包间依赖单向：`web/host/cli → engine`；engine 数据面契约内置
+只连 cli serve 通道）；exec/infer/ink_ts_mcp 为 Rust 原生机制件子进程
+（OS 执行 / 本地嵌入推理 / 内置 MCP server）。包间依赖单向：`web/host/cli
+→ engine`；engine 数据面契约内置
 （schemas/fixtures/生成物同包），上层一律经 `@ink-ts/engine` 公共面消费。
 域间不跨目录 import 私有模块。
 
@@ -111,12 +112,17 @@ host/cli/web 取用。
 | 源文件非法 UTF-8 字节（含损坏转码） | 各包 `src/**` | 拒绝（utf8-valid） |
 | core 禁 node:* 与第三方 import | `engine/src/core/**` | 拒绝（`node:async_hooks` 白名单例外：镜像 Python core contextvars，清单见 gate config；core 无裸包放行——数据面契约经相对 import 引用同包内置生成物，不放行其它 @ink-ts/*、adapters 与第三方） |
 | core 禁反向依赖 adapters | `engine/src/core/**` | 拒绝 |
+| core 域间私有模块跨目录 import（`../<dir>/_*`） | `engine/src/core/**` | 拒绝（跨域共享 seam 例外：目标私有模块文件头标注「跨域契约模块」并注明理由，如 `_types/_constants/_injection` 类类型 seam 与共享工具） |
+| adapters 反向 import core 私有模块（`core/**/_*.ts`） | `engine/src/adapters/**` | 拒绝（公共 seam 例外同上标注，须注明为公共 seam） |
 | core 禁宿主/框架词 | `engine/src/core/**` | 拒绝 |
+| JSON 纪律：可 parse、无重复键、2 空格缩进格线 | `seed_data/**`、`engine/schemas`、`engine/fixtures` JSON | 拒绝（json-valid） |
 | 生成文件禁手改 | `engine/src/core/contracts/generated/**` | 由 `contracts:verify`（engine/scripts/verify_generated.mjs：复制 engine/schemas + fixtures 后重生成，与仓库生成物归一化逐文件 diff）在 root `npm test` 与 CI 强制；不做文本扫描 |
 
 gate 实现与正反样例位于 `gate/src/` 与 `gate/test/`；**真实扫描链** =
-root `npm test` 首段 `tsx gate/src/check.ts`（对 engine/host/cli/web
-工作树实际执行全部规则）→ `vitest run --root gate`（规则样例自测），
+root `npm test` 首段 `npm run typecheck --workspace engine`（engine tsc
+全量类型检查，generated satisfies 生效处）→ `tsx gate/src/check.ts`
+（对 engine/host/cli/web 工作树实际执行全部规则，含 seed_data 与 engine
+schemas/fixtures 的 json-valid）→ `vitest run --root gate`（规则样例自测），
 CI 的 ink-ts job 同链执行。规则增删须同步本表。
 
 ## 8. 模型角色槽（配置语义与措辞纪律）
@@ -153,19 +159,36 @@ CI 的 ink-ts job 同链执行。规则增删须同步本表。
 | `rounds.abort` | rounds | 中止当前在途 run（Runtime.abort_current_run；JS 取消模型降级见代码注） |
 | `rounds.resume` | rounds | 审批决议重入（Runtime.resume_run） |
 | `rounds.branch` | rounds | 分支续跑（引擎 resume_from 锚点起新叶） |
+| `rounds.todos` | rounds | 回合待办（最新 checkpoint.plan 未完成步骤 + 链尾挂起审批卡；无 = 空清单） |
 | `records.sessions` | records | 会话索引查询（host 薄数据：rounds 收尾 upsert 的索引记录） |
 | `records.chain` | records | 链记录（chain_index + checkpoint to_dict，engine 权威） |
+| `records.ledger` | records | 回合账本窗口（引擎 ledger 集合事实行投影：intent/conclusion/events → {kind, action, node_id, detail, ts}；storage.list_records_page 按 `thread_id\u001f` 键前缀+游标分页取窗口，时间倒序 + limit） |
 | `sessions.create` | sessions | 会话薄服务：建会话（host 数据目录持久化，引擎无 session 域） |
 | `sessions.rename` | sessions | 会话重命名 |
 | `sessions.delete` | sessions | 会话删除（tombstone；引擎无 per-thread 全删原语，事件日志保留） |
 | `sessions.refresh` | sessions | 会话簿刷新 |
 | `sessions.tree` | sessions | 会话/分支树查询 |
+| `sessions.messages` | sessions | 会话消息回取（records 链投影：读主线链叶 checkpoint state 一次即得最终消息，不逐 checkpoint 回放；行 = {id, kind(message/tool), text?, role?, created_at, meta?}） |
 | `approval.list` | approval | 审批卡查询（engine.get_latest_interrupt 挂起卡） |
 | `approval.resolve` | approval | 审批裁决（决议注入 → resume_run） |
-| `audit.export` | audit | 审计导出（SET_AUDIT_COLLECTION 只读窗口） |
-| `tools.snapshot` | tools | 工具注册表快照（读 engine tool_index/merged_specs，零副本） |
+| `audit.export` | audit | 审计导出（SET_AUDIT_COLLECTION 只读窗口，原始数组） |
+| `audit.list` | audit | 审计窗口（独立方法：kind/after 过滤 + limit 截断 + ts 倒序，返回 {records}） |
+| `tools.full` | tools | 全量工具视图（每行附 vector/baseline/approved/enabled 消费旗标 + uses_vectors/degraded_reason 全局态） |
 | `recovery.checkpoints` | recovery | 可回退点查询（engine recovery） |
 | `recovery.rollback` | recovery | 回退入口（删链节点 + set_audit 留痕，调 engine recovery） |
+| `recovery.reset` | recovery | 重置入口（危险操作：confirm 须精确 `'factory-reset'`；thread_id 缺省 = 全量（逐会话清链 + 清 host.sessions/ledger/memory + 清事件日志），显式 = 单线程（链 + 会话墓碑 + 该线程事件日志）；摘要含 events_cleared/knowledge_kept/audit_kept，set_audit/知识集保留不参与，如实标注） |
+| `backup.export` | backup | data_dir 整包 zip 导出（store-zip + manifest；dest 缺省 data_dir/backups） |
+| `backup.preview` | backup | 备份包预览（覆盖清单：条目数/总大小/含库/created_at） |
+| `backup.restore` | backup | 备份恢复替换（危险操作：confirm 须精确 `'backup-restore'`；恢复前原目录快照入 data_dir/snapshots） |
+| `mcp.market` | mcp | 市场浏览（seed_data/mcp_market.json + 每 server mounted 连接态；preview/add/remove 无真源不提供） |
+| `mcp.mount` | mcp | 市场服务挂载（config = McpServerConfig 数据形态；连接 + 工具导入，失败 fail-closed） |
+| `mcp.unmount` | mcp | 市场服务卸载（manager.disconnect；未挂载显式拒绝） |
+| `knowledge.list` | knowledge | 知识集条目窗口（query/kind 过滤 + archived 含归档开关；条目渲染视图） |
+| `knowledge.graph` | knowledge | 知识层级概览（层级计数 + 组件支持 kind 节点/边；无知识 = degraded） |
+| `knowledge.export` | knowledge | 知识 JSON 导出串（无 kind = 全量补丁链可移植；kind = 单类条目子集） |
+| `memory.list` | memory | 记忆清单（query 子串过滤 + limit 前移为驱动层分页：storage.list_records_page 游标窗口 + 召回 top-limit；namespace 分组计数 + 条目窗口） |
+| `memory.invalidate` | memory | 记忆批量失效（{ids}；引擎 delete = 非破坏性标记；缺失记 not_found） |
+| `growth.report` | growth | 自学习/调参状态报告（enabled + config_summary + weights_snapshot? + last_tuned_at?；无装配 = enabled + nulls） |
 | `os.run` | os | 受控 OS 执行器调用（host 裁决面门 + exec 信封机械复核；headless 仅显式 --approve 放行） |
 | `workspace.state` | workspace | 工作区授权态（authorized/root/mounts，data_dir/workspace.json） |
 | `workspace.set` | workspace | 设置工作区授权根（绝对路径须存在） |
@@ -181,11 +204,20 @@ CI 的 ink-ts job 同链执行。规则增删须同步本表。
 | `models.config.reload` | models | 模型配置重载（从 data_dir/config.json 重读 → apply → 引擎重建；冷启态再装配） |
 | `models.config.role_pick` | models | 角色槽指派（`{role: agent/router, provider_id, model_id}`：模型须在已添加清单，同值 no-op；写 pick → 派生槽端点 → 落盘 → 引擎重建） |
 | `model_archive.snapshot` | model_archive | 模型档案快照（从运行 model_config 聚合：角色槽/备用链端点 + 厂商 models 清单展开为 model_id 行；与 config.json 同源，无 sqlite 探测） |
-| `capability.get` | capability | 能力记录读取（推演档位 simulation_tier 等；data_dir/capability.json；缺省字段注入——simulation_tier 缺省注入 full（推演默认全开），不落盘固化缺省） |
-| `capability.put` | capability | 能力记录存档（单字段并入语义 + 白名单校验（档位/自动审批字段/上限），非法不落盘） |
+| `capability.get` | capability | 能力记录读取（自动审批预授权 `auto_approve_tools`/`auto_approve_all_review` + 工具回合上限 `max_tool_rounds`；data_dir/capability.json；缺省字段注入——auto 出厂空集，不落盘固化缺省。推演档位语义已移除——不设档位直接开启，历史 `simulation_tier` 键读档丢弃） |
+| `capability.put` | capability | 能力记录存档（单字段并入语义 + 白名单校验（auto 字段/上限），非法不落盘；策略实例为活读面，put 后下个审批请求生效） |
 | `policy.route` | policy | 策略层路由预览（确定性任务分类 → 计划形态 → 档位/配额；零 LLM，规格见 bridge/policy.ts） |
 | `ui_components.get` | ui_components | 出厂界面组件启停态（factory/disabled/active 三清单；engine 同源） |
 | `ui_components.set_disabled` | ui_components | 整集替换出厂组件停用集（`{disabled: string[]}`；未登记名结构化拒绝） |
+| `graph.instance` | graph | 引擎图实例摘要（回合图结构 + 该线程最近一回合执行事件节点态：error=failed/其余=success；无事件 = round_id:null + 空 node_status） |
+| `pool.snapshot` | pool | 池治理登记快照（runtime.pool_governance.log 窗口 + 登记记录派生计数：容量/死结点候选/近重复/周预算；无登记 = 空态 + last_round:null） |
+| `pool.evaluate` | pool | 池治理判定入口（引擎 evaluate 四规则只登记不执行；需 `proposal.node_id`，snapshot 可选；无登记器 = available:false 空态） |
+| `edge_evidence.list` | edge_evidence | 边证据条目窗口（runtime.edge_evidence_store 投影：domain/source 过滤 + limit 截断；无 store = 结构化空态） |
+| `metrics.snapshot` | metrics | 回合指标会话窗口（runtime.turn_metrics 投影：rounds/failures/avg(failure_rate)/llm_calls_by_role + skill_crystallizer 结晶计数 crystallized；无装配 = 空态） |
+| `assemble.stats` | assemble | 组装链统计（assembler_enabled/contract_enabled/fingerprint_cache 统计/canary 门 + 累计 stats + restore_diag 恢复诊断 + skill_crystal 结晶装配态；未挂载 = available:false 空态） |
+| `cache.stats` | cache | 指纹缓存计数（全域 entries + per_domain + stats 观测统计）+ multipath 配置态（引擎无独立多径缓存，计数如实单一）；无 store = 空态 |
+| `path.state` | path | path_assembler 装配状态（runtime 挂载 / enabled 开关位 / canary 门 / 最近组装候选数与选择留痕；未挂载 = available:false 空态；thread_id 非本方法消费） |
+| `entities.snapshot` | entities | 实体注册表快照（实体目录 id/label/model + 配额态 count/max；无注册表 = 空态 degraded） |
 
 host bridge 与 cli `host.ping`/`host.info` 命名空间独立并存（方法表并入 cli 命令面）。
 JSON-RPC 信封错误只回通用、细节走 diag（复用 `cli/src/diag.ts` 形态）。
@@ -193,4 +225,83 @@ serve/transport 方法面另设扁平↔点分别名层（`cli/src/legacy_aliase
 （round_send/session_*/search_keys_put/material_import/models_config_* 等）映射到上表点分方法；
 `models_config_*`/`model.reload` 落 models.config.*（models_refresh 语义 = 保存 + 刷新，
 最小实现即 models.config.put）；`capability_get`/`capability_put` 落 capability.*（put 解包
-`{record}` 入参）；`route_plan` 落 policy.route；无点分落点不注册。
+`{record}` 入参）；`route_plan` 落 policy.route。H2 桥面别名：`session_messages→sessions.messages`、
+`round_ledger_chain→records.chain`、`round_ledger_list→records.ledger`、`todo_get`/`todo.get→
+rounds.todos`、`recovery_factory_reset→recovery.reset`（确认标记不回代，缺 confirm fail-closed
+拒绝）、`recovery_snapshots→recovery.checkpoints`、`recovery_restore_snapshot→recovery.rollback`、
+`tools_manifest→tools.full`、`tools_baseline_get/set→capability.baseline.get/set`、
+`security_tier_overrides_set→capability.tier.set`、`backup_export/preview/restore→backup.*`、
+`mcp_market_status/mount/unmount→mcp.market/mount/unmount`；`round_ledger_merge`、
+`mcp_market_preview/add/remove`、`memory.update_frontmatter` 无真源不提供；`audit.list`/
+`knowledge.*`/`memory.*`/`growth.report` 以同点分登记。H2b 读取类别名：
+`graph_instance_snapshot→graph.instance`（camel→snake 适配）、
+`pool_snapshot→pool.snapshot`、`pool_evaluate→pool.evaluate`、`edge_evidence_list→edge_evidence.list`、
+`metrics_snapshot→metrics.snapshot`、`assemble_stats→assemble.stats`、`cache_stats→cache.stats`、
+`path_state→path.state`、`entities_snapshot→entities.snapshot`；`tools_snapshot`/
+`graph_snapshot` 无产品消费已删（tools.full/graph.instance 保留）。无点分落点不注册。
+不补的旧扁平命令（web 批次删除/降级消费，别名表保留兼容但不用）：`shell_open_path`、
+`offline_*`、`backend_status`/`engine_boot`/`first_run_dismiss`、security 旧面、arch op
+**写类/越权类**（`path_assemble`/`path_choose_candidate`/`path_set_multipath`/
+`path_set_assembler_enabled`/`path_clear_candidate`/`cache_clear`/`cache_invalidate`/
+`cache_rebuild`/`edge_evidence_update`/`edge_downgrade_tier`/`edge_restore_tier`）——读取类
+（graph_instance_snapshot/pool_snapshot/pool_evaluate/edge_evidence_list/
+metrics_snapshot/assemble_stats/cache_stats/path_state/entities_snapshot）已落点分只读方法。
+
+## 10. 机制接线注记（host 装配语义补充）
+
+- 产品配方开关默认表（recipe.ts `PRODUCT_SWITCH_DEFAULTS`）十位全开且每位真实消费：
+  八位经 AssemblyRecipe 机制开关字段（contract/edge_evidence/settle_hooks/
+  pool_governance/assembler/fingerprint_cache/canary_verification/
+  context_window_multidomain/emit_timeline_events）、两位经 run_options
+  （multipath_enabled/emit_timeline_events）逐位落到引擎；删除开关表须同步删除
+  `assert_product_switches_all_on` 断言与单测。memory_extract/skill_crystal 自学习族
+  开关不在产品表（引擎默认开）。
+- 产品默认 chat 图（host/src/graph.ts）= 模型流式 + 工具回合：tools 清单 = 配方
+  tool_wiring 提供的引擎统一工具面（ctx.tool_specs），执行走 ctx.tool_pipeline
+  （引擎统一 ToolPipeline，含守卫/审批/沙箱）；工具失败走 round 错误，轮次上限 =
+  能力记录 `max_tool_rounds`（装配位，引擎重建时求值；缺省 8）。消息链随 state
+  持久化，审批中断重入不重复执行已落结果工具。
+- 审批策略活读面（host.ts `HostInterruptPolicy`）：autoApprove 显式 true = 全量直过；
+  否则按能力记录并入 `auto_approve_all_review`（全量直过）/`auto_approve_tools`
+  （工具命中直过）；其余 fail-closed。判定现取 capability 记录，put 后下个请求生效。
+- exec http op 已移除（D16）：`ExecOp`/信封/裁决面门/`os.run`/doc/dialog 不再含
+  http 与 allow_domains；`hostAllowed` 保留为**检索出网白名单**纯函数（web_search
+  provider 域名过滤，非 exec op）；`os.run` env 请求键黑名单禁覆写 `INK_*` 保留键。
+- MCP 装配（host/src/mcp/assembly.ts）：管理器注入引擎声明式执行器
+  （register_mcp_executor）+ `runtime.mcp_manager`（stop 收口/端点探活）；
+  内置 server（inkling_exec/inkling_shell）由 ink-ts 产物内原生二进制
+  ink_ts_mcp 承载（`ink_ts_mcp <exec|shell>`，exec/crates/mcp-server；exec
+  复用 exec ops、shell 复用 infer 嵌入，INK_MCP_ROOT/INK_MCP_PROCESS_ALLOW
+  沙箱 fail-closed）——装配期 `resolveBuiltinOverrides` 定位二进制 + profile
+  参数 + Content-Length 分帧注入 connect_builtin overrides（engine 内置
+  注册表 registry.ts 同步为 STDIO + content_length）；二进制未定位/连接失败
+  一律 fail-closed 只记诊断（createHost 返回 mcpStatus 可查）；backup 等
+  产品桥经 `createHost.mcpManager` 取用（H2 扩面）。环境变量表（INK_MCP_ROOT
+  等）与工具集约定见 exec/CONFIG.md §2.4/§6。
+- 工作区信任模型 = 「纯授权台账 + 调用方自述」：workspace.json 只记用户授权根/挂载
+  清单；os.run/doc 的 roots/allowlist 由请求方自述、宿主裁决面门信封校验 fail-closed，
+  不与 workspace.json 强制求交（详见 workspace/store.ts 头注）。
+- 检索域写面：`createHost.retrieval.store`（upsert/remove 写入口）与 createHost 内
+  tool_index 语义检索接线（attachToolIndexEmbedder → handle.toolEmbedder）——资料/
+  知识入库的宿主域调用面；tools.full 随向量态可观测。
+- 池治理「可写实体注册表」接线点（R3 决策 A）：引擎 core 已定义可写 seam
+  `GovernanceWriteTarget`（list/archive/evict/merge + `GOVERNANCE_WRITE_TARGET_NOOP`
+  回落），实体注册表装配时 runtime 挂注册表面向的受守卫写实现（entity_writer
+  管线 + 审计）；池治理 settle 在裁决产生可写目标时经 seam 反写（dead →
+  archive、near-duplicate → merge 保权威），目标不存在/无 seam = 回落登记 +
+  审计。宿主后续可按需装配更多实体源（F3 接缝）。
+- 产品主壳 spec 直渲（seed ui_spec.json 唯一布局真源）：UIRenderer 为唯一产品
+  渲染入口，布局结构不在壳层硬编码（App 只装配宿主数据/动作，经 product chrome
+  注入渲染器）。canonical 组件（file_tree/session_list/message_list/agent_input/
+  top_bar/evolution_feed/ledger_view/trajectory_view/todo_view/mechanism_view/
+  review_card/settings_floater/task_capsule）映射到产品实现（薄适配器在
+  web/src/app/rendererAdapters，binding 载荷 → 产品组件 props）；四个 gate 锚点名
+  （file_tree/session_list/message_list/agent_input）保持注册映射新适配器。
+  出厂白名单三处同源：host/src/recipe.ts ui_allowed_components/ui_allowed_theme_tokens
+  ← 引擎 runtime 出厂集；inkling/manifest.json contracts.renderer_components；
+  web 组件注册表（registerBuiltinComponents + registerProductComponents 对码测试
+  守门）。改动任何一处须同步其余（gate/whitelistGate 测试防漂移）。
+- 渲染归一（K5）：产品消息流唯一渲染 = MessageStream（经 spec message_list
+  canonical 引用）；components/messages/* 旧渲染子树已删除，图表/媒体条目收进
+  app/session/parts；eventRenderers/messageRendererRegistry 只服务 agent 产物
+  （artifact renderer_key）的事件渲染，product 面不再有第三套消息渲染。

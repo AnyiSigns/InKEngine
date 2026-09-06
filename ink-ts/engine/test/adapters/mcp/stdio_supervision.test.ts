@@ -21,6 +21,8 @@ afterEach(() => {
 });
 
 describe('真实进程监督（SupervisedStdioSession）', () => {
+  // 真实子进程反复拉起/退出检测在并行全量运行下会显著放大墙钟耗时
+  // （机器饱和时 Windows 进程调度秒级延迟）；显式放宽超时防负载抖动。
   it('真实进程崩溃（首次 tools/call 后 exit）→ 拉起 + 重试一次成功（E-P15）', async () => {
     const crashFile = path.join(tmp_dir(), 'crash.marker');
     const config = echo_config({
@@ -38,7 +40,7 @@ describe('真实进程监督（SupervisedStdioSession）', () => {
     } finally {
       await supervised.aclose();
     }
-  });
+  }, 20_000);
 
   it('真实进程反复启动即崩 → 拉起耗尽 → 熔断打开 → fail-closed', async () => {
     const config = echo_config({
@@ -59,5 +61,5 @@ describe('真实进程监督（SupervisedStdioSession）', () => {
     } finally {
       await supervised.aclose();
     }
-  });
+  }, 20_000);
 });

@@ -4,9 +4,9 @@
  *
  * 安全要点：
  * - headers/env 自 repr 遮蔽（TS 端承载于 toString，凭据不落日志/调试输出）；
- * - to_dict(redact_credentials=True) 以 [REDACTED] 占位鉴权值——持久化/
- *   审计等不恢复连接形态的落库路径显式传 True，避免明文留存；配置往返
- *   （需还原重连）保持 False；
+ * - to_dict 默认（redact_credentials 缺省 true）以 [REDACTED] 占位鉴权值——
+ *   持久化/审计等落库路径缺省即遮蔽，防对象被 JSON.stringify 明文落盘；
+ *   配置往返（需还原重连）显式传 redact_credentials=false；
  * - from_dict 对非法形态（缺 id/非法传输/非法来源/字段类型错误/未知
  *   stdio 帧协议）显式拒绝（fail-closed）。
  */
@@ -181,9 +181,9 @@ export class McpServerConfig {
     return `McpServerConfig(${fields.join(', ')})`;
   }
 
-  /** 序列化（可持久化进集数据通道；redact_credentials=True = 凭据遮蔽）。 */
+  /** 序列化（持久化默认遮蔽凭据；redact_credentials=false = 还原重连形态）。 */
   to_dict(opts: { redact_credentials?: boolean } = {}): Record<string, unknown> {
-    const redact = opts.redact_credentials ?? false;
+    const redact = opts.redact_credentials ?? true;
     const mask = (map: Record<string, string>): Record<string, string> =>
       Object.fromEntries(
         Object.entries(map).map(([k, v]) => [k, v ? '[REDACTED]' : v]),

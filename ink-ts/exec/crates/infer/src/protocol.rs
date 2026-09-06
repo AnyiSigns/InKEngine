@@ -7,11 +7,11 @@
 
 use std::sync::OnceLock;
 
-use serde_json::{Value as JsonValue, json};
+use serde_json::{json, Value as JsonValue};
 
 use ink_ts_rpc::code::{
-    EXEC_ERROR, INVALID_PARAMS, INVALID_REQUEST, METHOD_NOT_FOUND, PARSE_ERROR,
-    error_response, log_line, message_id, response,
+    error_response, log_line, message_id, response, EXEC_ERROR, INVALID_PARAMS, INVALID_REQUEST,
+    METHOD_NOT_FOUND, PARSE_ERROR,
 };
 
 use crate::embedder::{EmbedSource, EmbedderPlan, LocalOnnxEmbedder, RemoteEndpoint};
@@ -54,9 +54,12 @@ impl InferContext {
 }
 
 /// EmbedSource → 线协议来源名。
+///
+/// 本地 ONNX 推理的输出来源名统一为 `local_infer`（本地推理的机制件是
+/// infer 子进程；旧实现的私有名不进线协议）。
 fn source_name(source: &EmbedSource) -> &'static str {
     match source {
-        EmbedSource::LocalOnnx => "local_onnx",
+        EmbedSource::LocalOnnx => "local_infer",
         EmbedSource::Remote => "remote",
         EmbedSource::Deterministic => "deterministic",
     }
@@ -133,7 +136,12 @@ pub fn handle_line(line: &str, ctx: &InferContext) -> Option<String> {
         None => {
             let message = "消息缺 method".to_string();
             log_line("rpc", "error", "", &id, 0, Some(&message));
-            return Some(json_string(error_response(&id, INVALID_REQUEST, message, None)));
+            return Some(json_string(error_response(
+                &id,
+                INVALID_REQUEST,
+                message,
+                None,
+            )));
         }
     };
     let params = obj.get("params").cloned().unwrap_or(JsonValue::Null);
@@ -147,9 +155,6 @@ pub fn handle_line(line: &str, ctx: &InferContext) -> Option<String> {
             Ok(result) => Ok(Some(response(&id, result))),
             Err(failure) => Err(failure),
         },
-        _ if method.starts_with("notifications/") => {
-            Ok(Some(response(&id, JsonValue::Object(Default::default()))))
-        }
         _ => Err(RpcFailure {
             code: METHOD_NOT_FOUND,
             message: format!("方法未实现: {method}"),
@@ -241,6 +246,21 @@ fn invalid_params(message: &str) -> RpcFailure {
     }
 }
 
+// ── in-process 复用面（内置 MCP server 等宿主侧机制件的嵌入工具接线）──
+//
+// 不经 stdio 行帧直接求计划/嵌入：参数与上限语义与 infer.plan / infer.embed
+// 完全一致（单点实现，复用方不另写一套执行逻辑）。
+
+/// 嵌入计划（来源/维度/降级原因；懒触发解析，不载模型）。
+pub fn plan_result(ctx: &InferContext) -> JsonValue {
+    plan_payload(ctx.embedder.plan())
+}
+
+/// 批量嵌入（texts → vectors + source/dim/note；上限与 infer.embed 一致）。
+pub fn embed_result(ctx: &InferContext, params: &JsonValue) -> Result<JsonValue, RpcFailure> {
+    handle_embed(ctx, params)
+}
+
 fn json_string(value: JsonValue) -> String {
     value.to_string()
 }
@@ -274,11 +294,46 @@ mod tests {
     #[test]
     fn plan_reports_deterministic_source() {
         let ctx = ctx_deterministic();
-        let resp = call(&ctx, r#"{"jsonrpc":"2.0","id":1,"method":"infer.plan","params":{}}"#).unwrap();
+        let resp = call(
+            &ctx,
+            r#"{"jsonrpc":"2.0","id":1,"method":"infer.plan","params":{}}"#,
+        )
+        .unwrap();
         let result = parse_response(&resp)["result"].clone();
         assert_eq!(result["source"], "deterministic");
         assert_eq!(result["dim"], 384);
         assert_eq!(result["note"], "测试保底");
+    }
+
+    #[test]
+    fn local_source_wire_name_is_local_infer() {
+        // 本地 ONNX 计划（装载失败也以确定性向量保底，不触碰模型/网络）：
+        // 来源名必须为 local_infer（R2 归一：本地来源线协议名统一）。
+        let ctx = InferContext {
+            embedder: LocalOnnxEmbedder::with_plan(EmbedderPlan {
+                source: EmbedSource::LocalOnnx,
+                dim: 384,
+                note: None,
+                remote: None,
+            }),
+            rt: OnceLock::new(),
+        };
+        let resp = call(
+            &ctx,
+            r#"{"jsonrpc":"2.0","id":11,"method":"infer.plan","params":{}}"#,
+        )
+        .unwrap();
+        let result = parse_response(&resp)["result"].clone();
+        assert_eq!(result["source"], "local_infer");
+        assert_eq!(result["dim"], 384);
+        let resp = call(
+            &ctx,
+            r#"{"jsonrpc":"2.0","id":12,"method":"infer.embed","params":{"texts":["输入"]}}"#,
+        )
+        .unwrap();
+        let result = parse_response(&resp)["result"].clone();
+        assert_eq!(result["source"], "local_infer");
+        assert_eq!(result["vectors"].as_array().unwrap().len(), 1);
     }
 
     #[test]
@@ -318,7 +373,11 @@ mod tests {
     #[test]
     fn embed_requires_non_empty_texts() {
         let ctx = ctx_deterministic();
-        let resp = call(&ctx, r#"{"jsonrpc":"2.0","id":4,"method":"infer.embed","params":{"texts":[]}}"#).unwrap();
+        let resp = call(
+            &ctx,
+            r#"{"jsonrpc":"2.0","id":4,"method":"infer.embed","params":{"texts":[]}}"#,
+        )
+        .unwrap();
         let error = parse_response(&resp)["error"].clone();
         assert_eq!(error["data"]["reason"], "params");
     }
@@ -336,6 +395,22 @@ mod tests {
     #[test]
     fn notification_gets_no_response() {
         let ctx = ctx_deterministic();
-        assert!(call(&ctx, r#"{"jsonrpc":"2.0","method":"notifications/initialized"}"#).is_none());
+        assert!(call(
+            &ctx,
+            r#"{"jsonrpc":"2.0","method":"notifications/initialized"}"#
+        )
+        .is_none());
+    }
+
+    #[test]
+    fn notifications_prefix_with_id_is_unknown_method() {
+        let ctx = ctx_deterministic();
+        let resp = call(
+            &ctx,
+            r#"{"jsonrpc":"2.0","id":7,"method":"notifications/initialized"}"#,
+        )
+        .unwrap();
+        let error = parse_response(&resp)["error"].clone();
+        assert_eq!(error["code"], METHOD_NOT_FOUND as f64);
     }
 }

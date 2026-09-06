@@ -2,11 +2,15 @@
  * 绑定通道白名单（渲染器二层防线，与引擎侧同源语义）。
  *
  * 白名单构成（与引擎侧同源语义）：
- * - state.<字段>：回合状态通道——字段 = 会话快照声明键（messages / round_steps
- *   为主用法，session 为整快照通道）；bind.path 进一步细选；
+ * - state.<字段>：回合状态通道——字段 = 会话快照声明键（camelCase 与
+ *   SessionSnapshot 字段一致，如 messages / roundSteps；session = 整快照
+ *   通道）；bind.path 进一步细选；
  * - events.<type>：事件流通道，type 必须是事件类型注册表登记名（细粒度订阅）；
  * - inspect_graph / inspect_rules / inspect_knowledge / inspect_ui /
  *   inspect_tools / inspect_entities：六元快照。
+ *
+ * 历史蛇形别名（round_steps/task_state）仅作兼容映射到 camelCase 字段，
+ * 新界面一律以 camelCase 声明（修 round_steps→roundSteps 取值错位）。
  *
  * 内部通道纪律：「_」前缀通道禁绑（防信息泄漏）——顶层通道名与
  * 绑定路径的任何段都不允许以 _ 开头。
@@ -15,10 +19,10 @@
 import { EVENT_TYPE_NAMES } from '@/shared/session/eventTypes';
 import { INSPECT_CHANNEL_NAMES } from '@/shared/session/inspectTypes';
 
-/** state.* 家族：会话快照声明键 + 整快照通道 session。 */
+/** state.* 家族：会话快照声明键（camelCase 与 SessionSnapshot 对齐）+ 整快照通道 session。 */
 export const STATE_SUB_CHANNELS = [
   'messages',
-  'round_steps',
+  'roundSteps',
   'roundId',
   'streaming',
   'activeGear',
@@ -30,7 +34,10 @@ export const STATE_SUB_CHANNELS = [
   'patchChain',
   'eventMetrics',
   'session',
-  // 任务级执行状态（task_state 子通道：plan/spawn/tool 家族归约面）
+  // 任务级执行状态（taskState 子通道：plan/spawn/tool 家族归约面）
+  'taskState',
+  // 历史蛇形别名（兼容旧 spec；取值经 FIELD_ALIASES 归一）
+  'round_steps',
   'task_state',
 ] as const;
 

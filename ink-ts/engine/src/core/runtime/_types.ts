@@ -13,6 +13,7 @@ import type { CompressionPolicy } from '../context/context_compression.js';
 import type { EngineTransport } from '../events/events.js';
 import type { HarnessDefinition } from '../harness/index.js';
 import type { EntitySpec } from '../entities/entities.js';
+import type { EnvironmentSpec } from '../environments/spec.js';
 import type { EventTypeSpec } from '../event_types/eventTypeSpec.js';
 import type { Graph } from '../graph/graph.js';
 import type { KnowledgeEntry } from '../knowledge_set/index.js';
@@ -107,9 +108,6 @@ export interface ToolWiring {
   self_operation_of(spec: ToolSpec): [string, string];
 }
 
-/** 工具静态审查钩子（ruff/pyright/eslint…宿主注入；core 零 IO 不解释路径）。 */
-export type StaticVettingHook = (paths: readonly unknown[]) => readonly string[];
-
 /** AssemblyRecipe 构造选项（字段级覆盖；缺省 = 出厂默认值）。 */
 export interface AssemblyRecipeInit {
   set_id?: string;
@@ -117,12 +115,12 @@ export interface AssemblyRecipeInit {
   harness_definitions?: readonly HarnessDefinition[];
   event_type_specs?: readonly EventTypeSpec[];
   entity_specs?: readonly EntitySpec[];
+  environment_specs?: readonly EnvironmentSpec[];
   ui_spec?: Record<string, unknown> | null;
   ui_allowed_channels?: readonly string[];
   ui_allowed_components?: readonly string[];
   ui_allowed_theme_tokens?: readonly string[];
   tool_wiring?: ToolWiring | null;
-  vetting_static_hooks?: readonly StaticVettingHook[] | null;
   vetting_l2_hook?: unknown;
   approval_levels?: Record<string, unknown>;
   retrieval_sources?: readonly ((runtime: unknown) => unknown)[];
@@ -131,11 +129,33 @@ export interface AssemblyRecipeInit {
   on_reverted?: ((patch_id: number, reason: string) => unknown) | null;
   convergence_provider?: (() => ConvergenceHook | null) | null;
   /** 执行域选项（RunOptions 形态；非 None 字段覆盖装配默认——多径开关
-   *  multipath_enabled 默认 false、多径支流 canary 默认 false 均可经此覆写，
-   *  装配默认不注入 = 零触发）。 */
+   *  multipath_enabled 默认 false 经此覆写，装配默认不注入 = 零触发；
+   *  canary 验证走独立 canary_verification 开关，不经本面）。 */
   run_options?: unknown;
   compress_policy?: CompressionPolicy | null;
   emit_timeline_events?: boolean;
+  // ── 机制开关（引擎默认全开；false = 对应机制块显式关闭）──
+  /** 边证据写入钩子（证据归集/失败审计证据源；false = 不登记归因钩子）。 */
+  edge_evidence_enabled?: boolean;
+  /** 沉淀钩子族整体（六钩子 + 池治理；false = 整族不注册）。 */
+  settle_hooks_enabled?: boolean;
+  /** 池治理 settle 钩子（容量/死结点/近重复判定；false = 回合不自动跑）。 */
+  pool_governance_enabled?: boolean;
+  /** 路径组装器装配（PathAssemblyRuntime 挂载；false = 不挂载零生效）。 */
+  assembler_enabled?: boolean;
+  /** 指纹缓存（store 构造 + 写钩子；false = 缓存零参与）。 */
+  fingerprint_cache_enabled?: boolean;
+  /** 结点契约 + 链接校验（false = 路径组装不携带契约语义）。 */
+  contract_enabled?: boolean;
+  /** canary 试跑验证（false = 组装候选仅重建级校验，不单回合试跑）。 */
+  canary_verification?: boolean;
+  /** context_window 跨域混合（false = 不注册多域上下文调配器）。 */
+  context_window_multidomain?: boolean;
+  // ── 自学习族开关（引擎默认全开；false = 该块不装配）──
+  /** 回合记忆抽取（回合账本 → memory 域 settle 钩子；false = 不装配存储/钩子）。 */
+  memory_extract_enabled?: boolean;
+  /** 技能结晶链（指纹缓存达标 → 知识集 skill 条目 settle 钩子；false = 不装配）。 */
+  skill_crystal_enabled?: boolean;
 }
 
 /**
@@ -151,12 +171,12 @@ export class AssemblyRecipe {
   harness_definitions: HarnessDefinition[] = [];
   event_type_specs: EventTypeSpec[] = [];
   entity_specs: EntitySpec[] = [];
+  environment_specs: EnvironmentSpec[] = [];
   ui_spec: Record<string, unknown> | null = null;
   ui_allowed_channels: readonly string[] = DEFAULT_BIND_CHANNELS;
   ui_allowed_components: readonly string[] = [];
   ui_allowed_theme_tokens: readonly string[] = [];
   tool_wiring: ToolWiring | null = null;
-  vetting_static_hooks: readonly StaticVettingHook[] | null = null;
   vetting_l2_hook: unknown = null;
   approval_levels: Record<string, unknown> = {};
   retrieval_sources: Array<(runtime: unknown) => unknown> = [];
@@ -167,6 +187,18 @@ export class AssemblyRecipe {
   run_options: unknown = null;
   compress_policy: CompressionPolicy | null = null;
   emit_timeline_events = false;
+  // ── 机制开关（引擎默认全开；false = 对应机制块显式关闭）──
+  edge_evidence_enabled = true;
+  settle_hooks_enabled = true;
+  pool_governance_enabled = true;
+  assembler_enabled = true;
+  fingerprint_cache_enabled = true;
+  contract_enabled = true;
+  canary_verification = true;
+  context_window_multidomain = true;
+  // ── 自学习族开关（引擎默认全开；false = 该块不装配）──
+  memory_extract_enabled = true;
+  skill_crystal_enabled = true;
 
   constructor(init: AssemblyRecipeInit = {}) {
     if (init.set_id !== undefined) this.set_id = init.set_id;
@@ -178,6 +210,9 @@ export class AssemblyRecipe {
       this.event_type_specs = [...init.event_type_specs];
     }
     if (init.entity_specs !== undefined) this.entity_specs = [...init.entity_specs];
+    if (init.environment_specs !== undefined) {
+      this.environment_specs = [...init.environment_specs];
+    }
     if (init.ui_spec !== undefined) this.ui_spec = init.ui_spec;
     if (init.ui_allowed_channels !== undefined) {
       this.ui_allowed_channels = init.ui_allowed_channels;
@@ -189,9 +224,6 @@ export class AssemblyRecipe {
       this.ui_allowed_theme_tokens = init.ui_allowed_theme_tokens;
     }
     if (init.tool_wiring !== undefined) this.tool_wiring = init.tool_wiring;
-    if (init.vetting_static_hooks !== undefined) {
-      this.vetting_static_hooks = init.vetting_static_hooks;
-    }
     if (init.vetting_l2_hook !== undefined) this.vetting_l2_hook = init.vetting_l2_hook;
     if (init.approval_levels !== undefined) {
       this.approval_levels = { ...init.approval_levels };
@@ -209,6 +241,32 @@ export class AssemblyRecipe {
     if (init.compress_policy !== undefined) this.compress_policy = init.compress_policy;
     if (init.emit_timeline_events !== undefined) {
       this.emit_timeline_events = init.emit_timeline_events;
+    }
+    if (init.edge_evidence_enabled !== undefined) {
+      this.edge_evidence_enabled = init.edge_evidence_enabled;
+    }
+    if (init.settle_hooks_enabled !== undefined) {
+      this.settle_hooks_enabled = init.settle_hooks_enabled;
+    }
+    if (init.pool_governance_enabled !== undefined) {
+      this.pool_governance_enabled = init.pool_governance_enabled;
+    }
+    if (init.assembler_enabled !== undefined) this.assembler_enabled = init.assembler_enabled;
+    if (init.fingerprint_cache_enabled !== undefined) {
+      this.fingerprint_cache_enabled = init.fingerprint_cache_enabled;
+    }
+    if (init.contract_enabled !== undefined) this.contract_enabled = init.contract_enabled;
+    if (init.canary_verification !== undefined) {
+      this.canary_verification = init.canary_verification;
+    }
+    if (init.context_window_multidomain !== undefined) {
+      this.context_window_multidomain = init.context_window_multidomain;
+    }
+    if (init.memory_extract_enabled !== undefined) {
+      this.memory_extract_enabled = init.memory_extract_enabled;
+    }
+    if (init.skill_crystal_enabled !== undefined) {
+      this.skill_crystal_enabled = init.skill_crystal_enabled;
     }
   }
 }

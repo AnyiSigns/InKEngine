@@ -137,7 +137,11 @@ export abstract class RuntimeRunControl extends RuntimeStateMachine {
       throw new Error('挂起卡已失效，请重新发起回合');
     }
     const ticket = this.begin_run(thread_id);
+    // 决议事件入账本候选（用户显式 accept/edit/reject = 确认类事实；回合
+    // 收尾经账本 settle 并入事实事件集，供记忆抽取确认类条目）
+    this._record_review_decision(thread_id, interrupt.key, decision);
     let result: unknown = null;
+    let completed = false;
     try {
       result = await this.engine.ainvoke(
         {},
@@ -149,11 +153,37 @@ export abstract class RuntimeRunControl extends RuntimeStateMachine {
           transports: options.transports ?? null,
         },
       );
+      completed = true;
       return result;
     } finally {
       this.end_run(ticket);
-      this._tune_round_end(result);
+      if (!completed) {
+        // 引擎抛错 = settle 链未触发：补记失败回合信号（正常完成 = 引擎已
+        // 注入回合指标 + 收尾调参 settle 钩子处理，此处不再重复）
+        this._tune_round_end(null);
+      }
     }
+  }
+
+  /** 审批决议 → 回合确认类事件（accept/edit/reject 归一；随线程累积，回合
+   *  收尾账本钩子并入事实集合，防跨回合残留见 settle 边界清理钩子）。 */
+  _record_review_decision(thread_id: string, key: string, injected: unknown): void {
+    const value =
+      typeof injected === 'string'
+        ? injected
+        : (injected as { decision?: unknown } | null)?.decision;
+    const kind = typeof value === 'string' ? value : '';
+    if (kind !== 'accept' && kind !== 'edit' && kind !== 'reject') return;
+    const reason = (injected as { reason?: unknown } | null)?.reason;
+    const bucket = this._round_review_events[thread_id] ?? [];
+    bucket.push({
+      kind,
+      detail: {
+        key,
+        ...(typeof reason === 'string' && reason !== '' ? { reason } : {}),
+      },
+    });
+    this._round_review_events[thread_id] = bucket;
   }
 
   /** 回合收尾调参（E-P5 接线入口）：失败信号聚合 → MetaTuner 调参。
@@ -168,7 +198,8 @@ export abstract class RuntimeRunControl extends RuntimeStateMachine {
     return this.meta_tuner.tune_persisted(params, this.turn_metrics);
   }
 
-  /** resume_run 收尾调参（best-effort；结果缺失 = 失败信号）。 */
+  /** resume_run 引擎抛错兜底调参（best-effort；正常完成由 settle 链收尾钩子
+   *  负责，本方法只在 settle 未触发时补记失败回合）。 */
   _tune_round_end(result: unknown): void {
     if (this.meta_tuner === null) return;
     try {

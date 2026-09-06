@@ -6,7 +6,11 @@
  *   或 `ink_ts_token` cookie（serve 在静态响应 Set-Cookie，同源浏览器可用）；
  * - /ws    ：`?token=<token>` 或 `ink_ts_token` cookie（浏览器 WS 无法自设头）；
  * - /health 与静态文件不回环鉴权（监听默认 127.0.0.1 回环）；/rpc、/ws 之外
- *   无 token 一律 401（fail-closed）。token 每进程随机生成（--token 可显式覆盖）。
+ *   无 token 一律 401（fail-closed）。
+ *
+ * token 恒非空：serve 缺省进程内随机生成（见 startServe），无「空 token 免
+ * 鉴权」形态——expected 为空即代表该服务不可被任何请求放行（退化态，启动
+ * 期已被 argv 校验拒绝）。
  */
 
 import type { IncomingMessage } from 'node:http';
@@ -39,9 +43,9 @@ function sameToken(a: string, b: string): boolean {
   return timingSafeEqual(left, right);
 }
 
-/** 常量时间 token 校验（长度不等即拒绝，无泄漏）。空 expected 表示免鉴权（本地开发回环）。 */
+/** 常量时间 token 校验（长度不等即拒绝，无泄漏）。expected 恒非空（见文件头）。 */
 export function isAuthorized(req: IncomingMessage, expected: string, queryToken: string | null = null): boolean {
-  if (expected === '') return true;
+  if (expected === '') return false;
   const token = extractToken(req, queryToken);
   return token !== null && token !== '' && sameToken(token, expected);
 }

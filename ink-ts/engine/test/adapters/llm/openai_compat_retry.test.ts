@@ -3,8 +3,8 @@
  * TestTransientRetry 子集移植，零真实网络）。
  *
  * 重试唯一权威：适配器默认单次尝试——重试经构造参数显式注入 RetryPolicy
- * （独立直用场景）或由链级 ModelChain 统一负责。ModelChain 集成用例随
- * core/llm/fallback.py 迁移（deferred），此处覆盖适配器自身的重试语义。
+ * （core/llm/fallback，独立直用场景）或由链级 ModelChain 统一负责；
+ * 骨架/退避共享见 adapters/llm/retry_once.ts（三适配器同一循环）。
  */
 import { describe, expect, it } from 'vitest';
 
@@ -15,8 +15,8 @@ import {
   LLMRateLimitError,
   LLMServerError,
 } from '../../../src/core/llm/errors.js';
-import { RetryPolicy } from '../../../src/adapters/llm/retry.js';
-import type { TransportResponse } from '../../../src/adapters/llm/transport.js';
+import { RetryPolicy } from '../../../src/core/llm/fallback.js';
+import type { LlmResponse } from '../../../src/adapters/llm/fetch_transport.js';
 import {
   capture,
   error_json,
@@ -77,15 +77,16 @@ describe('瞬时故障重试（显式注入 RetryPolicy）', () => {
 
   it('已产出内容后中断不重试（防重复帧）', async () => {
     const { llm, seen } = make_adapter(() => {
-      const response: TransportResponse = {
+      const response: LlmResponse = {
         status: 200,
-        headers: {},
-        text: async () => '',
-        async *lines(): AsyncIterable<string> {
-          yield `data: ${JSON.stringify(sse_delta({ content: '部分' }))}\n\n`;
+        body_text: async () => '',
+        json: async () => {
+          throw new Error('非流式路径不可 json');
+        },
+        async *aiter_lines(): AsyncIterable<string> {
+          yield `data: ${JSON.stringify(sse_delta({ content: '部分' }))}\n`;
           throw new LLMServerError('', 'midstream');
         },
-        close: async () => undefined,
       };
       return response;
     }, {}, QUICK);

@@ -1,3 +1,4 @@
+// gate: 超限(361 行) - 引擎面向宿主的公共面 re-export 注册表（单一不可拆收敛面）
 /**
  * @ink-ts/engine 面向宿主的精选公共面（只 re-export，不实现）。
  *
@@ -25,11 +26,12 @@ export { AssemblyRecipe, Runtime, RuntimeState, RunTicket, set_runtime_clock } f
 export type {
   AssemblyRecipeInit,
   AssemblySourceProvider,
+  EvolveOfflineOptions,
+  EvolveOfflineResult,
   GraphRecipeContext,
   Host,
   RunTaskHandle,
   RuntimeConfigInit,
-  StaticVettingHook,
   ToolWiring,
 } from './core/runtime/index.js';
 
@@ -77,6 +79,20 @@ export * from './core/storage/storage_constants.js';
 // LLM 机制契约（base/messages/tools/errors/fallback/cache，core 纯 seam）
 export * from './core/llm/index.js';
 
+// 统一工具执行流水线（ToolPipeline.execute = 引擎工具执行 seam：权限门禁 →
+// 沙箱守卫 → 审批 → 分发；宿主 agent 节点经此执行工具）
+export { ToolPipeline, ToolResult } from './core/tool_pipeline/tool_pipeline.js';
+export type {
+  AuditSink,
+  Executor,
+  Extractor,
+  FailureReasonHook,
+  GateSeam,
+  Guard,
+  SandboxSeam,
+  TraceSink,
+} from './core/tool_pipeline/tool_pipeline.js';
+
 // 声明式工具（端点注册表/工具定义/执行体注册/流水线/结点契约映射）
 export * from './core/declarative_tools/index.js';
 
@@ -111,10 +127,26 @@ export type { FileOps, FsOperation, SpawnHandle, SpawnSeam } from './core/sandbo
 // 链接校验（输出字段 ↔ 消费字段的前驱可达性）
 export * from './core/link_validator/link_validator.js';
 
-// 事件类型（registry/specs，演化事件声明面）
+// 事件类型（registry/specs，演化事件声明面；register_* 注册函数族为装配期
+// 内部动作——宿主经 EventTypeRegistry + 数据规格函数显式装配，不随公共面外泄）
 export * from './core/event_types/registry.js';
 export * from './core/event_types/eventTypeSpec.js';
-export * from './core/event_types/eventTypeSpecs.js';
+export {
+  EVENT_AUDIT_ASSEMBLY,
+  EVENT_ASSEMBLY_CANDIDATE,
+  EVENT_AUDIT_JUNCTION,
+  EVENT_AUDIT_FINGERPRINT_REPLACE,
+  EVENT_AUDIT_POLICY_REVIEW,
+  EVENT_AUDIT_PROMOTION,
+  EVENT_TURN_STARTED,
+  EVENT_ASSEMBLY_STARTED,
+  EVENT_ASSEMBLY_DONE,
+  EVENT_EXECUTION_STARTED,
+  attachment_event_spec,
+  audit_event_specs,
+  assembly_candidate_event_spec,
+  output_gate_event_specs,
+} from './core/event_types/eventTypeSpecs.js';
 
 // 恢复 / 中断 / 预算（ResumeResolution/InterruptCoordinator/BudgetManager；
 // BudgetExceededError = 预算硬检查终止错误，属预算机制本模块）
@@ -128,8 +160,97 @@ export {
 } from './core/budget/budget.js';
 export type { BudgetPolicy, BudgetQuery } from './core/budget/budget.js';
 
-// 结点契约（NodeContract/PathAssemblyConfig/QualityGate 等公开类型）
-export * from './core/contracts/contracts.js';
+// 结点契约（NodeContract/PathAssemblyConfig/QualityGate 等公开类型；
+// PathAssemblyFlags/BOOT_KEY_* 为内部装配门（按名透传键仅机制层消费），
+// 不随公共面外泄——宿主经 AssemblyRecipe 机制开关显式装配）
+export {
+  CONTRACT_VERSION_MIN,
+  SAFETY_TIER_MAX,
+  SAFETY_TIER_MIN,
+  NodeContract,
+  PathAssemblyConfig,
+} from './core/contracts/contracts.js';
+export type {
+  NodeContractInit,
+  PathAssemblyConfigInit,
+  QualityGate,
+} from './core/contracts/contracts.js';
+
+// 回合步骤记录形态（RoundSteps 主类仍为 executor 侧消费；宿主经 runtime
+// round_steps() 取 StepRecord 命名返回类型）
+export type { StepRecord } from './core/round_steps/index.js';
+
+// 自学习族可装配面（memory/记忆抽取/技能结晶/离线进化/自适应调参；宿主经
+// 这些构造器装配自管存储或读取运行时默认装配产物）
+export {
+  MemoryEntry,
+  PriorityRecallPolicy,
+  StorageBackedMemoryStore,
+} from './core/memory/index.js';
+export type {
+  IdGenFn,
+  MemoryEntryInput,
+  MemoryEntryOptions,
+  MemoryQuery,
+  MemoryRecallPolicy,
+  NowFn,
+  StorageBackedMemoryStoreOptions,
+} from './core/memory/index.js';
+
+export {
+  CONFIRMATION_EVENTS,
+  DEFAULT_NAMESPACE,
+  MemoryExtractSettleHook,
+  ROUND_FACT_EVENTS,
+  arbitrate_and_store,
+  extract_entries_from_ledger,
+} from './core/memory_extract/index.js';
+export type {
+  ArbitrateStoreResult,
+  LedgerFactsProvider,
+  MemoryExtractArbitration,
+  MemoryExtractSettleHookOptions,
+} from './core/memory_extract/index.js';
+
+export {
+  KnowledgeSkillStore,
+  SkillCrystallizeHook,
+  SkillStore,
+  crystallize_from_cache,
+  knowledge_entry_to_skill,
+  skill_to_knowledge_entry,
+} from './core/skill_crystal/index.js';
+export type {
+  CacheEntryLike,
+  CacheEntrySource,
+  SkillStoreLike,
+  KnowledgeSkillStoreOptions,
+  SkillStoreOptions,
+} from './core/skill_crystal/index.js';
+
+export {
+  DeterministicMutation,
+  EvolutionCandidate,
+  EvolutionFactory,
+  EvolutionOutcome,
+  entry_metrics,
+} from './core/evolution/index.js';
+export type { EvolutionGate, MutationStrategy } from './core/evolution/index.js';
+
+export {
+  MetaTuner,
+  ParamRegressionExecutor,
+  ParameterSnapshot,
+  TunableParams,
+  TuneResult,
+  TurnMetrics,
+} from './core/tuning/index.js';
+export type {
+  MetaTunerOptions,
+  ParameterSnapshotInit,
+  TunableParamsInit,
+  TurnMetricsInit,
+} from './core/tuning/index.js';
 
 // 角色槽模型配置解析（模型按角色槽配置/回落语义，CODING §8 锚点；宿主
 // config 按槽解析模型配置形态并建链，不复制回落语义）

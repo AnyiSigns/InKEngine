@@ -2,9 +2,8 @@
 /**
  * 同步生成工具声明夹具（fixtures/tools_os.json），seed 为唯一真源。
  *
- * 语义随迁自 inkling/scripts/sync_tools_fixtures.py（旧侧壳执行器声明
- * 生成物）；ink-ts 侧落位为产品级生成管线，供 host/exec/web 消费前与
- * seed 漂移校验。职责边界：
+ * ink-ts 产品级生成管线，供 host/exec/web 消费前与 seed 漂移校验。
+ * 职责边界：
  * - seed_data/tools.json = 引擎代理工具目录真源（引擎/宿主消费的声明）；
  * - fixtures/tools_os.json = 执行器声明**生成物**——从 seed 派生，禁手工
  *   维护（生成产物与 seed 成员/档位/端点漂移由 --check 模式硬校验）。

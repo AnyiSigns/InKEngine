@@ -56,7 +56,6 @@ export class DocService {
           endpoint: 'file',
           roots: [root],
           allowlist: [],
-          allow_domains: [],
           timeout_secs: 120,
           max_chars: maxChars ?? this.maxChars,
         },

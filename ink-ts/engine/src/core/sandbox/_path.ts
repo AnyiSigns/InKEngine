@@ -1,3 +1,4 @@
+// 跨域契约模块 - 共享工具 seam：builder 词法路径判定复用
 /**
  * 纯词法路径解析（sandbox.py 中 pathlib 判定的零 IO 镜像面）。
  *

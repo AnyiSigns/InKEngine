@@ -1,24 +1,27 @@
 /**
  * OpenAI 兼容适配器单测共享装置（Python test_llm_openai_compat.py 惯用法移植）：
- * 注入假传输端（fake transport）+ SSE 帧构造 + 请求快照。零真实网络。
+ * 注入假传输端（fake transport，post seam）+ SSE 帧构造 + 请求快照。
+ * 零真实网络。
  *
  * 命名带 compat_ 前缀：与同目录其他适配器（anthropic/openai_responses）的
  * helpers.ts 隔离，避免并行会话共享文件名互相覆盖。
  */
 import { LLMConfig } from '../../../src/core/llm/base.js';
 import type {
-  LLMTransport,
-  TransportRequest,
-  TransportResponse,
-} from '../../../src/adapters/llm/transport.js';
+  LlmPostRequest,
+  LlmResponse,
+  LlmTransport,
+} from '../../../src/adapters/llm/fetch_transport.js';
 import { OpenAICompatibleLLM } from '../../../src/adapters/llm/openai_compat.js';
-import { RetryPolicy } from '../../../src/adapters/llm/retry.js';
+import { RetryPolicy } from '../../../src/core/llm/fallback.js';
+import type { Sleeper } from '../../../src/adapters/llm/retry_once.js';
 
-export type CompatHandler = (req: TransportRequest) => TransportResponse | Promise<TransportResponse>;
+export type CompatHandler = (req: LlmPostRequest) => LlmResponse | Promise<LlmResponse>;
 
 export interface CompatSeen {
   calls: number;
-  request: TransportRequest | null;
+  url: string | null;
+  request: LlmPostRequest | null;
 }
 
 /** LLMConfig 构造参数形态（配置覆盖：temperature/max_tokens/extra 等）。 */
@@ -31,16 +34,17 @@ export type ConfigOverrides = {
 };
 
 /** 假传输端：捕获请求 + 计数 + 回放 handler 结果（镜像 httpx.MockTransport）。 */
-export class FakeCompatTransport implements LLMTransport {
-  readonly seen: CompatSeen = { calls: 0, request: null };
+export class FakeCompatTransport implements LlmTransport {
+  readonly seen: CompatSeen = { calls: 0, url: null, request: null };
   private readonly _handler: CompatHandler;
 
   constructor(handler: CompatHandler) {
     this._handler = handler;
   }
 
-  async request(req: TransportRequest): Promise<TransportResponse> {
+  async post(url: string, req: LlmPostRequest): Promise<LlmResponse> {
     this.seen.calls += 1;
+    this.seen.url = url;
     // 头键统一小写（HTTP 语义大小写不敏感；对齐 httpx headers 归一形态）
     const headers: Record<string, string> = {};
     for (const [key, value] of Object.entries(req.headers)) {
@@ -51,10 +55,9 @@ export class FakeCompatTransport implements LLMTransport {
   }
 }
 
-/** 假响应：body 整存；lines 按整帧产出（每条自带换行，模拟 SSE 帧）。 */
-export class FakeLLMResponse implements TransportResponse {
+/** 假响应：body 整存；aiter_lines 按行产出（模拟 SSE 帧）。 */
+export class FakeLLMResponse implements LlmResponse {
   readonly status: number;
-  readonly headers: Record<string, string>;
 
   private readonly _body: string;
 
@@ -65,22 +68,21 @@ export class FakeLLMResponse implements TransportResponse {
   ) {
     this.status = status;
     this._body = body;
-    this.headers = headers;
+    void headers;
   }
 
-  async text(): Promise<string> {
+  async json(): Promise<unknown> {
+    return JSON.parse(this._body);
+  }
+
+  async body_text(): Promise<string> {
     return this._body;
   }
 
-  async *lines(): AsyncIterable<string> {
-    const frames = this._body.split('\n\n');
-    for (const frame of frames) {
-      if (frame.length > 0) yield `${frame}\n`;
+  async *aiter_lines(): AsyncIterable<string> {
+    for (const line of this._body.split('\n')) {
+      yield line;
     }
-  }
-
-  async close(): Promise<void> {
-    // 假响应无底层连接，close 空实现（幂等）
   }
 }
 
@@ -124,6 +126,7 @@ export function make_adapter(
   handler: CompatHandler,
   overrides: ConfigOverrides = {},
   retry?: RetryPolicy | null,
+  sleep?: Sleeper | null,
 ): { llm: OpenAICompatibleLLM; seen: CompatSeen } {
   const transport = new FakeCompatTransport(handler);
   const config = new LLMConfig({
@@ -133,12 +136,15 @@ export function make_adapter(
     api_key: 'sk-test',
     ...overrides,
   });
-  return { llm: new OpenAICompatibleLLM(config, { transport, retry }), seen: transport.seen };
+  return {
+    llm: new OpenAICompatibleLLM(config, { transport, retry, sleep }),
+    seen: transport.seen,
+  };
 }
 
-/** 读取 seen 记录到的请求 body（JSON）。 */
+/** 读取 seen 记录到的请求 body（结构化 json 直接返回）。 */
 export function body_of(seen: CompatSeen): Record<string, unknown> {
-  return JSON.parse(seen.request?.body ?? 'null') as Record<string, unknown>;
+  return (seen.request?.json ?? {}) as Record<string, unknown>;
 }
 
 /** 捕获 promise 结果：成功返回 null，失败返回异常（断言分类/消息用）。 */

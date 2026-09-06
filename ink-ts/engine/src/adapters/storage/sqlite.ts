@@ -1,3 +1,4 @@
+// gate: 超限(356 行) - sqlite 驱动无状态编排面（checkpoint/事件/records 全方法同文件，拆文件破坏同库并发串行语义）
 /**
  * SQLite 存储实现（SqliteStorage，node:sqlite DatabaseSync，单机/测试默认
  * 持久后端）。三表：checkpoints（版本链 + 乐观锁）、event_log（append-only
@@ -17,9 +18,14 @@ import { EngineEvent, parse_event_lenient } from '../../core/events/events.js';
 import { CheckpointConflictError, StorageError } from '../../core/errors.js';
 import type { JsonRecord } from '../../core/json.js';
 import { strip_sensitive } from '../../core/security/security.js';
-import type { Storage } from '../../core/storage/storage.js';
+import type {
+  RecordListOptions,
+  RecordListResult,
+  Storage,
+} from '../../core/storage/storage.js';
 import { DEFAULT_LIST_CHECKPOINTS_LIMIT } from '../../core/storage/storage_constants.js';
 import { ChainLink, CheckpointRecord } from '../../core/storage/storage_records.js';
+import { build_paged_sql, page_limit } from './_records_page.js';
 import { SqliteBaseStorage } from './sqlite_base.js';
 import { strictDumps } from './sqlite_json.js';
 import {
@@ -304,6 +310,34 @@ export class SqliteStorage extends SqliteBaseStorage implements Storage {
         return rows.map((r) => JSON.parse(String(r['data'])) as Record<string, unknown>);
       } catch (err) {
         throw new StorageError(`sqlite records 列出失败: ${errMsg(err)}`);
+      }
+    });
+  }
+
+  /**
+   * records 分页/前缀下推（R7-6）：key-range 下推（走主键索引）+ limit
+   * + cursor（strictly greater 续页）；无参 = 旧全量语义（limit=0 不限）。
+   */
+  async list_records_page(
+    collection: string,
+    opts: RecordListOptions = {},
+  ): Promise<RecordListResult> {
+    return this._serial(async () => {
+      await this._connect();
+      const { sql, params, fetch_more } = build_paged_sql(collection, opts);
+      const limit = page_limit(opts.limit ?? null);
+      try {
+        const rows = this.db.prepare(sql).all(...params) as { key: string; data: string }[];
+        const next = fetch_more > 0 && rows.length > limit;
+        const pageRows = next ? rows.slice(0, limit) : rows;
+        return {
+          records: pageRows.map(
+            (r) => JSON.parse(String(r['data'])) as Record<string, unknown>,
+          ),
+          next_cursor: next && pageRows.length > 0 ? pageRows[pageRows.length - 1]!.key : null,
+        };
+      } catch (err) {
+        throw new StorageError(`sqlite records 分页列出失败: ${errMsg(err)}`);
       }
     });
   }

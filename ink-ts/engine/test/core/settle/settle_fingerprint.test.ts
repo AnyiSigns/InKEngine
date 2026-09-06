@@ -13,6 +13,7 @@
 import { describe, expect, it } from 'vitest';
 
 import { EdgeEvidenceStore } from '../../../src/core/edge_evidence/store.js';
+import { FingerprintCacheStore } from '../../../src/core/fingerprint_cache/store.js';
 import { FingerprintSettleHook } from '../../../src/core/settle/fingerprint.js';
 import { NodeProposalSettleHook } from '../../../src/core/settle/proposal.js';
 import {
@@ -97,6 +98,38 @@ describe('FingerprintSettleHook fail-closed', () => {
       makeCtx(stepsOf(['start', 'success'], ['mid', 'success']), { graph: g }),
     );
     expect(cache.upserts.length).toBe(1); // 未新增
+    await store.close();
+  });
+});
+
+describe('FingerprintSettleHook 变更检测（R7-3）', () => {
+  it('内容未变重复 settle = 跳过写；证据快照变化才重建并重写', async () => {
+    const store = new EdgeEvidenceStore();
+    const cache = new FingerprintCacheStore({ cap_per_domain: 10 });
+    const hook = new FingerprintSettleHook(cache, new StubGate(true), store);
+    const g = linearGraph();
+    const ctx = makeCtx(stepsOf(['start', 'success'], ['mid', 'success']), { graph: g });
+    await hook.settle(ctx);
+    expect(cache.stats.upserts).toBe(1);
+    // 内容未变化（同路径同证据）→ 变更检测命中：不重写、不重建快照
+    await hook.settle(ctx);
+    expect(cache.stats.upserts).toBe(1);
+    // 域内证据行新增 → 快照摘要变化 → 重建并重写
+    await store.put({
+      key: edgeKey('x', 'y'),
+      success_count: 1,
+      fail_count: 0,
+      avg_cost: 0,
+      policy: false,
+      origin: 'runtime',
+      last_used_at: null,
+      created_at: 0,
+    });
+    await hook.settle(ctx);
+    expect(cache.stats.upserts).toBe(2);
+    const entry = await cache.get(g.digest());
+    expect(entry).not.toBeNull();
+    expect(entry!.evidence_snapshot.length).toBe(1);
     await store.close();
   });
 });

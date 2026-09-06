@@ -28,7 +28,7 @@ import { ToolSource, ToolManifest, ShadowRunResult, ShadowWrite, VettingCheck, V
 import type { FsSeam, ShadowExecutor, StaticHook } from './_types.js';
 
 export { ToolSource, ToolManifest, ShadowRunResult, ShadowWrite, VettingCheck, VettingResult, VettingVerdict } from './_types.js';
-export type { FsSeam, ShadowExecutor, StaticHook } from './_types.js';
+export type { FsSeam, ShadowExecutor, StaticHook, ToolSourceValue } from './_types.js';
 
 // 哈希声明形态（sha256 hex，64 字符）
 const _HASH_LENGTH = 64;

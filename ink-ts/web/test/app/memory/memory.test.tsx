@@ -78,7 +78,7 @@ describe('MemoryView 删除二次确认', () => {
     backendMock.memoryInvalidate.mockClear();
   });
 
-  it('确认前不调用失效 op，且展示「永久删除，不可恢复」确认', async () => {
+  it('确认前不调用失效 op，且展示「非破坏性标记」确认', async () => {
     const user = userEvent.setup();
     const { container } = render(<MemoryView />);
     await screen.findAllByText('决策');
@@ -86,22 +86,22 @@ describe('MemoryView 删除二次确认', () => {
     const row = rowUi(container, 'e1');
     await user.click(row.querySelector('[data-ui="memory_invalidate"]') as HTMLElement);
     expect(backendMock.memoryInvalidate).not.toHaveBeenCalled();
-    expect(screen.getByText(/永久删除，不可恢复/)).toBeInTheDocument();
-    expect(screen.getByText('确认永久删除')).toBeInTheDocument();
+    expect(screen.getByText(/标记失效为不可用/)).toBeInTheDocument();
+    expect(screen.getByText('确认标记失效')).toBeInTheDocument();
   });
 
-  it('确认后调用失效 op 并刷新列表（条目消失 + 不可恢复反馈）', async () => {
+  it('确认后调用失效 op 并刷新列表（条目消失 + 失效反馈）', async () => {
     const user = userEvent.setup();
     const { container } = render(<MemoryView />);
     await screen.findAllByText('决策');
     await expandEntry(container, 'e1');
     const row = rowUi(container, 'e1');
     await user.click(row.querySelector('[data-ui="memory_invalidate"]') as HTMLElement);
-    await user.click(screen.getByText('确认永久删除'));
+    await user.click(screen.getByText('确认标记失效'));
     expect(backendMock.memoryInvalidate).toHaveBeenCalledWith('e1');
     expect(backendMock.memoryList).toHaveBeenCalledTimes(2);
     expect(screen.queryByText('内容')).not.toBeInTheDocument();
-    expect(await screen.findByText(/不可恢复/)).toBeInTheDocument();
+    expect(await screen.findByText(/已标记失效/)).toBeInTheDocument();
   });
 
   it('取消确认后不调用失效 op，条目保留', async () => {

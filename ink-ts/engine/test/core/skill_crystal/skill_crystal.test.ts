@@ -1,3 +1,4 @@
+// gate: 超限(404 行) - 技能结晶全量单测（存储往返/分类/结晶阈值/去重版本/沉淀钩子/水位门控/测试报告导出）同文件，拆文件破坏单一领域测试对照
 /**
  * 技能结晶单测（对标 test_skill_crystal.py 的可回迁段）：存储往返与域过滤 /
  * 视觉技能分类（image 输入 → visual）/ 自动结晶双阈值 / 去重版本递增 /
@@ -290,6 +291,67 @@ describe('SkillCrystallizeHook 沉淀后处理', () => {
     const empty = new SkillCrystallizeHook(null, store);
     await empty.settle(null);
     expect(empty.crystallized).toEqual([]);
+    await store.close();
+  });
+});
+
+describe('SkillCrystallizeHook 扫描水位门控（R7-4）', () => {
+  it('未变化回合不扫描：entries() 不调用、结晶清单为空', async () => {
+    let scans = 0;
+    const base = fake_cache(
+      fake_cache_entry({ hit_count: 10, fail_count: 0, path_fingerprint: 'fp.g' }),
+    );
+    const countingCache: CacheEntrySource = {
+      async entries(domain: string | null = null): Promise<readonly CacheEntryLike[]> {
+        scans += 1;
+        return base.entries(domain);
+      },
+    };
+    const store = make_store();
+    let mutations = 1;
+    const hook = new SkillCrystallizeHook(countingCache, store, {
+      mutation_source: () => mutations,
+    });
+    await hook.settle(null);
+    expect(hook.crystallized).toEqual(['path.default.fp.g']);
+    expect(scans).toBe(1);
+    // 内容未变化：下个回合不扫描（零 DB 读零解析）
+    await hook.settle(null);
+    expect(scans).toBe(1);
+    expect(hook.crystallized).toEqual([]);
+    // 命中回馈（计数变化）→ 恢复扫描（去重：同计数已结晶 = 空清单）
+    mutations = 2;
+    await hook.settle(null);
+    expect(scans).toBe(2);
+    expect(hook.crystallized).toEqual([]);
+    await store.close();
+  });
+
+  it('低频兜底：首轮必扫后无计数变化按间隔兜底重扫（外部直写兜底）', async () => {
+    let scans = 0;
+    const countingCache: CacheEntrySource = {
+      async entries(): Promise<readonly CacheEntryLike[]> {
+        scans += 1;
+        return [fake_cache_entry({ hit_count: 10, fail_count: 0, path_fingerprint: 'fp.lo' })];
+      },
+    };
+    const store = make_store();
+    const hook = new SkillCrystallizeHook(countingCache, store, {
+      mutation_source: () => 0,
+      scan_interval: 3,
+    });
+    await hook.settle(null); // 首轮：尚未扫过 → 必扫（内容基准落水位）
+    expect(scans).toBe(1);
+    expect(hook.rounds_since_scan).toBe(0);
+    await hook.settle(null); // 回合 2：无变化 → 跳过
+    expect(scans).toBe(1);
+    expect(hook.rounds_since_scan).toBe(1);
+    await hook.settle(null); // 回合 3：无变化 → 跳过
+    expect(scans).toBe(1);
+    await hook.settle(null); // 回合 4：达间隔 → 兜底重扫（去重 = 空清单）
+    expect(scans).toBe(2);
+    expect(hook.rounds_since_scan).toBe(0);
+    expect(await store.count()).toBe(1);
     await store.close();
   });
 });

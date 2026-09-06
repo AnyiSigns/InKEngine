@@ -1,3 +1,4 @@
+// 跨域契约模块 - 跨域类型 seam：entities/memory/harness/entity_evolution 引用演化写入契约
 /**
  * EvolutionWriter 域 seam：写入三闸门（补丁链 / 实时数据 / 审计）的存储
  * 契约 + 实现契约。self_application.GuardedStorage 是宿主侧密封类，

@@ -216,6 +216,9 @@ export class EntityRegistry {
       }
       try {
         const spec = EntitySpec.from_dict(record);
+        // 池治理归档留痕（meta.archived=true）：已归档实体不可复活，
+        // 加载跳过（归档 = 软删除，不重建活跃表占用配额）
+        if (spec.meta['archived'] === true) continue;
         this.#specs.set(entity_id, spec);
         loaded += 1;
       } catch {

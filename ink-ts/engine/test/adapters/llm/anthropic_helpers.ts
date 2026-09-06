@@ -4,14 +4,15 @@
  */
 
 import { AnthropicLLM } from '../../../src/adapters/llm/anthropic.js';
-import { RetryPolicy } from '../../../src/adapters/llm/retry.js';
+import { RetryPolicy } from '../../../src/core/llm/fallback.js';
 import { LLMConfig } from '../../../src/core/llm/base.js';
 import { ToolSpec } from '../../../src/core/llm/tools.js';
+import type { Sleeper } from '../../../src/adapters/llm/retry_once.js';
 import type {
   LlmPostRequest,
   LlmResponse,
   LlmTransport,
-} from '../../../src/adapters/llm/anthropic_transport.js';
+} from '../../../src/adapters/llm/fetch_transport.js';
 
 export type AnthropicHandler = (req: LlmPostRequest) => LlmResponse;
 
@@ -85,6 +86,7 @@ export function make_anthropic(
   handler: AnthropicHandler,
   overrides: ConfigOverrides = {},
   retry?: RetryPolicy | null,
+  sleep?: Sleeper | null,
 ): { llm: AnthropicLLM; seen: AnthropicSeen } {
   const seen: AnthropicSeen = { calls: 0, url: null, request: null };
   const transport: LlmTransport = {
@@ -102,7 +104,7 @@ export function make_anthropic(
     api_key: 'sk-test',
     ...overrides,
   });
-  return { llm: new AnthropicLLM(config, { transport, retry }), seen };
+  return { llm: new AnthropicLLM(config, { transport, retry, sleep }), seen };
 }
 
 /** 读取 seen 记录到的请求 body（json）。 */

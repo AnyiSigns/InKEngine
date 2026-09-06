@@ -23,6 +23,7 @@ import { EDGE_TIER_OVERRIDE_COLLECTION, TIER_OBSERVING, TIER_REGULAR } from './_
 import type { EdgeKey } from './_types.js';
 import { edge_evidence_to_dict } from './store.js';
 import { derive_edge_tier } from './tier_model.js';
+import { now } from './_time.js';
 import type { EdgeEvidenceStore } from './store.js';
 
 const _TIER_TARGET_COUNTS: { readonly [tier: string]: readonly [number, number] } = {
@@ -72,7 +73,7 @@ export async function downgrade_edge_tier(
   if (current === null) {
     throw new Error(`边证据不存在（未知 id）: ${key.src_type}→${key.dst_type}`);
   }
-  const ts = opts.now === null || opts.now === undefined ? Date.now() / 1000 : opts.now;
+  const ts = opts.now === null || opts.now === undefined ? now() : opts.now;
   const reason = opts.reason ?? '';
   const currentTier = derive_edge_tier(current.success_count, current.fail_count);
   const target = _TIER_TARGET_COUNTS[targetTier]!;

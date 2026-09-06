@@ -1,4 +1,4 @@
-// gate: 超限(507 行) - serve 单一路由面（health/rpc/upload/uploads/静态/Vite 代理成对同文件防漂移）
+// gate: 超限(528 行) - serve 单一路由面（health/rpc/upload/uploads/静态/Vite 代理成对同文件防漂移）
 /**
  * serve 形态：本地 http/ws（鉴权）+ 静态托管/Vite 代理占位 + 事件订阅通道。
  *
@@ -11,6 +11,16 @@
  * - GET  /                    静态托管（缺省 cli/assets 占位；--static 覆盖）
  *   + Set-Cookie ink_ts_token（同源浏览器免显式 token）；
  * - 非静态 GET/HEAD + --vite <url> → Vite dev 代理（web 开发连接面）。
+ *
+ * 鉴权：token 恒非空——缺省进程内随机生成（listen 行打印）；--host 非回环
+ * 时必须显式 --token（argv 层校验）。CORS 头仅为跨源开发直连（web 经
+ * VITE_SERVE_URL 直连或 Vite dev 跨端口）保留，`OPTIONS` 预检统一在 route
+ * 应答（不带鉴权头）；同源（serve 静态托管 / --vite 代理）走 cookie。
+ *
+ * 超时与断线语义：/rpc **无请求超时**（与 stdio 形态 60s 不同）——长回合
+ * （rounds.*）可长驻，客户端断线**不会取消**已派发回合（进程内继续跑到
+ * 底）；回合非幂等，断线后重试同一 rounds.send 会再造一个新回合，重复
+ * 风险由调用方承担（不改长回合语义）。
  *
  * 启动成功打印一行 listen JSON 到 stdout（url/ws/token）；SIGINT/SIGTERM
  * 优雅关停（先关 ws/http 再 dispose host，2s 兜底强退）。
@@ -34,7 +44,7 @@ import { attachEngineTransport } from './engine_attach.js';
 import { EventHub } from './events_hub.js';
 import { buildHandlers } from './handlers.js';
 import { assembleCliHost } from './host.js';
-import { handleRequest, parseLine } from './rpc.js';
+import { handleRequest, parseLine, type Handler } from './rpc.js';
 import { isAuthorized } from './serve_auth.js';
 import { attachWsChannel } from './serve_ws.js';
 
@@ -71,18 +81,29 @@ export interface ServeIo {
 interface ServeRuntime {
   handle: HostHandle;
   hub: EventHub;
+  /** 命令面（host.ping/info + bridge 方法表 + 扁平别名；冷启装配一次长驻）。 */
+  handlers: ReadonlyMap<string, Handler>;
   token: string;
   autoApprove: boolean;
   staticDir: string;
   viteProxy: string | null;
 }
 
-function jsonResponse(res: ServerResponse, status: number, body: unknown, cors = false): void {
-  if (cors) {
-    res.setHeader('Access-Control-Allow-Origin', '*');
-    res.setHeader('Access-Control-Allow-Methods', 'POST, GET, OPTIONS');
-    res.setHeader('Access-Control-Allow-Headers', 'content-type, authorization, x-ink-token');
+/** 跨源 CORS 头（web dev 直连/跨端口场景；见文件头）。 */
+const CORS_HEADERS = {
+  'access-control-allow-origin': '*',
+  'access-control-allow-methods': 'POST, GET, OPTIONS',
+  'access-control-allow-headers': 'content-type, authorization, x-ink-token',
+} as const;
+
+function applyCorsHeaders(res: ServerResponse): void {
+  for (const [name, value] of Object.entries(CORS_HEADERS)) {
+    res.setHeader(name, value);
   }
+}
+
+function jsonResponse(res: ServerResponse, status: number, body: unknown, cors = false): void {
+  if (cors) applyCorsHeaders(res);
   res.writeHead(status, { 'content-type': 'application/json; charset=utf-8' });
   res.end(JSON.stringify(body));
 }
@@ -123,7 +144,7 @@ async function handleRpc(req: IncomingMessage, res: ServerResponse, rt: ServeRun
     jsonResponse(res, body.status, { error: 'body too large' }, true);
     return;
   }
-  const handlers = buildHandlers({ bridge: rt.handle.bridge });
+  const handlers = rt.handlers;
   const parsed = parseLine(body.text);
   const response = 'error' in parsed ? parsed.error : await handleRequest(parsed.request, handlers, { autoApprove: rt.autoApprove });
   const request = 'error' in parsed ? null : parsed.request;
@@ -389,6 +410,14 @@ function serveUpload(req: IncomingMessage, res: ServerResponse, rt: ServeRuntime
 
 async function route(req: IncomingMessage, res: ServerResponse, rt: ServeRuntime): Promise<void> {
   const pathname = (req.url ?? '/').split('?')[0] ?? '/';
+  if (req.method === 'OPTIONS') {
+    // CORS 预检统一应答：预检请求不带鉴权头，不能走 token 校验；实际请求
+    // 仍会被各端点鉴权拦截（fail-closed）。见文件头 CORS 说明。
+    applyCorsHeaders(res);
+    res.writeHead(204);
+    res.end();
+    return;
+  }
   if (pathname === '/health') {
     setTokenCookie(res, rt.token);
     jsonResponse(res, 200, { ok: true, service: 'ink-ts-cli-serve', mode: 'serve' });
@@ -438,7 +467,9 @@ export async function startServe(options: CliOptions, io: ServeIo): Promise<Serv
   const serveFlags = options.serve;
   const host = serveFlags?.host ?? '127.0.0.1';
   const port = serveFlags?.port ?? DEFAULT_SERVE_PORT;
-  const token = serveFlags?.token ?? '';
+  // token 恒非空：缺省随机生成（回环够用；非回环 --host 已被 argv 层强制
+  // 显式 --token）。serve_auth 不再有「空 expected 免鉴权」形态。
+  const token = serveFlags?.token ?? randomUUID();
   const staticRaw = serveFlags?.static_dir ?? DEFAULT_ASSETS_DIR;
   const staticDir = isAbsolute(staticRaw) ? staticRaw : resolve(staticRaw);
   const viteProxy = serveFlags?.vite_proxy ?? null;
@@ -446,7 +477,9 @@ export async function startServe(options: CliOptions, io: ServeIo): Promise<Serv
   const handle = await assembleCliHost(options);
   const hub = new EventHub();
   const detach = attachEngineTransport(handle.runtime, hub);
-  const rt: ServeRuntime = { handle, hub, token, autoApprove: options.approve, staticDir, viteProxy };
+  // 命令面冷启装配一次长驻（/rpc 全部请求复用；别名 Map 不每请求重建）
+  const handlers = buildHandlers({ bridge: handle.bridge });
+  const rt: ServeRuntime = { handle, hub, handlers, token, autoApprove: options.approve, staticDir, viteProxy };
 
   let closed = false;
   const stop = async (): Promise<void> => {

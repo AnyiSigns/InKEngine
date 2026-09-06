@@ -1,3 +1,4 @@
+// 跨域契约模块 - 跨域契约 seam：knowledge_set/retrieval 引用注入扫描面（行为 seam）
 /**
  * 指令注入检测段（knowledge_gate.py L1 安全扫描面移植）。
  *

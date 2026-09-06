@@ -11,10 +11,10 @@ import {
 } from '../src/recipe.js';
 
 describe('产品配方默认表（机制开关全开）', () => {
-  it('默认表所有开关全 true（PathAssemblyFlags 七位 + canary + 多域窗口 + 时间线）', () => {
+  it('默认表所有开关全 true（AssemblyRecipe 八位 + canary + 多域窗口 + 时间线 + 多径）', () => {
     assert_product_switches_all_on();
     const entries = Object.entries(PRODUCT_SWITCH_DEFAULTS);
-    expect(entries.length).toBeGreaterThanOrEqual(10);
+    expect(entries.length).toBe(10);
     for (const [, value] of entries) {
       expect(value).toBe(true);
     }
@@ -34,22 +34,53 @@ describe('产品配方默认表（机制开关全开）', () => {
     expect(recipe.event_type_specs.length).toBeGreaterThan(0);
     expect(recipe.tool_wiring).not.toBeNull();
     expect(recipe.graph_recipe).toBeTypeOf('function');
-    // 执行域选项经引擎 run_options 通道消费（多径 + 时间线默认开）
+    // 十位开关逐位落入 AssemblyRecipe 机制开关字段 / run_options（引擎消费面）
+    const flags = recipe as unknown as Record<string, boolean>;
+    for (const name of [
+      'contract_enabled',
+      'edge_evidence_enabled',
+      'settle_hooks_enabled',
+      'pool_governance_enabled',
+      'assembler_enabled',
+      'fingerprint_cache_enabled',
+      'canary_verification',
+      'context_window_multidomain',
+      'emit_timeline_events',
+    ]) {
+      expect(flags[name]).toBe(true);
+    }
     const runOptions = recipe.run_options as { multipath_enabled: boolean } | null;
     expect(runOptions).not.toBeNull();
     expect(runOptions!.multipath_enabled).toBe(true);
   });
 
-  it('显式产品配置可关闭开关（false → run_options 关）', () => {
+  it('显式产品配置可关闭开关（false → 机制开关字段 / run_options 关）', () => {
     const recipe = build_product_recipe({
-      switches: { multipath_enabled: false, emit_timeline_events: false },
+      switches: {
+        multipath_enabled: false,
+        emit_timeline_events: false,
+        contract_enabled: false,
+        canary_verification: false,
+        edge_evidence_enabled: false,
+      },
     });
+    expect(recipe.contract_enabled).toBe(false);
+    expect(recipe.canary_verification).toBe(false);
+    expect(recipe.edge_evidence_enabled).toBe(false);
+    expect(recipe.emit_timeline_events).toBe(false);
     const runOptions = recipe.run_options as {
       multipath_enabled: boolean;
       emit_timeline_events: boolean;
     } | null;
     expect(runOptions!.multipath_enabled).toBe(false);
     expect(runOptions!.emit_timeline_events).toBe(false);
+  });
+
+  it('显式关闭不动其它位（逐位覆写语义）', () => {
+    const recipe = build_product_recipe({ switches: { assembler_enabled: false } });
+    expect(recipe.assembler_enabled).toBe(false);
+    expect(recipe.settle_hooks_enabled).toBe(true);
+    expect(recipe.pool_governance_enabled).toBe(true);
   });
 
   it('注入 graph_recipe 后 recipe.graph_recipe 生效（覆写默认图）', () => {

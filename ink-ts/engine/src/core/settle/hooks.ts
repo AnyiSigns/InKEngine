@@ -15,6 +15,7 @@
  */
 
 import type { EdgeEvidence } from '../edge_evidence/_types.js';
+import type { EdgeRoundDelta } from '../edge_evidence/store.js';
 import { EdgeEvidenceStore } from '../edge_evidence/store.js';
 import { now } from './_time.js';
 import { TRACE_FAILED, UPDATE_SUCCESS } from './_constants.js';
@@ -72,6 +73,11 @@ export class SettleHooks {
 /**
  * 归因钩子：轨迹回放 → 按归因规则逐边更新边证据（纯算法）。
  * 零 LLM：成败/成本全部自动归集；本钩子不产出任何决策。
+ *
+ * 写放大收敛（R7-5）：先内存聚合本回合归因 delta（attribution_plan 计划
+ * 生成），每边回合末单次 put——同一回合内对同一边的多次遍历不再逐条
+ * get→put；失败归因所需的证据行一次性共享预读（去重按边键）供权重判定
+ * 与批量写复用（避免同一行重复读）。
  */
 export class EdgeEvidenceSettleHook implements SettleHook {
   readonly #store: EdgeEvidenceStore;
@@ -84,28 +90,30 @@ export class EdgeEvidenceSettleHook implements SettleHook {
     let evidenceIndex: Map<string, EdgeEvidence> | null = null;
     if (ctx.steps.length > 0 && ctx.steps.some((s) => s.status === TRACE_FAILED)) {
       evidenceIndex = new Map<string, EdgeEvidence>();
+      const seen = new Set<string>();
       for (const tr of derive_traversals(ctx)) {
         const key = traversal_edge_key(tr, ctx.domain);
+        const keyStr = edge_key_str(key);
+        if (seen.has(keyStr)) continue;
+        seen.add(keyStr);
         const evidence = await this.#store.get(key);
         if (evidence !== null) {
-          evidenceIndex.set(edge_key_str(key), evidence);
+          evidenceIndex.set(keyStr, evidence);
         }
       }
     }
-    for (const update of attribution_plan(ctx, evidenceIndex)) {
-      if (update.kind === UPDATE_SUCCESS) {
-        await this.#store.record_success(update.key, {
-          cost: update.cost,
-          delta: update.delta,
-        });
-      } else {
-        // UPDATE_FAIL：归因计划只产出 success/fail 两种
-        await this.#store.record_failure(update.key, {
-          cost: update.cost,
-          delta: update.delta,
-        });
-      }
+    const plan = attribution_plan(ctx, evidenceIndex);
+    if (plan.length === 0) {
+      return;
     }
+    const deltas: EdgeRoundDelta[] = plan.map((update) => ({
+      key: update.key,
+      kind: update.kind === UPDATE_SUCCESS ? 'success' : 'fail',
+      delta: update.delta,
+      cost: update.cost,
+    }));
+    // 回合级聚合写：每边单次读改写（evidenceIndex 预读行省存储读）
+    await this.#store.apply_round(deltas, { preloaded: evidenceIndex });
   }
 }
 

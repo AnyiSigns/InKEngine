@@ -1,3 +1,4 @@
+// 跨域契约模块 - 跨域类型 seam：entity_evolution gate 消费闸门结果形态
 /**
  * 三层闸门结果形态（knowledge_gate.py GateL1/L2/L3Result dataclass 段移植）。
  *

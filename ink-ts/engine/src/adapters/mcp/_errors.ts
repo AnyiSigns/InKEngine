@@ -82,3 +82,8 @@ export function is_connection_lost(exc: unknown): boolean {
 export function is_business_error(exc: unknown): boolean {
   return exc instanceof Error && exc.message.includes('MCP 工具执行失败');
 }
+
+/** 异常 → 文案（session/supervised/传输侧共用的统一提取，防各自复制）。 */
+export function exc_text(exc: unknown): string {
+  return exc instanceof Error ? exc.message : String(exc);
+}

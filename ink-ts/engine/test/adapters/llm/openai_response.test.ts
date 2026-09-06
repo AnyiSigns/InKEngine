@@ -16,7 +16,7 @@ import { Attachment, ToolCall, assistant, system, tool_result, user } from '../.
 import { ToolSpec } from '../../../src/core/llm/tools.js';
 import { OpenAIResponsesLLM } from '../../../src/adapters/llm/openai_response.js';
 import { _parse_sse_line } from '../../../src/adapters/llm/_responses_parse.js';
-import type { LlmResponse, LlmTransport } from '../../../src/adapters/llm/_responses_transport.js';
+import type { LlmResponse, LlmTransport } from '../../../src/adapters/llm/fetch_transport.js';
 
 type Body = Record<string, unknown>;
 

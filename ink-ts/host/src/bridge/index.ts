@@ -1,13 +1,19 @@
 /**
  * host bridge 命令面装配（buildBridge）：方法集按域分组注册——
- * rounds（send/abort/resume/branch）、records（sessions/链记录）、sessions
- * （create/rename/delete/refresh/tree）、approval（卡查询/裁决）、audit
- * （导出）、tools（注册表快照）、recovery（回退入口/回退点查询）、os（OS
- * 执行器受控调用）、search（检索密钥）、material（资料批量导入）、models
- * （模型运行配置）、model_archive（模型档案快照）、capability（能力记录）、
- * policy（策略层路由预览）、ui_components（出厂组件启停）、workspace（工作区
- * 授权/挂载）、dialog（原生目录选择）。与 cli 现有 host.ping/host.info 并存
- * 不冲突（命名空间独立；方法表由 cli 并入命令面）。
+ * rounds（send/abort/resume/branch/todos）、records（sessions/链/账本）、
+ * sessions（create/rename/delete/refresh/tree/messages）、approval（卡查询/
+ * 裁决）、audit（导出/窗口）、tools（全量工具视图）、recovery
+ * （回退入口/回退点/重置）、backup（data_dir 快照导出/预览/恢复）、mcp
+ * （市场/挂载/卸载）、knowledge（知识集读面）、memory（记忆读面/失效）、
+ * growth（自学习报告）、os（OS 执行器受控调用）、search（检索密钥）、
+ * material（资料批量导入）、models（模型运行配置）、model_archive（模型
+ * 档案快照）、capability（能力记录/基线/档位登记）、policy（策略层路由
+ * 预览）、ui_components（出厂组件启停）、workspace（工作区授权/挂载）、
+ * dialog（原生目录选择）、graph（图实例摘要）、pool（池治理快照/判定）、
+ * edge_evidence（边证据只读窗口）、metrics（回合指标）、assemble（组装链
+ * 统计）、cache（缓存计数）、path（装配状态）、entities（实体注册表快照）。
+ * 与 cli 现有 host.ping/host.info 并存不冲突
+ * （命名空间独立；方法表由 cli 并入命令面）。
  *
  * 方法增删纪律（AGENTS 纪律 3）：本文件是 bridge 方法表单一事实源——
  * 增删方法须同步修改 CODING.md §9 命令面清单。
@@ -15,20 +21,34 @@
 
 import type { BridgeHandler, HostBridgeDeps } from './_types.js';
 import { buildApprovalHandlers } from './approval.js';
+import { buildAssembleHandlers } from './assemble.js';
 import { buildAuditHandlers } from './audit.js';
+import { buildBackupHandlers } from './backup.js';
+import { buildCacheHandlers } from './cache.js';
 import { buildCapabilityHandlers } from './capability.js';
 import { buildDialogHandlers } from './dialog.js';
+import { buildEdgeEvidenceHandlers } from './edge_evidence.js';
+import { buildEntitiesHandlers } from './entities.js';
+import { buildGraphHandlers } from './graph.js';
+import { buildGrowthHandlers } from './growth.js';
+import { buildKnowledgeHandlers } from './knowledge.js';
 import { buildMaterialHandlers } from './material.js';
+import { buildMcpHandlers } from './mcp.js';
+import { buildMemoryHandlers } from './memory.js';
+import { buildMetricsHandlers } from './metrics.js';
 import { buildModelArchiveHandlers } from './model_archive.js';
 import { buildModelsHandlers } from './models.js';
 import { buildOsHandlers } from './os.js';
+import { buildPathHandlers } from './path.js';
 import { buildPolicyHandlers } from './policy.js';
+import { buildPoolHandlers } from './pool.js';
 import { buildRecordsHandlers } from './records.js';
 import { buildRecoveryHandlers } from './recovery.js';
 import { buildRoundsHandlers } from './rounds.js';
 import { buildSearchHandlers } from './search.js';
 import { buildSessionsHandlers } from './sessions.js';
 import { buildToolsHandlers } from './tools.js';
+import { buildTodosHandlers } from './todos.js';
 import { buildUiComponentsHandlers } from './ui_components.js';
 import { buildWorkspaceHandlers } from './workspace.js';
 
@@ -39,25 +59,64 @@ export const BRIDGE_METHODS = [
   'rounds.abort',
   'rounds.resume',
   'rounds.branch',
-  // records：会话簿记/链记录查询
+  'rounds.todos',
+  // records：会话簿记/链记录查询/回合账本窗口
   'records.sessions',
   'records.chain',
-  // sessions：会话薄服务（CRUD/刷新/分支树）
+  'records.ledger',
+  // sessions：会话薄服务（CRUD/刷新/分支树/消息投影）
   'sessions.create',
   'sessions.rename',
   'sessions.delete',
   'sessions.refresh',
   'sessions.tree',
+  'sessions.messages',
   // approval：审批卡查询/裁决
   'approval.list',
   'approval.resolve',
-  // audit：审计导出
+  // audit：审计导出/只读窗口
   'audit.export',
-  // tools：引擎工具注册表快照
-  'tools.snapshot',
-  // recovery：可回退点查询/回退入口
+  'audit.list',
+  // tools：引擎工具注册表全量工具视图
+  'tools.full',
+  // recovery：可回退点查询/回退入口/重置（confirm 标记 fail-closed）
   'recovery.checkpoints',
   'recovery.rollback',
+  'recovery.reset',
+  // backup：data_dir 快照导出/预览/恢复（confirm 标记 + 原目录快照）
+  'backup.export',
+  'backup.preview',
+  'backup.restore',
+  // mcp：市场浏览（seed 数据 + 挂载态）/挂载/卸载
+  'mcp.market',
+  'mcp.mount',
+  'mcp.unmount',
+  // knowledge：知识集读面（list/graph/export）
+  'knowledge.list',
+  'knowledge.graph',
+  'knowledge.export',
+  // memory：记忆读面/批量失效
+  'memory.list',
+  'memory.invalidate',
+  // growth：自学习/调参状态报告
+  'growth.report',
+  // graph：图实例摘要（引擎回合图结构 + 最近一回合执行态）
+  'graph.instance',
+  // pool：池治理登记快照 / 引擎判定入口（只登记不越权写）
+  'pool.snapshot',
+  'pool.evaluate',
+  // edge_evidence：边证据条目窗口（只读）
+  'edge_evidence.list',
+  // metrics：回合指标会话窗口（TurnMetrics 投影）
+  'metrics.snapshot',
+  // assemble：组装链统计（开关位 + 缓存统计 + canary 门）
+  'assemble.stats',
+  // cache：指纹/多径缓存计数（只读）
+  'cache.stats',
+  // path：path_assembler 装配状态（挂载/开关/canary/最近组装候选）
+  'path.state',
+  // entities：实体注册表快照（只读）
+  'entities.snapshot',
   // os：受控 OS 执行器调用（headless 显式 --approve 语义）
   'os.run',
   // search：web_search 密钥存取（内存不落盘，web 只回显掩码）
@@ -72,9 +131,12 @@ export const BRIDGE_METHODS = [
   'models.config.role_pick',
   // model_archive：模型档案快照（从运行 model_config 聚合，无 sqlite 探测）
   'model_archive.snapshot',
-  // capability：能力记录（推演档位等设置读档/存档；data_dir 持久化）
+  // capability：能力记录（读档/存档/常驻工具基线/档位登记；data_dir 持久化）
   'capability.get',
   'capability.put',
+  'capability.baseline.get',
+  'capability.baseline.set',
+  'capability.tier.set',
   // policy：策略层路由预览（确定性分类；档位/配额随装配数据输出）
   'policy.route',
   // ui_components：出厂界面组件启停（factory/disabled/active，引擎同源）
@@ -100,12 +162,26 @@ export type BridgeMethod = (typeof BRIDGE_METHODS)[number];
 export function buildBridge(deps: HostBridgeDeps): ReadonlyMap<string, BridgeHandler> {
   const groups = [
     buildRoundsHandlers(deps),
+    buildTodosHandlers(deps),
     buildRecordsHandlers(deps),
     buildSessionsHandlers(deps),
     buildApprovalHandlers(deps),
     buildAuditHandlers(deps),
     buildToolsHandlers(deps),
     buildRecoveryHandlers(deps),
+    buildBackupHandlers(deps),
+    buildMcpHandlers(deps),
+    buildKnowledgeHandlers(deps),
+    buildMemoryHandlers(deps),
+    buildGrowthHandlers(deps),
+    buildGraphHandlers(deps),
+    buildPoolHandlers(deps),
+    buildEdgeEvidenceHandlers(deps),
+    buildMetricsHandlers(deps),
+    buildAssembleHandlers(deps),
+    buildCacheHandlers(deps),
+    buildPathHandlers(deps),
+    buildEntitiesHandlers(deps),
     buildOsHandlers(deps),
     buildSearchHandlers(deps),
     buildMaterialHandlers(deps),

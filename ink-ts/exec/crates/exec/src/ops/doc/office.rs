@@ -24,8 +24,8 @@ fn zip_part_error(err: zip::ZipError, part: &str) -> Deny {
 /// docx：word/document.xml 文本行——段落一行；表格行 = 单元格以制表符
 /// 连接（段落与表格按文档序交错输出）。
 pub fn docx_text(zip_bytes: &[u8]) -> Result<Vec<String>, Deny> {
-    let entry =
-        zip::read_entry(zip_bytes, "word/document.xml").map_err(|err| zip_part_error(err, "word/document.xml"))?;
+    let entry = zip::read_entry(zip_bytes, "word/document.xml")
+        .map_err(|err| zip_part_error(err, "word/document.xml"))?;
     let xml_text = String::from_utf8_lossy(&entry);
     let tokens = xml::tokenize(&xml_text)
         .map_err(|message| Deny::new("format", format!("docx 主文档 XML 非法: {message}")))?;
@@ -357,10 +357,7 @@ fn sheet_text(xml_text: &str, shared: &[String]) -> Result<Vec<String>, Deny> {
             xml::XmlToken::SelfClose(_, _) => {}
         }
     }
-    Ok(rows
-        .into_iter()
-        .map(|row| row.join("\t"))
-        .collect())
+    Ok(rows.into_iter().map(|row| row.join("\t")).collect())
 }
 
 /// 单张幻灯片 → 文本行（每个 a:p 段落一行；去掉空段）。
@@ -451,7 +448,10 @@ mod tests {
         assert!(docx_text(&missing).is_err());
         assert!(matches!(
             docx_text(&missing).unwrap_err(),
-            Deny { reason: "format", .. }
+            Deny {
+                reason: "format",
+                ..
+            }
         ));
     }
 

@@ -128,7 +128,10 @@ mod tests {
         // RFC 4231 Test Case 6：key = 0xaa × 131（超块长），data = "Test Using
         // Larger Than Block-Size Key - Hash Key First"——验证超块长密钥先 hash
         let key = vec![0xaau8; 131];
-        let digest = hmac_sha256(&key, b"Test Using Larger Than Block-Size Key - Hash Key First");
+        let digest = hmac_sha256(
+            &key,
+            b"Test Using Larger Than Block-Size Key - Hash Key First",
+        );
         assert_eq!(
             hex(&digest),
             "60e431591ee0b67f0d8a26aacbf5b77f8e0bc6213728c5140546040f0ee37f54"

@@ -1,17 +1,21 @@
 /**
  * ink-ts 出厂等价自检编排（TS 版）：单个 tsx 命令跑通全部门禁并矩阵化汇报。
  *
- * 语义随迁自 inkling/self_check（Rust 七门禁）的等价物，面向 TS 工作区：
+ * 语义随迁自 inkling/self_check（Rust 七门禁）的等价物，面向 TS 工作区
+ * （另加 engine typecheck 门禁，共八门禁）：
  * - contracts：engine 数据面 fixtures↔generated 权威性校验（verify_generated）；
  * - vitest：各包（gate/cli/engine/host/web）vitest 全量；
- * - discipline：代码纪律 gate（gate/src/check.ts，行数/import/词汇/src-test）；
- * - data：seed_data 与 engine 数据面 fixtures 数据一致性核（事件/工具/端点）；
+ * - typecheck：engine 全量类型检查（tsc -p engine/tsconfig.json，generated
+ *   satisfies 生效处）；
+ * - discipline：代码纪律 gate（gate/src/check.ts，行数/import/词汇/src-test/json）；
+ * - data：seed_data 与 engine 数据面 fixtures 数据一致性核（事件/工具/端点/
+ *   发射事件登记）；
  * - e2e：接线 e2e（spawn cli serve → /health + ws 订阅到事件帧）；
  * - bench：启动/回合耗时最小基准（serve 冷启动→listen→一轮 stub 回合）；
  * - symbols：符号引用计数最小等价（engine core 顶层导出孤儿扫描）。
  *
  * 用法：`node --import tsx self_check/index.ts all`（默认 all）；
- * 可指定子集：`contracts vitest discipline data e2e bench symbols`。
+ * 可指定子集：`contracts vitest typecheck discipline data e2e bench symbols`。
  * 任一失败非零退出。共享面（root npm script 挂接）不在此处改动，由
  * 仓库层统一接入；本编排可直接以 tsx 运行，不依赖额外安装。
  */
@@ -24,6 +28,7 @@ import type { GateResult } from './_report.js';
 import { renderMatrix } from './_report.js';
 import { runGateContracts } from './gates/contracts.js';
 import { runGateVitest } from './gates/vitest.js';
+import { runGateTypecheck } from './gates/typecheck.js';
 import { runGateDiscipline } from './gates/discipline.js';
 import { runGateData } from './gates/data.js';
 import { runGateE2e } from './gates/e2e.js';
@@ -86,8 +91,9 @@ export function resolveRoots(start: string): SelfCheckContext {
 const GATES: ReadonlyArray<{ key: string; label: string; run: (ctx: SelfCheckContext) => Promise<GateResult> }> = [
   { key: 'contracts', label: 'engine 数据面 fixtures↔generated', run: runGateContracts },
   { key: 'vitest', label: '各包 vitest（gate/cli/engine/host/web）', run: runGateVitest },
+  { key: 'typecheck', label: 'engine 全量类型检查', run: runGateTypecheck },
   { key: 'discipline', label: '代码纪律 gate', run: runGateDiscipline },
-  { key: 'data', label: '数据一致性核（seed↔engine fixtures）', run: runGateData },
+  { key: 'data', label: '数据一致性核（seed↔engine fixtures + 发射事件）', run: runGateData },
   { key: 'e2e', label: '接线 e2e（serve→health+ws）', run: runGateE2e },
   { key: 'bench', label: '启动/回合耗时基准', run: runGateBench },
   { key: 'symbols', label: '符号引用计数', run: runGateSymbols },

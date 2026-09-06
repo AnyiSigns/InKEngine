@@ -7,7 +7,7 @@
  * （(params, ctx) => result），host 不 import cli（依赖方向单向下）。
  */
 
-import type { Runtime } from '@ink-ts/engine';
+import type { McpClientManager, Runtime } from '@ink-ts/engine';
 
 import type { InkHost } from '../host.js';
 import { HOST_SESSIONS_COLLECTION } from '../sessions/model.js';
@@ -68,8 +68,14 @@ export interface HostBridgeDeps {
   searchKeys?: SearchKeysStore;
   /** 工作区授权域（workspace.state/set/revoke + mount.*；data_dir 持久化）。 */
   workspace?: WorkspaceStore;
-  /** 能力记录域（capability.get/put；data_dir 持久化）。 */
+  /** 能力记录域（capability.get/put/baseline/tier；data_dir 持久化）。 */
   capability?: CapabilityStore;
+  /** 宿主数据目录（backup.export/restore 与 recovery.reset 的目录根）。 */
+  data_dir?: string;
+  /** 种子数据目录（mcp.market 读 seed_data/mcp_market.json；缺省按包位置探测）。 */
+  seed_dir?: string;
+  /** MCP 管理器（H1 装配段产物；mcp.market 挂载态/mount/unmount 消费）。 */
+  mcpManager?: McpClientManager | null;
   /** 最近在途 run 取消句柄登记（rounds.abort 经 runtime 中止）。 */
 }
 

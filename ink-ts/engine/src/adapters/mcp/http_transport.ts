@@ -1,3 +1,4 @@
+// gate: 超限(381 行) - Streamable HTTP 会话单段（会话头/请求对偶/202 拉流共用状态机），IO 原语已拆 _http_io.ts
 /**
  * Streamable HTTP MCP 客户端（镜像 Python 的 streamable_http_client 路径，
  * 但自写于 node fetch——无第三方 SDK）。
@@ -8,12 +9,17 @@
  * 后续请求原样回带（会话状态保持）。202 Accepted（请求排队）形态按
  * Location 拉流读取。
  *
- * 差异声明：本实现只承载请求/响应对偶（list_tools/call_tool/ping 的上界
- * 语义齐备），不维护常驻 GET 通知流——server→client 单向通知/请求在纯
- * 请求-响应使用面上不产生；如需常驻推送面，宿主应提供会话级长连接
- * 传输（stdio/in_memory）。
+ * 安全/健壮性要点：
+ * - 响应体读取带字节上界（MAX_STDIO_FRAME_BYTES）：边读边计数、超限即
+ *   cancel 上游（不整读后才发现），与 stdio 帧上限同常量 fail-closed；
+ * - 请求级空闲中止（IdleAbort，见 _http_io.ts）：整个 roundtrip 的头部
+ *   等待与读体逐块共用同一 AbortController，超时取消在途网络（不悬挂）；
+ * - 202 Location 重定向仅接受 http/https scheme（防 file:// 等本地形态
+ *   被远端拖入），异步 GET 回带同会话头（Mcp-Session-Id）；
+ * - 本实现只承载请求/响应对偶（list_tools/call_tool/ping 的上界语义
+ *   齐备），不维护常驻 GET 通知流。
  */
-import { McpConnectionLost, McpToolImportError, RpcError } from './_errors.js';
+import { McpConnectionLost, McpToolImportError, RpcError, RpcTimeout } from './_errors.js';
 import {
   CALL_TIMEOUT,
   CONNECT_TIMEOUT,
@@ -23,14 +29,24 @@ import {
   MCP_PROTOCOL_VERSION,
 } from './_framing.js';
 import { with_timeout } from './_rpc_channel.js';
+import {
+  make_idle_abort,
+  parse_sse_events,
+  read_body_bounded,
+  type BodyReaderLike,
+  type IdleAbort,
+} from './_http_io.js';
 import type { McpCallResult, McpJsonRpcMessage, McpToolRecord, RawMcpSession } from './_types.js';
 import type { McpServerConfig } from './config.js';
 
-/** fetch 响应形态（网络 seam 的最小面）。 */
+export { parse_sse_events };
+
+/** fetch 响应形态（网络 seam 的最小面；body 可选——缺省整读回落 text()）。 */
 export interface FetchResponseLike {
   status: number;
   headers: { get(name: string): string | null };
   text(): Promise<string>;
+  body?: { getReader(): BodyReaderLike } | null;
 }
 
 /** fetch seam（默认 globalThis.fetch；测试注入假实现零网络）。 */
@@ -44,9 +60,6 @@ export type FetchLike = (
   },
 ) => Promise<FetchResponseLike>;
 
-const _sleep = (ms: number): Promise<void> =>
-  new Promise((resolve) => setTimeout(resolve, ms));
-
 function _wrap_fetch(fetchImpl: typeof globalThis.fetch): FetchLike {
   return async (url, init) => {
     const response = await fetchImpl(url, {
@@ -55,32 +68,17 @@ function _wrap_fetch(fetchImpl: typeof globalThis.fetch): FetchLike {
       body: init.body,
       signal: init.signal,
     });
+    const body = response.body;
     return {
       status: response.status,
       headers: { get: (name: string) => response.headers.get(name) },
       text: async () => await response.text(),
+      body:
+        body === null
+          ? null
+          : { getReader: () => body.getReader() },
     };
   };
-}
-
-/** SSE data 事件解析（MCP streamable HTTP 的流式响应载体）。 */
-export function parse_sse_events(text: string): string[] {
-  const events: string[] = [];
-  let data: string[] = [];
-  for (const line of text.split(/\r?\n/)) {
-    if (line === '') {
-      if (data.length > 0) {
-        events.push(data.join('\n'));
-        data = [];
-      }
-      continue;
-    }
-    if (line.startsWith('data:')) {
-      data.push(line.slice(5).replace(/^ /, ''));
-    }
-  }
-  if (data.length > 0) events.push(data.join('\n'));
-  return events;
 }
 
 /** Streamable HTTP 传输（RawMcpSession 形态；open 期完成握手）。 */
@@ -130,7 +128,7 @@ export class HttpMcpTransport implements RawMcpSession {
       if (sessionHeader !== null && sessionHeader !== '') {
         this._session_id = sessionHeader;
       }
-      const text = await this._text_bounded(response);
+      const text = await this._read_limited(response, null);
       const contentType = response.headers.get('content-type') ?? '';
       const init = await this._resolve_collected(text, contentType, id);
       this._server_info =
@@ -247,15 +245,49 @@ export class HttpMcpTransport implements RawMcpSession {
       method,
       params: params ?? {},
     };
-    const future = this._roundtrip(message, id);
-    return await with_timeout(future, timeoutMs, `MCP server ${this._config.id} 请求超时`);
+    // 请求级空闲中止：整个 roundtrip 共用一个 AbortController，超时取消在途
+    // 网络（with_timeout 兜底计时，双保险不悬挂）
+    const idle = make_idle_abort(timeoutMs);
+    const future = this._roundtrip(message, id, idle);
+    try {
+      return await with_timeout(future, timeoutMs, `MCP server ${this._config.id} 请求超时`);
+    } catch (exc) {
+      if (idle.timed_out() && !(exc instanceof RpcTimeout)) {
+        throw new RpcTimeout(`MCP server ${this._config.id} 请求超时`);
+      }
+      throw exc;
+    } finally {
+      idle.disarm();
+    }
+  }
+
+  private async _fetch_io(
+    url: string,
+    init: { method: string; headers: Record<string, string>; body?: string },
+    idle: IdleAbort,
+  ): Promise<FetchResponseLike> {
+    idle.arm();
+    try {
+      return await this._fetch(url, { ...init, signal: idle.controller.signal });
+    } finally {
+      idle.disarm();
+    }
   }
 
   private async _roundtrip(
     message: McpJsonRpcMessage,
     id: number,
+    idle: IdleAbort,
   ): Promise<unknown> {
-    const response = await this._post(message);
+    const url = this._config.url;
+    if (url === null || url === '' || this._closed) {
+      throw new McpConnectionLost(`MCP server ${this._config.id} 连接已关闭`);
+    }
+    const response = await this._fetch_io(url, {
+      method: 'POST',
+      headers: this._headers(),
+      body: JSON.stringify(message),
+    }, idle);
     const contentType = response.headers.get('content-type') ?? '';
     // 202 = 请求已受理待异步响应：按 Location 拉流读取配对消息
     if (response.status === 202) {
@@ -265,28 +297,43 @@ export class HttpMcpTransport implements RawMcpSession {
           `MCP server ${this._config.id} 返回 202 但缺 Location（无法拉取异步响应）`,
         );
       }
+      const scheme = (location.match(/^([a-zA-Z][a-zA-Z0-9+.-]*):/)?.[1] ?? '').toLowerCase();
+      if (scheme !== 'http' && scheme !== 'https') {
+        throw new McpConnectionLost(
+          `MCP server ${this._config.id} 的 202 Location 仅接受 http/https scheme: ${location}`,
+        );
+      }
       // 异步响应仍属同一会话：GET 回带 Mcp-Session-Id（server 按会话鉴权/路由）
       const headers: Record<string, string> = { Accept: 'text/event-stream' };
       if (this._session_id !== null) {
         headers['Mcp-Session-Id'] = this._session_id;
       }
-      const stream = await this._fetch(location, { method: 'GET', headers });
-      const streamText = await this._text_bounded(stream);
+      const stream = await this._fetch_io(location, { method: 'GET', headers }, idle);
+      const streamText = await this._read_limited(stream, idle);
       return await this._resolve_collected(streamText, 'text/event-stream', id);
     }
-    const text = await this._text_bounded(response);
+    const text = await this._read_limited(response, idle);
     return await this._resolve_collected(text, contentType, id);
   }
 
-  /** 响应体文本读取（带大小上界：超限 fail-closed，防恶意超大 JSON/SSE 体）。 */
-  private async _text_bounded(response: FetchResponseLike): Promise<string> {
-    const text = await response.text();
-    if (Buffer.byteLength(text, 'utf8') > MAX_STDIO_FRAME_BYTES) {
+  /** 响应体文本读取（流式 + 字节上界：超限即 cancel 上游 fail-closed）。 */
+  private async _read_limited(
+    response: FetchResponseLike,
+    idle: IdleAbort | null,
+  ): Promise<string> {
+    const limit = MAX_STDIO_FRAME_BYTES;
+    const overflow = (): never => {
       throw new McpConnectionLost(
-        `MCP server ${this._config.id} 响应体超限（> ${MAX_STDIO_FRAME_BYTES} 字节）`,
+        `MCP server ${this._config.id} 响应体超限（> ${limit} 字节）`,
       );
-    }
-    return text;
+    };
+    return await read_body_bounded(
+      response.body?.getReader() ?? null,
+      response.text,
+      limit,
+      overflow,
+      idle,
+    );
   }
 
   /** 通知（fire-and-forget POST；失败静默——通知无响应语义）。 */

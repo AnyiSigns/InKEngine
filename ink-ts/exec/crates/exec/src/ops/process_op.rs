@@ -9,7 +9,7 @@ use std::io::Read;
 use std::path::PathBuf;
 use std::time::Duration;
 
-use serde_json::{Value as JsonValue, json};
+use serde_json::{json, Value as JsonValue};
 
 use super::super::envelope::{Deny, Envelope, TIMEOUT_SECS_MAX, TIMEOUT_SECS_MIN};
 use super::super::guard::{self, normalize_env};
@@ -155,8 +155,14 @@ fn run_process(
     let mut child = cmd
         .spawn()
         .map_err(|err| Deny::new("execution", format!("命令启动失败: {err}")))?;
-    let stdout_reader = child.stdout.take().map(|pipe| spawn_pipe_reader(pipe, read_cap));
-    let stderr_reader = child.stderr.take().map(|pipe| spawn_pipe_reader(pipe, read_cap));
+    let stdout_reader = child
+        .stdout
+        .take()
+        .map(|pipe| spawn_pipe_reader(pipe, read_cap));
+    let stderr_reader = child
+        .stderr
+        .take()
+        .map(|pipe| spawn_pipe_reader(pipe, read_cap));
     let deadline = std::time::Instant::now() + Duration::from_secs(timeout_secs.max(1));
     let mut timed_out = false;
     let mut exit_code: Option<i32> = None;
@@ -186,7 +192,11 @@ fn run_process(
     let stderr = stderr_reader
         .and_then(|handle| handle.join().ok())
         .unwrap_or_default();
-    let code = if timed_out { -1 } else { exit_code.unwrap_or(-1) };
+    let code = if timed_out {
+        -1
+    } else {
+        exit_code.unwrap_or(-1)
+    };
     Ok(ProcessOutcome {
         exit_code: code,
         stdout: truncate_chars(&stdout, max_chars),
@@ -248,7 +258,6 @@ mod tests {
             endpoint: "os".into(),
             roots: vec![workspace.to_string_lossy().into_owned()],
             allowlist,
-            allow_domains: vec![],
             cwd: cwd.map(|s| s.to_string()),
             env: None,
             timeout_secs: 20,
@@ -266,7 +275,12 @@ mod tests {
     #[test]
     fn allowlisted_command_executes_with_output() {
         #[cfg(windows)]
-        let argv = vec!["cmd".into(), "/C".into(), "echo".into(), "process-ok".into()];
+        let argv = vec![
+            "cmd".into(),
+            "/C".into(),
+            "echo".into(),
+            "process-ok".into(),
+        ];
         #[cfg(not(windows))]
         let argv = vec!["echo".into(), "process-ok".into()];
         let env = sample_envelope(argv, None, vec!["cmd".into(), "echo".into()]);

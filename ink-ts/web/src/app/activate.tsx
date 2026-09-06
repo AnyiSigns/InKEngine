@@ -20,6 +20,7 @@ import {
   setServeChannel,
 } from '@/shared/backend/transport';
 import { registerBuiltinComponents } from '@/components';
+import { registerProductComponents } from './rendererAdapters';
 import { createIngester, toHubEvent, setStreaming, finalizeThreadStreaming, setThreadRoundActive } from '@/shared/session/eventIngest';
 import { registerComponent, type PlainComponent } from '@/renderer/componentRegistry';
 import { AppBackend } from './backend';
@@ -37,6 +38,8 @@ export function activate(): void {
 
   // 出厂基线组件注册（渲染器白名单基线；wave4 视图/产物清单按同名覆盖接管）
   registerBuiltinComponents();
+  // 产品 canonical 适配器注册（spec 主壳直渲映射：binding/宿主数据 → 产品组件）
+  registerProductComponents();
 
   const backend = createBackend();
   const appBackend = new AppBackend({ backend });
@@ -53,15 +56,10 @@ export function activate(): void {
 
   // 视图组件经 DynamicComponent 渲染时注入 AppBackend（白名单键原样保留，
   // 同名覆盖：装配层闭包提供 backend，组件未声明 backend 的忽略该额外属性）。
-  // 已注册组件清单视图自取 components_manifest 并刷新 artifactLoader 注册；
-  // MCP 市场挂载动作接真：市场一键挂载（手动挂载，免审批卡）。
+  // 已注册组件清单视图自取 components_manifest 并刷新 artifactLoader 注册。
   for (const [key, Comp] of Object.entries(viewRegistrations)) {
     const C = Comp as unknown as ComponentType<Record<string, unknown>>;
     const extraProps: Record<string, unknown> = { backend: appBackend };
-    if (key === 'mcp_market') {
-      extraProps.onMount = (entry: { id: string }) => appBackend.mountMcp(entry.id);
-      extraProps.onUnmount = (entry: { id: string }) => appBackend.unmountMcp(entry.id);
-    }
     registerComponent(
       key,
       ((props: Record<string, unknown> = {}) => createElement(C, { ...props, ...extraProps })) as PlainComponent,

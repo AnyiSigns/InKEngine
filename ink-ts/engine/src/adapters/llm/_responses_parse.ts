@@ -3,56 +3,19 @@
  *
  * 事件帧（SSE）与非流式响应体共用同一语义源（_finish_from_event_type /
  * _content_text / arguments 归一），独立成模块便于 ainvoke/astream 与
- * 直接单测复用。行为约定（与 openai_compat / anthropic 对齐）：
- * - 坏 SSE 帧/未知事件类型容错跳过（不中断整个流）；
- * - SSE error 帧经 _status_hint + classify_llm_error 分类抛 LLMError；
- * - 非流式缺 output / 非对象响应抛 LLMFormatError。
+ * 直接单测复用。SSE 帧解码/错误 detail/状态码提示等公共原语收敛于
+ * sse_common.ts（openai_compat/anthropic 三协议复用）；本模块只保留
+ * Responses 事件分派与增量形态转换。
  */
 
 import { ToolCall, ToolCallDelta, type Json } from '../../core/llm/messages.js';
 import { LLMChunk, LLMResult } from '../../core/llm/base.js';
 import { LLMFormatError, classify_llm_error } from '../../core/llm/errors.js';
-
-/** 记录守卫：非 null 普通对象（排数组）。 */
-function _is_record(value: unknown): value is Record<string, unknown> {
-  return typeof value === 'object' && value !== null && !Array.isArray(value);
-}
+import { error_parts, is_record, sse_data_json, status_hint } from './sse_common.js';
 
 /** 从上游 error code 猜测 HTTP 状态码（与 openai_compat 同优先级序）。 */
 export function _status_hint(code: unknown): number | null {
-  if (typeof code !== 'string') return null;
-  const lowered = code.toLowerCase();
-  if (
-    ['invalid_request', 'invalid_parameter', 'context_length', 'max_output_tokens', 'bad_request'].some(
-      (marker) => lowered.includes(marker),
-    )
-  ) {
-    return 400;
-  }
-  if (['rate', 'quota', 'limit', 'throttl'].some((marker) => lowered.includes(marker))) {
-    return 429;
-  }
-  if (lowered.includes('not_found')) return 404;
-  if (['auth', 'api_key', 'apikey'].some((marker) => lowered.includes(marker))) return 401;
-  if (['timeout', 'timed'].some((marker) => lowered.includes(marker))) return 408;
-  return null;
-}
-
-/** 从 HTTP 错误响应体提取 detail（error.message / error 字符串 / null）。 */
-export function _error_detail(body_text: string): string | null {
-  let obj: unknown;
-  try {
-    obj = JSON.parse(body_text);
-  } catch {
-    return null;
-  }
-  const error = _is_record(obj) ? obj['error'] : null;
-  if (_is_record(error)) {
-    const message = error['message'];
-    return typeof message === 'string' ? message : JSON.stringify(error);
-  }
-  if (typeof error === 'string') return error;
-  return null;
+  return status_hint(code);
 }
 
 /** Responses content 字段 → 文本（消息内容为内容段数组或字符串）。 */
@@ -61,7 +24,7 @@ export function _content_text(content: unknown): string {
   if (Array.isArray(content)) {
     const parts: string[] = [];
     for (const item of content) {
-      if (!_is_record(item)) continue;
+      if (!is_record(item)) continue;
       const type = item['type'];
       const text = item['text'];
       if (
@@ -78,7 +41,7 @@ export function _content_text(content: unknown): string {
 
 /** arguments 归一：对象/数组形态 → JSON 字符串（其余原样返回）。 */
 export function _arguments_to_string(arguments_: unknown): unknown {
-  if (Array.isArray(arguments_) || _is_record(arguments_)) {
+  if (Array.isArray(arguments_) || is_record(arguments_)) {
     return JSON.stringify(arguments_);
   }
   return arguments_;
@@ -123,7 +86,7 @@ export function _chunk_from_event(
   // 硬编码 index=0 会把连续多次调用合并成单个 ToolCall 且参数拼成坏 JSON）
   if (event_type === 'response.output_item.done') {
     const item = obj['item'];
-    if (_is_record(item) && item['type'] === 'function_call') {
+    if (is_record(item) && item['type'] === 'function_call') {
       const arguments_ = _arguments_to_string(item['arguments']);
       const name = item['name'];
       const call_id = item['call_id'];
@@ -145,10 +108,10 @@ export function _chunk_from_event(
   // 终态 / 用量帧（同帧可携带两者；两者皆无 = 无信息事件跳过）
   const finish = _finish_from_event_type(event_type);
   const usage = obj['usage'];
-  if (finish !== null || (usage !== null && _is_record(usage))) {
+  if (finish !== null || (usage !== null && is_record(usage))) {
     return new LLMChunk({
       finish_reason: finish,
-      usage: _is_record(usage) ? (usage as Record<string, Json>) : null,
+      usage: is_record(usage) ? (usage as Record<string, Json>) : null,
     });
   }
   return null;
@@ -159,36 +122,18 @@ export function _parse_sse_line(
   line: string,
   state: ResponsesParseState | null = null,
 ): LLMChunk | null {
-  const text = line.trim();
-  if (!text.startsWith('data:')) return null;
-  const data = text.slice('data:'.length).trim();
-  if (!data || data === '[DONE]') return null;
-  let obj: unknown;
-  try {
-    obj = JSON.parse(data);
-  } catch {
-    return null; // 坏帧容错跳过
-  }
-  if (!_is_record(obj)) return null;
+  const obj = sse_data_json(line);
+  if (!is_record(obj)) return null;
   if ('error' in obj) {
-    const error = obj['error'];
-    let detail: string | null = null;
-    let code: unknown = null;
-    if (_is_record(error)) {
-      const message = error['message'];
-      detail = typeof message === 'string' ? message : JSON.stringify(error);
-      code = error['code'];
-    } else {
-      detail = String(error);
-    }
-    throw classify_llm_error(_status_hint(code), detail);
+    const parts = error_parts(obj['error']);
+    throw classify_llm_error(_status_hint(parts.code), parts.detail);
   }
   return _chunk_from_event(obj, state);
 }
 
 /** 非流式响应体 → LLMResult（output 数组展开内容/工具调用/终态/用量）。 */
 export function parse_response_body(raw: unknown): LLMResult {
-  if (!_is_record(raw)) throw new LLMFormatError('', '响应非对象');
+  if (!is_record(raw)) throw new LLMFormatError('', '响应非对象');
   const output = raw['output'];
   if (!Array.isArray(output)) {
     throw new LLMFormatError('', `响应缺 output: ${JSON.stringify(raw).slice(0, 200)}`);
@@ -196,7 +141,7 @@ export function parse_response_body(raw: unknown): LLMResult {
   const content_parts: string[] = [];
   const tool_calls: ToolCall[] = [];
   for (const item of output) {
-    if (!_is_record(item)) continue;
+    if (!is_record(item)) continue;
     const item_type = item['type'];
     if (item_type === 'message') {
       content_parts.push(_content_text(item['content']));
@@ -215,6 +160,6 @@ export function parse_response_body(raw: unknown): LLMResult {
     content: content_parts.join(''),
     tool_calls: tool_calls.length > 0 ? tool_calls : null,
     finish_reason: typeof finish_reason === 'string' ? finish_reason : null,
-    usage: _is_record(usage) ? (usage as Record<string, Json>) : null,
+    usage: is_record(usage) ? (usage as Record<string, Json>) : null,
   });
 }

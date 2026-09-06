@@ -181,6 +181,10 @@ export abstract class SqliteBaseStorage {
         }
       }
       try {
+        // 覆写前校验已完成（可信目录/常规文件/源≠库）；替换动作存在跨进程
+        // 竞态：另一进程此刻若持有同一库文件连接，其 WAL/页缓存与本进程的
+        // 覆写可能交错（busy_timeout 只保证 SQL 语句级排队，不覆盖文件级
+        // 替换）。restore 语义 = 单管理者场景（宿主先收敛其它连接再恢复）。
         this._reopenAfterRestore(tmp);
       } finally {
         try {

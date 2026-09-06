@@ -29,9 +29,9 @@ import { PhaseCapsule } from './PhaseCapsule';
 import { ToolDrawer } from './ToolDrawer';
 import { SpawnPanel, type SpawnInstance } from './SpawnPanel';
 import type { InkMessage, RoundStep, SimulationBranch } from '@/shared/session/types';
-import { assetOf, MediaRejected } from '@/components/messages/media_entries';
+import { assetOf, MediaRejected } from './parts/media_entries';
 import { resolveMediaRenderer } from '@/renderer/mediaRegistry';
-import { ChartEntry } from '@/components/messages/chart_entry';
+import { ChartEntry } from './parts/chart_entry';
 import { useDevMode } from '@/shared/ui/devMode';
 import { useT } from '@/i18n/useT';
 

@@ -129,3 +129,53 @@ describeOrSkip('受控 OS 执行器（沙箱根内执行 + 越权拦截 + 审计
     }
   });
 });
+
+describe('受控 OS 执行器（无二进制依赖的请求面门）', () => {
+  it('env 保留键黑名单：覆写 INK_* / 会话密钥被拒（不触达 exec）', async () => {
+    const dir = tempDir('ink-os-env-');
+    const runner = new HostOsRunner(() => null, 'fake-exec-binary');
+    await expect(
+      runner.run(
+        {
+          tool: 'os_probe',
+          op: 'process',
+          args: { argv: ['cmd'] },
+          roots: [dir],
+          allowlist: ['cmd'],
+          env: { INK_EXEC_SESSION_KEY: 'spoof' },
+        },
+        { approved: true, by: 'test' },
+      ),
+    ).rejects.toMatchObject({ code: 'invalid_params' });
+    // 非保留 env 键通过请求面门校验（后续失败属于 spawn 等执行段，非 invalid_params）
+    await expect(
+      runner.run(
+        {
+          tool: 'os_probe',
+          op: 'process',
+          args: { argv: ['cmd'] },
+          roots: [dir],
+          allowlist: ['cmd'],
+          env: { PATH: 'C:\\bin' },
+        },
+        { approved: true, by: 'test' },
+      ),
+    ).rejects.not.toMatchObject({ code: 'invalid_params' });
+  });
+
+  it('http op 已移除：请求被拒（invalid_params）', async () => {
+    const dir = tempDir('ink-os-http-');
+    const runner = new HostOsRunner(() => null, 'fake-exec-binary');
+    await expect(
+      runner.run(
+        {
+          tool: 'fetch',
+          op: 'http' as never,
+          args: { url: 'https://x.example' },
+          roots: [dir],
+        },
+        { approved: true, by: 'test' },
+      ),
+    ).rejects.toMatchObject({ code: 'invalid_params' });
+  });
+});

@@ -16,7 +16,7 @@ import {
   LLMServerError,
   LLMTimeoutError,
 } from '../../../src/core/llm/errors.js';
-import { TimeoutError } from '../../../src/adapters/llm/transport.js';
+import { TimeoutError } from '../../../src/adapters/llm/fetch_transport.js';
 import {
   body_of,
   capture,
@@ -38,7 +38,7 @@ describe('请求负载构造', () => {
   it('ainvoke 载荷形态：端点/认证头/model/stream/messages', async () => {
     const { llm, seen } = make_adapter(OK_HANDLER);
     await llm.ainvoke([system('sys'), user('hi')]);
-    expect(new URL(seen.request!.url).pathname).toBe('/v1/chat/completions');
+    expect(new URL(seen.url!).pathname).toBe('/v1/chat/completions');
     expect(seen.request!.headers['authorization']).toBe('Bearer sk-test');
     const body = body_of(seen);
     expect(body['model']).toBe('test-model');
@@ -52,7 +52,7 @@ describe('请求负载构造', () => {
   it('base_url 尾斜杠归一', async () => {
     const { llm, seen } = make_adapter(OK_HANDLER);
     await llm.ainvoke([user('hi')]);
-    expect(new URL(seen.request!.url).pathname).toBe('/v1/chat/completions');
+    expect(new URL(seen.url!).pathname).toBe('/v1/chat/completions');
   });
 
   it('tools 转换为 OpenAI function 形态', async () => {
@@ -249,13 +249,12 @@ describe('ainvoke', () => {
     expect(err).toBeInstanceOf(LLMTimeoutError);
   });
 
-  it('aclose 释放并重建 client（长连接生命周期由宿主管理）', async () => {
+  it('aclose 释放默认传输（注入传输由宿主管理；关闭后仍可继续调用）', async () => {
     const { llm, seen } = make_adapter(OK_HANDLER);
     await llm.ainvoke([user('hi')]);
-    expect((llm as unknown as { _client: unknown })._client).not.toBeNull();
-    await llm.aclose();
-    expect((llm as unknown as { _client: unknown })._client).toBeNull();
-    await llm.ainvoke([user('hi')]); // 关闭后可重建
+    expect((llm as unknown as { _default_transport: unknown })._default_transport).toBeNull();
+    await llm.aclose(); // 注入传输非本适配器持有，aclose 无释放对象（幂等）
+    await llm.ainvoke([user('hi')]);
     expect(seen.calls).toBe(2);
   });
 });

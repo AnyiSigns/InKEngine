@@ -9,8 +9,8 @@ use std::io::{BufRead, Write};
 
 use serde_json::Value;
 
-use super::code::{PARSE_ERROR, error_response, log_line};
-use super::frame::{MAX_LINE_BYTES, drain_to_line_end, read_bounded_line};
+use super::code::{error_response, log_line, PARSE_ERROR};
+use super::frame::{drain_to_line_end, read_bounded_line, MAX_LINE_BYTES};
 
 /// 处理函数：输入一行请求文本，返回要写往 stdout 的响应行（None = 通知）。
 pub type LineHandler<'a> = &'a mut dyn FnMut(&str) -> Option<String>;
@@ -44,14 +44,7 @@ pub fn run_server<R: BufRead, W: Write>(
             // E8：超限行不回静默跳过——客户端会悬挂；回结构化 -32700 错误
             // 并排空本行余量到行尾
             let message = format!("单行超过 {} 字节上限，拒绝解析", MAX_LINE_BYTES);
-            log_line(
-                "rpc",
-                "error",
-                "",
-                &Value::Null,
-                0,
-                Some(&message),
-            );
+            log_line("rpc", "error", "", &Value::Null, 0, Some(&message));
             let resp = error_response(&Value::Null, PARSE_ERROR, message, None);
             if let Err(e) = writeln!(output, "{}", resp) {
                 eprintln!("stdout 写入失败: {e}");

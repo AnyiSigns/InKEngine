@@ -84,6 +84,15 @@ export function derive_traversals(ctx: SettleContext): Traversal[] {
 // ── 归因方向判定 ─────────────────────────────────────────────────────────────
 
 /**
+ * 回合终态分类共享判定（error/budget 统一口径；中断挂起非终态）：
+ * error/budget 收尾 = 回合失败终态——知识归因记失败、证据归因因路径未
+ * 走完只记中性；两端共用本判定，避免"回合是否失败"口径分裂。
+ */
+export function terminal_failure_reason(reason: string | null | undefined): boolean {
+  return reason === TerminateReason.ERROR || reason === TerminateReason.BUDGET_EXCEEDED;
+}
+
+/**
  * 证据归因方向判定（只记录不裁决的「裁决」= 归因方向）：
  * - 有失败结点 → 失败归因（只记失败结点入边）；
  * - 挂起（中断未决）/ 错误收尾（无失败结点，如计划步级错误）/ 预算截断 →
@@ -100,10 +109,7 @@ export function run_verdict(ctx: SettleContext): string {
   if (ctx.result.interrupt !== null || ctx.result.reason === 'interrupted') {
     return 'neutral';
   }
-  if (
-    ctx.result.reason === TerminateReason.ERROR ||
-    ctx.result.reason === TerminateReason.BUDGET_EXCEEDED
-  ) {
+  if (terminal_failure_reason(ctx.result.reason)) {
     return 'neutral';
   }
   return UPDATE_SUCCESS;

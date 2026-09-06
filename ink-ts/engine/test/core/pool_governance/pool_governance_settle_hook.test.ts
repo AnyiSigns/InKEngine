@@ -1,3 +1,4 @@
+// gate: 超限(355 行) - 池治理 settle 钩子单测全场景（单回合/多回合稳定/合并收敛/反写 seam）同文件，拆文件破坏用例场景对照
 /**
  * 池治理 settle 钩子真实现单测（引擎每回合自动跑语义）。
  *
@@ -16,7 +17,7 @@ import {
   GOV_VERDICT_REJECT,
   PoolGovernance,
 } from '../../../src/core/pool_governance/pool_governance.js';
-import { PoolGovernanceSettleHook, POOL_GOVERNANCE_AUDIT_TYPE, POOL_GOVERNANCE_MERGE_CAP_PER_ROUND } from '../../../src/core/settle/review.js';
+import { PoolGovernanceSettleHook, POOL_GOVERNANCE_AUDIT_TYPE, POOL_GOVERNANCE_MERGE_CAP_PER_ROUND, GOVERNANCE_WRITE_TARGET_NOOP } from '../../../src/core/settle/review.js';
 import { Graph } from '../../../src/core/graph/graph.js';
 import { TRACE_FAILED, TRACE_SUCCESS } from '../../../src/core/settle/_constants.js';
 import { edgeKey, linearGraph, makeCtx, stepsOf } from '../settle/helpers.js';
@@ -198,6 +199,157 @@ describe('PoolGovernanceSettleHook 近重复合并收敛', () => {
     const skipped = hook.audits.find((r) => r['skipped_reason'] !== undefined);
     expect(skipped).toBeTruthy();
     expect(String(skipped!['skipped_reason'])).toContain('单回合合并应用超上限');
+    await store.close();
+  });
+});
+
+describe('D06/R3 裁决反写（GovernanceWriteTarget seam）', () => {
+  /** 可写实体 seam 捕获（记录 list/archive/evict/merge 调用，供反写断言）。 */
+  function makeWritable(): {
+    archives: Array<[string, string]>;
+    evicts: Array<[string, string]>;
+    merges: Array<[string, string[], string]>;
+    writable: {
+      list(): string[];
+      archive(node: string, opts: { domain: string; reason: string }): void;
+      evict(node: string, opts: { domain: string; reason: string }): void;
+      merge(
+        keep: string,
+        drops: string[],
+        opts: { domain: string; reason: string },
+      ): void;
+    };
+  } {
+    const archives: Array<[string, string]> = [];
+    const evicts: Array<[string, string]> = [];
+    const merges: Array<[string, string[], string]> = [];
+    const members = ['existing', 'zombie'];
+    return {
+      archives,
+      evicts,
+      merges,
+      writable: {
+        list: () => [...members],
+        archive(node: string, opts: { domain: string; reason: string }): void {
+          archives.push([node, opts.reason]);
+        },
+        evict(node: string, opts: { domain: string; reason: string }): void {
+          evicts.push([node, opts.reason]);
+        },
+        merge(keep: string, drops: string[], opts: { domain: string; reason: string }): void {
+          merges.push([keep, drops, opts.reason]);
+        },
+      },
+    };
+  }
+
+  /** 图：entry → dst（失败目标类型，图内边存在）。 */
+  function reachGraph(dst: string): Graph {
+    const g = new Graph({ name: `rw-${dst}`, entry: 'entry' });
+    g.add_node('entry', async () => ({}));
+    g.add_node(dst, async () => ({}));
+    g.add_edge('entry', dst);
+    g.add_exit(dst);
+    return g;
+  }
+
+  it('近重复合并裁决 → 反写 merge(保权威 keep_id, drop_ids=[dst])', async () => {
+    const store = new EdgeEvidenceStore();
+    await putEdge(store, 's', 'existing', 10, 0);
+    const gov = new PoolGovernance({ now: () => NOW });
+    const capture = makeWritable();
+    const hook = new PoolGovernanceSettleHook(gov, {
+      store,
+      now: () => NOW,
+      node_fields: (node) =>
+        ['existing', 'dup_candidate'].includes(node) ? ['a', 'b', 'c', 'd', 'e', 'f'] : [],
+      writable: capture.writable,
+    });
+    const ctx = makeCtx(stepsOf(['entry', TRACE_SUCCESS], ['dup_candidate', TRACE_FAILED]), {
+      graph: reachGraph('dup_candidate'),
+    });
+    await hook.settle(ctx);
+    expect(gov.log[0]!['verdict']).toBe(GOV_VERDICT_MERGE);
+    // merge 方向 = drop(candidate) 并入保权威 keep(existing)
+    expect(capture.merges).toEqual([
+      ['existing', ['dup_candidate'], expect.stringContaining('近重复')],
+    ]);
+    await store.close();
+  });
+
+  it('容量满 + 死结点候选 → 反写 archive（软归档）+ 审计留痕', async () => {
+    const store = new EdgeEvidenceStore();
+    // 池内 500 活跃成员（占满容量）+ 1 死成员（零调用超龄）——池满触发淘汰
+    for (let i = 0; i < 500; i += 1) {
+      await putEdge(store, 's', `alive${i}`, 5, 0);
+    }
+    await putEdge(store, 's', 'zombie', 0, 0, { last_used_at: NOW - 100 * 86400 });
+    const gov = new PoolGovernance({ now: () => NOW });
+    const capture = makeWritable();
+    const hook = new PoolGovernanceSettleHook(gov, {
+      store,
+      now: () => NOW,
+      writable: capture.writable,
+    });
+    const ctx = makeCtx(stepsOf(['entry', TRACE_SUCCESS], ['cand_new', TRACE_FAILED]), {
+      graph: reachGraph('cand_new'),
+    });
+    await hook.settle(ctx);
+    const verdict = gov.log[0]!;
+    expect(verdict['verdict']).toBe(GOV_VERDICT_ALLOW);
+    expect(verdict['eviction_required']).toBe(true);
+    expect(capture.archives.length).toBe(1);
+    expect(capture.archives[0]![0]).toBe('zombie');
+    // 反写 + 登记双留痕：审计含该死结点的 archive 动作
+    expect(hook.audits.some((r) => r['action'] === 'archive' && r['node_id'] === 'zombie')).toBe(true);
+    await store.close();
+  });
+
+  it('裁决目标不在可写清单 = seam 仍 no-op（登记 + 审计回落，不硬造写路径）', async () => {
+    const store = new EdgeEvidenceStore();
+    await putEdge(store, 's', 'existing', 10, 0);
+    const gov = new PoolGovernance({ now: () => NOW });
+    const capture = makeWritable();
+    const hook = new PoolGovernanceSettleHook(gov, {
+      store,
+      now: () => NOW,
+      node_fields: (node) =>
+        ['existing', 'ghost_candidate'].includes(node) ? ['a', 'b', 'c', 'd', 'e', 'f'] : [],
+      writable: capture.writable,
+    });
+    const ctx = makeCtx(stepsOf(['entry', TRACE_SUCCESS], ['ghost_candidate', TRACE_FAILED]), {
+      graph: reachGraph('ghost_candidate'),
+    });
+    await hook.settle(ctx);
+    expect(gov.log[0]!['verdict']).toBe(GOV_VERDICT_MERGE);
+    // 死成员 zombie 在清单内仍被反写（占满容量场景才会出现 eviction）
+    expect(capture.merges.length).toBe(1);
+    // 无 eviction 候选（非容量满）→ 不触发 archive/evict
+    expect(capture.archives.length).toBe(0);
+    expect(capture.evicts.length).toBe(0);
+    // 审计仍完整（判定 + 审计回落不受 seam 状态影响）
+    expect(hook.audits.length).toBe(1);
+    await store.close();
+  });
+
+  it('noop 回落 seam：注入 GOVERNANCE_WRITE_TARGET_NOOP = 只登记 + 审计', async () => {
+    const store = new EdgeEvidenceStore();
+    await putEdge(store, 's', 'existing', 10, 0);
+    const gov = new PoolGovernance({ now: () => NOW });
+    const hook = new PoolGovernanceSettleHook(gov, {
+      store,
+      now: () => NOW,
+      node_fields: (node) =>
+        ['existing', 'dup_candidate'].includes(node) ? ['a', 'b', 'c', 'd', 'e', 'f'] : [],
+      writable: GOVERNANCE_WRITE_TARGET_NOOP,
+    });
+    const ctx = makeCtx(stepsOf(['entry', TRACE_SUCCESS], ['dup_candidate', TRACE_FAILED]), {
+      graph: reachGraph('dup_candidate'),
+    });
+    await hook.settle(ctx);
+    expect(gov.log[0]!['verdict']).toBe(GOV_VERDICT_MERGE);
+    expect(hook.audits.length).toBe(1);
+    expect(hook.audits[0]!['candidate']).toBe('dup_candidate');
     await store.close();
   });
 });

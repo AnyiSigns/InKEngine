@@ -1,52 +1,82 @@
 /**
- * tools 命令面（snapshot）——引擎工具注册表只读快照。
- *
- * 数据源 = runtime.tool_index（ToolVectorIndex：merged_specs 建索引后自带
- * 端点/档位/向量状态）与 merged_specs（全量注册工具）；host 只透传，不
- * 复刻壳侧工具声明表。向量可用性随快照上报（降级可观测：关键词基线时
- * uses_vectors=false）。
+ * tools command surface (full) - full tool view of the engine tool registry.
+ * Data source = runtime.tool_index (ToolVectorIndex with per-endpoint/tier/
+ * vector state) plus merged_specs (all registered tools); host only proxies,
+ * never mirrors shell-side tool declarations. Vector availability is reported
+ * per view (observable degrade: keyword baseline -> uses_vectors=false).
+ * full = settings tools tab data source; on each merged_specs row it adds
+ * three consumption flags - baseline (resident required set, engine runtime
+ * single source), approved (capability record auto_approve_tools hit),
+ * enabled (inside the engine injected set = default session window);
+ * capability auto-approve reads the capability record, other flags read the
+ * engine runtime.
  */
 
 import { BridgeError, type BridgeHandler } from './_types.js';
 import type { HostBridgeDeps } from './_types.js';
 
-/** 单条工具快照（tool_index 端点/档位元数据 + spec 摘要）。 */
-export interface ToolSnapshotRow {
+/** Full tool view row (flags: baseline/approved/enabled; vector state). */
+export interface ToolFullRow {
   name: string;
-  description: string;
-  permissions: readonly string[];
-  endpoint: string;
-  tier: 'allow' | 'review' | 'unknown';
+  uses_vectors: boolean;
   vector: boolean;
+  baseline: boolean;
+  approved: boolean;
+  enabled: boolean;
+}
+
+/** Full tool view result. */
+export interface ToolFullView {
+  uses_vectors: boolean;
+  degraded_reason?: string | null;
+  tools: ToolFullRow[];
 }
 
 export function buildToolsHandlers(deps: HostBridgeDeps): ReadonlyMap<string, BridgeHandler> {
-  const snapshot: BridgeHandler = async (): Promise<unknown> => {
+  /**
+   * Full tool view: merged_specs rows carry uses_vectors/vector plus three
+   * consumption flags. baseline = runtime resident set; approved = capability
+   * auto_approve_tools hit; enabled = runtime injected set (default session
+   * window = immutable preview set). Missing engine assembly ->
+   * runtime_unavailable (fail-closed).
+   */
+  const full: BridgeHandler = (): ToolFullView => {
     const runtime = deps.runtime;
     if (runtime.engine === null) {
-      throw new BridgeError('运行时引擎未装配（runtime 未 boot/已关停）', 'runtime_unavailable');
+      throw new BridgeError('runtime engine is not assembled (not booted or stopped)', 'runtime_unavailable');
     }
     const index = runtime.tool_index;
+    const usesVectors = index?.uses_vectors() ?? false;
+    const degraded = index?.degraded_reason ?? null;
+    const baseline = new Set(runtime.baseline_names);
+    const approved = new Set(
+      deps.capability !== undefined
+        ? deps.capability.get().auto_approve_tools
+        : [],
+    );
+    const enabled = new Set(runtime.collect_specs().map((spec) => spec.name));
     const specs = runtime.merged_specs();
-    const rows: ToolSnapshotRow[] = specs.map((spec) => {
+    const rows: ToolFullRow[] = specs.map((spec) => {
       const entry = index !== null ? index.entries.get(spec.name) : undefined;
       return {
         name: spec.name,
-        description: spec.description ?? '',
-        permissions: spec.permissions ?? [],
-        endpoint: entry?.endpoint ?? 'unknown',
-        tier: entry?.tier ?? 'unknown',
-        vector: entry?.vector !== null && entry?.vector !== undefined,
+        uses_vectors: usesVectors,
+        vector: usesVectors && entry?.vector !== null && entry?.vector !== undefined,
+        baseline: baseline.has(spec.name),
+        approved: approved.has(spec.name),
+        enabled: enabled.has(spec.name),
       };
     });
     rows.sort((a, b) => a.name.localeCompare(b.name));
-    return {
-      count: rows.length,
-      uses_vectors: index?.uses_vectors() ?? false,
-      degraded_reason: index?.degraded_reason ?? null,
+    const view: ToolFullView = {
+      uses_vectors: usesVectors,
+      ...(degraded !== null ? { degraded_reason: degraded } : {}),
       tools: rows,
     };
+    return view;
   };
 
-  return new Map<string, BridgeHandler>([['tools.snapshot', snapshot]]);
+  return new Map<string, BridgeHandler>([
+    ['tools.full', full],
+  ]);
 }

@@ -51,10 +51,11 @@ export { RecommendedPriorSettleHook, promotion_signature_key } from './promotion
 export type { OnPromoted, PromotionGate, PromotionSink, PromotionSignature } from './promotion.js';
 
 export {
+  GOVERNANCE_WRITE_TARGET_NOOP,
   PolicyEdgeReviewSettleHook,
   PoolGovernanceSettleHook,
 } from './review.js';
-export type { ReviewSink } from './review.js';
+export type { GovernanceWriteTarget, ReviewSink } from './review.js';
 
 export { import_seed_paths } from './seed.js';
 
@@ -71,7 +72,7 @@ export {
 } from './types.js';
 export type { SettleContextInit } from './types.js';
 
-export { attribution_plan, derive_traversals, run_verdict } from './attribution.js';
+export { attribution_plan, derive_traversals, run_verdict, terminal_failure_reason } from './attribution.js';
 
 export {
   classify_failure,

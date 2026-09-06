@@ -1,14 +1,16 @@
 /**
  * 记忆无感提取域公开 re-export（snake_case 镜像 Python `__all__`，
- * 并附带契约常量 ROUND_FACT_EVENTS / CONFIRMATION_EVENTS——壳侧与
- * 引擎信号分类引用的权威事件口径）。
+ * 并附带契约常量 ROUND_FACT_EVENTS / CONFIRMATION_EVENTS——账本事实事件
+ * 口径的权威声明）。
  *
  * 文件拆分纪律：提取规则 / 冲突消解逻辑单文件（memory_extract），
- * 存储复用 memory 域（MemoryEntry / StorageBackedMemoryStore）。
+ * 回合抽取 settle 钩子落 settle.ts，存储复用 memory 域（MemoryEntry /
+ * StorageBackedMemoryStore）。
  *
- * 状态标注（机制就绪 / 宿主接线点待定）：回合记忆抽取，settle 钩子预留，
- * 默认关（消耗 LLM 的语义归并档留扩展）；存储面 = memory 域（当前无
- * runtime 默认装配，宿主按需挂 StorageBackedMemoryStore）。
+ * 状态标注（机制已接线）：回合记忆抽取 settle 钩子（MemoryExtractSettleHook）
+ * 默认随 Runtime 装配（每回合收尾触发一次，见 runtime/_runtime_self_learning）；
+ * 存储面 = StorageBackedMemoryStore（runtime 默认装配，EvolutionWriter
+ * kind=memory 受控通道）。
  */
 
 export {
@@ -27,3 +29,9 @@ export type {
   ExtractLedgerOptions,
   MemoryExtractArbitration,
 } from './memory_extract.js';
+
+export { MemoryExtractSettleHook } from './settle.js';
+export type {
+  LedgerFactsProvider,
+  MemoryExtractSettleHookOptions,
+} from './settle.js';

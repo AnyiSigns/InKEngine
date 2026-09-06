@@ -20,7 +20,7 @@ import {
   ToolManifest,
   ToolSource,
 } from '../../core/tool_vetting/tool_vetting.js';
-import type { ToolSourceValue } from '../../core/tool_vetting/_types.js';
+import type { ToolSourceValue } from '../../core/tool_vetting/tool_vetting.js';
 import type { McpToolRecord } from './_types.js';
 
 /**

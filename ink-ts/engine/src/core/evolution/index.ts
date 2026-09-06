@@ -7,8 +7,9 @@
  * 入口（EvolutionFactory）、母体指标口径（entry_metrics）；另附闸门 seam
  * 类型（EvolutionGate，真实 KnowledgeGate 结构满足，供宿主/测试注入）。
  *
- * 状态标注（机制就绪 / 宿主接线点待定）：EvolutionFactory 为离线变异-
- * 择优工厂，由收敛/批量流程经引擎 API 调用，无回合内自动调度（默认开关：无）。
+ * 状态标注（机制已接线）：EvolutionFactory 为离线变异-择优工厂，产品内调度
+ * 入口 = runtime.evolve_offline（按需；闸门/样例由调用方注入，默认不产生
+ * 回合内开销）。
  */
 
 export {

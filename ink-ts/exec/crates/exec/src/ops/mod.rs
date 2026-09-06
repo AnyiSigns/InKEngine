@@ -6,7 +6,6 @@
 pub mod dialog;
 pub mod doc;
 pub mod file_op;
-pub mod http_op;
 pub mod process_op;
 
 use serde_json::Value as JsonValue;
@@ -29,7 +28,6 @@ pub fn execute(envelope: &Envelope) -> Result<JsonValue, Deny> {
     match envelope.op.as_str() {
         "process" => process_op::run(envelope),
         "file" => file_op::run(envelope),
-        "http" => http_op::run(envelope),
         "doc" => doc::run(envelope),
         "dialog" => dialog::run(envelope),
         other => Err(Deny::new("op", format!("未知物理 op: {other}"))),

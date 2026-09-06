@@ -3,176 +3,141 @@ import { render, screen, fireEvent, waitFor } from '@testing-library/react';
 
 import { McpMarket } from '@/app/views/markets/McpMarket';
 import { createAppBackend, type AppBackend } from '@/app/backend';
-import type { McpMarketEntry } from '@/app/types';
-import type { McpMountStatus } from '@/shared/backend/backendAdapter';
+import type { McpMarketData } from '@/shared/backend/backendAdapter';
 
-function makeMockBackend(
-  entries: McpMarketEntry[] = [],
-  marketOverrides: { id?: string; name?: string; builtin?: boolean } = {},
-): AppBackend {
+function makeMockBackend(servers: McpMarketData['servers'] = []): AppBackend {
   const backend = createAppBackend({ backend: { available: false } as never });
-  const status: McpMountStatus = {
-    markets: [
-      {
-        id: marketOverrides.id ?? 'market',
-        name: marketOverrides.name ?? '用户市场',
-        source: '',
-        builtin: marketOverrides.builtin ?? false,
-        servers: entries,
-      },
-    ],
-    mounted: {},
-  };
-  vi.spyOn(backend, 'getMcpMarketStatus').mockResolvedValue(status);
+  vi.spyOn(backend, 'getMcpMarket').mockResolvedValue({
+    source: '',
+    premounted: false,
+    mount_policy: {},
+    servers,
+  });
+  vi.spyOn(backend, 'mountMcp').mockResolvedValue({ ok: true, server_id: 'mcp_1', status: 'mounted' });
+  vi.spyOn(backend, 'unmountMcp').mockResolvedValue({ ok: true, server_id: 'mcp_1', status: 'unmounted' });
   return backend;
 }
 
-const sampleEntries: McpMarketEntry[] = [
+const sampleServers: McpMarketData['servers'] = [
   {
     id: 'mcp_1',
-    name: '示例 MCP Server',
-    source: 'example.com',
+    name: '示例 HTTP Server',
+    source: '社区公开 server（示例条目）',
     transport: 'http',
     url: 'https://api.example.com/mcp',
     command: null,
     args: [],
     credentials: { required: true, note: '需要 API Key 配置' },
     risk: 'high',
-    risk_note: '访问外部 API，可能泄露数据。',
+    risk_note: '访问外部 API。',
     category: 'research',
-    premounted: false,
+    mounted: false,
   },
   {
     id: 'mcp_2',
     name: '本地 stdio Server',
-    source: 'local',
+    source: '本地示例',
     transport: 'stdio',
     url: null,
     command: 'python',
     args: ['-m', 'mcp_server'],
     credentials: { required: false, note: '无需凭据' },
     risk: 'low',
-    risk_note: '本地执行，安全可信。',
+    risk_note: '本地执行。',
     category: 'utility',
-    premounted: false,
+    mounted: false,
   },
 ];
 
-describe('McpMarket (W5.1)', () => {
+describe('McpMarket (mcp.market 单源)', () => {
   beforeEach(() => {
     vi.restoreAllMocks();
   });
 
   it('从宿主状态渲染 MCP 服务器列表', async () => {
-    const backend = makeMockBackend(sampleEntries);
+    const backend = makeMockBackend(sampleServers);
     render(<McpMarket backend={backend} />);
 
     expect(screen.getByText('MCP 市场')).toBeTruthy();
     await waitFor(() => {
-      expect(screen.getByText('示例 MCP Server')).toBeTruthy();
+      expect(screen.getByText('示例 HTTP Server')).toBeTruthy();
     });
     expect(screen.getByText('本地 stdio Server')).toBeTruthy();
   });
 
-  it('空态显示「暂无市场」引导', async () => {
+  it('空态显示「暂无市场服务」引导', async () => {
     const backend = makeMockBackend([]);
     render(<McpMarket backend={backend} />);
 
     await waitFor(() => {
-      expect(screen.getByText('暂无市场')).toBeTruthy();
+      expect(screen.getByText(/暂无市场服务/)).toBeTruthy();
     });
   });
 
-  it('内置市场（builtin）条目不展示', async () => {
-    const backend = makeMockBackend(sampleEntries, { name: '内置市场', builtin: true });
+  it('风险徽标渲染（高风险 label）', async () => {
+    const backend = makeMockBackend(sampleServers);
     render(<McpMarket backend={backend} />);
 
     await waitFor(() => {
-      expect(screen.getByText('暂无市场')).toBeTruthy();
+      expect(screen.getByText('高风险')).toBeTruthy();
     });
-    expect(screen.queryByText('示例 MCP Server')).toBeNull();
-    expect(screen.queryByText('内置市场')).toBeNull();
   });
 
-  it('风险徽标渲染（高风险=朱砂色）', async () => {
-    const backend = makeMockBackend(sampleEntries);
+  it('已挂载条目显示取消挂载按钮', async () => {
+    const backend = makeMockBackend([{ ...sampleServers[0]!, mounted: true }]);
     render(<McpMarket backend={backend} />);
 
     await waitFor(() => {
-      const highRisk = screen.getByText('高风险');
-      expect(highRisk).toBeTruthy();
-      expect(highRisk.className).toContain('ink-accent');
+      expect(screen.getByText('已挂载')).toBeTruthy();
+      expect(screen.getByText('取消挂载')).toBeTruthy();
     });
   });
 
-  it('transport 图标渲染（http=地球，stdio=终端）', async () => {
-    const backend = makeMockBackend(sampleEntries);
-    const { container } = render(<McpMarket backend={backend} />);
-    await waitFor(() => {
-      expect(container.querySelector('svg')).toBeTruthy();
-    });
-  });
-
-  it('点击详情打开抽屉，显示完整详情', async () => {
-    const backend = makeMockBackend(sampleEntries);
+  it('stdio 挂载：打开 command 表单，确认后调 mountMcp 并刷新', async () => {
+    const backend = makeMockBackend(sampleServers);
     render(<McpMarket backend={backend} />);
-
-    await waitFor(() => {
-      const detailBtns = screen.getAllByText('详情');
-      fireEvent.click(detailBtns[0]!);
-    });
-
-    await waitFor(() => {
-      expect(screen.getAllByText('HTTP').length).toBeGreaterThan(0);
-    });
-    await waitFor(() => {
-      expect(screen.getByText('https://api.example.com/mcp')).toBeTruthy();
-    });
-  });
-
-  it('点击挂载触发 onMount 回调（幂等）', async () => {
-    const backend = makeMockBackend(sampleEntries);
-    const onMount = vi.fn();
-    render(<McpMarket backend={backend} onMount={onMount} />);
 
     await waitFor(() => {
       const mountBtns = screen.getAllByText('挂载');
-      fireEvent.click(mountBtns[0]!);
+      // 第二行 = stdio 条目
+      fireEvent.click(mountBtns[1]!);
     });
-
-    expect(onMount).toHaveBeenCalledWith(sampleEntries[0]);
-  });
-
-  it('挂载幂等：挂载中按钮禁用，不重复触发', async () => {
-    const backend = makeMockBackend(sampleEntries);
-    const onMount = vi.fn();
-    render(<McpMarket backend={backend} onMount={onMount} />);
-
     await waitFor(() => {
-      const mountBtns = screen.getAllByText('挂载');
-      fireEvent.click(mountBtns[0]!);
-      fireEvent.click(mountBtns[0]!);
+      expect(screen.getByText(/command（启动命令）/)).toBeTruthy();
     });
-
-    expect(onMount).toHaveBeenCalledTimes(1);
+    const commandInput = document.querySelector('[data-ui="mcp_mount_command"]') as HTMLInputElement;
+    expect(commandInput.value).toBe('python');
+    fireEvent.click(screen.getByText('确认挂载'));
+    await waitFor(() => {
+      expect(backend.mountMcp).toHaveBeenCalledWith(
+        expect.objectContaining({ id: 'mcp_2', transport: 'stdio', command: 'python', args: ['-m', 'mcp_server'] }),
+      );
+    });
   });
 
-  it('复制配置到剪贴板', async () => {
-    const backend = makeMockBackend(sampleEntries);
-    const writeText = vi.fn().mockResolvedValue(undefined);
-    Object.assign(navigator, { clipboard: { writeText } });
-
+  it('取消挂载调用 unmountMcp', async () => {
+    const backend = makeMockBackend([{ ...sampleServers[0]!, mounted: true }]);
     render(<McpMarket backend={backend} />);
 
     await waitFor(() => {
-      const detailBtns = screen.getAllByText('详情');
-      fireEvent.click(detailBtns[0]!);
+      fireEvent.click(screen.getByText('取消挂载'));
     });
+    await waitFor(() => {
+      expect(backend.unmountMcp).toHaveBeenCalledWith('mcp_1');
+    });
+  });
+
+  it('挂载失败显示 notice（不假成功）', async () => {
+    const backend = makeMockBackend(sampleServers);
+    vi.spyOn(backend, 'mountMcp').mockResolvedValue({ ok: false, server_id: 'mcp_2', status: 'mount_failed', error: '连接失败' });
+    render(<McpMarket backend={backend} />);
 
     await waitFor(() => {
-      const copyBtn = screen.getByText('复制配置');
-      fireEvent.click(copyBtn!);
-      expect(writeText).toHaveBeenCalled();
+      fireEvent.click(screen.getAllByText('挂载')[1]!);
+    });
+    fireEvent.click(screen.getByText('确认挂载'));
+    await waitFor(() => {
+      expect(screen.getByText(/连接失败/)).toBeTruthy();
     });
   });
 });

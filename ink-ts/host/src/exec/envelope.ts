@@ -131,10 +131,13 @@ function gateCoverage(input: ExecRequest, decision: AdjudicatedDecision): void {
     throw new ExecRefusedError('裁决缺端点归属（endpoint）');
   }
   const roots = decision.roots ?? [];
-  if (input.op !== 'http' && roots.length === 0) {
+  if (input.op !== 'http' && input.op !== 'dialog' && roots.length === 0) {
     throw new ExecRefusedError(`${input.op} 需要路径根（roots 为空无法保证根内执行）`);
   }
-  if (input.op === 'process') {
+  if (input.op === 'dialog') {
+    // 原生目录选择为宿主 UI 面：无路径根/白名单约束（exec 侧 guard 按
+    // dialog 端点机械复核；宿主裁决已显式 approved）。
+  } else if (input.op === 'process') {
     const allowlist = decision.allowlist ?? [];
     if (allowlist.length === 0) {
       throw new ExecRefusedError('process 需要命令白名单（裁决未给出放行命令）');

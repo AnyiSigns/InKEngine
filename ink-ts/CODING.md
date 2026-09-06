@@ -167,6 +167,12 @@ CI 的 ink-ts job 同链执行。规则增删须同步本表。
 | `recovery.checkpoints` | recovery | 可回退点查询（engine recovery） |
 | `recovery.rollback` | recovery | 回退入口（删链节点 + set_audit 留痕，调 engine recovery） |
 | `os.run` | os | 受控 OS 执行器调用（host 裁决面门 + exec 信封机械复核；headless 仅显式 --approve 放行） |
+| `workspace.state` | workspace | 工作区授权态（authorized/root/mounts，data_dir/workspace.json） |
+| `workspace.set` | workspace | 设置工作区授权根（绝对路径须存在） |
+| `workspace.revoke` | workspace | 撤销工作区授权根 |
+| `workspace.mount.add` | workspace | 追加挂载目录（多沙箱根） |
+| `workspace.mount.remove` | workspace | 移除挂载目录 |
+| `dialog.open_directory` | dialog | 原生目录选择（exec Rust 原生件 rfd；宿主 UI 面，非 agent 端点） |
 | `search.keys.set` | search | web_search 密钥写入（宿主内存域；不落盘，web 只回显掩码） |
 | `search.keys.get` | search | web_search 密钥掩码查询（无明文外泄） |
 | `material.import` | material | 既有资料批量导入（目录扫描 → 逐文件 doc.parse → 文本/引用归一入会话；三重上限 fail-closed） |

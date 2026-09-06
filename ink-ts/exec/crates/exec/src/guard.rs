@@ -23,6 +23,7 @@ pub fn op_allows_endpoint(op: &str, endpoint: &str) -> bool {
         "file" => endpoint == "file",
         "http" => endpoint == "network",
         "doc" => endpoint == "file",
+        "dialog" => endpoint == "dialog",
         _ => false,
     }
 }

@@ -13,6 +13,7 @@
 import type { BridgeHandler, HostBridgeDeps } from './_types.js';
 import { buildApprovalHandlers } from './approval.js';
 import { buildAuditHandlers } from './audit.js';
+import { buildDialogHandlers } from './dialog.js';
 import { buildMaterialHandlers } from './material.js';
 import { buildOsHandlers } from './os.js';
 import { buildRecordsHandlers } from './records.js';
@@ -21,6 +22,7 @@ import { buildRoundsHandlers } from './rounds.js';
 import { buildSearchHandlers } from './search.js';
 import { buildSessionsHandlers } from './sessions.js';
 import { buildToolsHandlers } from './tools.js';
+import { buildWorkspaceHandlers } from './workspace.js';
 
 /** bridge 命令面（域分组方法名清单；声明/文档同步的单一事实源）。 */
 export const BRIDGE_METHODS = [
@@ -55,6 +57,14 @@ export const BRIDGE_METHODS = [
   'search.keys.get',
   // material：既有资料批量导入（扫描 → doc.parse → 文本/引用入会话）
   'material.import',
+  // workspace：工作区授权根/挂载清单（data_dir 持久化）
+  'workspace.state',
+  'workspace.set',
+  'workspace.revoke',
+  'workspace.mount.add',
+  'workspace.mount.remove',
+  // dialog：原生目录选择（exec Rust 稳定原生面；host 中继）
+  'dialog.open_directory',
 ] as const;
 
 export type BridgeMethod = (typeof BRIDGE_METHODS)[number];
@@ -76,6 +86,8 @@ export function buildBridge(deps: HostBridgeDeps): ReadonlyMap<string, BridgeHan
     buildOsHandlers(deps),
     buildSearchHandlers(deps),
     buildMaterialHandlers(deps),
+    buildWorkspaceHandlers(deps.workspace),
+    buildDialogHandlers(),
   ];
   const methods = new Map<string, BridgeHandler>();
   for (const group of groups) {

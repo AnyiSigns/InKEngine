@@ -171,7 +171,7 @@ export default function App({ backend, hub, sessionStore }: AppProps) {
         setAuthorized(result.authorized);
         setWorkspaceRoot(result.root);
       } catch {
-        // 选择器取消或授权失败：保持现状（反馈由各入口三态呈现）
+        // 原生目录选择不可用：保持现状（反馈由工作区视图三态呈现）
       }
     })();
   };

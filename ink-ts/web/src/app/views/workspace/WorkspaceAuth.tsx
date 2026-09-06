@@ -64,7 +64,7 @@ export function WorkspaceAuth({ backend, state: externalState, onStateChange }: 
     }
   }, [externalState, refreshAuthState]);
 
-  /** 系统原生目录选择器 → 授权（宿主不可用时静默失败，保持现状）。 */
+  /** 原生目录选择器 → 授权（serve 需 exec dialog 原生件；不可用则静默保持）。 */
   const handleAuthorizeFromPicker = useCallback(async () => {
     let picked: string | null = null;
     try {
@@ -109,7 +109,7 @@ export function WorkspaceAuth({ backend, state: externalState, onStateChange }: 
     void backend.listMounts().then(setMounts).catch(() => setMounts([]));
   }, [backend]);
 
-  /** 目录选择器 → 挂载授权（多挂载根）。 */
+  /** 目录选择器 → 挂载授权（多挂载根；不可用则静默保持）。 */
   const handleAddMount = useCallback(async (): Promise<void> => {
     let picked: string | null = null;
     try {

@@ -7,8 +7,9 @@
  * 机制（host 只接线），本模块只承载数据结构与协议的 TS 面。
  */
 
-/** 物理执行体族（exec 端点归属的机械形态；doc = 文档解析，归 file 端点）。 */
-export type ExecOp = 'process' | 'file' | 'http' | 'doc';
+/** 物理执行体族（exec 端点归属的机械形态；doc = 文档解析归 file 端点；
+ *  dialog = 宿主 UI 原生目录选择，独立 dialog 端点，不经 agent 工具）。 */
+export type ExecOp = 'process' | 'file' | 'http' | 'doc' | 'dialog';
 
 /** 裁决元信息（host 侧审批/自动放行的留痕；exec 只要求 approved=true）。 */
 export interface ExecDecision {

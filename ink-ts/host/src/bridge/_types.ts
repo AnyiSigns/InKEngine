@@ -55,10 +55,14 @@ export interface HostBridgeDeps {
   docParse?: DocParser;
   /** 检索密钥域（search.keys.set/get + web_search 执行体共用；内存不落盘）。 */
   searchKeys?: SearchKeysStore;
+  /** 工作区授权域（workspace.state/set/revoke + mount.*；data_dir 持久化）。 */
+  workspace?: WorkspaceStore;
   /** 最近在途 run 取消句柄登记（rounds.abort 经 runtime 中止）。 */
 }
 
 import type { DocParser } from '../doc/_types.js';
 import type { SearchKeysStore } from '../search/keys.js';
+import type { WorkspaceStore } from '../workspace/store.js';
 export type { DocParser };
 export type { SearchKeysStore };
+export type { WorkspaceStore };

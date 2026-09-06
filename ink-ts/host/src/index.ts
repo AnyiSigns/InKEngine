@@ -23,6 +23,8 @@ import type { HostConfigInput, ResolvedHostConfig } from './config.js';
 import { DocService } from './doc/service.js';
 import { InkHost } from './host.js';
 import { buildHostSearch } from './search/wiring.js';
+import { createWorkspaceStore } from './workspace/store.js';
+import type { WorkspaceStore } from './workspace/store.js';
 import { build_product_recipe } from './recipe.js';
 import type { ProductRecipeInit } from './recipe.js';
 import { buildHostRetrieval } from './retrieval/domain.js';
@@ -56,6 +58,7 @@ export async function createHost(
   mkdirSync(resolved.data_dir, { recursive: true });
   const retrieval = buildHostRetrieval(resolved.data_dir);
   const inkHost = new InkHost(resolved);
+  const workspaceStore = createWorkspaceStore(resolved.data_dir);
   const assemblyRecipe = build_product_recipe(recipe ?? undefined);
   for (const factory of retrieval.sourceFactories()) {
     assemblyRecipe.retrieval_sources.push(factory as never);
@@ -77,6 +80,7 @@ export async function createHost(
     docTextCap: resolved.round_doc_text_cap,
     docParse: docService,
     searchKeys: search.keys,
+    workspace: workspaceStore,
   });
   const handle: HostHandle = {
     runtime,
@@ -166,6 +170,10 @@ export type {
 
 // ── 检索域（web_search 执行体注入 + 密钥内存存取）──
 export { SearchKeysStore, maskKey } from './search/keys.js';
+
+// ── 工作区授权域（data_dir/workspace.json 持久化）──
+export { WorkspaceStoreError, createWorkspaceStore } from './workspace/store.js';
+export type { WorkspaceState, WorkspaceStore } from './workspace/store.js';
 export {
   SEARCH_PROVIDERS,
   WebSearchError,

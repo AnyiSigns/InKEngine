@@ -410,7 +410,6 @@ export interface BackendAdapter {
   mountAuthorize(path: string): Promise<string[]>;
   offlineSettingsGet(): Promise<Record<string, unknown>>;
   offlineSettingsPut(settings: Record<string, unknown>): Promise<unknown>;
-  voiceStatus(): Promise<Record<string, unknown>>;
   offlineDetect(): Promise<Record<string, unknown>>;
   approvalRequest(
     threadId: string | null,
@@ -521,10 +520,6 @@ export interface BackendAdapter {
   // 审计流水（audit.list；洞察时间线底账）。可选窗口参数：limit（条数
   // 上限）/ before / after（epoch 秒时间窗）——防前端一次拉全量审计集合。
   auditList(opts?: { limit?: number; before?: number; after?: number }): Promise<unknown>;
-  // 语音（输入胶囊语音入口）
-  voiceRecord(durationMs: number): Promise<number[]>;
-  voiceTranscribe(audio: number[]): Promise<{ text?: string }>;
-  voiceSynthesize(text: string): Promise<unknown>;
 }
 
 /** 宿主不可用的空适配器（夹具回落的显式形态）。 */
@@ -557,7 +552,6 @@ export function createUnavailableBackend(): BackendAdapter {
     mountAuthorize: unavailable as never,
     offlineSettingsGet: unavailable as never,
     offlineSettingsPut: unavailable as never,
-    voiceStatus: unavailable as never,
     offlineDetect: unavailable as never,
     approvalRequest: unavailable as never,
     approvalResolve: unavailable as never,
@@ -633,9 +627,6 @@ export function createUnavailableBackend(): BackendAdapter {
     memoryInvalidate: unavailable as never,
     memoryUpdateFrontmatter: unavailable as never,
     auditList: unavailable as never,
-    voiceRecord: unavailable as never,
-    voiceTranscribe: unavailable as never,
-    voiceSynthesize: unavailable as never,
   };
 }
 
@@ -687,15 +678,29 @@ export function createServeBackend(channel?: ServeChannel): BackendAdapter {
     sessionTree: (threadId) => call('session_tree', { threadId }),
     sessionBranch: (threadId, action, targetLeaf, editText) =>
       call('session_branch', { threadId, action, targetLeaf, editText }),
-    authorizationState: () => call('authorization_state'),
-    workspaceAuthorize: (path) => call('workspace_authorize', { path }),
-    workspaceRevoke: () => call('workspace_revoke'),
+    authorizationState: async () => {
+      const state = await call<{ authorized: boolean; root: string | null }>('workspace.state');
+      return { authorized: state.authorized, root: state.root };
+    },
+    workspaceAuthorize: async (path) => {
+      const state = await call<{ authorized: boolean; root: string | null }>('workspace.set', { path });
+      return { authorized: state.authorized, root: state.root ?? '' };
+    },
+    workspaceRevoke: async () => {
+      const state = await call<{ authorized: boolean }>('workspace.revoke');
+      return { authorized: state.authorized };
+    },
     openPath: (path) => call('shell_open_path', { path }),
-    mountList: () => call('mount_list'),
-    mountAuthorize: (path) => call('mount_authorize', { path }),
+    mountList: async () => {
+      const state = await call<{ mounts?: string[] }>('workspace.state');
+      return state.mounts ?? [];
+    },
+    mountAuthorize: async (path) => {
+      const state = await call<{ mounts?: string[] }>('workspace.mount.add', { path });
+      return state.mounts ?? [];
+    },
     offlineSettingsGet: () => call('offline_settings_get'),
     offlineSettingsPut: (settings) => call('offline_settings_put', { settings }),
-    voiceStatus: () => call('voice_status'),
     offlineDetect: () => call('offline_detect'),
     approvalRequest: (threadId, key, action, payload) =>
       call('approval_request', { threadId, key, action, payload }),
@@ -720,7 +725,7 @@ export function createServeBackend(channel?: ServeChannel): BackendAdapter {
     toolsBaselineGet: () => call('tools_baseline_get'),
     toolsBaselineSet: (tools) => call('tools_baseline_set', { tools }),
     uiComponentsGet: () => call('ui_components.get'),
-    uiComponentsSetDisabled: (disabled) => call('ui_components.set_disabled', { args: { disabled } }),
+    uiComponentsSetDisabled: (disabled) => call('ui_components.set_disabled', { disabled }),
     componentsManifest: () => call('components_manifest'),
     mcpMarketStatus: () => call('mcp_market_status'),
     mcpMarketMount: (serverId) => call('mcp_market_mount', { serverId }),
@@ -728,7 +733,7 @@ export function createServeBackend(channel?: ServeChannel): BackendAdapter {
     mcpMarketPreview: (link) => call('mcp_market_preview', { link }),
     mcpMarketAdd: (link) => call('mcp_market_add', { link }),
     mcpMarketRemove: (marketId) => call('mcp_market_remove', { marketId }),
-    modelArchiveSnapshot: () => call('model_archive_snapshot'),
+    modelArchiveSnapshot: () => call('model_archive.snapshot'),
     // metrics.snapshot 壳命令参数为 args（非 Option），无参调用须显式空对象
     metricsSnapshot: () => call('metrics_snapshot', { args: {} }),
     assembleStats: () => call('assemble_stats'),
@@ -784,9 +789,6 @@ export function createServeBackend(channel?: ServeChannel): BackendAdapter {
     memoryUpdateFrontmatter: (id, frontmatter) =>
       call('memory.update_frontmatter', { args: { id, frontmatter } }),
     auditList: (opts) => (opts ? call('audit.list', { args: opts }) : call('audit.list')),
-    voiceRecord: (durationMs) => call('voice_record', { durationMs }),
-    voiceTranscribe: (audio) => call('voice_transcribe', { audio }),
-    voiceSynthesize: (text) => call('voice_synthesize', { text }),
   };
 }
 

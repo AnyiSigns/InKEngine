@@ -10,7 +10,7 @@
  * - 底部设置入口与品牌行同款几何（图标 + 文字行），折叠态纯图标。
  *
  * 机制/市场导航不进左栏（统一收纳在设置页各节，全部对用户开放）；
- * 添加工作区走原生目录选择器 + workspace_authorize（由装配层回调执行）。
+ * 添加工作区走原生目录选择器 + workspace.set（由装配层回调执行）。
  */
 
 import { CheckCircle2, FolderOpen, FolderPlus, PanelLeftClose, PanelLeftOpen, Settings2 } from 'lucide-react';

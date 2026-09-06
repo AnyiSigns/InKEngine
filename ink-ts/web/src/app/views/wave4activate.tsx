@@ -103,7 +103,7 @@ export function activate(_backend: AppBackend): { sections: SettingsSectionSpec[
         {
           key: 'workspace_auth',
           label: '授权目录',
-          hint: 'authorization_state / workspace_authorize / workspace_revoke',
+          hint: 'workspace.state / workspace.set / workspace.revoke',
           kind: 'component',
         },
       ],

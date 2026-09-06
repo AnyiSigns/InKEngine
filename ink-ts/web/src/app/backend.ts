@@ -6,8 +6,8 @@
  * - 组件市场（W4）：获取 components_manifest，动态注册 artifact 组件；
  * - 工具面板（W5.2）：获取 tools_snapshot，按族分组；
  * - MCP 市场（W5.1）：从种子 mcp_market.json 驱动（无后端依赖）；
- * - 工作区授权（W5.5）：获取 authorization_state，执行 workspace_authorize/revoke；
- * - OS 层（W5.3）：复用 tools_snapshot + authorization_state；
+ * - 工作区授权（W5.5）：获取 workspace.state，执行 workspace.set/revoke；
+ * - OS 层（W5.3）：复用 tools_snapshot + workspace.state；
  *
  * 宿主不可用（浏览器 dev / 无壳）时回落到种子数据夹具：视图仍可渲染，
  * 仅挂载/授权类操作在无宿主时降级为本地状态记录。

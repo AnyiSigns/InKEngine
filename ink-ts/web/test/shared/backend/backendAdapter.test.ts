@@ -122,8 +122,8 @@ describe('serve 通道适配器', () => {
     await backend.uiComponentsGet();
     await backend.uiComponentsSetDisabled(['message_list']);
     expect(calls.map((call) => call.cmd)).toEqual(['ui_components.get', 'ui_components.set_disabled']);
-    // 薄转发命令 args 键包裹（serve 侧 args 键承载，键名须为 args）
-    expect(calls[1].args).toEqual({ args: { disabled: ['message_list'] } });
+    // ui_components 域点分方法：set_disabled 直收 disabled（无 args 包裹）
+    expect(calls[1].args).toEqual({ disabled: ['message_list'] });
   });
 
   it('薄转发命令 args 键包裹 + 命令名对齐（todo/growth/models/dialog/knowledge/memory/graph/ui_spec/path）', async () => {

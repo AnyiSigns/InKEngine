@@ -65,9 +65,6 @@
   "input.placeholder": "给智能体发消息",
   "input.remove_attachment": "移除附件",
   "input.add_attachment": "添加附件",
-  "input.recording": "录音中（5s）…",
-  "input.transcribing": "转写中…",
-  "input.voice": "语音输入",
   "input.mode_standard": "标准",
   "input.mode_assembly": "组装",
   "input.multimodal": "多模态",
@@ -108,7 +105,7 @@
   "settings.item.hint.mcp_market": "浏览并挂载 MCP 服务（出厂零预挂）",
   "settings.item.hint.component_registry": "补丁链登记的组件清单（agent 自写 / 外部拉取注册，非市场目录）",
   "settings.item.hint.tools_panel": "常驻必带工具集（每回合直接注入）+ 全量工具视图（含 MCP 挂载），tools_manifest 真实数据",
-  "settings.item.hint.workspace_auth": "authorization_state / workspace_authorize / workspace_revoke",
+  "settings.item.hint.workspace_auth": "workspace.state / workspace.set / workspace.revoke",
   "settings.item.hint.ui_editor_host": "inspect_ui 拉取 setLiveSpec；产物到补丁链落链可回退",
 
   "settings.on": "开",

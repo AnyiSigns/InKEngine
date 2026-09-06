@@ -65,9 +65,6 @@
   "input.placeholder": "Message the agent",
   "input.remove_attachment": "Remove attachment",
   "input.add_attachment": "Add attachment",
-  "input.recording": "Recording (5s)…",
-  "input.transcribing": "Transcribing…",
-  "input.voice": "Voice input",
   "input.mode_standard": "Standard",
   "input.mode_assembly": "Assemble",
   "input.multimodal": "Multimodal",
@@ -108,7 +105,7 @@
   "settings.item.hint.mcp_market": "Browse and mount MCP servers (none pre-mounted)",
   "settings.item.hint.component_registry": "Components registered in the patch chain (agent-written / external, not the market)",
   "settings.item.hint.tools_panel": "Always-on toolset (injected every round) + full tool view (incl. MCP mounts), real tools_manifest data",
-  "settings.item.hint.workspace_auth": "authorization_state / workspace_authorize / workspace_revoke",
+  "settings.item.hint.workspace_auth": "workspace.state / workspace.set / workspace.revoke",
   "settings.item.hint.ui_editor_host": "Fetch setLiveSpec via inspect_ui; output lands in patch chain and can be reverted",
 
   "settings.on": "On",

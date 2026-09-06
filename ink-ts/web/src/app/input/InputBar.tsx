@@ -1,18 +1,17 @@
-// gate: 超限(456 行) - 输入胶囊单一渲染面（文本/附件/语音/档位/模型选择联动同一输入态）
+// gate: 超限(415 行) - 输入胶囊单一渲染面（文本/附件/档位/模型选择联动同一输入态）
 /**
  * 输入胶囊（会话主输入面）。
  *
  * 形态（参考桌面 agent 产品空态）：居中 max-w-4xl 大胶囊（近白实底 + 柔发
  * 阴影 + focus-within 光晕抬升），文本区单行起步自适应伸展，控件全部收进
- * 胶囊底排——圆形附件 +、语音、回合档位下拉、模型/推理档位下拉、右侧大号
+ * 胶囊底排——圆形附件 +、回合档位下拉、模型/推理档位下拉、右侧大号
  * 圆形发送钮；胶囊下方居中「N 轮 · M 步」回合计数。
  * route_plan 发送前预览置于胶囊上方（已落定语义，不抢占胶囊内空间）。
  */
 
 import { useState, useRef, useEffect } from 'react';
-import { ArrowUp, Brain, ChevronDown, Loader2, Mic, Plus, Route, SlidersHorizontal, Sparkles, Square, Image, Video, FileText } from 'lucide-react';
+import { ArrowUp, Brain, ChevronDown, Plus, Route, SlidersHorizontal, Sparkles, Square, Image, Video, FileText } from 'lucide-react';
 import type { ModelArchiveRow, ModelArchiveSnapshot, ModelSelection } from '@/shared/backend/backendAdapter';
-import { createBackend } from '@/shared/backend/backendAdapter';
 import { useT } from '@/i18n/useT';
 import { fileToDataUrl, uploadThenAsset } from '@/shared/upload/fileAsset';
 
@@ -97,10 +96,6 @@ export function InputBar({
   const [text, setText] = useState('');
   const [attachments, setAttachments] = useState<AttachmentAsset[]>([]);
   const [mode, setMode] = useState<'standard' | 'assembly'>('standard');
-  // 语音输入：capability=可用性探测；recording/transcribing=进行中态
-  const [voiceCapable, setVoiceCapable] = useState(false);
-  const [voicePhase, setVoicePhase] = useState<'idle' | 'recording' | 'transcribing'>('idle');
-  const backendRef = useRef(createBackend());
   const textareaRef = useRef<HTMLTextAreaElement>(null);
   const fileInputRef = useRef<HTMLInputElement>(null);
   const modeRef = useRef<HTMLDivElement>(null);
@@ -142,39 +137,6 @@ export function InputBar({
     document.addEventListener('mousedown', onDocClick);
     return () => document.removeEventListener('mousedown', onDocClick);
   }, [reasoningMenuOpen]);
-
-  useEffect(() => {
-    if (!backendRef.current.available) return;
-    void backendRef.current
-      .voiceStatus()
-      .then((s) => {
-        const status = s as { mic?: boolean; stt?: boolean };
-        setVoiceCapable(Boolean(status.mic && status.stt));
-      })
-      .catch(() => setVoiceCapable(false));
-  }, []);
-
-  /** 语音输入：录音（定长 5s）→ 转写 → 文本入输入框（直发 AI 的入口在胶囊而非管理台）。 */
-  const handleVoice = () => {
-    if (!backendRef.current.available || voicePhase !== 'idle') return;
-    setVoicePhase('recording');
-    void (async () => {
-      try {
-        const audio = await backendRef.current.voiceRecord(5000);
-        setVoicePhase('transcribing');
-        const result = await backendRef.current.voiceTranscribe(audio);
-        const spoken = (result.text ?? '').trim();
-        if (spoken) {
-          setText((prev) => (prev.trim() ? `${prev.trimEnd()} ${spoken}` : spoken));
-          onRoutePlanPreview?.(spoken);
-        }
-      } catch {
-        // 录音/转写失败：回落静默（语音能力属宿主能力，无用户设置项）
-      } finally {
-        setVoicePhase('idle');
-      }
-    })();
-  };
 
   useEffect(() => {
     if (textareaRef.current) {
@@ -293,7 +255,7 @@ export function InputBar({
             data-ui="input_textarea"
           />
 
-          {/* 底排：附件/语音 + 回合档位 + 模型档位（紧凑精致）… 大号圆形发送钮 */}
+          {/* 底排：附件 + 回合档位 + 模型档位（紧凑精致）… 大号圆形发送钮 */}
           <div className="flex items-center gap-1.5">
             <button
               type="button"
@@ -305,31 +267,6 @@ export function InputBar({
               <Plus size={15} strokeWidth={1.8} />
             </button>
             <input ref={fileInputRef} type="file" multiple className="hidden" onChange={handleFiles} />
-
-            {voiceCapable && (
-              <button
-                type="button"
-                onClick={handleVoice}
-                disabled={voicePhase !== 'idle' || disabled}
-                className={`relative flex h-8 w-8 shrink-0 items-center justify-center rounded-full border transition-colors ${
-                  voicePhase === 'recording'
-                    ? 'border-[var(--ink-accent-border)] text-[var(--ink-accent-approval)]'
-                    : 'ink-border ink-text-muted hover:bg-[var(--ink-bg-elevated)] hover:text-[var(--ink-text-base)]'
-                }`}
-                title={voicePhase === 'recording' ? t('input.recording') : voicePhase === 'transcribing' ? t('input.transcribing') : t('input.voice')}
-                data-ui="input_voice"
-                data-phase={voicePhase}
-              >
-                {voicePhase === 'transcribing' ? (
-                  <Loader2 size={15} strokeWidth={1.8} className="animate-spin" />
-                ) : (
-                  <Mic size={15} strokeWidth={1.8} />
-                )}
-                {voicePhase === 'recording' && (
-                  <span className="absolute right-1 top-1 h-1.5 w-1.5 rounded-full bg-[var(--ink-accent-approval)] animate-ping" />
-                )}
-              </button>
-            )}
 
             {/* 回合模式档位：下拉筛选（非胶囊分段，参考桌面 agent 下拉形态） */}
             <div className="relative" ref={modeRef}>

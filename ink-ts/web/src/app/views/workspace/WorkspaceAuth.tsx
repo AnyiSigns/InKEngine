@@ -1,10 +1,10 @@
 /**
  * 工作区授权视图（W5.5）：授权三件套视图。
  *
- * authorization_state / workspace_authorize / workspace_revoke：
+ * workspace.state / workspace.set / workspace.revoke：
  * 目录列表 / 添加 / 撤销 / 审计。
  * 文件操作前授权弹窗（触发时机 = 首次文件操作时，非预授权）。
- * 挂载管理列表（mount_authorize / mount_list）。
+ * 挂载管理列表（workspace.mount.add / workspace.state）。
  *
  * 目录选择一律走系统原生文件选择器（Tauri dialog），不做手动路径输入。
  */

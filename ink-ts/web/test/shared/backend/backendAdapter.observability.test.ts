@@ -44,7 +44,7 @@ describe('serve 通道：可观测/干预命令对齐', () => {
     await backend.restoreEdgeTier('e1');
     await backend.knowledgeGraph();
     expect(calls.map((c) => c.cmd)).toEqual([
-      'model_archive_snapshot',
+      'model_archive.snapshot',
       'metrics_snapshot',
       'assemble_stats',
       'path_choose_candidate',

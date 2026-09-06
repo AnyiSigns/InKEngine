@@ -7,7 +7,7 @@
  * 视觉让位于消息流与输入胶囊。
  *
  * 主界面只保留会话产品面：机制/市场/管理台视图统一收纳在设置页各节
- * （全部节对用户开放）；工作区授权走原生目录选择器 + workspace_authorize
+ * （全部节对用户开放）；工作区授权走原生目录选择器 + workspace.set
  * 真接线；模型档快照装配层加载后注入输入胶囊。
  */
 
@@ -137,7 +137,7 @@ export default function App({ backend, hub, sessionStore }: AppProps) {
       .catch(() => undefined);
   }, [state.activeSessionId, backend]);
 
-  // 工作区授权态（真接线：authorizationState 轮询 + workspace_authorize 写）
+  // 工作区授权态（真接线：workspace.state 轮询 + workspace.set 写）
   const [authorized, setAuthorized] = useState(false);
   const [workspaceRoot, setWorkspaceRoot] = useState<string | null>(null);
   // 模型档快照（输入胶囊 chip / 发送门槛）：挂载取一次；设置页配置厂商/

@@ -2,7 +2,7 @@
  * 设置页后端通道封装（单一 IPC 面：全部经 BackendAdapter 下发）。
  *
  * 设置页不再持有独立 tauri invoke 通道——offline_settings_get/put、
- * voice_status、offline_detect 等命令已并入 BackendAdapter 接口，
+ * offline_detect 等命令已并入 BackendAdapter 接口，
  * 与主会话共用同一传输与统一错误信封收口（code/message/trace_id 记日志）。
  */
 
@@ -20,7 +20,6 @@ export interface SettingsBackend {
   metricsSnapshot(): Promise<Record<string, unknown>>;
   assembleStats(): Promise<Record<string, unknown>>;
   cacheInvalidate(scope: string): Promise<Record<string, unknown>>;
-  voiceStatus(): Promise<Record<string, unknown>>;
   offlineDetect(): Promise<Record<string, unknown>>;
   backendStatus(): Promise<Record<string, unknown>>;
 }
@@ -37,7 +36,6 @@ const UNAVAILABLE: SettingsBackend = {
   metricsSnapshot: async () => ({}),
   assembleStats: async () => ({}),
   cacheInvalidate: async () => ({ cleared: 'unavailable' }),
-  voiceStatus: async () => ({}),
   offlineDetect: async () => ({}),
   backendStatus: async () => ({}),
 };
@@ -57,7 +55,6 @@ export function createSettingsBackend(adapter: BackendAdapter | null): SettingsB
     metricsSnapshot: () => adapter.metricsSnapshot().then((r) => r as unknown as Record<string, unknown>),
     assembleStats: () => adapter.assembleStats().then((r) => r as unknown as Record<string, unknown>),
     cacheInvalidate: (scope) => adapter.invalidateCache(scope),
-    voiceStatus: () => adapter.voiceStatus(),
     offlineDetect: () => adapter.offlineDetect(),
     backendStatus: () => adapter.status().then((s) => s as unknown as Record<string, unknown>),
   };

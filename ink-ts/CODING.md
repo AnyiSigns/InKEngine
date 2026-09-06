@@ -179,6 +179,9 @@ CI 的 ink-ts job 同链执行。规则增删须同步本表。
 | `models.config.get` | models | 模型运行配置掩码态查询（config.json 明文不出进程；含 agent/router 槽已配置态） |
 | `models.config.put` | models | 模型配置保存（`{config: <角色槽/备用链端点形状>}`：校验 → host apply → 原子落 data_dir/config.json → 引擎重建，下轮生效） |
 | `models.config.reload` | models | 模型配置重载（从 data_dir/config.json 重读 → apply → 引擎重建；冷启态再装配） |
+| `model_archive.snapshot` | model_archive | 模型档案快照（从运行 model_config 角色槽/备用链聚合 archives，与 config.json 同源；无 sqlite 探测） |
+| `ui_components.get` | ui_components | 出厂界面组件启停态（factory/disabled/active 三清单；engine 同源） |
+| `ui_components.set_disabled` | ui_components | 整集替换出厂组件停用集（`{disabled: string[]}`；未登记名结构化拒绝） |
 
 host bridge 与 cli `host.ping`/`host.info` 命名空间独立并存（方法表并入 cli 命令面）。
 JSON-RPC 信封错误只回通用、细节走 diag（复用 `cli/src/diag.ts` 形态）。

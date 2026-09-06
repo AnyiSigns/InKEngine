@@ -1,16 +1,17 @@
-// gate: 超限(415 行) - 输入胶囊单一渲染面（文本/附件/档位/模型选择联动同一输入态）
+// gate: 超限(383 行) - 输入胶囊单一渲染面（文本/附件/模型选择联动同一输入态）
 /**
  * 输入胶囊（会话主输入面）。
  *
  * 形态（参考桌面 agent 产品空态）：居中 max-w-4xl 大胶囊（近白实底 + 柔发
  * 阴影 + focus-within 光晕抬升），文本区单行起步自适应伸展，控件全部收进
- * 胶囊底排——圆形附件 +、回合档位下拉、模型/推理档位下拉、右侧大号
+ * 胶囊底排——圆形附件 +、模型/推理档位下拉、右侧大号
  * 圆形发送钮；胶囊下方居中「N 轮 · M 步」回合计数。
  * route_plan 发送前预览置于胶囊上方（已落定语义，不抢占胶囊内空间）。
+ * 回合恒为组装（assembly）：标准/组装切换已取消，默认组装展开。
  */
 
 import { useState, useRef, useEffect } from 'react';
-import { ArrowUp, Brain, ChevronDown, Plus, Route, SlidersHorizontal, Sparkles, Square, Image, Video, FileText } from 'lucide-react';
+import { ArrowUp, Brain, ChevronDown, Plus, Route, Sparkles, Square, Image, Video, FileText } from 'lucide-react';
 import type { ModelArchiveRow, ModelArchiveSnapshot, ModelSelection } from '@/shared/backend/backendAdapter';
 import { useT } from '@/i18n/useT';
 import { fileToDataUrl, uploadThenAsset } from '@/shared/upload/fileAsset';
@@ -80,6 +81,10 @@ interface InputBarProps {
   onAttachments: (files: AttachmentAsset[]) => void;
   /** 发送前路线预览（route_plan 壳命令真调用由装配层执行）。 */
   onRoutePlanPreview?: (text: string) => void;
+  /** 当前生效 agent（对话主模型）id（引擎 agent_pick；null = 未配置）。 */
+  agentModelId?: string | null;
+  /** 输入框改选 agent 模型（装配层写 agent_pick → 引擎重建后刷新本组件）。 */
+  onAgentModelSelect?: (modelId: string, providerId?: string) => void;
 }
 
 export function InputBar({
@@ -91,15 +96,14 @@ export function InputBar({
   onAbort,
   onAttachments,
   onRoutePlanPreview,
+  agentModelId,
+  onAgentModelSelect,
 }: InputBarProps) {
   const { t } = useT();
   const [text, setText] = useState('');
   const [attachments, setAttachments] = useState<AttachmentAsset[]>([]);
-  const [mode, setMode] = useState<'standard' | 'assembly'>('standard');
   const textareaRef = useRef<HTMLTextAreaElement>(null);
   const fileInputRef = useRef<HTMLInputElement>(null);
-  const modeRef = useRef<HTMLDivElement>(null);
-  const [modeMenuOpen, setModeMenuOpen] = useState(false);
   const modelRef = useRef<HTMLDivElement>(null);
   const [modelMenuOpen, setModelMenuOpen] = useState(false);
   const [selectedModelId, setSelectedModelId] = useState<string | null>(null);
@@ -108,17 +112,19 @@ export function InputBar({
   const [reasoningMenuOpen, setReasoningMenuOpen] = useState(false);
 
   const archives = models?.archives ?? [];
-  const selectedModel = archives.find((m) => m.model_id === selectedModelId) ?? archives[0];
+  // 输入框 = agent（对话主模型）槽选择：展示引擎当前 agent_pick，改选即
+  // 经 onAgentModelSelect 写 agent_pick（模型须在已添加清单）
+  const activeAgent = agentModelId
+    ? archives.find((m) => m.model_id === agentModelId) ?? null
+    : null;
+  const selectedModel =
+    activeAgent ?? archives.find((m) => m.model_id === selectedModelId) ?? archives[0];
   const canSend = text.trim().length > 0 && !disabled && !streaming;
 
+  // agent_pick 异步到达/改选后同步选中态（模型档案晚于输入框渲染）
   useEffect(() => {
-    if (!modeMenuOpen) return;
-    const onDocClick = (e: MouseEvent) => {
-      if (modeRef.current && !modeRef.current.contains(e.target as Node)) setModeMenuOpen(false);
-    };
-    document.addEventListener('mousedown', onDocClick);
-    return () => document.removeEventListener('mousedown', onDocClick);
-  }, [modeMenuOpen]);
+    if (agentModelId) setSelectedModelId(agentModelId);
+  }, [agentModelId]);
 
   useEffect(() => {
     if (!modelMenuOpen) return;
@@ -147,13 +153,14 @@ export function InputBar({
 
   const submit = () => {
     if (!canSend) return;
+    // 回合恒为组装（assembly）模式：标准/组装切换已取消，默认组装展开。
     // 选定的 agent 模型随发送携带（无默认、无档位——选什么跑什么；
     // provider 缺省 = 当前唯一连接，宿主 resolve_model_llm fail-open；
     // 推理档位仅显式选择时携带，'auto' = 不注入跟随模型默认）
     onSend(
       text.trim(),
       attachments,
-      mode,
+      'assembly',
       selectedModel
         ? {
             model_id: selectedModel.model_id,
@@ -205,10 +212,6 @@ export function InputBar({
     e.target.value = '';
   };
 
-  const switchMode = (next: 'standard' | 'assembly') => {
-    setMode(next);
-  };
-
   return (
     <div className="px-5 pb-4 pt-2">
       <div className="mx-auto max-w-4xl">
@@ -255,7 +258,7 @@ export function InputBar({
             data-ui="input_textarea"
           />
 
-          {/* 底排：附件 + 回合档位 + 模型档位（紧凑精致）… 大号圆形发送钮 */}
+          {/* 底排：附件 + 模型/推理档位（紧凑精致）… 大号圆形发送钮 */}
           <div className="flex items-center gap-1.5">
             <button
               type="button"
@@ -267,47 +270,6 @@ export function InputBar({
               <Plus size={15} strokeWidth={1.8} />
             </button>
             <input ref={fileInputRef} type="file" multiple className="hidden" onChange={handleFiles} />
-
-            {/* 回合模式档位：下拉筛选（非胶囊分段，参考桌面 agent 下拉形态） */}
-            <div className="relative" ref={modeRef}>
-              <button
-                type="button"
-                onClick={() => setModeMenuOpen((v) => !v)}
-                disabled={streaming}
-                aria-haspopup="menu"
-                aria-expanded={modeMenuOpen}
-                data-ui="mode_toggle"
-                className="flex h-7 items-center gap-1 rounded-lg border ink-border px-2 text-[11px] ink-text-muted hover:bg-[var(--ink-bg-elevated)] hover:text-[var(--ink-text-base)] disabled:cursor-not-allowed disabled:opacity-60"
-              >
-                <SlidersHorizontal size={12} strokeWidth={1.7} />
-                <span>{mode === 'standard' ? t('input.mode_standard') : t('input.mode_assembly')}</span>
-                <ChevronDown size={12} strokeWidth={1.7} className={`transition-transform ${modeMenuOpen ? 'rotate-180' : ''}`} />
-              </button>
-              {modeMenuOpen && (
-                <div className="ink-menu-pop ink-menu-pop-left ink-menu-pop-up" role="menu">
-                  <button
-                    type="button"
-                    role="menuitem"
-                    data-active={mode === 'standard'}
-                    data-ui="mode_standard"
-                    onClick={() => { switchMode('standard'); setModeMenuOpen(false); }}
-                    className="ink-menu-item"
-                  >
-                    {t('input.mode_standard')}
-                  </button>
-                  <button
-                    type="button"
-                    role="menuitem"
-                    data-active={mode === 'assembly'}
-                    data-ui="mode_assembly"
-                    onClick={() => { switchMode('assembly'); setModeMenuOpen(false); }}
-                    className="ink-menu-item"
-                  >
-                    {t('input.mode_assembly')}
-                  </button>
-                </div>
-              )}
-            </div>
 
             {selectedModel && (
               <div className="relative" ref={modelRef}>
@@ -332,7 +294,13 @@ export function InputBar({
                         type="button"
                         role="menuitem"
                         data-active={m.model_id === selectedModel?.model_id}
-                        onClick={() => { setSelectedModelId(m.model_id); setReasoningEffort('auto'); setReasoningMenuOpen(false); setModelMenuOpen(false); }}
+                        onClick={() => {
+                          setSelectedModelId(m.model_id);
+                          setReasoningEffort('auto');
+                          setReasoningMenuOpen(false);
+                          setModelMenuOpen(false);
+                          onAgentModelSelect?.(m.model_id, m.provider_id);
+                        }}
                         className="ink-menu-item"
                       >
                         <span className="flex-1 truncate">{m.model_id}</span>

@@ -207,6 +207,8 @@ export interface ModelSelection {
 /** 模型档案条目（壳侧 model_archive.sqlite 记录形态；多模态三态）。 */
 export interface ModelArchiveRow {
   model_id: string;
+  /** 归属厂商（TS host providers 面每模型一行；输入框选模型回指用）。 */
+  provider_id?: string;
   context_window?: number;
   multimodal?: boolean | 'true' | 'false' | 'unknown';
   metadata?: Record<string, unknown>;
@@ -503,6 +505,13 @@ export interface BackendAdapter {
   modelsRefresh(config: Record<string, unknown>): Promise<unknown>;
   modelsConfigGet(): Promise<Record<string, unknown>>;
   modelsConfigPut(config: Record<string, unknown>): Promise<unknown>;
+  /** 角色槽模型指派（agent = 对话模型，输入框选；router = 功能槽（蒸馏/决策），
+   *  设置页选）：模型须在已添加清单；同值 no-op，不重复重建。 */
+  modelsRolePick(
+    role: 'agent' | 'router',
+    providerId: string,
+    modelId: string,
+  ): Promise<unknown>;
   openDirectoryDialog(options: { title: string; directory: boolean; multiple: boolean }): Promise<string[] | null>;
   // 知识集条目管理（knowledge.* 命令；知识面板数据面）
   knowledgeList(includeArchived?: boolean): Promise<{ entries: unknown[] }>;
@@ -614,6 +623,7 @@ export function createUnavailableBackend(): BackendAdapter {
     modelsRefresh: unavailable as never,
     modelsConfigGet: unavailable as never,
     modelsConfigPut: unavailable as never,
+    modelsRolePick: unavailable as never,
     openDirectoryDialog: unavailable as never,
     knowledgeList: unavailable as never,
     knowledgeAdd: unavailable as never,
@@ -768,6 +778,8 @@ export function createServeBackend(channel?: ServeChannel): BackendAdapter {
     modelsRefresh: (config) => call('models_refresh', { config }),
     modelsConfigGet: () => call('models_config_get'),
     modelsConfigPut: (config) => call('models_config_put', { config }),
+    modelsRolePick: (role, providerId, modelId) =>
+      call('models.config.role_pick', { role, provider_id: providerId, model_id: modelId }),
     openDirectoryDialog: (options) =>
       // 目录选择器非 web 原生面：serve 通道若提供 dialog.open_directory 则
       // 直连，否则 serve 侧无此能力时降级处理。

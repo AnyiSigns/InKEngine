@@ -411,6 +411,13 @@ async function route(req: IncomingMessage, res: ServerResponse, rt: ServeRuntime
     return;
   }
   if (serveUpload(req, res, rt)) return;
+  if (rt.viteProxy !== null && (req.method === 'GET' || req.method === 'HEAD')) {
+    const pathname = (req.url ?? '/').split('?')[0] ?? '/';
+    if (pathname === '/' || pathname === '/index.html') {
+      await proxyToVite(req, res, rt.viteProxy);
+      return;
+    }
+  }
   if (serveStatic(req, res, rt.staticDir, rt.token)) return;
   if (rt.viteProxy !== null && (req.method === 'GET' || req.method === 'HEAD')) {
     await proxyToVite(req, res, rt.viteProxy);
@@ -431,7 +438,7 @@ export async function startServe(options: CliOptions, io: ServeIo): Promise<Serv
   const serveFlags = options.serve;
   const host = serveFlags?.host ?? '127.0.0.1';
   const port = serveFlags?.port ?? DEFAULT_SERVE_PORT;
-  const token = serveFlags?.token ?? randomUUID().replace(/-/g, '');
+  const token = serveFlags?.token ?? '';
   const staticRaw = serveFlags?.static_dir ?? DEFAULT_ASSETS_DIR;
   const staticDir = isAbsolute(staticRaw) ? staticRaw : resolve(staticRaw);
   const viteProxy = serveFlags?.vite_proxy ?? null;

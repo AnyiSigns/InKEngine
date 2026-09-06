@@ -86,7 +86,7 @@ export function useSessionActions(hub: ChannelHub, store: SessionStore, backend:
     async (
       text: string,
       attachments: AttachmentAsset[] = [],
-      mode: 'standard' | 'assembly' = 'standard',
+      mode: 'standard' | 'assembly' = 'assembly',
       model?: ModelSelection,
     ) => {
       if (!backend.available) {

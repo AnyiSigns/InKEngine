@@ -18,32 +18,92 @@ function isRecord(value: unknown): value is Record<string, unknown> {
 }
 
 /** 端点记录是否含有效 model_id（角色槽主配置与备用链同一形态）。 */
-function endpointModelId(value: unknown): string | null {
+function endpointModelId(value: unknown): { model_id: string } | null {
   if (!isRecord(value)) return null;
   const modelId = value['model_id'];
-  return typeof modelId === 'string' && modelId !== '' ? modelId : null;
+  return typeof modelId === 'string' && modelId !== '' ? { model_id: modelId } : null;
 }
 
-/** 从 model_config 记录聚合全部已配置模型（主槽 + 备用链；保持字典序）。 */
-export function collectArchiveRows(modelConfig: Record<string, unknown>): Array<{ model_id: string }> {
-  const seen = new Set<string>();
-  const rows: Array<{ model_id: string }> = [];
-  for (const value of Object.values(modelConfig)) {
-    if (Array.isArray(value)) {
-      for (const entry of value) {
-        const modelId = endpointModelId(entry);
-        if (modelId !== null && !seen.has(modelId)) {
-          seen.add(modelId);
-          rows.push({ model_id: modelId });
+/** 厂商记录（providers[] 元素：base_url + models 清单 + provider_id）。 */
+function providerRecordModels(
+  value: unknown,
+): Array<{ model_id: string; context_window?: number }> | null {
+  if (!isRecord(value)) return null;
+  if (typeof value['provider_id'] !== 'string' || !Array.isArray(value['models'])) return null;
+  if (typeof value['base_url'] !== 'string') return null;
+  const rows: Array<{ model_id: string; context_window?: number }> = [];
+  for (const entry of value['models']) {
+    if (typeof entry === 'string') {
+      if (entry !== '') rows.push({ model_id: entry });
+    } else if (isRecord(entry)) {
+      const modelId = entry['model_id'];
+      if (typeof modelId === 'string' && modelId !== '') {
+        const row: { model_id: string; context_window?: number } = { model_id: modelId };
+        if (typeof entry['context_window'] === 'number') {
+          row.context_window = entry['context_window'];
         }
-      }
-    } else {
-      const modelId = endpointModelId(value);
-      if (modelId !== null && !seen.has(modelId)) {
-        seen.add(modelId);
-        rows.push({ model_id: modelId });
+        rows.push(row);
       }
     }
+  }
+  return rows.length > 0 ? rows : null;
+}
+
+/** 模型档案行（含归属厂商与上下文窗口，web 选择面可显示/回指）。 */
+export interface ArchiveRow {
+  model_id: string;
+  provider_id?: string;
+  context_window?: number;
+}
+
+/** 从 model_config 记录聚合全部已配置/已添加模型（角色槽主配置 + 备用链 +
+ *  厂商清单；保持字典序、按 厂商+model 去重）。 */
+export function collectArchiveRows(modelConfig: Record<string, unknown>): ArchiveRow[] {
+  const seen = new Set<string>();
+  const rows: ArchiveRow[] = [];
+  const hasProviders =
+    Array.isArray(modelConfig['providers']) && modelConfig['providers'].length > 0;
+  const pushRow = (row: ArchiveRow): void => {
+    const key = row.provider_id !== undefined
+      ? `${row.provider_id}/${row.model_id}`
+      : row.model_id;
+    if (!seen.has(key)) {
+      seen.add(key);
+      rows.push(row);
+    }
+  };
+  const visit = (value: unknown): void => {
+    if (isRecord(value)) {
+      const providerRows = providerRecordModels(value);
+      if (providerRows !== null) {
+        const providerId = typeof value['provider_id'] === 'string' ? value['provider_id'] : undefined;
+        for (const entry of providerRows) {
+          pushRow({ ...entry, ...(providerId !== undefined ? { provider_id: providerId } : {}) });
+        }
+        return;
+      }
+      // 角色槽端点 = 厂商清单派生（agent/router 槽模型均在 providers 内）；
+      // 厂商面存在时不重复收录槽端点行（避免档案双份）。无厂商（旧直写
+      // 槽/备用链配置）时保留端点行语义。
+      if (hasProviders) return;
+      const endpoint = endpointModelId(value);
+      if (endpoint !== null) {
+        const providerId = typeof value['provider_id'] === 'string' ? value['provider_id'] : undefined;
+        const row: ArchiveRow = { model_id: endpoint.model_id };
+        if (typeof value['context_window'] === 'number') {
+          row.context_window = value['context_window'];
+        }
+        if (providerId !== undefined) row.provider_id = providerId;
+        pushRow(row);
+      }
+      return;
+    }
+    if (Array.isArray(value)) {
+      for (const entry of value) visit(entry);
+    }
+  };
+  for (const value of Object.values(modelConfig)) {
+    visit(value);
   }
   rows.sort((a, b) => a.model_id.localeCompare(b.model_id));
   return rows;

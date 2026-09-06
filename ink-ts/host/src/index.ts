@@ -21,6 +21,7 @@ import { buildBridge } from './bridge/index.js';
 import { HostConfigError, resolve_host_config } from './config.js';
 import type { HostConfigInput, ResolvedHostConfig } from './config.js';
 import { DocService } from './doc/service.js';
+import { createCapabilityStore } from './capability/store.js';
 import { InkHost } from './host.js';
 import { buildHostSearch } from './search/wiring.js';
 import { createWorkspaceStore } from './workspace/store.js';
@@ -68,6 +69,7 @@ export async function createHost(
   const retrieval = buildHostRetrieval(resolved.data_dir);
   const inkHost = new InkHost(resolved);
   const workspaceStore = createWorkspaceStore(resolved.data_dir);
+  const capabilityStore = createCapabilityStore(resolved.data_dir);
   const assemblyRecipe = build_product_recipe(recipe ?? undefined);
   for (const factory of retrieval.sourceFactories()) {
     assemblyRecipe.retrieval_sources.push(factory as never);
@@ -90,6 +92,7 @@ export async function createHost(
     docParse: docService,
     searchKeys: search.keys,
     workspace: workspaceStore,
+    capability: capabilityStore,
     modelConfig: modelConfigHandles(inkHost),
   });
   const handle: HostHandle = {
@@ -195,6 +198,15 @@ export { SearchKeysStore, maskKey } from './search/keys.js';
 // ── 工作区授权域（data_dir/workspace.json 持久化）──
 export { WorkspaceStoreError, createWorkspaceStore } from './workspace/store.js';
 export type { WorkspaceState, WorkspaceStore } from './workspace/store.js';
+
+// ── 能力记录域（data_dir/capability.json 持久化）──
+export {
+  SIMULATION_TIERS,
+  CapabilityError,
+  createCapabilityStore,
+  defaultCapabilityRecord,
+} from './capability/store.js';
+export type { CapabilityRecord, CapabilityStore, SimulationTier } from './capability/store.js';
 export {
   SEARCH_PROVIDERS,
   WebSearchError,

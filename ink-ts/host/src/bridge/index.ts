@@ -4,9 +4,10 @@
  * （create/rename/delete/refresh/tree）、approval（卡查询/裁决）、audit
  * （导出）、tools（注册表快照）、recovery（回退入口/回退点查询）、os（OS
  * 执行器受控调用）、search（检索密钥）、material（资料批量导入）、models
- * （模型运行配置）、model_archive（模型档案快照）、ui_components（出厂组件
- * 启停）、workspace（工作区授权/挂载）、dialog（原生目录选择）。与 cli 现有
- * host.ping/host.info 并存不冲突（命名空间独立；方法表由 cli 并入命令面）。
+ * （模型运行配置）、model_archive（模型档案快照）、capability（能力记录）、
+ * policy（策略层路由预览）、ui_components（出厂组件启停）、workspace（工作区
+ * 授权/挂载）、dialog（原生目录选择）。与 cli 现有 host.ping/host.info 并存
+ * 不冲突（命名空间独立；方法表由 cli 并入命令面）。
  *
  * 方法增删纪律（AGENTS 纪律 3）：本文件是 bridge 方法表单一事实源——
  * 增删方法须同步修改 CODING.md §9 命令面清单。
@@ -15,11 +16,13 @@
 import type { BridgeHandler, HostBridgeDeps } from './_types.js';
 import { buildApprovalHandlers } from './approval.js';
 import { buildAuditHandlers } from './audit.js';
+import { buildCapabilityHandlers } from './capability.js';
 import { buildDialogHandlers } from './dialog.js';
 import { buildMaterialHandlers } from './material.js';
 import { buildModelArchiveHandlers } from './model_archive.js';
 import { buildModelsHandlers } from './models.js';
 import { buildOsHandlers } from './os.js';
+import { buildPolicyHandlers } from './policy.js';
 import { buildRecordsHandlers } from './records.js';
 import { buildRecoveryHandlers } from './recovery.js';
 import { buildRoundsHandlers } from './rounds.js';
@@ -62,12 +65,18 @@ export const BRIDGE_METHODS = [
   'search.keys.get',
   // material：既有资料批量导入（扫描 → doc.parse → 文本/引用入会话）
   'material.import',
-  // models：模型运行配置（掩码态查询/校验合并落盘/从文件重载）
+  // models：模型运行配置（掩码态查询/校验合并落盘/从文件重载/角色槽指派）
   'models.config.get',
   'models.config.put',
   'models.config.reload',
+  'models.config.role_pick',
   // model_archive：模型档案快照（从运行 model_config 聚合，无 sqlite 探测）
   'model_archive.snapshot',
+  // capability：能力记录（推演档位等设置读档/存档；data_dir 持久化）
+  'capability.get',
+  'capability.put',
+  // policy：策略层路由预览（确定性分类；档位/配额随装配数据输出）
+  'policy.route',
   // ui_components：出厂界面组件启停（factory/disabled/active，引擎同源）
   'ui_components.get',
   'ui_components.set_disabled',
@@ -102,6 +111,8 @@ export function buildBridge(deps: HostBridgeDeps): ReadonlyMap<string, BridgeHan
     buildMaterialHandlers(deps),
     buildModelsHandlers(deps),
     buildModelArchiveHandlers(deps),
+    buildCapabilityHandlers(deps),
+    buildPolicyHandlers(),
     buildUiComponentsHandlers(deps),
     buildWorkspaceHandlers(deps.workspace),
     buildDialogHandlers(),

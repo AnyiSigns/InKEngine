@@ -74,4 +74,40 @@ describe('buildHandlers 命令面注入', () => {
     const response = await handleRequest({ jsonrpc: '2.0', id: 6, method: 'nope' }, handlers, { autoApprove: false });
     expect(response.error?.code).toBe(ERROR_CODES.methodNotFound);
   });
+
+  it('capability_put/route_plan 旧扁平面别名接线（record 解包 + 参数直通）', async () => {
+    const bridge = new Map<string, (params: unknown) => unknown>([
+      [
+        'capability.put',
+        (params) => ({ stored: params as { simulation_tier?: string } }),
+      ],
+      ['capability.get', () => ({ simulation_tier: 'light' })],
+      [
+        'policy.route',
+        (params) => ({
+          kind: 'development',
+          policy: { tier: (params as { tier?: string }).tier },
+        }),
+      ],
+    ]);
+    const handlers = buildHandlers({ bridge });
+    const put = await handleRequest(
+      { jsonrpc: '2.0', id: 7, method: 'capability_put', params: { record: { simulation_tier: 'full' } } },
+      handlers,
+      { autoApprove: false },
+    );
+    expect(put.result).toEqual({ stored: { simulation_tier: 'full' } });
+    const route = await handleRequest(
+      { jsonrpc: '2.0', id: 8, method: 'route_plan', params: { text: '写一个脚本', tier: 'light' } },
+      handlers,
+      { autoApprove: false },
+    );
+    expect((route.result as { policy: { tier: string } }).policy.tier).toBe('light');
+    const get = await handleRequest(
+      { jsonrpc: '2.0', id: 9, method: 'capability_get' },
+      handlers,
+      { autoApprove: false },
+    );
+    expect(get.error).toBeUndefined();
+  });
 });

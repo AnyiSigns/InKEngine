@@ -143,13 +143,37 @@ export default function App({ backend, hub, sessionStore }: AppProps) {
   // 模型档快照（输入胶囊 chip / 发送门槛）：挂载取一次；设置页配置厂商/
   // 模型后经 reloadModels 重取，输入框即时出现新模型（无需重启应用）
   const [models, setModels] = useState<ModelArchiveSnapshot | undefined>(undefined);
+  // 当前 agent（对话主模型）槽所指 model_id：输入框 chip 展示/改选来源
+  const [agentModelId, setAgentModelId] = useState<string | null>(null);
   const reloadModels = useCallback(() => {
     if (!backend.available) return;
     void backend
       .modelArchiveSnapshot()
       .then((snapshot) => setModels(snapshot))
       .catch(() => undefined);
+    void backend
+      .modelsConfigGet()
+      .then((raw) => {
+        const rawDoc = (raw ?? {}) as { model_config?: unknown };
+        const doc = (rawDoc.model_config ?? rawDoc) as Record<string, unknown>;
+        const pick = doc.agent_pick as { model_id?: unknown } | null | undefined;
+        setAgentModelId(
+          typeof pick === 'object' && pick !== null && typeof pick.model_id === 'string'
+            ? pick.model_id
+            : null,
+        );
+      })
+      .catch(() => undefined);
   }, [backend]);
+
+  /** 输入框改选 agent 模型：写 agent_pick（角色槽派生 + 持久化 + 重建）后刷新。 */
+  const handleAgentModelSelect = (modelId: string, providerId?: string): void => {
+    if (!backend.available || !providerId) return;
+    void backend
+      .modelsRolePick('agent', providerId, modelId)
+      .then(() => reloadModels())
+      .catch(() => undefined);
+  };
 
   useEffect(() => {
     if (!backend.available) return;
@@ -197,7 +221,7 @@ export default function App({ backend, hub, sessionStore }: AppProps) {
     routePlanTimer.current = window.setTimeout(() => {
       routePlanTimer.current = null;
       void backend
-        .routePlan(text, 'light')
+        .routePlan(text, 'full')
         .then((r) => {
           if (seq !== routePlanSeq.current) return;
           setRoutePlan({
@@ -387,6 +411,8 @@ export default function App({ backend, hub, sessionStore }: AppProps) {
                   streaming={state.streaming}
                   models={models}
                   routePlan={routePlan}
+                  agentModelId={agentModelId}
+                  onAgentModelSelect={handleAgentModelSelect}
                   roundCount={roundCount}
                   stepCount={roundSteps.length}
                   onSend={handleSend}

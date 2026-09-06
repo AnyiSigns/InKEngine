@@ -37,9 +37,13 @@ export function buildSessionsHandlers(deps: HostBridgeDeps): ReadonlyMap<string,
   const store = new HostSessionStore(() => deps.runtime.storage as unknown as Storage | null);
 
   const create: BridgeHandler = async (raw): Promise<unknown> => {
-    const params = raw as { thread_id?: unknown } | null;
+    // params 缺省/显式 null 均视为「未指定 thread_id」（web 无参调用 create
+    // 时线上 params 为 undefined，直接判空必须用可选链——不能只判 null）。
+    const params = raw as { thread_id?: unknown } | null | undefined;
     const thread_id =
-      params !== null && typeof params.thread_id === 'string' && params.thread_id !== ''
+      params !== null && params !== undefined
+      && typeof params.thread_id === 'string'
+      && params.thread_id !== ''
         ? params.thread_id
         : undefined;
     const record = await store.create(thread_id);

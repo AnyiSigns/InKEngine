@@ -1,20 +1,21 @@
-// gate: 超限(846 行) - 模型连接配置节（单节表单：角色槽/提供方/自定义/全局阈值同面）
+// gate: 超限(748 行) - 模型连接配置节（单节表单：角色槽/提供方/自定义/全局阈值同面）
 /**
  * 设置「模型」节：提供方管理（模板/自定义协议）+ router 档位模型选择 +
- * 推演档位 + 全局压缩阈值。
+ * 自动压缩阈值。
  *
  * 布局（自上而下，参考「模型」页）：
  *  1. 已连接提供方列表（名称 + 状态点 + 编辑/删除）；
  *  2. `+ 添加提供方`（已适配厂商模板，自动带端点）与 `+ 添加自定义提供方`
  *     （按 API 协议添加，用户填端点 + Provider ID）；
  *  3. router 档位模型选择（下拉复选框，从全部已添加模型列表勾选）；
- *  4. 推演档位（关/轻探测/全量）；
- *  5. 自动压缩阈值（全局单值，页面级，三档共用）。
+ *  4. 自动压缩阈值（全局单值，页面级，全档共用）。
  *
  * 档位语义（引擎角色槽收口为 agent/router）：agent = 对话主模型，是对话页
  * 输入框的自选模型（协作者仍经 EntitySpec.model 指定），不在设置页占档位；
- * 本页只配 router（决策档）。model_ids 按 providers[].model_ids.router 落盘
- * （引擎挡位链按当前连接读取），全局压缩阈值经 providers[].compression_percent
+ * 本页只配 router（决策档）。router 从全部已添加厂商的模型清单选，指派经
+ * 顶层 router_pick 落盘（host 派生 router_config 槽端点）；agent 指派经对话
+ * 输入框以 models.config.role_pick 写 agent_pick。推演档位已取消：引擎默认
+ * 全量推演，不做关/轻档收敛；全局压缩阈值经 providers[].compression_percent
  * 落盘（后端取首提供方 = 当前连接）。
  */
 
@@ -28,6 +29,18 @@ import { Feedback } from '@/components/floaters/feedback';
 import type { FeedbackPhase } from '@/components/floaters/feedback';
 import { FloaterWindow } from '@/components/floaters/floater_window';
 import { createBackend } from '@/shared/backend/backendAdapter';
+
+function isRecordObj(value: unknown): value is Record<string, unknown> {
+  return typeof value === 'object' && value !== null && !Array.isArray(value);
+}
+
+/** 在给定厂商清单里定位持有该 model_id 的厂商（router/agent 槽指派回指）。 */
+function providerHoldingModel(list: ProviderDraft[], modelId: string): string | null {
+  for (const p of list) {
+    if (p.models.includes(modelId)) return p.provider_id;
+  }
+  return null;
+}
 
 /** 已适配厂商模板（具体厂商，自动带端点；协议经 vendor 绑定，不与协议混列）。 */
 const VENDORS = [
@@ -307,7 +320,6 @@ function AddProviderModal({
   onCommit: (draft: ProviderDraft) => void;
   onClose: () => void;
 }): JSX.Element {
-  const backend = useMemo(() => createBackend(), []);
   const isCustom = mode === 'custom';
   const [vendor, setVendor] = useState(initial?.vendor ?? (isCustom ? '__custom__' : VENDORS[0].id));
   const [protocol, setProtocol] = useState(initial?.adapter ?? 'openai_compatible');
@@ -317,55 +329,18 @@ function AddProviderModal({
   const [customModel, setCustomModel] = useState('');
   const [probed, setProbed] = useState<ProbeModel[]>([]);
   const [checked, setChecked] = useState<Set<string>>(new Set());
-  const [probePhase, setProbePhase] = useState<'idle' | 'loading' | 'success' | 'fail'>('idle');
-  const [probeNote, setProbeNote] = useState('');
-  const probeTimer = useRef<ReturnType<typeof setTimeout> | null>(null);
-  const probeSeq = useRef(0);
 
-  const probe = async (url: string): Promise<void> => {
-    if (!url.trim()) {
-      probeSeq.current += 1;
-      setProbed([]);
-      setChecked(new Set());
-      setProbePhase('idle');
-      return;
+  // 编辑既有提供方：预填已保存模型（TS host 无自动探测，模型为手动清单）
+  useEffect(() => {
+    if (initial && initial.models.length > 0) {
+      setProbed(initial.models.map((id) => ({ id })));
+      setChecked(new Set(initial.models));
     }
-    const seq = probeSeq.current + 1;
-    probeSeq.current = seq;
-    setProbePhase('loading');
-    try {
-      if (!backend.available) throw new Error('宿主不可用');
-      const probeBase = vendor === 'anthropic' ? `${url.replace(/\/+$/, '')}/v1` : url;
-      await backend.modelsRefresh({
-        base_url: probeBase,
-        api_key: apiKey || undefined,
-        provider_id: vendor === '__custom__' ? providerId : vendor,
-        models: [],
-      });
-      const archive = (await backend.modelArchiveSnapshot()) as unknown as {
-        archives?: Array<{ model_id: string; context_window?: number }>;
-      };
-      if (seq !== probeSeq.current) return;
-      const list = (archive?.archives ?? []).map((m) => ({ id: m.model_id, context_window: m.context_window }));
-      setProbed(list);
-      setChecked(new Set(list.map((m) => m.id)));
-      setProbePhase('success');
-      setProbeNote(`探测到 ${list.length} 个模型，默认全部勾选`);
-    } catch {
-      if (seq !== probeSeq.current) return;
-      setProbePhase('fail');
-      setProbeNote('探测失败：检查端点与密钥');
-    }
-  };
-
-  useEffect(() => () => {
-    if (probeTimer.current) clearTimeout(probeTimer.current);
-  }, []);
+  }, [initial]);
 
   const handleUrlChange = (url: string): void => {
+    // TS host 无端点模型自动探测：url 仅作端点保存，模型按 model_id 手动添加
     setBaseUrl(url);
-    if (probeTimer.current) clearTimeout(probeTimer.current);
-    probeTimer.current = setTimeout(() => void probe(url), 600);
   };
 
   const toggle = (id: string): void => {
@@ -484,10 +459,7 @@ function AddProviderModal({
             </Button>
           </div>
           <p className="text-[10px] leading-relaxed ink-text-faint">
-            {probePhase === 'loading' && '探测中…'}
-            {probePhase === 'success' && probeNote}
-            {probePhase === 'fail' && probeNote}
-            {probePhase === 'idle' && '填 URL 后自动探测模型；默认全勾选加入该提供方。'}
+            手动输入 model_id 后点「添加」加入该提供方（TS host 不自动探测模型清单）。
           </p>
           {probed.length > 0 && (
             <div className="max-h-44 space-y-1 overflow-y-auto rounded-lg border ink-border p-2" data-ui="probed_model_list">
@@ -526,7 +498,6 @@ export function ModelSection(): JSX.Element {
   const backend = useMemo(() => createBackend(), []);
   const [providers, setProviders] = useState<ProviderDraft[]>([]);
   const [activeProviderId, setActiveProviderId] = useState<string | null>(null);
-  const [simulationTier, setSimulationTier] = useState<'off' | 'light' | 'full'>('light');
   const [savePhase, setSavePhase] = useState<FeedbackPhase>('idle');
   const [globalCompression, setGlobalCompression] = useState(80);
   const [modal, setModal] = useState<{ mode: 'template' | 'custom'; providerId?: string } | null>(null);
@@ -551,17 +522,18 @@ export function ModelSection(): JSX.Element {
   }, [backend]);
 
   const allModels = useMemo(() => {
-    const current = activeProvider?.models ?? [];
-    const fromCurrent = Array.isArray(current) ? current : [];
-    // 候选 = 当前提供方模型清单；无清单（旧配置/未探测补录）才回落全局
-    // 档案，避免跨提供方候选与端点错配（当前连接消费 providers[0] 同源）。
-    if (fromCurrent.length > 0) {
-      return Array.from(new Set(fromCurrent)).sort((a, b) => a.localeCompare(b));
+    // router 档位候选 = 全部已添加厂商的模型并集（对话 agent 槽在输入框
+    // 自选，同样取自该清单；不跨厂商候选必然错配端点的旧限制一并消除）
+    const union = new Set<string>();
+    for (const p of providers) {
+      const current = Array.isArray(p.models) ? p.models : [];
+      for (const model of current) union.add(model);
     }
+    const fromProviders = Array.from(union);
+    if (fromProviders.length > 0) return fromProviders.sort((a, b) => a.localeCompare(b));
     return Array.from(new Set(archiveModels)).sort((a, b) => a.localeCompare(b));
-  }, [activeProvider, archiveModels]);
+  }, [providers, archiveModels]);
 
-  const simTouchedRef = useRef(false);
   const readyRef = useRef(false);
   const saveTimer = useRef<ReturnType<typeof setTimeout> | null>(null);
 
@@ -570,14 +542,8 @@ export function ModelSection(): JSX.Element {
   }, []);
 
   useEffect(() => {
-    if (!simTouchedRef.current || !readyRef.current) return;
-    void persist(providers, simulationTier, globalCompression);
-    // eslint-disable-next-line react-hooks/exhaustive-deps
-  }, [simulationTier]);
-
-  useEffect(() => {
     if (!readyRef.current) return;
-    void persist(providers, simulationTier, globalCompression);
+    void persist(providers, globalCompression);
     // eslint-disable-next-line react-hooks/exhaustive-deps
   }, [globalCompression]);
 
@@ -586,47 +552,56 @@ export function ModelSection(): JSX.Element {
     void backend
       .modelsConfigGet()
       .then((raw) => {
-        const cfg = (raw ?? {}) as Record<string, unknown>;
-        if (typeof cfg !== 'object') return;
+        if (!isRecordObj(raw)) return;
+        // host 契约：{ model_config: <掩码整档> , roles }; 旧形（测试桩/壳面）
+        // 直接以配置对象返回——两者都吃 providers 清单
+        const cfg = isRecordObj(raw.model_config) ? raw.model_config : raw;
+        if (!isRecordObj(cfg)) return;
         const isProvidersForm = Array.isArray(cfg.providers);
         const list: ProviderDraft[] = isProvidersForm
           ? (cfg.providers as unknown[]).map((p, i) => providerFromJson(p, i))
-          : Object.keys(cfg).length > 0
+          : Object.keys(cfg).length > 0 && !isRecordObj(cfg.model_config)
             ? [providerFromJson(cfg, 0)]
             : [];
         setProviders(list);
         setActiveProviderId(list[0]?.provider_id ?? null);
+        // router 指派读取：顶层 router_pick 优先；旧配置回落厂商内 model_ids.router
+        const pickRaw = isRecordObj(cfg.router_pick) ? cfg.router_pick : null;
+        const topPick =
+          pickRaw !== null && typeof pickRaw.model_id === 'string' ? pickRaw.model_id : '';
+        const legacyPick =
+          topPick === ''
+            ? (list.find((p) => p.router_model_id !== '')?.router_model_id ?? '')
+            : '';
         if (list[0]) {
-          setRouterModelId(list[0].router_model_id);
+          setRouterModelId(topPick || legacyPick || '');
           setGlobalCompression(list[0].compression_percent || 80);
         }
         readyRef.current = true;
-        void backend
-          .capabilityGet()
-          .then((cap) => {
-            const t = (cap ?? {}).simulation_tier;
-            if ((t === 'off' || t === 'light' || t === 'full') && !simTouchedRef.current) {
-              setSimulationTier(t);
-            }
-          })
-          .catch(() => undefined);
       })
       .catch(() => undefined);
   }, [backend]);
 
-  const persist = async (list: ProviderDraft[], sim: typeof simulationTier, compression: number): Promise<void> => {
+  const persist = async (
+    list: ProviderDraft[],
+    compression: number,
+    routerOverride?: string | null,
+  ): Promise<void> => {
     setSavePhase('loading');
     try {
-      const payload = { providers: list.map((p) => providerToJson(p, compression)) };
-      if (backend.available) {
-        // 推演档位只在用户显式触碰后随保存写入（simTouchedRef）：未设置的
-        // 用户做无关保存（改模型档/压缩/提供方）不写档，避免把本地默认
-        // 档静默固化进能力记录。
-        const ops = [backend.modelsConfigPut(payload)];
-        if (simTouchedRef.current) {
-          ops.push(backend.capabilityPut({ simulation_tier: sim }));
+      // router 指派为顶层 pick（任何厂商下已添加模型均可选，不再绑当前连接）
+      const routerId = routerOverride !== undefined ? routerOverride : routerModelId;
+      const payload: Record<string, unknown> = {
+        providers: list.map((p) => providerToJson(p, compression)),
+      };
+      if (routerId) {
+        const owner = providerHoldingModel(list, routerId);
+        if (owner !== null) {
+          payload['router_pick'] = { provider_id: owner, model_id: routerId };
         }
-        await Promise.all(ops);
+      }
+      if (backend.available) {
+        await backend.modelsConfigPut(payload);
       }
       setSavePhase('success');
       if (saveTimer.current) clearTimeout(saveTimer.current);
@@ -639,59 +614,32 @@ export function ModelSection(): JSX.Element {
   };
 
   const syncTierModels = (next: { router?: string }): void => {
-    if (next.router !== undefined) setRouterModelId(next.router);
-    const current = activeProvider;
-    if (!current) return;
-    const nextCurrent: ProviderDraft = {
-      ...current,
-      router_model_id: next.router ?? current.router_model_id,
-    };
-    const nextList = replaceProvider(nextCurrent);
-    setProviders(nextList);
-    void persist(nextList, simulationTier, globalCompression);
+    const routerId = next.router !== undefined ? next.router : routerModelId;
+    if (next.router !== undefined) setRouterModelId(routerId);
+    void persist(providers, globalCompression, routerId);
   };
 
-  /** 替换指定提供方（按 provider_id；缺席追加——当前提供方落位保持）。
-   *  档位编辑归属 = 当前（激活）提供方：入参已是当前项的更新副本。 */
-  const replaceProvider = (draft: ProviderDraft): ProviderDraft[] =>
-    providers.some((p) => p.provider_id === draft.provider_id)
-      ? providers.map((p) => (p.provider_id === draft.provider_id ? draft : p))
-      : [...providers, draft];
-
-  /** 切换当前提供方（点选即设当前连接）：选中项升为 providers[0] 并落盘。
-   *  引擎消费 providers[0]（当前连接解析同源）——换提供方后档位候选与
-   *  消费同步切换，不在「显示 A、消费 B」的错配上编辑档位。 */
+  /** 切换编辑焦点提供方（仅编辑定位；引擎角色槽消费经顶层 agent_pick /
+   *  router_pick，与厂商列表顺序无关——旧「providers[0] 即当前连接」不再成立）。 */
   const makeCurrent = (providerId: string): void => {
-    if (providerId === (activeProvider?.provider_id ?? providers[0]?.provider_id)) return;
-    const target = providers.find((p) => p.provider_id === providerId);
-    if (!target) return;
-    const nextList = [target, ...providers.filter((p) => p.provider_id !== providerId)];
-    setProviders(nextList);
+    if (providerId === activeProvider?.provider_id) return;
     setActiveProviderId(providerId);
-    setRouterModelId(target.router_model_id);
-    void persist(nextList, simulationTier, globalCompression);
   };
 
   const handleCommitProvider = (draft: ProviderDraft): void => {
     const existing = providers.some((p) => p.provider_id === draft.provider_id);
-    // 新增提供方升为当前连接（后续探测/勾选/档位候选与消费立即指向新
-    // 端点）；编辑当前提供方保持其当前连接位并同步档位选中态；编辑非
-    // 当前提供方不改变当前连接（避免「显示 A、消费 B」——引擎消费
-    // providers[0]，UI 候选/档位归属 = 同一当前连接）。
-    const wasCurrent = providers[0]?.provider_id === draft.provider_id;
-    let effective: ProviderDraft[];
-    if (existing) {
-      effective = providers.map((p) => (p.provider_id === draft.provider_id ? draft : p));
-    } else {
-      effective = [draft, ...providers.filter((p) => p.provider_id !== draft.provider_id)];
-    }
+    const effective = existing
+      ? providers.map((p) => (p.provider_id === draft.provider_id ? draft : p))
+      : [...providers, draft];
     setProviders(effective);
-    if (wasCurrent || !existing) {
-      setActiveProviderId(draft.provider_id);
-      setRouterModelId(draft.router_model_id ?? '');
+    setActiveProviderId(draft.provider_id);
+    // 本次编辑把 router 选中模型从清单移除 → 清空待选（落盘不带 pick，
+    // 宿主侧该槽随模型缺失回落/移除，不残留指向幽灵模型的指派）
+    if (routerModelId && providerHoldingModel(effective, routerModelId) === null) {
+      setRouterModelId('');
     }
     setModal(null);
-    void persist(effective, simulationTier, globalCompression);
+    void persist(effective, globalCompression, routerModelId);
   };
 
   const handleAdd = (mode: 'template' | 'custom'): void => {
@@ -707,20 +655,14 @@ export function ModelSection(): JSX.Element {
   const handleDelete = (providerId: string): void => {
     const nextList = providers.filter((p) => p.provider_id !== providerId);
     setProviders(nextList);
-    // 删除当前提供方：后继第一个自动成为新当前连接（档位候选/消费随
-    // 切换，providers[0] 永远 = 引擎消费的当前连接）。
-    if (activeProviderId === providerId || providers[0]?.provider_id === providerId) {
-      const successor = nextList[0];
-      setActiveProviderId(successor?.provider_id ?? null);
-      setRouterModelId(successor?.router_model_id ?? '');
-      if (successor?.compression_percent) setGlobalCompression(successor.compression_percent);
+    if (activeProviderId === providerId) {
+      setActiveProviderId(nextList[0]?.provider_id ?? null);
     }
-    void persist(nextList, simulationTier, globalCompression);
-  };
-
-  const handleSimChange = (tier: 'off' | 'light' | 'full'): void => {
-    simTouchedRef.current = true;
-    setSimulationTier(tier);
+    // router 选中模型若随厂商删除而消失 → 清空（不残留幽灵指派）
+    const routerSurvives =
+      routerModelId && providerHoldingModel(nextList, routerModelId) !== null ? routerModelId : '';
+    setRouterModelId(routerSurvives);
+    void persist(nextList, globalCompression, routerSurvives || null);
   };
 
   const editingProvider = modal?.providerId ? providers.find((p) => p.provider_id === modal.providerId) : undefined;
@@ -767,31 +709,10 @@ export function ModelSection(): JSX.Element {
         </div>
       </div>
 
-      <div className="ink-elevated space-y-3 px-3.5 py-3">
-        <div className="text-[11px] font-medium tracking-wide ink-text-muted">推演档位</div>
-        <p className="text-[10px] leading-relaxed ink-text-faint">
-          分支决策的推演强度：关 / 轻探测 / 全量。推演由模型端支撑，切换即保存。
-        </p>
-        <div className="ink-seg">
-          {(['off', 'light', 'full'] as const).map((tier) => (
-            <button
-              key={tier}
-              type="button"
-              data-ui={`sim_tier_${tier}`}
-              data-active={simulationTier === tier}
-              onClick={() => handleSimChange(tier)}
-              className="ink-seg-item"
-            >
-              {tier === 'off' ? '关' : tier === 'light' ? '轻探测' : '全量'}
-            </button>
-          ))}
-        </div>
-      </div>
-
       <div className="ink-elevated space-y-2 px-3.5 py-3">
         <div className="text-[11px] font-medium tracking-wide ink-text-muted">自动压缩阈值</div>
         <p className="text-[10px] leading-relaxed ink-text-faint">
-          三档共用同一压缩阈值。触发压缩 ≈ {redlineTokens.toLocaleString()} tokens（上下文窗口 × 阈值 %）；执行时保底下限 40k。
+          全局共用同一压缩阈值。触发压缩 ≈ {redlineTokens.toLocaleString()} tokens（上下文窗口 × 阈值 %）；执行时保底下限 40k。
         </p>
         <div className="flex items-center gap-3">
           <TextInput

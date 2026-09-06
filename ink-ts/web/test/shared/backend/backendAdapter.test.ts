@@ -184,6 +184,18 @@ describe('serve 通道适配器', () => {
     expect(calls[2].args).toEqual({ config: { providers: [] } });
     expect(calls[3].args).toEqual({ config: { base_url: 'http://x', models: [] } });
   });
+
+  it('modelsRolePick 直调点分方法 models.config.role_pick（camel → snake 参数）', async () => {
+    const { channel, calls } = mockChannel();
+    const backend = createServeBackend(channel);
+    await backend.modelsRolePick('agent', 'deepseek', 'deepseek-reasoner');
+    expect(calls.map((call) => call.cmd)).toEqual(['models.config.role_pick']);
+    expect(calls[0].args).toEqual({
+      role: 'agent',
+      provider_id: 'deepseek',
+      model_id: 'deepseek-reasoner',
+    });
+  });
 });
 
 describe('远端会话存储（真实数据源注入 mock 后端）', () => {

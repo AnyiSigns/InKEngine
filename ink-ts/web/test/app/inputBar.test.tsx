@@ -11,7 +11,7 @@ describe('InputBar', () => {
     expect(textarea.disabled).toBe(false);
     fireEvent.change(textarea, { target: { value: 'hello' } });
     fireEvent.keyDown(textarea, { key: 'Enter', code: 'Enter', charCode: 13 });
-    expect(onSend).toHaveBeenCalledWith('hello', [], 'standard', undefined);
+    expect(onSend).toHaveBeenCalledWith('hello', [], 'assembly', undefined);
   });
 
   it('shows model chip when model selected', () => {
@@ -34,7 +34,7 @@ describe('InputBar', () => {
     fireEvent.click(screen.getByRole('menuitem', { name: '高' }));
     fireEvent.change(screen.getByPlaceholderText('给智能体发消息'), { target: { value: 'hi' } });
     fireEvent.keyDown(screen.getByPlaceholderText('给智能体发消息'), { key: 'Enter', code: 'Enter', charCode: 13 });
-    expect(onSend).toHaveBeenCalledWith('hi', [], 'standard', { model_id: 'qwen3-max', reasoning_effort: 'high' });
+    expect(onSend).toHaveBeenCalledWith('hi', [], 'assembly', { model_id: 'qwen3-max', reasoning_effort: 'high' });
   });
 
   it('hides reasoning tier chip for non-reasoning models', () => {
@@ -47,16 +47,15 @@ describe('InputBar', () => {
     render(<InputBar disabled={false} streaming={false} models={{ archives: [{ model_id: 'm1' }] }} onSend={onSend} onAbort={() => {}} onAttachments={() => {}} />);
     fireEvent.change(screen.getByPlaceholderText('给智能体发消息'), { target: { value: 'hello' } });
     fireEvent.keyDown(screen.getByPlaceholderText('给智能体发消息'), { key: 'Enter', code: 'Enter', charCode: 13 });
-    expect(onSend).toHaveBeenCalledWith('hello', [], 'standard', { model_id: 'm1' });
+    expect(onSend).toHaveBeenCalledWith('hello', [], 'assembly', { model_id: 'm1' });
   });
 
-  it('switches mode via dropdown', () => {
-    render(<InputBar disabled={false} streaming={false} onSend={() => {}} onAbort={() => {}} onAttachments={() => {}} />);
-    // 触发「标准」档位切换器（下拉），默认为标准
-    const toggle = screen.getByRole('button', { name: /标准/ });
-    fireEvent.click(toggle);
-    // 打开下拉后选择「组装」
-    fireEvent.click(screen.getByRole('menuitem', { name: '组装' }));
-    expect(screen.getByRole('button', { name: /组装/ })).toBeTruthy();
+  it('回合档位切换已取消：无标准/组装下拉，发送恒为组装', () => {
+    const onSend = vi.fn();
+    render(<InputBar disabled={false} streaming={false} onSend={onSend} onAbort={() => {}} onAttachments={() => {}} />);
+    expect(screen.queryByRole('button', { name: /标准|组装/ })).toBeNull();
+    fireEvent.change(screen.getByPlaceholderText('给智能体发消息'), { target: { value: 'ok' } });
+    fireEvent.keyDown(screen.getByPlaceholderText('给智能体发消息'), { key: 'Enter', code: 'Enter', charCode: 13 });
+    expect(onSend).toHaveBeenCalledWith('ok', [], 'assembly', undefined);
   });
 });

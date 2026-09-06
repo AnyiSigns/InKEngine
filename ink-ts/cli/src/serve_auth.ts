@@ -39,8 +39,9 @@ function sameToken(a: string, b: string): boolean {
   return timingSafeEqual(left, right);
 }
 
-/** 常量时间 token 校验（长度不等即拒绝，无泄漏）。 */
+/** 常量时间 token 校验（长度不等即拒绝，无泄漏）。空 expected 表示免鉴权（本地开发回环）。 */
 export function isAuthorized(req: IncomingMessage, expected: string, queryToken: string | null = null): boolean {
+  if (expected === '') return true;
   const token = extractToken(req, queryToken);
   return token !== null && token !== '' && sameToken(token, expected);
 }

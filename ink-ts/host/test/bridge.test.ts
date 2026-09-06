@@ -165,6 +165,13 @@ describe('host bridge 命令面', () => {
     const after = (await handle.bridge.get('records.sessions')!(null, CTX)) as unknown[];
     expect(after.some((record) => (record as { thread_id: string }).thread_id === created.thread_id)).toBe(false);
   });
+
+  it('sessions.create 无参（params=undefined，web 无参调用的线上形态）不崩溃', async () => {
+    const created = (await handle.bridge.get('sessions.create')!(undefined, CTX)) as {
+      thread_id: string;
+    };
+    expect(created.thread_id).toBeTruthy();
+  });
 });
 
 describe('host bridge rounds.branch（echo 图链叶分支续跑）', () => {

@@ -35,6 +35,7 @@ import type { EngineTransport, InterruptPolicy, Storage } from '@ink-ts/engine';
 
 import { normalize_model_config } from './config.js';
 import type { ResolvedHostConfig } from './config.js';
+import { applyProvidersConfig, isRecord } from './model_providers.js';
 import {
   load_persisted_model_config,
   masked_model_config,
@@ -97,19 +98,40 @@ export class InkHost {
   }
 
   /** 运行期应用模型配置：normalize 校验 → 关停并置空 _llm → 合并写回
-   *  → 掩码态当前值。变更后由调用方触发引擎重建（下轮回合用新槽）。 */
+   *  → 掩码态当前值。变更后由调用方触发引擎重建（下轮回合用新槽）。
+   *  输入含 providers = 厂商面整档写：按 picks 派生 agent/router 角色槽
+   *  端点后落档（派生逻辑见 model_providers）；否则走既有角色槽直写合并。 */
   async apply_model_config(input: unknown): Promise<Record<string, unknown>> {
-    const incoming = normalize_model_config(input);
-    const prev = this._llm;
+    const prevLlm = this._llm;
     this._llm = null;
-    if (prev !== null) {
+    if (prevLlm !== null) {
       try {
-        await prev.aclose();
+        await prevLlm.aclose();
       } catch {
         // LLM 链关闭失败（配置仍继续应用）
       }
     }
-    this.config.model_config = merge_model_config(this.config.model_config, incoming);
+    const incoming = isRecord(input) ? input : null;
+    let next: Record<string, unknown>;
+    if (incoming !== null && Array.isArray(incoming['providers'])) {
+      const doc = applyProvidersConfig(this.config.model_config, incoming);
+      next = { ...doc };
+      // 透传入参中非厂商面接管键（与整档合并语义一致：其余键并入）
+      for (const [key, value] of Object.entries(incoming)) {
+        if (
+          ['providers', 'agent_pick', 'router_pick', 'agent_config', 'router_config',
+            'agent_fallback_configs', 'router_fallback_configs'].includes(key)
+        ) {
+          continue;
+        }
+        if (value === undefined) continue;
+        next[key] = value;
+      }
+    } else {
+      const norm = incoming === null ? {} : normalize_model_config(incoming);
+      next = merge_model_config(this.config.model_config, norm);
+    }
+    this.config.model_config = next;
     return masked_model_config(this.config.model_config);
   }
 

@@ -1,3 +1,4 @@
+// gate: 超限(515 行) - 厂商面派生/能力记录/策略预览桥域单测合并于既有掩码持久化文件
 /**
  * models.config.* 命令面单测（运行模型配置：掩码回显 / 校验合并落盘 /
  * 从文件重载换槽）。
@@ -182,6 +183,247 @@ describe('models.config.get/put（掩码 + 持久化 + merge）', () => {
     ).rejects.toMatchObject({ code: 'invalid_params' });
     // 校验失败路径不产生运行配置文件（无持久化副作用）
     expect(() => readFileSync(runtime_config_path(ctx.dir))).toThrow();
+  });
+});
+
+describe('models.config 厂商面（providers + agent/router 槽指派派生）', () => {
+  const handled: HostHandle[] = [];
+
+  afterEach(async () => {
+    const list = handled.splice(0);
+    for (const handle of list) await handle.dispose();
+  });
+
+  const provider = (overrides: {
+    provider_id: string;
+    base_url: string;
+    models: string[];
+    api_key?: string;
+  }): Record<string, unknown> => ({
+    provider_id: overrides.provider_id,
+    label: overrides.provider_id,
+    vendor: 'openai',
+    adapter: 'openai_compatible',
+    base_url: overrides.base_url,
+    api_key: overrides.api_key,
+    models: overrides.models,
+  });
+
+  it('put providers：派生 agent/router 槽、掩码回显、档案含厂商模型', async () => {
+    const ctx = tempContext();
+    const handle = await createHost(
+      { data_dir: ctx.dir, events_dir: ctx.events },
+      { graph_recipe: echoGraphRecipe },
+    );
+    handled.push(handle);
+    const agentKey = 'sk-provider-agent-plain-0123456789';
+
+    const put = await handle.bridge.get('models.config.put')!(
+      {
+        config: {
+          providers: [
+            provider({
+              provider_id: 'p1',
+              base_url: 'http://p1/v1',
+              models: ['m-a', 'm-b'],
+              api_key: agentKey,
+            }),
+          ],
+        },
+      },
+      { autoApprove: false },
+    );
+    const saved = (put as { model_config: Record<string, unknown> })['model_config'];
+    // 缺省 agent pick = 首厂商首模型 → agent 槽已配置；router 未指派
+    expect(saved['agent_config']).toMatchObject({ base_url: 'http://p1/v1', model_id: 'm-a' });
+    expect((saved['agent_config'] as Record<string, unknown>)['api_key']).toBe(maskKey(agentKey));
+    expect(saved['router_config']).toBeUndefined();
+    expect((saved['providers'] as unknown[])[0]).toMatchObject({ provider_id: 'p1' });
+
+    // 角色槽指派：agent → m-b；router → 新厂商 p2 的 r1
+    const pick = await handle.bridge.get('models.config.role_pick')!(
+      { role: 'agent', provider_id: 'p1', model_id: 'm-b' },
+      { autoApprove: false },
+    );
+    expect((pick as { state: { model_config: Record<string, unknown> } }).state.model_config['agent_config'])
+      .toMatchObject({ model_id: 'm-b', base_url: 'http://p1/v1' });
+
+    // 再补 p2 并指派 router
+    await handle.bridge.get('models.config.put')!(
+      {
+        config: {
+          providers: [
+            provider({ provider_id: 'p1', base_url: 'http://p1/v1', models: ['m-a', 'm-b'], api_key: agentKey }),
+            provider({ provider_id: 'p2', base_url: 'http://p2/v1', models: ['r1'], api_key: 'sk-p2-plain-9876543210' }),
+          ],
+        },
+      },
+      { autoApprove: false },
+    );
+    await handle.bridge.get('models.config.role_pick')!(
+      { role: 'router', provider_id: 'p2', model_id: 'r1' },
+      { autoApprove: false },
+    );
+    const state = (await handle.bridge.get('models.config.get')!(null, { autoApprove: false })) as {
+      model_config: Record<string, unknown>;
+      roles: Record<string, { configured: boolean }>;
+    };
+    expect(state.roles).toEqual({ agent: { configured: true }, router: { configured: true } });
+    expect(state.model_config['agent_config']).toMatchObject({ model_id: 'm-b' });
+    expect(state.model_config['router_config']).toMatchObject({ model_id: 'r1', base_url: 'http://p2/v1' });
+    expect((state.model_config['router_config'] as Record<string, unknown>)['provider_id']).toBeUndefined();
+    expect(JSON.stringify(state)).not.toContain(agentKey);
+    expect(JSON.stringify(state)).not.toContain('sk-p2-plain-9876543210');
+
+    // 档案 = 已添加厂商模型清单（m-a/m-b/r1），带 provider_id 归属
+    const archive = (await handle.bridge.get('model_archive.snapshot')!(null, { autoApprove: false })) as {
+      archives: Array<{ model_id: string; provider_id?: string }>;
+    };
+    const ids = archive.archives.map((row) => `${row.provider_id ?? ''}:${row.model_id}`).sort();
+    expect(ids).toEqual(['p1:m-a', 'p1:m-b', 'p2:r1']);
+
+    // role_pick 非法（模型不在已添加清单）显式拒绝
+    await expect(
+      handle.bridge.get('models.config.role_pick')!(
+        { role: 'agent', provider_id: 'p1', model_id: 'nope' },
+        { autoApprove: false },
+      ),
+    ).rejects.toMatchObject({ code: 'model_not_found' });
+    await expect(
+      handle.bridge.get('models.config.role_pick')!(
+        { role: 'router', provider_id: 'ghost', model_id: 'r1' },
+        { autoApprove: false },
+      ),
+    ).rejects.toMatchObject({ code: 'model_not_found' });
+  });
+
+  it('role_pick 同值 no-op（不重复重建）且不可选未添加模型', async () => {
+    const ctx = tempContext();
+    const handle = await createHost(
+      { data_dir: ctx.dir, events_dir: ctx.events },
+      { graph_recipe: echoGraphRecipe },
+    );
+    handled.push(handle);
+    await handle.bridge.get('models.config.put')!(
+      {
+        config: { providers: [provider({ provider_id: 'p1', base_url: 'http://p1/v1', models: ['m1'] })] },
+      },
+      { autoApprove: false },
+    );
+    const first = (await handle.bridge.get('models.config.role_pick')!(
+      { role: 'agent', provider_id: 'p1', model_id: 'm1' },
+      { autoApprove: false },
+    )) as { saved: boolean; pick: { model_id: string } };
+    expect(first.pick.model_id).toBe('m1');
+    // 已是指派值 → 再指派同值仍成功（same-pick no-op 不报错）
+    const again = (await handle.bridge.get('models.config.role_pick')!(
+      { role: 'agent', provider_id: 'p1', model_id: 'm1' },
+      { autoApprove: false },
+    )) as { saved: boolean };
+    expect(again.saved).toBe(true);
+  });
+});
+
+describe('capability.get/put（能力记录持久化 + 白名单）', () => {
+  const handled: HostHandle[] = [];
+
+  afterEach(async () => {
+    const list = handled.splice(0);
+    for (const handle of list) await handle.dispose();
+  });
+
+  it('get 注入缺省字段；put 单字段并入 + simulation_tier 白名单校验', async () => {
+    const ctx = tempContext();
+    const handle = await createHost(
+      { data_dir: ctx.dir, events_dir: ctx.events },
+      { graph_recipe: echoGraphRecipe },
+    );
+    handled.push(handle);
+    const initial = (await handle.bridge.get('capability.get')!(null, { autoApprove: false })) as {
+      simulation_tier: string;
+      auto_approve_tools: unknown[];
+      auto_approve_all_review: boolean;
+    };
+    expect(initial.simulation_tier).toBe('full'); // 推演档位已取消，默认全开
+    expect(initial.auto_approve_tools).toEqual([]);
+    expect(initial.auto_approve_all_review).toBe(false);
+
+    const put = (await handle.bridge.get('capability.put')!(
+      { simulation_tier: 'full', auto_approve_tools: ['shell_exec'] },
+      { autoApprove: false },
+    )) as { simulation_tier: string };
+    expect(put.simulation_tier).toBe('full');
+
+    const after = (await handle.bridge.get('capability.get')!(null, { autoApprove: false })) as {
+      simulation_tier: string;
+      auto_approve_tools: string[];
+    };
+    expect(after.simulation_tier).toBe('full');
+    expect(after.auto_approve_tools).toEqual(['shell_exec']);
+
+    await expect(
+      handle.bridge.get('capability.put')!({ simulation_tier: 'wild' }, { autoApprove: false }),
+    ).rejects.toMatchObject({ code: 'invalid_params' });
+    // 非法档位不落盘：仍回显已保存的 full
+    const still = (await handle.bridge.get('capability.get')!(null, { autoApprove: false })) as {
+      simulation_tier: string;
+    };
+    expect(still.simulation_tier).toBe('full');
+  });
+});
+
+describe('policy.route（确定性路由预览）', () => {
+  const handled: HostHandle[] = [];
+
+  afterEach(async () => {
+    const list = handled.splice(0);
+    for (const handle of list) await handle.dispose();
+  });
+
+  it('开发强信号优先；直答无关键词；tier 白名单校验', async () => {
+    const ctx = tempContext();
+    const handle = await createHost(
+      { data_dir: ctx.dir, events_dir: ctx.events },
+      { graph_recipe: echoGraphRecipe },
+    );
+    handled.push(handle);
+    const dev = (await handle.bridge.get('policy.route')!(
+      { text: '帮我写一个 python 脚本', tier: 'light' },
+      { autoApprove: false },
+    )) as { kind: string; policy: { tier: string } };
+    expect(dev.kind).toBe('development');
+    expect(dev.policy.tier).toBe('light');
+
+    const research = (await handle.bridge.get('policy.route')!(
+      { text: '调研一下这个话题并检索资料', tier: 'off' },
+      { autoApprove: false },
+    )) as { kind: string };
+    expect(research.kind).toBe('research');
+
+    const ops = (await handle.bridge.get('policy.route')!(
+      { text: '帮我部署并监控服务', tier: 'full' },
+      { autoApprove: false },
+    )) as { kind: string };
+    expect(ops.kind).toBe('operations');
+
+    const devFirst = (await handle.bridge.get('policy.route')!(
+      { text: '帮我写代码并部署上线', tier: 'full' },
+      { autoApprove: false },
+    )) as { kind: string };
+    expect(devFirst.kind).toBe('development'); // 开发强信号优先于运维
+
+    const direct = (await handle.bridge.get('policy.route')!(
+      { text: '今天天气怎么样', tier: 'full' },
+      { autoApprove: false },
+    )) as { kind: string };
+    expect(direct.kind).toBe('direct_answer');
+
+    await expect(
+      handle.bridge.get('policy.route')!({ text: 'x', tier: 'max' }, { autoApprove: false }),
+    ).rejects.toMatchObject({ code: 'invalid_params' });
+    await expect(
+      handle.bridge.get('policy.route')!({ tier: 'light' }, { autoApprove: false }),
+    ).rejects.toMatchObject({ code: 'invalid_params' });
   });
 });
 

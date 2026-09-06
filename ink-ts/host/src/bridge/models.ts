@@ -18,6 +18,32 @@ import {
   type HostBridgeDeps,
   type ModelConfigHandles,
 } from './_types.js';
+import { asProvider, providerModelIds, samePick, type ProviderPick } from '../model_providers.js';
+
+const ROLE_SLOT_PICK_KEY: Record<string, string> = {
+  agent: 'agent_pick',
+  router: 'router_pick',
+};
+
+function requireRole(raw: Record<string, unknown>): string {
+  const role = raw['role'];
+  if (role !== 'agent' && role !== 'router') {
+    throw new BridgeError('models.config.role_pick 需 params.role ∈ {agent, router}', 'invalid_params');
+  }
+  return role;
+}
+
+function requirePick(raw: Record<string, unknown>, where: string): ProviderPick {
+  const provider_id = raw['provider_id'];
+  const model_id = raw['model_id'];
+  if (typeof provider_id !== 'string' || provider_id === '') {
+    throw new BridgeError(`${where} 需 params.provider_id`, 'invalid_params');
+  }
+  if (typeof model_id !== 'string' || model_id === '') {
+    throw new BridgeError(`${where} 需 params.model_id`, 'invalid_params');
+  }
+  return { provider_id, model_id };
+}
 
 function requireModelConfig(deps: HostBridgeDeps): ModelConfigHandles {
   if (deps.modelConfig === undefined) {
@@ -91,9 +117,52 @@ export function buildModelsHandlers(deps: HostBridgeDeps): ReadonlyMap<string, B
     return { reloaded: true, model_config: applied };
   };
 
+  const rolePick: BridgeHandler = async (raw): Promise<unknown> => {
+    const params = requireObject(raw);
+    const role = requireRole(params);
+    const pick = requirePick(params, `models.config.role_pick(${role})`);
+    const handles = requireModelConfig(deps);
+    const live = deps.host.config.model_config;
+    const providers = Array.isArray(live['providers'])
+      ? (live['providers'] as unknown[])
+          .map(asProvider)
+          .filter((p): p is NonNullable<ReturnType<typeof asProvider>> => p !== null)
+      : [];
+    const provider = providers.find((p) => p.provider_id === pick.provider_id);
+    if (provider === undefined || !providerModelIds(provider).includes(pick.model_id)) {
+      throw new BridgeError(
+        `模型不在已添加清单: ${pick.provider_id}/${pick.model_id}`,
+        'model_not_found',
+      );
+    }
+    const pickKey = ROLE_SLOT_PICK_KEY[role]!;
+    const current = isRecord(live[pickKey]) ? (live[pickKey] as unknown as ProviderPick) : null;
+    if (samePick(current, pick)) {
+      return { role, pick, saved: true, state: deps.host.model_config_state() };
+    }
+    let applied: Record<string, unknown>;
+    try {
+      applied = await handles.apply({
+        providers: providers as never[],
+        [pickKey]: pick,
+      });
+    } catch (error) {
+      throw asBridgeError(error, `角色槽指派失败(${role})`);
+    }
+    void applied;
+    try {
+      await handles.persist();
+    } catch (error) {
+      throw asBridgeError(error, `角色槽指派落盘失败(${role})`);
+    }
+    await refreshEngine(deps);
+    return { role, pick, saved: true, state: deps.host.model_config_state() };
+  };
+
   return new Map<string, BridgeHandler>([
     ['models.config.get', get],
     ['models.config.put', put],
     ['models.config.reload', reload],
+    ['models.config.role_pick', rolePick],
   ]);
 }

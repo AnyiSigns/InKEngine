@@ -113,6 +113,19 @@ const ALIASES: readonly AliasSpec[] = [
   { flat: 'models_config_put', dotted: 'models.config.put' },
   { flat: 'models_refresh', dotted: 'models.config.put' },
   { flat: 'model.reload', dotted: 'models.config.reload' },
+  // capability 旧扁平面（能力记录：get 无参；put 入参 { record: {...} } 解包）
+  { flat: 'capability_get', dotted: 'capability.get' },
+  {
+    flat: 'capability_put',
+    dotted: 'capability.put',
+    adaptParams: (raw) => {
+      const record = maybeRecord(raw);
+      if (record !== null && maybeRecord(record['record']) !== null) return record['record'];
+      return record ?? {};
+    },
+  },
+  // 策略层路由预览（route_plan → policy.route；入参同形）
+  { flat: 'route_plan', dotted: 'policy.route' },
 ];
 
 /** 把仍可映射的扁平名装入命令面（目标缺失 = 跳过，不击穿最小面）。 */

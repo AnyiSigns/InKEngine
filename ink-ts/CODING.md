@@ -176,10 +176,14 @@ CI 的 ink-ts job 同链执行。规则增删须同步本表。
 | `search.keys.set` | search | web_search 密钥写入（宿主内存域；不落盘，web 只回显掩码） |
 | `search.keys.get` | search | web_search 密钥掩码查询（无明文外泄） |
 | `material.import` | material | 既有资料批量导入（目录扫描 → 逐文件 doc.parse → 文本/引用归一入会话；三重上限 fail-closed） |
-| `models.config.get` | models | 模型运行配置掩码态查询（config.json 明文不出进程；含 agent/router 槽已配置态） |
-| `models.config.put` | models | 模型配置保存（`{config: <角色槽/备用链端点形状>}`：校验 → host apply → 原子落 data_dir/config.json → 引擎重建，下轮生效） |
+| `models.config.get` | models | 模型运行配置掩码态查询（config.json 明文不出进程；含 agent/router 槽已配置态与厂商面 providers） |
+| `models.config.put` | models | 模型配置保存（`{config: {...}}`）。输入含 `providers` = 厂商面整档写：按 `agent_pick`/`router_pick` 从厂商模型清单派生角色槽端点（agent=对话模型、router=功能槽；缺省 agent 回落首厂商首模型）后 apply；无 `providers` = 既有角色槽直写合并。校验 → host apply → 原子落 data_dir/config.json → 引擎重建，下轮生效 |
 | `models.config.reload` | models | 模型配置重载（从 data_dir/config.json 重读 → apply → 引擎重建；冷启态再装配） |
-| `model_archive.snapshot` | model_archive | 模型档案快照（从运行 model_config 角色槽/备用链聚合 archives，与 config.json 同源；无 sqlite 探测） |
+| `models.config.role_pick` | models | 角色槽指派（`{role: agent/router, provider_id, model_id}`：模型须在已添加清单，同值 no-op；写 pick → 派生槽端点 → 落盘 → 引擎重建） |
+| `model_archive.snapshot` | model_archive | 模型档案快照（从运行 model_config 聚合：角色槽/备用链端点 + 厂商 models 清单展开为 model_id 行；与 config.json 同源，无 sqlite 探测） |
+| `capability.get` | capability | 能力记录读取（推演档位 simulation_tier 等；data_dir/capability.json；缺省字段注入——simulation_tier 缺省注入 full（推演默认全开），不落盘固化缺省） |
+| `capability.put` | capability | 能力记录存档（单字段并入语义 + 白名单校验（档位/自动审批字段/上限），非法不落盘） |
+| `policy.route` | policy | 策略层路由预览（确定性任务分类 → 计划形态 → 档位/配额；零 LLM，规格见 bridge/policy.ts） |
 | `ui_components.get` | ui_components | 出厂界面组件启停态（factory/disabled/active 三清单；engine 同源） |
 | `ui_components.set_disabled` | ui_components | 整集替换出厂组件停用集（`{disabled: string[]}`；未登记名结构化拒绝） |
 
@@ -188,4 +192,5 @@ JSON-RPC 信封错误只回通用、细节走 diag（复用 `cli/src/diag.ts` �
 serve/transport 方法面另设扁平↔点分别名层（`cli/src/legacy_aliases.ts`）：web 旧扁平命令名
 （round_send/session_*/search_keys_put/material_import/models_config_* 等）映射到上表点分方法；
 `models_config_*`/`model.reload` 落 models.config.*（models_refresh 语义 = 保存 + 刷新，
-最小实现即 models.config.put）；无点分落点不注册。
+最小实现即 models.config.put）；`capability_get`/`capability_put` 落 capability.*（put 解包
+`{record}` 入参）；`route_plan` 落 policy.route；无点分落点不注册。

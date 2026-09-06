@@ -99,7 +99,7 @@ describe('ModelSection 空态引导', () => {
     expect(screen.queryByText('kimi-audit')).toBeNull();
   });
 
-  it('切换 router 档位模型 → 落盘携带该档位 model_id', async () => {
+  it('切换 router 档位模型 → 落盘携带顶层 router_pick（host 派生 router 槽）', async () => {
     const user = userEvent.setup();
     mockConfig = {
       providers: [
@@ -119,8 +119,8 @@ describe('ModelSection 空态引导', () => {
     const option = await screen.findByText('kimi');
     await user.click(option);
     expect(backendMock.modelsConfigPut).toHaveBeenCalled();
-    const payload = backendMock.modelsConfigPut.mock.calls.at(-1)![0] as unknown as { providers: Array<Record<string, unknown>> };
-    expect(payload.providers[0].model_ids).toMatchObject({ router: 'kimi' });
+    const payload = backendMock.modelsConfigPut.mock.calls.at(-1)![0] as unknown as { router_pick?: { provider_id: string; model_id: string } };
+    expect(payload.router_pick).toEqual({ provider_id: 'moonshot', model_id: 'kimi' });
   });
 
   it('全局压缩阈值单值落盘到所有提供方', async () => {
@@ -174,7 +174,7 @@ describe('ModelSection 空态引导', () => {
     expect(ids).toEqual(['a']);
   });
 
-  it('选择提供方 = 切当前连接：档位候选跟随该提供方模型清单', async () => {
+  it('router 档位候选 = 全部已添加厂商模型并集；切换提供方只改编辑焦点不重排', async () => {
     const user = userEvent.setup();
     mockConfig = {
       providers: [
@@ -184,24 +184,22 @@ describe('ModelSection 空态引导', () => {
     };
     const { container } = render(<ModelSection />);
     await screen.findByText('ProviderA');
-    // 默认当前连接 = a（首提供方），档位候选为 a-model
+    // 焦点默认首提供方；候选 = 全部已添加模型（不再随「当前连接」切换收窄）
     const rows = Array.from(container.querySelectorAll('[data-ui="provider_row"]')) as HTMLElement[];
     expect(rows[0].dataset.active).toBe('true');
     const initialToggle = container.querySelector('[data-ui="tier_model_toggle_router"]') as HTMLElement;
     await user.click(initialToggle);
     expect(await screen.findByText('a-model')).toBeTruthy();
-    expect(screen.queryByText('b-model')).toBeNull();
-    // 点选 b → 升为当前连接（providers[0]），候选切为 b-model
+    expect(await screen.findByText('b-model')).toBeTruthy();
     await user.click(await screen.findByText('ProviderB'));
     await vi.waitFor(() => {
-      const first = container.querySelector('[data-ui="provider_row"]');
-      const label = first?.textContent ?? '';
-      expect(label).toContain('ProviderB');
-      expect(first?.getAttribute('data-active')).toBe('true');
+      const second = container.querySelectorAll('[data-ui="provider_row"]')[1];
+      expect(second?.getAttribute('data-active')).toBe('true');
     });
+    // 编辑焦点切换不重排 providers（引擎角色槽消费与顺序无关）
     const routerToggle = container.querySelector('[data-ui="tier_model_toggle_router"]') as HTMLElement;
     await user.click(routerToggle);
+    expect(await screen.findByText('a-model')).toBeTruthy();
     expect(await screen.findByText('b-model')).toBeTruthy();
-    expect(screen.queryByText('a-model')).toBeNull();
   });
 });

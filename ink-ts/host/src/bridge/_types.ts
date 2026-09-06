@@ -68,9 +68,12 @@ export interface HostBridgeDeps {
   searchKeys?: SearchKeysStore;
   /** 工作区授权域（workspace.state/set/revoke + mount.*；data_dir 持久化）。 */
   workspace?: WorkspaceStore;
+  /** 能力记录域（capability.get/put；data_dir 持久化）。 */
+  capability?: CapabilityStore;
   /** 最近在途 run 取消句柄登记（rounds.abort 经 runtime 中止）。 */
 }
 
+import type { CapabilityStore } from '../capability/store.js';
 import type { DocParser } from '../doc/_types.js';
 import type { SearchKeysStore } from '../search/keys.js';
 import type { WorkspaceStore } from '../workspace/store.js';

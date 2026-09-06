@@ -9,6 +9,9 @@
  *   协议决定适配器；
  * - interrupt_policy：默认 fail-closed（autoApprove 仅显式 true 才直过）；
  * - build_transport：事件落文件实时刷新，每轮一个 JSONL 文件；
+ * - 运行模型配置面（models.config.* 消费）：apply_model_config 校验并合并
+ *   变更（关停并置空 _llm 使下轮重解析）、persist/reload 走
+ *   data_dir/config.json（掩码回显，见 model_config_runtime.ts）；
  * - close：幂等关停（LLM 链 aclose + 未关传输收口），由 Runtime.stop 调用。
  *
  * 类型说明：engine 公开 AsyncLLM 契约（core/llm/base）与 Runtime 装配内部
@@ -30,7 +33,16 @@ import {
 } from '@ink-ts/engine';
 import type { EngineTransport, InterruptPolicy, Storage } from '@ink-ts/engine';
 
+import { normalize_model_config } from './config.js';
 import type { ResolvedHostConfig } from './config.js';
+import {
+  load_persisted_model_config,
+  masked_model_config,
+  merge_model_config,
+  model_config_state as assemble_model_config_state,
+  write_runtime_model_config,
+} from './model_config_runtime.js';
+import type { ModelConfigState } from './model_config_runtime.js';
 import { FileEventsTransport } from './transport.js';
 
 /** 显式 autoApprove 放行策略：所有动作直过（should_approve=false）。 */
@@ -82,6 +94,39 @@ export class InkHost {
           }) as unknown as AsyncLLM);
     this._llm = llm;
     return llm;
+  }
+
+  /** 运行期应用模型配置：normalize 校验 → 关停并置空 _llm → 合并写回
+   *  → 掩码态当前值。变更后由调用方触发引擎重建（下轮回合用新槽）。 */
+  async apply_model_config(input: unknown): Promise<Record<string, unknown>> {
+    const incoming = normalize_model_config(input);
+    const prev = this._llm;
+    this._llm = null;
+    if (prev !== null) {
+      try {
+        await prev.aclose();
+      } catch {
+        // LLM 链关闭失败（配置仍继续应用）
+      }
+    }
+    this.config.model_config = merge_model_config(this.config.model_config, incoming);
+    return masked_model_config(this.config.model_config);
+  }
+
+  /** 当前模型配置掩码态（models.config.get 回显；明文不出进程）。 */
+  model_config_state(): ModelConfigState {
+    return assemble_model_config_state(this.config.model_config);
+  }
+
+  /** 变更原子写回运行配置文件（重启由 cli 装配端读取合并）。 */
+  async persist_model_config(): Promise<void> {
+    write_runtime_model_config(this.config.data_dir, this.config.model_config);
+  }
+
+  /** 从运行配置文件重读并应用（models.config.reload；无文件 = 保留当前配置）。 */
+  async reload_model_config(): Promise<Record<string, unknown>> {
+    const persisted = load_persisted_model_config(this.config.data_dir);
+    return this.apply_model_config(persisted ?? {});
   }
 
   /** 审批策略：autoApprove 显式 true = 直过；否则 fail-closed 全量挂起。 */

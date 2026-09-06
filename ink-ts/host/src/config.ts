@@ -101,6 +101,11 @@ export const ROLE_SLOT_KEYS = [
   'router_config',
 ] as const;
 
+/** 备用链键判定（`{role}_fallback_configs`；normalize 与运行期合并共用同一形状）。 */
+export function isFallbackListKey(key: string): boolean {
+  return /^[a-z]+_fallback_configs$/.test(key);
+}
+
 /** 缺省存储连接串（内存后端；持久化需显式 sqlite:///path）。 */
 export const DEFAULT_STORAGE_URI = 'memory://';
 
@@ -169,7 +174,7 @@ export function normalize_model_config(input: unknown): Record<string, unknown> 
   const out: Record<string, unknown> = {};
   for (const [key, value] of Object.entries(input)) {
     const isSlot = (ROLE_SLOT_KEYS as readonly string[]).includes(key);
-    const isFallbacks = /^[a-z]+_fallback_configs$/.test(key);
+    const isFallbacks = isFallbackListKey(key);
     if (value === undefined || value === null) continue;
     if (isSlot) {
       out[key] = normalize_endpoint(value, `model_config.${key}`);

@@ -107,6 +107,12 @@ const ALIASES: readonly AliasSpec[] = [
   { flat: 'material_import', dotted: 'material.import' },
   { flat: 'search_keys_put', dotted: 'search.keys.set' },
   { flat: 'search_keys_get', dotted: 'search.keys.get' },
+  // models 旧扁平面：get/put/reload 直落点分面；models_refresh 语义 = 保存 +
+  // 刷新（最小实现即 put，模型清单探测留给 web 协议适配面）
+  { flat: 'models_config_get', dotted: 'models.config.get' },
+  { flat: 'models_config_put', dotted: 'models.config.put' },
+  { flat: 'models_refresh', dotted: 'models.config.put' },
+  { flat: 'model.reload', dotted: 'models.config.reload' },
 ];
 
 /** 把仍可映射的扁平名装入命令面（目标缺失 = 跳过，不击穿最小面）。 */

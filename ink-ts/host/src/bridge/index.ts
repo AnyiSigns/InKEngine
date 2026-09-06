@@ -3,7 +3,8 @@
  * rounds（send/abort/resume/branch）、records（sessions/链记录）、sessions
  * （create/rename/delete/refresh/tree）、approval（卡查询/裁决）、audit
  * （导出）、tools（注册表快照）、recovery（回退入口/回退点查询）、os（OS
- * 执行器受控调用）。与 cli 现有 host.ping/host.info 并存不冲突（命名空间
+ * 执行器受控调用）、search（检索密钥）、material（资料批量导入）、models
+ * （模型运行配置）。与 cli 现有 host.ping/host.info 并存不冲突（命名空间
  * 独立；方法表由 cli 并入命令面）。
  *
  * 方法增删纪律（AGENTS 纪律 3）：本文件是 bridge 方法表单一事实源——
@@ -15,6 +16,7 @@ import { buildApprovalHandlers } from './approval.js';
 import { buildAuditHandlers } from './audit.js';
 import { buildDialogHandlers } from './dialog.js';
 import { buildMaterialHandlers } from './material.js';
+import { buildModelsHandlers } from './models.js';
 import { buildOsHandlers } from './os.js';
 import { buildRecordsHandlers } from './records.js';
 import { buildRecoveryHandlers } from './recovery.js';
@@ -57,6 +59,10 @@ export const BRIDGE_METHODS = [
   'search.keys.get',
   // material：既有资料批量导入（扫描 → doc.parse → 文本/引用入会话）
   'material.import',
+  // models：模型运行配置（掩码态查询/校验合并落盘/从文件重载）
+  'models.config.get',
+  'models.config.put',
+  'models.config.reload',
   // workspace：工作区授权根/挂载清单（data_dir 持久化）
   'workspace.state',
   'workspace.set',
@@ -86,6 +92,7 @@ export function buildBridge(deps: HostBridgeDeps): ReadonlyMap<string, BridgeHan
     buildOsHandlers(deps),
     buildSearchHandlers(deps),
     buildMaterialHandlers(deps),
+    buildModelsHandlers(deps),
     buildWorkspaceHandlers(deps.workspace),
     buildDialogHandlers(),
   ];

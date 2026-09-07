@@ -285,21 +285,34 @@ host.spec（能力插件 kind='host'；faces 用专用 HostFaces，不走通用 
 
 ## 九、落地现状 vs 设计差异
 
-> 实施后逐阶段回填。当前（2026-09-07）为设计定稿，尚未动代码。
+> 实施后逐阶段回填。阶段 0（契约文档）与阶段 1（放开机制层）已落地（2026-09-07）；
+> 阶段 2 起待实施。
+
+### 阶段 0/1 落地状态（逐阶段回填）
+
+| 阶段 | 设计要件 | 落点 | 状态 |
+|---|---|---|---|
+| 0 | 契约文档 `PLUGINS.md` 单一事实源 | 评审通过；本文件为设计推演 + 实施计划 | ✅ 完成 |
+| 1 | 机制件物理归 `kernel/<mechanism>/` | 33 机制迁 `engine/src/kernel/`（Wave1a），import 全量改写 | ✅ 完成 |
+| 1 | 机制件契约声明 | 33 份 `engine/src/kernel/<mechanism>/contract.ts`（id=目录名；effects 端口白名单 + value 级 depends） | ✅ 完成 |
+| 1 | 契约单一源聚合 | `ALL_MECHANISM_CONTRACTS`（`engine/src/kernel/registry/contracts.ts`），boot/verify/测试共用 | ✅ 完成 |
+| 1 | boot 密封 | `_runtime_assemble.ts` boot 装配首步 `seal_mechanism_registry(ALL)` fail-closed（id 唯一/depends 在册/无自环/无循环 + 拓扑序） | ✅ 完成 |
+| 1 | C 类收敛（去自造/拆环） | 孤儿流水线清理、builder 沙箱副本 `derived`、self_application 校验器必注入、executor↔path_assembler 环拆（executor 经 `RunOptions.multipath_assembly` seam 消费组装上下文）；密封图归零环 | ✅ 完成 |
+| 1 | verify 三键可执行 | `verify:mechanisms`（`engine/scripts/verify_mechanisms.ts`）：依赖单向（密封）+ 装配完整（runtime 闭包 ∪ 自足叶子 = 全量）+ 0-IO（kernel 禁 node 内置/第三方/IO 全局原语）；并入 root `test` 链 | ✅ 完成 |
 
 ### 已具备的地基（对照现状）
 
 | 设计要件 | 现状落点 | 状态 |
 |---|---|---|
-| 引擎 contract-as-data | `engine/src/core/registry/registry.ts`（契约+工厂同表） | ⚠️ 边界：契约现为可选参数，无契约 = 不参与组装、仅可手绘图引用；机制件契约化须升为强制 |
+| 引擎 contract-as-data | `engine/src/core/registry/registry.ts`（契约+工厂同表） | ⚠️ 边界：契约现为可选参数，无契约 = 不参与组装、仅可手绘图引用；机制件契约化须升为强制（stage2 起评估） |
 | 0-IO 端口注入 | `engine/src/adapters/`（storage/llm/mcp + boot） | ✅ 已实现 |
 | 装配数据 | `AssemblyRecipe`（engine 定义，经 `@ink-ts/engine` 导出）+ `runtime.boot(host, recipe)`（host 装配使用，`host/src/boot.ts`） | ✅ 已实现 |
 | web 纯渲染 L5 | `seed_data/ui_spec.json` + `componentRegistry` 白名单 + `artifactLoader` | ⚠️ 部分：插件不含业务逻辑（L5 成立），但仍含产品 chrome（app/shell/views）；阶段 7b 才退化为纯显示设备 |
 | 命令面同步 | `BRIDGE_METHODS` + `sync_web_command_surface.ts` | ⚠️ 手写数组，非声明即挂载 |
 | 统一插件源 | `tools.json`/`ui_spec.json`/`BRIDGE_METHODS`/`mcp_market.json` 分置 | ❌ 未统一 |
-| 机制件统一 contract + 装配闭集校验 | 机制件散在 `core/*`，直接 import（终局归 `kernel/<mechanism>/`） | ❌ 未契约化 |
-| 自进化机制 | `self_tools`/`self_application`/`settle/seed`/`growth`/`skill_crystal`/`tuning`（散在 `core/*`，默认开） | ✅ 机制已实现，未契约化（无产品侧业务层，见 §1.5） |
-| faces / depends / 卸载一致性 | 无 `depends`、faces 未挂同 id | ❌ 未实现 |
+| 机制件统一 contract + 装配闭集校验 | 33 机制 `engine/src/kernel/<mechanism>/contract.ts` + `registry/registry.ts` 密封校验 + boot 接线 + `verify:mechanisms` | ✅ 完成（本阶段目标） |
+| 自进化机制 | `self_tools`/`self_application`/`settle/seed`/`growth`/`skill_crystal`/`tuning`（`kernel/*`，默认开） | ✅ 机制已实现并契约化（无产品侧业务层，见 §1.5） |
+| faces / depends / 卸载一致性 | 机制层 depends 已契约化（DAG/闭包校验）；产品层 faces 未挂同 id | ⚠️ 机制层完成，产品层待阶段 4 |
 | 宿主面插件化 | `ResolvedHostConfig`/`ProductRecipeInit` 已存在，未 spec 化 | ❌ 未实现 |
 
 # ink-ts 插件即数据 · 终局形态参考模拟

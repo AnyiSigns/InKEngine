@@ -7,6 +7,7 @@
  * 不启用；ToolVectorIndex 以关键词基线构建。
  */
 import { PermissionGate } from '../permissions/permissions.js';
+import { ALL_MECHANISM_CONTRACTS, seal_mechanism_registry } from '../registry/index.js';
 import type { InterruptPolicy } from '../approval/approval.js';
 import { register_perception_nodes } from '../../core/perception/perception.js';
 import { default_engine_pool_seed } from '../../core/nodes/index.js';
@@ -63,6 +64,10 @@ import { _RoundStepsRecorder } from './_round_steps_recorder.js';
 /** 装配基座（步骤 ①–⑰ 实现；boot 失败清理见状态机层）。 */
 export abstract class RuntimeAssemble extends RuntimeNodeRegistrar {
   protected async _assemble(host: Host, recipe: AssemblyRecipe): Promise<void> {
+    // 装配密封（boot 静态门禁）：全量机制契约 DAG 校验（依赖单向/装配完整/
+    // 循环拒绝）失败即抛错——半装配/带环依赖的运行时不允许进入装配流程。
+    // 密封纯静态（契约 const + Tarjan/topo），零 IO 零副作用。
+    seal_mechanism_registry(ALL_MECHANISM_CONTRACTS);
     const rawStorage = await host.create_storage();
     const guardToken = _uuid_hex();
     const guarded = new GuardedStorage(rawStorage, { guard_token: guardToken });

@@ -20,6 +20,8 @@ export {
 } from './registry.js';
 export type { RegistryViolation } from './registry.js';
 
+export { ALL_MECHANISM_CONTRACTS } from './contracts.js';
+
 export {
   MECHANISM_PORT_IDS,
   PORT_EXEC_ENVELOPE,

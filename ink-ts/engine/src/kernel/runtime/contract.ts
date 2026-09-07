@@ -23,7 +23,9 @@
  *
  * depends = 装配闭集所需机制件清单：runtime 各 _runtime_*.ts 以 value import
  * 引用的全部内核机制并集（round_steps 仅 type import，不构成装配期 value
- * 依赖，故不入列）。契约化归属见 engine/src/kernel/registry/contract_types.ts。
+ * 依赖，故不入列——其 RoundSteps 主类为宿主/UI 直用原语，depends/effects 皆
+ * 空的静音叶子，不经 runtime 装配）。契约化归属见
+ * engine/src/kernel/registry/contract_types.ts。
  */
 
 import type { MechanismContract } from '../registry/contract_types.js';

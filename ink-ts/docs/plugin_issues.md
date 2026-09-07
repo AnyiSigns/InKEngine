@@ -26,3 +26,4 @@ PLUGINS.md §3 机制件契约化归 `engine/src/kernel/<mechanism>/` 与此一�
 
 - §2.1 机制件清单以概念名列举（gate/audit/patch_chain…），当前 core 实际目录为
   `audit_log/`、`patch/`、approval 等；契约化样板落 `kernel/<mechanism>/` 时按真实代码目录对齐命名，勿照抄概念名建目录。
+  **（2026-09-07 阶段 1 已按真实目录完成：33 契约落 `engine/src/kernel/<mechanism>/contract.ts`，id=目录名，见 §九 落地状态。）**

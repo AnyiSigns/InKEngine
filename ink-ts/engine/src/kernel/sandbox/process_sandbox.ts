@@ -128,6 +128,21 @@ export class ProcessSandbox {
     return operation === 'exec';
   }
 
+  /** 派生副本（dataclasses.replace 镜像）：只读字段整体复制后覆盖调用点
+   *  运行参数（cwd 工作目录限定、timeout 超时），供构建/冒烟等按调用声明
+   *  派生沙箱变体——副本语义收在本机制，消费方不重排七参构造。 */
+  derived(options: { cwd?: string | null; timeout?: number } = {}): ProcessSandbox {
+    return new ProcessSandbox(
+      [...this.allowlist],
+      options.timeout ?? this.timeout,
+      options.cwd === undefined ? this.cwd : options.cwd,
+      this.max_output,
+      this.env,
+      this.path,
+      this.spawner,
+    );
+  }
+
   /** 守卫校验：非 exec 操作/命令不在白名单/裸命令名缺 PATH 一律违规。 */
   validate(operation: string, target: string): null {
     if (operation !== 'exec') {

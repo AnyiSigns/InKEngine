@@ -205,3 +205,43 @@ describe('ProcessSandbox.run（注入 SpawnSeam）', () => {
     expect(spawn.handle!.killed).toBe(true);
   });
 });
+
+describe('ProcessSandbox.derived（dataclasses.replace 镜像）', () => {
+  it('整体复制 + 覆盖 cwd/timeout，其余只读字段保持', () => {
+    const spawn = new FakeSpawn();
+    const base = new ProcessSandbox(
+      [ABS_CMD],
+      30,
+      'C:\\base',
+      100_000,
+      { MARKER: 'ok' },
+      'C:\\tools',
+      spawn,
+    );
+    const copy = base.derived({ cwd: 'C:\\build', timeout: 5 });
+    expect(copy).not.toBe(base);
+    expect(copy.allowlist).toEqual([ABS_CMD]);
+    expect(copy.timeout).toBe(5);
+    expect(copy.cwd).toBe('C:\\build');
+    expect(copy.max_output).toBe(100_000);
+    expect(copy.env).toEqual({ MARKER: 'ok' });
+    expect(copy.path).toBe('C:\\tools');
+    expect(copy.spawner).toBe(spawn);
+  });
+
+  it('未覆盖项沿用原值；空选项派生等价副本', () => {
+    const base = new ProcessSandbox([ABS_CMD], 30, 'C:\\base', 100_000);
+    const same = base.derived();
+    expect(same.cwd).toBe('C:\\base');
+    expect(same.timeout).toBe(30);
+    const cwd_only = base.derived({ cwd: 'C:\\other' });
+    expect(cwd_only.cwd).toBe('C:\\other');
+    expect(cwd_only.timeout).toBe(30);
+  });
+
+  it('cwd 显式传 null 可覆盖为继承目录（与不传不同语义）', () => {
+    const base = new ProcessSandbox([ABS_CMD], 30, 'C:\\base', 100_000);
+    const inherit = base.derived({ cwd: null });
+    expect(inherit.cwd).toBeNull();
+  });
+});

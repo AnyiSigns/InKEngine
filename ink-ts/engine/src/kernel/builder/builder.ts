@@ -18,9 +18,9 @@
  * - 零 IO：Path.resolve/is_dir/is_file/读文件/mkdir/copy2 经 BuildFs
  *   seam 注入（见 _types.ts）；未注入 fs 的实例触碰文件面时抛错
  *   （fail-closed，对齐 tool_vetting 的 unavailableFs 口径）；
- * - 沙箱副本：dataclasses.replace(sandbox, cwd=..., timeout=...) 以新建
- *   ProcessSandbox 表达（字段复制 + 覆盖 cwd/timeout），build/smoke 各按
- *   声明注入超时；
+ * - 沙箱副本：dataclasses.replace(sandbox, cwd=..., timeout=...) 经
+ *   ProcessSandbox.derived 表达（字段复制 + 覆盖 cwd/timeout），build/smoke
+ *   各按声明注入超时；
  * - 无 logger；时间 seam 确定性：built_at 经注入 clock 取 epoch 秒，未
  *   注入按 0（core 零时间依赖，宿主装配时注入真实时钟）；
  * - 哈希为纯 TS sha256（_sha256.ts，core 禁 node:crypto）。
@@ -80,21 +80,14 @@ function _join_path(base: string, child: string): string {
   return base + sep + norm_child;
 }
 
-/** 构建沙箱副本：工作目录限定 + 按声明超时（dataclasses.replace 镜像）。 */
+/** 构建沙箱副本：工作目录限定 + 按声明超时（dataclasses.replace 镜像，
+ *  副本语义收在 ProcessSandbox.derived）。 */
 function _sandbox_with(
   sandbox: ProcessSandbox,
   cwd: string,
   timeout: number,
 ): ProcessSandbox {
-  return new ProcessSandbox(
-    [...sandbox.allowlist],
-    timeout,
-    cwd,
-    sandbox.max_output,
-    sandbox.env,
-    sandbox.path,
-    sandbox.spawner,
-  );
+  return sandbox.derived({ cwd, timeout });
 }
 
 /**

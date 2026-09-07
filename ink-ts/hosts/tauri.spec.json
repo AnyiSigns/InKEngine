@@ -16,7 +16,7 @@
   },
   "renderer": {
     "target": "web",
-    "entry": "web/src"
+    "entry": "renderer/src"
   },
   "note": "tauri 宿主面（装配实现在外部壳仓，非 ink-ts）：webview 内嵌同一渲染器，经同进程 host 装配；spec 数据齐全（契约一致），implemented=false 表示 ink-ts 内不装配（换宿主 = 外部壳读本 spec + 重启装配）"
 }

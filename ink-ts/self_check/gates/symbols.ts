@@ -9,7 +9,7 @@
  * 扫描范围：
  * - 定义抽取：engine/src/core 下所有 .ts 的顶层 `export function|class|enum|const`；
  * - 消费索引：engine/src、engine/test、host/src、host/test、cli/src、cli/test、
- *   web/src、web/test（token 计数，注释/字符串也会计入，宽松侧）。
+ *   renderer/src、renderer/test（token 计数，注释/字符串也会计入，宽松侧）。
  *
  * 计数方式：标识符 token 计数（非子串），避免把长标识符前缀误判为引用。
  */
@@ -28,8 +28,8 @@ const INDEX_DIRS = [
   'host/test',
   'cli/src',
   'cli/test',
-  'web/src',
-  'web/test',
+  'renderer/src',
+  'renderer/test',
 ];
 
 const ALLOWLIST_NAME = 'orphan_allowlist.txt';

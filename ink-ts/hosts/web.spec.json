@@ -15,12 +15,12 @@
     },
     "ui_origin": {
       "dev": "vite（渲染器源码 HMR；经 cli serve --vite 代理）",
-      "prod": "builtin（同进程托管 web dist）"
+      "prod": "builtin（同进程托管 renderer dist）"
     }
   },
   "renderer": {
     "target": "web",
-    "entry": "web/src"
+    "entry": "renderer/src"
   },
   "runtime": {
     "headless": false,

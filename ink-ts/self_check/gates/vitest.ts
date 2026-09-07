@@ -1,6 +1,6 @@
 /**
- * vitest 门禁：各包 vitest 全量（gate/cli/engine/host/web）。
- * 逐个以 vitest run --root <pkg> 执行，汇总退出码；web 包无独立
+ * vitest 门禁：各包 vitest 全量（gate/cli/engine/host/renderer）。
+ * 逐个以 vitest run --root <pkg> 执行，汇总退出码；renderer 包无独立
  * vitest.config.ts，以 vite.config.ts 的 test 块承接（同 root test 语义）。
  */
 
@@ -10,7 +10,7 @@ import type { GateResult } from '../_report.js';
 import { runCommand } from '../_proc.js';
 import type { SelfCheckContext } from '../index.js';
 
-const PACKAGES = ['gate', 'cli', 'engine', 'host', 'web'] as const;
+const PACKAGES = ['gate', 'cli', 'engine', 'host', 'renderer'] as const;
 
 export async function runGateVitest(ctx: SelfCheckContext): Promise<GateResult> {
   const started = Date.now();
@@ -41,8 +41,8 @@ export async function runGateVitest(ctx: SelfCheckContext): Promise<GateResult> 
   const seconds = (Date.now() - started) / 1000;
   return {
     key: 'vitest',
-    label: '各包 vitest（gate/cli/engine/host/web）',
-    command: 'vitest run --root <gate|cli|engine|host|web>',
+    label: '各包 vitest（gate/cli/engine/host/renderer）',
+    command: 'vitest run --root <gate|cli|engine|host|renderer>',
     passed,
     seconds,
     summary: summaries.join('；'),

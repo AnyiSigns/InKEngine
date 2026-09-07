@@ -199,7 +199,7 @@ export async function runGateData(ctx: SelfCheckContext): Promise<GateResult> {
     issues.push(`event_types.json 存在重复事件名（${seedEventNames.length} → ${seedUnique.size}）`);
   }
 
-  const webText = readFileSync(join(ctx.inkTsRoot, 'web', 'src', 'shared', 'session', 'eventTypes.ts'), 'utf8');
+  const webText = readFileSync(join(ctx.inkTsRoot, 'renderer', 'src', 'shared', 'session', 'eventTypes.ts'), 'utf8');
   const webNames = extractWebEventNames(webText);
   const webSpecNames = extractWebEventSpecNames(webText);
   const seedSet = new Set(seedEventNames);

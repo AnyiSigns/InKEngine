@@ -4,7 +4,7 @@
  *
  * 夹具为 web 侧命令面一致性测试的数据真源：把宿主方法面（@ink-ts/host
  * BRIDGE_METHODS）与 cli 扁平旧名别名面（legacy_aliases legacyAliasTable）
- * 落成单份 JSON 快照；web/test/shared/backend/contractMap.test.ts 读该
+ * 落成单份 JSON 快照；renderer/test/shared/backend/contractMap.test.ts 读该
  * fixture 断言 web 现役 serve 命令面 ⊆ fixture（杜绝 -32601 回归）。
  *
  * 用途说明：本批不要求接入 CI 链（root npm test / self_check all 均不跑

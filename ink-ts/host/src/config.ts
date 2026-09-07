@@ -15,6 +15,7 @@
 
 import path from 'node:path';
 
+import { findHostsRoot, loadHostSpec, type HostSpec, type HostSurface } from './host_spec.js';
 import type { HostMcpConfig } from './mcp/assembly.js';
 
 /** 三个内置协议（引擎注册表 canonical 适配器名；厂商仅是端点配置）。 */
@@ -56,6 +57,8 @@ export interface HostConfigInput {
   autoApprove?: boolean;
   /** 审批超时秒数（null = 不限时；由 DefaultInterruptPolicy 语义消费）。 */
   approval_timeout?: number | null;
+  /** 宿主面 spec id（tauri/web/cli/ide；装配读 hosts/<id>.spec.json 注入面数据）。 */
+  host_spec_id?: HostSurface | null;
   data_dir?: string;
   events_dir?: string;
   seed_dir?: string;
@@ -74,6 +77,10 @@ export interface ResolvedHostConfig {
   model_config: Record<string, unknown>;
   autoApprove: boolean;
   approval_timeout: number | null;
+  /** 宿主面 spec（装配期注入；host_spec_id 未给 = null）。 */
+  host_spec: HostSpec | null;
+  /** 宿主面（spec.host.surface；null = 未 spec 化装配）。 */
+  surface: HostSurface | null;
   data_dir: string;
   events_dir: string;
   seed_dir: string;
@@ -248,11 +255,26 @@ export function resolve_host_config(
     }
     round_doc_text_cap = parsed;
   }
+  // 宿主面 spec 装配注入（host_spec_id → hosts/<id>.spec.json；spec 提供面数据与
+  // 非敏感运行缺省，密钥外置；显式 config 输入优先于 spec 缺省）
+  let hostSpec: HostSpec | null = null;
+  if (base.host_spec_id !== undefined && base.host_spec_id !== null) {
+    const specRoot = findHostsRoot(cwd);
+    if (specRoot === null) {
+      throw new HostConfigError(
+        `host_spec_id=${base.host_spec_id} 但找不到 hosts/ 目录（自 ${cwd} 向上探测）`,
+      );
+    }
+    hostSpec = loadHostSpec(base.host_spec_id, { root: specRoot });
+  }
   return {
     storage_uri,
     model_config: normalize_model_config(base.model_config ?? null),
     autoApprove,
-    approval_timeout: base.approval_timeout ?? null,
+    approval_timeout:
+      base.approval_timeout ?? hostSpec?.runtime?.approval_timeout ?? null,
+    host_spec: hostSpec,
+    surface: hostSpec?.host.surface ?? null,
     round_doc_text_cap,
     mcp: normalize_mcp_config(base.mcp ?? null),
     ...dirs,

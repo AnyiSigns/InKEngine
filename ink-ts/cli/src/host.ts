@@ -22,12 +22,14 @@ import { tmpdir } from 'node:os';
 import path from 'node:path';
 
 import { createHost, load_persisted_model_config } from '@ink-ts/host';
-import type { HostConfigInput, HostHandle, ModelConfigInput } from '@ink-ts/host';
+import type { HostConfigInput, HostHandle, HostSurface, ModelConfigInput } from '@ink-ts/host';
 
 export interface CliHostOptions {
   approve: boolean;
   data_dir?: string;
   events_dir?: string;
+  /** 宿主面（hosts/<id>.spec.json；缺省 cli——serve 形态须显式 web）。 */
+  surface?: HostSurface;
   /** 显式模型配置（CLI/env 面；缺省仅取 data_dir/config.json 持久化值）。 */
   model_config?: ModelConfigInput | null;
 }
@@ -61,6 +63,7 @@ export async function assembleCliHost(
     autoApprove: options.approve,
     data_dir,
     events_dir: options.events_dir ?? path.join(data_dir, 'events'),
+    host_spec_id: options.surface ?? 'cli',
   };
   try {
     const persisted = load_persisted_model_config(data_dir);

@@ -474,7 +474,12 @@ export async function startServe(options: CliOptions, io: ServeIo): Promise<Serv
   const staticDir = isAbsolute(staticRaw) ? staticRaw : resolve(staticRaw);
   const viteProxy = serveFlags?.vite_proxy ?? null;
 
-  const handle = await assembleCliHost(options);
+  const handle = await assembleCliHost({
+    approve: options.approve,
+    data_dir: options.data_dir,
+    events_dir: options.events_dir,
+    surface: 'web',
+  });
   const hub = new EventHub();
   const detach = attachEngineTransport(handle.runtime, hub);
   // 命令面冷启装配一次长驻（/rpc 全部请求复用；别名 Map 不每请求重建）

@@ -1,5 +1,6 @@
 import { describe, expect, it } from 'vitest';
 
+import { resolve_host_config } from '../src/config.js';
 import {
   findHostsRoot,
   hostPortHas,
@@ -66,5 +67,19 @@ describe('host_spec', () => {
     noNote.implemented = false;
     noNote.note = undefined;
     expect(() => validateHostSpec(noNote)).toThrow(/implemented=false/);
+  });
+
+  it('resolve_host_config 经 host_spec_id 注入宿主面 spec', () => {
+    const resolved = resolve_host_config({ host_spec_id: 'cli', data_dir: '/tmp/x' });
+    expect(resolved.surface).toBe('cli');
+    expect(resolved.host_spec?.id).toBe('cli');
+    expect(resolved.host_spec?.host.transport).toContain('terminal');
+
+    const web = resolve_host_config({ host_spec_id: 'web', data_dir: '/tmp/x' });
+    expect(web.surface).toBe('web');
+    expect(web.host_spec?.host.approval).toBe('card');
+
+    expect(() => resolve_host_config({ host_spec_id: 'cli', data_dir: '/tmp/x' })).not.toThrow();
+    expect(() => resolve_host_config({ host_spec_id: 'nope' as never, data_dir: '/tmp/x' })).toThrow();
   });
 });

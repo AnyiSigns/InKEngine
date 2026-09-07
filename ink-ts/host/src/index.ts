@@ -16,6 +16,7 @@
 import { mkdirSync } from 'node:fs';
 
 import type { Runtime, McpClientManager } from '@ink-ts/engine';
+import type { HostSurface } from './host_spec.js';
 
 import { createRestoreRunner } from './backup/restore_runtime.js';
 import { assembleHostParts } from './boot.js';
@@ -61,6 +62,8 @@ export interface HostHandle {
   runtime: Runtime;
   bridge: ReadonlyMap<string, BridgeHandler>;
   config: ResolvedHostConfig;
+  /** 宿主面（config.host_spec?.host.surface；未 spec 化装配 = null）。 */
+  surface: HostSurface | null;
   /** 宿主检索域（向量/FTS 文档库 + 嵌入适配器；数据落 config.data_dir）。 */
   retrieval: HostRetrievalDomain;
   /** tool_index 语义检索同步 seam（createHost 已把检索域嵌入器接入工具索引）。 */
@@ -172,6 +175,7 @@ export async function createHost(
     },
     bridge,
     config: resolved,
+    surface: resolved.surface,
     get retrieval(): HostRetrievalDomain {
       return parts.retrieval;
     },

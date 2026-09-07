@@ -1,0 +1,20 @@
+{
+  "id": "agent_input",
+  "kind": "ui_feature",
+  "capability": "host_tool",
+  "actions": [],
+  "depends": [],
+  "data": {
+    "node": {
+      "kind": "component",
+      "type": "agent_input",
+      "props": {
+        "note": "输入胶囊（发送/中止/附件/模型/推理档位）"
+      },
+      "bind": {
+        "channel": "state.session",
+        "path": ""
+      }
+    }
+  }
+}

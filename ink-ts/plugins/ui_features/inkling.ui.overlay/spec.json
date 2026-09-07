@@ -1,0 +1,24 @@
+{
+  "id": "inkling.ui.overlay",
+  "kind": "ui_feature",
+  "capability": "host_tool",
+  "actions": [],
+  "depends": [],
+  "data": {
+    "node": {
+      "kind": "container",
+      "type": "overlay",
+      "props": {
+        "note": "常驻覆盖层：审批卡/设置浮层（自身带 fixed 定位，不占布局盒位）"
+      }
+    },
+    "children": [
+      {
+        "$ref": "review_card"
+      },
+      {
+        "$ref": "settings_floater"
+      }
+    ]
+  }
+}

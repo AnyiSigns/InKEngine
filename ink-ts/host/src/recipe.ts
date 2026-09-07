@@ -30,6 +30,7 @@ import {
   self_tool_specs,
 } from '@ink-ts/engine';
 import type { AssemblyRecipeInit, ToolWiring } from '@ink-ts/engine';
+import { UI_CANONICAL_COMPONENTS } from './bridge/ui_canonical.generated.js';
 
 /** 产品机制开关默认表（机制开关全开；关闭只走显式产品配置）。 */
 export const PRODUCT_SWITCH_DEFAULTS = {
@@ -70,27 +71,16 @@ export interface ProductRecipeInit extends ProductSwitchOverrides {
 }
 
 /**
- * 出厂界面白名单（与 seed ui_spec / manifest renderer_components 同源）：
- * canonical 组件 = 产品 spec 直渲主壳引用的组件集（映射到前端产品实现，
- * 见 web/src/app/rendererAdapters）；引擎 boot 最小面板（message_list/
- * agent_input）为子集。改动白名单须同步 seed ui_spec 使用集 + manifest
- * contracts.renderer_components + web 组件注册表（gate 对码测试守门）。
+ * 出厂界面白名单（canonical 组件 = 产品主壳布局引用组件集）：真源 =
+ * plugins/ui_features/<id>/spec.json 布局树（生成物
+ * bridge/ui_canonical.generated.ts 派生，verify:plugin-manifest 强制一致；
+ * 与旧侧 inkling/manifest.json contracts.renderer_components、web 组件
+ * 注册表同值对码，gate 测试守漂移）。引擎 boot 最小面板（message_list/
+ * agent_input）为其子集。加布局新组件 = plugins/ui_features 新增组件插件 +
+ * 重跑生成器。
  */
-const DEFAULT_UI_COMPONENTS = [
-  'agent_input',
-  'evolution_feed',
-  'file_tree',
-  'ledger_view',
-  'mechanism_view',
-  'message_list',
-  'review_card',
-  'session_list',
-  'settings_floater',
-  'task_capsule',
-  'todo_view',
-  'top_bar',
-  'trajectory_view',
-] as const;
+// canonical 白名单 = 派生生成物（禁手改；改动走 plugins/ui_features 真源）
+const DEFAULT_UI_COMPONENTS = UI_CANONICAL_COMPONENTS;
 /** 主题 token 白名单 = 引擎 boot 面板 token（bg/fg/accent）∪ 前端语义 token。 */
 const DEFAULT_UI_THEME_TOKENS = [
   'bg',

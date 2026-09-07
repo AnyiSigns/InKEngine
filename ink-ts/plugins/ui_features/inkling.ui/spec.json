@@ -1,0 +1,19 @@
+{
+  "id": "inkling.ui",
+  "kind": "ui_feature",
+  "capability": "host_tool",
+  "actions": [],
+  "depends": [],
+  "data": {
+    "name": "inkling.ui",
+    "version": 3,
+    "theme": {
+      "bg.base": "#09090b",
+      "text.base": "#e4e4e7",
+      "accent.approval": "#f59e0b"
+    },
+    "root": {
+      "$ref": "inkling.ui.root"
+    }
+  }
+}

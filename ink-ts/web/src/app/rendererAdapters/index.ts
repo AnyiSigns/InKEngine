@@ -1,8 +1,8 @@
 /**
  * 产品 canonical 适配器装配（componentRegistry 白名单放行面）。
  *
- * 产品主壳（seed ui_spec）引用的 canonical 组件名 → 产品实现（薄适配器）：
- * binding 载荷与宿主 product chrome 在此映射为产品组件 props。message_list
+ * 产品主壳（plugins/ui_features 装配生成物）引用的 canonical 组件名 → 产品实现
+ * （薄适配器）：binding 载荷与宿主 product chrome 在此映射为产品组件 props。message_list
  * 等四个 gate 锚点名保持注册（映射到新适配器，勿留死注册）；热装 artifact
  * 经 registerArtifactManifest 同名覆盖仍可接管。
  */

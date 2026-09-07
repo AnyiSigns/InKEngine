@@ -6,21 +6,32 @@ import { registerProductComponents } from '@/app/rendererAdapters';
 import { isComponentRegistered } from '@/renderer/componentRegistry';
 
 /**
- * 渲染器白名单双向门禁：manifest.json contracts.renderer_components
- * 是出厂组件清单的单一事实源——前端注册表必须对清单内每个名字都可解析
- * （spec 渲染/组件 tab 永不落「未注册拒绝」）。注册表侧为清单超集允许
- * （pathAssembly 等运行时装配名不在出厂清单）。
+ * 渲染器白名单双向门禁：canonical 组件集单一派生真源 = plugins/ui_features
+ * 布局树引用组件并集（plugins/manifest.json `ui_features.components`，升序）。
+ * 旧侧身份 manifest contracts.renderer_components 须与其逐项一致——前端注册表
+ * 必须对清单内每个名字都可解析（spec 渲染/组件 tab 永不落「未注册拒绝」）。
+ * 注册表侧为清单超集允许（pathAssembly 等运行时装配名不在出厂清单）。
  */
 describe('出厂渲染器白名单对码', () => {
-  const manifest = JSON.parse(
+  const derived = JSON.parse(
+    readFileSync(resolve(__dirname, '../../../plugins/manifest.json'), 'utf8'),
+  ) as { ui_features?: { components?: string[] } };
+  const canonical = derived.ui_features?.components ?? [];
+  const legacyManifest = JSON.parse(
     readFileSync(resolve(__dirname, '../../../../inkling/manifest.json'), 'utf8'),
   ) as { contracts?: { renderer_components?: string[] } };
-  const factory = manifest.contracts?.renderer_components ?? [];
+  const factory = legacyManifest.contracts?.renderer_components ?? [];
+
+  it('派生 canonical 与旧侧身份 manifest renderer_components 逐项一致', () => {
+    expect(canonical).toEqual(factory);
+  });
 
   it('manifest 声明的出厂组件全部有前端实现或占位注册', () => {
     registerBuiltinComponents();
     registerProductComponents();
     const missing = factory.filter((name) => !isComponentRegistered(name));
     expect(missing).toEqual([]);
+    const missingDerived = canonical.filter((name) => !isComponentRegistered(name));
+    expect(missingDerived).toEqual([]);
   });
 });

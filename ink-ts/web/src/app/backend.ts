@@ -24,9 +24,8 @@ import type { McpMountOutcome } from '@/shared/backend/backendAdapter';
 
 // 插件源派生视图（生成物禁手改）：tools/mcp_market 聚合 = 工具表行 + 市场视图（真源 plugins/<kind>/<id>/spec.json）。
 import pluginManifest from '../../../plugins/manifest.json';
-// ui_spec 布局 spec 仍居 seed_data（阶段 3b 迁 plugins）；双项目并存期身份 manifest 真源在旧侧 inkling/。
-import uiSpecSeed from '../../../seed_data/ui_spec.json';
-import productManifest from '../../../../inkling/manifest.json';
+// 产品主壳布局（真源 plugins/ui_features/*/spec.json → 装配生成物 ui.generated.json）。
+import uiLayout from '../../../plugins/ui.generated.json';
 
 export interface AppBackendOptions {
   backend?: BackendAdapter | null;
@@ -229,11 +228,13 @@ export class AppBackend {
     }
   }
 
-  /** 出厂界面组件清单（种子 manifest 契约段；组件 tab 合并展示的 factory 源）。 */
+  /** 出厂界面组件清单（plugins manifest ui_features 派生 = 布局树引用组件
+   *  canonical 并集；组件 tab 合并展示的 factory 源；与 host 配方白名单/
+   *  旧侧身份 manifest renderer_components 同值对码）。 */
   getFactoryComponents(): string[] {
     return (
-      (productManifest as { contracts?: { renderer_components?: string[] } }).contracts
-        ?.renderer_components ?? []
+      (pluginManifest as { ui_features?: { components?: string[] } }).ui_features
+        ?.components ?? []
     );
   }
 
@@ -285,7 +286,7 @@ export class AppBackend {
    *  宿主可用（生产）时返回 null + 开发模式标注（由 UI 呈现，不发命令）。 */
   async getUiSpec(): Promise<UISpec | null> {
     if (this.backend?.available) return null;
-    return isFixtureMode() ? (uiSpecSeed as unknown as UISpec) : null;
+    return isFixtureMode() ? (uiLayout as unknown as UISpec) : null;
   }
 
   /** ui_spec 保存（W2 前开发模式）：无真源不落链，仅返回未应用。 */

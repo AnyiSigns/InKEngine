@@ -24,6 +24,8 @@
 | 12 | 工具插件划分粒度 | **单工具一插件目录**（用户推翻「builtin-tools 统一包 data.tools[]」）：`plugins/tools/<name>/spec.json` 单行承载，control 单位仍是工具表行 | PLUGINS §2.1 修订、component_data §三/§九 |
 | 13 | 内置工具 capability 档位 | **host_tool**（宿主注入；工具行执行经宿主端点 inkling_exec/process_exec 等，非 core 闭集、非 external 装卸） | plugins spec.json capability 字段 |
 | 14 | 迁移后旧 seed 处置 + 消费指向 | **删旧真源**（tools.json/mcp_market.json），web/host/fixture 生成/self_check 门禁**一律经 plugins/manifest.json 派生视图取用**（生成物禁手改、--check 强制）；mcp.market seed_dir 语义 = 目录内含 manifest.json | component_data §三/§九、CODING.md §7/§9 |
+| 17 | ui_feature 拆粒度（阶段 3b2 实施时裁决） | **一节点一插件全平铺**（用户两轮修正：先按 view 拆、再要求「容器结构也是插件」）：plugins/ui_features/<id>/ 每容器/组件/装配入口各一目录（装配入口唯一含 name/version/theme/root.$ref）；容器 data.children 按序 $ref 子插件 id；生成器 DFS 展开重建完整树 + canonical 组件并集派生；卸载 = 删目录 + 删父 children $ref（引用缺失/成环/孤儿 fail-closed） | component_data §九 3b2 行、PLUGINS §1、plugins/AGENTS |
+| 18 | ui_spec 迁 plugins 后消费与白名单（阶段 3b2 定稿） | 过渡态**聚合单文件生成物** plugins/ui.generated.json（渲染器与壳仍消费一棵完整布局树，零改动）+ seed_data/ui_spec.json 删除；canonical 白名单改派生（布局引用组件 type 并集升序 → manifest ui_features.components + host/src/bridge/ui_canonical.generated.ts，host recipe 常量改引用）；web 白名单对码测试增强「派生 canonical == 旧侧 inkling manifest renderer_components」；引擎 BOOT_UI_SPEC（boot.panel）不动（boot 资产非产品 chrome）、ui_spec.* 编辑器补丁链（W2 未接线）不属本次 | component_data §三/§九、CODING §7/§10、PLUGINS §1 |
 
 ## 阶段 2 实施时须现场核对
 
@@ -56,6 +58,22 @@
   本阶段补齐；表行增删须与 plugins/commands 同步。
   **（2026-09-07 阶段 3b1 已完成：66 单命令目录 + commands.generated.ts +
   31 域文件改 import + verify 扩展 PASS，夹具零漂移，见 §九 落地状态。）**
+
+## 阶段 3b2 实施时须现场核对
+
+- ui_features 插件 = 一布局树节点一插件：装配入口唯一（inkling.ui，spec.data
+  带 name/version/theme/root.$ref）；容器插件 data.node（container）+ data.children
+  按序 `$ref`；组件插件 data.node（component）为叶子；节点内容自迁移前
+  seed_data/ui_spec.json **逐字保留**（props/bind 键序不变），生成物与旧 seed
+  语义逐字一致（值 + 键序）——已由重生成 diff 核对；
+- `verify:plugin-manifest` 现为四产物逐字比对（manifest/commands.generated.ts/
+  ui.generated.json/ui_canonical.generated.ts）；canonical 派生 13 项升序 =
+  host recipe 旧常量 = 旧侧 inkling/manifest contracts.renderer_components
+  （web whitelistGate 对码测试断言相等）；
+- 引擎 BOOT_UI_SPEC（boot.panel，adapters/boot）不动：introspection
+  snapshot_ui 语义未变，host recipe.ui_spec 仍为引擎 boot 资产。
+  **（2026-09-07 阶段 3b2 已完成：25 ui_feature 节点插件 + 装配入口 + 四产物
+  生成 + 消费改指 + seed 删除 PASS，见 §九 落地状态。）**
 
 ## 引擎层 AGENTS 用语
 

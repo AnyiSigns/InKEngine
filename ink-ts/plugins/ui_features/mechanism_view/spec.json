@@ -1,0 +1,16 @@
+{
+  "id": "mechanism_view",
+  "kind": "ui_feature",
+  "capability": "host_tool",
+  "actions": [],
+  "depends": [],
+  "data": {
+    "node": {
+      "kind": "component",
+      "type": "mechanism_view",
+      "props": {
+        "note": "机制读取面摘要卡（未装配 = 空态可观测）"
+      }
+    }
+  }
+}

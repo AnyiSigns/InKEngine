@@ -1,0 +1,28 @@
+{
+  "id": "inkling.ui.chat",
+  "kind": "ui_feature",
+  "capability": "host_tool",
+  "actions": [],
+  "depends": [],
+  "data": {
+    "node": {
+      "kind": "container",
+      "type": "column",
+      "props": {
+        "view": "chat",
+        "gap": 0
+      }
+    },
+    "children": [
+      {
+        "$ref": "message_list"
+      },
+      {
+        "$ref": "task_capsule"
+      },
+      {
+        "$ref": "agent_input"
+      }
+    ]
+  }
+}

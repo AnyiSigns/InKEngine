@@ -1,0 +1,20 @@
+{
+  "id": "trajectory_view",
+  "kind": "ui_feature",
+  "capability": "host_tool",
+  "actions": [],
+  "depends": [],
+  "data": {
+    "node": {
+      "kind": "component",
+      "type": "trajectory_view",
+      "props": {
+        "note": "轨迹页（state.roundSteps 快照）"
+      },
+      "bind": {
+        "channel": "state.roundSteps",
+        "path": ""
+      }
+    }
+  }
+}

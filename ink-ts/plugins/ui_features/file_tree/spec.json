@@ -1,0 +1,17 @@
+{
+  "id": "file_tree",
+  "kind": "ui_feature",
+  "capability": "host_tool",
+  "actions": [],
+  "depends": [],
+  "data": {
+    "node": {
+      "kind": "component",
+      "type": "file_tree",
+      "props": {
+        "note": "左栏（工作区授权 + 设置入口；折叠态本地 UI 保持）",
+        "collapsible": true
+      }
+    }
+  }
+}

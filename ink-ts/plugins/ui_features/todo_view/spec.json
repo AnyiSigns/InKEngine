@@ -1,0 +1,16 @@
+{
+  "id": "todo_view",
+  "kind": "ui_feature",
+  "capability": "host_tool",
+  "actions": [],
+  "depends": [],
+  "data": {
+    "node": {
+      "kind": "component",
+      "type": "todo_view",
+      "props": {
+        "note": "待办页（rounds.todos 只读投影）"
+      }
+    }
+  }
+}

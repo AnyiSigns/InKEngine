@@ -1,0 +1,16 @@
+{
+  "id": "settings_floater",
+  "kind": "ui_feature",
+  "capability": "host_tool",
+  "actions": [],
+  "depends": [],
+  "data": {
+    "node": {
+      "kind": "component",
+      "type": "settings_floater",
+      "props": {
+        "note": "设置浮层（注册式节导航驱动，打开态 = 壳 settingsOpen）"
+      }
+    }
+  }
+}

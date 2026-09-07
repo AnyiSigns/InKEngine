@@ -1,0 +1,23 @@
+{
+  "id": "inkling.ui.trajectory",
+  "kind": "ui_feature",
+  "capability": "host_tool",
+  "actions": [],
+  "depends": [],
+  "data": {
+    "node": {
+      "kind": "container",
+      "type": "column",
+      "props": {
+        "view": "trajectory",
+        "scroll": true,
+        "gap": 0
+      }
+    },
+    "children": [
+      {
+        "$ref": "trajectory_view"
+      }
+    ]
+  }
+}

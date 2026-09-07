@@ -1,0 +1,16 @@
+{
+  "id": "top_bar",
+  "kind": "ui_feature",
+  "capability": "host_tool",
+  "actions": [],
+  "depends": [],
+  "data": {
+    "node": {
+      "kind": "component",
+      "type": "top_bar",
+      "props": {
+        "note": "悬停触发带 + 磨砂 veil 覆盖层；标题/页签/待办角标随壳数据"
+      }
+    }
+  }
+}

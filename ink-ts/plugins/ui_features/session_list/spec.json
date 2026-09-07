@@ -1,0 +1,17 @@
+{
+  "id": "session_list",
+  "kind": "ui_feature",
+  "capability": "host_tool",
+  "actions": [],
+  "depends": [],
+  "data": {
+    "node": {
+      "kind": "component",
+      "type": "session_list",
+      "props": {
+        "note": "右栏（会话列表 + 分支 mini 树；折叠态本地 UI 保持）",
+        "collapsible": true
+      }
+    }
+  }
+}

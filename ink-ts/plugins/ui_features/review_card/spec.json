@@ -1,0 +1,20 @@
+{
+  "id": "review_card",
+  "kind": "ui_feature",
+  "capability": "host_tool",
+  "actions": [],
+  "depends": [],
+  "data": {
+    "node": {
+      "kind": "component",
+      "type": "review_card",
+      "props": {
+        "note": "审批卡（events.review_card 到达即弹，决议续跑经壳注入）"
+      },
+      "bind": {
+        "channel": "events.review_card",
+        "path": ""
+      }
+    }
+  }
+}

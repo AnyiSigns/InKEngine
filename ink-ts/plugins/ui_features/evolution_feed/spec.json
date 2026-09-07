@@ -1,0 +1,16 @@
+{
+  "id": "evolution_feed",
+  "kind": "ui_feature",
+  "capability": "host_tool",
+  "actions": [],
+  "depends": [],
+  "data": {
+    "node": {
+      "kind": "component",
+      "type": "evolution_feed",
+      "props": {
+        "note": "孵化/补丁链/最近回合执行图/协作者目录"
+      }
+    }
+  }
+}

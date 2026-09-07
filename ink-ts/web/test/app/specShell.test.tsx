@@ -1,7 +1,8 @@
 /**
- * 产品主壳 spec 直渲冒烟测试（K4A）：seed ui_spec 树 → UIRenderer →
- * 各 canonical 组件（file_tree/session_list/message_list/agent_input/...
- * evolution/ledger 等）渲染与绑定载荷注入。
+ * 产品主壳 spec 直渲冒烟测试（K4A）：plugins/ui_features 装配生成物
+ * （ui.generated.json）布局树 → UIRenderer → 各 canonical 组件
+ * （file_tree/session_list/message_list/agent_input/... evolution/ledger 等）
+ * 渲染与绑定载荷注入。
  *
  * 断言面：canonical 适配器全部挂到渲染器白名单并渲染对应产品组件；state.*
  * 绑定把 hub 会话数据注入 message_list；无宿主数据时空态不崩。
@@ -15,7 +16,7 @@ import { registerProductComponents } from '@/app/rendererAdapters';
 import { UIRenderer } from '@/renderer/bootRenderer';
 import type { UISpec } from '@/renderer/uiSpecTypes';
 
-import uiSpecSeed from '../../../seed_data/ui_spec.json';
+import uiLayout from '../../../plugins/ui.generated.json';
 
 function makeHub(messages: unknown[] = []): ChannelHub {
   const hub = new ChannelHub();
@@ -40,14 +41,14 @@ const baseProduct: Record<string, unknown> = {
   stepCount: 0,
 };
 
-describe('产品主壳 spec 直渲（seed ui_spec → canonical 组件）', () => {
+describe('产品主壳 spec 直渲（ui_features 装配生成物 → canonical 组件）', () => {
   beforeEach(() => {
     registerBuiltinComponents();
     registerProductComponents();
   });
 
-  it('seed ui_spec 结构合法（可解析为渲染用 UISpec）', () => {
-    const spec = uiSpecSeed as unknown as UISpec;
+  it('ui 装配生成物结构合法（可解析为渲染用 UISpec）', () => {
+    const spec = uiLayout as unknown as UISpec;
     expect(spec.name).toBe('inkling.ui');
     expect(spec.version).toBe(3);
     expect(spec.root?.kind).toBe('container');
@@ -59,7 +60,7 @@ describe('产品主壳 spec 直渲（seed ui_spec → canonical 组件）', () =
     ]);
     const { container } = render(
       <UIRenderer
-        spec={uiSpecSeed as unknown as UISpec}
+        spec={uiLayout as unknown as UISpec}
         hub={hub}
         activeView="chat"
         product={{ ...baseProduct, onSend: () => undefined }}
@@ -75,7 +76,7 @@ describe('产品主壳 spec 直渲（seed ui_spec → canonical 组件）', () =
     const hub = makeHub();
     const { container } = render(
       <UIRenderer
-        spec={uiSpecSeed as unknown as UISpec}
+        spec={uiLayout as unknown as UISpec}
         hub={hub}
         activeView="evolution"
         product={baseProduct}
@@ -88,7 +89,7 @@ describe('产品主壳 spec 直渲（seed ui_spec → canonical 组件）', () =
     const hub = makeHub();
     for (const view of ['ledger', 'trajectory', 'todo'] as const) {
       const { container } = render(
-        <UIRenderer spec={uiSpecSeed as unknown as UISpec} hub={hub} activeView={view} product={baseProduct} />,
+        <UIRenderer spec={uiLayout as unknown as UISpec} hub={hub} activeView={view} product={baseProduct} />,
       );
       expect(container.querySelector('[data-ui="mechanism_view"]')).toBeNull();
       expect(container.textContent?.length ?? 0).toBeGreaterThan(0);

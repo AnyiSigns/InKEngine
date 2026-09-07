@@ -1,0 +1,16 @@
+{
+  "id": "task_capsule",
+  "kind": "ui_feature",
+  "capability": "host_tool",
+  "actions": [],
+  "depends": [],
+  "data": {
+    "node": {
+      "kind": "component",
+      "type": "task_capsule",
+      "props": {
+        "note": "长任务期胶囊（任务在途才渲染，非任务态空）"
+      }
+    }
+  }
+}

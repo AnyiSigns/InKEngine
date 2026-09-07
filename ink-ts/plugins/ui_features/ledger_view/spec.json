@@ -1,0 +1,16 @@
+{
+  "id": "ledger_view",
+  "kind": "ui_feature",
+  "capability": "host_tool",
+  "actions": [],
+  "depends": [],
+  "data": {
+    "node": {
+      "kind": "component",
+      "type": "ledger_view",
+      "props": {
+        "note": "账本页（records.ledger 只读事实流）"
+      }
+    }
+  }
+}

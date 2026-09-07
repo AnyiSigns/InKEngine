@@ -77,6 +77,19 @@ host 命令面经派生生成物 `host/src/bridge/commands.generated.ts` 取用
 面从此派生、无手写方法名数组；增删命令 = 增删 plugins/commands 目录 + 重跑
 生成器 + 同步 CODING.md §9 命令表。
 
+界面 feature 类（`kind='ui_feature'`）落地形态（阶段 3b2 定稿）：
+`plugins/ui_features/<id>/` **一布局树节点一插件**（一节点一插件全平铺）——容器、
+组件、装配入口都是同级插件目录。spec 的 `data.node` = 该节点（kind=container|
+component，逐字承载 props/bind）；容器插件的 `data.children` = 按序 `$ref`
+子插件 id 数组；装配入口（唯一，如 `inkling.ui`）spec 的 `data` = 布局元
+（name/version/theme）+ `root.$ref`。生成器 `sync_plugin_manifest.mjs` DFS 沿
+$ref 展开重建完整布局树（生成物 `plugins/ui.generated.json`，web 渲染消费，
+与渲染器 UISpec 同构；引用缺失/成环/孤儿节点插件 fail-closed）并把树内引用
+组件 type 并集（升序）派生为 canonical 白名单（生成物
+`host/src/bridge/ui_canonical.generated.ts` + manifest `ui_features.components`，
+host 配方界面白名单据此装配）。卸某节点 = 删目录 + 删父 `$ref` + 重跑生成器 +
+同步 web 适配器注册——页面/侧栏/页签任一结构或组件块可整块装卸。
+
 ## 2. capability 档位（装卸权限）
 
 `kind` 与 capability 正交：kind 定契约模板/装载路径/需要哪些脸，capability 定

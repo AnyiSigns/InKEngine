@@ -1,6 +1,6 @@
 {
   "version": 1,
-  "note": "插件源派生视图（生成物，禁手改）：由 plugins/scripts/sync_plugin_manifest.mjs 从 plugins/<kind>/<id>/spec.json 聚合生成；改工具/市场声明只改 spec.json，重跑本脚本同步。tools = kind=tool 工具表行（data.tool 逐字，id 升序）；mcp_market = kind=mcp 市场视图（data.server + market.json 全局配置）；plugins = 全插件索引（id/kind/capability/包名/目录）。",
+  "note": "插件源派生视图（生成物，禁手改）：由 plugins/scripts/sync_plugin_manifest.mjs 从 plugins/<kind>/<id>/spec.json 聚合生成；改工具/市场/命令/ui 声明只改 spec.json，重跑本脚本同步。tools = kind=tool 工具表行（data.tool 逐字，id 升序）；mcp_market = kind=mcp 市场视图（data.server + market.json 全局配置）；ui_features = 产品主壳布局装配（plugins/ui_features 真源）派生：components = 布局树引用组件 type 并集（升序，canonical 白名单；host/ui_canonical.generated.ts 同源）；plugins = 全插件索引（id/kind/capability/包名/目录）。",
   "plugins": [
     {
       "id": "collab_request",
@@ -743,6 +743,181 @@
       "capability": "host_tool",
       "package": "@ink-ts/plugin-workspace-state",
       "dir": "commands/workspace.state"
+    },
+    {
+      "id": "agent_input",
+      "kind": "ui_feature",
+      "capability": "host_tool",
+      "package": "@ink-ts/plugin-agent-input",
+      "dir": "ui_features/agent_input"
+    },
+    {
+      "id": "evolution_feed",
+      "kind": "ui_feature",
+      "capability": "host_tool",
+      "package": "@ink-ts/plugin-evolution-feed",
+      "dir": "ui_features/evolution_feed"
+    },
+    {
+      "id": "file_tree",
+      "kind": "ui_feature",
+      "capability": "host_tool",
+      "package": "@ink-ts/plugin-file-tree",
+      "dir": "ui_features/file_tree"
+    },
+    {
+      "id": "inkling.ui",
+      "kind": "ui_feature",
+      "capability": "host_tool",
+      "package": "@ink-ts/plugin-inkling-ui",
+      "dir": "ui_features/inkling.ui"
+    },
+    {
+      "id": "inkling.ui.chat",
+      "kind": "ui_feature",
+      "capability": "host_tool",
+      "package": "@ink-ts/plugin-inkling-ui-chat",
+      "dir": "ui_features/inkling.ui.chat"
+    },
+    {
+      "id": "inkling.ui.evolution",
+      "kind": "ui_feature",
+      "capability": "host_tool",
+      "package": "@ink-ts/plugin-inkling-ui-evolution",
+      "dir": "ui_features/inkling.ui.evolution"
+    },
+    {
+      "id": "inkling.ui.ledger",
+      "kind": "ui_feature",
+      "capability": "host_tool",
+      "package": "@ink-ts/plugin-inkling-ui-ledger",
+      "dir": "ui_features/inkling.ui.ledger"
+    },
+    {
+      "id": "inkling.ui.main",
+      "kind": "ui_feature",
+      "capability": "host_tool",
+      "package": "@ink-ts/plugin-inkling-ui-main",
+      "dir": "ui_features/inkling.ui.main"
+    },
+    {
+      "id": "inkling.ui.mechanisms",
+      "kind": "ui_feature",
+      "capability": "host_tool",
+      "package": "@ink-ts/plugin-inkling-ui-mechanisms",
+      "dir": "ui_features/inkling.ui.mechanisms"
+    },
+    {
+      "id": "inkling.ui.overlay",
+      "kind": "ui_feature",
+      "capability": "host_tool",
+      "package": "@ink-ts/plugin-inkling-ui-overlay",
+      "dir": "ui_features/inkling.ui.overlay"
+    },
+    {
+      "id": "inkling.ui.root",
+      "kind": "ui_feature",
+      "capability": "host_tool",
+      "package": "@ink-ts/plugin-inkling-ui-root",
+      "dir": "ui_features/inkling.ui.root"
+    },
+    {
+      "id": "inkling.ui.row",
+      "kind": "ui_feature",
+      "capability": "host_tool",
+      "package": "@ink-ts/plugin-inkling-ui-row",
+      "dir": "ui_features/inkling.ui.row"
+    },
+    {
+      "id": "inkling.ui.todo",
+      "kind": "ui_feature",
+      "capability": "host_tool",
+      "package": "@ink-ts/plugin-inkling-ui-todo",
+      "dir": "ui_features/inkling.ui.todo"
+    },
+    {
+      "id": "inkling.ui.trajectory",
+      "kind": "ui_feature",
+      "capability": "host_tool",
+      "package": "@ink-ts/plugin-inkling-ui-trajectory",
+      "dir": "ui_features/inkling.ui.trajectory"
+    },
+    {
+      "id": "inkling.ui.views",
+      "kind": "ui_feature",
+      "capability": "host_tool",
+      "package": "@ink-ts/plugin-inkling-ui-views",
+      "dir": "ui_features/inkling.ui.views"
+    },
+    {
+      "id": "ledger_view",
+      "kind": "ui_feature",
+      "capability": "host_tool",
+      "package": "@ink-ts/plugin-ledger-view",
+      "dir": "ui_features/ledger_view"
+    },
+    {
+      "id": "mechanism_view",
+      "kind": "ui_feature",
+      "capability": "host_tool",
+      "package": "@ink-ts/plugin-mechanism-view",
+      "dir": "ui_features/mechanism_view"
+    },
+    {
+      "id": "message_list",
+      "kind": "ui_feature",
+      "capability": "host_tool",
+      "package": "@ink-ts/plugin-message-list",
+      "dir": "ui_features/message_list"
+    },
+    {
+      "id": "review_card",
+      "kind": "ui_feature",
+      "capability": "host_tool",
+      "package": "@ink-ts/plugin-review-card",
+      "dir": "ui_features/review_card"
+    },
+    {
+      "id": "session_list",
+      "kind": "ui_feature",
+      "capability": "host_tool",
+      "package": "@ink-ts/plugin-session-list",
+      "dir": "ui_features/session_list"
+    },
+    {
+      "id": "settings_floater",
+      "kind": "ui_feature",
+      "capability": "host_tool",
+      "package": "@ink-ts/plugin-settings-floater",
+      "dir": "ui_features/settings_floater"
+    },
+    {
+      "id": "task_capsule",
+      "kind": "ui_feature",
+      "capability": "host_tool",
+      "package": "@ink-ts/plugin-task-capsule",
+      "dir": "ui_features/task_capsule"
+    },
+    {
+      "id": "todo_view",
+      "kind": "ui_feature",
+      "capability": "host_tool",
+      "package": "@ink-ts/plugin-todo-view",
+      "dir": "ui_features/todo_view"
+    },
+    {
+      "id": "top_bar",
+      "kind": "ui_feature",
+      "capability": "host_tool",
+      "package": "@ink-ts/plugin-top-bar",
+      "dir": "ui_features/top_bar"
+    },
+    {
+      "id": "trajectory_view",
+      "kind": "ui_feature",
+      "capability": "host_tool",
+      "package": "@ink-ts/plugin-trajectory-view",
+      "dir": "ui_features/trajectory_view"
     }
   ],
   "tools": [
@@ -3067,5 +3242,22 @@
       "group": "workspace",
       "order": 1
     }
-  ]
+  ],
+  "ui_features": {
+    "components": [
+      "agent_input",
+      "evolution_feed",
+      "file_tree",
+      "ledger_view",
+      "mechanism_view",
+      "message_list",
+      "review_card",
+      "session_list",
+      "settings_floater",
+      "task_capsule",
+      "todo_view",
+      "top_bar",
+      "trajectory_view"
+    ]
+  }
 }

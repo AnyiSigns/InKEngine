@@ -140,6 +140,8 @@ verify 强制：**插件只调声明过的端口，调了未声明端口或直�
 
 **阶段 3b1 落地**（2026-09-07）：命令名真源迁 plugins——`plugins/commands/<method>/` 66 单命令目录（spec 带 data.group=实现域/data.order=域内序，capability=host_tool，package.json 连字符包名）；生成器扩为双输出（manifest.json + `host/src/bridge/commands.generated.ts`：31 域命令元组 + 域命令类型，DOMAIN_TABLE 固定跨域序 = BRIDGE_METHODS spread 序，夹具零漂移）；31 个 host 域实现文件删本地 `*_COMMANDS` 数组/类型，改 import type + re-export 生成物（编译期键锁不变：删命令 → typecheck 红）；`verify:bridge-mount` 扩展禁域文件本地数组。ui_spec 布局迁移留阶段 3b2。
 
+**阶段 3b2 落地**（2026-09-07）：产品主壳布局真源迁 plugins——`plugins/ui_features/<id>/` **一布局树节点一插件**（用户定案：容器结构也是插件，全平铺）：装配入口 `inkling.ui`（data = name/version/theme + root.$ref）+ 容器/组件节点插件共 25 份（data.node 逐字承载节点 props/bind；容器 data.children 按序 `$ref` 子插件 id）。生成器扩为四输出：DFS 沿 $ref 展开重建完整布局树 → `plugins/ui.generated.json`（与迁移前 seed_data/ui_spec.json 语义逐字一致，web 渲染/dev 夹具取用；引用缺失/成环/孤儿插件 fail-closed），并把布局引用组件 type 并集升序派生 canonical 白名单（manifest `ui_features.components` + `host/src/bridge/ui_canonical.generated.ts`，host 配方界面白名单改由生成物引用——消灭手写 canonical 源）；`seed_data/ui_spec.json` 已删（真源唯一化）。web 消费改指生成物；web gate 白名单对码测试增「派生 canonical == 旧侧 inkling/manifest renderer_components」断言。
+
 工具声明（tools.json）随迁为 `kind:'tool'` 插件数据：内置工具 = 单工具一目录
 （`plugins/tools/<name>/spec.json`，`data.tool` 承载工具行，阶段 3a 定稿——
 不再用统一包 `data.tools[]` 目录式，见 PLUGINS §2.1 修订），外部/agent 工具按插件
@@ -294,9 +296,10 @@ host.spec（能力插件 kind='host'；faces 用专用 HostFaces，不走通用 
 
 > 实施后逐阶段回填。阶段 0（契约文档）与阶段 1（放开机制层）与阶段 2（命令
 > 声明即挂载）已落地（2026-09-07）；阶段 3a（plugins 真源 + 工具/市场迁移）
-> 与阶段 3b1（命令面真源迁 plugins）已落地（2026-09-07）；阶段 3b2 起待实施。
+> 与阶段 3b1（命令面真源迁 plugins）与阶段 3b2（产品主壳布局迁 plugins）
+> 已落地（2026-09-07）；阶段 4 起待实施。
 
-### 阶段 0/1/2/3a/3b1 落地状态（逐阶段回填）
+### 阶段 0/1/2/3a/3b1/3b2 落地状态（逐阶段回填）
 
 | 阶段 | 设计要件 | 落点 | 状态 |
 |---|---|---|---|
@@ -318,6 +321,9 @@ host.spec（能力插件 kind='host'；faces 用专用 HostFaces，不走通用 
 | 3b1 | 31 域实现文件改 import 生成物 | 删本地 `*_COMMANDS` 数组/类型声明，改 `import type` + re-export `commands.generated.ts`；工厂 Record 键锁不变（删命令目录 → 生成物元组少键 → typecheck 红） | ✅ 完成 |
 | 3b1 | verify 扩展 | `verify:bridge-mount` 增禁「域文件本地声明 *_COMMANDS 数组」（方法名真源只在 plugins）；`verify:plugin-manifest` 双输出比对（manifest + commands.generated.ts） | ✅ 完成 |
 | 3b1 | 夹具零漂移 | BRIDGE_METHODS 值/顺序不变（web_command_surface 夹具逐字一致）；CODING §9 命令表补 capability.baseline.get/set + tier.set（63→66） | ✅ 完成 |
+| 3b2 | ui_feature 插件源 + 布局装配 | `plugins/ui_features/<id>/` 一布局树节点一插件（装配入口 inkling.ui + 容器/组件节点共 25 份；data.node 逐字承载 props/bind、容器 data.children 按序 $ref）；生成器 DFS 沿 $ref 展开重建布局 → `plugins/ui.generated.json`（迁移前 seed 布局语义逐字一致） | ✅ 完成 |
+| 3b2 | canonical 白名单派生 + 消费改指 | 布局引用组件 type 并集升序 = canonical（manifest `ui_features.components` + `host/src/bridge/ui_canonical.generated.ts`）；host recipe 界面白名单改引用生成物（手写 13 项常量删除）；web App/backend/specShell 改 import `plugins/ui.generated.json`；`seed_data/ui_spec.json` 删除 | ✅ 完成 |
+| 3b2 | 生成物一致性 + 对码扩展 | `verify:plugin-manifest` 扩为四产物逐字比对；web gate 白名单对码测试增「派生 canonical == 旧侧 inkling/manifest renderer_components 逐项一致 + 全部可注册」 | ✅ 完成 |
 
 ### 已具备的地基（对照现状）
 
@@ -326,9 +332,9 @@ host.spec（能力插件 kind='host'；faces 用专用 HostFaces，不走通用 
 | 引擎 contract-as-data | `engine/src/core/registry/registry.ts`（契约+工厂同表） | ⚠️ 边界：契约现为可选参数，无契约 = 不参与组装、仅可手绘图引用；机制件契约化须升为强制（stage2 起评估） |
 | 0-IO 端口注入 | `engine/src/adapters/`（storage/llm/mcp + boot） | ✅ 已实现 |
 | 装配数据 | `AssemblyRecipe`（engine 定义，经 `@ink-ts/engine` 导出）+ `runtime.boot(host, recipe)`（host 装配使用，`host/src/boot.ts`） | ✅ 已实现 |
-| web 纯渲染 L5 | `seed_data/ui_spec.json` + `componentRegistry` 白名单 + `artifactLoader` | ⚠️ 部分：分面——业务逻辑在插件 logic face/actions（跑引擎侧），ui face 与渲染器不含业务逻辑（L5 成立）；但仍含产品 chrome（app/shell/views）；阶段 7b 才退化为纯显示设备 |
+| web 纯渲染 L5 | `plugins/ui_features` 布局装配（生成物 `plugins/ui.generated.json`）+ `componentRegistry` 白名单 + `artifactLoader` | ⚠️ 部分：分面——业务逻辑在插件 logic face/actions（跑引擎侧），ui face 与渲染器不含业务逻辑（L5 成立）；但仍含产品 chrome（app/shell/views）；阶段 7b 才退化为纯显示设备 |
 | 命令面同步 | plugins/commands spec → `commands.generated.ts`（生成物）→ 各域 import/re-export → `BRIDGE_METHODS` spread 派生；`verify:bridge-mount` + `verify:plugin-manifest` | ✅ 声明即挂载（阶段 2 + 3b1 目标；命令名真源已迁 plugins/） |
-| 统一插件源 | `plugins/` 真源（tools/ 35 + mcp/ 5 + commands/ 66 + market.json）+ `manifest.json`/`commands.generated.ts` 派生视图生成器 + `verify:plugin-manifest` | ⚠️ 阶段 3a+3b1：tools/mcp 市场/命令名已收敛，消费（web/host/fixtures/data 门禁）统一经派生视图；ui_spec 未迁（阶段 3b2） |
+| 统一插件源 | `plugins/` 真源（tools/ 35 + mcp/ 5 + commands/ 66 + ui_features/ 25 + market.json）+ 四派生视图生成器（manifest.json / commands.generated.ts / ui.generated.json / ui_canonical.generated.ts）+ `verify:plugin-manifest` | ✅ 阶段 3a+3b1+3b2：tools/mcp 市场/命令名/产品主壳布局全部收敛，消费（web/host/fixtures/data 门禁）统一经派生视图；canonical 白名单亦派生（布局引用并集） |
 | 机制件统一 contract + 装配闭集校验 | 33 机制 `engine/src/kernel/<mechanism>/contract.ts` + `registry/registry.ts` 密封校验 + boot 接线 + `verify:mechanisms` | ✅ 完成（本阶段目标） |
 | 自进化机制 | `self_tools`/`self_application`/`settle/seed`/`growth`/`skill_crystal`/`tuning`（`kernel/*`，默认开） | ✅ 机制已实现并契约化（无产品侧业务层，见 §1.5） |
 | faces / depends / 卸载一致性 | 机制层 depends 已契约化（DAG/闭包校验）；产品层 faces 未挂同 id | ⚠️ 机制层完成，产品层待阶段 4 |
@@ -496,7 +502,7 @@ startTransport(hostSpec.faces.transport);           // stdio | http+ws | webview
 |---|---|
 | 1 放开机制层 | `kernel/*/contract.ts + impl.ts` + `registry.ts` 密封图 |
 | 2 命令声明即挂载 | `BRIDGE_METHODS` 手写数组删除，命令面从 plugins 源派生（3b1 落地：plugins/commands spec → commands.generated.ts → BRIDGE_METHODS） |
-| 3 统一插件源 | `plugins/` 真源 + `manifest.json`/`commands.generated.ts` 生成物（tools/mcp/commands/ui_spec 收敛；阶段 3a 落 tools+mcp_market，3b1 落命令名，ui_spec 待 3b2） |
+| 3 统一插件源 | `plugins/` 真源 + manifest.json/commands.generated.ts/ui.generated.json/ui_canonical.generated.ts 生成物（tools/mcp/commands/ui_spec 收敛；阶段 3a 落 tools+mcp_market，3b1 落命令名，3b2 落 ui_features 布局 + canonical 派生） |
 | 4 faces + 卸载一致 | `spec.json` 的 faces/depends + `verify-unload` |
 | 5 宿主面 | `hosts/*.spec.json` + `bootstrap/main.ts` |
 | 6 exec 信封 | 工具信封声明入 plugins 源，按声明定位（替 `binary.ts`） |

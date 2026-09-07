@@ -1,0 +1,10 @@
+{
+  "name": "@ink-ts/plugin-inkling-ui-evolution",
+  "version": "0.0.0",
+  "private": true,
+  "type": "module",
+  "files": [
+    "spec.json"
+  ],
+  "description": "ink-ts 能力插件声明（真源，随装配派生产物）"
+}

@@ -1,0 +1,27 @@
+{
+  "id": "inkling.ui.main",
+  "kind": "ui_feature",
+  "capability": "host_tool",
+  "actions": [],
+  "depends": [],
+  "data": {
+    "node": {
+      "kind": "container",
+      "type": "column",
+      "props": {
+        "grow": true,
+        "gap": 0,
+        "relative": true,
+        "note": "主区：顶栏（悬停 veil，absolute 锚定本列）+ 页签视图"
+      }
+    },
+    "children": [
+      {
+        "$ref": "top_bar"
+      },
+      {
+        "$ref": "inkling.ui.views"
+      }
+    ]
+  }
+}

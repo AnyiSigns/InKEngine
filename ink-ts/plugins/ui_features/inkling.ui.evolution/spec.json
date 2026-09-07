@@ -1,0 +1,27 @@
+{
+  "id": "inkling.ui.evolution",
+  "kind": "ui_feature",
+  "capability": "host_tool",
+  "actions": [],
+  "depends": [],
+  "data": {
+    "node": {
+      "kind": "container",
+      "type": "column",
+      "props": {
+        "view": "evolution",
+        "scroll": true,
+        "gap": 0,
+        "note": "演化页：动态时间线 + 机制监控读取面（审计/发布演示时可见）"
+      }
+    },
+    "children": [
+      {
+        "$ref": "evolution_feed"
+      },
+      {
+        "$ref": "inkling.ui.mechanisms"
+      }
+    ]
+  }
+}

@@ -1,19 +1,28 @@
 #!/usr/bin/env node
 /**
- * 同步生成插件源派生视图（plugins/manifest.json + host/src/bridge/commands.generated.ts），
+ * 同步生成插件源派生视图（plugins/manifest.json + host/src/bridge/commands.generated.ts
+ * + plugins/ui.generated.json + host/src/bridge/ui_canonical.generated.ts），
  * plugins/ 各 spec.json 为真源。
  *
  * 职责边界（对齐 PLUGINS.md §1 / docs/component_data_endgame.md §三）：
  * - plugins/<kind>/<id>/spec.json = 能力插件声明真源（唯一手改处）；
  * - plugins/manifest.json = 派生视图**生成物**——从各 spec 聚合（插件索引 +
- *   tools 工具表行 + mcp 市场视图），禁手工维护；
+ *   tools 工具表行 + mcp 市场视图 + ui_features 组件白名单），禁手工维护；
  * - host/src/bridge/commands.generated.ts = 命令面派生视图**生成物**——从
  *   plugins/commands/<id>/spec.json 聚合（各域命令元组 + 域命令类型），
  *   禁手工维护；host 域实现文件据此取方法名/键类型（编译期锁）。
+ * - plugins/ui.generated.json = 产品主壳布局派生视图**生成物**——从
+ *   plugins/ui_features/<id>/spec.json 装配（装配入口 inkling.ui 的 $ref 树
+ *   展开重建完整布局树，与渲染器 UISpec 同构），禁手工维护；web 渲染/
+ *   fixture 据此取布局。
+ * - host/src/bridge/ui_canonical.generated.ts = 产品 UI canonical 组件白名单
+ *   派生视图**生成物**——布局树引用组件 type 并集（升序），禁手工维护；
+ *   host 配方白名单与出厂组件面据此装配。
  *
  * 消费方一律经派生视图取用：web dev 夹具（backend.ts）、host mcp.market、
  * tools_os 夹具生成（sync_tools_fixtures.mjs）、self_check data 门禁
- * （manifest）；host bridge 命令面（commands.generated.ts）。
+ * （manifest）；host bridge 命令面（commands.generated.ts）；web 产品主壳
+ * （ui.generated.json）；host recipe 界面白名单（ui_canonical.generated.ts）。
  *
  * 规则：
  * - plugins/tools/<tool-name>/spec.json：kind='tool'，spec.data.tool 承载原工具行；
@@ -22,8 +31,14 @@
  * - plugins/commands/<method>/spec.json：kind='command'；spec.data.group =
  *   实现域（映射表 DOMAIN_TABLE 的 group），spec.data.order = 域内序号（1..n 升序）。
  *   命令方法名 = spec.id（目录名），域内/跨域顺序均以此数据决定；
+ * - plugins/ui_features/<id>/spec.json：kind='ui_feature'，一节点一插件。
+ *   装配入口（如 inkling.ui）spec.data 带 name/version/theme + root.$ref；
+ *   容器插件 data.node（kind='container'）+ data.children（按序 $ref 子插件）；
+ *   组件插件 data.node（kind='component'，叶子无 children）。生成器 DFS 沿
+ *   $ref 展开重建完整布局树，循环/缺失/孤儿引用 fail-closed；组件 type 并集
+ *   升序 = canonical 白名单；
  * - spec 顶层必含 id/kind/capability；聚合顺序 = 确定性（工具/市场 id 升序；
- *   命令 = DOMAIN_TABLE 顺序 + 域内 data.order）；
+ *   命令 = DOMAIN_TABLE 顺序 + 域内 data.order；ui = 装配树引用序）；
  * - 派生文件不写任何 spec 未声明内容（除固定 note/version/头注）。
  *
  * 幂等：确定性 JSON（键序固定 + 成员确定性序）/确定性 TS。--check 只校验不落盘。
@@ -37,6 +52,8 @@ const here = dirname(fileURLToPath(import.meta.url));
 const PLUGINS_ROOT = join(here, '..');
 const MANIFEST = join(PLUGINS_ROOT, 'manifest.json');
 const COMMANDS_GENERATED = join(PLUGINS_ROOT, '..', 'host', 'src', 'bridge', 'commands.generated.ts');
+const UI_GENERATED = join(PLUGINS_ROOT, 'ui.generated.json');
+const UI_CANONICAL_GENERATED = join(PLUGINS_ROOT, '..', 'host', 'src', 'bridge', 'ui_canonical.generated.ts');
 
 /**
  * 命令实现域映射表（group → const/type 名）；顺序 = BRIDGE_METHODS 跨域序
@@ -79,9 +96,11 @@ const DOMAIN_TABLE = [
 
 const MANIFEST_NOTE =
   '插件源派生视图（生成物，禁手改）：由 plugins/scripts/sync_plugin_manifest.mjs ' +
-  '从 plugins/<kind>/<id>/spec.json 聚合生成；改工具/市场声明只改 spec.json，' +
+  '从 plugins/<kind>/<id>/spec.json 聚合生成；改工具/市场/命令/ui 声明只改 spec.json，' +
   '重跑本脚本同步。tools = kind=tool 工具表行（data.tool 逐字，id 升序）；' +
   'mcp_market = kind=mcp 市场视图（data.server + market.json 全局配置）；' +
+  'ui_features = 产品主壳布局装配（plugins/ui_features 真源）派生：components = 布局树' +
+  '引用组件 type 并集（升序，canonical 白名单；host/ui_canonical.generated.ts 同源）；' +
   'plugins = 全插件索引（id/kind/capability/包名/目录）。';
 
 const COMMANDS_HEADER =
@@ -90,6 +109,13 @@ const COMMANDS_HEADER =
   ' * 由 plugins/scripts/sync_plugin_manifest.mjs 生成（data.group 决定实现域、\n' +
   ' * data.order 决定域内顺序；跨域序见 DOMAIN_TABLE）。改命令声明只改\n' +
   ' * plugins/commands/<id>/spec.json 后重跑生成器；verify:plugin-manifest 强制。\n' +
+  ' */\n';
+
+const UI_CANONICAL_HEADER =
+  '/**\n' +
+  ' * 生成文件勿手改：产品 UI canonical 组件白名单派生视图（真源 = plugins/ui_features/<id>/spec.json\n' +
+  ' * 布局树引用组件 type 并集，升序）。由 plugins/scripts/sync_plugin_manifest.mjs 生成；\n' +
+  ' * host 配方界面白名单与出厂组件面据此装配；verify:plugin-manifest 强制逐字一致。\n' +
   ' */\n';
 
 async function fail(message) {
@@ -234,6 +260,93 @@ async function derive() {
     }
   }
 
+  // kind='ui_feature'：plugins/ui_features/<id>/spec.json，一节点一插件。
+  // 装配入口（spec.data 带 name/version/theme/root.$ref）全局唯一；容器插件
+  // data.node（kind='container'）+ data.children（按序 $ref 子插件）；组件插件
+  // data.node（kind='component'，叶子）。DFS 沿 $ref 展开重建布局树：引用缺失/
+  // 环/组件带 children/孤儿节点插件一律 fail-closed。组件 type 并集（升序）=
+  // canonical 白名单（ui.generated.json 与 host ui_canonical.generated.ts 共用）。
+  const uiFeatures = [];
+  for (const id of await listDirs(join(PLUGINS_ROOT, 'ui_features'))) {
+    const dir = join(PLUGINS_ROOT, 'ui_features', id);
+    const spec = await readSpec(dir, 'ui_feature');
+    uiFeatures.push({ id, spec });
+    plugins.push({
+      id,
+      kind: 'ui_feature',
+      capability: spec.capability ?? 'host_tool',
+      package: await loadPackage(dir),
+      dir: `ui_features/${id}`,
+    });
+  }
+  const entryList = uiFeatures.filter(
+    (f) => typeof f.spec.data?.root === 'object' && f.spec.data.root !== null,
+  );
+  if (entryList.length === 0) {
+    await fail('ui_features 域缺装配入口插件（唯一一份 spec.data 带 root.$ref）');
+  }
+  if (entryList.length > 1) {
+    await fail(`ui_features 存在多个装配入口（root 只允许一份）: ${entryList.map((f) => f.id).join(', ')}`);
+  }
+  const uiEntry = entryList[0];
+  const uiByName = new Map(uiFeatures.map((f) => [f.id, f]));
+  const uiReached = new Set();
+  const uiComponents = [];
+  async function expandUi(ref, stack) {
+    if (stack.includes(ref)) {
+      await fail(`ui 引用成环: ${[...stack, ref].join(' -> ')}`);
+    }
+    const feat = uiByName.get(ref);
+    if (!feat) await fail(`ui 引用缺失插件: ${ref}`);
+    const node = feat.spec.data?.node;
+    if (typeof node !== 'object' || node === null || (node.kind !== 'container' && node.kind !== 'component')) {
+      await fail(`ui_feature 插件 ${ref} 缺 data.node（kind 须为 container|component）`);
+    }
+    if (typeof node.type !== 'string' || node.type.length === 0) {
+      await fail(`ui_feature 插件 ${ref} 的 data.node.type 缺失`);
+    }
+    const next = { kind: node.kind, type: node.type };
+    if (node.props !== undefined) next.props = node.props;
+    if (node.bind !== undefined) next.bind = node.bind;
+    if (node.kind === 'container') {
+      if (!Array.isArray(feat.spec.data.children)) {
+        await fail(`ui 容器插件 ${ref} 缺 data.children（按序 $ref 子插件）`);
+      }
+      const kids = [];
+      for (const slot of feat.spec.data.children) {
+        if (typeof slot !== 'object' || slot === null || typeof slot.$ref !== 'string') {
+          await fail(`ui 容器插件 ${ref} 的 data.children 项须为 { "$ref": "<插件 id>" }`);
+        }
+        kids.push(await expandUi(slot.$ref, [...stack, ref]));
+      }
+      next.children = kids;
+    } else if (feat.spec.data.children !== undefined) {
+      await fail(`ui 组件插件 ${ref} 不得带 data.children（组件为叶子）`);
+    }
+    uiReached.add(ref);
+    if (node.kind === 'component') uiComponents.push(node.type);
+    return next;
+  }
+  const uiRoot = await expandUi(uiEntry.spec.data.root.$ref, []);
+  for (const f of uiFeatures) {
+    if (f.id !== uiEntry.id && !uiReached.has(f.id)) {
+      await fail(`ui_feature 插件 ${f.id} 未被装配树引用（孤儿）`);
+    }
+  }
+  const uiLayout = {
+    name: uiEntry.spec.data.name,
+    version: uiEntry.spec.data.version,
+    theme: uiEntry.spec.data.theme,
+    root: uiRoot,
+  };
+  if (typeof uiLayout.name !== 'string' || uiLayout.name.length === 0) {
+    await fail(`ui 装配入口 ${uiEntry.id} 缺 data.name`);
+  }
+  if (uiEntry.spec.data.root === null || typeof uiEntry.spec.data.root.$ref !== 'string') {
+    await fail(`ui 装配入口 ${uiEntry.id} 缺 data.root.$ref`);
+  }
+  const uiCanonical = [...new Set(uiComponents)].sort();
+
   return {
     version: 1,
     note: MANIFEST_NOTE,
@@ -248,11 +361,18 @@ async function derive() {
       servers,
     },
     commands,
+    ui_features: {
+      components: uiCanonical,
+    },
+    ui_layout: uiLayout,
   };
 }
 
 function render(data) {
-  const order = { version: 1, note: 2, plugins: 3, tools: 4, mcp_market: 5 };
+  const order = {
+    version: 1, note: 2, plugins: 3, tools: 4, mcp_market: 5,
+    commands: 6, ui_features: 7,
+  };
   const toolOrder = {
     name: 1, description: 2, parameters: 3, permissions: 4, approval: 5,
     endpoint: 6, endpoint_config: 7, network_policy: 8, meta: 9,
@@ -280,7 +400,37 @@ function render(data) {
     { premounted: data.mcp_market.premounted, mount_policy: data.mcp_market.mount_policy, servers },
     { premounted: 1, mount_policy: 1, servers: 1 },
   );
-  return JSON.stringify(sortKeys({ ...data, tools, mcp_market: market }, order), null, 2) + '\n';
+  return JSON.stringify(
+    sortKeys(
+      {
+        version: data.version,
+        note: data.note,
+        plugins: data.plugins,
+        tools,
+        mcp_market: market,
+        commands: data.commands,
+        ui_features: { components: data.ui_features.components },
+      },
+      order,
+    ),
+    null,
+    2,
+  ) + '\n';
+}
+
+/** 渲染 ui.generated.json（产品主壳完整布局树；布局 = 装配入口 data.name/version/
+ *  theme + $ref 展开 root。键序与迁移前的 seed_data/ui_spec.json 一致，渲染器 UISpec 同构）。 */
+function renderUiLayout(layout) {
+  return JSON.stringify(layout, null, 2) + '\n';
+}
+
+/** 渲染 host ui_canonical.generated.ts（canonical 组件白名单 = 布局树引用 type 并集升序）。 */
+function renderUiCanonicalTs(components) {
+  const lines = [UI_CANONICAL_HEADER];
+  lines.push('export const UI_CANONICAL_COMPONENTS = [');
+  for (const name of components) lines.push(`  '${name}',`);
+  lines.push('] as const;');
+  return lines.join('\n');
 }
 
 /** 渲染命令派生 TS（各域元组 + 域命令类型；顺序 = DOMAIN_TABLE × data.order）。 */
@@ -334,6 +484,8 @@ async function main() {
   const data = await derive();
   const manifestRendered = render(data);
   const commandsRendered = renderCommandsTs(data.commands);
+  const uiRendered = renderUiLayout(data.ui_layout);
+  const uiCanonicalRendered = renderUiCanonicalTs(data.ui_features.components);
 
   if (check) {
     const okManifest = await compareFile(MANIFEST, manifestRendered, 'manifest', 'sync_plugin_manifest.mjs');
@@ -343,7 +495,14 @@ async function main() {
       'commands.generated.ts',
       'sync_plugin_manifest.mjs',
     );
-    if (!okManifest || !okCommands) process.exitCode = 1;
+    const okUi = await compareFile(UI_GENERATED, uiRendered, 'ui.generated.json', 'sync_plugin_manifest.mjs');
+    const okUiCanonical = await compareFile(
+      UI_CANONICAL_GENERATED,
+      uiCanonicalRendered,
+      'ui_canonical.generated.ts',
+      'sync_plugin_manifest.mjs',
+    );
+    if (!okManifest || !okCommands || !okUi || !okUiCanonical) process.exitCode = 1;
     return;
   }
 
@@ -351,8 +510,13 @@ async function main() {
   await writeFile(MANIFEST, manifestRendered, 'utf8');
   await mkdir(dirname(COMMANDS_GENERATED), { recursive: true });
   await writeFile(COMMANDS_GENERATED, commandsRendered, 'utf8');
+  await writeFile(UI_GENERATED, uiRendered, 'utf8');
+  await writeFile(UI_CANONICAL_GENERATED, uiCanonicalRendered, 'utf8');
   console.log(
-    `已生成 manifest.json + commands.generated.ts（${data.plugins.length} 插件：${data.tools.length} tools + ${data.mcp_market.servers.length} mcp + ${data.commands.length} commands，真源 plugins/）`,
+    `已生成 manifest.json + commands.generated.ts + ui.generated.json + ` +
+      `ui_canonical.generated.ts（${data.plugins.length} 插件：${data.tools.length} tools + ` +
+      `${data.mcp_market.servers.length} mcp + ${data.commands.length} commands + ` +
+      `${data.plugins.filter((p) => p.kind === 'ui_feature').length} ui_features，真源 plugins/）`,
   );
 }
 

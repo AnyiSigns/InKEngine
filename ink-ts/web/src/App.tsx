@@ -1,7 +1,8 @@
 // gate: 超限(409 行) - 产品壳组合层（宿主数据/动作装配单一点，布局已让位 ui_spec 直渲）
 /**
  * InKling 产品壳宿主：装配会话数据与机制动作 → 注入 UIRenderer（唯一产品渲染
- * 入口），布局结构完全由 seed ui_spec 组件树表达（不再硬编码三栏/页签 JSX）。
+ * 入口），布局结构完全由 plugins ui 布局装配生成物（plugins/ui.generated.json
+ * 组件树）表达（不再硬编码三栏/页签 JSX）。
  *
  * canonical 组件（file_tree/session_list/message_list/agent_input/...）经
  * app/rendererAdapters 注册，binding 载荷与宿主 product chrome 在此归一。
@@ -27,7 +28,7 @@ import type { TaskCapsuleData } from '@/app/tasks/types';
 import type { MainTab } from '@/app/shell/TopBar';
 import type { ReviewResolution } from '@/components/review_card';
 
-import uiSpecSeed from '../../seed_data/ui_spec.json';
+import uiLayout from '../../plugins/ui.generated.json';
 
 interface AppProps {
   backend: BackendAdapter;
@@ -326,7 +327,7 @@ export default function App({ backend, hub, sessionStore }: AppProps) {
     [hub, resolveReview],
   );
 
-  const spec = uiSpecSeed as unknown as UISpec;
+  const spec = uiLayout as unknown as UISpec;
   const roundSteps = hub.getSnapshot().roundSteps ?? [];
   const simulations = (hub.getSnapshot().simulations as SimulationBranch[]) || [];
   const roundCount = state.entries.filter((e) => e.kind === 'text' && e.role === 'user').length;

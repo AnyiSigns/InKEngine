@@ -24,20 +24,30 @@
           {
             "kind": "component",
             "type": "review_card",
-            "props": { "note": "审批卡（events.review_card 到达即弹，决议续跑经壳注入）" },
-            "bind": { "channel": "events.review_card", "path": "" }
+            "props": {
+              "note": "审批卡（events.review_card 到达即弹，决议续跑经壳注入）"
+            },
+            "bind": {
+              "channel": "events.review_card",
+              "path": ""
+            }
           },
           {
             "kind": "component",
             "type": "settings_floater",
-            "props": { "note": "设置浮层（注册式节导航驱动，打开态 = 壳 settingsOpen）" }
+            "props": {
+              "note": "设置浮层（注册式节导航驱动，打开态 = 壳 settingsOpen）"
+            }
           }
         ]
       },
       {
         "kind": "container",
         "type": "row",
-        "props": { "grow": true, "gap": 0 },
+        "props": {
+          "grow": true,
+          "gap": 0
+        },
         "children": [
           {
             "kind": "component",
@@ -76,7 +86,10 @@
                   {
                     "kind": "container",
                     "type": "column",
-                    "props": { "view": "chat", "gap": 0 },
+                    "props": {
+                      "view": "chat",
+                      "gap": 0
+                    },
                     "children": [
                       {
                         "kind": "component",
@@ -85,12 +98,17 @@
                           "note": "会话消息流（唯一消息渲染面 = MessageStream）",
                           "grow": true
                         },
-                        "bind": { "channel": "state.messages", "path": "" }
+                        "bind": {
+                          "channel": "state.messages",
+                          "path": ""
+                        }
                       },
                       {
                         "kind": "component",
                         "type": "task_capsule",
-                        "props": { "note": "长任务期胶囊（任务在途才渲染，非任务态空）" }
+                        "props": {
+                          "note": "长任务期胶囊（任务在途才渲染，非任务态空）"
+                        }
                       },
                       {
                         "kind": "component",
@@ -98,7 +116,10 @@
                         "props": {
                           "note": "输入胶囊（发送/中止/附件/模型/推理档位）"
                         },
-                        "bind": { "channel": "state.session", "path": "" }
+                        "bind": {
+                          "channel": "state.session",
+                          "path": ""
+                        }
                       }
                     ]
                   },
@@ -131,7 +152,9 @@
                           {
                             "kind": "component",
                             "type": "mechanism_view",
-                            "props": { "note": "机制读取面摘要卡（未装配 = 空态可观测）" }
+                            "props": {
+                              "note": "机制读取面摘要卡（未装配 = 空态可观测）"
+                            }
                           }
                         ]
                       }
@@ -140,37 +163,58 @@
                   {
                     "kind": "container",
                     "type": "column",
-                    "props": { "view": "ledger", "scroll": true, "gap": 0 },
+                    "props": {
+                      "view": "ledger",
+                      "scroll": true,
+                      "gap": 0
+                    },
                     "children": [
                       {
                         "kind": "component",
                         "type": "ledger_view",
-                        "props": { "note": "账本页（records.ledger 只读事实流）" }
+                        "props": {
+                          "note": "账本页（records.ledger 只读事实流）"
+                        }
                       }
                     ]
                   },
                   {
                     "kind": "container",
                     "type": "column",
-                    "props": { "view": "trajectory", "scroll": true, "gap": 0 },
+                    "props": {
+                      "view": "trajectory",
+                      "scroll": true,
+                      "gap": 0
+                    },
                     "children": [
                       {
                         "kind": "component",
                         "type": "trajectory_view",
-                        "props": { "note": "轨迹页（state.roundSteps 快照）" },
-                        "bind": { "channel": "state.roundSteps", "path": "" }
+                        "props": {
+                          "note": "轨迹页（state.roundSteps 快照）"
+                        },
+                        "bind": {
+                          "channel": "state.roundSteps",
+                          "path": ""
+                        }
                       }
                     ]
                   },
                   {
                     "kind": "container",
                     "type": "column",
-                    "props": { "view": "todo", "scroll": true, "gap": 0 },
+                    "props": {
+                      "view": "todo",
+                      "scroll": true,
+                      "gap": 0
+                    },
                     "children": [
                       {
                         "kind": "component",
                         "type": "todo_view",
-                        "props": { "note": "待办页（rounds.todos 只读投影）" }
+                        "props": {
+                          "note": "待办页（rounds.todos 只读投影）"
+                        }
                       }
                     ]
                   }

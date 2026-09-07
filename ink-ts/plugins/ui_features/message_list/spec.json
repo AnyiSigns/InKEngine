@@ -1,0 +1,21 @@
+{
+  "id": "message_list",
+  "kind": "ui_feature",
+  "capability": "host_tool",
+  "actions": [],
+  "depends": [],
+  "data": {
+    "node": {
+      "kind": "component",
+      "type": "message_list",
+      "props": {
+        "note": "会话消息流（唯一消息渲染面 = MessageStream）",
+        "grow": true
+      },
+      "bind": {
+        "channel": "state.messages",
+        "path": ""
+      }
+    }
+  }
+}

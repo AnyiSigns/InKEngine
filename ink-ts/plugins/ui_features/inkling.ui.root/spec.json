@@ -1,0 +1,25 @@
+{
+  "id": "inkling.ui.root",
+  "kind": "ui_feature",
+  "capability": "host_tool",
+  "actions": [],
+  "depends": [],
+  "data": {
+    "node": {
+      "kind": "container",
+      "type": "column",
+      "props": {
+        "gap": 0,
+        "note": "产品主壳（spec 直渲唯一入口）：左右栏 + 主区页签视图；设置/审批为覆盖层。主界面是干活面，机制内容进消息流/演化页，不常驻机制面板"
+      }
+    },
+    "children": [
+      {
+        "$ref": "inkling.ui.overlay"
+      },
+      {
+        "$ref": "inkling.ui.row"
+      }
+    ]
+  }
+}

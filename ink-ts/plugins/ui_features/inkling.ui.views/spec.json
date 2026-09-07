@@ -1,0 +1,35 @@
+{
+  "id": "inkling.ui.views",
+  "kind": "ui_feature",
+  "capability": "host_tool",
+  "actions": [],
+  "depends": [],
+  "data": {
+    "node": {
+      "kind": "container",
+      "type": "views",
+      "props": {
+        "grow": true,
+        "gap": 0,
+        "note": "主区页签内容（chat/evolution/ledger/trajectory/todo；视图名 = 壳 tab）"
+      }
+    },
+    "children": [
+      {
+        "$ref": "inkling.ui.chat"
+      },
+      {
+        "$ref": "inkling.ui.evolution"
+      },
+      {
+        "$ref": "inkling.ui.ledger"
+      },
+      {
+        "$ref": "inkling.ui.trajectory"
+      },
+      {
+        "$ref": "inkling.ui.todo"
+      }
+    ]
+  }
+}

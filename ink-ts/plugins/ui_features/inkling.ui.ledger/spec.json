@@ -1,0 +1,23 @@
+{
+  "id": "inkling.ui.ledger",
+  "kind": "ui_feature",
+  "capability": "host_tool",
+  "actions": [],
+  "depends": [],
+  "data": {
+    "node": {
+      "kind": "container",
+      "type": "column",
+      "props": {
+        "view": "ledger",
+        "scroll": true,
+        "gap": 0
+      }
+    },
+    "children": [
+      {
+        "$ref": "ledger_view"
+      }
+    ]
+  }
+}

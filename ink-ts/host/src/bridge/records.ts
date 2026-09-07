@@ -6,6 +6,8 @@
  * to_dict），host 只透传 JSON 化，不复制台账。
  */
 
+import type { RecordsCommand } from './commands.generated.js';
+export { RECORDS_COMMANDS, type RecordsCommand } from './commands.generated.js';
 import type { Storage } from '@ink-ts/engine';
 
 import { BridgeError, type BridgeHandler } from './_types.js';
@@ -175,14 +177,6 @@ function parseLedgerParams(raw: unknown): { thread_id: string; limit: number } {
   return { thread_id: params.thread_id, limit };
 }
 
-/** records 命令声明（方法名唯一真源；装配由 index 聚合此表）。 */
-export const RECORDS_COMMANDS = [
-  'records.sessions',
-  'records.chain',
-  'records.ledger',
-] as const;
-
-export type RecordsCommand = (typeof RECORDS_COMMANDS)[number];
 
 export function buildRecordsCommands(deps: HostBridgeDeps): Readonly<Record<RecordsCommand, BridgeHandler>> {
   const sessionsStore = new HostSessionStore(() => deps.runtime.storage as unknown as Storage | null);

@@ -9,6 +9,8 @@
  * {decision, reason?, edited_content?}）。
  */
 
+import type { ApprovalCommand } from './commands.generated.js';
+export { APPROVAL_COMMANDS, type ApprovalCommand } from './commands.generated.js';
 import type { InterruptState } from '@ink-ts/engine';
 
 import { BridgeError, type BridgeHandler } from './_types.js';
@@ -66,14 +68,7 @@ function validateDecision(raw: unknown): unknown {
   return record;
 }
 
-/** approval 命令声明（方法名唯一真源；装配由 index 聚合此表）。 */
-export const APPROVAL_COMMANDS = [
-  'approval.list',
-  'approval.resolve',
-] as const;
-
-export type ApprovalCommand = (typeof APPROVAL_COMMANDS)[number];
-
+/** approval 命令声明（方法名真源 = plugins/commands → commands.generated.ts 派生；装配由 index 聚合生成物元组）。 */
 export function buildApprovalCommands(deps: HostBridgeDeps): Readonly<Record<ApprovalCommand, BridgeHandler>> {
   /** 链尾挂起卡读取（引擎无常驻静态引擎：直接读 checkpoint interrupt——与
    *  引擎链尾挂起卡状态同源，裁决经 runtime.resume_run 按图重建续跑）。 */

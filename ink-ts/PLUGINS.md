@@ -69,6 +69,14 @@ MCP config / spawn 声明）+ 测试 + locale。`kind` 只决定三件事：
 `docs/component_data_endgame.md` §三（宿主 `kind='host'` 例外：不走 npm 包分发，
 spec 直接住 `hosts/<host>.spec.json`，faces 用 HostFaces，见 §2）。
 
+命令类（`kind='command'`）落地形态（阶段 3b1 定稿）：`plugins/commands/<method>/`
+单命令一目录，spec 的 `data.group` = 实现域（31 值，含 rounds.todos 独立实现
+的 todos 组）、`data.order` = 域内序号；方法名真源 = spec.id（目录名）。
+host 命令面经派生生成物 `host/src/bridge/commands.generated.ts` 取用
+（域命令元组 + 域命令类型，禁手改），域实现文件只 import type/re-export——命令
+面从此派生、无手写方法名数组；增删命令 = 增删 plugins/commands 目录 + 重跑
+生成器 + 同步 CODING.md §9 命令表。
+
 ## 2. capability 档位（装卸权限）
 
 `kind` 与 capability 正交：kind 定契约模板/装载路径/需要哪些脸，capability 定

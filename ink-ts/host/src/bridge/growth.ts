@@ -7,6 +7,8 @@
  * data = TunableParams.to_dict 形态；最近回写时刻 = 该条目 updated_at）。
  */
 
+import type { GrowthCommand } from './commands.generated.js';
+export { GROWTH_COMMANDS, type GrowthCommand } from './commands.generated.js';
 import type { HostBridgeDeps } from './_types.js';
 import type { BridgeHandler } from './_types.js';
 
@@ -21,12 +23,6 @@ export interface GrowthReportView {
 /** knowledge_set kind=weight 的字面量（引擎 KIND_WEIGHT 同值；勿引引擎内部名）。 */
 const KIND_WEIGHT = 'weight';
 
-/** growth 命令声明（方法名唯一真源；装配由 index 聚合此表）。 */
-export const GROWTH_COMMANDS = [
-  'growth.report',
-] as const;
-
-export type GrowthCommand = (typeof GROWTH_COMMANDS)[number];
 
 /** growth.report：能读则读；无装配 = enabled + nulls（读面 fail-open）。 */
 export function buildGrowthCommands(deps: HostBridgeDeps): Readonly<Record<GrowthCommand, BridgeHandler>> {

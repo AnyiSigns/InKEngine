@@ -5,6 +5,8 @@
  * 本组只收绝对路径并校验存在。状态持久化在 data_dir/workspace.json。
  */
 
+import type { WorkspaceCommand } from './commands.generated.js';
+export { WORKSPACE_COMMANDS, type WorkspaceCommand } from './commands.generated.js';
 import { BridgeError, type BridgeHandler } from './_types.js';
 import { createEphemeralWorkspaceStore } from '../workspace/store.js';
 import type { WorkspaceState, WorkspaceStore } from '../workspace/store.js';
@@ -20,16 +22,6 @@ function pathParam(raw: unknown, key: string): string {
   return value.trim();
 }
 
-/** workspace 命令声明（方法名唯一真源；装配由 index 聚合此表）。 */
-export const WORKSPACE_COMMANDS = [
-  'workspace.state',
-  'workspace.set',
-  'workspace.revoke',
-  'workspace.mount.add',
-  'workspace.mount.remove',
-] as const;
-
-export type WorkspaceCommand = (typeof WORKSPACE_COMMANDS)[number];
 
 /** workspace 域桥接组（state/set/revoke + mount.add/remove；store 缺省内存兜底）。 */
 export function buildWorkspaceCommands(storeInput: WorkspaceStore | undefined): Readonly<Record<WorkspaceCommand, BridgeHandler>> {

@@ -8,6 +8,8 @@
  * （fingerprint_cache.available:false + 全零，不报错不编造）。
  */
 
+import type { CacheCommand } from './commands.generated.js';
+export { CACHE_COMMANDS, type CacheCommand } from './commands.generated.js';
 import { type BridgeHandler } from './_types.js';
 import type { HostBridgeDeps } from './_types.js';
 
@@ -30,13 +32,7 @@ function emptyStoreView(): Record<string, unknown> {
   };
 }
 
-/** cache 命令声明（方法名唯一真源；装配由 index 聚合此表）。 */
-export const CACHE_COMMANDS = [
-  'cache.stats',
-] as const;
-
-export type CacheCommand = (typeof CACHE_COMMANDS)[number];
-
+/** cache 命令声明（方法名真源 = plugins/commands → commands.generated.ts 派生；装配由 index 聚合生成物元组）。 */
 export function buildCacheCommands(deps: HostBridgeDeps): Readonly<Record<CacheCommand, BridgeHandler>> {
   /** cache.stats：指纹缓存计数（全域 + 按域）+ multipath 配置态。 */
   const stats: BridgeHandler = async (): Promise<Record<string, unknown>> => {

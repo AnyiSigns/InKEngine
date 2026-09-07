@@ -1,0 +1,11 @@
+{
+  "id": "models.config.reload",
+  "kind": "command",
+  "capability": "host_tool",
+  "actions": [],
+  "depends": [],
+  "data": {
+    "group": "models",
+    "order": 3
+  }
+}

@@ -11,6 +11,8 @@
  * 空配置 = 空清单（ok:true, archives:[]），不误报。
  */
 
+import type { ModelArchiveCommand } from './commands.generated.js';
+export { MODEL_ARCHIVE_COMMANDS, type ModelArchiveCommand } from './commands.generated.js';
 import type { BridgeHandler, HostBridgeDeps } from './_types.js';
 
 function isRecord(value: unknown): value is Record<string, unknown> {
@@ -109,12 +111,6 @@ export function collectArchiveRows(modelConfig: Record<string, unknown>): Archiv
   return rows;
 }
 
-/** model_archive 命令声明（方法名唯一真源；装配由 index 聚合此表）。 */
-export const MODEL_ARCHIVE_COMMANDS = [
-  'model_archive.snapshot',
-] as const;
-
-export type ModelArchiveCommand = (typeof MODEL_ARCHIVE_COMMANDS)[number];
 
 export function buildModelArchiveCommands(deps: HostBridgeDeps): Readonly<Record<ModelArchiveCommand, BridgeHandler>> {
   const snapshot: BridgeHandler = (): unknown => {

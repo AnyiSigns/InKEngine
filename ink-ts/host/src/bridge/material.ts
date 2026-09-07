@@ -6,6 +6,8 @@
  * code 透传归类）。参数覆盖三项上限（可配置），默认见 material/scan.ts。
  */
 
+import type { MaterialCommand } from './commands.generated.js';
+export { MATERIAL_COMMANDS, type MaterialCommand } from './commands.generated.js';
 import { BridgeError, type BridgeHandler } from './_types.js';
 import type { HostBridgeDeps } from './_types.js';
 import { MaterialError, scanMaterial } from '../material/scan.js';
@@ -19,12 +21,6 @@ interface MaterialImportParams {
   text_cap?: number;
 }
 
-/** material 命令声明（方法名唯一真源；装配由 index 聚合此表）。 */
-export const MATERIAL_COMMANDS = [
-  'material.import',
-] as const;
-
-export type MaterialCommand = (typeof MATERIAL_COMMANDS)[number];
 
 export function buildMaterialCommands(deps: HostBridgeDeps): Readonly<Record<MaterialCommand, BridgeHandler>> {
   const importMaterial: BridgeHandler = async (raw): Promise<unknown> => {

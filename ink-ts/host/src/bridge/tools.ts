@@ -12,6 +12,8 @@
  * engine runtime.
  */
 
+import type { ToolsCommand } from './commands.generated.js';
+export { TOOLS_COMMANDS, type ToolsCommand } from './commands.generated.js';
 import { BridgeError, type BridgeHandler } from './_types.js';
 import type { HostBridgeDeps } from './_types.js';
 
@@ -32,12 +34,6 @@ export interface ToolFullView {
   tools: ToolFullRow[];
 }
 
-/** tools 命令声明（方法名唯一真源；装配由 index 聚合此表）。 */
-export const TOOLS_COMMANDS = [
-  'tools.full',
-] as const;
-
-export type ToolsCommand = (typeof TOOLS_COMMANDS)[number];
 
 export function buildToolsCommands(deps: HostBridgeDeps): Readonly<Record<ToolsCommand, BridgeHandler>> {
   /**

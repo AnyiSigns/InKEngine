@@ -134,8 +134,9 @@ host/cli/web 取用。
 | JSON 纪律：可 parse、无重复键、2 空格缩进格线 | `seed_data/**`、`plugins/**`、`engine/schemas`、`engine/fixtures` JSON | 拒绝（json-valid） |
 | 生成文件禁手改 | `engine/src/core/contracts/generated/**` | 由 `contracts:verify`（engine/scripts/verify_generated.mjs：复制 engine/schemas + fixtures 后重生成，与仓库生成物归一化逐文件 diff）在 root `npm test` 与 CI 强制；不做文本扫描 |
 | 机制件契约三键（依赖单向/装配完整/0-IO） | `engine/src/kernel/<mechanism>/contract.ts` 全量 + runtime 装配闭包 + kernel 源码 | 由 `verify:mechanisms`（engine/scripts/verify_mechanisms.ts：契约密封 DAG 无环 + runtime depends 闭包 ∪ 自足叶子覆盖全量 + kernel 禁 node 内置/第三方/IO 全局原语）在 root `npm test` 与 CI 强制；boot 装配首步同源 `seal_mechanism_registry` fail-closed |
-| 命令声明即挂载（方法名不手写数组） | `host/src/bridge/index.ts` 的 `BRIDGE_METHODS` | 由 `verify:bridge-mount`（host/scripts/verify_bridge_mount.ts：BRIDGE_METHODS 数组体只允许各域 `*_COMMANDS` spread 或注释，禁点分方法名字面量；spread 常量须已 import）在 root `npm test` 与 CI 强制；键与实现表一致由各域工厂 `Readonly<Record<DomainCommand, BridgeHandler>>` 返回类型编译期保证 |
+| 命令声明即挂载（方法名不手写数组） | `host/src/bridge/index.ts` 的 `BRIDGE_METHODS` + `host/src/bridge/commands.generated.ts` | 由 `verify:bridge-mount`（host/scripts/verify_bridge_mount.ts：BRIDGE_METHODS 数组体只允许各域 `*_COMMANDS` spread 或注释，禁点分方法名字面量；spread 常量须已 import；域文件禁本地声明 `*_COMMANDS` 数组——方法名真源 = plugins/commands → commands.generated.ts）在 root `npm test` 与 CI 强制；键与实现表一致由各域工厂 `Readonly<Record<DomainCommand, BridgeHandler>>` 返回类型编译期保证 |
 | 插件源派生视图（manifest 禁手改） | `plugins/manifest.json`（tools 聚合 / mcp 市场视图 / 插件索引） | 由 `verify:plugin-manifest`（plugins/scripts/sync_plugin_manifest.mjs：从 plugins/\<kind\>/\<id\>/spec.json 聚合生成，--check 逐字比对防手改）在 root `npm test` 与 CI 强制；web dev 夹具、host mcp.market、tools_os 夹具生成与 self_check data 门禁一律经 manifest 取用 |
+| 命令面生成物（commands.generated.ts 禁手改） | `host/src/bridge/commands.generated.ts`（各域命令元组 + 域命令类型，真源 = plugins/commands/*/spec.json） | 由 `verify:plugin-manifest`（同 scripts/sync_plugin_manifest.mjs：同时派生 manifest.json 与 commands.generated.ts，--check 对两者逐字比对防手改）在 root `npm test` 与 CI 强制；host 域实现文件经 `import type`/re-export 取用 |
 
 gate 实现与正反样例位于 `gate/src/` 与 `gate/test/`；**真实扫描链** =
 root `npm test` 首段 `npm run typecheck --workspace engine`（engine tsc
@@ -144,9 +145,9 @@ root `npm test` 首段 `npm run typecheck --workspace engine`（engine tsc
 schemas/fixtures 的 json-valid）→ `vitest run --root gate`（规则样例自测）
 → `tsx engine/scripts/verify_mechanisms.ts`（机制件契约三键）
 → `tsx host/scripts/verify_bridge_mount.ts`（命令声明即挂载：BRIDGE_METHODS
-无手写方法名）
+无手写方法名、域文件无本地 *_COMMANDS 数组）
 → `tsx plugins/scripts/sync_plugin_manifest.mjs --check`（插件源派生视图：
-plugins/manifest.json 与各 spec 真源逐字一致），
+plugins/manifest.json + commands.generated.ts 与各 spec 真源逐字一致），
 CI 的 ink-ts job 同链执行。规则增删须同步本表。
 
 ## 8. 模型角色槽（配置语义与措辞纪律）
@@ -175,7 +176,7 @@ CI 的 ink-ts job 同链执行。规则增删须同步本表。
    与语义不同，勿混淆）：`edge/trust-tier`、`safety_tier`、approval 档、
    reasoning 档。
 
-## 9. host bridge 命令面清单（方法增删须同步本表 + 各域文件声明元组 `*_COMMANDS`；`BRIDGE_METHODS` 由域声明 spread 派生，`verify:bridge-mount` 强制）
+## 9. host bridge 命令面清单（方法增删须同步本表 + plugins/commands/<method>/spec.json；方法名真源 = plugins 源，`host/src/bridge/commands.generated.ts` 为生成物（禁手改，`verify:plugin-manifest` 强制逐字一致）；`BRIDGE_METHODS` 由域声明 spread 派生，`verify:bridge-mount` 强制）
 
 | 方法 | 域 | 语义（机制在 engine，host 只接线） |
 |---|---|---|
@@ -230,6 +231,9 @@ CI 的 ink-ts job 同链执行。规则增删须同步本表。
 | `model_archive.snapshot` | model_archive | 模型档案快照（从运行 model_config 聚合：角色槽/备用链端点 + 厂商 models 清单展开为 model_id 行；与 config.json 同源，无 sqlite 探测） |
 | `capability.get` | capability | 能力记录读取（自动审批预授权 `auto_approve_tools`/`auto_approve_all_review` + 工具回合上限 `max_tool_rounds`；data_dir/capability.json；缺省字段注入——auto 出厂空集，不落盘固化缺省。推演档位语义已移除——不设档位直接开启，历史 `simulation_tier` 键读档丢弃） |
 | `capability.put` | capability | 能力记录存档（单字段并入语义 + 白名单校验（auto 字段/上限），非法不落盘；策略实例为活读面，put 后下个审批请求生效） |
+| `capability.baseline.get` | capability | 常驻必带工具基线读取（引擎运行时单源 = `runtime.baseline_names`） |
+| `capability.baseline.set` | capability | 常驻必带工具基线整集替换（引擎 `set_baseline_names` 白名单校验拒绝未注册名；成功镜像 capability.json 存档） |
+| `capability.tier.set` | capability | 工具档位登记面（passthrough 白名单值 allow/review；无执行语义，能力 get 原样回显，供设置面存档/展示） |
 | `policy.route` | policy | 策略层路由预览（确定性任务分类 → 计划形态 → 档位/配额；零 LLM，规格见 bridge/policy.ts） |
 | `ui_components.get` | ui_components | 出厂界面组件启停态（factory/disabled/active 三清单；engine 同源） |
 | `ui_components.set_disabled` | ui_components | 整集替换出厂组件停用集（`{disabled: string[]}`；未登记名结构化拒绝） |

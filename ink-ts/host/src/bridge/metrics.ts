@@ -7,6 +7,8 @@
  * 调用分布。无装配 = 结构化空态（available:false + 全零，不报错）。
  */
 
+import type { MetricsCommand } from './commands.generated.js';
+export { METRICS_COMMANDS, type MetricsCommand } from './commands.generated.js';
 import { type BridgeHandler } from './_types.js';
 import type { HostBridgeDeps } from './_types.js';
 
@@ -22,12 +24,6 @@ export interface MetricsSnapshotView {
   crystallized: number;
 }
 
-/** metrics 命令声明（方法名唯一真源；装配由 index 聚合此表）。 */
-export const METRICS_COMMANDS = [
-  'metrics.snapshot',
-] as const;
-
-export type MetricsCommand = (typeof METRICS_COMMANDS)[number];
 
 export function buildMetricsCommands(deps: HostBridgeDeps): Readonly<Record<MetricsCommand, BridgeHandler>> {
   /** metrics.snapshot：回合指标会话窗口（无装配 = 空态）。 */

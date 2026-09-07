@@ -1,0 +1,11 @@
+{
+  "id": "rounds.abort",
+  "kind": "command",
+  "capability": "host_tool",
+  "actions": [],
+  "depends": [],
+  "data": {
+    "group": "rounds",
+    "order": 2
+  }
+}

@@ -281,6 +281,468 @@
       "capability": "external_tool",
       "package": "@ink-ts/plugin-market.web-search",
       "dir": "mcp/market.web_search"
+    },
+    {
+      "id": "approval.list",
+      "kind": "command",
+      "capability": "host_tool",
+      "package": "@ink-ts/plugin-approval-list",
+      "dir": "commands/approval.list"
+    },
+    {
+      "id": "approval.resolve",
+      "kind": "command",
+      "capability": "host_tool",
+      "package": "@ink-ts/plugin-approval-resolve",
+      "dir": "commands/approval.resolve"
+    },
+    {
+      "id": "assemble.stats",
+      "kind": "command",
+      "capability": "host_tool",
+      "package": "@ink-ts/plugin-assemble-stats",
+      "dir": "commands/assemble.stats"
+    },
+    {
+      "id": "audit.export",
+      "kind": "command",
+      "capability": "host_tool",
+      "package": "@ink-ts/plugin-audit-export",
+      "dir": "commands/audit.export"
+    },
+    {
+      "id": "audit.list",
+      "kind": "command",
+      "capability": "host_tool",
+      "package": "@ink-ts/plugin-audit-list",
+      "dir": "commands/audit.list"
+    },
+    {
+      "id": "backup.export",
+      "kind": "command",
+      "capability": "host_tool",
+      "package": "@ink-ts/plugin-backup-export",
+      "dir": "commands/backup.export"
+    },
+    {
+      "id": "backup.preview",
+      "kind": "command",
+      "capability": "host_tool",
+      "package": "@ink-ts/plugin-backup-preview",
+      "dir": "commands/backup.preview"
+    },
+    {
+      "id": "backup.restore",
+      "kind": "command",
+      "capability": "host_tool",
+      "package": "@ink-ts/plugin-backup-restore",
+      "dir": "commands/backup.restore"
+    },
+    {
+      "id": "cache.stats",
+      "kind": "command",
+      "capability": "host_tool",
+      "package": "@ink-ts/plugin-cache-stats",
+      "dir": "commands/cache.stats"
+    },
+    {
+      "id": "capability.baseline.get",
+      "kind": "command",
+      "capability": "host_tool",
+      "package": "@ink-ts/plugin-capability-baseline-get",
+      "dir": "commands/capability.baseline.get"
+    },
+    {
+      "id": "capability.baseline.set",
+      "kind": "command",
+      "capability": "host_tool",
+      "package": "@ink-ts/plugin-capability-baseline-set",
+      "dir": "commands/capability.baseline.set"
+    },
+    {
+      "id": "capability.get",
+      "kind": "command",
+      "capability": "host_tool",
+      "package": "@ink-ts/plugin-capability-get",
+      "dir": "commands/capability.get"
+    },
+    {
+      "id": "capability.put",
+      "kind": "command",
+      "capability": "host_tool",
+      "package": "@ink-ts/plugin-capability-put",
+      "dir": "commands/capability.put"
+    },
+    {
+      "id": "capability.tier.set",
+      "kind": "command",
+      "capability": "host_tool",
+      "package": "@ink-ts/plugin-capability-tier-set",
+      "dir": "commands/capability.tier.set"
+    },
+    {
+      "id": "dialog.open_directory",
+      "kind": "command",
+      "capability": "host_tool",
+      "package": "@ink-ts/plugin-dialog-open-directory",
+      "dir": "commands/dialog.open_directory"
+    },
+    {
+      "id": "edge_evidence.list",
+      "kind": "command",
+      "capability": "host_tool",
+      "package": "@ink-ts/plugin-edge-evidence-list",
+      "dir": "commands/edge_evidence.list"
+    },
+    {
+      "id": "entities.snapshot",
+      "kind": "command",
+      "capability": "host_tool",
+      "package": "@ink-ts/plugin-entities-snapshot",
+      "dir": "commands/entities.snapshot"
+    },
+    {
+      "id": "graph.instance",
+      "kind": "command",
+      "capability": "host_tool",
+      "package": "@ink-ts/plugin-graph-instance",
+      "dir": "commands/graph.instance"
+    },
+    {
+      "id": "growth.report",
+      "kind": "command",
+      "capability": "host_tool",
+      "package": "@ink-ts/plugin-growth-report",
+      "dir": "commands/growth.report"
+    },
+    {
+      "id": "knowledge.export",
+      "kind": "command",
+      "capability": "host_tool",
+      "package": "@ink-ts/plugin-knowledge-export",
+      "dir": "commands/knowledge.export"
+    },
+    {
+      "id": "knowledge.graph",
+      "kind": "command",
+      "capability": "host_tool",
+      "package": "@ink-ts/plugin-knowledge-graph",
+      "dir": "commands/knowledge.graph"
+    },
+    {
+      "id": "knowledge.list",
+      "kind": "command",
+      "capability": "host_tool",
+      "package": "@ink-ts/plugin-knowledge-list",
+      "dir": "commands/knowledge.list"
+    },
+    {
+      "id": "material.import",
+      "kind": "command",
+      "capability": "host_tool",
+      "package": "@ink-ts/plugin-material-import",
+      "dir": "commands/material.import"
+    },
+    {
+      "id": "mcp.market",
+      "kind": "command",
+      "capability": "host_tool",
+      "package": "@ink-ts/plugin-mcp-market",
+      "dir": "commands/mcp.market"
+    },
+    {
+      "id": "mcp.mount",
+      "kind": "command",
+      "capability": "host_tool",
+      "package": "@ink-ts/plugin-mcp-mount",
+      "dir": "commands/mcp.mount"
+    },
+    {
+      "id": "mcp.unmount",
+      "kind": "command",
+      "capability": "host_tool",
+      "package": "@ink-ts/plugin-mcp-unmount",
+      "dir": "commands/mcp.unmount"
+    },
+    {
+      "id": "memory.invalidate",
+      "kind": "command",
+      "capability": "host_tool",
+      "package": "@ink-ts/plugin-memory-invalidate",
+      "dir": "commands/memory.invalidate"
+    },
+    {
+      "id": "memory.list",
+      "kind": "command",
+      "capability": "host_tool",
+      "package": "@ink-ts/plugin-memory-list",
+      "dir": "commands/memory.list"
+    },
+    {
+      "id": "metrics.snapshot",
+      "kind": "command",
+      "capability": "host_tool",
+      "package": "@ink-ts/plugin-metrics-snapshot",
+      "dir": "commands/metrics.snapshot"
+    },
+    {
+      "id": "model_archive.snapshot",
+      "kind": "command",
+      "capability": "host_tool",
+      "package": "@ink-ts/plugin-model-archive-snapshot",
+      "dir": "commands/model_archive.snapshot"
+    },
+    {
+      "id": "models.config.get",
+      "kind": "command",
+      "capability": "host_tool",
+      "package": "@ink-ts/plugin-models-config-get",
+      "dir": "commands/models.config.get"
+    },
+    {
+      "id": "models.config.put",
+      "kind": "command",
+      "capability": "host_tool",
+      "package": "@ink-ts/plugin-models-config-put",
+      "dir": "commands/models.config.put"
+    },
+    {
+      "id": "models.config.reload",
+      "kind": "command",
+      "capability": "host_tool",
+      "package": "@ink-ts/plugin-models-config-reload",
+      "dir": "commands/models.config.reload"
+    },
+    {
+      "id": "models.config.role_pick",
+      "kind": "command",
+      "capability": "host_tool",
+      "package": "@ink-ts/plugin-models-config-role-pick",
+      "dir": "commands/models.config.role_pick"
+    },
+    {
+      "id": "os.run",
+      "kind": "command",
+      "capability": "host_tool",
+      "package": "@ink-ts/plugin-os-run",
+      "dir": "commands/os.run"
+    },
+    {
+      "id": "path.state",
+      "kind": "command",
+      "capability": "host_tool",
+      "package": "@ink-ts/plugin-path-state",
+      "dir": "commands/path.state"
+    },
+    {
+      "id": "policy.route",
+      "kind": "command",
+      "capability": "host_tool",
+      "package": "@ink-ts/plugin-policy-route",
+      "dir": "commands/policy.route"
+    },
+    {
+      "id": "pool.evaluate",
+      "kind": "command",
+      "capability": "host_tool",
+      "package": "@ink-ts/plugin-pool-evaluate",
+      "dir": "commands/pool.evaluate"
+    },
+    {
+      "id": "pool.snapshot",
+      "kind": "command",
+      "capability": "host_tool",
+      "package": "@ink-ts/plugin-pool-snapshot",
+      "dir": "commands/pool.snapshot"
+    },
+    {
+      "id": "records.chain",
+      "kind": "command",
+      "capability": "host_tool",
+      "package": "@ink-ts/plugin-records-chain",
+      "dir": "commands/records.chain"
+    },
+    {
+      "id": "records.ledger",
+      "kind": "command",
+      "capability": "host_tool",
+      "package": "@ink-ts/plugin-records-ledger",
+      "dir": "commands/records.ledger"
+    },
+    {
+      "id": "records.sessions",
+      "kind": "command",
+      "capability": "host_tool",
+      "package": "@ink-ts/plugin-records-sessions",
+      "dir": "commands/records.sessions"
+    },
+    {
+      "id": "recovery.checkpoints",
+      "kind": "command",
+      "capability": "host_tool",
+      "package": "@ink-ts/plugin-recovery-checkpoints",
+      "dir": "commands/recovery.checkpoints"
+    },
+    {
+      "id": "recovery.reset",
+      "kind": "command",
+      "capability": "host_tool",
+      "package": "@ink-ts/plugin-recovery-reset",
+      "dir": "commands/recovery.reset"
+    },
+    {
+      "id": "recovery.rollback",
+      "kind": "command",
+      "capability": "host_tool",
+      "package": "@ink-ts/plugin-recovery-rollback",
+      "dir": "commands/recovery.rollback"
+    },
+    {
+      "id": "rounds.abort",
+      "kind": "command",
+      "capability": "host_tool",
+      "package": "@ink-ts/plugin-rounds-abort",
+      "dir": "commands/rounds.abort"
+    },
+    {
+      "id": "rounds.branch",
+      "kind": "command",
+      "capability": "host_tool",
+      "package": "@ink-ts/plugin-rounds-branch",
+      "dir": "commands/rounds.branch"
+    },
+    {
+      "id": "rounds.resume",
+      "kind": "command",
+      "capability": "host_tool",
+      "package": "@ink-ts/plugin-rounds-resume",
+      "dir": "commands/rounds.resume"
+    },
+    {
+      "id": "rounds.send",
+      "kind": "command",
+      "capability": "host_tool",
+      "package": "@ink-ts/plugin-rounds-send",
+      "dir": "commands/rounds.send"
+    },
+    {
+      "id": "rounds.todos",
+      "kind": "command",
+      "capability": "host_tool",
+      "package": "@ink-ts/plugin-rounds-todos",
+      "dir": "commands/rounds.todos"
+    },
+    {
+      "id": "search.keys.get",
+      "kind": "command",
+      "capability": "host_tool",
+      "package": "@ink-ts/plugin-search-keys-get",
+      "dir": "commands/search.keys.get"
+    },
+    {
+      "id": "search.keys.set",
+      "kind": "command",
+      "capability": "host_tool",
+      "package": "@ink-ts/plugin-search-keys-set",
+      "dir": "commands/search.keys.set"
+    },
+    {
+      "id": "sessions.create",
+      "kind": "command",
+      "capability": "host_tool",
+      "package": "@ink-ts/plugin-sessions-create",
+      "dir": "commands/sessions.create"
+    },
+    {
+      "id": "sessions.delete",
+      "kind": "command",
+      "capability": "host_tool",
+      "package": "@ink-ts/plugin-sessions-delete",
+      "dir": "commands/sessions.delete"
+    },
+    {
+      "id": "sessions.messages",
+      "kind": "command",
+      "capability": "host_tool",
+      "package": "@ink-ts/plugin-sessions-messages",
+      "dir": "commands/sessions.messages"
+    },
+    {
+      "id": "sessions.refresh",
+      "kind": "command",
+      "capability": "host_tool",
+      "package": "@ink-ts/plugin-sessions-refresh",
+      "dir": "commands/sessions.refresh"
+    },
+    {
+      "id": "sessions.rename",
+      "kind": "command",
+      "capability": "host_tool",
+      "package": "@ink-ts/plugin-sessions-rename",
+      "dir": "commands/sessions.rename"
+    },
+    {
+      "id": "sessions.tree",
+      "kind": "command",
+      "capability": "host_tool",
+      "package": "@ink-ts/plugin-sessions-tree",
+      "dir": "commands/sessions.tree"
+    },
+    {
+      "id": "tools.full",
+      "kind": "command",
+      "capability": "host_tool",
+      "package": "@ink-ts/plugin-tools-full",
+      "dir": "commands/tools.full"
+    },
+    {
+      "id": "ui_components.get",
+      "kind": "command",
+      "capability": "host_tool",
+      "package": "@ink-ts/plugin-ui-components-get",
+      "dir": "commands/ui_components.get"
+    },
+    {
+      "id": "ui_components.set_disabled",
+      "kind": "command",
+      "capability": "host_tool",
+      "package": "@ink-ts/plugin-ui-components-set-disabled",
+      "dir": "commands/ui_components.set_disabled"
+    },
+    {
+      "id": "workspace.mount.add",
+      "kind": "command",
+      "capability": "host_tool",
+      "package": "@ink-ts/plugin-workspace-mount-add",
+      "dir": "commands/workspace.mount.add"
+    },
+    {
+      "id": "workspace.mount.remove",
+      "kind": "command",
+      "capability": "host_tool",
+      "package": "@ink-ts/plugin-workspace-mount-remove",
+      "dir": "commands/workspace.mount.remove"
+    },
+    {
+      "id": "workspace.revoke",
+      "kind": "command",
+      "capability": "host_tool",
+      "package": "@ink-ts/plugin-workspace-revoke",
+      "dir": "commands/workspace.revoke"
+    },
+    {
+      "id": "workspace.set",
+      "kind": "command",
+      "capability": "host_tool",
+      "package": "@ink-ts/plugin-workspace-set",
+      "dir": "commands/workspace.set"
+    },
+    {
+      "id": "workspace.state",
+      "kind": "command",
+      "capability": "host_tool",
+      "package": "@ink-ts/plugin-workspace-state",
+      "dir": "commands/workspace.state"
     }
   ],
   "tools": [
@@ -2273,5 +2735,337 @@
         "premounted": false
       }
     ]
-  }
+  },
+  "commands": [
+    {
+      "id": "approval.list",
+      "group": "approval",
+      "order": 1
+    },
+    {
+      "id": "approval.resolve",
+      "group": "approval",
+      "order": 2
+    },
+    {
+      "id": "assemble.stats",
+      "group": "assemble",
+      "order": 1
+    },
+    {
+      "id": "audit.export",
+      "group": "audit",
+      "order": 1
+    },
+    {
+      "id": "audit.list",
+      "group": "audit",
+      "order": 2
+    },
+    {
+      "id": "backup.export",
+      "group": "backup",
+      "order": 1
+    },
+    {
+      "id": "backup.preview",
+      "group": "backup",
+      "order": 2
+    },
+    {
+      "id": "backup.restore",
+      "group": "backup",
+      "order": 3
+    },
+    {
+      "id": "cache.stats",
+      "group": "cache",
+      "order": 1
+    },
+    {
+      "id": "capability.baseline.get",
+      "group": "capability",
+      "order": 3
+    },
+    {
+      "id": "capability.baseline.set",
+      "group": "capability",
+      "order": 4
+    },
+    {
+      "id": "capability.get",
+      "group": "capability",
+      "order": 1
+    },
+    {
+      "id": "capability.put",
+      "group": "capability",
+      "order": 2
+    },
+    {
+      "id": "capability.tier.set",
+      "group": "capability",
+      "order": 5
+    },
+    {
+      "id": "dialog.open_directory",
+      "group": "dialog",
+      "order": 1
+    },
+    {
+      "id": "edge_evidence.list",
+      "group": "edge_evidence",
+      "order": 1
+    },
+    {
+      "id": "entities.snapshot",
+      "group": "entities",
+      "order": 1
+    },
+    {
+      "id": "graph.instance",
+      "group": "graph",
+      "order": 1
+    },
+    {
+      "id": "growth.report",
+      "group": "growth",
+      "order": 1
+    },
+    {
+      "id": "knowledge.export",
+      "group": "knowledge",
+      "order": 3
+    },
+    {
+      "id": "knowledge.graph",
+      "group": "knowledge",
+      "order": 2
+    },
+    {
+      "id": "knowledge.list",
+      "group": "knowledge",
+      "order": 1
+    },
+    {
+      "id": "material.import",
+      "group": "material",
+      "order": 1
+    },
+    {
+      "id": "mcp.market",
+      "group": "mcp",
+      "order": 1
+    },
+    {
+      "id": "mcp.mount",
+      "group": "mcp",
+      "order": 2
+    },
+    {
+      "id": "mcp.unmount",
+      "group": "mcp",
+      "order": 3
+    },
+    {
+      "id": "memory.invalidate",
+      "group": "memory",
+      "order": 2
+    },
+    {
+      "id": "memory.list",
+      "group": "memory",
+      "order": 1
+    },
+    {
+      "id": "metrics.snapshot",
+      "group": "metrics",
+      "order": 1
+    },
+    {
+      "id": "model_archive.snapshot",
+      "group": "model_archive",
+      "order": 1
+    },
+    {
+      "id": "models.config.get",
+      "group": "models",
+      "order": 1
+    },
+    {
+      "id": "models.config.put",
+      "group": "models",
+      "order": 2
+    },
+    {
+      "id": "models.config.reload",
+      "group": "models",
+      "order": 3
+    },
+    {
+      "id": "models.config.role_pick",
+      "group": "models",
+      "order": 4
+    },
+    {
+      "id": "os.run",
+      "group": "os",
+      "order": 1
+    },
+    {
+      "id": "path.state",
+      "group": "path",
+      "order": 1
+    },
+    {
+      "id": "policy.route",
+      "group": "policy",
+      "order": 1
+    },
+    {
+      "id": "pool.evaluate",
+      "group": "pool",
+      "order": 2
+    },
+    {
+      "id": "pool.snapshot",
+      "group": "pool",
+      "order": 1
+    },
+    {
+      "id": "records.chain",
+      "group": "records",
+      "order": 2
+    },
+    {
+      "id": "records.ledger",
+      "group": "records",
+      "order": 3
+    },
+    {
+      "id": "records.sessions",
+      "group": "records",
+      "order": 1
+    },
+    {
+      "id": "recovery.checkpoints",
+      "group": "recovery",
+      "order": 1
+    },
+    {
+      "id": "recovery.reset",
+      "group": "recovery",
+      "order": 3
+    },
+    {
+      "id": "recovery.rollback",
+      "group": "recovery",
+      "order": 2
+    },
+    {
+      "id": "rounds.abort",
+      "group": "rounds",
+      "order": 2
+    },
+    {
+      "id": "rounds.branch",
+      "group": "rounds",
+      "order": 4
+    },
+    {
+      "id": "rounds.resume",
+      "group": "rounds",
+      "order": 3
+    },
+    {
+      "id": "rounds.send",
+      "group": "rounds",
+      "order": 1
+    },
+    {
+      "id": "rounds.todos",
+      "group": "todos",
+      "order": 1
+    },
+    {
+      "id": "search.keys.get",
+      "group": "search",
+      "order": 2
+    },
+    {
+      "id": "search.keys.set",
+      "group": "search",
+      "order": 1
+    },
+    {
+      "id": "sessions.create",
+      "group": "sessions",
+      "order": 1
+    },
+    {
+      "id": "sessions.delete",
+      "group": "sessions",
+      "order": 3
+    },
+    {
+      "id": "sessions.messages",
+      "group": "sessions",
+      "order": 6
+    },
+    {
+      "id": "sessions.refresh",
+      "group": "sessions",
+      "order": 4
+    },
+    {
+      "id": "sessions.rename",
+      "group": "sessions",
+      "order": 2
+    },
+    {
+      "id": "sessions.tree",
+      "group": "sessions",
+      "order": 5
+    },
+    {
+      "id": "tools.full",
+      "group": "tools",
+      "order": 1
+    },
+    {
+      "id": "ui_components.get",
+      "group": "ui_components",
+      "order": 1
+    },
+    {
+      "id": "ui_components.set_disabled",
+      "group": "ui_components",
+      "order": 2
+    },
+    {
+      "id": "workspace.mount.add",
+      "group": "workspace",
+      "order": 4
+    },
+    {
+      "id": "workspace.mount.remove",
+      "group": "workspace",
+      "order": 5
+    },
+    {
+      "id": "workspace.revoke",
+      "group": "workspace",
+      "order": 3
+    },
+    {
+      "id": "workspace.set",
+      "group": "workspace",
+      "order": 2
+    },
+    {
+      "id": "workspace.state",
+      "group": "workspace",
+      "order": 1
+    }
+  ]
 }

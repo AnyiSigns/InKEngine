@@ -1,0 +1,11 @@
+{
+  "id": "workspace.revoke",
+  "kind": "command",
+  "capability": "host_tool",
+  "actions": [],
+  "depends": [],
+  "data": {
+    "group": "workspace",
+    "order": 3
+  }
+}

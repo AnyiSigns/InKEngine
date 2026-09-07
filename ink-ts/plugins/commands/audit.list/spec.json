@@ -1,0 +1,11 @@
+{
+  "id": "audit.list",
+  "kind": "command",
+  "capability": "host_tool",
+  "actions": [],
+  "depends": [],
+  "data": {
+    "group": "audit",
+    "order": 2
+  }
+}

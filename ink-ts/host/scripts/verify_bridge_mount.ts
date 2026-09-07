@@ -1,26 +1,34 @@
 #!/usr/bin/env tsx
 /**
- * verify:bridge-mount —— 阶段 2 命令声明即挂载校验。
+ * verify:bridge-mount —— 命令声明即挂载校验（阶段 2 样板 + 阶段 3b1 真源迁移）。
  *
- * 断言：host bridge 方法面（BRIDGE_METHODS）全部由各域命令声明元组
- * （`<DOMAIN>_COMMANDS`，每域实现文件导出）spread 派生，index.ts 数组体
- * 不含任何手写点分方法名字面量（防回退为「命令名散落手写数组」）。
+ * 断言：
+ * 1. host bridge 方法面（BRIDGE_METHODS）全部由各域命令声明元组
+ *    （`<DOMAIN>_COMMANDS`）spread 派生，index.ts 数组体不含任何手写点分
+ *    方法名字面量（防回退为「命令名散落手写数组」）。
+ * 2. 域实现文件（rounds.ts / todos.ts / …）不得本地声明 `*_COMMANDS` 字面量
+ *    数组——命令方法名真源 = plugins/commands/<id>/spec.json → 生成物
+ *    commands.generated.ts（verify:plugin-manifest 强制逐字一致），域文件
+ *    只允许 `import … from './commands.generated.js'` / re-export；本检查防
+ *    域文件旁路手写数组（旁路会让「真源在 plugins」失守）。
  *
  * 键集合与实现表一致由类型系统保证：各域工厂返回
  * `Readonly<Record<<Domain>Command, BridgeHandler>>`，对象字面量少键/多键/
  * 拼错键均 typecheck 失败；装配期 buildBridge 再双向校验（有声明没实现 /
- * 有实现没声明即抛错）。本脚本负责防「BRIDGE_METHODS 回退手写」这一源码
- * 纪律面，与运行时/类型校验互补。
+ * 有实现没声明即抛错）。本脚本负责防「BRIDGE_METHODS/域文件回退手写」这一
+ * 源码纪律面，与运行时/类型校验互补。
  *
  * 扫描口径：
  * 1. BRIDGE_METHODS 数组体内（剥离 // 注释与空行后）每行必须匹配
  *    `...<IDENT>_COMMANDS,` spread；出现点分字符串字面量（'a.b',）= 违规。
  * 2. 每个被 spread 的 `<IDENT>_COMMANDS` 必须已从 `./<域>.js` import。
+ * 3. bridge/ 下非生成物、非 index.ts 的 *.ts：禁止 `export const <IDENT>_COMMANDS
+ *    = [` 本地声明（方法名数组只允许存在于 commands.generated.ts）。
  *
  * 退出码：0 = PASS；1 = 任一违规（打印违规清单）。
  */
 
-import { readFileSync } from 'node:fs';
+import { readdirSync, readFileSync } from 'node:fs';
 import { join } from 'node:path';
 import { fileURLToPath } from 'node:url';
 import { dirname } from 'node:path';
@@ -28,6 +36,7 @@ import { dirname } from 'node:path';
 const HERE = dirname(fileURLToPath(import.meta.url));
 const HOST = join(HERE, '..');
 const INDEX_PATH = join(HOST, 'src', 'bridge', 'index.ts');
+const BRIDGE_DIR = join(HOST, 'src', 'bridge');
 
 interface Violation {
   line: number;
@@ -96,12 +105,33 @@ function checkBody(lines: string[], range: { start: number; end: number }): void
   }
 }
 
+/** 域文件旁路检查：非生成物/非 index 的 bridge 源码不得本地声明 *_COMMANDS 数组。 */
+function checkNoLocalCommandArrays(): void {
+  const LOCAL_COMMANDS_DECL_RE = /export const [A-Z][A-Z0-9_]*_COMMANDS = \[/;
+  for (const entry of readdirSync(BRIDGE_DIR)) {
+    if (!entry.endsWith('.ts')) continue;
+    if (entry === 'commands.generated.ts' || entry === 'index.ts') continue;
+    const text = readFileSync(join(BRIDGE_DIR, entry), 'utf8');
+    const lines = text.split('\n');
+    lines.forEach((line, idx) => {
+      if (LOCAL_COMMANDS_DECL_RE.test(line)) {
+        violations.push({
+          line: idx + 1,
+          text: line.trim(),
+          message: `域文件 ${entry} 本地声明 *_COMMANDS 数组——方法名真源须为 plugins/commands → commands.generated.ts（域文件只 re-export）`,
+        });
+      }
+    });
+  }
+}
+
 const content = readFileSync(INDEX_PATH, 'utf8');
 const lines = content.split('\n');
 const range = bridgeMethodsBody(lines);
 if (range !== null) {
   checkBody(lines, range);
 }
+checkNoLocalCommandArrays();
 
 if (violations.length > 0) {
   console.error(`verify:bridge-mount FAIL (${INDEX_PATH})`);
@@ -112,4 +142,6 @@ if (violations.length > 0) {
   }
   process.exit(1);
 }
-console.log(`verify:bridge-mount PASS (BRIDGE_METHODS 全由域声明元组 spread 派生，无手写方法名)`);
+console.log(
+  `verify:bridge-mount PASS (BRIDGE_METHODS 全由域声明元组 spread 派生，无手写方法名；域文件无本地 *_COMMANDS 数组)`,
+);

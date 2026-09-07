@@ -1,0 +1,11 @@
+{
+  "id": "workspace.mount.add",
+  "kind": "command",
+  "capability": "host_tool",
+  "actions": [],
+  "depends": [],
+  "data": {
+    "group": "workspace",
+    "order": 4
+  }
+}

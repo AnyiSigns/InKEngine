@@ -1,0 +1,11 @@
+{
+  "id": "knowledge.graph",
+  "kind": "command",
+  "capability": "host_tool",
+  "actions": [],
+  "depends": [],
+  "data": {
+    "group": "knowledge",
+    "order": 2
+  }
+}

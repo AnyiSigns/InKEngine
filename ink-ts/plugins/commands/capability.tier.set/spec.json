@@ -1,0 +1,11 @@
+{
+  "id": "capability.tier.set",
+  "kind": "command",
+  "capability": "host_tool",
+  "actions": [],
+  "depends": [],
+  "data": {
+    "group": "capability",
+    "order": 5
+  }
+}

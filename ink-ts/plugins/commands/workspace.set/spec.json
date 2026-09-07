@@ -1,0 +1,11 @@
+{
+  "id": "workspace.set",
+  "kind": "command",
+  "capability": "host_tool",
+  "actions": [],
+  "depends": [],
+  "data": {
+    "group": "workspace",
+    "order": 2
+  }
+}

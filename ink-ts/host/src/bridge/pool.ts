@@ -13,6 +13,8 @@
  * 与引擎登记同源），余量 = 最近一条登记的 budget_remaining。
  */
 
+import type { PoolCommand } from './commands.generated.js';
+export { POOL_COMMANDS, type PoolCommand } from './commands.generated.js';
 import { BridgeError, type BridgeHandler } from './_types.js';
 import type { HostBridgeDeps } from './_types.js';
 
@@ -89,13 +91,6 @@ function lastBudgetRemaining(log: readonly Record<string, unknown>[]): number | 
   return value === undefined || value === null ? null : toNumber(value);
 }
 
-/** pool 命令声明（方法名唯一真源；装配由 index 聚合此表）。 */
-export const POOL_COMMANDS = [
-  'pool.snapshot',
-  'pool.evaluate',
-] as const;
-
-export type PoolCommand = (typeof POOL_COMMANDS)[number];
 
 export function buildPoolCommands(deps: HostBridgeDeps): Readonly<Record<PoolCommand, BridgeHandler>> {
   /** pool.snapshot：池治理登记快照 + 派生计数（无登记 = 空态）。 */

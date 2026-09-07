@@ -1,0 +1,11 @@
+{
+  "id": "growth.report",
+  "kind": "command",
+  "capability": "host_tool",
+  "actions": [],
+  "depends": [],
+  "data": {
+    "group": "growth",
+    "order": 1
+  }
+}

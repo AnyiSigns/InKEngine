@@ -8,6 +8,8 @@
  * 未挂载 = 结构化空态（available:false + 字段如实，不报错不编造）。
  */
 
+import type { AssembleCommand } from './commands.generated.js';
+export { ASSEMBLE_COMMANDS, type AssembleCommand } from './commands.generated.js';
 import { type BridgeHandler } from './_types.js';
 import type { HostBridgeDeps } from './_types.js';
 
@@ -49,13 +51,7 @@ function cacheStats(store: unknown): FingerprintCacheStatsView {
   };
 }
 
-/** assemble 命令声明（方法名唯一真源；装配由 index 聚合此表）。 */
-export const ASSEMBLE_COMMANDS = [
-  'assemble.stats',
-] as const;
-
-export type AssembleCommand = (typeof ASSEMBLE_COMMANDS)[number];
-
+/** assemble 命令声明（方法名真源 = plugins/commands → commands.generated.ts 派生；装配由 index 聚合生成物元组）。 */
 export function buildAssembleCommands(deps: HostBridgeDeps): Readonly<Record<AssembleCommand, BridgeHandler>> {
   /** assemble.stats：组装链统计 + 缓存计数（未挂载 = 空态）。 */
   const stats: BridgeHandler = async (): Promise<Record<string, unknown>> => {

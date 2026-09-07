@@ -1,0 +1,11 @@
+{
+  "id": "recovery.reset",
+  "kind": "command",
+  "capability": "host_tool",
+  "actions": [],
+  "depends": [],
+  "data": {
+    "group": "recovery",
+    "order": 3
+  }
+}

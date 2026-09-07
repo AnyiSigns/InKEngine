@@ -9,6 +9,8 @@
  * （装配为全局态；参数保留兼容调用面）。
  */
 
+import type { PathCommand } from './commands.generated.js';
+export { PATH_COMMANDS, type PathCommand } from './commands.generated.js';
 import { EVENT_ASSEMBLY_CANDIDATE, EVENT_AUDIT_ASSEMBLY, SET_AUDIT_COLLECTION } from '@ink-ts/engine';
 
 import { type BridgeHandler } from './_types.js';
@@ -44,12 +46,6 @@ function latestOfKind(
   return best;
 }
 
-/** path 命令声明（方法名唯一真源；装配由 index 聚合此表）。 */
-export const PATH_COMMANDS = [
-  'path.state',
-] as const;
-
-export type PathCommand = (typeof PATH_COMMANDS)[number];
 
 export function buildPathCommands(deps: HostBridgeDeps): Readonly<Record<PathCommand, BridgeHandler>> {
   /** path.state：path_assembler 装配状态 + 最近组装候选摘要。 */

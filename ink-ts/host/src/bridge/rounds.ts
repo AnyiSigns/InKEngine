@@ -1,3 +1,5 @@
+import type { RoundsCommand } from './commands.generated.js';
+export { ROUNDS_COMMANDS, type RoundsCommand } from './commands.generated.js';
 // gate: 超限(385 行) - 回合驱动单一命令面（队列保护/在途登记/附件文档注入与簿记收尾成对同文件防漂移）
 /**
  * rounds 命令面（send/abort/resume/branch）——宿主薄驱动，不复制引擎机制。
@@ -127,15 +129,6 @@ function trackedRun(
   } as RunTaskHandle & { promise: Promise<RoundOutcome> };
 }
 
-/** rounds 命令声明（方法名唯一真源；装配由 index 聚合此表）。 */
-export const ROUNDS_COMMANDS = [
-  'rounds.send',
-  'rounds.abort',
-  'rounds.resume',
-  'rounds.branch',
-] as const;
-
-export type RoundsCommand = (typeof ROUNDS_COMMANDS)[number];
 
 /** rounds 方法组构造（每 host 装配闭包：串行回合队列 + 事件文件传输）。 */
 export function buildRoundsCommands(deps: HostBridgeDeps): Readonly<Record<RoundsCommand, BridgeHandler>> {

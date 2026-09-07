@@ -1,0 +1,11 @@
+{
+  "id": "model_archive.snapshot",
+  "kind": "command",
+  "capability": "host_tool",
+  "actions": [],
+  "depends": [],
+  "data": {
+    "group": "model_archive",
+    "order": 1
+  }
+}

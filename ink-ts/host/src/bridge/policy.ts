@@ -10,6 +10,8 @@
  * 恒 false。引擎侧多链/模拟预算装配落地后此预览随装配数据输出。
  */
 
+import type { PolicyCommand } from './commands.generated.js';
+export { POLICY_COMMANDS, type PolicyCommand } from './commands.generated.js';
 import { BridgeError, type BridgeHandler } from './_types.js';
 
 export const SIMULATION_TIERS = ['off', 'light', 'full'] as const;
@@ -55,12 +57,6 @@ function parseTier(raw: unknown): string {
   return value;
 }
 
-/** policy 命令声明（方法名唯一真源；装配由 index 聚合此表）。 */
-export const POLICY_COMMANDS = [
-  'policy.route',
-] as const;
-
-export type PolicyCommand = (typeof POLICY_COMMANDS)[number];
 
 export function buildPolicyCommands(): Readonly<Record<PolicyCommand, BridgeHandler>> {
   const route: BridgeHandler = async (raw): Promise<unknown> => {

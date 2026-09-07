@@ -7,6 +7,8 @@
  * 用户取消 → null（不弹回退）。
  */
 
+import type { DialogCommand } from './commands.generated.js';
+export { DIALOG_COMMANDS, type DialogCommand } from './commands.generated.js';
 import { BridgeError, type BridgeHandler } from './_types.js';
 import { ExecClient } from '../exec/client.js';
 import { locateNativeBinary } from '../exec/binary.js';
@@ -19,12 +21,6 @@ function nativeExec(): ExecClient {
   return new ExecClient({ binary });
 }
 
-/** dialog 命令声明（方法名唯一真源；装配由 index 聚合此表）。 */
-export const DIALOG_COMMANDS = [
-  'dialog.open_directory',
-] as const;
-
-export type DialogCommand = (typeof DIALOG_COMMANDS)[number];
 
 /** dialog 域桥接组（open_directory → 绝对路径数组或 null=取消）。 */
 export function buildDialogCommands(): Readonly<Record<DialogCommand, BridgeHandler>> {

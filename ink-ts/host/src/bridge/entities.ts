@@ -8,6 +8,8 @@
  * 表 = 结构化空态（degraded:true + 空清单，不报错）。
  */
 
+import type { EntitiesCommand } from './commands.generated.js';
+export { ENTITIES_COMMANDS, type EntitiesCommand } from './commands.generated.js';
 import { type BridgeHandler } from './_types.js';
 import type { HostBridgeDeps } from './_types.js';
 
@@ -21,12 +23,6 @@ interface EntityRegistryLike {
   specs(): Array<Record<string, unknown>>;
 }
 
-/** entities 命令声明（方法名唯一真源；装配由 index 聚合此表）。 */
-export const ENTITIES_COMMANDS = [
-  'entities.snapshot',
-] as const;
-
-export type EntitiesCommand = (typeof ENTITIES_COMMANDS)[number];
 
 export function buildEntitiesCommands(deps: HostBridgeDeps): Readonly<Record<EntitiesCommand, BridgeHandler>> {
   /** entities.snapshot：实体清单 + 配额态（无注册表 = 空态）。 */

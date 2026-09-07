@@ -1,0 +1,11 @@
+{
+  "id": "cache.stats",
+  "kind": "command",
+  "capability": "host_tool",
+  "actions": [],
+  "depends": [],
+  "data": {
+    "group": "cache",
+    "order": 1
+  }
+}

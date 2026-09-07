@@ -1,0 +1,11 @@
+{
+  "id": "search.keys.set",
+  "kind": "command",
+  "capability": "host_tool",
+  "actions": [],
+  "depends": [],
+  "data": {
+    "group": "search",
+    "order": 1
+  }
+}

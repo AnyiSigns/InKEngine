@@ -1,0 +1,11 @@
+{
+  "id": "path.state",
+  "kind": "command",
+  "capability": "host_tool",
+  "actions": [],
+  "depends": [],
+  "data": {
+    "group": "path",
+    "order": 1
+  }
+}

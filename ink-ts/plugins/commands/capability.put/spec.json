@@ -1,0 +1,11 @@
+{
+  "id": "capability.put",
+  "kind": "command",
+  "capability": "host_tool",
+  "actions": [],
+  "depends": [],
+  "data": {
+    "group": "capability",
+    "order": 2
+  }
+}

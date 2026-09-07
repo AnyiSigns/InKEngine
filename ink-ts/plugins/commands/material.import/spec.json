@@ -1,0 +1,11 @@
+{
+  "id": "material.import",
+  "kind": "command",
+  "capability": "host_tool",
+  "actions": [],
+  "depends": [],
+  "data": {
+    "group": "material",
+    "order": 1
+  }
+}

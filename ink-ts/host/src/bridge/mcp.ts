@@ -9,6 +9,8 @@
  * （引擎无市场摄入管线）→ 不提供（web 侧删除入口）。
  */
 
+import type { McpCommand } from './commands.generated.js';
+export { MCP_COMMANDS, type McpCommand } from './commands.generated.js';
 import { readFileSync } from 'node:fs';
 import { dirname, join, resolve } from 'node:path';
 import { fileURLToPath } from 'node:url';
@@ -98,14 +100,6 @@ function parseMountConfig(raw: unknown): { config: McpServerConfig; source: stri
   return { config, source };
 }
 
-/** mcp 命令声明（方法名唯一真源；装配由 index 聚合此表）。 */
-export const MCP_COMMANDS = [
-  'mcp.market',
-  'mcp.mount',
-  'mcp.unmount',
-] as const;
-
-export type McpCommand = (typeof MCP_COMMANDS)[number];
 
 export function buildMcpCommands(deps: HostBridgeDeps): Readonly<Record<McpCommand, BridgeHandler>> {
   const market: BridgeHandler = (): McpMarketView => {

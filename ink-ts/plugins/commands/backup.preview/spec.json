@@ -1,0 +1,11 @@
+{
+  "id": "backup.preview",
+  "kind": "command",
+  "capability": "host_tool",
+  "actions": [],
+  "depends": [],
+  "data": {
+    "group": "backup",
+    "order": 2
+  }
+}

@@ -20,6 +20,8 @@
  * 值 allow/review；登记面不具执行语义，能力 get 原样回显）。
  */
 
+import type { CapabilityCommand } from './commands.generated.js';
+export { CAPABILITY_COMMANDS, type CapabilityCommand } from './commands.generated.js';
 import type {
   CapabilityRecord,
   CapabilityStore,
@@ -96,17 +98,7 @@ function runtimeOrThrow(deps: HostBridgeDeps): void {
   }
 }
 
-/** capability 命令声明（方法名唯一真源；装配由 index 聚合此表）。 */
-export const CAPABILITY_COMMANDS = [
-  'capability.get',
-  'capability.put',
-  'capability.baseline.get',
-  'capability.baseline.set',
-  'capability.tier.set',
-] as const;
-
-export type CapabilityCommand = (typeof CAPABILITY_COMMANDS)[number];
-
+/** capability 命令声明（方法名真源 = plugins/commands → commands.generated.ts 派生；装配由 index 聚合生成物元组）。 */
 export function buildCapabilityCommands(deps: HostBridgeDeps): Readonly<Record<CapabilityCommand, BridgeHandler>> {
   const store: CapabilityStore = deps.capability ?? ephemeralCapabilityStore();
 

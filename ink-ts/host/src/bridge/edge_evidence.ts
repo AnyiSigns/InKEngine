@@ -8,6 +8,8 @@
  * 空态（edges 空，不报错）。
  */
 
+import type { EdgeEvidenceCommand } from './commands.generated.js';
+export { EDGE_EVIDENCE_COMMANDS, type EdgeEvidenceCommand } from './commands.generated.js';
 import { BridgeError, type BridgeHandler } from './_types.js';
 import type { HostBridgeDeps } from './_types.js';
 
@@ -86,12 +88,6 @@ function toEdgeView(raw: unknown): EdgeEvidenceView {
   };
 }
 
-/** edge_evidence 命令声明（方法名唯一真源；装配由 index 聚合此表）。 */
-export const EDGE_EVIDENCE_COMMANDS = [
-  'edge_evidence.list',
-] as const;
-
-export type EdgeEvidenceCommand = (typeof EDGE_EVIDENCE_COMMANDS)[number];
 
 export function buildEdgeEvidenceCommands(deps: HostBridgeDeps): Readonly<Record<EdgeEvidenceCommand, BridgeHandler>> {
   /** edge_evidence.list：边证据条目窗口（domain/source 过滤 + limit）。 */

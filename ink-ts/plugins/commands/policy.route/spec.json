@@ -1,0 +1,11 @@
+{
+  "id": "policy.route",
+  "kind": "command",
+  "capability": "host_tool",
+  "actions": [],
+  "depends": [],
+  "data": {
+    "group": "policy",
+    "order": 1
+  }
+}

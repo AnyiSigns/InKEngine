@@ -8,6 +8,8 @@
  * - search.keys.get  {} → { keys: 掩码映射, count }（无明文外泄）。
  */
 
+import type { SearchCommand } from './commands.generated.js';
+export { SEARCH_COMMANDS, type SearchCommand } from './commands.generated.js';
 import { BridgeError, type BridgeHandler } from './_types.js';
 import type { HostBridgeDeps } from './_types.js';
 import type { SearchKeysStore } from '../search/keys.js';
@@ -19,13 +21,6 @@ function storeOf(deps: HostBridgeDeps): SearchKeysStore {
   return deps.searchKeys;
 }
 
-/** search 命令声明（方法名唯一真源；装配由 index 聚合此表）。 */
-export const SEARCH_COMMANDS = [
-  'search.keys.set',
-  'search.keys.get',
-] as const;
-
-export type SearchCommand = (typeof SEARCH_COMMANDS)[number];
 
 export function buildSearchCommands(deps: HostBridgeDeps): Readonly<Record<SearchCommand, BridgeHandler>> {
   const setKeys: BridgeHandler = (raw): { ok: true; count: number } => {

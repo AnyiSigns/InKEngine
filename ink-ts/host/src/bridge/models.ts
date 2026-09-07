@@ -12,6 +12,8 @@
  * （不静默沿用旧模型）。
  */
 
+import type { ModelsCommand } from './commands.generated.js';
+export { MODELS_COMMANDS, type ModelsCommand } from './commands.generated.js';
 import { HostConfigError } from '../config.js';
 import {
   BridgeError,
@@ -82,15 +84,6 @@ async function refreshEngine(deps: HostBridgeDeps): Promise<void> {
   }
 }
 
-/** models 命令声明（方法名唯一真源；装配由 index 聚合此表）。 */
-export const MODELS_COMMANDS = [
-  'models.config.get',
-  'models.config.put',
-  'models.config.reload',
-  'models.config.role_pick',
-] as const;
-
-export type ModelsCommand = (typeof MODELS_COMMANDS)[number];
 
 export function buildModelsCommands(deps: HostBridgeDeps): Readonly<Record<ModelsCommand, BridgeHandler>> {
   const get: BridgeHandler = () => deps.host.model_config_state();

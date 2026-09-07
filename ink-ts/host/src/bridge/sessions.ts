@@ -8,6 +8,8 @@
  * 机制语义全在引擎。
  */
 
+import type { SessionsCommand } from './commands.generated.js';
+export { SESSIONS_COMMANDS, type SessionsCommand } from './commands.generated.js';
 import type { Storage } from '@ink-ts/engine';
 
 import { HostSessionStore } from '../sessions/store.js';
@@ -39,17 +41,6 @@ function sessionOrThrow(record: HostSessionRecord | null, thread_id: string): Ho
   return record;
 }
 
-/** sessions 命令声明（方法名唯一真源；装配由 index 聚合此表）。 */
-export const SESSIONS_COMMANDS = [
-  'sessions.create',
-  'sessions.rename',
-  'sessions.delete',
-  'sessions.refresh',
-  'sessions.tree',
-  'sessions.messages',
-] as const;
-
-export type SessionsCommand = (typeof SESSIONS_COMMANDS)[number];
 
 export function buildSessionsCommands(deps: HostBridgeDeps): Readonly<Record<SessionsCommand, BridgeHandler>> {
   const store = new HostSessionStore(() => deps.runtime.storage as unknown as Storage | null);

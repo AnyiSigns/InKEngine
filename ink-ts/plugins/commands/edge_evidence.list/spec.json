@@ -1,0 +1,11 @@
+{
+  "id": "edge_evidence.list",
+  "kind": "command",
+  "capability": "host_tool",
+  "actions": [],
+  "depends": [],
+  "data": {
+    "group": "edge_evidence",
+    "order": 1
+  }
+}

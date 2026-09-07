@@ -1,0 +1,11 @@
+{
+  "id": "rounds.send",
+  "kind": "command",
+  "capability": "host_tool",
+  "actions": [],
+  "depends": [],
+  "data": {
+    "group": "rounds",
+    "order": 1
+  }
+}

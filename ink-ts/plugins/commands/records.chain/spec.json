@@ -1,0 +1,11 @@
+{
+  "id": "records.chain",
+  "kind": "command",
+  "capability": "host_tool",
+  "actions": [],
+  "depends": [],
+  "data": {
+    "group": "records",
+    "order": 2
+  }
+}

@@ -8,6 +8,8 @@
  * （web 顶栏据此隐藏待办标签）。host 只接线投影，机制全在引擎。
  */
 
+import type { TodosCommand } from './commands.generated.js';
+export { TODOS_COMMANDS, type TodosCommand } from './commands.generated.js';
 import { BridgeError, type BridgeHandler } from './_types.js';
 import type { HostBridgeDeps } from './_types.js';
 
@@ -92,12 +94,6 @@ function cardTodo(card: InterruptCard): TodoView {
   };
 }
 
-/** todos 命令声明（rounds.todos 挂 rounds 域；方法名唯一真源，装配由 index 聚合）。 */
-export const TODOS_COMMANDS = [
-  'rounds.todos',
-] as const;
-
-export type TodosCommand = (typeof TODOS_COMMANDS)[number];
 
 /** rounds.todos 处理器组（本组仅一个方法；挂 rounds 域命令面）。 */
 export function buildTodosCommands(deps: HostBridgeDeps): Readonly<Record<TodosCommand, BridgeHandler>> {

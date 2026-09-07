@@ -1,0 +1,11 @@
+{
+  "id": "entities.snapshot",
+  "kind": "command",
+  "capability": "host_tool",
+  "actions": [],
+  "depends": [],
+  "data": {
+    "group": "entities",
+    "order": 1
+  }
+}

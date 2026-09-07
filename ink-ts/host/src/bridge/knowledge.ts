@@ -9,6 +9,8 @@
  * list/graph 兼容旧 python 桥的 args 信封（{args: {...}}）与直传两种形态。
  */
 
+import type { KnowledgeCommand } from './commands.generated.js';
+export { KNOWLEDGE_COMMANDS, type KnowledgeCommand } from './commands.generated.js';
 import { BridgeError, type BridgeHandler } from './_types.js';
 import type { HostBridgeDeps } from './_types.js';
 import { toJsonSafe } from './records.js';
@@ -126,14 +128,6 @@ function matchesQuery(entry: KnowledgeEntryLike, query: string): boolean {
   return content.toLowerCase().includes(needle);
 }
 
-/** knowledge 命令声明（方法名唯一真源；装配由 index 聚合此表）。 */
-export const KNOWLEDGE_COMMANDS = [
-  'knowledge.list',
-  'knowledge.graph',
-  'knowledge.export',
-] as const;
-
-export type KnowledgeCommand = (typeof KNOWLEDGE_COMMANDS)[number];
 
 export function buildKnowledgeCommands(deps: HostBridgeDeps): Readonly<Record<KnowledgeCommand, BridgeHandler>> {
   /** 知识集条目窗口（query/kind 过滤 + include_archived 开关）。 */

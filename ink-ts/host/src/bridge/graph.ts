@@ -9,6 +9,8 @@
  * 不报错不回归。host 只接线投影，图结构与执行语义全在引擎。
  */
 
+import type { GraphCommand } from './commands.generated.js';
+export { GRAPH_COMMANDS, type GraphCommand } from './commands.generated.js';
 import { BridgeError, type BridgeHandler } from './_types.js';
 import type { HostBridgeDeps } from './_types.js';
 
@@ -125,12 +127,6 @@ function engineGraphSnapshot(
   };
 }
 
-/** graph 命令声明（方法名唯一真源；装配由 index 聚合此表）。 */
-export const GRAPH_COMMANDS = [
-  'graph.instance',
-] as const;
-
-export type GraphCommand = (typeof GRAPH_COMMANDS)[number];
 
 export function buildGraphCommands(deps: HostBridgeDeps): Readonly<Record<GraphCommand, BridgeHandler>> {
   /** graph.instance：最近回合组装图投影 + 最近一回合节点执行态摘要。 */

@@ -1,0 +1,11 @@
+{
+  "id": "pool.snapshot",
+  "kind": "command",
+  "capability": "host_tool",
+  "actions": [],
+  "depends": [],
+  "data": {
+    "group": "pool",
+    "order": 1
+  }
+}

@@ -9,6 +9,8 @@
  * 擦除）。update_frontmatter 不提供（web 侧删除调用）。
  */
 
+import type { MemoryCommand } from './commands.generated.js';
+export { MEMORY_COMMANDS, type MemoryCommand } from './commands.generated.js';
 import { BridgeError, type BridgeHandler } from './_types.js';
 import type { HostBridgeDeps } from './_types.js';
 
@@ -74,13 +76,6 @@ function recallCompare(
   return right.priority - left.priority || right.created_at - left.created_at;
 }
 
-/** memory 命令声明（方法名唯一真源；装配由 index 聚合此表）。 */
-export const MEMORY_COMMANDS = [
-  'memory.list',
-  'memory.invalidate',
-] as const;
-
-export type MemoryCommand = (typeof MEMORY_COMMANDS)[number];
 
 export function buildMemoryCommands(deps: HostBridgeDeps): Readonly<Record<MemoryCommand, BridgeHandler>> {
   /** 记忆清单（query = 内容/标题/id 子串过滤；limit 截断；namespace 分组）。 */

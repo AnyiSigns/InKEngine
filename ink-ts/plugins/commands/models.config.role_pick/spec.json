@@ -1,0 +1,11 @@
+{
+  "id": "models.config.role_pick",
+  "kind": "command",
+  "capability": "host_tool",
+  "actions": [],
+  "depends": [],
+  "data": {
+    "group": "models",
+    "order": 4
+  }
+}

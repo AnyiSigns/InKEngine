@@ -10,6 +10,8 @@
  * 本层只在确认标记后持命令闸（deps.gate），执行期间并发 bridge 请求被拒。
  */
 
+import type { BackupCommand } from './commands.generated.js';
+export { BACKUP_COMMANDS, type BackupCommand } from './commands.generated.js';
 import { mkdirSync } from 'node:fs';
 import { join } from 'node:path';
 
@@ -44,15 +46,7 @@ function requirePath(raw: unknown, method: string): string {
   return params.path;
 }
 
-/** backup 命令声明（方法名唯一真源；装配由 index 聚合此表）。 */
-export const BACKUP_COMMANDS = [
-  'backup.export',
-  'backup.preview',
-  'backup.restore',
-] as const;
-
-export type BackupCommand = (typeof BACKUP_COMMANDS)[number];
-
+/** backup 命令声明（方法名真源 = plugins/commands → commands.generated.ts 派生；装配由 index 聚合生成物元组）。 */
 export function buildBackupCommands(deps: HostBridgeDeps): Readonly<Record<BackupCommand, BridgeHandler>> {
   /** 导出：data_dir 整包 zip（dest 缺省 data_dir/backups/export-<ts>.zip）。 */
   const exportHandler: BridgeHandler = async (raw): Promise<unknown> => {

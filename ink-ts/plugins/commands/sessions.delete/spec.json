@@ -1,0 +1,11 @@
+{
+  "id": "sessions.delete",
+  "kind": "command",
+  "capability": "host_tool",
+  "actions": [],
+  "depends": [],
+  "data": {
+    "group": "sessions",
+    "order": 3
+  }
+}

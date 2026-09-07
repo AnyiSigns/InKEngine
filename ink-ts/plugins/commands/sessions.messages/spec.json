@@ -1,0 +1,11 @@
+{
+  "id": "sessions.messages",
+  "kind": "command",
+  "capability": "host_tool",
+  "actions": [],
+  "depends": [],
+  "data": {
+    "group": "sessions",
+    "order": 6
+  }
+}

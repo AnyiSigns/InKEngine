@@ -1,0 +1,11 @@
+{
+  "id": "records.ledger",
+  "kind": "command",
+  "capability": "host_tool",
+  "actions": [],
+  "depends": [],
+  "data": {
+    "group": "records",
+    "order": 3
+  }
+}

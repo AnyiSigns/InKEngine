@@ -1,0 +1,11 @@
+{
+  "id": "knowledge.export",
+  "kind": "command",
+  "capability": "host_tool",
+  "actions": [],
+  "depends": [],
+  "data": {
+    "group": "knowledge",
+    "order": 3
+  }
+}

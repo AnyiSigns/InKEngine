@@ -10,6 +10,8 @@
  * - set_disabled：整集替换停用集（未登记名由引擎结构化拒绝 → 业务错误）。
  */
 
+import type { UiComponentsCommand } from './commands.generated.js';
+export { UI_COMPONENTS_COMMANDS, type UiComponentsCommand } from './commands.generated.js';
 import { BridgeError, type BridgeHandler } from './_types.js';
 import type { HostBridgeDeps } from './_types.js';
 
@@ -26,13 +28,6 @@ function disabledParam(raw: unknown): string[] {
   return disabled as string[];
 }
 
-/** ui_components 命令声明（方法名唯一真源；装配由 index 聚合此表）。 */
-export const UI_COMPONENTS_COMMANDS = [
-  'ui_components.get',
-  'ui_components.set_disabled',
-] as const;
-
-export type UiComponentsCommand = (typeof UI_COMPONENTS_COMMANDS)[number];
 
 export function buildUiComponentsCommands(deps: HostBridgeDeps): Readonly<Record<UiComponentsCommand, BridgeHandler>> {
   const get: BridgeHandler = (): unknown => {

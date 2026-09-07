@@ -1,0 +1,10 @@
+{
+  "name": "@ink-ts/plugin-knowledge-list",
+  "version": "0.0.0",
+  "private": true,
+  "type": "module",
+  "files": [
+    "spec.json"
+  ],
+  "description": "ink-ts 命令插件声明（真源；host 命令面由此派生）"
+}

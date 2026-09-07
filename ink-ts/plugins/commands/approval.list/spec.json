@@ -1,0 +1,11 @@
+{
+  "id": "approval.list",
+  "kind": "command",
+  "capability": "host_tool",
+  "actions": [],
+  "depends": [],
+  "data": {
+    "group": "approval",
+    "order": 1
+  }
+}

@@ -1,0 +1,11 @@
+{
+  "id": "ui_components.get",
+  "kind": "command",
+  "capability": "host_tool",
+  "actions": [],
+  "depends": [],
+  "data": {
+    "group": "ui_components",
+    "order": 1
+  }
+}

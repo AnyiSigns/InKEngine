@@ -1,0 +1,11 @@
+{
+  "id": "dialog.open_directory",
+  "kind": "command",
+  "capability": "host_tool",
+  "actions": [],
+  "depends": [],
+  "data": {
+    "group": "dialog",
+    "order": 1
+  }
+}

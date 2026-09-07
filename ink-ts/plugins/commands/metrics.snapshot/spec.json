@@ -1,0 +1,11 @@
+{
+  "id": "metrics.snapshot",
+  "kind": "command",
+  "capability": "host_tool",
+  "actions": [],
+  "depends": [],
+  "data": {
+    "group": "metrics",
+    "order": 1
+  }
+}

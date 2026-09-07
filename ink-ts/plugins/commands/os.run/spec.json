@@ -1,0 +1,11 @@
+{
+  "id": "os.run",
+  "kind": "command",
+  "capability": "host_tool",
+  "actions": [],
+  "depends": [],
+  "data": {
+    "group": "os",
+    "order": 1
+  }
+}

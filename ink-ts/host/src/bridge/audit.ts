@@ -6,6 +6,8 @@
  * writer，host 只导出（读透传，含 ts/type 字段排序窗口）。
  */
 
+import type { AuditCommand } from './commands.generated.js';
+export { AUDIT_COMMANDS, type AuditCommand } from './commands.generated.js';
 import { SET_AUDIT_COLLECTION } from '@ink-ts/engine';
 
 import { BridgeError, type BridgeHandler } from './_types.js';
@@ -73,14 +75,7 @@ function recordKind(record: Record<string, unknown>): string {
   return typeof type === 'string' ? type : '';
 }
 
-/** audit 命令声明（方法名唯一真源；装配由 index 聚合此表）。 */
-export const AUDIT_COMMANDS = [
-  'audit.export',
-  'audit.list',
-] as const;
-
-export type AuditCommand = (typeof AUDIT_COMMANDS)[number];
-
+/** audit 命令声明（方法名真源 = plugins/commands → commands.generated.ts 派生；装配由 index 聚合生成物元组）。 */
 export function buildAuditCommands(deps: HostBridgeDeps): Readonly<Record<AuditCommand, BridgeHandler>> {
   const auditExport: BridgeHandler = async (raw): Promise<unknown[]> => {
     const storage = deps.runtime.storage;

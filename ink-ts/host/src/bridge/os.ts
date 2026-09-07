@@ -9,6 +9,8 @@
  * validate 拦截。
  */
 
+import type { OsCommand } from './commands.generated.js';
+export { OS_COMMANDS, type OsCommand } from './commands.generated.js';
 import type { GuardedStorage } from '@ink-ts/engine';
 
 import { OsError, HostOsRunner } from '../os/runner.js';
@@ -58,12 +60,6 @@ function asStringArray(raw: unknown, field: string): string[] {
   return [...raw];
 }
 
-/** os 命令声明（方法名唯一真源；装配由 index 聚合此表）。 */
-export const OS_COMMANDS = [
-  'os.run',
-] as const;
-
-export type OsCommand = (typeof OS_COMMANDS)[number];
 
 export function buildOsCommands(deps: HostBridgeDeps): Readonly<Record<OsCommand, BridgeHandler>> {
   const runner = new HostOsRunner(

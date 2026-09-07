@@ -74,7 +74,15 @@ function recallCompare(
   return right.priority - left.priority || right.created_at - left.created_at;
 }
 
-export function buildMemoryHandlers(deps: HostBridgeDeps): ReadonlyMap<string, BridgeHandler> {
+/** memory 命令声明（方法名唯一真源；装配由 index 聚合此表）。 */
+export const MEMORY_COMMANDS = [
+  'memory.list',
+  'memory.invalidate',
+] as const;
+
+export type MemoryCommand = (typeof MEMORY_COMMANDS)[number];
+
+export function buildMemoryCommands(deps: HostBridgeDeps): Readonly<Record<MemoryCommand, BridgeHandler>> {
   /** 记忆清单（query = 内容/标题/id 子串过滤；limit 截断；namespace 分组）。 */
   const list: BridgeHandler = async (raw): Promise<MemoryListView> => {
     const storage = deps.runtime.storage;
@@ -192,8 +200,8 @@ export function buildMemoryHandlers(deps: HostBridgeDeps): ReadonlyMap<string, B
     return { total: ids.length, invalidated, not_found: notFound };
   };
 
-  return new Map<string, BridgeHandler>([
-    ['memory.list', list],
-    ['memory.invalidate', invalidate],
-  ]);
+  return {
+    'memory.list': list,
+    'memory.invalidate': invalidate,
+  };
 }

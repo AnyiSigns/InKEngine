@@ -285,10 +285,10 @@ host.spec（能力插件 kind='host'；faces 用专用 HostFaces，不走通用 
 
 ## 九、落地现状 vs 设计差异
 
-> 实施后逐阶段回填。阶段 0（契约文档）与阶段 1（放开机制层）已落地（2026-09-07）；
-> 阶段 2 起待实施。
+> 实施后逐阶段回填。阶段 0（契约文档）与阶段 1（放开机制层）与阶段 2（命令
+> 声明即挂载）已落地（2026-09-07）；阶段 3 起待实施。
 
-### 阶段 0/1 落地状态（逐阶段回填）
+### 阶段 0/1/2 落地状态（逐阶段回填）
 
 | 阶段 | 设计要件 | 落点 | 状态 |
 |---|---|---|---|
@@ -299,6 +299,9 @@ host.spec（能力插件 kind='host'；faces 用专用 HostFaces，不走通用 
 | 1 | boot 密封 | `_runtime_assemble.ts` boot 装配首步 `seal_mechanism_registry(ALL)` fail-closed（id 唯一/depends 在册/无自环/无循环 + 拓扑序） | ✅ 完成 |
 | 1 | C 类收敛（去自造/拆环） | 孤儿流水线清理、builder 沙箱副本 `derived`、self_application 校验器必注入、executor↔path_assembler 环拆（executor 经 `RunOptions.multipath_assembly` seam 消费组装上下文）；密封图归零环 | ✅ 完成 |
 | 1 | verify 三键可执行 | `verify:mechanisms`（`engine/scripts/verify_mechanisms.ts`）：依赖单向（密封）+ 装配完整（runtime 闭包 ∪ 自足叶子 = 全量）+ 0-IO（kernel 禁 node 内置/第三方/IO 全局原语）；并入 root `test` 链 | ✅ 完成 |
+| 2 | 命令声明即挂载样板 | 66 点分方法名归各域文件 `*_COMMANDS` 声明元组（31 份；`rounds.todos` 独立于 todos.ts 挂 rounds 域）；工厂改名 `build<Domain>Commands`，返回 `Readonly<Record<DomainCommand, BridgeHandler>>` 对象（编译期锁键集合 = 声明，缺/多/拼错即 typecheck 失败）；`BRIDGE_METHODS` 改为各域元组 spread 派生导出（值/顺序不变，self_check fixture 零漂移）；`host/src/bridge/index.ts` 不再含任何手写方法名 | ✅ 完成 |
+| 2 | verify（声明即挂载） | `verify:bridge-mount`（`host/scripts/verify_bridge_mount.ts`）：BRIDGE_METHODS 数组体只允许 `*_COMMANDS` spread（禁点分方法名字面量防回退手写）+ spread 常量须已 import；并入 root `test` 链尾 | ✅ 完成 |
+| 2 | 消费面适配 | capability store.test 改调 `buildCapabilityCommands` 下标访问；CODING.md §9 纪律注记同步声明驱动语义（§7 门禁表 + 扫描链） | ✅ 完成 |
 
 ### 已具备的地基（对照现状）
 
@@ -308,7 +311,7 @@ host.spec（能力插件 kind='host'；faces 用专用 HostFaces，不走通用 
 | 0-IO 端口注入 | `engine/src/adapters/`（storage/llm/mcp + boot） | ✅ 已实现 |
 | 装配数据 | `AssemblyRecipe`（engine 定义，经 `@ink-ts/engine` 导出）+ `runtime.boot(host, recipe)`（host 装配使用，`host/src/boot.ts`） | ✅ 已实现 |
 | web 纯渲染 L5 | `seed_data/ui_spec.json` + `componentRegistry` 白名单 + `artifactLoader` | ⚠️ 部分：分面——业务逻辑在插件 logic face/actions（跑引擎侧），ui face 与渲染器不含业务逻辑（L5 成立）；但仍含产品 chrome（app/shell/views）；阶段 7b 才退化为纯显示设备 |
-| 命令面同步 | `BRIDGE_METHODS` + `sync_web_command_surface.ts` | ⚠️ 手写数组，非声明即挂载 |
+| 命令面同步 | 各域 `*_COMMANDS` 声明元组 → `BRIDGE_METHODS` spread 派生 + `verify:bridge-mount` | ✅ 声明即挂载（阶段 2 目标；声明源仍在各域文件，阶段 3 迁 `plugins/`） |
 | 统一插件源 | `tools.json`/`ui_spec.json`/`BRIDGE_METHODS`/`mcp_market.json` 分置 | ❌ 未统一 |
 | 机制件统一 contract + 装配闭集校验 | 33 机制 `engine/src/kernel/<mechanism>/contract.ts` + `registry/registry.ts` 密封校验 + boot 接线 + `verify:mechanisms` | ✅ 完成（本阶段目标） |
 | 自进化机制 | `self_tools`/`self_application`/`settle/seed`/`growth`/`skill_crystal`/`tuning`（`kernel/*`，默认开） | ✅ 机制已实现并契约化（无产品侧业务层，见 §1.5） |

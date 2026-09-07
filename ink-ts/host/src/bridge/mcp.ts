@@ -97,7 +97,16 @@ function parseMountConfig(raw: unknown): { config: McpServerConfig; source: stri
   return { config, source };
 }
 
-export function buildMcpHandlers(deps: HostBridgeDeps): ReadonlyMap<string, BridgeHandler> {
+/** mcp 命令声明（方法名唯一真源；装配由 index 聚合此表）。 */
+export const MCP_COMMANDS = [
+  'mcp.market',
+  'mcp.mount',
+  'mcp.unmount',
+] as const;
+
+export type McpCommand = (typeof MCP_COMMANDS)[number];
+
+export function buildMcpCommands(deps: HostBridgeDeps): Readonly<Record<McpCommand, BridgeHandler>> {
   const market: BridgeHandler = (): McpMarketView => {
     const manager = managerOrThrow(deps);
     const file = resolveMarketFile(deps);
@@ -191,9 +200,9 @@ export function buildMcpHandlers(deps: HostBridgeDeps): ReadonlyMap<string, Brid
     return { ok: true, server_id: name, connected: false };
   };
 
-  return new Map<string, BridgeHandler>([
-    ['mcp.market', market],
-    ['mcp.mount', mount],
-    ['mcp.unmount', unmount],
-  ]);
+  return {
+    'mcp.market': market,
+    'mcp.mount': mount,
+    'mcp.unmount': unmount,
+  };
 }

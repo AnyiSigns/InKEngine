@@ -49,7 +49,14 @@ function cacheStats(store: unknown): FingerprintCacheStatsView {
   };
 }
 
-export function buildAssembleHandlers(deps: HostBridgeDeps): ReadonlyMap<string, BridgeHandler> {
+/** assemble 命令声明（方法名唯一真源；装配由 index 聚合此表）。 */
+export const ASSEMBLE_COMMANDS = [
+  'assemble.stats',
+] as const;
+
+export type AssembleCommand = (typeof ASSEMBLE_COMMANDS)[number];
+
+export function buildAssembleCommands(deps: HostBridgeDeps): Readonly<Record<AssembleCommand, BridgeHandler>> {
   /** assemble.stats：组装链统计 + 缓存计数（未挂载 = 空态）。 */
   const stats: BridgeHandler = async (): Promise<Record<string, unknown>> => {
     const runtime = deps.runtime;
@@ -104,5 +111,5 @@ export function buildAssembleHandlers(deps: HostBridgeDeps): ReadonlyMap<string,
     };
   };
 
-  return new Map<string, BridgeHandler>([['assemble.stats', stats]]);
+  return { 'assemble.stats': stats };
 }

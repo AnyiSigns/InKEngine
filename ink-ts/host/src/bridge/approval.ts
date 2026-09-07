@@ -66,7 +66,15 @@ function validateDecision(raw: unknown): unknown {
   return record;
 }
 
-export function buildApprovalHandlers(deps: HostBridgeDeps): ReadonlyMap<string, BridgeHandler> {
+/** approval 命令声明（方法名唯一真源；装配由 index 聚合此表）。 */
+export const APPROVAL_COMMANDS = [
+  'approval.list',
+  'approval.resolve',
+] as const;
+
+export type ApprovalCommand = (typeof APPROVAL_COMMANDS)[number];
+
+export function buildApprovalCommands(deps: HostBridgeDeps): Readonly<Record<ApprovalCommand, BridgeHandler>> {
   /** 链尾挂起卡读取（引擎无常驻静态引擎：直接读 checkpoint interrupt——与
    *  引擎链尾挂起卡状态同源，裁决经 runtime.resume_run 按图重建续跑）。 */
   async function latestInterrupt(thread_id: string): Promise<InterruptState | null> {
@@ -133,8 +141,8 @@ export function buildApprovalHandlers(deps: HostBridgeDeps): ReadonlyMap<string,
     return { thread_id: params.thread_id, resolved: true, result: toJsonSafe(result) };
   };
 
-  return new Map<string, BridgeHandler>([
-    ['approval.list', list],
-    ['approval.resolve', resolve],
-  ]);
+  return {
+    'approval.list': list,
+    'approval.resolve': resolve,
+  };
 }

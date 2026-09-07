@@ -11,7 +11,7 @@ import { describe, expect, it } from 'vitest';
 
 import { createCapabilityStore } from '../../src/capability/store.js';
 import { parseRecord } from '../../src/capability/store.js';
-import { buildCapabilityHandlers } from '../../src/bridge/capability.js';
+import { buildCapabilityCommands } from '../../src/bridge/capability.js';
 import { InkHost, resolve_host_config } from '../../src/index.js';
 
 function tempDir(prefix: string): string {
@@ -58,11 +58,11 @@ describe('能力记录域（capability.json 持久化 + 档位语义移除）', 
 
 describe('capability 命令面（bridge 接线）', () => {
   it('get 缺省注入不含 simulation_tier；put 后并入字段回显', async () => {
-    const handlers = buildCapabilityHandlers({
+    const handlers = buildCapabilityCommands({
       capability: createCapabilityStore(tempDir('ink-capbridge-')),
     } as never);
-    const get = handlers.get('capability.get')!;
-    const put = handlers.get('capability.put')!;
+    const get = handlers['capability.get']!;
+    const put = handlers['capability.put']!;
     const initial = (await get(null, { autoApprove: false })) as Record<string, unknown>;
     expect(initial['simulation_tier']).toBeUndefined();
     expect(initial['auto_approve_tools']).toEqual([]);

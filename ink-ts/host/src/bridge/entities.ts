@@ -21,7 +21,14 @@ interface EntityRegistryLike {
   specs(): Array<Record<string, unknown>>;
 }
 
-export function buildEntitiesHandlers(deps: HostBridgeDeps): ReadonlyMap<string, BridgeHandler> {
+/** entities 命令声明（方法名唯一真源；装配由 index 聚合此表）。 */
+export const ENTITIES_COMMANDS = [
+  'entities.snapshot',
+] as const;
+
+export type EntitiesCommand = (typeof ENTITIES_COMMANDS)[number];
+
+export function buildEntitiesCommands(deps: HostBridgeDeps): Readonly<Record<EntitiesCommand, BridgeHandler>> {
   /** entities.snapshot：实体清单 + 配额态（无注册表 = 空态）。 */
   const snapshot: BridgeHandler = (): Record<string, unknown> => {
     const registry = deps.runtime.entity_registry;
@@ -52,5 +59,5 @@ export function buildEntitiesHandlers(deps: HostBridgeDeps): ReadonlyMap<string,
     };
   };
 
-  return new Map<string, BridgeHandler>([['entities.snapshot', snapshot]]);
+  return { 'entities.snapshot': snapshot };
 }

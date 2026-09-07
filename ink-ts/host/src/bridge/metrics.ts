@@ -22,7 +22,14 @@ export interface MetricsSnapshotView {
   crystallized: number;
 }
 
-export function buildMetricsHandlers(deps: HostBridgeDeps): ReadonlyMap<string, BridgeHandler> {
+/** metrics 命令声明（方法名唯一真源；装配由 index 聚合此表）。 */
+export const METRICS_COMMANDS = [
+  'metrics.snapshot',
+] as const;
+
+export type MetricsCommand = (typeof METRICS_COMMANDS)[number];
+
+export function buildMetricsCommands(deps: HostBridgeDeps): Readonly<Record<MetricsCommand, BridgeHandler>> {
   /** metrics.snapshot：回合指标会话窗口（无装配 = 空态）。 */
   const snapshot: BridgeHandler = (): MetricsSnapshotView => {
     const crystallized = deps.runtime.skill_crystallizer?.crystallized.length ?? 0;
@@ -57,5 +64,5 @@ export function buildMetricsHandlers(deps: HostBridgeDeps): ReadonlyMap<string, 
     };
   };
 
-  return new Map<string, BridgeHandler>([['metrics.snapshot', snapshot]]);
+  return { 'metrics.snapshot': snapshot };
 }

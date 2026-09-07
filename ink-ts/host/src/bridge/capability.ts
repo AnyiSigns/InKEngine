@@ -96,7 +96,18 @@ function runtimeOrThrow(deps: HostBridgeDeps): void {
   }
 }
 
-export function buildCapabilityHandlers(deps: HostBridgeDeps): ReadonlyMap<string, BridgeHandler> {
+/** capability 命令声明（方法名唯一真源；装配由 index 聚合此表）。 */
+export const CAPABILITY_COMMANDS = [
+  'capability.get',
+  'capability.put',
+  'capability.baseline.get',
+  'capability.baseline.set',
+  'capability.tier.set',
+] as const;
+
+export type CapabilityCommand = (typeof CAPABILITY_COMMANDS)[number];
+
+export function buildCapabilityCommands(deps: HostBridgeDeps): Readonly<Record<CapabilityCommand, BridgeHandler>> {
   const store: CapabilityStore = deps.capability ?? ephemeralCapabilityStore();
 
   const get: BridgeHandler = (): unknown => withDefaults({ ...store.get() });
@@ -170,11 +181,11 @@ export function buildCapabilityHandlers(deps: HostBridgeDeps): ReadonlyMap<strin
     return { tier_overrides: record['tier_overrides'] };
   };
 
-  return new Map<string, BridgeHandler>([
-    ['capability.get', get],
-    ['capability.put', put],
-    ['capability.baseline.get', baselineGet],
-    ['capability.baseline.set', baselineSet],
-    ['capability.tier.set', tierSet],
-  ]);
+  return {
+    'capability.get': get,
+    'capability.put': put,
+    'capability.baseline.get': baselineGet,
+    'capability.baseline.set': baselineSet,
+    'capability.tier.set': tierSet,
+  };
 }

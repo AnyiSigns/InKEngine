@@ -127,8 +127,18 @@ function trackedRun(
   } as RunTaskHandle & { promise: Promise<RoundOutcome> };
 }
 
+/** rounds 命令声明（方法名唯一真源；装配由 index 聚合此表）。 */
+export const ROUNDS_COMMANDS = [
+  'rounds.send',
+  'rounds.abort',
+  'rounds.resume',
+  'rounds.branch',
+] as const;
+
+export type RoundsCommand = (typeof ROUNDS_COMMANDS)[number];
+
 /** rounds 方法组构造（每 host 装配闭包：串行回合队列 + 事件文件传输）。 */
-export function buildRoundsHandlers(deps: HostBridgeDeps): ReadonlyMap<string, BridgeHandler> {
+export function buildRoundsCommands(deps: HostBridgeDeps): Readonly<Record<RoundsCommand, BridgeHandler>> {
   let queue: Promise<void> = Promise.resolve();
   const sessions = new HostSessionStore(
     () => deps.runtime.storage as unknown as Storage | null,
@@ -383,10 +393,10 @@ function resultWarnings(warnings: string[]): Record<string, unknown> {
     };
   };
 
-  return new Map<string, BridgeHandler>([
-    ['rounds.send', send],
-    ['rounds.abort', abort],
-    ['rounds.resume', resume],
-    ['rounds.branch', branch],
-  ]);
+  return {
+    'rounds.send': send,
+    'rounds.abort': abort,
+    'rounds.resume': resume,
+    'rounds.branch': branch,
+  };
 }

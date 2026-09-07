@@ -55,7 +55,14 @@ function parseTier(raw: unknown): string {
   return value;
 }
 
-export function buildPolicyHandlers(): ReadonlyMap<string, BridgeHandler> {
+/** policy 命令声明（方法名唯一真源；装配由 index 聚合此表）。 */
+export const POLICY_COMMANDS = [
+  'policy.route',
+] as const;
+
+export type PolicyCommand = (typeof POLICY_COMMANDS)[number];
+
+export function buildPolicyCommands(): Readonly<Record<PolicyCommand, BridgeHandler>> {
   const route: BridgeHandler = async (raw): Promise<unknown> => {
     const params = raw as { text?: unknown; tier?: unknown } | null;
     const text =
@@ -83,5 +90,5 @@ export function buildPolicyHandlers(): ReadonlyMap<string, BridgeHandler> {
     };
   };
 
-  return new Map<string, BridgeHandler>([['policy.route', route]]);
+  return { 'policy.route': route };
 }

@@ -73,7 +73,15 @@ function recordKind(record: Record<string, unknown>): string {
   return typeof type === 'string' ? type : '';
 }
 
-export function buildAuditHandlers(deps: HostBridgeDeps): ReadonlyMap<string, BridgeHandler> {
+/** audit 命令声明（方法名唯一真源；装配由 index 聚合此表）。 */
+export const AUDIT_COMMANDS = [
+  'audit.export',
+  'audit.list',
+] as const;
+
+export type AuditCommand = (typeof AUDIT_COMMANDS)[number];
+
+export function buildAuditCommands(deps: HostBridgeDeps): Readonly<Record<AuditCommand, BridgeHandler>> {
   const auditExport: BridgeHandler = async (raw): Promise<unknown[]> => {
     const storage = deps.runtime.storage;
     if (storage === null) {
@@ -107,8 +115,8 @@ export function buildAuditHandlers(deps: HostBridgeDeps): ReadonlyMap<string, Br
     };
   };
 
-  return new Map<string, BridgeHandler>([
-    ['audit.export', auditExport],
-    ['audit.list', auditList],
-  ]);
+  return {
+    'audit.export': auditExport,
+    'audit.list': auditList,
+  };
 }

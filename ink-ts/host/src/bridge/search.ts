@@ -19,7 +19,15 @@ function storeOf(deps: HostBridgeDeps): SearchKeysStore {
   return deps.searchKeys;
 }
 
-export function buildSearchHandlers(deps: HostBridgeDeps): ReadonlyMap<string, BridgeHandler> {
+/** search 命令声明（方法名唯一真源；装配由 index 聚合此表）。 */
+export const SEARCH_COMMANDS = [
+  'search.keys.set',
+  'search.keys.get',
+] as const;
+
+export type SearchCommand = (typeof SEARCH_COMMANDS)[number];
+
+export function buildSearchCommands(deps: HostBridgeDeps): Readonly<Record<SearchCommand, BridgeHandler>> {
   const setKeys: BridgeHandler = (raw): { ok: true; count: number } => {
     const store = storeOf(deps);
     const params = raw as { keys?: unknown; provider?: unknown; api_key?: unknown } | null;
@@ -50,8 +58,8 @@ export function buildSearchHandlers(deps: HostBridgeDeps): ReadonlyMap<string, B
     return { keys: store.masked(), count: store.count() };
   };
 
-  return new Map<string, BridgeHandler>([
-    ['search.keys.set', setKeys],
-    ['search.keys.get', getKeys],
-  ]);
+  return {
+    'search.keys.set': setKeys,
+    'search.keys.get': getKeys,
+  };
 }

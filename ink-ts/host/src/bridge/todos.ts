@@ -92,8 +92,15 @@ function cardTodo(card: InterruptCard): TodoView {
   };
 }
 
+/** todos 命令声明（rounds.todos 挂 rounds 域；方法名唯一真源，装配由 index 聚合）。 */
+export const TODOS_COMMANDS = [
+  'rounds.todos',
+] as const;
+
+export type TodosCommand = (typeof TODOS_COMMANDS)[number];
+
 /** rounds.todos 处理器组（本组仅一个方法；挂 rounds 域命令面）。 */
-export function buildTodosHandlers(deps: HostBridgeDeps): ReadonlyMap<string, BridgeHandler> {
+export function buildTodosCommands(deps: HostBridgeDeps): Readonly<Record<TodosCommand, BridgeHandler>> {
   const todos: BridgeHandler = async (raw): Promise<unknown> => {
     const thread_id = requireThread(raw);
     const storage = deps.runtime.storage;
@@ -119,5 +126,5 @@ export function buildTodosHandlers(deps: HostBridgeDeps): ReadonlyMap<string, Br
     return { thread_id, todo };
   };
 
-  return new Map<string, BridgeHandler>([['rounds.todos', todos]]);
+  return { 'rounds.todos': todos };
 }

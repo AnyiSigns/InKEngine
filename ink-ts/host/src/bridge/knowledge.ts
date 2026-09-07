@@ -126,7 +126,16 @@ function matchesQuery(entry: KnowledgeEntryLike, query: string): boolean {
   return content.toLowerCase().includes(needle);
 }
 
-export function buildKnowledgeHandlers(deps: HostBridgeDeps): ReadonlyMap<string, BridgeHandler> {
+/** knowledge 命令声明（方法名唯一真源；装配由 index 聚合此表）。 */
+export const KNOWLEDGE_COMMANDS = [
+  'knowledge.list',
+  'knowledge.graph',
+  'knowledge.export',
+] as const;
+
+export type KnowledgeCommand = (typeof KNOWLEDGE_COMMANDS)[number];
+
+export function buildKnowledgeCommands(deps: HostBridgeDeps): Readonly<Record<KnowledgeCommand, BridgeHandler>> {
   /** 知识集条目窗口（query/kind 过滤 + include_archived 开关）。 */
   const list: BridgeHandler = (raw): KnowledgeListView => {
     const knowledgeSet = knowledgeSetOrThrow(deps);
@@ -247,11 +256,11 @@ export function buildKnowledgeHandlers(deps: HostBridgeDeps): ReadonlyMap<string
     return JSON.stringify({ kind, exported_at: Math.floor(Date.now() / 1000), entries }, null, 2);
   };
 
-  return new Map<string, BridgeHandler>([
-    ['knowledge.list', list],
-    ['knowledge.graph', graph],
-    ['knowledge.export', exportJson],
-  ]);
+  return {
+    'knowledge.list': list,
+    'knowledge.graph': graph,
+    'knowledge.export': exportJson,
+  };
 }
 
 export { toJsonSafe };

@@ -41,8 +41,17 @@ function requireThread(raw: unknown, method: string): { thread_id: string; check
   return { thread_id: params.thread_id, checkpoint_id };
 }
 
+/** recovery 命令声明（方法名唯一真源；装配由 index 聚合此表）。 */
+export const RECOVERY_COMMANDS = [
+  'recovery.checkpoints',
+  'recovery.rollback',
+  'recovery.reset',
+] as const;
+
+export type RecoveryCommand = (typeof RECOVERY_COMMANDS)[number];
+
 /** 可回退点查询：链行降序 + 中断锚点标注。 */
-export function buildRecoveryHandlers(deps: HostBridgeDeps): ReadonlyMap<string, BridgeHandler> {
+export function buildRecoveryCommands(deps: HostBridgeDeps): Readonly<Record<RecoveryCommand, BridgeHandler>> {
   const sessions = new HostSessionStore(() => deps.runtime.storage as unknown as Storage | null);
 
   const checkpoints: BridgeHandler = async (raw): Promise<unknown> => {
@@ -259,11 +268,11 @@ export function buildRecoveryHandlers(deps: HostBridgeDeps): ReadonlyMap<string,
     };
   };
 
-  return new Map<string, BridgeHandler>([
-    ['recovery.checkpoints', checkpoints],
-    ['recovery.rollback', rollback],
-    ['recovery.reset', reset],
-  ]);
+  return {
+    'recovery.checkpoints': checkpoints,
+    'recovery.rollback': rollback,
+    'recovery.reset': reset,
+  };
 }
 
 /** 重置审计留痕（append-only set_audit；写入失败不阻断重置语义）。 */

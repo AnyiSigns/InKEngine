@@ -89,7 +89,15 @@ function lastBudgetRemaining(log: readonly Record<string, unknown>[]): number | 
   return value === undefined || value === null ? null : toNumber(value);
 }
 
-export function buildPoolHandlers(deps: HostBridgeDeps): ReadonlyMap<string, BridgeHandler> {
+/** pool 命令声明（方法名唯一真源；装配由 index 聚合此表）。 */
+export const POOL_COMMANDS = [
+  'pool.snapshot',
+  'pool.evaluate',
+] as const;
+
+export type PoolCommand = (typeof POOL_COMMANDS)[number];
+
+export function buildPoolCommands(deps: HostBridgeDeps): Readonly<Record<PoolCommand, BridgeHandler>> {
   /** pool.snapshot：池治理登记快照 + 派生计数（无登记 = 空态）。 */
   const snapshot: BridgeHandler = (): Record<string, unknown> => {
     const governance = governanceOrNull(deps);
@@ -162,8 +170,8 @@ export function buildPoolHandlers(deps: HostBridgeDeps): ReadonlyMap<string, Bri
     return { available: true, evaluated: true, ...verdict.to_dict() };
   };
 
-  return new Map<string, BridgeHandler>([
-    ['pool.snapshot', snapshot],
-    ['pool.evaluate', evaluate],
-  ]);
+  return {
+    'pool.snapshot': snapshot,
+    'pool.evaluate': evaluate,
+  };
 }

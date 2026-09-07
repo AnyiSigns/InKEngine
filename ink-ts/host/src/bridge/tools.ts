@@ -32,7 +32,14 @@ export interface ToolFullView {
   tools: ToolFullRow[];
 }
 
-export function buildToolsHandlers(deps: HostBridgeDeps): ReadonlyMap<string, BridgeHandler> {
+/** tools 命令声明（方法名唯一真源；装配由 index 聚合此表）。 */
+export const TOOLS_COMMANDS = [
+  'tools.full',
+] as const;
+
+export type ToolsCommand = (typeof TOOLS_COMMANDS)[number];
+
+export function buildToolsCommands(deps: HostBridgeDeps): Readonly<Record<ToolsCommand, BridgeHandler>> {
   /**
    * Full tool view: merged_specs rows carry uses_vectors/vector plus three
    * consumption flags. baseline = runtime resident set; approved = capability
@@ -77,7 +84,7 @@ export function buildToolsHandlers(deps: HostBridgeDeps): ReadonlyMap<string, Br
     return view;
   };
 
-  return new Map<string, BridgeHandler>([
-    ['tools.full', full],
-  ]);
+  return {
+    'tools.full': full,
+  };
 }

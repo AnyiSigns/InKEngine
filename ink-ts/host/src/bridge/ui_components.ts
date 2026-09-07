@@ -26,7 +26,15 @@ function disabledParam(raw: unknown): string[] {
   return disabled as string[];
 }
 
-export function buildUiComponentsHandlers(deps: HostBridgeDeps): ReadonlyMap<string, BridgeHandler> {
+/** ui_components 命令声明（方法名唯一真源；装配由 index 聚合此表）。 */
+export const UI_COMPONENTS_COMMANDS = [
+  'ui_components.get',
+  'ui_components.set_disabled',
+] as const;
+
+export type UiComponentsCommand = (typeof UI_COMPONENTS_COMMANDS)[number];
+
+export function buildUiComponentsCommands(deps: HostBridgeDeps): Readonly<Record<UiComponentsCommand, BridgeHandler>> {
   const get: BridgeHandler = (): unknown => {
     const runtime = deps.runtime;
     return {
@@ -47,8 +55,8 @@ export function buildUiComponentsHandlers(deps: HostBridgeDeps): ReadonlyMap<str
     }
   };
 
-  return new Map<string, BridgeHandler>([
-    ['ui_components.get', get],
-    ['ui_components.set_disabled', setDisabled],
-  ]);
+  return {
+    'ui_components.get': get,
+    'ui_components.set_disabled': setDisabled,
+  };
 }

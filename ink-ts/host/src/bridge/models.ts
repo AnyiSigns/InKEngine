@@ -82,7 +82,17 @@ async function refreshEngine(deps: HostBridgeDeps): Promise<void> {
   }
 }
 
-export function buildModelsHandlers(deps: HostBridgeDeps): ReadonlyMap<string, BridgeHandler> {
+/** models 命令声明（方法名唯一真源；装配由 index 聚合此表）。 */
+export const MODELS_COMMANDS = [
+  'models.config.get',
+  'models.config.put',
+  'models.config.reload',
+  'models.config.role_pick',
+] as const;
+
+export type ModelsCommand = (typeof MODELS_COMMANDS)[number];
+
+export function buildModelsCommands(deps: HostBridgeDeps): Readonly<Record<ModelsCommand, BridgeHandler>> {
   const get: BridgeHandler = () => deps.host.model_config_state();
 
   const put: BridgeHandler = async (raw): Promise<unknown> => {
@@ -160,10 +170,10 @@ export function buildModelsHandlers(deps: HostBridgeDeps): ReadonlyMap<string, B
     return { role, pick, saved: true, state: deps.host.model_config_state() };
   };
 
-  return new Map<string, BridgeHandler>([
-    ['models.config.get', get],
-    ['models.config.put', put],
-    ['models.config.reload', reload],
-    ['models.config.role_pick', rolePick],
-  ]);
+  return {
+    'models.config.get': get,
+    'models.config.put': put,
+    'models.config.reload': reload,
+    'models.config.role_pick': rolePick,
+  };
 }

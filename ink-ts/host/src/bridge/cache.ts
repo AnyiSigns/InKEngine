@@ -30,7 +30,14 @@ function emptyStoreView(): Record<string, unknown> {
   };
 }
 
-export function buildCacheHandlers(deps: HostBridgeDeps): ReadonlyMap<string, BridgeHandler> {
+/** cache 命令声明（方法名唯一真源；装配由 index 聚合此表）。 */
+export const CACHE_COMMANDS = [
+  'cache.stats',
+] as const;
+
+export type CacheCommand = (typeof CACHE_COMMANDS)[number];
+
+export function buildCacheCommands(deps: HostBridgeDeps): Readonly<Record<CacheCommand, BridgeHandler>> {
   /** cache.stats：指纹缓存计数（全域 + 按域）+ multipath 配置态。 */
   const stats: BridgeHandler = async (): Promise<Record<string, unknown>> => {
     const runtime = deps.runtime;
@@ -87,5 +94,5 @@ export function buildCacheHandlers(deps: HostBridgeDeps): ReadonlyMap<string, Br
     };
   };
 
-  return new Map<string, BridgeHandler>([['cache.stats', stats]]);
+  return { 'cache.stats': stats };
 }

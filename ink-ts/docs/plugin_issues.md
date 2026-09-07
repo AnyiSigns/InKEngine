@@ -16,6 +16,16 @@
 | 6 | `seed_data/event_types.json` 未进任何散源收敛清单 | **属引擎/渲染协议侧事件类型真源，不进 `plugins/`**；web 命令面生成物（`web_command_surface.json`）属派生视图禁手改 | component_data §三 边界注 |
 | 7 | 低优遗留：§1.2 伪码 `impl` 字段 vs 规范类型；两树详略/现状目标标注；plugin_issues.md 未落盘 | **低优按推荐一并修订**：§1.2 伪码对齐规范（去 impl、补 id/faces 说明）；§4.3 树标注「目标态」并补 manifest.json/hosts spec；本卡落盘 | component_data §1.2/§4.3、本文件 |
 | 8 | §九「插件不含业务逻辑（L5 成立）」主语歧义：整插件不含业务逻辑会误读为插件是死的 | **澄清为分面表述**：业务逻辑在插件 logic face/actions（跑引擎侧，经事件路由执行）；不含业务逻辑的只是渲染器（显示设备）与 ui face（渲染意图数据，不写业务）。文档 §九 措辞改为分面，避免整插件误读 | component_data §九 落地状态表 web 行；本卡 |
+| 9 | 阶段 2「命令声明表」样板形态与边界（实施时裁决） | **域文件自声明数组 + 聚合挂载**：各域导出 `*_COMMANDS` 声明元组（方法名唯一真源），工厂 `build<Domain>Commands` 返回 `Readonly<Record<DomainCommand, BridgeHandler>>` 对象（编译期键集合锁死）；`BRIDGE_METHODS` 改为域元组 spread 派生导出（值/顺序不变）；cli legacy_aliases 别名表本阶段不动（随阶段 3+ 迁 plugins 源与 web 旧消费下线再收敛） | component_data §九 阶段 2 落地行 + 现状表命令面行、CODING.md §7/§9、本卡 |
+
+## 阶段 2 实施时须现场核对
+
+- 各域命令声明的顺序与 `BRIDGE_METHODS` 原数组分域顺序一致（self_check
+  `web_command_surface.json` 夹具逐字比对导出，spread 顺序不可打乱）；
+  `rounds.todos` 在独立 todos.ts 实现、声明归 `TODOS_COMMANDS`，聚合须紧随
+  `ROUNDS_COMMANDS` 之后保持原序。
+  **（2026-09-07 阶段 2 已完成：31 份 `*_COMMANDS` 元组 + `verify:bridge-mount`
+  PASS，夹具零漂移，见 §九 落地状态。）**
 
 ## 引擎层 AGENTS 用语
 

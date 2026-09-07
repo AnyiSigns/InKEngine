@@ -39,7 +39,19 @@ function sessionOrThrow(record: HostSessionRecord | null, thread_id: string): Ho
   return record;
 }
 
-export function buildSessionsHandlers(deps: HostBridgeDeps): ReadonlyMap<string, BridgeHandler> {
+/** sessions 命令声明（方法名唯一真源；装配由 index 聚合此表）。 */
+export const SESSIONS_COMMANDS = [
+  'sessions.create',
+  'sessions.rename',
+  'sessions.delete',
+  'sessions.refresh',
+  'sessions.tree',
+  'sessions.messages',
+] as const;
+
+export type SessionsCommand = (typeof SESSIONS_COMMANDS)[number];
+
+export function buildSessionsCommands(deps: HostBridgeDeps): Readonly<Record<SessionsCommand, BridgeHandler>> {
   const store = new HostSessionStore(() => deps.runtime.storage as unknown as Storage | null);
 
   const create: BridgeHandler = async (raw): Promise<unknown> => {
@@ -166,12 +178,12 @@ export function buildSessionsHandlers(deps: HostBridgeDeps): ReadonlyMap<string,
     return { thread_id, messages: rows };
   };
 
-  return new Map<string, BridgeHandler>([
-    ['sessions.create', create],
-    ['sessions.rename', rename],
-    ['sessions.delete', deleteSession],
-    ['sessions.refresh', refresh],
-    ['sessions.tree', tree],
-    ['sessions.messages', messages],
-  ]);
+  return {
+    'sessions.create': create,
+    'sessions.rename': rename,
+    'sessions.delete': deleteSession,
+    'sessions.refresh': refresh,
+    'sessions.tree': tree,
+    'sessions.messages': messages,
+  };
 }

@@ -19,46 +19,50 @@ function nativeExec(): ExecClient {
   return new ExecClient({ binary });
 }
 
+/** dialog 命令声明（方法名唯一真源；装配由 index 聚合此表）。 */
+export const DIALOG_COMMANDS = [
+  'dialog.open_directory',
+] as const;
+
+export type DialogCommand = (typeof DIALOG_COMMANDS)[number];
+
 /** dialog 域桥接组（open_directory → 绝对路径数组或 null=取消）。 */
-export function buildDialogHandlers(): ReadonlyMap<string, BridgeHandler> {
-  const handlers = new Map<string, BridgeHandler>([
-    [
-      'dialog.open_directory',
-      async (params) => {
-        const raw = typeof params === 'object' && params !== null && !Array.isArray(params)
-          ? (params as Record<string, unknown>)
-          : {};
-        const title = typeof raw['title'] === 'string' ? raw['title'] : '选择目录';
-        const client = nativeExec();
-        try {
-          const outcome = await client.call(
-            { tool: 'dialog', op: 'dialog', args: { title } },
-            {
-              approved: true,
-              by: 'host:dialog',
-              trace_id: null,
-              endpoint: 'dialog',
-              roots: [],
-              allowlist: [],
-              timeout_secs: 120,
-              max_chars: 1024,
-            },
-          );
-          const output = outcome.output as { path?: unknown };
-          const path = output['path'];
-          if (path === null || path === undefined) return null;
-          if (typeof path !== 'string' || path === '') return null;
-          return [path];
-        } catch (err) {
-          throw new BridgeError(
-            `原生目录选择失败: ${err instanceof Error ? err.message : String(err)}`,
-            'unavailable',
-          );
-        } finally {
-          await client.close();
-        }
-      },
-    ],
-  ]);
+export function buildDialogCommands(): Readonly<Record<DialogCommand, BridgeHandler>> {
+  const handlers: Record<DialogCommand, BridgeHandler> = {
+    'dialog.open_directory': async (params) => {
+      const raw = typeof params === 'object' && params !== null && !Array.isArray(params)
+        ? (params as Record<string, unknown>)
+        : {};
+      const title = typeof raw['title'] === 'string' ? raw['title'] : '选择目录';
+      const client = nativeExec();
+      try {
+        const outcome = await client.call(
+          { tool: 'dialog', op: 'dialog', args: { title } },
+          {
+            approved: true,
+            by: 'host:dialog',
+            trace_id: null,
+            endpoint: 'dialog',
+            roots: [],
+            allowlist: [],
+            timeout_secs: 120,
+            max_chars: 1024,
+          },
+        );
+        const output = outcome.output as { path?: unknown };
+        const path = output['path'];
+        if (path === null || path === undefined) return null;
+        if (typeof path !== 'string' || path === '') return null;
+        return [path];
+      } catch (err) {
+        throw new BridgeError(
+          `原生目录选择失败: ${err instanceof Error ? err.message : String(err)}`,
+          'unavailable',
+        );
+      } finally {
+        await client.close();
+      }
+    },
+  };
   return handlers;
 }

@@ -134,13 +134,16 @@ host/cli/web 取用。
 | JSON 纪律：可 parse、无重复键、2 空格缩进格线 | `seed_data/**`、`engine/schemas`、`engine/fixtures` JSON | 拒绝（json-valid） |
 | 生成文件禁手改 | `engine/src/core/contracts/generated/**` | 由 `contracts:verify`（engine/scripts/verify_generated.mjs：复制 engine/schemas + fixtures 后重生成，与仓库生成物归一化逐文件 diff）在 root `npm test` 与 CI 强制；不做文本扫描 |
 | 机制件契约三键（依赖单向/装配完整/0-IO） | `engine/src/kernel/<mechanism>/contract.ts` 全量 + runtime 装配闭包 + kernel 源码 | 由 `verify:mechanisms`（engine/scripts/verify_mechanisms.ts：契约密封 DAG 无环 + runtime depends 闭包 ∪ 自足叶子覆盖全量 + kernel 禁 node 内置/第三方/IO 全局原语）在 root `npm test` 与 CI 强制；boot 装配首步同源 `seal_mechanism_registry` fail-closed |
+| 命令声明即挂载（方法名不手写数组） | `host/src/bridge/index.ts` 的 `BRIDGE_METHODS` | 由 `verify:bridge-mount`（host/scripts/verify_bridge_mount.ts：BRIDGE_METHODS 数组体只允许各域 `*_COMMANDS` spread 或注释，禁点分方法名字面量；spread 常量须已 import）在 root `npm test` 与 CI 强制；键与实现表一致由各域工厂 `Readonly<Record<DomainCommand, BridgeHandler>>` 返回类型编译期保证 |
 
 gate 实现与正反样例位于 `gate/src/` 与 `gate/test/`；**真实扫描链** =
 root `npm test` 首段 `npm run typecheck --workspace engine`（engine tsc
 全量类型检查，generated satisfies 生效处）→ `tsx gate/src/check.ts`
 （对 engine/host/cli/web 工作树实际执行全部规则，含 seed_data 与 engine
 schemas/fixtures 的 json-valid）→ `vitest run --root gate`（规则样例自测）
-→ `tsx engine/scripts/verify_mechanisms.ts`（机制件契约三键），
+→ `tsx engine/scripts/verify_mechanisms.ts`（机制件契约三键）
+→ `tsx host/scripts/verify_bridge_mount.ts`（命令声明即挂载：BRIDGE_METHODS
+无手写方法名），
 CI 的 ink-ts job 同链执行。规则增删须同步本表。
 
 ## 8. 模型角色槽（配置语义与措辞纪律）
@@ -169,7 +172,7 @@ CI 的 ink-ts job 同链执行。规则增删须同步本表。
    与语义不同，勿混淆）：`edge/trust-tier`、`safety_tier`、approval 档、
    reasoning 档。
 
-## 9. host bridge 命令面清单（方法增删须同步本表与 `host/src/bridge/index.ts` 的 `BRIDGE_METHODS`）
+## 9. host bridge 命令面清单（方法增删须同步本表 + 各域文件声明元组 `*_COMMANDS`；`BRIDGE_METHODS` 由域声明 spread 派生，`verify:bridge-mount` 强制）
 
 | 方法 | 域 | 语义（机制在 engine，host 只接线） |
 |---|---|---|

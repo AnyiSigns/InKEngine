@@ -19,7 +19,14 @@ interface MaterialImportParams {
   text_cap?: number;
 }
 
-export function buildMaterialHandlers(deps: HostBridgeDeps): ReadonlyMap<string, BridgeHandler> {
+/** material 命令声明（方法名唯一真源；装配由 index 聚合此表）。 */
+export const MATERIAL_COMMANDS = [
+  'material.import',
+] as const;
+
+export type MaterialCommand = (typeof MATERIAL_COMMANDS)[number];
+
+export function buildMaterialCommands(deps: HostBridgeDeps): Readonly<Record<MaterialCommand, BridgeHandler>> {
   const importMaterial: BridgeHandler = async (raw): Promise<unknown> => {
     const params = raw as MaterialImportParams | null;
     if (typeof params !== 'object' || params === null || typeof params.root !== 'string' || params.root === '') {
@@ -51,5 +58,5 @@ export function buildMaterialHandlers(deps: HostBridgeDeps): ReadonlyMap<string,
       throw error;
     }
   };
-  return new Map<string, BridgeHandler>([['material.import', importMaterial]]);
+  return { 'material.import': importMaterial };
 }

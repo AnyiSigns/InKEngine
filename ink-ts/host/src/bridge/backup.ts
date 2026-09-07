@@ -44,7 +44,16 @@ function requirePath(raw: unknown, method: string): string {
   return params.path;
 }
 
-export function buildBackupHandlers(deps: HostBridgeDeps): ReadonlyMap<string, BridgeHandler> {
+/** backup 命令声明（方法名唯一真源；装配由 index 聚合此表）。 */
+export const BACKUP_COMMANDS = [
+  'backup.export',
+  'backup.preview',
+  'backup.restore',
+] as const;
+
+export type BackupCommand = (typeof BACKUP_COMMANDS)[number];
+
+export function buildBackupCommands(deps: HostBridgeDeps): Readonly<Record<BackupCommand, BridgeHandler>> {
   /** 导出：data_dir 整包 zip（dest 缺省 data_dir/backups/export-<ts>.zip）。 */
   const exportHandler: BridgeHandler = async (raw): Promise<unknown> => {
     const dataDir = dataDirOrThrow(deps);
@@ -165,9 +174,9 @@ export function buildBackupHandlers(deps: HostBridgeDeps): ReadonlyMap<string, B
     }
   };
 
-  return new Map<string, BridgeHandler>([
-    ['backup.export', exportHandler],
-    ['backup.preview', preview],
-    ['backup.restore', restore],
-  ]);
+  return {
+    'backup.export': exportHandler,
+    'backup.preview': preview,
+    'backup.restore': restore,
+  };
 }

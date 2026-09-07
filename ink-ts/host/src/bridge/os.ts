@@ -58,7 +58,14 @@ function asStringArray(raw: unknown, field: string): string[] {
   return [...raw];
 }
 
-export function buildOsHandlers(deps: HostBridgeDeps): ReadonlyMap<string, BridgeHandler> {
+/** os 命令声明（方法名唯一真源；装配由 index 聚合此表）。 */
+export const OS_COMMANDS = [
+  'os.run',
+] as const;
+
+export type OsCommand = (typeof OS_COMMANDS)[number];
+
+export function buildOsCommands(deps: HostBridgeDeps): Readonly<Record<OsCommand, BridgeHandler>> {
   const runner = new HostOsRunner(
     () => deps.runtime.storage as unknown as GuardedStorage | null,
   );
@@ -95,5 +102,5 @@ export function buildOsHandlers(deps: HostBridgeDeps): ReadonlyMap<string, Bridg
     }
   };
 
-  return new Map<string, BridgeHandler>([['os.run', run]]);
+  return { 'os.run': run };
 }

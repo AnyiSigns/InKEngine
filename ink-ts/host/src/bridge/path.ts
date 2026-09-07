@@ -44,7 +44,14 @@ function latestOfKind(
   return best;
 }
 
-export function buildPathHandlers(deps: HostBridgeDeps): ReadonlyMap<string, BridgeHandler> {
+/** path 命令声明（方法名唯一真源；装配由 index 聚合此表）。 */
+export const PATH_COMMANDS = [
+  'path.state',
+] as const;
+
+export type PathCommand = (typeof PATH_COMMANDS)[number];
+
+export function buildPathCommands(deps: HostBridgeDeps): Readonly<Record<PathCommand, BridgeHandler>> {
   /** path.state：path_assembler 装配状态 + 最近组装候选摘要。 */
   const state: BridgeHandler = async (): Promise<Record<string, unknown>> => {
     const runtime = deps.runtime;
@@ -104,7 +111,7 @@ export function buildPathHandlers(deps: HostBridgeDeps): ReadonlyMap<string, Bri
     };
   };
 
-  return new Map<string, BridgeHandler>([['path.state', state]]);
+  return { 'path.state': state };
 }
 
 export { isRecord };

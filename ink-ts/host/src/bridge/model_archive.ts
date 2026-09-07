@@ -109,12 +109,19 @@ export function collectArchiveRows(modelConfig: Record<string, unknown>): Archiv
   return rows;
 }
 
-export function buildModelArchiveHandlers(deps: HostBridgeDeps): ReadonlyMap<string, BridgeHandler> {
+/** model_archive 命令声明（方法名唯一真源；装配由 index 聚合此表）。 */
+export const MODEL_ARCHIVE_COMMANDS = [
+  'model_archive.snapshot',
+] as const;
+
+export type ModelArchiveCommand = (typeof MODEL_ARCHIVE_COMMANDS)[number];
+
+export function buildModelArchiveCommands(deps: HostBridgeDeps): Readonly<Record<ModelArchiveCommand, BridgeHandler>> {
   const snapshot: BridgeHandler = (): unknown => {
     const state = deps.host.model_config_state();
     const modelConfig = isRecord(state['model_config']) ? state['model_config'] : {};
     return { ok: true, archives: collectArchiveRows(modelConfig) };
   };
 
-  return new Map<string, BridgeHandler>([['model_archive.snapshot', snapshot]]);
+  return { 'model_archive.snapshot': snapshot };
 }

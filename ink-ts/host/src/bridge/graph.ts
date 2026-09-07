@@ -125,7 +125,14 @@ function engineGraphSnapshot(
   };
 }
 
-export function buildGraphHandlers(deps: HostBridgeDeps): ReadonlyMap<string, BridgeHandler> {
+/** graph 命令声明（方法名唯一真源；装配由 index 聚合此表）。 */
+export const GRAPH_COMMANDS = [
+  'graph.instance',
+] as const;
+
+export type GraphCommand = (typeof GRAPH_COMMANDS)[number];
+
+export function buildGraphCommands(deps: HostBridgeDeps): Readonly<Record<GraphCommand, BridgeHandler>> {
   /** graph.instance：最近回合组装图投影 + 最近一回合节点执行态摘要。 */
   const instance: BridgeHandler = async (raw): Promise<GraphInstanceView> => {
     const thread_id = requireThread(raw);
@@ -165,7 +172,7 @@ export function buildGraphHandlers(deps: HostBridgeDeps): ReadonlyMap<string, Br
     };
   };
 
-  return new Map<string, BridgeHandler>([
-    ['graph.instance', instance],
-  ]);
+  return {
+    'graph.instance': instance,
+  };
 }

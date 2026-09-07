@@ -7,9 +7,10 @@
   "workspaces": ["engine", "gate", "cli", "host", "web"],
   "scripts": {
     "typecheck": "npm run typecheck --workspaces --if-present",
-    "test": "npm run typecheck --workspace engine && tsx gate/src/check.ts && vitest run --root gate && vitest run --root cli && vitest run --root engine && vitest run --root host && vitest run --root web && node engine/scripts/verify_generated.mjs && tsx engine/scripts/verify_mechanisms.ts",
+    "test": "npm run typecheck --workspace engine && tsx gate/src/check.ts && vitest run --root gate && vitest run --root cli && vitest run --root engine && vitest run --root host && vitest run --root web && node engine/scripts/verify_generated.mjs && tsx engine/scripts/verify_mechanisms.ts && tsx host/scripts/verify_bridge_mount.ts",
     "gate": "tsx gate/src/check.ts",
     "verify:mechanisms": "tsx engine/scripts/verify_mechanisms.ts",
+    "verify:bridge-mount": "tsx host/scripts/verify_bridge_mount.ts",
     "dev": "tsx watch --clear-screen=false cli/src/index.ts serve",
     "self-check": "node --import tsx self_check/index.ts all",
     "contracts:verify": "node engine/scripts/verify_generated.mjs",

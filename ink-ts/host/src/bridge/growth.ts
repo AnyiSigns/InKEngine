@@ -21,8 +21,15 @@ export interface GrowthReportView {
 /** knowledge_set kind=weight 的字面量（引擎 KIND_WEIGHT 同值；勿引引擎内部名）。 */
 const KIND_WEIGHT = 'weight';
 
+/** growth 命令声明（方法名唯一真源；装配由 index 聚合此表）。 */
+export const GROWTH_COMMANDS = [
+  'growth.report',
+] as const;
+
+export type GrowthCommand = (typeof GROWTH_COMMANDS)[number];
+
 /** growth.report：能读则读；无装配 = enabled + nulls（读面 fail-open）。 */
-export function buildGrowthHandlers(deps: HostBridgeDeps): ReadonlyMap<string, BridgeHandler> {
+export function buildGrowthCommands(deps: HostBridgeDeps): Readonly<Record<GrowthCommand, BridgeHandler>> {
   const report: BridgeHandler = (): GrowthReportView => {
     const pipeline = deps.runtime.growth_pipeline;
     const knowledgeSet = deps.runtime.knowledge_set;
@@ -63,5 +70,5 @@ export function buildGrowthHandlers(deps: HostBridgeDeps): ReadonlyMap<string, B
     };
   };
 
-  return new Map<string, BridgeHandler>([['growth.report', report]]);
+  return { 'growth.report': report };
 }

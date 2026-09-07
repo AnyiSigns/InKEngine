@@ -13,8 +13,10 @@
  * 候选不静默丢弃——支流执行经 MultipathRunnerBase._execute_branches 真接线
  * （独立实例引擎 + 子链 checkpoint + 事件并轨）。
  *
- * 证据存储/审计回调同源取自组装运行期（未挂载 = null = 零证据/零审计，
- * 执行照常）；注入透传（ENG2-12）：回合级注入快照由支流侧按分支隔离消费。
+ * 证据存储/审计回调同源取自注入 seam（RunOptions.multipath_assembly，装配期
+ * 由组装运行期窄化注入；未装配 = null = 零证据/零审计，执行照常——executor
+ * 不反向读组装模块级默认，拆 executor↔path_assembler 环）；注入透传
+ * （ENG2-12）：回合级注入快照由支流侧按分支隔离消费。
  *
  * 马尔可夫路径缓存回馈：多径实际执行结果回灌指纹缓存（命中成功 → 计数
  * +1；命中失败 → 条目失效，下次重组装）。观测不阻断：回馈失败只记日志。
@@ -23,7 +25,6 @@ import type { AssemblyCandidate, AssemblyRequest } from '../path_assembler/types
 import type { QualityGate } from '../../core/contracts/contracts.js';
 import type { JunctionSynthProvider } from '../multipath/verdict.js';
 import { MultiPathConfig, MultipathRunner } from '../multipath/index.js';
-import { get_default_assembly_runtime } from '../path_assembler/module_runtime.js';
 import type { NodeContext } from './_internals.js';
 import type { _NodeContextImpl } from './_node_context.js';
 import { EnginePlan } from './_engine_plan.js';
@@ -55,11 +56,14 @@ export abstract class EngineMultipath extends EnginePlan {
       // 按单径执行首候选，不静默丢弃候选
       return await this._run_multipath_degraded_single(data, ctx);
     }
-    const runtime = get_default_assembly_runtime();
+    // 多径组装上下文 seam（装配期注入：证据/审计 sink/缓存回馈窄面；未装配
+    // = 零证据/零审计/零回馈，与旧模块级全局未挂载口径一致——executor 不
+    // 反向读组装模块级默认，拆 executor↔path_assembler 环）
+    const seam = this.options.multipath_assembly;
     const runner = new MultipathRunner(this, {
-      evidence_store: runtime !== null ? runtime.evidence_store : null,
+      evidence_store: seam !== null ? seam.evidence_store : null,
       config: new MultiPathConfig({ enabled: true }),
-      sink: runtime !== null ? runtime.sink : null,
+      sink: seam !== null ? seam.sink : null,
     });
     const request = data['request'] as AssemblyRequest;
     const candidates = [...((data['candidates'] ?? []) as readonly AssemblyCandidate[])];
@@ -85,7 +89,7 @@ export abstract class EngineMultipath extends EnginePlan {
     });
     // 马尔可夫路径缓存回馈：多径实际执行结果回灌指纹缓存（命中成功 →
     // 计数 +1；命中失败 → 条目失效，下次重组装）。观测不阻断。
-    const report = runtime !== null ? runtime.report_cache_execution : null;
+    const report = seam !== null ? seam.report_cache_execution : null;
     if (report !== null && (result as { triggered?: boolean }).triggered === true) {
       try {
         await report(request, {

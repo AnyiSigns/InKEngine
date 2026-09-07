@@ -17,11 +17,12 @@
  *   的执行语义）。
  *
  * depends = 值面机制清单：budget（预算检查）、interrupt（挂起/重入协议）、
- * llm（用量记账守卫接线）、multipath（多径展开）、path_assembler（多径组装
- * 默认运行期消费；canary_round 反向复用本引擎——value 级相互依赖如实声明）、
- * recovery（恢复解析/链尾）、settle（结点级成败留痕）、simulation（推演）、
- * spawn（子任务清单数据面）。契约化归属见
- * engine/src/kernel/registry/contract_types.ts。
+ * llm（用量记账守卫接线）、multipath（多径展开）、recovery（恢复解析/链尾）、
+ * settle（结点级成败留痕）、simulation（推演）、spawn（子任务清单数据面）。
+ * path_assembler 不列：executor 消费组装上下文（证据/审计/缓存回馈）经注入
+ * seam（RunOptions.multipath_assembly）窄化获取，不反向读组装模块级默认——
+ * 环已拆，依赖单向 path_assembler→executor（canary 试跑复用本引擎）。
+ * 契约化归属见 engine/src/kernel/registry/contract_types.ts。
  */
 
 import type { MechanismContract } from '../registry/contract_types.js';
@@ -38,7 +39,6 @@ export const executor_contract: MechanismContract = {
     'interrupt',
     'llm',
     'multipath',
-    'path_assembler',
     'recovery',
     'settle',
     'simulation',

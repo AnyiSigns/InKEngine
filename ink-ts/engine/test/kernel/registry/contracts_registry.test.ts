@@ -91,10 +91,10 @@ describe('全量机制契约注册表（33 机制）', () => {
     }
   });
 
-  it('唯一运行期依赖环 = executor ↔ path_assembler（如实申报，解耦后归零）', () => {
+  it('依赖图无环（executor↔path_assembler 环已拆：executor 经注入 seam 消费组装上下文）', () => {
     const violations = validate_mechanism_registry(ALL_CONTRACTS);
     const cycles = violations.filter((v) => v.rule === 'cycle').map((v) => v.id).sort();
-    expect(cycles).toEqual(['executor', 'path_assembler']);
+    expect(cycles).toEqual([]);
     const other = violations.filter((v) => v.rule !== 'cycle');
     expect(other).toEqual([]);
   });

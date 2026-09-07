@@ -99,6 +99,17 @@ export abstract class RuntimeRebuild extends RuntimeMechanisms {
       metrics: this.turn_metrics,
       ...(opts.domain !== null && opts.domain !== undefined ? { domain: opts.domain } : {}),
     });
+    // 多径组装上下文 seam：从已挂载的组装运行期窄化注入（executor 不反向
+    // 读组装模块级默认，见 _engine_multipath）。未挂载 = 零证据/零回馈。
+    const assembly = this.assembly_runtime;
+    if (assembly !== null) {
+      options.multipath_assembly = {
+        evidence_store: assembly.evidence_store,
+        sink: assembly.sink,
+        report_cache_execution: (request: unknown, report_opts) =>
+          assembly.report_cache_execution(request as never, report_opts),
+      };
+    }
     this._apply_run_options_override(options, this._recipe.run_options as RunOptions | null);
     // 组装时间线事件专属回合入口通道：run_options 覆写（如产品 emit_timeline_events
     // 默认开）不改数据图引擎——入口按需自行发射，引擎零重复

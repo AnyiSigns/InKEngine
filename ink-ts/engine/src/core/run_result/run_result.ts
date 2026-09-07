@@ -29,8 +29,30 @@ import type { ActivationAggregator } from '../assembly/activation_aggregator.js'
 import type { TurnMetrics } from '../../kernel/tuning/_turn_metrics.js';
 import type { SettleHooks } from '../../kernel/settle/index.js';
 import type { WorkflowSpec } from '../workflow/workflow_types.js';
+import type { EdgeEvidenceStore } from '../edge_evidence/index.js';
 import { DEFAULT_MAX_PLAN_STEPS } from '../plan/plan.js';
 import { DEFAULT_MAX_SIMULATIONS } from '../../kernel/simulation/simulation.js';
+
+/**
+ * 多径展开的组装上下文 seam（RunOptions.multipath_assembly；null = 未装配）。
+ *
+ * executor 不反向读组装模块级默认运行期（拆 executor↔path_assembler 环）——
+ * 多径支流需要的证据存储/审计 sink/缓存回馈经本 seam 由装配层注入：装配点
+ * （runtime 构建回合引擎）把组装运行期（PathAssemblyRuntime）的三面窄化注入；
+ * 未装配 = 三成员全 null = 零证据/零审计/零缓存回馈，与旧模块级全局未挂载
+ * 口径一致。report_cache_execution 的 request 为进程内组装请求对象，注入方
+ * 在自身类型面内强转（seam 只定 IO 面，不引组装数据形态）。
+ */
+export interface MultipathAssemblySeam {
+  /** 边证据存储（多径域证据索引/回馈；null = 零证据）。 */
+  evidence_store: EdgeEvidenceStore | null;
+  /** 审计 sink（多径结果留痕；null = 零审计）。 */
+  sink: ((record: Record<string, unknown>) => void) | null;
+  /** 缓存路径执行回馈（失败强失效/成功计数；null = 零回馈）。 */
+  report_cache_execution:
+    | ((request: unknown, opts: { ok: boolean }) => Promise<boolean>)
+    | null;
+}
 
 /**
  * 装配源提供者的上下文面（节点执行器注入；提供者按需读取以取输入/身份）。
@@ -155,6 +177,11 @@ export class RunOptions {
    *  关闭时同类数据按防御性单径降级（执行首候选，候选不静默丢弃）。由 runtime
    *  装配层按配方开关注入（本字段不随子引擎传播——子链内多径以显式配置为准）。 */
   multipath_enabled: boolean = false;
+
+  /** 多径展开的组装上下文 seam（null = 未装配 = 零证据/零审计/零缓存回馈）。
+   *  装配层把组装运行期的证据存储/审计 sink/缓存回馈窄化注入；executor 经此
+   *  消费，不反向读组装模块级默认（拆 executor↔path_assembler 环）。 */
+  multipath_assembly: MultipathAssemblySeam | null = null;
 
   /** 换选分支序号（null = 正常择优）：回溯换选时强制改选指定分支——经
    *  Engine.swap_branch 设置，重放期间决策点按该分支提交主线。 */

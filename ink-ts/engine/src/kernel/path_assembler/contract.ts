@@ -14,9 +14,9 @@
  * exec_envelope）。
  *
  * depends = 值面机制清单：audit_log（emit_audit 落库通道）、budget（canary
- * 步数护栏 BudgetManager）、executor（canary_round 单回合试跑复用 Engine；
- * executor 侧经组装默认运行期消费本机制——value 级相互依赖如实声明，装配期
- * 循环校验由此获真实依赖边）。契约化归属见
+ * 步数护栏 BudgetManager）、executor（canary_round 单回合试跑复用 Engine）。
+ * 依赖单向：executor 经注入 seam 消费组装上下文（RunOptions.multipath_assembly），
+ * 不反向读本机制模块级默认——原 executor↔path_assembler 环已拆。契约化归属见
  * engine/src/kernel/registry/contract_types.ts。
  */
 

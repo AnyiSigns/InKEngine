@@ -1,0 +1,71 @@
+{
+  "id": "mutate_knowledge",
+  "kind": "tool",
+  "capability": "host_tool",
+  "actions": [],
+  "depends": [],
+  "data": {
+    "tool": {
+      "name": "mutate_knowledge",
+      "description": "行为意图：按失败日志对母体知识条目做反思式变异——产出携 _mutation 留痕（variant_of/based_on）的变体，数量随失败信号动态，是进化工厂的变异执行体。\n\n使用时机：某条知识实际使用失败率偏高、需要候选变体时；failure_logs 是必须输入（无失败日志=零变异，不做无依据变异）。\n\n取舍与替代选项：从信号做全新归纳——distill_knowledge；只是略改文案——直接改，不必变异；本工具=「失败反思驱动」的规则进化入口。\n\n参数语义（以执行器真实 schema 为准）：entry=母体知识条目对象，须同时含 id（字符串）与 data（对象，变异基底）两个键；failure_logs=失败日志字符串数组；max_variants=变体数量上限；failure_rate=母体失败率（≥0.3 高失败率 → 多探索）。\n\n边界与协作：变体不自动替换母体，须过三层验证闸门与评审筛选取舍；变异留痕保证可追溯回母体与失败日志；与 distill_knowledge 的分工：前者造新、本工具改旧。",
+      "parameters": {
+        "type": "object",
+        "properties": {
+          "entry": {
+            "type": "object",
+            "description": "母体知识条目（须同时含 id 字符串与 data 对象两键；变异基底）",
+            "properties": {
+              "id": {
+                "type": "string",
+                "description": "条目 id（顶层键）"
+              },
+              "data": {
+                "type": "object",
+                "description": "条目数据（变异基底）"
+              }
+            },
+            "required": [
+              "id",
+              "data"
+            ]
+          },
+          "failure_logs": {
+            "type": "array",
+            "items": {
+              "type": "string"
+            },
+            "description": "近期失败日志"
+          },
+          "max_variants": {
+            "type": "integer",
+            "description": "变体数量上限（默认 3）"
+          },
+          "failure_rate": {
+            "type": "number",
+            "description": "母体失败率（≥0.3 高失败率 → 多探索）"
+          }
+        },
+        "required": [
+          "entry",
+          "failure_logs"
+        ]
+      },
+      "permissions": [
+        "mcp:call:inkling_exec"
+      ],
+      "approval": "review",
+      "endpoint": "mcp",
+      "endpoint_config": {
+        "server_id": "inkling_exec"
+      },
+      "network_policy": {
+        "allow_domains": []
+      },
+      "meta": {
+        "domain": "research",
+        "executor": "inkling_exec:inkling_mutate",
+        "sandbox": "server_session"
+      }
+    }
+  }
+}

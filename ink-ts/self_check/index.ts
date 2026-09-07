@@ -8,7 +8,7 @@
  * - typecheck：engine 全量类型检查（tsc -p engine/tsconfig.json，generated
  *   satisfies 生效处）；
  * - discipline：代码纪律 gate（gate/src/check.ts，行数/import/词汇/src-test/json）；
- * - data：seed_data 与 engine 数据面 fixtures 数据一致性核（事件/工具/端点/
+ * - data：plugins 与 engine 数据面 fixtures 数据一致性核（事件/工具/端点/
  *   发射事件登记）；
  * - e2e：接线 e2e（spawn cli serve → /health + ws 订阅到事件帧）；
  * - bench：启动/回合耗时最小基准（serve 冷启动→listen→一轮 stub 回合）；
@@ -93,7 +93,7 @@ const GATES: ReadonlyArray<{ key: string; label: string; run: (ctx: SelfCheckCon
   { key: 'vitest', label: '各包 vitest（gate/cli/engine/host/web）', run: runGateVitest },
   { key: 'typecheck', label: 'engine 全量类型检查', run: runGateTypecheck },
   { key: 'discipline', label: '代码纪律 gate', run: runGateDiscipline },
-  { key: 'data', label: '数据一致性核（seed↔engine fixtures + 发射事件）', run: runGateData },
+  { key: 'data', label: '数据一致性核（plugins↔engine fixtures + 发射事件）', run: runGateData },
   { key: 'e2e', label: '接线 e2e（serve→health+ws）', run: runGateE2e },
   { key: 'bench', label: '启动/回合耗时基准', run: runGateBench },
   { key: 'symbols', label: '符号引用计数', run: runGateSymbols },

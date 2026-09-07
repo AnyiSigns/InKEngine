@@ -1,0 +1,29 @@
+{
+  "id": "market.playwright",
+  "kind": "mcp",
+  "capability": "external_tool",
+  "actions": [],
+  "depends": [],
+  "data": {
+    "server": {
+      "id": "market.playwright",
+      "name": "Playwright（浏览器自动化形态）",
+      "source": "社区公开 server（示例条目）",
+      "transport": "stdio",
+      "url": null,
+      "command": "npx",
+      "args": [
+        "-y",
+        "@playwright/mcp"
+      ],
+      "credentials": {
+        "required": false,
+        "note": "无凭据；同浏览器控制面，会话态按私有面处理"
+      },
+      "risk": "high",
+      "risk_note": "浏览器自动化：脚本化页面交互/截图/网络拦截，覆盖主动操作面与本地文件读写（截图落盘）；挂载须网络策略域名白名单 + review 审批 + 文件沙箱根目录限定，首次写盘强制 L2 人工审批",
+      "category": "browser_automation",
+      "premounted": false
+    }
+  }
+}

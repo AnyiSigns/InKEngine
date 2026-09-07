@@ -1,0 +1,26 @@
+{
+  "id": "market.web_fetch",
+  "kind": "mcp",
+  "capability": "external_tool",
+  "actions": [],
+  "depends": [],
+  "data": {
+    "server": {
+      "id": "market.web_fetch",
+      "name": "Web 抓取（阅读器形态）",
+      "source": "社区公开 server（示例条目）",
+      "transport": "http",
+      "url": "https://r.jina.ai",
+      "command": null,
+      "args": [],
+      "credentials": {
+        "required": false,
+        "note": "匿名可用；高用量需自备 API Key"
+      },
+      "risk": "medium",
+      "risk_note": "任意 URL 抓取：挂载后工具须走网络策略域名白名单 + review 审批",
+      "category": "web_fetch",
+      "premounted": false
+    }
+  }
+}

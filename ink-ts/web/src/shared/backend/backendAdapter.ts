@@ -129,7 +129,7 @@ export interface ToolFullView {
   tools: ToolFullRow[];
 }
 
-/** MCP 市场服务条目（seed_data/mcp_market.json 结构 + mounted 连接态）。 */
+/** MCP 市场服务条目（plugins mcp_market 视图结构 + mounted 连接态）。 */
 export interface McpMarketServerView {
   id: string;
   name: string;

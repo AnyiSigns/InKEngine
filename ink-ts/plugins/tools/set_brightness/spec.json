@@ -1,0 +1,54 @@
+{
+  "id": "set_brightness",
+  "kind": "tool",
+  "capability": "host_tool",
+  "actions": [],
+  "depends": [],
+  "data": {
+    "tool": {
+      "name": "set_brightness",
+      "description": "行为意图：调节屏幕亮度——shell 执行器按 0-100 数值设置亮度档位。\n\n使用时机：用户要求「调亮/调暗」等亮度操作时；夜间用眼前降低亮度时。\n\n取舍与替代选项：音量——set_volume；屏幕感知——ui_query；本工具只改亮度。\n\n参数语义：command=固定值 set_brightness（端点操作判定同源，调用方恒传）；level=亮度百分比（0-100）。\n\n边界与协作：越界取值被 schema 拒绝；硬件/系统策略不支持的档位以系统反馈为准；笔记本与显示器差异由执行器适配。",
+      "parameters": {
+        "type": "object",
+        "properties": {
+          "command": {
+            "type": "string",
+            "enum": [
+              "set_brightness"
+            ],
+            "description": "命令名（固定值；与 process_exec 端点操作判定同源，调用方恒传）"
+          },
+          "percent": {
+            "type": "number",
+            "minimum": 0,
+            "maximum": 100,
+            "description": "百分比（与执行器 percent 参数同源）"
+          }
+        },
+        "required": [
+          "command",
+          "percent"
+        ]
+      },
+      "permissions": [
+        "process:exec:set_brightness"
+      ],
+      "approval": "review",
+      "endpoint": "process_exec",
+      "endpoint_config": {
+        "allowlist": [
+          "set_brightness"
+        ]
+      },
+      "network_policy": {
+        "allow_domains": []
+      },
+      "meta": {
+        "domain": "os",
+        "control": true,
+        "executor": "shell:set_brightness",
+        "sandbox": "process_allowlist"
+      }
+    }
+  }
+}

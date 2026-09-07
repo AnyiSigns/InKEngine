@@ -22,10 +22,10 @@ import { isFixtureMode } from './wiring/env';
 
 import type { McpMountOutcome } from '@/shared/backend/backendAdapter';
 
-import mcpMarketSeed from '../../../seed_data/mcp_market.json';
-import toolsSeed from '../../../seed_data/tools.json';
+// 插件源派生视图（生成物禁手改）：tools/mcp_market 聚合 = 工具表行 + 市场视图（真源 plugins/<kind>/<id>/spec.json）。
+import pluginManifest from '../../../plugins/manifest.json';
+// ui_spec 布局 spec 仍居 seed_data（阶段 3b 迁 plugins）；双项目并存期身份 manifest 真源在旧侧 inkling/。
 import uiSpecSeed from '../../../seed_data/ui_spec.json';
-// 双项目并存期身份 manifest 真源在旧侧 inkling/（import 路径即真源位）；旧侧停用后统一收口。
 import productManifest from '../../../../inkling/manifest.json';
 
 export interface AppBackendOptions {
@@ -47,7 +47,7 @@ export class AppBackend {
   /** 全量工具视图（设置页「工具」管理面）：tools.full 消费旗标同源。
    *
    * baseline/approved/enabled 均为引擎运行态消费旗标；无宿主（fixture
-   * 模式）时由种子 tools.json 合成 name-only 行（旗标缺省全 false）。
+   * 模式）时由插件源 tools 聚合（plugins manifest）合成 name-only 行（旗标缺省全 false）。
    */
   async getToolsManifest(): Promise<ToolFullView> {
     if (this.backend?.available) {
@@ -169,10 +169,11 @@ export class AppBackend {
     if (!isFixtureMode()) {
       return { source: '', premounted: false, mount_policy: {}, servers: [] };
     }
-    const seed = (mcpMarketSeed as { servers?: unknown[] }).servers ?? [];
+    const market = (pluginManifest as { mcp_market?: { servers?: unknown[]; premounted?: boolean } }).mcp_market;
+    const seed = market?.servers ?? [];
     return {
       source: '',
-      premounted: (mcpMarketSeed as { premounted?: boolean }).premounted === true,
+      premounted: market?.premounted === true,
       mount_policy: {},
       servers: seed.map((s) => {
         const row = s as Record<string, unknown>;
@@ -389,18 +390,18 @@ const FACTORY_BASELINE = [
   'search_tools', 'request_tool', 'task_manager',
 ] as const;
 
-/** dev 夹具：常驻必带集（种子工具名须在清单中才计入）。 */
+/** dev 夹具：常驻必带集（插件源工具名须在清单中才计入）。 */
 function fixtureBaselineNames(): string[] {
   const present = new Set(
-    ((toolsSeed as { tools?: Array<Record<string, unknown>> }).tools ?? []).map((t) => t.name),
+    ((pluginManifest as { tools?: Array<Record<string, unknown>> }).tools ?? []).map((t) => t.name),
   );
   return FACTORY_BASELINE.filter((name) => present.has(name));
 }
 
-/** dev 夹具：从种子 tools.json 合成 tools.full 视图（name-only 消费旗标）。 */
+/** dev 夹具：从插件源 tools 聚合合成 tools.full 视图（name-only 消费旗标）。 */
 function fixtureToolsFull(): ToolFullView {
   const baseline = new Set(fixtureBaselineNames());
-  const rows = ((toolsSeed as { tools?: Array<Record<string, unknown>> }).tools ?? [])
+  const rows = ((pluginManifest as { tools?: Array<Record<string, unknown>> }).tools ?? [])
     .map((t) => t.name)
     .filter((name): name is string => typeof name === 'string')
     .map((name) => ({

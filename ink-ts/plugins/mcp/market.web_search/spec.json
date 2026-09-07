@@ -1,0 +1,26 @@
+{
+  "id": "market.web_search",
+  "kind": "mcp",
+  "capability": "external_tool",
+  "actions": [],
+  "depends": [],
+  "data": {
+    "server": {
+      "id": "market.web_search",
+      "name": "Web 搜索（DuckDuckGo 形态）",
+      "source": "社区公开 server（示例条目）",
+      "transport": "http",
+      "url": "https://api.duckduckgo.com",
+      "command": null,
+      "args": [],
+      "credentials": {
+        "required": false,
+        "note": "匿名搜索可用"
+      },
+      "risk": "medium",
+      "risk_note": "搜索结果不可信：检索结果进上下文前须注入扫描（指令注入防线），蒸馏来源分级 web 最低",
+      "category": "web_search",
+      "premounted": false
+    }
+  }
+}

@@ -1,0 +1,30 @@
+{
+  "id": "market.fs_access",
+  "kind": "mcp",
+  "capability": "external_tool",
+  "actions": [],
+  "depends": [],
+  "data": {
+    "server": {
+      "id": "market.fs_access",
+      "name": "文件系统（MCP 官方 filesystem 形态）",
+      "source": "MCP 官方参考实现（示例条目）",
+      "transport": "stdio",
+      "url": null,
+      "command": "npx",
+      "args": [
+        "-y",
+        "@modelcontextprotocol/server-filesystem",
+        "/workspace"
+      ],
+      "credentials": {
+        "required": false,
+        "note": "无凭据；权限由挂载时文件沙箱根目录 + 审批分级决定"
+      },
+      "risk": "high",
+      "risk_note": "文件读写：须文件沙箱根目录限定（file_ops 权限分级 allow/review），首次越界操作强制 L2 人工审批",
+      "category": "file_system",
+      "premounted": false
+    }
+  }
+}

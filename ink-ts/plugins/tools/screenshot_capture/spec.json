@@ -1,0 +1,50 @@
+{
+  "id": "screenshot_capture",
+  "kind": "tool",
+  "capability": "host_tool",
+  "actions": [],
+  "depends": [],
+  "data": {
+    "tool": {
+      "name": "screenshot_capture",
+      "description": "行为意图：截取当前屏幕并走隐私分级——本地模型直喂；云端模型默认禁止外发（屏幕内容不出网），须显式授权加审批后放行；产出引擎附件形态供多模态消费。\n\n使用时机：任务需要视觉理解屏幕（图表/图片/非标准控件）且已配多模态模型时；无多模态模型时走纯元素树感知。\n\n取舍与替代选项：要窗口/控件层级——ui_query；要点击/输入——ui_click/ui_type；本工具=像素通道，与元素树互为双通道交叉验证。\n\n参数语义：model_class=目标模型类别（local=本地直喂；cloud=云端，受隐私闸门约束）；destination=消费方标识。\n\n边界与协作：云端外发默认拒绝（fail-closed），授权开关持久化于数据根、每次外发经审批；外发事件落审计；截图写附件域，不进入工作区。",
+      "parameters": {
+        "type": "object",
+        "properties": {
+          "model_class": {
+            "type": "string",
+            "enum": [
+              "local",
+              "cloud"
+            ],
+            "description": "目标模型类别（local=本地直喂；cloud=受隐私闸门）"
+          },
+          "destination": {
+            "type": "string",
+            "description": "消费方标识（缺省 engine）"
+          }
+        },
+        "required": [
+          "model_class"
+        ]
+      },
+      "permissions": [
+        "mcp:call:inkling_shell"
+      ],
+      "approval": "review",
+      "endpoint": "mcp",
+      "endpoint_config": {
+        "server_id": "inkling_shell"
+      },
+      "network_policy": {
+        "allow_domains": []
+      },
+      "meta": {
+        "domain": "os",
+        "sensor": "screen",
+        "executor": "shell:screenshot_capture",
+        "sandbox": "server_session"
+      }
+    }
+  }
+}

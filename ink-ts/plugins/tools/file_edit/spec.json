@@ -1,0 +1,64 @@
+{
+  "id": "file_edit",
+  "kind": "tool",
+  "capability": "host_tool",
+  "actions": [],
+  "depends": [],
+  "data": {
+    "tool": {
+      "name": "file_edit",
+      "description": "行为意图：精准编辑工作区文件——按 old_text 定位、替换为 new_text，写前快照可回退。\n\n使用时机：对既有文件做小段修改时；比整文件重写更省更准：只需给出最少上下文即可命中。\n\n取舍与替代选项：整文件重写——file_write；只读——file_read；本工具=替换段落；old_text 不唯一时先 file_read 取上下文再定位，不猜测命中位置。\n\n参数语义：operation=固定值 write（编辑属于写操作，与 file_ops 端点操作判定同源，调用方恒传）；path=工作区相对路径；old_text=待替换原文；new_text=替换后文本。\n\n边界与协作：同 file_write 沙箱/审批/快照回退；编辑后构建冒烟验证；「失败信号→改一行」的闭环入口。",
+      "parameters": {
+        "type": "object",
+        "properties": {
+          "operation": {
+            "type": "string",
+            "enum": [
+              "write"
+            ],
+            "description": "文件操作（固定值；编辑属于写操作，与 file_ops 端点操作判定同源，调用方恒传）"
+          },
+          "path": {
+            "type": "string",
+            "description": "工作区相对路径"
+          },
+          "old_text": {
+            "type": "string",
+            "description": "待替换原文"
+          },
+          "new_text": {
+            "type": "string",
+            "description": "替换后文本"
+          }
+        },
+        "required": [
+          "operation",
+          "path",
+          "old_text",
+          "new_text"
+        ]
+      },
+      "permissions": [
+        "filesystem:write:${workspace_root}/**"
+      ],
+      "approval": "review",
+      "endpoint": "file_ops",
+      "endpoint_config": {
+        "root": "${workspace_root}",
+        "operation": "write"
+      },
+      "network_policy": {
+        "allow_domains": []
+      },
+      "meta": {
+        "domain": "file",
+        "executor": "host:file_ops",
+        "sandbox": "file_root",
+        "sandbox_limits": {
+          "max_read_bytes": 1048576,
+          "max_write_bytes": 1048576
+        }
+      }
+    }
+  }
+}

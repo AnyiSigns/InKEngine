@@ -16,7 +16,7 @@ import {
 import { makeWebSearchExecutor, type WebSearchExecutorDeps } from './executor.js';
 import { SearchKeysStore } from './keys.js';
 
-/** web_search seed 定义（与 seed_data/tools.json web_search 声明对齐）。 */
+/** web_search seed 定义（与 plugins 源 web_search 声明对齐）。 */
 export function webSearchSeedDefinition(): DeclarativeToolSpec {
   return new DeclarativeToolSpec({
     name: 'web_search',

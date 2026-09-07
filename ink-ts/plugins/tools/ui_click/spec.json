@@ -1,0 +1,67 @@
+{
+  "id": "ui_click",
+  "kind": "tool",
+  "capability": "host_tool",
+  "actions": [],
+  "depends": [],
+  "data": {
+    "tool": {
+      "name": "ui_click",
+      "description": "行为意图：鼠标点击——经坐标 + 按键的壳执行器在屏幕指定位置触发鼠标按下/抬起；是「用户要求点一下某个位置」的执行体。\n\n使用时机：用户要求点击屏幕某坐标/某控件位置时；自动化操作桌面 UI 时。\n\n取舍与替代选项：输入文本——ui_type；移动/聚焦窗口——window_focus；本工具=单点鼠标动作，坐标须由上游感知（ui_query）提供；越界坐标被边界守卫拒绝。\n\n参数语义：command=固定值 ui_click（端点操作判定同源，调用方恒传）；x/y=屏幕坐标（0–32767）；button=按键（left/right/middle）。\n\n边界与协作：坐标边界 + 按键白名单收口；审批档 review（每次点击经引擎审批链、每步审计、可链回退）；实际点击效果受前台窗口/权限约束，不保证命中目标控件。",
+      "parameters": {
+        "type": "object",
+        "properties": {
+          "command": {
+            "type": "string",
+            "enum": [
+              "ui_click"
+            ],
+            "description": "命令名（固定值；与 process_exec 端点操作判定同源，调用方恒传）"
+          },
+          "x": {
+            "type": "integer",
+            "description": "屏幕 X 坐标（0–32767）"
+          },
+          "y": {
+            "type": "integer",
+            "description": "屏幕 Y 坐标（0–32767）"
+          },
+          "button": {
+            "type": "string",
+            "enum": [
+              "left",
+              "right",
+              "middle"
+            ],
+            "description": "按键"
+          }
+        },
+        "required": [
+          "command",
+          "x",
+          "y",
+          "button"
+        ]
+      },
+      "permissions": [
+        "process:exec:ui_click"
+      ],
+      "approval": "review",
+      "endpoint": "process_exec",
+      "endpoint_config": {
+        "allowlist": [
+          "ui_click"
+        ]
+      },
+      "network_policy": {
+        "allow_domains": []
+      },
+      "meta": {
+        "domain": "os",
+        "control": true,
+        "executor": "shell:ui_click",
+        "sandbox": "process_allowlist"
+      }
+    }
+  }
+}

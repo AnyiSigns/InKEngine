@@ -17,6 +17,11 @@
 | 7 | 低优遗留：§1.2 伪码 `impl` 字段 vs 规范类型；两树详略/现状目标标注；plugin_issues.md 未落盘 | **低优按推荐一并修订**：§1.2 伪码对齐规范（去 impl、补 id/faces 说明）；§4.3 树标注「目标态」并补 manifest.json/hosts spec；本卡落盘 | component_data §1.2/§4.3、本文件 |
 | 8 | §九「插件不含业务逻辑（L5 成立）」主语歧义：整插件不含业务逻辑会误读为插件是死的 | **澄清为分面表述**：业务逻辑在插件 logic face/actions（跑引擎侧，经事件路由执行）；不含业务逻辑的只是渲染器（显示设备）与 ui face（渲染意图数据，不写业务）。文档 §九 措辞改为分面，避免整插件误读 | component_data §九 落地状态表 web 行；本卡 |
 | 9 | 阶段 2「命令声明表」样板形态与边界（实施时裁决） | **域文件自声明数组 + 聚合挂载**：各域导出 `*_COMMANDS` 声明元组（方法名唯一真源），工厂 `build<Domain>Commands` 返回 `Readonly<Record<DomainCommand, BridgeHandler>>` 对象（编译期键集合锁死）；`BRIDGE_METHODS` 改为域元组 spread 派生导出（值/顺序不变）；cli legacy_aliases 别名表本阶段不动（随阶段 3+ 迁 plugins 源与 web 旧消费下线再收敛） | component_data §九 阶段 2 落地行 + 现状表命令面行、CODING.md §7/§9、本卡 |
+| 10 | 阶段 3a 落地范围（实施时裁决） | **分批**：3a 建 plugins 真源目录 + spec 契约 + manifest 生成器，首批迁 tools（35）与 mcp 市场（5）；ui_spec 布局与 BRIDGE_METHODS 命令名留 3b（性质不同构、一次全迁面太大） | component_data §三 3a 落地注 + §九 3a 行 |
+| 11 | 命令名数据化方案（66 命令真源迁 plugins） | **声明移 plugins + 生成 TS 类型**：命令名真源全放 plugins/，生成器仿 engine contracts:generate 产出 TS 常量/类型（generated 禁手改），host 工厂类型从生成物派生——真"数据即源"；命令声明与实现分居两处，改动命令名先跑生成器再 typecheck（3b 执行） | component_data §九 3b 待实施；本卡 |
+| 12 | 工具插件划分粒度 | **单工具一插件目录**（用户推翻「builtin-tools 统一包 data.tools[]」）：`plugins/tools/<name>/spec.json` 单行承载，control 单位仍是工具表行 | PLUGINS §2.1 修订、component_data §三/§九 |
+| 13 | 内置工具 capability 档位 | **host_tool**（宿主注入；工具行执行经宿主端点 inkling_exec/process_exec 等，非 core 闭集、非 external 装卸） | plugins spec.json capability 字段 |
+| 14 | 迁移后旧 seed 处置 + 消费指向 | **删旧真源**（tools.json/mcp_market.json），web/host/fixture 生成/self_check 门禁**一律经 plugins/manifest.json 派生视图取用**（生成物禁手改、--check 强制）；mcp.market seed_dir 语义 = 目录内含 manifest.json | component_data §三/§九、CODING.md §7/§9 |
 
 ## 阶段 2 实施时须现场核对
 
@@ -26,6 +31,16 @@
   `ROUNDS_COMMANDS` 之后保持原序。
   **（2026-09-07 阶段 2 已完成：31 份 `*_COMMANDS` 元组 + `verify:bridge-mount`
   PASS，夹具零漂移，见 §九 落地状态。）**
+
+## 阶段 3a 实施时须现场核对
+
+- 工具行/mcp 条目**逐字迁移**（description/parameters/permissions/approval/
+  endpoint_config/network_policy/meta 一字不改），manifest 是派生视图禁手改，
+  消费一律经 manifest——若未来增删工具只动 spec.json + 重跑生成器；
+- spec.json `data.tool`/`data.server` 单行承载 vs 终局统一包 `data.tools[]`
+  的差异属决策 #12（用户拍板单工具目录），PLUGINS §2.1 已同步修订；
+- npm 包名禁下划线：`collect_material` → `@ink-ts/plugin-collect-material`
+  （连字符）；spec id 仍保工具名原样（下划线），目录名 = 工具名。
 
 ## 引擎层 AGENTS 用语
 

@@ -1,5 +1,5 @@
 /**
- * 内置 MCP server 注册表单测：tools.json mcp 工具的 server_id 定义对齐、
+ * 内置 MCP server 注册表单测：plugins 源 mcp 工具的 server_id 定义对齐、
  * 连接位可覆盖、注册表权威字段不可改写、未知 server_id fail-closed。
  */
 import { describe, expect, it } from 'vitest';
@@ -13,7 +13,7 @@ import {
 } from '../../../src/adapters/mcp/index.js';
 
 describe('BUILTIN_MCP_SERVERS 内置注册表', () => {
-  it('注册表覆盖 tools.json 的 server_id（inkling_exec / inkling_shell）', () => {
+  it('注册表覆盖 plugins 源的 server_id（inkling_exec / inkling_shell）', () => {
     expect(Object.keys(BUILTIN_MCP_SERVERS).sort()).toEqual([
       'inkling_exec',
       'inkling_shell',

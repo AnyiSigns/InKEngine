@@ -147,7 +147,7 @@ const _ARTIFACT_HASH_LENGTH = 64;
 // 各补丁类型的合法形态示例骨架（形态示例增强）：校验失败时随
 // 违规清单回传示例骨架，供模型按形态试错收敛——避免「缺 xxx」等提示无形态
 // 引导的盲目试探（如 schema 声明须嵌套 name+fields 的形态盲猜）。形态与
-// seed_data/tools.json 既有条目/字段声明模板同构（tool 示例参照出厂工具
+// plugins 源既有条目/字段声明模板同构（tool 示例参照出厂工具
 // 声明：name/description/permissions/endpoint/endpoint_config）。
 const _PATCH_KIND_EXAMPLES: Record<string, string> = {
   ui: `{"spec": {"name": "...", "root": {"kind": "container", "type": "column", "children": [{"kind": "component", "type": "...", "bind": {...}}]}}}`,

@@ -1,0 +1,74 @@
+{
+  "id": "distill_knowledge",
+  "kind": "tool",
+  "capability": "host_tool",
+  "actions": [],
+  "depends": [],
+  "data": {
+    "tool": {
+      "name": "distill_knowledge",
+      "description": "行为意图：把执行信号序列（五类）蒸馏成结构化知识数据（rule 形态声明）——丢弃试错分支，只保留可落库的心得。\n\n使用时机：一轮执行产生了信号（gap/insight/pitfall/repeated_root_cause/user_correction）需要沉淀时；失败/纠正经验入库前。\n\n取舍与替代选项：只要归档单条事实——直接记知识条目；要从信号归纳「规则形态」的教训——本工具；已有条目要进化——mutate_knowledge；先蒸馏得到母体，再谈变异，两者是先后关系。\n\n参数语义：signals=执行信号序列（每条含 kind/message，source/context 可选）；complexity=任务复杂度；interventions=用户干预次数（双阈值按需触发判定用）。signals 直接传 JSON 数组，勿把数组序列化成字符串。\n\n边界与协作：产物为 rule 形态声明，须过校验闸门（validate_material/样例闸门）才可入集；蒸馏先于变异；不产证据支持的教训会被拦截（无依据不落库）。",
+      "parameters": {
+        "type": "object",
+        "properties": {
+          "signals": {
+            "type": "array",
+            "items": {
+              "type": "object",
+              "properties": {
+                "kind": {
+                  "type": "string",
+                  "description": "信号类别"
+                },
+                "message": {
+                  "type": "string",
+                  "description": "信号内容"
+                },
+                "source": {
+                  "type": "string",
+                  "description": "来源（web/dialog/model/user）"
+                },
+                "context": {
+                  "type": "object",
+                  "description": "关联上下文"
+                }
+              },
+              "required": [
+                "kind",
+                "message"
+              ]
+            },
+            "description": "执行信号序列（五类）"
+          },
+          "complexity": {
+            "type": "integer",
+            "description": "任务复杂度（蒸馏按需触发判定用）"
+          },
+          "interventions": {
+            "type": "integer",
+            "description": "用户干预次数（蒸馏按需触发判定用）"
+          }
+        },
+        "required": [
+          "signals"
+        ]
+      },
+      "permissions": [
+        "mcp:call:inkling_exec"
+      ],
+      "approval": "allow",
+      "endpoint": "mcp",
+      "endpoint_config": {
+        "server_id": "inkling_exec"
+      },
+      "network_policy": {
+        "allow_domains": []
+      },
+      "meta": {
+        "domain": "research",
+        "executor": "inkling_exec:inkling_distill",
+        "sandbox": "server_session"
+      }
+    }
+  }
+}

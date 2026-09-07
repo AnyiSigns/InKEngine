@@ -99,14 +99,19 @@ spec 直接住 `hosts/<host>.spec.json`，faces 用 HostFaces，见 §2）。
 
 ### 2.1 工具类插件（分发单位 vs 控制单位，正交）
 
-- 工具声明 = `kind:'tool'` 插件数据；内置工具声明源（现状 `seed_data/tools.json`）
-  整体迁入 `plugins/` 真源，不再单独作为源；
-- **分发单位 = 包**：内置工具统一包（`plugins/builtin-tools/`，`data.tools[]` 目录式，
-  装载时逐条铺进工具表；共享声明式执行端点 impl）；外部/agent 自举工具按插件分发
-  （一个插件可带多个工具，MCP server 即此形态——一个插件 N 个独立工具行）；
+- 工具声明 = `kind:'tool'` 插件数据；内置工具声明源 = `plugins/tools/<tool-name>/`
+  单工具一目录（阶段 3a 定稿：逐工具拆目录而非统一包），spec.json 的
+  `data.tool` 逐字承载原工具声明行（name/description/parameters/permissions/
+  approval/endpoint/endpoint_config/network_policy/meta），声明源唯一化于
+  plugins/，不再有独立 `seed_data/tools.json`；
+- **分发单位 = 目录/包**：内置工具每工具一个插件目录（npm 包名
+  `@ink-ts/plugin-<kebab>`），`plugins/manifest.json` 派生视图聚合 tools 表行
+  供消费（web/host/fixture 经 manifest 取用，生成物禁手改）；外部/agent
+  自举工具按插件分发（一个插件可带多个工具，MCP server 即此形态——一个
+  插件 N 个独立工具行）；
 - **控制/检索单位 = 工具表行**：每个 tool id 独立——schema/权限档/启停旗标/审批位/
   向量索引/request_tool 绑定全部 per-tool，与它来自哪个包无关；
-- tools tab 与检索动态注册读同一份源 = 插件 `data.tools[]` 目录铺成的工具表。
+- tools tab 与检索动态注册读同一份源 = plugins 聚合铺成的工具表。
 
 ## 3. 机制闭集红线
 

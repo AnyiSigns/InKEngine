@@ -1,0 +1,46 @@
+{
+  "id": "file_query",
+  "kind": "tool",
+  "capability": "host_tool",
+  "actions": [],
+  "depends": [],
+  "data": {
+    "tool": {
+      "name": "file_query",
+      "description": "行为意图：设备感知——对工作区外路径做只读状态扫描（存在性/大小/时间戳/目录结构/文件名过滤），不读内容不写。\n\n使用时机：任务涉及工作区外路径（桌面/下载/系统目录）需要先摸清状态时；移动/打开前先确认存在与位置时。\n\n取舍与替代选项：要读工作区内容——file_read；要按内容找——grep；要按文件名找——glob；本工具=文件状态与边界（不含内容）；工作区内的内容操作全部交给 file 家族专用工具，本工具只补「工作区外看一眼」的空位。\n\n参数语义：path=待查询路径；pattern=文件名过滤模式。\n\n边界与协作：只读扫描，绝不写；工作区外敏感目录受限，越界被拒；查到路径后的打开动作另行走 open_file/launch_app，本工具不代行。",
+      "parameters": {
+        "type": "object",
+        "properties": {
+          "path": {
+            "type": "string",
+            "description": "待查询路径"
+          },
+          "pattern": {
+            "type": "string",
+            "description": "文件名过滤模式"
+          }
+        },
+        "required": [
+          "path"
+        ]
+      },
+      "permissions": [
+        "mcp:call:inkling_shell"
+      ],
+      "approval": "review",
+      "endpoint": "mcp",
+      "endpoint_config": {
+        "server_id": "inkling_shell"
+      },
+      "network_policy": {
+        "allow_domains": []
+      },
+      "meta": {
+        "domain": "os",
+        "sensor": "screen",
+        "executor": "shell:device_sense",
+        "sandbox": "server_session"
+      }
+    }
+  }
+}

@@ -1,0 +1,12 @@
+{
+  "premounted": false,
+  "mount_policy": {
+    "required": [
+      "vetting 静态钩子核对",
+      "审批卡预览（可 edit 改传输/命令）",
+      "L2 人工审批",
+      "补丁链挂载可回退"
+    ],
+    "note": "出厂零预挂：市场目录是候选清单，任何挂载都须走既有 vetting → 观察 → 审批 → 补丁链链路"
+  }
+}

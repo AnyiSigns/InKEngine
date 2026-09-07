@@ -1,0 +1,52 @@
+{
+  "id": "doc_parse",
+  "kind": "tool",
+  "capability": "host_tool",
+  "actions": [],
+  "depends": [],
+  "data": {
+    "tool": {
+      "name": "doc_parse",
+      "description": "行为意图：把文档解析成结构化数据——PDF（文本+版面）/ Word / Excel / PPT 识别并抽取为 JSON，是「喂论文/表格/演示进分析链」的入料环节。\n\n使用时机：用户上传或指路 PDF/Office 文件，需要 agent 读懂内容时；研究链要从论文/表格提取要点时。\n\n取舍与替代选项：只看文件状态——file_query；读纯文本——file_read；本工具=格式识别+结构化解析，产出 JSON 供分析/入库；不支持解压/改写文档。\n\n参数语义：path=待解析文件路径（工作区或附件域内）。\n\n边界与协作：只读解析，不写原文件；坏文件/截断输入结构化报错不崩溃；解析产物可继续走研究链（收集→解析→校验→评分→蒸馏）。",
+      "parameters": {
+        "type": "object",
+        "properties": {
+          "command": {
+            "type": "string",
+            "enum": [
+              "doc_parse"
+            ],
+            "description": "命令名（固定值；与 process_exec 端点操作判定同源，调用方恒传）"
+          },
+          "path": {
+            "type": "string",
+            "description": "待解析文档路径（工作区/附件域内）"
+          }
+        },
+        "required": [
+          "command",
+          "path"
+        ]
+      },
+      "permissions": [
+        "process:exec:doc_parse"
+      ],
+      "approval": "review",
+      "endpoint": "process_exec",
+      "endpoint_config": {
+        "allowlist": [
+          "doc_parse"
+        ]
+      },
+      "network_policy": {
+        "allow_domains": []
+      },
+      "meta": {
+        "domain": "file",
+        "executor": "host:doc_parse",
+        "sandbox": "process_allowlist",
+        "note": "执行体由 host 接线注册（doc.parse：exec doc op 文档文本提取，附件/工作区内路径）"
+      }
+    }
+  }
+}

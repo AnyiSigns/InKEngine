@@ -1,21 +1,23 @@
 /**
- * data 门禁：seed_data（唯一真源）与 engine 数据面 fixtures 及前端镜像的
+ * data 门禁：plugins 插件源（真源）与 engine 数据面 fixtures 及前端镜像的
  * 数据一致性核 + 引擎发射事件登记核。
  *
  * 核对边：
  * 1. seed_data/event_types.json 事件名集合 == web EVENT_TYPE_NAMES 镜像集合，
  *    且 EVENT_TYPE_SPECS 声明名与 EVENT_TYPE_NAMES 一一对应（事件名↔spec 一致）；
- * 2. seed_data/tools.json 工具 endpoint 使用集 ⊆ engine endpoint_registry
+ * 2. plugins/manifest.json tools 工具 endpoint 使用集 ⊆ engine endpoint_registry
  *    fixture 内置端点集，且内置端点全部被使用（双向覆盖）；
- * 3. seed_data/fixtures/tools_os.json 由 tools.json 派生的夹具与派生产物一致
+ * 3. seed_data/fixtures/tools_os.json 由 plugins 源派生的夹具与派生产物一致
  *    （执行 seed_data/scripts/sync_tools_fixtures.mjs --check）；夹具成员的
- *    endpoint/permission/sandbox 映射与 seed 声明自洽（endpoint 映射规则 +
+ *    endpoint/permission/sandbox 映射与 plugins 声明自洽（endpoint 映射规则 +
  *    sandbox 结构守卫）；
  * 4. engine/src 内事件发射字面量 ⊆ seed 事件集 ∪ internal 允许表
  *    （engine_emit_allowlist.txt，data 门禁的发射登记核：新增真实 UI 事件须
  *    登记 seed，引擎内部事件须登 internal 允许表）；
- * 5. 计数一致：事件 48 / 工具 35 / 内置端点 7 以 seed 与 fixture 实际值核对，
- *    不写死数字（数字漂移以双侧真实差异暴露）。
+ * 5. plugins/manifest.json 派生视图与 plugins/ 各 spec 真源一致
+ *    （执行 plugins/scripts/sync_plugin_manifest.mjs --check，防手改 manifest）；
+ * 6. 计数一致：事件 48 / 工具 35 / 内置端点 7 以 plugins manifest 与 fixture
+ *    实际值核对，不写死数字（数字漂移以双侧真实差异暴露）。
  */
 
 import { readFileSync, readdirSync, statSync } from 'node:fs';
@@ -187,7 +189,7 @@ export async function runGateData(ctx: SelfCheckContext): Promise<GateResult> {
   const engineFixtureRoot = join(ctx.inkTsRoot, 'engine', 'fixtures');
 
   const events = parseJson<EventTypesFile>(join(seedRoot, 'event_types.json'));
-  const tools = parseJson<ToolsFile>(join(seedRoot, 'tools.json'));
+  const tools = parseJson<ToolsFile>(join(ctx.inkTsRoot, 'plugins', 'manifest.json'));
   const endpointRegistry = parseJson<EndpointRegistryFile>(join(engineFixtureRoot, 'endpoint_registry.fixture.json'));
   const toolsOs = parseJson<ToolsOsFile>(join(seedRoot, 'fixtures', 'tools_os.json'));
 
@@ -221,7 +223,7 @@ export async function runGateData(ctx: SelfCheckContext): Promise<GateResult> {
 
   const toolNames = tools.tools.map((t) => t.name);
   if (new Set(toolNames).size !== toolNames.length) {
-    issues.push('tools.json 存在重复工具名');
+    issues.push('plugins manifest tools 存在重复工具名');
   }
   const builtinNames = endpointRegistry.builtin_endpoints.map((e) => e.name);
   const builtinSet = new Set(builtinNames);
@@ -234,29 +236,39 @@ export async function runGateData(ctx: SelfCheckContext): Promise<GateResult> {
   if (notBuiltin.length > 0) issues.push(`工具 endpoint 越界内置端点集：${notBuiltin.join(', ')}`);
   if (unusedBuiltin.length > 0) issues.push(`内置端点未被任何工具使用：${unusedBuiltin.join(', ')}`);
 
-  // tools.json → tools_os.json 映射自洽：夹具成员均须在 seed 有声明，且
-  // endpoint/permission 映射与 seed 对齐、sandbox 结构合规（SANDBOX_MAPPING
+  // plugins manifest 派生视图自洽：manifest 由 plugins 真源派生，与各 spec 逐字一致
+  // （禁手改 manifest；任何 spec 改动须重跑 sync_plugin_manifest.mjs）。
+  const manifestSync = await runCommand(
+    [process.execPath, join(ctx.inkTsRoot, 'plugins', 'scripts', 'sync_plugin_manifest.mjs'), '--check'],
+    { cwd: ctx.inkTsRoot, timeoutMs: 60_000 },
+  );
+  if (manifestSync.code !== 0) {
+    issues.push(`plugins/manifest.json 与 plugins 真源派生产物不一致（exit ${manifestSync.code ?? '超时'}）`);
+  }
+
+  // plugins → tools_os.json 映射自洽：夹具成员均须在 plugins 有声明，且
+  // endpoint/permission 映射与 plugins 对齐、sandbox 结构合规（SANDBOX_MAPPING
   // 是夹具沙箱唯一源，任何 shape 漂移在此暴露）。
   const seedByName = new Map(tools.tools.map((t) => [t.name, t]));
   const fixtureToolNames = new Set(toolsOs.tools.map((t) => t.name));
   const osExtraNames = toolsOs.tools.filter((t) => !seedByName.has(t.name)).map((t) => t.name);
-  if (osExtraNames.length > 0) issues.push(`夹具含 seed 未声明工具：${osExtraNames.join(', ')}`);
+  if (osExtraNames.length > 0) issues.push(`夹具含 plugins 未声明工具：${osExtraNames.join(', ')}`);
   for (const tool of toolsOs.tools) {
     const seed = seedByName.get(tool.name);
     if (seed === undefined) continue;
     if (seed.approval !== undefined && tool.permission !== seed.approval) {
-      issues.push(`工具 ${tool.name} permission 与 seed approval 不一致：${tool.permission} vs ${seed.approval}`);
+      issues.push(`工具 ${tool.name} permission 与 plugins approval 不一致：${tool.permission} vs ${seed.approval}`);
     }
     const seedEndpoint = seed.endpoint ?? '';
     const fixtureEndpoint = tool.endpoint ?? '';
     if (seedEndpoint === 'process_exec' && fixtureEndpoint !== 'process_exec') {
-      issues.push(`工具 ${tool.name} 端点映射漂移：seed process_exec → 夹具 ${fixtureEndpoint}`);
+      issues.push(`工具 ${tool.name} 端点映射漂移：plugins process_exec → 夹具 ${fixtureEndpoint}`);
     }
     if (seedEndpoint === 'mcp' && fixtureEndpoint !== 'device_mcp') {
-      issues.push(`工具 ${tool.name} 端点映射漂移：seed mcp → 夹具 ${fixtureEndpoint}（设备类应映射 device_mcp）`);
+      issues.push(`工具 ${tool.name} 端点映射漂移：plugins mcp → 夹具 ${fixtureEndpoint}（设备类应映射 device_mcp）`);
     }
     if (seedEndpoint !== 'process_exec' && seedEndpoint !== 'mcp' && fixtureEndpoint !== '') {
-      issues.push(`工具 ${tool.name} seed 端点 ${seedEndpoint} 无夹具映射规则`);
+      issues.push(`工具 ${tool.name} plugins 端点 ${seedEndpoint} 无夹具映射规则`);
     }
     const sandboxIssueText = sandboxIssue(tool.sandbox);
     if (sandboxIssueText !== null) issues.push(`工具 ${tool.name} ${sandboxIssueText}`);
@@ -267,7 +279,7 @@ export async function runGateData(ctx: SelfCheckContext): Promise<GateResult> {
     { cwd: ctx.inkTsRoot, timeoutMs: 60_000 },
   );
   if (sync.code !== 0) {
-    issues.push(`tools_os 夹具与 seed 派生产物不一致（exit ${sync.code ?? '超时'}）`);
+    issues.push(`tools_os 夹具与 plugins 派生产物不一致（exit ${sync.code ?? '超时'}）`);
   }
 
   // 引擎发射事件登记核：emit 字面量 ⊆ seed ∪ internal 允许表。
@@ -289,8 +301,8 @@ export async function runGateData(ctx: SelfCheckContext): Promise<GateResult> {
   const counts = `事件 ${seedEventNames.length} / 工具 ${toolNames.length} / 内置端点 ${builtinNames.length} / 发射事件 ${emitNames.size} / internal ${internal.size}`;
   return {
     key: 'data',
-    label: '数据一致性核（seed↔engine fixtures + 发射事件登记）',
-    command: 'seed_data + engine fixtures + sync_tools_fixtures --check + engine emit 字面量',
+    label: '数据一致性核（plugins↔engine fixtures + 发射事件登记）',
+    command: 'plugins manifest + engine fixtures + sync_plugin_manifest --check + sync_tools_fixtures --check + engine emit 字面量',
     passed,
     seconds,
     summary: passed ? `${counts}，全部分支一致` : `${counts}，存在 ${issues.length} 处不一致`,

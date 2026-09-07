@@ -1,0 +1,68 @@
+{
+  "id": "grep",
+  "kind": "tool",
+  "capability": "host_tool",
+  "actions": [],
+  "depends": [],
+  "data": {
+    "tool": {
+      "name": "grep",
+      "description": "行为意图：工作区文本内容检索——glob 模式限定文件路径范围、正则匹配文件内容、文件类型过滤、超限截断；只读。\n\n使用时机：记得内容/模式、不知道在哪个文件时；「哪些文件里出现了 xx」的定位问题；批量确认改点覆盖情况时。\n\n取舍与替代选项：文件名定位——glob；文件状态——file_query；文件内容——file_read；三方分工：grep=内容、glob=文件名/路径、file_query=文件状态与边界；命中过多时收紧 glob/include 再查。\n\n参数语义：operation=固定值 search（与 file_ops 端点操作判定同源，调用方恒传）；pattern=检索正则（必填）；glob=文件路径 glob 模式（可选，如 **/*.py）；include=文件类型过滤（可选）；max_results=结果条数上限（超限截断）。\n\n边界与协作：permissions=filesystem:search:${workspace_root}/**（只读检索权限）；approval=review（只读但结果可能大）；sandbox=file_root；截断后结果不完整——收紧条件重查，不要基于截断结果下结论。",
+      "parameters": {
+        "type": "object",
+        "properties": {
+          "operation": {
+            "type": "string",
+            "enum": [
+              "search"
+            ],
+            "description": "文件操作（固定值；与 file_ops 端点操作判定同源，调用方恒传）"
+          },
+          "pattern": {
+            "type": "string",
+            "description": "检索正则（必填）"
+          },
+          "glob": {
+            "type": "string",
+            "description": "文件路径 glob 模式（可选，如 **/*.py）"
+          },
+          "include": {
+            "type": "string",
+            "description": "文件类型过滤（可选）"
+          },
+          "max_results": {
+            "type": "number",
+            "minimum": 1,
+            "maximum": 1000,
+            "description": "结果条数上限（超限截断）"
+          }
+        },
+        "required": [
+          "operation",
+          "pattern"
+        ]
+      },
+      "permissions": [
+        "filesystem:search:${workspace_root}|${workspace_root}/**"
+      ],
+      "approval": "allow",
+      "endpoint": "file_ops",
+      "endpoint_config": {
+        "root": "${workspace_root}",
+        "operation": "search"
+      },
+      "network_policy": {
+        "allow_domains": []
+      },
+      "meta": {
+        "domain": "file",
+        "executor": "host:file_ops",
+        "sandbox": "file_root",
+        "sandbox_limits": {
+          "max_read_bytes": 1048576,
+          "max_write_bytes": 1048576
+        }
+      }
+    }
+  }
+}

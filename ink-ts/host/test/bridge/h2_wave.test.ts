@@ -460,26 +460,31 @@ describe('mcp.market（seed 目录 + 挂载态）', () => {
     await handle.dispose();
   });
 
-  it('market 读取 seed_data/mcp_market.json → servers 附 mounted=false；未连 server 卸载拒绝', async () => {
+  it('market 读取 seed 目录 manifest.json 的 mcp_market 视图 → servers 附 mounted=false；未连 server 卸载拒绝', async () => {
     const base = dirs();
     const seed = mkdtempSync(path.join(tmpdir(), 'ink-h2-seed-'));
     writeFileSync(
-      path.join(seed, 'mcp_market.json'),
+      path.join(seed, 'manifest.json'),
       JSON.stringify({
-        premounted: false,
-        mount_policy: { required: [] },
-        servers: [
-          {
-            id: 'market.demo',
-            name: 'Demo',
-            source: 'fixture',
-            transport: 'http',
-            url: 'https://example.com',
-            command: null,
-            args: [],
-            risk: 'low',
-          },
-        ],
+        version: 1,
+        plugins: [],
+        tools: [],
+        mcp_market: {
+          premounted: false,
+          mount_policy: { required: [] },
+          servers: [
+            {
+              id: 'market.demo',
+              name: 'Demo',
+              source: 'fixture',
+              transport: 'http',
+              url: 'https://example.com',
+              command: null,
+              args: [],
+              risk: 'low',
+            },
+          ],
+        },
       }),
     );
     try {

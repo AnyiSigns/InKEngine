@@ -1,0 +1,59 @@
+{
+  "id": "system_query",
+  "kind": "tool",
+  "capability": "host_tool",
+  "actions": [],
+  "depends": [],
+  "data": {
+    "tool": {
+      "name": "system_query",
+      "description": "行为意图：系统状态查询——CPU/内存/进程概览/磁盘，只读快照，无副作用。\n\n使用时机：排障/性能判断前先取一次基线；用户问「机器怎么样/进程情况」时。\n\n取舍与替代选项：只看状态——本工具；要控制——用具体控制工具（launch_app 等）；与 ui_query 的分工：那边看屏幕感知，本工具看系统；进程细节敏感，展示即受限。\n\n参数语义：command=固定值 system_query（端点操作判定同源，调用方恒传）；scope=查询范围（system/process/disk）。\n\n边界与协作：只读（allow 档，不挂审批卡）；经 process_exec 端点白名单收口；查询结果供分析，不自动执行任何动作。",
+      "parameters": {
+        "type": "object",
+        "properties": {
+          "command": {
+            "type": "string",
+            "enum": [
+              "system_query"
+            ],
+            "description": "命令名（固定值；与 process_exec 端点操作判定同源，调用方恒传）"
+          },
+          "query": {
+            "type": "string",
+            "enum": [
+              "os",
+              "arch",
+              "hostname",
+              "home",
+              "cwd",
+              "uptime"
+            ],
+            "description": "查询项（与 process_exec 执行器 query 参数同源）"
+          }
+        },
+        "required": [
+          "command",
+          "query"
+        ]
+      },
+      "permissions": [
+        "process:exec:system_query"
+      ],
+      "approval": "allow",
+      "endpoint": "process_exec",
+      "endpoint_config": {
+        "allowlist": [
+          "system_query"
+        ]
+      },
+      "network_policy": {
+        "allow_domains": []
+      },
+      "meta": {
+        "domain": "os",
+        "executor": "shell:system_query",
+        "sandbox": "process_allowlist"
+      }
+    }
+  }
+}

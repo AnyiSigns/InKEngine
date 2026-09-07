@@ -1,0 +1,49 @@
+{
+  "id": "ui_query",
+  "kind": "tool",
+  "capability": "host_tool",
+  "actions": [],
+  "depends": [],
+  "data": {
+    "tool": {
+      "name": "ui_query",
+      "description": "行为意图：桌面 UI 感知——只读枚举前台窗口 + 顶级窗口 + 子窗口层级（每节点含 handle/title/class/visible/minimized/rect 屏幕矩形），并可按 target 查询屏幕分辨率/工作区；是「桌面上现在有哪些窗口/控件」与「屏幕几何参数」的统一感知入口（原 window_list/screen_query/ui_tree_query 合并）。\n\n使用时机：任务需要感知当前桌面窗口布局/可交互控件、或需要屏幕分辨率/工作区参数时；用户问「现在开着哪些窗口」「屏幕多大」而模型无视觉信息时。\n\n取舍与替代选项：只读感知，不能改任何东西——要控制请 ui_click/ui_type/window_focus/window_minimize；本工具统一承载窗口清单/元素树/屏幕参数三种感知面，按 target 区分粒度（tree=元素树含窗口清单，resolution/work_area=屏幕几何参数）；感知结果仅作指路依据，不代用户操作。\n\n参数语义：target=感知面（tree=窗口/控件元素树，resolution=屏幕分辨率，work_area=工作区矩形，缺省 tree）；scope=元素树范围（foreground=仅前台窗口；all=全部可见窗口，缺省 all）。\n\n边界与协作：只读、无控制权（approval=allow，纯感知无副作用）；越权感知（非桌面窗口/隐私控件）被作用域白名单拒绝；宿主件挂载接线后才可用，感知面随挂载核对。",
+      "parameters": {
+        "type": "object",
+        "properties": {
+          "target": {
+            "type": "string",
+            "enum": [
+              "tree",
+              "resolution",
+              "work_area"
+            ],
+            "description": "感知面（tree=窗口/控件元素树；resolution=屏幕分辨率；work_area=工作区矩形；缺省 tree）"
+          },
+          "scope": {
+            "type": "string",
+            "description": "元素树范围（foreground=仅前台窗口；all=全部可见窗口，缺省 all）"
+          }
+        },
+        "required": []
+      },
+      "permissions": [
+        "mcp:call:inkling_shell"
+      ],
+      "approval": "allow",
+      "endpoint": "mcp",
+      "endpoint_config": {
+        "server_id": "inkling_shell"
+      },
+      "network_policy": {
+        "allow_domains": []
+      },
+      "meta": {
+        "domain": "os",
+        "sensor": "ui",
+        "executor": "shell:device_sense",
+        "sandbox": "server_session"
+      }
+    }
+  }
+}

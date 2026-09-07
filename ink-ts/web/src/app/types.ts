@@ -5,7 +5,7 @@
  * 再镜像到本文件。
  */
 
-/** 工具详情（与 seed_data/tools.json 同源）：行为手册渲染层。 */
+/** 工具详情（与 plugins 源同源）：行为手册渲染层。 */
 export interface ToolDetail {
   name: string;
   description: string;

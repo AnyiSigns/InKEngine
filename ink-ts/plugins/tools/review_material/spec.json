@@ -1,0 +1,159 @@
+{
+  "id": "review_material",
+  "kind": "tool",
+  "capability": "host_tool",
+  "actions": [],
+  "depends": [],
+  "data": {
+    "tool": {
+      "name": "review_material",
+      "description": "行为意图：知识质量执行体——按 phase 二态：phase=review（缺省）评审收敛循环（按 review.json 的维度/阈值/轮次上限对候选输出打分、给出 failing_dimensions 与改进意见，并输出收敛决策 接受/再生成/呈交现状）；phase=score 确定性评分（引用质量/交叉验证，原 score_material 并入，交叉验证绑定 samples.json 基准事实）。\n\n使用时机：候选输出定稿前必须过一遍；「生成→评审→再生成」循环每轮调用（phase=review）；需要量化证据强度读数时用 phase=score。\n\n取舍与替代选项：单项内容检查/量化评分——phase=score；合规性裁决——validate_material；「该不该收、要不要再改」的加权总评与轮次判定——phase=review。\n\n参数语义（以执行器真实 schema 为准）：phase=score 时 answer=候选答案对象，answer.claims 为断言对象数组（每项含 text），answer.citations 为引用对象数组（每项含 claim_index/source_id/quote），sources=来源对象数组（每项含 id/text），weights=四维权重覆盖；phase=review 时 candidates=候选对象数组（每项含 text 与可选的 claims/citations/topic），dimension_scores=显式维度得分数组（每项含 candidate_index/name/score），round_no=当前轮次。数组参数直接传 JSON 数组，勿把数组序列化成字符串。\n\n边界与协作：维度/阈值/轮次上限全部数据驱动（review.json）；达到轮次上限呈交现状并附 notes，不无限循环；评审卡经审批管线对用户可见，评审通过后方可沉淀；评分不改材料本身。",
+      "parameters": {
+        "type": "object",
+        "properties": {
+          "candidates": {
+            "type": "array",
+            "items": {
+              "type": "object",
+              "properties": {
+                "text": {
+                  "type": "string",
+                  "description": "候选文本"
+                },
+                "claims": {
+                  "type": "array",
+                  "description": "断言清单（完备性启发式用）"
+                },
+                "citations": {
+                  "type": "array",
+                  "description": "引用清单（证据启发式用）"
+                },
+                "topic": {
+                  "type": "string",
+                  "description": "主题（相关性启发式用）"
+                }
+              }
+            },
+            "description": "候选输出清单（phase=review 用）"
+          },
+          "dimension_scores": {
+            "type": "array",
+            "items": {
+              "type": "object",
+              "properties": {
+                "candidate_index": {
+                  "type": "integer",
+                  "description": "候选下标"
+                },
+                "name": {
+                  "type": "string",
+                  "description": "维度名"
+                },
+                "score": {
+                  "type": "number",
+                  "description": "得分（0-1）"
+                }
+              },
+              "required": [
+                "candidate_index",
+                "name",
+                "score"
+              ]
+            },
+            "description": "显式维度得分（缺省 = 确定性启发式默认口径）；显式提供时该候选全部配置维度须齐全"
+          },
+          "round_no": {
+            "type": "integer",
+            "description": "当前再生成轮次（收敛决策用）"
+          },
+          "phase": {
+            "type": "string",
+            "enum": [
+              "score",
+              "review"
+            ],
+            "description": "执行阶段（score=确定性评分；review=评审收敛，缺省 review）"
+          },
+          "answer": {
+            "type": "object",
+            "description": "候选答案对象（phase=score 用）：claims=断言对象数组（每项必含 text），citations=引用对象数组（每项含 claim_index 整数 + source_id + quote，可选）",
+            "properties": {
+              "claims": {
+                "type": "array",
+                "items": {
+                  "type": "object",
+                  "properties": {
+                    "text": {
+                      "type": "string",
+                      "description": "断言文本"
+                    }
+                  }
+                },
+                "description": "断言对象数组（每项须含 text）"
+              },
+              "citations": {
+                "type": "array",
+                "items": {
+                  "type": "object",
+                  "properties": {
+                    "claim_index": {
+                      "type": "integer",
+                      "description": "指向 claims 的下标"
+                    },
+                    "source_id": {
+                      "type": "string",
+                      "description": "来源 id（对应 sources 项的 id）"
+                    },
+                    "quote": {
+                      "type": "string",
+                      "description": "引用原文"
+                    }
+                  }
+                },
+                "description": "引用对象数组（每项含 claim_index/source_id/quote）"
+              }
+            }
+          },
+          "sources": {
+            "type": "array",
+            "items": {
+              "type": "object",
+              "properties": {
+                "id": {
+                  "type": "string",
+                  "description": "来源 id"
+                },
+                "text": {
+                  "type": "string",
+                  "description": "来源正文"
+                }
+              }
+            },
+            "description": "来源对象数组（phase=score 用；每项须含 id 与 text，可验证性基准）"
+          },
+          "weights": {
+            "type": "object",
+            "description": "四维度权重覆盖（phase=score 用，缺省 = 出厂默认口径，总和 1.0）"
+          }
+        },
+        "required": []
+      },
+      "permissions": [
+        "mcp:call:inkling_exec"
+      ],
+      "approval": "allow",
+      "endpoint": "mcp",
+      "endpoint_config": {
+        "server_id": "inkling_exec"
+      },
+      "network_policy": {
+        "allow_domains": []
+      },
+      "meta": {
+        "domain": "research",
+        "executor": "inkling_exec:inkling_review",
+        "sandbox": "server_session"
+      }
+    }
+  }
+}

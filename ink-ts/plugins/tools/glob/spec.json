@@ -1,0 +1,64 @@
+{
+  "id": "glob",
+  "kind": "tool",
+  "capability": "host_tool",
+  "actions": [],
+  "depends": [],
+  "data": {
+    "tool": {
+      "name": "glob",
+      "description": "行为意图：工作区路径递归检索（目录树）——按 glob 模式列出匹配的路径，只读；是「按名字找文件/目录」的定位工具。\n\n使用时机：记得文件名/目录结构、需要路径时；先 glob 定位、后 file_read 读取的常见组合。\n\n取舍与替代选项：内容检索——grep；状态——file_query；读内容——file_read；三方分工：glob=文件名/路径、grep=内容、file_query=文件状态与边界；本工具不返回文件内容。\n\n参数语义：operation=固定值 search_paths（与 file_ops 端点操作判定同源，调用方恒传）；pattern=glob 路径模式（必填，如 **/*.json）；path=检索起点（可选，缺省工作区根）；max_results=结果条数上限（超限截断）。\n\n边界与协作：permissions=filesystem:search_paths:${workspace_root}/**（只读检索权限）；approval=review；sandbox=file_root；截断后收紧模式重查；只列路径不读内容（内容用 file_read）。",
+      "parameters": {
+        "type": "object",
+        "properties": {
+          "operation": {
+            "type": "string",
+            "enum": [
+              "search_paths"
+            ],
+            "description": "文件操作（固定值；与 file_ops 端点操作判定同源，调用方恒传）"
+          },
+          "pattern": {
+            "type": "string",
+            "description": "glob 路径模式（必填，如 **/*.json）"
+          },
+          "path": {
+            "type": "string",
+            "description": "检索起点（可选，缺省工作区根）"
+          },
+          "max_results": {
+            "type": "number",
+            "minimum": 1,
+            "maximum": 1000,
+            "description": "结果条数上限（超限截断）"
+          }
+        },
+        "required": [
+          "operation",
+          "pattern"
+        ]
+      },
+      "permissions": [
+        "filesystem:search_paths:${workspace_root}|${workspace_root}/**"
+      ],
+      "approval": "allow",
+      "endpoint": "file_ops",
+      "endpoint_config": {
+        "root": "${workspace_root}",
+        "operation": "search_paths"
+      },
+      "network_policy": {
+        "allow_domains": []
+      },
+      "meta": {
+        "domain": "file",
+        "executor": "host:file_ops",
+        "sandbox": "file_root",
+        "sandbox_limits": {
+          "max_read_bytes": 1048576,
+          "max_write_bytes": 1048576
+        }
+      }
+    }
+  }
+}

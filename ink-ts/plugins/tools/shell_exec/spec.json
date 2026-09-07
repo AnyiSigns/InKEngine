@@ -1,0 +1,70 @@
+{
+  "id": "shell_exec",
+  "kind": "tool",
+  "capability": "host_tool",
+  "actions": [],
+  "depends": [],
+  "data": {
+    "tool": {
+      "name": "shell_exec",
+      "description": "行为意图：在工作区中执行命令——装依赖（pip/uv）、跑脚本（python）、版本管理（git）、构建（cargo/npm/npx）等开发命令。混合级别：白名单内命令 cwd 钉在工作区挂载根（沙箱级）；白名单外命令经升级审批卡（L2，弹卡说明命令与参数）通过后一次性系统级放行（cwd=系统主目录），审批卡为唯一防线。timeout 参数由 agent 控制执行时长（1-3600 秒，缺省 180）。\n\n使用时机：需要实际运行命令时——安装测试依赖、执行脚本、查看工作区进程等；需要跑白名单外命令时经审批升级放行。\n\n取舍与替代选项：跑测试直接用 shell_exec（python -m pytest / cargo test / npx vitest run / npx tsc --noEmit）；不再需要单独的 run_test_* 模板工具。\n\n参数语义：command=固定值 shell_exec（端点操作判定同源，调用方恒传）；argv=待执行命令参数数组（argv[0]=命令名；白名单内 = 工作区沙箱执行，白名单外 = 审批卡升级放行）；timeout=执行超时秒数（可选，agent 可控时长，1-3600，缺省 180）。\n\n边界与协作：白名单内命令面白名单+审批档双闸；白名单外命令升级审批 = 一次性放行，审批卡为唯一防线（无二次白名单）；被拒属权限契约预期，须经补丁链审批转正（放开命令）。",
+      "parameters": {
+        "type": "object",
+        "properties": {
+          "command": {
+            "type": "string",
+            "enum": [
+              "shell_exec"
+            ],
+            "description": "命令名（固定值；与 process_exec 端点操作判定同源，调用方恒传）"
+          },
+          "argv": {
+            "description": "待执行命令参数（argv[0]=命令名；白名单内命令 cwd=工作区挂载根，白名单外命令经升级审批后 cwd=系统主目录）",
+            "items": {
+              "type": "string"
+            },
+            "type": "array"
+          },
+          "timeout": {
+            "type": "integer",
+            "description": "执行超时秒数（可选；agent 可控时长，1-3600，缺省 180）"
+          }
+        },
+        "required": [
+          "command",
+          "argv"
+        ]
+      },
+      "permissions": [
+        "process:exec:pip|python|uv|git|cargo|npm|npx"
+      ],
+      "approval": "review",
+      "endpoint": "process_exec",
+      "endpoint_config": {
+        "allowlist": [
+          "pip",
+          "python",
+          "uv",
+          "git",
+          "cargo",
+          "npm",
+          "npx"
+        ],
+        "root": "${workspace_root}",
+        "operation_param": "argv"
+      },
+      "network_policy": {
+        "allow_domains": []
+      },
+      "meta": {
+        "domain": "os",
+        "control": false,
+        "deny_by_default": false,
+        "escalation": true,
+        "executor": "host:shell_exec_guard",
+        "sandbox": "process_allowlist",
+        "note": "工作区命令执行：白名单内命令 cwd 钉工作区挂载根；白名单外命令经升级审批（L2 卡）后一次性系统级放行（cwd=主目录），审批卡为唯一防线"
+      }
+    }
+  }
+}

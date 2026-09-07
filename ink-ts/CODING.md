@@ -131,10 +131,11 @@ host/cli/web 取用。
 | core/kernel 域间私有模块跨目录 import（`../<dir>/_*`） | `engine/src/core/**`、`engine/src/kernel/**` | 拒绝（跨域共享 seam 例外：目标私有模块文件头标注「跨域契约模块」并注明理由，如 `_types/_constants/_injection` 类类型 seam 与共享工具） |
 | adapters 反向 import core/kernel 私有模块（`core/**/_*.ts`、`kernel/**/_*.ts`） | `engine/src/adapters/**` | 拒绝（公共 seam 例外同上标注，须注明为公共 seam） |
 | core/kernel 禁宿主/框架词 | `engine/src/core/**`、`engine/src/kernel/**` | 拒绝 |
-| JSON 纪律：可 parse、无重复键、2 空格缩进格线 | `seed_data/**`、`engine/schemas`、`engine/fixtures` JSON | 拒绝（json-valid） |
+| JSON 纪律：可 parse、无重复键、2 空格缩进格线 | `seed_data/**`、`plugins/**`、`engine/schemas`、`engine/fixtures` JSON | 拒绝（json-valid） |
 | 生成文件禁手改 | `engine/src/core/contracts/generated/**` | 由 `contracts:verify`（engine/scripts/verify_generated.mjs：复制 engine/schemas + fixtures 后重生成，与仓库生成物归一化逐文件 diff）在 root `npm test` 与 CI 强制；不做文本扫描 |
 | 机制件契约三键（依赖单向/装配完整/0-IO） | `engine/src/kernel/<mechanism>/contract.ts` 全量 + runtime 装配闭包 + kernel 源码 | 由 `verify:mechanisms`（engine/scripts/verify_mechanisms.ts：契约密封 DAG 无环 + runtime depends 闭包 ∪ 自足叶子覆盖全量 + kernel 禁 node 内置/第三方/IO 全局原语）在 root `npm test` 与 CI 强制；boot 装配首步同源 `seal_mechanism_registry` fail-closed |
 | 命令声明即挂载（方法名不手写数组） | `host/src/bridge/index.ts` 的 `BRIDGE_METHODS` | 由 `verify:bridge-mount`（host/scripts/verify_bridge_mount.ts：BRIDGE_METHODS 数组体只允许各域 `*_COMMANDS` spread 或注释，禁点分方法名字面量；spread 常量须已 import）在 root `npm test` 与 CI 强制；键与实现表一致由各域工厂 `Readonly<Record<DomainCommand, BridgeHandler>>` 返回类型编译期保证 |
+| 插件源派生视图（manifest 禁手改） | `plugins/manifest.json`（tools 聚合 / mcp 市场视图 / 插件索引） | 由 `verify:plugin-manifest`（plugins/scripts/sync_plugin_manifest.mjs：从 plugins/\<kind\>/\<id\>/spec.json 聚合生成，--check 逐字比对防手改）在 root `npm test` 与 CI 强制；web dev 夹具、host mcp.market、tools_os 夹具生成与 self_check data 门禁一律经 manifest 取用 |
 
 gate 实现与正反样例位于 `gate/src/` 与 `gate/test/`；**真实扫描链** =
 root `npm test` 首段 `npm run typecheck --workspace engine`（engine tsc
@@ -143,7 +144,9 @@ root `npm test` 首段 `npm run typecheck --workspace engine`（engine tsc
 schemas/fixtures 的 json-valid）→ `vitest run --root gate`（规则样例自测）
 → `tsx engine/scripts/verify_mechanisms.ts`（机制件契约三键）
 → `tsx host/scripts/verify_bridge_mount.ts`（命令声明即挂载：BRIDGE_METHODS
-无手写方法名），
+无手写方法名）
+→ `tsx plugins/scripts/sync_plugin_manifest.mjs --check`（插件源派生视图：
+plugins/manifest.json 与各 spec 真源逐字一致），
 CI 的 ink-ts job 同链执行。规则增删须同步本表。
 
 ## 8. 模型角色槽（配置语义与措辞纪律）
@@ -201,7 +204,7 @@ CI 的 ink-ts job 同链执行。规则增删须同步本表。
 | `backup.export` | backup | data_dir 整包 zip 导出（store-zip + manifest；dest 缺省 data_dir/backups） |
 | `backup.preview` | backup | 备份包预览（覆盖清单：条目数/总大小/含库/created_at） |
 | `backup.restore` | backup | 备份恢复替换（危险操作：confirm 须精确 `'backup-restore'`；恢复前原目录快照入 data_dir/snapshots） |
-| `mcp.market` | mcp | 市场浏览（seed_data/mcp_market.json + 每 server mounted 连接态；preview/add/remove 无真源不提供） |
+| `mcp.market` | mcp | 市场浏览（plugins/manifest.json 的 mcp_market 视图 + 每 server mounted 连接态；preview/add/remove 无真源不提供） |
 | `mcp.mount` | mcp | 市场服务挂载（config = McpServerConfig 数据形态；连接 + 工具导入，失败 fail-closed） |
 | `mcp.unmount` | mcp | 市场服务卸载（manager.disconnect；未挂载显式拒绝） |
 | `knowledge.list` | knowledge | 知识集条目窗口（query/kind 过滤 + archived 含归档开关；条目渲染视图） |

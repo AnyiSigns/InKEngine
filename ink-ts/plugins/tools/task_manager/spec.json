@@ -1,0 +1,93 @@
+{
+  "id": "task_manager",
+  "kind": "tool",
+  "capability": "host_tool",
+  "actions": [],
+  "depends": [],
+  "data": {
+    "tool": {
+      "name": "task_manager",
+      "description": "行为意图：维护当前会话的持久化待办清单——agent 自拆解任务、逐项更新/完成，跨回合保留（早收口/护栏收口后续回合可接续，进度不丢）。\n\n使用时机：收到需要多步执行的任务时开局拆解为清单；每完成一步更新状态；回合收口前确保清单反映真实进度；续回合先 list 读回再继续。\n\n取舍与替代选项：只记脑中不落清单 = 跨回合不保（早收口即丢）；spawn 子任务清单 = 子代理分配，本工具 = agent 自我管理。\n\n参数语义：operation=create/update/complete/list/clear；create 需 title（detail=验收标准，建议填）；update 按 id 改字段；complete 快捷置 done（evidence=完成证据）；list 按 status_filter 过滤读回；clear 清已完成条目防膨胀。\n\n边界与协作：清单按 thread 隔离（各会话独立）；操作即落库（任何时刻收口不丢）；条目存在性校验（update/complete 不存在 id 明确报错）；allow 档无审批负担。",
+      "parameters": {
+        "type": "object",
+        "properties": {
+          "operation": {
+            "type": "string",
+            "enum": [
+              "create",
+              "update",
+              "complete",
+              "list",
+              "clear",
+              "delete"
+            ],
+            "description": "清单操作（delete = 按 id 移除条目；取消语义用 update status=cancelled）"
+          },
+          "id": {
+            "type": "string",
+            "description": "条目 id（update/complete 必填）"
+          },
+          "title": {
+            "type": "string",
+            "description": "任务描述（create 必填；update 可改）"
+          },
+          "detail": {
+            "type": "string",
+            "description": "验收标准/完成判据（create/update）"
+          },
+          "priority": {
+            "type": "string",
+            "enum": [
+              "high",
+              "medium",
+              "low"
+            ],
+            "description": "优先级（默认 medium）"
+          },
+          "status": {
+            "type": "string",
+            "enum": [
+              "pending",
+              "doing",
+              "done",
+              "cancelled",
+              "blocked"
+            ],
+            "description": "状态（update 可改；blocked=卡住待续回合处理）"
+          },
+          "evidence": {
+            "type": "string",
+            "description": "完成证据（complete 建议填，留痕可追溯）"
+          },
+          "status_filter": {
+            "type": "string",
+            "description": "list 按状态过滤（默认全部）"
+          },
+          "limit": {
+            "type": "integer",
+            "minimum": 1,
+            "maximum": 100,
+            "description": "list 上限（默认 20，防注入体积）"
+          }
+        },
+        "required": [
+          "operation"
+        ]
+      },
+      "permissions": [
+        "todo:manage:*"
+      ],
+      "approval": "allow",
+      "endpoint": "task_manager",
+      "endpoint_config": {},
+      "network_policy": {
+        "allow_domains": []
+      },
+      "meta": {
+        "domain": "self",
+        "executor": "host:task_manager",
+        "note": "执行器由宿主注册（todo:<thread_id> 持久化清单 + 审计）；allow 档 agent 自我管理"
+      }
+    }
+  }
+}

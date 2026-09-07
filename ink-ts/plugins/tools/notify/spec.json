@@ -1,0 +1,55 @@
+{
+  "id": "notify",
+  "kind": "tool",
+  "capability": "host_tool",
+  "actions": [],
+  "depends": [],
+  "data": {
+    "tool": {
+      "name": "notify",
+      "description": "行为意图：发送系统通知——通知中心/托盘提示，是对话之外的提醒通道（长任务完成、等待触达）。\n\n使用时机：用户离开对话、任务需异步同步时；sleep 到点后组合本工具实现「到点提醒」时。\n\n取舍与替代选项：对话内反馈——直接文本回复（更快）；需要独立可见提醒——本工具；等待后提醒——sleep（等待）+ notify（出口）；本工具不做定时。\n\n参数语义：command=固定值 notify（端点操作判定同源，调用方恒传）；title=通知标题；body=通知正文。\n\n边界与协作：无副作用、allow 档；通知不自动确认、不读回执；与 sleep 组合是「等待→提醒」的完成路径。",
+      "parameters": {
+        "type": "object",
+        "properties": {
+          "command": {
+            "type": "string",
+            "enum": [
+              "notify"
+            ],
+            "description": "命令名（固定值；与 process_exec 端点操作判定同源，调用方恒传）"
+          },
+          "title": {
+            "type": "string"
+          },
+          "body": {
+            "type": "string"
+          }
+        },
+        "required": [
+          "command",
+          "title",
+          "body"
+        ]
+      },
+      "permissions": [
+        "process:exec:notify"
+      ],
+      "approval": "allow",
+      "endpoint": "process_exec",
+      "endpoint_config": {
+        "allowlist": [
+          "notify"
+        ]
+      },
+      "network_policy": {
+        "allow_domains": []
+      },
+      "meta": {
+        "domain": "os",
+        "control": true,
+        "executor": "shell:notify",
+        "sandbox": "process_allowlist"
+      }
+    }
+  }
+}

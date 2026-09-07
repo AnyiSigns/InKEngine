@@ -1,0 +1,89 @@
+{
+  "id": "parse_material",
+  "kind": "tool",
+  "capability": "host_tool",
+  "actions": [],
+  "depends": [],
+  "data": {
+    "tool": {
+      "name": "parse_material",
+      "description": "行为意图：把原始材料结构化——按声明式抽取规格从文本中抽出标题/正文/要点/来源引用，是「采集→知识」之间的整形环节。\n\n使用时机：collect_material 产出原始材料后、做校验/评分/评审之前；材料是纯文本、后续要复用其内容时。\n\n取舍与替代选项：一次性问答场景直接用原始文本即可，不必 parse；需要内容化沉淀时再结构化；与 validate_material 的分工——本工具只整形不管好坏，校验管「合规与否」，评分管「证据强弱」。\n\n参数语义：text=待解析文本；spec=抽取规格清单（每条声明 name/kind/start/end/prefix/needle）。spec 直接传 JSON 数组，勿把数组序列化成字符串。\n\n边界与协作：纯计算无副作用、无出网（allow 档）；解析产物被 review_material 消费（phase=score 评分 / phase=review 评审）；关键字段缺失时回落原文，不以空壳数据进下游链。",
+      "parameters": {
+        "type": "object",
+        "properties": {
+          "text": {
+            "type": "string",
+            "description": "待解析文本"
+          },
+          "spec": {
+            "type": "array",
+            "items": {
+              "type": "object",
+              "properties": {
+                "name": {
+                  "type": "string",
+                  "description": "字段名"
+                },
+                "kind": {
+                  "type": "string",
+                  "enum": [
+                    "between",
+                    "line_prefix",
+                    "count",
+                    "contains"
+                  ],
+                  "description": "抽取方式"
+                },
+                "start": {
+                  "type": "string",
+                  "description": "between：起始标记"
+                },
+                "end": {
+                  "type": "string",
+                  "description": "between：结束标记"
+                },
+                "prefix": {
+                  "type": "string",
+                  "description": "line_prefix：行前缀"
+                },
+                "include_prefix": {
+                  "type": "boolean",
+                  "description": "line_prefix：结果是否含前缀"
+                },
+                "needle": {
+                  "type": "string",
+                  "description": "count/contains：查找串"
+                }
+              },
+              "required": [
+                "name",
+                "kind"
+              ]
+            },
+            "description": "抽取规格清单"
+          }
+        },
+        "required": [
+          "text",
+          "spec"
+        ]
+      },
+      "permissions": [
+        "mcp:call:inkling_exec"
+      ],
+      "approval": "allow",
+      "endpoint": "mcp",
+      "endpoint_config": {
+        "server_id": "inkling_exec"
+      },
+      "network_policy": {
+        "allow_domains": []
+      },
+      "meta": {
+        "domain": "research",
+        "executor": "inkling_exec:inkling_parse",
+        "sandbox": "server_session"
+      }
+    }
+  }
+}

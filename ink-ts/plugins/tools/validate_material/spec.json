@@ -1,0 +1,52 @@
+{
+  "id": "validate_material",
+  "kind": "tool",
+  "capability": "host_tool",
+  "actions": [],
+  "depends": [],
+  "data": {
+    "tool": {
+      "name": "validate_material",
+      "description": "行为意图：按规则集（rules.json）对数据对象做确定性违规评估——输出违规清单（每项含 规则/类别/严重级/原因），是知识链的合规闸门执行体。\n\n使用时机：材料/知识条目/蒸馏变异产物入库前；任何要进知识集的数据对象，先过一遍本工具。\n\n取舍与替代选项：只要「合规与否」的裁决——本工具；需要加权分与收敛判定——review_material(phase=review)；需要交叉验证评分——review_material(phase=score)；选择取决于「要的是违规裁决，还是质量与取舍建议」。\n\n参数语义（以执行器真实 schema 为准）：data=待校验的数据对象（材料/知识条目，必填）；rules=规则 id 字符串数组（可选；缺省按全量规则评估；未知 id 显式拒绝）；context=可选的求值上下文对象。\n\n边界与协作：纯只读、无副作用；评估语义与样例闸门同源（fail-open 留痕：规则不命中不拦但记痕）；违规清单是知识闸门拦截的留痕依据，规则集数据驱动、可经补丁链演化。",
+      "parameters": {
+        "type": "object",
+        "properties": {
+          "data": {
+            "type": "object",
+            "description": "待校验的数据对象（材料/知识条目；必填字段按规则要求，如 id/kind/source 等缺失会命中对应规则）"
+          },
+          "rules": {
+            "type": "array",
+            "items": {
+              "type": "string"
+            },
+            "description": "规则 id 子集（缺省全量）"
+          },
+          "context": {
+            "type": "object",
+            "description": "求值上下文对象（可选；供带上下文依赖的规则求值）"
+          }
+        },
+        "required": [
+          "data"
+        ]
+      },
+      "permissions": [
+        "mcp:call:inkling_exec"
+      ],
+      "approval": "allow",
+      "endpoint": "mcp",
+      "endpoint_config": {
+        "server_id": "inkling_exec"
+      },
+      "network_policy": {
+        "allow_domains": []
+      },
+      "meta": {
+        "domain": "research",
+        "executor": "inkling_exec:inkling_validate",
+        "sandbox": "server_session"
+      }
+    }
+  }
+}

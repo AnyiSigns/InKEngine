@@ -1,0 +1,60 @@
+{
+  "id": "file_write",
+  "kind": "tool",
+  "capability": "host_tool",
+  "actions": [],
+  "depends": [],
+  "data": {
+    "tool": {
+      "name": "file_write",
+      "description": "行为意图：写入/覆盖工作区文件——写前快照可回退；AI 开发模式的「写→构建→冒烟→失败信号回流」的写执行体。\n\n使用时机：新建文件或整体重写内容时；与 file_edit 的分工：整文件/大段→write，小段精准→edit。\n\n取舍与替代选项：小段替换——file_edit；只读——file_read；本工具=整文件写；修改前先 file_read 了解现状，避免覆盖盲写。\n\n参数语义：operation=固定值 write（与 file_ops 端点操作判定同源，调用方恒传）；path=工作区相对路径或工作区挂载根内绝对路径；content=写入内容。\n\n边界与协作：工作区根沙箱+review 审批；写前快照支持回退；构建失败信号回流传供 round 学习（失败信号→知识沉淀→下次避坑）。",
+      "parameters": {
+        "type": "object",
+        "properties": {
+          "operation": {
+            "type": "string",
+            "enum": [
+              "write"
+            ],
+            "description": "文件操作（固定值；与 file_ops 端点操作判定同源，调用方恒传）"
+          },
+          "path": {
+            "type": "string",
+            "description": "工作区相对路径"
+          },
+          "content": {
+            "type": "string",
+            "description": "写入内容"
+          }
+        },
+        "required": [
+          "operation",
+          "path",
+          "content"
+        ]
+      },
+      "permissions": [
+        "filesystem:write:${workspace_root}/**"
+      ],
+      "approval": "review",
+      "endpoint": "file_ops",
+      "endpoint_config": {
+        "root": "${workspace_root}",
+        "operation": "write"
+      },
+      "network_policy": {
+        "allow_domains": []
+      },
+      "meta": {
+        "domain": "file",
+        "executor": "host:file_ops",
+        "sandbox": "file_root",
+        "sandbox_limits": {
+          "max_read_bytes": 1048576,
+          "max_write_bytes": 1048576
+        },
+        "note": "AI 开发模式：写 → 构建 → 冒烟 → 失败信号回流回合再改"
+      }
+    }
+  }
+}

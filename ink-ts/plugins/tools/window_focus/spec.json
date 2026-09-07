@@ -1,0 +1,52 @@
+{
+  "id": "window_focus",
+  "kind": "tool",
+  "capability": "host_tool",
+  "actions": [],
+  "depends": [],
+  "data": {
+    "tool": {
+      "name": "window_focus",
+      "description": "行为意图：聚焦窗口——把指定窗口提到前台（按句柄/标题/foreground 关键字定位）；是「切到某个窗口」的执行体。\n\n使用时机：用户要求「切到浏览器/记事本」等多窗口切换时；自动化工序切换焦点时。\n\n取舍与替代选项：看清单——ui_query（先列后选）；最小化——window_minimize；本工具只管聚焦，不读窗口内容。\n\n参数语义：command=固定值 window_focus（端点操作判定同源，调用方恒传）；handle=窗口句柄（十进制 HWND）/标题/foreground 关键字。\n\n边界与协作：句柄非空校验；审批档 review（每步审计、可链回退）；定位失败结构化返回错误，不静默成功。",
+      "parameters": {
+        "type": "object",
+        "properties": {
+          "command": {
+            "type": "string",
+            "enum": [
+              "window_focus"
+            ],
+            "description": "命令名（固定值；与 process_exec 端点操作判定同源，调用方恒传）"
+          },
+          "handle": {
+            "type": "string",
+            "description": "窗口句柄（十进制 HWND）/标题/foreground 关键字"
+          }
+        },
+        "required": [
+          "command",
+          "handle"
+        ]
+      },
+      "permissions": [
+        "process:exec:window_focus"
+      ],
+      "approval": "review",
+      "endpoint": "process_exec",
+      "endpoint_config": {
+        "allowlist": [
+          "window_focus"
+        ]
+      },
+      "network_policy": {
+        "allow_domains": []
+      },
+      "meta": {
+        "domain": "os",
+        "control": true,
+        "executor": "shell:window_focus",
+        "sandbox": "process_allowlist"
+      }
+    }
+  }
+}

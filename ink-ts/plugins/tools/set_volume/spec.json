@@ -1,0 +1,54 @@
+{
+  "id": "set_volume",
+  "kind": "tool",
+  "capability": "host_tool",
+  "actions": [],
+  "depends": [],
+  "data": {
+    "tool": {
+      "name": "set_volume",
+      "description": "行为意图：调节系统音量——shell 执行器按 0-100 数值设置音量档位。\n\n使用时机：用户明确要求「调大/调小/静音/音量到 x」时。\n\n取舍与替代选项：亮度——set_brightness；通知——notify；本工具只改音量，播放控制等其它音频行为不在本工具范围。\n\n参数语义：command=固定值 set_volume（端点操作判定同源，调用方恒传）；level=音量百分比（0-100）。\n\n边界与协作：越界取值被参数 schema 拒绝；实际音量受系统硬件/策略限制，以系统反馈为准；无副作用于文件/网络。",
+      "parameters": {
+        "type": "object",
+        "properties": {
+          "command": {
+            "type": "string",
+            "enum": [
+              "set_volume"
+            ],
+            "description": "命令名（固定值；与 process_exec 端点操作判定同源，调用方恒传）"
+          },
+          "percent": {
+            "type": "number",
+            "minimum": 0,
+            "maximum": 100,
+            "description": "百分比（与执行器 percent 参数同源）"
+          }
+        },
+        "required": [
+          "command",
+          "percent"
+        ]
+      },
+      "permissions": [
+        "process:exec:set_volume"
+      ],
+      "approval": "review",
+      "endpoint": "process_exec",
+      "endpoint_config": {
+        "allowlist": [
+          "set_volume"
+        ]
+      },
+      "network_policy": {
+        "allow_domains": []
+      },
+      "meta": {
+        "domain": "os",
+        "control": true,
+        "executor": "shell:set_volume",
+        "sandbox": "process_allowlist"
+      }
+    }
+  }
+}

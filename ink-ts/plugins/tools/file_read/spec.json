@@ -1,0 +1,55 @@
+{
+  "id": "file_read",
+  "kind": "tool",
+  "capability": "host_tool",
+  "actions": [],
+  "depends": [],
+  "data": {
+    "tool": {
+      "name": "file_read",
+      "description": "行为意图：读取工作区文件内容——file_ops 端点、工作区根沙箱、只读，返回文件文本供分析。\n\n使用时机：需要查看/分析项目内文件内容时；写或改之前先读上下文时。\n\n取舍与替代选项：找文件名——glob；按内容检索——grep；文件状态——file_query；写——file_write；精确改——file_edit；本工具=读内容（只读，allow 档无审批负担）；工作区外读取走 file_query（只读扫描，不含内容）。\n\n参数语义：operation=固定值 read（与 file_ops 端点操作判定同源，调用方恒传）；path=工作区相对路径或工作区挂载根内绝对路径。\n\n边界与协作：根目录占位符 ${workspace_root} 在装配期由设置页「工作区授权」替换；大小超限截断（sandbox_limits）；「内容是什么」找本工具，「内容在哪」找 grep/glob。",
+      "parameters": {
+        "type": "object",
+        "properties": {
+          "operation": {
+            "type": "string",
+            "enum": [
+              "read"
+            ],
+            "description": "文件操作（固定值；与 file_ops 端点操作判定同源，调用方恒传）"
+          },
+          "path": {
+            "type": "string",
+            "description": "工作区相对路径"
+          }
+        },
+        "required": [
+          "operation",
+          "path"
+        ]
+      },
+      "permissions": [
+        "filesystem:read:${workspace_root}/**"
+      ],
+      "approval": "allow",
+      "endpoint": "file_ops",
+      "endpoint_config": {
+        "root": "${workspace_root}",
+        "operation": "read"
+      },
+      "network_policy": {
+        "allow_domains": []
+      },
+      "meta": {
+        "domain": "file",
+        "executor": "host:file_ops",
+        "sandbox": "file_root",
+        "sandbox_limits": {
+          "max_read_bytes": 1048576,
+          "max_write_bytes": 1048576
+        },
+        "note": "根目录占位符 ${workspace_root} 在装配期由设置页「工作区授权」替换为实际挂载点"
+      }
+    }
+  }
+}

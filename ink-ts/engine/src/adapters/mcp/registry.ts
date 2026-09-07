@@ -1,8 +1,8 @@
 /**
- * 内置 MCP server 注册表（tools.json mcp 工具声明的 server_id 定义）——
+ * 内置 MCP server 注册表（plugins 源 mcp 工具声明的 server_id 定义）——
  * 镜像 Python mcp_client.py 的 BUILTIN_MCP_SERVERS/builtin_mcp_server_config。
  *
- * tools.json 中 endpoint=mcp 工具的 server_id 归并后仅两个：inkling_exec
+ * plugins 中 endpoint=mcp 工具的 server_id 归并后仅两个：inkling_exec
  * 与 inkling_shell。两个内置 server 都由 ink-ts 产物内的原生 MCP server
  * 二进制承载（`ink_ts_mcp <profile>`：exec = file/process/doc 工具集、
  * shell = exec 工具集 + embed；stdio Content-Length 分帧，INK_MCP_ROOT

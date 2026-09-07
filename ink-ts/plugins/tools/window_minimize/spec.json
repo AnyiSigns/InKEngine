@@ -1,0 +1,52 @@
+{
+  "id": "window_minimize",
+  "kind": "tool",
+  "capability": "host_tool",
+  "actions": [],
+  "depends": [],
+  "data": {
+    "tool": {
+      "name": "window_minimize",
+      "description": "行为意图：最小化窗口——把指定窗口收进任务栏（按句柄/标题/foreground 关键字定位）；是「收起某个窗口」的执行体。\n\n使用时机：用户要求「把这个窗口最小化」保持桌面清爽时；自动化工序收起干扰窗口时。\n\n取舍与替代选项：聚焦——window_focus；看清单——ui_query；本工具只管最小化，不读窗口内容。\n\n参数语义：command=固定值 window_minimize（端点操作判定同源，调用方恒传）；handle=窗口句柄（十进制 HWND）/标题/foreground 关键字。\n\n边界与协作：句柄非空校验；审批档 review（每步审计、可链回退）；定位失败结构化返回错误，不静默成功。",
+      "parameters": {
+        "type": "object",
+        "properties": {
+          "command": {
+            "type": "string",
+            "enum": [
+              "window_minimize"
+            ],
+            "description": "命令名（固定值；与 process_exec 端点操作判定同源，调用方恒传）"
+          },
+          "handle": {
+            "type": "string",
+            "description": "窗口句柄（十进制 HWND）/标题/foreground 关键字"
+          }
+        },
+        "required": [
+          "command",
+          "handle"
+        ]
+      },
+      "permissions": [
+        "process:exec:window_minimize"
+      ],
+      "approval": "review",
+      "endpoint": "process_exec",
+      "endpoint_config": {
+        "allowlist": [
+          "window_minimize"
+        ]
+      },
+      "network_policy": {
+        "allow_domains": []
+      },
+      "meta": {
+        "domain": "os",
+        "control": true,
+        "executor": "shell:window_minimize",
+        "sandbox": "process_allowlist"
+      }
+    }
+  }
+}

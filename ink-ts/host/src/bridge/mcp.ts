@@ -1,7 +1,8 @@
 /**
  * mcp 命令面（market/mount/unmount）——市场浏览 + 会话生命周期接线。
  *
- * 数据源：market = seed_data/mcp_market.json（seed_dir 或按包位置探测），
+ * 数据源：market = plugins/manifest.json 的 mcp_market 派生视图（真源 = 各
+ * plugins/mcp/<id>/spec.json，生成物禁手改；seed_dir 或按包位置探测），
  * 每 server 附 mounted 状态（连接态 = manager.list_servers() 命中）；mount/
  * unmount 经 H1 装配段 McpClientManager connect/disconnect（manager 已注册
  * 引擎声明式执行器），失败 fail-closed 显式报错。preview/add/remove 无真源
@@ -17,7 +18,7 @@ import { McpClientManager, McpServerConfig } from '@ink-ts/engine';
 import { BridgeError, type BridgeHandler } from './_types.js';
 import type { HostBridgeDeps } from './_types.js';
 
-/** 市场条目（seed_data/mcp_market.json 结构透传；mounted 为本方法补充）。 */
+/** 市场条目（plugins manifest mcp_market 视图结构透传；mounted 为本方法补充）。 */
 export interface McpMarketServerView {
   id: string;
   name: string;
@@ -40,22 +41,22 @@ export interface McpMarketView {
   servers: McpMarketServerView[];
 }
 
-const MARKET_FILE = 'mcp_market.json';
-/** 市场文件探测深度（seed_dir 未给时沿包位置向上找 seed_data/）。 */
+const PLUGIN_MANIFEST = 'manifest.json';
+/** manifest 文件探测深度（seed_dir 未给时沿包位置上探 plugins/）。 */
 const PROBE_DEPTH = 6;
 
 function isRecord(value: unknown): value is Record<string, unknown> {
   return typeof value === 'object' && value !== null && !Array.isArray(value);
 }
 
-/** 市场文件定位（seed_dir 优先；缺省 = 沿模块目录上探 seed_data/）。 */
+/** 插件派生视图定位（seed_dir 优先：目录内直接含 manifest.json；缺省 = 沿模块目录上探 plugins/）。 */
 function resolveMarketFile(deps: HostBridgeDeps): string {
   if (deps.seed_dir !== undefined && deps.seed_dir !== '') {
-    return join(deps.seed_dir, MARKET_FILE);
+    return join(deps.seed_dir, PLUGIN_MANIFEST);
   }
   let dir = dirname(fileURLToPath(import.meta.url));
   for (let depth = 0; depth < PROBE_DEPTH; depth += 1) {
-    const candidate = join(dir, 'seed_data', MARKET_FILE);
+    const candidate = join(dir, 'plugins', PLUGIN_MANIFEST);
     try {
       readFileSync(candidate);
       return candidate;
@@ -64,7 +65,7 @@ function resolveMarketFile(deps: HostBridgeDeps): string {
     }
   }
   throw new BridgeError(
-    'mcp 市场数据不可用（seed_data/mcp_market.json 未找到；serve 需 --seed-dir）',
+    '插件源不可用（plugins/manifest.json 未找到；serve 需 --seed-dir）',
     'runtime_unavailable',
   );
 }
@@ -115,16 +116,17 @@ export function buildMcpCommands(deps: HostBridgeDeps): Readonly<Record<McpComma
       data = JSON.parse(readFileSync(file, 'utf8')) as unknown;
     } catch (error) {
       throw new BridgeError(
-        `mcp 市场数据解析失败: ${error instanceof Error ? error.message : String(error)}`,
+        `插件派生视图解析失败: ${error instanceof Error ? error.message : String(error)}`,
         'runtime_unavailable',
       );
     }
-    if (!isRecord(data) || !Array.isArray(data['servers'])) {
-      throw new BridgeError('mcp 市场数据缺 servers 清单', 'runtime_unavailable');
+    const view = isRecord(data) && isRecord(data['mcp_market']) ? data['mcp_market'] : null;
+    if (view === null || !Array.isArray(view['servers'])) {
+      throw new BridgeError('plugins manifest 缺 mcp_market.servers 视图', 'runtime_unavailable');
     }
     const connected = new Set(manager.list_servers());
     const servers: McpMarketServerView[] = [];
-    for (const entry of data['servers'] as unknown[]) {
+    for (const entry of view['servers'] as unknown[]) {
       if (!isRecord(entry) || typeof entry['id'] !== 'string') continue;
       const url = typeof entry['url'] === 'string' ? entry['url'] : null;
       const command = typeof entry['command'] === 'string' ? entry['command'] : null;
@@ -146,8 +148,8 @@ export function buildMcpCommands(deps: HostBridgeDeps): Readonly<Record<McpComma
     }
     return {
       source: file,
-      premounted: data['premounted'] === true,
-      mount_policy: isRecord(data['mount_policy']) ? data['mount_policy'] : {},
+      premounted: view['premounted'] === true,
+      mount_policy: isRecord(view['mount_policy']) ? view['mount_policy'] : {},
       servers,
     };
   };

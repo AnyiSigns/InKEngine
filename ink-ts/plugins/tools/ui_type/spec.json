@@ -1,0 +1,52 @@
+{
+  "id": "ui_type",
+  "kind": "tool",
+  "capability": "host_tool",
+  "actions": [],
+  "depends": [],
+  "data": {
+    "tool": {
+      "name": "ui_type",
+      "description": "行为意图：文本输入——经 SendInput+KEYEVENTF_UNICODE 键盘事件注入把文本键入前台窗口；是「用户要求在当前焦点处输入一段文字」的执行体。\n\n使用时机：用户要求往某输入框/文档填写内容时；自动化填表/回复时。\n\n取舍与替代选项：点击定位——ui_click（先点后输入）；本工具只管键入，不负责把焦点移到目标；按 UTF-16 码元直送，绕开输入法转换，字符内容不受 IME 影响。\n\n参数语义：command=固定值 ui_type（端点操作判定同源，调用方恒传）；text=待输入文本（长度上限 256 字符）。\n\n边界与协作：长度上限收口；审批档 review（每次输入经引擎审批链、每步审计、可链回退）；输入目标由前台焦点决定，执行器不指定接收窗口。",
+      "parameters": {
+        "type": "object",
+        "properties": {
+          "command": {
+            "type": "string",
+            "enum": [
+              "ui_type"
+            ],
+            "description": "命令名（固定值；与 process_exec 端点操作判定同源，调用方恒传）"
+          },
+          "text": {
+            "type": "string",
+            "description": "待输入文本（≤ 256 字符）"
+          }
+        },
+        "required": [
+          "command",
+          "text"
+        ]
+      },
+      "permissions": [
+        "process:exec:ui_type"
+      ],
+      "approval": "review",
+      "endpoint": "process_exec",
+      "endpoint_config": {
+        "allowlist": [
+          "ui_type"
+        ]
+      },
+      "network_policy": {
+        "allow_domains": []
+      },
+      "meta": {
+        "domain": "os",
+        "control": true,
+        "executor": "shell:ui_type",
+        "sandbox": "process_allowlist"
+      }
+    }
+  }
+}

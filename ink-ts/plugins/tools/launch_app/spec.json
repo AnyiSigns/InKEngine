@@ -1,0 +1,59 @@
+{
+  "id": "launch_app",
+  "kind": "tool",
+  "capability": "host_tool",
+  "actions": [],
+  "depends": [],
+  "data": {
+    "tool": {
+      "name": "launch_app",
+      "description": "行为意图：启动应用——经命令白名单的 shell 执行器拉起用户指定应用（含参数），是「用户要求打开某个应用」的执行体。\n\n使用时机：用户说「打开 微信/浏览器/VSCode」等具体应用时；带参数启动（如带 URL 打开浏览器）时。\n\n取舍与替代选项：打开文件（默认程序）——open_file；跑任意命令——shell_exec（出厂 deny 档，须显式转正）；本工具=应用级白名单入口，白名单外应用直接拒绝而非静默失败；首次越界操作强制 L2 人工审批。\n\n参数语义：command=固定值 launch_app（端点操作判定同源，调用方恒传）；app=应用名或启动标识；args=启动参数（可选）。\n\n边界与协作：命令白名单收口；审批档 review；启动后的应用行为超出工具管辖；与 open_file 的分工：本工具拉起「应用」，open_file 交付「文件」。",
+      "parameters": {
+        "type": "object",
+        "properties": {
+          "command": {
+            "type": "string",
+            "enum": [
+              "launch_app"
+            ],
+            "description": "命令名（固定值；与 process_exec 端点操作判定同源，调用方恒传）"
+          },
+          "app": {
+            "type": "string",
+            "description": "应用名或启动标识"
+          },
+          "args": {
+            "type": "array",
+            "items": {
+              "type": "string"
+            },
+            "description": "启动参数"
+          }
+        },
+        "required": [
+          "command",
+          "app"
+        ]
+      },
+      "permissions": [
+        "process:exec:launch_app"
+      ],
+      "approval": "review",
+      "endpoint": "process_exec",
+      "endpoint_config": {
+        "allowlist": [
+          "launch_app"
+        ]
+      },
+      "network_policy": {
+        "allow_domains": []
+      },
+      "meta": {
+        "domain": "os",
+        "control": true,
+        "executor": "shell:launch_app",
+        "sandbox": "process_allowlist"
+      }
+    }
+  }
+}

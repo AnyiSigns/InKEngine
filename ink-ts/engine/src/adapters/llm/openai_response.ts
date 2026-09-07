@@ -16,19 +16,19 @@
  * - 取消语义：消费方中断时响应流在退出路径关闭上游（aiter_lines finally
  *   cancel）；已产出内容后的失败不重试（重试会重复已消费帧）。
  * - 重试唯一权威：默认单次尝试，瞬时故障重试归链级 RetryPolicy
- *   （ModelChain，core/llm/fallback）；独立直用可注入策略，骨架见
+ *   （ModelChain，kernel/llm/fallback）；独立直用可注入策略，骨架见
  *   ./retry_once.ts。
  */
 
-import { AsyncLLM, REASONING_EFFORTS } from '../../core/llm/base.js';
-import type { LLMChunk, LLMConfig, LLMParams, LLMResult } from '../../core/llm/base.js';
+import { AsyncLLM, REASONING_EFFORTS } from '../../kernel/llm/base.js';
+import type { LLMChunk, LLMConfig, LLMParams, LLMResult } from '../../kernel/llm/base.js';
 import {
   LLMEmptyStreamError,
   LLMFormatError,
-} from '../../core/llm/errors.js';
-import { RetryPolicy } from '../../core/llm/fallback.js';
-import type { Message } from '../../core/llm/messages.js';
-import type { ToolSpec } from '../../core/llm/tools.js';
+} from '../../kernel/llm/errors.js';
+import { RetryPolicy } from '../../kernel/llm/fallback.js';
+import type { Message } from '../../kernel/llm/messages.js';
+import type { ToolSpec } from '../../kernel/llm/tools.js';
 
 import { RESPONSES_CORE_PAYLOAD_KEYS, response_tools, to_input_items } from './_responses_payload.js';
 import {

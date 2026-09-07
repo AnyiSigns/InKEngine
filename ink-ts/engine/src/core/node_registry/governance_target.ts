@@ -16,7 +16,7 @@
  * 执行体代码。
  */
 
-import type { GovernanceWriteTarget } from '../settle/review.js';
+import type { GovernanceWriteTarget } from '../../kernel/settle/review.js';
 import type { NodeRegistryStore } from './store.js';
 
 /** 登记 store 治理 seam 构造面。 */

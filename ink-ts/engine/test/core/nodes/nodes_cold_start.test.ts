@@ -9,10 +9,10 @@
  */
 import { afterEach, describe, expect, it } from 'vitest';
 
-import { Runtime, AssemblyRecipe } from '../../../src/core/runtime/index.js';
-import type { Host } from '../../../src/core/runtime/index.js';
-import { set_default_assembly_runtime } from '../../../src/core/path_assembler/index.js';
-import { AssemblyRequest } from '../../../src/core/path_assembler/index.js';
+import { Runtime, AssemblyRecipe } from '../../../src/kernel/runtime/index.js';
+import type { Host } from '../../../src/kernel/runtime/index.js';
+import { set_default_assembly_runtime } from '../../../src/kernel/path_assembler/index.js';
+import { AssemblyRequest } from '../../../src/kernel/path_assembler/index.js';
 import {
   ENGINE_STUB_REPLY,
   TYPE_LLM_DECIDER,
@@ -20,16 +20,16 @@ import {
   default_engine_pool_seed,
 } from '../../../src/core/nodes/index.js';
 import { Graph } from '../../../src/core/graph/graph.js';
-import { Engine } from '../../../src/core/executor/index.js';
+import { Engine } from '../../../src/kernel/executor/index.js';
 import { RunOptions } from '../../../src/core/run_result/run_result.js';
-import { DefaultInterruptPolicy } from '../../../src/core/approval/approval.js';
+import { DefaultInterruptPolicy } from '../../../src/kernel/approval/approval.js';
 import { FIELD_STRING, SchemaField, SchemaSpec } from '../../../src/core/schema/schemaValidator.js';
 import { HarnessDefinition } from '../../../src/core/harness/index.js';
 import { EventTypeSpec } from '../../../src/core/event_types/eventTypeSpec.js';
 import { KnowledgeEntry, KIND_RULE } from '../../../src/core/knowledge_set/index.js';
-import { self_tool_specs, make_self_executor, operation_of } from '../../../src/core/self_tools/index.js';
-import type { SelfToolContext } from '../../../src/core/self_tools/index.js';
-import { MemoryStorage } from '../executor/helpers.js';
+import { self_tool_specs, make_self_executor, operation_of } from '../../../src/kernel/self_tools/index.js';
+import type { SelfToolContext } from '../../../src/kernel/self_tools/index.js';
+import { MemoryStorage } from '../../kernel/executor/helpers.js';
 
 /** boot 领域种子（最小：知识集基线条目）。 */
 function boot_seed_entries(): KnowledgeEntry[] {

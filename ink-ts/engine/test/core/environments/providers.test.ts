@@ -24,7 +24,7 @@ import {
   ProcessSandbox,
   type SpawnHandle,
   type SpawnSeam,
-} from '../../../src/core/sandbox/index.js';
+} from '../../../src/kernel/sandbox/index.js';
 
 /** 记录一次 spawn 调用（断言命令/参数/工作目录透传）。 */
 interface SpawnCall {

@@ -27,10 +27,10 @@ import {
   user,
   Attachment,
   Message,
-} from '../llm/messages.js';
-import type { AsyncLLM } from '../llm/_guard_types.js';
-import type { ToolPipeline } from '../tool_pipeline/tool_pipeline.js';
-import type { ToolSpec } from '../llm/tools.js';
+} from '../../kernel/llm/messages.js';
+import type { AsyncLLM } from '../../kernel/llm/_guard_types.js';
+import type { ToolPipeline } from '../../kernel/tool_pipeline/tool_pipeline.js';
+import type { ToolSpec } from '../../kernel/llm/tools.js';
 import type { NodeFactory } from '../registry/registry_types.js';
 import {
   clamp_tool_rounds,

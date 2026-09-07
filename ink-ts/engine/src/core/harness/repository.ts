@@ -19,15 +19,15 @@
 import {
   DefaultEvolutionWriter,
   harness_writer,
-} from '../evolution_writer/evolution_writer.js';
+} from '../../kernel/evolution_writer/evolution_writer.js';
 import type {
   EvolutionRecord,
   EvolutionStorage,
-} from '../evolution_writer/_types.js';
+} from '../../kernel/evolution_writer/_types.js';
 import { isRecord } from '../json.js';
 import type { Json } from '../json.js';
-import { PatchChain } from '../patch/patchChain.js';
-import type { Patch } from '../patch/types.js';
+import { PatchChain } from '../../kernel/patch/patchChain.js';
+import type { Patch } from '../../kernel/patch/types.js';
 import {
   HARNESS_COLLECTION,
   HarnessDefinition,

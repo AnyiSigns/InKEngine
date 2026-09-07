@@ -20,12 +20,12 @@ import { describe, expect, it } from 'vitest';
 
 import { create_memory_storage } from '../../src/adapters/storage/index.js';
 import { create_llm } from '../../src/adapters/llm/registry.js';
-import { Runtime } from '../../src/core/runtime/index.js';
-import { CACHE_COLLECTION, CachingLLM } from '../../src/core/llm/cache.js';
-import { ModelChain, RetryPolicy } from '../../src/core/llm/fallback.js';
-import type { AsyncLLM } from '../../src/core/llm/base.js';
-import { LLMConfigError } from '../../src/core/llm/errors.js';
-import { system, user } from '../../src/core/llm/messages.js';
+import { Runtime } from '../../src/kernel/runtime/index.js';
+import { CACHE_COLLECTION, CachingLLM } from '../../src/kernel/llm/cache.js';
+import { ModelChain, RetryPolicy } from '../../src/kernel/llm/fallback.js';
+import type { AsyncLLM } from '../../src/kernel/llm/base.js';
+import { LLMConfigError } from '../../src/kernel/llm/errors.js';
+import { system, user } from '../../src/kernel/llm/messages.js';
 import { validate_chain } from '../../src/core/storage/storage.js';
 import { ENGINE_STUB_REPLY } from '../../src/core/nodes/index.js';
 import { FakeOpenAIServer } from './_fake_openai.js';

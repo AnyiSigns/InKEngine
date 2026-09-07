@@ -19,7 +19,7 @@ import {
   SEED_ID_PREFIX,
   type InjectionScanner,
 } from './_types.js';
-import { scan_text_injection } from '../knowledge_gate/_injection.js';
+import { scan_text_injection } from '../../kernel/knowledge_gate/_injection.js';
 import type { KnowledgeEntry } from './knowledge_entry.js';
 import type { KnowledgeSet } from './knowledge_set.js';
 

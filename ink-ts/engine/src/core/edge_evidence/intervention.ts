@@ -11,13 +11,13 @@
  * 低于当前档（已更低）= 仅留痕不改写。
  */
 
-import { emit_audit, type AuditStorage } from '../audit_log/audit_log.js';
+import { emit_audit, type AuditStorage } from '../../kernel/audit_log/audit_log.js';
 import { EVENT_AUDIT_POLICY_REVIEW } from '../event_types/eventTypeSpecs.js';
 import {
   DefaultEvolutionWriter,
   edge_tier_writer,
   type EvolutionStorage,
-} from '../evolution_writer/evolution_writer.js';
+} from '../../kernel/evolution_writer/evolution_writer.js';
 
 import { EDGE_TIER_OVERRIDE_COLLECTION, TIER_OBSERVING, TIER_REGULAR } from './_types.js';
 import type { EdgeKey } from './_types.js';

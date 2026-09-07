@@ -7,7 +7,7 @@
 
 import { describe, expect, it } from 'vitest';
 
-import { GuardedStorage } from '../../../src/core/self_application/guarded_storage.js';
+import { GuardedStorage } from '../../../src/kernel/self_application/guarded_storage.js';
 import { MemoryStorage } from '../../../src/adapters/storage/memory.js';
 import { SqliteStorage } from '../../../src/adapters/storage/sqlite.js';
 import type { Storage } from '../../../src/core/storage/storage.js';

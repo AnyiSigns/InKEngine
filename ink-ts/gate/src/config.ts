@@ -7,7 +7,7 @@ export interface GateConfig {
   maxLines: number;
   /** 行数规则扫描的源码根（相对 ink-ts 根）。 */
   lineScanDirs: readonly string[];
-  /** core 区相对路径（import/词汇规则只扫这里）。 */
+  /** core 区相对路径（import/词汇/私有 seam 规则扫这里；含 kernel 机制件区）。 */
   coreDirs: readonly string[];
   /** adapters 区相对路径（反向依赖 core 私有模块检查）。 */
   adapterDirs: readonly string[];
@@ -28,7 +28,7 @@ export interface GateConfig {
 export const defaultConfig: GateConfig = {
   maxLines: 350,
   lineScanDirs: ['engine/src', 'engine/test', 'host/src', 'host/test', 'cli/src', 'cli/test', 'web/src', 'web/test'],
-  coreDirs: ['engine/src/core'],
+  coreDirs: ['engine/src/core', 'engine/src/kernel'],
   adapterDirs: ['engine/src/adapters'],
   jsonScanDirs: ['seed_data', 'engine/schemas', 'engine/fixtures'],
   coreSeamMarker: '跨域契约模块',

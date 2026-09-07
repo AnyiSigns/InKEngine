@@ -13,7 +13,7 @@
  * 管理，无显式关闭资源。
  *
  * 传输异常归一：fetch 超时（AbortError + idle timed_out）映射
- * TimeoutError、其余网络失败映射 NetworkError——与 core/llm/errors.ts
+ * TimeoutError、其余网络失败映射 NetworkError——与 kernel/llm/errors.ts
  * classify_llm_error(exc=) 按 Error.name 分类的命名对齐，确保瞬时故障可
  * 被重试/备用策略识别。逐读空闲超时：每次 IO 等待（连头部/读块）前重新
  * 武装计时器，超时中止仍在途请求（AbortController），响应体只允许消费

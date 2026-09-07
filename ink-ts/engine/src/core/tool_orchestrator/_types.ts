@@ -12,7 +12,7 @@
  */
 
 import { isRecord } from '../json.js';
-import type { ToolSpec } from '../llm/tools.js';
+import type { ToolSpec } from '../../kernel/llm/tools.js';
 
 /** 默认本轮工具集预算（数量上限，与 spawn 清单上限同档成本护栏语义）。 */
 export const DEFAULT_MAX_TOOLS = 14;

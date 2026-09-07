@@ -9,11 +9,11 @@
 
 import { describe, expect, it } from 'vitest';
 
-import { LLMChunk, collect_result } from '../../../src/core/llm/base.js';
-import { LLMConfig, LLMParams } from '../../../src/core/llm/base.js';
-import { LLMAuthError, LLMEmptyStreamError, LLMRateLimitError } from '../../../src/core/llm/errors.js';
-import { Attachment, ToolCall, assistant, system, tool_result, user } from '../../../src/core/llm/messages.js';
-import { ToolSpec } from '../../../src/core/llm/tools.js';
+import { LLMChunk, collect_result } from '../../../src/kernel/llm/base.js';
+import { LLMConfig, LLMParams } from '../../../src/kernel/llm/base.js';
+import { LLMAuthError, LLMEmptyStreamError, LLMRateLimitError } from '../../../src/kernel/llm/errors.js';
+import { Attachment, ToolCall, assistant, system, tool_result, user } from '../../../src/kernel/llm/messages.js';
+import { ToolSpec } from '../../../src/kernel/llm/tools.js';
 import { OpenAIResponsesLLM } from '../../../src/adapters/llm/openai_response.js';
 import { _parse_sse_line } from '../../../src/adapters/llm/_responses_parse.js';
 import type { LlmResponse, LlmTransport } from '../../../src/adapters/llm/fetch_transport.js';

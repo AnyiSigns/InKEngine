@@ -12,7 +12,7 @@
  * 行为；当前引擎无多域配方消费方）。
  */
 
-import { message_role } from '../llm/messages.js';
+import { message_role } from '../../kernel/llm/messages.js';
 import {
   archive_digest,
   message_text,

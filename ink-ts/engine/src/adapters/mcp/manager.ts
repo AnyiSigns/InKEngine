@@ -23,7 +23,7 @@ import {
   ToolSource,
   VettingVerdict,
   type ShadowExecutor,
-} from '../../core/tool_vetting/tool_vetting.js';
+} from '../../kernel/tool_vetting/tool_vetting.js';
 import { McpToolImportError } from './_errors.js';
 import { create_node_fs_seam } from './_fs_seam.js';
 import { build_mcp_manifest, convert_mcp_tool, probe_args_from_schema } from './convert.js';

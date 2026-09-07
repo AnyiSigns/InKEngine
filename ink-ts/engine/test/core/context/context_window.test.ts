@@ -7,12 +7,12 @@
  *
  * TS 差异说明：轮内 tool 序修复为引擎侧先行修复（可偏离 Python parity，
  * 见 context_window.ts 的 iter_tool_rounds 头注）；消息/工具调用构造复用
- * core/llm/messages 的 Message/ToolCall 工厂。
+ * kernel/llm/messages 的 Message/ToolCall 工厂。
  */
 
 import { describe, expect, it } from 'vitest';
 
-import { Message, ToolCall, assistant, tool_result, user } from '../../../src/core/llm/messages.js';
+import { Message, ToolCall, assistant, tool_result, user } from '../../../src/kernel/llm/messages.js';
 import {
   DEFAULT_MAX_TOOL_ROUNDS,
   archive_digest,

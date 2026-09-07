@@ -4,12 +4,12 @@
  * Host 五件套：create_storage 返回**真实 MemoryStorage**（adapters/storage），
  * resolve_llm 按测试注入真适配器产物（null = 不装配模型），build_transport
  * 产出事件收集传输。boot 配方 = boot 种子直注（系统提示词 / UI 描述 /
- * 事件类型 / 自举 harness），tool_wiring 复用 core/self_tools 契约工具——
+ * 事件类型 / 自举 harness），tool_wiring 复用 kernel/self_tools 契约工具——
  * 与 Python 端 stdio 配方同构，纯引擎侧、零后端代码。
  */
-import { Runtime, AssemblyRecipe } from '../../src/core/runtime/index.js';
-import type { Host } from '../../src/core/runtime/index.js';
-import type { AsyncLLM } from '../../src/core/llm/base.js';
+import { Runtime, AssemblyRecipe } from '../../src/kernel/runtime/index.js';
+import type { Host } from '../../src/kernel/runtime/index.js';
+import type { AsyncLLM } from '../../src/kernel/llm/base.js';
 import type { Storage } from '../../src/core/storage/storage.js';
 import { create_memory_storage, type MemoryStorage } from '../../src/adapters/storage/index.js';
 import {
@@ -18,15 +18,15 @@ import {
   boot_harness_definition,
   build_boot_seed_entries,
 } from '../../src/adapters/boot/index.js';
-import { DefaultInterruptPolicy } from '../../src/core/approval/approval.js';
+import { DefaultInterruptPolicy } from '../../src/kernel/approval/approval.js';
 import { CollectorTransport } from '../../src/core/events/events.js';
 import type { EngineTransport, EngineEvent } from '../../src/core/events/events.js';
 import {
   make_self_executor,
   operation_of,
   self_tool_specs,
-} from '../../src/core/self_tools/index.js';
-import type { SelfToolContext } from '../../src/core/self_tools/index.js';
+} from '../../src/kernel/self_tools/index.js';
+import type { SelfToolContext } from '../../src/kernel/self_tools/index.js';
 
 /**
  * 事件收集 Host（五件套真实现；存储/模型按测试注入）。

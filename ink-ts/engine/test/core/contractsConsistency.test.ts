@@ -19,8 +19,8 @@ import {
 } from '../../src/core/contracts/generated/index.js';
 import { assert_endpoint_contract } from '../../src/core/declarative_tools/endpoint_types.js';
 import { EndpointType } from '../../src/core/declarative_tools/index.js';
-import { assert_patch_kinds_contract } from '../../src/core/self_proposal/self_proposal.js';
-import { PatchKind } from '../../src/core/self_proposal/index.js';
+import { assert_patch_kinds_contract } from '../../src/kernel/self_proposal/self_proposal.js';
+import { PatchKind } from '../../src/kernel/self_proposal/index.js';
 import {
   AUDIT_STATUS_APPLIED,
   AUDIT_STATUS_CONFLICT,
@@ -31,11 +31,11 @@ import {
   assert_constants_contract,
   _GUARDED_COLLECTIONS,
   _GUARDED_PREFIXES,
-} from '../../src/core/self_application/constants.js';
+} from '../../src/kernel/self_application/constants.js';
 import {
   ApprovalLevel,
   assert_approval_levels_contract,
-} from '../../src/core/self_application/approval_level.js';
+} from '../../src/kernel/self_application/approval_level.js';
 
 describe('engine 枚举 ↔ 数据面生成物一致性', () => {
   it('各数据面 assert_* 一致函数通过（运行时兜底）', () => {

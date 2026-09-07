@@ -19,7 +19,7 @@
 import { describe, expect, it } from 'vitest';
 
 import { GraphDefinitionError } from '../../../src/core/errors.js';
-import type { EvolutionRecord, EvolutionWriter } from '../../../src/core/evolution_writer/_types.js';
+import type { EvolutionRecord, EvolutionWriter } from '../../../src/kernel/evolution_writer/_types.js';
 import {
   type EntityRecordsStore,
   EntityRegistry,

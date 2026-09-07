@@ -8,7 +8,7 @@
  * （error type 枚举字符串），任一协议的错误帧 code/type 字段均可分类；
  * 404 特殊规则（"not" + "exist" 短语）保留 openai_compat 既有口径。
  */
-import { classify_llm_error } from '../../core/llm/errors.js';
+import { classify_llm_error } from '../../kernel/llm/errors.js';
 
 /** 请求默认超时（秒；三协议共享常量，对齐 Python DEFAULT_REQUEST_TIMEOUT）。 */
 export const DEFAULT_REQUEST_TIMEOUT_SECONDS = 120;

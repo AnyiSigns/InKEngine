@@ -13,9 +13,9 @@
  * 调用方覆盖核心键。
  */
 
-import { REASONING_EFFORTS, type LLMConfig, type LLMParams } from '../../core/llm/base.js';
-import type { Message } from '../../core/llm/messages.js';
-import type { ToolSpec } from '../../core/llm/tools.js';
+import { REASONING_EFFORTS, type LLMConfig, type LLMParams } from '../../kernel/llm/base.js';
+import type { Message } from '../../kernel/llm/messages.js';
+import type { ToolSpec } from '../../kernel/llm/tools.js';
 
 /** Anthropic 最低 max_tokens 兜底（API 要求显式 max_tokens）。 */
 export const ANTHROPIC_DEFAULT_MAX_TOKENS = 1024;

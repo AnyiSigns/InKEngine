@@ -20,9 +20,9 @@
  * options.now 注入（core 零时间依赖，ledger precedent）。
  */
 
-import { InterruptState } from '../interrupt/interrupt_types.js';
-import { Message, ToolCall } from '../llm/messages.js';
-import { PatchChain } from '../patch/patchChain.js';
+import { InterruptState } from '../../kernel/interrupt/interrupt_types.js';
+import { Message, ToolCall } from '../../kernel/llm/messages.js';
+import { PatchChain } from '../../kernel/patch/patchChain.js';
 import { is_sensitive_key, strip_sensitive_text } from '../security/security.js';
 import type { Json, JsonRecord } from '../json.js';
 

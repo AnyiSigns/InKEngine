@@ -5,17 +5,24 @@
 
 ## 1. 分层与依赖方向
 
-- `engine/`：L3 引擎库，内部三段、依赖单向 `core ← adapters`：
-  - `engine/src/core/`：机制纯函数层。零框架依赖、零 node 内置模块、零宿主/
-    领域词；JSON 进 JSON 出；无 main、无全局状态、无 IO。进程/存储/时间/
-    随机数/LLM/网络等副作用一律以**接口（seam）**声明在此层，核心机制只含
-    纯逻辑与 seam 契约，不依赖下方 adapters。
+- `engine/`：L3 引擎库，内部双纯层 + adapters、依赖单向 `kernel/core ← adapters`：
+  - `engine/src/kernel/`：机制件层（gate/审计/补丁链/执行器/settle/round_steps/
+    runtime 状态机等机制件经契约化后归此）。与 core 同守纯函数纪律：零框架
+    依赖、零 node 内置模块、零宿主/领域词；JSON 进 JSON 出；无 main、无全局
+    状态、无 IO。进程/存储/时间/随机数/LLM/网络等副作用一律以**接口（seam）**
+    声明在此层，机制只含纯逻辑与 seam 契约，不依赖下方 adapters。
+  - `engine/src/core/`：机制纯函数层（数据面/扩展点/装配数据留守，与 kernel
+    同受纯函数纪律与 gate 规则约束，见 §7）。零框架依赖、零 node 内置模块、
+    零宿主/领域词；JSON 进 JSON 出；无 main、无全局状态、无 IO。进程/存储/
+    时间/随机数/LLM/网络等副作用一律以**接口（seam）**声明在此层，核心机制
+    只含纯逻辑与 seam 契约，不依赖下方 adapters。
   - `engine/src/adapters/`：机制心跳（LLM/存储/MCP）的可选 IO **真实现**，
-    仍属引擎包而非宿主——core 只给契约，适配实现按 DI 装载。llm 协议适配器
-    （openai-compatible / anthropic messages / openai responses，本地 OpenAI
-    兼容端点）只发协议级 HTTP，不 import 任何厂商 SDK；storage 驱动
-    （sqlite/memory 驱动，postgres 暂不提供）实现 core 仓储契约；mcp client 同层。本层允许
-    node:* 与驱动必需的第三方，但不得反向依赖 core 私有文件。
+    仍属引擎包而非宿主——kernel/core 只给契约，适配实现按 DI 装载。llm 协议
+    适配器（openai-compatible / anthropic messages / openai responses，本地
+    OpenAI 兼容端点）只发协议级 HTTP，不 import 任何厂商 SDK；storage 驱动
+    （sqlite/memory 驱动，postgres 暂不提供）实现 core/kernel 仓储契约；
+    mcp client 同层。本层允许 node:* 与驱动必需的第三方，但不得反向依赖
+    kernel/core 私有文件。
 - `contracts` 已收编入 engine：数据面契约资产随引擎内置（JSON 真源
   `engine/schemas/` + `engine/fixtures/` 与生成器 `engine/scripts/`；生成 TS
   常量/类型入 `engine/src/core/contracts/generated/`，随 engine tsc/gate 守门，
@@ -119,11 +126,11 @@ host/cli/web 取用。
 | 文件行数 ≤350（例外须标注） | engine/host/cli/web 源码与测试 | 拒绝 |
 | src 内夹测试文件（`.test` 在 src 目录） | 各包 `src/**` | 拒绝 |
 | 源文件非法 UTF-8 字节（含损坏转码） | 各包 `src/**` | 拒绝（utf8-valid） |
-| core 禁 node:* 与第三方 import | `engine/src/core/**` | 拒绝（`node:async_hooks` 白名单例外：镜像 Python core contextvars，清单见 gate config；core 无裸包放行——数据面契约经相对 import 引用同包内置生成物，不放行其它 @ink-ts/*、adapters 与第三方） |
-| core 禁反向依赖 adapters | `engine/src/core/**` | 拒绝 |
-| core 域间私有模块跨目录 import（`../<dir>/_*`） | `engine/src/core/**` | 拒绝（跨域共享 seam 例外：目标私有模块文件头标注「跨域契约模块」并注明理由，如 `_types/_constants/_injection` 类类型 seam 与共享工具） |
-| adapters 反向 import core 私有模块（`core/**/_*.ts`） | `engine/src/adapters/**` | 拒绝（公共 seam 例外同上标注，须注明为公共 seam） |
-| core 禁宿主/框架词 | `engine/src/core/**` | 拒绝 |
+| core/kernel 禁 node:* 与第三方 import | `engine/src/core/**`、`engine/src/kernel/**` | 拒绝（`node:async_hooks` 白名单例外：镜像 Python core contextvars，清单见 gate config；core/kernel 无裸包放行——数据面契约经相对 import 引用同包内置生成物，不放行其它 @ink-ts/*、adapters 与第三方） |
+| core/kernel 禁反向依赖 adapters | `engine/src/core/**`、`engine/src/kernel/**` | 拒绝 |
+| core/kernel 域间私有模块跨目录 import（`../<dir>/_*`） | `engine/src/core/**`、`engine/src/kernel/**` | 拒绝（跨域共享 seam 例外：目标私有模块文件头标注「跨域契约模块」并注明理由，如 `_types/_constants/_injection` 类类型 seam 与共享工具） |
+| adapters 反向 import core/kernel 私有模块（`core/**/_*.ts`、`kernel/**/_*.ts`） | `engine/src/adapters/**` | 拒绝（公共 seam 例外同上标注，须注明为公共 seam） |
+| core/kernel 禁宿主/框架词 | `engine/src/core/**`、`engine/src/kernel/**` | 拒绝 |
 | JSON 纪律：可 parse、无重复键、2 空格缩进格线 | `seed_data/**`、`engine/schemas`、`engine/fixtures` JSON | 拒绝（json-valid） |
 | 生成文件禁手改 | `engine/src/core/contracts/generated/**` | 由 `contracts:verify`（engine/scripts/verify_generated.mjs：复制 engine/schemas + fixtures 后重生成，与仓库生成物归一化逐文件 diff）在 root `npm test` 与 CI 强制；不做文本扫描 |
 

@@ -9,9 +9,9 @@
  * to_openai_tools 的 function 嵌套段复用转换。
  */
 
-import type { Json, Message } from '../../core/llm/messages.js';
-import type { ToolSpec } from '../../core/llm/tools.js';
-import { to_openai_tools } from '../../core/llm/tools.js';
+import type { Json, Message } from '../../kernel/llm/messages.js';
+import type { ToolSpec } from '../../kernel/llm/tools.js';
+import { to_openai_tools } from '../../kernel/llm/tools.js';
 
 /** 适配器统一装配的核心请求字段：extra_body 不得覆盖（防替换对话/强制关流）。 */
 export const RESPONSES_CORE_PAYLOAD_KEYS: readonly string[] = [

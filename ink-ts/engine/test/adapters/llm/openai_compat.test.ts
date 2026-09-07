@@ -4,9 +4,9 @@
  */
 import { describe, expect, it } from 'vitest';
 
-import { LLMParams } from '../../../src/core/llm/base.js';
-import { ToolSpec } from '../../../src/core/llm/tools.js';
-import { system, user } from '../../../src/core/llm/messages.js';
+import { LLMParams } from '../../../src/kernel/llm/base.js';
+import { ToolSpec } from '../../../src/kernel/llm/tools.js';
+import { system, user } from '../../../src/kernel/llm/messages.js';
 import {
   LLMAuthError,
   LLMBadRequestError,
@@ -15,7 +15,7 @@ import {
   LLMRateLimitError,
   LLMServerError,
   LLMTimeoutError,
-} from '../../../src/core/llm/errors.js';
+} from '../../../src/kernel/llm/errors.js';
 import { TimeoutError } from '../../../src/adapters/llm/fetch_transport.js';
 import {
   body_of,

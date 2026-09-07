@@ -17,9 +17,9 @@
 
 import { NodeContract } from '../contracts/contracts.js';
 import { FIELD_ARRAY, SchemaField, SchemaSpec } from '../schema/schemaValidator.js';
-import { tool_result } from '../llm/messages.js';
-import type { ToolPipeline } from '../tool_pipeline/tool_pipeline.js';
-import type { ToolSpec } from '../llm/tools.js';
+import { tool_result } from '../../kernel/llm/messages.js';
+import type { ToolPipeline } from '../../kernel/tool_pipeline/tool_pipeline.js';
+import type { ToolSpec } from '../../kernel/llm/tools.js';
 import type { NodeFactory } from '../registry/registry_types.js';
 import {
   ROLE_TERMINAL,

@@ -13,8 +13,8 @@
 
 import { GraphDefinitionError } from '../errors.js';
 import { isRecord, type Json, type JsonRecord } from '../json.js';
-import { PatchChain } from '../patch/patchChain.js';
-import type { Path } from '../patch/types.js';
+import { PatchChain } from '../../kernel/patch/patchChain.js';
+import type { Path } from '../../kernel/patch/types.js';
 import { KnowledgeEntry } from './knowledge_entry.js';
 import { _entry_path } from './knowledge_utils.js';
 import {

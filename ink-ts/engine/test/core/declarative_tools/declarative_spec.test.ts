@@ -12,8 +12,8 @@
  */
 import { describe, expect, it } from 'vitest';
 
-import { ToolSpec } from '../../../src/core/llm/tools.js';
-import { NetworkPolicy } from '../../../src/core/permissions/networkPolicy.js';
+import { ToolSpec } from '../../../src/kernel/llm/tools.js';
+import { NetworkPolicy } from '../../../src/kernel/permissions/networkPolicy.js';
 import {
   DeclarativeToolSpec,
   EndpointType,

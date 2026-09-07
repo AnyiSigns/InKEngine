@@ -9,8 +9,8 @@ import { afterEach, beforeEach, describe, expect, it } from 'vitest';
 
 import { CheckpointConflictError, StorageError } from '../../../src/core/errors.js';
 import { EngineEvent } from '../../../src/core/events/events.js';
-import { Message, ToolCall } from '../../../src/core/llm/messages.js';
-import { PatchChain } from '../../../src/core/patch/patchChain.js';
+import { Message, ToolCall } from '../../../src/kernel/llm/messages.js';
+import { PatchChain } from '../../../src/kernel/patch/patchChain.js';
 import type { JsonRecord } from '../../../src/core/json.js';
 import { validate_chain } from '../../../src/core/storage/storage.js';
 import { CheckpointRecord } from '../../../src/core/storage/storage_records.js';

@@ -11,8 +11,8 @@
 
 import { describe, expect, it } from 'vitest';
 
-import { GuardedStorage } from '../../../src/core/self_application/guarded_storage.js';
-import { DefaultEvolutionWriter, entity_writer } from '../../../src/core/evolution_writer/evolution_writer.js';
+import { GuardedStorage } from '../../../src/kernel/self_application/guarded_storage.js';
+import { DefaultEvolutionWriter, entity_writer } from '../../../src/kernel/evolution_writer/evolution_writer.js';
 import { MemoryStorage } from '../../../src/adapters/storage/memory.js';
 import { EntityRegistry, EntitySpec } from '../../../src/core/entities/entities.js';
 import { entity_registry_governance_target } from '../../../src/core/entities/governance_target.js';

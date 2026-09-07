@@ -2,7 +2,7 @@
  * LLM 适配器瞬时故障重试骨架（openai_compat / openai_responses / anthropic
  * 三适配器共享，消除各自 attempts 循环 + is_transient + emitted 骨架漂移）。
  *
- * RetryPolicy 唯一权威 = core/llm/fallback.ts（数据形态，无 sleeper 字段，
+ * RetryPolicy 唯一权威 = kernel/llm/fallback.ts（数据形态，无 sleeper 字段，
  * 退避睡眠经本模块注入的 Sleeper 执行——测试注入录制/假时钟零真实等待，
  * 与 ModelChain 的 sleep 注入同构）。适配器默认单次尝试（retry=null），
  * 仅当独立直用注入策略时开指数退避重试——杜绝「适配器 × 链」双层叠加。
@@ -13,12 +13,12 @@
  * 记号差异（测试须覆盖两基线的等价性）。睡眠单位为秒（与 core fallback
  * 的 Sleeper 单位一致）。
  */
-import { RetryPolicy } from '../../core/llm/fallback.js';
+import { RetryPolicy } from '../../kernel/llm/fallback.js';
 import {
   LLMError,
   classify_llm_error,
   is_transient_llm_error,
-} from '../../core/llm/errors.js';
+} from '../../kernel/llm/errors.js';
 
 /** 退避睡眠注入面（seconds；缺省真实计时，测试注入录制 sleeper 覆盖）。 */
 export type Sleeper = (seconds: number) => Promise<void>;

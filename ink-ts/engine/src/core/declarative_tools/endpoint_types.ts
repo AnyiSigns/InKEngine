@@ -24,7 +24,7 @@
 import { BUILTIN_ENDPOINT_NAMES, BUILTIN_ENDPOINTS, type BuiltinEndpointName } from '../contracts/generated/index.js';
 import { GraphDefinitionError } from '../errors.js';
 import type { SchemaField } from '../schema/schemaValidator.js';
-import type { SandboxSeam } from '../tool_pipeline/_types.js';
+import type { SandboxSeam } from '../../kernel/tool_pipeline/_types.js';
 import type { DeclarativeToolSpec } from './declarative_spec.js';
 
 /** 内置端点枚举名（常量字符串；与 Python StrEnum 值同源）。 */

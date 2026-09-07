@@ -14,9 +14,9 @@
  */
 import { describe, expect, it } from 'vitest';
 
-import { PermissionGate } from '../../../src/core/permissions/permissions.js';
-import { ProcessSandbox } from '../../../src/core/sandbox/index.js';
-import { ToolPipeline } from '../../../src/core/tool_pipeline/tool_pipeline.js';
+import { PermissionGate } from '../../../src/kernel/permissions/permissions.js';
+import { ProcessSandbox } from '../../../src/kernel/sandbox/index.js';
+import { ToolPipeline } from '../../../src/kernel/tool_pipeline/tool_pipeline.js';
 import {
   DeclarativeToolExecutors,
   DeclarativeToolSpec,

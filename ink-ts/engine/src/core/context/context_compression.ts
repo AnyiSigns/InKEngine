@@ -6,7 +6,7 @@
  * 回落 200k 兜底（现代长窗，避免短视压缩）。比例由宿主可调（全局占比）。
  */
 
-import { message_role, user, Message } from '../llm/messages.js';
+import { message_role, user, Message } from '../../kernel/llm/messages.js';
 
 /** 压缩阈值与模型窗口比例（全局唯一旋钮）。 */
 export const COMPRESSION_CONTEXT_WINDOW_RATIO = 0.8;

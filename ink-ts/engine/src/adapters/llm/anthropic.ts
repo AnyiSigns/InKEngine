@@ -1,7 +1,7 @@
 /**
  * Anthropic Messages API 适配器（streaming SSE 自解析，零第三方 SDK）。
  *
- * Python `core/llm/anthropic.py` 移植（1:1 语义）。实现 AsyncLLM 契约：
+ * Python `kernel/llm/anthropic.py` 移植（1:1 语义）。实现 AsyncLLM 契约：
  * astream 分帧、tool schema passthrough（Anthropic tool_use 块表达）、错误经
  * classify_llm_error 分类、厂商缓存参数（cache_control）、extended thinking
  * 档位映射。协议全名 anthropic_messages（anthropic 为兼容别名）。
@@ -25,14 +25,14 @@ import {
   LLMConfig,
   LLMResult,
   type LLMParams,
-} from '../../core/llm/base.js';
+} from '../../kernel/llm/base.js';
 import {
   LLMEmptyStreamError,
   LLMFormatError,
-} from '../../core/llm/errors.js';
-import { RetryPolicy } from '../../core/llm/fallback.js';
-import { Message, ToolCall, type Json } from '../../core/llm/messages.js';
-import type { ToolSpec } from '../../core/llm/tools.js';
+} from '../../kernel/llm/errors.js';
+import { RetryPolicy } from '../../kernel/llm/fallback.js';
+import { Message, ToolCall, type Json } from '../../kernel/llm/messages.js';
+import type { ToolSpec } from '../../kernel/llm/tools.js';
 import { build_anthropic_payload } from './anthropic_payload.js';
 import { AnthropicStreamParser, STOP_REASON_MAP } from './anthropic_sse.js';
 import { raise_for_status, request_timeout_ms } from './sse_common.js';

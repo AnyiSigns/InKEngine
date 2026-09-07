@@ -13,7 +13,7 @@
 
 import { describe, expect, it } from 'vitest';
 
-import { ToolSpec } from '../../../src/core/llm/tools.js';
+import { ToolSpec } from '../../../src/kernel/llm/tools.js';
 import { ToolVectorIndex } from '../../../src/core/tool_index/tool_index.js';
 import { MAX_RESULTS } from '../../../src/core/tool_index/_types.js';
 import type { AsyncEmbedder } from '../../../src/core/tool_index/_types.js';

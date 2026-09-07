@@ -11,7 +11,7 @@
  *   stdio 帧协议）显式拒绝（fail-closed）。
  */
 import { GraphDefinitionError } from '../../core/errors.js';
-import { ToolSource } from '../../core/tool_vetting/tool_vetting.js';
+import { ToolSource } from '../../kernel/tool_vetting/tool_vetting.js';
 import { isRecord, typeName } from '../../core/json.js';
 import { JSON_LINES_FRAMING, CONTENT_LENGTH_FRAMING } from './_framing.js';
 import type { ServerFactory } from './_types.js';

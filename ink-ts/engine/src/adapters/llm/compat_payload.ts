@@ -6,10 +6,10 @@
  * 替换整段对话/强制关流，P1 回归约束。推理链开关（enable_thinking）与档位
  * （reasoning_effort）按 LLMConfig.extra.reasoning_style 映射下发。
  */
-import { LLMConfig, LLMParams, REASONING_EFFORTS } from '../../core/llm/base.js';
-import type { Message } from '../../core/llm/messages.js';
-import type { ToolSpec } from '../../core/llm/tools.js';
-import { to_openai_tools } from '../../core/llm/tools.js';
+import { LLMConfig, LLMParams, REASONING_EFFORTS } from '../../kernel/llm/base.js';
+import type { Message } from '../../kernel/llm/messages.js';
+import type { ToolSpec } from '../../kernel/llm/tools.js';
+import { to_openai_tools } from '../../kernel/llm/tools.js';
 
 /** 适配器统一装配的核心请求字段：extra_body 不得覆盖（防替换对话/强制关流）。 */
 export const _CORE_PAYLOAD_KEYS = new Set([

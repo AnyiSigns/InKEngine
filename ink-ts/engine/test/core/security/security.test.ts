@@ -9,7 +9,7 @@
  */
 import { describe, expect, it } from 'vitest';
 
-import { PatchChain } from '../../../src/core/patch/patchChain.js';
+import { PatchChain } from '../../../src/kernel/patch/patchChain.js';
 import {
   SENSITIVE_KEYS,
   is_sensitive_key,

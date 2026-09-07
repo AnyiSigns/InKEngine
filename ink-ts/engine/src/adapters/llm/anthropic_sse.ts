@@ -13,9 +13,9 @@
  * - message_start / content_block_stop / message_stop / ping → 无增量返回 null。
  */
 
-import { classify_llm_error } from '../../core/llm/errors.js';
-import { LLMChunk } from '../../core/llm/base.js';
-import { ToolCallDelta } from '../../core/llm/messages.js';
+import { classify_llm_error } from '../../kernel/llm/errors.js';
+import { LLMChunk } from '../../kernel/llm/base.js';
+import { ToolCallDelta } from '../../kernel/llm/messages.js';
 import { error_parts, is_record, sse_data_json, status_hint } from './sse_common.js';
 
 /** Anthropic stop_reason → 统一 finish_reason（不命中则原样透传）。 */

@@ -12,7 +12,7 @@
 
 import { describe, expect, it } from 'vitest';
 
-import { ToolSpec } from '../../../src/core/llm/tools.js';
+import { ToolSpec } from '../../../src/kernel/llm/tools.js';
 import { DEFAULT_UUID_HEX } from '../../../src/core/tool_orchestrator/_types.js';
 import type {
   ToolMatchStrategy,

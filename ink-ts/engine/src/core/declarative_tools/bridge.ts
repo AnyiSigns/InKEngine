@@ -9,7 +9,7 @@
  * 目标 = 无法做权限/沙箱判定，不直通执行）。失败原因同源反查定义，
  * 拒绝文案携带结构化缺参/非法原因，指引模型自我纠正。
  */
-import { ToolSpec } from '../llm/tools.js';
+import { ToolSpec } from '../../kernel/llm/tools.js';
 import type { DeclarativeToolExecutors } from './executors.js';
 import { declarative_failure_reason, declarative_operation } from './operations.js';
 

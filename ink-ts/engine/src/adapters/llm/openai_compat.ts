@@ -1,6 +1,6 @@
 /**
  * OpenAI 兼容适配器（流式 SSE 解析自写，零第三方 SDK 依赖）——Python
- * core/llm/openai_compat.py 的 TS 移植。
+ * kernel/llm/openai_compat.py 的 TS 移植。
  *
  * 覆盖 OpenAI/DeepSeek/Zhipu/Moonshot/Ollama 等全部 OpenAI 兼容端点
  * （含 DashScope compatible-mode 端点，改 base_url 即可用）；DeepSeek
@@ -13,7 +13,7 @@
  *   不悬挂连接（aiter_lines finally cancel）；
  * - 坏 SSE 帧容错跳过（不中断整个流）；
  * - 重试唯一权威：默认单次尝试，瞬时故障重试归链级 RetryPolicy
- *   （ModelChain，core/llm/fallback）；独立直用适配器可注入 retry 策略
+ *   （ModelChain，kernel/llm/fallback）；独立直用适配器可注入 retry 策略
  *   （构造参数）按需开重试，退避/骨架共享见 ./retry_once.ts。
  *
  * HTTP 经可注入传输缝（LlmTransport，见 ./fetch_transport.ts）：测试注入
@@ -25,11 +25,11 @@ import {
   LLMConfig,
   LLMParams,
   LLMResult,
-} from '../../core/llm/base.js';
-import type { Message } from '../../core/llm/messages.js';
-import type { ToolSpec } from '../../core/llm/tools.js';
-import { LLMEmptyStreamError } from '../../core/llm/errors.js';
-import { RetryPolicy } from '../../core/llm/fallback.js';
+} from '../../kernel/llm/base.js';
+import type { Message } from '../../kernel/llm/messages.js';
+import type { ToolSpec } from '../../kernel/llm/tools.js';
+import { LLMEmptyStreamError } from '../../kernel/llm/errors.js';
+import { RetryPolicy } from '../../kernel/llm/fallback.js';
 import {
   build_payload,
   openai_chat_completions_endpoint,

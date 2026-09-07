@@ -1,7 +1,7 @@
 import { describe, expect, it } from 'vitest';
 
-import { PatchChain } from '../../../src/core/patch/patchChain.js';
-import type { Patch } from '../../../src/core/patch/types.js';
+import { PatchChain } from '../../../src/kernel/patch/patchChain.js';
+import type { Patch } from '../../../src/kernel/patch/types.js';
 import { add_messages, merge_dicts, merge_metrics, patch_chain_reducer } from '../../../src/core/state/reducers.js';
 
 function P(op: Patch['op'], path: readonly (string | number)[], value?: unknown): Patch {

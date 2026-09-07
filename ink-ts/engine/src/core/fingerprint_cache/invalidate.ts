@@ -12,7 +12,7 @@
  * set_audit 集合；反向复原 = 重新 upsert 该指纹（命中恢复）。
  */
 
-import { emit_audit, type AuditStorage } from '../audit_log/audit_log.js';
+import { emit_audit, type AuditStorage } from '../../kernel/audit_log/audit_log.js';
 import { EVENT_AUDIT_FINGERPRINT_REPLACE } from '../event_types/eventTypeSpecs.js';
 import type { FingerprintCacheStore } from './store.js';
 

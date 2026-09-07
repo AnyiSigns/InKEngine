@@ -8,9 +8,9 @@
  * Responses 事件分派与增量形态转换。
  */
 
-import { ToolCall, ToolCallDelta, type Json } from '../../core/llm/messages.js';
-import { LLMChunk, LLMResult } from '../../core/llm/base.js';
-import { LLMFormatError, classify_llm_error } from '../../core/llm/errors.js';
+import { ToolCall, ToolCallDelta, type Json } from '../../kernel/llm/messages.js';
+import { LLMChunk, LLMResult } from '../../kernel/llm/base.js';
+import { LLMFormatError, classify_llm_error } from '../../kernel/llm/errors.js';
 import { error_parts, is_record, sse_data_json, status_hint } from './sse_common.js';
 
 /** 从上游 error code 猜测 HTTP 状态码（与 openai_compat 同优先级序）。 */

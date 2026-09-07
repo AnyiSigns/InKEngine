@@ -15,7 +15,7 @@ import { describe, expect, it } from 'vitest';
 import {
   type AuditRecord,
   type AuditStorage,
-} from '../../../src/core/audit_log/audit_log.js';
+} from '../../../src/kernel/audit_log/audit_log.js';
 import { EVENT_AUDIT_FINGERPRINT_REPLACE } from '../../../src/core/event_types/eventTypeSpecs.js';
 import { FingerprintCacheStore, invalidate_cache } from '../../../src/core/fingerprint_cache/index.js';
 

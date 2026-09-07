@@ -13,9 +13,9 @@
 
 import { describe, expect, it } from 'vitest';
 
-import { InterruptState } from '../../../src/core/interrupt/interrupt_types.js';
-import { Message, ToolCall } from '../../../src/core/llm/messages.js';
-import { PatchChain } from '../../../src/core/patch/patchChain.js';
+import { InterruptState } from '../../../src/kernel/interrupt/interrupt_types.js';
+import { Message, ToolCall } from '../../../src/kernel/llm/messages.js';
+import { PatchChain } from '../../../src/kernel/patch/patchChain.js';
 import { CheckpointRecord, fromJsonable, jsonableStrip } from '../../../src/core/storage/storage_records.js';
 import {
   DEFAULT_CHAIN_WALK_LIMIT,

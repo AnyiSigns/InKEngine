@@ -16,7 +16,7 @@
  * 未定义即不可连接）。
  */
 import { GraphDefinitionError } from '../../core/errors.js';
-import { ToolSource } from '../../core/tool_vetting/tool_vetting.js';
+import { ToolSource } from '../../kernel/tool_vetting/tool_vetting.js';
 import { CONTENT_LENGTH_FRAMING } from './_framing.js';
 import type { ServerFactory } from './_types.js';
 import { McpServerConfig, McpTransport, StdioRestartPolicy } from './config.js';

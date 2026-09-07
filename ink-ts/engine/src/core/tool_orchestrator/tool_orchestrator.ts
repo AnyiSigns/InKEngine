@@ -21,7 +21,7 @@
  */
 
 import { strip_sensitive } from '../security/security.js';
-import type { ToolSpec } from '../llm/tools.js';
+import type { ToolSpec } from '../../kernel/llm/tools.js';
 import {
   DEFAULT_MAX_TOOLS,
   DEFAULT_MIN_SCORE,

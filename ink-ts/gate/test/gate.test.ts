@@ -63,6 +63,25 @@ describe('gate 规则', () => {
     expect(violations).toEqual([]);
   });
 
+  it('kernel 机制件区同受 core import/词汇规则约束', async () => {
+    const root = await makeRoot();
+    await write(root, 'engine/src/kernel/audit_log/io.ts', `import { readFileSync } from 'node:fs';\n`);
+    await write(root, 'engine/src/kernel/approval/bad.ts', `const framework = 'tauri';\n`);
+    const cfgKernel = { ...cfg, coreDirs: ['engine/src/core', 'engine/src/kernel'] };
+    const violations = await scan({ root, config: cfgKernel });
+    expect(violations.map((v) => v.rule)).toContain('core-import');
+    expect(violations.map((v) => v.rule)).toContain('core-token');
+  });
+
+  it('kernel 私有 seam 跨域 import 同受标注约束', async () => {
+    const root = await makeRoot();
+    await write(root, 'engine/src/kernel/x/_types.ts', `export const X = 'x';\n`);
+    await write(root, 'engine/src/kernel/a/b.ts', `import { X } from '../x/_types.js';\n`);
+    const cfgKernel = { ...cfg, coreDirs: ['engine/src/core', 'engine/src/kernel'] };
+    const violations = await scan({ root, config: cfgKernel });
+    expect(violations.map((v) => v.rule)).toContain('private-seam');
+  });
+
   it('core 相对 import 内置数据面生成物放行（engine 单源消费，无外部契约包）', async () => {
     const root = await makeRoot();
     await write(

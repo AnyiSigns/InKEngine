@@ -12,12 +12,12 @@
 import { describe, expect, it } from 'vitest';
 
 import { RunOptions, RunResult } from '../../../src/core/run_result/run_result.js';
-import { InterruptState } from '../../../src/core/interrupt/interrupt_types.js';
+import { InterruptState } from '../../../src/kernel/interrupt/interrupt_types.js';
 import { DEFAULT_MAX_PLAN_STEPS } from '../../../src/core/plan/plan.js';
-import { DEFAULT_MAX_SIMULATIONS } from '../../../src/core/simulation/simulation.js';
+import { DEFAULT_MAX_SIMULATIONS } from '../../../src/kernel/simulation/simulation.js';
 import type { Storage } from '../../../src/core/storage/storage.js';
 import type { StateSchema } from '../../../src/core/state/schema.js';
-import type { BudgetManager } from '../../../src/core/budget/budget.js';
+import type { BudgetManager } from '../../../src/kernel/budget/budget.js';
 import type { EngineTransport } from '../../../src/core/events/events.js';
 import type { AssemblyConfig } from '../../../src/core/assembly/assembly_config.js';
 

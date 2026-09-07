@@ -21,7 +21,7 @@ import {
   HarnessDefinition,
   HarnessRegistry,
 } from '../../../src/core/harness/index.js';
-import { ToolSpec } from '../../../src/core/llm/tools.js';
+import { ToolSpec } from '../../../src/kernel/llm/tools.js';
 
 import { _harness, _registry } from './helpers.js';
 

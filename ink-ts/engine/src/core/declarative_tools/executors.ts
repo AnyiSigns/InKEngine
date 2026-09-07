@@ -11,8 +11,8 @@
  * meta.retrieval，声明驱动非按名写死）；file/text 档回落端点执行体。
  */
 import { GraphDefinitionError } from '../errors.js';
-import { ToolSpec } from '../llm/tools.js';
-import { isAwaitable } from '../tool_pipeline/_types.js';
+import { ToolSpec } from '../../kernel/llm/tools.js';
+import { isAwaitable } from '../../kernel/tool_pipeline/_types.js';
 import { DeclarativeToolSpec } from './declarative_spec.js';
 import { RETRIEVAL_CONTROLLED_FETCH } from './operations.js';
 

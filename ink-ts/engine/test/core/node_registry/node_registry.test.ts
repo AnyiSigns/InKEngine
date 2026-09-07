@@ -18,7 +18,7 @@ import {
   node_registry_collection,
   registration_output_fields,
 } from '../../../src/core/node_registry/index.js';
-import { MemoryStorage } from '../executor/helpers.js';
+import { MemoryStorage } from '../../kernel/executor/helpers.js';
 
 function output_contract(fields: string[], version = 1): NodeContract {
   return new NodeContract({

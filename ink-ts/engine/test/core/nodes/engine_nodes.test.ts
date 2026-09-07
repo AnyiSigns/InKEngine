@@ -21,14 +21,14 @@ import {
   register_engine_node_types,
 } from '../../../src/core/nodes/index.js';
 import { Graph } from '../../../src/core/graph/graph.js';
-import { Engine } from '../../../src/core/executor/index.js';
+import { Engine } from '../../../src/kernel/executor/index.js';
 import { RunOptions } from '../../../src/core/run_result/run_result.js';
 import { CollectorTransport } from '../../../src/core/events/events.js';
-import { MemoryStorage } from '../executor/helpers.js';
-import { ToolSpec } from '../../../src/core/llm/tools.js';
-import { ToolPipeline } from '../../../src/core/tool_pipeline/tool_pipeline.js';
-import type { AsyncLLM, LLMChunk } from '../../../src/core/llm/_guard_types.js';
-import { ToolCallDelta } from '../../../src/core/llm/_shapes.js';
+import { MemoryStorage } from '../../kernel/executor/helpers.js';
+import { ToolSpec } from '../../../src/kernel/llm/tools.js';
+import { ToolPipeline } from '../../../src/kernel/tool_pipeline/tool_pipeline.js';
+import type { AsyncLLM, LLMChunk } from '../../../src/kernel/llm/_guard_types.js';
+import { ToolCallDelta } from '../../../src/kernel/llm/_shapes.js';
 import { ENGINE_STUB_REPLY } from '../../../src/core/nodes/index.js';
 
 /** 装配测试注册表（引擎内置池种子；契约池含 llm_decider/tool_pipeline）。 */

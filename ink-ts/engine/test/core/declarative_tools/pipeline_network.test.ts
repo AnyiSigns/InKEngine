@@ -15,10 +15,10 @@
  */
 import { describe, expect, it } from 'vitest';
 
-import { PermissionGate } from '../../../src/core/permissions/permissions.js';
-import { NetworkPolicy } from '../../../src/core/permissions/networkPolicy.js';
-import { ProcessSandbox } from '../../../src/core/sandbox/index.js';
-import { ToolSpec } from '../../../src/core/llm/tools.js';
+import { PermissionGate } from '../../../src/kernel/permissions/permissions.js';
+import { NetworkPolicy } from '../../../src/kernel/permissions/networkPolicy.js';
+import { ProcessSandbox } from '../../../src/kernel/sandbox/index.js';
+import { ToolSpec } from '../../../src/kernel/llm/tools.js';
 import {
   DeclarativeToolExecutors,
   DeclarativeToolSpec,

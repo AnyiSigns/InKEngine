@@ -23,9 +23,9 @@
  */
 import { GraphDefinitionError } from '../errors.js';
 import { isRecord } from '../json.js';
-import { ToolSpec } from '../llm/tools.js';
-import { parse_permission } from '../permissions/permissions.js';
-import { NetworkPolicy } from '../permissions/networkPolicy.js';
+import { ToolSpec } from '../../kernel/llm/tools.js';
+import { parse_permission } from '../../kernel/permissions/permissions.js';
+import { NetworkPolicy } from '../../kernel/permissions/networkPolicy.js';
 import { pyRepr } from '../py_repr.js';
 import { endpoint_registry } from './endpoint_registry.js';
 import { EndpointType } from './endpoint_types.js';

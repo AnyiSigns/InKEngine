@@ -21,20 +21,20 @@ import {
 } from '../declarative_tools/index.js';
 import { GraphDefinitionError } from '../errors.js';
 import { Graph } from '../graph/graph.js';
-import type { ToolSpec } from '../llm/tools.js';
-import type { NetworkPolicy } from '../permissions/networkPolicy.js';
+import type { ToolSpec } from '../../kernel/llm/tools.js';
+import type { NetworkPolicy } from '../../kernel/permissions/networkPolicy.js';
 import { Plan } from '../plan/plan.js';
 import { GraphRegistries } from '../registry/registry.js';
 import { StateSchema } from '../state/schema.js';
-import { DEFAULT_MAX_RESULT_CHARS } from '../tool_pipeline/tool_pipeline.js';
-import type { ToolPipeline } from '../tool_pipeline/tool_pipeline.js';
+import { DEFAULT_MAX_RESULT_CHARS } from '../../kernel/tool_pipeline/tool_pipeline.js';
+import type { ToolPipeline } from '../../kernel/tool_pipeline/tool_pipeline.js';
 import type {
   AuditSink,
   GateSeam,
   Guard,
   SandboxSeam,
   TraceSink,
-} from '../tool_pipeline/_types.js';
+} from '../../kernel/tool_pipeline/_types.js';
 import { _keyword_match } from './builder.js';
 import { DEFAULT_ROUTE_THRESHOLD, HarnessDefinition } from './definition.js';
 import type { CapabilityMatcher } from './definition.js';

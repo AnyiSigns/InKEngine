@@ -6,8 +6,8 @@
  */
 import { describe, expect, it } from 'vitest';
 
-import { AsyncLLM, LLMChunk, LLMConfig, LLMResult } from '../../../src/core/llm/base.js';
-import { LLMConfigError } from '../../../src/core/llm/errors.js';
+import { AsyncLLM, LLMChunk, LLMConfig, LLMResult } from '../../../src/kernel/llm/base.js';
+import { LLMConfigError } from '../../../src/kernel/llm/errors.js';
 import { AnthropicLLM } from '../../../src/adapters/llm/anthropic.js';
 import { OpenAIResponsesLLM } from '../../../src/adapters/llm/openai_response.js';
 import { OpenAICompatibleLLM } from '../../../src/adapters/llm/openai_compat.js';

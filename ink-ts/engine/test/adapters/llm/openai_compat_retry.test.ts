@@ -3,19 +3,19 @@
  * TestTransientRetry 子集移植，零真实网络）。
  *
  * 重试唯一权威：适配器默认单次尝试——重试经构造参数显式注入 RetryPolicy
- * （core/llm/fallback，独立直用场景）或由链级 ModelChain 统一负责；
+ * （kernel/llm/fallback，独立直用场景）或由链级 ModelChain 统一负责；
  * 骨架/退避共享见 adapters/llm/retry_once.ts（三适配器同一循环）。
  */
 import { describe, expect, it } from 'vitest';
 
-import { collect_result } from '../../../src/core/llm/base.js';
-import { user } from '../../../src/core/llm/messages.js';
+import { collect_result } from '../../../src/kernel/llm/base.js';
+import { user } from '../../../src/kernel/llm/messages.js';
 import {
   LLMAuthError,
   LLMRateLimitError,
   LLMServerError,
-} from '../../../src/core/llm/errors.js';
-import { RetryPolicy } from '../../../src/core/llm/fallback.js';
+} from '../../../src/kernel/llm/errors.js';
+import { RetryPolicy } from '../../../src/kernel/llm/fallback.js';
 import type { LlmResponse } from '../../../src/adapters/llm/fetch_transport.js';
 import {
   capture,

@@ -31,8 +31,8 @@
 
 import { isRecord } from '../json.js';
 import type { Json } from '../json.js';
-import { PatchChain } from '../patch/patchChain.js';
-import type { Patch } from '../patch/types.js';
+import { PatchChain } from '../../kernel/patch/patchChain.js';
+import type { Patch } from '../../kernel/patch/types.js';
 
 // 敏感键（大小写不敏感匹配）：出现即从持久化数据中整体移除。
 // 含常见驼峰凭据键的小写形态（clientSecret/openAiKey/authToken 等）——

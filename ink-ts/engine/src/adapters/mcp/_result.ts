@@ -8,7 +8,7 @@
  * 统一强转字符串，非文本项标注类型（``[<type>]``）后落明——不静默丢弃
  * 任何回执信息，也不把二进制/资源内容伪装成纯文本。
  */
-import { DEFAULT_MAX_RESULT_CHARS } from '../../core/tool_pipeline/tool_pipeline.js';
+import { DEFAULT_MAX_RESULT_CHARS } from '../../kernel/tool_pipeline/tool_pipeline.js';
 import type { McpCallResult } from './_types.js';
 
 /** MCP 调用结果的失败标记（dict 与对象两形态；is_error 优先，isError 为

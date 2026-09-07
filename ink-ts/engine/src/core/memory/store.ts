@@ -22,11 +22,11 @@
  * 纯函数可复现；get_logger 可观测性副作用省略。
  */
 
-import type { EvolutionWriter } from '../evolution_writer/_types.js';
+import type { EvolutionWriter } from '../../kernel/evolution_writer/_types.js';
 import {
   DefaultEvolutionWriter,
   memory_writer,
-} from '../evolution_writer/evolution_writer.js';
+} from '../../kernel/evolution_writer/evolution_writer.js';
 import {
   DEFAULT_ID_GEN,
   DEFAULT_NOW,

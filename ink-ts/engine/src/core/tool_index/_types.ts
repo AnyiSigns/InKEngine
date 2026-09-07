@@ -6,7 +6,7 @@
  * 嵌入实现为 seam（``AsyncEmbedder`` 形态接口），core 仅消费抽象。
  */
 
-import type { ToolSpec } from '../llm/tools.js';
+import type { ToolSpec } from '../../kernel/llm/tools.js';
 
 /** 检索结果上限（search_tools 返回 ≤8 条）。 */
 export const MAX_RESULTS = 8;

@@ -19,18 +19,18 @@
  */
 import type { Storage } from '../storage/storage.js';
 import type { StateSchema } from '../state/schema.js';
-import type { BudgetManager } from '../budget/budget.js';
+import type { BudgetManager } from '../../kernel/budget/budget.js';
 import type { EngineTransport } from '../events/events.js';
-import type { InterruptState } from '../interrupt/interrupt_types.js';
+import type { InterruptState } from '../../kernel/interrupt/interrupt_types.js';
 import type { GraphRegistries } from '../registry/registry.js';
-import type { BranchMixer, Evaluator } from '../simulation/simulation_types.js';
+import type { BranchMixer, Evaluator } from '../../kernel/simulation/simulation_types.js';
 import type { AssemblyConfig } from '../assembly/assembly_config.js';
 import type { ActivationAggregator } from '../assembly/activation_aggregator.js';
-import type { TurnMetrics } from '../tuning/_turn_metrics.js';
-import type { SettleHooks } from '../settle/index.js';
+import type { TurnMetrics } from '../../kernel/tuning/_turn_metrics.js';
+import type { SettleHooks } from '../../kernel/settle/index.js';
 import type { WorkflowSpec } from '../workflow/workflow_types.js';
 import { DEFAULT_MAX_PLAN_STEPS } from '../plan/plan.js';
-import { DEFAULT_MAX_SIMULATIONS } from '../simulation/simulation.js';
+import { DEFAULT_MAX_SIMULATIONS } from '../../kernel/simulation/simulation.js';
 
 /**
  * 装配源提供者的上下文面（节点执行器注入；提供者按需读取以取输入/身份）。

@@ -15,7 +15,7 @@ import { DatabaseSync } from 'node:sqlite';
 
 import { CheckpointConflictError, StorageError } from '../../core/errors.js';
 import type { JsonRecord } from '../../core/json.js';
-import { InterruptState } from '../../core/interrupt/interrupt_types.js';
+import { InterruptState } from '../../kernel/interrupt/interrupt_types.js';
 import { CheckpointRecord, fromJsonable } from '../../core/storage/storage_records.js';
 import { strictDumps } from './sqlite_json.js';
 

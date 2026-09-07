@@ -7,9 +7,9 @@
  * 收敛于 sse_common.ts（三协议复用）；本模块只保留 compat 的事件分派与
  * choices 增量形态转换。解析层纯函数、零 IO（流式逐行喂入）。
  */
-import { LLMChunk } from '../../core/llm/base.js';
-import { ToolCall, ToolCallDelta, type Json } from '../../core/llm/messages.js';
-import { LLMFormatError, classify_llm_error } from '../../core/llm/errors.js';
+import { LLMChunk } from '../../kernel/llm/base.js';
+import { ToolCall, ToolCallDelta, type Json } from '../../kernel/llm/messages.js';
+import { LLMFormatError, classify_llm_error } from '../../kernel/llm/errors.js';
 import {
   error_parts,
   get_str,

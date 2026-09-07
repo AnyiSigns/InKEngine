@@ -18,9 +18,9 @@
  * build_declarative_pipeline 缺省自动生效。
  */
 import { BUILTIN_ENDPOINTS, type BuiltinEndpointName } from '../contracts/generated/index.js';
-import { FileSandbox, ProcessSandbox } from '../sandbox/index.js';
+import { FileSandbox, ProcessSandbox } from '../../kernel/sandbox/index.js';
 import { SchemaField } from '../schema/schemaValidator.js';
-import type { SandboxSeam } from '../tool_pipeline/_types.js';
+import type { SandboxSeam } from '../../kernel/tool_pipeline/_types.js';
 import { EndpointTypeRegistry, EndpointTypeSpec } from './endpoint_types.js';
 import type { EndpointExtractor, EndpointFailureReason } from './endpoint_types.js';
 import type { DeclarativeToolSpec } from './declarative_spec.js';

@@ -5,7 +5,7 @@
 import { describe, expect, it } from 'vitest';
 
 import { GraphDefinitionError } from '../../../src/core/errors.js';
-import { ToolSource } from '../../../src/core/tool_vetting/tool_vetting.js';
+import { ToolSource } from '../../../src/kernel/tool_vetting/tool_vetting.js';
 import {
   BUILTIN_MCP_SERVERS,
   McpTransport,

@@ -5,7 +5,7 @@
 
 import { GraphDefinitionError } from '../errors.js';
 import { deepEqual, isRecord, stableStringify } from '../json.js';
-import { PatchChain } from '../patch/patchChain.js';
+import { PatchChain } from '../../kernel/patch/patchChain.js';
 import { get_reducer, is_additive_reducer, type Reducer } from './reducers.js';
 
 /** 状态通道定义：reducer 名（null = 裸 LastValue）。 */

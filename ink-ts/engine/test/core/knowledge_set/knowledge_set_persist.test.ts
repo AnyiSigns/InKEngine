@@ -10,7 +10,7 @@
 import { describe, expect, it } from 'vitest';
 
 import type { JsonRecord } from '../../../src/core/json.js';
-import { PatchChain } from '../../../src/core/patch/patchChain.js';
+import { PatchChain } from '../../../src/kernel/patch/patchChain.js';
 import { KnowledgeSet } from '../../../src/core/knowledge_set/knowledge_set.js';
 import { _CHAIN_KEY } from '../../../src/core/knowledge_set/_types.js';
 import { LEVEL_PROJECT } from '../../../src/core/knowledge_set/_types.js';

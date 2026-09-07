@@ -1,6 +1,6 @@
 /**
- * MCP ÊÊÅäÆ÷²âÊÔ¹²Ïí×®£¨¾µÏñ Python ²âÊÔµÄ _FakeSession/_RejectVetting/
- * _AcceptVetting ÐÎÌ¬£©£¬¼°ÕæÊµ stdio ÓÃÀý¹²ÏíµÄ node echo server ×°Åä¡£
+ * MCP ï¿½ï¿½ï¿½ï¿½ï¿½ï¿½ï¿½ï¿½ï¿½Ô¹ï¿½ï¿½ï¿½×®ï¿½ï¿½ï¿½ï¿½ï¿½ï¿½ Python ï¿½ï¿½ï¿½Ôµï¿½ _FakeSession/_RejectVetting/
+ * _AcceptVetting ï¿½ï¿½Ì¬ï¿½ï¿½ï¿½ï¿½ï¿½ï¿½ï¿½ï¿½Êµ stdio ï¿½ï¿½ï¿½ï¿½ï¿½ï¿½ï¿½ï¿½ï¿½ï¿½ node echo server ×°ï¿½ä¡£
  */
 import * as fs from 'node:fs';
 import * as os from 'node:os';
@@ -22,9 +22,9 @@ import {
   VettingResult,
   VettingVerdict,
   type ShadowExecutor,
-} from '../../../src/core/tool_vetting/tool_vetting.js';
+} from '../../../src/kernel/tool_vetting/tool_vetting.js';
 
-/** ²âÊÔ×®»á»°£ºÊµÏÖ list_tools/call_tool/aclose£¬¼ÇÂ¼µ÷ÓÃ±ãÓÚ¶ÏÑÔ¡£ */
+/** ï¿½ï¿½ï¿½ï¿½×®ï¿½á»°ï¿½ï¿½Êµï¿½ï¿½ list_tools/call_tool/acloseï¿½ï¿½ï¿½ï¿½Â¼ï¿½ï¿½ï¿½Ã±ï¿½ï¿½Ú¶ï¿½ï¿½Ô¡ï¿½ */
 export class FakeSession implements McpSessionHandle {
   _tools: McpToolRecord[];
   calls: Array<[string, Record<string, unknown>]>;
@@ -49,7 +49,7 @@ export class FakeSession implements McpSessionHandle {
   }
 }
 
-/** ¼Ù vetting£º°´¹¤¾ßÃû¼¯ºÏ¾Ü¾ø£¬ÆäÓà verified£¨ÑéÖ¤¹ýÂËÓïÒå£©¡£ */
+/** ï¿½ï¿½ vettingï¿½ï¿½ï¿½ï¿½ï¿½ï¿½ï¿½ï¿½ï¿½ï¿½ï¿½ï¿½ï¿½Ï¾Ü¾ï¿½ï¿½ï¿½ï¿½ï¿½ï¿½ï¿½ verifiedï¿½ï¿½ï¿½ï¿½Ö¤ï¿½ï¿½ï¿½ï¿½ï¿½ï¿½ï¿½å£©ï¿½ï¿½ */
 export class RejectVetting {
   private readonly _reject_names: Set<string>;
 
@@ -62,7 +62,7 @@ export class RejectVetting {
     return new VettingResult({
       ok,
       verdict: ok ? VettingVerdict.VERIFIED : VettingVerdict.REJECTED,
-      reason: ok ? '' : '±»²âÊÔ×®¾Ü¾ø',
+      reason: ok ? '' : 'ï¿½ï¿½ï¿½ï¿½ï¿½ï¿½×®ï¿½Ü¾ï¿½',
     });
   }
 
@@ -75,7 +75,7 @@ export class RejectVetting {
   }
 }
 
-/** ¼Ù vetting£ºÈ«Á¿ verified£¨¹Û²ìÄ£Ê½½ÓÏß²âÊÔÓÃ£»shadow_run ¼Ì³ÐÕæÊµÊµÏÖ£©¡£ */
+/** ï¿½ï¿½ vettingï¿½ï¿½È«ï¿½ï¿½ verifiedï¿½ï¿½ï¿½Û²ï¿½Ä£Ê½ï¿½ï¿½ï¿½ß²ï¿½ï¿½ï¿½ï¿½Ã£ï¿½shadow_run ï¿½Ì³ï¿½ï¿½ï¿½ÊµÊµï¿½Ö£ï¿½ï¿½ï¿½ */
 export class AcceptVetting extends ToolVetting {
   constructor() {
     super({ fs: create_node_fs_seam() });
@@ -86,13 +86,13 @@ export class AcceptVetting extends ToolVetting {
   }
 }
 
-/** ¼Ù vetting£ººã REVIEW£¨¾²Ì¬Éó²éÃüÖÐ = ÐèÈË¹¤È·ÈÏ£¬²»×Ô¶¯·ÅÐÐ£©¡£ */
+/** ï¿½ï¿½ vettingï¿½ï¿½ï¿½ï¿½ REVIEWï¿½ï¿½ï¿½ï¿½Ì¬ï¿½ï¿½ï¿½ï¿½ï¿½ï¿½ï¿½ = ï¿½ï¿½ï¿½Ë¹ï¿½È·ï¿½Ï£ï¿½ï¿½ï¿½ï¿½Ô¶ï¿½ï¿½ï¿½ï¿½Ð£ï¿½ï¿½ï¿½ */
 export class ReviewVetting {
   async vet(_manifest: unknown): Promise<VettingResult> {
     return new VettingResult({
       ok: true,
       verdict: VettingVerdict.REVIEW,
-      reason: '¾²Ì¬Éó²éÃüÖÐ',
+      reason: 'ï¿½ï¿½Ì¬ï¿½ï¿½ï¿½ï¿½ï¿½ï¿½ï¿½',
     });
   }
 
@@ -105,7 +105,7 @@ export class ReviewVetting {
   }
 }
 
-/** ¹¹Ôì MCP ¹¤¾ßÌõÄ¿£¨dict ÐÎÌ¬£»schema ×Ö¶ÎÐÎÌ¬ÓÉ snake_case ¾ö¶¨£©¡£ */
+/** ï¿½ï¿½ï¿½ï¿½ MCP ï¿½ï¿½ï¿½ï¿½ï¿½ï¿½Ä¿ï¿½ï¿½dict ï¿½ï¿½Ì¬ï¿½ï¿½schema ï¿½Ö¶ï¿½ï¿½ï¿½Ì¬ï¿½ï¿½ snake_case ï¿½ï¿½ï¿½ï¿½ï¿½ï¿½ï¿½ï¿½ */
 export function mcp_tool(
   name: string,
   schema?: Record<string, unknown>,
@@ -115,7 +115,7 @@ export function mcp_tool(
     schema ?? { type: 'object', properties: { q: { type: 'string' } } };
   const out: McpToolRecord = {
     name,
-    description: `${name} ¹¤¾ßÃèÊö`,
+    description: `${name} ï¿½ï¿½ï¿½ï¿½ï¿½ï¿½ï¿½ï¿½`,
   };
   out[snake_case ? 'input_schema' : 'inputSchema'] = parameters;
   return out;
@@ -123,7 +123,7 @@ export function mcp_tool(
 
 export { ToolSource, VettingVerdict };
 
-/** ÄÚ´æ¼Ù×Ó½ø³ÌµÄÈýÌõ¹ÜµÀ£¨fake spawn seam µÄ³ÐÔØ£©¡£ */
+/** ï¿½Ú´ï¿½ï¿½ï¿½Ó½ï¿½ï¿½Ìµï¿½ï¿½ï¿½ï¿½ï¿½ï¿½Üµï¿½ï¿½ï¿½fake spawn seam ï¿½Ä³ï¿½ï¿½Ø£ï¿½ï¿½ï¿½ */
 export function memory_child_streams(): {
   stdin: PassThrough;
   stdout: PassThrough;
@@ -141,21 +141,21 @@ export const sleep = (ms: number): Promise<void> =>
 
 const tmp_dirs: string[] = [];
 
-/** ½¨Î¨Ò»ÁÙÊ±Ä¿Â¼²¢µÇ¼Çµ½¹²ÏíÇåµ¥£¨²âÊÔÎÄ¼þ¾­ cleanup_tmp_dirs Í³Ò»ÇåÀí£©¡£ */
+/** ï¿½ï¿½Î¨Ò»ï¿½ï¿½Ê±Ä¿Â¼ï¿½ï¿½ï¿½Ç¼Çµï¿½ï¿½ï¿½ï¿½ï¿½ï¿½åµ¥ï¿½ï¿½ï¿½ï¿½ï¿½ï¿½ï¿½Ä¼ï¿½ï¿½ï¿½ cleanup_tmp_dirs Í³Ò»ï¿½ï¿½ï¿½ï¿½ï¿½ï¿½ï¿½ï¿½ */
 export function tmp_dir(): string {
   const dir = fs.mkdtempSync(path.join(os.tmpdir(), 'mcp-stdio-'));
   tmp_dirs.push(dir);
   return dir;
 }
 
-/** ÇåÀíµÇ¼Ç¹ýµÄÁÙÊ±Ä¿Â¼£¨²âÊÔÎÄ¼þ afterEach µ÷ÓÃ£©¡£ */
+/** ï¿½ï¿½ï¿½ï¿½ï¿½Ç¼Ç¹ï¿½ï¿½ï¿½ï¿½ï¿½Ê±Ä¿Â¼ï¿½ï¿½ï¿½ï¿½ï¿½ï¿½ï¿½Ä¼ï¿½ afterEach ï¿½ï¿½ï¿½Ã£ï¿½ï¿½ï¿½ */
 export function cleanup_tmp_dirs(): void {
   for (const dir of tmp_dirs.splice(0)) {
     fs.rmSync(dir, { recursive: true, force: true });
   }
 }
 
-/** ×îÐ¡ MCP stdio server£¨node µ¥ÎÄ¼þ£©£ºecho_text + ping + ¹ÊÕÏ×¢Èë¡£ */
+/** ï¿½ï¿½Ð¡ MCP stdio serverï¿½ï¿½node ï¿½ï¿½ï¿½Ä¼ï¿½ï¿½ï¿½ï¿½ï¿½echo_text + ping + ï¿½ï¿½ï¿½ï¿½×¢ï¿½ë¡£ */
 export const ECHO_SERVER = [
   "const json = JSON.stringify;",
   "function send(payload) {",
@@ -239,7 +239,7 @@ export const ECHO_SERVER = [
   "process.stdin.on('data', (chunk) => { buf += chunk; tryParse(); });",
 ].join('\n');
 
-/** echo server µÄ stdio Á¬½ÓÅäÖÃ£¨env ×°ÔØ¹ÊÕÏ×¢Èë¿ª¹Ø£©¡£ */
+/** echo server ï¿½ï¿½ stdio ï¿½ï¿½ï¿½ï¿½ï¿½ï¿½ï¿½Ã£ï¿½env ×°ï¿½Ø¹ï¿½ï¿½ï¿½×¢ï¿½ë¿ªï¿½Ø£ï¿½ï¿½ï¿½ */
 export function echo_config(opts: {
   framing?: string;
   crash_file?: string;

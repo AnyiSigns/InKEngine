@@ -25,7 +25,7 @@
 
 import type { EntityRegistry } from './entities.js';
 import { EntitySpec } from './entities.js';
-import type { GovernanceWriteTarget } from '../settle/review.js';
+import type { GovernanceWriteTarget } from '../../kernel/settle/review.js';
 
 /** Guarded entity-row persist callback (runtime assembly injects the entity
  *  writer; receives an entity id and its row dict). */

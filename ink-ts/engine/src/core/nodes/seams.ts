@@ -9,9 +9,9 @@
  */
 
 import type { NodeTypeRegistry } from '../registry/registry.js';
-import type { AsyncLLM } from '../llm/_guard_types.js';
-import type { ToolPipeline } from '../tool_pipeline/tool_pipeline.js';
-import type { ToolSpec } from '../llm/tools.js';
+import type { AsyncLLM } from '../../kernel/llm/_guard_types.js';
+import type { ToolPipeline } from '../../kernel/tool_pipeline/tool_pipeline.js';
+import type { ToolSpec } from '../../kernel/llm/tools.js';
 
 /** 引擎内置节点执行期实时 seams（每引擎重建绑定一次；执行时现取）。 */
 export interface EngineNodeSeams {

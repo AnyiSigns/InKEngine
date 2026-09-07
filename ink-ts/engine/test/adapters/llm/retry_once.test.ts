@@ -1,12 +1,12 @@
 /**
  * LLM 适配器重试骨架共享模块单测（retry_once.ts）：退避序列 0 基（适配器
- * attempt = 已失败次数）与 core/llm/fallback ModelChain 的 1 基内部计数
+ * attempt = 已失败次数）与 kernel/llm/fallback ModelChain 的 1 基内部计数
  * （n = 失败次数 + 1）产出同一序列的等价性、预算边界与注入 sleeper 录制。
  */
 import { describe, expect, it } from 'vitest';
 
-import { RetryPolicy } from '../../../src/core/llm/fallback.js';
-import { LLMNetworkError, LLMServerError } from '../../../src/core/llm/errors.js';
+import { RetryPolicy } from '../../../src/kernel/llm/fallback.js';
+import { LLMNetworkError, LLMServerError } from '../../../src/kernel/llm/errors.js';
 import {
   backoff_delay_ms,
   retry_attempts,

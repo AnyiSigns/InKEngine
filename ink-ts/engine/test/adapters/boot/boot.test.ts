@@ -10,9 +10,9 @@
 import { describe, expect, it } from 'vitest';
 
 import { HarnessDefinition } from '../../../src/core/harness/index.js';
-import { introspection_tool_specs } from '../../../src/core/introspection/index.js';
+import { introspection_tool_specs } from '../../../src/kernel/introspection/index.js';
 import { SOURCE_MODEL } from '../../../src/core/knowledge_set/index.js';
-import { SELF_TOOL_CONTRACT } from '../../../src/core/self_tools/index.js';
+import { SELF_TOOL_CONTRACT } from '../../../src/kernel/self_tools/index.js';
 import {
   BOOT_EVENT_TYPES,
   BOOT_METATOOLS,

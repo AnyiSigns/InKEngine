@@ -17,7 +17,7 @@ import type { IdGenFn, MemoryRecallPolicy, NowFn } from '../../../src/core/memor
 import { StorageBackedMemoryStore } from '../../../src/core/memory/store.js';
 import type { StorageBackedMemoryStoreOptions } from '../../../src/core/memory/store.js';
 import type { MemoryStorage } from '../../../src/core/memory/storage_seam.js';
-import { _EVOLUTION_CHAIN_COLLECTION } from '../../../src/core/evolution_writer/evolution_writer.js';
+import { _EVOLUTION_CHAIN_COLLECTION } from '../../../src/kernel/evolution_writer/evolution_writer.js';
 
 /** 固定时间轴线。 */
 const now: NowFn = (): number => 1000;

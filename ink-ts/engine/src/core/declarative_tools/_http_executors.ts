@@ -21,7 +21,7 @@
  * 类型（或 RETRIEVAL_CONTROLLED_FETCH 键）注入自定义实现后即生效。
  */
 import { isRecord } from '../json.js';
-import { DEFAULT_MAX_RESULT_CHARS } from '../tool_pipeline/_types.js';
+import { DEFAULT_MAX_RESULT_CHARS } from '../../kernel/tool_pipeline/_types.js';
 import { url_split } from './_url.js';
 import type { DeclarativeExecutor } from './executors.js';
 

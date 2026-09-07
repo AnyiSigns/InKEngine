@@ -19,8 +19,8 @@
  */
 
 import { GraphDefinitionError } from '../errors.js';
-import type { EvolutionRecord, EvolutionWriter } from '../evolution_writer/_types.js';
-import { entity_writer } from '../evolution_writer/evolution_writer.js';
+import type { EvolutionRecord, EvolutionWriter } from '../../kernel/evolution_writer/_types.js';
+import { entity_writer } from '../../kernel/evolution_writer/evolution_writer.js';
 import { isRecord } from '../json.js';
 
 export const DEFAULT_MAX_ENTITIES = 200;

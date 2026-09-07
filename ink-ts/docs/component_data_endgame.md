@@ -307,7 +307,7 @@ host.spec（能力插件 kind='host'；faces 用专用 HostFaces，不走通用 
 | 引擎 contract-as-data | `engine/src/core/registry/registry.ts`（契约+工厂同表） | ⚠️ 边界：契约现为可选参数，无契约 = 不参与组装、仅可手绘图引用；机制件契约化须升为强制（stage2 起评估） |
 | 0-IO 端口注入 | `engine/src/adapters/`（storage/llm/mcp + boot） | ✅ 已实现 |
 | 装配数据 | `AssemblyRecipe`（engine 定义，经 `@ink-ts/engine` 导出）+ `runtime.boot(host, recipe)`（host 装配使用，`host/src/boot.ts`） | ✅ 已实现 |
-| web 纯渲染 L5 | `seed_data/ui_spec.json` + `componentRegistry` 白名单 + `artifactLoader` | ⚠️ 部分：插件不含业务逻辑（L5 成立），但仍含产品 chrome（app/shell/views）；阶段 7b 才退化为纯显示设备 |
+| web 纯渲染 L5 | `seed_data/ui_spec.json` + `componentRegistry` 白名单 + `artifactLoader` | ⚠️ 部分：分面——业务逻辑在插件 logic face/actions（跑引擎侧），ui face 与渲染器不含业务逻辑（L5 成立）；但仍含产品 chrome（app/shell/views）；阶段 7b 才退化为纯显示设备 |
 | 命令面同步 | `BRIDGE_METHODS` + `sync_web_command_surface.ts` | ⚠️ 手写数组，非声明即挂载 |
 | 统一插件源 | `tools.json`/`ui_spec.json`/`BRIDGE_METHODS`/`mcp_market.json` 分置 | ❌ 未统一 |
 | 机制件统一 contract + 装配闭集校验 | 33 机制 `engine/src/kernel/<mechanism>/contract.ts` + `registry/registry.ts` 密封校验 + boot 接线 + `verify:mechanisms` | ✅ 完成（本阶段目标） |

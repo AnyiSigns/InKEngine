@@ -15,6 +15,7 @@
 | 5 | `docs/subsystems/` 文档数不一致：§4.3 五份（含 exec.md）vs 参考模拟四份 | **五份**：engine / plugins / renderer / host / exec（参考模拟补 exec.md） | component_data §4.3 树 + 参考模拟 §1 树 |
 | 6 | `seed_data/event_types.json` 未进任何散源收敛清单 | **属引擎/渲染协议侧事件类型真源，不进 `plugins/`**；web 命令面生成物（`web_command_surface.json`）属派生视图禁手改 | component_data §三 边界注 |
 | 7 | 低优遗留：§1.2 伪码 `impl` 字段 vs 规范类型；两树详略/现状目标标注；plugin_issues.md 未落盘 | **低优按推荐一并修订**：§1.2 伪码对齐规范（去 impl、补 id/faces 说明）；§4.3 树标注「目标态」并补 manifest.json/hosts spec；本卡落盘 | component_data §1.2/§4.3、本文件 |
+| 8 | §九「插件不含业务逻辑（L5 成立）」主语歧义：整插件不含业务逻辑会误读为插件是死的 | **澄清为分面表述**：业务逻辑在插件 logic face/actions（跑引擎侧，经事件路由执行）；不含业务逻辑的只是渲染器（显示设备）与 ui face（渲染意图数据，不写业务）。文档 §九 措辞改为分面，避免整插件误读 | component_data §九 落地状态表 web 行；本卡 |
 
 ## 引擎层 AGENTS 用语
 

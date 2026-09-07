@@ -1,0 +1,18 @@
+{
+  "id": "ide",
+  "kind": "host",
+  "capability": "host_tool",
+  "implemented": false,
+  "host": {
+    "surface": "ide",
+    "transport": ["http+ws"],
+    "approval": "card",
+    "ports": {
+      "storage": ["sqlite"],
+      "llm": ["llm_port"],
+      "exec": ["exec_envelope"],
+      "approval": ["card"]
+    }
+  },
+  "note": "ide 宿主面（装配实现在外部壳仓，非 ink-ts）：IDE 嵌入呈现（webview/面板经 http+ws 接同进程 host）；spec 数据齐全（契约一致），implemented=false 表示 ink-ts 内不装配"
+}

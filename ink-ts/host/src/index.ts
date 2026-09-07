@@ -1,3 +1,4 @@
+// gate: 超限(366 行) - @ink-ts/host 公共面导出聚合 + createHost composition root（导出再分行属装配面清单，不拆子文件）
 /**
  * @ink-ts/host 装配入口（createHost）：composition root。
  *
@@ -33,6 +34,27 @@ import type { ProductRecipeInit } from './recipe.js';
 import type { HostRetrievalDomain } from './retrieval/domain.js';
 import type { SyncEmbedderSeam } from './retrieval/sync_seam.js';
 import type { McpConnectStatus } from './mcp/assembly.js';
+
+export type {
+  HostFaces,
+  HostSpec,
+  HostSurface,
+  HostTransport,
+  HostApproval,
+  HostPortKey,
+  HostRendererRef,
+  HostRuntimeDefaults,
+} from './host_spec.js';
+export {
+  HOST_APPROVALS,
+  HOST_PORT_KEYS,
+  HOST_SURFACES,
+  HOST_TRANSPORTS,
+  findHostsRoot,
+  hostPortHas,
+  loadHostSpec,
+  validateHostSpec,
+} from './host_spec.js';
 
 /** createHost 装配产物（cli/web/vitest 消费面）。 */
 export interface HostHandle {

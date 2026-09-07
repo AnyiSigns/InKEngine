@@ -145,6 +145,7 @@ host/cli/web 取用。
 | 产品主壳布局生成物（ui.generated.json 禁手改） | `plugins/ui.generated.json`（产品 UI 布局树，真源 = plugins/ui_features/*/spec.json 装配入口 $ref 展开） | 由 `verify:plugin-manifest`（同 scripts/sync_plugin_manifest.mjs：DFS 展开 $ref 重建完整布局树，引用缺失/成环/孤儿 fail-closed；--check 逐字比对防手改）在 root `npm test` 与 CI 强制；web 渲染与 dev 夹具一律经 ui.generated.json 取用，不再有 seed_data/ui_spec.json |
 | canonical 白名单生成物（ui_canonical.generated.ts 禁手改） | `host/src/bridge/ui_canonical.generated.ts`（布局树引用组件 type 并集升序，真源同 ui_features 布局） | 由 `verify:plugin-manifest`（同 scripts/sync_plugin_manifest.mjs 派生，--check 逐字比对防手改）在 root `npm test` 与 CI 强制；host recipe 界面白名单引用之；与旧侧 inkling/manifest.json renderer_components 同值由 gate 对码测试守漂移 |
 | 插件全脸声明与卸载一致性（faces/depends/effects 语义） | `plugins/\<kind\>/\<id\>/spec.json` 顶层声明 + `plugins/manifest.json` plugins[] 注册表行 | 由 `verify:unload`（plugins/scripts/verify_unload.ts：depends 悬空/成环/未登记（插件 id 或机制端口）= 违规；faces 三脸结构（ui/logic/data × engine\|host\|web）+ `contract.effects` ⊆ 机制端口词表（单一真源 engine/src/kernel/registry/ports.ts）；manifest 平价 + data-only 状态引脚 + ui 可达性不变式；`--plan \<id\>` 输出卸载阻断方（下游 depends / 父容器 $ref）与子树影响面，fail-closed）在 root `npm test` 与 CI 强制；生成器只守 JSON 形状（读/校验顶层声明并携带入注册表行） |
+| 宿主面 spec（hosts/\<host\>.spec.json 数据/装配面一致性） | `hosts/`（cli/web 本仓装配 implemented=true；tauri/ide 外部壳仓 implemented=false） | 由 `verify:host-spec`（hosts/verify_host_spec.ts：四宿主不变式 cli/web=true + tauri/ide=false；HostFaces 词汇校验经 host/src/host_spec.ts validateHostSpec；implemented=true 须带 renderer 且 entry 在仓库根真实存在）在 root `npm test` 与 CI 强制；host.spec 类型/加载/校验单一真源 = host/src/host_spec.ts（@ink-ts/host 公共面导出） |
 
 gate 实现与正反样例位于 `gate/src/` 与 `gate/test/`；**真实扫描链** =
 root `npm test` 首段 `npm run typecheck --workspace engine`（engine tsc
@@ -158,7 +159,9 @@ schemas/fixtures 的 json-valid）→ `vitest run --root gate`（规则样例自
 plugins/manifest.json + commands.generated.ts + ui.generated.json +
 ui_canonical.generated.ts 与各 spec 真源逐字一致）
 → `tsx plugins/scripts/verify_unload.ts`（卸载一致性：depends/faces/effects
-语义 + manifest 平价 + data-only 状态引脚 + ui 可达性不变式），
+语义 + manifest 平价 + data-only 状态引脚 + ui 可达性不变式）
+→ `tsx hosts/verify_host_spec.ts`（宿主面 spec：HostFaces 词汇 + 四宿主不变式 +
+renderer entry 存在性），
 CI 的 ink-ts job 同链执行。规则增删须同步本表。
 
 ## 8. 模型角色槽（配置语义与措辞纪律）

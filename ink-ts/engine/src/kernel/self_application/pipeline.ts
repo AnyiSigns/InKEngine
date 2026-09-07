@@ -28,8 +28,8 @@ import type {
   InterruptPolicy,
 } from '../approval/approval.js';
 import { DefaultInterruptPolicy } from '../approval/approval.js';
-import { ProposalValidator, SelfProposal } from '../self_proposal/index.js';
-import type { PatchKind } from '../self_proposal/index.js';
+import { SelfProposal } from '../self_proposal/index.js';
+import type { PatchKind, ProposalValidator } from '../self_proposal/index.js';
 
 import { run_apply } from './apply_flow.js';
 import { run_revert } from './revert_flow.js';
@@ -63,7 +63,8 @@ export interface AuditOptions {
 /** SelfApplicationPipeline 构造选项（对应 Python keyword-only 装配参数）。 */
 export interface SelfApplicationPipelineInit {
   storage: Storage;
-  validator?: ProposalValidator | null;
+  /** 按类型校验器（必注入：校验语义归装配层，不自造默认——all caller 均注入）。 */
+  validator: ProposalValidator;
   interrupt_policy?: InterruptPolicy | null;
   policy?: InterruptPolicy | null;
   approval_levels?: Partial<Record<PatchKind, ApprovalLevel>> | null;
@@ -120,11 +121,14 @@ export class SelfApplicationPipeline {
     this.chain = new SetPatchChain(storage, { guard_token: init.guard_token ?? null });
     this._storage = storage;
     this._guard_token = init.guard_token ?? null;
-    this.validator = init.validator ?? new ProposalValidator();
+    this.validator = init.validator;
     // 审批分级（kind → L0/L1/L2）：L0 推导为「自动批准键」注入默认策略；
     // L1 弹卡；L2 沙箱验证后弹卡。审批策略 = 宿主注入优先（宿主直过
     // 白名单/超时窗口对补丁审批同样生效）；未注入时按 L0 分级自建默认
     // 策略。``policy`` 为历史形参别名，二者并存以 interrupt_policy 为准。
+    // 缺省自建属合法缺省装配：autoKeys 依赖本机制分级表推导（L0 键集），
+    // 策略实现是 self_application 对 approval 的契约面——机制保留自身
+    // 语义的兜底，不放归装配层（防分级规则泄漏给组合根）。
     // Python 语义 = ``approval_levels or DEFAULT``（空 dict falsy → 回落
     // 默认分级表；非空 dict 原样整体替换，不合并）。空/未提供一律 DEFAULT。
     const provided = init.approval_levels;

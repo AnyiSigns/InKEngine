@@ -14,6 +14,7 @@ import { assembleCliHost } from './host.js';
 import { runOnce } from './run.js';
 import { serve } from './server.js';
 import { runServe } from './serve.js';
+import { runTui } from './tui/tui.js';
 
 type ParseFailure = Extract<ParseArgsResult, { ok: false }>;
 
@@ -48,6 +49,8 @@ async function main(): Promise<void> {
       process.exitCode = await runOnce(options);
     } else if (options.mode === 'serve') {
       await runServe(options, { stdout: process.stdout, stderr: process.stderr });
+    } else if (options.mode === 'tui') {
+      process.exitCode = await runTui(options);
     } else {
       await runStdio(options);
     }

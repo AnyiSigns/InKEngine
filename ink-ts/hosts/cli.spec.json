@@ -1,0 +1,18 @@
+{
+  "id": "cli",
+  "kind": "host",
+  "name": "cli 宿主（唯一进程载体）",
+  "capability": "host_tool",
+  "depends": [],
+  "host": {
+    "surface": "cli",
+    "transports": ["terminal", "stdio"],
+    "approval": { "channel": "interactive" },
+    "ports": ["storage_seam", "llm_port", "exec_envelope"],
+    "faces": {
+      "ui": { "target": "host", "entry": "cli/src/tui" },
+      "logic": { "target": "host", "entry": "cli/src/index.ts" }
+    }
+  },
+  "note": "阶段 5 框架首刀（2026-09-07）：cli = kind=host 装配期插件（hosts/<host>.spec.json），TUI 是 cli 宿主的终端呈现面（faces.ui.entry = cli/src/tui 模块）；web/tauri/ide 各 host.spec 与运行配置完全声明化待阶段 5b 定稿后逐份落位"
+}

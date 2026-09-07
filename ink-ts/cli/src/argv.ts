@@ -1,5 +1,5 @@
 /**
- * CLI 三形态启动参数解析（stdio | run | serve）。
+ * CLI 四形态启动参数解析（stdio | run | serve | tui）。
  *
  * 形态：stdio = 长驻 JSON-RPC（dev/测试/无人值守，缺省形态，兼容旧调用）；
  * run = 一次性驱动面（--round/--op/--os-op/--audit 互斥 + JSON 信封 stdout +
@@ -11,7 +11,7 @@
  * exit 2（参数用法问题）。未知参数一律拒绝。
  */
 
-export const CLI_MODES = ['stdio', 'run', 'serve'] as const;
+export const CLI_MODES = ['stdio', 'run', 'serve', 'tui'] as const;
 export type CliMode = (typeof CLI_MODES)[number];
 
 /** run 形态一次性命令（互斥）。 */
@@ -93,6 +93,7 @@ const MODE_ALLOWED_FLAGS: Record<CliMode, ReadonlySet<string>> = {
     '--vite',
     '--token',
   ]),
+  tui: new Set(['--approve', '--data-dir', '--events-dir']),
 };
 
 export function parseArgs(argv: readonly string[]): ParseArgsResult {
@@ -181,6 +182,10 @@ export function parseArgs(argv: readonly string[]): ParseArgsResult {
       }
       continue;
     }
+    if (mode === 'tui') {
+      // tui 只接受 --approve/--data-dir/--events-dir（均已在上层消费）
+      continue;
+    }
     // stdio：仅 --approve/--data-dir/--events-dir/--help 已在上层处理
     return fail(`未知参数: ${token}`);
   }
@@ -216,7 +221,7 @@ export function parseArgs(argv: readonly string[]): ParseArgsResult {
 }
 
 const HELP_TEXT = [
-  'ink-ts cli — 唯一进程载体，三形态：stdio（JSON-RPC）/ run（一次性驱动）/ serve（本地 http+ws）',
+  'ink-ts cli — 唯一进程载体，四形态：stdio（JSON-RPC）/ run（一次性驱动）/ serve（本地 http+ws）/ tui（终端交互）',
   '',
   '用法:',
   '  ink-ts-cli [stdio] [--approve] [--data-dir <dir>] [--events-dir <dir>]',
@@ -224,6 +229,7 @@ const HELP_TEXT = [
   '    [--args <json>] [--trace-id <id>] [--thread-id <id>] [--round-id <id>] [--approve]',
   '  ink-ts-cli serve [--port <0-65535>] [--host <地址>] [--static <dir>] [--vite <url>]',
   '    [--token <token>] [--approve] [--data-dir <dir>]',
+  '  ink-ts-cli tui [--approve] [--data-dir <dir>] [--events-dir <dir>]',
   '',
   '形态与参数:',
   '  stdio  长驻 JSON-RPC（缺省形态；host.ping/host.info + host bridge 方法面）',
@@ -231,6 +237,8 @@ const HELP_TEXT = [
   '         诊断走 stderr；成功 exit 0，运行失败 exit 1，用法错误 exit 2（fail-closed）',
   '  serve  本地 http/ws 服务：/health /rpc /ws + 静态托管/Vite 代理占位；',
   '         启动时 stdout 打印 listen 行（含 url/ws/token）',
+  '  tui    终端交互（会话/聊天/事件/待办/审批；TTY 全屏，非 TTY 退化为逐行；',
+  '         行以 : 前缀为控制命令，如 :approvals/:new/:send 文本/:accept/:reject 原因）',
   '',
   '公共:',
   '  --approve    显式声明允许审批直过（仅限可信自动化；缺省拒绝放行）',

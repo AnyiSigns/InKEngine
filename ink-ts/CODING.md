@@ -35,12 +35,17 @@
   适配与存储驱动**（那是 engine/adapters 的职责）。机制语义（审批/补丁链/
   审计/闸门/沙箱判定）属 engine core，不得在此复制。不写 main、不监听端口、
   不是进程——被 cli / web 进程 / vitest import。
-- `cli/`：唯一进程载体与宿主执行体（stdio/serve/run 三形态），注入实现到 seam。
+- `cli/`：唯一进程载体与宿主执行体（stdio/run/serve/tui 四形态——cli 为
+  kind=host 装配期插件（`hosts/<host>.spec.json`），tui 是 cli 宿主的终端呈现
+  面（`cli/src/tui/`），web 是浏览器呈现面经 cli serve），注入实现到 seam。
 - `web/`（原 `frontend/`）：前端纯渲染层，只渲染数据 + 触发补丁，逻辑不进组件；
   本质非服务进程（无 main/不监听），服务承载方 = cli serve。
+- `hosts/`：宿主插件声明（kind=host 装配期 spec：tauri/cli/web/ide），阶段 5
+  框架已立 `hosts/cli.spec.json`；运行配置完全声明化与其余 spec 落定随阶段 5b。
 
 术语：**host（原 backend）** = 宿主装配层 / composition
-root；**cli** = 唯一进程载体（含 main + 三形态）；**web** = 前端纯渲染（L5，
+root；**cli** = 唯一进程载体（含 main + 四形态：stdio/run/serve/tui，tui 为
+终端呈现面）；**web** = 前端纯渲染（L5，
 只连 cli serve 通道）；exec/infer/ink_ts_mcp 为 Rust 原生机制件子进程
 （OS 执行 / 本地嵌入推理 / 内置 MCP server）。包间依赖单向：`web/host/cli
 → engine`；engine 数据面契约内置

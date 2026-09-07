@@ -14,7 +14,7 @@
 import { describe, expect, it } from 'vitest';
 
 import { AssemblyRecipe, Runtime } from '../../../src/core/runtime/index.js';
-import type { Host, GraphRecipeContext } from '../../../src/core/runtime/index.js';
+import type { Host } from '../../../src/core/runtime/index.js';
 import { Graph } from '../../../src/core/graph/graph.js';
 import { Engine, RunOptions } from '../../../src/core/executor/index.js';
 import { DefaultInterruptPolicy } from '../../../src/core/approval/approval.js';
@@ -24,6 +24,7 @@ import { node_registry_collection } from '../../../src/core/node_registry/index.
 import { pool_governance_collection } from '../../../src/core/pool_governance/state_store.js';
 import type { NodeFactory } from '../../../src/core/registry/registry_types.js';
 import { MemoryStorage } from '../executor/helpers.js';
+import { dataGraph, registerNodeType, runRoundEngine } from './_round_graphs.js';
 
 /** 可复用同一存储实例的 Host（跨 runtime 重启模拟）。 */
 class SharedStorageHost {
@@ -50,16 +51,37 @@ function toHost(host: SharedStorageHost): Host {
   return host as unknown as Host;
 }
 
-function failingGraph(_ctx: GraphRecipeContext): Graph {
-  const boom = async (): Promise<never> => {
+// 失败回合数据图：start（原始节点类型）→ mid（抛错）；mid 不落声明式登记
+// （登记 store 查不到 = 治理判定候选非注册类型的 seam no-op 场景）。
+const T_START = 'pgw.start';
+const T_MID = 'mid';
+
+function boom_factory(): NodeFactory {
+  return () => async (): Promise<never> => {
     throw new Error('node failed');
   };
-  const g = new Graph({ name: 'pgw-fail', entry: 'start' });
-  g.add_node('start', (async () => ({ started: true })) as never);
-  g.add_node('mid', boom as never);
-  g.add_edge('start', 'mid');
-  g.add_exit('mid');
-  return g;
+}
+
+function start_factory(): NodeFactory {
+  return () => async (): Promise<Record<string, unknown>> => ({ started: true });
+}
+
+function install_failing_nodes(runtime: Runtime): void {
+  registerNodeType(runtime, T_START, start_factory());
+  registerNodeType(runtime, T_MID, boom_factory());
+}
+
+function failingGraphData(): Record<string, unknown> {
+  return dataGraph({
+    name: 'pgw-fail',
+    entry: 'start',
+    nodes: [
+      { id: 'start', type: T_START },
+      { id: 'mid', type: T_MID },
+    ],
+    edges: [{ from: 'start', to: 'mid' }],
+    exits: ['mid'],
+  });
 }
 
 function recipe(
@@ -79,7 +101,6 @@ function recipe(
       self_operation_of: () => ['read', '*'] as [string, string],
     },
     approval_levels: {},
-    graph_recipe: failingGraph,
     node_executors: host.node_executors,
   });
   return Object.assign(base, overrides);
@@ -113,7 +134,12 @@ function echo_graph_data(): Record<string, unknown> {
 }
 
 async function failing_round(runtime: Runtime, round_id: string): Promise<void> {
-  await runtime.engine!.ainvoke({ input: 'fail' }, { thread_id: 't-pg', round_id });
+  await runRoundEngine(
+    runtime,
+    failingGraphData(),
+    { input: 'fail' },
+    { thread_id: 't-pg', round_id },
+  );
 }
 
 describe('runtime pool governance write seam assembly (A3)', () => {
@@ -133,6 +159,7 @@ describe('runtime pool governance write seam assembly (A3)', () => {
     const host = new SharedStorageHost();
     const runtime = await new Runtime().boot(toHost(host), recipe(host));
     const gov = runtime.pool_governance!;
+    install_failing_nodes(runtime);
     await failing_round(runtime, 'r1');
     expect(runtime.node_registry_store!.get('mid')).toBeNull();
     expect(gov.log.length).toBeGreaterThanOrEqual(1);
@@ -192,6 +219,7 @@ describe('runtime pool governance write seam assembly (A3)', () => {
   it('governance decisions accumulate across restart (weekly budget source not reset)', async () => {
     const host = new SharedStorageHost();
     const first = await new Runtime().boot(toHost(host), recipe(host));
+    install_failing_nodes(first);
     await failing_round(first, 'r1');
     await failing_round(first, 'r2');
     const rows1 = (await first.storage!.list_records(pool_governance_collection('default')))
@@ -199,6 +227,7 @@ describe('runtime pool governance write seam assembly (A3)', () => {
     expect(rows1.length).toBe(2);
     await first.stop();
     const second = await new Runtime().boot(toHost(host), recipe(host));
+    install_failing_nodes(second);
     await failing_round(second, 'r3');
     const rows2 = (await second.storage!.list_records(pool_governance_collection('default')))
       .filter((row) => row['row'] === 'decision');

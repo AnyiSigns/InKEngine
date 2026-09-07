@@ -5,20 +5,27 @@
  *
  * 覆盖最小接线断言（开关默认全开；false = 对应块零参与）；模块级默认组装
  * 运行期为全局态，用后即清（afterEach set_default_assembly_runtime(null)）。
+ * 回合引擎形态（B3）：无常驻静态引擎——跑机制回合用数据图经 _build_graph_engine
+ * 构造本轮引擎（settle 钩子/edge 证据/观察传输与组装路径同源）。
  */
 import { afterEach, describe, expect, it } from 'vitest';
 
 import { Runtime, AssemblyRecipe } from '../../../src/core/runtime/index.js';
-import type { Host, GraphRecipeContext } from '../../../src/core/runtime/index.js';
+import type { Host } from '../../../src/core/runtime/index.js';
 import { set_default_assembly_runtime, get_default_assembly_runtime } from '../../../src/core/path_assembler/index.js';
 import { EDGE_EVIDENCE_COLLECTION } from '../../../src/core/edge_evidence/index.js';
 import { FINGERPRINT_CACHE_COLLECTION } from '../../../src/core/fingerprint_cache/index.js';
 import { EnvironmentSpec, RuntimeKind } from '../../../src/core/environments/index.js';
-import { Graph } from '../../../src/core/graph/graph.js';
 import { DefaultInterruptPolicy } from '../../../src/core/approval/approval.js';
 import { self_tool_specs, make_self_executor, operation_of } from '../../../src/core/self_tools/index.js';
 import type { SelfToolContext } from '../../../src/core/self_tools/index.js';
 import { MemoryStorage } from '../executor/helpers.js';
+import type { NodeFactory } from '../../../src/core/registry/registry_types.js';
+import {
+  dataGraph,
+  registerNodeType,
+  runRoundEngine,
+} from './_round_graphs.js';
 
 /** Host 五件套 mock（最小装配面：内存存储 + 直过审批策略）。 */
 class FakeHost {
@@ -42,24 +49,48 @@ function toHost(host: FakeHost): Host {
   return host as unknown as Host;
 }
 
-/** 失败回合图（start → boom 抛错 → 归因写失败边证据）。 */
-function _failing_graph(_ctx: GraphRecipeContext): Graph {
-  const g = new Graph({ name: 'mech-fail', entry: 'start' });
-  g.add_node('start', (async () => ({ started: true })) as never);
-  g.add_node('boom', (async () => {
-    throw new Error('节点失败');
-  }) as never);
-  g.add_edge('start', 'boom');
-  g.add_exit('boom');
-  return g;
+// ── 数据图测试节点（无常驻静态引擎：机制回合用数据图驱动）────────────────
+const T_OK = 'mech.ok';
+const T_START = 'mech.start';
+const T_BOOM = 'mech.boom';
+
+function ok_factory(): NodeFactory {
+  return () => async (): Promise<Record<string, unknown>> => ({ reply: 'ok' });
 }
 
-/** 成功回合图（正常 reply 收尾）。 */
-function _ok_graph(_ctx: GraphRecipeContext): Graph {
-  const g = new Graph({ name: 'mech-ok', entry: 'agent' });
-  g.add_node('agent', (async () => ({ reply: 'ok' })) as never);
-  g.add_exit('agent');
-  return g;
+function fail_factory(): { start: NodeFactory; boom: NodeFactory } {
+  return {
+    start: () => async (): Promise<Record<string, unknown>> => ({ started: true }),
+    boom: () => async (): Promise<never> => {
+      throw new Error('节点失败');
+    },
+  };
+}
+
+function install_data_nodes(runtime: Runtime): void {
+  registerNodeType(runtime, T_OK, ok_factory());
+  const failing = fail_factory();
+  registerNodeType(runtime, T_START, failing.start);
+  registerNodeType(runtime, T_BOOM, failing.boom);
+}
+
+/** 成功回合数据图（正常 reply 收尾）。 */
+function ok_graph(): Record<string, unknown> {
+  return dataGraph({ name: 'mech-ok', entry: 'agent', nodes: [{ id: 'agent', type: T_OK }], exits: ['agent'] });
+}
+
+/** 失败回合数据图（start → boom 抛错 → 归因写失败边证据）。 */
+function failing_graph(): Record<string, unknown> {
+  return dataGraph({
+    name: 'mech-fail',
+    entry: 'start',
+    nodes: [
+      { id: 'start', type: T_START },
+      { id: 'boom', type: T_BOOM },
+    ],
+    edges: [{ from: 'start', to: 'boom' }],
+    exits: ['boom'],
+  });
 }
 
 /** 最小装配配方（机制开关默认全开；overrides 逐字段覆写）。 */
@@ -73,7 +104,6 @@ function _recipe(overrides: Partial<AssemblyRecipe> = {}): AssemblyRecipe {
       self_operation_of: (spec) => operation_of(spec),
     },
     approval_levels: {},
-    graph_recipe: _ok_graph,
   });
   return Object.assign(base, overrides);
 }
@@ -87,13 +117,15 @@ async function _recordsOf(runtime: Runtime, collection: string): Promise<Record<
 describe('runtime 只读状态面（V3-8）', () => {
   it('restore_diag / skill_crystallizer 经只读 getter 暴露（宿主 assemble 状态读取用）', async () => {
     const runtime = await new Runtime().boot(toHost(new FakeHost()), _recipe());
+    install_data_nodes(runtime);
     // 集补丁链缺装配：恢复诊断记录回落原因（只读数组形态）
     expect(Array.isArray(runtime.restore_diag)).toBe(true);
-    // 技能结晶默认装配：结晶器实例可见，最近一轮结晶清单可读
+    // 技能结晶默认装配：回合引擎构建（settle 链装配）后结晶器实例可见
+    expect(runtime.skill_crystallizer).toBeNull(); // 无常驻静态引擎：settle 链随回合引擎装配
+    await runRoundEngine(runtime, ok_graph(), { input: 'ok' }, { thread_id: 't-ro', round_id: 'r1' });
     const crystallizer = runtime.skill_crystallizer;
     expect(crystallizer).not.toBeNull();
-    await runtime.engine!.ainvoke({ input: 'ok' }, { thread_id: 't-ro', round_id: 'r1' });
-    expect(Array.isArray(runtime.skill_crystallizer!.crystallized)).toBe(true);
+    expect(Array.isArray(crystallizer!.crystallized)).toBe(true);
     // 内部可写字段仍为引擎装配通道（只读 getter 不替代内部写面）
     expect(runtime._restore_diag).toBe(runtime.restore_diag);
     await runtime.stop();
@@ -144,11 +176,9 @@ describe('runtime 机制开关（D02）', () => {
 
 describe('runtime 边证据持久化与钩子触发（D01）', () => {
   it('失败回合经 EdgeEvidenceSettleHook 写证据并落 records 集合（持久化 seam）', async () => {
-    const runtime = await new Runtime().boot(
-      toHost(new FakeHost()),
-      _recipe({ graph_recipe: _failing_graph }),
-    );
-    const result = await runtime.engine!.ainvoke({ input: 'x' }, { thread_id: 't-ev', round_id: 'r1' });
+    const runtime = await new Runtime().boot(toHost(new FakeHost()), _recipe());
+    install_data_nodes(runtime);
+    const result = await runRoundEngine(runtime, failing_graph(), { input: 'x' }, { thread_id: 't-ev', round_id: 'r1' });
     expect(result.reason).toBe('error');
     // 归因钩子已触发：records 集合存在失败边证据行
     const rows = await _recordsOf(runtime, EDGE_EVIDENCE_COLLECTION);
@@ -164,9 +194,10 @@ describe('runtime 边证据持久化与钩子触发（D01）', () => {
   it('edge_evidence_enabled=false：不登记归因钩子，失败回合零证据写', async () => {
     const runtime = await new Runtime().boot(
       toHost(new FakeHost()),
-      _recipe({ graph_recipe: _failing_graph, edge_evidence_enabled: false }),
+      _recipe({ edge_evidence_enabled: false }),
     );
-    const result = await runtime.engine!.ainvoke({ input: 'x' }, { thread_id: 't-ev-off', round_id: 'r1' });
+    install_data_nodes(runtime);
+    const result = await runRoundEngine(runtime, failing_graph(), { input: 'x' }, { thread_id: 't-ev-off', round_id: 'r1' });
     expect(result.reason).toBe('error');
     expect(await _recordsOf(runtime, EDGE_EVIDENCE_COLLECTION)).toEqual([]);
     expect(await runtime.edge_evidence_store!.evidence_count()).toBe(0);

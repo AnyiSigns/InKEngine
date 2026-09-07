@@ -19,7 +19,6 @@ export {
 export type {
   AssemblyRecipeInit,
   AssemblySourceProvider,
-  GraphRecipeContext,
   Host,
   RuntimeConfigInit,
   ToolWiring,
@@ -33,6 +32,5 @@ export type {
 } from './_runtime_self_learning.js';
 
 export { _KnowledgeUsageSettleHook } from './_settle.js';
-export { _spec_identity } from './_helpers.js';
 export { set_runtime_clock } from './_runtime_base.js';
 export type { RunTaskHandle } from './_runtime_runs.js';

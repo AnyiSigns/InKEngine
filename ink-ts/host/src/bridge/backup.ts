@@ -2,22 +2,22 @@
  * backup 命令面（export/preview/restore）——host 原生 data_dir 快照。
  *
  * zip 导出/预览清单/恢复替换经 host/src/backup 域（store-zip 编解码 +
- * 目录树打包/解包）；restore 为危险操作：须 confirm 精确等于固定标记
- * 'backup-restore'（fail-closed），恢复前先把当前 data_dir 整包快照到
- * data_dir/snapshots（可回退）。数据目录经 resolved 配置注入 deps.data_dir
- * （未注入 = 域不可用显式报错）。
+ * 目录树打包/解包）。restore 为危险操作：须 confirm 精确等于固定标记
+ * 'backup-restore'（fail-closed）。产品级 restore = 单一宿主命令，但内部
+ * 编排（停 runtime → 原目录快照 → 目录替换 → 重新装配 → 报告）由
+ * createHost 注入的 deps.restore 执行（先停引擎/在途 run/存储写通道，换库
+ * 后才重装，规避 Windows 整目录替换覆盖已打开 sqlite 的 rename EPERM）；
+ * 本层只在确认标记后持命令闸（deps.gate），执行期间并发 bridge 请求被拒。
  */
 
 import { mkdirSync } from 'node:fs';
 import { join } from 'node:path';
 
 import { BridgeError, type BridgeHandler } from './_types.js';
-import type { HostBridgeDeps } from './_types.js';
+import type { BackupRestoreRequest, HostBridgeDeps } from './_types.js';
 import {
-  applyRestore,
   exportDataDir,
   readBackupFile,
-  snapshotDataDir,
 } from '../backup/snapshot.js';
 
 /** backup.restore 固定确认标记（危险操作 fail-closed：无标记即拒绝）。 */
@@ -101,9 +101,12 @@ export function buildBackupHandlers(deps: HostBridgeDeps): ReadonlyMap<string, B
     };
   };
 
-  /** 恢复替换（confirm 标记必须精确；恢复前留当前目录快照）。 */
+  /**
+   * 恢复替换（confirm 标记必须精确；确认后先持命令闸，编排由 deps.restore
+   * 完成——停 runtime → 原目录快照 → 目录替换 → 重新装配）。
+   */
   const restore: BridgeHandler = async (raw): Promise<unknown> => {
-    const dataDir = dataDirOrThrow(deps);
+    dataDirOrThrow(deps);
     const params = raw as { path?: unknown; confirm?: unknown } | null;
     if (typeof params !== 'object' || params === null) {
       throw new BridgeError('backup.restore 需 params（含 path + confirm）', 'invalid_params');
@@ -115,44 +118,50 @@ export function buildBackupHandlers(deps: HostBridgeDeps): ReadonlyMap<string, B
       );
     }
     const path = requirePath(raw, 'backup.restore');
-    let parsed;
-    try {
-      parsed = await readBackupFile(path);
-    } catch (error) {
-      throw new BridgeError(
-        `backup.restore 解析失败: ${error instanceof Error ? error.message : String(error)}`,
-        'invalid_backup',
-      );
+    if (deps.restore === undefined) {
+      throw new BridgeError('backup.restore 编排未装配（createHost 注入）', 'runtime_unavailable');
     }
-    let snapshot: string;
+    const gate = deps.gate ?? null;
+    if (gate !== null) gate.begin('backup.restore');
     try {
-      snapshot = await snapshotDataDir(dataDir);
-    } catch (error) {
-      throw new BridgeError(
-        `backup.restore 原目录快照失败（快照目录: ${join(dataDir, 'snapshots')}）: ${error instanceof Error ? error.message : String(error)}`,
-        'backup_failed',
-      );
-    }
-    try {
-      const outcome = await applyRestore(dataDir, parsed.entries, {
-        rollback_snapshot: snapshot,
-      });
+      let parsed;
+      try {
+        parsed = await readBackupFile(path);
+      } catch (error) {
+        throw new BridgeError(
+          `backup.restore 解析失败: ${error instanceof Error ? error.message : String(error)}`,
+          'invalid_backup',
+        );
+      }
+      const request: BackupRestoreRequest = {
+        path,
+        entries: parsed.entries,
+        total: parsed.total,
+        created_at: parsed.manifest?.created_at ?? null,
+      };
+      let outcome;
+      try {
+        outcome = await deps.restore(request);
+      } catch (error) {
+        if (error instanceof BridgeError) throw error;
+        throw new BridgeError(
+          `backup.restore 失败: ${error instanceof Error ? error.message : String(error)}`,
+          'backup_failed',
+        );
+      }
       const hasDb = parsed.entries.some((entry) => /\.sqlite/i.test(entry.path));
       return {
-        restored_entries: outcome.restored.length,
-        failed: outcome.failed.length,
-        total_size: parsed.total,
+        restored_entries: outcome.restored_entries,
+        failed: outcome.failed,
+        total_size: request.total,
         has_db: hasDb,
         created_at: parsed.manifest?.created_at ?? null,
-        snapshot,
+        snapshot: outcome.snapshot,
         restore_from: path,
+        rollback_note: outcome.rollback_note ?? null,
       };
-    } catch (error) {
-      const detail = error instanceof Error ? error.message : String(error);
-      const snapshotNote = detail.includes('快照保留在') || detail.includes('快照')
-        ? ''
-        : `（快照保留在: ${snapshot}）`;
-      throw new BridgeError(`backup.restore 失败: ${detail}${snapshotNote}`, 'backup_failed');
+    } finally {
+      if (gate !== null) gate.end();
     }
   };
 

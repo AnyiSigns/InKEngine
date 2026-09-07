@@ -4,7 +4,8 @@
  * 预览包内容、恢复替换（restore 前先留当前目录快照）。
  *
  * 一致性取舍：引擎 sqlite/检索库可能正被进程持有（Windows 共享锁下读取
- * 兼容——Node 读取使用共享读，写入期窗口仍可能碰锁，见 restore）；导出 =
+ * 兼容——Node 读取使用共享读）；替换期的锁冲突由调用方消除：backup.restore
+ * 编排（restore_runtime.ts）先停 runtime/存储写通道再整目录替换。导出 =
  * 目录树只读收集 + 单 zip 落盘。事件 JSONL / 附件 / 检索文档均在目录树内
  * 一并入包（真「data_dir 快照」）；backups/snapshots 两个目录不入包
  * （它们是快照产物，非源数据，防嵌套膨胀）。manifest.json 为首条目：

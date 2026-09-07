@@ -1,11 +1,10 @@
 /**
- * Runtime 在途 run 登记 + 审批决议重入样板（runtime.py 移植）。
+ * Runtime 在途 run 登记 + 审批决议辅助（runtime.py 移植）。
  *
  * 在途 run 登记表 + 排空信号（stop 据此等待自然完成）；abort_current_run
  * 以「当前 run」为粒度（多任务并发路由主机自行管理各自任务的取消）。
- * resume_run = 审批决议重入样板：挂起卡 → checkpoint 锚点 → ainvoke
- * (resume_from, inject) 下沉（决议形态由宿主构造与校验，本方法只负责
- * 重入执行本身）。
+ * 审批决议重入实现在回合层（_runtime_rounds.resume_run：按 checkpoint 关联
+ * 图重建本轮引擎再注入决议），本层只提供决议事件留痕与收尾调参辅助。
  *
  * TS seam 差异：Python asyncio 任务取消（CancelledError 穿透引擎、节点
  * 不归异常重试路径）无 JS Promise 对应——_active_run_task 为宿主取消
@@ -14,7 +13,6 @@
 
 import { TerminateReason } from '../graph/graph_types.js';
 import { CheckpointRecord } from '../storage/storage_records.js';
-import type { EngineTransport } from '../events/events.js';
 import { MetaTuner } from '../tuning/index.js';
 import { RuntimeState } from './_types.js';
 import { _uuid_hex } from './_runtime_base.js';
@@ -116,52 +114,6 @@ export abstract class RuntimeRunControl extends RuntimeStateMachine {
       );
     } catch {
       // 中止快照写入失败（不影响中止本身）
-    }
-  }
-
-  /** 审批决议重入：挂起卡 → 决议注入 → 续跑。无挂起卡或卡已失效显式报错。 */
-  async resume_run(
-    thread_id: string,
-    decision: Record<string, unknown>,
-    options: { round_id?: string | null; transports?: EngineTransport[] | null } = {},
-  ): Promise<unknown> {
-    if (this.engine === null || this.storage === null) {
-      throw new Error('运行时未装配或引擎未重建（无法决议重入）');
-    }
-    const interrupt = await this.engine.get_latest_interrupt(thread_id);
-    if (interrupt === null) {
-      throw new Error('该会话无挂起审批卡');
-    }
-    const latest = await this.storage.get_latest_checkpoint(thread_id);
-    if (latest === null || latest.interrupt === null) {
-      throw new Error('挂起卡已失效，请重新发起回合');
-    }
-    const ticket = this.begin_run(thread_id);
-    // 决议事件入账本候选（用户显式 accept/edit/reject = 确认类事实；回合
-    // 收尾经账本 settle 并入事实事件集，供记忆抽取确认类条目）
-    this._record_review_decision(thread_id, interrupt.key, decision);
-    let result: unknown = null;
-    let completed = false;
-    try {
-      result = await this.engine.ainvoke(
-        {},
-        {
-          thread_id,
-          round_id: options.round_id ?? null,
-          resume_from: latest.checkpoint_id,
-          inject: { [interrupt.key]: decision },
-          transports: options.transports ?? null,
-        },
-      );
-      completed = true;
-      return result;
-    } finally {
-      this.end_run(ticket);
-      if (!completed) {
-        // 引擎抛错 = settle 链未触发：补记失败回合信号（正常完成 = 引擎已
-        // 注入回合指标 + 收尾调参 settle 钩子处理，此处不再重复）
-        this._tune_round_end(null);
-      }
     }
   }
 

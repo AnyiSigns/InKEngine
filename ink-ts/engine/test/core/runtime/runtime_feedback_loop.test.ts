@@ -100,7 +100,6 @@ function roundRecipe(overrides: Partial<AssemblyRecipe> = {}): AssemblyRecipe {
       self_operation_of: (spec) => operation_of(spec),
     },
     approval_levels: {},
-    graph_recipe: null,
     emit_timeline_events: true,
   });
   return Object.assign(base, overrides);

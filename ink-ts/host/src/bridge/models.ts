@@ -7,8 +7,9 @@
  * - reload：从 data_dir/config.json 重读 → apply → 引擎重建（外部/冷启态
  *   再装配语义，运行中生效）。
  *
- * 引擎重建：Runtime.rebuild_engine 缓存键含模型实例身份（is 比较），host
- * 关停 _llm 后重解析即换新链；失败以 BridgeError 显式报（不静默沿用旧模型）。
+ * 引擎重建：Runtime.rebuild_engine 刷新已解析宿主 LLM 链（is 比较换链时显式
+ * 关闭旧链），host 关停 _llm 后重解析即换新链；失败以 BridgeError 显式报
+ * （不静默沿用旧模型）。
  */
 
 import { HostConfigError } from '../config.js';

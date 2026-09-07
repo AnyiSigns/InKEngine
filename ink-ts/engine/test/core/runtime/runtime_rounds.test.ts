@@ -1,7 +1,7 @@
 /**
  * run 级组装回合（A2）端到端单测（memory 存储，无默认图）。
  *
- * - boot 不再要求 graph_recipe（引擎机制态无图）；
+ * - boot 不再要求任何静态图（引擎无常驻静态引擎；回合=组装）；
  * - assemble_round：input/域 → 组装 → 本轮 Engine 执行（事件含组装时间线）；
  * - checkpoint 随 state 落本轮图定义（_round_graph）+ graph_version（digest
  *   自洽）；resume_round/branch 按 checkpoint 关联图重建；
@@ -70,8 +70,8 @@ function toHost(host: FakeHost): Host {
   return host as unknown as Host;
 }
 
-/** 无默认图配方（graph_recipe 缺省 null；pool seed 出厂默认）。 */
-function _no_graph_recipe(overrides: Partial<AssemblyRecipe> = {}): AssemblyRecipe {
+/** 无静态图配方（pool seed 出厂默认；回合走组装）。 */
+function _round_recipe(overrides: Partial<AssemblyRecipe> = {}): AssemblyRecipe {
   const base = new AssemblyRecipe({
     set_id: 'a2-rounds',
     seeds: [['boot', boot_seed_entries]],
@@ -86,7 +86,6 @@ function _no_graph_recipe(overrides: Partial<AssemblyRecipe> = {}): AssemblyReci
       self_operation_of: (spec) => operation_of(spec),
     },
     approval_levels: {},
-    graph_recipe: null,
     emit_timeline_events: true,
   });
   return Object.assign(base, overrides);
@@ -111,8 +110,8 @@ describe('run 级组装回合（无默认图）', () => {
   });
 
   it('无默认图 boot 成功；assemble_round 冷启动回合出 stub 回复 + 组装/执行事件', async () => {
-    const runtime = await new Runtime().boot(toHost(new FakeHost()), _no_graph_recipe());
-    expect(runtime.engine).toBeNull();
+    const runtime = await new Runtime().boot(toHost(new FakeHost()), _round_recipe());
+    expect(runtime.engine_llm).toBeNull(); // 无常驻静态引擎（B3 常态）
     const events = new CollectorTransport();
     const result = (await runtime.assemble_round({
       state: { input: '冷启动' },
@@ -140,7 +139,7 @@ describe('run 级组装回合（无默认图）', () => {
   });
 
   it('checkpoint 落本轮图定义（_round_graph）且 graph_version 为其 digest', async () => {
-    const runtime = await new Runtime().boot(toHost(new FakeHost()), _no_graph_recipe());
+    const runtime = await new Runtime().boot(toHost(new FakeHost()), _round_recipe());
     await runtime.assemble_round({ state: { input: '图落库' }, thread_id: 't-cp', round_id: 'r1' });
     const latest = await runtime.storage!.get_latest_checkpoint('t-cp');
     expect(latest).not.toBeNull();
@@ -155,7 +154,7 @@ describe('run 级组装回合（无默认图）', () => {
   });
 
   it('branch/resume_round 按锚点 checkpoint 关联图重建（重放历史图，链叶续接）', async () => {
-    const runtime = await new Runtime().boot(toHost(new FakeHost()), _no_graph_recipe());
+    const runtime = await new Runtime().boot(toHost(new FakeHost()), _round_recipe());
     const first = (await runtime.assemble_round({
       state: { input: '第一轮' },
       thread_id: 't-br',
@@ -184,7 +183,7 @@ describe('run 级组装回合（无默认图）', () => {
   });
 
   it('abort 后 CANCELLED 快照保留图定义；resume_round 可续跑', async () => {
-    const runtime = await new Runtime().boot(toHost(new FakeHost()), _no_graph_recipe());
+    const runtime = await new Runtime().boot(toHost(new FakeHost()), _round_recipe());
     await runtime.assemble_round({ state: { input: '先跑一轮' }, thread_id: 't-ab', round_id: 'r1' });
     const before = await runtime.storage!.get_latest_checkpoint('t-ab');
     expect(before).not.toBeNull();

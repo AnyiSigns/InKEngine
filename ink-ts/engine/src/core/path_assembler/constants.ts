@@ -52,6 +52,9 @@ export const CANDIDATE_SOURCE_DRAFT = 'draft';
 export const CANDIDATE_SOURCE_CACHE = 'cache';
 /** 技能先例源（知识集 kind=path 条目注入的候选链）。 */
 export const CANDIDATE_SOURCE_SKILL = 'skill';
+/** 技能先例跨域回落源（请求域精确匹配无命中 → general 域条目的候选链；
+ *  与域内技能先例 skill 源区分，供候选来源标记识别跨域先验）。 */
+export const CANDIDATE_SOURCE_SKILL_FALLBACK = 'skill_fallback';
 /** 冷启动 base 图源（引擎内置池种子的域 base 图模板；无其它候选时的稳定产出）。 */
 export const CANDIDATE_SOURCE_BASE = 'base';
 

@@ -1,22 +1,24 @@
 /**
- * A2-1 补充决策端到端专测：组装路径工具触发审批挂起 → interrupt 卡 →
- * resume(accept) 按 checkpoint 关联图重建续跑，已执行工具不重复执行。
+ * gate: 超限(407 行) - B1 审批装配配置端到端专测 + DENY/autoApprove 回归同文件
+ * B1 决策端到端专测：工具经装配配置转审批挂卡 → interrupt 卡 → resume(accept)
+ * 按 checkpoint 关联图重建续跑，已执行工具不重复执行。
  *
  * 走 assemble_round（组装出的数据图 llm_decider 自含工具回合），确定性 stub
- * LLM 先产含工具调用的回合再产收口回合：demo_safe 门禁直过先执行；demo_review
- * 被测试 seam 的 gate 路由 review → 挂 gate 卡中断；resume_run(accept) 按中断
- * checkpoint 的 _round_graph 重建本轮引擎续跑，stub 依消息链只重发未回执的
- * demo_review（demo_safe 结果已在链内 → 不重发 = 不重复执行）。
+ * LLM 先产含工具调用的回合再产收口回合：demo_safe 权限命中直过先执行；
+ * demo_review 经装配 tool_gate.review_tools 路由 review → 挂 gate 卡中断；
+ * resume_run(accept) 按中断 checkpoint 的 _round_graph 重建本轮引擎续跑，
+ * stub 依消息链只重发未回执的 demo_review（demo_safe 结果已在链内 → 不重发
+ * = 不重复执行）。
  *
  * 断言：① 挂起卡 + checkpoint 落 _round_graph（graph_version=关联图 digest）；
  * ② resume 走 _engine_for_checkpoint 图重建（spy + digest 自洽 + 链叶同图）；
  * ③ 已执行工具不重复（执行序/消息链唯一回执/tool_audit 各一次）；④ 收口 reply。
  *
- * 审批路由 seam：组装路径当前把统一工具流水线 gate 硬编码为默认 PermissionGate
- * （DENY 兜底无 review 档），无「工具转审批」产品配置入口。本测 boot 后替换
- * runtime.tool_pipeline 实例（gate 路由 demo_review→review、executor 副作用计数），
- * demo 工具规格经配方 self_specs 注入；机制环节（中断原语/checkpoint/恢复重建/
- * 注入消费）全走产品代码，不改产品语义。
+ * 审批路由 = 装配配置（B1 注入点）：demo 工具规格经配方 self_specs 注入（含
+ * 声明式权限 demo:apply:*）；review 分级经配方 tool_gate.review_tools 声明；
+ * 执行体为配方 self_executor_factory seam（demo 名计数直出，契约工具回落
+ * make_self_executor）——不再做运行时 tool_pipeline 实例替换。机制环节
+ * （门禁/中断原语/checkpoint/恢复重建/注入消费）全走产品代码。
  */
 
 import { afterEach, describe, expect, it } from 'vitest';
@@ -31,9 +33,8 @@ import { HarnessDefinition } from '../../../src/core/harness/index.js';
 import { EventTypeSpec } from '../../../src/core/event_types/eventTypeSpec.js';
 import { KnowledgeEntry, KIND_RULE } from '../../../src/core/knowledge_set/index.js';
 import { ToolSpec } from '../../../src/core/llm/tools.js';
-import { ToolPipeline } from '../../../src/core/tool_pipeline/tool_pipeline.js';
 import { Graph } from '../../../src/core/graph/graph.js';
-import { GateResult, ALLOW, DENY, REVIEW } from '../../../src/core/permissions/permissions.js';
+import { ToolGateConfig } from '../../../src/core/permissions/permissions.js';
 import { ToolCallDelta, type Message } from '../../../src/core/llm/messages.js';
 import type { AsyncLLM, LLMChunk } from '../../../src/core/llm/_guard_types.js';
 import {
@@ -45,12 +46,17 @@ import type { SelfToolContext } from '../../../src/core/self_tools/index.js';
 import { ROUND_GRAPH_STATE_KEY } from '../../../src/core/runtime/_runtime_rounds.js';
 import { MemoryStorage } from '../executor/helpers.js';
 
-/** 门禁直过工具（先执行；结果回执入链后不重复执行）。 */
+/** 门禁直过工具（权限命中；先执行，结果回执入链后不重复执行）。 */
 const TOOL_SAFE = 'demo_safe';
-/** 审批工具（测试 gate 路由 review → 挂卡 interrupt）。 */
+/** 审批工具（配方 tool_gate.review_tools 路由 review → 挂卡 interrupt）。 */
 const TOOL_REVIEW = 'demo_review';
+/** 未声明权限工具（缺省 DENY 回归用）。 */
+const TOOL_DENY = 'demo_deny';
 /** 收口回复（resume 后消息链全回执，模型产出最终回复）。 */
 const FINAL_REPLY = '#审批通过收口';
+/** demo 工具声明式权限：统一流水线 operation_of 判定 demo 名为
+ *  (apply, patch)——权限命中（review 分级只对命中工具生效）。 */
+const DEMO_PERMISSION = 'demo:apply:*';
 
 function boot_seed_entries(): KnowledgeEntry[] {
   return [
@@ -91,9 +97,19 @@ function toHost(host: FakeHost): Host {
   return host as unknown as Host;
 }
 
-/** 无默认图配方（graph_recipe=null）；demo 工具经 self_specs 注入
- *  （boot 打 immutable 标签 → collect_specs 常驻注入表）。 */
-function recipe(overrides: Partial<AssemblyRecipe> = {}): AssemblyRecipe {
+/** 无静态图配方；demo 工具经 self_specs 注入（带声明式权限 demo:apply:*），
+ *  review 分级经 tool_gate.review_tools 声明；执行体 = 配方 self_executor_factory
+ *  seam（demo 名计数直出，契约工具回落 make_self_executor）——装配配置即可达，
+ *  无运行时 tool_pipeline 实例替换。
+ *
+ * @param executed demo 工具副作用计数（每次实际执行入列一次）。
+ * @param options.review 是否装配 tool_gate 路由 demo_review → review。
+ * @param options.deny_probe 是否注入无权限 demo 工具（DENY 缺省回归探针）。
+ */
+function approvalRecipe(
+  executed: string[],
+  options: { review?: boolean; deny_probe?: boolean } = {},
+): AssemblyRecipe {
   const base = new AssemblyRecipe({
     set_id: 'a2-approval-round',
     seeds: [['boot', boot_seed_entries]],
@@ -104,42 +120,46 @@ function recipe(overrides: Partial<AssemblyRecipe> = {}): AssemblyRecipe {
     tool_wiring: {
       self_specs: () => [
         ...self_tool_specs(),
-        new ToolSpec({ name: TOOL_SAFE, description: '安全直过演示工具（先执行）' }),
-        new ToolSpec({ name: TOOL_REVIEW, description: '审批演示工具（挂卡后执行）' }),
+        new ToolSpec({
+          name: TOOL_SAFE,
+          description: '安全直过演示工具（先执行）',
+          permissions: [DEMO_PERMISSION],
+        }),
+        new ToolSpec({
+          name: TOOL_REVIEW,
+          description: '审批演示工具（挂卡后执行）',
+          permissions: [DEMO_PERMISSION],
+        }),
+        ...(options.deny_probe === true
+          ? [new ToolSpec({ name: TOOL_DENY, description: '无权限工具（DENY 缺省回归）' })]
+          : []),
       ],
-      self_executor_factory: (pipeline, context_getter) =>
-        make_self_executor(pipeline, context_getter as unknown as () => SelfToolContext),
+      self_executor_factory: (pipeline, context_getter) => {
+        const contract = make_self_executor(
+          pipeline,
+          context_getter as unknown as () => SelfToolContext,
+        );
+        return async (
+          ctx: unknown,
+          spec: ToolSpec,
+          args: Record<string, unknown>,
+          approval: unknown,
+        ): Promise<string> => {
+          if (spec.name === TOOL_SAFE || spec.name === TOOL_REVIEW) {
+            executed.push(spec.name);
+            return `exec:${spec.name}:${String(args['target'] ?? '')}`;
+          }
+          return contract(ctx as never, spec, args, approval);
+        };
+      },
       self_operation_of: (spec) => operation_of(spec),
     },
+    tool_gate:
+      options.review === true ? new ToolGateConfig({ review_tools: [TOOL_REVIEW] }) : null,
     approval_levels: {},
-    graph_recipe: null,
     emit_timeline_events: true,
   });
-  return Object.assign(base, overrides);
-}
-
-/** 审批路由运行时 seam：boot 后替换统一工具流水线实例（gate 路由 review +
- *  executor 副作用计数）；approval/interrupt 机制仍走产品 ToolPipeline。 */
-function install_approval_pipeline(runtime: Runtime, executed: string[]): void {
-  const pipeline = new ToolPipeline({
-    gate: {
-      check: (tool: string, operation: string, target: string) => {
-        if (tool === TOOL_SAFE) return new GateResult(ALLOW, tool, operation, target, '');
-        if (tool === TOOL_REVIEW) {
-          return new GateResult(REVIEW, tool, operation, target, '测试路由：转审批');
-        }
-        return new GateResult(DENY, tool, operation, target, '测试：未授权工具');
-      },
-    },
-    extractor: () => ['write', 'test'],
-    executor: async (_ctx, spec, args) => {
-      executed.push(spec.name);
-      return `exec:${spec.name}:${String(args['target'] ?? '')}`;
-    },
-    approval_policy: new DefaultInterruptPolicy(),
-  });
-  const rt = runtime as unknown as { tool_pipeline: ToolPipeline };
-  rt.tool_pipeline = pipeline;
+  return base;
 }
 
 /** 消息链中未回执的 assistant 工具调用（按 tool_call_id 配对后续 tool 消息）。
@@ -232,7 +252,7 @@ function graphFromState(
   return { graph, digest: graph.digest() };
 }
 
-describe('组装路径审批中断重入同图（A2-1）', () => {
+describe('B1 工具经装配配置转审批挂卡重入同图', () => {
   afterEach(() => {
     set_default_assembly_runtime(null);
   });
@@ -241,9 +261,12 @@ describe('组装路径审批中断重入同图（A2-1）', () => {
     const host = new FakeHost();
     const stub = new ApprovingLLM();
     host.llm = stub;
-    const runtime = await new Runtime().boot(toHost(host), recipe());
     const executed: string[] = [];
-    install_approval_pipeline(runtime, executed);
+    // 审批路由 = 装配配置：tool_gate.review_tools 声明 demo_review 转 review
+    const runtime = await new Runtime().boot(
+      toHost(host),
+      approvalRecipe(executed, { review: true }),
+    );
     // resume 图重建 spy：resume_run 应走 _engine_for_checkpoint（按关联图重建）
     const runtimeAny = runtime as unknown as {
       _engine_for_checkpoint: (
@@ -329,6 +352,56 @@ describe('组装路径审批中断重入同图（A2-1）', () => {
     expect(leaf!.state[ROUND_GRAPH_STATE_KEY]).toEqual(hungGraph);
     expect(graphFromState(runtime, leaf!.state).digest).toBe(leaf!.graph_version);
     expect(leaf!.parent_id).not.toBeNull();
+    await runtime.stop();
+  });
+
+  it('autoApprove 路径回归：review 分级的工具命中宿主直过名单 → 不挂卡直接执行', async () => {
+    const host = new FakeHost();
+    host.policy = new DefaultInterruptPolicy(new Set<string>(), new Set<string>([TOOL_REVIEW]));
+    const stub = new ApprovingLLM();
+    host.llm = stub;
+    const executed: string[] = [];
+    const runtime = await new Runtime().boot(
+      toHost(host),
+      approvalRecipe(executed, { review: true }),
+    );
+    const events = new CollectorTransport();
+    const result = (await runtime.assemble_round({
+      state: { input: 'autoApprove 直过路径' },
+      thread_id: 't-auto',
+      round_id: 'r1',
+      llm: stub,
+      transports: [events],
+    })) as RunResult;
+    expect(result.reason).toBe('reply');
+    expect(result.interrupt).toBeNull();
+    expect(executed).toEqual([TOOL_SAFE, TOOL_REVIEW]);
+    // auto 决议直过：执行结果带【已自动批准执行】前缀（可观测区分）
+    const messages = (result.state['messages'] ?? []) as Array<{ content: string }>;
+    expect(messages.some((m) => m.content.includes('【已自动批准执行】exec:demo_review:'))).toBe(
+      true,
+    );
+    await runtime.stop();
+  });
+
+  it('DENY 缺省回归：未装配 review 分级时无权限工具拒绝（fail-closed）', async () => {
+    const host = new FakeHost();
+    const executed: string[] = [];
+    const runtime = await new Runtime().boot(
+      toHost(host),
+      approvalRecipe(executed, { deny_probe: true }),
+    );
+    const spec = runtime.self_specs.find((s) => s.name === TOOL_DENY)!;
+    const stubCtx = {
+      state: {},
+      emit: async () => undefined,
+      interrupt: async () => ({ decision: 'reject' }),
+      get_interrupt_payload: async () => null,
+    };
+    const result = await runtime.tool_pipeline!.execute(stubCtx as never, spec, {});
+    expect(result.ok).toBe(false);
+    expect(result.error).toContain('未声明权限或权限未命中');
+    expect(executed).toEqual([]); // 未触达执行体
     await runtime.stop();
   });
 });

@@ -2,15 +2,16 @@
  * 能力设置存储（host 本地持久化；capability.json）。
  *
  * 能力记录承载自动审批预授权字段（auto_approve_tools 工具级直过名单 /
- * auto_approve_all_review 全量直过）与 max_tool_rounds（声明的工具回合上限
- * 装配位）。推演档位（simulation_tier）语义已移除：不设推演档位，推演直接
+ * auto_approve_all_review 全量直过）与 max_tool_rounds（工具回合上限声明，
+ * rounds.send 活读 → 引擎组装图 llm_decider config 运行值）。推演档位
+ * （simulation_tier）语义已移除：不设推演档位，推演直接
  * 开启；历史记录残留的档位键在读取时丢弃（不随 passthrough 回显）。
  *
  * auto_approve_* 供审批策略接线（host.interrupt_policy 构造时并入）；策略
  * 实例为活读面——每次 should_approve 取当前记录，capability.put 后下个请求
- * 即生效。max_tool_rounds 为 host 侧声明装配位：宿主不再产静态图（回合 =
- * 组装），回合内工具回合上限的真实消费点在引擎 llm_decider 节点 config
- * （池种子/登记数据携带，见 CODING §10），本字段只作存档与回显。
+ * 即生效。max_tool_rounds 为工具回合上限声明：rounds.send 每次活读本字段随
+ * 回合传引擎（无记录 = 引擎缺省 8），引擎组装回合把值写入 llm_decider 节点
+ * config 生效——恢复/分支按 checkpoint 关联图续跑保留原执行时 config。
  *
  * 语义对齐壳侧能力命令：记录是「整体存储」——get 只读 + 缺省字段注入，
  * put 先读既有记录再并入（单字段写不覆盖其它字段），字段白名单校验失败
@@ -44,6 +45,8 @@ export interface CapabilityStore {
   get(): CapabilityRecord;
   /** 合并写入（单字段语义：先读既有记录再并入；返回合并后记录）。 */
   put(patch: Record<string, unknown>): CapabilityRecord;
+  /** 从磁盘重读缓存（data_dir 目录恢复后刷新为恢复态记录）。 */
+  reload(): void;
 }
 
 export class CapabilityError extends Error {
@@ -113,6 +116,9 @@ export function createCapabilityStore(dataDir: string): CapabilityStore {
       const record = parseRecord(merged);
       cached = persist(record);
       return cached;
+    },
+    reload: (): void => {
+      cached = read();
     },
   };
 }

@@ -1,7 +1,6 @@
 /**
  * 运行时机壳数据契约（runtime.py 移植）：Host 嵌入契约五件套 + 装配配方
- * 数据形态（AssemblyRecipe/GraphRecipeContext/ToolWiring）+ 生命周期状态
- * 枚举 + 在途 run 登记凭证。
+ * 数据形态（AssemblyRecipe/ToolWiring）+ 生命周期状态枚举 + 在途 run 登记凭证。
  *
  * 装配数据与宿主产品解耦：配方字段只允许核心类型与鸭子协议（架构门禁
  * 白名单强制）——宿主类型进入配方 = 机制层开始认识宿主。
@@ -15,17 +14,15 @@ import type { HarnessDefinition } from '../harness/index.js';
 import type { EntitySpec } from '../entities/entities.js';
 import type { EnvironmentSpec } from '../environments/spec.js';
 import type { EventTypeSpec } from '../event_types/eventTypeSpec.js';
-import type { Graph } from '../graph/graph.js';
 import type { KnowledgeEntry } from '../knowledge_set/index.js';
 import type { EnginePoolSeed } from '../nodes/index.js';
 import type { AsyncLLM } from '../llm/_guard_types.js';
 import type { ToolSpec } from '../llm/tools.js';
-import type { GraphRegistries } from '../registry/registry.js';
+import type { ToolGateConfig } from '../permissions/permissions.js';
 import type { NodeFactory } from '../registry/registry_types.js';
 import type { Storage } from '../storage/storage.js';
 import type { SelfApplicationPipeline } from '../self_application/index.js';
 import type { ConvergenceHook, SelfToolContext } from '../self_tools/index.js';
-import type { ToolPipeline } from '../tool_pipeline/tool_pipeline.js';
 import type { AssemblySourcesProvider } from '../run_result/run_result.js';
 import { DEFAULT_BIND_CHANNELS } from '../ui_schema/uiSchemaSupport.js';
 
@@ -63,20 +60,6 @@ export class RunTicket {
   constructor(id: string) {
     this.id = id;
   }
-}
-
-/** 图配方的装配期上下文（Runtime 已装配组件注入，宿主配方按需取用）。 */
-export interface GraphRecipeContext {
-  llm: AsyncLLM | null;
-  tool_pipeline: ToolPipeline | null;
-  tool_specs: readonly ToolSpec[];
-  all_tool_specs: readonly ToolSpec[];
-  collect_specs: ((thread_id?: string | null) => ToolSpec[]) | null;
-  storage: Storage | null;
-  registries: GraphRegistries | null;
-  system_events: ReadonlySet<string>;
-  assembly: AssemblyConfig | null;
-  assembly_sources: AssemblySourcesProvider | null;
 }
 
 /**
@@ -125,9 +108,11 @@ export interface AssemblyRecipeInit {
   tool_wiring?: ToolWiring | null;
   vetting_l2_hook?: unknown;
   approval_levels?: Record<string, unknown>;
+  /** 统一工具流水线权限门禁装配数据（null = 引擎默认 DENY 兜底、无 review
+   *  档——现行为不变；review_tools = 某工具命中权限仍转审批挂卡）。 */
+  tool_gate?: ToolGateConfig | null;
   retrieval_sources?: readonly ((runtime: unknown) => unknown)[];
   apply_targets?: Record<string, (runtime: unknown) => unknown>;
-  graph_recipe?: ((ctx: GraphRecipeContext) => Graph) | null;
   /** 引擎内置基础节点池种子（null = 出厂默认池种子；显式空启停数据见
    *  EnginePoolSeed.enabled——覆写走数据不进代码）。 */
   pool_seed?: EnginePoolSeed | null;
@@ -192,9 +177,9 @@ export class AssemblyRecipe {
   tool_wiring: ToolWiring | null = null;
   vetting_l2_hook: unknown = null;
   approval_levels: Record<string, unknown> = {};
+  tool_gate: ToolGateConfig | null = null;
   retrieval_sources: Array<(runtime: unknown) => unknown> = [];
   apply_targets: Record<string, (runtime: unknown) => unknown> = {};
-  graph_recipe: ((ctx: GraphRecipeContext) => Graph) | null = null;
   pool_seed: EnginePoolSeed | null = null;
   node_executors: Record<string, NodeFactory> | null = null;
   on_reverted: ((patch_id: number, reason: string) => unknown) | null = null;
@@ -244,11 +229,11 @@ export class AssemblyRecipe {
     if (init.approval_levels !== undefined) {
       this.approval_levels = { ...init.approval_levels };
     }
+    if (init.tool_gate !== undefined) this.tool_gate = init.tool_gate;
     if (init.retrieval_sources !== undefined) {
       this.retrieval_sources = [...init.retrieval_sources];
     }
     if (init.apply_targets !== undefined) this.apply_targets = { ...init.apply_targets };
-    if (init.graph_recipe !== undefined) this.graph_recipe = init.graph_recipe;
     if (init.pool_seed !== undefined) this.pool_seed = init.pool_seed;
     if (init.node_executors !== undefined) this.node_executors = init.node_executors;
     if (init.on_reverted !== undefined) this.on_reverted = init.on_reverted;

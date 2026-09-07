@@ -3,11 +3,13 @@
  */
 
 import { describe, expect, it } from 'vitest';
+import { ToolGateConfig } from '@ink-ts/engine';
 
 import {
   PRODUCT_SWITCH_DEFAULTS,
   assert_product_switches_all_on,
   build_product_recipe,
+  merge_capability_tier_gate,
 } from '../src/recipe.js';
 
 describe('产品配方默认表（机制开关全开）', () => {
@@ -25,7 +27,7 @@ describe('产品配方默认表（机制开关全开）', () => {
     expect(PRODUCT_SWITCH_DEFAULTS.emit_timeline_events).toBe(true);
   });
 
-  it('build_product_recipe：boot 种子直接引用 engine；不产任何图配方（graph_recipe 缺省 null）', () => {
+  it('build_product_recipe：boot 种子直接引用 engine；不产任何图', () => {
     const recipe = build_product_recipe();
     expect(recipe.set_id).toBe('default');
     expect(recipe.seeds.length).toBe(1);
@@ -33,8 +35,7 @@ describe('产品配方默认表（机制开关全开）', () => {
     expect(recipe.harness_definitions.length).toBeGreaterThan(0);
     expect(recipe.event_type_specs.length).toBeGreaterThan(0);
     expect(recipe.tool_wiring).not.toBeNull();
-    // 图 = 数据（池种子/组装产物）：配方不再产默认图/静态图
-    expect(recipe.graph_recipe).toBeNull();
+    // 图 = 数据（池种子/组装产物）：配方不存在任何静态图装配位（通道已删）
     // 十位开关逐位落入 AssemblyRecipe 机制开关字段 / run_options（引擎消费面）
     const flags = recipe as unknown as Record<string, boolean>;
     for (const name of [
@@ -82,5 +83,31 @@ describe('产品配方默认表（机制开关全开）', () => {
     expect(recipe.assembler_enabled).toBe(false);
     expect(recipe.settle_hooks_enabled).toBe(true);
     expect(recipe.pool_governance_enabled).toBe(true);
+  });
+
+  it('tool_gate 缺省 null（引擎默认 DENY 兜底）；显式装配透传入配方', () => {
+    expect(build_product_recipe().tool_gate).toBeNull();
+    const gate = new ToolGateConfig({ review_tools: ['shell_exec'] });
+    const recipe = build_product_recipe({ tool_gate: gate });
+    expect(recipe.tool_gate).toBe(gate);
+    expect([...recipe.tool_gate!.review_tools]).toEqual(['shell_exec']);
+  });
+
+  it('能力档位并入门禁：review 档工具并入 review_tools（allow 档无门禁动作）', () => {
+    const base = new ToolGateConfig({ review_tools: ['write_file'] });
+    const merged = merge_capability_tier_gate(base, {
+      write_file: 'allow',
+      shell_exec: 'review',
+      demo: 'allow',
+    });
+    expect(merged).not.toBeNull();
+    expect([...merged!.review_tools].sort()).toEqual(['shell_exec', 'write_file']);
+    // 无 review 档 = 原样返回（不新建）
+    expect(merge_capability_tier_gate(base, { write_file: 'allow' })).toBe(base);
+    expect([...merge_capability_tier_gate(null, { shell_exec: 'review' })!.review_tools]).toEqual(
+      ['shell_exec'],
+    );
+    expect(merge_capability_tier_gate(null, {})).toBeNull();
+    expect(merge_capability_tier_gate(null, null)).toBeNull();
   });
 });

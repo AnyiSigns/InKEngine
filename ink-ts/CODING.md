@@ -263,7 +263,7 @@ metrics_snapshot/assemble_stats/cache_stats/path_state/entities_snapshot）已�
   resume_round）。图架构全是数据：池结点类型/边先验（引擎内置池种子
   engine/src/core/nodes：llm_decider/tool_pipeline/terminal 等，注册进
   node_registry 并随池种子给数据）/组装产物/checkpoint 图定义。host 配方
-  （recipe.ts build_product_recipe）不产任何图配方（graph_recipe 恒 null，
+  （recipe.ts build_product_recipe）不产任何图（AssemblyRecipe 无图配方位，
   host/src/graph.ts 已删），CLI 亦不再有占位图/`--graph` 选图。
 - `max_tool_rounds` 消费点：引擎 llm_decider 节点 config 的 `max_tool_rounds`
   （工具回合上限；引擎池种子 default_config/登记数据携带，缺省常量
@@ -279,9 +279,10 @@ metrics_snapshot/assemble_stats/cache_stats/path_state/entities_snapshot）已�
 - 内省/架构读口数据源 = 最近回合组装图投影：引擎 `_build_graph_engine`（run 级
   组装/恢复/分支重建共用）每次把本轮组装图刷入 introspection 图源
   （`snapshot_graph`），host `graph.instance`/web architecture 随最近回合可见；
-  无任何回合 = 空图 degraded 空态，不报错不回归。host 桥 `tools.full`/
-  capability baseline/`approval.list` 以 runtime 装配态（storage 在位）判可用，
-  不再依赖静态 engine（approval.list 无静态引擎时直读 checkpoint interrupt）。
+   无任何回合 = 空图 degraded 空态，不报错不回归。host 桥 `tools.full`/
+  capability baseline/`approval.list` 以 runtime 装配态（storage 在位）判可用；
+  引擎无常驻静态引擎，`approval.list`/`rounds.todos` 直读 checkpoint interrupt
+  （链尾挂起卡 = 引擎链尾态）。
 - 审批策略活读面（host.ts `HostInterruptPolicy`）：autoApprove 显式 true = 全量直过；
   否则按能力记录并入 `auto_approve_all_review`（全量直过）/`auto_approve_tools`
   （工具命中直过）；其余 fail-closed。判定现取 capability 记录，put 后下个请求生效。

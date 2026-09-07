@@ -5,14 +5,16 @@
  * - 技能结晶 settle 链（指纹缓存达标 → 知识集 path 技能）；
  * - evolution 离线调度入口（失败率候选 → 变异 → 闸门防退化落库）。
  *
+ * 回合引擎形态（B3）：无常驻静态引擎——测试经数据图 + _build_graph_engine
+ * 构造本轮引擎（与组装路径同源装配：metrics/settle/观察传输）驱动机制链路。
+ *
  * 复现 runtime.test 的 boot 夹具（最小配方 + 假存储/宿主）。
  */
 
 import { describe, expect, it } from 'vitest';
 
-import { Graph } from '../../../src/core/graph/graph.js';
 import { DefaultInterruptPolicy } from '../../../src/core/approval/approval.js';
-import type { Host, GraphRecipeContext } from '../../../src/core/runtime/index.js';
+import type { Host } from '../../../src/core/runtime/index.js';
 import { AssemblyRecipe, Runtime } from '../../../src/core/runtime/index.js';
 import { ROUND_LEDGER_COLLECTION } from '../../../src/core/runtime/_settle.js';
 import {
@@ -24,6 +26,12 @@ import { TunableParams } from '../../../src/core/tuning/index.js';
 import { DEFAULT_NAMESPACE } from '../../../src/core/memory_extract/index.js';
 import { MemoryStorage } from '../executor/helpers.js';
 import type { EvolutionGate } from '../../../src/core/evolution/index.js';
+import type { NodeFactory } from '../../../src/core/registry/registry_types.js';
+import {
+  dataGraph,
+  registerNodeType,
+  runRoundEngine,
+} from './_round_graphs.js';
 
 /** 假 LLM（引擎重建/stop 关停路径可复用）。 */
 class ClosableLLM {
@@ -62,34 +70,45 @@ function toHost(host: FakeHost): Host {
   return host as unknown as Host;
 }
 
-function echoGraph(_ctx: GraphRecipeContext): Graph {
-  const agent = async (): Promise<Record<string, unknown>> => ({ reply: 'ok' });
-  const g = new Graph({ name: 'echo', entry: 'agent' });
-  g.add_node('agent', agent as never);
-  g.add_exit('agent');
-  return g;
+// ── 数据图测试节点（无常驻静态引擎：数据图按类型名装载执行）──────────────
+const T_ECHO = 'sl.echo';
+const T_FAIL = 'sl.fail';
+const T_GATE = 'sl.gate';
+
+function echo_factory(): NodeFactory {
+  return () => async (): Promise<Record<string, unknown>> => ({ reply: 'ok' });
 }
 
-function failingGraph(_ctx: GraphRecipeContext): Graph {
-  const boom = async (): Promise<never> => {
+function fail_factory(): NodeFactory {
+  return () => async (): Promise<never> => {
     throw new Error('节点失败');
   };
-  const g = new Graph({ name: 'fail', entry: 'boom' });
-  g.add_node('boom', boom as never);
-  g.add_exit('boom');
-  return g;
 }
 
-function gateGraph(_ctx: GraphRecipeContext): Graph {
-  const agent = async (ctx: unknown): Promise<Record<string, unknown>> => {
-    const anyCtx = ctx as { interrupt(key: string, payload: unknown): Promise<unknown> };
+function gate_factory(): NodeFactory {
+  return () => async (raw: unknown): Promise<Record<string, unknown>> => {
+    const anyCtx = raw as { interrupt(key: string, payload: unknown): Promise<unknown> };
     const decision = await anyCtx.interrupt('approval', { review_type: 'gate' });
     return { decision, done: true };
   };
-  const g = new Graph({ name: 'gate', entry: 'gate' });
-  g.add_node('gate', agent as never);
-  g.add_exit('gate');
-  return g;
+}
+
+function install_data_nodes(runtime: Runtime): void {
+  registerNodeType(runtime, T_ECHO, echo_factory());
+  registerNodeType(runtime, T_FAIL, fail_factory());
+  registerNodeType(runtime, T_GATE, gate_factory());
+}
+
+function echoGraphData(): Record<string, unknown> {
+  return dataGraph({ name: 'echo', entry: 'agent', nodes: [{ id: 'agent', type: T_ECHO }], exits: ['agent'] });
+}
+
+function failingGraphData(): Record<string, unknown> {
+  return dataGraph({ name: 'fail', entry: 'fail', nodes: [{ id: 'fail', type: T_FAIL }], exits: ['fail'] });
+}
+
+function gateGraphData(): Record<string, unknown> {
+  return dataGraph({ name: 'gate', entry: 'gate', nodes: [{ id: 'gate', type: T_GATE }], exits: ['gate'] });
 }
 
 function minimalRecipe(overrides: Partial<AssemblyRecipe> = {}): AssemblyRecipe {
@@ -106,7 +125,6 @@ function minimalRecipe(overrides: Partial<AssemblyRecipe> = {}): AssemblyRecipe 
       self_operation_of: () => ['read', '*'] as [string, string],
     },
     approval_levels: {},
-    graph_recipe: echoGraph,
   });
   return Object.assign(base, overrides);
 }
@@ -118,22 +136,20 @@ async function recordsOf(runtime: Runtime, collection: string): Promise<Record<s
 }
 
 describe('runtime 自学习族接线', () => {
-  it('回合指标注入：engine.options.metrics = runtime.turn_metrics', async () => {
+  it('回合指标注入：本轮引擎 options.metrics = runtime.turn_metrics', async () => {
     const runtime = await new Runtime().boot(toHost(new FakeHost()), minimalRecipe());
-    expect(runtime.engine!.options.metrics).toBe(runtime.turn_metrics);
+    install_data_nodes(runtime);
     expect(runtime.turn_metrics).not.toBeNull();
-    await runtime.engine!.ainvoke({ input: '回合A' }, { thread_id: 't-m', round_id: 'r1' });
+    await runRoundEngine(runtime, echoGraphData(), { input: '回合A' }, { thread_id: 't-m', round_id: 'r1' });
     expect(runtime.turn_metrics!.turns).toBe(1);
     expect(runtime.turn_metrics!.failure_rate).toBe(0);
     await runtime.stop();
   });
 
   it('普通回合收尾自动调参：失败回合指标聚合 → 参数回写知识集', async () => {
-    const runtime = await new Runtime().boot(
-      toHost(new FakeHost()),
-      minimalRecipe({ graph_recipe: failingGraph }),
-    );
-    await runtime.engine!.ainvoke({ input: '失败回合' }, { thread_id: 't-f', round_id: 'r1' });
+    const runtime = await new Runtime().boot(toHost(new FakeHost()), minimalRecipe());
+    install_data_nodes(runtime);
+    await runRoundEngine(runtime, failingGraphData(), { input: '失败回合' }, { thread_id: 't-f', round_id: 'r1' });
     expect(runtime.turn_metrics!.turns).toBe(1);
     expect(runtime.turn_metrics!.failures).toBe(1);
     const entry = runtime.knowledge_set!.get(GENERAL_WEIGHTS_SEED_ID);
@@ -146,9 +162,13 @@ describe('runtime 自学习族接线', () => {
 
   it('回合记忆抽取接线：intent/conclusion 落 memory 域（跨回合积累）', async () => {
     const runtime = await new Runtime().boot(toHost(new FakeHost()), minimalRecipe());
+    install_data_nodes(runtime);
     expect(runtime.memory_store).not.toBeNull();
-    await runtime.engine!.ainvoke({ input: '意图甲' }, { thread_id: 't-mem', round_id: 'r1' });
-    await runtime.engine!.ainvoke(
+    const graphData = echoGraphData();
+    await runRoundEngine(runtime, graphData, { input: '意图甲' }, { thread_id: 't-mem', round_id: 'r1' });
+    await runRoundEngine(
+      runtime,
+      graphData,
       { input: '意图乙' },
       { thread_id: 't-mem', round_id: 'r2', continue_chain: true },
     );
@@ -161,11 +181,12 @@ describe('runtime 自学习族接线', () => {
   });
 
   it('resume 决议事件入账本：确认类事件驱动确认记忆条目 + 边界清理', async () => {
-    const runtime = await new Runtime().boot(
-      toHost(new FakeHost()),
-      minimalRecipe({ graph_recipe: gateGraph }),
-    );
-    const first = await runtime.engine!.ainvoke(
+    const runtime = await new Runtime().boot(toHost(new FakeHost()), minimalRecipe());
+    install_data_nodes(runtime);
+    const graphData = gateGraphData();
+    const first = await runRoundEngine(
+      runtime,
+      graphData,
       { input: '待审批' },
       { thread_id: 't-g', round_id: 'r1' },
     );
@@ -189,6 +210,7 @@ describe('runtime 自学习族接线', () => {
 
   it('技能结晶 settle 链接线：缓存达标条目结晶为知识集 path 技能', async () => {
     const runtime = await new Runtime().boot(toHost(new FakeHost()), minimalRecipe());
+    install_data_nodes(runtime);
     const cache = runtime.fingerprint_cache_store!;
     const fp = 'fp-crystal-1';
     await cache.upsert(fp, {
@@ -200,14 +222,17 @@ describe('runtime 自学习族接线', () => {
       domain: 'default',
     });
     for (let i = 0; i < 5; i += 1) await cache.report(fp, { ok: true });
-    await runtime.engine!.ainvoke({ input: 'x' }, { thread_id: 't-c', round_id: 'r1' });
+    const graphData = echoGraphData();
+    await runRoundEngine(runtime, graphData, { input: 'x' }, { thread_id: 't-c', round_id: 'r1' });
     const skills = runtime
       .knowledge_set!.entries()
       .filter((e) => e.kind === KIND_PATH && e.id.startsWith('skill:'));
     expect(skills.length).toBe(1);
     expect(skills[0]!.title.length).toBeGreaterThan(0);
     // 计数未变再次结晶 = 去重跳过（版本不递增）
-    await runtime.engine!.ainvoke(
+    await runRoundEngine(
+      runtime,
+      graphData,
       { input: 'y' },
       { thread_id: 't-c', round_id: 'r2', continue_chain: true },
     );

@@ -3,10 +3,10 @@
  * interrupt（本层只接线：读引擎挂起卡 + 决议重入）。
  *
  * 挂起卡 = 引擎 interrupt 状态（随 checkpoint 持久化）。查询按会话线程取链尾
- * 挂起卡（engine.get_latest_interrupt；无静态引擎时直接读 checkpoint interrupt
- * ——两路同源，均指引擎链尾挂起卡）；裁决 = runtime.resume_run 注入决议
- * （decision 形态与 approve_before_execute 注入口径一致：字符串 accept/
- * reject/terminate 或 {decision, reason?, edited_content?}）。
+ * 挂起卡（read checkpoint interrupt：引擎无常驻静态引擎，链尾中断卡即引擎
+ * 链尾挂起卡状态）；裁决 = runtime.resume_run 注入决议（decision 形态与
+ * approve_before_execute 注入口径一致：字符串 accept/reject/terminate 或
+ * {decision, reason?, edited_content?}）。
  */
 
 import type { InterruptState } from '@ink-ts/engine';
@@ -67,13 +67,10 @@ function validateDecision(raw: unknown): unknown {
 }
 
 export function buildApprovalHandlers(deps: HostBridgeDeps): ReadonlyMap<string, BridgeHandler> {
-  /** 链尾挂起卡读取（静态引擎存在 = 走引擎读口；无静态引擎（回合=组装）=
-   *  直接读 checkpoint interrupt——两路均指引擎链尾挂起卡状态）。 */
+  /** 链尾挂起卡读取（引擎无常驻静态引擎：直接读 checkpoint interrupt——与
+   *  引擎链尾挂起卡状态同源，裁决经 runtime.resume_run 按图重建续跑）。 */
   async function latestInterrupt(thread_id: string): Promise<InterruptState | null> {
-    const runtime = deps.runtime;
-    const instance = runtime.engine;
-    if (instance !== null) return await instance.get_latest_interrupt(thread_id);
-    const storage = runtime.storage;
+    const storage = deps.runtime.storage;
     if (storage === null) {
       throw new BridgeError('运行时引擎未装配（runtime 未 boot/已关停）', 'runtime_unavailable');
     }

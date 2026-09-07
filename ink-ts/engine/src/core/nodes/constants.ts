@@ -29,5 +29,13 @@ export const ENGINE_DEFAULT_TOOL_ROUNDS = 8;
 /** 终态 role（tool_pipeline 配置 role='terminal' = 图出口终态实例）。 */
 export const ROLE_TERMINAL = 'terminal';
 
+/** 工具回合上限统一钳制（声明/config 覆写入口；域 1..200，非法 = 引擎常量缺省）。 */
+export function clamp_tool_rounds(raw: unknown): number {
+  if (typeof raw === 'number' && Number.isFinite(raw)) {
+    return Math.min(200, Math.max(1, Math.trunc(raw)));
+  }
+  return ENGINE_DEFAULT_TOOL_ROUNDS;
+}
+
 /** 确定性 stub 回复（无模型兜底；无真实模型也能稳定抵达回复态）。 */
 export const ENGINE_STUB_REPLY = '（模型未装配，引擎确定性回复）';

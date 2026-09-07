@@ -7,6 +7,7 @@
  * 不启用；ToolVectorIndex 以关键词基线构建。
  */
 import { PermissionGate } from '../permissions/permissions.js';
+import type { InterruptPolicy } from '../approval/approval.js';
 import { register_perception_nodes } from '../perception/perception.js';
 import { default_engine_pool_seed } from '../nodes/index.js';
 import {
@@ -247,6 +248,14 @@ export abstract class RuntimeAssemble extends RuntimeNodeRegistrar {
       uiSpec = null;
     }
     const wiring = recipe.tool_wiring!;
+    // 统一工具流水线权限门禁 = 装配配置（配方 tool_gate；缺省 = 引擎默认
+    // DENY 兜底无 review 档——现行为不变）；审批策略 = 宿主 interrupt_policy
+    // 活读面（autoApprove/直过名单语义随卡走，fail-closed 全挂起为缺省）
+    const toolGate =
+      recipe.tool_gate !== null && recipe.tool_gate !== undefined
+        ? recipe.tool_gate.to_gate()
+        : new PermissionGate();
+    const pipelinePolicy = this._host_policy as InterruptPolicy | null;
     this.introspection_specs = introspection_tool_specs();
     this.self_specs = wiring.self_specs();
     const introspectionNames = new Set(this.introspection_specs.map((s) => s.name));
@@ -277,10 +286,11 @@ export abstract class RuntimeAssemble extends RuntimeNodeRegistrar {
       approval: unknown,
     ) => Promise<unknown>;
     this.self_pipeline_runner = new ToolPipeline({
-      gate: new PermissionGate(),
+      gate: toolGate,
       extractor: (spec: ToolSpec, _args: Record<string, unknown>) =>
         wiring.self_operation_of(spec),
       executor: selfExecutor as never,
+      approval_policy: pipelinePolicy,
     });
     this.retriever_registry = new RetrieverRegistry();
     this.retriever_registry.register(
@@ -323,10 +333,11 @@ export abstract class RuntimeAssemble extends RuntimeNodeRegistrar {
       return declarative_failure_reason(definition, args);
     };
     this.tool_pipeline = new ToolPipeline({
-      gate: new PermissionGate(),
+      gate: toolGate,
       extractor: unifiedExtractor,
       failure_reason: unifiedFailureReason,
       executor: unifiedExecutor as never,
+      approval_policy: pipelinePolicy,
     });
     await this._restore_set_state(recipe);
     if (this.growth_pipeline !== null) {

@@ -1,4 +1,5 @@
 /**
+ * gate: 超限(375 行) - 权限判定原语单文件（fnmatch 翻译/路径越界/网络策略/门禁装配数据同源）
  * 声明式权限门禁（PermissionGate：默认拒绝 fail-closed 的权限判定原语）——
  * ink_engine.core.permissions 移植（含 NetworkPolicy / NetworkPolicySandbox）。
  *
@@ -327,6 +328,45 @@ export class PermissionGate {
       return new GateResult(REVIEW, tool, operation, target, '门控分级需审批');
     }
     return new GateResult(ALLOW, tool, operation, target, '');
+  }
+}
+
+/**
+ * 工具门禁装配数据（组装/装配期注入 PermissionGate 的数据形态）。
+ *
+ * default_policy: 工具未声明权限（或未命中）时的兜底——deny（缺省，与
+ *   PermissionGate 引擎默认一致 fail-closed）/ review / allow（明示让步）；
+ * review_tools: 门控分级工具集——权限命中后仍转审批（review）的工具名
+ *   （等价 review_tier 谓词的数据化声明；未列工具 = 命中即直过）。
+ *
+ * 装配语义：缺省（无配置）= 现引擎默认 `new PermissionGate()`（DENY 兜底、
+ * 无 review 档）完全不变；配置只收窄/放宽门禁判定，不触碰审批卡后续的
+ * autoApprove/直过名单策略（那属 approval_policy/interrupt policy 面）。
+ */
+export class ToolGateConfig {
+  readonly default_policy: string;
+  readonly review_tools: ReadonlySet<string>;
+
+  constructor(options: {
+    default_policy?: string;
+    review_tools?: readonly string[];
+  } = {}) {
+    const defaultPolicy = options.default_policy ?? DENY;
+    if (defaultPolicy !== DENY && defaultPolicy !== REVIEW && defaultPolicy !== ALLOW) {
+      throw new Error(`非法 default_policy: '${defaultPolicy}'（须为 deny/review/allow）`);
+    }
+    this.default_policy = defaultPolicy;
+    this.review_tools = new Set<string>(options.review_tools ?? []);
+  }
+
+  /** 装配为运行时门禁实例（default_policy 透传；review_tools → review_tier
+   *  谓词；空工具集 = 不注入分级，判定与现默认门禁一致）。 */
+  to_gate(): PermissionGate {
+    const tools = this.review_tools;
+    return new PermissionGate(
+      this.default_policy,
+      tools.size > 0 ? (tool: string) => tools.has(tool) : null,
+    );
   }
 }
 

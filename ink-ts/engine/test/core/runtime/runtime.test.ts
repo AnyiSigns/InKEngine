@@ -1,13 +1,19 @@
-// gate: 超限(706 行) - 运行时集成用例共用同一条 boot→装配→run 链与单引擎夹具，拆分需重复整链装配
+// gate: 超限(700 行) - 运行时集成用例共用同一条 boot→装配→run 链与单引擎夹具，拆分需重复整链装配
 /**
  * 运行时单测（镜像 test_runtime.py + test_runtime_abort.py 的纯机制子集）。
  *
  * 覆盖：boot 幂等装配与产物齐全；Host 五件套调用；状态机转换矩阵；pause
  * 拒新不打断在途；stop 排空在途且按序关停（MCP seam → 存储 → 宿主钩子）且
- * 幂等；resume_run 决议重入样板（挂起 → 注入 → 续跑）；引擎重建缓存（配置/
- * 工具表变更才重建）；装配配方缺件显式报错；工具标签/常驻必带集/thread
- * 标签；回合调参接线；知识注入/归因 settle 钩子；abort no-op 与 CANCELLED
- * 快照落链。
+ * 幂等；resume_run 决议重入（挂起 → 注入 → 按 checkpoint 关联图续跑）；
+ * LLM 链刷新语义（换模型显式关闭旧链 / stop 关停）；装配配方缺件显式报错；
+ * 工具标签/常驻必带集/thread 标签；回合调参接线；知识注入/归因 settle 钩子；
+ * abort no-op 与 CANCELLED 快照落链；回合账本/成长键源/审计键唯一/池治理/
+ * 回合步骤记录器接线。
+ *
+ * 回合引擎形态（B3）：引擎无常驻静态 Engine——跑回合一律按数据图构建本轮
+ * 引擎（assemble_round 组装或 _build_graph_engine 数据图装配）；本文件经
+ * 测试节点类型注册 + 数据图 helper 驱动运行时机制链路（seams/沉淀/观察
+ * 传输与组装路径同源），等价于组装回合的执行语义。
  *
  * 延后用例（头注原因，宿主/IO seam 未迁 core）：
  * - 真实 LLM/MCP：LLM 守卫调用路径、MCP server 会话（McpClientManager 属
@@ -22,30 +28,34 @@ import { describe, it, expect } from 'vitest';
 
 import { Runtime, RuntimeState, AssemblyRecipe, _KnowledgeUsageSettleHook } from '../../../src/core/runtime/index.js';
 import type { Host } from '../../../src/core/runtime/index.js';
-import type { GraphRecipeContext } from '../../../src/core/runtime/index.js';
 import { EngineEvent } from '../../../src/core/events/events.js';
 import type { JsonRecord } from '../../../src/core/json.js';
 import { EVOLUTION_AUDIT_TYPE } from '../../../src/core/evolution_writer/evolution_writer.js';
 import { ROUND_LEDGER_COLLECTION } from '../../../src/core/runtime/_settle.js';
 import { GOV_VERDICT_ALLOW, GOV_VERDICT_REJECT } from '../../../src/core/pool_governance/pool_governance.js';
-import { Graph } from '../../../src/core/graph/graph.js';
-import { RunResult, RunOptions } from '../../../src/core/run_result/run_result.js';
+import { RunOptions } from '../../../src/core/run_result/run_result.js';
 import { DefaultInterruptPolicy } from '../../../src/core/approval/approval.js';
 import { CompressingLLM, UsageTrackingLLM } from '../../../src/core/llm/guard.js';
 import { ToolSpec } from '../../../src/core/llm/tools.js';
 import { EventTypeSpec } from '../../../src/core/event_types/eventTypeSpec.js';
 import { HarnessDefinition } from '../../../src/core/harness/index.js';
 import { KnowledgeEntry, KIND_RULE } from '../../../src/core/knowledge_set/index.js';
-import { ProposalValidator, PatchKind } from '../../../src/core/self_proposal/index.js';
-import { SelfProposal } from '../../../src/core/self_proposal/index.js';
+import { PatchKind } from '../../../src/core/self_proposal/index.js';
 import { ApprovalLevel } from '../../../src/core/self_application/index.js';
-import { self_tool_specs, make_self_executor, operation_of, SelfToolContext } from '../../../src/core/self_tools/index.js';
+import { self_tool_specs, make_self_executor, operation_of } from '../../../src/core/self_tools/index.js';
+import type { SelfToolContext } from '../../../src/core/self_tools/index.js';
 import { MetaTuner, TunableParams, TurnMetrics } from '../../../src/core/tuning/index.js';
 import { SettleContext } from '../../../src/core/settle/index.js';
 import { MemoryStorage } from '../executor/helpers.js';
-import { CheckpointRecord } from '../../../src/core/storage/storage_records.js';
 import { TerminateReason } from '../../../src/core/graph/graph_types.js';
 import { GENERAL_WEIGHTS_SEED_ID } from '../../../src/core/seeds/seeds.js';
+import type { NodeFactory } from '../../../src/core/registry/registry_types.js';
+import {
+  buildRoundEngine,
+  dataGraph,
+  registerNodeType,
+  runRoundEngine,
+} from './_round_graphs.js';
 
 /** 事件收集传输（EngineTransport 协议）。 */
 class FakeTransport {
@@ -127,32 +137,84 @@ const boot_ui_spec: Record<string, unknown> = {
   },
 };
 
-async function _echo_agent(ctx: never): Promise<Record<string, unknown>> {
-  void ctx;
-  return { reply: 'ok' };
+// ── 测试数据图节点类型（B3：无常驻静态引擎 → 数据图按类型名装载执行）──────
+
+const T_ECHO = 'rt.echo';
+const T_GATE = 'rt.gate';
+const T_OK_START = 'rt.fail.start';
+const T_BOOM = 'rt.fail.boom';
+const T_EMIT = 'rt.emit';
+
+function echo_factory(): NodeFactory {
+  return () => async (): Promise<Record<string, unknown>> => ({ reply: 'ok' });
 }
 
-function _echo_graph_recipe(ctx: GraphRecipeContext): Graph {
-  void ctx;
-  const g = new Graph({ name: 'echo', entry: 'agent' });
-  g.add_node('agent', _echo_agent as never);
-  g.add_exit('agent');
-  return g;
+function gate_factory(): NodeFactory {
+  return () => async (raw: unknown): Promise<Record<string, unknown>> => {
+    const anyCtx = raw as { interrupt(key: string, payload: unknown): Promise<unknown> };
+    const decision = await anyCtx.interrupt('approval', { review_type: 'gate' });
+    return { decision, done: true };
+  };
 }
 
-async function _gate_agent(ctx: never): Promise<Record<string, unknown>> {
-  void ctx;
-  const anyCtx = ctx as { interrupt(key: string, payload: unknown): Promise<unknown> };
-  const decision = await anyCtx.interrupt('approval', { review_type: 'gate' });
-  return { decision, done: true };
+function failing_factory(): { start: NodeFactory; boom: NodeFactory } {
+  return {
+    start: () => async (): Promise<Record<string, unknown>> => ({ started: true }),
+    boom: () => async (): Promise<never> => {
+      throw new Error('节点失败');
+    },
+  };
 }
 
-function _gate_graph_recipe(ctx: GraphRecipeContext): Graph {
-  void ctx;
-  const g = new Graph({ name: 'gate', entry: 'gate' });
-  g.add_node('gate', _gate_agent as never);
-  g.add_exit('gate');
-  return g;
+function emit_factory(): NodeFactory {
+  return () => async (raw: unknown): Promise<Record<string, unknown>> => {
+    const nodeCtx = raw as {
+      state: Record<string, unknown>;
+      emit(type: string, payload: Record<string, unknown>, opts?: { step_id?: string | null }): Promise<void>;
+    };
+    const n = Number(nodeCtx.state['count'] ?? 0);
+    await nodeCtx.emit('node_trace', { index: n }, { step_id: `trace-${n}` });
+    return { count: n + 1, reply: 'done' };
+  };
+}
+
+/** 注册本文件测试用节点类型（每 runtime 实例注册一次；不进声明式登记）。 */
+function install_data_nodes(runtime: Runtime): void {
+  registerNodeType(runtime, T_ECHO, echo_factory());
+  registerNodeType(runtime, T_GATE, gate_factory());
+  const failing = failing_factory();
+  registerNodeType(runtime, T_OK_START, failing.start);
+  registerNodeType(runtime, T_BOOM, failing.boom);
+  registerNodeType(runtime, T_EMIT, emit_factory());
+}
+
+/** 回声数据图（单节点产出 reply ok；与既有回声语义一致）。 */
+function echo_graph(): Record<string, unknown> {
+  return dataGraph({ name: 'echo', entry: 'agent', nodes: [{ id: 'agent', type: T_ECHO }], exits: ['agent'] });
+}
+
+/** 审批挂卡数据图（agent 节点 interrupt 挂卡；决议注入后续跑）。 */
+function gate_graph(): Record<string, unknown> {
+  return dataGraph({ name: 'gate', entry: 'gate', nodes: [{ id: 'gate', type: T_GATE }], exits: ['gate'] });
+}
+
+/** 失败回合数据图（start → boom 抛错）。 */
+function failing_graph(): Record<string, unknown> {
+  return dataGraph({
+    name: 'fail',
+    entry: 'start',
+    nodes: [
+      { id: 'start', type: T_OK_START },
+      { id: 'boom', type: T_BOOM },
+    ],
+    edges: [{ from: 'start', to: 'boom' }],
+    exits: ['boom'],
+  });
+}
+
+/** 事件发射数据图（agent 节点 emit node_trace 步骤事件）。 */
+function emit_graph(): Record<string, unknown> {
+  return dataGraph({ name: 'emit', entry: 'agent', nodes: [{ id: 'agent', type: T_EMIT }], exits: ['agent'] });
 }
 
 function toHost(host: FakeHost): Host {
@@ -181,7 +243,6 @@ function _minimal_recipe(overrides: Partial<AssemblyRecipe> = {}): AssemblyRecip
       self_operation_of: (spec) => operation_of(spec),
     },
     approval_levels: { [PatchKind.THEME]: ApprovalLevel.L0 },
-    graph_recipe: _echo_graph_recipe,
   });
   return Object.assign(base, overrides);
 }
@@ -199,7 +260,7 @@ describe('runtime boot 装配', () => {
     expect(host.calls[host.calls.length - 1]).toBe('host_close');
   });
 
-  it('配方注入后装配产物齐全', async () => {
+  it('配方注入后装配产物齐全（无常驻静态引擎 = 常态）', async () => {
     const host = new FakeHost();
     const runtime = await new Runtime().boot(toHost(host), _minimal_recipe());
     expect(runtime.state).toBe(RuntimeState.RUNNING);
@@ -227,12 +288,15 @@ describe('runtime boot 装配', () => {
     expect(runtime.tool_pipeline).toBeTruthy();
     // MCP seam：宿主适配器未注入 = 不启用（引擎 adapters 未迁 core）
     expect(runtime.mcp_manager).toBeNull();
-    // 引擎已重建；未配置模型 → engine_llm 为 null（路由端引导）
-    expect(runtime.engine).toBeTruthy();
+    // 无常驻静态引擎（B3 常态）；未配置模型 → engine_llm 为 null
     expect(runtime.engine_llm).toBeNull();
+    // 组装运行期挂载 + 内置节点注册（回合 = 组装出数据图后按图执行）
+    expect(runtime.assembly_runtime).not.toBeNull();
+    expect(runtime.assembly_flags).not.toBeNull();
     // 界面基线经白名单校验后装配（未回落未定形）
     const snapshot = runtime.introspection_service!.snapshot_ui();
     expect(snapshot['ui_spec']).not.toBeNull();
+    await runtime.stop();
   });
 
   it('boot 幂等：已装配再次调用直接返回自身', async () => {
@@ -245,18 +309,10 @@ describe('runtime boot 装配', () => {
     expect(host.calls.filter((c) => c === 'create_storage').length).toBe(1);
   });
 
-  it('配方缺件显式报错（tool_wiring 非谈判项）；graph_recipe 可缺（引擎无静态图）', async () => {
+  it('配方缺件显式报错（tool_wiring 非谈判项）', async () => {
     const recipe1 = _minimal_recipe();
     recipe1.tool_wiring = null;
     await expect(new Runtime().boot(toHost(new FakeHost()), recipe1)).rejects.toThrow(/tool_wiring/);
-    // 无默认图：boot 成功、引擎机制态无静态图（rebuild_engine 返回 null）
-    const recipe2 = _minimal_recipe();
-    recipe2.graph_recipe = null;
-    const runtime = await new Runtime().boot(toHost(new FakeHost()), recipe2);
-    expect(runtime.state).toBe(RuntimeState.RUNNING);
-    expect(runtime.engine).toBeNull();
-    expect(runtime.graph_registries).toBeTruthy();
-    await runtime.stop();
   });
 
   it('界面绑定通道白名单可由配方扩展', async () => {
@@ -365,7 +421,7 @@ describe('runtime 生命周期状态机', () => {
     expect(llm.closed).toBe(true);
   });
 
-  it('引擎重建换模型时显式关闭旧 LLM 链', async () => {
+  it('LLM 链刷新换模型时显式关闭旧链（回合引擎无缓存复用）', async () => {
     const host = new FakeHost();
     const runtime = await new Runtime().boot(toHost(host), _minimal_recipe());
     const old = new _ClosableLLM();
@@ -380,27 +436,24 @@ describe('runtime 生命周期状态机', () => {
     expect(next.closed).toBe(true);
   });
 
-  it('引擎装配把 LLM 包上守卫链（用量闭环 + 回合内压缩）', async () => {
+  it('回合引擎把 LLM 包上守卫链（用量闭环 + 回合内压缩）', async () => {
     const host = new FakeHost();
     const llm = new _ClosableLLM();
     host.llm = llm;
-    const captured: unknown[] = [];
     const policy = {
       should_compress: () => true,
       budget_chars: () => 100,
     };
-    const captureRecipe = (ctx: GraphRecipeContext): Graph => {
-      captured.push(ctx.llm);
-      return _echo_graph_recipe(ctx);
-    };
     const runtime = await new Runtime().boot(
       toHost(host),
-      _minimal_recipe({
-        compress_policy: policy as never,
-        graph_recipe: captureRecipe,
-      }),
+      _minimal_recipe({ compress_policy: policy as never }),
     );
-    const guard = captured[0];
+    // 守卫链构造 = 回合引擎构建消费点（_build_graph_engine 对 resolved llm
+    // 包装 UsageTrackingLLM(CompressingLLM(llm, {policy})) 后绑定 seams）
+    const anyRt = runtime as unknown as {
+      _guard_for(llm: unknown): unknown;
+    };
+    const guard = anyRt._guard_for(llm as never);
     expect(guard).toBeInstanceOf(UsageTrackingLLM);
     const compressing = (guard as unknown as { _inner: unknown })._inner;
     expect(compressing).toBeInstanceOf(CompressingLLM);
@@ -408,22 +461,20 @@ describe('runtime 生命周期状态机', () => {
     await runtime.stop();
   });
 
-  it('引擎重建缓存：模型/工具表不变复用实例，变更才重建', async () => {
+  it('回合引擎生命周期：同一数据图每轮构建独立实例（无缓存复用/同 digest）', async () => {
     const host = new FakeHost();
     const runtime = await new Runtime().boot(toHost(host), _minimal_recipe());
-    const first = runtime.engine;
-    expect(await runtime.rebuild_engine()).toBe(first);
-    const newLlm = new _ClosableLLM();
-    const rebuilt = await runtime.rebuild_engine(newLlm as never);
-    expect(rebuilt).not.toBe(first);
-    // 工具表变化（MCP 挂载/补丁链工具）→ 重建
-    runtime.tool_registry['injected_tool'] = self_tool_specs()[0]!;
-    const rebuilt2 = await runtime.rebuild_engine(newLlm as never);
-    expect(rebuilt2).not.toBe(rebuilt);
-    runtime.tool_registry = {};
-    const rebuilt3 = await runtime.rebuild_engine(newLlm as never);
-    expect(rebuilt3).not.toBe(rebuilt2);
-    expect(await runtime.rebuild_engine(newLlm as never)).toBe(rebuilt3);
+    install_data_nodes(runtime);
+    const graphData = echo_graph();
+    const first = await buildRoundEngine(runtime, graphData);
+    const second = await buildRoundEngine(runtime, graphData);
+    expect(first).not.toBe(second);
+    expect(first.graph.digest()).toBe(second.graph.digest());
+    // 重建/LLM 刷新不再产出常驻引擎；同参再刷新只换链不换图
+    await runtime.rebuild_engine();
+    expect(runtime.engine_llm).toBeNull();
+    const third = await buildRoundEngine(runtime, graphData);
+    expect(third.graph.digest()).toBe(first.graph.digest());
     await runtime.stop();
   });
 
@@ -432,17 +483,20 @@ describe('runtime 生命周期状态机', () => {
       run_options: new RunOptions({ plan_policy: 'strict', max_plan_steps: 3 }),
     });
     const runtime = await new Runtime().boot(toHost(new FakeHost()), recipe);
-    const engine = runtime.engine!;
+    install_data_nodes(runtime);
+    const engine = await buildRoundEngine(runtime, echo_graph());
     expect(engine.options.plan_policy).toBe('strict');
     expect(engine.options.max_plan_steps).toBe(3);
     expect(engine.options.storage).toBe(runtime.storage as never);
     expect(engine.options.registries).toBe(runtime.graph_registries);
     expect(engine.options.error_on_exception).toBe(true);
+    await runtime.stop();
   });
 
   it('multipath_enabled 可经配方 run_options 覆写（默认不注入 = false）', async () => {
     const r1 = await new Runtime().boot(toHost(new FakeHost()), _minimal_recipe());
-    expect(r1.engine!.options.multipath_enabled).toBe(false);
+    install_data_nodes(r1);
+    expect((await buildRoundEngine(r1, echo_graph())).options.multipath_enabled).toBe(false);
     await r1.stop();
     const r2 = await new Runtime().boot(
       toHost(new FakeHost()),
@@ -450,18 +504,20 @@ describe('runtime 生命周期状态机', () => {
         run_options: new RunOptions({ multipath_enabled: true }),
       }),
     );
-    expect(r2.engine!.options.multipath_enabled).toBe(true);
+    install_data_nodes(r2);
+    expect((await buildRoundEngine(r2, echo_graph())).options.multipath_enabled).toBe(true);
     await r2.stop();
   });
 });
 
 describe('runtime 审批决议重入', () => {
-  it('resume_run：挂起 → 决议注入 → 续跑', async () => {
-    const runtime = await new Runtime().boot(
-      toHost(new FakeHost()),
-      _minimal_recipe({ graph_recipe: _gate_graph_recipe }),
-    );
-    const result = await runtime.engine!.ainvoke(
+  it('resume_run：挂起 → 决议注入 → 按 checkpoint 关联图续跑', async () => {
+    const runtime = await new Runtime().boot(toHost(new FakeHost()), _minimal_recipe());
+    install_data_nodes(runtime);
+    const graphData = gate_graph();
+    const result = await runRoundEngine(
+      runtime,
+      graphData,
       { input: 'x' },
       { thread_id: 't-gate', round_id: 'r-gate' },
     );
@@ -471,23 +527,25 @@ describe('runtime 审批决议重入', () => {
     await expect(
       runtime.resume_run('t-empty', { decision: 'accept' }),
     ).rejects.toThrow(/无挂起审批卡/);
-    // 决议注入重入
-    const resumed = await runtime.resume_run('t-gate', { decision: 'accept' });
-    const r = resumed as RunResult;
-    expect(r.interrupt).toBeNull();
-    expect((r.state as Record<string, unknown>)['done']).toBe(true);
-    expect((r.state as Record<string, unknown>)['decision']).toEqual({ decision: 'accept' });
+    // 决议注入重入（_engine_for_checkpoint 按图重建续跑）
+    const resumed = (await runtime.resume_run('t-gate', { decision: 'accept' })) as {
+      interrupt: unknown;
+      state: Record<string, unknown>;
+    };
+    expect(resumed.interrupt).toBeNull();
+    expect(resumed.state['done']).toBe(true);
+    expect(resumed.state['decision']).toEqual({ decision: 'accept' });
+    await runtime.stop();
   });
 
   it('挂起卡已失效（链尾非挂起卡）显式报错，不静默重放', async () => {
     const runtime = await new Runtime().boot(toHost(new FakeHost()), _minimal_recipe());
-    await runtime.engine!.ainvoke(
-      { input: 'x' },
-      { thread_id: 't-ok', round_id: 'r-ok' },
-    );
+    install_data_nodes(runtime);
+    await runRoundEngine(runtime, echo_graph(), { input: 'x' }, { thread_id: 't-ok', round_id: 'r-ok' });
     await expect(
       runtime.resume_run('t-ok', { decision: 'accept' }),
     ).rejects.toThrow(/无挂起审批卡/);
+    await runtime.stop();
   });
 });
 
@@ -632,7 +690,7 @@ describe('runtime 知识注入与归因 settle', () => {
       trace_id: 'tr1',
       domain: 'default',
       steps: [],
-      result: new RunResult({ state: {}, reason: 'error', error: '节点执行失败' }),
+      result: new (await import('../../../src/core/run_result/run_result.js')).RunResult({ state: {}, reason: 'error', error: '节点执行失败' }),
     });
     const hook = new _KnowledgeUsageSettleHook(runtime);
     await hook.settle(ctx);
@@ -653,7 +711,7 @@ describe('runtime 知识注入与归因 settle', () => {
       trace_id: 'tr1',
       domain: 'default',
       steps: [],
-      result: new RunResult({ state: {}, reason: 'reply' }),
+      result: new (await import('../../../src/core/run_result/run_result.js')).RunResult({ state: {}, reason: 'reply' }),
     });
     const hook = new _KnowledgeUsageSettleHook(runtime);
     await hook.settle(ctx);
@@ -673,8 +731,9 @@ describe('runtime 中止（abort_current_run）', () => {
 
   it('中止取消在途并写 CANCELLED 终态快照（RunTaskHandle seam 驱动）', async () => {
     const runtime = await new Runtime().boot(toHost(new FakeHost()), _minimal_recipe());
+    install_data_nodes(runtime);
     // 先跑一个正常回合产生链尾 checkpoint（快照续接锚点）
-    await runtime.engine!.ainvoke({}, { thread_id: 't-abort', round_id: 'r1' });
+    await runRoundEngine(runtime, echo_graph(), {}, { thread_id: 't-abort', round_id: 'r1' });
     const before = await runtime.storage!.get_latest_checkpoint('t-abort');
     expect(before).not.toBeNull();
     // 模拟在途 run：宿主取消句柄（JS 无 asyncio 取消——见文件头延后说明）
@@ -748,7 +807,11 @@ function _ev(type: string, payload: JsonRecord = {}, extra: Partial<EngineEvent>
 describe('runtime 回合账本归约（ledger 每回合自动产出）', () => {
   it('连续两回合两账本不覆盖；runtime.ledger 读最近账本', async () => {
     const runtime = await new Runtime().boot(toHost(new FakeHost()), _minimal_recipe());
-    const first = await runtime.engine!.ainvoke(
+    install_data_nodes(runtime);
+    const graphData = echo_graph();
+    const first = await runRoundEngine(
+      runtime,
+      graphData,
       { input: '账本一' },
       { thread_id: 't-led', round_id: 'r1' },
     );
@@ -756,7 +819,9 @@ describe('runtime 回合账本归约（ledger 每回合自动产出）', () => {
     const ledger1 = await runtime.ledger('t-led');
     expect(ledger1).not.toBeNull();
     expect(ledger1!['round_id']).toBe('r1');
-    await runtime.engine!.ainvoke(
+    await runRoundEngine(
+      runtime,
+      graphData,
       { input: '账本二' },
       { thread_id: 't-led', round_id: 'r2', continue_chain: true },
     );
@@ -782,7 +847,7 @@ describe('runtime 回合账本归约（ledger 每回合自动产出）', () => {
       trace_id: 'tr',
       domain: 'default',
       steps: [],
-      result: new RunResult({ state: {}, reason: 'reply' }),
+      result: new (await import('../../../src/core/run_result/run_result.js')).RunResult({ state: {}, reason: 'reply' }),
     });
     await hook.settle(empty);
     expect(await _recordsOf(runtime, ROUND_LEDGER_COLLECTION)).toEqual([]);
@@ -831,28 +896,16 @@ describe('runtime audit 键唯一（多次演化写不互相覆盖）', () => {
 });
 
 describe('runtime 池治理每回合自动跑', () => {
-  function failing_graph_recipe(_ctx: GraphRecipeContext): Graph {
-    const agent = async (): Promise<Record<string, unknown>> => ({ started: true });
-    const boom = async (): Promise<never> => {
-      throw new Error('节点失败');
-    };
-    const g = new Graph({ name: 'fail', entry: 'start' });
-    g.add_node('start', agent as never);
-    g.add_node('boom', boom as never);
-    g.add_edge('start', 'boom');
-    g.add_exit('boom');
-    return g;
-  }
-
   it('失败回合自动治理：预算内 allow，耗尽后稳定 reject（不震荡）', async () => {
-    const runtime = await new Runtime().boot(
-      toHost(new FakeHost()),
-      _minimal_recipe({ graph_recipe: failing_graph_recipe }),
-    );
+    const runtime = await new Runtime().boot(toHost(new FakeHost()), _minimal_recipe());
+    install_data_nodes(runtime);
     const gov = runtime.pool_governance!;
     expect(gov).toBeTruthy();
+    const graphData = failing_graph();
     for (let i = 1; i <= 4; i += 1) {
-      await runtime.engine!.ainvoke(
+      await runRoundEngine(
+        runtime,
+        graphData,
         { input: `回合${i}` },
         { thread_id: 't-gov', round_id: `r${i}`, continue_chain: i > 1 },
       );
@@ -871,34 +924,19 @@ describe('runtime 池治理每回合自动跑', () => {
 });
 
 describe('runtime 回合步骤记录器接线', () => {
-  function emit_graph_recipe(_ctx: GraphRecipeContext): Graph {
-    const agent = async (ctx: unknown): Promise<Record<string, unknown>> => {
-      const nodeCtx = ctx as {
-        state: Record<string, unknown>;
-        emit(type: string, payload: Record<string, unknown>, opts?: { step_id?: string | null }): Promise<void>;
-      };
-      const n = Number(nodeCtx.state['count'] ?? 0);
-      await nodeCtx.emit('node_trace', { index: n }, { step_id: `trace-${n}` });
-      return { count: n + 1, reply: 'done' };
-    };
-    const g = new Graph({ name: 'emit', entry: 'agent' });
-    g.add_node('agent', agent as never);
-    g.add_exit('agent');
-    return g;
-  }
-
   it('回合内事件 → 有界步骤记录；线程隔离；round 边界重置', async () => {
-    const runtime = await new Runtime().boot(
-      toHost(new FakeHost()),
-      _minimal_recipe({ graph_recipe: emit_graph_recipe }),
-    );
-    await runtime.engine!.ainvoke({ input: 'x' }, { thread_id: 't-steps', round_id: 'r1' });
+    const runtime = await new Runtime().boot(toHost(new FakeHost()), _minimal_recipe());
+    install_data_nodes(runtime);
+    const graphData = emit_graph();
+    await runRoundEngine(runtime, graphData, { input: 'x' }, { thread_id: 't-steps', round_id: 'r1' });
     const steps = runtime.round_steps('t-steps');
     expect(steps.length).toBeGreaterThan(0);
     expect(steps.every((s) => s.type === 'node_trace' && s.step_id.startsWith('trace-'))).toBe(true);
     expect(runtime.round_steps('other-thread')).toEqual([]);
     // 回合边界：新回合开启后旧回合步骤丢弃
-    await runtime.engine!.ainvoke(
+    await runRoundEngine(
+      runtime,
+      graphData,
       { input: 'y' },
       { thread_id: 't-steps', round_id: 'r2', continue_chain: true },
     );

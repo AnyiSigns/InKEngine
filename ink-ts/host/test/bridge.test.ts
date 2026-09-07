@@ -20,7 +20,7 @@ import { BRIDGE_METHODS } from '../src/bridge/index.js';
 import { BridgeError } from '../src/bridge/_types.js';
 import { createHost } from '../src/index.js';
 import type { HostHandle } from '../src/index.js';
-import { gateGraphRecipe } from './_graphs.js';
+import { runGateCard } from './_graphs.js';
 
 const CTX = { autoApprove: false };
 
@@ -201,30 +201,23 @@ describe('host bridge rounds.branch（组装回合链叶分支续跑）', () => 
   });
 });
 
-describe('host bridge approval（gate 兼容静态引擎挂卡 → 查询 → 裁决续跑）', () => {
+describe('host bridge approval（数据图引擎挂卡 → 查询 → 裁决续跑）', () => {
   let handle: HostHandle;
 
   beforeEach(async () => {
     const { dir, events } = dirs();
     handle = await createHost({ data_dir: dir, events_dir: events });
-    // rounds 已走组装；审批卡演示经引擎静态图兼容通道（配方注入后重建）
-    const runtime = handle.runtime as unknown as {
-      _recipe: { graph_recipe: unknown };
-      rebuild_engine(): Promise<unknown>;
-    };
-    runtime._recipe.graph_recipe = gateGraphRecipe;
-    await runtime.rebuild_engine();
   });
 
   afterEach(async () => {
     await handle.dispose();
   });
 
-  /** 经配方兼容静态引擎跑一轮挂卡回合（rounds 已走组装，卡用兼容引擎触发）。 */
+  /** 经 runtime 按数据图构建 gate 本轮引擎跑一轮挂卡回合（rounds 走组装，
+   *  审批卡演示经数据图引擎触发；approval/checkpoint/恢复全走引擎机制）。 */
   async function startCardThread(): Promise<string> {
-    const engine = handle.runtime.engine!;
     const thread_id = `gate-${Math.random().toString(36).slice(2, 10)}`;
-    await engine.ainvoke({}, { thread_id, round_id: `r-${thread_id}`, continue_chain: true });
+    await runGateCard(handle.runtime, thread_id);
     return thread_id;
   }
 
@@ -297,5 +290,53 @@ describe('host bridge approval（gate 兼容静态引擎挂卡 → 查询 → �
     expect(cards).toHaveLength(1);
     const none = await handle.bridge.get('approval.list')!({ thread_id: 't-other' }, CTX);
     expect(none).toEqual([]);
+  });
+});
+
+/** 从 checkpoint state 的 _round_graph 取 llm_decider 节点 config（数据形态）。 */
+function llmDeciderConfig(graphData: unknown): Record<string, unknown> | null {
+  const graph = graphData as {
+    nodes?: Record<string, { type?: string; config?: Record<string, unknown> }>;
+  };
+  const node = Object.values(graph.nodes ?? {}).find((entry) => entry.type === 'llm_decider');
+  return node?.config ?? null;
+}
+
+describe('host bridge capability.max_tool_rounds → 组装回合 llm_decider config 生效', () => {
+  let handle: HostHandle;
+
+  beforeEach(async () => {
+    const { dir, events } = dirs();
+    handle = await createHost({ data_dir: dir, events_dir: events });
+  });
+
+  afterEach(async () => {
+    await handle.dispose();
+  });
+
+  it('capability.put 改动 → 下轮组装图 llm_decider config 生效（每次 send 活读）', async () => {
+    const put = handle.bridge.get('capability.put')!;
+    const send = handle.bridge.get('rounds.send')!;
+    await put({ max_tool_rounds: 3 }, CTX);
+    const first = (await send({ input: 'hi' }, CTX)) as { thread_id: string };
+    const latest = await handle.runtime.storage!.get_latest_checkpoint(first.thread_id);
+    expect(latest).not.toBeNull();
+    expect(llmDeciderConfig(latest!.state['_round_graph'])?.['max_tool_rounds']).toBe(3);
+    // 活读面：put 改 5 → 下轮回合即换新值
+    await put({ max_tool_rounds: 5 }, CTX);
+    await send({ input: 'again', thread_id: first.thread_id }, CTX);
+    const latest2 = await handle.runtime.storage!.get_latest_checkpoint(first.thread_id);
+    expect(latest2).not.toBeNull();
+    expect(llmDeciderConfig(latest2!.state['_round_graph'])?.['max_tool_rounds']).toBe(5);
+  });
+
+  it('无记录 → 不传覆写：组装图 llm_decider 无 max_tool_rounds（引擎缺省 8）', async () => {
+    const send = handle.bridge.get('rounds.send')!;
+    const result = (await send({ input: 'hi' }, CTX)) as { thread_id: string };
+    const latest = await handle.runtime.storage!.get_latest_checkpoint(result.thread_id);
+    expect(latest).not.toBeNull();
+    const config = llmDeciderConfig(latest!.state['_round_graph']);
+    expect(config).not.toBeNull();
+    expect(config!['max_tool_rounds']).toBeUndefined();
   });
 });

@@ -21,6 +21,7 @@ import { AssemblyCandidate, AssemblyDraftContext, AssemblyEnvelope, NodeSummary 
 import {
   CANDIDATE_SOURCE_DRAFT,
   CANDIDATE_SOURCE_SKILL,
+  CANDIDATE_SOURCE_SKILL_FALLBACK,
   STATS_LLM_ATTEMPTS,
   STATS_REPAIR_ATTEMPTS,
 } from './constants.js';
@@ -133,7 +134,9 @@ export class PathAssemblerDraft extends PathAssemblerBase {
         .filter((name) => graph.node_bindings[name] !== undefined)
         .map((name) => graph.node_bindings[name]!.type_name);
       if (type_chain.length < 2) continue;
-      chains.push([type_chain, CANDIDATE_SOURCE_SKILL, false]);
+      // 来源标记：先验 domain ≠ 请求域 = 跨域回落条目（与域内 skill 源区分）
+      const crossDomain = String((skill as Record<string, unknown>)['domain'] ?? '') !== request.domain;
+      chains.push([type_chain, crossDomain ? CANDIDATE_SOURCE_SKILL_FALLBACK : CANDIDATE_SOURCE_SKILL, false]);
     }
     return chains;
   }

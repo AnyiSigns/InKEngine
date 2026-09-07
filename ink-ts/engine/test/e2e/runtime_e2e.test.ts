@@ -8,7 +8,8 @@
  * - registry.create_llm → 真 OpenAICompatibleLLM → node:http 本地假服务
  *   （非流式 + SSE 流式全链路协议化断言）；
  * - CachingLLM/ModelChain 套真存储与真适配器的缓存闭环；
- * - Runtime.boot（Host 五件套真实现）装配出的 engine 经守卫链真实 ainvoke。
+ * - Runtime.boot（Host 五件套真实现）后回合组装（assemble_round）经本轮
+ *   llm_decider 数据图 + 守卫链真实执行。
  *
  * Runtime 装配面说明：模型注入面 = Host 五件套的 resolve_llm()（返回
  * AsyncLLM；AssemblyRecipe 无 llm_config 字段），本组第 4 项据此完成装配
@@ -26,6 +27,7 @@ import type { AsyncLLM } from '../../src/core/llm/base.js';
 import { LLMConfigError } from '../../src/core/llm/errors.js';
 import { system, user } from '../../src/core/llm/messages.js';
 import { validate_chain } from '../../src/core/storage/storage.js';
+import { ENGINE_STUB_REPLY } from '../../src/core/nodes/index.js';
 import { FakeOpenAIServer } from './_fake_openai.js';
 import {
   E2eHost,
@@ -33,39 +35,39 @@ import {
   e2e_recipe,
   eventsOf,
   latestTransport,
-  linear_graph_recipe,
-  llm_chat_graph_recipe,
 } from './_e2e_fixtures.js';
 
 // ---------------------------------------------------------------------------
 // 1. 真 MemoryStorage 生命周期闭环（装配落库 → 跑图 → 二次续链 → 幂等关停）
 // ---------------------------------------------------------------------------
 describe('真 MemoryStorage 生命周期闭环', () => {
-  it('boot 落 records；engine 跑图落 checkpoints；二次续链不断链；close 幂等', async () => {
+  it('boot 落 records；组装回合落 checkpoints；二次续聊不断链；close 幂等', async () => {
     const host = new E2eHost();
-    const runtime = await boot_runtime(host, e2e_recipe({ graph_recipe: linear_graph_recipe }));
+    const runtime = await boot_runtime(host, e2e_recipe());
     // records 通道已落（harness 定义经 records 持久化，可读回 = 已写盘）
     const saved = await runtime.harness_repository!.get('forge');
     expect(saved).not.toBeNull();
-    // 第一回合：终态 checkpoint + 事件日志均已落真存储
-    const first = await runtime.engine!.ainvoke(
-      { input: '第一回合' },
-      { thread_id: 't-life', round_id: 'r1' },
-    );
+    // 第一回合（组装出本轮数据图执行）：终态 checkpoint + 事件日志均已落真存储
+    const first = await runtime.assemble_round({
+      state: { input: '第一回合' },
+      thread_id: 't-life',
+      round_id: 'r1',
+    });
     expect(first.checkpoint_id).not.toBeNull();
     const cps1 = await runtime.storage!.list_checkpoints('t-life', { limit: 100 });
     expect(cps1.length).toBeGreaterThan(0);
     const events = await runtime.storage!.events_after('t-life', 0);
     expect(events.length).toBeGreaterThan(0);
-    // 同一实例二次跑（continue_chain 续链）：链尾续接不击穿
-    const second = await runtime.engine!.ainvoke(
-      { input: '第二回合' },
-      { thread_id: 't-life', round_id: 'r2', continue_chain: true },
-    );
+    // 同一实例二次续聊（新回合自动续链）：链尾续接不击穿
+    const second = await runtime.assemble_round({
+      state: { input: '第二回合' },
+      thread_id: 't-life',
+      round_id: 'r2',
+    });
     expect(second.checkpoint_id).not.toBeNull();
     const cps2 = await runtime.storage!.list_checkpoints('t-life', { limit: 100 });
     expect(cps2.length).toBeGreaterThan(cps1.length);
-    expect((second.state as Record<string, unknown>)['reply']).toBe('回合:第二回合');
+    expect((second.state as Record<string, unknown>)['reply']).toBe(ENGINE_STUB_REPLY);
     // 链一致性纯校验：无悬挂/回退/跨线程违规
     const violations = await validate_chain(runtime.storage!, 't-life');
     expect(violations).toEqual([]);
@@ -259,7 +261,7 @@ describe('CachingLLM + 真 MemoryStorage 缓存闭环', () => {
 // 4. Runtime 组装接线冒烟（boot 种子 + MemoryStorage + 真适配器 → engine 可跑）
 // ---------------------------------------------------------------------------
 describe('Runtime 组装接线冒烟', () => {
-  it('boot 配方直注 + 真存储 + 真适配器装配出的 engine 可 ainvoke（假服务流式）', async () => {
+  it('boot 配方直注 + 真存储 + 真适配器：组装回合经 llm_decider 可 ainvoke（假服务流式）', async () => {
     const server = new FakeOpenAIServer({ content: '你好，世界' });
     await server.start();
     const host = new E2eHost(
@@ -271,18 +273,17 @@ describe('Runtime 组装接线冒烟', () => {
       }),
     );
     try {
-      const runtime = await boot_runtime(
-        host,
-        e2e_recipe({ graph_recipe: llm_chat_graph_recipe }),
-      );
-      // 配方缺省 Host.resolve_llm 已装配真适配器（被守卫链包装）
+      const runtime = await boot_runtime(host, e2e_recipe());
+      // 配方缺省 Host.resolve_llm 已装配真适配器（rebuild_engine 记录已解析链）
       expect(runtime.engine_llm).not.toBeNull();
       expect(host.storage).toBe(runtime.storage!.inner);
       const transport = latestTransport(host);
-      const result = await runtime.engine!.ainvoke(
-        { input: '打个招呼' },
-        { thread_id: 't-asm', round_id: 'r', transports: [transport] },
-      );
+      const result = await runtime.assemble_round({
+        state: { input: '打个招呼' },
+        thread_id: 't-asm',
+        round_id: 'r',
+        transports: [transport],
+      });
       expect((result.state as Record<string, unknown>)['reply']).toBe('你好，世界');
       const tokens = eventsOf(transport, 'reply_token')
         .map((e) => String(e.payload['token'] ?? ''))

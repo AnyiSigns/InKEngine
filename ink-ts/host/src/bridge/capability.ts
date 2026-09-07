@@ -9,9 +9,9 @@
  *
  * 字段消费：auto_approve_tools / auto_approve_all_review → host
  * interrupt_policy 并入（活读策略实例，put 后下个请求生效）；max_tool_rounds
- * → 已声明的装配位记录（宿主不再产静态图；工具回合上限真实消费点在引擎
- * llm_decider 节点 config，池种子/登记数据携带，见 CODING §10）。推演档位
- * 语义已移除（不设档位直接开启），历史残留键读档丢弃。
+ * → rounds.send 每次活读随回合传引擎（无记录 = 引擎缺省 8），引擎组装把值
+ * 写入 llm_decider 节点 config 生效（声明 → 组装图运行值；能力/设置面回显）。
+ * 推演档位语义已移除（不设档位直接开启），历史残留键读档丢弃。
  *
  * baseline（常驻必带集）：引擎运行时单源（runtime.baseline_names /
  * set_baseline_names——注入面与检索面读同一份数据），capability.json 镜像
@@ -48,6 +48,9 @@ function ephemeralCapabilityStore(): CapabilityStore {
     put: (patch: Record<string, unknown>): CapabilityRecord => {
       cached = parseRecord({ ...cached, ...patch });
       return cached;
+    },
+    reload: (): void => {
+      // 内存兜底形态无磁盘真源：保持当前状态
     },
   };
 }

@@ -10,7 +10,7 @@
  * 形状，core 零随机零 IO 可复现）；thread 标签时间戳经模块时钟注入面。
  */
 
-import type { Engine } from '../executor/index.js';
+import type { AsyncLLM } from '../llm/_guard_types.js';
 import type { GraphRegistries } from '../registry/registry.js';
 import type { EnginePoolSeed } from '../nodes/index.js';
 import type { KnowledgeSet } from '../knowledge_set/index.js';
@@ -32,7 +32,6 @@ import type { ToolVectorIndex } from '../tool_index/tool_index.js';
 import type { ToolSelector } from '../tool_orchestrator/tool_orchestrator.js';
 import type { PathAssemblyFlags } from '../contracts/contracts.js';
 import type { ToolSpec } from '../llm/tools.js';
-import type { AsyncLLM } from '../llm/_guard_types.js';
 import type { GrowthPipeline } from '../growth/index.js';
 import type { EntityEvolutionPipeline } from '../entity_evolution/index.js';
 import type { DefaultEvolutionWriter } from '../evolution_writer/evolution_writer.js';
@@ -43,7 +42,6 @@ import type { KnowledgeSkillStore } from '../skill_crystal/knowledge_skill_store
 import type { PathAssemblyRuntime } from '../path_assembler/runtime.js';
 import type { EnvironmentProviders } from '../environments/providers.js';
 import type { ContextMixer } from '../context/context_mixer.js';
-import type { Storage } from '../storage/storage.js';
 import type { EngineTransport } from '../events/events.js';
 import type { _RoundStepsRecorder } from './_round_steps_recorder.js';
 import type { AssemblyRecipe, Host, RuntimeConfigInit } from './_types.js';
@@ -122,9 +120,6 @@ export abstract class RuntimeBase {
   _active_ticket_id: string | null = null;
   _active_run_task: { done(): boolean; cancel(): void; then(...a: unknown[]): unknown } | null = null;
   _active_run_thread: string | null = null;
-  // 引擎重建缓存身份（配置/工具表变更才重建；is 比较 + 工具表名集合）
-  _engine_storage: Storage | null = null;
-  _engine_spec_key: readonly string[] | null = null;
   // 在途知识落库任务集合 + 变更钩子
   _persist_tasks: Set<Promise<unknown>> = new Set();
   _knowledge_mutation_hook: (() => void) | null = null;
@@ -136,8 +131,8 @@ export abstract class RuntimeBase {
    *  Python 侧 McpClientManager 属引擎 adapters/宿主装配面，未迁入 core。 */
   mcp_manager: { close_all(): Promise<unknown> } | null = null;
 
-  /** 观察传输链（宿主/壳挂载面：serve 事件订阅 / run 实时进度等——宿主无
-   *  静态引擎时按此链把回合事件转发给观察者；每轮回合引擎重建都带上本链，
+  /** 观察传输链（宿主/壳挂载面：serve 事件订阅 / run 实时进度等——引擎无
+   *  常驻静态引擎，按此链把回合事件转发给观察者；每轮回合引擎重建都带上本链，
    *  与 _engine_transports 自接线传输同路）。 */
   round_transports: EngineTransport[] = [];
 
@@ -191,7 +186,9 @@ export abstract class RuntimeBase {
   _baseline_names: ReadonlySet<string> = BASELINE_TOOL_NAMES;
   _ui_factory_components: ReadonlySet<string> = new Set();
   _ui_components_disabled: ReadonlySet<string> = new Set();
-  engine: Engine | null = null;
+  // 常驻引擎句柄已废除：回合引擎 = 组装出数据图后按图构建（_build_graph_engine
+  // 或 assemble_round），无静态引擎态是常态；此处只保留已解析宿主 LLM 链
+  // （rebuild_engine 刷新/stop 关停），不再有任何常驻 Engine 字段。
   engine_llm: AsyncLLM | null = null;
 
   // ── 回合沉淀/记录器装配产物（引擎自接线：ledger/池治理/回合步骤）──

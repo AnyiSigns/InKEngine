@@ -22,6 +22,7 @@ import {
   BOOT_EVENT_TYPES,
   BOOT_UI_SPEC,
   RunOptions,
+  ToolGateConfig,
   boot_harness_definition,
   build_boot_seed_entries,
   make_self_executor,
@@ -56,10 +57,14 @@ export interface ProductSwitchOverrides {
   run_options?: Partial<RunOptions> | null;
 }
 
-/** 配方构建选项（approval_levels/ui 白名单属产品配置表；无图配方位——
+/** 配方构建选项（approval_levels/tool_gate/ui 白名单属产品配置表；无图配方位——
  *  回合 = 组装出本轮数据图，宿主不产任何静态/默认图）。 */
 export interface ProductRecipeInit extends ProductSwitchOverrides {
   approval_levels?: Record<string, unknown> | null;
+  /** 统一工具流水线门禁装配数据（null/缺省 = 引擎默认 DENY 兜底无 review
+   *  档——现行为不变）。review_tools = 权限命中的工具仍转审批挂卡（产品
+   *  声明的工具审批档；autoApprove/直过名单语义仍走宿主 interrupt_policy）。 */
+  tool_gate?: ToolGateConfig | null;
   ui_allowed_components?: readonly string[];
   ui_allowed_theme_tokens?: readonly string[];
 }
@@ -162,8 +167,7 @@ export function assert_product_switches_all_on(): void {
 /**
  * 构建产品 AssemblyRecipe：十位机制开关经 init 字段/run_options 逐位真实
  * 消费（见 PRODUCT_SWITCH_DEFAULTS）。图 = 数据（引擎池种子 / 组装产物），
- * 配方不产任何图配方（graph_recipe 恒为引擎缺省 null）；检索源由装配方
- * （createHost）注入 recipe.retrieval_sources。
+ * 配方不产任何图；检索源由装配方（createHost）注入 recipe.retrieval_sources。
  */
 export function build_product_recipe(
   init: ProductRecipeInit = {},
@@ -183,8 +187,31 @@ export function build_product_recipe(
     ],
     tool_wiring: product_tool_wiring(),
     approval_levels: (init.approval_levels ?? {}) as Record<string, unknown>,
+    tool_gate: init.tool_gate ?? null,
     ...assembly_flags_from(init),
   });
   recipe.run_options = run_options_from(init);
   return recipe;
+}
+
+/** 能力记录工具档位（tier_overrides）→ 门禁装配数据：'review' 档工具并入
+ *  review_tools（装配期注入，重启后生效）；'allow' 档 = 权限命中常态直过，
+ *  无门禁档位动作（未声明权限仍走 DENY 兜底）。门禁数据 + 能力档位并集，
+ *  不丢配方既有 default_policy/review_tools。 */
+export function merge_capability_tier_gate(
+  gate: ToolGateConfig | null,
+  tier_overrides: Record<string, unknown> | null | undefined,
+): ToolGateConfig | null {
+  const reviews: string[] = [];
+  if (tier_overrides !== null && tier_overrides !== undefined) {
+    for (const [name, value] of Object.entries(tier_overrides)) {
+      if (value === 'review') reviews.push(name);
+    }
+  }
+  if (reviews.length === 0) return gate;
+  const baseTools = gate !== null ? [...gate.review_tools] : [];
+  return new ToolGateConfig({
+    default_policy: gate !== null ? gate.default_policy : undefined,
+    review_tools: [...new Set([...baseTools, ...reviews])],
+  });
 }

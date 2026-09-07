@@ -25,6 +25,39 @@ export type BridgeHandler = (
   ctx: BridgeContext,
 ) => Promise<unknown> | unknown;
 
+/** 宿主命令闸（backup.restore 等维护操作期间拒绝并发 bridge 请求）。 */
+export interface HostOpGate {
+  /** 进行中的维护操作名（null = 空闲）。 */
+  readonly op: string | null;
+  /** 进入维护操作（已在进行 = 显式报错）。 */
+  begin(op: string): void;
+  /** 退出维护操作（幂等）。 */
+  end(): void;
+  /** 断言空闲（维护期间并发请求显式拒绝）。 */
+  assertIdle(): void;
+}
+
+/** backup.restore 恢复请求（备份条目已在桥层解析；编排闭包消费）。 */
+export interface BackupRestoreRequest {
+  path: string;
+  entries: ReadonlyArray<{ path: string; data: Buffer }>;
+  total: number;
+  created_at: number | null;
+}
+
+/** backup.restore 结果（编排闭包返回；含快照路径与回滚诊断）。 */
+export interface BackupRestoreOutcome {
+  restored_entries: number;
+  failed: number;
+  total_size: number;
+  snapshot: string;
+  /** 数据替换后装配失败 → 已回滚原目录并重建（非空 = 回滚说明）。 */
+  rollback_note?: string;
+}
+
+/** backup.restore 编排（createHost 注入；backup.ts restore handler 消费）。 */
+export type HostRestoreFn = (request: BackupRestoreRequest) => Promise<BackupRestoreOutcome>;
+
 /** 业务/参数错误载体：message 可回给请求方（非内部异常细节），code 供归类。 */
 export class BridgeError extends Error {
   readonly code: string;
@@ -76,6 +109,10 @@ export interface HostBridgeDeps {
   seed_dir?: string;
   /** MCP 管理器（H1 装配段产物；mcp.market 挂载态/mount/unmount 消费）。 */
   mcpManager?: McpClientManager | null;
+  /** 宿主命令闸（buildBridge 包装各方法；backup.restore 期间拒绝并发）。 */
+  gate?: HostOpGate;
+  /** backup.restore 恢复编排（createHost 注入：停 → 换 → 装配 → 报告）。 */
+  restore?: HostRestoreFn;
   /** 最近在途 run 取消句柄登记（rounds.abort 经 runtime 中止）。 */
 }
 

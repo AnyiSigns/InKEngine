@@ -112,14 +112,9 @@ export function buildTodosHandlers(deps: HostBridgeDeps): ReadonlyMap<string, Br
         todo.push(planStepTodo(step as Record<string, unknown>, i));
       }
     }
-    const engine = deps.runtime.engine;
-    if (engine !== null) {
-      const card = await engine.get_latest_interrupt(thread_id).catch(() => null);
-      if (card !== null) {
-        todo.push(
-          cardTodo(card as unknown as InterruptCard),
-        );
-      }
+    // 引擎无常驻静态引擎：挂起审批卡读链尾 checkpoint interrupt（引擎链尾态）
+    if (checkpoint !== null && checkpoint.interrupt !== null) {
+      todo.push(cardTodo(checkpoint.interrupt as unknown as InterruptCard));
     }
     return { thread_id, todo };
   };

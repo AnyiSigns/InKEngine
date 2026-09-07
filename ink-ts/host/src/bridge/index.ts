@@ -160,6 +160,14 @@ export type BridgeMethod = (typeof BRIDGE_METHODS)[number];
  * 新增组先实现再登记清单。
  */
 export function buildBridge(deps: HostBridgeDeps): ReadonlyMap<string, BridgeHandler> {
+  const gate = deps.gate ?? null;
+  const wrap = (handler: BridgeHandler): BridgeHandler =>
+    gate === null
+      ? handler
+      : async (params, ctx): Promise<unknown> => {
+          gate.assertIdle();
+          return handler(params, ctx);
+        };
   const groups = [
     buildRoundsHandlers(deps),
     buildTodosHandlers(deps),
@@ -213,5 +221,10 @@ export function buildBridge(deps: HostBridgeDeps): ReadonlyMap<string, BridgeHan
       throw new Error(`BRIDGE_METHODS 已声明但未实现: ${name}`);
     }
   }
-  return methods;
+  // 维护闸包装：restore 期间所有方法（含再次 restore）在入口即被拒绝
+  const wrapped = new Map<string, BridgeHandler>();
+  for (const [name, handler] of methods) {
+    wrapped.set(name, wrap(handler));
+  }
+  return wrapped;
 }

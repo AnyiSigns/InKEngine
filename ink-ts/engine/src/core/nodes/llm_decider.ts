@@ -33,7 +33,7 @@ import type { ToolPipeline } from '../tool_pipeline/tool_pipeline.js';
 import type { ToolSpec } from '../llm/tools.js';
 import type { NodeFactory } from '../registry/registry_types.js';
 import {
-  ENGINE_DEFAULT_TOOL_ROUNDS,
+  clamp_tool_rounds,
   ENGINE_STUB_REPLY,
   STATE_MESSAGES,
   STATE_REPLY,
@@ -52,14 +52,6 @@ interface _DeciderCtx {
   terminate?(reason: string, meta?: Record<string, unknown>): void;
   account_usage?(usage: Record<string, unknown> | null): void;
   canary_active?: boolean;
-}
-
-/** 回合工具上限解析（config 缺省引擎常量；防失控循环，域 1..200）。 */
-function _round_cap(raw: unknown): number {
-  if (typeof raw === 'number' && Number.isFinite(raw)) {
-    return Math.min(200, Math.max(1, Math.trunc(raw)));
-  }
-  return ENGINE_DEFAULT_TOOL_ROUNDS;
 }
 
 /** 归一会话附件载荷为引擎 Attachment（经数据面 dict 直构）。 */
@@ -201,7 +193,7 @@ export function llm_decider_contract(): NodeContract {
 export function make_llm_decider_factory(box: _EngineNodeSeamsBox): NodeFactory {
   return (config: Record<string, unknown>) => {
     const system_prompt = String(config['system_prompt'] ?? '');
-    const max_rounds = _round_cap(config['max_tool_rounds']);
+    const max_rounds = clamp_tool_rounds(config['max_tool_rounds']);
     const node_name = String(config['name'] ?? '');
 
     return async (raw: unknown): Promise<Record<string, unknown> | null> => {

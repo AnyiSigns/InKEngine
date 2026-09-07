@@ -10,7 +10,7 @@
 import { afterEach, describe, expect, it } from 'vitest';
 
 import { Runtime, AssemblyRecipe } from '../../../src/core/runtime/index.js';
-import type { Host, GraphRecipeContext } from '../../../src/core/runtime/index.js';
+import type { Host } from '../../../src/core/runtime/index.js';
 import { set_default_assembly_runtime } from '../../../src/core/path_assembler/index.js';
 import { AssemblyRequest } from '../../../src/core/path_assembler/index.js';
 import {
@@ -69,15 +69,7 @@ function toHost(host: FakeHost): Host {
   return host as unknown as Host;
 }
 
-/** 回声图（graph_recipe 占位：本批保留既有配方，引擎内置类型旁挂注册）。 */
-function _echo_graph_recipe(_ctx: GraphRecipeContext): Graph {
-  const g = new Graph({ name: 'echo', entry: 'agent' });
-  g.add_node('agent', (async () => ({ reply: 'ok' })) as never);
-  g.add_exit('agent');
-  return g;
-}
-
-/** 最小装配配方（机制开关默认全开；graph_recipe = 回声图）。 */
+/** 最小装配配方（机制开关默认全开；无常驻静态引擎 = 常态）。 */
 function _minimal_recipe(overrides: Partial<AssemblyRecipe> = {}): AssemblyRecipe {
   const base = new AssemblyRecipe({
     set_id: 'a1-boot',
@@ -93,7 +85,6 @@ function _minimal_recipe(overrides: Partial<AssemblyRecipe> = {}): AssemblyRecip
       self_operation_of: (spec) => operation_of(spec),
     },
     approval_levels: {},
-    graph_recipe: _echo_graph_recipe,
   });
   return Object.assign(base, overrides);
 }

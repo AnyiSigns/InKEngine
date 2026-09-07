@@ -15,7 +15,7 @@
  * 可变状态快照（工具表/流水线/装配源等随挂载/补丁演化而变化的装配
  * 产物）。正确形态 = 实时引用：以 registry 实例为键持有最新装配源，
  * 节点执行时现取，重建后新装配源对既有节点立即可见。快照闭包 = 重建后
- * 节点读到过期装配源（见 runtime GraphRecipeContext 契约）。
+ * 节点读到过期装配源（见 runtime 装配 seam 契约）。
  */
 
 import { GraphDefinitionError } from '../errors.js';

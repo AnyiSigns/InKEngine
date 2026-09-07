@@ -1,11 +1,11 @@
 /**
  * @ink-ts/host 装配入口（createHost）：composition root。
  *
- * 读配置（config.ts）→ 实现 Host 五件套（host.ts）→ 构建产品配方
- * （recipe.ts：机制开关默认全开，图 = 数据——引擎池种子/组装产物，宿主
- * 不产任何图）→ 装配宿主检索域（retrieval/domain.ts：向量/FTS 检索源 +
- * data_dir 文档库）→ Runtime.boot 装配 → buildBridge 出宿主命令面。
- * 机制语义全在 engine；本包只装配不复制。
+ * 读配置（config.ts）→ 持久件（docService/search 密钥域/workspace/capability
+ * 台账，跨装配复用）→ assembleHostParts（boot.ts：产品配方 + Runtime.boot +
+ * 检索域 + 工具嵌入 seam + MCP）→ buildBridge 出宿主命令面。
+ * 机制语义全在 engine；本包只装配不复制。backup.restore 复用同一装配做
+ * 「停 → 换 → 重新装配」（boot.ts 每 boot 产物可整体替换，宿主命令面不重建）。
  *
  * 回合 = run 级组装出本轮数据图再执行；本包不再有静态/默认图配方，亦不再
  * 导出任何产品图（原 graph.ts 已删）。检索源属宿主领域层：装配时直注
@@ -14,28 +14,25 @@
 
 import { mkdirSync } from 'node:fs';
 
-import { Runtime } from '@ink-ts/engine';
-import type { Host } from '@ink-ts/engine';
-import type { McpClientManager } from '@ink-ts/engine';
+import type { Runtime, McpClientManager } from '@ink-ts/engine';
 
-import type { BridgeHandler, ModelConfigHandles } from './bridge/_types.js';
+import { createRestoreRunner } from './backup/restore_runtime.js';
+import { assembleHostParts } from './boot.js';
+import type { HostBootParts } from './boot.js';
+import type { BridgeHandler, HostBridgeDeps, ModelConfigHandles } from './bridge/_types.js';
 import { buildBridge } from './bridge/index.js';
-import { HostConfigError, resolve_host_config } from './config.js';
+import { createHostOpGate } from './bridge/op_gate.js';
+import { resolve_host_config } from './config.js';
 import type { HostConfigInput, ResolvedHostConfig } from './config.js';
 import { DocService } from './doc/service.js';
 import { createCapabilityStore } from './capability/store.js';
-import { InkHost } from './host.js';
 import { buildHostSearch } from './search/wiring.js';
+import type { InkHost } from './host.js';
 import { createWorkspaceStore } from './workspace/store.js';
-import type { WorkspaceStore } from './workspace/store.js';
-import { build_product_recipe } from './recipe.js';
 import type { ProductRecipeInit } from './recipe.js';
-import { buildHostRetrieval } from './retrieval/domain.js';
 import type { HostRetrievalDomain } from './retrieval/domain.js';
-import { SyncEmbedderSeam } from './retrieval/sync_seam.js';
-import { attachToolIndexEmbedder } from './retrieval/sync_seam.js';
-import { assembleHostMcp } from './mcp/assembly.js';
-import type { HostMcpConfig, McpConnectStatus } from './mcp/assembly.js';
+import type { SyncEmbedderSeam } from './retrieval/sync_seam.js';
+import type { McpConnectStatus } from './mcp/assembly.js';
 
 /** createHost 装配产物（cli/web/vitest 消费面）。 */
 export interface HostHandle {
@@ -65,7 +62,10 @@ function modelConfigHandles(host: InkHost): ModelConfigHandles {
 }
 
 /**
- * 装配 host：配置解析 → 五件套 + 配方 → 检索域 → Runtime.boot → bridge。
+ * 装配 host（composition root）：解析配置 → 持久件（docService/search 密钥
+ * 域/workspace/capability 台账，跨装配复用）→ assembleHostParts（runtime/
+ * 引擎/检索域/MCP，restore 后可整体替换）→ bridge（deps 字段为活引用，restore
+ * 重装后原位更新——CLI/长驻进程持有的方法表无需重建）。
  *
  * @param config 运行配置（storage uri / 角色槽模型端点 / autoApprove 等；
  *   缺省 sqlite 落 data_dir + fail-closed，见 config.ts）。
@@ -78,59 +78,93 @@ export async function createHost(
   const resolved = resolve_host_config(config);
   mkdirSync(resolved.events_dir, { recursive: true });
   mkdirSync(resolved.data_dir, { recursive: true });
-  const retrieval = buildHostRetrieval(resolved.data_dir);
-  const workspaceStore = createWorkspaceStore(resolved.data_dir);
-  const capabilityStore = createCapabilityStore(resolved.data_dir);
-  const inkHost = new InkHost(resolved, () => capabilityStore.get());
-  const assemblyRecipe = build_product_recipe(recipe ?? {});
-  for (const factory of retrieval.sourceFactories()) {
-    assemblyRecipe.retrieval_sources.push(factory as never);
-  }
-  const runtime = new Runtime();
-  await runtime.boot(inkHost as unknown as Host, assemblyRecipe);
-  // tool_index 语义检索：把检索域嵌入器接入引擎工具索引（真向量态预热，
-  // tools.full 随 uses_vectors=true 可观测；失败只跳过不击穿 boot）。
-  let toolEmbedder: SyncEmbedderSeam | null = null;
-  try {
-    toolEmbedder = await attachToolIndexEmbedder(runtime, retrieval.adapter);
-  } catch {
-    toolEmbedder = null;
-  }
-  // MCP 装配：管理器 → 引擎声明式执行器 + runtime seam；配置连接内置 server。
-  const mcp = await assembleHostMcp(runtime, resolved.mcp);
   mkdirSync(resolved.attachment_dir, { recursive: true });
   const docService = new DocService({ maxChars: resolved.round_doc_text_cap ?? undefined });
   const search = buildHostSearch();
-  const declarative = runtime.harness_registry?.declarative;
-  if (declarative !== null && declarative !== undefined) {
-    search.register(declarative as never);
-  }
-  const bridge = buildBridge({
-    runtime,
-    host: inkHost,
+  const workspaceStore = createWorkspaceStore(resolved.data_dir);
+  const capabilityStore = createCapabilityStore(resolved.data_dir);
+  const gate = createHostOpGate();
+  const bootInput = {
+    resolved,
+    recipe: recipe ?? null,
+    capability: capabilityStore,
+    search,
+  };
+
+  let parts: HostBootParts = await assembleHostParts(bootInput);
+  const deps: HostBridgeDeps = {
+    runtime: parts.runtime,
+    host: parts.inkHost,
     autoApprove: resolved.autoApprove,
+    modelConfig: modelConfigHandles(parts.inkHost),
     attachment_dir: resolved.attachment_dir,
     docTextCap: resolved.round_doc_text_cap,
     docParse: docService,
     searchKeys: search.keys,
     workspace: workspaceStore,
     capability: capabilityStore,
-    modelConfig: modelConfigHandles(inkHost),
     data_dir: resolved.data_dir,
     seed_dir: resolved.seed_dir,
-    mcpManager: mcp.manager,
+    mcpManager: parts.mcpManager,
+    gate,
+  };
+
+  /** 活引用切换：reboot/restore 后把桥 deps 指向新装配件（原方法表复用）。 */
+  const applyParts = (next: HostBootParts): void => {
+    deps.runtime = next.runtime;
+    deps.host = next.inkHost;
+    deps.modelConfig = modelConfigHandles(next.inkHost);
+    deps.mcpManager = next.mcpManager;
+  };
+
+  /** 重装配（restore 目录替换后调用）：台账重读 + 新装配 + 活引用切换。 */
+  const reboot = async (): Promise<void> => {
+    workspaceStore.reload();
+    capabilityStore.reload();
+    parts = await assembleHostParts(bootInput);
+    applyParts(parts);
+  };
+
+  /** restore 编排：先停 runtime（中止在途 run/引擎/存储写通道）→ 快照 →
+   *  目录替换 → reboot；失败回滚到可诊断态（restore_runtime.ts）。 */
+  const restore = createRestoreRunner({
+    data_dir: resolved.data_dir,
+    halt: async (): Promise<void> => {
+      const current = parts;
+      try {
+        await current.runtime.abort_current_run();
+      } catch {
+        // 中止在途 run 失败：继续关停（stop 会排空/收口）
+      }
+      await current.runtime.stop();
+      await current.retrieval.close();
+    },
+    reboot,
   });
+  deps.restore = restore;
+
+  const bridge = buildBridge(deps);
   const handle: HostHandle = {
-    runtime,
+    get runtime(): Runtime {
+      return parts.runtime;
+    },
     bridge,
     config: resolved,
-    retrieval,
-    toolEmbedder,
-    mcpManager: mcp.manager,
-    mcpStatus: mcp.status,
+    get retrieval(): HostRetrievalDomain {
+      return parts.retrieval;
+    },
+    get toolEmbedder(): SyncEmbedderSeam | null {
+      return parts.toolEmbedder;
+    },
+    get mcpManager(): McpClientManager | null {
+      return parts.mcpManager;
+    },
+    get mcpStatus(): McpConnectStatus[] {
+      return parts.mcpStatus;
+    },
     dispose: async (): Promise<void> => {
-      await runtime.stop();
-      await retrieval.close();
+      await parts.runtime.stop();
+      await parts.retrieval.close();
     },
   };
   return handle;

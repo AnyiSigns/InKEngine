@@ -3,7 +3,8 @@
  * rounds 命令面（send/abort/resume/branch）——宿主薄驱动，不复制引擎机制。
  *
  * send 走 Runtime run 级组装回合（assemble_round：本轮图 = 组装产物图，非
- * 默认图）+ 在途 run 登记（队列保护）；abort 经 Runtime.abort_current_run
+ * 默认图；每次 send 现读能力记录 max_tool_rounds → 覆写本轮 llm_decider
+ * config）+ 在途 run 登记（队列保护）；abort 经 Runtime.abort_current_run
  * （JS 平台取消模型降级：取消投递后引擎后台自然收尾，CANCELLED 快照锚点由
  * runtime 写）；resume = 审批决议重入（runtime.resume_run，按 checkpoint 关联
  * 图重建本轮 Engine）；branch = 从既有链叶续跑的分支回合（runtime.resume_round
@@ -137,6 +138,9 @@ export function buildRoundsHandlers(deps: HostBridgeDeps): ReadonlyMap<string, B
   async function serialized<T>(
     run: (transport: FileEventsTransport) => Promise<T>,
   ): Promise<{ value: T; transport: FileEventsTransport }> {
+    // 队列内请求开始执行时二次确认空闲：restore 维护期到达队首的在途
+    // 请求在此被拒（restore 会中止/排空当前 run，不给目录替换留写窗口）
+    if (deps.gate !== undefined) deps.gate.assertIdle();
     const transport = deps.host.build_transport() as FileEventsTransport;
     const prev = queue;
     let release!: () => void;
@@ -229,6 +233,16 @@ function resultWarnings(warnings: string[]): Record<string, unknown> {
     const trace_id = params.trace_id ?? shortId('trace');
     const prepared = await prepare(params, deps);
 
+    // 工具回合上限活读面（与 capability/approval 同模式：每次 send 现取能力
+    // 记录，put 后下轮即生效；无记录 = 引擎缺省）。绑定边界 = 宿主会话级单点
+    // 配置（capability.json 当前为全局单档，非 per-thread/per-model——模型切换
+    // 走 models 槽位不影响本记录；per-thread/model 维度待能力记录演进再扩展）。
+    const capability = deps.capability?.get() ?? null;
+    const max_tool_rounds =
+      capability !== null && typeof capability.max_tool_rounds === 'number'
+        ? capability.max_tool_rounds
+        : undefined;
+
     let result: RoundOutcome;
     let transport: FileEventsTransport;
     try {
@@ -239,6 +253,7 @@ function resultWarnings(warnings: string[]): Record<string, unknown> {
             thread_id,
             round_id,
             trace_id,
+            ...(max_tool_rounds !== undefined ? { max_tool_rounds } : {}),
             transports: [transportForRun],
           }),
           t,

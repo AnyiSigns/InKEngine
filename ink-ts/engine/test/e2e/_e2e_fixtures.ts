@@ -8,16 +8,12 @@
  * 与 Python 端 stdio 配方同构，纯引擎侧、零后端代码。
  */
 import { Runtime, AssemblyRecipe } from '../../src/core/runtime/index.js';
-import type {
-  GraphRecipeContext,
-  Host,
-} from '../../src/core/runtime/index.js';
+import type { Host } from '../../src/core/runtime/index.js';
 import type { AsyncLLM } from '../../src/core/llm/base.js';
 import type { Storage } from '../../src/core/storage/storage.js';
 import { create_memory_storage, type MemoryStorage } from '../../src/adapters/storage/index.js';
 import {
   BOOT_EVENT_TYPES,
-  BOOT_SYSTEM_PROMPT,
   BOOT_UI_SPEC,
   boot_harness_definition,
   build_boot_seed_entries,
@@ -25,8 +21,6 @@ import {
 import { DefaultInterruptPolicy } from '../../src/core/approval/approval.js';
 import { CollectorTransport } from '../../src/core/events/events.js';
 import type { EngineTransport, EngineEvent } from '../../src/core/events/events.js';
-import { Graph } from '../../src/core/graph/graph.js';
-import { system, user } from '../../src/core/llm/messages.js';
 import {
   make_self_executor,
   operation_of,
@@ -94,7 +88,8 @@ export function eventsOf(
 
 /**
  * 最小装配配方（镜像 build_stdio_recipe）：boot 直注全部引导数据资产；
- * graph_recipe 缺省 = 回声图（无模型依赖）。set_id 每次唯一，多集隔离。
+ * 引擎无常驻静态图——回合 = 组装出本轮数据图再执行（无模型 = 确定性 stub）。
+ * set_id 每次唯一，多集隔离。
  */
 export function e2e_recipe(
   overrides: Partial<AssemblyRecipe> = {},
@@ -119,65 +114,6 @@ export function e2e_recipe(
     approval_levels: {},
   });
   return Object.assign(base, overrides);
-}
-
-/** 回声图：entry（写 count/reply）→ exit（写 done）。无模型依赖。 */
-export function linear_graph_recipe(_ctx: GraphRecipeContext): Graph {
-  const agent = async (
-    ctx: { state: Record<string, unknown> },
-  ): Promise<Record<string, unknown>> => ({
-    count: ((ctx.state['count'] as number | undefined) ?? 0) + 1,
-    reply: `回合:${String(ctx.state['input'] ?? '')}`,
-  });
-  const finish = async (
-    ctx: { state: Record<string, unknown> },
-  ): Promise<Record<string, unknown>> => ({
-    done: true,
-    seen: ctx.state['count'] ?? null,
-  });
-  const g = new Graph({ name: 'linear', entry: 'agent' });
-  g.add_node('agent', agent as never);
-  g.add_node('finish', finish as never);
-  g.add_edge('agent', 'finish');
-  g.add_exit('finish');
-  return g;
-}
-
-/**
- * 模型回复图（镜像 build_stdio_graph 的最小面）：agent 节点用 ctx.llm
- * （引擎装配的守卫链，末端为真适配器）流式调用，token 逐帧发 reply_token
- * 事件并累积为 state.reply → exit。无工具循环，装配接线冒烟用。
- */
-export function llm_chat_graph_recipe(ctx: GraphRecipeContext): Graph {
-  const llm = ctx.llm;
-  const agent = async (
-    rawCtx: unknown,
-  ): Promise<Record<string, unknown>> => {
-    const nodeCtx = rawCtx as {
-      state: Record<string, unknown>;
-      emit(type: string, payload: Record<string, unknown>): Promise<void>;
-    };
-    if (llm === null || llm === undefined) {
-      throw new Error('装配冒烟需注入模型（Host.resolve_llm 返回真适配器）');
-    }
-    const messages = [
-      system(BOOT_SYSTEM_PROMPT),
-      user(String(nodeCtx.state['input'] ?? '')),
-    ];
-    let reply = '';
-    const stream = llm.astream(messages, { tools: null, params: null });
-    for await (const chunk of stream) {
-      if (chunk.token) {
-        reply += chunk.token;
-        await nodeCtx.emit('reply_token', { token: chunk.token });
-      }
-    }
-    return { reply };
-  };
-  const g = new Graph({ name: 'llm_chat', entry: 'agent' });
-  g.add_node('agent', agent as never);
-  g.add_exit('agent');
-  return g;
 }
 
 /** 便捷装配入口（stdio 宿主 = boot + run；此处镜像配方直注）。 */

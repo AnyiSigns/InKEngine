@@ -27,6 +27,8 @@ export interface WorkspaceStore {
   revoke(): WorkspaceState;
   addMount(path: string): WorkspaceState;
   removeMount(path: string): WorkspaceState;
+  /** 从磁盘重读缓存（data_dir 目录恢复后刷新为恢复态台账）。 */
+  reload(): void;
 }
 
 export class WorkspaceStoreError extends Error {
@@ -67,6 +69,9 @@ export function createEphemeralWorkspaceStore(): WorkspaceStore {
     removeMount: (path: string) => {
       mounts = mounts.filter((entry) => entry !== path);
       return { root, mounts };
+    },
+    reload: () => {
+      // 内存兜底形态无磁盘真源：保持当前状态
     },
   };
 }
@@ -131,6 +136,9 @@ export function createWorkspaceStore(dataDir: string): WorkspaceStore {
       const mounts = cached.mounts.filter((entry) => entry !== path);
       if (mounts.length === cached.mounts.length) return cached;
       return persist({ ...cached, mounts });
+    },
+    reload: (): void => {
+      cached = readState();
     },
   };
 }

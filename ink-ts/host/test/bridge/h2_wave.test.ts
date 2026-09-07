@@ -18,9 +18,10 @@ import { afterEach, describe, expect, it } from 'vitest';
 
 import { BRIDGE_METHODS } from '../../src/bridge/index.js';
 import { BridgeError } from '../../src/bridge/_types.js';
+import { packStoreZip } from '../../src/backup/zip_codec.js';
 import { createHost } from '../../src/index.js';
 import type { HostHandle } from '../../src/index.js';
-import { gateGraphRecipe } from '../_graphs.js';
+import { runGateCard } from '../_graphs.js';
 import { FakeOpenAIServer } from '../_fake_openai.js';
 
 const CTX = { autoApprove: false };
@@ -222,19 +223,11 @@ describe('rounds.todos（挂起审批卡待办 + 空态）', () => {
     await handle.dispose();
   });
 
-  it('gate 图经兼容静态引擎挂卡 → todos 含 approval 行；裁决后清空', async () => {
+  it('gate 数据图经 runtime 本轮引擎挂卡 → todos 含 approval 行；裁决后清空', async () => {
     const { dir, events } = dirs();
     handle = await createHost({ data_dir: dir, events_dir: events });
-    // rounds 已走组装；gate 挂卡演示经引擎静态图兼容通道（配方注入后重建）
-    const runtime = handle.runtime as unknown as {
-      _recipe: { graph_recipe: unknown };
-      rebuild_engine(): Promise<unknown>;
-    };
-    runtime._recipe.graph_recipe = gateGraphRecipe;
-    await runtime.rebuild_engine();
-    const engine = handle.runtime.engine!;
     const started = { thread_id: `gate-${Math.random().toString(36).slice(2, 10)}` };
-    await engine.ainvoke({}, { thread_id: started.thread_id, round_id: `r-${started.thread_id}`, continue_chain: true });
+    await runGateCard(handle.runtime, started.thread_id);
     const cards = (await handle.bridge.get('approval.list')!(
       { thread_id: started.thread_id },
       CTX,
@@ -642,53 +635,130 @@ describe('growth.report（自学习状态面）', () => {
   });
 });
 
-describe('backup 快照面（export/preview/restore + confirm 标记）', () => {
+describe('backup 快照面（export/preview/restore + confirm 标记；sqlite 后端）', () => {
   let handle: HostHandle;
   let root: string;
+  let marker: string;
 
   afterEach(async () => {
     await handle.dispose();
     rmSync(root, { recursive: true, force: true });
   });
 
-  it('export → 改文件 → restore 回滚（标记防误触；原目录快照保留）', async () => {
+  async function bootHost(): Promise<void> {
     const made = dirs();
     root = made.dir;
     mkdirSync(path.join(root, 'notes'), { recursive: true });
-    const marker = path.join(root, 'notes', 'marker.txt');
+    marker = path.join(root, 'notes', 'marker.txt');
     writeFileSync(marker, 'v1');
-    // 备份恢复替换整目录会覆盖 sqlite 库文件；Windows 上打开中的 db 无法
-    // rename → 本测试显式 memory://（缺省 sqlite 的恢复语义受平台锁限制，
-    // 产品级恢复须先停 runtime 再 restore）
-    handle = await createHost(
-      { data_dir: root, events_dir: made.events, storage_uri: 'memory://' },
-    );
+    // 缺省 storage_uri = sqlite 落 data_dir/ink.sqlite（B2：restore 先停
+    // runtime 再整目录替换，Windows 不再依赖显式 memory:// 规避 rename）
+    handle = await createHost({ data_dir: root, events_dir: made.events });
+    expect(handle.config.storage_uri).toContain('sqlite://');
+  }
 
+  it('sqlite 后端 export → 改动 → restore 恢复一致（先停 runtime 换库；快照保留）', async () => {
+    await bootHost();
+    const send = handle.bridge.get('rounds.send')!;
+    const chainView = handle.bridge.get('records.chain')!;
+    const first = (await send({ input: '恢复前' }, CTX)) as { thread_id: string };
+    const before = (await chainView({ thread_id: first.thread_id }, CTX)) as {
+      chain: unknown[];
+    };
+    expect(before.chain.length).toBeGreaterThan(0);
     const backupExport = handle.bridge.get('backup.export')!;
     const exported = (await backupExport({}, CTX)) as { file: string; entries: number };
     expect(exported.entries).toBeGreaterThan(0);
+
+    // 改动：追加一轮 + 改文件
+    await send({ input: '改动后', thread_id: first.thread_id }, CTX);
+    const modified = (await chainView({ thread_id: first.thread_id }, CTX)) as {
+      chain: unknown[];
+    };
+    expect(modified.chain.length).toBeGreaterThan(before.chain.length);
+    writeFileSync(marker, 'v2');
 
     const preview = (await handle.bridge.get('backup.preview')!(
       { path: exported.file },
       CTX,
     )) as { entries_total: number; has_db: boolean };
     expect(preview.entries_total).toBe(exported.entries);
-    expect(typeof preview.has_db).toBe('boolean');
+    expect(preview.has_db).toBe(true);
 
-    writeFileSync(marker, 'v2');
-    await expect(
-      handle.bridge.get('backup.restore')!({ path: exported.file }, CTX),
-    ).rejects.toMatchObject({ code: 'invalid_params' });
+    await expect(handle.bridge.get('backup.restore')!({ path: exported.file }, CTX)).rejects.toMatchObject({
+      code: 'invalid_params',
+    });
 
     const restored = (await handle.bridge.get('backup.restore')!(
       { path: exported.file, confirm: 'backup-restore' },
       CTX,
-    )) as { restored_entries: number; snapshot: string };
+    )) as { restored_entries: number; has_db: boolean; snapshot: string };
     expect(restored.restored_entries).toBeGreaterThan(0);
+    expect(restored.has_db).toBe(true);
     expect(readFileSync(marker, 'utf8')).toBe('v1');
     // 原目录快照保留在 data_dir/snapshots（快照为同一 data_dir 打包产物）
     expect(restored.snapshot.startsWith(path.join(root, 'snapshots'))).toBe(true);
     expect(existsSync(restored.snapshot)).toBe(true);
+
+    // restore 后 runtime 已重新装配：链回到备份时形态且可继续驱动回合
+    const after = (await chainView({ thread_id: first.thread_id }, CTX)) as {
+      chain: unknown[];
+    };
+    expect(after.chain.length).toBe(before.chain.length);
+    const resumed = (await send({ input: '恢复后', thread_id: first.thread_id }, CTX)) as {
+      reason: string;
+    };
+    expect(resumed.reason).toMatch(/^(ok|reply)$/);
+  });
+
+  it('restore 期间并发请求被拒（维护闸 restore_in_progress）', async () => {
+    await bootHost();
+    const backupExport = handle.bridge.get('backup.export')!;
+    const exported = (await backupExport({}, CTX)) as { file: string };
+
+    const restoring = handle.bridge.get('backup.restore')!(
+      { path: exported.file, confirm: 'backup-restore' },
+      CTX,
+    );
+    await expect(
+      handle.bridge.get('rounds.send')!({ input: '并发请求' }, CTX),
+    ).rejects.toMatchObject({ code: 'restore_in_progress' });
+    await expect(
+      handle.bridge.get('backup.restore')!({ path: exported.file, confirm: 'backup-restore' }, CTX),
+    ).rejects.toMatchObject({ code: 'restore_in_progress' });
+
+    await restoring;
+    expect(readFileSync(marker, 'utf8')).toBe('v1');
+    expect(handle.config.storage_uri).toContain('sqlite://');
+  });
+
+  it('restore 错误路径不留半替换态（坏包拒绝后原数据可查、host 可继续）', async () => {
+    await bootHost();
+    const send = handle.bridge.get('rounds.send')!;
+    const first = (await send({ input: '原数据' }, CTX)) as { thread_id: string };
+    // 恶意包：含 snapshots 首段条目 → applyRestore 预检拒绝（未动任何文件）
+    mkdirSync(path.join(root, 'backups'), { recursive: true });
+    const evil = path.join(root, 'backups', 'evil.zip');
+    writeFileSync(
+      evil,
+      packStoreZip([{ path: 'snapshots/evil.txt', data: Buffer.from('x') }]),
+    );
+
+    await expect(
+      handle.bridge.get('backup.restore')!({ path: evil, confirm: 'backup-restore' }, CTX),
+    ).rejects.toMatchObject({ code: 'backup_failed' });
+
+    // 错误路径不留半替换态：原文件仍在、链记录仍在、host 仍可驱动
+    expect(readFileSync(marker, 'utf8')).toBe('v1');
+    const chain = (await handle.bridge.get('records.chain')!(
+      { thread_id: first.thread_id },
+      CTX,
+    )) as { chain: unknown[] };
+    expect(chain.chain.length).toBeGreaterThan(0);
+    const resumed = (await send({ input: '恢复后仍可跑', thread_id: first.thread_id }, CTX)) as {
+      reason: string;
+    };
+    expect(resumed.reason).toMatch(/^(ok|reply)$/);
   });
 });
 

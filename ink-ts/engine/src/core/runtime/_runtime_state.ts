@@ -68,10 +68,7 @@ export abstract class RuntimeStateMachine extends RuntimeBase {
     }
     // 半装配产物置空：失败后的运行时不得被当作可用装配态使用
     this.storage = null;
-    this.engine = null;
     this.engine_llm = null;
-    this._engine_storage = null;
-    this._engine_spec_key = null;
   }
 
   /** 等待排空（stop 等在途 run 注销；drained 已置位 = 立即返回）。 */

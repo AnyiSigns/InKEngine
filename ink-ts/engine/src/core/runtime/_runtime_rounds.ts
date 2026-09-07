@@ -25,7 +25,7 @@ import { SchemaField, SchemaSpec, FIELD_STRING } from '../schema/schemaValidator
 import { AssemblyRequest } from '../path_assembler/index.js';
 import { Attachment, user } from '../llm/messages.js';
 import { MetaTuner, TunableParams } from '../tuning/index.js';
-import { STATE_MESSAGES } from '../nodes/constants.js';
+import { STATE_MESSAGES, TYPE_LLM_DECIDER, clamp_tool_rounds } from '../nodes/constants.js';
 import { RuntimeAssemble } from './_runtime_assemble.js';
 import { RuntimeState } from './_types.js';
 
@@ -49,6 +49,9 @@ export interface RoundAssembleOptions {
   domain?: string | null;
   llm?: AsyncLLM | null;
   transports?: EngineTransport[] | null;
+  /** 工具回合上限覆写（声明 → 组装图 llm_decider 节点 config；null/缺省 =
+   *  引擎常量缺省。恢复/分支按 checkpoint 关联图续跑不经本覆写）。 */
+  max_tool_rounds?: number | null;
 }
 
 /** 组装候选事件发射上限（候选过多只发前 N 条留痕，防事件文件膨胀）。 */
@@ -80,6 +83,26 @@ function _round_request(
   });
 }
 
+/** 组装出的本轮图数据 → llm_decider 节点 config 注入回合上限（cap 语义 =
+ *  clamp_tool_rounds；仅覆写 llm_decider 型节点，其余节点/图数据原样保留）。 */
+function _apply_max_tool_rounds(
+  graphData: Record<string, unknown>,
+  max_tool_rounds: number | null | undefined,
+): void {
+  if (max_tool_rounds === null || max_tool_rounds === undefined) return;
+  const cap = clamp_tool_rounds(max_tool_rounds);
+  const rawNodes = graphData['nodes'];
+  if (typeof rawNodes !== 'object' || rawNodes === null || Array.isArray(rawNodes)) return;
+  for (const spec of Object.values(rawNodes as Record<string, unknown>)) {
+    if (typeof spec !== 'object' || spec === null) continue;
+    const node = spec as Record<string, unknown>;
+    if (node['type'] !== TYPE_LLM_DECIDER) continue;
+    const config = node['config'];
+    if (typeof config !== 'object' || config === null || Array.isArray(config)) continue;
+    node['config'] = { ...(config as Record<string, unknown>), max_tool_rounds: cap };
+  }
+}
+
 /** 归一会话附件载荷为引擎 Attachment（数据面 dict 直构；非法跳过）。 */
 function _round_attachments(raw: unknown): Attachment[] {
   if (!Array.isArray(raw)) return [];
@@ -107,7 +130,8 @@ export abstract class RuntimeRounds extends RuntimeAssemble {
   }
 
   /** 按 checkpoint 关联图定义重建本轮 Engine（digest 自洽才放行）。
-   *  图定义缺失 = 旧链（图未随 checkpoint 落库）→ 返回 null（回落静态引擎）。 */
+   *  图定义缺失 = 旧链（图未随 checkpoint 落库）→ 返回 null（无法按图重建，
+   *  调用方显式报错，不回落任何静态引擎）。 */
   protected async _engine_for_checkpoint(
     checkpoint: CheckpointRecord,
     opts: { llm?: AsyncLLM | null; domain?: string | null } = {},
@@ -274,6 +298,9 @@ export abstract class RuntimeRounds extends RuntimeAssemble {
           ) ?? assembled.candidates[0]!
         : assembled.candidates[0]!;
     const graphData = best.graph.to_dict() as Record<string, unknown>;
+    // 回合上限声明注入点：host 每次回合活读能力配置 → 覆写 llm_decider 节点
+    // config（随本轮图执行并落 checkpoint；恢复/分支按 checkpoint 原图续跑）
+    _apply_max_tool_rounds(graphData, opts.max_tool_rounds);
     const engine = await this._build_graph_engine(graphData, {
       llm: opts.llm,
       domain: request.domain,
@@ -360,10 +387,9 @@ export abstract class RuntimeRounds extends RuntimeAssemble {
     });
   }
 
-  /** 审批决议重入（覆盖基座样板）：按 checkpoint 关联图重建本轮 Engine 续跑，
-   *  不再要求与常驻 rebuild 引擎 digest 一致。checkpoint 无关联图（旧链）=
-   *  回落静态引擎路径（super）。 */
-  override async resume_run(
+  /** 审批决议重入：按 checkpoint 关联图重建本轮 Engine 续跑。
+   *  checkpoint 无关联图（旧链）→ 显式报错（无法按图重建）。 */
+  async resume_run(
     thread_id: string,
     decision: Record<string, unknown>,
     options: { round_id?: string | null; transports?: EngineTransport[] | null } = {},
@@ -377,8 +403,7 @@ export abstract class RuntimeRounds extends RuntimeAssemble {
     }
     const graphData = this._graph_from_checkpoint(latest);
     if (graphData === null) {
-      // 旧链（图未随 checkpoint 落库）：回落基座静态引擎路径
-      return await super.resume_run(thread_id, decision, options);
+      throw new Error('checkpoint 无关联图定义（旧链/未落图）：决议重入需先发起组装回合');
     }
     const engine = await this._engine_for_checkpoint(latest);
     if (engine === null) {

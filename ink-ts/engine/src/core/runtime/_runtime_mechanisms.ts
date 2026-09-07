@@ -33,7 +33,7 @@ import type { Storage } from '../storage/storage.js';
 import { PathAssemblyFlags } from '../contracts/contracts.js';
 import { PathAssemblyRuntime } from '../path_assembler/runtime.js';
 import type { AssemblyRequest } from '../path_assembler/types.js';
-import { KIND_PATH } from '../knowledge_set/index.js';
+import { KIND_PATH, type KnowledgeSet } from '../knowledge_set/index.js';
 import { knowledge_entry_to_skill, type SkillEntry } from '../skill_crystal/index.js';
 import { set_default_assembly_runtime } from '../path_assembler/module_runtime.js';
 import {
@@ -78,6 +78,40 @@ export function _mechanism_audit_record(rt: {
 
 /** 技能先验回灌上限（同名取最新版本后的候选条数；防组装候选被技能淹没）。 */
 const _SKILL_PRIOR_LIMIT = 4;
+/** 技能先验跨域回落上限（请求域精确匹配无命中 → 回落 general 域的候选条数；
+ *  独立于精确命中 cap（≤ 精确上限）= 防跨域先验噪声进入非相关任务）。 */
+const _SKILL_PRIOR_FALLBACK_LIMIT = 2;
+/** 技能回落目标域（与池种子 base 图的 general 兜底域同值；域取值约定随结晶侧
+ *  = 指纹缓存条目的上下文域，见 crystallize 的 domain 来源，无预置层级）。
+ *  回落 ≠ 图兜底：base 图仍是最后保底（先验技能落空仍由 base seam 出图）。 */
+const _SKILL_GENERAL_DOMAIN = 'general';
+
+/** 域内 kind=path 技能候选（同名取最新版本；按可信度→版本降序；cap 条数）。
+ *  domain = 精确目标域或回落域（general），与结晶侧 domain 字段同值口径。 */
+function _skill_prior_ranked(
+  ks: KnowledgeSet,
+  domain: string,
+  limit: number,
+): SkillEntry[] {
+  const latest = new Map<string, { skill: SkillEntry; credibility: number }>();
+  for (const entry of ks.entries()) {
+    if (entry.kind !== KIND_PATH) continue;
+    let skill: SkillEntry;
+    try {
+      skill = knowledge_entry_to_skill(entry);
+    } catch {
+      continue;
+    }
+    if (skill.domain !== domain) continue;
+    const existing = latest.get(skill.name);
+    if (existing !== undefined && existing.skill.version >= skill.version) continue;
+    latest.set(skill.name, { skill, credibility: entry.credibility });
+  }
+  const ranked = [...latest.values()].sort(
+    (a, b) => b.credibility - a.credibility || b.skill.version - a.skill.version,
+  );
+  return ranked.slice(0, limit).map((row) => row.skill);
+}
 
 /** 机制装配段（evidence/cache/组装运行期/环境/多域调配器）。 */
 export abstract class RuntimeMechanisms extends RuntimeContexts {
@@ -160,7 +194,7 @@ export abstract class RuntimeMechanisms extends RuntimeContexts {
   }
 
   /**
-   * 回合沉淀钩子链装配（rebuild_engine 调用）：六钩子（边证据归集/失败
+   * 回合沉淀钩子链装配（回合引擎构建调用）：六钩子（边证据归集/失败
    * 审计/指纹缓存/失败点提案/推荐先验晋升/策略边复审）+ 池治理 + 知识归因/
    * 回合账本 + growth/实体演化。开关见 AssemblyRecipe（settle_hooks_enabled
    * = false 整族关闭；其余开关按块收敛）。
@@ -287,8 +321,12 @@ export abstract class RuntimeMechanisms extends RuntimeContexts {
 
   /** 技能先验提供器（知识集 kind=path → SkillEntry；PathAssemblyRuntime
    *  挂载注入，组装先例层消费——终结「结晶只写不读」）。读取实时知识集
-   *  （恢复替换实例后仍命中最新）；域精确匹配请求域；同名取最新版本并
-   *  cap 条数；skill_crystal_enabled=false / 知识集未装配 = 不提供。 */
+   *  （恢复替换实例后仍命中最新）；请求域精确匹配（同名取最新版本并 cap
+   *  条数）；精确命中为空时回落到 domain=general 条目（独立回落上限防跨域
+   *  噪声；来源经候选域比对标记为跨域先验）；请求域自身为 general/未指定
+   *  时精确域即回落域，跳过回落防重复。回落 ≠ base 图兜底：先验落空仍由
+   *  pool_seed base 图 seam 出图（见 _mount_assembly_runtime.base_graphs）。
+   *  skill_crystal_enabled=false / 知识集未装配 = 不提供。 */
   _skill_prior_provider(): ((request: AssemblyRequest) => Promise<readonly unknown[]>) | null {
     const recipe = this._recipe;
     if (recipe === null || !recipe.skill_crystal_enabled || this.knowledge_set === null) {
@@ -297,24 +335,11 @@ export abstract class RuntimeMechanisms extends RuntimeContexts {
     return async (request: AssemblyRequest): Promise<readonly unknown[]> => {
       const ks = this.knowledge_set;
       if (ks === null) return [];
-      const latest = new Map<string, { skill: SkillEntry; credibility: number }>();
-      for (const entry of ks.entries()) {
-        if (entry.kind !== KIND_PATH) continue;
-        let skill: SkillEntry;
-        try {
-          skill = knowledge_entry_to_skill(entry);
-        } catch {
-          continue;
-        }
-        if (skill.domain !== request.domain) continue;
-        const existing = latest.get(skill.name);
-        if (existing !== undefined && existing.skill.version >= skill.version) continue;
-        latest.set(skill.name, { skill, credibility: entry.credibility });
-      }
-      const ranked = [...latest.values()].sort(
-        (a, b) => b.credibility - a.credibility || b.skill.version - a.skill.version,
-      );
-      return ranked.slice(0, _SKILL_PRIOR_LIMIT).map((row) => row.skill);
+      const domain = request.domain;
+      const exact = _skill_prior_ranked(ks, domain, _SKILL_PRIOR_LIMIT);
+      // 请求域未指定/为 general 时精确域即回落域，跳过回落防重复
+      if (exact.length > 0 || domain === '' || domain === _SKILL_GENERAL_DOMAIN) return exact;
+      return _skill_prior_ranked(ks, _SKILL_GENERAL_DOMAIN, _SKILL_PRIOR_FALLBACK_LIMIT);
     };
   }
 
@@ -359,11 +384,15 @@ export abstract class RuntimeMechanisms extends RuntimeContexts {
       cache: this.fingerprint_cache_store,
       multipath_enabled: multipath,
       contract_enabled: flags.contract_enabled,
-      // 技能先验接入组装（决策5：自学习沉淀的 kind=path 技能作为组装候选源）
+      // 技能先验接入组装（决策5：自学习沉淀的 kind=path 技能作为组装候选源；
+      // B5：请求域无命中回落 general 域条目 = 跨域先验，非 base 图兜底）
       skill_provider: this._skill_prior_provider(),
-      // 冷启动 base 图先验（引擎内置池种子的域 base 图模板；组装在无候选
-      // 时据此稳定产出合法候选数据图）：按请求域精确匹配，缺省回落 general。
-      // 池种子经配方覆写/禁用，base 图数据源同源——数据驱动不进代码。
+      // 冷启动 base 图先验（引擎内置池种子的域 base 图模板；组装在无算法/
+      // 技能/草稿候选时据此稳定产出合法候选数据图）：按请求域精确匹配，
+      // 缺省回落 general。语义边界：技能先验回落 ≠ base 图兜底——先验回落
+      // 落空/禁用后 base seam 仍是最后保底；池种子经配方覆写/禁用，base 图
+      // 数据源同源——数据驱动不进代码。域字段取值约定 = 池种子/结晶同源
+      // （上下文域字符串，无预置层级；general 仅作缺省回落域）。
       base_graphs: async (request) => {
         const seed = this._engine_pool_seed;
         if (seed === null || !seed.enabled) return [];
@@ -373,7 +402,7 @@ export abstract class RuntimeMechanisms extends RuntimeContexts {
         const source =
           matched.length > 0
             ? matched
-            : seed.domains.filter((entry) => entry.enabled && entry.domain === 'general');
+            : seed.domains.filter((entry) => entry.enabled && entry.domain === _SKILL_GENERAL_DOMAIN);
         return source.map((entry) => entry.graph);
       },
       canary_timeout: null,

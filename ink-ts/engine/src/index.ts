@@ -28,7 +28,6 @@ export type {
   AssemblySourceProvider,
   EvolveOfflineOptions,
   EvolveOfflineResult,
-  GraphRecipeContext,
   Host,
   RunTaskHandle,
   RuntimeConfigInit,

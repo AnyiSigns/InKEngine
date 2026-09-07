@@ -4,3 +4,4 @@ dist/
 coverage/
 dsh/
 .env.local
+.dev-data/

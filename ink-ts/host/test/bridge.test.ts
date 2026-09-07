@@ -2,10 +2,10 @@
  * host bridge 命令面单测（in-process 全绿）。
  *
  * 覆盖：方法表与 BRIDGE_METHODS 声明一致；参数校验（BridgeError）与信封
- * 约定（handler 抛错不吞内部细节，message 可回）；rounds 驱动（echo 图无
- * 模型依赖）+ 分支续跑；approval 卡查询 + 裁决；records/sessions/audit/
- * tools/recovery 只读与簿记查询。审批语义全在 engine（approval/interrupt），
- * bridge 只接线。
+ * 约定（handler 抛错不吞内部细节，message 可回）；rounds 驱动（组装回合，
+ * 无模型 = 引擎确定性 stub）+ 分支续跑；approval 卡查询 + 裁决；records/
+ * sessions/audit/tools/recovery 只读与簿记查询。审批语义全在 engine
+ * （approval/interrupt），bridge 只接线。
  */
 
 import { mkdtempSync } from 'node:fs';
@@ -14,11 +14,13 @@ import path from 'node:path';
 
 import { afterEach, beforeEach, describe, expect, it } from 'vitest';
 
+import { ENGINE_STUB_REPLY } from '@ink-ts/engine';
+
 import { BRIDGE_METHODS } from '../src/bridge/index.js';
 import { BridgeError } from '../src/bridge/_types.js';
 import { createHost } from '../src/index.js';
 import type { HostHandle } from '../src/index.js';
-import { echoGraphRecipe, gateGraphRecipe } from './_graphs.js';
+import { gateGraphRecipe } from './_graphs.js';
 
 const CTX = { autoApprove: false };
 
@@ -32,10 +34,7 @@ describe('host bridge 命令面', () => {
 
   beforeEach(async () => {
     const { dir, events } = dirs();
-    handle = await createHost(
-      { data_dir: dir, events_dir: events },
-      { graph_recipe: echoGraphRecipe },
-    );
+    handle = await createHost({ data_dir: dir, events_dir: events });
   });
 
   afterEach(async () => {
@@ -68,10 +67,10 @@ describe('host bridge 命令面', () => {
     await expect(send({}, CTX)).rejects.toMatchObject({ code: 'invalid_params' });
   });
 
-  it('rounds.send 跑通回声回合；abort 无在途 run 返回 aborted:false', async () => {
+  it('rounds.send 跑通组装回合（无模型 → 确定性 stub）；abort 无在途 run 返回 aborted:false', async () => {
     const send = handle.bridge.get('rounds.send')!;
     const result = (await send({ input: 'hi' }, CTX)) as { reply: string; reason: string };
-    expect(result.reply).toBe('echo:hi');
+    expect(result.reply).toBe(ENGINE_STUB_REPLY);
     expect(result.reason).toBe('reply');
     const aborted = await handle.bridge.get('rounds.abort')!(null, CTX);
     expect(aborted).toEqual({ aborted: false });
@@ -162,15 +161,12 @@ describe('host bridge 命令面', () => {
   });
 });
 
-describe('host bridge rounds.branch（echo 图链叶分支续跑）', () => {
+describe('host bridge rounds.branch（组装回合链叶分支续跑）', () => {
   let handle: HostHandle;
 
   beforeEach(async () => {
     const { dir, events } = dirs();
-    handle = await createHost(
-      { data_dir: dir, events_dir: events },
-      { graph_recipe: echoGraphRecipe },
-    );
+    handle = await createHost({ data_dir: dir, events_dir: events });
   });
 
   afterEach(async () => {
@@ -205,33 +201,44 @@ describe('host bridge rounds.branch（echo 图链叶分支续跑）', () => {
   });
 });
 
-describe('host bridge approval（gate 图挂卡 → 查询 → 裁决续跑）', () => {
+describe('host bridge approval（gate 兼容静态引擎挂卡 → 查询 → 裁决续跑）', () => {
   let handle: HostHandle;
 
   beforeEach(async () => {
     const { dir, events } = dirs();
-    handle = await createHost(
-      { data_dir: dir, events_dir: events },
-      { graph_recipe: gateGraphRecipe },
-    );
+    handle = await createHost({ data_dir: dir, events_dir: events });
+    // rounds 已走组装；审批卡演示经引擎静态图兼容通道（配方注入后重建）
+    const runtime = handle.runtime as unknown as {
+      _recipe: { graph_recipe: unknown };
+      rebuild_engine(): Promise<unknown>;
+    };
+    runtime._recipe.graph_recipe = gateGraphRecipe;
+    await runtime.rebuild_engine();
   });
 
   afterEach(async () => {
     await handle.dispose();
   });
 
-  it('rounds.send 触发审批卡；approval.list 可见；resolve reject → 决议原样抵达', async () => {
-    const send = handle.bridge.get('rounds.send')!;
-    const first = (await send({ input: '触发审批' }, CTX)) as { thread_id: string };
-    const cards = (await handle.bridge.get('approval.list')!({}, CTX)) as Array<{
-      thread_id: string;
-      key: string;
-    }>;
+  /** 经配方兼容静态引擎跑一轮挂卡回合（rounds 已走组装，卡用兼容引擎触发）。 */
+  async function startCardThread(): Promise<string> {
+    const engine = handle.runtime.engine!;
+    const thread_id = `gate-${Math.random().toString(36).slice(2, 10)}`;
+    await engine.ainvoke({}, { thread_id, round_id: `r-${thread_id}`, continue_chain: true });
+    return thread_id;
+  }
+
+  it('挂卡回合触发审批卡；approval.list 可见；resolve reject → 决议原样抵达', async () => {
+    const thread_id = await startCardThread();
+    const cards = (await handle.bridge.get('approval.list')!(
+      { thread_id },
+      CTX,
+    )) as Array<{ thread_id: string; key: string }>;
     expect(cards.length).toBeGreaterThan(0);
     expect(cards[0]!.key).toMatch(/^gate:/);
 
     const resolved = (await handle.bridge.get('approval.resolve')!(
-      { thread_id: first.thread_id, decision: 'reject' },
+      { thread_id, decision: 'reject' },
       CTX,
     )) as { result: { state: Record<string, unknown> } };
     expect((resolved.result.state as Record<string, unknown>)['reply']).toBe('reject');
@@ -239,22 +246,22 @@ describe('host bridge approval（gate 图挂卡 → 查询 → 裁决续跑）',
     // 卡已消费：再次 resolve → no_pending_approval
     await expect(
       handle.bridge.get('approval.resolve')!(
-        { thread_id: first.thread_id, decision: 'reject' },
+        { thread_id, decision: 'reject' },
         CTX,
       ),
     ).rejects.toMatchObject({ code: 'no_pending_approval' });
   });
 
   it('approval.resolve 裸决议正例：accept/terminate/edit 均原样抵达引擎裁决', async () => {
-    const send = handle.bridge.get('rounds.send')!;
     const resolve = handle.bridge.get('approval.resolve')!;
     const runCard = async (): Promise<string> => {
-      const started = (await send({ input: '卡' }, CTX)) as { thread_id: string };
-      const cards = (await handle.bridge.get('approval.list')!({}, CTX)) as Array<{
-        thread_id: string;
-      }>;
-      expect(cards.some((card) => card.thread_id === started.thread_id)).toBe(true);
-      return started.thread_id;
+      const thread_id = await startCardThread();
+      const cards = (await handle.bridge.get('approval.list')!(
+        { thread_id },
+        CTX,
+      )) as Array<{ thread_id: string }>;
+      expect(cards.some((card) => card.thread_id === thread_id)).toBe(true);
+      return thread_id;
     };
 
     const acceptThread = await runCard();
@@ -282,10 +289,9 @@ describe('host bridge approval（gate 图挂卡 → 查询 → 裁决续跑）',
   });
 
   it('approval.list 按 thread_id 过滤查询', async () => {
-    const send = handle.bridge.get('rounds.send')!;
-    const first = (await send({ input: 'x' }, CTX)) as { thread_id: string };
+    const thread_id = await startCardThread();
     const cards = (await handle.bridge.get('approval.list')!(
-      { thread_id: first.thread_id },
+      { thread_id },
       CTX,
     )) as unknown[];
     expect(cards).toHaveLength(1);

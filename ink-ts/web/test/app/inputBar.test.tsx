@@ -11,7 +11,7 @@ describe('InputBar', () => {
     expect(textarea.disabled).toBe(false);
     fireEvent.change(textarea, { target: { value: 'hello' } });
     fireEvent.keyDown(textarea, { key: 'Enter', code: 'Enter', charCode: 13 });
-    expect(onSend).toHaveBeenCalledWith('hello', [], 'assembly', undefined);
+    expect(onSend).toHaveBeenCalledWith('hello', [], undefined);
   });
 
   it('shows model chip when model selected', () => {
@@ -34,7 +34,7 @@ describe('InputBar', () => {
     fireEvent.click(screen.getByRole('menuitem', { name: '高' }));
     fireEvent.change(screen.getByPlaceholderText('给智能体发消息'), { target: { value: 'hi' } });
     fireEvent.keyDown(screen.getByPlaceholderText('给智能体发消息'), { key: 'Enter', code: 'Enter', charCode: 13 });
-    expect(onSend).toHaveBeenCalledWith('hi', [], 'assembly', { model_id: 'qwen3-max', reasoning_effort: 'high' });
+    expect(onSend).toHaveBeenCalledWith('hi', [], { model_id: 'qwen3-max', reasoning_effort: 'high' });
   });
 
   it('hides reasoning tier chip for non-reasoning models', () => {
@@ -47,7 +47,7 @@ describe('InputBar', () => {
     render(<InputBar disabled={false} streaming={false} models={{ archives: [{ model_id: 'm1' }] }} onSend={onSend} onAbort={() => {}} onAttachments={() => {}} />);
     fireEvent.change(screen.getByPlaceholderText('给智能体发消息'), { target: { value: 'hello' } });
     fireEvent.keyDown(screen.getByPlaceholderText('给智能体发消息'), { key: 'Enter', code: 'Enter', charCode: 13 });
-    expect(onSend).toHaveBeenCalledWith('hello', [], 'assembly', { model_id: 'm1' });
+    expect(onSend).toHaveBeenCalledWith('hello', [], { model_id: 'm1' });
   });
 
   it('回合档位切换已取消：无标准/组装下拉，发送恒为组装', () => {
@@ -56,6 +56,6 @@ describe('InputBar', () => {
     expect(screen.queryByRole('button', { name: /标准|组装/ })).toBeNull();
     fireEvent.change(screen.getByPlaceholderText('给智能体发消息'), { target: { value: 'ok' } });
     fireEvent.keyDown(screen.getByPlaceholderText('给智能体发消息'), { key: 'Enter', code: 'Enter', charCode: 13 });
-    expect(onSend).toHaveBeenCalledWith('ok', [], 'assembly', undefined);
+    expect(onSend).toHaveBeenCalledWith('ok', [], undefined);
   });
 });

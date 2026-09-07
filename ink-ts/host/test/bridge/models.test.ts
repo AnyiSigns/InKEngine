@@ -22,7 +22,6 @@ import { createHost } from '../../src/index.js';
 import type { HostHandle, RoleEndpointConfig } from '../../src/index.js';
 import { maskKey } from '../../src/search/keys.js';
 import { runtime_config_path, write_runtime_model_config } from '../../src/model_config_runtime.js';
-import { chatGraphRecipe, echoGraphRecipe } from '../_graphs.js';
 import { FakeOpenAIServer } from '../_fake_openai.js';
 
 interface DirCtx {
@@ -61,9 +60,7 @@ describe('models.config.get/put（掩码 + 持久化 + merge）', () => {
   it('空态 get：掩码空配置 + agent/router 双槽未配置', async () => {
     const ctx = tempContext();
     const handle = await createHost(
-      { data_dir: ctx.dir, events_dir: ctx.events },
-      { graph_recipe: echoGraphRecipe },
-    );
+      { data_dir: ctx.dir, events_dir: ctx.events });
     handled.push(handle);
     const state = await handle.bridge.get('models.config.get')!(null, { autoApprove: false });
     expect(state).toEqual({
@@ -77,9 +74,7 @@ describe('models.config.get/put（掩码 + 持久化 + merge）', () => {
     const agentKey = 'sk-agent-secret-0123456789';
     const routerKey = 'sk-router-secret-0123456789';
     const handle = await createHost(
-      { data_dir: ctx.dir, events_dir: ctx.events },
-      { graph_recipe: echoGraphRecipe },
-    );
+      { data_dir: ctx.dir, events_dir: ctx.events });
     handled.push(handle);
 
     // 只写 router 槽：agent 槽缺席保留（当前为空 → 仍缺）
@@ -131,9 +126,7 @@ describe('models.config.get/put（掩码 + 持久化 + merge）', () => {
     const ctx = tempContext();
     const key = 'sk-keep-this-plain-0123456789';
     const handle = await createHost(
-      { data_dir: ctx.dir, events_dir: ctx.events },
-      { graph_recipe: echoGraphRecipe },
-    );
+      { data_dir: ctx.dir, events_dir: ctx.events });
     handled.push(handle);
     const config = { agent_config: endpoint({ base_url: 'http://agent/v1', model_id: 'agent-m', api_key: key }) };
     await handle.bridge.get('models.config.put')!({ config }, { autoApprove: false });
@@ -165,9 +158,7 @@ describe('models.config.get/put（掩码 + 持久化 + merge）', () => {
   it('put 形状校验：非法槽形状显式报错且不落盘', async () => {
     const ctx = tempContext();
     const handle = await createHost(
-      { data_dir: ctx.dir, events_dir: ctx.events },
-      { graph_recipe: echoGraphRecipe },
-    );
+      { data_dir: ctx.dir, events_dir: ctx.events });
     handled.push(handle);
     await expect(
       handle.bridge.get('models.config.put')!(
@@ -212,9 +203,7 @@ describe('models.config 厂商面（providers + agent/router 槽指派派生）'
   it('put providers：派生 agent/router 槽、掩码回显、档案含厂商模型', async () => {
     const ctx = tempContext();
     const handle = await createHost(
-      { data_dir: ctx.dir, events_dir: ctx.events },
-      { graph_recipe: echoGraphRecipe },
-    );
+      { data_dir: ctx.dir, events_dir: ctx.events });
     handled.push(handle);
     const agentKey = 'sk-provider-agent-plain-0123456789';
 
@@ -300,9 +289,7 @@ describe('models.config 厂商面（providers + agent/router 槽指派派生）'
   it('role_pick 同值 no-op（不重复重建）且不可选未添加模型', async () => {
     const ctx = tempContext();
     const handle = await createHost(
-      { data_dir: ctx.dir, events_dir: ctx.events },
-      { graph_recipe: echoGraphRecipe },
-    );
+      { data_dir: ctx.dir, events_dir: ctx.events });
     handled.push(handle);
     await handle.bridge.get('models.config.put')!(
       {
@@ -335,9 +322,7 @@ describe('capability.get/put（能力记录持久化 + 白名单）', () => {
   it('get 注入缺省字段；put 单字段并入；simulation_tier 语义已移除', async () => {
     const ctx = tempContext();
     const handle = await createHost(
-      { data_dir: ctx.dir, events_dir: ctx.events },
-      { graph_recipe: echoGraphRecipe },
-    );
+      { data_dir: ctx.dir, events_dir: ctx.events });
     handled.push(handle);
     const initial = (await handle.bridge.get('capability.get')!(null, { autoApprove: false })) as {
       simulation_tier?: string;
@@ -373,9 +358,7 @@ describe('policy.route（确定性路由预览）', () => {
   it('开发强信号优先；直答无关键词；tier 白名单校验', async () => {
     const ctx = tempContext();
     const handle = await createHost(
-      { data_dir: ctx.dir, events_dir: ctx.events },
-      { graph_recipe: echoGraphRecipe },
-    );
+      { data_dir: ctx.dir, events_dir: ctx.events });
     handled.push(handle);
     const dev = (await handle.bridge.get('policy.route')!(
       { text: '帮我写一个 python 脚本', tier: 'light' },
@@ -455,7 +438,6 @@ describe('models.config.reload（从文件重读 → 换槽 → 真对话切换�
           agent_config: endpoint({ base_url: serverA.baseUrl, model_id: 'agent-a', api_key: keyA }),
         },
       },
-      { graph_recipe: chatGraphRecipe },
     );
 
     // 冷启装配的槽真实可用

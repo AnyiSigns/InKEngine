@@ -32,6 +32,9 @@ import { FingerprintCacheStore, RecordsFingerprintCacheStorage } from '../finger
 import type { Storage } from '../storage/storage.js';
 import { PathAssemblyFlags } from '../contracts/contracts.js';
 import { PathAssemblyRuntime } from '../path_assembler/runtime.js';
+import type { AssemblyRequest } from '../path_assembler/types.js';
+import { KIND_PATH } from '../knowledge_set/index.js';
+import { knowledge_entry_to_skill, type SkillEntry } from '../skill_crystal/index.js';
 import { set_default_assembly_runtime } from '../path_assembler/module_runtime.js';
 import {
   EdgeEvidenceSettleHook,
@@ -46,6 +49,8 @@ import {
   UPDATE_SUCCESS,
   type SettleContext,
 } from '../settle/index.js';
+import { promotion_signature_key } from '../settle/promotion.js';
+import { registration_output_fields } from '../node_registry/index.js';
 import { _KnowledgeUsageSettleHook, _LedgerSettleHook } from './_settle.js';
 import { RuntimeContexts } from './_runtime_contexts.js';
 import type { AssemblyRecipe } from './_types.js';
@@ -70,6 +75,9 @@ export function _mechanism_audit_record(rt: {
     return null;
   }
 }
+
+/** 技能先验回灌上限（同名取最新版本后的候选条数；防组装候选被技能淹没）。 */
+const _SKILL_PRIOR_LIMIT = 4;
 
 /** 机制装配段（evidence/cache/组装运行期/环境/多域调配器）。 */
 export abstract class RuntimeMechanisms extends RuntimeContexts {
@@ -173,10 +181,37 @@ export abstract class RuntimeMechanisms extends RuntimeContexts {
       if (recipe.edge_evidence_enabled && store !== null) {
         settleHooks.register(new EdgeEvidenceSettleHook(store));
         settleHooks.register(new NodeProposalSettleHook(store, { proposal_sink: auditSink }));
+        const state = this.pool_governance_state;
         settleHooks.register(
-          new RecommendedPriorSettleHook(store, engineGate, { sink: auditSink }),
+          new RecommendedPriorSettleHook(store, engineGate, {
+            sink: auditSink,
+            // 晋升签名持久化：装配期恢复去重键，每次新晋升幂等落 records
+            persisted_signatures: this._pg_promoted,
+            on_promoted:
+              state !== null
+                ? (signature): unknown => {
+                    const key = promotion_signature_key(signature);
+                    (this._pg_promoted as Set<string>).add(key);
+                    return state.mark_promoted(key);
+                  }
+                : null,
+          }),
         );
-        settleHooks.register(new PolicyEdgeReviewSettleHook(store, { sink: auditSink }));
+        settleHooks.register(
+          new PolicyEdgeReviewSettleHook(store, {
+            sink: auditSink,
+            // 复审降级签名持久化：重启后不重复提请（边证据 policy=false 亦
+            // 持久，双保险）
+            persisted_downgraded: this._pg_downgraded,
+            on_downgraded:
+              state !== null
+                ? (key): unknown => {
+                    (this._pg_downgraded as Set<string>).add(key);
+                    return state.mark_downgraded(key);
+                  }
+                : null,
+          }),
+        );
       }
       settleHooks.register(new FailureAuditSettleHook({ sink: auditSink }));
       if (
@@ -195,14 +230,26 @@ export abstract class RuntimeMechanisms extends RuntimeContexts {
         );
       }
       if (recipe.pool_governance_enabled && this.pool_governance !== null) {
+        const registryStore = this.node_registry_store;
         settleHooks.register(
           new PoolGovernanceSettleHook(this.pool_governance, {
             store,
             now: () => this._r_now(),
             audit_sink: auditSink,
-            // R3 池治理写回 seam：实体注册表写实现已装配时随钩子注入
-            // （见 _runtime_assemble），无 = 仅登记 + 审计（fallback）
+            // 候选结点类型产出字段（契约池数据视图）：登记行契约 output_schema
+            // 字段名——合并判定与死结点判定的字段面
+            node_fields:
+              registryStore !== null
+                ? (node_type): readonly string[] => {
+                    const reg = registryStore.get(node_type);
+                    return reg === null ? [] : registration_output_fields(reg);
+                  }
+                : null,
+            // A3 池治理写回 seam：结点类型登记 store 受控写实现已装配时随钩子
+            // 注入（见 _runtime_assemble），无 = 仅登记 + 审计（fallback）
             writable: this.pool_governance_writable,
+            // 治理状态持久化（周预算/去重 records；未装配 = 进程内存回落）
+            state: this.pool_governance_state,
           }),
         );
       }
@@ -236,6 +283,39 @@ export abstract class RuntimeMechanisms extends RuntimeContexts {
     // context 多域调配器：开关开 = 注册实例并参与装配源多域混合。
     this.context_mixer = recipe.context_window_multidomain ? new ContextMixer() : null;
     this._assemble_environments(guarded, recipe);
+  }
+
+  /** 技能先验提供器（知识集 kind=path → SkillEntry；PathAssemblyRuntime
+   *  挂载注入，组装先例层消费——终结「结晶只写不读」）。读取实时知识集
+   *  （恢复替换实例后仍命中最新）；域精确匹配请求域；同名取最新版本并
+   *  cap 条数；skill_crystal_enabled=false / 知识集未装配 = 不提供。 */
+  _skill_prior_provider(): ((request: AssemblyRequest) => Promise<readonly unknown[]>) | null {
+    const recipe = this._recipe;
+    if (recipe === null || !recipe.skill_crystal_enabled || this.knowledge_set === null) {
+      return null;
+    }
+    return async (request: AssemblyRequest): Promise<readonly unknown[]> => {
+      const ks = this.knowledge_set;
+      if (ks === null) return [];
+      const latest = new Map<string, { skill: SkillEntry; credibility: number }>();
+      for (const entry of ks.entries()) {
+        if (entry.kind !== KIND_PATH) continue;
+        let skill: SkillEntry;
+        try {
+          skill = knowledge_entry_to_skill(entry);
+        } catch {
+          continue;
+        }
+        if (skill.domain !== request.domain) continue;
+        const existing = latest.get(skill.name);
+        if (existing !== undefined && existing.skill.version >= skill.version) continue;
+        latest.set(skill.name, { skill, credibility: entry.credibility });
+      }
+      const ranked = [...latest.values()].sort(
+        (a, b) => b.credibility - a.credibility || b.skill.version - a.skill.version,
+      );
+      return ranked.slice(0, _SKILL_PRIOR_LIMIT).map((row) => row.skill);
+    };
   }
 
   /**
@@ -279,6 +359,23 @@ export abstract class RuntimeMechanisms extends RuntimeContexts {
       cache: this.fingerprint_cache_store,
       multipath_enabled: multipath,
       contract_enabled: flags.contract_enabled,
+      // 技能先验接入组装（决策5：自学习沉淀的 kind=path 技能作为组装候选源）
+      skill_provider: this._skill_prior_provider(),
+      // 冷启动 base 图先验（引擎内置池种子的域 base 图模板；组装在无候选
+      // 时据此稳定产出合法候选数据图）：按请求域精确匹配，缺省回落 general。
+      // 池种子经配方覆写/禁用，base 图数据源同源——数据驱动不进代码。
+      base_graphs: async (request) => {
+        const seed = this._engine_pool_seed;
+        if (seed === null || !seed.enabled) return [];
+        const matched = seed.domains.filter(
+          (entry) => entry.enabled && entry.domain === request.domain,
+        );
+        const source =
+          matched.length > 0
+            ? matched
+            : seed.domains.filter((entry) => entry.enabled && entry.domain === 'general');
+        return source.map((entry) => entry.graph);
+      },
       canary_timeout: null,
       canary_options: null,
     });

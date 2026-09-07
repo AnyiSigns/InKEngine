@@ -86,7 +86,6 @@ export function useSessionActions(hub: ChannelHub, store: SessionStore, backend:
     async (
       text: string,
       attachments: AttachmentAsset[] = [],
-      mode: 'standard' | 'assembly' = 'assembly',
       model?: ModelSelection,
     ) => {
       if (!backend.available) {
@@ -108,8 +107,9 @@ export function useSessionActions(hub: ChannelHub, store: SessionStore, backend:
         }
       };
       setRoundInflight(true);
+      // 回合恒为组装：roundSend 无条件进入组装（无模式参数）
       void backend
-        .roundSend(activeId, roundId, text, false, toEngineAttachments(attachments), mode, model)
+        .roundSend(activeId, roundId, text, false, toEngineAttachments(attachments), model)
         .then(() => {
           finishThread();
           // 回合收尾刷新会话记录（标题生成/更新时间落库后镜像同步）

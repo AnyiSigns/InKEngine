@@ -16,7 +16,6 @@ import { HostOsRunner } from '../../src/os/runner.js';
 import { locateNativeBinary } from '../../src/exec/binary.js';
 import { createHost } from '../../src/index.js';
 import type { HostHandle } from '../../src/index.js';
-import { echoGraphRecipe } from '../_graphs.js';
 
 const execBinary = locateNativeBinary('exec');
 const describeOrSkip = execBinary === null ? describe.skip : describe;
@@ -30,7 +29,7 @@ const ECHO = process.platform === 'win32' ? 'cmd' : 'echo';
 describeOrSkip('受控 OS 执行器（沙箱根内执行 + 越权拦截 + 审计留痕）', () => {
   it('process 在沙箱根内执行成功且审计留痕（type=os_tool_exec）', async () => {
     const dir = tempDir('ink-os-ok-');
-    const handle: HostHandle = await createHost({ data_dir: dir }, { graph_recipe: echoGraphRecipe });
+    const handle: HostHandle = await createHost({ data_dir: dir });
     try {
       const runner = new HostOsRunner(() => handle.runtime.storage);
       const argv =
@@ -61,7 +60,7 @@ describeOrSkip('受控 OS 执行器（沙箱根内执行 + 越权拦截 + 审计
 
   it('越权命令被 host 拦截（ExecRefused；不落审计、不触达 exec 执行）', async () => {
     const dir = tempDir('ink-os-deny-');
-    const handle: HostHandle = await createHost({ data_dir: dir }, { graph_recipe: echoGraphRecipe });
+    const handle: HostHandle = await createHost({ data_dir: dir });
     try {
       const runner = new HostOsRunner(() => handle.runtime.storage);
       await expect(
@@ -88,7 +87,7 @@ describeOrSkip('受控 OS 执行器（沙箱根内执行 + 越权拦截 + 审计
     const dir = tempDir('ink-os-root-');
     const outside = tempDir('ink-os-outside-');
     writeFileSync(path.join(outside, 'secret.txt'), 'secret');
-    const handle: HostHandle = await createHost({ data_dir: dir }, { graph_recipe: echoGraphRecipe });
+    const handle: HostHandle = await createHost({ data_dir: dir });
     try {
       const runner = new HostOsRunner(() => handle.runtime.storage);
       await expect(
@@ -109,7 +108,7 @@ describeOrSkip('受控 OS 执行器（沙箱根内执行 + 越权拦截 + 审计
 
   it('未显式放行（approved=false）拒绝；无 exec 二进制时报 exec_unavailable', async () => {
     const dir = tempDir('ink-os-approval-');
-    const handle: HostHandle = await createHost({ data_dir: dir }, { graph_recipe: echoGraphRecipe });
+    const handle: HostHandle = await createHost({ data_dir: dir });
     try {
       const runner = new HostOsRunner(() => handle.runtime.storage, null);
       await expect(

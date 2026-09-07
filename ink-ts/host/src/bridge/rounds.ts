@@ -2,12 +2,12 @@
 /**
  * rounds 命令面（send/abort/resume/branch）——宿主薄驱动，不复制引擎机制。
  *
- * send 走 Runtime 在途 run 登记 + engine.ainvoke（续链语义），每轮挂一条
- * 事件文件传输；abort 经 Runtime.abort_current_run（JS 平台取消模型
- * 降级：取消投递后引擎后台自然收尾，CANCELLED 快照锚点由 runtime 写）；
- * resume = 审批决议重入（runtime.resume_run，挂起卡读取/注入校验仍归引擎）；
- * branch = 从既有链叶续跑的分支回合（parent 锚点 = 会话分支语义：引擎
- * 以 resume_from 锚定历史叶，产生新链叶，原叶保留为父节点）。
+ * send 走 Runtime run 级组装回合（assemble_round：本轮图 = 组装产物图，非
+ * 默认图）+ 在途 run 登记（队列保护）；abort 经 Runtime.abort_current_run
+ * （JS 平台取消模型降级：取消投递后引擎后台自然收尾，CANCELLED 快照锚点由
+ * runtime 写）；resume = 审批决议重入（runtime.resume_run，按 checkpoint 关联
+ * 图重建本轮 Engine）；branch = 从既有链叶续跑的分支回合（runtime.resume_round
+ * 按锚点 checkpoint 关联图重建，同语义续跑新叶）。
  * 会话簿记收尾统一经 HostSessionStore（宿主薄服务唯一写点）。
  * 并发纪律：单 host 串行跑回合（引擎顶层 run 非并发安全，先进先出队列）。
  */
@@ -152,31 +152,17 @@ export function buildRoundsHandlers(deps: HostBridgeDeps): ReadonlyMap<string, B
     }
   }
 
-  /** 驱动一次引擎顶层 run（在途登记 + 可取消投递）；abort 抛 round_aborted。 */
-  async function driveRun(
-    engine: NonNullable<HostBridgeDeps['runtime']['engine']>,
+  /** 驱动一次引擎顶层回合（在途登记 + 可取消投递）；abort 抛 round_aborted。 */
+  async function driveRound(
+    runtime: HostBridgeDeps['runtime'],
     thread_id: string,
-    round_id: string,
-    state: Record<string, unknown>,
-    options: {
-      continue_chain?: boolean;
-      resume_from?: number | null;
-      trace_id?: string | null;
-      transport: FileEventsTransport;
-    },
+    run: (transport: FileEventsTransport) => Promise<RoundOutcome>,
+    transport: FileEventsTransport,
   ): Promise<RoundOutcome> {
-    const runtime = deps.runtime;
     const ticket = runtime.begin_run(thread_id);
     const controller = new AbortController();
     try {
-      const inner = engine.ainvoke(state, {
-        thread_id,
-        round_id,
-        continue_chain: options.continue_chain ?? false,
-        resume_from: options.resume_from ?? null,
-        trace_id: options.trace_id ?? null,
-        transports: [options.transport],
-      });
+      const inner = run(transport);
       const task = trackedRun(inner, controller);
       runtime.register_active_run_task(task);
       return await task.promise;
@@ -235,9 +221,8 @@ function resultWarnings(warnings: string[]): Record<string, unknown> {
   const send: BridgeHandler = async (raw): Promise<unknown> => {
     const params = asParams(raw);
     const runtime = deps.runtime;
-    const engine = runtime.engine;
-    if (engine === null) {
-      throw new BridgeError('运行时引擎未装配（runtime 未 boot/已关停）', 'runtime_unavailable');
+    if (runtime.storage === null) {
+      throw new BridgeError('运行时存储未装配（runtime 未 boot/已关停）', 'runtime_unavailable');
     }
     const thread_id = params.thread_id ?? shortId('t');
     const round_id = params.round_id ?? shortId('r');
@@ -248,11 +233,16 @@ function resultWarnings(warnings: string[]): Record<string, unknown> {
     let transport: FileEventsTransport;
     try {
       const ran = await serialized((t) =>
-        driveRun(engine, thread_id, round_id, seedState(prepared), {
-          continue_chain: true,
-          trace_id,
-          transport: t,
-        }),
+        driveRound(runtime, thread_id, (transportForRun) =>
+          runtime.assemble_round({
+            state: seedState(prepared),
+            thread_id,
+            round_id,
+            trace_id,
+            transports: [transportForRun],
+          }),
+          t,
+        ),
       );
       result = ran.value;
       transport = ran.transport;
@@ -316,10 +306,6 @@ function resultWarnings(warnings: string[]): Record<string, unknown> {
   const branch: BridgeHandler = async (raw): Promise<unknown> => {
     const params = asBranchParams(raw);
     const runtime = deps.runtime;
-    const engine = runtime.engine;
-    if (engine === null) {
-      throw new BridgeError('运行时引擎未装配（runtime 未 boot/已关停）', 'runtime_unavailable');
-    }
     const storage = runtime.storage;
     if (storage === null) {
       throw new BridgeError('运行时存储未装配', 'runtime_unavailable');
@@ -348,11 +334,17 @@ function resultWarnings(warnings: string[]): Record<string, unknown> {
     let result: RoundOutcome;
     try {
       const ran = await serialized((t) =>
-        driveRun(engine, params.thread_id, round_id, { input: prepared.input }, {
-          resume_from: anchor,
-          trace_id: shortId('trace'),
-          transport: t,
-        }),
+        driveRound(runtime, params.thread_id, (transportForRun) =>
+          runtime.resume_round({
+            thread_id: params.thread_id,
+            leaf: anchor,
+            state: { input: prepared.input },
+            round_id,
+            trace_id: shortId('trace'),
+            transports: [transportForRun],
+          }),
+          t,
+        ),
       );
       result = ran.value;
     } catch (error) {

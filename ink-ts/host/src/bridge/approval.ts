@@ -2,11 +2,14 @@
  * approval 命令面（审批卡查询 / 裁决）——语义留在引擎 approval/review_card/
  * interrupt（本层只接线：读引擎挂起卡 + 决议重入）。
  *
- * 挂起卡 = 引擎 interrupt 状态（随 checkpoint 持久化）。查询按会话线程
- * 取链尾挂起卡（engine.get_latest_interrupt）；裁决 = runtime.resume_run
- * 注入决议（decision 形态与 approve_before_execute 注入口径一致：字符串
- * accept/reject/terminate 或 {decision, reason?, edited_content?}）。
+ * 挂起卡 = 引擎 interrupt 状态（随 checkpoint 持久化）。查询按会话线程取链尾
+ * 挂起卡（engine.get_latest_interrupt；无静态引擎时直接读 checkpoint interrupt
+ * ——两路同源，均指引擎链尾挂起卡）；裁决 = runtime.resume_run 注入决议
+ * （decision 形态与 approve_before_execute 注入口径一致：字符串 accept/
+ * reject/terminate 或 {decision, reason?, edited_content?}）。
  */
+
+import type { InterruptState } from '@ink-ts/engine';
 
 import { BridgeError, type BridgeHandler } from './_types.js';
 import type { HostBridgeDeps } from './_types.js';
@@ -64,17 +67,22 @@ function validateDecision(raw: unknown): unknown {
 }
 
 export function buildApprovalHandlers(deps: HostBridgeDeps): ReadonlyMap<string, BridgeHandler> {
-  const engine = (): NonNullable<HostBridgeDeps['runtime']['engine']> => {
-    const instance = deps.runtime.engine;
-    if (instance === null) {
+  /** 链尾挂起卡读取（静态引擎存在 = 走引擎读口；无静态引擎（回合=组装）=
+   *  直接读 checkpoint interrupt——两路均指引擎链尾挂起卡状态）。 */
+  async function latestInterrupt(thread_id: string): Promise<InterruptState | null> {
+    const runtime = deps.runtime;
+    const instance = runtime.engine;
+    if (instance !== null) return await instance.get_latest_interrupt(thread_id);
+    const storage = runtime.storage;
+    if (storage === null) {
       throw new BridgeError('运行时引擎未装配（runtime 未 boot/已关停）', 'runtime_unavailable');
     }
-    return instance;
-  };
+    const latest = await storage.get_latest_checkpoint(thread_id).catch(() => null);
+    return latest === null || latest.interrupt === null ? null : latest.interrupt;
+  }
 
   const list: BridgeHandler = async (raw): Promise<ApprovalCardView[]> => {
     const params = raw as { thread_id?: unknown } | null;
-    const engineInstance = engine();
     const threads =
       params !== null && typeof params.thread_id === 'string' && params.thread_id !== ''
         ? [params.thread_id]
@@ -89,7 +97,7 @@ export function buildApprovalHandlers(deps: HostBridgeDeps): ReadonlyMap<string,
     }
     const cards: ApprovalCardView[] = [];
     for (const thread_id of threads) {
-      const interrupt = await engineInstance.get_latest_interrupt(thread_id);
+      const interrupt = await latestInterrupt(thread_id);
       if (interrupt === null) continue;
       cards.push({
         thread_id,

@@ -2,13 +2,14 @@
  * @ink-ts/host 装配入口（createHost）：composition root。
  *
  * 读配置（config.ts）→ 实现 Host 五件套（host.ts）→ 构建产品配方
- * （recipe.ts：机制开关默认全开 + 产品默认 chat 图）→ 装配宿主检索域
- * （retrieval/domain.ts：向量/FTS 检索源 + data_dir 文档库）→
- * Runtime.boot 装配 → buildBridge 出宿主命令面。机制语义全在 engine；
- * 本包只装配不复制。
+ * （recipe.ts：机制开关默认全开，图 = 数据——引擎池种子/组装产物，宿主
+ * 不产任何图）→ 装配宿主检索域（retrieval/domain.ts：向量/FTS 检索源 +
+ * data_dir 文档库）→ Runtime.boot 装配 → buildBridge 出宿主命令面。
+ * 机制语义全在 engine；本包只装配不复制。
  *
- * graph_recipe 缺省 = 产品默认 chat 图；调用方可经 recipe 覆写。检索源
- * 属宿主领域层：装配时直注 recipe.retrieval_sources（引擎注册表消费）。
+ * 回合 = run 级组装出本轮数据图再执行；本包不再有静态/默认图配方，亦不再
+ * 导出任何产品图（原 graph.ts 已删）。检索源属宿主领域层：装配时直注
+ * recipe.retrieval_sources（引擎注册表消费）。
  */
 
 import { mkdirSync } from 'node:fs';
@@ -67,8 +68,8 @@ function modelConfigHandles(host: InkHost): ModelConfigHandles {
  * 装配 host：配置解析 → 五件套 + 配方 → 检索域 → Runtime.boot → bridge。
  *
  * @param config 运行配置（storage uri / 角色槽模型端点 / autoApprove 等；
- *   缺省 memory:// + fail-closed，见 config.ts）。
- * @param recipe 配方覆写（graph_recipe 缺省 = 产品默认 chat 图）。
+ *   缺省 sqlite 落 data_dir + fail-closed，见 config.ts）。
+ * @param recipe 配方覆写（机制开关/ui 白名单/approval_levels；无图配方位）。
  */
 export async function createHost(
   config: HostConfigInput | null | undefined = null,
@@ -81,10 +82,7 @@ export async function createHost(
   const workspaceStore = createWorkspaceStore(resolved.data_dir);
   const capabilityStore = createCapabilityStore(resolved.data_dir);
   const inkHost = new InkHost(resolved, () => capabilityStore.get());
-  const assemblyRecipe = build_product_recipe({
-    ...(recipe ?? {}),
-    maxToolRounds: recipe?.maxToolRounds ?? (() => capabilityStore.get().max_tool_rounds ?? null),
-  });
+  const assemblyRecipe = build_product_recipe(recipe ?? {});
   for (const factory of retrieval.sourceFactories()) {
     assemblyRecipe.retrieval_sources.push(factory as never);
   }
@@ -170,13 +168,7 @@ export type {
   RoleEndpointConfig,
 } from './config.js';
 export { PRODUCT_SWITCH_DEFAULTS, build_product_recipe } from './recipe.js';
-export type { ProductRecipeInit, ProductSwitchName, RecipeGraph } from './recipe.js';
-export {
-  PRODUCT_TOOL_ROUNDS_DEFAULT,
-  STUB_REPLY,
-  buildProductChatGraph,
-  productChatGraphRecipe,
-} from './graph.js';
+export type { ProductRecipeInit, ProductSwitchName } from './recipe.js';
 
 // ── 会话宿主薄服务 ──
 export { HostSessionStore, SessionServiceError } from './sessions/store.js';

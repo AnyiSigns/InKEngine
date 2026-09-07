@@ -155,10 +155,10 @@ CI 的 ink-ts job 同链执行。规则增删须同步本表。
 
 | 方法 | 域 | 语义（机制在 engine，host 只接线） |
 |---|---|---|
-| `rounds.send` | rounds | 回合驱动（Runtime 在途 run 登记 + engine.ainvoke 续链 + 事件落文件传输） |
+| `rounds.send` | rounds | run 级组装回合（Runtime.assemble_round：input → 组装出本轮数据图 → 建本轮 Engine 执行，事件落文件传输 + 在途 run 登记） |
 | `rounds.abort` | rounds | 中止当前在途 run（Runtime.abort_current_run；JS 取消模型降级见代码注） |
-| `rounds.resume` | rounds | 审批决议重入（Runtime.resume_run） |
-| `rounds.branch` | rounds | 分支续跑（引擎 resume_from 锚点起新叶） |
+| `rounds.resume` | rounds | 审批决议重入（Runtime.resume_run：按 checkpoint `_round_graph` 重建本轮引擎同图续跑） |
+| `rounds.branch` | rounds | 分支续跑（Runtime.resume_round：按锚点 checkpoint 关联图重建，同语义续跑新叶） |
 | `rounds.todos` | rounds | 回合待办（最新 checkpoint.plan 未完成步骤 + 链尾挂起审批卡；无 = 空清单） |
 | `records.sessions` | records | 会话索引查询（host 薄数据：rounds 收尾 upsert 的索引记录） |
 | `records.chain` | records | 链记录（chain_index + checkpoint to_dict，engine 权威） |
@@ -209,7 +209,7 @@ CI 的 ink-ts job 同链执行。规则增删须同步本表。
 | `policy.route` | policy | 策略层路由预览（确定性任务分类 → 计划形态 → 档位/配额；零 LLM，规格见 bridge/policy.ts） |
 | `ui_components.get` | ui_components | 出厂界面组件启停态（factory/disabled/active 三清单；engine 同源） |
 | `ui_components.set_disabled` | ui_components | 整集替换出厂组件停用集（`{disabled: string[]}`；未登记名结构化拒绝） |
-| `graph.instance` | graph | 引擎图实例摘要（回合图结构 + 该线程最近一回合执行事件节点态：error=failed/其余=success；无事件 = round_id:null + 空 node_status） |
+| `graph.instance` | graph | 最近回合组装图投影（introspection 内省图源 = 引擎每轮回合组装的图）+ 该线程最近一回合执行事件节点态（error=failed/其余=success）；无任何回合（宿主不产静态/默认图）= 空图 degraded 空态，不报错 |
 | `pool.snapshot` | pool | 池治理登记快照（runtime.pool_governance.log 窗口 + 登记记录派生计数：容量/死结点候选/近重复/周预算；无登记 = 空态 + last_round:null） |
 | `pool.evaluate` | pool | 池治理判定入口（引擎 evaluate 四规则只登记不执行；需 `proposal.node_id`，snapshot 可选；无登记器 = available:false 空态） |
 | `edge_evidence.list` | edge_evidence | 边证据条目窗口（runtime.edge_evidence_store 投影：domain/source 过滤 + limit 截断；无 store = 结构化空态） |
@@ -256,11 +256,32 @@ metrics_snapshot/assemble_stats/cache_stats/path_state/entities_snapshot）已�
   （multipath_enabled/emit_timeline_events）逐位落到引擎；删除开关表须同步删除
   `assert_product_switches_all_on` 断言与单测。memory_extract/skill_crystal 自学习族
   开关不在产品表（引擎默认开）。
-- 产品默认 chat 图（host/src/graph.ts）= 模型流式 + 工具回合：tools 清单 = 配方
-  tool_wiring 提供的引擎统一工具面（ctx.tool_specs），执行走 ctx.tool_pipeline
-  （引擎统一 ToolPipeline，含守卫/审批/沙箱）；工具失败走 round 错误，轮次上限 =
-  能力记录 `max_tool_rounds`（装配位，引擎重建时求值；缺省 8）。消息链随 state
-  持久化，审批中断重入不重复执行已落结果工具。
+- 回合 = 组装、无默认图（语义不变量）：引擎/宿主都不存在「默认图/出厂图」——
+  round 入口 = run 级组装出本轮数据图再执行（Runtime.assemble_round）；恢复/
+  审批重入/分支按 checkpoint 关联的本轮图定义（随 state 保留键 `_round_graph`
+  落库，`graph_version` = 图 digest）重建本轮 Engine 续跑（resume_run/
+  resume_round）。图架构全是数据：池结点类型/边先验（引擎内置池种子
+  engine/src/core/nodes：llm_decider/tool_pipeline/terminal 等，注册进
+  node_registry 并随池种子给数据）/组装产物/checkpoint 图定义。host 配方
+  （recipe.ts build_product_recipe）不产任何图配方（graph_recipe 恒 null，
+  host/src/graph.ts 已删），CLI 亦不再有占位图/`--graph` 选图。
+- `max_tool_rounds` 消费点：引擎 llm_decider 节点 config 的 `max_tool_rounds`
+  （工具回合上限；引擎池种子 default_config/登记数据携带，缺省常量
+  ENGINE_DEFAULT_TOOL_ROUNDS=8，见 engine/src/core/nodes）。host 能力记录
+  （capability.json）的 max_tool_rounds 只作声明的装配位存档，不再喂宿主
+  静态图——宿主已无静态图。
+- 存储缺省 sqlite（沉淀跨会话）：host/cli 缺省存储 = data_dir 下 sqlite 库
+  （config.ts `default_storage_uri` → `sqlite:///<data_dir>/ink.sqlite`；
+  INK_STORAGE_URI / 显式输入可覆写；显式 `memory://` 走内存后端——测试与
+  演示显式声明不受影响）。账本/治理状态/注册登记/知识等沉淀经 records/
+  checkpoint 落库跨会话复用；sqlite 文件属运行产物不入库（.gitignore
+  `*.sqlite` / `.ink-host/`）。
+- 内省/架构读口数据源 = 最近回合组装图投影：引擎 `_build_graph_engine`（run 级
+  组装/恢复/分支重建共用）每次把本轮组装图刷入 introspection 图源
+  （`snapshot_graph`），host `graph.instance`/web architecture 随最近回合可见；
+  无任何回合 = 空图 degraded 空态，不报错不回归。host 桥 `tools.full`/
+  capability baseline/`approval.list` 以 runtime 装配态（storage 在位）判可用，
+  不再依赖静态 engine（approval.list 无静态引擎时直读 checkpoint interrupt）。
 - 审批策略活读面（host.ts `HostInterruptPolicy`）：autoApprove 显式 true = 全量直过；
   否则按能力记录并入 `auto_approve_all_review`（全量直过）/`auto_approve_tools`
   （工具命中直过）；其余 fail-closed。判定现取 capability 记录，put 后下个请求生效。

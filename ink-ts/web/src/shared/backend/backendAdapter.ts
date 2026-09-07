@@ -273,7 +273,6 @@ export interface BackendAdapter {
     text: string,
     autoAccept?: boolean,
     attachments?: Array<{ kind: string; url: string; path?: string; name?: string; mime?: string }>,
-    mode?: 'standard' | 'assembly',
     model?: ModelSelection,
   ): Promise<RoundResult>;
   roundAbort(roundId: string): Promise<{ aborted: boolean }>;
@@ -484,14 +483,13 @@ export function createServeBackend(channel?: ServeChannel): BackendAdapter {
   };
   return {
     available: true,
-    roundSend: (threadId, roundId, text, autoAccept, attachments, mode, model) =>
+    roundSend: (threadId, roundId, text, autoAccept, attachments, model) =>
       call('round_send', {
         threadId,
         roundId,
         text,
         autoAcceptReview: autoAccept,
         ...(attachments ? { attachments } : {}),
-        ...(mode && mode !== 'standard' ? { mode } : {}),
         ...(model ? { model } : {}),
       }),
     roundAbort: (roundId) => call('round_abort', { roundId }),

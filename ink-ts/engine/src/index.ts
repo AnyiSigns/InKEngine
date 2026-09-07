@@ -41,6 +41,33 @@ export type {
 export * from './core/graph/graph.js';
 export * from './core/graph/graph_types.js';
 
+// 引擎内置基础节点类型（llm_decider/tool_pipeline/回环条件边/池种子：数据图
+// 按类型名引用即解析执行；注册面供装配方把基础执行体装进 NodeTypeRegistry）
+export {
+  COND_LLM_FINISHED,
+  COND_LLM_PENDING,
+  ENGINE_DEFAULT_TOOL_ROUNDS,
+  ENGINE_STUB_REPLY,
+  ROLE_TERMINAL,
+  STATE_MESSAGES,
+  STATE_PENDING,
+  STATE_REPLY,
+  STATE_RESULTS,
+  STATE_STEP_ARGS,
+  STATE_TOOL_ROUNDS,
+  TYPE_LLM_DECIDER,
+  TYPE_TOOL_PIPELINE,
+  bind_engine_node_seams,
+  default_engine_pool_seed,
+  register_engine_node_types,
+} from './core/nodes/index.js';
+export type {
+  EngineDomainSeed,
+  EngineNodeSeams,
+  EngineNodeTypeSeed,
+  EnginePoolSeed,
+} from './core/nodes/index.js';
+
 // 补丁链（Patch/Path/PatchOp/AssembleMode 数据面 + 链操作）
 export * from './core/patch/patchChain.js';
 

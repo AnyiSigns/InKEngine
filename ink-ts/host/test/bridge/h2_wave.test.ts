@@ -13,15 +13,15 @@ import { existsSync, mkdirSync, mkdtempSync, readFileSync, rmSync, writeFileSync
 import { tmpdir } from 'node:os';
 import path from 'node:path';
 
-import { Graph, MemoryEntry } from '@ink-ts/engine';
-import type { GraphRecipeContext } from '@ink-ts/engine';
+import { MemoryEntry } from '@ink-ts/engine';
 import { afterEach, describe, expect, it } from 'vitest';
 
 import { BRIDGE_METHODS } from '../../src/bridge/index.js';
 import { BridgeError } from '../../src/bridge/_types.js';
 import { createHost } from '../../src/index.js';
 import type { HostHandle } from '../../src/index.js';
-import { echoGraphRecipe, gateGraphRecipe } from '../_graphs.js';
+import { gateGraphRecipe } from '../_graphs.js';
+import { FakeOpenAIServer } from '../_fake_openai.js';
 
 const CTX = { autoApprove: false };
 
@@ -36,29 +36,6 @@ function dirs(): Dirs {
   return { dir, events: path.join(dir, 'events') };
 }
 
-/** 回合消息链图（每轮在 state._tool_messages 追加 user/assistant 两条）。 */
-function messagesGraphRecipe(_ctx: GraphRecipeContext): Graph {
-  const agent = async (raw: unknown): Promise<Record<string, unknown>> => {
-    const nodeCtx = raw as { state: Record<string, unknown> };
-    const input = String(nodeCtx.state['input'] ?? '');
-    const prev = Array.isArray(nodeCtx.state['_tool_messages'])
-      ? (nodeCtx.state['_tool_messages'] as Record<string, unknown>[])
-      : [];
-    const seq = prev.length;
-    const messages = [
-      ...prev,
-      { role: 'user', content: input, id: `u${seq}` },
-      { role: 'assistant', content: `reply:${input}`, id: `a${seq}` },
-    ];
-    nodeCtx.state['_tool_messages'] = messages;
-    return { reply: `reply:${input}` };
-  };
-  const graph = new Graph({ name: 'messages', entry: 'agent' });
-  graph.add_node('agent', agent as never);
-  graph.add_exit('agent');
-  return graph;
-}
-
 describe('H2 bridge 方法表（三向一致）', () => {
   let handle: HostHandle;
 
@@ -68,7 +45,7 @@ describe('H2 bridge 方法表（三向一致）', () => {
 
   it('BRIDGE_METHODS 含全部新方法且与装配表双向一致', async () => {
     const { dir, events } = dirs();
-    handle = await createHost({ data_dir: dir, events_dir: events }, { graph_recipe: echoGraphRecipe });
+    handle = await createHost({ data_dir: dir, events_dir: events });
     expect(BRIDGE_METHODS.length).toBeGreaterThan(40);
     expect([...handle.bridge.keys()].sort()).toEqual([...BRIDGE_METHODS].sort());
     for (const method of [
@@ -100,7 +77,7 @@ describe('H2 bridge 方法表（三向一致）', () => {
 
   it('rounds.todos / sessions.messages / records.ledger 入参校验（缺 thread_id → invalid_params）', async () => {
     const { dir, events } = dirs();
-    handle = await createHost({ data_dir: dir, events_dir: events }, { graph_recipe: echoGraphRecipe });
+    handle = await createHost({ data_dir: dir, events_dir: events });
     await expect(handle.bridge.get('rounds.todos')!({}, CTX)).rejects.toMatchObject({
       code: 'invalid_params',
     });
@@ -116,19 +93,37 @@ describe('H2 bridge 方法表（三向一致）', () => {
 describe('sessions.messages（链记录消息投影）', () => {
   let handle: HostHandle;
   let dir: string;
+  let server: FakeOpenAIServer;
 
-  afterEach(async () => {
-    await handle.dispose();
-    rmSync(dir, { recursive: true, force: true });
-  });
-
-  it('两轮消息链投影为四行（user/assistant 成对、created_at 数值、文本正序）', async () => {
+  async function bootChat(content: string): Promise<void> {
     const made = dirs();
     dir = made.dir;
+    server = new FakeOpenAIServer({ content });
+    await server.start();
     handle = await createHost(
-      { data_dir: made.dir, events_dir: made.events },
-      { graph_recipe: messagesGraphRecipe },
+      {
+        data_dir: made.dir,
+        events_dir: made.events,
+        model_config: {
+          agent_config: {
+            protocol: 'openai_compatible',
+            base_url: server.baseUrl,
+            api_key: 'sk-h2-messages',
+            model_id: 'h2-chat',
+          },
+        },
+      },
     );
+  }
+
+  afterEach(async () => {
+    if (handle !== undefined && handle !== null) await handle.dispose();
+    if (server !== undefined && server !== null) await server.close();
+    if (dir !== undefined && dir !== '') rmSync(dir, { recursive: true, force: true });
+  });
+
+  it('两轮组装回合消息链投影（user/assistant 成对、created_at 数值、文本正序）', async () => {
+    await bootChat('宿主回复');
     const send = handle.bridge.get('rounds.send')!;
     const first = (await send({ input: 'hi' }, CTX)) as { thread_id: string };
     await send({ input: 'yo', thread_id: first.thread_id }, CTX);
@@ -140,22 +135,17 @@ describe('sessions.messages（链记录消息投影）', () => {
     expect(view.thread_id).toBe(first.thread_id);
     expect(view.messages).toHaveLength(4);
     expect(view.messages[0]).toMatchObject({ role: 'user', text: 'hi' });
-    expect(view.messages[1]).toMatchObject({ role: 'assistant', text: 'reply:hi' });
+    expect(view.messages[1]).toMatchObject({ role: 'assistant', text: '宿主回复' });
     expect(view.messages[2]).toMatchObject({ role: 'user', text: 'yo' });
-    expect(view.messages[3]).toMatchObject({ role: 'assistant', text: 'reply:yo' });
+    expect(view.messages[3]).toMatchObject({ role: 'assistant', text: '宿主回复' });
     for (const message of view.messages) {
       expect(typeof message.created_at).toBe('number');
       expect(message.id).toBeTruthy();
     }
   });
 
-  it('无记录线程 → 空数组；消息行去重（第二轮回合不重复回放首轮）', async () => {
-    const made = dirs();
-    dir = made.dir;
-    handle = await createHost(
-      { data_dir: made.dir, events_dir: made.events },
-      { graph_recipe: messagesGraphRecipe },
-    );
+  it('无记录线程 → 空数组；多轮回合续写消息链（每轮 user 追加 + assistant，不重复回放）', async () => {
+    await bootChat('宿主回复');
     const empty = (await handle.bridge.get('sessions.messages')!({ thread_id: 't-none' }, CTX)) as {
       messages: unknown[];
     };
@@ -168,9 +158,14 @@ describe('sessions.messages（链记录消息投影）', () => {
     const view = (await handle.bridge.get('sessions.messages')!(
       { thread_id: first.thread_id },
       CTX,
-    )) as { messages: Array<{ id: string }> };
-    // id 前缀 = 写入时消息链长度（每轮回合自 checkpoint 长度续编号）
-    expect(view.messages.map((m) => m.id)).toEqual(['u0', 'a0', 'u2', 'a2', 'u4', 'a4']);
+    )) as { messages: Array<{ role?: string; text?: string }> };
+    // 每轮 user/assistant 成对追加（user b/c 作为新 user message 续链，无重复回放）
+    expect(view.messages.map((m) => m.role)).toEqual([
+      'user', 'assistant', 'user', 'assistant', 'user', 'assistant',
+    ]);
+    expect(view.messages.map((m) => m.text)).toEqual([
+      'a', '宿主回复', 'b', '宿主回复', 'c', '宿主回复',
+    ]);
   });
 });
 
@@ -183,7 +178,7 @@ describe('records.ledger（回合账本事实窗口）', () => {
 
   it('echo 两轮 → 事实行窗口（intent/conclusion + node 行、ts 数值、时间倒序）', async () => {
     const { dir, events } = dirs();
-    handle = await createHost({ data_dir: dir, events_dir: events }, { graph_recipe: echoGraphRecipe });
+    handle = await createHost({ data_dir: dir, events_dir: events });
     const send = handle.bridge.get('rounds.send')!;
     const first = (await send({ input: '第一轮' }, CTX)) as { thread_id: string };
     await send({ input: '第二轮', thread_id: first.thread_id }, CTX);
@@ -209,7 +204,7 @@ describe('records.ledger（回合账本事实窗口）', () => {
 
   it('无账本线程 → 空窗口；limit 非法拒绝', async () => {
     const { dir, events } = dirs();
-    handle = await createHost({ data_dir: dir, events_dir: events }, { graph_recipe: echoGraphRecipe });
+    handle = await createHost({ data_dir: dir, events_dir: events });
     const ledger = (await handle.bridge.get('records.ledger')!({ thread_id: 't-none' }, CTX)) as {
       entries: unknown[];
     };
@@ -227,12 +222,23 @@ describe('rounds.todos（挂起审批卡待办 + 空态）', () => {
     await handle.dispose();
   });
 
-  it('gate 图挂卡 → todos 含 approval 行；裁决后清空', async () => {
+  it('gate 图经兼容静态引擎挂卡 → todos 含 approval 行；裁决后清空', async () => {
     const { dir, events } = dirs();
-    handle = await createHost({ data_dir: dir, events_dir: events }, { graph_recipe: gateGraphRecipe });
-    const send = handle.bridge.get('rounds.send')!;
-    const started = (await send({ input: '挂卡' }, CTX)) as { thread_id: string };
-    const cards = (await handle.bridge.get('approval.list')!({}, CTX)) as Array<{ key: string }>;
+    handle = await createHost({ data_dir: dir, events_dir: events });
+    // rounds 已走组装；gate 挂卡演示经引擎静态图兼容通道（配方注入后重建）
+    const runtime = handle.runtime as unknown as {
+      _recipe: { graph_recipe: unknown };
+      rebuild_engine(): Promise<unknown>;
+    };
+    runtime._recipe.graph_recipe = gateGraphRecipe;
+    await runtime.rebuild_engine();
+    const engine = handle.runtime.engine!;
+    const started = { thread_id: `gate-${Math.random().toString(36).slice(2, 10)}` };
+    await engine.ainvoke({}, { thread_id: started.thread_id, round_id: `r-${started.thread_id}`, continue_chain: true });
+    const cards = (await handle.bridge.get('approval.list')!(
+      { thread_id: started.thread_id },
+      CTX,
+    )) as Array<{ key: string }>;
 
     const todos = (await handle.bridge.get('rounds.todos')!(
       { thread_id: started.thread_id },
@@ -255,7 +261,7 @@ describe('rounds.todos（挂起审批卡待办 + 空态）', () => {
 
   it('无挂卡无计划线程 → 空 todo', async () => {
     const { dir, events } = dirs();
-    handle = await createHost({ data_dir: dir, events_dir: events }, { graph_recipe: echoGraphRecipe });
+    handle = await createHost({ data_dir: dir, events_dir: events });
     const todos = (await handle.bridge.get('rounds.todos')!({ thread_id: 't-idle' }, CTX)) as {
       todo: unknown[];
     };
@@ -272,7 +278,7 @@ describe('recovery.reset（确认标记 fail-closed）', () => {
 
   it('缺/错 confirm → invalid_params（危险操作无标记即拒绝）', async () => {
     const { dir, events } = dirs();
-    handle = await createHost({ data_dir: dir, events_dir: events }, { graph_recipe: echoGraphRecipe });
+    handle = await createHost({ data_dir: dir, events_dir: events });
     await expect(handle.bridge.get('recovery.reset')!({ thread_id: 't' }, CTX)).rejects.toMatchObject({
       code: 'invalid_params',
     });
@@ -283,7 +289,7 @@ describe('recovery.reset（确认标记 fail-closed）', () => {
 
   it('单线程重置：链删除 + 会话墓碑 + 事件日志清空；幂等二次调用零删除', async () => {
     const { dir, events } = dirs();
-    handle = await createHost({ data_dir: dir, events_dir: events }, { graph_recipe: echoGraphRecipe });
+    handle = await createHost({ data_dir: dir, events_dir: events });
     const send = handle.bridge.get('rounds.send')!;
     const first = (await send({ input: 'a' }, CTX)) as { thread_id: string };
     const storage = handle.runtime.storage!;
@@ -312,7 +318,7 @@ describe('recovery.reset（确认标记 fail-closed）', () => {
 
   it('全量重置：清 host.sessions/ledger/memory 集合 + 全部线程链与事件日志（幂等）', async () => {
     const { dir, events } = dirs();
-    handle = await createHost({ data_dir: dir, events_dir: events }, { graph_recipe: echoGraphRecipe });
+    handle = await createHost({ data_dir: dir, events_dir: events });
     const send = handle.bridge.get('rounds.send')!;
     const first = (await send({ input: 'x' }, CTX)) as { thread_id: string };
     const storage = handle.runtime.storage!;
@@ -348,7 +354,7 @@ describe('audit.list（只读窗口：kind/after + limit + 倒序）', () => {
 
   it('kind 过滤 + after 时间窗 + limit 截断', async () => {
     const { dir, events } = dirs();
-    handle = await createHost({ data_dir: dir, events_dir: events }, { graph_recipe: echoGraphRecipe });
+    handle = await createHost({ data_dir: dir, events_dir: events });
     const storage = handle.runtime.storage!;
     const now = Date.now() / 1000;
     const putAudit = async (kind: string, ts: number): Promise<void> => {
@@ -395,7 +401,7 @@ describe('tools.full + capability.baseline/tier（工具管理面）', () => {
 
   it('tools.full 全量视图行含布尔旗标；uses_vectors 全局态一致', async () => {
     const { dir, events } = dirs();
-    handle = await createHost({ data_dir: dir, events_dir: events }, { graph_recipe: echoGraphRecipe });
+    handle = await createHost({ data_dir: dir, events_dir: events });
     const view = (await handle.bridge.get('tools.full')!(null, CTX)) as {
       uses_vectors: boolean;
       tools: Array<{
@@ -421,7 +427,7 @@ describe('tools.full + capability.baseline/tier（工具管理面）', () => {
 
   it('capability.baseline.get/set（运行时单源 + 未知名拒绝）与 tier.set 登记回显', async () => {
     const { dir, events } = dirs();
-    handle = await createHost({ data_dir: dir, events_dir: events }, { graph_recipe: echoGraphRecipe });
+    handle = await createHost({ data_dir: dir, events_dir: events });
     const baselineGet = handle.bridge.get('capability.baseline.get')!;
     const baselineSet = handle.bridge.get('capability.baseline.set')!;
     const full = (await handle.bridge.get('tools.full')!(null, CTX)) as {
@@ -486,7 +492,6 @@ describe('mcp.market（seed 目录 + 挂载态）', () => {
     try {
       handle = await createHost(
         { data_dir: base.dir, events_dir: base.events, seed_dir: seed },
-        { graph_recipe: echoGraphRecipe },
       );
       const market = (await handle.bridge.get('mcp.market')!(null, CTX)) as {
         servers: Array<{ id: string; mounted: boolean; name: string }>;
@@ -518,7 +523,7 @@ describe('knowledge 读面（list/graph/export）', () => {
 
   it('list 条目视图 + graph 层级概览 + export JSON 串（kind 过滤/全量）', async () => {
     const { dir, events } = dirs();
-    handle = await createHost({ data_dir: dir, events_dir: events }, { graph_recipe: echoGraphRecipe });
+    handle = await createHost({ data_dir: dir, events_dir: events });
     const list = (await handle.bridge.get('knowledge.list')!(null, CTX)) as {
       entries: Array<{ id: string; kind: string; title: string; archived: boolean }>;
     };
@@ -564,7 +569,7 @@ describe('memory 读面（list/invalidate）', () => {
 
   it('save 后 list 可见（namespace 分组），invalidate 批量失效后清空', async () => {
     const { dir, events } = dirs();
-    handle = await createHost({ data_dir: dir, events_dir: events }, { graph_recipe: echoGraphRecipe });
+    handle = await createHost({ data_dir: dir, events_dir: events });
     const store = handle.runtime.memory_store;
     if (store === null) throw new Error('测试前置失败：memory_store 未装配');
     const id = await store.save(
@@ -621,7 +626,7 @@ describe('growth.report（自学习状态面）', () => {
 
   it('装配态：enabled/config_summary/weights_snapshot?/last_tuned_at? 形态', async () => {
     const { dir, events } = dirs();
-    handle = await createHost({ data_dir: dir, events_dir: events }, { graph_recipe: echoGraphRecipe });
+    handle = await createHost({ data_dir: dir, events_dir: events });
     const report = (await handle.bridge.get('growth.report')!(null, CTX)) as {
       enabled: boolean;
       config_summary: Record<string, unknown>;
@@ -652,9 +657,11 @@ describe('backup 快照面（export/preview/restore + confirm 标记）', () => 
     mkdirSync(path.join(root, 'notes'), { recursive: true });
     const marker = path.join(root, 'notes', 'marker.txt');
     writeFileSync(marker, 'v1');
+    // 备份恢复替换整目录会覆盖 sqlite 库文件；Windows 上打开中的 db 无法
+    // rename → 本测试显式 memory://（缺省 sqlite 的恢复语义受平台锁限制，
+    // 产品级恢复须先停 runtime 再 restore）
     handle = await createHost(
-      { data_dir: root, events_dir: made.events },
-      { graph_recipe: echoGraphRecipe },
+      { data_dir: root, events_dir: made.events, storage_uri: 'memory://' },
     );
 
     const backupExport = handle.bridge.get('backup.export')!;
@@ -684,3 +691,4 @@ describe('backup 快照面（export/preview/restore + confirm 标记）', () => 
     expect(existsSync(restored.snapshot)).toBe(true);
   });
 });
+

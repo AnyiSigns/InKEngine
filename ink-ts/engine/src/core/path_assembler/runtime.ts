@@ -26,6 +26,7 @@ import {
 import { assembly_audit_record } from './audit.js';
 import { canary_instantiate, canary_round } from './canary.js';
 import { PathAssembler } from './assembler.js';
+import type { BaseGraphsProvider } from './types.js';
 import type { PathAssemblerOptions } from './_assembler_cache.js';
 
 type AuditSink = ((record: Record<string, unknown>) => void) | null;
@@ -52,6 +53,8 @@ export class PathAssemblyRuntime {
   stats_total: Record<string, number>;
   /** 技能先例提供器（异步；组装请求 → 候选技能链）。 */
   readonly skill_provider: ((request: AssemblyRequest) => Promise<readonly unknown[]>) | null;
+  /** 冷启动 base 图提供器（数据驱动；组装请求 → 域 base 图模板清单）。 */
+  readonly base_graphs: BaseGraphsProvider | null;
   /** 最近一次组装请求的缓存主键（沉淀侧读取对齐写入键；空 = 尚未组装）。 */
   last_request_fingerprint: string;
 
@@ -72,6 +75,7 @@ export class PathAssemblyRuntime {
     contract_enabled?: boolean;
     stats_total?: Record<string, number>;
     skill_provider?: ((request: AssemblyRequest) => Promise<readonly unknown[]>) | null;
+    base_graphs?: BaseGraphsProvider | null;
   }) {
     this.registry = init.registry;
     this.evidence_store = init.evidence_store ?? null;
@@ -91,6 +95,7 @@ export class PathAssemblyRuntime {
     this.contract_enabled = init.contract_enabled ?? true;
     this.stats_total = { ...(init.stats_total ?? {}) };
     this.skill_provider = init.skill_provider ?? null;
+    this.base_graphs = init.base_graphs ?? null;
     this.last_request_fingerprint = '';
   }
 
@@ -107,6 +112,7 @@ export class PathAssemblyRuntime {
       model_id: this.model_id,
       cache_epsilon: this.cache_epsilon,
       skill_provider: this.skill_provider,
+      base_graphs: this.base_graphs,
       contract_enabled: this.contract_enabled,
     };
     return new PathAssembler(options);
@@ -135,12 +141,14 @@ export class PathAssemblyRuntime {
    * 产物（AssemblyResult.to_dict）= 候选图定义数据 + 统计 + canary 结论 +
    * 审计记录；缓存命中候选须过 canary 验证（失败 = 强失效 + 立即重组装）；
    * 命中且全部验证通过时直接复用首批 verdict（ENG9a-7：验证成本不翻倍）。
-   * 机制开关关闭（config.enabled=False）时零生效；envelope 全程透传（ENG9a-3）。 */
+   * 机制开关关闭（config.enabled=False）时零生效；envelope 全程透传（ENG9a-3）。
+   * opts.canary：单次调用试跑覆盖（undefined = 实例 canary 档）。 */
   async assemble_plan(
     request: AssemblyRequest,
-    opts: { envelope?: AssemblyEnvelope | null; audit_sink?: AuditSink } = {},
+    opts: { envelope?: AssemblyEnvelope | null; audit_sink?: AuditSink; canary?: boolean } = {},
   ): Promise<PathAssemblyResult> {
     if (this.config !== null && !this.config.enabled) return new PathAssemblyResult();
+    const effectiveCanary = opts.canary ?? this.canary;
     const assembler = this.bind();
     this.last_request_fingerprint = this._request_cache_key(request);
     const result = await assembler.assemble(request, opts.envelope ?? null);
@@ -150,16 +158,16 @@ export class PathAssemblyRuntime {
       // 命中候选先行验证：失败 = 强失效 + 立即重组装
       hit_verdicts = [];
       for (const candidate of result.candidates) {
-        hit_verdicts.push(await this._verify_candidate(candidate, { ts }));
+        hit_verdicts.push(await this._verify_candidate(candidate, { ts, canary: effectiveCanary }));
       }
       if (hit_verdicts.some((verdict) => !verdict.ok)) {
         await this.report_cache_execution(request, { ok: false });
         const reassembled = await assembler.assemble(request, opts.envelope ?? null);
         hit_verdicts = null;
-        return this._finish(request, reassembled, ts, opts.audit_sink ?? null, hit_verdicts);
+        return this._finish(request, reassembled, ts, opts.audit_sink ?? null, hit_verdicts, effectiveCanary);
       }
     }
-    return this._finish(request, result, ts, opts.audit_sink ?? null, hit_verdicts);
+    return this._finish(request, result, ts, opts.audit_sink ?? null, hit_verdicts, effectiveCanary);
   }
 
   /** 组装收尾：审计记录组装 + 候选 canary 结论 + 留痕/统计累计。 */
@@ -169,6 +177,7 @@ export class PathAssemblyRuntime {
     ts: number,
     audit_sink: AuditSink,
     hit_verdicts: readonly CanaryVerdict[] | null,
+    effectiveCanary: boolean,
   ): Promise<PathAssemblyResult> {
     const goal = request.goal_fields();
     const records: Record<string, unknown>[] = [
@@ -191,7 +200,7 @@ export class PathAssemblyRuntime {
       ) {
         verdict = hit_verdicts[index]!;
       } else {
-        verdict = await this._verify_candidate(candidate, { ts });
+        verdict = await this._verify_candidate(candidate, { ts, canary: effectiveCanary });
       }
       verdicts.push(verdict);
       records.push({
@@ -221,7 +230,11 @@ export class PathAssemblyRuntime {
   /** 单候选验证：重建（结构校验）→ 可选单回合（canary 开启时真实试跑）。
    *  canary=False 仅重建级校验（ok=true 不执行）；canary=True 走 canary_round
    *  单回合执行（正常收尾 = 通过；执行异常/超时 = 未通过并留错误原因）。 */
-  async _verify_candidate(candidate: AssemblyCandidate, opts: { ts: number }): Promise<CanaryVerdict> {
+  async _verify_candidate(
+    candidate: AssemblyCandidate,
+    opts: { ts: number; canary?: boolean },
+  ): Promise<CanaryVerdict> {
+    const canary = opts.canary ?? this.canary;
     const graphData = candidate.to_dict()['graph'] as Record<string, unknown>;
     let rebuilt;
     try {
@@ -234,7 +247,7 @@ export class PathAssemblyRuntime {
         error: `重建失败: ${String(exc)}`,
       });
     }
-    if (!this.canary) {
+    if (!canary) {
       return new CanaryVerdict({
         rank: candidate.rank,
         digest: rebuilt.digest(),

@@ -93,6 +93,14 @@ export interface DraftProvider {
   draft(context: AssemblyDraftContext): Promise<string>;
 }
 
+/** 冷启动 base 图提供器（数据驱动：组装请求 → 域 base 图模板清单；
+ *  null = 不参与。无算法/技能/草稿候选时据此稳定产出合法候选数据图）。 */
+export type BaseGraphsProvider = (
+  request: AssemblyRequest,
+) =>
+  | readonly Record<string, unknown>[]
+  | Promise<readonly Record<string, unknown>[]>;
+
 /** 组装请求（输入声明：目标 + 域 + 安全档 + 质量闸门 + 草稿源）。 */
 export class AssemblyRequest {
   readonly goal_schema: SchemaSpec | null;

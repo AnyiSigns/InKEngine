@@ -9,7 +9,8 @@
  * autoApprove 缺省 false，仅显式配置才放行。
  *
  * 键形态：文件/对象输入采用 RoleEndpoint 各槽形态；环境覆盖走 INK_* 前缀
- * （见 ENV_KEYS）。storage_uri 与 data/events/seed 目录为宿主运行路径。
+ * （见 ENV_KEYS）。storage_uri 缺省 = data_dir 下 sqlite 连接串（沉淀可跨
+ * 会话；显式 memory:// 走内存后端），data/events/seed 目录为宿主运行路径。
  */
 
 import path from 'node:path';
@@ -111,8 +112,11 @@ export function isFallbackListKey(key: string): boolean {
   return /^[a-z]+_fallback_configs$/.test(key);
 }
 
-/** 缺省存储连接串（内存后端；持久化需显式 sqlite:///path）。 */
-export const DEFAULT_STORAGE_URI = 'memory://';
+/** 缺省存储连接串（落 data_dir 的 sqlite 库；显式 memory:// 走内存后端）。 */
+export function default_storage_uri(data_dir: string): string {
+  const db = data_dir.replace(/\\/g, '/').replace(/\/$/, '');
+  return `sqlite:///${db}/ink.sqlite`;
+}
 
 function isRecord(value: unknown): value is Record<string, unknown> {
   return typeof value === 'object' && value !== null && !Array.isArray(value);
@@ -216,6 +220,8 @@ function resolve_dirs(
 /**
  * 解析运行配置（输入 + 环境覆盖 → 定稿形态）。autoApprove 输入缺省 false
  * （fail-closed：显式 true 才放行；env INK_AUTO_APPROVE 为最后覆盖层）。
+ * storage_uri 缺省 = data_dir 下 sqlite 连接串（env INK_STORAGE_URI /
+ * 显式输入优先；显式 memory:// = 内存后端——测试/演示）。
  */
 export function resolve_host_config(
   input: HostConfigInput | null | undefined = {},
@@ -223,14 +229,15 @@ export function resolve_host_config(
   cwd = process.cwd(),
 ): ResolvedHostConfig {
   const base = input ?? {};
-  const storage_uri = env[ENV_KEYS.storageUri] ?? base.storage_uri ?? DEFAULT_STORAGE_URI;
+  const dirs = resolve_dirs(base, env, path.join(cwd, '.ink-host'));
+  const explicitUri = env[ENV_KEYS.storageUri] ?? base.storage_uri;
+  const storage_uri = explicitUri ?? default_storage_uri(dirs.data_dir);
   const autoApproveRaw = env[ENV_KEYS.autoApprove];
   const autoApprove =
     envBool(autoApproveRaw) ?? base.autoApprove ?? false;
   if (autoApproveRaw !== undefined && envBool(autoApproveRaw) === null && autoApproveRaw !== '') {
     throw new HostConfigError(`INK_AUTO_APPROVE 非布尔取值: '${autoApproveRaw}'`);
   }
-  const dirs = resolve_dirs(base, env, path.join(cwd, '.ink-host'));
   const roundDocTextCapRaw = env[ENV_KEYS.roundDocTextCap];
   let round_doc_text_cap: number | null =
     typeof base.round_doc_text_cap === 'number' ? base.round_doc_text_cap : null;

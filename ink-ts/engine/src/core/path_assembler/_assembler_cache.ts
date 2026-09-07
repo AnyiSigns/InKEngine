@@ -53,6 +53,7 @@ export interface PathAssemblerOptions {
   cache_epsilon?: number;
   rng?: (() => number) | null;
   skill_provider?: ((request: AssemblyRequest) => Promise<readonly unknown[]>) | null;
+  base_graphs?: import('./types.js').BaseGraphsProvider | null;
   /** 结点契约语义开关（缺省 true = 组装池带契约；false = 池恒空——组装
    *  零候选，路径组装不携带契约语义，对应 PathAssemblyFlags.contract_enabled）。 */
   contract_enabled?: boolean;
@@ -81,6 +82,7 @@ export class PathAssemblerBase {
   protected readonly _skill_provider:
     | ((request: AssemblyRequest) => Promise<readonly unknown[]>)
     | null;
+  protected readonly _base_graphs: import('./types.js').BaseGraphsProvider | null;
   protected readonly _contract_enabled: boolean;
 
   constructor(options: PathAssemblerOptions) {
@@ -95,6 +97,7 @@ export class PathAssemblerBase {
     this._cache_epsilon = Math.max(0.0, Number(options.cache_epsilon ?? DEFAULT_CACHE_EPSILON));
     this._rng = options.rng ?? Math.random;
     this._skill_provider = options.skill_provider ?? null;
+    this._base_graphs = options.base_graphs ?? null;
     this._contract_enabled = options.contract_enabled ?? true;
   }
 

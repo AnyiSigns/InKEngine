@@ -25,9 +25,6 @@ export abstract class RuntimeStateMachine extends RuntimeBase {
     if (recipe.tool_wiring === null) {
       throw new Error('装配配方缺工具三路声明（tool_wiring）');
     }
-    if (recipe.graph_recipe === null) {
-      throw new Error('装配配方缺图配方（graph_recipe）');
-    }
     this._host = host;
     this._recipe = recipe;
     try {

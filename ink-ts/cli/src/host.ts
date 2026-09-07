@@ -5,8 +5,8 @@
  * 产品配方 → Runtime.boot → bridge 命令面。cli 进程是唯一引擎进程载体，
  * 装配一次、进程生命周期内复用；run 形态一次性使用、serve/stdio 长驻。
  *
- * 图配方 = cli 产品占位图（graphs.ts），审批姿态 --approve 显式声明传入
- * 宿主 config（fail-closed 缺省）。
+ * 回合 = run 级组装出本轮数据图再执行（图 = 数据，宿主不产任何静态图/占位
+ * 图）；审批姿态 --approve 显式声明传入宿主 config（fail-closed 缺省）。
  *
  * 模型配置冷启装配：data_dir/config.json 持久化的 model_config（设置页
  * models.config.put 落盘）启动读入并合并进 HostConfigInput——显式传入槽
@@ -24,12 +24,8 @@ import path from 'node:path';
 import { createHost, load_persisted_model_config } from '@ink-ts/host';
 import type { HostConfigInput, HostHandle, ModelConfigInput } from '@ink-ts/host';
 
-import type { GraphName } from './argv.js';
-import { buildCliGraphRecipe } from './graphs.js';
-
 export interface CliHostOptions {
   approve: boolean;
-  graph: GraphName;
   data_dir?: string;
   events_dir?: string;
   /** 显式模型配置（CLI/env 面；缺省仅取 data_dir/config.json 持久化值）。 */
@@ -71,9 +67,7 @@ export async function assembleCliHost(
     if (persisted !== null) {
       config.model_config = mergePersistedModelConfig(options.model_config, persisted);
     }
-    const handle = await createHost(config, {
-      graph_recipe: buildCliGraphRecipe(options.graph, options.approve),
-    });
+    const handle = await createHost(config);
     return ownsDataDir ? withTempDirCleanup(handle, data_dir) : handle;
   } catch (error) {
     // 装配失败不泄漏自建临时目录（显式 data_dir 属调用方，不动）

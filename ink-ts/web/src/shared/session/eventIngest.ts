@@ -209,7 +209,7 @@ export function ingestEvent(hub: ChannelHub, event: HubEvent): void {
       break;
     case 'plan_start':
       upsertStep({ stepId, type: 'plan', label: '计划', status: 'running' }, (s) => ({ ...s, status: 'running' as const }));
-      // 引擎发射 {plan: [{nodes:[...]}]}（graph_recipe 计划步），取步骤名作展示标签。
+      // 引擎发射 {plan: [{nodes:[...]}]}（本轮组装图计划步），取步骤名作展示标签。
       {
         const rawPlan = payload.plan ?? payload.workflow;
         const workflow = Array.isArray(rawPlan)
@@ -285,8 +285,8 @@ export function ingestEvent(hub: ChannelHub, event: HubEvent): void {
     }
     case 'tool_end': {
       const tool = String(payload.tool ?? payload.tool_name ?? '');
-      // 结果摘要通道：引擎 tool_end 结果截断放 message（graph_recipe
-      // tool_result 契约），history 兼容 summary/result_preview 两通道
+      // 结果摘要通道：引擎 tool_end 结果截断放 message（组装图 tool_result
+      // 契约），history 兼容 summary/result_preview 两通道
       const summary = String(payload.summary ?? payload.message ?? payload.result_preview ?? '');
       const failed = payload.success === false;
       upsertStep(

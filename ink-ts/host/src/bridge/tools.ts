@@ -37,13 +37,14 @@ export function buildToolsHandlers(deps: HostBridgeDeps): ReadonlyMap<string, Br
    * Full tool view: merged_specs rows carry uses_vectors/vector plus three
    * consumption flags. baseline = runtime resident set; approved = capability
    * auto_approve_tools hit; enabled = runtime injected set (default session
-   * window = immutable preview set). Missing engine assembly ->
-   * runtime_unavailable (fail-closed).
+   * window = immutable preview set). Missing runtime assembly (not booted /
+   * stopped) -> runtime_unavailable (fail-closed). Data lives on the runtime
+   * tool registry regardless of static graph (rounds assemble per-turn graphs).
    */
   const full: BridgeHandler = (): ToolFullView => {
     const runtime = deps.runtime;
-    if (runtime.engine === null) {
-      throw new BridgeError('runtime engine is not assembled (not booted or stopped)', 'runtime_unavailable');
+    if (runtime.storage === null) {
+      throw new BridgeError('runtime is not assembled (not booted or stopped)', 'runtime_unavailable');
     }
     const index = runtime.tool_index;
     const usesVectors = index?.uses_vectors() ?? false;

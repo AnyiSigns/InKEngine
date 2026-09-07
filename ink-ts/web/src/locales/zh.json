@@ -65,8 +65,6 @@
   "input.placeholder": "给智能体发消息",
   "input.remove_attachment": "移除附件",
   "input.add_attachment": "添加附件",
-  "input.mode_standard": "标准",
-  "input.mode_assembly": "组装",
   "input.multimodal": "多模态",
   "input.model_menu": "模型/推理档位",
   "input.reasoning": "推理档位",

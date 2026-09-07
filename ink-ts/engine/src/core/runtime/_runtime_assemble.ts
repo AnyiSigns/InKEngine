@@ -8,6 +8,13 @@
  */
 import { PermissionGate } from '../permissions/permissions.js';
 import { register_perception_nodes } from '../perception/perception.js';
+import { default_engine_pool_seed } from '../nodes/index.js';
+import {
+  pool_governance_collection,
+  RecordsPoolGovernanceStateStore,
+} from '../pool_governance/state_store.js';
+import { node_registry_governance_target } from '../node_registry/index.js';
+import { RuntimeNodeRegistrar } from './_runtime_node_registry.js';
 import { EventTypeRegistry } from '../event_types/registry.js';
 import {
   event_types_collection,
@@ -38,8 +45,6 @@ import {
   declarative_operation,
 } from '../declarative_tools/index.js';
 import { EntityEvolutionPipeline } from '../entity_evolution/index.js';
-import { entity_writer } from '../evolution_writer/evolution_writer.js';
-import { entity_registry_governance_target } from '../entities/governance_target.js';
 import { GuardedStorage, SelfApplicationPipeline } from '../self_application/index.js';
 import { GraphRegistries } from '../registry/registry.js';
 import { ProposalValidator } from '../self_proposal/index.js';
@@ -55,9 +60,8 @@ import type { ToolSpec } from '../llm/tools.js';
 import type { Host, AssemblyRecipe } from './_types.js';
 import { _uuid_hex } from './_runtime_base.js';
 import { _RoundStepsRecorder } from './_round_steps_recorder.js';
-import { RuntimeSelfLearning } from './_runtime_self_learning.js';
 /** 装配基座（步骤 ①–⑰ 实现；boot 失败清理见状态机层）。 */
-export abstract class RuntimeAssemble extends RuntimeSelfLearning {
+export abstract class RuntimeAssemble extends RuntimeNodeRegistrar {
   protected async _assemble(host: Host, recipe: AssemblyRecipe): Promise<void> {
     const rawStorage = await host.create_storage();
     const guardToken = _uuid_hex();
@@ -70,6 +74,11 @@ export abstract class RuntimeAssemble extends RuntimeSelfLearning {
     } catch {
       // 感知结点登记失败只跳过（视觉结点缺装配 = 该能力不启用，不击穿 boot）
     }
+    // 引擎内置基础节点池种子声明（出厂默认；宿主可经配方 pool_seed 覆写）。
+    // 结点类型执行体注册改为声明式注册表恢复（_assemble_node_registry 在
+    // mechanism writer 就绪后落登记/恢复，见该步注释）——这里只保留种子数据。
+    const poolSeed = recipe.pool_seed ?? default_engine_pool_seed();
+    this._engine_pool_seed = poolSeed;
     this._persist_tasks = new Set();
     const persistKnowledgeSet = async (): Promise<void> => {
       if (this.knowledge_set === null || this.storage === null) return;
@@ -148,6 +157,10 @@ export abstract class RuntimeAssemble extends RuntimeSelfLearning {
       keyGen: () => this._r_audit_key(),
     });
     const writer = this._mechanism_writer;
+    // 声明式结点类型注册表：持久登记恢复 + 缺省种子补登记 + active 登记重建
+    // 运行时执行体注册表（受控写通道经 EvolutionWriter，守卫集合
+    // node_registry:<set>）
+    await this._assemble_node_registry(guarded, recipe, poolSeed);
     this.event_type_registry = new EventTypeRegistry({
       recordsStore: guarded as never,
       writer: {
@@ -336,22 +349,33 @@ export abstract class RuntimeAssemble extends RuntimeSelfLearning {
     this.pool_governance = new PoolGovernance({
       now: () => this._r_now(),
     });
-    // R3 池治理写回 seam 装配：实体注册表存在 = 接注册表受守卫写实现
-    // （entity_writer 管线：受守卫实时写 + 补丁链 + 审计）；注册表缺装配
-    // = 回落 null（settle 侧仅登记 + 审计，注释见 _runtime_base）。池治理
-    // 候选（结点类型）通常不是实体 id——目标缺失 = seam no-op + 登记审计，
-    // 待宿主装配实体源后写回自动生效。
-    if (this.entity_registry !== null && this._mechanism_writer !== null) {
-      const registry = this.entity_registry;
-      const writer = this._mechanism_writer;
-      const persist = async (
-        entity_id: string,
-        spec_dict: Record<string, unknown>,
-        note: string,
-      ): Promise<void> => {
-        await entity_writer(writer, registry.collection, entity_id, spec_dict, { note });
-      };
-      this.pool_governance_writable = entity_registry_governance_target(registry, persist);
+    // 池治理状态持久化 store（周预算判定行/去重/晋升签名落 records
+    // pool_governance:<set>；settle_hooks 关闭 = 不装配 → 进程内存回落语义）
+    if (recipe.settle_hooks_enabled) {
+      const stateStore = new RecordsPoolGovernanceStateStore(
+        guarded,
+        pool_governance_collection(recipe.set_id),
+        { now: () => this._r_now() },
+      );
+      this.pool_governance_state = stateStore;
+      // 晋升/复审去重签名装配前恢复（钩子构造注入，重启不重复登记）
+      this._pg_promoted = await stateStore.promoted_signatures();
+      this._pg_downgraded = await stateStore.downgraded_keys();
+    } else {
+      this.pool_governance_state = null;
+    }
+    // A3 池治理写回 seam：结点类型注册表 store 受控写实现（登记行 disable/
+    // archive + 建议字段留 data；执行体卸载随 graph_registries 同步）。
+    // store 缺装配 = null → settle 回落登记 + 审计。
+    if (this.node_registry_store !== null) {
+      this.pool_governance_writable = node_registry_governance_target(
+        this.node_registry_store,
+        {
+          unregister: (type_name) => {
+            this.graph_registries?.nodes.unregister(type_name);
+          },
+        },
+      );
     } else {
       this.pool_governance_writable = null;
     }

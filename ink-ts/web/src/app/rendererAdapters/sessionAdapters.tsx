@@ -81,7 +81,7 @@ const AgentInputAdapter: ComponentType<Record<string, unknown>> = (props: Record
       onAgentModelSelect={product.onAgentModelSelect ?? noop}
       roundCount={product.roundCount ?? 0}
       stepCount={product.stepCount ?? 0}
-      onSend={(text, attachments, mode, model) => (product.onSend ?? noop)(text, attachments, mode, model)}
+      onSend={(text, attachments, model) => (product.onSend ?? noop)(text, attachments, model)}
       onAbort={product.onAbort ?? noop}
       onAttachments={(assets) => (product.onAttachments ?? noop)(assets)}
       onRoutePlanPreview={product.onRoutePlanPreview ?? noop}

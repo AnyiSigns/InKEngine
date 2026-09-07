@@ -16,7 +16,6 @@ import { buildHostRetrieval, attachToolIndexEmbedder } from '../../src/index.js'
 import { EmbeddingAdapter } from '../../src/embedder/adapter.js';
 import { GRANITE_97M_DIM } from '../../src/embedder/resolve_plan.js';
 import { locateNativeBinary } from '../../src/exec/binary.js';
-import { echoGraphRecipe } from '../_graphs.js';
 
 function tempDir(prefix: string): string {
   return mkdtempSync(path.join(tmpdir(), prefix));
@@ -110,7 +109,7 @@ describe('检索源注入契约（createHost → AssemblyRecipe → runtime regi
 
   it('vector/fts 检索源注册进引擎注册表并参与多源检索', async () => {
     const dir = tempDir('ink-registry-');
-    handle = await createHost({ data_dir: dir }, { graph_recipe: echoGraphRecipe });
+    handle = await createHost({ data_dir: dir });
     try {
       const registry = handle.runtime.retriever_registry;
       expect(registry).not.toBeNull();
@@ -132,7 +131,7 @@ describe('tool_index 语义检索（AsyncEmbedder seam 接通）', () => {
 
   it('attach 后向量构建 + 预热查询命中（引擎 search 走向量路径）', async () => {
     const dir = tempDir('ink-attach-');
-    handle = await createHost({ data_dir: dir }, { graph_recipe: echoGraphRecipe });
+    handle = await createHost({ data_dir: dir });
     try {
       const index = handle.runtime.tool_index;
       expect(index).not.toBeNull();

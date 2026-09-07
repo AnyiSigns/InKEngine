@@ -11,7 +11,8 @@ import { existsSync, mkdtempSync, readFileSync } from 'node:fs';
 import { tmpdir } from 'node:os';
 import path from 'node:path';
 
-import { locateNativeBinary, STUB_REPLY } from '@ink-ts/host';
+import { ENGINE_STUB_REPLY } from '@ink-ts/engine';
+import { locateNativeBinary } from '@ink-ts/host';
 import { afterEach, describe, expect, it } from 'vitest';
 import WebSocket from 'ws';
 import type { RawData } from 'ws';
@@ -183,7 +184,7 @@ describe('serve e2e：ws 事件订阅到引擎事件', () => {
       expect(response.status).toBe(200);
       const round = (await response.json()) as { result?: { reply: string }; error?: unknown };
       expect(round.error).toBeUndefined();
-      expect(round.result?.reply).toBe(STUB_REPLY);
+      expect(round.result?.reply).toBe(ENGINE_STUB_REPLY);
 
       const frame = await replyToken;
       expect(frame.topic).toBe('events.reply_token');
@@ -247,7 +248,7 @@ describe('serve e2e：附件上传 + 扁平↔点分别名 round', () => {
       expect(body.error).toBeUndefined();
       expect(body.result?.thread_id).toBe('alias-thread-1');
       expect(body.result?.round_id).toBe('alias-round-1');
-      expect(body.result?.reply).toBe(STUB_REPLY);
+      expect(body.result?.reply).toBe(ENGINE_STUB_REPLY);
     } finally {
       await stopServe(child);
     }
@@ -329,7 +330,7 @@ describe('serve e2e：/upload → doc.parse → round 文档文本注入链路',
         error?: { message: string };
       };
       expect(body.error).toBeUndefined();
-      expect(body.result?.reply).toBe(STUB_REPLY);
+      expect(body.result?.reply).toBe(ENGINE_STUB_REPLY);
       expect((body.result?.warnings ?? []).length).toBeGreaterThan(0);
       expect((body.result?.warnings ?? []).join('\n')).toContain('解析失败');
     } finally {

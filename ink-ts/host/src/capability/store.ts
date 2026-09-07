@@ -2,14 +2,15 @@
  * 能力设置存储（host 本地持久化；capability.json）。
  *
  * 能力记录承载自动审批预授权字段（auto_approve_tools 工具级直过名单 /
- * auto_approve_all_review 全量直过）与 max_tool_rounds（agent 工具回合
- * 上限装配位）。推演档位（simulation_tier）语义已移除：不设推演档位，
- * 推演直接开启；历史记录残留的档位键在读取时丢弃（不随 passthrough 回显）。
+ * auto_approve_all_review 全量直过）与 max_tool_rounds（声明的工具回合上限
+ * 装配位）。推演档位（simulation_tier）语义已移除：不设推演档位，推演直接
+ * 开启；历史记录残留的档位键在读取时丢弃（不随 passthrough 回显）。
  *
  * auto_approve_* 供审批策略接线（host.interrupt_policy 构造时并入）；策略
  * 实例为活读面——每次 should_approve 取当前记录，capability.put 后下个请求
- * 即生效。max_tool_rounds 为 host 侧登记装配位（agent 图工具回合上限消费，
- * 引擎无该字段消费）。
+ * 即生效。max_tool_rounds 为 host 侧声明装配位：宿主不再产静态图（回合 =
+ * 组装），回合内工具回合上限的真实消费点在引擎 llm_decider 节点 config
+ * （池种子/登记数据携带，见 CODING §10），本字段只作存档与回显。
  *
  * 语义对齐壳侧能力命令：记录是「整体存储」——get 只读 + 缺省字段注入，
  * put 先读既有记录再并入（单字段写不覆盖其它字段），字段白名单校验失败

@@ -17,7 +17,6 @@ import { afterEach, describe, expect, it } from 'vitest';
 import { BRIDGE_METHODS } from '../../src/bridge/index.js';
 import { createHost } from '../../src/index.js';
 import type { HostHandle } from '../../src/index.js';
-import { echoGraphRecipe } from '../_graphs.js';
 const CTX = { autoApprove: false };
 
 function dirs(): { dir: string; events: string } {
@@ -33,7 +32,7 @@ describe('H2b 方法表三向一致', () => {
 
   it('BRIDGE_METHODS 含全部新读取方法且装配表双向一致；写类/越权不提供', async () => {
     const { dir, events } = dirs();
-    handle = await createHost({ data_dir: dir, events_dir: events }, { graph_recipe: echoGraphRecipe });
+    handle = await createHost({ data_dir: dir, events_dir: events });
     expect([...handle.bridge.keys()].sort()).toEqual([...BRIDGE_METHODS].sort());
     for (const method of [
       'graph.instance',
@@ -67,7 +66,7 @@ describe('H2b 方法表三向一致', () => {
 
   it('graph.instance / pool.evaluate 入参校验（缺 thread_id/proposal → invalid_params）', async () => {
     const { dir, events } = dirs();
-    handle = await createHost({ data_dir: dir, events_dir: events }, { graph_recipe: echoGraphRecipe });
+    handle = await createHost({ data_dir: dir, events_dir: events });
     await expect(handle.bridge.get('graph.instance')!({}, CTX)).rejects.toMatchObject({
       code: 'invalid_params',
     });
@@ -92,7 +91,7 @@ describe('graph.instance（回合图实例执行态摘要）', () => {
 
   it('graph.instance 按线程事件归集最近一回合执行态（error=failed/其余=success）', async () => {
     const made = dirs();
-    handle = await createHost({ data_dir: made.dir, events_dir: made.events }, { graph_recipe: echoGraphRecipe });
+    handle = await createHost({ data_dir: made.dir, events_dir: made.events });
     const storage = handle.runtime.storage!;
     await storage.append_event(
       't-vis',
@@ -114,7 +113,7 @@ describe('graph.instance（回合图实例执行态摘要）', () => {
 
   it('graph.instance 无事件线程 → round_id:null + 空 node_status（不白屏）', async () => {
     const made = dirs();
-    handle = await createHost({ data_dir: made.dir, events_dir: made.events }, { graph_recipe: echoGraphRecipe });
+    handle = await createHost({ data_dir: made.dir, events_dir: made.events });
     const view = (await handle.bridge.get('graph.instance')!({ thread_id: 't-idle' }, CTX)) as {
       round_id: string | null;
       node_status: Record<string, string>;
@@ -133,7 +132,7 @@ describe('pool.snapshot / pool.evaluate（池治理登记快照 + 引擎判定�
 
   it('空登记 → 结构化空态（entries 空 + last_round:null）；evaluate 登记后可读', async () => {
     const { dir, events } = dirs();
-    handle = await createHost({ data_dir: dir, events_dir: events }, { graph_recipe: echoGraphRecipe });
+    handle = await createHost({ data_dir: dir, events_dir: events });
     const empty = (await handle.bridge.get('pool.snapshot')!(null, CTX)) as {
       available: boolean;
       governance_log: unknown[];
@@ -167,7 +166,7 @@ describe('pool.snapshot / pool.evaluate（池治理登记快照 + 引擎判定�
 
   it('pool.evaluate 近重复判定透传引擎 verdict（merge_target 命中池内结点）', async () => {
     const { dir, events } = dirs();
-    handle = await createHost({ data_dir: dir, events_dir: events }, { graph_recipe: echoGraphRecipe });
+    handle = await createHost({ data_dir: dir, events_dir: events });
     const evaluated = (await handle.bridge.get('pool.evaluate')!(
       {
         proposal: { node_id: 'new_node', fields: ['a', 'b', 'c', 'd', 'e', 'f'] },
@@ -193,7 +192,7 @@ describe('edge_evidence.list / metrics.snapshot（只读窗口）', () => {
 
   it('edge_evidence.list 空 store → 结构化空态；非法 limit 拒绝', async () => {
     const { dir, events } = dirs();
-    handle = await createHost({ data_dir: dir, events_dir: events }, { graph_recipe: echoGraphRecipe });
+    handle = await createHost({ data_dir: dir, events_dir: events });
     const view = (await handle.bridge.get('edge_evidence.list')!(null, CTX)) as {
       available: boolean;
       edges: unknown[];
@@ -209,7 +208,7 @@ describe('edge_evidence.list / metrics.snapshot（只读窗口）', () => {
 
   it('metrics.snapshot 回合窗口随 echo 回合递增（rounds/failures/avg）', async () => {
     const { dir, events } = dirs();
-    handle = await createHost({ data_dir: dir, events_dir: events }, { graph_recipe: echoGraphRecipe });
+    handle = await createHost({ data_dir: dir, events_dir: events });
     const send = handle.bridge.get('rounds.send')!;
     await send({ input: 'a' }, CTX);
     await send({ input: 'b' }, CTX);
@@ -237,7 +236,7 @@ describe('assemble.stats / cache.stats / path.state / entities.snapshot（装配
 
   it('assemble.stats 组装链统计形态（开关位 + 恢复诊断/技能结晶 + canary 门）', async () => {
     const { dir, events } = dirs();
-    handle = await createHost({ data_dir: dir, events_dir: events }, { graph_recipe: echoGraphRecipe });
+    handle = await createHost({ data_dir: dir, events_dir: events });
     const view = (await handle.bridge.get('assemble.stats')!(null, CTX)) as {
       available: boolean;
       assembler_enabled: boolean;
@@ -266,7 +265,7 @@ describe('assemble.stats / cache.stats / path.state / entities.snapshot（装配
 
   it('cache.stats 指纹缓存计数 + multipath 配置态（无数据源 = 全零空态）', async () => {
     const { dir, events } = dirs();
-    handle = await createHost({ data_dir: dir, events_dir: events }, { graph_recipe: echoGraphRecipe });
+    handle = await createHost({ data_dir: dir, events_dir: events });
     const view = (await handle.bridge.get('cache.stats')!(null, CTX)) as {
       fingerprint_cache: {
         available: boolean;
@@ -284,7 +283,7 @@ describe('assemble.stats / cache.stats / path.state / entities.snapshot（装配
 
   it('path.state 装配状态形态（挂载/开关位/canary/最近组装候选）', async () => {
     const { dir, events } = dirs();
-    handle = await createHost({ data_dir: dir, events_dir: events }, { graph_recipe: echoGraphRecipe });
+    handle = await createHost({ data_dir: dir, events_dir: events });
     const view = (await handle.bridge.get('path.state')!(null, CTX)) as {
       available: boolean;
       runtime_mounted: boolean;
@@ -302,7 +301,7 @@ describe('assemble.stats / cache.stats / path.state / entities.snapshot（装配
 
   it('entities.snapshot 实体注册表目录快照（id/label + 配额态；无实体 = 空清单非报错）', async () => {
     const { dir, events } = dirs();
-    handle = await createHost({ data_dir: dir, events_dir: events }, { graph_recipe: echoGraphRecipe });
+    handle = await createHost({ data_dir: dir, events_dir: events });
     const view = (await handle.bridge.get('entities.snapshot')!(null, CTX)) as {
       available: boolean;
       version: number;

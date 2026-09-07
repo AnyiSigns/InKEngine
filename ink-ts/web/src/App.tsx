@@ -209,11 +209,10 @@ export default function App({ backend, hub, sessionStore }: AppProps) {
   const handleSend = (
     text: string,
     attachments: AttachmentAsset[],
-    sendMode: 'standard' | 'assembly',
     model?: import('@/shared/backend/backendAdapter').ModelSelection,
   ) => {
-    // 回合恒为组装（standard = 兼容别名，走同一发送面）
-    void send(text, attachments, sendMode, model);
+    // 回合恒为组装：发送即从数据组装出本轮执行图（无模式参数，单一发送面）
+    void send(text, attachments, model);
   };
 
   /** 会话窗口切换：从 perThread 桶恢复该会话的回合状态与消息流。 */

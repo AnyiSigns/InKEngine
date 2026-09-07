@@ -19,9 +19,6 @@ import type { RoutePlanResult } from '@/app/input/InputBar';
 import type { RailSession } from '@/app/shell/RightRail';
 import type { ModelSelection } from '@/shared/backend/backendAdapter';
 
-/** 输入发送档位（回合恒为组装；保留 standard 兼容面）。 */
-export type SendMode = 'standard' | 'assembly';
-
 /** 产品壳回显数据（适配器消费的宿主面）。 */
 export interface ProductShellModel {
   backend: BackendAdapter;
@@ -62,7 +59,7 @@ export interface ProductShellActions {
   onOpenSettings(): void;
   onCloseSettings(): void;
   onAddWorkspace(): void;
-  onSend(text: string, attachments: AttachmentAsset[], mode: SendMode, model?: ModelSelection): void;
+  onSend(text: string, attachments: AttachmentAsset[], model?: ModelSelection): void;
   onAbort(): void;
   onAttachments(assets: AttachmentAsset[]): void;
   onRoutePlanPreview(text: string): void;

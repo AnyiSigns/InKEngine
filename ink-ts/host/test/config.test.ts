@@ -18,13 +18,19 @@ import {
 import type { HostConfigInput } from '../src/config.js';
 
 describe('config 解析（角色槽/协议/目录）', () => {
-  it('默认值：memory:// + autoApprove=false（fail-closed）+ events 落 data/events', () => {
+  it('默认值：data_dir 下 sqlite 连接串 + autoApprove=false（fail-closed）+ events 落 data/events', () => {
     const config = resolve_host_config({}, {}, 'C:/work');
-    expect(config.storage_uri).toBe('memory://');
+    expect(config.storage_uri).toBe('sqlite:///C:/work/.ink-host/ink.sqlite');
     expect(config.autoApprove).toBe(false);
     expect(config.approval_timeout).toBeNull();
     expect(config.data_dir).toBe(path.join('C:/work', '.ink-host'));
     expect(config.events_dir).toBe(path.join('C:/work', '.ink-host', 'events'));
+  });
+
+  it('显式 memory:// 覆盖缺省（测试/演示走内存后端）', () => {
+    const config = resolve_host_config({ storage_uri: 'memory://' }, {}, 'C:/work');
+    expect(config.storage_uri).toBe('memory://');
+    expect(config.data_dir).toBe(path.join('C:/work', '.ink-host'));
   });
 
   it('agent/router 双键 + {role}_fallback_configs 备用链按协议归一', () => {

@@ -52,6 +52,8 @@ export const CANDIDATE_SOURCE_DRAFT = 'draft';
 export const CANDIDATE_SOURCE_CACHE = 'cache';
 /** 技能先例源（知识集 kind=path 条目注入的候选链）。 */
 export const CANDIDATE_SOURCE_SKILL = 'skill';
+/** 冷启动 base 图源（引擎内置池种子的域 base 图模板；无其它候选时的稳定产出）。 */
+export const CANDIDATE_SOURCE_BASE = 'base';
 
 // ── 统计口径键（声明式枚举）──────────────────────────────────────
 export const STATS_BEAM_EXTENSIONS = 'beam_extensions';

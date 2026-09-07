@@ -20,7 +20,7 @@ interface Assembled {
 const handles: Assembled[] = [];
 
 async function assemble(data_dir?: string): Promise<Assembled> {
-  const handle = await assembleCliHost({ approve: false, graph: 'assistant', data_dir });
+  const handle = await assembleCliHost({ approve: false, data_dir });
   const entry = { handle, dataDir: handle.config.data_dir };
   handles.push(entry);
   return entry;

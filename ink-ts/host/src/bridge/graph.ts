@@ -1,11 +1,12 @@
 /**
- * graph 命令面（instance）——图实例结构与执行态只读投影。
+ * graph 命令面（instance）——最近回合组装图结构与执行态只读投影。
  *
- * 数据源（无第二份台账）：instance = 当前引擎回合图（introspection
- * snapshot_graph，宿主装配图结构）+ 该线程执行事件日志
- * （storage.events_after：按事件 node/round_id 推导最近一回合节点执行态；
- * error 事件标记 failed，其余执行过节点 = success）。host 只接线投影，
- * 图结构与执行语义全在引擎。
+ * 数据源（无第二份台账）：instance = 最近回合组装图投影（introspection
+ * snapshot_graph；引擎 _build_graph_engine 随每轮回合把本轮组装图刷新为
+ * 内省图源）+ 该线程执行事件日志（storage.events_after：按事件 node/round_id
+ * 推导最近一回合节点执行态；error 事件标记 failed，其余执行过节点 =
+ * success）。无任何回合（纯冷启，宿主不产静态/默认图）= 空图 degraded 空态，
+ * 不报错不回归。host 只接线投影，图结构与执行语义全在引擎。
  */
 
 import { BridgeError, type BridgeHandler } from './_types.js';
@@ -25,12 +26,13 @@ export interface GraphEdgeView {
   condition?: string;
 }
 
-/** graph.instance 结果（执行态仅覆盖最近一回合访问过的节点）。 */
+/** 图实例结果（执行态仅覆盖最近一回合访问过的节点）。 */
 export interface GraphInstanceView {
   thread_id: string;
   round_id: string | null;
   graph: { nodes: GraphNodeView[]; edges: GraphEdgeView[] };
   node_status: Record<string, string>;
+  /** 无回合图或无条件边降级等不可得态 = true（结构化空态，不报错）。 */
   degraded: boolean;
   degraded_reason: string | null;
 }
@@ -124,7 +126,7 @@ function engineGraphSnapshot(
 }
 
 export function buildGraphHandlers(deps: HostBridgeDeps): ReadonlyMap<string, BridgeHandler> {
-  /** graph.instance：当前引擎图实例 + 最近一回合节点执行态摘要。 */
+  /** graph.instance：最近回合组装图投影 + 最近一回合节点执行态摘要。 */
   const instance: BridgeHandler = async (raw): Promise<GraphInstanceView> => {
     const thread_id = requireThread(raw);
     const storage = deps.runtime.storage;

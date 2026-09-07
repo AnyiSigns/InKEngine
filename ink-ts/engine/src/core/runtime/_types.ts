@@ -17,9 +17,11 @@ import type { EnvironmentSpec } from '../environments/spec.js';
 import type { EventTypeSpec } from '../event_types/eventTypeSpec.js';
 import type { Graph } from '../graph/graph.js';
 import type { KnowledgeEntry } from '../knowledge_set/index.js';
+import type { EnginePoolSeed } from '../nodes/index.js';
 import type { AsyncLLM } from '../llm/_guard_types.js';
 import type { ToolSpec } from '../llm/tools.js';
 import type { GraphRegistries } from '../registry/registry.js';
+import type { NodeFactory } from '../registry/registry_types.js';
 import type { Storage } from '../storage/storage.js';
 import type { SelfApplicationPipeline } from '../self_application/index.js';
 import type { ConvergenceHook, SelfToolContext } from '../self_tools/index.js';
@@ -126,6 +128,13 @@ export interface AssemblyRecipeInit {
   retrieval_sources?: readonly ((runtime: unknown) => unknown)[];
   apply_targets?: Record<string, (runtime: unknown) => unknown>;
   graph_recipe?: ((ctx: GraphRecipeContext) => Graph) | null;
+  /** 引擎内置基础节点池种子（null = 出厂默认池种子；显式空启停数据见
+   *  EnginePoolSeed.enabled——覆写走数据不进代码）。 */
+  pool_seed?: EnginePoolSeed | null;
+  /** 宿主/agent 注入结点类型的执行体绑定解析表（binding name → 工厂）。
+   *  声明式注册表恢复时按登记行 executor 绑定名查此表重建执行体注册；
+   *  缺绑定 = 登记保留、运行时不注册（diag 留痕）。 */
+  node_executors?: Record<string, NodeFactory> | null;
   on_reverted?: ((patch_id: number, reason: string) => unknown) | null;
   convergence_provider?: (() => ConvergenceHook | null) | null;
   /** 执行域选项（RunOptions 形态；非 None 字段覆盖装配默认——多径开关
@@ -156,6 +165,10 @@ export interface AssemblyRecipeInit {
   memory_extract_enabled?: boolean;
   /** 技能结晶链（指纹缓存达标 → 知识集 skill 条目 settle 钩子；false = 不装配）。 */
   skill_crystal_enabled?: boolean;
+  /** 记忆自动回灌（回合上下文源 recall user:default 条目；false = 回合不回灌记忆）。
+   *  仅 memory_store 已装配（memory_extract_enabled）时生效；cap/截断见
+   *  _runtime_contexts._assembly_sources 注入面。 */
+  memory_recall_enabled?: boolean;
 }
 
 /**
@@ -182,6 +195,8 @@ export class AssemblyRecipe {
   retrieval_sources: Array<(runtime: unknown) => unknown> = [];
   apply_targets: Record<string, (runtime: unknown) => unknown> = {};
   graph_recipe: ((ctx: GraphRecipeContext) => Graph) | null = null;
+  pool_seed: EnginePoolSeed | null = null;
+  node_executors: Record<string, NodeFactory> | null = null;
   on_reverted: ((patch_id: number, reason: string) => unknown) | null = null;
   convergence_provider: (() => ConvergenceHook | null) | null = null;
   run_options: unknown = null;
@@ -199,6 +214,7 @@ export class AssemblyRecipe {
   // ── 自学习族开关（引擎默认全开；false = 该块不装配）──
   memory_extract_enabled = true;
   skill_crystal_enabled = true;
+  memory_recall_enabled = true;
 
   constructor(init: AssemblyRecipeInit = {}) {
     if (init.set_id !== undefined) this.set_id = init.set_id;
@@ -233,6 +249,8 @@ export class AssemblyRecipe {
     }
     if (init.apply_targets !== undefined) this.apply_targets = { ...init.apply_targets };
     if (init.graph_recipe !== undefined) this.graph_recipe = init.graph_recipe;
+    if (init.pool_seed !== undefined) this.pool_seed = init.pool_seed;
+    if (init.node_executors !== undefined) this.node_executors = init.node_executors;
     if (init.on_reverted !== undefined) this.on_reverted = init.on_reverted;
     if (init.convergence_provider !== undefined) {
       this.convergence_provider = init.convergence_provider;
@@ -267,6 +285,9 @@ export class AssemblyRecipe {
     }
     if (init.skill_crystal_enabled !== undefined) {
       this.skill_crystal_enabled = init.skill_crystal_enabled;
+    }
+    if (init.memory_recall_enabled !== undefined) {
+      this.memory_recall_enabled = init.memory_recall_enabled;
     }
   }
 }

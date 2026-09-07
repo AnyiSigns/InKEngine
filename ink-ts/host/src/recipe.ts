@@ -9,8 +9,8 @@
  * （默认 fail-closed，autoApprove 显式才放行）。
  *
  * 其余装配（boot 种子 / 事件类型 / harness / ui_spec 白名单 / tool_wiring /
- * approval_levels）：engine 已具 boot 种子 → 直接引用不复制；graph_recipe
- * 缺省 = 产品默认 chat 图（graph.ts），调用方可覆写；检索源（vector/fts）由
+ * approval_levels）：engine 已具 boot 种子 → 直接引用不复制。图 = 数据
+ * （引擎池种子 / 组装产物），本包不再产任何图配方；检索源（vector/fts）由
  * createHost 装配后直注 recipe.retrieval_sources（属宿主领域层，见
  * retrieval/domain.ts）。
  *
@@ -28,12 +28,7 @@ import {
   operation_of,
   self_tool_specs,
 } from '@ink-ts/engine';
-import type { AssemblyRecipeInit, Graph, GraphRecipeContext, ToolWiring } from '@ink-ts/engine';
-
-import { buildProductChatGraph } from './graph.js';
-
-/** 图配方注入位形态（缺省 = 产品默认 chat 图；调用方可覆写）。 */
-export type RecipeGraph = (ctx: GraphRecipeContext) => Graph;
+import type { AssemblyRecipeInit, ToolWiring } from '@ink-ts/engine';
 
 /** 产品机制开关默认表（机制开关全开；关闭只走显式产品配置）。 */
 export const PRODUCT_SWITCH_DEFAULTS = {
@@ -61,15 +56,12 @@ export interface ProductSwitchOverrides {
   run_options?: Partial<RunOptions> | null;
 }
 
-/** 配方构建选项（图配方为调用方注入位；approval_levels 属产品配置表）。 */
+/** 配方构建选项（approval_levels/ui 白名单属产品配置表；无图配方位——
+ *  回合 = 组装出本轮数据图，宿主不产任何静态/默认图）。 */
 export interface ProductRecipeInit extends ProductSwitchOverrides {
-  graph_recipe?: RecipeGraph | null;
   approval_levels?: Record<string, unknown> | null;
   ui_allowed_components?: readonly string[];
   ui_allowed_theme_tokens?: readonly string[];
-  /** 工具回合上限提供者（agent 图消费；null = 产品默认轮次上限）。
-   *  每次引擎重建（rebuild）求值一次——能力记录 max_tool_rounds 装配位。 */
-  maxToolRounds?: (() => number | null) | null;
 }
 
 /**
@@ -169,8 +161,9 @@ export function assert_product_switches_all_on(): void {
 
 /**
  * 构建产品 AssemblyRecipe：十位机制开关经 init 字段/run_options 逐位真实
- * 消费（见 PRODUCT_SWITCH_DEFAULTS）。graph_recipe 缺省 = 产品默认 chat 图
- * （调用方可覆写）；检索源由装配方（createHost）注入 recipe.retrieval_sources。
+ * 消费（见 PRODUCT_SWITCH_DEFAULTS）。图 = 数据（引擎池种子 / 组装产物），
+ * 配方不产任何图配方（graph_recipe 恒为引擎缺省 null）；检索源由装配方
+ * （createHost）注入 recipe.retrieval_sources。
  */
 export function build_product_recipe(
   init: ProductRecipeInit = {},
@@ -192,17 +185,6 @@ export function build_product_recipe(
     approval_levels: (init.approval_levels ?? {}) as Record<string, unknown>,
     ...assembly_flags_from(init),
   });
-  recipe.graph_recipe = defaultGraphRecipe(init);
   recipe.run_options = run_options_from(init);
   return recipe;
-}
-
-/** 缺省图配方：产品默认 chat 图（工具回合上限 = init.maxToolRounds 现值）。
- *  每次引擎重建求值一次：能力 max_tool_rounds 变更经重建生效。 */
-function defaultGraphRecipe(init: ProductRecipeInit): RecipeGraph {
-  if (init.graph_recipe !== null && init.graph_recipe !== undefined) {
-    return init.graph_recipe;
-  }
-  const rounds = init.maxToolRounds ?? null;
-  return (ctx) => buildProductChatGraph(ctx, { maxToolRounds: rounds === null ? null : rounds() });
 }

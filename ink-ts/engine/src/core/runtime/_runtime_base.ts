@@ -12,6 +12,7 @@
 
 import type { Engine } from '../executor/index.js';
 import type { GraphRegistries } from '../registry/registry.js';
+import type { EnginePoolSeed } from '../nodes/index.js';
 import type { KnowledgeSet } from '../knowledge_set/index.js';
 import type {
   HarnessRegistry,
@@ -43,6 +44,7 @@ import type { PathAssemblyRuntime } from '../path_assembler/runtime.js';
 import type { EnvironmentProviders } from '../environments/providers.js';
 import type { ContextMixer } from '../context/context_mixer.js';
 import type { Storage } from '../storage/storage.js';
+import type { EngineTransport } from '../events/events.js';
 import type { _RoundStepsRecorder } from './_round_steps_recorder.js';
 import type { AssemblyRecipe, Host, RuntimeConfigInit } from './_types.js';
 import { BASELINE_TOOL_NAMES, TAG_IMMUTABLE } from './_constants.js';
@@ -134,10 +136,17 @@ export abstract class RuntimeBase {
    *  Python 侧 McpClientManager 属引擎 adapters/宿主装配面，未迁入 core。 */
   mcp_manager: { close_all(): Promise<unknown> } | null = null;
 
+  /** 观察传输链（宿主/壳挂载面：serve 事件订阅 / run 实时进度等——宿主无
+   *  静态引擎时按此链把回合事件转发给观察者；每轮回合引擎重建都带上本链，
+   *  与 _engine_transports 自接线传输同路）。 */
+  round_transports: EngineTransport[] = [];
+
   // ── 装配产物（boot 后齐备；null = 未装配）──
   storage: import('../self_application/guarded_storage.js').GuardedStorage | null = null;
   guard_token: string | null = null;
   graph_registries: GraphRegistries | null = null;
+  /** 引擎内置基础节点池种子（装配期解析写入；rebuild/mount 同源消费）。 */
+  _engine_pool_seed: EnginePoolSeed | null = null;
   knowledge_set: KnowledgeSet | null = null;
   harness_registry: HarnessRegistry | null = null;
   harness_repository: HarnessRepository | null = null;
@@ -164,9 +173,18 @@ export abstract class RuntimeBase {
   _thread_tag_created: Record<string, number> = {};
   _tags_lock = false;
   pool_governance: PoolGovernance | null = null;
-  /** 池治理裁决可写 seam（R3：实体注册表存在 = 接注册表受守卫写实现；
-   *  未装配/无实体源 = null → settle 回落登记 + 审计）。 */
+  /** 池治理裁决可写 seam（A3 R3：结点类型注册表 store 存在 = 接登记数据
+   *  受控写实现；未装配 = null → settle 回落登记 + 审计）。 */
   pool_governance_writable: import('../settle/index.js').GovernanceWriteTarget | null = null;
+  /** 池治理状态持久化 store（records 通道：周预算/去重/晋升签名落盘）。
+   *  未装配（settle_hooks_enabled=false）= null → 进程内存回落语义。 */
+  pool_governance_state: import('../pool_governance/state_store.js').PoolGovernanceStateStore | null = null;
+  /** 已晋升路径签名去重键（装配期从持久 records 恢复；晋升钩子幂等 upsert）。 */
+  _pg_promoted: ReadonlySet<string> = new Set();
+  /** 已降级策略边去重键（装配期从持久 records 恢复；复审钩子幂等 upsert）。 */
+  _pg_downgraded: ReadonlySet<string> = new Set();
+  /** 声明式结点类型注册表 store（A3 决策 4：boot 种子 + 持久登记 + 恢复）。 */
+  node_registry_store: import('../node_registry/index.js').NodeRegistryStore | null = null;
   _round_knowledge_hits: Set<string> = new Set();
   tool_index: ToolVectorIndex | null = null;
   tool_selector: ToolSelector | null = null;

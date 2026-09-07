@@ -65,8 +65,6 @@
   "input.placeholder": "Message the agent",
   "input.remove_attachment": "Remove attachment",
   "input.add_attachment": "Add attachment",
-  "input.mode_standard": "Standard",
-  "input.mode_assembly": "Assemble",
   "input.multimodal": "Multimodal",
   "input.model_menu": "Model / reasoning tier",
   "input.reasoning": "Reasoning tier",

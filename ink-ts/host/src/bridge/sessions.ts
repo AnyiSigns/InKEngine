@@ -16,7 +16,7 @@ import { BridgeError, type BridgeHandler } from './_types.js';
 import type { HostBridgeDeps } from './_types.js';
 import { sessionToView } from './records.js';
 
-/** 链消息持久化键（产品 chat 图 _tool_messages / 引擎旧形态 messages）。 */
+/** 链消息持久化键（组装回合引擎 messages 形态；旧 _tool_messages 链兼容）。 */
 const MESSAGE_STATE_KEYS = ['_tool_messages', 'messages'] as const;
 
 function requireThread(raw: unknown, method: string): string {

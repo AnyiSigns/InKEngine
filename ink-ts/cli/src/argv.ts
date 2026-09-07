@@ -14,9 +14,6 @@
 export const CLI_MODES = ['stdio', 'run', 'serve'] as const;
 export type CliMode = (typeof CLI_MODES)[number];
 
-export const GRAPH_NAMES = ['assistant', 'gate'] as const;
-export type GraphName = (typeof GRAPH_NAMES)[number];
-
 /** run 形态一次性命令（互斥）。 */
 export type RunCommand = 'round' | 'op' | 'os_op' | 'audit';
 
@@ -45,7 +42,6 @@ export interface ServeFlags {
 export interface CliOptions {
   mode: CliMode;
   approve: boolean;
-  graph: GraphName;
   help: boolean;
   data_dir?: string;
   events_dir?: string;
@@ -73,10 +69,9 @@ function takeValue(
 
 /** 每形态只允许的参数白名单之外的参数即拒绝（fail-closed；--help/-h 全局放行）。 */
 const MODE_ALLOWED_FLAGS: Record<CliMode, ReadonlySet<string>> = {
-  stdio: new Set(['--approve', '--graph', '--data-dir', '--events-dir']),
+  stdio: new Set(['--approve', '--data-dir', '--events-dir']),
   run: new Set([
     '--approve',
-    '--graph',
     '--data-dir',
     '--events-dir',
     '--round',
@@ -90,7 +85,6 @@ const MODE_ALLOWED_FLAGS: Record<CliMode, ReadonlySet<string>> = {
   ]),
   serve: new Set([
     '--approve',
-    '--graph',
     '--data-dir',
     '--events-dir',
     '--port',
@@ -110,7 +104,7 @@ export function parseArgs(argv: readonly string[]): ParseArgsResult {
     mode = first as CliMode;
     offset = 1;
   }
-  const options: CliOptions = { mode, approve: false, graph: 'assistant', help: false };
+  const options: CliOptions = { mode, approve: false, help: false };
   const allowed = MODE_ALLOWED_FLAGS[mode];
   const fail = (error: string): ParseArgsResult => ({ ok: false, error, mode });
 
@@ -131,16 +125,11 @@ export function parseArgs(argv: readonly string[]): ParseArgsResult {
       index += 1;
       continue;
     }
-    if (flag === '--graph' || flag === '--data-dir' || flag === '--events-dir') {
+    if (flag === '--data-dir' || flag === '--events-dir') {
       const taken = takeValue(flag, token, argv, index);
       if (!taken.ok) return { ...taken, mode };
       index = taken.next;
-      if (flag === '--graph') {
-        if (!(GRAPH_NAMES as readonly string[]).includes(taken.value)) {
-          return fail(`未知图配方: ${taken.value}（可用: ${GRAPH_NAMES.join(', ')}）`);
-        }
-        options.graph = taken.value as GraphName;
-      } else if (flag === '--data-dir') {
+      if (flag === '--data-dir') {
         options.data_dir = taken.value;
       } else {
         options.events_dir = taken.value;
@@ -192,7 +181,7 @@ export function parseArgs(argv: readonly string[]): ParseArgsResult {
       }
       continue;
     }
-    // stdio：仅 --approve/--graph/--data-dir/--events-dir/--help 已在上层处理
+    // stdio：仅 --approve/--data-dir/--events-dir/--help 已在上层处理
     return fail(`未知参数: ${token}`);
   }
 
@@ -230,11 +219,11 @@ const HELP_TEXT = [
   'ink-ts cli — 唯一进程载体，三形态：stdio（JSON-RPC）/ run（一次性驱动）/ serve（本地 http+ws）',
   '',
   '用法:',
-  '  ink-ts-cli [stdio] [--approve] [--graph <assistant|gate>] [--data-dir <dir>] [--events-dir <dir>]',
+  '  ink-ts-cli [stdio] [--approve] [--data-dir <dir>] [--events-dir <dir>]',
   '  ink-ts-cli run (--round <text> | --op <方法名> | --os-op <工具名> | --audit export) \\',
-  '    [--args <json>] [--trace-id <id>] [--thread-id <id>] [--round-id <id>] [--approve] [--graph <名>]',
+  '    [--args <json>] [--trace-id <id>] [--thread-id <id>] [--round-id <id>] [--approve]',
   '  ink-ts-cli serve [--port <0-65535>] [--host <地址>] [--static <dir>] [--vite <url>]',
-  '    [--token <token>] [--approve] [--graph <名>] [--data-dir <dir>]',
+  '    [--token <token>] [--approve] [--data-dir <dir>]',
   '',
   '形态与参数:',
   '  stdio  长驻 JSON-RPC（缺省形态；host.ping/host.info + host bridge 方法面）',
@@ -245,7 +234,6 @@ const HELP_TEXT = [
   '',
   '公共:',
   '  --approve    显式声明允许审批直过（仅限可信自动化；缺省拒绝放行）',
-  '  --graph      装配图配方（assistant=默认产品占位/gate=审批挂卡演示）',
   '  --data-dir   运行数据目录（缺省每进程独立临时目录）',
   '  --events-dir 事件 JSONL 目录（缺省 data_dir/events）',
   '  --help/-h    显示本帮助',

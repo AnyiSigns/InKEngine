@@ -19,6 +19,7 @@ import {
   type KnowledgeEntry,
 } from '../knowledge_set/index.js';
 import type { ToolSpec } from '../llm/tools.js';
+import { DEFAULT_NAMESPACE } from '../memory_extract/index.js';
 import type { RetrievedChunk } from '../retrieval/index.js';
 import type { AssemblySourcesProvider } from '../run_result/run_result.js';
 import { SelfToolContext } from '../self_tools/index.js';
@@ -27,6 +28,11 @@ import { _ASSEMBLY_SOURCE_LIMIT } from './_constants.js';
 
 /** 装配源上下文桩（state.input = 查询串）。 */
 export type AssemblyCtx = { state?: Record<string, unknown> };
+
+/** 用户级记忆回灌上限（每回合上下文最多注入条数；防上下文膨胀）。 */
+const _MEMORY_RECALL_LIMIT = 5;
+/** 单条记忆回灌内容截断（字符；防超长条目占满上下文窗口）。 */
+const _MEMORY_RECALL_CHARS = 400;
 
 /** 自指/索引/装配源提供基座。 */
 export abstract class RuntimeContexts extends RuntimeUiComponents {
@@ -153,6 +159,38 @@ export abstract class RuntimeContexts extends RuntimeUiComponents {
             max_chars: 1200,
           }),
         );
+      }
+      // 用户级记忆自动回灌（决策5：记忆抽取落位 user:default 后每轮回灌）。
+      // 边界：作用域 = DEFAULT_NAMESPACE（用户级跨线程共享，不跨用户）；cap =
+      // 前 N 条（store recall 已按 priority 排序）+ 单条截断；只注入回合记忆
+      // 抽取产物（ledger 意图/结论/确认类），隐私敏感内容不进抽取面。开关
+      // memory_recall_enabled 缺省开；memory_store 未装配（抽取关） = 不注入。
+      if (
+        this._recipe !== null
+        && this._recipe.memory_recall_enabled
+        && this.memory_store !== null
+      ) {
+        try {
+          const recalled = await this.memory_store.query({
+            namespace: DEFAULT_NAMESPACE,
+            limit: _MEMORY_RECALL_LIMIT,
+          });
+          for (const entry of recalled) {
+            const content = entry.content.trim().slice(0, _MEMORY_RECALL_CHARS);
+            if (content === '') continue;
+            sources.push(
+              new ContextSourceImpl(SOURCE_EVIDENCE, content, {
+                title: '记忆：用户级长程共享',
+                relevance: 0.35,
+                priority: 4,
+                weight: 0.7,
+                meta: { source: 'memory', memory_id: entry.id ?? null, kind: entry.kind },
+              }),
+            );
+          }
+        } catch {
+          // 记忆召回失败只跳过（回灌是增强，不阻断回合上下文）
+        }
       }
       // 知识使用留痕：命中条目记 usage（演化候选数据源；失败归因在回合收尾
       // 钩子按成败标记 fail）。零记录不阻断装配。

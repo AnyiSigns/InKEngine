@@ -15,7 +15,6 @@ import { afterEach, beforeEach, describe, expect, it } from 'vitest';
 
 import { createHost } from '../src/index.js';
 import type { HostHandle } from '../src/index.js';
-import { chatGraphRecipe } from './_graphs.js';
 import { FakeOpenAIServer } from './_fake_openai.js';
 
 interface Ctx {
@@ -29,7 +28,7 @@ function tempContext(): Ctx {
   return { dir, events };
 }
 
-const MEMORY_CONFIG = { data_dir: '', events_dir: '' };
+const MEMORY_CONFIG = { storage_uri: 'memory://', data_dir: '', events_dir: '' };
 
 describe('host 装配冒烟（真存储 + 假 OpenAI + 一轮 round）', () => {
   let ctx: Ctx;
@@ -63,7 +62,7 @@ describe('host 装配冒烟（真存储 + 假 OpenAI + 一轮 round）', () => {
         },
       },
     };
-    handle = await createHost(config, { graph_recipe: chatGraphRecipe });
+    handle = await createHost(config);
     expect(handle.config.storage_uri).toBe('memory://');
     expect(handle.config.autoApprove).toBe(false);
 
@@ -140,7 +139,7 @@ describe('host 装配冒烟（真存储 + 假 OpenAI + 一轮 round）', () => {
         },
       },
     };
-    handle = await createHost(config, { graph_recipe: chatGraphRecipe });
+    handle = await createHost(config);
     expect(handle.config.storage_uri).toContain('sqlite://');
     const send = handle.bridge.get('rounds.send');
     const result = (await send!({ input: '持久化' }, { autoApprove: false })) as {

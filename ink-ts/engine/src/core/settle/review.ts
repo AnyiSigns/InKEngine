@@ -31,6 +31,7 @@ import { policy_edge_needs_review } from './rules.js';
 import { SettleContext, edge_key_str, traversal_edge_key } from './types.js';
 import { GOV_VERDICT_MERGE, PoolGovernance, PoolNodeSnapshot, weekly_proposal_usage } from '../pool_governance/pool_governance.js';
 import type { PoolNodeSnapshotInit } from '../pool_governance/pool_governance_types.js';
+import type { PoolGovernanceStateStore } from '../pool_governance/state_store.js';
 
 // ── 池治理每回合自动跑（引擎自接线；settle 钩子真实现）───────────────────────
 
@@ -93,6 +94,9 @@ export interface PoolGovernanceSettleOptions {
   merge_cap?: number;
   /** 裁决可写实体 seam（缺省 null = 裁决对象无引擎可写实体 → 登记 + 审计）。 */
   writable?: GovernanceWriteTarget | null;
+  /** 治理状态持久化 seam（缺省 null = 进程内存：周预算/去重随重启重置）。
+   *  注入 = 周预算窗口读持久判定行、去重集合/判定记录落 records。 */
+  state?: PoolGovernanceStateStore | null;
 }
 
 /**
@@ -130,14 +134,17 @@ export class PoolGovernanceSettleHook {
   readonly #nodeFields: ((node_type: string) => readonly string[]) | null;
   readonly #mergeCap: number;
   readonly #writable: GovernanceWriteTarget | null;
+  readonly #state: PoolGovernanceStateStore | null;
   /** 判定审计记录（append-only；audit_sink 的镜像源）。 */
   readonly audits: Record<string, unknown>[] = [];
   /** 跳过原因（append-only；空池/无候选/store 缺失可观测）。 */
   readonly skips: string[] = [];
-  /** 已合并去重的候选键（domain\u001fnode_type：后续回合不再重复提请）。 */
+  /** 已合并去重的候选键（domain\u001fnode_type：后续回合不再重复提请）。
+   *  持久化 seam 注入时随 records 恢复/写回，跨重启稳定。 */
   readonly _merge_resolved = new Set<string>();
   /** 已登记失效的池成员键（node_type：不重复失效登记）。 */
   readonly _invalidated = new Set<string>();
+  #stateLoaded = false;
 
   constructor(governance: PoolGovernance, options: PoolGovernanceSettleOptions = {}) {
     this.#governance = governance;
@@ -147,6 +154,7 @@ export class PoolGovernanceSettleHook {
     this.#nodeFields = options.node_fields ?? null;
     this.#mergeCap = Math.max(1, options.merge_cap ?? POOL_GOVERNANCE_MERGE_CAP_PER_ROUND);
     this.#writable = options.writable ?? null;
+    this.#state = options.state ?? null;
   }
 
   get governance(): PoolGovernance {
@@ -225,8 +233,22 @@ export class PoolGovernanceSettleHook {
       // 空池/无候选：跳过（健康回合不消耗治理预算，也不产噪音判定）
       return;
     }
+    const state = this.#state;
+    if (state !== null && !this.#stateLoaded) {
+      // 持久化去重集合恢复：跨重启不重复提请/失效登记
+      for (const key of await state.merged_keys()) this._merge_resolved.add(key);
+      for (const key of await state.invalidated_keys()) this._invalidated.add(key);
+      this.#stateLoaded = true;
+    }
     const poolNodes = await this._pool_snapshot(ctx.domain);
     const nowValue = this.#now();
+    // 周预算「已用」口径：持久判定记录行（持久化 seam 注入时替代进程内存
+    // 治理日志——重启后历史判定仍计入窗口，不重置）
+    const decisionRows = state !== null ? await state.decisions() : null;
+    const usedThisWeek =
+      decisionRows !== null
+        ? weekly_proposal_usage(decisionRows, { now: nowValue })
+        : weekly_proposal_usage(this.#governance.log, { now: nowValue });
     let mergesApplied = 0;
     for (const dst of candidates) {
       const resolveKey = `${ctx.domain}\u001f${dst}`;
@@ -236,7 +258,7 @@ export class PoolGovernanceSettleHook {
       const fields = this.#nodeFields !== null ? [...this.#nodeFields(dst)] : [];
       const snapshot = {
         pool_count: poolNodes.length,
-        used_this_week: weekly_proposal_usage(this.#governance.log, { now: nowValue }),
+        used_this_week: usedThisWeek,
         pool_nodes: poolNodes,
       };
       const verdict = this.#governance.evaluate({ node_id: dst, fields }, snapshot);
@@ -255,10 +277,18 @@ export class PoolGovernanceSettleHook {
         if (mergesApplied >= this.#mergeCap) {
           record['skipped_reason'] = `单回合合并应用超上限（${this.#mergeCap}）`;
           this.#record(record);
+          if (state !== null) await state.append_decision(record);
           continue;
         }
         mergesApplied += 1;
         this._merge_resolved.add(resolveKey);
+        if (state !== null) {
+          try {
+            await state.mark_merged(resolveKey);
+          } catch {
+            // 持久化去重写失败只跳过（内存集仍防同进程重复）
+          }
+        }
         // D06 执行边界：可写实体 seam 注入时反写（dst 并入保权威的
         // merge_target）；目标对象不存在/无可写实体 = 仅登记 + 审计
         // （下方 #record 统一留痕，seam 实现自身对缺失对象 no-op）
@@ -278,6 +308,13 @@ export class PoolGovernanceSettleHook {
         for (const nodeId of verdict.eviction_candidates) {
           if (this._invalidated.has(`${ctx.domain}\u001f${nodeId}`)) continue;
           this._invalidated.add(`${ctx.domain}\u001f${nodeId}`);
+          if (state !== null) {
+            try {
+              await state.mark_invalidated(`${ctx.domain}\u001f${nodeId}`);
+            } catch {
+              // 持久化失效登记写失败只跳过（内存集仍防同进程重复）
+            }
+          }
           const invalidation: Record<string, unknown> = {
             type: POOL_GOVERNANCE_AUDIT_TYPE,
             action: 'archive',
@@ -302,6 +339,13 @@ export class PoolGovernanceSettleHook {
         }
       }
       this.#record(record);
+      if (state !== null) {
+        try {
+          await state.append_decision(record);
+        } catch {
+          // 判定记录持久化失败只跳过（审计已留痕）
+        }
+      }
     }
   }
 }
@@ -314,11 +358,14 @@ export type ReviewSink = (record: Record<string, unknown>) => unknown;
 /**
  * 策略边对抗复审钩子（对抗证据 → 自动提请 L2 复审 + 复审前降级）。
  * 复审请求经审计事件（policy_edge_review_audit）留痕，审批裁决归宿主通道。
+ * 降级去重：边证据 put(policy=false) 本身持久（重启后不再触达），去重集合
+ * 另随 state 持久化 seam 恢复/写回（跨重启签名不丢）。
  */
 export class PolicyEdgeReviewSettleHook {
   readonly #store: EdgeEvidenceStore;
   readonly #sink: ReviewSink | null;
   readonly #scanInterval: number;
+  readonly #onDowngraded: ((key: string) => unknown) | null;
   readonly reviews: Record<string, unknown>[] = [];
   /** 已降级边去重键（降级后不再重复提请；边主键字符串编码）。 */
   readonly _downgraded = new Set<string>();
@@ -329,11 +376,20 @@ export class PolicyEdgeReviewSettleHook {
 
   constructor(
     store: EdgeEvidenceStore,
-    opts: { sink?: ReviewSink | null; scan_interval?: number } = {},
+    opts: {
+      sink?: ReviewSink | null;
+      scan_interval?: number;
+      /** 持久化降级签名集合（装配期从持久 records 恢复；重启不重复提请）。 */
+      persisted_downgraded?: ReadonlySet<string> | null;
+      /** 新降级签名回调（宿主/装配面幂等持久化去重键）。 */
+      on_downgraded?: ((key: string) => unknown) | null;
+    } = {},
   ) {
     this.#store = store;
     this.#sink = opts.sink ?? null;
     this.#scanInterval = Math.max(1, opts.scan_interval ?? 10);
+    this.#onDowngraded = opts.on_downgraded ?? null;
+    for (const key of opts.persisted_downgraded ?? []) this._downgraded.add(key);
   }
 
   /** 本 run 触达的策略边（增量评估面，按边主键去重）。 */
@@ -394,7 +450,6 @@ export class PolicyEdgeReviewSettleHook {
       if (this._downgraded.has(keyStr)) {
         continue;
       }
-      this._downgraded.add(keyStr);
       // 复审前降级为普通统计边（policy=False：不再 τ=1.0/豁免衰减）
       await this.#store.put({
         key: edge.key,
@@ -406,6 +461,15 @@ export class PolicyEdgeReviewSettleHook {
         last_used_at: edge.last_used_at,
         created_at: edge.created_at,
       });
+      // 降级已持久化后去重（边证据 policy=false 跨重启不再触达）
+      this._downgraded.add(keyStr);
+      if (this.#onDowngraded !== null) {
+        try {
+          this.#onDowngraded(keyStr);
+        } catch {
+          // Python 侧 logger.warning 留痕（忽略）；TS core 零日志 = 静默
+        }
+      }
       const record: Record<string, unknown> = {
         type: EVENT_AUDIT_POLICY_REVIEW,
         ts: now(),

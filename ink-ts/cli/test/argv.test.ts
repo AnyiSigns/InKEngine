@@ -18,9 +18,10 @@ function expectError(argv: readonly string[]): { error: string; mode: string } {
 }
 
 describe('parseArgs 形态选择与公共参数', () => {
-  it('缺省形态 = stdio；不放行审批；默认 assistant 图', () => {
+  it('缺省形态 = stdio；不放行审批；无选图位（图 = 组装数据，宿主无占位图）', () => {
     const options = expectOptions([]);
-    expect(options).toMatchObject({ mode: 'stdio', approve: false, graph: 'assistant', help: false });
+    expect(options).toMatchObject({ mode: 'stdio', approve: false, help: false });
+    expect('graph' in options).toBe(false);
   });
 
   it('首参子命令 run / serve / stdio 选定形态', () => {
@@ -36,9 +37,10 @@ describe('parseArgs 形态选择与公共参数', () => {
     expect(expectOptions(['serve', '--help']).help).toBe(true);
   });
 
-  it('--graph 取值校验；未知图名拒绝', () => {
-    expect(expectOptions(['run', '--round', 'x', '--graph', 'gate']).graph).toBe('gate');
-    expect(expectError(['--graph', 'nope']).error).toContain('未知图配方');
+  it('--graph 已移除 → 未知参数拒绝（回合 = 组装，cli 不再装配占位图）', () => {
+    const rejected = expectError(['--graph', 'gate']);
+    expect(rejected.error).toContain('未知参数');
+    expect(rejected.error).toContain('--graph');
   });
 
   it('未知参数拒绝并带形态（stdio exit1 / run exit2 判定依据）', () => {

@@ -73,4 +73,5 @@ export const GUARDED_PREFIXES = [
   "harness:",
   "event_types:",
   "entities:",
+  "node_registry:",
 ] as const;

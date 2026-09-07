@@ -7,7 +7,7 @@
  * 胶囊底排——圆形附件 +、模型/推理档位下拉、右侧大号
  * 圆形发送钮；胶囊下方居中「N 轮 · M 步」回合计数。
  * route_plan 发送前预览置于胶囊上方（已落定语义，不抢占胶囊内空间）。
- * 回合恒为组装（assembly）：标准/组装切换已取消，默认组装展开。
+ * 回合恒为组装：每轮回合 = 从数据组装出本轮执行图再执行（双档切换已取消）。
  */
 
 import { useState, useRef, useEffect } from 'react';
@@ -76,7 +76,7 @@ interface InputBarProps {
   /** 会话累计轮数与当前回合步数（胶囊下方居中计数行）。 */
   roundCount?: number;
   stepCount?: number;
-  onSend: (text: string, attachments: AttachmentAsset[], mode: 'standard' | 'assembly', model?: ModelSelection) => void;
+  onSend: (text: string, attachments: AttachmentAsset[], model?: ModelSelection) => void;
   onAbort: () => void;
   onAttachments: (files: AttachmentAsset[]) => void;
   /** 发送前路线预览（route_plan 壳命令真调用由装配层执行）。 */
@@ -153,14 +153,13 @@ export function InputBar({
 
   const submit = () => {
     if (!canSend) return;
-    // 回合恒为组装（assembly）模式：标准/组装切换已取消，默认组装展开。
-    // 选定的 agent 模型随发送携带（无默认、无档位——选什么跑什么；
-    // provider 缺省 = 当前唯一连接，宿主 resolve_model_llm fail-open；
+    // 回合恒为组装：发送即从数据组装出本轮执行图再执行（双档切换已取消，
+    // 无模式参数）。选定的 agent 模型随发送携带（无默认、无档位——选什么
+    // 跑什么；provider 缺省 = 当前唯一连接，宿主 resolve_model_llm fail-open；
     // 推理档位仅显式选择时携带，'auto' = 不注入跟随模型默认）
     onSend(
       text.trim(),
       attachments,
-      'assembly',
       selectedModel
         ? {
             model_id: selectedModel.model_id,

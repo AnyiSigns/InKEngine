@@ -14,10 +14,10 @@
 
 import { ROUND_LEDGER_COLLECTION } from './_settle.js';
 import type { StepRecord } from '../round_steps/index.js';
-import { RuntimeAssemble } from './_runtime_assemble.js';
+import { RuntimeRounds } from './_runtime_rounds.js';
 
 /** 运行时叶类（完整公开形态 = 分层链全量方法）。 */
-export class Runtime extends RuntimeAssemble {
+export class Runtime extends RuntimeRounds {
   /** 线程最近回合账本（ledger 集合；未记账/未装配返回 null）。 */
   async ledger(thread_id: string): Promise<Record<string, unknown> | null> {
     const storage = this.storage;

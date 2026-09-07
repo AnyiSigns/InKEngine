@@ -49,3 +49,8 @@ inkling/models/
 ink_engine/tests/live/report/
 ink_engine/examples/e2e/report/
 ink_engine/examples/e2e/notes/
+
+# ink-ts host/cli runtime artifacts (default sqlite under data_dir)
+*.sqlite
+.ink-host/
+

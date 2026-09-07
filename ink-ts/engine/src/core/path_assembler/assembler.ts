@@ -20,6 +20,7 @@ import type { AssemblyRequest } from './types.js';
 import { AssemblyCandidate, AssemblyEnvelope, PathAssemblyResult } from './types.js';
 import {
   CANDIDATE_SOURCE_ALGORITHM,
+  CANDIDATE_SOURCE_BASE,
   STATS_BEAM_EXTENSIONS,
   STATS_CACHE_HITS,
   STATS_CACHE_MISSES,
@@ -34,7 +35,9 @@ import type { FingerprintCacheEntry } from '../fingerprint_cache/index.js';
 import { _forward_search } from './search.js';
 import { validate_chain } from './validate.js';
 import { assembly_audit_record } from './audit.js';
-import { PathAssemblerDraft } from './_assembler_pipeline.js';
+import { _graph_chain } from './snapshot.js';
+import { _base_candidates } from './_base.js';
+import { PathAssemblerDraft, type _ScoredChain } from './_assembler_pipeline.js';
 import type { _ChainSourceRepaired } from './_assembler_pipeline.js';
 
 /**
@@ -161,6 +164,48 @@ export class PathAssembler extends PathAssemblerDraft {
       stats[STATS_LLM_ATTEMPTS] = 0;
     }
     if (chains.length === 0) {
+      // 冷启动 base 图先验（引擎内置池种子的域 base 图模板）：无算法/技能/
+      // 草稿候选时据此稳定产出合法候选数据图（候选 = 原模板图形态，带节点
+      // config 如终态 role），无匹配模板 = 维持零候选空结果。
+      const baseCandidates = await _base_candidates({
+        provider: this._base_graphs,
+        request,
+        registry: this._registry,
+        pool,
+        goal_fields: goal,
+        max_safety_tier: request.max_safety_tier,
+        state_schema: request.state_schema,
+        top_k: request.top_k,
+        edge_score: (src, dst) => this._edge_score_of(src, dst, index, evidence_index, stats),
+      });
+      if (baseCandidates.length > 0) {
+        const scoredBase: _ScoredChain[] = [];
+        for (const candidate of baseCandidates) {
+          const nodeChain = _graph_chain(candidate.graph);
+          const typeChain = nodeChain
+            .filter((name) => candidate.graph.node_bindings[name] !== undefined)
+            .map((name) => candidate.graph.node_bindings[name]!.type_name);
+          scoredBase.push([typeChain, CANDIDATE_SOURCE_BASE, false, candidate.score]);
+        }
+        const cold_index = await this._cold_start_index(scoredBase, index, evidence_index);
+        const multipath = await this._multipath_signal(
+          baseCandidates[0] ?? null,
+          baseCandidates[1] ?? null,
+          index,
+          evidence_index,
+        );
+        const baseResult = new PathAssemblyResult({
+          candidates: baseCandidates,
+          fingerprint: graph_fingerprint(baseCandidates[0]!.graph),
+          cold_start_index: cold_index,
+          exploration_mode: is_exploration_mode(cold_index),
+          multipath_signal: multipath,
+          llm_attempts,
+          stats: { ...stats },
+        });
+        if (this._sink !== null) this._sink(this._audit_record(request, goal, baseResult));
+        return baseResult;
+      }
       return new PathAssemblyResult({
         fallback_reason: fallback_reason ?? '算法层未解出目标覆盖链',
         llm_attempts,

@@ -9,8 +9,9 @@
  *
  * 字段消费：auto_approve_tools / auto_approve_all_review → host
  * interrupt_policy 并入（活读策略实例，put 后下个请求生效）；max_tool_rounds
- * → 产品 chat 图工具回合上限（引擎重建时求值）。推演档位语义已移除（不设档
- * 位直接开启），历史残留键读档丢弃。
+ * → 已声明的装配位记录（宿主不再产静态图；工具回合上限真实消费点在引擎
+ * llm_decider 节点 config，池种子/登记数据携带，见 CODING §10）。推演档位
+ * 语义已移除（不设档位直接开启），历史残留键读档丢弃。
  *
  * baseline（常驻必带集）：引擎运行时单源（runtime.baseline_names /
  * set_baseline_names——注入面与检索面读同一份数据），capability.json 镜像
@@ -85,9 +86,9 @@ function validatePatch(patch: Record<string, unknown>): void {
   }
 }
 
-/** 引擎运行时访问器（baseline 单源消费；runtime 未装配 engine = 拒绝）。 */
+/** 运行时装配守卫（未 boot/已关停 = storage 缺 = 拒绝；与 rounds 同判）。 */
 function runtimeOrThrow(deps: HostBridgeDeps): void {
-  if (deps.runtime.engine === null) {
+  if (deps.runtime.storage === null) {
     throw new BridgeError('运行时引擎未装配（runtime 未 boot/已关停）', 'runtime_unavailable');
   }
 }

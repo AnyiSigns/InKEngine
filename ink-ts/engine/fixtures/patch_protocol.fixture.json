@@ -16,5 +16,5 @@
   "audit_statuses": ["applied", "rejected", "conflict", "invalid", "reverted", "reverted_with_notify_error"],
   "patch_ops": ["append", "replace", "delete"],
   "guarded_collections": ["set_patch_chain", "set_audit", "ui", "tool_defs", "event_types", "environments", "artifacts", "harness", "entities"],
-  "guarded_prefixes": ["knowledge:", "harness:", "event_types:", "entities:"]
+  "guarded_prefixes": ["knowledge:", "harness:", "event_types:", "entities:", "node_registry:"]
 }

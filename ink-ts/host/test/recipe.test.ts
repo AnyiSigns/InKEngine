@@ -25,7 +25,7 @@ describe('产品配方默认表（机制开关全开）', () => {
     expect(PRODUCT_SWITCH_DEFAULTS.emit_timeline_events).toBe(true);
   });
 
-  it('build_product_recipe：boot 种子直接引用 engine；graph_recipe 缺省 = 产品默认图', () => {
+  it('build_product_recipe：boot 种子直接引用 engine；不产任何图配方（graph_recipe 缺省 null）', () => {
     const recipe = build_product_recipe();
     expect(recipe.set_id).toBe('default');
     expect(recipe.seeds.length).toBe(1);
@@ -33,7 +33,8 @@ describe('产品配方默认表（机制开关全开）', () => {
     expect(recipe.harness_definitions.length).toBeGreaterThan(0);
     expect(recipe.event_type_specs.length).toBeGreaterThan(0);
     expect(recipe.tool_wiring).not.toBeNull();
-    expect(recipe.graph_recipe).toBeTypeOf('function');
+    // 图 = 数据（池种子/组装产物）：配方不再产默认图/静态图
+    expect(recipe.graph_recipe).toBeNull();
     // 十位开关逐位落入 AssemblyRecipe 机制开关字段 / run_options（引擎消费面）
     const flags = recipe as unknown as Record<string, boolean>;
     for (const name of [
@@ -81,11 +82,5 @@ describe('产品配方默认表（机制开关全开）', () => {
     expect(recipe.assembler_enabled).toBe(false);
     expect(recipe.settle_hooks_enabled).toBe(true);
     expect(recipe.pool_governance_enabled).toBe(true);
-  });
-
-  it('注入 graph_recipe 后 recipe.graph_recipe 生效（覆写默认图）', () => {
-    const injected = (): unknown => ({});
-    const recipe = build_product_recipe({ graph_recipe: injected as never });
-    expect(recipe.graph_recipe).toBe(injected as never);
   });
 });

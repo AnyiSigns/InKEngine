@@ -245,13 +245,18 @@ describe('runtime boot 装配', () => {
     expect(host.calls.filter((c) => c === 'create_storage').length).toBe(1);
   });
 
-  it('配方缺件显式报错（tool_wiring/graph_recipe 为非谈判项）', async () => {
+  it('配方缺件显式报错（tool_wiring 非谈判项）；graph_recipe 可缺（引擎无静态图）', async () => {
     const recipe1 = _minimal_recipe();
     recipe1.tool_wiring = null;
     await expect(new Runtime().boot(toHost(new FakeHost()), recipe1)).rejects.toThrow(/tool_wiring/);
+    // 无默认图：boot 成功、引擎机制态无静态图（rebuild_engine 返回 null）
     const recipe2 = _minimal_recipe();
     recipe2.graph_recipe = null;
-    await expect(new Runtime().boot(toHost(new FakeHost()), recipe2)).rejects.toThrow(/graph_recipe/);
+    const runtime = await new Runtime().boot(toHost(new FakeHost()), recipe2);
+    expect(runtime.state).toBe(RuntimeState.RUNNING);
+    expect(runtime.engine).toBeNull();
+    expect(runtime.graph_registries).toBeTruthy();
+    await runtime.stop();
   });
 
   it('界面绑定通道白名单可由配方扩展', async () => {

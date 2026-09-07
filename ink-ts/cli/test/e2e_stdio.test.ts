@@ -8,7 +8,7 @@ import { tmpdir } from 'node:os';
 import path from 'node:path';
 import { createInterface } from 'node:readline';
 
-import { STUB_REPLY } from '@ink-ts/host';
+import { ENGINE_STUB_REPLY } from '@ink-ts/engine';
 import { afterEach, describe, expect, it } from 'vitest';
 
 import { spawnCli } from './_spawn.js';
@@ -122,7 +122,7 @@ describe('stdio e2e（host bridge 注入 + 回合事件流响应）', () => {
       events: { count: number; types: string[] };
     };
     expect(result.reason).toBe('reply');
-    expect(result.reply).toBe(STUB_REPLY);
+    expect(result.reply).toBe(ENGINE_STUB_REPLY);
     expect(result.trace_id).toBe('st-trace-1');
     expect(result.events.count).toBeGreaterThan(0);
     expect(result.events.types).toContain('reply_token');

@@ -63,6 +63,16 @@ export class NodeTypeRegistry {
   }
 
   /**
+   * 注销类型（工厂 + 契约一并移除；治理 disable/archive 结点类型时把执行体
+   * 移出运行时注册表——登记数据仍保留，重启后 disabled 过滤不恢复执行体）。
+   * 未知类型 = no-op（幂等；契约池数据视图 = 登记行 active 过滤，二者一致）。
+   */
+  unregister(type_name: string): void {
+    this._factories.delete(type_name);
+    this._contracts.delete(type_name);
+  }
+
+  /**
    * 按类型名实例化节点执行函数（未知类型抛 GraphDefinitionError）。
    *
    * 配置经浅拷贝透传工厂：同一工厂被多个节点引用时，节点内对配置的

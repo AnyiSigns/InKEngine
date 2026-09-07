@@ -262,8 +262,6 @@ export interface NodeContext {
   node: string | null;
   readonly terminated: boolean;
   readonly terminate_reason: string | null;
-  /** 当前是否处于 canary 试跑态（结点层桩化真实 IO 执行体/拒绝的读取门）。 */
-  readonly canary_active: boolean;
   /** 节点边界步数计数（预算策略可据此按步数终止）。 */
   step_count: number;
 

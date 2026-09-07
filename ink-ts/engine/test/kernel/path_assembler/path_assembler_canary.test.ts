@@ -1,7 +1,7 @@
 /**
  * canary 单回合试跑测（path_assembler.py canary 执行类用例回补，executor
- * 接线后真实跑）：候选图重建 + 单回合试跑走通 / 破坏性执行拒绝 / canary 态
- * 上下文标记 / 步数护栏截止 / 超时中止 / 组装指令 canary=True 全链验证。
+ * 接线后真实跑）：候选图重建 + 单回合试跑走通 / 破坏性执行拒绝 / 步数护栏
+ * 截止 / 超时中止 / 组装指令 canary=True 全链验证。
  */
 import { describe, expect, it } from 'vitest';
 
@@ -9,7 +9,6 @@ import { Graph } from '../../../src/core/graph/graph.js';
 import { PathAssemblyConfig } from '../../../src/core/contracts/contracts.js';
 import {
   PathAssemblyRuntime,
-  canary_active,
   canary_instantiate,
   canary_round,
 } from '../../../src/kernel/path_assembler/index.js';
@@ -20,20 +19,16 @@ import {
   make_request,
 } from './helpers.js';
 
-/** 单节点可跑图（写 answer；可选抛错/延迟/读取 canary 态）。 */
+/** 单节点可跑图（写 answer；可选抛错/延迟）。 */
 function single_node_graph(
   init: {
     answer?: string;
     boom?: boolean;
     delay_ms?: number;
-    read_flag?: boolean;
   } = {},
 ): Graph {
   const g = new Graph({ name: 'canary-g', entry: 'a' });
   const node = async (ctx: any): Promise<Record<string, unknown>> => {
-    if (init.read_flag === true) {
-      ctx.state['flag_seen'] = canary_active();
-    }
     if (init.delay_ms !== undefined && init.delay_ms !== null) {
       await new Promise((resolve) => setTimeout(resolve, init.delay_ms));
     }
@@ -74,17 +69,6 @@ describe('canary 单回合试跑（真实 executor 执行）', () => {
     const result = await canary_round(single_node_graph({ boom: true }));
     expect(result.ok).toBe(false);
     expect(result.reason).toBe('error');
-  });
-
-  it('test_canary_active_context_flag：canary 态在单回合期间置位、出口复位', async () => {
-    const graph = single_node_graph({ answer: 'ok', read_flag: true });
-    expect(canary_active()).toBe(false);
-    const result = await canary_round(graph, { entry_state: {} });
-    expect(result.ok).toBe(true);
-    // 结点层读取到 canary 态（置位生效）
-    expect(result.final_state['flag_seen']).toBe(true);
-    // 出口复位
-    expect(canary_active()).toBe(false);
   });
 
   it('test_canary_step_budget_caps_execution：步数护栏超限截止（预算缺省注入生效）', async () => {

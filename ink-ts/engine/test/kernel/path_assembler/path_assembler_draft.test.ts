@@ -268,5 +268,5 @@ class SlowDraftProvider {
 // 原 defer 的执行类用例（canary 单回合试跑）已随 executor 接线回补，落位
 // path_assembler_canary.test.ts：
 //   test_integration_candidate_roundtrip_and_canary_run / test_canary_round_
-//   rejects_broken_execution / test_canary_active_context_flag /
-//   test_canary_step_budget_caps_execution / test_canary_timeout_aborts
+//   rejects_broken_execution / test_canary_step_budget_caps_execution /
+//   test_canary_timeout_aborts

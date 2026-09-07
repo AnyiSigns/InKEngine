@@ -78,7 +78,7 @@ export {
   assemble_plan,
 } from './module_runtime.js';
 export { assembly_audit_record } from './audit.js';
-export { canary_active, canary_budget, canary_instantiate, canary_round } from './canary.js';
+export { canary_budget, canary_instantiate, canary_round } from './canary.js';
 export {
   add_branch,
   remove_node,

@@ -288,5 +288,5 @@ describe('开关零生效 / 空结果原因', () => {
 //   由 conftest.make_engine 驱动）
 //   test_assemble_plan_runtime_canary_and_audit（canary=True 单回合验证；
 //   本批次以 canary=False 重建级变体覆盖装配层链路，见 runtime 测试）
-//   test_canary_active_context_flag / test_canary_step_budget_caps_execution
+//   test_canary_step_budget_caps_execution
 //   test_canary_timeout_aborts / test_canary_round_rejects_broken_execution

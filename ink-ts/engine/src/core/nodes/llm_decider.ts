@@ -51,7 +51,6 @@ interface _DeciderCtx {
   emit(etype: string, payload: Record<string, unknown>, opts?: { step_id?: string | null }): Promise<void>;
   terminate?(reason: string, meta?: Record<string, unknown>): void;
   account_usage?(usage: Record<string, unknown> | null): void;
-  canary_active?: boolean;
 }
 
 /** 归一会话附件载荷为引擎 Attachment（经数据面 dict 直构）。 */

@@ -4,12 +4,9 @@
  * canary = 重建 + 单回合执行（风险前置：产物执行前的结构/走通校验）。
  * 重建级校验（canary_instantiate = Graph.from_dict(validate=True)）与单回合
  * 试跑（canary_round = 复用 executor.Engine 单次执行验证候选链可跑通）均已
- * 落地：canary_round 在 canary 态（canary_active）下以独立实例引擎执行候选
- * 图，预算缺省注入步数护栏（canary_budget），正常收尾（reply/stop）且无挂起
- * = 通过；超时（canary_timeout）与执行异常 = 未通过。
- *
- * canary 执行态标记（canary_active）为模块级上下文位：canary_round 入口置位、
- * 出口复位——结点层据此桩化真实执行体。
+ * 落地：canary_round 以独立实例引擎执行候选图，预算缺省注入步数护栏
+ * （canary_budget），正常收尾（reply/stop）且无挂起 = 通过；超时
+ * （canary_timeout）与执行异常 = 未通过。
  */
 
 import type { NodeTypeRegistry } from '../../core/registry/registry.js';
@@ -20,9 +17,7 @@ import { TerminateReason } from '../../core/graph/graph_types.js';
 import { Engine, RunOptions } from '../executor/index.js';
 import { CANARY_MAX_STEPS } from './constants.js';
 
-// ── canary 数据形态（PathAssemblyResult.canary 结论 / canary_round 结果）────
-
-/** 候选图的 canary 验证结论（重建 + 单回合执行；风险前置校验）。 */
+// ── canary 数据形态（PathAssemblyResult.canary 结论 / canary_round 结果）────/** 候选图的 canary 验证结论（重建 + 单回合执行；风险前置校验）。 */
 export class CanaryVerdict {
   readonly rank: number;
   readonly digest: string;
@@ -86,20 +81,6 @@ export class CanaryResult {
       events_emitted: this.events_emitted,
     };
   }
-}
-
-// ── canary 执行态标记（模块级上下文位；canary_round 入口置位、出口复位——
-//   结点层据此桩化真实执行体）─────────────────────────────
-let _canary_active = false;
-
-/** 当前是否处于 canary 执行态（结点层桩化判定）。 */
-export function canary_active(): boolean {
-  return _canary_active;
-}
-
-/** canary 执行态置位/复位（canary_round 入口/出口使用）。 */
-export function _set_canary_active(active: boolean): void {
-  _canary_active = active;
 }
 
 /** canary 预算上限策略：执行步数超限即终止（预算护栏的第二道闸）。 */
@@ -179,10 +160,10 @@ function with_timeout<T>(promise: Promise<T>, timeout_seconds: number): Promise<
  * canary 一回合试跑：图合法 + 单回合走通——复用 executor 单次执行验证。
  *
  * 语义对齐 Python：Engine(graph, options).ainvoke(entry_state) 执行单回合
- * （canary 态置位、预算缺省注入、超时 wait_for）；正常收尾（reply/stop）且
- * 无挂起 = 通过；其余终态（error/budget_exceeded）或执行异常/超时 = 未通过。
- * 试跑引擎独立实例：强制无存储（canary 只出结论不留版本链），budget 未注入
- * 时以 canary_budget（步数护栏）兜底——失控候选在步数上限处被截止。
+ * （预算缺省注入、超时 wait_for）；正常收尾（reply/stop）且无挂起 = 通过；
+ * 其余终态（error/budget_exceeded）或执行异常/超时 = 未通过。试跑引擎独立
+ * 实例：强制无存储（canary 只出结论不留版本链），budget 未注入时以
+ * canary_budget（步数护栏）兜底——失控候选在步数上限处被截止。
  */
 export async function canary_round(
   graph: Graph,
@@ -194,23 +175,18 @@ export async function canary_round(
 ): Promise<CanaryResult> {
   const entry_state = { ...(opts.entry_state ?? {}) };
   const engine = new Engine(graph, canary_run_options(opts.options));
-  _set_canary_active(true);
-  try {
-    const run_promise = engine.ainvoke(entry_state);
-    const run_result =
-      opts.canary_timeout !== null && opts.canary_timeout !== undefined && opts.canary_timeout > 0
-        ? await with_timeout(run_promise, opts.canary_timeout)
-        : await run_promise;
-    const ok =
-      (run_result.reason === TerminateReason.REPLY || run_result.reason === TerminateReason.STOP) &&
-      run_result.interrupt === null;
-    return new CanaryResult({
-      ok,
-      reason: run_result.reason,
-      final_state: { ...run_result.state },
-      events_emitted: run_result.events_emitted,
-    });
-  } finally {
-    _set_canary_active(false);
-  }
+  const run_promise = engine.ainvoke(entry_state);
+  const run_result =
+    opts.canary_timeout !== null && opts.canary_timeout !== undefined && opts.canary_timeout > 0
+      ? await with_timeout(run_promise, opts.canary_timeout)
+      : await run_promise;
+  const ok =
+    (run_result.reason === TerminateReason.REPLY || run_result.reason === TerminateReason.STOP) &&
+    run_result.interrupt === null;
+  return new CanaryResult({
+    ok,
+    reason: run_result.reason,
+    final_state: { ...run_result.state },
+    events_emitted: run_result.events_emitted,
+  });
 }

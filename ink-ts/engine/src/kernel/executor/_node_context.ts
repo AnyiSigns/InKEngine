@@ -25,7 +25,6 @@ import { strip_sensitive } from '../../core/security/security.js';
 import { isRecord, type JsonRecord } from '../../core/json.js';
 import { GraphDefinitionError } from '../../core/errors.js';
 import { TraceStep } from '../settle/index.js';
-import { canary_active } from '../path_assembler/canary.js';
 import type { AssemblyResult } from '../../core/assembly/assembly_types.js';
 import type { AssemblySourcesProvider } from '../../core/run_result/run_result.js';
 import type { ContextSource } from '../../core/context/context_types.js';
@@ -127,11 +126,6 @@ export class _NodeContextImpl implements NodeContext {
 
   get terminate_reason(): string | null {
     return this._terminated;
-  }
-
-  /** canary 试跑态读取门（结点层桩化判定：工具/进程/网络执行体据此桩化）。 */
-  get canary_active(): boolean {
-    return canary_active();
   }
 
   async emit(etype: string, payload: Record<string, unknown>, opts: { step_id?: string | null } = {}): Promise<void> {

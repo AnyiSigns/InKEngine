@@ -12,13 +12,19 @@ stdio JSON-RPC 行帧底座）。本文件是这些原生机制件的**环境变
 
 - 输出约定：`cargo build` 落 `exec/target/{debug,release}/exec(.exe)`、
   `infer(.exe)` 与 `ink_ts_mcp(.exe)`（workspace `exec/Cargo.toml` 头注 +
-  TS 侧 `host/src/exec/binary.ts` 同口径）。
+  TS 侧声明派生 `host/src/exec/native.generated.ts` 同口径）。
 - 定位优先序（TS 侧 `locateNativeBinary`；kind = exec/infer/mcp，mcp 的
   二进制名为 `ink_ts_mcp`）：
   1. `INK_EXEC_BINARY` / `INK_INFER_BINARY` / `INK_MCP_BINARY`（单文件显式覆盖）；
   2. `INK_NATIVE_DIR` 目录内 `exec(.exe)` / `infer(.exe)` / `ink_ts_mcp(.exe)`；
   3. `CARGO_TARGET_DIR/{debug,release}/`（构建重定向布局）；
   4. 自当前工作树向上探测 `ink-ts/exec/target/{debug,release}/`。
+- **每二进制的文件名 + env 覆盖键 = 声明数据**：真源 = `plugins/endpoints/<id>/spec.json`
+  （kind='endpoint' 插件，`data.native = { file, env }`）→ 派生视图
+  `host/src/exec/native.generated.ts`（`verify:plugin-manifest` 逐字强制）；
+  `host/src/exec/binary.ts` 不再手写 env/文件名表、按声明定位（阶段 6）。
+  改二进制产物名/覆盖键 = 先改插件 spec 再改本文档（本文件是 Rust 侧与
+  TS 传输侧的共同基线说明，机制语义在此不复制声明数据）。
 - `default-members = exec + rpc`：日常 `cargo test/build` 不触发 infer 的
   ort/tokenizers 重型构建；infer 与 mcp-server（依赖 infer 做 embed）用
   `-p ink_ts_infer -p ink_ts_mcp` 单独构建。

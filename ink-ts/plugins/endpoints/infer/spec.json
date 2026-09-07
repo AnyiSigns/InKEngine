@@ -1,0 +1,13 @@
+{
+  "id": "infer",
+  "kind": "endpoint",
+  "capability": "host_tool",
+  "actions": [],
+  "depends": [],
+  "data": {
+    "native": {
+      "file": "infer",
+      "env": "INK_INFER_BINARY"
+    }
+  }
+}

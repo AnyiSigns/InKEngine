@@ -1,0 +1,13 @@
+{
+  "id": "exec",
+  "kind": "endpoint",
+  "capability": "host_tool",
+  "actions": [],
+  "depends": [],
+  "data": {
+    "native": {
+      "file": "exec",
+      "env": "INK_EXEC_BINARY"
+    }
+  }
+}

@@ -1,0 +1,10 @@
+{
+  "name": "@ink-ts/plugin-infer",
+  "version": "0.0.0",
+  "private": true,
+  "type": "module",
+  "files": [
+    "spec.json"
+  ],
+  "description": "ink-ts native binary endpoint plugin declaration (source)"
+}

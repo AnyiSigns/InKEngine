@@ -15,7 +15,7 @@
  *   --plan <id> 输出阻断方与子树影响面（卸载前先查拆除清单）。
  * - faces 结构校验：ui/logic/data 三脸，target ∈ engine|host|web，entry 非空；
  *   contract.effects ⊆ 机制端口词表。
- * - 状态引脚（阶段 4 定案：现 131 份内置插件均 data-only——共享端点/共享域实现/
+ * - 状态引脚（阶段 4 定案：内置插件均 data-only——共享端点/共享域实现/
  *   共享渲染原语，无插件独占实现面，不填占位声明）：任何 spec 出现非空
  *   actions/depends/faces/contract 即视为「数据面转真」，引脚红并提示同步文档。
  *   ui 树不变式：除装配入口外每个 ui_feature 插件必须被 ≥1 容器引用（可达性，
@@ -41,6 +41,7 @@ const KIND_DIRS: { kind: string; dir: string }[] = [
   { kind: 'mcp', dir: 'mcp' },
   { kind: 'command', dir: 'commands' },
   { kind: 'ui_feature', dir: 'ui_features' },
+  { kind: 'endpoint', dir: 'endpoints' },
 ];
 
 const FACE_TARGETS = new Set(['engine', 'host', 'web']);

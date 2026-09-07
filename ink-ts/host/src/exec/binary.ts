@@ -1,13 +1,15 @@
 /**
- * exec/infer/ink_ts_mcp 原生命名二进制定位（exec_proc 前缀约定的 TS 承接面）。
+ * exec/infer/ink_ts_mcp 原生命名二进制定位（声明驱动的 TS 承接面）。
  *
  * 二进制定位约定（与 exec 仓库布局对齐）：`cargo build` 产出落在
  * `ink-ts/exec/target/{debug,release}/exec(.exe)`、`infer(.exe)` 与
  * `ink_ts_mcp(.exe)`（一次构建后 dev/CI/多机自用直接复用同一二进制，零打
- * 包）。定位优先序：
+ * 包）。每二进制（kind=exec/infer/mcp）的**文件名 + env 覆盖键**为声明数据
+ * （真源 = plugins/endpoints/<id>/spec.json data.native → 派生视图
+ * host/src/exec/native.generated.ts，禁手改）。定位优先序：
  * 1. 显式环境变量 `INK_EXEC_BINARY` / `INK_INFER_BINARY` /
- *    `INK_MCP_BINARY`（单文件覆盖）；
- * 2. `INK_NATIVE_DIR` 目录内的平台可执行形态（exec_proc 前缀逻辑）；
+ *    `INK_MCP_BINARY`（单文件覆盖；键名 = 声明 data.native.env）；
+ * 2. `INK_NATIVE_DIR` 目录内的平台可执行形态；
  * 3. 向上探测 `ink-ts/exec/target/{debug,release}/`（debug 优先，
  *    CARGO_TARGET_DIR 亦按此 profile 布局探测）。
  * 定位失败返回 null（调用方决定：集成测试跳过 / 装配期报缺）。
@@ -16,28 +18,21 @@
 import { existsSync } from 'node:fs';
 import path from 'node:path';
 
-import type { NativeBinaryKind } from './_types.js';
-
-/** 显式单文件覆盖键（kind → env）。 */
-const BINARY_ENV: Record<NativeBinaryKind, string> = {
-  exec: 'INK_EXEC_BINARY',
-  infer: 'INK_INFER_BINARY',
-  mcp: 'INK_MCP_BINARY',
-};
+import { NATIVE_BINARY_DECLS, type NativeBinaryKind } from './native.generated.js';
 
 /** 默认 target profile 探测顺序（debug 优先——开发期复用最近一次构建）。 */
 const PROFILE_ORDER = ['debug', 'release'] as const;
 
-/** kind → 二进制文件名（mcp server 二进制名为 ink_ts_mcp，与 exec/infer 不同）。 */
-const FILE_BY_KIND: Record<NativeBinaryKind, string> = {
-  exec: 'exec',
-  infer: 'infer',
-  mcp: 'ink_ts_mcp',
-};
+/** 声明查找（id → {file, env}；NATIVE_BINARY_DECLS 来自 plugins/endpoints 派生）。 */
+function declOf(kind: NativeBinaryKind): { file: string; env: string } | undefined {
+  return NATIVE_BINARY_DECLS.find((decl) => decl.id === kind);
+}
 
-/** 文件名 = 二进制名（exec/infer/ink_ts_mcp；Windows 补 .exe）。 */
+/** 文件名 = 声明 data.native.file（exec/infer/ink_ts_mcp；Windows 补 .exe）。 */
 export function binaryFileName(kind: NativeBinaryKind): string {
-  return `${FILE_BY_KIND[kind]}${process.platform === 'win32' ? '.exe' : ''}`;
+  const decl = declOf(kind);
+  if (decl === undefined) throw new Error(`未声明原生执行件端点 kind: ${kind}`);
+  return `${decl.file}${process.platform === 'win32' ? '.exe' : ''}`;
 }
 
 /** 平台可执行形态判定（Windows = 可执行扩展名；其它平台 = 存在即可执行）。 */
@@ -47,7 +42,7 @@ function looksExecutable(name: string): boolean {
   return ext === '.exe' || ext === '.cmd' || ext === '.bat' || ext === '.com';
 }
 
-/** 候选目录内按 exec_proc 前缀定位（文件名含 kind 前缀 + 可执行形态）。 */
+/** 候选目录内按声明文件名定位（存在即返回绝对路径）。 */
 function locateInDir(dir: string, kind: NativeBinaryKind): string | null {
   const file = path.join(dir, binaryFileName(kind));
   if (existsSync(file)) return file;
@@ -81,9 +76,10 @@ export function locateNativeBinary(
   const env = opts.env ?? process.env;
   const cwd = opts.cwd ?? process.cwd();
   const file = binaryFileName(kind);
+  const decl = declOf(kind);
 
-  // 1. 显式单文件覆盖
-  const explicit = env[BINARY_ENV[kind]];
+  // 1. 显式单文件覆盖（键名 = 声明 data.native.env）
+  const explicit = decl !== undefined ? env[decl.env] : undefined;
   if (explicit !== undefined && explicit !== '' && existsSync(explicit)) {
     return explicit;
   }

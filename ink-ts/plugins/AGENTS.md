@@ -31,6 +31,13 @@ plugins/
 │       ├─ package.json #   npm 包名 = @ink-ts/plugin-<kebab>（点号/下划线转连字符）
 │       └─ spec.json    #   声明（id/kind='ui_feature'/capability='host_tool'/
 │                        #   data.node + data.children）
+├─ endpoints/           # kind='endpoint' 插件域：一个原生执行件一个目录（阶段 6）
+│   ├─ exec/            #   exec OS 执行器（data.native.file=exec）
+│   ├─ infer/           #   infer 本地嵌入推理（data.native.file=infer）
+│   └─ mcp/             #   ink_ts_mcp 内置 MCP server（data.native.file=ink_ts_mcp）
+│       ├─ package.json #   npm 包名 = @ink-ts/plugin-<kebab>
+│       └─ spec.json    #   声明（id/kind='endpoint'/capability='host_tool'/
+│                        #   data.native = { file 二进制文件名, env 覆盖键 }）
 ├─ manifest.json        # 派生视图（生成物，禁手改）：plugins 索引 + tools 聚合 +
 │                       #   mcp 市场视图 + ui_features 组件白名单；由
 │                       #   scripts/sync_plugin_manifest.mjs 生成，--check 强制漂移为红
@@ -40,7 +47,8 @@ plugins/
     └─ sync_plugin_manifest.mjs   # 生成器（plugins 真源 → manifest.json +
                                   # host/src/bridge/commands.generated.ts +
                                   # ui.generated.json +
-                                  # host/src/bridge/ui_canonical.generated.ts 派生视图）
+                                  # host/src/bridge/ui_canonical.generated.ts +
+                                  # host/src/exec/native.generated.ts 派生视图）
 ```
 
 kind 全集（PLUGINS.md §1）为 8 值：`tool | command | ui_feature | endpoint |
@@ -48,7 +56,8 @@ recipe | executor | mcp | host`——plugins/ 按 kind 分子目录，其中 `ho
 例外住 `hosts/<host>.spec.json`（不进 plugins/）。阶段 3a 已落地 `tools/` 与
 `mcp/` 两域；阶段 3b1 落地 `commands/`（66 命令，方法名真源迁移 plugins）；
 阶段 3b2 落地 `ui_features/`（25 节点插件 + 装配入口，产品主壳布局真源迁移
-plugins，生成物 ui.generated.json 取代 seed_data/ui_spec.json）；其余 kind
+plugins，生成物 ui.generated.json 取代 seed_data/ui_spec.json）；阶段 6 落地
+`endpoints/`（exec/infer/mcp 三件，原生执行件定位声明真源）；其余 kind
 目录随对应阶段落位。
 
 ## spec.json 契约（真源声明）
@@ -87,6 +96,13 @@ plugins，生成物 ui.generated.json 取代 seed_data/ui_spec.json）；其余 
   不变）；生成器 DFS 沿 $ref 展开重建完整树（ui.generated.json）+ canonical
   组件白名单（ui_canonical.generated.ts / manifest ui_features.components）；
   删节点插件须同步删父容器 children 里的 $ref，孤儿引用 fail-closed；
+- endpoint 插件（阶段 6）：一个原生执行件一个目录（exec/infer/mcp；id =
+  二进制定位 kind，注册表全局唯一），`data.native` = { file: 二进制文件名,
+  env: env 单文件覆盖键 }——真源唯一化在 plugins/endpoints/<id>/spec.json，
+  派生视图 host/src/exec/native.generated.ts（NATIVE_BINARY_DECLS +
+  NativeBinaryKind 类型）由此生成，host/src/exec/binary.ts 按声明定位
+  （binary.ts 不再手写 env/文件名表）；改端点声明只改 spec.json + 重跑
+  生成器；
 - faces/impl/locale 物理目录不在此阶段出现：data-only 声明插件无独立执行体
   （共享 inkling_exec/inkling_shell 等端点）；spec 顶层 **faces 声明字段能力**
   已在阶段 4 立好（形状经生成器、引用语义经 verify:unload 强制），faces/
@@ -99,26 +115,30 @@ plugins，生成物 ui.generated.json 取代 seed_data/ui_spec.json）；其余 
 - 本阶段不设每插件 AGENTS.md（data-only 声明以 spec.json 为行为唯一事实
   源，per-plugin AGENTS 留待挂 faces 的插件补建，防行为文案第二份漂移）；
   manifest.json / commands.generated.ts / ui.generated.json /
-  ui_canonical.generated.ts 派生视图禁手改，改工具/命令/市场/ui 声明只改
-  对应 spec.json。
+  ui_canonical.generated.ts / host/src/exec/native.generated.ts 派生视图禁手改，
+  改工具/命令/市场/ui/endpoint 声明只改对应 spec.json。
 
 ## 手改与生成纪律
 
-1. **真源唯一**：改工具/命令/市场/ui 声明 → 改对应 `plugins/tools/<name>/spec.json`
-   / `plugins/commands/<method>/spec.json` 或 `plugins/mcp/<id>/spec.json` 或
-   `plugins/ui_features/<id>/spec.json`；manifest.json 与
+1. **真源唯一**：改工具/命令/市场/ui/endpoint 声明 → 改对应
+   `plugins/tools/<name>/spec.json` / `plugins/commands/<method>/spec.json` /
+   `plugins/mcp/<id>/spec.json` / `plugins/ui_features/<id>/spec.json` /
+   `plugins/endpoints/<id>/spec.json`；manifest.json 与
    host/src/bridge/commands.generated.ts、plugins/ui.generated.json、
-   host/src/bridge/ui_canonical.generated.ts 是生成物，禁手改；
+   host/src/bridge/ui_canonical.generated.ts、host/src/exec/native.generated.ts
+   是生成物，禁手改；
 2. **同步派生**：改任一 spec 后重跑
    `node plugins/scripts/sync_plugin_manifest.mjs`（或 `--check` 校验），
    消费方（web dev 夹具 / host mcp.market / tools_os 夹具生成 / self_check
    门禁）经 plugins/manifest.json 取用；host bridge 命令面经
    commands.generated.ts（域实现文件 import type/re-export）取用；web 产品
    主壳经 ui.generated.json 取用；host 配方界面白名单经
-   ui_canonical.generated.ts 取用。命令面增删 = 新增/删除
+   ui_canonical.generated.ts 取用；host 原生执行件定位经
+   native.generated.ts 取用（binary.ts 按声明定位）。命令面增删 = 新增/删除
    plugins/commands/<method>/ 目录并同步 CODING.md §9 表 + 重跑生成器；
    ui 布局增删节点 = 新增/删除 plugins/ui_features/<id>/ 目录（删 = 同时删
    父容器 children 的 $ref）+ 同步 web 适配器注册 + 重跑生成器；
+   endpoint 增删 = 新增/删除 plugins/endpoints/<id>/ 目录 + 重跑生成器；
 3. JSON 纪律：spec/package/manifest 均守 gate json-valid（可 parse、无重复
    键、2 空格缩进），`plugins/` 已入 gate jsonScanDirs；
 4. 全脸声明与卸载纪律（阶段 4）：spec 顶层可声明 `actions`/`depends`/`faces`/

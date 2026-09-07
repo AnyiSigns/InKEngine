@@ -298,9 +298,11 @@ host.spec（能力插件 kind='host'；faces 用专用 HostFaces，不走通用 
 > 声明即挂载）已落地（2026-09-07）；阶段 3a（plugins 真源 + 工具/市场迁移）
 > 与阶段 3b1（命令面真源迁 plugins）与阶段 3b2（产品主壳布局迁 plugins）
 > 已落地（2026-09-07）；阶段 4（faces/卸载一致性，声明级地基 + verify-unload）
-> 已落地（2026-09-07）；阶段 5 起待实施。
+> 已落地（2026-09-07）；阶段 5（宿主面插件化，5a+5b-1/2/3）
+> 已落地（2026-09-07）；阶段 6（exec 工具信封声明化）已落地（2026-09-07）；
+> 阶段 7a 起待实施。
 
-### 阶段 0/1/2/3a/3b1/3b2/4 落地状态（逐阶段回填）
+### 阶段 0–6 落地状态（逐阶段回填）
 
 | 阶段 | 设计要件 | 落点 | 状态 |
 |---|---|---|---|
@@ -326,8 +328,13 @@ host.spec（能力插件 kind='host'；faces 用专用 HostFaces，不走通用 
 | 3b2 | canonical 白名单派生 + 消费改指 | 布局引用组件 type 并集升序 = canonical（manifest `ui_features.components` + `host/src/bridge/ui_canonical.generated.ts`）；host recipe 界面白名单改引用生成物（手写 13 项常量删除）；web App/backend/specShell 改 import `plugins/ui.generated.json`；`seed_data/ui_spec.json` 删除 | ✅ 完成 |
 | 4 | 插件全脸 schema + 注册表行 | spec 顶层可声明 `actions`/`depends`/`faces`/`contract`（CapabilityComponent 全脸字段，缺省即 data-only）；生成器 `readSpec` 守 JSON 形状（faces 三脸 ui/logic/data × engine\|host\|web + entry 非空、effects 字符串数组等），manifest `plugins[]` 注册表行携带声明字段（未声明不输出，现有派生视图字节不变） | ✅ 完成 |
 | 4 | verify:unload（卸载一致性，fail-closed） | `plugins/scripts/verify_unload.ts`（root test 链尾 `verify:unload`）：depends 悬空/成环/未登记（插件 id ∪ 机制端口词表 `engine/src/kernel/registry/ports.ts` 单一真源）= 违规；faces 结构 + `contract.effects ⊆ 词表`；manifest 平价（派生视图与真源逐一对应）；**data-only 状态引脚**；ui 可达性不变式（除装配入口外每 ui 插件 ≥1 父容器引用，`data.children.$ref` ∪ 入口 `data.root.$ref` 为反向边）；`--plan <id>` 输出卸载阻断方（下游 depends / 父容器）与级联子树 | ✅ 完成 |
-| 4 | 卸载语义定案 | 用户定案（2026-09-07）：插件源单份共用 tauri/cli/web/ide 四宿主、不引入 per-host 分支（宿主差异 = host.spec 阶段 5 表达）；卸载 **fail-closed 拒卸**（有活动下游/父容器引用即阻断，先卸下游）；现有 131 内置插件审计结论 = 全 data-only（共享 exec 端点/共享域实现/共享渲染原语，无插件独占实现面），**不填占位 faces/depends/contract**（防第二份平行真相），schema 能力留外部/多面插件（随阶段 7a 物理单目录/8 收口启用） | ✅ 完成 |
+| 4 | 卸载语义定案 | 用户定案（2026-09-07）：插件源单份共用 tauri/cli/web/ide 四宿主、不引入 per-host 分支（宿主差异 = host.spec 阶段 5 表达）；卸载 **fail-closed 拒卸**（有活动下游/父容器引用即阻断，先卸下游）；现有 131 内置插件（阶段 6 增 kind='endpoint' 三件 exec/infer/mcp → 134）审计结论 = 全 data-only（共享 exec 端点/共享域实现/共享渲染原语，无插件独占实现面），**不填占位 faces/depends/contract**（防第二份平行真相），schema 能力留外部/多面插件（随阶段 7a 物理单目录/8 收口启用） | ✅ 完成 |
 | 3b2 | 生成物一致性 + 对码扩展 | `verify:plugin-manifest` 扩为四产物逐字比对；web gate 白名单对码测试增「派生 canonical == 旧侧 inkling/manifest renderer_components 逐项一致 + 全部可注册」 | ✅ 完成 |
+| 5a | cli=host 插件框架 + TUI face | cli 退为**进程实现库**（`cli/src/index.ts` runCliMain 供调度；无自有语义入口），host 装配（kind=host）消费；argv 增 `tui` 形态 → `cli/src/tui/`（types/model/fmt/text/keys/actions/views/controller/tui）非 TTY line-mode 可自测 | ✅ 完成（阶段 5 首子步） |
+| 5b-1 | 四份宿主 spec + host_spec loader | `hosts/tauri·cli·web·ide.spec.json`（cli/web implemented=true；tauri/ide implemented=false 占位外部壳仓）；`host/src/host_spec.ts`（findHostsRoot/loadHostSpec/validateHostSpec）+ `verify:host-spec` 入 root test 链 | ✅ 完成 |
+| 5b-2 | 装配读 spec 注入 | `HostConfigInput.host_spec_id` → resolve 注入 spec 数据（ResolvedHostConfig + `HostHandle.surface`）；cli host.ts/serve.ts 按 cli.spec（serve 面=web.spec）注入；相关 host 测试 171 项全绿 | ✅ 完成 |
+| 5b-3 | bootstrap 唯一进程入口 | `bootstrap/main.ts`（composition root 收敛面）：argv 形态 → 宿主面（stdio/run/tui=cli、serve=web）→ loadHostSpec 校验 implemented → 委托 runCliMain；root dev 脚本改指 bootstrap | ✅ 完成 |
+| 6 | exec 工具信封声明化 | 新 kind='endpoint' 插件域 `plugins/endpoints/`（exec/infer/mcp 三件，spec.data.native = file + env）；派生视图第 5 产物 `host/src/exec/native.generated.ts`（NATIVE_BINARY_DECLS + NativeBinaryKind）入 verify:plugin-manifest 逐字比对；`host/src/exec/binary.ts` 手写 BINARY_ENV/FILE_BY_KIND 两表删除、按声明定位（binaryFileName/locateNativeBinary 对外签名不变）；`_types.NativeBinaryKind` 从生成物派生；verify_unload KIND_DIRS 增 endpoints 域；插件数 131→134 数字同步 | ✅ 完成（阶段 6 目标；host 按声明装载，失败语义消费方各自定） |
 
 ### 已具备的地基（对照现状）
 
@@ -338,11 +345,12 @@ host.spec（能力插件 kind='host'；faces 用专用 HostFaces，不走通用 
 | 装配数据 | `AssemblyRecipe`（engine 定义，经 `@ink-ts/engine` 导出）+ `runtime.boot(host, recipe)`（host 装配使用，`host/src/boot.ts`） | ✅ 已实现 |
 | web 纯渲染 L5 | `plugins/ui_features` 布局装配（生成物 `plugins/ui.generated.json`）+ `componentRegistry` 白名单 + `artifactLoader` | ⚠️ 部分：分面——业务逻辑在插件 logic face/actions（跑引擎侧），ui face 与渲染器不含业务逻辑（L5 成立）；但仍含产品 chrome（app/shell/views）；阶段 7b 才退化为纯显示设备 |
 | 命令面同步 | plugins/commands spec → `commands.generated.ts`（生成物）→ 各域 import/re-export → `BRIDGE_METHODS` spread 派生；`verify:bridge-mount` + `verify:plugin-manifest` | ✅ 声明即挂载（阶段 2 + 3b1 目标；命令名真源已迁 plugins/） |
-| 统一插件源 | `plugins/` 真源（tools/ 35 + mcp/ 5 + commands/ 66 + ui_features/ 25 + market.json）+ 四派生视图生成器（manifest.json / commands.generated.ts / ui.generated.json / ui_canonical.generated.ts）+ `verify:plugin-manifest` | ✅ 阶段 3a+3b1+3b2：tools/mcp 市场/命令名/产品主壳布局全部收敛，消费（web/host/fixtures/data 门禁）统一经派生视图；canonical 白名单亦派生（布局引用并集） |
+| 统一插件源 | `plugins/` 真源（tools/ 35 + mcp/ 5 + commands/ 66 + ui_features/ 25 + endpoints/ 3 + market.json）+ 五派生视图生成器（manifest.json / commands.generated.ts / ui.generated.json / ui_canonical.generated.ts / native.generated.ts）+ `verify:plugin-manifest` | ✅ 阶段 3a+3b1+3b2+6：tools/mcp 市场/命令名/产品主壳布局/原生执行件端点全部收敛，消费（web/host/fixtures/data 门禁 + binary.ts 定位）统一经派生视图；canonical 白名单亦派生（布局引用并集） |
 | 机制件统一 contract + 装配闭集校验 | 33 机制 `engine/src/kernel/<mechanism>/contract.ts` + `registry/registry.ts` 密封校验 + boot 接线 + `verify:mechanisms` | ✅ 完成（本阶段目标） |
 | 自进化机制 | `self_tools`/`self_application`/`settle/seed`/`growth`/`skill_crystal`/`tuning`（`kernel/*`，默认开） | ✅ 机制已实现并契约化（无产品侧业务层，见 §1.5） |
 | faces / depends / 卸载一致性 | 机制层 depends 已契约化（DAG/闭包校验）；产品层 spec 全脸 schema + 数据级卸载一致性由 `verify:unload` 强制（depends 解析/环、ui 组合/可达性、manifest 平价、data-only 引脚） | ✅ 数据层完成（阶段 4）；faces 物理目录/运行期装载待阶段 7a 及后续 |
-| 宿主面插件化 | `ResolvedHostConfig`/`ProductRecipeInit` 已存在，未 spec 化 | ❌ 未实现 |
+| 宿主面插件化 | `hosts/*.spec.json`（tauri/cli/web/ide 四份）+ `host/src/host_spec.ts` loader/校验 + `bootstrap/main.ts` 唯一进程入口 + createHost 装配期 spec 注入（`host_spec_id`/`surface`） | ✅ 阶段 5 完成：cli/web 本仓装配、tauri/ide 外部壳仓占位；换 spec 换宿主可复现 |
+| 原生二进制定位声明化 | plugins/endpoints 真源（kind='endpoint'：exec/infer/mcp）→ `host/src/exec/native.generated.ts` 派生 → `host/src/exec/binary.ts` 按声明定位 | ✅ 阶段 6 完成：手写 BINARY_ENV/FILE_BY_KIND 表删除；失败语义消费方各自定（dialog/doc 降级、mcp 装配 fail-closed） |
 
 # ink-ts 插件即数据 · 终局形态参考模拟
 

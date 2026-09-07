@@ -27,6 +27,7 @@
 | 17 | ui_feature 拆粒度（阶段 3b2 实施时裁决） | **一节点一插件全平铺**（用户两轮修正：先按 view 拆、再要求「容器结构也是插件」）：plugins/ui_features/<id>/ 每容器/组件/装配入口各一目录（装配入口唯一含 name/version/theme/root.$ref）；容器 data.children 按序 $ref 子插件 id；生成器 DFS 展开重建完整树 + canonical 组件并集派生；卸载 = 删目录 + 删父 children $ref（引用缺失/成环/孤儿 fail-closed） | component_data §九 3b2 行、PLUGINS §1、plugins/AGENTS |
 | 18 | ui_spec 迁 plugins 后消费与白名单（阶段 3b2 定稿） | 过渡态**聚合单文件生成物** plugins/ui.generated.json（渲染器与壳仍消费一棵完整布局树，零改动）+ seed_data/ui_spec.json 删除；canonical 白名单改派生（布局引用组件 type 并集升序 → manifest ui_features.components + host/src/bridge/ui_canonical.generated.ts，host recipe 常量改引用）；web 白名单对码测试增强「派生 canonical == 旧侧 inkling manifest renderer_components」；引擎 BOOT_UI_SPEC（boot.panel）不动（boot 资产非产品 chrome）、ui_spec.* 编辑器补丁链（W2 未接线）不属本次 | component_data §三/§九、CODING §7/§10、PLUGINS §1 |
 | 19 | 阶段 4（faces/卸载一致性）范围与语义（2026-09-07 定案） | **声明级地基 + verify-unload 静态执法，不引入运行期装载**（用户逐项确认）：① spec 顶层可声明 `actions`/`depends`/`faces`/`contract`（CapabilityComponent 全脸），生成器只守 JSON 形状并携带声明字段入 manifest plugins[] 注册表行；② 新 `verify:unload`（plugins/scripts/verify_unload.ts）：depends 悬空/成环/未登记（插件 id 或机制端口，词表单一真源 engine/src/kernel/registry/ports.ts）= 违规；faces 三脸结构（ui/logic/data × engine\|host\|web）+ `contract.effects ⊆ 词表`；manifest 平价 + data-only 状态引脚 + ui 可达性不变式；`--plan <id>` 输出卸载阻断方（下游 depends / 父容器 $ref）与级联子树，**fail-closed 拒卸**（用户选定）；③ 现有 131 内置插件审计结论 = 全 data-only（共享端点/域实现/渲染原语），**不填占位声明**（防第二份平行真相），schema 能力留外部/多面插件（用户选定方案 1）；④ 插件源**单份共用 tauri/cli/web/ide 四宿主**，不引入 per-host 分支/字段（宿主差异 = host.spec 阶段 5 表达，用户确认） | component_data §七/§九、PLUGINS §1、CODING §7、plugins/AGENTS、`plugins/scripts/verify_unload.ts` |
+| 20 | 阶段 6（exec 工具信封声明化）范围与语义（2026-09-07 定案） | **binary.ts 手写约定 → 声明数据**（用户逐项确认）：① 真源 = **plugins 源 kind='endpoint'**（plugins/endpoints/exec·infer·mcp 三目录，spec.data.native = 二进制文件名 file + env 覆盖键；复用既有 spec/verify 体系，插件总数 131→134）；② 产物 = **数据化 + 生成物禁手改**：native.generated.ts（host/src/exec，第 5 派生产物）逐字入 verify:plugin-manifest，binary.ts 手写 BINARY_ENV/FILE_BY_KIND 两表删除、按声明定位；probe 逻辑/失败语义非声明部分；③ 失败语义**维持现况：消费方各自定**（dialog/doc 缺二进制降级 unavailable，mcp 装配 fail-closed 报缺；不新增装配级全局必装强制） | component_data §七/§九（阶段 6 落地行）、CODING §7（verify:plugin-manifest 五产物）、plugins/AGENTS.md（endpoints 域）、exec/CONFIG.md §1、本卡 |
 
 ## 阶段 2 实施时须现场核对
 
@@ -91,6 +92,35 @@
   的开发工具——端口单一真源不自建第二份；
 - **（2026-09-07 阶段 4 已完成并提交：schema 全脸字段 + verify:unload PASS（131 插件
   data-only 引脚 + manifest 平价 + ui 可达性全成立），见 §九 落地状态。）**
+
+## 阶段 5 实施时须现场核对
+
+- host.spec 数据（hosts/tauri·cli·web·ide.spec.json）只描述宿主形状与非敏感
+  默认：密钥/模型端点不进 spec（走 config/env）；cli 是进程实现库
+  （host=kind host 装配），TUI 是 cli 宿主的一个绘制 face，**不作为独立插件
+  kind**；web 真实 spec + tauri/ide 占位（implemented=false，装配实现住外部壳仓）；
+- verify:host-spec 在 root test 链：四宿主不变式 + HostFaces 词汇（单一真源
+  host/src/host_spec.ts）+ implemented=true 须带 renderer entry 且文件真实存在。
+  **（2026-09-07 阶段 5 已完成并提交：5a cli=host 插件框架/TUI face + 5b-1 四份
+  hosts spec + 5b-2 host_spec 装配注入（host_spec_id/surface） + 5b-3 bootstrap
+  唯一进程入口，见 §九 落地状态。）**
+
+## 阶段 6 实施时须现场核对
+
+- kind='endpoint' 插件（plugins/endpoints/exec·infer·mcp）是真源：spec.data.native
+  （file 二进制文件名 + env 覆盖键）与 exec/CONFIG.md §1 描述、host 按声明装载
+  三者一致；mcp 端点文件名为 ink_ts_mcp（≠ 目录 id）；
+- 派生视图第 5 产物 = host/src/exec/native.generated.ts（NATIVE_BINARY_DECLS +
+  NativeBinaryKind 类型），verify:plugin-manifest 逐字比对；binary.ts 禁回退
+  手写 BINARY_ENV/FILE_BY_KIND 表（按声明定位），`_types.NativeBinaryKind` 从
+  生成物派生（不再是手写三值联合）；
+- 插件数 131→134（+3 endpoint；tool 35 + mcp 5 + command 66 + ui_feature 25 +
+  endpoint 3），文档数字表述同步；endpoint 插件 data-only（无 actions/depends/
+  faces/contract 真值），verify_unload 引脚与 manifest 平价覆盖（KIND_DIRS 已加
+  endpoints 域）；
+- 失败语义维持现况：dialog/doc 缺二进制降级（unavailable）、mcp 装配 fail-closed
+  报缺——阶段 6 不引入装配级「全量必装」；增量装载/运行期装卸随后续阶段。
+  **（2026-09-07 阶段 6 已完成并提交，见 §九 落地状态。）**
 
 ## 引擎层 AGENTS 用语
 

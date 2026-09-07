@@ -1,0 +1,13 @@
+{
+  "id": "mcp",
+  "kind": "endpoint",
+  "capability": "host_tool",
+  "actions": [],
+  "depends": [],
+  "data": {
+    "native": {
+      "file": "ink_ts_mcp",
+      "env": "INK_MCP_BINARY"
+    }
+  }
+}

@@ -1,7 +1,8 @@
 #!/usr/bin/env node
 /**
  * 同步生成插件源派生视图（plugins/manifest.json + host/src/bridge/commands.generated.ts
- * + plugins/ui.generated.json + host/src/bridge/ui_canonical.generated.ts），
+ * + plugins/ui.generated.json + host/src/bridge/ui_canonical.generated.ts
+ * + host/src/exec/native.generated.ts），
  * plugins/ 各 spec.json 为真源。
  *
  * 职责边界（对齐 PLUGINS.md §1 / docs/component_data_endgame.md §三）：
@@ -18,6 +19,9 @@
  * - host/src/bridge/ui_canonical.generated.ts = 产品 UI canonical 组件白名单
  *   派生视图**生成物**——布局树引用组件 type 并集（升序），禁手工维护；
  *   host 配方白名单与出厂组件面据此装配。
+ * - host/src/exec/native.generated.ts = 原生执行件端点派生视图**生成物**——
+ *   从 plugins/endpoints/<id>/spec.json 聚合（每二进制 file + env 覆盖键），
+ *   禁手工维护；host/src/exec/binary.ts 据此按声明定位（替 binary.ts 手写表）。
  *
  * 消费方一律经派生视图取用：web dev 夹具（backend.ts）、host mcp.market、
  * tools_os 夹具生成（sync_tools_fixtures.mjs）、self_check data 门禁
@@ -37,6 +41,9 @@
  *   组件插件 data.node（kind='component'，叶子无 children）。生成器 DFS 沿
  *   $ref 展开重建完整布局树，循环/缺失/孤儿引用 fail-closed；组件 type 并集
  *   升序 = canonical 白名单；
+ * - plugins/endpoints/<id>/spec.json：kind='endpoint'，一个原生执行件一个目录
+ *   （exec/infer/mcp，宿主装配期注入）；spec.data.native = 二进制文件名 file +
+ *   env 覆盖键；host/src/exec/native.generated.ts 派生视图据此生成。
  * - spec 顶层必含 id/kind/capability；聚合顺序 = 确定性（工具/市场 id 升序；
  *   命令 = DOMAIN_TABLE 顺序 + 域内 data.order；ui = 装配树引用序）；
  * - 派生文件不写任何 spec 未声明内容（除固定 note/version/头注）。
@@ -54,6 +61,7 @@ const MANIFEST = join(PLUGINS_ROOT, 'manifest.json');
 const COMMANDS_GENERATED = join(PLUGINS_ROOT, '..', 'host', 'src', 'bridge', 'commands.generated.ts');
 const UI_GENERATED = join(PLUGINS_ROOT, 'ui.generated.json');
 const UI_CANONICAL_GENERATED = join(PLUGINS_ROOT, '..', 'host', 'src', 'bridge', 'ui_canonical.generated.ts');
+const NATIVE_GENERATED = join(PLUGINS_ROOT, '..', 'host', 'src', 'exec', 'native.generated.ts');
 
 /**
  * 命令实现域映射表（group → const/type 名）；顺序 = BRIDGE_METHODS 跨域序
@@ -103,7 +111,8 @@ const MANIFEST_NOTE =
   '引用组件 type 并集（升序，canonical 白名单；host/ui_canonical.generated.ts 同源）；' +
   'plugins = 全插件索引（id/kind/capability/包名/目录；行可携带 spec 顶层声明的 ' +
   'actions/depends/faces/contract——CapabilityComponent 全脸字段，未声明不输出；' +
-  '引用解析/effects 词表语义由 verify:unload 校验）。';
+  '引用解析/effects 词表语义由 verify:unload 校验）。endpoints = kind=endpoint ' +
+  '原生执行件端点声明（data.native；host/src/exec/native.generated.ts 同源派生）。';
 
 const COMMANDS_HEADER =
   '/**\n' +
@@ -118,6 +127,13 @@ const UI_CANONICAL_HEADER =
   ' * 生成文件勿手改：产品 UI canonical 组件白名单派生视图（真源 = plugins/ui_features/<id>/spec.json\n' +
   ' * 布局树引用组件 type 并集，升序）。由 plugins/scripts/sync_plugin_manifest.mjs 生成；\n' +
   ' * host 配方界面白名单与出厂组件面据此装配；verify:plugin-manifest 强制逐字一致。\n' +
+  ' */\n';
+
+const NATIVE_HEADER =
+  '/**\n' +
+  ' * 生成文件勿手改：原生执行件端点声明派生视图（真源 = plugins/endpoints/<id>/spec.json\n' +
+  ' * 的 data.native：二进制文件名 file + env 覆盖键）。由 plugins/scripts/sync_plugin_manifest.mjs\n' +
+  ' * 生成；host/src/exec/binary.ts 据此按声明定位；verify:plugin-manifest 强制逐字一致。\n' +
   ' */\n';
 
 async function fail(message) {
@@ -340,6 +356,33 @@ async function derive() {
       ...declaredRow(spec),
     });
   }
+  // kind='endpoint'：plugins/endpoints/<id>/spec.json → 原生执行件端点声明
+  // （data.native：file 二进制文件名 + env 覆盖键）。三件套 exec/infer/mcp 由
+  // host/src/exec/native.generated.ts 派生（host/src/exec/binary.ts 按声明定位）。
+  const nativeDecls = [];
+  for (const id of await listDirs(join(PLUGINS_ROOT, 'endpoints'))) {
+    const dir = join(PLUGINS_ROOT, 'endpoints', id);
+    const spec = await readSpec(dir, 'endpoint');
+    const native = spec.data?.native;
+    if (typeof native !== 'object' || native === null) {
+      await fail(`endpoint 插件 ${id} 缺 data.native`);
+    }
+    if (typeof native.file !== 'string' || native.file.length === 0) {
+      await fail(`endpoint 插件 ${id} 缺 data.native.file（二进制文件名）`);
+    }
+    if (typeof native.env !== 'string' || native.env.length === 0) {
+      await fail(`endpoint 插件 ${id} 缺 data.native.env（env 覆盖键）`);
+    }
+    nativeDecls.push({ id, file: native.file, env: native.env });
+    plugins.push({
+      id,
+      kind: 'endpoint',
+      capability: spec.capability ?? 'host_tool',
+      package: await loadPackage(dir),
+      dir: `endpoints/${id}`,
+      ...declaredRow(spec),
+    });
+  }
   const entryList = uiFeatures.filter(
     (f) => typeof f.spec.data?.root === 'object' && f.spec.data.root !== null,
   );
@@ -426,6 +469,7 @@ async function derive() {
       components: uiCanonical,
     },
     ui_layout: uiLayout,
+    native: nativeDecls,
   };
 }
 
@@ -517,6 +561,20 @@ function renderCommandsTs(commands) {
   return lines.join('\n');
 }
 
+/** 渲染原生执行件端点派生 TS（NATIVE_BINARY_DECLS + NativeBinaryKind 类型；顺序 = id 升序）。 */
+function renderNativeTs(nativeDecls) {
+  const lines = [NATIVE_HEADER];
+  lines.push('export const NATIVE_BINARY_DECLS = [');
+  for (const decl of nativeDecls) {
+    lines.push(`  { id: '${decl.id}', file: '${decl.file}', env: '${decl.env}' },`);
+  }
+  lines.push('] as const;');
+  lines.push('');
+  lines.push('export type NativeBinaryKind = (typeof NATIVE_BINARY_DECLS)[number][\'id\'];');
+  lines.push('');
+  return lines.join('\n');
+}
+
 async function fileExists(path) {
   try {
     await readFile(path);
@@ -547,6 +605,7 @@ async function main() {
   const commandsRendered = renderCommandsTs(data.commands);
   const uiRendered = renderUiLayout(data.ui_layout);
   const uiCanonicalRendered = renderUiCanonicalTs(data.ui_features.components);
+  const nativeRendered = renderNativeTs(data.native);
 
   if (check) {
     const okManifest = await compareFile(MANIFEST, manifestRendered, 'manifest', 'sync_plugin_manifest.mjs');
@@ -563,7 +622,13 @@ async function main() {
       'ui_canonical.generated.ts',
       'sync_plugin_manifest.mjs',
     );
-    if (!okManifest || !okCommands || !okUi || !okUiCanonical) process.exitCode = 1;
+    const okNative = await compareFile(
+      NATIVE_GENERATED,
+      nativeRendered,
+      'native.generated.ts',
+      'sync_plugin_manifest.mjs',
+    );
+    if (!okManifest || !okCommands || !okUi || !okUiCanonical || !okNative) process.exitCode = 1;
     return;
   }
 
@@ -573,11 +638,15 @@ async function main() {
   await writeFile(COMMANDS_GENERATED, commandsRendered, 'utf8');
   await writeFile(UI_GENERATED, uiRendered, 'utf8');
   await writeFile(UI_CANONICAL_GENERATED, uiCanonicalRendered, 'utf8');
+  await mkdir(dirname(NATIVE_GENERATED), { recursive: true });
+  await writeFile(NATIVE_GENERATED, nativeRendered, 'utf8');
   console.log(
     `已生成 manifest.json + commands.generated.ts + ui.generated.json + ` +
-      `ui_canonical.generated.ts（${data.plugins.length} 插件：${data.tools.length} tools + ` +
-      `${data.mcp_market.servers.length} mcp + ${data.commands.length} commands + ` +
-      `${data.plugins.filter((p) => p.kind === 'ui_feature').length} ui_features，真源 plugins/）`,
+      `ui_canonical.generated.ts + native.generated.ts（${data.plugins.length} 插件：` +
+      `${data.tools.length} tools + ${data.mcp_market.servers.length} mcp + ` +
+      `${data.commands.length} commands + ` +
+      `${data.plugins.filter((p) => p.kind === 'ui_feature').length} ui_features + ` +
+      `${data.native.length} endpoints，真源 plugins/）`,
   );
 }
 

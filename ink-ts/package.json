@@ -14,7 +14,7 @@
     "verify:plugin-manifest": "node plugins/scripts/sync_plugin_manifest.mjs --check",
     "verify:unload": "tsx plugins/scripts/verify_unload.ts",
     "verify:host-spec": "tsx hosts/verify_host_spec.ts",
-    "dev": "tsx watch --clear-screen=false cli/src/index.ts serve",
+    "dev": "tsx watch --clear-screen=false bootstrap/main.ts serve",
     "self-check": "node --import tsx self_check/index.ts all",
     "contracts:verify": "node engine/scripts/verify_generated.mjs",
     "contracts:generate": "node engine/scripts/generate.mjs"

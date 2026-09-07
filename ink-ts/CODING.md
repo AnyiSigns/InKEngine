@@ -42,6 +42,10 @@
   本质非服务进程（无 main/不监听），服务承载方 = cli serve。
 - `hosts/`：宿主插件声明（kind=host 装配期 spec：tauri/cli/web/ide），阶段 5
   框架已立 `hosts/cli.spec.json`；运行配置完全声明化与其余 spec 落定随阶段 5b。
+- `bootstrap/`：**唯一进程入口**（阶段 5b-3 起规范入口）——读
+  `hosts/<surface>.spec.json` 校验 implemented=true 后委托 `cli.runCliMain`
+  执行 stdio/run/serve/tui；cli 文件直跑为兼容入口（cli e2e 不变），
+  composition root 收敛面在 bootstrap。
 
 术语：**host（原 backend）** = 宿主装配层 / composition
 root；**cli** = 唯一进程载体（含 main + 四形态：stdio/run/serve/tui，tui 为

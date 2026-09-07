@@ -12,7 +12,12 @@ export type {
   SealedMechanismRegistry,
 } from './contract_types.js';
 
-export { seal_mechanism_registry, topo_order, validate_mechanism_registry } from './registry.js';
+export {
+  find_cycles,
+  seal_mechanism_registry,
+  topo_order,
+  validate_mechanism_registry,
+} from './registry.js';
 export type { RegistryViolation } from './registry.js';
 
 export {

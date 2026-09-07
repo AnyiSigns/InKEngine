@@ -60,44 +60,64 @@ export function validate_mechanism_registry(
     depCount.set(c.id, c.depends.length);
   }
   if (violations.length > 0) return violations;
-  // 循环检测：Kahn 拓扑；仍剩结点 = 环（环内结点逐一上报）。
-  const indegree = new Map<string, number>();
-  const outgoing = new Map<string, string[]>();
-  for (const c of contracts) {
-    indegree.set(c.id, 0);
-    outgoing.set(c.id, []);
-  }
-  for (const c of contracts) {
-    for (const dep of c.depends) {
-      if (!byId.has(dep)) continue; // 外部端口不参与拓扑
-      outgoing.set(dep, [...(outgoing.get(dep) ?? []), c.id]);
-      indegree.set(c.id, (indegree.get(c.id) ?? 0) + 1);
-    }
-  }
-  const queue: string[] = [];
-  for (const [id, deg] of indegree) {
-    if (deg === 0) queue.push(id);
-  }
-  const visited = new Set<string>();
-  while (queue.length > 0) {
-    const id = queue.shift()!;
-    visited.add(id);
-    for (const next of outgoing.get(id) ?? []) {
-      const deg = (indegree.get(next) ?? 0) - 1;
-      indegree.set(next, deg);
-      if (deg === 0) queue.push(next);
-    }
-  }
-  for (const [id, deg] of indegree) {
-    if (deg !== 0 && !visited.has(id)) {
-      violations.push({
-        rule: 'cycle',
-        id,
-        message: `契约循环依赖涉及: ${id}`,
-      });
-    }
+  // 循环检测：Tarjan SCC——只报真实环成员（SCC 结点数 >1 即环），下游被阻塞
+  // 结点（依赖环内机制、无法拓扑但自身不在环）不误报。
+  const scc = find_cycles(contracts);
+  for (const id of scc) {
+    violations.push({
+      rule: 'cycle',
+      id,
+      message: `契约循环依赖涉及: ${id}`,
+    });
   }
   return violations;
+}
+
+/** 返回参与环的机制 id 集（Tarjan 强连通分量中结点数 >1 的成员）。 */
+export function find_cycles(contracts: readonly MechanismContract[]): string[] {
+  const byId = new Map<string, MechanismContract>();
+  for (const c of contracts) byId.set(c.id, c);
+  const adj = new Map<string, string[]>();
+  for (const c of contracts) {
+    adj.set(c.id, c.depends.filter((d) => byId.has(d)));
+  }
+  const index = new Map<string, number>();
+  const low = new Map<string, number>();
+  const onStack = new Set<string>();
+  const stack: string[] = [];
+  const cycleMembers = new Set<string>();
+  let counter = 0;
+  const visit = (id: string): void => {
+    index.set(id, counter);
+    low.set(id, counter);
+    counter += 1;
+    stack.push(id);
+    onStack.add(id);
+    for (const next of adj.get(id) ?? []) {
+      if (!index.has(next)) {
+        visit(next);
+        low.set(id, Math.min(low.get(id)!, low.get(next)!));
+      } else if (onStack.has(next)) {
+        low.set(id, Math.min(low.get(id)!, index.get(next)!));
+      }
+    }
+    if (low.get(id) === index.get(id)) {
+      const component: string[] = [];
+      for (;;) {
+        const w = stack.pop()!;
+        onStack.delete(w);
+        component.push(w);
+        if (w === id) break;
+      }
+      if (component.length > 1) {
+        for (const m of component) cycleMembers.add(m);
+      }
+    }
+  };
+  for (const c of contracts) {
+    if (!index.has(c.id)) visit(c.id);
+  }
+  return [...cycleMembers].sort();
 }
 
 /** 密封机制注册表：校验通过后返回契约表 + 拓扑装配序；违规 = 抛错（fail-closed）。 */

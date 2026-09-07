@@ -2,10 +2,10 @@
  * 引擎内省服务（introspection.py IntrospectionService 移植）：按工具名
  * 分发快照读取（单一入口，快照互相独立）。
  *
- * 快照皆为确定性 JSON 数据，出口统一经 build_introspection_pipeline /
- * make_introspection_executor 内的 strip_sensitive 脱敏——snapshot* 裸方法
- * 返回未脱敏原始快照，禁止裸调；图/界面等数据源在 TS 侧以显式类型/注册表
- * seam 表达（不反射 JS 对象），宿主装配时经 IntrospectionSources 注入。
+ * 快照皆为确定性 JSON 数据，出口统一经 make_introspection_executor 内的
+ * strip_sensitive 脱敏——snapshot* 裸方法返回未脱敏原始快照，禁止裸调；
+ * 图/界面等数据源在 TS 侧以显式类型/注册表 seam 表达（不反射 JS 对象），
+ * 宿主装配时经 IntrospectionSources 注入。
  */
 import type { Edge } from '../../core/graph/graph_types.js';
 import type { Graph } from '../../core/graph/graph.js';
@@ -49,8 +49,8 @@ export class IntrospectionService {
   /** 按工具名返回对应快照；未知工具名显式拒绝（fail-closed）。
    *
    * 警告：本方法返回未脱敏的原始快照，禁止裸调——须经
-   * build_introspection_pipeline 出口（make_introspection_executor 内
-   * strip_sensitive）脱敏后，凭据等敏感键才不进入模型上下文。
+   * make_introspection_executor 出口（strip_sensitive）脱敏后，凭据等敏感键
+   * 才不进入模型上下文。
    */
   snapshot(tool_name: string, args: Record<string, unknown> = {}): Record<string, unknown> {
     if (tool_name === 'inspect_graph') return this.snapshot_graph();

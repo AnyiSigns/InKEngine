@@ -9,15 +9,13 @@
  * 实现拆分纪律（≤350 行/文件）：
  * - sources：权限/限额常量与 IntrospectionSources（宿主装配注入的数据源）；
  * - service：IntrospectionService（按工具名分发各 snapshot* 快照读取）；
- * - pipeline：introspection_tool_specs / make_introspection_executor /
- *   build_introspection_pipeline（元工具注册与流水线装配）。
+ * - pipeline：introspection_tool_specs / make_introspection_executor
+ *   （元工具注册与统一流水线执行器，不自造独立流水线）。
  */
 export { INTROSPECTION_PERMISSION, IntrospectionSources } from './sources.js';
 export type { EntityRegistryLike, EntitySpecLike } from './sources.js';
 export { IntrospectionService } from './service.js';
 export {
-  build_introspection_pipeline,
   introspection_tool_specs,
   make_introspection_executor,
 } from './pipeline.js';
-export type { IntrospectionPipelineOptions } from './pipeline.js';

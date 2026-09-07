@@ -21,6 +21,7 @@ import {
   IntrospectionService,
   IntrospectionSources,
   introspection_tool_specs,
+  make_introspection_executor,
 } from '../../../src/kernel/introspection/index.js';
 import { LEVEL_USER } from '../../../src/core/knowledge_set/_types.js';
 import { ToolSpec, to_openai_tools } from '../../../src/kernel/llm/tools.js';
@@ -246,5 +247,48 @@ describe('OpenAI 工具转换契约', () => {
       ),
     );
     expect(names).toEqual(new Set(INTROSPECTION_TOOL_NAMES));
+  });
+});
+
+describe('内省执行器（统一工具流水线 executor 契约）', () => {
+  const noop_ctx = {
+    emit: async (_etype: string, _payload: Record<string, unknown>): Promise<void> => undefined,
+  };
+
+  it('执行返回 JSON 快照（只读观察出口，图名可解析）', async () => {
+    const service = make_service({ graph: data_graph() });
+    const executor = make_introspection_executor(service);
+    const spec = introspection_tool_specs()[0]!;
+    const output = await executor(noop_ctx as never, spec, {}, null);
+    const data = JSON.parse(String(output)) as { graph: { name: string } };
+    expect(data.graph.name).toBe('intro');
+  });
+
+  it('快照出口统一剥离敏感键：凭据不进入模型上下文', async () => {
+    const graph = data_graph();
+    graph.add_node_type('llm', 'llm', { api_key: 'sk-LIVE-SECRET', model_id: 'm1' });
+    const service = make_service({ graph });
+    const executor = make_introspection_executor(service);
+    const output = String(
+      await executor(noop_ctx as never, introspection_tool_specs()[0]!, {}, null),
+    );
+    const parsed = JSON.parse(output) as {
+      graph: { nodes: Record<string, { config: Record<string, unknown> }> };
+    };
+    const config = parsed.graph.nodes['llm']!.config;
+    expect(config['api_key']).toBe('');
+    expect(output).not.toContain('sk-LIVE-SECRET');
+  });
+
+  it('未知内省工具：执行期显式拒绝（错误文案携带原因）', async () => {
+    const service = make_service({ graph: data_graph() });
+    const executor = make_introspection_executor(service);
+    const spec = new ToolSpec({
+      name: 'inspect_nothing',
+      description: '未知工具',
+      parameters: {},
+      permissions: [INTROSPECTION_PERMISSION],
+    });
+    await expect(executor(noop_ctx as never, spec, {}, null)).rejects.toThrow('未知内省工具');
   });
 });

@@ -277,13 +277,11 @@ describe('runtime boot 装配', () => {
     expect(saved).not.toBeNull();
     // 事件类型注册表（基线登记）
     expect(runtime.event_type_registry!.names()).toContain('reply_token');
-    // 元工具流水线（内省 6 + 自指 6）
+    // 元工具（内省 6 + 自指 6）经统一 tool_pipeline 执行（无独立孤儿流水线）
     expect(runtime.introspection_specs.length).toBe(6);
     expect(runtime.self_specs.length).toBe(6);
     expect(runtime.introspection_service).toBeTruthy();
-    expect(runtime.introspection_pipeline).toBeTruthy();
     expect(runtime.self_pipeline).toBeTruthy();
-    expect(runtime.self_pipeline_runner).toBeTruthy();
     expect(runtime.retriever_registry).toBeTruthy();
     expect(runtime.tool_pipeline).toBeTruthy();
     // MCP seam：宿主适配器未注入 = 不启用（引擎 adapters 未迁 core）

@@ -153,10 +153,8 @@ export abstract class RuntimeBase {
   vetting: ToolVetting | null = null;
   introspection_service: IntrospectionService | null = null;
   introspection_specs: readonly ToolSpec[] = [];
-  introspection_pipeline: ToolPipeline | null = null;
   self_pipeline: SelfApplicationPipeline | null = null;
   self_specs: readonly ToolSpec[] = [];
-  self_pipeline_runner: ToolPipeline | null = null;
   retriever_registry: RetrieverRegistry | null = null;
   tool_pipeline: ToolPipeline | null = null;
   meta_tuner: MetaTuner | null = null;

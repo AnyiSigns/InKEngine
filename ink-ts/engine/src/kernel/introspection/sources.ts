@@ -23,21 +23,15 @@ import type { Graph } from '../../core/graph/graph.js';
 import type { HarnessRegistry } from '../../core/harness/registry.js';
 import type { KnowledgeSet } from '../../core/knowledge_set/knowledge_set.js';
 import type { ToolSpec } from '../llm/tools.js';
-import { DEFAULT_MAX_RESULT_CHARS } from '../tool_pipeline/_types.js';
 
 // 内省工具的统一权限声明（只读域；未命中默认拒绝，fail-closed）
 export const INTROSPECTION_PERMISSION = 'introspection:read:*';
 
-// 判定动作（与权限声明中的 action 配对，流水线 extractor 返回）
-export const _INTROSPECTION_OPERATION = 'read';
-export const _INTROSPECTION_TARGET = '*';
-
-// 快照体积上限：知识快照默认条目数、单工具结果截断与工具 schema 声明的
-// 条目上限（防超长结果挤爆上下文；限额与引擎工具流水线默认一致）
+// 快照体积上限：知识快照默认条目数、工具 schema 声明的条目上限（防超长
+// 结果挤爆上下文）；单工具结果截断由统一工具流水线（runtime tool_pipeline）
+// 处理，introspection 不设本地截断常量
 export const _DEFAULT_KNOWLEDGE_LIMIT = 20;
 export const _KNOWLEDGE_LIMIT_MAX = 100;
-// 单工具结果截断上限（ENG6-6：共享常量——与引擎工具流水线默认一致）
-export const _MAX_RESULT_CHARS = DEFAULT_MAX_RESULT_CHARS;
 
 /** 实体目录条目 seam（entity_registry 宿主注册表的映射形态：id/label/model
  *  引用；不含 persona 全文——目录概览保持有界）。 */

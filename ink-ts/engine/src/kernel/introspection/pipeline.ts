@@ -1,35 +1,23 @@
 /**
- * 内省工具描述、执行器与流水线装配（introspection.py 元工具段移植）。
+ * 内省工具描述与执行器（introspection.py 元工具段移植）。
  *
  * 观察工具是 AI 修改产品形态的前置通道——内省元工具以引擎工具描述
- * （ToolSpec）注册进工具表，经标准工具流水线（权限门禁/审计/截断）
- * 执行；流水线判定动作固定为 (read, *)——纯只读通道，无任何外部操作
- * 目标，不触发文件/进程/网络沙箱。快照出口统一过
- * security.strip_sensitive——观察通道与落库通道同规格，凭据永不进入
- * 模型上下文；快照必须完整可序列化，契约破坏显式抛错（fail-closed），
- * 不静默降级为字符串。
+ * （ToolSpec）注册进工具表，经统一工具流水线（runtime 装配的 tool_pipeline，
+ * 只读判定 (read, *) / 权限门禁 / 审计 / 截断）执行；内省自身不再自造
+ * 独立流水线。快照出口统一过 security.strip_sensitive——观察通道与落库
+ * 通道同规格，凭据永不进入模型上下文；快照必须完整可序列化，契约破坏
+ * 显式抛错（fail-closed），不静默降级为字符串。
  */
 import { ToolSpec } from '../llm/tools.js';
-import { PermissionGate } from '../permissions/permissions.js';
 import { strip_sensitive } from '../../core/security/security.js';
-import type { Executor, GateSeam } from '../tool_pipeline/_types.js';
-import { ToolPipeline } from '../tool_pipeline/tool_pipeline.js';
+import type { Executor } from '../tool_pipeline/_types.js';
 import {
   INTROSPECTION_PERMISSION,
-  _INTROSPECTION_OPERATION,
-  _INTROSPECTION_TARGET,
   _KNOWLEDGE_LIMIT_MAX,
-  _MAX_RESULT_CHARS,
 } from './sources.js';
 import { IntrospectionService } from './service.js';
 
-/** build_introspection_pipeline 注入选项（镜像 Python kw-only gate 参数）。 */
-export interface IntrospectionPipelineOptions {
-  /** 权限门禁（缺省 = fail-closed 的 PermissionGate）。 */
-  gate?: GateSeam | null;
-}
-
-/** 内省元工具的工具描述清单（注册进引擎工具表走标准流水线）。 */
+/** 内省元工具的工具描述清单（注册进引擎工具表走统一流水线）。 */
 export function introspection_tool_specs(): ToolSpec[] {
   return [
     new ToolSpec({
@@ -88,7 +76,9 @@ export function introspection_tool_specs(): ToolSpec[] {
   ];
 }
 
-/** 构造内省执行器（工具流水线 executor 契约：ctx/spec/args/approval → 文本）。 */
+/** 构造内省执行器（统一工具流水线 executor 契约：ctx/spec/args/approval → 文本）。
+ *  快照出口统一过 security.strip_sensitive 并经 JSON 序列化；未知工具名 =
+ *  service.snapshot 显式抛错（fail-closed），不静默降级。 */
 export function make_introspection_executor(service: IntrospectionService): Executor {
   const executor: Executor = async (_ctx, spec, args, _approval) => {
     const snapshot = service.snapshot(spec.name, args ?? {});
@@ -98,22 +88,4 @@ export function make_introspection_executor(service: IntrospectionService): Exec
     return JSON.stringify(strip_sensitive(snapshot));
   };
   return executor;
-}
-
-/** 装配内省工具流水线：只读判定 + 权限门禁 + 审计留痕 + 结果截断。
- *
- * gate 缺省为 fail-closed 的 PermissionGate——工具声明了
- * ``introspection:read:*`` 权限即可直过（纯只读，无审批分级）；
- * 未声明/未命中权限的工具调用被拒绝并留痕。
- */
-export function build_introspection_pipeline(
-  service: IntrospectionService,
-  options: IntrospectionPipelineOptions = {},
-): ToolPipeline {
-  return new ToolPipeline({
-    gate: options.gate ?? new PermissionGate(),
-    extractor: (_spec, _args): [string, string] => [_INTROSPECTION_OPERATION, _INTROSPECTION_TARGET],
-    executor: make_introspection_executor(service),
-    max_result_chars: _MAX_RESULT_CHARS,
-  });
 }

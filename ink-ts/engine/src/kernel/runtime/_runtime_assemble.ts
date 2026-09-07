@@ -32,7 +32,6 @@ import {
   HarnessRepository,
 } from '../../core/harness/index.js';
 import {
-  build_introspection_pipeline,
   IntrospectionService,
   IntrospectionSources,
   introspection_tool_specs,
@@ -274,7 +273,6 @@ export abstract class RuntimeAssemble extends RuntimeNodeRegistrar {
         entity_registry: this.entity_registry as never,
       }),
     );
-    this.introspection_pipeline = build_introspection_pipeline(this.introspection_service);
     const introspectionExecutor = make_introspection_executor(this.introspection_service);
     const selfExecutor = wiring.self_executor_factory(
       this.self_pipeline!,
@@ -285,13 +283,6 @@ export abstract class RuntimeAssemble extends RuntimeNodeRegistrar {
       args: Record<string, unknown>,
       approval: unknown,
     ) => Promise<unknown>;
-    this.self_pipeline_runner = new ToolPipeline({
-      gate: toolGate,
-      extractor: (spec: ToolSpec, _args: Record<string, unknown>) =>
-        wiring.self_operation_of(spec),
-      executor: selfExecutor as never,
-      approval_policy: pipelinePolicy,
-    });
     this.retriever_registry = new RetrieverRegistry();
     this.retriever_registry.register(
       new KnowledgeSetRetriever(() => this.knowledge_set as never),

@@ -60,8 +60,12 @@ plugins，生成物 ui.generated.json 取代 seed_data/ui_spec.json）；其余 
   "id": "collect_material",        // 注册表键，全局唯一（工具 = 工具名）
   "kind": "tool",                  // 仅 8 kind 之一（host 例外见上）
   "capability": "host_tool",       // core_tool | host_tool | external_tool
-  "depends": [],
+  "depends": [],                   // 可引用插件 id 或机制端口 id（storage_seam/llm_port/exec_envelope/rounds.port）
   "actions": [],
+  // 以下为可选全脸字段（阶段 4 schema 能力；内置插件 data-only 一律不填）：
+  // "faces":   { "ui": { "target": "web", "entry": "./faces/ui" },
+  //              "logic": { "target": "host", "entry": "./faces/logic" } },
+  // "contract": { "effects": ["rounds.port"] },
   "data": { "tool": { /* 原工具声明行逐字：name/description/parameters/... */ } }
 }
 ```
@@ -83,9 +87,15 @@ plugins，生成物 ui.generated.json 取代 seed_data/ui_spec.json）；其余 
   不变）；生成器 DFS 沿 $ref 展开重建完整树（ui.generated.json）+ canonical
   组件白名单（ui_canonical.generated.ts / manifest ui_features.components）；
   删节点插件须同步删父容器 children 里的 $ref，孤儿引用 fail-closed；
-- faces/impl/locale 不在此阶段出现：data-only 声明插件无独立执行体
-  （共享 inkling_exec/inkling_shell 等端点），faces 待阶段 4 挂接真实
-  逻辑/ui 脸时随目录补建；
+- faces/impl/locale 物理目录不在此阶段出现：data-only 声明插件无独立执行体
+  （共享 inkling_exec/inkling_shell 等端点）；spec 顶层 **faces 声明字段能力**
+  已在阶段 4 立好（形状经生成器、引用语义经 verify:unload 强制），faces/
+  impl/ 物理实现目录随阶段 7a（物理单目录）补建；
+- 阶段 4 定案（2026-09-07）：现有内置插件（tools/mcp/commands/ui_features）
+  一律 **data-only**——共享 exec 端点/共享域实现/共享渲染原语，无插件独占
+  实现面，**不填占位 faces/depends/contract**（避免第二份平行真相；若加
+  actions/depends/faces/contract 真值，verify_unload 的 data-only 状态引脚会
+  红并提示同步文档）；
 - 本阶段不设每插件 AGENTS.md（data-only 声明以 spec.json 为行为唯一事实
   源，per-plugin AGENTS 留待挂 faces 的插件补建，防行为文案第二份漂移）；
   manifest.json / commands.generated.ts / ui.generated.json /
@@ -111,5 +121,10 @@ plugins，生成物 ui.generated.json 取代 seed_data/ui_spec.json）；其余 
    父容器 children 的 $ref）+ 同步 web 适配器注册 + 重跑生成器；
 3. JSON 纪律：spec/package/manifest 均守 gate json-valid（可 parse、无重复
    键、2 空格缩进），`plugins/` 已入 gate jsonScanDirs；
-4. 依赖/卸载/faces 语义（阶段 4）：kind/depends/capability 字段先行就位，
-   本阶段不装配运行期装载。
+4. 全脸声明与卸载纪律（阶段 4）：spec 顶层可声明 `actions`/`depends`/`faces`/
+   `contract`（CapabilityComponent 全脸字段，缺省即 data-only）——JSON 形状由
+   生成器校验，`depends` 引用解析/插件间环/`faces` 结构/`contract.effects ⊆
+   机制端口词表` 由 `verify:unload`（scripts/verify_unload.ts）在 root test 链
+   强制；卸载前跑 `tsx plugins/scripts/verify_unload.ts --plan <id>` 看阻断方
+   （下游 depends 依赖 / 父容器 $ref）与子树影响面——fail-closed：有活动下游
+   依赖即拒卸。运行期装载（external_tool 通道）不在本阶段，随后续阶段落地。

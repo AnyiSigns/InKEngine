@@ -101,7 +101,9 @@ const MANIFEST_NOTE =
   'mcp_market = kind=mcp 市场视图（data.server + market.json 全局配置）；' +
   'ui_features = 产品主壳布局装配（plugins/ui_features 真源）派生：components = 布局树' +
   '引用组件 type 并集（升序，canonical 白名单；host/ui_canonical.generated.ts 同源）；' +
-  'plugins = 全插件索引（id/kind/capability/包名/目录）。';
+  'plugins = 全插件索引（id/kind/capability/包名/目录；行可携带 spec 顶层声明的 ' +
+  'actions/depends/faces/contract——CapabilityComponent 全脸字段，未声明不输出；' +
+  '引用解析/effects 词表语义由 verify:unload 校验）。';
 
 const COMMANDS_HEADER =
   '/**\n' +
@@ -135,6 +137,60 @@ async function listDirs(parent) {
     .sort();
 }
 
+/** 顶层全脸字段形状校验（CapabilityComponent：actions/depends/faces/contract）。
+ *  引用可解析性（depends 指向存在的插件/机制端口、effects 在端口词表内）属语义
+ *  校验，由 plugins/scripts/verify_unload.ts 执行（它经 tsx 引用引擎端口单一真源）；
+ *  本生成器只守 JSON 形状，防畸形声明进派生视图。 */
+const FACE_TARGETS = new Set(['engine', 'host', 'web']);
+const FACE_KEYS = new Set(['ui', 'logic', 'data']);
+
+async function validateDeclared(spec, kind, id) {
+  if (spec.actions !== undefined) {
+    if (!Array.isArray(spec.actions) || spec.actions.some((a) => typeof a !== 'string' || a.length === 0)) {
+      await fail(`${kind} 插件 ${id} 的 actions 须为非空字符串数组`);
+    }
+  }
+  if (spec.depends !== undefined) {
+    if (!Array.isArray(spec.depends) || spec.depends.some((d) => typeof d !== 'string' || d.length === 0)) {
+      await fail(`${kind} 插件 ${id} 的 depends 须为非空字符串数组`);
+    }
+  }
+  if (spec.faces !== undefined) {
+    if (typeof spec.faces !== 'object' || spec.faces === null || Array.isArray(spec.faces)) {
+      await fail(`${kind} 插件 ${id} 的 faces 须为对象（{ui|logic|data}: FaceRef）`);
+    }
+    for (const [face, ref] of Object.entries(spec.faces)) {
+      if (!FACE_KEYS.has(face)) await fail(`${kind} 插件 ${id} 的 faces 出现未知脸: ${face}（只允许 ui/logic/data）`);
+      if (typeof ref !== 'object' || ref === null || typeof ref.target !== 'string' || !FACE_TARGETS.has(ref.target)) {
+        await fail(`${kind} 插件 ${id} 的 faces.${face} 缺合法 target（engine|host|web）`);
+      }
+      if (typeof ref.entry !== 'string' || ref.entry.length === 0) {
+        await fail(`${kind} 插件 ${id} 的 faces.${face} 缺非空 entry`);
+      }
+    }
+  }
+  if (spec.contract !== undefined) {
+    if (typeof spec.contract !== 'object' || spec.contract === null || Array.isArray(spec.contract)) {
+      await fail(`${kind} 插件 ${id} 的 contract 须为对象`);
+    }
+    if (spec.contract.effects !== undefined) {
+      if (!Array.isArray(spec.contract.effects) || spec.contract.effects.some((e) => typeof e !== 'string' || e.length === 0)) {
+        await fail(`${kind} 插件 ${id} 的 contract.effects 须为非空字符串数组`);
+      }
+    }
+  }
+}
+
+/** 注册表行携带的顶层声明字段（缺省/空数组不输出，保持现有派生视图字节不变）。 */
+function declaredRow(spec) {
+  const row = {};
+  if (Array.isArray(spec.actions) && spec.actions.length > 0) row.actions = spec.actions;
+  if (Array.isArray(spec.depends) && spec.depends.length > 0) row.depends = spec.depends;
+  if (spec.contract !== undefined) row.contract = spec.contract;
+  if (spec.faces !== undefined) row.faces = spec.faces;
+  return row;
+}
+
 async function readSpec(dir, kind) {
   const specPath = join(dir, 'spec.json');
   let text;
@@ -153,6 +209,7 @@ async function readSpec(dir, kind) {
     await fail(`${kind} 插件 spec 缺 id: ${specPath}`);
   }
   if (spec.kind !== kind) await fail(`${kind} 插件 spec.kind 不符: ${spec.id}`);
+  await validateDeclared(spec, kind, spec.id);
   return spec;
 }
 
@@ -188,6 +245,7 @@ async function derive() {
       capability: spec.capability ?? 'host_tool',
       package: await loadPackage(dir),
       dir: `tools/${id}`,
+      ...declaredRow(spec),
     });
   }
 
@@ -207,6 +265,7 @@ async function derive() {
       capability: spec.capability ?? 'external_tool',
       package: await loadPackage(dir),
       dir: `mcp/${id}`,
+      ...declaredRow(spec),
     });
   }
 
@@ -240,6 +299,7 @@ async function derive() {
       capability: spec.capability ?? 'host_tool',
       package: await loadPackage(dir),
       dir: `commands/${id}`,
+      ...declaredRow(spec),
     });
   }
 
@@ -277,6 +337,7 @@ async function derive() {
       capability: spec.capability ?? 'host_tool',
       package: await loadPackage(dir),
       dir: `ui_features/${id}`,
+      ...declaredRow(spec),
     });
   }
   const entryList = uiFeatures.filter(

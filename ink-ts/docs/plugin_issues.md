@@ -26,6 +26,7 @@
 | 14 | 迁移后旧 seed 处置 + 消费指向 | **删旧真源**（tools.json/mcp_market.json），web/host/fixture 生成/self_check 门禁**一律经 plugins/manifest.json 派生视图取用**（生成物禁手改、--check 强制）；mcp.market seed_dir 语义 = 目录内含 manifest.json | component_data §三/§九、CODING.md §7/§9 |
 | 17 | ui_feature 拆粒度（阶段 3b2 实施时裁决） | **一节点一插件全平铺**（用户两轮修正：先按 view 拆、再要求「容器结构也是插件」）：plugins/ui_features/<id>/ 每容器/组件/装配入口各一目录（装配入口唯一含 name/version/theme/root.$ref）；容器 data.children 按序 $ref 子插件 id；生成器 DFS 展开重建完整树 + canonical 组件并集派生；卸载 = 删目录 + 删父 children $ref（引用缺失/成环/孤儿 fail-closed） | component_data §九 3b2 行、PLUGINS §1、plugins/AGENTS |
 | 18 | ui_spec 迁 plugins 后消费与白名单（阶段 3b2 定稿） | 过渡态**聚合单文件生成物** plugins/ui.generated.json（渲染器与壳仍消费一棵完整布局树，零改动）+ seed_data/ui_spec.json 删除；canonical 白名单改派生（布局引用组件 type 并集升序 → manifest ui_features.components + host/src/bridge/ui_canonical.generated.ts，host recipe 常量改引用）；web 白名单对码测试增强「派生 canonical == 旧侧 inkling manifest renderer_components」；引擎 BOOT_UI_SPEC（boot.panel）不动（boot 资产非产品 chrome）、ui_spec.* 编辑器补丁链（W2 未接线）不属本次 | component_data §三/§九、CODING §7/§10、PLUGINS §1 |
+| 19 | 阶段 4（faces/卸载一致性）范围与语义（2026-09-07 定案） | **声明级地基 + verify-unload 静态执法，不引入运行期装载**（用户逐项确认）：① spec 顶层可声明 `actions`/`depends`/`faces`/`contract`（CapabilityComponent 全脸），生成器只守 JSON 形状并携带声明字段入 manifest plugins[] 注册表行；② 新 `verify:unload`（plugins/scripts/verify_unload.ts）：depends 悬空/成环/未登记（插件 id 或机制端口，词表单一真源 engine/src/kernel/registry/ports.ts）= 违规；faces 三脸结构（ui/logic/data × engine\|host\|web）+ `contract.effects ⊆ 词表`；manifest 平价 + data-only 状态引脚 + ui 可达性不变式；`--plan <id>` 输出卸载阻断方（下游 depends / 父容器 $ref）与级联子树，**fail-closed 拒卸**（用户选定）；③ 现有 131 内置插件审计结论 = 全 data-only（共享端点/域实现/渲染原语），**不填占位声明**（防第二份平行真相），schema 能力留外部/多面插件（用户选定方案 1）；④ 插件源**单份共用 tauri/cli/web/ide 四宿主**，不引入 per-host 分支/字段（宿主差异 = host.spec 阶段 5 表达，用户确认） | component_data §七/§九、PLUGINS §1、CODING §7、plugins/AGENTS、`plugins/scripts/verify_unload.ts` |
 
 ## 阶段 2 实施时须现场核对
 
@@ -74,6 +75,22 @@
   snapshot_ui 语义未变，host recipe.ui_spec 仍为引擎 boot 资产。
   **（2026-09-07 阶段 3b2 已完成：25 ui_feature 节点插件 + 装配入口 + 四产物
   生成 + 消费改指 + seed 删除 PASS，见 §九 落地状态。）**
+
+## 阶段 4 实施时须现场核对
+
+- 卸载阻断语义（fail-closed）：ui 组合引用以 `data.children.$ref` 与装配入口
+  `data.root.$ref` 为反向边（装配入口是根容器插件的引用方）；叶节点被父容器引用
+  = 不可独立卸载，须连同父引用处理——`verify:unload --plan <id>` 在删插件目录前
+  先查阻断方与级联子树；
+- 装配入口/容器/命令域完整性由生成器先验（`--check` 在 verify:unload 之前），
+  verify:unload 只在数据层复述（manifest 平价、ui 可达性、无孤儿）；
+- **data-only 状态引脚**：任何 spec 出现非空 actions/depends/faces/contract 即红——
+  首份真实声明（外部/多面插件）落地时须同步更新 `verify_unload.ts` 引脚白名单与
+  plugins/AGENTS、PLUGINS.md 文档；
+- verify:unload 是唯一跨进引擎内部取端口词表（`engine/src/kernel/registry/ports.ts`）
+  的开发工具——端口单一真源不自建第二份；
+- **（2026-09-07 阶段 4 已完成并提交：schema 全脸字段 + verify:unload PASS（131 插件
+  data-only 引脚 + manifest 平价 + ui 可达性全成立），见 §九 落地状态。）**
 
 ## 引擎层 AGENTS 用语
 

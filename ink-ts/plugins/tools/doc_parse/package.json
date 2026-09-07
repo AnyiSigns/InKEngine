@@ -4,7 +4,16 @@
   "private": true,
   "type": "module",
   "files": [
-    "spec.json"
+    "spec.json",
+    "faces/"
   ],
-  "description": "ink-ts 能力插件声明（真源，随装配派生产物）"
+  "exports": {
+    ".": {
+      "node": {
+        "default": "./faces/logic/index.ts"
+      }
+    },
+    "./spec.json": "./spec.json"
+  },
+  "description": "ink-ts 能力插件声明 + logic face（真源；阶段 7a 首个真实 host logic face 样板）"
 }

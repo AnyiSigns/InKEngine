@@ -26,7 +26,7 @@
  * 退出码：0 = PASS；1 = 违规或未知插件。
  */
 
-import { readFileSync, readdirSync } from 'node:fs';
+import { existsSync, readFileSync, readdirSync } from 'node:fs';
 import { join, dirname } from 'node:path';
 import { fileURLToPath } from 'node:url';
 
@@ -43,6 +43,10 @@ const KIND_DIRS: { kind: string; dir: string }[] = [
   { kind: 'ui_feature', dir: 'ui_features' },
   { kind: 'endpoint', dir: 'endpoints' },
 ];
+
+/** 真面内置插件白名单（阶段 7a 首真面样板：doc_parse 首个 host logic face；
+ *  内置其余仍 data-only 拒真面——防平行真相；外部插件按 capability 放行）。 */
+const REAL_FACE_BUILTINS = new Set(['doc_parse']);
 
 const FACE_TARGETS = new Set(['engine', 'host', 'web']);
 const FACE_KEYS = new Set(['ui', 'logic', 'data']);
@@ -256,6 +260,34 @@ function auditFacesAndContract(universe: Map<string, Plugin>): void {
   }
 }
 
+/** 真面许可：声明了全脸字段的插件须为 capability=external_tool 或白名单内置
+ *  （阶段 7a doc_parse 样板）；data-only（无声明）不在此判定。 */
+function realFaceAllowed(plugin: Plugin): boolean {
+  return plugin.capability === 'external_tool' || REAL_FACE_BUILTINS.has(plugin.id);
+}
+
+/** 真面插件 faces 结构约束：face entry 须相对插件目录（禁绝对/`..` 逃逸）且
+ *  文件真实同住（物理单目录不变式，阶段 7a）；仅对有 faces 声明的插件执行。 */
+function auditRealFaceEntries(universe: Map<string, Plugin>): void {
+  for (const plugin of universe.values()) {
+    const faces = plugin.faces;
+    if (Object.keys(faces).length === 0) continue;
+    if (!realFaceAllowed(plugin)) continue;
+    for (const [face, ref] of Object.entries(faces)) {
+      const entry = ref.entry;
+      const safe = !entry.startsWith('/') && !/(^|[\\/])\.\.([\\/]|$)/.test(entry) && !/^[a-zA-Z]:/.test(entry);
+      if (!safe) {
+        violation(plugin.id, `faces.${face} entry 越界（须为插件目录内相对路径）: ${entry}`);
+        continue;
+      }
+      const target = join(PLUGINS_ROOT, plugin.dir, entry);
+      if (!existsSync(target)) {
+        violation(plugin.id, `faces.${face} entry 文件缺失（测试/实现须随插件同住）: ${plugin.dir}/${entry}`);
+      }
+    }
+  }
+}
+
 /** ui 组合反向边：子插件 id → 引用它的父容器插件 id 列表。 */
 function buildUiReferrers(universe: Map<string, Plugin>): Map<string, string[]> {
   const referrers = new Map<string, string[]>();
@@ -337,16 +369,19 @@ function auditManifestParity(universe: Map<string, Plugin>): void {
   }
 }
 
-/** 状态引脚（阶段 4 定案 data-only）：内置插件不填占位全脸声明。 */
+/** 状态引脚（阶段 4 定案 data-only；阶段 7a 起 realFaceAllowed 真面例外）。 */
 function auditDataOnlyState(universe: Map<string, Plugin>): void {
   for (const plugin of universe.values()) {
-    if (plugin.actions.length > 0 || plugin.depends.length > 0 || plugin.effects.length > 0 || Object.keys(plugin.faces).length > 0) {
-      violation(
-        plugin.id,
-        'spec 出现非空全脸声明（actions/depends/faces/contract）——阶段 4 定案内置插件 data-only，' +
-          '共享端点/共享域实现/共享渲染原语不设插件独占面；真实声明（外部/多面插件）须同步 verify_unload 引脚与 PLUGINS.md/plugins-AGENTS 文档',
-      );
-    }
+    const hasDecl = plugin.actions.length > 0 || plugin.depends.length > 0 || plugin.effects.length > 0 || Object.keys(plugin.faces).length > 0;
+    if (!hasDecl) continue;
+    if (realFaceAllowed(plugin)) continue;
+    violation(
+      plugin.id,
+      'spec 出现非空全脸声明（actions/depends/faces/contract）——阶段 4 定案内置插件 data-only，' +
+        '共享端点/共享域实现/共享渲染原语不设插件独占面；真面许可 = capability=external_tool 或 ' +
+        'verify_unload REAL_FACE_BUILTINS 白名单（阶段 7a doc_parse 样板）；真实声明须同步引脚与 ' +
+        'PLUGINS.md/plugins-AGENTS 文档',
+    );
   }
 }
 
@@ -403,6 +438,7 @@ function main(): void {
   auditDependsResolve(universe);
   auditDependsCycle(universe);
   auditFacesAndContract(universe);
+  auditRealFaceEntries(universe);
   auditManifestParity(universe);
   auditDataOnlyState(universe);
   auditUiReachability(universe, referrers);

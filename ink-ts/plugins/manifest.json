@@ -35,7 +35,16 @@
       "kind": "tool",
       "capability": "host_tool",
       "package": "@ink-ts/plugin-doc-parse",
-      "dir": "tools/doc_parse"
+      "dir": "tools/doc_parse",
+      "depends": [
+        "exec"
+      ],
+      "faces": {
+        "logic": {
+          "target": "host",
+          "entry": "./faces/logic/index.ts"
+        }
+      }
     },
     {
       "id": "fetch",

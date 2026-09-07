@@ -3,7 +3,15 @@
   "kind": "tool",
   "capability": "host_tool",
   "actions": [],
-  "depends": [],
+  "depends": [
+    "exec"
+  ],
+  "faces": {
+    "logic": {
+      "target": "host",
+      "entry": "./faces/logic/index.ts"
+    }
+  },
   "data": {
     "tool": {
       "name": "doc_parse",

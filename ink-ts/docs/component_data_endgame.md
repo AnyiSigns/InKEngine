@@ -300,9 +300,11 @@ host.spec（能力插件 kind='host'；faces 用专用 HostFaces，不走通用 
 > 已落地（2026-09-07）；阶段 4（faces/卸载一致性，声明级地基 + verify-unload）
 > 已落地（2026-09-07）；阶段 5（宿主面插件化，5a+5b-1/2/3）
 > 已落地（2026-09-07）；阶段 6（exec 工具信封声明化）已落地（2026-09-07）；
-> 阶段 7a 起待实施。
+> 阶段 7a（物理单目录路径 1 样板：doc_parse 首个真实 host logic face +
+> host 装配期按声明装载 + 测试随插件同住）已落地（2026-09-07）；
+> 阶段 7b 起待实施。
 
-### 阶段 0–6 落地状态（逐阶段回填）
+### 阶段 0–7a 落地状态（逐阶段回填）
 
 | 阶段 | 设计要件 | 落点 | 状态 |
 |---|---|---|---|
@@ -335,6 +337,9 @@ host.spec（能力插件 kind='host'；faces 用专用 HostFaces，不走通用 
 | 5b-2 | 装配读 spec 注入 | `HostConfigInput.host_spec_id` → resolve 注入 spec 数据（ResolvedHostConfig + `HostHandle.surface`）；cli host.ts/serve.ts 按 cli.spec（serve 面=web.spec）注入；相关 host 测试 171 项全绿 | ✅ 完成 |
 | 5b-3 | bootstrap 唯一进程入口 | `bootstrap/main.ts`（composition root 收敛面）：argv 形态 → 宿主面（stdio/run/tui=cli、serve=web）→ loadHostSpec 校验 implemented → 委托 runCliMain；root dev 脚本改指 bootstrap | ✅ 完成 |
 | 6 | exec 工具信封声明化 | 新 kind='endpoint' 插件域 `plugins/endpoints/`（exec/infer/mcp 三件，spec.data.native = file + env）；派生视图第 5 产物 `host/src/exec/native.generated.ts`（NATIVE_BINARY_DECLS + NativeBinaryKind）入 verify:plugin-manifest 逐字比对；`host/src/exec/binary.ts` 手写 BINARY_ENV/FILE_BY_KIND 两表删除、按声明定位（binaryFileName/locateNativeBinary 对外签名不变）；`_types.NativeBinaryKind` 从生成物派生；verify_unload KIND_DIRS 增 endpoints 域；插件数 131→134 数字同步 | ✅ 完成（阶段 6 目标；host 按声明装载，失败语义消费方各自定） |
+| 7a | 首真面样板：doc_parse host logic face | 用户拍板：**样板真面 + 拆 1 内置示范 / 最小 logic-face 工具 / host 装配期 loader**。doc_parse 升级为首个真实逻辑脸插件：spec 顶层 `faces.logic`（target=host，entry=./faces/logic/index.ts）+ `depends=['exec']`；package.json exports node 条件导出；执行体（DocService）自 `host/src/doc/service.ts` 迁 `plugins/tools/doc_parse/faces/logic/index.ts`，同目录 `index.test.ts` 同住；verify_unload data-only 引脚改**真面许可**（capability=external_tool 或 `REAL_FACE_BUILTINS` 白名单 doc_parse）+ faces entry 物理同住强制（相对禁逃逸 + 文件存在）；manifest 平价不变（134） | ✅ 完成 |
+| 7a | host 装配期 logic-face loader | `host/src/plugins_fs.ts`（plugins/manifest.json 探测共享，mcp.market 改指同源）+ `host/src/face/loader.ts`（读 manifest plugins[] faces.logic.target='host' → 动态 import entry，禁越界；插件源缺 = 空集降级、face 装载失败 = fail-closed）；createHost 按声明装载 doc_parse 注入 bridge deps.docParse（rounds/material 降级语义不变） | ✅ 完成 |
+| 7a | 同住纪律 + 链同步 | CODING §2.7 改「包内测试放 test/；插件 faces/impl 测试随插件同住」+ §7 表（真面插件 faces 代码入行数/UTF-8 扫描、data-only 引脚真面许可、verify 链增 `vitest run --root plugins`）；gate config lineScanDirs 增 `plugins/tools/doc_parse/faces`；host/src/doc/service.ts 删除（旧实现真源唯一化） | ✅ 完成 |
 
 ### 已具备的地基（对照现状）
 
@@ -351,6 +356,7 @@ host.spec（能力插件 kind='host'；faces 用专用 HostFaces，不走通用 
 | faces / depends / 卸载一致性 | 机制层 depends 已契约化（DAG/闭包校验）；产品层 spec 全脸 schema + 数据级卸载一致性由 `verify:unload` 强制（depends 解析/环、ui 组合/可达性、manifest 平价、data-only 引脚） | ✅ 数据层完成（阶段 4）；faces 物理目录/运行期装载待阶段 7a 及后续 |
 | 宿主面插件化 | `hosts/*.spec.json`（tauri/cli/web/ide 四份）+ `host/src/host_spec.ts` loader/校验 + `bootstrap/main.ts` 唯一进程入口 + createHost 装配期 spec 注入（`host_spec_id`/`surface`） | ✅ 阶段 5 完成：cli/web 本仓装配、tauri/ide 外部壳仓占位；换 spec 换宿主可复现 |
 | 原生二进制定位声明化 | plugins/endpoints 真源（kind='endpoint'：exec/infer/mcp）→ `host/src/exec/native.generated.ts` 派生 → `host/src/exec/binary.ts` 按声明定位 | ✅ 阶段 6 完成：手写 BINARY_ENV/FILE_BY_KIND 表删除；失败语义消费方各自定（dialog/doc 降级、mcp 装配 fail-closed） |
+| 物理单目录 + 真面装载 | plugins/\<kind\>/\<id\>/faces/* 物理同住（doc_parse 首个真实 host logic face：faces/logic/index.ts + 同目录 index.test.ts）+ `host/src/face/loader.ts` 装配期按声明装载 + verify 强制 faces entry 存在/禁逃逸与 data-only 引脚真面许可 | ✅ 阶段 7a 样板（内置 doc_parse 真面化并拆出示范；external/multi-face 走同一 seam，待真实外部插件落地） |
 
 # ink-ts 插件即数据 · 终局形态参考模拟
 

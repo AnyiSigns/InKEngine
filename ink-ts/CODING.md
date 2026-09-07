@@ -78,14 +78,14 @@ host/cli/web 取用。
    IO 实现在 `engine/src/adapters`（可选装载、DI 注入）——core 保持纯函数无
     全局状态，宿主/host 只装配不实现。
 6. 超过 350 行仍膨胀 → 按「子机制/子渲染区」拆目录，不凑文件。
-7. **测试与源码分离**：vitest 测试一律放所属包 `test/` 目录（镜像被测 src
-   路径，文件仍名 `<机制>.test.ts`），禁止与业务源码同目录——`src/**` 内
-   出现 `.test` 文件即门禁拒绝（规则 `src-test`）；门禁另扫描
-   `engine/test`、`cli/test` 与 `host/test` 的行数上限。
-   注：本条为「按层/包分离」形态；插件化落位后（`docs/component_data_endgame.md`
-   §4.1/阶段 7a）改为「测试随插件目录同住」（已定稿 2026-09-07）——即独立的
-   `.test.ts(x)` 文件与源码同目录并列，非内嵌进源码文件；届时同步修订
-   本条与 gate `src-test` 规则。
+7. **测试与源码分离（包内）/ 插件测试随插件同住**：engine/host/cli/web 包内 vitest
+   测试放所属包 `test/` 目录（镜像被测 src 路径，文件仍名 `<机制>.test.ts`），
+   禁止与业务源码同目录——`src/**` 内出现 `.test` 文件即门禁拒绝（规则
+   `src-test`）；门禁另扫描 `engine/test`、`cli/test` 与 `host/test` 的行数上限。
+   插件目录（阶段 7a 起，`docs/component_data_endgame.md` §4.1 落位）例外：
+   真面插件的 `faces/*`、`impl/` 内 `.test.ts(x)` 与源码同目录并列（独立测试文件，
+   非内嵌进源码），经 `vitest run --root plugins` 执行；gate 行数/UTF-8 扫描含
+   已带代码的真面插件目录（见 §7 表），`src-test` 对 plugins 放行。
 
 ## 3. 注释纪律
 
@@ -132,8 +132,8 @@ host/cli/web 取用。
 
 | 检查 | 对象 | 强度 |
 |---|---|---|
-| 文件行数 ≤350（例外须标注） | engine/host/cli/web 源码与测试 | 拒绝 |
-| src 内夹测试文件（`.test` 在 src 目录） | 各包 `src/**` | 拒绝 |
+| 文件行数 ≤350（例外须标注） | engine/host/cli/web 源码与测试、plugins 真面插件 faces/impl 代码与同住测试（阶段 7a 起随真面插件目录入扫描；data-only 目录无代码不在扫描集） | 拒绝 |
+| src 内夹测试文件（`.test` 在 src 目录） | 各包 `src/**`（plugins 例外：真面插件 `faces/`、`impl/` 内 `.test.ts(x)` 与源码同住并列 = 阶段 7a 目标形态，放行；生成器/脚本目录不进 src） | 拒绝 |
 | 源文件非法 UTF-8 字节（含损坏转码） | 各包 `src/**` | 拒绝（utf8-valid） |
 | core/kernel 禁 node:* 与第三方 import | `engine/src/core/**`、`engine/src/kernel/**` | 拒绝（`node:async_hooks` 白名单例外：镜像 Python core contextvars，清单见 gate config；core/kernel 无裸包放行——数据面契约经相对 import 引用同包内置生成物，不放行其它 @ink-ts/*、adapters 与第三方） |
 | core/kernel 禁反向依赖 adapters | `engine/src/core/**`、`engine/src/kernel/**` | 拒绝 |
@@ -149,14 +149,17 @@ host/cli/web 取用。
 | 产品主壳布局生成物（ui.generated.json 禁手改） | `plugins/ui.generated.json`（产品 UI 布局树，真源 = plugins/ui_features/*/spec.json 装配入口 $ref 展开） | 由 `verify:plugin-manifest`（同 scripts/sync_plugin_manifest.mjs：DFS 展开 $ref 重建完整布局树，引用缺失/成环/孤儿 fail-closed；--check 逐字比对防手改）在 root `npm test` 与 CI 强制；web 渲染与 dev 夹具一律经 ui.generated.json 取用，不再有 seed_data/ui_spec.json |
 | canonical 白名单生成物（ui_canonical.generated.ts 禁手改） | `host/src/bridge/ui_canonical.generated.ts`（布局树引用组件 type 并集升序，真源同 ui_features 布局） | 由 `verify:plugin-manifest`（同 scripts/sync_plugin_manifest.mjs 派生，--check 逐字比对防手改）在 root `npm test` 与 CI 强制；host recipe 界面白名单引用之；与旧侧 inkling/manifest.json renderer_components 同值由 gate 对码测试守漂移 |
 | 原生执行件端点派生视图（native.generated.ts 禁手改） | `host/src/exec/native.generated.ts`（NATIVE_BINARY_DECLS + NativeBinaryKind 类型，真源 = plugins/endpoints/*/spec.json 的 data.native：二进制文件名 file + env 覆盖键） | 由 `verify:plugin-manifest`（同 scripts/sync_plugin_manifest.mjs 派生，--check 逐字比对防手改）在 root `npm test` 与 CI 强制；host/src/exec/binary.ts 据此**按声明定位**（阶段 6：手写 BINARY_ENV/FILE_BY_KIND 两表已删；`_types.NativeBinaryKind` 从生成物派生，禁手写三值联合） |
-| 插件全脸声明与卸载一致性（faces/depends/effects 语义） | `plugins/\<kind\>/\<id\>/spec.json` 顶层声明 + `plugins/manifest.json` plugins[] 注册表行 | 由 `verify:unload`（plugins/scripts/verify_unload.ts：depends 悬空/成环/未登记（插件 id 或机制端口）= 违规；faces 三脸结构（ui/logic/data × engine\|host\|web）+ `contract.effects` ⊆ 机制端口词表（单一真源 engine/src/kernel/registry/ports.ts）；manifest 平价 + data-only 状态引脚 + ui 可达性不变式；`--plan \<id\>` 输出卸载阻断方（下游 depends / 父容器 $ref）与子树影响面，fail-closed）在 root `npm test` 与 CI 强制；生成器只守 JSON 形状（读/校验顶层声明并携带入注册表行） |
+| 插件全脸声明与卸载一致性（faces/depends/effects 语义） | `plugins/\<kind\>/\<id\>/spec.json` 顶层声明 + `plugins/manifest.json` plugins[] 注册表行 | 由 `verify:unload`（plugins/scripts/verify_unload.ts：depends 悬空/成环/未登记（插件 id 或机制端口）= 违规；faces 三脸结构（ui/logic/data × engine\|host\|web）+ `contract.effects` ⊆ 机制端口词表（单一真源 engine/src/kernel/registry/ports.ts）；manifest 平价 + data-only 状态引脚 + ui 可达性不变式；真面许可例外（阶段 7a：capability=external_tool 或 `REAL_FACE_BUILTINS` 白名单 doc_parse 样板）且 faces entry 物理同住（相对路径禁逃逸 + 文件真实存在）；`--plan \<id\>` 输出卸载阻断方（下游 depends / 父容器 $ref）与子树影响面，fail-closed）在 root `npm test` 与 CI 强制；生成器只守 JSON 形状（读/校验顶层声明并携带入注册表行） |
 | 宿主面 spec（hosts/\<host\>.spec.json 数据/装配面一致性） | `hosts/`（cli/web 本仓装配 implemented=true；tauri/ide 外部壳仓 implemented=false） | 由 `verify:host-spec`（hosts/verify_host_spec.ts：四宿主不变式 cli/web=true + tauri/ide=false；HostFaces 词汇校验经 host/src/host_spec.ts validateHostSpec；implemented=true 须带 renderer 且 entry 在仓库根真实存在）在 root `npm test` 与 CI 强制；host.spec 类型/加载/校验单一真源 = host/src/host_spec.ts（@ink-ts/host 公共面导出） |
 
 gate 实现与正反样例位于 `gate/src/` 与 `gate/test/`；**真实扫描链** =
 root `npm test` 首段 `npm run typecheck --workspace engine`（engine tsc
 全量类型检查，generated satisfies 生效处）→ `tsx gate/src/check.ts`
 （对 engine/host/cli/web 工作树实际执行全部规则，含 seed_data 与 engine
-schemas/fixtures 的 json-valid）→ `vitest run --root gate`（规则样例自测）
+schemas/fixtures 的 json-valid；行数/UTF-8 另扫带代码的真面插件目录）→
+`vitest run --root gate`（规则样例自测）→ 引擎/CLI/宿主/Web/插件各自 vitest
+（`--root engine`、`cli`、`host`、`web`、`plugins`——plugins 覆盖真面插件
+同住测试，阶段 7a）
 → `tsx engine/scripts/verify_mechanisms.ts`（机制件契约三键）
 → `tsx host/scripts/verify_bridge_mount.ts`（命令声明即挂载：BRIDGE_METHODS
 无手写方法名、域文件无本地 *_COMMANDS 数组）

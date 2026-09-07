@@ -111,7 +111,17 @@ plugins，生成物 ui.generated.json 取代 seed_data/ui_spec.json）；阶段 
   一律 **data-only**——共享 exec 端点/共享域实现/共享渲染原语，无插件独占
   实现面，**不填占位 faces/depends/contract**（避免第二份平行真相；若加
   actions/depends/faces/contract 真值，verify_unload 的 data-only 状态引脚会
-  红并提示同步文档）；
+  红并提示同步文档）。**例外 = 真面许可**（阶段 7a 起）：capability=
+  external_tool 的外部插件，或 verify_unload `REAL_FACE_BUILTINS` 白名单内置
+  （当前仅 doc_parse——首个真实 host logic face 样板）；白名单增删须同步
+  verify_unload.ts 与本文档；
+- 阶段 7a 首真面（2026-09-07）：`tools/doc_parse/` 声明 faces.logic
+  （target=host，entry=./faces/logic/index.ts）+ depends=['exec']（原生执行件
+  端点插件）；实现（DocService/DocParser 执行体）随插件同住于
+  `faces/logic/index.ts` + 同目录 `index.test.ts`，经 `vitest run --root
+  plugins` 执行；host 装配期由 `host/src/face/loader.ts` 按声明装载（缺插件
+  源 = docParse 缺省降级；face 装载/契约不符 = 装配期 fail-closed）；faces
+  entry 物理同住（相对路径禁逃逸 + 文件真实存在）由 verify:unload 强制；
 - 本阶段不设每插件 AGENTS.md（data-only 声明以 spec.json 为行为唯一事实
   源，per-plugin AGENTS 留待挂 faces 的插件补建，防行为文案第二份漂移）；
   manifest.json / commands.generated.ts / ui.generated.json /

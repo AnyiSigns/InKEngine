@@ -1,33 +1,33 @@
 /**
- * host doc 解析执行体：经 exec 原生件（op=doc）做文档文本提取。
+ * doc_parse 插件 logic face —— 阶段 7a 首个真实 host logic face 样板。
  *
- * 语义：每次调用现拉起受监督 exec 会话（同 os/runner 形态），信封裁决 =
- * host 侧（approved + 根内路径复核在 exec/envelope gateCoverage），exec 只
- * 收已批准信封做机械复核 + 解析。二进制未装配 = exec_unavailable（fail
- * 结构返回，不抛——round 注入走降级路径）。
+ * 语义：经 exec 原生件（op=doc，file 端点）做文档文本提取；host 装配期由
+ * host/src/face/loader.ts 按 spec faces.logic.entry 动态装载（真源 =
+ * plugins/tools/doc_parse/spec.json，目标态=按 target 切的条件导出）。
+ * 越权/越根由 exec 信封的 host 裁决面门拒绝；二进制未装配 = exec_unavailable
+ * 结构化返回（round/material 消费方走降级路径），不抛。
  */
 
-import { ExecClient } from '../exec/client.js';
-import { locateNativeBinary } from '../exec/binary.js';
-import type { DocParseResult } from './_types.js';
+import { ExecClient, locateNativeBinary } from '@ink-ts/host';
+import type { DocParseResult, DocParser } from '@ink-ts/host';
 
-/** 单附件文本注入缺省上限（字符；rounds 逐附件截断；env 可覆盖）。 */
+/** 单附件文本注入缺省上限（字符；rounds 逐附件截断；env/装配可覆盖）。 */
 export const DEFAULT_DOC_TEXT_CAP = 20000;
 
 export interface DocServiceOptions {
-  /** exec 二进制路径（缺省 = binary.ts 定位；null = 视为未装配）。 */
+  /** exec 二进制路径（缺省 = binary.ts 按声明定位；null = 视为未装配）。 */
   binary?: string | null;
   /** 输出文本截断上限（缺省见 DEFAULT_DOC_TEXT_CAP）。 */
   maxChars?: number;
 }
 
-/** exec 文档解析执行体（DocParser 实现）。 */
+/** exec 文档解析执行体（DocParser 实现；随插件同住）。 */
 export class DocService {
   private readonly binary: string | null;
   private readonly maxChars: number;
 
   constructor(options: DocServiceOptions = {}) {
-    this.binary = options.binary ?? locateNativeBinary('exec');
+    this.binary = options.binary !== undefined ? options.binary : locateNativeBinary('exec');
     this.maxChars = options.maxChars ?? DEFAULT_DOC_TEXT_CAP;
   }
 
@@ -89,6 +89,13 @@ export class DocService {
       await client.close();
     }
   }
+}
+
+/** 装配注入入口：loader 把每个 host logic face 的默认导出视为统一工厂
+ *  (init?: unknown) => 实例——插件自有契约（init 形状由其 spec/AGENTS 定义），
+ *  loader 只装载不解析。 */
+export default function createDocService(options: DocServiceOptions = {}): DocService {
+  return new DocService(options);
 }
 
 function failureCode(error: unknown): string {

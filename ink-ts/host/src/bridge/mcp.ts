@@ -12,13 +12,12 @@
 import type { McpCommand } from './commands.generated.js';
 export { MCP_COMMANDS, type McpCommand } from './commands.generated.js';
 import { readFileSync } from 'node:fs';
-import { dirname, join, resolve } from 'node:path';
-import { fileURLToPath } from 'node:url';
 
 import { McpClientManager, McpServerConfig } from '@ink-ts/engine';
 
 import { BridgeError, type BridgeHandler } from './_types.js';
 import type { HostBridgeDeps } from './_types.js';
+import { findPluginsManifest } from '../plugins_fs.js';
 
 /** 市场条目（plugins manifest mcp_market 视图结构透传；mounted 为本方法补充）。 */
 export interface McpMarketServerView {
@@ -43,29 +42,14 @@ export interface McpMarketView {
   servers: McpMarketServerView[];
 }
 
-const PLUGIN_MANIFEST = 'manifest.json';
-/** manifest 文件探测深度（seed_dir 未给时沿包位置上探 plugins/）。 */
-const PROBE_DEPTH = 6;
-
 function isRecord(value: unknown): value is Record<string, unknown> {
   return typeof value === 'object' && value !== null && !Array.isArray(value);
 }
 
-/** 插件派生视图定位（seed_dir 优先：目录内直接含 manifest.json；缺省 = 沿模块目录上探 plugins/）。 */
+/** 插件派生视图定位（共享 plugins_fs 探测；不可用 = runtime_unavailable）。 */
 function resolveMarketFile(deps: HostBridgeDeps): string {
-  if (deps.seed_dir !== undefined && deps.seed_dir !== '') {
-    return join(deps.seed_dir, PLUGIN_MANIFEST);
-  }
-  let dir = dirname(fileURLToPath(import.meta.url));
-  for (let depth = 0; depth < PROBE_DEPTH; depth += 1) {
-    const candidate = join(dir, 'plugins', PLUGIN_MANIFEST);
-    try {
-      readFileSync(candidate);
-      return candidate;
-    } catch {
-      dir = resolve(dir, '..');
-    }
-  }
+  const found = findPluginsManifest(deps.seed_dir);
+  if (found !== null) return found;
   throw new BridgeError(
     '插件源不可用（plugins/manifest.json 未找到；serve 需 --seed-dir）',
     'runtime_unavailable',

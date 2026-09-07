@@ -28,6 +28,7 @@
 | 18 | ui_spec 迁 plugins 后消费与白名单（阶段 3b2 定稿） | 过渡态**聚合单文件生成物** plugins/ui.generated.json（渲染器与壳仍消费一棵完整布局树，零改动）+ seed_data/ui_spec.json 删除；canonical 白名单改派生（布局引用组件 type 并集升序 → manifest ui_features.components + host/src/bridge/ui_canonical.generated.ts，host recipe 常量改引用）；web 白名单对码测试增强「派生 canonical == 旧侧 inkling manifest renderer_components」；引擎 BOOT_UI_SPEC（boot.panel）不动（boot 资产非产品 chrome）、ui_spec.* 编辑器补丁链（W2 未接线）不属本次 | component_data §三/§九、CODING §7/§10、PLUGINS §1 |
 | 19 | 阶段 4（faces/卸载一致性）范围与语义（2026-09-07 定案） | **声明级地基 + verify-unload 静态执法，不引入运行期装载**（用户逐项确认）：① spec 顶层可声明 `actions`/`depends`/`faces`/`contract`（CapabilityComponent 全脸），生成器只守 JSON 形状并携带声明字段入 manifest plugins[] 注册表行；② 新 `verify:unload`（plugins/scripts/verify_unload.ts）：depends 悬空/成环/未登记（插件 id 或机制端口，词表单一真源 engine/src/kernel/registry/ports.ts）= 违规；faces 三脸结构（ui/logic/data × engine\|host\|web）+ `contract.effects ⊆ 词表`；manifest 平价 + data-only 状态引脚 + ui 可达性不变式；`--plan <id>` 输出卸载阻断方（下游 depends / 父容器 $ref）与级联子树，**fail-closed 拒卸**（用户选定）；③ 现有 131 内置插件审计结论 = 全 data-only（共享端点/域实现/渲染原语），**不填占位声明**（防第二份平行真相），schema 能力留外部/多面插件（用户选定方案 1）；④ 插件源**单份共用 tauri/cli/web/ide 四宿主**，不引入 per-host 分支/字段（宿主差异 = host.spec 阶段 5 表达，用户确认） | component_data §七/§九、PLUGINS §1、CODING §7、plugins/AGENTS、`plugins/scripts/verify_unload.ts` |
 | 20 | 阶段 6（exec 工具信封声明化）范围与语义（2026-09-07 定案） | **binary.ts 手写约定 → 声明数据**（用户逐项确认）：① 真源 = **plugins 源 kind='endpoint'**（plugins/endpoints/exec·infer·mcp 三目录，spec.data.native = 二进制文件名 file + env 覆盖键；复用既有 spec/verify 体系，插件总数 131→134）；② 产物 = **数据化 + 生成物禁手改**：native.generated.ts（host/src/exec，第 5 派生产物）逐字入 verify:plugin-manifest，binary.ts 手写 BINARY_ENV/FILE_BY_KIND 两表删除、按声明定位；probe 逻辑/失败语义非声明部分；③ 失败语义**维持现况：消费方各自定**（dialog/doc 缺二进制降级 unavailable，mcp 装配 fail-closed 报缺；不新增装配级全局必装强制） | component_data §七/§九（阶段 6 落地行）、CODING §7（verify:plugin-manifest 五产物）、plugins/AGENTS.md（endpoints 域）、exec/CONFIG.md §1、本卡 |
+| 21 | 阶段 7a（物理单目录/测试同住）范围与语义（2026-09-07 定案） | 用户三卡拍板：① 范围 = **样板真面 + 拆 1 内置示范**（不另造 synthetic 外部样例：doc_parse 本身即真实带 faces.logic 的样板；external_tool 走同一 seam，随首个真实外部插件接入）；② 样板形态 = **最小 logic-face 工具**（faces.logic target=host + entry + 同目录 test + package.json exports 条件导出）；③ 装载 seam = **host 装配期 loader**（读 manifest plugins[] faces.logic.target='host' → 动态 import entry；插件源缺 = 空集降级、face 装载/契约不符 = fail-closed）。doc_parse 从 data-only 升级为首个真面内置（host_tool），与阶段 4「内置全 data-only」定案的冲突经 verify_unload `REAL_FACE_BUILTINS` 白名单**显式豁免（唯一）**；失败语义维持消费方各自定（docParse 缺省 = rounds/material 仅文件名引用） | component_data §七/§九 7a 行、CODING §2.7/§7、plugins/AGENTS.md、`host/src/face/loader.ts`+`host/src/plugins_fs.ts`、verify_unload.ts、本卡 |
 
 ## 阶段 2 实施时须现场核对
 
@@ -121,6 +122,26 @@
 - 失败语义维持现况：dialog/doc 缺二进制降级（unavailable）、mcp 装配 fail-closed
   报缺——阶段 6 不引入装配级「全量必装」；增量装载/运行期装卸随后续阶段。
   **（2026-09-07 阶段 6 已完成并提交，见 §九 落地状态。）**
+
+## 阶段 7a 实施时须现场核对
+
+- doc_parse 升级真面：spec 顶层 `faces.logic`（target=host，entry=
+  ./faces/logic/index.ts）+ `depends=['exec']`；实现（DocService）自
+  host/src/doc/service.ts 迁插件 `faces/logic/index.ts`（@ink-ts/host 公共面
+  不再导出 DocService/DEFAULT_DOC_TEXT_CAP——DocParser seam 保留），测试
+  `index.test.ts` 随插件同住（`vitest run --root plugins` 执行）；删除旧文件，
+  显式 `binary:null` = 未装配（不回落 locate，原 ?? 语义是坑）；
+- data-only 引脚真面许可：`REAL_FACE_BUILTINS`（当前唯一 doc_parse）+ 
+  capability=external_tool 放行；faces entry 物理同住 = 相对路径禁逃逸 +
+  文件真实存在（verify:unload 强制）；白名单增删须同步 verify_unload.ts、
+  plugins/AGENTS.md 与决策留痕；
+- 装载：plugins_fs（manifest 探测共享，mcp.market 消费改指）+ face loader 装配
+  期装载（manifest plugins[] faces.logic.target='host'）；无 manifest =
+  docParse undefined 降级（rounds/material 消费面已 optional）；face 装载/契约
+  不符 = 装配期 fail-closed（createHost 抛错）；gate lineScanDirs 增真面插件
+  faces 目录、CODING §2.7/§7 同步。
+  **（2026-09-07 阶段 7a 已完成并提交：doc_parse 首真面 + host logic-face loader
+  + 同住测试/门禁/verify 全绿，见 §九 落地状态。）**
 
 ## 引擎层 AGENTS 用语
 

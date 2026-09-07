@@ -26,7 +26,8 @@ import { buildBridge } from './bridge/index.js';
 import { createHostOpGate } from './bridge/op_gate.js';
 import { resolve_host_config } from './config.js';
 import type { HostConfigInput, ResolvedHostConfig } from './config.js';
-import { DocService } from './doc/service.js';
+import { loadHostLogicFaces } from './face/loader.js';
+import type { DocParser } from './doc/_types.js';
 import { createCapabilityStore } from './capability/store.js';
 import { buildHostSearch } from './search/wiring.js';
 import type { InkHost } from './host.js';
@@ -104,7 +105,22 @@ export async function createHost(
   mkdirSync(resolved.events_dir, { recursive: true });
   mkdirSync(resolved.data_dir, { recursive: true });
   mkdirSync(resolved.attachment_dir, { recursive: true });
-  const docService = new DocService({ maxChars: resolved.round_doc_text_cap ?? undefined });
+
+  // 阶段 7a：doc_parse 文档解析执行体 = 插件 logic face（物理单目录 + 装配期
+  // 按声明装载）。插件源缺 = docParse 缺省（rounds/material 仅文件名引用降级）；
+  // face 声明存在但装载/契约不符 = fail-closed（装配期抛错，不静默降级）。
+  const logicFaces = await loadHostLogicFaces(resolved.seed_dir);
+  const docModule = logicFaces['doc_parse'];
+  let docService: DocParser | undefined;
+  if (docModule !== undefined && docModule !== null) {
+    const factory = (docModule as { default?: unknown })['default'];
+    if (typeof factory !== 'function') {
+      throw new Error('doc_parse host logic face 缺默认工厂（faces/logic 契约 = default(init) => DocParser）');
+    }
+    docService = (factory as (init: { maxChars?: number | null }) => DocParser)({
+      maxChars: resolved.round_doc_text_cap ?? undefined,
+    });
+  }
   const search = buildHostSearch();
   const workspaceStore = createWorkspaceStore(resolved.data_dir);
   const capabilityStore = createCapabilityStore(resolved.data_dir);
@@ -257,14 +273,20 @@ export { SyncEmbedderSeam, attachToolIndexEmbedder } from './retrieval/sync_seam
 export { HostOsRunner, OsError, writeOsAudit } from './os/runner.js';
 export type { OsApproval, OsToolRequest } from './os/runner.js';
 
-// ── 文档解析执行体域（exec doc.parse 消费面；rounds/material 注入）──
-export { DEFAULT_DOC_TEXT_CAP, DocService } from './doc/service.js';
+// ── 文档解析执行体域（doc_parse 插件 logic face 消费面；rounds/material 注入）──
+// 执行体实现随插件同住（plugins/tools/doc_parse/faces/logic，阶段 7a），
+// host 经 face loader 装配期按声明装载；此处只导出数据形态 seam。
 export type { DocParser, DocParseResult } from './doc/_types.js';
 export {
   normalizeAttachment,
   prepareRoundInput,
 } from './bridge/round_attachments.js';
 export type { AttachmentPayload, PreparedRound } from './bridge/round_attachments.js';
+
+// ── host logic face 装配期装载（阶段 7a：物理单目录 + 按声明装载）──
+export { listHostLogicFaces, loadHostLogicFaces } from './face/loader.js';
+export type { HostLogicFaceRow } from './face/loader.js';
+export { findPluginsManifest, pluginsRootOf } from './plugins_fs.js';
 
 // ── 既有资料导入域（material.import 消费面）──
 export { MaterialError, scanMaterial } from './material/scan.js';

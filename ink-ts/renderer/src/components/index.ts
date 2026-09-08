@@ -3,8 +3,9 @@
  *
  * 注册即白名单放行；本层只保留跨视图机制件（组装候选留痕等运行时装配名）。
  * 产品 canonical 组件（file_tree / session_list / message_list / agent_input /
- * top_bar / evolution_feed 等）由 app/rendererAdapters 注册——spec 主壳
- * 直渲的映射面，不再放在通用组件层（避免通用层 import 产品视图）。
+ * top_bar / settings_floater / evolution_feed 等）为真 ui 面插件（faces/ui
+ * 同住实现），由 pluginFaces.generated.ts 装配期注册——spec 主壳直渲的
+ * 映射面，不再放在通用组件层（避免通用层 import 产品视图）。
  *
  * 旧布局组件（summary_bar / view_header / incubator / evolution 族 /
  * simulation_tree / source_trace / architecture_view / path_dag /

@@ -13,7 +13,6 @@ import { bindChannelWhitelist, isBindChannelAllowed } from '@/renderer/channelWh
 import { applyThemeTokens, rejectedThemeTokens, THEME_TOKEN_DEFAULTS } from '@/renderer/themeTokens';
 import { UIRenderer } from '@/renderer/bootRenderer';
 import type { UISpec } from '@/renderer/uiSpecTypes';
-import { registerProductComponents } from '@/app/rendererAdapters';
 
 function makeSpec(overrides: Partial<UISpec> = {}): UISpec {
   return {
@@ -32,7 +31,6 @@ function makeSpec(overrides: Partial<UISpec> = {}): UISpec {
 }
 
 beforeEach(() => {
-  registerProductComponents();
   registerComponent('test_list', ({ bindValue }: { bindValue?: unknown }) => (
     <div>
       {Array.isArray(bindValue) && bindValue.length > 0

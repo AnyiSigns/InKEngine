@@ -2,9 +2,9 @@
  * 前端激活入口：供壳/测试注入调用，启动 InKling 产品面。
  *
  * 装配顺序：
- *  1. fe2 设置引擎注册各节（registerSettingsSections，含架构 tab）；
- *  2. fe3 市场/工具/OS/工作区/界面组件注册 + 五个 section 归一进设置注册表；
- *  3. 会话层（backend + channelHub + sessionStore）→ App 渲染。
+ *  1. 出厂基线组件 + 真 ui 面插件注册（pluginFaces.generated.ts：settings 段
+ *     面板 / 布局 canonical 叶子含 settings_floater，读派生清单 SETTINGS_SECTIONS）；
+ *  2. 会话层（backend + channelHub + sessionStore）→ App 渲染。
  */
 
 import { createRoot } from 'react-dom/client';
@@ -19,11 +19,9 @@ import {
   setServeChannel,
 } from '@/shared/backend/transport';
 import { registerBuiltinComponents } from '@/components';
-import { registerProductComponents } from './rendererAdapters';
 import { registerPluginFaces } from './pluginFaces.generated';
 import { createIngester, toHubEvent, setStreaming, finalizeThreadStreaming, setThreadRoundActive } from '@/shared/session/eventIngest';
 import { AppBackend } from './backend';
-import { registerSettingsSections } from './settings/activate';
 import { registerEventRenderers } from './renderers/eventRenderers';
 import App from '../App';
 
@@ -35,10 +33,9 @@ export function activate(): void {
   // 出厂基线组件注册（渲染器白名单基线；wave4 视图/产物清单按同名覆盖接管）
   registerBuiltinComponents();
   // 真 ui 面插件注册（派生视图 pluginFaces.generated.ts：按 spec faces.ui 声明
-  // 静态 import 各插件 faces/ui 默认导出 → registerComponent；阶段 7b 迁移随迁）
+  // 静态 import 各插件 faces/ui 默认导出 → registerComponent；含布局 canonical
+  // 叶子与 settings 段面板插件，阶段 7b 迁移随迁）
   registerPluginFaces();
-  // 产品 canonical 适配器注册（spec 主壳直渲映射：binding/宿主数据 → 产品组件）
-  registerProductComponents();
 
   const backend = createBackend();
   const appBackend = new AppBackend({ backend });
@@ -46,7 +43,6 @@ export function activate(): void {
   // 出厂组件启停同步到渲染器白名单（停用组件渲染占位拒绝；读取失败保持出厂全量）
   void appBackend.syncUiComponentGate();
 
-  registerSettingsSections();
   // agent 产物事件渲染器（artifact 逃生口共享面；原 wave4activate 内注册）
   registerEventRenderers();
 

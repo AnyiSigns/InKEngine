@@ -4,6 +4,12 @@
   "capability": "host_tool",
   "actions": [],
   "depends": [],
+  "faces": {
+    "ui": {
+      "target": "web",
+      "entry": "./faces/ui/index.tsx"
+    }
+  },
   "data": {
     "node": {
       "kind": "component",

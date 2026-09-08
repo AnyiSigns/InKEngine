@@ -4,8 +4,9 @@
  * 入口），布局结构完全由 plugins ui 布局装配生成物（plugins/ui.generated.json
  * 组件树）表达（不再硬编码三栏/页签 JSX）。
  *
- * canonical 组件（file_tree/session_list/message_list/agent_input/...）经
- * app/rendererAdapters 注册，binding 载荷与宿主 product chrome 在此归一。
+ * canonical 组件（file_tree/session_list/message_list/agent_input/...）为真
+ * ui 面插件（faces/ui 同住），经 pluginFaces.generated.ts 装配期注册；binding
+ * 载荷与宿主 product chrome 在此归一。
  * 会话数据/回合归约仍走 channelHub + sessionStore；审批决议续跑线程化语义
  * 与切会话恢复保持在宿主（机制动作不进布局数据）。
  */

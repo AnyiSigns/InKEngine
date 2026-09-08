@@ -16,6 +16,7 @@ export interface UiFaceEntry {
 
 export const PLUGIN_UI_FACES: UiFaceEntry[] = [
   { id: 'review_card', type: 'review_card', entry: '../../../plugins/ui_features/review_card/faces/ui/index.tsx' },
+  { id: 'settings_floater', type: 'settings_floater', entry: '../../../plugins/ui_features/settings_floater/faces/ui/index.tsx' },
   { id: 'file_tree', type: 'file_tree', entry: '../../../plugins/ui_features/file_tree/faces/ui/index.tsx' },
   { id: 'top_bar', type: 'top_bar', entry: '../../../plugins/ui_features/top_bar/faces/ui/index.tsx' },
   { id: 'message_list', type: 'message_list', entry: '../../../plugins/ui_features/message_list/faces/ui/index.tsx' },
@@ -45,6 +46,7 @@ export const PLUGIN_UI_FACES: UiFaceEntry[] = [
 /** 装配期调用：把各真 ui 面插件的默认导出注册进渲染器白名单。 */
 export function registerPluginFaces(): void {
   registerComponent('review_card', (review_cardDefault as unknown) as PlainComponent);
+  registerComponent('settings_floater', (settings_floaterDefault as unknown) as PlainComponent);
   registerComponent('file_tree', (file_treeDefault as unknown) as PlainComponent);
   registerComponent('top_bar', (top_barDefault as unknown) as PlainComponent);
   registerComponent('message_list', (message_listDefault as unknown) as PlainComponent);
@@ -72,6 +74,7 @@ export function registerPluginFaces(): void {
 }
 
 import review_cardDefault from '../../../plugins/ui_features/review_card/faces/ui/index.tsx';
+import settings_floaterDefault from '../../../plugins/ui_features/settings_floater/faces/ui/index.tsx';
 import file_treeDefault from '../../../plugins/ui_features/file_tree/faces/ui/index.tsx';
 import top_barDefault from '../../../plugins/ui_features/top_bar/faces/ui/index.tsx';
 import message_listDefault from '../../../plugins/ui_features/message_list/faces/ui/index.tsx';

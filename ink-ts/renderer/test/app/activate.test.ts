@@ -1,18 +1,19 @@
-import { describe, it, expect, beforeEach } from 'vitest';
+import { describe, it, expect } from 'vitest';
 
-import { registerSettingsSections } from '@/app/settings/activate';
-import { listSettingsSections, resetSettingsRegistry } from '@/app/settings/registry';
+import { registerBuiltinComponents } from '@/components';
+import { registerPluginFaces } from '@/app/pluginFaces.generated';
+import { isComponentRegistered } from '@/renderer/componentRegistry';
+import { SETTINGS_SECTIONS } from '@/app/settings/settingsSections.generated';
 
-describe('settings 段注册（阶段 7b：wave4 面板扁平为独立段，面板插件真面化）', () => {
-  beforeEach(() => {
-    resetSettingsRegistry();
-    registerSettingsSections();
-  });
-
-  it('全量段含布局内核 9 节 + wave4 4 面板，共 13 段', () => {
-    const sections = listSettingsSections();
-    const keys = sections.map((s) => s.key);
-    expect(keys).toEqual([
+/**
+ * 设置浮层装配（派生清单 SETTINGS_SECTIONS 单一真源）：段清单键序/order 来自
+ * 各面板插件 spec（data.settings_section），内容 = 面板插件真 ui 面 id；
+ * settings_floater 为 overlay canonical 叶子，装配期经 registerPluginFaces
+ * 与各面板一并注册，永不落「未注册组件」占位。
+ */
+describe('设置浮层装配（SETTINGS_SECTIONS 派生清单 + 真 ui 面注册）', () => {
+  it('全量 13 段 key 与 order 符合扁平清单（wave4 四面板独立成段）', () => {
+    expect(SETTINGS_SECTIONS.map((s) => s.key)).toEqual([
       'general',
       'model',
       'connect',
@@ -27,27 +28,23 @@ describe('settings 段注册（阶段 7b：wave4 面板扁平为独立段，面�
       'audit_recovery',
       'backup',
     ]);
-  });
-
-  it('settings sections 按 order 升序', () => {
-    const sections = listSettingsSections();
-    const orders = sections.map((s) => s.order);
+    const orders = SETTINGS_SECTIONS.map((s) => s.order);
     expect(orders).toEqual([...orders].sort((a, b) => a - b));
   });
 
-  it('每段都带 render（DynamicComponent/直渲），无 items 残留', () => {
-    const sections = listSettingsSections();
-    for (const section of sections) {
-      expect(typeof section.render).toBe('function');
+  it('每段携带内容插件 id 与声明 label', () => {
+    for (const section of SETTINGS_SECTIONS) {
+      expect(section.id.length).toBeGreaterThan(0);
+      expect(section.label.length).toBeGreaterThan(0);
     }
   });
 
-  it('wave4 四面板独立成段（key 即插件段引用）', () => {
-    const sections = listSettingsSections();
-    const wave4 = sections.filter((s) =>
-      ['mcp_market', 'tools_panel', 'workspace_auth', 'ui_editor'].includes(s.key),
-    );
-    expect(wave4.map((s) => s.key)).toEqual(['mcp_market', 'tools_panel', 'workspace_auth', 'ui_editor']);
-    expect(wave4.map((s) => s.order)).toEqual([10, 20, 40, 50]);
+  it('registerPluginFaces 后每段内容 id 与 settings_floater 均可解析', () => {
+    registerBuiltinComponents();
+    registerPluginFaces();
+    for (const section of SETTINGS_SECTIONS) {
+      expect(isComponentRegistered(section.id)).toBe(true);
+    }
+    expect(isComponentRegistered('settings_floater')).toBe(true);
   });
 });

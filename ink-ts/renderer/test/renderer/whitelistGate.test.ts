@@ -2,7 +2,6 @@ import { describe, expect, it } from 'vitest';
 import { readFileSync } from 'node:fs';
 import { resolve } from 'node:path';
 import { registerBuiltinComponents } from '@/components';
-import { registerProductComponents } from '@/app/rendererAdapters';
 import { registerPluginFaces, PLUGIN_UI_FACES } from '@/app/pluginFaces.generated';
 import { isComponentRegistered } from '@/renderer/componentRegistry';
 
@@ -29,7 +28,6 @@ describe('出厂渲染器白名单对码', () => {
 
   it('manifest 声明的出厂组件全部有前端实现或占位注册', () => {
     registerBuiltinComponents();
-    registerProductComponents();
     registerPluginFaces();
     const missing = factory.filter((name) => !isComponentRegistered(name));
     expect(missing).toEqual([]);
@@ -43,7 +41,6 @@ describe('出厂渲染器白名单对码', () => {
       expect(face.entry.startsWith('../../../plugins/ui_features/')).toBe(true);
     }
     registerBuiltinComponents();
-    registerProductComponents();
     registerPluginFaces();
     for (const face of PLUGIN_UI_FACES) {
       expect(isComponentRegistered(face.id)).toBe(true);

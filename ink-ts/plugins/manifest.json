@@ -1011,7 +1011,13 @@
       "kind": "ui_feature",
       "capability": "host_tool",
       "package": "@ink-ts/plugin-settings-floater",
-      "dir": "ui_features/settings_floater"
+      "dir": "ui_features/settings_floater",
+      "faces": {
+        "ui": {
+          "target": "web",
+          "entry": "./faces/ui/index.tsx"
+        }
+      }
     },
     {
       "id": "settings_general",

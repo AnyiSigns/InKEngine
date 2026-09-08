@@ -161,6 +161,15 @@ renderer 适配层整体退役）；其余 kind 目录随对应阶段落位。
   各自裸引。类型 = vite/client `*.module.css` 声明（plugin faces 经
   pluginFaces.generated.ts 静态 import 纳入 hosts/web program）；vitest
   css:false 下 module.css 由 stub 承接，测试零感知。
+- 真 ui 面接入契约（阶段 9b 起）：faces/ui 可随插件同住可选声明 `access` =
+  { store?: string[], inject?: string[] } 显式声明数据接入面（store = 数据/
+  服务座位、inject = 宿主动作），**名称一律取自接入词表单一真源**
+  `hosts/web/src/app/shell/hostAccessVocab.ts`（ProductShellModel 键 ∪
+  ProductShellActions 键，编译期锁 keyof），**禁自由命名、禁数据-only 插件
+  占位声明**；JS 形状由生成器 sync_plugin_manifest.mjs 守，语义（仅真 ui 面
+  合法 + store/inject 槽位词表命中）由 verify:unload 守；声明全量随 faces
+  带进 manifest plugins[] 行。壳装配层按声明切片注入 typed props 与现有
+  真 ui 面迁移随 9b-2/9b-3 分片落地。
 
 ## 手改与生成纪律
 

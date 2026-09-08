@@ -104,6 +104,18 @@ hosts/web 产品壳装配经派生视图 `pluginFaces.generated.ts`（住
 聚合为设置段清单（order 升序）；设置浮层读清单渲染左导航，内容按插件 id 经
 DynamicComponent 渲染。
 
+**阶段 9b 接入契约（faces.ui.access）**：真 ui 面（canonical 叶子/设置面板）
+可声明 `faces.ui.access` = `{ store?: string[], inject?: string[] }` 显式声明
+接入面——`store` 槽收数据/服务座位名（ProductShellModel 字段，
+backend/hub/sessionStore 整对象座位），`inject` 槽收宿主动作名
+（ProductShellActions 键）。名称一律取自**接入词表单一真源**
+`hosts/web/src/app/shell/hostAccessVocab.ts`（词表 = ProductShellModel 键 ∪
+ProductShellActions 键，文件内 `satisfies keyof` + Equal 断言编译期锁精确一致，
+接口改键 = 词表编译红），**禁自由命名**；JS 形状（对象 + 非空字符串数组 +
+只允许 store/inject 键）由生成器守，语义（仅真 ui 面插件合法、槽位词表命中）由
+`verify:unload` 守。声明进 manifest plugins[] 行随 faces 全量携带。壳装配层按
+声明切片注入 typed props 的实现与现有真 ui 面迁移随 9b-2/9b-3 分片落地。
+
 可达性统一规则（无孤儿、无豁免）：除装配入口外，每 ui_feature 插件须被容器
 `data.children.$ref` **或** `data.settings_section` 二者之一引用；卸载一致性由
 `verify:unload` 强制（两路引用同源判定，见 CODING.md §7）。

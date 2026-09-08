@@ -202,6 +202,22 @@ async function validateDeclared(spec, kind, id) {
       if (typeof ref.entry !== 'string' || ref.entry.length === 0) {
         await fail(`${kind} 插件 ${id} 的 faces.${face} 缺非空 entry`);
       }
+      if (face === 'ui' && ref.access !== undefined) {
+        if (typeof ref.access !== 'object' || ref.access === null || Array.isArray(ref.access)) {
+          await fail(`${kind} 插件 ${id} 的 faces.ui.access 须为对象（{store?, inject?}）`);
+        }
+        for (const slot of ['store', 'inject']) {
+          const names = ref.access[slot];
+          if (names === undefined) continue;
+          if (!Array.isArray(names) || names.some((n) => typeof n !== 'string' || n.length === 0)) {
+            await fail(`${kind} 插件 ${id} 的 faces.ui.access.${slot} 须为非空字符串数组`);
+          }
+        }
+        const extra = Object.keys(ref.access).filter((k) => k !== 'store' && k !== 'inject');
+        if (extra.length > 0) {
+          await fail(`${kind} 插件 ${id} 的 faces.ui.access 出现未知键: ${extra.join(', ')}（只允许 store/inject）`);
+        }
+      }
     }
   }
   if (spec.contract !== undefined) {

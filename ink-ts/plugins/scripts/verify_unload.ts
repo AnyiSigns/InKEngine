@@ -15,6 +15,9 @@
  *   --plan <id> 输出阻断方与子树影响面（卸载前先查拆除清单）。
  * - faces 结构校验：ui/logic/data 三脸，target ∈ engine|host|web，entry 非空；
  *   contract.effects ⊆ 机制端口词表。
+ * - 阶段 9b 接入契约：faces.ui.access（store/inject 声明式接入）仅真 ui 面插件合法，
+ *   槽位名称须命中接入词表单一真源（hosts/web/src/app/shell/hostAccessVocab.ts ——
+ *   store=ProductShellModel 数据/服务座位、inject=ProductShellActions 动作，编译期锁 keyof）。
  * - 状态引脚（阶段 4 定案：内置插件均 data-only——共享端点/共享域实现/
  *   共享渲染原语，无插件独占实现面，不填占位声明）：任何 spec 出现非空
  *   actions/depends/faces/contract 即视为「数据面转真」，引脚红并提示同步文档。
@@ -32,6 +35,7 @@ import { join, dirname } from 'node:path';
 import { fileURLToPath } from 'node:url';
 
 import { MECHANISM_PORT_IDS } from '../../engine/src/kernel/registry/ports.js';
+import { UI_STORE_SET, UI_INJECT_SET } from '../../hosts/web/src/app/shell/hostAccessVocab.js';
 
 const HERE = dirname(fileURLToPath(import.meta.url));
 const PLUGINS_ROOT = join(HERE, '..');
@@ -68,6 +72,8 @@ interface Plugin {
   depends: string[];
   effects: string[];
   faces: Record<string, FaceRef>;
+  /** faces.ui.access 声明（阶段 9b store/inject 接入；undefined = 未声明）。 */
+  uiAccess?: { store: string[]; inject: string[] };
   uiChildren: string[];
   isUiComponent: boolean;
   isUiEntry: boolean;
@@ -154,6 +160,22 @@ function uiChildrenOf(kind: string, spec: Record<string, unknown>): string[] {
   return out;
 }
 
+function uiAccessOf(kind: string, spec: Record<string, unknown>): { store: string[]; inject: string[] } | undefined {
+  if (kind !== 'ui_feature') return undefined;
+  const faces = spec.faces;
+  if (typeof faces !== 'object' || faces === null || Array.isArray(faces)) return undefined;
+  const ui = (faces as Record<string, unknown>).ui;
+  if (typeof ui !== 'object' || ui === null || Array.isArray(ui)) return undefined;
+  const access = (ui as Record<string, unknown>).access;
+  if (typeof access !== 'object' || access === null || Array.isArray(access)) return undefined;
+  const out: { store: string[]; inject: string[] } = { store: [], inject: [] };
+  const a = access as Record<string, unknown>;
+  if (Array.isArray(a.store)) out.store = a.store.filter((x): x is string => typeof x === 'string');
+  if (Array.isArray(a.inject)) out.inject = a.inject.filter((x): x is string => typeof x === 'string');
+  if (out.store.length === 0 && out.inject.length === 0) return undefined;
+  return out;
+}
+
 function loadUniverse(): Map<string, Plugin> {
   const universe = new Map<string, Plugin>();
   for (const { kind, dir } of KIND_DIRS) {
@@ -183,6 +205,7 @@ function loadUniverse(): Map<string, Plugin> {
         depends: strArray(spec.depends),
         effects: effectsOf(spec),
         faces: facesOf(spec),
+        uiAccess: uiAccessOf(kind, spec),
         uiChildren: uiChildrenOf(kind, spec),
         isUiComponent:
           kind === 'ui_feature' &&
@@ -362,6 +385,40 @@ function unloadPlan(id: string, universe: Map<string, Plugin>, referrers: Map<st
   return { id, exists: true, dependents, uiReferrers, descendants };
 }
 
+/** 阶段 9b 接入契约（faces.ui.access）词表命中审计：access 仅真 ui 面插件合法，
+ *  store 槽位名称须命中 ProductShellModel 数据/服务座位词表、inject 槽位名称须命中
+ *  ProductShellActions 动作词表（单一真源 hostAccessVocab.ts，编译期锁 keyof）。 */
+function auditUiAccessContract(universe: Map<string, Plugin>): void {
+  for (const plugin of universe.values()) {
+    const access = plugin.uiAccess;
+    if (access === undefined) continue;
+    if (!realFaceAllowed(plugin)) {
+      violation(
+        plugin.id,
+        'faces.ui.access 只允许真 ui 面插件声明（capability=external_tool、verify_unload REAL_FACE_BUILTINS ' +
+          '白名单或 ui_feature 组件节点）；data-only 声明 = 违规',
+      );
+      continue;
+    }
+    for (const name of access.store) {
+      if (!UI_STORE_SET.has(name)) {
+        const hint = UI_INJECT_SET.has(name)
+          ? `（${name} 是动作名——应放 inject 槽）`
+          : `（词表真源 hosts/web/src/app/shell/hostAccessVocab.ts，store 槽只收数据/服务座位）`;
+        violation(plugin.id, `faces.ui.access.store 名称未命中接入词表: ${name}${hint}`);
+      }
+    }
+    for (const name of access.inject) {
+      if (!UI_INJECT_SET.has(name)) {
+        const hint = UI_STORE_SET.has(name)
+          ? `（${name} 是数据/服务座位——应放 store 槽）`
+          : `（词表真源 hosts/web/src/app/shell/hostAccessVocab.ts，inject 槽只收宿主动作）`;
+        violation(plugin.id, `faces.ui.access.inject 名称未命中接入词表: ${name}${hint}`);
+      }
+    }
+  }
+}
+
 /** manifest 平价：派生视图 plugins[] 与真源目录逐一对应（防审计装载器漂移/陈旧 manifest）。 */
 function auditManifestParity(universe: Map<string, Plugin>): void {
   let manifest: { plugins?: { id?: unknown; kind?: unknown; dir?: unknown }[] };
@@ -462,6 +519,7 @@ function main(): void {
   auditDependsResolve(universe);
   auditDependsCycle(universe);
   auditFacesAndContract(universe);
+  auditUiAccessContract(universe);
   auditRealFaceEntries(universe);
   auditManifestParity(universe);
   auditDataOnlyState(universe);

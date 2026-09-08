@@ -15,3 +15,7 @@ export interface RailSession {
   title: string;
   updated_at: number;
 }
+
+/** 审批决议（审批卡动作面，宿主接线 resume 管线）。 */
+export type ReviewResolution = 'accept' | 'reject' | 'edit' | 'terminate';
+

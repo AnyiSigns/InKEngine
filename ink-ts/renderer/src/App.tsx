@@ -25,8 +25,7 @@ import type { SessionStore } from '@/shared/session/sessionStore';
 import type { InkMessage, SimulationBranch } from '@/shared/session/types';
 import type { SpawnInstance } from '@/app/session/SpawnPanel';
 import type { TaskCapsuleData } from '../../plugins/ui_features/task_capsule/faces/ui/types';
-import type { MainTab } from '@/app/shell/shellContracts';
-import type { ReviewResolution } from '@/components/review_card';
+import type { MainTab, ReviewResolution } from '@/app/shell/shellContracts';
 
 import uiLayout from '../../plugins/ui.generated.json';
 

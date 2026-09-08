@@ -15,6 +15,7 @@ export interface UiFaceEntry {
 }
 
 export const PLUGIN_UI_FACES: UiFaceEntry[] = [
+  { id: 'review_card', type: 'review_card', entry: '../../../plugins/ui_features/review_card/faces/ui/index.tsx' },
   { id: 'file_tree', type: 'file_tree', entry: '../../../plugins/ui_features/file_tree/faces/ui/index.tsx' },
   { id: 'top_bar', type: 'top_bar', entry: '../../../plugins/ui_features/top_bar/faces/ui/index.tsx' },
   { id: 'task_capsule', type: 'task_capsule', entry: '../../../plugins/ui_features/task_capsule/faces/ui/index.tsx' },
@@ -28,6 +29,7 @@ export const PLUGIN_UI_FACES: UiFaceEntry[] = [
 
 /** 装配期调用：把各真 ui 面插件的默认导出注册进渲染器白名单。 */
 export function registerPluginFaces(): void {
+  registerComponent('review_card', (review_cardDefault as unknown) as PlainComponent);
   registerComponent('file_tree', (file_treeDefault as unknown) as PlainComponent);
   registerComponent('top_bar', (top_barDefault as unknown) as PlainComponent);
   registerComponent('task_capsule', (task_capsuleDefault as unknown) as PlainComponent);
@@ -39,6 +41,7 @@ export function registerPluginFaces(): void {
   registerComponent('session_list', (session_listDefault as unknown) as PlainComponent);
 }
 
+import review_cardDefault from '../../../plugins/ui_features/review_card/faces/ui/index.tsx';
 import file_treeDefault from '../../../plugins/ui_features/file_tree/faces/ui/index.tsx';
 import top_barDefault from '../../../plugins/ui_features/top_bar/faces/ui/index.tsx';
 import task_capsuleDefault from '../../../plugins/ui_features/task_capsule/faces/ui/index.tsx';

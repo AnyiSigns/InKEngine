@@ -17,7 +17,7 @@ import {
 import type { BackendAdapter, ModelSelection, SessionRemoteRecord } from '@/shared/backend/backendAdapter';
 import type { SessionStore } from '@/shared/session/sessionStore';
 import type { InkMessage } from '@/shared/session/types';
-import type { ReviewResolution } from '@/components/review_card';
+import type { ReviewResolution } from '@/app/shell/shellContracts';
 
 export interface SessionState {
   activeSessionId: string;

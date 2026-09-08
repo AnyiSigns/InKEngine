@@ -908,7 +908,13 @@
       "kind": "ui_feature",
       "capability": "host_tool",
       "package": "@ink-ts/plugin-review-card",
-      "dir": "ui_features/review_card"
+      "dir": "ui_features/review_card",
+      "faces": {
+        "ui": {
+          "target": "web",
+          "entry": "./faces/ui/index.tsx"
+        }
+      }
     },
     {
       "id": "session_list",

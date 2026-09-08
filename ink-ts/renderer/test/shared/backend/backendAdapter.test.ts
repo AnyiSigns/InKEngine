@@ -233,7 +233,6 @@ describe('远端会话存储（真实数据源注入 mock 后端）', () => {
       roundSend: vi.fn(),
       roundAbort: vi.fn(),
       roundResume: vi.fn(),
-      routePlan: vi.fn(),
       sessionTree: vi.fn(),
       sessionBranch: vi.fn(),
       authorizationState: vi.fn(),

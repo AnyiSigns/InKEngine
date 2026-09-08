@@ -8,7 +8,7 @@
  * 骨架先行：仅提供表 + hook + 切换，不全量替换既有中文文案。
  */
 
-import { useSyncExternalStore } from 'react';
+import { useCallback, useSyncExternalStore } from 'react';
 
 import en from '@/locales/en.json';
 import zh from '@/locales/zh.json';
@@ -106,9 +106,7 @@ export function useT(): { t: (key: string) => string; lang: Locale; setLang: (la
     },
     () => current,
   );
-  return {
-    t: (key: string) => translate(lang, key),
-    lang,
-    setLang: setLocaleInternal,
-  };
+  const t = useCallback((key: string) => translate(lang, key), [lang]);
+  const setLang = useCallback((next: Locale) => setLocaleInternal(next), []);
+  return { t, lang, setLang };
 }

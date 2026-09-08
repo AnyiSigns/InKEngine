@@ -6,16 +6,14 @@
  * 阴影 + focus-within 光晕抬升），文本区单行起步自适应伸展，控件全部收进
  * 胶囊底排——圆形附件 +、模型/推理档位下拉、右侧大号
  * 圆形发送钮；胶囊下方居中「N 轮 · M 步」回合计数。
- * route_plan 发送前预览置于胶囊上方（已落定语义，不抢占胶囊内空间）。
  * 回合恒为组装：每轮回合 = 从数据组装出本轮执行图再执行（双档切换已取消）。
  */
 
 import { useState, useRef, useEffect } from 'react';
-import { ArrowUp, Brain, ChevronDown, Plus, Route, Sparkles, Square, Image, Video, FileText } from 'lucide-react';
+import { ArrowUp, Brain, ChevronDown, Plus, Sparkles, Square, Image, Video, FileText } from 'lucide-react';
 import type { ModelArchiveRow, ModelArchiveSnapshot, ModelSelection } from '@/shared/backend/backendAdapter';
 import { useT } from '@/i18n/useT';
 import { fileToDataUrl, uploadThenAsset } from '@/shared/upload/fileAsset';
-import type { RoutePlanResult } from '@app/shell/shellContracts';
 
 /** 多模态三态归一（壳侧档案标注 true/'true'/unknown）。 */
 function isMultimodal(m: ModelArchiveRow): boolean {
@@ -67,15 +65,12 @@ interface InputBarProps {
   disabled?: boolean;
   streaming?: boolean;
   models?: ModelArchiveSnapshot;
-  routePlan?: RoutePlanResult;
   /** 会话累计轮数与当前回合步数（胶囊下方居中计数行）。 */
   roundCount?: number;
   stepCount?: number;
   onSend: (text: string, attachments: AttachmentAsset[], model?: ModelSelection) => void;
   onAbort: () => void;
   onAttachments: (files: AttachmentAsset[]) => void;
-  /** 发送前路线预览（route_plan 壳命令真调用由装配层执行）。 */
-  onRoutePlanPreview?: (text: string) => void;
   /** 当前生效 agent（对话主模型）id（引擎 agent_pick；null = 未配置）。 */
   agentModelId?: string | null;
   /** 输入框改选 agent 模型（装配层写 agent_pick → 引擎重建后刷新本组件）。 */
@@ -86,11 +81,9 @@ export function InputBar({
   disabled,
   streaming,
   models,
-  routePlan,
   onSend,
   onAbort,
   onAttachments,
-  onRoutePlanPreview,
   agentModelId,
   onAgentModelSelect,
 }: InputBarProps) {
@@ -208,17 +201,7 @@ export function InputBar({
 
   return (
     <div className="px-5 pb-4 pt-2">
-      <div className="mx-auto max-w-4xl">
-        {routePlan && (
-          <div
-            className="mb-2 inline-flex items-center gap-2 rounded-lg border ink-border bg-[var(--ink-bg-surface)] px-2.5 py-1.5 text-[12px] ink-text-muted"
-            data-ui="route_plan_preview"
-          >
-            <Route size={12} strokeWidth={1.6} className="shrink-0 ink-text-faint" />
-            <span>{interpolate(t('input.route_plan'), { label: routePlan.chainLabel, quota: routePlan.quota, tier: routePlan.tier })}</span>
-          </div>
-        )}
-
+      <div className="mx-auto max-w-3xl [zoom:0.9]">
         {/* 输入胶囊：附件行 + 文本区 + 底排控件（无内分割线，控件悬浮底排） */}
         <div className="ink-composer pl-4 pr-2.5 pb-2.5 pt-3.5" data-streaming={streaming || undefined}>
           {attachments.length > 0 && (
@@ -243,10 +226,7 @@ export function InputBar({
             className="min-h-[44px] w-full resize-none bg-transparent px-1.5 pb-2 text-[15px] leading-relaxed outline-none placeholder:text-[var(--ink-text-faint)]"
             placeholder={t('input.placeholder')}
             value={text}
-            onChange={(e) => {
-              setText(e.target.value);
-              onRoutePlanPreview?.(e.target.value);
-            }}
+            onChange={(e) => setText(e.target.value)}
             onKeyDown={handleKeyDown}
             disabled={disabled}
             data-ui="input_textarea"

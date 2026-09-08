@@ -60,7 +60,6 @@
 
   "input.need_model": "Configure a model first",
   "input.goto_settings": "Go to settings",
-  "input.route_plan": "Will go via {label} · quota {quota} · tier {tier}",
   "input.placeholder": "Message the agent",
   "input.remove_attachment": "Remove attachment",
   "input.add_attachment": "Add attachment",

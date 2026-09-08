@@ -1,5 +1,13 @@
 @import "tailwindcss";
 
+/* Tailwind v4 自动内容扫描以 vite 工作目录（hosts/web）为基准，只覆盖
+ * hosts/web/**；而布局/间距等工具类（flex-col/flex-1/h-full/min-h-0/gap-*
+ * 等）大量用在 renderer/src（渲染器直渲管线）与 plugins（真 ui 面插件），
+ * 都在 hosts/web 之外。若不显式 @source，这些类不会生成，flex 高度链与
+ * 分栏全部失效，布局被压缩到顶部一条。此处显式纳入渲染器与插件源。 */
+@source "../../../renderer/src";
+@source "../../../plugins";
+
 /* ===== InKling 主题 token（三档：light / dark / system＄17 =====
  *
  * 主题 token 白名单（丄17 renderer/themeTokens.ts 同源，来臄17 ui_spec.theme）：
@@ -860,7 +868,7 @@ select {
 
 .ink-markdown ul,
 .ink-markdown ol {
-  margin: 0.5em 0;
+  margin: 0.25em 0;
   padding-left: 1.5em;
 }
 

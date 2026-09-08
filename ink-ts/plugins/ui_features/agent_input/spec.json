@@ -9,8 +9,8 @@
       "target": "web",
       "entry": "./faces/ui/index.tsx",
       "access": {
-        "store": ["backend", "authorized", "streaming", "models", "routePlan", "agentModelId", "roundCount", "stepCount"],
-        "inject": ["onSend", "onAbort", "onAttachments", "onAgentModelSelect", "onRoutePlanPreview"]
+        "store": ["backend", "authorized", "streaming", "models", "agentModelId", "roundCount", "stepCount"],
+        "inject": ["onSend", "onAbort", "onAttachments", "onAgentModelSelect"]
       }
     }
   },

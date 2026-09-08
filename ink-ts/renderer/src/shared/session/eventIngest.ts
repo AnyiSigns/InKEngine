@@ -161,7 +161,21 @@ export function ingestEvent(hub: ChannelHub, event: HubEvent): void {
       if (!token) break;
       // 发言人身份透传（协作者 reply_token 携带 name；主 agent 无）
       const speaker = typeof payload.name === 'string' && payload.name ? payload.name : undefined;
-      const found = findStep(messages, stepId, roundId);
+      // reply_token 引擎不携带稳定 step_id（llm_decider ctx.emit 缺省 step_id=null，
+      // 裸 token 流）——若按 stepId 精确匹配，因「消息暂存 stepId=undefined 与
+      // 空串不相等」而逐 chunk 新建一条 streaming 消息，流式输出呈「一行一行散开」。
+      // 改为按回合聚合到当前打开的流式段：末条为同回合 streaming 则续写，
+      // 否则（已插工具/思考/计划卡，段被切）另起新段。携带 step_id 时仍按步精确匹配。
+      const last = messages[messages.length - 1];
+      const sameRoundStreaming =
+        last !== undefined &&
+        last.kind === 'streaming' &&
+        (roundId === undefined || last.roundId === roundId);
+      const found = stepId
+        ? findStep(messages, stepId, roundId)
+        : sameRoundStreaming
+          ? last
+          : undefined;
       const content = (found && found.kind === 'streaming' ? found.content : '') + token;
       if (found && found.kind === 'streaming') {
         messages = messages.map((m) =>

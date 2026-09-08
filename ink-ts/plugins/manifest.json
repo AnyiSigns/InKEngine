@@ -762,7 +762,6 @@
               "authorized",
               "streaming",
               "models",
-              "routePlan",
               "agentModelId",
               "roundCount",
               "stepCount"
@@ -771,8 +770,7 @@
               "onSend",
               "onAbort",
               "onAttachments",
-              "onAgentModelSelect",
-              "onRoutePlanPreview"
+              "onAgentModelSelect"
             ]
           }
         }

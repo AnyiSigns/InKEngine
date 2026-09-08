@@ -125,20 +125,33 @@ describe('二层防线：绑定通道白名单拒绝', () => {
 });
 
 describe('三层防线：主题 token 白名单拒绝', () => {
-  it('白名单 token 落地 CSS 变量', () => {
+  it('白名单状态组 token 落地 CSS 变量', () => {
+    const root = document.documentElement;
+    const cleanup = applyThemeTokens({
+      'status.bubble.fill': 'color-mix(in srgb, red 50%, transparent)',
+      'status.bubble.edge': 'color-mix(in srgb, red 60%, transparent)',
+      'status.card.edge': 'color-mix(in srgb, red 70%, transparent)',
+    });
+    expect(root.style.getPropertyValue('--ink-status-bubble-fill')).toBe('color-mix(in srgb, red 50%, transparent)');
+    expect(root.style.getPropertyValue('--ink-status-bubble-edge')).toBe('color-mix(in srgb, red 60%, transparent)');
+    expect(root.style.getPropertyValue('--ink-status-card-edge')).toBe('color-mix(in srgb, red 70%, transparent)');
+    cleanup();
+  });
+
+  it('基础组 token（bg.base/text.base/accent.approval）归档位层，不内联落地', () => {
     const root = document.documentElement;
     const cleanup = applyThemeTokens({ 'bg.base': '#111111', 'text.base': '#dddddd', 'accent.approval': '#ffaa00' });
-    expect(root.style.getPropertyValue('--ink-bg-base')).toBe('#111111');
-    expect(root.style.getPropertyValue('--ink-text-base')).toBe('#dddddd');
-    expect(root.style.getPropertyValue('--ink-accent-approval')).toBe('#ffaa00');
+    expect(root.style.getPropertyValue('--ink-bg-base')).toBe('');
+    expect(root.style.getPropertyValue('--ink-text-base')).toBe('');
+    expect(root.style.getPropertyValue('--ink-accent-approval')).toBe('');
     cleanup();
   });
 
   it('未声明 token 拒绝落地（不写 CSS 变量）', () => {
     const root = document.documentElement;
-    const cleanup = applyThemeTokens({ 'evil.token': '#000000', 'bg.base': '#222222' });
+    const cleanup = applyThemeTokens({ 'evil.token': '#000000', 'status.bubble.fill': 'color-mix(in srgb, red 40%, transparent)' });
     expect(root.style.getPropertyValue('--ink-evil-token')).toBe('');
-    expect(root.style.getPropertyValue('--ink-bg-base')).toBe('#222222');
+    expect(root.style.getPropertyValue('--ink-status-bubble-fill')).toBe('color-mix(in srgb, red 40%, transparent)');
     cleanup();
   });
 

@@ -46,15 +46,6 @@ export interface RoundResult {
   steps: Array<unknown>;
 }
 
-/** 策略层路由预览（分类/链/计划/档位/守门）。 */
-export interface RoutePlanResult {
-  kind: string;
-  chain_id: string | null;
-  plan: Record<string, unknown>;
-  policy: { tier: string; max_simulations: number; quota_per_round: number };
-  quota_guarded: boolean;
-}
-
 /** 备份清单预览（恢复向导的面）。 */
 export interface BackupPreview {
   entries_total: number;
@@ -274,7 +265,6 @@ export interface BackendAdapter {
     steps: unknown[];
     round_id: string;
   }>;
-  routePlan(text: string, tier: string): Promise<RoutePlanResult>;
   sessionList(): Promise<SessionRemoteRecord[]>;
   sessionCreate(): Promise<SessionRemoteRecord>;
   sessionRename(threadId: string, title: string): Promise<SessionRemoteRecord>;
@@ -387,7 +377,6 @@ export function createUnavailableBackend(): BackendAdapter {
     roundSend: unavailable as never,
     roundAbort: unavailable as never,
     roundResume: unavailable as never,
-    routePlan: unavailable as never,
     sessionList: unavailable as never,
     sessionCreate: unavailable as never,
     sessionRename: unavailable as never,
@@ -477,7 +466,6 @@ export function createServeBackend(channel?: ServeChannel): BackendAdapter {
     roundAbort: (roundId) => call('round_abort', { roundId }),
     roundResume: (threadId, key, decision, reason, editedContent) =>
       call('round_resume', { threadId, key, decision, reason, editedContent }),
-    routePlan: (text, tier) => call('route_plan', { text, tier }),
     sessionList: async () => {
       const result = await call<{ sessions: SessionRemoteRecord[] }>('session_list');
       return result.sessions ?? [];

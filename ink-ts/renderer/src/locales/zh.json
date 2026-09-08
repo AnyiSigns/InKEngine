@@ -60,7 +60,6 @@
 
   "input.need_model": "请先配置模型",
   "input.goto_settings": "前往设置",
-  "input.route_plan": "将走 {label} · 配额 {quota} · 推演 {tier}",
   "input.placeholder": "给智能体发消息",
   "input.remove_attachment": "移除附件",
   "input.add_attachment": "添加附件",

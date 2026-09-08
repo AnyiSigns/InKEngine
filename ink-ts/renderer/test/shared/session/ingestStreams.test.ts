@@ -37,6 +37,37 @@ describe('推理流式（thinking_start 分片追加，中途可见）', () => {
   });
 });
 
+describe('reply_token 流式聚合（引擎不携带 step_id）', () => {
+  it('同回合无 step_id 分片聚合为单条 streaming 消息（不逐 chunk 拆条）', () => {
+    const hub = new ChannelHub();
+    ingestEvent(hub, ev('reply_token', { round_id: 'r1', token: '你好' }));
+    ingestEvent(hub, ev('reply_token', { round_id: 'r1', token: '，我是' }));
+    ingestEvent(hub, ev('reply_token', { round_id: 'r1', token: 'AI' }));
+    const messages = hub.getSnapshot().messages;
+    expect(messages).toHaveLength(1);
+    expect(messages[0]).toMatchObject({ kind: 'streaming', content: '你好，我是AI' });
+  });
+
+  it('携 step_id 时仍按步骤精确匹配聚合', () => {
+    const hub = new ChannelHub();
+    ingestEvent(hub, ev('reply_token', { round_id: 'r1', step_id: 'reply:0', token: 'a' }));
+    ingestEvent(hub, ev('reply_token', { round_id: 'r1', step_id: 'reply:0', token: 'b' }));
+    const messages = hub.getSnapshot().messages;
+    expect(messages).toHaveLength(1);
+    expect(messages[0]).toMatchObject({ kind: 'streaming', content: 'ab' });
+  });
+
+  it('段被工具卡切分后另起新段（不合并到前一段）', () => {
+    const hub = new ChannelHub();
+    ingestEvent(hub, ev('reply_token', { round_id: 'r1', token: '先完成' }));
+    ingestEvent(hub, ev('tool_start', { round_id: 'r1', step_id: 'tool:1', tool: 'inspect_graph', permission: 'allow' }));
+    ingestEvent(hub, ev('reply_token', { round_id: 'r1', token: '再回答' }));
+    const messages = hub.getSnapshot().messages;
+    expect(messages.map((m) => m.kind)).toEqual(['streaming', 'tool', 'streaming']);
+    expect(messages[2]).toMatchObject({ kind: 'streaming', content: '再回答' });
+  });
+});
+
 describe('工具原始参数', () => {
   it('tool_start 对象参数格式化为 JSON 文本（供展开查看）', () => {
     const hub = new ChannelHub();

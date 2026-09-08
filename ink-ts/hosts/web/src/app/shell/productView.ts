@@ -13,7 +13,7 @@ import type { InkMessage, RoundStep, SimulationBranch } from '@/shared/session/t
 import type { AttachmentAsset } from '@/shared/session/eventIngest';
 import type { SpawnInstance } from '../../../../../plugins/ui_features/message_list/faces/ui/SpawnPanel';
 import type { TaskCapsuleData } from '../../../../../plugins/ui_features/task_capsule/faces/ui/types';
-import type { MainTab, RailSession, ReviewResolution, RoutePlanResult } from '@app/shell/shellContracts';
+import type { MainTab, RailSession, ReviewResolution } from '@app/shell/shellContracts';
 import type { ModelSelection } from '@/shared/backend/backendAdapter';
 import type { AppBackend } from '../backend';
 
@@ -44,7 +44,6 @@ export interface ProductShellModel {
   workspaceRoot: string | null;
   models: ModelArchiveSnapshot | undefined;
   agentModelId: string | null;
-  routePlan: RoutePlanResult | undefined;
   roundCount: number;
   stepCount: number;
   hasTodo: boolean;
@@ -63,7 +62,6 @@ export interface ProductShellActions {
   onSend(text: string, attachments: AttachmentAsset[], model?: ModelSelection): void;
   onAbort(): void;
   onAttachments(assets: AttachmentAsset[]): void;
-  onRoutePlanPreview(text: string): void;
   onAgentModelSelect(modelId: string, providerId?: string): void;
   onSpawnSelect(index: number): void;
   onSpawnSendInstruction(text: string): void;

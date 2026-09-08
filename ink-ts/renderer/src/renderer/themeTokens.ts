@@ -54,7 +54,22 @@ export const ALPHA_TOKEN_GROUP = [
 ] as const satisfies readonly ThemeTokenName[];
 
 /**
+ * 基础组 token（bg.base / text.base / accent.approval）：归 CSS 档位层
+ * （:root 与 data-theme 的 light/dark 档）接管，由「外观」档位控制器驱动。
+ * 若此处再以 documentElement 内联 style 落地，内联优先级会覆盖任何
+ * data-theme 选择器，导致浅色/深色档失效（无论选什么都钉死暗色）。
+ * 故 applyThemeTokens 不落这几项，仅落地透明「状态组」（status.*，skin 试穿面）。
+ */
+export const MODE_OWNED_TOKEN_GROUP = [
+  'bg.base',
+  'text.base',
+  'accent.approval',
+] as const satisfies readonly ThemeTokenName[];
+
+/**
  * 应用主题：仅白名单 token 落地为 CSS 变量；未声明 token 拒绝并记录。
+ * 基础组（bg.base/text.base/accent.approval）归 CSS 档位层（见
+ * MODE_OWNED_TOKEN_GROUP），不在此内联落地——否则会遮罩档案位切换。
  * 返回还原函数（卸载时清理）。
  */
 export function applyThemeTokens(theme: Record<string, string> | undefined): () => void {
@@ -65,6 +80,10 @@ export function applyThemeTokens(theme: Record<string, string> | undefined): () 
       const variable = TOKEN_TO_VARIABLE[key as ThemeTokenName];
       if (!variable) {
         // 白名单外 token：拒绝落地（防注入/防样式漂移）
+        continue;
+      }
+      if ((MODE_OWNED_TOKEN_GROUP as readonly string[]).includes(key)) {
+        // 基础组归档位层，跳过（防内联覆盖 data-theme 档）
         continue;
       }
       root.style.setProperty(variable, value);

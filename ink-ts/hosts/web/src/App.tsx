@@ -39,12 +39,6 @@ interface AppProps {
   sessionStore: SessionStore;
 }
 
-interface RoutePlanPreview {
-  chainLabel: string;
-  quota: number;
-  tier: string;
-}
-
 export default function App({ backend, appBackend, hub, sessionStore }: AppProps) {
   const state = useSessionState(hub, sessionStore, backend);
   const { send, abort, resolveReview } = useSessionActions(hub, sessionStore, backend);
@@ -57,9 +51,6 @@ export default function App({ backend, appBackend, hub, sessionStore }: AppProps
   const [title, setTitle] = useState('新会话');
   const [tab, setTab] = useState<MainTab>('chat');
   const [openPanel, setOpenPanel] = useState<'none' | 'settings'>('none');
-  const [routePlan, setRoutePlan] = useState<RoutePlanPreview | undefined>(undefined);
-  const routePlanSeq = useRef(0);
-  const routePlanTimer = useRef<number | null>(null);
 
   // 跨回合长任务数据源接线点：plan/spawn/tool 事件经 task_state 子通道归约，
   // 胶囊仅在长任务期间出现（task_capsule canonical 组件消费）。
@@ -177,37 +168,6 @@ export default function App({ backend, appBackend, hub, sessionStore }: AppProps
     void backend.sessionBranch(state.activeSessionId, 'branch', null).then(() => {
       // messageId 保留签名供后续 message 级分支使用；当前回落会话级分支
     }).catch(() => undefined);
-  };
-
-  const handleRoutePlanPreview = (text: string) => {
-    if (routePlanTimer.current !== null) {
-      window.clearTimeout(routePlanTimer.current);
-      routePlanTimer.current = null;
-    }
-    if (!text.trim()) {
-      routePlanSeq.current += 1;
-      setRoutePlan(undefined);
-      return;
-    }
-    const seq = routePlanSeq.current + 1;
-    routePlanSeq.current = seq;
-    routePlanTimer.current = window.setTimeout(() => {
-      routePlanTimer.current = null;
-      void backend
-        .routePlan(text, 'full')
-        .then((r) => {
-          if (seq !== routePlanSeq.current) return;
-          setRoutePlan({
-            chainLabel: r.chain_id ?? r.kind,
-            quota: r.policy.quota_per_round,
-            tier: r.policy.tier,
-          });
-        })
-        .catch(() => {
-          if (seq !== routePlanSeq.current) return;
-          setRoutePlan(undefined);
-        });
-    }, 300);
   };
 
   const handleSend = (
@@ -360,7 +320,6 @@ export default function App({ backend, appBackend, hub, sessionStore }: AppProps
     workspaceRoot,
     models,
     agentModelId,
-    routePlan,
     roundCount,
     stepCount: roundSteps.length,
     hasTodo: todoState.has,
@@ -378,7 +337,6 @@ export default function App({ backend, appBackend, hub, sessionStore }: AppProps
     onSend: handleSend,
     onAbort: abort,
     onAttachments: (assets: AttachmentAsset[]) => submitAttachments(hub, assets),
-    onRoutePlanPreview: handleRoutePlanPreview,
     onAgentModelSelect: handleAgentModelSelect,
     onSpawnSelect: (idx: number) => setSelectedSpawnIndex(idx),
     onSpawnSendInstruction: (text: string) => send(text, []),

@@ -21,11 +21,6 @@ describe('InputBar', () => {
     expect(screen.getByText('多模态')).toBeTruthy();
   });
 
-  it('shows route plan preview', () => {
-    render(<InputBar disabled={false} streaming={false} routePlan={{ chainLabel: '研究链', quota: 10, tier: 'light' }} onSend={() => {}} onAbort={() => {}} onAttachments={() => {}} />);
-    expect(screen.getByText(/将走 研究链/)).toBeTruthy();
-  });
-
   it('shows reasoning tier chip and carries chosen tier on send', () => {
     const onSend = vi.fn();
     render(<InputBar disabled={false} streaming={false} models={{ archives: [{ model_id: 'qwen3-max' }] }} onSend={onSend} onAbort={() => {}} onAttachments={() => {}} />);

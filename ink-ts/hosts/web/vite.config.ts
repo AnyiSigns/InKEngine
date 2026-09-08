@@ -59,8 +59,8 @@ function spawnDevServe(): void {
 const autoServePlugin = {
   name: 'ink-ts-auto-serve',
   apply: 'serve' as const,
-  configureServer(server: { config?: { mode?: string }; httpServer?: { on(event: string, listener: () => void): void } }) {
-    if (server.config?.mode !== 'development') return;
+  configureServer(server: { config: { mode: string }; httpServer: { on(event: string, listener: () => void): unknown } | null }) {
+    if (server.config.mode !== 'development') return;
     spawnDevServe();
     server.httpServer?.on('close', stopDevServe);
     process.once('exit', stopDevServe);

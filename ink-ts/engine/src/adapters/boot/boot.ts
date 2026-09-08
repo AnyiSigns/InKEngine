@@ -116,7 +116,7 @@ export const BOOT_EVENT_TYPES: readonly EventTypeSpec[] = [
 // 自举 harness 定义（forge 自举领域：观察/提案/应用的元能力集）。
 export function boot_harness_definition(): HarnessDefinition {
   return new HarnessDefinition({
-    name: 'forge',
+    name: 'InkLing',
     description: '自举领域：观察/提案/应用的元能力集',
     keywords: ['观察', '内省', '演化', '自举'],
     meta: { set_id: 'default', role: 'self' },

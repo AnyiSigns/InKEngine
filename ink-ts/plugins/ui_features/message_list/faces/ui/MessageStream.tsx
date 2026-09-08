@@ -12,7 +12,7 @@
  *   以消息流形态展示「智能体为什么这么做 / 做了什么」，不塞进设置。
  */
 
-import { useRef, useState, useEffect, type ComponentType } from 'react';
+import { useRef, useState, useEffect, useCallback, memo, type ComponentType } from 'react';
 import {
   AlertTriangle,
   Check,
@@ -34,6 +34,7 @@ import { resolveMediaRenderer } from '@/renderer/mediaRegistry';
 import { ChartEntry } from './parts/chart_entry';
 import { useDevMode } from '@/shared/ui/devMode';
 import { useT } from '@/i18n/useT';
+import { MarkdownText } from '@/shared/markdown/MarkdownText';
 
 function interpolate(template: string, vars: Record<string, string | number>): string {
   return template.replace(/\{(\w+)\}/g, (_, k: string) => String(vars[k] ?? ''));
@@ -96,10 +97,17 @@ export function MessageStream({
     pinnedRef.current = el.scrollHeight - el.scrollTop - el.clientHeight < 64;
   };
 
+  const expandEntry = useCallback((title: string, content: string) => {
+    setDrawerTitle(title);
+    setDrawerContent(content);
+    setDrawerOpen(true);
+  }, []);
+  const openSpawnPanel = useCallback(() => setSpawnPanelOpen(true), []);
+
   return (
     <div ref={listRef} className="flex-1 overflow-y-auto px-6 py-6" onScroll={onScroll}>
       {entries.length === 0 && <EmptyHero />}
-      <div className="mx-auto max-w-4xl space-y-5">
+      <div className="mx-auto max-w-3xl space-y-4 [zoom:0.9]">
         {roundSteps && roundSteps.length > 0 && (
           <PhaseCapsule
             steps={roundSteps.map((s) => ({ id: s.stepId, label: s.label || s.type, status: s.status }))}
@@ -107,15 +115,7 @@ export function MessageStream({
         )}
         {entries.map((entry) => (
           <div key={entry.id} className="ink-feed">
-            <MessageItem
-              entry={entry}
-              onExpand={(title, content) => {
-                setDrawerTitle(title);
-                setDrawerContent(content);
-                setDrawerOpen(true);
-              }}
-              onOpenPanel={() => setSpawnPanelOpen(true)}
-            />
+            <MessageItem entry={entry} onExpand={expandEntry} onOpenPanel={openSpawnPanel} />
           </div>
         ))}
         {simulations && simulations.length > 0 && <SimulationCard branches={simulations} />}
@@ -140,7 +140,7 @@ export function MessageStream({
 }
 
 /** 单条消息渲染分发（InkMessage 全 kind）。 */
-function MessageItem({
+const MessageItem = memo(function MessageItem({
   entry,
   onExpand,
   onOpenPanel,
@@ -209,7 +209,7 @@ function MessageItem({
     default:
       return null;
   }
-}
+});
 
 /** 知识命中内联卡（记忆召回 → 消息流）。 */
 function KnowledgeHitCard({ entry }: { entry: Extract<InkMessage, { kind: 'knowledge_hit' }> }) {
@@ -355,7 +355,7 @@ function UserBubble({ content }: { content: string }) {
 
   return (
     <div className="group flex flex-col items-end">
-      <div className="ink-bubble-user max-w-[80%] px-4 py-2.5 text-[15px] leading-relaxed">
+      <div className="ink-bubble-user max-w-[80%] px-4 py-2.5 text-[14.5px] leading-[1.3]">
         <p className="whitespace-pre-wrap">{content}</p>
       </div>
       <button
@@ -370,7 +370,7 @@ function UserBubble({ content }: { content: string }) {
   );
 }
 
-function AssistantText({
+const AssistantText = memo(function AssistantText({
   content,
   name,
 }: {
@@ -385,12 +385,10 @@ function AssistantText({
           <span className="ink-chip text-[10px]">{name}</span>
         </div>
       ) : null}
-      <div className="ink-markdown text-[15px] leading-relaxed">
-        {content}
-      </div>
+      <MarkdownText text={content} className="text-[14.5px] leading-[1.3]" />
     </div>
   );
-}
+});
 
 function ThinkingCard({ entry }: { entry: Extract<InkMessage, { kind: 'thinking' }> }) {
   const { t } = useT();

@@ -194,6 +194,7 @@ hosts/web/src/app/settings/settingsSections.generated.ts 与各 spec 真源逐�
 → `tsx hosts/verify_host_spec.ts`（宿主面 spec：HostFaces 词汇 + 四宿主不变式 +
 renderer entry 存在性），
 CI 的 ink-ts job 同链执行。规则增删须同步本表。
+加插件/加包/提交前 checklist 阶梯 = `docs/checklist.md`（填空模板，不自由发挥）。
 
 ## 8. 模型角色槽（配置语义与措辞纪律）
 

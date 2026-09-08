@@ -1,0 +1,159 @@
+/* 架构视图本地样式（插件私有，CSS Modules 作用域）：机制可视化组件消费面。
+   颜色一律经 --ink-* token，零硬编码色；规则 = 原共享 w3.css 中本插件实际
+   消费的子集（迁移后随插件同住，不再裸引 hosts/web 全局样式表）。 */
+
+.root {
+  display: flex;
+  flex-direction: column;
+  height: 100%;
+  background: var(--ink-bg-base);
+  color: var(--ink-text-base);
+  font-family: var(--font-sans);
+  font-size: var(--ink-font-sm);
+  line-height: var(--ink-lh-body);
+}
+
+/* tab 导航 */
+.tabs {
+  display: flex;
+  gap: var(--ink-space-1);
+  padding: var(--ink-space-3) var(--ink-space-4) 0;
+  border-bottom: 1px solid var(--ink-border);
+}
+.tab {
+  appearance: none;
+  border: none;
+  background: transparent;
+  color: var(--ink-text-muted);
+  font: inherit;
+  padding: var(--ink-space-2) var(--ink-space-3);
+  cursor: pointer;
+  border-bottom: 2px solid transparent;
+  display: inline-flex;
+  align-items: center;
+  gap: var(--ink-space-1);
+}
+.tab:hover {
+  color: var(--ink-text-base);
+}
+.tabActive {
+  color: var(--ink-text-base);
+  border-bottom-color: var(--ink-border-strong);
+  font-weight: 500;
+}
+
+.body {
+  flex: 1;
+  overflow: auto;
+  padding: var(--ink-space-4);
+}
+
+/* 纵向堆叠 */
+.stack > * + * {
+  margin-top: var(--ink-space-3);
+}
+
+/* 顶栏摘要条 */
+.summaryBar {
+  display: flex;
+  align-items: center;
+  gap: var(--ink-space-4);
+  flex-wrap: wrap;
+  padding: var(--ink-space-3) var(--ink-space-4);
+  border-bottom: 1px solid var(--ink-border);
+  background: var(--ink-bg-surface);
+}
+.summaryBar .metric {
+  display: inline-flex;
+  align-items: baseline;
+  gap: var(--ink-space-1);
+}
+.summaryBar .metric strong {
+  font-weight: 600;
+  font-size: var(--ink-font-md);
+}
+.summaryBar .metric span {
+  color: var(--ink-text-muted);
+}
+.summaryBar .sep {
+  width: 1px;
+  align-self: stretch;
+  background: var(--ink-border);
+}
+
+/* 信息卡 / 操作卡 */
+.panel {
+  background: var(--ink-bg-surface);
+  border: 1px solid var(--ink-border);
+  border-radius: var(--ink-radius-md);
+  padding: var(--ink-space-4);
+}
+.panel + .panel {
+  margin-top: var(--ink-space-3);
+}
+.panelTitle {
+  font-weight: 600;
+  margin-bottom: var(--ink-space-2);
+  display: inline-flex;
+  align-items: center;
+  gap: var(--ink-space-1);
+}
+.muted {
+  color: var(--ink-text-muted);
+}
+.row {
+  display: flex;
+  align-items: center;
+  gap: var(--ink-space-2);
+}
+.row + .row {
+  margin-top: var(--ink-space-2);
+}
+
+/* 徽标 */
+.badge {
+  display: inline-flex;
+  align-items: center;
+  gap: 4px;
+  padding: 1px 8px;
+  border-radius: 999px;
+  font-size: 11px;
+  border: 1px solid var(--ink-border);
+  color: var(--ink-text-muted);
+  background: var(--ink-bg-surface);
+  white-space: nowrap;
+}
+.badgeNeutral {
+  color: var(--ink-text-muted);
+}
+.badgeWarn {
+  color: var(--ink-status-warn, var(--ink-text-muted));
+  border-color: color-mix(in srgb, var(--ink-status-warn, var(--ink-text-base)) 40%, transparent);
+}
+
+/* 列表行 */
+.rowItem {
+  display: flex;
+  align-items: center;
+  gap: var(--ink-space-2);
+  padding: var(--ink-space-2) var(--ink-space-3);
+  border: 1px solid var(--ink-border);
+  border-radius: var(--ink-radius-sm);
+  background: var(--ink-bg-surface);
+  cursor: pointer;
+}
+.rowItem:hover {
+  border-color: var(--ink-border-strong);
+}
+.rowItem + .rowItem {
+  margin-top: var(--ink-space-2);
+}
+.rowItem .grow {
+  flex: 1;
+  min-width: 0;
+}
+.rowItem .truncate {
+  overflow: hidden;
+  text-overflow: ellipsis;
+  white-space: nowrap;
+}

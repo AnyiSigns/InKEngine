@@ -153,6 +153,14 @@ renderer 适配层整体退役）；其余 kind 目录随对应阶段落位。
   hosts/web/src/app/pluginFaces.generated.ts /
   hosts/web/src/app/settings/settingsSections.generated.ts 派生视图禁手改，
   改工具/命令/市场/ui/endpoint 声明只改对应 spec.json。
+- 真 ui 面私有样式纪律（阶段 9a 起）：faces/ui 可随插件同住 `*.module.css`
+  （CSS Modules，构建期作用域哈希隔离——class 名不逃逸、插件互不污染）；
+  共享 token/语义类仍经既有 index.css/themeTokens/designTokens 供应，
+  **禁硬编码颜色、禁裸引跨包全局样式表**（如 hosts/web 的共享整页 css）；
+  跨插件共用的展示资产（如 EmptyState）自带本地 `*.module.css`，不消费方
+  各自裸引。类型 = vite/client `*.module.css` 声明（plugin faces 经
+  pluginFaces.generated.ts 静态 import 纳入 hosts/web program）；vitest
+  css:false 下 module.css 由 stub 承接，测试零感知。
 
 ## 手改与生成纪律
 

@@ -1,0 +1,32 @@
+/* EmptyState 本地样式（CSS Modules 作用域）：线条风 svg + 一行文案 + ≤1 直达入口。
+   颜色一律经 --ink-* token，零硬编码色。 */
+
+.empty {
+  display: flex;
+  flex-direction: column;
+  align-items: center;
+  justify-content: center;
+  gap: var(--ink-space-3);
+  text-align: center;
+  padding: var(--ink-space-6);
+  color: var(--ink-text-muted);
+  min-height: 240px;
+}
+.empty svg {
+  width: 72px;
+  height: 72px;
+  color: var(--ink-text-faint);
+}
+.emptyText {
+  font-size: var(--ink-font-md);
+  color: var(--ink-text-muted);
+}
+.emptyLink {
+  color: var(--ink-text-base);
+  cursor: pointer;
+  border: none;
+  background: transparent;
+  font: inherit;
+  text-decoration: underline;
+  text-underline-offset: 3px;
+}

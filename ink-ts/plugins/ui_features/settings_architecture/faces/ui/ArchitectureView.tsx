@@ -1,11 +1,11 @@
 import { useState } from 'react';
 import { Boxes, GitMerge } from 'lucide-react';
 
-import '@app/views/w3.css';
 import { createLiveArchitectureBackend } from '@app/views/architecture/mockBackend';
 import type { ArchitectureBackend } from '@app/views/architecture/backend';
 import { PoolTab } from './tabs/PoolTab';
 import { EdgeEvidenceTab } from './tabs/EdgeEvidenceTab';
+import styles from './architecture.module.css';
 
 type ArchTab = 'pool' | 'edge';
 
@@ -26,8 +26,8 @@ export function ArchitectureView({
   const [tab, setTab] = useState<ArchTab>('pool');
 
   return (
-    <div className="w3" data-view="architecture">
-      <div className="w3-tabs" role="tablist">
+    <div className={styles.root} data-view="architecture">
+      <div className={styles.tabs} role="tablist">
         {TABS.map((t) => {
           const Icon = t.icon;
           return (
@@ -36,7 +36,7 @@ export function ArchitectureView({
               type="button"
               role="tab"
               aria-selected={tab === t.id}
-              className={`w3-tab ${tab === t.id ? 'w3-tab--active' : ''}`}
+              className={`${styles.tab} ${tab === t.id ? styles.tabActive : ''}`}
               data-testid={`arch-tab-${t.id}`}
               onClick={() => setTab(t.id)}
             >
@@ -45,7 +45,7 @@ export function ArchitectureView({
           );
         })}
       </div>
-      <div className="w3-body">
+      <div className={styles.body}>
         {tab === 'pool' && <PoolTab backend={instance} />}
         {tab === 'edge' && <EdgeEvidenceTab backend={instance} />}
       </div>

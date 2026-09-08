@@ -93,8 +93,9 @@ host 配方界面白名单据此装配）。卸某节点 = 删目录 + 删父 `$
 
 真 ui 面（canonical 布局叶子与设置面板的独占 UI 实现）：组件节点插件声明
 `faces.ui`（target='web'，entry=`./faces/ui/index.tsx` 相对插件目录），
-`faces/ui/` 内 index.tsx 默认导出（布局叶子 = 把产品壳注入的 product chrome 映射为
-组件 props 的薄适配器；设置面板 = 直渲组件）与其 `*.test.ts(x)` 同目录并列。
+`faces/ui/` 内 index.tsx 默认导出（布局叶子 = 把壳注入的切片面映射为组件
+props 的薄适配器；设置面板 = 组件默认导出，直读注入的顶层切片名）与其
+`*.test.ts(x)` 同目录并列。
 hosts/web 产品壳装配经派生视图 `pluginFaces.generated.ts`（住
 `hosts/web/src/app/`）静态 import 注册进显示设备 componentRegistry
 （注册名 = 插件 id，白名单放行即该视图）——无壳侧手写适配器/注册表面。
@@ -103,6 +104,15 @@ hosts/web 产品壳装配经派生视图 `pluginFaces.generated.ts`（住
 （key/label/order/icon），经第 7 派生视图 `settingsSections.generated.ts`
 聚合为设置段清单（order 升序）；设置浮层读清单渲染左导航，内容按插件 id 经
 DynamicComponent 渲染。
+
+**真 ui 面自包含（外来 UI 插件三件套，9a+9b 落地收口）**：第三方面接法 =
+自带 `faces/ui`（index.tsx 默认导出 + 同目录 `*.test.ts(x)`）+ 可随插件同住
+`*.module.css`（CSS Modules 构建期作用域哈希隔离，class 名不逃逸；共享
+token/语义类仍经 index.css/themeTokens/designTokens 供应，禁硬编码颜色、
+禁裸引跨包全局样式表）+ spec `faces.ui.access` 声明接入面（见下，词表单一
+真源，禁自由命名）。挂载 = 两路之一：布局树 `data.children.$ref`（canonical
+叶子）或 settings 派生清单（设置面板）；装载 seam 仍走既有 external_tool
+通道（本契约不新增运行期装载机制，见 §2 档位表）。
 
 **阶段 9b 接入契约（faces.ui.access）**：真 ui 面（canonical 叶子/设置面板）
 可声明 `faces.ui.access` = `{ store?: string[], inject?: string[] }` 显式声明
@@ -118,8 +128,12 @@ ProductShellActions 键，文件内 `satisfies keyof` + Equal 断言编译期锁
 `accessAwareFace` 包装（hosts/web/src/app/shell/accessAwareFace.tsx）——声明
 access 的面由壳把 product chrome 切成只含声明名的顶层 props（全量 product
 被剥，无隐式全量注入），未声明面原样透传；settings_floater = 面板挂载壳
-特例豁免（保留全量 chrome 作面板切片源）。canonical 叶子 11 个已迁移，
-适配器只消费声明的顶层切片名，禁读 props.product。
+特例豁免（保留全量 chrome 作面板切片源）。真 ui 面全量迁移收口（9b-2/3）：
+canonical 叶子 11 + 设置面板 12（settings_general 无宿主数据需求不声明；
+AppBackend 组 tools_panel/workspace_auth/ui_editor_host 声明
+store:["appBackend"]，BackendAdapter 组 settings_architecture/connect/backup/
+audit_recovery/model/knowledge/memory/insights 声明 store:["backend"]）——
+适配器/组件只消费声明的顶层切片名，禁读 props.product、禁面板自建后端实例。
 
 可达性统一规则（无孤儿、无豁免）：除装配入口外，每 ui_feature 插件须被容器
 `data.children.$ref` **或** `data.settings_section` 二者之一引用；卸载一致性由

@@ -319,7 +319,8 @@ host.spec（能力插件 kind='host'；faces 用专用 HostFaces，不走通用 
 > 阶段 9a（真 ui 面插件私有样式：CSS Modules 能力 + settings_architecture 试点，
 > 全局 w3.css 裸引退役）已落地（2026-09-08，见下「阶段 9」节）；
 > 阶段 9b（真 ui 面数据接入契约：store/inject 声明式接入）契约已冻结
-> （2026-09-08，见下「阶段 9」节），分片实现 9b-1a/1b/2/3 已全部完成。
+> （2026-09-08，见下「阶段 9」节），分片实现 9b-1a/1b/2/3 与外来插件语义
+> 收口已全部完成。
 
 ### 阶段 0–7b 落地状态（逐阶段回填）
 
@@ -399,7 +400,7 @@ host.spec（能力插件 kind='host'；faces 用专用 HostFaces，不走通用 
 | 9b | 契约载体 = **spec 声明 + 词表**（真源单一份）：ui_feature spec 增声明接入面（store 读面/数据 + inject 动作/宿主回调），名称一律从词表取，禁自由命名；生成器把声明带入派生视图，verify 校验声明命中词表 + 面板/叶子形态合法 | spec JSON 形状（生成器守）+ manifest plugins[] 行携带（faces 全量随行）+ 词表单一真源 = `hosts/web/src/app/shell/hostAccessVocab.ts`（ProductShellModel 字段/座位 ∪ ProductShellActions 动作，`satisfies keyof` + Equal 断言编译期锁 keyof） | ⏳ 契约载体已落真源：9b-1a 完成（2026-09-08），9b-1b 试点端到端待续 |
 | 9b | 注入实现位 = **壳装配层切片**（hosts/web 产品壳，非 renderer）：壳把全量 product chrome + 共享 backend 按每插件声明切成只含声明面的 typed props 交给 faces/ui 默认导出；渲染器 DynamicComponent 不感知插件契约（保持通用挂载 + bind/白名单） | hosts/web shell 装配（App/activate/productView）+ 生成物注册表携带声明 | ⏳ 9b-2 切片机制 + canonical 叶子迁移完成（2026-09-08），settings_floater 壳特例豁免 |
 | 9b | **设置面板统一宿主注入**（推翻 #22 定案 ⑤「面板数据源 = 插件自建共享 AppBackend 单例、不经宿主注入面」）：13 面板与 canonical 叶子同走声明式切片注入，不再各自自建后端实例 | settings_floater DynamicComponent 注入面 + 13 面板 faces/ui 改造 | ✅ 9b-3 完成（2026-09-08）：mcp_market 试点先行，其余 12 面板随迁（settings_general 无宿主数据需求不声明），自建单例收口 |
-| 9b | 外来插件语义：第三方面接法 = 自带 faces/ui + `*.module.css`（9a）+ spec 声明接入面，经布局 $ref / settings 派生清单挂载；装载 seam 仍走既有 external_tool 通道（本契约不新增运行期装载机制） | PLUGINS.md 真 ui 面语义 + verify_unload 真面许可扩展 | ⏳ 冻结定稿，实现随 9b 分片 |
+| 9b | 外来插件语义：第三方面接法 = 自带 faces/ui + `*.module.css`（9a）+ spec 声明接入面，经布局 $ref / settings 派生清单挂载；装载 seam 仍走既有 external_tool 通道（本契约不新增运行期装载机制） | PLUGINS.md 真 ui 面语义 + verify_unload 真面许可扩展 | ✅ 收口（2026-09-08）：PLUGINS.md「真 ui 面自包含（外来 UI 插件三件套）」定稿；verify_unload 真面许可（external_tool/isUiComponent/REAL_FACE_BUILTINS）与 access 语义审计随 7a/9b-1a 已就位 |
 
 **9b 分片计划（每片独立提交、可验证、可回退）：**
 1. **9b-1 契约落真源**：ui_feature spec 接入声明 JSON 形状 + 词表单一真源 `hosts/web/src/app/shell/hostAccessVocab.ts`（ProductShellModel 字段/座位 ∪ ProductShellActions 动作；backend/hub/sessionStore 整对象座位，方法面 = 各自 TS 接口，不枚举）+ 生成器携带（faces 全量随 manifest plugins[] 行）+ verify 词表命中/形状校验；

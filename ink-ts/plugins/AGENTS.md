@@ -182,7 +182,9 @@ renderer 适配层整体退役）；其余 kind 目录随对应阶段落位。
   BackendAdapter 组（settings_architecture/connect/backup/audit_recovery/
   model/knowledge/memory/insights）store:["backend"]，faces/ui 改消费注入座位
   （组件增可选 backend prop，ops 工厂接共享 adapter；缺注入惰性回退自建，
-  壳外挂载/测试不白屏）。
+  壳外挂载/测试不白屏）。外来 UI 插件同一契约三件套 = 自带 faces/ui +
+  `*.module.css`（9a）+ spec faces.ui.access 声明接入，装载 seam 走既有
+  external_tool 通道。
 
 ## 手改与生成纪律
 

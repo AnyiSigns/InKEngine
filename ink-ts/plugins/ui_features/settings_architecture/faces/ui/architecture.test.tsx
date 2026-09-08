@@ -1,9 +1,9 @@
 import { describe, expect, it, vi } from 'vitest';
 import { render, screen, fireEvent, waitFor } from '@testing-library/react';
 
-import { ArchitectureView } from '@/app/views/architecture/ArchitectureView';
-import { EdgeEvidenceTab } from '@/app/views/architecture/tabs/EdgeEvidenceTab';
-import { PoolTab } from '@/app/views/architecture/tabs/PoolTab';
+import { ArchitectureView } from './ArchitectureView';
+import { EdgeEvidenceTab } from './tabs/EdgeEvidenceTab';
+import { PoolTab } from './tabs/PoolTab';
 import type { ArchitectureBackend, EdgeSnapshotData, PoolSnapshotData } from '@/app/views/architecture/backend';
 
 function makeBackend(pool: PoolSnapshotData | null, edges: EdgeSnapshotData | null): ArchitectureBackend {

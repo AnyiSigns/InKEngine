@@ -1,0 +1,28 @@
+{
+  "id": "settings_architecture",
+  "kind": "ui_feature",
+  "capability": "host_tool",
+  "actions": [],
+  "depends": [],
+  "faces": {
+    "ui": {
+      "target": "web",
+      "entry": "./faces/ui/index.tsx"
+    }
+  },
+  "data": {
+    "node": {
+      "kind": "component",
+      "type": "settings_architecture",
+      "props": {
+        "note": "设置·架构（结点池/边证据 只读投影）"
+      }
+    },
+    "settings_section": {
+      "key": "architecture",
+      "label": "架构",
+      "order": 6,
+      "icon": "network"
+    }
+  }
+}

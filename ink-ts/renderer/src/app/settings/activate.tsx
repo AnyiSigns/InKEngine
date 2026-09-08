@@ -18,7 +18,6 @@
 import { BookOpen, Database, Eye, FileClock, Network, PlugZap, Settings2, ShieldCheck } from 'lucide-react';
 import type { ReactNode } from 'react';
 
-import { ArchitectureView } from '@/app/views/architecture/ArchitectureView';
 import { DynamicComponent } from '@/renderer/componentRegistry';
 import { registerSettingsSection } from './registry';
 
@@ -67,7 +66,7 @@ export function registerSettingsSections(): void {
     label: '架构',
     icon: <Network size={16} strokeWidth={1.6} aria-hidden />,
     order: 6,
-    render: () => <ArchitectureView />,
+    render: panel('settings_architecture'),
   });
 
   // ===== 原管理台节（内嵌）=====

@@ -942,6 +942,19 @@
       }
     },
     {
+      "id": "settings_architecture",
+      "kind": "ui_feature",
+      "capability": "host_tool",
+      "package": "@ink-ts/plugin-settings-architecture",
+      "dir": "ui_features/settings_architecture",
+      "faces": {
+        "ui": {
+          "target": "web",
+          "entry": "./faces/ui/index.tsx"
+        }
+      }
+    },
+    {
       "id": "settings_audit_recovery",
       "kind": "ui_feature",
       "capability": "host_tool",
@@ -3500,6 +3513,15 @@
         "label": "知识集",
         "order": 5,
         "icon": "book_open",
+        "entry": "./faces/ui/index.tsx"
+      },
+      {
+        "id": "settings_architecture",
+        "type": "settings_architecture",
+        "key": "architecture",
+        "label": "架构",
+        "order": 6,
+        "icon": "network",
         "entry": "./faces/ui/index.tsx"
       },
       {

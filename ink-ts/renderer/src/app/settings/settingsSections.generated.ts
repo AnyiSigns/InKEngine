@@ -20,6 +20,7 @@ export const SETTINGS_SECTIONS: SettingsSectionEntry[] = [
   { id: 'settings_model', type: 'settings_model', key: 'model', label: '模型', order: 2, icon: 'model' },
   { id: 'settings_connect', type: 'settings_connect', key: 'connect', label: '连接', order: 3, icon: 'plug_zap' },
   { id: 'settings_knowledge', type: 'settings_knowledge', key: 'knowledge_set', label: '知识集', order: 5, icon: 'book_open' },
+  { id: 'settings_architecture', type: 'settings_architecture', key: 'architecture', label: '架构', order: 6, icon: 'network' },
   { id: 'settings_memory', type: 'settings_memory', key: 'memory', label: '记忆', order: 73, icon: 'database' },
   { id: 'settings_insights', type: 'settings_insights', key: 'insights', label: '洞察', order: 74, icon: 'eye' },
   { id: 'settings_audit_recovery', type: 'settings_audit_recovery', key: 'audit_recovery', label: '审计与恢复', order: 75, icon: 'file_clock' },

@@ -30,7 +30,7 @@ vi.mock('@/shared/backend/backendAdapter', () => ({
 }));
 
 import { setActiveThreadId } from '@/app/state/activeThread';
-import { AuditRecoverySection } from '@/app/settings/sections/audit_recovery';
+import { AuditRecoverySection } from './audit_recovery';
 
 function stubDownloadCapable() {
   vi.stubGlobal('URL', {

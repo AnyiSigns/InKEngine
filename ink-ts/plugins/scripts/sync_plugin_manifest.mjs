@@ -461,9 +461,10 @@ async function derive() {
   }
   const uiRoot = await expandUi(uiEntry.spec.data.root.$ref, []);
   // settings 段（阶段 7b settings 面板插件）：ui_feature 组件插件可经
-  // data.settings_section 声明为设置页内容段（key/label/order/icon）——不走
-  // 布局树 $ref，由设置浮层壳读派生清单渲染（data-reference 挂载）；声明者须
-  // faces.ui（真 ui 面）且不被布局树引用豁免。
+  // data.settings_section 声明为设置页内容段（key/label/order/icon）——引用源
+  // 不是布局容器 $ref，而是 settings 派生清单（数据引用挂载，壳读清单渲染）；
+  // 可达性统一规则：每插件须被容器 $ref 或 settings 清单二者之一引用（无孤儿、
+  // 无豁免）。声明者须组件节点 + faces.ui（真 ui 面）。
   const settingsSections = [];
   for (const f of uiFeatures) {
     const meta = f.spec.data?.settings_section;
@@ -492,8 +493,9 @@ async function derive() {
   }
   settingsSections.sort((a, b) => a.order - b.order || a.id.localeCompare(b.id));
   for (const f of uiFeatures) {
-    if (f.id !== uiEntry.id && !uiReached.has(f.id) && !f.spec.data?.settings_section) {
-      await fail(`ui_feature 插件 ${f.id} 未被装配树引用（孤儿）`);
+    if (f.id === uiEntry.id || uiReached.has(f.id)) continue;
+    if (typeof f.spec.data?.settings_section !== 'object' || f.spec.data?.settings_section === null) {
+      await fail(`ui_feature 插件 ${f.id} 不可达：未被装配树引用，也未声明 data.settings_section`);
     }
   }
   // settings 面板经 settings 清单引用（非布局树），同样要注册进 pluginFaces

@@ -29,7 +29,7 @@ vi.mock('@/shared/backend/backendAdapter', () => ({
   createBackend: () => backendMock,
 }));
 
-import { ModelSection } from '@/app/settings/sections/model_section';
+import { ModelSection } from './model_section';
 
 describe('ModelSection 空态引导', () => {
   it('厂商空（无连接配置）→ 引导文案 + 两个添加入口', async () => {

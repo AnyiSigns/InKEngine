@@ -942,11 +942,76 @@
       }
     },
     {
+      "id": "settings_audit_recovery",
+      "kind": "ui_feature",
+      "capability": "host_tool",
+      "package": "@ink-ts/plugin-settings-audit-recovery",
+      "dir": "ui_features/settings_audit_recovery",
+      "faces": {
+        "ui": {
+          "target": "web",
+          "entry": "./faces/ui/index.tsx"
+        }
+      }
+    },
+    {
+      "id": "settings_backup",
+      "kind": "ui_feature",
+      "capability": "host_tool",
+      "package": "@ink-ts/plugin-settings-backup",
+      "dir": "ui_features/settings_backup",
+      "faces": {
+        "ui": {
+          "target": "web",
+          "entry": "./faces/ui/index.tsx"
+        }
+      }
+    },
+    {
+      "id": "settings_connect",
+      "kind": "ui_feature",
+      "capability": "host_tool",
+      "package": "@ink-ts/plugin-settings-connect",
+      "dir": "ui_features/settings_connect",
+      "faces": {
+        "ui": {
+          "target": "web",
+          "entry": "./faces/ui/index.tsx"
+        }
+      }
+    },
+    {
       "id": "settings_floater",
       "kind": "ui_feature",
       "capability": "host_tool",
       "package": "@ink-ts/plugin-settings-floater",
       "dir": "ui_features/settings_floater"
+    },
+    {
+      "id": "settings_general",
+      "kind": "ui_feature",
+      "capability": "host_tool",
+      "package": "@ink-ts/plugin-settings-general",
+      "dir": "ui_features/settings_general",
+      "faces": {
+        "ui": {
+          "target": "web",
+          "entry": "./faces/ui/index.tsx"
+        }
+      }
+    },
+    {
+      "id": "settings_model",
+      "kind": "ui_feature",
+      "capability": "host_tool",
+      "package": "@ink-ts/plugin-settings-model",
+      "dir": "ui_features/settings_model",
+      "faces": {
+        "ui": {
+          "target": "web",
+          "entry": "./faces/ui/index.tsx"
+        }
+      }
     },
     {
       "id": "task_capsule",
@@ -3361,6 +3426,52 @@
       "top_bar",
       "trajectory_view"
     ],
-    "settings": []
+    "settings": [
+      {
+        "id": "settings_general",
+        "type": "settings_general",
+        "key": "general",
+        "label": "通用",
+        "order": 1,
+        "icon": "settings2",
+        "entry": "./faces/ui/index.tsx"
+      },
+      {
+        "id": "settings_model",
+        "type": "settings_model",
+        "key": "model",
+        "label": "模型",
+        "order": 2,
+        "icon": "model",
+        "entry": "./faces/ui/index.tsx"
+      },
+      {
+        "id": "settings_connect",
+        "type": "settings_connect",
+        "key": "connect",
+        "label": "连接",
+        "order": 3,
+        "icon": "plug_zap",
+        "entry": "./faces/ui/index.tsx"
+      },
+      {
+        "id": "settings_audit_recovery",
+        "type": "settings_audit_recovery",
+        "key": "audit_recovery",
+        "label": "审计与恢复",
+        "order": 75,
+        "icon": "file_clock",
+        "entry": "./faces/ui/index.tsx"
+      },
+      {
+        "id": "settings_backup",
+        "type": "settings_backup",
+        "key": "backup",
+        "label": "备份",
+        "order": 76,
+        "icon": "shield_check",
+        "entry": "./faces/ui/index.tsx"
+      }
+    ]
   }
 }

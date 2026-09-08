@@ -1,0 +1,28 @@
+{
+  "id": "settings_backup",
+  "kind": "ui_feature",
+  "capability": "host_tool",
+  "actions": [],
+  "depends": [],
+  "faces": {
+    "ui": {
+      "target": "web",
+      "entry": "./faces/ui/index.tsx"
+    }
+  },
+  "data": {
+    "node": {
+      "kind": "component",
+      "type": "settings_backup",
+      "props": {
+        "note": "设置·备份（导出/恢复/出厂重置，确认词 fail-closed）"
+      }
+    },
+    "settings_section": {
+      "key": "backup",
+      "label": "备份",
+      "order": 76,
+      "icon": "shield_check"
+    }
+  }
+}

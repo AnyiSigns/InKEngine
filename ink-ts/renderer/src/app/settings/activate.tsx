@@ -16,17 +16,21 @@
  */
 
 import { BookOpen, Database, Eye, FileClock, Network, PlugZap, Settings2, ShieldCheck } from 'lucide-react';
+import type { ReactNode } from 'react';
 
-import { GeneralSection } from './sections/general_section';
-import { ModelSection } from './sections/model_section';
-import { ConnectSection } from './sections/connect_section';
-import { AuditRecoverySection } from './sections/audit_recovery';
 import { KnowledgePanel } from '@/app/knowledge/KnowledgePanel';
 import { ArchitectureView } from '@/app/views/architecture/ArchitectureView';
-import { BackupSection } from '@/app/console/sections/BackupSection';
 import { InsightSection } from '@/app/insights/InsightSection';
 import { MemoryView } from '@/app/memory/MemoryView';
+import { DynamicComponent } from '@/renderer/componentRegistry';
 import { registerSettingsSection } from './registry';
+
+/** settings 段面板插件真面化（阶段 7b）：段内容 = DynamicComponent name=插件 id
+ * （pluginFaces.generated.ts 静态注册）；已迁移面板在 plugins/ui_features/
+ * settings_* 的 faces/ui 同住。 */
+function panel(name: string) {
+  return (): ReactNode => <DynamicComponent name={name} />;
+}
 
 export function registerSettingsSections(): void {
   registerSettingsSection({
@@ -34,7 +38,7 @@ export function registerSettingsSections(): void {
     label: '通用',
     icon: <Settings2 size={16} strokeWidth={1.6} aria-hidden />,
     order: 1,
-    render: () => <GeneralSection />,
+    render: panel('settings_general'),
   });
 
   registerSettingsSection({
@@ -42,7 +46,7 @@ export function registerSettingsSections(): void {
     label: '模型',
     icon: <span className="ink-icon-chip h-7 w-7 shrink-0 inline-flex items-center justify-center rounded-lg text-[11px] font-medium">模型</span>,
     order: 2,
-    render: () => <ModelSection />,
+    render: panel('settings_model'),
   });
 
   registerSettingsSection({
@@ -50,7 +54,7 @@ export function registerSettingsSections(): void {
     label: '连接',
     icon: <PlugZap size={16} strokeWidth={1.6} aria-hidden />,
     order: 3,
-    render: () => <ConnectSection />,
+    render: panel('settings_connect'),
   });
 
   registerSettingsSection({
@@ -91,7 +95,7 @@ export function registerSettingsSections(): void {
     label: '审计与恢复',
     icon: <FileClock size={16} strokeWidth={1.6} aria-hidden />,
     order: 75,
-    render: () => <AuditRecoverySection />,
+    render: panel('settings_audit_recovery'),
   });
 
   registerSettingsSection({
@@ -99,7 +103,7 @@ export function registerSettingsSections(): void {
     label: '备份',
     icon: <ShieldCheck size={16} strokeWidth={1.6} aria-hidden />,
     order: 76,
-    render: () => <BackupSection />,
+    render: panel('settings_backup'),
   });
 }
 

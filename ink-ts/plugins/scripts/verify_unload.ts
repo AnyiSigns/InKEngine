@@ -18,8 +18,9 @@
  * - 状态引脚（阶段 4 定案：内置插件均 data-only——共享端点/共享域实现/
  *   共享渲染原语，无插件独占实现面，不填占位声明）：任何 spec 出现非空
  *   actions/depends/faces/contract 即视为「数据面转真」，引脚红并提示同步文档。
- *   ui 树不变式：除装配入口外每个 ui_feature 插件必须被 ≥1 容器引用（可达性，
- *   与生成器孤儿检查同源，双保险）。
+ *   ui 可达性不变式（无孤儿、无豁免）：除装配入口外每个 ui_feature 插件须被
+ *   容器 data.children $ref 或 data.settings_section 引用（settings 段插件 =
+ *   组件节点 + faces.ui，经派生清单引用；与生成器孤儿检查同源，双保险）。
  *
  * 用法：tsx plugins/scripts/verify_unload.ts           # 全量审计（exit 1 = 违规）
  *       tsx plugins/scripts/verify_unload.ts --plan <id>  # 输出卸载影响面/阻断方
@@ -405,13 +406,15 @@ function auditDataOnlyState(universe: Map<string, Plugin>): void {
   }
 }
 
-/** ui 不变式：除装配入口与 settings 段插件（data.settings_section 数据引用）外，
- * 每个 ui_feature 插件须被 ≥1 容器引用（无孤儿节点）。 */
+/** ui 可达性不变式（无孤儿、无豁免）：除装配入口外，每个 ui_feature 插件须被
+ * 容器 data.children $ref 或 data.settings_section（settings 派生清单引用）二者
+ * 之一引用——与生成器孤儿检查同源，双保险。 */
 function auditUiReachability(universe: Map<string, Plugin>, referrers: Map<string, string[]>): void {
   for (const plugin of universe.values()) {
-    if (plugin.kind !== 'ui_feature' || plugin.isUiEntry || plugin.settingsKey !== undefined) continue;
-    if ((referrers.get(plugin.id) ?? []).length === 0) {
-      violation(plugin.id, 'ui_feature 节点未被任何容器 data.children 引用（孤儿节点；删除或挂回父容器）');
+    if (plugin.kind !== 'ui_feature' || plugin.isUiEntry) continue;
+    const referenced = (referrers.get(plugin.id) ?? []).length > 0 || plugin.settingsKey !== undefined;
+    if (!referenced) {
+      violation(plugin.id, 'ui_feature 节点不可达：未被容器 data.children 引用，也未声明 data.settings_section');
     }
   }
   const entries = [...universe.values()].filter((p) => p.kind === 'ui_feature' && p.isUiEntry);

@@ -1,0 +1,28 @@
+{
+  "id": "settings_general",
+  "kind": "ui_feature",
+  "capability": "host_tool",
+  "actions": [],
+  "depends": [],
+  "faces": {
+    "ui": {
+      "target": "web",
+      "entry": "./faces/ui/index.tsx"
+    }
+  },
+  "data": {
+    "node": {
+      "kind": "component",
+      "type": "settings_general",
+      "props": {
+        "note": "设置·通用（外观档位/语言，即改即存）"
+      }
+    },
+    "settings_section": {
+      "key": "general",
+      "label": "通用",
+      "order": 1,
+      "icon": "settings2"
+    }
+  }
+}

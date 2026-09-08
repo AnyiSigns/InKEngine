@@ -21,7 +21,7 @@ import { dirname, join, relative } from 'node:path';
 import { fileURLToPath } from 'node:url';
 
 import { BRIDGE_METHODS } from '@ink-ts/host';
-import { legacyAliasTable } from '../../cli/src/legacy_aliases.ts';
+import { legacyAliasTable } from '../../hosts/cli/src/legacy_aliases.ts';
 
 const here = dirname(fileURLToPath(import.meta.url));
 const SEED_ROOT = join(here, '..', '..', 'seed_data');

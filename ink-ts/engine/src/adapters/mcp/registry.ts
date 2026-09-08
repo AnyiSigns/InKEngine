@@ -8,7 +8,7 @@
  * shell = exec 工具集 + embed；stdio Content-Length 分帧，INK_MCP_ROOT
  * 沙箱 fail-closed）——本表 = TS 侧权威定义（server_id → 传输形态/来源/
  * 签名）；环境相关连接位（stdio 命令路径、profile 参数等）由宿主装配期经
- * builtin_mcp_server_config 填充（host/src/mcp/assembly.ts 定位二进制后
+ * builtin_mcp_server_config 填充（hosts/lib/src/mcp/assembly.ts 定位二进制后
  * 以 command/args 覆盖注入）。
  *
  * overrides 只允许覆盖环境相关连接参数；传输形态/来源/签名以注册表为准

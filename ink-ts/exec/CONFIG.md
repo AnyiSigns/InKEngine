@@ -5,14 +5,14 @@
 ONNX）、`ink_ts_mcp`（内置 MCP server 二进制 `ink_ts_mcp`，exec/shell 双
 profile，宿主装配内置 MCP server 的 stdio 承载件）、`ink_ts_rpc`（共享的
 stdio JSON-RPC 行帧底座）。本文件是这些原生机制件的**环境变量/二进制输出/
-线协议单一事实源**，也是 Rust 侧与 TS 传输侧（`host/src/exec/*`、
-`host/src/mcp/*`）的共同基线——两侧实现或改协议时先看本文件。
+线协议单一事实源**，也是 Rust 侧与 TS 传输侧（`hosts/lib/src/exec/*`、
+`hosts/lib/src/mcp/*`）的共同基线——两侧实现或改协议时先看本文件。
 
 ## 1. 二进制产物与定位
 
 - 输出约定：`cargo build` 落 `exec/target/{debug,release}/exec(.exe)`、
   `infer(.exe)` 与 `ink_ts_mcp(.exe)`（workspace `exec/Cargo.toml` 头注 +
-  TS 侧声明派生 `host/src/exec/native.generated.ts` 同口径）。
+  TS 侧声明派生 `hosts/lib/src/exec/native.generated.ts` 同口径）。
 - 定位优先序（TS 侧 `locateNativeBinary`；kind = exec/infer/mcp，mcp 的
   二进制名为 `ink_ts_mcp`）：
   1. `INK_EXEC_BINARY` / `INK_INFER_BINARY` / `INK_MCP_BINARY`（单文件显式覆盖）；
@@ -21,8 +21,8 @@ stdio JSON-RPC 行帧底座）。本文件是这些原生机制件的**环境变
   4. 自当前工作树向上探测 `ink-ts/exec/target/{debug,release}/`。
 - **每二进制的文件名 + env 覆盖键 = 声明数据**：真源 = `plugins/endpoints/<id>/spec.json`
   （kind='endpoint' 插件，`data.native = { file, env }`）→ 派生视图
-  `host/src/exec/native.generated.ts`（`verify:plugin-manifest` 逐字强制）；
-  `host/src/exec/binary.ts` 不再手写 env/文件名表、按声明定位（阶段 6）。
+  `hosts/lib/src/exec/native.generated.ts`（`verify:plugin-manifest` 逐字强制）；
+  `hosts/lib/src/exec/binary.ts` 不再手写 env/文件名表、按声明定位（阶段 6）。
   改二进制产物名/覆盖键 = 先改插件 spec 再改本文档（本文件是 Rust 侧与
   TS 传输侧的共同基线说明，机制语义在此不复制声明数据）。
 - `default-members = exec + rpc`：日常 `cargo test/build` 不触发 infer 的
@@ -57,7 +57,7 @@ stdio JSON-RPC 行帧底座）。本文件是这些原生机制件的**环境变
 
 宿主运行目录/存储/审批的 `INK_*` 覆盖键（`INK_DATA_DIR` / `INK_EVENTS_DIR` /
 `INK_SEED_DIR` / `INK_ATTACHMENT_DIR` / `INK_STORAGE_URI` /
-`INK_AUTO_APPROVE` / `INK_ROUND_DOC_TEXT_CAP`）以 `host/src/config.ts`
+`INK_AUTO_APPROVE` / `INK_ROUND_DOC_TEXT_CAP`）以 `hosts/lib/src/config.ts`
 `ENV_KEYS` 为单一事实源，本文不复制。
 
 ### 2.4 mcp 内置 server（ink_ts_mcp 消费；host mcp 装配期经 spawn env 注入）
@@ -75,7 +75,7 @@ stdio JSON-RPC 行帧底座）。本文件是这些原生机制件的**环境变
 > 适应 Content-Length/JSON Lines），见 §6。
 
 共同基线：Rust 实现 = `crates/rpc/src/frame.rs`（限长行读取）+ `server.rs`
-（服务主循环）；TS 对偶实现 = `host/src/exec/transport.ts`
+（服务主循环）；TS 对偶实现 = `hosts/lib/src/exec/transport.ts`
 （`StdioProcessSession` 读行按 `\n` 切分、stderr 有界尾部）。两侧改动须
 保持下列语义一致。
 
@@ -103,7 +103,7 @@ stdio JSON-RPC 行帧底座）。本文件是这些原生机制件的**环境变
 ## 4. 授权信封（exec.call 载体）
 
 信封字段（Rust `crates/exec/src/envelope.rs` 与 TS
-`host/src/exec/envelope.ts`/`_types.ts` 对偶，签名覆盖紧凑文本原文字节）：
+`hosts/lib/src/exec/envelope.ts`/`_types.ts` 对偶，签名覆盖紧凑文本原文字节）：
 
 `version / id / tool / op / args / endpoint / roots / allowlist / cwd / env /
 timeout_secs / max_chars / nonce / issued_at / decision{approved,by,trace_id}`
@@ -111,7 +111,7 @@ timeout_secs / max_chars / nonce / issued_at / decision{approved,by,trace_id}`
 - op 端点归属（exec 侧机械表，`guard.rs`）：`process→os`、`file→file`、
   `doc→file`、`dialog→dialog`。
 - **http 出网 op 已删除**（2026-09 收敛）：exec 不再有 `http`/`network`
-  能力，信封不再含 `allow_domains`。TS 侧（`host/src/exec/envelope.ts`
+  能力，信封不再含 `allow_domains`。TS 侧（`hosts/lib/src/exec/envelope.ts`
   `hostAllowed`/`parseUrlHost`/`gateCoverage` http 分支、`os.run` op 白名单）
   的 http 残留由宿主批次清理；exec 侧 serde 忽略未知字段，两批时序不互相
   阻塞。
@@ -154,7 +154,7 @@ ink_ts_mcp(.exe)`），使 host MCP 装配段能真正连接缺省内置 server�
   不在 `INK_MCP_PROCESS_ALLOW` 内拒绝。工具守门/执行失败以 MCP 工具结果
   `isError=true` 承载（文本含机器可读 reason）；协议级违规（未初始化/
   未知方法/未知工具）回 JSON-RPC 错误（`data.reason`）。
-- 接入：host `host/src/mcp/assembly.ts`（`BUILTIN_MCP_PROFILES` =
+- 接入：host `hosts/lib/src/mcp/assembly.ts`（`BUILTIN_MCP_PROFILES` =
   inkling_exec→exec / inkling_shell→shell；`resolveBuiltinOverrides` 定位
   `ink_ts_mcp` + profile 参数 + content_length 分帧注入 connect overrides）；
   engine 内置注册表（`engine/src/adapters/mcp/registry.ts`）两内置 server
@@ -167,6 +167,6 @@ ink_ts_mcp(.exe)`），使 host MCP 装配段能真正连接缺省内置 server�
 - Rust：`exec/crates/rpc/src/{frame,server}.rs`、`exec/crates/exec/src/
   {protocol,envelope,guard}.rs`、`exec/crates/infer/src/{protocol,embedder}.rs`、
   `exec/crates/mcp-server/src/{frame,profile,server}.rs`
-- TS：`host/src/exec/{transport,binary,envelope,client,session,_types}.ts`
-  （host/src 只读侧；改动归宿主批次）、`host/src/mcp/assembly.ts`、
+- TS：`hosts/lib/src/exec/{transport,binary,envelope,client,session,_types}.ts`
+  （hosts/lib/src 只读侧；改动归宿主批次）、`hosts/lib/src/mcp/assembly.ts`、
   `engine/src/adapters/mcp/{registry,stdio_transport,_framing}.ts`

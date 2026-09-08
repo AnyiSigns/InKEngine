@@ -4,7 +4,7 @@
  * 来自 --approve 显式声明，从不默认放行。未知启动参数即拒绝：stdio exit 1、
  * run/serve/tui exit 2（headless 语义）；help exit 0。
  *
- * 直接执行 = 进程入口（cli/src/index.ts）；bootstrap/ 为收敛后的唯一进程入口
+ * 直接执行 = 进程入口（hosts/cli/src/index.ts）；bootstrap/ 为收敛后的唯一进程入口
  * （读 hosts/<surface>.spec.json 校验后委托本 runCliMain）。
  *
  * stdio：冷启一次装配 host（createHost，见 host.ts）→ buildHandlers 并入

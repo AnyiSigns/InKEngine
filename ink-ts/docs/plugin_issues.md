@@ -20,16 +20,17 @@
 | 10 | 阶段 3a 落地范围（实施时裁决） | **分批**：3a 建 plugins 真源目录 + spec 契约 + manifest 生成器，首批迁 tools（35）与 mcp 市场（5）；ui_spec 布局与 BRIDGE_METHODS 命令名留 3b（性质不同构、一次全迁面太大） | component_data §三 3a 落地注 + §九 3a 行 |
 | 11 | 命令名数据化方案（66 命令真源迁 plugins） | **声明移 plugins + 生成 TS 类型**：命令名真源全放 plugins/，生成器仿 engine contracts:generate 产出 TS 常量/类型（generated 禁手改），host 工厂类型从生成物派生——真"数据即源"；命令声明与实现分居两处，改动命令名先跑生成器再 typecheck（3b1 已执行：`commands.generated.ts`） | component_data §九 3b1 落地行；本卡 |
 | 15 | 命令插件 spec 表达域归属/导出序 | **spec 带 data.group（实现域 31 值）+ data.order（域内 1..n）**；跨域序由生成器 DOMAIN_TABLE 固定清单决定（= BRIDGE_METHODS spread 序，夹具零漂移）；生成物按 域分组 × order 重建 | component_data §九 3b1 行、plugins/AGENTS.md |
-| 16 | 命令生成物落点 + 可插拔语义 | **宿主侧生成物**（host/src/bridge/commands.generated.ts，31 域元组 + 域类型）最符合可插拔：删命令目录 → 生成物对应元组少键 → 域工厂 Record 键锁 typecheck 红（实现未同步删即错），编译期强制「声明删 → 实现删」无孤儿；spec 填完整 contract/effects 本阶段无消费方（faces/卸载级联是阶段 4），不填占位字段 | component_data §九 3b1 行、CODING.md §7 |
+| 16 | 命令生成物落点 + 可插拔语义 | **宿主侧生成物**（hosts/lib/src/bridge/commands.generated.ts，31 域元组 + 域类型）最符合可插拔：删命令目录 → 生成物对应元组少键 → 域工厂 Record 键锁 typecheck 红（实现未同步删即错），编译期强制「声明删 → 实现删」无孤儿；spec 填完整 contract/effects 本阶段无消费方（faces/卸载级联是阶段 4），不填占位字段 | component_data §九 3b1 行、CODING.md §7 |
 | 12 | 工具插件划分粒度 | **单工具一插件目录**（用户推翻「builtin-tools 统一包 data.tools[]」）：`plugins/tools/<name>/spec.json` 单行承载，control 单位仍是工具表行 | PLUGINS §2.1 修订、component_data §三/§九 |
 | 13 | 内置工具 capability 档位 | **host_tool**（宿主注入；工具行执行经宿主端点 inkling_exec/process_exec 等，非 core 闭集、非 external 装卸） | plugins spec.json capability 字段 |
 | 14 | 迁移后旧 seed 处置 + 消费指向 | **删旧真源**（tools.json/mcp_market.json），web/host/fixture 生成/self_check 门禁**一律经 plugins/manifest.json 派生视图取用**（生成物禁手改、--check 强制）；mcp.market seed_dir 语义 = 目录内含 manifest.json | component_data §三/§九、CODING.md §7/§9 |
 | 17 | ui_feature 拆粒度（阶段 3b2 实施时裁决） | **一节点一插件全平铺**（用户两轮修正：先按 view 拆、再要求「容器结构也是插件」）：plugins/ui_features/<id>/ 每容器/组件/装配入口各一目录（装配入口唯一含 name/version/theme/root.$ref）；容器 data.children 按序 $ref 子插件 id；生成器 DFS 展开重建完整树 + canonical 组件并集派生；卸载 = 删目录 + 删父 children $ref（引用缺失/成环/孤儿 fail-closed） | component_data §九 3b2 行、PLUGINS §1、plugins/AGENTS |
-| 18 | ui_spec 迁 plugins 后消费与白名单（阶段 3b2 定稿） | 过渡态**聚合单文件生成物** plugins/ui.generated.json（渲染器与壳仍消费一棵完整布局树，零改动）+ seed_data/ui_spec.json 删除；canonical 白名单改派生（布局引用组件 type 并集升序 → manifest ui_features.components + host/src/bridge/ui_canonical.generated.ts，host recipe 常量改引用）；web 白名单对码测试增强「派生 canonical == 旧侧 inkling manifest renderer_components」；引擎 BOOT_UI_SPEC（boot.panel）不动（boot 资产非产品 chrome）、ui_spec.* 编辑器补丁链（W2 未接线）不属本次 | component_data §三/§九、CODING §7/§10、PLUGINS §1 |
+| 18 | ui_spec 迁 plugins 后消费与白名单（阶段 3b2 定稿） | 过渡态**聚合单文件生成物** plugins/ui.generated.json（渲染器与壳仍消费一棵完整布局树，零改动）+ seed_data/ui_spec.json 删除；canonical 白名单改派生（布局引用组件 type 并集升序 → manifest ui_features.components + hosts/lib/src/bridge/ui_canonical.generated.ts，host recipe 常量改引用）；web 白名单对码测试增强「派生 canonical == 旧侧 inkling manifest renderer_components」；引擎 BOOT_UI_SPEC（boot.panel）不动（boot 资产非产品 chrome）、ui_spec.* 编辑器补丁链（W2 未接线）不属本次 | component_data §三/§九、CODING §7/§10、PLUGINS §1 |
 | 19 | 阶段 4（faces/卸载一致性）范围与语义（2026-09-07 定案） | **声明级地基 + verify-unload 静态执法，不引入运行期装载**（用户逐项确认）：① spec 顶层可声明 `actions`/`depends`/`faces`/`contract`（CapabilityComponent 全脸），生成器只守 JSON 形状并携带声明字段入 manifest plugins[] 注册表行；② 新 `verify:unload`（plugins/scripts/verify_unload.ts）：depends 悬空/成环/未登记（插件 id 或机制端口，词表单一真源 engine/src/kernel/registry/ports.ts）= 违规；faces 三脸结构（ui/logic/data × engine\|host\|web）+ `contract.effects ⊆ 词表`；manifest 平价 + data-only 状态引脚 + ui 可达性不变式；`--plan <id>` 输出卸载阻断方（下游 depends / 父容器 $ref）与级联子树，**fail-closed 拒卸**（用户选定）；③ 现有 131 内置插件审计结论 = 全 data-only（共享端点/域实现/渲染原语），**不填占位声明**（防第二份平行真相），schema 能力留外部/多面插件（用户选定方案 1）；④ 插件源**单份共用 tauri/cli/web/ide 四宿主**，不引入 per-host 分支/字段（宿主差异 = host.spec 阶段 5 表达，用户确认） | component_data §七/§九、PLUGINS §1、CODING §7、plugins/AGENTS、`plugins/scripts/verify_unload.ts` |
-| 20 | 阶段 6（exec 工具信封声明化）范围与语义（2026-09-07 定案） | **binary.ts 手写约定 → 声明数据**（用户逐项确认）：① 真源 = **plugins 源 kind='endpoint'**（plugins/endpoints/exec·infer·mcp 三目录，spec.data.native = 二进制文件名 file + env 覆盖键；复用既有 spec/verify 体系，插件总数 131→134）；② 产物 = **数据化 + 生成物禁手改**：native.generated.ts（host/src/exec，第 5 派生产物）逐字入 verify:plugin-manifest，binary.ts 手写 BINARY_ENV/FILE_BY_KIND 两表删除、按声明定位；probe 逻辑/失败语义非声明部分；③ 失败语义**维持现况：消费方各自定**（dialog/doc 缺二进制降级 unavailable，mcp 装配 fail-closed 报缺；不新增装配级全局必装强制） | component_data §七/§九（阶段 6 落地行）、CODING §7（verify:plugin-manifest 五产物）、plugins/AGENTS.md（endpoints 域）、exec/CONFIG.md §1、本卡 |
-| 21 | 阶段 7a（物理单目录/测试同住）范围与语义（2026-09-07 定案） | 用户三卡拍板：① 范围 = **样板真面 + 拆 1 内置示范**（不另造 synthetic 外部样例：doc_parse 本身即真实带 faces.logic 的样板；external_tool 走同一 seam，随首个真实外部插件接入）；② 样板形态 = **最小 logic-face 工具**（faces.logic target=host + entry + 同目录 test + package.json exports 条件导出）；③ 装载 seam = **host 装配期 loader**（读 manifest plugins[] faces.logic.target='host' → 动态 import entry；插件源缺 = 空集降级、face 装载/契约不符 = fail-closed）。doc_parse 从 data-only 升级为首个真面内置（host_tool），与阶段 4「内置全 data-only」定案的冲突经 verify_unload `REAL_FACE_BUILTINS` 白名单**显式豁免（唯一）**；失败语义维持消费方各自定（docParse 缺省 = rounds/material 仅文件名引用） | component_data §七/§九 7a 行、CODING §2.7/§7、plugins/AGENTS.md、`host/src/face/loader.ts`+`host/src/plugins_fs.ts`、verify_unload.ts、本卡 |
+| 20 | 阶段 6（exec 工具信封声明化）范围与语义（2026-09-07 定案） | **binary.ts 手写约定 → 声明数据**（用户逐项确认）：① 真源 = **plugins 源 kind='endpoint'**（plugins/endpoints/exec·infer·mcp 三目录，spec.data.native = 二进制文件名 file + env 覆盖键；复用既有 spec/verify 体系，插件总数 131→134）；② 产物 = **数据化 + 生成物禁手改**：native.generated.ts（hosts/lib/src/exec，第 5 派生产物）逐字入 verify:plugin-manifest，binary.ts 手写 BINARY_ENV/FILE_BY_KIND 两表删除、按声明定位；probe 逻辑/失败语义非声明部分；③ 失败语义**维持现况：消费方各自定**（dialog/doc 缺二进制降级 unavailable，mcp 装配 fail-closed 报缺；不新增装配级全局必装强制） | component_data §七/§九（阶段 6 落地行）、CODING §7（verify:plugin-manifest 五产物）、plugins/AGENTS.md（endpoints 域）、exec/CONFIG.md §1、本卡 |
+| 21 | 阶段 7a（物理单目录/测试同住）范围与语义（2026-09-07 定案） | 用户三卡拍板：① 范围 = **样板真面 + 拆 1 内置示范**（不另造 synthetic 外部样例：doc_parse 本身即真实带 faces.logic 的样板；external_tool 走同一 seam，随首个真实外部插件接入）；② 样板形态 = **最小 logic-face 工具**（faces.logic target=host + entry + 同目录 test + package.json exports 条件导出）；③ 装载 seam = **host 装配期 loader**（读 manifest plugins[] faces.logic.target='host' → 动态 import entry；插件源缺 = 空集降级、face 装载/契约不符 = fail-closed）。doc_parse 从 data-only 升级为首个真面内置（host_tool），与阶段 4「内置全 data-only」定案的冲突经 verify_unload `REAL_FACE_BUILTINS` 白名单**显式豁免（唯一）**；失败语义维持消费方各自定（docParse 缺省 = rounds/material 仅文件名引用） | component_data §七/§九 7a 行、CODING §2.7/§7、plugins/AGENTS.md、`hosts/lib/src/face/loader.ts`+`hosts/lib/src/plugins_fs.ts`、verify_unload.ts、本卡 |
 | 22 | 阶段 7b（产品 UI 真身化全量迁移）范围与语义（2026-09-08 定案） | 用户多轮拍板：① 范围 = **全量真身化、不做壳清理**——canonical 布局叶子 / 设置 13 面板 / 设置浮层逐个迁 `plugins/ui_features/<id>/faces/ui/`（真 ui 面 + 同住测试），`web/` 包更名 `renderer/`，渲染器适配层（rendererAdapters）与 settings 手写注册框架整体退役；② 粒度 = **域 feature 包**（学 dsh 域粒度）——设置面板按 feature 细分独立插件（spec `data.settings_section` = key/label/order/icon + `faces.ui`）；③ 挂载 = **数据引用而非布局树**——settings 面板不进布局树 $ref，经第 7 派生产物 `settingsSections.generated.ts` 派生清单引用；设置浮层本身真面化（settings_floater 读派生清单渲染左导航，内容 DynamicComponent name=插件 id）；④ **可达性统一规则**（推翻「settings 面板孤儿豁免」表述）：除装配入口外每 ui_feature 插件须被容器 `data.children.$ref` 或 `data.settings_section` 二者之一引用，无孤儿、无豁免（verify_unload 与生成器同源双保险）；⑤ 面板数据源 = **插件自建共享 AppBackend 单例**（定案 B：serve 未接线时 dev 夹具兜底，不经宿主注入面）；⑥ 面板图标 = 派生清单 icon 字符串在浮层消费侧 lucide 映射（model/未知名回落标签文字 chip）。计数：ui_features 25→38（装配/容器 12 + 真 ui 面 26 = 13 布局叶子 + 13 settings 面板）；真 ui 面注册 = 第 6 派生产物 `pluginFaces.generated.ts` 静态 import（注册名 = 插件 id），白名单放行即该派生视图 | component_data §九 7b 行、PLUGINS §1、CODING §7/§10、plugins/AGENTS.md、`pluginFaces.generated.ts`+`settingsSections.generated.ts`、verify_unload.ts、本卡 |
+| 23 | 宿主仓目录收敛 + renderer 职责分层（2026-09-08 定案，方向 B） | 用户拍板两阶段：① **目录收敛（A，本批已落地）**——顶层 `host/`→`hosts/lib/`（@ink-ts/host 装配库）、`cli/`→`hosts/cli/`（@ink-ts/cli 进程实现），四份 `*.spec.json` 平铺 hosts/ 根同住，bootstrap 唯一入口改委托 `hosts/cli`；root workspaces/scripts、gate 扫描目录、verify 链脚本路径、self_check symbols 索引、plugin 生成器目标路径（hosts/lib/src/...）、tsconfig extends（../../tsconfig.base.json）全部改指；② **renderer 职责分层（B，另立）**——产品 chrome（App/activate/state/productView/session）与通用显示层分界待定（是否新建 hosts/web 产品壳包、renderer 转显示库；共享 `@/app/backend`/`@/shared/*` 资产归属与 plugins `@` 别名随之），ui.json 显示设备为路径 2 终局不在本次 | component_data §4.3/§九/参考模拟 §1、CODING §1/§7、PLUGINS §1、plugins/AGENTS.md、本卡 |
 
 ## 阶段 2 实施时须现场核对
 
@@ -102,7 +103,7 @@
   （host=kind host 装配），TUI 是 cli 宿主的一个绘制 face，**不作为独立插件
   kind**；web 真实 spec + tauri/ide 占位（implemented=false，装配实现住外部壳仓）；
 - verify:host-spec 在 root test 链：四宿主不变式 + HostFaces 词汇（单一真源
-  host/src/host_spec.ts）+ implemented=true 须带 renderer entry 且文件真实存在。
+  hosts/lib/src/host_spec.ts）+ implemented=true 须带 renderer entry 且文件真实存在。
   **（2026-09-07 阶段 5 已完成并提交：5a cli=host 插件框架/TUI face + 5b-1 四份
   hosts spec + 5b-2 host_spec 装配注入（host_spec_id/surface） + 5b-3 bootstrap
   唯一进程入口，见 §九 落地状态。）**
@@ -112,7 +113,7 @@
 - kind='endpoint' 插件（plugins/endpoints/exec·infer·mcp）是真源：spec.data.native
   （file 二进制文件名 + env 覆盖键）与 exec/CONFIG.md §1 描述、host 按声明装载
   三者一致；mcp 端点文件名为 ink_ts_mcp（≠ 目录 id）；
-- 派生视图第 5 产物 = host/src/exec/native.generated.ts（NATIVE_BINARY_DECLS +
+- 派生视图第 5 产物 = hosts/lib/src/exec/native.generated.ts（NATIVE_BINARY_DECLS +
   NativeBinaryKind 类型），verify:plugin-manifest 逐字比对；binary.ts 禁回退
   手写 BINARY_ENV/FILE_BY_KIND 表（按声明定位），`_types.NativeBinaryKind` 从
   生成物派生（不再是手写三值联合）；
@@ -128,7 +129,7 @@
 
 - doc_parse 升级真面：spec 顶层 `faces.logic`（target=host，entry=
   ./faces/logic/index.ts）+ `depends=['exec']`；实现（DocService）自
-  host/src/doc/service.ts 迁插件 `faces/logic/index.ts`（@ink-ts/host 公共面
+  hosts/lib/src/doc/service.ts 迁插件 `faces/logic/index.ts`（@ink-ts/host 公共面
   不再导出 DocService/DEFAULT_DOC_TEXT_CAP——DocParser seam 保留），测试
   `index.test.ts` 随插件同住（`vitest run --root plugins` 执行）；删除旧文件，
   显式 `binary:null` = 未装配（不回落 locate，原 ?? 语义是坑）；
@@ -167,6 +168,23 @@
   **（2026-09-08 阶段 7b 已完成并提交：26 真 ui 面全量真身化 + renderer 适配层/
   settings 原生框架退役 + 第 6/7 派生产物接线，renderer/plugins vitest +
   verify:unload + gate 全绿，见 §九 落地状态。）**
+
+## 宿主仓目录收敛（2026-09-08 决策 #23 Step 1，已落地）
+
+- 拓扑：顶层 `host/`→`hosts/lib/`（@ink-ts/host 装配库）、`cli/`→`hosts/cli/`
+  （@ink-ts/cli 进程实现）；四份 `*.spec.json` 平铺 `hosts/` 根与实现同住；
+  bootstrap 唯一入口改委托 `hosts/cli`（runCliMain/parseArgs/loadHostSpec 路径
+  改指 `hosts/cli`/`hosts/lib`）。
+- 引用面全量改指：root workspaces/scripts（`--root hosts/cli|hosts/lib`、
+  `hosts/lib/scripts/verify_bridge_mount.ts`）、gate lineScanDirs、self_check
+  symbols 消费索引、plugin 生成器目标路径（`hosts/lib/src/...` 第 2/3/5 产物
+  + 头注）、hosts/cli.spec.json entry、tsconfig extends 修正为
+  `../../tsconfig.base.json`；npm install 重链 workspaces/package-lock。
+- 教训：首次在错误 tsconfig（extends 缺失）下跑 `tsc -p` 会以默认选项把 CJS
+  产物 emit 进 src 并干扰 vitest 解析（`.js` 优先于 `.ts`）——本次误编译产物已
+  清理，tsconfig 修复后再跑 typecheck 无 emit。
+  **（验证：hosts/lib/hosts/cli tsc 绿、vitest 绿（cli 77）、gate/verify:host-spec
+  PASS、root npm test 全链绿，见 §九 落地状态。）**
 
 ## 引擎层 AGENTS 用语
 

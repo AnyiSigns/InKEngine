@@ -1,7 +1,7 @@
 /**
  * backup 命令面（export/preview/restore）——host 原生 data_dir 快照。
  *
- * zip 导出/预览清单/恢复替换经 host/src/backup 域（store-zip 编解码 +
+ * zip 导出/预览清单/恢复替换经 hosts/lib/src/backup 域（store-zip 编解码 +
  * 目录树打包/解包）。restore 为危险操作：须 confirm 精确等于固定标记
  * 'backup-restore'（fail-closed）。产品级 restore = 单一宿主命令，但内部
  * 编排（停 runtime → 原目录快照 → 目录替换 → 重新装配 → 报告）由

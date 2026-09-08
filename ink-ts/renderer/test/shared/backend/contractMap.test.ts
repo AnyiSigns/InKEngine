@@ -16,7 +16,7 @@ import surface from '../../../../seed_data/web_command_surface.json';
 /** host bridge 点分方法表（@ink-ts/host BRIDGE_METHODS 生成快照）。 */
 const BRIDGE_METHODS = (surface as { bridge_methods: string[] }).bridge_methods;
 
-/** cli 扁平旧名别名面（cli/src/legacy_aliases.ts legacyAliasTable 生成快照）。 */
+/** cli 扁平旧名别名面（hosts/cli/src/legacy_aliases.ts legacyAliasTable 生成快照）。 */
 const LEGACY_ALIASES = (surface as { legacy_alias_flats: string[] }).legacy_alias_flats;
 
 /**

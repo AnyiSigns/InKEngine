@@ -1,27 +1,27 @@
-#!/usr/bin/env node
+﻿#!/usr/bin/env node
 /**
- * 同步生成插件源派生视图（plugins/manifest.json + host/src/bridge/commands.generated.ts
- * + plugins/ui.generated.json + host/src/bridge/ui_canonical.generated.ts
- * + host/src/exec/native.generated.ts），
+ * 同步生成插件源派生视图（plugins/manifest.json + hosts/lib/src/bridge/commands.generated.ts
+ * + plugins/ui.generated.json + hosts/lib/src/bridge/ui_canonical.generated.ts
+ * + hosts/lib/src/exec/native.generated.ts），
  * plugins/ 各 spec.json 为真源。
  *
  * 职责边界（对齐 PLUGINS.md §1 / docs/component_data_endgame.md §三）：
  * - plugins/<kind>/<id>/spec.json = 能力插件声明真源（唯一手改处）；
  * - plugins/manifest.json = 派生视图**生成物**——从各 spec 聚合（插件索引 +
  *   tools 工具表行 + mcp 市场视图 + ui_features 组件白名单），禁手工维护；
- * - host/src/bridge/commands.generated.ts = 命令面派生视图**生成物**——从
+ * - hosts/lib/src/bridge/commands.generated.ts = 命令面派生视图**生成物**——从
  *   plugins/commands/<id>/spec.json 聚合（各域命令元组 + 域命令类型），
  *   禁手工维护；host 域实现文件据此取方法名/键类型（编译期锁）。
  * - plugins/ui.generated.json = 产品主壳布局派生视图**生成物**——从
  *   plugins/ui_features/<id>/spec.json 装配（装配入口 inkling.ui 的 $ref 树
  *   展开重建完整布局树，与渲染器 UISpec 同构），禁手工维护；web 渲染/
  *   fixture 据此取布局。
- * - host/src/bridge/ui_canonical.generated.ts = 产品 UI canonical 组件白名单
+ * - hosts/lib/src/bridge/ui_canonical.generated.ts = 产品 UI canonical 组件白名单
  *   派生视图**生成物**——布局树引用组件 type 并集（升序），禁手工维护；
  *   host 配方白名单与出厂组件面据此装配。
- * - host/src/exec/native.generated.ts = 原生执行件端点派生视图**生成物**——
+ * - hosts/lib/src/exec/native.generated.ts = 原生执行件端点派生视图**生成物**——
  *   从 plugins/endpoints/<id>/spec.json 聚合（每二进制 file + env 覆盖键），
- *   禁手工维护；host/src/exec/binary.ts 据此按声明定位（替 binary.ts 手写表）。
+ *   禁手工维护；hosts/lib/src/exec/binary.ts 据此按声明定位（替 binary.ts 手写表）。
  *
  * 消费方一律经派生视图取用：web dev 夹具（backend.ts）、host mcp.market、
  * tools_os 夹具生成（sync_tools_fixtures.mjs）、self_check data 门禁
@@ -43,7 +43,7 @@
  *   升序 = canonical 白名单；
  * - plugins/endpoints/<id>/spec.json：kind='endpoint'，一个原生执行件一个目录
  *   （exec/infer/mcp，宿主装配期注入）；spec.data.native = 二进制文件名 file +
- *   env 覆盖键；host/src/exec/native.generated.ts 派生视图据此生成。
+ *   env 覆盖键；hosts/lib/src/exec/native.generated.ts 派生视图据此生成。
  * - spec 顶层必含 id/kind/capability；聚合顺序 = 确定性（工具/市场 id 升序；
  *   命令 = DOMAIN_TABLE 顺序 + 域内 data.order；ui = 装配树引用序）；
  * - 派生文件不写任何 spec 未声明内容（除固定 note/version/头注）。
@@ -58,16 +58,16 @@ import { fileURLToPath } from 'node:url';
 const here = dirname(fileURLToPath(import.meta.url));
 const PLUGINS_ROOT = join(here, '..');
 const MANIFEST = join(PLUGINS_ROOT, 'manifest.json');
-const COMMANDS_GENERATED = join(PLUGINS_ROOT, '..', 'host', 'src', 'bridge', 'commands.generated.ts');
+const COMMANDS_GENERATED = join(PLUGINS_ROOT, '..', 'hosts', 'lib', 'src', 'bridge', 'commands.generated.ts');
 const UI_GENERATED = join(PLUGINS_ROOT, 'ui.generated.json');
-const UI_CANONICAL_GENERATED = join(PLUGINS_ROOT, '..', 'host', 'src', 'bridge', 'ui_canonical.generated.ts');
-const NATIVE_GENERATED = join(PLUGINS_ROOT, '..', 'host', 'src', 'exec', 'native.generated.ts');
+const UI_CANONICAL_GENERATED = join(PLUGINS_ROOT, '..', 'hosts', 'lib', 'src', 'bridge', 'ui_canonical.generated.ts');
+const NATIVE_GENERATED = join(PLUGINS_ROOT, '..', 'hosts', 'lib', 'src', 'exec', 'native.generated.ts');
 const PLUGIN_FACES_GENERATED = join(PLUGINS_ROOT, '..', 'renderer', 'src', 'app', 'pluginFaces.generated.ts');
 const SETTINGS_GENERATED = join(PLUGINS_ROOT, '..', 'renderer', 'src', 'app', 'settings', 'settingsSections.generated.ts');
 
 /**
  * 命令实现域映射表（group → const/type 名）；顺序 = BRIDGE_METHODS 跨域序
- * （= host/src/bridge/index.ts spread 序；web_command_surface 夹具逐字比对）。
+ * （= hosts/lib/src/bridge/index.ts spread 序；web_command_surface 夹具逐字比对）。
  * 新增实现域须在此登记 + plugins/commands/<method>/spec.json 指定 group。
  */
 const DOMAIN_TABLE = [
@@ -114,7 +114,7 @@ const MANIFEST_NOTE =
   'plugins = 全插件索引（id/kind/capability/包名/目录；行可携带 spec 顶层声明的 ' +
   'actions/depends/faces/contract——CapabilityComponent 全脸字段，未声明不输出；' +
   '引用解析/effects 词表语义由 verify:unload 校验）。endpoints = kind=endpoint ' +
-  '原生执行件端点声明（data.native；host/src/exec/native.generated.ts 同源派生）。';
+  '原生执行件端点声明（data.native；hosts/lib/src/exec/native.generated.ts 同源派生）。';
 
 const COMMANDS_HEADER =
   '/**\n' +
@@ -135,7 +135,7 @@ const NATIVE_HEADER =
   '/**\n' +
   ' * 生成文件勿手改：原生执行件端点声明派生视图（真源 = plugins/endpoints/<id>/spec.json\n' +
   ' * 的 data.native：二进制文件名 file + env 覆盖键）。由 plugins/scripts/sync_plugin_manifest.mjs\n' +
-  ' * 生成；host/src/exec/binary.ts 据此按声明定位；verify:plugin-manifest 强制逐字一致。\n' +
+  ' * 生成；hosts/lib/src/exec/binary.ts 据此按声明定位；verify:plugin-manifest 强制逐字一致。\n' +
   ' */\n';
 
 const PLUGIN_FACES_HEADER =
@@ -377,7 +377,7 @@ async function derive() {
   }
   // kind='endpoint'：plugins/endpoints/<id>/spec.json → 原生执行件端点声明
   // （data.native：file 二进制文件名 + env 覆盖键）。三件套 exec/infer/mcp 由
-  // host/src/exec/native.generated.ts 派生（host/src/exec/binary.ts 按声明定位）。
+  // hosts/lib/src/exec/native.generated.ts 派生（hosts/lib/src/exec/binary.ts 按声明定位）。
   const nativeDecls = [];
   for (const id of await listDirs(join(PLUGINS_ROOT, 'endpoints'))) {
     const dir = join(PLUGINS_ROOT, 'endpoints', id);

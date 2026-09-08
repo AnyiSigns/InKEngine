@@ -9,9 +9,9 @@
  * 用法：tsx bootstrap/main.ts [stdio|run|serve|tui] [--approve] [--data-dir <dir>] ...
  */
 
-import { loadHostSpec } from '../host/src/host_spec.js';
-import { parseArgs } from '../cli/src/argv.js';
-import { runCliMain } from '../cli/src/index.js';
+import { loadHostSpec } from '../hosts/lib/src/host_spec.js';
+import { parseArgs } from '../hosts/cli/src/argv.js';
+import { runCliMain } from '../hosts/cli/src/index.js';
 
 /** argv 形态 → host.spec 面（四份宿主 spec 之一；tauri/ide 无 CLI 形态）。 */
 const MODE_SURFACE = {

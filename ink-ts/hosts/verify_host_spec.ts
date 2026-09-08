@@ -9,7 +9,7 @@
  *    note）；实现面清单变动需同步本脚本与 component_data §九；
  * 3. 每份 spec 经 host_spec.validateHostSpec 形状校验（HostFaces 词汇对齐）；
  * 4. implemented=true 的 spec 必须带 renderer，且 renderer.entry 在仓库根下真实
- *    存在（cli→cli/src/tui、web→renderer/src）；implemented=false 不许本仓装配。
+ *    存在（cli→hosts/cli/src/tui、web→renderer/src）；implemented=false 不许本仓装配。
  *
  * 退出码：0 = PASS；1 = 任一违规。
  */
@@ -23,7 +23,7 @@ import {
   loadHostSpec,
   validateHostSpec,
   type HostSpec,
-} from '../host/src/host_spec.js';
+} from './lib/src/host_spec.js';
 
 const HERE = dirname(fileURLToPath(import.meta.url));
 const ROOT = join(HERE, '..');

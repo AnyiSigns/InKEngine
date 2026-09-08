@@ -45,10 +45,10 @@ plugins/
 │                       #   展开；渲染器 UISpec 同构）；同脚本生成，--check 强制
 └─ scripts/
     └─ sync_plugin_manifest.mjs   # 生成器（plugins 真源 → manifest.json +
-                                  # host/src/bridge/commands.generated.ts +
+                                  # hosts/lib/src/bridge/commands.generated.ts +
                                   # ui.generated.json +
-                                  # host/src/bridge/ui_canonical.generated.ts +
-                                  # host/src/exec/native.generated.ts +
+                                  # hosts/lib/src/bridge/ui_canonical.generated.ts +
+                                  # hosts/lib/src/exec/native.generated.ts +
                                   # renderer/src/app/pluginFaces.generated.ts +
                                   # renderer/src/app/settings/settingsSections.generated.ts 派生视图）
 ```
@@ -116,8 +116,8 @@ renderer 适配层整体退役）；其余 kind 目录随对应阶段落位。
 - endpoint 插件（阶段 6）：一个原生执行件一个目录（exec/infer/mcp；id =
   二进制定位 kind，注册表全局唯一），`data.native` = { file: 二进制文件名,
   env: env 单文件覆盖键 }——真源唯一化在 plugins/endpoints/<id>/spec.json，
-  派生视图 host/src/exec/native.generated.ts（NATIVE_BINARY_DECLS +
-  NativeBinaryKind 类型）由此生成，host/src/exec/binary.ts 按声明定位
+  派生视图 hosts/lib/src/exec/native.generated.ts（NATIVE_BINARY_DECLS +
+  NativeBinaryKind 类型）由此生成，hosts/lib/src/exec/binary.ts 按声明定位
   （binary.ts 不再手写 env/文件名表）；改端点声明只改 spec.json + 重跑
   生成器；
 - faces/impl/locale 物理目录：data-only 声明插件（tools/mcp/commands 与无真面
@@ -138,13 +138,13 @@ renderer 适配层整体退役）；其余 kind 目录随对应阶段落位。
   （target=host，entry=./faces/logic/index.ts）+ depends=['exec']（原生执行件
   端点插件）；实现（DocService/DocParser 执行体）随插件同住于
   `faces/logic/index.ts` + 同目录 `index.test.ts`，经 `vitest run --root
-  plugins` 执行；host 装配期由 `host/src/face/loader.ts` 按声明装载（缺插件
+  plugins` 执行；host 装配期由 `hosts/lib/src/face/loader.ts` 按声明装载（缺插件
   源 = docParse 缺省降级；face 装载/契约不符 = 装配期 fail-closed）；faces
   entry 物理同住（相对路径禁逃逸 + 文件真实存在）由 verify:unload 强制；
 - 本阶段不设每插件 AGENTS.md（data-only 声明以 spec.json 为行为唯一事实
   源，per-plugin AGENTS 留待挂 faces 的插件补建，防行为文案第二份漂移）；
   manifest.json / commands.generated.ts / ui.generated.json /
-  ui_canonical.generated.ts / host/src/exec/native.generated.ts /
+  ui_canonical.generated.ts / hosts/lib/src/exec/native.generated.ts /
   renderer/src/app/pluginFaces.generated.ts /
   renderer/src/app/settings/settingsSections.generated.ts 派生视图禁手改，
   改工具/命令/市场/ui/endpoint 声明只改对应 spec.json。
@@ -155,8 +155,8 @@ renderer 适配层整体退役）；其余 kind 目录随对应阶段落位。
    `plugins/tools/<name>/spec.json` / `plugins/commands/<method>/spec.json` /
    `plugins/mcp/<id>/spec.json` / `plugins/ui_features/<id>/spec.json` /
    `plugins/endpoints/<id>/spec.json`；manifest.json 与
-   host/src/bridge/commands.generated.ts、plugins/ui.generated.json、
-   host/src/bridge/ui_canonical.generated.ts、host/src/exec/native.generated.ts、
+   hosts/lib/src/bridge/commands.generated.ts、plugins/ui.generated.json、
+   hosts/lib/src/bridge/ui_canonical.generated.ts、hosts/lib/src/exec/native.generated.ts、
    renderer/src/app/pluginFaces.generated.ts、
    renderer/src/app/settings/settingsSections.generated.ts
    是生成物，禁手改；

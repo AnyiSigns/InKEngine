@@ -7,7 +7,7 @@
  * - 裁决面门在 envelope.ts：越权/越根/未批准由 host 拒绝（ExecRefused），
  *   进程不触达；exec 侧机械复核为第二道防线；
  * - 崩溃看护/重启/熔断在 SupervisedNativeSession（infer client 与它共用
- *   这一样板，见 host/src/exec/session.ts）。
+ *   这一样板，见 hosts/lib/src/exec/session.ts）。
  */
 
 import type {

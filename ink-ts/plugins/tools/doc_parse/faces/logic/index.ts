@@ -2,7 +2,7 @@
  * doc_parse 插件 logic face —— 阶段 7a 首个真实 host logic face 样板。
  *
  * 语义：经 exec 原生件（op=doc，file 端点）做文档文本提取；host 装配期由
- * host/src/face/loader.ts 按 spec faces.logic.entry 动态装载（真源 =
+ * hosts/lib/src/face/loader.ts 按 spec faces.logic.entry 动态装载（真源 =
  * plugins/tools/doc_parse/spec.json，目标态=按 target 切的条件导出）。
  * 越权/越根由 exec 信封的 host 裁决面门拒绝；二进制未装配 = exec_unavailable
  * 结构化返回（round/material 消费方走降级路径），不抛。

@@ -16,12 +16,12 @@
   },
   "renderer": {
     "target": "host",
-    "entry": "cli/src/tui"
+    "entry": "hosts/cli/src/tui"
   },
   "runtime": {
     "headless": false,
     "approval_timeout": null,
     "ui_origin": null
   },
-  "note": "cli 宿主（唯一进程载体）：CLI/TUI 呈现面（renderer = cli/src/tui 终端交互）；stdio 为 headless 通道、terminal 为交互呈现；运行配置声明化随阶段 5b，密钥外置（config.json/环境）"
+  "note": "cli 宿主（唯一进程载体）：CLI/TUI 呈现面（renderer = hosts/cli/src/tui 终端交互）；stdio 为 headless 通道、terminal 为交互呈现；运行配置声明化随阶段 5b，密钥外置（config.json/环境）"
 }

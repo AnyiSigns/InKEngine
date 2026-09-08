@@ -72,7 +72,7 @@ spec 直接住 `hosts/<host>.spec.json`，faces 用 HostFaces，见 §2）。
 命令类（`kind='command'`）落地形态（阶段 3b1 定稿）：`plugins/commands/<method>/`
 单命令一目录，spec 的 `data.group` = 实现域（31 值，含 rounds.todos 独立实现
 的 todos 组）、`data.order` = 域内序号；方法名真源 = spec.id（目录名）。
-host 命令面经派生生成物 `host/src/bridge/commands.generated.ts` 取用
+host 命令面经派生生成物 `hosts/lib/src/bridge/commands.generated.ts` 取用
 （域命令元组 + 域命令类型，禁手改），域实现文件只 import type/re-export——命令
 面从此派生、无手写方法名数组；增删命令 = 增删 plugins/commands 目录 + 重跑
 生成器 + 同步 CODING.md §9 命令表。
@@ -86,7 +86,7 @@ component，逐字承载 props/bind）；容器插件的 `data.children` = 按�
 $ref 展开重建完整布局树（生成物 `plugins/ui.generated.json`，渲染器消费，
 与渲染器 UISpec 同构；引用缺失/成环/孤儿节点插件 fail-closed）并把树内引用
 组件 type 并集（升序）派生为 canonical 白名单（生成物
-`host/src/bridge/ui_canonical.generated.ts` + manifest `ui_features.components`，
+`hosts/lib/src/bridge/ui_canonical.generated.ts` + manifest `ui_features.components`，
 host 配方界面白名单据此装配）。卸某节点 = 删目录 + 删父 `$ref` + 重跑生成器
 （组件节点保留 = 真 ui 面随 spec faces.ui 派生注册）——页面/侧栏/页签任一结构
 或组件块可整块装卸。

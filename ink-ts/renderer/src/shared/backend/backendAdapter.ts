@@ -8,7 +8,7 @@
  * （浏览器 dev / serve 未就绪环境）。
  *
  * 命令面纪律（W1 接线）：方法映射到 host bridge 点分方法（BRIDGE_METHODS）
- * 或其扁平旧名别名（cli/src/legacy_aliases.ts）；无真源命令（shell_open_path、
+ * 或其扁平旧名别名（hosts/cli/src/legacy_aliases.ts）；无真源命令（shell_open_path、
  * offline、approval_request/resolve、round_ledger_merge、mcp_market_preview/
  * add/remove、knowledge 写类、path/cache 干预、ui_spec 等）一律不在此登记——
  * 调用面在 W1 已随入口删除。危险操作（recovery.reset / backup.restore）在此

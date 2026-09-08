@@ -6,7 +6,7 @@
  * `ink_ts_mcp(.exe)`（一次构建后 dev/CI/多机自用直接复用同一二进制，零打
  * 包）。每二进制（kind=exec/infer/mcp）的**文件名 + env 覆盖键**为声明数据
  * （真源 = plugins/endpoints/<id>/spec.json data.native → 派生视图
- * host/src/exec/native.generated.ts，禁手改）。定位优先序：
+ * hosts/lib/src/exec/native.generated.ts，禁手改）。定位优先序：
  * 1. 显式环境变量 `INK_EXEC_BINARY` / `INK_INFER_BINARY` /
  *    `INK_MCP_BINARY`（单文件覆盖；键名 = 声明 data.native.env）；
  * 2. `INK_NATIVE_DIR` 目录内的平台可执行形态；

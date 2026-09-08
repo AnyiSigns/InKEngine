@@ -1,6 +1,6 @@
 {
   "version": 1,
-  "note": "插件源派生视图（生成物，禁手改）：由 plugins/scripts/sync_plugin_manifest.mjs 从 plugins/<kind>/<id>/spec.json 聚合生成；改工具/市场/命令/ui 声明只改 spec.json，重跑本脚本同步。tools = kind=tool 工具表行（data.tool 逐字，id 升序）；mcp_market = kind=mcp 市场视图（data.server + market.json 全局配置）；ui_features = 产品主壳布局装配（plugins/ui_features 真源）派生：components = 布局树引用组件 type 并集（升序，canonical 白名单；host/ui_canonical.generated.ts 同源）；plugins = 全插件索引（id/kind/capability/包名/目录；行可携带 spec 顶层声明的 actions/depends/faces/contract——CapabilityComponent 全脸字段，未声明不输出；引用解析/effects 词表语义由 verify:unload 校验）。endpoints = kind=endpoint 原生执行件端点声明（data.native；host/src/exec/native.generated.ts 同源派生）。",
+  "note": "插件源派生视图（生成物，禁手改）：由 plugins/scripts/sync_plugin_manifest.mjs 从 plugins/<kind>/<id>/spec.json 聚合生成；改工具/市场/命令/ui 声明只改 spec.json，重跑本脚本同步。tools = kind=tool 工具表行（data.tool 逐字，id 升序）；mcp_market = kind=mcp 市场视图（data.server + market.json 全局配置）；ui_features = 产品主壳布局装配（plugins/ui_features 真源）派生：components = 布局树引用组件 type 并集（升序，canonical 白名单；host/ui_canonical.generated.ts 同源）；plugins = 全插件索引（id/kind/capability/包名/目录；行可携带 spec 顶层声明的 actions/depends/faces/contract——CapabilityComponent 全脸字段，未声明不输出；引用解析/effects 词表语义由 verify:unload 校验）。endpoints = kind=endpoint 原生执行件端点声明（data.native；hosts/lib/src/exec/native.generated.ts 同源派生）。",
   "plugins": [
     {
       "id": "collab_request",

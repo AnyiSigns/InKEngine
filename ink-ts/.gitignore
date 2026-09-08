@@ -2,6 +2,5 @@ node_modules/
 dist/
 *.tsbuildinfo
 coverage/
-dsh/
 .env.local
 .dev-data/

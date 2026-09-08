@@ -70,6 +70,8 @@ interface Plugin {
   uiChildren: string[];
   isUiComponent: boolean;
   isUiEntry: boolean;
+  /** 设置页段声明（data.settings_section.key；经 settings 清单引用，非布局树）。 */
+  settingsKey?: string;
 }
 
 interface Violation {
@@ -194,6 +196,14 @@ function loadUniverse(): Map<string, Plugin> {
           data !== null &&
           typeof (data as Record<string, unknown>).root === 'object' &&
           (data as Record<string, unknown>).root !== null,
+        settingsKey:
+          kind === 'ui_feature' &&
+          typeof data === 'object' &&
+          data !== null &&
+          typeof (data as Record<string, unknown>).settings_section === 'object' &&
+          (data as Record<string, unknown>).settings_section !== null
+            ? ((data as Record<string, unknown>).settings_section as { key?: string }).key
+            : undefined,
       });
     }
   }
@@ -395,10 +405,11 @@ function auditDataOnlyState(universe: Map<string, Plugin>): void {
   }
 }
 
-/** ui 不变式：除装配入口外每个 ui_feature 插件须被 ≥1 容器引用（无孤儿节点）。 */
+/** ui 不变式：除装配入口与 settings 段插件（data.settings_section 数据引用）外，
+ * 每个 ui_feature 插件须被 ≥1 容器引用（无孤儿节点）。 */
 function auditUiReachability(universe: Map<string, Plugin>, referrers: Map<string, string[]>): void {
   for (const plugin of universe.values()) {
-    if (plugin.kind !== 'ui_feature' || plugin.isUiEntry) continue;
+    if (plugin.kind !== 'ui_feature' || plugin.isUiEntry || plugin.settingsKey !== undefined) continue;
     if ((referrers.get(plugin.id) ?? []).length === 0) {
       violation(plugin.id, 'ui_feature 节点未被任何容器 data.children 引用（孤儿节点；删除或挂回父容器）');
     }

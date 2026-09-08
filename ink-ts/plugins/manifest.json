@@ -3360,6 +3360,7 @@
       "todo_view",
       "top_bar",
       "trajectory_view"
-    ]
+    ],
+    "settings": []
   }
 }

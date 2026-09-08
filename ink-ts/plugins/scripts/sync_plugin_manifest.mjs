@@ -63,6 +63,7 @@ const UI_GENERATED = join(PLUGINS_ROOT, 'ui.generated.json');
 const UI_CANONICAL_GENERATED = join(PLUGINS_ROOT, '..', 'host', 'src', 'bridge', 'ui_canonical.generated.ts');
 const NATIVE_GENERATED = join(PLUGINS_ROOT, '..', 'host', 'src', 'exec', 'native.generated.ts');
 const PLUGIN_FACES_GENERATED = join(PLUGINS_ROOT, '..', 'renderer', 'src', 'app', 'pluginFaces.generated.ts');
+const SETTINGS_GENERATED = join(PLUGINS_ROOT, '..', 'renderer', 'src', 'app', 'settings', 'settingsSections.generated.ts');
 
 /**
  * 命令实现域映射表（group → const/type 名）；顺序 = BRIDGE_METHODS 跨域序
@@ -143,6 +144,15 @@ const PLUGIN_FACES_HEADER =
   ' * 的 faces.ui + data.node（kind=component））。由 plugins/scripts/sync_plugin_manifest.mjs\n' +
   ' * 生成（按插件 id 升序静态 import 各真 ui 面 entry + registerComponent 白名单注册）；\n' +
   ' * renderer 装配期经 registerPluginFaces() 调用；verify:plugin-manifest 强制逐字一致。\n' +
+  ' */\n';
+
+const SETTINGS_HEADER =
+  '/**\n' +
+  ' * 生成文件勿手改：设置页段清单派生视图（真源 = plugins/ui_features/<id>/spec.json\n' +
+  ' * 的 data.settings_section：key/label/order/icon + faces.ui）。由\n' +
+  ' * plugins/scripts/sync_plugin_manifest.mjs 生成（order 升序）；renderer 设置浮层\n' +
+  ' * 壳读本清单渲染导航与内容（DynamicComponent name=插件 id）；verify:plugin-manifest\n' +
+  ' * 强制逐字一致。\n' +
   ' */\n';
 
 async function fail(message) {
@@ -450,10 +460,47 @@ async function derive() {
     return next;
   }
   const uiRoot = await expandUi(uiEntry.spec.data.root.$ref, []);
+  // settings 段（阶段 7b settings 面板插件）：ui_feature 组件插件可经
+  // data.settings_section 声明为设置页内容段（key/label/order/icon）——不走
+  // 布局树 $ref，由设置浮层壳读派生清单渲染（data-reference 挂载）；声明者须
+  // faces.ui（真 ui 面）且不被布局树引用豁免。
+  const settingsSections = [];
   for (const f of uiFeatures) {
-    if (f.id !== uiEntry.id && !uiReached.has(f.id)) {
+    const meta = f.spec.data?.settings_section;
+    if (typeof meta !== 'object' || meta === null) continue;
+    if (typeof meta.key !== 'string' || meta.key.length === 0) {
+      await fail(`settings 面板插件 ${f.id} 缺 data.settings_section.key`);
+    }
+    if (typeof meta.label !== 'string' || meta.label.length === 0) {
+      await fail(`settings 面板插件 ${f.id} 缺 data.settings_section.label`);
+    }
+    if (typeof meta.order !== 'number' || !Number.isFinite(meta.order)) {
+      await fail(`settings 面板插件 ${f.id} 的 data.settings_section.order 须为有限数字`);
+    }
+    const node = f.spec.data?.node;
+    if (typeof node !== 'object' || node === null || node.kind !== 'component') {
+      await fail(`settings 面板插件 ${f.id} 须为组件节点（data.node.kind=component）`);
+    }
+    const facesUi = typeof f.spec.faces === 'object' && f.spec.faces !== null ? f.spec.faces.ui : undefined;
+    if (typeof facesUi !== 'object' || facesUi === null || typeof facesUi.entry !== 'string') {
+      await fail(`settings 面板插件 ${f.id} 须声明 faces.ui（真 ui 面）`);
+    }
+    const row = { id: f.id, type: node.type, key: meta.key, label: meta.label, order: meta.order };
+    if (typeof meta.icon === 'string' && meta.icon.length > 0) row.icon = meta.icon;
+    row.entry = facesUi.entry;
+    settingsSections.push(row);
+  }
+  settingsSections.sort((a, b) => a.order - b.order || a.id.localeCompare(b.id));
+  for (const f of uiFeatures) {
+    if (f.id !== uiEntry.id && !uiReached.has(f.id) && !f.spec.data?.settings_section) {
       await fail(`ui_feature 插件 ${f.id} 未被装配树引用（孤儿）`);
     }
+  }
+  // settings 面板经 settings 清单引用（非布局树），同样要注册进 pluginFaces
+  // （壳以 DynamicComponent name=插件 id 渲染）。
+  const uiFacesById = new Set(uiFaces.map((f) => f.id));
+  for (const s of settingsSections) {
+    if (!uiFacesById.has(s.id)) uiFaces.push({ id: s.id, type: s.type, entry: s.entry });
   }
   const uiLayout = {
     name: uiEntry.spec.data.name,
@@ -485,6 +532,7 @@ async function derive() {
     commands,
     ui_features: {
       components: uiCanonical,
+      settings: settingsSections,
     },
     ui_layout: uiLayout,
     ui_faces: uiFaces,
@@ -524,6 +572,8 @@ function render(data) {
     { premounted: data.mcp_market.premounted, mount_policy: data.mcp_market.mount_policy, servers },
     { premounted: 1, mount_policy: 1, servers: 1 },
   );
+  const settingsOrder = { id: 1, type: 2, key: 3, label: 4, order: 5, icon: 6, entry: 7 };
+  const settings = data.ui_features.settings.map((s) => sortKeys(s, settingsOrder));
   return JSON.stringify(
     sortKeys(
       {
@@ -533,7 +583,7 @@ function render(data) {
         tools,
         mcp_market: market,
         commands: data.commands,
-        ui_features: { components: data.ui_features.components },
+        ui_features: { components: data.ui_features.components, settings },
       },
       order,
     ),
@@ -639,6 +689,29 @@ function renderPluginFacesTs(uiFaces) {
   return lines.join('\n') + '\n';
 }
 
+/** 渲染设置页段清单派生 TS（真源 = plugins/ui_features/<id>/spec.json 的
+ *  data.settings_section；order 升序。renderer 设置浮层壳读此清单渲染导航，
+ *  DynamicComponent name = 插件 id（pluginFaces.generated.ts 已注册）。 */
+function renderSettingsSectionsTs(settings) {
+  const lines = [SETTINGS_HEADER];
+  lines.push('export interface SettingsSectionEntry {');
+  lines.push('  id: string;');
+  lines.push('  type: string;');
+  lines.push('  key: string;');
+  lines.push('  label: string;');
+  lines.push('  order: number;');
+  lines.push('  icon?: string;');
+  lines.push('}');
+  lines.push('');
+  lines.push('export const SETTINGS_SECTIONS: SettingsSectionEntry[] = [');
+  for (const s of settings) {
+    const icon = typeof s.icon === 'string' ? `, icon: '${s.icon}'` : '';
+    lines.push(`  { id: '${s.id}', type: '${s.type}', key: '${s.key}', label: '${s.label}', order: ${s.order}${icon} },`);
+  }
+  lines.push('];');
+  return lines.join('\n') + '\n';
+}
+
 async function fileExists(path) {
   try {
     await readFile(path);
@@ -671,6 +744,7 @@ async function main() {
   const uiCanonicalRendered = renderUiCanonicalTs(data.ui_features.components);
   const nativeRendered = renderNativeTs(data.native);
   const pluginFacesRendered = renderPluginFacesTs(data.ui_faces);
+  const settingsRendered = renderSettingsSectionsTs(data.ui_features.settings);
 
   if (check) {
     const okManifest = await compareFile(MANIFEST, manifestRendered, 'manifest', 'sync_plugin_manifest.mjs');
@@ -699,7 +773,13 @@ async function main() {
       'pluginFaces.generated.ts',
       'sync_plugin_manifest.mjs',
     );
-    if (!okManifest || !okCommands || !okUi || !okUiCanonical || !okNative || !okPluginFaces) process.exitCode = 1;
+    const okSettings = await compareFile(
+      SETTINGS_GENERATED,
+      settingsRendered,
+      'settingsSections.generated.ts',
+      'sync_plugin_manifest.mjs',
+    );
+    if (!okManifest || !okCommands || !okUi || !okUiCanonical || !okNative || !okPluginFaces || !okSettings) process.exitCode = 1;
     return;
   }
 
@@ -713,13 +793,17 @@ async function main() {
   await writeFile(NATIVE_GENERATED, nativeRendered, 'utf8');
   await mkdir(dirname(PLUGIN_FACES_GENERATED), { recursive: true });
   await writeFile(PLUGIN_FACES_GENERATED, pluginFacesRendered, 'utf8');
+  await mkdir(dirname(SETTINGS_GENERATED), { recursive: true });
+  await writeFile(SETTINGS_GENERATED, settingsRendered, 'utf8');
   console.log(
     `已生成 manifest.json + commands.generated.ts + ui.generated.json + ` +
-      `ui_canonical.generated.ts + native.generated.ts + pluginFaces.generated.ts（${data.plugins.length} 插件：` +
+      `ui_canonical.generated.ts + native.generated.ts + pluginFaces.generated.ts + ` +
+      `settingsSections.generated.ts（${data.plugins.length} 插件：` +
       `${data.tools.length} tools + ${data.mcp_market.servers.length} mcp + ` +
       `${data.commands.length} commands + ` +
       `${data.plugins.filter((p) => p.kind === 'ui_feature').length} ui_features + ` +
-      `${data.native.length} endpoints + ${data.ui_faces.length} 真 ui 面，真源 plugins/）`,
+      `${data.native.length} endpoints + ${data.ui_faces.length} 真 ui 面 + ` +
+      `${data.ui_features.settings.length} settings 段，真源 plugins/）`,
   );
 }
 

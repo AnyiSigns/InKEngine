@@ -26,7 +26,6 @@ export type TodosCommand = (typeof TODOS_COMMANDS)[number];
 export const RECORDS_COMMANDS = [
   'records.sessions',
   'records.chain',
-  'records.ledger',
 ] as const;
 
 export type RecordsCommand = (typeof RECORDS_COMMANDS)[number];

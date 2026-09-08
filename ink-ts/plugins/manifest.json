@@ -572,13 +572,6 @@
       "dir": "commands/records.chain"
     },
     {
-      "id": "records.ledger",
-      "kind": "command",
-      "capability": "host_tool",
-      "package": "@ink-ts/plugin-records-ledger",
-      "dir": "commands/records.ledger"
-    },
-    {
       "id": "records.sessions",
       "kind": "command",
       "capability": "host_tool",
@@ -814,13 +807,6 @@
       "dir": "ui_features/inkling.ui.evolution"
     },
     {
-      "id": "inkling.ui.ledger",
-      "kind": "ui_feature",
-      "capability": "host_tool",
-      "package": "@ink-ts/plugin-inkling-ui-ledger",
-      "dir": "ui_features/inkling.ui.ledger"
-    },
-    {
       "id": "inkling.ui.main",
       "kind": "ui_feature",
       "capability": "host_tool",
@@ -877,19 +863,6 @@
       "dir": "ui_features/inkling.ui.views"
     },
     {
-      "id": "ledger_view",
-      "kind": "ui_feature",
-      "capability": "host_tool",
-      "package": "@ink-ts/plugin-ledger-view",
-      "dir": "ui_features/ledger_view",
-      "faces": {
-        "ui": {
-          "target": "web",
-          "entry": "./faces/ui/index.tsx"
-        }
-      }
-    },
-    {
       "id": "mcp_market",
       "kind": "ui_feature",
       "capability": "host_tool",
@@ -898,7 +871,12 @@
       "faces": {
         "ui": {
           "target": "web",
-          "entry": "./faces/ui/index.tsx"
+          "entry": "./faces/ui/index.tsx",
+          "access": {
+            "store": [
+              "appBackend"
+            ]
+          }
         }
       }
     },
@@ -3390,11 +3368,6 @@
       "order": 2
     },
     {
-      "id": "records.ledger",
-      "group": "records",
-      "order": 3
-    },
-    {
       "id": "records.sessions",
       "group": "records",
       "order": 1
@@ -3525,7 +3498,6 @@
       "agent_input",
       "evolution_feed",
       "file_tree",
-      "ledger_view",
       "mechanism_view",
       "message_list",
       "review_card",

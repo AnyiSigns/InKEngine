@@ -31,10 +31,9 @@ export interface UISpec {
 
 /** 视图选择（渲染器按 node.props.view 过滤 views 容器的直接子级）。 */
 export type ViewId =
-  // 产品主区页签（spec 驱动的会话主壳：对话/演化/账本/轨迹/待办/机制）
+  // 产品主区页签（spec 驱动的会话主壳：对话/演化/轨迹/待办/机制）
   | 'chat'
   | 'evolution'
-  | 'ledger'
   | 'trajectory'
   | 'todo'
   | 'mechanism'

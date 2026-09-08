@@ -197,21 +197,6 @@ export interface MetricsSnapshotView {
   llm_calls_by_role: Record<string, number>;
 }
 
-/** records.ledger 单条事实行（kind/action/node_id/detail/ts 投影）。 */
-export interface RoundLedgerEntry {
-  kind: string;
-  action: string;
-  node_id: string | null;
-  detail?: Record<string, unknown>;
-  ts: number;
-}
-
-/** records.ledger 出参（时间倒序 + limit 截断）。 */
-export interface RoundLedgerList {
-  thread_id: string;
-  entries: RoundLedgerEntry[];
-}
-
 /** rounds.todos 单行（计划未完成步骤 / 挂起审批卡）。 */
 export interface RoundTodoRow {
   id: string;
@@ -334,8 +319,6 @@ export interface BackendAdapter {
   }>;
   /** 出厂重置（confirm 标记 'factory-reset' 随调下发，宿主 fail-closed）。 */
   recoveryFactoryReset(): Promise<{ reverted_patches: number[]; overwritten: boolean }>;
-  // 回合账本（records.ledger 事实行窗口 / 摘要；round_ledger_merge 无真源不提供）
-  roundLedgerList(threadId: string): Promise<RoundLedgerList>;
   // 待办（rounds.todos：计划未完成步骤 + 挂起审批卡）
   todoGet(threadId: string): Promise<RoundTodoList>;
   toolsManifest(): Promise<ToolFullView>;
@@ -427,7 +410,6 @@ export function createUnavailableBackend(): BackendAdapter {
     recoverySnapshots: unavailable as never,
     recoveryRestoreSnapshot: unavailable as never,
     recoveryFactoryReset: unavailable as never,
-    roundLedgerList: unavailable as never,
     todoGet: unavailable as never,
     toolsManifest: unavailable as never,
     toolsBaselineGet: unavailable as never,
@@ -544,7 +526,6 @@ export function createServeBackend(channel?: ServeChannel): BackendAdapter {
       call('recovery_restore_snapshot', { threadId, checkpointId: checkpointId ?? null }),
     recoveryFactoryReset: () =>
       call('recovery.reset', { confirm: FACTORY_RESET_CONFIRM }),
-    roundLedgerList: (threadId) => call('round_ledger_list', { threadId }),
     todoGet: (threadId) => call('rounds.todos', { thread_id: threadId }),
     toolsManifest: () => call('tools.full'),
     toolsBaselineGet: () => call('tools_baseline_get'),

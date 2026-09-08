@@ -24,7 +24,6 @@ export const PLUGIN_UI_FACES: UiFaceEntry[] = [
   { id: 'agent_input', type: 'agent_input', entry: '../../../../plugins/ui_features/agent_input/faces/ui/index.tsx' },
   { id: 'evolution_feed', type: 'evolution_feed', entry: '../../../../plugins/ui_features/evolution_feed/faces/ui/index.tsx' },
   { id: 'mechanism_view', type: 'mechanism_view', entry: '../../../../plugins/ui_features/mechanism_view/faces/ui/index.tsx' },
-  { id: 'ledger_view', type: 'ledger_view', entry: '../../../../plugins/ui_features/ledger_view/faces/ui/index.tsx' },
   { id: 'trajectory_view', type: 'trajectory_view', entry: '../../../../plugins/ui_features/trajectory_view/faces/ui/index.tsx' },
   { id: 'todo_view', type: 'todo_view', entry: '../../../../plugins/ui_features/todo_view/faces/ui/index.tsx' },
   { id: 'session_list', type: 'session_list', entry: '../../../../plugins/ui_features/session_list/faces/ui/index.tsx' },
@@ -54,7 +53,6 @@ export function registerPluginFaces(): void {
   registerComponent('agent_input', (agent_inputDefault as unknown) as PlainComponent);
   registerComponent('evolution_feed', (evolution_feedDefault as unknown) as PlainComponent);
   registerComponent('mechanism_view', (mechanism_viewDefault as unknown) as PlainComponent);
-  registerComponent('ledger_view', (ledger_viewDefault as unknown) as PlainComponent);
   registerComponent('trajectory_view', (trajectory_viewDefault as unknown) as PlainComponent);
   registerComponent('todo_view', (todo_viewDefault as unknown) as PlainComponent);
   registerComponent('session_list', (session_listDefault as unknown) as PlainComponent);
@@ -82,7 +80,6 @@ import task_capsuleDefault from '../../../../plugins/ui_features/task_capsule/fa
 import agent_inputDefault from '../../../../plugins/ui_features/agent_input/faces/ui/index.tsx';
 import evolution_feedDefault from '../../../../plugins/ui_features/evolution_feed/faces/ui/index.tsx';
 import mechanism_viewDefault from '../../../../plugins/ui_features/mechanism_view/faces/ui/index.tsx';
-import ledger_viewDefault from '../../../../plugins/ui_features/ledger_view/faces/ui/index.tsx';
 import trajectory_viewDefault from '../../../../plugins/ui_features/trajectory_view/faces/ui/index.tsx';
 import todo_viewDefault from '../../../../plugins/ui_features/todo_view/faces/ui/index.tsx';
 import session_listDefault from '../../../../plugins/ui_features/session_list/faces/ui/index.tsx';

@@ -117,14 +117,13 @@ const ALIASES: readonly AliasSpec[] = [
       };
     },
   },
-  // H2 桥面：会话消息/回合账本/待办/重置/审计窗口/全量工具/基线/档位登记
+  // H2 桥面：会话消息/链记录/待办/重置/审计窗口/全量工具/基线/档位登记
   {
     flat: 'session_messages',
     dotted: 'sessions.messages',
     adaptParams: camelToSnake,
   },
   { flat: 'round_ledger_chain', dotted: 'records.chain', adaptParams: camelToSnake },
-  { flat: 'round_ledger_list', dotted: 'records.ledger', adaptParams: camelToSnake },
   { flat: 'todo_get', dotted: 'rounds.todos', adaptParams: camelToSnake },
   { flat: 'todo.get', dotted: 'rounds.todos', adaptParams: camelToSnake },
   // recovery 旧扁平面：reset 确认标记不回代（缺 confirm fail-closed 拒绝）

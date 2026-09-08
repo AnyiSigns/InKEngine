@@ -35,7 +35,6 @@ function buildSurface(): {
   const targets = [
     'sessions.messages',
     'records.chain',
-    'records.ledger',
     'rounds.todos',
     'rounds.resume',
     'recovery.reset',
@@ -74,11 +73,10 @@ function buildSurface(): {
 }
 
 describe('legacy 别名表（H2 补桥后）', () => {
-  it('别名表含新落点（会话消息/账本/待办/重置/备份/市场/知识/记忆/成长）', () => {
+  it('别名表含新落点（会话消息/链记录/待办/重置/备份/市场/知识/记忆/成长）', () => {
     const table = legacyAliasTable();
     const rows = Object.fromEntries(table.map(({ flat, dotted }) => [flat, dotted]));
     expect(rows['session_messages']).toBe('sessions.messages');
-    expect(rows['round_ledger_list']).toBe('records.ledger');
     expect(rows['round_ledger_chain']).toBe('records.chain');
     expect(rows['todo_get']).toBe('rounds.todos');
     expect(rows['todo.get']).toBe('rounds.todos');
@@ -115,6 +113,7 @@ describe('legacy 别名表（H2 补桥后）', () => {
     expect(rows['edge_downgrade_tier']).toBeUndefined();
     expect(rows['edge_restore_tier']).toBeUndefined();
     // 无真源旧名不注册
+    expect(rows['round_ledger_list']).toBeUndefined();
     expect(rows['round_ledger_merge']).toBeUndefined();
     expect(rows['mcp_market_preview']).toBeUndefined();
     expect(rows['mcp_market_add']).toBeUndefined();
@@ -124,7 +123,7 @@ describe('legacy 别名表（H2 补桥后）', () => {
 });
 
 describe('cli 命令面别名解析（H2）', () => {
-  it('session_messages / round_ledger_list / todo_get 适配 camel→snake 后落点', async () => {
+  it('session_messages / todo_get 适配 camel→snake 后落点', async () => {
     const { handlers, captured } = buildSurface();
     const invoke = async (method: string, params: unknown): Promise<RpcResponse> =>
       await handleRequest({ jsonrpc: '2.0', id: 1, method, params }, handlers, CTX);
@@ -132,9 +131,6 @@ describe('cli 命令面别名解析（H2）', () => {
     const messages = await invoke('session_messages', { threadId: 't-1' });
     expect(messages.result).toMatchObject({ method: 'sessions.messages' });
     expect(captured.get('sessions.messages')!.params).toEqual({ thread_id: 't-1' });
-
-    await invoke('round_ledger_list', { threadId: 't-2' });
-    expect(captured.get('records.ledger')!.params).toEqual({ thread_id: 't-2' });
 
     await invoke('todo_get', { threadId: 't-3' });
     expect(captured.get('rounds.todos')!.params).toEqual({ thread_id: 't-3' });
@@ -173,14 +169,16 @@ describe('cli 命令面别名解析（H2）', () => {
     });
   });
 
-  it('未注册旧扁平名 → -32601（round_ledger_merge / mcp_market_preview）', async () => {
+  it('未注册旧扁平名 → -32601（round_ledger_list / round_ledger_merge / mcp_market_preview）', async () => {
     const { handlers } = buildSurface();
-    const notFound = await handleRequest(
-      { jsonrpc: '2.0', id: 1, method: 'round_ledger_merge', params: {} },
-      handlers,
-      CTX,
-    );
-    expect(notFound.error).toMatchObject({ code: ERROR_CODES.methodNotFound });
+    for (const method of ['round_ledger_list', 'round_ledger_merge']) {
+      const notFound = await handleRequest(
+        { jsonrpc: '2.0', id: 1, method, params: {} },
+        handlers,
+        CTX,
+      );
+      expect(notFound.error).toMatchObject({ code: ERROR_CODES.methodNotFound });
+    }
     const preview = await handleRequest(
       { jsonrpc: '2.0', id: 2, method: 'mcp_market_preview', params: {} },
       handlers,

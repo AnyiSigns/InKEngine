@@ -1,6 +1,5 @@
 /**
- * host bridge H2 补桥命令面单测（records.ledger / sessions.messages /
- * rounds.todos / recovery.reset / audit.list / tools.full / capability
+ * host bridge H2 补桥命令面单测（sessions.messages / rounds.todos / recovery.reset / audit.list / tools.full / capability
  * baseline+tier / mcp.market / knowledge / memory / growth / backup）。
  *
  * 纪律覆盖：方法表与 BRIDGE_METHODS 双向一致；入参校验（BridgeError
@@ -50,7 +49,6 @@ describe('H2 bridge 方法表（三向一致）', () => {
     expect(BRIDGE_METHODS.length).toBeGreaterThan(40);
     expect([...handle.bridge.keys()].sort()).toEqual([...BRIDGE_METHODS].sort());
     for (const method of [
-      'records.ledger',
       'sessions.messages',
       'rounds.todos',
       'recovery.reset',
@@ -76,16 +74,13 @@ describe('H2 bridge 方法表（三向一致）', () => {
     }
   });
 
-  it('rounds.todos / sessions.messages / records.ledger 入参校验（缺 thread_id → invalid_params）', async () => {
+  it('rounds.todos / sessions.messages 入参校验（缺 thread_id → invalid_params）', async () => {
     const { dir, events } = dirs();
     handle = await createHost({ data_dir: dir, events_dir: events });
     await expect(handle.bridge.get('rounds.todos')!({}, CTX)).rejects.toMatchObject({
       code: 'invalid_params',
     });
     await expect(handle.bridge.get('sessions.messages')!({}, CTX)).rejects.toMatchObject({
-      code: 'invalid_params',
-    });
-    await expect(handle.bridge.get('records.ledger')!({ limit: -1 }, CTX)).rejects.toMatchObject({
       code: 'invalid_params',
     });
   });
@@ -167,52 +162,6 @@ describe('sessions.messages（链记录消息投影）', () => {
     expect(view.messages.map((m) => m.text)).toEqual([
       'a', '宿主回复', 'b', '宿主回复', 'c', '宿主回复',
     ]);
-  });
-});
-
-describe('records.ledger（回合账本事实窗口）', () => {
-  let handle: HostHandle;
-
-  afterEach(async () => {
-    await handle.dispose();
-  });
-
-  it('echo 两轮 → 事实行窗口（intent/conclusion + node 行、ts 数值、时间倒序）', async () => {
-    const { dir, events } = dirs();
-    handle = await createHost({ data_dir: dir, events_dir: events });
-    const send = handle.bridge.get('rounds.send')!;
-    const first = (await send({ input: '第一轮' }, CTX)) as { thread_id: string };
-    await send({ input: '第二轮', thread_id: first.thread_id }, CTX);
-
-    const ledger = (await handle.bridge.get('records.ledger')!(
-      { thread_id: first.thread_id },
-      CTX,
-    )) as { entries: Array<{ kind: string; action: string; node_id: string | null; ts: number }> };
-    expect(ledger.entries.length).toBeGreaterThan(0);
-    const kinds = new Set(ledger.entries.map((entry) => entry.kind));
-    expect(kinds.has('intent') || kinds.has('conclusion') || kinds.has('node')).toBe(true);
-    for (const entry of ledger.entries) {
-      expect(typeof entry.ts).toBe('number');
-      expect(entry.action).toBeTypeOf('string');
-    }
-    // limit 窗口生效（截断到最近 1 条）
-    const limited = (await handle.bridge.get('records.ledger')!(
-      { thread_id: first.thread_id, limit: 1 },
-      CTX,
-    )) as { entries: unknown[] };
-    expect(limited.entries.length).toBeLessThanOrEqual(1);
-  });
-
-  it('无账本线程 → 空窗口；limit 非法拒绝', async () => {
-    const { dir, events } = dirs();
-    handle = await createHost({ data_dir: dir, events_dir: events });
-    const ledger = (await handle.bridge.get('records.ledger')!({ thread_id: 't-none' }, CTX)) as {
-      entries: unknown[];
-    };
-    expect(ledger.entries).toEqual([]);
-    await expect(
-      handle.bridge.get('records.ledger')!({ thread_id: 't', limit: 'x' }, CTX),
-    ).rejects.toMatchObject({ code: 'invalid_params' });
   });
 });
 

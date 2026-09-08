@@ -80,7 +80,7 @@
                 "props": {
                   "grow": true,
                   "gap": 0,
-                  "note": "主区页签内容（chat/evolution/ledger/trajectory/todo；视图名 = 壳 tab）"
+                  "note": "主区页签内容（chat/evolution/trajectory/todo；视图名 = 壳 tab）"
                 },
                 "children": [
                   {
@@ -157,24 +157,6 @@
                             }
                           }
                         ]
-                      }
-                    ]
-                  },
-                  {
-                    "kind": "container",
-                    "type": "column",
-                    "props": {
-                      "view": "ledger",
-                      "scroll": true,
-                      "gap": 0
-                    },
-                    "children": [
-                      {
-                        "kind": "component",
-                        "type": "ledger_view",
-                        "props": {
-                          "note": "账本页（records.ledger 只读事实流）"
-                        }
                       }
                     ]
                   },

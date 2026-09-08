@@ -12,7 +12,13 @@ const noop = (): void => undefined;
  */
 const SettingsFloaterAdapter: ComponentType<Record<string, unknown>> = (props: Record<string, unknown>) => {
   const product = (props.product as ProductShellChrome | null | undefined) ?? {};
-  return <SettingsFloater open={product.settingsOpen === true} onClose={product.onCloseSettings ?? noop} />;
+  return (
+    <SettingsFloater
+      open={product.settingsOpen === true}
+      onClose={product.onCloseSettings ?? noop}
+      product={product as Record<string, unknown>}
+    />
+  );
 };
 
 export default SettingsFloaterAdapter;

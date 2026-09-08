@@ -1,6 +1,6 @@
 /**
  * host bridge 命令面装配（buildBridge）：方法集按域分组注册——
- * rounds（send/abort/resume/branch/todos）、records（sessions/链/账本）、
+ * rounds（send/abort/resume/branch/todos）、records（sessions/链记录）、
  * sessions（create/rename/delete/refresh/tree/messages）、approval（卡查询/
  * 裁决）、audit（导出/窗口）、tools（全量工具视图）、recovery
  * （回退入口/回退点/重置）、backup（data_dir 快照导出/预览/恢复）、mcp
@@ -65,7 +65,7 @@ export const BRIDGE_METHODS = [
   ...ROUNDS_COMMANDS,
   // rounds.todos：回合待办（挂 rounds 域，独立文件实现）
   ...TODOS_COMMANDS,
-  // records：会话簿记查询/链记录查询/回合账本窗口
+  // records：会话簿记查询/链记录查询
   ...RECORDS_COMMANDS,
   // sessions：会话薄服务（CRUD/刷新/分支树/消息投影）
   ...SESSIONS_COMMANDS,

@@ -7,7 +7,7 @@
  */
 
 /** 主区页签（顶栏切换）。 */
-export type MainTab = 'chat' | 'evolution' | 'ledger' | 'trajectory' | 'todo';
+export type MainTab = 'chat' | 'evolution' | 'trajectory' | 'todo';
 
 /** 会话行展示面（右栏消费真实字段：thread_id/title/updated_at）。 */
 export interface RailSession {

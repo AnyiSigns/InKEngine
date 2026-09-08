@@ -233,7 +233,6 @@ CI 的 ink-ts job 同链执行。规则增删须同步本表。
 | `rounds.todos` | rounds | 回合待办（最新 checkpoint.plan 未完成步骤 + 链尾挂起审批卡；无 = 空清单） |
 | `records.sessions` | records | 会话索引查询（host 薄数据：rounds 收尾 upsert 的索引记录） |
 | `records.chain` | records | 链记录（chain_index + checkpoint to_dict，engine 权威） |
-| `records.ledger` | records | 回合账本窗口（引擎 ledger 集合事实行投影：intent/conclusion/events → {kind, action, node_id, detail, ts}；storage.list_records_page 按 `thread_id\u001f` 键前缀+游标分页取窗口，时间倒序 + limit） |
 | `sessions.create` | sessions | 会话薄服务：建会话（host 数据目录持久化，引擎无 session 域） |
 | `sessions.rename` | sessions | 会话重命名 |
 | `sessions.delete` | sessions | 会话删除（tombstone；引擎无 per-thread 全删原语，事件日志保留） |
@@ -300,13 +299,14 @@ serve/transport 方法面另设扁平↔点分别名层（`hosts/cli/src/legacy_
 `models_config_*`/`model.reload` 落 models.config.*（models_refresh 语义 = 保存 + 刷新，
 最小实现即 models.config.put）；`capability_get`/`capability_put` 落 capability.*（put 解包
 `{record}` 入参）；`route_plan` 落 policy.route。H2 桥面别名：`session_messages→sessions.messages`、
-`round_ledger_chain→records.chain`、`round_ledger_list→records.ledger`、`todo_get`/`todo.get→
+`round_ledger_chain→records.chain`、`todo_get`/`todo.get→
 rounds.todos`、`recovery_factory_reset→recovery.reset`（确认标记不回代，缺 confirm fail-closed
 拒绝）、`recovery_snapshots→recovery.checkpoints`、`recovery_restore_snapshot→recovery.rollback`、
 `tools_manifest→tools.full`、`tools_baseline_get/set→capability.baseline.get/set`、
 `security_tier_overrides_set→capability.tier.set`、`backup_export/preview/restore→backup.*`、
-`mcp_market_status/mount/unmount→mcp.market/mount/unmount`；`round_ledger_merge`、
-`mcp_market_preview/add/remove`、`memory.update_frontmatter` 无真源不提供；`audit.list`/
+`mcp_market_status/mount/unmount→mcp.market/mount/unmount`；`round_ledger_list`/
+`round_ledger_merge`（账本读面已删，不提供）、`mcp_market_preview/add/remove`、
+`memory.update_frontmatter` 无真源不提供；`audit.list`/
 `knowledge.*`/`memory.*`/`growth.report` 以同点分登记。H2b 读取类别名：
 `graph_instance_snapshot→graph.instance`（camel→snake 适配）、
 `pool_snapshot→pool.snapshot`、`pool_evaluate→pool.evaluate`、`edge_evidence_list→edge_evidence.list`、
@@ -391,7 +391,7 @@ metrics_snapshot/assemble_stats/cache_stats/path_state/entities_snapshot）已�
   plugins/ui.generated.json，禁手改，verify:plugin-manifest 强制）：UIRenderer 为
   唯一产品渲染入口，布局结构不在壳层硬编码（App 只装配宿主数据/动作，经 product
   chrome 注入渲染器）。canonical 组件（file_tree/session_list/message_list/
-  agent_input/top_bar/evolution_feed/ledger_view/trajectory_view/todo_view/
+  agent_input/top_bar/evolution_feed/trajectory_view/todo_view/
   mechanism_view/review_card/settings_floater/task_capsule）为**真 ui 面插件**：
   组件叶子/面板 spec 声明 faces.ui，实现（faces/ui/index.tsx 默认导出 + 同住
   测试）随插件走，渲染器装配经 pluginFaces.generated.ts 静态 import 注册

@@ -1,7 +1,7 @@
 /**
  * 产品主壳 spec 直渲冒烟测试（K4A）：plugins/ui_features 装配生成物
  * （ui.generated.json）布局树 → UIRenderer → 各 canonical 组件
- * （file_tree/session_list/message_list/agent_input/... evolution/ledger 等）
+ * （file_tree/session_list/message_list/agent_input/... evolution/trajectory/todo 等）
  * 渲染与绑定载荷注入。
  *
  * 断言面：canonical 适配器全部挂到渲染器白名单并渲染对应产品组件；state.*
@@ -85,9 +85,9 @@ describe('产品主壳 spec 直渲（ui_features 装配生成物 → canonical �
     expect(container.querySelector('[data-ui="group_机制监控"]')).not.toBeNull();
   });
 
-  it('ledger/trajectory/todo 视图空态可渲染（无宿主不崩）', () => {
+  it('trajectory/todo 视图空态可渲染（无宿主不崩）', () => {
     const hub = makeHub();
-    for (const view of ['ledger', 'trajectory', 'todo'] as const) {
+    for (const view of ['trajectory', 'todo'] as const) {
       const { container } = render(
         <UIRenderer spec={uiLayout as unknown as UISpec} hub={hub} activeView={view} product={baseProduct} />,
       );

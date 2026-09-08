@@ -16,6 +16,7 @@ import type { ProductShellActions, ProductShellModel } from './productView';
 /** store 词表（数据/服务座位名；= ProductShellModel 键，编译期锁精确一致）。 */
 const UI_STORE_NAMES = [
   'backend',
+  'appBackend',
   'hub',
   'sessionStore',
   'activeSessionId',

@@ -16,6 +16,7 @@ import { useEffect, useState } from 'react';
 import { X } from 'lucide-react';
 
 import { SETTINGS_SECTIONS } from '@app/settings/settingsSections.generated';
+import { sliceUiAccess } from '@app/shell/uiAccessSlice';
 import { DynamicComponent } from '@/renderer/componentRegistry';
 import { useT } from '@/i18n/useT';
 import { sectionIcon } from './icons';
@@ -23,9 +24,11 @@ import { sectionIcon } from './icons';
 export interface SettingsFloaterProps {
   open: boolean;
   onClose: () => void;
+  /** 产品壳 chrome（阶段 9b：按各面板插件 spec 声明的 faces.ui.access 切片注入）。 */
+  product?: Record<string, unknown>;
 }
 
-export function SettingsFloater({ open, onClose }: SettingsFloaterProps) {
+export function SettingsFloater({ open, onClose, product }: SettingsFloaterProps) {
   const { t } = useT();
   const [activeKey, setActiveKey] = useState<string>('');
   const [mounted, setMounted] = useState(false);
@@ -105,7 +108,11 @@ export function SettingsFloater({ open, onClose }: SettingsFloaterProps) {
               </button>
             </div>
 
-            <div className="ink-scroll-auto px-6 pb-6">{active ? <DynamicComponent name={active.id} /> : null}</div>
+            <div className="ink-scroll-auto px-6 pb-6">
+              {active ? (
+                <DynamicComponent name={active.id} props={sliceUiAccess(active.id, product ?? {})} />
+              ) : null}
+            </div>
           </div>
         </div>
       </section>

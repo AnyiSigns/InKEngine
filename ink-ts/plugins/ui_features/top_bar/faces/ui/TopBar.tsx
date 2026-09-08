@@ -65,7 +65,7 @@ export function TopBar({ title, tab, onTabChange, onTitleChange, hasTodo, todoPe
         )}
       </div>
 
-      {/* 对话 / 演化 / 账本页签 */}
+      {/* 对话 / 演化 / 轨迹 / 待办页签 */}
       <nav className="flex items-stretch gap-5" aria-label="主区页签">
         <button
           type="button"
@@ -84,15 +84,6 @@ export function TopBar({ title, tab, onTabChange, onTitleChange, hasTodo, todoPe
           className="ink-tab-item"
         >
           {t('topbar.tab.evolution')}
-        </button>
-        <button
-          type="button"
-          data-ui="tab_ledger"
-          data-active={tab === 'ledger'}
-          onClick={() => onTabChange('ledger')}
-          className="ink-tab-item"
-        >
-          {t('topbar.tab.ledger')}
         </button>
         <button
           type="button"

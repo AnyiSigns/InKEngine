@@ -23,6 +23,7 @@ import { submitAttachments, messagesFromHistory, type AttachmentAsset } from '@/
 import type { ChannelHub, ThreadBucket } from '@/shared/session/channelHub';
 import { emptyThreadBucket } from '@/shared/session/channelHub';
 import type { SessionStore } from '@/shared/session/sessionStore';
+import type { AppBackend } from '@app/backend';
 import type { InkMessage, SimulationBranch } from '@/shared/session/types';
 import type { SpawnInstance } from '../../../plugins/ui_features/message_list/faces/ui/SpawnPanel';
 import type { TaskCapsuleData } from '../../../plugins/ui_features/task_capsule/faces/ui/types';
@@ -32,6 +33,8 @@ import uiLayout from '../../../plugins/ui.generated.json';
 
 interface AppProps {
   backend: BackendAdapter;
+  /** 壳共享 AppBackend 服务（阶段 9b：设置面板经 access store:["appBackend"] 切片注入，不再自建）。 */
+  appBackend: AppBackend;
   hub: ChannelHub;
   sessionStore: SessionStore;
 }
@@ -42,7 +45,7 @@ interface RoutePlanPreview {
   tier: string;
 }
 
-export default function App({ backend, hub, sessionStore }: AppProps) {
+export default function App({ backend, appBackend, hub, sessionStore }: AppProps) {
   const state = useSessionState(hub, sessionStore, backend);
   const { send, abort, resolveReview } = useSessionActions(hub, sessionStore, backend);
 
@@ -335,6 +338,7 @@ export default function App({ backend, hub, sessionStore }: AppProps) {
   // 装配 product chrome（绑定载荷之外的产品面数据/动作统一经此通道注入）
   const chrome: Record<string, unknown> = {
     backend,
+    appBackend,
     hub,
     sessionStore,
     activeSessionId: state.activeSessionId,

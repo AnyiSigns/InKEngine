@@ -8,7 +8,6 @@ export const UI_CANONICAL_COMPONENTS = [
   'agent_input',
   'evolution_feed',
   'file_tree',
-  'ledger_view',
   'mechanism_view',
   'message_list',
   'review_card',

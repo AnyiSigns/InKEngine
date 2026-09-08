@@ -15,10 +15,14 @@ import type { SpawnInstance } from '../../../../../plugins/ui_features/message_l
 import type { TaskCapsuleData } from '../../../../../plugins/ui_features/task_capsule/faces/ui/types';
 import type { MainTab, RailSession, ReviewResolution, RoutePlanResult } from '@app/shell/shellContracts';
 import type { ModelSelection } from '@/shared/backend/backendAdapter';
+import type { AppBackend } from '../backend';
 
 /** 产品壳回显数据（适配器消费的宿主面）。 */
 export interface ProductShellModel {
   backend: BackendAdapter;
+  /** 壳服务座位（AppBackend 单例：App 视图层高层封装 = 带 dev fixture 兜底的
+   *  共享后端服务；设置面板等声明 store:["appBackend"] 消费，非渲染器直连）。 */
+  appBackend: AppBackend;
   hub: ChannelHub;
   sessionStore: SessionStore;
   activeSessionId: string;

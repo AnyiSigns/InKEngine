@@ -91,6 +91,7 @@ export function activate(): void {
   createRoot(rootEl).render(
     <App
       backend={backend}
+      appBackend={appBackend}
       hub={hub}
       sessionStore={sessionStore}
     />,

@@ -755,7 +755,26 @@
       "faces": {
         "ui": {
           "target": "web",
-          "entry": "./faces/ui/index.tsx"
+          "entry": "./faces/ui/index.tsx",
+          "access": {
+            "store": [
+              "backend",
+              "authorized",
+              "streaming",
+              "models",
+              "routePlan",
+              "agentModelId",
+              "roundCount",
+              "stepCount"
+            ],
+            "inject": [
+              "onSend",
+              "onAbort",
+              "onAttachments",
+              "onAgentModelSelect",
+              "onRoutePlanPreview"
+            ]
+          }
         }
       }
     },
@@ -768,7 +787,15 @@
       "faces": {
         "ui": {
           "target": "web",
-          "entry": "./faces/ui/index.tsx"
+          "entry": "./faces/ui/index.tsx",
+          "access": {
+            "store": [
+              "incubation",
+              "patchChain",
+              "backend",
+              "activeSessionId"
+            ]
+          }
         }
       }
     },
@@ -781,7 +808,17 @@
       "faces": {
         "ui": {
           "target": "web",
-          "entry": "./faces/ui/index.tsx"
+          "entry": "./faces/ui/index.tsx",
+          "access": {
+            "store": [
+              "authorized",
+              "workspaceRoot"
+            ],
+            "inject": [
+              "onAddWorkspace",
+              "onOpenSettings"
+            ]
+          }
         }
       }
     },
@@ -889,7 +926,13 @@
       "faces": {
         "ui": {
           "target": "web",
-          "entry": "./faces/ui/index.tsx"
+          "entry": "./faces/ui/index.tsx",
+          "access": {
+            "store": [
+              "backend",
+              "activeSessionId"
+            ]
+          }
         }
       }
     },
@@ -902,7 +945,22 @@
       "faces": {
         "ui": {
           "target": "web",
-          "entry": "./faces/ui/index.tsx"
+          "entry": "./faces/ui/index.tsx",
+          "access": {
+            "store": [
+              "entries",
+              "streaming",
+              "roundSteps",
+              "simulations",
+              "spawnInstances",
+              "selectedSpawnIndex"
+            ],
+            "inject": [
+              "onSpawnSelect",
+              "onSpawnSendInstruction",
+              "onBranchFromMessage"
+            ]
+          }
         }
       }
     },
@@ -915,7 +973,12 @@
       "faces": {
         "ui": {
           "target": "web",
-          "entry": "./faces/ui/index.tsx"
+          "entry": "./faces/ui/index.tsx",
+          "access": {
+            "inject": [
+              "onResolveReview"
+            ]
+          }
         }
       }
     },
@@ -928,7 +991,22 @@
       "faces": {
         "ui": {
           "target": "web",
-          "entry": "./faces/ui/index.tsx"
+          "entry": "./faces/ui/index.tsx",
+          "access": {
+            "store": [
+              "sessions",
+              "activeSessionId",
+              "branchTrees"
+            ],
+            "inject": [
+              "onSelectSession",
+              "onCreateSession",
+              "onRenameSession",
+              "onDeleteSession",
+              "onBranchFromMessage",
+              "onBranchFromLeaf"
+            ]
+          }
         }
       }
     },
@@ -1071,7 +1149,16 @@
       "faces": {
         "ui": {
           "target": "web",
-          "entry": "./faces/ui/index.tsx"
+          "entry": "./faces/ui/index.tsx",
+          "access": {
+            "store": [
+              "task"
+            ],
+            "inject": [
+              "onAbort",
+              "onOpenSettings"
+            ]
+          }
         }
       }
     },
@@ -1084,7 +1171,13 @@
       "faces": {
         "ui": {
           "target": "web",
-          "entry": "./faces/ui/index.tsx"
+          "entry": "./faces/ui/index.tsx",
+          "access": {
+            "store": [
+              "backend",
+              "activeSessionId"
+            ]
+          }
         }
       }
     },
@@ -1110,7 +1203,19 @@
       "faces": {
         "ui": {
           "target": "web",
-          "entry": "./faces/ui/index.tsx"
+          "entry": "./faces/ui/index.tsx",
+          "access": {
+            "store": [
+              "title",
+              "tab",
+              "hasTodo",
+              "todoPending"
+            ],
+            "inject": [
+              "onTabChange",
+              "onTitleChange"
+            ]
+          }
         }
       }
     },
@@ -1123,7 +1228,12 @@
       "faces": {
         "ui": {
           "target": "web",
-          "entry": "./faces/ui/index.tsx"
+          "entry": "./faces/ui/index.tsx",
+          "access": {
+            "store": [
+              "roundSteps"
+            ]
+          }
         }
       }
     },

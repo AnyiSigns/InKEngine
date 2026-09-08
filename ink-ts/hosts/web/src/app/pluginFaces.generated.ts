@@ -3,10 +3,13 @@
  * 的 faces.ui + data.node（kind=component））。由 plugins/scripts/sync_plugin_manifest.mjs
  * 生成（按插件 id 升序静态 import 各真 ui 面 entry + registerComponent 白名单注册）；
  * hosts/web 装配期经 registerPluginFaces() 调用；verify:plugin-manifest 强制逐字一致。
+ * 默认导出注册前套 accessAwareFace 包装（hosts/web 壳装配层按 spec
+ * faces.ui.access 切片注入——声明 access 的面只收声明名，未声明 = 原样透传）。
  */
 
 import type { PlainComponent } from '@/renderer/componentRegistry';
 import { registerComponent } from '@/renderer/componentRegistry';
+import { accessAwareFace } from './shell/accessAwareFace';
 
 export interface UiFaceEntry {
   id: string;
@@ -44,31 +47,31 @@ export const PLUGIN_UI_FACES: UiFaceEntry[] = [
 
 /** 装配期调用：把各真 ui 面插件的默认导出注册进渲染器白名单。 */
 export function registerPluginFaces(): void {
-  registerComponent('review_card', (review_cardDefault as unknown) as PlainComponent);
-  registerComponent('settings_floater', (settings_floaterDefault as unknown) as PlainComponent);
-  registerComponent('file_tree', (file_treeDefault as unknown) as PlainComponent);
-  registerComponent('top_bar', (top_barDefault as unknown) as PlainComponent);
-  registerComponent('message_list', (message_listDefault as unknown) as PlainComponent);
-  registerComponent('task_capsule', (task_capsuleDefault as unknown) as PlainComponent);
-  registerComponent('agent_input', (agent_inputDefault as unknown) as PlainComponent);
-  registerComponent('evolution_feed', (evolution_feedDefault as unknown) as PlainComponent);
-  registerComponent('mechanism_view', (mechanism_viewDefault as unknown) as PlainComponent);
-  registerComponent('trajectory_view', (trajectory_viewDefault as unknown) as PlainComponent);
-  registerComponent('todo_view', (todo_viewDefault as unknown) as PlainComponent);
-  registerComponent('session_list', (session_listDefault as unknown) as PlainComponent);
-  registerComponent('settings_general', (settings_generalDefault as unknown) as PlainComponent);
-  registerComponent('settings_model', (settings_modelDefault as unknown) as PlainComponent);
-  registerComponent('settings_connect', (settings_connectDefault as unknown) as PlainComponent);
-  registerComponent('settings_knowledge', (settings_knowledgeDefault as unknown) as PlainComponent);
-  registerComponent('settings_architecture', (settings_architectureDefault as unknown) as PlainComponent);
-  registerComponent('mcp_market', (mcp_marketDefault as unknown) as PlainComponent);
-  registerComponent('tools_panel', (tools_panelDefault as unknown) as PlainComponent);
-  registerComponent('workspace_auth', (workspace_authDefault as unknown) as PlainComponent);
-  registerComponent('ui_editor_host', (ui_editor_hostDefault as unknown) as PlainComponent);
-  registerComponent('settings_memory', (settings_memoryDefault as unknown) as PlainComponent);
-  registerComponent('settings_insights', (settings_insightsDefault as unknown) as PlainComponent);
-  registerComponent('settings_audit_recovery', (settings_audit_recoveryDefault as unknown) as PlainComponent);
-  registerComponent('settings_backup', (settings_backupDefault as unknown) as PlainComponent);
+  registerComponent('review_card', accessAwareFace('review_card', (review_cardDefault as unknown) as PlainComponent));
+  registerComponent('settings_floater', accessAwareFace('settings_floater', (settings_floaterDefault as unknown) as PlainComponent));
+  registerComponent('file_tree', accessAwareFace('file_tree', (file_treeDefault as unknown) as PlainComponent));
+  registerComponent('top_bar', accessAwareFace('top_bar', (top_barDefault as unknown) as PlainComponent));
+  registerComponent('message_list', accessAwareFace('message_list', (message_listDefault as unknown) as PlainComponent));
+  registerComponent('task_capsule', accessAwareFace('task_capsule', (task_capsuleDefault as unknown) as PlainComponent));
+  registerComponent('agent_input', accessAwareFace('agent_input', (agent_inputDefault as unknown) as PlainComponent));
+  registerComponent('evolution_feed', accessAwareFace('evolution_feed', (evolution_feedDefault as unknown) as PlainComponent));
+  registerComponent('mechanism_view', accessAwareFace('mechanism_view', (mechanism_viewDefault as unknown) as PlainComponent));
+  registerComponent('trajectory_view', accessAwareFace('trajectory_view', (trajectory_viewDefault as unknown) as PlainComponent));
+  registerComponent('todo_view', accessAwareFace('todo_view', (todo_viewDefault as unknown) as PlainComponent));
+  registerComponent('session_list', accessAwareFace('session_list', (session_listDefault as unknown) as PlainComponent));
+  registerComponent('settings_general', accessAwareFace('settings_general', (settings_generalDefault as unknown) as PlainComponent));
+  registerComponent('settings_model', accessAwareFace('settings_model', (settings_modelDefault as unknown) as PlainComponent));
+  registerComponent('settings_connect', accessAwareFace('settings_connect', (settings_connectDefault as unknown) as PlainComponent));
+  registerComponent('settings_knowledge', accessAwareFace('settings_knowledge', (settings_knowledgeDefault as unknown) as PlainComponent));
+  registerComponent('settings_architecture', accessAwareFace('settings_architecture', (settings_architectureDefault as unknown) as PlainComponent));
+  registerComponent('mcp_market', accessAwareFace('mcp_market', (mcp_marketDefault as unknown) as PlainComponent));
+  registerComponent('tools_panel', accessAwareFace('tools_panel', (tools_panelDefault as unknown) as PlainComponent));
+  registerComponent('workspace_auth', accessAwareFace('workspace_auth', (workspace_authDefault as unknown) as PlainComponent));
+  registerComponent('ui_editor_host', accessAwareFace('ui_editor_host', (ui_editor_hostDefault as unknown) as PlainComponent));
+  registerComponent('settings_memory', accessAwareFace('settings_memory', (settings_memoryDefault as unknown) as PlainComponent));
+  registerComponent('settings_insights', accessAwareFace('settings_insights', (settings_insightsDefault as unknown) as PlainComponent));
+  registerComponent('settings_audit_recovery', accessAwareFace('settings_audit_recovery', (settings_audit_recoveryDefault as unknown) as PlainComponent));
+  registerComponent('settings_backup', accessAwareFace('settings_backup', (settings_backupDefault as unknown) as PlainComponent));
 }
 
 import review_cardDefault from '../../../../plugins/ui_features/review_card/faces/ui/index.tsx';

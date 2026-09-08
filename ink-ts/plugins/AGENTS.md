@@ -168,8 +168,14 @@ renderer 适配层整体退役）；其余 kind 目录随对应阶段落位。
   ProductShellActions 键，编译期锁 keyof），**禁自由命名、禁数据-only 插件
   占位声明**；JS 形状由生成器 sync_plugin_manifest.mjs 守，语义（仅真 ui 面
   合法 + store/inject 槽位词表命中）由 verify:unload 守；声明全量随 faces
-  带进 manifest plugins[] 行。壳装配层按声明切片注入 typed props 与现有
-  真 ui 面迁移随 9b-2/9b-3 分片落地。
+  带进 manifest plugins[] 行。
+  **切片注入**：canonical 叶子/设置面板默认导出经
+  pluginFaces.generated.ts 注册时套 `accessAwareFace` 包装（真源
+  `hosts/web/src/app/shell/accessAwareFace.tsx`）——声明 access 的面由壳按
+  声明把 product chrome 切成只含声明名（顶层 props，全量 product 被剥，无
+  隐式全量注入；读词表外字段 = undefined），未声明 access 的面原样透传。
+  settings_floater 是「面板挂载壳」壳特例：需全量 chrome 作面板切片源，豁免
+  不迁（不声明 access）。适配器只消费声明的顶层切片名（禁读 props.product）。
 
 ## 手改与生成纪律
 

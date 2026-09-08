@@ -7,9 +7,10 @@ canonical 布局叶子真 ui 面样板（布局树左栏）。声明真源 = 本
 ## 是什么能力
 
 产品主壳左栏（工作区授权卡 + 设置入口，折叠态为本地 UI 状态）。装配入口 =
-`faces/ui/index.tsx` 默认导出（FileTreeAdapter）：把 hosts/web 注入的
-product chrome 映射为 `LeftRail` props——`authorized`/`workspaceRoot`/
-`onAddWorkspace`/`onOpenSettings`；折叠态用组件本地 useState 保持。
+`faces/ui/index.tsx` 默认导出（FileTreeAdapter）：消费 spec `faces.ui.access`
+声明的接入名（store/inject 清单见 spec.json），经壳 accessAwareFace 切片注入
+为顶层 props 并映射为 `LeftRail` props；折叠态用组件本地 useState 保持
+（阶段 9b-2 起适配器不读全量 product）。
 
 ## 数据从哪进
 

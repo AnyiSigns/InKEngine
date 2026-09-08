@@ -1,25 +1,27 @@
 import type { ComponentType } from 'react';
 
 import type { BackendAdapter } from '@/shared/backend/backendAdapter';
-import type { ProductShellChrome } from '@app/shell/productView';
 import { EvolutionFeed } from './EvolutionFeed';
 
 /** 宿主缺省只读禁用后端（available:false；演化页空态不崩）。 */
 const disabledBackend = { available: false } as unknown as BackendAdapter;
 
 /**
- * evolution_feed ui 面入口（阶段 7b）：宿主 product chrome → EvolutionFeed props
- * 映射（孵化/补丁链/最近回合实例图/协作者目录）。装配期经 pluginFaces 注册。
+ * evolution_feed ui 面入口：spec faces.ui.access store
+ * ["incubation","patchChain","backend","activeSessionId"]——壳装配层
+ * accessAwareFace 按声明切片注入（顶层消费，无全量 product）。装配期经
+ * pluginFaces.generated.ts 注册。
  */
 const EvolutionFeedAdapter: ComponentType<Record<string, unknown>> = (props: Record<string, unknown>) => {
-  const product = (props.product as ProductShellChrome | null | undefined) ?? {};
-  const backend = (product.backend as BackendAdapter | undefined) ?? disabledBackend;
+  const backend = (props.backend as BackendAdapter | undefined) ?? disabledBackend;
+  const incubation = Array.isArray(props.incubation) ? props.incubation : [];
+  const patchChain = Array.isArray(props.patchChain) ? props.patchChain : [];
   return (
     <EvolutionFeed
-      incubation={product.incubation ?? []}
-      patchChain={product.patchChain ?? []}
+      incubation={incubation}
+      patchChain={patchChain}
       backend={backend}
-      threadId={product.activeSessionId ?? ''}
+      threadId={(props.activeSessionId as string | undefined) ?? ''}
     />
   );
 };

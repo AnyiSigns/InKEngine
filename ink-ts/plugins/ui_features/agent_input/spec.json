@@ -7,7 +7,11 @@
   "faces": {
     "ui": {
       "target": "web",
-      "entry": "./faces/ui/index.tsx"
+      "entry": "./faces/ui/index.tsx",
+      "access": {
+        "store": ["backend", "authorized", "streaming", "models", "routePlan", "agentModelId", "roundCount", "stepCount"],
+        "inject": ["onSend", "onAbort", "onAttachments", "onAgentModelSelect", "onRoutePlanPreview"]
+      }
     }
   },
   "data": {

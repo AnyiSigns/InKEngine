@@ -113,8 +113,13 @@ backend/hub/sessionStore 整对象座位），`inject` 槽收宿主动作名
 ProductShellActions 键，文件内 `satisfies keyof` + Equal 断言编译期锁精确一致，
 接口改键 = 词表编译红），**禁自由命名**；JS 形状（对象 + 非空字符串数组 +
 只允许 store/inject 键）由生成器守，语义（仅真 ui 面插件合法、槽位词表命中）由
-`verify:unload` 守。声明进 manifest plugins[] 行随 faces 全量携带。壳装配层按
-声明切片注入 typed props 的实现与现有真 ui 面迁移随 9b-2/9b-3 分片落地。
+`verify:unload` 守。声明进 manifest plugins[] 行随 faces 全量携带。
+**切片注入（9b-2 落地）**：插件默认导出经 pluginFaces.generated.ts 注册时套
+`accessAwareFace` 包装（hosts/web/src/app/shell/accessAwareFace.tsx）——声明
+access 的面由壳把 product chrome 切成只含声明名的顶层 props（全量 product
+被剥，无隐式全量注入），未声明面原样透传；settings_floater = 面板挂载壳
+特例豁免（保留全量 chrome 作面板切片源）。canonical 叶子 11 个已迁移，
+适配器只消费声明的顶层切片名，禁读 props.product。
 
 可达性统一规则（无孤儿、无豁免）：除装配入口外，每 ui_feature 插件须被容器
 `data.children.$ref` **或** `data.settings_section` 二者之一引用；卸载一致性由

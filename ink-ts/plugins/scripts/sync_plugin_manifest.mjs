@@ -144,6 +144,8 @@ const PLUGIN_FACES_HEADER =
   ' * 的 faces.ui + data.node（kind=component））。由 plugins/scripts/sync_plugin_manifest.mjs\n' +
   ' * 生成（按插件 id 升序静态 import 各真 ui 面 entry + registerComponent 白名单注册）；\n' +
   ' * hosts/web 装配期经 registerPluginFaces() 调用；verify:plugin-manifest 强制逐字一致。\n' +
+  ' * 默认导出注册前套 accessAwareFace 包装（hosts/web 壳装配层按 spec\n' +
+  ' * faces.ui.access 切片注入——声明 access 的面只收声明名，未声明 = 原样透传）。\n' +
   ' */\n';
 
 const SETTINGS_HEADER =
@@ -672,6 +674,7 @@ function renderPluginFacesTs(uiFaces) {
   if (uiFaces.length > 0) {
     lines.push(`import type { PlainComponent } from '@/renderer/componentRegistry';`);
     lines.push(`import { registerComponent } from '@/renderer/componentRegistry';`);
+    lines.push(`import { accessAwareFace } from './shell/accessAwareFace';`);
     lines.push('');
     lines.push(`export interface UiFaceEntry {`);
     lines.push(`  id: string;`);
@@ -689,7 +692,7 @@ function renderPluginFacesTs(uiFaces) {
     lines.push('export function registerPluginFaces(): void {');
     for (const f of uiFaces) {
       const alias = `${f.id.replace(/[.-]/g, '_')}Default`;
-      lines.push(`  registerComponent('${f.id}', (${alias} as unknown) as PlainComponent);`);
+      lines.push(`  registerComponent('${f.id}', accessAwareFace('${f.id}', (${alias} as unknown) as PlainComponent));`);
     }
     lines.push('}');
     lines.push('');
@@ -815,13 +818,13 @@ async function main() {
   await writeFile(SETTINGS_GENERATED, settingsRendered, 'utf8');
   console.log(
     `已生成 manifest.json + commands.generated.ts + ui.generated.json + ` +
-      `ui_canonical.generated.ts + native.generated.ts + pluginFaces.generated.ts + ` +
-      `settingsSections.generated.ts（${data.plugins.length} 插件：` +
-      `${data.tools.length} tools + ${data.mcp_market.servers.length} mcp + ` +
-      `${data.commands.length} commands + ` +
-      `${data.plugins.filter((p) => p.kind === 'ui_feature').length} ui_features + ` +
-      `${data.native.length} endpoints + ${data.ui_faces.length} 真 ui 面 + ` +
-      `${data.ui_features.settings.length} settings 段，真源 plugins/）`,
+    `ui_canonical.generated.ts + native.generated.ts + pluginFaces.generated.ts + ` +
+    `settingsSections.generated.ts（${data.plugins.length} 插件：` +
+    `${data.tools.length} tools + ${data.mcp_market.servers.length} mcp + ` +
+    `${data.commands.length} commands + ` +
+    `${data.plugins.filter((p) => p.kind === 'ui_feature').length} ui_features + ` +
+    `${data.native.length} endpoints + ${data.ui_faces.length} 真 ui 面 + ` +
+    `${data.ui_features.settings.length} settings 段，真源 plugins/）`,
   );
 }
 

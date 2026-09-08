@@ -6,7 +6,7 @@ import { describe, expect, it, vi, beforeEach } from 'vitest';
 import { render, screen, waitFor } from '@testing-library/react';
 
 import type { BackendAdapter } from '@/shared/backend/backendAdapter';
-import { TodoView } from '@/app/session/TodoView';
+import { TodoView } from './TodoView';
 
 function mockBackend(todo: Array<{ id: string; label: string; status: string; kind: string }> | null): BackendAdapter {
   return {

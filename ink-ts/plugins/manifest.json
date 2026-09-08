@@ -918,7 +918,13 @@
       "kind": "ui_feature",
       "capability": "host_tool",
       "package": "@ink-ts/plugin-todo-view",
-      "dir": "ui_features/todo_view"
+      "dir": "ui_features/todo_view",
+      "faces": {
+        "ui": {
+          "target": "web",
+          "entry": "./faces/ui/index.tsx"
+        }
+      }
     },
     {
       "id": "top_bar",

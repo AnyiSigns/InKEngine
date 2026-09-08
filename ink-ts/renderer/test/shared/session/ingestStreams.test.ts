@@ -3,7 +3,7 @@
  */
 
 import { ChannelHub } from '@/shared/session/channelHub';
-import { ingestEvent, submitAttachments } from '@/shared/session/eventIngest';
+import { ingestEvent, messagesFromHistory, submitAttachments } from '@/shared/session/eventIngest';
 import type { HubEvent } from '@/shared/session/channelHub';
 
 function ev(type: HubEvent['type'], payload: Record<string, unknown> = {}): HubEvent {
@@ -193,5 +193,39 @@ describe('组装时间线入轨迹（assembly_started/done 折叠为一条组装
     const hub = new ChannelHub();
     ingestEvent(hub, { type: 'execution_started', payload: { node: 'produce' }, at: Date.now() });
     expect(hub.getSnapshot().roundSteps.filter((s) => s.type === 'assembly')).toHaveLength(0);
+  });
+});
+
+describe('messagesFromHistory（宿主读引擎展示态投影 → 刷新恢复完整消息流）', () => {
+  it('重建 user/assistant 正文 + thinking 卡 + tool 卡，顺序保持', () => {
+    const rows = [
+      { kind: 'message', role: 'user', text: 'hi' },
+      { kind: 'thinking', text: '我要查图', meta: { status: 'completed' } },
+      { kind: 'tool', text: 'inspect_graph', role: 'tool', meta: { tool: 'inspect_graph', args: '{"x":1}', output: '图快照' } },
+      { kind: 'message', role: 'assistant', text: '好' },
+    ];
+    const out = messagesFromHistory(rows);
+    expect(out.map((m) => m.kind)).toEqual(['text', 'thinking', 'tool', 'text']);
+    expect(out[0]).toMatchObject({ role: 'user', content: 'hi' });
+    // thinking 卡：completed + 推理内容
+    expect(out[1]).toMatchObject({ kind: 'thinking', content: '我要查图', status: 'completed' });
+    // tool 卡：工具名/输入/输出 + done
+    const tool = out[2] as Extract<(typeof out)[number], { kind: 'tool' }>;
+    expect(tool.tool).toBe('inspect_graph');
+    expect(tool.args).toBe('{"x":1}');
+    expect(tool.summary).toBe('图快照');
+    expect(tool.toolStatus).toBe('done');
+    // assistant 正文
+    expect(out[3]).toMatchObject({ role: 'assistant', content: '好' });
+  });
+
+  it('tool running 态重建为 running；thinking running 态保留', () => {
+    const out = messagesFromHistory([
+      { kind: 'tool', text: 'grep', meta: { tool: 'grep', toolStatus: 'running' } },
+      { kind: 'thinking', text: '推理中', meta: { status: 'running' } },
+    ]);
+    const tool = out[0] as Extract<(typeof out)[number], { kind: 'tool' }>;
+    expect(tool.toolStatus).toBe('running');
+    expect(out[1]).toMatchObject({ kind: 'thinking', status: 'running' });
   });
 });

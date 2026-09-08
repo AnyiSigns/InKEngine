@@ -87,6 +87,9 @@ export {
 } from './core/events/events.js';
 export type { EngineEventInit, EngineTransport } from './core/events/events.js';
 
+// 事件展示聚合器（从事件流派生展示态消息流；宿主经 transport 接入采集）
+export { DisplayStreamCollector, type DisplayMessage } from './kernel/display/display_stream.js';
+
 // 状态（Reducer 注册 + StateSchema/Channel）
 export * from './core/state/reducers.js';
 export * from './core/state/schema.js';

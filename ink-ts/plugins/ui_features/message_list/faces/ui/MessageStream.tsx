@@ -26,7 +26,6 @@ import {
 } from 'lucide-react';
 import { PulseLine } from './PulseLine';
 import { PhaseCapsule } from './PhaseCapsule';
-import { ToolDrawer } from './ToolDrawer';
 import { SpawnPanel, type SpawnInstance } from './SpawnPanel';
 import type { InkMessage, RoundStep, SimulationBranch } from '@/shared/session/types';
 import { assetOf, MediaRejected } from './parts/media_entries';
@@ -72,9 +71,6 @@ export function MessageStream({
 }: MessageStreamProps) {
   const listRef = useRef<HTMLDivElement>(null);
   const pinnedRef = useRef(true);
-  const [drawerOpen, setDrawerOpen] = useState(false);
-  const [drawerTitle, setDrawerTitle] = useState('');
-  const [drawerContent, setDrawerContent] = useState<string>('');
   const [spawnPanelOpen, setSpawnPanelOpen] = useState(false);
 
   // 自动滚底：流式输出或新条目追加时，若用户未上滚则贴底
@@ -97,11 +93,6 @@ export function MessageStream({
     pinnedRef.current = el.scrollHeight - el.scrollTop - el.clientHeight < 64;
   };
 
-  const expandEntry = useCallback((title: string, content: string) => {
-    setDrawerTitle(title);
-    setDrawerContent(content);
-    setDrawerOpen(true);
-  }, []);
   const openSpawnPanel = useCallback(() => setSpawnPanelOpen(true), []);
 
   return (
@@ -115,15 +106,12 @@ export function MessageStream({
         )}
         {entries.map((entry) => (
           <div key={entry.id} className="ink-feed">
-            <MessageItem entry={entry} onExpand={expandEntry} onOpenPanel={openSpawnPanel} />
+            <MessageItem entry={entry} onOpenPanel={openSpawnPanel} />
           </div>
         ))}
         {simulations && simulations.length > 0 && <SimulationCard branches={simulations} />}
       </div>
       {pulseText && <PulseLine text={pulseText} color={pulseColor} />}
-      <ToolDrawer open={drawerOpen} onClose={() => setDrawerOpen(false)} title={drawerTitle}>
-        <pre className="whitespace-pre-wrap text-xs">{drawerContent}</pre>
-      </ToolDrawer>
       {spawnInstances && spawnInstances.length > 0 && (
         <SpawnPanel
           open={spawnPanelOpen}
@@ -142,11 +130,9 @@ export function MessageStream({
 /** 单条消息渲染分发（InkMessage 全 kind）。 */
 const MessageItem = memo(function MessageItem({
   entry,
-  onExpand,
   onOpenPanel,
 }: {
   entry: InkMessage;
-  onExpand: (title: string, content: string) => void;
   onOpenPanel: () => void;
 }) {
   const { t } = useT();
@@ -176,7 +162,7 @@ const MessageItem = memo(function MessageItem({
       );
     }
     case 'tool':
-      return <ToolCard entry={entry} onExpand={onExpand} />;
+      return <ToolCard entry={entry} />;
     case 'spawn':
       return <SpawnCard entry={entry} onOpenPanel={onOpenPanel} />;
     case 'device':
@@ -411,28 +397,29 @@ function ThinkingCard({ entry }: { entry: Extract<InkMessage, { kind: 'thinking'
   );
 }
 
-function ToolCard({
-  entry,
-  onExpand,
-}: {
-  entry: Extract<InkMessage, { kind: 'tool' }>;
-  onExpand: (title: string, content: string) => void;
-}) {
+function ToolCard({ entry }: { entry: Extract<InkMessage, { kind: 'tool' }> }) {
   const { t } = useT();
+  // 默认收起（工具调用只显一行，展开才看详情，避免大摞框）
   const [expanded, setExpanded] = useState(false);
   const isError = entry.toolStatus === 'error';
   const toolName = entry.title || entry.tool || t('message.tool');
-  const output = entry.args ?? '';
+  // 收起态单行摘要 = 工具输入参数（截断一行）；展开区 = 参数 + 工具输出
+  const input = String(entry.args ?? '');
+  const output = String(entry.summary ?? '');
 
   return (
     <div className="ink-status-card rounded-xl p-3">
       <div className="flex items-center gap-2 text-[12px]">
-        <span className={`h-2 w-2 rounded-full ${isError ? 'bg-[var(--ink-accent-approval)]' : entry.toolStatus === 'done' ? 'bg-[var(--ink-text-muted)]' : 'bg-[var(--ink-text-faint)] animate-pulse'}`} />
-        <span className="font-medium">{toolName}</span>
-        <span className="ink-text-faint">· {entry.summary || ''}</span>
-        {entry.toolStatus === 'running' && <span className="ink-text-faint">· {t('message.tool_running')}</span>}
-        <button type="button" onClick={() => setExpanded(!expanded)} className="ml-auto text-[11px] ink-text-muted hover:text-[var(--ink-text-base)]">
-          {expanded ? t('message.collapse') : t('message.view_params')}
+        <span className={`shrink-0 h-2 w-2 rounded-full ${isError ? 'bg-[var(--ink-accent-approval)]' : entry.toolStatus === 'done' ? 'bg-[var(--ink-text-muted)]' : 'bg-[var(--ink-text-faint)] animate-pulse'}`} />
+        <span className="shrink-0 font-medium">{toolName}</span>
+        {entry.toolStatus === 'running' && <span className="shrink-0 ink-text-faint">· {t('message.tool_running')}</span>}
+        <span className="min-w-0 flex-1 truncate ink-text-faint">{input}</span>
+        <button
+          type="button"
+          onClick={() => setExpanded(!expanded)}
+          className="ml-auto shrink-0 text-[11px] ink-text-muted hover:text-[var(--ink-text-base)]"
+        >
+          {expanded ? t('message.collapse') : t('message.tool_detail')}
         </button>
       </div>
       {isError && (
@@ -442,12 +429,18 @@ function ToolCard({
         </div>
       )}
       {expanded && (
-        <div className="mt-2">
-          <pre className="max-h-60 overflow-auto rounded-lg bg-[var(--ink-bg-surface)] p-3 text-[12px]">{output || t('message.no_params')}</pre>
-          {output.length > 120 && (
-            <button type="button" onClick={() => onExpand(`${toolName} 完整参数`, output)} className="mt-2 text-[11px] ink-text-muted hover:text-[var(--ink-text-base)]">
-              {t('message.view_full')}
-            </button>
+        <div className="mt-2 space-y-2">
+          {input && (
+            <div>
+              <div className="mb-1 text-[11px] ink-text-muted">{t('message.tool_input')}</div>
+              <pre className="max-h-40 overflow-auto rounded-lg bg-[var(--ink-bg-surface)] p-3 text-[12px]">{input}</pre>
+            </div>
+          )}
+          {output && (
+            <div>
+              <div className="mb-1 text-[11px] ink-text-muted">{t('message.tool_output')}</div>
+              <pre className="max-h-60 overflow-auto rounded-lg bg-[var(--ink-bg-surface)] p-3 text-[12px]">{output}</pre>
+            </div>
           )}
         </div>
       )}

@@ -62,8 +62,9 @@ describe('MessageStream', () => {
   it('renders tool card with expand/collapse', () => {
     render(<MessageStream entries={[{ id: '1', kind: 'tool', tool: 'grep', permission: '', toolStatus: 'done', summary: '命中 3 处', roundId: 'r1' }]} streaming={false} onBranchFromMessage={() => {}} />);
     expect(screen.getByText('grep')).toBeTruthy();
-    fireEvent.click(screen.getByText('查看参数'));
+    fireEvent.click(screen.getByText('详情'));
     expect(screen.getByText('收起')).toBeTruthy();
+    expect(screen.getByText('输出')).toBeTruthy();
   });
 
   it('renders spawn card and opens panel', () => {

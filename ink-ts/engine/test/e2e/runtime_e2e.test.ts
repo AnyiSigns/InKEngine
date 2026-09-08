@@ -45,7 +45,7 @@ describe('真 MemoryStorage 生命周期闭环', () => {
     const host = new E2eHost();
     const runtime = await boot_runtime(host, e2e_recipe());
     // records 通道已落（harness 定义经 records 持久化，可读回 = 已写盘）
-    const saved = await runtime.harness_repository!.get('forge');
+    const saved = await runtime.harness_repository!.get('InkLing');
     expect(saved).not.toBeNull();
     // 第一回合（组装出本轮数据图执行）：终态 checkpoint + 事件日志均已落真存储
     const first = await runtime.assemble_round({

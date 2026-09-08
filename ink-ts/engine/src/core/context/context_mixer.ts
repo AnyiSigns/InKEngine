@@ -20,7 +20,7 @@ import {
 import { ContextAssembler } from './context_assembler.js';
 
 /**
- * LLM「调酒师」融合钩子接口（按需/候选融合，注册制）。
+ * LLM「调配器」融合钩子接口（按需/候选融合，注册制）。
  *
  * 实现约定：
  * - 对给定源列表按指令融合为连贯上下文段（深度融合/候选语义融合）；

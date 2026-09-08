@@ -117,13 +117,6 @@ export function buildSessionsCommands(deps: HostBridgeDeps): Readonly<Record<Ses
     const leaf = await storage.get_checkpoint(leafId).catch(() => null);
     if (leaf === null) return { thread_id, messages: [] };
     const state = leaf.state as Record<string, unknown>;
-    let list: unknown[] | null = null;
-    for (const key of MESSAGE_STATE_KEYS) {
-      if (Array.isArray(state[key])) {
-        list = state[key] as unknown[];
-        break;
-      }
-    }
     interface MessageRow {
       id: string;
       kind: string;
@@ -132,8 +125,58 @@ export function buildSessionsCommands(deps: HostBridgeDeps): Readonly<Record<Ses
       created_at: number;
       meta?: Record<string, unknown>;
     }
+    // 展示态优先：宿主在回合收尾把 user/assistant 正文、think 卡、工具卡
+    // 持久化到 host.sessions.display_messages（独立于上下文 messages，不喂
+    // 模型），刷新据此恢复前端完整消息流。无（旧链）则回退上下文投射。
+    const sessionRecord = await store.get(thread_id).catch(() => null);
+    const displayRaw = sessionRecord?.display_messages ?? null;
+    if (Array.isArray(displayRaw)) {
+      const rows: MessageRow[] = [];
+      for (const item of displayRaw) {
+        if (typeof item !== 'object' || item === null) continue;
+        const record = item as Record<string, unknown>;
+        const kind = typeof record['kind'] === 'string' ? record['kind'] : 'message';
+        const content = typeof record['content'] === 'string'
+          ? record['content']
+          : typeof record['text'] === 'string'
+            ? record['text']
+            : '';
+        const stepId = typeof record['step_id'] === 'string' ? record['step_id'] : null;
+        const meta: Record<string, unknown> = {};
+        if (typeof record['tool'] === 'string' && record['tool'] !== '') meta['tool'] = record['tool'];
+        const title = typeof record['title'] === 'string' ? record['title'] : '';
+        const args = typeof record['args'] === 'string' ? record['args'] : '';
+        const summary = typeof record['summary'] === 'string' ? record['summary'] : '';
+        const toolStatus = typeof record['toolStatus'] === 'string' ? record['toolStatus'] : undefined;
+        const status = typeof record['status'] === 'string' ? record['status'] : undefined;
+        if (args !== '') meta['args'] = args;
+        if (summary !== '') meta['output'] = summary;
+        if (toolStatus !== undefined) meta['toolStatus'] = toolStatus;
+        if (status !== undefined) meta['status'] = status;
+        const role = typeof record['role'] === 'string' ? record['role'] : undefined;
+        rows.push({
+          id: stepId ?? `${thread_id}:${rows.length}`,
+          kind: kind === 'thinking' ? 'thinking' : kind === 'tool' ? 'tool' : 'message',
+          text: content,
+          created_at: leaf.created_at,
+          ...(role !== undefined ? { role } : {}),
+          ...(Object.keys(meta).length > 0 ? { meta } : {}),
+        });
+      }
+      return { thread_id, messages: rows };
+    }
+    // 回退：旧链无 display_messages → 从上下文 messages 投射（历史会话兼容）
+    let list: unknown[] | null = null;
+    for (const key of MESSAGE_STATE_KEYS) {
+      if (Array.isArray(state[key])) {
+        list = state[key] as unknown[];
+        break;
+      }
+    }
     const rows: MessageRow[] = [];
     let seq = 0;
+    // 工具调用起始关联：assistant 的 tool_calls id → 待闭合 tool 卡 index
+    const openTools = new Map<string, number>();
     for (const item of list ?? []) {
       if (typeof item !== 'object' || item === null) continue;
       const record = item as Record<string, unknown>;
@@ -145,26 +188,58 @@ export function buildSessionsCommands(deps: HostBridgeDeps): Readonly<Record<Ses
         ? record['id']
         : null;
       const calls = Array.isArray(record['tool_calls'])
-        ? (record['tool_calls'] as Array<{ name?: unknown }>)
-            .map((call) => (typeof call['name'] === 'string' ? call['name'] : null))
-            .filter((name): name is string => name !== null)
+        ? (record['tool_calls'] as Array<{ name?: unknown; id?: unknown }>)
+            .map((call) => ({
+              name: typeof call['name'] === 'string' ? call['name'] : null,
+              id: typeof call['id'] === 'string' ? call['id'] : null,
+            }))
+            .filter((c): c is { name: string; id: string | null } => c.name !== null)
         : [];
-      if (calls.length > 0) meta['tool_calls'] = calls;
-      if (typeof record['tool_call_id'] === 'string' && record['tool_call_id'] !== '') {
-        meta['tool_call_id'] = record['tool_call_id'];
+      if (calls.length > 0) meta['tool_calls'] = calls.map((c) => c.name);
+      // assistant 正文投射（含 tool 结果；thinking 展示态由宿主另存，不在引擎上下文）
+      if (text.trim() !== '') {
+        rows.push({
+          id: ownId ?? `${thread_id}:${seq}`,
+          kind: role === 'tool' ? 'tool' : 'message',
+          text,
+          role,
+          created_at: leaf.created_at,
+          ...(Object.keys(meta).length > 0 ? { meta } : {}),
+        });
+        seq += 1;
       }
-      if (Array.isArray(record['attachments']) && record['attachments'].length > 0) {
-        meta['attachments'] = (record['attachments'] as unknown[]).length;
+      // 工具调用起始投射（工具卡）：后续 role:'tool' 结果消息按 tool_call_id 闭合
+      for (const call of calls) {
+        const toolIndex = rows.length;
+        rows.push({
+          id: `${ownId ?? `${thread_id}:${seq}`}:tool:${call.name}`,
+          kind: 'tool',
+          text: call.name,
+          role: 'tool',
+          created_at: leaf.created_at,
+          meta: { tool: call.name },
+        });
+        seq += 1;
+        if (call.id !== null) openTools.set(call.id, toolIndex);
       }
-      rows.push({
-        id: ownId ?? `${thread_id}:${seq}`,
-        kind: role === 'tool' ? 'tool' : 'message',
-        text,
-        role,
-        created_at: leaf.created_at,
-        ...(Object.keys(meta).length > 0 ? { meta } : {}),
-      });
-      seq += 1;
+      // 工具结果消息（role:'tool'）：闭合最近的同名工具卡（补输出 text）
+      if (role === 'tool' && text.trim() !== '') {
+        const toolCallId = typeof record['tool_call_id'] === 'string' ? record['tool_call_id'] : null;
+        const targetIndex = toolCallId !== null ? (openTools.get(toolCallId) ?? null) : null;
+        if (targetIndex !== null && rows[targetIndex] !== undefined) {
+          rows[targetIndex]!.meta = { ...(rows[targetIndex]!.meta ?? {}), output: text };
+        } else {
+          rows.push({
+            id: ownId ?? `${thread_id}:${seq}`,
+            kind: 'tool',
+            text: text.length > 120 ? text.slice(0, 120) : text,
+            role: 'tool',
+            created_at: leaf.created_at,
+            meta: { output: text },
+          });
+          seq += 1;
+        }
+      }
     }
     return { thread_id, messages: rows };
   };

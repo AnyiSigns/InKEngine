@@ -218,7 +218,9 @@ export function ingestEvent(hub: ChannelHub, event: HubEvent): void {
       upsertStep({ stepId, type: 'thinking', label: '思考', status: 'done' }, (s) => ({ ...s, status: 'done' as const }));
       upsert(
         { kind: 'thinking', content: String(payload.content ?? ''), status: 'completed', id: nextId() },
-        (m) => (m.kind === 'thinking' ? { ...m, status: 'completed' as const, content: String(payload.content ?? m.content) } : m),
+        // thinking_end 非空 content = 最终收敛（覆盖定型）；空 content（引擎
+        // 流式收尾常发空串）= 保留 thinking_start 已流式累积的推理文本。
+        (m) => (m.kind === 'thinking' ? { ...m, status: 'completed' as const, content: String(payload.content || m.content) } : m),
       );
       break;
     case 'plan_start':
@@ -838,12 +840,41 @@ export function messagesFromHistory(rows: unknown[]): InkMessage[] {
   const out: InkMessage[] = [];
   for (const raw of rows) {
     const r = (raw && typeof raw === 'object' ? raw : {}) as Record<string, unknown>;
+    // 宿主从引擎展示态（display_messages）投影的消息：刷新后重建完整消息流
+    const kind = typeof r.kind === 'string' ? r.kind : undefined;
+    const text = typeof r.text === 'string' ? r.text : typeof r.content === 'string' ? r.content : '';
+    const roundId = typeof r.round_id === 'string' ? r.round_id : undefined;
+    const meta = (r.meta && typeof r.meta === 'object' ? r.meta : {}) as Record<string, unknown>;
+    if (kind === 'thinking') {
+      out.push({
+        kind: 'thinking',
+        content: text,
+        status: String(meta['status'] ?? 'completed') === 'running' ? 'running' : 'completed',
+        id: nextId(),
+        ...(roundId ? { roundId } : {}),
+      });
+      continue;
+    }
+    if (kind === 'tool') {
+      const toolStatus = String(meta['toolStatus'] ?? 'done');
+      out.push({
+        kind: 'tool',
+        tool: String(meta['tool'] ?? text ?? ''),
+        title: String(meta['tool'] ?? text ?? ''),
+        permission: '',
+        toolStatus: toolStatus === 'running' ? 'running' : toolStatus === 'error' ? 'error' : 'done',
+        args: String(meta['args'] ?? ''),
+        summary: String(meta['output'] ?? ''),
+        id: nextId(),
+        ...(roundId ? { roundId } : {}),
+      });
+      continue;
+    }
     const role = r.role;
     if (role !== 'user' && role !== 'assistant') continue;
-    const content = typeof r.text === 'string' ? r.text : typeof r.content === 'string' ? r.content : '';
+    const content = typeof r.content === 'string' ? r.content : typeof r.text === 'string' ? r.text : '';
     if (!content) continue;
     const name = typeof r.name === 'string' ? r.name : undefined;
-    const roundId = typeof r.round_id === 'string' ? r.round_id : undefined;
     out.push({
       kind: 'text',
       role,

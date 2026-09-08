@@ -17,6 +17,8 @@ export const COND_LLM_FINISHED = 'llm.pending_empty';
 
 // ── 状态通道键（节点间共享的状态面；数据图/池种子按名引用）──
 export const STATE_MESSAGES = 'messages';
+export const STATE_DISPLAY_MESSAGES = 'display_messages';
+export const STATE_DISPLAY_SEQ = 'display_seq';
 export const STATE_PENDING = 'pending';
 export const STATE_REPLY = 'reply';
 export const STATE_TOOL_ROUNDS = 'tool_rounds';

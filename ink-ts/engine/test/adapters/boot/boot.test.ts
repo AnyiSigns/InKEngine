@@ -117,7 +117,7 @@ describe('boot 自举 harness 定义', () => {
   it('forge 自举领域：观察/演化元能力集', () => {
     const definition = boot_harness_definition();
     expect(definition).toBeInstanceOf(HarnessDefinition);
-    expect(definition.name).toBe('forge');
+    expect(definition.name).toBe('InkLing');
     expect(definition.description).toBe('自举领域：观察/提案/应用的元能力集');
     expect(definition.keywords).toContain('自举');
     expect(definition.keywords).toContain('观察');

@@ -228,13 +228,17 @@ export abstract class RuntimeRounds extends RuntimeAssemble {
     } catch {
       return;
     }
-    if (latest === null) return;
-    const stored = latest.state[STATE_MESSAGES];
-    if (!Array.isArray(stored) || stored.length === 0) return;
     const input = String(state['input'] ?? '');
     const attachments = _round_attachments(state['attachments']);
     if (input === '' && attachments.length === 0) return;
-    state[STATE_MESSAGES] = [...stored, user(input, { attachments }).to_dict()];
+    // 上下文 messages：历史 + 本次 user（首轮无历史 = 仅本次；由 llm_decider
+    // _seedMessages 以 ctx.state.input 建首轮 user，此处只续链后续轮）。
+    if (latest !== null) {
+      const stored = latest.state[STATE_MESSAGES];
+      if (Array.isArray(stored) && stored.length > 0) {
+        state[STATE_MESSAGES] = [...stored, user(input, { attachments }).to_dict()];
+      }
+    }
   }
 
   /** 组装事件发射（走 Engine publish：落执行日志 + 全传输；time 事件用 epoch 秒）。 */

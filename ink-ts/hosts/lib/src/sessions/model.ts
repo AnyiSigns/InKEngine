@@ -39,6 +39,9 @@ export interface HostSessionRecord {
   last_round_id: string | null;
   /** 收尾簿记：最近一次回合结局（ok/aborted/interrupted…）。 */
   last_outcome?: string;
+  /** 展示态消息流（thinking/tool/正文，宿主从引擎事件展示聚合器采集并持久化；
+   *  独立于引擎上下文 messages，刷新后据此恢复前端完整消息流）。 */
+  display_messages?: unknown[];
 }
 
 /** 分支树单节点（派生自 ChainLink；leaf 恒为某叶 checkpoint）。 */

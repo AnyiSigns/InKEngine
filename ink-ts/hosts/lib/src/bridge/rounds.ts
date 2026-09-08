@@ -15,7 +15,8 @@ export { ROUNDS_COMMANDS, type RoundsCommand } from './commands.generated.js';
  * 并发纪律：单 host 串行跑回合（引擎顶层 run 非并发安全，先进先出队列）。
  */
 
-import type { RunTaskHandle, Storage } from '@ink-ts/engine';
+import type { RunTaskHandle, Storage, DisplayMessage } from '@ink-ts/engine';
+import { DisplayStreamCollector } from '@ink-ts/engine';
 
 import { HostSessionStore } from '../sessions/store.js';
 import type { FileEventsTransport } from '../transport.js';
@@ -225,6 +226,17 @@ function resultWarnings(warnings: string[]): Record<string, unknown> {
   return warnings.length > 0 ? { warnings } : {};
 }
 
+/** 展示态消息流：user 输入展示条目前置 + 事件展示聚合器采集的 think/tool/正文。
+ *  host 持久化到 host.sessions（sqlite），刷新据此恢复前端完整消息流。 */
+function buildDisplayMessages(input: string, collected: readonly DisplayMessage[]): DisplayMessage[] {
+  const messages: DisplayMessage[] = [];
+  if (input.trim() !== '') {
+    messages.push({ kind: 'text', role: 'user', content: input, step_id: 'display:u' });
+  }
+  messages.push(...collected);
+  return messages;
+}
+
   const send: BridgeHandler = async (raw): Promise<unknown> => {
     const params = asParams(raw);
     const runtime = deps.runtime;
@@ -248,6 +260,9 @@ function resultWarnings(warnings: string[]): Record<string, unknown> {
 
     let result: RoundOutcome;
     let transport: FileEventsTransport;
+    // 展示态采集：从引擎事件流派生 thinking/tool/正文（宿主持久化；独立于
+    // 上下文 messages，不喂模型）。收尾落 host.sessions，刷新据此恢复。
+    const displayCollector = new DisplayStreamCollector();
     try {
       const ran = await serialized((t) =>
         driveRound(runtime, thread_id, (transportForRun) =>
@@ -257,7 +272,7 @@ function resultWarnings(warnings: string[]): Record<string, unknown> {
             round_id,
             trace_id,
             ...(max_tool_rounds !== undefined ? { max_tool_rounds } : {}),
-            transports: [transportForRun],
+            transports: [transportForRun, displayCollector],
           }),
           t,
         ),
@@ -275,6 +290,9 @@ function resultWarnings(warnings: string[]): Record<string, unknown> {
       throw error;
     }
     await settle(thread_id, round_id, result);
+    // 展示态持久化：user 输入展示前置 + 事件展示聚合器采集的 think/tool/正文
+    const displayMessages = buildDisplayMessages(prepared.input, displayCollector.getMessages());
+    await sessions.set_display_messages(thread_id, displayMessages);
     return {
       thread_id,
       round_id,

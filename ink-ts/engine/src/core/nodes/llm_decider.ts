@@ -116,20 +116,36 @@ function _parse_tool_args(call: ToolCall): Record<string, unknown> {
   return parsed as Record<string, unknown>;
 }
 
-/** 单轮模型流式调用：累积文本 + 工具调用增量（reply_token 逐 token 发射）。 */
+/** 单轮模型流式调用：累积文本 + 工具调用增量（reply_token 逐 token 发射）。
+ *  推理增量（reasoning_token）亦逐帧发射为 thinking_start/thinking_end 事件
+ *  （前端思考卡消费：分片 content 追加、稳定 step_id 配对更新）。推理文本
+ *  不写入上下文 messages（不喂模型）；展示态由事件展示聚合器从事件流派生，
+ *  本节点只负责发射事件，不含展示态逻辑。 */
 async function _stream_turn(
   llm: AsyncLLM,
   ctx: _DeciderCtx,
   messages: readonly Message[],
   specs: readonly ToolSpec[],
   name: string,
+  think_step_id: string,
 ): Promise<{ text: string; calls: ToolCall[] }> {
   const parts: string[] = [];
   const deltas: unknown[] = [];
   const tools = specs.length > 0 ? [...specs] : null;
+  let think_open = false;
   for await (const chunk of llm.astream(messages, { tools, params: null })) {
     if (chunk.usage !== null && chunk.usage !== undefined && typeof ctx.account_usage === 'function') {
       ctx.account_usage(chunk.usage);
+    }
+    if (chunk.reasoning_token) {
+      // 首帧推理 token 才开思考卡；后续帧以分片 content 追加（前端同
+      // step_id 的 thinking_start 在既有思考卡上续写）。推理文本不写入
+      // 上下文 messages（不喂模型）；展示态由事件展示聚合器从事件流派生。
+      if (!think_open) {
+        await ctx.emit('thinking_start', { content: '', status: 'running' }, { step_id: think_step_id });
+        think_open = true;
+      }
+      await ctx.emit('thinking_start', { content: chunk.reasoning_token, status: 'running' }, { step_id: think_step_id });
     }
     if (chunk.token) {
       parts.push(chunk.token);
@@ -139,12 +155,17 @@ async function _stream_turn(
     }
     if (chunk.tool_calls_delta) deltas.push(...chunk.tool_calls_delta);
   }
+  if (think_open) {
+    await ctx.emit('thinking_end', { content: '', status: 'completed' }, { step_id: think_step_id });
+  }
   const calls = accumulate_tool_calls(deltas as never);
   return { text: parts.join(''), calls };
 }
 
 /** 执行一条工具调用（ToolPipeline 统一守卫；非 ok 走 round 错误/终止）。
- *  返回 false = 终止决议（调用方停止后续工具执行，本轮结束）。 */
+ *  返回 false = 终止决议（调用方停止后续工具执行，本轮结束）。
+ *  执行前后发射 tool_start/tool_end 事件（前端工具状态卡消费；step_id 按
+ *  tool_call_id 稳定，start/end 配对到同一卡）。 */
 async function _execute_tool(
   pipeline: ToolPipeline,
   ctx: _DeciderCtx,
@@ -152,8 +173,19 @@ async function _execute_tool(
   call: ToolCall,
 ): Promise<{ output: string; halt: boolean }> {
   const args = _parse_tool_args(call);
+  const tool_step_id = `tool:${call.id}`;
+  await ctx.emit(
+    'tool_start',
+    { tool: spec.name, args, permission: '' },
+    { step_id: tool_step_id },
+  );
   const result = await pipeline.execute(ctx as never, spec, args);
   if (!result.ok) {
+    await ctx.emit(
+      'tool_end',
+      { tool: spec.name, success: false, error: result.error ?? String(result.decision) },
+      { step_id: tool_step_id },
+    );
     if (result.decision === 'terminate') {
       if (typeof ctx.terminate === 'function') {
         ctx.terminate(TerminateReason.STOP, { tool: spec.name });
@@ -164,6 +196,11 @@ async function _execute_tool(
       `工具 ${spec.name} 执行未通过（${result.decision}）: ${result.error ?? '无原因'}`,
     );
   }
+  await ctx.emit(
+    'tool_end',
+    { tool: spec.name, success: true, summary: result.output ?? '' },
+    { step_id: tool_step_id },
+  );
   return { output: result.output ?? '', halt: false };
 }
 
@@ -215,9 +252,15 @@ export function make_llm_decider_factory(box: _EngineNodeSeamsBox): NodeFactory 
       while (rounds < max_rounds) {
         rounds += 1;
         const specs = _current_specs(seams, ctx);
-        const turn = await _stream_turn(llm, ctx, messages, specs, node_name);
+        // 思考段 step_id 按流式轮次编号（decider 单回合内各次模型流式
+        // 一段独立思考卡；前端按稳定 step_id 配对更新，不跨轮覆盖）。
+        const think_step_id = `think:${rounds}`;
+        const turn = await _stream_turn(llm, ctx, messages, specs, node_name, think_step_id);
         messages.push(
-          assistant(turn.text, { tool_calls: turn.calls.length > 0 ? turn.calls : null, name: node_name || null }),
+          assistant(turn.text, {
+            tool_calls: turn.calls.length > 0 ? turn.calls : null,
+            name: node_name || null,
+          }),
         );
         ctx.state[STATE_MESSAGES] = messages.map((message) => message.to_dict());
         if (turn.calls.length === 0) {

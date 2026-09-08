@@ -139,6 +139,16 @@ export class HostSessionStore {
     return record;
   }
 
+  /** 写入展示态消息流（展示态替代当前记录；刷新据此恢复前端完整消息流）。 */
+  async set_display_messages(thread_id: string, messages: unknown[]): Promise<HostSessionRecord> {
+    const existing = await this.getRecord(thread_id);
+    const record: HostSessionRecord = existing ?? new_session_record(thread_id);
+    record.display_messages = messages;
+    record.updated_at = Date.now() / 1000;
+    await this.putRecord(record);
+    return record;
+  }
+
   /** 收尾整体刷新：消息数/当前叶派生 + 空标题自动起兜底标题。 */
   async refresh(thread_id: string): Promise<HostSessionRecord> {
     const storage = this.requireStorage();

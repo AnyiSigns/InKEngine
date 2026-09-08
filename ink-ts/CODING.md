@@ -34,12 +34,14 @@
   bridge；只做「选哪个适配、读配置、注入 seam」与宿主薄服务接线；**不写厂商
   适配与存储驱动**（那是 engine/adapters 的职责）。机制语义（审批/补丁链/
   审计/闸门/沙箱判定）属 engine core，不得在此复制。不写 main、不监听端口、
-  不是进程——被 cli / web 进程 / vitest import。
+  不是进程——被 cli / renderer / vitest import。
 - `cli/`：唯一进程载体与宿主执行体（stdio/run/serve/tui 四形态——cli 为
   kind=host 装配期插件（`hosts/<host>.spec.json`），tui 是 cli 宿主的终端呈现
   面（`cli/src/tui/`），web 是浏览器呈现面经 cli serve），注入实现到 seam。
-- `web/`（原 `frontend/`）：前端纯渲染层，只渲染数据 + 触发补丁，逻辑不进组件；
-  本质非服务进程（无 main/不监听），服务承载方 = cli serve。
+- `renderer/`（原 `frontend/`→`web/`）：前端纯渲染层，只渲染数据 + 触发补丁，
+  逻辑不进组件；产品 canonical 组件为插件真 ui 面（faces/ui 同住，见 §10），
+  本层仅剩宿主装配面（App/state/chrome）+ 通用渲染机制（UIRenderer/注册表/
+  白名单）。本质非服务进程（无 main/不监听），服务承载方 = cli serve。
 - `hosts/`：宿主插件声明（kind=host 装配期 spec：tauri/cli/web/ide），阶段 5
   框架已立 `hosts/cli.spec.json`；运行配置完全声明化与其余 spec 落定随阶段 5b。
 - `bootstrap/`：**唯一进程入口**（阶段 5b-3 起规范入口）——读
@@ -49,9 +51,10 @@
 
 术语：**host（原 backend）** = 宿主装配层 / composition
 root；**cli** = 唯一进程载体（含 main + 四形态：stdio/run/serve/tui，tui 为
-终端呈现面）；**web** = 前端纯渲染（L5，
-只连 cli serve 通道）；exec/infer/ink_ts_mcp 为 Rust 原生机制件子进程
-（OS 执行 / 本地嵌入推理 / 内置 MCP server）。包间依赖单向：`web/host/cli
+终端呈现面）；**renderer** = 前端纯渲染（L5，
+只连 cli serve 通道；**web** 仅余宿主面语义 = 浏览器呈现面
+`hosts/web.spec.json`/`surface: 'web'`）；exec/infer/ink_ts_mcp 为 Rust 原生机制件子进程
+（OS 执行 / 本地嵌入推理 / 内置 MCP server）。包间依赖单向：`renderer/host/cli
 → engine`；engine 数据面契约内置
 （schemas/fixtures/生成物同包），上层一律经 `@ink-ts/engine` 公共面消费。
 域间不跨目录 import 私有模块。
@@ -61,7 +64,7 @@ FieldKind 等）经 engine 内置生成物单源（`engine/schemas` + `engine/fi
 → `engine/src/core/contracts/generated`），engine core 模块以相对 import
 直接消费，本地不维护同值第二套字面量；core 层 import 无裸包白名单（gate
 精确拒绝，见 §7）。生成物再经 `@ink-ts/engine` index 公共面导出，供
-host/cli/web 取用。
+host/cli/renderer 取用。
 
 ## 2. 文件拆分纪律
 
@@ -78,7 +81,7 @@ host/cli/web 取用。
    IO 实现在 `engine/src/adapters`（可选装载、DI 注入）——core 保持纯函数无
     全局状态，宿主/host 只装配不实现。
 6. 超过 350 行仍膨胀 → 按「子机制/子渲染区」拆目录，不凑文件。
-7. **测试与源码分离（包内）/ 插件测试随插件同住**：engine/host/cli/web 包内 vitest
+7. **测试与源码分离（包内）/ 插件测试随插件同住**：engine/host/cli/renderer 包内 vitest
    测试放所属包 `test/` 目录（镜像被测 src 路径，文件仍名 `<机制>.test.ts`），
    禁止与业务源码同目录——`src/**` 内出现 `.test` 文件即门禁拒绝（规则
    `src-test`）；门禁另扫描 `engine/test`、`cli/test` 与 `host/test` 的行数上限。
@@ -113,7 +116,7 @@ host/cli/web 取用。
 1. 可 JSON 表达的契约（枚举、注册表条目、配方数据）只落 `engine/schemas` +
    `engine/fixtures`（JSON 真源），生成 TS 常量/类型入
    `engine/src/core/contracts/generated`，core 模块相对 import 消费，
-   host/cli/web 经 `@ink-ts/engine` 公共面取用，全仓同构，禁止第二套语义
+   host/cli/renderer 经 `@ink-ts/engine` 公共面取用，全仓同构，禁止第二套语义
    枚举。
 2. 行为钩子（Callable/执行体接线）不落 JSON，只以 seam/类型存在于消费层，
    命名带明确职责后缀。
@@ -132,7 +135,7 @@ host/cli/web 取用。
 
 | 检查 | 对象 | 强度 |
 |---|---|---|
-| 文件行数 ≤350（例外须标注） | engine/host/cli/web 源码与测试、plugins 真面插件 faces/impl 代码与同住测试（阶段 7a 起随真面插件目录入扫描；data-only 目录无代码不在扫描集） | 拒绝 |
+| 文件行数 ≤350（例外须标注） | engine/host/cli/renderer 源码与测试、plugins 真面插件 faces/impl 代码与同住测试（阶段 7a 起随真面插件目录入扫描；data-only 目录无代码不在扫描集） | 拒绝 |
 | src 内夹测试文件（`.test` 在 src 目录） | 各包 `src/**`（plugins 例外：真面插件 `faces/`、`impl/` 内 `.test.ts(x)` 与源码同住并列 = 阶段 7a 目标形态，放行；生成器/脚本目录不进 src） | 拒绝 |
 | 源文件非法 UTF-8 字节（含损坏转码） | 各包 `src/**` | 拒绝（utf8-valid） |
 | core/kernel 禁 node:* 与第三方 import | `engine/src/core/**`、`engine/src/kernel/**` | 拒绝（`node:async_hooks` 白名单例外：镜像 Python core contextvars，清单见 gate config；core/kernel 无裸包放行——数据面契约经相对 import 引用同包内置生成物，不放行其它 @ink-ts/*、adapters 与第三方） |
@@ -144,28 +147,32 @@ host/cli/web 取用。
 | 生成文件禁手改 | `engine/src/core/contracts/generated/**` | 由 `contracts:verify`（engine/scripts/verify_generated.mjs：复制 engine/schemas + fixtures 后重生成，与仓库生成物归一化逐文件 diff）在 root `npm test` 与 CI 强制；不做文本扫描 |
 | 机制件契约三键（依赖单向/装配完整/0-IO） | `engine/src/kernel/<mechanism>/contract.ts` 全量 + runtime 装配闭包 + kernel 源码 | 由 `verify:mechanisms`（engine/scripts/verify_mechanisms.ts：契约密封 DAG 无环 + runtime depends 闭包 ∪ 自足叶子覆盖全量 + kernel 禁 node 内置/第三方/IO 全局原语）在 root `npm test` 与 CI 强制；boot 装配首步同源 `seal_mechanism_registry` fail-closed |
 | 命令声明即挂载（方法名不手写数组） | `host/src/bridge/index.ts` 的 `BRIDGE_METHODS` + `host/src/bridge/commands.generated.ts` | 由 `verify:bridge-mount`（host/scripts/verify_bridge_mount.ts：BRIDGE_METHODS 数组体只允许各域 `*_COMMANDS` spread 或注释，禁点分方法名字面量；spread 常量须已 import；域文件禁本地声明 `*_COMMANDS` 数组——方法名真源 = plugins/commands → commands.generated.ts）在 root `npm test` 与 CI 强制；键与实现表一致由各域工厂 `Readonly<Record<DomainCommand, BridgeHandler>>` 返回类型编译期保证 |
-| 插件源派生视图（manifest 禁手改） | `plugins/manifest.json`（tools 聚合 / mcp 市场视图 / ui_features 组件白名单 / 插件索引） | 由 `verify:plugin-manifest`（plugins/scripts/sync_plugin_manifest.mjs：从 plugins/\<kind\>/\<id\>/spec.json 聚合生成，--check 逐字比对防手改）在 root `npm test` 与 CI 强制；web dev 夹具、host mcp.market、tools_os 夹具生成与 self_check data 门禁一律经 manifest 取用 |
+| 插件源派生视图（manifest 禁手改） | `plugins/manifest.json`（tools 聚合 / mcp 市场视图 / ui_features 组件白名单 / 插件索引） | 由 `verify:plugin-manifest`（plugins/scripts/sync_plugin_manifest.mjs：从 plugins/\<kind\>/\<id\>/spec.json 聚合生成，--check 逐字比对防手改）在 root `npm test` 与 CI 强制；renderer dev 夹具、host mcp.market、tools_os 夹具生成与 self_check data 门禁一律经 manifest 取用 |
 | 命令面生成物（commands.generated.ts 禁手改） | `host/src/bridge/commands.generated.ts`（各域命令元组 + 域命令类型，真源 = plugins/commands/*/spec.json） | 由 `verify:plugin-manifest`（同 scripts/sync_plugin_manifest.mjs：同时派生 manifest.json 与 commands.generated.ts，--check 对两者逐字比对防手改）在 root `npm test` 与 CI 强制；host 域实现文件经 `import type`/re-export 取用 |
-| 产品主壳布局生成物（ui.generated.json 禁手改） | `plugins/ui.generated.json`（产品 UI 布局树，真源 = plugins/ui_features/*/spec.json 装配入口 $ref 展开） | 由 `verify:plugin-manifest`（同 scripts/sync_plugin_manifest.mjs：DFS 展开 $ref 重建完整布局树，引用缺失/成环/孤儿 fail-closed；--check 逐字比对防手改）在 root `npm test` 与 CI 强制；web 渲染与 dev 夹具一律经 ui.generated.json 取用，不再有 seed_data/ui_spec.json |
+| 产品主壳布局生成物（ui.generated.json 禁手改） | `plugins/ui.generated.json`（产品 UI 布局树，真源 = plugins/ui_features/*/spec.json 装配入口 $ref 展开） | 由 `verify:plugin-manifest`（同 scripts/sync_plugin_manifest.mjs：DFS 展开 $ref 重建完整布局树，引用缺失/成环/孤儿 fail-closed；--check 逐字比对防手改）在 root `npm test` 与 CI 强制；渲染器与 dev 夹具一律经 ui.generated.json 取用，不再有 seed_data/ui_spec.json |
 | canonical 白名单生成物（ui_canonical.generated.ts 禁手改） | `host/src/bridge/ui_canonical.generated.ts`（布局树引用组件 type 并集升序，真源同 ui_features 布局） | 由 `verify:plugin-manifest`（同 scripts/sync_plugin_manifest.mjs 派生，--check 逐字比对防手改）在 root `npm test` 与 CI 强制；host recipe 界面白名单引用之；与旧侧 inkling/manifest.json renderer_components 同值由 gate 对码测试守漂移 |
 | 原生执行件端点派生视图（native.generated.ts 禁手改） | `host/src/exec/native.generated.ts`（NATIVE_BINARY_DECLS + NativeBinaryKind 类型，真源 = plugins/endpoints/*/spec.json 的 data.native：二进制文件名 file + env 覆盖键） | 由 `verify:plugin-manifest`（同 scripts/sync_plugin_manifest.mjs 派生，--check 逐字比对防手改）在 root `npm test` 与 CI 强制；host/src/exec/binary.ts 据此**按声明定位**（阶段 6：手写 BINARY_ENV/FILE_BY_KIND 两表已删；`_types.NativeBinaryKind` 从生成物派生，禁手写三值联合） |
-| 插件全脸声明与卸载一致性（faces/depends/effects 语义） | `plugins/\<kind\>/\<id\>/spec.json` 顶层声明 + `plugins/manifest.json` plugins[] 注册表行 | 由 `verify:unload`（plugins/scripts/verify_unload.ts：depends 悬空/成环/未登记（插件 id 或机制端口）= 违规；faces 三脸结构（ui/logic/data × engine\|host\|web）+ `contract.effects` ⊆ 机制端口词表（单一真源 engine/src/kernel/registry/ports.ts）；manifest 平价 + data-only 状态引脚 + ui 可达性不变式；真面许可例外（阶段 7a：capability=external_tool 或 `REAL_FACE_BUILTINS` 白名单 doc_parse 样板）且 faces entry 物理同住（相对路径禁逃逸 + 文件真实存在）；`--plan \<id\>` 输出卸载阻断方（下游 depends / 父容器 $ref）与子树影响面，fail-closed）在 root `npm test` 与 CI 强制；生成器只守 JSON 形状（读/校验顶层声明并携带入注册表行） |
+| 真 ui 面注册生成物（pluginFaces.generated.ts 禁手改） | `renderer/src/app/pluginFaces.generated.ts`（真 ui 面插件注册表 + registerPluginFaces，真源 = plugins/ui_features/*/spec.json 组件节点的 faces.ui entry；设置面板段一并并入） | 由 `verify:plugin-manifest`（同 scripts/sync_plugin_manifest.mjs 派生，--check 逐字比对防手改）在 root `npm test` 与 CI 强制；渲染器装配期 registerPluginFaces 静态 import 各 entry 注册 componentRegistry（注册名 = 插件 id） |
+| 设置段派生清单（settingsSections.generated.ts 禁手改） | `renderer/src/app/settings/settingsSections.generated.ts`（settings 段清单 key/label/order/icon，真源 = plugins/ui_features/*/spec.json 的 data.settings_section + faces.ui） | 由 `verify:plugin-manifest`（同 scripts/sync_plugin_manifest.mjs 派生 order 升序，--check 逐字比对防手改）在 root `npm test` 与 CI 强制；设置浮层读本清单渲染左导航、内容 DynamicComponent name=插件 id |
+| 插件全脸声明与卸载一致性（faces/depends/effects 语义） | `plugins/\<kind\>/\<id\>/spec.json` 顶层声明 + `plugins/manifest.json` plugins[] 注册表行 | 由 `verify:unload`（plugins/scripts/verify_unload.ts：depends 悬空/成环/未登记（插件 id 或机制端口）= 违规；faces 三脸结构（ui/logic/data × engine\|host\|web）+ `contract.effects` ⊆ 机制端口词表（单一真源 engine/src/kernel/registry/ports.ts）；manifest 平价 + data-only 状态引脚 + ui 可达性不变式（容器 $ref ∪ settings 派生清单引用，无孤儿无豁免）；真面许可（阶段 7a：capability=external_tool 或 `REAL_FACE_BUILTINS` 白名单 doc_parse logic 样板；阶段 7b：ui_feature 组件节点 isUiComponent 放行 faces.ui——canonical 叶子/设置面板/浮层）且 faces entry 物理同住（相对路径禁逃逸 + 文件真实存在）；`--plan \<id\>` 输出卸载阻断方（下游 depends / 父容器 $ref）与子树影响面，fail-closed）在 root `npm test` 与 CI 强制；生成器只守 JSON 形状（读/校验顶层声明并携带入注册表行） |
 | 宿主面 spec（hosts/\<host\>.spec.json 数据/装配面一致性） | `hosts/`（cli/web 本仓装配 implemented=true；tauri/ide 外部壳仓 implemented=false） | 由 `verify:host-spec`（hosts/verify_host_spec.ts：四宿主不变式 cli/web=true + tauri/ide=false；HostFaces 词汇校验经 host/src/host_spec.ts validateHostSpec；implemented=true 须带 renderer 且 entry 在仓库根真实存在）在 root `npm test` 与 CI 强制；host.spec 类型/加载/校验单一真源 = host/src/host_spec.ts（@ink-ts/host 公共面导出） |
 
 gate 实现与正反样例位于 `gate/src/` 与 `gate/test/`；**真实扫描链** =
 root `npm test` 首段 `npm run typecheck --workspace engine`（engine tsc
 全量类型检查，generated satisfies 生效处）→ `tsx gate/src/check.ts`
-（对 engine/host/cli/web 工作树实际执行全部规则，含 seed_data 与 engine
+（对 engine/host/cli/renderer 工作树实际执行全部规则，含 seed_data 与 engine
 schemas/fixtures 的 json-valid；行数/UTF-8 另扫带代码的真面插件目录）→
-`vitest run --root gate`（规则样例自测）→ 引擎/CLI/宿主/Web/插件各自 vitest
-（`--root engine`、`cli`、`host`、`web`、`plugins`——plugins 覆盖真面插件
+`vitest run --root gate`（规则样例自测）→ 引擎/CLI/宿主/渲染器/插件各自 vitest
+（`--root engine`、`cli`、`host`、`renderer`、`plugins`——plugins 覆盖真面插件
 同住测试，阶段 7a）
 → `tsx engine/scripts/verify_mechanisms.ts`（机制件契约三键）
 → `tsx host/scripts/verify_bridge_mount.ts`（命令声明即挂载：BRIDGE_METHODS
 无手写方法名、域文件无本地 *_COMMANDS 数组）
 → `tsx plugins/scripts/sync_plugin_manifest.mjs --check`（插件源派生视图：
 plugins/manifest.json + commands.generated.ts + ui.generated.json +
-ui_canonical.generated.ts + native.generated.ts 与各 spec 真源逐字一致）
+ui_canonical.generated.ts + native.generated.ts +
+renderer/src/app/pluginFaces.generated.ts +
+renderer/src/app/settings/settingsSections.generated.ts 与各 spec 真源逐字一致）
 → `tsx plugins/scripts/verify_unload.ts`（卸载一致性：depends/faces/effects
 语义 + manifest 平价 + data-only 状态引脚 + ui 可达性不变式）
 → `tsx hosts/verify_host_spec.ts`（宿主面 spec：HostFaces 词汇 + 四宿主不变式 +
@@ -328,7 +335,8 @@ metrics_snapshot/assemble_stats/cache_stats/path_state/entities_snapshot）已�
   `*.sqlite` / `.ink-host/`）。
 - 内省/架构读口数据源 = 最近回合组装图投影：引擎 `_build_graph_engine`（run 级
   组装/恢复/分支重建共用）每次把本轮组装图刷入 introspection 图源
-  （`snapshot_graph`），host `graph.instance`/web architecture 随最近回合可见；
+   （`snapshot_graph`），host `graph.instance`/产品架构视图（renderer
+   settings_architecture）随最近回合可见；
    无任何回合 = 空图 degraded 空态，不报错不回归。host 桥 `tools.full`/
   capability baseline/`approval.list` 以 runtime 装配态（storage 在位）判可用；
   引擎无常驻静态引擎，`approval.list`/`rounds.todos` 直读 checkpoint interrupt
@@ -367,15 +375,22 @@ metrics_snapshot/assemble_stats/cache_stats/path_state/entities_snapshot）已�
   唯一产品渲染入口，布局结构不在壳层硬编码（App 只装配宿主数据/动作，经 product
   chrome 注入渲染器）。canonical 组件（file_tree/session_list/message_list/
   agent_input/top_bar/evolution_feed/ledger_view/trajectory_view/todo_view/
-  mechanism_view/review_card/settings_floater/task_capsule）映射到产品实现（薄
-  适配器在 web/src/app/rendererAdapters，binding 载荷 → 产品组件 props）；四个
-  gate 锚点名（file_tree/session_list/message_list/agent_input）保持注册映射新
-  适配器。出厂白名单派生自 plugins 布局树：host/src/recipe.ts ui_allowed_components
-  引用生成物 bridge/ui_canonical.generated.ts（canonical 组件并集）；web 组件
-  注册表（registerBuiltinComponents + registerProductComponents）与旧侧
-  inkling/manifest.json contracts.renderer_components 对码派生值（gate/
-  whitelistGate 测试守漂移）。加布局新组件 = plugins/ui_features 增组件插件 +
-  重跑生成器 + web 适配器注册；改动任何一处须同步其余。
+  mechanism_view/review_card/settings_floater/task_capsule）为**真 ui 面插件**：
+  组件叶子/面板 spec 声明 faces.ui，实现（faces/ui/index.tsx 默认导出 + 同住
+  测试）随插件走，渲染器装配经 pluginFaces.generated.ts 静态 import 注册
+  componentRegistry（注册名 = 插件 id；布局叶子 index 把 product chrome 映射为
+  组件 props）——rendererAdapters 已退役，无手写适配器注册面。设置 13 面板为
+  独立真 ui 面插件（spec data.settings_section 数据引用挂载，不进布局树），
+  派生清单 settingsSections.generated.ts 供设置浮层读导航、内容按插件 id
+  DynamicComponent 渲染。出厂白名单派生自 plugins 布局树 + faces 声明：
+  host/src/recipe.ts ui_allowed_components 引用生成物
+  bridge/ui_canonical.generated.ts（canonical 组件并集）；渲染器组件注册表
+  （registerBuiltinComponents + pluginFaces.generated 的 registerPluginFaces）
+  与旧侧 inkling/manifest.json contracts.renderer_components 对码派生值（gate/
+  whitelistGate 测试守漂移）。加布局新组件 = plugins/ui_features 增组件插件
+  （组件节点声明 faces.ui + faces/ui 实现）+ 重跑生成器；加设置面板 = 新
+  ui_feature 插件声明 data.settings_section + faces.ui + 重跑生成器；改动任一
+  处须同步其余。
 - 渲染归一（K5）：产品消息流唯一渲染 = MessageStream（经 spec message_list
   canonical 引用）；components/messages/* 旧渲染子树已删除，图表/媒体条目收进
   app/session/parts；eventRenderers/messageRendererRegistry 只服务 agent 产物

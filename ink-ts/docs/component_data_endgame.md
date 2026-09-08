@@ -302,9 +302,12 @@ host.spec（能力插件 kind='host'；faces 用专用 HostFaces，不走通用 
 > 已落地（2026-09-07）；阶段 6（exec 工具信封声明化）已落地（2026-09-07）；
 > 阶段 7a（物理单目录路径 1 样板：doc_parse 首个真实 host logic face +
 > host 装配期按声明装载 + 测试随插件同住）已落地（2026-09-07）；
-> 阶段 7b 起待实施。
+> 阶段 7b（产品 UI 真身化全量迁移：canonical 叶子/设置 13 面板/设置浮层全量
+> 迁 plugins 真 ui 面 + renderer 适配层与 settings 手写框架退役 + 第 6/7
+> 派生视图 pluginFaces.generated.ts / settingsSections.generated.ts 接线）
+> 已落地（2026-09-08）。
 
-### 阶段 0–7a 落地状态（逐阶段回填）
+### 阶段 0–7b 落地状态（逐阶段回填）
 
 | 阶段 | 设计要件 | 落点 | 状态 |
 |---|---|---|---|
@@ -340,6 +343,12 @@ host.spec（能力插件 kind='host'；faces 用专用 HostFaces，不走通用 
 | 7a | 首真面样板：doc_parse host logic face | 用户拍板：**样板真面 + 拆 1 内置示范 / 最小 logic-face 工具 / host 装配期 loader**。doc_parse 升级为首个真实逻辑脸插件：spec 顶层 `faces.logic`（target=host，entry=./faces/logic/index.ts）+ `depends=['exec']`；package.json exports node 条件导出；执行体（DocService）自 `host/src/doc/service.ts` 迁 `plugins/tools/doc_parse/faces/logic/index.ts`，同目录 `index.test.ts` 同住；verify_unload data-only 引脚改**真面许可**（capability=external_tool 或 `REAL_FACE_BUILTINS` 白名单 doc_parse）+ faces entry 物理同住强制（相对禁逃逸 + 文件存在）；manifest 平价不变（134） | ✅ 完成 |
 | 7a | host 装配期 logic-face loader | `host/src/plugins_fs.ts`（plugins/manifest.json 探测共享，mcp.market 改指同源）+ `host/src/face/loader.ts`（读 manifest plugins[] faces.logic.target='host' → 动态 import entry，禁越界；插件源缺 = 空集降级、face 装载失败 = fail-closed）；createHost 按声明装载 doc_parse 注入 bridge deps.docParse（rounds/material 降级语义不变） | ✅ 完成 |
 | 7a | 同住纪律 + 链同步 | CODING §2.7 改「包内测试放 test/；插件 faces/impl 测试随插件同住」+ §7 表（真面插件 faces 代码入行数/UTF-8 扫描、data-only 引脚真面许可、verify 链增 `vitest run --root plugins`）；gate config lineScanDirs 增 `plugins/tools/doc_parse/faces`；host/src/doc/service.ts 删除（旧实现真源唯一化） | ✅ 完成 |
+| 7b | 前端包更名 + 装配改指 | `web/`→`renderer/`（npm 包 @ink-ts/renderer）：包内目录/别名/消费（gate 扫描目录、self_check、hosts spec、vitest 根）全量改指 renderer，`renderer/` 名 = 纯渲染层（原 frontend→web→renderer 沿革） | ✅ 完成 |
+| 7b | 真 ui 面统一形态 | spec 顶层 `faces.ui`（target=web，entry=./faces/ui/index.tsx 相对插件目录）+ package exports；faces/ui/ 内 index.tsx 默认导出（布局叶子 = product chrome→组件 props 薄适配器；面板 = 直渲组件）+ 实现与 `*.test.tsx` 同住；渲染器注册 = 第 6 派生产物 pluginFaces.generated.ts 静态 import（注册名 = 插件 id）；verify_unload 对 ui_feature 组件节点（isUiComponent）放行真面并强制 entry 相对禁逃逸 + 文件存在 | ✅ 完成 |
+| 7b | canonical 布局叶子全量真面化 | top_bar/file_tree/session_list/message_list/agent_input/review_card/task_capsule/todo_view/mechanism_view/ledger_view/trajectory_view/evolution_feed/settings_floater 13 布局叶子逐个迁 plugins faces/ui（含 gate 锚点名）；`renderer/src/app/rendererAdapters/`（layoutAdapters + index）整体退役 | ✅ 完成 |
+| 7b | settings 面板细拆 + 浮层真面化 | 设置 13 面板按 feature 域细分独立插件（settings_general/model/connect/knowledge/architecture/memory/insights/audit_recovery/backup + wave4 mcp_market/tools_panel/workspace_auth/ui_editor_host，spec `data.settings_section` key/label/order/icon + faces.ui，order 10/20/40/50 wave4 扁平独立段）；settings_floater 真面读第 7 派生产物 SETTINGS_SECTIONS 渲染左导航、内容 DynamicComponent name=插件 id；settings 手写注册框架（registry/activate/types/item_renderer/floater）删除，settingsSections.generated.ts 为唯一壳读源；插件入口自建共享 AppBackend 单例（dev 夹具兜底，定案 B） | ✅ 完成 |
+| 7b | 可达性统一规则 | ui 可达性不变式（verify_unload + 生成器同源双保险）= 除装配入口外每 ui_feature 插件须被容器 data.children.$ref 或 data.settings_section 引用，无孤儿、无豁免；设置面板 = 数据引用挂载（派生清单），不占布局树 $ref | ✅ 完成 |
+| 7b | 装配面收敛 + 派生视图接线 | renderer app/activate = registerBuiltinComponents + registerPluginFaces + registerEventRenderers；verify:plugin-manifest 扩为七产物（+ pluginFaces.generated.ts + settingsSections.generated.ts）逐字比对；白名单对码/壳直渲/设置段注册测试改随 pluginFaces 注册语义 | ✅ 完成 |
 
 ### 已具备的地基（对照现状）
 
@@ -348,15 +357,16 @@ host.spec（能力插件 kind='host'；faces 用专用 HostFaces，不走通用 
 | 引擎 contract-as-data | `engine/src/core/registry/registry.ts`（契约+工厂同表） | ⚠️ 边界：契约现为可选参数，无契约 = 不参与组装、仅可手绘图引用；机制件契约化须升为强制（stage2 起评估） |
 | 0-IO 端口注入 | `engine/src/adapters/`（storage/llm/mcp + boot） | ✅ 已实现 |
 | 装配数据 | `AssemblyRecipe`（engine 定义，经 `@ink-ts/engine` 导出）+ `runtime.boot(host, recipe)`（host 装配使用，`host/src/boot.ts`） | ✅ 已实现 |
-| web 纯渲染 L5 | `plugins/ui_features` 布局装配（生成物 `plugins/ui.generated.json`）+ `componentRegistry` 白名单 + `artifactLoader` | ⚠️ 部分：分面——业务逻辑在插件 logic face/actions（跑引擎侧），ui face 与渲染器不含业务逻辑（L5 成立）；但仍含产品 chrome（app/shell/views）；阶段 7b 才退化为纯显示设备 |
+| web 纯渲染 L5 | `plugins/ui_features` 布局装配（生成物 `plugins/ui.generated.json`）+ 真 ui 面插件 faces/ui（pluginFaces.generated.ts 静态注册白名单）+ `componentRegistry` 白名单 + `artifactLoader` | ⚠️ 部分：业务逻辑在插件 logic face/actions（跑引擎侧），canonical 叶子/设置 13 面板/设置浮层实现已全量真面化入插件、ui face 不含业务逻辑（L5 成立）；产品 chrome 组合层（App/state/productView 宿主装配面）仍在 renderer 包 |
 | 命令面同步 | plugins/commands spec → `commands.generated.ts`（生成物）→ 各域 import/re-export → `BRIDGE_METHODS` spread 派生；`verify:bridge-mount` + `verify:plugin-manifest` | ✅ 声明即挂载（阶段 2 + 3b1 目标；命令名真源已迁 plugins/） |
-| 统一插件源 | `plugins/` 真源（tools/ 35 + mcp/ 5 + commands/ 66 + ui_features/ 25 + endpoints/ 3 + market.json）+ 五派生视图生成器（manifest.json / commands.generated.ts / ui.generated.json / ui_canonical.generated.ts / native.generated.ts）+ `verify:plugin-manifest` | ✅ 阶段 3a+3b1+3b2+6：tools/mcp 市场/命令名/产品主壳布局/原生执行件端点全部收敛，消费（web/host/fixtures/data 门禁 + binary.ts 定位）统一经派生视图；canonical 白名单亦派生（布局引用并集） |
+| 统一插件源 | `plugins/` 真源（tools/ 35 + mcp/ 5 + commands/ 66 + ui_features/ 38 + endpoints/ 3 + market.json）+ 七派生视图生成器（manifest.json / commands.generated.ts / ui.generated.json / ui_canonical.generated.ts / native.generated.ts / pluginFaces.generated.ts / settingsSections.generated.ts）+ `verify:plugin-manifest` | ✅ 阶段 3a+3b1+3b2+6+7b：tools/mcp 市场/命令名/产品主壳布局/原生执行件端点全部收敛，消费（renderer/host/fixtures/data 门禁 + binary.ts 定位）统一经派生视图；canonical 白名单亦派生（布局引用并集）；真 ui 面注册与设置段清单亦派生（第 6/7 产物） |
 | 机制件统一 contract + 装配闭集校验 | 33 机制 `engine/src/kernel/<mechanism>/contract.ts` + `registry/registry.ts` 密封校验 + boot 接线 + `verify:mechanisms` | ✅ 完成（本阶段目标） |
 | 自进化机制 | `self_tools`/`self_application`/`settle/seed`/`growth`/`skill_crystal`/`tuning`（`kernel/*`，默认开） | ✅ 机制已实现并契约化（无产品侧业务层，见 §1.5） |
-| faces / depends / 卸载一致性 | 机制层 depends 已契约化（DAG/闭包校验）；产品层 spec 全脸 schema + 数据级卸载一致性由 `verify:unload` 强制（depends 解析/环、ui 组合/可达性、manifest 平价、data-only 引脚） | ✅ 数据层完成（阶段 4）；faces 物理目录/运行期装载待阶段 7a 及后续 |
+| faces / depends / 卸载一致性 | 机制层 depends 已契约化（DAG/闭包校验）；产品层 spec 全脸 schema + 数据级卸载一致性由 `verify:unload` 强制（depends 解析/环、faces 结构、ui 组合/可达性含 settings 派生清单引用、manifest 平价、真面许可引脚） | ✅ 数据层完成（阶段 4）；真面语义完成（7a doc_parse logic 样板经 REAL_FACE_BUILTINS、7b 真 ui 面经 isUiComponent 放行，entry 物理同住强制） |
 | 宿主面插件化 | `hosts/*.spec.json`（tauri/cli/web/ide 四份）+ `host/src/host_spec.ts` loader/校验 + `bootstrap/main.ts` 唯一进程入口 + createHost 装配期 spec 注入（`host_spec_id`/`surface`） | ✅ 阶段 5 完成：cli/web 本仓装配、tauri/ide 外部壳仓占位；换 spec 换宿主可复现 |
 | 原生二进制定位声明化 | plugins/endpoints 真源（kind='endpoint'：exec/infer/mcp）→ `host/src/exec/native.generated.ts` 派生 → `host/src/exec/binary.ts` 按声明定位 | ✅ 阶段 6 完成：手写 BINARY_ENV/FILE_BY_KIND 表删除；失败语义消费方各自定（dialog/doc 降级、mcp 装配 fail-closed） |
-| 物理单目录 + 真面装载 | plugins/\<kind\>/\<id\>/faces/* 物理同住（doc_parse 首个真实 host logic face：faces/logic/index.ts + 同目录 index.test.ts）+ `host/src/face/loader.ts` 装配期按声明装载 + verify 强制 faces entry 存在/禁逃逸与 data-only 引脚真面许可 | ✅ 阶段 7a 样板（内置 doc_parse 真面化并拆出示范；external/multi-face 走同一 seam，待真实外部插件落地） |
+| 物理单目录 + 真面装载 | plugins/\<kind\>/\<id\>/faces/* 物理同住（doc_parse 首个真实 host logic face：faces/logic/index.ts + 同目录 index.test.ts）+ `host/src/face/loader.ts` 装配期按声明装载 logic face + verify 强制 faces entry 存在/禁逃逸与真面许可引脚；真 ui 面（target=web）为渲染器装配期静态注册（pluginFaces.generated.ts import entry） | ✅ 阶段 7a 样板（内置 doc_parse 真面化并拆出示范）+ 阶段 7b 全量真 ui 面（26 = 13 布局叶子 + 13 settings 面板，renderer 适配层退役）；external/multi-face 走同一 seam，待真实外部插件落地 |
+| 真 ui 面渲染器注册（产品 UI 真身化） | 渲染器组件注册名 = 插件 id，白名单放行面即派生视图 pluginFaces.generated.ts（静态 import 各 faces/ui 默认导出）；canonical 布局叶子/设置面板/浮层均按 spec faces.ui 声明随插件同住，无 renderer 适配器；设置浮层读派生清单 settingsSections.generated.ts（真源 = data.settings_section）渲染导航，内容 DynamicComponent name=插件 id；ui 可达性 = 容器 $ref ∪ settings 派生清单，无孤儿无豁免 | ✅ 阶段 7b：rendererAdapters 与 settings 手写注册框架退役，设置 13 面板全部真面化 |
 
 # ink-ts 插件即数据 · 终局形态参考模拟
 

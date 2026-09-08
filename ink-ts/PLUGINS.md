@@ -83,12 +83,30 @@ host 命令面经派生生成物 `host/src/bridge/commands.generated.ts` 取用
 component，逐字承载 props/bind）；容器插件的 `data.children` = 按序 `$ref`
 子插件 id 数组；装配入口（唯一，如 `inkling.ui`）spec 的 `data` = 布局元
 （name/version/theme）+ `root.$ref`。生成器 `sync_plugin_manifest.mjs` DFS 沿
-$ref 展开重建完整布局树（生成物 `plugins/ui.generated.json`，web 渲染消费，
+$ref 展开重建完整布局树（生成物 `plugins/ui.generated.json`，渲染器消费，
 与渲染器 UISpec 同构；引用缺失/成环/孤儿节点插件 fail-closed）并把树内引用
 组件 type 并集（升序）派生为 canonical 白名单（生成物
 `host/src/bridge/ui_canonical.generated.ts` + manifest `ui_features.components`，
-host 配方界面白名单据此装配）。卸某节点 = 删目录 + 删父 `$ref` + 重跑生成器 +
-同步 web 适配器注册——页面/侧栏/页签任一结构或组件块可整块装卸。
+host 配方界面白名单据此装配）。卸某节点 = 删目录 + 删父 `$ref` + 重跑生成器
+（组件节点保留 = 真 ui 面随 spec faces.ui 派生注册）——页面/侧栏/页签任一结构
+或组件块可整块装卸。
+
+真 ui 面（canonical 布局叶子与设置面板的独占 UI 实现）：组件节点插件声明
+`faces.ui`（target='web'，entry=`./faces/ui/index.tsx` 相对插件目录），
+`faces/ui/` 内 index.tsx 默认导出（布局叶子 = 把渲染器 product chrome 映射为
+组件 props 的薄适配器；设置面板 = 直渲组件）与其 `*.test.ts(x)` 同目录并列。
+渲染器装配经派生视图 `pluginFaces.generated.ts` 静态 import 注册进
+componentRegistry（注册名 = 插件 id，白名单放行即该视图）——无 renderer 侧
+手写适配器/注册表面。
+
+设置面板 = **数据引用挂载，不进布局树**：面板插件另声明 `data.settings_section`
+（key/label/order/icon），经第 7 派生视图 `settingsSections.generated.ts`
+聚合为设置段清单（order 升序）；设置浮层读清单渲染左导航，内容按插件 id 经
+DynamicComponent 渲染。
+
+可达性统一规则（无孤儿、无豁免）：除装配入口外，每 ui_feature 插件须被容器
+`data.children.$ref` **或** `data.settings_section` 二者之一引用；卸载一致性由
+`verify:unload` 强制（两路引用同源判定，见 CODING.md §7）。
 
 ## 2. capability 档位（装卸权限）
 
@@ -127,7 +145,7 @@ host 配方界面白名单据此装配）。卸某节点 = 删目录 + 删父 `$
   plugins/，不再有独立 `seed_data/tools.json`；
 - **分发单位 = 目录/包**：内置工具每工具一个插件目录（npm 包名
   `@ink-ts/plugin-<kebab>`），`plugins/manifest.json` 派生视图聚合 tools 表行
-  供消费（web/host/fixture 经 manifest 取用，生成物禁手改）；外部/agent
+  供消费（renderer/host/fixture 经 manifest 取用，生成物禁手改）；外部/agent
   自举工具按插件分发（一个插件可带多个工具，MCP server 即此形态——一个
   插件 N 个独立工具行）；
 - **控制/检索单位 = 工具表行**：每个 tool id 独立——schema/权限档/启停旗标/审批位/

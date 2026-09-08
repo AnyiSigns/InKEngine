@@ -30,7 +30,7 @@
 | 20 | 阶段 6（exec 工具信封声明化）范围与语义（2026-09-07 定案） | **binary.ts 手写约定 → 声明数据**（用户逐项确认）：① 真源 = **plugins 源 kind='endpoint'**（plugins/endpoints/exec·infer·mcp 三目录，spec.data.native = 二进制文件名 file + env 覆盖键；复用既有 spec/verify 体系，插件总数 131→134）；② 产物 = **数据化 + 生成物禁手改**：native.generated.ts（hosts/lib/src/exec，第 5 派生产物）逐字入 verify:plugin-manifest，binary.ts 手写 BINARY_ENV/FILE_BY_KIND 两表删除、按声明定位；probe 逻辑/失败语义非声明部分；③ 失败语义**维持现况：消费方各自定**（dialog/doc 缺二进制降级 unavailable，mcp 装配 fail-closed 报缺；不新增装配级全局必装强制） | component_data §七/§九（阶段 6 落地行）、CODING §7（verify:plugin-manifest 五产物）、plugins/AGENTS.md（endpoints 域）、exec/CONFIG.md §1、本卡 |
 | 21 | 阶段 7a（物理单目录/测试同住）范围与语义（2026-09-07 定案） | 用户三卡拍板：① 范围 = **样板真面 + 拆 1 内置示范**（不另造 synthetic 外部样例：doc_parse 本身即真实带 faces.logic 的样板；external_tool 走同一 seam，随首个真实外部插件接入）；② 样板形态 = **最小 logic-face 工具**（faces.logic target=host + entry + 同目录 test + package.json exports 条件导出）；③ 装载 seam = **host 装配期 loader**（读 manifest plugins[] faces.logic.target='host' → 动态 import entry；插件源缺 = 空集降级、face 装载/契约不符 = fail-closed）。doc_parse 从 data-only 升级为首个真面内置（host_tool），与阶段 4「内置全 data-only」定案的冲突经 verify_unload `REAL_FACE_BUILTINS` 白名单**显式豁免（唯一）**；失败语义维持消费方各自定（docParse 缺省 = rounds/material 仅文件名引用） | component_data §七/§九 7a 行、CODING §2.7/§7、plugins/AGENTS.md、`hosts/lib/src/face/loader.ts`+`hosts/lib/src/plugins_fs.ts`、verify_unload.ts、本卡 |
 | 22 | 阶段 7b（产品 UI 真身化全量迁移）范围与语义（2026-09-08 定案） | 用户多轮拍板：① 范围 = **全量真身化、不做壳清理**——canonical 布局叶子 / 设置 13 面板 / 设置浮层逐个迁 `plugins/ui_features/<id>/faces/ui/`（真 ui 面 + 同住测试），`web/` 包更名 `renderer/`，渲染器适配层（rendererAdapters）与 settings 手写注册框架整体退役；② 粒度 = **域 feature 包**（学 dsh 域粒度）——设置面板按 feature 细分独立插件（spec `data.settings_section` = key/label/order/icon + `faces.ui`）；③ 挂载 = **数据引用而非布局树**——settings 面板不进布局树 $ref，经第 7 派生产物 `settingsSections.generated.ts` 派生清单引用；设置浮层本身真面化（settings_floater 读派生清单渲染左导航，内容 DynamicComponent name=插件 id）；④ **可达性统一规则**（推翻「settings 面板孤儿豁免」表述）：除装配入口外每 ui_feature 插件须被容器 `data.children.$ref` 或 `data.settings_section` 二者之一引用，无孤儿、无豁免（verify_unload 与生成器同源双保险）；⑤ 面板数据源 = **插件自建共享 AppBackend 单例**（定案 B：serve 未接线时 dev 夹具兜底，不经宿主注入面）；⑥ 面板图标 = 派生清单 icon 字符串在浮层消费侧 lucide 映射（model/未知名回落标签文字 chip）。计数：ui_features 25→38（装配/容器 12 + 真 ui 面 26 = 13 布局叶子 + 13 settings 面板）；真 ui 面注册 = 第 6 派生产物 `pluginFaces.generated.ts` 静态 import（注册名 = 插件 id），白名单放行即该派生视图 | component_data §九 7b 行、PLUGINS §1、CODING §7/§10、plugins/AGENTS.md、`pluginFaces.generated.ts`+`settingsSections.generated.ts`、verify_unload.ts、本卡 |
-| 23 | 宿主仓目录收敛 + renderer 职责分层（2026-09-08 定案，方向 B） | 用户拍板两阶段：① **目录收敛（A，本批已落地）**——顶层 `host/`→`hosts/lib/`（@ink-ts/host 装配库）、`cli/`→`hosts/cli/`（@ink-ts/cli 进程实现），四份 `*.spec.json` 平铺 hosts/ 根同住，bootstrap 唯一入口改委托 `hosts/cli`；root workspaces/scripts、gate 扫描目录、verify 链脚本路径、self_check symbols 索引、plugin 生成器目标路径（hosts/lib/src/...）、tsconfig extends（../../tsconfig.base.json）全部改指；② **renderer 职责分层（B，另立）**——产品 chrome（App/activate/state/productView/session）与通用显示层分界待定（是否新建 hosts/web 产品壳包、renderer 转显示库；共享 `@/app/backend`/`@/shared/*` 资产归属与 plugins `@` 别名随之），ui.json 显示设备为路径 2 终局不在本次 | component_data §4.3/§九/参考模拟 §1、CODING §1/§7、PLUGINS §1、plugins/AGENTS.md、本卡 |
+| 23 | 宿主仓目录收敛 + renderer 职责分层（2026-09-08 定案，方向 B，已全落地） | 用户拍板两阶段：① **目录收敛（A，已落地）**——顶层 `host/`→`hosts/lib/`（@ink-ts/host 装配库）、`cli/`→`hosts/cli/`（@ink-ts/cli 进程实现），四份 `*.spec.json` 平铺 hosts/ 根同住，bootstrap 唯一入口改委托 `hosts/cli`；root workspaces/scripts、gate 扫描目录、verify 链脚本路径、self_check symbols 索引、plugin 生成器目标路径（hosts/lib/src/...）、tsconfig extends（../../tsconfig.base.json）全部改指；② **renderer 职责分层（B，已落地 = 选 A2）**——**新建 `hosts/web/` 产品壳包**（@ink-ts/web）收产品 chrome（App/activate/state/shell/productView/views/backend）+ index.html/main/vite，**renderer 转纯显示库** @ink-ts/renderer（renderer/* + shared/* + components/* + i18n/locales）；共享资产归属 = 显示层留在 renderer、壳面资产（productView/AppBackend/activeThread/views/dag 等）随壳；插件注册生成物 pluginFaces/settingsSections.generated.ts 随壳迁 `hosts/web/src/app/`；别名双根：`@`=renderer/src（设备）、`@app`=hosts/web/src/app（壳，hosts/web 与 plugins vitest 同构映射，插件 faces 的 `@/app/*` import 一律改写为 `@app/*`）；spec.web/tauri entry、workspaces、root test 链、gate lineScan、self_check symbols 索引、生成器目标路径全改指；ui.json 显示设备为路径 2 终局不在本次 | component_data §4.3/§九/参考模拟 §1、CODING §1/§7、PLUGINS §1、plugins/AGENTS.md、hosts/web.spec.json、本卡 |
 
 ## 阶段 2 实施时须现场核对
 
@@ -151,13 +151,14 @@
   （布局叶子 = 把 product chrome 映射为组件 props 的薄适配器；设置面板 = 直渲
   组件），实现与 `*.test.tsx` 同住 `faces/ui/`；渲染器注册随
   pluginFaces.generated.ts（第 6 派生产物）静态 import 派生（注册名 = 插件
-  id），**无 renderer 适配器/手写注册面**——rendererAdapters 与
-  settings/registry·activate·types·item_renderer·floater 已删；renderer
-  app/activate 收敛为 registerBuiltinComponents + registerPluginFaces +
-  registerEventRenderers；
+   id），**无 renderer 适配器/手写注册面**——rendererAdapters 与
+  settings/registry·activate·types·item_renderer·floater 已删；产品壳
+  hosts/web/src/app/activate（阶段 2 起独立仓，前身 renderer/src/app）收敛为
+  registerBuiltinComponents + registerPluginFaces + registerEventRenderers；
 - settings 浮层读派生清单 SETTINGS_SECTIONS（真源 = 各面板 spec
-  data.settings_section，order 升序）；settingsSections.generated.ts 仍住
-  renderer/src/app/settings/ 生成目录，浮层插件经 `@/` 别名消费；
+  data.settings_section，order 升序）；settingsSections.generated.ts 住
+  hosts/web/src/app/settings/ 生成目录（阶段 2 前住 renderer/src/app/settings/），
+  浮层插件经 `@app/settings/settingsSections.generated` 别名消费；
 - 可达性 = 容器 $ref ∪ data.settings_section（无孤儿、无豁免）；图标字符串
   映射在浮层 icons.tsx（lucide，model/未知名回落标签文字 chip）；
 - 面板数据直连共享数据面：插件 faces/ui 入口自建 AppBackend 单例（dev 夹具
@@ -185,6 +186,35 @@
   清理，tsconfig 修复后再跑 typecheck 无 emit。
   **（验证：hosts/lib/hosts/cli tsc 绿、vitest 绿（cli 77）、gate/verify:host-spec
   PASS、root npm test 全链绿，见 §九 落地状态。）**
+
+## 产品壳分层（2026-09-08 决策 #23 Step 2 = 方向 A2，已落地）
+
+- 拓扑：新建 `hosts/web/` 产品壳包（@ink-ts/web，root workspaces 增员）——
+  收 renderer 产品装配面（src/app/、App、main、index.css、index.html、
+  .env.local 与 test/app 同迁）；renderer/ 转纯显示设备库 @ink-ts/renderer
+  （renderer/* 机制 + shared/* + components/* + i18n/locales，无 index.html/
+  main/dev 脚本）。真 ui 面注册/设置派生生成物
+  pluginFaces.generated.ts + settingsSections.generated.ts 随壳住
+  `hosts/web/src/app/`（生成器目标路径与头注、verify 对码逐字断言随改）。
+- 别名双根：`@` = renderer/src（显示设备，hosts/web 的 vite/tsconfig 用
+  `../../renderer/src`、plugins vitest 用 `../renderer/src`）；`@app` =
+  hosts/web/src/app（产品壳）。插件真 ui 面 import 的产品壳资产
+  （productView/shellContracts/AppBackend/activeThread/dag/views/backend 等）
+  由 `@/app/*` 全量改写为 `@app/*`；设备资产（shared/renderer/components/i18n）
+  维持 `@`。tsconfig paths 与 vite/vitest alias 各包自持（gate 不扫 alias）。
+- 迁移教训：renderer/src 比 hosts/web 深一级，宿主包对 renderer 的别名目标须
+  `../../renderer/src`（plugins 侧仍 `../renderer/src`）；vite alias 的 find
+  不带尾斜杠（`@app`/`@`），否则子路径不匹配；tsc 会把经 pluginFaces 静态
+  import 的插件真面全量纳入 hosts/web 类型程序（插件 faces 首次获得工程级
+  typecheck，属正面收益）。
+- 归属口径（留档）：设备 = 渲染机制 + 显示通用资产；壳 = 产品 chrome + 会话
+  数据/动作装配 + 产品视图套件 + 插件注册生成物；shared/identity（manifest
+  身份）随壳（`hosts/web/src/identity.ts`）；shared/backend、shared/session
+  仍属设备运行时资产（hosts/web 与插件 faces 共用）。
+  **（验证：renderer tsc/vitest 174、hosts/web tsc/vitest 39（含随迁
+  activate/specShell/dag/eventRenderers/whitelistGate）、plugins vitest 126、
+  gate/verify:plugin-manifest/host-spec/unload PASS、vite build 绿、root npm
+  test 全链绿，见 §九 落地状态。）**
 
 ## 引擎层 AGENTS 用语
 

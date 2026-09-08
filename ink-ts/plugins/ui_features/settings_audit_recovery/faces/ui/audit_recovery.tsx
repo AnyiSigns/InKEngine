@@ -19,7 +19,7 @@ import { createBackend } from '@/shared/backend/backendAdapter';
 import type { BackendAdapter, RecoveryCheckpoint } from '@/shared/backend/backendAdapter';
 import { Feedback, type FeedbackPhase } from '@/components/floaters/feedback';
 import { logger } from '@/shared/logger';
-import { useActiveThreadId } from '@/app/state/activeThread';
+import { useActiveThreadId } from '@app/state/activeThread';
 
 const AUDIT_EXPORT_LIMIT = 2000;
 

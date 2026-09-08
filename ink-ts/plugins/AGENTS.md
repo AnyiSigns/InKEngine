@@ -49,8 +49,8 @@ plugins/
                                   # ui.generated.json +
                                   # hosts/lib/src/bridge/ui_canonical.generated.ts +
                                   # hosts/lib/src/exec/native.generated.ts +
-                                  # renderer/src/app/pluginFaces.generated.ts +
-                                  # renderer/src/app/settings/settingsSections.generated.ts 派生视图）
+                                  # hosts/web/src/app/pluginFaces.generated.ts +
+                                  # hosts/web/src/app/settings/settingsSections.generated.ts 派生视图）
 ```
 
 kind 全集（PLUGINS.md §1）为 8 值：`tool | command | ui_feature | endpoint |
@@ -60,7 +60,9 @@ recipe | executor | mcp | host`——plugins/ 按 kind 分子目录，其中 `ho
 阶段 3b2 落地 `ui_features/`（25 节点插件 + 装配入口，产品主壳布局真源迁移
 plugins，生成物 ui.generated.json 取代 seed_data/ui_spec.json）；阶段 6 落地
 `endpoints/`（exec/infer/mcp 三件，原生执行件定位声明真源）；阶段 7b 落地
-真 ui 面全量真身化：web 前端包更名 renderer/，ui_features 域扩至 38 插件
+真 ui 面全量真身化：web 前端包更名 renderer/ 后阶段 2 再收敛——产品壳（App/
+activate/state/chrome 与插件注册生成物）独立成 `hosts/web/`（@ink-ts/web），
+renderer/ 为纯显示设备库（@ink-ts/renderer），ui_features 域扩至 38 插件
 （canonical 布局叶子/设置面板/设置浮层真 ui 面 26，faces/ui 同住实现与测试，
 renderer 适配层整体退役）；其余 kind 目录随对应阶段落位。
 
@@ -104,7 +106,7 @@ renderer 适配层整体退役）；其余 kind 目录随对应阶段落位。
 - 真 ui 面（阶段 7b 全量真身化）：canonical 布局叶子（组件节点）与设置面板
   插件声明 `faces.ui`（target=web，entry=./faces/ui/index.tsx 相对插件目录），
   实现 = faces/ui/ 下 index.tsx 默认导出（布局叶子经 index 把 product chrome
-  映射为组件 props）+ 实现与同目录 *.test.tsx 同住；渲染器装配经生成物
+  映射为组件 props）+ 实现与同目录 *.test.tsx 同住；hosts/web 壳装配经生成物
   pluginFaces.generated.ts（第 6 派生产物）静态 import 各默认导出注册进
   componentRegistry 白名单（注册名 = 插件 id）。设置面板另声明
   `data.settings_section`（key/label/order/icon）——不经布局树引用，经生成器
@@ -145,8 +147,8 @@ renderer 适配层整体退役）；其余 kind 目录随对应阶段落位。
   源，per-plugin AGENTS 留待挂 faces 的插件补建，防行为文案第二份漂移）；
   manifest.json / commands.generated.ts / ui.generated.json /
   ui_canonical.generated.ts / hosts/lib/src/exec/native.generated.ts /
-  renderer/src/app/pluginFaces.generated.ts /
-  renderer/src/app/settings/settingsSections.generated.ts 派生视图禁手改，
+  hosts/web/src/app/pluginFaces.generated.ts /
+  hosts/web/src/app/settings/settingsSections.generated.ts 派生视图禁手改，
   改工具/命令/市场/ui/endpoint 声明只改对应 spec.json。
 
 ## 手改与生成纪律
@@ -157,24 +159,24 @@ renderer 适配层整体退役）；其余 kind 目录随对应阶段落位。
    `plugins/endpoints/<id>/spec.json`；manifest.json 与
    hosts/lib/src/bridge/commands.generated.ts、plugins/ui.generated.json、
    hosts/lib/src/bridge/ui_canonical.generated.ts、hosts/lib/src/exec/native.generated.ts、
-   renderer/src/app/pluginFaces.generated.ts、
-   renderer/src/app/settings/settingsSections.generated.ts
+  hosts/web/src/app/pluginFaces.generated.ts、
+  hosts/web/src/app/settings/settingsSections.generated.ts
    是生成物，禁手改；
 2. **同步派生**：改任一 spec 后重跑
    `node plugins/scripts/sync_plugin_manifest.mjs`（或 `--check` 校验），
-   消费方（renderer dev 夹具 / host mcp.market / tools_os 夹具生成 / self_check
+   消费方（hosts/web dev 夹具 / host mcp.market / tools_os 夹具生成 / self_check
    门禁）经 plugins/manifest.json 取用；host bridge 命令面经
    commands.generated.ts（域实现文件 import type/re-export）取用；产品
    主壳经 ui.generated.json 取用；host 配方界面白名单经
    ui_canonical.generated.ts 取用；host 原生执行件定位经
-   native.generated.ts 取用（binary.ts 按声明定位）；渲染器真 ui 面注册经
+   native.generated.ts 取用（binary.ts 按声明定位）；hosts/web 壳真 ui 面注册经
    pluginFaces.generated.ts 取用；settings 浮层经 settingsSections.generated.ts
    取用。命令面增删 = 新增/删除
    plugins/commands/<method>/ 目录并同步 CODING.md §9 表 + 重跑生成器；
    ui 布局增删节点 = 新增/删除 plugins/ui_features/<id>/ 目录（删 = 同时删
    父容器 children 的 $ref）+ 重跑生成器；新增真 ui 面 = 组件节点/设置面板
    插件声明 faces.ui（entry 相对路径 + faces/ui 内 index.tsx 默认导出与同住
-   测试）+ 重跑生成器（渲染器注册随 pluginFaces.generated.ts 派生，无手写
+   测试）+ 重跑生成器（hosts/web 注册随 pluginFaces.generated.ts 派生，无手写
    适配器注册面）；
    endpoint 增删 = 新增/删除 plugins/endpoints/<id>/ 目录 + 重跑生成器；
 3. JSON 纪律：spec/package/manifest 均守 gate json-valid（可 parse、无重复

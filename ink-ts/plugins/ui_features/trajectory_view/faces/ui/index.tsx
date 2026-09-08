@@ -1,7 +1,7 @@
 import type { ComponentType } from 'react';
 
 import type { RoundStep } from '@/shared/session/types';
-import type { ProductShellChrome } from '@/app/shell/productView';
+import type { ProductShellChrome } from '@app/shell/productView';
 import { TrajectoryView } from './TrajectoryView';
 
 /**

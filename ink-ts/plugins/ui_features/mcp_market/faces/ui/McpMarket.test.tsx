@@ -2,7 +2,7 @@
 import { render, screen, fireEvent, waitFor } from '@testing-library/react';
 
 import { McpMarket } from './McpMarket';
-import { createAppBackend, type AppBackend } from '@/app/backend';
+import { createAppBackend, type AppBackend } from '@app/backend';
 import type { McpMarketData } from '@/shared/backend/backendAdapter';
 
 function makeMockBackend(servers: McpMarketData['servers'] = []): AppBackend {

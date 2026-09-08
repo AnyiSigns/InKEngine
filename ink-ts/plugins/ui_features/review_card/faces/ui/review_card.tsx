@@ -14,7 +14,7 @@ import { Check, Pencil, X } from 'lucide-react';
 import type { HubEvent } from '@/shared/session/channelHub';
 import { Button } from '@/shared/ui/Button';
 import { FloaterWindow } from '@/components/floaters/floater_window';
-import type { ReviewResolution } from '@/app/shell/shellContracts';
+import type { ReviewResolution } from '@app/shell/shellContracts';
 
 export interface ReviewCardProps {
   bindValue?: unknown;

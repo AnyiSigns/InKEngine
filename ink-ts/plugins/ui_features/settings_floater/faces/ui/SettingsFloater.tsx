@@ -15,7 +15,7 @@ import { useEffect, useState } from 'react';
 
 import { X } from 'lucide-react';
 
-import { SETTINGS_SECTIONS } from '@/app/settings/settingsSections.generated';
+import { SETTINGS_SECTIONS } from '@app/settings/settingsSections.generated';
 import { DynamicComponent } from '@/renderer/componentRegistry';
 import { useT } from '@/i18n/useT';
 import { sectionIcon } from './icons';

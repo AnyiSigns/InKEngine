@@ -1,12 +1,15 @@
 {
-  "name": "@ink-ts/renderer",
+  "name": "@ink-ts/web",
   "version": "0.0.0",
   "private": true,
   "type": "module",
-  "description": "显示设备库（renderer/，@ink-ts/renderer）：React/TS 纯显示层，只渲染数据（ui_spec 数据树 + 事件流）与触发补丁，不写业务；组件白名单注册制 + bind 通道（state.*/events.*）；产品壳（web 呈现面）在 hosts/web（App/activate/state/shell），生产通道 = cli serve http/ws（serve 未接入前 transport stub；接真实现只换 transport）",
+  "description": "web 宿主产品壳（hosts/web/，原 renderer 宿主装配面）：InKling 浏览器呈现面——产品 chrome（App/activate/state/shell/productView）+ 会话数据/动作装配，经 cli serve http+ws 接 bootstrap；显示设备 = @ink-ts/renderer（UIRenderer/注册表/共享资产），壳只装配数据面并注入渲染器",
   "scripts": {
+    "dev": "vite",
+    "build": "tsc --noEmit && vite build",
     "typecheck": "tsc --noEmit",
-    "test": "vitest run"
+    "test": "vitest run",
+    "preview": "vite preview"
   },
   "dependencies": {
     "clsx": "^2.1.1",

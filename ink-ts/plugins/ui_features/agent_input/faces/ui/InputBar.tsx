@@ -15,7 +15,7 @@ import { ArrowUp, Brain, ChevronDown, Plus, Route, Sparkles, Square, Image, Vide
 import type { ModelArchiveRow, ModelArchiveSnapshot, ModelSelection } from '@/shared/backend/backendAdapter';
 import { useT } from '@/i18n/useT';
 import { fileToDataUrl, uploadThenAsset } from '@/shared/upload/fileAsset';
-import type { RoutePlanResult } from '@/app/shell/shellContracts';
+import type { RoutePlanResult } from '@app/shell/shellContracts';
 
 /** 多模态三态归一（壳侧档案标注 true/'true'/unknown）。 */
 function isMultimodal(m: ModelArchiveRow): boolean {

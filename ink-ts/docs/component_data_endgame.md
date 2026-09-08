@@ -206,11 +206,12 @@ ink-ts/
 │   │   └─ locale/             # 文案跟插件走
 │   └─ manifest.json           # 派生视图（生成物，禁手改；见 §三 生成物行）
 ├─ renderer/
-│   └─ AGENTS.md               # 渲染器契约：显示设备，不定义契约、不写业务
-├─ hosts/                       # 宿主仓：spec 平铺 + 装配库 + 进程实现同住
+│   └─ AGENTS.md               # 渲染器契约：显示设备库，不定义契约、不写业务
+├─ hosts/                       # 宿主仓：spec 平铺 + 装配库 + 进程实现 + web 产品壳同住
 │   ├─ AGENTS.md               # 宿主面契约：只换 IO/传输/呈现面，不换机制语义
 │   ├─ lib/                    # 装配库 @ink-ts/host（原顶层 host/）：createHost / face loader / binary / recipe / bridge
 │   ├─ cli/                    # 进程实现 @ink-ts/cli（原顶层 cli/）：stdio/run/serve/tui（唯一进程载体）
+│   ├─ web/                    # web 产品壳 @ink-ts/web（阶段 2 由 renderer 产品装配面独立）：产品 chrome（App/activate/state/shell/views）+ index.html/main/vite；显示设备 = renderer
 │   └─ <host>.spec.json        # 宿主 spec（tauri/cli/web/ide 四份；kind='host'，HostFaces 面，见 §五）
 ├─ bootstrap/                  # 唯一进程入口
 ├─ docs/
@@ -366,7 +367,8 @@ host.spec（能力插件 kind='host'；faces 用专用 HostFaces，不走通用 
 | 自进化机制 | `self_tools`/`self_application`/`settle/seed`/`growth`/`skill_crystal`/`tuning`（`kernel/*`，默认开） | ✅ 机制已实现并契约化（无产品侧业务层，见 §1.5） |
 | faces / depends / 卸载一致性 | 机制层 depends 已契约化（DAG/闭包校验）；产品层 spec 全脸 schema + 数据级卸载一致性由 `verify:unload` 强制（depends 解析/环、faces 结构、ui 组合/可达性含 settings 派生清单引用、manifest 平价、真面许可引脚） | ✅ 数据层完成（阶段 4）；真面语义完成（7a doc_parse logic 样板经 REAL_FACE_BUILTINS、7b 真 ui 面经 isUiComponent 放行，entry 物理同住强制） |
 | 宿主面插件化 | `hosts/*.spec.json`（tauri/cli/web/ide 四份）+ `hosts/lib/src/host_spec.ts` loader/校验 + `bootstrap/main.ts` 唯一进程入口 + createHost 装配期 spec 注入（`host_spec_id`/`surface`） | ✅ 阶段 5 完成：cli/web 本仓装配、tauri/ide 外部壳仓占位；换 spec 换宿主可复现 |
-| 宿主仓目录收敛（hosts/ 同住） | 顶层 `host/`→`hosts/lib/`（@ink-ts/host 装配库）、`cli/`→`hosts/cli/`（@ink-ts/cli 进程实现）；四份 `*.spec.json` 平铺 hosts/ 根；bootstrap 委托 `hosts/cli`；workspaces/scripts、gate 扫描目录、self_check 索引、plugin 生成器目标路径、hosts/cli.spec entry、tsconfig extends 全部改指 | ✅ Step 1 落地（决策 #23；renderer 职责分层 = Step 2 另立） |
+| 宿主仓目录收敛（hosts/ 同住） | 顶层 `host/`→`hosts/lib/`（@ink-ts/host 装配库）、`cli/`→`hosts/cli/`（@ink-ts/cli 进程实现）；四份 `*.spec.json` 平铺 hosts/ 根；bootstrap 委托 `hosts/cli`；workspaces/scripts、gate 扫描目录、self_check 索引、plugin 生成器目标路径、hosts/cli.spec entry、tsconfig extends 全部改指 | ✅ Step 1 落地（决策 #23） |
+| renderer 职责分层（产品壳 → hosts/web、renderer 转显示库） | 产品壳独立成 `hosts/web/`（@ink-ts/web：App/main/activate/state/shell/productView/app-views/backend 等 + index.html/index.css/vite dev&build）；renderer 转纯显示设备库（renderer/* 机制 + shared/components/i18n/locales 资产）；插件注册生成物 pluginFaces/settingsSections.generated.ts 随壳迁 hosts/web/src/app；别名双根：`@` = renderer/src（显示设备）、`@app` = hosts/web/src/app（产品壳，hosts/web 与 plugins vitest 同构）；spec.web/tauri entry、workspaces、root test 链、gate lineScan、self_check symbols 索引、生成器目标路径与头注全改指 | ✅ Step 2 落地（决策 #23 B；whitelistGate 对码测试随迁 hosts/web，跨壳×设备×旧侧身份三向对码不变） |
 | 原生二进制定位声明化 | plugins/endpoints 真源（kind='endpoint'：exec/infer/mcp）→ `hosts/lib/src/exec/native.generated.ts` 派生 → `hosts/lib/src/exec/binary.ts` 按声明定位 | ✅ 阶段 6 完成：手写 BINARY_ENV/FILE_BY_KIND 表删除；失败语义消费方各自定（dialog/doc 降级、mcp 装配 fail-closed） |
 | 物理单目录 + 真面装载 | plugins/\<kind\>/\<id\>/faces/* 物理同住（doc_parse 首个真实 host logic face：faces/logic/index.ts + 同目录 index.test.ts）+ `hosts/lib/src/face/loader.ts` 装配期按声明装载 logic face + verify 强制 faces entry 存在/禁逃逸与真面许可引脚；真 ui 面（target=web）为渲染器装配期静态注册（pluginFaces.generated.ts import entry） | ✅ 阶段 7a 样板（内置 doc_parse 真面化并拆出示范）+ 阶段 7b 全量真 ui 面（26 = 13 布局叶子 + 13 settings 面板，renderer 适配层退役）；external/multi-face 走同一 seam，待真实外部插件落地 |
 | 真 ui 面渲染器注册（产品 UI 真身化） | 渲染器组件注册名 = 插件 id，白名单放行面即派生视图 pluginFaces.generated.ts（静态 import 各 faces/ui 默认导出）；canonical 布局叶子/设置面板/浮层均按 spec faces.ui 声明随插件同住，无 renderer 适配器；设置浮层读派生清单 settingsSections.generated.ts（真源 = data.settings_section）渲染导航，内容 DynamicComponent name=插件 id；ui 可达性 = 容器 $ref ∪ settings 派生清单，无孤儿无豁免 | ✅ 阶段 7b：rendererAdapters 与 settings 手写注册框架退役，设置 13 面板全部真面化 |
@@ -403,12 +405,13 @@ ink-ts/
 │   ├─ compose/  ├─ settings/  ├─ tool_market/  ├─ review_card/  ├─ ...
 │   └─ manifest.json                # 派生视图（生成物，禁手改）
 ├─ renderer/
-│   ├─ AGENTS.md                    # 显示设备：不定义契约、不写业务
-│   └─ src/ (通用渲染器：只渲染引擎推来的 ui 意图数据树)
-├─ hosts/                       # 宿主仓（spec + 实现同住）
+│   ├─ AGENTS.md                    # 显示设备库：不定义契约、不写业务
+│   └─ src/ (通用渲染器：只渲染引擎推来的 ui 意图数据树 + 共享显示资产)
+├─ hosts/                       # 宿主仓（spec + 实现 + web 产品壳同住）
 │   ├─ AGENTS.md
 │   ├─ lib/                    # @ink-ts/host 装配库（createHost 等）
 │   ├─ cli/                    # @ink-ts/cli 进程实现（stdio/run/serve/tui）
+│   ├─ web/                    # @ink-ts/web 产品壳（产品 chrome + 装配，阶段 2）
 │   ├─ tauri.spec.json  ├─ cli.spec.json  ├─ web.spec.json  ├─ ide.spec.json
 ├─ bootstrap/main.ts                # 唯一进程入口
 └─ docs/

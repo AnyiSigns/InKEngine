@@ -9,7 +9,7 @@ import { render, screen, fireEvent } from '@testing-library/react';
 
 import { SettingsFloater } from './SettingsFloater';
 import { registerComponent } from '@/renderer/componentRegistry';
-import { SETTINGS_SECTIONS } from '@/app/settings/settingsSections.generated';
+import { SETTINGS_SECTIONS } from '@app/settings/settingsSections.generated';
 
 function registerPanelStubs(): void {
   registerComponent('settings_general', () => <div>通用面板内容</div>);

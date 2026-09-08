@@ -62,8 +62,8 @@ const COMMANDS_GENERATED = join(PLUGINS_ROOT, '..', 'hosts', 'lib', 'src', 'brid
 const UI_GENERATED = join(PLUGINS_ROOT, 'ui.generated.json');
 const UI_CANONICAL_GENERATED = join(PLUGINS_ROOT, '..', 'hosts', 'lib', 'src', 'bridge', 'ui_canonical.generated.ts');
 const NATIVE_GENERATED = join(PLUGINS_ROOT, '..', 'hosts', 'lib', 'src', 'exec', 'native.generated.ts');
-const PLUGIN_FACES_GENERATED = join(PLUGINS_ROOT, '..', 'renderer', 'src', 'app', 'pluginFaces.generated.ts');
-const SETTINGS_GENERATED = join(PLUGINS_ROOT, '..', 'renderer', 'src', 'app', 'settings', 'settingsSections.generated.ts');
+const PLUGIN_FACES_GENERATED = join(PLUGINS_ROOT, '..', 'hosts', 'web', 'src', 'app', 'pluginFaces.generated.ts');
+const SETTINGS_GENERATED = join(PLUGINS_ROOT, '..', 'hosts', 'web', 'src', 'app', 'settings', 'settingsSections.generated.ts');
 
 /**
  * 命令实现域映射表（group → const/type 名）；顺序 = BRIDGE_METHODS 跨域序
@@ -140,17 +140,17 @@ const NATIVE_HEADER =
 
 const PLUGIN_FACES_HEADER =
   '/**\n' +
-  ' * 生成文件勿手改：渲染器插件 ui 面注册派生视图（真源 = plugins/ui_features/<id>/spec.json\n' +
+  ' * 生成文件勿手改：web 产品壳插件 ui 面注册派生视图（真源 = plugins/ui_features/<id>/spec.json\n' +
   ' * 的 faces.ui + data.node（kind=component））。由 plugins/scripts/sync_plugin_manifest.mjs\n' +
   ' * 生成（按插件 id 升序静态 import 各真 ui 面 entry + registerComponent 白名单注册）；\n' +
-  ' * renderer 装配期经 registerPluginFaces() 调用；verify:plugin-manifest 强制逐字一致。\n' +
+  ' * hosts/web 装配期经 registerPluginFaces() 调用；verify:plugin-manifest 强制逐字一致。\n' +
   ' */\n';
 
 const SETTINGS_HEADER =
   '/**\n' +
   ' * 生成文件勿手改：设置页段清单派生视图（真源 = plugins/ui_features/<id>/spec.json\n' +
   ' * 的 data.settings_section：key/label/order/icon + faces.ui）。由\n' +
-  ' * plugins/scripts/sync_plugin_manifest.mjs 生成（order 升序）；renderer 设置浮层\n' +
+  ' * plugins/scripts/sync_plugin_manifest.mjs 生成（order 升序）；hosts/web 设置浮层\n' +
   ' * 壳读本清单渲染导航与内容（DynamicComponent name=插件 id）；verify:plugin-manifest\n' +
   ' * 强制逐字一致。\n' +
   ' */\n';
@@ -646,16 +646,16 @@ function renderNativeTs(nativeDecls) {
   return lines.join('\n');
 }
 
-/** 渲染渲染器插件 ui 面注册派生 TS（真源 = plugins/ui_features/<id>/spec.json 的
+/** 渲染 hosts/web 插件 ui 面注册派生 TS（真源 = plugins/ui_features/<id>/spec.json 的
  *  faces.ui + data.node（kind=component）；装配期 registerPluginFaces() 把每个真
- *  ui 面插件的默认导出注册进 componentRegistry 白名单（名 = 插件 id，canonical
+ *  ui 面插件的默认导出注册进显示设备 componentRegistry 白名单（名 = 插件 id，canonical
  *  叶子 id = data.node.type）。entry 相对插件目录，禁逃逸由 verify:unload 强制；
- *  本文件按 id 升序静态 import（构建期把插件 ui 实现编入渲染器产物）。 */
+ *  本文件按 id 升序静态 import（构建期把插件 ui 实现编入 web 宿主产物）。 */
 function renderPluginFacesTs(uiFaces) {
   const lines = [PLUGIN_FACES_HEADER];
   if (uiFaces.length > 0) {
-    lines.push(`import type { PlainComponent } from '../renderer/componentRegistry';`);
-    lines.push(`import { registerComponent } from '../renderer/componentRegistry';`);
+    lines.push(`import type { PlainComponent } from '@/renderer/componentRegistry';`);
+    lines.push(`import { registerComponent } from '@/renderer/componentRegistry';`);
     lines.push('');
     lines.push(`export interface UiFaceEntry {`);
     lines.push(`  id: string;`);
@@ -665,7 +665,7 @@ function renderPluginFacesTs(uiFaces) {
     lines.push('');
     lines.push('export const PLUGIN_UI_FACES: UiFaceEntry[] = [');
     for (const f of uiFaces) {
-      lines.push(`  { id: '${f.id}', type: '${f.type}', entry: '../../../plugins/ui_features/${f.id}/${f.entry.replace(/^\.\//, '')}' },`);
+      lines.push(`  { id: '${f.id}', type: '${f.type}', entry: '../../../../plugins/ui_features/${f.id}/${f.entry.replace(/^\.\//, '')}' },`);
     }
     lines.push('] as const;');
     lines.push('');
@@ -679,7 +679,7 @@ function renderPluginFacesTs(uiFaces) {
     lines.push('');
     for (const f of uiFaces) {
       const alias = `${f.id.replace(/[.-]/g, '_')}Default`;
-      const rel = `../../../plugins/ui_features/${f.id}/${f.entry.replace(/^\.\//, '')}`;
+      const rel = `../../../../plugins/ui_features/${f.id}/${f.entry.replace(/^\.\//, '')}`;
       lines.push(`import ${alias} from '${rel}';`);
     }
   } else {

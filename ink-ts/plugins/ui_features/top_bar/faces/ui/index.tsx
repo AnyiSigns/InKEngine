@@ -1,6 +1,6 @@
 import { useEffect, useRef, useState, type ComponentType } from 'react';
 
-import type { ProductShellChrome } from '@/app/shell/productView';
+import type { ProductShellChrome } from '@app/shell/productView';
 import { TopBar } from './TopBar';
 
 const noop = (): void => undefined;

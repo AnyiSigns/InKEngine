@@ -5,7 +5,7 @@ import {
   registerEventRenderers,
   EVENT_RENDERER_KEYS,
   EVENT_RENDERER_SPECS,
-} from '@/app/renderers/eventRenderers';
+} from '@app/renderers/eventRenderers';
 import {
   resetMessageRendererRegistry,
   resolveMessageRenderer,

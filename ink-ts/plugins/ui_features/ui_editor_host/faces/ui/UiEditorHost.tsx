@@ -14,7 +14,7 @@ import { GitBranch, RotateCcw } from 'lucide-react';
 
 import type { UISpec } from '@/renderer/uiSpecTypes';
 import { validateUiSpec } from '@/renderer/validation';
-import type { AppBackend } from '@/app/backend';
+import type { AppBackend } from '@app/backend';
 import { UiSpecEditor } from '@/components/ui_spec_editor';
 import { Button } from '@/shared/ui/Button';
 import { Feedback } from '@/components/floaters/feedback';

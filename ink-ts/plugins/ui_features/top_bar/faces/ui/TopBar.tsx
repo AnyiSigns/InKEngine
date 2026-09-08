@@ -11,7 +11,7 @@ import { useState } from 'react';
 import { Pencil } from 'lucide-react';
 
 import { useT } from '@/i18n/useT';
-import type { MainTab } from '@/app/shell/shellContracts';
+import type { MainTab } from '@app/shell/shellContracts';
 
 interface TopBarProps {
   title: string;

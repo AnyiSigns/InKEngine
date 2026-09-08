@@ -2,7 +2,7 @@ import { describe, expect, it } from 'vitest';
 import { readFileSync } from 'node:fs';
 import { resolve } from 'node:path';
 import { registerBuiltinComponents } from '@/components';
-import { registerPluginFaces, PLUGIN_UI_FACES } from '@/app/pluginFaces.generated';
+import { registerPluginFaces, PLUGIN_UI_FACES } from '@app/pluginFaces.generated';
 import { isComponentRegistered } from '@/renderer/componentRegistry';
 
 /**
@@ -38,7 +38,7 @@ describe('出厂渲染器白名单对码', () => {
   it('真 ui 面插件 entry 与本文件类型一致且均已注册（派生视图自洽）', () => {
     for (const face of PLUGIN_UI_FACES) {
       expect(face.type.length).toBeGreaterThan(0);
-      expect(face.entry.startsWith('../../../plugins/ui_features/')).toBe(true);
+      expect(face.entry.startsWith('../../../../plugins/ui_features/')).toBe(true);
     }
     registerBuiltinComponents();
     registerPluginFaces();

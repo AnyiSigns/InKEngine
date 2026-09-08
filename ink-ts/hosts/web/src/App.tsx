@@ -15,20 +15,20 @@ import { useCallback, useEffect, useMemo, useRef, useState } from 'react';
 
 import { UIRenderer } from '@/renderer/bootRenderer';
 import type { UISpec } from '@/renderer/uiSpecTypes';
-import { useSessionState, useSessionActions } from '@/app/state/sessionState';
-import { setActiveThreadId } from '@/app/state/activeThread';
-import type { ProductShellChrome } from '@/app/shell/productView';
+import { useSessionState, useSessionActions } from '@app/state/sessionState';
+import { setActiveThreadId } from '@app/state/activeThread';
+import type { ProductShellChrome } from '@app/shell/productView';
 import type { BackendAdapter, ModelArchiveSnapshot, SessionBranchTree } from '@/shared/backend/backendAdapter';
 import { submitAttachments, messagesFromHistory, type AttachmentAsset } from '@/shared/session/eventIngest';
 import type { ChannelHub, ThreadBucket } from '@/shared/session/channelHub';
 import { emptyThreadBucket } from '@/shared/session/channelHub';
 import type { SessionStore } from '@/shared/session/sessionStore';
 import type { InkMessage, SimulationBranch } from '@/shared/session/types';
-import type { SpawnInstance } from '../../plugins/ui_features/message_list/faces/ui/SpawnPanel';
-import type { TaskCapsuleData } from '../../plugins/ui_features/task_capsule/faces/ui/types';
-import type { MainTab, ReviewResolution } from '@/app/shell/shellContracts';
+import type { SpawnInstance } from '../../../plugins/ui_features/message_list/faces/ui/SpawnPanel';
+import type { TaskCapsuleData } from '../../../plugins/ui_features/task_capsule/faces/ui/types';
+import type { MainTab, ReviewResolution } from '@app/shell/shellContracts';
 
-import uiLayout from '../../plugins/ui.generated.json';
+import uiLayout from '../../../plugins/ui.generated.json';
 
 interface AppProps {
   backend: BackendAdapter;

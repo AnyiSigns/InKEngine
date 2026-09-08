@@ -2,7 +2,7 @@
 import { render, screen, fireEvent, waitFor } from '@testing-library/react';
 
 import { WorkspaceAuth } from './WorkspaceAuth';
-import { createAppBackend, type AppBackend } from '@/app/backend';
+import { createAppBackend, type AppBackend } from '@app/backend';
 
 function makeMockBackend(state: { authorized: boolean; root: string | null } = { authorized: false, root: null }): AppBackend {
   const backend = createAppBackend({ backend: { available: true } as never });

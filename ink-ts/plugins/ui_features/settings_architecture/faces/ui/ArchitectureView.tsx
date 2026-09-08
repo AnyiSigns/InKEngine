@@ -1,9 +1,9 @@
 import { useState } from 'react';
 import { Boxes, GitMerge } from 'lucide-react';
 
-import '@/app/views/w3.css';
-import { createLiveArchitectureBackend } from '@/app/views/architecture/mockBackend';
-import type { ArchitectureBackend } from '@/app/views/architecture/backend';
+import '@app/views/w3.css';
+import { createLiveArchitectureBackend } from '@app/views/architecture/mockBackend';
+import type { ArchitectureBackend } from '@app/views/architecture/backend';
 import { PoolTab } from './tabs/PoolTab';
 import { EdgeEvidenceTab } from './tabs/EdgeEvidenceTab';
 

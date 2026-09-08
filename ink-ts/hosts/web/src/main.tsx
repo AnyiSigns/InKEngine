@@ -1,8 +1,8 @@
-import { initThemeModeAtStartup } from './renderer/themeMode';
+import { initThemeModeAtStartup } from '@/renderer/themeMode';
 import './index.css';
 
-import { activate } from './app/activate';
-import { PRODUCT_NAME, PRODUCT_TAGLINE } from './shared/identity';
+import { activate } from '@app/activate';
+import { PRODUCT_NAME, PRODUCT_TAGLINE } from './identity';
 
 initThemeModeAtStartup();
 

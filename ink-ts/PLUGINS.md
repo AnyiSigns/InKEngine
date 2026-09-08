@@ -93,11 +93,11 @@ host 配方界面白名单据此装配）。卸某节点 = 删目录 + 删父 `$
 
 真 ui 面（canonical 布局叶子与设置面板的独占 UI 实现）：组件节点插件声明
 `faces.ui`（target='web'，entry=`./faces/ui/index.tsx` 相对插件目录），
-`faces/ui/` 内 index.tsx 默认导出（布局叶子 = 把渲染器 product chrome 映射为
+`faces/ui/` 内 index.tsx 默认导出（布局叶子 = 把产品壳注入的 product chrome 映射为
 组件 props 的薄适配器；设置面板 = 直渲组件）与其 `*.test.ts(x)` 同目录并列。
-渲染器装配经派生视图 `pluginFaces.generated.ts` 静态 import 注册进
-componentRegistry（注册名 = 插件 id，白名单放行即该视图）——无 renderer 侧
-手写适配器/注册表面。
+hosts/web 产品壳装配经派生视图 `pluginFaces.generated.ts`（住
+`hosts/web/src/app/`）静态 import 注册进显示设备 componentRegistry
+（注册名 = 插件 id，白名单放行即该视图）——无壳侧手写适配器/注册表面。
 
 设置面板 = **数据引用挂载，不进布局树**：面板插件另声明 `data.settings_section`
 （key/label/order/icon），经第 7 派生视图 `settingsSections.generated.ts`
@@ -145,7 +145,7 @@ DynamicComponent 渲染。
   plugins/，不再有独立 `seed_data/tools.json`；
 - **分发单位 = 目录/包**：内置工具每工具一个插件目录（npm 包名
   `@ink-ts/plugin-<kebab>`），`plugins/manifest.json` 派生视图聚合 tools 表行
-  供消费（renderer/host/fixture 经 manifest 取用，生成物禁手改）；外部/agent
+  供消费（hosts/web 壳/renderer 显示面/host 经 manifest 取用，生成物禁手改）；外部/agent
   自举工具按插件分发（一个插件可带多个工具，MCP server 即此形态——一个
   插件 N 个独立工具行）；
 - **控制/检索单位 = 工具表行**：每个 tool id 独立——schema/权限档/启停旗标/审批位/

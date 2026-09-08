@@ -1,7 +1,7 @@
 import type { ComponentType } from 'react';
 
 import type { BackendAdapter } from '@/shared/backend/backendAdapter';
-import type { ProductShellChrome } from '@/app/shell/productView';
+import type { ProductShellChrome } from '@app/shell/productView';
 import { EvolutionFeed } from './EvolutionFeed';
 
 /** 宿主缺省只读禁用后端（available:false；演化页空态不崩）。 */

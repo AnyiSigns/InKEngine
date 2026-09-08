@@ -1,6 +1,6 @@
 import type { ComponentType } from 'react';
 
-import type { ProductShellChrome } from '@/app/shell/productView';
+import type { ProductShellChrome } from '@app/shell/productView';
 import { InputBar } from './InputBar';
 
 const noop = (): void => undefined;

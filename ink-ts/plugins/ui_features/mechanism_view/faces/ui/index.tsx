@@ -1,7 +1,7 @@
 import type { ComponentType } from 'react';
 
 import type { BackendAdapter } from '@/shared/backend/backendAdapter';
-import type { ProductShellChrome } from '@/app/shell/productView';
+import type { ProductShellChrome } from '@app/shell/productView';
 import { MechanismView } from './MechanismView';
 
 /**

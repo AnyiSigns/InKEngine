@@ -4,7 +4,7 @@ import { render, screen, fireEvent, waitFor } from '@testing-library/react';
 import { ArchitectureView } from './ArchitectureView';
 import { EdgeEvidenceTab } from './tabs/EdgeEvidenceTab';
 import { PoolTab } from './tabs/PoolTab';
-import type { ArchitectureBackend, EdgeSnapshotData, PoolSnapshotData } from '@/app/views/architecture/backend';
+import type { ArchitectureBackend, EdgeSnapshotData, PoolSnapshotData } from '@app/views/architecture/backend';
 
 function makeBackend(pool: PoolSnapshotData | null, edges: EdgeSnapshotData | null): ArchitectureBackend {
   return {

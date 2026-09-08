@@ -29,7 +29,7 @@ vi.mock('@/shared/backend/backendAdapter', () => ({
   createBackend: () => backendMock,
 }));
 
-import { setActiveThreadId } from '@/app/state/activeThread';
+import { setActiveThreadId } from '@app/state/activeThread';
 import { AuditRecoverySection } from './audit_recovery';
 
 function stubDownloadCapable() {

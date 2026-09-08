@@ -1,7 +1,7 @@
 import type { ComponentType } from 'react';
 
-import type { ReviewResolution } from '@/app/shell/shellContracts';
-import type { ProductShellChrome } from '@/app/shell/productView';
+import type { ReviewResolution } from '@app/shell/shellContracts';
+import type { ProductShellChrome } from '@app/shell/productView';
 import { ReviewCard } from './review_card';
 
 const noop = (): void => undefined;

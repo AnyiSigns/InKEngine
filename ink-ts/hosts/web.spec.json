@@ -14,18 +14,18 @@
       "approval": ["card"]
     },
     "ui_origin": {
-      "dev": "vite（渲染器源码 HMR；经 cli serve --vite 代理）",
-      "prod": "builtin（同进程托管 renderer dist）"
+      "dev": "vite（hosts/web 产品壳 + renderer 显示设备源码 HMR；经 cli serve --vite 代理）",
+      "prod": "builtin（同进程托管 hosts/web dist）"
     }
   },
   "renderer": {
     "target": "web",
-    "entry": "renderer/src"
+    "entry": "hosts/web/src"
   },
   "runtime": {
     "headless": false,
     "approval_timeout": null,
     "ui_origin": null
   },
-  "note": "web 宿主面：浏览器为显示设备，经 cli serve http+ws 接同一 bootstrap 进程；ui_origin dev=vite/prod=builtin；热更 = 显示设备源码 HMR（开发工具链），插件热更走运行期 artifactLoader/渲染意图"
+  "note": "web 宿主面：浏览器呈现产品壳在 hosts/web（产品 chrome + 装配），显示设备 = renderer/（@ink-ts/renderer），经 cli serve http+ws 接同一 bootstrap 进程；ui_origin dev=vite/prod=builtin；热更 = 壳/设备源码 HMR（开发工具链），插件热更走运行期 artifactLoader/渲染意图"
 }

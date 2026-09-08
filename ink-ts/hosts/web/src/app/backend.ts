@@ -23,9 +23,9 @@ import { isFixtureMode } from './wiring/env';
 import type { McpMountOutcome } from '@/shared/backend/backendAdapter';
 
 // 插件源派生视图（生成物禁手改）：tools/mcp_market 聚合 = 工具表行 + 市场视图（真源 plugins/<kind>/<id>/spec.json）。
-import pluginManifest from '../../../plugins/manifest.json';
+import pluginManifest from '../../../../plugins/manifest.json';
 // 产品主壳布局（真源 plugins/ui_features/*/spec.json → 装配生成物 ui.generated.json）。
-import uiLayout from '../../../plugins/ui.generated.json';
+import uiLayout from '../../../../plugins/ui.generated.json';
 
 export interface AppBackendOptions {
   backend?: BackendAdapter | null;

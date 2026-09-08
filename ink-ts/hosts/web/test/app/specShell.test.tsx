@@ -12,11 +12,11 @@ import { render, screen } from '@testing-library/react';
 
 import { ChannelHub } from '@/shared/session/channelHub';
 import { registerBuiltinComponents } from '@/components';
-import { registerPluginFaces } from '@/app/pluginFaces.generated';
+import { registerPluginFaces } from '@app/pluginFaces.generated';
 import { UIRenderer } from '@/renderer/bootRenderer';
 import type { UISpec } from '@/renderer/uiSpecTypes';
 
-import uiLayout from '../../../plugins/ui.generated.json';
+import uiLayout from '../../../../plugins/ui.generated.json';
 
 function makeHub(messages: unknown[] = []): ChannelHub {
   const hub = new ChannelHub();

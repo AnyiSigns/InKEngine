@@ -2,7 +2,7 @@
 import { render, screen, fireEvent, waitFor } from '@testing-library/react';
 
 import { UiEditorHost } from './UiEditorHost';
-import { createAppBackend, type AppBackend } from '@/app/backend';
+import { createAppBackend, type AppBackend } from '@app/backend';
 import type { UISpec } from '@/renderer/uiSpecTypes';
 
 const mockSpec: UISpec = {

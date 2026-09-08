@@ -1,9 +1,9 @@
 import { describe, expect, it, vi } from 'vitest';
 import { render, screen, fireEvent } from '@testing-library/react';
 
-import { DagRenderer } from '@/app/dag';
-import { layoutGraph } from '@/app/dag';
-import type { DagGraph } from '@/app/dag';
+import { DagRenderer } from '@app/dag';
+import { layoutGraph } from '@app/dag';
+import type { DagGraph } from '@app/dag';
 
 const graph: DagGraph = {
   nodes: [

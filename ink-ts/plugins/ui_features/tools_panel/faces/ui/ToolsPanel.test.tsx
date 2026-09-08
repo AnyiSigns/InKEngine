@@ -2,7 +2,7 @@
 import { render, screen, fireEvent, waitFor } from '@testing-library/react';
 
 import { ToolsPanel } from './ToolsPanel';
-import { createAppBackend, type AppBackend } from '@/app/backend';
+import { createAppBackend, type AppBackend } from '@app/backend';
 import type { ToolFullView } from '@/shared/backend/backendAdapter';
 
 function makeMockBackend(tools: ToolFullView['tools'] = []): AppBackend {

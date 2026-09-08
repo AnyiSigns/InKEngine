@@ -1,4 +1,4 @@
-import type { DagGraph, DagNode, DagNodeKind, DagNodeStatus } from '@/app/dag';
+import type { DagGraph, DagNode, DagNodeKind, DagNodeStatus } from '@app/dag';
 
 /** 结点池登记快照（pool.snapshot 投影：counts/最近判定/governance_log 窗口）。 */
 export interface PoolRowView {

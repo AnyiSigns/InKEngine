@@ -1,6 +1,6 @@
 import { useState, type ComponentType } from 'react';
 
-import type { ProductShellChrome } from '@/app/shell/productView';
+import type { ProductShellChrome } from '@app/shell/productView';
 import { LeftRail } from './LeftRail';
 
 const noop = (): void => undefined;

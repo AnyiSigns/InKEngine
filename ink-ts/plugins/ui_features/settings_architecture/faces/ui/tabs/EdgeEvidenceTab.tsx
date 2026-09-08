@@ -1,8 +1,8 @@
 import { useEffect, useState } from 'react';
 import { GitMerge } from 'lucide-react';
 
-import { EmptyState } from '@/app/views/EmptyState';
-import type { ArchitectureBackend, EdgeSnapshotData } from '@/app/views/architecture/backend';
+import { EmptyState } from '@app/views/EmptyState';
+import type { ArchitectureBackend, EdgeSnapshotData } from '@app/views/architecture/backend';
 import { useT } from '@/i18n/useT';
 
 /** 边证据 tab：edge_evidence.list 只读窗口（src→dst 契约证据行 + 计数）。 */

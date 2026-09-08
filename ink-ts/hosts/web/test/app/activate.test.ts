@@ -1,9 +1,9 @@
 import { describe, it, expect } from 'vitest';
 
 import { registerBuiltinComponents } from '@/components';
-import { registerPluginFaces } from '@/app/pluginFaces.generated';
+import { registerPluginFaces } from '@app/pluginFaces.generated';
 import { isComponentRegistered } from '@/renderer/componentRegistry';
-import { SETTINGS_SECTIONS } from '@/app/settings/settingsSections.generated';
+import { SETTINGS_SECTIONS } from '@app/settings/settingsSections.generated';
 
 /**
  * 设置浮层装配（派生清单 SETTINGS_SECTIONS 单一真源）：段清单键序/order 来自

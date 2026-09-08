@@ -39,7 +39,7 @@ export interface HostFaces {
   ui_origin?: { dev?: string; prod?: string } | null;
 }
 
-/** 呈现面实现指针（cli→hosts/cli/src/tui；web→renderer/src；为装配定位实现目录的扩展字段）。 */
+/** 呈现面实现指针（cli→hosts/cli/src/tui；web→hosts/web/src；为装配定位实现目录的扩展字段）。 */
 export interface HostRendererRef {
   target: 'engine' | 'host' | 'web';
   entry: string;

@@ -27,7 +27,7 @@ export interface GateConfig {
 
 export const defaultConfig: GateConfig = {
   maxLines: 350,
-  lineScanDirs: ['engine/src', 'engine/test', 'hosts/lib/src', 'hosts/lib/test', 'hosts/cli/src', 'hosts/cli/test', 'renderer/src', 'renderer/test', 'plugins/ui_features', 'plugins/tools/doc_parse/faces'],
+  lineScanDirs: ['engine/src', 'engine/test', 'hosts/lib/src', 'hosts/lib/test', 'hosts/cli/src', 'hosts/cli/test', 'hosts/web/src', 'hosts/web/test', 'renderer/src', 'renderer/test', 'plugins/ui_features', 'plugins/tools/doc_parse/faces'],
   coreDirs: ['engine/src/core', 'engine/src/kernel'],
   adapterDirs: ['engine/src/adapters'],
   jsonScanDirs: ['seed_data', 'plugins', 'engine/schemas', 'engine/fixtures'],

@@ -10,9 +10,13 @@ import { defineConfig } from 'vitest/config';
 export default defineConfig({
   plugins: [react()],
   resolve: {
-    alias: {
-      '@': fileURLToPath(new URL('../renderer/src', import.meta.url)),
-    },
+    alias: [
+      // '@app' = hosts/web 产品壳（productView/AppBackend/视图/生成注册表等），
+      // 随插件 faces 复用——阶段 7b 真面化 + 阶段 2 产品壳独立成仓；外部开发
+      // 插件改包出口。
+      { find: '@app', replacement: fileURLToPath(new URL('../hosts/web/src/app/', import.meta.url)) },
+      { find: '@', replacement: fileURLToPath(new URL('../renderer/src', import.meta.url)) },
+    ],
   },
   test: {
     root: fileURLToPath(new URL('.', import.meta.url)),

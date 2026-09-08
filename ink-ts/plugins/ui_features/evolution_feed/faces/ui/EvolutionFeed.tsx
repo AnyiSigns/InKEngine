@@ -13,10 +13,10 @@
 import { useEffect, useState } from 'react';
 import { Bot, CheckCircle2, Circle, GitCommitVertical, Loader2, Network, ShieldAlert, Sparkles, XCircle } from 'lucide-react';
 
-import { DagRenderer } from '@/app/dag';
+import { DagRenderer } from '@app/dag';
 import type { BackendAdapter } from '@/shared/backend/backendAdapter';
 import type { IncubationEntry, PatchChainEntry } from '@/shared/session/types';
-import { mapInstanceSnapshot, type InstanceGraph } from '@/app/views/architecture/backend';
+import { mapInstanceSnapshot, type InstanceGraph } from '@app/views/architecture/backend';
 
 /** 实体目录快照（与引擎 introspection.snapshot_entities 同构）。 */
 interface EntitySnapshotData {

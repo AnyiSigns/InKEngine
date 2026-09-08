@@ -1,8 +1,8 @@
 import { useEffect, useState } from 'react';
 import { Boxes, Cpu } from 'lucide-react';
 
-import { EmptyState } from '@/app/views/EmptyState';
-import type { ArchitectureBackend, PoolSnapshotData } from '@/app/views/architecture/backend';
+import { EmptyState } from '@app/views/EmptyState';
+import type { ArchitectureBackend, PoolSnapshotData } from '@app/views/architecture/backend';
 import { useT } from '@/i18n/useT';
 
 /** 结点池 tab：pool.snapshot 计数 + 最近判定 + 登记窗口 + 评估入口（只登记）。 */

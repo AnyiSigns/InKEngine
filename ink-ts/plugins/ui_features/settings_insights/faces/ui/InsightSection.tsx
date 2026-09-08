@@ -15,6 +15,7 @@ import { cn } from '@/shared/cn';
 import { ROUND_EVENT_TOPIC, listenHostEvent } from '@/shared/backend/transport';
 import { toHubEvent } from '@/shared/session/eventIngest';
 import type { HubEvent } from '@/shared/session/channelHub';
+import { createBackend, type BackendAdapter } from '@/shared/backend/backendAdapter';
 import { listAudit, type AuditRecord, type TimelineEntry } from './backend';
 import { describeEntry, detailText, isAlertType, TYPE_LABELS } from './labels';
 
@@ -90,20 +91,23 @@ function fmtTime(ts: number): string {
   return `${pad(d.getHours())}:${pad(d.getMinutes())}:${pad(d.getSeconds())}`;
 }
 
-export function InsightSection() {
+export function InsightSection({ backend: injectedBackend }: { backend?: BackendAdapter } = {}) {
   const [entries, setEntries] = useState<TimelineEntry[]>([]);
   const [filter, setFilter] = useState('');
   const [loading, setLoading] = useState(false);
+  // 审计历史底账走共享适配器（壳内 = 声明注入实例，壳外回落自建）；
+  // 实时事件流另直接订阅 serve 通道（与会话驱动侧监听独立互不影响）。
+  const [backend] = useState(() => injectedBackend ?? createBackend());
 
   const load = useCallback(async () => {
     setLoading(true);
     try {
-      const records = await listAudit();
+      const records = await listAudit(backend);
       if (records) setEntries((prev) => mergeEntries(prev, buildHistory(records)));
     } finally {
       setLoading(false);
     }
-  }, []);
+  }, [backend]);
 
   const appendLive = useCallback((event: HubEvent) => {
     setEntries((prev) => {

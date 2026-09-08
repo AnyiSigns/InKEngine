@@ -28,7 +28,7 @@ import { Field, Select, TextInput } from '@/shared/ui/Field';
 import { Feedback } from '@/components/floaters/feedback';
 import type { FeedbackPhase } from '@/components/floaters/feedback';
 import { FloaterWindow } from '@/components/floaters/floater_window';
-import { createBackend } from '@/shared/backend/backendAdapter';
+import { createBackend, type BackendAdapter } from '@/shared/backend/backendAdapter';
 
 function isRecordObj(value: unknown): value is Record<string, unknown> {
   return typeof value === 'object' && value !== null && !Array.isArray(value);
@@ -494,8 +494,9 @@ function AddProviderModal({
   );
 }
 
-export function ModelSection(): JSX.Element {
-  const backend = useMemo(() => createBackend(), []);
+export function ModelSection({ backend: injectedBackend }: { backend?: BackendAdapter } = {}): JSX.Element {
+  // 壳内取声明注入的共享实例，壳外（测试/独立挂载）缺省回落自建。
+  const backend = useMemo(() => injectedBackend ?? createBackend(), [injectedBackend]);
   const [providers, setProviders] = useState<ProviderDraft[]>([]);
   const [activeProviderId, setActiveProviderId] = useState<string | null>(null);
   const [savePhase, setSavePhase] = useState<FeedbackPhase>('idle');

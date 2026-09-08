@@ -1,4 +1,4 @@
-import { createBackend } from '@/shared/backend/backendAdapter';
+import { createBackend, type BackendAdapter } from '@/shared/backend/backendAdapter';
 
 export type MemorySource = 'round_liquid' | 'manual' | 'seed';
 
@@ -30,8 +30,9 @@ export interface MemoryOps {
   invalidate(id: string): Promise<boolean>;
 }
 
-export function createMemoryOps(): MemoryOps {
-  const backend = createBackend();
+export function createMemoryOps(backendAdapter?: BackendAdapter): MemoryOps {
+  // 显式传 adapter = 消费壳注入的共享实例；缺省（测试/独立挂载）回落自建。
+  const backend = backendAdapter ?? createBackend();
   return {
     list: async () => {
       if (!backend.available) return { namespaces: [], entries: [] };

@@ -1,4 +1,4 @@
-import { createBackend } from '@/shared/backend/backendAdapter';
+import { createBackend, type BackendAdapter } from '@/shared/backend/backendAdapter';
 
 /** set_audit 集合记录（append-only 干预/自修改留痕的原始形态）。 */
 export interface AuditRecord {
@@ -29,9 +29,10 @@ export interface TimelineEntry {
   source: 'history' | 'live';
 }
 
-/** 审计流水（只读）：读取 set_audit 集合（audit.list → {records} 窗口）。 */
-export async function listAudit(): Promise<AuditRecord[] | null> {
-  const backend = createBackend();
+/** 审计流水（只读）：读取 set_audit 集合（audit.list → {records} 窗口）。
+ *  显式传 adapter = 消费壳注入的共享实例；缺省（测试/独立挂载）回落自建。 */
+export async function listAudit(backendAdapter?: BackendAdapter): Promise<AuditRecord[] | null> {
+  const backend = backendAdapter ?? createBackend();
   if (!backend.available) return null;
   try {
     const result = await backend.auditList();

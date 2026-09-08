@@ -1,4 +1,4 @@
-import { createBackend } from '@/shared/backend/backendAdapter';
+import { createBackend, type BackendAdapter } from '@/shared/backend/backendAdapter';
 
 export type KnowledgeCredibility = 'high' | 'medium' | 'low';
 
@@ -28,8 +28,9 @@ export interface KnowledgeOps {
   exportJson(kind?: string): Promise<string | null>;
 }
 
-export function createKnowledgeOps(): KnowledgeOps {
-  const backend = createBackend();
+export function createKnowledgeOps(backendAdapter?: BackendAdapter): KnowledgeOps {
+  // 显式传 adapter = 消费壳注入的共享实例；缺省（测试/独立挂载）回落自建。
+  const backend = backendAdapter ?? createBackend();
   return {
     list: async (includeArchived = false) => {
       if (!backend.available) return { entries: [] };

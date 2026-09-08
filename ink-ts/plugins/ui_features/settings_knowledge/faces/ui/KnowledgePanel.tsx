@@ -6,12 +6,12 @@
  * knowledge.export JSON 导出）；条目行不提供写按钮，统一标注只读。
  */
 
-import { useEffect, useMemo, useRef, useState } from 'react';
+import { useEffect, useMemo, useState } from 'react';
 import { BookOpen, Download, RefreshCw, Search, Sparkles } from 'lucide-react';
 
 import { Button } from '@/shared/ui/Button';
 import { TextInput } from '@/shared/ui/Field';
-import { createBackend } from '@/shared/backend/backendAdapter';
+import { createBackend, type BackendAdapter } from '@/shared/backend/backendAdapter';
 import { logger } from '@/shared/logger';
 import {
   compareCredibility,
@@ -50,9 +50,10 @@ function fmtTs(ts?: number | null): string {
   return d.toLocaleString('zh-CN', { hour12: false });
 }
 
-export function KnowledgePanel(): JSX.Element {
-  const backendRef = useRef(createBackend());
-  const opsRef = useRef(createKnowledgeOps());
+export function KnowledgePanel({ backend: injectedBackend }: { backend?: BackendAdapter } = {}): JSX.Element {
+  // 壳内取声明注入的共享实例，壳外（测试/独立挂载）回落自建；ops 同源不另建连接。
+  const [backend] = useState(() => injectedBackend ?? createBackend());
+  const ops = useMemo(() => createKnowledgeOps(backend), [backend]);
   const [data, setData] = useState<KnowledgeData | null>(null);
   const [growth, setGrowth] = useState<GrowthReportView | null>(null);
   const [loadState, setLoadState] = useState<'loading' | 'ready' | 'empty' | 'unavailable' | 'error'>('loading');
@@ -64,14 +65,14 @@ export function KnowledgePanel(): JSX.Element {
 
   const load = async () => {
     setLoadState('loading');
-    if (!backendRef.current.available) {
+    if (!backend.available) {
       setData(null);
       setGrowth(null);
       setLoadState('unavailable');
       return;
     }
     try {
-      const result = await opsRef.current.list(true);
+      const result = await ops.list(true);
       setData(result);
       setLoadState(result.entries.length > 0 ? 'ready' : 'empty');
     } catch (err) {
@@ -81,12 +82,12 @@ export function KnowledgePanel(): JSX.Element {
   };
 
   const loadGrowth = async () => {
-    if (!backendRef.current.available) {
+    if (!backend.available) {
       setGrowth(null);
       return;
     }
     try {
-      const result = await backendRef.current.growthReport();
+      const result = await backend.growthReport();
       setGrowth({
         enabled: result?.enabled ?? false,
         config_summary: result?.config_summary ?? null,
@@ -134,7 +135,7 @@ export function KnowledgePanel(): JSX.Element {
   const handleExport = async (): Promise<void> => {
     if (exportPhase === 'loading') return;
     setExportPhase('loading');
-    const json = await opsRef.current.exportJson();
+    const json = await ops.exportJson();
     setExportPhase('done');
     if (json === null) return;
     const blob = new Blob([json], { type: 'application/json' });

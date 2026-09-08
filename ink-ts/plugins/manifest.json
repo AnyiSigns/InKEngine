@@ -1019,7 +1019,12 @@
       "faces": {
         "ui": {
           "target": "web",
-          "entry": "./faces/ui/index.tsx"
+          "entry": "./faces/ui/index.tsx",
+          "access": {
+            "store": [
+              "backend"
+            ]
+          }
         }
       }
     },
@@ -1032,7 +1037,12 @@
       "faces": {
         "ui": {
           "target": "web",
-          "entry": "./faces/ui/index.tsx"
+          "entry": "./faces/ui/index.tsx",
+          "access": {
+            "store": [
+              "backend"
+            ]
+          }
         }
       }
     },
@@ -1045,7 +1055,12 @@
       "faces": {
         "ui": {
           "target": "web",
-          "entry": "./faces/ui/index.tsx"
+          "entry": "./faces/ui/index.tsx",
+          "access": {
+            "store": [
+              "backend"
+            ]
+          }
         }
       }
     },
@@ -1058,7 +1073,12 @@
       "faces": {
         "ui": {
           "target": "web",
-          "entry": "./faces/ui/index.tsx"
+          "entry": "./faces/ui/index.tsx",
+          "access": {
+            "store": [
+              "backend"
+            ]
+          }
         }
       }
     },
@@ -1097,7 +1117,12 @@
       "faces": {
         "ui": {
           "target": "web",
-          "entry": "./faces/ui/index.tsx"
+          "entry": "./faces/ui/index.tsx",
+          "access": {
+            "store": [
+              "backend"
+            ]
+          }
         }
       }
     },
@@ -1110,7 +1135,12 @@
       "faces": {
         "ui": {
           "target": "web",
-          "entry": "./faces/ui/index.tsx"
+          "entry": "./faces/ui/index.tsx",
+          "access": {
+            "store": [
+              "backend"
+            ]
+          }
         }
       }
     },
@@ -1123,7 +1153,12 @@
       "faces": {
         "ui": {
           "target": "web",
-          "entry": "./faces/ui/index.tsx"
+          "entry": "./faces/ui/index.tsx",
+          "access": {
+            "store": [
+              "backend"
+            ]
+          }
         }
       }
     },
@@ -1136,7 +1171,12 @@
       "faces": {
         "ui": {
           "target": "web",
-          "entry": "./faces/ui/index.tsx"
+          "entry": "./faces/ui/index.tsx",
+          "access": {
+            "store": [
+              "backend"
+            ]
+          }
         }
       }
     },
@@ -1190,7 +1230,12 @@
       "faces": {
         "ui": {
           "target": "web",
-          "entry": "./faces/ui/index.tsx"
+          "entry": "./faces/ui/index.tsx",
+          "access": {
+            "store": [
+              "appBackend"
+            ]
+          }
         }
       }
     },
@@ -1246,7 +1291,12 @@
       "faces": {
         "ui": {
           "target": "web",
-          "entry": "./faces/ui/index.tsx"
+          "entry": "./faces/ui/index.tsx",
+          "access": {
+            "store": [
+              "appBackend"
+            ]
+          }
         }
       }
     },
@@ -1259,7 +1309,12 @@
       "faces": {
         "ui": {
           "target": "web",
-          "entry": "./faces/ui/index.tsx"
+          "entry": "./faces/ui/index.tsx",
+          "access": {
+            "store": [
+              "appBackend"
+            ]
+          }
         }
       }
     },

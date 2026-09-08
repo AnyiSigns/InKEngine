@@ -3,7 +3,7 @@ import { Archive, HardDriveDownload, RotateCcw, ShieldAlert } from 'lucide-react
 
 import { Button } from '@/shared/ui/Button';
 import { TextInput } from '@/shared/ui/Field';
-import { createBackend } from '@/shared/backend/backendAdapter';
+import { createBackend, type BackendAdapter } from '@/shared/backend/backendAdapter';
 import { useT } from '@/i18n/useT';
 
 type BackupStep = 'select' | 'confirm' | 'done';
@@ -12,9 +12,10 @@ function fmt(template: string, vars: Record<string, string>): string {
   return template.replace(/\{(\w+)\}/g, (_, k) => vars[k] ?? `{${k}}`);
 }
 
-export function BackupSection() {
+export function BackupSection({ backend: injectedBackend }: { backend?: BackendAdapter } = {}) {
   const { t } = useT();
-  const backend = createBackend();
+  // 壳内取声明注入的共享实例，壳外（测试/独立挂载）缺省回落自建。
+  const [backend] = useState(() => injectedBackend ?? createBackend());
   const [mode, setMode] = useState<'export' | 'restore' | 'reset'>('export');
   const [step, setStep] = useState<BackupStep>('select');
   const [path, setPath] = useState('');

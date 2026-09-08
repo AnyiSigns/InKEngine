@@ -176,6 +176,13 @@ renderer 适配层整体退役）；其余 kind 目录随对应阶段落位。
   隐式全量注入；读词表外字段 = undefined），未声明 access 的面原样透传。
   settings_floater 是「面板挂载壳」壳特例：需全量 chrome 作面板切片源，豁免
   不迁（不声明 access）。适配器只消费声明的顶层切片名（禁读 props.product）。
+  13 设置面板全量随迁（mcp_market 试点先行；settings_general 无宿主数据需求
+  不声明）——面板不再各自自建 AppBackend/BackendAdapter 实例：AppBackend 组
+  （tools_panel/workspace_auth/ui_editor_host）store:["appBackend"]，
+  BackendAdapter 组（settings_architecture/connect/backup/audit_recovery/
+  model/knowledge/memory/insights）store:["backend"]，faces/ui 改消费注入座位
+  （组件增可选 backend prop，ops 工厂接共享 adapter；缺注入惰性回退自建，
+  壳外挂载/测试不白屏）。
 
 ## 手改与生成纪律
 

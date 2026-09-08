@@ -2,11 +2,13 @@ import { useEffect, useRef, useState } from 'react';
 import { Brain, ChevronDown, ChevronRight, Trash2 } from 'lucide-react';
 
 import { Button } from '@/shared/ui/Button';
+import type { BackendAdapter } from '@/shared/backend/backendAdapter';
 import { createMemoryOps, type MemoryData, type MemoryEntry, sourceLabel, kindLabel } from './backend';
 import { logger } from '@/shared/logger';
 
-export function MemoryView() {
-  const opsRef = useRef(createMemoryOps());
+export function MemoryView({ backend: injectedBackend }: { backend?: BackendAdapter } = {}) {
+  // 壳内取声明注入的共享实例，壳外（测试/独立挂载）缺省回落自建。
+  const opsRef = useRef(createMemoryOps(injectedBackend));
   const [data, setData] = useState<MemoryData | null>(null);
   const [selectedNs, setSelectedNs] = useState<string | null>(null);
   const [expanded, setExpanded] = useState<Set<string>>(new Set());

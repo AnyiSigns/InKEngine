@@ -9,7 +9,8 @@
 ## 数据从哪进 / 挂载
 
 - 挂载 = 设置面板：不经布局树 $ref——spec data.settings_section 经生成器 settingsSections.generated.ts（住 hosts/web/src/app/settings/）settings 派生清单引用，设置浮层读清单渲染左导航、内容 DynamicComponent name=插件 id（settings_model）；真源注册同 pluginFaces.generated.ts。
-- 数据：chrome 模型面（models/agentModelId）或 @app/backend 共享数据面（角色档写经 capability/model 命令）；serve 未接线 = dev 夹具兜底。
+- 数据：@app/backend 共享数据面（models.config.*/model_archive.snapshot 读 + 角色槽档位写）；serve 未接线 = dev 夹具兜底。
+- 接入（声明式）：faces.ui.access store:["backend"]（见 spec.json）——壳 settings_floater 经 sliceUiAccess 按声明切片注入共享 BackendAdapter 为顶层 props；壳外挂载/测试缺省回落自建实例（不白屏）。
 - 只读展示 + 档位选择出口，模型配置语义见 engine 角色槽（CODING §8）。
 - 同目录 `*.test.tsx` 走 jsdom + RTL（`vitest run --config plugins/vitest.config.ts`）。
 - 别名：`@app/*` = hosts/web 产品壳、`@/*` = renderer/src 显示设备（plugins 与 hosts/web 的 vite/vitest/tsconfig 同构声明）；禁 import engine 包。

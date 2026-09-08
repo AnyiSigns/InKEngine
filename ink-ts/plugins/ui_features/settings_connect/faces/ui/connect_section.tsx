@@ -12,13 +12,14 @@ import { Search } from 'lucide-react';
 
 import { Button } from '@/shared/ui/Button';
 import { Field, Select, TextInput } from '@/shared/ui/Field';
-import { createBackend } from '@/shared/backend/backendAdapter';
+import { createBackend, type BackendAdapter } from '@/shared/backend/backendAdapter';
 
 type SearchProvider = 'exa' | 'parallel' | 'bocha';
 
-export function ConnectSection(): JSX.Element {
-  // BackendAdapter 单通道：搜索 key 经适配器（可 mock/可回落）。
-  const backend = useRef(createBackend()).current;
+export function ConnectSection({ backend: injectedBackend }: { backend?: BackendAdapter } = {}): JSX.Element {
+  // BackendAdapter 单通道：搜索 key 经适配器（可 mock/可回落）；壳内取声明
+  // 注入的共享实例，壳外（测试/独立挂载）缺省回落自建。
+  const [backend] = useState(() => injectedBackend ?? createBackend());
   const [searchKey, setSearchKey] = useState('');
   const [searchProvider, setSearchProvider] = useState<SearchProvider>('exa');
   const [savePhase, setSavePhase] = useState<'idle' | 'saving' | 'saved' | 'error'>('idle');

@@ -32,6 +32,10 @@ export const PLUGIN_UI_FACES: UiFaceEntry[] = [
   { id: 'settings_connect', type: 'settings_connect', entry: '../../../plugins/ui_features/settings_connect/faces/ui/index.tsx' },
   { id: 'settings_knowledge', type: 'settings_knowledge', entry: '../../../plugins/ui_features/settings_knowledge/faces/ui/index.tsx' },
   { id: 'settings_architecture', type: 'settings_architecture', entry: '../../../plugins/ui_features/settings_architecture/faces/ui/index.tsx' },
+  { id: 'mcp_market', type: 'mcp_market', entry: '../../../plugins/ui_features/mcp_market/faces/ui/index.tsx' },
+  { id: 'tools_panel', type: 'tools_panel', entry: '../../../plugins/ui_features/tools_panel/faces/ui/index.tsx' },
+  { id: 'workspace_auth', type: 'workspace_auth', entry: '../../../plugins/ui_features/workspace_auth/faces/ui/index.tsx' },
+  { id: 'ui_editor_host', type: 'ui_editor_host', entry: '../../../plugins/ui_features/ui_editor_host/faces/ui/index.tsx' },
   { id: 'settings_memory', type: 'settings_memory', entry: '../../../plugins/ui_features/settings_memory/faces/ui/index.tsx' },
   { id: 'settings_insights', type: 'settings_insights', entry: '../../../plugins/ui_features/settings_insights/faces/ui/index.tsx' },
   { id: 'settings_audit_recovery', type: 'settings_audit_recovery', entry: '../../../plugins/ui_features/settings_audit_recovery/faces/ui/index.tsx' },
@@ -57,6 +61,10 @@ export function registerPluginFaces(): void {
   registerComponent('settings_connect', (settings_connectDefault as unknown) as PlainComponent);
   registerComponent('settings_knowledge', (settings_knowledgeDefault as unknown) as PlainComponent);
   registerComponent('settings_architecture', (settings_architectureDefault as unknown) as PlainComponent);
+  registerComponent('mcp_market', (mcp_marketDefault as unknown) as PlainComponent);
+  registerComponent('tools_panel', (tools_panelDefault as unknown) as PlainComponent);
+  registerComponent('workspace_auth', (workspace_authDefault as unknown) as PlainComponent);
+  registerComponent('ui_editor_host', (ui_editor_hostDefault as unknown) as PlainComponent);
   registerComponent('settings_memory', (settings_memoryDefault as unknown) as PlainComponent);
   registerComponent('settings_insights', (settings_insightsDefault as unknown) as PlainComponent);
   registerComponent('settings_audit_recovery', (settings_audit_recoveryDefault as unknown) as PlainComponent);
@@ -80,6 +88,10 @@ import settings_modelDefault from '../../../plugins/ui_features/settings_model/f
 import settings_connectDefault from '../../../plugins/ui_features/settings_connect/faces/ui/index.tsx';
 import settings_knowledgeDefault from '../../../plugins/ui_features/settings_knowledge/faces/ui/index.tsx';
 import settings_architectureDefault from '../../../plugins/ui_features/settings_architecture/faces/ui/index.tsx';
+import mcp_marketDefault from '../../../plugins/ui_features/mcp_market/faces/ui/index.tsx';
+import tools_panelDefault from '../../../plugins/ui_features/tools_panel/faces/ui/index.tsx';
+import workspace_authDefault from '../../../plugins/ui_features/workspace_auth/faces/ui/index.tsx';
+import ui_editor_hostDefault from '../../../plugins/ui_features/ui_editor_host/faces/ui/index.tsx';
 import settings_memoryDefault from '../../../plugins/ui_features/settings_memory/faces/ui/index.tsx';
 import settings_insightsDefault from '../../../plugins/ui_features/settings_insights/faces/ui/index.tsx';
 import settings_audit_recoveryDefault from '../../../plugins/ui_features/settings_audit_recovery/faces/ui/index.tsx';

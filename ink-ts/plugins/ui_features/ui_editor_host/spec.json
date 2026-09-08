@@ -1,0 +1,28 @@
+{
+  "id": "ui_editor_host",
+  "kind": "ui_feature",
+  "capability": "host_tool",
+  "actions": [],
+  "depends": [],
+  "faces": {
+    "ui": {
+      "target": "web",
+      "entry": "./faces/ui/index.tsx"
+    }
+  },
+  "data": {
+    "node": {
+      "kind": "component",
+      "type": "ui_editor_host",
+      "props": {
+        "note": "设置·界面编辑器（ui_spec 悬浮树编辑，dev 夹具）"
+      }
+    },
+    "settings_section": {
+      "key": "ui_editor",
+      "label": "界面编辑器",
+      "order": 50,
+      "icon": "pencil_ruler"
+    }
+  }
+}

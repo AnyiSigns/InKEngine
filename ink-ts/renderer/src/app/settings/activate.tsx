@@ -15,7 +15,7 @@
  * 统一走前台 sleep 工具（后台任务域废弃）。
  */
 
-import { BookOpen, Database, Eye, FileClock, Network, PlugZap, Settings2, ShieldCheck } from 'lucide-react';
+import { BookOpen, Database, Eye, FileClock, Network, PencilRuler, PlugZap, Server, Settings2, ShieldCheck, Wrench } from 'lucide-react';
 import type { ReactNode } from 'react';
 
 import { DynamicComponent } from '@/renderer/componentRegistry';
@@ -51,6 +51,39 @@ export function registerSettingsSections(): void {
     icon: <PlugZap size={16} strokeWidth={1.6} aria-hidden />,
     order: 3,
     render: panel('settings_connect'),
+  });
+
+  // ===== wave4 面板（阶段 7b 真面化：插件自建 AppBackend 兜底，见各插件入口）=====
+  registerSettingsSection({
+    key: 'mcp_market',
+    label: 'MCP 市场',
+    icon: <Server size={16} strokeWidth={1.6} aria-hidden />,
+    order: 10,
+    render: panel('mcp_market'),
+  });
+
+  registerSettingsSection({
+    key: 'tools_panel',
+    label: '工具',
+    icon: <Wrench size={16} strokeWidth={1.6} aria-hidden />,
+    order: 20,
+    render: panel('tools_panel'),
+  });
+
+  registerSettingsSection({
+    key: 'workspace_auth',
+    label: '工作区授权',
+    icon: <ShieldCheck size={16} strokeWidth={1.6} aria-hidden />,
+    order: 40,
+    render: panel('workspace_auth'),
+  });
+
+  registerSettingsSection({
+    key: 'ui_editor',
+    label: '界面编辑器',
+    icon: <PencilRuler size={16} strokeWidth={1.6} aria-hidden />,
+    order: 50,
+    render: panel('ui_editor_host'),
   });
 
   registerSettingsSection({

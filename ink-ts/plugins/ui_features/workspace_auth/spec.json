@@ -1,0 +1,28 @@
+{
+  "id": "workspace_auth",
+  "kind": "ui_feature",
+  "capability": "host_tool",
+  "actions": [],
+  "depends": [],
+  "faces": {
+    "ui": {
+      "target": "web",
+      "entry": "./faces/ui/index.tsx"
+    }
+  },
+  "data": {
+    "node": {
+      "kind": "component",
+      "type": "workspace_auth",
+      "props": {
+        "note": "设置·工作区授权（目录/授权三件套/挂载清单）"
+      }
+    },
+    "settings_section": {
+      "key": "workspace_auth",
+      "label": "工作区授权",
+      "order": 40,
+      "icon": "shield"
+    }
+  }
+}

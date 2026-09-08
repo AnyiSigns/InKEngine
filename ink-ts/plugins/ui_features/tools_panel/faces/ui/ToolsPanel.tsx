@@ -14,7 +14,7 @@
 import { useEffect, useMemo, useState } from 'react';
 import { BookOpen, Search, Shield, Wrench } from 'lucide-react';
 
-import type { AppBackend } from '../../backend';
+import type { AppBackend } from '@/app/backend';
 import type { ToolFullRow } from '@/shared/backend/backendAdapter';
 import { resolveToolLabel } from '@/shared/labels/toolLabels';
 import { logger } from '@/shared/logger';

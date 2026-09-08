@@ -9,9 +9,9 @@ import { useEffect, useMemo, useState } from 'react';
 import type { ReactNode } from 'react';
 import { AlertTriangle, CheckCircle, Globe, Terminal, XCircle } from 'lucide-react';
 
-import type { AppBackend } from '../../backend';
-import type { McpMarketServerView, McpMountOutcome } from '../../../shared/backend/backendAdapter';
-import { RISK_LABELS } from '../../types';
+import type { AppBackend } from '@/app/backend';
+import type { McpMarketServerView, McpMountOutcome } from '@/shared/backend/backendAdapter';
+import { RISK_LABELS } from '@/app/types';
 
 const TRANSPORT_ICONS: Record<string, ReactNode> = {
   http: <Globe size={13} strokeWidth={1.5} className="ink-text-faint" aria-hidden />,

@@ -890,6 +890,19 @@
       }
     },
     {
+      "id": "mcp_market",
+      "kind": "ui_feature",
+      "capability": "host_tool",
+      "package": "@ink-ts/plugin-mcp-market",
+      "dir": "ui_features/mcp_market",
+      "faces": {
+        "ui": {
+          "target": "web",
+          "entry": "./faces/ui/index.tsx"
+        }
+      }
+    },
+    {
       "id": "mechanism_view",
       "kind": "ui_feature",
       "capability": "host_tool",
@@ -1092,6 +1105,19 @@
       }
     },
     {
+      "id": "tools_panel",
+      "kind": "ui_feature",
+      "capability": "host_tool",
+      "package": "@ink-ts/plugin-tools-panel",
+      "dir": "ui_features/tools_panel",
+      "faces": {
+        "ui": {
+          "target": "web",
+          "entry": "./faces/ui/index.tsx"
+        }
+      }
+    },
+    {
       "id": "top_bar",
       "kind": "ui_feature",
       "capability": "host_tool",
@@ -1110,6 +1136,32 @@
       "capability": "host_tool",
       "package": "@ink-ts/plugin-trajectory-view",
       "dir": "ui_features/trajectory_view",
+      "faces": {
+        "ui": {
+          "target": "web",
+          "entry": "./faces/ui/index.tsx"
+        }
+      }
+    },
+    {
+      "id": "ui_editor_host",
+      "kind": "ui_feature",
+      "capability": "host_tool",
+      "package": "@ink-ts/plugin-ui-editor-host",
+      "dir": "ui_features/ui_editor_host",
+      "faces": {
+        "ui": {
+          "target": "web",
+          "entry": "./faces/ui/index.tsx"
+        }
+      }
+    },
+    {
+      "id": "workspace_auth",
+      "kind": "ui_feature",
+      "capability": "host_tool",
+      "package": "@ink-ts/plugin-workspace-auth",
+      "dir": "ui_features/workspace_auth",
       "faces": {
         "ui": {
           "target": "web",
@@ -3522,6 +3574,42 @@
         "label": "架构",
         "order": 6,
         "icon": "network",
+        "entry": "./faces/ui/index.tsx"
+      },
+      {
+        "id": "mcp_market",
+        "type": "mcp_market",
+        "key": "mcp_market",
+        "label": "MCP 市场",
+        "order": 10,
+        "icon": "server",
+        "entry": "./faces/ui/index.tsx"
+      },
+      {
+        "id": "tools_panel",
+        "type": "tools_panel",
+        "key": "tools_panel",
+        "label": "工具",
+        "order": 20,
+        "icon": "wrench",
+        "entry": "./faces/ui/index.tsx"
+      },
+      {
+        "id": "workspace_auth",
+        "type": "workspace_auth",
+        "key": "workspace_auth",
+        "label": "工作区授权",
+        "order": 40,
+        "icon": "shield",
+        "entry": "./faces/ui/index.tsx"
+      },
+      {
+        "id": "ui_editor_host",
+        "type": "ui_editor_host",
+        "key": "ui_editor",
+        "label": "界面编辑器",
+        "order": 50,
+        "icon": "pencil_ruler",
         "entry": "./faces/ui/index.tsx"
       },
       {

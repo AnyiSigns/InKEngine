@@ -7,7 +7,6 @@
  *  3. 会话层（backend + channelHub + sessionStore）→ App 渲染。
  */
 
-import { createElement, type ComponentType } from 'react';
 import { createRoot } from 'react-dom/client';
 import { ChannelHub } from '@/shared/session/channelHub';
 import { MemorySessionStore } from '@/shared/session/sessionStore';
@@ -23,12 +22,9 @@ import { registerBuiltinComponents } from '@/components';
 import { registerProductComponents } from './rendererAdapters';
 import { registerPluginFaces } from './pluginFaces.generated';
 import { createIngester, toHubEvent, setStreaming, finalizeThreadStreaming, setThreadRoundActive } from '@/shared/session/eventIngest';
-import { registerComponent, type PlainComponent } from '@/renderer/componentRegistry';
 import { AppBackend } from './backend';
 import { registerSettingsSections } from './settings/activate';
-import { registerSettingsSection } from './settings/registry';
-import { activate as activateWave4, viewRegistrations } from './views/wave4activate';
-import { normalizeWave4Sections } from './wiring/normalizeWave4';
+import { registerEventRenderers } from './renderers/eventRenderers';
 import App from '../App';
 
 export function activate(): void {
@@ -51,26 +47,8 @@ export function activate(): void {
   void appBackend.syncUiComponentGate();
 
   registerSettingsSections();
-
-  const wave4 = activateWave4(appBackend);
-  for (const section of normalizeWave4Sections(wave4.sections)) {
-    registerSettingsSection(section);
-  }
-
-  // 视图组件经 DynamicComponent 渲染时注入 AppBackend（白名单键原样保留，
-  // 同名覆盖：装配层闭包提供 backend，组件未声明 backend 的忽略该额外属性）。
-  // 已注册组件清单视图自取 components_manifest 并刷新 artifactLoader 注册。
-  for (const [key, Comp] of Object.entries(viewRegistrations)) {
-    const C = Comp as unknown as ComponentType<Record<string, unknown>>;
-    const extraProps: Record<string, unknown> = { backend: appBackend };
-    registerComponent(
-      key,
-      ((props: Record<string, unknown> = {}) => createElement(C, { ...props, ...extraProps })) as PlainComponent,
-    );
-  }
-
-  // 知识集面板 = settings_knowledge 真 ui 面插件（pluginFaces 注册），
-  // 不再单独注册 knowledge_panel 白名单键。
+  // agent 产物事件渲染器（artifact 逃生口共享面；原 wave4activate 内注册）
+  registerEventRenderers();
 
   const hub = new ChannelHub({});
   const fixtureStore = new MemorySessionStore([]);

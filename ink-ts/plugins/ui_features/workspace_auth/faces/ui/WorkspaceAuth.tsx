@@ -12,7 +12,7 @@
 import { useState, useCallback, useEffect, useRef } from 'react';
 import { FolderOpen, CheckCircle, XCircle, Shield, List, Plus } from 'lucide-react';
 
-import type { AppBackend } from '../../backend';
+import type { AppBackend } from '@/app/backend';
 import { Button } from '@/shared/ui/Button';
 import { Feedback } from '@/components/floaters/feedback';
 import type { FeedbackPhase } from '@/components/floaters/feedback';

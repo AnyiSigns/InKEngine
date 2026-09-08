@@ -1,72 +1,53 @@
-import { describe, it, expect, beforeEach, vi } from 'vitest';
+import { describe, it, expect, beforeEach } from 'vitest';
 
-import { activate, viewRegistrations } from '@/app/views/wave4activate';
-import { createAppBackend } from '@/app/backend';
+import { registerSettingsSections } from '@/app/settings/activate';
+import { listSettingsSections, resetSettingsRegistry } from '@/app/settings/registry';
 
-describe('activate (W4/W5)', () => {
+describe('settings 段注册（阶段 7b：wave4 面板扁平为独立段，面板插件真面化）', () => {
   beforeEach(() => {
-    vi.restoreAllMocks();
+    resetSettingsRegistry();
+    registerSettingsSections();
   });
 
-  it('activate 返回 settings sections', () => {
-    const backend = createAppBackend({ backend: { available: false } as never });
-    const { sections } = activate(backend);
-
-    expect(sections.length).toBe(4);
-    expect(sections.map((s) => s.key)).toEqual(['markets', 'tools', 'workspace', 'ui_editor']);
+  it('全量段含布局内核 9 节 + wave4 4 面板，共 13 段', () => {
+    const sections = listSettingsSections();
+    const keys = sections.map((s) => s.key);
+    expect(keys).toEqual([
+      'general',
+      'model',
+      'connect',
+      'knowledge_set',
+      'architecture',
+      'mcp_market',
+      'tools_panel',
+      'workspace_auth',
+      'ui_editor',
+      'memory',
+      'insights',
+      'audit_recovery',
+      'backup',
+    ]);
   });
 
-  it('settings sections 按顺序排列', () => {
-    const backend = createAppBackend({ backend: { available: false } as never });
-    const { sections } = activate(backend);
-
+  it('settings sections 按 order 升序', () => {
+    const sections = listSettingsSections();
     const orders = sections.map((s) => s.order);
     expect(orders).toEqual([...orders].sort((a, b) => a - b));
   });
 
-  it('market section 只含 MCP 市场', () => {
-    const backend = createAppBackend({ backend: { available: false } as never });
-    const { sections } = activate(backend);
-
-    const marketSection = sections.find((s) => s.key === 'markets');
-    expect(marketSection).toBeTruthy();
-    const keys = marketSection!.items!.map((i) => i.key);
-    expect(keys).toEqual(['mcp_market']);
+  it('每段都带 render（DynamicComponent/直渲），无 items 残留', () => {
+    const sections = listSettingsSections();
+    for (const section of sections) {
+      expect(typeof section.render).toBe('function');
+    }
   });
 
-  it('tools section 包含工具面板', () => {
-    const backend = createAppBackend({ backend: { available: false } as never });
-    const { sections } = activate(backend);
-
-    const toolsSection = sections.find((s) => s.key === 'tools');
-    expect(toolsSection).toBeTruthy();
-    expect(toolsSection!.items![0].key).toBe('tools_panel');
-  });
-
-  it('workspace section 包含授权目录', () => {
-    const backend = createAppBackend({ backend: { available: false } as never });
-    const { sections } = activate(backend);
-
-    const wsSection = sections.find((s) => s.key === 'workspace');
-    expect(wsSection).toBeTruthy();
-    const keys = wsSection!.items!.map((i) => i.key);
-    expect(keys).toContain('workspace_auth');
-  });
-
-  it('ui_editor section 标注界面描述开发模式（ui_spec 命令面待 W2）', () => {
-    const backend = createAppBackend({ backend: { available: false } as never });
-    const { sections } = activate(backend);
-
-    const uiSection = sections.find((s) => s.key === 'ui_editor');
-    expect(uiSection).toBeTruthy();
-    expect(uiSection!.items![0].key).toBe('ui_editor_host');
-    expect(uiSection!.items![0].disabledReason).toContain('界面描述开发模式');
-  });
-
-  it('viewRegistrations 导出所有视图组件', () => {
-    expect(viewRegistrations.mcp_market).toBeTruthy();
-    expect(viewRegistrations.tools_panel).toBeTruthy();
-    expect(viewRegistrations.workspace_auth).toBeTruthy();
-    expect(viewRegistrations.ui_editor_host).toBeTruthy();
+  it('wave4 四面板独立成段（key 即插件段引用）', () => {
+    const sections = listSettingsSections();
+    const wave4 = sections.filter((s) =>
+      ['mcp_market', 'tools_panel', 'workspace_auth', 'ui_editor'].includes(s.key),
+    );
+    expect(wave4.map((s) => s.key)).toEqual(['mcp_market', 'tools_panel', 'workspace_auth', 'ui_editor']);
+    expect(wave4.map((s) => s.order)).toEqual([10, 20, 40, 50]);
   });
 });

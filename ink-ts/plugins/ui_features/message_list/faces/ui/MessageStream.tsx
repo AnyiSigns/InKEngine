@@ -109,7 +109,6 @@ export function MessageStream({
           <div key={entry.id} className="ink-feed">
             <MessageItem
               entry={entry}
-              streaming={streaming}
               onExpand={(title, content) => {
                 setDrawerTitle(title);
                 setDrawerContent(content);
@@ -143,12 +142,10 @@ export function MessageStream({
 /** 单条消息渲染分发（InkMessage 全 kind）。 */
 function MessageItem({
   entry,
-  streaming,
   onExpand,
   onOpenPanel,
 }: {
   entry: InkMessage;
-  streaming?: boolean;
   onExpand: (title: string, content: string) => void;
   onOpenPanel: () => void;
 }) {
@@ -157,9 +154,9 @@ function MessageItem({
     case 'text':
       if (entry.role === 'user') return <UserBubble content={entry.content} />;
       if (entry.role === 'system') return <SystemLine content={entry.content} />;
-      return <AssistantText content={entry.content} streaming={streaming} name={entry.name} />;
+      return <AssistantText content={entry.content} name={entry.name} />;
     case 'streaming':
-      return <AssistantText content={entry.content} streaming name={entry.name} />;
+      return <AssistantText content={entry.content} name={entry.name} />;
     case 'thinking':
       return <ThinkingCard entry={entry} />;
     case 'plan': {
@@ -375,11 +372,9 @@ function UserBubble({ content }: { content: string }) {
 
 function AssistantText({
   content,
-  streaming,
   name,
 }: {
   content: string;
-  streaming?: boolean;
   /** 发言人身份（协作者 label；主 agent 缺省无标签）。 */
   name?: string;
 }) {
@@ -392,7 +387,6 @@ function AssistantText({
       ) : null}
       <div className="ink-markdown text-[15px] leading-relaxed">
         {content}
-        {streaming && <span className="ink-caret-muted" />}
       </div>
     </div>
   );
@@ -413,7 +407,6 @@ function ThinkingCard({ entry }: { entry: Extract<InkMessage, { kind: 'thinking'
       {open && entry.content && (
         <div className="mt-2 ink-status-bubble rounded-lg p-3 text-[12px] leading-relaxed">
           {entry.content}
-          {running && <span className="ink-caret-muted" />}
         </div>
       )}
     </div>

@@ -63,8 +63,9 @@ plugins，生成物 ui.generated.json 取代 seed_data/ui_spec.json）；阶段 
 真 ui 面全量真身化：web 前端包更名 renderer/ 后阶段 2 再收敛——产品壳（App/
 activate/state/chrome 与插件注册生成物）独立成 `hosts/web/`（@ink-ts/web），
 renderer/ 为纯显示设备库（@ink-ts/renderer），ui_features 域扩至 38 插件
-（canonical 布局叶子/设置面板/设置浮层真 ui 面 26，faces/ui 同住实现与测试，
-renderer 适配层整体退役）；其余 kind 目录随对应阶段落位。
+（canonical 布局叶子/设置面板/设置浮层真 ui 面 26；ledger_view 随 records/
+ledger 移除后现 36 插件 = 25 真 ui 面（12 叶子 + 13 面板），faces/ui 同住
+实现与测试，renderer 适配层整体退役）；其余 kind 目录随对应阶段落位。
 
 ## spec.json 契约（真源声明）
 
@@ -146,8 +147,9 @@ renderer 适配层整体退役）；其余 kind 目录随对应阶段落位。
 - per-plugin AGENTS 政策（细则见 docs/subsystems/plugins.md）：**data-only 声明
   插件（tools/mcp/commands 与无真面 ui 容器）不设 AGENTS.md**——以 spec.json
   为行为唯一事实源，防行为文案第二份漂移；**真面/样板插件必配**——host logic
-  face（doc_parse）与真 ui 面插件 26（canonical 布局叶子 + 设置面板 + 设置
-  浮层）2026-09-08 全量补建，只写意图/边界/数据从哪进，不重复 spec 声明字段；
+  face（doc_parse）与真 ui 面插件 25（canonical 布局叶子 12 + 设置面板 13，
+  含设置浮层）2026-09-08 全量补建，只写意图/边界/数据从哪进，不重复 spec
+  声明字段；
   manifest.json / commands.generated.ts / ui.generated.json /
   ui_canonical.generated.ts / hosts/lib/src/exec/native.generated.ts /
   hosts/web/src/app/pluginFaces.generated.ts /

@@ -60,8 +60,9 @@ plugins/
   **必配** `AGENTS.md`，随 spec.json 同目录；内容只写「意图/边界/数据从哪进/
   能碰什么端口」，不重复 spec.json 的声明字段。
 - 现行覆盖（2026-09-08 全量补建）：`tools/doc_parse`（host logic face 样板）、
-  `ui_features/` 全部 26 个真 ui 面插件（canonical 布局叶子 13 + 设置面板 13，
-  含 file_tree / settings_general 样板与 settings_floater 浮层壳）；data-only
+  `ui_features/` 全部 25 个真 ui 面插件（canonical 布局叶子 12 + 设置面板 13，
+  含 file_tree / settings_general 样板与 settings_floater 浮层壳；ledger_view
+  已随 records/ledger 移除，故叶子由 13→12）；data-only
   commands/tools/mcp 与无真面 ui 容器免写（spec.json 即权威）。
 - 真面许可：capability=external_tool、`REAL_FACE_BUILTINS` 白名单（doc_parse）
   与 ui_feature 组件节点 isUiComponent（canonical 叶子/设置面板/浮层）——

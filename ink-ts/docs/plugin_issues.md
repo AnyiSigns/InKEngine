@@ -170,7 +170,9 @@
   兜底）——**已被 #27/9b-3 推翻**（2026-09-08）：面板 spec faces.ui.access
   声明接入，壳按声明切片注入共享实例，自建单例收口；
 - ui_features 计数 38 = 装配/容器 12 + 真 ui 面 26（13 布局叶子 + 13 settings
-  面板）；ui 面/设置段增删同步 pluginFaces.generated.ts 与
+  面板；ledger_view 随 records/ledger 移除（9b-1b）后现 36 = 装配/容器 11 +
+  真 ui 面 25（12 叶子 + 13 面板））；ui 面/设置段增删同步
+  pluginFaces.generated.ts 与
   settingsSections.generated.ts 重生成（verify:plugin-manifest 七产物逐字比对）。
   **（2026-09-08 阶段 7b 已完成并提交：26 真 ui 面全量真身化 + renderer 适配层/
   settings 原生框架退役 + 第 6/7 派生产物接线，renderer/plugins vitest +

@@ -282,8 +282,9 @@ host.spec（能力插件 kind='host'；faces 用专用 HostFaces，不走通用 
 | 7a | 物理单目录（路径 1：条件导出）+ 测试随插件同住（修订 CODING.md §2.7） | 单目录插件 | 构建按 target 切 + 卸载一致 |
 | 7b | 渲染器退化为显示设备（形态 A：ui face 渲染意图化） | 通用渲染器 + ui.json | 端到端渲染 + 卸载一致 |
 | 8 | 系统化收口（每层 verify + checklist + 决策留痕） | 全层执法 | ✅ 2026-09-08 收口（root npm test 全链绿 + CI ink-ts job 同链，见 §九） |
+| 9 | 真 ui 面插件自包含（9a 私有样式 CSS Modules + 9b 数据接入契约 store/inject 声明式） | 外来 UI 插件 = 自带组件 + CSS + 声明接入 | 9a ✅ 2026-09-08；9b 契约冻结（见 §九「阶段 9」），分片实现待续 |
 
-依赖顺序：0 → 1 → 2 → 3 → 4 → 5 → 6 → 7a → 7b → 8；每阶段独立提交、独立可回退（7a 只动目录拓扑与测试迁移，7b 才换渲染范式——分两步，避免一次动目录 + 渲染 + 测试三件事不可回退）。
+依赖顺序：0 → 1 → 2 → 3 → 4 → 5 → 6 → 7a → 7b → 8 → 9（9a → 9b-1 → 9b-2 → 9b-3）；每阶段独立提交、独立可回退（7a 只动目录拓扑与测试迁移，7b 才换渲染范式——分两步，避免一次动目录 + 渲染 + 测试三件事不可回退）。
 
 取舍注（阶段 2→3）：阶段 2 先在 host 内做命令声明表（验证「声明即挂载」样板、风险最低），阶段 3 再把声明源迁入统一 `plugins/`——一次验证机制、一次搬数据源，避免一次改动同时动「挂载机制」与「数据源拓扑」两件事；若评估后认为统一源优先，可交换 2/3 顺序。
 
@@ -314,7 +315,11 @@ host.spec（能力插件 kind='host'；faces 用专用 HostFaces，不走通用 
 > 派生视图 pluginFaces.generated.ts / settingsSections.generated.ts 接线）
 > 已落地（2026-09-08）；
 > 阶段 8 系统化收口（宿主仓目录收敛 Step1 + renderer 职责分层 Step2 + 分层权威
-> 文档 Step3 + 系统化 checklist）已落地（2026-09-08，逐阶段见下）。
+> 文档 Step3 + 系统化 checklist）已落地（2026-09-08，逐阶段见下）；
+> 阶段 9a（真 ui 面插件私有样式：CSS Modules 能力 + settings_architecture 试点，
+> 全局 w3.css 裸引退役）已落地（2026-09-08，见下「阶段 9」节）；
+> 阶段 9b（真 ui 面数据接入契约：store/inject 声明式接入）契约已冻结
+> （2026-09-08，见下「阶段 9」节，分片实现待续）。
 
 ### 阶段 0–7b 落地状态（逐阶段回填）
 
@@ -380,6 +385,28 @@ host.spec（能力插件 kind='host'；faces 用专用 HostFaces，不走通用 
 | 真 ui 面渲染器注册（产品 UI 真身化） | 渲染器组件注册名 = 插件 id，白名单放行面即派生视图 pluginFaces.generated.ts（静态 import 各 faces/ui 默认导出）；canonical 布局叶子/设置面板/浮层均按 spec faces.ui 声明随插件同住，无 renderer 适配器；设置浮层读派生清单 settingsSections.generated.ts（真源 = data.settings_section）渲染导航，内容 DynamicComponent name=插件 id；ui 可达性 = 容器 $ref ∪ settings 派生清单，无孤儿无豁免 | ✅ 阶段 7b：rendererAdapters 与 settings 手写注册框架退役，设置 13 面板全部真面化 |
 | 分层权威文档（docs/subsystems + 层 AGENTS + per-plugin AGENTS） | `docs/subsystems/{engine,plugins,renderer,host,exec}.md` 五份（定位/目录/依赖纪律/边界/验证）+ `engine/AGENTS.md`、`renderer/AGENTS.md`、`hosts/AGENTS.md` 层契约 + per-plugin AGENTS 政策（data-only 免写；真面/样板必配，26 真 ui 面 + doc_parse 全量补建） | ✅ Step 3 + 收口（2026-09-08）：改哪层先读哪层的权威文档成立 |
 | 系统化收口（checklist + verify + 决策留痕） | `docs/checklist.md`（加插件/加包填空模板 + 检查阶梯 + 文案/token 有源 + 覆盖纪律 + 提交前一键）；verify 链（contracts/mechanisms/bridge-mount/plugin-manifest/unload/host-spec）+ gate 真实扫描 + root `npm test` 全链 = CI ink-ts job 同链；决策留痕 = `docs/plugin_issues.md` #N 行随变更提交 | ✅ 阶段 8 收口（2026-09-08）：全量 CI 红绿 |
+
+### 阶段 9a 落地 + 阶段 9b 契约冻结（真 ui 面插件私有样式 / 数据接入契约）
+
+> 阶段 9 拆两子步：9a（插件私有样式，纯展示面增量，已落地）；9b（faces/ui
+> 数据接入契约 = store/inject 声明式接入，**契约本日冻结，分片实现待续**）。
+> 决策留痕：#25（9a）/ #26（9b）。
+
+| 项 | 范围与语义 | 落点 | 状态 |
+|---|---|---|---|
+| 9a | 真 ui 面 faces/ui 可随插件同住 `*.module.css`（CSS Modules 构建期作用域哈希隔离，class 名不逃逸、插件互不污染）；共享 token/语义类仍经 index.css/themeTokens/designTokens 供应，禁硬编码颜色、禁裸引跨包全局样式表 | settings_architecture 试点：全局 w3.css 退役（插件本地 architecture.module.css + 壳 EmptyState 自带 EmptyState.module.css）；纪律入 plugins/AGENTS + per-plugin AGENTS | ✅ 2026-09-08（决策 #25） |
+| 9b | **数据接入契约显式化**（对齐「外来插件 = 自带组件 + CSS + 声明接入」的生态门槛）：真 ui 面目前三条隐式/自建通路（canonical 叶子吃全量 `props.product` chrome Record、设置面板各自 `createBackend/createAppBackend/createLiveArchitectureBackend`、个别视图直连 transport/读壳全局单例）收敛为**声明式 store/inject 接入**——spec 声明接入面，宿主按声明切片注入，无隐式全量注入、无面板自建后端。**保留不动**：spec 布局树直渲（ui.generated.json）、DynamicComponent 挂载、bind 通道、三层白名单（组件/绑定/token）——只改「faces/ui 拿数据的入口」，不改渲染模型 | spec schema + 生成器派生注册 + hosts/web 壳装配层按声明切片注入 + 26 真 ui 面适配器改造（canonical 叶子 + settings 面板）+ 渲染器 DynamicComponent 注入面收敛 | ⏳ 契约冻结（本步）；分片实现待续 |
+| 9b | 契约载体 = **spec 声明 + 词表**（真源单一份）：ui_feature spec 增声明接入面（store 读面/数据 + inject 动作/宿主回调），名称一律从词表取，禁自由命名；生成器把声明带入派生视图，verify 校验声明命中词表 + 面板/叶子形态合法 | spec JSON 形状（生成器守）+ manifest plugins[] 行携带 + 词表单一真源（宿主 chrome 动作名 + BackendAdapter 方法面） | ⏳ 冻结定稿，实现随 9b 分片 |
+| 9b | 注入实现位 = **壳装配层切片**（hosts/web 产品壳，非 renderer）：壳把全量 product chrome + 共享 backend 按每插件声明切成只含声明面的 typed props 交给 faces/ui 默认导出；渲染器 DynamicComponent 不感知插件契约（保持通用挂载 + bind/白名单） | hosts/web shell 装配（App/activate/productView）+ 生成物注册表携带声明 | ⏳ 冻结定稿，实现随 9b 分片 |
+| 9b | **设置面板统一宿主注入**（推翻 #22 定案 ⑤「面板数据源 = 插件自建共享 AppBackend 单例、不经宿主注入面」）：13 面板与 canonical 叶子同走声明式切片注入，不再各自自建后端实例 | settings_floater DynamicComponent 注入面 + 13 面板 faces/ui 改造 | ⏳ 冻结定稿，实现随 9b 分片 |
+| 9b | 外来插件语义：第三方面接法 = 自带 faces/ui + `*.module.css`（9a）+ spec 声明接入面，经布局 $ref / settings 派生清单挂载；装载 seam 仍走既有 external_tool 通道（本契约不新增运行期装载机制） | PLUGINS.md 真 ui 面语义 + verify_unload 真面许可扩展 | ⏳ 冻结定稿，实现随 9b 分片 |
+
+**9b 分片计划（每片独立提交、可验证、可回退）：**
+1. **9b-1 契约落真源**：ui_feature spec 接入声明 JSON 形状 + 词表单一真源（壳 chrome 动作 + backend 方法面清单）+ 生成器携带 + verify 词表命中/形状校验；
+2. **9b-2 壳装配层切片注入机制**：hosts/web 把 chrome + backend 按声明切片注入 DynamicComponent；canonical 叶子适配器逐个迁为声明消费（不再读全量 product）；
+3. **9b-3 设置面板统一注入**：推翻 #22⑤ 自建单例，13 面板迁声明接入（settings_floater 按声明传注入面）；纪律文档（per-plugin AGENTS / PLUGINS.md / checklist / CODING §10）随片同步。
+
+依赖：9a（CSS）已完成且独立；9b-1 → 9b-2 → 9b-3 顺序推进。外来插件 UI 面 = 9a（样式）+ 9b（接入）齐备后具备声明自包含形态；运行期装载/热更新 seam 不在本契约（external_tool 通道既有 loader 承接）。
 
 # ink-ts 插件即数据 · 终局形态参考模拟
 

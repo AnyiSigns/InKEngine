@@ -62,6 +62,7 @@ const COMMANDS_GENERATED = join(PLUGINS_ROOT, '..', 'host', 'src', 'bridge', 'co
 const UI_GENERATED = join(PLUGINS_ROOT, 'ui.generated.json');
 const UI_CANONICAL_GENERATED = join(PLUGINS_ROOT, '..', 'host', 'src', 'bridge', 'ui_canonical.generated.ts');
 const NATIVE_GENERATED = join(PLUGINS_ROOT, '..', 'host', 'src', 'exec', 'native.generated.ts');
+const PLUGIN_FACES_GENERATED = join(PLUGINS_ROOT, '..', 'renderer', 'src', 'app', 'pluginFaces.generated.ts');
 
 /**
  * 命令实现域映射表（group → const/type 名）；顺序 = BRIDGE_METHODS 跨域序
@@ -134,6 +135,14 @@ const NATIVE_HEADER =
   ' * 生成文件勿手改：原生执行件端点声明派生视图（真源 = plugins/endpoints/<id>/spec.json\n' +
   ' * 的 data.native：二进制文件名 file + env 覆盖键）。由 plugins/scripts/sync_plugin_manifest.mjs\n' +
   ' * 生成；host/src/exec/binary.ts 据此按声明定位；verify:plugin-manifest 强制逐字一致。\n' +
+  ' */\n';
+
+const PLUGIN_FACES_HEADER =
+  '/**\n' +
+  ' * 生成文件勿手改：渲染器插件 ui 面注册派生视图（真源 = plugins/ui_features/<id>/spec.json\n' +
+  ' * 的 faces.ui + data.node（kind=component））。由 plugins/scripts/sync_plugin_manifest.mjs\n' +
+  ' * 生成（按插件 id 升序静态 import 各真 ui 面 entry + registerComponent 白名单注册）；\n' +
+  ' * renderer 装配期经 registerPluginFaces() 调用；verify:plugin-manifest 强制逐字一致。\n' +
   ' */\n';
 
 async function fail(message) {
@@ -396,6 +405,7 @@ async function derive() {
   const uiByName = new Map(uiFeatures.map((f) => [f.id, f]));
   const uiReached = new Set();
   const uiComponents = [];
+  const uiFaces = [];
   async function expandUi(ref, stack) {
     if (stack.includes(ref)) {
       await fail(`ui 引用成环: ${[...stack, ref].join(' -> ')}`);
@@ -428,7 +438,15 @@ async function derive() {
       await fail(`ui 组件插件 ${ref} 不得带 data.children（组件为叶子）`);
     }
     uiReached.add(ref);
-    if (node.kind === 'component') uiComponents.push(node.type);
+    if (node.kind === 'component') {
+      uiComponents.push(node.type);
+      const facesUi = typeof feat.spec.faces === 'object' && feat.spec.faces !== null
+        ? feat.spec.faces.ui
+        : undefined;
+      if (typeof facesUi === 'object' && facesUi !== null && typeof facesUi.entry === 'string') {
+        uiFaces.push({ id: ref, type: node.type, entry: facesUi.entry });
+      }
+    }
     return next;
   }
   const uiRoot = await expandUi(uiEntry.spec.data.root.$ref, []);
@@ -469,6 +487,7 @@ async function derive() {
       components: uiCanonical,
     },
     ui_layout: uiLayout,
+    ui_faces: uiFaces,
     native: nativeDecls,
   };
 }
@@ -575,6 +594,51 @@ function renderNativeTs(nativeDecls) {
   return lines.join('\n');
 }
 
+/** 渲染渲染器插件 ui 面注册派生 TS（真源 = plugins/ui_features/<id>/spec.json 的
+ *  faces.ui + data.node（kind=component）；装配期 registerPluginFaces() 把每个真
+ *  ui 面插件的默认导出注册进 componentRegistry 白名单（名 = 插件 id，canonical
+ *  叶子 id = data.node.type）。entry 相对插件目录，禁逃逸由 verify:unload 强制；
+ *  本文件按 id 升序静态 import（构建期把插件 ui 实现编入渲染器产物）。 */
+function renderPluginFacesTs(uiFaces) {
+  const lines = [PLUGIN_FACES_HEADER];
+  if (uiFaces.length > 0) {
+    lines.push(`import type { PlainComponent } from '../renderer/componentRegistry';`);
+    lines.push(`import { registerComponent } from '../renderer/componentRegistry';`);
+    lines.push('');
+    lines.push(`export interface UiFaceEntry {`);
+    lines.push(`  id: string;`);
+    lines.push(`  type: string;`);
+    lines.push(`  entry: string;`);
+    lines.push(`}`);
+    lines.push('');
+    lines.push('export const PLUGIN_UI_FACES: UiFaceEntry[] = [');
+    for (const f of uiFaces) {
+      lines.push(`  { id: '${f.id}', type: '${f.type}', entry: '../../../plugins/ui_features/${f.id}/${f.entry.replace(/^\.\//, '')}' },`);
+    }
+    lines.push('] as const;');
+    lines.push('');
+    lines.push('/** 装配期调用：把各真 ui 面插件的默认导出注册进渲染器白名单。 */');
+    lines.push('export function registerPluginFaces(): void {');
+    for (const f of uiFaces) {
+      const alias = `${f.id.replace(/[.-]/g, '_')}Default`;
+      lines.push(`  registerComponent('${f.id}', (${alias} as unknown) as PlainComponent);`);
+    }
+    lines.push('}');
+    lines.push('');
+    for (const f of uiFaces) {
+      const alias = `${f.id.replace(/[.-]/g, '_')}Default`;
+      const rel = `../../../plugins/ui_features/${f.id}/${f.entry.replace(/^\.\//, '')}`;
+      lines.push(`import ${alias} from '${rel}';`);
+    }
+  } else {
+    lines.push('/** 当前无声明 faces.ui 的真 ui 面插件；随 7b 迁移逐个补入。 */');
+    lines.push('export function registerPluginFaces(): void {');
+    lines.push('  // 空：无真 ui 面插件');
+    lines.push('}');
+  }
+  return lines.join('\n') + '\n';
+}
+
 async function fileExists(path) {
   try {
     await readFile(path);
@@ -606,6 +670,7 @@ async function main() {
   const uiRendered = renderUiLayout(data.ui_layout);
   const uiCanonicalRendered = renderUiCanonicalTs(data.ui_features.components);
   const nativeRendered = renderNativeTs(data.native);
+  const pluginFacesRendered = renderPluginFacesTs(data.ui_faces);
 
   if (check) {
     const okManifest = await compareFile(MANIFEST, manifestRendered, 'manifest', 'sync_plugin_manifest.mjs');
@@ -628,7 +693,13 @@ async function main() {
       'native.generated.ts',
       'sync_plugin_manifest.mjs',
     );
-    if (!okManifest || !okCommands || !okUi || !okUiCanonical || !okNative) process.exitCode = 1;
+    const okPluginFaces = await compareFile(
+      PLUGIN_FACES_GENERATED,
+      pluginFacesRendered,
+      'pluginFaces.generated.ts',
+      'sync_plugin_manifest.mjs',
+    );
+    if (!okManifest || !okCommands || !okUi || !okUiCanonical || !okNative || !okPluginFaces) process.exitCode = 1;
     return;
   }
 
@@ -640,13 +711,15 @@ async function main() {
   await writeFile(UI_CANONICAL_GENERATED, uiCanonicalRendered, 'utf8');
   await mkdir(dirname(NATIVE_GENERATED), { recursive: true });
   await writeFile(NATIVE_GENERATED, nativeRendered, 'utf8');
+  await mkdir(dirname(PLUGIN_FACES_GENERATED), { recursive: true });
+  await writeFile(PLUGIN_FACES_GENERATED, pluginFacesRendered, 'utf8');
   console.log(
     `已生成 manifest.json + commands.generated.ts + ui.generated.json + ` +
-      `ui_canonical.generated.ts + native.generated.ts（${data.plugins.length} 插件：` +
+      `ui_canonical.generated.ts + native.generated.ts + pluginFaces.generated.ts（${data.plugins.length} 插件：` +
       `${data.tools.length} tools + ${data.mcp_market.servers.length} mcp + ` +
       `${data.commands.length} commands + ` +
       `${data.plugins.filter((p) => p.kind === 'ui_feature').length} ui_features + ` +
-      `${data.native.length} endpoints，真源 plugins/）`,
+      `${data.native.length} endpoints + ${data.ui_faces.length} 真 ui 面，真源 plugins/）`,
   );
 }
 

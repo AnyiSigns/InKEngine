@@ -905,7 +905,13 @@
       "kind": "ui_feature",
       "capability": "host_tool",
       "package": "@ink-ts/plugin-task-capsule",
-      "dir": "ui_features/task_capsule"
+      "dir": "ui_features/task_capsule",
+      "faces": {
+        "ui": {
+          "target": "web",
+          "entry": "./faces/ui/index.tsx"
+        }
+      }
     },
     {
       "id": "todo_view",

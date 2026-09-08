@@ -21,6 +21,7 @@ import {
 } from '@/shared/backend/transport';
 import { registerBuiltinComponents } from '@/components';
 import { registerProductComponents } from './rendererAdapters';
+import { registerPluginFaces } from './pluginFaces.generated';
 import { createIngester, toHubEvent, setStreaming, finalizeThreadStreaming, setThreadRoundActive } from '@/shared/session/eventIngest';
 import { registerComponent, type PlainComponent } from '@/renderer/componentRegistry';
 import { AppBackend } from './backend';
@@ -38,6 +39,9 @@ export function activate(): void {
 
   // 出厂基线组件注册（渲染器白名单基线；wave4 视图/产物清单按同名覆盖接管）
   registerBuiltinComponents();
+  // 真 ui 面插件注册（派生视图 pluginFaces.generated.ts：按 spec faces.ui 声明
+  // 静态 import 各插件 faces/ui 默认导出 → registerComponent；阶段 7b 迁移随迁）
+  registerPluginFaces();
   // 产品 canonical 适配器注册（spec 主壳直渲映射：binding/宿主数据 → 产品组件）
   registerProductComponents();
 

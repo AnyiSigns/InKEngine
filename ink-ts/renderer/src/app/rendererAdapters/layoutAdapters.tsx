@@ -12,7 +12,6 @@ import { TopBar } from '@/app/shell/TopBar';
 import { LeftRail } from '@/app/shell/LeftRail';
 import { RightRail } from '@/app/shell/RightRail';
 import { SettingsFloater } from '@/app/settings/settings_floater';
-import { TaskCapsule } from '@/app/tasks/TaskCapsule';
 import { ReviewCard, type ReviewResolution } from '@/components/review_card';
 import type { ProductShellChrome } from '@/app/shell/productView';
 
@@ -98,17 +97,9 @@ const SessionListAdapter: ComponentType<Record<string, unknown>> = (props: Recor
   );
 };
 
-/** task_capsule：长任务期胶囊（任务在途才渲染；宿主 product.task）。 */
-const TaskCapsuleAdapter: ComponentType<Record<string, unknown>> = (props: Record<string, unknown>) => {
-  const product = productOf(props);
-  const task = product.task;
-  if (!task) return null;
-  return (
-    <div className="mx-auto w-full max-w-3xl px-4 pb-2">
-      <TaskCapsule task={task} onCancel={product.onAbort ?? noop} onOpen={product.onOpenSettings ?? noop} />
-    </div>
-  );
-};
+/** task_capsule：长任务期胶囊（任务在途才渲染；宿主 product.task）——真面已随
+ *  插件 plugins/ui_features/task_capsule/faces/ui 同住（pluginFaces 注册），
+ *  此适配器删除（阶段 7b）。 */
 
 /** review_card：审批卡覆盖层（events.review_card 绑定；决议续跑经宿主）。 */
 const ReviewCardAdapter: ComponentType<Record<string, unknown>> = (props: Record<string, unknown>) => {
@@ -137,12 +128,12 @@ const SettingsFloaterAdapter: ComponentType<Record<string, unknown>> = (props: R
   );
 };
 
-/** canonical 布局适配器注册表（componentRegistry 白名单放行面）。 */
+/** canonical 布局适配器注册表（componentRegistry 白名单放行面；已真面化的叶子
+ *  由 pluginFaces.generated.ts 注册，不再在此列）。 */
 export const layoutAdapterRegistry: Record<string, ComponentType<Record<string, unknown>>> = {
   top_bar: TopBarAdapter,
   file_tree: FileTreeAdapter,
   session_list: SessionListAdapter,
-  task_capsule: TaskCapsuleAdapter,
   review_card: ReviewCardAdapter,
   settings_floater: SettingsFloaterAdapter,
 };

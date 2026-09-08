@@ -3,6 +3,7 @@ import { readFileSync } from 'node:fs';
 import { resolve } from 'node:path';
 import { registerBuiltinComponents } from '@/components';
 import { registerProductComponents } from '@/app/rendererAdapters';
+import { registerPluginFaces, PLUGIN_UI_FACES } from '@/app/pluginFaces.generated';
 import { isComponentRegistered } from '@/renderer/componentRegistry';
 
 /**
@@ -29,9 +30,23 @@ describe('出厂渲染器白名单对码', () => {
   it('manifest 声明的出厂组件全部有前端实现或占位注册', () => {
     registerBuiltinComponents();
     registerProductComponents();
+    registerPluginFaces();
     const missing = factory.filter((name) => !isComponentRegistered(name));
     expect(missing).toEqual([]);
     const missingDerived = canonical.filter((name) => !isComponentRegistered(name));
     expect(missingDerived).toEqual([]);
+  });
+
+  it('真 ui 面插件 entry 与本文件类型一致且均已注册（派生视图自洽）', () => {
+    for (const face of PLUGIN_UI_FACES) {
+      expect(face.type.length).toBeGreaterThan(0);
+      expect(face.entry.startsWith('../../../plugins/ui_features/')).toBe(true);
+    }
+    registerBuiltinComponents();
+    registerProductComponents();
+    registerPluginFaces();
+    for (const face of PLUGIN_UI_FACES) {
+      expect(isComponentRegistered(face.id)).toBe(true);
+    }
   });
 });

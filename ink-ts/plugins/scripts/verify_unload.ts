@@ -45,6 +45,7 @@ const KIND_DIRS: { kind: string; dir: string }[] = [
 ];
 
 /** 真面内置插件白名单（阶段 7a 首真面样板：doc_parse 首个 host logic face；
+ *  阶段 7b 起 ui_feature 组件叶子/面板经规则放行（见 realFaceAllowed），
  *  内置其余仍 data-only 拒真面——防平行真相；外部插件按 capability 放行）。 */
 const REAL_FACE_BUILTINS = new Set(['doc_parse']);
 
@@ -67,6 +68,7 @@ interface Plugin {
   effects: string[];
   faces: Record<string, FaceRef>;
   uiChildren: string[];
+  isUiComponent: boolean;
   isUiEntry: boolean;
 }
 
@@ -179,6 +181,13 @@ function loadUniverse(): Map<string, Plugin> {
         effects: effectsOf(spec),
         faces: facesOf(spec),
         uiChildren: uiChildrenOf(kind, spec),
+        isUiComponent:
+          kind === 'ui_feature' &&
+          typeof data === 'object' &&
+          data !== null &&
+          typeof (data as Record<string, unknown>).node === 'object' &&
+          (data as Record<string, unknown>).node !== null &&
+          ((data as Record<string, unknown>).node as Record<string, unknown>).kind === 'component',
         isUiEntry:
           kind === 'ui_feature' &&
           typeof data === 'object' &&
@@ -260,10 +269,11 @@ function auditFacesAndContract(universe: Map<string, Plugin>): void {
   }
 }
 
-/** 真面许可：声明了全脸字段的插件须为 capability=external_tool 或白名单内置
- *  （阶段 7a doc_parse 样板）；data-only（无声明）不在此判定。 */
+/** 真面许可：声明了全脸字段的插件须为 capability=external_tool、白名单内置
+ *  （阶段 7a doc_parse 样板）或 ui_feature 组件节点（阶段 7b：布局叶子/设置
+ *  面板的独占 UI 实现随插件 faces/ui 同住）；data-only（无声明）不在此判定。 */
 function realFaceAllowed(plugin: Plugin): boolean {
-  return plugin.capability === 'external_tool' || REAL_FACE_BUILTINS.has(plugin.id);
+  return plugin.capability === 'external_tool' || REAL_FACE_BUILTINS.has(plugin.id) || plugin.isUiComponent === true;
 }
 
 /** 真面插件 faces 结构约束：face entry 须相对插件目录（禁绝对/`..` 逃逸）且

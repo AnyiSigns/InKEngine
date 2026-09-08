@@ -14,7 +14,7 @@ import type { AttachmentAsset } from '@/shared/session/eventIngest';
 import type { ReviewResolution } from '@/components/review_card';
 import type { SpawnInstance } from '@/app/session/SpawnPanel';
 import type { MainTab } from '@/app/shell/TopBar';
-import type { TaskCapsuleData } from '@/app/tasks/types';
+import type { TaskCapsuleData } from '../../../../plugins/ui_features/task_capsule/faces/ui/types';
 import type { RoutePlanResult } from '@/app/input/InputBar';
 import type { RailSession } from '@/app/shell/RightRail';
 import type { ModelSelection } from '@/shared/backend/backendAdapter';

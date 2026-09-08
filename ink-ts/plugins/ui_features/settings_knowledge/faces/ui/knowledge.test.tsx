@@ -1,9 +1,9 @@
 import { render, screen } from '@testing-library/react';
 import { describe, expect, it } from 'vitest';
 
-import { KnowledgePanel } from '@/app/knowledge/KnowledgePanel';
-import { credibilityLevel, credibilityLabel, compareCredibility } from '@/app/knowledge/backend';
-import type { KnowledgeEntry } from '@/app/knowledge/backend';
+import { KnowledgePanel } from './KnowledgePanel';
+import { credibilityLevel, credibilityLabel, compareCredibility } from './backend';
+import type { KnowledgeEntry } from './backend';
 
 describe('KnowledgePanel', () => {
   it('宿主不可用（无 serve 通道）= unavailable 三态', async () => {

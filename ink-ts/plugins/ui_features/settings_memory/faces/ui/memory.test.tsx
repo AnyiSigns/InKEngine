@@ -2,7 +2,7 @@
 import userEvent from '@testing-library/user-event';
 import { describe, expect, it, vi, beforeEach } from 'vitest';
 
-import { sourceLabel, kindLabel } from '@/app/memory/backend';
+import { sourceLabel, kindLabel } from './backend';
 
 type MemoryRecord = {
   id: string;
@@ -46,7 +46,7 @@ vi.mock('@/shared/backend/backendAdapter', () => ({
   createBackend: () => backendMock,
 }));
 
-import { MemoryView } from '@/app/memory/MemoryView';
+import { MemoryView } from './MemoryView';
 
 function rowUi(container: HTMLElement, id: string): HTMLElement {
   return container.querySelector(`[data-ui="memory_entry_${id}"]`) as HTMLElement;

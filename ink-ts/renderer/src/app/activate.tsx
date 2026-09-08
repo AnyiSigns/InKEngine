@@ -28,7 +28,6 @@ import { AppBackend } from './backend';
 import { registerSettingsSections } from './settings/activate';
 import { registerSettingsSection } from './settings/registry';
 import { activate as activateWave4, viewRegistrations } from './views/wave4activate';
-import { KnowledgePanel } from './knowledge/KnowledgePanel';
 import { normalizeWave4Sections } from './wiring/normalizeWave4';
 import App from '../App';
 
@@ -70,7 +69,8 @@ export function activate(): void {
     );
   }
 
-  registerComponent('knowledge_panel', KnowledgePanel as unknown as PlainComponent);
+  // 知识集面板 = settings_knowledge 真 ui 面插件（pluginFaces 注册），
+  // 不再单独注册 knowledge_panel 白名单键。
 
   const hub = new ChannelHub({});
   const fixtureStore = new MemorySessionStore([]);

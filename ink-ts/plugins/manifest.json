@@ -1001,6 +1001,45 @@
       }
     },
     {
+      "id": "settings_insights",
+      "kind": "ui_feature",
+      "capability": "host_tool",
+      "package": "@ink-ts/plugin-settings-insights",
+      "dir": "ui_features/settings_insights",
+      "faces": {
+        "ui": {
+          "target": "web",
+          "entry": "./faces/ui/index.tsx"
+        }
+      }
+    },
+    {
+      "id": "settings_knowledge",
+      "kind": "ui_feature",
+      "capability": "host_tool",
+      "package": "@ink-ts/plugin-settings-knowledge",
+      "dir": "ui_features/settings_knowledge",
+      "faces": {
+        "ui": {
+          "target": "web",
+          "entry": "./faces/ui/index.tsx"
+        }
+      }
+    },
+    {
+      "id": "settings_memory",
+      "kind": "ui_feature",
+      "capability": "host_tool",
+      "package": "@ink-ts/plugin-settings-memory",
+      "dir": "ui_features/settings_memory",
+      "faces": {
+        "ui": {
+          "target": "web",
+          "entry": "./faces/ui/index.tsx"
+        }
+      }
+    },
+    {
       "id": "settings_model",
       "kind": "ui_feature",
       "capability": "host_tool",
@@ -3452,6 +3491,33 @@
         "label": "连接",
         "order": 3,
         "icon": "plug_zap",
+        "entry": "./faces/ui/index.tsx"
+      },
+      {
+        "id": "settings_knowledge",
+        "type": "settings_knowledge",
+        "key": "knowledge_set",
+        "label": "知识集",
+        "order": 5,
+        "icon": "book_open",
+        "entry": "./faces/ui/index.tsx"
+      },
+      {
+        "id": "settings_memory",
+        "type": "settings_memory",
+        "key": "memory",
+        "label": "记忆",
+        "order": 73,
+        "icon": "database",
+        "entry": "./faces/ui/index.tsx"
+      },
+      {
+        "id": "settings_insights",
+        "type": "settings_insights",
+        "key": "insights",
+        "label": "洞察",
+        "order": 74,
+        "icon": "eye",
         "entry": "./faces/ui/index.tsx"
       },
       {

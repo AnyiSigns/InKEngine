@@ -18,10 +18,7 @@
 import { BookOpen, Database, Eye, FileClock, Network, PlugZap, Settings2, ShieldCheck } from 'lucide-react';
 import type { ReactNode } from 'react';
 
-import { KnowledgePanel } from '@/app/knowledge/KnowledgePanel';
 import { ArchitectureView } from '@/app/views/architecture/ArchitectureView';
-import { InsightSection } from '@/app/insights/InsightSection';
-import { MemoryView } from '@/app/memory/MemoryView';
 import { DynamicComponent } from '@/renderer/componentRegistry';
 import { registerSettingsSection } from './registry';
 
@@ -62,7 +59,7 @@ export function registerSettingsSections(): void {
     label: '知识集',
     icon: <BookOpen size={16} strokeWidth={1.6} aria-hidden />,
     order: 5,
-    render: () => <KnowledgePanel />,
+    render: panel('settings_knowledge'),
   });
 
   registerSettingsSection({
@@ -79,7 +76,7 @@ export function registerSettingsSections(): void {
     label: '记忆',
     icon: <Database size={16} strokeWidth={1.6} aria-hidden />,
     order: 73,
-    render: () => <MemoryView />,
+    render: panel('settings_memory'),
   });
 
   registerSettingsSection({
@@ -87,7 +84,7 @@ export function registerSettingsSections(): void {
     label: '洞察',
     icon: <Eye size={16} strokeWidth={1.6} aria-hidden />,
     order: 74,
-    render: () => <InsightSection />,
+    render: panel('settings_insights'),
   });
 
   registerSettingsSection({

@@ -1,8 +1,8 @@
 import { render, screen } from '@testing-library/react';
 import { describe, expect, it } from 'vitest';
 
-import { InsightSection } from '@/app/insights/InsightSection';
-import { describeEntry, detailText, isAlertType, TYPE_LABELS } from '@/app/insights/labels';
+import { InsightSection } from './InsightSection';
+import { describeEntry, detailText, isAlertType, TYPE_LABELS } from './labels';
 
 describe('InsightSection（事件时间线）', () => {
   it('空数据态', async () => {

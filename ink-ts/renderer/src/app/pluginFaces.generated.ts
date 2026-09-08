@@ -30,6 +30,9 @@ export const PLUGIN_UI_FACES: UiFaceEntry[] = [
   { id: 'settings_general', type: 'settings_general', entry: '../../../plugins/ui_features/settings_general/faces/ui/index.tsx' },
   { id: 'settings_model', type: 'settings_model', entry: '../../../plugins/ui_features/settings_model/faces/ui/index.tsx' },
   { id: 'settings_connect', type: 'settings_connect', entry: '../../../plugins/ui_features/settings_connect/faces/ui/index.tsx' },
+  { id: 'settings_knowledge', type: 'settings_knowledge', entry: '../../../plugins/ui_features/settings_knowledge/faces/ui/index.tsx' },
+  { id: 'settings_memory', type: 'settings_memory', entry: '../../../plugins/ui_features/settings_memory/faces/ui/index.tsx' },
+  { id: 'settings_insights', type: 'settings_insights', entry: '../../../plugins/ui_features/settings_insights/faces/ui/index.tsx' },
   { id: 'settings_audit_recovery', type: 'settings_audit_recovery', entry: '../../../plugins/ui_features/settings_audit_recovery/faces/ui/index.tsx' },
   { id: 'settings_backup', type: 'settings_backup', entry: '../../../plugins/ui_features/settings_backup/faces/ui/index.tsx' },
 ] as const;
@@ -51,6 +54,9 @@ export function registerPluginFaces(): void {
   registerComponent('settings_general', (settings_generalDefault as unknown) as PlainComponent);
   registerComponent('settings_model', (settings_modelDefault as unknown) as PlainComponent);
   registerComponent('settings_connect', (settings_connectDefault as unknown) as PlainComponent);
+  registerComponent('settings_knowledge', (settings_knowledgeDefault as unknown) as PlainComponent);
+  registerComponent('settings_memory', (settings_memoryDefault as unknown) as PlainComponent);
+  registerComponent('settings_insights', (settings_insightsDefault as unknown) as PlainComponent);
   registerComponent('settings_audit_recovery', (settings_audit_recoveryDefault as unknown) as PlainComponent);
   registerComponent('settings_backup', (settings_backupDefault as unknown) as PlainComponent);
 }
@@ -70,5 +76,8 @@ import session_listDefault from '../../../plugins/ui_features/session_list/faces
 import settings_generalDefault from '../../../plugins/ui_features/settings_general/faces/ui/index.tsx';
 import settings_modelDefault from '../../../plugins/ui_features/settings_model/faces/ui/index.tsx';
 import settings_connectDefault from '../../../plugins/ui_features/settings_connect/faces/ui/index.tsx';
+import settings_knowledgeDefault from '../../../plugins/ui_features/settings_knowledge/faces/ui/index.tsx';
+import settings_memoryDefault from '../../../plugins/ui_features/settings_memory/faces/ui/index.tsx';
+import settings_insightsDefault from '../../../plugins/ui_features/settings_insights/faces/ui/index.tsx';
 import settings_audit_recoveryDefault from '../../../plugins/ui_features/settings_audit_recovery/faces/ui/index.tsx';
 import settings_backupDefault from '../../../plugins/ui_features/settings_backup/faces/ui/index.tsx';

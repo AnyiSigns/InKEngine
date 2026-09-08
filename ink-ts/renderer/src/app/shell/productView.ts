@@ -13,10 +13,9 @@ import type { InkMessage, RoundStep, SimulationBranch } from '@/shared/session/t
 import type { AttachmentAsset } from '@/shared/session/eventIngest';
 import type { ReviewResolution } from '@/components/review_card';
 import type { SpawnInstance } from '@/app/session/SpawnPanel';
-import type { MainTab } from '@/app/shell/TopBar';
 import type { TaskCapsuleData } from '../../../../plugins/ui_features/task_capsule/faces/ui/types';
 import type { RoutePlanResult } from '@/app/input/InputBar';
-import type { RailSession } from '@/app/shell/RightRail';
+import type { MainTab, RailSession } from '@/app/shell/shellContracts';
 import type { ModelSelection } from '@/shared/backend/backendAdapter';
 
 /** 产品壳回显数据（适配器消费的宿主面）。 */

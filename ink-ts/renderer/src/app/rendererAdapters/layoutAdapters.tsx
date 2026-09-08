@@ -6,11 +6,8 @@
  * 无宿主数据时回落可渲染占位（组件不崩），供渲染器白名单测试独立使用。
  */
 
-import { useEffect, useRef, useState, type ComponentType, type ReactNode } from 'react';
+import type { ComponentType, ReactNode } from 'react';
 
-import { TopBar } from '@/app/shell/TopBar';
-import { LeftRail } from '@/app/shell/LeftRail';
-import { RightRail } from '@/app/shell/RightRail';
 import { SettingsFloater } from '@/app/settings/settings_floater';
 import { ReviewCard, type ReviewResolution } from '@/components/review_card';
 import type { ProductShellChrome } from '@/app/shell/productView';
@@ -20,86 +17,6 @@ function productOf(props: Record<string, unknown>): ProductShellChrome {
 }
 
 const noop = (): void => undefined;
-
-/** 顶栏（悬停触发带 + 磨砂 veil；宿主数据经 product chrome 注入）。 */
-const TopBarAdapter: ComponentType<Record<string, unknown>> = (props: Record<string, unknown>) => {
-  const product = productOf(props);
-  const [open, setOpen] = useState(false);
-  const timer = useRef<number | null>(null);
-  const show = (): void => {
-    if (timer.current !== null) {
-      window.clearTimeout(timer.current);
-      timer.current = null;
-    }
-    setOpen(true);
-  };
-  const hide = (): void => {
-    if (timer.current !== null) window.clearTimeout(timer.current);
-    timer.current = window.setTimeout(() => setOpen(false), 240);
-  };
-  useEffect(
-    () => () => {
-      if (timer.current !== null) window.clearTimeout(timer.current);
-    },
-    [],
-  );
-  return (
-    <>
-      <div className="ink-topbar-trigger" onMouseEnter={show} />
-      <div className="ink-topbar-veil" data-open={open ? 'true' : undefined} onMouseEnter={show} onMouseLeave={hide}>
-        <TopBar
-          title={product.title ?? ''}
-          tab={product.tab ?? 'chat'}
-          onTabChange={product.onTabChange ?? noop}
-          onTitleChange={product.onTitleChange ?? noop}
-          hasTodo={product.hasTodo}
-          todoPending={product.todoPending}
-        />
-      </div>
-    </>
-  );
-};
-
-/** file_tree → LeftRail（工作区授权卡 + 设置入口；折叠为本地 UI 态）。 */
-const FileTreeAdapter: ComponentType<Record<string, unknown>> = (props: Record<string, unknown>) => {
-  const product = productOf(props);
-  const [collapsed, setCollapsed] = useState(false);
-  return (
-    <LeftRail
-      collapsed={collapsed}
-      onToggle={() => setCollapsed((v) => !v)}
-      authorized={product.authorized === true}
-      workspaceRoot={product.workspaceRoot ?? null}
-      onAddWorkspace={product.onAddWorkspace ?? noop}
-      onOpenSettings={product.onOpenSettings ?? noop}
-    />
-  );
-};
-
-/** session_list → RightRail（会话列表 + 分支 mini 树；折叠为本地 UI 态）。 */
-const SessionListAdapter: ComponentType<Record<string, unknown>> = (props: Record<string, unknown>) => {
-  const product = productOf(props);
-  const [collapsed, setCollapsed] = useState(false);
-  return (
-    <RightRail
-      collapsed={collapsed}
-      onToggle={() => setCollapsed((v) => !v)}
-      sessions={product.sessions ?? []}
-      activeSessionId={product.activeSessionId ?? ''}
-      onSelectSession={product.onSelectSession ?? noop}
-      onCreateSession={product.onCreateSession ?? noop}
-      onRenameSession={product.onRenameSession ?? noop}
-      onDeleteSession={product.onDeleteSession ?? noop}
-      onBranchFromMessage={product.onBranchFromMessage ?? noop}
-      branchTrees={product.branchTrees ?? {}}
-      onBranchFromLeaf={product.onBranchFromLeaf ?? noop}
-    />
-  );
-};
-
-/** task_capsule：长任务期胶囊（任务在途才渲染；宿主 product.task）——真面已随
- *  插件 plugins/ui_features/task_capsule/faces/ui 同住（pluginFaces 注册），
- *  此适配器删除（阶段 7b）。 */
 
 /** review_card：审批卡覆盖层（events.review_card 绑定；决议续跑经宿主）。 */
 const ReviewCardAdapter: ComponentType<Record<string, unknown>> = (props: Record<string, unknown>) => {
@@ -128,12 +45,9 @@ const SettingsFloaterAdapter: ComponentType<Record<string, unknown>> = (props: R
   );
 };
 
-/** canonical 布局适配器注册表（componentRegistry 白名单放行面；已真面化的叶子
- *  由 pluginFaces.generated.ts 注册，不再在此列）。 */
+/** canonical 布局适配器注册表（componentRegistry 白名单放行面；top_bar/file_tree/
+ *  session_list/task_capsule 已真面化随插件 faces/ui 同住，pluginFaces 注册）。 */
 export const layoutAdapterRegistry: Record<string, ComponentType<Record<string, unknown>>> = {
-  top_bar: TopBarAdapter,
-  file_tree: FileTreeAdapter,
-  session_list: SessionListAdapter,
   review_card: ReviewCardAdapter,
   settings_floater: SettingsFloaterAdapter,
 };

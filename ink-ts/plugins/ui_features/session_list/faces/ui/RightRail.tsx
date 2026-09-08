@@ -14,13 +14,7 @@ import { useEffect, useRef, useState } from 'react';
 import { Plus, Search, MoreVertical, ChevronRight, ChevronDown, MessageSquare, Trash2, Pencil, PanelRightClose, PanelRightOpen, GitBranch } from 'lucide-react';
 import type { SessionBranchTree } from '@/shared/backend/backendAdapter';
 import { useT } from '@/i18n/useT';
-
-/** 会话行展示面（只消费真实字段；thread_id/title/updated_at）。 */
-export interface RailSession {
-  thread_id: string;
-  title: string;
-  updated_at: number;
-}
+import type { RailSession } from '@/app/shell/shellContracts';
 
 /** 相对时间（会话行右侧：刚刚 / N 分钟 / N 小时 / N 天，超一周落月-日）。 */
 function relativeTime(at: number, t: (key: string) => string, lang: 'zh' | 'en'): string {

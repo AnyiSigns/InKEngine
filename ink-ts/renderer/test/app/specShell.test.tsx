@@ -13,6 +13,7 @@ import { render, screen } from '@testing-library/react';
 import { ChannelHub } from '@/shared/session/channelHub';
 import { registerBuiltinComponents } from '@/components';
 import { registerProductComponents } from '@/app/rendererAdapters';
+import { registerPluginFaces } from '@/app/pluginFaces.generated';
 import { UIRenderer } from '@/renderer/bootRenderer';
 import type { UISpec } from '@/renderer/uiSpecTypes';
 
@@ -45,6 +46,7 @@ describe('产品主壳 spec 直渲（ui_features 装配生成物 → canonical �
   beforeEach(() => {
     registerBuiltinComponents();
     registerProductComponents();
+    registerPluginFaces();
   });
 
   it('ui 装配生成物结构合法（可解析为渲染用 UISpec）', () => {

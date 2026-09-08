@@ -778,7 +778,13 @@
       "kind": "ui_feature",
       "capability": "host_tool",
       "package": "@ink-ts/plugin-file-tree",
-      "dir": "ui_features/file_tree"
+      "dir": "ui_features/file_tree",
+      "faces": {
+        "ui": {
+          "target": "web",
+          "entry": "./faces/ui/index.tsx"
+        }
+      }
     },
     {
       "id": "inkling.ui",
@@ -909,7 +915,13 @@
       "kind": "ui_feature",
       "capability": "host_tool",
       "package": "@ink-ts/plugin-session-list",
-      "dir": "ui_features/session_list"
+      "dir": "ui_features/session_list",
+      "faces": {
+        "ui": {
+          "target": "web",
+          "entry": "./faces/ui/index.tsx"
+        }
+      }
     },
     {
       "id": "settings_floater",
@@ -949,7 +961,13 @@
       "kind": "ui_feature",
       "capability": "host_tool",
       "package": "@ink-ts/plugin-top-bar",
-      "dir": "ui_features/top_bar"
+      "dir": "ui_features/top_bar",
+      "faces": {
+        "ui": {
+          "target": "web",
+          "entry": "./faces/ui/index.tsx"
+        }
+      }
     },
     {
       "id": "trajectory_view",

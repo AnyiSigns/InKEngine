@@ -1,7 +1,7 @@
 import { describe, it, expect, vi } from 'vitest';
 import { render, screen, fireEvent } from '@testing-library/react';
-import { SpawnPanel } from '@/app/session/SpawnPanel';
-import type { SpawnInstance } from '@/app/session/SpawnPanel';
+import { SpawnPanel } from './SpawnPanel';
+import type { SpawnInstance } from './SpawnPanel';
 
 describe('SpawnPanel', () => {
   const instances: SpawnInstance[] = [

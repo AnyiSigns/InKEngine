@@ -907,7 +907,13 @@
       "kind": "ui_feature",
       "capability": "host_tool",
       "package": "@ink-ts/plugin-message-list",
-      "dir": "ui_features/message_list"
+      "dir": "ui_features/message_list",
+      "faces": {
+        "ui": {
+          "target": "web",
+          "entry": "./faces/ui/index.tsx"
+        }
+      }
     },
     {
       "id": "review_card",

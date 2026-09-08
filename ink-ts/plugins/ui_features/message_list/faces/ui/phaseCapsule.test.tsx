@@ -1,6 +1,6 @@
 import { describe, it, expect } from 'vitest';
 import { render, screen, fireEvent } from '@testing-library/react';
-import { PhaseCapsule } from '@/app/session/PhaseCapsule';
+import { PhaseCapsule } from './PhaseCapsule';
 
 describe('PhaseCapsule', () => {
   it('renders steps when expanded', () => {

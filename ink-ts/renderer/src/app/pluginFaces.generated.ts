@@ -18,6 +18,7 @@ export const PLUGIN_UI_FACES: UiFaceEntry[] = [
   { id: 'review_card', type: 'review_card', entry: '../../../plugins/ui_features/review_card/faces/ui/index.tsx' },
   { id: 'file_tree', type: 'file_tree', entry: '../../../plugins/ui_features/file_tree/faces/ui/index.tsx' },
   { id: 'top_bar', type: 'top_bar', entry: '../../../plugins/ui_features/top_bar/faces/ui/index.tsx' },
+  { id: 'message_list', type: 'message_list', entry: '../../../plugins/ui_features/message_list/faces/ui/index.tsx' },
   { id: 'task_capsule', type: 'task_capsule', entry: '../../../plugins/ui_features/task_capsule/faces/ui/index.tsx' },
   { id: 'agent_input', type: 'agent_input', entry: '../../../plugins/ui_features/agent_input/faces/ui/index.tsx' },
   { id: 'evolution_feed', type: 'evolution_feed', entry: '../../../plugins/ui_features/evolution_feed/faces/ui/index.tsx' },
@@ -33,6 +34,7 @@ export function registerPluginFaces(): void {
   registerComponent('review_card', (review_cardDefault as unknown) as PlainComponent);
   registerComponent('file_tree', (file_treeDefault as unknown) as PlainComponent);
   registerComponent('top_bar', (top_barDefault as unknown) as PlainComponent);
+  registerComponent('message_list', (message_listDefault as unknown) as PlainComponent);
   registerComponent('task_capsule', (task_capsuleDefault as unknown) as PlainComponent);
   registerComponent('agent_input', (agent_inputDefault as unknown) as PlainComponent);
   registerComponent('evolution_feed', (evolution_feedDefault as unknown) as PlainComponent);
@@ -46,6 +48,7 @@ export function registerPluginFaces(): void {
 import review_cardDefault from '../../../plugins/ui_features/review_card/faces/ui/index.tsx';
 import file_treeDefault from '../../../plugins/ui_features/file_tree/faces/ui/index.tsx';
 import top_barDefault from '../../../plugins/ui_features/top_bar/faces/ui/index.tsx';
+import message_listDefault from '../../../plugins/ui_features/message_list/faces/ui/index.tsx';
 import task_capsuleDefault from '../../../plugins/ui_features/task_capsule/faces/ui/index.tsx';
 import agent_inputDefault from '../../../plugins/ui_features/agent_input/faces/ui/index.tsx';
 import evolution_feedDefault from '../../../plugins/ui_features/evolution_feed/faces/ui/index.tsx';

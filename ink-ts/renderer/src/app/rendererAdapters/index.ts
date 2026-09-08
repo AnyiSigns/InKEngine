@@ -9,17 +9,15 @@
 
 import { registerComponent, type PlainComponent } from '@/renderer/componentRegistry';
 import { layoutAdapterRegistry } from './layoutAdapters';
-import { sessionAdapterRegistry } from './sessionAdapters';
 
-/** 注册全部产品 canonical 适配器（幂等：注册表同名覆盖语义天然幂等）。 */
+/** 注册剩余产品 canonical 适配器（settings_floater；其余叶子已真面化随插件
+ *  faces/ui 同住，pluginFaces.generated.ts 注册——message_list 后 renderer
+ *  adapter 层仅剩 settings_floater，settings 组迁移后本层整体退役）。 */
 export function registerProductComponents(): void {
-  for (const [name, Comp] of Object.entries({ ...layoutAdapterRegistry, ...sessionAdapterRegistry })) {
+  for (const [name, Comp] of Object.entries(layoutAdapterRegistry)) {
     registerComponent(name, Comp as PlainComponent);
   }
 }
 
-/** canonical 组件清单（spec/白名单/manifest 同步用：注册 = 白名单放行）。 */
-export const productCanonicalComponents = [
-  ...Object.keys(layoutAdapterRegistry),
-  ...Object.keys(sessionAdapterRegistry),
-] as const;
+/** canonical 适配器清单（注册 = 白名单放行面）。 */
+export const productCanonicalComponents = [...Object.keys(layoutAdapterRegistry)] as const;

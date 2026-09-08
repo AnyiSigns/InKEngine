@@ -1,6 +1,6 @@
 import { describe, it, expect } from 'vitest';
 import { render, screen } from '@testing-library/react';
-import { PulseLine } from '@/app/session/PulseLine';
+import { PulseLine } from './PulseLine';
 
 describe('PulseLine', () => {
   it('renders text', () => {

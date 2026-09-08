@@ -1,6 +1,6 @@
 import { describe, it, expect, vi } from 'vitest';
 import { render, screen, fireEvent } from '@testing-library/react';
-import { ToolDrawer } from '@/app/session/ToolDrawer';
+import { ToolDrawer } from './ToolDrawer';
 
 describe('ToolDrawer', () => {
   it('renders when open', () => {

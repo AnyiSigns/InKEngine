@@ -11,7 +11,7 @@ import type { ChannelHub } from '@/shared/session/channelHub';
 import type { SessionStore } from '@/shared/session/sessionStore';
 import type { InkMessage, RoundStep, SimulationBranch } from '@/shared/session/types';
 import type { AttachmentAsset } from '@/shared/session/eventIngest';
-import type { SpawnInstance } from '@/app/session/SpawnPanel';
+import type { SpawnInstance } from '../../../../plugins/ui_features/message_list/faces/ui/SpawnPanel';
 import type { TaskCapsuleData } from '../../../../plugins/ui_features/task_capsule/faces/ui/types';
 import type { MainTab, RailSession, ReviewResolution, RoutePlanResult } from '@/app/shell/shellContracts';
 import type { ModelSelection } from '@/shared/backend/backendAdapter';

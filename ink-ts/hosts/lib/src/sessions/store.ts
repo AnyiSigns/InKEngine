@@ -139,11 +139,13 @@ export class HostSessionStore {
     return record;
   }
 
-  /** 写入展示态消息流（展示态替代当前记录；刷新据此恢复前端完整消息流）。 */
+  /** 追加展示态消息流（会话级累积：历史 + 本轮；刷新据此恢复完整消息流）。 */
   async set_display_messages(thread_id: string, messages: unknown[]): Promise<HostSessionRecord> {
     const existing = await this.getRecord(thread_id);
     const record: HostSessionRecord = existing ?? new_session_record(thread_id);
-    record.display_messages = messages;
+    // 展示态跨轮累积：追加到既有历史之后（而非覆盖），多轮刷新仍完整。
+    const history = Array.isArray(record.display_messages) ? record.display_messages : [];
+    record.display_messages = [...history, ...messages];
     record.updated_at = Date.now() / 1000;
     await this.putRecord(record);
     return record;

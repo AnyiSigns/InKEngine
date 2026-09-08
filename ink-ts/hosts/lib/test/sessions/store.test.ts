@@ -7,7 +7,7 @@ import { describe, expect, it } from 'vitest';
 import { create_storage } from '@ink-ts/engine';
 
 import { HostSessionStore } from '../../src/sessions/store.js';
-import { branch_tree_from_chain, fallback_title, normalize_title } from '../../src/sessions/model.js';
+import { branch_tree_from_chain, fallback_title, normalize_title, parse_session_record } from '../../src/sessions/model.js';
 
 async function makeStore(): Promise<HostSessionStore> {
   const storage = await create_storage('memory://');
@@ -75,5 +75,20 @@ describe('会话模型纯函数', () => {
   it('fallback_title 输出 YYYY-MM-DD HH:mm', () => {
     const value = fallback_title(0);
     expect(value).toMatch(/^\d{4}-\d{2}-\d{2} \d{2}:\d{2}$/);
+  });
+
+  it('parse_session_record 带回 display_messages（展示态消息流）', () => {
+    const parsed = parse_session_record({
+      thread_id: 't-9',
+      title: 'x',
+      display_messages: [
+        { kind: 'thinking', content: '推理', status: 'completed', step_id: 'display:1' },
+        { kind: 'tool', tool: 'inspect', toolStatus: 'done', args: '{}', summary: 'ok', step_id: 'display:2' },
+      ],
+    });
+    expect(parsed).not.toBeNull();
+    expect(parsed!.display_messages).toHaveLength(2);
+    expect((parsed!.display_messages as Record<string, unknown>[])[0]).toMatchObject({ kind: 'thinking', status: 'completed' });
+    expect((parsed!.display_messages as Record<string, unknown>[])[1]).toMatchObject({ kind: 'tool', tool: 'inspect', toolStatus: 'done' });
   });
 });

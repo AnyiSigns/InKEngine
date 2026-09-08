@@ -96,6 +96,7 @@ export function parse_session_record(data: unknown): HostSessionRecord | null {
     ...(data['last_outcome'] !== undefined && data['last_outcome'] !== null
       ? { last_outcome: str(data['last_outcome'], '') }
       : {}),
+    ...(Array.isArray(data['display_messages']) ? { display_messages: data['display_messages'] } : {}),
   };
 }
 

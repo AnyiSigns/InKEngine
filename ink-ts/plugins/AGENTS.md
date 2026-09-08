@@ -145,11 +145,9 @@ renderer 适配层整体退役）；其余 kind 目录随对应阶段落位。
   entry 物理同住（相对路径禁逃逸 + 文件真实存在）由 verify:unload 强制；
 - per-plugin AGENTS 政策（细则见 docs/subsystems/plugins.md）：**data-only 声明
   插件（tools/mcp/commands 与无真面 ui 容器）不设 AGENTS.md**——以 spec.json
-  为行为唯一事实源，防行为文案第二份漂移；**真面/样板插件必配**（现补：
-  tools/doc_parse（host logic face 样板）、ui_features/file_tree（canonical
-  叶子样板）、ui_features/settings_general（设置面板样板）），只写意图/边界/
-  数据从哪进，不重复 spec 声明字段；其余真 ui 面插件沿用
-  PLUGINS + plugins/AGENTS + spec 三层权威，首现外部复用/边界疑问即补；
+  为行为唯一事实源，防行为文案第二份漂移；**真面/样板插件必配**——host logic
+  face（doc_parse）与真 ui 面插件 26（canonical 布局叶子 + 设置面板 + 设置
+  浮层）2026-09-08 全量补建，只写意图/边界/数据从哪进，不重复 spec 声明字段；
   manifest.json / commands.generated.ts / ui.generated.json /
   ui_canonical.generated.ts / hosts/lib/src/exec/native.generated.ts /
   hosts/web/src/app/pluginFaces.generated.ts /

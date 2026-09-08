@@ -22,7 +22,7 @@ engine/
 │   │                   #   graph/assembly/events/plan/...（回合组装、运行等纯逻辑）
 │   ├─ kernel/          # 机制件契约目录：<mechanism>/contract.ts + impl.ts + *.test.ts
 │   │                   #   装配闭集 registry.ts：boot 组密封图 + 依赖单向校验
-│   └─ adapters/        # IO 端口真实装（storage/llm/exec/mcp/...）：DI 装载，可覆盖
+│   └─ adapters/        # IO 端口真实装（boot/llm/mcp/storage...）：DI 装载，可覆盖
 ├─ schemas/             # 数据面契约 JSON 真源（枚举/谓词/补丁类型/机制端口等）
 ├─ fixtures/            # 契约夹具 JSON 真源
 └─ scripts/             # generate.mjs（schemas+fixtures→generated）+ verify_generated.mjs

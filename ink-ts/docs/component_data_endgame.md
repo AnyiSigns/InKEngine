@@ -228,9 +228,9 @@ ink-ts/
 - `spec.json` 是机器可读声明（数据源），`AGENTS.md` 是人类可读契约（意图/边界），二者同目录；
 - 契约文档分两级：每层 `AGENTS.md`（就近）+ `docs/subsystems/*.md`（跨层权威），规则不散在代码注释里。
 - per-plugin AGENTS 政策：data-only 声明插件（无独占实现面）不设 per-plugin
-  AGENTS（spec.json 为行为唯一事实源）；真面/样板插件（faces 带实现）必配
-  （现补 doc_parse / file_tree / settings_general 三样板），细则见
-  `docs/subsystems/plugins.md` 与 plugins/AGENTS.md。
+  AGENTS（spec.json 为行为唯一事实源）；真面/样板插件必配（2026-09-08 已补
+  doc_parse + 全部 26 个真 ui 面插件），细则见 `docs/subsystems/plugins.md`
+  与 plugins/AGENTS.md。
 
 ---
 

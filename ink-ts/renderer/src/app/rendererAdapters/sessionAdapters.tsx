@@ -11,12 +11,7 @@ import type { ComponentType } from 'react';
 
 import { MessageStream } from '@/app/session/MessageStream';
 import { InputBar } from '@/app/input/InputBar';
-import { EvolutionFeed } from '@/app/session/EvolutionFeed';
-import { LedgerView } from '@/app/session/LedgerView';
-import { TrajectoryView } from '@/app/session/TrajectoryView';
-import { MechanismView } from '@/app/views/mechanism/MechanismView';
 import type { ProductShellChrome } from '@/app/shell/productView';
-import type { BackendAdapter } from '@/shared/backend/backendAdapter';
 import type { InkMessage } from '@/shared/session/types';
 
 /** 适配器入参（DynamicComponent 注入：spec props + chromeProps + bindValue）。 */
@@ -31,14 +26,6 @@ function productOf(props: Record<string, unknown>): ProductShellChrome {
 }
 
 const noop = (): void => undefined;
-
-/** 宿主缺省时的只读禁用后端（available:false；视图空态不崩）。 */
-const disabledBackend = { available: false } as unknown as BackendAdapter;
-
-function backendOf(product: ProductShellChrome): BackendAdapter {
-  const backend = product.backend as BackendAdapter | undefined;
-  return backend ?? disabledBackend;
-}
 
 /** message_list → MessageStream（绑定 state.messages；产品流唯一渲染面）。 */
 const MessageListAdapter: ComponentType<Record<string, unknown>> = (props: Record<string, unknown>) => {
@@ -88,54 +75,13 @@ const AgentInputAdapter: ComponentType<Record<string, unknown>> = (props: Record
   );
 };
 
-/** evolution_feed → EvolutionFeed（孵化/补丁链/实例图/实体目录）。 */
-const EvolutionFeedAdapter: ComponentType<Record<string, unknown>> = (props: Record<string, unknown>) => {
-  const product = productOf(props);
-  return (
-    <EvolutionFeed
-      incubation={product.incubation ?? []}
-      patchChain={product.patchChain ?? []}
-      backend={backendOf(product)}
-      threadId={product.activeSessionId ?? ''}
-    />
-  );
-};
-
-/** ledger_view → LedgerView（records.ledger 只读窗口）。 */
-const LedgerViewAdapter: ComponentType<Record<string, unknown>> = (props: Record<string, unknown>) => {
-  const product = productOf(props);
-  return (
-    <LedgerView
-      backend={backendOf(product)}
-      threadId={product.activeSessionId ?? ''}
-    />
-  );
-};
-
-/** trajectory_view → TrajectoryView（state.roundSteps 快照）。 */
-const TrajectoryViewAdapter: ComponentType<Record<string, unknown>> = (props: Record<string, unknown>) => {
-  const product = productOf(props);
-  const bound = Array.isArray(props.bindValue) ? props.bindValue : undefined;
-  return <TrajectoryView steps={(bound ?? product.roundSteps ?? []) as import('@/shared/session/types').RoundStep[]} />;
-};
-
-/** todo_view → TodoView（rounds.todos 只读投影）——真面已随插件
- *  plugins/ui_features/todo_view/faces/ui 同住（pluginFaces 注册），适配器删除。 */
-
-/** mechanism_view → MechanismView（机制/演化读取面归拢消费）。 */
-const MechanismViewAdapter: ComponentType<Record<string, unknown>> = (props: Record<string, unknown>) => {
-  const product = productOf(props);
-  const backend = product.backend as BackendAdapter | undefined;
-  return <MechanismView backend={backend ?? null} threadId={product.activeSessionId ?? ''} />;
-};
+/** evolution_feed → EvolutionFeed / ledger_view → LedgerView / trajectory_view
+ *  → TrajectoryView / mechanism_view → MechanismView / todo_view → TodoView：
+ *  真面已随各自插件 faces/ui 同住（pluginFaces 注册），适配器删除（阶段 7b）。 */
 
 /** canonical 会话区适配器注册表（componentRegistry 白名单放行面；已真面化的叶子
  *  由 pluginFaces.generated.ts 注册，不再在此列）。 */
 export const sessionAdapterRegistry: Record<string, ComponentType<Record<string, unknown>>> = {
   message_list: MessageListAdapter,
   agent_input: AgentInputAdapter,
-  evolution_feed: EvolutionFeedAdapter,
-  ledger_view: LedgerViewAdapter,
-  trajectory_view: TrajectoryViewAdapter,
-  mechanism_view: MechanismViewAdapter,
 };

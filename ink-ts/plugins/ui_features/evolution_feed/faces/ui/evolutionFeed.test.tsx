@@ -5,7 +5,7 @@
 import { describe, expect, it } from 'vitest';
 import { render, screen } from '@testing-library/react';
 
-import { EvolutionFeed } from '@/app/session/EvolutionFeed';
+import { EvolutionFeed } from './EvolutionFeed';
 import { createServeBackend } from '@/shared/backend/backendAdapter';
 import type { BackendAdapter } from '@/shared/backend/backendAdapter';
 import type { ServeChannel } from '@/shared/backend/transport';

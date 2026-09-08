@@ -765,7 +765,13 @@
       "kind": "ui_feature",
       "capability": "host_tool",
       "package": "@ink-ts/plugin-evolution-feed",
-      "dir": "ui_features/evolution_feed"
+      "dir": "ui_features/evolution_feed",
+      "faces": {
+        "ui": {
+          "target": "web",
+          "entry": "./faces/ui/index.tsx"
+        }
+      }
     },
     {
       "id": "file_tree",
@@ -863,14 +869,26 @@
       "kind": "ui_feature",
       "capability": "host_tool",
       "package": "@ink-ts/plugin-ledger-view",
-      "dir": "ui_features/ledger_view"
+      "dir": "ui_features/ledger_view",
+      "faces": {
+        "ui": {
+          "target": "web",
+          "entry": "./faces/ui/index.tsx"
+        }
+      }
     },
     {
       "id": "mechanism_view",
       "kind": "ui_feature",
       "capability": "host_tool",
       "package": "@ink-ts/plugin-mechanism-view",
-      "dir": "ui_features/mechanism_view"
+      "dir": "ui_features/mechanism_view",
+      "faces": {
+        "ui": {
+          "target": "web",
+          "entry": "./faces/ui/index.tsx"
+        }
+      }
     },
     {
       "id": "message_list",
@@ -938,7 +956,13 @@
       "kind": "ui_feature",
       "capability": "host_tool",
       "package": "@ink-ts/plugin-trajectory-view",
-      "dir": "ui_features/trajectory_view"
+      "dir": "ui_features/trajectory_view",
+      "faces": {
+        "ui": {
+          "target": "web",
+          "entry": "./faces/ui/index.tsx"
+        }
+      }
     },
     {
       "id": "exec",

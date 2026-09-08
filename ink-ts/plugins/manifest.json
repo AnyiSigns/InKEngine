@@ -758,7 +758,13 @@
       "kind": "ui_feature",
       "capability": "host_tool",
       "package": "@ink-ts/plugin-agent-input",
-      "dir": "ui_features/agent_input"
+      "dir": "ui_features/agent_input",
+      "faces": {
+        "ui": {
+          "target": "web",
+          "entry": "./faces/ui/index.tsx"
+        }
+      }
     },
     {
       "id": "evolution_feed",

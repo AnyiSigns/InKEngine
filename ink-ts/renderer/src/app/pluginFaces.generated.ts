@@ -19,6 +19,7 @@ export const PLUGIN_UI_FACES: UiFaceEntry[] = [
   { id: 'file_tree', type: 'file_tree', entry: '../../../plugins/ui_features/file_tree/faces/ui/index.tsx' },
   { id: 'top_bar', type: 'top_bar', entry: '../../../plugins/ui_features/top_bar/faces/ui/index.tsx' },
   { id: 'task_capsule', type: 'task_capsule', entry: '../../../plugins/ui_features/task_capsule/faces/ui/index.tsx' },
+  { id: 'agent_input', type: 'agent_input', entry: '../../../plugins/ui_features/agent_input/faces/ui/index.tsx' },
   { id: 'evolution_feed', type: 'evolution_feed', entry: '../../../plugins/ui_features/evolution_feed/faces/ui/index.tsx' },
   { id: 'mechanism_view', type: 'mechanism_view', entry: '../../../plugins/ui_features/mechanism_view/faces/ui/index.tsx' },
   { id: 'ledger_view', type: 'ledger_view', entry: '../../../plugins/ui_features/ledger_view/faces/ui/index.tsx' },
@@ -33,6 +34,7 @@ export function registerPluginFaces(): void {
   registerComponent('file_tree', (file_treeDefault as unknown) as PlainComponent);
   registerComponent('top_bar', (top_barDefault as unknown) as PlainComponent);
   registerComponent('task_capsule', (task_capsuleDefault as unknown) as PlainComponent);
+  registerComponent('agent_input', (agent_inputDefault as unknown) as PlainComponent);
   registerComponent('evolution_feed', (evolution_feedDefault as unknown) as PlainComponent);
   registerComponent('mechanism_view', (mechanism_viewDefault as unknown) as PlainComponent);
   registerComponent('ledger_view', (ledger_viewDefault as unknown) as PlainComponent);
@@ -45,6 +47,7 @@ import review_cardDefault from '../../../plugins/ui_features/review_card/faces/u
 import file_treeDefault from '../../../plugins/ui_features/file_tree/faces/ui/index.tsx';
 import top_barDefault from '../../../plugins/ui_features/top_bar/faces/ui/index.tsx';
 import task_capsuleDefault from '../../../plugins/ui_features/task_capsule/faces/ui/index.tsx';
+import agent_inputDefault from '../../../plugins/ui_features/agent_input/faces/ui/index.tsx';
 import evolution_feedDefault from '../../../plugins/ui_features/evolution_feed/faces/ui/index.tsx';
 import mechanism_viewDefault from '../../../plugins/ui_features/mechanism_view/faces/ui/index.tsx';
 import ledger_viewDefault from '../../../plugins/ui_features/ledger_view/faces/ui/index.tsx';

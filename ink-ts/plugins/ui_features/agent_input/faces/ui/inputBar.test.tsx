@@ -1,6 +1,6 @@
 import { describe, it, expect, vi } from 'vitest';
 import { render, screen, fireEvent } from '@testing-library/react';
-import { InputBar } from '@/app/input/InputBar';
+import { InputBar } from './InputBar';
 import type { ModelArchiveSnapshot } from '@/shared/backend/backendAdapter';
 
 describe('InputBar', () => {

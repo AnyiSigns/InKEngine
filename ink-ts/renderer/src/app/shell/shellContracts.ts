@@ -19,3 +19,10 @@ export interface RailSession {
 /** 审批决议（审批卡动作面，宿主接线 resume 管线）。 */
 export type ReviewResolution = 'accept' | 'reject' | 'edit' | 'terminate';
 
+/** 发送前路线预览展示面（agent_input 输入胶囊展示；宿主 route_plan 真调壳侧）。 */
+export interface RoutePlanResult {
+  chainLabel: string;
+  quota: number;
+  tier: string;
+}
+

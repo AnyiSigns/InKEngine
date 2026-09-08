@@ -10,7 +10,6 @@
 import type { ComponentType } from 'react';
 
 import { MessageStream } from '@/app/session/MessageStream';
-import { InputBar } from '@/app/input/InputBar';
 import type { ProductShellChrome } from '@/app/shell/productView';
 import type { InkMessage } from '@/shared/session/types';
 
@@ -51,37 +50,16 @@ const MessageListAdapter: ComponentType<Record<string, unknown>> = (props: Recor
   );
 };
 
-/** agent_input → InputBar（绑定 state.session 整快照；模式/流式随快照）。 */
-const AgentInputAdapter: ComponentType<Record<string, unknown>> = (props: Record<string, unknown>) => {
-  const product = productOf(props);
-  const bound = (props.bindValue as { streaming?: boolean; modeTier?: string } | undefined) ?? {};
-  const backend = product.backend as { available?: boolean } | null | undefined;
-  const streaming = product.streaming === true || bound.streaming === true;
-  return (
-    <InputBar
-      disabled={backend?.available === true && product.authorized !== true}
-      streaming={streaming}
-      models={product.models}
-      routePlan={product.routePlan}
-      agentModelId={product.agentModelId ?? null}
-      onAgentModelSelect={product.onAgentModelSelect ?? noop}
-      roundCount={product.roundCount ?? 0}
-      stepCount={product.stepCount ?? 0}
-      onSend={(text, attachments, model) => (product.onSend ?? noop)(text, attachments, model)}
-      onAbort={product.onAbort ?? noop}
-      onAttachments={(assets) => (product.onAttachments ?? noop)(assets)}
-      onRoutePlanPreview={product.onRoutePlanPreview ?? noop}
-    />
-  );
-};
+/** agent_input → InputBar：真面已随插件 plugins/ui_features/agent_input/faces/ui
+ *  同住（pluginFaces 注册），适配器删除（阶段 7b）。 */
 
 /** evolution_feed → EvolutionFeed / ledger_view → LedgerView / trajectory_view
  *  → TrajectoryView / mechanism_view → MechanismView / todo_view → TodoView：
  *  真面已随各自插件 faces/ui 同住（pluginFaces 注册），适配器删除（阶段 7b）。 */
 
-/** canonical 会话区适配器注册表（componentRegistry 白名单放行面；已真面化的叶子
- *  由 pluginFaces.generated.ts 注册，不再在此列）。 */
+/** canonical 会话区适配器注册表（agent_input/todo_view/evolution_feed/ledger_view/
+ *  trajectory_view/mechanism_view 已真面化随插件 faces/ui 同住，pluginFaces 注册；
+ *  剩 message_list 待 7b 尾段迁移）。 */
 export const sessionAdapterRegistry: Record<string, ComponentType<Record<string, unknown>>> = {
   message_list: MessageListAdapter,
-  agent_input: AgentInputAdapter,
 };

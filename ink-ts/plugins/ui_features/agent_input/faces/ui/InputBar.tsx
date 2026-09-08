@@ -15,6 +15,7 @@ import { ArrowUp, Brain, ChevronDown, Plus, Route, Sparkles, Square, Image, Vide
 import type { ModelArchiveRow, ModelArchiveSnapshot, ModelSelection } from '@/shared/backend/backendAdapter';
 import { useT } from '@/i18n/useT';
 import { fileToDataUrl, uploadThenAsset } from '@/shared/upload/fileAsset';
+import type { RoutePlanResult } from '@/app/shell/shellContracts';
 
 /** 多模态三态归一（壳侧档案标注 true/'true'/unknown）。 */
 function isMultimodal(m: ModelArchiveRow): boolean {
@@ -60,12 +61,6 @@ interface AttachmentAsset {
   mime: string;
   /** 服务端落盘路径（serve /upload 回填；宿主 doc.parse/工具取用）。 */
   path?: string;
-}
-
-export interface RoutePlanResult {
-  chainLabel: string;
-  quota: number;
-  tier: string;
 }
 
 interface InputBarProps {

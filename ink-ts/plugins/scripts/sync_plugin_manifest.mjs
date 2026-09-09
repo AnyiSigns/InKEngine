@@ -23,7 +23,7 @@
  *   从 plugins/endpoints/<id>/spec.json 聚合（每二进制 file + env 覆盖键），
  *   禁手工维护；hosts/lib/src/exec/binary.ts 据此按声明定位（替 binary.ts 手写表）。
  *
- * 消费方一律经派生视图取用：web dev 夹具（backend.ts）、host mcp.market、
+ * 消费方一律经派生视图取用：web dev 夹具（backend.ts）、hosts/web mcp 候选夹具、
  * tools_os 夹具生成（sync_tools_fixtures.mjs）、self_check data 门禁
  * （manifest）；host bridge 命令面（commands.generated.ts）；web 产品主壳
  * （ui.generated.json）；host recipe 界面白名单（ui_canonical.generated.ts）。

@@ -17,8 +17,16 @@ import { UIRenderer } from '@/renderer/bootRenderer';
 import type { UISpec } from '@/renderer/uiSpecTypes';
 import { useSessionState, useSessionActions } from '@app/state/sessionState';
 import { setActiveThreadId } from '@app/state/activeThread';
+import {
+  effectivePose,
+  loadDefaultPose,
+  loadPoseOverrides,
+  saveDefaultPose,
+  savePoseOverride,
+} from '@app/state/approvalPose';
 import type { ProductShellChrome } from '@app/shell/productView';
 import type { BackendAdapter, ModelArchiveSnapshot, SessionBranchTree } from '@/shared/backend/backendAdapter';
+import type { ApprovalPose } from '@/shared/backend/backendAdapter';
 import { submitAttachments, messagesFromHistory, type AttachmentAsset } from '@/shared/session/eventIngest';
 import type { ChannelHub, ThreadBucket } from '@/shared/session/channelHub';
 import { emptyThreadBucket } from '@/shared/session/channelHub';
@@ -28,6 +36,7 @@ import type { InkMessage, SimulationBranch } from '@/shared/session/types';
 import type { SpawnInstance } from '../../../plugins/ui_features/message_list/faces/ui/SpawnPanel';
 import type { TaskCapsuleData } from '../../../plugins/ui_features/task_capsule/faces/ui/types';
 import type { MainTab, ReviewResolution } from '@app/shell/shellContracts';
+import { derivePluginsCatalog } from '@app/pluginsCatalog';
 
 import uiLayout from '../../../plugins/ui.generated.json';
 
@@ -51,6 +60,25 @@ export default function App({ backend, appBackend, hub, sessionStore }: AppProps
   const [title, setTitle] = useState('新会话');
   const [tab, setTab] = useState<MainTab>('chat');
   const [openPanel, setOpenPanel] = useState<'none' | 'settings'>('none');
+
+  // 弹卡档位（输入框三档）：宿主默认 review + 会话覆盖（B2 只做 UI 与
+  // 会话级持久；引擎按档位裁定姿态注入 = B3）
+  const [defaultPose, setDefaultPose] = useState<ApprovalPose>(() => loadDefaultPose());
+  const [poseOverrides, setPoseOverrides] = useState<Record<string, ApprovalPose>>(() => loadPoseOverrides());
+  const approvalPose = effectivePose(defaultPose, poseOverrides, state.activeSessionId);
+  const handleApprovalPoseChange = useCallback(
+    (pose: ApprovalPose) => {
+      const activeId = state.activeSessionId;
+      if (activeId) {
+        savePoseOverride(activeId, pose);
+        setPoseOverrides((prev) => ({ ...prev, [activeId]: pose }));
+      } else {
+        saveDefaultPose(pose);
+        setDefaultPose(pose);
+      }
+    },
+    [state.activeSessionId],
+  );
 
   // 跨回合长任务数据源接线点：plan/spawn/tool 事件经 task_state 子通道归约，
   // 胶囊仅在长任务期间出现（task_capsule canonical 组件消费）。
@@ -176,7 +204,9 @@ export default function App({ backend, appBackend, hub, sessionStore }: AppProps
     model?: import('@/shared/backend/backendAdapter').ModelSelection,
   ) => {
     // 回合恒为组装：发送即从数据组装出本轮执行图（无模式参数，单一发送面）
-    void send(text, attachments, model);
+    // pose 随本轮发送携带（会话生效档 = 会话覆盖 ?? 宿主默认；B3 引擎按 pose
+    // 裁定审批姿态）
+    void send(text, attachments, model, approvalPose);
   };
 
   /** 会话窗口切换：从 perThread 桶恢复该会话的回合状态与消息流。 */
@@ -291,6 +321,7 @@ export default function App({ backend, appBackend, hub, sessionStore }: AppProps
   );
 
   const spec = uiLayout as unknown as UISpec;
+  const pluginsCatalog = useMemo(() => derivePluginsCatalog(), []);
   const roundSteps = hub.getSnapshot().roundSteps ?? [];
   const simulations = (hub.getSnapshot().simulations as SimulationBranch[]) || [];
   const roundCount = state.entries.filter((e) => e.kind === 'text' && e.role === 'user').length;
@@ -326,6 +357,8 @@ export default function App({ backend, appBackend, hub, sessionStore }: AppProps
     todoPending: todoState.pending,
     settingsOpen: openPanel === 'settings',
     autoApprovableTools: [],
+    approvalPose,
+    pluginsCatalog,
     onTabChange: (next: MainTab) => setTab(next),
     onTitleChange: (nextTitle: string) => {
       setTitle(nextTitle);
@@ -338,6 +371,7 @@ export default function App({ backend, appBackend, hub, sessionStore }: AppProps
     onAbort: abort,
     onAttachments: (assets: AttachmentAsset[]) => submitAttachments(hub, assets),
     onAgentModelSelect: handleAgentModelSelect,
+    onApprovalPoseChange: handleApprovalPoseChange,
     onSpawnSelect: (idx: number) => setSelectedSpawnIndex(idx),
     onSpawnSendInstruction: (text: string) => send(text, []),
     onBranchFromMessage: handleBranchFromMessage,

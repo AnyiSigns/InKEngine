@@ -1,3 +1,4 @@
+// gate: 超限(384 行) - llm_decider 单节点完整闭环（消息链/流式/工具回合/推理覆盖 seam 同文件，拆文件破坏执行时序可读性）
 /**
  * llm_decider 基础节点执行体（引擎内置：单数据节点内完成模型流式 + 工具回合）。
  *
@@ -37,6 +38,7 @@ import {
   Attachment,
   Message,
 } from '../../kernel/llm/messages.js';
+import { LLMParams } from '../../kernel/llm/base.js';
 import type { AsyncLLM } from '../../kernel/llm/_guard_types.js';
 import type { ToolPipeline } from '../../kernel/tool_pipeline/tool_pipeline.js';
 import type { ToolSpec } from '../../kernel/llm/tools.js';
@@ -46,11 +48,46 @@ import {
   ENGINE_STUB_REPLY,
   STATE_MESSAGES,
   STATE_REPLY,
+  STATE_ROUND_MODEL,
   STATE_TOOL_ROUNDS,
 } from './constants.js';
 import { type EngineNodeSeams, type _EngineNodeSeamsBox } from './seams.js';
 import { compose_llm_system } from './llm_system.js';
 import { build_read_projection, config_read_fields, llm_output_key } from './field_io.js';
+
+/** 每轮模型/推理覆盖形态（宿主随回合 state 种子，见 STATE_ROUND_MODEL）。 */
+interface _RoundModelOverride {
+  reasoning_effort?: string;
+  enable_thinking?: boolean;
+  thinking_budget?: number;
+}
+
+/** 从回合 state 读每轮推理覆盖 → LLMParams（无覆盖 = null，跟随模型默认）。
+ *  effort 原样携带（含 xhigh/max 等非标准档），off/关 等显式关闭也照传由
+ *  adapter 按协议映射；'auto' 哨兵在此归一为 null（不注入跟随默认）。 */
+function _round_reasoning_params(state: Record<string, unknown>): LLMParams | null {
+  const override = state[STATE_ROUND_MODEL];
+  if (override === null || typeof override !== 'object') return null;
+  const record = override as _RoundModelOverride;
+  const reasoning_effort =
+    typeof record.reasoning_effort === 'string' && record.reasoning_effort !== ''
+      ? record.reasoning_effort
+      : null;
+  const enable_thinking =
+    typeof record.enable_thinking === 'boolean' ? record.enable_thinking : null;
+  const thinking_budget =
+    typeof record.thinking_budget === 'number' && record.thinking_budget > 0
+      ? record.thinking_budget
+      : null;
+  if (reasoning_effort === null && enable_thinking === null && thinking_budget === null) {
+    return null;
+  }
+  return new LLMParams({
+    ...(reasoning_effort !== null ? { reasoning_effort } : {}),
+    ...(enable_thinking !== null ? { enable_thinking } : {}),
+    ...(thinking_budget !== null ? { thinking_budget } : {}),
+  });
+}
 
 /** 消息链/附件的持久化 JSON 形态（随 state 持久化，重入续跑防重复执行）。 */
 type StoredMessage = Record<string, unknown>;
@@ -154,12 +191,13 @@ async function _stream_turn(
   specs: readonly ToolSpec[],
   name: string,
   think_step_id: string,
+  params: LLMParams | null,
 ): Promise<{ text: string; calls: ToolCall[] }> {
   const parts: string[] = [];
   const deltas: unknown[] = [];
   const tools = specs.length > 0 ? [...specs] : null;
   let think_open = false;
-  for await (const chunk of llm.astream(messages, { tools, params: null })) {
+  for await (const chunk of llm.astream(messages, { tools, params })) {
     if (chunk.usage !== null && chunk.usage !== undefined && typeof ctx.account_usage === 'function') {
       ctx.account_usage(chunk.usage);
     }
@@ -276,6 +314,7 @@ export function make_llm_decider_factory(box: _EngineNodeSeamsBox): NodeFactory 
         ctx.state[output_field] = ENGINE_STUB_REPLY;
         return { [output_field]: ENGINE_STUB_REPLY };
       }
+      const roundParams = _round_reasoning_params(ctx.state);
       const messages = _seedMessages(
         ctx.state,
         input,
@@ -296,6 +335,7 @@ export function make_llm_decider_factory(box: _EngineNodeSeamsBox): NodeFactory 
           specs,
           node_name,
           think_step_id,
+          roundParams,
         );
         messages.push(
           assistant(turn.text, {

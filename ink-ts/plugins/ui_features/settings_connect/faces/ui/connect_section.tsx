@@ -1,9 +1,9 @@
 /**
  * 设置「连接」节：联网搜索 key 配置。
  *
- * MCP 市场挂载面在设置「市场」节（mcp.market/mount/unmount）；外部市场
- * 摄入（preview/add/remove）无真源不提供——本页不再承载市场管理入口。
- * 搜索 key 配置项（env INK_SEARCH_KEY 显式优先、设置档兜底），即改即存。
+ * MCP 服务启停/连接态在设置「插件」段（服务分组 = MCP 工具型插件，
+ * mcp.status/enable/disable，B5）；本页只承载搜索 key 配置项（env
+ * INK_SEARCH_KEY 显式优先、设置档兜底），即改即存。
  */
 
 import { useRef, useState } from 'react';

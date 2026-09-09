@@ -37,6 +37,7 @@ import type { ProductRecipeInit } from './recipe.js';
 import type { HostRetrievalDomain } from './retrieval/domain.js';
 import type { SyncEmbedderSeam } from './retrieval/sync_seam.js';
 import type { McpConnectStatus } from './mcp/assembly.js';
+import type { McpPluginService } from './mcp/plugin.js';
 
 export type {
   HostFaces,
@@ -74,6 +75,8 @@ export interface HostHandle {
   mcpManager: McpClientManager | null;
   /** MCP 内置 server 连接结果（连接失败只记诊断，fail-closed 不击穿 boot）。 */
   mcpStatus: McpConnectStatus[];
+  /** MCP 工具型插件装载服务（B5；null = plugins 源不可用未装配）。 */
+  mcpPlugins: McpPluginService | null;
   /** 幂等关停：Runtime.stop（拒新 → 等在途 → 关 MCP/LLM/存储 → host 关停钩子）
    *   → 检索域适配器收口。 */
   dispose(): Promise<void>;
@@ -147,6 +150,7 @@ export async function createHost(
     data_dir: resolved.data_dir,
     seed_dir: resolved.seed_dir,
     mcpManager: parts.mcpManager,
+    mcpPlugins: parts.mcpPlugins,
     gate,
   };
 
@@ -174,6 +178,7 @@ export async function createHost(
     deps.host = next.inkHost;
     deps.modelConfig = modelConfigHandles(next.inkHost);
     deps.mcpManager = next.mcpManager;
+    deps.mcpPlugins = next.mcpPlugins;
   };
 
   /** 重装配（restore 目录替换后调用）：台账重读 + 新装配 + 活引用切换。 */
@@ -225,6 +230,9 @@ export async function createHost(
     get mcpStatus(): McpConnectStatus[] {
       return parts.mcpStatus;
     },
+    get mcpPlugins(): McpPluginService | null {
+      return parts.mcpPlugins;
+    },
     dispose: async (): Promise<void> => {
       await parts.runtime.stop();
       await parts.retrieval.close();
@@ -235,6 +243,7 @@ export async function createHost(
 
 export type { HostMcpConfig, McpConnectStatus } from './mcp/assembly.js';
 export { assembleHostMcp } from './mcp/assembly.js';
+export type { McpPluginService } from './mcp/plugin.js';
 
 export type { BridgeContext, BridgeError, BridgeHandler, HostBridgeDeps, ModelConfigHandles } from './bridge/_types.js';
 export { BRIDGE_METHODS, buildBridge } from './bridge/index.js';

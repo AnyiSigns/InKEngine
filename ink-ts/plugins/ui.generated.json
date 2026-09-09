@@ -114,7 +114,7 @@
                         "kind": "component",
                         "type": "agent_input",
                         "props": {
-                          "note": "输入胶囊（发送/中止/附件/模型/推理档位）"
+                          "note": "输入胶囊（发送/中止/附件/模型/推理档位/弹卡档位）"
                         },
                         "bind": {
                           "channel": "state.session",

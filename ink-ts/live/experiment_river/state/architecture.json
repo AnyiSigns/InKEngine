@@ -1,0 +1,50 @@
+{
+  "version": 1,
+  "forms": {
+    "direct": {
+      "uses": 1,
+      "success": 1,
+      "fail": 0,
+      "tokens": 1646,
+      "ms": 13033
+    },
+    "delegate": {
+      "uses": 0,
+      "success": 0,
+      "fail": 0,
+      "tokens": 0,
+      "ms": 0
+    }
+  },
+  "prior": {
+    "direct": 0.9177,
+    "delegate": 0.5
+  },
+  "domains": {
+    "coding-cli-python": {
+      "uses": 1,
+      "success": 1,
+      "shortcut": false
+    }
+  },
+  "scopes": {
+    "main": {
+      "uses": 1,
+      "success": 1,
+      "note": "sampling"
+    },
+    "planner": {
+      "uses": 0,
+      "success": 0,
+      "note": "sampling"
+    },
+    "worker": {
+      "uses": 0,
+      "success": 0,
+      "note": "sampling"
+    }
+  },
+  "decisions": [
+    "direct:ok@coding-cli-python"
+  ]
+}

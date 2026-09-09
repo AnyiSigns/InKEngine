@@ -120,4 +120,12 @@ describe('Anthropic extended thinking 档位', () => {
     expect('thinking' in body).toBe(false);
     expect(body['temperature']).toBe(0.3);
   });
+
+  it('thinking_budget=16384 → thinking.budget_tokens 直设、temperature 不设', async () => {
+    const { llm, seen } = make_anthropic(() => ok_json(OK_BODY));
+    await llm.ainvoke([user('hi')], { params: new LLMParams({ thinking_budget: 16384 }) });
+    const body = body_of(seen);
+    expect(body['thinking']).toEqual({ type: 'enabled', budget_tokens: 16384 });
+    expect('temperature' in body).toBe(false);
+  });
 });

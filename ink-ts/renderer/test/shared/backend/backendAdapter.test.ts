@@ -89,7 +89,6 @@ describe('serve 通道适配器', () => {
     await backend.roundAbort('round-1');
     await backend.roundResume('thread-a', 'patch.rule', 'accept');
     await backend.capabilityPut({ max_tool_rounds: 8 });
-    await backend.securityTierOverridesSet({ shell_exec: 'review' });
     await backend.backupExport('C:\\backup.inkbk');
     await backend.backupPreview('C:\\backup.inkbk');
     await backend.backupRestore('C:\\backup.inkbk');
@@ -101,7 +100,6 @@ describe('serve 通道适配器', () => {
       'round_abort',
       'round_resume',
       'capability_put',
-      'security_tier_overrides_set',
       'backup_export',
       'backup_preview',
       'backup.restore',
@@ -112,8 +110,8 @@ describe('serve 通道适配器', () => {
     expect(calls[0].args).toEqual({ threadId: 'thread-a', roundId: 'round-1', text: '调研', autoAcceptReview: false });
     expect(calls[2].args).toEqual({ threadId: 'thread-a', key: 'patch.rule', decision: 'accept' });
     // 危险操作：backup.restore / recovery.reset 须携带固定 confirm 标记
-    expect(calls[7].args).toEqual({ path: 'C:\\backup.inkbk', confirm: 'backup-restore' });
-    expect(calls[10].args).toEqual({ confirm: 'factory-reset' });
+    expect(calls[6].args).toEqual({ path: 'C:\\backup.inkbk', confirm: 'backup-restore' });
+    expect(calls[9].args).toEqual({ confirm: 'factory-reset' });
   });
 
   it('出厂组件启停命令经 request 直调（点分方法 + disabled 直收）', async () => {
@@ -133,8 +131,8 @@ describe('serve 通道适配器', () => {
     await backend.modelsRefresh({ base_url: 'http://x', models: [] });
     await backend.modelsConfigPut({ providers: [] });
     await backend.openDirectoryDialog({ title: '选目录', directory: true, multiple: false });
-    await backend.mcpMarketStatus();
-    await backend.mcpMarketUnmount('market.fs_access');
+    await backend.mcpPluginStatus();
+    await backend.mcpPluginDisable('market.fs_access');
     await backend.knowledgeList(true);
     await backend.knowledgeExport();
     await backend.memoryList();
@@ -147,8 +145,8 @@ describe('serve 通道适配器', () => {
       'models_refresh',
       'models_config_put',
       'dialog.open_directory',
-      'mcp.market',
-      'mcp.unmount',
+      'mcp.status',
+      'mcp.disable',
       'knowledge.list',
       'knowledge.export',
       'memory.list',
@@ -162,7 +160,7 @@ describe('serve 通道适配器', () => {
     expect(calls[3].args).toEqual({ config: { providers: [] } });
     expect(calls[4].args).toEqual({ options: { title: '选目录', directory: true, multiple: false } });
     expect(calls[5].args).toEqual({});
-    expect(calls[6].args).toEqual({ name: 'market.fs_access' });
+    expect(calls[6].args).toEqual({ id: 'market.fs_access' });
     expect(calls[7].args).toEqual({ args: { includeArchived: true } });
     expect(calls[8].args).toEqual({});
     expect(calls[9].args).toEqual({});
@@ -171,14 +169,12 @@ describe('serve 通道适配器', () => {
     expect(calls[12].args).toEqual({ limit: 100 });
   });
 
-  it('mcp.mount config 组装（stdio command/url 透传）', async () => {
+  it('mcp.enable id 直调（插件启停面）', async () => {
     const { channel, calls } = mockChannel();
     const backend = createServeBackend(channel);
-    await backend.mcpMarketMount({ id: 'market.fs_access', transport: 'stdio', command: 'npx', args: ['-y', 'x'] });
-    expect(calls[0].cmd).toBe('mcp.mount');
-    expect(calls[0].args).toEqual({
-      config: { id: 'market.fs_access', transport: 'stdio', command: 'npx', args: ['-y', 'x'] },
-    });
+    await backend.mcpPluginEnable('market.fs_access');
+    expect(calls[0].cmd).toBe('mcp.enable');
+    expect(calls[0].args).toEqual({ id: 'market.fs_access' });
   });
 
   it('模型配置旧扁平面命令名不回归（get/reload 直调、put/refresh 带 config）', async () => {
@@ -240,7 +236,6 @@ describe('远端会话存储（真实数据源注入 mock 后端）', () => {
       workspaceRevoke: vi.fn(),
       capabilityGet: vi.fn(),
       capabilityPut: vi.fn(),
-      securityTierOverridesSet: vi.fn(),
       backupExport: vi.fn(),
       backupPreview: vi.fn(),
       backupRestore: vi.fn(),

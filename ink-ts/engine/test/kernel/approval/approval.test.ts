@@ -1,3 +1,4 @@
+// gate: 超限(382 行) - approval 全决议分支/超时/pose 姿态用例共用同一断言装置，整链回归可读性优先
 /**
  * approval 挂卡审批移植对标测试（语义逐点对标 ink_engine/tests/test_approval.py
  * 的非引擎用例）：全决议分支（accept/edit/reject/terminate/auto）、策略钩子
@@ -22,7 +23,10 @@ import {
   DECISION_EDIT,
   DECISION_REJECT,
   DECISION_TERMINATE,
+  POSE_AUTO,
+  POSE_DENY,
   DefaultInterruptPolicy,
+  approve_batch,
   approve_before_execute,
 } from '../../../src/kernel/approval/approval.js';
 import type { ApprovalInterruptContext, InterruptPolicy } from '../../../src/kernel/approval/approval.js';
@@ -32,6 +36,12 @@ const ACTION_WRITE: Record<string, unknown> = {
   args: { path: 'a.md' },
   summary: '写入 a.md',
 };
+
+const BATCH_ACTIONS: Record<string, unknown>[] = [
+  ACTION_WRITE,
+  { tool: 'update_entity', args: { name: '林晚' }, summary: '更新角色' },
+  { tool: 'write_file', args: { path: 'b.md' }, summary: '写入 b.md' },
+];
 
 /** 模拟引擎 interrupt 原语的挂起信号（Python 侧 InterruptSignal 形态）。 */
 class HungSignal extends Error {
@@ -273,5 +283,113 @@ describe('gate 卡形态', () => {
     expect(card['node_id']).toBe('custom_node');
     expect(card['review_type']).toBe('gate');
     expect(card['expires_at']).toBe(1060);
+  });
+});
+
+describe('审批姿态（pose）语义', () => {
+  const needsReview = new DefaultInterruptPolicy(); // 空名单：全量挂起
+
+  it('pose=auto：需挂起调用免弹直过（auto，不挂起，source=pose）', async () => {
+    const ctx = new FakeCtx(); // 无注入：挂起会抛 HungSignal——pose 直过不应触发
+    const decision = await approve_before_execute(ctx, 'gate', ACTION_WRITE, null, needsReview, {
+      pose: POSE_AUTO,
+    });
+    expect(decision.decision).toBe(DECISION_AUTO);
+    expect(decision.source).toBe('pose');
+    expect(ctx.hung).toBeNull();
+  });
+
+  it('pose=deny：需挂起调用免问直拒（reject，不挂起，source=pose）', async () => {
+    const ctx = new FakeCtx();
+    const decision = await approve_before_execute(ctx, 'gate', ACTION_WRITE, null, needsReview, {
+      pose: POSE_DENY,
+    });
+    expect(decision.decision).toBe(DECISION_REJECT);
+    expect(decision.source).toBe('pose');
+    expect(decision.reason ?? '').toContain('deny');
+    expect(ctx.hung).toBeNull();
+  });
+
+  it('pose=review（缺省/显式）：现状不变——policy 直过名单仍直过，其余挂起', async () => {
+    // review 缺省：挂起卡原样抛 HungSignal
+    const ctx = new FakeCtx();
+    await expect(approve_before_execute(ctx, 'gate', ACTION_WRITE, null, needsReview)).rejects.toBeInstanceOf(HungSignal);
+    expect(ctx.hung).not.toBeNull();
+    // policy 直过名单（auto_approve_key）不受 pose=deny 收回
+    const policy = new DefaultInterruptPolicy(new Set(['gate']));
+    const denyCtx = new FakeCtx();
+    const auto = await approve_before_execute(denyCtx, 'gate', ACTION_WRITE, null, policy, {
+      pose: POSE_DENY,
+    });
+    expect(auto.decision).toBe(DECISION_AUTO);
+    expect(auto.source).toBe('policy');
+    expect(denyCtx.hung).toBeNull();
+  });
+
+  it('pose 非法值回落 review（fail-closed：挂起照旧）', async () => {
+    const ctx = new FakeCtx();
+    await expect(
+      approve_before_execute(ctx, 'gate', ACTION_WRITE, null, needsReview, { pose: 'bogus' }),
+    ).rejects.toBeInstanceOf(HungSignal);
+    expect(ctx.hung).not.toBeNull();
+  });
+
+  it('approve_batch pose=auto：整批免弹直过不挂起', async () => {
+    const ctx = new FakeCtx();
+    const decisions = await approve_batch(ctx, 'gate', BATCH_ACTIONS, null, needsReview, {
+      pose: POSE_AUTO,
+    });
+    expect(decisions).toHaveLength(BATCH_ACTIONS.length);
+    for (const d of decisions) {
+      expect(d.decision).toBe(DECISION_AUTO);
+      expect(d.source).toBe('pose');
+    }
+    expect(ctx.hung).toBeNull();
+  });
+
+  it('approve_batch pose=deny：整批免问直拒不挂起', async () => {
+    const ctx = new FakeCtx();
+    const decisions = await approve_batch(ctx, 'gate', BATCH_ACTIONS, null, needsReview, {
+      pose: POSE_DENY,
+    });
+    expect(decisions).toHaveLength(BATCH_ACTIONS.length);
+    for (const d of decisions) {
+      expect(d.decision).toBe(DECISION_REJECT);
+      expect(d.source).toBe('pose');
+    }
+    expect(ctx.hung).toBeNull();
+  });
+
+  it('approve_batch 混合批次：policy 预授权动作不被 pose 收回/误标（逐动作语义）', async () => {
+    const mixedPolicy: InterruptPolicy = {
+      should_approve: (_key, action) => action['tool'] !== 'read_file',
+      timeout_for: () => null,
+    };
+    const readAction = { tool: 'read_file', args: {} };
+    const writeAction = { tool: 'write_file', args: {} };
+
+    // deny 档：预授权 read 保持 policy 直过，仅需审批 write 被拒绝
+    const denyDecisions = await approve_batch(
+      new FakeCtx(),
+      'gate',
+      [readAction, writeAction],
+      null,
+      mixedPolicy,
+      { pose: POSE_DENY },
+    );
+    expect(denyDecisions[0]).toMatchObject({ decision: DECISION_AUTO, source: 'policy' });
+    expect(denyDecisions[1]).toMatchObject({ decision: DECISION_REJECT, source: 'pose' });
+
+    // auto 档：预授权 read 保持 policy 直过，需审批 write 走 pose 直过
+    const autoDecisions = await approve_batch(
+      new FakeCtx(),
+      'gate',
+      [readAction, writeAction],
+      null,
+      mixedPolicy,
+      { pose: POSE_AUTO },
+    );
+    expect(autoDecisions[0]).toMatchObject({ decision: DECISION_AUTO, source: 'policy' });
+    expect(autoDecisions[1]).toMatchObject({ decision: DECISION_AUTO, source: 'pose' });
   });
 });

@@ -5,7 +5,7 @@
  * 职责：
  * - 工具面板：tools.full（全量视图 + baseline/approved/enabled 消费旗标）、
  *   capability.*（auto 审批/档位登记/回合上限）、ui_components 启停；
- * - MCP 市场：mcp.market/mount/unmount（seed 单源；preview/add/remove 无真源）；
+ * - MCP 工具型插件：mcp.status/enable/disable（plugins/mcp 真源目录 + 运行态）；
  * - 工作区授权：workspace.state/set/revoke + mount.add + 原生目录选择；
  * - 界面编辑器（W2 前）：ui_spec.* 无真源，仅 dev 夹具承载（生产标注开发模式）。
  *
@@ -13,16 +13,14 @@
  * 仅挂载/授权类操作在无宿主时降级为本地状态记录。
  */
 
-import { createBackend, type BackendAdapter, type ToolFullView, type McpMarketData } from '@/shared/backend/backendAdapter';
+import { createBackend, type BackendAdapter, type ToolFullView, type McpPluginStatusData, type McpPluginOutcome } from '@/shared/backend/backendAdapter';
 import { setUiComponentsDisabled } from '@/renderer/componentRegistry';
 import { logger } from '@/shared/logger';
 import type { UISpec } from '@/renderer/uiSpecTypes';
 
 import { isFixtureMode } from './wiring/env';
 
-import type { McpMountOutcome } from '@/shared/backend/backendAdapter';
-
-// 插件源派生视图（生成物禁手改）：tools/mcp_market 聚合 = 工具表行 + 市场视图（真源 plugins/<kind>/<id>/spec.json）。
+// 插件源派生视图（生成物禁手改）：mcp 候选（dev 夹具取 plugins/mcp/<id>/spec.json 的派生视图）。
 import pluginManifest from '../../../../plugins/manifest.json';
 // 产品主壳布局（真源 plugins/ui_features/*/spec.json → 装配生成物 ui.generated.json）。
 import uiLayout from '../../../../plugins/ui.generated.json';
@@ -87,27 +85,16 @@ export class AppBackend {
     }
   }
 
-  /** 能力记录读取（capability.get：auto 审批勾选 + 档位覆盖 + 回合工具上限）。 */
-  async getCapability(): Promise<{
-    autoApproveTools: string[];
-    autoApproveAllReview: boolean;
-    tierOverrides: Record<string, string>;
-    maxToolRounds?: number;
-  }> {
-    if (!this.backend?.available) {
-      return { autoApproveTools: [], autoApproveAllReview: false, tierOverrides: {} };
-    }
+  /** 回合工具上限读取（capability.get max_tool_rounds；B4 后权限矩阵/自动审批
+   *  旧 UI 退役，capability 面只保留回合上限作工具参数）。 */
+  async getMaxToolRounds(): Promise<number | undefined> {
+    if (!this.backend?.available) return undefined;
     try {
       const cap = await this.backend.capabilityGet();
-      return {
-        autoApproveTools: Array.isArray(cap.auto_approve_tools) ? cap.auto_approve_tools : [],
-        autoApproveAllReview: cap.auto_approve_all_review === true,
-        tierOverrides: cap.tier_overrides && typeof cap.tier_overrides === 'object' ? (cap.tier_overrides as Record<string, string>) : {},
-        maxToolRounds: typeof cap.max_tool_rounds === 'number' ? cap.max_tool_rounds : undefined,
-      };
+      return typeof cap.max_tool_rounds === 'number' ? cap.max_tool_rounds : undefined;
     } catch (err) {
       logger.warn('app', '读取能力记录失败', { err: String(err) });
-      return { autoApproveTools: [], autoApproveAllReview: false, tierOverrides: {} };
+      return undefined;
     }
   }
 
@@ -126,54 +113,23 @@ export class AppBackend {
     }
   }
 
-  /** 逐工具档位覆盖写入（capability.tier.set 登记面；白名单值 allow/review）。 */
-  async setTierOverrides(overrides: Record<string, string>): Promise<{ ok: boolean; error?: string }> {
-    if (!this.backend?.available) {
-      logger.info('app', '档位覆盖设置（dev 回退）', { overrides });
-      return { ok: true };
-    }
-    try {
-      await this.backend.securityTierOverridesSet(overrides);
-      return { ok: true };
-    } catch (err) {
-      logger.warn('app', '档位覆盖设置失败', { err: String(err) });
-      return { ok: false, error: String(err) };
-    }
-  }
-
-  /** 自动审批写入（capability.put：auto_approve_tools + auto_approve_all_review）。 */
-  async setAutoApprove(tools: string[], allReview: boolean): Promise<{ ok: boolean; error?: string }> {
-    if (!this.backend?.available) {
-      logger.info('app', '自动审批设置（dev 回退）', { tools, allReview });
-      return { ok: true };
-    }
-    try {
-      await this.backend.capabilityPut({ auto_approve_tools: tools, auto_approve_all_review: allReview });
-      return { ok: true };
-    } catch (err) {
-      logger.warn('app', '自动审批设置失败', { err: String(err) });
-      return { ok: false, error: String(err) };
-    }
-  }
-
-  /** MCP 市场数据（mcp.market 单源 + mounted 连接态；宿主不可用回落种子夹具）。 */
-  async getMcpMarket(): Promise<McpMarketData> {
+  /** MCP 工具型插件状态（mcp.status：候选清单 + 启用/连接/工具数；宿主
+   *  不可用回落种子夹具 = 出厂候选零启用）。 */
+  async getMcpPlugins(): Promise<McpPluginStatusData> {
     if (this.backend?.available) {
       try {
-        return await this.backend.mcpMarketStatus();
+        return await this.backend.mcpPluginStatus();
       } catch (err) {
-        logger.warn('app', '获取 MCP 市场失败', { err: String(err) });
+        logger.warn('app', '获取 MCP 插件状态失败', { err: String(err) });
       }
     }
     if (!isFixtureMode()) {
-      return { source: '', premounted: false, mount_policy: {}, servers: [] };
+      return { source: '', servers: [] };
     }
-    const market = (pluginManifest as { mcp_market?: { servers?: unknown[]; premounted?: boolean } }).mcp_market;
+    const market = (pluginManifest as { mcp_market?: { servers?: unknown[] } }).mcp_market;
     const seed = market?.servers ?? [];
     return {
       source: '',
-      premounted: market?.premounted === true,
-      mount_policy: {},
       servers: seed.map((s) => {
         const row = s as Record<string, unknown>;
         return {
@@ -187,44 +143,40 @@ export class AppBackend {
           risk: typeof row['risk'] === 'string' ? row['risk'] : undefined,
           risk_note: typeof row['risk_note'] === 'string' ? row['risk_note'] : undefined,
           category: typeof row['category'] === 'string' ? row['category'] : undefined,
-          credentials: { required: false, note: '' },
-          mounted: false,
+          enabled: false,
+          connected: false,
+          tool_count: 0,
+          error: null,
         };
       }),
     };
   }
 
-  /** 市场服务挂载（mcp.mount：config 由条目 + 用户 command/url 覆盖组成）。 */
-  async mountMcp(server: {
-    id: string;
-    transport?: string;
-    command?: string | null;
-    url?: string | null;
-    args?: string[];
-  }): Promise<McpMountOutcome> {
+  /** 启用 MCP 工具型插件（mcp.enable：连接 + 导入 + 注册 + 台账；服务行按钮）。 */
+  async mcpPluginEnable(id: string): Promise<McpPluginOutcome> {
     if (!this.backend?.available) {
-      logger.info('app', 'MCP 挂载（dev 回退）', { serverId: server.id });
-      return { ok: true, server_id: server.id, status: 'mounted' };
+      logger.info('app', 'MCP 插件启用（dev 回退）', { id });
+      return { ok: true, server_id: id, transport: '', enabled: true, connected: true, tool_count: 0 };
     }
     try {
-      return await this.backend.mcpMarketMount(server);
+      return await this.backend.mcpPluginEnable(id);
     } catch (err) {
-      logger.warn('app', 'MCP 挂载失败', { serverId: server.id, err: String(err) });
-      return { ok: false, server_id: server.id, status: 'mount_failed', error: String(err) };
+      logger.warn('app', 'MCP 插件启用失败', { id, err: String(err) });
+      return { ok: false, server_id: id, transport: '', enabled: false, connected: false, tool_count: 0, error: String(err) };
     }
   }
 
-  /** 市场服务取消挂载（mcp.unmount）。 */
-  async unmountMcp(serverId: string): Promise<McpMountOutcome> {
+  /** 停用 MCP 工具型插件（mcp.disable：注销 + 断连 + 台账摘除）。 */
+  async mcpPluginDisable(id: string): Promise<McpPluginOutcome> {
     if (!this.backend?.available) {
-      logger.info('app', 'MCP 卸载（dev 回退）', { serverId });
-      return { ok: true, server_id: serverId, status: 'unmounted' };
+      logger.info('app', 'MCP 插件停用（dev 回退）', { id });
+      return { ok: true, server_id: id, transport: '', enabled: false, connected: false, tool_count: 0 };
     }
     try {
-      return await this.backend.mcpMarketUnmount(serverId);
+      return await this.backend.mcpPluginDisable(id);
     } catch (err) {
-      logger.warn('app', 'MCP 卸载失败', { serverId, err: String(err) });
-      return { ok: false, server_id: serverId, status: 'unmount_failed', error: String(err) };
+      logger.warn('app', 'MCP 插件停用失败', { id, err: String(err) });
+      return { ok: false, server_id: id, transport: '', enabled: false, connected: false, tool_count: 0, error: String(err) };
     }
   }
 

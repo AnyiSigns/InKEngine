@@ -7,7 +7,7 @@
   "data": {
     "tool": {
       "name": "propose_mcp_mount",
-      "description": "行为意图：对话式安装入口——地址解析→McpServerConfig 推导→vetting 核对→审批卡预览→L2 批准→补丁链挂载（可回退）；只做提案，不直接执行。\n\n使用时机：用户要求安装市场条目/git 仓库/npm 包形式的 MCP/插件时；浏览 mcp 市场（mcp.market 视图）之后决定挂载时。\n\n取舍与替代选项：直接执行挂载——不存在此路径（挂载必须经审批链，防匿名插件注入）；卸载——补丁链回退；本工具=唯一「走流程」入口，提案卡由用户拍板。\n\n参数语义：command=固定值 propose_mcp_mount（端点操作判定同源，调用方恒传）；address=插件地址（市场条目 id/git 仓库/npm 包名）。\n\n边界与协作：挂载后走 vetting→观察→L2 审批转正→补丁链可回退；出厂零预挂第三方；执行器由宿主注册（挂载接线）；提案不落链，批准后才挂载。",
+      "description": "行为意图：对话式安装入口——地址解析→McpServerConfig 推导→vetting 核对→审批卡预览→L2 批准→补丁链挂载（可回退）；只做提案，不直接执行。\n\n使用时机：用户要求安装指定地址/git 仓库/npm 包形式的 MCP/插件时；浏览 plugins/mcp 候选清单或经指定安装（url/command）登记后决定启用时。\n\n取舍与替代选项：直接执行挂载——不存在此路径（挂载必须经审批链，防匿名插件注入）；卸载——补丁链回退；本工具=唯一「走流程」入口，提案卡由用户拍板。\n\n参数语义：command=固定值 propose_mcp_mount（端点操作判定同源，调用方恒传）；address=插件地址（plugins/mcp 候选 id/git 仓库/npm 包名）。\n\n边界与协作：挂载后走 vetting→观察→L2 审批转正→补丁链可回退；出厂零预挂第三方；执行器由宿主注册（装载接线）；提案不落链，批准后才挂载。",
       "parameters": {
         "type": "object",
         "properties": {
@@ -20,7 +20,7 @@
           },
           "address": {
             "type": "string",
-            "description": "插件地址（市场条目 id / git 仓库 / npm 包名）"
+            "description": "插件地址（plugins/mcp 候选 id / git 仓库 / npm 包名）"
           }
         },
         "required": [

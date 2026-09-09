@@ -133,8 +133,8 @@ export function MessageStream({
         )}
         {feedRows(entries, openSpawnPanel)}
         {simulations && simulations.length > 0 && <SimulationCard branches={simulations} />}
+        {pulseText && <PulseLine text={pulseText} color={pulseColor} />}
       </div>
-      {pulseText && <PulseLine text={pulseText} color={pulseColor} />}
       {spawnInstances && spawnInstances.length > 0 && (
         <SpawnPanel
           open={spawnPanelOpen}

@@ -3,7 +3,7 @@
  *
  * seed_dir 优先：目录内直接含 manifest.json；缺省 = 沿模块目录（host 包位置）
  * 向上探测 `plugins/manifest.json`（深度上限 PROBE_DEPTH）。找不到 = null，
- * 调用方决定语义（mcp.market 报不可用；host logic-face loader 降级为空集）。
+ * 调用方决定语义（mcp 域报不可用；host logic-face loader 降级为空集）。
  */
 
 import { readFileSync } from 'node:fs';

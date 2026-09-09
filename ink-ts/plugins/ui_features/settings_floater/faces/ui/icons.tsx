@@ -12,6 +12,7 @@ import {
   Eye,
   FileClock,
   Network,
+  Package,
   PencilRuler,
   PlugZap,
   Server,
@@ -35,6 +36,7 @@ const ICONS: Record<string, LucideIcon> = {
   database: Database,
   eye: Eye,
   file_clock: FileClock,
+  package: Package,
 };
 
 export function sectionIcon(icon: string | undefined, label: string): ReactNode {

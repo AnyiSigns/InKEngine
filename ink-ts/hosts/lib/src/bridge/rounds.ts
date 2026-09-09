@@ -19,7 +19,10 @@ import type { RunTaskHandle, Storage, DisplayMessage } from '@ink-ts/engine';
 import {
   DisplayStreamCollector,
   STATE_MESSAGES,
+  STATE_ROUND_MODEL,
+  STATE_ROUND_POSE,
   THREAD_SKELETON_STATE_KEY,
+  isApprovalPose,
   project_history_baseline,
   user,
 } from '@ink-ts/engine';
@@ -39,6 +42,19 @@ interface RoundParams {
   trace_id?: string | null;
   /** 附件载荷（image/video/document；document 文本经 doc 执行体注入）。 */
   attachments?: unknown;
+  /** 每轮模型选择（model_id/provider 回声 + 推理档位覆盖）。推理字段随回合
+   *  state 的 round_model 键带往引擎 llm_decider，构造 LLMParams 生效。 */
+  model?: {
+    provider?: string;
+    model_id?: string;
+    reasoning_effort?: string;
+    enable_thinking?: boolean;
+    thinking_budget?: number;
+  };
+  /** 审批姿态（auto/review/deny；缺省 = review 现行为）。随回合 state 的
+   *  round_pose 键带往引擎：tool_pipeline 在审批/门禁处按 pose 裁定（auto
+   *  免弹直过+缺准入会话内授予 / deny 免问直拒；机制校验不受影响）。 */
+  pose?: string;
 }
 
 /** rounds.send 参数校验。 */
@@ -53,7 +69,47 @@ function asParams(raw: unknown): RoundParams {
   if (params.attachments !== undefined && !Array.isArray(params.attachments)) {
     throw new BridgeError('rounds.send attachments 须为数组', 'invalid_params');
   }
+  if (params.model !== undefined) {
+    if (typeof params.model !== 'object' || params.model === null) {
+      throw new BridgeError('rounds.send model 须为对象', 'invalid_params');
+    }
+    const model = params.model;
+    if (
+      (model.model_id !== undefined && typeof model.model_id !== 'string')
+      || (model.provider !== undefined && typeof model.provider !== 'string')
+      || (model.reasoning_effort !== undefined && typeof model.reasoning_effort !== 'string')
+      || (model.enable_thinking !== undefined && typeof model.enable_thinking !== 'boolean')
+      || (model.thinking_budget !== undefined && typeof model.thinking_budget !== 'number')
+    ) {
+      throw new BridgeError('rounds.send model 字段类型不合法', 'invalid_params');
+    }
+  }
+  if (params.pose !== undefined && params.pose !== null && !isApprovalPose(params.pose)) {
+    throw new BridgeError('rounds.send pose 须为 auto/review/deny', 'invalid_params');
+  }
   return params;
+}
+
+/** 每轮推理覆盖 → 引擎 round_model 键（只带显式推理选择；model_id/provider 是
+ *  回声不参与 llm 参数；auto 哨兵 = undefined 不携带 → 引擎回落默认）。 */
+function roundModelState(model: NonNullable<RoundParams['model']>): Record<string, unknown> | null {
+  const out: Record<string, unknown> = {};
+  if (model.reasoning_effort !== undefined && model.reasoning_effort !== '') {
+    out['reasoning_effort'] = model.reasoning_effort;
+  }
+  if (model.enable_thinking !== undefined) out['enable_thinking'] = model.enable_thinking;
+  if (model.thinking_budget !== undefined && model.thinking_budget > 0) {
+    out['thinking_budget'] = model.thinking_budget;
+  }
+  return Object.keys(out).length > 0 ? out : null;
+}
+
+/** 每轮审批姿态 → 引擎 round_pose 键（auto/deny 才携带；review/缺省 = 引擎
+ *  缺省语义，不落键保持零漂移）。 */
+function roundPoseState(pose: string | null | undefined): Record<string, unknown> | null {
+  if (pose === undefined || pose === null) return null;
+  if (pose === 'review') return null;
+  return { [STATE_ROUND_POSE]: pose };
 }
 
 /** 默认 id（进程内短 id；跨进程审计用 trace_id 自定）。 */
@@ -305,6 +361,10 @@ function buildDisplayMessages(input: string, collected: readonly DisplayMessage[
     // 骨架种子（引擎 _seed_skeleton 优先沿种子推进）；回合成功收尾后清除——
     // 失败/中止保留草稿供重试（不丢声明式修改意图）。
     const state = seedState(prepared);
+    const roundModel = params.model !== undefined ? roundModelState(params.model) : null;
+    if (roundModel !== null) state[STATE_ROUND_MODEL] = roundModel;
+    const roundPose = roundPoseState(params.pose);
+    if (roundPose !== null) state[STATE_ROUND_POSE] = roundPose[STATE_ROUND_POSE];
     const draft = await sessions.peek_skeleton_draft(thread_id);
     const hasDraft = draft !== null;
     if (hasDraft) state[THREAD_SKELETON_STATE_KEY] = draft;

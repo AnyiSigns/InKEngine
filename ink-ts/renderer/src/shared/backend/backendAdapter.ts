@@ -120,8 +120,8 @@ export interface ToolFullView {
   tools: ToolFullRow[];
 }
 
-/** MCP 市场服务条目（plugins mcp_market 视图结构 + mounted 连接态）。 */
-export interface McpMarketServerView {
+/** MCP 工具型插件服务行（plugins/mcp/<id>/spec.json 派生 + 运行态）。 */
+export interface McpPluginServerView {
   id: string;
   name: string;
   source: string;
@@ -132,25 +132,30 @@ export interface McpMarketServerView {
   risk?: string;
   risk_note?: string;
   category?: string;
-  credentials?: { required: boolean; note: string };
-  mounted: boolean;
+  /** 已启用（台账启用集命中）。 */
+  enabled: boolean;
+  /** 会话已连接（stdio 进程在场）。 */
+  connected: boolean;
+  /** 已导入工具数。 */
+  tool_count: number;
+  error?: string | null;
 }
 
-/** mcp.market 出参（seed 市场单源 + 每 server 连接态）。 */
-export interface McpMarketData {
+/** mcp.status 出参（候选清单 + 运行态；真源目录扫描）。 */
+export interface McpPluginStatusData {
   source: string;
-  premounted: boolean;
-  mount_policy: Record<string, unknown>;
-  servers: McpMarketServerView[];
+  servers: McpPluginServerView[];
 }
 
-/** MCP 挂载/卸载结果信封（mount 带 tool_count；unmount 带 connected）。 */
-export interface McpMountOutcome {
+/** 启停结果信封（enable 带已导入工具名；disable 摘除后 tool_count=0）。 */
+export interface McpPluginOutcome {
   ok: boolean;
-  server_id?: string;
-  connected?: boolean;
-  tool_count?: number;
-  status?: string;
+  server_id: string;
+  transport: string;
+  enabled: boolean;
+  connected: boolean;
+  tool_count: number;
+  tools?: string[];
   error?: string | null;
 }
 
@@ -158,8 +163,21 @@ export interface McpMountOutcome {
 export interface ModelSelection {
   provider?: string;
   model_id: string;
-  reasoning_effort?: 'off' | 'low' | 'medium' | 'high';
+  reasoning_effort?: string;
+  /** 推理开关（boolean 语义模型；未设 = 不注入跟随模型默认）。 */
+  enable_thinking?: boolean;
+  /** 推理 token 预算（budget 语义模型；未设 = 不注入跟随模型默认）。 */
+  thinking_budget?: number;
 }
+
+/**
+ * 弹卡档位（对话输入框三档，统一治理「需确认调用」的裁定姿态）：
+ * - review（默认）：需确认调用一律弹卡；
+ * - auto：免弹直过，缺准入自动授予（自动转正，审计 + 可回退）；
+ * - deny：免问直拒。
+ * 机制校验（沙箱边界/越界/L2 vetting）不是档位，任何档都执行不跳过。
+ */
+export type ApprovalPose = 'auto' | 'review' | 'deny';
 
 /** 模型档案条目（壳侧 model_archive.sqlite 记录形态；多模态三态）。 */
 export interface ModelArchiveRow {
@@ -168,6 +186,12 @@ export interface ModelArchiveRow {
   provider_id?: string;
   context_window?: number;
   multimodal?: boolean | 'true' | 'false' | 'unknown';
+  /** 推理能力（官配厂商档案透传；未声明/未知 = undefined）。 */
+  reasoning?: boolean;
+  reasoning_style?: 'effort' | 'boolean' | 'budget' | 'none';
+  reasoning_efforts?: string[];
+  /** budget 语义的可选 token 预算（模型声明；未声明 = 不显示 budget 控件）。 */
+  reasoning_budget?: number[];
   metadata?: Record<string, unknown>;
   discovered_at?: string;
 }
@@ -250,6 +274,7 @@ export interface BackendAdapter {
     autoAccept?: boolean,
     attachments?: Array<{ kind: string; url: string; path?: string; name?: string; mime?: string }>,
     model?: ModelSelection,
+    pose?: string,
   ): Promise<RoundResult>;
   roundAbort(roundId: string): Promise<{ aborted: boolean }>;
   roundResume(
@@ -292,8 +317,6 @@ export interface BackendAdapter {
     ui_spec?: unknown;
   }>;
   capabilityPut(record: Record<string, unknown>): Promise<unknown>;
-  /** 逐工具档位覆盖（权限矩阵写面 → capability.tier.set 登记面）。 */
-  securityTierOverridesSet(overrides: Record<string, string>): Promise<unknown>;
   backupExport(dest: string): Promise<{ entries: number; size: number; has_db: boolean }>;
   backupPreview(path: string): Promise<BackupPreview>;
   /** 备份恢复（confirm 标记 'backup-restore' 随调下发，宿主 fail-closed）。 */
@@ -317,16 +340,10 @@ export interface BackendAdapter {
   /** 出厂界面组件启停状态（factory/disabled/active 三清单；组件 tab 数据源）。 */
   uiComponentsGet(): Promise<{ factory: string[]; disabled: string[]; active: string[] }>;
   uiComponentsSetDisabled(disabled: string[]): Promise<{ disabled: string[] }>;
-  // MCP 市场（seed 单源浏览 + 挂载/卸载；preview/add/remove 无真源不提供）
-  mcpMarketStatus(): Promise<McpMarketData>;
-  mcpMarketMount(config: {
-    id: string;
-    transport?: string;
-    command?: string | null;
-    url?: string | null;
-    args?: string[];
-  }): Promise<McpMountOutcome>;
-  mcpMarketUnmount(serverId: string): Promise<McpMountOutcome>;
+  // MCP 工具型插件启停（status/enable/disable；市场命令面已退役）
+  mcpPluginStatus(): Promise<McpPluginStatusData>;
+  mcpPluginEnable(id: string): Promise<McpPluginOutcome>;
+  mcpPluginDisable(id: string): Promise<McpPluginOutcome>;
   // 可观测数据面（仪表 / 模型选择器数据源）
   modelArchiveSnapshot(): Promise<ModelArchiveSnapshot>;
   metricsSnapshot(): Promise<MetricsSnapshotView>;
@@ -392,7 +409,6 @@ export function createUnavailableBackend(): BackendAdapter {
     mountAuthorize: unavailable as never,
     capabilityGet: unavailable as never,
     capabilityPut: unavailable as never,
-    securityTierOverridesSet: unavailable as never,
     backupExport: unavailable as never,
     backupPreview: unavailable as never,
     backupRestore: unavailable as never,
@@ -405,9 +421,9 @@ export function createUnavailableBackend(): BackendAdapter {
     toolsBaselineSet: unavailable as never,
     uiComponentsGet: unavailable as never,
     uiComponentsSetDisabled: unavailable as never,
-    mcpMarketStatus: unavailable as never,
-    mcpMarketMount: unavailable as never,
-    mcpMarketUnmount: unavailable as never,
+    mcpPluginStatus: unavailable as never,
+    mcpPluginEnable: unavailable as never,
+    mcpPluginDisable: unavailable as never,
     modelArchiveSnapshot: unavailable as never,
     metricsSnapshot: unavailable as never,
     assembleStats: unavailable as never,
@@ -454,7 +470,7 @@ export function createServeBackend(channel?: ServeChannel): BackendAdapter {
   };
   return {
     available: true,
-    roundSend: (threadId, roundId, text, autoAccept, attachments, model) =>
+    roundSend: (threadId, roundId, text, autoAccept, attachments, model, pose) =>
       call('round_send', {
         threadId,
         roundId,
@@ -462,6 +478,7 @@ export function createServeBackend(channel?: ServeChannel): BackendAdapter {
         autoAcceptReview: autoAccept,
         ...(attachments ? { attachments } : {}),
         ...(model ? { model } : {}),
+        ...(typeof pose === 'string' ? { pose } : {}),
       }),
     roundAbort: (roundId) => call('round_abort', { roundId }),
     roundResume: (threadId, key, decision, reason, editedContent) =>
@@ -504,7 +521,6 @@ export function createServeBackend(channel?: ServeChannel): BackendAdapter {
     },
     capabilityGet: () => call('capability_get'),
     capabilityPut: (record) => call('capability_put', { record }),
-    securityTierOverridesSet: (overrides) => call('security_tier_overrides_set', { overrides }),
     backupExport: (dest) => call('backup_export', { dest }),
     backupPreview: (path) => call('backup_preview', { path }),
     backupRestore: (path) =>
@@ -520,18 +536,9 @@ export function createServeBackend(channel?: ServeChannel): BackendAdapter {
     toolsBaselineSet: (tools) => call('tools_baseline_set', { tools }),
     uiComponentsGet: () => call('ui_components.get'),
     uiComponentsSetDisabled: (disabled) => call('ui_components.set_disabled', { disabled }),
-    mcpMarketStatus: () => call('mcp.market'),
-    mcpMarketMount: (config) =>
-      call('mcp.mount', {
-        config: {
-          id: config.id,
-          ...(config.transport ? { transport: config.transport } : {}),
-          ...(config.command !== undefined && config.command !== null ? { command: config.command } : {}),
-          ...(config.url !== undefined && config.url !== null ? { url: config.url } : {}),
-          ...(config.args && config.args.length > 0 ? { args: config.args } : {}),
-        },
-      }),
-    mcpMarketUnmount: (serverId) => call('mcp.unmount', { name: serverId }),
+    mcpPluginStatus: () => call('mcp.status'),
+    mcpPluginEnable: (id) => call('mcp.enable', { id }),
+    mcpPluginDisable: (id) => call('mcp.disable', { id }),
     modelArchiveSnapshot: () => call('model_archive.snapshot'),
     metricsSnapshot: () => call('metrics.snapshot'),
     assembleStats: () => call('assemble.stats'),

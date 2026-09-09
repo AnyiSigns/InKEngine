@@ -175,6 +175,9 @@
   真 ui 面 25（12 叶子 + 13 面板））；ui 面/设置段增删同步
   pluginFaces.generated.ts 与
   settingsSections.generated.ts 重生成（verify:plugin-manifest 七产物逐字比对）。
+  **（2026-09-09 B4 权限/插件收敛：卸载 mcp_market/tools_panel 两设置段，新建
+  plugins 段——现 148 插件 = ui_feature 34 + 真 ui 面 24（12 布局叶子 + 12 设置
+  面板，设置段 12）；mcp.market 命令面保留至 B5。）**
   **（2026-09-08 阶段 7b 已完成并提交：26 真 ui 面全量真身化 + renderer 适配层/
   settings 原生框架退役 + 第 6/7 派生产物接线，renderer/plugins vitest +
   verify:unload + gate 全绿，见 §九 落地状态。）**

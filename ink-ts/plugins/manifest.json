@@ -474,25 +474,25 @@
       "dir": "commands/material.import"
     },
     {
-      "id": "mcp.market",
+      "id": "mcp.disable",
       "kind": "command",
       "capability": "host_tool",
-      "package": "@ink-ts/plugin-mcp-market",
-      "dir": "commands/mcp.market"
+      "package": "@ink-ts/plugin-mcp-disable",
+      "dir": "commands/mcp.disable"
     },
     {
-      "id": "mcp.mount",
+      "id": "mcp.enable",
       "kind": "command",
       "capability": "host_tool",
-      "package": "@ink-ts/plugin-mcp-mount",
-      "dir": "commands/mcp.mount"
+      "package": "@ink-ts/plugin-mcp-enable",
+      "dir": "commands/mcp.enable"
     },
     {
-      "id": "mcp.unmount",
+      "id": "mcp.status",
       "kind": "command",
       "capability": "host_tool",
-      "package": "@ink-ts/plugin-mcp-unmount",
-      "dir": "commands/mcp.unmount"
+      "package": "@ink-ts/plugin-mcp-status",
+      "dir": "commands/mcp.status"
     },
     {
       "id": "memory.invalidate",
@@ -806,13 +806,15 @@
               "models",
               "agentModelId",
               "roundCount",
-              "stepCount"
+              "stepCount",
+              "approvalPose"
             ],
             "inject": [
               "onSend",
               "onAbort",
               "onAttachments",
-              "onAgentModelSelect"
+              "onAgentModelSelect",
+              "onApprovalPoseChange"
             ]
           }
         }
@@ -933,24 +935,6 @@
       "dir": "ui_features/inkling.ui.views"
     },
     {
-      "id": "mcp_market",
-      "kind": "ui_feature",
-      "capability": "host_tool",
-      "package": "@ink-ts/plugin-mcp-market",
-      "dir": "ui_features/mcp_market",
-      "faces": {
-        "ui": {
-          "target": "web",
-          "entry": "./faces/ui/index.tsx",
-          "access": {
-            "store": [
-              "appBackend"
-            ]
-          }
-        }
-      }
-    },
-    {
       "id": "mechanism_view",
       "kind": "ui_feature",
       "capability": "host_tool",
@@ -992,6 +976,25 @@
               "onSpawnSelect",
               "onSpawnSendInstruction",
               "onBranchFromMessage"
+            ]
+          }
+        }
+      }
+    },
+    {
+      "id": "plugins",
+      "kind": "ui_feature",
+      "capability": "host_tool",
+      "package": "@ink-ts/plugin-plugins",
+      "dir": "ui_features/plugins",
+      "faces": {
+        "ui": {
+          "target": "web",
+          "entry": "./faces/ui/index.tsx",
+          "access": {
+            "store": [
+              "appBackend",
+              "pluginsCatalog"
             ]
           }
         }
@@ -1249,24 +1252,6 @@
             "store": [
               "backend",
               "activeSessionId"
-            ]
-          }
-        }
-      }
-    },
-    {
-      "id": "tools_panel",
-      "kind": "ui_feature",
-      "capability": "host_tool",
-      "package": "@ink-ts/plugin-tools-panel",
-      "dir": "ui_features/tools_panel",
-      "faces": {
-        "ui": {
-          "target": "web",
-          "entry": "./faces/ui/index.tsx",
-          "access": {
-            "store": [
-              "appBackend"
             ]
           }
         }
@@ -2305,7 +2290,7 @@
     },
     {
       "name": "propose_mcp_mount",
-      "description": "行为意图：对话式安装入口——地址解析→McpServerConfig 推导→vetting 核对→审批卡预览→L2 批准→补丁链挂载（可回退）；只做提案，不直接执行。\n\n使用时机：用户要求安装市场条目/git 仓库/npm 包形式的 MCP/插件时；浏览 mcp 市场（mcp.market 视图）之后决定挂载时。\n\n取舍与替代选项：直接执行挂载——不存在此路径（挂载必须经审批链，防匿名插件注入）；卸载——补丁链回退；本工具=唯一「走流程」入口，提案卡由用户拍板。\n\n参数语义：command=固定值 propose_mcp_mount（端点操作判定同源，调用方恒传）；address=插件地址（市场条目 id/git 仓库/npm 包名）。\n\n边界与协作：挂载后走 vetting→观察→L2 审批转正→补丁链可回退；出厂零预挂第三方；执行器由宿主注册（挂载接线）；提案不落链，批准后才挂载。",
+      "description": "行为意图：对话式安装入口——地址解析→McpServerConfig 推导→vetting 核对→审批卡预览→L2 批准→补丁链挂载（可回退）；只做提案，不直接执行。\n\n使用时机：用户要求安装指定地址/git 仓库/npm 包形式的 MCP/插件时；浏览 plugins/mcp 候选清单或经指定安装（url/command）登记后决定启用时。\n\n取舍与替代选项：直接执行挂载——不存在此路径（挂载必须经审批链，防匿名插件注入）；卸载——补丁链回退；本工具=唯一「走流程」入口，提案卡由用户拍板。\n\n参数语义：command=固定值 propose_mcp_mount（端点操作判定同源，调用方恒传）；address=插件地址（plugins/mcp 候选 id/git 仓库/npm 包名）。\n\n边界与协作：挂载后走 vetting→观察→L2 审批转正→补丁链可回退；出厂零预挂第三方；执行器由宿主注册（装载接线）；提案不落链，批准后才挂载。",
       "parameters": {
         "type": "object",
         "properties": {
@@ -2318,7 +2303,7 @@
           },
           "address": {
             "type": "string",
-            "description": "插件地址（市场条目 id / git 仓库 / npm 包名）"
+            "description": "插件地址（plugins/mcp 候选 id / git 仓库 / npm 包名）"
           }
         },
         "required": [
@@ -3603,19 +3588,19 @@
       "order": 1
     },
     {
-      "id": "mcp.market",
+      "id": "mcp.disable",
       "group": "mcp",
-      "order": 1
+      "order": 3
     },
     {
-      "id": "mcp.mount",
+      "id": "mcp.enable",
       "group": "mcp",
       "order": 2
     },
     {
-      "id": "mcp.unmount",
+      "id": "mcp.status",
       "group": "mcp",
-      "order": 3
+      "order": 1
     },
     {
       "id": "memory.invalidate",
@@ -3890,21 +3875,12 @@
         "entry": "./faces/ui/index.tsx"
       },
       {
-        "id": "mcp_market",
-        "type": "mcp_market",
-        "key": "mcp_market",
-        "label": "MCP 市场",
+        "id": "plugins",
+        "type": "plugins",
+        "key": "plugins",
+        "label": "插件",
         "order": 10,
-        "icon": "server",
-        "entry": "./faces/ui/index.tsx"
-      },
-      {
-        "id": "tools_panel",
-        "type": "tools_panel",
-        "key": "tools_panel",
-        "label": "工具",
-        "order": 20,
-        "icon": "wrench",
+        "icon": "package",
         "entry": "./faces/ui/index.tsx"
       },
       {

@@ -31,6 +31,31 @@ export const DECISION_TERMINATE = 'terminate';
 /** 决议：策略直过（非注入决议，注入无效——防伪装直过绕过审批）。 */
 export const DECISION_AUTO = 'auto';
 
+// ── 审批姿态（pose：治理「需确认调用」的档位裁定；宿主随回合 state 种子）──
+/** 姿态：review = 需确认调用一律挂卡（默认，现状）。 */
+export const POSE_REVIEW = 'review';
+/** 姿态：auto = 需确认调用免弹直过；缺准入（权限未命中/未声明）自动授予
+ *  （会话内运行时态，仍过沙箱/守卫等机制校验）。 */
+export const POSE_AUTO = 'auto';
+/** 姿态：deny = 需确认调用免问直拒（不挂卡直接拒绝）。 */
+export const POSE_DENY = 'deny';
+
+/** 合法姿态取值（pose 词表；未配置/未知值 = review 缺省）。 */
+export const VALID_POSES: readonly string[] = [POSE_AUTO, POSE_REVIEW, POSE_DENY];
+
+/** pose 取值白名单（O(1) 命中）。 */
+export const VALID_POSE_SET: ReadonlySet<string> = new Set<string>(VALID_POSES);
+
+/** 判断值是否为合法审批姿态。 */
+export function isApprovalPose(value: unknown): value is string {
+  return typeof value === 'string' && VALID_POSE_SET.has(value);
+}
+
+/** pose 归一（非法/缺失 → review 缺省；fail-closed 保守）。 */
+export function normalizeApprovalPose(value: unknown): string {
+  return isApprovalPose(value) ? value : POSE_REVIEW;
+}
+
 /** 全部合法决议取值（审批决议集合，按声明顺序）。 */
 export const VALID_DECISIONS: readonly string[] = [
   DECISION_ACCEPT,

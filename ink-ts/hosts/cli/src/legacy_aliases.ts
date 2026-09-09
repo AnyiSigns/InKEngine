@@ -4,9 +4,11 @@
  * web 前端适配面仍以旧壳扁平命名发请求（round_send/session_list/...），
  * host bridge 只出点分方法表（rounds.send/sessions.*）；本层把仍可映射的
  * 扁平名对齐到新落点（参数 camel→snake 适配 + 结果形态归一），使 web 真
- * 通道端到端可达。H2 桥面补桥后：备份/恢复/市场/知识/记忆/成长等域均落
+ * 通道端到端可达。H2 桥面补桥后：备份/恢复/知识/记忆/成长等域均落
  * 点分方法（round_ledger_merge/mcp_market_preview|add|remove/
- * memory.update_frontmatter 无真源 → 不注册，命中走 -32601）；H2b 补桥
+ * memory.update_frontmatter 无真源 → 不注册，命中走 -32601）；B5 市场命令面
+ * 退役后 mcp.market/mount/unmount 与扁平旧名（mcp_market_status/mount/unmount）
+ * 一并移除（web 直调 mcp.status/enable/disable）；H2b 补桥
  * 后架构/演化**读取类**（graph_instance_snapshot/pool_snapshot/pool_evaluate/
  * edge_evidence_list/metrics_snapshot/assemble_stats/cache_stats/
  * path_state/entities_snapshot）落点分只读方法；graph_snapshot/tools_snapshot
@@ -65,11 +67,23 @@ const ALIASES: readonly AliasSpec[] = [
     adaptParams: (raw) => {
       const p = recordFrom(raw);
       const attachments = Array.isArray(p['attachments']) ? p['attachments'] : undefined;
+      const model = maybeRecord(p['model']);
+      const modelSel = model !== null && typeof model['model_id'] === 'string'
+        ? {
+            model_id: model['model_id'],
+            ...(typeof model['provider'] === 'string' ? { provider: model['provider'] } : {}),
+            ...(typeof model['reasoning_effort'] === 'string' ? { reasoning_effort: model['reasoning_effort'] } : {}),
+            ...(typeof model['enable_thinking'] === 'boolean' ? { enable_thinking: model['enable_thinking'] } : {}),
+            ...(typeof model['thinking_budget'] === 'number' ? { thinking_budget: model['thinking_budget'] } : {}),
+          }
+        : undefined;
       return {
         input: typeof p['text'] === 'string' ? p['text'] : (p['input'] ?? ''),
         thread_id: typeof p['threadId'] === 'string' ? p['threadId'] : null,
         round_id: typeof p['roundId'] === 'string' ? p['roundId'] : null,
         ...(attachments !== undefined ? { attachments } : {}),
+        ...(modelSel !== undefined ? { model: modelSel } : {}),
+        ...(typeof p['pose'] === 'string' ? { pose: p['pose'] } : {}),
       };
     },
   },
@@ -162,34 +176,10 @@ const ALIASES: readonly AliasSpec[] = [
       };
     },
   },
-  // H2 桥面：备份/恢复/市场/知识/记忆/成长
+  // H2 桥面：备份/恢复/知识/记忆/成长
   { flat: 'backup_export', dotted: 'backup.export' },
   { flat: 'backup_preview', dotted: 'backup.preview' },
   { flat: 'backup_restore', dotted: 'backup.restore' },
-  { flat: 'mcp_market_status', dotted: 'mcp.market' },
-  {
-    flat: 'mcp_market_mount',
-    dotted: 'mcp.mount',
-    adaptParams: (raw) => {
-      const p = recordFrom(raw);
-      const id =
-        typeof p['serverId'] === 'string' ? p['serverId']
-          : typeof p['server_id'] === 'string' ? p['server_id'] : '';
-      return { config: { id } };
-    },
-  },
-  {
-    flat: 'mcp_market_unmount',
-    dotted: 'mcp.unmount',
-    adaptParams: (raw) => {
-      const p = recordFrom(raw);
-      const id =
-        typeof p['serverId'] === 'string' ? p['serverId']
-          : typeof p['server_id'] === 'string' ? p['server_id']
-            : typeof p['name'] === 'string' ? p['name'] : '';
-      return { name: id };
-    },
-  },
   { flat: 'knowledge.list', dotted: 'knowledge.list' },
   { flat: 'knowledge.graph', dotted: 'knowledge.graph' },
   { flat: 'knowledge.export', dotted: 'knowledge.export' },

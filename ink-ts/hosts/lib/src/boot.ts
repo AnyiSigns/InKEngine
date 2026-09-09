@@ -17,6 +17,8 @@ import { InkHost } from './host.js';
 import type { HostSearch } from './search/wiring.js';
 import { assembleHostMcp } from './mcp/assembly.js';
 import type { McpConnectStatus } from './mcp/assembly.js';
+import { McpPluginService } from './mcp/plugin.js';
+import { findPluginsManifest, pluginsRootOf } from './plugins_fs.js';
 import { build_product_recipe, merge_capability_tier_gate } from './recipe.js';
 import type { ProductRecipeInit } from './recipe.js';
 import { buildHostRetrieval } from './retrieval/domain.js';
@@ -42,6 +44,8 @@ export interface HostBootParts {
   toolEmbedder: SyncEmbedderSeam | null;
   mcpManager: McpClientManager | null;
   mcpStatus: McpConnectStatus[];
+  /** MCP 工具型插件装载服务（null = plugins 源不可用未装配）。 */
+  mcpPlugins: McpPluginService | null;
 }
 
 /** 装配 host 运行时（boot 装配 + restore 后重装配共用同一路径）。 */
@@ -79,6 +83,23 @@ export async function assembleHostParts(input: HostBootInput): Promise<HostBootP
   if (declarative !== null && declarative !== undefined) {
     input.search.register(declarative as never);
   }
+  // MCP 工具型插件装载服务（B5）：plugins 真源可用时装配 + 重启自动拉起
+  // 台账启用集（连接失败只记状态不击穿 boot，状态行经 mcp.status 可查）。
+  const manifestPath = findPluginsManifest(input.resolved.seed_dir);
+  let mcpPlugins: McpPluginService | null = null;
+  if (manifestPath !== null && mcp.manager !== null) {
+    mcpPlugins = new McpPluginService({
+      pluginsRoot: pluginsRootOf(manifestPath),
+      host: runtime as never,
+      manager: mcp.manager,
+      store: input.capability,
+    });
+    try {
+      await mcpPlugins.restore();
+    } catch {
+      // 拉起失败只留状态（list/status 可查），不击穿 boot
+    }
+  }
   return {
     runtime,
     inkHost,
@@ -86,5 +107,6 @@ export async function assembleHostParts(input: HostBootInput): Promise<HostBootP
     toolEmbedder,
     mcpManager: mcp.manager,
     mcpStatus: mcp.status,
+    mcpPlugins,
   };
 }

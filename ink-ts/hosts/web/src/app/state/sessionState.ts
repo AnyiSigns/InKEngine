@@ -69,9 +69,10 @@ export function useSessionActions(hub: ChannelHub, store: SessionStore, backend:
     try {
       const remote = await backend.sessionCreate();
       const id = remote.thread_id;
-      const applier = (store as unknown as { applyRemote?: (r: SessionRemoteRecord) => void })
-        .applyRemote;
-      applier?.(remote);
+      // 方法调用必须经对象保持 this（摘出再裸调会丢实例，applyRemote 内部
+      // this.records 即崩，异常被吞 = 会话建了却不下发回合）。
+      const remoteStore = store as SessionStore & { applyRemote?: (r: SessionRemoteRecord) => void };
+      remoteStore.applyRemote?.(remote);
       const snapshot = hub.getSnapshot();
       const perThread = { ...(snapshot.perThread ?? {}) };
       perThread[id] = emptyThreadBucket();
@@ -87,6 +88,7 @@ export function useSessionActions(hub: ChannelHub, store: SessionStore, backend:
       text: string,
       attachments: AttachmentAsset[] = [],
       model?: ModelSelection,
+      pose?: string,
     ) => {
       if (!backend.available) {
         // 无宿主 = 不产生假回复（演示占位路径已移除）；由装配层提示宿主不可用
@@ -109,7 +111,7 @@ export function useSessionActions(hub: ChannelHub, store: SessionStore, backend:
       setRoundInflight(true);
       // 回合恒为组装：roundSend 无条件进入组装（无模式参数）
       void backend
-        .roundSend(activeId, roundId, text, false, toEngineAttachments(attachments), model)
+        .roundSend(activeId, roundId, text, false, toEngineAttachments(attachments), model, pose)
         .then(() => {
           finishThread();
           // 回合收尾刷新会话记录（标题生成/更新时间落库后镜像同步）

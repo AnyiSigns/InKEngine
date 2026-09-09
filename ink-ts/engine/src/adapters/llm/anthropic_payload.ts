@@ -142,8 +142,16 @@ export function build_anthropic_payload(
   if (anthropicTools) payload['tools'] = anthropicTools;
   // 推理档位（extended thinking）：开启时 temperature 不设、max_tokens 抬升
   const effort = params !== null ? params.reasoning_effort : null;
+  const budgetDirect =
+    params !== null && params.thinking_budget !== null ? params.thinking_budget : null;
   let thinkingOn = false;
-  if (anthropic_thinking_on(effort)) {
+  if (budgetDirect !== null) {
+    let maxTokens = maxTokensRaw;
+    if (maxTokens <= budgetDirect) maxTokens = budgetDirect + ANTHROPIC_DEFAULT_MAX_TOKENS;
+    payload['max_tokens'] = maxTokens;
+    payload['thinking'] = { type: 'enabled', budget_tokens: budgetDirect };
+    thinkingOn = true;
+  } else if (anthropic_thinking_on(effort)) {
     const budget = ANTHROPIC_THINKING_BUDGET[effort as string] as number;
     let maxTokens = maxTokensRaw;
     if (maxTokens <= budget) maxTokens = budget + ANTHROPIC_DEFAULT_MAX_TOKENS;

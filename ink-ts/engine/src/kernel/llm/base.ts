@@ -131,13 +131,15 @@ export class LLMConfig {
 }
 
 /** 单次调用的参数覆盖（null 字段回落到配置默认）。enable_thinking 独立字段
- *  避免调用方反复拼 extra_body；reasoning_effort 档位由适配器按厂商协议映射。 */
+ *  避免调用方反复拼 extra_body；reasoning_effort 档位由适配器按厂商协议映射；
+ *  thinking_budget = budget 语义模型（Anthropic/Gemini）的推理 token 预算。 */
 export class LLMParams {
   readonly temperature: number | null;
   readonly max_tokens: number | null;
   readonly extra_body: Record<string, unknown> | null;
   readonly enable_thinking: boolean | null;
   readonly reasoning_effort: string | null;
+  readonly thinking_budget: number | null;
 
   constructor(init: {
     temperature?: number | null;
@@ -145,12 +147,14 @@ export class LLMParams {
     extra_body?: Record<string, unknown> | null;
     enable_thinking?: boolean | null;
     reasoning_effort?: string | null;
+    thinking_budget?: number | null;
   } = {}) {
     this.temperature = init.temperature ?? null;
     this.max_tokens = init.max_tokens ?? null;
     this.extra_body = init.extra_body ?? null;
     this.enable_thinking = init.enable_thinking ?? null;
     this.reasoning_effort = init.reasoning_effort ?? null;
+    this.thinking_budget = init.thinking_budget ?? null;
     Object.freeze(this);
   }
 }

@@ -86,9 +86,9 @@ export type BackupCommand = (typeof BACKUP_COMMANDS)[number];
 
 /** mcp 命令声明（真源 plugins/commands/<id>/spec.json；域内序 = data.order）。 */
 export const MCP_COMMANDS = [
-  'mcp.market',
-  'mcp.mount',
-  'mcp.unmount',
+  'mcp.status',
+  'mcp.enable',
+  'mcp.disable',
 ] as const;
 
 export type McpCommand = (typeof MCP_COMMANDS)[number];

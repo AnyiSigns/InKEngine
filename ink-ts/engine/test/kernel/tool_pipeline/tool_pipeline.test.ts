@@ -25,6 +25,7 @@ import { InterruptSignal } from '../../../src/kernel/interrupt/interrupt_types.j
 import { DefaultInterruptPolicy } from '../../../src/kernel/approval/approval.js';
 import { ToolPipeline } from '../../../src/kernel/tool_pipeline/tool_pipeline.js';
 import type { Executor, ToolResult } from '../../../src/kernel/tool_pipeline/_types.js';
+import { STATE_ROUND_POSE } from '../../../src/core/nodes/constants.js';
 
 /** FileSandbox 的纯逻辑假体（sandbox 模块未移植时的占位）：根前缀解析 +
  *  越界拒绝（SandboxViolation），操作域声明对齐 FS 操作；真实路径解析
@@ -394,5 +395,130 @@ describe('审批卡与轨迹值级脱敏', () => {
     expect(traces.length).toBe(1);
     expect(traces[0]!.args['note']).not.toContain('live-secret');
     expect(traces[0]!.args['command']).toBe('git');
+  });
+});
+
+describe('审批姿态（pose）在流水线的语义', () => {
+  /** 带回合 state 的鸭子 ctx（pose 经 state.round_pose 随回合种子进入）。 */
+  class PoseCtx {
+    readonly events: Array<[string, Record<string, unknown>]> = [];
+    readonly state: Record<string, unknown>;
+    interruptCalled = false;
+
+    constructor(pose: string) {
+      this.state = { [STATE_ROUND_POSE]: pose };
+    }
+
+    async emit(etype: string, payload: Record<string, unknown>): Promise<void> {
+      this.events.push([etype, payload]);
+    }
+
+    async interrupt(key: string, payload: Record<string, unknown>): Promise<never> {
+      this.interruptCalled = true;
+      throw new InterruptSignal(key, payload);
+    }
+
+    async get_interrupt_payload(): Promise<unknown> {
+      return null;
+    }
+  }
+
+  /** 权限命中但门控分级需审批的模拟门禁（未命中=deny，命中=review）。 */
+  class ReviewGate {
+    readonly hits: ReadonlySet<string>;
+
+    constructor(hits: readonly string[] = []) {
+      this.hits = new Set(hits);
+    }
+
+    check(
+      tool: string,
+      operation: string,
+      target: string,
+      _options?: { permissions?: readonly string[] },
+    ): { decision: string; reason?: string } {
+      if (this.hits.has(target)) {
+        return { decision: REVIEW, reason: '门控分级需审批' };
+      }
+      return { decision: DENY, reason: '权限未命中: 出厂 deny' };
+    }
+  }
+
+  it('review（缺省）：需审批目标仍挂卡（现状零漂移）', async () => {
+    const pipeline = new ToolPipeline({
+      gate: new ReviewGate(['/ok']) as never,
+      extractor: (spec, args) => ['write', args['path'] as string],
+      executor: okExecutor,
+    });
+    const ctx = new PoseCtx('review');
+    await expect(pipeline.execute(ctx, makeSpec(), { path: '/ok' })).rejects.toThrow(InterruptSignal);
+    expect(ctx.interruptCalled).toBe(true);
+  });
+
+  it('pose=auto：review 目标免弹直过（auto，不挂卡）', async () => {
+    const pipeline = new ToolPipeline({
+      gate: new ReviewGate(['/ok']) as never,
+      extractor: (spec, args) => ['write', args['path'] as string],
+      executor: okExecutor,
+    });
+    const ctx = new PoseCtx('auto');
+    const result = await pipeline.execute(ctx, makeSpec(), { path: '/ok' });
+    expect(result.ok).toBe(true);
+    expect(ctx.interruptCalled).toBe(false);
+    expect(result.approval?.decision).toBe('auto');
+    expect(result.output.startsWith('【已自动批准执行】')).toBe(true);
+  });
+
+  it('pose=deny：review 目标免问直拒（reject，不挂卡）', async () => {
+    const pipeline = new ToolPipeline({
+      gate: new ReviewGate(['/ok']) as never,
+      extractor: (spec, args) => ['write', args['path'] as string],
+      executor: okExecutor,
+    });
+    const ctx = new PoseCtx('deny');
+    const result = await pipeline.execute(ctx, makeSpec(), { path: '/ok' });
+    expect(result.ok).toBe(false);
+    expect(ctx.interruptCalled).toBe(false);
+    expect(result.decision).toBe('reject');
+  });
+
+  it('pose=auto：缺准入 deny 目标会话内自动授予（仍过沙箱）', async () => {
+    const pipeline = new ToolPipeline({
+      gate: new ReviewGate([]) as never, // 目标未准入 → deny
+      extractor: (spec, args) => ['write', args['path'] as string],
+      executor: okExecutor,
+    });
+    const ctx = new PoseCtx('auto');
+    const result = await pipeline.execute(ctx, makeSpec(), { path: '/not-admitted' });
+    expect(result.ok).toBe(true);
+    expect(result.decision).toBe(ALLOW);
+    expect(result.approval?.decision).toBe('auto');
+    expect(ctx.interruptCalled).toBe(false);
+  });
+
+  it('pose=auto：缺准入授予但沙箱越界仍拒绝（机制校验不是档位）', async () => {
+    const pipeline = new ToolPipeline({
+      gate: new ReviewGate([]) as never,
+      extractor: (spec, args) => ['write', args['path'] as string],
+      sandboxes: [new FakeFileSandbox('/root')],
+      executor: okExecutor,
+    });
+    const ctx = new PoseCtx('auto');
+    const result = await pipeline.execute(ctx, makeSpec(), { path: '../escape' });
+    expect(result.ok).toBe(false);
+    expect(result.decision).toBe(DENY);
+    expect(result.error).toContain('路径越界');
+  });
+
+  it('pose=review：缺准入 deny 目标仍拒绝（auto 授予只在 auto 档）', async () => {
+    const pipeline = new ToolPipeline({
+      gate: new ReviewGate([]) as never,
+      extractor: (spec, args) => ['write', args['path'] as string],
+      executor: okExecutor,
+    });
+    const ctx = new PoseCtx('review');
+    const result = await pipeline.execute(ctx, makeSpec(), { path: '/not-admitted' });
+    expect(result.ok).toBe(false);
+    expect(result.decision).toBe(DENY);
   });
 });

@@ -1,6 +1,6 @@
 /**
  * settings_floater 真面测试：派生清单驱动导航 + DynamicComponent 面板内容 +
- * 打开/关闭/切换节交互。内容段以 stub 组件注册（settings_general / mcp_market），
+ * 打开/关闭/切换节交互。内容段以 stub 组件注册（settings_general / plugins），
  * 不耦合具体面板插件实现。
  */
 
@@ -13,7 +13,7 @@ import { SETTINGS_SECTIONS } from '@app/settings/settingsSections.generated';
 
 function registerPanelStubs(): void {
   registerComponent('settings_general', () => <div>通用面板内容</div>);
-  registerComponent('mcp_market', () => <div>MCP 市场面板内容</div>);
+  registerComponent('plugins', () => <div>插件面板内容</div>);
 }
 
 describe('SettingsFloater（派生清单 SETTINGS_SECTIONS 驱动）', () => {
@@ -41,8 +41,8 @@ describe('SettingsFloater（派生清单 SETTINGS_SECTIONS 驱动）', () => {
   it('点击节导航切换右侧内容（DynamicComponent name=面板插件 id）', () => {
     registerPanelStubs();
     render(<SettingsFloater open onClose={() => { }} />);
-    fireEvent.click(screen.getByText('MCP 市场'));
-    expect(screen.getByText('MCP 市场面板内容')).toBeInTheDocument();
+    fireEvent.click(screen.getByText('插件'));
+    expect(screen.getByText('插件面板内容')).toBeInTheDocument();
     expect(screen.queryByText('通用面板内容')).toBeNull();
   });
 

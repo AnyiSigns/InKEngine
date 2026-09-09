@@ -49,6 +49,17 @@ describe('ToolVectorIndex / 构建与刷新', () => {
     expect(idx.all_specs().length).toBe(3);
   });
 
+  it('remove 摘除条目（缺失静默幂等）', () => {
+    const idx = new ToolVectorIndex({ embedder: null });
+    idx.build([spec('a', 'A'), spec('b', 'B')]);
+    idx.remove('a');
+    expect(idx.has('a')).toBe(false);
+    expect(idx.has('b')).toBe(true);
+    expect(idx.size()).toBe(1);
+    idx.remove('a');
+    expect(idx.size()).toBe(1);
+  });
+
   it('build 端点映射生效；endpoints 缺省取 declarative', () => {
     const idx = new ToolVectorIndex({ embedder: null });
     idx.build([spec('a', 'A'), spec('b', 'B')], { a: 'mcp' });

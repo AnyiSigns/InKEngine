@@ -33,6 +33,7 @@ function buildSurface(): {
     return { ok: true, method: name, echo: params };
   };
   const targets = [
+    'rounds.send',
     'sessions.messages',
     'records.chain',
     'rounds.todos',
@@ -48,9 +49,9 @@ function buildSurface(): {
     'backup.export',
     'backup.preview',
     'backup.restore',
-    'mcp.market',
-    'mcp.mount',
-    'mcp.unmount',
+    'mcp.status',
+    'mcp.enable',
+    'mcp.disable',
     'knowledge.list',
     'knowledge.graph',
     'knowledge.export',
@@ -90,9 +91,6 @@ describe('legacy 别名表（H2 补桥后）', () => {
     expect(rows['backup_export']).toBe('backup.export');
     expect(rows['backup_preview']).toBe('backup.preview');
     expect(rows['backup_restore']).toBe('backup.restore');
-    expect(rows['mcp_market_status']).toBe('mcp.market');
-    expect(rows['mcp_market_mount']).toBe('mcp.mount');
-    expect(rows['mcp_market_unmount']).toBe('mcp.unmount');
     expect(rows['audit.list']).toBe('audit.list');
     expect(rows['knowledge.list']).toBe('knowledge.list');
     expect(rows['growth.report']).toBe('growth.report');
@@ -115,6 +113,9 @@ describe('legacy 别名表（H2 补桥后）', () => {
     // 无真源旧名不注册
     expect(rows['round_ledger_list']).toBeUndefined();
     expect(rows['round_ledger_merge']).toBeUndefined();
+    expect(rows['mcp_market_status']).toBeUndefined();
+    expect(rows['mcp_market_mount']).toBeUndefined();
+    expect(rows['mcp_market_unmount']).toBeUndefined();
     expect(rows['mcp_market_preview']).toBeUndefined();
     expect(rows['mcp_market_add']).toBeUndefined();
     expect(rows['mcp_market_remove']).toBeUndefined();
@@ -134,6 +135,58 @@ describe('cli 命令面别名解析（H2）', () => {
 
     await invoke('todo_get', { threadId: 't-3' });
     expect(captured.get('rounds.todos')!.params).toEqual({ thread_id: 't-3' });
+  });
+
+  it('round_send 转发推理档位覆盖到 rounds.send model（effort/budget/开关原样）', async () => {
+    const { handlers, captured } = buildSurface();
+    const invoke = async (method: string, params: unknown): Promise<RpcResponse> =>
+      await handleRequest({ jsonrpc: '2.0', id: 1, method, params }, handlers, CTX);
+
+    await invoke('round_send', {
+      threadId: 't-1',
+      roundId: 'r-1',
+      text: 'hi',
+      model: {
+        model_id: 'deepseek-v4-flash',
+        reasoning_effort: 'xhigh',
+        enable_thinking: true,
+        thinking_budget: 8192,
+      },
+    });
+    expect(captured.get('rounds.send')!.params).toEqual({
+      input: 'hi',
+      thread_id: 't-1',
+      round_id: 'r-1',
+      model: {
+        model_id: 'deepseek-v4-flash',
+        reasoning_effort: 'xhigh',
+        enable_thinking: true,
+        thinking_budget: 8192,
+      },
+    });
+  });
+
+  it('round_send 转发 pose 到 rounds.send（审批档位随回合种子）', async () => {
+    const { handlers, captured } = buildSurface();
+    const invoke = async (method: string, params: unknown): Promise<RpcResponse> =>
+      await handleRequest({ jsonrpc: '2.0', id: 1, method, params }, handlers, CTX);
+
+    await invoke('round_send', {
+      threadId: 't-2',
+      roundId: 'r-2',
+      text: 'hi',
+      pose: 'auto',
+    });
+    expect(captured.get('rounds.send')!.params).toEqual({
+      input: 'hi',
+      thread_id: 't-2',
+      round_id: 'r-2',
+      pose: 'auto',
+    });
+
+    // 缺省 pose 不落键（不伪造 review 覆盖）
+    await invoke('round_send', { threadId: 't-2', text: 'hi' });
+    expect(captured.get('rounds.send')!.params).not.toHaveProperty('pose');
   });
 
   it('recovery_factory_reset 确认标记不回代（缺 confirm 由桥 fail-closed 拒绝）', async () => {

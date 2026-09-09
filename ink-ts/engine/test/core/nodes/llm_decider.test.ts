@@ -186,6 +186,74 @@ describe('llm_decider 思考事件发射', () => {
   });
 });
 
+describe('llm_decider 每轮推理覆盖（state.round_model → LLMParams）', () => {
+  it('round_model 携带 effort/enable_thinking/thinking_budget 时原样传给 astream params', async () => {
+    const emits: EmitRecord[] = [];
+    let seenParams: LLMParams | null | undefined;
+    const capturing = {
+      adapter: 'fake',
+      config: new LLMConfig({ adapter: 'fake', model_id: 'm', base_url: 'http://x' }),
+      async ainvoke(): Promise<never> {
+        throw new Error('ainvoke 不应在流式路径被调用');
+      },
+      async *astream(
+        _messages: readonly Message[],
+        opts?: { tools?: readonly ToolSpec[] | null; params?: LLMParams | null },
+      ): AsyncIterable<LLMChunk> {
+        seenParams = opts?.params ?? null;
+        yield new LLMChunk({ token: '回答' });
+      },
+    } as unknown as AsyncLLM;
+    const ctx = fakeCtx(emits);
+    ctx.state['round_model'] = {
+      reasoning_effort: 'xhigh',
+      enable_thinking: true,
+      thinking_budget: 8192,
+    };
+    const node = make_llm_decider_factory(new _EngineNodeSeamsBox({
+      llm: capturing,
+      tool_pipeline: {} as never,
+      tool_specs: [],
+      all_tool_specs: [],
+      collect_specs: null,
+      boot_system_prompt: '',
+    }))({});
+    await node(ctx);
+    expect(seenParams?.reasoning_effort).toBe('xhigh');
+    expect(seenParams?.enable_thinking).toBe(true);
+    expect(seenParams?.thinking_budget).toBe(8192);
+  });
+
+  it('round_model 缺省/空 → params 为 null（跟随模型默认，不注入）', async () => {
+    const emits: EmitRecord[] = [];
+    let seenParams: LLMParams | null | undefined;
+    const capturing = {
+      adapter: 'fake',
+      config: new LLMConfig({ adapter: 'fake', model_id: 'm', base_url: 'http://x' }),
+      async ainvoke(): Promise<never> {
+        throw new Error('ainvoke 不应在流式路径被调用');
+      },
+      async *astream(
+        _messages: readonly Message[],
+        opts?: { tools?: readonly ToolSpec[] | null; params?: LLMParams | null },
+      ): AsyncIterable<LLMChunk> {
+        seenParams = opts?.params ?? null;
+        yield new LLMChunk({ token: '回答' });
+      },
+    } as unknown as AsyncLLM;
+    const node = make_llm_decider_factory(new _EngineNodeSeamsBox({
+      llm: capturing,
+      tool_pipeline: {} as never,
+      tool_specs: [],
+      all_tool_specs: [],
+      collect_specs: null,
+      boot_system_prompt: '',
+    }))({});
+    await node(fakeCtx(emits));
+    expect(seenParams).toBeNull();
+  });
+});
+
 describe('llm_decider system 合成（seams boot + config 自定义拼一条；boot 恒前）', () => {
   /** 记录每次 astream 收到的消息链的 stub（收尾 token 一帧）。 */
   function recordingLLM(calls: Message[][]) {

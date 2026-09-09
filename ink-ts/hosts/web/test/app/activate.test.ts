@@ -12,15 +12,14 @@ import { SETTINGS_SECTIONS } from '@app/settings/settingsSections.generated';
  * 与各面板一并注册，永不落「未注册组件」占位。
  */
 describe('设置浮层装配（SETTINGS_SECTIONS 派生清单 + 真 ui 面注册）', () => {
-  it('全量 13 段 key 与 order 符合扁平清单（wave4 四面板独立成段）', () => {
+  it('全量 12 段 key 与 order 符合扁平清单（B4 合并 plugins 段，卸载 mcp_market/tools_panel）', () => {
     expect(SETTINGS_SECTIONS.map((s) => s.key)).toEqual([
       'general',
       'model',
       'connect',
       'knowledge_set',
       'architecture',
-      'mcp_market',
-      'tools_panel',
+      'plugins',
       'workspace_auth',
       'ui_editor',
       'memory',

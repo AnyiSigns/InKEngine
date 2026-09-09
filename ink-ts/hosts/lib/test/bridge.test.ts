@@ -1,3 +1,4 @@
+// gate: 超限(378 行) - host bridge 命令面单测共用同一装置，整链回归可读性优先
 /**
  * host bridge 命令面单测（in-process 全绿）。
  *
@@ -65,6 +66,41 @@ describe('host bridge 命令面', () => {
     await expect(send(null, CTX)).rejects.toBeInstanceOf(BridgeError);
     await expect(send({ input: '' }, CTX)).rejects.toBeInstanceOf(BridgeError);
     await expect(send({}, CTX)).rejects.toMatchObject({ code: 'invalid_params' });
+  });
+
+  it('rounds.send model 校验：推理字段类型非法 → BridgeError invalid_params', async () => {
+    const send = handle.bridge.get('rounds.send')!;
+    await expect(send({ input: 'x', model: { reasoning_effort: 5 } }, CTX))
+      .rejects.toMatchObject({ code: 'invalid_params' });
+    await expect(send({ input: 'x', model: { enable_thinking: 'yes' } }, CTX))
+      .rejects.toMatchObject({ code: 'invalid_params' });
+    await expect(send({ input: 'x', model: { thinking_budget: 'big' } }, CTX))
+      .rejects.toMatchObject({ code: 'invalid_params' });
+  });
+
+  it('rounds.send pose 校验：非法档位 → BridgeError invalid_params；review/auto/deny 通过', async () => {
+    const send = handle.bridge.get('rounds.send')!;
+    await expect(send({ input: 'x', pose: 'allow' }, CTX))
+      .rejects.toMatchObject({ code: 'invalid_params' });
+    await expect(send({ input: 'x', pose: 42 }, CTX))
+      .rejects.toMatchObject({ code: 'invalid_params' });
+    for (const pose of ['review', 'auto', 'deny']) {
+      const result = (await send({ input: 'hi', pose }, CTX)) as { thread_id: string };
+      expect(result.thread_id).toBeTypeOf('string');
+    }
+  });
+
+  it('rounds.send pose 种子进回合 state（round_pose 随 checkpoint 落库）', async () => {
+    const send = handle.bridge.get('rounds.send')!;
+    const result = (await send({ input: 'hi', pose: 'auto' }, CTX)) as { thread_id: string };
+    const latest = await handle.runtime.storage!.get_latest_checkpoint(result.thread_id);
+    expect(latest).not.toBeNull();
+    expect(latest!.state['round_pose']).toBe('auto');
+    // 缺省 pose（review）= 不落键（引擎缺省语义，零漂移）
+    const result2 = (await send({ input: 'hi' }, CTX)) as { thread_id: string };
+    const latest2 = await handle.runtime.storage!.get_latest_checkpoint(result2.thread_id);
+    expect(latest2).not.toBeNull();
+    expect(latest2!.state['round_pose']).toBeUndefined();
   });
 
   it('rounds.send 跑通组装回合（无模型 → 确定性 stub）；abort 无在途 run 返回 aborted:false', async () => {

@@ -21,19 +21,59 @@ describe('InputBar', () => {
     expect(screen.getByText('多模态')).toBeTruthy();
   });
 
-  it('shows reasoning tier chip and carries chosen tier on send', () => {
+  it('effort 模型：档位原样展示（off/low/medium/high）并携带所选档位', () => {
     const onSend = vi.fn();
-    render(<InputBar disabled={false} streaming={false} models={{ archives: [{ model_id: 'qwen3-max' }] }} onSend={onSend} onAbort={() => {}} onAttachments={() => {}} />);
-    const chip = screen.getByRole('button', { name: '推理档位' });
-    fireEvent.click(chip);
-    fireEvent.click(screen.getByRole('menuitem', { name: '高' }));
+    render(<InputBar disabled={false} streaming={false} models={{ archives: [{ model_id: 'qwen3-max', reasoning: true, reasoning_style: 'effort', reasoning_efforts: ['low', 'high'] }] }} onSend={onSend} onAbort={() => {}} onAttachments={() => {}} />);
+    fireEvent.click(screen.getByRole('button', { name: '推理档位' }));
+    fireEvent.click(screen.getByRole('menuitem', { name: 'high' }));
     fireEvent.change(screen.getByPlaceholderText('给智能体发消息'), { target: { value: 'hi' } });
     fireEvent.keyDown(screen.getByPlaceholderText('给智能体发消息'), { key: 'Enter', code: 'Enter', charCode: 13 });
     expect(onSend).toHaveBeenCalledWith('hi', [], { model_id: 'qwen3-max', reasoning_effort: 'high' });
   });
 
-  it('hides reasoning tier chip for non-reasoning models', () => {
+  it('未声明推理能力（v4flash 类）不显示推理控件', () => {
     render(<InputBar disabled={false} streaming={false} models={{ archives: [{ model_id: 'deepseek-chat' }] }} onSend={() => {}} onAbort={() => {}} onAttachments={() => {}} />);
+    expect(screen.queryByRole('button', { name: '推理档位' })).toBeNull();
+  });
+
+  it('reasoning_style=none（固定推理，如 deepseek 系）不显示推理控件', () => {
+    render(<InputBar disabled={false} streaming={false} models={{ archives: [{ model_id: 'deepseek-v4', reasoning: true, reasoning_style: 'none' }] }} onSend={() => {}} onAbort={() => {}} onAttachments={() => {}} />);
+    expect(screen.queryByRole('button', { name: '推理档位' })).toBeNull();
+  });
+
+  it('boolean 模型：显示开关，选开携带 enable_thinking:true', () => {
+    const onSend = vi.fn();
+    render(<InputBar disabled={false} streaming={false} models={{ archives: [{ model_id: 'qwen3', reasoning: true, reasoning_style: 'boolean' }] }} onSend={onSend} onAbort={() => {}} onAttachments={() => {}} />);
+    fireEvent.click(screen.getByRole('button', { name: '推理档位' }));
+    fireEvent.click(screen.getByRole('menuitem', { name: '开' }));
+    fireEvent.change(screen.getByPlaceholderText('给智能体发消息'), { target: { value: 'hi' } });
+    fireEvent.keyDown(screen.getByPlaceholderText('给智能体发消息'), { key: 'Enter', code: 'Enter', charCode: 13 });
+    expect(onSend).toHaveBeenCalledWith('hi', [], { model_id: 'qwen3', enable_thinking: true });
+  });
+
+  it('budget 模型：显示预算下拉，选 8 档携带 thinking_budget:8192', () => {
+    const onSend = vi.fn();
+    render(<InputBar disabled={false} streaming={false} models={{ archives: [{ model_id: 'claude-4', reasoning: true, reasoning_style: 'budget', reasoning_budget: [4096, 8192, 16384] }] }} onSend={onSend} onAbort={() => {}} onAttachments={() => {}} />);
+    fireEvent.click(screen.getByRole('button', { name: '推理档位' }));
+    fireEvent.click(screen.getByRole('menuitem', { name: '8k' }));
+    fireEvent.change(screen.getByPlaceholderText('给智能体发消息'), { target: { value: 'hi' } });
+    fireEvent.keyDown(screen.getByPlaceholderText('给智能体发消息'), { key: 'Enter', code: 'Enter', charCode: 13 });
+    expect(onSend).toHaveBeenCalledWith('hi', [], { model_id: 'claude-4', thinking_budget: 8192 });
+  });
+
+  it('effort 未声明 specifics 时显示引擎标准四档（off/low/medium/high）+ auto，原样不翻译', () => {
+    render(<InputBar disabled={false} streaming={false} models={{ archives: [{ model_id: 'm-effort', reasoning: true, reasoning_style: 'effort' }] }} onSend={() => {}} onAbort={() => {}} onAttachments={() => {}} />);
+    fireEvent.click(screen.getByRole('button', { name: '推理档位' }));
+    expect(screen.getByRole('menuitem', { name: 'off' })).toBeTruthy();
+    expect(screen.getByRole('menuitem', { name: 'low' })).toBeTruthy();
+    expect(screen.getByRole('menuitem', { name: 'medium' })).toBeTruthy();
+    expect(screen.getByRole('menuitem', { name: 'high' })).toBeTruthy();
+    expect(screen.getByRole('menuitem', { name: '自动' })).toBeTruthy();
+    expect(screen.queryByRole('menuitem', { name: '关' })).toBeNull();
+  });
+
+  it('budget 无 reasoning_budget（未声明档位）不显示推理控件', () => {
+    render(<InputBar disabled={false} streaming={false} models={{ archives: [{ model_id: 'm-budget', reasoning: true, reasoning_style: 'budget' }] }} onSend={() => {}} onAbort={() => {}} onAttachments={() => {}} />);
     expect(screen.queryByRole('button', { name: '推理档位' })).toBeNull();
   });
 
@@ -52,5 +92,34 @@ describe('InputBar', () => {
     fireEvent.change(screen.getByPlaceholderText('给智能体发消息'), { target: { value: 'ok' } });
     fireEvent.keyDown(screen.getByPlaceholderText('给智能体发消息'), { key: 'Enter', code: 'Enter', charCode: 13 });
     expect(onSend).toHaveBeenCalledWith('ok', [], undefined);
+  });
+
+  it('弹卡档位筛选框与模型筛选框并列：默认 review 展示，选 auto 触发宿主导入，点当前档不触发', () => {
+    const onChange = vi.fn();
+    render(
+      <InputBar
+        disabled={false}
+        streaming={false}
+        models={{ archives: [{ model_id: 'm1' }] }}
+        approvalPose="review"
+        onApprovalPoseChange={onChange}
+        onSend={() => {}}
+        onAbort={() => {}}
+        onAttachments={() => {}}
+      />,
+    );
+    // 弹卡档位 = 筛选框形态（非胶囊分组），与模型筛选框同排
+    const poseFilter = screen.getByRole('button', { name: '弹卡档位' });
+    const modelFilter = screen.getByRole('button', { name: '模型/推理档位' });
+    expect(poseFilter).toBeTruthy();
+    expect(modelFilter).toBeTruthy();
+    expect(poseFilter.textContent).toContain('询问');
+    fireEvent.click(poseFilter);
+    fireEvent.click(screen.getByRole('option', { name: '自动' }));
+    expect(onChange).toHaveBeenCalledWith('auto');
+    // 重开弹层点当前档（询问）不触发
+    fireEvent.click(screen.getByRole('button', { name: '弹卡档位' }));
+    fireEvent.click(screen.getByRole('option', { name: /^询问/ }));
+    expect(onChange).toHaveBeenCalledTimes(1);
   });
 });

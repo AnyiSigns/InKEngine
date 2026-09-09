@@ -100,6 +100,12 @@ export abstract class RuntimeContexts extends RuntimeUiComponents {
     this.tool_index.refresh(target, this._tool_endpoints());
   }
 
+  /** 摘除工具索引条目（MCP 卸载 hook 调用；缺失静默幂等）。 */
+  remove_tool_index(name: string): void {
+    if (this.tool_index === null) return;
+    this.tool_index.remove(name);
+  }
+
   /** 工具端点类型映射（供索引元数据标注）。 */
   _tool_endpoints(): Record<string, string> {
     const endpoints: Record<string, string> = {};

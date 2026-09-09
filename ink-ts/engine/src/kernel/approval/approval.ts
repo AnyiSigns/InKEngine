@@ -1,3 +1,4 @@
+// gate: 超限(374 行) - approval 单文件闭环（单动作/合并卡挂卡+超时+pose 姿态同文件，拆文件破坏决策流连续性）
 /**
  * 工具调用前挂卡审批的标准辅助（approval.py 移植）——审批唯一性原则的
  * 「唯一标准姿势」：宿主不得另写"工具调用前挂卡"实现，本模块提供机制化
@@ -34,7 +35,12 @@ import {
   DECISION_AUTO,
   DECISION_EDIT,
   DECISION_REJECT,
+  POSE_AUTO,
+  POSE_DENY,
+  POSE_REVIEW,
   VALID_DECISION_SET,
+  isApprovalPose,
+  normalizeApprovalPose,
 } from './approval_types.js';
 import type { ApprovalInterruptContext, InterruptPolicy } from './approval_types.js';
 
@@ -45,7 +51,13 @@ export {
   DECISION_EDIT,
   DECISION_REJECT,
   DECISION_TERMINATE,
+  POSE_AUTO,
+  POSE_DENY,
+  POSE_REVIEW,
   VALID_DECISIONS,
+  VALID_POSES,
+  isApprovalPose,
+  normalizeApprovalPose,
 } from './approval_types.js';
 export type { ApprovalInterruptContext, InterruptPolicy } from './approval_types.js';
 
@@ -53,6 +65,10 @@ export type { ApprovalInterruptContext, InterruptPolicy } from './approval_types
 export interface ApprovalOptions {
   /** 时间源（等价 time.time）；缺省按确定值 0 保证纯函数可复现。 */
   clock?: (() => number) | null;
+  /** 审批姿态（pose：auto/review/deny；非法/缺省 = review 现行为）。pose 是
+   *  治理「需确认调用」的档位裁定——auto = 免弹直过（仍走挂卡路径之外的全
+   *  部机制校验）、deny = 免问直拒；review = 现状（policy 决定直过或挂卡）。 */
+  pose?: string | null;
 }
 
 /** 取注入 dict 的 reason 字段（Python dict.get 口径：缺失/空值归 null，
@@ -240,8 +256,20 @@ export async function approve_before_execute(
 ): Promise<ApprovalDecision> {
   const activePolicy = policy ?? new DefaultInterruptPolicy();
   const clock = options.clock ?? (() => 0);
+  // pose 归一（非法/缺省 = review 现状）：review 只对「本应挂起」的调用
+  // 生效——policy 已直过的（should_approve=False）在任何 pose 下都直过
+  // （显式预授权不被 pose 收回）；auto/deny 只改写「否则挂起」的结果。
+  const pose = options.pose === null || options.pose === undefined
+    ? POSE_REVIEW
+    : normalizeApprovalPose(options.pose);
   if (!activePolicy.should_approve(key, action)) {
     return new ApprovalDecision(DECISION_AUTO, action, null, null, 'policy');
+  }
+  if (pose === POSE_AUTO) {
+    return new ApprovalDecision(DECISION_AUTO, action, null, null, 'pose');
+  }
+  if (pose === POSE_DENY) {
+    return new ApprovalDecision(DECISION_REJECT, action, null, 'deny 档：免问直拒', 'pose');
   }
   const card = build_gate_card(action, { payload: payload ?? null });
   const timeout = activePolicy.timeout_for(key, action);
@@ -294,8 +322,33 @@ export async function approve_batch(
 ): Promise<ApprovalDecision[]> {
   const activePolicy = policy ?? new DefaultInterruptPolicy();
   const clock = options.clock ?? (() => 0);
-  if (!actions.some((action) => activePolicy.should_approve(key, action))) {
+  // pose 语义与 approve_before_execute 对齐：policy 已直过的动作（should_
+  // approve=False）在任何 pose 下都直过；auto/deny 只改写「否则挂起」的整批
+  // 结果（合并卡决议作用于全部动作，姿态也按整批裁定）。
+  const pose = options.pose === null || options.pose === undefined
+    ? 'review'
+    : normalizeApprovalPose(options.pose);
+  const needsApproval = actions.map((action) => activePolicy.should_approve(key, action));
+  if (needsApproval.every((needs) => !needs)) {
     return actions.map((action) => new ApprovalDecision(DECISION_AUTO, action, null, null, 'policy'));
+  }
+  // pose 逐动作语义与 approve_before_execute 对齐：policy 已直过的动作
+  // （should_approve=False）在任何 pose 下都直过（source=policy，显式预授权
+  // 不被姿态收回）；auto/deny 只改写「否则挂起」的动作，避免混合批次被无关
+  // 触发动作带偏。
+  if (pose === POSE_AUTO) {
+    return actions.map((action, index) =>
+      needsApproval[index]
+        ? new ApprovalDecision(DECISION_AUTO, action, null, null, 'pose')
+        : new ApprovalDecision(DECISION_AUTO, action, null, null, 'policy'),
+    );
+  }
+  if (pose === POSE_DENY) {
+    return actions.map((action, index) =>
+      needsApproval[index]
+        ? new ApprovalDecision(DECISION_REJECT, action, null, 'deny 档：免问直拒', 'pose')
+        : new ApprovalDecision(DECISION_AUTO, action, null, null, 'policy'),
+    );
   }
   const card: CardPayload = build_gate_card(undefined, { actions, payload: payload ?? null });
   const timeouts = actions.map((action) => activePolicy.timeout_for(key, action));

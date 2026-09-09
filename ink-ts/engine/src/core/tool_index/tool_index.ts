@@ -1,5 +1,6 @@
 /**
  * 工具向量索引（search_tools 后端检索引擎）。
+ * // gate: 超限(355 行) - 检索引擎单文件整链（评分/嵌入/降级）保持可读
  *
  * 检索语义落引擎侧：search_tools 是引擎自指工具、工具注册表在引擎，检索
  * 发生在引擎 = 索引也在引擎，保持架构一致（shell 侧 embedder.rs 是嵌入
@@ -343,6 +344,11 @@ export class ToolVectorIndex {
   /** 索引条目数。 */
   size(): number {
     return this.entries.size;
+  }
+
+  /** 移除条目（卸载挂载工具时索引同步摘除；缺失静默幂等）。 */
+  remove(name: string): void {
+    this.entries.delete(name);
   }
 }
 

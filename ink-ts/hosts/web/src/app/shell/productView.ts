@@ -7,6 +7,7 @@
  */
 
 import type { BackendAdapter, ModelArchiveSnapshot, SessionBranchTree } from '@/shared/backend/backendAdapter';
+import type { ApprovalPose } from '@/shared/backend/backendAdapter';
 import type { ChannelHub } from '@/shared/session/channelHub';
 import type { SessionStore } from '@/shared/session/sessionStore';
 import type { InkMessage, RoundStep, SimulationBranch } from '@/shared/session/types';
@@ -16,6 +17,7 @@ import type { TaskCapsuleData } from '../../../../../plugins/ui_features/task_ca
 import type { MainTab, RailSession, ReviewResolution } from '@app/shell/shellContracts';
 import type { ModelSelection } from '@/shared/backend/backendAdapter';
 import type { AppBackend } from '../backend';
+import type { PluginsCatalog } from '../pluginsCatalog';
 
 /** 产品壳回显数据（适配器消费的宿主面）。 */
 export interface ProductShellModel {
@@ -50,6 +52,10 @@ export interface ProductShellModel {
   todoPending: number;
   settingsOpen: boolean;
   autoApprovableTools: string[];
+  /** 弹卡档位（输入框三档；当前会话生效档 = 会话覆盖 ?? 宿主默认 review）。 */
+  approvalPose: ApprovalPose;
+  /** 插件目录（manifest 派生人类视图：唯一插件实体清单 + 提供物分类）。 */
+  pluginsCatalog: PluginsCatalog;
 }
 
 /** 产品壳动作面（适配器消费的宿主回调；缺省 no-op 由宿主兜底）。 */
@@ -63,6 +69,8 @@ export interface ProductShellActions {
   onAbort(): void;
   onAttachments(assets: AttachmentAsset[]): void;
   onAgentModelSelect(modelId: string, providerId?: string): void;
+  /** 输入框弹卡档位切换：会话级覆盖写入；无活动会话 = 写宿主默认。 */
+  onApprovalPoseChange(pose: ApprovalPose): void;
   onSpawnSelect(index: number): void;
   onSpawnSendInstruction(text: string): void;
   onBranchFromMessage(messageId: string, branchLabel: string): void;

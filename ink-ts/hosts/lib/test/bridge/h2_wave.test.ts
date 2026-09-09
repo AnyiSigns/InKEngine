@@ -1,6 +1,6 @@
 /**
  * host bridge H2 补桥命令面单测（sessions.messages / rounds.todos / recovery.reset / audit.list / tools.full / capability
- * baseline+tier / mcp.market / knowledge / memory / growth / backup）。
+ * baseline+tier / mcp.status / knowledge / memory / growth / backup）。
  *
  * 纪律覆盖：方法表与 BRIDGE_METHODS 双向一致；入参校验（BridgeError
  * invalid_params）；危险操作确认标记 fail-closed；各方法数据源锚点
@@ -60,9 +60,9 @@ describe('H2 bridge 方法表（三向一致）', () => {
       'backup.export',
       'backup.preview',
       'backup.restore',
-      'mcp.market',
-      'mcp.mount',
-      'mcp.unmount',
+      'mcp.status',
+      'mcp.enable',
+      'mcp.disable',
       'knowledge.list',
       'knowledge.graph',
       'knowledge.export',
@@ -414,62 +414,32 @@ describe('tools.full + capability.baseline/tier（工具管理面）', () => {
   });
 });
 
-describe('mcp.market（seed 目录 + 挂载态）', () => {
+describe('mcp.status/enable/disable（B5 工具型插件启停）', () => {
   let handle: HostHandle;
 
   afterEach(async () => {
     await handle.dispose();
   });
 
-  it('market 读取 seed 目录 manifest.json 的 mcp_market 视图 → servers 附 mounted=false；未连 server 卸载拒绝', async () => {
-    const base = dirs();
-    const seed = mkdtempSync(path.join(tmpdir(), 'ink-h2-seed-'));
-    writeFileSync(
-      path.join(seed, 'manifest.json'),
-      JSON.stringify({
-        version: 1,
-        plugins: [],
-        tools: [],
-        mcp_market: {
-          premounted: false,
-          mount_policy: { required: [] },
-          servers: [
-            {
-              id: 'market.demo',
-              name: 'Demo',
-              source: 'fixture',
-              transport: 'http',
-              url: 'https://example.com',
-              command: null,
-              args: [],
-              risk: 'low',
-            },
-          ],
-        },
-      }),
-    );
-    try {
-      handle = await createHost(
-        { data_dir: base.dir, events_dir: base.events, seed_dir: seed },
-      );
-      const market = (await handle.bridge.get('mcp.market')!(null, CTX)) as {
-        servers: Array<{ id: string; mounted: boolean; name: string }>;
-      };
-      expect(market.servers).toHaveLength(1);
-      expect(market.servers[0]).toMatchObject({ id: 'market.demo', mounted: false });
+  it('status 读 plugins 源候选 → 出厂零启用；未知候选启用/停用显式拒绝', async () => {
+    const { dir, events } = dirs();
+    handle = await createHost({ data_dir: dir, events_dir: events });
+    const status = (await handle.bridge.get('mcp.status')!(null, CTX)) as {
+      source: string;
+      servers: Array<{ id: string; enabled: boolean; connected: boolean }>;
+    };
+    expect(Array.isArray(status.servers)).toBe(true);
+    expect(status.servers.every((row) => row.enabled === false && row.connected === false)).toBe(true);
 
-      await expect(
-        handle.bridge.get('mcp.unmount')!({ name: 'market.demo' }, CTX),
-      ).rejects.toMatchObject({ code: 'mcp_not_connected' });
-      await expect(handle.bridge.get('mcp.unmount')!({}, CTX)).rejects.toMatchObject({
-        code: 'invalid_params',
-      });
-      await expect(
-        handle.bridge.get('mcp.mount')!({ config: { transport: 'nope' } }, CTX),
-      ).rejects.toMatchObject({ code: 'invalid_params' });
-    } finally {
-      rmSync(seed, { recursive: true, force: true });
-    }
+    await expect(
+      handle.bridge.get('mcp.enable')!({}, CTX),
+    ).rejects.toMatchObject({ code: 'invalid_params' });
+    await expect(
+      handle.bridge.get('mcp.enable')!({ id: 'no_such_server' }, CTX),
+    ).rejects.toMatchObject({ code: 'mcp_enable_failed' });
+    await expect(
+      handle.bridge.get('mcp.disable')!({ id: 'no_such_server' }, CTX),
+    ).rejects.toMatchObject({ code: 'mcp_disable_failed' });
   });
 });
 

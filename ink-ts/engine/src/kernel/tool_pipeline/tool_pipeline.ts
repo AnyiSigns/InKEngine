@@ -1,3 +1,4 @@
+// gate: 超限(380 行) - 工具流水线单文件闭环（门禁/沙箱/守卫/审批+pose/审计/轨迹同文件，拆文件破坏环节时序可读性）
 /**
  * 工具执行流水线（权限门禁 → 沙箱守卫 → 单调守卫 → 分发执行 → 审计 →
  * 结果观察），tool_pipeline.py 移植。机制环节全可注入，缺省 fail-closed。
@@ -15,12 +16,16 @@
 import { SandboxViolation } from '../../core/errors.js';
 import { isRecord } from '../../core/json.js';
 import {
+  ApprovalDecision,
   DECISION_AUTO, DECISION_EDIT, DECISION_REJECT, DECISION_TERMINATE,
+  POSE_AUTO,
   approve_before_execute,
-  type ApprovalDecision, type ApprovalInterruptContext, type InterruptPolicy,
+  normalizeApprovalPose,
+  type ApprovalInterruptContext, type InterruptPolicy,
 } from '../approval/approval.js';
 import type { ToolSpec } from '../llm/tools.js';
 import { ALLOW as _ALLOW, DENY as _DENY, REVIEW as _REVIEW } from '../permissions/permissions.js';
+import { STATE_ROUND_POSE } from '../../core/nodes/constants.js';
 import { strip_sensitive } from '../../core/security/security.js';
 import { ToolTrace } from '../../core/tool_orchestrator/_types.js';
 import {
@@ -29,6 +34,16 @@ import {
   type AuditSink, type Executor, type Extractor, type FailureReasonHook,
   type GateSeam, type Guard, type SandboxSeam, type TraceSink,
 } from './_types.js';
+
+/** 读回合审批姿态（pose）：节点 ctx.state 的 round_pose 键（宿主随回合
+ *  种子）；ctx 无 state / 无键 / 非法值 = review 缺省（fail-closed 保守，
+ *  与引擎现状行为一致）。 */
+function _round_pose(ctx: unknown): string {
+  const state = (ctx as { state?: Record<string, unknown> | null | undefined } | null | undefined)
+    ?.state;
+  if (state === null || state === undefined) return 'review';
+  return normalizeApprovalPose(state[STATE_ROUND_POSE]);
+}
 
 /** 工具执行流水线装配（机制环节全可注入，缺省 = fail-closed 拒绝）。
  *
@@ -156,6 +171,11 @@ export class ToolPipeline {
     // 校验的沙箱边界）——作为新 args 重提取判定目标并重过门禁，限 1 轮；
     // 解析前后 target 各判一次（任一命中 = ALLOW），字面量规则不因规范化
     // 失配。
+    // 审批姿态（pose）随回合 state 种子（round_pose；缺省 = review 现行为）：
+    // auto = 需确认调用免弹直过 + 缺准入 DENY 会话内自动授予（仍走后续沙箱/
+    // 守卫等机制校验）；deny = 需确认调用免问直拒。pose 只改写审批/准入裁定，
+    // 不跳过任何机制校验。
+    const pose = _round_pose(ctx);
     let approval: ApprovalDecision | null = null;
     for (let editRound = 0; editRound < 2; editRound += 1) {
       if (this.gate !== null && operation !== null && target !== null) {
@@ -170,13 +190,15 @@ export class ToolPipeline {
           // pass
         } else if (verdict.decision === _REVIEW) {
           // 审批卡 action 负载脱敏：args 可能含 URL/命令（url 参数可带 query
-          // token），凭据不得经审批卡扩散到前端卡面
+          // token），凭据不得经审批卡扩散到前端卡面。pose 经 options 传入：
+          // auto 档在此免弹直过、deny 档在此免问直拒（approval 层裁定）。
           approval = await approve_before_execute(
             ctx as ApprovalInterruptContext,
             `gate:${spec.name}`,
             { tool: spec.name, args: strip_sensitive({ ...args }) },
             null,
             this.approval_policy,
+            { pose },
           );
           if (approval.decision === DECISION_REJECT || approval.decision === DECISION_TERMINATE) {
             const result = new ToolResult({ ok: false, decision: approval.decision, approval, error: approval.reason || '审批未通过' });
@@ -201,6 +223,18 @@ export class ToolPipeline {
             target = op_target[1];
             continue; // 重走权限门禁（编辑后目标重新判定）
           }
+        } else if (verdict.decision === _DENY && pose === POSE_AUTO) {
+          // auto 档缺准入自动授予（会话内运行时态）：权限未命中/未声明 = 出厂
+          // deny 面，auto 档放行——但仅绕开门禁准入，沙箱/守卫/执行器等后续
+          // 机制校验原样执行（机制校验不是档位，不被跳过）。以 auto 决议标记
+          // 结果（模型可观测：auto 档已代为授予）。
+          approval = new ApprovalDecision(
+            DECISION_AUTO,
+            { tool: spec.name, args: strip_sensitive({ ...args }) },
+            null,
+            'auto 档缺准入自动授予（权限未命中/未声明）',
+            'pose',
+          );
         } else {
           // DENY 与任何未知 decision：一律拒绝（fail-closed——未知判定值
           // 不得静默落到"继续执行"）

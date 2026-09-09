@@ -1,0 +1,11 @@
+{
+  "id": "mcp.status",
+  "kind": "command",
+  "capability": "host_tool",
+  "actions": [],
+  "depends": [],
+  "data": {
+    "group": "mcp",
+    "order": 1
+  }
+}

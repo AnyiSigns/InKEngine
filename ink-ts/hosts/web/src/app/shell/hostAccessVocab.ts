@@ -44,6 +44,8 @@ const UI_STORE_NAMES = [
   'todoPending',
   'settingsOpen',
   'autoApprovableTools',
+  'approvalPose',
+  'pluginsCatalog',
 ] as const satisfies readonly (keyof ProductShellModel)[];
 
 /** inject 词表（宿主动作名；= ProductShellActions 键，编译期锁精确一致）。 */
@@ -57,6 +59,7 @@ const UI_INJECT_NAMES = [
   'onAbort',
   'onAttachments',
   'onAgentModelSelect',
+  'onApprovalPoseChange',
   'onSpawnSelect',
   'onSpawnSendInstruction',
   'onBranchFromMessage',

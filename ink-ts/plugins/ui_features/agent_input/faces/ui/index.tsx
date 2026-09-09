@@ -1,9 +1,19 @@
 import type { ComponentType } from 'react';
 
-import type { ModelSelection, ModelArchiveSnapshot } from '@/shared/backend/backendAdapter';
+import type { ApprovalPose, ModelSelection, ModelArchiveSnapshot } from '@/shared/backend/backendAdapter';
 import { InputBar } from './InputBar';
 
 const noop = (): void => undefined;
+
+/**
+ * onAbort 注入失败兜底：不静默装死——若宿主未把 onAbort 经
+ * access faces.ui.access.inject 注入，停止按钮点击将无效且无从查起。
+ * 此处显式告警便于定位（正常路径已注入，不会触发）。
+ */
+const abortFallback = (): void => {
+  // eslint-disable-next-line no-console
+  console.error('[agent_input] onAbort 未注入：停止按钮无法中止当前回合（请核对 spec faces.ui.access.inject 与宿主 product.onAbort）');
+};
 
 /**
  * agent_input ui 面入口：输入胶囊（发送/中止/附件/模型/推理档位）。
@@ -23,6 +33,8 @@ const AgentInputAdapter: ComponentType<Record<string, unknown>> = (props: Record
       streaming={streaming}
       models={props.models as ModelArchiveSnapshot | undefined}
       agentModelId={(props.agentModelId as string | null | undefined) ?? null}
+      approvalPose={(props.approvalPose as ApprovalPose | undefined) ?? 'review'}
+      onApprovalPoseChange={(props.onApprovalPoseChange as ((pose: ApprovalPose) => void) | undefined) ?? noop}
       onAgentModelSelect={(props.onAgentModelSelect as ((id: string, pid?: string) => void) | undefined) ?? noop}
       roundCount={(props.roundCount as number | undefined) ?? 0}
       stepCount={(props.stepCount as number | undefined) ?? 0}
@@ -32,7 +44,7 @@ const AgentInputAdapter: ComponentType<Record<string, unknown>> = (props: Record
           | undefined;
         (fn ?? noop)(text, attachments, model);
       }}
-      onAbort={(props.onAbort as (() => void) | undefined) ?? noop}
+      onAbort={(props.onAbort as (() => void) | undefined) ?? abortFallback}
       onAttachments={(assets) => {
         const fn = props.onAttachments as ((a: unknown[]) => void) | undefined;
         (fn ?? noop)(assets);

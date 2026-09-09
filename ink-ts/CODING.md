@@ -163,7 +163,7 @@ host/cli 取用；web/renderer 不静态 import engine（运行时经 cli serve 
 | 生成文件禁手改 | `engine/src/core/contracts/generated/**` | 由 `contracts:verify`（engine/scripts/verify_generated.mjs：复制 engine/schemas + fixtures 后重生成，与仓库生成物归一化逐文件 diff）在 root `npm test` 与 CI 强制；不做文本扫描 |
 | 机制件契约三键（依赖单向/装配完整/0-IO） | `engine/src/kernel/<mechanism>/contract.ts` 全量 + runtime 装配闭包 + kernel 源码 | 由 `verify:mechanisms`（engine/scripts/verify_mechanisms.ts：契约密封 DAG 无环 + runtime depends 闭包 ∪ 自足叶子覆盖全量 + kernel 禁 node 内置/第三方/IO 全局原语）在 root `npm test` 与 CI 强制；boot 装配首步同源 `seal_mechanism_registry` fail-closed |
 | 命令声明即挂载（方法名不手写数组） | `hosts/lib/src/bridge/index.ts` 的 `BRIDGE_METHODS` + `hosts/lib/src/bridge/commands.generated.ts` | 由 `verify:bridge-mount`（hosts/lib/scripts/verify_bridge_mount.ts：BRIDGE_METHODS 数组体只允许各域 `*_COMMANDS` spread 或注释，禁点分方法名字面量；spread 常量须已 import；域文件禁本地声明 `*_COMMANDS` 数组——方法名真源 = plugins/commands → commands.generated.ts）在 root `npm test` 与 CI 强制；键与实现表一致由各域工厂 `Readonly<Record<DomainCommand, BridgeHandler>>` 返回类型编译期保证 |
-| 插件源派生视图（manifest 禁手改） | `plugins/manifest.json`（tools 聚合 / mcp 市场视图 / ui_features 组件白名单 / 插件索引） | 由 `verify:plugin-manifest`（plugins/scripts/sync_plugin_manifest.mjs：从 plugins/\<kind\>/\<id\>/spec.json 聚合生成，--check 逐字比对防手改）在 root `npm test` 与 CI 强制；hosts/web dev 夹具、host mcp.market、tools_os 夹具生成与 self_check data 门禁一律经 manifest 取用 |
+| 插件源派生视图（manifest 禁手改） | `plugins/manifest.json`（tools 聚合 / mcp 候选视图（web dev 夹具）/ ui_features 组件白名单 / 插件索引） | 由 `verify:plugin-manifest`（plugins/scripts/sync_plugin_manifest.mjs：从 plugins/\<kind\>/\<id\>/spec.json 聚合生成，--check 逐字比对防手改）在 root `npm test` 与 CI 强制；hosts/web dev 夹具、hosts/web mcp 候选夹具、tools_os 夹具生成与 self_check data 门禁一律经 manifest 取用 |
 | 命令面生成物（commands.generated.ts 禁手改） | `hosts/lib/src/bridge/commands.generated.ts`（各域命令元组 + 域命令类型，真源 = plugins/commands/*/spec.json） | 由 `verify:plugin-manifest`（同 scripts/sync_plugin_manifest.mjs：同时派生 manifest.json 与 commands.generated.ts，--check 对两者逐字比对防手改）在 root `npm test` 与 CI 强制；host 域实现文件经 `import type`/re-export 取用 |
 | 产品主壳布局生成物（ui.generated.json 禁手改） | `plugins/ui.generated.json`（产品 UI 布局树，真源 = plugins/ui_features/*/spec.json 装配入口 $ref 展开） | 由 `verify:plugin-manifest`（同 scripts/sync_plugin_manifest.mjs：DFS 展开 $ref 重建完整布局树，引用缺失/成环/孤儿 fail-closed；--check 逐字比对防手改）在 root `npm test` 与 CI 强制；hosts/web 产品壳与 dev 夹具一律经 ui.generated.json 取用，不再有 seed_data/ui_spec.json |
 | canonical 白名单生成物（ui_canonical.generated.ts 禁手改） | `hosts/lib/src/bridge/ui_canonical.generated.ts`（布局树引用组件 type 并集升序，真源同 ui_features 布局） | 由 `verify:plugin-manifest`（同 scripts/sync_plugin_manifest.mjs 派生，--check 逐字比对防手改）在 root `npm test` 与 CI 强制；host recipe 界面白名单引用之；与旧侧 inkling/manifest.json renderer_components 同值由 gate 对码测试守漂移 |
@@ -251,9 +251,9 @@ CI 的 ink-ts job 同链执行。规则增删须同步本表。
 | `backup.export` | backup | data_dir 整包 zip 导出（store-zip + manifest；dest 缺省 data_dir/backups） |
 | `backup.preview` | backup | 备份包预览（覆盖清单：条目数/总大小/含库/created_at） |
 | `backup.restore` | backup | 备份恢复替换（危险操作：confirm 须精确 `'backup-restore'`；恢复前原目录快照入 data_dir/snapshots） |
-| `mcp.market` | mcp | 市场浏览（plugins/manifest.json 的 mcp_market 视图 + 每 server mounted 连接态；preview/add/remove 无真源不提供） |
-| `mcp.mount` | mcp | 市场服务挂载（config = McpServerConfig 数据形态；连接 + 工具导入，失败 fail-closed） |
-| `mcp.unmount` | mcp | 市场服务卸载（manager.disconnect；未挂载显式拒绝） |
+| `mcp.status` | mcp | MCP 工具型插件状态（plugins/mcp/<id>/spec.json 候选 + 启用/连接/工具数；B5 市场命令面已退役） |
+| `mcp.enable` | mcp | 启用 MCP 工具型插件（会话内装载：连接 + 工具导入 + 声明式注册 + 索引刷新；台账持久化重启自动拉起） |
+| `mcp.disable` | mcp | 停用 MCP 工具型插件（注销声明式定义 + 索引摘除 + 断开会话进程回收；台账摘除） |
 | `knowledge.list` | knowledge | 知识集条目窗口（query/kind 过滤 + archived 含归档开关；条目渲染视图） |
 | `knowledge.graph` | knowledge | 知识层级概览（层级计数 + 组件支持 kind 节点/边；无知识 = degraded） |
 | `knowledge.export` | knowledge | 知识 JSON 导出串（无 kind = 全量补丁链可移植；kind = 单类条目子集） |
@@ -306,8 +306,9 @@ serve/transport 方法面另设扁平↔点分别名层（`hosts/cli/src/legacy_
 rounds.todos`、`recovery_factory_reset→recovery.reset`（确认标记不回代，缺 confirm fail-closed
 拒绝）、`recovery_snapshots→recovery.checkpoints`、`recovery_restore_snapshot→recovery.rollback`、
 `tools_manifest→tools.full`、`tools_baseline_get/set→capability.baseline.get/set`、
-`security_tier_overrides_set→capability.tier.set`、`backup_export/preview/restore→backup.*`、
-`mcp_market_status/mount/unmount→mcp.market/mount/unmount`；`round_ledger_list`/
+`security_tier_overrides_set→capability.tier.set`、`backup_export/preview/restore→backup.*`；
+`mcp_market_status/mount/unmount`（B5 市场命令面退役，旧扁平名一并移除——web 直调
+mcp.status/enable/disable）；`round_ledger_list`/
 `round_ledger_merge`（账本读面已删，不提供）、`mcp_market_preview/add/remove`、
 `memory.update_frontmatter` 无真源不提供；`audit.list`/
 `knowledge.*`/`memory.*`/`growth.report` 以同点分登记。H2b 读取类别名：

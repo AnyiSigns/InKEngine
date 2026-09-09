@@ -149,6 +149,12 @@ export const STATE_RESULTS = 'results';
 export const STATE_STEP_ARGS = 'step_args';
 /** router 走向决议（router_judge 写入选中的候选 key；`route:<key>` 条件边据此判定）。 */
 export const STATE_ROUTE_TO = '_route_to';
+/** 每轮模型/推理覆盖（宿主随回合 state 种子；llm_decider 读它构造 LLMParams）。 */
+export const STATE_ROUND_MODEL = 'round_model';
+/** 每轮审批姿态（auto/review/deny；宿主随回合 state 种子，缺省 = review）。
+ *  tool_pipeline 在门禁判定/审批决议处读它裁定「需确认调用」（见
+ *  approval.ts 的 pose 消费与 tool_pipeline 的缺准入转正）。 */
+export const STATE_ROUND_POSE = 'round_pose';
 
 // ── 护栏默认值（config 缺省；宿主/数据图可覆盖）──
 /** 工具回合上限（单数据节点内模型决策循环轮数；防成本失控）。 */

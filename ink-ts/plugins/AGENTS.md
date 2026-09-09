@@ -64,8 +64,10 @@ plugins，生成物 ui.generated.json 取代 seed_data/ui_spec.json）；阶段 
 activate/state/chrome 与插件注册生成物）独立成 `hosts/web/`（@ink-ts/web），
 renderer/ 为纯显示设备库（@ink-ts/renderer），ui_features 域扩至 38 插件
 （canonical 布局叶子/设置面板/设置浮层真 ui 面 26；ledger_view 随 records/
-ledger 移除后现 36 插件 = 25 真 ui 面（12 叶子 + 13 面板），faces/ui 同住
-实现与测试，renderer 适配层整体退役）；其余 kind 目录随对应阶段落位。
+ledger 移除后曾 36 插件 = 25 真 ui 面（12 叶子 + 13 面板）；B4 权限/插件收敛
+把 mcp_market+tools_panel 两设置段合并为 plugins 段，现 148 插件 =
+ui_feature 34 + 真 ui 面 24（12 布局叶子 + 12 设置面板，设置段 12），faces/ui
+同住实现与测试，renderer 适配层整体退役）；其余 kind 目录随对应阶段落位。
 
 ## spec.json 契约（真源声明）
 
@@ -201,7 +203,7 @@ ledger 移除后现 36 插件 = 25 真 ui 面（12 叶子 + 13 面板），faces
    是生成物，禁手改；
 2. **同步派生**：改任一 spec 后重跑
    `node plugins/scripts/sync_plugin_manifest.mjs`（或 `--check` 校验），
-   消费方（hosts/web dev 夹具 / host mcp.market / tools_os 夹具生成 / self_check
+   消费方（hosts/web dev 夹具 / hosts/web mcp 候选夹具 / tools_os 夹具生成 / self_check
    门禁）经 plugins/manifest.json 取用；host bridge 命令面经
    commands.generated.ts（域实现文件 import type/re-export）取用；产品
    主壳经 ui.generated.json 取用；host 配方界面白名单经

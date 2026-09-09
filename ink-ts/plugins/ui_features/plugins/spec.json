@@ -1,0 +1,31 @@
+{
+  "id": "plugins",
+  "kind": "ui_feature",
+  "capability": "host_tool",
+  "actions": [],
+  "depends": [],
+  "faces": {
+    "ui": {
+      "target": "web",
+      "entry": "./faces/ui/index.tsx",
+      "access": {
+        "store": ["appBackend", "pluginsCatalog"]
+      }
+    }
+  },
+  "data": {
+    "node": {
+      "kind": "component",
+      "type": "plugins",
+      "props": {
+        "note": "设置·插件（唯一插件实体视图：目录 + 常驻必带/界面组件/服务启停）"
+      }
+    },
+    "settings_section": {
+      "key": "plugins",
+      "label": "插件",
+      "order": 10,
+      "icon": "package"
+    }
+  }
+}

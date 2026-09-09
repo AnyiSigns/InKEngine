@@ -97,6 +97,8 @@ export interface HostBridgeDeps {
   docTextCap?: number | null;
   /** 文档解析执行体（rounds 文本注入；缺省 = 跳过解析仅文件名引用）。 */
   docParse?: DocParser;
+  /** 厂商模型元数据抓取执行体（model_archive 能力增强；缺省 = 全局 fetch）。 */
+  catalogFetch?: import('./model_catalog.js').CatalogFetch;
   /** 检索密钥域（search.keys.set/get + web_search 执行体共用；内存不落盘）。 */
   searchKeys?: SearchKeysStore;
   /** 工作区授权域（workspace.state/set/revoke + mount.*；data_dir 持久化）。 */
@@ -105,10 +107,12 @@ export interface HostBridgeDeps {
   capability?: CapabilityStore;
   /** 宿主数据目录（backup.export/restore 与 recovery.reset 的目录根）。 */
   data_dir?: string;
-  /** 种子数据目录（mcp.market 读该目录内 manifest.json 的 mcp_market 视图；缺省按包位置探测 plugins/）。 */
+  /** 种子数据目录（mcp 域读该目录内 plugins 源；缺省按包位置探测 plugins/）。 */
   seed_dir?: string;
-  /** MCP 管理器（H1 装配段产物；mcp.market 挂载态/mount/unmount 消费）。 */
+  /** MCP 管理器（H1 装配段产物；mcp.status/enable/disable 消费）。 */
   mcpManager?: McpClientManager | null;
+  /** MCP 工具型插件装载服务（B5；mcp.* 启停语义真源；缺省 = 未装配）。 */
+  mcpPlugins?: import('../mcp/plugin.js').McpPluginService | null;
   /** 宿主命令闸（buildBridge 包装各方法；backup.restore 期间拒绝并发）。 */
   gate?: HostOpGate;
   /** backup.restore 恢复编排（createHost 注入：停 → 换 → 装配 → 报告）。 */

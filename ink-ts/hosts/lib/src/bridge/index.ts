@@ -50,6 +50,7 @@ import { buildRecoveryCommands, RECOVERY_COMMANDS } from './recovery.js';
 import { buildRoundsCommands, ROUNDS_COMMANDS } from './rounds.js';
 import { buildSearchCommands, SEARCH_COMMANDS } from './search.js';
 import { buildSessionsCommands, SESSIONS_COMMANDS } from './sessions.js';
+import { buildSkeletonCommands, SKELETON_COMMANDS } from './skeleton_ops.js';
 import { buildToolsCommands, TOOLS_COMMANDS } from './tools.js';
 import { buildTodosCommands, TODOS_COMMANDS } from './todos.js';
 import { buildUiComponentsCommands, UI_COMPONENTS_COMMANDS } from './ui_components.js';
@@ -89,6 +90,8 @@ export const BRIDGE_METHODS = [
   ...GROWTH_COMMANDS,
   // graph：图实例摘要（引擎回合图结构 + 最近一回合执行态）
   ...GRAPH_COMMANDS,
+  // skeleton：会话级骨架读/声明式修改（P4-B-2；校验+挂载后才落草稿）
+  ...SKELETON_COMMANDS,
   // pool：池治理登记快照 / 引擎判定入口（只登记不越权写）
   ...POOL_COMMANDS,
   // edge_evidence：边证据条目窗口（只读）
@@ -156,6 +159,7 @@ export function buildBridge(deps: HostBridgeDeps): ReadonlyMap<string, BridgeHan
     buildMemoryCommands(deps),
     buildGrowthCommands(deps),
     buildGraphCommands(deps),
+    buildSkeletonCommands(deps),
     buildPoolCommands(deps),
     buildEdgeEvidenceCommands(deps),
     buildMetricsCommands(deps),

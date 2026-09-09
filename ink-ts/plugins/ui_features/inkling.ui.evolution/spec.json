@@ -12,7 +12,7 @@
         "view": "evolution",
         "scroll": true,
         "gap": 0,
-        "note": "演化页：动态时间线 + 机制监控读取面（审计/发布演示时可见）"
+        "note": "状态页：演化动态时间线 + 当前回合图组成 + 机制读取面（审计/发布演示时可见）"
       }
     },
     "children": [
@@ -20,7 +20,7 @@
         "$ref": "evolution_feed"
       },
       {
-        "$ref": "inkling.ui.mechanisms"
+        "$ref": "mechanism_view"
       }
     ]
   }

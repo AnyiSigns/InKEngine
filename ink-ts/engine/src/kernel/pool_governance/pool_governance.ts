@@ -142,6 +142,7 @@ function toSnapshotNode(node: PoolNodeSnapshot | PoolNodeSnapshotInit): PoolNode
     age_days: node.age_days ?? 0,
     fields: node.fields ?? [],
     domain: node.domain ?? 'default',
+    terminal: node.terminal ?? false,
   });
 }
 

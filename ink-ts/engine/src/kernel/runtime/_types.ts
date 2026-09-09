@@ -1,3 +1,4 @@
+// gate: 超限(356 行) - 运行时机壳数据契约（Host 嵌入契约五件套 + 装配配方数据形态 + P4.2a-3 seed_edges 字段逐键构造，拆字段破坏装配键与构造一一对应可读性）
 /**
  * 运行时机壳数据契约（runtime.py 移植）：Host 嵌入契约五件套 + 装配配方
  * 数据形态（AssemblyRecipe/ToolWiring）+ 生命周期状态枚举 + 在途 run 登记凭证。
@@ -111,6 +112,11 @@ export interface AssemblyRecipeInit {
   /** 统一工具流水线权限门禁装配数据（null = 引擎默认 DENY 兜底、无 review
    *  档——现行为不变；review_tools = 某工具命中权限仍转审批挂卡）。 */
   tool_gate?: ToolGateConfig | null;
+  /** llm 类结点 system 合成基线（装配注入只读 boot 提示词；缺省 '' =
+   *  无基线 = 既有自定义 system_prompt 直取行为零漂移）。文本由宿主/adapters
+   *  装配端提供（core 不持有 boot 内容），经 seams.boot_system_prompt 落到
+   *  llm_decider/router_judge 等 llm 类结点执行面。 */
+  boot_system_prompt?: string;
   retrieval_sources?: readonly ((runtime: unknown) => unknown)[];
   apply_targets?: Record<string, (runtime: unknown) => unknown>;
   /** 引擎内置基础节点池种子（null = 出厂默认池种子；显式空启停数据见
@@ -154,6 +160,44 @@ export interface AssemblyRecipeInit {
    *  仅 memory_store 已装配（memory_extract_enabled）时生效；cap/截断见
    *  _runtime_contexts._assembly_sources 注入面。 */
   memory_recall_enabled?: boolean;
+  // ── 会话级骨架 + 回合结束自续跑（P4；缺省 = 旧回合级行为）──
+  /** 会话级骨架模式：true = 回合沿线程骨架推进/扩展（首轮/骨架缺失/失效仍由
+   *  组装建立）；false/缺省 = 回合级整图组装（旧行为）。 */
+  thread_skeleton_enabled?: boolean;
+  /** 回合结束自续跑护栏上限（§五-b 4.4）：单次显式触发（含续跑意图）的自动
+   *  续回合链预算；0/缺省 = 关闭（旧行为，续跑意图被忽略）。 */
+  auto_continue_limit?: number;
+  // ── P4.1 候选层探索预算（引擎默认保守关闭；产品按参数开启可显式关闭）──
+  /** 无样本候选试用开关（cold-start 探索把能覆盖目标但无样本/样本极低的候选
+   *  链按小概率 epsilon 置顶试用；false/缺省 = 候选排序保持纯证据序零漂移）。 */
+  candidate_trial_enabled?: boolean;
+  /** 无样本候选试用概率覆写（null/缺省 = 引擎钉死缺省
+   *  DEFAULT_CANDIDATE_TRIAL_EPSILON；<=0 = 概率通道关闭）。 */
+  candidate_trial_epsilon?: number | null;
+  /** 连续顶选反垄断开关（最近 N 轮同指纹连续顶选且存在可覆盖目标的次优候选
+   *  时周期性强试次优；false/缺省 = 不参与）。 */
+  anti_monopoly_enabled?: boolean;
+  /** 反垄断连续顶选观察窗口覆写（null/缺省 = 引擎钉死缺省
+   *  DEFAULT_ANTI_MONOPOLY_WINDOW；<=1 = 每轮都强制）。 */
+  anti_monopoly_window?: number | null;
+  // ── 出厂边先验（P4.2a-3；引擎默认关闭——先验入证据面会改变候选序，保守档）──
+  /** 出厂边先验写入开关：开启时经 import_seed_paths 把（缺省 = 出厂可喂链
+   *  default_engine_seed_edges，或本配方 seed_edges）写入证据面。缺省 false
+   *  = 先验不入证据面，组装候选序零漂移。 */
+  seed_edges_enabled?: boolean;
+  /** 出厂边先验数据覆写（null/缺省 = 引擎出厂 default_engine_seed_edges）。 */
+  seed_edges?: readonly (
+    | import('../../core/edge_evidence/seed.js').SeedEdgeRaw
+    | Record<string, unknown>
+  )[] | null;
+  // ── 作用域模型解析（批4 agent 子作用域 model override 的装配接线位）──
+  /** 按 model 引用（provider/model_id）解析 AsyncLLM 的宿主接线（null/缺省
+   *  = 未接线：agent 结点实体引用非 null model 时显式失败，不静默跑父模型）。
+   *  解析返回实例由装配统一包守卫链（用量/压缩）；缺省 null = seams
+   *  resolve_scope_llm 不注入，engine 不持有厂商模型解析实现。 */
+  scope_model_llm?:
+    | ((model: Record<string, string>) => AsyncLLM | Promise<AsyncLLM | null> | null)
+    | null;
 }
 
 /**
@@ -178,6 +222,7 @@ export class AssemblyRecipe {
   vetting_l2_hook: unknown = null;
   approval_levels: Record<string, unknown> = {};
   tool_gate: ToolGateConfig | null = null;
+  boot_system_prompt = '';
   retrieval_sources: Array<(runtime: unknown) => unknown> = [];
   apply_targets: Record<string, (runtime: unknown) => unknown> = {};
   pool_seed: EnginePoolSeed | null = null;
@@ -200,6 +245,22 @@ export class AssemblyRecipe {
   memory_extract_enabled = true;
   skill_crystal_enabled = true;
   memory_recall_enabled = true;
+  // ── 会话级骨架 + 回合结束自续跑（P4；缺省 = 旧回合级行为）──
+  thread_skeleton_enabled = false;
+  auto_continue_limit = 0;
+  // ── P4.1 候选层探索预算（引擎默认保守关闭；产品按参数开启可显式关闭）──
+  candidate_trial_enabled = false;
+  candidate_trial_epsilon: number | null = null;
+  anti_monopoly_enabled = false;
+  anti_monopoly_window: number | null = null;
+  // ── 出厂边先验（引擎默认关闭——先验入证据面会改变候选序，保守档）──
+  seed_edges_enabled = false;
+  seed_edges: readonly (
+    | import('../../core/edge_evidence/seed.js').SeedEdgeRaw
+    | Record<string, unknown>
+  )[] | null = null;
+  // ── 作用域模型解析（批4 agent 子作用域 model override 装配接线位）──
+  scope_model_llm: ((model: Record<string, string>) => AsyncLLM | Promise<AsyncLLM | null> | null) | null = null;
 
   constructor(init: AssemblyRecipeInit = {}) {
     if (init.set_id !== undefined) this.set_id = init.set_id;
@@ -230,6 +291,9 @@ export class AssemblyRecipe {
       this.approval_levels = { ...init.approval_levels };
     }
     if (init.tool_gate !== undefined) this.tool_gate = init.tool_gate;
+    if (init.boot_system_prompt !== undefined) {
+      this.boot_system_prompt = init.boot_system_prompt;
+    }
     if (init.retrieval_sources !== undefined) {
       this.retrieval_sources = [...init.retrieval_sources];
     }
@@ -273,6 +337,33 @@ export class AssemblyRecipe {
     }
     if (init.memory_recall_enabled !== undefined) {
       this.memory_recall_enabled = init.memory_recall_enabled;
+    }
+    if (init.thread_skeleton_enabled !== undefined) {
+      this.thread_skeleton_enabled = init.thread_skeleton_enabled;
+    }
+    if (init.auto_continue_limit !== undefined) {
+      this.auto_continue_limit = init.auto_continue_limit;
+    }
+    if (init.candidate_trial_enabled !== undefined) {
+      this.candidate_trial_enabled = init.candidate_trial_enabled;
+    }
+    if (init.candidate_trial_epsilon !== undefined && init.candidate_trial_epsilon !== null) {
+      this.candidate_trial_epsilon = init.candidate_trial_epsilon;
+    }
+    if (init.anti_monopoly_enabled !== undefined) {
+      this.anti_monopoly_enabled = init.anti_monopoly_enabled;
+    }
+    if (init.anti_monopoly_window !== undefined && init.anti_monopoly_window !== null) {
+      this.anti_monopoly_window = init.anti_monopoly_window;
+    }
+    if (init.seed_edges_enabled !== undefined) {
+      this.seed_edges_enabled = init.seed_edges_enabled;
+    }
+    if (init.seed_edges !== undefined && init.seed_edges !== null) {
+      this.seed_edges = init.seed_edges;
+    }
+    if (init.scope_model_llm !== undefined) {
+      this.scope_model_llm = init.scope_model_llm;
     }
   }
 }

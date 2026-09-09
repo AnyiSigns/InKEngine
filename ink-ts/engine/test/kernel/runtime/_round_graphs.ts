@@ -16,6 +16,22 @@ import type { Runtime } from '../../../src/kernel/runtime/index.js';
 import { ROUND_GRAPH_STATE_KEY } from '../../../src/kernel/runtime/_runtime_rounds.js';
 import type { RunResult } from '../../../src/core/run_result/run_result.js';
 import type { NodeFactory } from '../../../src/core/registry/registry_types.js';
+import {
+  TYPE_LLM_DECIDER,
+  default_engine_pool_seed,
+  type EnginePoolSeed,
+} from '../../../src/core/nodes/index.js';
+
+/** llm_decider 单实例池种子（存量「单节点终态兜底」语义的回合/骨架用例用：
+ *  P4.2a-3 出厂池扩充后默认组装顶选 = planner→reviewer→main 字段链，需要
+ *  保持单节点最小可行回合语义的用例经配方 pool_seed 过滤回落）。 */
+export function deciderOnlyPoolSeed(): EnginePoolSeed {
+  const base = default_engine_pool_seed();
+  return {
+    enabled: true,
+    node_types: base.node_types.filter((row) => row.type === TYPE_LLM_DECIDER),
+  };
+}
 
 /** 数据图节点声明（类型名须已在 runtime.graph_registries.nodes 注册）。 */
 export interface DataGraphNodeSpec {

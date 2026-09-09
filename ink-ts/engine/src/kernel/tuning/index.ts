@@ -23,6 +23,7 @@ export {
 } from './_constants.js';
 
 export { TurnMetrics } from './_turn_metrics.js';
+export { AUTO_ROUND_ID_PREFIX, is_auto_round_id } from './_turn_metrics.js';
 export type { TurnMetricsInit } from './_turn_metrics.js';
 export { TunableParams, ParameterSnapshot, TuneResult } from './_params.js';
 export type {

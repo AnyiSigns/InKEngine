@@ -49,6 +49,8 @@ describe('engine 公共面分组导出', () => {
     expect(engine.CachingLLM).toBeTypeOf('function');
     const fn = (engine.Message as unknown) ?? null;
     expect(fn).not.toBeNull();
+    // fork 上下文基线投影 seam（持久化消息链 → 历史 user/assistant 文本链）
+    expect(engine.project_history_baseline).toBeTypeOf('function');
   });
 
   it('2.4 声明式工具/编排/环境/schema/ui', () => {

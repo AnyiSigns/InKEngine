@@ -23,6 +23,29 @@ function dirs(): { dir: string; events: string } {
   const dir = mkdtempSync(path.join(tmpdir(), 'ink-h2b-'));
   return { dir, events: path.join(dir, 'events') };
 }
+
+/** 测的是：pool.snapshot.registry 目录段形状（available/total_count/active_count/types 行字段）。 */
+function expectRegistryShape(registry: unknown): void {
+  const view = registry as {
+    available: boolean;
+    total_count: number;
+    active_count: number;
+    types: Array<Record<string, unknown>>;
+  };
+  expect(typeof view).toBe('object');
+  expect(typeof view.available).toBe('boolean');
+  expect(typeof view.total_count).toBe('number');
+  expect(typeof view.active_count).toBe('number');
+  expect(Array.isArray(view.types)).toBe(true);
+  expect(view.types.length).toBe(view.total_count);
+  expect(view.active_count).toBeLessThanOrEqual(view.total_count);
+  for (const row of view.types) {
+    expect(typeof row['type_name']).toBe('string');
+    expect(typeof row['status']).toBe('string');
+    expect(typeof row['provenance']).toBe('string');
+    expect(typeof row['executor']).toBe('string');
+  }
+}
 describe('H2b 方法表三向一致', () => {
   let handle: HostHandle;
 
@@ -137,10 +160,12 @@ describe('pool.snapshot / pool.evaluate（池治理登记快照 + 引擎判定�
       available: boolean;
       governance_log: unknown[];
       last_round: null;
+      registry: unknown;
     };
     expect(empty.available).toBe(true);
     expect(empty.governance_log).toEqual([]);
     expect(empty.last_round).toBeNull();
+    expectRegistryShape(empty.registry);
 
     const evaluated = (await handle.bridge.get('pool.evaluate')!(
       {
@@ -157,11 +182,13 @@ describe('pool.snapshot / pool.evaluate（池治理登记快照 + 引擎判定�
       governance_log: Array<Record<string, unknown>>;
       last_round: { node_id: string; verdict: string } | null;
       counts: { pool_count: number; evaluations: number };
+      registry: unknown;
     };
     expect(after.governance_log).toHaveLength(1);
     expect(after.last_round?.node_id).toBe('candidate');
     expect(after.counts.evaluations).toBe(1);
     expect(after.counts.pool_count).toBe(1);
+    expectRegistryShape(after.registry);
   });
 
   it('pool.evaluate 近重复判定透传引擎 verdict（merge_target 命中池内结点）', async () => {
@@ -215,12 +242,15 @@ describe('edge_evidence.list / metrics.snapshot（只读窗口）', () => {
     const view = (await handle.bridge.get('metrics.snapshot')!(null, CTX)) as {
       available: boolean;
       rounds: number;
+      auto_rounds: number;
       failures: number;
       avg: number;
       crystallized: number;
     };
     expect(view.available).toBe(true);
     expect(view.rounds).toBe(2);
+    // 普通 echo 回合无自续 → auto 独立口径 = 0
+    expect(view.auto_rounds).toBe(0);
     expect(view.failures).toBe(0);
     expect(view.avg).toBe(0);
     expect(typeof view.crystallized).toBe('number');

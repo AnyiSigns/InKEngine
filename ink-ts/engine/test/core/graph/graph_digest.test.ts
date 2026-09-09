@@ -108,3 +108,28 @@ describe('Graph.resolve_conditions 按位置解析', () => {
     expect(() => g.resolve_types(null)).toThrow(GraphDefinitionError);
   });
 });
+
+// ── 边 kind 指纹（P1：loop 显式参与指纹，既有边指纹不漂移） ─────────────────
+
+describe('Graph 边 kind 指纹', () => {
+  function typed(name: string, addEdge: (g: Graph) => void): Graph {
+    const g = new Graph({ name, entry: 'a' });
+    g.add_node_type('a', 'intent_parse', {}, new NodeContract());
+    g.add_node_type('b', 'answer_direct', {}, new NodeContract());
+    addEdge(g);
+    g.add_exit('b');
+    return g;
+  }
+
+  it('loop 回边参与指纹（与同拓扑条件自环指纹不同）', () => {
+    const loop = typed('loop.1', (g) => g.add_loop_edge('a', 'a'));
+    const cond = typed('loop.2', (g) => g.add_conditional_edge_by_name('a', 'a', 'cond_x'));
+    expect(loop.digest()).not.toBe(cond.digest());
+    expect(loop.digest()).toBe(loop.digest());
+  });
+
+  it('既有边指纹不变（standard/条件边不含 kind，与历史 digest 一致）', () => {
+    const standard = typed('s1', (g) => g.add_edge('a', 'b'));
+    expect(standard.digest()).toMatch(/^[0-9a-f]{16}$/);
+  });
+});

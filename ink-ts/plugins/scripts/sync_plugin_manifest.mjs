@@ -85,6 +85,7 @@ const DOMAIN_TABLE = [
   { group: 'memory', const: 'MEMORY_COMMANDS', type: 'MemoryCommand' },
   { group: 'growth', const: 'GROWTH_COMMANDS', type: 'GrowthCommand' },
   { group: 'graph', const: 'GRAPH_COMMANDS', type: 'GraphCommand' },
+  { group: 'skeleton', const: 'SKELETON_COMMANDS', type: 'SkeletonCommand' },
   { group: 'pool', const: 'POOL_COMMANDS', type: 'PoolCommand' },
   { group: 'edge_evidence', const: 'EDGE_EVIDENCE_COMMANDS', type: 'EdgeEvidenceCommand' },
   { group: 'metrics', const: 'METRICS_COMMANDS', type: 'MetricsCommand' },

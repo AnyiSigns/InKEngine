@@ -12,7 +12,7 @@
  *   以消息流形态展示「智能体为什么这么做 / 做了什么」，不塞进设置。
  */
 
-import { useRef, useState, useEffect, useCallback, memo, type ComponentType } from 'react';
+import { useRef, useState, useEffect, useCallback, memo, type ComponentType, type ReactNode } from 'react';
 import {
   AlertTriangle,
   Check,
@@ -53,6 +53,33 @@ interface MessageStreamProps {
   onSpawnSendInstruction?: (text: string) => void;
   spawnStreaming?: boolean;
   onBranchFromMessage: (messageId: string, branchLabel: string) => void;
+}
+
+/** auto 轮判定：回合 id 前缀 auto:（引擎自续轮；普通轮不标）。 */
+function isAutoRound(roundId: string | undefined): roundId is string {
+  return typeof roundId === 'string' && roundId !== '' && roundId.startsWith('auto:');
+}
+
+/** 消息行 → 带 auto 轮分隔标记的行序列（徽标只出现在 auto 轮首条前）。 */
+function feedRows(entries: InkMessage[], onOpenPanel: () => void): ReactNode[] {
+  const rows: ReactNode[] = [];
+  let lastRoundId: string | undefined;
+  for (const entry of entries) {
+    if (isAutoRound(entry.roundId) && entry.roundId !== lastRoundId) {
+      rows.push(
+        <div key={`auto-round:${entry.roundId}:${rows.length}`} className="flex justify-center px-1" data-ui="auto_round_marker" data-auto-round>
+          <span className="ink-chip shrink-0 py-px text-[10px]">自动续跑</span>
+        </div>,
+      );
+    }
+    if (typeof entry.roundId === 'string' && entry.roundId !== '') lastRoundId = entry.roundId;
+    rows.push(
+      <div key={entry.id} className="ink-feed">
+        <MessageItem entry={entry} onOpenPanel={onOpenPanel} />
+      </div>,
+    );
+  }
+  return rows;
 }
 
 export function MessageStream({
@@ -104,11 +131,7 @@ export function MessageStream({
             steps={roundSteps.map((s) => ({ id: s.stepId, label: s.label || s.type, status: s.status }))}
           />
         )}
-        {entries.map((entry) => (
-          <div key={entry.id} className="ink-feed">
-            <MessageItem entry={entry} onOpenPanel={openSpawnPanel} />
-          </div>
-        ))}
+        {feedRows(entries, openSpawnPanel)}
         {simulations && simulations.length > 0 && <SimulationCard branches={simulations} />}
       </div>
       {pulseText && <PulseLine text={pulseText} color={pulseColor} />}

@@ -48,6 +48,7 @@ export {
   ToolCallDelta,
   accumulate_tool_calls,
   assistant,
+  project_history_baseline,
   system,
   tool_result,
   user,

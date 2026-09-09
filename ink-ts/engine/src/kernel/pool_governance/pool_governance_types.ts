@@ -22,6 +22,9 @@ export interface PoolNodeSnapshotInit {
   age_days?: number;
   fields?: readonly string[];
   domain?: string;
+  /** 是否 active 终态候选（flags.terminal=true；缺省 false = 非终态/未知）。
+   *  池不变式：终态候选 ≤1 时该候选不判死淘汰。 */
+  terminal?: boolean;
 }
 
 /**
@@ -35,6 +38,7 @@ export class PoolNodeSnapshot {
   readonly age_days: number;
   readonly fields: readonly string[];
   readonly domain: string;
+  readonly terminal: boolean;
 
   constructor(init: PoolNodeSnapshotInit) {
     this.node_id = init.node_id;
@@ -43,6 +47,7 @@ export class PoolNodeSnapshot {
     this.age_days = init.age_days ?? 0;
     this.fields = init.fields ?? [];
     this.domain = init.domain ?? 'default';
+    this.terminal = init.terminal ?? false;
   }
 }
 

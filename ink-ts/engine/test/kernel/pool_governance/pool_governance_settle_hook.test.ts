@@ -332,6 +332,38 @@ describe('D06/R3 裁决反写（GovernanceWriteTarget seam）', () => {
     await store.close();
   });
 
+  it('池不变式：唯一 active 终态候选不死结点淘汰（terminal_of 注入生效）', async () => {
+    const store = new EdgeEvidenceStore();
+    // 池内 500 活跃成员（占满容量）+ 死普通成员 + 死终态候选成员（零调用超龄）
+    for (let i = 0; i < 500; i += 1) {
+      await putEdge(store, 's', `alive${i}`, 5, 0);
+    }
+    await putEdge(store, 's', 'zombie_plain', 0, 0, { last_used_at: NOW - 100 * 86400 });
+    await putEdge(store, 's', 'zombie_terminal', 0, 0, { last_used_at: NOW - 100 * 86400 });
+    const gov = new PoolGovernance({ now: () => NOW });
+    const capture = makeWritable();
+    const hook = new PoolGovernanceSettleHook(gov, {
+      store,
+      now: () => NOW,
+      terminal_of: (node) => node === 'zombie_terminal',
+      writable: capture.writable,
+    });
+    const ctx = makeCtx(stepsOf(['entry', TRACE_SUCCESS], ['cand_new', TRACE_FAILED]), {
+      graph: reachGraph('cand_new'),
+    });
+    await hook.settle(ctx);
+    const verdict = gov.log[0]!;
+    expect(verdict['verdict']).toBe(GOV_VERDICT_ALLOW);
+    expect(verdict['eviction_candidates']).toContain('zombie_plain');
+    expect(verdict['eviction_candidates']).not.toContain('zombie_terminal');
+    // 只反写普通死成员（唯一终态候选不被死结点淘汰归档）
+    expect(capture.archives).toEqual([['zombie_plain', expect.stringContaining('死结点淘汰')]]);
+    expect(
+      hook.audits.some((r) => r['action'] === 'archive' && r['node_id'] === 'zombie_terminal'),
+    ).toBe(false);
+    await store.close();
+  });
+
   it('noop 回落 seam：注入 GOVERNANCE_WRITE_TARGET_NOOP = 只登记 + 审计', async () => {
     const store = new EdgeEvidenceStore();
     await putEdge(store, 's', 'existing', 10, 0);

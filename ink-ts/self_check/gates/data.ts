@@ -6,7 +6,8 @@
  * 1. seed_data/event_types.json 事件名集合 == web EVENT_TYPE_NAMES 镜像集合，
  *    且 EVENT_TYPE_SPECS 声明名与 EVENT_TYPE_NAMES 一一对应（事件名↔spec 一致）；
  * 2. plugins/manifest.json tools 工具 endpoint 使用集 ⊆ engine endpoint_registry
- *    fixture 内置端点集，且内置端点全部被使用（双向覆盖）；
+ *    fixture 内置端点集（host_command 工具族例外：endpoint = 宿主注册的引擎
+ *    自定义端点，见 HOST_COMMAND_ENDPOINTS），且内置端点全部被使用（双向覆盖）；
  * 3. seed_data/fixtures/tools_os.json 由 plugins 源派生的夹具与派生产物一致
  *    （执行 seed_data/scripts/sync_tools_fixtures.mjs --check）；夹具成员的
  *    endpoint/permission/sandbox 映射与 plugins 声明自洽（endpoint 映射规则 +
@@ -16,8 +17,9 @@
  *    登记 seed，引擎内部事件须登 internal 允许表）；
  * 5. plugins/manifest.json 派生视图与 plugins/ 各 spec 真源一致
  *    （执行 plugins/scripts/sync_plugin_manifest.mjs --check，防手改 manifest）；
- * 6. 计数一致：事件 48 / 工具 35 / 内置端点 7 以 plugins manifest 与 fixture
- *    实际值核对，不写死数字（数字漂移以双侧真实差异暴露）。
+ * 6. 计数一致：事件 48 / 工具 38（含 session_command host_command 3 件）/ 内置
+ *    端点 7 + 宿主自定义端点以 plugins manifest 与 fixture 实际值核对，
+ *    不写死数字（数字漂移以双侧真实差异暴露）。
  */
 
 import { readFileSync, readdirSync, statSync } from 'node:fs';
@@ -71,6 +73,15 @@ const SANDBOX_MODES = [
   'text_input',
   'window_target',
 ] as const;
+
+/**
+ * 宿主注册的引擎自定义端点族（host_command 工具）：plugins 声明直接引用该
+ * endpoint，运行期由宿主装配在引擎 EndpointTypeRegistry 登记执行体/提取器
+ * （既有通道，非引擎内置 fixture 成员）。清单增删须同步 hosts/lib
+ * session_command 工具接线模块；本集合是 self_check 对宿主自定义端点的
+ * 登记面（放行其出现在 plugin 工具行，其余仍须 ⊆ 内置端点）。
+ */
+const HOST_COMMAND_ENDPOINTS: ReadonlySet<string> = new Set(['session_command']);
 
 function isNonEmptyStringArray(value: unknown): boolean {
   return Array.isArray(value) && value.length > 0 && value.every((v) => typeof v === 'string');
@@ -231,7 +242,9 @@ export async function runGateData(ctx: SelfCheckContext): Promise<GateResult> {
   for (const tool of tools.tools) {
     if (tool.endpoint !== undefined && tool.endpoint !== '') usedEndpoints.add(tool.endpoint);
   }
-  const notBuiltin = [...usedEndpoints].filter((e) => !builtinSet.has(e));
+  const notBuiltin = [...usedEndpoints].filter(
+    (e) => !builtinSet.has(e) && !HOST_COMMAND_ENDPOINTS.has(e),
+  );
   const unusedBuiltin = [...builtinSet].filter((e) => !usedEndpoints.has(e));
   if (notBuiltin.length > 0) issues.push(`工具 endpoint 越界内置端点集：${notBuiltin.join(', ')}`);
   if (unusedBuiltin.length > 0) issues.push(`内置端点未被任何工具使用：${unusedBuiltin.join(', ')}`);

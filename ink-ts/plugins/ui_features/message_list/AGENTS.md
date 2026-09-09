@@ -4,7 +4,7 @@
 
 ## 是什么能力
 
-消息流唯一渲染面（canonical 叶子）：会话消息/回合产物消息渲染（bind state.messages + chrome 派生面）。
+消息流唯一渲染面（canonical 叶子）：会话消息/回合产物消息渲染（bind state.messages + chrome 派生面）；auto 轮（消息 roundId 前缀 `auto:`）首条消息行前渲染「自动续跑」小徽标分隔（普通轮不显示）。
 
 ## 数据从哪进 / 挂载
 

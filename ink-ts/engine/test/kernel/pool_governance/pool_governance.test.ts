@@ -109,6 +109,36 @@ describe('死结点淘汰', () => {
     expect(verdict.eviction_required).toBe(true);
     expect(verdict.eviction_candidates).toEqual(['dead1', 'dead2']);
   });
+
+  it('池不变式：池内唯一终态候选不判死淘汰（排除出淘汰候选）', () => {
+    const nodes = [
+      new PoolNodeSnapshot({ node_id: 'last_terminal', usage_count: 0, age_days: 200.0, terminal: true }),
+      new PoolNodeSnapshot({ node_id: 'dead_other', usage_count: 0, age_days: 200.0 }),
+    ];
+    const verdict = evaluate_proposal('new_node', ['a'], {
+      pool_count: 500,
+      used_this_week: 0,
+      pool_nodes: nodes,
+    });
+    expect(verdict.eviction_required).toBe(true);
+    expect(verdict.eviction_candidates).toEqual(['dead_other']);
+    expect(verdict.eviction_candidates).not.toContain('last_terminal');
+  });
+
+  it('池不变式：多终态时单次判定最多淘汰 terminal_count-1 个（恒剩 ≥1 终态）', () => {
+    const nodes = [
+      new PoolNodeSnapshot({ node_id: 'dead_plain', usage_count: 0, age_days: 200.0 }),
+      new PoolNodeSnapshot({ node_id: 'term_a', usage_count: 0, age_days: 200.0, terminal: true }),
+      new PoolNodeSnapshot({ node_id: 'term_b', usage_count: 0, age_days: 200.0, terminal: true }),
+    ];
+    const verdict = evaluate_proposal('new_node', ['a'], {
+      pool_count: 500,
+      used_this_week: 0,
+      pool_nodes: nodes,
+    });
+    expect(verdict.eviction_candidates).toEqual(['dead_plain', 'term_a']);
+    expect(verdict.eviction_candidates).not.toContain('term_b');
+  });
 });
 
 describe('近重复合并', () => {

@@ -16,6 +16,8 @@ import type { HostBridgeDeps } from './_types.js';
 export interface MetricsSnapshotView {
   available: boolean;
   rounds: number;
+  /** 自动续跑轮计数（引擎回合指标 auto_turns 投影：round_id 前缀 `auto:`）。 */
+  auto_rounds: number;
   failures: number;
   avg: number;
   last_error: string | null;
@@ -34,6 +36,7 @@ export function buildMetricsCommands(deps: HostBridgeDeps): Readonly<Record<Metr
       return {
         available: false,
         rounds: 0,
+        auto_rounds: 0,
         failures: 0,
         avg: 0,
         last_error: null,
@@ -43,6 +46,7 @@ export function buildMetricsCommands(deps: HostBridgeDeps): Readonly<Record<Metr
     }
     const data = turnMetrics.snapshot() as Record<string, unknown>;
     const rounds = typeof data['turns'] === 'number' ? data['turns'] : 0;
+    const autoRounds = typeof data['auto_turns'] === 'number' ? data['auto_turns'] : 0;
     const failures = typeof data['failures'] === 'number' ? data['failures'] : 0;
     const rate = typeof data['failure_rate'] === 'number' ? data['failure_rate'] : 0;
     const calls = data['llm_calls_by_role'];
@@ -50,6 +54,7 @@ export function buildMetricsCommands(deps: HostBridgeDeps): Readonly<Record<Metr
     return {
       available: true,
       rounds,
+      auto_rounds: autoRounds,
       failures,
       avg: rate,
       last_error: typeof lastError === 'string' && lastError !== '' ? lastError : null,

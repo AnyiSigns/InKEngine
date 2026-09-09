@@ -65,6 +65,7 @@ export function _derive_mutation(
     label: spec.label,
     persona,
     model: spec.model,
+    role: spec.role,
     meta: newMeta,
   });
   return new EntityMutationResult({ spec: mutated, new_lessons: added.length });

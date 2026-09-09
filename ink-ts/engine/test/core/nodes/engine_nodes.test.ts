@@ -1,5 +1,5 @@
 /**
- * 引擎内置基础节点类型（llm_decider/tool_pipeline）执行与注册测试。
+ * 引擎内置基础节点类型（llm_decider/tool_pipeline/router_judge）执行与注册测试。
  *
  * - 注册面：register_engine_node_types 把种子类型/契约/回环条件边装进
  *   GraphRegistries，重复注册幂等跳过；
@@ -15,6 +15,11 @@ import { GraphRegistries } from '../../../src/core/registry/registry.js';
 import {
   ROLE_TERMINAL,
   TYPE_LLM_DECIDER,
+  TYPE_LLM_MAIN,
+  TYPE_LLM_PLANNER,
+  TYPE_LLM_REVIEWER,
+  TYPE_ROUTER_JUDGE,
+  TYPE_ROUTER_PLAN_JUDGE,
   TYPE_TOOL_PIPELINE,
   bind_engine_node_seams,
   default_engine_pool_seed,
@@ -31,7 +36,7 @@ import type { AsyncLLM, LLMChunk } from '../../../src/kernel/llm/_guard_types.js
 import { ToolCallDelta } from '../../../src/kernel/llm/_shapes.js';
 import { ENGINE_STUB_REPLY } from '../../../src/core/nodes/index.js';
 
-/** 装配测试注册表（引擎内置池种子；契约池含 llm_decider/tool_pipeline）。 */
+/** 装配测试注册表（引擎内置池种子；契约池含 llm_decider/tool_pipeline/router_judge）。 */
 function seeded_registries(): GraphRegistries {
   const registries = new GraphRegistries();
   const seed = default_engine_pool_seed();
@@ -97,16 +102,28 @@ class ScriptedLLM implements AsyncLLM {
 describe('register_engine_node_types 注册面', () => {
   it('种子类型/契约/条件边装进注册表；重复注册幂等', () => {
     const registries = seeded_registries();
-    expect(registries.nodes.types()).toEqual([TYPE_LLM_DECIDER, TYPE_TOOL_PIPELINE]);
+    // P4.2a-3 出厂池 = 可区分实例：llm 三实例（planner/reviewer/main）+ 计划
+    // 后路由（router_plan_judge）随默认池种子入注册表（executor 解耦共享内核）
+    expect(registries.nodes.types()).toEqual([
+      TYPE_LLM_DECIDER,
+      TYPE_LLM_PLANNER,
+      TYPE_LLM_REVIEWER,
+      TYPE_LLM_MAIN,
+      TYPE_TOOL_PIPELINE,
+      TYPE_ROUTER_JUDGE,
+      TYPE_ROUTER_PLAN_JUDGE,
+    ]);
     expect(registries.nodes.has(TYPE_LLM_DECIDER)).toBe(true);
+    expect(registries.nodes.has(TYPE_ROUTER_JUDGE)).toBe(true);
     expect(registries.nodes.contract_for(TYPE_LLM_DECIDER)).toBeTruthy();
     expect(registries.nodes.contract_for(TYPE_TOOL_PIPELINE)).toBeTruthy();
+    expect(registries.nodes.contract_for(TYPE_ROUTER_JUDGE)).toBeTruthy();
     expect(registries.edges.has('llm.pending_nonempty')).toBe(true);
     expect(registries.edges.has('llm.pending_empty')).toBe(true);
     // 幂等：重复登记跳过（不抛重复注册错误）
     const seed = default_engine_pool_seed();
     register_engine_node_types(registries, seed.node_types);
-    expect(registries.nodes.size).toBe(2);
+    expect(registries.nodes.size).toBe(7);
   });
 });
 
@@ -157,6 +174,7 @@ describe('数据图直接执行（llm_decider → terminal）', () => {
       tool_specs: [echoSpec],
       all_tool_specs: [echoSpec],
       collect_specs: null,
+      boot_system_prompt: '',
     });
     const graph = Graph.from_dict(chat_graph_data(), {
       registry: registries.nodes,

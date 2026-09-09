@@ -26,8 +26,11 @@ import {
 import { assembly_audit_record } from './audit.js';
 import { canary_instantiate, canary_round } from './canary.js';
 import { PathAssembler } from './assembler.js';
-import type { BaseGraphsProvider } from './types.js';
-import type { PathAssemblerOptions } from './_assembler_cache.js';
+import type { TerminalTypesProvider } from './types.js';
+import type { PathAssemblerOptions, ExplorationBudgetOptions } from './_assembler_cache.js';
+import {
+  DEFAULT_ANTI_MONOPOLY_WINDOW,
+} from './constants.js';
 
 type AuditSink = ((record: Record<string, unknown>) => void) | null;
 
@@ -53,10 +56,18 @@ export class PathAssemblyRuntime {
   stats_total: Record<string, number>;
   /** 技能先例提供器（异步；组装请求 → 候选技能链）。 */
   readonly skill_provider: ((request: AssemblyRequest) => Promise<readonly unknown[]>) | null;
-  /** 冷启动 base 图提供器（数据驱动；组装请求 → 域 base 图模板清单）。 */
-  readonly base_graphs: BaseGraphsProvider | null;
+  /** 终态候选源（active 终态结点类型名；组装零候选兜底，见 types）。 */
+  readonly terminal_types: TerminalTypesProvider | null;
+  /** P4.1 候选层探索预算（缺省 null = 全关；见 _assembler_cache 选项注释）。 */
+  readonly exploration_budget: ExplorationBudgetOptions | null;
+  /** 池实例缺省 config（类型键 → config_defaults；候选图绑定执行体 config）。 */
+  readonly instance_configs: Record<string, Record<string, unknown>>;
   /** 最近一次组装请求的缓存主键（沉淀侧读取对齐写入键；空 = 尚未组装）。 */
   last_request_fingerprint: string;
+  /** 跨轮最近顶选指纹窗口（会话统计面；组装收尾后追加，供反垄断跨轮判定）。 */
+  readonly recent_tops: Map<string, string[]>;
+  /** 反垄断窗口容量（构造时按 anti_monopoly_window 钳定；>=1）。 */
+  private readonly _recent_tops_cap: number;
 
   constructor(init: {
     registry: NodeTypeRegistry;
@@ -75,7 +86,9 @@ export class PathAssemblyRuntime {
     contract_enabled?: boolean;
     stats_total?: Record<string, number>;
     skill_provider?: ((request: AssemblyRequest) => Promise<readonly unknown[]>) | null;
-    base_graphs?: BaseGraphsProvider | null;
+    terminal_types?: TerminalTypesProvider | null;
+    exploration_budget?: ExplorationBudgetOptions | null;
+    instance_configs?: Record<string, Record<string, unknown>> | null;
   }) {
     this.registry = init.registry;
     this.evidence_store = init.evidence_store ?? null;
@@ -95,7 +108,16 @@ export class PathAssemblyRuntime {
     this.contract_enabled = init.contract_enabled ?? true;
     this.stats_total = { ...(init.stats_total ?? {}) };
     this.skill_provider = init.skill_provider ?? null;
-    this.base_graphs = init.base_graphs ?? null;
+    this.terminal_types = init.terminal_types ?? null;
+    this.exploration_budget = init.exploration_budget ?? null;
+    this.instance_configs = { ...(init.instance_configs ?? {}) };
+    const windowSize =
+      Math.trunc(Number(init.exploration_budget?.anti_monopoly_window ?? DEFAULT_ANTI_MONOPOLY_WINDOW)) ||
+      DEFAULT_ANTI_MONOPOLY_WINDOW;
+    this._recent_tops_cap = Math.max(1, windowSize);
+    // 反垄断窗口 map：注入外部实例时共用（调用方可观测/预置）；缺省自持。
+    this.recent_tops =
+      init.exploration_budget?.recent_tops ?? new Map<string, string[]>();
     this.last_request_fingerprint = '';
   }
 
@@ -112,8 +134,12 @@ export class PathAssemblyRuntime {
       model_id: this.model_id,
       cache_epsilon: this.cache_epsilon,
       skill_provider: this.skill_provider,
-      base_graphs: this.base_graphs,
+      terminal_types: this.terminal_types,
       contract_enabled: this.contract_enabled,
+      exploration_budget: this.exploration_budget
+        ? { ...this.exploration_budget, recent_tops: this.recent_tops }
+        : null,
+      instance_configs: this.instance_configs,
     };
     return new PathAssembler(options);
   }
@@ -217,7 +243,21 @@ export class PathAssemblyRuntime {
     });
     this._emit_audit(records, audit_sink);
     this._accumulate_stats(finished);
+    this._record_recent_top(request, finished);
     return finished;
+  }
+
+  /** 组装收尾后把本次顶选指纹追加进跨轮窗口（反垄断跨轮判定的数据源）。
+   *  按请求缓存键分域、有界（仅保留最近 N 条）；空结果不记（无顶选）。 */
+  private _record_recent_top(request: AssemblyRequest, result: PathAssemblyResult): void {
+    if (result.candidates.length === 0 || result.fingerprint === '') return;
+    const key = this._request_cache_key(request);
+    const window = this.recent_tops.get(key) ?? [];
+    window.push(result.fingerprint);
+    if (window.length > this._recent_tops_cap) {
+      window.splice(0, window.length - this._recent_tops_cap);
+    }
+    this.recent_tops.set(key, window);
   }
 
   /** 本次组装统计并入运行期累计（stats 最后一跳的数据源）。 */

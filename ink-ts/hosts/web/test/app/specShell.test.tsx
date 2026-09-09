@@ -72,7 +72,7 @@ describe('产品主壳 spec 直渲（ui_features 装配生成物 → canonical �
     expect(container.querySelector('[data-ui="session_create"]')).not.toBeNull();
   });
 
-  it('evolution 视图：演化流与机制监控 group 渲染（读取面空态可观测）', () => {
+  it('状态视图：演化流与机制读取面直渲（无折叠壳；读取面空态可观测）', () => {
     const hub = makeHub();
     const { container } = render(
       <UIRenderer
@@ -82,7 +82,8 @@ describe('产品主壳 spec 直渲（ui_features 装配生成物 → canonical �
         product={baseProduct}
       />,
     );
-    expect(container.querySelector('[data-ui="group_机制监控"]')).not.toBeNull();
+    expect(container.querySelector('[data-ui="mechanism_view"]')).not.toBeNull();
+    expect(container.querySelector('[data-ui="group_机制监控"]')).toBeNull();
   });
 
   it('trajectory/todo 视图空态可渲染（无宿主不崩）', () => {

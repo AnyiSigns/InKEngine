@@ -117,4 +117,68 @@ describe('MessageStream', () => {
     );
     expect(screen.getByText('已通过审查')).toBeTruthy();
   });
+
+  it('auto 轮（roundId 前缀 auto:）首条消息前渲染「自动续跑」徽标；同轮后续行不重复', () => {
+    const { container } = render(
+      <MessageStream
+        entries={[
+          { id: '1', kind: 'thinking', content: '继续推理', status: 'completed', roundId: 'auto:k-1' },
+          { id: '2', kind: 'tool', tool: 'inspect', permission: '', toolStatus: 'done', summary: 'ok', roundId: 'auto:k-1' },
+          { id: '3', kind: 'text', role: 'assistant', content: '继续推进', roundId: 'auto:k-1' },
+        ]}
+        streaming={false}
+        onBranchFromMessage={() => {}}
+      />,
+    );
+    expect(container.querySelectorAll('[data-ui="auto_round_marker"]')).toHaveLength(1);
+    expect(container.querySelectorAll('[data-auto-round]')).toHaveLength(1);
+    expect(screen.getAllByText('自动续跑')).toHaveLength(1);
+    expect(screen.getByText('继续推进')).toBeTruthy();
+  });
+
+  it('普通轮（非 auto: 前缀）消息不渲染 auto 徽标', () => {
+    const { container } = render(
+      <MessageStream
+        entries={[
+          { id: '1', kind: 'text', role: 'user', content: 'hi', roundId: 'r1' },
+          { id: '2', kind: 'text', role: 'assistant', content: 'hello', roundId: 'r1' },
+        ]}
+        streaming={false}
+        onBranchFromMessage={() => {}}
+      />,
+    );
+    expect(container.querySelectorAll('[data-ui="auto_round_marker"]')).toHaveLength(0);
+    expect(screen.queryByText('自动续跑')).toBeNull();
+  });
+
+  it('普通轮转入 auto 轮：徽标只出现在 auto 轮首条边界', () => {
+    const { container } = render(
+      <MessageStream
+        entries={[
+          { id: '1', kind: 'text', role: 'user', content: 'hi', roundId: 'r1' },
+          { id: '2', kind: 'text', role: 'assistant', content: '分析', roundId: 'r1' },
+          { id: '3', kind: 'text', role: 'assistant', content: '自动续跑一段', roundId: 'auto:k-2' },
+          { id: '4', kind: 'tool', tool: 'apply_patch', permission: '', toolStatus: 'done', roundId: 'auto:k-2' },
+        ]}
+        streaming={false}
+        onBranchFromMessage={() => {}}
+      />,
+    );
+    expect(container.querySelectorAll('[data-ui="auto_round_marker"]')).toHaveLength(1);
+    expect(screen.getAllByText('自动续跑')).toHaveLength(1);
+  });
+
+  it('连续两个 auto 轮（各自首条）分别渲染徽标', () => {
+    const { container } = render(
+      <MessageStream
+        entries={[
+          { id: '1', kind: 'text', role: 'assistant', content: '续跑 A', roundId: 'auto:k-a' },
+          { id: '2', kind: 'text', role: 'assistant', content: '续跑 B', roundId: 'auto:k-b' },
+        ]}
+        streaming={false}
+        onBranchFromMessage={() => {}}
+      />,
+    );
+    expect(container.querySelectorAll('[data-ui="auto_round_marker"]')).toHaveLength(2);
+  });
 });

@@ -1,0 +1,11 @@
+{
+  "id": "skeleton.edit",
+  "kind": "command",
+  "capability": "host_tool",
+  "actions": [],
+  "depends": [],
+  "data": {
+    "group": "skeleton",
+    "order": 2
+  }
+}

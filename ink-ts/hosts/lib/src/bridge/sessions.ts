@@ -122,6 +122,7 @@ export function buildSessionsCommands(deps: HostBridgeDeps): Readonly<Record<Ses
       kind: string;
       text?: string;
       role?: string;
+      round_id?: string;
       created_at: number;
       meta?: Record<string, unknown>;
     }
@@ -154,12 +155,16 @@ export function buildSessionsCommands(deps: HostBridgeDeps): Readonly<Record<Ses
         if (toolStatus !== undefined) meta['toolStatus'] = toolStatus;
         if (status !== undefined) meta['status'] = status;
         const role = typeof record['role'] === 'string' ? record['role'] : undefined;
+        // 引擎展示态正文行原生带 round（回合归属；auto 轮 = auto:* 前缀），
+        // 透传给前端刷新投影，消息流据此重建 auto 轮徽标/回合分隔。
+        const round = typeof record['round'] === 'string' && record['round'] !== '' ? record['round'] : undefined;
         rows.push({
           id: stepId ?? `${thread_id}:${rows.length}`,
           kind: kind === 'thinking' ? 'thinking' : kind === 'tool' ? 'tool' : 'message',
           text: content,
           created_at: leaf.created_at,
           ...(role !== undefined ? { role } : {}),
+          ...(round !== undefined ? { round_id: round } : {}),
           ...(Object.keys(meta).length > 0 ? { meta } : {}),
         });
       }

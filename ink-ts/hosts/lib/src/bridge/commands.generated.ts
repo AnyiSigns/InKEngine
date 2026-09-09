@@ -11,6 +11,7 @@ export const ROUNDS_COMMANDS = [
   'rounds.abort',
   'rounds.resume',
   'rounds.branch',
+  'rounds.fork_trial',
 ] as const;
 
 export type RoundsCommand = (typeof ROUNDS_COMMANDS)[number];
@@ -122,6 +123,14 @@ export const GRAPH_COMMANDS = [
 ] as const;
 
 export type GraphCommand = (typeof GRAPH_COMMANDS)[number];
+
+/** skeleton 命令声明（真源 plugins/commands/<id>/spec.json；域内序 = data.order）。 */
+export const SKELETON_COMMANDS = [
+  'skeleton.get',
+  'skeleton.edit',
+] as const;
+
+export type SkeletonCommand = (typeof SKELETON_COMMANDS)[number];
 
 /** pool 命令声明（真源 plugins/commands/<id>/spec.json；域内序 = data.order）。 */
 export const POOL_COMMANDS = [

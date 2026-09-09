@@ -79,6 +79,64 @@ describe('NodeRegistration 序列化往返', () => {
   });
 });
 
+describe('NodeRegistration P1 可选元数据（kind/label/description/flags）', () => {
+  it('新可选字段序列化往返一致（登记行含类型元数据）', () => {
+    const reg = new NodeRegistration({
+      type_name: 'llm_decider',
+      contract: output_contract(['reply']),
+      executor: 'engine:llm_decider',
+      kind: 'llm',
+      label: 'LLM 决策',
+      description: '单节点内完成模型流式 + 工具回合',
+      flags: { terminal: true },
+      registered_at: 1,
+    });
+    const data = reg.to_dict();
+    expect(data['kind']).toBe('llm');
+    expect(data['label']).toBe('LLM 决策');
+    expect(data['description']).toContain('模型流式');
+    expect(data['flags']).toEqual({ terminal: true });
+    const round = NodeRegistration.from_dict(data);
+    expect(round.kind).toBe('llm');
+    expect(round.label).toBe('LLM 决策');
+    expect(round.description).toContain('模型流式');
+    expect(round.flags).toEqual({ terminal: true });
+  });
+
+  it('缺省登记行不落新字段（to_dict 有值才输出；from_dict 缺省不填）', () => {
+    const reg = new NodeRegistration({ type_name: 'bare' });
+    const data = reg.to_dict();
+    expect(data['kind']).toBeUndefined();
+    expect(data['label']).toBeUndefined();
+    expect(data['description']).toBeUndefined();
+    expect(data['flags']).toBeUndefined();
+    const round = NodeRegistration.from_dict(data);
+    expect(round.kind).toBeNull();
+    expect(round.label).toBeNull();
+    expect(round.description).toBeNull();
+    expect(round.flags).toBeNull();
+  });
+
+  it('flags 归一：空/false 键不落序列化，仅 true 语义保留', () => {
+    const data = new NodeRegistration({
+      type_name: 'x',
+      flags: { terminal: false, loop: false },
+    }).to_dict();
+    expect(data['flags']).toBeUndefined();
+    const kept = new NodeRegistration({ type_name: 'x', flags: { terminal: true, loop: false } });
+    expect(kept.flags).toEqual({ terminal: true });
+    expect(kept.to_dict()['flags']).toEqual({ terminal: true });
+  });
+
+  it('元数据形态非法拒绝（kind/flags 类型错）', () => {
+    expect(() => NodeRegistration.from_dict({ type_name: 'x', kind: 3 })).toThrow(/kind/);
+    expect(() => NodeRegistration.from_dict({ type_name: 'x', flags: 'no' })).toThrow(/flags/);
+    expect(() =>
+      NodeRegistration.from_dict({ type_name: 'x', flags: { terminal: 'yes' } }),
+    ).toThrow(/flags\.terminal/);
+  });
+});
+
 describe('NodeRegistryStore 受控登记与恢复', () => {
   it('boot 种子补登记幂等 + register 重复拒绝', async () => {
     const storage = new MemoryStorage();

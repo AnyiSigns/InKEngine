@@ -20,19 +20,25 @@ import type { Engine } from '../executor/index.js';
 import type { RunResult } from '../../core/run_result/run_result.js';
 import type { CheckpointRecord } from '../../core/storage/storage_records.js';
 import type { JsonRecord } from '../../core/json.js';
+import { isRecord } from '../../core/json.js';
 import type { AsyncLLM } from '../llm/_guard_types.js';
 import { SchemaField, SchemaSpec, FIELD_STRING } from '../../core/schema/schemaValidator.js';
 import { AssemblyRequest } from '../path_assembler/index.js';
 import { Attachment, user } from '../llm/messages.js';
-import { MetaTuner, TunableParams } from '../tuning/index.js';
+import { AUTO_ROUND_ID_PREFIX, MetaTuner, TunableParams } from '../tuning/index.js';
 import { STATE_MESSAGES, TYPE_LLM_DECIDER, clamp_tool_rounds } from '../../core/nodes/constants.js';
-import { RuntimeAssemble } from './_runtime_assemble.js';
+import { RuntimeSkeleton, ROUND_CONTINUATION_STATE_KEY } from './_runtime_skeleton.js';
 import { RuntimeState } from './_types.js';
 
 /** 本轮图定义随 checkpoint state 落库的保留键（恢复重建的关联图定义）。 */
 export const ROUND_GRAPH_STATE_KEY = '_round_graph';
 
-/** 组装请求目标字段（base 域模板由 llm_decider 产出 reply；终态 = 出口）。 */
+/** P4.1 反垄断跨轮顶选指纹窗口随会话 checkpoint 落库的保留键（线程尺度会话
+ *  态数据；与骨架/_round_continuation/_round_graph 同 state 通道、独立键
+ *  互不冲突——重启/跨会话经该键续窗口，见 _hydrate_thread_recent_tops）。 */
+export const RECENT_TOPS_STATE_KEY = '_recent_tops';
+
+/** 组装请求目标字段（llm_decider 终态候选单节点产出 reply；回合终态 = 节点完成）。 */
 const ROUND_GOAL_FIELDS = ['reply'] as const;
 
 /** 回合候选数上限兜底（调参条目缺失/无知识集时的引擎当前常量）。 */
@@ -57,7 +63,7 @@ export interface RoundAssembleOptions {
 /** 组装候选事件发射上限（候选过多只发前 N 条留痕，防事件文件膨胀）。 */
 const _CANDIDATE_EVENT_LIMIT = 8;
 
-/** 组装请求的域目标字段（reply；与 A1 池种子 base 模板产出对齐）。 */
+/** 组装请求的域目标字段（reply；llm_decider flags.terminal=true 单节点覆盖）。 */
 function _round_goal_schema(): SchemaSpec {
   return new SchemaSpec({
     name: 'round.assembly.goal',
@@ -117,8 +123,63 @@ function _round_attachments(raw: unknown): Attachment[] {
   return out;
 }
 
-/** run 级组装回合基座（RuntimeAssemble 之上的叶层；Runtime 直接继承）。 */
-export abstract class RuntimeRounds extends RuntimeAssemble {
+/** run 级组装回合基座（RuntimeSkeleton 之上的叶层；Runtime 直接继承）。 */
+export abstract class RuntimeRounds extends RuntimeSkeleton {
+  /** 反垄断窗口会话持久化生效判定（组装运行期预算 anti_monopoly 开启时，窗口
+   *  随线程 checkpoint 落库/恢复；引擎默认预算关闭 = 零漂移零新状态键）。 */
+  protected _anti_monopoly_persist(): boolean {
+    const runtime = this.assembly_runtime;
+    return runtime !== null && runtime.exploration_budget?.anti_monopoly_enabled === true;
+  }
+
+  /** 线程会话窗口恢复：从该线程最近 checkpoint 的 `_recent_tops` 读窗口数据并
+   *  替换运行期窗口内容（窗口 = 线程尺度会话态，恢复 = 该线程上次回合视图；
+   *  非法数据形态跳过 = 空窗口重新起算）。进程内串行回合下与线程一一对应；
+   *  并行多线程回合共享同一运行期 map，以各自 checkpoint 快照为界（见报告）。 */
+  protected async _hydrate_thread_recent_tops(thread_id: string): Promise<void> {
+    const runtime = this.assembly_runtime;
+    if (runtime === null) return;
+    let raw: unknown = null;
+    if (this.storage !== null) {
+      try {
+        const checkpoint = await this.storage.get_latest_checkpoint(thread_id);
+        raw = checkpoint?.state?.[RECENT_TOPS_STATE_KEY] ?? null;
+      } catch {
+        raw = null;
+      }
+    }
+    const window = new Map<string, string[]>();
+    if (isRecord(raw)) {
+      for (const [key, fps] of Object.entries(raw)) {
+        if (!Array.isArray(fps)) continue;
+        const clean = fps.map((fp) => String(fp)).filter((fp) => fp !== '');
+        if (clean.length > 0) window.set(key, clean);
+      }
+    }
+    runtime.recent_tops.clear();
+    for (const [key, fps] of window) runtime.recent_tops.set(key, fps);
+  }
+
+  /** 当前运行期窗口 → 会话态序列化数据（空窗口 = null 不落键；装配可换持久
+   *  实现的前提 = 序列化形态稳定，见 PathAssemblyRuntime.recent_tops）。 */
+  protected _recent_tops_data(): Record<string, string[]> | null {
+    const runtime = this.assembly_runtime;
+    if (runtime === null || runtime.recent_tops.size === 0) return null;
+    const out: Record<string, string[]> = {};
+    for (const [key, fps] of runtime.recent_tops) {
+      out[key] = [...fps];
+    }
+    return out;
+  }
+
+  /** 把当前窗口快照随本轮 state 落 checkpoint（仅反垄断持久化开启时写；
+   *  无窗口数据 = 不落键——与既有保留键语义一致，state 通道不增空槽）。 */
+  protected _stamp_recent_tops(state: Record<string, unknown>): void {
+    if (!this._anti_monopoly_persist()) return;
+    const data = this._recent_tops_data();
+    if (data !== null) state[RECENT_TOPS_STATE_KEY] = data;
+  }
+
   /** 取 checkpoint 关联的本轮图定义（随 state 落库；无 = null）。 */
   _graph_from_checkpoint(checkpoint: CheckpointRecord | null): Record<string, unknown> | null {
     if (checkpoint === null) return null;
@@ -266,6 +327,13 @@ export abstract class RuntimeRounds extends RuntimeAssemble {
    * run 级组装回合（rounds.send 新入口）：input/域 → 组装 → 本轮 Engine →
    * ainvoke（continue_chain）。返回 RunResult（reason/checkpoint_id/state 与
    * 现 rounds.ts 期望一致）。回合在途登记由调用方（host 队列保护）负责。
+   *
+   * P4 升级（配方可选，缺省 = 旧行为不变）：thread_skeleton_enabled 开启后，
+   * 首轮/骨架缺失/骨架失效走既有组装建立；已有有效骨架则沿骨架推进（不再每
+   * 轮整图重建）。auto_continue_limit>0 开启回合结束自续跑：回合正常收尾且
+   * 状态带显式续跑意图（ROUND_CONTINUATION_STATE_KEY）→ 引擎自动发起下一轮
+   * （同 thread，重新按当前骨架/资产组装），自续链数 ≤ 上限；超限/挂卡/失败
+   * 终态即停、回落常规收尾（防 runaway）。
    */
   async assemble_round(opts: RoundAssembleOptions): Promise<RunResult> {
     if (this._state !== RuntimeState.RUNNING) {
@@ -276,45 +344,106 @@ export abstract class RuntimeRounds extends RuntimeAssemble {
       throw new Error('组装运行期未挂载（回合=组装不可用；检查 assembler_enabled）');
     }
     const thread_id = opts.thread_id;
+    let result = await this._run_round_once(opts);
+    const limit = this._auto_continue_limit();
+    if (limit > 0) {
+      // 自续链护栏：仅在显式续跑意图时自动下轮；单次显式触发的自续链数
+      // 受配方 auto_continue_limit 钳制（超限即停，回落常规收尾）
+      let auto = 0;
+      while (auto < limit && this._continuation_allowed(result) !== null) {
+        auto += 1;
+        const nextOpts: RoundAssembleOptions = {
+          ...opts,
+          round_id: `${AUTO_ROUND_ID_PREFIX}${this._r_audit_key()}`,
+          state: this._auto_round_state(),
+        };
+        result = await this._run_round_once(nextOpts);
+      }
+    }
+    return result;
+  }
+
+  /** 单轮回合执行（P4 会话骨架分派）：有效骨架 → 沿骨架推进；否则既有组装
+   *  建立（组装仍是唯一建图来源，无默认图）。 */
+  protected async _run_round_once(opts: RoundAssembleOptions): Promise<RunResult> {
+    const runtime = this.assembly_runtime;
+    if (runtime === null || this.graph_registries === null) {
+      throw new Error('组装运行期未挂载（回合=组装不可用；检查 assembler_enabled）');
+    }
+    const thread_id = opts.thread_id;
     const round_id = opts.round_id ?? null;
     const transports = opts.transports ?? [];
+    const session = this._thread_skeleton_enabled();
+    const continueEnabled = this._auto_continue_limit() > 0;
     // 调参产物每轮回合入口读一次（知识集 kind=weight → 本轮旋钮）：候选数
     // 消费点在组装请求（divergence_width），节点重试消费点在 _build_graph_engine
     // （retry_budget），旋钮留痕经 round_tuning 审计记录。
     const tuned = this._load_tuned();
-    const request = _round_request(opts.domain, tuned);
-    // 组装 + 候选集（canary 试跑关：round 真实执行已含验证，候选重建级校验
-    // 即可；canary 门保持于显式组装预检路径）
-    const assembled = await runtime.assemble_plan(request, {
-      audit_sink: (record) => this._mechanism_sink(record),
-      canary: false,
-    });
-    if (assembled.is_empty || assembled.candidates.length === 0) {
-      throw new Error(
-        `回合组装无候选（domain=${request.domain}）：请检查结点池/边先验/技能与目标字段`,
-      );
+    // P4.1 #7：反垄断窗口会话态恢复——反垄断开启时先按本线程最近 checkpoint
+    // 的 `_recent_tops` 载入窗口视图（沿骨架推进的回合不组装但窗口仍随本轮
+    // state 续落，见 _stamp_recent_tops——保证后续组装回合窗口不因中间轮丢失）。
+    if (this._anti_monopoly_persist()) {
+      await this._hydrate_thread_recent_tops(thread_id);
     }
-    // 评分顶选（候选已按 rank 排序；含 canary 结论时跳过未过验证者）
-    const best =
-      assembled.canary.length > 0
-        ? assembled.candidates.find(
-            (candidate, index) => assembled.canary[index]?.ok !== false,
-          ) ?? assembled.candidates[0]!
-        : assembled.candidates[0]!;
-    const graphData = best.graph.to_dict() as Record<string, unknown>;
+    // ── 图选择：会话骨架优先（有效骨架 = 沿骨架推进）；否则组装建立/兜底 ──
+    let graphData: Record<string, unknown> | null = null;
+    let skeleton = session ? await this._usable_thread_skeleton(thread_id) : null;
+    // 会话骨架显式种子优先（P4-B-2 可写/可分接线）：宿主命令面经 B-1 封装
+    // （validate_skeleton_sketch/mount_skeleton_to_state）校验挂载的骨架随回合
+    // state 显式携带时以种子为准（骨架编辑后续跑沿新骨架推进、新线程按骨架
+    // 试跑蓝图）；种子缺失/非法 = 回落既有语义（checkpoint 沿骨架 / 组装）。
+    if (session) {
+      const seed = this._seed_skeleton(opts.state);
+      if (seed !== null) skeleton = seed;
+    }
+    if (skeleton !== null) {
+      graphData = this._skeleton_graph_data(skeleton);
+      if (graphData === null) skeleton = null;
+    }
+    let assembled: import('../path_assembler/index.js').AssemblyResult | null = null;
+    let request: AssemblyRequest | null = null;
+    if (graphData === null) {
+      request = _round_request(opts.domain, tuned);
+      // 组装 + 候选集（canary 试跑关：round 真实执行已含验证，候选重建级校验
+      // 即可；canary 门保持于显式组装预检路径）
+      const plan = await runtime.assemble_plan(request, {
+        audit_sink: (record) => this._mechanism_sink(record),
+        canary: false,
+      });
+      if (plan.is_empty || plan.candidates.length === 0) {
+        throw new Error(
+          `回合组装无候选（domain=${request.domain}）：请检查结点池/边先验/技能与目标字段`,
+        );
+      }
+      // 评分顶选（候选已按 rank 排序；含 canary 结论时跳过未过验证者）
+      const best =
+        plan.canary.length > 0
+          ? plan.candidates.find(
+              (candidate, index) => plan.canary[index]?.ok !== false,
+            ) ?? plan.candidates[0]!
+          : plan.candidates[0]!;
+      graphData = best.graph.to_dict() as Record<string, unknown>;
+      assembled = plan;
+      if (session) {
+        skeleton = this._skeleton_from_graph(graphData, thread_id);
+      }
+    }
     // 回合上限声明注入点：host 每次回合活读能力配置 → 覆写 llm_decider 节点
     // config（随本轮图执行并落 checkpoint；恢复/分支按 checkpoint 原图续跑）
-    _apply_max_tool_rounds(graphData, opts.max_tool_rounds);
-    const engine = await this._build_graph_engine(graphData, {
+    _apply_max_tool_rounds(graphData!, opts.max_tool_rounds);
+    const engine = await this._build_graph_engine(graphData!, {
       llm: opts.llm,
-      domain: request.domain,
+      domain: request !== null ? request.domain : opts.domain,
     });
     // 调参 retry_budget → 本轮引擎节点重试旋钮（真实消费点：executor 按
     // max_node_retries 重试节点异常）
     engine.options.max_node_retries = this.assembly_round_retries(tuned);
-    this._record_round_tuning(thread_id, round_id, request.domain, tuned);
-    // 回合组装时间线事件（真实组装动作 + 真实候选数据；开关对齐配方）
-    if (this._round_timeline_enabled()) {
+    if (assembled !== null) {
+      this._record_round_tuning(thread_id, round_id, request!.domain, tuned);
+    }
+    // 回合组装时间线事件（真实组装动作 + 真实候选数据；开关对齐配方）。
+    // 沿骨架推进的回合无组装动作 → 不发射组装标记（事件面诚实）
+    if (this._round_timeline_enabled() && assembled !== null && request !== null) {
       await this._round_emit(
         engine,
         transports,
@@ -342,18 +471,30 @@ export abstract class RuntimeRounds extends RuntimeAssemble {
       );
     }
     const runState: Record<string, unknown> = { ...opts.state };
-    runState[ROUND_GRAPH_STATE_KEY] = graphData;
+    runState[ROUND_GRAPH_STATE_KEY] = graphData!;
+    // 反垄断窗口随本轮 state 落 checkpoint（线程尺度会话态；独立保留键）
+    this._stamp_recent_tops(runState);
+    // 会话骨架随本轮 state 落 checkpoint（骨架 = 会话尺度数据，与资产层分离）
+    if (skeleton !== null) {
+      this._embed_skeleton(runState, skeleton);
+    }
+    // 续跑意图在每个回合起点置空：只有本轮显式写入的新意图才触发续跑
+    if (continueEnabled) {
+      runState[ROUND_CONTINUATION_STATE_KEY] = null;
+    }
     // 多轮续聊：resume_from=null 的普通新回合把当轮 input 追加进既有消息链
     // （llm_decider 读 state.messages 续上下文）；审批重入/分支（resume_from
     // 非空）走 resume_run/resume_round，不经本路径不追加。
     await this._append_round_user_message(runState, thread_id);
-    return await engine.ainvoke(runState, {
+    const result = await engine.ainvoke(runState, {
       thread_id,
       round_id,
       continue_chain: true,
       trace_id: opts.trace_id ?? null,
       transports,
     });
+    this._mark_skeleton_after_round(result);
+    return result;
   }
 
   /** 分支/恢复回合：按锚点 checkpoint 关联图重建本轮 Engine 并 resume_from
@@ -382,6 +523,9 @@ export abstract class RuntimeRounds extends RuntimeAssemble {
       throw new Error('checkpoint 无关联图定义（旧链/未落图）：恢复续跑需先发起组装回合');
     }
     const state: Record<string, unknown> = { ...(opts.state ?? {}) };
+    // 分支续跑的新叶随 state 续落反垄断窗口（interrupt 前窗口经 checkpoint
+    // 基底已有；本覆盖层保证新叶不因缺键丢窗口）
+    this._stamp_recent_tops(state);
     return await engine.ainvoke(state, {
       thread_id: opts.thread_id,
       round_id: opts.round_id ?? null,
@@ -424,8 +568,12 @@ export abstract class RuntimeRounds extends RuntimeAssemble {
     let result: unknown = null;
     let completed = false;
     try {
+      // 决议续跑的新 checkpoint 随覆盖层 state 续落反垄断窗口（防中断链后续
+      // 组装回合 hydration 因决议叶缺键丢窗口）
+      const overlay: Record<string, unknown> = {};
+      this._stamp_recent_tops(overlay);
       result = await engine.ainvoke(
-        {},
+        overlay,
         {
           thread_id,
           round_id: options.round_id ?? null,

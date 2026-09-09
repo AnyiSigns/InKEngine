@@ -1,0 +1,65 @@
+{
+  "id": "skeleton.update",
+  "kind": "tool",
+  "capability": "host_tool",
+  "actions": [],
+  "depends": [],
+  "data": {
+    "tool": {
+      "name": "skeleton.update",
+      "description": "行为意图：声明式修改当前会话骨架（改 active_target / 增删节点实例或边 / 设出口，只引用池内已登记类型），经校验（结构/池成员/可达/终态）通过后挂载草稿，下一次 rounds.send 沿新骨架推进。\n\n使用时机：想把会话沿另一条结构推进（换目标、接路由判断、增删分支）时。\n\n取舍与替代选项：actions = 对当前骨架的声明式增量（set_target/upsert_node/remove_node/add_edge/remove_edge/set_exits），sketch = 整份替换（两者需且仅需其一）；dry=true = 只校验预览不落草稿。新类型/新 agent 不走本工具（须缺口 → 声明式提案 → 审批 → 入池）。含 router_judge 且出边带 route:* 条件时，宿主自动从该节点 config.routes 预注册走向条件（失败 = 校验拒绝）。\n\n参数语义：thread_id=目标会话线程 id；actions/sketch 语义同 host skeleton.edit；dry=预览开关。\n\n边界与协作：校验拒绝不落写（唯一写口纪律：经 validate → mount，禁止旁路直写骨架）；执行接线 = host session_command 工具族（宿主注册执行器分发到 bridge skeleton.edit 既有实现），审批档 review = 会话结构变更中风险。",
+      "parameters": {
+        "type": "object",
+        "properties": {
+          "thread_id": {
+            "type": "string",
+            "minLength": 1,
+            "description": "目标会话线程 id（rounds.send 返回）"
+          },
+          "actions": {
+            "type": "array",
+            "description": "声明式增量动作清单（与 bridge skeleton.edit 的 actions 同签名：set_target/upsert_node/remove_node/add_edge/remove_edge/set_exits）",
+            "items": {
+              "type": "object"
+            }
+          },
+          "sketch": {
+            "type": "object",
+            "description": "整份替换骨架（nodes/edges/entry/exits/active_target 形态）"
+          },
+          "dry": {
+            "type": "boolean",
+            "description": "true = 只校验预览（不落草稿不生效）"
+          }
+        },
+        "required": [
+          "thread_id"
+        ],
+        "anyOf": [
+          {
+            "required": [
+              "actions"
+            ]
+          },
+          {
+            "required": [
+              "sketch"
+            ]
+          }
+        ]
+      },
+      "permissions": [
+        "session:update:*"
+      ],
+      "approval": "review",
+      "endpoint": "session_command",
+      "endpoint_config": {},
+      "meta": {
+        "domain": "session",
+        "executor": "host:session_command",
+        "sandbox": "host_registered",
+        "note": "执行接线由宿主注册（session_command 端点族 → 分发到既有 bridge 命令 skeleton.edit）；审批档 review = 会话结构变更中风险（用户确认后放行）"
+      }
+    }
+  }
+}

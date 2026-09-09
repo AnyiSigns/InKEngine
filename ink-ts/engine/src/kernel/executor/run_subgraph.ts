@@ -25,6 +25,7 @@ import { TerminateReason } from '../../core/graph/graph_types.js';
 import { is_merge_reducer } from '../../core/state/reducers.js';
 import { subgraph_overlay_delta } from '../../core/state/schema.js';
 import type { StateSchema } from '../../core/state/schema.js';
+import type { AsyncLLM } from '../llm/_guard_types.js';
 import type { NodeContext } from './_internals.js';
 import { _pop_resume_anchor } from './_internals.js';
 import { _NodeContextImpl } from './_node_context.js';
@@ -95,6 +96,11 @@ export function _validate_subgraph_schema_inheritance(opts: {
  *
  * @param subgraph 子图实例。
  * @param parent_ctx 父图节点上下文（事件透传/中断共享/版本链归属）。
+ * @param opts.scope_llm 子作用域模型覆盖（agent 展开注入；缺省 = 继承
+ *   parent_ctx.scope_llm，再缺省回落 seams 会话默认——嵌套子图沿用所在
+ *   作用域的模型覆盖，不旁落父会话默认）。
+ * @param opts.spawn_depth 子引擎所在子链深度覆写（agent 展开传父深度+1，
+ *   供嵌套深度护栏逐层递进；缺省 = 沿用父引擎 spawn_depth）。
  * @returns 子图最终状态增量（输出回流，父图 reducer 合并，绝不静默丢值）。
  * @throws InterruptSignal 子图内中断（提升为父图挂起卡，重入语义一致）。
  * @throws NodeExecutionError 子图终态为 ERROR（向父图传播，父层节点循环按
@@ -103,6 +109,7 @@ export function _validate_subgraph_schema_inheritance(opts: {
 export async function run_subgraph(
   subgraph: Graph,
   parent_ctx: NodeContext,
+  opts: { scope_llm?: AsyncLLM | null; spawn_depth?: number | null } = {},
 ): Promise<Record<string, unknown> | null> {
   const parent = parent_ctx as _NodeContextImpl;
   const engine = parent._engine as Engine;
@@ -115,10 +122,23 @@ export async function run_subgraph(
       subgraph_name: subgraph.name,
     });
   }
-  let sub_engine = engine._subgraph_engines.get(subgraph.digest()) ?? null;
+  // 子引擎缓存键：图内容 digest；显式 spawn_depth 覆写时掺入深度（同一子图
+  // 在不同嵌套深度使用不同实例——spawn_depth 决定其内部再次展开的护栏基线，
+  // 混用会让深层子图沿用浅层深度导致护栏旁落）
+  const cache_key =
+    opts.spawn_depth !== null && opts.spawn_depth !== undefined
+      ? `${subgraph.digest()}@depth:${opts.spawn_depth}`
+      : subgraph.digest();
+  let sub_engine = engine._subgraph_engines.get(cache_key) ?? null;
   if (sub_engine === null) {
-    sub_engine = new Engine(subgraph, _sub_engine_options(engine.options, { schema: sub_schema }));
-    engine._subgraph_engines.set(subgraph.digest(), sub_engine);
+    sub_engine = new Engine(
+      subgraph,
+      _sub_engine_options(engine.options, {
+        schema: sub_schema,
+        spawn_depth: opts.spawn_depth ?? undefined,
+      }),
+    );
+    engine._subgraph_engines.set(cache_key, sub_engine);
   }
   // 共享父引擎 coordinator：子图内 interrupt 重入与父图同一通道
   sub_engine._coordinator = engine._coordinator;
@@ -155,6 +175,9 @@ export async function run_subgraph(
     graph_path: sub_path,
     transports: parent._transports, // 继承父传输链（含顶层队列）
     resume_map: parent_ctx.resume_map ?? null,
+    // 子作用域模型覆盖：显式注入优先；缺省继承父作用域（嵌套子图沿用所在
+    // 作用域的模型，不旁落会话默认）
+    scope_llm: opts.scope_llm !== undefined ? opts.scope_llm : (parent.scope_llm ?? null),
   });
   // 子图 checkpoint 推进版本链：父引擎下次写 checkpoint 前须查询链尾作为
   // parent（版本链严格线性；顺序执行路径则复用内存态，免每节点查询）。
@@ -191,4 +214,43 @@ export async function run_subgraph(
   // 分类判定用子图自身 schema：与入口剥离（上方同口径）一致，子图自定义
   // schema 的 additive/merge 声明不回流入父口径错位。
   return subgraph_overlay_delta(entry_state, final_state, sub_engine.options.schema);
+}
+
+/**
+ * agent 结点子作用域展开（子图通道的同步单分支形态；批4 kind=agent 执行体）。
+ *
+ * agent 结点 = 结构声明（引用实体），执行 = 沿当前图内联展开内部子回路：
+ * 与 run_subgraph 同一条内联子图通道——状态并入父、事件统一父链、checkpoint
+ * 同 thread 链；与 spawn（并发多实例、独立 checkpoint 子链、失败剔除回流）
+ * 的关系 = 同一子图展开基座的两个开关，agent 走「同步单分支、全部回流」档。
+ *
+ * 差异点（相对 run_subgraph）：
+ * - 递归深度护栏（复用 spawn 护栏参数）：子作用域所在子链深度 = 父深度 + 1，
+ *   spawn_max_depth 超限显式拒绝——递归展开是成本爆炸高发点，宁可显式失败；
+ * - scope_llm 由展开器注入（作用域 model override），子作用域内 llm 调用
+ *   使用实体 model（见 core/nodes/agent.ts；model:null = 继承父作用域/默认）。
+ *
+ * @throws Error 嵌套深度超限（fail-closed，不静默放行）。
+ */
+export async function run_agent_scope(
+  subgraph: Graph,
+  parent_ctx: NodeContext,
+  opts: {
+    scope_llm?: AsyncLLM | null;
+    entity_id?: string | null;
+    entity_label?: string | null;
+  } = {},
+): Promise<Record<string, unknown> | null> {
+  const parent = parent_ctx as _NodeContextImpl;
+  const engine = parent._engine as Engine;
+  const child_depth = engine.options.spawn_depth + 1;
+  if (engine.options.spawn_max_depth > 0 && child_depth > engine.options.spawn_max_depth) {
+    throw new Error(
+      `agent 嵌套深度超限: ${child_depth} > ${engine.options.spawn_max_depth}（作用域 ${opts.entity_id ?? subgraph.name}）`,
+    );
+  }
+  return run_subgraph(subgraph, parent_ctx, {
+    scope_llm: opts.scope_llm ?? null,
+    spawn_depth: child_depth,
+  });
 }

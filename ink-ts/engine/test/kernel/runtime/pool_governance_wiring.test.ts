@@ -1,3 +1,4 @@
+// gate: 超限(362 行) - 池治理接线成组单测（多场景平铺单文件，保留既有结构）
 /**
  * Pool governance runtime seam tests (A3 R3 landing over node type registry):
  * - after boot the node registry store is bound as governance write target
@@ -5,6 +6,10 @@
  * - governance disable/archive writes registration data through the controlled
  *   channel (direct put_record to node_registry:<set> is rejected); audit
  *   recorded;
+ * - 池不变式守卫：治理 archive/evict 显式写不得移除最后一个 active 终态候选
+ *   （flags.terminal=true 且池内仅剩它 = 硬拒）；非终态归档仍允许；
+ * - register_node_type 注入类型可携带 kind/label/description/flags.terminal
+ *   （透传登记行 → 进入终态候选提供器，只读验证）；
  * - governance judgment decision rows accumulate in pool_governance:<set>
  *   across runtime restarts on the same storage (weekly budget not reset);
  * - host/agent-registered node type enters the registry + pool and executes;
@@ -22,6 +27,7 @@ import { NodeContract } from '../../../src/core/contracts/contracts.js';
 import { FIELD_STRING, SchemaField, SchemaSpec } from '../../../src/core/schema/schemaValidator.js';
 import { node_registry_collection } from '../../../src/core/node_registry/index.js';
 import { pool_governance_collection } from '../../../src/kernel/pool_governance/state_store.js';
+import { AssemblyRequest } from '../../../src/kernel/path_assembler/index.js';
 import type { NodeFactory } from '../../../src/core/registry/registry_types.js';
 import { MemoryStorage } from '../executor/helpers.js';
 import { dataGraph, registerNodeType, runRoundEngine } from './_round_graphs.js';
@@ -148,9 +154,15 @@ describe('runtime pool governance write seam assembly (A3)', () => {
     const runtime = await new Runtime().boot(toHost(host), recipe(host));
     expect(runtime.node_registry_store).not.toBeNull();
     expect(runtime.pool_governance_writable).not.toBeNull();
+    // P4.2a-3 出厂池 = 可区分实例（llm 三实例 + 计划后路由；顺序 = 池种子序）
     await expect(runtime.pool_governance_writable!.list()).resolves.toEqual([
       'llm_decider',
+      'llm_planner',
+      'llm_reviewer',
+      'llm_main',
       'tool_pipeline',
+      'router_judge',
+      'router_plan_judge',
     ]);
     await runtime.stop();
   });
@@ -176,17 +188,18 @@ describe('runtime pool governance write seam assembly (A3)', () => {
     await expect(
       runtime.storage!.put_record(collection, 'llm_decider', { type_name: 'llm_decider' }),
     ).rejects.toThrow(/旁路写拦截/);
-    // 治理 archive（经可写 seam 受控回写登记 + 执行体卸载）
-    await runtime.pool_governance_writable!.archive('llm_decider', {
+    // 治理 archive（经可写 seam 受控回写登记 + 执行体卸载）；归档目标取
+    // 非终态 tool_pipeline（flags 无 terminal）→ 仍允许（终态守卫不拦非终态）
+    await runtime.pool_governance_writable!.archive('tool_pipeline', {
       domain: 'default',
       reason: 'test archive',
     });
-    expect(runtime.node_registry_store!.get('llm_decider')!.status).toBe('disabled');
-    expect(runtime.node_registry_store!.get('llm_decider')!.archived_reason).toBe('test archive');
-    expect(runtime.graph_registries!.nodes.has('llm_decider')).toBe(false);
+    expect(runtime.node_registry_store!.get('tool_pipeline')!.status).toBe('disabled');
+    expect(runtime.node_registry_store!.get('tool_pipeline')!.archived_reason).toBe('test archive');
+    expect(runtime.graph_registries!.nodes.has('tool_pipeline')).toBe(false);
     // 契约池视图 = 运行时注册（登记 active 过滤后），disable 后不再入池
-    expect(runtime.graph_registries!.nodes.contract_for('llm_decider')).toBeUndefined();
-    expect(runtime.graph_registries!.nodes.contract_for('tool_pipeline')).toBeTruthy();
+    expect(runtime.graph_registries!.nodes.contract_for('tool_pipeline')).toBeUndefined();
+    expect(runtime.graph_registries!.nodes.contract_for('llm_decider')).toBeTruthy();
     // 受控写审计留痕（evolution_write kind=node_registry）
     const audits = await runtime.storage!.list_records('set_audit');
     expect(
@@ -194,9 +207,88 @@ describe('runtime pool governance write seam assembly (A3)', () => {
         (r) =>
           r['type'] === 'evolution_write'
           && r['evolution_kind'] === 'node_registry'
-          && r['asset_id'] === 'llm_decider',
+          && r['asset_id'] === 'tool_pipeline',
       ),
     ).toBe(true);
+    await runtime.stop();
+  });
+
+  it('池不变式：治理 seam 显式归档/剔除最后一个 active 终态候选被硬拒（非终态/非最后一个仍允许）', async () => {
+    const host = new SharedStorageHost();
+    const runtime = await new Runtime().boot(toHost(host), recipe(host));
+    // 默认池内 llm_decider = 唯一 active 终态候选（flags.terminal=true）
+    // → 治理 archive/evict 显式写命中池不变式守卫：终态候选 ≤1 不可被治理淘汰
+    await expect(
+      runtime.pool_governance_writable!.archive('llm_decider', {
+        domain: 'default',
+        reason: 'archive last terminal',
+      }),
+    ).rejects.toThrow(/不能归档最后一个 active 终态候选/);
+    await expect(
+      runtime.pool_governance_writable!.evict('llm_decider', {
+        domain: 'default',
+        reason: 'evict last terminal',
+      }),
+    ).rejects.toThrow(/不能归档最后一个 active 终态候选/);
+    // 拒绝 = 不写不卸：登记行仍 active、执行体仍注册、契约池视图不变
+    expect(runtime.node_registry_store!.get('llm_decider')!.status).toBe('active');
+    expect(runtime.graph_registries!.nodes.has('llm_decider')).toBe(true);
+    expect(runtime.graph_registries!.nodes.contract_for('llm_decider')).toBeTruthy();
+    // 非终态 tool_pipeline 归档仍允许（守卫只拦最后一个终态候选）
+    await runtime.pool_governance_writable!.archive('tool_pipeline', {
+      domain: 'default',
+      reason: 'archive non-terminal',
+    });
+    expect(runtime.node_registry_store!.get('tool_pipeline')!.status).toBe('disabled');
+    await runtime.stop();
+  });
+
+  it('host/agent 注入类型可带 kind/label/description/flags.terminal；第二个终态使归档「非最后一个」允许、最后终态仍硬拒', async () => {
+    const host = new SharedStorageHost();
+    const runtime = await new Runtime().boot(toHost(host), recipe(host));
+    // register_node_type 元数据透传：kind/label/description/flags.terminal 落登记行
+    await runtime.register_node_type(
+      {
+        type_name: 'echo_terminal',
+        contract: echo_contract(),
+        config_defaults: {},
+        kind: 'llm',
+        label: 'Echo 终态',
+        description: '注入终态候选（测试）',
+        flags: { terminal: true },
+        executor: 'host:echo_terminal',
+        provenance: 'agent',
+        note: 'agent register with terminal metadata',
+      },
+      echo_factory,
+    );
+    const reg = runtime.node_registry_store!.get('echo_terminal')!;
+    expect(reg.kind).toBe('llm');
+    expect(reg.label).toBe('Echo 终态');
+    expect(reg.description).toContain('注入终态候选');
+    expect(reg.flags).toEqual({ terminal: true });
+    expect(runtime.graph_registries!.nodes.has('echo_terminal')).toBe(true);
+    // 只读验证（不动 P2 terminal 提供器语义）：注入类型带 terminal=true 后
+    // 出现在终态候选提供器清单（active + 执行体已注册才入列）
+    const terminalTypes = runtime.assembly_runtime!.terminal_types;
+    expect(terminalTypes).not.toBeNull();
+    const names = await terminalTypes!(new AssemblyRequest());
+    expect(names).toContain('llm_decider');
+    expect(names).toContain('echo_terminal');
+    // 池内现两个 active 终态候选 → 归档 llm_decider（非最后一个）允许
+    await runtime.pool_governance_writable!.archive('llm_decider', {
+      domain: 'default',
+      reason: 'archive non-last terminal',
+    });
+    expect(runtime.node_registry_store!.get('llm_decider')!.status).toBe('disabled');
+    // 剩 echo_terminal 为最后一个 active 终态候选 → 显式归档仍被硬拒
+    await expect(
+      runtime.pool_governance_writable!.archive('echo_terminal', {
+        domain: 'default',
+        reason: 'archive last terminal',
+      }),
+    ).rejects.toThrow(/不能归档最后一个 active 终态候选/);
+    expect(runtime.node_registry_store!.get('echo_terminal')!.status).toBe('active');
     await runtime.stop();
   });
 

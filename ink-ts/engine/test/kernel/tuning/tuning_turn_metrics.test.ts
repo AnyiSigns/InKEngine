@@ -71,6 +71,36 @@ describe('TurnMetrics：回合指标聚合', () => {
     metrics.record_llm_calls(stats.snapshot());
     expect(metrics.llm_calls_by_role).toEqual({ agent: 5 });
   });
+
+  it('auto 轮独立计数：round_id 前缀 `auto:` 单独计入 auto_turns（普通轮不计）', () => {
+    const metrics = new TurnMetrics();
+    metrics.record_turn({ round_id: 'r-user' });
+    metrics.record_turn({ round_id: 'auto:abc123' });
+    metrics.record_turn({ failed: true, round_id: 'auto:def456' });
+    // 普通轮与 auto 轮同进 turns；auto 另有独立口径
+    expect(metrics.turns).toBe(3);
+    expect(metrics.auto_turns).toBe(2);
+    // 失败率分母 = 全部回合（含 auto 轮）
+    expect(metrics.failure_rate).toBeCloseTo(1 / 3);
+    // 缺省/无 round_id = 非 auto（旧调用形态零漂移）
+    metrics.record_turn();
+    expect(metrics.auto_turns).toBe(2);
+  });
+
+  it('auto 计数随快照 round-trip（重启/回放后口径不丢）', () => {
+    const metrics = new TurnMetrics();
+    metrics.record_turn({ round_id: 'auto:abc' });
+    metrics.record_turn();
+    const rebuilt = TurnMetrics.from_snapshot(metrics.snapshot());
+    expect(rebuilt.snapshot()).toEqual({
+      turns: 2,
+      auto_turns: 1,
+      failures: 0,
+      failure_rate: 0,
+      llm_calls_by_role: {},
+      last_error: '',
+    });
+  });
 });
 
 describe('ParameterSnapshot：参数快照序列化', () => {

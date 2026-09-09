@@ -27,6 +27,38 @@ interface PoolGovernanceLike {
   ): { to_dict(): Record<string, unknown> };
 }
 
+/** 结点类型注册数据面（runtime.node_registrations 投影；鸭子结构即契约）。 */
+interface NodeRegistrationLike {
+  type_name: string;
+  status: string;
+  provenance: string;
+  executor: string;
+}
+
+/** registry 目录视图（池状态视图的目录态；未装配 = available:false 空态）。 */
+function registryView(deps: HostBridgeDeps): Record<string, unknown> {
+  const runtime = deps.runtime as unknown as {
+    node_registrations?: () => readonly NodeRegistrationLike[] | null;
+  };
+  const rows =
+    typeof runtime.node_registrations === 'function' ? (runtime.node_registrations() ?? []) : null;
+  if (rows === null) {
+    return { available: false, total_count: 0, active_count: 0, types: [] };
+  }
+  const types = rows.map((r) => ({
+    type_name: r.type_name,
+    status: r.status,
+    provenance: r.provenance,
+    executor: r.executor,
+  }));
+  return {
+    available: true,
+    total_count: types.length,
+    active_count: types.filter((t) => t.status === 'active').length,
+    types,
+  };
+}
+
 /** 周窗口秒数（与引擎 weekly 预算口径一致；记录时间窗投影用）。 */
 const WEEK_SECONDS = 7 * 24 * 3600;
 
@@ -102,6 +134,7 @@ export function buildPoolCommands(deps: HostBridgeDeps): Readonly<Record<PoolCom
         entries: [],
         counts: { pool_count: 0, dead_node_candidates: 0, near_duplicate_merges: 0 },
         last_round: null,
+        registry: registryView(deps),
         degraded: true,
       };
     }
@@ -126,6 +159,7 @@ export function buildPoolCommands(deps: HostBridgeDeps): Readonly<Record<PoolCom
         weekly_budget_remaining: lastBudgetRemaining(log),
       },
       last_round: lastRound,
+      registry: registryView(deps),
       degraded: false,
     };
   };

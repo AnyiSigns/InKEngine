@@ -4,9 +4,11 @@
  *
  * boot 种子 = 引擎随带的引导发布物（非领域成品）：开局即提供「AI 自描述
  * + 自举面板 + 元工具能力」的初始形态。宿主装配时经配方直注——
- * AssemblyRecipe(seeds=[("boot", build_boot_seed_entries)]) 注入系统
- * 提示词知识条目；其余描述（界面/事件/自举 harness）供装配直接消费
- * （非知识条目，是装配期数据）。
+ * AssemblyRecipe(boot_system_prompt=BOOT_SYSTEM_PROMPT) 注入系统提示词
+ * （llm 类结点 system 合成只读基线，boot 恒前拼接自定义提示词）；boot 不再
+ * 作为 boot_prompt 知识条目注入（build_boot_seed_entries 保留定义供契约
+ * 兼容/历史形态，产品宿主 seeds 不再含 boot 项）。其余描述（界面/事件/
+ * 自举 harness）供装配直接消费（非知识条目，是装配期数据）。
  *
  * 数据与机制分离：本模块只持有 boot 引导的数据形态，不引入任何机制依赖；
  * 宿主（InKling 智能体/stdio 等）从本模块取用，保持机制层零领域/产品内容。
@@ -17,10 +19,10 @@
  * 例外：BOOT_SYSTEM_PROMPT 文本已按「工具语义入 schema、提示词只留
  * 策略」收敛（见下），不再逐字节对齐 Python 字面。
  *
- * 状态标注（机制就绪 / 宿主接线点待定）：引导种子装配位——runtime 已接
- * seed_general（通用种子，引擎侧 seed_knowledge_set 直注）；boot 引导数据
- * （系统提示词/界面/事件/自举 harness）由宿主配方 AssemblyRecipe.seeds
- * 直注装配。
+ * 状态标注（机制就绪 / 宿主接线点已定）：引导种子装配位——runtime 已接
+ * seed_general（通用种子，引擎侧 seed_knowledge_set 直注）；boot 系统提示词
+ * 由宿主配方 AssemblyRecipe.boot_system_prompt 直注装配，boot 其余引导数据
+ * （界面/事件/自举 harness）亦由宿主配方直注装配。
  */
 
 import { EventTypeSpec } from '../../core/event_types/eventTypeSpec.js';
@@ -29,13 +31,16 @@ import type { JsonRecord } from '../../core/json.js';
 import { KnowledgeEntry, SOURCE_MODEL } from '../../core/knowledge_set/index.js';
 
 // 自举系统提示词（AI 自描述：观察 + 演化 + 编排策略）。
-// 作为种子知识条目注入，AI 回合内可被检索/引用，而非硬编码进图装配。
+// 宿主装配时经 AssemblyRecipe.boot_system_prompt 注入为 llm 类结点 system
+// 合成的只读基线（boot 恒前 + 自定义 system_prompt 拼一条），而非硬编码进图
+// 装配；不再作为 boot_prompt 知识条目注入（build_boot_seed_entries 仅保留
+// 定义供契约兼容/历史形态）。
 // 提示词只承载策略与编排（何时观察/演化/绑定），不枚举工具语义——
 // 观察/演化工具各自的能力与参数经 ToolSpec description + 函数清单注入
 // （introspection/pipeline.ts、self_tools/_specs.ts），保底常驻集合见
 // runtime/_constants.ts BASELINE_TOOL_NAMES（单一真源，此处不重复）。
 // 注：内容有意收敛于 Python 字面之外（不再含工具清单枚举）。
-export const BOOT_SYSTEM_PROMPT = `你同时具备任务执行与形态自进化能力：先观察再作答，需要了解自身状态时先调用相应观察工具（图/规则/知识/界面/工具），再基于观察结果组织回复；各工具的用途与参数以注入的函数清单为准。
+export const BOOT_SYSTEM_PROMPT = `你具备任务执行与形态自进化能力：先观察再作答，需要了解自身状态时先调用相应观察工具（图/规则/知识/界面/工具），再基于观察结果组织回复；各工具的用途与参数以注入的函数清单为准。
 
 形态演化（用户提需求时）：
 - 改界面/加工具/换主题/调规则 → propose_patch 校验后 apply_patch 落地（apply 按审批分级，中高风险弹审批卡，回合等待决议后继续）；
@@ -123,10 +128,14 @@ export function boot_harness_definition(): HarnessDefinition {
   });
 }
 
-// boot 系统提示词知识条目 id（稳定键：幂等注入与版本回退锚点）
+// boot 系统提示词知识条目 id（稳定键：历史种子注入的幂等锚点；P4.2b 起产品
+// 宿主不再把 boot 作为知识条目注入——保留定义仅供契约兼容/历史形态取用）
 export const BOOT_PROMPT_SEED_ID = 'seed.boot.system_prompt';
 
-// boot 种子条目（自举系统提示词，作为高可信度种子知识注入）。
+// boot 种子条目（自举系统提示词知识条目形态）。P4.2b 定稿：boot 改走
+// AssemblyRecipe.boot_system_prompt 装配 seam 注入，本函数不再由产品宿主
+// 装配调用（seeds 退役）；保留定义与导出（kind='boot_prompt' 无枚举收紧，
+// 保留不破坏契约），历史/定制宿主仍可显式取用。
 export function build_boot_seed_entries(): KnowledgeEntry[] {
   return [
     new KnowledgeEntry({

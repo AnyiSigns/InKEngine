@@ -14,6 +14,7 @@ import {
   accumulate_tool_calls,
   assistant,
   message_role,
+  project_history_baseline,
   system,
   tool_result,
   user,
@@ -174,6 +175,72 @@ describe('ToolCall（参数解析）', () => {
     expect(() => tcEmpty.parse_arguments(true)).toThrow();
     const tcStr = new ToolCall({ id: 'c1', name: 'n', arguments: '"str"' });
     expect(() => tcStr.parse_arguments(true)).toThrow();
+  });
+});
+
+describe('project_history_baseline（持久化消息链 → fork 试跑上下文基线）', () => {
+  it('保留链首 system + user/assistant 文本链；tool 与纯工具片段丢弃、顺序保持', () => {
+    // 源线程两回合完整 checkpoint 链（含 system/user/assistant/tool 与工具调用片段）
+    const chain = [
+      system('boot'),
+      user('第一回合'),
+      assistant('第一回复'),
+      user('第二回合'),
+      assistant('', {
+        tool_calls: [new ToolCall({ id: 'call_1', name: 'lookup', arguments: '{"q":"x"}' })],
+      }),
+      tool_result('工具输出', 'call_1'),
+      assistant('第二回复'),
+    ].map((m) => m.to_dict());
+    const baseline = project_history_baseline(chain as never);
+    // 文本链：链首 system 保留，tool/纯工具片段丢弃，user/assistant 顺序保持
+    expect(baseline.map((m) => [m.role, m.content])).toEqual([
+      ['system', 'boot'],
+      ['user', '第一回合'],
+      ['assistant', '第一回复'],
+      ['user', '第二回合'],
+      ['assistant', '第二回复'],
+    ]);
+    // 助手消息不再携带悬空 tool_calls（投影净化，防旧工具调用 id 回灌模型）
+    for (const message of baseline) {
+      expect(message.tool_calls).toBeNull();
+      expect(message.attachments.length).toBe(0);
+    }
+  });
+
+  it('非链首 system / 无正文 assistant 丢弃；非法记录跳过防击穿', () => {
+    const chain = [
+      user('带附件', { attachments: [] }),
+      assistant(''),
+      { role: 'system', content: '非链首系统' },
+      { role: 'unknown', content: '噪声' },
+      { role: 'assistant', content: '正文', tool_calls: null, reasoning: '不喂模型' },
+    ];
+    const baseline = project_history_baseline(chain as never);
+    expect(baseline.map((m) => [m.role, m.content])).toEqual([
+      ['user', '带附件'],
+      ['assistant', '正文'],
+    ]);
+    // 非法记录（缺 role/畸形字段/非记录）跳过不击穿，合法条目保留
+    expect(
+      project_history_baseline([
+        { content: 'no role' },
+        { role: 'user', content: '你好' },
+        'not-a-record',
+      ] as never).map((m) => [m.role, m.content]),
+    ).toEqual([['user', '你好']]);
+    const withBad = project_history_baseline([
+      { role: 'user', content: '合法' },
+      { role: 'broken', content: 42 },
+    ] as never);
+    expect(withBad.map((m) => [m.role, m.content])).toEqual([['user', '合法']]);
+  });
+
+  it('无链首 system 的链：从首条 user 起（不臆造系统；装配按本线程 boot 合成）', () => {
+    const chain = [user('直接问'), assistant('直接答')].map((m) => m.to_dict());
+    const baseline = project_history_baseline(chain as never);
+    expect(baseline.map((m) => m.role)).toEqual(['user', 'assistant']);
+    expect(baseline[0]!.content).toBe('直接问');
   });
 });
 

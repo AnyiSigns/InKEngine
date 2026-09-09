@@ -1,11 +1,12 @@
 /**
  * 引擎内置基础节点 boot 接线测试：Runtime 装配默认注册引擎内置池种子 +
- * rebuild seams 绑定 + 组装运行期冷启动 base 图先验注入。
+ * rebuild seams 绑定 + 组装运行期从池选终态出单节点图。
  *
  * - boot 后 graph_registries 含 llm_decider/tool_pipeline 及契约（注册表含
  *   新类型，引擎给多宿主用 = 引擎内置注册，宿主只给数据）；
- * - 冷启动 assemble（chat 域，无缓存/技能/证据）稳定产出合法候选数据图；
- *   候选图在 bound registries + memory storage 下真实执行出 stub 回复。
+ * - 无缓存/技能/证据的冷启动 assemble（任意域）稳定产出合法候选单节点图
+ *   （llm_decider，flags.terminal=true 终态候选）；候选图在 bound registries
+ *   + memory storage 下真实执行出 stub 回复。
  */
 import { afterEach, describe, expect, it } from 'vitest';
 
@@ -16,9 +17,12 @@ import { AssemblyRequest } from '../../../src/kernel/path_assembler/index.js';
 import {
   ENGINE_STUB_REPLY,
   TYPE_LLM_DECIDER,
+  TYPE_LLM_PLANNER,
   TYPE_TOOL_PIPELINE,
   default_engine_pool_seed,
 } from '../../../src/core/nodes/index.js';
+import type { EnginePoolSeed } from '../../../src/core/nodes/index.js';
+import { NODE_KIND_LLM, NODE_KIND_TOOL } from '../../../src/core/nodes/constants.js';
 import { Graph } from '../../../src/core/graph/graph.js';
 import { Engine } from '../../../src/kernel/executor/index.js';
 import { RunOptions } from '../../../src/core/run_result/run_result.js';
@@ -134,8 +138,10 @@ describe('Runtime boot：引擎内置池种子注册 + 冷启动组装', () => {
     const assembler = runtime.assembly_runtime!;
     const result = await assembler.assemble_plan(chat_request('chat'));
     expect(result.is_empty).toBe(false);
+    // P4.2a-3：出厂池可区分实例在场时，字段链（planner→reviewer→main）按边
+    // 零证据先验高于单节点兜底 → 顶选为字段链候选（llm_planner 领头）。
     const first = result.candidates[0]!;
-    expect(first.graph.node_bindings[TYPE_LLM_DECIDER]).toBeTruthy();
+    expect(first.graph.node_bindings[TYPE_LLM_PLANNER]).toBeTruthy();
     expect(first.source).toBeTruthy();
     const graphData = first.to_dict()['graph'] as Record<string, unknown>;
     const state = await run_graph_data(runtime.graph_registries!, graphData, runtime.storage!.inner as MemoryStorage);
@@ -144,32 +150,35 @@ describe('Runtime boot：引擎内置池种子注册 + 冷启动组装', () => {
     await runtime.stop();
   });
 
-  it('配方 pool_seed 数据可覆写（自定义域模板经数据源生效；引擎类型仍注册）', async () => {
+  it('boot 种子登记行携带元数据（kind/label/description/flags 透传登记入池）', async () => {
+    const runtime = await new Runtime().boot(toHost(new FakeHost()), _minimal_recipe());
+    const regs = runtime.node_registrations();
+    const llm = regs.find((r) => r.type_name === TYPE_LLM_DECIDER);
+    expect(llm?.kind).toBe(NODE_KIND_LLM);
+    expect(llm?.label).toBe('LLM 决策');
+    expect(llm?.description).toBe('单节点内完成模型流式 + 工具回合');
+    expect(llm?.flags).toEqual({ terminal: true });
+    const tool = regs.find((r) => r.type_name === TYPE_TOOL_PIPELINE);
+    expect(tool?.kind).toBe(NODE_KIND_TOOL);
+    expect(tool?.label).toBe('工具流水线');
+    expect(tool?.flags).toBeNull();
+    await runtime.stop();
+  });
+
+  it('配方 pool_seed 数据可覆写（node_types 数据源生效；引擎类型按种子注册并组装）', async () => {
     const base = default_engine_pool_seed();
-    const seed = {
-      ...base,
-      domains: [
-        {
-          domain: 'custom',
-          enabled: true,
-          graph: {
-            name: 'engine.custom',
-            entry: TYPE_LLM_DECIDER,
-            nodes: {
-              [TYPE_LLM_DECIDER]: { type: TYPE_LLM_DECIDER, config: {} },
-              end: { type: TYPE_TOOL_PIPELINE, config: { role: 'terminal' } },
-            },
-            edges: { [TYPE_LLM_DECIDER]: [{ target: 'end' }] },
-            exits: ['end'],
-          },
-        },
-      ],
+    const seed: EnginePoolSeed = {
+      enabled: true,
+      node_types: base.node_types.filter((seedRow) => seedRow.type === TYPE_LLM_DECIDER),
     };
     const runtime = await new Runtime().boot(
       toHost(new FakeHost()),
-      _minimal_recipe({ pool_seed: seed as never }),
+      _minimal_recipe({ pool_seed: seed }),
     );
+    // 种子数据源生效：仅 llm_decider 入注册池（tool_pipeline 不注册）
     expect(runtime.graph_registries!.nodes.has(TYPE_LLM_DECIDER)).toBe(true);
+    expect(runtime.graph_registries!.nodes.has(TYPE_TOOL_PIPELINE)).toBe(false);
+    // 无输入源最小可行回合：任意域组装出 llm_decider 单节点图并真实执行
     const result = await runtime.assembly_runtime!.assemble_plan(chat_request('custom'));
     expect(result.is_empty).toBe(false);
     const graphData = result.candidates[0]!.to_dict()['graph'] as Record<string, unknown>;

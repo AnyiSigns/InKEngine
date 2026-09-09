@@ -93,13 +93,13 @@ export interface DraftProvider {
   draft(context: AssemblyDraftContext): Promise<string>;
 }
 
-/** 冷启动 base 图提供器（数据驱动：组装请求 → 域 base 图模板清单；
- *  null = 不参与。无算法/技能/草稿候选时据此稳定产出合法候选数据图）。 */
-export type BaseGraphsProvider = (
+/** 终态候选源提供器（组装零候选时的兜底数据：active 终态结点类型名清单；
+ *  null = 不参与。无算法/技能/证据候选时组装器从池内这些类型中选合法者出
+ *  单节点图（entry=exit=该类型，0 边）；取不到任何可用终态候选 = 显式无候选，
+ *  不臆造整图模板）。 */
+export type TerminalTypesProvider = (
   request: AssemblyRequest,
-) =>
-  | readonly Record<string, unknown>[]
-  | Promise<readonly Record<string, unknown>[]>;
+) => readonly string[] | Promise<readonly string[]>;
 
 /** 组装请求（输入声明：目标 + 域 + 安全档 + 质量闸门 + 草稿源）。 */
 export class AssemblyRequest {

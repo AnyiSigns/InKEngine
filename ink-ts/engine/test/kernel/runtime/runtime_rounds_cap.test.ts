@@ -32,6 +32,7 @@ import {
 import type { SelfToolContext } from '../../../src/kernel/self_tools/index.js';
 import { ROUND_GRAPH_STATE_KEY } from '../../../src/kernel/runtime/_runtime_rounds.js';
 import { MemoryStorage } from '../executor/helpers.js';
+import { deciderOnlyPoolSeed } from './_round_graphs.js';
 
 /** 探测工具（声明式权限命中 → 经门禁直过执行；副作用计数）。 */
 const TOOL_PROBE = 'cap_probe';
@@ -79,8 +80,11 @@ function toHost(host: FakeHost): Host {
 /** 无静态图配方：探测工具经 self_specs 注入（声明式权限 demo:apply:*），执行体
  *  = 配方 self_executor_factory seam（计数直出；契约工具回落 make_self_executor）。 */
 function capRecipe(executed: string[]): AssemblyRecipe {
+  // 本专测沿「组装图顶选 = llm_decider 单节点」断言 config 覆写/执行上限：
+  // P4.2a-3 默认池扩充后顶选为 planner→reviewer→main 字段链，池种子过滤回落。
   return new AssemblyRecipe({
     set_id: 'b4-cap-round',
+    pool_seed: deciderOnlyPoolSeed(),
     seeds: [['boot', boot_seed_entries]],
     harness_definitions: [
       new HarnessDefinition({ name: 'forge', description: '自举领域', keywords: ['自举'] }),

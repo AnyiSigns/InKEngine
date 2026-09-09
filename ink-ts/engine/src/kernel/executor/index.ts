@@ -24,7 +24,7 @@
 export { Engine } from './_engine_execute.js';
 export type { EngineBase } from './_engine_base.js';
 export type { ExecuteOptions } from './_engine_base.js';
-export { run_subgraph, _validate_subgraph_schema_inheritance } from './run_subgraph.js';
+export { run_subgraph, run_agent_scope, _validate_subgraph_schema_inheritance } from './run_subgraph.js';
 export { _NodeContextImpl } from './_node_context.js';
 export type { NodeContext } from './_internals.js';
 export { RunOptions, RunResult } from '../../core/run_result/run_result.js';

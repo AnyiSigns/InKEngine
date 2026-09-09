@@ -90,7 +90,7 @@ export function graphToDict(graph: Graph): Record<string, unknown> {
     if (binding.contract !== null) out.contract = binding.contract.to_dict();
     nodes[name] = out;
   }
-  const edges: Record<string, Array<{ target: string; condition?: string }>> = {};
+  const edges: Record<string, Array<{ target: string; condition?: string; kind?: 'loop' }>> = {};
   for (const [source, edgeList] of Object.entries(graph.edges)) {
     edges[source] = edgeList.map((e) => e.to_dict());
   }
@@ -200,16 +200,31 @@ export function loadGraphFromDict(
       if (typeof target !== 'string') {
         throw new GraphDefinitionError(`节点 ${source} 的边声明非法（缺 target）`);
       }
+      const rawKind = edgeData['kind'];
+      if (
+        rawKind !== undefined
+        && rawKind !== null
+        && rawKind !== 'standard'
+        && rawKind !== 'conditional'
+        && rawKind !== 'loop'
+      ) {
+        throw new GraphDefinitionError(
+          `节点 ${source}->${target} 的边 kind 非法: ${String(rawKind)}（期望 standard/conditional/loop）`,
+        );
+      }
+      const isLoop = rawKind === 'loop';
       const conditionName = edgeData['condition'];
       if (conditionName === null || conditionName === undefined) {
-        g.add_edge(source, target);
+        if (isLoop) g.add_loop_edge(source, target);
+        else g.add_edge(source, target);
       } else if (typeof conditionName === 'string') {
         if (ctx.edge_registry === null || !ctx.edge_registry.has(conditionName)) {
           throw new GraphDefinitionError(
             `条件边 ${source}->${target} 的条件未注册: ${conditionName}`,
           );
         }
-        g.add_conditional_edge_by_name(source, target, conditionName);
+        if (isLoop) g.add_loop_edge(source, target, { condition_name: conditionName });
+        else g.add_conditional_edge_by_name(source, target, conditionName);
       } else {
         throw new GraphDefinitionError(
           `节点 ${source} 的边 condition 字段类型非法: 期望 str`,
@@ -250,9 +265,16 @@ export function graphDigest(graph: Graph): string {
   const edgeRef = (edge: Edge): string => {
     if (edge.condition !== null || edge.condition_name !== null) {
       const key = edge.condition_name !== null ? edge.condition_name : fnRef(edge.condition);
-      return stableJsonString({ target: edge.target, condition: key });
+      const payload: { target: string; condition: string; kind?: 'loop' } = {
+        target: edge.target,
+        condition: key,
+      };
+      if (edge.kind === 'loop') payload.kind = 'loop';
+      return stableJsonString(payload);
     }
-    return stableJsonString({ target: edge.target });
+    const payload: { target: string; kind?: 'loop' } = { target: edge.target };
+    if (edge.kind === 'loop') payload.kind = 'loop';
+    return stableJsonString(payload);
   };
 
   const nodeKeys = new Set<string>([

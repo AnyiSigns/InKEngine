@@ -163,6 +163,50 @@ export function tool_result(content: string, tool_call_id: string, options: Uuid
   return new Message('tool', content, tool_call_id, null, null, null, [], null, options);
 }
 
+/** 会话级持久化消息记录（checkpoint state 的 messages 数组条目；Message.to_dict
+ *  的 JSON 形态，llm_decider/rounds 续链读写的权威存储态）。 */
+export type StoredMessage = Record<string, Json>;
+
+/** fork/试跑等新线程上下文重建的只读投影 + 构造原语：从既有持久化消息链
+ *  （checkpoint 存储态，非展示态）重建历史对话基线。
+ *
+ *  - 保留链首 system（装配侧合成的会话系统基线随链持久化，试跑同基线续上下文；
+ *    无链首 system = 不臆造，由装配/首轮按本线程 boot+自定义合成）；
+ *  - 保留 user/assistant 文本内容（user/assistant 文本链），丢弃助手
+ *    tool_calls 载荷与附件（悬空工具片段不喂模型、附件不随试跑重放；纯工具
+ *    调用片段正文为空 = 不属于文本链，一并丢弃）；
+ *  - 丢弃 tool 消息（历史工具产物不重放）与非链首 system；
+ *  - 非法记录跳过防击穿（与 llm_decider._seedMessages 同兜底语义）。
+ *
+ * 只读投影 + 构造新 Message：不写 state、不读引擎机制，纯数据面形态转换。
+ */
+export function project_history_baseline(records: readonly StoredMessage[]): Message[] {
+  const out: Message[] = [];
+  for (const record of records) {
+    let parsed: Message;
+    try {
+      parsed = Message.from_dict(record as never);
+    } catch {
+      continue;
+    }
+    if (out.length === 0 && parsed.role === 'system') {
+      out.push(parsed);
+      continue;
+    }
+    if (parsed.role === 'user') {
+      out.push(new Message('user', parsed.content, null, null, null, parsed.id, [], parsed.name));
+      continue;
+    }
+    if (parsed.role === 'assistant') {
+      if (parsed.content === '') continue; // 纯工具调用片段（无正文）不属于文本链
+      out.push(new Message('assistant', parsed.content, null, null, null, parsed.id, [], parsed.name));
+      continue;
+    }
+    // 非链首 system / tool / 未知角色丢弃
+  }
+  return out;
+}
+
 /**
  * 任意消息形态的角色归一（system/user/assistant/tool）。
  *

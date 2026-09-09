@@ -18,7 +18,7 @@
   "message.empty": "Message stream is empty",
 
   "topbar.tab.chat": "Chat",
-  "topbar.tab.evolution": "Evolution",
+  "topbar.tab.evolution": "State",
   "topbar.tab.trajectory": "Trajectory",
   "topbar.tab.todo": "Todo",
   "topbar.rename": "Rename session",

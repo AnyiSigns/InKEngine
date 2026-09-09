@@ -20,7 +20,7 @@ import type { AssemblyRequest } from './types.js';
 import { AssemblyCandidate, AssemblyEnvelope, PathAssemblyResult } from './types.js';
 import {
   CANDIDATE_SOURCE_ALGORITHM,
-  CANDIDATE_SOURCE_BASE,
+  CANDIDATE_SOURCE_TERMINAL,
   STATS_BEAM_EXTENSIONS,
   STATS_CACHE_HITS,
   STATS_CACHE_MISSES,
@@ -36,7 +36,7 @@ import { _forward_search } from './search.js';
 import { validate_chain } from './validate.js';
 import { assembly_audit_record } from './audit.js';
 import { _graph_chain } from './snapshot.js';
-import { _base_candidates } from './_base.js';
+import { _terminal_candidates } from './_terminal.js';
 import { PathAssemblerDraft, type _ScoredChain } from './_assembler_pipeline.js';
 import type { _ChainSourceRepaired } from './_assembler_pipeline.js';
 
@@ -164,50 +164,52 @@ export class PathAssembler extends PathAssemblerDraft {
       stats[STATS_LLM_ATTEMPTS] = 0;
     }
     if (chains.length === 0) {
-      // 冷启动 base 图先验（引擎内置池种子的域 base 图模板）：无算法/技能/
-      // 草稿候选时据此稳定产出合法候选数据图（候选 = 原模板图形态，带节点
-      // config 如终态 role），无匹配模板 = 维持零候选空结果。
-      const baseCandidates = await _base_candidates({
-        provider: this._base_graphs,
+      // 终态候选兜底（从池选 flags.terminal=true 的 active 终态类型出单节点
+      // 图）：无算法/技能/证据候选时据此产出最小可行回合候选；取不到任何可
+      // 自终止终态候选 = 显式“无候选”（诚实空态，不臆造整图模板）。
+      const terminalCandidates = await _terminal_candidates({
+        provider: this._terminal_types,
         request,
-        registry: this._registry,
         pool,
         goal_fields: goal,
+        entry_fields: request.entry_fields,
         max_safety_tier: request.max_safety_tier,
         state_schema: request.state_schema,
         top_k: request.top_k,
-        edge_score: (src, dst) => this._edge_score_of(src, dst, index, evidence_index, stats),
+        instance_configs: this._instance_configs,
       });
-      if (baseCandidates.length > 0) {
-        const scoredBase: _ScoredChain[] = [];
-        for (const candidate of baseCandidates) {
+      if (terminalCandidates.length > 0) {
+        const scoredTerminal: _ScoredChain[] = [];
+        for (const candidate of terminalCandidates) {
           const nodeChain = _graph_chain(candidate.graph);
           const typeChain = nodeChain
             .filter((name) => candidate.graph.node_bindings[name] !== undefined)
             .map((name) => candidate.graph.node_bindings[name]!.type_name);
-          scoredBase.push([typeChain, CANDIDATE_SOURCE_BASE, false, candidate.score]);
+          scoredTerminal.push([typeChain, CANDIDATE_SOURCE_TERMINAL, false, candidate.score]);
         }
-        const cold_index = await this._cold_start_index(scoredBase, index, evidence_index);
+        const cold_index = await this._cold_start_index(scoredTerminal, index, evidence_index);
         const multipath = await this._multipath_signal(
-          baseCandidates[0] ?? null,
-          baseCandidates[1] ?? null,
+          terminalCandidates[0] ?? null,
+          terminalCandidates[1] ?? null,
           index,
           evidence_index,
         );
-        const baseResult = new PathAssemblyResult({
-          candidates: baseCandidates,
-          fingerprint: graph_fingerprint(baseCandidates[0]!.graph),
+        const terminalResult = new PathAssemblyResult({
+          candidates: terminalCandidates,
+          fingerprint: graph_fingerprint(terminalCandidates[0]!.graph),
           cold_start_index: cold_index,
           exploration_mode: is_exploration_mode(cold_index),
           multipath_signal: multipath,
           llm_attempts,
           stats: { ...stats },
         });
-        if (this._sink !== null) this._sink(this._audit_record(request, goal, baseResult));
-        return baseResult;
+        if (this._sink !== null) this._sink(this._audit_record(request, goal, terminalResult));
+        return terminalResult;
       }
       return new PathAssemblyResult({
-        fallback_reason: fallback_reason ?? '算法层未解出目标覆盖链',
+        fallback_reason:
+          fallback_reason ??
+          '算法层未解出目标覆盖链，且无可用自终止终态候选（池内无 flags.terminal 结点）',
         llm_attempts,
         stats: { ...stats },
       });
@@ -235,7 +237,21 @@ export class PathAssembler extends PathAssemblerDraft {
     // ③ 证据评分 + beam top-k（确定性序）
     const ranked = await this._rank_chains(pairs, index, evidence_index, stats);
     const top_k = Math.max(1, Math.trunc(request.top_k));
-    const selected = ranked.slice(0, top_k);
+    const cold_index = await this._cold_start_index(ranked, index, evidence_index);
+    // P4.1 候选层探索预算（无样本候选试用 / 连续顶选反垄断）：在纯证据序
+    // 上叠加候选层重排（详见 _assembler_pipeline._apply_exploration_budget；
+    // 预算缺省关闭 = 原样直通零漂移）。
+    const selected = this._apply_exploration_budget(
+      ranked,
+      top_k,
+      request,
+      goal,
+      pool,
+      cold_index,
+      index,
+      evidence_index,
+      stats,
+    );
     const candidates: AssemblyCandidate[] = [];
     for (let rankIndex = 0; rankIndex < selected.length; rankIndex++) {
       const [chain, source, repaired, score] = selected[rankIndex]!;
@@ -249,7 +265,6 @@ export class PathAssembler extends PathAssemblerDraft {
         }),
       );
     }
-    const cold_index = await this._cold_start_index(ranked, index, evidence_index);
     const multipath = await this._multipath_signal(
       candidates.length > 0 ? candidates[0]! : null,
       candidates.length > 1 ? candidates[1]! : null,

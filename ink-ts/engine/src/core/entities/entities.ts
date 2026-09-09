@@ -1,7 +1,7 @@
 /**
  * 实体注册表（协作者目录：可复用、可演化的执行单元）。
  *
- * 实体 = 数据（EntitySpec：id/label/persona/model/meta），随补丁链版本化/回退
+ * 实体 = 数据（EntitySpec：id/label/persona/model/meta/role），随补丁链版本化/回退
  * （PatchKind.ENTITY → propose_patch/apply_patch → 审批卡 → 注册表生效）。
  * 运行 = 子图食谱经 spawn 物化为路径实例——本模块只承载声明形态与注册表，
  * 机制层零执行语义、零领域词。
@@ -27,6 +27,9 @@ export const DEFAULT_MAX_ENTITIES = 200;
 export const ENTITY_ID_MAX_LENGTH = 48;
 export const ENTITIES_COLLECTION_PREFIX = 'entities:';
 
+/** 实体角色缺省值（实体收敛 agent 类结点的 role 前；无显式 role = 协作者）。 */
+export const DEFAULT_ENTITY_ROLE = 'collaborator';
+
 export function entity_collection(set_id: string): string {
   return `${ENTITIES_COLLECTION_PREFIX}${set_id}`;
 }
@@ -50,6 +53,8 @@ export class EntitySpec {
   readonly persona: string;
   readonly model: Record<string, string> | null;
   readonly meta: Record<string, unknown>;
+  /** 实体角色（默认 'collaborator'；实体收敛 agent 结点后可演化）。 */
+  readonly role: string;
 
   constructor(init: {
     id: string;
@@ -57,12 +62,14 @@ export class EntitySpec {
     persona?: string;
     model?: Record<string, string> | null;
     meta?: Record<string, unknown>;
+    role?: string;
   }) {
     this.id = init.id;
     this.label = init.label ?? '';
     this.persona = init.persona ?? '';
     this.model = init.model ?? null;
     this.meta = { ...(init.meta ?? {}) };
+    this.role = init.role ?? DEFAULT_ENTITY_ROLE;
   }
 
   to_dict(): Record<string, unknown> {
@@ -71,6 +78,8 @@ export class EntitySpec {
     if (this.persona) data['persona'] = this.persona;
     if (this.model) data['model'] = { ...this.model };
     if (Object.keys(this.meta).length > 0) data['meta'] = { ...this.meta };
+    // 缺省 role 不落序列化（旧记录/既有输出形状不变；反序列化按缺省回落）
+    if (this.role && this.role !== DEFAULT_ENTITY_ROLE) data['role'] = this.role;
     return data;
   }
 
@@ -95,6 +104,10 @@ export class EntitySpec {
     const persona = data['persona'];
     if (persona !== undefined && typeof persona !== 'string') {
       throw new GraphDefinitionError(`实体 ${entity_id} 的 persona 须为字符串`);
+    }
+    const rawRole = data['role'];
+    if (rawRole !== undefined && typeof rawRole !== 'string') {
+      throw new GraphDefinitionError(`实体 ${entity_id} 的 role 须为字符串`);
     }
     let model: Record<string, string> | null = null;
     const rawModel = data['model'];
@@ -122,6 +135,7 @@ export class EntitySpec {
       persona: persona ?? '',
       model,
       meta,
+      role: rawRole === undefined ? DEFAULT_ENTITY_ROLE : (rawRole as string),
     });
   }
 }

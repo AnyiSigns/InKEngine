@@ -10,6 +10,11 @@
  *   （merge_into=keep_id），不擅自 disable（replace/merge 由人/agent 走提案
  *   路径确认）。
  *
+ * 池不变式守卫：archive/evict 不得移除**最后一个 active 终态候选**（登记行
+ * flags.terminal=true 且池内 active 终态候选 ≤1 = 不可被治理淘汰；口径与
+ * pool_governance_rules 死结点淘汰保护分支一致，P2 规则层已保护自动淘汰路径，
+ * 本守卫封堵显式治理写 seam）——命中即抛 GraphDefinitionError 拒绝。
+ *
  * 所有写都经 store 受控写通道（GuardedStorage 豁免 + EvolutionWriter 补丁链 +
  * set_audit 审计），与 entity_registry_governance_target 范式一致；执行体卸载
  * 回调由装配面注入（NodeTypeRegistry.unregister）。治理只回写登记数据，不改
@@ -17,12 +22,34 @@
  */
 
 import type { GovernanceWriteTarget } from '../../kernel/settle/review.js';
+import { GraphDefinitionError } from '../errors.js';
 import type { NodeRegistryStore } from './store.js';
 
 /** 登记 store 治理 seam 构造面。 */
 export interface NodeRegistryGovernanceOptions {
   /** 执行体卸载回调（登记行 disable/archive 后从运行时注册表移除执行体）。 */
   unregister(type_name: string): void;
+}
+
+/**
+ * 池不变式守卫：目标登记行为 active 终态候选（flags.terminal=true）且是池内
+ * 最后一个 active 终态候选时拒绝治理写（与 pool_governance_rules 死结点淘汰
+ * 的保护分支同口径；终态候选 = store.active() 中 flags.terminal===true 行）。
+ * 返回拒绝原因（null = 允许治理写）。
+ */
+function _last_terminal_reject_reason(
+  store: NodeRegistryStore,
+  id: string,
+): string | null {
+  const existing = store.get(id);
+  if (existing === null || !existing.is_active()) return null;
+  if (existing.flags?.terminal !== true) return null;
+  let activeTerminals = 0;
+  for (const reg of store.active()) {
+    if (reg.flags?.terminal === true) activeTerminals += 1;
+  }
+  if (activeTerminals > 1) return null;
+  return `不能归档最后一个 active 终态候选: ${id}（终态候选 ≤1 不可被治理淘汰）`;
 }
 
 /**
@@ -43,6 +70,10 @@ export function node_registry_governance_target(
     async archive(id, o): Promise<void> {
       const existing = store.get(id);
       if (existing === null || !existing.is_active()) return;
+      const rejectReason = _last_terminal_reject_reason(store, id);
+      if (rejectReason !== null) {
+        throw new GraphDefinitionError(rejectReason);
+      }
       await store.disable(id, o.reason, 'pool_governance_archive');
       opts.unregister(id);
     },
@@ -50,6 +81,10 @@ export function node_registry_governance_target(
     async evict(id, o): Promise<void> {
       const existing = store.get(id);
       if (existing === null || !existing.is_active()) return;
+      const rejectReason = _last_terminal_reject_reason(store, id);
+      if (rejectReason !== null) {
+        throw new GraphDefinitionError(rejectReason);
+      }
       await store.archive(id, o.reason, 'pool_governance_evict');
       opts.unregister(id);
     },

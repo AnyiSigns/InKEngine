@@ -97,6 +97,7 @@ describe('llm_decider 思考事件发射', () => {
       tool_specs: [],
       all_tool_specs: [],
       collect_specs: null,
+      boot_system_prompt: '',
     }));
     const node = factory({});
     await node(ctx);
@@ -136,6 +137,7 @@ describe('llm_decider 思考事件发射', () => {
       tool_specs: [],
       all_tool_specs: [],
       collect_specs: null,
+      boot_system_prompt: '',
     }));
     const node = factory({});
     await node(ctx);
@@ -164,6 +166,7 @@ describe('llm_decider 思考事件发射', () => {
       ],
       all_tool_specs: [],
       collect_specs: null,
+      boot_system_prompt: '',
     }));
     const node = factory({});
     await node(ctx);
@@ -180,5 +183,74 @@ describe('llm_decider 思考事件发射', () => {
     expect(toolStart[0]).toMatchObject({ payload: { tool: 'inspect_graph' } });
     expect(toolEnd[0]).toMatchObject({ payload: { tool: 'inspect_graph', success: true } });
     expect((toolStart[0] as { step_id?: string | null }).step_id).toBe((toolEnd[0] as { step_id?: string | null }).step_id);
+  });
+});
+
+describe('llm_decider system 合成（seams boot + config 自定义拼一条；boot 恒前）', () => {
+  /** 记录每次 astream 收到的消息链的 stub（收尾 token 一帧）。 */
+  function recordingLLM(calls: Message[][]) {
+    return {
+      adapter: 'fake',
+      config: new LLMConfig({ adapter: 'fake', model_id: 'm', base_url: 'http://x' }),
+      async ainvoke(): Promise<never> {
+        throw new Error('llm_decider 单测只走 astream');
+      },
+      async *astream(
+        messages: readonly Message[],
+        _opts?: { tools?: readonly ToolSpec[] | null; params?: LLMParams | null },
+      ): AsyncIterable<LLMChunk> {
+        calls.push([...messages]);
+        yield new LLMChunk({ token: '收口' });
+      },
+    } as unknown as AsyncLLM;
+  }
+
+  /** 单轮节点执行（无工具调用）；返回模型首轮收到的消息链。 */
+  async function runWith(
+    boot: string,
+    custom: string,
+  ): Promise<Message[]> {
+    const calls: Message[][] = [];
+    const factory = make_llm_decider_factory(new _EngineNodeSeamsBox({
+      llm: recordingLLM(calls),
+      tool_pipeline: {} as never,
+      tool_specs: [],
+      all_tool_specs: [],
+      collect_specs: null,
+      boot_system_prompt: boot,
+    }));
+    const node = factory(custom === '' ? {} : { system_prompt: custom });
+    const emits: EmitRecord[] = [];
+    const ctx = fakeCtx(emits);
+    await node(ctx);
+    return calls[0]!;
+  }
+
+  it('boot + custom 双非空 → 单条 system = boot + \\n\\n + custom（boot 恒前）', async () => {
+    const messages = await runWith('BOOT-BASE', 'CUSTOM-CFG');
+    const first = messages[0]!;
+    expect(first.role).toBe('system');
+    expect(String((first as unknown as { content: string }).content)).toBe('BOOT-BASE\n\nCUSTOM-CFG');
+    expect(messages.filter((message) => message.role === 'system')).toHaveLength(1);
+  });
+
+  it('仅 boot（config 无自定义）→ system = boot 原样', async () => {
+    const messages = await runWith('BOOT-BASE', '');
+    const first = messages[0]!;
+    expect(first.role).toBe('system');
+    expect(String((first as unknown as { content: string }).content)).toBe('BOOT-BASE');
+  });
+
+  it('仅 custom（boot 空）→ system = custom 原样（boot 未注入回落）', async () => {
+    const messages = await runWith('', 'CUSTOM-CFG');
+    const first = messages[0]!;
+    expect(first.role).toBe('system');
+    expect(String((first as unknown as { content: string }).content)).toBe('CUSTOM-CFG');
+  });
+
+  it('boot 与 custom 双空 → 不注入 system（消息链以 user 开局）', async () => {
+    const messages = await runWith('', '');
+    expect(messages.some((message) => message.role === 'system')).toBe(false);
+    expect(messages[0]!.role).toBe('user');
   });
 });

@@ -159,6 +159,13 @@
       "dir": "tools/review_material"
     },
     {
+      "id": "rounds.trial",
+      "kind": "tool",
+      "capability": "host_tool",
+      "package": "@ink-ts/plugin-rounds-trial",
+      "dir": "tools/rounds.trial"
+    },
+    {
       "id": "screenshot_capture",
       "kind": "tool",
       "capability": "host_tool",
@@ -185,6 +192,20 @@
       "capability": "host_tool",
       "package": "@ink-ts/plugin-shell-exec",
       "dir": "tools/shell_exec"
+    },
+    {
+      "id": "skeleton.inspect",
+      "kind": "tool",
+      "capability": "host_tool",
+      "package": "@ink-ts/plugin-skeleton-inspect",
+      "dir": "tools/skeleton.inspect"
+    },
+    {
+      "id": "skeleton.update",
+      "kind": "tool",
+      "capability": "host_tool",
+      "package": "@ink-ts/plugin-skeleton-update",
+      "dir": "tools/skeleton.update"
     },
     {
       "id": "sleep",
@@ -614,6 +635,13 @@
       "dir": "commands/rounds.branch"
     },
     {
+      "id": "rounds.fork_trial",
+      "kind": "command",
+      "capability": "host_tool",
+      "package": "@ink-ts/plugin-rounds-fork-trial",
+      "dir": "commands/rounds.fork_trial"
+    },
+    {
       "id": "rounds.resume",
       "kind": "command",
       "capability": "host_tool",
@@ -689,6 +717,20 @@
       "capability": "host_tool",
       "package": "@ink-ts/plugin-sessions-tree",
       "dir": "commands/sessions.tree"
+    },
+    {
+      "id": "skeleton.edit",
+      "kind": "command",
+      "capability": "host_tool",
+      "package": "@ink-ts/plugin-skeleton-edit",
+      "dir": "commands/skeleton.edit"
+    },
+    {
+      "id": "skeleton.get",
+      "kind": "command",
+      "capability": "host_tool",
+      "package": "@ink-ts/plugin-skeleton-get",
+      "dir": "commands/skeleton.get"
     },
     {
       "id": "tools.full",
@@ -847,13 +889,6 @@
       "capability": "host_tool",
       "package": "@ink-ts/plugin-inkling-ui-main",
       "dir": "ui_features/inkling.ui.main"
-    },
-    {
-      "id": "inkling.ui.mechanisms",
-      "kind": "ui_feature",
-      "capability": "host_tool",
-      "package": "@ink-ts/plugin-inkling-ui-mechanisms",
-      "dir": "ui_features/inkling.ui.mechanisms"
     },
     {
       "id": "inkling.ui.overlay",
@@ -2529,6 +2564,43 @@
       }
     },
     {
+      "name": "rounds.trial",
+      "description": "行为意图：以源会话的最新会话骨架为蓝图，在新线程（trial_thread_id 可显式指定）试跑 1 轮并返回结果摘要——主线会话的链/骨架不动，用于不确定转向先推演再决定是否采纳。\n\n使用时机：面临分叉决策（改目标/换结构）想先低成本看结果时；源会话无骨架或骨架失效 = 显式拒绝（no_skeleton/skeleton_invalid），先 skeleton.inspect 确认。\n\n取舍与替代选项：只做 fork + 试跑 1 轮观察，不做主线迁移/替换（采纳 = 后续在主线用 skeleton.update 落地）；每次调用一条新试跑线程，不会污染主线链。\n\n参数语义：thread_id=源会话线程 id；input=试跑首轮输入（可选）；trial_thread_id=新线程 id（可选，缺省 = <源>:trial:*）。\n\n边界与协作：试跑是真实引擎回合（用模型/token，按需调用）；执行接线 = host session_command 工具族（宿主注册执行器分发到 bridge rounds.fork_trial 既有实现），低风险 allow 档。",
+      "parameters": {
+        "type": "object",
+        "properties": {
+          "thread_id": {
+            "type": "string",
+            "minLength": 1,
+            "description": "源会话线程 id（fork 蓝图来源）"
+          },
+          "input": {
+            "type": "string",
+            "description": "试跑首轮输入（可选；缺省由骨架入口节点决定）"
+          },
+          "trial_thread_id": {
+            "type": "string",
+            "description": "试跑新线程 id（可选；缺省 = <thread_id>:trial:*）"
+          }
+        },
+        "required": [
+          "thread_id"
+        ]
+      },
+      "permissions": [
+        "session:trial:*"
+      ],
+      "approval": "allow",
+      "endpoint": "session_command",
+      "endpoint_config": {},
+      "meta": {
+        "domain": "session",
+        "executor": "host:session_command",
+        "sandbox": "host_registered",
+        "note": "执行接线由宿主注册（session_command 端点族 → 分发到既有 bridge 命令 rounds.fork_trial）；只推演不动主线，低风险 allow 档"
+      }
+    },
+    {
       "name": "screenshot_capture",
       "description": "行为意图：截取当前屏幕并走隐私分级——本地模型直喂；云端模型默认禁止外发（屏幕内容不出网），须显式授权加审批后放行；产出引擎附件形态供多模态消费。\n\n使用时机：任务需要视觉理解屏幕（图表/图片/非标准控件）且已配多模态模型时；无多模态模型时走纯元素树感知。\n\n取舍与替代选项：要窗口/控件层级——ui_query；要点击/输入——ui_click/ui_type；本工具=像素通道，与元素树互为双通道交叉验证。\n\n参数语义：model_class=目标模型类别（local=本地直喂；cloud=云端，受隐私闸门约束）；destination=消费方标识。\n\n边界与协作：云端外发默认拒绝（fail-closed），授权开关持久化于数据根、每次外发经审批；外发事件落审计；截图写附件域，不进入工作区。",
       "parameters": {
@@ -2718,6 +2790,91 @@
         "executor": "host:shell_exec_guard",
         "sandbox": "process_allowlist",
         "note": "工作区命令执行：白名单内命令 cwd 钉工作区挂载根；白名单外命令经升级审批（L2 卡）后一次性系统级放行（cwd=主目录），审批卡为唯一防线"
+      }
+    },
+    {
+      "name": "skeleton.inspect",
+      "description": "行为意图：读取当前会话骨架（会话级执行结构：入口/出口/节点实例/边/active_target/status）并附当前池校验态，供 agent 在动手改结构前先观察现状。\n\n使用时机：需要了解当前会话沿什么图推进、下一步改哪里时；skeleton.update 之前通常先本工具观察。\n\n取舍与替代选项：本工具只读，不落任何写；校验态（valid/reasons）反映当前池（类型/条件/终态）对骨架的判定——校验不过时用 skeleton.update 修结构。\n\n参数语义：thread_id=目标会话线程 id（rounds.send 返回）。\n\n边界与协作：无骨架 = present:false 结构化空态（先跑组装回合建立）；执行接线 = host session_command 工具族（宿主注册执行器分发到 bridge skeleton.get 既有实现），不改引擎机制。",
+      "parameters": {
+        "type": "object",
+        "properties": {
+          "thread_id": {
+            "type": "string",
+            "minLength": 1,
+            "description": "目标会话线程 id（rounds.send 返回）"
+          }
+        },
+        "required": [
+          "thread_id"
+        ]
+      },
+      "permissions": [
+        "session:read:*"
+      ],
+      "approval": "allow",
+      "endpoint": "session_command",
+      "endpoint_config": {},
+      "meta": {
+        "domain": "session",
+        "executor": "host:session_command",
+        "sandbox": "host_registered",
+        "note": "执行接线由宿主注册（session_command 端点族 → 分发到既有 bridge 命令 skeleton.get）；只读观测，低风险 allow 档"
+      }
+    },
+    {
+      "name": "skeleton.update",
+      "description": "行为意图：声明式修改当前会话骨架（改 active_target / 增删节点实例或边 / 设出口，只引用池内已登记类型），经校验（结构/池成员/可达/终态）通过后挂载草稿，下一次 rounds.send 沿新骨架推进。\n\n使用时机：想把会话沿另一条结构推进（换目标、接路由判断、增删分支）时。\n\n取舍与替代选项：actions = 对当前骨架的声明式增量（set_target/upsert_node/remove_node/add_edge/remove_edge/set_exits），sketch = 整份替换（两者需且仅需其一）；dry=true = 只校验预览不落草稿。新类型/新 agent 不走本工具（须缺口 → 声明式提案 → 审批 → 入池）。含 router_judge 且出边带 route:* 条件时，宿主自动从该节点 config.routes 预注册走向条件（失败 = 校验拒绝）。\n\n参数语义：thread_id=目标会话线程 id；actions/sketch 语义同 host skeleton.edit；dry=预览开关。\n\n边界与协作：校验拒绝不落写（唯一写口纪律：经 validate → mount，禁止旁路直写骨架）；执行接线 = host session_command 工具族（宿主注册执行器分发到 bridge skeleton.edit 既有实现），审批档 review = 会话结构变更中风险。",
+      "parameters": {
+        "type": "object",
+        "properties": {
+          "thread_id": {
+            "type": "string",
+            "minLength": 1,
+            "description": "目标会话线程 id（rounds.send 返回）"
+          },
+          "actions": {
+            "type": "array",
+            "description": "声明式增量动作清单（与 bridge skeleton.edit 的 actions 同签名：set_target/upsert_node/remove_node/add_edge/remove_edge/set_exits）",
+            "items": {
+              "type": "object"
+            }
+          },
+          "sketch": {
+            "type": "object",
+            "description": "整份替换骨架（nodes/edges/entry/exits/active_target 形态）"
+          },
+          "dry": {
+            "type": "boolean",
+            "description": "true = 只校验预览（不落草稿不生效）"
+          }
+        },
+        "required": [
+          "thread_id"
+        ],
+        "anyOf": [
+          {
+            "required": [
+              "actions"
+            ]
+          },
+          {
+            "required": [
+              "sketch"
+            ]
+          }
+        ]
+      },
+      "permissions": [
+        "session:update:*"
+      ],
+      "approval": "review",
+      "endpoint": "session_command",
+      "endpoint_config": {},
+      "meta": {
+        "domain": "session",
+        "executor": "host:session_command",
+        "sandbox": "host_registered",
+        "note": "执行接线由宿主注册（session_command 端点族 → 分发到既有 bridge 命令 skeleton.edit）；审批档 review = 会话结构变更中风险（用户确认后放行）"
       }
     },
     {
@@ -3561,6 +3718,11 @@
       "order": 4
     },
     {
+      "id": "rounds.fork_trial",
+      "group": "rounds",
+      "order": 5
+    },
+    {
       "id": "rounds.resume",
       "group": "rounds",
       "order": 3
@@ -3614,6 +3776,16 @@
       "id": "sessions.tree",
       "group": "sessions",
       "order": 5
+    },
+    {
+      "id": "skeleton.edit",
+      "group": "skeleton",
+      "order": 2
+    },
+    {
+      "id": "skeleton.get",
+      "group": "skeleton",
+      "order": 1
     },
     {
       "id": "tools.full",

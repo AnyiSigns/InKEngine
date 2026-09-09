@@ -1,0 +1,46 @@
+{
+  "id": "rounds.trial",
+  "kind": "tool",
+  "capability": "host_tool",
+  "actions": [],
+  "depends": [],
+  "data": {
+    "tool": {
+      "name": "rounds.trial",
+      "description": "行为意图：以源会话的最新会话骨架为蓝图，在新线程（trial_thread_id 可显式指定）试跑 1 轮并返回结果摘要——主线会话的链/骨架不动，用于不确定转向先推演再决定是否采纳。\n\n使用时机：面临分叉决策（改目标/换结构）想先低成本看结果时；源会话无骨架或骨架失效 = 显式拒绝（no_skeleton/skeleton_invalid），先 skeleton.inspect 确认。\n\n取舍与替代选项：只做 fork + 试跑 1 轮观察，不做主线迁移/替换（采纳 = 后续在主线用 skeleton.update 落地）；每次调用一条新试跑线程，不会污染主线链。\n\n参数语义：thread_id=源会话线程 id；input=试跑首轮输入（可选）；trial_thread_id=新线程 id（可选，缺省 = <源>:trial:*）。\n\n边界与协作：试跑是真实引擎回合（用模型/token，按需调用）；执行接线 = host session_command 工具族（宿主注册执行器分发到 bridge rounds.fork_trial 既有实现），低风险 allow 档。",
+      "parameters": {
+        "type": "object",
+        "properties": {
+          "thread_id": {
+            "type": "string",
+            "minLength": 1,
+            "description": "源会话线程 id（fork 蓝图来源）"
+          },
+          "input": {
+            "type": "string",
+            "description": "试跑首轮输入（可选；缺省由骨架入口节点决定）"
+          },
+          "trial_thread_id": {
+            "type": "string",
+            "description": "试跑新线程 id（可选；缺省 = <thread_id>:trial:*）"
+          }
+        },
+        "required": [
+          "thread_id"
+        ]
+      },
+      "permissions": [
+        "session:trial:*"
+      ],
+      "approval": "allow",
+      "endpoint": "session_command",
+      "endpoint_config": {},
+      "meta": {
+        "domain": "session",
+        "executor": "host:session_command",
+        "sandbox": "host_registered",
+        "note": "执行接线由宿主注册（session_command 端点族 → 分发到既有 bridge 命令 rounds.fork_trial）；只推演不动主线，低风险 allow 档"
+      }
+    }
+  }
+}

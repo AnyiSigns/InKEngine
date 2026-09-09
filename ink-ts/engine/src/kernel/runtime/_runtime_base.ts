@@ -12,7 +12,6 @@
 
 import type { AsyncLLM } from '../llm/_guard_types.js';
 import type { GraphRegistries } from '../../core/registry/registry.js';
-import type { EnginePoolSeed } from '../../core/nodes/index.js';
 import type { KnowledgeSet } from '../../core/knowledge_set/index.js';
 import type {
   HarnessRegistry,
@@ -140,8 +139,6 @@ export abstract class RuntimeBase {
   storage: import('../self_application/guarded_storage.js').GuardedStorage | null = null;
   guard_token: string | null = null;
   graph_registries: GraphRegistries | null = null;
-  /** 引擎内置基础节点池种子（装配期解析写入；rebuild/mount 同源消费）。 */
-  _engine_pool_seed: EnginePoolSeed | null = null;
   knowledge_set: KnowledgeSet | null = null;
   harness_registry: HarnessRegistry | null = null;
   harness_repository: HarnessRepository | null = null;

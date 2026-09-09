@@ -156,3 +156,61 @@ describe('Graph.to_dict / from_dict', () => {
     expect(() => g.to_dict()).toThrow(GraphDefinitionError);
   });
 });
+
+// ── 边 kind 序列化（P1：standard/conditional 不回填，仅 loop 显式输出） ──────
+
+describe('Graph 边 kind 序列化', () => {
+  it('standard/conditional 边不回填 kind（既有序列化输出形状不变）', () => {
+    const g = new Graph({ name: 'g', entry: 'a' });
+    g.add_node_type('a', 'kind_a', {}, new NodeContract());
+    g.add_node_type('b', 'kind_b', {}, new NodeContract());
+    g.add_node_type('c', 'kind_c', {}, new NodeContract());
+    g.add_edge('a', 'b');
+    g.add_conditional_edge_by_name('a', 'c', 'want_c');
+    g.add_exit('b');
+    const data = g.to_dict();
+    const edges = (data['edges'] as Record<string, unknown>)['a'] as Array<Record<string, unknown>>;
+    expect(edges[0]).toEqual({ target: 'b' });
+    expect(edges[1]).toEqual({ target: 'c', condition: 'want_c' });
+  });
+
+  it('loop 回边序列化输出 kind:loop 且 from_dict 往返保留（含条件回边）', () => {
+    const g = new Graph({ name: 'g', entry: 'a' });
+    g.add_node_type('a', 'kind_a', {}, new NodeContract());
+    g.add_node_type('b', 'kind_b', {}, new NodeContract());
+    g.add_loop_edge('a', 'a');
+    g.add_loop_edge('a', 'b', { condition_name: 'again' });
+    g.add_exit('b');
+    const data = g.to_dict();
+    const edges = (data['edges'] as Record<string, unknown>)['a'] as Array<Record<string, unknown>>;
+    expect(edges[0]).toEqual({ target: 'a', kind: 'loop' });
+    expect(edges[1]).toEqual({ target: 'b', condition: 'again', kind: 'loop' });
+
+    const edgeReg = new MiniEdgeRegistry();
+    edgeReg.register('again', () => true);
+    const nodeReg = new MiniNodeRegistry();
+    nodeReg.register('kind_a', async () => ({}));
+    nodeReg.register('kind_b', async () => ({}));
+    const rebuilt = Graph.from_dict(data, { registry: nodeReg, edge_registry: edgeReg });
+    expect(rebuilt.edges['a']!.map((e) => e.kind)).toEqual(['loop', 'loop']);
+    expect(rebuilt.edges['a']![1]!.condition_name).toBe('again');
+    // 往返后序列化仍含 kind:loop（digest/存储形状稳定）
+    const reSerialized = rebuilt.to_dict();
+    const reEdges = (reSerialized['edges'] as Record<string, unknown>)['a'] as Array<Record<string, unknown>>;
+    expect(reEdges[1]).toEqual({ target: 'b', condition: 'again', kind: 'loop' });
+    expect(rebuilt.digest()).toBe(Graph.from_dict(reSerialized, { registry: nodeReg, edge_registry: edgeReg }).digest());
+  });
+
+  it('边声明 kind 非法（非 standard/conditional/loop）→ from_dict 拒绝', () => {
+    const data = {
+      name: 'g',
+      entry: 'a',
+      nodes: { a: { type: 'kind_a' }, b: { type: 'kind_b' } },
+      edges: { a: [{ target: 'b', kind: 'sideways' }] },
+      exits: ['b'],
+      subgraphs: {},
+      schema: null,
+    };
+    expect(() => Graph.from_dict(data)).toThrow(/kind 非法/);
+  });
+});

@@ -30,9 +30,11 @@ import type { AssemblySourcesProvider } from '../../core/run_result/run_result.j
 import type { ContextSource } from '../../core/context/context_types.js';
 import type { Graph } from '../../core/graph/graph.js';
 import type { ResumeMap } from '../recovery/recovery_types.js';
+import type { AsyncLLM } from '../llm/_guard_types.js';
 import type { EngineBase } from './_engine_base.js';
 import type { NodeContext } from './_internals.js';
 import { _input_assembly_event_record } from './_internals.js';
+import { run_agent_scope as _run_agent_scope } from './run_subgraph.js';
 
 function isPromiseLike(value: unknown): value is PromiseLike<unknown> {
   return (
@@ -71,6 +73,8 @@ export class _NodeContextImpl implements NodeContext {
   readonly _round_id: string | null;
   readonly _trace_id: string;
   readonly _thread_id: string;
+  /** 子作用域模型覆盖（agent 展开注入；null = 回落 seams 默认 llm）。 */
+  readonly scope_llm: AsyncLLM | null;
 
   constructor(init: {
     engine: EngineBase;
@@ -83,6 +87,7 @@ export class _NodeContextImpl implements NodeContext {
     transports?: EngineTransport[] | null;
     resume_map?: ResumeMap | null;
     parent_step_id?: string | null;
+    scope_llm?: AsyncLLM | null;
   }) {
     this._engine = init.engine;
     this._state = init.state;
@@ -94,6 +99,7 @@ export class _NodeContextImpl implements NodeContext {
     this.node = init.node ?? null;
     this.resume_map = init.resume_map ?? new Map();
     this.parent_step_id = init.parent_step_id ?? null;
+    this.scope_llm = init.scope_llm ?? null;
   }
 
   get state(): Record<string, unknown> {
@@ -192,6 +198,26 @@ export class _NodeContextImpl implements NodeContext {
         index: opts.index !== null && opts.index !== undefined ? opts.index : this._spawns.length,
       }),
     );
+  }
+
+  async run_agent_scope(
+    subgraph: Graph,
+    opts: {
+      scope_llm?: AsyncLLM | null;
+      entity_id?: string | null;
+      entity_label?: string | null;
+    } = {},
+  ): Promise<Record<string, unknown> | null> {
+    // agent 结点子作用域展开（子图通道的同步单分支形态）：沿当前图内联
+    // 执行子图、结果并入父状态——执行细节集中在 run_subgraph.run_agent_scope
+    // （复用嵌套子图的 schema/回流/checkpoint 口径；与 spawn 的关系与取舍
+    // 见 run_subgraph.ts 文件头注）。scope_llm 随本次展开注入子作用域
+    // ctx（子作用域内 llm 调用点优先消费）。
+    return _run_agent_scope(subgraph, this, {
+      scope_llm: opts.scope_llm ?? null,
+      entity_id: opts.entity_id ?? null,
+      entity_label: opts.entity_label ?? null,
+    });
   }
 
   async assemble(

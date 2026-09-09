@@ -2,10 +2,12 @@
  * boot 种子单测：提示词条目 / 元工具契约 / 界面与事件与自举 harness
  * （对标 Python test_seeds_boot.py 全量对齐）。
  *
- * 覆盖：boot 种子条目结构合法（装配配方直注用）；BOOT_METATOOLS 契约
- * 基线包含 engine-resident 的 introspection 元工具与 self_tools 契约
- * （换壳不失明：机制层新增观察/演化工具须同步进清单，单测强制）；
- * 初始界面描述 / 事件类型 / 自举 harness 定义形态正确。
+ * 覆盖：boot 种子条目结构合法（P4.2b 起产品宿主改走 boot_system_prompt seam
+ * 注入，build_boot_seed_entries 保留定义供契约兼容/历史形态——本测试守其
+ * 定义形态不漂移）；BOOT_METATOOLS 契约基线包含 engine-resident 的
+ * introspection 元工具与 self_tools 契约（换壳不失明：机制层新增观察/演化
+ * 工具须同步进清单，单测强制）；初始界面描述 / 事件类型 / 自举 harness
+ * 定义形态正确。
  */
 import { describe, expect, it } from 'vitest';
 
@@ -28,7 +30,7 @@ function asRecord(value: unknown): Record<string, unknown> {
 }
 
 describe('boot 种子条目', () => {
-  it('提示词知识条目结构合法（id/来源/数据形态，配方直注用）', () => {
+  it('提示词知识条目结构合法（id/来源/数据形态，定义保留供契约兼容）', () => {
     const entries = build_boot_seed_entries();
     expect(entries.length).toBeGreaterThan(0);
     for (const entry of entries) {

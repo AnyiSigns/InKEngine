@@ -29,11 +29,25 @@ export interface NodeRegistrationSuggestion {
   ts?: number;
 }
 
+/** 结点 flags（仅 true 语义有效：terminal=终态候选 / loop=可回环）。 */
+export interface NodeRegistrationFlags {
+  terminal?: boolean;
+  loop?: boolean;
+}
+
 /** 登记行构造输入（宽松键，缺省取默认值）。 */
 export interface NodeRegistrationInit {
   type_name: string;
   contract?: NodeContract | null;
   config_defaults?: Record<string, unknown>;
+  /** 结点类别（§2.1 六类；缺省 = 未知类别，仍可注册/组装）。 */
+  kind?: string | null;
+  /** 展示标签（缺省 = 类型名）。 */
+  label?: string | null;
+  /** 描述（注册目录/池读面展示）。 */
+  description?: string | null;
+  /** 结点 flags（terminal=终态候选 / loop=可回环；空 flags = 无）。 */
+  flags?: NodeRegistrationFlags | null;
   /** 执行体绑定名（引擎内置 `engine:<type>`；宿主/agent 类型由装配面绑定）。 */
   executor?: string;
   provenance?: NodeRegistrationProvenance;
@@ -44,11 +58,24 @@ export interface NodeRegistrationInit {
   updated_at?: number;
 }
 
+/** 归一 flags：只保留 true 值键；空 flags 归一 null（flags 无语义信息不落序列化）。 */
+function _clean_registration_flags(flags: NodeRegistrationFlags | null | undefined): NodeRegistrationFlags | null {
+  if (flags === null || flags === undefined) return null;
+  const out: NodeRegistrationFlags = {};
+  if (flags.terminal === true) out.terminal = true;
+  if (flags.loop === true) out.loop = true;
+  return out.terminal === true || out.loop === true ? out : null;
+}
+
 /** 声明式结点类型注册行（数据形态；受控写通道见 NodeRegistryStore）。 */
 export class NodeRegistration {
   readonly type_name: string;
   readonly contract: NodeContract | null;
   readonly config_defaults: Record<string, unknown>;
+  readonly kind: string | null;
+  readonly label: string | null;
+  readonly description: string | null;
+  readonly flags: NodeRegistrationFlags | null;
   readonly executor: string;
   readonly provenance: NodeRegistrationProvenance;
   readonly status: NodeRegistrationStatus;
@@ -61,6 +88,10 @@ export class NodeRegistration {
     this.type_name = init.type_name;
     this.contract = init.contract ?? null;
     this.config_defaults = { ...(init.config_defaults ?? {}) };
+    this.kind = init.kind ?? null;
+    this.label = init.label ?? null;
+    this.description = init.description ?? null;
+    this.flags = _clean_registration_flags(init.flags);
     this.executor = init.executor ?? `engine:${init.type_name}`;
     this.provenance = init.provenance ?? 'seed';
     this.status = init.status ?? 'active';
@@ -87,6 +118,10 @@ export class NodeRegistration {
       registered_at: this.registered_at,
       updated_at: this.updated_at,
     };
+    if (this.kind !== null) data['kind'] = this.kind;
+    if (this.label !== null) data['label'] = this.label;
+    if (this.description !== null) data['description'] = this.description;
+    if (this.flags !== null) data['flags'] = { ...this.flags };
     if (this.archived_reason !== null) data['archived_reason'] = this.archived_reason;
     if (this.suggestion !== null) data['suggestion'] = { ...this.suggestion };
     return data;
@@ -111,6 +146,38 @@ export class NodeRegistration {
     const rawConfig = data['config_defaults'];
     if (rawConfig !== null && rawConfig !== undefined && !isRecord(rawConfig)) {
       throw new GraphDefinitionError(`登记行 ${type_name} 的 config_defaults 须为 dict`);
+    }
+    const rawKind = data['kind'];
+    if (rawKind !== undefined && rawKind !== null && typeof rawKind !== 'string') {
+      throw new GraphDefinitionError(`登记行 ${type_name} 的 kind 须为字符串`);
+    }
+    const rawLabel = data['label'];
+    if (rawLabel !== undefined && rawLabel !== null && typeof rawLabel !== 'string') {
+      throw new GraphDefinitionError(`登记行 ${type_name} 的 label 须为字符串`);
+    }
+    const rawDescription = data['description'];
+    if (
+      rawDescription !== undefined
+      && rawDescription !== null
+      && typeof rawDescription !== 'string'
+    ) {
+      throw new GraphDefinitionError(`登记行 ${type_name} 的 description 须为字符串`);
+    }
+    let flags: NodeRegistrationFlags | null = null;
+    const rawFlags = data['flags'];
+    if (rawFlags !== undefined && rawFlags !== null) {
+      if (!isRecord(rawFlags)) {
+        throw new GraphDefinitionError(`登记行 ${type_name} 的 flags 须为 dict`);
+      }
+      const terminal = rawFlags['terminal'];
+      if (terminal !== undefined && typeof terminal !== 'boolean') {
+        throw new GraphDefinitionError(`登记行 ${type_name} 的 flags.terminal 须为布尔`);
+      }
+      const loop = rawFlags['loop'];
+      if (loop !== undefined && typeof loop !== 'boolean') {
+        throw new GraphDefinitionError(`登记行 ${type_name} 的 flags.loop 须为布尔`);
+      }
+      flags = { terminal, loop };
     }
     const rawSuggestion = data['suggestion'];
     let suggestion: NodeRegistrationSuggestion | null = null;
@@ -147,6 +214,13 @@ export class NodeRegistration {
       type_name,
       contract,
       config_defaults: rawConfig === null || rawConfig === undefined ? {} : { ...(rawConfig as Record<string, unknown>) },
+      kind: rawKind === undefined || rawKind === null ? null : (rawKind as string),
+      label: rawLabel === undefined || rawLabel === null ? null : (rawLabel as string),
+      description:
+        rawDescription === undefined || rawDescription === null
+          ? null
+          : (rawDescription as string),
+      flags,
       executor: data['executor'] === undefined ? undefined : String(data['executor']),
       provenance: rawProvenance as NodeRegistrationProvenance,
       status: rawStatus as NodeRegistrationStatus,

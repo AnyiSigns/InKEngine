@@ -24,8 +24,11 @@ export {
   CANDIDATE_SOURCE_CACHE,
   CANDIDATE_SOURCE_DRAFT,
   CANDIDATE_SOURCE_SKILL,
+  CANDIDATE_TRIAL_MIN_SAMPLES,
+  DEFAULT_ANTI_MONOPOLY_WINDOW,
   DEFAULT_BEAM_WIDTH,
   DEFAULT_CACHE_EPSILON,
+  DEFAULT_CANDIDATE_TRIAL_EPSILON,
   DEFAULT_CANARY_TIMEOUT,
   DEFAULT_DOMAIN,
   DEFAULT_DRAFT_TIMEOUT,
@@ -44,6 +47,7 @@ export {
   MAX_DRAFT_ITEMS,
   MAX_ITEM_CHARS,
   MAX_REPAIR_ROUNDS,
+  STATS_ANTI_MONOPOLY_FORCES,
   STATS_BEAM_EXTENSIONS,
   STATS_CACHE_HITS,
   STATS_CACHE_INVALIDATIONS,
@@ -52,6 +56,7 @@ export {
   STATS_EDGE_SCORE_CALLS,
   STATS_LLM_ATTEMPTS,
   STATS_REPAIR_ATTEMPTS,
+  STATS_TRIAL_PROMOTIONS,
 } from './constants.js';
 
 // ── 数据形态 / 协议（镜像 __all__ 类段）─────────────────────────
@@ -72,6 +77,7 @@ export type { CandidateStorage } from './intervention.js';
 // ── 组装器 / 运行期 / 干预（镜像 __all__ 函数与类）───────────────
 export { PathAssembler } from './assembler.js';
 export { PathAssemblyRuntime } from './runtime.js';
+export type { ExplorationBudgetOptions, PathAssemblerOptions } from './_assembler_cache.js';
 export {
   get_default_assembly_runtime,
   set_default_assembly_runtime,

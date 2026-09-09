@@ -3,8 +3,10 @@
  *
  * Host 五件套：create_storage 返回**真实 MemoryStorage**（adapters/storage），
  * resolve_llm 按测试注入真适配器产物（null = 不装配模型），build_transport
- * 产出事件收集传输。boot 配方 = boot 种子直注（系统提示词 / UI 描述 /
- * 事件类型 / 自举 harness），tool_wiring 复用 kernel/self_tools 契约工具——
+ * 产出事件收集传输。boot 配方 = 系统提示词经 AssemblyRecipe.boot_system_prompt
+ * 注入（P4.2b 形态：与产品宿主同源同口径，llm 类结点 system 合成只读基线；
+ * boot 不再作为 boot_prompt 知识条目经 seeds 注入）/ UI 描述 / 事件类型 /
+ * 自举 harness，tool_wiring 复用 kernel/self_tools 契约工具——
  * 与 Python 端 stdio 配方同构，纯引擎侧、零后端代码。
  */
 import { Runtime, AssemblyRecipe } from '../../src/kernel/runtime/index.js';
@@ -14,9 +16,9 @@ import type { Storage } from '../../src/core/storage/storage.js';
 import { create_memory_storage, type MemoryStorage } from '../../src/adapters/storage/index.js';
 import {
   BOOT_EVENT_TYPES,
+  BOOT_SYSTEM_PROMPT,
   BOOT_UI_SPEC,
   boot_harness_definition,
-  build_boot_seed_entries,
 } from '../../src/adapters/boot/index.js';
 import { DefaultInterruptPolicy } from '../../src/kernel/approval/approval.js';
 import { CollectorTransport } from '../../src/core/events/events.js';
@@ -87,16 +89,18 @@ export function eventsOf(
 }
 
 /**
- * 最小装配配方（镜像 build_stdio_recipe）：boot 直注全部引导数据资产；
- * 引擎无常驻静态图——回合 = 组装出本轮数据图再执行（无模型 = 确定性 stub）。
- * set_id 每次唯一，多集隔离。
+ * 最小装配配方（镜像 build_stdio_recipe / 产品宿主 P4.2b 装配形态）：
+ * boot 系统提示词经 AssemblyRecipe.boot_system_prompt 注入（llm 类结点
+ * system 合成只读基线）；boot 知识条目不再经 seeds 注入（build_boot_seed_entries
+ * 保留仅供历史形态，产品 seeds 无 boot 项）；引擎无常驻静态图——回合 =
+ * 组装出本轮数据图再执行（无模型 = 确定性 stub）。set_id 每次唯一，多集隔离。
  */
 export function e2e_recipe(
   overrides: Partial<AssemblyRecipe> = {},
 ): AssemblyRecipe {
   const base = new AssemblyRecipe({
     set_id: 'e2e',
-    seeds: [['boot', build_boot_seed_entries]],
+    boot_system_prompt: BOOT_SYSTEM_PROMPT,
     harness_definitions: [boot_harness_definition()],
     event_type_specs: [...BOOT_EVENT_TYPES],
     ui_spec: BOOT_UI_SPEC as Record<string, unknown>,

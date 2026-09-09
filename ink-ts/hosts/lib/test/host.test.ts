@@ -12,6 +12,7 @@ import { tmpdir } from 'node:os';
 import path from 'node:path';
 
 import { afterEach, beforeEach, describe, expect, it } from 'vitest';
+import { BOOT_SYSTEM_PROMPT } from '@ink-ts/engine';
 
 import { createHost } from '../src/index.js';
 import type { HostHandle } from '../src/index.js';
@@ -79,6 +80,18 @@ describe('host 装配冒烟（真存储 + 假 OpenAI + 一轮 round）', () => {
     expect(result.reason).toBe('reply');
     expect(result.events.count).toBeGreaterThan(0);
     expect(result.events.types).toContain('reply_token');
+
+    // P4.2b：boot 系统提示词经配方 AssemblyRecipe.boot_system_prompt 注入 →
+    // llm 类结点 system 消息合成（真实回合多出 boot 只读基线，非知识条目检索）
+    const llmRequest = server.requests.find((request) =>
+      Array.isArray((request.body as { messages?: unknown }).messages),
+    );
+    expect(llmRequest).toBeDefined();
+    const sentMessages = (llmRequest!.body as {
+      messages: Array<{ role: string; content: string }>;
+    }).messages;
+    expect(sentMessages[0]!.role).toBe('system');
+    expect(sentMessages[0]!.content).toBe(BOOT_SYSTEM_PROMPT);
 
     // 事件落文件实时刷新（非日志打印）：events 目录含 JSONL 且非空
     const files = readdirSync(ctx.events);

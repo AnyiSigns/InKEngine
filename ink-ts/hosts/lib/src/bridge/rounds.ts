@@ -16,10 +16,17 @@ export { ROUNDS_COMMANDS, type RoundsCommand } from './commands.generated.js';
  */
 
 import type { RunTaskHandle, Storage, DisplayMessage } from '@ink-ts/engine';
-import { DisplayStreamCollector } from '@ink-ts/engine';
+import {
+  DisplayStreamCollector,
+  STATE_MESSAGES,
+  THREAD_SKELETON_STATE_KEY,
+  project_history_baseline,
+  user,
+} from '@ink-ts/engine';
 
 import { HostSessionStore } from '../sessions/store.js';
 import type { FileEventsTransport } from '../transport.js';
+import { validate_skeleton_sketch } from '../skeleton.js';
 import { BridgeError, type BridgeHandler } from './_types.js';
 import type { HostBridgeDeps } from './_types.js';
 import { prepareRoundInput } from './round_attachments.js';
@@ -75,6 +82,40 @@ function asBranchParams(raw: unknown): BranchParams {
     throw new BridgeError('rounds.branch leaf 须为 checkpoint_id 整数', 'invalid_params');
   }
   return { thread_id: params.thread_id, leaf: params.leaf ?? null, input: params.input ?? '' };
+}
+
+/** rounds.fork_trial 参数（thread_id = 源会话；trial_thread_id 可显式指定新线程）。 */
+interface ForkTrialParams {
+  thread_id: string;
+  input?: string | null;
+  trial_thread_id?: string | null;
+}
+
+function asForkTrialParams(raw: unknown): ForkTrialParams {
+  const params = raw as ForkTrialParams | null;
+  if (
+    typeof params !== 'object'
+    || params === null
+    || typeof params.thread_id !== 'string'
+    || params.thread_id === ''
+  ) {
+    throw new BridgeError('rounds.fork_trial 需 params.thread_id（源会话）', 'invalid_params');
+  }
+  if (params.trial_thread_id !== undefined && params.trial_thread_id !== null
+    && typeof params.trial_thread_id !== 'string') {
+    throw new BridgeError('rounds.fork_trial trial_thread_id 须为字符串', 'invalid_params');
+  }
+  return {
+    thread_id: params.thread_id,
+    input: params.input ?? null,
+    trial_thread_id: params.trial_thread_id ?? null,
+  };
+}
+
+/** 骨架数据深拷贝（读 checkpoint state 后隔离改写；非对象 = null）。 */
+function copySkeleton(raw: unknown): Record<string, unknown> | null {
+  if (typeof raw !== 'object' || raw === null || Array.isArray(raw)) return null;
+  return JSON.parse(JSON.stringify(raw)) as Record<string, unknown>;
 }
 
 /** 单次引擎回合结果形态（send/branch 共用）。 */
@@ -260,6 +301,13 @@ function buildDisplayMessages(input: string, collected: readonly DisplayMessage[
 
     let result: RoundOutcome;
     let transport: FileEventsTransport;
+    // 待生效骨架草稿（skeleton.edit 校验挂载产物）消费：作为本轮 state 的显式
+    // 骨架种子（引擎 _seed_skeleton 优先沿种子推进）；回合成功收尾后清除——
+    // 失败/中止保留草稿供重试（不丢声明式修改意图）。
+    const state = seedState(prepared);
+    const draft = await sessions.peek_skeleton_draft(thread_id);
+    const hasDraft = draft !== null;
+    if (hasDraft) state[THREAD_SKELETON_STATE_KEY] = draft;
     // 展示态采集：从引擎事件流派生 thinking/tool/正文（宿主持久化；独立于
     // 上下文 messages，不喂模型）。收尾落 host.sessions，刷新据此恢复。
     const displayCollector = new DisplayStreamCollector();
@@ -267,7 +315,7 @@ function buildDisplayMessages(input: string, collected: readonly DisplayMessage[
       const ran = await serialized((t) =>
         driveRound(runtime, thread_id, (transportForRun) =>
           runtime.assemble_round({
-            state: seedState(prepared),
+            state,
             thread_id,
             round_id,
             trace_id,
@@ -290,6 +338,7 @@ function buildDisplayMessages(input: string, collected: readonly DisplayMessage[
       throw error;
     }
     await settle(thread_id, round_id, result);
+    if (hasDraft) await sessions.set_skeleton_draft(thread_id, null);
     // 展示态持久化：user 输入展示前置 + 事件展示聚合器采集的 think/tool/正文
     const displayMessages = buildDisplayMessages(prepared.input, displayCollector.getMessages());
     await sessions.set_display_messages(thread_id, displayMessages);
@@ -367,6 +416,16 @@ function buildDisplayMessages(input: string, collected: readonly DisplayMessage[
     const prepared = await prepare({ input: params.input ?? '', attachments: undefined }, deps);
     // branch 无附件语义：仅沿用 input（与历史分支行为一致）；保留注入函数
     // 以统一载荷路径——若未来分支带附件在此扩展。
+    // 会话骨架随分支延续（P4 可分接线）：resume 路径不重嵌 checkpoint 骨架，
+    // 分支 state 显式携带锚点骨架（_thread_skeleton）→ 新叶 checkpoint 落骨架，
+    // 分支后续回合沿骨架推进（不丢会话尺度数据）。
+    const anchorCheckpoint = await storage.get_checkpoint(anchor).catch(() => null);
+    const anchorSkeleton =
+      anchorCheckpoint === null
+        ? null
+        : copySkeleton(anchorCheckpoint.state[THREAD_SKELETON_STATE_KEY]);
+    const branchState: Record<string, unknown> = { input: prepared.input };
+    if (anchorSkeleton !== null) branchState[THREAD_SKELETON_STATE_KEY] = anchorSkeleton;
     let result: RoundOutcome;
     try {
       const ran = await serialized((t) =>
@@ -374,7 +433,7 @@ function buildDisplayMessages(input: string, collected: readonly DisplayMessage[
           runtime.resume_round({
             thread_id: params.thread_id,
             leaf: anchor,
-            state: { input: prepared.input },
+            state: branchState,
             round_id,
             trace_id: shortId('trace'),
             transports: [transportForRun],
@@ -400,7 +459,99 @@ function buildDisplayMessages(input: string, collected: readonly DisplayMessage[
       round_id,
       leaf: result.checkpoint_id,
       tree,
+      skeleton_carried: anchorSkeleton !== null,
       ...resultWarnings(prepared.warnings),
+    };
+  };
+
+  /** 骨架 fork 试跑（P4 §4.1「可分」能力最小接线）：以源会话最新会话骨架为
+   *  蓝图，把骨架复制到新线程（trial_thread_id 缺省 = 派生线程）并触发一次组装
+   *  回合——主线链/骨架不动，试跑结果只观察不迁移。骨架随回合 state 显式种子
+   *  携带（引擎 _seed_skeleton 优先），新线程首轮即沿蓝图推进（不组装重建）。
+   *  上下文基线（消息链）复制：源会话 checkpoint 存储态的消息链经引擎投影
+   *  seam（project_history_baseline：user/assistant 文本链 + 链首 system，tool
+   *  产物不重放）重建后注入试跑线程首轮前——试跑上下文完整；展示态
+   *  （display_messages，宿主展示流）不经此路径（不喂模型）。 */
+  const forkTrial: BridgeHandler = async (raw): Promise<unknown> => {
+    const params = asForkTrialParams(raw);
+    const runtime = deps.runtime;
+    const storage = runtime.storage;
+    if (storage === null) {
+      throw new BridgeError('运行时存储未装配', 'runtime_unavailable');
+    }
+    const leaf = await storage.get_latest_checkpoint(params.thread_id).catch(() => null);
+    const sourceSkeleton =
+      leaf === null ? null : copySkeleton(leaf.state[THREAD_SKELETON_STATE_KEY]);
+    if (sourceSkeleton === null) {
+      throw new BridgeError('源会话无会话骨架可试跑（先跑组装回合建立）', 'no_skeleton');
+    }
+    const check = validate_skeleton_sketch(runtime, sourceSkeleton);
+    if (!check.ok) {
+      throw new BridgeError(
+        `源会话骨架已失效（${check.reasons.join('；')}）`,
+        'skeleton_invalid',
+      );
+    }
+    const trial_thread_id =
+      params.trial_thread_id ?? `${params.thread_id}:trial:${shortId('t')}`;
+    const trialRoundId = shortId('r');
+    // 骨架蓝图复制到试跑线程（thread_id 归位试跑线程；源骨架只读不被改写）
+    const trialSkeleton = { ...sourceSkeleton, thread_id: trial_thread_id };
+    const trialState: Record<string, unknown> = {
+      input: params.input ?? '',
+      [THREAD_SKELETON_STATE_KEY]: trialSkeleton,
+    };
+    // 消息基线复制：源线程历史消息链（checkpoint 存储态）→ 引擎投影 seam →
+    // 注入试跑线程首轮前（试跑上下文完整：历史 user/assistant + 本次 input 收尾
+    // user 消息；链首 system 随投影保留 = 试跑同基线续上下文）。仅试跑线程无
+    // 既有链（首轮试跑）注入——既有试跑线程续试跑 = 引擎沿试跑链续聊
+    // （_append_round_user_message 追加当轮 user），不重灌源基线。
+    const existingTrial = await storage.get_latest_checkpoint(trial_thread_id).catch(() => null);
+    if (leaf !== null && existingTrial === null) {
+      const storedMessages = leaf.state[STATE_MESSAGES];
+      const baseline = Array.isArray(storedMessages)
+        ? project_history_baseline(storedMessages as never)
+        : [];
+      if (baseline.length > 0) {
+        const chain = baseline.map((message) => message.to_dict());
+        chain.push(user(params.input ?? '').to_dict());
+        trialState[STATE_MESSAGES] = chain;
+      }
+    }
+    let result: RoundOutcome;
+    try {
+      const ran = await serialized((t) =>
+        driveRound(runtime, trial_thread_id, (transportForRun) =>
+          runtime.assemble_round({
+            state: trialState,
+            thread_id: trial_thread_id,
+            round_id: trialRoundId,
+            trace_id: shortId('trace'),
+            transports: [transportForRun],
+          }),
+          t,
+        ),
+      );
+      result = ran.value;
+    } catch (error) {
+      if (error instanceof RoundAbortedError) {
+        await sessions.touch(trial_thread_id, { round_id: trialRoundId, outcome: 'aborted' });
+        throw new BridgeError(
+          '试跑回合已中止（rounds.abort 已投递）',
+          'round_aborted',
+        );
+      }
+      throw error;
+    }
+    await settle(trial_thread_id, trialRoundId, result);
+    return {
+      thread_id: params.thread_id,
+      trial_thread_id,
+      round_id: trialRoundId,
+      leaf: result.checkpoint_id,
+      reason: result.reason,
+      reply: result.state['reply'] ?? null,
+      warnings: [],
     };
   };
 
@@ -409,5 +560,6 @@ function buildDisplayMessages(input: string, collected: readonly DisplayMessage[
     'rounds.abort': abort,
     'rounds.resume': resume,
     'rounds.branch': branch,
+    'rounds.fork_trial': forkTrial,
   };
 }

@@ -9,6 +9,22 @@ export interface PoolRowView {
   reasons: string[];
 }
 
+/** 结点类型注册行（pool.snapshot.registry.types 投影；runtime.node_registrations 行）。 */
+export interface PoolRegistryTypeRow {
+  type_name: string;
+  status: string;
+  provenance: string;
+  executor: string;
+}
+
+/** 结点类型注册目录段（pool.snapshot.registry；无数据源 = available:false 空态）。 */
+export interface PoolRegistryView {
+  available: boolean;
+  total_count: number;
+  active_count: number;
+  types: PoolRegistryTypeRow[];
+}
+
 export interface PoolSnapshotData {
   available: boolean;
   counts: {
@@ -22,6 +38,7 @@ export interface PoolSnapshotData {
   };
   last_round: { node_id: string | null; verdict: string | null; ts: number | null; budget_remaining: number | null } | null;
   rows: PoolRowView[];
+  registry: PoolRegistryView;
   degraded: boolean;
 }
 
@@ -52,6 +69,10 @@ export interface InstanceGraph {
   graph: DagGraph;
   /** node_start/end 推进的执行态。 */
   nodeStatus: Record<string, DagNodeStatus>;
+  /** 最近一回合是否为自动续跑轮（round_id 以 auto: 开头）。 */
+  isAutoRound: boolean;
+  /** 自动续跑触发原因（evolved/continue；非 auto 轮 = null）。 */
+  autoReason: string | null;
 }
 
 /** 引擎节点类型 → 前端 DAG 结点 kind 映射（未知类型按终结结点回落）。 */
@@ -75,6 +96,8 @@ export function mapInstanceSnapshot(raw: unknown): InstanceGraph | null {
           edges?: Array<{ from: string; to: string }>;
         };
         node_status?: Record<string, unknown>;
+        auto_round?: boolean;
+        continuation_reason?: string | null;
       }
     | null
     | undefined;
@@ -94,7 +117,15 @@ export function mapInstanceSnapshot(raw: unknown): InstanceGraph | null {
       nodeStatus[name] = status;
     }
   }
-  return { roundId: snap.round_id, graph, nodeStatus };
+  const isAuto = snap.auto_round === true || String(snap.round_id).startsWith('auto:');
+  const reason = snap.continuation_reason;
+  return {
+    roundId: snap.round_id,
+    graph,
+    nodeStatus,
+    isAutoRound: isAuto,
+    autoReason: reason === 'evolved' || reason === 'continue' ? reason : null,
+  };
 }
 
 /** 机制视图后端契约（生产 = host adapter 只读投影）。 */

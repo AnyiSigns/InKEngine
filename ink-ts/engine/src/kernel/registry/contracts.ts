@@ -1,7 +1,7 @@
 /**
  * 机制契约单一真源聚合（阶段1 verify/装配完整 + boot 密封共用）。
  *
- * 全量机制契约清单（33 项，与 engine/src/kernel/<mechanism>/contract.ts 一一
+ * 全量机制契约清单（34 项，与 engine/src/kernel/<mechanism>/contract.ts 一一
  * 对应，id = 目录名）。boot 密封（seal_mechanism_registry）与 verify 脚本
  * （依赖单向/装配完整）从此聚合取数，不再在测试/脚本侧各自拼清单——契约
  * 数量/成员变动只改本文件一处（AGENTS「数字先核实 + 工具清单同步」纪律）。
@@ -42,11 +42,12 @@ import { settle_contract } from '../settle/contract.js';
 import { simulation_contract } from '../simulation/contract.js';
 import { skill_crystal_contract } from '../skill_crystal/contract.js';
 import { spawn_contract } from '../spawn/contract.js';
+import { thread_skeleton_contract } from '../thread_skeleton/contract.js';
 import { tool_pipeline_contract } from '../tool_pipeline/contract.js';
 import { tool_vetting_contract } from '../tool_vetting/contract.js';
 import { tuning_contract } from '../tuning/contract.js';
 
-/** 全量机制契约清单（33 项；id 与目录同集，由 validate 强制唯一）。 */
+/** 全量机制契约清单（34 项；id 与目录同集，由 validate 强制唯一）。 */
 export const ALL_MECHANISM_CONTRACTS: readonly MechanismContract[] = [
   approval_contract,
   audit_log_contract,
@@ -78,6 +79,7 @@ export const ALL_MECHANISM_CONTRACTS: readonly MechanismContract[] = [
   simulation_contract,
   skill_crystal_contract,
   spawn_contract,
+  thread_skeleton_contract,
   tool_pipeline_contract,
   tool_vetting_contract,
   tuning_contract,

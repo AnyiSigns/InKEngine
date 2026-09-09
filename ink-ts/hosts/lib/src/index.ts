@@ -32,6 +32,7 @@ import { createCapabilityStore } from './capability/store.js';
 import { buildHostSearch } from './search/wiring.js';
 import type { InkHost } from './host.js';
 import { createWorkspaceStore } from './workspace/store.js';
+import { buildSessionCommandTools } from './session_command.js';
 import type { ProductRecipeInit } from './recipe.js';
 import type { HostRetrievalDomain } from './retrieval/domain.js';
 import type { SyncEmbedderSeam } from './retrieval/sync_seam.js';
@@ -77,7 +78,6 @@ export interface HostHandle {
    *   → 检索域适配器收口。 */
   dispose(): Promise<void>;
 }
-
 /** 模型运行配置句柄（models.config.* 消费面；闭包绑定 InkHost 运行态）。 */
 function modelConfigHandles(host: InkHost): ModelConfigHandles {
   return {
@@ -150,6 +150,24 @@ export async function createHost(
     gate,
   };
 
+  /** session_command 工具族（agent 工具包面执行接线）：声明式定义 + 执行体
+   *  分发到既有 bridge 命令实现。call 懒取 bridge（restore 重装后仍指向活命令表），
+   *  注册目标 = 每 boot 的运行时声明式 harness（web_search 同通道）。 */
+  let bridgeRef: ReadonlyMap<string, BridgeHandler> | null = null;
+  const sessionTools = buildSessionCommandTools(async (method, params) => {
+    const handler = bridgeRef !== null ? bridgeRef.get(method) : undefined;
+    if (handler === undefined) {
+      throw new Error(`session_command 工具族无对应命令实现: ${method}`);
+    }
+    return handler(params, { autoApprove: deps.autoApprove });
+  });
+  const registerSessionCommandTools = (): void => {
+    const declarative = parts.runtime.harness_registry?.declarative;
+    if (declarative !== null && declarative !== undefined) {
+      sessionTools.register(declarative as never);
+    }
+  };
+
   /** 活引用切换：reboot/restore 后把桥 deps 指向新装配件（原方法表复用）。 */
   const applyParts = (next: HostBootParts): void => {
     deps.runtime = next.runtime;
@@ -164,6 +182,7 @@ export async function createHost(
     capabilityStore.reload();
     parts = await assembleHostParts(bootInput);
     applyParts(parts);
+    registerSessionCommandTools();
   };
 
   /** restore 编排：先停 runtime（中止在途 run/引擎/存储写通道）→ 快照 →
@@ -185,6 +204,8 @@ export async function createHost(
   deps.restore = restore;
 
   const bridge = buildBridge(deps);
+  bridgeRef = bridge;
+  registerSessionCommandTools();
   const handle: HostHandle = {
     get runtime(): Runtime {
       return parts.runtime;
@@ -243,8 +264,15 @@ export type {
   ResolvedHostConfig,
   RoleEndpointConfig,
 } from './config.js';
-export { PRODUCT_SWITCH_DEFAULTS, build_product_recipe } from './recipe.js';
-export type { ProductRecipeInit, ProductSwitchName } from './recipe.js';
+export { PRODUCT_EXPLORATION_DEFAULTS, PRODUCT_SESSION_DEFAULTS, PRODUCT_SWITCH_DEFAULTS, build_product_recipe } from './recipe.js';
+export type { ProductRecipeInit, ProductSessionOverrides, ProductSwitchName } from './recipe.js';
+export { make_product_self_executor } from './self_tools.js';
+export {
+  mount_skeleton_to_state,
+  pre_register_skeleton_routes,
+  validate_skeleton_sketch,
+} from './skeleton.js';
+export type { SkeletonMountResult, SkeletonRoutePreRegister, SkeletonValidation } from './skeleton.js';
 
 // ── 会话宿主薄服务 ──
 export { HostSessionStore, SessionServiceError } from './sessions/store.js';
@@ -333,6 +361,18 @@ export type {
 } from './search/executor.js';
 export { buildHostSearch, webSearchSeedDefinition } from './search/wiring.js';
 export type { HostSearch } from './search/wiring.js';
+
+// ── session_command 工具族（agent 工具包面执行接线；分发到既有 bridge 命令）──
+export {
+  SESSION_COMMAND_ENDPOINT,
+  SESSION_COMMAND_TOOLS,
+  buildSessionCommandTools,
+  ensureSessionCommandEndpointRegistered,
+  sessionCommandDefinitions,
+  sessionCommandEndpointSpec,
+  sessionCommandExecutor,
+} from './session_command.js';
+export type { SessionCommandCall, SessionCommandTools } from './session_command.js';
 
 // ── 原生机制件 client / 嵌入适配器（exec + infer + AsyncEmbedder）──
 export { locateNativeBinary } from './exec/binary.js';

@@ -115,7 +115,7 @@ export abstract class EngineRun extends EngineTrace {
         yield event;
       }
       const [, runResult] = await task;
-      this._record_run_metrics(runResult);
+      this._record_run_metrics(runResult, opts.round_id ?? null);
       await this._settle_run(runResult, { thread_id, round_id: opts.round_id ?? null, trace_id });
     } finally {
       // 消费方提前退出（断连/break）：后台任务无法被取消（平台能力降级，
@@ -181,7 +181,7 @@ export abstract class EngineRun extends EngineTrace {
         // （与 run() 同口径，防静态审计/落库传输被静默停掉）
         transports: [...this.options.transports, ...(opts.transports ?? [])],
       });
-      this._record_run_metrics(result);
+      this._record_run_metrics(result, opts.round_id ?? null);
       await this._settle_run(result, { thread_id, round_id: opts.round_id ?? null, trace_id });
       return result;
     } finally {
@@ -207,14 +207,15 @@ export abstract class EngineRun extends EngineTrace {
    * 回合指标采集（引擎自承载：记录自身可见的执行事实）。
    *
    * 顶层 run 收尾调用一次：回合成败（错误终止 = 失败）与错误摘要入回合指标；
-   * 角色槽调用由使用方按事件语义填报（引擎只采集执行本身
-   * 可见的统计，语义化指标不替使用方猜）。
+   * round_id 供指标按前缀区分自动续跑轮（`auto:` 前缀 = 自续轮独立口径，
+   * 见 TurnMetrics.record_turn）；角色槽调用由使用方按事件语义填报（引擎只
+   * 采集执行本身可见的统计，语义化指标不替使用方猜）。
    */
-  _record_run_metrics(result: RunResult): void {
+  _record_run_metrics(result: RunResult, round_id: string | null = null): void {
     const metrics = this.options.metrics;
     if (metrics === null) return;
     const failed = result.reason === TerminateReason.ERROR;
-    metrics.record_turn({ failed, error: result.error ?? '' });
+    metrics.record_turn({ failed, error: result.error ?? '', round_id });
   }
 
   /**

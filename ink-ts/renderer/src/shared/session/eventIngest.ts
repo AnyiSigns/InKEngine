@@ -843,7 +843,9 @@ export function messagesFromHistory(rows: unknown[]): InkMessage[] {
     // 宿主从引擎展示态（display_messages）投影的消息：刷新后重建完整消息流
     const kind = typeof r.kind === 'string' ? r.kind : undefined;
     const text = typeof r.text === 'string' ? r.text : typeof r.content === 'string' ? r.content : '';
-    const roundId = typeof r.round_id === 'string' ? r.round_id : undefined;
+    // round 归属：宿主会话行投影带 round_id（sessions.messages）；引擎展示态
+    // 原始行带 round（round_id 缺省回落），均映射到消息流 roundId（auto 轮徽标/分隔消费）。
+    const roundId = typeof r.round_id === 'string' ? r.round_id : typeof r.round === 'string' ? r.round : undefined;
     const meta = (r.meta && typeof r.meta === 'object' ? r.meta : {}) as Record<string, unknown>;
     if (kind === 'thinking') {
       out.push({

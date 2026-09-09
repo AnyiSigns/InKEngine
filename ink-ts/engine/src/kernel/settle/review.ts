@@ -90,6 +90,9 @@ export interface PoolGovernanceSettleOptions {
   audit_sink?: ReviewSink | null;
   /** 候选结点类型产出字段解析（合并判定的字段面；缺省空 = 无法近重复）。 */
   node_fields?: ((node_type: string) => readonly string[]) | null;
+  /** 池成员是否为 active 终态候选（flags.terminal=true 判定；缺省 = 非终态）。
+   *  死结点淘汰的池不变式输入——终态候选 ≤1 时该候选不判死淘汰。 */
+  terminal_of?: ((node_type: string) => boolean) | null;
   /** 单回合合并应用次数上限（缺省 = POOL_GOVERNANCE_MERGE_CAP_PER_ROUND）。 */
   merge_cap?: number;
   /** 裁决可写实体 seam（缺省 null = 裁决对象无引擎可写实体 → 登记 + 审计）。 */
@@ -106,7 +109,8 @@ export interface PoolGovernanceSettleOptions {
  * dst 结点类型提炼池候选，按四规则（容量/死结点淘汰/近重复合并/提案预算）
  * 产出治理判定并应用**安全收敛**：
  * - allow（含 eviction_candidates）→ 死结点候选登记失效（archive 审计，
- *   标记失效不物理删），预算扣减经治理日志计数；
+ *   标记失效不物理删），预算扣减经治理日志计数；池不变式：active 终态候选
+ *   ≤1 时不判死淘汰（terminal_of 注入登记行 flags，规则内保护分支）；
  * - merge（字段近重复命中池内既有结点）→ 落 resolved 去重（后续回合同
  *   候选不再重复提请，跨回合稳定不震荡），单回合合并应用次数受
  *   merge_cap 上限护栏；
@@ -132,6 +136,7 @@ export class PoolGovernanceSettleHook {
   readonly #now: () => number;
   readonly #sink: ReviewSink | null;
   readonly #nodeFields: ((node_type: string) => readonly string[]) | null;
+  readonly #terminalOf: ((node_type: string) => boolean) | null;
   readonly #mergeCap: number;
   readonly #writable: GovernanceWriteTarget | null;
   readonly #state: PoolGovernanceStateStore | null;
@@ -152,6 +157,7 @@ export class PoolGovernanceSettleHook {
     this.#now = options.now ?? now;
     this.#sink = options.audit_sink ?? null;
     this.#nodeFields = options.node_fields ?? null;
+    this.#terminalOf = options.terminal_of ?? null;
     this.#mergeCap = Math.max(1, options.merge_cap ?? POOL_GOVERNANCE_MERGE_CAP_PER_ROUND);
     this.#writable = options.writable ?? null;
     this.#state = options.state ?? null;
@@ -189,6 +195,7 @@ export class PoolGovernanceSettleHook {
         promoted: false,
         age_days: lastUsed > 0 ? Math.max(0, (nowValue - lastUsed) / 86400) : 0,
         fields: this.#nodeFields !== null ? [...this.#nodeFields(node_id)] : [],
+        terminal: this.#terminalOf !== null ? this.#terminalOf(node_id) : false,
         domain,
       });
     }

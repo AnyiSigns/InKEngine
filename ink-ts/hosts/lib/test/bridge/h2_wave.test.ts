@@ -140,6 +140,18 @@ describe('sessions.messages（链记录消息投影）', () => {
     }
   });
 
+  it('展示态正文行 round 归属透传（assistant 行 round_id = 该轮 round_id；auto 轮徽标刷新重建数据源）', async () => {
+    await bootChat('宿主回复');
+    const send = handle.bridge.get('rounds.send')!;
+    const result = (await send({ input: 'hi' }, CTX)) as { thread_id: string; round_id: string };
+    const view = (await handle.bridge.get('sessions.messages')!(
+      { thread_id: result.thread_id },
+      CTX,
+    )) as { messages: Array<{ role?: string; text?: string; round_id?: string }> };
+    const assistant = view.messages.find((m) => m.role === 'assistant');
+    expect(assistant?.round_id).toBe(result.round_id);
+  });
+
   it('无记录线程 → 空数组；多轮回合续写消息链（每轮 user 追加 + assistant，不重复回放）', async () => {
     await bootChat('宿主回复');
     const empty = (await handle.bridge.get('sessions.messages')!({ thread_id: 't-none' }, CTX)) as {

@@ -224,8 +224,8 @@ export class EngineEvent {
       node: (data['node'] ?? null) as string | null,
       graph_path,
       seq: (data['seq'] ?? null) as number | null,
-      trace_id: ((data['trace_id'] ?? null) as string | null) ?? '-',
-      thread_id: ((data['thread_id'] ?? null) as string | null) ?? '-',
+      trace_id: typeof data['trace_id'] === 'string' ? data['trace_id'] : '-',
+      thread_id: typeof data['thread_id'] === 'string' ? data['thread_id'] : '-',
       version,
     });
   }

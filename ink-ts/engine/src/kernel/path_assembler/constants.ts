@@ -24,6 +24,12 @@ export const DEFAULT_DOMAIN = 'default';
 export const DEFAULT_MAX_SAFETY_TIER = 0;
 /** 缓存抽样重装概率（命中时以 ε 概率绕过缓存重新组装对比）。 */
 export const DEFAULT_CACHE_EPSILON = 0.05;
+/** 无样本候选试用概率（候选层探索预算；每组装以该概率把无样本候选置顶试用）。 */
+export const DEFAULT_CANDIDATE_TRIAL_EPSILON = 0.05;
+/** 无样本候选判定阈值（链上全部边样本合计 < 该值 = 视为无样本/样本极低）。 */
+export const CANDIDATE_TRIAL_MIN_SAMPLES = 2;
+/** 连续顶选反垄断观察窗口（最近 N 轮同指纹连续顶选 → 强制试用次优；0 = 关）。 */
+export const DEFAULT_ANTI_MONOPOLY_WINDOW = 8;
 /** 草稿链最大条数（超出 = 解析失败直接兜底；ENG9a-11）。 */
 export const MAX_DRAFT_ITEMS = 20;
 /** 草稿单条类型名最大长度（超出 = 非白名单形态；ENG9a-11）。 */
@@ -55,8 +61,9 @@ export const CANDIDATE_SOURCE_SKILL = 'skill';
 /** 技能先例跨域回落源（请求域精确匹配无命中 → general 域条目的候选链；
  *  与域内技能先例 skill 源区分，供候选来源标记识别跨域先验）。 */
 export const CANDIDATE_SOURCE_SKILL_FALLBACK = 'skill_fallback';
-/** 冷启动 base 图源（引擎内置池种子的域 base 图模板；无其它候选时的稳定产出）。 */
-export const CANDIDATE_SOURCE_BASE = 'base';
+/** 终态兜底源（组装零候选时从池选 flags.terminal=true 终态类型出的单节点图；
+ *  无整图模板回落——候选 = 最小可行回合单节点图）。 */
+export const CANDIDATE_SOURCE_TERMINAL = 'terminal';
 
 // ── 统计口径键（声明式枚举）──────────────────────────────────────
 export const STATS_BEAM_EXTENSIONS = 'beam_extensions';
@@ -67,6 +74,10 @@ export const STATS_CACHE_HITS = 'cache_hits';
 export const STATS_CACHE_MISSES = 'cache_misses';
 export const STATS_CACHE_INVALIDATIONS = 'cache_invalidations';
 export const STATS_CACHE_REPLACEMENTS = 'cache_replacements';
+/** P4.1 候选层探索预算统计：无样本候选置顶试用次数。 */
+export const STATS_TRIAL_PROMOTIONS = 'trial_promotions';
+/** P4.1 反垄断统计：连续顶选窗口满后强制试用次优次数。 */
+export const STATS_ANTI_MONOPOLY_FORCES = 'anti_monopoly_forces';
 
 // ── 干预落库集合（assemble 后的运行期干预；状态落库 + 审计）───────
 /** 候选选择落库集合（按域记录当前选中候选；清空 = 恢复多候选观察态）。 */

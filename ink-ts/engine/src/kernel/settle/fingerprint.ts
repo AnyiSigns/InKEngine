@@ -73,6 +73,10 @@ export class FingerprintSettleHook {
   readonly #store: EdgeEvidenceStore | null;
   readonly #modelId: string;
   readonly #contextFingerprint: ContextFingerprint;
+  /** P4.1 兜底零强化：单节点终态兜底成功不固化指纹缓存（缺省开启）。
+   *  单节点图 = 无组合路径（组装兜底形态，「成功仅因无更好」不是「这条路
+   *  好」）——固化只会让后续组装必中缓存、堵死探索。 */
+  readonly #skipSingleNode: boolean;
   /** 本次 run 是否尝试了入库（供测试断言 fail-closed 语义）。 */
   readonly attempts: Record<string, unknown>[] = [];
 
@@ -83,6 +87,7 @@ export class FingerprintSettleHook {
     opts: {
       model_id?: string;
       context_fingerprint?: ContextFingerprint;
+      skip_single_node?: boolean;
     } = {},
   ) {
     this.#cache = cache;
@@ -90,6 +95,7 @@ export class FingerprintSettleHook {
     this.#store = store;
     this.#modelId = opts.model_id ?? '';
     this.#contextFingerprint = opts.context_fingerprint ?? null;
+    this.#skipSingleNode = opts.skip_single_node ?? true;
   }
 
   /**
@@ -123,6 +129,15 @@ export class FingerprintSettleHook {
     const gatePassed = Boolean(await this.#gate.evaluate(ctx));
     this.attempts.push({ fingerprint: top.digest(), gate_passed: gatePassed });
     if (!gatePassed) {
+      return;
+    }
+    // P4.1 兜底零强化：单节点终态兜底成功（0 边单节点图 = 组装兜底形态）不得
+    // 固化指纹缓存条目——成功仅因「无更好」，固化会形成确认偏误/探索死锁。
+    // 尝试仍留痕（attempts + skipped_reason）供审计，但不产生强化。
+    if (this.#skipSingleNode && _is_fallback_single_node(top)) {
+      this.attempts[this.attempts.length - 1]![
+        'skipped_reason'
+      ] = 'terminal_fallback_no_reinforce';
       return;
     }
     // 路径数据 = 图定义序列化；直挂函数图不可序列化时退化携带指纹
@@ -177,4 +192,22 @@ export class FingerprintSettleHook {
       domain: ctx.domain,
     });
   }
+}
+
+/** P4.1 组装兜底形态判定：顶层图为 0 边单节点（唯一结点 = entry=exit）。
+ *  单节点图 = 无组合路径（组装器从池选 flags.terminal 候选出的最小可行回合
+ *  形态，或等价的算法单节点解）——成功仅因无更好，固化无学习价值。函数直挂
+ *  结点/声明式绑定/子图三种节点形态都计入；任何边（含回边）即非兜底形态。 */
+function _is_fallback_single_node(graph: Graph): boolean {
+  const names = new Set<string>([
+    ...Object.keys(graph.nodes),
+    ...Object.keys(graph.node_bindings),
+    ...Object.keys(graph.subgraphs),
+  ]);
+  if (names.size !== 1) return false;
+  let edgeCount = 0;
+  for (const list of Object.values(graph.edges)) {
+    edgeCount += list.length;
+  }
+  return edgeCount === 0;
 }

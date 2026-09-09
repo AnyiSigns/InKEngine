@@ -56,6 +56,7 @@ export const runtime_contract: MechanismContract = {
     'self_tools',
     'settle',
     'skill_crystal',
+    'thread_skeleton',
     'tool_pipeline',
     'tool_vetting',
     'tuning',

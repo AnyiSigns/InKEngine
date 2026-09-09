@@ -1,3 +1,4 @@
+// gate: 超限(461 行) - PathAssembler 草稿/评分/多径层（既有超限实现，历史分拆注释缺失 gate 标注）
 /**
  * PathAssembler 草稿/评分/多径层（继承链第二层 PathAssemblerDraft）——移植
  * path_assembler.py 组装器「检索窗口/草稿层/技能先例/证据评分/多径信号/冷启动
@@ -11,7 +12,8 @@
 
 import { MULTIPATH_GAP, MULTIPATH_MIN_N } from '../../core/edge_evidence/index.js';
 import type { EdgeEvidence } from '../../core/edge_evidence/index.js';
-import { cold_start_index } from '../../core/edge_evidence/index.js';
+import { cold_start_index, is_exploration_mode } from '../../core/edge_evidence/index.js';
+import { graph_fingerprint } from '../../core/fingerprint/fingerprint.js';
 import { Graph } from '../../core/graph/graph.js';
 import type { NodeContract } from '../../core/contracts/contracts.js';
 import type { Retriever } from '../../core/retrieval/index.js';
@@ -22,8 +24,11 @@ import {
   CANDIDATE_SOURCE_DRAFT,
   CANDIDATE_SOURCE_SKILL,
   CANDIDATE_SOURCE_SKILL_FALLBACK,
+  CANDIDATE_TRIAL_MIN_SAMPLES,
+  STATS_ANTI_MONOPOLY_FORCES,
   STATS_LLM_ATTEMPTS,
   STATS_REPAIR_ATTEMPTS,
+  STATS_TRIAL_PROMOTIONS,
 } from './constants.js';
 import { sanitize_draft_feedback, parse_draft_chain } from './draft_parse.js';
 import { validate_chain } from './validate.js';
@@ -292,6 +297,104 @@ export class PathAssemblerDraft extends PathAssemblerBase {
     return cold_start_index(evidenced, candidate_edges.size);
   }
 
+  /** 候选链证据样本合计（逐边证据行 success+fail 求和；无行 = 0）。
+   *  与 _edge_score_of 同键口径（5 元索引键，variant_hash 空）。 */
+  protected _chain_sample_total(
+    chain: readonly string[],
+    index: Record<string, _ContractView>,
+    evidence_index: Map<string, EdgeEvidence>,
+  ): number {
+    let total = 0;
+    for (let i = 0; i + 1 < chain.length; i++) {
+      const src = chain[i]!;
+      const dst = chain[i + 1]!;
+      const srcVersion =
+        index[src] !== undefined ? String(index[src]!.contract.version) : '1';
+      const dstVersion =
+        index[dst] !== undefined ? String(index[dst]!.contract.version) : '1';
+      const key = [src, dst, srcVersion, dstVersion, ''].join('\u0000');
+      const row = evidence_index.get(key);
+      if (row === undefined) continue;
+      total += row.success_count + row.fail_count;
+    }
+    return total;
+  }
+
+  /** P4.1 候选层探索预算（组装反路径锁定）：在证据评分 top-k 之外叠加
+   *  「无样本候选试用通道」与「连续顶选反垄断强制试用」两次候选层重排。
+   *
+   *  只作用于候选选择序（把试用候选置顶/置入 top-k），不裁决执行；试用结果
+   *  走正常证据累积形成真实学习（与 cache_epsilon 缓存层抽样正交——本条是
+   *  候选层）。预算缺省关闭（_trial_enabled/_anti_monopoly_enabled = false）
+   *  时原样返回纯证据序，零行为漂移。
+   *
+   *  优先级：反垄断（确定性）> 无样本试用（概率 epsilon）；返回重排后的
+   *  top_k 候选清单，试用/强制触发次数经 stats 统计键可观测。
+   */
+  protected _apply_exploration_budget(
+    ranked: readonly _ScoredChain[],
+    top_k: number,
+    request: AssemblyRequest,
+    goal: readonly string[],
+    pool: Record<string, NodeContract>,
+    cold_index: number,
+    index: Record<string, _ContractView>,
+    evidence_index: Map<string, EdgeEvidence>,
+    stats: Stats,
+  ): _ScoredChain[] {
+    const cap = Math.max(1, Math.trunc(top_k));
+    const base = ranked.slice(0, cap);
+    if (!this._anti_monopoly_enabled && !this._trial_enabled) return base;
+    if (ranked.length < 2) return base;
+    // ① 连续顶选反垄断：最近 N 轮（有界窗口）同一指纹连续顶选且存在可覆盖
+    // 目标但分较低的次优候选（ranked[1]）→ 强试次优（置顶）。
+    if (this._anti_monopoly_enabled && this._recent_tops !== null) {
+      const n = this._anti_monopoly_window;
+      const topChain = ranked[0]![0];
+      const altChain = ranked[1]![0];
+      if (!_chains_equal(topChain, altChain)) {
+        const key = this._cache_key(request, goal);
+        const window = this._recent_tops.get(key) ?? [];
+        const recent = window.slice(-n);
+        const topFp = graph_fingerprint(this._build_graph(topChain, pool, request, 1));
+        const locked = recent.length >= n && recent.every((fp) => fp === topFp);
+        if (locked) {
+          const forced = [ranked[1]!, ranked[0]!, ...ranked.slice(2)].slice(0, cap);
+          stats[STATS_ANTI_MONOPOLY_FORCES] = (stats[STATS_ANTI_MONOPOLY_FORCES] ?? 0) + 1;
+          return forced;
+        }
+      }
+    }
+    // ② 无样本候选试用通道：cold-start 探索（探索模式或有低样本候选）时以
+    // epsilon 概率把首个「能覆盖目标但无样本/样本极低」的候选置顶试用——不
+    // 再永远被 evidence 分数压过。试用候选须为真实组合路径（>=2 结点；单
+    // 节点 = 终态兜底形态，不入试用池）。
+    if (this._trial_enabled && this._trial_epsilon > 0 && this._rng() < this._trial_epsilon) {
+      const explorationActive =
+        is_exploration_mode(cold_index) ||
+        ranked.some(
+          (item) =>
+            item[0].length >= 2 && this._chain_sample_total(item[0], index, evidence_index) < CANDIDATE_TRIAL_MIN_SAMPLES,
+        );
+      if (explorationActive) {
+        const selected = new Set(base.map((item) => item[0].join('\u0000')));
+        const trial = ranked.find(
+          (item) =>
+            !selected.has(item[0].join('\u0000')) &&
+            item[0].length >= 2 &&
+            this._chain_sample_total(item[0], index, evidence_index) < CANDIDATE_TRIAL_MIN_SAMPLES,
+        );
+        if (trial !== undefined) {
+          const rest = base.filter((item) => !_chains_equal(item[0], trial[0]));
+          const promoted = [trial, ...rest].slice(0, cap);
+          stats[STATS_TRIAL_PROMOTIONS] = (stats[STATS_TRIAL_PROMOTIONS] ?? 0) + 1;
+          return promoted;
+        }
+      }
+    }
+    return base;
+  }
+
   /** 多径触发信号（全链口径，与排序同基准；只给信号不裁决）。
    *  判据与 multipath 汇流同源（ENG9a-22）：候选证据全链成败计数聚合，
    *  样本数 = 全链合计，分差 = 全链平均分差，阈值复用 MULTIPATH_MIN_N/
@@ -314,8 +417,10 @@ export class PathAssemblerDraft extends PathAssemblerBase {
     return Math.abs(s1 - s2) < MULTIPATH_GAP;
   }
 
-  /** 候选链 → 图定义数据（节点 = 类型绑定 + 契约快照；线性链）。
-   *  候选图名 = 域固定名（ENG9a-18）：排名变化不改变图身份。 */
+  /** 候选链 → 图定义数据（节点 = 类型绑定 + 契约快照 + 实例 config；线性链）。
+   *  候选图名 = 域固定名（ENG9a-18）：排名变化不改变图身份。实例 config 随
+   *  绑定落入节点 config（P4.2a-3：执行体按实例 config 分化字段 I/O）；池
+   *  无该实例缺省 config = 零 config（现状零漂移）。 */
   protected _build_graph(
     chain: readonly string[],
     pool: Record<string, NodeContract>,
@@ -328,7 +433,7 @@ export class PathAssemblerDraft extends PathAssemblerBase {
       entry: chain[0]!,
     });
     for (const name of chain) {
-      graph.add_node_type(name, name, {}, pool[name]!);
+      graph.add_node_type(name, name, { ...(this._instance_configs[name] ?? {}) }, pool[name]!);
     }
     for (let i = 0; i + 1 < chain.length; i++) {
       graph.add_edge(chain[i]!, chain[i + 1]!);
@@ -346,4 +451,13 @@ export function compareChains(a: readonly string[], b: readonly string[]): numbe
     if (a[i]! > b[i]!) return 1;
   }
   return a.length - b.length;
+}
+
+/** 链等值判定（节点序相同 = 同链；评分/试用去重用）。 */
+function _chains_equal(a: readonly string[], b: readonly string[]): boolean {
+  if (a.length !== b.length) return false;
+  for (let i = 0; i < a.length; i++) {
+    if (a[i] !== b[i]) return false;
+  }
+  return true;
 }

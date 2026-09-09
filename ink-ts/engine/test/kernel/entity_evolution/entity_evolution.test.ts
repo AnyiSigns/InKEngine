@@ -185,7 +185,7 @@ describe('TestMutationAndGate', () => {
     expect(pipeline.mutation_rejected).toBe(1);
   });
 
-  it('变异保留身份与模型引用', async () => {
+  it('变异保留身份与模型引用（含自定义 role 透传）', async () => {
     const { pipeline, registry } = makePipeline();
     registry.replace(
       new EntitySpec({
@@ -193,6 +193,7 @@ describe('TestMutationAndGate', () => {
         label: '安全评审',
         persona: '你是安全评审专家。',
         model: { provider: 'moonshotai-cn', model_id: 'kimi-k2' },
+        role: 'architect',
       }),
     );
     await feed(pipeline, toolStart('c1', 'security_reviewer'), toolEnd('c1', false, '评审意见未附证据链接'));
@@ -200,6 +201,7 @@ describe('TestMutationAndGate', () => {
     expect(spec.id).toBe('security_reviewer');
     expect(spec.label).toBe('安全评审');
     expect(spec.model).toEqual({ provider: 'moonshotai-cn', model_id: 'kimi-k2' });
+    expect(spec.role).toBe('architect');
   });
 });
 
@@ -229,6 +231,23 @@ describe('TestPromotion', () => {
     await feed(pipeline);
     await feed(pipeline);
     expect(evolution(registry.get('security_reviewer')!)['level']).toBe('work');
+  });
+
+  it('晋升保留自定义 role（透传 spec.role 不回落默认）', async () => {
+    const { pipeline, registry } = makePipeline(1);
+    registry.replace(
+      new EntitySpec({
+        id: 'security_reviewer',
+        label: '安全评审',
+        persona: '你是安全评审专家。',
+        role: 'architect',
+      }),
+    );
+    await feed(pipeline, toolStart('c1', 'security_reviewer'), toolEnd('c1', false, '缺 task 参数'));
+    expect(evolution(registry.get('security_reviewer')!)['level']).toBe('work');
+    await feed(pipeline);
+    expect(evolution(registry.get('security_reviewer')!)['level']).toBe('project');
+    expect(registry.get('security_reviewer')!.role).toBe('architect');
   });
 });
 

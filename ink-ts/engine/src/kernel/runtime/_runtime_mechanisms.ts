@@ -32,6 +32,7 @@ import { FingerprintCacheStore, RecordsFingerprintCacheStorage } from '../../cor
 import type { Storage } from '../../core/storage/storage.js';
 import { PathAssemblyFlags } from '../../core/contracts/contracts.js';
 import { PathAssemblyRuntime } from '../path_assembler/runtime.js';
+import type { ExplorationBudgetOptions } from '../path_assembler/_assembler_cache.js';
 import type { AssemblyRequest } from '../path_assembler/types.js';
 import { KIND_PATH, type KnowledgeSet } from '../../core/knowledge_set/index.js';
 import { knowledge_entry_to_skill, type SkillEntry } from '../skill_crystal/index.js';
@@ -51,6 +52,8 @@ import {
 } from '../settle/index.js';
 import { promotion_signature_key } from '../settle/promotion.js';
 import { registration_output_fields } from '../../core/node_registry/index.js';
+import { default_engine_seed_edges } from '../../core/nodes/index.js';
+import { import_seed_paths } from '../settle/index.js';
 import { _KnowledgeUsageSettleHook, _LedgerSettleHook } from './_settle.js';
 import { RuntimeContexts } from './_runtime_contexts.js';
 import type { AssemblyRecipe } from './_types.js';
@@ -81,9 +84,10 @@ const _SKILL_PRIOR_LIMIT = 4;
 /** 技能先验跨域回落上限（请求域精确匹配无命中 → 回落 general 域的候选条数；
  *  独立于精确命中 cap（≤ 精确上限）= 防跨域先验噪声进入非相关任务）。 */
 const _SKILL_PRIOR_FALLBACK_LIMIT = 2;
-/** 技能回落目标域（与池种子 base 图的 general 兜底域同值；域取值约定随结晶侧
+/** 技能回落目标域（技能先验的 general 回落约定；域取值约定随结晶侧
  *  = 指纹缓存条目的上下文域，见 crystallize 的 domain 来源，无预置层级）。
- *  回落 ≠ 图兜底：base 图仍是最后保底（先验技能落空仍由 base seam 出图）。 */
+ *  回落 ≠ 组装兜底：先验落空仍由终态候选兜底 seam 出图（见
+ *  _mount_assembly_runtime.terminal_types）。 */
 const _SKILL_GENERAL_DOMAIN = 'general';
 
 /** 域内 kind=path 技能候选（同名取最新版本；按可信度→版本降序；cap 条数）。
@@ -111,6 +115,27 @@ function _skill_prior_ranked(
     (a, b) => b.credibility - a.credibility || b.skill.version - a.skill.version,
   );
   return ranked.slice(0, limit).map((row) => row.skill);
+}
+
+/** 配方 → P4.1 候选层探索预算（引擎默认保守关闭：两开关均关 = null = 纯证据
+ *  序零漂移；任一开启 = 携带对应开关位与参数覆写——参数未配 = 引擎钉死缺省，
+ *  由组装器消费侧钳制，见 PathAssemblerBase 构造）。 */
+function _assembly_exploration_budget(recipe: AssemblyRecipe): ExplorationBudgetOptions | null {
+  if (!recipe.candidate_trial_enabled && !recipe.anti_monopoly_enabled) return null;
+  const budget: ExplorationBudgetOptions = {};
+  if (recipe.candidate_trial_enabled) {
+    budget.candidate_trial_enabled = true;
+    if (recipe.candidate_trial_epsilon !== null && Number.isFinite(recipe.candidate_trial_epsilon)) {
+      budget.candidate_trial_epsilon = Math.max(0, recipe.candidate_trial_epsilon);
+    }
+  }
+  if (recipe.anti_monopoly_enabled) {
+    budget.anti_monopoly_enabled = true;
+    if (recipe.anti_monopoly_window !== null && Number.isFinite(recipe.anti_monopoly_window)) {
+      budget.anti_monopoly_window = Math.max(1, Math.trunc(recipe.anti_monopoly_window));
+    }
+  }
+  return budget;
 }
 
 /** 机制装配段（evidence/cache/组装运行期/环境/多域调配器）。 */
@@ -279,6 +304,15 @@ export abstract class RuntimeMechanisms extends RuntimeContexts {
                     return reg === null ? [] : registration_output_fields(reg);
                   }
                 : null,
+            // 池不变式输入：池成员是否 active 终态候选（登记行 flags.terminal）；
+            // 死结点淘汰不得移除最后一个 active 终态候选（规则内保护分支）。
+            terminal_of:
+              registryStore !== null
+                ? (node_type): boolean => {
+                    const reg = registryStore.get(node_type);
+                    return reg !== null && reg.is_active() && reg.flags?.terminal === true;
+                  }
+                : null,
             // A3 池治理写回 seam：结点类型登记 store 受控写实现已装配时随钩子
             // 注入（见 _runtime_assemble），无 = 仅登记 + 审计（fallback）
             writable: this.pool_governance_writable,
@@ -305,6 +339,31 @@ export abstract class RuntimeMechanisms extends RuntimeContexts {
     } else {
       this.edge_evidence_store = new EdgeEvidenceStore();
     }
+    // 出厂边先验（P4.2a-3 可喂链 seed_edges）：开关开启时经既有受控通道
+    // import_seed_paths 写入证据面（缺省数据 = 出厂实例匹配的 feed 关系；
+    // 已存在同键运行统计不覆盖）。缺省关闭 = 出厂先验不入证据面，组装行为
+    // 零漂移；先验写入失败只跳过（数据资产不击穿启动）。
+    if (
+      recipe.seed_edges_enabled
+      && recipe.edge_evidence_enabled
+      && this.edge_evidence_store !== null
+      && this.edge_evidence_store !== undefined
+    ) {
+      const raw =
+        recipe.seed_edges !== null && recipe.seed_edges !== undefined
+          ? recipe.seed_edges
+          : default_engine_seed_edges();
+      if (raw.length > 0) {
+        try {
+          await import_seed_paths(
+            this.edge_evidence_store,
+            raw as readonly Record<string, unknown>[],
+          );
+        } catch {
+          // 出厂边先验写入失败只跳过（数据资产不击穿启动）
+        }
+      }
+    }
     // 指纹缓存 store：开关开才装配（FingerprintSettleHook 按开关注册）。
     if (recipe.fingerprint_cache_enabled) {
       this.fingerprint_cache_store = new FingerprintCacheStore({
@@ -324,8 +383,8 @@ export abstract class RuntimeMechanisms extends RuntimeContexts {
    *  （恢复替换实例后仍命中最新）；请求域精确匹配（同名取最新版本并 cap
    *  条数）；精确命中为空时回落到 domain=general 条目（独立回落上限防跨域
    *  噪声；来源经候选域比对标记为跨域先验）；请求域自身为 general/未指定
-   *  时精确域即回落域，跳过回落防重复。回落 ≠ base 图兜底：先验落空仍由
-   *  pool_seed base 图 seam 出图（见 _mount_assembly_runtime.base_graphs）。
+   *  时精确域即回落域，跳过回落防重复。回落 ≠ 组装兜底：先验落空仍由
+   *  终态候选 seam 出图（见 _mount_assembly_runtime.terminal_types）。
    *  skill_crystal_enabled=false / 知识集未装配 = 不提供。 */
   _skill_prior_provider(): ((request: AssemblyRequest) => Promise<readonly unknown[]>) | null {
     const recipe = this._recipe;
@@ -341,6 +400,18 @@ export abstract class RuntimeMechanisms extends RuntimeContexts {
       if (exact.length > 0 || domain === '' || domain === _SKILL_GENERAL_DOMAIN) return exact;
       return _skill_prior_ranked(ks, _SKILL_GENERAL_DOMAIN, _SKILL_PRIOR_FALLBACK_LIMIT);
     };
+  }
+
+  /** 池实例缺省 config 快照（active 登记行 config_defaults → 类型键映射；
+   *  组装候选图绑定执行体用；装配期取一次）。 */
+  private _registration_instance_configs(): Record<string, Record<string, unknown>> {
+    const store = this.node_registry_store;
+    const out: Record<string, Record<string, unknown>> = {};
+    if (store === null) return out;
+    for (const reg of store.active()) {
+      out[reg.type_name] = { ...reg.config_defaults };
+    }
+    return out;
   }
 
   /**
@@ -384,29 +455,33 @@ export abstract class RuntimeMechanisms extends RuntimeContexts {
       cache: this.fingerprint_cache_store,
       multipath_enabled: multipath,
       contract_enabled: flags.contract_enabled,
+      // 池实例缺省 config（登记行 config_defaults 快照；P4.2a-3 组装候选图
+      // 按实例 config 绑定执行体——llm_planner/reviewer/main 等实例分化
+      // 在真实执行时生效）。登记行后续变动（治理/新登记）经下一次装配生效。
+      instance_configs: this._registration_instance_configs(),
       // 技能先验接入组装（决策5：自学习沉淀的 kind=path 技能作为组装候选源；
-      // B5：请求域无命中回落 general 域条目 = 跨域先验，非 base 图兜底）
+      // B5：请求域无命中回落 general 域条目 = 跨域先验，非组装兜底）
       skill_provider: this._skill_prior_provider(),
-      // 冷启动 base 图先验（引擎内置池种子的域 base 图模板；组装在无算法/
-      // 技能/草稿候选时据此稳定产出合法候选数据图）：按请求域精确匹配，
-      // 缺省回落 general。语义边界：技能先验回落 ≠ base 图兜底——先验回落
-      // 落空/禁用后 base seam 仍是最后保底；池种子经配方覆写/禁用，base 图
-      // 数据源同源——数据驱动不进代码。域字段取值约定 = 池种子/结晶同源
-      // （上下文域字符串，无预置层级；general 仅作缺省回落域）。
-      base_graphs: async (request) => {
-        const seed = this._engine_pool_seed;
-        if (seed === null || !seed.enabled) return [];
-        const matched = seed.domains.filter(
-          (entry) => entry.enabled && entry.domain === request.domain,
-        );
-        const source =
-          matched.length > 0
-            ? matched
-            : seed.domains.filter((entry) => entry.enabled && entry.domain === _SKILL_GENERAL_DOMAIN);
-        return source.map((entry) => entry.graph);
+      // 终态候选源（组装零候选兜底）：从运行时结点类型注册表（登记行
+      // status=active）选 flags.terminal=true 的类型名清单；组装器从中挑
+      // 入池合法者出单节点图（entry=exit=该类型，0 边）。数据面 = 登记行
+      // 声明（引擎内置池种子 llm_decider flags.terminal=true），不读任何
+      // 整图模板；取不到任何可自终止终态候选 = 组装显式“无候选”，不臆造
+      // 图、不回落到旧整图模板。执行体未注册（登记但绑定缺失）的类型不
+      // 入候选（池不可执行 = 不可自终止）。
+      terminal_types: async (): Promise<readonly string[]> => {
+        const store = this.node_registry_store;
+        if (store === null) return [];
+        const active: string[] = [];
+        for (const reg of store.active()) {
+          if (reg.flags?.terminal !== true) continue;
+          if (registries.nodes.has(reg.type_name)) active.push(reg.type_name);
+        }
+        return active;
       },
       canary_timeout: null,
       canary_options: null,
+      exploration_budget: _assembly_exploration_budget(recipe),
     });
     this.assembly_runtime = runtime;
     set_default_assembly_runtime(runtime);

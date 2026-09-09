@@ -1,3 +1,5 @@
+// 跨域契约模块 - 跨域类型 seam：kernel/runtime 装配层引用候选层探索预算选项（P4.1，经 public index 亦可；标注以维持 private import 放行）
+// gate: 超限(394 行) - PathAssembler 池缓存/证据机制层（既有超限实现，历史分拆注释缺失 gate 标注）
 /**
  * PathAssembler 基类（依赖 + 池快照 + 证据索引 + 指纹缓存维护）——移植
  * path_assembler.py 组装器「构造/池/证据单查/缓存校验/命中构造/顶替」段。
@@ -24,7 +26,9 @@ import type { AssemblyRequest } from './types.js';
 import { AssemblyCandidate, PathAssemblyResult } from './types.js';
 import {
   CANDIDATE_SOURCE_CACHE,
+  DEFAULT_ANTI_MONOPOLY_WINDOW,
   DEFAULT_CACHE_EPSILON,
+  DEFAULT_CANDIDATE_TRIAL_EPSILON,
   STATS_CACHE_HITS,
   STATS_CACHE_INVALIDATIONS,
   STATS_CACHE_REPLACEMENTS,
@@ -53,10 +57,42 @@ export interface PathAssemblerOptions {
   cache_epsilon?: number;
   rng?: (() => number) | null;
   skill_provider?: ((request: AssemblyRequest) => Promise<readonly unknown[]>) | null;
-  base_graphs?: import('./types.js').BaseGraphsProvider | null;
+  /** 终态候选源（组装零候选兜底；null = 不参与，见 types.TerminalTypesProvider）。 */
+  terminal_types?: import('./types.js').TerminalTypesProvider | null;
   /** 结点契约语义开关（缺省 true = 组装池带契约；false = 池恒空——组装
    *  零候选，路径组装不携带契约语义，对应 PathAssemblyFlags.contract_enabled）。 */
   contract_enabled?: boolean;
+  /** P4.1 候选层探索预算（组装反路径锁定：无样本候选试用 + 连续顶选反垄断；
+   *  缺省 null = 整组关闭保守档——候选排序保持纯证据序，零行为漂移）。 */
+  exploration_budget?: ExplorationBudgetOptions | null;
+  /** 池实例缺省 config（类型键 → config_defaults；P4.2a-3 组装出的候选图
+   *  按实例 config 绑定节点执行体——实例分化（output_field/read_fields 等）
+   *  在真实执行时生效。缺省 {} = 候选图节点零 config（现状零漂移）。 */
+  instance_configs?: Record<string, Record<string, unknown>> | null;
+}
+
+/** P4.1 候选层探索预算选项（缺省全部保守关闭；启用后参数取引擎钉死缺省）。
+ *
+ *  - candidate_trial：cold-start 探索真正把「能覆盖目标但无样本/样本极低」的
+ *    候选链按小概率 epsilon 置顶试用（候选层；区别于 cache_epsilon 缓存层抽样）。
+ *  - anti_monopoly：同一结果指纹在最近 N 轮内连续顶选且存在可覆盖目标但分
+ *    较低的次优候选时，周期性强试次优（候选层多样性预算）。
+ *  - recent_tops：跨轮最近顶选指纹窗口（有界，按请求缓存键分域）。由运行期
+ *    （PathAssemblyRuntime 会话统计面）持有并在组装收尾后追加；组装器只读。
+ *    当前为进程内轻量内存形态，将来可挂会话尺度持久统计通道（与 P4-A 会话
+ *    骨架区分：这里只记录最近顶选指纹序列，不属骨架/游标/执行态）。
+ */
+export interface ExplorationBudgetOptions {
+  /** 无样本候选试用开关（缺省 false）。 */
+  candidate_trial_enabled?: boolean;
+  /** 无样本候选试用概率（缺省 0.05 = 5%；<=0 = 概率通道关闭）。 */
+  candidate_trial_epsilon?: number;
+  /** 反垄断强制试用开关（缺省 false）。 */
+  anti_monopoly_enabled?: boolean;
+  /** 反垄断连续顶选窗口 N（缺省 8 轮；<=1 = 每轮都强制）。 */
+  anti_monopoly_window?: number;
+  /** 跨轮最近顶选指纹窗口（按请求缓存键分域；缺省 null = 反垄断不参与）。 */
+  recent_tops?: Map<string, string[]> | null;
 }
 
 type Stats = Record<string, number>;
@@ -82,8 +118,16 @@ export class PathAssemblerBase {
   protected readonly _skill_provider:
     | ((request: AssemblyRequest) => Promise<readonly unknown[]>)
     | null;
-  protected readonly _base_graphs: import('./types.js').BaseGraphsProvider | null;
+  protected readonly _terminal_types: import('./types.js').TerminalTypesProvider | null;
   protected readonly _contract_enabled: boolean;
+  /** 池实例缺省 config（候选图节点按实例 config 绑定执行体；缺省 {}）。 */
+  protected readonly _instance_configs: Record<string, Record<string, unknown>>;
+  /** P4.1 候选层探索预算（缺省全关；详见 ExplorationBudgetOptions）。 */
+  protected readonly _trial_enabled: boolean;
+  protected readonly _trial_epsilon: number;
+  protected readonly _anti_monopoly_enabled: boolean;
+  protected readonly _anti_monopoly_window: number;
+  protected readonly _recent_tops: Map<string, string[]> | null;
 
   constructor(options: PathAssemblerOptions) {
     this._registry = options.registry;
@@ -97,8 +141,21 @@ export class PathAssemblerBase {
     this._cache_epsilon = Math.max(0.0, Number(options.cache_epsilon ?? DEFAULT_CACHE_EPSILON));
     this._rng = options.rng ?? Math.random;
     this._skill_provider = options.skill_provider ?? null;
-    this._base_graphs = options.base_graphs ?? null;
+    this._terminal_types = options.terminal_types ?? null;
     this._contract_enabled = options.contract_enabled ?? true;
+    this._instance_configs = { ...(options.instance_configs ?? {}) };
+    const budget = options.exploration_budget ?? null;
+    this._trial_enabled = budget?.candidate_trial_enabled ?? false;
+    this._trial_epsilon = Math.max(
+      0.0,
+      Number(budget?.candidate_trial_epsilon ?? DEFAULT_CANDIDATE_TRIAL_EPSILON),
+    );
+    this._anti_monopoly_enabled = budget?.anti_monopoly_enabled ?? false;
+    this._anti_monopoly_window = Math.max(
+      1,
+      Math.trunc(Number(budget?.anti_monopoly_window ?? DEFAULT_ANTI_MONOPOLY_WINDOW)),
+    );
+    this._recent_tops = budget?.recent_tops ?? null;
   }
 
   /** 池子快照：注册表内全部带契约的类型（类型名 → 契约）。契约语义开关

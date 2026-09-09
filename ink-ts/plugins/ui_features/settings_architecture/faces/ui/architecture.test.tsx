@@ -28,6 +28,15 @@ function poolData(partial: Partial<PoolSnapshotData> = {}): PoolSnapshotData {
     },
     last_round: { node_id: 'nodeA', verdict: 'merge', ts: 1700000000, budget_remaining: 7 },
     rows: [{ node_id: 'nodeA', verdict: 'merge', ts: 1700000000, budget_remaining: 7, reasons: ['近重复'] }],
+    registry: {
+      available: true,
+      total_count: 2,
+      active_count: 2,
+      types: [
+        { type_name: 'llm_decider', status: 'active', provenance: 'seed', executor: 'engine:llm_decider' },
+        { type_name: 'tool_pipeline', status: 'active', provenance: 'seed', executor: 'engine:tool_pipeline' },
+      ],
+    },
     degraded: false,
     ...partial,
   };
@@ -48,7 +57,7 @@ describe('架构视图容器', () => {
 
 describe('架构·结点池 tab（pool.snapshot 投影）', () => {
   it('无治理数据 → 空态「治理数据暂不可用」', async () => {
-    render(<PoolTab backend={makeBackend({ available: false, counts: { pool_count: 0, evaluations: 0, dead_node_candidates: 0, near_duplicate_merges: 0, weekly_budget_used: 0, weekly_budget_remaining: null, verdict_counts: {} }, last_round: null, rows: [], degraded: true }, null)} />);
+    render(<PoolTab backend={makeBackend({ available: false, counts: { pool_count: 0, evaluations: 0, dead_node_candidates: 0, near_duplicate_merges: 0, weekly_budget_used: 0, weekly_budget_remaining: null, verdict_counts: {} }, last_round: null, rows: [], registry: { available: false, total_count: 0, active_count: 0, types: [] }, degraded: true }, null)} />);
     expect(await screen.findByText('治理数据暂不可用')).toBeInTheDocument();
   });
 

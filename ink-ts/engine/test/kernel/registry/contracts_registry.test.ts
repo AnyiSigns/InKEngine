@@ -9,11 +9,11 @@ import {
 
 const ALL_CONTRACTS = ALL_MECHANISM_CONTRACTS;
 
-describe('全量机制契约注册表（33 机制）', () => {
+describe('全量机制契约注册表（34 机制）', () => {
   it('契约 id 全局唯一且与目录同集', () => {
     const ids = ALL_CONTRACTS.map((c) => c.id);
     expect(new Set(ids).size).toBe(ALL_CONTRACTS.length);
-    expect(ALL_CONTRACTS.length).toBe(33);
+    expect(ALL_CONTRACTS.length).toBe(34);
   });
 
   it('effects 只引用已登记端口', () => {

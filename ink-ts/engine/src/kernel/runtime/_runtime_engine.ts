@@ -26,6 +26,7 @@ import { EntitySpec } from '../../core/entities/entities.js';
 import { Engine, RunOptions } from '../executor/index.js';
 import { Graph } from '../../core/graph/graph.js';
 import { bind_engine_node_seams } from '../../core/nodes/index.js';
+import type { EngineNodeSeams } from '../../core/nodes/index.js';
 import { CompressingLLM, UsageTrackingLLM } from '../llm/guard.js';
 import type { AsyncLLM } from '../llm/_guard_types.js';
 import { HarnessDefinition } from '../../core/harness/index.js';
@@ -137,12 +138,32 @@ export abstract class RuntimeRebuild extends RuntimeMechanisms {
   /** 引擎内置节点 seams 绑定（回合引擎构建处调用）。 */
   private _bind_engine_seams(guard_llm: AsyncLLM | null, specs: readonly import('../llm/tools.js').ToolSpec[]): void {
     if (this.graph_registries === null) return;
+    const recipe = this._recipe;
+    // 作用域模型解析 seam（批4 agent 子作用域 model override）：配方注入
+    // scope_model_llm（宿主按 model 引用取适配器）时，经守卫链包装后挂到
+    // seams——子作用域内 llm 调用按实体 model 切换；未接线 = null（agent 结点
+    // 引用非 null model 时显式失败，不静默跑父模型）。守卫包装会为解析出的
+    // 实例建新链；host 解析方须自行管理其创建的底层实例生命周期（引擎只持
+    // 会话默认链），接线文档见 subsystems/engine.md。
+    let resolve_scope_llm: EngineNodeSeams['resolve_scope_llm'] = null;
+    if (recipe?.scope_model_llm !== null && recipe?.scope_model_llm !== undefined) {
+      resolve_scope_llm = async (model: Record<string, string>) => {
+        const resolved = await recipe!.scope_model_llm!(model);
+        return this._guard_for(resolved);
+      };
+    }
     bind_engine_node_seams(this.graph_registries, {
       llm: guard_llm,
       tool_pipeline: this.tool_pipeline,
       tool_specs: specs,
       all_tool_specs: this.merged_specs(),
       collect_specs: (thread_id?: string | null) => this.collect_specs(thread_id),
+      boot_system_prompt: this._recipe?.boot_system_prompt ?? '',
+      resolve_entity:
+        this.entity_registry !== null
+          ? (entity_id: string) => this.entity_registry!.get(entity_id)
+          : null,
+      resolve_scope_llm,
     });
   }
 

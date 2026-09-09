@@ -10,8 +10,17 @@
  * ctx.terminate 结束本轮。消息链随 state 持久化：中断/异常重入不重复已落
  * 结果的工具（消息链含已执行工具结果）。
  *
- * 工厂闭包持 seams 盒（见 seams.ts）：llm/流水线/工具表随引擎重建刷新，
- * 节点执行时现取最新值，不携带过期闭包。
+ * 工厂闭包持 seams 盒（见 seams.ts）：llm/流水线/工具表/boot 提示词随引擎
+ * 重建刷新，节点执行时现取最新值，不携带过期闭包。
+ *
+ * system 消息 = boot 基线（seams.boot_system_prompt，装配注入只读）与自定义
+ * system_prompt（config，用户/agent 可改）经 compose_llm_system 合成一条
+ * （boot 恒前）；boot 未注入（''）= 原自定义直取行为逐字符不变（零漂移）。
+ *
+ * 字段 I/O 分化 config（field_io.ts 共用约定）：output_field = 回复落点状态键
+ * （缺省 reply；保留键写护栏拒绝）；read_fields = 把 state 中这些键的既有内容
+ * 只读投影进提示（文本段拼接，不进持久化消息链）——实例级分化（planner/
+ * reviewer/main）经实例 config 生效，缺省 = 现状行为零漂移。
  */
 
 import { NodeContract } from '../contracts/contracts.js';
@@ -40,6 +49,8 @@ import {
   STATE_TOOL_ROUNDS,
 } from './constants.js';
 import { type EngineNodeSeams, type _EngineNodeSeamsBox } from './seams.js';
+import { compose_llm_system } from './llm_system.js';
+import { build_read_projection, config_read_fields, llm_output_key } from './field_io.js';
 
 /** 消息链/附件的持久化 JSON 形态（随 state 持久化，重入续跑防重复执行）。 */
 type StoredMessage = Record<string, unknown>;
@@ -48,6 +59,8 @@ type StoredMessage = Record<string, unknown>;
 interface _DeciderCtx {
   state: Record<string, unknown>;
   thread_id?: string;
+  /** 子作用域模型覆盖（agent 展开注入；null/缺省 = 回落 seams 默认 llm）。 */
+  scope_llm?: AsyncLLM | null;
   emit(etype: string, payload: Record<string, unknown>, opts?: { step_id?: string | null }): Promise<void>;
   terminate?(reason: string, meta?: Record<string, unknown>): void;
   account_usage?(usage: Record<string, unknown> | null): void;
@@ -98,6 +111,19 @@ function _seedMessages(
   }
   state[STATE_MESSAGES] = seeded.map((message) => message.to_dict());
   return seeded;
+}
+
+/** 单次模型调用视图：read_fields 命中的既有状态内容以只读投影追加在消息链
+ *  末尾（文本段拼接，进提示不进持久化链——投影不污染消息链语义；字段内容
+ *  本身已随状态通道持久化，链上重放即得）。无命中 = 原消息链直通。 */
+function _view_with_projection(
+  state: Record<string, unknown>,
+  messages: readonly Message[],
+  read_fields: readonly string[],
+): Message[] {
+  const projection = build_read_projection(state, read_fields);
+  if (projection === null) return [...messages];
+  return [...messages, user(projection)];
 }
 
 /** 工具参数 JSON 解析（ToolCall.arguments 为序列化 JSON 文本）。 */
@@ -225,28 +251,36 @@ export function llm_decider_contract(): NodeContract {
   });
 }
 
-/** llm_decider 工厂：seams 盒 → 节点工厂（配置 → 节点执行函数）。 */
+/** llm_decider 工厂：seams 盒 → 节点工厂（配置 → 节点执行函数）。
+ *  字段 I/O 分化 config：`output_field`（回复落点状态键，缺省 reply；保留键
+ *  写入拒绝）与 `read_fields`（只读投影进提示，见 field_io.ts）——缺省 =
+ *  现状行为零漂移。 */
 export function make_llm_decider_factory(box: _EngineNodeSeamsBox): NodeFactory {
   return (config: Record<string, unknown>) => {
     const system_prompt = String(config['system_prompt'] ?? '');
     const max_rounds = clamp_tool_rounds(config['max_tool_rounds']);
     const node_name = String(config['name'] ?? '');
+    const output_field = llm_output_key(config);
+    const read_fields = config_read_fields(config);
 
     return async (raw: unknown): Promise<Record<string, unknown> | null> => {
       const seams = box.current;
       const ctx = raw as _DeciderCtx;
-      const llm = seams.llm;
+      // 子作用域模型覆盖优先（agent 展开注入 scope llm）；缺省回落会话默认
+      const scope_llm = ctx.scope_llm ?? null;
+      const llm = scope_llm ?? seams.llm;
       const pipeline = seams.tool_pipeline;
       const input = String(ctx.state['input'] ?? '');
       if (llm === null || pipeline === null) {
         await ctx.emit('reply_token', { token: ENGINE_STUB_REPLY });
-        return { [STATE_REPLY]: ENGINE_STUB_REPLY };
+        ctx.state[output_field] = ENGINE_STUB_REPLY;
+        return { [output_field]: ENGINE_STUB_REPLY };
       }
       const messages = _seedMessages(
         ctx.state,
         input,
         _toAttachments(ctx.state['attachments']),
-        system_prompt,
+        compose_llm_system(seams.boot_system_prompt, system_prompt),
       );
       let rounds = 0;
       while (rounds < max_rounds) {
@@ -255,7 +289,14 @@ export function make_llm_decider_factory(box: _EngineNodeSeamsBox): NodeFactory 
         // 思考段 step_id 按流式轮次编号（decider 单回合内各次模型流式
         // 一段独立思考卡；前端按稳定 step_id 配对更新，不跨轮覆盖）。
         const think_step_id = `think:${rounds}`;
-        const turn = await _stream_turn(llm, ctx, messages, specs, node_name, think_step_id);
+        const turn = await _stream_turn(
+          llm,
+          ctx,
+          _view_with_projection(ctx.state, messages, read_fields),
+          specs,
+          node_name,
+          think_step_id,
+        );
         messages.push(
           assistant(turn.text, {
             tool_calls: turn.calls.length > 0 ? turn.calls : null,
@@ -265,9 +306,9 @@ export function make_llm_decider_factory(box: _EngineNodeSeamsBox): NodeFactory 
         ctx.state[STATE_MESSAGES] = messages.map((message) => message.to_dict());
         if (turn.calls.length === 0) {
           const reply = turn.text.trim() === '' ? ENGINE_STUB_REPLY : turn.text;
-          ctx.state[STATE_REPLY] = reply;
+          ctx.state[output_field] = reply;
           return {
-            [STATE_REPLY]: reply,
+            [output_field]: reply,
             [STATE_MESSAGES]: messages.map((message) => message.to_dict()),
             [STATE_TOOL_ROUNDS]: 0,
           };
@@ -289,8 +330,9 @@ export function make_llm_decider_factory(box: _EngineNodeSeamsBox): NodeFactory 
           ctx.state[STATE_MESSAGES] = messages.map((message) => message.to_dict());
         }
         if (halted) {
+          ctx.state[output_field] = '';
           return {
-            [STATE_REPLY]: '',
+            [output_field]: '',
             [STATE_MESSAGES]: messages.map((message) => message.to_dict()),
             [STATE_TOOL_ROUNDS]: 0,
           };

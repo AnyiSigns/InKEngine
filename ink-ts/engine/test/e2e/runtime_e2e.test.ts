@@ -2,8 +2,9 @@
  * 引擎端到端回归（真适配器 + 真存储 + 进程内假 OpenAI 服务，零外网）。
  *
  * 组成语义镜像 stdio_host.py + test_runtime.py 的 AssemblyRecipe 直注配方
- * （boot 种子 / 系统提示词 / UI 描述 / 事件类型 / 自举 harness / 契约自指
- * 工具三路声明），但为**引擎侧**接线冒烟（无任何后端/宿主产品代码）：
+ * （boot 系统提示词经 boot_system_prompt 注入 / UI 描述 / 事件类型 / 自举
+ * harness / 契约自指工具三路声明），但为**引擎侧**接线冒烟（无任何后端/宿主
+ * 产品代码）：
  * - 真 MemoryStorage（adapters/storage）三通道生命周期；
  * - registry.create_llm → 真 OpenAICompatibleLLM → node:http 本地假服务
  *   （非流式 + SSE 流式全链路协议化断言）；
@@ -20,6 +21,7 @@ import { describe, expect, it } from 'vitest';
 
 import { create_memory_storage } from '../../src/adapters/storage/index.js';
 import { create_llm } from '../../src/adapters/llm/registry.js';
+import { BOOT_PROMPT_SEED_ID, BOOT_SYSTEM_PROMPT } from '../../src/adapters/boot/index.js';
 import { Runtime } from '../../src/kernel/runtime/index.js';
 import { CACHE_COLLECTION, CachingLLM } from '../../src/kernel/llm/cache.js';
 import { ModelChain, RetryPolicy } from '../../src/kernel/llm/fallback.js';
@@ -27,7 +29,8 @@ import type { AsyncLLM } from '../../src/kernel/llm/base.js';
 import { LLMConfigError } from '../../src/kernel/llm/errors.js';
 import { system, user } from '../../src/kernel/llm/messages.js';
 import { validate_chain } from '../../src/core/storage/storage.js';
-import { ENGINE_STUB_REPLY } from '../../src/core/nodes/index.js';
+import { ENGINE_STUB_REPLY, TYPE_LLM_DECIDER, default_engine_pool_seed } from '../../src/core/nodes/index.js';
+import type { EnginePoolSeed } from '../../src/core/nodes/index.js';
 import { FakeOpenAIServer } from './_fake_openai.js';
 import {
   E2eHost,
@@ -260,6 +263,13 @@ describe('CachingLLM + 真 MemoryStorage 缓存闭环', () => {
 // ---------------------------------------------------------------------------
 // 4. Runtime 组装接线冒烟（boot 种子 + MemoryStorage + 真适配器 → engine 可跑）
 // ---------------------------------------------------------------------------
+/** 本冒烟沿 llm_decider 单节点回合断言：P4.2a-3 出厂池扩充后默认顶选 =
+ *  planner→reviewer→main 字段链，此处池种子过滤回落单实例。 */
+function deciderOnlyPoolSeed(): EnginePoolSeed {
+  const base = default_engine_pool_seed();
+  return { enabled: true, node_types: base.node_types.filter((row) => row.type === TYPE_LLM_DECIDER) };
+}
+
 describe('Runtime 组装接线冒烟', () => {
   it('boot 配方直注 + 真存储 + 真适配器：组装回合经 llm_decider 可 ainvoke（假服务流式）', async () => {
     const server = new FakeOpenAIServer({ content: '你好，世界' });
@@ -273,7 +283,11 @@ describe('Runtime 组装接线冒烟', () => {
       }),
     );
     try {
-      const runtime = await boot_runtime(host, e2e_recipe());
+      const runtime = await boot_runtime(host, e2e_recipe({ pool_seed: deciderOnlyPoolSeed() }));
+      // P4.2b 夹具对齐（与产品宿主同源）：boot 系统提示词经配方
+      // AssemblyRecipe.boot_system_prompt 注入 → 不再作为 boot_prompt 知识
+      // 条目经 seeds 注入（知识集不含 seed.boot.system_prompt）
+      expect(runtime.knowledge_set!.get(BOOT_PROMPT_SEED_ID)).toBeNull();
       // 配方缺省 Host.resolve_llm 已装配真适配器（rebuild_engine 记录已解析链）
       expect(runtime.engine_llm).not.toBeNull();
       expect(host.storage).toBe(runtime.storage!.inner);
@@ -285,6 +299,17 @@ describe('Runtime 组装接线冒烟', () => {
         transports: [transport],
       });
       expect((result.state as Record<string, unknown>)['reply']).toBe('你好，世界');
+      // llm 请求首条 = boot 系统提示词（llm 类结点 system 合成只读基线，与
+      // 产品宿主 host 装配语义一致）
+      const llmReq = server.requests.find((request) =>
+        Array.isArray((request.body as { messages?: unknown }).messages),
+      );
+      expect(llmReq).toBeDefined();
+      const sentMessages = (llmReq!.body as {
+        messages: Array<{ role: string; content: string }>;
+      }).messages;
+      expect(sentMessages[0]!.role).toBe('system');
+      expect(sentMessages[0]!.content).toBe(BOOT_SYSTEM_PROMPT);
       const tokens = eventsOf(transport, 'reply_token')
         .map((e) => String(e.payload['token'] ?? ''))
         .join('');

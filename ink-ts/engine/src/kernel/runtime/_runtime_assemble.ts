@@ -81,9 +81,8 @@ export abstract class RuntimeAssemble extends RuntimeNodeRegistrar {
     }
     // 引擎内置基础节点池种子声明（出厂默认；宿主可经配方 pool_seed 覆写）。
     // 结点类型执行体注册改为声明式注册表恢复（_assemble_node_registry 在
-    // mechanism writer 就绪后落登记/恢复，见该步注释）——这里只保留种子数据。
+    // mechanism writer 就绪后落登记/恢复，见该步注释）——这里只解析种子数据。
     const poolSeed = recipe.pool_seed ?? default_engine_pool_seed();
-    this._engine_pool_seed = poolSeed;
     this._persist_tasks = new Set();
     const persistKnowledgeSet = async (): Promise<void> => {
       if (this.knowledge_set === null || this.storage === null) return;

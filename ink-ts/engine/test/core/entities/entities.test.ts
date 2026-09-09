@@ -84,6 +84,31 @@ describe('EntitySpec 声明形态', () => {
     const s2 = EntitySpec.from_dict({ id: 'analyst', model: {} });
     expect(s2.model).toBeNull();
   });
+
+  it('role 缺省回落 collaborator（旧 dict 无 role 可正常反序列化，to_dict 不新增输出）', () => {
+    const s = EntitySpec.from_dict({ id: 'analyst' });
+    expect(s.role).toBe('collaborator');
+    const restored = EntitySpec.from_dict(s.to_dict());
+    expect(restored.role).toBe('collaborator');
+    expect(s.to_dict()).not.toHaveProperty('role');
+    const explicit = new EntitySpec({ id: 'x', role: 'collaborator' });
+    expect(explicit.role).toBe('collaborator');
+    expect(explicit.to_dict()).not.toHaveProperty('role');
+  });
+
+  it('role 自定义往返（from_dict/to_dict 可选字段）', () => {
+    const s = EntitySpec.from_dict({ id: 'auditor', role: 'lead' });
+    expect(s.role).toBe('lead');
+    expect(s.to_dict()['role']).toBe('lead');
+    const restored = EntitySpec.from_dict(s.to_dict());
+    expect(restored.role).toBe('lead');
+    expect(restored).toEqual(s);
+  });
+
+  it('role 类型非法拒绝', () => {
+    expect(() => spec('a', { role: 5 })).toThrow(/role 须为字符串/);
+    expect(() => spec('a', { role: ['lead'] })).toThrow(/role 须为字符串/);
+  });
 });
 
 describe('EntityRegistry 注册门禁', () => {

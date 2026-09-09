@@ -172,6 +172,47 @@ describe('runtime 机制开关（D02）', () => {
     expect(runtime.assembly_runtime!.contract_enabled).toBe(false);
     await runtime.stop();
   });
+
+  it('P4.1 候选层探索预算：引擎默认不携带（零漂移）；配方开启随运行期挂载并透传参数', async () => {
+    const off = await new Runtime().boot(toHost(new FakeHost()), _recipe());
+    expect(off.assembly_runtime!.exploration_budget).toBeNull();
+    await off.stop();
+    const on = await new Runtime().boot(
+      toHost(new FakeHost()),
+      _recipe({
+        candidate_trial_enabled: true,
+        candidate_trial_epsilon: 0.03,
+        anti_monopoly_enabled: true,
+        anti_monopoly_window: 8,
+      }),
+    );
+    expect(on.assembly_runtime!.exploration_budget).toEqual({
+      candidate_trial_enabled: true,
+      candidate_trial_epsilon: 0.03,
+      anti_monopoly_enabled: true,
+      anti_monopoly_window: 8,
+    });
+    await on.stop();
+  });
+
+  it('P4.1 探索预算非法参数覆写钳制（负 epsilon 截 0；窗口截 >=1）', async () => {
+    const runtime = await new Runtime().boot(
+      toHost(new FakeHost()),
+      _recipe({
+        candidate_trial_enabled: true,
+        candidate_trial_epsilon: -1,
+        anti_monopoly_enabled: true,
+        anti_monopoly_window: 0,
+      }),
+    );
+    expect(runtime.assembly_runtime!.exploration_budget).toEqual({
+      candidate_trial_enabled: true,
+      candidate_trial_epsilon: 0,
+      anti_monopoly_enabled: true,
+      anti_monopoly_window: 1,
+    });
+    await runtime.stop();
+  });
 });
 
 describe('runtime 边证据持久化与钩子触发（D01）', () => {

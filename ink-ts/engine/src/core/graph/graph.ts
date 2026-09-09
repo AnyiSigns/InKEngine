@@ -18,6 +18,7 @@ import {
   Edge,
   type EdgeCondition,
   type EdgeConditionRegistryLike,
+  type EdgeKind,
   NodeBinding,
   type NodeFn,
   type NodeTypeRegistryLike,
@@ -98,22 +99,52 @@ export class Graph {
     });
   }
 
-  add_edge(source: string, target: string): void {
+  add_edge(source: string, target: string, kind?: EdgeKind): void {
     if (!this.edges[source]) this.edges[source] = [];
-    this.edges[source].push(new Edge({ target }));
+    this.edges[source].push(new Edge({ target, kind: kind ?? 'standard' }));
   }
 
-  add_conditional_edge(source: string, target: string, condition: EdgeCondition): void {
+  add_conditional_edge(
+    source: string,
+    target: string,
+    condition: EdgeCondition,
+    kind?: EdgeKind,
+  ): void {
     if (!this.edges[source]) this.edges[source] = [];
-    this.edges[source].push(new Edge({ target, condition }));
+    this.edges[source].push(new Edge({ target, condition, kind: kind ?? 'conditional' }));
   }
 
-  add_conditional_edge_by_name(source: string, target: string, condition_name: string): void {
+  add_conditional_edge_by_name(
+    source: string,
+    target: string,
+    condition_name: string,
+    kind?: EdgeKind,
+  ): void {
     if (!condition_name) {
       throw new GraphDefinitionError(`条件边 ${source}->${target} 的条件名不能为空`);
     }
     if (!this.edges[source]) this.edges[source] = [];
-    this.edges[source].push(new Edge({ target, condition_name }));
+    this.edges[source].push(new Edge({ target, condition_name, kind: kind ?? 'conditional' }));
+  }
+
+  /** 显式回边（kind=loop；目标为上游/自身，重复至退出条件）。 */
+  add_loop_edge(
+    source: string,
+    target: string,
+    init: { condition?: EdgeCondition | null; condition_name?: string | null } = {},
+  ): void {
+    if (init.condition_name !== null && init.condition_name !== undefined && init.condition_name === '') {
+      throw new GraphDefinitionError(`回边 ${source}->${target} 的条件名不能为空`);
+    }
+    if (!this.edges[source]) this.edges[source] = [];
+    this.edges[source].push(
+      new Edge({
+        target,
+        condition: init.condition ?? null,
+        condition_name: init.condition_name ?? null,
+        kind: 'loop',
+      }),
+    );
   }
 
   add_exit(name: string): void {
@@ -169,6 +200,7 @@ export class Graph {
           target: edge.target,
           condition: edge_registry.create(edge.condition_name),
           condition_name: edge.condition_name,
+          kind: edge.kind ?? undefined,
         });
       }
     }

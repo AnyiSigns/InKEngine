@@ -231,6 +231,7 @@ CI 的 ink-ts job 同链执行。规则增删须同步本表。
 | `rounds.resume` | rounds | 审批决议重入（Runtime.resume_run：按 checkpoint `_round_graph` 重建本轮引擎同图续跑） |
 | `rounds.branch` | rounds | 分支续跑（Runtime.resume_round：按锚点 checkpoint 关联图重建，同语义续跑新叶） |
 | `rounds.todos` | rounds | 回合待办（最新 checkpoint.plan 未完成步骤 + 链尾挂起审批卡；无 = 空清单） |
+| `rounds.fork_trial` | rounds | 骨架 fork 试跑（P4 可分接线）：以源会话最新会话骨架为蓝图复制到新线程（trial_thread_id 缺省派生）触发一次组装回合，主线不动；源无骨架/骨架失效显式拒绝 |
 | `records.sessions` | records | 会话索引查询（host 薄数据：rounds 收尾 upsert 的索引记录） |
 | `records.chain` | records | 链记录（chain_index + checkpoint to_dict，engine 权威） |
 | `sessions.create` | sessions | 会话薄服务：建会话（host 数据目录持久化，引擎无 session 域） |
@@ -282,7 +283,9 @@ CI 的 ink-ts job 同链执行。规则增删须同步本表。
 | `policy.route` | policy | 策略层路由预览（确定性任务分类 → 计划形态 → 档位/配额；零 LLM，规格见 bridge/policy.ts） |
 | `ui_components.get` | ui_components | 出厂界面组件启停态（factory/disabled/active 三清单；engine 同源） |
 | `ui_components.set_disabled` | ui_components | 整集替换出厂组件停用集（`{disabled: string[]}`；未登记名结构化拒绝） |
-| `graph.instance` | graph | 最近回合组装图投影（introspection 内省图源 = 引擎每轮回合组装的图）+ 该线程最近一回合执行事件节点态（error=failed/其余=success）；无任何回合（宿主不产静态/默认图）= 空图 degraded 空态，不报错 |
+| `graph.instance` | graph | 最近回合组装图投影（introspection 内省图源 = 引擎每轮回合组装的图）+ 该线程最近一回合执行事件节点态（error=failed/其余=success）；无任何回合（宿主不产静态/默认图）= 空图 degraded 空态，不报错。最近一回合 round_id 以 `auto:` 开头 = auto_round:true，并读链尾前驱 checkpoint 的 `_round_continuation` 附 continuation_reason（evolved/continue） |
+| `skeleton.get` | skeleton | 读当前会话骨架（最新 checkpoint state `_thread_skeleton` 投影 + 当前池校验态；无链/无骨架 = present:false 结构化空态） |
+| `skeleton.edit` | skeleton | 会话骨架声明式修改（actions 增量：set_target/upsert_node/remove_node/add_edge/remove_edge/set_exits，引用池内已登记类型；或 sketch 整份替换）→ 经 validate_skeleton_sketch 校验 → mount_skeleton_to_state 挂载（唯一写口）→ 草稿落 host 会话簿记 skeleton_draft，下一次 rounds.send 作为回合 state 骨架种子消费（引擎沿新骨架推进）；dry = 只校验预览不落写 |
 | `pool.snapshot` | pool | 池治理登记快照（runtime.pool_governance.log 窗口 + 登记记录派生计数：容量/死结点候选/近重复/周预算；无登记 = 空态 + last_round:null） |
 | `pool.evaluate` | pool | 池治理判定入口（引擎 evaluate 四规则只登记不执行；需 `proposal.node_id`，snapshot 可选；无登记器 = available:false 空态） |
 | `edge_evidence.list` | edge_evidence | 边证据条目窗口（runtime.edge_evidence_store 投影：domain/source 过滤 + limit 截断；无 store = 结构化空态） |
@@ -323,11 +326,13 @@ metrics_snapshot/assemble_stats/cache_stats/path_state/entities_snapshot）已�
 
 ## 10. 机制接线注记（host 装配语义补充）
 
-- 产品配方开关默认表（recipe.ts `PRODUCT_SWITCH_DEFAULTS`）十位全开且每位真实消费：
-  八位经 AssemblyRecipe 机制开关字段（contract/edge_evidence/settle_hooks/
+- 产品配方开关默认表（recipe.ts `PRODUCT_SWITCH_DEFAULTS`）十二位全开且每位真实消费：
+  十位经 AssemblyRecipe 机制开关字段（contract/edge_evidence/settle_hooks/
   pool_governance/assembler/fingerprint_cache/canary_verification/
-  context_window_multidomain/emit_timeline_events）、两位经 run_options
-  （multipath_enabled/emit_timeline_events）逐位落到引擎；删除开关表须同步删除
+  context_window_multidomain/candidate_trial_enabled/anti_monopoly_enabled）、
+  两位经 run_options（multipath_enabled/emit_timeline_events）逐位落到引擎；
+  P4.1 候选层探索预算参数走产品保守默认（PRODUCT_EXPLORATION_DEFAULTS：
+  epsilon 0.03 / 窗口 8）；删除开关表须同步删除
   `assert_product_switches_all_on` 断言与单测。memory_extract/skill_crystal 自学习族
   开关不在产品表（引擎默认开）。
 - 回合 = 组装、无默认图（语义不变量）：引擎/宿主都不存在「默认图/出厂图」——

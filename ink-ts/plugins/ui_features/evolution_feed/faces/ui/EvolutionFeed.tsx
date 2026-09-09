@@ -1,11 +1,14 @@
 /**
- * 演化页（主区「演化」页签）：自学习演化动态时间线 + 最近回合实例图。
+ * 状态页主区（view id = evolution）：自学习演化动态时间线 + 当前回合图组成清单
+ * + 协作者目录。
  *
- * 数据 = hub 实时归约快照 + 引擎实例图 op：
+ * 数据 = hub 实时归约快照 + 引擎只读口：
  * - incubation 孵化流水：信号检测 → 蒸馏 → 闸门判定（passed/blocked）
  * - patchChain 补丁链：提案 → 应用 / 回退
- * - instance 最近回合实例图：按当前会话 thread_id 查 graph.instance_snapshot
- *   （只读展示实际执行图与节点运行态；无数据/无会话 = 空态不白屏）
+ * - instance 最近回合图数据：按当前会话 thread_id 查 graph.instance_snapshot，
+ *   只读展示「当前回合图组成」成分清单（执行过结点 label+运行态、走过的边
+ *   src→dst；召唤 agent 无本回合实体数据 = 诚实占位文案）；无数据/无会话 =
+ *   空态不白屏。DAG 图（DagRenderer）已废弃，不再渲染。
  * - entities 协作者目录：查 entities.snapshot（与 inspect_entities 工具
  *   同源，只读展示可召唤的协作者；无注册表 = 空态不白屏）
  */
@@ -13,10 +16,17 @@
 import { useEffect, useState } from 'react';
 import { Bot, CheckCircle2, Circle, GitCommitVertical, Loader2, Network, ShieldAlert, Sparkles, XCircle } from 'lucide-react';
 
-import { DagRenderer } from '@app/dag';
 import type { BackendAdapter } from '@/shared/backend/backendAdapter';
 import type { IncubationEntry, PatchChainEntry } from '@/shared/session/types';
 import { mapInstanceSnapshot, type InstanceGraph } from '@app/views/architecture/backend';
+
+/** 运行态徽标文案（nodeStatus 值 → 中文展示；未知值原样回落）。 */
+const NODE_STATUS_LABEL: Record<string, string> = {
+  running: '进行中',
+  success: '成功',
+  failed: '失败',
+  idle: '空闲',
+};
 
 /** 实体目录快照（与引擎 introspection.snapshot_entities 同构）。 */
 interface EntitySnapshotData {
@@ -71,30 +81,106 @@ function patchNode(entry: PatchChainEntry): { icon: JSX.Element; label: string; 
   }
 }
 
+/** 自动续跑触发原因文案（host graph.instance continuation_reason → 展示）。 */
+const AUTO_REASON_LABEL: Record<string, string> = {
+  evolved: '进化后续跑',
+  continue: '继续',
+};
+
+/** 当前回合图组成清单（只读成分列表；取代已废弃的 DAG 图）。 */
+function RoundComposition({ instance }: { instance: InstanceGraph }): JSX.Element {
+  const labelOf = new Map(instance.graph.nodes.map((node) => [node.id, node.label || node.id] as const));
+  const edges = instance.graph.edges.map((edge) => ({
+    from: labelOf.get(edge.from) ?? edge.from,
+    to: labelOf.get(edge.to) ?? edge.to,
+  }));
+  const autoReason = instance.autoReason === null ? null : (AUTO_REASON_LABEL[instance.autoReason] ?? instance.autoReason);
+  return (
+    <div className="mb-5 rounded-xl border ink-border p-4" data-ui="round_composition">
+      <div className="mb-3 flex items-center gap-2">
+        <Network size={14} strokeWidth={1.6} className="ink-text-faint" />
+        <span className="text-[13px] font-medium">当前回合图组成</span>
+        <span className="text-[11px] ink-text-faint">回合 {instance.roundId} · 只读</span>
+        {instance.isAutoRound && (
+          <span className="ink-chip shrink-0 py-px text-[10px]" data-auto-round>
+            自动续跑{autoReason !== null ? ` · ${autoReason}` : ''}
+          </span>
+        )}
+      </div>
+      {instance.graph.nodes.length > 0 && (
+        <div className="mb-3">
+          <div className="mb-1.5 text-[11px] font-medium ink-text-faint">执行过的结点</div>
+          <ul className="space-y-0.5">
+            {instance.graph.nodes.map((node) => {
+              const status = instance.nodeStatus[node.id];
+              const statusText = status === undefined ? null : (NODE_STATUS_LABEL[status] ?? status);
+              return (
+                <li
+                  key={node.id}
+                  className="flex items-center gap-3 rounded-lg px-2 py-1 hover:bg-[var(--ink-bg-surface)]"
+                  data-node-row
+                  data-status={status ?? ''}
+                >
+                  <span className="min-w-0 flex-1 truncate text-[13px]">{node.label || node.id}</span>
+                  {statusText !== null && (
+                    <span className="ink-chip shrink-0 py-px text-[10px]" data-status-badge={status}>
+                      {statusText}
+                    </span>
+                  )}
+                </li>
+              );
+            })}
+          </ul>
+        </div>
+      )}
+      {edges.length > 0 && (
+        <div className="mb-3">
+          <div className="mb-1.5 text-[11px] font-medium ink-text-faint">走过的边</div>
+          <ul className="space-y-0.5">
+            {edges.map((edge, index) => (
+              <li
+                key={`${edge.from}->${edge.to}-${index}`}
+                className="flex items-center gap-3 rounded-lg px-2 py-1 hover:bg-[var(--ink-bg-surface)]"
+                data-edge-row
+              >
+                <span className="min-w-0 flex-1 truncate text-[12px] font-mono ink-text-muted">
+                  {edge.from} → {edge.to}
+                </span>
+              </li>
+            ))}
+          </ul>
+        </div>
+      )}
+      <div>
+        <div className="mb-1.5 text-[11px] font-medium ink-text-faint">召唤的 agent</div>
+        <p className="rounded-lg border border-dashed ink-border px-3 py-2 text-[12px] ink-text-muted">
+          本回合未召唤协作者
+        </p>
+      </div>
+    </div>
+  );
+}
+
 export function EvolutionFeed({ incubation, patchChain, backend, threadId }: EvolutionFeedProps): JSX.Element {
   const signalCount = incubation.filter((e) => e.stage === 'passed').length + incubation.filter((e) => e.stage === 'blocked').length;
   const blockedCount = incubation.filter((e) => e.stage === 'blocked').length;
 
-  // 最近回合实例图（按当前会话窗口查询；thread_id 切换自动重取）
+  // 当前回合图组成数据（graph.instance 按当前会话窗口查询；thread_id 切换自动重取）
   const [instance, setInstance] = useState<InstanceGraph | null>(null);
-  const [instanceLoaded, setInstanceLoaded] = useState(false);
 
   useEffect(() => {
     let alive = true;
-    setInstanceLoaded(false);
     if (!backend.available || !threadId) {
-      setInstanceLoaded(true);
+      setInstance(null);
       return;
     }
     void backend
       .graphInstanceSnapshot(threadId)
       .then((raw) => {
-        if (!alive) return;
-        setInstance(mapInstanceSnapshot(raw));
-        setInstanceLoaded(true);
+        if (alive) setInstance(mapInstanceSnapshot(raw));
       })
       .catch(() => {
-        if (alive) setInstanceLoaded(true);
+        if (alive) setInstance(null);
       });
     return () => {
       alive = false;
@@ -129,7 +215,7 @@ export function EvolutionFeed({ incubation, patchChain, backend, threadId }: Evo
     return (
       <div className="flex h-full flex-col items-center justify-center gap-1 text-[12px] ink-text-faint">
         <p>还没有演化动态</p>
-        <p className="text-[11px]">会话运行后，这里会展示智能体的自学习演化时间线与最近回合执行图</p>
+        <p className="text-[11px]">会话运行后，这里会展示自学习演化动态、当前回合图组成与协作者目录</p>
       </div>
     );
   }
@@ -164,37 +250,8 @@ export function EvolutionFeed({ incubation, patchChain, backend, threadId }: Evo
             </ul>
           </div>
         )}
-        {/* 最近回合实例图（只读） */}
-        {instance && (
-          <div className="mb-5 rounded-xl border ink-border p-4">
-            <div className="mb-2 flex items-center gap-2">
-              <Network size={14} strokeWidth={1.6} className="ink-text-faint" />
-              <span className="text-[13px] font-medium">最近回合执行图</span>
-              <span className="text-[11px] ink-text-faint">回合 {instance.roundId} · 只读</span>
-            </div>
-            <div style={{ height: 280 }}>
-              <DagRenderer
-                graph={{
-                  ...instance.graph,
-                  nodes: instance.graph.nodes.map((n) => ({
-                    ...n,
-                    status: instance.nodeStatus[n.id] ?? n.status,
-                  })),
-                }}
-                ariaLabel={`回合 ${instance.roundId} 实例图`}
-                onNodeClick={() => undefined}
-              />
-            </div>
-            <div className="mt-2 flex gap-3">
-              {(['running', 'success', 'failed'] as const).map((s) => (
-                <span key={s} className="ink-chip py-px text-[9px]" data-status-legend={s}>
-                  {s === 'running' ? '进行中' : s === 'success' ? '成功' : '失败'}
-                </span>
-              ))}
-            </div>
-          </div>
-        )}
-        {!instance && instanceLoaded && incubation.length === 0 && patchChain.length === 0 && null}
+        {/* 当前回合图组成（只读成分清单；DAG 图已废弃） */}
+        {instance && <RoundComposition instance={instance} />}
 
         {/* 演化动态时间线 */}
         {(incubation.length > 0 || patchChain.length > 0) && (

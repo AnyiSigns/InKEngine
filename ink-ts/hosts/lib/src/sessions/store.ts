@@ -178,6 +178,39 @@ export class HostSessionStore {
     return record;
   }
 
+  /** 暂存待生效骨架草稿（skeleton.edit 校验挂载产物；下轮 send 消费后清除）。 */
+  async set_skeleton_draft(
+    thread_id: string,
+    skeleton: Record<string, unknown> | null,
+  ): Promise<HostSessionRecord> {
+    const existing = await this.getRecord(thread_id);
+    const record: HostSessionRecord = existing ?? new_session_record(thread_id);
+    record.skeleton_draft = skeleton === null ? null : { ...skeleton };
+    await this.putRecord(record);
+    return record;
+  }
+
+  /** 取待生效骨架草稿（未设/无记录 = null；不消费）。 */
+  async peek_skeleton_draft(thread_id: string): Promise<Record<string, unknown> | null> {
+    const record = await this.getRecord(thread_id).catch(() => null);
+    if (record === null || record.skeleton_draft === null || record.skeleton_draft === undefined) {
+      return null;
+    }
+    return { ...record.skeleton_draft };
+  }
+
+  /** 消费并清除待生效骨架草稿（返回被消费草稿；未设 = null）。 */
+  async take_skeleton_draft(thread_id: string): Promise<Record<string, unknown> | null> {
+    const record = await this.getRecord(thread_id).catch(() => null);
+    if (record === null || record.skeleton_draft === null || record.skeleton_draft === undefined) {
+      return null;
+    }
+    const draft = { ...record.skeleton_draft };
+    record.skeleton_draft = null;
+    await this.putRecord(record);
+    return draft;
+  }
+
   /** 分支树（链多叶数据面推导；不落第二份台账）。 */
   async branch_tree(thread_id: string): Promise<SessionBranchTree> {
     const storage = this.requireStorage();

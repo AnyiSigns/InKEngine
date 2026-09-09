@@ -146,7 +146,16 @@ export function evaluate_proposal(
   }
   const full = at_capacity(snapshot.pool_count, { capacity });
   const dead: string[] = [];
+  // 池不变式保护：active 终态候选（terminal=true）在池内唯一时不可判死淘汰
+  // （死结点淘汰不得移除最后一个终态候选）；多终态时单次判定最多淘汰
+  // terminal_count-1 个（保证淘汰后恒剩 ≥1 个可自终止终态候选）。
+  const terminalCount = poolNodes.filter((node) => node.terminal).length;
+  let evictableTerminals = Math.max(0, terminalCount - 1);
   for (const node of poolNodes) {
+    if (node.terminal) {
+      if (evictableTerminals <= 0) continue;
+      evictableTerminals -= 1;
+    }
     if (dead_node_eligible(node.usage_count, node.age_days, { promoted: node.promoted })) {
       dead.push(node.node_id);
     }

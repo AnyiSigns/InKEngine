@@ -30,6 +30,7 @@ import type { Graph as GraphType } from '../../core/graph/graph.js';
 
 import type { _AsyncQueue, NodeContext } from './_internals.js';
 import { _TransportSequencer, _Mutex } from './_internals.js';
+import type { AsyncLLM } from '../llm/_guard_types.js';
 
 /** ``_execute`` 主执行循环选项（镜像 Python 关键字参）。 */
 export interface ExecuteOptions {
@@ -46,6 +47,8 @@ export interface ExecuteOptions {
   resume_map?: Map<string, number> | null;
   checkpoint_thread_id?: string | null;
   parent_step_id?: string | null;
+  /** 子作用域模型覆盖（agent 展开注入；null/缺省 = 回落 seams 默认 llm）。 */
+  scope_llm?: AsyncLLM | null;
 }
 
 /**

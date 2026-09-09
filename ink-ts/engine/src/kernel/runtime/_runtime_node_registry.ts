@@ -18,10 +18,11 @@ import { NodeContract } from '../../core/contracts/contracts.js';
 import { GraphDefinitionError } from '../../core/errors.js';
 import type { NodeFactory } from '../../core/registry/registry_types.js';
 import {
-  has_engine_node_type,
+  has_engine_executor,
   register_engine_edge_conditions,
   register_engine_node_type,
 } from '../../core/nodes/index.js';
+import { derive_instance_contract } from '../../core/nodes/instance_contract.js';
 import type { EnginePoolSeed } from '../../core/nodes/index.js';
 import {
   NodeRegistryStore,
@@ -34,17 +35,23 @@ import type { Storage } from '../../core/storage/storage.js';
 import type { AssemblyRecipe } from './_types.js';
 import { RuntimeSelfLearning } from './_runtime_self_learning.js';
 
-/** 种子声明 → 登记行数据（executor 绑定 = `engine:<type>`）。 */
+/** 种子声明 → 登记行数据（executor 绑定 = `engine:<executor>`，缺省 executor =
+ *  type 自身——实例键与执行体解耦；实例契约随 config_defaults 派生，缺省 =
+ *  类型契约零漂移）。 */
 function _seed_registration(
   seed: EnginePoolSeed['node_types'][number],
 ): NodeRegistrationInit {
   return {
     type_name: seed.type,
-    contract: seed.contract,
+    contract: derive_instance_contract(seed.contract, seed.default_config),
     config_defaults: seed.default_config,
-    executor: `engine:${seed.type}`,
+    executor: `engine:${seed.executor ?? seed.type}`,
     provenance: 'seed',
     status: 'active',
+    kind: seed.kind ?? null,
+    label: seed.label ?? null,
+    description: seed.description ?? null,
+    flags: seed.flags ?? null,
   };
 }
 
@@ -101,15 +108,18 @@ export abstract class RuntimeNodeRegistrar extends RuntimeSelfLearning {
     this._restore_diag = [...this._restore_diag, ...diag];
   }
 
-  /** 按登记行重建运行时执行体注册（引擎内置 / 配方绑定；成功 = true）。 */
+  /** 按登记行重建运行时执行体注册（引擎内置 / 配方绑定；成功 = true）。
+   *  引擎内置绑定：executor `engine:<内核名>` 解析执行体构建器，实例键 =
+   *  登记 type_name（两者可解耦——多实例指向同一内核）；配方绑定经
+   *  recipe.node_executors 按 executor 名解析。 */
   private _register_registration_executor(reg: NodeRegistration): boolean {
     const registries = this.graph_registries;
     const recipe = this._recipe;
     if (registries === null) return false;
     if (reg.executor.startsWith('engine:')) {
-      const type_name = reg.executor.slice('engine:'.length);
-      if (type_name !== reg.type_name || !has_engine_node_type(type_name)) return false;
-      return register_engine_node_type(registries, type_name, reg.contract);
+      const executor = reg.executor.slice('engine:'.length);
+      if (!has_engine_executor(executor)) return false;
+      return register_engine_node_type(registries, reg.type_name, reg.contract, null, executor);
     }
     const factory = recipe?.node_executors?.[reg.executor] ?? null;
     if (factory === null) return false;
@@ -122,12 +132,21 @@ export abstract class RuntimeNodeRegistrar extends RuntimeSelfLearning {
     return true;
   }
 
-  /** 结点类型注册登记（宿主/agent 注入：数据落库 + 执行体装入注册表）。 */
+  /**
+   * 结点类型注册登记（宿主/agent 注入：数据落库 + 执行体装入注册表）。
+   * 类型元数据（kind/label/description/flags）可选缺省回落 null——宿主/agent
+   * 注入类型也可声明 kind/flags（如 flags.terminal=true 供组装终态兜底），
+   * 语义与种子登记（_seed_registration 元数据透传）一致。
+   */
   async register_node_type(
     input: {
       type_name: string;
       contract?: NodeContract | null;
       config_defaults?: Record<string, unknown>;
+      kind?: string | null;
+      label?: string | null;
+      description?: string | null;
+      flags?: NodeRegistrationInit['flags'];
       executor?: string | null;
       provenance?: NodeRegistrationProvenance;
       note?: string | null;
@@ -143,11 +162,21 @@ export abstract class RuntimeNodeRegistrar extends RuntimeSelfLearning {
       throw new GraphDefinitionError(`结点类型重复登记: ${input.type_name}`);
     }
     const executor = input.executor ?? `host:${input.type_name}`;
+    // 实例契约随 config 派生（config 无字段分化 = 传入契约零变化；派生是
+    // 运行时视图，登记行只落派生后的契约数据——装配面与组装器同源可见）。
+    const derivedContract =
+      input.contract === null || input.contract === undefined
+        ? null
+        : derive_instance_contract(input.contract, input.config_defaults ?? {});
     const reg = await store.register(
       {
         type_name: input.type_name,
-        contract: input.contract ?? null,
+        contract: derivedContract,
         config_defaults: input.config_defaults,
+        kind: input.kind ?? null,
+        label: input.label ?? null,
+        description: input.description ?? null,
+        flags: input.flags ?? null,
         executor,
         provenance: input.provenance ?? 'host',
         status: 'active',

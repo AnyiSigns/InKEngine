@@ -34,6 +34,19 @@ export type {
   ToolWiring,
 } from './kernel/runtime/index.js';
 
+// ── 会话级骨架 + 续跑意图协议（P4：thread 尺度会话数据形态/状态键）──
+export {
+  THREAD_SKELETON_STATE_KEY,
+  ThreadSkeleton,
+} from './core/thread_skeleton/index.js';
+export type {
+  SkeletonEdgeSpec,
+  SkeletonNodeSpec,
+  ThreadSkeletonStatus,
+} from './core/thread_skeleton/index.js';
+export { ROUND_CONTINUATION_STATE_KEY } from './kernel/runtime/index.js';
+export type { ContinuationIntent, ContinuationReason } from './kernel/runtime/index.js';
+
 // ── 2. 核心机制公开面 ──
 
 // 图（数据即图，宿主按 SchemaSerializable 组装/序列化）
@@ -41,27 +54,49 @@ export * from './core/graph/graph.js';
 export * from './core/graph/graph_types.js';
 
 // 引擎内置基础节点类型（llm_decider/tool_pipeline/回环条件边/池种子：数据图
-// 按类型名引用即解析执行；注册面供装配方把基础执行体装进 NodeTypeRegistry）
+// 按类型名引用即解析执行；注册面供装配方把基础执行体装进 NodeTypeRegistry；
+// P4.2a-3 可区分实例 llm_planner/llm_reviewer/llm_main/router_plan_judge：
+// 实例键独立 + executor 解耦 + 实例契约随 config 派生）
 export {
+  CFG_OUTPUT_FIELD,
+  CFG_READ_FIELDS,
   COND_LLM_FINISHED,
   COND_LLM_PENDING,
+  COND_ROUTE_PREFIX,
   ENGINE_DEFAULT_TOOL_ROUNDS,
   ENGINE_STUB_REPLY,
   ROLE_TERMINAL,
   STATE_MESSAGES,
   STATE_PENDING,
+  STATE_PLAN,
   STATE_REPLY,
   STATE_RESULTS,
+  STATE_REVIEW,
+  STATE_ROUTE_TO,
   STATE_STEP_ARGS,
   STATE_TOOL_ROUNDS,
   TYPE_LLM_DECIDER,
+  TYPE_LLM_MAIN,
+  TYPE_LLM_PLANNER,
+  TYPE_LLM_REVIEWER,
+  TYPE_ROUTER_JUDGE,
+  TYPE_ROUTER_PLAN_JUDGE,
   TYPE_TOOL_PIPELINE,
   bind_engine_node_seams,
+  build_read_projection,
+  config_read_fields,
   default_engine_pool_seed,
+  default_engine_seed_edges,
+  derive_instance_contract,
+  has_engine_executor,
+  is_reserved_output_key,
+  parse_output_field_key,
   register_engine_node_types,
+  register_route_edge_condition,
+  register_route_edge_conditions,
+  route_condition_name,
 } from './core/nodes/index.js';
 export type {
-  EngineDomainSeed,
   EngineNodeSeams,
   EngineNodeTypeSeed,
   EnginePoolSeed,
@@ -267,12 +302,14 @@ export {
 export type { EvolutionGate, MutationStrategy } from './kernel/evolution/index.js';
 
 export {
+  AUTO_ROUND_ID_PREFIX,
   MetaTuner,
   ParamRegressionExecutor,
   ParameterSnapshot,
   TunableParams,
   TuneResult,
   TurnMetrics,
+  is_auto_round_id,
 } from './kernel/tuning/index.js';
 export type {
   MetaTunerOptions,
@@ -294,7 +331,11 @@ export type { RoleModelChain } from './core/model_roles/index.js';
 // 自指契约工具三路声明（tool_wiring 配方组件：宿主只装配声明，机制不复制）
 export { SELF_TOOL_CONTRACT } from './kernel/self_tools/index.js';
 export { make_self_executor, operation_of, self_tool_specs } from './kernel/self_tools/index.js';
-export type { SelfToolContext } from './kernel/self_tools/index.js';
+export type {
+  SelfToolContext,
+  SelfToolExecutor,
+  SelfToolNodeContext,
+} from './kernel/self_tools/index.js';
 
 // 数据面契约（引擎内置生成物再导出：engine/schemas + fixtures →
 // core/contracts/generated，勿手改；宿主/上层一律经本公共面取用，

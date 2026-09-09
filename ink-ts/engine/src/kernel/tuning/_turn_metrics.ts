@@ -14,9 +14,20 @@ import type { JsonRecord } from '../../core/json.js';
 import { isRecord } from '../../core/json.js';
 import { role_call_label, type RoleCallStat } from '../../core/model_roles/index.js';
 
+/** 自动续跑回合的 round_id 前缀（回合协议：自续轮 = `auto:` + 审计键片段；
+ *  指标按此前缀给 auto 轮独立记账——生成侧与分类侧同源，防两处漂移）。 */
+export const AUTO_ROUND_ID_PREFIX = 'auto:';
+
+/** 按 round_id 判定是否为自动续跑轮（空/非字符串 = 否）。 */
+export function is_auto_round_id(round_id: unknown): boolean {
+  return typeof round_id === 'string' && round_id.startsWith(AUTO_ROUND_ID_PREFIX);
+}
+
 /** TurnMetrics 构造选项（Python dataclass 默认字段的 TS 映射）。 */
 export interface TurnMetricsInit {
   turns?: number;
+  /** 自动续跑（round_id 前缀 `auto:`）回合数；普通轮与 auto 轮同进 turns。 */
+  auto_turns?: number;
   failures?: number;
   llm_calls_by_role?: Readonly<Record<string, number>>;
   last_error?: string;
@@ -27,12 +38,15 @@ export interface TurnMetricsInit {
  */
 export class TurnMetrics {
   turns: number;
+  /** 自动续跑回合计数（普通轮与 auto 轮同进 turns；本字段 = auto 独立口径）。 */
+  auto_turns: number;
   failures: number;
   llm_calls_by_role: Record<string, number>;
   last_error: string;
 
   constructor(init: TurnMetricsInit = {}) {
     this.turns = init.turns ?? 0;
+    this.auto_turns = init.auto_turns ?? 0;
     this.failures = init.failures ?? 0;
     this.llm_calls_by_role = init.llm_calls_by_role
       ? { ...init.llm_calls_by_role }
@@ -40,11 +54,15 @@ export class TurnMetrics {
     this.last_error = init.last_error ?? '';
   }
 
-  /** 记录一个回合（失败标记 + 错误摘要——失败率/根因留痕）。 */
-  record_turn(options: { failed?: boolean; error?: string } = {}): void {
+  /** 记录一个回合（失败标记 + 错误摘要——失败率/根因留痕）。round_id 供按
+   *  前缀区分自动续跑轮（`auto:` 前缀 = auto 轮，独立计入 auto_turns）。 */
+  record_turn(options: { failed?: boolean; error?: string; round_id?: string | null } = {}): void {
     const failed = options.failed ?? false;
     const error = options.error ?? '';
     this.turns += 1;
+    if (is_auto_round_id(options.round_id)) {
+      this.auto_turns += 1;
+    }
     if (failed) {
       this.failures += 1;
       if (error) {
@@ -78,6 +96,7 @@ export class TurnMetrics {
   snapshot(): JsonRecord {
     return {
       turns: this.turns,
+      auto_turns: this.auto_turns,
       failures: this.failures,
       failure_rate: this.failure_rate,
       llm_calls_by_role: { ...this.llm_calls_by_role },
@@ -99,6 +118,7 @@ export class TurnMetrics {
     }
     return new TurnMetrics({
       turns: Math.trunc(Number(data['turns'] ?? 0)),
+      auto_turns: Math.trunc(Number(data['auto_turns'] ?? 0)),
       failures: Math.trunc(Number(data['failures'] ?? 0)),
       llm_calls_by_role: calls,
       last_error:

@@ -79,6 +79,7 @@ export class Engine extends EngineLoopBack {
       resume_map = null,
       checkpoint_thread_id = null,
       parent_step_id = null,
+      scope_llm = null,
     } = opts;
     const graph = this.graph;
     const schema = this.options.schema;
@@ -135,6 +136,7 @@ export class Engine extends EngineLoopBack {
       transports: effTransports,
       resume_map: resume.resume_map,
       parent_step_id,
+      scope_llm: scope_llm ?? null,
     });
     // ── 组装时间线事件（UX 指标；emit_timeline_events 开启且顶层图时发射）──
     const _top_level = graph_path.length === 0;

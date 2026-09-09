@@ -39,6 +39,7 @@ import type { Message } from '../../../src/kernel/llm/messages.js';
 import { self_tool_specs, make_self_executor, operation_of } from '../../../src/kernel/self_tools/index.js';
 import type { SelfToolContext } from '../../../src/kernel/self_tools/index.js';
 import { MemoryStorage } from '../executor/helpers.js';
+import { deciderOnlyPoolSeed } from './_round_graphs.js';
 
 /** boot 领域种子（最小：知识集基线条目）。 */
 function boot_seed_entries(): KnowledgeEntry[] {
@@ -321,7 +322,12 @@ describe('A4 自学习回灌闭环（round 级）', () => {
   });
 
   it('多轮续聊：普通新回合 user input 追加进消息链（首轮/多轮双态）', async () => {
-    const runtime = await new Runtime().boot(toHost(new FakeHost()), roundRecipe());
+    // 本用例沿单节点 llm_decider 消息链断言 user/assistant 交替追加：池种子
+    // 过滤回落单实例（P4.2a-3 默认池扩充后顶选为字段链实例，消息计数形态不同）。
+    const runtime = await new Runtime().boot(
+      toHost(new FakeHost()),
+      roundRecipe({ pool_seed: deciderOnlyPoolSeed() }),
+    );
     const llm = new UserCountingLLM();
     const first = (await runtime.assemble_round({
       state: { input: 'a' },
@@ -351,7 +357,11 @@ describe('A4 自学习回灌闭环（round 级）', () => {
   });
 
   it('分支/重入（resume_from 非空）：不追加 user input（消息链随 checkpoint）', async () => {
-    const runtime = await new Runtime().boot(toHost(new FakeHost()), roundRecipe());
+    // 同单节点消息链语义：池种子过滤回落单实例（见上例注释）。
+    const runtime = await new Runtime().boot(
+      toHost(new FakeHost()),
+      roundRecipe({ pool_seed: deciderOnlyPoolSeed() }),
+    );
     const llm = new UserCountingLLM();
     await runtime.assemble_round({
       state: { input: 'a' },

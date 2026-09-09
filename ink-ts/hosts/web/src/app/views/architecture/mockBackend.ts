@@ -1,6 +1,45 @@
 import { createBackend, type BackendAdapter } from '@/shared/backend/backendAdapter';
 
-import type { ArchitectureBackend, EdgeSnapshotData, PoolSnapshotData } from './backend';
+import type {
+  ArchitectureBackend,
+  EdgeSnapshotData,
+  PoolRegistryTypeRow,
+  PoolRegistryView,
+  PoolSnapshotData,
+} from './backend';
+
+/** registry 段收敛（结构不匹配/缺失 = available:false 结构化空态）。 */
+function mapRegistry(raw: unknown): PoolRegistryView {
+  const reg = raw as
+    | {
+        available?: boolean;
+        total_count?: unknown;
+        active_count?: unknown;
+        types?: Array<Record<string, unknown>>;
+      }
+    | null
+    | undefined;
+  const toNum = (v: unknown): number => (typeof v === 'number' && Number.isFinite(v) ? v : 0);
+  const types: PoolRegistryTypeRow[] = Array.isArray(reg?.types)
+    ? reg.types
+        .filter((row) => typeof row === 'object' && row !== null)
+        .map((row) => ({
+          type_name: typeof row['type_name'] === 'string' ? row['type_name'] : '',
+          status: typeof row['status'] === 'string' ? row['status'] : '',
+          provenance: typeof row['provenance'] === 'string' ? row['provenance'] : '',
+          executor: typeof row['executor'] === 'string' ? row['executor'] : '',
+        }))
+    : [];
+  if (!reg || reg.available !== true) {
+    return { available: false, total_count: 0, active_count: 0, types };
+  }
+  return {
+    available: true,
+    total_count: toNum(reg.total_count),
+    active_count: toNum(reg.active_count),
+    types,
+  };
+}
 
 /** 把 pool.snapshot 原始出参收敛为视图形态（结构不匹配 = null 空态）。 */
 function mapPool(raw: unknown): PoolSnapshotData | null {
@@ -10,6 +49,7 @@ function mapPool(raw: unknown): PoolSnapshotData | null {
         counts?: Record<string, unknown>;
         governance_log?: Array<Record<string, unknown>>;
         last_round?: Record<string, unknown> | null;
+        registry?: unknown;
         degraded?: boolean;
       }
     | null
@@ -56,6 +96,7 @@ function mapPool(raw: unknown): PoolSnapshotData | null {
         }
       : null,
     rows,
+    registry: mapRegistry(snap.registry),
     degraded: snap.degraded === true,
   };
 }

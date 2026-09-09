@@ -73,27 +73,42 @@ export class TerminateReason {
 
 // ── 边：静态边 / 条件边 ──────────────────────────────────────────────────────
 
+/** 边 kind（standard=顺序 / conditional=确定性条件边 / loop=回边）。 */
+export type EdgeKind = 'standard' | 'conditional' | 'loop';
+
 export class Edge {
   readonly target: string;
   readonly condition: EdgeCondition | null;
   readonly condition_name: string | null;
+  /** 显式边类别（缺省 null = 未标注；add_* 按语义推断 standard/conditional）。 */
+  readonly kind: EdgeKind | null;
 
-  constructor(init: { target: string; condition?: EdgeCondition | null; condition_name?: string | null }) {
+  constructor(init: {
+    target: string;
+    condition?: EdgeCondition | null;
+    condition_name?: string | null;
+    kind?: EdgeKind | null;
+  }) {
     this.target = init.target;
     this.condition = init.condition ?? null;
     this.condition_name = init.condition_name ?? null;
+    this.kind = init.kind ?? null;
     Object.freeze(this);
   }
 
-  /** 序列化：条件边必须携带条件名（函数本身不是数据）。 */
-  to_dict(): { target: string; condition?: string } {
+  /** 序列化：条件边必须携带条件名（函数本身不是数据）。standard/conditional
+   *  由既有字段（target/condition）推导，不回填 kind；仅 loop 显式输出。 */
+  to_dict(): { target: string; condition?: string; kind?: 'loop' } {
     if (this.condition !== null && this.condition_name === null) {
       throw new Error(
         `条件边 -> ${this.target} 未注册条件名，无法序列化（请用 add_conditional_edge_by_name 声明）`,
       );
     }
-    const out: { target: string; condition?: string } = { target: this.target };
+    const out: { target: string; condition?: string; kind?: 'loop' } = {
+      target: this.target,
+    };
     if (this.condition_name !== null) out.condition = this.condition_name;
+    if (this.kind === 'loop') out.kind = 'loop';
     return out;
   }
 }

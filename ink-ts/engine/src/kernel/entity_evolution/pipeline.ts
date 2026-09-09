@@ -313,6 +313,7 @@ export class EntityEvolutionPipeline {
       label: spec.label,
       persona: spec.persona,
       model: spec.model,
+      role: spec.role,
       meta: newMeta,
     });
     try {

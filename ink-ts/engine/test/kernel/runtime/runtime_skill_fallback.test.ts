@@ -1,7 +1,7 @@
 /**
  * B5 技能先验 general 回落（Wave B 决策5）：请求域精确匹配无命中时回落到
  * general 域 kind=path 条目（独立回落上限防跨域噪声；候选来源标记区分
- * 跨域先验），池种子 base 图仍是最后保底。
+ * 跨域先验），组装兜底 = 从池选终态候选（单节点图，非整图模板）。
  */
 
 import { afterEach, describe, expect, it } from 'vitest';
@@ -10,7 +10,7 @@ import { Runtime, AssemblyRecipe } from '../../../src/kernel/runtime/index.js';
 import type { Host } from '../../../src/kernel/runtime/index.js';
 import { set_default_assembly_runtime } from '../../../src/kernel/path_assembler/index.js';
 import { AssemblyRequest } from '../../../src/kernel/path_assembler/index.js';
-import { CANDIDATE_SOURCE_SKILL_FALLBACK } from '../../../src/kernel/path_assembler/constants.js';
+import { CANDIDATE_SOURCE_SKILL_FALLBACK, CANDIDATE_SOURCE_TERMINAL } from '../../../src/kernel/path_assembler/constants.js';
 import { CollectorTransport } from '../../../src/core/events/events.js';
 import { DefaultInterruptPolicy } from '../../../src/kernel/approval/approval.js';
 import { HarnessDefinition } from '../../../src/core/harness/index.js';
@@ -167,7 +167,7 @@ describe('B5 技能先验 general 回落', () => {
     await runtime.stop();
   });
 
-  it('技能候选先于 base 图兜底：回落候选带 skill_fallback 来源且 base 不前置', async () => {
+  it('技能候选先于终态兜底：回落候选带 skill_fallback 来源且兜底不前置', async () => {
     const runtime = await new Runtime().boot(toHost(new FakeHost()), roundRecipe());
     add_skill(runtime, make_skill('skill.general.round', 'general'));
     const events = new CollectorTransport();
@@ -181,11 +181,11 @@ describe('B5 技能先验 general 回落', () => {
     expect(result.reason).toBe('reply');
     const sources = candidateSources(events);
     expect(sources).toContain(CANDIDATE_SOURCE_SKILL_FALLBACK);
-    expect(sources).not.toContain('base');
+    expect(sources).not.toContain(CANDIDATE_SOURCE_TERMINAL);
     await runtime.stop();
   });
 
-  it('技能全空时 base 兜底不受影响：回合仍组装成功', async () => {
+  it('技能全空时终态候选兜底不受影响：回合仍组装成功', async () => {
     const runtime = await new Runtime().boot(toHost(new FakeHost()), roundRecipe());
     const result = (await runtime.assemble_round({
       state: { input: '无技能回落' },

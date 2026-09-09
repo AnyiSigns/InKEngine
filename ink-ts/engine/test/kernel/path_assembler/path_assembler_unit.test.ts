@@ -1,3 +1,4 @@
+// gate: 超限(366 行) - 组装器单元测全场景 + P2 终态兜底单测同文件成组（拆分文件破坏用例场景对照）
 /**
  * 路径组装器单元测（test_path_assembler.py 单元段 1:1 移植）：
  * goal 字段推导 / 空目标 / schema 反推多源汇聚 / 确定性排序 / 安全档剪枝 /
@@ -13,7 +14,8 @@ import { describe, expect, it } from 'vitest';
 import { PathAssemblyConfig } from '../../../src/core/contracts/contracts.js';
 import { EdgeEvidenceStore } from '../../../src/core/edge_evidence/index.js';
 import type { EdgeKey } from '../../../src/core/edge_evidence/index.js';
-import { AssemblyRequest, InMemoryPoolRetriever, validate_chain } from '../../../src/kernel/path_assembler/index.js';
+import { AssemblyRequest, InMemoryPoolRetriever, PathAssembler, validate_chain } from '../../../src/kernel/path_assembler/index.js';
+import { CANDIDATE_SOURCE_TERMINAL } from '../../../src/kernel/path_assembler/constants.js';
 import {
   DUMMY_NOW,
   ENTRY,
@@ -253,6 +255,78 @@ describe('多径判据与冷启动指数（带证据）', () => {
     const retriever = new InMemoryPoolRetriever(pool_of(registry));
     const result = await make_assembler(registry, { retriever }).assemble(make_request(['answer']));
     expect(result.is_empty).toBe(false);
+  });
+});
+
+describe('终态候选兜底（废除 base 图模板；P2）', () => {
+  it('从池选终态候选出单节点图（entry=exit=该类型，0 边）', async () => {
+    const { _terminal_candidates } = await import('../../../src/kernel/path_assembler/_terminal.js');
+    const registry = make_registry([
+      ['answer_terminal', [], ['answer']],
+      ['tool_node', [], ['messages']],
+    ]);
+    const request = make_request(['answer']);
+    const candidates = await _terminal_candidates({
+      provider: async () => ['answer_terminal', 'tool_node'],
+      request,
+      pool: pool_of(registry),
+      goal_fields: request.goal_fields(),
+      entry_fields: ENTRY,
+      max_safety_tier: 0,
+      state_schema: null,
+      top_k: 2,
+    });
+    expect(candidates.length).toBe(1);
+    const candidate = candidates[0]!;
+    expect(candidate.source).toBe(CANDIDATE_SOURCE_TERMINAL);
+    expect(candidate.chain).toEqual(['answer_terminal']);
+    expect(candidate.graph.entry).toBe('answer_terminal');
+    expect([...candidate.graph.exits]).toEqual(['answer_terminal']);
+    expect(Object.keys(candidate.graph.edges)).toEqual([]);
+  });
+
+  it('终态候选须过合法校验：不覆盖目标/未入池/缺提供器 = 空（不臆造图）', async () => {
+    const { _terminal_candidates } = await import('../../../src/kernel/path_assembler/_terminal.js');
+    const registry = make_registry([
+      ['answer_terminal', [], ['answer']],
+      ['other_terminal', [], ['messages']],
+    ]);
+    const request = make_request(['unreachable_goal']);
+    const noneValid = await _terminal_candidates({
+      provider: async () => ['answer_terminal', 'not_in_pool'],
+      request,
+      pool: pool_of(registry),
+      goal_fields: request.goal_fields(),
+      entry_fields: ENTRY,
+      max_safety_tier: 0,
+      state_schema: null,
+      top_k: 2,
+    });
+    expect(noneValid).toEqual([]);
+    expect(
+      await _terminal_candidates({
+        provider: null,
+        request,
+        pool: pool_of(registry),
+        goal_fields: request.goal_fields(),
+        entry_fields: ENTRY,
+        max_safety_tier: 0,
+        state_schema: null,
+        top_k: 2,
+      }),
+    ).toEqual([]);
+  });
+
+  it('组装无算法候选且无可用终态候选 = 显式“无候选”（诚实空态 + 原因）', async () => {
+    const registry = make_registry(POOL_SPECS);
+    const assembler = new PathAssembler({
+      registry,
+      terminal_types: async () => ['answer_direct'],
+    });
+    const result = await assembler.assemble(make_request(['unreachable_goal']));
+    expect(result.is_empty).toBe(true);
+    expect(result.candidates.length).toBe(0);
+    expect(result.fallback_reason).toContain('无可用自终止终态候选');
   });
 });
 

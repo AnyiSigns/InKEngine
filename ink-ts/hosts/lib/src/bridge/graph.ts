@@ -11,6 +11,7 @@
 
 import type { GraphCommand } from './commands.generated.js';
 export { GRAPH_COMMANDS, type GraphCommand } from './commands.generated.js';
+import { ROUND_CONTINUATION_STATE_KEY } from '@ink-ts/engine';
 import { BridgeError, type BridgeHandler } from './_types.js';
 import type { HostBridgeDeps } from './_types.js';
 
@@ -34,6 +35,11 @@ export interface GraphInstanceView {
   round_id: string | null;
   graph: { nodes: GraphNodeView[]; edges: GraphEdgeView[] };
   node_status: Record<string, string>;
+  /** 最近一回合为自动续跑轮（round_id 以 auto: 开头）。 */
+  auto_round: boolean;
+  /** 该自动轮的触发原因（读链尾前驱 checkpoint 的 _round_continuation；
+   *  非 auto 轮/不可得 = null）。 */
+  continuation_reason: string | null;
   /** 无回合图或无条件边降级等不可得态 = true（结构化空态，不报错）。 */
   degraded: boolean;
   degraded_reason: string | null;
@@ -143,6 +149,21 @@ export function buildGraphCommands(deps: HostBridgeDeps): Readonly<Record<GraphC
     for (const event of events) {
       if (event.round_id !== null && event.round_id !== '') roundId = event.round_id;
     }
+    // 自动续跑轮标注（P4-B-2 UI 观察）：round_id 前缀 auto: + 触发原因读链尾
+    // 前驱 checkpoint 的 _round_continuation（reasons 仅 evolved/continue）。
+    const isAuto = roundId !== null && roundId.startsWith('auto:');
+    let continuationReason: string | null = null;
+    if (isAuto) {
+      const latest = await storage!.get_latest_checkpoint(thread_id).catch(() => null);
+      if (latest !== null && latest.parent_id !== null) {
+        const parent = await storage!.get_checkpoint(latest.parent_id).catch(() => null);
+        const intent = parent?.state[ROUND_CONTINUATION_STATE_KEY];
+        if (typeof intent === 'object' && intent !== null && !Array.isArray(intent)) {
+          const reason = (intent as Record<string, unknown>)['reason'];
+          if (reason === 'evolved' || reason === 'continue') continuationReason = reason;
+        }
+      }
+    }
     const nodeStatus: Record<string, string> = {};
     if (roundId !== null) {
       const visited = new Set<string>();
@@ -163,6 +184,8 @@ export function buildGraphCommands(deps: HostBridgeDeps): Readonly<Record<GraphC
       round_id: roundId,
       graph,
       node_status: nodeStatus,
+      auto_round: isAuto,
+      continuation_reason: continuationReason,
       degraded,
       degraded_reason: roundId === null ? 'no_events' : reason,
     };

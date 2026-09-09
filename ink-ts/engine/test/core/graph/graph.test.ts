@@ -8,7 +8,7 @@ import { describe, expect, it } from 'vitest';
 import { NodeContract } from '../../../src/core/contracts/contracts.js';
 import { GraphDefinitionError, NodeNotFoundError } from '../../../src/core/errors.js';
 import { Graph } from '../../../src/core/graph/graph.js';
-import type { EdgeCondition, NodeFn } from '../../../src/core/graph/graph_types.js';
+import { Edge, type EdgeCondition, type NodeFn } from '../../../src/core/graph/graph_types.js';
 
 // ── demo 图工厂（与 conftest.demo_* 1:1 对齐；纯 Graph 构建） ──────────────
 
@@ -145,5 +145,31 @@ describe('Graph 编译校验', () => {
     sub.add_exit('a');
     parent.add_subgraph('sub', sub);
     expect(() => parent.compile()).toThrow(GraphDefinitionError);
+  });
+});
+
+// ── 边 kind（P1：显式类别字段；add_* 按语义推断） ───────────────────────────
+
+describe('Graph 边 kind', () => {
+  it('add_edge→standard / 条件边→conditional / add_loop_edge→loop（推断语义）', () => {
+    const g = new Graph({ name: 'g', entry: 'a' });
+    g.add_edge('a', 'b');
+    g.add_conditional_edge('a', 'c', () => true);
+    g.add_conditional_edge_by_name('a', 'd', 'cond_x');
+    g.add_loop_edge('a', 'a');
+    g.add_loop_edge('a', 'b', { condition_name: 'cond_y' });
+    expect(g.edges['a']!.map((e) => e.kind)).toEqual([
+      'standard',
+      'conditional',
+      'conditional',
+      'loop',
+      'loop',
+    ]);
+  });
+
+  it('直接构造 Edge 兼容旧形态（kind 可选缺省 = null）', () => {
+    const bare = new Edge({ target: 'b' });
+    expect(bare.kind).toBeNull();
+    expect(bare.to_dict()).toEqual({ target: 'b' });
   });
 });

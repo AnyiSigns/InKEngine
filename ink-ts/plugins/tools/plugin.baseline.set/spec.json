@@ -1,0 +1,40 @@
+{
+  "id": "plugin.baseline.set",
+  "kind": "tool",
+  "capability": "host_tool",
+  "actions": [],
+  "depends": [],
+  "data": {
+    "tool": {
+      "name": "plugin.baseline.set",
+      "description": "行为意图：整集替换常驻必带工具集（每回合注入上限内的完整 schema）；机制检索工具（search_tools/request_tool）恒在不可摘除。\n\n使用时机：用户要求调整常驻工具时。\n\n参数语义：tools = 常驻工具名清单；未注册名被引擎白名单拒绝。",
+      "parameters": {
+        "type": "object",
+        "properties": {
+          "tools": {
+            "type": "array",
+            "items": {
+              "type": "string"
+            },
+            "description": "常驻工具名清单"
+          }
+        },
+        "required": [
+          "tools"
+        ]
+      },
+      "permissions": [
+        "plugin:baseline:set"
+      ],
+      "approval": "review",
+      "endpoint": "plugin_command",
+      "endpoint_config": {},
+      "meta": {
+        "domain": "plugin",
+        "executor": "host:plugin_command",
+        "sandbox": "host_registered",
+        "note": "执行接线由宿主注册（plugin_command 端点族 → 分发到既有 bridge 命令/受控台账）；管理动作 review 档（pose 决）"
+      }
+    }
+  }
+}

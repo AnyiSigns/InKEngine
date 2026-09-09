@@ -18,6 +18,7 @@ import { afterEach, describe, expect, it } from 'vitest';
 import { createCapabilityStore } from '../../src/capability/store.js';
 import {
   MCP_PLUGINS_ENABLED_KEY,
+  MCP_PLUGINS_EXTRA_KEY,
   McpPluginService,
   type McpPluginDeclarativeSeam,
   type McpPluginHostSeam,
@@ -302,7 +303,7 @@ describe('McpPluginService（B5 工具型插件装载）', () => {
     // 目录运行中被移除（升级/插件废弃）→ list 暴露残影行；disable 幂等清账成功
     rmSync(join(root, 'mcp'), { recursive: true, force: true });
     const ghostRow = service.list().find((row) => row.id === 'demo.server');
-    expect(ghostRow).toMatchObject({ enabled: true, error: expect.stringContaining('候选目录缺失') });
+    expect(ghostRow).toMatchObject({ enabled: true, error: expect.stringContaining('候选已移除') });
     const cleaned = await service.disable('demo.server');
     expect(cleaned.ok).toBe(true);
     expect((JSON.parse(readFileSync(capFile, 'utf8')) as Record<string, unknown>)[MCP_PLUGINS_ENABLED_KEY]).toEqual([]);
@@ -347,5 +348,80 @@ describe('McpPluginService（B5 工具型插件装载）', () => {
     const badDisable = await service.disable('nope');
     expect(badDisable.ok).toBe(false);
     void opener;
+  });
+
+  it('指定安装（http）：登记额外台账并启用装载；list 合并行；remove 停用+清配置', async () => {
+    const { root, capFile, store } = setup();
+    writeEchoServerSpec(root);
+    const spy = makeDeclarativeSpy();
+    const seam = makeHostSeam(spy);
+    const manager = newManager(
+      async (): Promise<ReturnType<typeof makeSessionHandle>> => makeSessionHandle(),
+    );
+    managers.push(manager);
+    const service = new McpPluginService({ pluginsRoot: root, host: seam.host, manager, store });
+
+    const installed = await service.install('ext.demo', {
+      transport: 'http',
+      url: 'https://ext.example.com',
+      name: 'Ext',
+    });
+    expect(installed.ok).toBe(true);
+    expect(installed).toMatchObject({ server_id: 'ext.demo', enabled: true, connected: true, tool_count: 1 });
+    const cap = JSON.parse(readFileSync(capFile, 'utf8')) as Record<string, unknown>;
+    expect(cap[MCP_PLUGINS_ENABLED_KEY]).toEqual(['ext.demo']);
+    const extras = cap[MCP_PLUGINS_EXTRA_KEY] as Record<string, unknown>;
+    expect(extras['ext.demo']).toMatchObject({
+      transport: 'http',
+      name: 'Ext',
+      url: 'https://ext.example.com',
+    });
+
+    const row = service.list().find((entry) => entry.id === 'ext.demo');
+    expect(row).toMatchObject({
+      source: 'user-installed',
+      enabled: true,
+      connected: true,
+      tool_count: 1,
+    });
+
+    const removed = await service.remove('ext.demo');
+    expect(removed.ok).toBe(true);
+    expect(spy.unregistered).toEqual(['echo_text']);
+    const capAfter = JSON.parse(readFileSync(capFile, 'utf8')) as Record<string, unknown>;
+    expect(capAfter[MCP_PLUGINS_ENABLED_KEY]).toEqual([]);
+    expect(capAfter[MCP_PLUGINS_EXTRA_KEY]).toEqual({});
+    expect(service.status('ext.demo')).toBeNull();
+  });
+
+  it('指定安装校验：http/stdio 缺地址或命令拒绝；与内置候选冲突拒绝', async () => {
+    const { root } = setup();
+    writeEchoServerSpec(root, 'demo.server');
+    const spy = makeDeclarativeSpy();
+    const seam = makeHostSeam(spy);
+    const dataDir = mkdtempSync(join(tmpdir(), 'ink-mcp-plugin-install-fail-'));
+    cleanupDirs.push(dataDir);
+    const store = createCapabilityStore(dataDir);
+    const manager = newManager(
+      async (): Promise<ReturnType<typeof makeSessionHandle>> => makeSessionHandle(),
+    );
+    managers.push(manager);
+    const service = new McpPluginService({ pluginsRoot: root, host: seam.host, manager, store });
+
+    const noUrl = await service.install('ext.bad', { transport: 'http', url: null, command: null });
+    expect(noUrl.ok).toBe(false);
+    expect(noUrl.error).toContain('http 安装需提供 url');
+    const noCmd = await service.install('ext.bad', { transport: 'stdio', command: null, url: null });
+    expect(noCmd.ok).toBe(false);
+    expect(noCmd.error).toContain('stdio 安装需提供 command');
+    const conflict = await service.install('demo.server', {
+      transport: 'http',
+      url: 'https://x.example.com',
+    });
+    expect(conflict.ok).toBe(false);
+    expect(conflict.error).toContain('与内置候选冲突');
+    // 全部校验失败路径：未发生任何成功落盘（无 capability.json）
+    expect(existsSync(join(dataDir, 'capability.json'))).toBe(false);
+    void spy;
   });
 });

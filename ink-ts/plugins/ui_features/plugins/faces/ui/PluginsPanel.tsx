@@ -46,6 +46,7 @@ export function PluginsPanel({ backend, catalog }: PluginsPanelProps) {
 
   // 界面组件启停
   const [uiFactory, setUiFactory] = useState<string[]>([]);
+  const [uiProtected, setUiProtected] = useState<string[]>([]);
   const [uiDisabled, setUiDisabled] = useState<string[]>([]);
 
   const refresh = async (): Promise<void> => {
@@ -65,8 +66,9 @@ export function PluginsPanel({ backend, catalog }: PluginsPanelProps) {
     } finally {
       setLoadingTools(false);
     }
-    const ui = await backend.getUiComponentsState().catch(() => ({ factory: [], disabled: [], active: [] }));
+    const ui = await backend.getUiComponentsState().catch(() => ({ factory: [], protected: [], disabled: [], active: [] }));
     setUiFactory(ui.factory);
+    setUiProtected(ui.protected ?? []);
     setUiDisabled(ui.disabled);
     setServices((await backend.getMcpPlugins().catch(() => ({ servers: [] as McpPluginServerView[] }))).servers);
   };
@@ -157,7 +159,11 @@ export function PluginsPanel({ backend, catalog }: PluginsPanelProps) {
   );
 
   const serviceRows = services ?? [];
-  const componentRows = uiFactory.map((id) => ({ id, disabled: uiDisabled.includes(id) }));
+  const componentRows = uiFactory.map((id) => ({
+    id,
+    protected: uiProtected.includes(id),
+    disabled: uiDisabled.includes(id),
+  }));
 
   return (
     <section className="ink-panel p-4" data-ui="plugins_panel">
@@ -224,25 +230,31 @@ export function PluginsPanel({ backend, catalog }: PluginsPanelProps) {
       {/* ── 界面组件启停 ── */}
       <div className="mt-4 mb-1.5 flex items-center gap-2">
         <span className="text-[11px] font-medium tracking-tight">界面组件</span>
-        <span className="text-[9px] ink-text-faint">出厂白名单启停（停用 = 渲染占位拒绝）</span>
+        <span className="text-[9px] ink-text-faint">出厂白名单启停 · 禁停集（机制必需）不可停；停用 = 渲染占位拒绝</span>
       </div>
       <div className="ink-elevated divide-y divide-[var(--ink-border)] overflow-hidden rounded">
         {componentRows.length === 0 ? (
           <div className="px-3 py-2 text-[10px] ink-text-faint">无出厂界面组件</div>
         ) : (
-          componentRows.map(({ id, disabled }) => (
+          componentRows.map(({ id, disabled, protected: isProtected }) => (
             <div key={id} className="flex items-center gap-2 px-3 py-2" data-ui={`ui_component_${id}`}>
               <span className="min-w-0 flex-1 font-mono text-[11px] font-medium truncate">{id}</span>
-              <span className="ink-chip py-px text-[9px]">{disabled ? '已停用' : '启用'}</span>
-              <button
-                type="button"
-                data-ui={`ui_component_toggle_${id}`}
-                disabled={saving}
-                onClick={() => void toggleUiComponent(id, !disabled)}
-                className="shrink-0 rounded-md border border-[var(--ink-border)] px-2 py-1 text-[9px] cursor-pointer disabled:opacity-50"
-              >
-                {disabled ? '启用' : '停用'}
-              </button>
+              {isProtected ? (
+                <span className="ink-chip py-px text-[9px] ink-text-faint" data-ui={`ui_component_protected_${id}`}>禁停（机制必需）</span>
+              ) : (
+                <>
+                  <span className="ink-chip py-px text-[9px]">{disabled ? '已停用' : '启用'}</span>
+                  <button
+                    type="button"
+                    data-ui={`ui_component_toggle_${id}`}
+                    disabled={saving}
+                    onClick={() => void toggleUiComponent(id, !disabled)}
+                    className="shrink-0 rounded-md border border-[var(--ink-border)] px-2 py-1 text-[9px] cursor-pointer disabled:opacity-50"
+                  >
+                    {disabled ? '启用' : '停用'}
+                  </button>
+                </>
+              )}
             </div>
           ))
         )}
@@ -327,8 +339,8 @@ export function PluginsPanel({ backend, catalog }: PluginsPanelProps) {
       </div>
 
       <p className="mt-3 text-[9px] leading-relaxed ink-text-faint">
-        恢复全部默认在「审计与恢复」段（含确认词兜底）；完整插件目录 = 上方统计与只读徽标清单，
-        行内动作仅出现在有真实命令面的分组。
+        恢复全部默认 / 恢复设置默认（逃生）在「审计与恢复」段（含确认词兜底）；
+        完整插件目录 = 上方统计与只读徽标清单，行内动作仅出现在有真实命令面的分组。
       </p>
     </section>
   );

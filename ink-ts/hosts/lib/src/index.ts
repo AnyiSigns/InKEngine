@@ -33,6 +33,7 @@ import { buildHostSearch } from './search/wiring.js';
 import type { InkHost } from './host.js';
 import { createWorkspaceStore } from './workspace/store.js';
 import { buildSessionCommandTools } from './session_command.js';
+import { buildPluginCommandTools } from './plugin_command.js';
 import type { ProductRecipeInit } from './recipe.js';
 import type { HostRetrievalDomain } from './retrieval/domain.js';
 import type { SyncEmbedderSeam } from './retrieval/sync_seam.js';
@@ -158,17 +159,37 @@ export async function createHost(
    *  分发到既有 bridge 命令实现。call 懒取 bridge（restore 重装后仍指向活命令表），
    *  注册目标 = 每 boot 的运行时声明式 harness（web_search 同通道）。 */
   let bridgeRef: ReadonlyMap<string, BridgeHandler> | null = null;
-  const sessionTools = buildSessionCommandTools(async (method, params) => {
+  const callBridge = async (method: string, params: Record<string, unknown>): Promise<unknown> => {
     const handler = bridgeRef !== null ? bridgeRef.get(method) : undefined;
     if (handler === undefined) {
-      throw new Error(`session_command 工具族无对应命令实现: ${method}`);
+      throw new Error(`agent 工具族无对应命令实现: ${method}`);
     }
     return handler(params, { autoApprove: deps.autoApprove });
+  };
+  const sessionTools = buildSessionCommandTools(callBridge);
+  // plugin_command 工具族（B6 agent 插件管理面）：plugin.catalog 走宿主注入的
+  // 目录快照（运行时组件/常驻集/mcp 服务/能力台账），其余分发到既有桥命令。
+  const pluginTools = buildPluginCommandTools(callBridge, async (): Promise<Record<string, unknown>> => {
+    const runtime = parts.runtime;
+    const mcp = parts.mcpPlugins;
+    return {
+      kind: 'plugin',
+      mcp: mcp !== null && mcp !== undefined ? { servers: mcp.list() } : { servers: [] },
+      ui: {
+        factory: runtime.ui_factory_components,
+        protected: runtime.ui_protected_components,
+        disabled: runtime.ui_components_disabled,
+        active: runtime.ui_allowed_components,
+      },
+      baseline: runtime.baseline_names,
+      capability: capabilityStore.get(),
+    };
   });
   const registerSessionCommandTools = (): void => {
     const declarative = parts.runtime.harness_registry?.declarative;
     if (declarative !== null && declarative !== undefined) {
       sessionTools.register(declarative as never);
+      pluginTools.register(declarative as never);
     }
   };
 
@@ -382,6 +403,22 @@ export {
   sessionCommandExecutor,
 } from './session_command.js';
 export type { SessionCommandCall, SessionCommandTools } from './session_command.js';
+
+// ── plugin_command 工具族（B6 agent 插件管理面；分发到既有桥命令/受控台账）──
+export {
+  PLUGIN_COMMAND_ENDPOINT,
+  PLUGIN_COMMAND_TOOLS,
+  buildPluginCommandTools,
+  ensurePluginCommandEndpointRegistered,
+  pluginCommandDefinitions,
+  pluginCommandEndpointSpec,
+  pluginCommandExecutor,
+} from './plugin_command.js';
+export type {
+  PluginCommandCall,
+  PluginCommandSnapshot,
+  PluginCommandTools,
+} from './plugin_command.js';
 
 // ── 原生机制件 client / 嵌入适配器（exec + infer + AsyncEmbedder）──
 export { locateNativeBinary } from './exec/binary.js';

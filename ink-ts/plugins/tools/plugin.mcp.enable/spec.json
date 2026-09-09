@@ -1,0 +1,38 @@
+{
+  "id": "plugin.mcp.enable",
+  "kind": "tool",
+  "capability": "host_tool",
+  "actions": [],
+  "depends": [],
+  "data": {
+    "tool": {
+      "name": "plugin.mcp.enable",
+      "description": "行为意图：启用一个 MCP 工具型插件（内置候选或已安装的额外连接）——连接（stdio 自动拉起/http）+ 工具导入注册 + 工具索引刷新；注册表可见、request_tool 请求即绑。\n\n使用时机：用户要求启用某个 MCP 服务端/工具型插件时。\n\n参数语义：server_id = 插件/server id（plugin.catalog 返回）；已启用已连接时幂等短路。\n\n边界与协作：管理动作 review 档——弹卡/pose 决后执行体真写（连接进程/注册表/台账）；工具名与其它来源冲突时整批拒绝。",
+      "parameters": {
+        "type": "object",
+        "properties": {
+          "server_id": {
+            "type": "string",
+            "minLength": 1,
+            "description": "MCP 工具型插件/server id"
+          }
+        },
+        "required": [
+          "server_id"
+        ]
+      },
+      "permissions": [
+        "plugin:mcp:enable"
+      ],
+      "approval": "review",
+      "endpoint": "plugin_command",
+      "endpoint_config": {},
+      "meta": {
+        "domain": "plugin",
+        "executor": "host:plugin_command",
+        "sandbox": "host_registered",
+        "note": "执行接线由宿主注册（plugin_command 端点族 → 分发到既有 bridge 命令/受控台账）；管理动作 review 档（pose 决）"
+      }
+    }
+  }
+}

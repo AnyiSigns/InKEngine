@@ -8,16 +8,22 @@
  */
 
 import {
+  UI_COMPONENTS_PROTECTED,
   UI_COMPONENTS_RECORD_COLLECTION,
   UI_COMPONENTS_RECORD_KEY,
 } from './_constants.js';
 import { RuntimeSpecs } from './_runtime_specs.js';
 
-/** 出厂界面组件基座：启停白名单 + 持久化。 */
+/** 出厂界面组件基座：启停白名单 + 禁停集 + 持久化。 */
 export abstract class RuntimeUiComponents extends RuntimeSpecs {
   /** 出厂界面组件白名单基线（配方 ui_allowed_components 未过滤全集）。 */
   get ui_factory_components(): string[] {
     return [...this._ui_factory_components].sort();
+  }
+
+  /** 出厂界面组件禁停集（B6：机制必需入口不可停，排序出列）。 */
+  get ui_protected_components(): string[] {
+    return [...UI_COMPONENTS_PROTECTED].sort();
   }
 
   /** 当前已停用出厂组件名（排序）。 */
@@ -32,7 +38,10 @@ export abstract class RuntimeUiComponents extends RuntimeSpecs {
     return [...active].sort();
   }
 
-  /** 停用/恢复出厂组件（组件 tab 勾选落地面；未登记名结构化拒绝）。 */
+  /** 停用/恢复出厂组件（组件 tab 勾选落地面；未登记名与禁停集结构化拒绝）。
+   *
+   * 禁停集 fail-closed：请求命中 protected 成员整批拒绝（不允许静默剔除，
+   *   调用方须先看到错误）；持久停用集恒不含 protected（装配期过滤兜底）。 */
   async set_ui_components_disabled(names: readonly string[]): Promise<string[]> {
     const requested = new Set(names);
     const unknown = [...requested]
@@ -40,6 +49,12 @@ export abstract class RuntimeUiComponents extends RuntimeSpecs {
       .sort();
     if (unknown.length > 0) {
       throw new Error(`未登记出厂组件不能停用: ${unknown.join(', ')}`);
+    }
+    const forbidden = [...requested]
+      .filter((name) => UI_COMPONENTS_PROTECTED.has(name))
+      .sort();
+    if (forbidden.length > 0) {
+      throw new Error(`禁停集组件不能停用（机制必需入口）: ${forbidden.join(', ')}`);
     }
     this._ui_components_disabled = requested;
     if (this.validator !== null) {
@@ -81,7 +96,9 @@ export abstract class RuntimeUiComponents extends RuntimeSpecs {
     }
     const names = (record ?? {})['disabled'];
     if (Array.isArray(names) && names.every((name) => typeof name === 'string')) {
-      return new Set(names as string[]);
+      // 禁停集兜底过滤：持久停用集永不含 protected 成员（历史坏态一并清出）
+      const filtered = (names as string[]).filter((name) => !UI_COMPONENTS_PROTECTED.has(name));
+      return new Set(filtered);
     }
     return new Set();
   }

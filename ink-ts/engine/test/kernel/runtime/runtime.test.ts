@@ -944,3 +944,42 @@ describe('runtime 回合步骤记录器接线', () => {
     await runtime.stop();
   });
 });
+
+describe('出厂界面组件禁停集（B6 protected）', () => {
+  it('protected 成员不可停（整批拒绝，状态不变）；可停组件可停/恢复', async () => {
+    const host = new FakeHost();
+    const runtime = await new Runtime().boot(toHost(host), _minimal_recipe());
+    try {
+      expect(runtime.ui_protected_components).toEqual([
+        'agent_input',
+        'message_list',
+        'review_card',
+        'settings_floater',
+      ]);
+      await expect(runtime.set_ui_components_disabled(['message_list'])).rejects.toThrow(
+        /禁停集组件不能停用/,
+      );
+      expect(runtime.ui_components_disabled).toEqual([]);
+      const applied = await runtime.set_ui_components_disabled(['column']);
+      expect(applied).toEqual(['column']);
+      expect(runtime.ui_allowed_components).not.toContain('column');
+      expect(runtime.ui_allowed_components).toContain('agent_input');
+      await runtime.set_ui_components_disabled([]);
+      expect(runtime.ui_allowed_components).toContain('column');
+    } finally {
+      await runtime.stop();
+    }
+  });
+
+  it('未登记组件仍结构化拒绝（未知名走未登记错误）', async () => {
+    const host = new FakeHost();
+    const runtime = await new Runtime().boot(toHost(host), _minimal_recipe());
+    try {
+      await expect(runtime.set_ui_components_disabled(['not_a_component'])).rejects.toThrow(
+        /未登记出厂组件不能停用/,
+      );
+    } finally {
+      await runtime.stop();
+    }
+  });
+});

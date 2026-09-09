@@ -23,6 +23,7 @@ const backendMock = {
   recoverySnapshots: vi.fn(async () => ({ thread_id: 'thread-a', latest: 3, points })),
   recoveryRestoreSnapshot: vi.fn(async () => ({ thread_id: 'thread-a', target: 2, deleted: [3], current_leaf: 2 })),
   recoveryFactoryReset: vi.fn(async () => ({ reverted_patches: [], overwritten: false })),
+  recoverySettingsReset: vi.fn(async () => ({ reset: true })),
 };
 
 vi.mock('@/shared/backend/backendAdapter', () => ({
@@ -58,6 +59,7 @@ beforeEach(() => {
   backendMock.recoverySnapshots.mockClear();
   backendMock.recoveryRestoreSnapshot.mockClear();
   backendMock.recoveryFactoryReset.mockClear();
+  backendMock.recoverySettingsReset.mockClear();
 });
 
 afterEach(() => {
@@ -125,5 +127,18 @@ describe('AuditRecoverySection 出厂重置确认流', () => {
     await user.click(resetButton);
     expect(backendMock.recoveryFactoryReset).toHaveBeenCalled();
     expect(await screen.findByText('已重置为出厂基线')).toBeInTheDocument();
+  });
+
+  it('恢复设置默认：输入确认词「设置默认」后调用 settings_reset', async () => {
+    const user = userEvent.setup();
+    render(<AuditRecoverySection />);
+    const settingsResetButton = await screen.findByRole('button', { name: /确认恢复设置默认/ });
+    await user.click(settingsResetButton);
+    expect(backendMock.recoverySettingsReset).not.toHaveBeenCalled();
+
+    await user.type(screen.getByLabelText('设置默认确认词'), '设置默认');
+    await user.click(settingsResetButton);
+    expect(backendMock.recoverySettingsReset).toHaveBeenCalled();
+    expect(await screen.findByText('已恢复设置默认')).toBeInTheDocument();
   });
 });

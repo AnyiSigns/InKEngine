@@ -1,0 +1,38 @@
+{
+  "id": "plugin.mcp.remove",
+  "kind": "tool",
+  "capability": "host_tool",
+  "actions": [],
+  "depends": [],
+  "data": {
+    "tool": {
+      "name": "plugin.mcp.remove",
+      "description": "行为意图：移除一个指定安装的外部 MCP 服务端——停用（注销/断连/台账摘除）并删除其额外连接配置；内置候选不受影响（用 plugin.mcp.disable）。\n\n使用时机：用户要求彻底移除某个由 plugin.mcp.install 安装的 server 时。\n\n参数语义：server_id = 已安装的 server id。\n\n边界与协作：默认 review 档；移除内置候选 = 语义错误（提示改用 disable）。",
+      "parameters": {
+        "type": "object",
+        "properties": {
+          "server_id": {
+            "type": "string",
+            "minLength": 1,
+            "description": "已安装的外部 server id"
+          }
+        },
+        "required": [
+          "server_id"
+        ]
+      },
+      "permissions": [
+        "plugin:mcp:remove"
+      ],
+      "approval": "review",
+      "endpoint": "plugin_command",
+      "endpoint_config": {},
+      "meta": {
+        "domain": "plugin",
+        "executor": "host:plugin_command",
+        "sandbox": "host_registered",
+        "note": "执行接线由宿主注册（plugin_command 端点族 → 分发到既有 bridge 命令/受控台账）；管理动作 review 档（pose 决）"
+      }
+    }
+  }
+}

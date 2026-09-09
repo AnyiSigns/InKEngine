@@ -1,0 +1,30 @@
+{
+  "id": "plugin.catalog",
+  "kind": "tool",
+  "capability": "host_tool",
+  "actions": [],
+  "depends": [],
+  "data": {
+    "tool": {
+      "name": "plugin.catalog",
+      "description": "行为意图：检索插件目录（当前注册表的只读快照）——MCP 工具型插件候选/已装态（含指定安装额外连接）、出厂界面组件（factory/protected/disabled/active）、常驻必带工具集。\n\n使用时机：agent 需要知道当前可用/已启用插件、或决定启停/安装哪个 server 之前的勘察；只读，不落任何写。\n\n参数语义：无必填参数；返回 JSON 快照供人工解读。",
+      "parameters": {
+        "type": "object",
+        "properties": {},
+        "required": []
+      },
+      "permissions": [
+        "plugin:read:*"
+      ],
+      "approval": "allow",
+      "endpoint": "plugin_command",
+      "endpoint_config": {},
+      "meta": {
+        "domain": "plugin",
+        "executor": "host:plugin_command",
+        "sandbox": "host_registered",
+        "note": "执行接线由宿主注册（plugin_command 端点族 → 分发到既有 bridge 命令/受控台账）；管理动作 review 档（pose 决）"
+      }
+    }
+  }
+}

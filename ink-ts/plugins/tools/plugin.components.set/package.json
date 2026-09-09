@@ -1,0 +1,10 @@
+{
+  "name": "@ink-ts/plugin-plugin-components-set",
+  "version": "0.0.0",
+  "private": true,
+  "type": "module",
+  "files": [
+    "spec.json"
+  ],
+  "description": "ink-ts 工具插件声明（真源；agent 工具面由此派生）"
+}

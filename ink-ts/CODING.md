@@ -248,12 +248,15 @@ CI 的 ink-ts job 同链执行。规则增删须同步本表。
 | `recovery.checkpoints` | recovery | 可回退点查询（engine recovery） |
 | `recovery.rollback` | recovery | 回退入口（删链节点 + set_audit 留痕，调 engine recovery） |
 | `recovery.reset` | recovery | 重置入口（危险操作：confirm 须精确 `'factory-reset'`；thread_id 缺省 = 全量（逐会话清链 + 清 host.sessions/ledger/memory + 清事件日志），显式 = 单线程（链 + 会话墓碑 + 该线程事件日志）；摘要含 events_cleared/knowledge_kept/audit_kept，set_audit/知识集保留不参与，如实标注） |
+| `recovery.settings_reset` | recovery | 恢复设置默认逃生（B6；confirm 须精确 `'settings-default'`）：常驻必带回出厂集 + UI 组件停用清空 + MCP 工具型插件全停用清台账（含指定安装额外连接）+ capability 台账回缺省；不动会话链/知识/审计 |
 | `backup.export` | backup | data_dir 整包 zip 导出（store-zip + manifest；dest 缺省 data_dir/backups） |
 | `backup.preview` | backup | 备份包预览（覆盖清单：条目数/总大小/含库/created_at） |
 | `backup.restore` | backup | 备份恢复替换（危险操作：confirm 须精确 `'backup-restore'`；恢复前原目录快照入 data_dir/snapshots） |
 | `mcp.status` | mcp | MCP 工具型插件状态（plugins/mcp/<id>/spec.json 候选 + 启用/连接/工具数；B5 市场命令面已退役） |
 | `mcp.enable` | mcp | 启用 MCP 工具型插件（会话内装载：连接 + 工具导入 + 声明式注册 + 索引刷新；台账持久化重启自动拉起） |
 | `mcp.disable` | mcp | 停用 MCP 工具型插件（注销声明式定义 + 索引摘除 + 断开会话进程回收；台账摘除） |
+| `mcp.install` | mcp | 指定安装外部 MCP 服务端（B6：登记额外连接台账 `mcp_plugins_extra` 并立即装载启用；stdio 需 command、http 需 url；id 不与内置候选冲突） |
+| `mcp.remove` | mcp | 移除指定安装（B6：停用并删除额外连接配置；内置候选用 disable） |
 | `knowledge.list` | knowledge | 知识集条目窗口（query/kind 过滤 + archived 含归档开关；条目渲染视图） |
 | `knowledge.graph` | knowledge | 知识层级概览（层级计数 + 组件支持 kind 节点/边；无知识 = degraded） |
 | `knowledge.export` | knowledge | 知识 JSON 导出串（无 kind = 全量补丁链可移植；kind = 单类条目子集） |

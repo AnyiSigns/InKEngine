@@ -192,18 +192,31 @@ export class AppBackend {
 
   /**
    * 出厂界面组件启停状态（ui_components.get）：factory 权威 = 配方白名单
-   * 未过滤全集；无宿主回落种子 manifest 契约清单（出厂全量、零停用）。
+   * 未过滤全集；protected = 引擎禁停集（agent_input/review_card/
+   * settings_floater/message_list，UI/agent 不可停）；无宿主回落种子 manifest
+   * 契约清单（出厂全量、零停用、protected 空）。
    */
-  async getUiComponentsState(): Promise<{ factory: string[]; disabled: string[]; active: string[] }> {
+  async getUiComponentsState(): Promise<{
+    factory: string[];
+    protected: string[];
+    disabled: string[];
+    active: string[];
+  }> {
     const factory = this.getFactoryComponents();
     if (!this.backend?.available) {
-      return { factory, disabled: [], active: factory };
+      return { factory, protected: [], disabled: [], active: factory };
     }
     try {
-      return await this.backend.uiComponentsGet();
+      const state = await this.backend.uiComponentsGet();
+      return {
+        factory: state.factory.length > 0 ? state.factory : factory,
+        protected: state.protected ?? [],
+        disabled: state.disabled,
+        active: state.active,
+      };
     } catch (err) {
       logger.warn('app', '获取出厂组件启停状态失败（回落出厂全量）', { err: String(err) });
-      return { factory, disabled: [], active: factory };
+      return { factory, protected: [], disabled: [], active: factory };
     }
   }
 

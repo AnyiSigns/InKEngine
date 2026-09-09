@@ -332,13 +332,21 @@ export interface BackendAdapter {
   }>;
   /** 出厂重置（confirm 标记 'factory-reset' 随调下发，宿主 fail-closed）。 */
   recoveryFactoryReset(): Promise<{ reverted_patches: number[]; overwritten: boolean }>;
+  /** 恢复设置默认（B6 逃生；confirm 标记 'settings-default'；清能力台账/常驻集/
+   *  组件停用/MCP 启用与额外连接，不动会话链/知识/审计）。 */
+  recoverySettingsReset(): Promise<Record<string, unknown>>;
   // 待办（rounds.todos：计划未完成步骤 + 挂起审批卡）
   todoGet(threadId: string): Promise<RoundTodoList>;
   toolsManifest(): Promise<ToolFullView>;
   toolsBaselineGet(): Promise<{ tools: string[] }>;
   toolsBaselineSet(tools: string[]): Promise<{ tools: string[] }>;
-  /** 出厂界面组件启停状态（factory/disabled/active 三清单；组件 tab 数据源）。 */
-  uiComponentsGet(): Promise<{ factory: string[]; disabled: string[]; active: string[] }>;
+  /** 出厂界面组件启停状态（factory/protected/disabled/active 清单；组件 tab 数据源）。 */
+  uiComponentsGet(): Promise<{
+    factory: string[];
+    protected: string[];
+    disabled: string[];
+    active: string[];
+  }>;
   uiComponentsSetDisabled(disabled: string[]): Promise<{ disabled: string[] }>;
   // MCP 工具型插件启停（status/enable/disable；市场命令面已退役）
   mcpPluginStatus(): Promise<McpPluginStatusData>;
@@ -415,6 +423,7 @@ export function createUnavailableBackend(): BackendAdapter {
     recoverySnapshots: unavailable as never,
     recoveryRestoreSnapshot: unavailable as never,
     recoveryFactoryReset: unavailable as never,
+    recoverySettingsReset: unavailable as never,
     todoGet: unavailable as never,
     toolsManifest: unavailable as never,
     toolsBaselineGet: unavailable as never,
@@ -530,6 +539,8 @@ export function createServeBackend(channel?: ServeChannel): BackendAdapter {
       call('recovery_restore_snapshot', { threadId, checkpointId: checkpointId ?? null }),
     recoveryFactoryReset: () =>
       call('recovery.reset', { confirm: FACTORY_RESET_CONFIRM }),
+    recoverySettingsReset: () =>
+      call('recovery.settings_reset', { confirm: 'settings-default' }),
     todoGet: (threadId) => call('rounds.todos', { thread_id: threadId }),
     toolsManifest: () => call('tools.full'),
     toolsBaselineGet: () => call('tools_baseline_get'),

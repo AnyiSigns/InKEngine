@@ -18,6 +18,7 @@ import {
   BASELINE_IMMUTABLE_TOOLS,
   BASELINE_RECORD_COLLECTION,
   BASELINE_RECORD_KEY,
+  BASELINE_TOOL_NAMES,
   THREAD_TAG_RECORD_COLLECTION,
   THREAD_TAG_RECORD_KEY,
   THREAD_TAG_TTL_SECONDS,
@@ -126,6 +127,11 @@ export abstract class RuntimeSpecs extends RuntimeRunControl {
     return [...this._baseline_names].sort();
   }
 
+  /** 出厂常驻必带默认集（恢复设置默认/逃生用；恒定常量快照）。 */
+  get baseline_factory_names(): string[] {
+    return [...BASELINE_TOOL_NAMES, ...BASELINE_IMMUTABLE_TOOLS].sort();
+  }
+
   /** 应用常驻必带集（不校验；校验归 set_baseline_names 调用面）。
    *  单源 + 标签：设置后同步标签表——新增名打 baseline 标签、摘除名摘除；
    *  immutable 恒在，不受此影响。 */
@@ -182,6 +188,25 @@ export abstract class RuntimeSpecs extends RuntimeRunControl {
         BASELINE_RECORD_KEY,
         { tools: [...this._baseline_names].sort() },
         { asset_id: 'tool_baseline', note: 'set_baseline_names' },
+      );
+    }
+    return this.baseline_names;
+  }
+
+  /** 恢复出厂常驻必带集（B6 逃生；不走实时登记校验——出厂常量本就可能含
+   *  待登记挂载工具，宽松应用语义同 _restore_baseline，登记后自动生效）。
+   *  写 records 通道（runtime_config/tool_baseline）供重启重放。 */
+  async reset_baseline_names(): Promise<string[]> {
+    this._apply_baseline(BASELINE_TOOL_NAMES);
+    if (this.storage !== null) {
+      const writer =
+        this._mechanism_writer ?? new DefaultEvolutionWriter(this.storage);
+      await runtime_config_writer(
+        writer,
+        BASELINE_RECORD_COLLECTION,
+        BASELINE_RECORD_KEY,
+        { tools: [...this._baseline_names].sort() },
+        { asset_id: 'tool_baseline', note: 'reset_baseline_names' },
       );
     }
     return this.baseline_names;

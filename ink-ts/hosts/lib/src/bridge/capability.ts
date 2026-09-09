@@ -51,6 +51,10 @@ function ephemeralCapabilityStore(): CapabilityStore {
       cached = parseRecord({ ...cached, ...patch });
       return cached;
     },
+    reset: (): CapabilityRecord => {
+      cached = defaultCapabilityRecord();
+      return cached;
+    },
     reload: (): void => {
       // 内存兜底形态无磁盘真源：保持当前状态
     },

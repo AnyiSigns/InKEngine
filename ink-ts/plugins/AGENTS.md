@@ -66,7 +66,10 @@ renderer/ 为纯显示设备库（@ink-ts/renderer），ui_features 域扩至 38
 （canonical 布局叶子/设置面板/设置浮层真 ui 面 26；ledger_view 随 records/
 ledger 移除后曾 36 插件 = 25 真 ui 面（12 叶子 + 13 面板）；B4 权限/插件收敛
 把 mcp_market+tools_panel 两设置段合并为 plugins 段，现 148 插件 =
-ui_feature 34 + 真 ui 面 24（12 布局叶子 + 12 设置面板，设置段 12），faces/ui
+ui_feature 34 + 真 ui 面 24（12 布局叶子 + 12 设置面板，设置段 12）；B6 增
+agent 插件管理工具族（plugin.* 7 工具）与 mcp.install/mcp.remove、
+recovery.settings_reset 命令，现 158 插件 = tool 45 + mcp 5 + command 71 +
+ui_feature 34 + endpoint 3，真 ui 面仍 24（12 叶子 + 12 设置面板），faces/ui
 同住实现与测试，renderer 适配层整体退役）；其余 kind 目录随对应阶段落位。
 
 ## spec.json 契约（真源声明）

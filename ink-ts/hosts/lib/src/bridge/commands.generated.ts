@@ -71,6 +71,7 @@ export const RECOVERY_COMMANDS = [
   'recovery.checkpoints',
   'recovery.rollback',
   'recovery.reset',
+  'recovery.settings_reset',
 ] as const;
 
 export type RecoveryCommand = (typeof RECOVERY_COMMANDS)[number];
@@ -89,6 +90,8 @@ export const MCP_COMMANDS = [
   'mcp.status',
   'mcp.enable',
   'mcp.disable',
+  'mcp.install',
+  'mcp.remove',
 ] as const;
 
 export type McpCommand = (typeof MCP_COMMANDS)[number];

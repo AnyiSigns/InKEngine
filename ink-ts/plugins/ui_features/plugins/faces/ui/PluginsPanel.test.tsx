@@ -29,9 +29,10 @@ function makeMockBackend(): AppBackend {
     getMaxToolRounds: vi.fn(async () => 12),
     setMaxToolRounds: vi.fn(async () => ({ ok: true })),
     getUiComponentsState: vi.fn(async () => ({
-      factory: ['agent_input', 'message_list'],
+      factory: ['agent_input', 'message_list', 'evolution_feed'],
+      protected: ['agent_input', 'message_list'],
       disabled: ['message_list'],
-      active: ['agent_input'],
+      active: ['agent_input', 'evolution_feed'],
     })),
     setUiComponentsDisabled: vi.fn(async (disabled: string[]) => ({ ok: true, disabled })),
     getMcpPlugins: vi.fn(async () => ({
@@ -99,12 +100,21 @@ describe('PluginsPanel（插件设置段）', () => {
     const backend = makeMockBackend();
     const { container } = render(<PluginsPanel backend={backend} catalog={derivePluginsCatalog()} />);
     await waitFor(() => {
-      expect(container.querySelector('[data-ui="ui_component_agent_input"]')).not.toBeNull();
+      expect(container.querySelector('[data-ui="ui_component_evolution_feed"]')).not.toBeNull();
     });
-    fireEvent.click(container.querySelector('[data-ui="ui_component_toggle_agent_input"]') as HTMLElement);
+    fireEvent.click(container.querySelector('[data-ui="ui_component_toggle_evolution_feed"]') as HTMLElement);
     await waitFor(() => {
       expect(backend.setUiComponentsDisabled).toHaveBeenCalled();
     });
+  });
+
+  it('禁停集组件展示禁停徽标且无启停钮', async () => {
+    const backend = makeMockBackend();
+    const { container } = render(<PluginsPanel backend={backend} catalog={derivePluginsCatalog()} />);
+    await waitFor(() => {
+      expect(container.querySelector('[data-ui="ui_component_protected_agent_input"]')).not.toBeNull();
+    });
+    expect(container.querySelector('[data-ui="ui_component_toggle_agent_input"]')).toBeNull();
   });
 
   it('服务停用 → mcpPluginDisable（已启用行出停用钮）', async () => {

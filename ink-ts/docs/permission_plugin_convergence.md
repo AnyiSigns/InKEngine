@@ -59,8 +59,9 @@
 | 设置段合并 | settingsSections.generated.ts（mcp_market order10 / tools_panel order20） | 单「插件」段（生成物，真源改 spec） | 已实现（B4）：plugins 段 order10 承接，12 设置段 |
 | MCP 市场命令面 | hosts bridge mcp.market/mount/unmount、backend getMcpMarket | 退役/改造为 plugin 启停 | 已实现（B5）：市场命令面退役，bridge 改为 mcp.status/enable/disable（plugins/commands 目录同步改名）；mcp.enable = 会话内装载（connect+import_tools+声明式注册+索引刷新），mcp.disable = 注销+索引摘除+断连回收；host 台账 `mcp_plugins_enabled`（capability.json）持久化 + boot 自动拉起（fail-closed 只记状态） |
 | MCP 服务端 → 工具型插件 | plugins/mcp/market.*（kind='mcp'，premounted=false，mount_policy 挂载链） | 概念/UI 先收敛；数据面 kind 迁移单独批次 | 部分实现（B5）：启用即装载为工具型插件语义落地（注册表可见 + request_tool 请求即绑，不进常驻注入集）；plugins/mcp/<id>/spec.json = 连接配置真源（候选目录扫描）。kind 仍为 'mcp'、market.json 派生视图保留，数据面 kind 迁移单独批次 |
-| agent 侧插件管理工具集 | self_tools/propose 工具面 | 扩展：检索插件/指定安装/启停/回退 | 待做（B6） |
-| protected 禁停集 + 恢复默认 | — | 生效 | 待做（B6） |
+| agent 侧插件管理工具集 | self_tools/propose 工具面 | 扩展：检索插件/指定安装/启停/回退 | 已实现（B6）：plugin_command 端点族（host 声明式接线，session_command 模式）——plugin.catalog（只读目录快照：mcp 候选/组件/常驻集）、plugin.mcp.enable/disable/install/remove、plugin.components.set、plugin.baseline.set；经统一流水线 pose 三档决后由宿主执行体真写 |
+| protected 禁停集 + 恢复默认 | — | 生效 | 已实现（B6）：engine UI_COMPONENTS_PROTECTED（agent_input/review_card/settings_floater/message_list）set_ui_components_disabled 整批拒绝 + 装载过滤；ui_components.get 带 protected 回显。恢复设置默认 = recovery.settings_reset（confirm 'settings-default'）——常驻必带回出厂（reset_baseline_names）、组件停用清空、MCP 全停+清台账（含 mcp_plugins_extra）、capability.reset 回缺省 |
+| MCP 指定安装（url/command 入口） | plugins/mcp/market.*（候选） | 指定安装入口产物不删空（防 MCP 死能力） | 已实现（B6）：McpPluginService.install/remove + host 台账 mcp_plugins_extra（capability.json），与内置候选同构装载（connect→import→注册→索引），不写 plugins 源/生成物 |
 | 本文档所属语义文档同步 | PLUGINS.md / component_data_endgame.md | 词表收敛 | 待做（收尾） |
 
 ## 批次计划（顺序执行，避免生成物冲突）
@@ -70,7 +71,7 @@
 - **B3** engine 审批姿态：host policy → approval adapter 支持 pose（auto 直过/自动转正；deny 免问直拒；机制校验不受影响）+ 单测。验证：`vitest run --root engine` + 架构门禁。✅
 - **B4** 插件 tab 合并：新建 plugins/ui_features/plugins 面板 → 卸载 tools_panel/mcp_market（verify_unload --plan 先查阻断）→ 重跑 sync_plugin_manifest.mjs；删除权限矩阵/自动审批 UI。验证：root 门禁 + hosts/web 测试。✅（2026-09-09：plugins 面板 = manifest 派生目录 pluginsCatalog + 常驻必带/界面组件启停/服务挂载动作 + max_tool_rounds；148 插件/24 真 ui 面/12 设置段；权限矩阵/自动审批/市场浏览 UI 退役）
 - **B5** MCP 市场命令面退役 + MCP 工具型插件装载（启用即注册、自动拉起、schema 刷新、生命周期）。验证：hosts/lib 测试 + live 冒烟。✅（2026-09-09：命令面 mcp.market/mount/unmount → mcp.status/enable/disable；hosts/lib McpPluginService（mcp/plugin.ts）会话内装载 + capability 台账持久化 + boot restore 自动拉起 + 工具索引 remove seam（engine ToolVectorIndex.remove/Runtime.remove_tool_index）；renderer/web/cli 适配迁移；hosts/lib 全量门禁/verify/各包测试全绿，live 冒烟并入收尾）
-- **B6** agent 侧插件管理工具 + protected 禁停集 + 恢复默认逃生。验证：engine + hosts 全量 + 产品出厂自检路径。
+- **B6** agent 侧插件管理工具 + protected 禁停集 + 恢复默认逃生。验证：engine + hosts 全量 + 产品出厂自检路径。✅（2026-09-09：plugin_command 工具族 7 工具（plugins/tools/plugin.* 真源 + hosts/lib/src/plugin_command.ts 接线 + createHost 注册）；engine UI_COMPONENTS_PROTECTED 禁停集 + ui_protected_components + reset_baseline_names；McpPluginService.install/remove + mcp_plugins_extra 额外连接台账（桥 mcp.install/mcp.remove）；recovery.settings_reset + capability.store.reset + audit 面板「恢复设置默认」块（确认词 fail-closed）；158 插件 = tool 45 + mcp 5 + command 71 + ui_feature 34 + endpoint 3；engine 2363 + hosts/web/plugins/cli 全绿 + gate/verify 全 PASS）
 - **收尾** 总核：文档回填落地状态栏、记忆定稿、live 冒烟（`.dev-data/kilo-cli` 真链路）。
 
 ## 风险与边界

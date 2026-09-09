@@ -45,6 +45,8 @@ export interface CapabilityStore {
   get(): CapabilityRecord;
   /** 合并写入（单字段语义：先读既有记录再并入；返回合并后记录）。 */
   put(patch: Record<string, unknown>): CapabilityRecord;
+  /** 恢复出厂记录（整体清空为缺省；B6 恢复设置默认逃生用）。 */
+  reset(): CapabilityRecord;
   /** 从磁盘重读缓存（data_dir 目录恢复后刷新为恢复态记录）。 */
   reload(): void;
 }
@@ -115,6 +117,10 @@ export function createCapabilityStore(dataDir: string): CapabilityStore {
       }
       const record = parseRecord(merged);
       cached = persist(record);
+      return cached;
+    },
+    reset: (): CapabilityRecord => {
+      cached = persist(defaultCapabilityRecord());
       return cached;
     },
     reload: (): void => {

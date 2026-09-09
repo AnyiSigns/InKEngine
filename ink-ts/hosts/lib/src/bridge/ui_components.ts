@@ -5,9 +5,10 @@
  * 未过滤全集 / ui_components_disabled 停用集 / ui_allowed_components 活跃面），
  * 与引擎校验器/界面校验同源。host 只透传，不维护第二份组件清单。
  *
- * - get：factory/disabled/active 三清单（组件 tab 数据源；factory = 配方
- *   ui_allowed_components 未过滤全集，active = factory - disabled）；
- * - set_disabled：整集替换停用集（未登记名由引擎结构化拒绝 → 业务错误）。
+ * - get：factory/protected/disabled/active 四清单（组件 tab 数据源；factory = 配方
+ *   ui_allowed_components 未过滤全集，active = factory - disabled；protected =
+ *   引擎禁停集——UI/agent 一律不可停）；
+ * - set_disabled：整集替换停用集（未登记名/禁停集由引擎结构化拒绝 → 业务错误）。
  */
 
 import type { UiComponentsCommand } from './commands.generated.js';
@@ -34,6 +35,7 @@ export function buildUiComponentsCommands(deps: HostBridgeDeps): Readonly<Record
     const runtime = deps.runtime;
     return {
       factory: runtime.ui_factory_components,
+      protected: runtime.ui_protected_components,
       disabled: runtime.ui_components_disabled,
       active: runtime.ui_allowed_components,
     };

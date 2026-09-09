@@ -443,6 +443,37 @@ describe('mcp.status/enable/disable（B5 工具型插件启停）', () => {
   });
 });
 
+describe('recovery.settings_reset（B6 恢复设置默认逃生）', () => {
+  let handle: HostHandle;
+
+  afterEach(async () => {
+    await handle.dispose();
+  });
+
+  it('缺 confirm 拒绝；带 settings-default 标记执行成功（capability 回缺省/常驻集复位）', async () => {
+    const { dir, events } = dirs();
+    handle = await createHost({ data_dir: dir, events_dir: events });
+    const settingsReset = handle.bridge.get('recovery.settings_reset')!;
+
+    await expect(settingsReset({}, CTX)).rejects.toMatchObject({ code: 'invalid_params' });
+    await expect(
+      settingsReset({ confirm: 'factory-reset' }, CTX),
+    ).rejects.toMatchObject({ code: 'invalid_params' });
+
+    const out = (await settingsReset({ confirm: 'settings-default' }, CTX)) as {
+      mode: string;
+      reset: boolean;
+      baseline_reset: string[];
+      ui_disabled: string[];
+      mcp_disabled: string[];
+    };
+    expect(out).toMatchObject({ mode: 'settings', reset: true });
+    expect(out.baseline_reset).toContain('search_tools');
+    expect(out.ui_disabled).toEqual([]);
+    expect(out.mcp_disabled).toEqual([]);
+  });
+});
+
 describe('knowledge 读面（list/graph/export）', () => {
   let handle: HostHandle;
 

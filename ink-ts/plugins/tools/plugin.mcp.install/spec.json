@@ -1,0 +1,66 @@
+{
+  "id": "plugin.mcp.install",
+  "kind": "tool",
+  "capability": "host_tool",
+  "actions": [],
+  "depends": [],
+  "data": {
+    "tool": {
+      "name": "plugin.mcp.install",
+      "description": "行为意图：指定安装一个外部 MCP 服务端（url/command 连接配置）——登记额外连接台账（运行期持久，重启自动拉起）并立即装载启用；入口为「指定安装」产物，防 MCP 死能力。\n\n使用时机：用户要求接入一个不在内置候选里的 MCP server（提供地址或启动命令）时。\n\n参数语义：server_id=新 server id（不与内置候选冲突）；transport=stdio|http；stdio 需 command（可带 args）；http 需 url。\n\n边界与协作：默认 review 档（弹卡/pose 决）——管理动作；id 与内置候选冲突/连接失败显式报错不落启用台账；移除走 plugin.mcp.remove。",
+      "parameters": {
+        "type": "object",
+        "properties": {
+          "server_id": {
+            "type": "string",
+            "minLength": 1,
+            "description": "新 server id（全局唯一）"
+          },
+          "transport": {
+            "type": "string",
+            "enum": [
+              "stdio",
+              "http"
+            ],
+            "description": "连接传输"
+          },
+          "url": {
+            "type": "string",
+            "description": "http 端点数（transport=http 必填）"
+          },
+          "command": {
+            "type": "string",
+            "description": "启动命令（transport=stdio 必填）"
+          },
+          "args": {
+            "type": "array",
+            "items": {
+              "type": "string"
+            },
+            "description": "stdio 命令参数（可选）"
+          },
+          "name": {
+            "type": "string",
+            "description": "展示名（可选，缺省 = server_id）"
+          }
+        },
+        "required": [
+          "server_id",
+          "transport"
+        ]
+      },
+      "permissions": [
+        "plugin:mcp:install"
+      ],
+      "approval": "review",
+      "endpoint": "plugin_command",
+      "endpoint_config": {},
+      "meta": {
+        "domain": "plugin",
+        "executor": "host:plugin_command",
+        "sandbox": "host_registered",
+        "note": "执行接线由宿主注册（plugin_command 端点族 → 分发到既有 bridge 命令/受控台账）；管理动作 review 档（pose 决）"
+      }
+    }
+  }
+}

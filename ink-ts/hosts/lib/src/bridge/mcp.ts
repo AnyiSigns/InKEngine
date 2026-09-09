@@ -83,9 +83,57 @@ export function buildMcpCommands(deps: HostBridgeDeps): Readonly<Record<McpComma
     return outcome;
   };
 
+  /** 指定安装（B6）：登记额外连接配置（url/command）并立即启用（review/pose 决）。 */
+  const install: BridgeHandler = async (raw): Promise<unknown> => {
+    const service = serviceOrThrow(deps);
+    const params =
+      typeof raw === 'object' && raw !== null && !Array.isArray(raw)
+        ? (raw as Record<string, unknown>)
+        : {};
+    const id = stringParam(params, ['id', 'server_id']);
+    if (id === null) {
+      throw new BridgeError('mcp.install 需 params.id（新 server id）', 'invalid_params');
+    }
+    const transport = params['transport'] === 'stdio' ? 'stdio' : 'http';
+    const command = typeof params['command'] === 'string' ? params['command'] : null;
+    const url = typeof params['url'] === 'string' ? params['url'] : null;
+    const rawArgs = params['args'];
+    const args = Array.isArray(rawArgs)
+      ? rawArgs.filter((a): a is string => typeof a === 'string')
+      : [];
+    const name = typeof params['name'] === 'string' ? params['name'] : undefined;
+    const outcome = await service.install(id, {
+      transport,
+      ...(name !== undefined && name !== '' ? { name } : {}),
+      url,
+      command,
+      args,
+    });
+    if (!outcome.ok) {
+      throw new BridgeError(outcome.error ?? `MCP 指定安装失败: ${id}`, 'mcp_install_failed');
+    }
+    return outcome;
+  };
+
+  /** 移除指定安装（B6）：停用 + 摘除额外连接配置。 */
+  const remove: BridgeHandler = async (raw): Promise<unknown> => {
+    const service = serviceOrThrow(deps);
+    const id = stringParam(raw, ['id', 'server_id', 'name']);
+    if (id === null) {
+      throw new BridgeError('mcp.remove 需 params.id（插件/server id）', 'invalid_params');
+    }
+    const outcome = await service.remove(id);
+    if (!outcome.ok) {
+      throw new BridgeError(outcome.error ?? `MCP 指定安装移除失败: ${id}`, 'mcp_remove_failed');
+    }
+    return outcome;
+  };
+
   return {
     'mcp.status': status,
     'mcp.enable': enable,
     'mcp.disable': disable,
+    'mcp.install': install,
+    'mcp.remove': remove,
   };
 }

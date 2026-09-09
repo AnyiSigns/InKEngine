@@ -9,42 +9,43 @@
       "ms": 13033
     },
     "delegate": {
-      "uses": 0,
-      "success": 0,
+      "uses": 1,
+      "success": 1,
       "fail": 0,
-      "tokens": 0,
-      "ms": 0
+      "tokens": 2831,
+      "ms": 31275
     }
   },
   "prior": {
     "direct": 0.9177,
-    "delegate": 0.5
+    "delegate": 0.8584499999999999
   },
   "domains": {
     "coding-cli-python": {
-      "uses": 1,
-      "success": 1,
+      "uses": 2,
+      "success": 2,
       "shortcut": false
     }
   },
   "scopes": {
     "main": {
+      "uses": 2,
+      "success": 2,
+      "note": "sampling"
+    },
+    "planner": {
       "uses": 1,
       "success": 1,
       "note": "sampling"
     },
-    "planner": {
-      "uses": 0,
-      "success": 0,
-      "note": "sampling"
-    },
     "worker": {
-      "uses": 0,
-      "success": 0,
+      "uses": 1,
+      "success": 1,
       "note": "sampling"
     }
   },
   "decisions": [
-    "direct:ok@coding-cli-python"
+    "direct:ok@coding-cli-python",
+    "delegate:ok@coding-cli-python"
   ]
 }

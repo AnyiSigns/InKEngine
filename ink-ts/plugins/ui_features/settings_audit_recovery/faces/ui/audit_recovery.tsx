@@ -10,7 +10,7 @@
  */
 
 import { useCallback, useEffect, useState } from 'react';
-import { Download, FileClock, History, RotateCcw, ShieldAlert } from 'lucide-react';
+import { Download, FileClock, History, RotateCcw, Settings2, ShieldAlert } from 'lucide-react';
 
 import { Button } from '@/shared/ui/Button';
 import { TextInput } from '@/shared/ui/Field';
@@ -51,6 +51,8 @@ export function AuditRecoverySection({ backend }: { backend?: BackendAdapter }) 
   const [confirmingRollback, setConfirmingRollback] = useState(false);
   const [resetPhase, setResetPhase] = useState<FeedbackPhase>('idle');
   const [resetConfirmWord, setResetConfirmWord] = useState('');
+  const [settingsResetPhase, setSettingsResetPhase] = useState<FeedbackPhase>('idle');
+  const [settingsResetConfirmWord, setSettingsResetConfirmWord] = useState('');
 
   const hasThread = threadId.trim() !== '';
 
@@ -139,6 +141,25 @@ export function AuditRecoverySection({ backend }: { backend?: BackendAdapter }) 
     } catch (err) {
       logger.error('settings', '出厂重置失败', { err: String(err) });
       setResetPhase('fail');
+    }
+  }, [host, refreshPoints]);
+
+  /** 恢复设置默认（B6 逃生）：清能力台账/常驻集/组件停用/MCP 启用与额外连接；
+   *  不动会话链/知识/审计；独立确认词 fail-closed。 */
+  const runSettingsReset = useCallback(async () => {
+    if (!host.available) {
+      setSettingsResetPhase('fail');
+      return;
+    }
+    setSettingsResetPhase('loading');
+    try {
+      await host.recoverySettingsReset();
+      setSettingsResetConfirmWord('');
+      setSettingsResetPhase('success');
+      refreshPoints();
+    } catch (err) {
+      logger.error('settings', '恢复设置默认失败', { err: String(err) });
+      setSettingsResetPhase('fail');
     }
   }, [host, refreshPoints]);
 
@@ -251,6 +272,39 @@ export function AuditRecoverySection({ backend }: { backend?: BackendAdapter }) 
             </ul>
           </>
         )}
+      </div>
+
+      <div className="flex flex-col gap-2 rounded border border-[var(--ink-border)] p-3">
+        <div className="flex items-center gap-1 text-[11px] text-[var(--ink-text-muted)]">
+          <Settings2 size={11} strokeWidth={1.6} />
+          <span className="font-medium text-[var(--ink-text-base)]">恢复设置默认（逃生）</span>
+        </div>
+        <div className="text-[10px] leading-relaxed text-[var(--ink-text-faint)]">
+          恢复出厂档位与管理设置：常驻必带回出厂集、界面组件停用清空（禁停集
+          本就不可停）、MCP 工具型插件全部停用并清台账（含指定安装的额外连接）、
+          能力台账回缺省（auto 审批/回合上限/档位登记）。不动会话链、知识集与审计。
+          请输入确认词「设置默认」。
+        </div>
+        <div className="flex flex-wrap items-center gap-2">
+          <TextInput
+            className="w-44"
+            value={settingsResetConfirmWord}
+            onChange={(e) => setSettingsResetConfirmWord(e.target.value)}
+            placeholder="输入确认词「设置默认」"
+            aria-label="设置默认确认词"
+          />
+          <Button
+            size="sm"
+            variant="accent"
+            data-ui="recovery_settings_reset"
+            disabled={settingsResetConfirmWord !== '设置默认' || settingsResetPhase === 'loading'}
+            onClick={() => void runSettingsReset()}
+          >
+            <RotateCcw size={11} strokeWidth={1.6} />
+            确认恢复设置默认
+          </Button>
+          <Feedback phase={settingsResetPhase} okText="已恢复设置默认" failText="恢复失败" />
+        </div>
       </div>
 
       <div className="flex flex-col gap-2 rounded border border-[var(--ink-accent-border)] p-3">

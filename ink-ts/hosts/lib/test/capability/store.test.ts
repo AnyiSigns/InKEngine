@@ -54,6 +54,31 @@ describe('能力记录域（capability.json 持久化 + 档位语义移除）', 
     expect('simulation_tier' in after).toBe(false);
     expect(after.max_tool_rounds).toBe(5);
   });
+
+  it('reset 恢复出厂记录（透传键一并清空；B6 恢复设置默认逃生）', () => {
+    const dir = tempDir('ink-capreset-');
+    const store = createCapabilityStore(dir);
+    store.put({
+      auto_approve_tools: ['introspection_query'],
+      auto_approve_all_review: true,
+      max_tool_rounds: 24,
+      tier_overrides: { file_write: 'review' },
+      mcp_plugins_enabled: ['market.web_fetch'],
+      mcp_plugins_extra: { ext: { transport: 'http', url: 'https://x' } },
+    });
+    store.reset();
+    const after = store.get();
+    expect(after.auto_approve_tools).toEqual([]);
+    expect(after.auto_approve_all_review).toBe(false);
+    expect('max_tool_rounds' in after).toBe(false);
+    expect('tier_overrides' in after).toBe(false);
+    expect('mcp_plugins_enabled' in after).toBe(false);
+    expect('mcp_plugins_extra' in after).toBe(false);
+    // 持久化落盘（同目录重读 = 出厂记录）
+    const reread = createCapabilityStore(dir);
+    expect(reread.get().auto_approve_tools).toEqual([]);
+    expect('mcp_plugins_extra' in reread.get()).toBe(false);
+  });
 });
 
 describe('capability 命令面（bridge 接线）', () => {

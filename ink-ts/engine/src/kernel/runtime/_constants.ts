@@ -46,3 +46,13 @@ export const THREAD_TAG_RECORD_KEY = 'tool_thread_tags';
 // 出厂界面组件启停持久化（records 通道；禁用集 ⊆ 配方 ui_allowed_components）
 export const UI_COMPONENTS_RECORD_COLLECTION = 'runtime_config';
 export const UI_COMPONENTS_RECORD_KEY = 'ui_components_disabled';
+
+// 出厂界面组件禁停集（B6：机制必需入口，UI/agent 一律不可停）：
+// agent_input=回合发送、review_card=审批裁决卡、settings_floater=逃生/设置
+// 浮层容器、message_list=主显示流。持久停用集经装配期过滤，永不含这些成员。
+export const UI_COMPONENTS_PROTECTED: ReadonlySet<string> = new Set<string>([
+  'agent_input',
+  'review_card',
+  'settings_floater',
+  'message_list',
+]);

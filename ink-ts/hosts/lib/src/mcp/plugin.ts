@@ -31,6 +31,20 @@ import type { CapabilityStore } from '../capability/store.js';
 /** 启用集台账键（capability.json；数组 = 已启用 plugin/server id）。 */
 export const MCP_PLUGINS_ENABLED_KEY = 'mcp_plugins_enabled';
 
+/** 指定安装（额外连接配置）台账键（capability.json；id → 连接配置）。
+ *  运行期登记的外部 server（url/command）持久于此，与 plugins/mcp/<id>/spec.json
+ *  内置候选同构装载；不写 plugins 源、不触发生成物变更（B6 受控通道）。 */
+export const MCP_PLUGINS_EXTRA_KEY = 'mcp_plugins_extra';
+
+/** 指定安装连接配置（用户/agent 经 review 档安装的外部 server）。 */
+export interface McpPluginExtraConfig {
+  transport: 'stdio' | 'http';
+  name?: string;
+  url?: string | null;
+  command?: string | null;
+  args?: string[];
+}
+
 /** 候选声明（plugins/mcp/<id>/spec.json 的 data.server 透传形态）。 */
 export interface McpPluginCandidate {
   id: string;
@@ -84,6 +98,53 @@ export interface McpPluginHostSeam {
 
 function isRecord(value: unknown): value is Record<string, unknown> {
   return typeof value === 'object' && value !== null && !Array.isArray(value);
+}
+
+/** 台账读取形态收敛（坏形态丢弃）。 */
+function asStringArray(raw: unknown): string[] {
+  if (!Array.isArray(raw)) return [];
+  return raw.filter((item): item is string => typeof item === 'string' && item !== '');
+}
+
+/** 额外连接配置台账读取（坏形态丢弃；transport 仅 stdio/http）。 */
+function asExtras(raw: unknown): Record<string, McpPluginExtraConfig> {
+  if (!isRecord(raw)) return {};
+  const out: Record<string, McpPluginExtraConfig> = {};
+  for (const [id, value] of Object.entries(raw)) {
+    if (id === '' || !isRecord(value)) continue;
+    const transport = value['transport'] === 'stdio' ? 'stdio' : 'http';
+    const command = typeof value['command'] === 'string' ? value['command'] : null;
+    const url = typeof value['url'] === 'string' ? value['url'] : null;
+    if (transport === 'stdio' && (command === null || command === '')) continue;
+    if (transport === 'http' && (url === null || url === '')) continue;
+    const rawArgs = value['args'];
+    out[id] = {
+      transport,
+      ...(typeof value['name'] === 'string' && value['name'] !== ''
+        ? { name: value['name'] }
+        : {}),
+      url,
+      command,
+      args: Array.isArray(rawArgs)
+        ? rawArgs.filter((a): a is string => typeof a === 'string')
+        : [],
+    };
+  }
+  return out;
+}
+
+/** 从额外连接配置构建候选（与内置候选同构；目录缺失时 list/candidate 合并）。 */
+function extraCandidate(id: string, config: McpPluginExtraConfig): McpPluginCandidate {
+  return {
+    id,
+    name: config.name ?? id,
+    source: 'user-installed',
+    transport: config.transport,
+    url: config.transport === 'http' ? (config.url ?? null) : null,
+    command: config.transport === 'stdio' ? (config.command ?? null) : null,
+    args: config.args ?? [],
+    category: 'extra',
+  };
 }
 
 /** 从候选声明构建连接配置（plugins 真源；来源分类 UNKNOWN 兜底）。 */
@@ -189,6 +250,17 @@ export class McpPluginService {
     this.store.put({ [MCP_PLUGINS_ENABLED_KEY]: [...enabled].sort() });
   }
 
+  /** 额外连接配置台账读（坏形态丢弃）。 */
+  private _extras(): Record<string, McpPluginExtraConfig> {
+    const record = (this.store?.get() ?? {}) as Record<string, unknown>;
+    return asExtras(record[MCP_PLUGINS_EXTRA_KEY]);
+  }
+
+  private _persistExtra(extras: Record<string, McpPluginExtraConfig>): void {
+    if (this.store === null) return;
+    this.store.put({ [MCP_PLUGINS_EXTRA_KEY]: extras });
+  }
+
   private _declarative(): McpPluginDeclarativeSeam | null {
     const declarative = this.host.harness_registry?.declarative;
     return declarative !== null && declarative !== undefined ? declarative : null;
@@ -219,10 +291,14 @@ export class McpPluginService {
   }
 
   candidate(id: string): McpPluginCandidate | null {
-    return parseCandidate(this.pluginsRoot, id);
+    const fromDir = parseCandidate(this.pluginsRoot, id);
+    if (fromDir !== null) return fromDir;
+    const extra = this._extras()[id];
+    if (extra === undefined) return null;
+    return extraCandidate(id, extra);
   }
 
-  /** 候选清单（目录扫描真源；含运行态 + 台账残影错误行）。 */
+  /** 候选清单（目录扫描真源 + 额外连接台账；含运行态 + 台账残影错误行）。 */
   list(): McpPluginStatus[] {
     const enabled = new Set(this._enabledIds());
     const connected = new Set(this.manager.list_servers());
@@ -251,11 +327,31 @@ export class McpPluginService {
         error: this._errors.get(id) ?? null,
       };
     });
-    // 台账残影（候选目录已移除但仍启用）：作为可停用的错误行暴露，避免幽灵
-    // id 只在台账里且 UI/命令面不可达。
-    const scanned = new Set(rows.map((row) => row.id));
+    const present = new Set(rows.map((row) => row.id));
+    // 额外连接（指定安装）：非目录候选也作为行暴露（启用/停用/移除管理面）
+    for (const [id, config] of Object.entries(this._extras())) {
+      if (present.has(id)) continue;
+      const candidate = extraCandidate(id, config);
+      const isEnabled = enabled.has(id);
+      const declaredCount = this._declared.get(id)?.size;
+      rows.push({
+        ...candidate,
+        enabled: isEnabled,
+        connected: connected.has(id),
+        tool_count:
+          declaredCount !== undefined
+            ? declaredCount
+            : connected.has(id)
+              ? this.manager.imported_tools(id).size
+              : 0,
+        error: this._errors.get(id) ?? null,
+      });
+      present.add(id);
+    }
+    // 台账残影（候选目录/额外配置均已移除但仍启用）：作为可停用的错误行暴露，
+    // 避免幽灵 id 只在台账里且 UI/命令面不可达。
     for (const id of enabled) {
-      if (scanned.has(id)) continue;
+      if (present.has(id)) continue;
       rows.push({
         id,
         name: id,
@@ -267,11 +363,59 @@ export class McpPluginService {
         enabled: true,
         connected: false,
         tool_count: 0,
-        error: '候选目录缺失（plugins/mcp/<id> 已移除），停用以清理台账',
+        error: '候选已移除（目录/额外配置均不存在），停用以清理台账',
       });
     }
     rows.sort((a, b) => (a.id < b.id ? -1 : a.id > b.id ? 1 : 0));
     return rows;
+  }
+
+  /** 指定安装（B6）：登记额外连接配置并立即启用。
+   *
+   * 入口默认 review（弹卡/pose 决）：批准后装载与内置候选同构（connect →
+   * 导入 → 归属校验 → 注册 → 索引刷新 → 启用台账）。id 不得与内置候选冲突，
+   * stdio 须带 command、http 须带 url。 */
+  async install(
+    id: string,
+    config: { transport: 'stdio' | 'http'; name?: string; url?: string | null; command?: string | null; args?: string[] },
+  ): Promise<McpPluginOutcome> {
+    if (id === '') {
+      return { ok: false, server_id: id, transport: '', enabled: false, connected: false, tool_count: 0, error: 'server id 不能为空' };
+    }
+    const transport = config.transport === 'stdio' ? 'stdio' : 'http';
+    if (transport === 'stdio' && (config.command === null || config.command === undefined || config.command === '')) {
+      return { ok: false, server_id: id, transport, enabled: false, connected: false, tool_count: 0, error: 'stdio 安装需提供 command 启动命令' };
+    }
+    if (transport === 'http' && (config.url === null || config.url === undefined || config.url === '')) {
+      return { ok: false, server_id: id, transport, enabled: false, connected: false, tool_count: 0, error: 'http 安装需提供 url 端点' };
+    }
+    const inDir = parseCandidate(this.pluginsRoot, id);
+    if (inDir !== null) {
+      return { ok: false, server_id: id, transport, enabled: false, connected: false, tool_count: 0, error: `id 与内置候选冲突（plugins/mcp/${id}），直接启用即可` };
+    }
+    const extras = this._extras();
+    extras[id] = {
+      transport,
+      ...(config.name !== undefined && config.name !== '' ? { name: config.name } : {}),
+      url: transport === 'http' ? config.url : null,
+      command: transport === 'stdio' ? config.command : null,
+      args: Array.isArray(config.args)
+        ? config.args.filter((a): a is string => typeof a === 'string')
+        : [],
+    };
+    this._persistExtra(extras);
+    return this.enable(id);
+  }
+
+  /** 移除指定安装（B6）：停用 + 摘除额外连接配置。 */
+  async remove(id: string): Promise<McpPluginOutcome> {
+    await this.disable(id);
+    const extras = this._extras();
+    if (extras[id] !== undefined) {
+      delete extras[id];
+      this._persistExtra(extras);
+    }
+    return { ok: true, server_id: id, transport: '', enabled: false, connected: false, tool_count: 0 };
   }
 
   /** 单服务启停状态（不存在 = null）。 */

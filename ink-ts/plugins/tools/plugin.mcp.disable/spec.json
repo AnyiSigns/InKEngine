@@ -1,0 +1,38 @@
+{
+  "id": "plugin.mcp.disable",
+  "kind": "tool",
+  "capability": "host_tool",
+  "actions": [],
+  "depends": [],
+  "data": {
+    "tool": {
+      "name": "plugin.mcp.disable",
+      "description": "行为意图：停用一个 MCP 工具型插件——注销其声明式定义 + 工具索引摘除 + 断开会话（进程回收）+ 台账摘除。\n\n使用时机：用户要求停用某 MCP 服务端时。\n\n参数语义：server_id = 插件/server id（plugin.catalog 返回）。\n\n边界与协作：管理动作 review 档；只摘除归属本 server 的定义，不误删其它来源同名工具。",
+      "parameters": {
+        "type": "object",
+        "properties": {
+          "server_id": {
+            "type": "string",
+            "minLength": 1,
+            "description": "MCP 工具型插件/server id"
+          }
+        },
+        "required": [
+          "server_id"
+        ]
+      },
+      "permissions": [
+        "plugin:mcp:disable"
+      ],
+      "approval": "review",
+      "endpoint": "plugin_command",
+      "endpoint_config": {},
+      "meta": {
+        "domain": "plugin",
+        "executor": "host:plugin_command",
+        "sandbox": "host_registered",
+        "note": "执行接线由宿主注册（plugin_command 端点族 → 分发到既有 bridge 命令/受控台账）；管理动作 review 档（pose 决）"
+      }
+    }
+  }
+}

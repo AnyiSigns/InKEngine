@@ -1,0 +1,40 @@
+{
+  "id": "plugin.components.set",
+  "kind": "tool",
+  "capability": "host_tool",
+  "actions": [],
+  "depends": [],
+  "data": {
+    "tool": {
+      "name": "plugin.components.set",
+      "description": "行为意图：整集替换出厂界面组件停用集（启停组件渲染）；受引擎禁停集约束——protected 成员（agent_input/review_card/settings_floater/message_list）任何档位下不可停（整批拒绝）。\n\n使用时机：用户要求停用/恢复某些界面组件时。\n\n参数语义：disabled = 停用组件名清单（空数组 = 全部恢复）；未登记名/禁停集被引擎结构化拒绝。",
+      "parameters": {
+        "type": "object",
+        "properties": {
+          "disabled": {
+            "type": "array",
+            "items": {
+              "type": "string"
+            },
+            "description": "停用组件名清单（空 = 恢复全部）"
+          }
+        },
+        "required": [
+          "disabled"
+        ]
+      },
+      "permissions": [
+        "plugin:components:set"
+      ],
+      "approval": "review",
+      "endpoint": "plugin_command",
+      "endpoint_config": {},
+      "meta": {
+        "domain": "plugin",
+        "executor": "host:plugin_command",
+        "sandbox": "host_registered",
+        "note": "执行接线由宿主注册（plugin_command 端点族 → 分发到既有 bridge 命令/受控台账）；管理动作 review 档（pose 决）"
+      }
+    }
+  }
+}

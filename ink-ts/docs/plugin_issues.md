@@ -178,6 +178,10 @@
   **（2026-09-09 B4 权限/插件收敛：卸载 mcp_market/tools_panel 两设置段，新建
   plugins 段——现 148 插件 = ui_feature 34 + 真 ui 面 24（12 布局叶子 + 12 设置
   面板，设置段 12）；mcp.market 命令面保留至 B5。）**
+  **（2026-09-09 B5/B6 收口：mcp 命令面退役改 mcp.status/enable/disable + B6
+  mcp.install/remove；B6 增 agent plugin.* 7 工具与 recovery.settings_reset——
+  现 158 插件 = tool 45 + mcp 5 + command 71 + ui_feature 34 + endpoint 3；真 ui
+  面仍 24（12 叶子 + 12 设置面板）。）**
   **（2026-09-08 阶段 7b 已完成并提交：26 真 ui 面全量真身化 + renderer 适配层/
   settings 原生框架退役 + 第 6/7 派生产物接线，renderer/plugins vitest +
   verify:unload + gate 全绿，见 §九 落地状态。）**

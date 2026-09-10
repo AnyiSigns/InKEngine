@@ -3,6 +3,8 @@
  *
  * 覆盖：
  * - EntitySpec 声明往返 + 形态校验（缺 id / 命名非法 / model/meta 类型）；
+ * - EntitySpec 可选 `scope` 声明块（作用域资产维度）：旧记录无 scope 序列化
+ *   零漂移、声明 round-trip、构造深拷贝防别名污染；
  * - EntityRegistry 注册/查询/废弃/替换 + 重复/配额拒绝；
  * - load/save 集内持久化（内存存储往返）；
  * - entity_collection 集合名按集隔离。
@@ -26,6 +28,11 @@ import {
   EntitySpec,
   entity_collection,
 } from '../../../src/core/entities/entities.js';
+import {
+  CAPABILITY_CLASS_FUNCTION,
+  SCOPE_GUARD_DEFAULT,
+  type ScopeDecl,
+} from '../../../src/core/scopes/scope_spec.js';
 
 function spec(
   entity_id = 'security_reviewer',
@@ -108,6 +115,68 @@ describe('EntitySpec 声明形态', () => {
   it('role 类型非法拒绝', () => {
     expect(() => spec('a', { role: 5 })).toThrow(/role 须为字符串/);
     expect(() => spec('a', { role: ['lead'] })).toThrow(/role 须为字符串/);
+  });
+});
+
+describe('EntitySpec scope 声明块（作用域资产维度）', () => {
+  it('旧记录无 scope 字段 → scope=null，to_dict 不新增输出（序列化零漂移）', () => {
+    const legacy = {
+      id: 'planner',
+      label: '规划',
+      persona: '你是规划器',
+      role: 'planner',
+      model: { provider: 'moonshotai-cn', model_id: 'kimi-k2' },
+    };
+    const s = EntitySpec.from_dict(legacy);
+    expect(s.scope).toBeNull();
+    expect(s.to_dict()).toEqual(legacy);
+    const restored = EntitySpec.from_dict(s.to_dict());
+    expect(restored).toEqual(s);
+    expect(restored.scope).toBeNull();
+  });
+
+  it('scope 声明块经 from_dict/to_dict 全字段保持', () => {
+    const decl = {
+      capabilities: [{ id: 'plan', class: CAPABILITY_CLASS_FUNCTION }],
+      guard_level: SCOPE_GUARD_DEFAULT,
+    };
+    const s = EntitySpec.from_dict({ id: 'planner', scope: decl });
+    expect(s.scope).toEqual(decl);
+    expect(s.to_dict()['scope']).toEqual(decl);
+    const restored = EntitySpec.from_dict(s.to_dict());
+    expect(restored).toEqual(s);
+    expect(restored.scope).toEqual(decl);
+  });
+
+  it('scope 字段类型非法拒绝（fail-closed，与实体其余字段同口径）', () => {
+    expect(() => EntitySpec.from_dict({ id: 'planner', scope: 'planner' })).toThrow(
+      /作用域声明/,
+    );
+    expect(() =>
+      EntitySpec.from_dict({ id: 'planner', scope: { guard_level: 'L9' } }),
+    ).toThrow(/guard_level/);
+  });
+
+  it('构造深拷贝 scope（改构造入参声明不得影响实体，防素材共享污染）', () => {
+    const decl: ScopeDecl = {
+      capabilities: [{ id: 'plan', class: CAPABILITY_CLASS_FUNCTION }],
+      guard_level: SCOPE_GUARD_DEFAULT,
+    };
+    const s = new EntitySpec({ id: 'planner', scope: decl });
+    decl.capabilities!.push({ id: 'extra', class: 'organization' });
+    expect(s.scope?.capabilities).toHaveLength(1);
+    const nested = { kind: 'text' };
+    const s2 = new EntitySpec({
+      id: 'planner',
+      scope: {
+        contract: { produces: [{ shape: 'field', key: 'plan', schema: nested }] },
+        guard_level: SCOPE_GUARD_DEFAULT,
+      },
+    });
+    nested['kind'] = 'blob';
+    expect(
+      (s2.scope!.contract!.produces![0]!.schema as Record<string, unknown>)['kind'],
+    ).toBe('text');
   });
 });
 

@@ -1,4 +1,4 @@
-// gate: 超限(365 行) - 实体演化管线单一闭环（观察→蒸馏→闸门→替换→晋升），拆文件即破坏状态流
+// gate: 超限(372 行) - 实体演化管线单一闭环（观察→蒸馏→闸门→替换→晋升），拆文件即破坏状态流
 /**
  * 实体演化闭环（entity_evolution.py EntityEvolutionPipeline 移植）：回合
  * 事件 → 实体失败信号缓冲 → 按需变异 → 三层闸门 → 严格更优替换 → 晋升。
@@ -315,6 +315,8 @@ export class EntityEvolutionPipeline {
       model: spec.model,
       role: spec.role,
       meta: newMeta,
+      // 作用域声明块随晋升保留（目录资产各维度不被升级吞掉）
+      scope: spec.scope,
     });
     try {
       await this.writer.write(

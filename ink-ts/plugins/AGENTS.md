@@ -70,7 +70,10 @@ ui_feature 34 + 真 ui 面 24（12 布局叶子 + 12 设置面板，设置段 12
 agent 插件管理工具族（plugin.* 7 工具）与 mcp.install/mcp.remove、
 recovery.settings_reset 命令，现 158 插件 = tool 45 + mcp 5 + command 71 +
 ui_feature 34 + endpoint 3，真 ui 面仍 24（12 叶子 + 12 设置面板），faces/ui
-同住实现与测试，renderer 适配层整体退役）；其余 kind 目录随对应阶段落位。
+同住实现与测试，renderer 适配层整体退役）；Wave 5（2026-09-10）增执行域命令
+execution.run（collab_request 参数面扩召集协议 scope/n/mode/contract/rounds/
+budget），现 159 插件 = tool 45 + mcp 5 + command 72 + ui_feature 34 +
+endpoint 3，真 ui 面仍 24；其余 kind 目录随对应阶段落位。
 
 ## spec.json 契约（真源声明）
 

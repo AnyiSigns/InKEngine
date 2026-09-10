@@ -103,6 +103,7 @@ const DOMAIN_TABLE = [
   { group: 'ui_components', const: 'UI_COMPONENTS_COMMANDS', type: 'UiComponentsCommand' },
   { group: 'workspace', const: 'WORKSPACE_COMMANDS', type: 'WorkspaceCommand' },
   { group: 'dialog', const: 'DIALOG_COMMANDS', type: 'DialogCommand' },
+  { group: 'execution', const: 'EXECUTION_COMMANDS', type: 'ExecutionCommand' },
 ];
 
 const MANIFEST_NOTE =

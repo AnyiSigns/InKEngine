@@ -481,6 +481,13 @@
       "dir": "commands/entities.snapshot"
     },
     {
+      "id": "execution.run",
+      "kind": "command",
+      "capability": "host_tool",
+      "package": "@ink-ts/plugin-execution-run",
+      "dir": "commands/execution.run"
+    },
+    {
       "id": "graph.instance",
       "kind": "command",
       "capability": "host_tool",
@@ -540,14 +547,14 @@
       "id": "mcp.install",
       "kind": "command",
       "capability": "host_tool",
-      "package": "",
+      "package": "@ink-ts/plugin-mcp-install",
       "dir": "commands/mcp.install"
     },
     {
       "id": "mcp.remove",
       "kind": "command",
       "capability": "host_tool",
-      "package": "",
+      "package": "@ink-ts/plugin-mcp-remove",
       "dir": "commands/mcp.remove"
     },
     {
@@ -1431,7 +1438,7 @@
   "tools": [
     {
       "name": "collab_request",
-      "description": "行为意图：召唤协作者（多 agent 动态协作）——从实体目录选中协作者处理子任务，结果回流主 agent 汇总。\n\n使用时机：主 agent 判断子任务需要专才实体（如安全评审/研究分析师）时；默认单 agent，不固定团队，按需召唤。\n\n取舍与替代选项：自身可完成 = 不调用；并行子任务 = 多次调用；协作者目录经 inspect_entities 内省。\n\n参数语义：entity_id=实体目录 id（inspect_entities 可查）；task=子任务描述；context_refs=可选上下文引用（L2 消息 id 清单）；constraints=可选约束（max_tool_rounds 等）。\n\n边界与协作：实体未注册 = fail-closed 拒绝；执行体把 EntitySpec 物化为 spawn 子图，工具权限/审批/审计全走既有流水线。",
+      "description": "行为意图：召唤协作者（多 agent 动态协作）——从作用域/实体目录选中协作者处理子任务，结果回流主持汇总。\n\n使用时机：子任务需要专才/多方意见/并行拆分时；自身可完成 = 不调用；协作者目录经 entities 快照内省。\n\n参数语义：entity_id=目录作用域/实体 id（与 scope 同给优先）；scope=目录作用域 id 或临时作用域现场定义（dict: {role,persona?,model?,capabilities?...}，用完即散不沉淀）；task=子任务描述；n=并行路数（1..32，默认 1）；mode=blind 并行协奏（默认，互不可见）| open 圆桌审议（后轮互见前轮意见，rounds 轮次上限）；contract=full 全量回执（默认）|best 择优回执；budget=成本池上限（非负数，护栏兜底）；context_refs/constraints 可选。\n\n边界与协作：目标未注册/已下架 = fail-closed 拒绝；通道资格/审批/并行/成本条件执行；执行体把「调用」兑现为子执行树 + 归并产物（不是发请求等返回的普通函数）；审批档 review = 统一流水线弹卡确认召唤。",
       "parameters": {
         "type": "object",
         "properties": {
@@ -1439,9 +1446,38 @@
             "type": "string",
             "minLength": 1
           },
+          "scope": {},
           "task": {
             "type": "string",
             "minLength": 1
+          },
+          "n": {
+            "type": "integer",
+            "minimum": 1,
+            "maximum": 32
+          },
+          "mode": {
+            "type": "string",
+            "enum": [
+              "blind",
+              "open"
+            ]
+          },
+          "contract": {
+            "type": "string",
+            "enum": [
+              "full",
+              "best"
+            ]
+          },
+          "rounds": {
+            "type": "integer",
+            "minimum": 1,
+            "maximum": 8
+          },
+          "budget": {
+            "type": "number",
+            "minimum": 0
           },
           "context_refs": {
             "type": "array",
@@ -1454,7 +1490,6 @@
           }
         },
         "required": [
-          "entity_id",
           "task"
         ]
       },
@@ -1470,7 +1505,7 @@
       "meta": {
         "domain": "collab",
         "executor": "host:collab_request",
-        "note": "执行器由宿主注册（实体目录 → spawn 子图物化）；审批档 review = 用户对话弹卡确认召唤"
+        "note": "组织类工具：宿主执行体经 ExecutionRuntime 兑现为子执行 + 归并契约；审批档 review = 用户对话弹卡确认召唤"
       }
     },
     {
@@ -3852,6 +3887,11 @@
     {
       "id": "entities.snapshot",
       "group": "entities",
+      "order": 1
+    },
+    {
+      "id": "execution.run",
+      "group": "execution",
       "order": 1
     },
     {

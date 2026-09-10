@@ -182,6 +182,13 @@
   mcp.install/remove；B6 增 agent plugin.* 7 工具与 recovery.settings_reset——
   现 158 插件 = tool 45 + mcp 5 + command 71 + ui_feature 34 + endpoint 3；真 ui
   面仍 24（12 叶子 + 12 设置面板）。）**
+  **（2026-09-10 Wave 5 收口：新增执行域命令 execution.run（执行运行时会话入口）
+  与 collab_request 组织类工具宿主执行体（参数面扩召集协议 scope/n/mode/contract/
+  rounds/budget + 引擎端点判定钩子支持 scope 形态）——现 159 插件 = tool 45 +
+  mcp 5 + command 72 + ui_feature 34 + endpoint 3；真 ui 面仍 24（12 叶子 +
+  12 设置面板）。验证：sync_plugin_manifest/tools_os/web_command_surface 派生
+  一致、verify_unload/host-spec/bridge-mount/gate/contracts PASS、engine vitest
+  2655 绿、hosts/lib vitest 与既有失败基线零新增（4 个新测试文件 33 例全绿）。）**
   **（2026-09-08 阶段 7b 已完成并提交：26 真 ui 面全量真身化 + renderer 适配层/
   settings 原生框架退役 + 第 6/7 派生产物接线，renderer/plugins vitest +
   verify:unload + gate 全绿，见 §九 落地状态。）**

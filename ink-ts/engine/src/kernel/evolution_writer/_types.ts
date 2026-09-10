@@ -13,14 +13,16 @@ import type { MechanismExemptionScope } from '../audit_log/audit_log.js';
 /** 演化资产记录（写入目标集合的载荷；任意 JSON 对象）。 */
 export type EvolutionRecord = { [key: string]: unknown };
 
-/** 演化资产种类（受限枚举：六类可演化资产；非法值按 kind 原样落链）。 */
+/** 演化资产种类（受限枚举：八类可演化资产；非法值按 kind 原样落链）。 */
 export type EvolutionKind =
   | 'harness'
   | 'event_type'
   | 'entity'
   | 'memory'
   | 'edge_tier'
-  | 'runtime_config';
+  | 'runtime_config'
+  | 'channel'
+  | 'org_prior';
 
 /** EvolutionWriter.write 命名选项（Python kw-only args 的 TS 映射）。 */
 export interface EvolutionWriteOptions {

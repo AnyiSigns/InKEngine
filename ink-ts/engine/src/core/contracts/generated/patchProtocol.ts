@@ -74,4 +74,6 @@ export const GUARDED_PREFIXES = [
   "event_types:",
   "entities:",
   "node_registry:",
+  "channels:",
+  "org_priors:",
 ] as const;

@@ -11,7 +11,8 @@
  * os（OS 执行器受控调用）、search（检索密钥）、material（资料批量导入）、
  * models（模型运行配置）、model_archive（模型档案快照）、capability（能力
  * 记录/基线/档位登记）、policy（策略层路由预览）、ui_components（出厂组件
- * 启停）、workspace（工作区授权/挂载）、dialog（原生目录选择）。
+ * 启停）、workspace（工作区授权/挂载）、dialog（原生目录选择）、execution
+ * （执行运行时入口：作用域转场 + 汇聚点产物，rounds 域并行的执行主线）。
  * 与 cli 现有 host.ping/host.info 并存不冲突
  * （命名空间独立；方法表由 cli 并入命令面）。
  *
@@ -30,6 +31,7 @@ import { buildBackupCommands, BACKUP_COMMANDS } from './backup.js';
 import { buildCacheCommands, CACHE_COMMANDS } from './cache.js';
 import { buildCapabilityCommands, CAPABILITY_COMMANDS } from './capability.js';
 import { buildDialogCommands, DIALOG_COMMANDS } from './dialog.js';
+import { buildExecutionCommands, EXECUTION_COMMANDS } from './execution.js';
 import { buildEdgeEvidenceCommands, EDGE_EVIDENCE_COMMANDS } from './edge_evidence.js';
 import { buildEntitiesCommands, ENTITIES_COMMANDS } from './entities.js';
 import { buildGraphCommands, GRAPH_COMMANDS } from './graph.js';
@@ -126,6 +128,8 @@ export const BRIDGE_METHODS = [
   ...WORKSPACE_COMMANDS,
   // dialog：原生目录选择（exec Rust 稳定原生面；host 中继）
   ...DIALOG_COMMANDS,
+  // execution：执行运行时（作用域转场/汇聚点产物；rounds 域并行的执行主线）
+  ...EXECUTION_COMMANDS,
 ] as const;
 
 export type BridgeMethod = (typeof BRIDGE_METHODS)[number];
@@ -177,6 +181,7 @@ export function buildBridge(deps: HostBridgeDeps): ReadonlyMap<string, BridgeHan
     buildUiComponentsCommands(deps),
     buildWorkspaceCommands(deps.workspace),
     buildDialogCommands(),
+    buildExecutionCommands(deps),
   ];
   const methods = new Map<string, BridgeHandler>();
   for (const group of groups) {

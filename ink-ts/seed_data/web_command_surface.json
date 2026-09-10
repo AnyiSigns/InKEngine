@@ -72,7 +72,8 @@
     "workspace.revoke",
     "workspace.mount.add",
     "workspace.mount.remove",
-    "dialog.open_directory"
+    "dialog.open_directory",
+    "execution.run"
   ],
   "legacy_alias_flats": [
     "round_send",

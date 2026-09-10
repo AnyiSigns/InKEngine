@@ -38,7 +38,7 @@ import type { EngineTransport, InterruptPolicy, Storage } from '@ink-ts/engine';
 import { normalize_model_config } from './config.js';
 import type { ResolvedHostConfig } from './config.js';
 import type { CapabilityRecord } from './capability/store.js';
-import { applyProvidersConfig, isRecord } from './model_providers.js';
+import { applyProvidersConfig, asProvider, endpointForPick, isRecord, providerModelIds } from './model_providers.js';
 import {
   load_persisted_model_config,
   masked_model_config,
@@ -89,6 +89,8 @@ class HostInterruptPolicy implements InterruptPolicy {
 export class InkHost {
   readonly config: ResolvedHostConfig;
   private _llm: AsyncLLM | null = null;
+  /** 作用域 model 引用解析缓存（provider/model_id → 链；配置变更/关停清空）。 */
+  private readonly _scope_llms = new Map<string, AsyncLLM>();
   private readonly _transports: FileEventsTransport[] = [];
   private _closed = false;
   private readonly _capability: (() => CapabilityRecord) | null;
@@ -131,6 +133,74 @@ export class InkHost {
     return llm;
   }
 
+  /**
+   * 作用域 model 引用解析（recipe.scope_model_llm 装配接线位的宿主实现）：
+   * {provider?, model_id} → 用户 model 列表内端点（设计稿 §7.5 model 空间 =
+   * agent 只在用户列表内选，不越过用户边界）。解析序：provider+model_id 命中厂商清单
+   * → create_llm；仅 model_id 命中 agent 槽当前配置 → 复用会话默认链；任一
+   * 未命中 = null（引擎侧显式失败，绝不静默回落父模型——执行模型 §五「作用域
+   * 属性天然生效」的宿主装配面）。按引用缓存实例（同引用同链；配置变更/关停
+   * 统一收口）。
+   */
+  async resolve_scope_model(model: Record<string, string>): Promise<AsyncLLM | null> {
+    const provider_id = typeof model['provider'] === 'string' ? model['provider'] : '';
+    const model_id = typeof model['model_id'] === 'string' ? model['model_id'] : '';
+    if (model_id === '' && provider_id === '') return null;
+    const cache_key = `${provider_id}/${model_id}`;
+    const cached = this._scope_llms.get(cache_key);
+    if (cached !== undefined) return cached;
+    const cfg = this.config.model_config as unknown as Record<string, unknown>;
+    const providers = Array.isArray(cfg['providers'])
+      ? (cfg['providers'] as unknown[])
+          .map(asProvider)
+          .filter((p): p is import('./model_providers.js').ProviderRecord => p !== null)
+      : [];
+    let endpoint: Record<string, unknown> | null = null;
+    if (provider_id !== '') {
+      endpoint = endpointForPick(providers, { provider_id, model_id });
+    } else {
+      // 未带 provider：在用户列表内找含该 model_id 的首个厂商（候选空间约束）
+      for (const provider of providers) {
+        if (providerModelIds(provider).includes(model_id)) {
+          endpoint = endpointForPick(providers, {
+            provider_id: provider.provider_id,
+            model_id,
+          });
+          break;
+        }
+      }
+    }
+    if (endpoint === null) return null;
+    // 与会话默认 agent 槽同端点（base_url+model_id 一致）= 复用既有链（不重开连接池）
+    const agent = isRecord(cfg['agent_config']) ? cfg['agent_config'] : null;
+    if (
+      agent !== null
+      && agent['model_id'] === endpoint['model_id']
+      && agent['base_url'] === endpoint['base_url']
+    ) {
+      const shared = await this.resolve_llm();
+      if (shared !== null) this._scope_llms.set(cache_key, shared);
+      return shared;
+    }
+    const created = create_llm(endpoint as unknown as Record<string, unknown>);
+    this._scope_llms.set(cache_key, created);
+    return created;
+  }
+
+  /** 关停并清空作用域模型缓存链（配置变更/宿主关停复用；失败只跳过）。 */
+  private async _close_scope_models(): Promise<void> {
+    const entries = [...this._scope_llms.entries()];
+    this._scope_llms.clear();
+    for (const [, llm] of entries) {
+      if (llm === this._llm) continue; // 会话默认链由 _llm 收口路径负责
+      try {
+        await llm.aclose();
+      } catch {
+        // 作用域模型链关闭失败（继续收口其余链）
+      }
+    }
+  }
+
   /** 运行期应用模型配置：normalize 校验 → 关停并置空 _llm → 合并写回
    *  → 掩码态当前值。变更后由调用方触发引擎重建（下轮回合用新槽）。
    *  输入含 providers = 厂商面整档写：按 picks 派生 agent/router 角色槽
@@ -138,6 +208,7 @@ export class InkHost {
   async apply_model_config(input: unknown): Promise<Record<string, unknown>> {
     const prevLlm = this._llm;
     this._llm = null;
+    await this._close_scope_models();
     if (prevLlm !== null) {
       try {
         await prevLlm.aclose();
@@ -211,6 +282,7 @@ export class InkHost {
   async close(): Promise<void> {
     if (this._closed) return;
     this._closed = true;
+    await this._close_scope_models();
     const llm = this._llm;
     this._llm = null;
     if (llm !== null) {

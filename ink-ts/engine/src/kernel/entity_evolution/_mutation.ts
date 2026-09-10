@@ -67,6 +67,8 @@ export function _derive_mutation(
     model: spec.model,
     role: spec.role,
     meta: newMeta,
+    // 作用域声明块随变异保留（目录资产各维度不被教训蒸馏吞掉）
+    scope: spec.scope,
   });
   return new EntityMutationResult({ spec: mutated, new_lessons: added.length });
 }

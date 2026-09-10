@@ -14,6 +14,7 @@
  */
 import { _FILE_OPS_ACTIONS } from './endpoint_types.js';
 import type { EndpointExtractor, EndpointFailureReason } from './endpoint_types.js';
+import { isRecord } from '../json.js';
 import { url_split } from './_url.js';
 
 /**
@@ -113,9 +114,19 @@ export const _extract_web_search: EndpointExtractor = (args, _config) => {
   return typeof query === 'string' && query ? ['search', query] : null;
 };
 
+/** 协作召唤判定目标：目录作用域资产走 entity_id（或 scope 字符串=目录 id，两参
+ *  同值时 entity_id 优先）；scope 为现场定义 dict（临时作用域）时无稳定目录身份，
+ *  判定目标归一到 role（同 role 临时召唤共享权限/审批判定面）。 */
 export const _extract_collab_request: EndpointExtractor = (args, _config) => {
   const entity_id = args['entity_id'];
-  return typeof entity_id === 'string' && entity_id ? ['request', entity_id] : null;
+  if (typeof entity_id === 'string' && entity_id) return ['request', entity_id];
+  const scope = args['scope'];
+  if (typeof scope === 'string' && scope) return ['request', scope];
+  if (isRecord(scope)) {
+    const role = scope['role'];
+    return typeof role === 'string' && role ? ['request', `temp:${role.trim()}`] : null;
+  }
+  return null;
 };
 
 export const _extract_task_manager: EndpointExtractor = (args, _config) => {
@@ -180,10 +191,11 @@ export const _reason_web_search: EndpointFailureReason = (args) => {
 
 export const _reason_collab_request: EndpointFailureReason = (args) => {
   const entity_id = args['entity_id'];
-  if (typeof entity_id !== 'string' || !entity_id) {
-    return 'entity_id 参数缺失或非法（须为已注册实体 id）';
-  }
-  return null;
+  if (typeof entity_id === 'string' && entity_id) return null;
+  const scope = args['scope'];
+  if (typeof scope === 'string' && scope) return null;
+  if (isRecord(scope) && typeof scope['role'] === 'string' && scope['role']) return null;
+  return 'entity_id 参数缺失或非法（须为已注册实体/作用域目录 id），或 scope 参数（目录作用域 id / 临时作用域现场定义）';
 };
 
 export const _reason_task_manager: EndpointFailureReason = (args) => {

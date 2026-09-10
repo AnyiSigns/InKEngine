@@ -36,7 +36,7 @@ import {
   operation_of,
   self_tool_specs,
 } from '@ink-ts/engine';
-import type { AssemblyRecipeInit, ToolWiring } from '@ink-ts/engine';
+import type { AssemblyRecipeInit, ToolWiring, AsyncLLM } from '@ink-ts/engine';
 import { UI_CANONICAL_COMPONENTS } from './bridge/ui_canonical.generated.js';
 import { make_product_self_executor } from './self_tools.js';
 
@@ -107,6 +107,13 @@ export interface ProductRecipeInit extends ProductSwitchOverrides {
    *  档——现行为不变）。review_tools = 权限命中的工具仍转审批挂卡（产品
    *  声明的工具审批档；autoApprove/直过名单语义仍走宿主 interrupt_policy）。 */
   tool_gate?: ToolGateConfig | null;
+  /** 作用域 model 引用解析接线位（设计稿 §五/§7.5：作用域属性天然生效的装配
+   *  面）：宿主按 model 引用（provider/model_id）从用户 model 列表取端点；
+   *  null/缺省 = 未接线，agent 子作用域引用非 null model 时引擎显式失败，
+   *  绝不静默跑父模型（执行运行时的作用域轮次经同一 resolver，见 boot.ts）。 */
+  scope_model_llm?:
+    | ((model: Record<string, string>) => AsyncLLM | Promise<AsyncLLM | null> | null)
+    | null;
   ui_allowed_components?: readonly string[];
   ui_allowed_theme_tokens?: readonly string[];
 }
@@ -254,6 +261,11 @@ export function build_product_recipe(
     tool_wiring: product_tool_wiring(),
     approval_levels: (init.approval_levels ?? {}) as Record<string, unknown>,
     tool_gate: init.tool_gate ?? null,
+    // 公开 AsyncLLM 契约（core/llm/base）与 Runtime 守卫链 seam（_guard_types）
+    // 结构近似但不平等——宿主实现经鸭子转换进入配方（host.ts 头注同款纪律）
+    ...(init.scope_model_llm !== undefined && init.scope_model_llm !== null
+      ? { scope_model_llm: init.scope_model_llm as unknown as AssemblyRecipeInit['scope_model_llm'] }
+      : {}),
     ...assembly_flags_from(init),
   });
   recipe.run_options = run_options_from(init);

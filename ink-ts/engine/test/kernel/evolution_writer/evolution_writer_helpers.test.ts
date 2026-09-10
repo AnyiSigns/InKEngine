@@ -1,7 +1,8 @@
 /**
  * EvolutionWriter 专用 writer 透传与常量语义（Python evolution_writer.py
  * 无专属 pytest）：harness/event_type/entity/memory/edge_tier/runtime_config
- * 六个 writer 透传正确的 kind/asset_id/collection/key 到 write 通道；
+ * + channel/org_prior（受控演化应用新增两类）八个 writer 透传正确的
+ * kind/asset_id/collection/key 到 write 通道；
  * EVOLUTION_AUDIT_TYPE / _EVOLUTION_CHAIN_COLLECTION / _KIND_PATH 常量契约。
  */
 
@@ -14,11 +15,13 @@ import {
   _EVOLUTION_CHAIN_COLLECTION,
   _EVOLUTION_CHAIN_KEY,
   _KIND_PATH,
+  channel_writer,
   edge_tier_writer,
   entity_writer,
   event_type_writer,
   harness_writer,
   memory_writer,
+  org_prior_writer,
   runtime_config_writer,
 } from '../../../src/kernel/evolution_writer/evolution_writer.js';
 import type { EvolutionRecord, EvolutionWriter } from '../../../src/kernel/evolution_writer/_types.js';
@@ -125,6 +128,54 @@ describe('专用 writer 透传 kind/asset_id/collection/key', () => {
       runtime_config: { 'budget.cap': { cap: 100 } },
     });
   });
+
+  it('channel_writer: kind=channel, asset_id=channel_id（受控演化通道资产）', async () => {
+    const store = new MemStore();
+    const writer = new DefaultEvolutionWriter(store);
+    await channel_writer(
+      writer,
+      'channels:-',
+      'delegate',
+      { id: 'delegate', shape: 'delegate', disabled: true },
+      { note: 'seal' },
+    );
+    const audit = store.puts.find((p) => p.collection === AUDIT_COLLECTION);
+    expect(audit?.data).toMatchObject({
+      evolution_kind: 'channel',
+      asset_id: 'delegate',
+      collection: 'channels:-',
+      key: 'delegate',
+      note: 'seal',
+    });
+    expect(getChain(store).assemble()).toEqual({
+      channels: { delegate: { id: 'delegate', shape: 'delegate', disabled: true } },
+    });
+  });
+
+  it('org_prior_writer: kind=org_prior, asset_id=overlay_id（组织先验覆盖）', async () => {
+    const store = new MemStore();
+    const writer = new DefaultEvolutionWriter(store);
+    await org_prior_writer(
+      writer,
+      'org_priors:-',
+      'route:coding',
+      { id: 'route:coding', kind: 'route', pattern: { id: 'coding' } },
+      { note: 'update' },
+    );
+    const audit = store.puts.find((p) => p.collection === AUDIT_COLLECTION);
+    expect(audit?.data).toMatchObject({
+      evolution_kind: 'org_prior',
+      asset_id: 'route:coding',
+      collection: 'org_priors:-',
+      key: 'route:coding',
+      note: 'update',
+    });
+    expect(getChain(store).assemble()).toEqual({
+      org_priors: {
+        'route:coding': { id: 'route:coding', kind: 'route', pattern: { id: 'coding' } },
+      },
+    });
+  });
 });
 
 describe('常量与 seam 形态', () => {
@@ -137,7 +188,7 @@ describe('常量与 seam 形态', () => {
     expect(_EVOLUTION_CHAIN_KEY).toBe('chain');
   });
 
-  it('_KIND_PATH 六类 kind → 路径段映射', () => {
+  it('_KIND_PATH 八类 kind → 路径段映射', () => {
     expect(_KIND_PATH).toEqual({
       harness: 'harness',
       event_type: 'event_types',
@@ -145,6 +196,8 @@ describe('常量与 seam 形态', () => {
       memory: 'memory',
       edge_tier: 'edge_tier_overrides',
       runtime_config: 'runtime_config',
+      channel: 'channels',
+      org_prior: 'org_priors',
     });
   });
 });

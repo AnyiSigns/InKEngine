@@ -267,3 +267,10 @@ export const DIALOG_COMMANDS = [
 ] as const;
 
 export type DialogCommand = (typeof DIALOG_COMMANDS)[number];
+
+/** execution 命令声明（真源 plugins/commands/<id>/spec.json；域内序 = data.order）。 */
+export const EXECUTION_COMMANDS = [
+  'execution.run',
+] as const;
+
+export type ExecutionCommand = (typeof EXECUTION_COMMANDS)[number];

@@ -1,4 +1,4 @@
-// gate: 超限(361 行) - 引擎面向宿主的公共面 re-export 注册表（单一不可拆收敛面）
+// gate: 超限(672 行) - 引擎面向宿主的公共面 re-export 注册表（单一不可拆收敛面）
 /**
  * @ink-ts/engine 面向宿主的精选公共面（只 re-export，不实现）。
  *
@@ -360,6 +360,248 @@ export type {
   KnownDefaultPatchKind,
   PatchKind,
 } from './core/contracts/generated/index.js';
+
+// ── 执行组织数据面（作用域目录资产 / 通道条件资产 / 组织先验素材：声明面，
+//    受控注册随实体/目录既有通道，执行语义由执行层落地）──
+export {
+  CAPABILITY_CLASS_FUNCTION,
+  CAPABILITY_CLASS_ORGANIZATION,
+  FACTORY_SCOPE_ROLES,
+  SCOPE_GUARD_DEFAULT,
+  SCOPE_ROLE_CODER,
+  SCOPE_ROLE_COLLABORATOR,
+  SCOPE_ROLE_CRITIC,
+  SCOPE_ROLE_MAIN,
+  SCOPE_ROLE_PLANNER,
+  SCOPE_ROLE_SEARCHER,
+  SCOPE_ROLE_SUBAGENT,
+  SCOPE_ROLE_TESTER,
+  is_factory_scope_role,
+  parse_scope_decl,
+  scope_decl_to_dict,
+} from './core/scopes/scope_spec.js';
+export type {
+  CapabilityClass,
+  ScopeCapability,
+  ScopeDecl,
+  ScopeGuardLevel,
+  ScopeIoBinding,
+  ScopeIoContract,
+  ScopeIoShape,
+  ScopeRole,
+} from './core/scopes/scope_spec.js';
+export {
+  build_scope_asset,
+  default_scope_directory_seeds,
+  is_scope_asset,
+  scope_decl_of,
+} from './core/scopes/scope_directory.js';
+export type { ScopeAssetInit } from './core/scopes/scope_directory.js';
+// 作用域资产主载体（实体记录）与受控下架标记：宿主执行装配按公共面装载/识别
+// 目录资产（同一实体受控通道），不深引引擎私有文件
+export { EntitySpec, RETIRED_META_KEY } from './core/entities/entities.js';
+export {
+  SCOPE_PRIOR_SINK,
+  default_scope_priors,
+  scope_prior_from_dict,
+  validate_scope_prior,
+} from './core/scopes/scope_priors.js';
+export type {
+  ScopePriorHop,
+  ScopePriorPattern,
+  ScopePriorShape,
+} from './core/scopes/scope_priors.js';
+export {
+  CHANNEL_COMMITS,
+  CHANNEL_COMMIT_BEST,
+  CHANNEL_COMMIT_DECISION_ONLY,
+  CHANNEL_COMMIT_DEFAULT,
+  CHANNEL_COMMIT_FULL,
+  CHANNEL_ID_MAX_LENGTH,
+  CHANNEL_SHAPES,
+  CHANNEL_SHAPE_DELEGATE,
+  CHANNEL_SHAPE_FAN_IN,
+  CHANNEL_SHAPE_FAN_OUT,
+  CHANNEL_SHAPE_RETURN,
+  ChannelSpec,
+  default_channel_conditions,
+  normalize_conditions,
+  validate_channel_id,
+} from './core/channels/channel_spec.js';
+export type {
+  ChannelCommit,
+  ChannelConditions,
+  ChannelShape,
+  ChannelSpecInit,
+} from './core/channels/channel_spec.js';
+export { ChannelDirectory, default_channel_seeds } from './core/channels/channel_directory.js';
+
+// ── 执行组织档案数据面（轨迹记录 / 组织模式统计 / 择优建议：纯数据面 +
+//    advisory，受控演化应用经审批 + 补丁链 + Guard 接线，不在本面执行）──
+export {
+  RUN_ID_MAX_LENGTH,
+  TRAIL_OUTCOMES,
+  TRAIL_SCHEMA_VERSION,
+  parse_execution_trail,
+  trail_to_dict,
+  validate_execution_trail,
+  validate_run_id,
+  validate_scope_ref,
+} from './core/org_archive/execution_trail.js';
+export type {
+  ExecutionTrail,
+  TrailCost,
+  TrailHop,
+  TrailOutcome,
+} from './core/org_archive/execution_trail.js';
+export {
+  ORG_ARCHIVE_SCHEMA_VERSION,
+  OrgArchive,
+} from './core/org_archive/org_archive.js';
+export type { OrgArchiveEntry } from './core/org_archive/org_archive.js';
+export {
+  chain_key_of,
+  chain_pattern_key,
+  chains_of_trail,
+  decode_chain_key,
+  decode_transition_key,
+  hop_commit,
+  hop_fan_width,
+  scope_usage_of_trail,
+  transition_key_of,
+  transition_pattern_key,
+  transitions_of_trail,
+} from './core/org_archive/org_patterns.js';
+export type {
+  OrgChainPattern,
+  OrgTransitionPattern,
+  TrailScopeUsage,
+} from './core/org_archive/org_patterns.js';
+export {
+  empty_org_stats,
+  failure_rate,
+  org_stats_from_dict,
+  org_stats_to_dict,
+  record_observation,
+  success_rate,
+} from './core/org_archive/org_stats.js';
+export type { OrgStats } from './core/org_archive/org_stats.js';
+export {
+  ORG_DOWNRANK_FAILURE_RATE,
+  ORG_DOWNRANK_MIN_EVIDENCE,
+  ORG_KEEP_MIN_EVIDENCE,
+  ORG_KEEP_MIN_SUCCESS_RATE,
+  ORG_MIN_EVIDENCE,
+  ORG_PROPOSAL_KIND_ORDER,
+  ORG_RETIRE_FAILURE_RATE,
+  ORG_RETIRE_MAX_USAGE,
+  ORG_RETIRE_MIN_EVIDENCE,
+  ORG_SHORTCUT_MAX_TERMINAL_RATIO,
+  ORG_SHORTCUT_MIN_EVIDENCE,
+  ORG_SHORTCUT_MIN_SUCCESS_RATE,
+  default_pruning_thresholds,
+  evaluate_org_archive,
+  proposal_confidence,
+  suggest_downranks,
+  suggest_keeps,
+  suggest_retires,
+  suggest_shortcuts,
+} from './core/org_archive/pruning.js';
+export type {
+  DownrankProposal,
+  KeepProposal,
+  OrgEvaluateOptions,
+  OrgModeRef,
+  OrgProposal,
+  OrgProposalKind,
+  PruningThresholds,
+  RetireProposal,
+  ShortcutProposal,
+} from './core/org_archive/pruning.js';
+
+// ── 组织先验覆盖资产（org_priors 集合条目形态：route 覆写 / shortcut 直连 /
+//    weight 降权；受控演化应用在 org_priors:<set_id> 集合持久化覆盖行）──
+export {
+  ORG_PRIORS_COLLECTION_PREFIX,
+  OrgPriorOverlay,
+  org_priors_collection,
+  route_overlay,
+  shortcut_overlay,
+  shortcut_overlay_id,
+  weight_overlay,
+  weight_overlay_id,
+} from './core/scopes/prior_overlay.js';
+export type {
+  OrgPriorOverlayPayload,
+  OrgPriorRoutePayload,
+  OrgPriorShortcutPayload,
+  OrgPriorWeightPayload,
+} from './core/scopes/prior_overlay.js';
+
+// ── 受控演化接口（P5-γ：统一提案 + 采纳前验证闸 + 目录感知应用计划 +
+//    受控应用层 + Wave-2 择优适配；作用域/通道/先验资产的唯一受控通道）──
+export {
+  EVOLUTION_KIND_ORDER,
+  EVOLUTION_PROVENANCES,
+  PROVENANCE_AGENT,
+  PROVENANCE_ORG,
+  PROVENANCE_USER,
+  SCOPE_EVOLUTION_KINDS,
+  CHANNEL_EVOLUTION_KINDS,
+  PRIOR_EVOLUTION_KINDS,
+  EvolutionProposal,
+  is_channel_kind,
+  is_prior_kind,
+  is_scope_kind,
+  payload_violations,
+} from './core/controlled_evolution/evolution_proposal.js';
+export type {
+  DownrankModeRef,
+  EvolutionProposalInit,
+  EvolutionProposalKind,
+  EvolutionProvenance,
+} from './core/controlled_evolution/evolution_proposal.js';
+export {
+  GATE_ADDITIVE_KINDS,
+  GATE_MANDATORY_KINDS,
+  classify_gate_requirement,
+  run_adoption_gate,
+  trial_spec_for,
+  verdict_blocks,
+} from './core/controlled_evolution/adoption_gate.js';
+export type {
+  AdoptionGateOptions,
+  AdoptionGateOutcome,
+  GateRequirement,
+  TrialRunner,
+  TrialSpec,
+  TrialVerdict,
+} from './core/controlled_evolution/adoption_gate.js';
+export { plan_evolution } from './core/controlled_evolution/apply_plan.js';
+export type {
+  ApplyPlanContext,
+  ApplyPlanResult,
+  EvolutionPlanStep,
+  PlanChannelDirectory,
+  PlanEntityDirectory,
+} from './core/controlled_evolution/apply_plan.js';
+export {
+  DOWNRANK_PRIOR_WEIGHT,
+  adapt_pruning_proposals,
+  evaluate_and_adapt,
+} from './core/controlled_evolution/pruning_adapter.js';
+export type { PruningAdaptation } from './core/controlled_evolution/pruning_adapter.js';
+export {
+  ControlledEvolutionApplier,
+} from './core/controlled_evolution/controlled_applier.js';
+export type {
+  ControlledEvolutionApplierInit,
+  EvolutionApplyReport,
+} from './core/controlled_evolution/controlled_applier.js';
+
+// ── 执行运行时（P5-δ：作用域装载 / 通道执行 / 汇聚点合成 / 护栏；含 __next
+//     路由数据面、路由规划、通道条件、归并语义、护栏与隔离试跑基座）──
+export * from './core/execution_runtime/index.js';
 
 // ── 3. adapters 工厂面 ──
 

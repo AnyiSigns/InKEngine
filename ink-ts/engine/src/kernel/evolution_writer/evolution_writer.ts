@@ -64,6 +64,8 @@ export const _KIND_PATH: { readonly [kind: string]: string } = {
   memory: 'memory',
   edge_tier: 'edge_tier_overrides',
   runtime_config: 'runtime_config',
+  channel: 'channels',
+  org_prior: 'org_priors',
 };
 
 /** 检测存储是否实现 allow_mechanism（duck-check，结构等价 GuardedStorage）。
@@ -214,6 +216,36 @@ export async function entity_writer(
   await writer.write(collection, entity_id, spec_dict, {
     kind: 'entity',
     asset_id: entity_id,
+    note: options.note ?? '',
+  });
+}
+
+/** 通道资产写入（channels:<set_id> 集合；受控演化应用经本管线落库）。 */
+export async function channel_writer(
+  writer: EvolutionWriter,
+  collection: string,
+  channel_id: string,
+  spec_dict: EvolutionRecord,
+  options: { note?: string | null },
+): Promise<void> {
+  await writer.write(collection, channel_id, spec_dict, {
+    kind: 'channel',
+    asset_id: channel_id,
+    note: options.note ?? '',
+  });
+}
+
+/** 组织先验覆盖写入（org_priors:<set_id> 集合；择优/短路/降权经本管线落库）。 */
+export async function org_prior_writer(
+  writer: EvolutionWriter,
+  collection: string,
+  overlay_id: string,
+  overlay_dict: EvolutionRecord,
+  options: { note?: string | null },
+): Promise<void> {
+  await writer.write(collection, overlay_id, overlay_dict, {
+    kind: 'org_prior',
+    asset_id: overlay_id,
     note: options.note ?? '',
   });
 }

@@ -270,6 +270,7 @@ CI 的 ink-ts job 同链执行。规则增删须同步本表。
 | `workspace.mount.add` | workspace | 追加挂载目录（多沙箱根） |
 | `workspace.mount.remove` | workspace | 移除挂载目录 |
 | `dialog.open_directory` | dialog | 原生目录选择（exec Rust 原生件 rfd；宿主 UI 面，非 agent 端点） |
+| `execution.run` | execution | 执行运行时会话入口（设计稿执行模型主线）：task → 入口作用域（entry_scope 目录 / entry_temp_scope 现场定义，缺省 main）→ 引擎 ExecutionRuntime 转场循环（通道条件 fail-closed + 通道审批 seam 按姿态）→ 汇聚点唯一 final_product + run 树/事件带/轨迹投影；pose = 转场审批姿态（auto/review/deny）；与 rounds.send（组装回合）并行不互扰 |
 | `search.keys.set` | search | web_search 密钥写入（宿主内存域；不落盘，web 只回显掩码） |
 | `search.keys.get` | search | web_search 密钥掩码查询（无明文外泄） |
 | `material.import` | material | 既有资料批量导入（目录扫描 → 逐文件 doc.parse → 文本/引用归一入会话；三重上限 fail-closed） |

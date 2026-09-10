@@ -34,6 +34,8 @@ import type { InkHost } from './host.js';
 import { createWorkspaceStore } from './workspace/store.js';
 import { buildSessionCommandTools } from './session_command.js';
 import { buildPluginCommandTools } from './plugin_command.js';
+import { buildCollabCommandTools } from './collab_command.js';
+import type { HostExecutionService } from './execution/service.js';
 import type { ProductRecipeInit } from './recipe.js';
 import type { HostRetrievalDomain } from './retrieval/domain.js';
 import type { SyncEmbedderSeam } from './retrieval/sync_seam.js';
@@ -78,6 +80,12 @@ export interface HostHandle {
   mcpStatus: McpConnectStatus[];
   /** MCP 工具型插件装载服务（B5；null = plugins 源不可用未装配）。 */
   mcpPlugins: McpPluginService | null;
+  /** 宿主 host 面（InkHost：模型配置/审批策略/作用域 model 解析的持有者；
+   *  restore 重装后经活 getter 指向新装配件）。 */
+  host: InkHost;
+  /** 宿主执行装配（ExecutionRuntime 依赖注入面；execution.run / collab 工具
+   *  执行体共用；restore 重装后经活 getter 指向新装配件）。 */
+  execution: HostExecutionService;
   /** 幂等关停：Runtime.stop（拒新 → 等在途 → 关 MCP/LLM/存储 → host 关停钩子）
    *   → 检索域适配器收口。 */
   dispose(): Promise<void>;
@@ -152,6 +160,7 @@ export async function createHost(
     seed_dir: resolved.seed_dir,
     mcpManager: parts.mcpManager,
     mcpPlugins: parts.mcpPlugins,
+    execution: parts.execution,
     gate,
   };
 
@@ -185,11 +194,17 @@ export async function createHost(
       capability: capabilityStore.get(),
     };
   });
+  // collab_request 组织类工具执行接线：执行体懒取活装配的执行服务（restore
+  // 重装后指向新 execution 装配件），未装配 = 召集显式拒绝（fail-closed）。
+  const collabTools = buildCollabCommandTools(() => deps.execution ?? null);
   const registerSessionCommandTools = (): void => {
     const declarative = parts.runtime.harness_registry?.declarative;
     if (declarative !== null && declarative !== undefined) {
       sessionTools.register(declarative as never);
       pluginTools.register(declarative as never);
+      // collab_request 组织类工具（执行模型 §7.1）：声明式定义 + 端点执行体，
+      // 「召唤协作者」经宿主执行装配（ExecutionRuntime）兑现为子执行 + 归并契约
+      collabTools.register(declarative as never);
     }
   };
 
@@ -200,6 +215,7 @@ export async function createHost(
     deps.modelConfig = modelConfigHandles(next.inkHost);
     deps.mcpManager = next.mcpManager;
     deps.mcpPlugins = next.mcpPlugins;
+    deps.execution = next.execution;
   };
 
   /** 重装配（restore 目录替换后调用）：台账重读 + 新装配 + 活引用切换。 */
@@ -251,9 +267,15 @@ export async function createHost(
     get mcpStatus(): McpConnectStatus[] {
       return parts.mcpStatus;
     },
-    get mcpPlugins(): McpPluginService | null {
-      return parts.mcpPlugins;
-    },
+  get mcpPlugins(): McpPluginService | null {
+    return parts.mcpPlugins;
+  },
+  get host(): InkHost {
+    return parts.inkHost;
+  },
+  get execution(): HostExecutionService {
+    return parts.execution;
+  },
     dispose: async (): Promise<void> => {
       await parts.runtime.stop();
       await parts.retrieval.close();
@@ -419,6 +441,31 @@ export type {
   PluginCommandSnapshot,
   PluginCommandTools,
 } from './plugin_command.js';
+
+// ── collab_request 组织类工具执行接线（执行模型 §7.1：子执行 + 归并契约后端）──
+export {
+  COLLAB_REQUEST_ENDPOINT,
+  buildCollabCommandTools,
+  collabRequestDefinition,
+  collabRequestExecutor,
+} from './collab_command.js';
+export type { CollabCommandTools, CollabRequestService } from './collab_command.js';
+
+// ── 宿主执行装配（ExecutionRuntime 依赖注入面 + 多协作者召集协议）──
+export { HostExecutionService, transitionApprovalSeam } from './execution/service.js';
+export type {
+  HostExecutionServiceInit,
+  RunExecutionOptions,
+} from './execution/service.js';
+export {
+  CONVENE_MAX_N,
+  CONVENE_MAX_ROUNDS,
+  ConveneError,
+  convene,
+  normalize_convene_params,
+  resolve_convene_target,
+} from './execution/convene.js';
+export type { ConveneChildOutcome, ConveneResult } from './execution/convene.js';
 
 // ── 原生机制件 client / 嵌入适配器（exec + infer + AsyncEmbedder）──
 export { locateNativeBinary } from './exec/binary.js';

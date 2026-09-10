@@ -167,6 +167,41 @@ describe('file_ops 端点判定', () => {
   });
 });
 
+describe('collab_request 端点判定（组织类工具：目录作用域 / 临时作用域）', () => {
+  it('entity_id 优先作判定目标；缺省时 scope 字符串（目录作用域 id）命中', () => {
+    expect(endpoint_operation(EndpointType.COLLAB_REQUEST, { entity_id: 'security_reviewer', task: '评审' })).toEqual([
+      'request',
+      'security_reviewer',
+    ]);
+    expect(
+      endpoint_operation(EndpointType.COLLAB_REQUEST, { scope: 'collaborator', task: '出意见' }),
+    ).toEqual(['request', 'collaborator']);
+    // 双键并存 = entity_id 优先（目录身份判定不被 scope 别名顶替）
+    expect(
+      endpoint_operation(EndpointType.COLLAB_REQUEST, { entity_id: 'a', scope: 'b', task: 't' }),
+    ).toEqual(['request', 'a']);
+  });
+
+  it('scope 为临时作用域现场定义 dict = 按 role 归一判定目标（temp:<role>）', () => {
+    expect(
+      endpoint_operation(
+        EndpointType.COLLAB_REQUEST,
+        { scope: { role: 'debater', persona: '唱反调者' }, task: '挑战结论' },
+      ),
+    ).toEqual(['request', 'temp:debater']);
+    // 两参俱缺 = 无法判定目标（fail-closed），失败原因给出口指引
+    expect(endpoint_operation(EndpointType.COLLAB_REQUEST, { task: '召唤' })).toBeNull();
+    expect(endpoint_operation_failure_reason(EndpointType.COLLAB_REQUEST, { task: '召唤' })).toContain('scope');
+    expect(
+      endpoint_operation_failure_reason(
+        EndpointType.COLLAB_REQUEST,
+        { scope: { persona: '缺 role' }, task: 'x' },
+      ),
+    ).not.toBeNull();
+    expect(endpoint_operation_failure_reason(EndpointType.COLLAB_REQUEST, { entity_id: 'c', task: 't' })).toBeNull();
+  });
+});
+
 describe('web_search / task_manager 端点判定', () => {
   it('web_search：独立权限动作 search（空查询无法判定）', () => {
     expect(endpoint_operation(EndpointType.WEB_SEARCH, { query: '最新研究', limit: 5 })).toEqual([

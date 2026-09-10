@@ -10,8 +10,8 @@
  * - convene 临时作用域：scope 现场定义 dict（role+persona）→ 子执行按 temp
  *   作用域装载（turn 收到 temp 身份），目录中不存在该 id；
  * - convene best 契约：质量信号择优单份（落选保留 losers 不入产物）；
- * - convene open 圆桌：后轮输入带前轮意见（round_view 投影进 seed_payload），
- *   rounds 上限封顶；
+ * - convene open 圆桌：后轮经白板授权视图看到前轮意见（W6A3 穿透），rounds 上限
+ *   封顶，不收敛降级 main 拍板；
  * - 通道条件 fail-closed：自定义通道目录（fan_out.max_parallel=2 召 3 路 →
  *   gate 拒绝；approval 档 L1 + review 姿态 → 审批拒绝阻断；auto 姿态放行）；
  * - 参数校验：目标缺失/非法 n/非法 contract/目录不可装载 → ConveneError。
@@ -130,7 +130,7 @@ describe('runExecution 主线（execution.run 背后的服务装配）', () => {
 });
 
 describe('convene 多协作者召集（collab_request 执行体语义）', () => {
-  it('目录作用域 n=3 blind 并行：full 契约全收回执 + conclusion 投影', async () => {
+  it('目录作用域 n=3 blind 并行：full 契约全收回执 + main turn 综合结论', async () => {
     const { service: svc } = service(
       {
         collaborator: [
@@ -138,6 +138,7 @@ describe('convene 多协作者召集（collab_request 执行体语义）', () =>
           { opinion: '意见二' },
           { opinion: '意见三' },
         ],
+        main: [{ conclusion: '综合结论：三方意见合并' }],
       },
       [scoped('main'), scoped('collaborator')],
     );
@@ -154,8 +155,7 @@ describe('convene 多协作者召集（collab_request 执行体语义）', () =>
     expect(runIds.size).toBe(3);
     const adopted = result.merged['adopted'] as Array<Record<string, unknown>>;
     expect(adopted.length).toBe(3);
-    expect(result.conclusion).toContain('意见一');
-    expect(result.conclusion).toContain('意见三');
+    expect(result.conclusion).toBe('综合结论：三方意见合并');
   });
 
   it('临时作用域：scope 现场定义 → temp 身份装载（目录无此 id）', async () => {
@@ -198,13 +198,14 @@ describe('convene 多协作者召集（collab_request 执行体语义）', () =>
     expect(result.merged['contract']).toBe('best');
   });
 
-  it('open 圆桌：后轮输入带前轮意见投影（round_view），rounds 上限封顶', async () => {
+  it('open 圆桌：后轮经白板视图看到前轮意见，rounds 上限封顶（不收敛降级 main 拍板）', async () => {
     const { service: svc, turn } = service(
       {
         collaborator: [
           { opinion: '第一轮意见' },
           { opinion: '第二轮意见' },
         ],
+        main: [{ conclusion: '主持人拍板结论' }],
       },
       [scoped('main'), scoped('collaborator')],
     );
@@ -217,9 +218,15 @@ describe('convene 多协作者召集（collab_request 执行体语义）', () =>
     });
     expect(result.ok).toBe(true);
     expect(result.rounds_run).toBe(2);
-    expect(turn.calls.length).toBe(2);
+    // 两轮子执行 + 一次 main 裁决 turn
+    expect(turn.calls.length).toBe(3);
+    // 后轮子执行输入经白板授权视图带前轮意见（不再走 round_view seed_payload）
     const secondInput = turn.calls[1]!.input;
     expect(secondInput).toContain('第一轮意见');
+    // 触顶不收敛：收敛判定与降级摘要可见，结论 = main turn 拍板
+    expect(result.merged['convergence']).toEqual({ converged: false, reason: 'rounds_exhausted' });
+    expect(result.degraded.join('；')).toContain('未收敛');
+    expect(result.conclusion).toBe('主持人拍板结论');
   });
 
   it('通道条件 fail-closed：max_parallel 封顶拒绝（自定义通道目录）', async () => {

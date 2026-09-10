@@ -1,59 +1,73 @@
 /**
- * 多协作者召集协议（collab_request 组织类工具的执行语义，设计 §7.4.1）。
+ * 多协作者召集协议（collab_request 组织类工具的执行语义）。
  *
- * 召集 = 把「召唤协作者/子代理」的模型工具调用兑现为**子执行 + 归并契约**：
- * - 目标来源二选一（与 route/临时作用域词表同口径）：目录作用域（填目录已
- *   注册 id，装载既有身份/提示词/契约资产）或临时作用域（scope 为现场定义
- *   dict，动态创建、用完即散，不落目录）；
- * - `n` 路并行子执行走通道闸门（n=1 委托、n>1 fan-out）：资格/审批/最大并行/
- *   成本池条件由引擎 channel_gate 执行（fail-closed）；`budget` 折入各子执行
- *   护栏（max_cost 兜底线）；
- * - `mode`：blind = 各路互不可见（默认，防从众）；open = 圆桌最小形态——逐轮
- *   并行加工、后轮可见前轮全部意见（rounds 上限封顶，无新增实质意见收敛；
- *   白板共享块属会话内运行时后续形态，此处以「子执行输入投影」实现可见性）；
- * - `contract`：full = 意见全收回执（主持人裁决）；best = 确定性择优单份
- *   （引擎 pick：质量信号 > 成本 > 完成序），落选保留轨迹不入产物。
+ * 召集 = 把「召唤协作者」的模型工具调用兑现为**白板驱动的子执行 + 裁决归并**：
+ * - 目标二选一：目录作用域（entity_id / scope 字符串）或临时作用域（scope dict，
+ *   现场定义、用完即散）；`n` 路并行走通道闸门（n=1 委托、n>1 fan-out，fail-closed；
+ *   入口校验/参数归一见 convene_params.ts）；
+ * - 白板：召集时一次性声明授权（main 全可见、fail-closed），main 写任务块
+ *   广播；每路子执行经 ExecutionRequest.whiteboard 快照下发（W6A3 穿透），turn input
+ *   只含被授权视图——blind 只见任务块，open 另见此前全部意见块（名册/快照细则见
+ *   convene_board.ts）；
+ * - blind（默认）：单轮 fan-out，意见块私有互不可见；open（圆桌）：意见块升级共享，
+ *   逐轮并行、后轮经白板视图看到前轮意见，judge_round 判收敛（无新实质 / ≥k 确认 /
+ *   rounds ≤ 8 触顶；不收敛不加轮——main 拍板，降级摘要可见，成本封顶）；
+ * - 意见代写：子执行产物由宿主代写为意见块（owner = 席位身份，见 convene_board.ts）；
+ *   W6C1 adjudicate 裁决（schema 门禁剔除记失败 + 去重 + 冲突标记 + 仲裁建议）→
+ *   main 一次 turn 消费综合结构产出结论 → 写结论块（main turn 失败/无意见回落
+ *   确定性投影并记降级）；
+ * - 护栏：并行上限走通道 max_parallel、轮次 R 封顶、意见块 schema 校验（协作方
+ *   produces 契约）、成本独立计入各子执行；白板审计随 W6A3 whiteboard_audit 事件
+ *   通道透出（子执行读审计由运行时转发，宿主代写审计经同一 onEvent sink）。
  *
- * 本模块只编排（复用 HostExecutionService 的运行时装配），归并语义复用引擎
- * fan-in（单一真源，不在宿主第二套归并实现）。
+ * 本模块只编排（复用 HostExecutionService 装配），归并/裁决/收敛语义全复用引擎
+ * （fan-in 与 core/collab 单一真源，不在宿主第二套实现）。
  */
 
 import {
-  CHANNEL_COMMIT_BEST,
-  CHANNEL_COMMIT_FULL,
   CHANNEL_SHAPE_DELEGATE,
   CHANNEL_SHAPE_FAN_OUT,
+  MAIN_SCOPE,
+  USER_SCOPE,
+  adjudicate,
+  default_whiteboard_grants,
   enforce_transition_conditions,
   fan_in_merge,
+  judge_round,
+  opinions_digest,
 } from '@ink-ts/engine';
 import type {
   ChannelCommit,
   ChannelSpec,
   ChildRunOutcome,
+  ConvergenceVerdict,
   ExecutionRequest,
   ExecutionResult,
+  OpinionEntry,
   TrailCost,
   TrailOutcome,
 } from '@ink-ts/engine';
 
+import {
+  ConveneBoard,
+  board_roster,
+  opinion_entry_of,
+  opinion_text,
+  scope_contract,
+  seat_owner,
+} from './convene_board.js';
+import {
+  ConveneError,
+  normalize_convene_params,
+  resolve_convene_target,
+} from './convene_params.js';
+import type { ConveneParams, ConveneTarget } from './convene_params.js';
 import type { HostExecutionService, RunExecutionOptions } from './service.js';
-import { parse_temp_scope_def } from '@ink-ts/engine';
 
-/** 召集声明的 n 上限（通道/护栏还会二次封顶；此常量只防畸形参数放大）。 */
-export const CONVENE_MAX_N = 32;
-/** open 圆桌轮次上限（护栏封顶；成本可控性优先于「永不收敛」）。 */
-export const CONVENE_MAX_ROUNDS = 8;
-
-/** 召集校验/闸门失败（执行体归一为结构化拒绝结果，不击穿回合）。 */
-export class ConveneError extends Error {
-  readonly reason: string;
-
-  constructor(message: string, reason = 'invalid_params') {
-    super(message);
-    this.name = 'ConveneError';
-    this.reason = reason;
-  }
-}
+// 公共面（hosts/lib/src/index.ts 与 collab_command.ts 取用）：参数/错误真源在
+// convene_params.ts，此处透传保持既有 import 路径稳定。
+export { CONVENE_MAX_N, CONVENE_MAX_ROUNDS, ConveneError, normalize_convene_params, resolve_convene_target } from './convene_params.js';
+export type { ConveneTarget } from './convene_params.js';
 
 /** 单路子执行完成形态（召集结果投影；child 归并输入）。 */
 export interface ConveneChildOutcome {
@@ -80,94 +94,6 @@ export interface ConveneResult {
   merged: Record<string, unknown>;
   conclusion: string;
   degraded: string[];
-}
-
-interface ConveneTarget {
-  source: 'directory' | 'temp';
-  /** 目录作用域 id（source=directory）。 */
-  scope_id: string | null;
-  /** 临时作用域定义（source=temp，已 parse 校验）。 */
-  temp_def: Record<string, unknown> | null;
-  /** 判定/展示引用（目录 id 或 temp:<role>）。 */
-  ref: string;
-}
-
-function isRecord(value: unknown): value is Record<string, unknown> {
-  return typeof value === 'object' && value !== null && !Array.isArray(value);
-}
-
-/** 目标解析：entity_id（目录 id）优先；scope 字符串 = 目录 id；scope dict = 现场定义。 */
-export function resolve_convene_target(args: Record<string, unknown>): ConveneTarget {
-  const entity_id = args['entity_id'];
-  if (typeof entity_id === 'string' && entity_id.trim() !== '') {
-    return { source: 'directory', scope_id: entity_id.trim(), temp_def: null, ref: entity_id.trim() };
-  }
-  const scope = args['scope'];
-  if (typeof scope === 'string' && scope.trim() !== '') {
-    return { source: 'directory', scope_id: scope.trim(), temp_def: null, ref: scope.trim() };
-  }
-  if (isRecord(scope)) {
-    let def: unknown;
-    try {
-      def = parse_temp_scope_def(scope);
-    } catch (error) {
-      throw new ConveneError(
-        `临时作用域定义非法: ${error instanceof Error ? error.message : String(error)}`,
-        'temp_scope_invalid',
-      );
-    }
-    const role = (def as { role?: string }).role ?? '';
-    return { source: 'temp', scope_id: null, temp_def: scope, ref: `temp:${role}` };
-  }
-  throw new ConveneError(
-    '缺召集目标：entity_id（目录作用域 id）或 scope（目录 id / 临时作用域定义 dict）二选一',
-  );
-}
-
-/** 参数归一（n/mode/contract/rounds/budget 缺省与取值域；非法显式拒绝）。 */
-export function normalize_convene_params(args: Record<string, unknown>): {
-  task: string;
-  n: number;
-  mode: 'blind' | 'open';
-  contract: ChannelCommit;
-  rounds: number;
-  budget: number | null;
-} {
-  const task = args['task'];
-  if (typeof task !== 'string' || task.trim() === '') {
-    throw new ConveneError('召集缺 task（子任务描述，非空字符串）');
-  }
-  const rawN = args['n'] ?? 1;
-  if (typeof rawN !== 'number' || !Number.isInteger(rawN) || rawN < 1 || rawN > CONVENE_MAX_N) {
-    throw new ConveneError(`n 须为 1..${CONVENE_MAX_N} 的整数`);
-  }
-  const rawMode = args['mode'] ?? 'blind';
-  if (rawMode !== 'blind' && rawMode !== 'open') {
-    throw new ConveneError("mode 须为 'blind' | 'open'");
-  }
-  const rawContract = args['contract'] ?? CHANNEL_COMMIT_FULL;
-  if (rawContract !== CHANNEL_COMMIT_FULL && rawContract !== CHANNEL_COMMIT_BEST) {
-    throw new ConveneError("contract 须为 'full' | 'best'（召集契约；decision_only 属隔离试跑）");
-  }
-  const rawRounds = args['rounds'] ?? (rawMode === 'open' ? 2 : 1);
-  if (typeof rawRounds !== 'number' || !Number.isInteger(rawRounds) || rawRounds < 1 || rawRounds > CONVENE_MAX_ROUNDS) {
-    throw new ConveneError(`rounds 须为 1..${CONVENE_MAX_ROUNDS} 的整数`);
-  }
-  let budget: number | null = null;
-  if (args['budget'] !== undefined && args['budget'] !== null) {
-    if (typeof args['budget'] !== 'number' || !Number.isFinite(args['budget']) || args['budget'] < 0) {
-      throw new ConveneError('budget 须为非负数');
-    }
-    budget = args['budget'] as number;
-  }
-  return {
-    task: task.trim(),
-    n: rawN,
-    mode: rawMode,
-    contract: rawContract,
-    rounds: rawRounds,
-    budget,
-  };
 }
 
 /** 子执行结果 → convene 子完成形态 + 引擎归并输入（ChildRunOutcome 同构）。 */
@@ -200,16 +126,6 @@ function outcome_from(result: ExecutionResult): {
   return { child, asMergeInput };
 }
 
-/** 单路意见文本投影（conclusion 前台可见面：契约字段优先，回落 JSON）。 */
-function opinion_text(payload: Record<string, unknown>): string {
-  for (const key of ['opinion', 'reply', 'message', 'answer', 'plan']) {
-    const value = payload[key];
-    if (typeof value === 'string' && value.trim() !== '') return value.trim();
-  }
-  const rendered = JSON.stringify(payload);
-  return rendered === '{}' ? '' : rendered;
-}
-
 /** 召集入口（collab_request 执行体与后续桥命令共用的组织执行语义）。 */
 export async function convene(
   service: HostExecutionService,
@@ -239,69 +155,147 @@ export async function convene(
     throw new ConveneError(gateBlock.message, gateBlock.reason);
   }
 
+  const seq = service.nextSequence();
+  const nsRunId = `collab:${seq}`;
+  // 召集授权声明（§7.2）：名册 = 意见块写入者席位身份全集（细则见 convene_board.ts）
+  const board = new ConveneBoard(
+    default_whiteboard_grants(params.mode, board_roster(target, params.n, params.rounds, seq), {
+      userScope: USER_SCOPE,
+    }),
+    options.onEvent,
+  );
+  return convene_run(service, target, params, options, board, seq, nsRunId, channel_id);
+}
+
+/** 召集主流程（白板就位后的编排；拆出自 convene 保持函数单一职责）。 */
+async function convene_run(
+  service: HostExecutionService,
+  target: ConveneTarget,
+  params: ConveneParams,
+  options: RunExecutionOptions,
+  board: ConveneBoard,
+  seq: number,
+  nsRunId: string,
+  channel_id: string,
+): Promise<ConveneResult> {
+  board.put('task', MAIN_SCOPE, params.task, nsRunId, null);
   const guardrailOverride = params.budget !== null ? { max_cost: params.budget } : null;
   const children: ConveneChildOutcome[] = [];
   const mergeInputs: ChildRunOutcome[] = [];
+  const written = new Map<string, { entry: OpinionEntry; seat: number }>();
+  let childIndex = 0;
   let rounds_run = 0;
-  let previous_opinions: string[] | null = null;
+  let convergence: ConvergenceVerdict | null = null;
 
-  const spawn_round = async (shared_view: string[] | null): Promise<void> => {
-    const spawned: Promise<ExecutionResult>[] = [];
+  // 一轮 fan-out：白板当前态快照随每路子执行下发（W6A3 穿透取授权视图）；
+  // 完成后代写意见块（owner = 席位身份）并回传本轮意见条目（席位序 = 并行序）。
+  const spawnRound = async (): Promise<Array<{ entry: OpinionEntry; seat: number }>> => {
+    const scopeModel =
+      target.source === 'directory' ? service.loadScope(target.scope_id as string)?.model ?? null : null;
+    const spawned: Promise<{ result: ExecutionResult; runId: string; seat: number }>[] = [];
     for (let i = 0; i < params.n; i++) {
-      const seq = service.nextSequence();
-      const scopeModel =
-        target.source === 'directory'
-          ? service.loadScope(target.scope_id as string)?.model ?? null
-          : null;
-      const whiteboardContextWindow = service.resolveScopeContextWindow(scopeModel);
+      const runId = `collab:${seq}:${childIndex + 1}`;
+      childIndex += 1;
       const request: ExecutionRequest = {
         task: params.task,
         trigger: null,
-        seed_payload:
-          shared_view !== null && shared_view.length > 0
-            ? { round_view: shared_view.slice(), round: rounds_run + 1 }
-            : undefined,
-        run_id: `collab:${seq}:${i + 1}`,
+        run_id: runId,
         ...(target.source === 'directory'
           ? { entry_scope: target.scope_id as string }
           : { entry_temp_scope: target.temp_def as Record<string, unknown> }),
-        whiteboard_context_window: whiteboardContextWindow,
+        whiteboard: board.childSession(target, runId, params.mode),
+        whiteboard_context_window: service.resolveScopeContextWindow(scopeModel),
       };
-      spawned.push(service.runExecution(request, { ...options, guardrails: guardrailOverride }));
+      spawned.push(
+        service.runExecution(request, { ...options, guardrails: guardrailOverride }).then((result) => ({ result, runId, seat: i })),
+      );
     }
-    const results = await Promise.all(spawned);
-    for (const result of results) {
+    const round: Array<{ entry: OpinionEntry; seat: number }> = [];
+    for (const { result, runId, seat } of await Promise.all(spawned)) {
       const { child, asMergeInput } = outcome_from(result);
       children.push(child);
       mergeInputs.push(asMergeInput);
+      if (child.outcome === 'failure') continue; // 失败子执行不产意见块（只留摘要）
+      const owner = seat_owner(target, runId, seat);
+      const seqNo = board.put('opinion', owner, opinion_text(child.final_product), runId, nsRunId);
+      const entry = opinion_entry_of(child.final_product, owner, seqNo);
+      written.set(runId, { entry, seat });
+      round.push({ entry, seat });
     }
+    return round;
   };
-
-  // 目录作用域预检（未注册/已下架 = fail-closed，不产半成品子执行）
-  if (target.source === 'directory' && !service.hasScope(target.scope_id as string)) {
-    throw new ConveneError(`目录作用域不可装载: ${target.ref}`, 'scope_unavailable');
-  }
+  // 收敛判据的席位稳定投影：digest 含 owner，而临时作用域每轮身份不同——前后轮
+  // 一律以席位号归一后比较，「同席前后轮同文 = 无新实质」，语义与目录作用域一致；
+  // 确认计数（confirmers 按去重 owner）在席位投影下与真实席位一一对应。
+  const seat_entries = (round: ReadonlyArray<{ entry: OpinionEntry; seat: number }>): OpinionEntry[] =>
+    round.map(({ entry, seat }) => ({ ...entry, owner: `s${seat}` }));
+  const digest_of = (round: ReadonlyArray<{ entry: OpinionEntry; seat: number }>): string =>
+    opinions_digest(seat_entries(round));
 
   if (params.mode === 'blind') {
-    await spawn_round(null);
+    await spawnRound();
     rounds_run = 1;
   } else {
-    // open 圆桌最小形态：逐轮并行、后轮输入带此前全部意见文本；轮间无新增
-    // 实质意见（投影全等）= 收敛提前终止；rounds 上限封顶成本
-    for (let r = 0; r < params.rounds; r++) {
-      const before = children.length;
-      await spawn_round(previous_opinions);
-      rounds_run += 1;
-      const texts = children.slice(before).map((c) => opinion_text(c.final_product));
-      if (previous_opinions !== null && JSON.stringify(texts) === JSON.stringify(previous_opinions)) {
+    let previousDigest: string | null = null;
+    for (let r = 1; r <= params.rounds; r++) {
+      const round = await spawnRound();
+      rounds_run = r;
+      const verdict = judge_round(previousDigest, seat_entries(round), {
+        round: r,
+        rounds_cap: params.rounds,
+      });
+      if (verdict.converged || verdict.reason === 'rounds_exhausted') {
+        convergence = verdict;
         break;
       }
-      previous_opinions = [...(previous_opinions ?? []), ...texts];
+      previousDigest = digest_of(round);
     }
   }
 
   const merged = fan_in_merge(mergeInputs, params.contract);
-  const degraded: string[] = merged.degraded_summaries;
+  const quality: Record<string, number> = {};
+  const adoptedEntries: OpinionEntry[] = [];
+  for (const c of merged.adopted) {
+    const meta = written.get(c.run_id);
+    if (meta === undefined) continue;
+    adoptedEntries.push(meta.entry);
+    const q = c.payload['_quality'];
+    if (typeof q === 'number' && Number.isFinite(q)) quality[meta.entry.owner] = q;
+  }
+  const adjudication = adjudicate(adoptedEntries, { contract: scope_contract(service, target), quality });
+  const degraded: string[] = [...merged.degraded_summaries];
+  if (convergence !== null && !convergence.converged) {
+    degraded.push(`open 圆桌 ${rounds_run} 轮未收敛（${convergence.reason}），移交 main 拍板`);
+  }
+
+  // main 裁决 turn：全量可见白板 + 裁决综合结构（synthesis 载荷）→ 综合结论
+  // （以 schema 门禁后的采纳意见为准——被剔除意见不进综合，无采纳不空跑 turn）
+  let conclusion = '';
+  if (adjudication.accepted.length > 0) {
+    const mainTurn = await service.runExecution(
+      {
+        task: params.task,
+        seed_payload: { collab_synthesis: adjudication.synthesis },
+        run_id: `collab:${seq}:main`,
+        entry_scope: 'main',
+        whiteboard: board.mainSession(params.mode),
+        whiteboard_context_window: service.resolveScopeContextWindow(service.loadScope('main')?.model ?? null),
+      },
+      { ...options, guardrails: guardrailOverride },
+    );
+    if (!mainTurn.blocked && mainTurn.root.outcome !== 'failure') {
+      conclusion = opinion_text(mainTurn.final_product);
+    } else {
+      degraded.push(mainTurn.block_reason ?? mainTurn.root.error ?? 'main 裁决 turn 失败');
+    }
+  }
+  if (conclusion === '') {
+    conclusion = adjudication.accepted.map((e) => e.content).filter((t) => t !== '').join('\n');
+    if (conclusion === '') conclusion = '（协作者无有效意见产出）';
+  }
+  board.put('conclusion', MAIN_SCOPE, conclusion, nsRunId, null);
+  if (degraded.length > 0) board.put('summary', MAIN_SCOPE, degraded.join('；'), nsRunId, null);
+
   const product: Record<string, unknown> = {
     contract: params.contract,
     scope: target.ref,
@@ -309,12 +303,14 @@ export async function convene(
     adopted: merged.adopted.map((c) => c.payload),
     losers: merged.losers.map((c) => c.run_id),
     degraded,
+    points: adjudication.synthesis.points,
+    conflicts: adjudication.synthesis.conflicts,
+    rejected: adjudication.synthesis.rejected,
   };
   if (merged.decision !== null) product['decision'] = merged.decision;
-  const conclusion = merged.adopted
-    .map((c) => opinion_text(c.payload))
-    .filter((text) => text !== '')
-    .join('\n');
+  if (convergence !== null) {
+    product['convergence'] = { converged: convergence.converged, reason: convergence.reason };
+  }
   return {
     ok: true,
     scope_ref: target.ref,
@@ -326,7 +322,7 @@ export async function convene(
     rounds_run,
     children,
     merged: product,
-    conclusion: conclusion === '' ? '（协作者无有效意见产出）' : conclusion,
+    conclusion,
     degraded,
   };
 }

@@ -108,7 +108,8 @@ function fakeService(
 
 describe('collab_request 端点执行体（convene JSON 回执）', () => {
   it('召集成功 → ok:true JSON（scope_ref/contract/children/conclusion 齐备）', async () => {
-    const service = fakeService({ collaborator: [{ opinion: '评审通过' }] });
+    // 白板语义：conclusion 来自 main 裁决 turn（消费裁决综合结构后的综合结论）
+    const service = fakeService({ collaborator: [{ opinion: '评审通过' }], main: [{ conclusion: '评审通过：结论成立' }] });
     const executor = collabRequestExecutor(() => service);
     const out = await executor({}, collabRequestDefinition(), {
       entity_id: 'collaborator',

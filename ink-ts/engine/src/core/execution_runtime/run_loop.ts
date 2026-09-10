@@ -23,9 +23,15 @@ import { enforce_transition_conditions } from './channel_gate.js';
 import { fan_in_merge, clean_payload, strip_quality, type FanInMerged } from './fan_in.js';
 import { fallback_routing } from './fallback_routing.js';
 import { routing_decision_from_output } from './routing_next.js';
+import { PAYLOAD_AMEND_KEY, process_grant_amend } from './amend_runtime.js';
 import { plan_routing, type RoutePlan } from './route_planner.js';
-import { payload_from_reply, build_turn_input } from './scope_turn.js';
+import { payload_from_reply, build_turn_input, type WhiteboardAssemblyOptions } from './scope_turn.js';
 import { build_temp_scope_entity, parse_temp_scope_def } from './temp_scope.js';
+import { Whiteboard } from '../whiteboard/board.js';
+import type { WhiteboardAuditEntry, WhiteboardBlock } from '../whiteboard/index.js';
+import { ContextMixer } from '../context/context_mixer.js';
+import { build_block_sources } from '../context/block_source.js';
+import type { AuthorizedBlock } from '../context/block_source.js';
 import type { Core } from './execution_runtime.js';
 import type {
   ChildRunOutcome,
@@ -46,6 +52,10 @@ export interface RunState {
   cost_acc: number;
   degraded: string[];
   children: ChildRunOutcome[];
+  /** 可选白板会话（同 run 内共享；子 run 穿透继承）。 */
+  whiteboard?: Whiteboard;
+  /** 白板装配用的作用域模型 context_window（缺省 = null，回落 200k 兜底；子 run 穿透继承）。 */
+  whiteboard_context_window?: number | null;
 }
 
 type Emit = (event: RunEvent) => void;
@@ -163,16 +173,55 @@ export async function run_one(core: Core, state: RunState, emit: Emit): Promise<
   for (;;) {
     const stepOk = check_steps_guard(state.steps, core.guards);
     if (!stepOk.ok) return finish_fail(core, state, stepOk.message);
+
+    const beforeAudit = state.whiteboard ? state.whiteboard.audit().length : 0;
+    let wbBlocks: AuthorizedBlock[] | undefined;
+    if (state.whiteboard) {
+      const viewBlocks = state.whiteboard.view(state.scope.id);
+      wbBlocks = viewBlocks.map((b) => ({
+        kind: b.kind,
+        owner: b.owner,
+        content: b.content,
+        seq: b.seq,
+      }));
+    }
     const turn = await core.deps.turn.run_scope_turn({
       run_id: state.run_id,
       step: state.steps + 1,
       scope: state.scope,
       boot_system_prompt: core.deps.boot_system_prompt ?? '',
-      input: build_turn_input('', state.payload),
+      input: await build_turn_input('', state.payload, wbBlocks, {
+        context_window: state.whiteboard_context_window ?? null,
+      }),
       payload: { ...state.payload },
       thread_id: state.run_id,
+      whiteboard_blocks: wbBlocks,
     });
     state.steps += 1;
+
+    if (state.whiteboard) {
+      const afterAudit = state.whiteboard.audit();
+      const newEntries = afterAudit.slice(beforeAudit);
+      for (const entry of newEntries) {
+        const detail: Record<string, unknown> = {
+          scope: entry.scope,
+          block_id: entry.block_id,
+          kind: entry.kind,
+          action: entry.action,
+        };
+        emit({
+          run_id: state.run_id,
+          parent_run_id: state.parent_run_id,
+          scope: state.scope.id,
+          action: 'whiteboard_audit',
+          detail,
+        });
+      }
+      if (core.deps.on_whiteboard_audit && newEntries.length > 0) {
+        core.deps.on_whiteboard_audit(newEntries);
+      }
+    }
+
     const costInc = core.deps.estimate_cost?.(turn) ?? (turn.cost?.cost ?? 0);
     const costOk = check_cost_guard(state.cost_acc, costInc, core.guards);
     if (!costOk.ok) return finish_fail(core, state, costOk.message);
@@ -184,6 +233,25 @@ export async function run_one(core: Core, state: RunState, emit: Emit): Promise<
       return settle(core, state, 'failure', turn.reason ?? null, summary, {});
     }
     const produced = turn.payload !== undefined ? turn.payload : payload_from_reply(turn.reply);
+    // 运行中改授权（`__amend` 结构化产物声明）：复用仲裁者判定，main 才生效；
+    // 非仲裁者/结构非法 = 显式拒绝（fail-closed，本 run 判失败）；生效后审计经
+    // 既有事件通道带出（top-of-loop 差量已含本轮之前的条目，不重复发）。
+    const amend = process_grant_amend(state.whiteboard, state.scope.id, produced);
+    delete produced[PAYLOAD_AMEND_KEY];
+    if (amend.status === 'rejected') {
+      return finish_fail(core, state, amend.reason);
+    }
+    if (amend.status === 'applied') {
+      const detail: Record<string, unknown> = {
+        scope: amend.entry.scope,
+        block_id: amend.entry.block_id,
+        kind: amend.entry.kind,
+        action: amend.entry.action,
+      };
+      if (amend.entry.amendment !== undefined) detail['amendment'] = amend.entry.amendment;
+      emit({ run_id: state.run_id, parent_run_id: state.parent_run_id, scope: state.scope.id, action: 'whiteboard_audit', detail });
+      if (core.deps.on_whiteboard_audit) core.deps.on_whiteboard_audit([amend.entry]);
+    }
     let decision = routing_decision_from_output(produced, turn.reply);
     // 先验回落只作用于入口首轮（steps=1 的这次加工 = 入口路由局部判定）；其后
     // 无声明即兜底直收（自治"何时收"，不反复按路线首跳重入）
@@ -251,6 +319,8 @@ export async function run_one(core: Core, state: RunState, emit: Emit): Promise<
           cost_acc: 0,
           degraded: [],
           children: [],
+          whiteboard: state.whiteboard,
+          whiteboard_context_window: state.whiteboard_context_window,
         };
         spawned.push(run_one(core, childState, emit));
       }

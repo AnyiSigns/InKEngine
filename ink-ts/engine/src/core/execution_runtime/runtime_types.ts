@@ -17,6 +17,8 @@ import type { ExecutionTrail, TrailCost, TrailHop, TrailOutcome } from '../org_a
 import type { ChannelDirectory } from '../channels/channel_directory.js';
 import type { GuardrailConfig } from './guardrails.js';
 import type { TransitionApprovalSeam } from './channel_gate.js';
+import type { WhiteboardAuditEntry, WhiteboardBlock, WhiteboardGrants } from '../whiteboard/index.js';
+import type { AuthorizedBlock } from '../context/block_source.js';
 
 /** 作用域装载结果（目录作用域资产 = 实体记录；临时作用域 = 运行时构造的同形
  *  实体记录——作用域身份主体字段全在 EntitySpec 上）。 */
@@ -37,6 +39,8 @@ export interface ScopeTurnContext {
   /** 当前载荷（作用域声明消费的字段；只读投影面）。 */
   payload: Record<string, unknown>;
   thread_id: string;
+  /** 该作用域被授权的白板块（按 grants view 得出；空 = 无授权）。 */
+  whiteboard_blocks?: readonly AuthorizedBlock[];
 }
 
 /** 单轮作用域加工的产物（turn runner 输出；ok=false = 本轮加工失败需降级）。 */
@@ -107,6 +111,14 @@ export interface ExecutionResult {
   block_reason: string | null;
 }
 
+/** 白板会话（grants + 当前 blocks；运行时持有并 mutate）。 */
+export interface WhiteboardSession {
+  grants: WhiteboardGrants;
+  blocks: WhiteboardBlock[];
+  /** 授权变更仲裁者（缺省 main；运行中变更仅该作用域声明生效，§7.2）。 */
+  arbiter?: string;
+}
+
 /** 执行入口（一次 ExecutionRuntime.run 的输入）。 */
 export interface ExecutionRequest {
   /** 会话/根 run 任务文本。 */
@@ -121,6 +133,10 @@ export interface ExecutionRequest {
   seed_payload?: Record<string, unknown>;
   /** 根 run_id（缺省运行时派生；提供 = 宿主控制命名）。 */
   run_id?: string;
+  /** 可选白板会话（grants + 初始 blocks；缺省 = 无白板，零漂移）。 */
+  whiteboard?: WhiteboardSession | null;
+  /** 白板装配用的作用域模型 context_window（缺省 = null，resolve_compression_min_chars 回落 200k 兜底）。 */
+  whiteboard_context_window?: number | null;
 }
 
 /** 执行运行时装配依赖（全部注入式；host 装配真实实现，测试注入 fake）。 */
@@ -148,6 +164,8 @@ export interface ExecutionRuntimeDeps {
   estimate_cost?: (turn: ScopeTurnResult) => number;
   /** 时钟（事件时间戳；缺省 = 确定性 0）。 */
   now_ms?: () => number;
+  /** 白板审计转发（scope×block×read|write；缺省 = 发为 RunEvent action='whiteboard_audit'）。 */
+  on_whiteboard_audit?: (entries: WhiteboardAuditEntry[]) => void;
 }
 
 /** 组织档案 ingest seam（OrgArchive 的内存写面；试跑隔离 = 独立空档案）。 */

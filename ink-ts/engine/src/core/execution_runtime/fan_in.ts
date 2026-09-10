@@ -159,12 +159,13 @@ export function estuary_synthesize(
   return product;
 }
 
-/** 产物载荷剔除内部路由键后的纯契约载荷（旧产物不残留的声明面清洗）。
- *  `_quality` 择优信号保留（fan_in 归并前需要读它；注入主载荷时由调用方剥离）。 */
+/** 产物载荷剔除内部声明键（`__next` 路由 / `__amend` 改授权；旧产物不残留的声明面
+ *  清洗）。`_quality` 择优信号保留（fan_in 归并前需要读它；注入主载荷时由调用方剥离）。 */
 export function clean_payload(payload: Record<string, unknown>): Record<string, unknown> {
   const out: Record<string, unknown> = {};
   for (const [key, value] of Object.entries(payload)) {
     if (key === '__next') continue;
+    if (key === '__amend') continue;
     out[key] = value;
   }
   return out;

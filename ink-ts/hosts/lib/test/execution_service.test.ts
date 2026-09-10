@@ -23,6 +23,7 @@ import {
   ChannelSpec,
   EntitySpec,
 } from '@ink-ts/engine';
+import type { ExecutionRequest } from '@ink-ts/engine';
 
 import { HostExecutionService } from '../src/execution/service.js';
 import { ConveneError, convene } from '../src/execution/convene.js';
@@ -276,5 +277,41 @@ describe('convene 多协作者召集（collab_request 执行体语义）', () =>
       budget: 0,
     });
     expect(result.ok).toBe(true);
+  });
+
+  it('同块集在两个不同 cw 模型下注入的 whiteboard_context_window 不同', async () => {
+    const cwA = 32000;
+    const cwB = 128000;
+    const scopeA = new EntitySpec({
+      id: 'scope_a',
+      role: 'analyst',
+      persona: '模型 A',
+      model: { provider: 'test-prov', model_id: 'model-a' },
+    });
+    const scopeB = new EntitySpec({
+      id: 'scope_b',
+      role: 'analyst',
+      persona: '模型 B',
+      model: { provider: 'test-prov', model_id: 'model-b' },
+    });
+    const captured: ExecutionRequest[] = [];
+    const { service: svc } = service(
+      { scope_a: [{ opinion: '意见' }], scope_b: [{ opinion: '意见' }] },
+      [scoped('main'), scopeA, scopeB],
+      {
+        resolveScopeContextWindow: (model) => {
+          if (model?.model_id === 'model-a') return cwA;
+          if (model?.model_id === 'model-b') return cwB;
+          return null;
+        },
+        onRunExecution: (req) => captured.push(req),
+      },
+    );
+    await convene(svc, { entity_id: 'scope_a', task: '分析 A', n: 1 });
+    await convene(svc, { entity_id: 'scope_b', task: '分析 B', n: 1 });
+    const cws = captured.map((r) => r.whiteboard_context_window).filter((c): c is number => c !== null && c !== undefined);
+    expect(cws).toContain(cwA);
+    expect(cws).toContain(cwB);
+    expect(cws[0]).not.toBe(cws[1]);
   });
 });

@@ -603,6 +603,77 @@ export type {
 //     路由数据面、路由规划、通道条件、归并语义、护栏与隔离试跑基座）──
 export * from './core/execution_runtime/index.js';
 
+// ── 受控白板（会话内共享上下文数据面：块模型 / 授权 / 纯数据面状态机，
+//    纯 JSON 进 JSON 出、零 IO；可见性唯一裁决源，未授权默认拒绝 fail-closed，
+//    审计 scope×block×action；供 6A3 集成波与 6C convene 波装配）──
+export {
+  BLOCK_KINDS,
+  MAIN_SCOPE,
+  WHITEBOARD_VERSION,
+  Whiteboard,
+  WhiteboardAccessError,
+  default_whiteboard_grants,
+  is_whiteboard_block_kind,
+  parse_whiteboard_block,
+  parse_whiteboard_grants,
+  whiteboard_block_to_dict,
+} from './core/whiteboard/index.js';
+export type {
+  DefaultGrantsOptions,
+  WhiteboardAccess,
+  WhiteboardAuditEntry,
+  WhiteboardBlock,
+  WhiteboardBlockKind,
+  WhiteboardGrantEntry,
+  WhiteboardGrants,
+} from './core/whiteboard/index.js';
+
+// ── 协作裁决（圆桌归并去重/冲突检测/仲裁/收敛判据；纯数据面，供 6C convene 波装配）──
+export {
+  ARBITRATION_PRIOR,
+  ARBITRATION_PRIORITY,
+  ARBITRATION_QUALITY,
+  ARBITRATION_USER,
+  OPPOSE_MARKERS,
+  USER_SCOPE,
+  CONFIRM_MARKERS,
+  DEFAULT_CONFIRM_K,
+  DEFAULT_ROUNDS_CAP,
+  adjudicate,
+  arbitrate_conflict,
+  build_synthesis,
+  confirmers,
+  dedupe_opinions,
+  detect_conflicts,
+  explicit_value,
+  is_oppose_marked,
+  judge_round,
+  normalize_opinion_text,
+  opinion_payload,
+  opinions_digest,
+  parse_opinion_entry,
+  validate_opinion_schema,
+} from './core/collab/index.js';
+export type {
+  AdjudicationOptions,
+  AdjudicationResult,
+  ArbitrationBasis,
+  ArbitrationOptions,
+  ArbitrationPriority,
+  ConflictPair,
+  ConflictSuggestion,
+  ConvergenceConfig,
+  ConvergenceReason,
+  ConvergenceVerdict,
+  DedupeGroup,
+  OpinionEntry,
+  ParsedOpinion,
+  RejectedOpinion,
+  SynthesisConflict,
+  SynthesisInput,
+  SynthesisPoint,
+} from './core/collab/index.js';
+
 // ── 3. adapters 工厂面 ──
 
 // boot 引导种子（装配期数据资产：宿主配方经 AssemblyRecipe 直注消费）

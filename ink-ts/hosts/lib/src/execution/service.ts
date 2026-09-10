@@ -18,6 +18,8 @@
 import {
   ChannelDirectory,
   ExecutionRuntime,
+  ORG_ARCHIVE_SCHEMA_VERSION,
+  OrgArchive,
   default_channel_seeds,
   default_scope_priors,
   normalizeApprovalPose,
@@ -32,8 +34,13 @@ import type {
   ScopeTurnRunner,
   TransitionApprovalSeam,
 } from '@ink-ts/engine';
-import type { InterruptPolicy } from '@ink-ts/engine';
 import type { GuardrailConfig } from '@ink-ts/engine';
+import type { InterruptPolicy } from '@ink-ts/engine';
+import type { Storage } from '@ink-ts/engine';
+
+/** 组织档案持久化集合/键（走引擎 Storage 结构化记录普通通道，非演化资产）。 */
+const ORG_ARCHIVE_COLLECTION = 'org.archive';
+const ORG_ARCHIVE_KEY = 'snapshot';
 
 /** 执行装配构造项（boot 注入；测试注入 fake turn 以隔离引擎装载）。 */
 export interface HostExecutionServiceInit {
@@ -55,6 +62,12 @@ export interface HostExecutionServiceInit {
   guardrails?: GuardrailConfig | null;
   /** 时钟（事件时间戳；缺省 = 确定性 0）。 */
   nowMs?: () => number;
+  /** 存储访问器（组织档案快照持久化用；null = 不落盘，纯内存档案）。 */
+  storage?: (() => Storage | null) | null;
+  /** 作用域模型 context_window 解析（按 model 引用查用户 model 列表档案；null = 无档案/未指派，回落引擎 200k 兜底）。 */
+  resolveScopeContextWindow?: ((model: Record<string, string> | null) => number | null) | null;
+  /** 执行请求拦截（测试 seam；非空 = 每次 runExecution 前回调请求对象）。 */
+  onRunExecution?: ((request: ExecutionRequest) => void) | null;
 }
 
 /** 单次执行入口选项。 */
@@ -95,8 +108,12 @@ export class HostExecutionService {
   private readonly init: HostExecutionServiceInit;
   readonly channels: ChannelDirectory;
   readonly priors: readonly ScopePriorPattern[];
+  /** 组织档案（轨迹 ingest 内存态；settle 后落盘快照）。 */
+  orgArchive: OrgArchive;
   /** 最近一次执行的 run_id 游标（convene 子 run 命名空间；进程内单调）。 */
   private sequence = 0;
+  /** 档案快照加载/持久化 promise（避免并发 persist 覆盖）。 */
+  private archiveFlush: Promise<void> = Promise.resolve();
 
   constructor(init: HostExecutionServiceInit) {
     this.init = init;
@@ -108,6 +125,10 @@ export class HostExecutionService {
       this.channels = dir;
     }
     this.priors = init.priors ?? default_scope_priors();
+    this.orgArchive = new OrgArchive();
+    if (init.storage !== undefined && init.storage !== null) {
+      this.archiveFlush = this.loadArchiveSnapshot().catch(() => {});
+    }
   }
 
   /** 目录作用域是否在装载面命中（未注册/已下架 = false）。 */
@@ -118,6 +139,13 @@ export class HostExecutionService {
   /** 作用域装载（null = 不可装载，调用方 fail-closed 拒绝）。 */
   loadScope(scope_id: string): LoadedScope | null {
     return this.init.loadScope(scope_id);
+  }
+
+  /** 作用域模型的 context_window（按引用查用户 model 列表；无档案/未指派 = null）。 */
+  resolveScopeContextWindow(model: Record<string, string> | null): number | null {
+    const resolver = this.init.resolveScopeContextWindow;
+    if (resolver === undefined || resolver === null) return null;
+    return resolver(model);
   }
 
   /** 下一次执行的 run 序号（宿主控制命名 run_id 用）。 */
@@ -145,11 +173,43 @@ export class HostExecutionService {
     return this.init.makeTurn();
   }
 
+  /** 从 storage 加载组织档案持久快照（boot 时调用；无快照 = 空档案继续）。 */
+  async loadArchiveSnapshot(): Promise<void> {
+    const storageGetter = this.init.storage;
+    if (storageGetter === undefined || storageGetter === null) return;
+    const storage = storageGetter();
+    if (storage === null) return;
+    try {
+      const record = await storage.get_record(ORG_ARCHIVE_COLLECTION, ORG_ARCHIVE_KEY);
+      if (record !== null && typeof record === 'object') {
+        this.orgArchive = OrgArchive.from_dict(record);
+      }
+    } catch {
+      // 快照损坏或版本不兼容：保留空档案，不击穿 boot
+    }
+  }
+
+  /** 将组织档案当前态持久化为快照（settle 后调用；失败不击穿执行结果）。 */
+  async persistArchiveSnapshot(): Promise<void> {
+    const storageGetter = this.init.storage;
+    if (storageGetter === undefined || storageGetter === null) return;
+    const storage = storageGetter();
+    if (storage === null) return;
+    const data = this.orgArchive.to_dict();
+    await storage.put_record(ORG_ARCHIVE_COLLECTION, ORG_ARCHIVE_KEY, data);
+  }
+
+  /** 等待进行中的档案快照持久化完成（测试用）。 */
+  async flushArchiveSnapshot(): Promise<void> {
+    await this.archiveFlush;
+  }
+
   /** 一次执行主线：入口作用域 → 转场循环 → 汇聚点唯一最终产物。 */
   async runExecution(
     request: ExecutionRequest,
     options: RunExecutionOptions = {},
   ): Promise<ExecutionResult> {
+    this.init.onRunExecution?.(request);
     const runtime = new ExecutionRuntime({
       load_scope: this.init.loadScope,
       channels: this.channels,
@@ -162,9 +222,11 @@ export class HostExecutionService {
           ? options.guardrails
           : this.init.guardrails ?? {},
       ...(options.onEvent !== undefined ? { on_event: options.onEvent } : {}),
-      archive: null,
+      archive: this.orgArchive,
       now_ms: this.init.nowMs ?? (() => 0),
     });
-    return runtime.run(request);
+    const result = await runtime.run(request);
+    this.archiveFlush = this.persistArchiveSnapshot().catch(() => {});
+    return result;
   }
 }

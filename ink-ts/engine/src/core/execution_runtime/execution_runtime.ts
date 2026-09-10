@@ -23,6 +23,8 @@ import { normalize_guardrails } from './guardrails.js';
 import { estuary_synthesize } from './fan_in.js';
 import { parse_temp_scope_def, build_temp_scope_entity, temp_scope_id } from './temp_scope.js';
 import { run_one, trail_from } from './run_loop.js';
+import { WHITEBOARD_VERSION, Whiteboard, whiteboard_block_to_dict } from '../whiteboard/index.js';
+import type { WhiteboardSession } from './runtime_types.js';
 import type {
   ExecutionRequest,
   ExecutionResult,
@@ -71,6 +73,7 @@ export class ExecutionRuntime {
       archive: deps.archive ?? null,
       estimate_cost: deps.estimate_cost,
       now_ms: deps.now_ms ?? (() => 0),
+      on_whiteboard_audit: deps.on_whiteboard_audit,
     };
   }
 
@@ -101,6 +104,19 @@ export class ExecutionRuntime {
     }
     emit(_event(rootId, null, entryScope.id, 'run_start', { task: request.task }));
     const seed: Record<string, unknown> = { task: request.task, ...(request.seed_payload ?? {}) };
+    const wbSession = request.whiteboard;
+    let whiteboard: Whiteboard | undefined;
+    if (wbSession) {
+      // 召集下发的白板会话 = 当前态装载（blocks 含各作者已写块；不产生 write
+      // 审计——write 审计属实际 append 动作，下发装载是状态恢复非写入）。
+      whiteboard = Whiteboard.from_dict({
+        version: WHITEBOARD_VERSION,
+        arbiter: wbSession.arbiter ?? 'main',
+        grants: { mode: wbSession.grants.mode, entries: wbSession.grants.entries.map((e) => ({ ...e })) },
+        blocks: wbSession.blocks.map(whiteboard_block_to_dict),
+        audit: [],
+      });
+    }
     const childOutcome = await run_one(
       core,
       {
@@ -114,6 +130,8 @@ export class ExecutionRuntime {
         cost_acc: 0,
         degraded: [],
         children: [],
+        whiteboard,
+        whiteboard_context_window: request.whiteboard_context_window ?? null,
       },
       emit,
     );

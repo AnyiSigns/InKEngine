@@ -30,6 +30,7 @@ import type {
   ChannelCommit,
   ChannelSpec,
   ChildRunOutcome,
+  ExecutionRequest,
   ExecutionResult,
   TrailCost,
   TrailOutcome,
@@ -248,7 +249,12 @@ export async function convene(
     const spawned: Promise<ExecutionResult>[] = [];
     for (let i = 0; i < params.n; i++) {
       const seq = service.nextSequence();
-      const request = {
+      const scopeModel =
+        target.source === 'directory'
+          ? service.loadScope(target.scope_id as string)?.model ?? null
+          : null;
+      const whiteboardContextWindow = service.resolveScopeContextWindow(scopeModel);
+      const request: ExecutionRequest = {
         task: params.task,
         trigger: null,
         seed_payload:
@@ -259,6 +265,7 @@ export async function convene(
         ...(target.source === 'directory'
           ? { entry_scope: target.scope_id as string }
           : { entry_temp_scope: target.temp_def as Record<string, unknown> }),
+        whiteboard_context_window: whiteboardContextWindow,
       };
       spawned.push(service.runExecution(request, { ...options, guardrails: guardrailOverride }));
     }

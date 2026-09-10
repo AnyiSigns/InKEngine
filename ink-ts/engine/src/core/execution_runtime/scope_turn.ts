@@ -11,6 +11,9 @@
 import { isRecord } from '../json.js';
 import type { ScopeTurnContext, ScopeTurnResult } from './runtime_types.js';
 import type { ScopeTurnRunner } from './runtime_types.js';
+import { build_block_sources } from '../context/block_source.js';
+import type { AuthorizedBlock } from '../context/block_source.js';
+import { ContextMixer } from '../context/context_mixer.js';
 
 /** 载荷文本投影的字段保留键（task 文本的载荷键）。 */
 export const PAYLOAD_TASK_KEY = 'task';
@@ -29,11 +32,45 @@ export function project_payload_text(payload: Record<string, unknown>): string {
   return parts.join('\n');
 }
 
-/** 组装 scope 加工输入（任务 + 载荷投影文本；空载荷 = 空字符串）。 */
-export function build_turn_input(task: string, payload: Record<string, unknown>): string {
+/**
+ * scope 加工输入装配（调用级临时拼接，不进持久化消息链）。
+ *
+ * 零漂移：blocks 为空/undefined 时行为与旧版同步 build_turn_input 完全一致。
+ * 带白板时：被授权块集 + 作用域私有上下文（payload 投影）交既有调配管线
+ * （§7.2 ContextMixer/ContextAssembler/WeightedBudgetAllocator）统一预算
+ * 分配、加权组装——调配切片不进 messages 通道，只拼进本次调用的 input。
+ */
+export async function build_turn_input(
+  task: string,
+  payload: Record<string, unknown>,
+  blocks: readonly AuthorizedBlock[] | undefined,
+  opts: WhiteboardAssemblyOptions = {},
+): Promise<string> {
   const projected = project_payload_text(payload);
-  if (task === '') return projected;
-  return projected === '' ? task : `${task}\n${projected}`;
+  if (task === '' && !blocks?.length) return projected;
+
+  let whiteboardText = '';
+  if (blocks && blocks.length > 0) {
+    const blockResult = build_block_sources(blocks, projected, opts.context_window);
+    const mixed = await (opts.mixer ?? new ContextMixer()).mix(blockResult.sources, {
+      total_chars: blockResult.budget_chars,
+    });
+    whiteboardText = mixed.text;
+  }
+
+  const parts: string[] = [];
+  if (task !== '') parts.push(task);
+  if (whiteboardText !== '') parts.push(whiteboardText);
+  if (projected !== '' && !blocks?.length) parts.push(projected);
+  return parts.join('\n');
+}
+
+/** 白板装配选项（全部可选；缺省 = 沿用命名常量默认值）。 */
+export interface WhiteboardAssemblyOptions {
+  /** 作用域所用模型的 context_window（缺省 = null，resolve_compression_min_chars 回落 200k 兜底）。 */
+  context_window?: number | null | undefined;
+  /** 装配管线混音器（缺省 = 新建 ContextMixer）。 */
+  mixer?: ContextMixer | null;
 }
 
 /** 回复文本 → 载荷（模型产物为 JSON dict 时逐字段并入；否则为 message 文本）。 */

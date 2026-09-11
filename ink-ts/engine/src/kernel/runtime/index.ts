@@ -26,25 +26,6 @@ export type {
 
 export { Runtime } from './runtime.js';
 
-export {
-  ROUND_CONTINUATION_STATE_KEY,
-  parse_continuation_state,
-} from './_runtime_skeleton.js';
-export type { ContinuationIntent, ContinuationReason } from './_runtime_skeleton.js';
-
-export { ROUND_GRAPH_STATE_KEY, RECENT_TOPS_STATE_KEY } from './_runtime_rounds.js';
-export type { RoundAssembleOptions } from './_runtime_rounds.js';
-
-export {
-  THREAD_SKELETON_STATE_KEY,
-  ThreadSkeleton,
-} from '../../core/thread_skeleton/index.js';
-export type {
-  SkeletonEdgeSpec,
-  SkeletonNodeSpec,
-  ThreadSkeletonStatus,
-} from '../../core/thread_skeleton/index.js';
-
 export type {
   EvolveOfflineOptions,
   EvolveOfflineResult,

@@ -46,7 +46,7 @@ allowed_theme_tokens）为校验注入面。
 
 ## 装配与消费
 
-- `kernel/runtime`：_runtime_assemble/_runtime_engine（boot UISpec 与补丁
+- `kernel/runtime`：_runtime_boot/_runtime_engine（boot UISpec 与补丁
   应用点的 UISchemaValidator 校验）、_types（DEFAULT_BIND_CHANNELS 装配
   面类型）。
 - `kernel/self_proposal/proposal_validator`：ui 提案 payload 的

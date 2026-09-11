@@ -40,11 +40,6 @@ export interface NodeContextLike {
   interrupt(review_key: string, payload: Record<string, unknown>): Promise<unknown>;
   get_interrupt_payload(review_key: string): Record<string, unknown> | null;
   spawn(subgraph: unknown, state: Record<string, unknown>, index?: number | null): void;
-  assemble(
-    sources: unknown[],
-    opts?: { total_budget?: number | null; version_snapshot?: Record<string, unknown> | null },
-  ): Promise<unknown>;
-  preassemble(): Promise<void>;
   account_usage(usage: Record<string, unknown> | null): void;
   terminate(reason: string, meta?: Record<string, unknown>): void;
   readonly terminated: boolean;

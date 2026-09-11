@@ -64,7 +64,7 @@ seam 声明与注入点 = `EngineNodeSeams` 七成员：`llm`（`AsyncLLM | null
 ## 装配与消费
 
 - 注册面（`register.ts`，全部幂等跳过已登记）：`register_engine_node_types`（种子声明登记 + 回环条件边；未知 executor 声明跳过）、`register_engine_node_type`（单类型：type_name 实例键 + executor 内核名缺省同名——声明式登记恢复）、`register_agent_node_type`（agent 入口，缺省契约 `agent_scope_contract`）、`register_engine_edge_conditions`、`register_route_edge_condition(s)`（key 空/含 ':' 抛 `GraphDefinitionError`）、`has_engine_executor`/`has_engine_node_type`（恢复解析前提）。
-- 装配点：`kernel/runtime`（`_runtime_assemble` 取出厂池种子、`_runtime_engine` 重建时 `bind_engine_node_seams`、`_runtime_node_registry` 声明式登记恢复 + `derive_instance_contract`、`_runtime_mechanisms` 出厂边先验、`_runtime_rounds` 常量消费）；`core/execution_runtime/engine_turn_runner`（回合引擎：注册 + 绑定 + 池种子 + `_build_agent_scope_graph`）；`kernel/tool_pipeline` 读 `STATE_ROUND_POSE`。
+- 装配点：`kernel/runtime`（`_runtime_boot` 取出厂池种子、`_runtime_engine` 重建时 `bind_engine_node_seams`、`_runtime_node_registry` 声明式登记恢复 + `derive_instance_contract`、`_runtime_mechanisms` 出厂边先验）；`core/execution_runtime/engine_turn_runner`（回合引擎：注册 + 绑定 + 池种子 + `_build_agent_scope_graph`）；`kernel/tool_pipeline` 读 `STATE_ROUND_POSE`。
 - 实例解耦语义：实例键（`seed.type`）与执行体内核（`seed.executor`）独立；P4.2a-3 四实例分别指向 llm_decider 内核（三 llm）与 `TYPE_ROUTER_JUDGE`（router_plan_judge），分化落在 config（`output_field`/`read_fields`/routes）与实例契约。
 
 ## 不变式与门禁

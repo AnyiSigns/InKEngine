@@ -36,7 +36,7 @@
 ## 装配与消费
 
 - `StateSchema.apply` 合并规则：schema 外键宽容裸覆盖；空 overlay 返回副本；按通道 reducer 归约，无 reducer 即覆盖。
-- 消费方：`kernel/executor`（run_subgraph、模拟回流、spawn 回流）、`kernel/spawn`（merge 通道判定）、`kernel/path_assembler`（StateSchema 形态校验/修复）、`core/link_validator`（additive/merge 通道判定）、`core/harness`、`core/run_result`、`kernel/recovery`、`kernel/multipath`。
+- 消费方：`kernel/executor`（run_subgraph、模拟回流、spawn 回流）、`kernel/spawn`（merge 通道判定）、`core/link_validator`（additive/merge 通道判定）、`core/harness`、`core/run_result`、`kernel/recovery`、`kernel/multipath`；`kernel/path_assembler`（StateSchema 形态校验/修复）消费已随组装链路退役（W7-B）。
 - 错误语义：未知 reducer 名 → `GraphDefinitionError`（构造期/取用期均 fail-fast）；patch_chain 通道基底类型与 PatchChain overlay 不兼容（会静默丢弃基底）→ `GraphDefinitionError`；additive 通道终态值非条目序列 → `GraphDefinitionError`。
 
 ## 不变式与门禁

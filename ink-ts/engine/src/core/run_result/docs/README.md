@@ -16,7 +16,6 @@
   tuning、settle，均 type import）。
 - 下游（实际 import 本目录）：`kernel/executor`（全链 + index 转出
   `RunOptions`/`RunResult`）、`kernel/runtime`、`kernel/multipath`、
-  `kernel/path_assembler`（type）、`kernel/settle`（type）、
-  `core/execution_runtime`；公共面 `src/index.ts` `export *`；
+  `kernel/settle`（type）、`core/execution_runtime`；公共面 `src/index.ts` `export *`（`kernel/path_assembler` 消费已随组装链路退役删除，W7-B）；
   hosts/lib 经公共面消费 `RunOptions`；测试 `test/core/run_result`、
   `test/kernel/{executor,runtime,multipath,settle}`、`test/core/nodes`。

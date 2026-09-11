@@ -19,7 +19,6 @@ import type { Storage } from '../../../src/core/storage/storage.js';
 import type { StateSchema } from '../../../src/core/state/schema.js';
 import type { BudgetManager } from '../../../src/kernel/budget/budget.js';
 import type { EngineTransport } from '../../../src/core/events/events.js';
-import type { AssemblyConfig } from '../../../src/core/assembly/assembly_config.js';
 
 describe('RunOptions 默认值', () => {
   it('默认构造逐字段对齐 Python dataclass', () => {
@@ -50,9 +49,6 @@ describe('RunOptions 默认值', () => {
     expect(DEFAULT_MAX_SIMULATIONS).toBe(8);
     expect(options.simulate_concurrency).toBe(2);
     expect(options.branch_pick).toBeNull();
-    expect(options.assembly).toBeNull();
-    expect(options.assembly_sources).toBeNull();
-    expect(options.assembly_aggregator).toBeNull();
     expect(options.metrics).toBeNull();
     expect(options.domain).toBeNull();
     expect(options.settle).toBeNull();
@@ -73,7 +69,6 @@ describe('RunOptions 覆盖与引擎运行时语义', () => {
     const schema = {} as StateSchema;
     const budget = {} as BudgetManager;
     const transport = {} as EngineTransport;
-    const assembly = {} as AssemblyConfig;
     const options = new RunOptions({
       storage,
       schema,
@@ -94,7 +89,6 @@ describe('RunOptions 覆盖与引擎运行时语义', () => {
       max_simulations: 4,
       simulate_concurrency: 1,
       branch_pick: 2,
-      assembly,
       emit_timeline_events: true,
     });
     expect(options.storage).toBe(storage);
@@ -116,7 +110,6 @@ describe('RunOptions 覆盖与引擎运行时语义', () => {
     expect(options.max_simulations).toBe(4);
     expect(options.simulate_concurrency).toBe(1);
     expect(options.branch_pick).toBe(2);
-    expect(options.assembly).toBe(assembly);
     expect(options.emit_timeline_events).toBe(true);
   });
 

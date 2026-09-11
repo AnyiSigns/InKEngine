@@ -22,7 +22,6 @@
 import { Graph, type CompiledGraph } from '../../core/graph/graph.js';
 import { RunOptions } from '../../core/run_result/run_result.js';
 import { InterruptCoordinator } from '../interrupt/interrupt.js';
-import { InputAssembler } from '../../core/assembly/input_assembler.js';
 import { GraphDefinitionError } from '../../core/errors.js';
 import { EngineEvent, type EngineTransport } from '../../core/events/events.js';
 import { TraceStep, TRACE_SUCCESS, TRACE_FAILED, TRACE_SKIPPED } from '../settle/index.js';
@@ -91,8 +90,6 @@ export abstract class EngineBase {
   _chain_advanced: boolean;
   /** 已执行节点步数（本引擎累计；子链步数截止护栏的判据）。 */
   executed_node_steps: number;
-  /** 输入调配管线执行体（RunOptions.assembly 非 null 时启用）。 */
-  _assembler: InputAssembler | null;
   /** 结点级成败留痕（沉淀钩子输入）：本 run 的执行轨迹与成本账。 */
   _run_trace: TraceStep[];
   /** 结点 token 账（(graph_path, node) 编码键 → tokens）。 */
@@ -125,13 +122,6 @@ export abstract class EngineBase {
     this._latest_event_seq = null;
     this._chain_advanced = false;
     this.executed_node_steps = 0;
-    // 输入调配管线执行体（assembly 非 null 时启用；激活留痕随事件落库）
-    this._assembler =
-      this.options.assembly !== null
-        ? new InputAssembler(this.options.assembly, {
-            aggregator: this.options.assembly_aggregator,
-          })
-        : null;
     // 结点级成败留痕（沉淀钩子输入）：本 run 的执行轨迹与成本账，不发射
     // 事件（观测侧零影响）。_execute 入口复位；嵌套引擎执行完经合并点并入。
     this._run_trace = [];

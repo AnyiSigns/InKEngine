@@ -1,32 +1,27 @@
 /**
- * 沉淀单元：策略边对抗复审（增量 + 限频）与池治理登记钩子。
+ * 沉淀单元：策略边对抗复审（增量 + 限频）。
  *
- * 对标 ink_engine/tests/test_settle.py 的「策略边对抗复审」「池治理登记」
- * 节：
+ * 对标 ink_engine/tests/test_settle.py 的「策略边对抗复审」节：
  * - 复审钩子：失败累计超阈值 → 提请 L2 复审 + 复审前降级普通统计边；
  * - 域证据均值反超承诺 → 复审 + 降级；
  * - 增量面（ENG1-9）：未触达的策略边不评估（不做每 run 全量扫描）；
- * - 限频面（ENG1-9）：域证据均值带缓存（scan_interval 内不重复全量扫描）；
- * - 池治理钩子可注册进 SettleHooks 链；settle 为 no-op 占位。
+ * - 限频面（ENG1-9）：域证据均值带缓存（scan_interval 内不重复全量扫描）。
+ * （池治理登记钩子已随 pool_governance 机制退役。）
  */
 
 import { describe, expect, it } from 'vitest';
 
 import { EdgeEvidenceStore } from '../../../src/core/edge_evidence/store.js';
-import { PoolGovernance } from '../../../src/kernel/pool_governance/pool_governance.js';
 import { Graph } from '../../../src/core/graph/graph.js';
 import {
   PolicyEdgeReviewSettleHook,
-  PoolGovernanceSettleHook,
 } from '../../../src/kernel/settle/review.js';
-import { SettleHooks } from '../../../src/kernel/settle/hooks.js';
 import {
   TRACE_SUCCESS,
 } from '../../../src/kernel/settle/_constants.js';
 import {
   NOW,
   edgeKey,
-  linearGraph,
   makeCtx,
   stepsOf,
 } from './helpers.js';
@@ -161,27 +156,5 @@ describe('PolicyEdgeReviewSettleHook 复审钩子', () => {
     await hook.settle(ctx); // 达 scan_interval：重算一次（runs 复位 1）
     expect(hook._runs_since_refresh['code']).toBe(1);
     await store.close();
-  });
-});
-
-describe('PoolGovernanceSettleHook 池治理登记钩子', () => {
-  it('可注册进 SettleHooks 链', () => {
-    const gov = new PoolGovernance();
-    const hook = new PoolGovernanceSettleHook(gov);
-    const hooks = new SettleHooks();
-    hooks.register(hook);
-    expect(hooks.hooks.length).toBe(1);
-    expect(hooks.hooks[0]).toBe(hook);
-  });
-
-  it('settle 不报错（占位钩子，只登记不执行）', async () => {
-    const gov = new PoolGovernance();
-    const hook = new PoolGovernanceSettleHook(gov);
-    const ctx = makeCtx(stepsOf(['start', TRACE_SUCCESS]), {
-      graph: linearGraph(),
-    });
-    await hook.settle(ctx);
-    // 钩子不执行判定，只占位
-    expect(gov.log.length).toBe(0);
   });
 });

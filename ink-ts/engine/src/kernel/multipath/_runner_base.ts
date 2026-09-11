@@ -21,7 +21,6 @@
 import type { BudgetManager } from '../budget/budget.js';
 import type { BudgetRemaining } from '../budget/budget_types.js';
 import type { EdgeEvidenceStore } from '../../core/edge_evidence/index.js';
-import type { AssemblyCandidate, AssemblyRequest } from '../path_assembler/types.js';
 import type { EngineEvent, EngineTransport } from '../../core/events/events.js';
 import type { Graph } from '../../core/graph/graph.js';
 import { TerminateReason } from '../../core/graph/graph_types.js';
@@ -36,6 +35,7 @@ import { tail_checkpoint } from '../recovery/index.js';
 import { is_merge_reducer } from '../../core/state/reducers.js';
 import { subgraph_overlay_delta } from '../../core/state/schema.js';
 import { MultiPathConfig } from './config.js';
+import type { AssemblyCandidate, AssemblyRequest } from './types.js';
 import {
   chain_edge_refs,
   chain_evidence,

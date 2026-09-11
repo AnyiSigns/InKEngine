@@ -1,8 +1,8 @@
 /**
  * recovery 命令面（回退入口 + 可回退点查询 + 重置）——调 engine storage/恢复语义。
  *
- * 引擎恢复 = checkpoint 锚点链（resolve_resume/resume_run 由 rounds.branch/
- * rounds.resume 承载）；本组只出**回退入口**：按链删除目标叶之后的派生
+ * 引擎恢复 = checkpoint 锚点链（锚点/链尾解析走 kernel/recovery resolve_resume，
+ * 续跑重入由 rounds.resume→execution.resume 承载，W7-B 组装回合入口已退役）；本组只出**回退入口**：按链删除目标叶之后的派生
  * checkpoint（storage.delete_checkpoints 会重算链尾），并审计留痕。点查询
  * 供操作者选择回退目标；回退删除只作用于链数据，宿主簿记经 session store
  * 收尾刷新。重置另按线程/出厂两级清事件日志（storage.truncate_events）。

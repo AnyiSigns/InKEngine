@@ -58,8 +58,9 @@ export interface SelfToolNodeContext extends ApprovalInterruptContext {
   /** 会话 thread id（request_tool 绑定打标用；缺省 = 不落标签）。 */
   thread_id?: string | null;
   /** 当前回合状态读写面（执行器节点上下文携带；缺省 = 直通不可写）。供宿主
-   *  工具执行边界写入 P4 回合协议键（如 ROUND_CONTINUATION_STATE_KEY 续跑
-   *  意图）——鸭子类型，非节点上下文调用方（离线/单测）可省略。 */
+   *  工具执行边界写入回合协议键（W7-B 注：续跑意图键 ROUND_CONTINUATION_STATE_KEY
+   *  已随组装回合机制退役，本面保留为宿主工具写状态的通用通道）——鸭子类型，
+   *  非节点上下文调用方（离线/单测）可省略。 */
   state?: Record<string, unknown>;
 }
 

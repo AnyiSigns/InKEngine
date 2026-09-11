@@ -33,7 +33,7 @@
 
 ## 依赖
 - 上游：`kernel/llm/messages`（message_role/Message/user）。
-- 下游：`core/assembly`（三文件复用 allocator/assembler/types）、
+- 下游：`core/assembly`（已随 W7-B 退役，曾三文件复用 allocator/assembler/types）、
   `kernel/runtime`（ContextMixer/CompressionPolicy/ContextSource 装配）、
   `kernel/executor`（ContextSource type）、`kernel/llm/guard`
   （context_compression）、`core/knowledge_set`/`core/knowledge_signals`

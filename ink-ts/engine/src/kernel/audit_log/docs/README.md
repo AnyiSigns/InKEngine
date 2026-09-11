@@ -10,4 +10,4 @@
 
 ## 依赖
 - 上游（本目录实际 import）：`kernel/registry/ports`（`PORT_STORAGE_SEAM`）、`kernel/registry/contract_types`。
-- 下游（实际 import 本目录）：`kernel/evolution_writer`（`emit_audit` + `AuditStorage`/`MechanismExemptionScope` 类型）、`kernel/runtime`（`_runtime_mechanisms`/`_runtime_engine`）、`kernel/path_assembler/intervention`、`core/edge_evidence/intervention`、`core/fingerprint_cache/invalidate`、`kernel/registry/contracts`；公共面零导出（grep `src/index.ts` 无本目录任何名）；测试 `test/kernel/audit_log`。
+- 下游（实际 import 本目录）：`kernel/evolution_writer`（`emit_audit` + `AuditStorage`/`MechanismExemptionScope` 类型）、`kernel/runtime`（`_runtime_mechanisms`/`_runtime_engine`）、`core/edge_evidence/intervention`、`kernel/registry/contracts`（`kernel/path_assembler/intervention`、`core/fingerprint_cache/invalidate` 消费已随组装链路退役删除，W7-B）；公共面零导出（grep `src/index.ts` 无本目录任何名）；测试 `test/kernel/audit_log`。

@@ -1,21 +1,22 @@
 /**
- * 自学习族装配层（D04/D05 接线）：回合记忆抽取、技能结晶、离线进化调度
+ * 自学习族装配层（D04/D05 接线）：回合记忆抽取、技能容器、离线进化调度
  * 与回合收尾调参。
  *
  * - 记忆：回合收尾把当轮账本事实（意图/结论 + 用户决议确认事件）规则抽取
  *   入用户级 memory 域（StorageBackedMemoryStore = EvolutionWriter
  *   kind=memory 受控通道），settle 钩子按 thread+round 幂等（同 round
  *   不重复抽取）；
- * - 技能结晶：指纹缓存达标条目自动结晶为技能，产物经 KnowledgeSkillStore
- *   落知识集 kind=path 条目（知识集补丁链 = 唯一演化史）；
+ * - 技能容器：KnowledgeSkillStore = 知识集 kind=path 条目访问器（知识集
+ *   补丁链 = 唯一演化史）；结晶自动触发源（指纹缓存命中）已随组装链路
+ *   退役，容器与互转保持，观察侧 skill_crystallizer 恒空；
  * - 进化调度：evolution 工厂（离线变异-择优）的产品内入口
  *   runtime.evolve_offline——宿主显式调用（默认保守：无回合内自动调度，
  *   不引入每回合开销）；闸门/样例由调用方注入（领域 fixtures 属宿主）；
- * - 收尾调参：普通回合收尾（非仅 resume_run）经 settle 钩子接入 MetaTuner，
- *   回合指标由引擎注入 RunOptions.metrics（_runtime_engine）聚合一次。
+ * - 收尾调参：普通回合收尾经 settle 钩子接入 MetaTuner，回合指标由引擎
+ *   注入 RunOptions.metrics 聚合一次。
  *
  * 沉淀链顺序（super 基础链 …归因/账本之后）：记忆抽取 → growth → 实体演化
- * → 技能结晶 → 收尾调参 → 决议事件边界清理。
+ * → 收尾调参 → 决议事件边界清理。
  */
 
 import { EvolutionFactory } from '../evolution/index.js';
@@ -28,7 +29,7 @@ import {
   MemoryExtractSettleHook,
 } from '../memory_extract/index.js';
 import type { SettleContext, SettleHooks } from '../settle/index.js';
-import { KnowledgeSkillStore, SkillCrystallizeHook } from '../skill_crystal/index.js';
+import { KnowledgeSkillStore } from '../skill_crystal/index.js';
 import type { Storage } from '../../core/storage/storage.js';
 import { MetaTuner } from '../tuning/index.js';
 import type { TunableParams, TurnMetrics } from '../tuning/index.js';
@@ -156,7 +157,9 @@ export abstract class RuntimeSelfLearning extends RuntimeRebuild {
     this._skill_crystallizer = null;
   }
 
-  /** 沉淀链覆写：基础链（归因/账本）后接自学习族（顺序见文件头）。 */
+  /** 沉淀链覆写：基础链（归因/账本）后接自学习族（顺序见文件头）。
+   *  技能结晶自动触发源（指纹缓存命中）已随组装链路退役；技能容器
+   *  （KnowledgeSkillStore）仍按 skill_crystal_enabled 装配供外部读写。 */
   override _assemble_settle_chain(): SettleHooks {
     const hooks = super._assemble_settle_chain();
     const recipe = this._recipe;
@@ -176,25 +179,6 @@ export abstract class RuntimeSelfLearning extends RuntimeRebuild {
     if (this.growth_pipeline !== null) hooks.register(this.growth_pipeline);
     if (this.entity_evolution_pipeline !== null) {
       hooks.register(this.entity_evolution_pipeline);
-    }
-    if (
-      recipe.skill_crystal_enabled
-      && this.fingerprint_cache_store !== null
-      && this.knowledge_skill_store !== null
-    ) {
-      const crystallizer = new SkillCrystallizeHook(
-        this.fingerprint_cache_store,
-        this.knowledge_skill_store,
-        {
-          // 水位门控（R7-4）：缓存写/回馈计数作变更源，未变化回合不重扫
-          mutation_source: () => {
-            const stats = this.fingerprint_cache_store!.stats;
-            return stats.upserts + stats.reports + stats.invalidations + stats.evictions;
-          },
-        },
-      );
-      this._skill_crystallizer = crystallizer;
-      hooks.register(crystallizer);
     }
     hooks.register(new _RoundTuneSettleHook(this as never));
     hooks.register(new _ReviewEventBoundaryHook(this as never));

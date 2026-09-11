@@ -1,10 +1,12 @@
 /**
- * host bridge H2 补桥命令面单测（sessions.messages / rounds.todos / recovery.reset / audit.list / tools.full / capability
+ * host bridge H2 补桥命令面单测（sessions.messages / recovery.reset / audit.list / tools.full / capability
  * baseline+tier / mcp.status / knowledge / memory / growth / backup）。
  *
  * 纪律覆盖：方法表与 BRIDGE_METHODS 双向一致；入参校验（BridgeError
  * invalid_params）；危险操作确认标记 fail-closed；各方法数据源锚点
  * （引擎 runtime 装配产物 / data_dir 快照域）。
+ * rounds.todos 已随组装链路退役（W7-B）；组装回退开关（INK_ROUNDS_ASSEMBLY_FALLBACK）
+ * 已删，样本一律走 execution 主线（fake llm）或直接构造存储态。
  * // gate: 超限(674 行) - 21 个补桥方法行为/校验/别名断言集中在一文件便于交叉核验
  */
 
@@ -12,16 +14,14 @@ import { existsSync, mkdirSync, mkdtempSync, readFileSync, rmSync, writeFileSync
 import { tmpdir } from 'node:os';
 import path from 'node:path';
 
-import { MemoryEntry } from '@ink-ts/engine';
-import { afterAll, afterEach, beforeAll, describe, expect, it } from 'vitest';
+import { CheckpointRecord, EngineEvent, MemoryEntry } from '@ink-ts/engine';
+import { afterEach, describe, expect, it } from 'vitest';
 
 import { BRIDGE_METHODS } from '../../src/bridge/index.js';
 import { BridgeError } from '../../src/bridge/_types.js';
 import { packStoreZip } from '../../src/backup/zip_codec.js';
 import { createHost } from '../../src/index.js';
 import type { HostHandle } from '../../src/index.js';
-import { disableAssemblyFallback, enableAssemblyFallback } from '../_rounds_flag.js';
-import { runGateCard } from '../_graphs.js';
 import { FakeOpenAIServer } from '../_fake_openai.js';
 
 const CTX = { autoApprove: false };
@@ -51,7 +51,6 @@ describe('H2 bridge 方法表（三向一致）', () => {
     expect([...handle.bridge.keys()].sort()).toEqual([...BRIDGE_METHODS].sort());
     for (const method of [
       'sessions.messages',
-      'rounds.todos',
       'recovery.reset',
       'audit.list',
       'tools.full',
@@ -75,12 +74,9 @@ describe('H2 bridge 方法表（三向一致）', () => {
     }
   });
 
-  it('rounds.todos / sessions.messages 入参校验（缺 thread_id → invalid_params）', async () => {
+  it('sessions.messages 入参校验（缺 thread_id → invalid_params）', async () => {
     const { dir, events } = dirs();
     handle = await createHost({ data_dir: dir, events_dir: events });
-    await expect(handle.bridge.get('rounds.todos')!({}, CTX)).rejects.toMatchObject({
-      code: 'invalid_params',
-    });
     await expect(handle.bridge.get('sessions.messages')!({}, CTX)).rejects.toMatchObject({
       code: 'invalid_params',
     });
@@ -178,64 +174,8 @@ describe('sessions.messages（链记录消息投影）', () => {
   });
 });
 
-describe('rounds.todos（挂起审批卡待办 + 空态）', () => {
-  let handle: HostHandle;
-
-  afterEach(async () => {
-    await handle.dispose();
-  });
-
-  it('gate 数据图经 runtime 本轮引擎挂卡 → todos 含 approval 行；裁决后清空', async () => {
-    const { dir, events } = dirs();
-    handle = await createHost({ data_dir: dir, events_dir: events });
-    const started = { thread_id: `gate-${Math.random().toString(36).slice(2, 10)}` };
-    await runGateCard(handle.runtime, started.thread_id);
-    const cards = (await handle.bridge.get('approval.list')!(
-      { thread_id: started.thread_id },
-      CTX,
-    )) as Array<{ key: string }>;
-
-    const todos = (await handle.bridge.get('rounds.todos')!(
-      { thread_id: started.thread_id },
-      CTX,
-    )) as { todo: Array<{ id: string; label: string; status: string; kind: string }> };
-    expect(todos.todo.some((todo) => todo.kind === 'approval' && todo.id === cards[0]!.key)).toBe(
-      true,
-    );
-
-    await handle.bridge.get('approval.resolve')!(
-      { thread_id: started.thread_id, decision: 'accept' },
-      CTX,
-    );
-    const after = (await handle.bridge.get('rounds.todos')!(
-      { thread_id: started.thread_id },
-      CTX,
-    )) as { todo: unknown[] };
-    expect(after.todo).toEqual([]);
-  });
-
-  it('无挂卡无计划线程 → 空 todo', async () => {
-    const { dir, events } = dirs();
-    handle = await createHost({ data_dir: dir, events_dir: events });
-    const todos = (await handle.bridge.get('rounds.todos')!({ thread_id: 't-idle' }, CTX)) as {
-      todo: unknown[];
-    };
-    expect(todos.todo).toEqual([]);
-  });
-});
-
 describe('recovery.reset（确认标记 fail-closed）', () => {
   let handle: HostHandle;
-
-  // W7-A：本组用无模型组装回合制造「链+引擎事件日志」样本（reset 语义对象），
-  // 走组装回退开关保持既有形态。
-  beforeAll(() => {
-    enableAssemblyFallback();
-  });
-
-  afterAll(() => {
-    disableAssemblyFallback();
-  });
 
   afterEach(async () => {
     await handle.dispose();
@@ -255,13 +195,30 @@ describe('recovery.reset（确认标记 fail-closed）', () => {
   it('单线程重置：链删除 + 会话墓碑 + 事件日志清空；幂等二次调用零删除', async () => {
     const { dir, events } = dirs();
     handle = await createHost({ data_dir: dir, events_dir: events });
-    const send = handle.bridge.get('rounds.send')!;
-    const first = (await send({ input: 'a' }, CTX)) as { thread_id: string };
     const storage = handle.runtime.storage!;
-    expect((await storage.events_after(first.thread_id, 0)).length).toBeGreaterThan(0);
+    // 样本直接构造存储态（recovery 语义对象与回合驱动无关：链 + 簿记 + 事件）
+    const threadId = 't-reset-mine';
+    await storage.put_checkpoint(
+      new CheckpointRecord({
+        checkpoint_id: 0,
+        thread_id: threadId,
+        node: 'agent',
+        graph_path: [],
+        state: {},
+        parent_id: null,
+        reason: 'reply',
+        event_seq: 1,
+      }),
+    );
+    await storage.append_event(
+      threadId,
+      new EngineEvent({ type: 'reply_token', thread_id: threadId, round_id: 'r1' }),
+    );
+    await handle.bridge.get('sessions.create')!({ thread_id: threadId }, CTX);
+    expect((await storage.events_after(threadId, 0)).length).toBeGreaterThan(0);
     const reset = handle.bridge.get('recovery.reset')!;
     const outcome = (await reset(
-      { thread_id: first.thread_id, confirm: 'factory-reset' },
+      { thread_id: threadId, confirm: 'factory-reset' },
       CTX,
     )) as { checkpoints_deleted: number; session_removed: boolean; mode: string; events_cleared: boolean; audit_kept: boolean };
     expect(outcome.mode).toBe('thread');
@@ -269,13 +226,13 @@ describe('recovery.reset（确认标记 fail-closed）', () => {
     expect(outcome.session_removed).toBe(true);
     expect(outcome.events_cleared).toBe(true);
     expect(outcome.audit_kept).toBe(true);
-    const chain = await handle.bridge.get('records.chain')!({ thread_id: first.thread_id }, CTX);
+    const chain = await handle.bridge.get('records.chain')!({ thread_id: threadId }, CTX);
     expect((chain as { chain: unknown[] }).chain).toHaveLength(0);
-    expect(await storage.events_after(first.thread_id, 0)).toHaveLength(0);
+    expect(await storage.events_after(threadId, 0)).toHaveLength(0);
     const sessions = (await handle.bridge.get('records.sessions')!(null, CTX)) as unknown[];
     expect(sessions).toHaveLength(0);
     const second = (await reset(
-      { thread_id: first.thread_id, confirm: 'factory-reset' },
+      { thread_id: threadId, confirm: 'factory-reset' },
       CTX,
     )) as { checkpoints_deleted: number };
     expect(second.checkpoints_deleted).toBe(0);
@@ -284,10 +241,26 @@ describe('recovery.reset（确认标记 fail-closed）', () => {
   it('全量重置：清 host.sessions/ledger/memory 集合 + 全部线程链与事件日志（幂等）', async () => {
     const { dir, events } = dirs();
     handle = await createHost({ data_dir: dir, events_dir: events });
-    const send = handle.bridge.get('rounds.send')!;
-    const first = (await send({ input: 'x' }, CTX)) as { thread_id: string };
     const storage = handle.runtime.storage!;
-    expect((await storage.events_after(first.thread_id, 0)).length).toBeGreaterThan(0);
+    const threadId = 't-reset-all';
+    await storage.put_checkpoint(
+      new CheckpointRecord({
+        checkpoint_id: 0,
+        thread_id: threadId,
+        node: 'agent',
+        graph_path: [],
+        state: {},
+        parent_id: null,
+        reason: 'reply',
+        event_seq: 1,
+      }),
+    );
+    await storage.append_event(
+      threadId,
+      new EngineEvent({ type: 'reply_token', thread_id: threadId, round_id: 'r1' }),
+    );
+    await handle.bridge.get('sessions.create')!({ thread_id: threadId }, CTX);
+    expect((await storage.events_after(threadId, 0)).length).toBeGreaterThan(0);
     const reset = handle.bridge.get('recovery.reset')!;
     const outcome = (await reset({ confirm: 'factory-reset' }, CTX)) as {
       mode: string;
@@ -304,7 +277,7 @@ describe('recovery.reset（确认标记 fail-closed）', () => {
     expect(names).toEqual(expect.arrayContaining(['host.sessions', 'ledger', 'memory']));
     const sessions = (await handle.bridge.get('records.sessions')!(null, CTX)) as unknown[];
     expect(sessions).toHaveLength(0);
-    expect(await storage.events_after(first.thread_id, 0)).toHaveLength(0);
+    expect(await storage.events_after(threadId, 0)).toHaveLength(0);
     const second = (await reset({ confirm: 'factory-reset' }, CTX)) as { threads: number };
     expect(second.threads).toBe(0);
   });
@@ -617,18 +590,11 @@ describe('backup 快照面（export/preview/restore + confirm 标记；sqlite �
   let handle: HostHandle;
   let root: string;
   let marker: string;
-
-  // W7-A：本组以无模型组装回合驱动「restore 后可继续回合」断言（组装回退开关）。
-  beforeAll(() => {
-    enableAssemblyFallback();
-  });
-
-  afterAll(() => {
-    disableAssemblyFallback();
-  });
+  let server: FakeOpenAIServer | null = null;
 
   afterEach(async () => {
     await handle.dispose();
+    if (server !== null) await server.close();
     rmSync(root, { recursive: true, force: true });
   });
 
@@ -640,7 +606,20 @@ describe('backup 快照面（export/preview/restore + confirm 标记；sqlite �
     writeFileSync(marker, 'v1');
     // 缺省 storage_uri = sqlite 落 data_dir/ink.sqlite（B2：restore 先停
     // runtime 再整目录替换，Windows 不再依赖显式 memory:// 规避 rename）
-    handle = await createHost({ data_dir: root, events_dir: made.events });
+    server = new FakeOpenAIServer({ content: '备份宿主回复' });
+    await server.start();
+    handle = await createHost({
+      data_dir: root,
+      events_dir: made.events,
+      model_config: {
+        agent_config: {
+          protocol: 'openai_compatible',
+          base_url: server.baseUrl,
+          api_key: 'sk-h2-backup',
+          model_id: 'h2-backup',
+        },
+      },
+    });
     expect(handle.config.storage_uri).toContain('sqlite://');
   }
 

@@ -80,7 +80,7 @@
                 "props": {
                   "grow": true,
                   "gap": 0,
-                  "note": "主区页签内容（chat/evolution/trajectory/todo；视图名 = 壳 tab）"
+                  "note": "主区页签内容（chat/evolution/trajectory；视图名 = 壳 tab）"
                 },
                 "children": [
                   {
@@ -167,24 +167,6 @@
                         "bind": {
                           "channel": "state.roundSteps",
                           "path": ""
-                        }
-                      }
-                    ]
-                  },
-                  {
-                    "kind": "container",
-                    "type": "column",
-                    "props": {
-                      "view": "todo",
-                      "scroll": true,
-                      "gap": 0
-                    },
-                    "children": [
-                      {
-                        "kind": "component",
-                        "type": "todo_view",
-                        "props": {
-                          "note": "待办页（rounds.todos 只读投影）"
                         }
                       }
                     ]

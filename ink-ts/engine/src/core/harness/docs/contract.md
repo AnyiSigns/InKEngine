@@ -50,7 +50,7 @@
 
 ## 装配与消费
 
-- `kernel/runtime` 装配链（_types/_runtime_base/_runtime_assemble/
+- `kernel/runtime` 装配链（_types/_runtime_base/_runtime_boot/
   _runtime_engine）：配方 → 注册表/仓库 → 图与工具重建进引擎。
 - `kernel/self_tools`（提案 ops 用 build_minimal_harness 构造领域起点；
   SelfToolNodeContext 持 HarnessRegistry）、`kernel/self_proposal`

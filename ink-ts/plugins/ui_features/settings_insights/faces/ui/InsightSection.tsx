@@ -19,13 +19,11 @@ import { createBackend, type BackendAdapter } from '@/shared/backend/backendAdap
 import { listAudit, type AuditRecord, type TimelineEntry } from './backend';
 import { describeEntry, detailText, isAlertType, TYPE_LABELS } from './labels';
 
-/** 实时流关注的自进化事件类型（与审计留痕面同域，排除对话/流式噪音）。 */
+/** 实时流关注的自进化事件类型（与审计留痕面同域，排除对话/流式噪音；
+ *  组装候选/组装审计/指纹顶替已随组装链路退役移除，W7-B）。 */
 const LIVE_TYPES = new Set([
-  'assembly_candidate',
   'junction_verdict',
   'junction_verdict_audit',
-  'assembly_audit',
-  'fingerprint_replace_audit',
   'policy_edge_review_audit',
   'recommended_prior_promotion',
   'signal_detected',

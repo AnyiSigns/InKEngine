@@ -14,9 +14,8 @@
 - `NodeContract`：结点契约——输入/输出 schema（复用 SchemaSpec 声明语言）+
   安全档 0/1/2（0 最严，与审批档 L0-L2 同阶）+ 版本（行为变更 = 升版）；
   to_dict/from_dict 随图定义数据落库，旧版本快照服务审计复现与回退；
-  契约可缺省（无契约结点不参与组装，仅可被手绘图引用）。
-- `PathAssemblyConfig`：机制入口开关（enabled 缺省 false = 机制不参与任何
-  运行路径，默认全关）。
+  契约可缺省（无契约结点不受契约门约束，pool 结点类型登记与执行期契约校验共用）。
+- `PathAssemblyConfig`：已随组装链路退役删除（类与 as_path_assembly_config()，W7-B）。
 - `PathAssemblyFlags`：七块独立 feature flag（contract/edge_evidence/
   settle_hooks/pool_governance/assembler/multipath/fingerprint_cache），
   缺省全关；`from_boot` 按 BOOT_KEY_* 长键按名读取（键名是装配协议的一部分，
@@ -35,12 +34,13 @@
 ## 依赖
 - 上游：`core/errors`（GraphDefinitionError）、`core/json`（isRecord/
   typeName）、`core/schema`（SchemaSpec）。
-- 下游：kernel 侧广泛消费——`kernel/runtime`（装配开关解析 + 结点注册
-  契约校验）、`kernel/path_assembler`、`kernel/multipath`（QualityGate）、
+- 下游：kernel 侧广泛消费——`kernel/runtime`（结点注册契约校验）、
+  `kernel/multipath`（QualityGate + PathAssemblyFlags.multipath_enabled）、
   `kernel/self_application`（审批分级/守卫集合）、`kernel/self_proposal`
   （PATCH_KINDS）、`kernel/executor`（QualityGate）；core 侧
   `node_registry`/`link_validator`/`graph`/`perception`/`nodes`；生成物经
-  `src/index.ts` 数据面契约组全仓导出（上层不再有独立契约包）。
+  `src/index.ts` 数据面契约组全仓导出（上层不再有独立契约包）。`kernel/path_assembler`
+  与 `core/assembly` 下游已随组装链路退役删除（W7-B）。
 
 ## 门禁与测试
 - 生成物漂移由 `node engine/scripts/verify_generated.mjs` 守护；一致性测试

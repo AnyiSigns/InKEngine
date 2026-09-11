@@ -42,9 +42,6 @@ export interface HostSessionRecord {
   /** 展示态消息流（thinking/tool/正文，宿主从引擎事件展示聚合器采集并持久化；
    *  独立于引擎上下文 messages，刷新后据此恢复前端完整消息流）。 */
   display_messages?: unknown[];
-  /** 待生效骨架（skeleton.edit 声明式修改经校验挂载后的草稿；下轮 rounds.send
-   *  作为回合 state 种子消费后清除——P4-B-2 命令面可写链路）。 */
-  skeleton_draft?: Record<string, unknown> | null;
 }
 
 /** 分支树单节点（派生自 ChainLink；leaf 恒为某叶 checkpoint）。 */
@@ -100,7 +97,6 @@ export function parse_session_record(data: unknown): HostSessionRecord | null {
       ? { last_outcome: str(data['last_outcome'], '') }
       : {}),
     ...(Array.isArray(data['display_messages']) ? { display_messages: data['display_messages'] } : {}),
-    ...(isRecord(data['skeleton_draft']) ? { skeleton_draft: data['skeleton_draft'] as Record<string, unknown> } : {}),
   };
 }
 
@@ -126,9 +122,6 @@ export function session_record_to_json(record: HostSessionRecord): Record<string
   const out: Record<string, unknown> = { ...record };
   if (out['last_outcome'] === undefined || out['last_outcome'] === '') {
     delete out['last_outcome'];
-  }
-  if (out['skeleton_draft'] === null || out['skeleton_draft'] === undefined) {
-    delete out['skeleton_draft'];
   }
   return out;
 }

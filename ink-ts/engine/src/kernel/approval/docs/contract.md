@@ -58,7 +58,7 @@
 - `kernel/self_application`（apply/revert 审批分级与链尾限定）、
   `core/controlled_evolution/controlled_applier`（演化 apply 审批）、
   `kernel/self_tools`（`ApprovalInterruptContext` ctx 类型）、`kernel/runtime`
-  （`_runtime_mechanisms` 挂卡接线、`_types`/`_runtime_assemble` policy 形态）。
+  （`_runtime_mechanisms` 挂卡接线、`_types`/`_runtime_boot` policy 形态）。
 - hosts/lib：`host.ts` 以 `DefaultInterruptPolicy` 为基类扩展宿主审批策略
   （auto-approve 名单/超时配置），经公共面消费；测试图直用
   `approve_before_execute`。

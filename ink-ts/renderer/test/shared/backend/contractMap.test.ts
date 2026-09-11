@@ -24,25 +24,24 @@ const LEGACY_ALIASES = (surface as { legacy_alias_flats: string[] }).legacy_alia
  * W1 收敛后不含：shell_open_path、offline、backend_status/engine_boot/first_run_dismiss、
  * approval_request|resolve、round_ledger_merge、mcp_market_preview|add|remove、
  * memory.update_frontmatter、knowledge 写类、ui_spec、path/cache 干预；
- * R8 后不含 tools_snapshot / graph.snapshot（tools.full / graph.instance 仍在）。
+ * R8 后不含 tools_snapshot / graph.snapshot（tools.full 仍在）；
+ * W7-B 组装链退役不含 session_branch / rounds.todos / graph.instance /
+ * assemble.stats / pool.snapshot / pool.evaluate / cache.stats / path.state。
  */
 const WEB_SERVE_COMMANDS = [
   'round_send', 'round_abort', 'round_resume', 'route_plan',
   'execution.run',
   'session_list', 'session_create', 'session_rename', 'session_delete',
-  'session_refresh', 'session_messages', 'session_tree', 'session_branch',
+  'session_refresh', 'session_messages', 'session_tree',
   'workspace.state', 'workspace.set', 'workspace.revoke', 'workspace.mount.add',
   'capability_get', 'capability_put', 'security_tier_overrides_set',
   'backup_export', 'backup_preview', 'backup.restore',
   'recovery_snapshots', 'recovery_restore_snapshot', 'recovery.reset',
-  'rounds.todos',
   'tools.full', 'tools_baseline_get', 'tools_baseline_set',
   'ui_components.get', 'ui_components.set_disabled',
   'mcp.status', 'mcp.enable', 'mcp.disable',
-  'model_archive.snapshot', 'metrics.snapshot', 'assemble.stats',
-  'graph.instance',
-  'pool.snapshot', 'pool.evaluate', 'entities.snapshot', 'edge_evidence.list',
-  'cache.stats',
+  'model_archive.snapshot', 'metrics.snapshot',
+  'entities.snapshot', 'edge_evidence.list',
   'model.reload', 'search_keys_put', 'growth.report',
   'models_refresh', 'models_config_get', 'models_config_put', 'models.config.role_pick',
   'dialog.open_directory',
@@ -68,6 +67,14 @@ const REMOVED_WEB_COMMANDS = [
   'ui_spec.get', 'ui_spec.apply', 'ui_spec.revert_latest',
   'components_manifest',
   'tools_snapshot', 'graph_snapshot',
+  // W7-B 组装链退役（含 flat 别名）
+  'session_branch', 'rounds.branch', 'rounds.fork_trial', 'todo_get', 'todo.get', 'rounds.todos',
+  'graph_instance_snapshot', 'graph.instance',
+  'pool_snapshot', 'pool.snapshot', 'pool_evaluate', 'pool.evaluate',
+  'assemble_stats', 'assemble.stats', 'cache_stats', 'cache.stats',
+  'path_state', 'path.state',
+  'skeleton.get', 'skeleton.edit', 'skeleton.inspect', 'skeleton.update', 'rounds.trial',
+  'approval.list', 'approval.resolve',
 ] as const;
 
 const ALLOWED = new Set<string>([...BRIDGE_METHODS, ...LEGACY_ALIASES]);
@@ -97,6 +104,6 @@ describe('命令面跨层契约（web 调用 ⊆ 宿主 fixture 允许面）', (
     expect(ALLOWED.has('recovery.reset')).toBe(true);
     expect(ALLOWED.has('backup.restore')).toBe(true);
     expect(ALLOWED.has('tools.full')).toBe(true);
-    expect(ALLOWED.has('graph.instance')).toBe(true);
+    expect(ALLOWED.has('edge_evidence.list')).toBe(true);
   });
 });

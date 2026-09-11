@@ -11,4 +11,4 @@
 
 ## 依赖
 - 上游（本目录实际 import）：`core/errors`（`GraphDefinitionError`）、`core/json`（`isRecord`/`typeName`）、`kernel/permissions`（`parse_permission`）、`kernel/registry/contract_types`。
-- 下游（实际 import 本目录）：`adapters/mcp`（`_fs_seam.ts` FsSeam node:fs 真实装；`convert.ts` 构造 `ToolManifest`；`manager.ts` vetting 闸门调用面；`registry.ts`/`config.ts` 用 `ToolSource`）；`kernel/runtime`（`_runtime_assemble` 构造 `new ToolVetting()`、`_runtime_base` 持有 vetting 字段、runtime contract depends 含本机制）；`kernel/registry/contracts`；公共面零导出（grep 核验）；测试 `test/kernel/tool_vetting`。
+- 下游（实际 import 本目录）：`adapters/mcp`（`_fs_seam.ts` FsSeam node:fs 真实装；`convert.ts` 构造 `ToolManifest`；`manager.ts` vetting 闸门调用面；`registry.ts`/`config.ts` 用 `ToolSource`）；`kernel/runtime`（`_runtime_boot` 构造 `new ToolVetting()`、`_runtime_base` 持有 vetting 字段、runtime contract depends 含本机制）；`kernel/registry/contracts`；公共面零导出（grep 核验）；测试 `test/kernel/tool_vetting`。

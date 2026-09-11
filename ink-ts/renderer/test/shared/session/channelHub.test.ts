@@ -56,14 +56,14 @@ describe('ChannelHub 细粒度订阅', () => {
     expect(notified).toBe(1);
   });
 
-  it('inspect_* 快照独立订阅与更新', () => {
+  it('inspect_* 快照独立订阅与更新（inspect_graph 已退役，改用 inspect_rules 通道）', () => {
     const hub = new ChannelHub();
     let seen: number | undefined;
-    const off = hub.subscribeInspect('inspect_graph', () => {
-      const snapshot = hub.getInspect('inspect_graph');
+    const off = hub.subscribeInspect('inspect_rules', () => {
+      const snapshot = hub.getInspect('inspect_rules');
       if ('version' in snapshot) seen = snapshot.version;
     });
-    hub.setInspect('inspect_graph', { version: 5, nodes: [], edges: [], patchChain: [] });
+    hub.setInspect('inspect_rules', { version: 5, rules: [] });
     expect(seen).toBe(5);
     off();
   });

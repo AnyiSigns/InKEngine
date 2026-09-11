@@ -3,103 +3,7 @@ import { createBackend, type BackendAdapter } from '@/shared/backend/backendAdap
 import type {
   ArchitectureBackend,
   EdgeSnapshotData,
-  PoolRegistryTypeRow,
-  PoolRegistryView,
-  PoolSnapshotData,
 } from './backend';
-
-/** registry 段收敛（结构不匹配/缺失 = available:false 结构化空态）。 */
-function mapRegistry(raw: unknown): PoolRegistryView {
-  const reg = raw as
-    | {
-        available?: boolean;
-        total_count?: unknown;
-        active_count?: unknown;
-        types?: Array<Record<string, unknown>>;
-      }
-    | null
-    | undefined;
-  const toNum = (v: unknown): number => (typeof v === 'number' && Number.isFinite(v) ? v : 0);
-  const types: PoolRegistryTypeRow[] = Array.isArray(reg?.types)
-    ? reg.types
-        .filter((row) => typeof row === 'object' && row !== null)
-        .map((row) => ({
-          type_name: typeof row['type_name'] === 'string' ? row['type_name'] : '',
-          status: typeof row['status'] === 'string' ? row['status'] : '',
-          provenance: typeof row['provenance'] === 'string' ? row['provenance'] : '',
-          executor: typeof row['executor'] === 'string' ? row['executor'] : '',
-        }))
-    : [];
-  if (!reg || reg.available !== true) {
-    return { available: false, total_count: 0, active_count: 0, types };
-  }
-  return {
-    available: true,
-    total_count: toNum(reg.total_count),
-    active_count: toNum(reg.active_count),
-    types,
-  };
-}
-
-/** 把 pool.snapshot 原始出参收敛为视图形态（结构不匹配 = null 空态）。 */
-function mapPool(raw: unknown): PoolSnapshotData | null {
-  const snap = raw as
-    | {
-        available?: boolean;
-        counts?: Record<string, unknown>;
-        governance_log?: Array<Record<string, unknown>>;
-        last_round?: Record<string, unknown> | null;
-        registry?: unknown;
-        degraded?: boolean;
-      }
-    | null
-    | undefined;
-  if (!snap) return null;
-  const counts = snap.counts ?? {};
-  const toNum = (v: unknown): number => (typeof v === 'number' && Number.isFinite(v) ? v : 0);
-  const rows: PoolSnapshotData['rows'] = (snap.governance_log ?? [])
-    .filter((row) => typeof row === 'object' && row !== null)
-    .slice(0, 50)
-    .map((row) => ({
-      node_id: typeof row['node_id'] === 'string' ? row['node_id'] : '',
-      verdict: typeof row['verdict'] === 'string' ? row['verdict'] : '',
-      ts: typeof row['ts'] === 'number' ? row['ts'] : null,
-      budget_remaining: typeof row['budget_remaining'] === 'number' ? row['budget_remaining'] : null,
-      reasons: Array.isArray(row['reasons'])
-        ? (row['reasons'] as unknown[]).filter((r): r is string => typeof r === 'string')
-        : [],
-    }));
-  const last = snap.last_round ?? null;
-  return {
-    available: snap.available === true,
-    counts: {
-      pool_count: toNum(counts['pool_count']),
-      evaluations: toNum(counts['evaluations']),
-      dead_node_candidates: toNum(counts['dead_node_candidates']),
-      near_duplicate_merges: toNum(counts['near_duplicate_merges']),
-      weekly_budget_used: toNum(counts['weekly_budget_used']),
-      weekly_budget_remaining:
-        counts['weekly_budget_remaining'] === undefined || counts['weekly_budget_remaining'] === null
-          ? null
-          : toNum(counts['weekly_budget_remaining']),
-      verdict_counts:
-        typeof counts['verdict_counts'] === 'object' && counts['verdict_counts'] !== null
-          ? { ...(counts['verdict_counts'] as Record<string, number>) }
-          : {},
-    },
-    last_round: last
-      ? {
-          node_id: typeof last['node_id'] === 'string' ? last['node_id'] : null,
-          verdict: typeof last['verdict'] === 'string' ? last['verdict'] : null,
-          ts: typeof last['ts'] === 'number' ? last['ts'] : null,
-          budget_remaining: typeof last['budget_remaining'] === 'number' ? last['budget_remaining'] : null,
-        }
-      : null,
-    rows,
-    registry: mapRegistry(snap.registry),
-    degraded: snap.degraded === true,
-  };
-}
 
 /** 把 edge_evidence.list 原始出参收敛为视图形态（无 store = 空态）。 */
 function mapEdges(raw: unknown): EdgeSnapshotData | null {
@@ -131,25 +35,9 @@ function mapEdges(raw: unknown): EdgeSnapshotData | null {
   return { available: snap.available === true, edges };
 }
 
-/** 生产后端：host adapter 只读投影（模板校验/试跑/落链为假演示，不提供）。 */
+/** 生产后端：host adapter 只读投影（pool/instance 等组装链面已随组装链路退役）。 */
 export function createLiveArchitectureBackend(adapter: BackendAdapter = createBackend()): ArchitectureBackend {
   return {
-    async fetchPool(): Promise<PoolSnapshotData | null> {
-      if (!adapter.available) return null;
-      try {
-        return mapPool(await adapter.poolSnapshot());
-      } catch {
-        return null;
-      }
-    },
-    async evaluateProposal(nodeId: string): Promise<Record<string, unknown> | null> {
-      if (!adapter.available || nodeId.trim() === '') return null;
-      try {
-        return (await adapter.poolEvaluate({ node_id: nodeId.trim() })) as Record<string, unknown>;
-      } catch {
-        return null;
-      }
-    },
     async fetchEdgeEvidence(): Promise<EdgeSnapshotData | null> {
       if (!adapter.available) return null;
       try {

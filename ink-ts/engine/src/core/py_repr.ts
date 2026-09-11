@@ -2,7 +2,7 @@
  * Python 标量语义公共工具（repr/str/truthy/type 名）——core 单源。
  *
  * 收敛目标：rules/_py.ts / ui_schema.uiSchemaSupport / environments._repr /
- * tool_vetting._types / builder._types / link_validator / pool_governance /
+ * tool_vetting._types / builder._types / link_validator /
  * review_card / growth._helpers / self_tools._json /
  * knowledge_signals._types 等近似拷贝统一迁移点（镜像 Python 标量语义，
  * 数据面限定 JSON 兼容值）。pyRepr/pyStr/pyTruthy 按 rules/_py.ts（本族最

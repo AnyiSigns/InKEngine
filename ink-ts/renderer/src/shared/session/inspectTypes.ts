@@ -1,27 +1,10 @@
 /**
- * inspect_* 六元工具快照类型（演化时间线/孵化面板的数据源）。
+ * inspect_* 五元工具快照类型（演化时间线/孵化面板的数据源）。
  *
- * 对应引擎六元观察工具（inspect_graph / inspect_rules / inspect_knowledge /
+ * 对应引擎五元观察工具（inspect_rules / inspect_knowledge /
  * inspect_ui / inspect_tools / inspect_entities）的快照形态；前端侧为只读
- * 投影，不持有写入通道。
+ * 投影，不持有写入通道（inspect_graph 随组装链路退役移除，W7-B）。
  */
-
-/** inspect_graph：回合图 + 补丁链（演化时间线主数据源）。 */
-export interface GraphSnapshot {
-  version: number;
-  nodes: Array<{ id: string; type: string; label?: string }>;
-  edges: Array<{ from: string; to: string }>;
-  patchChain: Array<{
-    patchId: string;
-    kind: string;
-    title: string;
-    status: 'proposed' | 'applied' | 'reverted';
-    level?: string;
-    appliedAt?: number;
-    revertedAt?: number;
-    revertReason?: string;
-  }>;
-}
 
 /** inspect_rules：领域规则集快照。 */
 export interface RulesSnapshot {
@@ -62,7 +45,6 @@ export interface ToolsSnapshot {
 }
 
 export const INSPECT_CHANNEL_NAMES = [
-  'inspect_graph',
   'inspect_rules',
   'inspect_knowledge',
   'inspect_ui',
@@ -73,7 +55,6 @@ export const INSPECT_CHANNEL_NAMES = [
 export type InspectChannelName = (typeof INSPECT_CHANNEL_NAMES)[number];
 
 export type InspectSnapshot =
-  | GraphSnapshot
   | RulesSnapshot
   | KnowledgeSnapshot
   | UiSnapshot
@@ -91,7 +72,6 @@ export interface EntitySnapshot {
 }
 
 export interface InspectSnapshots {
-  inspect_graph: GraphSnapshot;
   inspect_rules: RulesSnapshot;
   inspect_knowledge: KnowledgeSnapshot;
   inspect_ui: UiSnapshot;
@@ -101,7 +81,6 @@ export interface InspectSnapshots {
 
 export function emptyInspectSnapshots(): InspectSnapshots {
   return {
-    inspect_graph: { version: 0, nodes: [], edges: [], patchChain: [] },
     inspect_rules: { version: 0, rules: [] },
     inspect_knowledge: { version: 0, entries: [] },
     inspect_ui: { version: 0, componentWhitelist: [], bindChannelWhitelist: [], themeTokenWhitelist: [] },

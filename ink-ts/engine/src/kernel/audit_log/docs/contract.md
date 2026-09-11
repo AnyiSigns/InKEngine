@@ -46,10 +46,10 @@ put_record 契约），真实存储实现由宿主注入（受守卫存储实现
 
 ## 装配与消费
 
-- 干预面：`kernel/path_assembler/intervention`（候选选择/多径开关）、
-  `core/edge_evidence/intervention`、`core/fingerprint_cache/invalidate`
-  （缓存失效）、`kernel/evolution_writer`（演化写路径的审计留痕 + 豁免
-  类型消费）。
+- 干预面：`core/edge_evidence/intervention`、`kernel/evolution_writer`（演化写
+  路径的审计留痕 + 豁免类型消费）；`kernel/path_assembler/intervention`
+  （候选选择/多径开关）与 `core/fingerprint_cache/invalidate`（缓存失效）
+  已随组装链路退役（W7-B）。
 - 运行期面：`kernel/runtime/_runtime_mechanisms`/`_runtime_engine`
   （emit_audit 接线）。
 - 机制契约经 `kernel/registry/contracts.ts` 汇总；`runtime_contract`

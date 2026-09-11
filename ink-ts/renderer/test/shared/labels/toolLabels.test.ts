@@ -46,7 +46,7 @@ describe('工具族判定 + 语义化渲染', () => {
     expect(classifyToolFamily('launch_app')).toBe('os');
     expect(classifyToolFamily('file_write')).toBe('file');
     expect(classifyToolFamily('fetch')).toBe('network');
-    expect(classifyToolFamily('inspect_graph')).toBe('research');
+    expect(classifyToolFamily('inspect_rules')).toBe('research');
     expect(classifyToolFamily('mcp_call')).toBe('mcp');
     expect(classifyToolFamily('something_else')).toBe('generic');
   });

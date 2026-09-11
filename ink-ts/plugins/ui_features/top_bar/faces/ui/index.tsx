@@ -7,7 +7,7 @@ const noop = (): void => undefined;
 
 /**
  * top_bar ui 面入口：悬停触发带 + 磨砂覆盖层 + TopBar。
- * spec faces.ui.access store ["title","tab","hasTodo","todoPending"] + inject
+ * spec faces.ui.access store ["title","tab"] + inject
  * ["onTabChange","onTitleChange"]——壳装配层 accessAwareFace 按声明切片注入
  * （顶层消费，无全量 product）。装配期经 pluginFaces.generated.ts 注册。
  */
@@ -40,8 +40,6 @@ const TopBarAdapter: ComponentType<Record<string, unknown>> = (props: Record<str
           tab={(props.tab as MainTab | undefined) ?? 'chat'}
           onTabChange={(props.onTabChange as ((t: MainTab) => void) | undefined) ?? noop}
           onTitleChange={(props.onTitleChange as ((t: string) => void) | undefined) ?? noop}
-          hasTodo={props.hasTodo === true}
-          todoPending={(props.todoPending as number | undefined) ?? 0}
         />
       </div>
     </>

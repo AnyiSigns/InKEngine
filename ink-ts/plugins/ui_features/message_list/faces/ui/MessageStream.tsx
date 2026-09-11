@@ -52,7 +52,6 @@ interface MessageStreamProps {
   selectedSpawnIndex?: number | null;
   onSpawnSendInstruction?: (text: string) => void;
   spawnStreaming?: boolean;
-  onBranchFromMessage: (messageId: string, branchLabel: string) => void;
 }
 
 /** auto 轮判定：回合 id 前缀 auto:（引擎自续轮；普通轮不标）。 */
@@ -94,7 +93,6 @@ export function MessageStream({
   selectedSpawnIndex,
   onSpawnSendInstruction,
   spawnStreaming,
-  onBranchFromMessage: _onBranchFromMessage,
 }: MessageStreamProps) {
   const listRef = useRef<HTMLDivElement>(null);
   const pinnedRef = useRef(true);

@@ -40,9 +40,6 @@ export abstract class EngineLoopFront extends EngineExecuteHelpers {
       throw new NodeExecutionError(ls.current, new Error(`节点未注册: ${ls.current}`));
     }
     ctx.node = ls.current;
-    // 输入调配缓存按节点复位：预装配结果只对当前节点有效——跨节点复用会让
-    // 后续节点拿到上一节点的陈旧上下文且无留痕
-    ctx._assembled = null;
     // 上一结点步骤收尾（成败已在结点块内标记定型；成本此刻归集）
     await this._trace_close_pending();
 
@@ -139,16 +136,7 @@ export abstract class EngineLoopFront extends EngineExecuteHelpers {
       }
     }
 
-    // ── 输入调配预装配（执行语义接线）：节点执行前统一走调配管线 ──
-    if (ls.first_timeline_emit) {
-      await ctx.emit('assembly_started', { ts: _now_epoch() });
-    }
-    await ctx.preassemble();
-    if (ls.first_timeline_emit) {
-      await ctx.emit('assembly_done', { ts: _now_epoch() });
-    }
-
-    // 结点级成败留痕：打开当前结点步骤（成败在结点块内标记，不发射事件）
+    // ── 结点级成败留痕：打开当前结点步骤（成败在结点块内标记，不发射事件）
     this._trace_open(ctx.graph_path, ls.current);
 
     // ── 执行节点（重试 N 次 / 终止；兼容同步/异步节点函数）──

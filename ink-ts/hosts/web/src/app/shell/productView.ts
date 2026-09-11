@@ -48,8 +48,6 @@ export interface ProductShellModel {
   agentModelId: string | null;
   roundCount: number;
   stepCount: number;
-  hasTodo: boolean;
-  todoPending: number;
   settingsOpen: boolean;
   autoApprovableTools: string[];
   /** 弹卡档位（输入框三档；当前会话生效档 = 会话覆盖 ?? 宿主默认 review）。 */
@@ -75,8 +73,6 @@ export interface ProductShellActions {
   onApprovalPoseChange(pose: ApprovalPose): void;
   onSpawnSelect(index: number): void;
   onSpawnSendInstruction(text: string): void;
-  onBranchFromMessage(messageId: string, branchLabel: string): void;
-  onBranchFromLeaf(sessionId: string, leaf: number): void;
   onSelectSession(id: string): void;
   onCreateSession(): void;
   onRenameSession(id: string, title: string): void;

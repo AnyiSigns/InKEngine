@@ -13,9 +13,7 @@
  *
  * Python 差异：
  * - ``system_events`` 的 frozenset 以 ReadonlySet 承载（构造传 Set/ReadonlySet）；
- * - ``settle`` 引用 settle.SettleHooks 注册体、``plan_workflow`` 引用 workflow.WorkflowSpec、
- *   ``assembly_sources`` 为结构化装配源提供者协议（Python 侧 Any/TYPE_CHECKING
- *   前向引用；TS 直接引用对应类型面，无 unknown 占位）。
+ * - ``settle`` 引用 settle.SettleHooks 注册体、``plan_workflow`` 引用 workflow.WorkflowSpec。
  */
 import type { Storage } from '../storage/storage.js';
 import type { StateSchema } from '../state/schema.js';
@@ -24,59 +22,11 @@ import type { EngineTransport } from '../events/events.js';
 import type { InterruptState } from '../../kernel/interrupt/interrupt_types.js';
 import type { GraphRegistries } from '../registry/registry.js';
 import type { BranchMixer, Evaluator } from '../../kernel/simulation/simulation_types.js';
-import type { AssemblyConfig } from '../assembly/assembly_config.js';
-import type { ActivationAggregator } from '../assembly/activation_aggregator.js';
 import type { TurnMetrics } from '../../kernel/tuning/_turn_metrics.js';
 import type { SettleHooks } from '../../kernel/settle/index.js';
 import type { WorkflowSpec } from '../workflow/workflow_types.js';
-import type { EdgeEvidenceStore } from '../edge_evidence/index.js';
 import { DEFAULT_MAX_PLAN_STEPS } from '../plan/plan.js';
 import { DEFAULT_MAX_SIMULATIONS } from '../../kernel/simulation/simulation.js';
-
-/**
- * 多径展开的组装上下文 seam（RunOptions.multipath_assembly；null = 未装配）。
- *
- * executor 不反向读组装模块级默认运行期（拆 executor↔path_assembler 环）——
- * 多径支流需要的证据存储/审计 sink/缓存回馈经本 seam 由装配层注入：装配点
- * （runtime 构建回合引擎）把组装运行期（PathAssemblyRuntime）的三面窄化注入；
- * 未装配 = 三成员全 null = 零证据/零审计/零缓存回馈，与旧模块级全局未挂载
- * 口径一致。report_cache_execution 的 request 为进程内组装请求对象，注入方
- * 在自身类型面内强转（seam 只定 IO 面，不引组装数据形态）。
- */
-export interface MultipathAssemblySeam {
-  /** 边证据存储（多径域证据索引/回馈；null = 零证据）。 */
-  evidence_store: EdgeEvidenceStore | null;
-  /** 审计 sink（多径结果留痕；null = 零审计）。 */
-  sink: ((record: Record<string, unknown>) => void) | null;
-  /** 缓存路径执行回馈（失败强失效/成功计数；null = 零回馈）。 */
-  report_cache_execution:
-    | ((request: unknown, opts: { ok: boolean }) => Promise<boolean>)
-    | null;
-}
-
-/**
- * 装配源提供者的上下文面（节点执行器注入；提供者按需读取以取输入/身份）。
- * 运行期传入的 ctx 是执行器节点上下文（结构超集），提供者只声明自己消费的
- * 最小读面。
- */
-export interface AssemblySourceContext {
-  readonly state?: Record<string, unknown>;
-  readonly node?: string | null;
-  readonly thread_id?: string;
-}
-
-/**
- * 装配源提供者返回值：源清单，或 (源清单, 版本快照) 二元组（快照供留痕/
- * 激活归档；见 node_context.preassemble 的消费口径）。
- */
-export type AssemblySourcesResult =
-  | readonly unknown[]
-  | [readonly unknown[], Record<string, unknown> | null];
-
-/** 装配源提供者（RunOptions.assembly_sources；null = 引擎不自动装配）。 */
-export type AssemblySourcesProvider = (
-  ctx: AssemblySourceContext,
-) => AssemblySourcesResult | Promise<AssemblySourcesResult>;
 
 /**
  * RunOptions 构造选项（对齐 Python dataclass 关键字参：字段同名可选；
@@ -178,28 +128,9 @@ export class RunOptions {
    *  装配层按配方开关注入（本字段不随子引擎传播——子链内多径以显式配置为准）。 */
   multipath_enabled: boolean = false;
 
-  /** 多径展开的组装上下文 seam（null = 未装配 = 零证据/零审计/零缓存回馈）。
-   *  装配层把组装运行期的证据存储/审计 sink/缓存回馈窄化注入；executor 经此
-   *  消费，不反向读组装模块级默认（拆 executor↔path_assembler 环）。 */
-  multipath_assembly: MultipathAssemblySeam | null = null;
-
   /** 换选分支序号（null = 正常择优）：回溯换选时强制改选指定分支——经
    *  Engine.swap_branch 设置，重放期间决策点按该分支提交主线。 */
   branch_pick: number | null = null;
-
-  /** 输入调配管线（执行语义：每次 LLM 调用/节点执行前多源统一调配）；
-   *  null = 未启用，调用点走旧路径。 */
-  assembly: AssemblyConfig | null = null;
-
-  /** 装配源提供者（null = 引擎不自动装配，节点自行经 ctx.assemble 提供源）：
-   *  节点执行前引擎自动调用一次取源并统一调配，节点内 assemble 复用预装配
-   *  结果（不重复装配/不重复留痕）。 */
-  assembly_sources: AssemblySourcesProvider | null = null;
-
-  /** 激活聚合器（ENG12 接线4：InputAssembler 挂载点）：随 InputAssembler 实例化
-   *  时注入，每次装配留痕同步喂聚合器，衔接知识集归档/进化优先级；null = 不
-   *  聚合（输入调配器按原语义运行）。 */
-  assembly_aggregator: ActivationAggregator | null = null;
 
   /*   * 回合指标聚合（引擎自承载的观测件）：注入后顶层 run 收尾时自动记录回合成败
    *  与错误摘要（角色槽调用由使用方按事件语义填报——引擎只采集
@@ -213,9 +144,9 @@ export class RunOptions {
   /** 沉淀钩子注册体（run 收尾触发；null = 关闭沉淀，运行侧零影响）。 */
   settle: SettleHooks | null = null;
 
-  /** 组装时间线事件开关（turn_started/assembly_started/assembly_done/
-   *  execution_started，顶层图发射）：UX 指标（user_msg -> 组装 -> 真正执行
-   *  用户任务的墙钟）。默认关闭 = 既有事件协议零变化，宿主按需开启。 */
+  /** 组装时间线事件开关（turn_started/execution_started，顶层图发射）：UX
+   *  指标（user_msg -> 真正执行用户任务的墙钟）。默认关闭 = 既有事件协议
+   *  零变化，宿主按需开启。 */
   emit_timeline_events: boolean = false;
 
   constructor(init?: RunOptionsInit) {

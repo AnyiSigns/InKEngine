@@ -51,9 +51,7 @@ interface RightRailProps {
   onCreateSession: () => void;
   onRenameSession: (id: string, title: string) => void;
   onDeleteSession: (id: string) => void;
-  onBranchFromMessage: (messageId: string, branchLabel: string) => void;
   branchTrees: Record<string, SessionBranchTree>;
-  onBranchFromLeaf: (sessionId: string, leaf: number) => void;
 }
 
 export function RightRail({
@@ -65,9 +63,7 @@ export function RightRail({
   onCreateSession,
   onRenameSession,
   onDeleteSession,
-  onBranchFromMessage,
   branchTrees,
-  onBranchFromLeaf,
 }: RightRailProps) {
   const { t } = useT();
   const [query, setQuery] = useState('');
@@ -162,7 +158,6 @@ export function RightRail({
                 onSelect={() => onSelectSession(s.thread_id)}
                 onRename={(t) => onRenameSession(s.thread_id, t)}
                 onDelete={() => onDeleteSession(s.thread_id)}
-                onBranchFromMessage={onBranchFromMessage}
               />
             ))}
           </div>
@@ -173,7 +168,6 @@ export function RightRail({
             <BranchTreeSection
               activeSessionId={activeSessionId}
               branchTrees={branchTrees}
-              onBranchFromLeaf={onBranchFromLeaf}
             />
           </div>
         )}
@@ -182,13 +176,13 @@ export function RightRail({
   );
 }
 
+/** 线程分支树只读展示（链多叶历史；rounds.branch 分支动作已随组装链路退役）。 */
 interface BranchTreeSectionProps {
   activeSessionId: string;
   branchTrees: Record<string, SessionBranchTree>;
-  onBranchFromLeaf: (sessionId: string, leaf: number) => void;
 }
 
-function BranchTreeSection({ activeSessionId, branchTrees, onBranchFromLeaf }: BranchTreeSectionProps) {
+function BranchTreeSection({ activeSessionId, branchTrees }: BranchTreeSectionProps) {
   const { t } = useT();
   const [expanded, setExpanded] = useState(true);
   const activeTree = branchTrees[activeSessionId];
@@ -215,13 +209,11 @@ function BranchTreeSection({ activeSessionId, branchTrees, onBranchFromLeaf }: B
           {activeTree.nodes.map((node) => (
             <div
               key={node.leaf}
-              className={`flex cursor-pointer items-center gap-1.5 rounded-lg px-2 py-1.5 text-[12px] ${
+              className={`flex items-center gap-1.5 rounded-lg px-2 py-1.5 text-[12px] ${
                 node.leaf === currentLeaf
                   ? 'bg-[var(--ink-bg-elevated)] text-[var(--ink-text-base)]'
-                  : 'ink-text-muted hover:bg-[var(--ink-bg-elevated)]'
+                  : 'ink-text-muted'
               }`}
-              onClick={() => onBranchFromLeaf(activeSessionId, node.leaf)}
-              onContextMenu={(e) => { e.preventDefault(); onBranchFromLeaf(activeSessionId, node.leaf); }}
             >
               <span className="h-1.5 w-1.5 rounded-full bg-current opacity-60" />
               <span className="flex-1 truncate">{t('rightrail.round')} {node.leaf}</span>
@@ -240,14 +232,12 @@ function SessionRow({
   onSelect,
   onRename,
   onDelete,
-  onBranchFromMessage,
 }: {
   session: RailSession;
   active: boolean;
   onSelect: () => void;
   onRename: (title: string) => void;
   onDelete: () => void;
-  onBranchFromMessage: (messageId: string, branchLabel: string) => void;
 }) {
   const { t, lang } = useT();
   const [menuOpen, setMenuOpen] = useState(false);
@@ -306,9 +296,6 @@ function SessionRow({
           <div className="ink-menu-pop">
             <button type="button" className="ink-menu-item" onClick={(e) => { e.stopPropagation(); setRenaming(true); setMenuOpen(false); }}>
               <Pencil size={12} strokeWidth={1.6} /> {t('rightrail.rename')}
-            </button>
-            <button type="button" className="ink-menu-item" onClick={(e) => { e.stopPropagation(); onBranchFromMessage(session.thread_id, '从此分支'); setMenuOpen(false); }}>
-              <GitBranch size={12} strokeWidth={1.6} /> {t('rightrail.branch_from')}
             </button>
             <button
               type="button"

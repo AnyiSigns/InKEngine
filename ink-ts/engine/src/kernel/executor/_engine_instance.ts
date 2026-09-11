@@ -58,9 +58,6 @@ export function _sub_engine_options(
     branch_mixer: parent.branch_mixer,
     max_simulations: parent.max_simulations,
     simulate_concurrency: parent.simulate_concurrency,
-    // 输入调配随实例传播（子任务/分支的执行面同样统一走调配管线）
-    assembly: parent.assembly,
-    assembly_sources: parent.assembly_sources,
     // 系统信号/链级 rebase 窗口随实例传播：嵌套层不静默漂移
     system_events: parent.system_events,
     checkpoint_keep: parent.checkpoint_keep,

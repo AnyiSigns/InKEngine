@@ -7,8 +7,6 @@
  * 图/界面等数据源在 TS 侧以显式类型/注册表 seam 表达（不反射 JS 对象），
  * 宿主装配时经 IntrospectionSources 注入。
  */
-import type { Edge } from '../../core/graph/graph_types.js';
-import type { Graph } from '../../core/graph/graph.js';
 import type { Json } from '../../core/json.js';
 import { deepCopy, isRecord } from '../../core/json.js';
 import { KIND_RULE } from '../../core/knowledge_set/_types.js';
@@ -16,34 +14,17 @@ import type { KnowledgeEntry } from '../../core/knowledge_set/knowledge_entry.js
 import { SEVERITY_ERROR } from '../../core/rules/_types.js';
 import { _DEFAULT_KNOWLEDGE_LIMIT, _KNOWLEDGE_LIMIT_MAX, IntrospectionSources } from './sources.js';
 
-/** 条件边降级视图：函数直挂条件（无名条件）无法序列化——边结构仍可观察
- * （target + 条件类型标记），序列化契约破坏不击穿观察。 */
-function _edge_view(edge: Edge): Record<string, unknown> {
-  const view: Record<string, unknown> = { target: edge.target };
-  if (edge.condition !== null) {
-    view['condition'] = 'function';
-  } else {
-    view['condition'] = edge.condition_name;
-  }
-  return view;
-}
-
 /**
  * 引擎内省服务：按工具名分发快照读取。
  *
- * 单例持有 IntrospectionSources（宿主装配时注入）；set_graph 供宿主在
- * 重建回合图时同步刷新观察视图。
+ * 单例持有 IntrospectionSources（宿主装配时注入）；图结构观察子面
+ * （set_graph/snapshot_graph）已随组装链路退役（W7-B）。
  */
 export class IntrospectionService {
   private readonly _sources: IntrospectionSources;
 
   constructor(sources: IntrospectionSources) {
     this._sources = sources;
-  }
-
-  /** 更新图数据源（宿主重建回合图时同步刷新观察视图）。 */
-  set_graph(graph: Graph | null): void {
-    this._sources.graph = graph;
   }
 
   /** 按工具名返回对应快照；未知工具名显式拒绝（fail-closed）。
@@ -53,98 +34,12 @@ export class IntrospectionService {
    * 才不进入模型上下文。
    */
   snapshot(tool_name: string, args: Record<string, unknown> = {}): Record<string, unknown> {
-    if (tool_name === 'inspect_graph') return this.snapshot_graph();
     if (tool_name === 'inspect_rules') return this.snapshot_rules();
     if (tool_name === 'inspect_knowledge') return this.snapshot_knowledge(args['limit']);
     if (tool_name === 'inspect_ui') return this.snapshot_ui();
     if (tool_name === 'inspect_tools') return this.snapshot_tools();
     if (tool_name === 'inspect_entities') return this.snapshot_entities();
     throw new Error(`未知内省工具: '${tool_name}'`);
-  }
-
-  /** 图结构快照：恒定信封 {graph, digest}，内容随序列化能力分级。
-   *
-   * 函数直挂节点无法序列化为数据（Graph.to_dict 显式拒绝）——内省是
-   * 观察通道，遇此情形回退为逐节点结构快照（节点类型/可序列化配置/边/
-   * 出口/子图递归），并在快照上标记 degraded 与原因，让 AI 知道观察到
-   * 的形态是降级视图，不让观察动作本身失败。
-   */
-  snapshot_graph(): Record<string, unknown> {
-    const graph = this._sources.graph;
-    if (graph === null) {
-      return { graph: null, digest: null };
-    }
-    let degraded = false;
-    let reason: string | null = null;
-    let data: Record<string, unknown>;
-    try {
-      data = graph.to_dict() as Record<string, unknown>;
-    } catch (exc) {
-      degraded = true;
-      reason = String(exc);
-      data = this._degraded_graph(graph);
-    }
-    let digest: string | null;
-    try {
-      digest = graph.digest();
-    } catch (exc) {
-      degraded = true;
-      reason = reason || `内容指纹计算失败: ${String(exc)}`;
-      digest = null;
-    }
-    if (degraded) {
-      data['degraded'] = true;
-      data['degraded_reason'] = reason;
-    }
-    return { graph: data, digest };
-  }
-
-  /** 降级视图：逐节点出结构信息（类型绑定 + 可序列化配置）。
-   *
-   * 子图节点与正常序列化路径一致地经 subgraphs 递归呈现、不混入 nodes；
-   * 函数直挂节点标 ``function``；配置不可 JSON 序列化的节点只出类型名
-   * （结构仍可观察，内容契约破坏不击穿观察）。
-   */
-  private _degraded_graph(graph: Graph): Record<string, unknown> {
-    const bindings = graph.node_bindings ?? {};
-    const nodes: Record<string, Record<string, unknown>> = {};
-    const all_names = new Set<string>([...Object.keys(graph.nodes), ...Object.keys(bindings)]);
-    for (const name of all_names) {
-      if ((graph.subgraphs ?? {})[name] !== undefined) continue;
-      const binding = bindings[name];
-      if (binding === undefined) {
-        nodes[name] = { type: 'function' };
-        continue;
-      }
-      const node: Record<string, unknown> = { type: binding.type_name };
-      try {
-        JSON.stringify(binding.config);
-      } catch {
-        // 配置不可 JSON 序列化：只出类型名，跳过 config（镜像 Python
-        // json.dumps 捕获 TypeError/ValueError 的分支）
-        nodes[name] = node;
-        continue;
-      }
-      node['config'] = deepCopy(binding.config as unknown as Json);
-      nodes[name] = node;
-    }
-    const edges: Record<string, Record<string, unknown>[]> = {};
-    for (const [source, edge_list] of Object.entries(graph.edges ?? {})) {
-      edges[source] = edge_list.map((edge) => _edge_view(edge));
-    }
-    const subgraphs: Record<string, Record<string, unknown>> = {};
-    for (const [name, sub] of Object.entries(graph.subgraphs ?? {})) {
-      subgraphs[name] = this._degraded_graph(sub);
-    }
-    return {
-      name: graph.name,
-      entry: graph.entry,
-      nodes,
-      edges,
-      exits: [...(graph.exits ?? new Set<string>())].sort(),
-      subgraphs,
-      schema: null,
-    };
   }
 
   /** 规则集快照：集内规则条目清单（id/严重级/说明/规则体）。 */

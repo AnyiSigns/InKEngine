@@ -70,7 +70,7 @@ IO 面，不引组装数据形态。`AssemblySourcesProvider` 消费
 
 ## 装配与消费
 
-- 装配层（`kernel/runtime`、`kernel/path_assembler`）按配方构造/覆盖
+- 装配层（`kernel/runtime`；`kernel/path_assembler` 已随组装链路退役，W7-B）按配方构造/覆盖
   `RunOptions`；`kernel/executor` 全链消费（run/execute/base/instance/
   events/trace/node_context）并在收尾补记 `RunResult`；
   `kernel/multipath`、`core/execution_runtime` 持同形态驱动子流程。

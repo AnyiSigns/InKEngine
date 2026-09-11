@@ -1,12 +1,9 @@
 import type { AuditRecord } from './backend';
 
-/** 事件类型 → 中文短标签（时间线徽标与描述用）。 */
+/** 事件类型 → 中文短标签（时间线徽标与描述用；组装链类型已随退役删除，W7-B）。 */
 export const TYPE_LABELS: Record<string, string> = {
-  assembly_candidate: '组装候选',
   junction_verdict: '汇流裁决',
   junction_verdict_audit: '汇流裁决审计',
-  assembly_audit: '组装审计',
-  fingerprint_replace_audit: '缓存指纹顶替',
   policy_edge_review: '策略边复审',
   policy_edge_review_audit: '策略边复审',
   recommended_prior_promotion: '推荐先验晋升',

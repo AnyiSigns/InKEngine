@@ -7,8 +7,6 @@ import {
   EventTypeSpec,
 } from '../../../src/core/event_types/eventTypeSpec.js';
 import {
-  EVENT_AUDIT_ASSEMBLY,
-  EVENT_AUDIT_FINGERPRINT_REPLACE,
   EVENT_AUDIT_JUNCTION,
   EVENT_AUDIT_POLICY_REVIEW,
   EVENT_AUDIT_PROMOTION,
@@ -236,9 +234,7 @@ describe('审计事件类型注册', () => {
     const names = new Set(specs.map((s) => s.name));
     expect(names).toEqual(
       new Set([
-        EVENT_AUDIT_ASSEMBLY,
         EVENT_AUDIT_JUNCTION,
-        EVENT_AUDIT_FINGERPRINT_REPLACE,
         EVENT_AUDIT_POLICY_REVIEW,
         EVENT_AUDIT_PROMOTION,
       ]),
@@ -249,21 +245,21 @@ describe('审计事件类型注册', () => {
     }
   });
 
-  it('register_audit_event_types 注册 5 类，重复注册拒绝', () => {
+  it('register_audit_event_types 注册 3 类，重复注册拒绝', () => {
     const registry = new EventTypeRegistry();
     register_audit_event_types(registry);
-    expect(registry.names().length).toBe(5);
-    expect(registry.get(EVENT_AUDIT_ASSEMBLY)).not.toBeNull();
+    expect(registry.names().length).toBe(3);
+    expect(registry.get(EVENT_AUDIT_JUNCTION)).not.toBeNull();
     expect(() => register_audit_event_types(registry)).toThrow(/重复注册/);
   });
 
   it('审计负载按 schema 校验（宽松标记）', () => {
     const registry = new EventTypeRegistry();
     for (const s of audit_event_specs()) registry.register(s);
-    const verdict = registry.classify(EVENT_AUDIT_ASSEMBLY, { domain: 'code' });
+    const verdict = registry.classify(EVENT_AUDIT_JUNCTION, { domain: 'code' });
     expect(verdict.status).toBe(EVENT_STATUS_REGISTERED);
     expect(verdict.violations).toEqual([]);
-    const fp = registry.classify(EVENT_AUDIT_FINGERPRINT_REPLACE, { domain: 'code' });
+    const fp = registry.classify(EVENT_AUDIT_PROMOTION, { domain: 'code' });
     expect(fp.status).toBe(EVENT_STATUS_REGISTERED);
     expect(fp.violations).toEqual([]);
   });

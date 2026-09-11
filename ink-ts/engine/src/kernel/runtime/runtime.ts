@@ -9,15 +9,15 @@
  * 分层实现（≤350 行/文件纪律，与 executor 同构）：字段基座（_runtime_base）
  * → 生命周期/回合登记（_runtime_state/_runtime_runs）→ 工具标签与常驻必带
  * 集（_runtime_specs/_runtime_ui）→ 自指上下文/装配源/引擎重建/集状态恢复
- * （_runtime_contexts/_runtime_engine）→ 装配（_runtime_assemble）→ 本叶类。
+ * （_runtime_contexts/_runtime_engine）→ 装配（_runtime_boot）→ 本叶类。
  */
 
 import { ROUND_LEDGER_COLLECTION } from './_settle.js';
 import type { StepRecord } from '../round_steps/index.js';
-import { RuntimeRounds } from './_runtime_rounds.js';
+import { RuntimeBoot } from './_runtime_boot.js';
 
 /** 运行时叶类（完整公开形态 = 分层链全量方法）。 */
-export class Runtime extends RuntimeRounds {
+export class Runtime extends RuntimeBoot {
   /** 线程最近回合账本（ledger 集合；未记账/未装配返回 null）。 */
   async ledger(thread_id: string): Promise<Record<string, unknown> | null> {
     const storage = this.storage;

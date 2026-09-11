@@ -35,27 +35,14 @@ export {
 } from './hooks.js';
 export type { AuditSink, SettleHook } from './hooks.js';
 
-export { FingerprintSettleHook } from './fingerprint.js';
-export type {
-  ContextFingerprint,
-  FingerprintCache,
-  FingerprintCacheUpsertOpts,
-  GateLike,
-  QualityGate,
-} from './fingerprint.js';
-
 export { NodeProposalSettleHook } from './proposal.js';
 export type { ProposalSink } from './proposal.js';
 
 export { RecommendedPriorSettleHook, promotion_signature_key } from './promotion.js';
 export type { OnPromoted, PromotionGate, PromotionSink, PromotionSignature } from './promotion.js';
 
-export {
-  GOVERNANCE_WRITE_TARGET_NOOP,
-  PolicyEdgeReviewSettleHook,
-  PoolGovernanceSettleHook,
-} from './review.js';
-export type { GovernanceWriteTarget, ReviewSink } from './review.js';
+export { PolicyEdgeReviewSettleHook } from './review.js';
+export type { ReviewSink } from './review.js';
 
 export { import_seed_paths } from './seed.js';
 

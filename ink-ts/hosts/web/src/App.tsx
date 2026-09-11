@@ -96,20 +96,6 @@ export default function App({ backend, appBackend, hub, sessionStore }: AppProps
         }
       : null;
 
-  // 待办清单检测（rounds.todos 有值 = 顶栏出现「待办」标签）
-  const [todoState, setTodoState] = useState<{ has: boolean; pending: number }>({ has: false, pending: 0 });
-  useEffect(() => {
-    if (!backend.available || !state.activeSessionId) return;
-    void backend
-      .todoGet(state.activeSessionId)
-      .then((data) => {
-        const rows = data.todo ?? [];
-        const pending = rows.filter((r) => r.status !== 'done' && r.status !== 'cancelled').length;
-        setTodoState({ has: rows.length > 0, pending });
-      })
-      .catch(() => undefined);
-  }, [backend, state.activeSessionId, state.entries.length]);
-
   // 子代理实例清单（由 spawn 消息卡派生；空 = 面板不渲染）
   const spawnInstances: SpawnInstance[] = useMemo(
     () =>
@@ -192,12 +178,6 @@ export default function App({ backend, appBackend, hub, sessionStore }: AppProps
         // 原生目录选择不可用：保持现状（反馈由工作区视图三态呈现）
       }
     })();
-  };
-
-  const handleBranchFromMessage = (_messageId: string, _branchLabel: string) => {
-    void backend.sessionBranch(state.activeSessionId, 'branch', null).then(() => {
-      // messageId 保留签名供后续 message 级分支使用；当前回落会话级分支
-    }).catch(() => undefined);
   };
 
   const handleSend = (
@@ -381,8 +361,6 @@ export default function App({ backend, appBackend, hub, sessionStore }: AppProps
     agentModelId,
     roundCount,
     stepCount: roundSteps.length,
-    hasTodo: todoState.has,
-    todoPending: todoState.pending,
     settingsOpen: openPanel === 'settings',
     autoApprovableTools: [],
     approvalPose,
@@ -403,10 +381,6 @@ export default function App({ backend, appBackend, hub, sessionStore }: AppProps
     onApprovalPoseChange: handleApprovalPoseChange,
     onSpawnSelect: (idx: number) => setSelectedSpawnIndex(idx),
     onSpawnSendInstruction: (text: string) => send(text, []),
-    onBranchFromMessage: handleBranchFromMessage,
-    onBranchFromLeaf: (sessionId: string, leaf: number) => {
-      void backend.sessionBranch(sessionId, 'branch', leaf).catch(() => undefined);
-    },
     onSelectSession: (id: string) => selectSession(id),
     onCreateSession: () => {
       const pending = sessionStore.create();

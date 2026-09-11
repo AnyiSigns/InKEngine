@@ -34,8 +34,6 @@ const baseProduct: Record<string, unknown> = {
   workspaceRoot: null,
   models: undefined,
   agentModelId: null,
-  hasTodo: false,
-  todoPending: 0,
   settingsOpen: false,
   roundCount: 0,
   stepCount: 0,
@@ -86,9 +84,9 @@ describe('产品主壳 spec 直渲（ui_features 装配生成物 → canonical �
     expect(container.querySelector('[data-ui="group_机制监控"]')).toBeNull();
   });
 
-  it('trajectory/todo 视图空态可渲染（无宿主不崩）', () => {
+  it('trajectory 视图空态可渲染（无宿主不崩）', () => {
     const hub = makeHub();
-    for (const view of ['trajectory', 'todo'] as const) {
+    for (const view of ['trajectory'] as const) {
       const { container } = render(
         <UIRenderer spec={uiLayout as unknown as UISpec} hub={hub} activeView={view} product={baseProduct} />,
       );

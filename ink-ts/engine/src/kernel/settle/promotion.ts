@@ -25,7 +25,11 @@ import { UPDATE_SUCCESS } from './_constants.js';
 import { derive_traversals, run_verdict } from './attribution.js';
 import { recommended_prior_eligible } from './rules.js';
 import { SettleContext, edge_key_str, traversal_edge_key } from './types.js';
-import type { QualityGate } from './fingerprint.js';
+
+/** 产出质量判定窄协议（推进门前置闸门；结构性 = 既有引擎闸门形态）。 */
+export type QualityGate = {
+  evaluate(ctx: SettleContext): Promise<boolean> | boolean;
+};
 
 /** 闸门/canary 的可选形态（结构性协议：evaluate(ctx) -> bool）。 */
 export type PromotionGate = { evaluate(ctx: SettleContext): Promise<boolean> | boolean } | null;

@@ -180,30 +180,6 @@ export class NodeContract {
   }
 }
 
-export interface PathAssemblyConfigInit {
-  enabled?: boolean;
-}
-
-export class PathAssemblyConfig {
-  /** 机制入口开关（False = 机制不参与任何运行路径；默认全关）。 */
-  readonly enabled: boolean;
-
-  constructor(init: PathAssemblyConfigInit = {}) {
-    this.enabled = init.enabled ?? false;
-  }
-
-  to_dict(): Record<string, unknown> {
-    return { enabled: this.enabled };
-  }
-
-  static from_dict(data: unknown): PathAssemblyConfig {
-    if (!isRecord(data)) {
-      throw new GraphDefinitionError(`装配配置声明非法: 期望 dict，收到 ${typeName(data)}`);
-    }
-    return new PathAssemblyConfig({ enabled: Boolean(data['enabled'] ?? false) });
-  }
-}
-
 export interface PathAssemblyFlagsInit {
   contract_enabled?: boolean;
   edge_evidence_enabled?: boolean;
@@ -271,11 +247,6 @@ export class PathAssemblyFlags {
       }
     }
     return new PathAssemblyFlags(values as PathAssemblyFlagsInit);
-  }
-
-  /** 组装器块开关形态（装配入口接线用；默认全关）。 */
-  as_path_assembly_config(): PathAssemblyConfig {
-    return new PathAssemblyConfig({ enabled: this.assembler_enabled });
   }
 }
 

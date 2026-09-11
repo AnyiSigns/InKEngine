@@ -9,17 +9,17 @@
  * 被机制注入；装配动作归机制层，不可被补丁链改写。
  *
  * effects 判定（只列 runtime 自身 src 真实消费的端口面，宁缺勿滥）：
- * - storage_seam：_runtime_assemble 经 host.create_storage() 取原始存储后包
- *   GuardedStorage（受守卫写通道），知识集/注册表/实体/事件类型/池治理等装配
- *   与回合落库全走该 seam；
+ * - storage_seam：boot 经 host.create_storage() 取原始存储后包
+ *   GuardedStorage（受守卫写通道），知识集/注册表/实体/事件类型等装配
+ *   与沉淀落库全走该 seam；
  * - llm_port：_runtime_engine 经 host.resolve_llm() 取 AsyncLLM 并包
- *   UsageTrackingLLM/CompressingLLM 守卫链后装配进回合引擎；
+ *   UsageTrackingLLM/CompressingLLM 守卫链后供装配消费；
  * - exec_envelope 不列：runtime 不直接消费进程/文件沙箱 seam（runtime src 无
  *   子进程/沙箱调用，执行面经 executor 机制拿引擎，信封归 executor/harness
  *   侧）；
- * - rounds.port 不列：assemble_round/resume_run/resume_round/abort 由 runtime
- *   自身实现，runtime 是该端口的提供方（引擎导出端口语义，供其它机制/插件
- *   依赖），而非消费者——提供面不入本契约 effects 白名单。
+ * - rounds.port 不列：runtime 不再承担回合执行入口（rounds.send 主线 =
+ *   execution 执行运行时，回合语义归 execution_runtime），提供面不入本契约
+ *   effects 白名单。
  *
  * depends = 装配闭集所需机制件清单：runtime 各 _runtime_*.ts 以 value import
  * 引用的全部内核机制并集（round_steps 仅 type import，不构成装配期 value
@@ -48,15 +48,12 @@ export const runtime_contract: MechanismContract = {
     'introspection',
     'llm',
     'memory_extract',
-    'path_assembler',
     'permissions',
-    'pool_governance',
     'self_application',
     'self_proposal',
     'self_tools',
     'settle',
     'skill_crystal',
-    'thread_skeleton',
     'tool_pipeline',
     'tool_vetting',
     'tuning',

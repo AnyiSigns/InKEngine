@@ -109,8 +109,9 @@ describe('二层防线：绑定通道白名单拒绝', () => {
     expect(isBindChannelAllowed('events.unknown_event_xyz')).toBe(false);
   });
 
-  it('inspect_* 六元快照通道放行，未知快照通道拒绝', () => {
-    expect(isBindChannelAllowed('inspect_graph')).toBe(true);
+  it('inspect_* 五元快照通道放行（inspect_graph 随组装链路退役拒绝，W7-B），未知快照通道拒绝', () => {
+    expect(isBindChannelAllowed('inspect_rules')).toBe(true);
+    expect(isBindChannelAllowed('inspect_graph')).toBe(false);
     expect(isBindChannelAllowed('inspect_tools')).toBe(true);
     expect(isBindChannelAllowed('inspect_entities')).toBe(true);
     expect(isBindChannelAllowed('inspect_secret')).toBe(false);

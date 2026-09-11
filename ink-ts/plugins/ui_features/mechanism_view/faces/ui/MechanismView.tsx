@@ -1,16 +1,16 @@
 /**
  * 状态页机制读取面（分层卡）：引擎机制读口只读投影重组为
- * ① 回合概览 + ② 结点池（含结点注册目录段）+ ④ 机制装配次级小卡组。
- * ③ 当前回合图组成清单由 evolution_feed 侧呈现（本组件不重复拉图数据）。
+ * ① 回合概览 + ② 边证据与实体（观察面）。
  *
- * 数据 = host 已接读取面：metrics.snapshot / pool.snapshot（含 registry
- * 目录段）/ edge_evidence.list / entities.snapshot / assemble.stats /
- * path.state / cache.stats。available=false（机制未装配）或读取失败 =
+ * 数据 = host 已接读取面：metrics.snapshot / edge_evidence.list /
+ * entities.snapshot。available=false（机制未装配）或读取失败 =
  * 结构化空态文案，不报错不白屏。宿主不可用 = 整页空态。
+ * 组装链读面（pool.snapshot / assemble.stats / path.state / cache.stats）
+ * 已随组装链路退役（W7-B）。
  */
 
 import { useEffect, useState } from 'react';
-import { Activity, Boxes, Database, Route } from 'lucide-react';
+import { Activity, GitMerge, Users } from 'lucide-react';
 
 import type { BackendAdapter } from '@/shared/backend/backendAdapter';
 
@@ -46,7 +46,7 @@ const emptyRow = (note: string): MetricRow => ({ label: '未装配', value: '—
 
 const LOADING_GROUP: MetricGroup[] = [{ rows: [{ label: '读取中', value: '…', tone: 'empty' }] }];
 
-/** metrics.snapshot 里的自动续跑轮独立计数（引擎 turn_metrics 前缀记账批落地前为缺省；数字 0 也算已带）。 */
+/** metrics.snapshot 里的自动续跑轮独立计数（组装自续轮口径；主线执行不经此计数）。 */
 function autoRounds(raw: unknown): number | null {
   if (typeof raw !== 'object' || raw === null) return null;
   const rec = raw as Record<string, unknown>;
@@ -64,10 +64,7 @@ function overviewGroups(raw: unknown): MetricGroup[] {
   const auto = autoRounds(snap);
   return [
     {
-      caption:
-        auto === null
-          ? '口径：回合数含自续链轮（auto:*）；自动续跑轮独立计数待 metrics 快照字段（auto_rounds/auto_turns）'
-          : '口径：回合数含自续链轮（auto:*）；自动续跑轮 = 独立计数（随 metrics 快照）',
+      caption: '口径：回合数 = 引擎顶层回合计数（主线执行不经该通道）',
       rows: [
         { label: '回合', value: String(num(snap['rounds'])), tone: 'ok' },
         { label: '自动续跑轮', value: auto === null ? '—' : String(auto), tone: auto === null ? 'empty' : 'ok' },
@@ -78,112 +75,39 @@ function overviewGroups(raw: unknown): MetricGroup[] {
   ];
 }
 
-/** ② 结点池卡：结点注册目录（registry）+ 治理 + 边证据 + 实体，单卡四组。 */
-function poolCardGroups(poolRaw: unknown, edgeRaw: unknown, entitiesRaw: unknown): MetricGroup[] {
-  const groups: MetricGroup[] = [];
-  const snap = asRecord(poolRaw);
-  const registry = snap === null ? null : asRecord(snap['registry']);
-  if (!registry || registry['available'] !== true) {
-    groups.push({ caption: '结点注册', rows: [emptyRow('registry 未装配（runtime.node_registrations 无数据源）')] });
-  } else {
-    groups.push({
-      caption: '结点注册',
-      rows: [
-        { label: '注册总数', value: String(num(registry['total_count'])), tone: 'ok' },
-        { label: '活跃', value: String(num(registry['active_count'])), tone: 'ok' },
-      ],
-    });
-  }
-  const counts = snap === null ? null : asRecord(snap['counts']);
-  if (!snap || snap['available'] !== true || counts === null) {
-    groups.push({ caption: '治理', rows: [emptyRow('pool.snapshot 无装配')] });
-  } else {
-    groups.push({
-      caption: '治理',
-      rows: [
-        { label: '登记', value: String(num(counts['pool_count'])), tone: 'ok' },
-        { label: '判定', value: String(num(counts['evaluations'])), tone: 'ok' },
-        { label: '死结点候选', value: String(num(counts['dead_node_candidates'])), tone: 'ok' },
-      ],
-    });
-  }
-  const edgeSnap = asRecord(edgeRaw);
-  if (!edgeSnap || edgeSnap['available'] !== true) {
-    groups.push({ caption: '边证据', rows: [emptyRow('edge_evidence.list 无装配')] });
-  } else {
-    const edges = Array.isArray(edgeSnap['edges']) ? (edgeSnap['edges'] as unknown[]) : [];
-    groups.push({
-      caption: '边证据',
-      rows: [
-        { label: '边数', value: String(edges.length), tone: 'ok' },
-        {
-          label: '策略边',
-          value: String(edges.filter((edge) => asRecord(edge)?.['policy'] === true).length),
-          tone: 'ok',
-        },
-      ],
-    });
-  }
-  const entSnap = asRecord(entitiesRaw);
-  if (!entSnap) {
-    groups.push({ caption: '实体', rows: [emptyRow('entities.snapshot 无装配')] });
-  } else if (entSnap['available'] !== true || entSnap['degraded'] === true) {
-    groups.push({ caption: '实体', rows: [emptyRow('实体注册表未装配（degraded）')] });
-  } else {
-    const max = entSnap['max'];
-    groups.push({
-      caption: '实体',
-      rows: [
-        { label: '实体', value: String(num(entSnap['count'])), tone: 'ok' },
-        { label: '配额', value: typeof max === 'number' ? String(max) : '—', tone: 'ok' },
-      ],
-    });
-  }
-  return groups;
-}
-
-/** ④ 组装链小卡：组装器/契约门/canary/最近候选（assemble.stats + path.state 归并）。 */
-function assemblyGroups(assembleRaw: unknown, pathRaw: unknown): MetricGroup[] {
-  const assemble = asRecord(assembleRaw);
-  const path = asRecord(pathRaw);
-  const assembleReady = assemble !== null && assemble['available'] === true;
-  const pathReady = path !== null && path['available'] === true;
-  if (!assembleReady && !pathReady) return [{ rows: [emptyRow('组装链/路径读取面未装配')] }];
-  const rows: MetricRow[] = [];
-  if (assembleReady) {
-    rows.push({ label: '组装器', value: assemble['assembler_enabled'] === true ? '开' : '关', tone: 'ok' });
-    rows.push({ label: '契约门', value: assemble['contract_enabled'] === true ? '开' : '关', tone: 'ok' });
-    rows.push({ label: 'canary 门', value: assemble['canary_gate'] === true ? '开' : '关', tone: 'ok' });
-  } else {
-    const enabled = asRecord(path?.['enabled']);
-    rows.push({ label: '组装器', value: enabled?.['assembler'] === true ? '开' : '关', tone: 'ok' });
-    rows.push({ label: '契约门', value: enabled?.['contract'] === true ? '开' : '关', tone: 'ok' });
-    rows.push({ label: 'canary 门', value: path?.['canary_gate'] === true ? '开' : '关', tone: 'ok' });
-  }
-  if (pathReady) {
-    const candidates = asRecord(path['candidates']);
-    const count = candidates === null ? null : candidates['last_assembly_count'];
-    rows.push({
-      label: '最近候选',
-      value: count === null || count === undefined ? '—' : String(num(count)),
-      tone: 'ok',
-    });
-  }
-  return [{ rows }];
-}
-
-/** ④ 指纹缓存小卡：条目/查询/写库（cache.stats 只读投影）。 */
-function cacheGroups(raw: unknown): MetricGroup[] {
+/** ② 边证据卡：策略边/成功失败计数（edge_evidence.list 只读投影）。 */
+function edgeGroups(raw: unknown): MetricGroup[] {
   const snap = asRecord(raw);
-  const cache = snap === null ? null : asRecord(snap['fingerprint_cache']);
-  if (!cache || cache['available'] !== true) return [{ rows: [emptyRow('cache.stats 无装配（指纹缓存未挂载）')] }];
-  const stats = asRecord(cache['stats']);
+  if (!snap || snap['available'] !== true) {
+    return [{ rows: [emptyRow('edge_evidence.list 无装配')] }];
+  }
+  const edges = Array.isArray(snap['edges']) ? (snap['edges'] as unknown[]) : [];
+  const policy = edges.filter((edge) => asRecord(edge)?.['policy'] === true).length;
   return [
     {
       rows: [
-        { label: '条目', value: String(num(cache['entries'])), tone: 'ok' },
-        { label: '查询', value: String(num(stats?.['lookups'])), tone: 'ok' },
-        { label: '写库', value: String(num(stats?.['upserts'])), tone: 'ok' },
+        { label: '边数', value: String(edges.length), tone: 'ok' },
+        { label: '策略边', value: String(policy), tone: 'ok' },
+      ],
+    },
+  ];
+}
+
+/** ③ 实体卡：协作者注册目录统计（entities.snapshot 只读投影）。 */
+function entityGroups(raw: unknown): MetricGroup[] {
+  const entSnap = asRecord(raw);
+  if (!entSnap) {
+    return [{ rows: [emptyRow('entities.snapshot 无装配')] }];
+  }
+  if (entSnap['available'] !== true || entSnap['degraded'] === true) {
+    return [{ rows: [emptyRow('实体注册表未装配（degraded）')] }];
+  }
+  const max = entSnap['max'];
+  return [
+    {
+      rows: [
+        { label: '实体', value: String(num(entSnap['count'])), tone: 'ok' },
+        { label: '配额', value: typeof max === 'number' ? String(max) : '—', tone: 'ok' },
       ],
     },
   ];
@@ -191,20 +115,12 @@ function cacheGroups(raw: unknown): MetricGroup[] {
 
 const READ_META = [
   { key: 'metrics', method: 'metricsSnapshot' as const },
-  { key: 'assemble', method: 'assembleStats' as const },
-  { key: 'cache', method: 'cacheStats' as const },
-  { key: 'path', method: 'pathState' as const },
-  { key: 'pool', method: 'poolSnapshot' as const },
   { key: 'edge', method: 'edgeEvidenceList' as const },
   { key: 'entities', method: 'entitiesSnapshot' as const },
 ];
 
 const READ_METHODS: Record<string, (backend: BackendAdapter) => Promise<unknown>> = {
   metricsSnapshot: (backend) => backend.metricsSnapshot(),
-  assembleStats: (backend) => backend.assembleStats(),
-  cacheStats: (backend) => backend.cacheStats(),
-  pathState: (backend) => backend.pathState(),
-  poolSnapshot: (backend) => backend.poolSnapshot(),
   edgeEvidenceList: (backend) => backend.edgeEvidenceList(),
   entitiesSnapshot: (backend) => backend.entitiesSnapshot(),
 };
@@ -245,7 +161,7 @@ function MetricCard({
   );
 }
 
-/** 状态页机制读取面主体：并行读取读面，分层渲染（概览/结点池/机制装配）。 */
+/** 状态页机制读取面主体：并行读取读面，分层渲染（概览/边证据/实体）。 */
 export function MechanismView({ backend }: MechanismViewProps): JSX.Element {
   const [results, setResults] = useState<Record<string, unknown>>({});
   const [loaded, setLoaded] = useState(false);
@@ -283,7 +199,7 @@ export function MechanismView({ backend }: MechanismViewProps): JSX.Element {
     return (
       <div className="flex h-full flex-col items-center justify-center gap-1 px-4 text-[12px] ink-text-faint" data-ui="mechanism_view">
         <p>状态读取面仅在宿主运行时可用</p>
-        <p className="text-[11px]">回合概览 / 结点池 / 机制装配读取面空态可观测</p>
+        <p className="text-[11px]">回合概览 / 边证据 / 实体读取面空态可观测</p>
       </div>
     );
   }
@@ -299,22 +215,15 @@ export function MechanismView({ backend }: MechanismViewProps): JSX.Element {
             groups={loading ? LOADING_GROUP : overviewGroups(results['metrics'])}
           />
           <MetricCard
-            title="结点池"
-            icon={Boxes}
-            groups={loading ? LOADING_GROUP : poolCardGroups(results['pool'], results['edge'], results['entities'])}
+            title="边证据"
+            icon={GitMerge}
+            groups={loading ? LOADING_GROUP : edgeGroups(results['edge'])}
           />
-        </div>
-        <div className="mb-2 mt-4 flex items-baseline gap-2">
-          <span className="text-[13px] font-medium">机制装配</span>
-          <span className="text-[11px] ink-text-faint">引擎机制读取面只读投影（未装配 = 空态可观测）</span>
-        </div>
-        <div className="grid grid-cols-1 gap-2 sm:grid-cols-2">
           <MetricCard
-            title="组装链"
-            icon={Route}
-            groups={loading ? LOADING_GROUP : assemblyGroups(results['assemble'], results['path'])}
+            title="实体"
+            icon={Users}
+            groups={loading ? LOADING_GROUP : entityGroups(results['entities'])}
           />
-          <MetricCard title="指纹缓存" icon={Database} groups={loading ? LOADING_GROUP : cacheGroups(results['cache'])} />
         </div>
       </div>
     </div>

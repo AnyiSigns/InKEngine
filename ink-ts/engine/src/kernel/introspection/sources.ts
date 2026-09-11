@@ -19,7 +19,6 @@
  * 对象——实体目录等数据源以显式 seam/注册表映射表达（鸭子类型，
  * 见 EntityRegistryLike），宿主装配时注入，缺省项在快照中按空态呈现。
  */
-import type { Graph } from '../../core/graph/graph.js';
 import type { HarnessRegistry } from '../../core/harness/registry.js';
 import type { KnowledgeSet } from '../../core/knowledge_set/knowledge_set.js';
 import type { ToolSpec } from '../llm/tools.js';
@@ -50,7 +49,6 @@ export interface EntityRegistryLike {
 /**
  * 内省数据源集合（宿主装配时注入，缺省项在快照中按空态呈现）。
  *
- * graph: 当前执行图（节点/边/出口/子图结构）；
  * knowledge_set: 用户集知识实体（规则/知识条目）；
  * harness_registry: 集内 harness 注册表（领域能力清单）；
  * tools: 当前注入面工具描述清单（保底/内省/自指 + 本会话绑定）；
@@ -58,9 +56,10 @@ export interface EntityRegistryLike {
  *   可绑定的工具；缺省 = 空清单）；
  * ui_spec: 当前界面描述（JSON 布局，宿主渲染器消费；缺省 = 未定形）；
  * entity_registry: 实体目录注册表 seam（宿主注入；缺省 = null）。
+ *
+ * 图数据源（graph）已随组装链路退役删除（W7-B）。
  */
 export class IntrospectionSources {
-  graph: Graph | null = null;
   knowledge_set: KnowledgeSet | null = null;
   harness_registry: HarnessRegistry | null = null;
   tools: readonly ToolSpec[] = [];
@@ -69,7 +68,6 @@ export class IntrospectionSources {
   entity_registry: EntityRegistryLike | null = null;
 
   constructor(init: {
-    graph?: Graph | null;
     knowledge_set?: KnowledgeSet | null;
     harness_registry?: HarnessRegistry | null;
     tools?: readonly ToolSpec[];
@@ -77,7 +75,6 @@ export class IntrospectionSources {
     ui_spec?: Record<string, unknown> | null;
     entity_registry?: EntityRegistryLike | null;
   } = {}) {
-    if (init.graph !== undefined) this.graph = init.graph;
     if (init.knowledge_set !== undefined) this.knowledge_set = init.knowledge_set;
     if (init.harness_registry !== undefined) this.harness_registry = init.harness_registry;
     if (init.tools !== undefined) this.tools = init.tools;

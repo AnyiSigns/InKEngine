@@ -1,19 +1,19 @@
 /**
  * run 形态 e2e（spawn cli run …）：JSON 信封 stdout + exit 0/1/2 + 审批语义。
  *
- * - 成功（round/op/audit）exit 0，信封 ok=true；round = 组装回合（无模型 →
- *   引擎确定性 stub 回复）；
+ * - 成功（op/audit）exit 0，信封 ok=true；round（无模型主线）= 显式收口
+ *   reason='error'、reply 无、execution_outcome=failure（W7-A 主线，组装 stub
+ *   回复路径已随 W7-B 退役删除）；
  * - 运行失败（未知方法 / os_op 未装配）exit 1，信封 ok=false + error.kind；
  * - 用法错误（互斥参数）exit 2（无信封，走 stderr + 帮助）；
  * - approval：仅显式 --approve 放行（fail-closed 缺省）；CLI 无占位/演示图
- *   （回合 = 组装），审批语义覆盖在 host bridge/engine 专测。
+ *   （回合 = 执行运行时），审批语义覆盖在 host bridge/engine 专测。
  */
 
 import { mkdtempSync } from 'node:fs';
 import { tmpdir } from 'node:os';
 import path from 'node:path';
 
-import { ENGINE_STUB_REPLY } from '@ink-ts/engine';
 import { locateNativeBinary } from '@ink-ts/host';
 import { describe, expect, it } from 'vitest';
 
@@ -42,15 +42,14 @@ async function runOnce(args: readonly string[]): Promise<{ exitCode: number | nu
 }
 
 describe('run 形态：round 回合驱动', () => {
-  it('--round 成功：exit 0 + ok 信封 + 引擎 stub 回复 + 事件摘要', async () => {
+  it('--round 无模型：主线执行显式收口 exit 0 + ok 信封 + reason=error + reply 无', async () => {
     const { exitCode, env } = await runOnce(['run', '--round', 'hello', '--trace-id', 'run-trace-1', ...dataArgs()]);
     expect(exitCode).toBe(0);
     expect(env?.ok).toBe(true);
     expect(env?.command).toBe('round');
     expect(env?.trace_id).toBe('run-trace-1');
-    expect(env?.data?.reason).toBe('reply');
-    expect(env?.data?.reply).toBe(ENGINE_STUB_REPLY);
-    expect(env?.data?.events?.types).toContain('reply_token');
+    expect(env?.data?.reason).toBe('error');
+    expect(env?.data?.reply ?? null).toBeNull();
   });
 });
 

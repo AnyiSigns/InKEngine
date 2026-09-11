@@ -3,8 +3,8 @@
  *
  * 宿主 agent 工具的声明真源 = plugins/tools/<id>/spec.json（kind='tool'，
  * endpoint='plugin_command'）；本模块 = hosts/lib 侧执行接线，复用既有宿主
- * 工具通道（session_command 同款：harness_registry.declarative 登记声明式
- * 定义 + 按端点登记执行体）——工具调用按定义名分发到既有 bridge 命令实现
+ * 工具通道（harness_registry.declarative 登记声明式定义 + 按端点登记执行体
+ * ——W7-B 注：原通道姊妹 session_command 已随组装链路退役）——工具调用按定义名分发到既有 bridge 命令实现
  * （plugin.mcp.enable→mcp.enable 等），plugin.catalog 由宿主注入快照读取面
  * （plugin 目录/组件/常驻集只读快照），不复制机制语义、不新造第二通道。
  *

@@ -60,7 +60,7 @@ _fs_seam.ts`（node:fs 同步装，供 `ToolVetting.shadow_run`）。
 
 ## 装配与消费
 
-- runtime 装配默认构造 `new ToolVetting()`（`_runtime_assemble`，缺省无
+- runtime 装配默认构造 `new ToolVetting()`（`_runtime_boot`，缺省无
   宿主钩子——静态审查仍含 `code_files_exist` 基线），`_runtime_base.vetting`
   持有；`runtime_contract` depends 含 tool_vetting。
 - `adapters/mcp` 为主要消费方：`convert.ts` 把 MCP 工具声明转 `ToolManifest`

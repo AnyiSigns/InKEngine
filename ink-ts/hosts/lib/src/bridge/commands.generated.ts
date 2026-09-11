@@ -10,18 +10,9 @@ export const ROUNDS_COMMANDS = [
   'rounds.send',
   'rounds.abort',
   'rounds.resume',
-  'rounds.branch',
-  'rounds.fork_trial',
 ] as const;
 
 export type RoundsCommand = (typeof ROUNDS_COMMANDS)[number];
-
-/** todos 命令声明（真源 plugins/commands/<id>/spec.json；域内序 = data.order）。 */
-export const TODOS_COMMANDS = [
-  'rounds.todos',
-] as const;
-
-export type TodosCommand = (typeof TODOS_COMMANDS)[number];
 
 /** records 命令声明（真源 plugins/commands/<id>/spec.json；域内序 = data.order）。 */
 export const RECORDS_COMMANDS = [
@@ -42,14 +33,6 @@ export const SESSIONS_COMMANDS = [
 ] as const;
 
 export type SessionsCommand = (typeof SESSIONS_COMMANDS)[number];
-
-/** approval 命令声明（真源 plugins/commands/<id>/spec.json；域内序 = data.order）。 */
-export const APPROVAL_COMMANDS = [
-  'approval.list',
-  'approval.resolve',
-] as const;
-
-export type ApprovalCommand = (typeof APPROVAL_COMMANDS)[number];
 
 /** audit 命令声明（真源 plugins/commands/<id>/spec.json；域内序 = data.order）。 */
 export const AUDIT_COMMANDS = [
@@ -120,29 +103,6 @@ export const GROWTH_COMMANDS = [
 
 export type GrowthCommand = (typeof GROWTH_COMMANDS)[number];
 
-/** graph 命令声明（真源 plugins/commands/<id>/spec.json；域内序 = data.order）。 */
-export const GRAPH_COMMANDS = [
-  'graph.instance',
-] as const;
-
-export type GraphCommand = (typeof GRAPH_COMMANDS)[number];
-
-/** skeleton 命令声明（真源 plugins/commands/<id>/spec.json；域内序 = data.order）。 */
-export const SKELETON_COMMANDS = [
-  'skeleton.get',
-  'skeleton.edit',
-] as const;
-
-export type SkeletonCommand = (typeof SKELETON_COMMANDS)[number];
-
-/** pool 命令声明（真源 plugins/commands/<id>/spec.json；域内序 = data.order）。 */
-export const POOL_COMMANDS = [
-  'pool.snapshot',
-  'pool.evaluate',
-] as const;
-
-export type PoolCommand = (typeof POOL_COMMANDS)[number];
-
 /** edge_evidence 命令声明（真源 plugins/commands/<id>/spec.json；域内序 = data.order）。 */
 export const EDGE_EVIDENCE_COMMANDS = [
   'edge_evidence.list',
@@ -156,27 +116,6 @@ export const METRICS_COMMANDS = [
 ] as const;
 
 export type MetricsCommand = (typeof METRICS_COMMANDS)[number];
-
-/** assemble 命令声明（真源 plugins/commands/<id>/spec.json；域内序 = data.order）。 */
-export const ASSEMBLE_COMMANDS = [
-  'assemble.stats',
-] as const;
-
-export type AssembleCommand = (typeof ASSEMBLE_COMMANDS)[number];
-
-/** cache 命令声明（真源 plugins/commands/<id>/spec.json；域内序 = data.order）。 */
-export const CACHE_COMMANDS = [
-  'cache.stats',
-] as const;
-
-export type CacheCommand = (typeof CACHE_COMMANDS)[number];
-
-/** path 命令声明（真源 plugins/commands/<id>/spec.json；域内序 = data.order）。 */
-export const PATH_COMMANDS = [
-  'path.state',
-] as const;
-
-export type PathCommand = (typeof PATH_COMMANDS)[number];
 
 /** entities 命令声明（真源 plugins/commands/<id>/spec.json；域内序 = data.order）。 */
 export const ENTITIES_COMMANDS = [

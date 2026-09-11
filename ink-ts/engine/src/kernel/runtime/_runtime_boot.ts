@@ -1,8 +1,8 @@
-// gate: 超限(371 行) - Runtime 装配段（①–⑰ 单一装配序，拆文件破坏步骤顺序可读性）
+// gate: 超限(371 行) - Runtime 装配段（①–⑮ 单一装配序，拆文件破坏步骤顺序可读性）
 /**
  * Runtime 装配（runtime.py ``_assemble`` 移植）：装配步骤 ①–⑰——存储/注册表/
  * 种子/成长管线/harness/事件类型/实体/校验器/自指管线/界面/元工具/检索源/
- * 统一流水线/集状态恢复/常驻集/工具索引/apply 目标/调参/池治理/引擎重建。
+ * 统一流水线/集状态恢复/常驻集/工具索引/apply 目标/调参/引擎重建。
  * MCP 管理器与默认 embedder 为宿主装配面（未迁 core）：mcp seam 未注入即
  * 不启用；ToolVectorIndex 以关键词基线构建。
  */
@@ -11,11 +11,6 @@ import { ALL_MECHANISM_CONTRACTS, seal_mechanism_registry } from '../registry/in
 import type { InterruptPolicy } from '../approval/approval.js';
 import { register_perception_nodes } from '../../core/perception/perception.js';
 import { default_engine_pool_seed } from '../../core/nodes/index.js';
-import {
-  pool_governance_collection,
-  RecordsPoolGovernanceStateStore,
-} from '../pool_governance/state_store.js';
-import { node_registry_governance_target } from '../../core/node_registry/index.js';
 import { RuntimeNodeRegistrar } from './_runtime_node_registry.js';
 import { EventTypeRegistry } from '../../core/event_types/registry.js';
 import {
@@ -55,14 +50,13 @@ import { ToolPipeline } from '../tool_pipeline/tool_pipeline.js';
 import { ToolSelector } from '../../core/tool_orchestrator/tool_orchestrator.js';
 import { ToolVectorIndex } from '../../core/tool_index/tool_index.js';
 import { ToolVetting } from '../tool_vetting/tool_vetting.js';
-import { PoolGovernance } from '../pool_governance/pool_governance.js';
 import { UISchemaValidator } from '../../core/ui_schema/uiSchema.js';
 import type { ToolSpec } from '../llm/tools.js';
 import type { Host, AssemblyRecipe } from './_types.js';
 import { _uuid_hex } from './_runtime_base.js';
 import { _RoundStepsRecorder } from './_round_steps_recorder.js';
 /** 装配基座（步骤 ①–⑰ 实现；boot 失败清理见状态机层）。 */
-export abstract class RuntimeAssemble extends RuntimeNodeRegistrar {
+export abstract class RuntimeBoot extends RuntimeNodeRegistrar {
   protected async _assemble(host: Host, recipe: AssemblyRecipe): Promise<void> {
     // 装配密封（boot 静态门禁）：全量机制契约 DAG 校验（依赖单向/装配完整/
     // 循环拒绝）失败即抛错——半装配/带环依赖的运行时不允许进入装配流程。
@@ -352,39 +346,6 @@ export abstract class RuntimeAssemble extends RuntimeNodeRegistrar {
     }
     this.meta_tuner = new MetaTuner({ knowledge_set: this.knowledge_set! });
     this.turn_metrics = new TurnMetrics();
-    this.pool_governance = new PoolGovernance({
-      now: () => this._r_now(),
-    });
-    // 池治理状态持久化 store（周预算判定行/去重/晋升签名落 records
-    // pool_governance:<set>；settle_hooks 关闭 = 不装配 → 进程内存回落语义）
-    if (recipe.settle_hooks_enabled) {
-      const stateStore = new RecordsPoolGovernanceStateStore(
-        guarded,
-        pool_governance_collection(recipe.set_id),
-        { now: () => this._r_now() },
-      );
-      this.pool_governance_state = stateStore;
-      // 晋升/复审去重签名装配前恢复（钩子构造注入，重启不重复登记）
-      this._pg_promoted = await stateStore.promoted_signatures();
-      this._pg_downgraded = await stateStore.downgraded_keys();
-    } else {
-      this.pool_governance_state = null;
-    }
-    // A3 池治理写回 seam：结点类型注册表 store 受控写实现（登记行 disable/
-    // archive + 建议字段留 data；执行体卸载随 graph_registries 同步）。
-    // store 缺装配 = null → settle 回落登记 + 审计。
-    if (this.node_registry_store !== null) {
-      this.pool_governance_writable = node_registry_governance_target(
-        this.node_registry_store,
-        {
-          unregister: (type_name) => {
-            this.graph_registries?.nodes.unregister(type_name);
-          },
-        },
-      );
-    } else {
-      this.pool_governance_writable = null;
-    }
     const sources = (
       this.introspection_service as unknown as {
         _sources: { tools: unknown; registered_tools: unknown };
@@ -392,10 +353,9 @@ export abstract class RuntimeAssemble extends RuntimeNodeRegistrar {
     )._sources;
     sources.tools = this.collect_specs();
     sources.registered_tools = this.merged_specs();
-    // 引擎自承载装配产物（evidence/cache/环境/多域）→ 自学习族（记忆/结晶）
+    // 引擎自承载装配产物（evidence/环境）→ 自学习族（记忆/技能容器）
     await this._assemble_mechanism_products(guarded, recipe);
     await this._assemble_self_learning(guarded, recipe);
-    this._mount_assembly_runtime(recipe);
     await this.rebuild_engine();
   }
 }

@@ -1,19 +1,21 @@
 /**
  * host bridge 命令面装配（buildBridge）：方法集按域分组注册——
- * rounds（send/abort/resume/branch/todos）、records（sessions/链记录）、
- * sessions（create/rename/delete/refresh/tree/messages）、approval（卡查询/
- * 裁决）、audit（导出/窗口）、tools（全量工具视图）、recovery
- * （回退入口/回退点/重置）、backup（data_dir 快照导出/预览/恢复）、mcp
- * （市场/挂载/卸载）、knowledge（知识集读面）、memory（记忆读面/失效）、
- * growth（自学习报告）、graph（图实例摘要）、pool（池治理快照/判定）、
- * edge_evidence（边证据只读窗口）、metrics（回合指标）、assemble（组装链
- * 统计）、cache（缓存计数）、path（装配状态）、entities（实体注册表快照）、
- * os（OS 执行器受控调用）、search（检索密钥）、material（资料批量导入）、
- * models（模型运行配置）、model_archive（模型档案快照）、capability（能力
- * 记录/基线/档位登记）、policy（策略层路由预览）、ui_components（出厂组件
- * 启停）、workspace（工作区授权/挂载）、dialog（原生目录选择）、execution
- * （执行运行时入口：作用域转场 + 汇聚点产物，rounds 域并行的执行主线）、
- * evolution（受控演化入口：临时协作统计结晶 evaluate→闸→落库）。
+ * rounds（send/abort/resume）、records（sessions/链记录）、
+ * sessions（create/rename/delete/refresh/tree/messages）、audit（导出/窗口）、
+ * tools（全量工具视图）、recovery（回退入口/回退点/重置）、backup（data_dir
+ * 快照导出/预览/恢复）、mcp（市场/挂载/卸载）、knowledge（知识集读面）、
+ * memory（记忆读面/失效）、growth（自学习报告）、edge_evidence（边证据只读
+ * 窗口）、metrics（回合指标）、entities（实体注册表快照）、os（OS 执行器
+ * 受控调用）、search（检索密钥）、material（资料批量导入）、models（模型
+ * 运行配置）、model_archive（模型档案快照）、capability（能力记录/基线/档位
+ * 登记）、policy（策略层路由预览）、ui_components（出厂组件启停）、workspace
+ * （工作区授权/挂载）、dialog（原生目录选择）、execution（执行运行时入口：
+ * 作用域转场 + 汇聚点产物，rounds 域并行的执行主线）、evolution（受控演化
+ * 入口：临时协作统计结晶 evaluate→闸→落库）。
+ * 组装链桥面（assemble/cache/path/pool/skeleton/graph/approval/todos）已随
+ * 组装链路退役（W7-B）：graph.instance（组装图投影）与 rounds.todos（计划/
+ * 挂起卡投影）数据源随组装退役恒空，审批卡面并入 execution 主线（exec 链
+ * 挂卡 + rounds.resume 决议注入）。
  * 与 cli 现有 host.ping/host.info 并存不冲突
  * （命名空间独立；方法表由 cli 并入命令面）。
  *
@@ -25,18 +27,14 @@
  */
 
 import type { BridgeHandler, HostBridgeDeps } from './_types.js';
-import { buildApprovalCommands, APPROVAL_COMMANDS } from './approval.js';
-import { buildAssembleCommands, ASSEMBLE_COMMANDS } from './assemble.js';
 import { buildAuditCommands, AUDIT_COMMANDS } from './audit.js';
 import { buildBackupCommands, BACKUP_COMMANDS } from './backup.js';
-import { buildCacheCommands, CACHE_COMMANDS } from './cache.js';
 import { buildCapabilityCommands, CAPABILITY_COMMANDS } from './capability.js';
 import { buildDialogCommands, DIALOG_COMMANDS } from './dialog.js';
 import { buildExecutionCommands, EXECUTION_COMMANDS } from './execution.js';
 import { buildEvolutionCommands, EVOLUTION_COMMANDS } from './evolution.js';
 import { buildEdgeEvidenceCommands, EDGE_EVIDENCE_COMMANDS } from './edge_evidence.js';
 import { buildEntitiesCommands, ENTITIES_COMMANDS } from './entities.js';
-import { buildGraphCommands, GRAPH_COMMANDS } from './graph.js';
 import { buildGrowthCommands, GROWTH_COMMANDS } from './growth.js';
 import { buildKnowledgeCommands, KNOWLEDGE_COMMANDS } from './knowledge.js';
 import { buildMaterialCommands, MATERIAL_COMMANDS } from './material.js';
@@ -46,17 +44,13 @@ import { buildMetricsCommands, METRICS_COMMANDS } from './metrics.js';
 import { buildModelArchiveCommands, MODEL_ARCHIVE_COMMANDS } from './model_archive.js';
 import { buildModelsCommands, MODELS_COMMANDS } from './models.js';
 import { buildOsCommands, OS_COMMANDS } from './os.js';
-import { buildPathCommands, PATH_COMMANDS } from './path.js';
 import { buildPolicyCommands, POLICY_COMMANDS } from './policy.js';
-import { buildPoolCommands, POOL_COMMANDS } from './pool.js';
 import { buildRecordsCommands, RECORDS_COMMANDS } from './records.js';
 import { buildRecoveryCommands, RECOVERY_COMMANDS } from './recovery.js';
 import { buildRoundsCommands, ROUNDS_COMMANDS } from './rounds.js';
 import { buildSearchCommands, SEARCH_COMMANDS } from './search.js';
 import { buildSessionsCommands, SESSIONS_COMMANDS } from './sessions.js';
-import { buildSkeletonCommands, SKELETON_COMMANDS } from './skeleton_ops.js';
 import { buildToolsCommands, TOOLS_COMMANDS } from './tools.js';
-import { buildTodosCommands, TODOS_COMMANDS } from './todos.js';
 import { buildUiComponentsCommands, UI_COMPONENTS_COMMANDS } from './ui_components.js';
 import { buildWorkspaceCommands, WORKSPACE_COMMANDS } from './workspace.js';
 
@@ -66,16 +60,12 @@ import { buildWorkspaceCommands, WORKSPACE_COMMANDS } from './workspace.js';
  * 顺序 = 分域注释块排列；self_check web_command_surface 夹具逐字比对此导出。
  */
 export const BRIDGE_METHODS = [
-  // rounds：回合驱动（含分支续跑）
+  // rounds：回合驱动（execution 主线：send/abort/resume）
   ...ROUNDS_COMMANDS,
-  // rounds.todos：回合待办（挂 rounds 域，独立文件实现）
-  ...TODOS_COMMANDS,
   // records：会话簿记查询/链记录查询
   ...RECORDS_COMMANDS,
   // sessions：会话薄服务（CRUD/刷新/分支树/消息投影）
   ...SESSIONS_COMMANDS,
-  // approval：审批卡查询/裁决
-  ...APPROVAL_COMMANDS,
   // audit：审计导出/只读窗口
   ...AUDIT_COMMANDS,
   // tools：引擎工具注册表全量工具视图
@@ -92,22 +82,10 @@ export const BRIDGE_METHODS = [
   ...MEMORY_COMMANDS,
   // growth：自学习/调参状态报告
   ...GROWTH_COMMANDS,
-  // graph：图实例摘要（引擎回合图结构 + 最近一回合执行态）
-  ...GRAPH_COMMANDS,
-  // skeleton：会话级骨架读/声明式修改（P4-B-2；校验+挂载后才落草稿）
-  ...SKELETON_COMMANDS,
-  // pool：池治理登记快照 / 引擎判定入口（只登记不越权写）
-  ...POOL_COMMANDS,
   // edge_evidence：边证据条目窗口（只读）
   ...EDGE_EVIDENCE_COMMANDS,
   // metrics：回合指标会话窗口（TurnMetrics 投影）
   ...METRICS_COMMANDS,
-  // assemble：组装链统计（开关位 + 缓存统计 + canary 门）
-  ...ASSEMBLE_COMMANDS,
-  // cache：指纹/多径缓存计数（只读）
-  ...CACHE_COMMANDS,
-  // path：path_assembler 装配状态（挂载/开关/canary/最近组装候选）
-  ...PATH_COMMANDS,
   // entities：实体注册表快照（只读）
   ...ENTITIES_COMMANDS,
   // os：受控 OS 执行器调用（headless 显式 --approve 语义）
@@ -154,10 +132,8 @@ export function buildBridge(deps: HostBridgeDeps): ReadonlyMap<string, BridgeHan
         };
   const groups = [
     buildRoundsCommands(deps),
-    buildTodosCommands(deps),
     buildRecordsCommands(deps),
     buildSessionsCommands(deps),
-    buildApprovalCommands(deps),
     buildAuditCommands(deps),
     buildToolsCommands(deps),
     buildRecoveryCommands(deps),
@@ -166,14 +142,8 @@ export function buildBridge(deps: HostBridgeDeps): ReadonlyMap<string, BridgeHan
     buildKnowledgeCommands(deps),
     buildMemoryCommands(deps),
     buildGrowthCommands(deps),
-    buildGraphCommands(deps),
-    buildSkeletonCommands(deps),
-    buildPoolCommands(deps),
     buildEdgeEvidenceCommands(deps),
     buildMetricsCommands(deps),
-    buildAssembleCommands(deps),
-    buildCacheCommands(deps),
-    buildPathCommands(deps),
     buildEntitiesCommands(deps),
     buildOsCommands(deps),
     buildSearchCommands(deps),

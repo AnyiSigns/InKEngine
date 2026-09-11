@@ -3,8 +3,9 @@
  *
  * 在途 run 登记表 + 排空信号（stop 据此等待自然完成）；abort_current_run
  * 以「当前 run」为粒度（多任务并发路由主机自行管理各自任务的取消）。
- * 审批决议重入实现在回合层（_runtime_rounds.resume_run：按 checkpoint 关联
- * 图重建本轮引擎再注入决议），本层只提供决议事件留痕与收尾调参辅助。
+ * 审批决议续跑由执行运行时承载（execution.resume：checkpoint 锚点恢复 +
+ * 决议注入，见 core/execution_runtime 与宿主 execution service），本层提供
+ * 决议事件留痕与回合收尾调参入口。
  *
  * TS seam 差异：Python asyncio 任务取消（CancelledError 穿透引擎、节点
  * 不归异常重试路径）无 JS Promise 对应——_active_run_task 为宿主取消
@@ -148,25 +149,5 @@ export abstract class RuntimeRunControl extends RuntimeStateMachine {
     this.turn_metrics.record_turn({ failed, error });
     const params = MetaTuner.load_params(this.knowledge_set);
     return this.meta_tuner.tune_persisted(params, this.turn_metrics);
-  }
-
-  /** resume_run 引擎抛错兜底调参（best-effort；正常完成由 settle 链收尾钩子
-   *  负责，本方法只在 settle 未触发时补记失败回合）。 */
-  _tune_round_end(result: unknown): void {
-    if (this.meta_tuner === null) return;
-    try {
-      const error = (result as { error?: unknown } | null)?.error;
-      const failed = result === null || result === undefined || Boolean(error);
-      this.tune_after_round({
-        failed,
-        error: error
-          ? String(error)
-          : result === null || result === undefined
-            ? '回合执行异常（无结果）'
-            : '',
-      });
-    } catch {
-      // 回合收尾调参失败（忽略）
-    }
   }
 }

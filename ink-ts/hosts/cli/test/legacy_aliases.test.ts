@@ -3,6 +3,8 @@
  * H2 桥面别名补映射后——扁平旧名可解析到点分方法（参数 camel→snake 适配、
  * 危险操作确认标记不回代），无真源旧名（round_ledger_merge / mcp_market_
  * preview|add|remove / memory.update_frontmatter）不注册 → -32601。
+ * W7-B 组装链路退役：todo_get/graph_instance_snapshot/pool_snapshot/
+ * pool_evaluate/assemble_stats/cache_stats/path_state 旧别名移除 → -32601。
  */
 
 import { describe, expect, it } from 'vitest';
@@ -36,7 +38,6 @@ function buildSurface(): {
     'rounds.send',
     'sessions.messages',
     'records.chain',
-    'rounds.todos',
     'rounds.resume',
     'recovery.reset',
     'recovery.checkpoints',
@@ -58,14 +59,8 @@ function buildSurface(): {
     'memory.list',
     'memory.invalidate',
     'growth.report',
-    'graph.instance',
-    'pool.snapshot',
-    'pool.evaluate',
     'edge_evidence.list',
     'metrics.snapshot',
-    'assemble.stats',
-    'cache.stats',
-    'path.state',
     'entities.snapshot',
   ];
   const bridge = new Map<string, Handler>();
@@ -79,8 +74,6 @@ describe('legacy 别名表（H2 补桥后）', () => {
     const rows = Object.fromEntries(table.map(({ flat, dotted }) => [flat, dotted]));
     expect(rows['session_messages']).toBe('sessions.messages');
     expect(rows['round_ledger_chain']).toBe('records.chain');
-    expect(rows['todo_get']).toBe('rounds.todos');
-    expect(rows['todo.get']).toBe('rounds.todos');
     expect(rows['recovery_factory_reset']).toBe('recovery.reset');
     expect(rows['recovery_snapshots']).toBe('recovery.checkpoints');
     expect(rows['recovery_restore_snapshot']).toBe('recovery.rollback');
@@ -94,15 +87,15 @@ describe('legacy 别名表（H2 补桥后）', () => {
     expect(rows['audit.list']).toBe('audit.list');
     expect(rows['knowledge.list']).toBe('knowledge.list');
     expect(rows['growth.report']).toBe('growth.report');
-    // H2b 读取类别名落点（写类/越权类不注册）
-    expect(rows['graph_instance_snapshot']).toBe('graph.instance');
-    expect(rows['pool_snapshot']).toBe('pool.snapshot');
-    expect(rows['pool_evaluate']).toBe('pool.evaluate');
+    // H2b 读取类别名落点（写类/越权类不注册）；组装链读取面已退役（W7-B）不注册
+    expect(rows['graph_instance_snapshot']).toBeUndefined();
+    expect(rows['pool_snapshot']).toBeUndefined();
+    expect(rows['pool_evaluate']).toBeUndefined();
     expect(rows['edge_evidence_list']).toBe('edge_evidence.list');
     expect(rows['metrics_snapshot']).toBe('metrics.snapshot');
-    expect(rows['assemble_stats']).toBe('assemble.stats');
-    expect(rows['cache_stats']).toBe('cache.stats');
-    expect(rows['path_state']).toBe('path.state');
+    expect(rows['assemble_stats']).toBeUndefined();
+    expect(rows['cache_stats']).toBeUndefined();
+    expect(rows['path_state']).toBeUndefined();
     expect(rows['entities_snapshot']).toBe('entities.snapshot');
     expect(rows['graph_snapshot']).toBeUndefined();
     expect(rows['tools_snapshot']).toBeUndefined();
@@ -124,7 +117,7 @@ describe('legacy 别名表（H2 补桥后）', () => {
 });
 
 describe('cli 命令面别名解析（H2）', () => {
-  it('session_messages / todo_get 适配 camel→snake 后落点', async () => {
+  it('session_messages 适配 camel→snake 后落点', async () => {
     const { handlers, captured } = buildSurface();
     const invoke = async (method: string, params: unknown): Promise<RpcResponse> =>
       await handleRequest({ jsonrpc: '2.0', id: 1, method, params }, handlers, CTX);
@@ -132,9 +125,16 @@ describe('cli 命令面别名解析（H2）', () => {
     const messages = await invoke('session_messages', { threadId: 't-1' });
     expect(messages.result).toMatchObject({ method: 'sessions.messages' });
     expect(captured.get('sessions.messages')!.params).toEqual({ thread_id: 't-1' });
+  });
 
-    await invoke('todo_get', { threadId: 't-3' });
-    expect(captured.get('rounds.todos')!.params).toEqual({ thread_id: 't-3' });
+  it('组装链旧别名 todo_get 已退役 → -32601', async () => {
+    const { handlers } = buildSurface();
+    const response = await handleRequest(
+      { jsonrpc: '2.0', id: 1, method: 'todo_get', params: { threadId: 't-3' } },
+      handlers,
+      CTX,
+    );
+    expect(response.error).toMatchObject({ code: ERROR_CODES.methodNotFound });
   });
 
   it('round_send 转发推理档位覆盖到 rounds.send model（effort/budget/开关原样）', async () => {
@@ -250,33 +250,24 @@ describe('cli 命令面别名解析（H2）', () => {
     expect(captured.get('audit.list')!.params).toEqual({ kind: 'x' });
   });
 
-  it('H2b 读取类别名解析落点（graph_instance_snapshot / pool_evaluate）', async () => {
+  it('H2b 读取类保留面别名解析（edge_evidence_list / metrics_snapshot / entities_snapshot）；组装链读取面已退役 → -32601（W7-B）', async () => {
     const { handlers, captured } = buildSurface();
     const invoke = async (method: string, params: unknown): Promise<RpcResponse> =>
       await handleRequest({ jsonrpc: '2.0', id: 1, method, params }, handlers, CTX);
 
-    await invoke('graph_instance_snapshot', { threadId: 't-a' });
-    expect(captured.get('graph.instance')!.params).toEqual({ thread_id: 't-a' });
-
-    await invoke('pool_evaluate', {
+    const gone = await invoke('graph_instance_snapshot', { threadId: 't-a' });
+    expect(gone.error).toMatchObject({ code: ERROR_CODES.methodNotFound });
+    const gone2 = await invoke('pool_evaluate', {
       proposal: { node_id: 'candidate', fields: ['a'] },
-      snapshot: { pool_count: 10, used_this_week: 0, pool_nodes: [] },
     });
-    expect(captured.get('pool.evaluate')!.params).toEqual({
-      proposal: { node_id: 'candidate', fields: ['a'] },
-      snapshot: { pool_count: 10, used_this_week: 0, pool_nodes: [] },
-    });
+    expect(gone2.error).toMatchObject({ code: ERROR_CODES.methodNotFound });
 
     await invoke('metrics_snapshot', {});
-    await invoke('assemble_stats', {});
-    await invoke('cache_stats', {});
     await invoke('entities_snapshot', {});
-    await invoke('path_state', {});
+    await invoke('edge_evidence_list', {});
     expect(captured.get('metrics.snapshot')!.calls).toBe(1);
-    expect(captured.get('assemble.stats')!.calls).toBe(1);
-    expect(captured.get('cache.stats')!.calls).toBe(1);
     expect(captured.get('entities.snapshot')!.calls).toBe(1);
-    expect(captured.get('path.state')!.calls).toBe(1);
+    expect(captured.get('edge_evidence.list')!.calls).toBe(1);
   });
 
   it('round_resume 决议重入：accept/reject 裸决议原样、edit 编辑内容映射为 edited_content', async () => {

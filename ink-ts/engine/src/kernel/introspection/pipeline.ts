@@ -17,16 +17,10 @@ import {
 } from './sources.js';
 import { IntrospectionService } from './service.js';
 
-/** 内省元工具的工具描述清单（注册进引擎工具表走统一流水线）。 */
+/** 内省元工具的工具描述清单（注册进引擎工具表走统一流水线；
+ *  inspect_graph 图观察子面已随组装链路退役，W7-B）。 */
 export function introspection_tool_specs(): ToolSpec[] {
   return [
-    new ToolSpec({
-      name: 'inspect_graph',
-      description:
-        '读取当前执行图的结构快照（节点/边/出口/子图与内容指纹），供 AI 观察自身运行形态',
-      parameters: { type: 'object', properties: {} },
-      permissions: [INTROSPECTION_PERMISSION],
-    }),
     new ToolSpec({
       name: 'inspect_rules',
       description:

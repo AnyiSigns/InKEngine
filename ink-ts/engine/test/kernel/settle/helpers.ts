@@ -18,7 +18,6 @@ import { Graph } from '../../../src/core/graph/graph.js';
 import { TerminateReason } from '../../../src/core/graph/graph_types.js';
 import type { EdgeKey } from '../../../src/core/edge_evidence/_types.js';
 import { RunResult } from '../../../src/core/run_result/run_result.js';
-import type { FingerprintCache, FingerprintCacheUpsertOpts } from '../../../src/kernel/settle/fingerprint.js';
 import {
   SettleContext,
   TraceStep,
@@ -107,7 +106,7 @@ export function makeCtx(
   });
 }
 
-// ── 闸门 / 缓存桩 ───────────────────────────────────────────────────────────
+// ── 闸门桩 ────────────────────────────────────────────────────────────────
 
 /** 闸门桩（QualityGate 形态：evaluate(ctx) -> bool）。 */
 export class StubGate {
@@ -119,19 +118,6 @@ export class StubGate {
 
   async evaluate(_ctx: SettleContext): Promise<boolean> {
     return this.passed;
-  }
-}
-
-/** 缓存桩（记录 upsert 调用：{fingerprint, ...opts}）。 */
-export class FakeCache implements FingerprintCache {
-  readonly upserts: Array<Record<string, unknown>> = [];
-
-  async upsert(
-    fingerprint: string,
-    opts: FingerprintCacheUpsertOpts,
-  ): Promise<boolean> {
-    this.upserts.push({ fingerprint, ...opts });
-    return true;
   }
 }
 

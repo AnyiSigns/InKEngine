@@ -4,31 +4,21 @@
  *
  * 覆盖：createHost 装配（memory 与 sqlite 两真存储后端）、rounds.send 一轮
  * 回复与事件、records.sessions / records.chain 查询、事件文件非空、dispose
- * 幂等。审批卡/裁决语义另在 bridge.test.ts 覆盖（gate 图无模型依赖）。
- * W7-A 迁移注：本文件锁定组装路径的实时事件流面（reply_token 事件、引擎消息
- * 链续写等属组装回合专属；execution 主线事件带/落链见 rounds_mainline.test.ts），
- * 文件级打开 INK_ROUNDS_ASSEMBLY_FALLBACK 回退开关保持绿。
+ * 幂等。审批卡/裁决语义另在 rounds_mainline 覆盖（exec 链挂卡 + rounds.resume）。
+ * W7-B 迁移注：组装回退 flag 已随组装链路退役，本文件走 execution 主线默认
+ * 回合；主线事件带/落链语义见 rounds_mainline.test.ts。
  */
 
 import { mkdtempSync, readdirSync, statSync } from 'node:fs';
 import { tmpdir } from 'node:os';
 import path from 'node:path';
 
-import { afterEach, beforeAll, afterAll, beforeEach, describe, expect, it } from 'vitest';
+import { afterEach, beforeEach, describe, expect, it } from 'vitest';
 import { BOOT_SYSTEM_PROMPT } from '@ink-ts/engine';
 
 import { createHost } from '../src/index.js';
 import type { HostHandle } from '../src/index.js';
-import { disableAssemblyFallback, enableAssemblyFallback } from './_rounds_flag.js';
 import { FakeOpenAIServer } from './_fake_openai.js';
-
-beforeAll(() => {
-  enableAssemblyFallback();
-});
-
-afterAll(() => {
-  disableAssemblyFallback();
-});
 
 interface Ctx {
   dir: string;
@@ -91,7 +81,8 @@ describe('host 装配冒烟（真存储 + 假 OpenAI + 一轮 round）', () => {
     expect(result.reply).toBe('你好，宿主');
     expect(result.reason).toBe('reply');
     expect(result.events.count).toBeGreaterThan(0);
-    expect(result.events.types).toContain('reply_token');
+    // 主线事件带 = 执行运行时动作词（组装路 reply_token 事件流随组装退役）
+    expect(result.events.types).toContain('scope_turn');
 
     // P4.2b：boot 系统提示词经配方 AssemblyRecipe.boot_system_prompt 注入 →
     // llm 类结点 system 消息合成（真实回合多出 boot 只读基线，非知识条目检索）
@@ -103,7 +94,8 @@ describe('host 装配冒烟（真存储 + 假 OpenAI + 一轮 round）', () => {
       messages: Array<{ role: string; content: string }>;
     }).messages;
     expect(sentMessages[0]!.role).toBe('system');
-    expect(sentMessages[0]!.content).toBe(BOOT_SYSTEM_PROMPT);
+    // 主线 system = boot 只读基线 + 作用域 persona 增量叠加（含 boot 前缀即对齐）
+    expect(sentMessages[0]!.content.startsWith(BOOT_SYSTEM_PROMPT)).toBe(true);
 
     // 事件落文件实时刷新（非日志打印）：events 目录含 JSONL 且非空
     const files = readdirSync(ctx.events);

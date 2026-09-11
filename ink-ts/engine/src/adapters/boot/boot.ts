@@ -163,7 +163,6 @@ export function build_boot_seed_entries(): KnowledgeEntry[] {
 // 观察工具来自 introspection 机制层，演化工具来自 self_application
 // 机制层——二者均为引擎能力，不随宿主壳漂移。
 export const BOOT_METATOOLS: readonly string[] = [
-  'inspect_graph',
   'inspect_rules',
   'inspect_knowledge',
   'inspect_ui',

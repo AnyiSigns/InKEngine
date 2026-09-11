@@ -34,19 +34,6 @@ export type {
   ToolWiring,
 } from './kernel/runtime/index.js';
 
-// ── 会话级骨架 + 续跑意图协议（P4：thread 尺度会话数据形态/状态键）──
-export {
-  THREAD_SKELETON_STATE_KEY,
-  ThreadSkeleton,
-} from './core/thread_skeleton/index.js';
-export type {
-  SkeletonEdgeSpec,
-  SkeletonNodeSpec,
-  ThreadSkeletonStatus,
-} from './core/thread_skeleton/index.js';
-export { ROUND_CONTINUATION_STATE_KEY } from './kernel/runtime/index.js';
-export type { ContinuationIntent, ContinuationReason } from './kernel/runtime/index.js';
-
 // ── 2. 核心机制公开面 ──
 
 // 图（数据即图，宿主按 SchemaSerializable 组装/序列化）
@@ -198,19 +185,13 @@ export * from './core/link_validator/link_validator.js';
 export * from './core/event_types/registry.js';
 export * from './core/event_types/eventTypeSpec.js';
 export {
-  EVENT_AUDIT_ASSEMBLY,
-  EVENT_ASSEMBLY_CANDIDATE,
   EVENT_AUDIT_JUNCTION,
-  EVENT_AUDIT_FINGERPRINT_REPLACE,
   EVENT_AUDIT_POLICY_REVIEW,
   EVENT_AUDIT_PROMOTION,
   EVENT_TURN_STARTED,
-  EVENT_ASSEMBLY_STARTED,
-  EVENT_ASSEMBLY_DONE,
   EVENT_EXECUTION_STARTED,
   attachment_event_spec,
   audit_event_specs,
-  assembly_candidate_event_spec,
   output_gate_event_specs,
 } from './core/event_types/eventTypeSpecs.js';
 
@@ -226,19 +207,15 @@ export {
 } from './kernel/budget/budget.js';
 export type { BudgetPolicy, BudgetQuery } from './kernel/budget/budget.js';
 
-// 结点契约（NodeContract/PathAssemblyConfig/QualityGate 等公开类型；
-// PathAssemblyFlags/BOOT_KEY_* 为内部装配门（按名透传键仅机制层消费），
-// 不随公共面外泄——宿主经 AssemblyRecipe 机制开关显式装配）
+// 结点契约（NodeContract/QualityGate 等公开类型）
 export {
   CONTRACT_VERSION_MIN,
   SAFETY_TIER_MAX,
   SAFETY_TIER_MIN,
   NodeContract,
-  PathAssemblyConfig,
 } from './core/contracts/contracts.js';
 export type {
   NodeContractInit,
-  PathAssemblyConfigInit,
   QualityGate,
 } from './core/contracts/contracts.js';
 
@@ -692,6 +669,10 @@ export type {
   SynthesisInput,
   SynthesisPoint,
 } from './core/collab/index.js';
+
+// ── 受控白板授权块（上下文装载面：执行运行时读共享块经 AuthorizedBlock
+//    契约；W6C2 缺口补透出）──
+export type { AuthorizedBlock } from './core/context/block_source.js';
 
 // ── 3. adapters 工厂面 ──
 

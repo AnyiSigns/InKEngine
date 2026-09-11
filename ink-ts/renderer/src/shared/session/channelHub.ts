@@ -122,7 +122,6 @@ export class ChannelHub {
 
   constructor(inspectInitial?: Partial<Record<InspectChannelName, InspectSnapshot>>) {
     this.inspect = {
-      inspect_graph: { version: 0, nodes: [], edges: [], patchChain: [] },
       inspect_rules: { version: 0, rules: [] },
       inspect_knowledge: { version: 0, entries: [] },
       inspect_ui: { version: 0, componentWhitelist: [], bindChannelWhitelist: [], themeTokenWhitelist: [] },

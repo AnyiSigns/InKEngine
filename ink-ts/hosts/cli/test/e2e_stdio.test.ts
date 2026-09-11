@@ -1,6 +1,8 @@
 /**
  * stdio 形态 e2e：spawn cli → host.ping/host.info + rounds.send 回合请求 →
- * 事件流响应（events 摘要含回合事件类型），stdin 关闭后优雅退出（exit 0）。
+ * 回执信封（W7-B：组装回退已退役——无模型主线回合显式收口 reason='error'，
+ * 不再断言确定性 stub 回复与 reply_token 实时事件带，见 w7a 引擎缺口 #1），
+ * stdin 关闭后优雅退出（exit 0）。
  */
 
 import { mkdtempSync } from 'node:fs';
@@ -8,7 +10,6 @@ import { tmpdir } from 'node:os';
 import path from 'node:path';
 import { createInterface } from 'node:readline';
 
-import { ENGINE_STUB_REPLY } from '@ink-ts/engine';
 import { afterEach, describe, expect, it } from 'vitest';
 
 import { spawnCli } from './_spawn.js';
@@ -118,14 +119,17 @@ describe('stdio e2e（host bridge 注入 + 回合事件流响应）', () => {
       thread_id: string;
       trace_id: string;
       reason: string;
-      reply: string;
+      reply?: string | null;
+      execution_outcome?: string;
+      degraded_summaries?: string[];
       events: { count: number; types: string[] };
     };
-    expect(result.reason).toBe('reply');
-    expect(result.reply).toBe(ENGINE_STUB_REPLY);
+    // 无模型主线回合：显式收口不静默（w7a 语义迁移注记 3）
+    expect(result.reason).toBe('error');
+    expect(result.reply ?? null).toBeNull();
+    expect(result.execution_outcome).toBe('failure');
+    expect((result.degraded_summaries ?? []).join('；')).toContain('会话默认模型');
     expect(result.trace_id).toBe('st-trace-1');
-    expect(result.events.count).toBeGreaterThan(0);
-    expect(result.events.types).toContain('reply_token');
 
     // rounds 后 records.sessions 可见该会话（同一 host 装配实例）
     const sessionsView = await session.request(4, 'records.sessions');

@@ -10,7 +10,7 @@
       "entry": "./faces/ui/index.tsx",
       "access": {
         "store": ["sessions", "activeSessionId", "branchTrees"],
-        "inject": ["onSelectSession", "onCreateSession", "onRenameSession", "onDeleteSession", "onBranchFromMessage", "onBranchFromLeaf"]
+        "inject": ["onSelectSession", "onCreateSession", "onRenameSession", "onDeleteSession"]
       }
     }
   },

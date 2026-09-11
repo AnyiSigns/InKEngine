@@ -22,13 +22,14 @@ describe('InsightSection（事件时间线）', () => {
 
 describe('labels', () => {
   it('类型短标签', () => {
-    expect(TYPE_LABELS.assembly_candidate).toBe('组装候选');
+    expect(TYPE_LABELS.junction_verdict).toBe('汇流裁决');
     expect(TYPE_LABELS.patch_reverted).toBe('补丁回退');
+    expect(TYPE_LABELS.assembly_candidate).toBeUndefined();
   });
 
   it('describeEntry 优先 reason/action，缺省回落类型名', () => {
     expect(describeEntry('policy_edge_review', { reason: '失败超阈值' })).toBe('策略边复审：失败超阈值');
-    expect(describeEntry('assembly_candidate', { candidate_id: 'c1' })).toBe('组装候选：c1');
+    expect(describeEntry('node_start', { candidate_id: 'c1' })).toBe('节点执行：c1');
     expect(describeEntry('unknown_kind', {})).toBe('unknown_kind');
   });
 

@@ -25,22 +25,17 @@ import type { IntrospectionService } from '../introspection/index.js';
 import type { ToolPipeline } from '../tool_pipeline/tool_pipeline.js';
 import type { SelfApplicationPipeline } from '../self_application/index.js';
 import type { RetrieverRegistry } from '../../core/retrieval/index.js';
-import type { PoolGovernance } from '../pool_governance/pool_governance.js';
 import type { MetaTuner, TurnMetrics } from '../tuning/index.js';
 import type { ToolVectorIndex } from '../../core/tool_index/tool_index.js';
 import type { ToolSelector } from '../../core/tool_orchestrator/tool_orchestrator.js';
-import type { PathAssemblyFlags } from '../../core/contracts/contracts.js';
 import type { ToolSpec } from '../llm/tools.js';
 import type { GrowthPipeline } from '../growth/index.js';
 import type { EntityEvolutionPipeline } from '../entity_evolution/index.js';
 import type { DefaultEvolutionWriter } from '../evolution_writer/evolution_writer.js';
 import type { EdgeEvidenceStore } from '../../core/edge_evidence/store.js';
-import type { FingerprintCacheStore } from '../../core/fingerprint_cache/store.js';
 import type { StorageBackedMemoryStore } from '../../core/memory/store.js';
 import type { KnowledgeSkillStore } from '../skill_crystal/knowledge_skill_store.js';
-import type { PathAssemblyRuntime } from '../path_assembler/runtime.js';
 import type { EnvironmentProviders } from '../../core/environments/providers.js';
-import type { ContextMixer } from '../../core/context/context_mixer.js';
 import type { EngineTransport } from '../../core/events/events.js';
 import type { _RoundStepsRecorder } from './_round_steps_recorder.js';
 import type { AssemblyRecipe, Host, RuntimeConfigInit } from './_types.js';
@@ -162,16 +157,10 @@ export abstract class RuntimeBase {
   _tool_tags: Record<string, Set<string>> = {};
   _thread_tag_created: Record<string, number> = {};
   _tags_lock = false;
-  pool_governance: PoolGovernance | null = null;
-  /** 池治理裁决可写 seam（A3 R3：结点类型注册表 store 存在 = 接登记数据
-   *  受控写实现；未装配 = null → settle 回落登记 + 审计）。 */
-  pool_governance_writable: import('../settle/index.js').GovernanceWriteTarget | null = null;
-  /** 池治理状态持久化 store（records 通道：周预算/去重/晋升签名落盘）。
-   *  未装配（settle_hooks_enabled=false）= null → 进程内存回落语义。 */
-  pool_governance_state: import('../pool_governance/state_store.js').PoolGovernanceStateStore | null = null;
-  /** 已晋升路径签名去重键（装配期从持久 records 恢复；晋升钩子幂等 upsert）。 */
+  /** 已晋升路径签名去重键（进程内在内存集；晋升钩子幂等 upsert。持久化
+   *  通道已随池治理状态 store 退役——重启后同路径可能重复提请晋升，report）。 */
   _pg_promoted: ReadonlySet<string> = new Set();
-  /** 已降级策略边去重键（装配期从持久 records 恢复；复审钩子幂等 upsert）。 */
+  /** 已降级策略边去重键（进程内在内存集；复审钩子幂等 upsert）。 */
   _pg_downgraded: ReadonlySet<string> = new Set();
   /** 声明式结点类型注册表 store（A3 决策 4：boot 种子 + 持久登记 + 恢复）。 */
   node_registry_store: import('../../core/node_registry/index.js').NodeRegistryStore | null = null;
@@ -186,9 +175,9 @@ export abstract class RuntimeBase {
   // （rebuild_engine 刷新/stop 关停），不再有任何常驻 Engine 字段。
   engine_llm: AsyncLLM | null = null;
 
-  // ── 回合沉淀/记录器装配产物（引擎自接线：ledger/池治理/回合步骤）──
+  // ── 回合沉淀/记录器装配产物（引擎自接线：ledger/回合步骤）──
   // 机制层写入统一走受控 EvolutionWriter（构造注入运行时键源/时钟，审计
-  // 记录键实例内唯一不互相覆盖）；ledger/池治理/回合步骤状态挂在 Runtime
+  // 记录键实例内唯一不互相覆盖）；ledger/回合步骤状态挂在 Runtime
   // 实例（引擎重建只重挂钩子，状态跨 rebuild 连续）。
   _mechanism_writer: DefaultEvolutionWriter | null = null;
   edge_evidence_store: EdgeEvidenceStore | null = null;
@@ -199,15 +188,8 @@ export abstract class RuntimeBase {
   _ledger_latest_summary: Record<string, string> = {};
   /** 每线程最近一次已记账的回合 id（同 round 幂等：不重复产出）。 */
   _ledger_rounds: Record<string, string> = {};
-  // 引擎自承载装配产物（证据/缓存/组装运行期/环境/多域调配器；见
-  // _runtime_mechanisms 装配段；null = 机制开关关闭未装配）
-  fingerprint_cache_store: FingerprintCacheStore | null = null;
-  assembly_runtime: PathAssemblyRuntime | null = null;
-  /** 机制装配开关组（配方解析产物；由 _mount_assembly_runtime 写出，
-   *  挂载的组装运行期与引擎状态按位消费——见 D01/D02）。 */
-  assembly_flags: PathAssemblyFlags | null = null;
+  // 引擎自承载装配产物（环境提供器；见 _runtime_mechanisms 装配段）
   environment_providers: EnvironmentProviders | null = null;
-  context_mixer: ContextMixer | null = null;
 
   // ── 自学习族装配产物（回合记忆抽取/技能结晶/调参；null = 开关关闭）──
   // 记忆存储 = 受守卫演化资产通道（EvolutionWriter kind=memory）；技能存储

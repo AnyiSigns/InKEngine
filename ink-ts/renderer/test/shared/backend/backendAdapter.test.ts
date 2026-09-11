@@ -68,7 +68,6 @@ describe('serve 通道适配器', () => {
     await backend.sessionDelete('thread-a');
     await backend.sessionRefresh('thread-a');
     await backend.sessionTree('thread-a');
-    await backend.sessionBranch('thread-a', 'branch', 5, '编辑文本');
     expect(calls.map((call) => call.cmd)).toEqual([
       'session_list',
       'session_create',
@@ -76,10 +75,8 @@ describe('serve 通道适配器', () => {
       'session_delete',
       'session_refresh',
       'session_tree',
-      'session_branch',
     ]);
     expect(calls[2].args).toEqual({ threadId: 'thread-a', title: '新标题' });
-    expect(calls[6].args).toEqual({ threadId: 'thread-a', action: 'branch', targetLeaf: 5, editText: '编辑文本' });
   });
 
   it('回合/能力档/备份/崩溃回退命令参数对齐宿主（危险操作带 confirm）', async () => {
@@ -123,10 +120,9 @@ describe('serve 通道适配器', () => {
     expect(calls[1].args).toEqual({ disabled: ['message_list'] });
   });
 
-  it('命令名对齐点分/别名面（todo/growth/mcp/knowledge/memory/graph/audit 直调）', async () => {
+  it('命令名对齐点分/别名面（growth/mcp/knowledge/memory/audit 直调；todo/graph 读面已随组装链路退役，W7-B）', async () => {
     const { channel, calls } = mockChannel();
     const backend = createServeBackend(channel);
-    await backend.todoGet('thread-a');
     await backend.growthReport();
     await backend.modelsRefresh({ base_url: 'http://x', models: [] });
     await backend.modelsConfigPut({ providers: [] });
@@ -137,10 +133,8 @@ describe('serve 通道适配器', () => {
     await backend.knowledgeExport();
     await backend.memoryList();
     await backend.memoryInvalidate('m-1');
-    await backend.graphInstanceSnapshot('thread-a');
     await backend.auditList({ limit: 100 });
     expect(calls.map((call) => call.cmd)).toEqual([
-      'rounds.todos',
       'growth.report',
       'models_refresh',
       'models_config_put',
@@ -151,22 +145,19 @@ describe('serve 通道适配器', () => {
       'knowledge.export',
       'memory.list',
       'memory.invalidate',
-      'graph.instance',
       'audit.list',
     ]);
-    expect(calls[0].args).toEqual({ thread_id: 'thread-a' });
-    expect(calls[1].args).toEqual({});
-    expect(calls[2].args).toEqual({ config: { base_url: 'http://x', models: [] } });
-    expect(calls[3].args).toEqual({ config: { providers: [] } });
-    expect(calls[4].args).toEqual({ options: { title: '选目录', directory: true, multiple: false } });
-    expect(calls[5].args).toEqual({});
-    expect(calls[6].args).toEqual({ id: 'market.fs_access' });
-    expect(calls[7].args).toEqual({ args: { includeArchived: true } });
+    expect(calls[0].args).toEqual({});
+    expect(calls[1].args).toEqual({ config: { base_url: 'http://x', models: [] } });
+    expect(calls[2].args).toEqual({ config: { providers: [] } });
+    expect(calls[3].args).toEqual({ options: { title: '选目录', directory: true, multiple: false } });
+    expect(calls[4].args).toEqual({});
+    expect(calls[5].args).toEqual({ id: 'market.fs_access' });
+    expect(calls[6].args).toEqual({ args: { includeArchived: true } });
+    expect(calls[7].args).toEqual({});
     expect(calls[8].args).toEqual({});
-    expect(calls[9].args).toEqual({});
-    expect(calls[10].args).toEqual({ ids: ['m-1'] });
-    expect(calls[11].args).toEqual({ thread_id: 'thread-a' });
-    expect(calls[12].args).toEqual({ limit: 100 });
+    expect(calls[9].args).toEqual({ ids: ['m-1'] });
+    expect(calls[10].args).toEqual({ limit: 100 });
   });
 
   it('mcp.enable id 直调（插件启停面）', async () => {
@@ -230,7 +221,6 @@ describe('远端会话存储（真实数据源注入 mock 后端）', () => {
       roundAbort: vi.fn(),
       roundResume: vi.fn(),
       sessionTree: vi.fn(),
-      sessionBranch: vi.fn(),
       authorizationState: vi.fn(),
       workspaceAuthorize: vi.fn(),
       workspaceRevoke: vi.fn(),

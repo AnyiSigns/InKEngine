@@ -6,10 +6,6 @@
  * 常量，改动须两端同步。
  */
 
-// 回合装配检索上限（ENG3-16：与检索原语 DEFAULT_LIMIT 同值 8，钳制回合
-// 注入上下文体积；分级口径见 _assembly_sources）
-export const _ASSEMBLY_SOURCE_LIMIT = 8;
-
 // 保底 8+2 常驻集合（collect_specs 只注入这些完整 schema 进 tools 参数）。
 // 保底 8 = file_read/file_write/file_edit/grep/glob（声明式）
 //         + propose_patch/propose_domain_manifest（自指）+ inspect_tools（内省）

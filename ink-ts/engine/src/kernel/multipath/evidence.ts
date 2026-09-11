@@ -17,7 +17,7 @@ import { DEFAULT_CONTRACT_VERSION } from '../../core/edge_evidence/index.js';
 import type { EdgeEvidence, EdgeKey } from '../../core/edge_evidence/index.js';
 import { derive_edge_tier } from '../../core/edge_evidence/index.js';
 import { produced_field_names } from '../../core/link_validator/link_validator.js';
-import type { AssemblyCandidate } from '../path_assembler/types.js';
+import type { AssemblyCandidate } from './types.js';
 
 /** 域内证据行 → 内存索引键（4 元口径，\u0000 分隔防串键）。 */
 function index_key(

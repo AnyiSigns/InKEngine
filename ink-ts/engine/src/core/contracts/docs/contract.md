@@ -13,7 +13,7 @@
 
 | 文件 | 职责 |
 | ---- | ---- |
-| `contracts.ts` | NodeContract / PathAssemblyConfig / PathAssemblyFlags / BOOT_KEY_* / QualityGate |
+| `contracts.ts` | NodeContract / PathAssemblyFlags / BOOT_KEY_* / QualityGate（PathAssemblyConfig 类与 `as_path_assembly_config()` 已随组装链路退役删除，W7-B） |
 | `generated/index.ts` | 生成物汇出口（endpointTypes + patchProtocol） |
 | `generated/endpointTypes.ts` | 内置端点契约（七端点 spec + FieldKind） |
 | `generated/patchProtocol.ts` | 补丁协议（PATCH_KINDS/OPS、审批分级、审计状态、守卫面） |
@@ -22,15 +22,14 @@
 
 | 导出 | 形态 | 语义 |
 | ---- | ---- | ---- |
-| `NodeContract` | 类 | input/output_schema（SchemaSpec）+ safety_tier 0/1/2（0 最严，与审批档 L0-L2 同阶）+ version ≥1；to_dict/from_dict 随图定义落库；可缺省（无契约结点不参与组装，仅可被手绘图引用） |
-| `PathAssemblyConfig` | 类 | 机制入口开关（enabled 缺省 false，默认全关） |
-| `PathAssemblyFlags` | 类 | 七块独立 feature flag（contract/edge_evidence/settle_hooks/pool_governance/assembler/multipath/fingerprint_cache），缺省全关；from_boot 按 BOOT_KEY_* 长键按名读取；to_boot_dict 反向序列化；as_path_assembly_config() 取组装器块开关 |
+| `NodeContract` | 类 | input/output_schema（SchemaSpec）+ safety_tier 0/1/2（0 最严，与审批档 L0-L2 同阶）+ version ≥1；to_dict/from_dict 随图定义落库；可缺省（无契约结点不受契约门约束，pool 结点类型登记与执行期契约校验共用） |
+| `PathAssemblyFlags` | 类 | 七块独立 feature flag（contract/edge_evidence/settle_hooks/pool_governance/assembler/multipath/fingerprint_cache），缺省全关；from_boot 按 BOOT_KEY_* 长键按名读取；to_boot_dict 反向序列化。W7-B 注：pool_governance/assembler/fingerprint_cache 三位的机制消费面已随组装链路退役；类保留为 boot 透传协议形状（键名 = 装配协议一部分），生产侧现仅剩 `kernel/multipath` 的类型签名消费 |
 | `BOOT_KEY_*`（7 个常量） | 值 | 装配透传键（`path_assembly_*_enabled`），对应壳侧 BootOptions 透传 JSON——键名是装配协议的一部分 |
 | `SAFETY_TIER_MIN/MAX`、`CONTRACT_VERSION_MIN` | 值 | 安全档 0-2；契约版本下限 1 |
 | `QualityGate` | 接口 | judge(domain, artifact) → bool \| Promise\<bool\>；实现归使用方，settle 只记录布尔结论；未注入闸门走 fail-closed 降级链 |
 
-公共面导出（src/index.ts）：NodeContract/PathAssemblyConfig 值导出 +
-NodeContractInit/PathAssemblyConfigInit/QualityGate 类型；**BOOT_KEY_* 与
+公共面导出（src/index.ts）：NodeContract/QualityGate 等类型值面（PathAssemblyConfig
+值导出与 PathAssemblyConfigInit 类型已随类删除，W7-B）；**BOOT_KEY_* 与
 PathAssemblyFlags 不随公共面外泄**（内部装配门，宿主经 AssemblyRecipe
 机制开关显式装配）；generated 组导出 APPROVAL_LEVELS/AUDIT_STATUSES/
 BUILTIN_ENDPOINT_NAMES/BUILTIN_ENDPOINTS/GUARDED_COLLECTIONS/
@@ -53,8 +52,9 @@ GUARDED_PREFIXES/PATCH_KINDS/PATCH_OPS 及配套类型。
 
 - 上游：`core/errors`（GraphDefinitionError）、`core/json`（isRecord/
   typeName）、`core/schema`（SchemaSpec）。
-- 下游（机制面）：`kernel/runtime`（from_boot 解析 + 结点注册契约校验）、
-  `kernel/path_assembler`、`kernel/multipath`（QualityGate 判定注入）、
+- 下游（机制面）：`kernel/runtime`（结点注册契约校验与图执行数据；组装路的
+  boot flag from_boot 解析已随组装链路退役，W7-B）、
+  `kernel/multipath`（QualityGate 判定注入 + PathAssemblyFlags.multipath_enabled）、
   `kernel/executor`（QualityGate）、`kernel/self_application`（审批分级/
   守卫集合/generated）、`kernel/self_proposal`（PATCH_KINDS）；core 侧
   `node_registry`/`link_validator`/`graph`/`perception`/`nodes`。
@@ -74,4 +74,4 @@ GUARDED_PREFIXES/PATCH_KINDS/PATCH_OPS 及配套类型。
 ## 测试
 
 `test/core/contracts/contracts.test.ts`（形态校验/序列化往返/from_boot）；
-消费方测试覆盖（path_assembler/multipath/runtime/node_registry 等）。
+消费方测试覆盖（multipath/runtime/node_registry 等；path_assembler 消费随 W7-B 退役）。

@@ -14,7 +14,6 @@ export const UI_CANONICAL_COMPONENTS = [
   'session_list',
   'settings_floater',
   'task_capsule',
-  'todo_view',
   'top_bar',
   'trajectory_view',
 ] as const;

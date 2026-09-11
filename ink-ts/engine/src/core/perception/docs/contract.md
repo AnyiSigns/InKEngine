@@ -18,7 +18,7 @@
 ## 对外契约面
 
 - `register_perception_nodes(registry: NodeTypeRegistry)`：装配处调用
-  （kernel/runtime/_runtime_assemble 唯一 src 消费点）；登记后类型进结点
+  （kernel/runtime/_runtime_boot 唯一 src 消费点）；登记后类型进结点
   池，路径组装器 contract_pool 可见。
 - 纯函数：`cross_validate_channels(element_result, pixel_result, {threshold?})`
   → CrossValidationResult（consistent/recheck_signal/decision/note）、

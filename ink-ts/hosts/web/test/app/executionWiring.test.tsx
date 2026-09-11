@@ -85,8 +85,6 @@ const baseProduct: Record<string, unknown> = {
   workspaceRoot: null,
   models: undefined,
   agentModelId: null,
-  hasTodo: false,
-  todoPending: 0,
   settingsOpen: false,
   roundCount: 0,
   stepCount: 0,

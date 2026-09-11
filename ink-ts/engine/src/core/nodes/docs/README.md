@@ -21,4 +21,4 @@
 
 ## 依赖
 - 上游（本目录实际 import）：`core/`（contracts、schema、graph、entities、edge_evidence/seed、errors、registry、registry_types）+ `kernel/llm`（messages、base、`_guard_types`、tools）+ `kernel/tool_pipeline`（llm/tool 类型面与消息原语，无 IO 实现 import）。
-- 下游（实际 import 本目录）：`src/index.ts`（公共面 42 名）；`kernel/runtime`（`_runtime_assemble`/`_runtime_engine`/`_runtime_mechanisms`/`_runtime_node_registry`/`_runtime_rounds`/`_types`）；`kernel/tool_pipeline`（`STATE_ROUND_POSE`）；`core/execution_runtime`（`engine_turn_runner`）；hosts/lib `bridge/rounds.ts` 经公共面取 `STATE_*`；测试 `test/core/nodes/`（13 文件）。
+- 下游（实际 import 本目录）：`src/index.ts`（公共面 42 名）；`kernel/runtime`（`_runtime_boot`/`_runtime_engine`/`_runtime_mechanisms`/`_runtime_node_registry`/`_types`；`_runtime_rounds` 消费已随组装链路退役删除，W7-B）；`kernel/tool_pipeline`（`STATE_ROUND_POSE`）；`core/execution_runtime`（`engine_turn_runner`）；hosts/lib `bridge/rounds.ts` 经公共面取 `STATE_*`；测试 `test/core/nodes/`（13 文件）。

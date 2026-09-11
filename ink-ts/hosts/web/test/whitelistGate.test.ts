@@ -10,7 +10,7 @@ import { isComponentRegistered } from '@/renderer/componentRegistry';
  * 布局树引用组件并集（plugins/manifest.json `ui_features.components`，升序）。
  * 旧侧身份 manifest contracts.renderer_components 须与其逐项一致——前端注册表
  * 必须对清单内每个名字都可解析（spec 渲染/组件 tab 永不落「未注册拒绝」）。
- * 注册表侧为清单超集允许（pathAssembly 等运行时装配名不在出厂清单）。
+ * 注册表侧为清单超集允许（executionTree 等运行时装配名不在出厂清单）。
  */
 describe('出厂渲染器白名单对码', () => {
   const derived = JSON.parse(

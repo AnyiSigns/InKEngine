@@ -32,7 +32,6 @@ import { createCapabilityStore } from './capability/store.js';
 import { buildHostSearch } from './search/wiring.js';
 import type { InkHost } from './host.js';
 import { createWorkspaceStore } from './workspace/store.js';
-import { buildSessionCommandTools } from './session_command.js';
 import { buildPluginCommandTools } from './plugin_command.js';
 import { buildCollabCommandTools } from './collab_command.js';
 import type { HostExecutionService } from './execution/service.js';
@@ -164,9 +163,10 @@ export async function createHost(
     gate,
   };
 
-  /** session_command 工具族（agent 工具包面执行接线）：声明式定义 + 执行体
-   *  分发到既有 bridge 命令实现。call 懒取 bridge（restore 重装后仍指向活命令表），
-   *  注册目标 = 每 boot 的运行时声明式 harness（web_search 同通道）。 */
+  /** agent 工具族执行接线（plugin_command 消费）：call 懒取 bridge（restore
+   *  重装后仍指向活命令表），注册目标 = 每 boot 的运行时声明式 harness
+   *  （web_search 同通道）。session_command 工具族（skeleton.inspect/update、
+   *  rounds.trial）已随组装链路退役。 */
   let bridgeRef: ReadonlyMap<string, BridgeHandler> | null = null;
   const callBridge = async (method: string, params: Record<string, unknown>): Promise<unknown> => {
     const handler = bridgeRef !== null ? bridgeRef.get(method) : undefined;
@@ -175,7 +175,6 @@ export async function createHost(
     }
     return handler(params, { autoApprove: deps.autoApprove });
   };
-  const sessionTools = buildSessionCommandTools(callBridge);
   // plugin_command 工具族（B6 agent 插件管理面）：plugin.catalog 走宿主注入的
   // 目录快照（运行时组件/常驻集/mcp 服务/能力台账），其余分发到既有桥命令。
   const pluginTools = buildPluginCommandTools(callBridge, async (): Promise<Record<string, unknown>> => {
@@ -200,7 +199,6 @@ export async function createHost(
   const registerSessionCommandTools = (): void => {
     const declarative = parts.runtime.harness_registry?.declarative;
     if (declarative !== null && declarative !== undefined) {
-      sessionTools.register(declarative as never);
       pluginTools.register(declarative as never);
       // collab_request 组织类工具（执行模型 §7.1）：声明式定义 + 端点执行体，
       // 「召唤协作者」经宿主执行装配（ExecutionRuntime）兑现为子执行 + 归并契约
@@ -316,15 +314,8 @@ export type {
   ResolvedHostConfig,
   RoleEndpointConfig,
 } from './config.js';
-export { PRODUCT_EXPLORATION_DEFAULTS, PRODUCT_SESSION_DEFAULTS, PRODUCT_SWITCH_DEFAULTS, build_product_recipe } from './recipe.js';
-export type { ProductRecipeInit, ProductSessionOverrides, ProductSwitchName } from './recipe.js';
-export { make_product_self_executor } from './self_tools.js';
-export {
-  mount_skeleton_to_state,
-  pre_register_skeleton_routes,
-  validate_skeleton_sketch,
-} from './skeleton.js';
-export type { SkeletonMountResult, SkeletonRoutePreRegister, SkeletonValidation } from './skeleton.js';
+export { PRODUCT_SWITCH_DEFAULTS, assert_product_switches_all_on, build_product_recipe } from './recipe.js';
+export type { ProductRecipeInit, ProductSwitchName, ProductSwitchOverrides } from './recipe.js';
 
 // ── 会话宿主薄服务 ──
 export { HostSessionStore, SessionServiceError } from './sessions/store.js';
@@ -413,18 +404,6 @@ export type {
 } from './search/executor.js';
 export { buildHostSearch, webSearchSeedDefinition } from './search/wiring.js';
 export type { HostSearch } from './search/wiring.js';
-
-// ── session_command 工具族（agent 工具包面执行接线；分发到既有 bridge 命令）──
-export {
-  SESSION_COMMAND_ENDPOINT,
-  SESSION_COMMAND_TOOLS,
-  buildSessionCommandTools,
-  ensureSessionCommandEndpointRegistered,
-  sessionCommandDefinitions,
-  sessionCommandEndpointSpec,
-  sessionCommandExecutor,
-} from './session_command.js';
-export type { SessionCommandCall, SessionCommandTools } from './session_command.js';
 
 // ── plugin_command 工具族（B6 agent 插件管理面；分发到既有桥命令/受控台账）──
 export {

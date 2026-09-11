@@ -9,7 +9,7 @@
       "target": "web",
       "entry": "./faces/ui/index.tsx",
       "access": {
-        "store": ["title", "tab", "hasTodo", "todoPending"],
+        "store": ["title", "tab"],
         "inject": ["onTabChange", "onTitleChange"]
       }
     }

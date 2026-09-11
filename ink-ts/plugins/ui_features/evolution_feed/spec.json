@@ -9,7 +9,7 @@
       "target": "web",
       "entry": "./faces/ui/index.tsx",
       "access": {
-        "store": ["incubation", "patchChain", "backend", "activeSessionId"]
+        "store": ["incubation", "patchChain", "backend"]
       }
     }
   },

@@ -25,7 +25,7 @@
 | `BOOT_UI_SPEC` | 值（JsonRecord） | 初始界面布局树（message_list + agent_input + 主题），渲染器按数据即时重渲 |
 | `BOOT_EVENT_TYPES` | 值（EventTypeSpec[]） | 协议 v2 建卡型事件 8 种（reply_token/thinking_start/plan_start/tool_start/node_start/review_card/suggestions/error）→ 前端同名渲染组件；schema 缺省不校验 payload（注册表是增强不是收紧） |
 | `boot_harness_definition()` | 函数 | 自举 harness 定义（forge：观察/提案/应用元能力集，role=self） |
-| `BOOT_METATOOLS` | 值（string[]，12 项） | 自指元工具注册清单：inspect_graph/rules/knowledge/ui/tools/entities + propose_patch/apply_patch/revert_patch/propose_domain_manifest + search_tools/request_tool |
+| `BOOT_METATOOLS` | 值（string[]，11 项） | 自指元工具注册清单：inspect_rules/knowledge/ui/tools/entities（inspect_graph 随组装链路退役，W7-B）+ propose_patch/apply_patch/revert_patch/propose_domain_manifest + search_tools/request_tool |
 | `BOOT_PROMPT_SEED_ID` | 值 | `seed.boot.system_prompt`（历史种子幂等锚点） |
 | `build_boot_seed_entries()` | 函数 | 历史知识条目形态（产品宿主不再装配调用，保留供契约兼容/历史形态） |
 

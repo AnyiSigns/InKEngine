@@ -144,7 +144,7 @@ async function runRound(
           'round',
           'approval',
           '回合于审批卡挂起（fail-closed）：需 --approve 显式放行（仅限可信自动化）'
-            + '，或经 stdio/serve 的 approval.list + approval.resolve 注入裁决',
+            + '，或经 rounds.resume（执行主线挂起卡：读 exec 链尾卡 → 决议注入续跑）裁决',
         ),
       };
     }

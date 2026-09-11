@@ -21,11 +21,10 @@ import path from 'node:path';
 
 import { afterEach, describe, expect, it } from 'vitest';
 
-import { ENGINE_STUB_REPLY, ChannelSpec, exec_checkpoint_thread } from '@ink-ts/engine';
+import { ChannelSpec, exec_checkpoint_thread } from '@ink-ts/engine';
 
 import { createHost } from '../../src/index.js';
 import type { HostHandle } from '../../src/index.js';
-import { disableAssemblyFallback, enableAssemblyFallback } from '../_rounds_flag.js';
 import { FakeOpenAIServer } from '../_fake_openai.js';
 
 const CTX = { autoApprove: false };
@@ -106,10 +105,6 @@ async function bootHost(
 }
 
 describe('rounds 执行主线（send → 回复 + 簿记/展示/链齐备）', () => {
-  afterEach(async () => {
-    disableAssemblyFallback();
-  });
-
   it('send 直答：reply/reason/事件带/回合链叶/簿记/展示态全对齐', async () => {
     const made = dirs();
     const server = new FakeOpenAIServer({ content: '主线直答' });
@@ -450,38 +445,6 @@ describe('rounds 主线运行中注入与中止（§7.3 + 既有 abort）', () =
       await waitFor(() => server.requestCount >= 2, 4000).catch(() => undefined);
       await handle.dispose();
       await server.close();
-      rmSync(made.dir, { recursive: true, force: true });
-    }
-  });
-});
-
-describe('rounds 组装回退 flag（旧路径保持绿；exec 链不落主线留痕）', () => {
-  afterEach(() => {
-    disableAssemblyFallback();
-  });
-
-  it('flag 回退：无模型 send 走组装 stub 回合（round_pose 落链；exec 链空）', async () => {
-    enableAssemblyFallback();
-    const made = dirs();
-    const handle = await bootHost(null, made.dir);
-    try {
-      const result = (await handle.bridge.get('rounds.send')!(
-        { input: '旧路一问', pose: 'auto' },
-        CTX,
-      )) as SendView;
-      expect(result.reason).toBe('reply');
-      expect(result.reply).toBe(ENGINE_STUB_REPLY);
-      expect(result.pending_approval).toBeUndefined();
-      expect(result.run_id).toBeUndefined();
-      const latest = await handle.runtime.storage!.get_latest_checkpoint(result.thread_id);
-      expect(latest!.state['round_pose']).toBe('auto');
-      expect(latest!.state['_round_graph']).toBeTruthy();
-      const execTail = await handle.runtime.storage!.get_latest_checkpoint(
-        exec_checkpoint_thread(`r:${result.thread_id}`),
-      );
-      expect(execTail).toBeNull();
-    } finally {
-      await handle.dispose();
       rmSync(made.dir, { recursive: true, force: true });
     }
   });

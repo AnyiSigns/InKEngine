@@ -1,40 +1,18 @@
 /**
- * Runtime 自指上下文/端点探活/工具索引/装配源提供者（runtime.py 移植）。
+ * Runtime 自指上下文/端点探活/工具索引（runtime.py 移植）。
  *
  * _self_context：自指工具执行上下文（装配产物 + 配方钩子组装，运行期取用）。
- * _assembly_sources：调配器源提供者——检索结果 + 知识注入 → 装配源（回合内
- * 节点预装配消费）；无检索源/空结果/调配未启用 = 空清单（检索是增强）。
  *
  * MCP 端点探活：MCP 会话管理器为宿主 seam（未注入 = 未启用），本地端点恒
  * 可用；未注册工具返回 null（调用方自行兜底）。
  */
 
-import { SOURCE_EVIDENCE } from '../../core/assembly/index.js';
-import type { ContextSource } from '../../core/context/context_types.js';
-import { ContextSource as ContextSourceImpl } from '../../core/context/context_types.js';
 import { EndpointType } from '../../core/declarative_tools/index.js';
-import {
-  _SOURCE_CREDIBILITY,
-  build_knowledge_sources,
-  type KnowledgeEntry,
-} from '../../core/knowledge_set/index.js';
 import type { ToolSpec } from '../llm/tools.js';
-import { DEFAULT_NAMESPACE } from '../memory_extract/index.js';
-import type { RetrievedChunk } from '../../core/retrieval/index.js';
-import type { AssemblySourcesProvider } from '../../core/run_result/run_result.js';
 import { SelfToolContext } from '../self_tools/index.js';
 import { RuntimeUiComponents } from './_runtime_ui.js';
-import { _ASSEMBLY_SOURCE_LIMIT } from './_constants.js';
 
-/** 装配源上下文桩（state.input = 查询串）。 */
-export type AssemblyCtx = { state?: Record<string, unknown> };
-
-/** 用户级记忆回灌上限（每回合上下文最多注入条数；防上下文膨胀）。 */
-const _MEMORY_RECALL_LIMIT = 5;
-/** 单条记忆回灌内容截断（字符；防超长条目占满上下文窗口）。 */
-const _MEMORY_RECALL_CHARS = 400;
-
-/** 自指/索引/装配源提供基座。 */
+/** 自指/索引基座。 */
 export abstract class RuntimeContexts extends RuntimeUiComponents {
   /** 打 thread 标签 + 持久化（request_tool 绑定落地面）。 */
   async _tag_tool_persist(name: string, tag: string): Promise<void> {
@@ -113,102 +91,5 @@ export abstract class RuntimeContexts extends RuntimeUiComponents {
     for (const spec of this.self_specs) endpoints[spec.name] = 'self';
     for (const name of Object.keys(this.tool_registry)) endpoints[name] = 'declarative';
     return endpoints;
-  }
-
-  /** 检索 chunk 的可信度映射权重（复用 _SOURCE_CREDIBILITY，缺省 model 级）。 */
-  _chunk_weight(level: string | undefined): number {
-    if (level === undefined || level === null) {
-      return _SOURCE_CREDIBILITY['model'] ?? 0.7;
-    }
-    return _SOURCE_CREDIBILITY[level] ?? (_SOURCE_CREDIBILITY['model'] ?? 0.7);
-  }
-
-  /** 调配器源提供者：检索结果 + 知识注入 → 装配源清单。 */
-  _assembly_sources(): AssemblySourcesProvider {
-    return async (ctx: AssemblyCtx): Promise<unknown[]> => {
-      const query = String(ctx.state?.['input'] ?? '').trim();
-      if (!query) return [];
-      const chunks: RetrievedChunk[] = this.retriever_registry
-        ? await this.retriever_registry.retrieve(query, { limit: _ASSEMBLY_SOURCE_LIMIT })
-        : [];
-      const knowledgeHits: KnowledgeEntry[] = [];
-      const sources: ContextSource[] = [];
-      for (const chunk of chunks) {
-        const entryId = (chunk.meta ?? {})['entry_id'];
-        if (
-          chunk.source === 'knowledge'
-          && entryId
-          && this.knowledge_set !== null
-        ) {
-          const entry = this.knowledge_set.get(String(entryId));
-          if (entry !== null) {
-            knowledgeHits.push(entry);
-            continue;
-          }
-        }
-        sources.push(
-          new ContextSourceImpl(SOURCE_EVIDENCE, chunk.text.slice(0, 1200), {
-            title: `检索：${chunk.source}/${chunk.doc_id}`,
-            relevance: chunk.relevance,
-            priority: 5,
-            weight: this._chunk_weight(chunk.level),
-            meta: { source: chunk.source, doc_id: chunk.doc_id },
-          }),
-        );
-      }
-      if (this.knowledge_set !== null) {
-        const ks = this.knowledge_set;
-        sources.push(
-          ...build_knowledge_sources(knowledgeHits, {
-            relevance: 0.5,
-            source_type: SOURCE_EVIDENCE,
-            max_chars: 1200,
-          }),
-        );
-      }
-      // 用户级记忆自动回灌（决策5：记忆抽取落位 user:default 后每轮回灌）。
-      // 边界：作用域 = DEFAULT_NAMESPACE（用户级跨线程共享，不跨用户）；cap =
-      // 前 N 条（store recall 已按 priority 排序）+ 单条截断；只注入回合记忆
-      // 抽取产物（ledger 意图/结论/确认类），隐私敏感内容不进抽取面。开关
-      // memory_recall_enabled 缺省开；memory_store 未装配（抽取关） = 不注入。
-      if (
-        this._recipe !== null
-        && this._recipe.memory_recall_enabled
-        && this.memory_store !== null
-      ) {
-        try {
-          const recalled = await this.memory_store.query({
-            namespace: DEFAULT_NAMESPACE,
-            limit: _MEMORY_RECALL_LIMIT,
-          });
-          for (const entry of recalled) {
-            const content = entry.content.trim().slice(0, _MEMORY_RECALL_CHARS);
-            if (content === '') continue;
-            sources.push(
-              new ContextSourceImpl(SOURCE_EVIDENCE, content, {
-                title: '记忆：用户级长程共享',
-                relevance: 0.35,
-                priority: 4,
-                weight: 0.7,
-                meta: { source: 'memory', memory_id: entry.id ?? null, kind: entry.kind },
-              }),
-            );
-          }
-        } catch {
-          // 记忆召回失败只跳过（回灌是增强，不阻断回合上下文）
-        }
-      }
-      // 知识使用留痕：命中条目记 usage（演化候选数据源；失败归因在回合收尾
-      // 钩子按成败标记 fail）。零记录不阻断装配。
-      for (const entry of knowledgeHits) {
-        this._round_knowledge_hits.add(entry.id);
-        try {
-          this.knowledge_set!.record_usage(entry.id);
-        } catch {
-          // 使用留痕失败（忽略）
-        }
-      }
-      return sources;
-    };
   }
 }

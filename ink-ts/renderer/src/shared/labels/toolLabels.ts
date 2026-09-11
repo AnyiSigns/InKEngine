@@ -30,8 +30,7 @@ const TOOL_DICTIONARY: Record<string, string> = {
   distill_knowledge: '蒸馏知识',
   mutate_knowledge: '变异知识',
   research_pipeline: '研究管线',
-  // 观察/自进化提案（研究自指）
-  inspect_graph: '观察回合图',
+  // 观察/自进化提案（研究自指；inspect_graph 随组装链路退役移除，W7-B）
   inspect_rules: '观察规则集',
   inspect_knowledge: '观察知识集',
   inspect_ui: '观察界面描述',

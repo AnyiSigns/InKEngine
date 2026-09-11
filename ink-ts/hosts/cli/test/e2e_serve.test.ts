@@ -3,7 +3,9 @@
  *
  * 流程：spawn cli serve（随机端口）→ 读 listen 行（url/ws/token）→
  * /health 200 → /rpc 无 token 401、带 token 正常 → ws 订阅 events.* 与 state.*
- * → /rpc rounds.send 触发回合 → ws 收到 events.reply_token 实时事件帧；
+ * → /rpc rounds.send 触发回合（W7-A 执行主线：无模型回合显式收口 reason='error'）。
+ * 注：组装路 reply_token 实时事件帧断言随组装回退退役删除（W7-B）——主线
+ * 回合子引擎不挂 transports 属 w7a 已登记引擎缺口，不留死链测试；
  * 收尾 kill 子进程。
  */
 
@@ -11,7 +13,6 @@ import { existsSync, mkdtempSync, readFileSync } from 'node:fs';
 import { tmpdir } from 'node:os';
 import path from 'node:path';
 
-import { ENGINE_STUB_REPLY } from '@ink-ts/engine';
 import { locateNativeBinary } from '@ink-ts/host';
 import { afterEach, describe, expect, it } from 'vitest';
 import WebSocket from 'ws';
@@ -158,19 +159,14 @@ describe('serve e2e：健康检查与鉴权', () => {
   }, 120_000);
 });
 
-describe('serve e2e：ws 事件订阅到引擎事件', () => {
-  it('订阅 events.*/state.* → /rpc rounds.send → 实时收到 reply_token 事件帧', async () => {
+describe('serve e2e：ws 订阅握手 + 主线回合收口', () => {
+  it('订阅 events.*/state.* → /rpc rounds.send → subscribed ack + 无模型主线显式 error 收口', async () => {
     const { listen, child } = await startServe();
     try {
       const sub = openSubscription(listen);
       const subscribed = await sub.waitFor((frame) => frame.type === 'subscribed', 'subscribed ack');
       expect(subscribed.topics ?? []).toContain('events.*');
 
-      // 先挂事件等待再触发回合（防快速回合错过事件）
-      const replyToken = sub.waitFor(
-        (frame) => frame.type === 'event' && (frame.topic ?? '').startsWith('events.reply_token'),
-        'events.reply_token',
-      );
       const response = await fetch(`${listen.url}/rpc`, {
         method: 'POST',
         headers: { 'content-type': 'application/json', authorization: `Bearer ${listen.token}` },
@@ -182,14 +178,14 @@ describe('serve e2e：ws 事件订阅到引擎事件', () => {
         }),
       });
       expect(response.status).toBe(200);
-      const round = (await response.json()) as { result?: { reply: string }; error?: unknown };
+      const round = (await response.json()) as {
+        result?: { reply?: string | null; reason: string; execution_outcome?: string; degraded_summaries?: string[] };
+        error?: unknown;
+      };
       expect(round.error).toBeUndefined();
-      expect(round.result?.reply).toBe(ENGINE_STUB_REPLY);
-
-      const frame = await replyToken;
-      expect(frame.topic).toBe('events.reply_token');
-      expect((frame.data ?? {})['type']).toBe('reply_token');
-      expect(typeof (frame.data ?? {})['payload']).toBe('object');
+      expect(round.result?.reason).toBe('error');
+      expect(round.result?.reply ?? null).toBeNull();
+      expect((round.result?.degraded_summaries ?? []).join('；')).toContain('会话默认模型');
     } finally {
       await stopServe(child);
     }
@@ -242,13 +238,14 @@ describe('serve e2e：附件上传 + 扁平↔点分别名 round', () => {
       });
       expect(alias.status).toBe(200);
       const body = (await alias.json()) as {
-        result?: { thread_id: string; round_id: string; reply: string };
+        result?: { thread_id: string; round_id: string; reason: string; reply?: string | null };
         error?: { message: string };
       };
       expect(body.error).toBeUndefined();
       expect(body.result?.thread_id).toBe('alias-thread-1');
       expect(body.result?.round_id).toBe('alias-round-1');
-      expect(body.result?.reply).toBe(ENGINE_STUB_REPLY);
+      expect(body.result?.reason).toBe('error');
+      expect(body.result?.reply ?? null).toBeNull();
     } finally {
       await stopServe(child);
     }
@@ -326,11 +323,12 @@ describe('serve e2e：/upload → doc.parse → round 文档文本注入链路',
         }),
       });
       const body = (await response.json()) as {
-        result?: { reply: string; warnings?: string[] };
+        result?: { reason?: string; reply?: string | null; warnings?: string[] };
         error?: { message: string };
       };
       expect(body.error).toBeUndefined();
-      expect(body.result?.reply).toBe(ENGINE_STUB_REPLY);
+      // 主线无模型收口 error；附件归一可见告警不丢（既有回执签名保真）
+      expect(body.result?.reason).toBe('error');
       expect((body.result?.warnings ?? []).length).toBeGreaterThan(0);
       expect((body.result?.warnings ?? []).join('\n')).toContain('解析失败');
     } finally {

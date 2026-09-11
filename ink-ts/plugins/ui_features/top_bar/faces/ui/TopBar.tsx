@@ -18,13 +18,9 @@ interface TopBarProps {
   tab: MainTab;
   onTabChange: (tab: MainTab) => void;
   onTitleChange: (title: string) => void;
-  /** 待办清单非空（agent 已建清单）→ 顶栏临时展示「待办」标签 */
-  hasTodo?: boolean;
-  /** 待办未完成计数（标签旁角标） */
-  todoPending?: number;
 }
 
-export function TopBar({ title, tab, onTabChange, onTitleChange, hasTodo, todoPending }: TopBarProps) {
+export function TopBar({ title, tab, onTabChange, onTitleChange }: TopBarProps) {
   const { t } = useT();
   const [editing, setEditing] = useState(false);
   const [draft, setDraft] = useState(title);
@@ -94,22 +90,6 @@ export function TopBar({ title, tab, onTabChange, onTitleChange, hasTodo, todoPe
         >
           {t('topbar.tab.trajectory')}
         </button>
-        {hasTodo && (
-          <button
-            type="button"
-            data-ui="tab_todo"
-            data-active={tab === 'todo'}
-            onClick={() => onTabChange('todo')}
-            className="ink-tab-item"
-          >
-            {t('topbar.tab.todo')}
-            {typeof todoPending === 'number' && todoPending > 0 && (
-              <span className="ml-1 rounded-full bg-[var(--ink-accent)] px-1.5 text-[9px] leading-4 text-[var(--ink-bg-base)]">
-                {todoPending}
-              </span>
-            )}
-          </button>
-        )}
       </nav>
     </header>
   );

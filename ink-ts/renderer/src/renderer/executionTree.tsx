@@ -11,7 +11,7 @@
  *
  * 文案经 useT（execution.* / message.*）；色值只走语义 token 类（ink-*）。
  * 注册入口 registerExecutionTreeRenderers()：'execution_tree_card' 进动态
- * 组件注册表（pathAssembly 同规：运行时装配名，注册表超集允许）。
+ * 组件注册表（运行时装配名，注册表超集允许）。
  */
 
 import { type ReactNode, useCallback, useMemo, useState } from 'react';

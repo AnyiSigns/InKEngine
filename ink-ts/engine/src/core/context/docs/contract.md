@@ -32,10 +32,10 @@
 
 ## 数据形态
 
-- 档位词表：keep_full/truncate/drop（本目录真源）+ assembly 侧扩展
-  compressed/fallback_keep（上游消费见 core/assembly）。
-- 预算链：DEFAULT_BUDGET_CHARS 4000（单次组装默认）→ assembly
-  DEFAULT_TOTAL_BUDGET 8000（多源总预算）→ 压缩预算 8000（策略默认）。
+- 档位词表：keep_full/truncate/drop（本目录真源；assembly 侧扩展档
+  compressed/fallback_keep 已随 core/assembly 退役，W7-B）。
+- 预算链：DEFAULT_BUDGET_CHARS 4000（单次组装默认）→ 压缩预算 8000
+  （策略默认；core/assembly 的多源总预算 DEFAULT_TOTAL_BUDGET 已随机制退役）。
 - 时间：Clock.now 注入、缺省 0（纯函数可复现；头注自述与 Python
   time.time 行为不同——要求宿主显式注入）。
 
@@ -47,9 +47,8 @@ Clock（created_at/is_expired/压缩判定）。
 
 ## 装配与消费
 
-- `core/assembly`：InputAssembler 复用 WeightedBudgetAllocator +
-  ContextAssembler + ContextSource（输入调配 = 本目录从组件接线为执行
-  语义）。
+- `core/assembly`（已随 W7-B 组装链路退役；曾以 InputAssembler 复用
+  WeightedBudgetAllocator + ContextAssembler + ContextSource 接线输入调配）。
 - `kernel/runtime`：_runtime_engine（ThresholdCompressionPolicy 压缩链）、
   _runtime_mechanisms/_runtime_contexts（ContextMixer/ContextSource 装配）、
   _runtime_base/_types（type 形态）。

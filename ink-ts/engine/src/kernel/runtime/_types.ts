@@ -8,7 +8,6 @@
  */
 
 import type { InterruptPolicy } from '../approval/approval.js';
-import { AssemblyConfig } from '../../core/assembly/index.js';
 import type { CompressionPolicy } from '../../core/context/context_compression.js';
 import type { EngineTransport } from '../../core/events/events.js';
 import type { HarnessDefinition } from '../../core/harness/index.js';
@@ -24,7 +23,6 @@ import type { NodeFactory } from '../../core/registry/registry_types.js';
 import type { Storage } from '../../core/storage/storage.js';
 import type { SelfApplicationPipeline } from '../self_application/index.js';
 import type { ConvergenceHook, SelfToolContext } from '../self_tools/index.js';
-import type { AssemblySourcesProvider } from '../../core/run_result/run_result.js';
 import { DEFAULT_BIND_CHANNELS } from '../../core/ui_schema/uiSchemaSupport.js';
 
 /** 回合装配源提供者形态（检索结果 + 知识注入 → 装配源清单）。 */
@@ -128,68 +126,33 @@ export interface AssemblyRecipeInit {
   node_executors?: Record<string, NodeFactory> | null;
   on_reverted?: ((patch_id: number, reason: string) => unknown) | null;
   convergence_provider?: (() => ConvergenceHook | null) | null;
-  /** 执行域选项（RunOptions 形态；非 None 字段覆盖装配默认——多径开关
-   *  multipath_enabled 默认 false 经此覆写，装配默认不注入 = 零触发；
-   *  canary 验证走独立 canary_verification 开关，不经本面）。 */
+  /** 执行域选项（RunOptions 形态；随装配保留——当前引擎装配面不再逐字段
+   *  消费（执行主线 = execution_runtime），字段仅作配方兼容不做行为注入）。 */
   run_options?: unknown;
   compress_policy?: CompressionPolicy | null;
-  emit_timeline_events?: boolean;
   // ── 机制开关（引擎默认全开；false = 对应机制块显式关闭）──
   /** 边证据写入钩子（证据归集/失败审计证据源；false = 不登记归因钩子）。 */
   edge_evidence_enabled?: boolean;
-  /** 沉淀钩子族整体（六钩子 + 池治理；false = 整族不注册）。 */
+  /** 沉淀钩子族整体（归因/审计/提案/晋升/复审族；false = 整族不注册）。 */
   settle_hooks_enabled?: boolean;
-  /** 池治理 settle 钩子（容量/死结点/近重复判定；false = 回合不自动跑）。 */
-  pool_governance_enabled?: boolean;
-  /** 路径组装器装配（PathAssemblyRuntime 挂载；false = 不挂载零生效）。 */
-  assembler_enabled?: boolean;
-  /** 指纹缓存（store 构造 + 写钩子；false = 缓存零参与）。 */
-  fingerprint_cache_enabled?: boolean;
-  /** 结点契约 + 链接校验（false = 路径组装不携带契约语义）。 */
-  contract_enabled?: boolean;
-  /** canary 试跑验证（false = 组装候选仅重建级校验，不单回合试跑）。 */
-  canary_verification?: boolean;
-  /** context_window 跨域混合（false = 不注册多域上下文调配器）。 */
-  context_window_multidomain?: boolean;
-  // ── 自学习族开关（引擎默认全开；false = 该块不装配）──
-  /** 回合记忆抽取（回合账本 → memory 域 settle 钩子；false = 不装配存储/钩子）。 */
-  memory_extract_enabled?: boolean;
-  /** 技能结晶链（指纹缓存达标 → 知识集 skill 条目 settle 钩子；false = 不装配）。 */
-  skill_crystal_enabled?: boolean;
-  /** 记忆自动回灌（回合上下文源 recall user:default 条目；false = 回合不回灌记忆）。
-   *  仅 memory_store 已装配（memory_extract_enabled）时生效；cap/截断见
-   *  _runtime_contexts._assembly_sources 注入面。 */
-  memory_recall_enabled?: boolean;
-  // ── 会话级骨架 + 回合结束自续跑（P4；缺省 = 旧回合级行为）──
-  /** 会话级骨架模式：true = 回合沿线程骨架推进/扩展（首轮/骨架缺失/失效仍由
-   *  组装建立）；false/缺省 = 回合级整图组装（旧行为）。 */
-  thread_skeleton_enabled?: boolean;
-  /** 回合结束自续跑护栏上限（§五-b 4.4）：单次显式触发（含续跑意图）的自动
-   *  续回合链预算；0/缺省 = 关闭（旧行为，续跑意图被忽略）。 */
-  auto_continue_limit?: number;
-  // ── P4.1 候选层探索预算（引擎默认保守关闭；产品按参数开启可显式关闭）──
-  /** 无样本候选试用开关（cold-start 探索把能覆盖目标但无样本/样本极低的候选
-   *  链按小概率 epsilon 置顶试用；false/缺省 = 候选排序保持纯证据序零漂移）。 */
-  candidate_trial_enabled?: boolean;
-  /** 无样本候选试用概率覆写（null/缺省 = 引擎钉死缺省
-   *  DEFAULT_CANDIDATE_TRIAL_EPSILON；<=0 = 概率通道关闭）。 */
-  candidate_trial_epsilon?: number | null;
-  /** 连续顶选反垄断开关（最近 N 轮同指纹连续顶选且存在可覆盖目标的次优候选
-   *  时周期性强试次优；false/缺省 = 不参与）。 */
-  anti_monopoly_enabled?: boolean;
-  /** 反垄断连续顶选观察窗口覆写（null/缺省 = 引擎钉死缺省
-   *  DEFAULT_ANTI_MONOPOLY_WINDOW；<=1 = 每轮都强制）。 */
-  anti_monopoly_window?: number | null;
-  // ── 出厂边先验（P4.2a-3；引擎默认关闭——先验入证据面会改变候选序，保守档）──
+  // ── 出厂边先验（引擎默认关闭——先验入证据面会改变归因统计，保守档）──
   /** 出厂边先验写入开关：开启时经 import_seed_paths 把（缺省 = 出厂可喂链
    *  default_engine_seed_edges，或本配方 seed_edges）写入证据面。缺省 false
-   *  = 先验不入证据面，组装候选序零漂移。 */
+   *  = 先验不入证据面。 */
   seed_edges_enabled?: boolean;
   /** 出厂边先验数据覆写（null/缺省 = 引擎出厂 default_engine_seed_edges）。 */
   seed_edges?: readonly (
     | import('../../core/edge_evidence/seed.js').SeedEdgeRaw
     | Record<string, unknown>
   )[] | null;
+  // ── 自学习族开关（引擎默认全开；false = 该块不装配）──
+  /** 回合记忆抽取（回合账本 → memory 域 settle 钩子；false = 不装配存储/钩子）。 */
+  memory_extract_enabled?: boolean;
+  /** 技能知识容器（知识集 kind=path 条目访问器；false = 不装配）。 */
+  skill_crystal_enabled?: boolean;
+  /** 记忆自动回灌（回合上下文源 recall user:default 条目；false = 回合不回灌记忆）。
+   *  仅 memory_store 已装配（memory_extract_enabled）时生效。 */
+  memory_recall_enabled?: boolean;
   // ── 作用域模型解析（批4 agent 子作用域 model override 的装配接线位）──
   /** 按 model 引用（provider/model_id）解析 AsyncLLM 的宿主接线（null/缺省
    *  = 未接线：agent 结点实体引用非 null model 时显式失败，不静默跑父模型）。
@@ -231,34 +194,19 @@ export class AssemblyRecipe {
   convergence_provider: (() => ConvergenceHook | null) | null = null;
   run_options: unknown = null;
   compress_policy: CompressionPolicy | null = null;
-  emit_timeline_events = false;
   // ── 机制开关（引擎默认全开；false = 对应机制块显式关闭）──
   edge_evidence_enabled = true;
   settle_hooks_enabled = true;
-  pool_governance_enabled = true;
-  assembler_enabled = true;
-  fingerprint_cache_enabled = true;
-  contract_enabled = true;
-  canary_verification = true;
-  context_window_multidomain = true;
-  // ── 自学习族开关（引擎默认全开；false = 该块不装配）──
-  memory_extract_enabled = true;
-  skill_crystal_enabled = true;
-  memory_recall_enabled = true;
-  // ── 会话级骨架 + 回合结束自续跑（P4；缺省 = 旧回合级行为）──
-  thread_skeleton_enabled = false;
-  auto_continue_limit = 0;
-  // ── P4.1 候选层探索预算（引擎默认保守关闭；产品按参数开启可显式关闭）──
-  candidate_trial_enabled = false;
-  candidate_trial_epsilon: number | null = null;
-  anti_monopoly_enabled = false;
-  anti_monopoly_window: number | null = null;
-  // ── 出厂边先验（引擎默认关闭——先验入证据面会改变候选序，保守档）──
+  // ── 出厂边先验（引擎默认关闭——先验入证据面会改变归因统计，保守档）──
   seed_edges_enabled = false;
   seed_edges: readonly (
     | import('../../core/edge_evidence/seed.js').SeedEdgeRaw
     | Record<string, unknown>
   )[] | null = null;
+  // ── 自学习族开关（引擎默认全开；false = 该块不装配）──
+  memory_extract_enabled = true;
+  skill_crystal_enabled = true;
+  memory_recall_enabled = true;
   // ── 作用域模型解析（批4 agent 子作用域 model override 装配接线位）──
   scope_model_llm: ((model: Record<string, string>) => AsyncLLM | Promise<AsyncLLM | null> | null) | null = null;
 
@@ -306,28 +254,17 @@ export class AssemblyRecipe {
     }
     if (init.run_options !== undefined) this.run_options = init.run_options;
     if (init.compress_policy !== undefined) this.compress_policy = init.compress_policy;
-    if (init.emit_timeline_events !== undefined) {
-      this.emit_timeline_events = init.emit_timeline_events;
-    }
     if (init.edge_evidence_enabled !== undefined) {
       this.edge_evidence_enabled = init.edge_evidence_enabled;
     }
     if (init.settle_hooks_enabled !== undefined) {
       this.settle_hooks_enabled = init.settle_hooks_enabled;
     }
-    if (init.pool_governance_enabled !== undefined) {
-      this.pool_governance_enabled = init.pool_governance_enabled;
+    if (init.seed_edges_enabled !== undefined) {
+      this.seed_edges_enabled = init.seed_edges_enabled;
     }
-    if (init.assembler_enabled !== undefined) this.assembler_enabled = init.assembler_enabled;
-    if (init.fingerprint_cache_enabled !== undefined) {
-      this.fingerprint_cache_enabled = init.fingerprint_cache_enabled;
-    }
-    if (init.contract_enabled !== undefined) this.contract_enabled = init.contract_enabled;
-    if (init.canary_verification !== undefined) {
-      this.canary_verification = init.canary_verification;
-    }
-    if (init.context_window_multidomain !== undefined) {
-      this.context_window_multidomain = init.context_window_multidomain;
+    if (init.seed_edges !== undefined && init.seed_edges !== null) {
+      this.seed_edges = init.seed_edges;
     }
     if (init.memory_extract_enabled !== undefined) {
       this.memory_extract_enabled = init.memory_extract_enabled;
@@ -337,30 +274,6 @@ export class AssemblyRecipe {
     }
     if (init.memory_recall_enabled !== undefined) {
       this.memory_recall_enabled = init.memory_recall_enabled;
-    }
-    if (init.thread_skeleton_enabled !== undefined) {
-      this.thread_skeleton_enabled = init.thread_skeleton_enabled;
-    }
-    if (init.auto_continue_limit !== undefined) {
-      this.auto_continue_limit = init.auto_continue_limit;
-    }
-    if (init.candidate_trial_enabled !== undefined) {
-      this.candidate_trial_enabled = init.candidate_trial_enabled;
-    }
-    if (init.candidate_trial_epsilon !== undefined && init.candidate_trial_epsilon !== null) {
-      this.candidate_trial_epsilon = init.candidate_trial_epsilon;
-    }
-    if (init.anti_monopoly_enabled !== undefined) {
-      this.anti_monopoly_enabled = init.anti_monopoly_enabled;
-    }
-    if (init.anti_monopoly_window !== undefined && init.anti_monopoly_window !== null) {
-      this.anti_monopoly_window = init.anti_monopoly_window;
-    }
-    if (init.seed_edges_enabled !== undefined) {
-      this.seed_edges_enabled = init.seed_edges_enabled;
-    }
-    if (init.seed_edges !== undefined && init.seed_edges !== null) {
-      this.seed_edges = init.seed_edges;
     }
     if (init.scope_model_llm !== undefined) {
       this.scope_model_llm = init.scope_model_llm;

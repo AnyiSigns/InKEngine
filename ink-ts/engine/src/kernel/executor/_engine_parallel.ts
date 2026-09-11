@@ -72,8 +72,8 @@ export abstract class EngineParallel extends EngineSimulate {
         resume_map: (ctx as _NodeContextImpl).resume_map,
       });
       member_ctx.node = name;
-      // 成员执行整体收敛（try/catch）：预算检查/输入调配预装配/节点执行/留痕
-      // 任一异常都归一为成员失败或控制流信号——rejection 绝不逃出 run_member
+      // 成员执行整体收敛（try/catch）：预算检查/节点执行/留痕任一异常都
+      // 归一为成员失败或控制流信号——rejection 绝不逃出 run_member
       // （主调度显式消费，防 unhandledRejection 且成员失败静默丢失）
       try {
         if (self.options.budget !== null) {
@@ -86,9 +86,6 @@ export abstract class EngineParallel extends EngineSimulate {
             return;
           }
         }
-        // 输入调配预装配（与主循环同口径：节点执行前统一走调配管线，并行
-        // 执行面同样留痕可审计）
-        await member_ctx.preassemble();
         for (let attempt = 0; attempt <= self.options.max_node_retries; attempt++) {
           member_ctx._spawns.length = 0;
           member_ctx._terminated = null;

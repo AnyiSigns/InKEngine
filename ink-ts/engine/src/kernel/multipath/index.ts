@@ -42,6 +42,7 @@ export {
 
 // ── 配置 / 数据形态 / 协议（镜像 __all__ 类与函数段）──────────────
 export { MultiPathConfig, multipath_config_from_flags } from './config.js';
+export type { AssemblyCandidate, AssemblyRequest } from './types.js';
 export { multipath_budget_required, check_multipath_budget } from './config.js';
 export {
   ChainEvidence,

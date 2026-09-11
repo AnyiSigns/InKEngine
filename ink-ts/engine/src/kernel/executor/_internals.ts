@@ -20,7 +20,6 @@ import { strip_sensitive } from '../../core/security/security.js';
 import type { Plan } from '../../core/plan/plan.js';
 import type { StateSchema } from '../../core/state/schema.js';
 import type { ResumeMap } from '../recovery/recovery_types.js';
-import type { AssemblyResult } from '../../core/assembly/assembly_types.js';
 
 // ── 日志留痕 seam（Python logger → core 零 IO：缺省静默，可注入收集）────
 let _warn_sink: ((message: string) => void) | null = null;
@@ -84,35 +83,6 @@ export function _now_monotonic_ms(): number {
 export function _default_id(prefix: string): string {
   _id_counter += 1;
   return `${prefix}-${_id_counter.toString(16).padStart(12, '0')}`;
-}
-
-// ── input_assembly 事件体裁剪（事件降频）────────────────────────────────
-// 激活留痕事件不携带全量源元数据：保留条数上限 + 标题长度上限——事件流体积
-// 有界（可回放审计性不受影响：被裁条目语义 = 更多源，重建口径与全量一致）。
-const _INPUT_ASSEMBLY_EVENT_MAX_SOURCES = 16;
-const _INPUT_ASSEMBLY_EVENT_MAX_TITLE_CHARS = 120;
-
-/** 激活记录 → 事件负载（体裁剪：源条数上限 + 标题截断）。 */
-export function _input_assembly_event_record(record: { to_dict(): Record<string, unknown> }): Record<string, unknown> {
-  const data = record.to_dict();
-  const rawSources = data['sources'];
-  const sources = Array.isArray(rawSources)
-    ? rawSources.filter((s) => s !== null && typeof s === 'object' && !Array.isArray(s))
-    : [];
-  if (sources.length > _INPUT_ASSEMBLY_EVENT_MAX_SOURCES) {
-    data['sources'] = sources.slice(0, _INPUT_ASSEMBLY_EVENT_MAX_SOURCES);
-    data['sources_more'] = sources.length - _INPUT_ASSEMBLY_EVENT_MAX_SOURCES;
-  }
-  const kept = (data['sources'] as unknown[]) ?? [];
-  for (const source of kept) {
-    if (source === null || typeof source !== 'object' || Array.isArray(source)) continue;
-    const recordObj = source as Record<string, unknown>;
-    const title = recordObj['title'];
-    if (typeof title === 'string' && title.length > _INPUT_ASSEMBLY_EVENT_MAX_TITLE_CHARS) {
-      recordObj['title'] = `${title.slice(0, _INPUT_ASSEMBLY_EVENT_MAX_TITLE_CHARS)}…`;
-    }
-  }
-  return data;
 }
 
 // ── 并发原语（asyncio.Lock / asyncio.Queue 的 TS 形态）───────────────────
@@ -272,13 +242,6 @@ export interface NodeContext {
   get_interrupt_payload(review_key: string): Promise<Record<string, unknown> | null>;
   /** 命令式收集子图实例清单项（返回后由引擎统一展开）。 */
   spawn(subgraph: unknown, state: Record<string, unknown>, opts?: { index?: number | null }): void;
-  /** 输入调配统一入口（节点内多源统一预算分配 → 组装）。 */
-  assemble(
-    sources: readonly unknown[],
-    opts?: { total_budget?: number | null; version_snapshot?: Record<string, unknown> | null },
-  ): Promise<AssemblyResult>;
-  /** 节点执行前的统一预装配（执行器节点循环内自动调用）。 */
-  preassemble(): Promise<void>;
   /** 结点执行边界 token 计账（LLM usage 帧 → 当前结点，纯算法）。 */
   account_usage(usage: Record<string, unknown> | null): void;
   /** 声明终止（校验延迟到执行器检查点）。 */

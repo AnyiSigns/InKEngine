@@ -15,7 +15,7 @@
  * 幂等跳过，「种子只读基线 + 演化补丁链」的分层语义不因重复注入被破坏。
  *
  * 状态标注（机制就绪 / 宿主接线点待定）：引导种子装配位——runtime 已接
- * seed_general（_runtime_assemble 开局装配直注）；boot 域（adapters/boot）
+ * seed_general（_runtime_boot 开局装配直注）；boot 域（adapters/boot）
  * 为宿主配方 AssemblyRecipe.seeds 直注面。
  */
 

@@ -2,33 +2,24 @@
  * 引擎多径展开调度面（executor.py Engine._run_multipath 及其降级路径移植，
  * ENG2-1/2/3 接线）。
  *
- * 数据形态（组装编排节点产出）：``{request, candidates, entry_state,
+ * 数据形态（编排节点产出）：``{request, candidates, entry_state,
  * signal, k?, quality_gate?, synth_provider?}``——request/candidates 为进程
  * 内对象（与 ``__spawn__`` 经 ``ctx._spawns`` 携带 Graph 对象同构，不落
  * 状态/checkpoint）。
  *
  * 机制开关读引擎选项（RunOptions.multipath_enabled，默认 false = 关闭 =
- * 零触发；runtime 装配层按配方开关经 run_options 注入开启）。开关关闭但
- * 清单存在（编排节点与运行期不同步）时按防御性单径降级：执行首候选，
- * 候选不静默丢弃——支流执行经 MultipathRunnerBase._execute_branches 真接线
- * （独立实例引擎 + 子链 checkpoint + 事件并轨）。
- *
- * 证据存储/审计回调同源取自注入 seam（RunOptions.multipath_assembly，装配期
- * 由组装运行期窄化注入；未装配 = null = 零证据/零审计，执行照常——executor
- * 不反向读组装模块级默认，拆 executor↔path_assembler 环）；注入透传
- * （ENG2-12）：回合级注入快照由支流侧按分支隔离消费。
- *
- * 马尔可夫路径缓存回馈：多径实际执行结果回灌指纹缓存（命中成功 → 计数
- * +1；命中失败 → 条目失效，下次重组装）。观测不阻断：回馈失败只记日志。
+ * 零触发）。开关关闭但清单存在（编排节点与运行期不同步）时按防御性单径
+ * 降级：执行首候选，候选不静默丢弃——支流执行经 MultipathRunnerBase.
+ * _execute_branches 真接线（独立实例引擎 + 子链 checkpoint + 事件并轨）。
+ * 注入透传（ENG2-12）：回合级注入快照由支流侧按分支隔离消费。
  */
-import type { AssemblyCandidate, AssemblyRequest } from '../path_assembler/types.js';
 import type { QualityGate } from '../../core/contracts/contracts.js';
 import type { JunctionSynthProvider } from '../multipath/verdict.js';
 import { MultiPathConfig, MultipathRunner } from '../multipath/index.js';
+import type { AssemblyCandidate, AssemblyRequest } from '../multipath/types.js';
 import type { NodeContext } from './_internals.js';
 import type { _NodeContextImpl } from './_node_context.js';
 import { EnginePlan } from './_engine_plan.js';
-import { _warn } from './_internals.js';
 
 /** 多径展开数据形态（编排节点产出，进程内对象）。 */
 export interface MultipathData extends Record<string, unknown> {
@@ -56,14 +47,8 @@ export abstract class EngineMultipath extends EnginePlan {
       // 按单径执行首候选，不静默丢弃候选
       return await this._run_multipath_degraded_single(data, ctx);
     }
-    // 多径组装上下文 seam（装配期注入：证据/审计 sink/缓存回馈窄面；未装配
-    // = 零证据/零审计/零回馈，与旧模块级全局未挂载口径一致——executor 不
-    // 反向读组装模块级默认，拆 executor↔path_assembler 环）
-    const seam = this.options.multipath_assembly;
     const runner = new MultipathRunner(this, {
-      evidence_store: seam !== null ? seam.evidence_store : null,
       config: new MultiPathConfig({ enabled: true }),
-      sink: seam !== null ? seam.sink : null,
     });
     const request = data['request'] as AssemblyRequest;
     const candidates = [...((data['candidates'] ?? []) as readonly AssemblyCandidate[])];
@@ -76,7 +61,7 @@ export abstract class EngineMultipath extends EnginePlan {
     for (const [key, value] of this._coordinator.pending_inject) {
       pendingInject[key] = value;
     }
-    const result = await runner.run(request, candidates, {
+    return await runner.run(request, candidates, {
       entry_state,
       thread_id: ctx.thread_id,
       round_id: ctx.round_id,
@@ -87,25 +72,11 @@ export abstract class EngineMultipath extends EnginePlan {
       inject: Object.keys(pendingInject).length > 0 ? pendingInject : null,
       transports: (ctx as _NodeContextImpl)._transports,
     });
-    // 马尔可夫路径缓存回馈：多径实际执行结果回灌指纹缓存（命中成功 →
-    // 计数 +1；命中失败 → 条目失效，下次重组装）。观测不阻断。
-    const report = seam !== null ? seam.report_cache_execution : null;
-    if (report !== null && (result as { triggered?: boolean }).triggered === true) {
-      try {
-        await report(request, {
-          ok: (result as { winner?: unknown }).winner !== null && (result as { winner?: unknown }).winner !== undefined,
-        });
-      } catch (exc) {
-        _warn(`路径缓存执行回馈失败（忽略）: ${String(exc)}`);
-      }
-    }
-    return result;
   }
 
   /** 降级单径执行：不触发多径机制，仅执行首候选并回收增量。 */
   async _run_multipath_degraded_single(data: MultipathData, ctx: NodeContext): Promise<unknown> {
     const runner = new MultipathRunner(this, {
-      evidence_store: null,
       config: new MultiPathConfig({ enabled: true }),
     });
     const request = data['request'] as AssemblyRequest;

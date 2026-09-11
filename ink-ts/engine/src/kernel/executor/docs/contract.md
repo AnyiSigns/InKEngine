@@ -33,7 +33,7 @@
 ## 对外契约面
 
 - 公共面逐名核对（`src/index.ts:111-112`）：值 `Engine`、`run_subgraph`；类型 `EngineBase`、`ExecuteOptions`、`NodeContext`。目录 `index.ts` 另导出 `run_agent_scope`/`_validate_subgraph_schema_inheritance`/`_NodeContextImpl`/`_select_next_node`/`_locate_next`（仓内可达，如测试直用 `_NodeContextImpl`），不在公共面。
-- 机制契约：`executor_contract = { id: 'executor', contract: { effects: [PORT_STORAGE_SEAM='storage_seam'] }, depends: ['budget','interrupt','llm','multipath','recovery','settle','simulation','spawn'] }`；`path_assembler`/`llm_port`/`exec_envelope`/`rounds.port` 不列（contract.ts 头注逐项说明理由）。
+- 机制契约：`executor_contract = { id: 'executor', contract: { effects: [PORT_STORAGE_SEAM='storage_seam'] }, depends: ['budget','interrupt','llm','multipath','recovery','settle','simulation','spawn'] }`；`llm_port`/`exec_envelope`/`rounds.port` 不列（`path_assembler` 不列项已随机制退役，W7-B；contract.ts 头注逐项说明理由）。
 
 ## 数据形态
 
@@ -50,7 +50,7 @@
 
 ## 装配与消费
 
-- 值面装配：`kernel/runtime/_runtime_engine.ts` 值 import `Engine`/`RunOptions`（运行时装配）；`kernel/runtime/_runtime_rounds.ts` type import `Engine`；`kernel/path_assembler/canary.ts` 试跑复用；`kernel/registry/contracts.ts:22` 收入 34 项全量契约清单；hosts 经公共面。
+- 值面装配：`kernel/runtime/_runtime_engine.ts` 值 import `Engine`/`RunOptions`（运行时装配）、`core/execution_runtime/engine_turn_runner.ts` 值 import `Engine`（主线回合引擎，W7-B 后回合主路径）；`kernel/registry/contracts.ts:22` 收入 31 项全量契约清单（原 `path_assembler`/`pool_governance`/`thread_skeleton` 契约与 `canary.ts`/`_runtime_rounds.ts`/`hosts/lib/test/_graphs.ts` 消费已随组装链路退役，W7-B）；hosts 经公共面。
 - 展开关系：run_subgraph = 同一 `Engine._execute` 通道的内联子图（digest 缓存、schema 继承检查 ENG2-7、merge 通道入口归零 + delta 回流）；spawn/推演 = 独立 checkpoint 子链实例（`instance_thread_id`/`simulate_thread_id`）；多径 = `MultipathRunner` 支流展开。
 - 错误语义要点：嵌套深度/清单超限/回路超限/计划·推演清单非法/预算超限 fail-closed；spawn·并行组部分失败剔除（`error_on_exception` 决定终止或跳过）；子图/实例 ERROR 不静默回流；中断统一提升父图挂起卡；checkpoint 写失败回滚孤立事件后重抛。
 
@@ -76,7 +76,7 @@
 1. `_internals.ts:1` 门禁豁免头注写「超限(391 行)」，文件实际 389 行——头注与实际行数漂移。
 2. `_internals._locate_next` docstring 称「两者皆 null = 图定义不完备」，代码在该情形返回 `[STOP, null]`，「两者皆 null」返回形态在代码中不存在；内层 `if (!graph.exits.has(current))` 仅在出口节点带条件边且全不满足时为假。
 3. `index.ts` 头注的文件拆分清单遗漏 `_loop_types.ts`、`_engine_loop_front.ts`、`_engine_loop_back.ts` 三文件；「executor.py 3197 行」为 Python 侧行数断言，TS 侧不可核实。
-4. `contract.ts` 头注称「依赖单向 path_assembler→executor」，但 `_engine_multipath.ts:24` 存在自 `../path_assembler/types.js` 的 type import（AssemblyCandidate/AssemblyRequest）——类型面反向 import 与该表述并存（运行期擦除；`path_assembler/canary.ts` 值 import `Engine` 为反向方向）。
+4. （W7-B 已解）曾记「`contract.ts` 头注称依赖单向 path_assembler→executor，但 `_engine_multipath.ts` 自 `../path_assembler/types.js` type import（AssemblyCandidate/AssemblyRequest）」——组装机制与 canary 已退役，候选链路类型迁至 `kernel/multipath/types.ts`，现 type import 路径 `../multipath/types.js`（运行期擦除；`path_assembler` 表述作废）。
 5. `_engine_instance._resolve_graph_data` 对「注册表未注入」「子图类型非法」抛裸 `Error`，同目录其它配置错误用 `GraphDefinitionError`——错误类型不一致。
 6. `_engine_multipath._run_multipath_degraded_single`（开关关闭的降级单径）向 `MultipathRunner` 传 `MultiPathConfig({enabled:true})`，「不触发多径机制」实际靠 k=1+并发 1 达成，与配置语义存在措辞落差。
 7. `_engine_base.ts:22,29` 对 `core/graph/graph.js` 双重 import（值 `Graph` + 别名 `GraphType` 仅类型），同文件两个名字指同一类型。

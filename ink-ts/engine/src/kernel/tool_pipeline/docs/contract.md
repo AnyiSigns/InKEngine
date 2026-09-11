@@ -59,7 +59,7 @@ SpawnSeam/ProcessSandbox/FileSandbox 等执行信封面。单调时钟 seam（�
 
 ## 装配与消费
 
-- 引擎级装配：`kernel/runtime/_runtime_assemble` 构造 `new ToolPipeline({
+- 引擎级装配：`kernel/runtime/_runtime_boot` 构造 `new ToolPipeline({
   gate: toolGate, extractor: unifiedExtractor, failure_reason,
   executor: unifiedExecutor, approval_policy })`（introspection/self/
   declarative 三源统一分发；该装配点未注入 sandboxes/guards），挂
@@ -108,6 +108,6 @@ SpawnSeam/ProcessSandbox/FileSandbox 等执行信封面。单调时钟 seam（�
    但公共面未收（index.ts 未从本目录导出该名），消费方（adapters/mcp、
    kernel/sandbox、self_tools、declarative_tools、harness）全部经相对路径
    ——公共面收窄口径未见显式说明。
-4. 引擎级装配（`_runtime_assemble`）的 `new ToolPipeline({...})` 未注入
+4. 引擎级装配（`_runtime_boot`）的 `new ToolPipeline({...})` 未注入
    sandboxes/guards（沙箱守卫依赖端点级流水线各自装配）——两层装配的沙箱
    覆盖口径未见显式说明。

@@ -1,18 +1,14 @@
 /**
  * 执行器注入的节点上下文实现（executor.py ``_NodeContextImpl`` 移植）。
  *
- * 节点上下文把引擎的发射/中断/终止/输入调配能力接线到节点函数：
+ * 节点上下文把引擎的发射/中断/终止/计账能力接线到节点函数：
  * - emit/interrupt/terminate 挂载引擎 publish 与中断协调器（共享同一
  *   coordinator：子图/spawn 实例内的 interrupt 重入与父图同一通道）；
  * - spawn 命令式收集（ctx.spawn 追加清单，节点返回后统一展开）；
- * - assemble/preassemble 输入调配统一入口（预装配结果节点内复用，
- *   激活留痕只留一次）；
  * - account_usage 结点边界 token 计账（LLM usage 帧 → 当前结点成本账）。
  *
  * 内部形态（对齐 Python 私有面，供执行器在同模块族内读写）：
  * - ``_spawns`` 命令式 spawn 收集清单（节点边界复位、返回后统一展开）；
- * - ``_assembled`` 输入调配预装配结果缓存（preassemble 后节点内 assemble
- *   复用，不重复装配也不重复留痕）；
  * - ``_terminated`` 终止声明标记（节点边界复位，校验延迟到执行器检查点）；
  * - ``_transports`` 事件传输链（构造注入；缺省 = 引擎 options 默认）。
  */
@@ -25,15 +21,11 @@ import { strip_sensitive } from '../../core/security/security.js';
 import { isRecord, type JsonRecord } from '../../core/json.js';
 import { GraphDefinitionError } from '../../core/errors.js';
 import { TraceStep } from '../settle/index.js';
-import type { AssemblyResult } from '../../core/assembly/assembly_types.js';
-import type { AssemblySourcesProvider } from '../../core/run_result/run_result.js';
-import type { ContextSource } from '../../core/context/context_types.js';
 import type { Graph } from '../../core/graph/graph.js';
 import type { ResumeMap } from '../recovery/recovery_types.js';
 import type { AsyncLLM } from '../llm/_guard_types.js';
 import type { EngineBase } from './_engine_base.js';
 import type { NodeContext } from './_internals.js';
-import { _input_assembly_event_record } from './_internals.js';
 import { run_agent_scope as _run_agent_scope } from './run_subgraph.js';
 
 function isPromiseLike(value: unknown): value is PromiseLike<unknown> {
@@ -52,8 +44,6 @@ function isPromiseLike(value: unknown): value is PromiseLike<unknown> {
 export class _NodeContextImpl implements NodeContext {
   /** 当前结点名（节点边界由执行器设置；并行成员构造后赋值）。 */
   node: string | null;
-  /** 输入调配预装配结果缓存（preassemble 后节点内 assemble 复用）。 */
-  _assembled: AssemblyResult | null = null;
   /** 命令式 spawn 收集清单（节点内 ctx.spawn 追加，返回后统一展开）。 */
   _spawns: SpawnSpec[] = [];
   /** 终止声明标记（声明终止；校验延迟到执行器检查点）。 */
@@ -218,68 +208,6 @@ export class _NodeContextImpl implements NodeContext {
       entity_id: opts.entity_id ?? null,
       entity_label: opts.entity_label ?? null,
     });
-  }
-
-  async assemble(
-    sources: readonly unknown[],
-    opts: { total_budget?: number | null; version_snapshot?: Record<string, unknown> | null } = {},
-  ): Promise<AssemblyResult> {
-    // 输入调配统一入口（执行语义接线）：多源统一预算分配 → 组装。每次
-    // LLM 调用/节点执行前经此统一调配，预算合计不超调用点总预算；激活
-    // 记录随 input_assembly 事件落执行日志——模型可见皆留痕。预装配
-    // （preassemble）已装配时直接复用缓存结果——不重复装配也不重复留痕。
-    // 未启用（RunOptions.assembly=null）或关闭（enabled=False）时抛
-    // GraphDefinitionError——调用点 catch 后回退旧装配路径。
-    if (this._assembled !== null) return this._assembled;
-    const assembler = this._engine._assembler;
-    if (assembler === null) {
-      throw new GraphDefinitionError('输入调配未启用（RunOptions.assembly=null），调用点应走旧装配路径');
-    }
-    const result = assembler.assemble(sources as readonly ContextSource[], {
-      total_budget: opts.total_budget ?? null,
-      version_snapshot: opts.version_snapshot ?? null,
-    });
-    this._assembled = result;
-    await this.emit('input_assembly', {
-      node: this.node,
-      record: _input_assembly_event_record(result.record),
-    });
-    return result;
-  }
-
-  async preassemble(): Promise<void> {
-    // 节点执行前的统一预装配（执行器节点循环内自动调用）。源由
-    // RunOptions.assembly_sources 提供（返回源清单或 (源清单, 版本快照)
-    // 二元组）；装配未启用/无源提供者时静默跳过（调用点回退旧路径）。
-    // 装配结果缓存，节点内 assemble 复用。
-    if (this._assembled !== null) return;
-    const config = this._engine.options.assembly;
-    const provider: AssemblySourcesProvider | null = this._engine.options.assembly_sources;
-    if (config === null || !config.enabled || provider === null) {
-      return;
-    }
-    let supplied = provider(this);
-    if (isPromiseLike(supplied)) {
-      supplied = await supplied;
-    }
-    let sources: readonly unknown[];
-    let version_snapshot: Record<string, unknown> | null = null;
-    if (Array.isArray(supplied) && supplied.length === 2 && Array.isArray(supplied[0])) {
-      const second = supplied[1];
-      if (second === null || isRecord(second)) {
-        sources = supplied[0] as readonly unknown[];
-        version_snapshot = isRecord(second) ? (second as Record<string, unknown>) : null;
-      } else {
-        sources = supplied as unknown as readonly unknown[];
-      }
-    } else {
-      sources = supplied;
-    }
-    if (sources.length === 0) {
-      // 无源可激活 = 无事可调：跳过装配与留痕（空激活记录是噪音）
-      return;
-    }
-    await this.assemble(sources, { version_snapshot });
   }
 
   terminate(reason: string, _meta: Record<string, unknown> = {}): void {

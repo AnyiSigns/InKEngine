@@ -6,8 +6,8 @@
  *   SessionSnapshot 字段一致，如 messages / roundSteps；session = 整快照
  *   通道）；bind.path 进一步细选；
  * - events.<type>：事件流通道，type 必须是事件类型注册表登记名（细粒度订阅）；
- * - inspect_graph / inspect_rules / inspect_knowledge / inspect_ui /
- *   inspect_tools / inspect_entities：六元快照。
+ * - inspect_rules / inspect_knowledge / inspect_ui /
+ *   inspect_tools / inspect_entities：五元快照（inspect_graph 随组装链路退役，W7-B）。
  *
  * 历史蛇形别名（round_steps/task_state）仅作兼容映射到 camelCase 字段，
  * 新界面一律以 camelCase 声明（修 round_steps→roundSteps 取值错位）。

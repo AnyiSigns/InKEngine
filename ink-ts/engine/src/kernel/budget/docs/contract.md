@@ -50,11 +50,12 @@ barrel）。机制契约 `budget_contract` 经 `kernel/registry/contracts.ts` �
 - 引擎检查点：`kernel/executor/_engine_parallel` 捕获 `BudgetExceededError`
   收口并行成员终止（`TerminateReason.BUDGET_EXCEEDED` 语义族）；`RunOptions.
   budget: BudgetManager | null`（`core/run_result`）为注入口（null = 不检查）。
-- 策略装配示例：`kernel/path_assembler/canary` 每次试跑 `new BudgetManager()`
-  并注册 `BudgetPolicy` 实现；`kernel/multipath` 以 `BudgetManager`/
-  `BudgetRemaining` 类型接线支流预算。
-- hosts：公共面无直接 import（`budget_remaining` 等经事件/日志数据面读取，
-  `bridge/pool.ts` 从日志行取值）。
+- 策略装配示例：`RunOptions.budget` 注入口在用（`core/run_result`）；
+  `kernel/multipath/_runner_base` 经 `BudgetManager.query_remaining` 做支流预算
+  只读查询——组装试跑位每次 `new BudgetManager()` + 注册 `BudgetPolicy` 的示例
+  已随 `kernel/path_assembler/canary` 退役（W7-B）。
+- hosts：公共面无直接 import（`budget_remaining` 等经事件/日志数据面读取；
+  旧 `bridge/pool.ts` 从日志行取值的组装读面已随 W7-B 退役）。
 - 机制契约经 `kernel/registry/contracts.ts` 汇总；`runtime_contract` depends
   含 budget。
 

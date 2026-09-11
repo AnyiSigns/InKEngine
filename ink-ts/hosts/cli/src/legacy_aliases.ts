@@ -9,10 +9,11 @@
  * memory.update_frontmatter 无真源 → 不注册，命中走 -32601）；B5 市场命令面
  * 退役后 mcp.market/mount/unmount 与扁平旧名（mcp_market_status/mount/unmount）
  * 一并移除（web 直调 mcp.status/enable/disable）；H2b 补桥
- * 后架构/演化**读取类**（graph_instance_snapshot/pool_snapshot/pool_evaluate/
- * edge_evidence_list/metrics_snapshot/assemble_stats/cache_stats/
- * path_state/entities_snapshot）落点分只读方法；graph_snapshot/tools_snapshot
- * 无产品消费已删，不注册。path 干预与 edge_downgrade_tier/restore_tier 等
+ * 后架构/演化**读取类**（edge_evidence_list/metrics_snapshot/
+ * entities_snapshot）落点分只读方法；W7-B 组装链路退役后
+ * session_branch/todo_get|todo.get/graph_instance_snapshot/pool_snapshot/
+ * pool_evaluate/assemble_stats/cache_stats/path_state 随落点移除（不注册）。
+ * path 干预与 edge_downgrade_tier/restore_tier 等
  * 写类不在本批，不注册。
  *
  * 纪律：别名只做名字/形状翻译，不做语义判断；危险操作（recovery.reset /
@@ -119,27 +120,15 @@ const ALIASES: readonly AliasSpec[] = [
   { flat: 'session_delete', dotted: 'sessions.delete', adaptParams: camelToSnake },
   { flat: 'session_refresh', dotted: 'sessions.refresh', adaptParams: camelToSnake },
   { flat: 'session_tree', dotted: 'sessions.tree', adaptParams: camelToSnake },
-  {
-    flat: 'session_branch',
-    dotted: 'rounds.branch',
-    adaptParams: (raw) => {
-      const p = recordFrom(raw);
-      return {
-        thread_id: p['threadId'] ?? null,
-        leaf: typeof p['targetLeaf'] === 'number' ? p['targetLeaf'] : null,
-        input: typeof p['editText'] === 'string' ? p['editText'] : '',
-      };
-    },
-  },
-  // H2 桥面：会话消息/链记录/待办/重置/审计窗口/全量工具/基线/档位登记
+  // H2 桥面：会话消息/链记录/重置/审计窗口/全量工具/基线/档位登记
+  // （session_branch/todo_get/graph_instance_snapshot/pool_snapshot/pool_evaluate/
+  //   assemble_stats/cache_stats/path_state 已随组装链路退役移除，不注册）
   {
     flat: 'session_messages',
     dotted: 'sessions.messages',
     adaptParams: camelToSnake,
   },
   { flat: 'round_ledger_chain', dotted: 'records.chain', adaptParams: camelToSnake },
-  { flat: 'todo_get', dotted: 'rounds.todos', adaptParams: camelToSnake },
-  { flat: 'todo.get', dotted: 'rounds.todos', adaptParams: camelToSnake },
   // recovery 旧扁平面：reset 确认标记不回代（缺 confirm fail-closed 拒绝）
   {
     flat: 'recovery_factory_reset',
@@ -187,15 +176,10 @@ const ALIASES: readonly AliasSpec[] = [
   { flat: 'memory.invalidate', dotted: 'memory.invalidate' },
   { flat: 'growth.report', dotted: 'growth.report' },
   // H2b 桥面：架构/演化读取类扁平旧名 → 点分只读方法（无写类落点不注册；
-  // tools_snapshot/graph_snapshot 无产品消费已删，不提供）
-  { flat: 'graph_instance_snapshot', dotted: 'graph.instance', adaptParams: camelToSnake },
-  { flat: 'pool_snapshot', dotted: 'pool.snapshot' },
-  { flat: 'pool_evaluate', dotted: 'pool.evaluate' },
+  // graph_instance_snapshot/pool_snapshot/pool_evaluate/assemble_stats/
+  // cache_stats/path_state 已随组装链路退役移除，不注册）
   { flat: 'edge_evidence_list', dotted: 'edge_evidence.list' },
   { flat: 'metrics_snapshot', dotted: 'metrics.snapshot' },
-  { flat: 'assemble_stats', dotted: 'assemble.stats' },
-  { flat: 'cache_stats', dotted: 'cache.stats' },
-  { flat: 'path_state', dotted: 'path.state' },
   { flat: 'entities_snapshot', dotted: 'entities.snapshot' },
   { flat: 'material_import', dotted: 'material.import' },
   { flat: 'search_keys_put', dotted: 'search.keys.set' },

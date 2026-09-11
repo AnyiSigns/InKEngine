@@ -100,8 +100,9 @@ endpoint 3，真 ui 面仍 24；其余 kind 目录随对应阶段落位。
   network_policy/meta 不变）；真源唯一化在此，不另设第二份工具目录；
 - mcp 候选（`data.server`）同理逐字保留原 mcp_market 条目字段；
 - 命令插件（`data.group`/`data.order`）：方法名真源 = spec.id（目录名）；
-  `data.group` = 实现域（31 值之一，见生成器 DOMAIN_TABLE——域文件分组，
-  如 rounds.todos 实现独立 todos.ts 但其语义属 rounds），`data.order` = 域内
+  `data.group` = 实现域（26 值之一，见生成器 DOMAIN_TABLE——域文件分组；
+  例 rounds.todos 曾实现独立 todos.ts、语义属 rounds——该命令与文件已随
+  W7-B 组装链路退役），`data.order` = 域内
   序号（1..n 连续）；跨域序由生成器 DOMAIN_TABLE 固定清单决定
   （= BRIDGE_METHODS spread 序，夹具逐字比对）；
 - ui_feature 插件：一布局树节点一插件。装配入口（唯一，id=inkling.ui）

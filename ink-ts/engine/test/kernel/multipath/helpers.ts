@@ -12,7 +12,7 @@ import { NodeContract } from '../../../src/core/contracts/contracts.js';
 import { SchemaField, SchemaSpec, FIELD_STRING } from '../../../src/core/schema/schemaValidator.js';
 import type { EdgeEvidence, EdgeKey } from '../../../src/core/edge_evidence/index.js';
 import { ORIGIN_RUNTIME } from '../../../src/core/edge_evidence/index.js';
-import { AssemblyCandidate } from '../../../src/kernel/path_assembler/index.js';
+import { AssemblyCandidate } from '../../../src/kernel/multipath/types.js';
 import {
   ChainEvidence,
   EdgeRef,

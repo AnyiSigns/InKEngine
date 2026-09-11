@@ -9,4 +9,4 @@
 
 ## 依赖
 - 上游（本目录实际 import）：`core/contracts/contracts.ts`（`NodeContract`）、`core/errors.ts`（`EngineError`/`GraphDefinitionError`/`NodeNotFoundError`）、`core/json.ts`（`deepCopy`/`isRecord`/`typeName`）；目录内 `graph.ts` ↔ `graph_serialize.ts` 互引（`loadGraphFromDict` 以 Graph 构造器注入打破循环）。
-- 下游（实际 import 本目录）：`src/index.ts`（公共面 `export *`）、`kernel/executor`（执行器全域文件）、`kernel/spawn`、`kernel/simulation`、`kernel/settle`、`kernel/path_assembler`、`kernel/introspection`、`kernel/self_proposal`、`kernel/multipath`、`kernel/runtime`、`core/workflow`、`core/plan`、`core/harness`、`core/fingerprint`、`core/nodes`（agent/llm_decider 等）；hosts 无相对 import，经 `@ink-ts/engine` 公共面消费。
+- 下游（实际 import 本目录）：`src/index.ts`（公共面 `export *`）、`kernel/executor`（执行器全域文件）、`kernel/spawn`、`kernel/simulation`、`kernel/settle`、`kernel/introspection`、`kernel/self_proposal`、`kernel/multipath`、`kernel/runtime`、`core/workflow`、`core/plan`、`core/harness`、`core/nodes`（agent/llm_decider 等；`kernel/path_assembler`、`core/fingerprint` 消费已随组装链路退役删除，W7-B）；hosts 无相对 import，经 `@ink-ts/engine` 公共面消费。

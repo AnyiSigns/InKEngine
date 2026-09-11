@@ -212,20 +212,6 @@ export interface MetricsSnapshotView {
   llm_calls_by_role: Record<string, number>;
 }
 
-/** rounds.todos 单行（计划未完成步骤 / 挂起审批卡）。 */
-export interface RoundTodoRow {
-  id: string;
-  label: string;
-  status: string;
-  kind: string;
-}
-
-/** rounds.todos 出参（空清单 = 顶栏标签不亮）。 */
-export interface RoundTodoList {
-  thread_id: string;
-  todo: RoundTodoRow[];
-}
-
 /** growth.report 出参（enabled + config_summary + weights_snapshot?）。 */
 export interface GrowthReport {
   enabled: boolean;
@@ -304,12 +290,6 @@ export interface BackendAdapter {
   /** 会话历史消息回取（冷启动/切会话：records.chain 投影消息行）。 */
   sessionMessages(threadId: string): Promise<unknown[]>;
   sessionTree(threadId: string): Promise<SessionBranchTree>;
-  sessionBranch(
-    threadId: string,
-    action: string,
-    targetLeaf: number | null,
-    editText?: string,
-  ): Promise<{ leaf: number; action: string }>;
   authorizationState(): Promise<{ authorized: boolean; root: string | null }>;
   workspaceAuthorize(path: string): Promise<{ authorized: boolean; root: string }>;
   workspaceRevoke(): Promise<{ authorized: boolean }>;
@@ -341,8 +321,6 @@ export interface BackendAdapter {
   /** 恢复设置默认（B6 逃生；confirm 标记 'settings-default'；清能力台账/常驻集/
    *  组件停用/MCP 启用与额外连接，不动会话链/知识/审计）。 */
   recoverySettingsReset(): Promise<Record<string, unknown>>;
-  // 待办（rounds.todos：计划未完成步骤 + 挂起审批卡）
-  todoGet(threadId: string): Promise<RoundTodoList>;
   toolsManifest(): Promise<ToolFullView>;
   toolsBaselineGet(): Promise<{ tools: string[] }>;
   toolsBaselineSet(tools: string[]): Promise<{ tools: string[] }>;
@@ -361,16 +339,10 @@ export interface BackendAdapter {
   // 可观测数据面（仪表 / 模型选择器数据源）
   modelArchiveSnapshot(): Promise<ModelArchiveSnapshot>;
   metricsSnapshot(): Promise<MetricsSnapshotView>;
-  assembleStats(): Promise<unknown>;
-  // 架构/演化读取类（graph instance/pool/edge/metrics/assemble/cache/path/entities 只读投影）
-  graphInstanceSnapshot(threadId: string): Promise<unknown>;
-  poolSnapshot(): Promise<unknown>;
-  poolEvaluate(proposal: Record<string, unknown>): Promise<unknown>;
+  // 架构/演化只读投影保留面（edge/metrics/entities；graph.instance/pool.*/
+  // assemble.stats/cache.stats/path.state 已随组装链路退役）
   entitiesSnapshot(): Promise<unknown>;
   edgeEvidenceList(): Promise<unknown>;
-  cacheStats(): Promise<unknown>;
-  /** path_assembler 装配状态（path.state 点分读面；无装配 = available:false 空态）。 */
-  pathState(): Promise<unknown>;
   // 模型连接配置运行期重载（设置页保存后使引擎感知新配置）
   modelReload(): Promise<{ reloaded: boolean }>;
   // 设置节单通道收口（搜索 key / 成长状态 / 原生目录选择器）
@@ -416,7 +388,6 @@ export function createUnavailableBackend(): BackendAdapter {
     sessionRefresh: unavailable as never,
     sessionMessages: unavailable as never,
     sessionTree: unavailable as never,
-    sessionBranch: unavailable as never,
     authorizationState: unavailable as never,
     workspaceAuthorize: unavailable as never,
     workspaceRevoke: unavailable as never,
@@ -431,7 +402,6 @@ export function createUnavailableBackend(): BackendAdapter {
     recoveryRestoreSnapshot: unavailable as never,
     recoveryFactoryReset: unavailable as never,
     recoverySettingsReset: unavailable as never,
-    todoGet: unavailable as never,
     toolsManifest: unavailable as never,
     toolsBaselineGet: unavailable as never,
     toolsBaselineSet: unavailable as never,
@@ -442,14 +412,8 @@ export function createUnavailableBackend(): BackendAdapter {
     mcpPluginDisable: unavailable as never,
     modelArchiveSnapshot: unavailable as never,
     metricsSnapshot: unavailable as never,
-    assembleStats: unavailable as never,
-    graphInstanceSnapshot: unavailable as never,
-    poolSnapshot: unavailable as never,
-    poolEvaluate: unavailable as never,
     entitiesSnapshot: unavailable as never,
     edgeEvidenceList: unavailable as never,
-    cacheStats: unavailable as never,
-    pathState: unavailable as never,
     modelReload: unavailable as never,
     searchKeysPut: unavailable as never,
     growthReport: unavailable as never,
@@ -514,8 +478,6 @@ export function createServeBackend(channel?: ServeChannel): BackendAdapter {
       return result.messages ?? [];
     },
     sessionTree: (threadId) => call('session_tree', { threadId }),
-    sessionBranch: (threadId, action, targetLeaf, editText) =>
-      call('session_branch', { threadId, action, targetLeaf, editText }),
     authorizationState: async () => {
       const state = await call<{ authorized: boolean; root: string | null }>('workspace.state');
       return { authorized: state.authorized, root: state.root };
@@ -549,7 +511,6 @@ export function createServeBackend(channel?: ServeChannel): BackendAdapter {
       call('recovery.reset', { confirm: FACTORY_RESET_CONFIRM }),
     recoverySettingsReset: () =>
       call('recovery.settings_reset', { confirm: 'settings-default' }),
-    todoGet: (threadId) => call('rounds.todos', { thread_id: threadId }),
     toolsManifest: () => call('tools.full'),
     toolsBaselineGet: () => call('tools_baseline_get'),
     toolsBaselineSet: (tools) => call('tools_baseline_set', { tools }),
@@ -560,14 +521,8 @@ export function createServeBackend(channel?: ServeChannel): BackendAdapter {
     mcpPluginDisable: (id) => call('mcp.disable', { id }),
     modelArchiveSnapshot: () => call('model_archive.snapshot'),
     metricsSnapshot: () => call('metrics.snapshot'),
-    assembleStats: () => call('assemble.stats'),
-    graphInstanceSnapshot: (threadId) => call('graph.instance', { thread_id: threadId }),
-    poolSnapshot: () => call('pool.snapshot'),
-    poolEvaluate: (proposal) => call('pool.evaluate', { proposal }),
     entitiesSnapshot: () => call('entities.snapshot'),
     edgeEvidenceList: () => call('edge_evidence.list'),
-    cacheStats: () => call('cache.stats'),
-    pathState: () => call('path.state'),
     modelReload: () => call('model.reload'),
     searchKeysPut: (keys) => call('search_keys_put', { keys }),
     growthReport: () => call('growth.report'),

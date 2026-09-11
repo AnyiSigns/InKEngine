@@ -1,39 +1,32 @@
 /**
  * 引擎内置基础节点 boot 接线测试：Runtime 装配默认注册引擎内置池种子 +
- * rebuild seams 绑定 + 组装运行期从池选终态出单节点图。
+ * rebuild seams 绑定。
  *
  * - boot 后 graph_registries 含 llm_decider/tool_pipeline 及契约（注册表含
  *   新类型，引擎给多宿主用 = 引擎内置注册，宿主只给数据）；
- * - 无缓存/技能/证据的冷启动 assemble（任意域）稳定产出合法候选单节点图
- *   （llm_decider，flags.terminal=true 终态候选）；候选图在 bound registries
- *   + memory storage 下真实执行出 stub 回复。
+ * - boot 种子登记行元数据与配方 pool_seed 覆写面。
+ *
+ * （冷启动组装面已随组装链路退役：回合执行归 execution 执行运行时。）
  */
 import { afterEach, describe, expect, it } from 'vitest';
 
 import { Runtime, AssemblyRecipe } from '../../../src/kernel/runtime/index.js';
 import type { Host } from '../../../src/kernel/runtime/index.js';
-import { set_default_assembly_runtime } from '../../../src/kernel/path_assembler/index.js';
-import { AssemblyRequest } from '../../../src/kernel/path_assembler/index.js';
 import {
-  ENGINE_STUB_REPLY,
   TYPE_LLM_DECIDER,
-  TYPE_LLM_PLANNER,
   TYPE_TOOL_PIPELINE,
   default_engine_pool_seed,
 } from '../../../src/core/nodes/index.js';
 import type { EnginePoolSeed } from '../../../src/core/nodes/index.js';
 import { NODE_KIND_LLM, NODE_KIND_TOOL } from '../../../src/core/nodes/constants.js';
-import { Graph } from '../../../src/core/graph/graph.js';
-import { Engine } from '../../../src/kernel/executor/index.js';
-import { RunOptions } from '../../../src/core/run_result/run_result.js';
 import { DefaultInterruptPolicy } from '../../../src/kernel/approval/approval.js';
-import { FIELD_STRING, SchemaField, SchemaSpec } from '../../../src/core/schema/schemaValidator.js';
 import { HarnessDefinition } from '../../../src/core/harness/index.js';
 import { EventTypeSpec } from '../../../src/core/event_types/eventTypeSpec.js';
 import { KnowledgeEntry, KIND_RULE } from '../../../src/core/knowledge_set/index.js';
 import { self_tool_specs, make_self_executor, operation_of } from '../../../src/kernel/self_tools/index.js';
 import type { SelfToolContext } from '../../../src/kernel/self_tools/index.js';
 import { MemoryStorage } from '../../kernel/executor/helpers.js';
+
 
 /** boot 领域种子（最小：知识集基线条目）。 */
 function boot_seed_entries(): KnowledgeEntry[] {
@@ -93,36 +86,7 @@ function _minimal_recipe(overrides: Partial<AssemblyRecipe> = {}): AssemblyRecip
   return Object.assign(base, overrides);
 }
 
-/** chat 域组装请求（目标 reply；无缓存/技能/证据的冷启动形态）。 */
-function chat_request(domain = 'chat'): AssemblyRequest {
-  return new AssemblyRequest({
-    goal_schema: new SchemaSpec({
-      name: 'goal',
-      fields: [new SchemaField({ name: 'reply', required: true, kind: FIELD_STRING })],
-    }),
-    entry_fields: [],
-    domain,
-    top_k: 2,
-  });
-}
-
-/** 按注册表重建数据图并执行（内存存储；无模型 = 确定性 stub 回复）。 */
-async function run_graph_data(
-  registries: NonNullable<Runtime['graph_registries']>,
-  graphData: Record<string, unknown>,
-  storage: MemoryStorage,
-): Promise<Record<string, unknown>> {
-  const graph = Graph.from_dict(graphData, {
-    registry: registries.nodes,
-    edge_registry: registries.edges,
-    validate: true,
-  });
-  const engine = new Engine(graph, new RunOptions({ storage, registries }));
-  const result = await engine.ainvoke({ input: '冷启动' }, { thread_id: 't-cold', round_id: 'r1' });
-  return { ...result.state, _reason: result.reason };
-}
-
-describe('Runtime boot：引擎内置池种子注册 + 冷启动组装', () => {
+describe('Runtime boot：引擎内置池种子注册', () => {
   it('boot 后注册表含引擎内置类型及契约', async () => {
     const runtime = await new Runtime().boot(toHost(new FakeHost()), _minimal_recipe());
     const registries = runtime.graph_registries!;
@@ -130,23 +94,6 @@ describe('Runtime boot：引擎内置池种子注册 + 冷启动组装', () => {
     expect(registries.nodes.has(TYPE_TOOL_PIPELINE)).toBe(true);
     expect(registries.nodes.contract_for(TYPE_LLM_DECIDER)).toBeTruthy();
     expect(registries.edges.has('llm.pending_nonempty')).toBe(true);
-    await runtime.stop();
-  });
-
-  it('冷启动 assemble（chat 域）出合法候选并真实执行出 stub 回复', async () => {
-    const runtime = await new Runtime().boot(toHost(new FakeHost()), _minimal_recipe());
-    const assembler = runtime.assembly_runtime!;
-    const result = await assembler.assemble_plan(chat_request('chat'));
-    expect(result.is_empty).toBe(false);
-    // P4.2a-3：出厂池可区分实例在场时，字段链（planner→reviewer→main）按边
-    // 零证据先验高于单节点兜底 → 顶选为字段链候选（llm_planner 领头）。
-    const first = result.candidates[0]!;
-    expect(first.graph.node_bindings[TYPE_LLM_PLANNER]).toBeTruthy();
-    expect(first.source).toBeTruthy();
-    const graphData = first.to_dict()['graph'] as Record<string, unknown>;
-    const state = await run_graph_data(runtime.graph_registries!, graphData, runtime.storage!.inner as MemoryStorage);
-    expect(state['reply']).toBe(ENGINE_STUB_REPLY);
-    expect(state['_reason']).toBe('reply');
     await runtime.stop();
   });
 
@@ -165,7 +112,7 @@ describe('Runtime boot：引擎内置池种子注册 + 冷启动组装', () => {
     await runtime.stop();
   });
 
-  it('配方 pool_seed 数据可覆写（node_types 数据源生效；引擎类型按种子注册并组装）', async () => {
+  it('配方 pool_seed 数据可覆写（node_types 数据源生效；引擎类型按种子注册）', async () => {
     const base = default_engine_pool_seed();
     const seed: EnginePoolSeed = {
       enabled: true,
@@ -178,16 +125,6 @@ describe('Runtime boot：引擎内置池种子注册 + 冷启动组装', () => {
     // 种子数据源生效：仅 llm_decider 入注册池（tool_pipeline 不注册）
     expect(runtime.graph_registries!.nodes.has(TYPE_LLM_DECIDER)).toBe(true);
     expect(runtime.graph_registries!.nodes.has(TYPE_TOOL_PIPELINE)).toBe(false);
-    // 无输入源最小可行回合：任意域组装出 llm_decider 单节点图并真实执行
-    const result = await runtime.assembly_runtime!.assemble_plan(chat_request('custom'));
-    expect(result.is_empty).toBe(false);
-    const graphData = result.candidates[0]!.to_dict()['graph'] as Record<string, unknown>;
-    const state = await run_graph_data(runtime.graph_registries!, graphData, runtime.storage!.inner as MemoryStorage);
-    expect(state['reply']).toBe(ENGINE_STUB_REPLY);
     await runtime.stop();
   });
-});
-
-afterEach(() => {
-  set_default_assembly_runtime(null);
 });

@@ -21,7 +21,7 @@
 - 下游：`src/index.ts`（公共面 `export * from './core/ui_schema/uiSchema.js'`；
   uiSchemaSupport 不上公共面但 kernel/runtime 直连 import）、
   `kernel/runtime`（_types DEFAULT_BIND_CHANNELS/_runtime_engine/
-  _runtime_assemble UISchemaValidator）、`kernel/self_proposal`
+  _runtime_boot UISchemaValidator）、`kernel/self_proposal`
   （proposal_validator 校验 ui 提案）、`core/py_repr.ts`（收敛目标自述）；
   `test/core/ui_schema/uiSchema.test.ts`。
 

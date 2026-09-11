@@ -31,7 +31,6 @@ const MessageListAdapter: ComponentType<Record<string, unknown>> = (props: Recor
       selectedSpawnIndex={(props.selectedSpawnIndex as number | null | undefined) ?? null}
       onSpawnSendInstruction={(props.onSpawnSendInstruction as ((t: string) => void) | undefined) ?? noop}
       spawnStreaming={streaming}
-      onBranchFromMessage={(props.onBranchFromMessage as ((id: string, label: string) => void) | undefined) ?? noop}
     />
   );
 };

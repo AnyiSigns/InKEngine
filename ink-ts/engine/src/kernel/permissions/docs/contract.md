@@ -52,7 +52,7 @@
 
 ## 装配与消费
 
-- 引擎级门禁：`kernel/runtime/_runtime_assemble`（`recipe.tool_gate.
+- 引擎级门禁：`kernel/runtime/_runtime_boot`（`recipe.tool_gate.
   to_gate()`，未配置 = 缺省 `new PermissionGate()`）——与 hosts/lib
   `recipe.ts` 的 `tool_gate` 配置字段（`ToolGateConfig` 经公共面构造）对齐。
 - 端点级：`core/declarative_tools/pipeline.ts`（`options.gate ?? new

@@ -72,8 +72,8 @@ describe('boot 元工具契约', () => {
     expect(BOOT_METATOOLS).toContain('propose_domain_manifest');
   });
 
-  it('清单固定 12 项（观察 6 + 演化 4 + 自指发现 2）', () => {
-    expect(BOOT_METATOOLS).toHaveLength(12);
+  it('清单固定 11 项（观察 5 + 演化 4 + 自指发现 2；inspect_graph 随组装链路退役，W7-B）', () => {
+    expect(BOOT_METATOOLS).toHaveLength(11);
   });
 });
 

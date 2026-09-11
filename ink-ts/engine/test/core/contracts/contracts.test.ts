@@ -6,7 +6,6 @@ import {
   SAFETY_TIER_MAX,
   SAFETY_TIER_MIN,
   NodeContract,
-  PathAssemblyConfig,
   PathAssemblyFlags,
   type QualityGate,
 } from '../../../src/core/contracts/contracts.js';
@@ -80,19 +79,6 @@ describe('NodeContract 契约形态', () => {
   });
 });
 
-describe('PathAssemblyConfig 装配配置开关', () => {
-  it('机制装配配置开关默认全关（增量接入），序列化往返一致', () => {
-    const config = new PathAssemblyConfig();
-    expect(config.enabled).toBe(false);
-    expect(PathAssemblyConfig.from_dict(config.to_dict()).to_dict()).toEqual(config.to_dict());
-    expect(PathAssemblyConfig.from_dict({ enabled: true }).enabled).toBe(true);
-  });
-
-  it('非 dict 声明拒绝', () => {
-    expect(() => PathAssemblyConfig.from_dict('nope')).toThrow(/装配配置声明非法/);
-  });
-});
-
 describe('PathAssemblyFlags 装配开关组', () => {
   it('from_boot 缺省全关；未知键忽略；按名单开', () => {
     const none = PathAssemblyFlags.from_boot(null);
@@ -126,11 +112,6 @@ describe('PathAssemblyFlags 装配开关组', () => {
       'settle_hooks_enabled',
     ]);
     expect(Object.keys(flags.to_boot_dict())).toContain(BOOT_KEY_MULTIPATH_ENABLED);
-  });
-
-  it('组装器块开关形态随 assembler_enabled 透传', () => {
-    expect(new PathAssemblyFlags({ assembler_enabled: true }).as_path_assembly_config().enabled).toBe(true);
-    expect(new PathAssemblyFlags().as_path_assembly_config().enabled).toBe(false);
   });
 });
 

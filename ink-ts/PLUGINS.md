@@ -70,8 +70,9 @@ MCP config / spawn 声明）+ 测试 + locale。`kind` 只决定三件事：
 spec 直接住 `hosts/<host>.spec.json`，faces 用 HostFaces，见 §2）。
 
 命令类（`kind='command'`）落地形态（阶段 3b1 定稿）：`plugins/commands/<method>/`
-单命令一目录，spec 的 `data.group` = 实现域（31 值，含 rounds.todos 独立实现
-的 todos 组）、`data.order` = 域内序号；方法名真源 = spec.id（目录名）。
+单命令一目录，spec 的 `data.group` = 实现域（26 值，见生成器 DOMAIN_TABLE；
+原 todos/pool/assemble/cache/path/skeleton/graph/approval 等组装链域随 W7-B
+退役）、`data.order` = 域内序号；方法名真源 = spec.id（目录名）。
 host 命令面经派生生成物 `hosts/lib/src/bridge/commands.generated.ts` 取用
 （域命令元组 + 域命令类型，禁手改），域实现文件只 import type/re-export——命令
 面从此派生、无手写方法名数组；增删命令 = 增删 plugins/commands 目录 + 重跑

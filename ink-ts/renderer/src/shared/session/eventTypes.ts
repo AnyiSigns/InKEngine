@@ -27,12 +27,9 @@ export const EVENT_TYPE_NAMES = [
   'simulate_decision',
   'branch_result',
   'swap_branch',
-  // 路径组装/节点追踪
-  'assembly_candidate',
+  // 汇流裁决/节点追踪（组装候选与组装/指纹审计已随组装链路退役，W7-B）
   'junction_verdict',
   'junction_verdict_audit',
-  'assembly_audit',
-  'fingerprint_replace_audit',
   'policy_edge_review_audit',
   'recommended_prior_promotion',
   'node_start',
@@ -59,10 +56,8 @@ export const EVENT_TYPE_NAMES = [
   'device_control',
   // 附件（引擎 Attachment 契约形态，DEFAULT_ATTACHMENT_EVENT_NAME）
   'attachment',
-  // 组装时间线（UX 指标：turn_started → 组装 → execution_started 的墙钟）
+  // 时间线（UX 指标：turn_started → execution_started 的墙钟）
   'turn_started',
-  'assembly_started',
-  'assembly_done',
   'execution_started',
 ] as const;
 
@@ -95,11 +90,8 @@ export const EVENT_TYPE_SPECS: EventTypeSpec[] = [
   { name: 'simulate_decision', description: '决策点推演开始', bindable: true },
   { name: 'branch_result', description: '分支评分结果', bindable: true },
   { name: 'swap_branch', description: '换选分支', bindable: true },
-  { name: 'assembly_candidate', description: '组装候选留痕（路径/边证据视图）', bindable: true },
   { name: 'junction_verdict', description: '汇流裁决留痕（旧名，兼容订阅）', bindable: true },
   { name: 'junction_verdict_audit', description: '汇流裁决审计留痕', bindable: true },
-  { name: 'assembly_audit', description: '组装审计留痕', bindable: true },
-  { name: 'fingerprint_replace_audit', description: '指纹顶替审计留痕', bindable: true },
   { name: 'policy_edge_review_audit', description: '策略边复审审计留痕', bindable: true },
   { name: 'recommended_prior_promotion', description: '推荐先验自动晋升留痕', bindable: true },
   { name: 'node_start', description: '节点执行开始（架构实例追踪）', bindable: true },
@@ -122,8 +114,6 @@ export const EVENT_TYPE_SPECS: EventTypeSpec[] = [
   { name: 'device_control', description: '设备控制留痕', bindable: true },
   { name: 'attachment', description: '附件（引擎 Attachment 契约形态）', bindable: true },
   { name: 'turn_started', description: '回合入口（用户消息到达，时间线起点）', bindable: true },
-  { name: 'assembly_started', description: '组装开始（时间线：组装阶段起点）', bindable: true },
-  { name: 'assembly_done', description: '组装完成（时间线：组装阶段耗时）', bindable: true },
   { name: 'execution_started', description: '真正执行开始（时间线：首个节点开工）', bindable: true },
 ];
 

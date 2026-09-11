@@ -103,20 +103,6 @@
       "meta": { "note": "子任务实例结束（按实例 graph_path 归属回收），子代理卡实例行状态推进" }
     },
     {
-      "name": "assembly_candidate",
-      "schema": {
-        "name": "assembly_candidate",
-        "fields": [
-          { "name": "domain", "required": true, "kind": "string" },
-          { "name": "ts", "kind": "number" },
-          { "name": "fingerprint", "kind": "string" }
-        ]
-      },
-      "renderer": "path_dag",
-      "system": false,
-      "meta": { "note": "组装候选留痕（候选计划登记，只观察不执行；路径/边证据视图消费，旧前端 path_dag 已注册渲染器）" }
-    },
-    {
       "name": "junction_verdict",
       "schema": {
         "name": "junction_verdict",
@@ -143,34 +129,6 @@
       "renderer": "path_dag",
       "system": false,
       "meta": { "note": "汇流裁决审计留痕（append-only 审计出口；与引擎 EVENT_AUDIT_JUNCTION 同源）" }
-    },
-    {
-      "name": "assembly_audit",
-      "schema": {
-        "name": "audit.assembly",
-        "fields": [
-          { "name": "domain", "required": true, "kind": "string" },
-          { "name": "ts", "kind": "number" },
-          { "name": "fingerprint", "kind": "string" }
-        ]
-      },
-      "renderer": "path_dag",
-      "system": false,
-      "meta": { "note": "组装审计留痕（候选计划登记；与引擎 EVENT_AUDIT_ASSEMBLY 同源）" }
-    },
-    {
-      "name": "fingerprint_replace_audit",
-      "schema": {
-        "name": "audit.fingerprint_replace",
-        "fields": [
-          { "name": "domain", "required": true, "kind": "string" },
-          { "name": "ts", "kind": "number" },
-          { "name": "fingerprint", "kind": "string" }
-        ]
-      },
-      "renderer": "path_dag",
-      "system": false,
-      "meta": { "note": "指纹顶替审计留痕（旧条目失效与新条目落位；与引擎 EVENT_AUDIT_FINGERPRINT_REPLACE 同源）" }
     },
     {
       "name": "policy_edge_review_audit",
@@ -601,20 +559,6 @@
       "renderer": "message_list",
       "system": true,
       "meta": { "note": "回合入口（用户消息到达，时间线起点，顶层图发射一次）", "purpose": "timeline" }
-    },
-    {
-      "name": "assembly_started",
-      "schema": { "name": "timeline.assembly_started", "fields": [] },
-      "renderer": "message_list",
-      "system": true,
-      "meta": { "note": "组装开始（输入调配预装配起点，时间线：组装阶段起点）", "purpose": "timeline" }
-    },
-    {
-      "name": "assembly_done",
-      "schema": { "name": "timeline.assembly_done", "fields": [] },
-      "renderer": "message_list",
-      "system": true,
-      "meta": { "note": "组装完成（时间线：组装阶段耗时）", "purpose": "timeline" }
     },
     {
       "name": "execution_started",

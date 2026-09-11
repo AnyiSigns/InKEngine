@@ -14,7 +14,7 @@
 ## 依赖
 - 上游：`core/contracts`（NodeContract）、`core/json`（isRecord）、
   `core/registry`（NodeTypeRegistry）、`core/schema`（SchemaSpec/Field）。
-- 下游：`kernel/runtime/_runtime_assemble`（装配处登记）；公共面零导出；
+- 下游：`kernel/runtime/_runtime_boot`（装配处登记）；公共面零导出；
   `test/core/perception/perception.test.ts`。
 
 ## 备注

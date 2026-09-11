@@ -1,17 +1,16 @@
-// gate: 超限(378 行) - host bridge 命令面单测共用同一装置，整链回归可读性优先
+// gate: 超限(250 行) - host bridge 命令面单测共用同一装置，整链回归可读性优先
 /**
  * host bridge 命令面单测（in-process 全绿）。
  *
  * 覆盖：方法表与 BRIDGE_METHODS 声明一致；参数校验（BridgeError）与信封
- * 约定（handler 抛错不吞内部细节，message 可回）；rounds 驱动（组装回合，
- * 无模型 = 引擎确定性 stub）+ 分支续跑；approval 卡查询 + 裁决；records/
- * sessions/audit/tools/recovery 只读与簿记查询。审批语义全在 engine
- * （approval/interrupt），bridge 只接线。
+ * 约定（handler 抛错不吞内部细节，message 可回）；rounds 驱动（execution
+ * 主线 + fake llm 回复）+ 簿记；records/sessions/audit/tools/recovery 只读与
+ * 簿记查询。审批语义全在 engine（approval/interrupt），bridge 只接线。
  *
- * W7-A 迁移注：本文件为组装路径（flag 回退）回归位——rounds 的组装回合语义
- * （stub 确定性回复/round_pose 落链/链叶分支/组装图 config 活读）为组装路
- * 专属，测试内显式打开 INK_ROUNDS_ASSEMBLY_FALLBACK 保持绿（flag 仅余退役
- * 前对照价值）；execution 主线默认入口语义见 bridge/rounds_mainline.test.ts。
+ * W7-B 迁移注：组装回退 flag（INK_ROUNDS_ASSEMBLY_FALLBACK）与组装链桥面
+ * （rounds.branch/rounds.fork_trial/approval.list/approval.resolve/rounds.todos）
+ * 已随组装链路退役；回归位改走 execution 主线默认入口（fake llm），审批挂卡
+ * 语义见 bridge/rounds_mainline.test.ts（exec 链挂卡 + rounds.resume 决议注入）。
  */
 
 import { mkdtempSync } from 'node:fs';
@@ -20,14 +19,11 @@ import path from 'node:path';
 
 import { afterAll, afterEach, beforeAll, beforeEach, describe, expect, it } from 'vitest';
 
-import { ENGINE_STUB_REPLY } from '@ink-ts/engine';
-
 import { BRIDGE_METHODS } from '../src/bridge/index.js';
 import { BridgeError } from '../src/bridge/_types.js';
 import { createHost } from '../src/index.js';
 import type { HostHandle } from '../src/index.js';
-import { disableAssemblyFallback, enableAssemblyFallback } from './_rounds_flag.js';
-import { runGateCard } from './_graphs.js';
+import { FakeOpenAIServer } from './_fake_openai.js';
 
 const CTX = { autoApprove: false };
 
@@ -36,20 +32,37 @@ function dirs(): { dir: string; events: string } {
   return { dir, events: path.join(dir, 'events') };
 }
 
-beforeAll(() => {
-  enableAssemblyFallback();
-});
-
-afterAll(() => {
-  disableAssemblyFallback();
-});
-
 describe('host bridge 命令面', () => {
   let handle: HostHandle;
+  let server: FakeOpenAIServer | null = null;
+
+  beforeAll(async () => {
+    server = new FakeOpenAIServer({ content: '桥回复' });
+    await server.start();
+  });
+
+  afterAll(async () => {
+    if (server !== null) await server.close();
+  });
 
   beforeEach(async () => {
     const { dir, events } = dirs();
-    handle = await createHost({ data_dir: dir, events_dir: events });
+    handle = await createHost({
+      data_dir: dir,
+      events_dir: events,
+      ...(server === null
+        ? {}
+        : {
+            model_config: {
+              agent_config: {
+                protocol: 'openai_compatible',
+                base_url: server.baseUrl,
+                api_key: 'sk-bridge-test',
+                model_id: 'bridge-chat',
+              },
+            },
+          }),
+    });
   });
 
   afterEach(async () => {
@@ -61,17 +74,20 @@ describe('host bridge 命令面', () => {
     expect([...handle.bridge.keys()].sort()).toEqual([...BRIDGE_METHODS].sort());
     for (const method of [
       'rounds.send',
-      'rounds.branch',
+      'rounds.resume',
       'records.sessions',
       'sessions.create',
       'sessions.tree',
-      'approval.list',
       'audit.export',
       'tools.full',
       'recovery.checkpoints',
       'os.run',
     ]) {
       expect(handle.bridge.get(method)).toBeTypeOf('function');
+    }
+    // 组装链桥面已退役（无命令位）
+    for (const absent of ['rounds.branch', 'rounds.fork_trial', 'approval.list', 'approval.resolve', 'rounds.todos', 'graph.instance', 'skeleton.get', 'skeleton.edit']) {
+      expect(handle.bridge.has(absent)).toBe(false);
     }
   });
 
@@ -104,23 +120,10 @@ describe('host bridge 命令面', () => {
     }
   });
 
-  it('rounds.send pose 种子进回合 state（round_pose 随 checkpoint 落库）', async () => {
-    const send = handle.bridge.get('rounds.send')!;
-    const result = (await send({ input: 'hi', pose: 'auto' }, CTX)) as { thread_id: string };
-    const latest = await handle.runtime.storage!.get_latest_checkpoint(result.thread_id);
-    expect(latest).not.toBeNull();
-    expect(latest!.state['round_pose']).toBe('auto');
-    // 缺省 pose（review）= 不落键（引擎缺省语义，零漂移）
-    const result2 = (await send({ input: 'hi' }, CTX)) as { thread_id: string };
-    const latest2 = await handle.runtime.storage!.get_latest_checkpoint(result2.thread_id);
-    expect(latest2).not.toBeNull();
-    expect(latest2!.state['round_pose']).toBeUndefined();
-  });
-
-  it('rounds.send 跑通组装回合（无模型 → 确定性 stub）；abort 无在途 run 返回 aborted:false', async () => {
+  it('rounds.send 跑通主线回合（fake llm 直答）；abort 无在途 run 返回 aborted:false', async () => {
     const send = handle.bridge.get('rounds.send')!;
     const result = (await send({ input: 'hi' }, CTX)) as { reply: string; reason: string };
-    expect(result.reply).toBe(ENGINE_STUB_REPLY);
+    expect(result.reply).toBe('桥回复');
     expect(result.reason).toBe('reply');
     const aborted = await handle.bridge.get('rounds.abort')!(null, CTX);
     expect(aborted).toEqual({ aborted: false });
@@ -148,24 +151,6 @@ describe('host bridge 命令面', () => {
     });
     const audit = await handle.bridge.get('audit.export')!(null, CTX);
     expect(Array.isArray(audit)).toBe(true);
-  });
-
-  it('approval.resolve 无挂起卡 → BridgeError no_pending_approval', async () => {
-    await expect(
-      handle.bridge.get('approval.resolve')!(
-        { thread_id: 't-none', decision: 'reject' },
-        CTX,
-      ),
-    ).rejects.toMatchObject({ code: 'no_pending_approval' });
-  });
-
-  it('approval.list 非法决议（auto 字符串）被拒', async () => {
-    await expect(
-      handle.bridge.get('approval.resolve')!(
-        { thread_id: 't', decision: 'auto' },
-        CTX,
-      ),
-    ).rejects.toMatchObject({ code: 'invalid_decision' });
   });
 
   it('sessions.create/rename/delete/refresh 薄簿记闭环', async () => {
@@ -208,185 +193,5 @@ describe('host bridge 命令面', () => {
       thread_id: string;
     };
     expect(created.thread_id).toBeTruthy();
-  });
-});
-
-describe('host bridge rounds.branch（组装回合链叶分支续跑）', () => {
-  let handle: HostHandle;
-
-  beforeEach(async () => {
-    const { dir, events } = dirs();
-    handle = await createHost({ data_dir: dir, events_dir: events });
-  });
-
-  afterEach(async () => {
-    await handle.dispose();
-  });
-
-  it('连续回合后可对链尾分支：新叶入树、原叶保留为父', async () => {
-    const send = handle.bridge.get('rounds.send')!;
-    const first = (await send({ input: 'a' }, CTX)) as {
-      thread_id: string;
-      checkpoint_id: number;
-    };
-    await send({ input: 'b', thread_id: first.thread_id }, CTX);
-    const treeBefore = (await handle.bridge.get('sessions.tree')!(
-      { thread_id: first.thread_id },
-      CTX,
-    )) as { nodes: Array<{ leaf: number; parent: number | null }> };
-    expect(treeBefore.nodes).toHaveLength(1);
-    const tailLeaf = treeBefore.nodes[0]!.leaf;
-
-    const branch = (await handle.bridge.get('rounds.branch')!(
-      { thread_id: first.thread_id, leaf: tailLeaf },
-      CTX,
-    )) as { leaf: number; tree: { nodes: Array<{ leaf: number; parent: number | null }> } };
-    expect(branch.leaf).not.toBe(tailLeaf);
-    const parents = branch.tree.nodes.map((node) => node.parent);
-    expect(parents).toContain(tailLeaf);
-
-    await expect(
-      handle.bridge.get('rounds.branch')!({ thread_id: 'no-such' }, CTX),
-    ).rejects.toMatchObject({ code: 'no_checkpoint' });
-  });
-});
-
-describe('host bridge approval（数据图引擎挂卡 → 查询 → 裁决续跑）', () => {
-  let handle: HostHandle;
-
-  beforeEach(async () => {
-    const { dir, events } = dirs();
-    handle = await createHost({ data_dir: dir, events_dir: events });
-  });
-
-  afterEach(async () => {
-    await handle.dispose();
-  });
-
-  /** 经 runtime 按数据图构建 gate 本轮引擎跑一轮挂卡回合（rounds 走组装，
-   *  审批卡演示经数据图引擎触发；approval/checkpoint/恢复全走引擎机制）。 */
-  async function startCardThread(): Promise<string> {
-    const thread_id = `gate-${Math.random().toString(36).slice(2, 10)}`;
-    await runGateCard(handle.runtime, thread_id);
-    return thread_id;
-  }
-
-  it('挂卡回合触发审批卡；approval.list 可见；resolve reject → 决议原样抵达', async () => {
-    const thread_id = await startCardThread();
-    const cards = (await handle.bridge.get('approval.list')!(
-      { thread_id },
-      CTX,
-    )) as Array<{ thread_id: string; key: string }>;
-    expect(cards.length).toBeGreaterThan(0);
-    expect(cards[0]!.key).toMatch(/^gate:/);
-
-    const resolved = (await handle.bridge.get('approval.resolve')!(
-      { thread_id, decision: 'reject' },
-      CTX,
-    )) as { result: { state: Record<string, unknown> } };
-    expect((resolved.result.state as Record<string, unknown>)['reply']).toBe('reject');
-
-    // 卡已消费：再次 resolve → no_pending_approval
-    await expect(
-      handle.bridge.get('approval.resolve')!(
-        { thread_id, decision: 'reject' },
-        CTX,
-      ),
-    ).rejects.toMatchObject({ code: 'no_pending_approval' });
-  });
-
-  it('approval.resolve 裸决议正例：accept/terminate/edit 均原样抵达引擎裁决', async () => {
-    const resolve = handle.bridge.get('approval.resolve')!;
-    const runCard = async (): Promise<string> => {
-      const thread_id = await startCardThread();
-      const cards = (await handle.bridge.get('approval.list')!(
-        { thread_id },
-        CTX,
-      )) as Array<{ thread_id: string }>;
-      expect(cards.some((card) => card.thread_id === thread_id)).toBe(true);
-      return thread_id;
-    };
-
-    const acceptThread = await runCard();
-    const accepted = (await resolve({ thread_id: acceptThread, decision: 'accept' }, CTX)) as {
-      result: { state: Record<string, unknown> };
-    };
-    expect((accepted.result.state as Record<string, unknown>)['reply']).toBe('accept');
-
-    const editThread = await runCard();
-    const edited = (await resolve(
-      {
-        thread_id: editThread,
-        decision: { decision: 'edit', edited_content: { tool: 'demo_tool', summary: '已编辑' }, reason: '改摘要' },
-      },
-      CTX,
-    )) as { result: { state: Record<string, unknown> } };
-    expect((edited.result.state as Record<string, unknown>)['reply']).toBe('edit');
-
-    const terminateThread = await runCard();
-    const terminated = (await resolve(
-      { thread_id: terminateThread, decision: 'terminate' },
-      CTX,
-    )) as { result: { state: Record<string, unknown> } };
-    expect((terminated.result.state as Record<string, unknown>)['reply']).toBe('terminate');
-  });
-
-  it('approval.list 按 thread_id 过滤查询', async () => {
-    const thread_id = await startCardThread();
-    const cards = (await handle.bridge.get('approval.list')!(
-      { thread_id },
-      CTX,
-    )) as unknown[];
-    expect(cards).toHaveLength(1);
-    const none = await handle.bridge.get('approval.list')!({ thread_id: 't-other' }, CTX);
-    expect(none).toEqual([]);
-  });
-});
-
-/** 从 checkpoint state 的 _round_graph 取 llm_decider 节点 config（数据形态）。 */
-function llmDeciderConfig(graphData: unknown): Record<string, unknown> | null {
-  const graph = graphData as {
-    nodes?: Record<string, { type?: string; config?: Record<string, unknown> }>;
-  };
-  const node = Object.values(graph.nodes ?? {}).find((entry) => entry.type === 'llm_decider');
-  return node?.config ?? null;
-}
-
-describe('host bridge capability.max_tool_rounds → 组装回合 llm_decider config 生效', () => {
-  let handle: HostHandle;
-
-  beforeEach(async () => {
-    const { dir, events } = dirs();
-    handle = await createHost({ data_dir: dir, events_dir: events });
-  });
-
-  afterEach(async () => {
-    await handle.dispose();
-  });
-
-  it('capability.put 改动 → 下轮组装图 llm_decider config 生效（每次 send 活读）', async () => {
-    const put = handle.bridge.get('capability.put')!;
-    const send = handle.bridge.get('rounds.send')!;
-    await put({ max_tool_rounds: 3 }, CTX);
-    const first = (await send({ input: 'hi' }, CTX)) as { thread_id: string };
-    const latest = await handle.runtime.storage!.get_latest_checkpoint(first.thread_id);
-    expect(latest).not.toBeNull();
-    expect(llmDeciderConfig(latest!.state['_round_graph'])?.['max_tool_rounds']).toBe(3);
-    // 活读面：put 改 5 → 下轮回合即换新值
-    await put({ max_tool_rounds: 5 }, CTX);
-    await send({ input: 'again', thread_id: first.thread_id }, CTX);
-    const latest2 = await handle.runtime.storage!.get_latest_checkpoint(first.thread_id);
-    expect(latest2).not.toBeNull();
-    expect(llmDeciderConfig(latest2!.state['_round_graph'])?.['max_tool_rounds']).toBe(5);
-  });
-
-  it('无记录 → 不传覆写：组装图 llm_decider 无 max_tool_rounds（引擎缺省 8）', async () => {
-    const send = handle.bridge.get('rounds.send')!;
-    const result = (await send({ input: 'hi' }, CTX)) as { thread_id: string };
-    const latest = await handle.runtime.storage!.get_latest_checkpoint(result.thread_id);
-    expect(latest).not.toBeNull();
-    const config = llmDeciderConfig(latest!.state['_round_graph']);
-    expect(config).not.toBeNull();
-    expect(config!['max_tool_rounds']).toBeUndefined();
   });
 });

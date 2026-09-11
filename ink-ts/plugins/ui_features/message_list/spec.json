@@ -10,7 +10,7 @@
       "entry": "./faces/ui/index.tsx",
       "access": {
         "store": ["entries", "streaming", "roundSteps", "simulations", "spawnInstances", "selectedSpawnIndex"],
-        "inject": ["onSpawnSelect", "onSpawnSendInstruction", "onBranchFromMessage"]
+        "inject": ["onSpawnSelect", "onSpawnSendInstruction"]
       }
     }
   },

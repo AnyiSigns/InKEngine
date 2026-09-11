@@ -1,4 +1,5 @@
-# 孤儿导出灰名单：engine core 顶层导出中当前无消费引用的已知项（共 13 项）。
+# 孤儿导出灰名单：engine core 顶层导出中当前无消费引用的已知项（共 12 项；
+# contract_version_of@core/path_assembler 随组装链路退役条目移除，W7-B）。
 # 每行 <name>@<relpath>，空行与 # 注释跳过。新孤儿不被豁免，需接线或删除。
 #
 # 以下各项承载显式对外契约面（版本号、协议常量、规范工厂），保留导出以待外部
@@ -11,7 +12,6 @@ DEFAULT_ATTACHMENT_RENDERER@engine/src/core/event_types/eventTypeSpec.ts
 attachment_event_spec@engine/src/core/event_types/eventTypeSpecs.ts
 register_output_gate_event_types@engine/src/core/event_types/eventTypeSpecs.ts
 entryShapeError@engine/src/core/knowledge_set/_types.ts
-contract_version_of@engine/src/core/path_assembler/snapshot.ts
 VISION_CONTRACT_VERSION@engine/src/core/perception/perception.ts
 VISION_CONTEXT_DOMAIN@engine/src/core/perception/perception.ts
 buildToolCtx@engine/src/core/round_steps/round_steps_internals.ts

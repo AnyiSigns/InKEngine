@@ -11,4 +11,4 @@
 
 ## 依赖
 - 上游（本目录实际 import）：`core/json`（`isRecord`）、`core/review_card`（`build_gate_card` + `CardPayload`）、`kernel/registry/contract_types`。
-- 下游（实际 import 本目录）：`src/index.ts` 公共面（「审批卡辅助」组 `export *`）；`kernel/tool_pipeline`（review 委托挂卡 + pose 透传）、`kernel/self_application`（apply/revert/policy/patch_outcome）、`kernel/self_tools`（ctx 类型）、`kernel/runtime`（`_runtime_mechanisms`/`_types`/`_runtime_assemble`）、`core/controlled_evolution`（`approve_before_execute`）；`kernel/registry/contracts`；hosts/lib `host.ts`（自定义 policy 扩展 `DefaultInterruptPolicy`）与测试图（`approve_before_execute`）经公共面；测试 `test/kernel/approval`（单动作 + 合并卡两文件）。
+- 下游（实际 import 本目录）：`src/index.ts` 公共面（「审批卡辅助」组 `export *`）；`kernel/tool_pipeline`（review 委托挂卡 + pose 透传）、`kernel/self_application`（apply/revert/policy/patch_outcome）、`kernel/self_tools`（ctx 类型）、`kernel/runtime`（`_runtime_mechanisms`/`_types`/`_runtime_boot`）、`core/controlled_evolution`（`approve_before_execute`）；`kernel/registry/contracts`；hosts/lib `host.ts`（自定义 policy 扩展 `DefaultInterruptPolicy`）与测试图（`approve_before_execute`）经公共面；测试 `test/kernel/approval`（单动作 + 合并卡两文件）。

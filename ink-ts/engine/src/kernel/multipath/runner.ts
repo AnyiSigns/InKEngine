@@ -15,8 +15,8 @@
 import type { BudgetRemaining } from '../budget/budget_types.js';
 import type { QualityGate } from '../../core/contracts/contracts.js';
 import type { EngineTransport } from '../../core/events/events.js';
-import type { AssemblyCandidate, AssemblyRequest } from '../path_assembler/types.js';
 import { check_multipath_budget, multipath_budget_required, MultiPathConfig } from './config.js';
+import type { AssemblyCandidate, AssemblyRequest } from './types.js';
 import {
   DEFAULT_MULTIPATH_K,
   HIGH_RISK_SAFETY_TIER,

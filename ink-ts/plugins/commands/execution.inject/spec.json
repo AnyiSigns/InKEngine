@@ -1,0 +1,11 @@
+{
+  "id": "execution.inject",
+  "kind": "command",
+  "capability": "host_tool",
+  "actions": [],
+  "depends": [],
+  "data": {
+    "group": "execution",
+    "order": 3
+  }
+}

@@ -30,8 +30,10 @@ function dirs(): { dir: string; events: string } {
 }
 
 describe('execution.run 桥命令（execution 域挂载 + 参数校验）', () => {
-  it('方法面：execution.run 经 EXECUTION_COMMANDS 声明并挂载', () => {
+  it('方法面：execution.run/resume/inject 经 EXECUTION_COMMANDS 声明并挂载', () => {
     expect(BRIDGE_METHODS).toContain('execution.run');
+    expect(BRIDGE_METHODS).toContain('execution.resume');
+    expect(BRIDGE_METHODS).toContain('execution.inject');
   });
 
   it('参数校验：缺/空 task、非法 pose、双入口作用域同给 → invalid_params', async () => {
@@ -47,6 +49,25 @@ describe('execution.run 桥命令（execution 域挂载 + 参数校验）', () =
       await expect(
         run({ task: 'x', entry_scope: 'main', entry_temp_scope: { role: 'sub' } }, CTX),
       ).rejects.toMatchObject({ code: 'invalid_params' });
+    } finally {
+      await handle.dispose();
+      rmSync(dir, { recursive: true, force: true });
+    }
+  });
+
+  it('execution.resume/inject 参数校验 → invalid_params', async () => {
+    const { dir, events } = dirs();
+    const handle = await createHost({ data_dir: dir, events_dir: events });
+    try {
+      const resume = handle.bridge.get('execution.resume')!;
+      await expect(resume({}, CTX)).rejects.toMatchObject({ code: 'invalid_params' });
+      await expect(resume({ run_id: 'r' }, CTX)).rejects.toMatchObject({ code: 'invalid_params' });
+      await expect(
+        resume({ run_id: 'r', checkpoint_id: 1 }, CTX),
+      ).rejects.toMatchObject({ code: 'invalid_params' });
+      const inject = handle.bridge.get('execution.inject')!;
+      await expect(inject({}, CTX)).rejects.toMatchObject({ code: 'invalid_params' });
+      await expect(inject({ run_id: 'r', text: '  ' }, CTX)).rejects.toMatchObject({ code: 'invalid_params' });
     } finally {
       await handle.dispose();
       rmSync(dir, { recursive: true, force: true });
@@ -120,6 +141,66 @@ describe('execution.run 执行主线（fake llm → 汇聚点最终产物）', (
     const run = handle.bridge.get('execution.run')!;
     await run({ task: '计数一次' }, CTX);
     expect(server.requestCount).toBeGreaterThanOrEqual(1);
+  });
+});
+
+describe('运行中 inject 生效（§7.3；execution.inject 桥命令 → 下一 main 轮输入）', () => {
+  let handle: HostHandle;
+  let dir = '';
+  let server: FakeOpenAIServer;
+
+  beforeEach(async () => {
+    const made = dirs();
+    dir = made.dir;
+    // 多轮剧本：main 委托 subagent → 子代理回复 → main 收口（注入必须落在
+    // 中间某次 main 轮输入里）
+    server = new FakeOpenAIServer({
+      content: [
+        '{"__next":{"kind":"scope","target":"subagent"}}',
+        '子代理回复',
+        '主持人收口',
+      ],
+    });
+    await server.start();
+    handle = await createHost({
+      data_dir: made.dir,
+      events_dir: made.events,
+      model_config: {
+        agent_config: {
+          protocol: 'openai_compatible',
+          base_url: server.baseUrl,
+          api_key: 'sk-exec-inject',
+          model_id: 'exec-inject-model',
+        },
+      },
+    });
+  });
+
+  afterEach(async () => {
+    await handle.dispose();
+    await server.close();
+    if (dir !== '') rmSync(dir, { recursive: true, force: true });
+  });
+
+  it('run 在途时 inject → 模型请求输入携带注入文本（main 自治仲裁消费）', async () => {
+    const run = handle.bridge.get('execution.run')!;
+    const inject = handle.bridge.get('execution.inject')!;
+    const runId = 'e2e_inject_run';
+    const runPromise = run({ task: '委托任务', run_id: runId }, CTX);
+    // 注入立即投递（run 首轮 seam 询问在 turn 装配 await 之后，注入必然先于
+    // 后续 main 轮消费）
+    await inject({ run_id: runId, text: '用户补充：改用方案 B' }, CTX);
+    const result = (await runPromise) as {
+      outcome: string;
+      pending_approval: boolean;
+      events: Array<Record<string, unknown>>;
+    };
+    expect(result.outcome).toBe('success');
+    expect(result.pending_approval).toBe(false);
+    // 至少一次模型请求的 messages 携带注入文本（main 轮消费并入输入）
+    const injected = server.requests.some((r) => JSON.stringify(r.body).includes('用户补充：改用方案 B'));
+    expect(injected).toBe(true);
+    expect(result.events.some((e) => e.action === 'user_inject')).toBe(true);
   });
 });
 

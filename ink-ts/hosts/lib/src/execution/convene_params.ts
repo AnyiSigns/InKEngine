@@ -113,3 +113,41 @@ export function normalize_convene_params(args: Record<string, unknown>): Convene
   }
   return { task: task.trim(), n: rawN, mode: rawMode, contract: rawContract, rounds: rawRounds, budget };
 }
+
+/** sighting 摘要携带的临时定义字段（转正重建造所需的身份维度全集）。 */
+const TEMP_DEF_SUMMARY_KEYS = [
+  'label',
+  'persona',
+  'model',
+  'capabilities',
+  'rules',
+  'cost_tier',
+  'contract',
+] as const;
+
+/**
+ * 临时作用域定义摘要（sighting 记录的数据源）：role 必填，persona/model 等
+ * 定义维度逐字段形状过滤（resolve_convene_target 已 parse 校验，此处只挑
+ * 观测面关心的键，约束/context_refs 等噪声不进观测行）。
+ */
+export function summarize_temp_def(temp_def: Record<string, unknown>): Record<string, unknown> {
+  const out: Record<string, unknown> = { role: String(temp_def['role'] ?? '').trim() };
+  for (const key of TEMP_DEF_SUMMARY_KEYS) {
+    const value = temp_def[key];
+    if (value === undefined || value === null) continue;
+    if (key === 'model') {
+      if (isRecord(value) && Object.keys(value).length > 0) out['model'] = { ...value };
+      continue;
+    }
+    if (key === 'capabilities' || key === 'rules') {
+      if (Array.isArray(value) && value.length > 0) out[key] = [...value];
+      continue;
+    }
+    if (key === 'contract') {
+      if (isRecord(value)) out[key] = value;
+      continue;
+    }
+    if (typeof value === 'string' && value.trim() !== '') out[key] = value;
+  }
+  return out;
+}

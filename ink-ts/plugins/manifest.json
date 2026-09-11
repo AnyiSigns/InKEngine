@@ -481,6 +481,27 @@
       "dir": "commands/entities.snapshot"
     },
     {
+      "id": "evolution.crystallize",
+      "kind": "command",
+      "capability": "host_tool",
+      "package": "@ink-ts/plugin-evolution-crystallize",
+      "dir": "commands/evolution.crystallize"
+    },
+    {
+      "id": "execution.inject",
+      "kind": "command",
+      "capability": "host_tool",
+      "package": "@ink-ts/plugin-execution-inject",
+      "dir": "commands/execution.inject"
+    },
+    {
+      "id": "execution.resume",
+      "kind": "command",
+      "capability": "host_tool",
+      "package": "@ink-ts/plugin-execution-resume",
+      "dir": "commands/execution.resume"
+    },
+    {
       "id": "execution.run",
       "kind": "command",
       "capability": "host_tool",
@@ -3888,6 +3909,21 @@
       "id": "entities.snapshot",
       "group": "entities",
       "order": 1
+    },
+    {
+      "id": "evolution.crystallize",
+      "group": "evolution",
+      "order": 1
+    },
+    {
+      "id": "execution.inject",
+      "group": "execution",
+      "order": 3
+    },
+    {
+      "id": "execution.resume",
+      "group": "execution",
+      "order": 2
     },
     {
       "id": "execution.run",

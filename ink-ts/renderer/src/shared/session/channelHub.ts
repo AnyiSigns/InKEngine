@@ -18,6 +18,7 @@ import type { InspectChannelName, InspectSnapshot } from './inspectTypes';
 import type { InkMessage, RoundStep, SimulationBranch, IncubationEntry, SourceTraceEntry, PatchChainEntry, GearTier, ModeTier } from './types';
 import type { TaskState } from './taskState';
 import { emptyTaskState } from './taskState';
+import type { ExecutionReceipt } from './executionTypes';
 
 /** 会话状态快照（state.* 通道的根对象）。 */
 export interface SessionSnapshot {
@@ -36,6 +37,8 @@ export interface SessionSnapshot {
   eventMetrics: { total: number; tokens: number; lastAt: number };
   /** 任务级执行状态（task_state 子通道根对象）。 */
   taskState: TaskState;
+  /** 执行树面（execution.run 回执落位投影；state.executionRuns 子通道根）。 */
+  executionRuns: ExecutionReceipt[];
   /** 按 thread_id 分桶的回合状态（演化/推演/实例数据随会话窗口区分）。 */
   perThread: Record<string, ThreadBucket>;
 }
@@ -54,6 +57,8 @@ export interface ThreadBucket {
   incubation: IncubationEntry[];
   sourceTraces: SourceTraceEntry[];
   patchChain: PatchChainEntry[];
+  /** 该线程的 execution.run 回执落位镜像（窗口隔离：后台执行树不串窗）。 */
+  executionRuns: ExecutionReceipt[];
   /** 桶最后活跃时间（事件落位即刷新）；跨会话清理 TTL 依据。 */
   lastSeenAt: number;
 }
@@ -69,6 +74,7 @@ export function emptyThreadBucket(): ThreadBucket {
     incubation: [],
     sourceTraces: [],
     patchChain: [],
+    executionRuns: [],
     lastSeenAt: Date.now(),
   };
 }
@@ -89,6 +95,7 @@ export function emptySessionSnapshot(): SessionSnapshot {
     patchChain: [],
     eventMetrics: { total: 0, tokens: 0, lastAt: 0 },
     taskState: emptyTaskState(),
+    executionRuns: [],
     perThread: {},
   };
 }

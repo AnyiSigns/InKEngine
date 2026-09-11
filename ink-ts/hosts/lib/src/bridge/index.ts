@@ -12,7 +12,8 @@
  * models（模型运行配置）、model_archive（模型档案快照）、capability（能力
  * 记录/基线/档位登记）、policy（策略层路由预览）、ui_components（出厂组件
  * 启停）、workspace（工作区授权/挂载）、dialog（原生目录选择）、execution
- * （执行运行时入口：作用域转场 + 汇聚点产物，rounds 域并行的执行主线）。
+ * （执行运行时入口：作用域转场 + 汇聚点产物，rounds 域并行的执行主线）、
+ * evolution（受控演化入口：临时协作统计结晶 evaluate→闸→落库）。
  * 与 cli 现有 host.ping/host.info 并存不冲突
  * （命名空间独立；方法表由 cli 并入命令面）。
  *
@@ -32,6 +33,7 @@ import { buildCacheCommands, CACHE_COMMANDS } from './cache.js';
 import { buildCapabilityCommands, CAPABILITY_COMMANDS } from './capability.js';
 import { buildDialogCommands, DIALOG_COMMANDS } from './dialog.js';
 import { buildExecutionCommands, EXECUTION_COMMANDS } from './execution.js';
+import { buildEvolutionCommands, EVOLUTION_COMMANDS } from './evolution.js';
 import { buildEdgeEvidenceCommands, EDGE_EVIDENCE_COMMANDS } from './edge_evidence.js';
 import { buildEntitiesCommands, ENTITIES_COMMANDS } from './entities.js';
 import { buildGraphCommands, GRAPH_COMMANDS } from './graph.js';
@@ -130,6 +132,8 @@ export const BRIDGE_METHODS = [
   ...DIALOG_COMMANDS,
   // execution：执行运行时（作用域转场/汇聚点产物；rounds 域并行的执行主线）
   ...EXECUTION_COMMANDS,
+  // evolution：受控演化（临时协作统计结晶：evaluate → 隔离试跑闸 → 受控落库）
+  ...EVOLUTION_COMMANDS,
 ] as const;
 
 export type BridgeMethod = (typeof BRIDGE_METHODS)[number];
@@ -182,6 +186,7 @@ export function buildBridge(deps: HostBridgeDeps): ReadonlyMap<string, BridgeHan
     buildWorkspaceCommands(deps.workspace),
     buildDialogCommands(),
     buildExecutionCommands(deps),
+    buildEvolutionCommands(deps),
   ];
   const methods = new Map<string, BridgeHandler>();
   for (const group of groups) {

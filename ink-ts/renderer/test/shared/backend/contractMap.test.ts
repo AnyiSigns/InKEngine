@@ -28,6 +28,7 @@ const LEGACY_ALIASES = (surface as { legacy_alias_flats: string[] }).legacy_alia
  */
 const WEB_SERVE_COMMANDS = [
   'round_send', 'round_abort', 'round_resume', 'route_plan',
+  'execution.run',
   'session_list', 'session_create', 'session_rename', 'session_delete',
   'session_refresh', 'session_messages', 'session_tree', 'session_branch',
   'workspace.state', 'workspace.set', 'workspace.revoke', 'workspace.mount.add',

@@ -16,9 +16,13 @@ import {
 } from '@ink-ts/engine';
 import type { Host, LoadedScope, McpClientManager, Storage } from '@ink-ts/engine';
 import type { CapabilityStore } from './capability/store.js';
+import { configureCollabTempSightingSink } from './collab_command.js';
 import type { ResolvedHostConfig } from './config.js';
+import { TEMP_SIGHTINGS_COLLECTION } from './execution/convene_board.js';
 import { HostExecutionService } from './execution/service.js';
 import { InkHost } from './host.js';
+import { asProvider, isRecord } from './model_providers.js';
+import type { ProviderRecord } from './model_providers.js';
 import type { HostSearch } from './search/wiring.js';
 import { assembleHostMcp } from './mcp/assembly.js';
 import type { McpConnectStatus } from './mcp/assembly.js';
@@ -94,6 +98,63 @@ function scopeLoaderFrom(runtime: Runtime): (scope_id: string) => LoadedScope | 
   };
 }
 
+/**
+ * 作用域 model 引用 → 档案 context_window（白板裁切按模型 cw 的生产闭包）。
+ * 解析序与 InkHost.resolve_scope_model 对齐：带 provider 限定该厂商，未带在
+ * 用户列表内找首个含该 model_id 的厂商；命中模型项档案 {model_id,
+ * context_window} 才取值。未指派/无档案/不在清单 = null（引擎回落 200k 兜底，
+ * 绝不猜值）。
+ */
+function scopeContextWindow(
+  modelConfig: Record<string, unknown> | null,
+  model: Record<string, string> | null,
+): number | null {
+  if (model === null || modelConfig === null || !Array.isArray(modelConfig['providers'])) return null;
+  const providerId = typeof model['provider'] === 'string' ? model['provider'] : '';
+  const modelId = typeof model['model_id'] === 'string' ? model['model_id'] : '';
+  if (modelId === '') return null;
+  const providers = (modelConfig['providers'] as unknown[])
+    .map(asProvider)
+    .filter((p): p is ProviderRecord => p !== null);
+  for (const provider of providers) {
+    if (providerId !== '' && provider.provider_id !== providerId) continue;
+    let listedButNoProfile = false;
+    for (const entry of provider.models) {
+      if (typeof entry === 'string') {
+        if (entry === modelId) listedButNoProfile = true;
+        continue;
+      }
+      if (isRecord(entry) && entry['model_id'] === modelId) {
+        const cw = entry['context_window'];
+        return typeof cw === 'number' && Number.isFinite(cw) && cw > 0 ? cw : null;
+      }
+    }
+    if (listedButNoProfile || providerId !== '') return null;
+  }
+  return null;
+}
+
+/**
+ * 临时协作观测存储通道（boot 构造、经 collab 装配位下发；convene 只编排不摸
+ * 存储——宿主 lib 纪律：组装根持 IO）。org.temp_sightings = org.archive 的
+ * 兄弟关注点（普通结构化记录通道，非演化资产）；幂等键 run_id#seat：同一子
+ * 执行席位重复观测覆盖不累加（断点重跑/挂起恢复不污染证据计数）。
+ */
+function makeTempSightingSink(runtime: Runtime): (record: Record<string, unknown>) => Promise<void> {
+  return async (record: Record<string, unknown>): Promise<void> => {
+    const storage = runtime.storage as Storage | null;
+    if (storage === null) {
+      throw new Error('sighting 存储通道不可用（runtime 未 boot/已关停）');
+    }
+    const runId = typeof record['run_id'] === 'string' ? record['run_id'] : '';
+    const seat = record['seat'];
+    if (runId === '' || typeof seat !== 'number' || !Number.isInteger(seat)) {
+      throw new Error('sighting 记录缺 run_id/seat（幂等键不可组装）');
+    }
+    await storage.put_record(TEMP_SIGHTINGS_COLLECTION, `${runId}#${seat}`, record);
+  };
+}
+
 /** 装配 host 运行时（boot 装配 + restore 后重装配共用同一路径）。 */
 export async function assembleHostParts(input: HostBootInput): Promise<HostBootParts> {
   const retrieval = buildHostRetrieval(input.resolved.data_dir);
@@ -156,7 +217,13 @@ export async function assembleHostParts(input: HostBootInput): Promise<HostBootP
         boot_system_prompt: assemblyRecipe.boot_system_prompt,
       }),
     storage: () => (runtime.storage ?? null) as Storage | null,
+    // 白板裁切按模型 cw 的生产接线（W6 收口 A 留缝；未指派/无档案 = null
+    // 兜底不猜，回落引擎 200k 缺省）
+    resolveScopeContextWindow: (model) =>
+      scopeContextWindow(inkHost.config.model_config as unknown as Record<string, unknown> | null, model),
   });
+  // 临时协作观测通道（结晶证据流；每次装配重设，restore 后指向新 runtime 存储）
+  configureCollabTempSightingSink(makeTempSightingSink(runtime));
   // MCP 工具型插件装载服务（B5）：plugins 真源可用时装配 + 重启自动拉起
   // 台账启用集（连接失败只记状态不击穿 boot，状态行经 mcp.status 可查）。
   const manifestPath = findPluginsManifest(input.resolved.seed_dir);

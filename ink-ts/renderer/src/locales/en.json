@@ -322,5 +322,26 @@
   "message.empty_hint": "Describe what you want to build; the agent will plan, execute, and evolve autonomously",
   "message.media_unregistered": "Unregistered media renderer",
   "message.copy": "Copy",
-  "message.all_steps": "All steps ({n})"
+  "message.all_steps": "All steps ({n})",
+
+  "execution.title": "Execution tree",
+  "execution.outcome.success": "success",
+  "execution.outcome.failure": "failure",
+  "execution.outcome.degraded": "degraded",
+  "execution.outcome.unknown": "unknown",
+  "execution.cost.steps": "{n} steps",
+  "execution.cost.value": "{n} cost",
+  "execution.cost.tokens": "{n} tok",
+  "execution.cost.ms": "{n}ms",
+  "execution.form.collab_group": "Collab group",
+  "execution.form.roundtable": "Roundtable",
+  "execution.lanes": "{n} lanes",
+  "execution.merge": "Merge · contract {c} · adopted {a}",
+  "execution.opinions": "{w} opinions · {r} reads",
+  "execution.events": "{n} events",
+  "execution.children": "{n} sub-runs",
+  "execution.blocked": "Execution blocked",
+  "execution.issues_title": "Sub-run issues",
+  "execution.review": "Inspect",
+  "execution.product": "Estuary product"
 }

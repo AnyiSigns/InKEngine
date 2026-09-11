@@ -708,6 +708,8 @@ export function ingestEvent(hub: ChannelHub, event: HubEvent): void {
     messages,
     roundActive,
     taskState,
+    // 执行树面同桶维护：回合事件归约不触碰 execution.run 回执落位
+    executionRuns: bucket.executionRuns ?? [],
     lastSeenAt: at,
   };
   // 跨会话清理：逐出超过 TTL 未活跃的桶（当前桶刚刷新，不受影响）
@@ -723,7 +725,7 @@ export function ingestEvent(hub: ChannelHub, event: HubEvent): void {
     roundId: isActive ? state.roundId ?? nextRoundId : state.roundId,
     ...(isActive ? { taskState } : {}),
     // 当前会话桶 → 全局镜像（既有组件零改动读快照即得当前会话数据）
-    ...(isActive ? { roundSteps, simulations, incubation, sourceTraces, patchChain } : {}),
+    ...(isActive ? { roundSteps, simulations, incubation, sourceTraces, patchChain, executionRuns: nextBucket.executionRuns } : {}),
   });
 }
 

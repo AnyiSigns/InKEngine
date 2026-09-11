@@ -3,167 +3,40 @@
  *
  * 一次 run = 固定入口作用域的自治循环：每轮作用域加工经 turn seam 出载荷 →
  * 解析 `__next`（缺省回落：入口首轮先验 → 兜底直收）→ 路由计划（结构校验）→
- * 通道条件执行（资格/审批/并行/成本池，fail-closed）→ 转场。跨作用域不改变本
- * run 的作用域槽位：delegate/fan_out/fan_in 都派生**子 run**（各自独立 run_id/
- * 轨迹/成本），子 run 完成即回传父 run 归并（载荷按 scope 键并入 + 摘要收集）。
+ * 通道条件执行（资格/审批/并行/成本池，fail-closed；审批 pending = 挂卡）→
+ * 转场（转场段见 run_transition.ts）。跨作用域不改变本 run 的作用域槽位：
+ * delegate/fan_out/fan_in 都派生**子 run**（各自独立 run_id/轨迹/成本），子
+ * run 完成即回传父 run 归并。
  *
- * 轨迹（每 run 的 hops）记录真实执行路径：出向转场（delegate/fan_out/fan_in
- * 目标）配一条入向归并 hop（delegate → return；fan_out/fan_in → fan_in）——
- * 保证转场链线性（scope A → scope B → scope A → ...），可直接 ingest 档案。
+ * 挂起/恢复（W7-D）：每轮 turn 后写执行级 checkpoint（run_id 命名空间子链，
+ * 见 run_checkpoint.ts）——相位 turn_done 携带决策，恢复跳过 turn 直走路由；
+ * 通道审批 pending 或工具审批挂起 → 写 interrupted checkpoint（挂起卡）后抛
+ * InterruptSignal 挂起整次执行，宿主弹卡决议后 resume 续跑。恢复时子 run 按
+ * 各自子链尾重建：终态子链 = 直接回执（不重跑）、中断子链 = 从快照续跑、
+ * 无链 = 新鲜派生——已完成子执行绝不重执行。
+ *
+ * §7.3 中断注入：每轮 turn 前询问 next_user_input（返回文本并入本轮输入，
+ * main 自治仲裁消费）+ abort_requested（命中 = 中止改用，fail-closed 收口）。
  */
 
 import {
   CHANNEL_SHAPE_FAN_IN,
-  type ChannelCommit,
   type ChannelShape,
 } from '../channels/channel_spec.js';
-import { validate_run_id, type TrailHop, type TrailOutcome } from '../org_archive/execution_trail.js';
-import { check_parallel_guard, check_steps_guard, check_cost_guard } from './guardrails.js';
-import { enforce_transition_conditions } from './channel_gate.js';
-import { fan_in_merge, clean_payload, strip_quality, type FanInMerged } from './fan_in.js';
+import type { TrailHop, TrailOutcome } from '../org_archive/execution_trail.js';
+import { check_steps_guard, check_cost_guard } from './guardrails.js';
+import { InterruptSignal } from '../../kernel/interrupt/interrupt_types.js';
 import { fallback_routing } from './fallback_routing.js';
 import { routing_decision_from_output } from './routing_next.js';
 import { PAYLOAD_AMEND_KEY, process_grant_amend } from './amend_runtime.js';
-import { plan_routing, type RoutePlan } from './route_planner.js';
-import { payload_from_reply, build_turn_input, type WhiteboardAssemblyOptions } from './scope_turn.js';
-import { build_temp_scope_entity, parse_temp_scope_def } from './temp_scope.js';
-import { Whiteboard } from '../whiteboard/board.js';
-import type { WhiteboardAuditEntry, WhiteboardBlock } from '../whiteboard/index.js';
-import { ContextMixer } from '../context/context_mixer.js';
-import { build_block_sources } from '../context/block_source.js';
-import type { AuthorizedBlock } from '../context/block_source.js';
+import { payload_from_reply, build_turn_input } from './scope_turn.js';
+import { clean_payload } from './fan_in.js';
 import type { Core } from './execution_runtime.js';
-import type {
-  ChildRunOutcome,
-  LoadedScope,
-  RunEvent,
-  RunRecord,
-} from './runtime_types.js';
-
-/** run 循环内部状态（一次 run 的记账面）。 */
-export interface RunState {
-  run_id: string;
-  parent_run_id: string | null;
-  scope: LoadedScope;
-  trigger: string | null;
-  payload: Record<string, unknown>;
-  hops: TrailHop[];
-  steps: number;
-  cost_acc: number;
-  degraded: string[];
-  children: ChildRunOutcome[];
-  /** 可选白板会话（同 run 内共享；子 run 穿透继承）。 */
-  whiteboard?: Whiteboard;
-  /** 白板装配用的作用域模型 context_window（缺省 = null，回落 200k 兜底；子 run 穿透继承）。 */
-  whiteboard_context_window?: number | null;
-}
+import { run_transition, finish_ok, finish_fail, settle } from './run_transition.js';
+import type { AuthorizedBlock } from '../context/block_source.js';
+import type { ChildRunOutcome, RunEvent, RunRecord, RunState } from './runtime_types.js';
 
 type Emit = (event: RunEvent) => void;
-
-/** 从 run 记录派生轨迹（ExecutionTrail；hops 已保证转场链线性）。 */
-export function trail_from(record: RunRecord) {
-  return {
-    run_id: record.run_id,
-    parent_run_id: record.parent_run_id,
-    entry_scope: record.entry_scope,
-    hops: record.hops,
-    outcome: record.outcome,
-    cost: record.cost,
-  };
-}
-
-/** run 记录入列 + 轨迹 ingest（子 run 先入列；根 run 最后 = core.runs 树序）。 */
-function settle(
-  core: Core,
-  state: RunState,
-  outcome: TrailOutcome,
-  error: string | null,
-  summary: string | null,
-  payload: Record<string, unknown>,
-): ChildRunOutcome {
-  const record: RunRecord = {
-    run_id: state.run_id,
-    parent_run_id: state.parent_run_id,
-    entry_scope: state.scope.id,
-    outcome,
-    hops: [...state.hops],
-    cost: { steps: state.steps, cost: state.cost_acc },
-    degraded_summaries: [...state.degraded],
-    children: state.children,
-    error,
-  };
-  core.runs.push(record);
-  if (core.deps.archive !== null && core.deps.archive !== undefined) {
-    core.deps.archive.ingest(trail_from(record));
-  }
-  return {
-    run_id: state.run_id,
-    parent_run_id: state.parent_run_id,
-    entry_scope: state.scope.id,
-    outcome,
-    payload: clean_payload(payload),
-    summary,
-    cost: record.cost,
-    error,
-  };
-}
-
-function finish_ok(core: Core, state: RunState): ChildRunOutcome {
-  const degraded = state.degraded.length > 0;
-  const outcome: TrailOutcome = degraded ? 'degraded' : 'success';
-  return settle(
-    core,
-    state,
-    outcome,
-    null,
-    degraded ? state.degraded.join('；') : null,
-    state.payload,
-  );
-}
-
-function finish_fail(core: Core, state: RunState, message: string): ChildRunOutcome {
-  return settle(core, state, 'failure', message, message, {});
-}
-
-/** 目标作用域装载（目录资产 / 临时现场构造）。 */
-function load_target(core: Core, plan: RoutePlan, parent_id: string, index: number): LoadedScope {
-  if (plan.temp_scope !== null) {
-    const def = parse_temp_scope_def(plan.temp_scope);
-    return build_temp_scope_entity(def, `temp_scope:${parent_id}:${index}`);
-  }
-  const scope = core.deps.load_scope(plan.target_scope as string);
-  if (scope === null) throw new Error(`目标作用域不可装载: ${plan.target_scope}`);
-  return scope;
-}
-
-function make_child_run_id(parent: string, index: number): string {
-  const id = `${parent}.c${index}`;
-  validate_run_id(id);
-  return id;
-}
-
-function hop(
-  from: string,
-  to: string,
-  shape: ChannelShape,
-  contract: ChannelCommit,
-  count?: number,
-): TrailHop {
-  return { from, to, shape, commit: contract, count };
-}
-
-/** 归并结果注入父载荷（单份按 scope 键并入；多份进清单；仅决策进 flag）。 */
-function inject_merged(state: RunState, merged: FanInMerged): void {
-  const adopted = merged.adopted.filter((c) => c.outcome !== 'failure');
-  if (adopted.length === 1) {
-    const only = adopted[0]!;
-    state.payload[only.entry_scope] = strip_quality(only.payload);
-  } else if (adopted.length > 1) {
-    state.payload[adopted[0]!.entry_scope] = adopted.map((c) => strip_quality(c.payload));
-  }
-  if (merged.decision !== null) state.payload['decision'] = merged.decision;
-  for (const summary of merged.degraded_summaries) state.degraded.push(summary);
-}
 
 /**
  * 执行一次 run 的自洽循环（含递归子 run）。
@@ -173,6 +46,56 @@ export async function run_one(core: Core, state: RunState, emit: Emit): Promise<
   for (;;) {
     const stepOk = check_steps_guard(state.steps, core.guards);
     if (!stepOk.ok) return finish_fail(core, state, stepOk.message);
+
+    // §7.3 中止改用：每轮 turn 边界询问（既有 abort 语义的引擎面）
+    if (core.deps.abort_requested !== undefined && core.deps.abort_requested(state.run_id)) {
+      return finish_fail(core, state, '执行已中止（中止改用）');
+    }
+
+    // 恢复语义：turn_done 相位 = 上一轮 turn 已完成 → 跳过 turn 直走转场段
+    if (state.phase.kind === 'turn_done') {
+      const decision = state.phase.decision;
+      const gatePassed = state.phase.gate === 'passed';
+      state.phase = { kind: 'idle' };
+      if (decision === null) return finish_ok(core, state);
+      const outcome = await run_transition(core, state, emit, decision, gatePassed);
+      if (outcome !== null) return outcome;
+      continue;
+    }
+
+    // 恢复语义：turn_resume 相位 = 上一轮 turn 未完成（工具审批挂起）→ 步进回拨
+    // 一轮再带注入重跑整轮（步号与首轮一致，不产生步号空洞）
+    if (state.phase.kind === 'turn_resume') {
+      state.steps = Math.max(0, state.phase.step - 1);
+      state.phase = { kind: 'idle' };
+    }
+
+    // 恢复语义：settled 相位 = run 已收尾（宿主误续跑已完成 run）→ 按相位回执
+    // 收口，不重跑 turn、不重复 settle/ingest
+    if (state.phase.kind === 'settled') {
+      const record: RunRecord = {
+        run_id: state.run_id,
+        parent_run_id: state.parent_run_id,
+        entry_scope: state.scope.id,
+        outcome: state.phase.outcome,
+        hops: [...state.hops],
+        cost: { steps: state.steps, cost: state.cost_acc },
+        degraded_summaries: [...state.degraded],
+        children: state.children,
+        error: state.phase.error,
+      };
+      core.runs.push(record);
+      return {
+        run_id: state.run_id,
+        parent_run_id: state.parent_run_id,
+        entry_scope: state.scope.id,
+        outcome: state.phase.outcome,
+        payload: clean_payload(state.payload),
+        summary: state.phase.summary,
+        cost: record.cost,
+        error: state.phase.error,
+      };
+    }
 
     const beforeAudit = state.whiteboard ? state.whiteboard.audit().length : 0;
     let wbBlocks: AuthorizedBlock[] | undefined;
@@ -185,19 +108,39 @@ export async function run_one(core: Core, state: RunState, emit: Emit): Promise<
         seq: b.seq,
       }));
     }
+    // §7.3 注入：运行中用户发话并入本轮输入（main 自治仲裁消费；排队语义由
+    // 注入 seam 保证——未消费消息保持待取，不丢）
+    const userText = core.deps.next_user_input?.(state.run_id, state.scope.id) ?? '';
     const turn = await core.deps.turn.run_scope_turn({
       run_id: state.run_id,
       step: state.steps + 1,
       scope: state.scope,
       boot_system_prompt: core.deps.boot_system_prompt ?? '',
-      input: await build_turn_input('', state.payload, wbBlocks, {
+      input: await build_turn_input(userText, state.payload, wbBlocks, {
         context_window: state.whiteboard_context_window ?? null,
       }),
       payload: { ...state.payload },
       thread_id: state.run_id,
       whiteboard_blocks: wbBlocks,
+      inject: core.inject_for_turn(),
     });
     state.steps += 1;
+    state.phase = { kind: 'idle' };
+
+    // 工具审批挂起（turn 内模型回路 review 挂卡）：写 interrupted checkpoint
+    // （相位 turn_resume）+ 挂起——恢复时注入决议后整轮重跑
+    if (turn.interrupt !== null && turn.interrupt !== undefined) {
+      await core.checkpoint(
+        state,
+        { kind: 'turn_resume', step: state.steps },
+        { reason: 'interrupted', interrupt: turn.interrupt },
+      );
+      throw new InterruptSignal(turn.interrupt.key, turn.interrupt.payload);
+    }
+
+    if (userText !== '') {
+      emit({ run_id: state.run_id, parent_run_id: state.parent_run_id, scope: state.scope.id, action: 'user_inject', detail: { step: state.steps } });
+    }
 
     if (state.whiteboard) {
       const afterAudit = state.whiteboard.audit();
@@ -260,81 +203,13 @@ export async function run_one(core: Core, state: RunState, emit: Emit): Promise<
       if (fb !== null) decision = fb.decision;
     }
     Object.assign(state.payload, clean_payload(produced));
-    if (decision === null) return finish_ok(core, state);
-    const result = plan_routing(decision, {
-      currentScope: state.scope.id,
-      hasParent: state.parent_run_id !== null,
-      directory: { has_scope: (id) => core.deps.load_scope(id) !== null },
-      channels: core.deps.channels,
-    });
-    if (!result.ok) {
-      return finish_fail(core, state, `路由拒绝 ${result.reason}: ${result.detail}`);
-    }
-    const plan = result;
-    emit({ run_id: state.run_id, parent_run_id: state.parent_run_id, scope: state.scope.id, action: `route:${plan.kind}`, detail: null });
-    if (plan.kind === 'converge' || plan.kind === 'sink') {
-      return finish_ok(core, state);
-    }
-    if (plan.kind === 'return') {
-      return state.parent_run_id === null
-        ? finish_fail(core, state, 'return 转场须在子执行内（父在场）')
-        : finish_ok(core, state);
-    }
-    if (plan.kind === 'fan_out') {
-      const parallelOk = check_parallel_guard(plan.count, core.guards);
-      if (!parallelOk.ok) return finish_fail(core, state, parallelOk.message);
-    }
-    const channel = core.deps.channels.get(plan.channel_id);
-    if (channel === null) return finish_fail(core, state, `通道不可用: ${plan.channel_id}`);
-    const gateBlock = await enforce_transition_conditions(
-      channel,
-      {
-        currentScope: state.scope.id,
-        accumulated_cost: state.cost_acc,
-        cost_increment: 0,
-      },
-      plan.count,
-      core.approval,
-    );
-    if (gateBlock !== null) return finish_fail(core, state, gateBlock.message);
 
-    // delegate / fan_out / fan_in：派生子 run（独立 run_id/轨迹/成本）→ 归并回传
-    if (plan.kind === 'delegate' || plan.kind === 'fan_out' || plan.kind === 'fan_in') {
-      const targetScope = load_target(core, plan, state.run_id, state.children.length);
-      const count = plan.kind === 'fan_out' ? plan.count : 1;
-      state.hops.push(
-        hop(state.scope.id, targetScope.id, plan.shape as ChannelShape, plan.contract, plan.kind === 'fan_out' ? count : undefined),
-      );
-      const spawned: Promise<ChildRunOutcome>[] = [];
-      const base = state.children.length;
-      for (let i = 0; i < count; i++) {
-        const childState: RunState = {
-          run_id: make_child_run_id(state.run_id, base + i),
-          parent_run_id: state.run_id,
-          scope: targetScope,
-          trigger: state.trigger,
-          payload: { ...state.payload },
-          hops: [],
-          steps: 0,
-          cost_acc: 0,
-          degraded: [],
-          children: [],
-          whiteboard: state.whiteboard,
-          whiteboard_context_window: state.whiteboard_context_window,
-        };
-        spawned.push(run_one(core, childState, emit));
-      }
-      const outcomes = await Promise.all(spawned);
-      const inShape: ChannelShape = plan.kind === 'fan_out' ? CHANNEL_SHAPE_FAN_IN : 'return';
-      state.hops.push(
-        hop(targetScope.id, state.scope.id, inShape, plan.contract, plan.kind === 'fan_out' ? count : undefined),
-      );
-      const merged = fan_in_merge(outcomes, plan.contract);
-      state.children.push(...merged.adopted, ...merged.losers);
-      inject_merged(state, merged);
-      emit({ run_id: state.run_id, parent_run_id: state.parent_run_id, scope: state.scope.id, action: 'merge', detail: { contract: plan.contract, adopted: merged.adopted.length } });
-      continue;
-    }
-    return finish_fail(core, state, `无法执行的路由计划: ${plan.kind}`);
+    // 每轮 scope turn 后写执行级 checkpoint（相位 turn_done；gate pending =
+    // 恢复时重过闸，passed = 已放行跳过）——挂起/崩溃恢复的续跑锚点
+    await core.checkpoint(state, { kind: 'turn_done', decision, gate: 'pending' });
+
+    if (decision === null) return finish_ok(core, state);
+    const outcome = await run_transition(core, state, emit, decision, false);
+    if (outcome !== null) return outcome;
   }
 }

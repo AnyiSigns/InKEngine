@@ -46,6 +46,7 @@ const UI_STORE_NAMES = [
   'autoApprovableTools',
   'approvalPose',
   'pluginsCatalog',
+  'executionRunning',
 ] as const satisfies readonly (keyof ProductShellModel)[];
 
 /** inject 词表（宿主动作名；= ProductShellActions 键，编译期锁精确一致）。 */
@@ -69,6 +70,7 @@ const UI_INJECT_NAMES = [
   'onRenameSession',
   'onDeleteSession',
   'onResolveReview',
+  'onExecutionRun',
 ] as const satisfies readonly (keyof ProductShellActions)[];
 
 type Expect<T extends true> = T;

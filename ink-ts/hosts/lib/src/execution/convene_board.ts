@@ -38,10 +38,87 @@ import type {
 } from '@ink-ts/engine';
 
 import type { ConveneTarget } from './convene_params.js';
+import { summarize_temp_def } from './convene_params.js';
 import type { HostExecutionService } from './service.js';
 
 /** convene 审计事件 sink（与子执行共享的既有事件带通道；缺省 = 不透出）。 */
 export type ConveneAuditSink = ((event: RunEvent) => void) | undefined;
+
+// ── 临时协作 sighting 观测（结晶证据流：临时作用域用完即散，观测行留存）──
+
+/**
+ * 临时协作观测集合（org.archive 同风格兄弟关注点：storage 结构化记录普通通道，
+ * 非演化资产；幂等键 = run_id#seat，重跑覆盖不累加。引擎结晶评估器经
+ * evidence.source='temp_sightings' 对齐本集合语义）。
+ */
+export const TEMP_SIGHTINGS_COLLECTION = 'org.temp_sightings';
+
+/** sighting 存储通道注入面（boot 装配构造；append 失败由调用侧留痕不阻断）。 */
+export type TempSightingSink = ((record: Record<string, unknown>) => Promise<void>) | null;
+
+/** convene 装配注入位（sighting sink 由 boot 经 collab 执行体下发；convene 只编排不摸存储）。 */
+export interface ConveneInit {
+  sightingSink?: TempSightingSink;
+  /** sighting 时间戳源（缺省 = Date.now）。 */
+  clock?: (() => number) | null;
+}
+
+/**
+ * 组一条临时协作观测（仅 temp 目标；记录 = role/def 摘要/persona·model/outcome/
+ * run_id/seat/times/ts——幂等键 run_id#seat 由 sink 侧组装）。非临时目标或
+ * 定义缺失 = null（不产观测行）。
+ */
+export function make_temp_sighting(
+  target: ConveneTarget,
+  runId: string,
+  seat: number,
+  outcome: string,
+  ts: number,
+): Record<string, unknown> | null {
+  if (target.source !== 'temp' || target.temp_def === null) return null;
+  const def = summarize_temp_def(target.temp_def);
+  if (typeof def['role'] !== 'string' || def['role'] === '') return null;
+  return {
+    role: def['role'],
+    def,
+    outcome,
+    run_id: runId,
+    seat,
+    times: 1,
+    ts,
+  };
+}
+
+/**
+ * 追加一条观测（best-effort：写入失败不阻断协作回执，但必须经既有事件通道
+ * 落 whiteboard_audit 同款留痕——失败可见，证据缺失不能静默）。
+ */
+export async function record_temp_sighting(
+  sink: TempSightingSink | undefined,
+  record: Record<string, unknown> | null,
+  onEvent: ConveneAuditSink,
+  parentRunId: string,
+): Promise<void> {
+  if (sink === undefined || sink === null || record === null) return;
+  try {
+    await sink({ ...record });
+  } catch (error) {
+    const message = error instanceof Error ? error.message : String(error);
+    onEvent?.({
+      run_id: String(record['run_id'] ?? ''),
+      parent_run_id: parentRunId,
+      scope: `temp_sightings:${String(record['role'] ?? '')}`,
+      action: 'whiteboard_audit',
+      detail: {
+        scope: `temp_sightings:${String(record['role'] ?? '')}`,
+        block_id: null,
+        kind: 'temp_sighting',
+        action: 'append_failed',
+        error: message,
+      },
+    });
+  }
+}
 
 /**
  * 白板名册（召集授权声明的 collaborators）= 意见块写入者席位身份全集。

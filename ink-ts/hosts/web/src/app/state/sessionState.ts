@@ -191,5 +191,5 @@ export function useSessionActions(hub: ChannelHub, store: SessionStore, backend:
     [hub, store, backend],
   );
 
-  return { send, abort, resolveReview };
+  return { send, abort, resolveReview, ensureSession };
 }

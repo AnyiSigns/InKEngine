@@ -1,0 +1,11 @@
+{
+  "id": "evolution.crystallize",
+  "kind": "command",
+  "capability": "host_tool",
+  "actions": [],
+  "depends": [],
+  "data": {
+    "group": "evolution",
+    "order": 1
+  }
+}

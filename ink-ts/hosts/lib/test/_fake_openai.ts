@@ -16,7 +16,8 @@ export interface OpenAIRecord {
 }
 
 export interface FakeOpenAIOptions {
-  content?: string;
+  /** 固定回复内容；数组 = 按请求序取用（越界回落末条；多轮剧本用）。 */
+  content?: string | string[];
   finish_reason?: string;
   usage?: Record<string, number> | null;
 }
@@ -27,14 +28,20 @@ export class FakeOpenAIServer {
   private _server: http.Server | null = null;
   private _sockets = new Set<Socket>();
   private _baseUrl: string | null = null;
-  private readonly _content: string;
+  private readonly _content: string[];
   private readonly _finish_reason: string;
   private readonly _usage: Record<string, number>;
 
   constructor(options: FakeOpenAIOptions = {}) {
-    this._content = options.content ?? 'host-reply';
+    const raw = options.content ?? 'host-reply';
+    this._content = Array.isArray(raw) ? raw : [raw];
     this._finish_reason = options.finish_reason ?? 'stop';
     this._usage = options.usage ?? { prompt_tokens: 8, completion_tokens: 6, total_tokens: 14 };
+  }
+
+  /** 当前请求序的回复内容（越界回落末条，保证多轮剧本不空答）。 */
+  private contentFor(index: number): string {
+    return this._content[Math.min(index, this._content.length - 1)] ?? '';
   }
 
   async start(): Promise<string> {
@@ -96,7 +103,7 @@ export class FakeOpenAIServer {
       choices: [
         {
           index: 0,
-          message: { role: 'assistant', content: this._content },
+          message: { role: 'assistant', content: this.contentFor(this.requests.length - 1) },
           finish_reason: this._finish_reason,
         },
       ],
@@ -112,7 +119,8 @@ export class FakeOpenAIServer {
       'cache-control': 'no-cache',
       connection: 'keep-alive',
     });
-    for (const token of [...this._content]) {
+    const content = this.contentFor(this.requests.length - 1);
+    for (const token of [...content]) {
       this._sse(res, { choices: [{ index: 0, delta: { content: token }, finish_reason: null }] });
     }
     this._sse(res, { choices: [{ index: 0, delta: {}, finish_reason: this._finish_reason }] });

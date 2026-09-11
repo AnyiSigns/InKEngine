@@ -16,6 +16,8 @@ import { useCallback, useEffect, useMemo, useRef, useState } from 'react';
 import { UIRenderer } from '@/renderer/bootRenderer';
 import type { UISpec } from '@/renderer/uiSpecTypes';
 import { useSessionState, useSessionActions } from '@app/state/sessionState';
+import { useExecutionRunDispatch } from '@app/state/executionWiring';
+import { injectExecutionViewSlot } from '@app/shell/executionViewSlot';
 import { setActiveThreadId } from '@app/state/activeThread';
 import {
   effectivePose,
@@ -50,7 +52,7 @@ interface AppProps {
 
 export default function App({ backend, appBackend, hub, sessionStore }: AppProps) {
   const state = useSessionState(hub, sessionStore, backend);
-  const { send, abort, resolveReview } = useSessionActions(hub, sessionStore, backend);
+  const { send, abort, resolveReview, ensureSession } = useSessionActions(hub, sessionStore, backend);
 
   // 活动会话上下文（审计恢复回退点/后续 per-thread 读面共享）
   useEffect(() => {
@@ -209,6 +211,29 @@ export default function App({ backend, appBackend, hub, sessionStore }: AppProps
     void send(text, attachments, model, approvalPose);
   };
 
+  // W7E 执行树接线：execution.run 回执 → state.executionRuns（对话视图内
+  // 注入的执行树卡消费）。task 缺省回落会话流最近一条用户消息；回执归属
+  // 发起时刻的活动窗口（后台执行不串窗），pose 随发起档透传。
+  const [executionRunning, setExecutionRunning] = useState(false);
+  const runExecution = useExecutionRunDispatch(hub, backend);
+  const handleExecutionRun = (task?: string) => {
+    const text = task && task.trim() !== ''
+      ? task.trim()
+      : ([...state.entries].reverse().find((e) => e.kind === 'text' && e.role === 'user') as
+        | Extract<InkMessage, { kind: 'text' }>
+        | undefined)?.content?.trim() ?? '';
+    if (text === '' || executionRunning) return;
+    setExecutionRunning(true);
+    void (async () => {
+      try {
+        const threadId = await ensureSession();
+        await runExecution(threadId ?? '', { task: text, pose: approvalPose });
+      } finally {
+        setExecutionRunning(false);
+      }
+    })();
+  };
+
   /** 会话窗口切换：从 perThread 桶恢复该会话的回合状态与消息流。 */
   const restoreThread = (id: string, messages: InkMessage[]) => {
     const current = hub.getSnapshot();
@@ -224,7 +249,7 @@ export default function App({ backend, appBackend, hub, sessionStore }: AppProps
     }
     if (outId && outId !== id) {
       const outBucket = perThread[outId] ?? emptyThreadBucket();
-      perThread[outId] = { ...outBucket, messages: current.messages, taskState: current.taskState, lastSeenAt: Date.now() };
+      perThread[outId] = { ...outBucket, messages: current.messages, taskState: current.taskState, executionRuns: current.executionRuns ?? outBucket.executionRuns ?? [], lastSeenAt: Date.now() };
       if (typeof sessionStore.replaceMessages === 'function') {
         try {
           sessionStore.replaceMessages(outId, current.messages);
@@ -251,6 +276,7 @@ export default function App({ backend, appBackend, hub, sessionStore }: AppProps
       incubation: bucket.incubation ?? [],
       sourceTraces: bucket.sourceTraces ?? [],
       patchChain: bucket.patchChain ?? [],
+      executionRuns: bucket.executionRuns ?? [],
       perThread,
     });
   };
@@ -320,7 +346,9 @@ export default function App({ backend, appBackend, hub, sessionStore }: AppProps
     [hub, resolveReview],
   );
 
-  const spec = uiLayout as unknown as UISpec;
+  // 主壳布局 = ui 装配生成物 + W7E 执行树槽位注入（壳装配单点；其余布局
+  // 声明仍归插件生成物，本文件不写布局 JSX）
+  const spec = useMemo(() => injectExecutionViewSlot(uiLayout as unknown as UISpec), []);
   const pluginsCatalog = useMemo(() => derivePluginsCatalog(), []);
   const roundSteps = hub.getSnapshot().roundSteps ?? [];
   const simulations = (hub.getSnapshot().simulations as SimulationBranch[]) || [];
@@ -359,6 +387,7 @@ export default function App({ backend, appBackend, hub, sessionStore }: AppProps
     autoApprovableTools: [],
     approvalPose,
     pluginsCatalog,
+    executionRunning,
     onTabChange: (next: MainTab) => setTab(next),
     onTitleChange: (nextTitle: string) => {
       setTitle(nextTitle);
@@ -386,6 +415,7 @@ export default function App({ backend, appBackend, hub, sessionStore }: AppProps
     onRenameSession: (id: string, titleText: string) => sessionStore.rename(id, titleText),
     onDeleteSession: (id: string) => sessionStore.remove(id),
     onResolveReview: handleResolveReview,
+    onExecutionRun: handleExecutionRun,
   } as ProductShellChrome;
 
   return (

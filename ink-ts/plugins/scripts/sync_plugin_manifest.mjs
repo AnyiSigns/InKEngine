@@ -104,6 +104,7 @@ const DOMAIN_TABLE = [
   { group: 'workspace', const: 'WORKSPACE_COMMANDS', type: 'WorkspaceCommand' },
   { group: 'dialog', const: 'DIALOG_COMMANDS', type: 'DialogCommand' },
   { group: 'execution', const: 'EXECUTION_COMMANDS', type: 'ExecutionCommand' },
+  { group: 'evolution', const: 'EVOLUTION_COMMANDS', type: 'EvolutionCommand' },
 ];
 
 const MANIFEST_NOTE =

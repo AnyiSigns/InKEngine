@@ -51,11 +51,14 @@ import type {
 import {
   ConveneBoard,
   board_roster,
+  make_temp_sighting,
   opinion_entry_of,
   opinion_text,
+  record_temp_sighting,
   scope_contract,
   seat_owner,
 } from './convene_board.js';
+import type { ConveneInit } from './convene_board.js';
 import {
   ConveneError,
   normalize_convene_params,
@@ -68,6 +71,8 @@ import type { HostExecutionService, RunExecutionOptions } from './service.js';
 // convene_params.ts，此处透传保持既有 import 路径稳定。
 export { CONVENE_MAX_N, CONVENE_MAX_ROUNDS, ConveneError, normalize_convene_params, resolve_convene_target } from './convene_params.js';
 export type { ConveneTarget } from './convene_params.js';
+export type { ConveneInit, TempSightingSink } from './convene_board.js';
+export { TEMP_SIGHTINGS_COLLECTION } from './convene_board.js';
 
 /** 单路子执行完成形态（召集结果投影；child 归并输入）。 */
 export interface ConveneChildOutcome {
@@ -131,6 +136,7 @@ export async function convene(
   service: HostExecutionService,
   args: Record<string, unknown>,
   options: RunExecutionOptions = {},
+  init: ConveneInit = {},
 ): Promise<ConveneResult> {
   const target = resolve_convene_target(args);
   const params = normalize_convene_params(args);
@@ -164,7 +170,7 @@ export async function convene(
     }),
     options.onEvent,
   );
-  return convene_run(service, target, params, options, board, seq, nsRunId, channel_id);
+  return convene_run(service, target, params, options, init, board, seq, nsRunId, channel_id);
 }
 
 /** 召集主流程（白板就位后的编排；拆出自 convene 保持函数单一职责）。 */
@@ -173,6 +179,7 @@ async function convene_run(
   target: ConveneTarget,
   params: ConveneParams,
   options: RunExecutionOptions,
+  init: ConveneInit,
   board: ConveneBoard,
   seq: number,
   nsRunId: string,
@@ -215,6 +222,13 @@ async function convene_run(
       const { child, asMergeInput } = outcome_from(result);
       children.push(child);
       mergeInputs.push(asMergeInput);
+      // 临时协作观测（结晶证据流）：settle 即记录，成败/降级都是票；best-effort
+      await record_temp_sighting(
+        init.sightingSink,
+        make_temp_sighting(target, runId, seat, child.outcome, (init.clock ?? Date.now)()),
+        options.onEvent,
+        nsRunId,
+      );
       if (child.outcome === 'failure') continue; // 失败子执行不产意见块（只留摘要）
       const owner = seat_owner(target, runId, seat);
       const seqNo = board.put('opinion', owner, opinion_text(child.final_product), runId, nsRunId);

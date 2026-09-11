@@ -36,6 +36,8 @@ export const STATE_SUB_CHANNELS = [
   'session',
   // 任务级执行状态（taskState 子通道：plan/spawn/tool 家族归约面）
   'taskState',
+  // 执行树面（execution.run 回执投影：run 树/事件带/降级摘要；W7E 展示语义）
+  'executionRuns',
   // 历史蛇形别名（兼容旧 spec；取值经 FIELD_ALIASES 归一）
   'round_steps',
   'task_state',

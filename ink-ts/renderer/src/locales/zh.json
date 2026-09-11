@@ -322,5 +322,26 @@
   "message.empty_hint": "描述你想要构建的内容，智能体将自主规划、执行并演化",
   "message.media_unregistered": "未登记媒体渲染器",
   "message.copy": "复制",
-  "message.all_steps": "全部步骤 ({n})"
+  "message.all_steps": "全部步骤 ({n})",
+
+  "execution.title": "执行树",
+  "execution.outcome.success": "成功",
+  "execution.outcome.failure": "失败",
+  "execution.outcome.degraded": "降级",
+  "execution.outcome.unknown": "未知",
+  "execution.cost.steps": "{n} 步",
+  "execution.cost.value": "{n} 成本",
+  "execution.cost.tokens": "{n} tok",
+  "execution.cost.ms": "{n}ms",
+  "execution.form.collab_group": "协作者组",
+  "execution.form.roundtable": "圆桌审议",
+  "execution.lanes": "{n} 路",
+  "execution.merge": "归并 · 契约 {c} · 采纳 {a}",
+  "execution.opinions": "意见 {w} 条 · 读 {r} 次",
+  "execution.events": "{n} 事件",
+  "execution.children": "{n} 个子执行",
+  "execution.blocked": "执行被阻断",
+  "execution.issues_title": "子执行问题摘要",
+  "execution.review": "点入复盘",
+  "execution.product": "汇聚点产物"
 }

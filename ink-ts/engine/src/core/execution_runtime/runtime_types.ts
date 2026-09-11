@@ -19,6 +19,31 @@ import type { GuardrailConfig } from './guardrails.js';
 import type { TransitionApprovalSeam } from './channel_gate.js';
 import type { WhiteboardAuditEntry, WhiteboardBlock, WhiteboardGrants } from '../whiteboard/index.js';
 import type { AuthorizedBlock } from '../context/block_source.js';
+import type { Storage } from '../storage/storage.js';
+import type { InterruptState } from '../../kernel/interrupt/interrupt_types.js';
+import type { RunPhase } from './run_checkpoint.js';
+import type { RoutingDecision } from './routing_next.js';
+import type { Whiteboard } from '../whiteboard/board.js';
+
+/** run 循环内部状态（一次 run 的记账面；phase = 挂起相位，随 checkpoint 落盘）。 */
+export interface RunState {
+  run_id: string;
+  parent_run_id: string | null;
+  scope: LoadedScope;
+  trigger: string | null;
+  payload: Record<string, unknown>;
+  hops: TrailHop[];
+  steps: number;
+  cost_acc: number;
+  degraded: string[];
+  children: ChildRunOutcome[];
+  /** 可选白板会话（同 run 内共享；子 run 穿透继承）。 */
+  whiteboard?: Whiteboard;
+  /** 白板装配用的作用域模型 context_window（缺省 = null，回落 200k 兜底；子 run 穿透继承）。 */
+  whiteboard_context_window?: number | null;
+  /** 挂起相位（checkpoint 恢复跳入点；idle = 循环起始无挂起语义）。 */
+  phase: RunPhase;
+}
 
 /** 作用域装载结果（目录作用域资产 = 实体记录；临时作用域 = 运行时构造的同形
  *  实体记录——作用域身份主体字段全在 EntitySpec 上）。 */
@@ -41,6 +66,9 @@ export interface ScopeTurnContext {
   thread_id: string;
   /** 该作用域被授权的白板块（按 grants view 得出；空 = 无授权）。 */
   whiteboard_blocks?: readonly AuthorizedBlock[];
+  /** 挂起恢复注入值（approval 决议等；turn runner 透传给内部模型回路，
+   *  缺省 = 无注入）。 */
+  inject?: Record<string, unknown> | null;
 }
 
 /** 单轮作用域加工的产物（turn runner 输出；ok=false = 本轮加工失败需降级）。 */
@@ -53,6 +81,9 @@ export interface ScopeTurnResult {
   summary?: string;
   reason?: string;
   cost?: TrailCost | null;
+  /** 工具审批挂起态（turn 内模型回路遇 review 挂卡；非空 = 本轮未完成，需
+   *  执行级挂起——重入时注入决议后整轮重跑）。 */
+  interrupt?: InterruptState | null;
 }
 
 /** 子执行完成回传父执行的结果（归并/择优/摘要的输入单元）。 */
@@ -109,6 +140,13 @@ export interface ExecutionResult {
   events: RunEvent[];
   blocked: boolean;
   block_reason: string | null;
+  /** 挂起态：审批卡在途（通道/工具审批 review 档挂卡）；true = run 未收尾，
+   *  宿主弹卡决议后经 resume_from + resume_inject 续跑。 */
+  pending_approval: boolean;
+  /** 在途挂起卡（key/payload；pending_approval=false 时 null）。 */
+  pending_interrupt: InterruptState | null;
+  /** 挂起时执行级 checkpoint 锚点（root 链尾；恢复续跑入口，null = 不可续跑）。 */
+  resume_checkpoint_id: number | null;
 }
 
 /** 白板会话（grants + 当前 blocks；运行时持有并 mutate）。 */
@@ -121,8 +159,8 @@ export interface WhiteboardSession {
 
 /** 执行入口（一次 ExecutionRuntime.run 的输入）。 */
 export interface ExecutionRequest {
-  /** 会话/根 run 任务文本。 */
-  task: string;
+  /** 会话/根 run 任务文本（resume 续跑 = 可省略，任务随 checkpoint 状态恢复）。 */
+  task?: string;
   /** 会话目标分类标签（先验匹配的 trigger；可 null）。 */
   trigger?: string | null;
   /** 入口目录作用域 id（缺省 = main 主持人）。 */
@@ -137,6 +175,11 @@ export interface ExecutionRequest {
   whiteboard?: WhiteboardSession | null;
   /** 白板装配用的作用域模型 context_window（缺省 = null，resolve_compression_min_chars 回落 200k 兜底）。 */
   whiteboard_context_window?: number | null;
+  /** 挂起恢复锚点（执行级 checkpoint_id；非空 = 从该快照续跑——绕过入口装载，
+   *  恢复的是 RunState 全量 + 相位）。 */
+  resume_from?: number | null;
+  /** 挂起恢复注入值（key → approval 决议；挂起卡消费后重入继续）。 */
+  resume_inject?: Record<string, unknown> | null;
 }
 
 /** 执行运行时装配依赖（全部注入式；host 装配真实实现，测试注入 fake）。 */
@@ -166,6 +209,16 @@ export interface ExecutionRuntimeDeps {
   now_ms?: () => number;
   /** 白板审计转发（scope×block×read|write；缺省 = 发为 RunEvent action='whiteboard_audit'）。 */
   on_whiteboard_audit?: (entries: WhiteboardAuditEntry[]) => void;
+  /** 执行级 checkpoint 落库面（缺省 null = 不写 checkpoint，无挂起/恢复语义）。
+   *  每个 scope turn 后写一条 run_id 命名空间子链（§十保留件复用：checkpoint
+   *  链 + kernel/interrupt + kernel/recovery 恢复解析）。 */
+  storage?: Storage | null;
+  /** 运行中用户发话拉取 seam（§7.3 注入；每轮 turn 前询问 run×scope，返回
+   *  文本 = 并入本轮输入；缺省 = 无注入面）。 */
+  next_user_input?: (run_id: string, scope_id: string) => string | null;
+  /** 中止改用询问 seam（§7.3；每轮 turn 边界询问，true = 本 run 中止——走
+   *  既有 abort 语义的引擎面；缺省 = 从不中止）。 */
+  abort_requested?: (run_id: string) => boolean;
 }
 
 /** 组织档案 ingest seam（OrgArchive 的内存写面；试跑隔离 = 独立空档案）。 */

@@ -111,11 +111,24 @@ export function make_engine_turn_runner(init: EngineTurnRunnerInit): ScopeTurnRu
       try {
         const result = await engine.ainvoke(
           { input: ctx.input },
-          { thread_id: ctx.thread_id, round_id },
+          {
+            thread_id: ctx.thread_id,
+            round_id,
+            // 挂起恢复注入透传：工具审批决议经子引擎 InterruptCoordinator 宽容
+            // 消费（base/base#N），通道审批键（gate:channel:）已由运行时隔离
+            ...(ctx.inject !== null && ctx.inject !== undefined
+              ? { inject: ctx.inject }
+              : {}),
+          },
         );
         if (result.reason === 'error') {
           const detail = result.error ?? '引擎回合异常';
           return failed_turn(detail, `作用域 ${ctx.scope.id} 加工失败: ${detail}`);
+        }
+        // 工具审批挂起（review 档弹卡）：interrupt 态透出给执行循环，由运行时
+        // 写执行级 checkpoint + 挂起——不再被当作空回合静默吞掉
+        if (result.reason === 'interrupted' && result.interrupt !== null) {
+          return { ok: true, reply: '', interrupt: result.interrupt };
         }
         const state = result.state as Record<string, unknown>;
         const reply = typeof state['reply'] === 'string' ? state['reply'] : '';

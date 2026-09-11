@@ -9,6 +9,14 @@
  * 子执行各自独立 run_id/轨迹/成本；fan-in 按提交契约（full/best/decision_only）
  * 归并；降级/失败子执行只产摘要。护栏（步数/成本/并行）只兜底。
  *
+ * 挂起/恢复 seam（W7-D）：通道/工具审批在 review 档不再 fail-closed 阻断——run
+ * 循环写执行级 checkpoint（run_id 命名空间子链，复用 §十保留件：checkpoint 链 +
+ * kernel/interrupt InterruptCoordinator + kernel/recovery 恢复解析）后抛
+ * InterruptSignal 挂起，本层把结果标记 pending_approval（含挂起卡 + root 链尾
+ * 锚点）；宿主弹卡决议后经 resume_from + resume_inject 续跑（恢复跳过已完成
+ * turn，子执行按子链尾重建不重跑）。§7.3 中断注入（等/注入/中止改用）的注入与
+ * 中止 seam 在 ExecutionRuntimeDeps（next_user_input / abort_requested）。
+ *
  * 作用域轮次经 ScopeTurnRunner seam（真实默认 = engine_turn_runner 复用既有
  * executor/agent 机制件；测试注入 fake）。组织档案 ingest 经注入 sink（试跑用
  * 独立空档案隔离）。本模块无 IO/无全局状态：一次 run = 一个实例 + 传入依赖。
@@ -18,20 +26,38 @@ import { default_scope_priors } from '../scopes/scope_priors.js';
 import { validate_run_id } from '../org_archive/execution_trail.js';
 import type { ScopePriorPattern } from '../scopes/scope_priors.js';
 import type { TransitionApprovalSeam } from './channel_gate.js';
-import { default_approval_seam } from './channel_gate.js';
+import {
+  channel_approval_key,
+  default_approval_seam,
+  normalize_injected_decision,
+} from './channel_gate.js';
 import { normalize_guardrails } from './guardrails.js';
-import { estuary_synthesize } from './fan_in.js';
-import { parse_temp_scope_def, build_temp_scope_entity, temp_scope_id } from './temp_scope.js';
-import { run_one, trail_from } from './run_loop.js';
-import { WHITEBOARD_VERSION, Whiteboard, whiteboard_block_to_dict } from '../whiteboard/index.js';
-import type { WhiteboardSession } from './runtime_types.js';
+import { run_one } from './run_loop.js';
+import {
+  exec_chain_tail,
+  resolve_exec_checkpoint,
+  write_exec_checkpoint,
+  type RunPhase,
+} from './run_checkpoint.js';
+import {
+  _event,
+  blocked_result,
+  finish_result,
+  load_entry,
+  load_whiteboard,
+  pending_result,
+} from './run_result.js';
+import { InterruptCoordinator } from '../../kernel/interrupt/interrupt.js';
+import { InterruptSignal, InterruptState } from '../../kernel/interrupt/interrupt_types.js';
+import type { CheckpointRecord } from '../storage/storage_records.js';
+import type { Storage } from '../storage/storage.js';
 import type {
   ExecutionRequest,
   ExecutionResult,
   ExecutionRuntimeDeps,
-  LoadedScope,
   RunEvent,
   RunRecord,
+  RunState,
 } from './runtime_types.js';
 
 /** run 运行期共享依赖/收集面（一次执行内传递；子 run 递归共用）。 */
@@ -43,16 +69,18 @@ export interface Core {
   events: RunEvent[];
   runs: RunRecord[];
   seq: () => string;
-}
-
-function _event(
-  run_id: string,
-  parent: string | null,
-  scope: string,
-  action: string,
-  detail: Record<string, unknown> | null,
-): RunEvent {
-  return { run_id, parent_run_id: parent, scope, action, detail };
+  /** 中断协调器（注入值挂载/宽容消费/gate 发卡计数；run 级共享）。 */
+  coordinator: InterruptCoordinator;
+  /** 挂起恢复态（恢复时子 run 按子链尾重建，已完成子执行不重跑）。 */
+  resuming: boolean;
+  /** 执行级 checkpoint 写入（storage 未装配/写失败 = null 降级，不击穿执行）。 */
+  checkpoint: (
+    state: RunState,
+    phase: RunPhase,
+    opts?: { reason?: string | null; interrupt?: InterruptState | null },
+  ) => Promise<CheckpointRecord | null>;
+  /** 注入给 turn 的决议子集（排除通道审批键——工具 gate 命名空间隔离）。 */
+  inject_for_turn: () => Record<string, unknown> | null;
 }
 
 /** 执行运行时（依赖注入；可复用于多次执行——无内部全局状态）。 */
@@ -74,122 +102,152 @@ export class ExecutionRuntime {
       estimate_cost: deps.estimate_cost,
       now_ms: deps.now_ms ?? (() => 0),
       on_whiteboard_audit: deps.on_whiteboard_audit,
+      storage: deps.storage ?? null,
+      next_user_input: deps.next_user_input,
+      abort_requested: deps.abort_requested,
     };
   }
 
-  /** 单次执行（根 run；返回汇聚点产物 + 执行树 + 事件带）。 */
-  async run(request: ExecutionRequest): Promise<ExecutionResult> {
-    const core: Core = {
-      deps: this.deps,
-      guards: normalize_guardrails(this.deps.guardrails ?? {}),
-      approval: this.deps.approval ?? default_approval_seam(),
-      priors: this.deps.priors ?? default_scope_priors(),
+  /** run 级共享面构造（协调器注入值挂载 + checkpoint 写面 + 转场审批包装）。 */
+  #makeCore(coordinator: InterruptCoordinator, resuming: boolean): Core {
+    const deps = this.deps;
+    const storage = deps.storage ?? null;
+    const nowMs = deps.now_ms ?? (() => 0);
+    return {
+      deps,
+      guards: normalize_guardrails(deps.guardrails ?? {}),
+      // 转场审批包装：先消费注入决议（accept/auto/edit = 放行，其余 fail-closed），
+      // 无注入才问宿主 seam（review 档返回 pending = 挂卡）
+      approval: async (request) => {
+        const injected = coordinator.consume_review(channel_approval_key(request.channel_id));
+        if (injected !== null && injected !== undefined) {
+          return normalize_injected_decision(injected);
+        }
+        return (deps.approval ?? default_approval_seam())(request);
+      },
+      priors: deps.priors ?? default_scope_priors(),
       events: [],
       runs: [],
       seq: (): string => {
         this.#counter += 1;
         return `run:${this.#counter}`;
       },
+      coordinator,
+      resuming,
+      checkpoint: (state, phase, opts) =>
+        write_exec_checkpoint(storage, state, phase, {
+          reason: opts?.reason ?? null,
+          interrupt: opts?.interrupt ?? null,
+          now_ms: nowMs,
+        }).catch(() => null),
+      inject_for_turn: () => {
+        const pending = coordinator.pending_inject;
+        if (pending.size === 0) return null;
+        const out: Record<string, unknown> = {};
+        for (const [key, value] of pending) {
+          if (key.startsWith('gate:channel:')) continue;
+          out[key] = value;
+        }
+        return Object.keys(out).length > 0 ? out : null;
+      },
     };
+  }
+
+  /** 单次执行（根 run；返回汇聚点产物 + 执行树 + 事件带；可挂起/恢复）。 */
+  async run(request: ExecutionRequest): Promise<ExecutionResult> {
+    const resumeFrom = request.resume_from ?? null;
+    const coordinator = new InterruptCoordinator();
+    if (request.resume_inject !== null && request.resume_inject !== undefined) {
+      coordinator.inject(request.resume_inject);
+    }
+    const core = this.#makeCore(coordinator, resumeFrom !== null);
     const emit = (event: RunEvent): void => {
       core.events.push(event);
       if (this.deps.on_event !== undefined) this.deps.on_event(event);
     };
-    const entryScope = this.#load_entry(request, core);
+    if (resumeFrom !== null) {
+      return this.#resume(request, core, emit, resumeFrom);
+    }
+    return this.#start(request, core, emit);
+  }
+
+  /** 正常执行入口（入口作用域装载 → run 循环 → 汇聚点合成）。 */
+  async #start(
+    request: ExecutionRequest,
+    core: Core,
+    emit: (event: RunEvent) => void,
+  ): Promise<ExecutionResult> {
+    const entryScope = load_entry(request, core, this.#counter);
     const rootId = request.run_id ?? core.seq();
     validate_run_id(rootId);
     if (entryScope === null) {
       emit(_event(rootId, null, request.entry_scope ?? 'main', 'run_blocked', null));
-      return this.#blocked(rootId, request, core, entryScope, '入口作用域不可装载');
+      return blocked_result(core, rootId, request, entryScope, '入口作用域不可装载');
     }
-    emit(_event(rootId, null, entryScope.id, 'run_start', { task: request.task }));
-    const seed: Record<string, unknown> = { task: request.task, ...(request.seed_payload ?? {}) };
-    const wbSession = request.whiteboard;
-    let whiteboard: Whiteboard | undefined;
-    if (wbSession) {
-      // 召集下发的白板会话 = 当前态装载（blocks 含各作者已写块；不产生 write
-      // 审计——write 审计属实际 append 动作，下发装载是状态恢复非写入）。
-      whiteboard = Whiteboard.from_dict({
-        version: WHITEBOARD_VERSION,
-        arbiter: wbSession.arbiter ?? 'main',
-        grants: { mode: wbSession.grants.mode, entries: wbSession.grants.entries.map((e) => ({ ...e })) },
-        blocks: wbSession.blocks.map(whiteboard_block_to_dict),
-        audit: [],
-      });
+    emit(_event(rootId, null, entryScope.id, 'run_start', { task: request.task ?? '' }));
+    const seed: Record<string, unknown> = { task: request.task ?? '', ...(request.seed_payload ?? {}) };
+    const whiteboard = load_whiteboard(request);
+    try {
+      const childOutcome = await run_one(
+        core,
+        {
+          run_id: rootId,
+          parent_run_id: null,
+          scope: entryScope,
+          trigger: request.trigger ?? null,
+          payload: seed,
+          hops: [],
+          steps: 0,
+          cost_acc: 0,
+          degraded: [],
+          children: [],
+          whiteboard,
+          whiteboard_context_window: request.whiteboard_context_window ?? null,
+          phase: { kind: 'idle' },
+        },
+        emit,
+      );
+      return finish_result(core, rootId, entryScope.id, childOutcome, emit);
+    } catch (error) {
+      if (error instanceof InterruptSignal) {
+        return pending_result(core, rootId, entryScope.id, error, emit);
+      }
+      throw error;
     }
-    const childOutcome = await run_one(
-      core,
-      {
-        run_id: rootId,
-        parent_run_id: null,
-        scope: entryScope,
-        trigger: request.trigger ?? null,
-        payload: seed,
-        hops: [],
-        steps: 0,
-        cost_acc: 0,
-        degraded: [],
-        children: [],
-        whiteboard,
-        whiteboard_context_window: request.whiteboard_context_window ?? null,
-      },
-      emit,
-    );
-    emit(_event(rootId, null, entryScope.id, 'run_end', null));
-    const root = core.runs[core.runs.length - 1]!;
-    const degraded = root.degraded_summaries;
-    const final_product = estuary_synthesize(childOutcome.payload, [], degraded);
-    return {
-      root,
-      final_product,
-      degraded_summaries: degraded,
-      runs: core.runs,
-      trails: core.runs.map((r) => trail_from(r)),
-      events: core.events,
-      blocked: false,
-      block_reason: null,
-    };
   }
 
-  /** 入口作用域装载（目录资产优先；entry_temp_scope = 现场定义）。 */
-  #load_entry(request: ExecutionRequest, core: Core): LoadedScope | null {
-    if (request.entry_temp_scope !== undefined && request.entry_temp_scope !== null) {
-      const def = parse_temp_scope_def(request.entry_temp_scope);
-      const id = temp_scope_id(request.run_id ?? 'entry', this.#counter);
-      return build_temp_scope_entity(def, id);
-    }
-    return core.deps.load_scope(request.entry_scope ?? 'main');
-  }
-
-  /** 执行前阻断结果（入口不可装载等；fail-closed 不产出半成品）。 */
-  #blocked(
-    rootId: string,
+  /** 挂起恢复入口（从 checkpoint 恢复 RunState + 相位，绕过入口装载）。 */
+  async #resume(
     request: ExecutionRequest,
     core: Core,
-    scope: LoadedScope | null,
-    reason: string,
-  ): ExecutionResult {
-    const record: RunRecord = {
-      run_id: rootId,
-      parent_run_id: null,
-      entry_scope: scope?.id ?? request.entry_scope ?? 'main',
-      outcome: 'failure',
-      hops: [],
-      cost: { steps: 0 },
-      degraded_summaries: [reason],
-      children: [],
-      error: reason,
-    };
-    core.runs.push(record);
-    return {
-      root: record,
-      final_product: { degraded: [reason] },
-      degraded_summaries: [reason],
-      runs: core.runs,
-      trails: core.runs.map((r) => trail_from(r)),
-      events: core.events,
-      blocked: true,
-      block_reason: reason,
-    };
+    emit: (event: RunEvent) => void,
+    resumeFrom: number,
+  ): Promise<ExecutionResult> {
+    const rootId = request.run_id;
+    if (rootId === undefined || rootId === null) {
+      return blocked_result(core, 'resume', request, null, '挂起恢复需 run_id（root 链命名空间）');
+    }
+    validate_run_id(rootId);
+    if (core.deps.storage === null || core.deps.storage === undefined) {
+      return blocked_result(core, rootId, request, null, '挂起恢复需 storage（未装配）');
+    }
+    const storage: Storage | null = core.deps.storage ?? null;
+    let snapshot: Awaited<ReturnType<typeof resolve_exec_checkpoint>>;
+    try {
+      snapshot = await resolve_exec_checkpoint(storage, rootId, resumeFrom);
+    } catch (error) {
+      const message = error instanceof Error ? error.message : String(error);
+      return blocked_result(core, rootId, request, null, `挂起恢复失败: ${message}`);
+    }
+    emit(_event(rootId, null, snapshot.state.scope.id, 'run_resumed', { checkpoint_id: resumeFrom, phase: snapshot.phase.kind }));
+    try {
+      const childOutcome = await run_one(core, { ...snapshot.state, phase: snapshot.phase }, emit);
+      return finish_result(core, rootId, snapshot.state.scope.id, childOutcome, emit);
+    } catch (error) {
+      if (error instanceof InterruptSignal) {
+        return pending_result(core, rootId, snapshot.state.scope.id, error, emit);
+      }
+      throw error;
+    }
   }
 }

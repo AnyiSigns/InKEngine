@@ -46,6 +46,9 @@ function resultWith(outcome: 'success' | 'failure' | 'degraded', emptyProduct = 
     events: [],
     blocked: false,
     block_reason: null,
+    pending_approval: false,
+    pending_interrupt: null,
+    resume_checkpoint_id: null,
   };
   return base;
 }

@@ -1,4 +1,4 @@
-// gate: 超限(672 行) - 引擎面向宿主的公共面 re-export 注册表（单一不可拆收敛面）
+// gate: 超限(697 行) - 引擎面向宿主的公共面 re-export 注册表（单一不可拆收敛面）
 /**
  * @ink-ts/engine 面向宿主的精选公共面（只 re-export，不实现）。
  *
@@ -598,6 +598,25 @@ export type {
   ControlledEvolutionApplierInit,
   EvolutionApplyReport,
 } from './core/controlled_evolution/controlled_applier.js';
+export {
+  CRYSTALLIZE_MIN_SIGHTINGS,
+  CRYSTALLIZE_MIN_SUCCESS_RATE,
+  CRYSTALLIZE_ID_PREFIX,
+  CRYSTALLIZE_SAMPLE_CAP,
+  CRYSTALLIZE_EVIDENCE_SOURCE,
+  TEMP_SIGHTING_OUTCOMES,
+  normalize_temp_sighting,
+  crystallize_asset_id,
+  evaluate_temp_sightings,
+} from './core/controlled_evolution/crystallize.js';
+export type {
+  TempSightingOutcome,
+  TempSighting,
+  CrystallizeCatalogState,
+  CrystallizeOptions,
+  CrystallizePatternStat,
+  CrystallizeEvaluation,
+} from './core/controlled_evolution/crystallize.js';
 
 // ── 执行运行时（P5-δ：作用域装载 / 通道执行 / 汇聚点合成 / 护栏；含 __next
 //     路由数据面、路由规划、通道条件、归并语义、护栏与隔离试跑基座）──

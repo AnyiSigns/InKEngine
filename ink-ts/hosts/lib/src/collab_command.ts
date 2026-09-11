@@ -22,10 +22,23 @@ import {
 } from '@ink-ts/engine';
 
 import type { HostExecutionService } from './execution/service.js';
-import { ConveneError, convene } from './execution/convene.js';
+import { convene, ConveneError } from './execution/convene.js';
+import type { TempSightingSink } from './execution/convene_board.js';
 
 /** 内置端点名（与 engine EndpointType.COLLAB_REQUEST / plugin 声明行一致）。 */
 export const COLLAB_REQUEST_ENDPOINT = 'collab_request';
+
+/**
+ * 临时协作观测 sink（boot 装配期注入；通道归属随组装根，召集执行体只透传）。
+ * 每 boot 经 configureCollabTempSightingSink 重设（assembleHostParts 与每次
+ * restore 重装共用；null = 无存储通道，不产观测行）。
+ */
+let collabTempSightingSink: TempSightingSink = null;
+
+/** 装配注入临时协作观测通道（boot/restore 调用；幂等覆盖）。 */
+export function configureCollabTempSightingSink(sink: TempSightingSink): void {
+  collabTempSightingSink = sink ?? null;
+}
 
 /** 服务取用面（createHost 注入；restore 重装后指向新装配——null = 未装配拒绝召集）。 */
 export interface CollabRequestService {
@@ -106,7 +119,10 @@ export function collabRequestExecutor(getService: CollabRequestService): Declara
     }
     const params = isRecord(args) ? args : {};
     try {
-      const result = await convene(service, params, { pose: poseFromCtx(ctx) });
+      // sighting sink 经装配位下发（convene 只编排不摸存储；幂等通道见 boot.ts）
+      const result = await convene(service, params, { pose: poseFromCtx(ctx) }, {
+        sightingSink: collabTempSightingSink,
+      });
       return JSON.stringify(result);
     } catch (error) {
       if (error instanceof ConveneError) {

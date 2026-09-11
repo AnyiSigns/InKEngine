@@ -56,6 +56,8 @@ export interface ProductShellModel {
   approvalPose: ApprovalPose;
   /** 插件目录（manifest 派生人类视图：唯一插件实体清单 + 提供物分类）。 */
   pluginsCatalog: PluginsCatalog;
+  /** execution.run 在途标记（W7E 执行树接线；true = 回执未落位）。 */
+  executionRunning: boolean;
 }
 
 /** 产品壳动作面（适配器消费的宿主回调；缺省 no-op 由宿主兜底）。 */
@@ -80,6 +82,11 @@ export interface ProductShellActions {
   onRenameSession(id: string, title: string): void;
   onDeleteSession(id: string): void;
   onResolveReview(resolution: ReviewResolution, editedContent?: string, payload?: Record<string, unknown>): void;
+  /**
+   * execution.run 会话入口：当前窗口发起一次执行运行（可空 task，缺省
+   * 由实现侧承接最近用户输入）；回执投影落 state.executionRuns 执行树卡。
+   */
+  onExecutionRun(task?: string): void;
 }
 
 /** UIRenderer product chrome 载荷（product 字段名与 actions 扁平合并）。 */

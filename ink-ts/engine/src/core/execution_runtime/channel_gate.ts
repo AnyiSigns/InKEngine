@@ -38,6 +38,27 @@ export interface ChannelGateContext {
   cost_increment?: number;
 }
 
+/** 通道审批挂起键（run 级中断键命名空间；与工具 gate:<tool> 并列，同属
+ *  InterruptCoordinator 的 gate 指纹作用域——同 run 同通道二次挂卡掺 #N）。 */
+export function channel_approval_key(channel_id: string): string {
+  return `gate:channel:${channel_id}`;
+}
+
+/** 注入决议归一（通道转场无 edit 语义：accept/auto/edit → 放行；其余
+ *  （reject/terminate/非法）= fail-closed 阻断）。 */
+export function normalize_injected_decision(value: unknown): 'accept' | 'reject' {
+  const raw =
+    typeof value === 'string'
+      ? value
+      : value !== null && typeof value === 'object' && !Array.isArray(value)
+        ? (value as Record<string, unknown>)['decision']
+        : null;
+  if (typeof raw === 'string' && (raw === 'accept' || raw === 'auto' || raw === 'edit')) {
+    return 'accept';
+  }
+  return 'reject';
+}
+
 /** 审批请求（通道审批档 + 动作描述）。 */
 export interface TransitionApprovalRequest {
   level: string;
@@ -45,10 +66,12 @@ export interface TransitionApprovalRequest {
   action: Record<string, unknown>;
 }
 
-/** 审批 seam：接受/自动 = 放行；拒绝/其它 = 阻断（缺省 seam = 全拒，fail-closed）。 */
+/** 审批 seam 决议：接受/自动 = 放行；拒绝 = 阻断；pending = 需要挂卡（宿主
+ *  弹审批卡，run 以 interrupt 态挂起，resolve 后从 checkpoint 续跑——review
+ *  档不再 fail-closed 直接阻断）。缺省 seam = 全拒，fail-closed。 */
 export type TransitionApprovalSeam = (
   request: TransitionApprovalRequest,
-) => Promise<'accept' | 'auto' | 'reject'> | 'accept' | 'auto' | 'reject';
+) => Promise<'accept' | 'auto' | 'reject' | 'pending'> | 'accept' | 'auto' | 'reject' | 'pending';
 
 /** 缺省审批 seam：一律拒绝（未装配 = 审批要求即阻断，宁拒勿放）。 */
 export function default_approval_seam(): TransitionApprovalSeam {
@@ -120,6 +143,13 @@ export async function enforce_transition_conditions(
     action: { scope: ctx.currentScope, channel: spec.id, count },
   });
   if (decision === 'accept' || decision === 'auto') return null;
+  if (decision === 'pending') {
+    return gate(
+      false,
+      'approval_pending',
+      `通道 ${spec.id} 审批档 ${level} 挂起（等待宿主弹卡决议后从 checkpoint 续跑）`,
+    );
+  }
   return gate(
     false,
     'approval_denied',

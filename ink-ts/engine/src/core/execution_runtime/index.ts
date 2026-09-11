@@ -18,6 +18,9 @@ export * from './temp_scope.js';
 export * from './scope_turn.js';
 export * from './execution_runtime.js';
 export * from './run_loop.js';
+export * from './run_transition.js';
+export * from './run_checkpoint.js';
+export * from './run_result.js';
 export * from './engine_turn_runner.js';
 export * from './trial_runner.js';
 export type {

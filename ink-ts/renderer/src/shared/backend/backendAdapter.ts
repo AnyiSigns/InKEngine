@@ -277,6 +277,12 @@ export interface BackendAdapter {
     pose?: string,
   ): Promise<RoundResult>;
   roundAbort(roundId: string): Promise<{ aborted: boolean }>;
+  /**
+   * 执行运行时会话入口（execution.run 桥命令回执透传）：宿主 bridge 投影
+   * 形态（run 树/事件带/降级摘要/汇聚点产物）原样上抛，前端经
+   * shared/session/executionTypes.parseExecutionReceipt 消费；不校验不改写。
+   */
+  executionRun(params: import('../session/executionTypes').ExecutionRunParams): Promise<unknown>;
   roundResume(
     threadId: string,
     key: string,
@@ -401,6 +407,7 @@ export function createUnavailableBackend(): BackendAdapter {
     available: false,
     roundSend: unavailable as never,
     roundAbort: unavailable as never,
+    executionRun: unavailable as never,
     roundResume: unavailable as never,
     sessionList: unavailable as never,
     sessionCreate: unavailable as never,
@@ -490,6 +497,7 @@ export function createServeBackend(channel?: ServeChannel): BackendAdapter {
         ...(typeof pose === 'string' ? { pose } : {}),
       }),
     roundAbort: (roundId) => call('round_abort', { roundId }),
+    executionRun: (params) => call('execution.run', { ...params }),
     roundResume: (threadId, key, decision, reason, editedContent) =>
       call('round_resume', { threadId, key, decision, reason, editedContent }),
     sessionList: async () => {

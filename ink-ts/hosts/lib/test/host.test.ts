@@ -5,18 +5,30 @@
  * 覆盖：createHost 装配（memory 与 sqlite 两真存储后端）、rounds.send 一轮
  * 回复与事件、records.sessions / records.chain 查询、事件文件非空、dispose
  * 幂等。审批卡/裁决语义另在 bridge.test.ts 覆盖（gate 图无模型依赖）。
+ * W7-A 迁移注：本文件锁定组装路径的实时事件流面（reply_token 事件、引擎消息
+ * 链续写等属组装回合专属；execution 主线事件带/落链见 rounds_mainline.test.ts），
+ * 文件级打开 INK_ROUNDS_ASSEMBLY_FALLBACK 回退开关保持绿。
  */
 
 import { mkdtempSync, readdirSync, statSync } from 'node:fs';
 import { tmpdir } from 'node:os';
 import path from 'node:path';
 
-import { afterEach, beforeEach, describe, expect, it } from 'vitest';
+import { afterEach, beforeAll, afterAll, beforeEach, describe, expect, it } from 'vitest';
 import { BOOT_SYSTEM_PROMPT } from '@ink-ts/engine';
 
 import { createHost } from '../src/index.js';
 import type { HostHandle } from '../src/index.js';
+import { disableAssemblyFallback, enableAssemblyFallback } from './_rounds_flag.js';
 import { FakeOpenAIServer } from './_fake_openai.js';
+
+beforeAll(() => {
+  enableAssemblyFallback();
+});
+
+afterAll(() => {
+  disableAssemblyFallback();
+});
 
 interface Ctx {
   dir: string;

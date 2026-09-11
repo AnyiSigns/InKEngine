@@ -14,6 +14,8 @@ import path from 'node:path';
 import { EngineEvent } from '@ink-ts/engine';
 import { afterEach, describe, expect, it } from 'vitest';
 
+import { disableAssemblyFallback, enableAssemblyFallback } from '../_rounds_flag.js';
+
 import { BRIDGE_METHODS } from '../../src/bridge/index.js';
 import { createHost } from '../../src/index.js';
 import type { HostHandle } from '../../src/index.js';
@@ -234,26 +236,33 @@ describe('edge_evidence.list / metrics.snapshot（只读窗口）', () => {
   });
 
   it('metrics.snapshot 回合窗口随 echo 回合递增（rounds/failures/avg）', async () => {
-    const { dir, events } = dirs();
-    handle = await createHost({ data_dir: dir, events_dir: events });
-    const send = handle.bridge.get('rounds.send')!;
-    await send({ input: 'a' }, CTX);
-    await send({ input: 'b' }, CTX);
-    const view = (await handle.bridge.get('metrics.snapshot')!(null, CTX)) as {
-      available: boolean;
-      rounds: number;
-      auto_rounds: number;
-      failures: number;
-      avg: number;
-      crystallized: number;
-    };
-    expect(view.available).toBe(true);
-    expect(view.rounds).toBe(2);
-    // 普通 echo 回合无自续 → auto 独立口径 = 0
-    expect(view.auto_rounds).toBe(0);
-    expect(view.failures).toBe(0);
-    expect(view.avg).toBe(0);
-    expect(typeof view.crystallized).toBe('number');
+    // W7-A：引擎回合指标（rounds/failures）属顶层组装回路计数（主线执行不经
+    // 该 metrics 通道），本用例走组装回退开关保持绿。
+    enableAssemblyFallback();
+    try {
+      const { dir, events } = dirs();
+      handle = await createHost({ data_dir: dir, events_dir: events });
+      const send = handle.bridge.get('rounds.send')!;
+      await send({ input: 'a' }, CTX);
+      await send({ input: 'b' }, CTX);
+      const view = (await handle.bridge.get('metrics.snapshot')!(null, CTX)) as {
+        available: boolean;
+        rounds: number;
+        auto_rounds: number;
+        failures: number;
+        avg: number;
+        crystallized: number;
+      };
+      expect(view.available).toBe(true);
+      expect(view.rounds).toBe(2);
+      // 普通 echo 回合无自续 → auto 独立口径 = 0
+      expect(view.auto_rounds).toBe(0);
+      expect(view.failures).toBe(0);
+      expect(view.avg).toBe(0);
+      expect(typeof view.crystallized).toBe('number');
+    } finally {
+      disableAssemblyFallback();
+    }
   });
 });
 

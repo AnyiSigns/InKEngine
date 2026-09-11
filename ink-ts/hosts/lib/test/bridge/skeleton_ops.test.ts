@@ -13,6 +13,8 @@
  *
  * 机制语义（结构/池校验/沿骨架推进）在 engine（P4-A/runtime_skeleton_seed 已测），
  * 本文件只验宿主命令面接线与数据写纪律。
+ * W7-A 迁移注：骨架草稿消费/分支/fork_trial 均为组装链专属语义，文件级打开
+ * INK_ROUNDS_ASSEMBLY_FALLBACK 回退开关保持绿（随退役任务一并对齐）。
  */
 
 import { mkdtempSync } from 'node:fs';
@@ -28,11 +30,20 @@ import {
   SchemaSpec,
   THREAD_SKELETON_STATE_KEY,
 } from '@ink-ts/engine';
-import { afterEach, describe, expect, it } from 'vitest';
+import { afterAll, afterEach, beforeAll, describe, expect, it } from 'vitest';
 
 import { createHost } from '../../src/index.js';
 import type { HostHandle } from '../../src/index.js';
+import { disableAssemblyFallback, enableAssemblyFallback } from '../_rounds_flag.js';
 import { FakeOpenAIServer } from '../_fake_openai.js';
+
+beforeAll(() => {
+  enableAssemblyFallback();
+});
+
+afterAll(() => {
+  disableAssemblyFallback();
+});
 
 const CTX = { autoApprove: false };
 

@@ -13,13 +13,14 @@ import { tmpdir } from 'node:os';
 import path from 'node:path';
 
 import { MemoryEntry } from '@ink-ts/engine';
-import { afterEach, describe, expect, it } from 'vitest';
+import { afterAll, afterEach, beforeAll, describe, expect, it } from 'vitest';
 
 import { BRIDGE_METHODS } from '../../src/bridge/index.js';
 import { BridgeError } from '../../src/bridge/_types.js';
 import { packStoreZip } from '../../src/backup/zip_codec.js';
 import { createHost } from '../../src/index.js';
 import type { HostHandle } from '../../src/index.js';
+import { disableAssemblyFallback, enableAssemblyFallback } from '../_rounds_flag.js';
 import { runGateCard } from '../_graphs.js';
 import { FakeOpenAIServer } from '../_fake_openai.js';
 
@@ -225,6 +226,16 @@ describe('rounds.todos（挂起审批卡待办 + 空态）', () => {
 
 describe('recovery.reset（确认标记 fail-closed）', () => {
   let handle: HostHandle;
+
+  // W7-A：本组用无模型组装回合制造「链+引擎事件日志」样本（reset 语义对象），
+  // 走组装回退开关保持既有形态。
+  beforeAll(() => {
+    enableAssemblyFallback();
+  });
+
+  afterAll(() => {
+    disableAssemblyFallback();
+  });
 
   afterEach(async () => {
     await handle.dispose();
@@ -606,6 +617,15 @@ describe('backup 快照面（export/preview/restore + confirm 标记；sqlite �
   let handle: HostHandle;
   let root: string;
   let marker: string;
+
+  // W7-A：本组以无模型组装回合驱动「restore 后可继续回合」断言（组装回退开关）。
+  beforeAll(() => {
+    enableAssemblyFallback();
+  });
+
+  afterAll(() => {
+    disableAssemblyFallback();
+  });
 
   afterEach(async () => {
     await handle.dispose();

@@ -237,6 +237,11 @@ export class HostExecutionService {
     this.pendingUserInput.set(runId, queue);
   }
 
+  /** 清空排队注入（run 起点回收：新执行不得消费上一 run 未消费的残留文本）。 */
+  clearUserInput(runId: string): void {
+    this.pendingUserInput.delete(runId);
+  }
+
   /** 中止改用标记（execution.run 被既有 abort 投递时置位；引擎下一 turn 边界收口）。 */
   markAborted(runId: string): void {
     this.abortedRuns.add(runId);

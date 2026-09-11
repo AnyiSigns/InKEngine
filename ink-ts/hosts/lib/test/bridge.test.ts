@@ -7,13 +7,18 @@
  * 无模型 = 引擎确定性 stub）+ 分支续跑；approval 卡查询 + 裁决；records/
  * sessions/audit/tools/recovery 只读与簿记查询。审批语义全在 engine
  * （approval/interrupt），bridge 只接线。
+ *
+ * W7-A 迁移注：本文件为组装路径（flag 回退）回归位——rounds 的组装回合语义
+ * （stub 确定性回复/round_pose 落链/链叶分支/组装图 config 活读）为组装路
+ * 专属，测试内显式打开 INK_ROUNDS_ASSEMBLY_FALLBACK 保持绿（flag 仅余退役
+ * 前对照价值）；execution 主线默认入口语义见 bridge/rounds_mainline.test.ts。
  */
 
 import { mkdtempSync } from 'node:fs';
 import { tmpdir } from 'node:os';
 import path from 'node:path';
 
-import { afterEach, beforeEach, describe, expect, it } from 'vitest';
+import { afterAll, afterEach, beforeAll, beforeEach, describe, expect, it } from 'vitest';
 
 import { ENGINE_STUB_REPLY } from '@ink-ts/engine';
 
@@ -21,6 +26,7 @@ import { BRIDGE_METHODS } from '../src/bridge/index.js';
 import { BridgeError } from '../src/bridge/_types.js';
 import { createHost } from '../src/index.js';
 import type { HostHandle } from '../src/index.js';
+import { disableAssemblyFallback, enableAssemblyFallback } from './_rounds_flag.js';
 import { runGateCard } from './_graphs.js';
 
 const CTX = { autoApprove: false };
@@ -29,6 +35,14 @@ function dirs(): { dir: string; events: string } {
   const dir = mkdtempSync(path.join(tmpdir(), 'ink-bridge-test-'));
   return { dir, events: path.join(dir, 'events') };
 }
+
+beforeAll(() => {
+  enableAssemblyFallback();
+});
+
+afterAll(() => {
+  disableAssemblyFallback();
+});
 
 describe('host bridge 命令面', () => {
   let handle: HostHandle;

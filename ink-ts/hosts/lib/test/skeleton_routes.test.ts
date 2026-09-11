@@ -25,10 +25,11 @@ import {
   register_route_edge_condition,
 } from '@ink-ts/engine';
 import type { AsyncLLM, EngineTransport, Host, InterruptPolicy, Storage } from '@ink-ts/engine';
-import { afterEach, describe, expect, it } from 'vitest';
+import { afterAll, afterEach, beforeAll, describe, expect, it } from 'vitest';
 
 import { createHost } from '../src/index.js';
 import type { HostHandle } from '../src/index.js';
+import { disableAssemblyFallback, enableAssemblyFallback } from './_rounds_flag.js';
 import {
   mount_skeleton_to_state,
   pre_register_skeleton_routes,
@@ -190,8 +191,18 @@ describe('pre_register_skeleton_routes（#8 收敛：router route:* 条件预注
 describe('bridge skeleton.edit 写 router 出边骨架 → 统一预注册（#8 bridge 层收敛）', () => {
   let handle: HostHandle;
 
+  // W7-A：回合建立骨架属组装链语义（主线执行模型无会话骨架）——此用例组走
+  // 组装回退开关（flag-on）保持绿。
+  beforeAll(() => {
+    enableAssemblyFallback();
+  });
+
   afterEach(async () => {
     await handle.dispose();
+  });
+
+  afterAll(() => {
+    disableAssemblyFallback();
   });
 
   it('编辑含 router_judge + route:* 出边的骨架：预注册后校验通过并挂载', async () => {

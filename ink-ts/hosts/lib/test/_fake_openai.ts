@@ -20,6 +20,8 @@ export interface FakeOpenAIOptions {
   content?: string | string[];
   finish_reason?: string;
   usage?: Record<string, number> | null;
+  /** 响应前固定延迟（毫秒；测「运行中中止/注入」时序的在途窗口放大）。 */
+  delayMs?: number;
 }
 
 /** OpenAI 兼容假服务（真实 TCP 监听本地回环；每测试独立实例）。 */
@@ -31,12 +33,14 @@ export class FakeOpenAIServer {
   private readonly _content: string[];
   private readonly _finish_reason: string;
   private readonly _usage: Record<string, number>;
+  private readonly _delayMs: number;
 
   constructor(options: FakeOpenAIOptions = {}) {
     const raw = options.content ?? 'host-reply';
     this._content = Array.isArray(raw) ? raw : [raw];
     this._finish_reason = options.finish_reason ?? 'stop';
     this._usage = options.usage ?? { prompt_tokens: 8, completion_tokens: 6, total_tokens: 14 };
+    this._delayMs = options.delayMs ?? 0;
   }
 
   /** 当前请求序的回复内容（越界回落末条，保证多轮剧本不空答）。 */
@@ -91,6 +95,19 @@ export class FakeOpenAIServer {
     const headers: Record<string, string> = {};
     for (const [key, value] of Object.entries(req.headers)) headers[key] = String(value);
     this.requests.push({ method: req.method ?? 'GET', url: req.url ?? '', headers, body });
+    if (this._delayMs > 0) {
+      const delay = this._delayMs;
+      setTimeout(() => {
+        this._respond(body, res);
+      }, delay);
+      return;
+    }
+    this._respond(body, res);
+  }
+
+  private _respond(body: Record<string, unknown>, res: http.ServerResponse): void {
+    // 延迟响应可能落在 close() 之后（socket 已毁）——写前判活，避免悬挂异常
+    if (res.writableEnded || res.destroyed) return;
     if (body['stream'] === true) this._writeStream(res, body);
     else this._writeCompletion(res, body);
   }

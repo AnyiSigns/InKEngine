@@ -7,6 +7,8 @@
  *   命令实现：inspect→skeleton.get、update→skeleton.edit、trial→rounds.fork_trial，
  *   返回 JSON 结果（不复制机制语义）；
  * - 未知工具名 = 显式错误（fail-closed，映射表单一真源）。
+ * W7-A 迁移注：骨架 inspect/update 与 rounds.trial 依赖组装回合建立的线程
+ * 骨架（组装链专属），文件级打开 INK_ROUNDS_ASSEMBLY_FALLBACK 回退开关保持绿。
  */
 
 import { mkdtempSync } from 'node:fs';
@@ -14,12 +16,21 @@ import { tmpdir } from 'node:os';
 import path from 'node:path';
 
 import { ENGINE_STUB_REPLY, endpoint_registry } from '@ink-ts/engine';
-import { afterEach, describe, expect, it } from 'vitest';
+import { afterAll, afterEach, beforeAll, describe, expect, it } from 'vitest';
 
 import { createHost } from '../src/index.js';
 import type { HostHandle } from '../src/index.js';
 import { sessionCommandExecutor } from '../src/session_command.js';
 import { SESSION_COMMAND_ENDPOINT } from '../src/session_command.js';
+import { disableAssemblyFallback, enableAssemblyFallback } from './_rounds_flag.js';
+
+beforeAll(() => {
+  enableAssemblyFallback();
+});
+
+afterAll(() => {
+  disableAssemblyFallback();
+});
 
 function dirs(): { dir: string; events: string } {
   const dir = mkdtempSync(path.join(tmpdir(), 'ink-session-tools-'));

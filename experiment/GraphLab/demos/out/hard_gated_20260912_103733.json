@@ -1,0 +1,416 @@
+{
+ "ts": "20260912_103733",
+ "seed": 0,
+ "beam": 2,
+ "rounds": 12,
+ "anchor": "hash",
+ "gate_tasks": [
+  "code",
+  "translate",
+  "math"
+ ],
+ "train": {
+  "trained_gated": {
+   "records": [
+    {
+     "round": 1,
+     "task": "code",
+     "ok": false,
+     "path": "entry->exit",
+     "macro": false,
+     "calls": 1
+    },
+    {
+     "round": 2,
+     "task": "code",
+     "ok": false,
+     "path": "entry->classify",
+     "macro": false,
+     "calls": 1
+    },
+    {
+     "round": 3,
+     "task": "code",
+     "ok": false,
+     "path": "entry",
+     "macro": false,
+     "calls": 1
+    },
+    {
+     "round": 4,
+     "task": "translate",
+     "ok": false,
+     "path": "entry->classify",
+     "macro": false,
+     "calls": 2
+    },
+    {
+     "round": 5,
+     "task": "translate",
+     "ok": false,
+     "path": "entry",
+     "macro": false,
+     "calls": 1
+    },
+    {
+     "round": 6,
+     "task": "math",
+     "ok": false,
+     "path": "entry",
+     "macro": false,
+     "calls": 0
+    },
+    {
+     "round": 7,
+     "task": "math",
+     "ok": false,
+     "path": "entry",
+     "macro": false,
+     "calls": 5
+    },
+    {
+     "round": 8,
+     "task": "code",
+     "ok": true,
+     "path": "entry->classify->exit->code->exit->run_tests->save_file->exit",
+     "macro": false,
+     "calls": 3
+    },
+    {
+     "round": 9,
+     "task": "code",
+     "ok": true,
+     "path": "entry->classify->exit->code->exit->save_file->exit->run_tests->save_file->exit",
+     "macro": false,
+     "calls": 3
+    },
+    {
+     "round": 10,
+     "task": "code",
+     "ok": true,
+     "path": "entry->classify->exit->code->exit->run_tests->save_file->exit",
+     "macro": false,
+     "calls": 3
+    },
+    {
+     "round": 11,
+     "task": "translate",
+     "ok": false,
+     "path": "entry->classify",
+     "macro": false,
+     "calls": 3
+    },
+    {
+     "round": 12,
+     "task": "translate",
+     "ok": false,
+     "path": "entry->classify",
+     "macro": false,
+     "calls": 2
+    }
+   ],
+   "calls": 49,
+   "skill": {
+    "code": {
+     "seen": 6,
+     "ok": 3,
+     "first_ok": 8,
+     "streak": 3,
+     "streak3": 10,
+     "calls": 12
+    },
+    "translate": {
+     "seen": 4,
+     "ok": 0,
+     "first_ok": null,
+     "streak": 0,
+     "streak3": null,
+     "calls": 8
+    },
+    "math": {
+     "seen": 2,
+     "ok": 0,
+     "first_ok": null,
+     "streak": 0,
+     "streak3": null,
+     "calls": 5
+    }
+   },
+   "ok": 3,
+   "total": 12
+  },
+  "trained_skills_gated": {
+   "records": [
+    {
+     "round": 1,
+     "task": "code",
+     "ok": false,
+     "path": "entry->exit",
+     "macro": false,
+     "calls": 3
+    },
+    {
+     "round": 2,
+     "task": "code",
+     "ok": true,
+     "path": "classify->code->run_tests->save_file->exit",
+     "macro": true,
+     "calls": 2
+    },
+    {
+     "round": 3,
+     "task": "code",
+     "ok": true,
+     "path": "classify->code->run_tests->save_file->exit",
+     "macro": true,
+     "calls": 2
+    },
+    {
+     "round": 4,
+     "task": "translate",
+     "ok": true,
+     "path": "classify->translate->backtranslate->roundtrip_check->save_file->exit",
+     "macro": true,
+     "calls": 3
+    },
+    {
+     "round": 5,
+     "task": "translate",
+     "ok": true,
+     "path": "classify->translate->backtranslate->roundtrip_check->save_file->exit",
+     "macro": true,
+     "calls": 3
+    },
+    {
+     "round": 6,
+     "task": "math",
+     "ok": true,
+     "path": "classify->math->verify_math->save_file->exit",
+     "macro": true,
+     "calls": 2
+    },
+    {
+     "round": 7,
+     "task": "math",
+     "ok": true,
+     "path": "classify->math->verify_math->save_file->exit",
+     "macro": true,
+     "calls": 2
+    },
+    {
+     "round": 8,
+     "task": "code",
+     "ok": true,
+     "path": "classify->code->run_tests->save_file->exit",
+     "macro": true,
+     "calls": 2
+    },
+    {
+     "round": 9,
+     "task": "code",
+     "ok": true,
+     "path": "classify->code->run_tests->save_file->exit",
+     "macro": true,
+     "calls": 2
+    },
+    {
+     "round": 10,
+     "task": "code",
+     "ok": false,
+     "path": "entry",
+     "macro": false,
+     "calls": 2
+    },
+    {
+     "round": 11,
+     "task": "translate",
+     "ok": true,
+     "path": "classify->translate->backtranslate->roundtrip_check->save_file->exit",
+     "macro": true,
+     "calls": 3
+    },
+    {
+     "round": 12,
+     "task": "translate",
+     "ok": true,
+     "path": "classify->translate->backtranslate->roundtrip_check->save_file->exit",
+     "macro": true,
+     "calls": 3
+    }
+   ],
+   "calls": 53,
+   "skill": {
+    "code": {
+     "seen": 6,
+     "ok": 4,
+     "first_ok": 2,
+     "streak": 0,
+     "streak3": 8,
+     "calls": 13
+    },
+    "translate": {
+     "seen": 4,
+     "ok": 4,
+     "first_ok": 4,
+     "streak": 4,
+     "streak3": 11,
+     "calls": 12
+    },
+    "math": {
+     "seen": 2,
+     "ok": 2,
+     "first_ok": 6,
+     "streak": 2,
+     "streak3": null,
+     "calls": 4
+    }
+   },
+   "ok": 10,
+   "total": 12
+  }
+ },
+ "eval": {
+  "trained_gated": {
+   "records": [
+    {
+     "round": 1,
+     "task": "code",
+     "ok": false,
+     "calls": 5,
+     "path": "entry->classify->exit->code->exit->code->exit->code->exit->code->exit"
+    },
+    {
+     "round": 2,
+     "task": "translate",
+     "ok": false,
+     "calls": 1,
+     "path": "entry->classify"
+    },
+    {
+     "round": 3,
+     "task": "math",
+     "ok": false,
+     "calls": 1,
+     "path": "entry->classify->exit"
+    }
+   ],
+   "calls": 7,
+   "skill": {
+    "code": {
+     "seen": 1,
+     "ok": 0,
+     "first_ok": null,
+     "streak": 0,
+     "streak3": null,
+     "calls": 5
+    },
+    "translate": {
+     "seen": 1,
+     "ok": 0,
+     "first_ok": null,
+     "streak": 0,
+     "streak3": null,
+     "calls": 1
+    },
+    "math": {
+     "seen": 1,
+     "ok": 0,
+     "first_ok": null,
+     "streak": 0,
+     "streak3": null,
+     "calls": 1
+    }
+   },
+   "ok": 0,
+   "total": 3
+  },
+  "trained_skills_gated": {
+   "records": [
+    {
+     "round": 1,
+     "task": "code",
+     "ok": false,
+     "calls": 5,
+     "path": "entry->classify->exit->code->exit->code->exit->code->exit->code->exit"
+    },
+    {
+     "round": 2,
+     "task": "translate",
+     "ok": false,
+     "calls": 1,
+     "path": "entry->classify"
+    },
+    {
+     "round": 3,
+     "task": "math",
+     "ok": false,
+     "calls": 1,
+     "path": "entry->classify->exit"
+    }
+   ],
+   "calls": 7,
+   "skill": {
+    "code": {
+     "seen": 1,
+     "ok": 0,
+     "first_ok": null,
+     "streak": 0,
+     "streak3": null,
+     "calls": 5
+    },
+    "translate": {
+     "seen": 1,
+     "ok": 0,
+     "first_ok": null,
+     "streak": 0,
+     "streak3": null,
+     "calls": 1
+    },
+    "math": {
+     "seen": 1,
+     "ok": 0,
+     "first_ok": null,
+     "streak": 0,
+     "streak3": null,
+     "calls": 1
+    }
+   },
+   "ok": 0,
+   "total": 3
+  }
+ },
+ "skills_macro_only": {
+  "records": [
+   {
+    "round": 1,
+    "task": "code",
+    "ok": true,
+    "calls": 2,
+    "path": "classify->code->run_tests->save_file->exit"
+   },
+   {
+    "round": 2,
+    "task": "translate",
+    "ok": true,
+    "calls": 3,
+    "path": "classify->translate->backtranslate->roundtrip_check->save_file->exit"
+   },
+   {
+    "round": 3,
+    "task": "math",
+    "ok": true,
+    "calls": 2,
+    "path": "classify->math->verify_math->save_file->exit"
+   }
+  ],
+  "calls": 7,
+  "ok": 3,
+  "total": 3
+ },
+ "final_graph": {
+  "nodes": 16,
+  "alive": 12,
+  "edges": 62,
+  "entropy": 0.917
+ }
+}

@@ -1,0 +1,1118 @@
+{
+ "ts": "20260912_095555",
+ "seed": 0,
+ "beam": 2,
+ "rounds": 12,
+ "train": {
+  "heuristic_naive": {
+   "records": [
+    {
+     "round": 1,
+     "task": "code",
+     "ok": false,
+     "path": "classify->code->save_file->exit",
+     "calls": 2
+    },
+    {
+     "round": 2,
+     "task": "code",
+     "ok": false,
+     "path": "classify->code->save_file->exit",
+     "calls": 2
+    },
+    {
+     "round": 3,
+     "task": "code",
+     "ok": false,
+     "path": "classify->code->save_file->exit",
+     "calls": 2
+    },
+    {
+     "round": 4,
+     "task": "translate",
+     "ok": false,
+     "path": "classify->translate->save_file->exit",
+     "calls": 2
+    },
+    {
+     "round": 5,
+     "task": "translate",
+     "ok": false,
+     "path": "classify->translate->save_file->exit",
+     "calls": 2
+    },
+    {
+     "round": 6,
+     "task": "math",
+     "ok": false,
+     "path": "classify->math->save_file->exit",
+     "calls": 2
+    },
+    {
+     "round": 7,
+     "task": "math",
+     "ok": false,
+     "path": "classify->math->save_file->exit",
+     "calls": 2
+    },
+    {
+     "round": 8,
+     "task": "code",
+     "ok": false,
+     "path": "classify->code->save_file->exit",
+     "calls": 2
+    },
+    {
+     "round": 9,
+     "task": "code",
+     "ok": false,
+     "path": "classify->code->save_file->exit",
+     "calls": 2
+    },
+    {
+     "round": 10,
+     "task": "code",
+     "ok": false,
+     "path": "classify->code->save_file->exit",
+     "calls": 2
+    },
+    {
+     "round": 11,
+     "task": "translate",
+     "ok": false,
+     "path": "classify->translate->save_file->exit",
+     "calls": 2
+    },
+    {
+     "round": 12,
+     "task": "translate",
+     "ok": false,
+     "path": "classify->translate->save_file->exit",
+     "calls": 2
+    }
+   ],
+   "calls": 24,
+   "skill": {
+    "code": {
+     "seen": 6,
+     "ok": 0,
+     "first_ok": null,
+     "streak": 0,
+     "streak3": null,
+     "calls": 12
+    },
+    "translate": {
+     "seen": 4,
+     "ok": 0,
+     "first_ok": null,
+     "streak": 0,
+     "streak3": null,
+     "calls": 8
+    },
+    "math": {
+     "seen": 2,
+     "ok": 0,
+     "first_ok": null,
+     "streak": 0,
+     "streak3": null,
+     "calls": 4
+    }
+   },
+   "ok": 0,
+   "total": 12
+  },
+  "heuristic_full": {
+   "records": [
+    {
+     "round": 1,
+     "task": "code",
+     "ok": false,
+     "path": "classify->code->run_tests->save_file->exit",
+     "calls": 2
+    },
+    {
+     "round": 2,
+     "task": "code",
+     "ok": true,
+     "path": "classify->code->run_tests->save_file->exit",
+     "calls": 2
+    },
+    {
+     "round": 3,
+     "task": "code",
+     "ok": true,
+     "path": "classify->code->run_tests->save_file->exit",
+     "calls": 2
+    },
+    {
+     "round": 4,
+     "task": "translate",
+     "ok": true,
+     "path": "classify->translate->backtranslate->roundtrip_check->save_file->exit",
+     "calls": 3
+    },
+    {
+     "round": 5,
+     "task": "translate",
+     "ok": true,
+     "path": "classify->translate->backtranslate->roundtrip_check->save_file->exit",
+     "calls": 3
+    },
+    {
+     "round": 6,
+     "task": "math",
+     "ok": true,
+     "path": "classify->math->verify_math->save_file->exit",
+     "calls": 2
+    },
+    {
+     "round": 7,
+     "task": "math",
+     "ok": true,
+     "path": "classify->math->verify_math->save_file->exit",
+     "calls": 2
+    },
+    {
+     "round": 8,
+     "task": "code",
+     "ok": true,
+     "path": "classify->code->run_tests->save_file->exit",
+     "calls": 2
+    },
+    {
+     "round": 9,
+     "task": "code",
+     "ok": true,
+     "path": "classify->code->run_tests->save_file->exit",
+     "calls": 2
+    },
+    {
+     "round": 10,
+     "task": "code",
+     "ok": true,
+     "path": "classify->code->run_tests->save_file->exit",
+     "calls": 2
+    },
+    {
+     "round": 11,
+     "task": "translate",
+     "ok": true,
+     "path": "classify->translate->backtranslate->roundtrip_check->save_file->exit",
+     "calls": 3
+    },
+    {
+     "round": 12,
+     "task": "translate",
+     "ok": true,
+     "path": "classify->translate->backtranslate->roundtrip_check->save_file->exit",
+     "calls": 3
+    }
+   ],
+   "calls": 28,
+   "skill": {
+    "code": {
+     "seen": 6,
+     "ok": 5,
+     "first_ok": 2,
+     "streak": 5,
+     "streak3": 8,
+     "calls": 12
+    },
+    "translate": {
+     "seen": 4,
+     "ok": 4,
+     "first_ok": 4,
+     "streak": 4,
+     "streak3": 11,
+     "calls": 12
+    },
+    "math": {
+     "seen": 2,
+     "ok": 2,
+     "first_ok": 6,
+     "streak": 2,
+     "streak3": null,
+     "calls": 4
+    }
+   },
+   "ok": 11,
+   "total": 12
+  },
+  "contract_only": {
+   "records": [
+    {
+     "round": 1,
+     "task": "code",
+     "ok": true,
+     "path": "entry->classify->code->run_tests->save_file->exit",
+     "calls": 2,
+     "edges_added": 2
+    },
+    {
+     "round": 2,
+     "task": "code",
+     "ok": true,
+     "path": "entry->classify->code->run_tests->save_file->exit",
+     "calls": 2,
+     "edges_added": 0
+    },
+    {
+     "round": 3,
+     "task": "code",
+     "ok": false,
+     "path": "entry->classify->code->run_tests->save_file->exit",
+     "calls": 2,
+     "edges_added": 0
+    },
+    {
+     "round": 4,
+     "task": "translate",
+     "ok": true,
+     "path": "entry->classify->translate->backtranslate->roundtrip_check->save_file->exit",
+     "calls": 3,
+     "edges_added": 2
+    },
+    {
+     "round": 5,
+     "task": "translate",
+     "ok": true,
+     "path": "entry->classify->translate->backtranslate->roundtrip_check->save_file->exit",
+     "calls": 3,
+     "edges_added": 0
+    },
+    {
+     "round": 6,
+     "task": "math",
+     "ok": true,
+     "path": "entry->classify->math->verify_math->save_file->exit",
+     "calls": 2,
+     "edges_added": 1
+    },
+    {
+     "round": 7,
+     "task": "math",
+     "ok": true,
+     "path": "entry->classify->math->verify_math->save_file->exit",
+     "calls": 2,
+     "edges_added": 0
+    },
+    {
+     "round": 8,
+     "task": "code",
+     "ok": true,
+     "path": "entry->classify->code->run_tests->save_file->exit",
+     "calls": 2,
+     "edges_added": 0
+    },
+    {
+     "round": 9,
+     "task": "code",
+     "ok": true,
+     "path": "entry->classify->code->run_tests->save_file->exit",
+     "calls": 2,
+     "edges_added": 0
+    },
+    {
+     "round": 10,
+     "task": "code",
+     "ok": true,
+     "path": "entry->classify->code->run_tests->save_file->exit",
+     "calls": 2,
+     "edges_added": 0
+    },
+    {
+     "round": 11,
+     "task": "translate",
+     "ok": true,
+     "path": "entry->classify->translate->backtranslate->roundtrip_check->save_file->exit",
+     "calls": 3,
+     "edges_added": 0
+    },
+    {
+     "round": 12,
+     "task": "translate",
+     "ok": false,
+     "path": "entry->classify",
+     "calls": 1,
+     "edges_added": 0
+    }
+   ],
+   "calls": 26,
+   "skill": {
+    "code": {
+     "seen": 6,
+     "ok": 5,
+     "first_ok": 1,
+     "streak": 3,
+     "streak3": 10,
+     "calls": 12
+    },
+    "translate": {
+     "seen": 4,
+     "ok": 3,
+     "first_ok": 4,
+     "streak": 0,
+     "streak3": 11,
+     "calls": 10
+    },
+    "math": {
+     "seen": 2,
+     "ok": 2,
+     "first_ok": 6,
+     "streak": 2,
+     "streak3": null,
+     "calls": 4
+    }
+   },
+   "ok": 10,
+   "total": 12
+  },
+  "untrained": {
+   "records": [
+    {
+     "round": 1,
+     "task": "code",
+     "ok": false,
+     "path": "entry->exit",
+     "macro": false,
+     "calls": 1
+    },
+    {
+     "round": 2,
+     "task": "code",
+     "ok": false,
+     "path": "entry->classify",
+     "macro": false,
+     "calls": 1
+    },
+    {
+     "round": 3,
+     "task": "code",
+     "ok": false,
+     "path": "entry",
+     "macro": false,
+     "calls": 1
+    },
+    {
+     "round": 4,
+     "task": "translate",
+     "ok": false,
+     "path": "entry->classify",
+     "macro": false,
+     "calls": 2
+    },
+    {
+     "round": 5,
+     "task": "translate",
+     "ok": false,
+     "path": "entry",
+     "macro": false,
+     "calls": 1
+    },
+    {
+     "round": 6,
+     "task": "math",
+     "ok": false,
+     "path": "entry",
+     "macro": false,
+     "calls": 0
+    },
+    {
+     "round": 7,
+     "task": "math",
+     "ok": false,
+     "path": "entry",
+     "macro": false,
+     "calls": 0
+    },
+    {
+     "round": 8,
+     "task": "code",
+     "ok": false,
+     "path": "entry",
+     "macro": false,
+     "calls": 0
+    },
+    {
+     "round": 9,
+     "task": "code",
+     "ok": false,
+     "path": "entry",
+     "macro": false,
+     "calls": 3
+    },
+    {
+     "round": 10,
+     "task": "code",
+     "ok": false,
+     "path": "entry",
+     "macro": false,
+     "calls": 0
+    },
+    {
+     "round": 11,
+     "task": "translate",
+     "ok": false,
+     "path": "entry->pass_1",
+     "macro": false,
+     "calls": 1
+    },
+    {
+     "round": 12,
+     "task": "translate",
+     "ok": false,
+     "path": "entry->classify",
+     "macro": false,
+     "calls": 2
+    }
+   ],
+   "calls": 12,
+   "skill": {
+    "code": {
+     "seen": 6,
+     "ok": 0,
+     "first_ok": null,
+     "streak": 0,
+     "streak3": null,
+     "calls": 6
+    },
+    "translate": {
+     "seen": 4,
+     "ok": 0,
+     "first_ok": null,
+     "streak": 0,
+     "streak3": null,
+     "calls": 6
+    },
+    "math": {
+     "seen": 2,
+     "ok": 0,
+     "first_ok": null,
+     "streak": 0,
+     "streak3": null,
+     "calls": 0
+    }
+   },
+   "ok": 0,
+   "total": 12
+  },
+  "trained": {
+   "records": [
+    {
+     "round": 1,
+     "task": "code",
+     "ok": false,
+     "path": "entry->exit",
+     "macro": false,
+     "calls": 1
+    },
+    {
+     "round": 2,
+     "task": "code",
+     "ok": false,
+     "path": "entry->classify",
+     "macro": false,
+     "calls": 1
+    },
+    {
+     "round": 3,
+     "task": "code",
+     "ok": false,
+     "path": "entry",
+     "macro": false,
+     "calls": 1
+    },
+    {
+     "round": 4,
+     "task": "translate",
+     "ok": false,
+     "path": "entry->classify",
+     "macro": false,
+     "calls": 2
+    },
+    {
+     "round": 5,
+     "task": "translate",
+     "ok": false,
+     "path": "entry",
+     "macro": false,
+     "calls": 1
+    },
+    {
+     "round": 6,
+     "task": "math",
+     "ok": false,
+     "path": "entry",
+     "macro": false,
+     "calls": 0
+    },
+    {
+     "round": 7,
+     "task": "math",
+     "ok": false,
+     "path": "entry",
+     "macro": false,
+     "calls": 5
+    },
+    {
+     "round": 8,
+     "task": "code",
+     "ok": false,
+     "path": "entry->classify->exit",
+     "macro": false,
+     "calls": 5
+    },
+    {
+     "round": 9,
+     "task": "code",
+     "ok": false,
+     "path": "entry",
+     "macro": false,
+     "calls": 1
+    },
+    {
+     "round": 10,
+     "task": "code",
+     "ok": false,
+     "path": "entry->classify->exit",
+     "macro": false,
+     "calls": 5
+    },
+    {
+     "round": 11,
+     "task": "translate",
+     "ok": false,
+     "path": "entry",
+     "macro": false,
+     "calls": 1
+    },
+    {
+     "round": 12,
+     "task": "translate",
+     "ok": false,
+     "path": "entry",
+     "macro": false,
+     "calls": 0
+    }
+   ],
+   "calls": 23,
+   "skill": {
+    "code": {
+     "seen": 6,
+     "ok": 0,
+     "first_ok": null,
+     "streak": 0,
+     "streak3": null,
+     "calls": 14
+    },
+    "translate": {
+     "seen": 4,
+     "ok": 0,
+     "first_ok": null,
+     "streak": 0,
+     "streak3": null,
+     "calls": 4
+    },
+    "math": {
+     "seen": 2,
+     "ok": 0,
+     "first_ok": null,
+     "streak": 0,
+     "streak3": null,
+     "calls": 5
+    }
+   },
+   "ok": 0,
+   "total": 12
+  },
+  "trained_skills": {
+   "records": [
+    {
+     "round": 1,
+     "task": "code",
+     "ok": false,
+     "path": "entry->exit",
+     "macro": false,
+     "calls": 3
+    },
+    {
+     "round": 2,
+     "task": "code",
+     "ok": true,
+     "path": "classify->code->run_tests->save_file->exit",
+     "macro": true,
+     "calls": 2
+    },
+    {
+     "round": 3,
+     "task": "code",
+     "ok": true,
+     "path": "classify->code->run_tests->save_file->exit",
+     "macro": true,
+     "calls": 2
+    },
+    {
+     "round": 4,
+     "task": "translate",
+     "ok": true,
+     "path": "classify->translate->backtranslate->roundtrip_check->save_file->exit",
+     "macro": true,
+     "calls": 3
+    },
+    {
+     "round": 5,
+     "task": "translate",
+     "ok": true,
+     "path": "classify->translate->backtranslate->roundtrip_check->save_file->exit",
+     "macro": true,
+     "calls": 3
+    },
+    {
+     "round": 6,
+     "task": "math",
+     "ok": true,
+     "path": "classify->math->verify_math->save_file->exit",
+     "macro": true,
+     "calls": 2
+    },
+    {
+     "round": 7,
+     "task": "math",
+     "ok": true,
+     "path": "classify->math->verify_math->save_file->exit",
+     "macro": true,
+     "calls": 2
+    },
+    {
+     "round": 8,
+     "task": "code",
+     "ok": true,
+     "path": "classify->code->run_tests->save_file->exit",
+     "macro": true,
+     "calls": 2
+    },
+    {
+     "round": 9,
+     "task": "code",
+     "ok": true,
+     "path": "classify->code->run_tests->save_file->exit",
+     "macro": true,
+     "calls": 2
+    },
+    {
+     "round": 10,
+     "task": "code",
+     "ok": false,
+     "path": "entry",
+     "macro": false,
+     "calls": 2
+    },
+    {
+     "round": 11,
+     "task": "translate",
+     "ok": true,
+     "path": "classify->translate->backtranslate->roundtrip_check->save_file->exit",
+     "macro": true,
+     "calls": 3
+    },
+    {
+     "round": 12,
+     "task": "translate",
+     "ok": true,
+     "path": "classify->translate->backtranslate->roundtrip_check->save_file->exit",
+     "macro": true,
+     "calls": 3
+    }
+   ],
+   "calls": 29,
+   "skill": {
+    "code": {
+     "seen": 6,
+     "ok": 4,
+     "first_ok": 2,
+     "streak": 0,
+     "streak3": 8,
+     "calls": 13
+    },
+    "translate": {
+     "seen": 4,
+     "ok": 4,
+     "first_ok": 4,
+     "streak": 4,
+     "streak3": 11,
+     "calls": 12
+    },
+    "math": {
+     "seen": 2,
+     "ok": 2,
+     "first_ok": 6,
+     "streak": 2,
+     "streak3": null,
+     "calls": 4
+    }
+   },
+   "ok": 10,
+   "total": 12
+  }
+ },
+ "eval": {
+  "heuristic_naive": {
+   "records": [
+    {
+     "round": 1,
+     "task": "code",
+     "ok": false,
+     "calls": 2,
+     "path": "classify->code->save_file->exit"
+    },
+    {
+     "round": 2,
+     "task": "translate",
+     "ok": false,
+     "calls": 2,
+     "path": "classify->translate->save_file->exit"
+    },
+    {
+     "round": 3,
+     "task": "math",
+     "ok": false,
+     "calls": 2,
+     "path": "classify->math->save_file->exit"
+    }
+   ],
+   "calls": 6,
+   "skill": {
+    "code": {
+     "seen": 1,
+     "ok": 0,
+     "first_ok": null,
+     "streak": 0,
+     "streak3": null,
+     "calls": 2
+    },
+    "translate": {
+     "seen": 1,
+     "ok": 0,
+     "first_ok": null,
+     "streak": 0,
+     "streak3": null,
+     "calls": 2
+    },
+    "math": {
+     "seen": 1,
+     "ok": 0,
+     "first_ok": null,
+     "streak": 0,
+     "streak3": null,
+     "calls": 2
+    }
+   },
+   "ok": 0,
+   "total": 3
+  },
+  "heuristic_full": {
+   "records": [
+    {
+     "round": 1,
+     "task": "code",
+     "ok": true,
+     "calls": 2,
+     "path": "classify->code->run_tests->save_file->exit"
+    },
+    {
+     "round": 2,
+     "task": "translate",
+     "ok": true,
+     "calls": 3,
+     "path": "classify->translate->backtranslate->roundtrip_check->save_file->exit"
+    },
+    {
+     "round": 3,
+     "task": "math",
+     "ok": true,
+     "calls": 2,
+     "path": "classify->math->verify_math->save_file->exit"
+    }
+   ],
+   "calls": 7,
+   "skill": {
+    "code": {
+     "seen": 1,
+     "ok": 1,
+     "first_ok": 1,
+     "streak": 1,
+     "streak3": null,
+     "calls": 2
+    },
+    "translate": {
+     "seen": 1,
+     "ok": 1,
+     "first_ok": 2,
+     "streak": 1,
+     "streak3": null,
+     "calls": 3
+    },
+    "math": {
+     "seen": 1,
+     "ok": 1,
+     "first_ok": 3,
+     "streak": 1,
+     "streak3": null,
+     "calls": 2
+    }
+   },
+   "ok": 3,
+   "total": 3
+  },
+  "contract_only": {
+   "records": [
+    {
+     "round": 1,
+     "task": "code",
+     "ok": true,
+     "calls": 2,
+     "path": "entry->classify->code->run_tests->save_file->exit"
+    },
+    {
+     "round": 2,
+     "task": "translate",
+     "ok": true,
+     "calls": 3,
+     "path": "entry->classify->translate->backtranslate->roundtrip_check->save_file->exit"
+    },
+    {
+     "round": 3,
+     "task": "math",
+     "ok": true,
+     "calls": 2,
+     "path": "entry->classify->math->verify_math->save_file->exit"
+    }
+   ],
+   "calls": 7,
+   "skill": {
+    "code": {
+     "seen": 1,
+     "ok": 1,
+     "first_ok": 1,
+     "streak": 1,
+     "streak3": null,
+     "calls": 2
+    },
+    "translate": {
+     "seen": 1,
+     "ok": 1,
+     "first_ok": 2,
+     "streak": 1,
+     "streak3": null,
+     "calls": 3
+    },
+    "math": {
+     "seen": 1,
+     "ok": 1,
+     "first_ok": 3,
+     "streak": 1,
+     "streak3": null,
+     "calls": 2
+    }
+   },
+   "ok": 3,
+   "total": 3
+  },
+  "untrained": {
+   "records": [
+    {
+     "round": 1,
+     "task": "code",
+     "ok": false,
+     "calls": 1,
+     "path": "entry->classify->exit->pass_2->exit->pass_2->exit->pass_2->exit->pass_2->exit"
+    },
+    {
+     "round": 2,
+     "task": "translate",
+     "ok": false,
+     "calls": 1,
+     "path": "entry->classify"
+    },
+    {
+     "round": 3,
+     "task": "math",
+     "ok": false,
+     "calls": 1,
+     "path": "entry->classify->exit->pass_2->exit->pass_2->exit->pass_2->exit->pass_2->exit"
+    }
+   ],
+   "calls": 3,
+   "skill": {
+    "code": {
+     "seen": 1,
+     "ok": 0,
+     "first_ok": null,
+     "streak": 0,
+     "streak3": null,
+     "calls": 1
+    },
+    "translate": {
+     "seen": 1,
+     "ok": 0,
+     "first_ok": null,
+     "streak": 0,
+     "streak3": null,
+     "calls": 1
+    },
+    "math": {
+     "seen": 1,
+     "ok": 0,
+     "first_ok": null,
+     "streak": 0,
+     "streak3": null,
+     "calls": 1
+    }
+   },
+   "ok": 0,
+   "total": 3
+  },
+  "trained": {
+   "records": [
+    {
+     "round": 1,
+     "task": "code",
+     "ok": false,
+     "calls": 5,
+     "path": "entry->classify->exit->code->exit->code->exit->code->exit->code->exit"
+    },
+    {
+     "round": 2,
+     "task": "translate",
+     "ok": false,
+     "calls": 1,
+     "path": "entry->classify"
+    },
+    {
+     "round": 3,
+     "task": "math",
+     "ok": false,
+     "calls": 1,
+     "path": "entry->classify->exit"
+    }
+   ],
+   "calls": 7,
+   "skill": {
+    "code": {
+     "seen": 1,
+     "ok": 0,
+     "first_ok": null,
+     "streak": 0,
+     "streak3": null,
+     "calls": 5
+    },
+    "translate": {
+     "seen": 1,
+     "ok": 0,
+     "first_ok": null,
+     "streak": 0,
+     "streak3": null,
+     "calls": 1
+    },
+    "math": {
+     "seen": 1,
+     "ok": 0,
+     "first_ok": null,
+     "streak": 0,
+     "streak3": null,
+     "calls": 1
+    }
+   },
+   "ok": 0,
+   "total": 3
+  },
+  "trained_skills": {
+   "records": [
+    {
+     "round": 1,
+     "task": "code",
+     "ok": false,
+     "calls": 5,
+     "path": "entry->classify->exit->code->exit->code->exit->code->exit->code->exit"
+    },
+    {
+     "round": 2,
+     "task": "translate",
+     "ok": false,
+     "calls": 1,
+     "path": "entry->classify"
+    },
+    {
+     "round": 3,
+     "task": "math",
+     "ok": false,
+     "calls": 1,
+     "path": "entry->classify->exit"
+    }
+   ],
+   "calls": 7,
+   "skill": {
+    "code": {
+     "seen": 1,
+     "ok": 0,
+     "first_ok": null,
+     "streak": 0,
+     "streak3": null,
+     "calls": 5
+    },
+    "translate": {
+     "seen": 1,
+     "ok": 0,
+     "first_ok": null,
+     "streak": 0,
+     "streak3": null,
+     "calls": 1
+    },
+    "math": {
+     "seen": 1,
+     "ok": 0,
+     "first_ok": null,
+     "streak": 0,
+     "streak3": null,
+     "calls": 1
+    }
+   },
+   "ok": 0,
+   "total": 3
+  }
+ },
+ "skills_macro_only": {
+  "records": [
+   {
+    "round": 1,
+    "task": "code",
+    "ok": false,
+    "calls": 2,
+    "path": "classify->code->run_tests->save_file->exit"
+   },
+   {
+    "round": 2,
+    "task": "translate",
+    "ok": true,
+    "calls": 3,
+    "path": "classify->translate->backtranslate->roundtrip_check->save_file->exit"
+   },
+   {
+    "round": 3,
+    "task": "math",
+    "ok": true,
+    "calls": 2,
+    "path": "classify->math->verify_math->save_file->exit"
+   }
+  ],
+  "calls": 7,
+  "ok": 2,
+  "total": 3
+ },
+ "final_graph": {
+  "nodes": 16,
+  "alive": 12,
+  "edges": 62,
+  "entropy": 1.312
+ }
+}

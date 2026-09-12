@@ -7,7 +7,7 @@ import * as os from 'node:os';
 import * as path from 'node:path';
 import { describe, expect, it } from 'vitest';
 
-import { GraphDefinitionError } from '../../../src/core/errors.js';
+import { GraphDefinitionError } from '../../../src/model/errors.js';
 import {
   DeclarativeToolSpec,
 } from '../../../src/core/declarative_tools/declarative_spec.js';

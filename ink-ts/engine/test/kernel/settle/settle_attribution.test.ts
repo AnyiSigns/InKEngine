@@ -9,8 +9,8 @@
 
 import { describe, expect, it } from 'vitest';
 
-import { TerminateReason } from '../../../src/core/graph/graph_types.js';
-import { Graph } from '../../../src/core/graph/graph.js';
+import { TerminateReason } from '../../../src/model/graph/graph_types.js';
+import { Graph } from '../../../src/model/graph/graph.js';
 import {
   attribution_plan,
   derive_traversals,

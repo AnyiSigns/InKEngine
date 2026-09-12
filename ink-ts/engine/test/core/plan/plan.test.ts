@@ -38,8 +38,8 @@
 
 import { describe, expect, it } from 'vitest';
 
-import { GraphDefinitionError } from '../../../src/core/errors.js';
-import { Graph } from '../../../src/core/graph/graph.js';
+import { GraphDefinitionError } from '../../../src/model/errors.js';
+import { Graph } from '../../../src/model/graph/graph.js';
 
 import {
   DEFAULT_MAX_PLAN_STEPS,

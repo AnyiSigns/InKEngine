@@ -13,8 +13,8 @@
  * 失败子执行不产可采纳产物只贡献摘要；降级（部分产物）可采纳但摘要仍上浮。
  */
 
-import type { ChannelCommit } from '../channels/channel_spec.js';
-import { CHANNEL_COMMIT_BEST, CHANNEL_COMMIT_DECISION_ONLY, CHANNEL_COMMIT_FULL } from '../channels/channel_spec.js';
+import type { ChannelCommit } from '../../model/channels/channel_spec.js';
+import { CHANNEL_COMMIT_BEST, CHANNEL_COMMIT_DECISION_ONLY, CHANNEL_COMMIT_FULL } from '../../model/channels/channel_spec.js';
 import type { ChildRunOutcome } from './runtime_types.js';
 
 /** 载荷中的质量信号保留键（best 择优；缺席回落成本择优）。 */

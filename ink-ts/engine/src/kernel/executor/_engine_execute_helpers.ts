@@ -10,10 +10,10 @@
  *   事件/checkpoint 只落脱敏消息，细节进日志（trace_id 关联）。
  */
 import { InterruptSignal, InterruptState } from '../interrupt/interrupt_types.js';
-import { TerminateReason } from '../../core/graph/graph_types.js';
+import { TerminateReason } from '../../model/graph/graph_types.js';
 import { strip_sensitive } from '../../core/security/security.js';
 import { current_node_context } from '../llm/guard.js';
-import type { Graph } from '../../core/graph/graph.js';
+import type { Graph } from '../../model/graph/graph.js';
 import type { _NodeContextImpl } from './_node_context.js';
 import { EngineMultipath } from './_engine_multipath.js';
 import { _warn } from './_internals.js';

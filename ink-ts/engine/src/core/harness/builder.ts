@@ -9,8 +9,8 @@
  * _keyword_match = 默认能力匹配器：关键词命中率（确定性、零 LLM 调用）；
  * 宿主可注入语义检索等更精细的匹配器——换匹配器不改装配。
  */
-import { GraphDefinitionError } from '../errors.js';
-import { deepCopy, isRecord, type Json } from '../json.js';
+import { GraphDefinitionError } from '../../model/errors.js';
+import { deepCopy, isRecord, type Json } from '../../model/json.js';
 import {
   type CapabilityMatcher,
   HarnessDefinition,

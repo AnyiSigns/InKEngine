@@ -10,8 +10,8 @@
 
 import type { ContextSource } from '../context/context_types.js';
 import type { Clock } from '../context/context_types.js';
-import { GraphDefinitionError } from '../errors.js';
-import type { Json, JsonRecord } from '../json.js';
+import { GraphDefinitionError } from '../../model/errors.js';
+import type { Json, JsonRecord } from '../../model/json.js';
 import type { Path } from '../../kernel/patch/types.js';
 import {
   SOURCE_DIALOG,

@@ -18,7 +18,7 @@
  * memory_hit 可挂载的宿主卡类型（就近附着到最近一张思考/规划卡）。
  */
 
-import type { JsonRecord } from '../../core/json.js';
+import type { JsonRecord } from '../../model/json.js';
 
 /** step_id 长度上限（超长 id 在追加时截断，回合内唯一性由前缀保证）。 */
 export const STEP_ID_MAX_CHARS = 200;

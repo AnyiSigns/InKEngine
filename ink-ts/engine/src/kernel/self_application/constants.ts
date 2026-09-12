@@ -22,8 +22,8 @@ import {
   GUARDED_COLLECTIONS as CONTRACT_GUARDED_COLLECTIONS,
   GUARDED_PREFIXES as CONTRACT_GUARDED_PREFIXES,
   type AuditStatus,
-} from '../../core/contracts/generated/index.js';
-import { GraphDefinitionError } from '../../core/errors.js';
+} from '../../model/contracts/generated/index.js';
+import { GraphDefinitionError } from '../../model/errors.js';
 
 // 集补丁链持久化集合与键（通用存储服务 records 通道）
 export const _SET_CHAIN_COLLECTION = 'set_patch_chain';

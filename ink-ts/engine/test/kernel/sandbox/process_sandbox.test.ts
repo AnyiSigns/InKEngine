@@ -16,7 +16,7 @@
  */
 import { describe, expect, it } from 'vitest';
 
-import { SandboxViolation } from '../../../src/core/errors.js';
+import { SandboxViolation } from '../../../src/model/errors.js';
 import {
   ProcessResult,
   ProcessSandbox,

@@ -17,7 +17,7 @@
 
 import { describe, expect, it } from 'vitest';
 
-import { GraphDefinitionError } from '../../../src/core/errors.js';
+import { GraphDefinitionError } from '../../../src/model/errors.js';
 import { HarnessDefinition } from '../../../src/core/harness/index.js';
 import { InterruptSignal } from '../../../src/kernel/interrupt/interrupt_types.js';
 import {

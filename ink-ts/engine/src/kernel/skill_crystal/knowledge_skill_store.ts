@@ -14,8 +14,8 @@
  * 两者接口同形但演化史不同，不同时并行接线。
  */
 
-import { StorageError } from '../../core/errors.js';
-import { isRecord } from '../../core/json.js';
+import { StorageError } from '../../model/errors.js';
+import { isRecord } from '../../model/json.js';
 import { KIND_PATH, KnowledgeEntry, KnowledgeSet } from '../../core/knowledge_set/index.js';
 import { knowledge_entry_to_skill, skill_to_knowledge_entry } from './knowledge_merge.js';
 import { SkillEntry } from './skill_entry.js';

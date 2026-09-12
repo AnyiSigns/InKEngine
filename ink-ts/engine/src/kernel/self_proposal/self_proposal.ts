@@ -29,9 +29,9 @@
  * 不维护第二套语义枚举。
  */
 
-import { PATCH_KINDS, type PatchKind as ContractPatchKind } from '../../core/contracts/generated/index.js';
-import { GraphDefinitionError } from '../../core/errors.js';
-import { isRecord, typeName } from '../../core/json.js';
+import { PATCH_KINDS, type PatchKind as ContractPatchKind } from '../../model/contracts/generated/index.js';
+import { GraphDefinitionError } from '../../model/errors.js';
+import { isRecord, typeName } from '../../model/json.js';
 
 /** 补丁类型（演化对象清单：界面/主题/工具/规则/知识/harness/事件/环境/产物/实体）。 */
 export const PatchKind = {

@@ -20,12 +20,12 @@
  */
 import { InterruptSignal } from '../interrupt/interrupt_types.js';
 import { BudgetExceededError } from '../budget/budget.js';
-import { TerminateReason } from '../../core/graph/graph_types.js';
+import { TerminateReason } from '../../model/graph/graph_types.js';
 import { current_node_context } from '../llm/guard.js';
 import { PLAN_KEY, PlanStep } from '../../core/plan/plan.js';
 import { SIMULATE_KEY } from '../simulation/simulation.js';
 import { SPAWN_KEY, collect_spawn_specs } from '../spawn/spawn.js';
-import type { Graph } from '../../core/graph/graph.js';
+import type { Graph } from '../../model/graph/graph.js';
 import { TRACE_SUCCESS, TRACE_FAILED, TRACE_SKIPPED } from '../settle/index.js';
 import type { NodeContext } from './_internals.js';
 import { _NodeContextImpl } from './_node_context.js';

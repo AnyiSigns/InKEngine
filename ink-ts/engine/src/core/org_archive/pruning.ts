@@ -19,8 +19,8 @@
  * 的执行」平均成本），故一律带证据摘要交人工/审批复核。
  */
 
-import { type ChannelCommit, type ChannelShape } from '../channels/channel_spec.js';
-import { FACTORY_SCOPE_ROLES } from '../scopes/scope_spec.js';
+import { type ChannelCommit, type ChannelShape } from '../../model/channels/channel_spec.js';
+import { FACTORY_SCOPE_ROLES } from '../../model/scopes/scope_spec.js';
 import { OrgArchive } from './org_archive.js';
 import { decode_chain_key, decode_transition_key } from './org_patterns.js';
 import { failure_rate, success_rate } from './org_stats.js';

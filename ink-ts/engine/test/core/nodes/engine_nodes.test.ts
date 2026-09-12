@@ -25,7 +25,7 @@ import {
   default_engine_pool_seed,
   register_engine_node_types,
 } from '../../../src/core/nodes/index.js';
-import { Graph } from '../../../src/core/graph/graph.js';
+import { Graph } from '../../../src/model/graph/graph.js';
 import { Engine } from '../../../src/kernel/executor/index.js';
 import { RunOptions } from '../../../src/core/run_result/run_result.js';
 import { CollectorTransport } from '../../../src/core/events/events.js';

@@ -13,7 +13,7 @@
  * 声明字段名直接引用 ORG_THRESHOLD_CONFIG_KEYS）。
  */
 
-import { isRecord } from '../json.js';
+import { isRecord } from '../../model/json.js';
 import {
   default_pruning_thresholds,
   type PruningThresholds,

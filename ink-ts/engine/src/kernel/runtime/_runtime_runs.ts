@@ -12,7 +12,7 @@
  * 句柄 seam（cancel()/done() 协议），引擎侧取消语义随宿主 seam 迁移。
  */
 
-import { TerminateReason } from '../../core/graph/graph_types.js';
+import { TerminateReason } from '../../model/graph/graph_types.js';
 import { CheckpointRecord } from '../../core/storage/storage_records.js';
 import { MetaTuner } from '../tuning/index.js';
 import { RuntimeState } from './_types.js';

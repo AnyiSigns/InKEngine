@@ -12,4 +12,4 @@
  * execution.run 回执投影 + ui_spec），本面只作类型口径导出，不改渲染器。
  */
 
-export * from '../core/ui_schema/uiSchema.js';
+export * from '../model/ui_schema/uiSchema.js';

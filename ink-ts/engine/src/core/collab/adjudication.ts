@@ -18,8 +18,8 @@
  * 纯数据面（JSON 进 JSON 出、零 IO、零宿主词）。
  */
 
-import { isRecord } from '../json.js';
-import type { ScopeIoContract } from '../scopes/scope_spec.js';
+import { isRecord } from '../../model/json.js';
+import type { ScopeIoContract } from '../../model/scopes/scope_spec.js';
 import { normalize_opinion_text, texts_related } from './normalize.js';
 import {
   parse_opinion_entry,

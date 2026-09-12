@@ -11,9 +11,9 @@
  * `engine:<type>`，宿主/agent 注入类型由装配面提供绑定解析。
  */
 
-import { NodeContract } from '../contracts/contracts.js';
-import { isRecord } from '../json.js';
-import { GraphDefinitionError } from '../errors.js';
+import { NodeContract } from '../../model/contracts/contracts.js';
+import { isRecord } from '../../model/json.js';
+import { GraphDefinitionError } from '../../model/errors.js';
 
 /** 登记状态（active 参与运行时注册与契约池；disabled/archived 过滤不注册）。 */
 export type NodeRegistrationStatus = 'active' | 'disabled' | 'archived';

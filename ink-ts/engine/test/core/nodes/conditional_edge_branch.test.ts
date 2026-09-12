@@ -13,11 +13,11 @@
  *   空直达终态；两条条件互斥，每次只走命中的一条。
  */
 import { describe, expect, it } from 'vitest';
-import { Graph } from '../../../src/core/graph/graph.js';
+import { Graph } from '../../../src/model/graph/graph.js';
 import { GraphRegistries } from '../../../src/core/registry/registry.js';
 import { Engine } from '../../../src/kernel/executor/index.js';
 import { RunOptions } from '../../../src/core/run_result/run_result.js';
-import { TerminateReason } from '../../../src/core/graph/graph_types.js';
+import { TerminateReason } from '../../../src/model/graph/graph_types.js';
 import type { NodeFactory } from '../../../src/core/registry/registry_types.js';
 import { MemoryStorage } from '../../kernel/executor/helpers.js';
 import {

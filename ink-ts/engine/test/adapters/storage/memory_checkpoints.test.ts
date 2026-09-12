@@ -7,7 +7,7 @@
 
 import { describe, expect, it } from 'vitest';
 
-import { CheckpointConflictError, StorageError } from '../../../src/core/errors.js';
+import { CheckpointConflictError, StorageError } from '../../../src/model/errors.js';
 import { validate_chain } from '../../../src/core/storage/storage.js';
 import { CheckpointRecord } from '../../../src/core/storage/storage_records.js';
 import { MemoryStorage } from '../../../src/adapters/storage/memory.js';

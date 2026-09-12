@@ -8,10 +8,10 @@
  */
 
 import { required_field_names, produced_field_names } from '../../core/link_validator/link_validator.js';
-import type { QualityGate } from '../../core/contracts/contracts.js';
-import { SchemaSpec } from '../../core/schema/schemaValidator.js';
+import type { QualityGate } from '../../model/contracts/contracts.js';
+import { SchemaSpec } from '../../model/schema/schemaValidator.js';
 import { StateSchema } from '../../core/state/schema.js';
-import type { Graph } from '../../core/graph/graph.js';
+import type { Graph } from '../../model/graph/graph.js';
 
 /** 默认域（与组装域常量同值：general）。 */
 const DEFAULT_DOMAIN = 'general';

@@ -18,8 +18,8 @@
  * schema 数据面新增硬字段（契约序列化形态不变，见 schemas/generated）。
  */
 
-import { NodeContract } from '../contracts/contracts.js';
-import { FIELD_STRING, SchemaField, SchemaSpec } from '../schema/schemaValidator.js';
+import { NodeContract } from '../../model/contracts/contracts.js';
+import { FIELD_STRING, SchemaField, SchemaSpec } from '../../model/schema/schemaValidator.js';
 import { STATE_REPLY } from './constants.js';
 import { config_read_fields, parse_output_field_key } from './field_io.js';
 

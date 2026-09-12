@@ -15,7 +15,7 @@ import {
   CHANNEL_COMMIT_BEST,
   CHANNEL_COMMIT_DECISION_ONLY,
   CHANNEL_COMMIT_FULL,
-} from '../../../src/core/channels/channel_spec.js';
+} from '../../../src/model/channels/channel_spec.js';
 import {
   clean_payload,
   estuary_synthesize,

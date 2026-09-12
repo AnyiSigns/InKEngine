@@ -19,7 +19,7 @@ import { EdgeEvidenceStore } from '../../core/edge_evidence/store.js';
 import { edge_evidence_to_dict, edge_key_to_dict } from '../../core/edge_evidence/store.js';
 import { edge_key_tuple } from '../../core/edge_evidence/storage_seam.js';
 import type { EdgeKey } from '../../core/edge_evidence/_types.js';
-import { EVENT_AUDIT_PROMOTION } from '../../core/event_types/eventTypeSpecs.js';
+import { EVENT_AUDIT_PROMOTION } from '../../model/event_types/eventTypeSpecs.js';
 import { now } from './_time.js';
 import { UPDATE_SUCCESS } from './_constants.js';
 import { derive_traversals, run_verdict } from './attribution.js';

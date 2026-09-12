@@ -12,7 +12,7 @@
  * 成本护栏整体继承：父层显式禁用/收紧的 spawn/推演/回路限制在实例层不旁落；
  * 子链深度 = 父深度 + 1（嵌套校验基准递进，见展开入口）。
  */
-import { Graph } from '../../core/graph/graph.js';
+import { Graph } from '../../model/graph/graph.js';
 import { RunOptions } from '../../core/run_result/run_result.js';
 import type { StateSchema } from '../../core/state/schema.js';
 import { EngineRun } from './_engine_run.js';

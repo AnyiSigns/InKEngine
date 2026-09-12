@@ -29,7 +29,7 @@
  * 文案）；其余语义对各类 agent 通用。
  */
 
-import type { JsonRecord } from '../../core/json.js';
+import type { JsonRecord } from '../../model/json.js';
 import type { StepRecord } from './round_steps_types.js';
 import {
   buildAssemblyCtx,

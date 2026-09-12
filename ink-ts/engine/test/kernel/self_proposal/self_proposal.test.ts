@@ -14,8 +14,8 @@
 
 import { describe, expect, it } from 'vitest';
 
-import { PATCH_KINDS } from '../../../src/core/contracts/generated/index.js';
-import { GraphDefinitionError } from '../../../src/core/errors.js';
+import { PATCH_KINDS } from '../../../src/model/contracts/generated/index.js';
+import { GraphDefinitionError } from '../../../src/model/errors.js';
 import { PatchKind, SelfProposal } from '../../../src/kernel/self_proposal/index.js';
 import { assert_patch_kinds_contract } from '../../../src/kernel/self_proposal/self_proposal.js';
 

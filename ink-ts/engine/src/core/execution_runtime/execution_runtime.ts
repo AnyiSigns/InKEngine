@@ -22,9 +22,9 @@
  * 独立空档案隔离）。本模块无 IO/无全局状态：一次 run = 一个实例 + 传入依赖。
  */
 
-import { default_scope_priors } from '../scopes/scope_priors.js';
+import { default_scope_priors } from '../../model/scopes/scope_priors.js';
 import { validate_run_id } from '../org_archive/execution_trail.js';
-import type { ScopePriorPattern } from '../scopes/scope_priors.js';
+import type { ScopePriorPattern } from '../../model/scopes/scope_priors.js';
 import type { TransitionApprovalSeam } from './channel_gate.js';
 import {
   channel_approval_key,

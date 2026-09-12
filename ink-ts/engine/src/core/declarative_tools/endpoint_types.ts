@@ -21,9 +21,9 @@
  * 引擎本地名常量（代码各处以枚举成员引用），取值经编译期集合相等绑定 +
  * 运行时 assert_endpoint_contract 双向校验，不维护第二套字面量。
  */
-import { BUILTIN_ENDPOINT_NAMES, BUILTIN_ENDPOINTS, type BuiltinEndpointName } from '../contracts/generated/index.js';
-import { GraphDefinitionError } from '../errors.js';
-import type { SchemaField } from '../schema/schemaValidator.js';
+import { BUILTIN_ENDPOINT_NAMES, BUILTIN_ENDPOINTS, type BuiltinEndpointName } from '../../model/contracts/generated/index.js';
+import { GraphDefinitionError } from '../../model/errors.js';
+import type { SchemaField } from '../../model/schema/schemaValidator.js';
 import type { SandboxSeam } from '../../kernel/tool_pipeline/_types.js';
 import type { DeclarativeToolSpec } from './declarative_spec.js';
 

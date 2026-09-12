@@ -14,7 +14,7 @@
  */
 import { _FILE_OPS_ACTIONS } from './endpoint_types.js';
 import type { EndpointExtractor, EndpointFailureReason } from './endpoint_types.js';
-import { isRecord } from '../json.js';
+import { isRecord } from '../../model/json.js';
 import { url_split } from './_url.js';
 
 /**

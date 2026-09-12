@@ -13,7 +13,7 @@ import { describe, expect, it } from 'vitest';
 import { ToolPipeline } from '../../../src/kernel/tool_pipeline/tool_pipeline.js';
 import type { AsyncLLM, LLMChunk } from '../../../src/kernel/llm/_guard_types.js';
 import type { Message } from '../../../src/kernel/llm/messages.js';
-import { ChannelDirectory, default_channel_seeds } from '../../../src/core/channels/channel_directory.js';
+import { ChannelDirectory, default_channel_seeds } from '../../../src/model/channels/channel_directory.js';
 import { EntitySpec } from '../../../src/core/entities/entities.js';
 import { make_engine_turn_runner } from '../../../src/core/execution_runtime/engine_turn_runner.js';
 import { ExecutionRuntime } from '../../../src/core/execution_runtime/execution_runtime.js';

@@ -21,11 +21,11 @@
  * name 位形参说明：ToolPipeline 按运行时形参个数探测 name 感知
  * （guards_operation >1 位、validate >2 位），故两方法声明必填 name 位。
  */
-import { SandboxViolation } from '../errors.js';
+import { SandboxViolation } from '../../model/errors.js';
 import { FS_OPERATIONS } from '../../kernel/sandbox/index.js';
 import { DENY, REVIEW, GateResult } from '../../kernel/permissions/permissions.js';
 import { NetworkPolicySandbox } from '../../kernel/permissions/networkPolicy.js';
-import { pyRepr } from '../py_repr.js';
+import { pyRepr } from '../../model/py_repr.js';
 import type { GateSeam, SandboxSeam } from '../../kernel/tool_pipeline/_types.js';
 import type { DeclarativeToolExecutors } from './executors.js';
 import { endpoint_registry } from './endpoint_registry.js';

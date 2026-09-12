@@ -13,12 +13,12 @@
  *
  * 返回 'break' = 迭代在展开/定位处终止；'continue' = 下一迭代。
  */
-import { TerminateReason } from '../../core/graph/graph_types.js';
+import { TerminateReason } from '../../model/graph/graph_types.js';
 import { InterruptSignal } from '../interrupt/interrupt_types.js';
-import { SimulationError } from '../../core/errors.js';
+import { SimulationError } from '../../model/errors.js';
 import { SimulationResult } from '../simulation/simulation.js';
 import type { MultiPathResult } from '../multipath/results.js';
-import type { JsonRecord } from '../../core/json.js';
+import type { JsonRecord } from '../../model/json.js';
 import { _interrupt_state, _locate_next, _merge_overlay, _warn } from './_internals.js';
 import { EngineLoopFront } from './_engine_loop_front.js';
 import type { MultipathData } from './_engine_multipath.js';

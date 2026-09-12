@@ -18,7 +18,7 @@
  */
 import { describe, expect, it } from 'vitest';
 
-import type { JsonRecord } from '../../../src/core/json.js';
+import type { JsonRecord } from '../../../src/model/json.js';
 import {
   GateL2Result,
   KnowledgeGate,
@@ -28,11 +28,11 @@ import {
   KnowledgeSet,
   seed_knowledge_set,
 } from '../../../src/core/knowledge_set/index.js';
-import { FixtureCase, FixtureSet } from '../../../src/core/rules/index.js';
+import { FixtureCase, FixtureSet } from '../../../src/model/rules/index.js';
 import {
   GENERAL_WEIGHTS_SEED_ID,
   build_general_seed_entries,
-} from '../../../src/core/seeds/seeds.js';
+} from '../../../src/model/seeds/seeds.js';
 import {
   MIN_WEIGHT,
   MetaTuner,

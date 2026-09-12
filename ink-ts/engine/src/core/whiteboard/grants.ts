@@ -10,8 +10,8 @@
  * 落成 grant 条目，供 6A3 集成波与 6C convene 波直接装配（main 召集时一次性声明）。
  */
 
-import { GraphDefinitionError } from '../errors.js';
-import { isRecord, typeName } from '../json.js';
+import { GraphDefinitionError } from '../../model/errors.js';
+import { isRecord, typeName } from '../../model/json.js';
 import { BLOCK_KINDS, is_whiteboard_block_kind, type WhiteboardBlockKind } from './blocks.js';
 
 /** 访问动作（读 / 写）。 */

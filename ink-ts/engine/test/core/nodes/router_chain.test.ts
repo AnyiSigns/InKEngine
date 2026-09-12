@@ -22,10 +22,10 @@ import {
   register_route_edge_condition,
   register_route_edge_conditions,
 } from '../../../src/core/nodes/index.js';
-import { Graph } from '../../../src/core/graph/graph.js';
+import { Graph } from '../../../src/model/graph/graph.js';
 import { Engine } from '../../../src/kernel/executor/index.js';
 import { RunOptions } from '../../../src/core/run_result/run_result.js';
-import { GraphDefinitionError } from '../../../src/core/errors.js';
+import { GraphDefinitionError } from '../../../src/model/errors.js';
 import { MemoryStorage } from '../../kernel/executor/helpers.js';
 import { ToolPipeline } from '../../../src/kernel/tool_pipeline/tool_pipeline.js';
 import type { AsyncLLM, LLMChunk } from '../../../src/kernel/llm/_guard_types.js';

@@ -10,7 +10,7 @@
  */
 
 import type { EdgeEvidence } from '../../core/edge_evidence/_types.js';
-import { TerminateReason } from '../../core/graph/graph_types.js';
+import { TerminateReason } from '../../model/graph/graph_types.js';
 import {
   TRACE_FAILED,
   TRACE_SKIPPED,

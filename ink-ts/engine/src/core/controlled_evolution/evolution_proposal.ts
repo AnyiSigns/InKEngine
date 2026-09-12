@@ -22,9 +22,9 @@ import {
   CHANNEL_SHAPES,
   type ChannelCommit,
   type ChannelShape,
-} from '../channels/channel_spec.js';
-import { GraphDefinitionError } from '../errors.js';
-import { isRecord, typeName } from '../json.js';
+} from '../../model/channels/channel_spec.js';
+import { GraphDefinitionError } from '../../model/errors.js';
+import { isRecord, typeName } from '../../model/json.js';
 
 // ── 提案种类（词表 + 分组；无第二套枚举）──
 

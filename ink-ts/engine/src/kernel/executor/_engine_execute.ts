@@ -23,12 +23,12 @@
  */
 import { Plan } from '../../core/plan/plan.js';
 import { RunOptions, RunResult } from '../../core/run_result/run_result.js';
-import { TerminateReason } from '../../core/graph/graph_types.js';
+import { TerminateReason } from '../../model/graph/graph_types.js';
 import { InterruptState } from '../interrupt/interrupt_types.js';
 import { resolve_resume } from '../recovery/index.js';
 import type { CheckpointRecord } from '../../core/storage/storage_records.js';
-import type { JsonRecord } from '../../core/json.js';
-import type { Graph } from '../../core/graph/graph.js';
+import type { JsonRecord } from '../../model/json.js';
+import type { Graph } from '../../model/graph/graph.js';
 import { _NodeContextImpl } from './_node_context.js';
 import { EngineLoopBack } from './_engine_loop_back.js';
 import type { EngineBase, ExecuteOptions } from './_engine_base.js';

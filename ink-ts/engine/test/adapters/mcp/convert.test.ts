@@ -3,7 +3,7 @@
  */
 import { describe, expect, it } from 'vitest';
 
-import { GraphDefinitionError } from '../../../src/core/errors.js';
+import { GraphDefinitionError } from '../../../src/model/errors.js';
 import { EndpointType } from '../../../src/core/declarative_tools/endpoint_types.js';
 import { ToolSource } from '../../../src/kernel/tool_vetting/tool_vetting.js';
 import {

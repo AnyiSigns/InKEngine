@@ -14,8 +14,8 @@
  * 通道（守卫 + EvolutionWriter 补丁链 + set_audit 审计）。
  */
 
-import { NodeContract } from '../../core/contracts/contracts.js';
-import { GraphDefinitionError } from '../../core/errors.js';
+import { NodeContract } from '../../model/contracts/contracts.js';
+import { GraphDefinitionError } from '../../model/errors.js';
 import type { NodeFactory } from '../../core/registry/registry_types.js';
 import {
   has_engine_executor,

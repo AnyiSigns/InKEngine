@@ -11,7 +11,7 @@
 
 import { describe, expect, it } from 'vitest';
 
-import { GraphVersionMismatchError, StorageError } from '../../../src/core/errors.js';
+import { GraphVersionMismatchError, StorageError } from '../../../src/model/errors.js';
 import { EngineEvent } from '../../../src/core/events/events.js';
 import { StateSchema } from '../../../src/core/state/schema.js';
 import { register_reducer } from '../../../src/core/state/reducers.js';

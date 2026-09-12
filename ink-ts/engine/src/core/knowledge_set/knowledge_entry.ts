@@ -9,14 +9,14 @@
 
 import { ContextSource } from '../context/context_types.js';
 import type { Clock } from '../context/context_types.js';
-import { GraphDefinitionError } from '../errors.js';
+import { GraphDefinitionError } from '../../model/errors.js';
 import {
   isRecord,
   stableStringify,
   typeName as _typeName,
   type Json,
   type JsonRecord,
-} from '../json.js';
+} from '../../model/json.js';
 import {
   KS_ERR_CREDIBILITY_RANGE,
   KS_ERR_INVALID_LEVEL,

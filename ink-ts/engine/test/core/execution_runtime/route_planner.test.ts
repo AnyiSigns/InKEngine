@@ -12,12 +12,12 @@
  */
 import { describe, expect, it } from 'vitest';
 
-import { ChannelDirectory, default_channel_seeds } from '../../../src/core/channels/channel_directory.js';
-import { ChannelSpec } from '../../../src/core/channels/channel_spec.js';
+import { ChannelDirectory, default_channel_seeds } from '../../../src/model/channels/channel_directory.js';
+import { ChannelSpec } from '../../../src/model/channels/channel_spec.js';
 import {
   CHANNEL_SHAPE_DELEGATE,
   CHANNEL_SHAPE_FAN_OUT,
-} from '../../../src/core/channels/channel_spec.js';
+} from '../../../src/model/channels/channel_spec.js';
 import {
   plan_routing,
   route_blocked,

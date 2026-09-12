@@ -17,8 +17,8 @@
  */
 import { describe, expect, it } from 'vitest';
 
-import { GraphDefinitionError } from '../../../src/core/errors.js';
-import { RoleModelStats } from '../../../src/core/model_roles/index.js';
+import { GraphDefinitionError } from '../../../src/model/errors.js';
+import { RoleModelStats } from '../../../src/model/model_roles/index.js';
 import {
   ParameterSnapshot,
   TunableParams,

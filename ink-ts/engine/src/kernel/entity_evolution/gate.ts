@@ -30,7 +30,7 @@ import {
   FIELD_STRING,
   SchemaField,
   SchemaSpec,
-} from '../../core/schema/schemaValidator.js';
+} from '../../model/schema/schemaValidator.js';
 
 /** 实体变异三层闸门判定选项（与 Python kw-only 参数一一对应）。 */
 export interface EntityMutationCheckOptions {

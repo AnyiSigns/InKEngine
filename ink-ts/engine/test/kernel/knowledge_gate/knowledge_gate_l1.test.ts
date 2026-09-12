@@ -13,7 +13,7 @@ import { describe, expect, it } from 'vitest';
 
 import { KnowledgeEntry } from '../../../src/core/knowledge_set/knowledge_entry.js';
 import { KIND_RULE, LEVEL_WORK } from '../../../src/core/knowledge_set/_types.js';
-import { FixtureCase, FixtureSet } from '../../../src/core/rules/index.js';
+import { FixtureCase, FixtureSet } from '../../../src/model/rules/index.js';
 import { KnowledgeGate, scan_text_injection } from '../../../src/kernel/knowledge_gate/index.js';
 import {
   entry_of,

@@ -7,11 +7,11 @@
  * 图/界面等数据源在 TS 侧以显式类型/注册表 seam 表达（不反射 JS 对象），
  * 宿主装配时经 IntrospectionSources 注入。
  */
-import type { Json } from '../../core/json.js';
-import { deepCopy, isRecord } from '../../core/json.js';
+import type { Json } from '../../model/json.js';
+import { deepCopy, isRecord } from '../../model/json.js';
 import { KIND_RULE } from '../../core/knowledge_set/_types.js';
 import type { KnowledgeEntry } from '../../core/knowledge_set/knowledge_entry.js';
-import { SEVERITY_ERROR } from '../../core/rules/_types.js';
+import { SEVERITY_ERROR } from '../../model/rules/_types.js';
 import { _DEFAULT_KNOWLEDGE_LIMIT, _KNOWLEDGE_LIMIT_MAX, IntrospectionSources } from './sources.js';
 
 /**

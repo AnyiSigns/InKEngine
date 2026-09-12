@@ -7,11 +7,11 @@
  * 闸门语义可读可判定（forbid=ok 会把正常用例拦下 = 坏规则）。
  */
 
-import type { JsonRecord } from '../../../src/core/json.js';
+import type { JsonRecord } from '../../../src/model/json.js';
 import { KnowledgeEntry } from '../../../src/core/knowledge_set/knowledge_entry.js';
 import { KIND_INSIGHT, KIND_RULE, LEVEL_WORK } from '../../../src/core/knowledge_set/_types.js';
-import { FixtureCase, FixtureSet, RuleTypeRegistry } from '../../../src/core/rules/index.js';
-import { SchemaSpec } from '../../../src/core/schema/schemaValidator.js';
+import { FixtureCase, FixtureSet, RuleTypeRegistry } from '../../../src/model/rules/index.js';
+import { SchemaSpec } from '../../../src/model/schema/schemaValidator.js';
 
 /** 规则条目 schema（knowledge_entry 形态；data.rule.message 必填）。 */
 export function rule_schema(): SchemaSpec {

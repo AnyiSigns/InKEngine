@@ -18,8 +18,8 @@
  * boot 未注入（''）= 原自定义直取行为不变。
  */
 
-import { NodeContract } from '../contracts/contracts.js';
-import { FIELD_STRING, SchemaField, SchemaSpec } from '../schema/schemaValidator.js';
+import { NodeContract } from '../../model/contracts/contracts.js';
+import { FIELD_STRING, SchemaField, SchemaSpec } from '../../model/schema/schemaValidator.js';
 import { Message, system, user } from '../../kernel/llm/messages.js';
 import type { AsyncLLM } from '../../kernel/llm/_guard_types.js';
 import type { NodeFactory } from '../registry/registry_types.js';

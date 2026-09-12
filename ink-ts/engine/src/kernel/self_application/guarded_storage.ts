@@ -25,7 +25,7 @@ import type {
   RecordListResult,
   Storage,
 } from '../../core/storage/storage.js';
-import { GraphDefinitionError } from '../../core/errors.js';
+import { GraphDefinitionError } from '../../model/errors.js';
 
 import {
   _GUARDED_COLLECTIONS,

@@ -25,11 +25,11 @@
  */
 
 import type { EntitySpec } from '../entities/entities.js';
-import { GraphDefinitionError } from '../errors.js';
-import { Graph } from '../graph/graph.js';
+import { GraphDefinitionError } from '../../model/errors.js';
+import { Graph } from '../../model/graph/graph.js';
 import type { AsyncLLM } from '../../kernel/llm/_guard_types.js';
 import type { NodeFactory } from '../registry/registry_types.js';
-import { NodeContract } from '../contracts/contracts.js';
+import { NodeContract } from '../../model/contracts/contracts.js';
 import { TYPE_LLM_DECIDER } from './constants.js';
 import { type EngineNodeSeams, type _EngineNodeSeamsBox } from './seams.js';
 

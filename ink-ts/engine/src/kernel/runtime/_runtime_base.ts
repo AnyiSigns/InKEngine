@@ -17,7 +17,7 @@ import type {
   HarnessRegistry,
   HarnessRepository,
 } from '../../core/harness/index.js';
-import type { EventTypeRegistry } from '../../core/event_types/registry.js';
+import type { EventTypeRegistry } from '../../model/event_types/registry.js';
 import type { EntityRegistry } from '../../core/entities/entities.js';
 import type { ProposalValidator } from '../self_proposal/index.js';
 import type { ToolVetting } from '../tool_vetting/tool_vetting.js';

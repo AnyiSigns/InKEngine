@@ -8,7 +8,7 @@
  * 查索引，不截断会在超长 node_id 时查不到已追加的记录。
  */
 
-import type { JsonRecord } from '../../core/json.js';
+import type { JsonRecord } from '../../model/json.js';
 import type { NodeProgress, StepRecord } from './round_steps_types.js';
 import { STEP_ID_MAX_CHARS } from './round_steps_types.js';
 

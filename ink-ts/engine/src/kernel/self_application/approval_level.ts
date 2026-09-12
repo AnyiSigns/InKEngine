@@ -22,9 +22,9 @@ import {
   APPROVAL_LEVELS,
   DEFAULT_APPROVAL_LEVELS as CONTRACT_DEFAULT_APPROVAL_LEVELS,
   type ApprovalLevel as ContractApprovalLevel,
-} from '../../core/contracts/generated/index.js';
+} from '../../model/contracts/generated/index.js';
 import type { PatchKind, SelfProposal } from '../self_proposal/index.js';
-import { GraphDefinitionError } from '../../core/errors.js';
+import { GraphDefinitionError } from '../../model/errors.js';
 
 /**
  * 审批分级枚举（镜像 StrEnum 取值面：L0/L1/L2 字符串字面量）。

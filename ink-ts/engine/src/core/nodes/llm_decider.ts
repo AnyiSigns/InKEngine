@@ -24,10 +24,10 @@
  * reviewer/main）经实例 config 生效，缺省 = 现状行为零漂移。
  */
 
-import { NodeContract } from '../contracts/contracts.js';
-import { GraphDefinitionError } from '../errors.js';
-import { TerminateReason } from '../graph/graph_types.js';
-import { FIELD_STRING, SchemaField, SchemaSpec } from '../schema/schemaValidator.js';
+import { NodeContract } from '../../model/contracts/contracts.js';
+import { GraphDefinitionError } from '../../model/errors.js';
+import { TerminateReason } from '../../model/graph/graph_types.js';
+import { FIELD_STRING, SchemaField, SchemaSpec } from '../../model/schema/schemaValidator.js';
 import {
   ToolCall,
   accumulate_tool_calls,

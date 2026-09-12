@@ -9,7 +9,7 @@
  */
 import { describe, expect, it } from 'vitest';
 
-import { GraphDefinitionError } from '../../../src/core/errors.js';
+import { GraphDefinitionError } from '../../../src/model/errors.js';
 import { make_llm_decider_factory } from '../../../src/core/nodes/llm_decider.js';
 import { _EngineNodeSeamsBox } from '../../../src/core/nodes/seams.js';
 import { LLMChunk, LLMConfig } from '../../../src/kernel/llm/base.js';

@@ -18,10 +18,10 @@
  * 快照为基，合并累加族通道入口归零（子图内从 0 起算）；回流经
  * subgraph_overlay_delta 按子图自身 schema 求差（additive 按条目差集）。
  */
-import { Graph } from '../../core/graph/graph.js';
-import { GraphDefinitionError, NodeExecutionError } from '../../core/errors.js';
+import { Graph } from '../../model/graph/graph.js';
+import { GraphDefinitionError, NodeExecutionError } from '../../model/errors.js';
 import { InterruptSignal } from '../interrupt/interrupt_types.js';
-import { TerminateReason } from '../../core/graph/graph_types.js';
+import { TerminateReason } from '../../model/graph/graph_types.js';
 import { is_merge_reducer } from '../../core/state/reducers.js';
 import { subgraph_overlay_delta } from '../../core/state/schema.js';
 import type { StateSchema } from '../../core/state/schema.js';

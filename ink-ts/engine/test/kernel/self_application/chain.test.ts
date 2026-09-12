@@ -10,7 +10,7 @@
 
 import { describe, expect, it } from 'vitest';
 
-import { GraphDefinitionError } from '../../../src/core/errors.js';
+import { GraphDefinitionError } from '../../../src/model/errors.js';
 import { SetPatchChain } from '../../../src/kernel/self_application/index.js';
 import type { Patch } from '../../../src/kernel/patch/patchChain.js';
 

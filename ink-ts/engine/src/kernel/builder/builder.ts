@@ -29,7 +29,7 @@
  * 补丁/自进化产物路径在配方开关开启时调用（默认开关：关——未启用前机制
  * 可用但不经引擎自动触发；BuildFs 须宿主注入）。
  */
-import { GraphDefinitionError } from '../../core/errors.js';
+import { GraphDefinitionError } from '../../model/errors.js';
 import { is_absolute } from '../sandbox/_path.js';
 import { ProcessSandbox } from '../sandbox/index.js';
 import { sha256_hex } from './_sha256.js';

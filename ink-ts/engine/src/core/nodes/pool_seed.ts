@@ -18,7 +18,7 @@
  * feed 关系，装配入口见 runtime 装配（recipe.seed_edges_enabled）。
  */
 
-import { NodeContract } from '../contracts/contracts.js';
+import { NodeContract } from '../../model/contracts/contracts.js';
 import { derive_instance_contract } from './instance_contract.js';
 import type { SeedEdgeRaw } from '../edge_evidence/seed.js';
 import {

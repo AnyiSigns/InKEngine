@@ -9,7 +9,7 @@
  */
 
 import type { EngineEvent } from '../../core/events/events.js';
-import type { JsonRecord } from '../../core/json.js';
+import type { JsonRecord } from '../../model/json.js';
 import type { StateSchema } from '../../core/state/schema.js';
 import type { Storage } from '../../core/storage/storage.js';
 import type { CheckpointRecord } from '../../core/storage/storage_records.js';

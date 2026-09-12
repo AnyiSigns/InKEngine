@@ -7,8 +7,8 @@
  * knowledge:<user> 集合读写、复用检索（复用优先于生成，防知识膨胀）。
  */
 
-import { FixtureGateError, GraphDefinitionError } from '../errors.js';
-import { isRecord } from '../json.js';
+import { FixtureGateError, GraphDefinitionError } from '../../model/errors.js';
+import { isRecord } from '../../model/json.js';
 import { PatchChain } from '../../kernel/patch/patchChain.js';
 import { KnowledgeEntry } from './knowledge_entry.js';
 import { _cjk_bigrams, _has_cjk, knowledge_collection } from './knowledge_utils.js';

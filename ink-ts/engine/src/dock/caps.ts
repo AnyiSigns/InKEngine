@@ -78,8 +78,8 @@ export type {
 
 // ── event_types：事件类型注册表 + 演化事件规格 ──
 
-export * from '../core/event_types/registry.js';
-export * from '../core/event_types/eventTypeSpec.js';
+export * from '../model/event_types/registry.js';
+export * from '../model/event_types/eventTypeSpec.js';
 
 // ── patch_kinds：数据面契约（值枚举 + 词表类型）──
 
@@ -95,7 +95,7 @@ export {
   GUARDED_PREFIXES,
   PATCH_KINDS,
   PATCH_OPS,
-} from '../core/contracts/generated/index.js';
+} from '../model/contracts/generated/index.js';
 export type {
   AuditStatus,
   BuiltinEndpointName,
@@ -103,4 +103,4 @@ export type {
   EndpointOutputField,
   KnownDefaultPatchKind,
   PatchKind,
-} from '../core/contracts/generated/index.js';
+} from '../model/contracts/generated/index.js';

@@ -14,7 +14,7 @@
  */
 
 import { GraphRegistries } from '../registry/registry.js';
-import { Graph } from '../graph/graph.js';
+import { Graph } from '../../model/graph/graph.js';
 import { RunOptions } from '../run_result/run_result.js';
 import { Engine } from '../../kernel/executor/index.js';
 import { EntitySpec } from '../entities/entities.js';

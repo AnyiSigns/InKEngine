@@ -9,7 +9,7 @@
 import { afterEach, describe, expect, it } from 'vitest';
 import * as path from 'node:path';
 
-import { StorageError } from '../../../src/core/errors.js';
+import { StorageError } from '../../../src/model/errors.js';
 import { EngineEvent, PROTOCOL_VERSION } from '../../../src/core/events/events.js';
 import type { Storage } from '../../../src/core/storage/storage.js';
 import { CheckpointRecord } from '../../../src/core/storage/storage_records.js';

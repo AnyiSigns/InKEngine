@@ -13,8 +13,8 @@
  */
 
 import type { Clock } from '../context/context_types.js';
-import { GraphDefinitionError } from '../errors.js';
-import { isRecord, type JsonRecord, typeName } from '../json.js';
+import { GraphDefinitionError } from '../../model/errors.js';
+import { isRecord, type JsonRecord, typeName } from '../../model/json.js';
 import {
   REPEAT_THRESHOLD,
   SIGNAL_GAP,

@@ -27,15 +27,15 @@
  * 管线（补丁链 + 实时写 + 审计留痕三重闸门）。
  */
 
-import { GraphDefinitionError } from '../errors.js';
+import { GraphDefinitionError } from '../../model/errors.js';
 import type { EvolutionRecord, EvolutionWriter } from '../../kernel/evolution_writer/_types.js';
 import { entity_writer } from '../../kernel/evolution_writer/evolution_writer.js';
-import { isRecord } from '../json.js';
+import { isRecord } from '../../model/json.js';
 import {
   parse_scope_decl,
   scope_decl_to_dict,
   type ScopeDecl,
-} from '../scopes/scope_spec.js';
+} from '../../model/scopes/scope_spec.js';
 
 export const DEFAULT_MAX_ENTITIES = 200;
 export const ENTITY_ID_MAX_LENGTH = 48;

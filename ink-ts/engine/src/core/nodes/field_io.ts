@@ -17,7 +17,7 @@
  * 本模块只做 config 归一/护栏/文本投影（纯函数），不含执行逻辑。
  */
 
-import { GraphDefinitionError } from '../errors.js';
+import { GraphDefinitionError } from '../../model/errors.js';
 import {
   STATE_DISPLAY_MESSAGES,
   STATE_DISPLAY_SEQ,

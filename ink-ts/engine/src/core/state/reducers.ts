@@ -8,8 +8,8 @@
  * 常量字符串与 Python core/state.py 同源（镜像），注册表开放扩展。
  */
 
-import { GraphDefinitionError } from '../errors.js';
-import { deepCopy, deepEqual, isRecord, stableStringify, type Json, typeName } from '../json.js';
+import { GraphDefinitionError } from '../../model/errors.js';
+import { deepCopy, deepEqual, isRecord, stableStringify, type Json, typeName } from '../../model/json.js';
 import { PatchChain } from '../../kernel/patch/patchChain.js';
 import type { Patch } from '../../kernel/patch/types.js';
 

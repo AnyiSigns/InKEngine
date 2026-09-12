@@ -11,8 +11,8 @@
 import { describe, expect, it } from 'vitest';
 
 import { EngineEvent } from '../../../src/core/events/events.js';
-import { StorageError } from '../../../src/core/errors.js';
-import type { JsonRecord } from '../../../src/core/json.js';
+import { StorageError } from '../../../src/model/errors.js';
+import type { JsonRecord } from '../../../src/model/json.js';
 import { MemoryStorage } from '../../../src/adapters/storage/memory.js';
 
 function ev(type: string, payload: JsonRecord = {}): EngineEvent {

@@ -19,7 +19,7 @@ import type { ChainLink } from '../../core/storage/storage_records.js';
 import type { Storage } from '../../core/storage/storage.js';
 import { EngineEvent, type EngineTransport } from '../../core/events/events.js';
 import type { InterruptState } from '../interrupt/interrupt_types.js';
-import type { JsonRecord } from '../../core/json.js';
+import type { JsonRecord } from '../../model/json.js';
 import { maybe_compact_chain } from '../../core/chain_rebase/chain_rebase.js';
 import type { RunResult } from '../../core/run_result/run_result.js';
 import { EngineBase } from './_engine_base.js';

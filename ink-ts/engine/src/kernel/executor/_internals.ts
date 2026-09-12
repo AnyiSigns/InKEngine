@@ -13,8 +13,8 @@
  * 无法补齐（事件静默卡在各自缓冲）。共享同一协调器后，seq 连续即冲刷。
  */
 import { EngineEvent, type EngineTransport } from '../../core/events/events.js';
-import { TerminateReason } from '../../core/graph/graph_types.js';
-import type { Graph } from '../../core/graph/graph.js';
+import { TerminateReason } from '../../model/graph/graph_types.js';
+import type { Graph } from '../../model/graph/graph.js';
 import { InterruptSignal, InterruptState } from '../interrupt/interrupt_types.js';
 import { strip_sensitive } from '../../core/security/security.js';
 import type { Plan } from '../../core/plan/plan.js';

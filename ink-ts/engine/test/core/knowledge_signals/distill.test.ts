@@ -10,7 +10,7 @@
 import { describe, expect, it } from 'vitest';
 
 import { KIND_INSIGHT } from '../../../src/core/knowledge_set/_types.js';
-import { GraphDefinitionError } from '../../../src/core/errors.js';
+import { GraphDefinitionError } from '../../../src/model/errors.js';
 import {
   SIGNAL_INSIGHT,
   SIGNAL_PITFALL,

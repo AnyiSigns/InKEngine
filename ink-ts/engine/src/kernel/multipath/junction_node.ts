@@ -11,10 +11,10 @@
  * sink/回调发出（append-only；本模块只产出不落库）。
  */
 
-import { GraphDefinitionError } from '../../core/errors.js';
-import { isRecord } from '../../core/json.js';
+import { GraphDefinitionError } from '../../model/errors.js';
+import { isRecord } from '../../model/json.js';
 import { EdgeEvidenceStore } from '../../core/edge_evidence/index.js';
-import type { QualityGate } from '../../core/contracts/contracts.js';
+import type { QualityGate } from '../../model/contracts/contracts.js';
 import { NodeTypeRegistry } from '../../core/registry/registry.js';
 import type { NodeFn } from '../../core/registry/registry_types.js';
 import {

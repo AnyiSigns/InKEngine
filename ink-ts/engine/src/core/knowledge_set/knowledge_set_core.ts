@@ -11,8 +11,8 @@
  * 同步回调调度落库，未注入 = 维持显式 save 语义（钩子不改变默认行为）。
  */
 
-import { GraphDefinitionError } from '../errors.js';
-import { isRecord, type Json, type JsonRecord } from '../json.js';
+import { GraphDefinitionError } from '../../model/errors.js';
+import { isRecord, type Json, type JsonRecord } from '../../model/json.js';
 import { PatchChain } from '../../kernel/patch/patchChain.js';
 import type { Path } from '../../kernel/patch/types.js';
 import { KnowledgeEntry } from './knowledge_entry.js';

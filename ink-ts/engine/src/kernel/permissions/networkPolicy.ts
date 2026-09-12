@@ -30,7 +30,7 @@ export class NetworkPolicy {
  * 违规抛 SandboxViolation（与 Python 同源，供 ToolPipeline 沙箱环节 catch
  * 收口为拒绝结果——Fail-closed 不静默）。
  */
-import { SandboxViolation } from '../../core/errors.js';
+import { SandboxViolation } from '../../model/errors.js';
 
 export class NetworkPolicySandbox extends NetworkPolicy {
   readonly unlisted_policy: string;

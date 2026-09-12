@@ -12,7 +12,7 @@
 import { describe, expect, it } from 'vitest';
 
 import { BuildArtifact, BuildKind, BuildSpec } from '../../../src/kernel/builder/index.js';
-import { GraphDefinitionError } from '../../../src/core/errors.js';
+import { GraphDefinitionError } from '../../../src/model/errors.js';
 
 describe('BuildSpec 序列化', () => {
   it('roundtrip：to_dict → from_dict 等值还原', () => {

@@ -24,8 +24,8 @@ import type {
   EvolutionRecord,
   EvolutionStorage,
 } from '../../kernel/evolution_writer/_types.js';
-import { isRecord } from '../json.js';
-import type { Json } from '../json.js';
+import { isRecord } from '../../model/json.js';
+import type { Json } from '../../model/json.js';
 import { PatchChain } from '../../kernel/patch/patchChain.js';
 import type { Patch } from '../../kernel/patch/types.js';
 import {

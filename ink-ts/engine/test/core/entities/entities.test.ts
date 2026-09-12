@@ -20,7 +20,7 @@
 
 import { describe, expect, it } from 'vitest';
 
-import { GraphDefinitionError } from '../../../src/core/errors.js';
+import { GraphDefinitionError } from '../../../src/model/errors.js';
 import type { EvolutionRecord, EvolutionWriter } from '../../../src/kernel/evolution_writer/_types.js';
 import {
   type EntityRecordsStore,
@@ -32,7 +32,7 @@ import {
   CAPABILITY_CLASS_FUNCTION,
   SCOPE_GUARD_DEFAULT,
   type ScopeDecl,
-} from '../../../src/core/scopes/scope_spec.js';
+} from '../../../src/model/scopes/scope_spec.js';
 
 function spec(
   entity_id = 'security_reviewer',

@@ -14,7 +14,7 @@
  */
 import { describe, expect, it } from 'vitest';
 
-import type { JsonRecord } from '../../../src/core/json.js';
+import type { JsonRecord } from '../../../src/model/json.js';
 import {
   PROTOCOL_VERSION,
   CollectorTransport,

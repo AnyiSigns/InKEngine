@@ -9,7 +9,7 @@
 import { EngineEvent } from '../../../src/core/events/events.js';
 import { ChainLink, CheckpointRecord } from '../../../src/core/storage/storage_records.js';
 import type { Storage } from '../../../src/core/storage/storage.js';
-import type { JsonRecord } from '../../../src/core/json.js';
+import type { JsonRecord } from '../../../src/model/json.js';
 
 /** 内存 seam 双端（镜像 Python memory_storage 的恢复面子集）。 */
 export class FakeStorage {

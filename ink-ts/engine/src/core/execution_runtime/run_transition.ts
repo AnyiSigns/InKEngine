@@ -31,7 +31,7 @@ import {
   CHANNEL_SHAPE_FAN_IN,
   type ChannelCommit,
   type ChannelShape,
-} from '../channels/channel_spec.js';
+} from '../../model/channels/channel_spec.js';
 import type { ChildRunOutcome, RunEvent, RunRecord, RunState } from './runtime_types.js';
 
 type Emit = (event: RunEvent) => void;

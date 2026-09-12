@@ -27,7 +27,7 @@ import {
   register_engine_node_types,
 } from '../../../src/core/nodes/index.js';
 import { ENGINE_NODE_TYPE_META, NODE_KIND_AGENT } from '../../../src/core/nodes/constants.js';
-import { Graph } from '../../../src/core/graph/graph.js';
+import { Graph } from '../../../src/model/graph/graph.js';
 import { Engine } from '../../../src/kernel/executor/index.js';
 import { RunOptions } from '../../../src/core/run_result/run_result.js';
 import { EntitySpec } from '../../../src/core/entities/entities.js';

@@ -20,7 +20,7 @@ import { describe, expect, it } from 'vitest';
 
 import { ToolSpec } from '../../../src/kernel/llm/tools.js';
 import { ALLOW, DENY, REVIEW, PermissionGate } from '../../../src/kernel/permissions/permissions.js';
-import { SandboxViolation } from '../../../src/core/errors.js';
+import { SandboxViolation } from '../../../src/model/errors.js';
 import { InterruptSignal } from '../../../src/kernel/interrupt/interrupt_types.js';
 import { DefaultInterruptPolicy } from '../../../src/kernel/approval/approval.js';
 import { ToolPipeline } from '../../../src/kernel/tool_pipeline/tool_pipeline.js';

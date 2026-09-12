@@ -24,7 +24,7 @@
  */
 import { describe, expect, it } from 'vitest';
 
-import { InterruptError } from '../../../src/core/errors.js';
+import { InterruptError } from '../../../src/model/errors.js';
 import {
   FINGERPRINT_SEP,
   GATE_KEY_PREFIX,

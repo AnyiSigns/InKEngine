@@ -29,8 +29,8 @@
  * 纯确定性，无时间/随机依赖，无需 seam 注入。
  */
 
-import { isRecord } from '../json.js';
-import type { Json } from '../json.js';
+import { isRecord } from '../../model/json.js';
+import type { Json } from '../../model/json.js';
 import { PatchChain } from '../../kernel/patch/patchChain.js';
 import type { Patch } from '../../kernel/patch/types.js';
 

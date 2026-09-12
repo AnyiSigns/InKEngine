@@ -21,7 +21,7 @@
  */
 
 import type { EngineEvent, EngineTransport } from '../../core/events/events.js';
-import type { JsonRecord } from '../../core/json.js';
+import type { JsonRecord } from '../../model/json.js';
 import type { StepRecord } from '../round_steps/index.js';
 
 /** 每线程保留的回合步骤上限（防无限膨胀；默认 50）。 */

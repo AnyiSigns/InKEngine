@@ -2,7 +2,7 @@
  * harness 测试共享 fixture（Python conftest._registry/_harness 移植）。
  * 仅被 .test.ts 引用，不单独收集执行。
  */
-import { Graph } from '../../../src/core/graph/graph.js';
+import { Graph } from '../../../src/model/graph/graph.js';
 import { HarnessDefinition } from '../../../src/core/harness/index.js';
 import {
   GraphRegistries,

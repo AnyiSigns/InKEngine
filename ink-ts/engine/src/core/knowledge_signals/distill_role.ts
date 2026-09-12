@@ -16,11 +16,11 @@
  *   确定性基线，防「蒸馏垃圾进垃圾出」的保守语义不被开关/链配置削弱。
  */
 
-import { isRecord, type JsonRecord } from '../json.js';
+import { isRecord, type JsonRecord } from '../../model/json.js';
 import {
   ROLE_ROUTER,
   build_role_model_chain,
-} from '../model_roles/index.js';
+} from '../../model/model_roles/index.js';
 import {
   DEFAULT_COMPLEXITY_THRESHOLD,
   DEFAULT_INTERVENTION_THRESHOLD,

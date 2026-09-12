@@ -25,9 +25,9 @@
  * （界面/事件/自举 harness）亦由宿主配方直注装配。
  */
 
-import { EventTypeSpec } from '../../core/event_types/eventTypeSpec.js';
+import { EventTypeSpec } from '../../model/event_types/eventTypeSpec.js';
 import { HarnessDefinition } from '../../core/harness/index.js';
-import type { JsonRecord } from '../../core/json.js';
+import type { JsonRecord } from '../../model/json.js';
 import { KnowledgeEntry, SOURCE_MODEL } from '../../core/knowledge_set/index.js';
 
 // 自举系统提示词（AI 自描述：观察 + 演化 + 编排策略）。

@@ -6,8 +6,8 @@
  * knowledge_entry_to_skill（条目 → 技能值对象，组装/导出/市场同构消费）。
  */
 
-import { StorageError } from '../../core/errors.js';
-import { isRecord, type JsonRecord } from '../../core/json.js';
+import { StorageError } from '../../model/errors.js';
+import { isRecord, type JsonRecord } from '../../model/json.js';
 import {
   KIND_PATH,
   LEVEL_PROJECT,

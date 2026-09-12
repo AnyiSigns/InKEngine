@@ -8,13 +8,13 @@
  */
 import { describe, expect, it } from 'vitest';
 
-import { NodeContract } from '../../../src/core/contracts/contracts.js';
-import { GraphDefinitionError } from '../../../src/core/errors.js';
+import { NodeContract } from '../../../src/model/contracts/contracts.js';
+import { GraphDefinitionError } from '../../../src/model/errors.js';
 import {
   required_field_names,
   produced_field_names,
 } from '../../../src/core/link_validator/link_validator.js';
-import { FIELD_STRING, SchemaField, SchemaSpec } from '../../../src/core/schema/schemaValidator.js';
+import { FIELD_STRING, SchemaField, SchemaSpec } from '../../../src/model/schema/schemaValidator.js';
 import { derive_instance_contract } from '../../../src/core/nodes/instance_contract.js';
 import { llm_decider_contract } from '../../../src/core/nodes/llm_decider.js';
 import { router_judge_contract } from '../../../src/core/nodes/router.js';

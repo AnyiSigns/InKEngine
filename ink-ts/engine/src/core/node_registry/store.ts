@@ -8,9 +8,9 @@
  * Runtime 装配面执行）。
  */
 
-import { NodeContract } from '../contracts/contracts.js';
-import { GraphDefinitionError } from '../errors.js';
-import { isRecord } from '../json.js';
+import { NodeContract } from '../../model/contracts/contracts.js';
+import { GraphDefinitionError } from '../../model/errors.js';
+import { isRecord } from '../../model/json.js';
 import {
   NodeRegistration,
   type NodeRegistrationInit,

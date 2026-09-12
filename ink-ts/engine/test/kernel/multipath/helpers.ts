@@ -7,9 +7,9 @@
  * 闸门/合成源 stub、图候选构建。
  */
 
-import { Graph } from '../../../src/core/graph/graph.js';
-import { NodeContract } from '../../../src/core/contracts/contracts.js';
-import { SchemaField, SchemaSpec, FIELD_STRING } from '../../../src/core/schema/schemaValidator.js';
+import { Graph } from '../../../src/model/graph/graph.js';
+import { NodeContract } from '../../../src/model/contracts/contracts.js';
+import { SchemaField, SchemaSpec, FIELD_STRING } from '../../../src/model/schema/schemaValidator.js';
 import type { EdgeEvidence, EdgeKey } from '../../../src/core/edge_evidence/index.js';
 import { ORIGIN_RUNTIME } from '../../../src/core/edge_evidence/index.js';
 import { AssemblyCandidate } from '../../../src/kernel/multipath/types.js';

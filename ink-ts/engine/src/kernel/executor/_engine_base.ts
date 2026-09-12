@@ -19,13 +19,13 @@
  * 确定性 seam：checkpoint/事件的时间戳与默认 thread/trace id 经
  * ``_internals`` 的时钟/id 注入面提供（core 零 IO 确定性），构造零副作用。
  */
-import { Graph, type CompiledGraph } from '../../core/graph/graph.js';
+import { Graph, type CompiledGraph } from '../../model/graph/graph.js';
 import { RunOptions } from '../../core/run_result/run_result.js';
 import { InterruptCoordinator } from '../interrupt/interrupt.js';
-import { GraphDefinitionError } from '../../core/errors.js';
+import { GraphDefinitionError } from '../../model/errors.js';
 import { EngineEvent, type EngineTransport } from '../../core/events/events.js';
 import { TraceStep, TRACE_SUCCESS, TRACE_FAILED, TRACE_SKIPPED } from '../settle/index.js';
-import type { Graph as GraphType } from '../../core/graph/graph.js';
+import type { Graph as GraphType } from '../../model/graph/graph.js';
 
 import type { _AsyncQueue, NodeContext } from './_internals.js';
 import { _TransportSequencer, _Mutex } from './_internals.js';

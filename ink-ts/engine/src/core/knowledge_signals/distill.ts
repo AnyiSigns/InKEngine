@@ -10,9 +10,9 @@
  * （RoleDistiller）落 distill_role.ts。
  */
 
-import { GraphDefinitionError } from '../errors.js';
-import { isRecord, type JsonRecord, typeName } from '../json.js';
-import { ROLE_ROUTER } from '../model_roles/index.js';
+import { GraphDefinitionError } from '../../model/errors.js';
+import { isRecord, type JsonRecord, typeName } from '../../model/json.js';
+import { ROLE_ROUTER } from '../../model/model_roles/index.js';
 import { KIND_INSIGHT } from '../knowledge_set/_types.js';
 import {
   DEFAULT_COMPLEXITY_THRESHOLD,

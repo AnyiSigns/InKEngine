@@ -13,7 +13,7 @@ import type { EngineTransport } from '../../core/events/events.js';
 import type { HarnessDefinition } from '../../core/harness/index.js';
 import type { EntitySpec } from '../../core/entities/entities.js';
 import type { EnvironmentSpec } from '../../core/environments/spec.js';
-import type { EventTypeSpec } from '../../core/event_types/eventTypeSpec.js';
+import type { EventTypeSpec } from '../../model/event_types/eventTypeSpec.js';
 import type { KnowledgeEntry } from '../../core/knowledge_set/index.js';
 import type { EnginePoolSeed } from '../../core/nodes/index.js';
 import type { AsyncLLM } from '../llm/_guard_types.js';
@@ -23,7 +23,7 @@ import type { NodeFactory } from '../../core/registry/registry_types.js';
 import type { Storage } from '../../core/storage/storage.js';
 import type { SelfApplicationPipeline } from '../self_application/index.js';
 import type { ConvergenceHook, SelfToolContext } from '../self_tools/index.js';
-import { DEFAULT_BIND_CHANNELS } from '../../core/ui_schema/uiSchemaSupport.js';
+import { DEFAULT_BIND_CHANNELS } from '../../model/ui_schema/uiSchemaSupport.js';
 
 /** 回合装配源提供者形态（检索结果 + 知识注入 → 装配源清单）。 */
 export type AssemblySourceProvider = (

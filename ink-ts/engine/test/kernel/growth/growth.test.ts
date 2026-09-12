@@ -30,7 +30,7 @@ import {
 } from '../../../src/kernel/growth/index.js';
 import { KIND_INSIGHT, KnowledgeSet } from '../../../src/core/knowledge_set/index.js';
 import type { SettleContext } from '../../../src/kernel/settle/types.js';
-import type { JsonRecord } from '../../../src/core/json.js';
+import type { JsonRecord } from '../../../src/model/json.js';
 
 /** 事件构造（镜像 Python _event：EngineEvent(type=etype, payload=payload)）。 */
 function makeEvent(type: string, payload: JsonRecord = {}): EngineEvent {

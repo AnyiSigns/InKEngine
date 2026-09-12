@@ -14,7 +14,7 @@
  * seam（LocalProvider 的 which/mkdirs/ProcessSandbox.spawner），缺省注册表
  * 提供 local/web_bridge/container 三形态但未接线。
  */
-import { GraphDefinitionError } from '../errors.js';
+import { GraphDefinitionError } from '../../model/errors.js';
 
 import {
   DEFAULT_ENVS_DIR,

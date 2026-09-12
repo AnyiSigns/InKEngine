@@ -11,7 +11,7 @@
  * 超时 kill 后收尸、stdout/stderr 截断。未注入 seam 的 run 抛错提示。
  */
 
-import { SandboxViolation } from '../../core/errors.js';
+import { SandboxViolation } from '../../model/errors.js';
 import { DEFAULT_MAX_RESULT_CHARS } from '../tool_pipeline/tool_pipeline.js';
 
 /** 子进程执行结果（退出码 + 截断输出 + 超时标记）。 */

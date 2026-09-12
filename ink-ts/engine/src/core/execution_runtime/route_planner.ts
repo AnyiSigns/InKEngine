@@ -17,7 +17,7 @@
  * - converge / sink：收口计划（无通道/目标）。
  */
 
-import { ChannelDirectory } from '../channels/channel_directory.js';
+import { ChannelDirectory } from '../../model/channels/channel_directory.js';
 import {
   CHANNEL_COMMIT_DEFAULT,
   CHANNEL_SHAPES,
@@ -27,7 +27,7 @@ import {
   CHANNEL_SHAPE_RETURN,
   type ChannelCommit,
   type ChannelShape,
-} from '../channels/channel_spec.js';
+} from '../../model/channels/channel_spec.js';
 import { parse_temp_scope_def, type TempScopeDef } from './temp_scope.js';
 import type { RoutingDecision } from './routing_next.js';
 

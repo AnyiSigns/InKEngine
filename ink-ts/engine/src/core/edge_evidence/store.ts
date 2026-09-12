@@ -8,7 +8,7 @@
  * seam 进出。
  */
 
-import { StorageError } from '../errors.js';
+import { StorageError } from '../../model/errors.js';
 import {
   DEFAULT_CONTRACT_VERSION,
   ORIGIN_POLICY,

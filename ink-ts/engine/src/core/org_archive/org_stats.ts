@@ -25,8 +25,8 @@
  * 非法 = 显式抛错（fail-closed）。
  */
 
-import { GraphDefinitionError } from '../errors.js';
-import { isRecord } from '../json.js';
+import { GraphDefinitionError } from '../../model/errors.js';
+import { isRecord } from '../../model/json.js';
 import type { TrailCost, TrailOutcome } from './execution_trail.js';
 
 /** 单键聚合统计（三类统计键共用；扩展字段按键语义使用）。 */

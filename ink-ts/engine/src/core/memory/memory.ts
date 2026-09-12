@@ -18,7 +18,7 @@
  * 32 位 hex）保证纯函数可复现；get_logger 属可观测性副作用，core 不落。
  */
 
-import { isRecord } from '../json.js';
+import { isRecord } from '../../model/json.js';
 import { _SOURCE_CREDIBILITY } from '../source_grading/sourceGrading.js';
 
 /** 时间源 seam（等价 Python time.time）；未注入时按确定值 0。 */

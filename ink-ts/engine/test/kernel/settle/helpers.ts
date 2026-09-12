@@ -14,8 +14,8 @@
  * 尚未迁移，故延后。
  */
 
-import { Graph } from '../../../src/core/graph/graph.js';
-import { TerminateReason } from '../../../src/core/graph/graph_types.js';
+import { Graph } from '../../../src/model/graph/graph.js';
+import { TerminateReason } from '../../../src/model/graph/graph_types.js';
 import type { EdgeKey } from '../../../src/core/edge_evidence/_types.js';
 import { RunResult } from '../../../src/core/run_result/run_result.js';
 import {

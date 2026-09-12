@@ -6,8 +6,8 @@
  * 拆分；调用方传 CardCtx 形态的最小状态（与 cards.ts 同构）。
  */
 
-import type { JsonRecord } from '../../core/json.js';
-import { isRecord } from '../../core/json.js';
+import type { JsonRecord } from '../../model/json.js';
+import { isRecord } from '../../model/json.js';
 import { REPLY_COUNT_KEY, REPLY_JOIN_SEPARATOR, type StepRecord } from './round_steps_types.js';
 
 /** 回复流累积所需的最小状态（与 cards.ts CardCtx 同构，reply_open 由 ctx 闭包）。 */

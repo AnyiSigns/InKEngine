@@ -9,7 +9,7 @@
  */
 
 import { GraphRegistries } from '../registry/registry.js';
-import { GraphDefinitionError } from '../errors.js';
+import { GraphDefinitionError } from '../../model/errors.js';
 import type { NodeFactory } from '../registry/registry_types.js';
 import {
   COND_LLM_FINISHED,
@@ -117,7 +117,7 @@ export function has_engine_node_type(type_name: string): boolean {
 export function register_engine_node_type(
   registries: GraphRegistries,
   type_name: string,
-  contract: import('../contracts/contracts.js').NodeContract | null,
+  contract: import('../../model/contracts/contracts.js').NodeContract | null,
   seams: EngineNodeSeams | null = null,
   executor: string = type_name,
 ): boolean {
@@ -185,7 +185,7 @@ export function register_agent_node_type(
   registries: GraphRegistries,
   init: {
     type_name?: string | null;
-    contract?: import('../contracts/contracts.js').NodeContract | null;
+    contract?: import('../../model/contracts/contracts.js').NodeContract | null;
   } = {},
 ): boolean {
   const type_name = init.type_name ?? TYPE_AGENT;

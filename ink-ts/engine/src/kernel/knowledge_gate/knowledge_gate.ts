@@ -5,19 +5,19 @@
  * 审核层（默认弹卡可关）。执行语义经执行器/审核者 seam 注入。
  */
 
-import { FixtureGateError, GraphDefinitionError } from '../../core/errors.js';
-import type { JsonRecord } from '../../core/json.js';
-import { isRecord } from '../../core/json.js';
+import { FixtureGateError, GraphDefinitionError } from '../../model/errors.js';
+import type { JsonRecord } from '../../model/json.js';
+import { isRecord } from '../../model/json.js';
 import type { KnowledgeEntry } from '../../core/knowledge_set/knowledge_entry.js';
 import {
   assert_fixtures_pass,
   FixtureSet,
   RuleEngine,
   RuleSet,
-} from '../../core/rules/index.js';
-import type { RuleTypeRegistry } from '../../core/rules/index.js';
-import type { SchemaSpec } from '../../core/schema/schemaValidator.js';
-import { SchemaValidator } from '../../core/schema/schemaValidator.js';
+} from '../../model/rules/index.js';
+import type { RuleTypeRegistry } from '../../model/rules/index.js';
+import type { SchemaSpec } from '../../model/schema/schemaValidator.js';
+import { SchemaValidator } from '../../model/schema/schemaValidator.js';
 import {
   _INJECTION_PATTERNS,
   _normalize_injection_text,

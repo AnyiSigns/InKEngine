@@ -9,10 +9,10 @@
 
 import { describe, expect, it } from 'vitest';
 
-import { GraphDefinitionError } from '../../../src/core/errors.js';
-import { Graph } from '../../../src/core/graph/graph.js';
+import { GraphDefinitionError } from '../../../src/model/errors.js';
+import { Graph } from '../../../src/model/graph/graph.js';
 import { StateSchema } from '../../../src/core/state/schema.js';
-import type { JsonRecord } from '../../../src/core/json.js';
+import type { JsonRecord } from '../../../src/model/json.js';
 import {
   SPAWN_KEY,
   SpawnFailure,

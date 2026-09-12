@@ -20,7 +20,7 @@ import * as os from 'node:os';
 import * as path from 'node:path';
 import { backup, DatabaseSync } from 'node:sqlite';
 
-import { StorageError } from '../../core/errors.js';
+import { StorageError } from '../../model/errors.js';
 import { SCHEMA_SQL } from './sqlite_schema.js';
 
 /** node:sqlite 未声明 serialize/deserialize 的局部标注（Node 24 具备）。 */

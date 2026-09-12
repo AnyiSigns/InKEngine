@@ -14,13 +14,13 @@
  */
 import { describe, expect, it } from 'vitest';
 
-import { GraphDefinitionError } from '../../../src/core/errors.js';
+import { GraphDefinitionError } from '../../../src/model/errors.js';
 import {
   KnowledgeGate,
   ReviewCardPolicy,
 } from '../../../src/kernel/knowledge_gate/index.js';
 import type { HumanReviewer } from '../../../src/kernel/knowledge_gate/index.js';
-import { FixtureCase, FixtureSet } from '../../../src/core/rules/index.js';
+import { FixtureCase, FixtureSet } from '../../../src/model/rules/index.js';
 import {
   entry_schema,
   fixtures,

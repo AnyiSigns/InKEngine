@@ -10,7 +10,7 @@
  * 方式归使用方；返回 null = 本次放弃合成，调用方降级信任档裁决）。
  */
 
-import type { QualityGate } from '../../core/contracts/contracts.js';
+import type { QualityGate } from '../../model/contracts/contracts.js';
 import {
   MODE_NONE,
   MODE_QUALITY_GATE,

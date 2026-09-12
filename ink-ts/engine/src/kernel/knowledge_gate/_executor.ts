@@ -18,9 +18,9 @@
  * 注入真实时钟后才有意义）。
  */
 
-import { FixtureGateError, GraphDefinitionError } from '../../core/errors.js';
-import type { Json, JsonRecord } from '../../core/json.js';
-import { isRecord } from '../../core/json.js';
+import { FixtureGateError, GraphDefinitionError } from '../../model/errors.js';
+import type { Json, JsonRecord } from '../../model/json.js';
+import { isRecord } from '../../model/json.js';
 import {
   KIND_INSIGHT,
   KIND_PATH,
@@ -29,9 +29,9 @@ import {
   KIND_WEIGHT,
 } from '../../core/knowledge_set/_types.js';
 import type { KnowledgeEntry } from '../../core/knowledge_set/knowledge_entry.js';
-import { assert_fixtures_pass, RuleEngine, RuleSet } from '../../core/rules/index.js';
-import type { FixtureSet, RuleTypeRegistry } from '../../core/rules/index.js';
-import { SchemaValidator } from '../../core/schema/schemaValidator.js';
+import { assert_fixtures_pass, RuleEngine, RuleSet } from '../../model/rules/index.js';
+import type { FixtureSet, RuleTypeRegistry } from '../../model/rules/index.js';
+import { SchemaValidator } from '../../model/schema/schemaValidator.js';
 import { GateL2Result } from './_results.js';
 
 /** 缺省耗时基准：确定性基线（恒 0——core 不依赖真实时钟）。 */

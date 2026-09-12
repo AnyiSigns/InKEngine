@@ -8,7 +8,7 @@
  * from_dict 经 JSON 通道传递（Junction 节点数据形态落状态通道）。
  */
 
-import { isRecord } from '../../core/json.js';
+import { isRecord } from '../../model/json.js';
 import { DEFAULT_CONTRACT_VERSION, TIER_OBSERVING } from '../../core/edge_evidence/index.js';
 import {
   ChainEvidence,

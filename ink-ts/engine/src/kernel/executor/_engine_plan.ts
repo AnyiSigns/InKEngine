@@ -14,15 +14,15 @@
  * 信号返回（不落 checkpoint——终态快照由主循环统一写入）。
  */
 import { InterruptSignal } from '../interrupt/interrupt_types.js';
-import { TerminateReason } from '../../core/graph/graph_types.js';
+import { TerminateReason } from '../../model/graph/graph_types.js';
 import { KIND_NODES, KIND_PARALLEL, KIND_SPAWNS, PLAN_KEY, Plan } from '../../core/plan/plan.js';
 import type { PlanStep } from '../../core/plan/plan.js';
-import { GraphDefinitionError } from '../../core/errors.js';
+import { GraphDefinitionError } from '../../model/errors.js';
 import { SPAWN_KEY, collect_spawn_specs, type SpawnSpec } from '../spawn/spawn.js';
-import type { Graph } from '../../core/graph/graph.js';
+import type { Graph } from '../../model/graph/graph.js';
 import type { StateSchema } from '../../core/state/schema.js';
 import type { Storage } from '../../core/storage/storage.js';
-import type { JsonRecord } from '../../core/json.js';
+import type { JsonRecord } from '../../model/json.js';
 import type { NodeContext } from './_internals.js';
 import { _NodeContextImpl } from './_node_context.js';
 import { _PlanAdvance, _PlanWorkOutcome, _interrupt_state, _merge_overlay, _warn } from './_internals.js';

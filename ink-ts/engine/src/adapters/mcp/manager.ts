@@ -14,7 +14,7 @@
  * 提供 = 以真实工作目录为影子模板；缺省 = 空探针模板（远端调用无本地
  * 写面，仅记录调用成败证据）。
  */
-import { GraphDefinitionError } from '../../core/errors.js';
+import { GraphDefinitionError } from '../../model/errors.js';
 import { EndpointType } from '../../core/declarative_tools/endpoint_types.js';
 import type { DeclarativeToolSpec } from '../../core/declarative_tools/declarative_spec.js';
 import type { DeclarativeToolExecutors } from '../../core/declarative_tools/executors.js';

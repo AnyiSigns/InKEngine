@@ -16,9 +16,9 @@
  * - 序列化（to_dict/from_dict）：版本容忍，未知键忽略（前向兼容）。
  */
 
-import { EngineError } from '../errors.js';
-import { GraphDefinitionError } from '../errors.js';
-import { isRecord, typeName } from '../json.js';
+import { EngineError } from '../../model/errors.js';
+import { GraphDefinitionError } from '../../model/errors.js';
+import { isRecord, typeName } from '../../model/json.js';
 import {
   BLOCK_KINDS,
   is_whiteboard_block_kind,

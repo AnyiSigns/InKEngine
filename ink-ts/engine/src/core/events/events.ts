@@ -18,7 +18,7 @@
  * TS core 零 IO 不落；容错语义（跳过返回 null/字符串化降级）原样保留。
  */
 
-import { isRecord, type JsonRecord } from '../json.js';
+import { isRecord, type JsonRecord } from '../../model/json.js';
 
 /** 事件协议版本：与前端协议同构（前端零改动约束）。 */
 export const PROTOCOL_VERSION = 2;

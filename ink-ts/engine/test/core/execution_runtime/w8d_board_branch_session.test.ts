@@ -25,8 +25,8 @@
  */
 import { describe, expect, it } from 'vitest';
 
-import { ChannelDirectory, default_channel_seeds } from '../../../src/core/channels/channel_directory.js';
-import { ChannelSpec } from '../../../src/core/channels/channel_spec.js';
+import { ChannelDirectory, default_channel_seeds } from '../../../src/model/channels/channel_directory.js';
+import { ChannelSpec } from '../../../src/model/channels/channel_spec.js';
 import { EntitySpec } from '../../../src/core/entities/entities.js';
 import { ExecutionRuntime } from '../../../src/core/execution_runtime/execution_runtime.js';
 import type { ScopeTurnResult } from '../../../src/core/execution_runtime/scope_turn.js';

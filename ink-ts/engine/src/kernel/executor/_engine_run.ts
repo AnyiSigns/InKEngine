@@ -14,9 +14,9 @@
  * 残留的注入清理仍会照常执行——这是平台取消模型差异带来的关键降级点。
  */
 import { RunResult } from '../../core/run_result/run_result.js';
-import { TerminateReason } from '../../core/graph/graph_types.js';
+import { TerminateReason } from '../../model/graph/graph_types.js';
 import type { EngineEvent, EngineTransport } from '../../core/events/events.js';
-import { GraphDefinitionError, SimulationError } from '../../core/errors.js';
+import { GraphDefinitionError, SimulationError } from '../../model/errors.js';
 import { EngineTrace } from './_engine_trace.js';
 import { _AsyncQueue, _QueueTransport, _default_id } from './_internals.js';
 

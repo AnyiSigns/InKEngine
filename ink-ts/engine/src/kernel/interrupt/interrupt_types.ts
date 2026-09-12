@@ -20,7 +20,7 @@
  * 移植以 __all__ 的声明意图为准导出 FINGERPRINT_SEP。
  */
 
-import { isRecord } from '../../core/json.js';
+import { isRecord } from '../../model/json.js';
 
 /** gate 审批键前缀（唯一指纹作用域）：工具门禁审批统一经 approve_before_execute
  *  以 ``gate:<tool>`` 挂卡。其余中断键（宿主自备唯一键/批处理合并卡/补丁

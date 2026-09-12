@@ -2,7 +2,8 @@
   "measuredOn": "2026-09-12",
   "engine": {
     "srcDirs": {
-      "core": 46,
+      "core": 32,
+      "model": 14,
       "kernel": 33
     },
     "tsFiles": 461,

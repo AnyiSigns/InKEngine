@@ -12,7 +12,7 @@
  */
 
 import { emit_audit, type AuditStorage } from '../../kernel/audit_log/audit_log.js';
-import { EVENT_AUDIT_POLICY_REVIEW } from '../event_types/eventTypeSpecs.js';
+import { EVENT_AUDIT_POLICY_REVIEW } from '../../model/event_types/eventTypeSpecs.js';
 import {
   DefaultEvolutionWriter,
   edge_tier_writer,

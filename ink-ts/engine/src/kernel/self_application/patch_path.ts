@@ -5,8 +5,8 @@
  * 集状态全量，回退/版本化天然覆盖全部演化对象。
  */
 
-import { GraphDefinitionError } from '../../core/errors.js';
-import type { Json } from '../../core/json.js';
+import { GraphDefinitionError } from '../../model/errors.js';
+import type { Json } from '../../model/json.js';
 import type { PatchKind } from '../self_proposal/index.js';
 
 import {

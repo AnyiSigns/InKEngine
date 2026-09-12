@@ -19,8 +19,8 @@
  * API 驱动。
  */
 
-import { deepCopy } from '../../core/json.js';
-import type { Json, JsonRecord } from '../../core/json.js';
+import { deepCopy } from '../../model/json.js';
+import type { Json, JsonRecord } from '../../model/json.js';
 import type {
   GateL1Result,
   GateL2Result,

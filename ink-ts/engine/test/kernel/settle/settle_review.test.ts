@@ -12,7 +12,7 @@
 import { describe, expect, it } from 'vitest';
 
 import { EdgeEvidenceStore } from '../../../src/core/edge_evidence/store.js';
-import { Graph } from '../../../src/core/graph/graph.js';
+import { Graph } from '../../../src/model/graph/graph.js';
 import {
   PolicyEdgeReviewSettleHook,
 } from '../../../src/kernel/settle/review.js';

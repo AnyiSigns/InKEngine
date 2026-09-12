@@ -12,20 +12,20 @@
  * （见 core/scopes/prior_overlay.ts）。词汇全部复用 Wave-1/2 数据面。
  */
 
-import { ChannelSpec, channel_with_disabled } from '../channels/channel_spec.js';
+import { ChannelSpec, channel_with_disabled } from '../../model/channels/channel_spec.js';
 import {
   EntitySpec,
   retire_entity_record,
 } from '../entities/entities.js';
 import { transition_key_of } from '../org_archive/org_patterns.js';
-import { isRecord } from '../json.js';
+import { isRecord } from '../../model/json.js';
 import {
   route_overlay,
   shortcut_overlay,
   weight_overlay,
   type OrgPriorOverlay,
-} from '../scopes/prior_overlay.js';
-import { scope_prior_from_dict } from '../scopes/scope_priors.js';
+} from '../../model/scopes/prior_overlay.js';
+import { scope_prior_from_dict } from '../../model/scopes/scope_priors.js';
 import type { EvolutionProposal } from './evolution_proposal.js';
 import { is_channel_kind } from './evolution_proposal.js';
 

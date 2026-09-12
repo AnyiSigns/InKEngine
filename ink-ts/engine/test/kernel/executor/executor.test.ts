@@ -18,10 +18,10 @@ import {
   make_engine,
 } from './helpers.js';
 import { Engine } from '../../../src/kernel/executor/index.js';
-import { Graph } from '../../../src/core/graph/graph.js';
-import { TerminateReason } from '../../../src/core/graph/graph_types.js';
+import { Graph } from '../../../src/model/graph/graph.js';
+import { TerminateReason } from '../../../src/model/graph/graph_types.js';
 import { StateSchema } from '../../../src/core/state/schema.js';
-import { StorageError } from '../../../src/core/errors.js';
+import { StorageError } from '../../../src/model/errors.js';
 import { BudgetExceededError } from '../../../src/kernel/budget/budget.js';
 import type { BudgetPolicy } from '../../../src/kernel/budget/budget_types.js';
 import { DemoBudgetPolicy } from './helpers.js';

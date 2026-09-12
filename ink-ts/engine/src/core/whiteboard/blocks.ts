@@ -14,8 +14,8 @@
  * 词表单一真源：WhiteboardBlockKind 由 BLOCK_KINDS 元组推导，禁止另立第二套枚举。
  */
 
-import { GraphDefinitionError } from '../errors.js';
-import { isRecord, typeName } from '../json.js';
+import { GraphDefinitionError } from '../../model/errors.js';
+import { isRecord, typeName } from '../../model/json.js';
 
 /** 白板块类型词表（五类；顺序即设计稿 §7.2 表序）。 */
 export const BLOCK_KINDS = ['task', 'opinion', 'board', 'conclusion', 'summary'] as const;

@@ -27,9 +27,9 @@
  * 宿主注入真实时钟。logging 留痕属可观测性副作用，core 不落。
  */
 
-import { isRecord } from '../../core/json.js';
-import { build_gate_card } from '../../core/review_card/reviewCard.js';
-import type { CardPayload } from '../../core/review_card/reviewCard_types.js';
+import { isRecord } from '../../model/json.js';
+import { build_gate_card } from '../../model/review_card/reviewCard.js';
+import type { CardPayload } from '../../model/review_card/reviewCard_types.js';
 import {
   ApprovalDecision,
   DECISION_AUTO,

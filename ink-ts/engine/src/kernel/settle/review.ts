@@ -16,7 +16,7 @@
 import { EdgeEvidenceStore } from '../../core/edge_evidence/store.js';
 import { ORIGIN_RUNTIME } from '../../core/edge_evidence/_types.js';
 import type { EdgeEvidence } from '../../core/edge_evidence/_types.js';
-import { EVENT_AUDIT_POLICY_REVIEW } from '../../core/event_types/eventTypeSpecs.js';
+import { EVENT_AUDIT_POLICY_REVIEW } from '../../model/event_types/eventTypeSpecs.js';
 import { laplace_success } from '../../core/edge_evidence/tier_model.js';
 import { now } from './_time.js';
 import { POLICY_REVIEW_DOMAIN_MIN_EDGES, TRACE_FAILED } from './_constants.js';

@@ -12,7 +12,7 @@
 
 import { describe, expect, it } from 'vitest';
 
-import { CHANNEL_COMMIT_FULL } from '../../../src/core/channels/channel_spec.js';
+import { CHANNEL_COMMIT_FULL } from '../../../src/model/channels/channel_spec.js';
 import type { OrgProposal } from '../../../src/core/org_archive/pruning.js';
 import { OrgArchive } from '../../../src/core/org_archive/org_archive.js';
 import {

@@ -20,7 +20,7 @@ import {
   EntityEvolutionPipeline,
 } from '../../../src/kernel/entity_evolution/index.js';
 import { _derive_mutation } from '../../../src/kernel/entity_evolution/_mutation.js';
-import { build_scope_asset } from '../../../src/core/scopes/scope_directory.js';
+import { build_scope_asset } from '../../../src/model/scopes/scope_directory.js';
 
 /** EvolutionWriter 记录桩（断言晋升写入留痕）。 */
 class RecorderWriter implements EvolutionWriter {

@@ -13,7 +13,7 @@ import {
   DECISION_REJECT,
   DECISION_TERMINATE,
 } from '../approval/approval.js';
-import { GraphDefinitionError } from '../../core/errors.js';
+import { GraphDefinitionError } from '../../model/errors.js';
 
 import {
   _SET_AUDIT_COLLECTION,

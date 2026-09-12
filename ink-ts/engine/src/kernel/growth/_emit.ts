@@ -14,7 +14,7 @@
  * 指纹（signal_id），故此处无 uuid seam。
  */
 
-import type { JsonRecord } from '../../core/json.js';
+import type { JsonRecord } from '../../model/json.js';
 import type { ExecutionSignal } from '../../core/knowledge_signals/signals.js';
 
 /** 孵化事件发射回调（(etype, payload) -> Promise；镜像 Python Callable）。 */

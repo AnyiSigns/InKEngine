@@ -11,7 +11,7 @@
 
 import { describe, expect, it } from 'vitest';
 
-import { CHANNEL_COMMIT_BEST, CHANNEL_COMMIT_FULL } from '../../../src/core/channels/channel_spec.js';
+import { CHANNEL_COMMIT_BEST, CHANNEL_COMMIT_FULL } from '../../../src/model/channels/channel_spec.js';
 import {
   parse_execution_trail,
   type ExecutionTrail,

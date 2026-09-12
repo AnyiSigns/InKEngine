@@ -12,9 +12,9 @@
  * 败留痕，父链继续。
  */
 
-import { GraphDefinitionError } from '../../core/errors.js';
-import { Graph } from '../../core/graph/graph.js';
-import { deepCopy, isRecord, type Json, type JsonRecord } from '../../core/json.js';
+import { GraphDefinitionError } from '../../model/errors.js';
+import { Graph } from '../../model/graph/graph.js';
+import { deepCopy, isRecord, type Json, type JsonRecord } from '../../model/json.js';
 import { is_merge_reducer } from '../../core/state/reducers.js';
 import type { StateSchema } from '../../core/state/schema.js';
 

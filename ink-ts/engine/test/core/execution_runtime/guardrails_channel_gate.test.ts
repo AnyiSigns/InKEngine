@@ -12,7 +12,7 @@
  */
 import { describe, expect, it } from 'vitest';
 
-import { ChannelSpec } from '../../../src/core/channels/channel_spec.js';
+import { ChannelSpec } from '../../../src/model/channels/channel_spec.js';
 import {
   default_approval_seam,
   enforce_transition_conditions,

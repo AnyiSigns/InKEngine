@@ -12,8 +12,8 @@
 import { describe, expect, it } from 'vitest';
 import { MemoryStorage, _execute, make_engine } from './helpers.js';
 import { Engine } from '../../../src/kernel/executor/index.js';
-import { Graph } from '../../../src/core/graph/graph.js';
-import { TerminateReason } from '../../../src/core/graph/graph_types.js';
+import { Graph } from '../../../src/model/graph/graph.js';
+import { TerminateReason } from '../../../src/model/graph/graph_types.js';
 import type { EngineEvent } from '../../../src/core/events/events.js';
 
 async function collect(engine: Engine, state: Record<string, unknown>, opts: Record<string, unknown> = {}): Promise<EngineEvent[]> {

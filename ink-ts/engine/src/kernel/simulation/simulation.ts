@@ -23,9 +23,9 @@
  * 只规定「评估产出什么」，不规定「怎么评」。
  */
 
-import { GraphDefinitionError } from '../../core/errors.js';
-import { Graph } from '../../core/graph/graph.js';
-import { deepCopy, isRecord, type Json, type JsonRecord } from '../../core/json.js';
+import { GraphDefinitionError } from '../../model/errors.js';
+import { Graph } from '../../model/graph/graph.js';
+import { deepCopy, isRecord, type Json, type JsonRecord } from '../../model/json.js';
 import { Patch, PatchChain, PatchOp } from '../patch/patchChain.js';
 import { DimensionScore } from '../../core/scoring/scoring.js';
 import { SimulateSpec, Evaluation, EvaluatedBranch, ProvenanceNote, BranchSelection, type Evaluator, type BranchMixer, type DimensionScorer } from './simulation_types.js';

@@ -4,7 +4,7 @@ import { fileURLToPath } from 'node:url';
 
 const HERE = dirname(fileURLToPath(import.meta.url));
 const ENGINE = join(HERE, '..');
-const OUT = join(ENGINE, 'src', 'core', 'contracts', 'generated');
+const OUT = join(ENGINE, 'src', 'model', 'contracts', 'generated');
 
 const readJson = (p) => JSON.parse(readFileSync(join(ENGINE, p), 'utf-8'));
 const schema = (name) => readJson(`schemas/${name}.schema.json`);
@@ -108,4 +108,4 @@ writeGenerated(
   ["export * from './endpointTypes.js';", "export * from './patchProtocol.js';"].join('\n'),
 );
 
-console.log('generated engine/src/core/contracts/generated/{endpointTypes,patchProtocol,index}.ts');
+console.log('generated engine/src/model/contracts/generated/{endpointTypes,patchProtocol,index}.ts');

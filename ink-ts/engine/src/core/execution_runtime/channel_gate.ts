@@ -15,7 +15,7 @@
  * 既有审批核/姿态接线到此处，复用 approve 决议词汇：accept/auto 放行）。
  */
 
-import { type ChannelSpec } from '../channels/channel_spec.js';
+import { type ChannelSpec } from '../../model/channels/channel_spec.js';
 
 /** 条件执行结果（放行 / fail-closed 阻断 + 原因词）。 */
 export interface ChannelGateVerdict {

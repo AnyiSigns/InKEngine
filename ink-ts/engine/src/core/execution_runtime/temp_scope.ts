@@ -12,11 +12,11 @@
  * 定义字段合法可装载。
  */
 
-import { GraphDefinitionError } from '../errors.js';
-import { isRecord } from '../json.js';
+import { GraphDefinitionError } from '../../model/errors.js';
+import { isRecord } from '../../model/json.js';
 import { EntitySpec } from '../entities/entities.js';
-import { build_scope_asset } from '../scopes/scope_directory.js';
-import type { ScopeDecl } from '../scopes/scope_spec.js';
+import { build_scope_asset } from '../../model/scopes/scope_directory.js';
+import type { ScopeDecl } from '../../model/scopes/scope_spec.js';
 
 /** 临时作用域 id 前缀（运行时生成的临时身份命名空间；无目录注册语义）。 */
 export const TEMP_SCOPE_ID_PREFIX = 'temp_scope';

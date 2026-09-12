@@ -10,9 +10,9 @@
  * - from_dict 对非法形态（缺 id/非法传输/非法来源/字段类型错误/未知
  *   stdio 帧协议）显式拒绝（fail-closed）。
  */
-import { GraphDefinitionError } from '../../core/errors.js';
+import { GraphDefinitionError } from '../../model/errors.js';
 import { ToolSource } from '../../kernel/tool_vetting/tool_vetting.js';
-import { isRecord, typeName } from '../../core/json.js';
+import { isRecord, typeName } from '../../model/json.js';
 import { JSON_LINES_FRAMING, CONTENT_LENGTH_FRAMING } from './_framing.js';
 import type { ServerFactory } from './_types.js';
 

@@ -3,8 +3,8 @@
  * 状态 = 通道字典；每个通道可挂 reducer；未挂 = 裸 LastValue（覆盖语义）。
  */
 
-import { GraphDefinitionError } from '../errors.js';
-import { deepEqual, isRecord, stableStringify } from '../json.js';
+import { GraphDefinitionError } from '../../model/errors.js';
+import { deepEqual, isRecord, stableStringify } from '../../model/json.js';
 import { PatchChain } from '../../kernel/patch/patchChain.js';
 import { get_reducer, is_additive_reducer, type Reducer } from './reducers.js';
 

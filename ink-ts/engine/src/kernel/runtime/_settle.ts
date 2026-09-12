@@ -20,7 +20,7 @@
  */
 
 import type { KnowledgeSet } from '../../core/knowledge_set/index.js';
-import { merge_ledger, type Ledger } from '../../core/ledger/ledger.js';
+import { merge_ledger, type Ledger } from '../../model/ledger/ledger.js';
 import { TRACE_FAILED } from '../settle/_constants.js';
 import { terminal_failure_reason } from '../settle/attribution.js';
 import type { SettleContext } from '../settle/types.js';

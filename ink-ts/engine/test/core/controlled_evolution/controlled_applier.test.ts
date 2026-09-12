@@ -16,8 +16,8 @@ import { describe, expect, it } from 'vitest';
 
 import type { InterruptPolicy } from '../../../src/kernel/approval/approval_types.js';
 import { DefaultEvolutionWriter } from '../../../src/kernel/evolution_writer/evolution_writer.js';
-import { ChannelSpec } from '../../../src/core/channels/channel_spec.js';
-import { ChannelDirectory } from '../../../src/core/channels/channel_directory.js';
+import { ChannelSpec } from '../../../src/model/channels/channel_spec.js';
+import { ChannelDirectory } from '../../../src/model/channels/channel_directory.js';
 import { EntityRegistry, EntitySpec, RETIRED_META_KEY } from '../../../src/core/entities/entities.js';
 import {
   PROVENANCE_ORG,

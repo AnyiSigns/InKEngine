@@ -9,8 +9,8 @@
  * graph_types.TerminateReason 既有口径）：字段存值面字符串，is_valid 做
  * 白名单校验；kind 字段即值字符串，无枚举实例概念。
  */
-import { GraphDefinitionError } from '../../core/errors.js';
-import { isRecord, typeName } from '../../core/json.js';
+import { GraphDefinitionError } from '../../model/errors.js';
+import { isRecord, typeName } from '../../model/json.js';
 
 /** Python repr() 口径渲染（错误文案携带注入值形态；字符串带单引号）。 */
 export function pyRepr(value: unknown): string {

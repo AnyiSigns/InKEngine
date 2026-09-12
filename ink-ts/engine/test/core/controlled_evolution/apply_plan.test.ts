@@ -13,11 +13,11 @@
 
 import { describe, expect, it } from 'vitest';
 
-import { ChannelDirectory } from '../../../src/core/channels/channel_directory.js';
-import { ChannelSpec } from '../../../src/core/channels/channel_spec.js';
+import { ChannelDirectory } from '../../../src/model/channels/channel_directory.js';
+import { ChannelSpec } from '../../../src/model/channels/channel_spec.js';
 import { EntityRegistry, EntitySpec } from '../../../src/core/entities/entities.js';
 import { RETIRED_META_KEY } from '../../../src/core/entities/entities.js';
-import { default_scope_priors, scope_prior_to_dict } from '../../../src/core/scopes/scope_priors.js';
+import { default_scope_priors, scope_prior_to_dict } from '../../../src/model/scopes/scope_priors.js';
 import { plan_evolution, type EvolutionPlanStep } from '../../../src/core/controlled_evolution/apply_plan.js';
 import {
   PROVENANCE_ORG,

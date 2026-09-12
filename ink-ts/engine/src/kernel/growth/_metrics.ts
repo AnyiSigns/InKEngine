@@ -10,7 +10,7 @@
  * ——写入失败一律跳过不抛（观测不阻断沉淀）。
  */
 
-import type { JsonRecord } from '../../core/json.js';
+import type { JsonRecord } from '../../model/json.js';
 import { METRICS_CAP, METRICS_COLLECTION, METRICS_KEY } from './_constants.js';
 
 /** 指标存储的最小契约（duck-typed 两原语；与知识集/审计存储同构）。 */

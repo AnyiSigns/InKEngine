@@ -4,7 +4,7 @@
  * 由一致性测试钉住。
  */
 
-import type { Json, JsonRecord } from '../../core/json.js';
+import type { Json, JsonRecord } from '../../model/json.js';
 
 export type { Json };
 export type { JsonRecord };

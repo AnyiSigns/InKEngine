@@ -2,10 +2,10 @@
  * 决策点推演原语的数据面类型（分支规格 / 评估结果 / 调配结果 / 协议）。
  */
 
-import type { Json, JsonRecord } from '../../core/json.js';
-import { Graph } from '../../core/graph/graph.js';
+import type { Json, JsonRecord } from '../../model/json.js';
+import { Graph } from '../../model/graph/graph.js';
 import { DimensionScore } from '../../core/scoring/scoring.js';
-import { GraphDefinitionError } from '../../core/errors.js';
+import { GraphDefinitionError } from '../../model/errors.js';
 
 // ── 分支规格 / 评估结果 / 调配结果数据形态 ────────────────────────────────
 

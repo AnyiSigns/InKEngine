@@ -25,9 +25,9 @@
  * resume 路径）随 executor 移植后在宿主侧接入。
  */
 
-import { GraphVersionMismatchError, StorageError } from '../../core/errors.js';
+import { GraphVersionMismatchError, StorageError } from '../../model/errors.js';
 import type { EngineEvent } from '../../core/events/events.js';
-import type { JsonRecord } from '../../core/json.js';
+import type { JsonRecord } from '../../model/json.js';
 import type { CheckpointRecord } from '../../core/storage/storage_records.js';
 import { collect_resume_anchors } from './recovery_anchors.js';
 import { ResumeResolution } from './recovery_types.js';

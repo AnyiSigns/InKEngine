@@ -12,8 +12,8 @@
  * 失败只跳过（观测侧，不阻断 run 结果交付）。
  */
 
-import type { JsonRecord } from '../../core/json.js';
-import { isRecord } from '../../core/json.js';
+import type { JsonRecord } from '../../model/json.js';
+import { isRecord } from '../../model/json.js';
 import { StorageBackedMemoryStore } from '../../core/memory/index.js';
 import type { SettleContext } from '../settle/index.js';
 import {

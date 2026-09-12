@@ -12,8 +12,8 @@
 import { describe, expect, it } from 'vitest';
 import { MemoryStorage, _execute, make_engine } from './helpers.js';
 import { Engine, run_subgraph, _NodeContextImpl } from '../../../src/kernel/executor/index.js';
-import { Graph } from '../../../src/core/graph/graph.js';
-import { TerminateReason } from '../../../src/core/graph/graph_types.js';
+import { Graph } from '../../../src/model/graph/graph.js';
+import { TerminateReason } from '../../../src/model/graph/graph_types.js';
 import { StateSchema } from '../../../src/core/state/schema.js';
 import { register_reducer } from '../../../src/core/state/reducers.js';
 import type { EngineEvent } from '../../../src/core/events/events.js';

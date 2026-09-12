@@ -9,10 +9,10 @@
  * 观测不静默），非正计数为观测噪声（清零/非法输入），不并入。
  */
 
-import { GraphDefinitionError } from '../../core/errors.js';
-import type { JsonRecord } from '../../core/json.js';
-import { isRecord } from '../../core/json.js';
-import { role_call_label, type RoleCallStat } from '../../core/model_roles/index.js';
+import { GraphDefinitionError } from '../../model/errors.js';
+import type { JsonRecord } from '../../model/json.js';
+import { isRecord } from '../../model/json.js';
+import { role_call_label, type RoleCallStat } from '../../model/model_roles/index.js';
 
 /** 自动续跑回合的 round_id 前缀（回合协议：自续轮 = `auto:` + 审计键片段；
  *  指标按此前缀给 auto 轮独立记账——生成侧与分类侧同源，防两处漂移）。 */

@@ -9,9 +9,9 @@
  * 纯数据面（JSON 进 JSON 出、零 IO、零宿主词）。
  */
 
-import { SchemaSpec, SchemaValidator } from '../schema/schemaValidator.js';
-import { isRecord, typeName } from '../json.js';
-import type { ScopeIoContract } from '../scopes/scope_spec.js';
+import { SchemaSpec, SchemaValidator } from '../../model/schema/schemaValidator.js';
+import { isRecord, typeName } from '../../model/json.js';
+import type { ScopeIoContract } from '../../model/scopes/scope_spec.js';
 
 /** 单条意见块（{owner, content, seq} 主体 + 可选契约/结论字段）。 */
 export interface OpinionEntry {

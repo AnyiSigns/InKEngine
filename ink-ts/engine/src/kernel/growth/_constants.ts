@@ -7,8 +7,8 @@
  * METRICS_CAP 条上限防无限膨胀；与审计 set_audit 严格分离）。
  */
 
-import { FIELD_STRING, SchemaField, SchemaSpec } from '../../core/schema/schemaValidator.js';
-import { FixtureSet } from '../../core/rules/index.js';
+import { FIELD_STRING, SchemaField, SchemaSpec } from '../../model/schema/schemaValidator.js';
+import { FixtureSet } from '../../model/rules/index.js';
 
 // 孵化缓冲上限（信号跨回合累积但有界：超限丢弃最旧——防长时间无阈值
 // 触发时内存膨胀；上限远高于现实单会话信号量，正常场景不触发）

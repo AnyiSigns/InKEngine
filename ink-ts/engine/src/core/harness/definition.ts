@@ -17,8 +17,8 @@
  * 构造校验（build_minimal_harness）与默认关键词匹配器在 builder.ts，
  * 注册表在 registry.ts，仓库在 repository.ts。
  */
-import { GraphDefinitionError } from '../errors.js';
-import { isRecord, typeName } from '../json.js';
+import { GraphDefinitionError } from '../../model/errors.js';
+import { isRecord, typeName } from '../../model/json.js';
 
 // 仓库存储集合名（通用存储服务 records 通道）。
 // 历史遗留名（无 set_id）：多集共享同一存储时会互相串数据——新写入按集

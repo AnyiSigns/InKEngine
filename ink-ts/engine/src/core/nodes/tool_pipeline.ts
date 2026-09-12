@@ -15,8 +15,8 @@
  * 经 seams 实时读取（随引擎重建刷新，不携带过期闭包）。
  */
 
-import { NodeContract } from '../contracts/contracts.js';
-import { FIELD_ARRAY, SchemaField, SchemaSpec } from '../schema/schemaValidator.js';
+import { NodeContract } from '../../model/contracts/contracts.js';
+import { FIELD_ARRAY, SchemaField, SchemaSpec } from '../../model/schema/schemaValidator.js';
 import { tool_result } from '../../kernel/llm/messages.js';
 import type { ToolPipeline } from '../../kernel/tool_pipeline/tool_pipeline.js';
 import type { ToolSpec } from '../../kernel/llm/tools.js';

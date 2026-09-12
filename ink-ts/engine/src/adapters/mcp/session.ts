@@ -13,7 +13,7 @@
  *
  * 超时上界统一：连接 CONNECT_TIMEOUT、调用 CALL_TIMEOUT（秒）。
  */
-import { GraphDefinitionError } from '../../core/errors.js';
+import { GraphDefinitionError } from '../../model/errors.js';
 import { McpToolImportError, RpcError, RpcTimeout, exc_text } from './_errors.js';
 import { CALL_TIMEOUT } from './_framing.js';
 import { extract_text, result_is_error } from './_result.js';

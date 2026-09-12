@@ -6,8 +6,8 @@
  * 便于 RoundSteps 主文件按子机制拆分——同 Python 私有方法语义。
  */
 
-import type { JsonRecord } from '../../core/json.js';
-import { isRecord } from '../../core/json.js';
+import type { JsonRecord } from '../../model/json.js';
+import { isRecord } from '../../model/json.js';
 import type { StepRecord } from './round_steps_types.js';
 
 /** RoundSteps 卡片累积所需的最小状态（函数式子机制便于拆分主类）。 */

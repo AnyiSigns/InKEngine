@@ -9,14 +9,14 @@
 import { PermissionGate } from '../permissions/permissions.js';
 import { ALL_MECHANISM_CONTRACTS, seal_mechanism_registry } from '../registry/index.js';
 import type { InterruptPolicy } from '../approval/approval.js';
-import { register_perception_nodes } from '../../core/perception/perception.js';
+import { register_perception_nodes } from '../../model/perception/perception.js';
 import { default_engine_pool_seed } from '../../core/nodes/index.js';
 import { RuntimeNodeRegistrar } from './_runtime_node_registry.js';
-import { EventTypeRegistry } from '../../core/event_types/registry.js';
+import { EventTypeRegistry } from '../../model/event_types/registry.js';
 import {
   event_types_collection,
   EventTypeSpec,
-} from '../../core/event_types/eventTypeSpec.js';
+} from '../../model/event_types/eventTypeSpec.js';
 import {
   EntityRegistry,
   entity_collection,
@@ -35,7 +35,7 @@ import {
 } from '../introspection/index.js';
 import { GrowthPipeline } from '../growth/index.js';
 import { KnowledgeSet, seed_knowledge_set } from '../../core/knowledge_set/index.js';
-import { seed_general } from '../../core/seeds/seeds.js';
+import { seed_general } from '../../model/seeds/seeds.js';
 import {
   declarative_failure_reason,
   declarative_operation,
@@ -50,7 +50,7 @@ import { ToolPipeline } from '../tool_pipeline/tool_pipeline.js';
 import { ToolSelector } from '../../core/tool_orchestrator/tool_orchestrator.js';
 import { ToolVectorIndex } from '../../core/tool_index/tool_index.js';
 import { ToolVetting } from '../tool_vetting/tool_vetting.js';
-import { UISchemaValidator } from '../../core/ui_schema/uiSchema.js';
+import { UISchemaValidator } from '../../model/ui_schema/uiSchema.js';
 import type { ToolSpec } from '../llm/tools.js';
 import type { Host, AssemblyRecipe } from './_types.js';
 import { _uuid_hex } from './_runtime_base.js';

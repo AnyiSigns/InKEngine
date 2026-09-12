@@ -17,8 +17,8 @@ import { describe, expect, it } from 'vitest';
 import {
   CHANNEL_COMMIT_BEST,
   CHANNEL_SHAPES,
-} from '../../../src/core/channels/channel_spec.js';
-import { GraphDefinitionError } from '../../../src/core/errors.js';
+} from '../../../src/model/channels/channel_spec.js';
+import { GraphDefinitionError } from '../../../src/model/errors.js';
 import {
   RUN_ID_MAX_LENGTH,
   TRAIL_OUTCOMES,

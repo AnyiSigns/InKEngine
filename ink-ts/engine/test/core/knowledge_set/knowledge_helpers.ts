@@ -3,7 +3,7 @@
  * memory_storage fixture 的 TS 对应物）：条目工厂 + 裸内存存储。
  */
 
-import type { JsonRecord } from '../../../src/core/json.js';
+import type { JsonRecord } from '../../../src/model/json.js';
 import { KnowledgeEntry } from '../../../src/core/knowledge_set/knowledge_entry.js';
 import type { KnowledgeEntryOptions } from '../../../src/core/knowledge_set/knowledge_entry.js';
 import { KIND_RULE, LEVEL_WORK } from '../../../src/core/knowledge_set/_types.js';

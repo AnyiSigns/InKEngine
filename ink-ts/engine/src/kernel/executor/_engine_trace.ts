@@ -14,7 +14,7 @@ import { SettleContext, TraceStep } from '../settle/index.js';
 import { DEFAULT_DOMAIN } from '../settle/index.js';
 import { path_key, token_key } from '../settle/types.js';
 import { TRACE_SUCCESS, TRACE_FAILED, TRACE_SKIPPED } from '../settle/index.js';
-import type { Graph } from '../../core/graph/graph.js';
+import type { Graph } from '../../model/graph/graph.js';
 import type { RunResult } from '../../core/run_result/run_result.js';
 import { EngineEvents } from './_engine_events.js';
 import { _error } from './_internals.js';

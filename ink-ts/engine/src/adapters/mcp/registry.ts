@@ -15,7 +15,7 @@
  * （宿主不得改写——防改头换面挂载）。未知 server_id 返回 null（fail-closed：
  * 未定义即不可连接）。
  */
-import { GraphDefinitionError } from '../../core/errors.js';
+import { GraphDefinitionError } from '../../model/errors.js';
 import { ToolSource } from '../../kernel/tool_vetting/tool_vetting.js';
 import { CONTENT_LENGTH_FRAMING } from './_framing.js';
 import type { ServerFactory } from './_types.js';

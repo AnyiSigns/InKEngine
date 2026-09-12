@@ -13,7 +13,7 @@
  * _execute_branches 真接线（独立实例引擎 + 子链 checkpoint + 事件并轨）。
  * 注入透传（ENG2-12）：回合级注入快照由支流侧按分支隔离消费。
  */
-import type { QualityGate } from '../../core/contracts/contracts.js';
+import type { QualityGate } from '../../model/contracts/contracts.js';
 import type { JunctionSynthProvider } from '../multipath/verdict.js';
 import { MultiPathConfig, MultipathRunner } from '../multipath/index.js';
 import type { AssemblyCandidate, AssemblyRequest } from '../multipath/types.js';

@@ -17,7 +17,7 @@ import { join } from 'node:path';
 import { afterAll, beforeAll, describe, expect, it } from 'vitest';
 
 import { EngineEvent } from '../../../src/core/events/events.js';
-import { StorageError } from '../../../src/core/errors.js';
+import { StorageError } from '../../../src/model/errors.js';
 import { CheckpointRecord } from '../../../src/core/storage/storage_records.js';
 import type { Storage } from '../../../src/core/storage/storage.js';
 import {

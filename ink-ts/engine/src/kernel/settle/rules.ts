@@ -9,7 +9,7 @@
 
 import type { EdgeEvidence } from '../../core/edge_evidence/_types.js';
 import { laplace_success } from '../../core/edge_evidence/tier_model.js';
-import { SchemaField, SchemaSpec } from '../../core/schema/schemaValidator.js';
+import { SchemaField, SchemaSpec } from '../../model/schema/schemaValidator.js';
 import {
   FAIL_CAT_MODEL,
   FAIL_CAT_NETWORK,

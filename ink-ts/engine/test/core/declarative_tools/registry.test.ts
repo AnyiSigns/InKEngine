@@ -14,9 +14,9 @@
  */
 import { afterEach, describe, expect, it } from 'vitest';
 
-import { BUILTIN_ENDPOINT_NAMES, BUILTIN_ENDPOINTS } from '../../../src/core/contracts/generated/index.js';
-import { SandboxViolation } from '../../../src/core/errors.js';
-import { FIELD_ARRAY, SchemaField } from '../../../src/core/schema/schemaValidator.js';
+import { BUILTIN_ENDPOINT_NAMES, BUILTIN_ENDPOINTS } from '../../../src/model/contracts/generated/index.js';
+import { SandboxViolation } from '../../../src/model/errors.js';
+import { FIELD_ARRAY, SchemaField } from '../../../src/model/schema/schemaValidator.js';
 import {
   DeclarativeToolExecutors,
   DeclarativeToolSpec,

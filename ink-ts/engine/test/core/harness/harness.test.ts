@@ -15,8 +15,8 @@
 import { describe, expect, it } from 'vitest';
 
 import { DeclarativeToolSpec } from '../../../src/core/declarative_tools/index.js';
-import { GraphDefinitionError } from '../../../src/core/errors.js';
-import { Graph } from '../../../src/core/graph/graph.js';
+import { GraphDefinitionError } from '../../../src/model/errors.js';
+import { Graph } from '../../../src/model/graph/graph.js';
 import {
   HarnessDefinition,
   HarnessRegistry,

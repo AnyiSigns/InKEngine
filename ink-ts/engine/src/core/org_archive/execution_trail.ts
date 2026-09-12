@@ -30,10 +30,10 @@ import {
   CHANNEL_SHAPES,
   type ChannelCommit,
   type ChannelShape,
-} from '../channels/channel_spec.js';
+} from '../../model/channels/channel_spec.js';
 import { ENTITY_ID_MAX_LENGTH } from '../entities/entities.js';
-import { GraphDefinitionError } from '../errors.js';
-import { isRecord } from '../json.js';
+import { GraphDefinitionError } from '../../model/errors.js';
+import { isRecord } from '../../model/json.js';
 
 /** 轨迹记录 schema 版本（存档波对未知键版本容忍，类型非法仍显式拒绝）。 */
 export const TRAIL_SCHEMA_VERSION = 1;

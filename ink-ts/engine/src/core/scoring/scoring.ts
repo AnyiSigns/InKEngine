@@ -25,8 +25,8 @@
  * - 本机制纯确定性，无时间/随机依赖，无需 seam 注入。
  */
 
-import { GraphDefinitionError } from '../errors.js';
-import { isRecord, typeName } from '../json.js';
+import { GraphDefinitionError } from '../../model/errors.js';
+import { isRecord, typeName } from '../../model/json.js';
 
 /** Python str(list) 口径的清单渲染（错误消息携带名单，便于定位）。 */
 function listRepr(items: readonly string[]): string {

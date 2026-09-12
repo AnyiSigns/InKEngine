@@ -6,8 +6,8 @@
 import { describe, expect, it } from 'vitest';
 import { make_engine } from './helpers.js';
 import { _NodeContextImpl } from '../../../src/kernel/executor/index.js';
-import { Graph } from '../../../src/core/graph/graph.js';
-import { SimulationError } from '../../../src/core/errors.js';
+import { Graph } from '../../../src/model/graph/graph.js';
+import { SimulationError } from '../../../src/model/errors.js';
 import { SimulateSpec } from '../../../src/kernel/simulation/simulation_types.js';
 
 function graph_with(entry: string, run: (ctx: any) => unknown, exit = true): Graph {

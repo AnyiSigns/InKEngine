@@ -15,8 +15,8 @@
  */
 
 import { EngineEvent, parse_event_lenient } from '../../core/events/events.js';
-import { CheckpointConflictError, StorageError } from '../../core/errors.js';
-import type { JsonRecord } from '../../core/json.js';
+import { CheckpointConflictError, StorageError } from '../../model/errors.js';
+import type { JsonRecord } from '../../model/json.js';
 import { strip_sensitive } from '../../core/security/security.js';
 import type {
   RecordListOptions,

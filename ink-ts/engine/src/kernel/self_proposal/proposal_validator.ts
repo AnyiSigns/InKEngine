@@ -20,24 +20,24 @@
  * - artifact：产物声明结构校验（哈希形态）。
  */
 
-import { GraphDefinitionError } from '../../core/errors.js';
-import { isRecord } from '../../core/json.js';
+import { GraphDefinitionError } from '../../model/errors.js';
+import { isRecord } from '../../model/json.js';
 import { DeclarativeToolSpec, EndpointType } from '../../core/declarative_tools/index.js';
 import { EntitySpec } from '../../core/entities/entities.js';
 import { EnvironmentSpec } from '../../core/environments/spec.js';
-import { EventTypeSpec } from '../../core/event_types/eventTypeSpec.js';
-import { Graph } from '../../core/graph/graph.js';
+import { EventTypeSpec } from '../../model/event_types/eventTypeSpec.js';
+import { Graph } from '../../model/graph/graph.js';
 import { HarnessDefinition } from '../../core/harness/index.js';
 import { KnowledgeEntry } from '../../core/knowledge_set/index.js';
 import { Plan } from '../../core/plan/plan.js';
 import { GraphRegistries } from '../../core/registry/registry.js';
-import { Rule } from '../../core/rules/index.js';
+import { Rule } from '../../model/rules/index.js';
 import {
   SchemaSpec,
   SchemaValidator,
   validate_tool_name,
-} from '../../core/schema/schemaValidator.js';
-import { DEFAULT_BIND_CHANNELS, UISchemaValidator } from '../../core/ui_schema/uiSchema.js';
+} from '../../model/schema/schemaValidator.js';
+import { DEFAULT_BIND_CHANNELS, UISchemaValidator } from '../../model/ui_schema/uiSchema.js';
 
 import { example_skeleton, pyRepr, pyTupleRepr } from './self_proposal.js';
 import type { SelfProposal } from './self_proposal.js';

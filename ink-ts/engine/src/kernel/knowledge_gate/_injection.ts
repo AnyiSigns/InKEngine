@@ -10,7 +10,7 @@
  * 将知识条目可读文本面拼合成注入扫描输入。
  */
 
-import { isRecord } from '../../core/json.js';
+import { isRecord } from '../../model/json.js';
 
 /** 归一化长度阈值：编码块最小有意义长度（短路径/短语不触发熵启发）。 */
 const _ENTROPY_MIN_CHARS = 24;

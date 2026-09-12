@@ -13,7 +13,7 @@ import {
   introspection_tool_specs,
 } from '../../../src/kernel/introspection/index.js';
 import { KnowledgeEntry, KnowledgeSet, KIND_RULE, LEVEL_USER, SOURCE_MODEL, SOURCE_DIALOG } from '../../../src/core/knowledge_set/index.js';
-import { Rule } from '../../../src/core/rules/index.js';
+import { Rule } from '../../../src/model/rules/index.js';
 
 /** 内省元工具名清单（注册形态断言的固定序）。 */
 export const INTROSPECTION_TOOL_NAMES: readonly string[] = [

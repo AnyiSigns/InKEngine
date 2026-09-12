@@ -8,9 +8,9 @@
  * 放行多径触发；任一维度余量不可确定按 0 处理拒绝）。
  */
 
-import type { PathAssemblyFlags } from '../../core/contracts/contracts.js';
-import { GraphDefinitionError } from '../../core/errors.js';
-import { isRecord } from '../../core/json.js';
+import type { PathAssemblyFlags } from '../../model/contracts/contracts.js';
+import { GraphDefinitionError } from '../../model/errors.js';
+import { isRecord } from '../../model/json.js';
 import type { BudgetRemaining } from '../budget/budget_types.js';
 import {
   DEFAULT_MULTIPATH_CONCURRENCY,

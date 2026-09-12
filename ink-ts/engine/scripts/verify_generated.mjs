@@ -4,7 +4,7 @@
  * 可执行口径）。
  *
  * 做法：把 engine/schemas + engine/fixtures + engine/scripts/generate.mjs
- * 复制到临时目录，用生成器重新生成 src/core/contracts/generated/*，再与仓库
+ * 复制到临时目录，用生成器重新生成 src/model/contracts/generated/*，再与仓库
  * 内生成物逐文件**归一化比较**（双方先把 \r\n → \n 归一，消除 checkout 行尾
  * 差异），一致才 PASS。不一致 = generated 被手改或生成器输出已漂移 → 列出
  * 差异行并以非零退出。fixture/schema 本体不参与比较（那是生成器的输入真源）。
@@ -19,7 +19,7 @@ import { fileURLToPath } from 'node:url';
 
 const HERE = dirname(fileURLToPath(import.meta.url));
 const ENGINE = join(HERE, '..');
-const REPO_GENERATED = join(ENGINE, 'src', 'core', 'contracts', 'generated');
+const REPO_GENERATED = join(ENGINE, 'src', 'model', 'contracts', 'generated');
 const GENERATED_FILES = ['endpointTypes.ts', 'patchProtocol.ts', 'index.ts'];
 
 /** 行尾归一（\r\n / \r → \n）；文本语义比较，忽略 checkout 行尾差异。 */
@@ -57,13 +57,13 @@ try {
     let failed = false;
     for (const name of GENERATED_FILES) {
       const repoText = readFileSync(join(REPO_GENERATED, name), 'utf-8');
-      const freshText = readFileSync(join(tmp, 'src', 'core', 'contracts', 'generated', name), 'utf-8');
+      const freshText = readFileSync(join(tmp, 'src', 'model', 'contracts', 'generated', name), 'utf-8');
       const diffAt = firstDiffIndex(repoText, freshText);
       if (diffAt < 0) continue;
       failed = true;
       const repoLines = normalize(repoText).split('\n');
       const freshLines = normalize(freshText).split('\n');
-      console.error(`DIFF src/core/contracts/generated/${name}（首个差异行 ${diffAt}）:`);
+      console.error(`DIFF src/model/contracts/generated/${name}（首个差异行 ${diffAt}）:`);
       for (let i = Math.max(0, diffAt - 3); i < Math.min(repoLines.length, diffAt + 2); i++) {
         console.error(`  仓库   L${i + 1}: ${repoLines[i]}`);
       }

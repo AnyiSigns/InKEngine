@@ -12,7 +12,7 @@
  * - 全部读取返回深拷贝副本（调用方修改返回记录不得污染存储内快照）。
  */
 
-import { CheckpointConflictError, StorageError } from '../../core/errors.js';
+import { CheckpointConflictError, StorageError } from '../../model/errors.js';
 import {
   DEFAULT_LIST_CHECKPOINTS_LIMIT,
 } from '../../core/storage/storage_constants.js';

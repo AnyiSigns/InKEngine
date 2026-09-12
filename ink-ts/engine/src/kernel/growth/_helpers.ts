@@ -6,7 +6,7 @@
  * 定义，供观察侧装配踩坑信号。TS core 零 IO，全部为纯函数。
  */
 
-import type { JsonRecord } from '../../core/json.js';
+import type { JsonRecord } from '../../model/json.js';
 import { EngineEvent } from '../../core/events/events.js';
 import { SOURCE_MODEL, SOURCE_USER } from '../../core/knowledge_set/index.js';
 import { SOURCE_RANK } from '../../core/knowledge_signals/index.js';

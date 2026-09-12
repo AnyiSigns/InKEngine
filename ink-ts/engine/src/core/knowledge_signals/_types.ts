@@ -10,7 +10,7 @@
  */
 
 import type { Clock } from '../context/context_types.js';
-import type { JsonRecord } from '../json.js';
+import type { JsonRecord } from '../../model/json.js';
 import {
   SOURCE_DIALOG,
   SOURCE_MODEL,

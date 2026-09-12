@@ -20,7 +20,7 @@
  * 纯函数边界：协调器为纯内存实例态状态机（无全局状态、零 IO）；checkpoint
  * 持久化/恢复由引擎（executor/graph/storage）接线，本模块不感知存储。
  */
-import { InterruptError } from '../../core/errors.js';
+import { InterruptError } from '../../model/errors.js';
 import {
   FINGERPRINT_SEP,
   GATE_KEY_PREFIX,

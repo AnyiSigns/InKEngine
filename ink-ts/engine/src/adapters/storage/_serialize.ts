@@ -16,8 +16,8 @@
  */
 
 import { EngineEvent } from '../../core/events/events.js';
-import { deepCopy, type Json, type JsonRecord } from '../../core/json.js';
-import { StorageError } from '../../core/errors.js';
+import { deepCopy, type Json, type JsonRecord } from '../../model/json.js';
+import { StorageError } from '../../model/errors.js';
 import { CheckpointRecord } from '../../core/storage/storage_records.js';
 
 /** 统一异常消息提取（包装 StorageError 时保留底层原因文本）。 */

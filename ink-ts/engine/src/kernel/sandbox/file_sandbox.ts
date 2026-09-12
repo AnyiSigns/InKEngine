@@ -22,7 +22,7 @@
  * （fail-closed，不静默、不伪造快照数据）。
  */
 
-import { SandboxViolation } from '../../core/errors.js';
+import { SandboxViolation } from '../../model/errors.js';
 import { is_absolute, lexical_abs, path_under } from './_path.js';
 
 /** FileSandbox 支持的操作（四类守卫 + 两类只读检索）。 */

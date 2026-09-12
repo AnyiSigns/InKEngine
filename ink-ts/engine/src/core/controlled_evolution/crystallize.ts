@@ -21,9 +21,9 @@
  */
 
 import { ENTITY_ID_MAX_LENGTH } from '../entities/entities.js';
-import { isRecord } from '../json.js';
-import { build_scope_asset } from '../scopes/scope_directory.js';
-import type { ScopeCapability, ScopeIoContract } from '../scopes/scope_spec.js';
+import { isRecord } from '../../model/json.js';
+import { build_scope_asset } from '../../model/scopes/scope_directory.js';
+import type { ScopeCapability, ScopeIoContract } from '../../model/scopes/scope_spec.js';
 import { PROVENANCE_ORG, EvolutionProposal } from './evolution_proposal.js';
 
 /** 结晶转正的最少 sighting 次数（含 times 加权；理由见头注）。 */

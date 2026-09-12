@@ -14,7 +14,7 @@
  * 完整组合入口供宿主/自管编排取用（测试见 knowledge_signals/reuse.test）。
  */
 
-import type { JsonRecord } from '../json.js';
+import type { JsonRecord } from '../../model/json.js';
 import { DEFAULT_SEARCH_LIMIT } from '../knowledge_set/_types.js';
 import { KnowledgeSet } from '../knowledge_set/knowledge_set.js';
 import type { KnowledgeEntry } from '../knowledge_set/knowledge_entry.js';

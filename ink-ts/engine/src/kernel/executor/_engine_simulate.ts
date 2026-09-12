@@ -15,7 +15,7 @@
  * 子链，压缩会削掉中间 checkpoint。
  */
 import { InterruptSignal } from '../interrupt/interrupt_types.js';
-import { TerminateReason } from '../../core/graph/graph_types.js';
+import { TerminateReason } from '../../model/graph/graph_types.js';
 import {
   BestBranchMixer,
   BranchSelection,
@@ -25,7 +25,7 @@ import {
 } from '../simulation/simulation.js';
 import type { SimulateSpec } from '../simulation/simulation_types.js';
 import { EvaluatedBranch } from '../simulation/simulation_types.js';
-import { SimulationError } from '../../core/errors.js';
+import { SimulationError } from '../../model/errors.js';
 import { fan_out } from '../../core/fanout/fanout.js';
 import { tail_checkpoint } from '../recovery/index.js';
 import { subgraph_overlay_delta } from '../../core/state/schema.js';

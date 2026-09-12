@@ -21,12 +21,12 @@
  * 运行期可用，无「校验放行但 is 全 False」静默失效）；非内置字符串 =
  * 自定义端点（经注册表校验），保留字符串形态。
  */
-import { GraphDefinitionError } from '../errors.js';
-import { isRecord } from '../json.js';
+import { GraphDefinitionError } from '../../model/errors.js';
+import { isRecord } from '../../model/json.js';
 import { ToolSpec } from '../../kernel/llm/tools.js';
 import { parse_permission } from '../../kernel/permissions/permissions.js';
 import { NetworkPolicy } from '../../kernel/permissions/networkPolicy.js';
-import { pyRepr } from '../py_repr.js';
+import { pyRepr } from '../../model/py_repr.js';
 import { endpoint_registry } from './endpoint_registry.js';
 import { EndpointType } from './endpoint_types.js';
 

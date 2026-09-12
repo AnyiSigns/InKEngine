@@ -32,8 +32,8 @@
  * _metrics.ts 模块级函数（所需状态即发射回调与指标存储）。
  */
 
-import type { JsonRecord } from '../../core/json.js';
-import { isRecord } from '../../core/json.js';
+import type { JsonRecord } from '../../model/json.js';
+import { isRecord } from '../../model/json.js';
 import type { EngineEvent } from '../../core/events/events.js';
 import type { SettleContext } from '../settle/types.js';
 import { KnowledgeGate } from '../knowledge_gate/knowledge_gate.js';

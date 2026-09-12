@@ -14,7 +14,7 @@ import { describe, expect, it } from 'vitest';
 import { ToolPipeline } from '../../../src/kernel/tool_pipeline/tool_pipeline.js';
 import type { AsyncLLM, LLMChunk } from '../../../src/kernel/llm/_guard_types.js';
 import type { Message } from '../../../src/kernel/llm/messages.js';
-import { Graph } from '../../../src/core/graph/graph.js';
+import { Graph } from '../../../src/model/graph/graph.js';
 import { RunOptions } from '../../../src/core/run_result/run_result.js';
 import { Engine } from '../../../src/kernel/executor/index.js';
 import { EntitySpec } from '../../../src/core/entities/entities.js';

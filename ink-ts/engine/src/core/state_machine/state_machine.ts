@@ -21,7 +21,7 @@
  * 省略。
  */
 
-import { isRecord, type JsonRecord } from '../json.js';
+import { isRecord, type JsonRecord } from '../../model/json.js';
 
 /** 时间源 seam（等价 Python time.time）；宿主注入，缺省取确定性默认。 */
 export type TimeSource = () => number;

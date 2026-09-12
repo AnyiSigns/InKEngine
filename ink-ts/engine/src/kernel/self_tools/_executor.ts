@@ -6,7 +6,7 @@
  * 用：ctx/spec/args/approval → JSON 文本。
  */
 
-import { GraphDefinitionError } from '../../core/errors.js';
+import { GraphDefinitionError } from '../../model/errors.js';
 import type { SelfApplicationPipeline } from '../self_application/index.js';
 import { _apply, _propose, _propose_domain, _revert } from './_proposal_ops.js';
 import { _request_tool, _search_tools } from './_discover_ops.js';

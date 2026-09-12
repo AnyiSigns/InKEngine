@@ -7,8 +7,8 @@
  * fixtures 折叠为 case_id/passed/reason 明细，指标随结果留痕可审计）。
  */
 
-import type { JsonRecord } from '../../core/json.js';
-import type { FixtureResult } from '../../core/rules/index.js';
+import type { JsonRecord } from '../../model/json.js';
+import type { FixtureResult } from '../../model/rules/index.js';
 
 /** L1 准入结果（形式合法 + 安全扫描 + 最小功能）。 */
 export class GateL1Result {

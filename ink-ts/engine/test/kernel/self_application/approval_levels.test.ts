@@ -13,7 +13,7 @@ import { describe, expect, it } from 'vitest';
 import {
   APPROVAL_LEVELS,
   DEFAULT_APPROVAL_LEVELS as CONTRACT_DEFAULT_APPROVAL_LEVELS,
-} from '../../../src/core/contracts/generated/index.js';
+} from '../../../src/model/contracts/generated/index.js';
 import {
   ApprovalLevel,
   DEFAULT_APPROVAL_LEVELS,

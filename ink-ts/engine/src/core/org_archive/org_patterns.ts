@@ -23,7 +23,7 @@ import {
   CHANNEL_SHAPES,
   type ChannelCommit,
   type ChannelShape,
-} from '../channels/channel_spec.js';
+} from '../../model/channels/channel_spec.js';
 import type { ExecutionTrail, TrailHop } from './execution_trail.js';
 
 /** 转场模式（单跳 scope×channel 组合）。 */

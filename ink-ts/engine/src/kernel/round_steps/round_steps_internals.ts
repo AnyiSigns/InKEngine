@@ -6,8 +6,8 @@
  * 子机制模块间通过 ctx 接口解耦（不互相 import 私有方法）。
  */
 
-import type { JsonRecord } from '../../core/json.js';
-import { isRecord } from '../../core/json.js';
+import type { JsonRecord } from '../../model/json.js';
+import { isRecord } from '../../model/json.js';
 import {
   COUNTED_KINDS,
   type StepRecord,

@@ -12,7 +12,7 @@
  * - 单源失败静默跳过（检索是增强不是收紧），空结果 = 空清单。
  */
 
-import { GraphDefinitionError } from '../errors.js';
+import { GraphDefinitionError } from '../../model/errors.js';
 import {
   DEFAULT_INJECTION_SCANNER,
   DEFAULT_LIMIT,

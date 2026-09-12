@@ -12,7 +12,7 @@
  * 结构化结论）不触发 stdio 拉起、不谎报「进程崩溃」；连接断流与
  * 取消（TaskCancelled）语义分置，供监督句柄精确收敛。
  */
-import { GraphDefinitionError } from '../../core/errors.js';
+import { GraphDefinitionError } from '../../model/errors.js';
 
 /** MCP 工具导入失败（连接/列表/转换/vetting 任一环节报错）。 */
 export class McpToolImportError extends GraphDefinitionError {

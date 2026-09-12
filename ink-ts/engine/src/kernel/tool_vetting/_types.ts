@@ -8,8 +8,8 @@
  * 既有口径）：字段存值面字符串，is_valid 做白名单校验；比对即值比对
  * （Python 的 ``verdict is VettingVerdict.REVIEW`` 等价于值相等）。
  */
-import { GraphDefinitionError } from '../../core/errors.js';
-import { isRecord, typeName } from '../../core/json.js';
+import { GraphDefinitionError } from '../../model/errors.js';
+import { isRecord, typeName } from '../../model/json.js';
 
 // 族收敛：pyRepr 近似拷贝的统一迁移点 = core/py_repr.ts 单源（已就绪）；
 // 本实现与 rules/_py.ts pyRepr 语义一致。后续批次可按批迁移，本文件暂不

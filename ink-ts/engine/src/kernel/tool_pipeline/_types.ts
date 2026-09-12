@@ -24,7 +24,7 @@
  * 会使 .length 少计，等同不接受 name）。
  */
 
-import { isRecord } from '../../core/json.js';
+import { isRecord } from '../../model/json.js';
 import type { ApprovalDecision } from '../approval/approval_types.js';
 import type { InterruptPolicy } from '../approval/approval_types.js';
 import type { ToolSpec } from '../llm/tools.js';

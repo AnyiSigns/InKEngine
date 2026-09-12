@@ -13,8 +13,8 @@
  * 为注入 seam，缺省未注入 = 未配置执行器拒绝。
  */
 
-import { SandboxViolation } from '../../core/errors.js';
-import { isRecord } from '../../core/json.js';
+import { SandboxViolation } from '../../model/errors.js';
+import { isRecord } from '../../model/json.js';
 import {
   ApprovalDecision,
   DECISION_AUTO, DECISION_EDIT, DECISION_REJECT, DECISION_TERMINATE,

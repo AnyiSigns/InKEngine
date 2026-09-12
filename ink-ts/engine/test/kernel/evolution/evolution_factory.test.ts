@@ -26,7 +26,7 @@ import {
   type EvolutionGate,
   type MutationStrategy,
 } from '../../../src/kernel/evolution/index.js';
-import type { JsonRecord } from '../../../src/core/json.js';
+import type { JsonRecord } from '../../../src/model/json.js';
 import {
   GateL1Result,
   GateL2Result,

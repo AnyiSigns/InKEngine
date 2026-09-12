@@ -11,7 +11,7 @@
 
 import { describe, expect, it } from 'vitest';
 
-import type { JsonRecord } from '../../../src/core/json.js';
+import type { JsonRecord } from '../../../src/model/json.js';
 import type { IdGenFn, NowFn } from '../../../src/core/memory/memory.js';
 import { StorageBackedMemoryStore } from '../../../src/core/memory/store.js';
 import type { StorageBackedMemoryStoreOptions } from '../../../src/core/memory/store.js';

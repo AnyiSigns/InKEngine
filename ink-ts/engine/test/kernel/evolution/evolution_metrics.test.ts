@@ -17,7 +17,7 @@ import {
   type EvolutionGate,
   type MutationStrategy,
 } from '../../../src/kernel/evolution/index.js';
-import type { JsonRecord } from '../../../src/core/json.js';
+import type { JsonRecord } from '../../../src/model/json.js';
 import { GateL1Result, GateL2Result, GateL3Result } from '../../../src/kernel/knowledge_gate/index.js';
 import { KnowledgeEntry } from '../../../src/core/knowledge_set/knowledge_entry.js';
 import type { KnowledgeEntryOptions } from '../../../src/core/knowledge_set/knowledge_entry.js';

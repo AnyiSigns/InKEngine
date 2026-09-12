@@ -15,11 +15,11 @@
  * - 单节点自环 kind=loop（条件驱动）同样受既有护栏约束、退出条件满足即走退出边。
  */
 import { describe, expect, it } from 'vitest';
-import { Graph } from '../../../src/core/graph/graph.js';
+import { Graph } from '../../../src/model/graph/graph.js';
 import { GraphRegistries } from '../../../src/core/registry/registry.js';
 import { Engine } from '../../../src/kernel/executor/index.js';
 import { RunOptions } from '../../../src/core/run_result/run_result.js';
-import { TerminateReason } from '../../../src/core/graph/graph_types.js';
+import { TerminateReason } from '../../../src/model/graph/graph_types.js';
 import type { EdgeCondition, NodeFactory } from '../../../src/core/registry/registry_types.js';
 import { MemoryStorage } from './helpers.js';
 

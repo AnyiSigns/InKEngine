@@ -20,7 +20,7 @@
  * 存储）；引擎侧当前无装配消费方（接线点：宿主运行时装配
  * EnvironmentProviders）。
  */
-import { GraphDefinitionError } from '../errors.js';
+import { GraphDefinitionError } from '../../model/errors.js';
 import { ProcessResult, ProcessSandbox } from '../../kernel/sandbox/index.js';
 
 import {

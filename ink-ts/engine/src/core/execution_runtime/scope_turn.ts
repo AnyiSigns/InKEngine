@@ -8,7 +8,7 @@
  * 归并不在本层（fan_in / execution_runtime），本层只定 seam 与投影辅助。
  */
 
-import { isRecord } from '../json.js';
+import { isRecord } from '../../model/json.js';
 import type { ScopeTurnContext, ScopeTurnResult } from './runtime_types.js';
 import type { ScopeTurnRunner } from './runtime_types.js';
 import { build_block_sources } from '../context/block_source.js';

@@ -17,7 +17,7 @@ import {
   EvolutionFactory,
   entry_metrics,
 } from '../../../src/kernel/evolution/index.js';
-import type { JsonRecord } from '../../../src/core/json.js';
+import type { JsonRecord } from '../../../src/model/json.js';
 import { KnowledgeEntry } from '../../../src/core/knowledge_set/knowledge_entry.js';
 import type { KnowledgeEntryOptions } from '../../../src/core/knowledge_set/knowledge_entry.js';
 

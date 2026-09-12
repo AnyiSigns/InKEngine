@@ -9,8 +9,8 @@
 
 import { describe, expect, it } from 'vitest';
 
-import { GraphDefinitionError } from '../../../src/core/errors.js';
-import { NodeContract } from '../../../src/core/contracts/contracts.js';
+import { GraphDefinitionError } from '../../../src/model/errors.js';
+import { NodeContract } from '../../../src/model/contracts/contracts.js';
 import {
   produced_field_names,
   required_field_names,
@@ -25,7 +25,7 @@ import {
   SchemaField,
   SchemaSpec,
   type FieldKind,
-} from '../../../src/core/schema/schemaValidator.js';
+} from '../../../src/model/schema/schemaValidator.js';
 import { StateSchema } from '../../../src/core/state/schema.js';
 
 function _field(name: string, required = false, kind: FieldKind = FIELD_STRING): SchemaField {

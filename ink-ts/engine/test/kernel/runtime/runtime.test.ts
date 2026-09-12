@@ -27,12 +27,12 @@ import { describe, it, expect } from 'vitest';
 import { Runtime, RuntimeState, AssemblyRecipe, _KnowledgeUsageSettleHook } from '../../../src/kernel/runtime/index.js';
 import type { Host } from '../../../src/kernel/runtime/index.js';
 import { EngineEvent } from '../../../src/core/events/events.js';
-import type { JsonRecord } from '../../../src/core/json.js';
+import type { JsonRecord } from '../../../src/model/json.js';
 import { EVOLUTION_AUDIT_TYPE } from '../../../src/kernel/evolution_writer/evolution_writer.js';
 import { ROUND_LEDGER_COLLECTION } from '../../../src/kernel/runtime/_settle.js';
 import { DefaultInterruptPolicy } from '../../../src/kernel/approval/approval.js';
 import { ToolSpec } from '../../../src/kernel/llm/tools.js';
-import { EventTypeSpec } from '../../../src/core/event_types/eventTypeSpec.js';
+import { EventTypeSpec } from '../../../src/model/event_types/eventTypeSpec.js';
 import { HarnessDefinition } from '../../../src/core/harness/index.js';
 import { KnowledgeEntry, KIND_RULE } from '../../../src/core/knowledge_set/index.js';
 import { PatchKind } from '../../../src/kernel/self_proposal/index.js';
@@ -42,8 +42,8 @@ import type { SelfToolContext } from '../../../src/kernel/self_tools/index.js';
 import { MetaTuner, TunableParams, TurnMetrics } from '../../../src/kernel/tuning/index.js';
 import { SettleContext } from '../../../src/kernel/settle/index.js';
 import { MemoryStorage } from '../executor/helpers.js';
-import { TerminateReason } from '../../../src/core/graph/graph_types.js';
-import { GENERAL_WEIGHTS_SEED_ID } from '../../../src/core/seeds/seeds.js';
+import { TerminateReason } from '../../../src/model/graph/graph_types.js';
+import { GENERAL_WEIGHTS_SEED_ID } from '../../../src/model/seeds/seeds.js';
 import { CheckpointRecord } from '../../../src/core/storage/storage_records.js';
 
 /** 事件收集传输（EngineTransport 协议）。 */

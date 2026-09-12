@@ -18,7 +18,7 @@
  * 节点读到过期装配源（见 runtime 装配 seam 契约）。
  */
 
-import { GraphDefinitionError } from '../errors.js';
+import { GraphDefinitionError } from '../../model/errors.js';
 import type {
   EdgeCondition,
   NodeContract,

@@ -5,8 +5,8 @@
 
 import { describe, expect, it } from 'vitest';
 
-import { GraphDefinitionError } from '../../../src/core/errors.js';
-import { Graph } from '../../../src/core/graph/graph.js';
+import { GraphDefinitionError } from '../../../src/model/errors.js';
+import { Graph } from '../../../src/model/graph/graph.js';
 import { PatchChain } from '../../../src/kernel/patch/patchChain.js';
 import { DimensionScore } from '../../../src/core/scoring/scoring.js';
 import {

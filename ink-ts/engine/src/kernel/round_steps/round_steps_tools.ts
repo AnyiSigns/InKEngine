@@ -6,7 +6,7 @@
  * 以避免与 tools.ts 循环依赖（仅 reviewCard 单一调用点）。
  */
 
-import type { JsonRecord } from '../../core/json.js';
+import type { JsonRecord } from '../../model/json.js';
 import type { StepRecord } from './round_steps_types.js';
 
 /** 工具卡方法所需的最小状态（与 cards/reply/nodes 子机制 ctx 同构）。 */

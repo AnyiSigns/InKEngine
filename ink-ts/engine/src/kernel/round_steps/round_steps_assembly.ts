@@ -5,7 +5,7 @@
  * 步骤——同 id 复用、收尾定型 done + 耗时（毫秒，墙钟回拨不写负耗时）。
  */
 
-import type { JsonRecord } from '../../core/json.js';
+import type { JsonRecord } from '../../model/json.js';
 import type { StepRecord } from './round_steps_types.js';
 
 /** 组装阶段方法所需的最小状态。 */

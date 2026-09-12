@@ -17,8 +17,8 @@ import { promises as fs } from 'node:fs';
 import { dirname, join, resolve } from 'node:path';
 
 import { EngineEvent } from '../../core/events/events.js';
-import type { Json, JsonRecord } from '../../core/json.js';
-import { StorageError } from '../../core/errors.js';
+import type { Json, JsonRecord } from '../../model/json.js';
+import { StorageError } from '../../model/errors.js';
 import { CheckpointRecord } from '../../core/storage/storage_records.js';
 
 import { AsyncLock } from '../_lock.js';

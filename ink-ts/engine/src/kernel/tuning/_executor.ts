@@ -15,13 +15,13 @@
  *   保护、上限 1.0；阈值非负）。
  */
 
-import type { JsonRecord } from '../../core/json.js';
-import { isRecord } from '../../core/json.js';
+import type { JsonRecord } from '../../model/json.js';
+import { isRecord } from '../../model/json.js';
 import { GateL2Result } from '../knowledge_gate/index.js';
 import type { KnowledgeExecutor } from '../knowledge_gate/index.js';
 import type { KnowledgeEntry } from '../../core/knowledge_set/knowledge_entry.js';
-import { FixtureResult } from '../../core/rules/index.js';
-import type { FixtureSet } from '../../core/rules/index.js';
+import { FixtureResult } from '../../model/rules/index.js';
+import type { FixtureSet } from '../../model/rules/index.js';
 import {
   _DEFAULT_THRESHOLD_MAX,
   _DEFAULT_THRESHOLD_MIN,

@@ -11,7 +11,7 @@
  * - probe 参数派生只取带默认值的可选参数（观察探针绝不臆造必填字段，
  *   宁可在远端诚实失败也不产生不可控副作用）。
  */
-import { GraphDefinitionError } from '../../core/errors.js';
+import { GraphDefinitionError } from '../../model/errors.js';
 import {
   DeclarativeToolSpec,
 } from '../../core/declarative_tools/declarative_spec.js';

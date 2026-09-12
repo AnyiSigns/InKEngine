@@ -11,7 +11,7 @@
  * 执行状态推进（进入新路线时游标置 0，每次回落消费一跳后 +1）。
  */
 
-import { SCOPE_PRIOR_SINK, type ScopePriorHop, type ScopePriorPattern } from '../scopes/scope_priors.js';
+import { SCOPE_PRIOR_SINK, type ScopePriorHop, type ScopePriorPattern } from '../../model/scopes/scope_priors.js';
 import type { RoutingDecision } from './routing_next.js';
 
 /** 单跳 → 类型化路由决策（sink 跳返回 sink 决策；其余按 hop 形态映射）。 */

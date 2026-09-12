@@ -14,9 +14,9 @@
  * 下次调参从条目读回基线。
  */
 
-import { GraphDefinitionError } from '../../core/errors.js';
-import type { JsonRecord } from '../../core/json.js';
-import { isRecord } from '../../core/json.js';
+import { GraphDefinitionError } from '../../model/errors.js';
+import type { JsonRecord } from '../../model/json.js';
+import { isRecord } from '../../model/json.js';
 import { KnowledgeGate } from '../knowledge_gate/index.js';
 import {
   KIND_WEIGHT,
@@ -25,8 +25,8 @@ import {
   KnowledgeEntry,
   type KnowledgeSet,
 } from '../../core/knowledge_set/index.js';
-import type { FixtureSet } from '../../core/rules/index.js';
-import { GENERAL_WEIGHTS_SEED_ID } from '../../core/seeds/seeds.js';
+import type { FixtureSet } from '../../model/rules/index.js';
+import { GENERAL_WEIGHTS_SEED_ID } from '../../model/seeds/seeds.js';
 import {
   FAILURE_RATE_HIGH,
   FAILURE_RATE_LOW,

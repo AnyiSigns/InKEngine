@@ -8,8 +8,8 @@
  * 扩展键宿主语义保留（dict[str, Any]：校验只看 cmd/args，其余原样随声明
  * 序列化往返）。错误消息带 Python repr 口径渲染（对 Py 文案可读性对齐）。
  */
-import { GraphDefinitionError } from '../errors.js';
-import { isRecord } from '../json.js';
+import { GraphDefinitionError } from '../../model/errors.js';
+import { isRecord } from '../../model/json.js';
 
 import { pyRepr } from './_repr.js';
 import { shlex_split } from './_shlex.js';

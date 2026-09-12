@@ -9,7 +9,7 @@
 
 import { EdgeEvidenceStore } from '../../core/edge_evidence/index.js';
 import type { EdgeKey } from '../../core/edge_evidence/index.js';
-import { EVENT_AUDIT_JUNCTION } from '../../core/event_types/eventTypeSpecs.js';
+import { EVENT_AUDIT_JUNCTION } from '../../model/event_types/eventTypeSpecs.js';
 import { UPDATE_FAIL, UPDATE_SUCCESS } from './constants.js';
 import { JunctionBranch, JunctionVerdict } from './junction_types.js';
 

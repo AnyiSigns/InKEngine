@@ -12,8 +12,8 @@
  * 两者接口同形不同演化史，不同时并行接线（见 knowledge_skill_store）。
  */
 
-import { StorageError } from '../../core/errors.js';
-import { stableStringify } from '../../core/json.js';
+import { StorageError } from '../../model/errors.js';
+import { stableStringify } from '../../model/json.js';
 import { InMemorySkillStorage } from './in_memory.js';
 import type { SkillRow, SkillStorage } from './storage_seam.js';
 import { SkillEntry } from './skill_entry.js';

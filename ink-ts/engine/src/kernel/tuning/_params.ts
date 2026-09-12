@@ -11,9 +11,9 @@
  * to_dict/from_dict 序列化对齐 Python（缺省字段不落盘/缺省兜底回填）。
  */
 
-import { GraphDefinitionError } from '../../core/errors.js';
-import type { JsonRecord } from '../../core/json.js';
-import { isRecord, typeName } from '../../core/json.js';
+import { GraphDefinitionError } from '../../model/errors.js';
+import type { JsonRecord } from '../../model/json.js';
+import { isRecord, typeName } from '../../model/json.js';
 import { _DEFAULT_NOW } from './_constants.js';
 
 // ── 可调参数集合（TunableParams）──

@@ -24,7 +24,7 @@ import type { GraphRegistries } from '../registry/registry.js';
 import type { BranchMixer, Evaluator } from '../../kernel/simulation/simulation_types.js';
 import type { TurnMetrics } from '../../kernel/tuning/_turn_metrics.js';
 import type { SettleHooks } from '../../kernel/settle/index.js';
-import type { WorkflowSpec } from '../workflow/workflow_types.js';
+import type { WorkflowSpec } from '../../model/workflow/workflow_types.js';
 import { DEFAULT_MAX_PLAN_STEPS } from '../plan/plan.js';
 import { DEFAULT_MAX_SIMULATIONS } from '../../kernel/simulation/simulation.js';
 

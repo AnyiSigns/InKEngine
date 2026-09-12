@@ -31,10 +31,10 @@ import {
   entity_writer,
   org_prior_writer,
 } from '../../kernel/evolution_writer/evolution_writer.js';
-import { ChannelDirectory } from '../channels/channel_directory.js';
+import { ChannelDirectory } from '../../model/channels/channel_directory.js';
 import { EntityRegistry } from '../entities/entities.js';
-import { org_priors_collection } from '../scopes/prior_overlay.js';
-import { channel_collection } from '../channels/channel_directory.js';
+import { org_priors_collection } from '../../model/scopes/prior_overlay.js';
+import { channel_collection } from '../../model/channels/channel_directory.js';
 import {
   run_adoption_gate,
   type AdoptionGateOptions,

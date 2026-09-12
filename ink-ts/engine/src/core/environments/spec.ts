@@ -8,8 +8,8 @@
  * RuntimeKind 为 StrEnum 镜像（静态只读常量类，字段即取值）；is_valid 做白名单
  * 校验（from_dict 镜像 StrEnum 构造的 ValueError → 调用方按上下文包装）。
  */
-import { GraphDefinitionError } from '../errors.js';
-import { deepEqual, isRecord, typeName } from '../json.js';
+import { GraphDefinitionError } from '../../model/errors.js';
+import { deepEqual, isRecord, typeName } from '../../model/json.js';
 
 import { copyInstallCmd, validateInstallCmd, type InstallCmd } from './install_cmd.js';
 import { ENV_STATUS_READY } from './constants.js';

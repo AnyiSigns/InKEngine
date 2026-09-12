@@ -16,7 +16,7 @@
  * emit_events=False 跳过——防重复）。
  */
 import { InterruptSignal } from '../interrupt/interrupt_types.js';
-import { TerminateReason } from '../../core/graph/graph_types.js';
+import { TerminateReason } from '../../model/graph/graph_types.js';
 import { SpawnFailure, SpawnResult, type SpawnSpec, collect_spawn_specs, instance_entry_state, instance_thread_id } from '../spawn/spawn.js';
 import { fan_out } from '../../core/fanout/fanout.js';
 import { tail_checkpoint } from '../recovery/index.js';

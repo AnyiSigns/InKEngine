@@ -19,8 +19,8 @@ import {
   DeclarativeToolSpec,
   build_declarative_pipeline,
 } from '../declarative_tools/index.js';
-import { GraphDefinitionError } from '../errors.js';
-import { Graph } from '../graph/graph.js';
+import { GraphDefinitionError } from '../../model/errors.js';
+import { Graph } from '../../model/graph/graph.js';
 import type { ToolSpec } from '../../kernel/llm/tools.js';
 import type { NetworkPolicy } from '../../kernel/permissions/networkPolicy.js';
 import { Plan } from '../plan/plan.js';

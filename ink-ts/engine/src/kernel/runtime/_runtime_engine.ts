@@ -12,12 +12,12 @@
  */
 
 import { DeclarativeToolSpec } from '../../core/declarative_tools/index.js';
-import { EventTypeSpec } from '../../core/event_types/eventTypeSpec.js';
+import { EventTypeSpec } from '../../model/event_types/eventTypeSpec.js';
 import { EntitySpec } from '../../core/entities/entities.js';
 import { HarnessDefinition } from '../../core/harness/index.js';
 import { KnowledgeSet } from '../../core/knowledge_set/index.js';
 import type { AsyncLLM } from '../llm/_guard_types.js';
-import { UISchemaValidator } from '../../core/ui_schema/uiSchema.js';
+import { UISchemaValidator } from '../../model/ui_schema/uiSchema.js';
 import type { AssemblyRecipe } from './_types.js';
 import { RuntimeMechanisms } from './_runtime_mechanisms.js';
 

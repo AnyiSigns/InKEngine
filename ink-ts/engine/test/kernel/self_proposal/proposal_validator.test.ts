@@ -26,7 +26,7 @@ import {
   FIELD_STRING,
   SchemaField,
   SchemaSpec,
-} from '../../../src/core/schema/schemaValidator.js';
+} from '../../../src/model/schema/schemaValidator.js';
 
 function _proposal(
   kind: PatchKind,

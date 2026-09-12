@@ -28,11 +28,11 @@
  * 排序键与 Python sorted 一致，清单内容可逐项断言。
  */
 
-import { SAFETY_TIER_MAX } from '../contracts/contracts.js';
-import type { NodeContract } from '../contracts/contracts.js';
-import { GraphDefinitionError } from '../errors.js';
-import { FIELD_ARRAY, FIELD_OBJECT } from '../schema/schemaValidator.js';
-import type { SchemaSpec } from '../schema/schemaValidator.js';
+import { SAFETY_TIER_MAX } from '../../model/contracts/contracts.js';
+import type { NodeContract } from '../../model/contracts/contracts.js';
+import { GraphDefinitionError } from '../../model/errors.js';
+import { FIELD_ARRAY, FIELD_OBJECT } from '../../model/schema/schemaValidator.js';
+import type { SchemaSpec } from '../../model/schema/schemaValidator.js';
 import type { StateSchema } from '../state/schema.js';
 import { is_additive_reducer, is_merge_reducer } from '../state/reducers.js';
 

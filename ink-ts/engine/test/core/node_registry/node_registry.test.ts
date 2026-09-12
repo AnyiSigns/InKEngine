@@ -10,8 +10,8 @@
 
 import { describe, expect, it } from 'vitest';
 
-import { NodeContract } from '../../../src/core/contracts/contracts.js';
-import { FIELD_STRING, SchemaField, SchemaSpec } from '../../../src/core/schema/schemaValidator.js';
+import { NodeContract } from '../../../src/model/contracts/contracts.js';
+import { FIELD_STRING, SchemaField, SchemaSpec } from '../../../src/model/schema/schemaValidator.js';
 import {
   NodeRegistration,
   NodeRegistryStore,

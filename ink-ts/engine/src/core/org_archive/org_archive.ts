@@ -21,9 +21,9 @@
  * - 时刻 seen = ingest 注入 now（缺省 = 轨迹 ended_at_ms ?? 0），驱动使用近度。
  */
 
-import { CHANNEL_COMMIT_FULL, type ChannelCommit, type ChannelShape } from '../channels/channel_spec.js';
-import { GraphDefinitionError } from '../errors.js';
-import { isRecord } from '../json.js';
+import { CHANNEL_COMMIT_FULL, type ChannelCommit, type ChannelShape } from '../../model/channels/channel_spec.js';
+import { GraphDefinitionError } from '../../model/errors.js';
+import { isRecord } from '../../model/json.js';
 import { parse_execution_trail, validate_execution_trail, type ExecutionTrail } from './execution_trail.js';
 import {
   chain_key_of,

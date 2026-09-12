@@ -22,8 +22,8 @@
  * （附拒绝理由，run fail-closed 判失败）。
  */
 
-import { GraphDefinitionError } from '../errors.js';
-import { isRecord, typeName } from '../json.js';
+import { GraphDefinitionError } from '../../model/errors.js';
+import { isRecord, typeName } from '../../model/json.js';
 import { MAIN_SCOPE, WhiteboardAccessError } from '../whiteboard/index.js';
 import type { Whiteboard, WhiteboardAuditEntry, WhiteboardBlock } from '../whiteboard/index.js';
 

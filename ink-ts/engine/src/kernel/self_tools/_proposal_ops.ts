@@ -11,9 +11,9 @@
  */
 
 import { DeclarativeToolSpec } from '../../core/declarative_tools/index.js';
-import { GraphDefinitionError } from '../../core/errors.js';
+import { GraphDefinitionError } from '../../model/errors.js';
 import { build_minimal_harness } from '../../core/harness/index.js';
-import { isRecord } from '../../core/json.js';
+import { isRecord } from '../../model/json.js';
 import { PatchKind, SelfProposal } from '../self_proposal/index.js';
 import { _PATCH_KIND_VALUES } from '../self_proposal/self_proposal.js';
 import type { PatchKind as PatchKindType } from '../self_proposal/index.js';

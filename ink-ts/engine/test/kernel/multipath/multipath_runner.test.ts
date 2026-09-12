@@ -12,10 +12,10 @@
 import { describe, expect, it } from 'vitest';
 
 import { AssemblyCandidate, AssemblyRequest } from '../../../src/kernel/multipath/types.js';
-import { PathAssemblyFlags } from '../../../src/core/contracts/contracts.js';
+import { PathAssemblyFlags } from '../../../src/model/contracts/contracts.js';
 import { NodeTypeRegistry } from '../../../src/core/registry/registry.js';
 import { Engine } from '../../../src/kernel/executor/index.js';
-import { Graph } from '../../../src/core/graph/graph.js';
+import { Graph } from '../../../src/model/graph/graph.js';
 import { RunOptions } from '../../../src/core/run_result/run_result.js';
 import { BudgetRemaining } from '../../../src/kernel/budget/budget_types.js';
 import {

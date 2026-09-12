@@ -38,9 +38,9 @@
 
 import { describe, expect, it } from 'vitest';
 
-import { GraphDefinitionError } from '../../../src/core/errors.js';
-import { Graph } from '../../../src/core/graph/graph.js';
-import type { EdgeConditionRegistryLike } from '../../../src/core/graph/graph_types.js';
+import { GraphDefinitionError } from '../../../src/model/errors.js';
+import { Graph } from '../../../src/model/graph/graph.js';
+import type { EdgeConditionRegistryLike } from '../../../src/model/graph/graph_types.js';
 
 import { Plan } from '../../../src/core/plan/plan.js';
 import { KIND_NODES, KIND_PARALLEL } from '../../../src/core/plan/plan.js';

@@ -16,7 +16,7 @@ import {
   DECISION_REJECT,
   DECISION_TERMINATE,
 } from '../approval/approval.js';
-import { GraphDefinitionError } from '../../core/errors.js';
+import { GraphDefinitionError } from '../../model/errors.js';
 import type { Patch } from '../patch/patchChain.js';
 import type { SelfProposal } from '../self_proposal/index.js';
 

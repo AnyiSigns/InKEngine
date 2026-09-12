@@ -20,7 +20,7 @@
  * （EvolutionWriter kind=memory 受控通道），由 runtime 默认装配。
  */
 
-import { isRecord, type JsonRecord } from '../../core/json.js';
+import { isRecord, type JsonRecord } from '../../model/json.js';
 import { MemoryEntry } from '../../core/memory/memory.js';
 import type { StorageBackedMemoryStore } from '../../core/memory/store.js';
 

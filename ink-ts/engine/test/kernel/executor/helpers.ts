@@ -10,11 +10,11 @@ import { EngineEvent } from '../../../src/core/events/events.js';
 import { ChainLink, CheckpointRecord } from '../../../src/core/storage/storage_records.js';
 import type { Storage } from '../../../src/core/storage/storage.js';
 import { Engine } from '../../../src/kernel/executor/index.js';
-import { Graph } from '../../../src/core/graph/graph.js';
+import { Graph } from '../../../src/model/graph/graph.js';
 import { RunOptions, RunResult } from '../../../src/core/run_result/run_result.js';
 import type { EngineTransport } from '../../../src/core/events/events.js';
 import { CollectorTransport } from '../../../src/core/events/events.js';
-import type { JsonRecord } from '../../../src/core/json.js';
+import type { JsonRecord } from '../../../src/model/json.js';
 import type { BudgetPolicy } from '../../../src/kernel/budget/budget_types.js';
 import { BudgetExceededError } from '../../../src/kernel/budget/budget.js';
 

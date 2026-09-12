@@ -12,7 +12,7 @@
  * 不落 index 重导出）。
  */
 
-import { isRecord } from '../../core/json.js';
+import { isRecord } from '../../model/json.js';
 import {
   SKILL_KIND_PATH,
   SKILL_KIND_VISUAL,

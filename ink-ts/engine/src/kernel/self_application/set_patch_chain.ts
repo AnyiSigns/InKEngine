@@ -14,8 +14,8 @@
 import type { Storage } from '../../core/storage/storage.js';
 import type { Patch } from '../patch/patchChain.js';
 import { PatchChain } from '../patch/patchChain.js';
-import { GraphDefinitionError } from '../../core/errors.js';
-import type { Json } from '../../core/json.js';
+import { GraphDefinitionError } from '../../model/errors.js';
+import type { Json } from '../../model/json.js';
 
 import { _SET_CHAIN_COLLECTION, _SET_CHAIN_KEY } from './constants.js';
 import { GuardedStorage } from './guarded_storage.js';

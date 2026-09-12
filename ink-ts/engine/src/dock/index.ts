@@ -30,7 +30,7 @@ export * from './calls.js';
 export * from './view.js';
 
 // ── 4. 引擎错误类型族 ──
-export * from '../core/errors.js';
+export * from '../model/errors.js';
 
 // ── 1. 运行时装配 ──
 export { AssemblyRecipe, Runtime, RuntimeState, RunTicket, set_runtime_clock } from '../kernel/runtime/index.js';
@@ -48,8 +48,8 @@ export type {
 // ── 2. 核心机制公开面 ──
 
 // 图（数据即图，宿主按 SchemaSerializable 组装/序列化）
-export * from '../core/graph/graph.js';
-export * from '../core/graph/graph_types.js';
+export * from '../model/graph/graph.js';
+export * from '../model/graph/graph_types.js';
 
 // 引擎内置基础节点类型（llm_decider/tool_pipeline/回环条件边/池种子：数据图
 // 按类型名引用即解析执行；注册面供装配方把基础执行体装进 NodeTypeRegistry；
@@ -170,10 +170,10 @@ export * from '../core/environments/index.js';
 
 // Schema 校验（SchemaField/SchemaSpec/SchemaValidator；FieldKind 与
 // 引擎内置数据面生成物同源）
-export * from '../core/schema/schemaValidator.js';
+export * from '../model/schema/schemaValidator.js';
 
 // UI schema（三层白名单校验/渲染器 seam）
-export * from '../core/ui_schema/uiSchema.js';
+export * from '../model/ui_schema/uiSchema.js';
 
 // 权限与沙箱安全类型（PermissionGate/NetworkPolicySandbox/文件与进程沙箱；
 // SpawnSeam = core 进程沙箱的宿主注入 seam）
@@ -193,8 +193,8 @@ export * from '../core/link_validator/link_validator.js';
 
 // 事件类型（registry/specs，演化事件声明面；register_* 注册函数族为装配期
 // 内部动作——宿主经 EventTypeRegistry + 数据规格函数显式装配，不随公共面外泄）
-export * from '../core/event_types/registry.js';
-export * from '../core/event_types/eventTypeSpec.js';
+export * from '../model/event_types/registry.js';
+export * from '../model/event_types/eventTypeSpec.js';
 export {
   EVENT_AUDIT_JUNCTION,
   EVENT_AUDIT_POLICY_REVIEW,
@@ -204,7 +204,7 @@ export {
   attachment_event_spec,
   audit_event_specs,
   output_gate_event_specs,
-} from '../core/event_types/eventTypeSpecs.js';
+} from '../model/event_types/eventTypeSpecs.js';
 
 // 恢复 / 中断 / 预算（ResumeResolution/InterruptCoordinator/BudgetManager；
 // BudgetExceededError = 预算硬检查终止错误，属预算机制本模块）
@@ -224,11 +224,11 @@ export {
   SAFETY_TIER_MAX,
   SAFETY_TIER_MIN,
   NodeContract,
-} from '../core/contracts/contracts.js';
+} from '../model/contracts/contracts.js';
 export type {
   NodeContractInit,
   QualityGate,
-} from '../core/contracts/contracts.js';
+} from '../model/contracts/contracts.js';
 
 // 回合步骤记录形态（RoundSteps 主类仍为 executor 侧消费；宿主经 runtime
 // round_steps() 取 StepRecord 命名返回类型）
@@ -315,8 +315,8 @@ export {
   ROLE_ROUTER,
   build_role_model_chain,
   resolve_role_model,
-} from '../core/model_roles/index.js';
-export type { RoleModelChain } from '../core/model_roles/index.js';
+} from '../model/model_roles/index.js';
+export type { RoleModelChain } from '../model/model_roles/index.js';
 
 // 自指契约工具三路声明（tool_wiring 配方组件：宿主只装配声明，机制不复制）
 export { SELF_TOOL_CONTRACT } from '../kernel/self_tools/index.js';
@@ -339,7 +339,7 @@ export {
   GUARDED_PREFIXES,
   PATCH_KINDS,
   PATCH_OPS,
-} from '../core/contracts/generated/index.js';
+} from '../model/contracts/generated/index.js';
 export type {
   AuditStatus,
   BuiltinEndpointName,
@@ -347,7 +347,7 @@ export type {
   EndpointOutputField,
   KnownDefaultPatchKind,
   PatchKind,
-} from '../core/contracts/generated/index.js';
+} from '../model/contracts/generated/index.js';
 
 // ── 执行组织数据面（作用域目录资产 / 通道条件资产 / 组织先验素材：声明面，
 //    受控注册随实体/目录既有通道，执行语义由执行层落地）──
@@ -367,7 +367,7 @@ export {
   is_factory_scope_role,
   parse_scope_decl,
   scope_decl_to_dict,
-} from '../core/scopes/scope_spec.js';
+} from '../model/scopes/scope_spec.js';
 export type {
   CapabilityClass,
   ScopeCapability,
@@ -377,14 +377,14 @@ export type {
   ScopeIoContract,
   ScopeIoShape,
   ScopeRole,
-} from '../core/scopes/scope_spec.js';
+} from '../model/scopes/scope_spec.js';
 export {
   build_scope_asset,
   default_scope_directory_seeds,
   is_scope_asset,
   scope_decl_of,
-} from '../core/scopes/scope_directory.js';
-export type { ScopeAssetInit } from '../core/scopes/scope_directory.js';
+} from '../model/scopes/scope_directory.js';
+export type { ScopeAssetInit } from '../model/scopes/scope_directory.js';
 // 作用域资产主载体（实体记录）与受控下架标记：宿主执行装配按公共面装载/识别
 // 目录资产（同一实体受控通道），不深引引擎私有文件
 export { EntitySpec, RETIRED_META_KEY } from '../core/entities/entities.js';
@@ -393,12 +393,12 @@ export {
   default_scope_priors,
   scope_prior_from_dict,
   validate_scope_prior,
-} from '../core/scopes/scope_priors.js';
+} from '../model/scopes/scope_priors.js';
 export type {
   ScopePriorHop,
   ScopePriorPattern,
   ScopePriorShape,
-} from '../core/scopes/scope_priors.js';
+} from '../model/scopes/scope_priors.js';
 export {
   CHANNEL_COMMITS,
   CHANNEL_COMMIT_BEST,
@@ -415,14 +415,14 @@ export {
   default_channel_conditions,
   normalize_conditions,
   validate_channel_id,
-} from '../core/channels/channel_spec.js';
+} from '../model/channels/channel_spec.js';
 export type {
   ChannelCommit,
   ChannelConditions,
   ChannelShape,
   ChannelSpecInit,
-} from '../core/channels/channel_spec.js';
-export { ChannelDirectory, default_channel_seeds } from '../core/channels/channel_directory.js';
+} from '../model/channels/channel_spec.js';
+export { ChannelDirectory, default_channel_seeds } from '../model/channels/channel_directory.js';
 
 // ── 执行组织档案数据面（轨迹记录 / 组织模式统计 / 择优建议：纯数据面 +
 //    advisory，受控演化应用经审批 + 补丁链 + Guard 接线，不在本面执行）──
@@ -518,13 +518,13 @@ export {
   shortcut_overlay_id,
   weight_overlay,
   weight_overlay_id,
-} from '../core/scopes/prior_overlay.js';
+} from '../model/scopes/prior_overlay.js';
 export type {
   OrgPriorOverlayPayload,
   OrgPriorRoutePayload,
   OrgPriorShortcutPayload,
   OrgPriorWeightPayload,
-} from '../core/scopes/prior_overlay.js';
+} from '../model/scopes/prior_overlay.js';
 
 // ── 受控演化接口（P5-γ：统一提案 + 采纳前验证闸 + 目录感知应用计划 +
 //    受控应用层 + Wave-2 择优适配；作用域/通道/先验资产的唯一受控通道）──

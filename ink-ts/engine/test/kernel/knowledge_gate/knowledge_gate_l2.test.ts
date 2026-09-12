@@ -18,7 +18,7 @@ import {
   GateL2FixtureExecutor,
   KnowledgeGate,
 } from '../../../src/kernel/knowledge_gate/index.js';
-import { FixtureCase, FixtureSet } from '../../../src/core/rules/index.js';
+import { FixtureCase, FixtureSet } from '../../../src/model/rules/index.js';
 import {
   entry_of,
   fixtures,

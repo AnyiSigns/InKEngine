@@ -9,8 +9,8 @@
  * 主类的 toolPending 方法（与原 Python `_last_by_type` 反向查找同构）。
  */
 
-import type { Json, JsonRecord } from '../../core/json.js';
-import { isRecord } from '../../core/json.js';
+import type { Json, JsonRecord } from '../../model/json.js';
+import { isRecord } from '../../model/json.js';
 import type { StepRecord } from './round_steps_types.js';
 import { MEMORY_ATTACH_KINDS } from './round_steps_types.js';
 

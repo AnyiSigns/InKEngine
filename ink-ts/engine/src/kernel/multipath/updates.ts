@@ -7,8 +7,8 @@
  * ≠ 失败，不产生负样例）。审计记录 append-only，本模块只产出不落库。
  */
 
-import { EdgeEvidenceStore } from '../../core/edge_evidence/index.js';
-import type { EdgeKey } from '../../core/edge_evidence/index.js';
+import { EdgeEvidenceStore } from '../../evolve/observe/usage_evidence/index.js';
+import type { EdgeKey } from '../../evolve/observe/usage_evidence/index.js';
 import { EVENT_AUDIT_JUNCTION } from '../../model/event_types/eventTypeSpecs.js';
 import { UPDATE_FAIL, UPDATE_SUCCESS } from './constants.js';
 import { JunctionBranch, JunctionVerdict } from './junction_types.js';

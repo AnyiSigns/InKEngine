@@ -23,7 +23,7 @@
  */
 
 import { default_scope_priors } from '../../model/scopes/scope_priors.js';
-import { validate_run_id } from '../../core/org_archive/execution_trail.js';
+import { validate_run_id } from '../../evolve/observe/org_archive/execution_trail.js';
 import type { ScopePriorPattern } from '../../model/scopes/scope_priors.js';
 import type { TransitionApprovalSeam } from './channel_gate.js';
 import {

@@ -12,7 +12,7 @@ import { describe, expect, it } from 'vitest';
 
 import { BOOT_KEY_MULTIPATH_ENABLED, PathAssemblyFlags } from '../../../src/model/contracts/contracts.js';
 import { BudgetRemaining } from '../../../src/gate/budget/budget_types.js';
-import { EdgeEvidenceStore } from '../../../src/core/edge_evidence/index.js';
+import { EdgeEvidenceStore } from '../../../src/evolve/observe/usage_evidence/index.js';
 import { GraphDefinitionError } from '../../../src/model/errors.js';
 import { MAX_MULTIPATH_NESTING } from '../../../src/kernel/multipath/constants.js';
 import {

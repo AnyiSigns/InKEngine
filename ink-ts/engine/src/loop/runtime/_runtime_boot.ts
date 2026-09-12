@@ -21,7 +21,7 @@ import {
   EntityRegistry,
   entity_collection,
 } from '../../core/entities/entities.js';
-import { DefaultEvolutionWriter } from '../../kernel/evolution_writer/evolution_writer.js';
+import { DefaultEvolutionWriter } from '../../evolve/proposal/evolution_writer/evolution_writer.js';
 import {
   harness_collection,
   HarnessRegistry,
@@ -32,20 +32,20 @@ import {
   IntrospectionSources,
   introspection_tool_specs,
   make_introspection_executor,
-} from '../../kernel/introspection/index.js';
-import { GrowthPipeline } from '../../kernel/growth/index.js';
+} from '../../evolve/observe/inspection/index.js';
+import { GrowthPipeline } from '../../evolve/legacy/growth/index.js';
 import { KnowledgeSet, seed_knowledge_set } from '../../core/knowledge_set/index.js';
 import { seed_general } from '../../model/seeds/seeds.js';
 import {
   declarative_failure_reason,
   declarative_operation,
 } from '../tools/declarative_tools/index.js';
-import { EntityEvolutionPipeline } from '../../kernel/entity_evolution/index.js';
-import { GuardedStorage, SelfApplicationPipeline } from '../../kernel/self_application/index.js';
+import { EntityEvolutionPipeline } from '../../evolve/legacy/entity_evolution/index.js';
+import { GuardedStorage, SelfApplicationPipeline } from '../../evolve/legacy/self_application/index.js';
 import { GraphRegistries } from '../../graph/registry/registry.js';
-import { ProposalValidator } from '../../kernel/self_proposal/index.js';
-import { MetaTuner, TurnMetrics } from '../../kernel/tuning/index.js';
-import { KnowledgeSetRetriever, RetrieverRegistry } from '../../core/retrieval/index.js';
+import { ProposalValidator } from '../../evolve/legacy/self_proposal/index.js';
+import { MetaTuner, TurnMetrics } from '../../evolve/param_tuning/index.js';
+import { KnowledgeSetRetriever, RetrieverRegistry } from '../../evolve/learn/retrieval/index.js';
 import { ToolPipeline } from '../tools/tool_pipeline/tool_pipeline.js';
 import { ToolSelector } from '../tools/tool_orchestrator/tool_orchestrator.js';
 import { ToolVectorIndex } from '../tools/tool_index/tool_index.js';

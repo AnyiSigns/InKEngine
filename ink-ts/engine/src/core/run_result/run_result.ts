@@ -22,7 +22,7 @@ import type { EngineTransport } from '../../dock/ports/events.js';
 import type { InterruptState } from '../../loop/interrupt/interrupt_types.js';
 import type { GraphRegistries } from '../../graph/registry/registry.js';
 import type { BranchMixer, Evaluator } from '../../kernel/simulation/simulation_types.js';
-import type { TurnMetrics } from '../../kernel/tuning/_turn_metrics.js';
+import type { TurnMetrics } from '../../evolve/param_tuning/_turn_metrics.js';
 import type { SettleHooks } from '../../loop/settle/index.js';
 import type { WorkflowSpec } from '../../model/workflow/workflow_types.js';
 import { DEFAULT_MAX_PLAN_STEPS } from '../../model/plan/plan.js';

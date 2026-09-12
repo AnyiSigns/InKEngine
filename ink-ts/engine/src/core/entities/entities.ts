@@ -28,8 +28,8 @@
  */
 
 import { GraphDefinitionError } from '../../model/errors.js';
-import type { EvolutionRecord, EvolutionWriter } from '../../kernel/evolution_writer/_types.js';
-import { entity_writer } from '../../kernel/evolution_writer/evolution_writer.js';
+import type { EvolutionRecord, EvolutionWriter } from '../../evolve/proposal/evolution_writer/_types.js';
+import { entity_writer } from '../../evolve/proposal/evolution_writer/evolution_writer.js';
 import { isRecord } from '../../model/json.js';
 import {
   parse_scope_decl,

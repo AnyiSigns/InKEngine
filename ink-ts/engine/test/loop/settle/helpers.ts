@@ -16,7 +16,7 @@
 
 import { Graph } from '../../../src/model/graph/graph.js';
 import { TerminateReason } from '../../../src/model/graph/graph_types.js';
-import type { EdgeKey } from '../../../src/core/edge_evidence/_types.js';
+import type { EdgeKey } from '../../../src/evolve/observe/usage_evidence/_types.js';
 import { RunResult } from '../../../src/core/run_result/run_result.js';
 import {
   SettleContext,

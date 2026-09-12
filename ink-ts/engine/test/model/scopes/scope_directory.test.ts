@@ -14,7 +14,7 @@
 import { describe, expect, it } from 'vitest';
 
 import { EntityRegistry, EntitySpec } from '../../../src/core/entities/entities.js';
-import type { EvolutionRecord } from '../../../src/kernel/evolution_writer/_types.js';
+import type { EvolutionRecord } from '../../../src/evolve/proposal/evolution_writer/_types.js';
 import {
   build_scope_asset,
   default_scope_directory_seeds,

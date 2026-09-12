@@ -133,7 +133,7 @@ export * from '../core/state/schema.js';
 export * from '../gate/approval/approval.js';
 
 // 自指应用管线（SelfApplicationPipeline/GuardedStorage/分级表等）
-export * from '../kernel/self_application/index.js';
+export * from '../evolve/legacy/self_application/index.js';
 
 // 存储 seam（Storage 接口 + checkpoint/链记录数据形态 + 协议常量）
 export * from './ports/storage.js';
@@ -240,7 +240,7 @@ export {
   MemoryEntry,
   PriorityRecallPolicy,
   StorageBackedMemoryStore,
-} from '../core/memory/index.js';
+} from '../evolve/learn/memory/index.js';
 export type {
   IdGenFn,
   MemoryEntryInput,
@@ -249,7 +249,7 @@ export type {
   MemoryRecallPolicy,
   NowFn,
   StorageBackedMemoryStoreOptions,
-} from '../core/memory/index.js';
+} from '../evolve/learn/memory/index.js';
 
 export {
   CONFIRMATION_EVENTS,
@@ -258,13 +258,13 @@ export {
   ROUND_FACT_EVENTS,
   arbitrate_and_store,
   extract_entries_from_ledger,
-} from '../kernel/memory_extract/index.js';
+} from '../evolve/learn/memory_extract/index.js';
 export type {
   ArbitrateStoreResult,
   LedgerFactsProvider,
   MemoryExtractArbitration,
   MemoryExtractSettleHookOptions,
-} from '../kernel/memory_extract/index.js';
+} from '../evolve/learn/memory_extract/index.js';
 
 export {
   KnowledgeSkillStore,
@@ -273,14 +273,14 @@ export {
   crystallize_from_cache,
   knowledge_entry_to_skill,
   skill_to_knowledge_entry,
-} from '../kernel/skill_crystal/index.js';
+} from '../evolve/skill/crystallization/index.js';
 export type {
   CacheEntryLike,
   CacheEntrySource,
   SkillStoreLike,
   KnowledgeSkillStoreOptions,
   SkillStoreOptions,
-} from '../kernel/skill_crystal/index.js';
+} from '../evolve/skill/crystallization/index.js';
 
 export {
   DeterministicMutation,
@@ -288,8 +288,8 @@ export {
   EvolutionFactory,
   EvolutionOutcome,
   entry_metrics,
-} from '../kernel/evolution/index.js';
-export type { EvolutionGate, MutationStrategy } from '../kernel/evolution/index.js';
+} from '../evolve/legacy/evolution/index.js';
+export type { EvolutionGate, MutationStrategy } from '../evolve/legacy/evolution/index.js';
 
 export {
   AUTO_ROUND_ID_PREFIX,
@@ -300,13 +300,13 @@ export {
   TuneResult,
   TurnMetrics,
   is_auto_round_id,
-} from '../kernel/tuning/index.js';
+} from '../evolve/param_tuning/index.js';
 export type {
   MetaTunerOptions,
   ParameterSnapshotInit,
   TunableParamsInit,
   TurnMetricsInit,
-} from '../kernel/tuning/index.js';
+} from '../evolve/param_tuning/index.js';
 
 // 角色槽模型配置解析（模型按角色槽配置/回落语义，CODING §8 锚点；宿主
 // config 按槽解析模型配置形态并建链，不复制回落语义）
@@ -319,13 +319,13 @@ export {
 export type { RoleModelChain } from '../model/model_roles/index.js';
 
 // 自指契约工具三路声明（tool_wiring 配方组件：宿主只装配声明，机制不复制）
-export { SELF_TOOL_CONTRACT } from '../kernel/self_tools/index.js';
-export { make_self_executor, operation_of, self_tool_specs } from '../kernel/self_tools/index.js';
+export { SELF_TOOL_CONTRACT } from '../evolve/proposal/self_edit_tools/index.js';
+export { make_self_executor, operation_of, self_tool_specs } from '../evolve/proposal/self_edit_tools/index.js';
 export type {
   SelfToolContext,
   SelfToolExecutor,
   SelfToolNodeContext,
-} from '../kernel/self_tools/index.js';
+} from '../evolve/proposal/self_edit_tools/index.js';
 
 // 数据面契约（引擎内置生成物再导出：engine/schemas + fixtures →
 // core/contracts/generated，勿手改；宿主/上层一律经本公共面取用，
@@ -435,18 +435,18 @@ export {
   validate_execution_trail,
   validate_run_id,
   validate_scope_ref,
-} from '../core/org_archive/execution_trail.js';
+} from '../evolve/observe/org_archive/execution_trail.js';
 export type {
   ExecutionTrail,
   TrailCost,
   TrailHop,
   TrailOutcome,
-} from '../core/org_archive/execution_trail.js';
+} from '../evolve/observe/org_archive/execution_trail.js';
 export {
   ORG_ARCHIVE_SCHEMA_VERSION,
   OrgArchive,
-} from '../core/org_archive/org_archive.js';
-export type { OrgArchiveEntry } from '../core/org_archive/org_archive.js';
+} from '../evolve/observe/org_archive/org_archive.js';
+export type { OrgArchiveEntry } from '../evolve/observe/org_archive/org_archive.js';
 export {
   chain_key_of,
   chain_pattern_key,
@@ -459,12 +459,12 @@ export {
   transition_key_of,
   transition_pattern_key,
   transitions_of_trail,
-} from '../core/org_archive/org_patterns.js';
+} from '../evolve/observe/org_archive/org_patterns.js';
 export type {
   OrgChainPattern,
   OrgTransitionPattern,
   TrailScopeUsage,
-} from '../core/org_archive/org_patterns.js';
+} from '../evolve/observe/org_archive/org_patterns.js';
 export {
   empty_org_stats,
   failure_rate,
@@ -472,8 +472,8 @@ export {
   org_stats_to_dict,
   record_observation,
   success_rate,
-} from '../core/org_archive/org_stats.js';
-export type { OrgStats } from '../core/org_archive/org_stats.js';
+} from '../evolve/observe/org_archive/org_stats.js';
+export type { OrgStats } from '../evolve/observe/org_archive/org_stats.js';
 export {
   ORG_DOWNRANK_FAILURE_RATE,
   ORG_DOWNRANK_MIN_EVIDENCE,
@@ -494,7 +494,7 @@ export {
   suggest_keeps,
   suggest_retires,
   suggest_shortcuts,
-} from '../core/org_archive/pruning.js';
+} from '../evolve/observe/org_archive/pruning.js';
 export type {
   DownrankProposal,
   KeepProposal,
@@ -505,7 +505,7 @@ export type {
   PruningThresholds,
   RetireProposal,
   ShortcutProposal,
-} from '../core/org_archive/pruning.js';
+} from '../evolve/observe/org_archive/pruning.js';
 
 // ── 组织先验覆盖资产（org_priors 集合条目形态：route 覆写 / shortcut 直连 /
 //    weight 降权；受控演化应用在 org_priors:<set_id> 集合持久化覆盖行）──
@@ -542,13 +542,13 @@ export {
   is_prior_kind,
   is_scope_kind,
   payload_violations,
-} from '../core/controlled_evolution/evolution_proposal.js';
+} from '../evolve/proposal/evolution_proposal.js';
 export type {
   DownrankModeRef,
   EvolutionProposalInit,
   EvolutionProposalKind,
   EvolutionProvenance,
-} from '../core/controlled_evolution/evolution_proposal.js';
+} from '../evolve/proposal/evolution_proposal.js';
 export {
   GATE_ADDITIVE_KINDS,
   GATE_MANDATORY_KINDS,
@@ -556,7 +556,7 @@ export {
   run_adoption_gate,
   trial_spec_for,
   verdict_blocks,
-} from '../core/controlled_evolution/adoption_gate.js';
+} from '../evolve/proposal/adoption_gate.js';
 export type {
   AdoptionGateOptions,
   AdoptionGateOutcome,
@@ -564,28 +564,28 @@ export type {
   TrialRunner,
   TrialSpec,
   TrialVerdict,
-} from '../core/controlled_evolution/adoption_gate.js';
-export { plan_evolution } from '../core/controlled_evolution/apply_plan.js';
+} from '../evolve/proposal/adoption_gate.js';
+export { plan_evolution } from '../evolve/proposal/apply_plan.js';
 export type {
   ApplyPlanContext,
   ApplyPlanResult,
   EvolutionPlanStep,
   PlanChannelDirectory,
   PlanEntityDirectory,
-} from '../core/controlled_evolution/apply_plan.js';
+} from '../evolve/proposal/apply_plan.js';
 export {
   DOWNRANK_PRIOR_WEIGHT,
   adapt_pruning_proposals,
   evaluate_and_adapt,
-} from '../core/controlled_evolution/pruning_adapter.js';
-export type { PruningAdaptation } from '../core/controlled_evolution/pruning_adapter.js';
+} from '../evolve/proposal/pruning_adapter.js';
+export type { PruningAdaptation } from '../evolve/proposal/pruning_adapter.js';
 export {
   ControlledEvolutionApplier,
-} from '../core/controlled_evolution/controlled_applier.js';
+} from '../evolve/proposal/controlled_applier.js';
 export type {
   ControlledEvolutionApplierInit,
   EvolutionApplyReport,
-} from '../core/controlled_evolution/controlled_applier.js';
+} from '../evolve/proposal/controlled_applier.js';
 export {
   CRYSTALLIZE_MIN_SIGHTINGS,
   CRYSTALLIZE_MIN_SUCCESS_RATE,
@@ -596,7 +596,7 @@ export {
   normalize_temp_sighting,
   crystallize_asset_id,
   evaluate_temp_sightings,
-} from '../core/controlled_evolution/crystallize.js';
+} from '../evolve/proposal/crystallize.js';
 export type {
   TempSightingOutcome,
   TempSighting,
@@ -604,16 +604,16 @@ export type {
   CrystallizeOptions,
   CrystallizePatternStat,
   CrystallizeEvaluation,
-} from '../core/controlled_evolution/crystallize.js';
+} from '../evolve/proposal/crystallize.js';
 export {
   ORG_THRESHOLD_CONFIG_KEYS,
   normalize_org_evaluate_thresholds,
   effective_org_evaluate_thresholds,
-} from '../core/controlled_evolution/evaluate_options.js';
+} from '../evolve/proposal/evaluate_options.js';
 export type {
   OrgThresholdDomain,
   OrgThresholdNormalization,
-} from '../core/controlled_evolution/evaluate_options.js';
+} from '../evolve/proposal/evaluate_options.js';
 
 // ── 执行运行时（P5-δ：作用域装载 / 通道执行 / 汇聚点合成 / 护栏；含 __next
 //     路由数据面、路由规划、通道条件、归并语义、护栏与隔离试跑基座）──

@@ -7,7 +7,7 @@
  * 其余提案/复审/分类阈值在本层定稿。
  */
 
-import { TIER_PROMOTE_N, TIER_PROMOTE_P } from '../../core/edge_evidence/_types.js';
+import { TIER_PROMOTE_N, TIER_PROMOTE_P } from '../../evolve/observe/usage_evidence/_types.js';
 
 // ── 结点级成败留痕三态（执行器轨迹）──
 

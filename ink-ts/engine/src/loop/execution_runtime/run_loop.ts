@@ -23,7 +23,7 @@ import {
   CHANNEL_SHAPE_FAN_IN,
   type ChannelShape,
 } from '../../model/channels/channel_spec.js';
-import type { TrailHop, TrailOutcome } from '../../core/org_archive/execution_trail.js';
+import type { TrailHop, TrailOutcome } from '../../evolve/observe/org_archive/execution_trail.js';
 import { check_steps_guard, check_cost_guard } from './guardrails.js';
 import { InterruptSignal } from '../interrupt/interrupt_types.js';
 import { fallback_routing } from '../route/fallback_routing.js';

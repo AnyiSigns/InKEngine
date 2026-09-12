@@ -10,8 +10,8 @@
 import { Graph } from '../../../src/model/graph/graph.js';
 import { NodeContract } from '../../../src/model/contracts/contracts.js';
 import { SchemaField, SchemaSpec, FIELD_STRING } from '../../../src/model/schema/schemaValidator.js';
-import type { EdgeEvidence, EdgeKey } from '../../../src/core/edge_evidence/index.js';
-import { ORIGIN_RUNTIME } from '../../../src/core/edge_evidence/index.js';
+import type { EdgeEvidence, EdgeKey } from '../../../src/evolve/observe/usage_evidence/index.js';
+import { ORIGIN_RUNTIME } from '../../../src/evolve/observe/usage_evidence/index.js';
 import { AssemblyCandidate } from '../../../src/kernel/multipath/types.js';
 import {
   ChainEvidence,

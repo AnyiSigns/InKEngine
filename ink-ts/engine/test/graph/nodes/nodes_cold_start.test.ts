@@ -23,8 +23,8 @@ import { DefaultInterruptPolicy } from '../../../src/gate/approval/approval.js';
 import { HarnessDefinition } from '../../../src/core/harness/index.js';
 import { EventTypeSpec } from '../../../src/model/event_types/eventTypeSpec.js';
 import { KnowledgeEntry, KIND_RULE } from '../../../src/core/knowledge_set/index.js';
-import { self_tool_specs, make_self_executor, operation_of } from '../../../src/kernel/self_tools/index.js';
-import type { SelfToolContext } from '../../../src/kernel/self_tools/index.js';
+import { self_tool_specs, make_self_executor, operation_of } from '../../../src/evolve/proposal/self_edit_tools/index.js';
+import type { SelfToolContext } from '../../../src/evolve/proposal/self_edit_tools/index.js';
 import { MemoryStorage } from '../executor/helpers.js';
 
 

@@ -8,7 +8,7 @@
  * validation/network）不污染评审队列。
  */
 
-import { EdgeEvidenceStore } from '../../core/edge_evidence/store.js';
+import { EdgeEvidenceStore } from '../../evolve/observe/usage_evidence/store.js';
 import { now } from './_time.js';
 import { CAPABILITY_GAP_CATEGORIES, TRACE_FAILED } from '../../model/settle/_constants.js';
 import { derive_traversals } from './attribution.js';

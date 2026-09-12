@@ -15,10 +15,10 @@
  * 去重键 = 签名的 JSON 序列化（promotion_signature_key，宿主可复现）。
  */
 
-import { EdgeEvidenceStore } from '../../core/edge_evidence/store.js';
-import { edge_evidence_to_dict, edge_key_to_dict } from '../../core/edge_evidence/store.js';
-import { edge_key_tuple } from '../../core/edge_evidence/storage_seam.js';
-import type { EdgeKey } from '../../core/edge_evidence/_types.js';
+import { EdgeEvidenceStore } from '../../evolve/observe/usage_evidence/store.js';
+import { edge_evidence_to_dict, edge_key_to_dict } from '../../evolve/observe/usage_evidence/store.js';
+import { edge_key_tuple } from '../../evolve/observe/usage_evidence/storage_seam.js';
+import type { EdgeKey } from '../../evolve/observe/usage_evidence/_types.js';
 import { EVENT_AUDIT_PROMOTION } from '../../model/event_types/eventTypeSpecs.js';
 import { now } from './_time.js';
 import { UPDATE_SUCCESS } from '../../model/settle/_constants.js';

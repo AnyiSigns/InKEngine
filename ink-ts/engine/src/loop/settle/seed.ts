@@ -6,9 +6,9 @@
  * 边证据初始化；已存在同键行（运行期证据在先）不覆盖。
  */
 
-import { EdgeEvidenceStore } from '../../core/edge_evidence/store.js';
-import { import_seed_paths as _import_seed_paths } from '../../core/edge_evidence/seed.js';
-import type { SeedEdgeRaw } from '../../core/edge_evidence/seed.js';
+import { EdgeEvidenceStore } from '../../evolve/observe/usage_evidence/store.js';
+import { import_seed_paths as _import_seed_paths } from '../../evolve/observe/usage_evidence/seed.js';
+import type { SeedEdgeRaw } from '../../evolve/observe/usage_evidence/seed.js';
 
 /** 种子路径导入（沉淀侧统一入口）：返回写入条数。 */
 export async function import_seed_paths(

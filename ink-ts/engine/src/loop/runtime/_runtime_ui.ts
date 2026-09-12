@@ -69,7 +69,7 @@ export abstract class RuntimeUiComponents extends RuntimeSpecs {
   /** 停用集落盘（records 通道）。 */
   private async _write_ui_disabled_record(): Promise<void> {
     const { DefaultEvolutionWriter, runtime_config_writer } =
-      await import('../../kernel/evolution_writer/evolution_writer.js');
+      await import('../../evolve/proposal/evolution_writer/evolution_writer.js');
     const writer =
       this._mechanism_writer ?? new DefaultEvolutionWriter(this.storage!);
     await runtime_config_writer(

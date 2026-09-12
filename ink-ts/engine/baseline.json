@@ -2,14 +2,15 @@
   "measuredOn": "2026-09-12",
   "engine": {
     "srcDirs": {
-      "core": 15,
+      "core": 7,
       "model": 19,
-      "kernel": 15,
+      "kernel": 3,
       "graph": 5,
       "gate": 10,
-      "loop": 15
+      "loop": 15,
+      "evolve": 6
     },
-    "tsFiles": 462,
+    "tsFiles": 463,
     "indexLines": 768
   },
   "plugins": {

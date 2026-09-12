@@ -11,7 +11,7 @@
  * 装载（同名常量，两端须同步）。
  */
 
-import { DefaultEvolutionWriter, runtime_config_writer } from '../../kernel/evolution_writer/evolution_writer.js';
+import { DefaultEvolutionWriter, runtime_config_writer } from '../../evolve/proposal/evolution_writer/evolution_writer.js';
 import { ToolSelector } from '../tools/tool_orchestrator/tool_orchestrator.js';
 import type { ToolSpec } from '../../model/llm/tools.js';
 import {

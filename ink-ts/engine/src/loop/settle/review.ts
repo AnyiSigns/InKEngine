@@ -13,11 +13,11 @@
  * （池治理钩子 PoolGovernanceSettleHook 已随 pool_governance 机制退役。）
  */
 
-import { EdgeEvidenceStore } from '../../core/edge_evidence/store.js';
-import { ORIGIN_RUNTIME } from '../../core/edge_evidence/_types.js';
-import type { EdgeEvidence } from '../../core/edge_evidence/_types.js';
+import { EdgeEvidenceStore } from '../../evolve/observe/usage_evidence/store.js';
+import { ORIGIN_RUNTIME } from '../../evolve/observe/usage_evidence/_types.js';
+import type { EdgeEvidence } from '../../evolve/observe/usage_evidence/_types.js';
 import { EVENT_AUDIT_POLICY_REVIEW } from '../../model/event_types/eventTypeSpecs.js';
-import { laplace_success } from '../../core/edge_evidence/tier_model.js';
+import { laplace_success } from '../../evolve/observe/usage_evidence/tier_model.js';
 import { now } from './_time.js';
 import { POLICY_REVIEW_DOMAIN_MIN_EDGES, TRACE_FAILED } from '../../model/settle/_constants.js';
 import { derive_traversals } from './attribution.js';

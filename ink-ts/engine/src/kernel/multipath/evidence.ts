@@ -13,9 +13,9 @@
  * 组装侧快照（snapshot.ts type_level_index_of）同源口径。
  */
 
-import { DEFAULT_CONTRACT_VERSION } from '../../core/edge_evidence/index.js';
-import type { EdgeEvidence, EdgeKey } from '../../core/edge_evidence/index.js';
-import { derive_edge_tier } from '../../core/edge_evidence/index.js';
+import { DEFAULT_CONTRACT_VERSION } from '../../evolve/observe/usage_evidence/index.js';
+import type { EdgeEvidence, EdgeKey } from '../../evolve/observe/usage_evidence/index.js';
+import { derive_edge_tier } from '../../evolve/observe/usage_evidence/index.js';
 import { produced_field_names } from '../../gate/link_validator/link_validator.js';
 import type { AssemblyCandidate } from './types.js';
 

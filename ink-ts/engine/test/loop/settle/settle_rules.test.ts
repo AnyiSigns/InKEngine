@@ -7,7 +7,7 @@
 
 import { describe, expect, it } from 'vitest';
 
-import type { EdgeEvidence } from '../../../src/core/edge_evidence/_types.js';
+import type { EdgeEvidence } from '../../../src/evolve/observe/usage_evidence/_types.js';
 import {
   draft_node_contract,
   policy_edge_needs_review,

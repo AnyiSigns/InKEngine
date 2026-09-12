@@ -23,8 +23,8 @@ import {
 } from '../../../src/loop/trial/trial_runner.js';
 import type { ScopeTurnResult } from '../../../src/loop/execution_runtime/scope_turn.js';
 import type { ScopeTurnContext, ExecutionRuntimeDeps } from '../../../src/loop/execution_runtime/runtime_types.js';
-import { run_adoption_gate, type TrialSpec } from '../../../src/core/controlled_evolution/adoption_gate.js';
-import { EvolutionProposal } from '../../../src/core/controlled_evolution/evolution_proposal.js';
+import { run_adoption_gate, type TrialSpec } from '../../../src/evolve/proposal/adoption_gate.js';
+import { EvolutionProposal } from '../../../src/evolve/proposal/evolution_proposal.js';
 
 function resultWith(outcome: 'success' | 'failure' | 'degraded', emptyProduct = false): ExecutionResult {
   const base: ExecutionResult = {

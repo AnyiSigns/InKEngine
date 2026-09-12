@@ -15,7 +15,7 @@ import {
   TIER_OBSERVING,
   TIER_PROMOTED,
   TIER_REGULAR,
-} from '../../core/edge_evidence/index.js';
+} from '../../evolve/observe/usage_evidence/index.js';
 
 // ── 多径执行默认参数（引擎钉死；使用方仅覆盖权）────────────────────
 export const DEFAULT_MULTIPATH_K = 2; // 默认 k（1 主 + 1 探）

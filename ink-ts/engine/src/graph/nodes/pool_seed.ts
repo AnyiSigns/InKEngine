@@ -20,7 +20,7 @@
 
 import { NodeContract } from '../../model/contracts/contracts.js';
 import { derive_instance_contract } from './instance_contract.js';
-import type { SeedEdgeRaw } from '../../core/edge_evidence/seed.js';
+import type { SeedEdgeRaw } from '../../evolve/observe/usage_evidence/seed.js';
 import {
   ENGINE_DEFAULT_TOOL_ROUNDS,
   ENGINE_NODE_TYPE_META,

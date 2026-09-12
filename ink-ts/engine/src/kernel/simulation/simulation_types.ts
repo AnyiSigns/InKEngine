@@ -4,7 +4,7 @@
 
 import type { Json, JsonRecord } from '../../model/json.js';
 import { Graph } from '../../model/graph/graph.js';
-import { DimensionScore } from '../../core/scoring/scoring.js';
+import { DimensionScore } from '../../evolve/observe/scoring/scoring.js';
 import { GraphDefinitionError } from '../../model/errors.js';
 
 // ── 分支规格 / 评估结果 / 调配结果数据形态 ────────────────────────────────

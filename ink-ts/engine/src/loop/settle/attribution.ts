@@ -9,7 +9,7 @@
  * - attribution_plan：按归因规则逐边生成 EdgeUpdate 计划。
  */
 
-import type { EdgeEvidence } from '../../core/edge_evidence/_types.js';
+import type { EdgeEvidence } from '../../evolve/observe/usage_evidence/_types.js';
 import { TerminateReason } from '../../model/graph/graph_types.js';
 import {
   TRACE_FAILED,

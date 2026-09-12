@@ -28,7 +28,7 @@ import {
   KnowledgeSet,
   seed_knowledge_set,
 } from '../../core/knowledge_set/index.js';
-import { _SOURCE_CREDIBILITY, SOURCE_USER } from '../../core/source_grading/sourceGrading.js';
+import { _SOURCE_CREDIBILITY, SOURCE_USER } from '../../evolve/learn/source_reliability/sourceGrading.js';
 
 // 通用种子条目 id（稳定键：幂等注入与版本回退的锚点）
 const GENERAL_TEMPLATE_SEED_ID = 'seed.general.template.default';

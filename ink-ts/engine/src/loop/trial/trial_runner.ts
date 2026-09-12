@@ -19,7 +19,7 @@
 
 import { ExecutionRuntime } from '../execution_runtime/execution_runtime.js';
 import type { ExecutionRequest, ExecutionResult, ExecutionRuntimeDeps } from '../execution_runtime/runtime_types.js';
-import type { TrialRunner, TrialSpec, TrialVerdict } from '../../core/controlled_evolution/adoption_gate.js';
+import type { TrialRunner, TrialSpec, TrialVerdict } from '../../evolve/proposal/adoption_gate.js';
 
 /** 试跑探针：把 TrialSpec（提案变更意图）翻译成隔离执行请求。 */
 export type TrialProbe = (spec: TrialSpec) => ExecutionRequest | null;

@@ -19,22 +19,22 @@ import type {
 } from '../../core/harness/index.js';
 import type { EventTypeRegistry } from '../../model/event_types/registry.js';
 import type { EntityRegistry } from '../../core/entities/entities.js';
-import type { ProposalValidator } from '../../kernel/self_proposal/index.js';
+import type { ProposalValidator } from '../../evolve/legacy/self_proposal/index.js';
 import type { ToolVetting } from '../../gate/tool_vetting/tool_vetting.js';
-import type { IntrospectionService } from '../../kernel/introspection/index.js';
+import type { IntrospectionService } from '../../evolve/observe/inspection/index.js';
 import type { ToolPipeline } from '../tools/tool_pipeline/tool_pipeline.js';
-import type { SelfApplicationPipeline } from '../../kernel/self_application/index.js';
-import type { RetrieverRegistry } from '../../core/retrieval/index.js';
-import type { MetaTuner, TurnMetrics } from '../../kernel/tuning/index.js';
+import type { SelfApplicationPipeline } from '../../evolve/legacy/self_application/index.js';
+import type { RetrieverRegistry } from '../../evolve/learn/retrieval/index.js';
+import type { MetaTuner, TurnMetrics } from '../../evolve/param_tuning/index.js';
 import type { ToolVectorIndex } from '../tools/tool_index/tool_index.js';
 import type { ToolSelector } from '../tools/tool_orchestrator/tool_orchestrator.js';
 import type { ToolSpec } from '../../model/llm/tools.js';
-import type { GrowthPipeline } from '../../kernel/growth/index.js';
-import type { EntityEvolutionPipeline } from '../../kernel/entity_evolution/index.js';
-import type { DefaultEvolutionWriter } from '../../kernel/evolution_writer/evolution_writer.js';
-import type { EdgeEvidenceStore } from '../../core/edge_evidence/store.js';
-import type { StorageBackedMemoryStore } from '../../core/memory/store.js';
-import type { KnowledgeSkillStore } from '../../kernel/skill_crystal/knowledge_skill_store.js';
+import type { GrowthPipeline } from '../../evolve/legacy/growth/index.js';
+import type { EntityEvolutionPipeline } from '../../evolve/legacy/entity_evolution/index.js';
+import type { DefaultEvolutionWriter } from '../../evolve/proposal/evolution_writer/evolution_writer.js';
+import type { EdgeEvidenceStore } from '../../evolve/observe/usage_evidence/store.js';
+import type { StorageBackedMemoryStore } from '../../evolve/learn/memory/store.js';
+import type { KnowledgeSkillStore } from '../../evolve/skill/crystallization/knowledge_skill_store.js';
 import type { EnvironmentProviders } from '../../core/environments/providers.js';
 import type { EngineTransport } from '../../dock/ports/events.js';
 import type { _RoundStepsRecorder } from './_round_steps_recorder.js';
@@ -131,7 +131,7 @@ export abstract class RuntimeBase {
   round_transports: EngineTransport[] = [];
 
   // ── 装配产物（boot 后齐备；null = 未装配）──
-  storage: import('../../kernel/self_application/guarded_storage.js').GuardedStorage | null = null;
+  storage: import('../../evolve/proposal/guarded_storage.js').GuardedStorage | null = null;
   guard_token: string | null = null;
   graph_registries: GraphRegistries | null = null;
   knowledge_set: KnowledgeSet | null = null;

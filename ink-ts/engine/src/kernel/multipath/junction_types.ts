@@ -9,7 +9,7 @@
  */
 
 import { isRecord } from '../../model/json.js';
-import { DEFAULT_CONTRACT_VERSION, TIER_OBSERVING } from '../../core/edge_evidence/index.js';
+import { DEFAULT_CONTRACT_VERSION, TIER_OBSERVING } from '../../evolve/observe/usage_evidence/index.js';
 import {
   ChainEvidence,
   EdgeRef,

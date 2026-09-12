@@ -27,7 +27,7 @@ import { GraphDefinitionError } from '../../model/errors.js';
 import { Graph } from '../../model/graph/graph.js';
 import { deepCopy, isRecord, type Json, type JsonRecord } from '../../model/json.js';
 import { Patch, PatchChain, PatchOp } from '../../gate/patch/patchChain.js';
-import { DimensionScore } from '../../core/scoring/scoring.js';
+import { DimensionScore } from '../../evolve/observe/scoring/scoring.js';
 import { SimulateSpec, Evaluation, EvaluatedBranch, ProvenanceNote, BranchSelection, type Evaluator, type BranchMixer, type DimensionScorer } from './simulation_types.js';
 
 export { SimulateSpec, Evaluation, EvaluatedBranch, ProvenanceNote, BranchSelection } from './simulation_types.js';

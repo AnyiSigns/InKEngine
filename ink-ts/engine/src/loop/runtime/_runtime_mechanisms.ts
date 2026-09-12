@@ -13,7 +13,7 @@ import { approve_before_execute, ApprovalDecision } from '../../gate/approval/ap
 import type { ApprovalInterruptContext, InterruptPolicy } from '../../gate/approval/approval.js';
 import type { InterruptPolicy as HostPolicyLike } from '../../gate/approval/approval_types.js';
 import { emit_audit } from '../../gate/audit_log/audit_log.js';
-import { EdgeEvidenceStore, RecordsEdgeEvidenceStorage } from '../../core/edge_evidence/index.js';
+import { EdgeEvidenceStore, RecordsEdgeEvidenceStorage } from '../../evolve/observe/usage_evidence/index.js';
 import { EnvironmentProviders } from '../../core/environments/providers.js';
 import type { EnvironmentSpec } from '../../core/environments/spec.js';
 import { EnvironmentHandle } from '../../core/environments/spec.js';

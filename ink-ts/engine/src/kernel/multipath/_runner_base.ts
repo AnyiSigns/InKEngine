@@ -20,7 +20,7 @@
 
 import type { BudgetManager } from '../../gate/budget/budget.js';
 import type { BudgetRemaining } from '../../gate/budget/budget_types.js';
-import type { EdgeEvidenceStore } from '../../core/edge_evidence/index.js';
+import type { EdgeEvidenceStore } from '../../evolve/observe/usage_evidence/index.js';
 import type { EngineEvent, EngineTransport } from '../../dock/ports/events.js';
 import type { Graph } from '../../model/graph/graph.js';
 import { TerminateReason } from '../../model/graph/graph_types.js';

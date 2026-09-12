@@ -9,7 +9,7 @@
 
 import { EndpointType } from '../tools/declarative_tools/index.js';
 import type { ToolSpec } from '../../model/llm/tools.js';
-import { SelfToolContext } from '../../kernel/self_tools/index.js';
+import { SelfToolContext } from '../../evolve/proposal/self_edit_tools/index.js';
 import { RuntimeUiComponents } from './_runtime_ui.js';
 
 /** 自指/索引基座。 */

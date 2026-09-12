@@ -21,8 +21,8 @@ import type { ToolSpec } from '../../model/llm/tools.js';
 import type { ToolGateConfig } from '../../gate/permissions/permissions.js';
 import type { NodeFactory } from '../../graph/registry/registry_types.js';
 import type { Storage } from '../../dock/ports/storage.js';
-import type { SelfApplicationPipeline } from '../../kernel/self_application/index.js';
-import type { ConvergenceHook, SelfToolContext } from '../../kernel/self_tools/index.js';
+import type { SelfApplicationPipeline } from '../../evolve/legacy/self_application/index.js';
+import type { ConvergenceHook, SelfToolContext } from '../../evolve/proposal/self_edit_tools/index.js';
 import { DEFAULT_BIND_CHANNELS } from '../../model/ui_schema/uiSchemaSupport.js';
 
 /** 回合装配源提供者形态（检索结果 + 知识注入 → 装配源清单）。 */
@@ -142,7 +142,7 @@ export interface AssemblyRecipeInit {
   seed_edges_enabled?: boolean;
   /** 出厂边先验数据覆写（null/缺省 = 引擎出厂 default_engine_seed_edges）。 */
   seed_edges?: readonly (
-    | import('../../core/edge_evidence/seed.js').SeedEdgeRaw
+    | import('../../evolve/observe/usage_evidence/seed.js').SeedEdgeRaw
     | Record<string, unknown>
   )[] | null;
   // ── 自学习族开关（引擎默认全开；false = 该块不装配）──
@@ -200,7 +200,7 @@ export class AssemblyRecipe {
   // ── 出厂边先验（引擎默认关闭——先验入证据面会改变归因统计，保守档）──
   seed_edges_enabled = false;
   seed_edges: readonly (
-    | import('../../core/edge_evidence/seed.js').SeedEdgeRaw
+    | import('../../evolve/observe/usage_evidence/seed.js').SeedEdgeRaw
     | Record<string, unknown>
   )[] | null = null;
   // ── 自学习族开关（引擎默认全开；false = 该块不装配）──

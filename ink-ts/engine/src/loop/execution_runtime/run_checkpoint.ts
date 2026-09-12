@@ -32,7 +32,7 @@ import { resolve_resume, tail_checkpoint } from '../recovery/index.js';
 import { EntitySpec } from '../../core/entities/entities.js';
 import { Whiteboard } from '../whiteboard/index.js';
 import type { RoutingDecision } from '../route/routing_next.js';
-import type { TrailHop, TrailOutcome } from '../../core/org_archive/execution_trail.js';
+import type { TrailHop, TrailOutcome } from '../../evolve/observe/org_archive/execution_trail.js';
 import type { ChildRunOutcome, RunState } from './runtime_types.js';
 
 /** checkpoint 子链线程命名空间（run_id 命名空间；子 run 各自独立子链）。 */

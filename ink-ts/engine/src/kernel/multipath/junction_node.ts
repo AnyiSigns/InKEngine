@@ -13,7 +13,7 @@
 
 import { GraphDefinitionError } from '../../model/errors.js';
 import { isRecord } from '../../model/json.js';
-import { EdgeEvidenceStore } from '../../core/edge_evidence/index.js';
+import { EdgeEvidenceStore } from '../../evolve/observe/usage_evidence/index.js';
 import type { QualityGate } from '../../model/contracts/contracts.js';
 import { NodeTypeRegistry } from '../../graph/registry/registry.js';
 import type { NodeFn } from '../../graph/registry/registry_types.js';

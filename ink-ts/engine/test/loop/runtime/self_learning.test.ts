@@ -23,10 +23,10 @@ import {
   KnowledgeEntry,
 } from '../../../src/core/knowledge_set/index.js';
 import { GENERAL_WEIGHTS_SEED_ID } from '../../../src/model/seeds/seeds.js';
-import { TunableParams } from '../../../src/kernel/tuning/index.js';
-import { DEFAULT_NAMESPACE } from '../../../src/kernel/memory_extract/index.js';
+import { TunableParams } from '../../../src/evolve/param_tuning/index.js';
+import { DEFAULT_NAMESPACE } from '../../../src/evolve/learn/memory_extract/index.js';
 import { MemoryStorage } from '../../graph/executor/helpers.js';
-import type { EvolutionGate } from '../../../src/kernel/evolution/index.js';
+import type { EvolutionGate } from '../../../src/evolve/legacy/evolution/index.js';
 
 /** 假 LLM（引擎重建/stop 关停路径可复用）。 */
 class ClosableLLM {

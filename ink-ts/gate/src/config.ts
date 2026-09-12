@@ -50,7 +50,7 @@ export const defaultConfig: GateConfig = {
   maxLines: 350,
   lineScanDirs: ['engine/src', 'engine/test', 'hosts/lib/src', 'hosts/lib/test', 'hosts/cli/src', 'hosts/cli/test', 'hosts/web/src', 'hosts/web/test', 'renderer/src', 'renderer/test', 'plugins/ui_features', 'plugins/tools/doc_parse/faces'],
   coreDirs: ['engine/src/core', 'engine/src/kernel'],
-  layerDirs: ['engine/src/dock', 'engine/src/model', 'engine/src/graph', 'engine/src/gate', 'engine/src/loop'],
+  layerDirs: ['engine/src/dock', 'engine/src/model', 'engine/src/graph', 'engine/src/gate', 'engine/src/loop', 'engine/src/evolve'],
   adapterDirs: ['engine/src/adapters'],
   jsonScanDirs: ['seed_data', 'plugins', 'engine/schemas', 'engine/fixtures'],
   coreSeamMarker: '跨域契约模块',

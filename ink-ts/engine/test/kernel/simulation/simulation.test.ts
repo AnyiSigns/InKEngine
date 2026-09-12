@@ -8,7 +8,7 @@ import { describe, expect, it } from 'vitest';
 import { GraphDefinitionError } from '../../../src/model/errors.js';
 import { Graph } from '../../../src/model/graph/graph.js';
 import { PatchChain } from '../../../src/gate/patch/patchChain.js';
-import { DimensionScore } from '../../../src/core/scoring/scoring.js';
+import { DimensionScore } from '../../../src/evolve/observe/scoring/scoring.js';
 import {
   BranchSelection,
   DimensionScorer,

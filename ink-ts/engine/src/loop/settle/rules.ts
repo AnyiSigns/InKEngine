@@ -7,8 +7,8 @@
  * 决定/草案数据；钩子层负责登记与落库。
  */
 
-import type { EdgeEvidence } from '../../core/edge_evidence/_types.js';
-import { laplace_success } from '../../core/edge_evidence/tier_model.js';
+import type { EdgeEvidence } from '../../evolve/observe/usage_evidence/_types.js';
+import { laplace_success } from '../../evolve/observe/usage_evidence/tier_model.js';
 import { SchemaField, SchemaSpec } from '../../model/schema/schemaValidator.js';
 import {
   FAIL_CAT_MODEL,

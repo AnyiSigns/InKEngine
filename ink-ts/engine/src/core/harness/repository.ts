@@ -19,11 +19,11 @@
 import {
   DefaultEvolutionWriter,
   harness_writer,
-} from '../../kernel/evolution_writer/evolution_writer.js';
+} from '../../evolve/proposal/evolution_writer/evolution_writer.js';
 import type {
   EvolutionRecord,
   EvolutionStorage,
-} from '../../kernel/evolution_writer/_types.js';
+} from '../../evolve/proposal/evolution_writer/_types.js';
 import { isRecord } from '../../model/json.js';
 import type { Json } from '../../model/json.js';
 import { PatchChain } from '../../gate/patch/patchChain.js';

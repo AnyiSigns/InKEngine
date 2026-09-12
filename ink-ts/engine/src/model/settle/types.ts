@@ -17,8 +17,8 @@
  *   去重集合用；沿 InMemoryEdgeEvidenceStorage 的 toKey 口径）。
  */
 
-import { DEFAULT_CONTRACT_VERSION } from '../../core/edge_evidence/_types.js';
-import type { EdgeKey } from '../../core/edge_evidence/_types.js';
+import { DEFAULT_CONTRACT_VERSION } from '../../evolve/observe/usage_evidence/_types.js';
+import type { EdgeKey } from '../../evolve/observe/usage_evidence/_types.js';
 import type { Graph } from '../graph/graph.js';
 import type { RunResult } from '../../core/run_result/run_result.js';
 

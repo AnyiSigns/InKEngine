@@ -8,7 +8,7 @@
  * 中断 = 快照续跑；无链 = 新鲜派生（Promise.all 保持 fan_out 并行）。
  */
 
-import { validate_run_id, type TrailHop, type TrailOutcome } from '../../core/org_archive/execution_trail.js';
+import { validate_run_id, type TrailHop, type TrailOutcome } from '../../evolve/observe/org_archive/execution_trail.js';
 import { check_parallel_guard } from './guardrails.js';
 import { InterruptSignal, InterruptState } from '../interrupt/interrupt_types.js';
 import {

@@ -127,9 +127,7 @@ interface GateResult {
   logistic regression），TS 实现、全批梯度下降、`float32`；
   超参：`lr=3e-3`、`batch=512`、`epochs≤200`、`patience=10`（val CE）、`label_smoothing=0.05`、
   `weight_decay=1e-4`，`seed ∈ {0,1,2,3,4}`。
-- **算法**：分类器固定超参、`seed ∈ {0..4}` 各训练+评测一次 → 每次在 held-out 取
-  argmax 类别统计 top-1 准确率 → **五 seed 取均值口径**（`top1_acc_mean`，标准差
-  `top1_acc_std`；与实现一致，无「单跑一次」口径）。
+- **算法**：训练 → 在 held-out 取 argmax 类别 → 统计 top-1 准确率（分类器固定、只跑一次）。
 - **输出 metrics**：`top1_acc_mean`、`top1_acc_std`、`n_classes`、`heldout_per_class`、
   `encoder_iteration`（编码器迭代轮次 M）。
 - **通过判据**：`top1_acc_mean ≥ 0.90`（首轮目标，实测后校准并原样记录）。

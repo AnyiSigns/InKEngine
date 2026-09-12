@@ -36,8 +36,9 @@ const ENGINE = join(HERE, '..');
  *  P3b 起 + gate：approval/audit_log/budget/patch/permissions/tool_vetting/sandbox 等
  *  运行期门禁机制件迁入 gate/，0-IO 纪律随迁等价覆盖；P4 起 + loop：执行主线机制件
  *  （runtime/round_steps/interrupt/recovery/settle/tool_pipeline/llm 域等）迁入
- *  loop/，0-IO 纪律随迁等价覆盖）。 */
-const MECH_SRC_DIRS = ['kernel', 'graph', 'gate', 'loop'].map((d) => join(ENGINE, 'src', d));
+ *  loop/，0-IO 纪律随迁等价覆盖；P5 起 + evolve：受控进化栈（proposal/learn/observe/
+ *  skill/param_tuning）机制件迁入 evolve/，0-IO 纪律随迁等价覆盖）。 */
+const MECH_SRC_DIRS = ['kernel', 'graph', 'gate', 'loop', 'evolve'].map((d) => join(ENGINE, 'src', d));
 
 /** gate 同步白名单：core/kernel 允许的 node 内置模块（镜像 gate config）。 */
 const CORE_ALLOWED_NODE = new Set(['node:async_hooks']);
@@ -183,7 +184,7 @@ function run(): number {
 
   if (failures.length === 0) {
     console.log(
-      `verify:mechanisms PASS —— 契约 ${ALL_MECHANISM_CONTRACTS.length} 项密封/闭包完整，kernel/graph/gate/loop 机制层零自持 IO`,
+      `verify:mechanisms PASS —— 契约 ${ALL_MECHANISM_CONTRACTS.length} 项密封/闭包完整，kernel/graph/gate/loop/evolve 机制层零自持 IO`,
     );
     return 0;
   }

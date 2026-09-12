@@ -27,8 +27,8 @@ import {
   make_self_executor,
   operation_of,
   self_tool_specs,
-} from '../../src/kernel/self_tools/index.js';
-import type { SelfToolContext } from '../../src/kernel/self_tools/index.js';
+} from '../../src/evolve/proposal/self_edit_tools/index.js';
+import type { SelfToolContext } from '../../src/evolve/proposal/self_edit_tools/index.js';
 
 /**
  * 事件收集 Host（五件套真实现；存储/模型按测试注入）。

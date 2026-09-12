@@ -21,7 +21,7 @@ import {
   SOURCE_WEB,
   _SOURCE_CREDIBILITY,
   default_credibility as _default_credibility,
-} from '../source_grading/sourceGrading.js';
+} from '../../evolve/learn/source_reliability/sourceGrading.js';
 
 // 来源分级重导出（来源分级常量/顺序/默认可信度基准 = source_grading 单源）
 export { SOURCE_DIALOG, SOURCE_MODEL, SOURCE_ORDER, SOURCE_USER, SOURCE_WEB };

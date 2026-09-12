@@ -2,15 +2,16 @@
 
 程序化合成数据 + 可执行验收器 + teacher 轨迹 → SFT/蒸馏的**可微路由控制器**。
 设计定稿见 `.kilo/plans/1789174413324-datagraphlab-data-engine-sft-controller.md`；
-本包是它的落地起点（Phase 0 的 T1/T2/T3 三件）。
+本包是其落地（Phase 0 已闭环，Phase 1 数据→训练闭环推进中）。
 
 ## 现状（本波已闭环）
 
 世界层与合成数据生成器、可执行验收器、oracle 教师轨迹、内容寻址存储加六个门禁脚本
 已齐备：`npm run gate` 全绿（六项），每次跑批把机器可读证据落进 `runs/gates-<stamp>/`
 （六份 `G0.*.json`、两份 csv 明细、一份 run 级 `manifest.json`）。teacher/search
-（`planBfs`）与 controller 三件套（features/policy/checkpoint）已落地。全套 **351 项
-测试（29 个文件）可重跑复现**（`npx vitest run --reporter=basic`，实测 2026-09-12）。
+（`planBfs`）与 controller 三件套（features/policy/checkpoint）、数据派生层（records v2
+bin）、运行/评测（rollout/metrics/arms 五臂）、Python 训练器（train.py）已落地。全套
+**369 项测试（30 个文件）可重跑复现**（`npm test`，实测 2026-09-12）。
 「完成」的定义里，run 级版本快照与实测数字回填均已闭环——快照随 `createGateContext`
 给定 runId 时落盘，数字见「验证结果」节。
 
@@ -22,6 +23,9 @@
 | 验收与运行 | 通道收口的可执行验收器、对抗套件（静态错件 + fuzz）、沙箱、图与候选动作 | `verify/`、`runner/` |
 | 教师与数据 | on-path oracle 逐步标签、teacher 规划臂 `planBfs`（BFS 最短解，不进训练集）、内容寻址 JSONL 分片 + 索引 + 两级去重、泄漏审计、多解冲突率诊断、全员版本化 manifest | `teacher/oracle.ts`、`teacher/search.ts`、`data/` |
 | 控制器三件套 | 白名单特征 `featurizeObs`/`featurizeAction`、指针式 `Policy` 前向与 f32 精确随机初始化、`weights.json` 读写 + arch fail-fast + float32 执法 | `controller/features.ts`、`controller/policy.ts`、`controller/checkpoint.ts` |
+| 数据派生层 | 原始 obs（store）→ 稀疏 `records.bin` v2（header 一次性存 22 节点动作特征表 + 行内 22 位全局 ROUTING 掩码 + 进度 critic 标签），featurize CLI | `data/records.ts`、`data/records_bin.ts` |
+| 运行与评测 | C.7 贪心 rollout、pass@1(Wilson CI)/pathExcess/stepsOverShortest/routingAcc/ECE、五臂（heuristic/random/trained/planner/contract_route） | `runner/rollout.ts`、`eval/` |
+| Python 训练器 | numpy 前向/反向/Adam/CE+smoothing+WD+进度头（数值梯度 <1e-5、记忆自检 acc≥0.99）、bin v2 解析、val CE 早停 + `--save-last-k` | `controller/train.py`、`controller/train_nn.py` |
 | 门禁 | G0.1–G0.6 判据脚本 + 共享 harness（`inputs_hash` 绑定 world/manifest/fixture，失败也落盘；同时刻出 run 级 `manifest.json` 版本快照） | `conformance/gates/`、`docs/gates.md` |
 | 金标 | 所有示例由参考实现生成并冻结，文档同源自动生成 | `conformance/`、`docs/helpers.md` |
 
@@ -34,6 +38,8 @@ npm test                   # vitest：hash/rng/types/词表/往返/生成/验收
 npm run gate               # 跑 G0.1–G0.6 六门禁，证据+manifest.json 落 runs/gates-<stamp>/
 npm run golden             # 重新生成 conformance/fixtures.json 与 docs/helpers.md
 npm run golden:check       # 断言二者与参考实现逐字一致（文档漂移即红）
+npx tsx data/records.ts --split train --out runs/train.bin       # 原始 obs → records.bin v2
+C:\...\.venv\Scripts\python.exe controller/train.py --train runs/train.bin --val runs/val.bin --out runs/weights.json   # 唯一 Python 训练器
 ```
 
 ## 关键约束（已代码化）
@@ -53,8 +59,8 @@ generator `a3dd8c5b649254a0`、acceptor `88cd318470348af5`、teacher pin
 `oracle@plan_hidden`、控制器代码 `918c830d335244eb`（覆盖 controller 五件源文件
 slots/features/features_struct/policy/checkpoint）、签名探针集 `ff8b77568af3b6af`）。
 
-- `npm run gate`：6/6 PASS；`npm run typecheck` 通过；全量 `npx vitest run`
-  29 文件 351 项全绿（实测 2026-09-12）。
+- `npm run gate`：6/6 PASS；`npm run typecheck` 通过；全量 `npm test` 30 文件 369 项全绿
+  （实测 2026-09-12）。
 - G0.1 确定性：跨进程 + 进程内复算逐字节一致，一致率 1.000（12 例 makeTask，
   fixture 复算 15/15 命中）。
 - G0.2 可解性：728 任务 solvable 比例 1.000，hidden plan 回放穿验收失败 0。
@@ -89,12 +95,19 @@ slots/features/features_struct/policy/checkpoint）、签名探针集 `ff8b77568
 
 ## 待决（先登记后扩展）
 
-- R2-P0 计划同步已落地（verdict 指纹绑定 / 恒等签名丢弃 / goal 适格池 + follow 极小性
-  守卫）：实测 `SKELETONS` 4201→4199（丢 `[neg,neg]`、`[reverse,reverse]`），heldout
-  830→829，goal 域不适格 211→210（注册表 422→420 键，改为 goalEligible 派生薄层）；
-  判定式对计划伪代码的四处语义修正（[add3,sub1] 恒等举例、epool 漏 goal_verify、
-  probe_hit 弱化式、has_shortcut 缺长度比较）待规划者复核回写计划。
-- `conformance/gates/` 与 `runs/` 为 T3 规格指定的门禁落点，本文件登记，随 Phase 0
-  实现落地（当前仅规格 `docs/gates.md`，未实现脚本）。
-- 其余 helper（`apply_op`/`init_state`/`candidates`/`accept`/`plan_bfs`/`featurize`/
-  `Policy`/`bc_train`/DAgger/arms/structure/llm_gateway）随各自 Phase 0 文件补齐。
+- R2-P0 计划同步**已闭环**：verdict 指纹绑定 / 恒等签名丢弃 / goal 适格池 + follow 极小性
+  守卫全部落地；判定式对计划伪代码的四处语义修正（[add3,sub1] 恒等举例、epool 漏
+  goal_verify、probe_hit 弱化式、has_shortcut 缺长度比较）**已由规划者回写计划**。
+- `records.bin` 已升级 v2 契约并与计划 F.2 同步：header 一次性存 22 节点动作特征表
+  （「候选特征由 node id 确定、不重复存」的唯一落地，F.3 禁 Python 复刻特征）、行内
+  cand_mask 为 22 位全局 ROUTING 掩码、target_idx 仍为本地下标。旧 v1 bin 读侧 fail-fast。
+- `docs/helpers.md` 登记滞后：`plan_bfs` 行已改「已落地」；featurize/Policy/bc_train/
+  records/rollout/arms 等 Phase 1 helper 行尚未登记，随训练闭环批次补齐（helpers_doc
+  为真源，golden 再生成）。
+- `audit_features()` 静态执法未落地：G0.4 现只审 record obs 面；对 featurize 输出做
+  键/来源静态审计列为 Phase 1 数据集冻结前必开项（现由签名级隔离 + 注入测试兜底）。
+- F2「1e-4 并列窗口」属 conformance 比对侧职责（届时实现）；TS 推理侧口径 = 精确并列
+  取最小下标。
+- follow 族多算子巧合捷径实测存在（极小性守卫只挡单算子+收尾捷径）：G2.2 期望非严格
+  0，阈值 0.02 不变，非零如实报告作自检证据（计划 G2.2 行已同步）。
+- 其余（DAgger/REINFORCE 臂/KD/结构进化/llm_gateway）属 Phase 2+，不提前实现。

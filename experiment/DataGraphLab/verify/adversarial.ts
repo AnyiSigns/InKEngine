@@ -217,6 +217,9 @@ function fuzzWrongState(rng: Rng, task: Task): State {
   }
 }
 
+/** runAll 固定 seed 补刀的错误产物条数（测试断言与其对齐，防 fuzz 空转）。 */
+export const FUZZ_COUNT = 24;
+
 export interface RunAllResult {
   readonly rejectRatio: number;
   readonly acceptCorrectRatio: number;
@@ -230,7 +233,7 @@ export function runAll(): RunAllResult {
 
   const rng = makeRng(0x5eed00);
   const wrongPool = [VALUE_INT, VERIFY_INT, GOAL_INT, GOAL_VERIFY_INT, GOAL_STR];
-  const fuzzTotal = 24;
+  const fuzzTotal = FUZZ_COUNT;
   let fuzzRejected = 0;
   for (let i = 0; i < fuzzTotal; i++) {
     const task = wrongPool[i % wrongPool.length]!;

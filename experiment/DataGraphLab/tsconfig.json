@@ -5,6 +5,7 @@
     "types": ["node"]
   },
   "include": [
+    "schema.ts",
     "world/**/*.ts",
     "controller/**/*.ts",
     "conformance/**/*.ts",

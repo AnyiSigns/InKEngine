@@ -9,7 +9,7 @@ interface HelperRow {
   name: string;
   signature: string;
   file: string;
-  status: '已落地' | '待 Phase 0';
+  status: '已落地' | '已实现' | '待 Phase 0';
   note: string;
 }
 
@@ -50,10 +50,10 @@ const CORE: readonly HelperRow[] = [
 ];
 
 const PENDING: readonly HelperRow[] = [
-  { name: 'sample_value', signature: 'sampleValue(rng, root): number | string', file: 'world/operators.ts', status: '待 Phase 0', note: 'Int 全域 -50..50；Str 长度 1..8 的 a-h' },
-  { name: 'init_state', signature: 'initState(x, spec?): State', file: 'world/operators.ts', status: '待 Phase 0', note: '{x, answer:null, verdict:null, hist:[], spec:{}}' },
-  { name: 'apply_op', signature: 'applyOp(graph, nid, st): State | null', file: 'world/operators.ts', status: '待 Phase 0', note: '契约闸+变换+hist 追加；null=死路' },
-  { name: 'run_plan', signature: 'runPlan(plan, st): State | null', file: 'world/operators.ts', status: '待 Phase 0', note: '顺序回放，不写 expected' },
+  { name: 'sample_value', signature: 'sampleValue(rng, root): number | string', file: 'world/operators.ts', status: '已实现', note: 'Int 全域 -50..50；Str 长度 1..8 的 a-h' },
+  { name: 'init_state', signature: 'initState(x, spec?): State', file: 'world/operators.ts', status: '已实现', note: '{x, answer:null, verdict:null, hist:[], spec:{}}' },
+  { name: 'apply_op', signature: 'applyOp(graph, nid, st): State | null', file: 'world/operators.ts', status: '已实现', note: '契约闸+变换+hist 追加；null=死路' },
+  { name: 'run_plan', signature: 'runPlan(plan, st): State | null', file: 'world/operators.ts', status: '已实现', note: '顺序回放，不写 expected' },
   { name: 'obs_snapshot', signature: 'obsSnapshot(st): object', file: 'controller/features.ts', status: '待 Phase 0', note: '只投影 x/answer/verdict/hist' },
   { name: 'enumerate_skeletons', signature: 'enumerateSkeletons(maxDepth): Skel[]', file: 'gen/generator.ts', status: '待 Phase 0', note: '只取 kind=op，终算子不入池' },
   { name: 'signature', signature: 'signature(root, skeleton): Sig', file: 'gen/generator.ts', status: '待 Phase 0', note: 'Int 全域探针；Str 固定探针' },

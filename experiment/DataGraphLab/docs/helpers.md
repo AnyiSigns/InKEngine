@@ -57,18 +57,23 @@
 | `SKELETONS` | `readonly Skel[]` | `gen/skeletons.ts` | 已落地 | 模块级一次性计算，去冗余后全量骨架池 |
 | `_skelId` | `_skelId(sk): string` | `gen/skeletons.ts` | 已落地 | hashObj([root, plan])，composition_id 口径 |
 | `_stratum / STRATA` | `_stratum(sk): StratumKey; STRATA: ReadonlyMap` | `gen/splits.ts` | 已落地 | 分层键 = 深度 × 是否含 cond |
+| `codepointCompare` | `codepointCompare(a, b): number` | `gen/splits.ts` | 已落地 | 码点序唯一口径；localeCompare 依赖 locale，禁用于确定性排序 |
 | `_splitMaps` | `_splitMaps(strata?): {heldout; val}` | `gen/splits.ts` | 已落地 | 每层 heldout≈20%/val≈5%、保底 ≥1；层内 <2 报错 |
 | `HELDOUT_SKELETONS / VAL_SKELETONS` | `ReadonlySet<string>` | `gen/splits.ts` | 已落地 | composition_id 注册表，与 train 零重叠 |
 | `splitOf` | `splitOf(sk): Split` | `gen/splits.ts` | 已落地 | train/val/heldout 归属，切分只看骨架 |
 | `sampleGoal` | `sampleGoal(rng, root): Goal` | `gen/generator.ts` | 已落地 | Int parity/gt，Str len；40% 合取强制多步规划 |
 | `goalProbeHit` | `goalProbeHit(root, plan, goal): boolean` | `gen/generator.ts` | 已落地 | Int 全域精确剪枝；Str 只提示不剪枝 |
-| `hasOneStepSolution` | `hasOneStepSolution(task, graph): boolean` | `gen/generator.ts` | 已落地 | 关死单步 echo/submit 捷径；O(|candidates|) apply+accept |
+| `INT_GOAL_POOL / STR_GOAL_POOL` | `readonly Goal[]` | `gen/producibility.ts` | 已落地 | sampleGoal 采样空间全集（30/6），可产域判定用 |
+| `coverageKey` | `coverageKey(style, family, compositionId): string` | `gen/producibility.ts` | 已落地 | `style:family:composition_id` 稳定键 |
+| `hasOneStepSolution` | `hasOneStepSolution(task, graph): boolean` | `gen/producibility.ts` | 已落地 | 关死单步 echo/submit 捷径；O(|candidates|) apply+accept；经 generator.ts 公开 |
+| `UNPRODUCIBLE_HELDOUT` | `ReadonlySet<string>` | `gen/producibility.ts` | 已落地 | heldout goal 族已知不可产域，模块加载时确定性判定（Int 全域精确、Str 有界保守）；follow 零键 |
 | `instanceFollow / instanceGoal` | `instanceFollow(...); instanceGoal(...)` | `gen/generator.ts` | 已落地 | public spec + hidden gold；回放穿 accept 才返回 |
 | `STYLES / instanceTask` | `STYLES: Record<Style, Family[]>; instanceTask(...)` | `gen/generator.ts` | 已落地 | follow→value/verify；goal→goal/goal_verify |
 | `makeTask` | `makeTask(seed, style?, family?, split?, skeleton?): Task | null` | `gen/generator.ts` | 已落地 | 同 seed 完全确定；可钉骨架/族/切分 |
 | `makeSplit` | `makeSplit(split, perFamily, seed?, maxPerSkeleton?): Task[]` | `gen/generator.ts` | 已落地 | 配额制；配额不足抛错不静默 |
-| `makeCoverageSplit` | `makeCoverageSplit(split, seed?): Task[]` | `gen/generator.ts` | 已落地 | 每骨架每 (style,family) 恰 1 条；产不出即报错 |
-| `GRAPH` | `Graph` | `runner/graph.ts` | 已落地 | OPS/NODES_BASE 组装，含 entry/exit 结构节点 |
+| `makeCoverageSplitInfo` | `makeCoverageSplitInfo(split, seed?, skeletons?): {tasks; unproducible; unproducibleCount}` | `gen/generator.ts` | 已落地 | follow 全域 + goal 可产域每骨架每 (style,family) 恰 1 条；注册表成员记为 known-unproducible 带出计数；可产域产不出/注册表含 follow 键均抛错；骨架池可注入 |
+| `makeCoverageSplit` | `makeCoverageSplit(split, seed?): Task[]` | `gen/generator.ts` | 已落地 | makeCoverageSplitInfo 的任务列表口径（C.1 签名保持） |
+| `GRAPH` | `Graph` | `runner/graph.ts` | 已落地 | OPS/NODES_BASE 组装；entry/exit kind=structural（无契约，不参与契约/动作分类） |
 | `candidates` | `candidates(graph, st, hist): string[]` | `runner/graph.ts` | 已落地 | entry 禁入；exit 恒在；访问上限唯一实现 |
 | `MAX_STEPS` | `number` | `runner/graph.ts` | 已落地 | C.7/E.14 唯一口径 = 12 |
 

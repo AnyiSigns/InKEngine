@@ -35,6 +35,15 @@ export function _stratum(sk: Skel): StratumKey {
   return `${sk.plan.length}|${hasCond ? 'cond' : 'plain'}`;
 }
 
+/**
+ * 码点比较（跨环境一致的字面串唯一口径）。`localeCompare` 依赖运行环境 ICU
+ * locale，同输入在不同环境排序可能不同，违反 G0.1 跨进程逐字相同；字符串键
+ * （`_skelId` 层内排序等）排序一律走本函数。
+ */
+export function codepointCompare(a: string, b: string): number {
+  return a < b ? -1 : a > b ? 1 : 0;
+}
+
 /** 全骨架按层分组（保持 SKELETONS 的排序序）。 */
 export const STRATA: ReadonlyMap<StratumKey, readonly Skel[]> = (() => {
   const m = new Map<StratumKey, Skel[]>();
@@ -58,7 +67,9 @@ export function _splitMaps(strata: ReadonlyMap<StratumKey, readonly Skel[]> = ST
   const heldout = new Set<string>();
   const val = new Set<string>();
   for (const key of [...strata.keys()].sort(compareStratum)) {
-    const ordered = [...(strata.get(key) ?? [])].sort((a, b) => _skelId(a).localeCompare(_skelId(b)));
+    const ordered = [...(strata.get(key) ?? [])].sort((a, b) =>
+      codepointCompare(_skelId(a), _skelId(b)),
+    );
     if (ordered.length < 2) {
       throw new Error(`stratum ${key} 骨架不足 2，无法切 train/heldout：请扩算子或降 MAX_REPEAT`);
     }

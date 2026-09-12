@@ -2,47 +2,39 @@
  * 生成器核心（C.1 全文）：分层实例化 → public spec + hidden gold。
  *
  * 骨架枚举/签名去冗余在 gen/skeletons.ts（SKELETONS），分层与切分在
- * gen/splits.ts（STRATA/_splitMaps/splitOf），本文件负责采样与收尾：
- * 按 (深度 × 是否含 cond) 分层等概率采样（层间/层内各一次 choice），按族给
- * 骨架补 submit(+check_*)，follow 族指令 = 计划线性渲染（含终算子义项），
+ * gen/splits.ts（STRATA/_splitMaps/splitOf），可产域注册表在
+ * gen/producibility.ts（UNPRODUCIBLE_HELDOUT/hasOneStepSolution），本文件负责
+ * 采样与收尾：按 (深度 × 是否含 cond) 分层等概率采样（层间/层内各一次 choice），
+ * 按族给骨架补 submit(+check_*)，follow 族指令 = 计划线性渲染（含终算子义项），
  * goal 族指令只描述目标谓词（gold = 传入骨架本身，多解可接受）。
  *
  * 确定性纪律：随机一律 makeRng(seed)、哈希一律 hashObj/crc32（G0.1 同 seed
  * 跨进程逐字相同）；所有 `expected` 由回放求出，不由人手写；任何任务生成后
  * 必须回放穿验收 accept 才返回（G0.2）。收尾终算子只由 _commit 追加一次，
- * 绝不在骨架枚举采样池里。
+ * 绝不在骨架枚举采样池里。排序一律码点比较（codepointCompare），禁
+ * localeCompare（locale 相关，破坏跨环境一致）。
  */
 
+import { _skelId, PROBE_INT, PROBE_STR, SKELETONS, type Skel } from './skeletons.js';
 import {
-  _skelId,
-  compareSkel,
-  dedupeBySignature,
-  enumerateSkeletons,
-  MAX_DEPTH,
-  PROBE_INT,
-  PROBE_STR,
-  SKELETONS,
-  signature,
-  type Sig,
-  type Skel,
-} from './skeletons.js';
-import {
-  _splitMaps,
   _stratum,
+  codepointCompare,
   compareStratum,
-  HELDOUT_SKELETONS,
   splitOf,
-  STRATA,
-  VAL_SKELETONS,
   type StratumKey,
 } from './splits.js';
-import { applyOp, emod, EXIT, initState, runPlan, sampleValue, type Graph, type State } from '../world/operators.js';
+import {
+  coverageKey,
+  hasOneStepSolution,
+  UNPRODUCIBLE_HELDOUT,
+} from './producibility.js';
+import { emod, initState, runPlan, sampleValue } from '../world/operators.js';
 import { t } from '../world/types.js';
 import { goalOk, type Goal } from '../world/goal.js';
 import { renderGoal, renderRecipe } from '../world/render.js';
-import { crc32, hashObj } from '../world/hash.js';
+import { hashObj } from '../world/hash.js';
 import { makeRng, type Rng } from '../world/rng.js';
-import { GRAPH, candidates } from '../runner/graph.js';
+import { GRAPH } from '../runner/graph.js';
 import { accept } from '../verify/acceptor.js';
 import type { Family, Root, Split, Style, Task } from '../schema.js';
 
@@ -70,6 +62,9 @@ export {
   compareStratum,
 } from './splits.js';
 export type { StratumKey } from './splits.js';
+
+/** 重导出可产域符号：注册表与单步守卫的公开端口（实现见 gen/producibility.ts）。 */
+export { coverageKey, hasOneStepSolution, UNPRODUCIBLE_HELDOUT } from './producibility.js';
 
 /** C.1 `_skel_id` 与 STRATA 的分层键 / 层级数据（保持真源在持有方，本处 re-export）。 */
 export { _skelId };
@@ -101,21 +96,6 @@ export function goalProbeHit(root: Root, plan: readonly string[], goal: Goal): b
   for (const probe of probes) {
     const st = runPlan(plan, initState(probe));
     if (st !== null && goalOk(st.x, { goal })) return true;
-  }
-  return false;
-}
-
-/**
- * C.1 `has_one_step_solution`：depth-1 捷径守卫——任一单步（含 echo/submit）
- * 直接过验收即拒采。只需 O(|candidates|) 次 apply+accept，不必整图 BFS，
- * 也避免 gen → teacher 反向依赖。
- */
-export function hasOneStepSolution(task: Task, graph: Graph): boolean {
-  const st = initState(task.x, task.spec);
-  for (const a of candidates(graph, st, st.hist)) {
-    if (a === EXIT) continue;
-    const st2 = applyOp(graph, a, st);
-    if (st2 !== null && accept(task, st2)) return true;
   }
   return false;
 }
@@ -268,7 +248,7 @@ export function makeTask(
  */
 export function makeSplit(split: Split, perFamily: number, seed = 0, maxPerSkeleton = 4): Task[] {
   const rng = makeRng(seed);
-  const pool = [..._pool(split)].sort((a, b) => _skelId(a).localeCompare(_skelId(b)));
+  const pool = [..._pool(split)].sort((a, b) => codepointCompare(_skelId(a), _skelId(b)));
   const out: Task[] = [];
   for (const style of ['follow', 'goal'] as const) {
     for (const fam of STYLES[style]) {
@@ -292,29 +272,65 @@ export function makeSplit(split: Split, perFamily: number, seed = 0, maxPerSkele
   return out;
 }
 
-/** C.1 `make_coverage_split`：每个 (heldout 骨架 × style × family) 恰 1 条；只允许
- * 同骨架重试（50 次），禁止跨骨架顶替；任一产不出即报错（覆盖声明可判定）。 */
-export function makeCoverageSplit(split: Split, seed = 0): Task[] {
+/** 覆盖构造结果：tasks = 恰 1 条/（可产骨架 × style × family）；unproducible = 注册表命中键。 */
+export interface CoverageSplitInfo {
+  readonly tasks: Task[];
+  readonly unproducible: readonly string[];
+  readonly unproducibleCount: number;
+}
+
+/**
+ * C.1 `make_coverage_split` 的可判定版：每个 (该切分骨架 × style × family) 恰 1 条；
+ * 只允许同骨架重试（50 次），禁止跨骨架顶替。goal 两族存在结构性不可产域
+ * （gen/producibility.ts），注册表成员记为 known-unproducible 带出计数、不进覆盖
+ * 断言；可产域任一骨架产不出仍抛错（覆盖声明在可产域上成立）。follow 族按
+ * 构造全域可产，注册表一旦出现 follow 键即判定被破坏，当场抛错。骨架池默认
+ * 取 `_pool(split)`，可注入（小子集冒烟/构造抛错分支）。
+ */
+export function makeCoverageSplitInfo(
+  split: Split,
+  seed = 0,
+  skeletons?: readonly Skel[],
+): CoverageSplitInfo {
+  for (const key of UNPRODUCIBLE_HELDOUT) {
+    if (key.startsWith('follow:')) {
+      throw new Error(`coverage registry broken: follow 域应全域可产却判出不可产 (${key})`);
+    }
+  }
   const rng = makeRng(seed);
-  const pool = [..._pool(split)].sort((a, b) => _skelId(a).localeCompare(_skelId(b)));
+  const pool = [...(skeletons ?? _pool(split))].sort((a, b) =>
+    codepointCompare(_skelId(a), _skelId(b)),
+  );
   const out: Task[] = [];
+  const unproducible: string[] = [];
   for (const style of ['follow', 'goal'] as const) {
     for (const fam of STYLES[style]) {
       for (const sk of pool) {
+        const cid = _skelId(sk);
+        const key = coverageKey(style, fam, cid);
+        if (UNPRODUCIBLE_HELDOUT.has(key)) {
+          unproducible.push(key);
+          continue;
+        }
         let task: Task | null = null;
         for (let attempt = 0; attempt < 50; attempt++) {
-          const t = instanceTask(rng, sk.root, sk.plan, fam, style);
-          if (t !== null && t.split === split) {
-            task = t;
+          const candidate = instanceTask(rng, sk.root, sk.plan, fam, style);
+          if (candidate !== null && candidate.split === split) {
+            task = candidate;
             break;
           }
         }
         if (task === null) {
-          throw new Error(`coverage ${split}/${style}/${fam}/${_skelId(sk)}: skeleton yields no task`);
+          throw new Error(`coverage ${split}/${style}/${fam}/${cid}: skeleton yields no task`);
         }
         out.push(task);
       }
     }
   }
-  return out;
+  return { tasks: out, unproducible, unproducibleCount: unproducible.length };
+}
+
+/** C.1 `make_coverage_split` 签名保持：覆盖集任务列表（计数走 makeCoverageSplitInfo）。 */
+export function makeCoverageSplit(split: Split, seed = 0): Task[] {
+  return makeCoverageSplitInfo(split, seed).tasks;
 }

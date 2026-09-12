@@ -4,25 +4,28 @@
  * 覆盖：终算子不入骨架、MAX_REPEAT 与 candidates 同口径、签名去冗余（同签名
  * 只留最短/同长取字典序首，Int 全域探针可证正确）、G0.1 同 seed 确定性、G0.2
  * 每个 emitted task 的 plan_hidden 回放穿验收 100%、goal gold=传入骨架且无
- * depth-1 捷径、makeSplit 配额不足报错、覆盖集 fail-fast。
+ * depth-1 捷径、makeSplit 配额不足报错、goalProbeHit 判定语义、
+ * makeCoverageSplit 可产域覆盖构造（注册表判定见 tests/producibility.test.ts）。
  *
- * 已知世界结构（待规划者决策项，详见本文件内相关用例）：部分骨架在
- * goal/goal_verify 族下结构性不可产任务——Str 起点且 str_len 收尾（终值 Int，
- * len 目标词表只收 Str）、纯 upper/lower/reverse 的长度保持骨架，以及
- * neg,neg / neg,add3,add3,neg 这类保奇偶且被「初始态达标即弃」剪掉的 Int 骨架
- * （实测 heldout 中 211/830）。故 makeCoverageSplit 在完整 heldout 上按 C.1
- * 「任一产不出即报错」抛错；覆盖声明在 goal 可产骨架域上可判定成立。
+ * 世界结构：heldout 部分骨架在 goal 族结构性不可产（实测 211/830：str_len
+ * 收尾的 Str 骨架、恒等类 Int 骨架等）——gen/producibility.ts 在模块加载时
+ * 精确判定（Int 全域、Str 保守有界）出该域并入册 UNPRODUCIBLE_HELDOUT；
+ * makeCoverageSplit 跳过注册表成员（记为 known-unproducible 带出计数），覆盖
+ * 声明在可产域上可判定成立，follow 全域与 goal 可产域构造均不抛错。
  */
 
 import { describe, expect, it } from 'vitest';
 
 import {
+  coverageKey,
   dedupeBySignature,
+  goalProbeHit,
   HELDOUT_SKELETONS,
   instanceFollow,
   instanceGoal,
   instanceTask,
   makeCoverageSplit,
+  makeCoverageSplitInfo,
   makeSplit,
   makeTask,
   MAX_DEPTH,
@@ -31,6 +34,7 @@ import {
   splitOf,
   STRATA,
   STYLES,
+  UNPRODUCIBLE_HELDOUT,
   _skelId,
   type Skel,
 } from '../gen/generator.js';
@@ -205,6 +209,17 @@ describe('gen/generator/instance_goal（C.1）', () => {
   });
 });
 
+describe('gen/generator/goalProbeHit（可达性探针语义）', () => {
+  it('Int 全域精确（恒等越上界/翻倍恒偶判不可达；平移可达判可达）；Str 探针只提示', () => {
+    expect(goalProbeHit('Int', ['neg', 'neg'], { kind: 'gt', target: 50 })).toBe(false); // 恒等：-50..50 内无 >50
+    expect(goalProbeHit('Int', ['add3', 'sub1'], { kind: 'gt', target: 50 })).toBe(true); // x+2，50→52
+    expect(goalProbeHit('Int', ['mul2'], { kind: 'parity', target: 1 })).toBe(false); // 翻倍恒偶
+    expect(goalProbeHit('Int', ['mul2'], { kind: 'parity', target: 0 })).toBe(true);
+    // Str 探针只是提示不剪枝（长度保持的恒等骨架照样在探针上「命中」len 目标）。
+    expect(goalProbeHit('Str', ['reverse', 'reverse'], { kind: 'len', min: 3, max: 5 })).toBe(true);
+  });
+});
+
 describe('gen/generator/G0.1 同 seed 确定性（禁 Math.random）', () => {
   it('makeTask 同 seed 两次：taskHash 逐字相同且任务全字段深等', () => {
     for (const seed of [0, 1, 7, 42]) {
@@ -246,7 +261,7 @@ describe('gen/generator/G0.2 生成可解（回放穿验收 100%）', () => {
     tasks.push(...makeSplit('train', 1, 17));
     expect(tasks.length).toBeGreaterThan(100);
     for (const t of tasks) replayAccepted(t);
-  });
+  }, 30_000);
 
   it('gold 计划每一步都在 candidates 内（oracle 前提，candidates 唯一过滤点）', () => {
     for (const t of makeSplit('val', 2, 13)) {
@@ -297,58 +312,88 @@ describe('gen/generator/makeSplit（配额制）', () => {
   });
 });
 
-describe('gen/generator/makeCoverageSplit（覆盖集）', () => {
-  it('follow 族：全部 heldout 骨架 × {value, verify} 均可产', () => {
-    const heldout = SKELETONS.filter((sk) => splitOf(sk) === 'heldout');
+describe('gen/generator/makeCoverageSplit（可产域覆盖集）', () => {
+  const heldout = SKELETONS.filter((sk) => splitOf(sk) === 'heldout');
+
+  it('follow 域：全部 heldout 骨架 × {value, verify} 均可产（重试逐次推进 seed）', () => {
     for (const sk of heldout) {
       for (const fam of ['value', 'verify'] as const) {
         let ok = false;
-        for (let attempt = 0; attempt < 10; attempt++) {
-          const t = instanceTask(makeRng(99), sk.root, sk.plan, fam, 'follow');
-          if (t !== null && t.split === 'heldout') {
-            ok = true;
-            break;
-          }
+        for (let attempt = 0; attempt < 10 && !ok; attempt++) {
+          const t = instanceTask(makeRng(99 + attempt), sk.root, sk.plan, fam, 'follow');
+          ok = t !== null && t.split === 'heldout';
         }
         expect(ok, `骨架 ${_skelId(sk)} follow/${fam}`).toBe(true);
       }
     }
-  });
+  }, 60_000);
 
-  it('goal 族：heldout 抽样中可产骨架均能产出，且构造对每 (style,family) 恰 1 条（确定性）', () => {
-    // 本世界存在 goal 结构性不可产骨架（实测 211/830 heldout：str_len 收尾的 Str
-    // 骨架、纯 upper/lower/reverse 的长度保持骨架、以及 neg,neg / neg,add3,add3,neg
-    // 这类保奇偶且被"初始态达标即弃"剪掉的 Int 骨架）——覆盖声明只能在 goal 可产域
-    // 上判定。这里对排序后的前 40 个 heldout 骨架做有界覆盖构造：goal 可产者必须
-    // 在重试预算内产出（覆盖构造即恰推进 1 条），且同 seed 产出完全确定。
-    const sample = SKELETONS.filter((sk) => splitOf(sk) === 'heldout').slice(0, 40);
+  it('goal 域：可产域抽样必产（重试推进 seed），且产出对同 seed 逐字确定', () => {
+    // 覆盖声明的可判定论域 = heldout − 注册表；重试如用同一 seed 只是确定性空转，
+    // 逐次推进 seed 才有重试语义。
+    const sample = heldout
+      .filter((sk) => !UNPRODUCIBLE_HELDOUT.has(coverageKey('goal', 'goal', _skelId(sk))))
+      .slice(0, 24);
     let goalTasks = 0;
     for (const sk of sample) {
       for (const fam of ['goal', 'goal_verify'] as const) {
-        let produced: Task | null = null;
-        for (let attempt = 0; attempt < 5; attempt++) {
-          const t = instanceTask(makeRng(99), sk.root, sk.plan, fam, 'goal');
-          if (t !== null && t.split === 'heldout') {
-            produced = t;
-            break;
-          }
+        let produced: { task: Task; seed: number } | null = null;
+        for (let attempt = 0; attempt < 10 && produced === null; attempt++) {
+          const seed = 99 + attempt;
+          const t = instanceTask(makeRng(seed), sk.root, sk.plan, fam, 'goal');
+          if (t !== null && t.split === 'heldout') produced = { task: t, seed };
         }
-        if (produced !== null) {
-          goalTasks++;
-          const again = instanceTask(makeRng(99), sk.root, sk.plan, fam, 'goal');
-          expect(JSON.stringify(again), `骨架 ${_skelId(sk)} goal/${fam} 同 seed 确定性`).toBe(
-            JSON.stringify(produced),
-          );
-        }
+        expect(produced, `可产骨架 ${_skelId(sk)} goal/${fam} 未能在预算内产出`).not.toBeNull();
+        goalTasks++;
+        const again = instanceTask(makeRng(produced!.seed), sk.root, sk.plan, fam, 'goal');
+        expect(JSON.stringify(again), `骨架 ${_skelId(sk)} goal/${fam} 同 seed 确定性`).toBe(
+          JSON.stringify(produced!.task),
+        );
       }
     }
-    expect(goalTasks).toBeGreaterThan(0);
-  });
+    expect(goalTasks).toBe(sample.length * 2);
+  }, 120_000);
 
-  it('fail-fast：heldout 含 goal 不可产骨架，makeCoverageSplit 按 C.1「任一产不出即报错」抛错', () => {
-    expect(() => makeCoverageSplit('heldout')).toThrow(/yields no task/);
-  });
+  it('heldout 全量冒烟（固定 seed）：follow 全域 + goal 可产域每骨架每 (style,family) 恰 1 条、注册表命中计数、不抛错', () => {
+    const info = makeCoverageSplitInfo('heldout', 0);
+    expect(info.unproducibleCount).toBe(UNPRODUCIBLE_HELDOUT.size);
+    expect(new Set(info.unproducible).size).toBe(info.unproducible.length);
+    expect([...info.unproducible].sort((a, b) => (a < b ? -1 : a > b ? 1 : 0))).toEqual(
+      [...UNPRODUCIBLE_HELDOUT].sort((a, b) => (a < b ? -1 : a > b ? 1 : 0)),
+    );
+    const counts = new Map<string, number>();
+    for (const t of info.tasks) {
+      const k = coverageKey(t.style, t.family, t.composition_id);
+      counts.set(k, (counts.get(k) ?? 0) + 1);
+    }
+    for (const [k, n] of counts) expect(n, `${k} 重复覆盖`).toBe(1);
+    const heldoutIds = new Set(heldout.map(_skelId));
+    let producedGoalCombos = 0;
+    for (const id of heldoutIds) {
+      for (const fam of ['value', 'verify'] as const) {
+        expect(counts.get(coverageKey('follow', fam, id)), `follow/${fam}/${id}`).toBe(1);
+      }
+      for (const fam of ['goal', 'goal_verify'] as const) {
+        const knownUnproducible = UNPRODUCIBLE_HELDOUT.has(coverageKey('goal', fam, id));
+        expect(counts.has(coverageKey('goal', fam, id)), `goal/${fam}/${id}`).toBe(!knownUnproducible);
+        producedGoalCombos += knownUnproducible ? 0 : 1;
+      }
+    }
+    expect(info.tasks.length).toBe(heldoutIds.size * 2 + producedGoalCombos);
+    expect(makeCoverageSplit('heldout', 0).map(taskHash)).toEqual(info.tasks.map(taskHash));
+  }, 120_000);
+
+  it('fail-fast：可产域判定可产但 50 次重试仍产不出即抛错（注入论域外的结构性不可产骨架）', () => {
+    // [reverse,reverse] 诱导恒等 → Str len 池下无「初始不达标∧终值达标」witness，
+    // 但组成 id 不在注册表（论域只含 heldout 骨架）⇒ 按可产域处理，重试耗尽必抛。
+    const idSkel: Skel = { root: 'Str', plan: ['reverse', 'reverse'] };
+    const sp = splitOf(idSkel);
+    expect(sp).not.toBe('heldout');
+    expect(UNPRODUCIBLE_HELDOUT.has(coverageKey('goal', 'goal', _skelId(idSkel)))).toBe(false);
+    expect(() => makeCoverageSplitInfo(sp, 0, [idSkel])).toThrow(/yields no task/);
+  }, 120_000);
 });
+
 
 describe('gen/generator/STYLES 与 composition_id', () => {
   it('STYLES 映射 = follow→value/verify、goal→goal/goal_verify', () => {

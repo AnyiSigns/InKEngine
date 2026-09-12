@@ -31,15 +31,25 @@ export { applyOp };
 export const MAX_STEPS = 12;
 
 /**
- * 基础算子图：NODES_BASE 全量节点（含 entry/exit 结构节点）。结构节点无契约，
- * `kind` 不在 op/terminal/decoy 联合内，此处以字面量 cast 占位；candidates 与
- * 特征层都先按 id 分流，永不读取这两个节点的契约字段。
+ * entry/exit 结构节点的 kind 口径：`'structural'` 不属于 op/terminal/decoy 分类。
+ * 两节点无契约，不参与契约表分流（op/terminal 进义项槽、decoy 只做干扰），也不
+ * 参与后续按 kind 归类的动作特征；当前消费方（candidates/枚举）都先按 id 分流，
+ * 永不读取这两个节点的契约字段，故 kind 值不构成行为差。
+ */
+type StructuralKind = Kind | 'structural';
+
+/**
+ * 基础算子图：NODES_BASE 全量节点 + `entry`/`exit` 两个结构节点（kind='structural'）。
+ * 结构节点无契约，字段为占位值；`GRAPH` 对外仍按 `Graph` 消费（契约读取方全部先按
+ * kind/id 分流，structural 节点的 kind 域外差异不构成行为差）。
  */
 export const GRAPH: Graph = (() => {
-  const nodes: Record<string, GraphNode> = { ...GRAPH_BASE.nodes };
+  const nodes: Record<string, Omit<GraphNode, 'kind'> & { readonly kind: StructuralKind }> = {
+    ...GRAPH_BASE.nodes,
+  };
   nodes[ENTRY] = {
     id: ENTRY,
-    kind: 'decoy' as Kind,
+    kind: 'structural',
     requires: {},
     provides: null,
     out_type: 'any',
@@ -48,14 +58,14 @@ export const GRAPH: Graph = (() => {
   };
   nodes[EXIT] = {
     id: EXIT,
-    kind: 'decoy' as Kind,
+    kind: 'structural',
     requires: {},
     provides: null,
     out_type: 'any',
     alive: true,
     requires_types: [],
   };
-  return { nodes };
+  return { nodes } as unknown as Graph;
 })();
 
 /**

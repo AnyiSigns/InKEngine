@@ -22,12 +22,16 @@ import { SKELETONS, _skelId, type Skel } from '../gen/skeletons.js';
 import { crc32 } from '../world/hash.js';
 import { emod } from '../world/operators.js';
 
-/** 独立重算每层切分（oracle：不 import 任何被侧实现）。 */
+/** 独立重算每层切分（oracle：不 import 任何被测实现，字符串序按码点本地实现）。 */
+function cmpCodepoint(a: string, b: string): number {
+  return a < b ? -1 : a > b ? 1 : 0;
+}
+
 function oracleSplit(): { heldout: Set<string>; val: Set<string> } {
   const heldout = new Set<string>();
   const val = new Set<string>();
   for (const key of [...STRATA.keys()].sort(compareStratum)) {
-    const ordered = [...(STRATA.get(key) ?? [])].sort((a, b) => _skelId(a).localeCompare(_skelId(b)));
+    const ordered = [...(STRATA.get(key) ?? [])].sort((a, b) => cmpCodepoint(_skelId(a), _skelId(b)));
     const h = ordered.filter((sk) => emod(crc32(_skelId(sk) + 'heldout'), 5) === 0);
     const hFinal = h.length > 0 ? h : [ordered[0]!];
     for (const sk of hFinal) heldout.add(_skelId(sk));
@@ -85,11 +89,19 @@ describe('gen/splits/切分映射与 C.1 判定口径', () => {
 });
 
 describe('gen/splits/train-heldout 零重叠与分布对齐（G0.5）', () => {
-  it('train 与 heldout 的 composition_id 零重叠', () => {
-    for (const sk of SKELETONS) {
-      if (splitOf(sk) === 'train') {
-        expect(HELDOUT_SKELETONS.has(_skelId(sk))).toBe(false);
-      }
+  it('注册表成员正向判定：HELDOUT/VAL 骨架经 splitOf 必落对应切分', () => {
+    const byId = new Map(SKELETONS.map((sk) => [_skelId(sk), sk]));
+    expect(HELDOUT_SKELETONS.size).toBeGreaterThan(0);
+    expect(VAL_SKELETONS.size).toBeGreaterThan(0);
+    for (const id of HELDOUT_SKELETONS) {
+      const sk = byId.get(id);
+      expect(sk, `heldout 注册表 id ${id} 不在 SKELETONS`).toBeDefined();
+      expect(splitOf(sk!), `heldout ${id}`).toBe('heldout');
+    }
+    for (const id of VAL_SKELETONS) {
+      const sk = byId.get(id);
+      expect(sk, `val 注册表 id ${id} 不在 SKELETONS`).toBeDefined();
+      expect(splitOf(sk!), `val ${id}`).toBe('val');
     }
   });
 
@@ -125,9 +137,35 @@ describe('gen/splits/train-heldout 零重叠与分布对齐（G0.5）', () => {
 
 describe('gen/splits/层内骨架不足的报错分支', () => {
   it('<2 直接抛错，不静默降级', () => {
-    const fake = new Map<string, readonly Skel[]>([
-      [_stratum({ root: 'Int', plan: ['add3'] }), [{ root: 'Int', plan: ['add3'] }]],
-    ]);
+    const fake = new Map<string, readonly Skel[]>(
+      [[_stratum({ root: 'Int', plan: ['add3'] }), [{ root: 'Int', plan: ['add3'] }]]],
+    );
     expect(() => _splitMaps(fake)).toThrow(/不足 2/);
+  });
+});
+
+describe('gen/splits/保底分支（注入假层，构造哈希判定全落空）', () => {
+  const heldoutMiss = (sk: Skel): boolean => emod(crc32(_skelId(sk) + 'heldout'), 5) !== 0;
+  const heldoutHit = (sk: Skel): boolean => !heldoutMiss(sk);
+  const valMiss = (sk: Skel): boolean => emod(crc32(_skelId(sk) + 'val'), 20) !== 0;
+
+  it('heldout 判定全落空 → 保底取 ordered[0]（码点序首）', () => {
+    const pair = SKELETONS.filter(heldoutMiss).slice(0, 2);
+    expect(pair.length).toBe(2);
+    const ids = pair.map(_skelId).sort(cmpCodepoint);
+    const out = _splitMaps(new Map([['1|plain', pair]]));
+    expect(out.heldout).toEqual(new Set([ids[0]]));
+    // 余下恰 1 个骨架进 val 通道；无论其 val 判定命中与否，结果集都应是它本身。
+    expect(out.val).toEqual(new Set([ids[1]]));
+  });
+
+  it('val 判定全落空（heldout 已有入选）→ 保底取 rest[0]', () => {
+    const a = SKELETONS.find(heldoutHit);
+    expect(a).toBeDefined();
+    const b = SKELETONS.find((sk) => heldoutMiss(sk) && valMiss(sk) && _skelId(sk) !== _skelId(a!));
+    expect(b).toBeDefined();
+    const out = _splitMaps(new Map([['1|plain', [a!, b!]]]));
+    expect(out.heldout).toEqual(new Set([_skelId(a!)]));
+    expect(out.val).toEqual(new Set([_skelId(b!)]));
   });
 });

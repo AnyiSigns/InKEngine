@@ -8,7 +8,7 @@
 
 import { describe, expect, it } from 'vitest';
 
-import { AUDIT_COLLECTION } from '../../../src/kernel/audit_log/audit_log.js';
+import { AUDIT_COLLECTION } from '../../../src/gate/audit_log/audit_log.js';
 import {
   DefaultEvolutionWriter,
   EVOLUTION_AUDIT_TYPE,

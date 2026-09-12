@@ -4,7 +4,7 @@
  * 集合名。无内部状态，全部为纯函数——检索与落库两侧共用同一形状定义。
  */
 
-import type { Path } from '../../kernel/patch/types.js';
+import type { Path } from '../../gate/patch/types.js';
 import type { EntryIdProvider } from './_types.js';
 
 /** 含 CJK 表意字符（中文无空格边界，分词缺陷的判定依据）。 */

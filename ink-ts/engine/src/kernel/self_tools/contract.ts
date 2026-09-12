@@ -16,7 +16,7 @@
  * engine/src/kernel/registry/contract_types.ts。
  */
 
-import type { MechanismContract } from '../registry/contract_types.js';
+import type { MechanismContract } from '../../dock/registry/contract_types.js';
 
 /** self_tools 机制契约：零副作用端口，值依赖工具描述/提案协议/工具流水线。 */
 export const self_tools_contract: MechanismContract = {

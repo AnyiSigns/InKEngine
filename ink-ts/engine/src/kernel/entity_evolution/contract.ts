@@ -14,7 +14,7 @@
  * engine/src/kernel/registry/contract_types.ts。
  */
 
-import type { MechanismContract } from '../registry/contract_types.js';
+import type { MechanismContract } from '../../dock/registry/contract_types.js';
 
 /** 实体演化机制契约：消费 builder 与 knowledge_gate，effects 为空（零端口）。 */
 export const entity_evolution_contract: MechanismContract = {

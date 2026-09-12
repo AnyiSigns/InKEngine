@@ -22,11 +22,11 @@ import {
   approve_before_execute,
   normalizeApprovalPose,
   type ApprovalInterruptContext, type InterruptPolicy,
-} from '../approval/approval.js';
+} from '../../gate/approval/approval.js';
 import type { ToolSpec } from '../llm/tools.js';
-import { ALLOW as _ALLOW, DENY as _DENY, REVIEW as _REVIEW } from '../permissions/permissions.js';
+import { ALLOW as _ALLOW, DENY as _DENY, REVIEW as _REVIEW } from '../../gate/permissions/permissions.js';
 import { STATE_ROUND_POSE } from '../../graph/nodes/constants.js';
-import { strip_sensitive } from '../../core/security/security.js';
+import { strip_sensitive } from '../../gate/security/security.js';
 import { ToolTrace } from '../../core/tool_orchestrator/_types.js';
 import {
   DEFAULT_MAX_RESULT_CHARS, ToolResult, _substitute_target, isAwaitable,

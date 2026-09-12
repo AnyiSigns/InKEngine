@@ -31,7 +31,7 @@
  */
 
 import { sha256_hex } from '../../graph/builder/_sha256.js';
-import type { Storage } from '../../core/storage/storage.js';
+import type { Storage } from '../../dock/ports/storage.js';
 
 import type { LLMParams, LLMResult } from './base.js';
 import { AsyncLLM, LLMChunk, LLMConfig } from './base.js';

@@ -10,7 +10,7 @@ import { describe, expect, it } from 'vitest';
 import { GuardedStorage } from '../../../src/kernel/self_application/guarded_storage.js';
 import { MemoryStorage } from '../../../src/adapters/storage/memory.js';
 import { SqliteStorage } from '../../../src/adapters/storage/sqlite.js';
-import type { Storage } from '../../../src/core/storage/storage.js';
+import type { Storage } from '../../../src/dock/ports/storage.js';
 
 async function seed(storage: Storage, keys: readonly string[]): Promise<void> {
   for (let i = 0; i < keys.length; i += 1) {

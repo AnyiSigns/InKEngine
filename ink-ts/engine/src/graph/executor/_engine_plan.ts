@@ -21,7 +21,7 @@ import { GraphDefinitionError } from '../../model/errors.js';
 import { SPAWN_KEY, collect_spawn_specs, type SpawnSpec } from '../../kernel/spawn/spawn.js';
 import type { Graph } from '../../model/graph/graph.js';
 import type { StateSchema } from '../../core/state/schema.js';
-import type { Storage } from '../../core/storage/storage.js';
+import type { Storage } from '../../dock/ports/storage.js';
 import type { JsonRecord } from '../../model/json.js';
 import type { NodeContext } from './_internals.js';
 import { _NodeContextImpl } from './_node_context.js';

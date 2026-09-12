@@ -17,12 +17,12 @@ import type { Message } from '../../../src/kernel/llm/messages.js';
 import { CachingLLM } from '../../../src/kernel/llm/cache.js';
 import type { CachingLLMOptions } from '../../../src/kernel/llm/cache.js';
 import type { ToolSpec } from '../../../src/kernel/llm/tools.js';
-import { strip_sensitive } from '../../../src/core/security/security.js';
+import { strip_sensitive } from '../../../src/gate/security/security.js';
 import type {
   ChainLink,
   CheckpointRecord,
-} from '../../../src/core/storage/storage_records.js';
-import type { Storage } from '../../../src/core/storage/storage.js';
+} from '../../../src/model/storage/storage_records.js';
+import type { Storage } from '../../../src/dock/ports/storage.js';
 
 /** 内存假存储：records 通道全量实现，其余通道惰性空实现。 */
 export class MemStorage implements Storage {

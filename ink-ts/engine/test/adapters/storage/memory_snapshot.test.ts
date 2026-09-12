@@ -18,8 +18,8 @@ import { afterAll, beforeAll, describe, expect, it } from 'vitest';
 
 import { EngineEvent } from '../../../src/core/events/events.js';
 import { StorageError } from '../../../src/model/errors.js';
-import { CheckpointRecord } from '../../../src/core/storage/storage_records.js';
-import type { Storage } from '../../../src/core/storage/storage.js';
+import { CheckpointRecord } from '../../../src/model/storage/storage_records.js';
+import type { Storage } from '../../../src/dock/ports/storage.js';
 import {
   MemoryStorage,
   create_memory_storage,

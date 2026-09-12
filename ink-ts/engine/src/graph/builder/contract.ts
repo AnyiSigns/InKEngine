@@ -16,7 +16,7 @@
  * engine/src/kernel/registry/contract_types.ts。
  */
 
-import type { MechanismContract } from '../../kernel/registry/contract_types.js';
+import type { MechanismContract } from '../../dock/registry/contract_types.js';
 import { PORT_EXEC_ENVELOPE } from '../../dock/ports.js';
 
 /** builder 机制契约：依赖 sandbox，消费 exec_envelope 命令执行端口面。 */

@@ -18,7 +18,7 @@
  * engine/src/kernel/registry/contract_types.ts。
  */
 
-import type { MechanismContract } from '../registry/contract_types.js';
+import type { MechanismContract } from '../../dock/registry/contract_types.js';
 import { PORT_STORAGE_SEAM } from '../../dock/ports.js';
 
 /** self_application 机制契约：消费 storage_seam 守卫写通道，值依赖审批/补丁链/提案。 */

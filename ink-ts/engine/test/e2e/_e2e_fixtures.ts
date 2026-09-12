@@ -12,7 +12,7 @@
 import { Runtime, AssemblyRecipe } from '../../src/kernel/runtime/index.js';
 import type { Host } from '../../src/kernel/runtime/index.js';
 import type { AsyncLLM } from '../../src/kernel/llm/base.js';
-import type { Storage } from '../../src/core/storage/storage.js';
+import type { Storage } from '../../src/dock/ports/storage.js';
 import { create_memory_storage, type MemoryStorage } from '../../src/adapters/storage/index.js';
 import {
   BOOT_EVENT_TYPES,
@@ -20,7 +20,7 @@ import {
   BOOT_UI_SPEC,
   boot_harness_definition,
 } from '../../src/adapters/boot/index.js';
-import { DefaultInterruptPolicy } from '../../src/kernel/approval/approval.js';
+import { DefaultInterruptPolicy } from '../../src/gate/approval/approval.js';
 import { CollectorTransport } from '../../src/core/events/events.js';
 import type { EngineTransport, EngineEvent } from '../../src/core/events/events.js';
 import {

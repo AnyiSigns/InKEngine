@@ -16,7 +16,7 @@
  * engine/src/kernel/registry/contract_types.ts。
  */
 
-import type { MechanismContract } from '../registry/contract_types.js';
+import type { MechanismContract } from '../../dock/registry/contract_types.js';
 import { PORT_LLM_PORT, PORT_STORAGE_SEAM } from '../../dock/ports.js';
 
 /** llm 机制契约：依赖 builder，消费 storage_seam 缓存落库 + llm_port 推理端口面。 */

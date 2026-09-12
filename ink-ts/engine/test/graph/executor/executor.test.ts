@@ -22,8 +22,8 @@ import { Graph } from '../../../src/model/graph/graph.js';
 import { TerminateReason } from '../../../src/model/graph/graph_types.js';
 import { StateSchema } from '../../../src/core/state/schema.js';
 import { StorageError } from '../../../src/model/errors.js';
-import { BudgetExceededError } from '../../../src/kernel/budget/budget.js';
-import type { BudgetPolicy } from '../../../src/kernel/budget/budget_types.js';
+import { BudgetExceededError } from '../../../src/gate/budget/budget.js';
+import type { BudgetPolicy } from '../../../src/gate/budget/budget_types.js';
 import { DemoBudgetPolicy } from './helpers.js';
 import type { EngineEvent } from '../../../src/core/events/events.js';
 

@@ -15,8 +15,8 @@
 import { CheckpointConflictError, StorageError } from '../../model/errors.js';
 import {
   DEFAULT_LIST_CHECKPOINTS_LIMIT,
-} from '../../core/storage/storage_constants.js';
-import { ChainLink, CheckpointRecord } from '../../core/storage/storage_records.js';
+} from '../../model/storage/storage_constants.js';
+import { ChainLink, CheckpointRecord } from '../../model/storage/storage_records.js';
 
 import { MemoryStorageBase } from './_base.js';
 import {

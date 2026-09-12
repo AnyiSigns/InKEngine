@@ -15,7 +15,7 @@
 
 import { describe, expect, it } from 'vitest';
 
-import { DefaultInterruptPolicy } from '../../../src/kernel/approval/approval.js';
+import { DefaultInterruptPolicy } from '../../../src/gate/approval/approval.js';
 import type { Host } from '../../../src/kernel/runtime/index.js';
 import { AssemblyRecipe, Runtime } from '../../../src/kernel/runtime/index.js';
 import {

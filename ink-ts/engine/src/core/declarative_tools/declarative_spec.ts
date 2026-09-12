@@ -24,8 +24,8 @@
 import { GraphDefinitionError } from '../../model/errors.js';
 import { isRecord } from '../../model/json.js';
 import { ToolSpec } from '../../kernel/llm/tools.js';
-import { parse_permission } from '../../kernel/permissions/permissions.js';
-import { NetworkPolicy } from '../../kernel/permissions/networkPolicy.js';
+import { parse_permission } from '../../gate/permissions/permissions.js';
+import { NetworkPolicy } from '../../gate/permissions/networkPolicy.js';
 import { pyRepr } from '../../model/py_repr.js';
 import { endpoint_registry } from './endpoint_registry.js';
 import { EndpointType } from './endpoint_types.js';

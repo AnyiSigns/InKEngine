@@ -15,7 +15,7 @@
  * 装配值依赖。契约化归属见 engine/src/kernel/registry/contract_types.ts。
  */
 
-import type { MechanismContract } from '../registry/contract_types.js';
+import type { MechanismContract } from '../../dock/registry/contract_types.js';
 
 /** introspection 机制契约：value 依赖 llm，零副作用端口（只读观察）。 */
 export const introspection_contract: MechanismContract = {

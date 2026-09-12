@@ -17,14 +17,14 @@
 import { EngineEvent, parse_event_lenient } from '../../core/events/events.js';
 import { CheckpointConflictError, StorageError } from '../../model/errors.js';
 import type { JsonRecord } from '../../model/json.js';
-import { strip_sensitive } from '../../core/security/security.js';
+import { strip_sensitive } from '../../gate/security/security.js';
 import type {
   RecordListOptions,
   RecordListResult,
   Storage,
-} from '../../core/storage/storage.js';
-import { DEFAULT_LIST_CHECKPOINTS_LIMIT } from '../../core/storage/storage_constants.js';
-import { ChainLink, CheckpointRecord } from '../../core/storage/storage_records.js';
+} from '../../dock/ports/storage.js';
+import { DEFAULT_LIST_CHECKPOINTS_LIMIT } from '../../model/storage/storage_constants.js';
+import { ChainLink, CheckpointRecord } from '../../model/storage/storage_records.js';
 import { build_paged_sql, page_limit } from './_records_page.js';
 import { SqliteBaseStorage } from './sqlite_base.js';
 import { strictDumps } from './sqlite_json.js';

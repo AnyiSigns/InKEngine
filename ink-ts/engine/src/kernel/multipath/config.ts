@@ -11,7 +11,7 @@
 import type { PathAssemblyFlags } from '../../model/contracts/contracts.js';
 import { GraphDefinitionError } from '../../model/errors.js';
 import { isRecord } from '../../model/json.js';
-import type { BudgetRemaining } from '../budget/budget_types.js';
+import type { BudgetRemaining } from '../../gate/budget/budget_types.js';
 import {
   DEFAULT_MULTIPATH_CONCURRENCY,
   DEFAULT_MULTIPATH_K,

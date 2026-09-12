@@ -13,7 +13,7 @@
  * 同口径，close 后可继续读写）。
  */
 
-import type { Storage } from '../../core/storage/storage.js';
+import type { Storage } from '../../dock/ports/storage.js';
 
 import { MemoryStorageEventsRecords } from './_events_records.js';
 

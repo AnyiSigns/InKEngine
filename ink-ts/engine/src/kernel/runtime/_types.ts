@@ -7,7 +7,7 @@
  * 白名单强制）——宿主类型进入配方 = 机制层开始认识宿主。
  */
 
-import type { InterruptPolicy } from '../approval/approval.js';
+import type { InterruptPolicy } from '../../gate/approval/approval.js';
 import type { CompressionPolicy } from '../../core/context/context_compression.js';
 import type { EngineTransport } from '../../core/events/events.js';
 import type { HarnessDefinition } from '../../core/harness/index.js';
@@ -18,9 +18,9 @@ import type { KnowledgeEntry } from '../../core/knowledge_set/index.js';
 import type { EnginePoolSeed } from '../../graph/nodes/index.js';
 import type { AsyncLLM } from '../llm/_guard_types.js';
 import type { ToolSpec } from '../llm/tools.js';
-import type { ToolGateConfig } from '../permissions/permissions.js';
+import type { ToolGateConfig } from '../../gate/permissions/permissions.js';
 import type { NodeFactory } from '../../graph/registry/registry_types.js';
-import type { Storage } from '../../core/storage/storage.js';
+import type { Storage } from '../../dock/ports/storage.js';
 import type { SelfApplicationPipeline } from '../self_application/index.js';
 import type { ConvergenceHook, SelfToolContext } from '../self_tools/index.js';
 import { DEFAULT_BIND_CHANNELS } from '../../model/ui_schema/uiSchemaSupport.js';

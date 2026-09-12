@@ -12,7 +12,7 @@ import { describe, expect, it } from 'vitest';
 
 import { GraphDefinitionError } from '../../../src/model/errors.js';
 import { SetPatchChain } from '../../../src/kernel/self_application/index.js';
-import type { Patch } from '../../../src/kernel/patch/patchChain.js';
+import type { Patch } from '../../../src/gate/patch/patchChain.js';
 
 import { MemStorage } from './helpers.js';
 

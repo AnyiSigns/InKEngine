@@ -11,7 +11,7 @@
  * 低于当前档（已更低）= 仅留痕不改写。
  */
 
-import { emit_audit, type AuditStorage } from '../../kernel/audit_log/audit_log.js';
+import { emit_audit, type AuditStorage } from '../../gate/audit_log/audit_log.js';
 import { EVENT_AUDIT_POLICY_REVIEW } from '../../model/event_types/eventTypeSpecs.js';
 import {
   DefaultEvolutionWriter,

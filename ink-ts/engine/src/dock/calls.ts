@@ -14,6 +14,6 @@
 
 export * from '../core/execution_runtime/index.js';
 export * from '../core/run_result/run_result.js';
-export * from '../kernel/approval/approval.js';
+export * from '../gate/approval/approval.js';
 export * from '../kernel/recovery/index.js';
 export * from '../kernel/interrupt/interrupt.js';

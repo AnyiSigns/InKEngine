@@ -17,7 +17,7 @@ import { NodeTypeRegistry } from '../../../src/graph/registry/registry.js';
 import { Engine } from '../../../src/graph/executor/index.js';
 import { Graph } from '../../../src/model/graph/graph.js';
 import { RunOptions } from '../../../src/core/run_result/run_result.js';
-import { BudgetRemaining } from '../../../src/kernel/budget/budget_types.js';
+import { BudgetRemaining } from '../../../src/gate/budget/budget_types.js';
 import {
   JUNCTION_TYPE,
   MultiPathConfig,

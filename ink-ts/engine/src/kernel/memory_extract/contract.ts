@@ -13,7 +13,7 @@
  * engine/src/kernel/registry/contract_types.ts。
  */
 
-import type { MechanismContract } from '../registry/contract_types.js';
+import type { MechanismContract } from '../../dock/registry/contract_types.js';
 
 /** memory_extract 机制契约：零机制间依赖，effects 为空（规则抽取 + 注入记忆存储）。 */
 export const memory_extract_contract: MechanismContract = {

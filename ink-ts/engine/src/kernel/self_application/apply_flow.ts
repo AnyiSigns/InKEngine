@@ -9,15 +9,15 @@
  * - reject/terminate：拒绝并留痕（fail-closed 方向）。
  */
 
-import type { ApprovalInterruptContext } from '../approval/approval.js';
+import type { ApprovalInterruptContext } from '../../gate/approval/approval.js';
 import {
   approve_before_execute,
   DECISION_EDIT,
   DECISION_REJECT,
   DECISION_TERMINATE,
-} from '../approval/approval.js';
+} from '../../gate/approval/approval.js';
 import { GraphDefinitionError } from '../../model/errors.js';
-import type { Patch } from '../patch/patchChain.js';
+import type { Patch } from '../../gate/patch/patchChain.js';
 import type { SelfProposal } from '../self_proposal/index.js';
 
 import { ApprovalLevel } from './approval_level.js';

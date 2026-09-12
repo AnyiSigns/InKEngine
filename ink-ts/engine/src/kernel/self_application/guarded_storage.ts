@@ -19,12 +19,12 @@
  */
 
 import type { EngineEvent } from '../../core/events/events.js';
-import type { ChainLink, CheckpointRecord } from '../../core/storage/storage_records.js';
+import type { ChainLink, CheckpointRecord } from '../../model/storage/storage_records.js';
 import type {
   RecordListOptions,
   RecordListResult,
   Storage,
-} from '../../core/storage/storage.js';
+} from '../../dock/ports/storage.js';
 import { GraphDefinitionError } from '../../model/errors.js';
 
 import {

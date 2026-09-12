@@ -28,7 +28,7 @@
 import { GraphVersionMismatchError, StorageError } from '../../model/errors.js';
 import type { EngineEvent } from '../../core/events/events.js';
 import type { JsonRecord } from '../../model/json.js';
-import type { CheckpointRecord } from '../../core/storage/storage_records.js';
+import type { CheckpointRecord } from '../../model/storage/storage_records.js';
 import { collect_resume_anchors } from './recovery_anchors.js';
 import { ResumeResolution } from './recovery_types.js';
 import type { ResolveResumeOptions } from './recovery_types.js';

@@ -10,7 +10,7 @@
 import { Plan } from '../../core/plan/plan.js';
 import { InterruptState } from '../../kernel/interrupt/interrupt_types.js';
 import { TerminateReason } from '../../model/graph/graph_types.js';
-import type { CheckpointRecord } from '../../core/storage/storage_records.js';
+import type { CheckpointRecord } from '../../model/storage/storage_records.js';
 import type { SpawnSpec } from '../../kernel/spawn/spawn.js';
 import type { SimulateSpec } from '../../kernel/simulation/simulation_types.js';
 import type { _NodeContextImpl } from './_node_context.js';

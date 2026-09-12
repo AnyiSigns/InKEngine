@@ -13,7 +13,7 @@
  */
 
 import { TerminateReason } from '../../model/graph/graph_types.js';
-import { CheckpointRecord } from '../../core/storage/storage_records.js';
+import { CheckpointRecord } from '../../model/storage/storage_records.js';
 import { MetaTuner } from '../tuning/index.js';
 import { RuntimeState } from './_types.js';
 import { _uuid_hex } from './_runtime_base.js';

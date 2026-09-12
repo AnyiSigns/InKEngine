@@ -16,4 +16,4 @@ VISION_CONTRACT_VERSION@engine/src/model/perception/perception.ts
 VISION_CONTEXT_DOMAIN@engine/src/model/perception/perception.ts
 buildToolCtx@engine/src/core/round_steps/round_steps_internals.ts
 isCollection@engine/src/model/rules/_py.ts
-STORAGE_PROTOCOL_VERSION@engine/src/core/storage/storage_constants.ts
+STORAGE_PROTOCOL_VERSION@engine/src/model/storage/storage_constants.ts

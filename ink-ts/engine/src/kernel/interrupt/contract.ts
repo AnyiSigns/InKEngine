@@ -13,7 +13,7 @@
  * engine/src/kernel/registry/contract_types.ts。
  */
 
-import type { MechanismContract } from '../registry/contract_types.js';
+import type { MechanismContract } from '../../dock/registry/contract_types.js';
 
 /** interrupt 机制契约：零机制间依赖，零副作用端口（纯内存协调原语）。 */
 export const interrupt_contract: MechanismContract = {

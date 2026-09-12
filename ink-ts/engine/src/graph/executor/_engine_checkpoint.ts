@@ -13,8 +13,8 @@
  * 被后续恢复重放 + 节点重执行会双重发射——回滚父快照之后的孤立事件（标记
  * 该段不可恢复），并向上抛出明确错误（存储失败不静默吞掉）。
  */
-import { CheckpointRecord } from '../../core/storage/storage_records.js';
-import type { Storage } from '../../core/storage/storage.js';
+import { CheckpointRecord } from '../../model/storage/storage_records.js';
+import type { Storage } from '../../dock/ports/storage.js';
 import type { JsonRecord } from '../../model/json.js';
 import type { InterruptState } from '../../kernel/interrupt/interrupt_types.js';
 import { tail_checkpoint } from '../../kernel/recovery/index.js';

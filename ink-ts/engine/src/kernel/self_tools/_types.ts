@@ -9,7 +9,7 @@
  * 接入，不改模块：引擎能力随机制层走补丁链演化、不随宿主壳漂移。
  */
 
-import type { ApprovalInterruptContext } from '../approval/approval.js';
+import type { ApprovalInterruptContext } from '../../gate/approval/approval.js';
 import type { HarnessRegistry } from '../../core/harness/index.js';
 import type { KnowledgeSet } from '../../core/knowledge_set/index.js';
 import type { ToolSpec } from '../llm/tools.js';

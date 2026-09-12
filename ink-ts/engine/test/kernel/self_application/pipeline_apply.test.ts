@@ -11,7 +11,7 @@
 
 import { describe, expect, it } from 'vitest';
 
-import { DECISION_ACCEPT, DECISION_AUTO, DECISION_REJECT } from '../../../src/kernel/approval/approval.js';
+import { DECISION_ACCEPT, DECISION_AUTO, DECISION_REJECT } from '../../../src/gate/approval/approval.js';
 import {
   AUDIT_STATUS_CONFLICT,
   AUDIT_STATUS_INVALID,

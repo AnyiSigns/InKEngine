@@ -23,7 +23,7 @@
  */
 import { describe, expect, it } from 'vitest';
 
-import type { InterruptPolicy } from '../../../src/kernel/approval/approval_types.js';
+import type { InterruptPolicy } from '../../../src/gate/approval/approval_types.js';
 import { DefaultEvolutionWriter } from '../../../src/kernel/evolution_writer/evolution_writer.js';
 import { ChannelDirectory } from '../../../src/model/channels/channel_directory.js';
 import { EntityRegistry } from '../../../src/core/entities/entities.js';

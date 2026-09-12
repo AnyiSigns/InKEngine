@@ -15,7 +15,7 @@ import { describe, expect, it } from 'vitest';
 import {
   required_field_names,
   produced_field_names,
-} from '../../../src/core/link_validator/link_validator.js';
+} from '../../../src/gate/link_validator/link_validator.js';
 import {
   NODE_KIND_LLM,
   NODE_KIND_ROUTER,

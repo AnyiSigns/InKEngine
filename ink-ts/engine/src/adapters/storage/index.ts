@@ -14,12 +14,12 @@
  */
 
 import { createRequire } from 'node:module';
-import type { Storage } from '../../core/storage/storage.js';
+import type { Storage } from '../../dock/ports/storage.js';
 import {
   SCHEME_MEMORY,
   SCHEME_POSTGRES,
   SCHEME_SQLITE,
-} from '../../core/storage/storage_constants.js';
+} from '../../model/storage/storage_constants.js';
 
 import { MemoryStorage, create_memory_storage } from './memory.js';
 import { SqliteStorage } from './sqlite.js';

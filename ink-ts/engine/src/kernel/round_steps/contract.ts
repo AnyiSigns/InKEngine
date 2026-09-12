@@ -12,7 +12,7 @@
  * engine/src/kernel/registry/contract_types.ts。
  */
 
-import type { MechanismContract } from '../registry/contract_types.js';
+import type { MechanismContract } from '../../dock/registry/contract_types.js';
 
 /** round_steps 机制契约：零机制间依赖，零副作用端口（纯内存步骤累积数据面）。 */
 export const round_steps_contract: MechanismContract = {

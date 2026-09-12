@@ -19,7 +19,7 @@ import {
 } from '../../../src/graph/nodes/index.js';
 import type { EnginePoolSeed } from '../../../src/graph/nodes/index.js';
 import { NODE_KIND_LLM, NODE_KIND_TOOL } from '../../../src/graph/nodes/constants.js';
-import { DefaultInterruptPolicy } from '../../../src/kernel/approval/approval.js';
+import { DefaultInterruptPolicy } from '../../../src/gate/approval/approval.js';
 import { HarnessDefinition } from '../../../src/core/harness/index.js';
 import { EventTypeSpec } from '../../../src/model/event_types/eventTypeSpec.js';
 import { KnowledgeEntry, KIND_RULE } from '../../../src/core/knowledge_set/index.js';

@@ -14,7 +14,7 @@ import type { Host } from '../../../src/kernel/runtime/index.js';
 import { EDGE_EVIDENCE_COLLECTION } from '../../../src/core/edge_evidence/index.js';
 import type { EdgeKey } from '../../../src/core/edge_evidence/_types.js';
 import { EnvironmentSpec, RuntimeKind } from '../../../src/core/environments/index.js';
-import { DefaultInterruptPolicy } from '../../../src/kernel/approval/approval.js';
+import { DefaultInterruptPolicy } from '../../../src/gate/approval/approval.js';
 import { self_tool_specs, make_self_executor, operation_of } from '../../../src/kernel/self_tools/index.js';
 import type { SelfToolContext } from '../../../src/kernel/self_tools/index.js';
 import { MemoryStorage } from '../../graph/executor/helpers.js';

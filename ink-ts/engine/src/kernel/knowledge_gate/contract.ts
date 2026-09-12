@@ -13,7 +13,7 @@
  * engine/src/kernel/registry/contract_types.ts。
  */
 
-import type { MechanismContract } from '../registry/contract_types.js';
+import type { MechanismContract } from '../../dock/registry/contract_types.js';
 
 /** 知识闸门机制契约：零机制间依赖，effects 为空（判定纯进程内）。 */
 export const knowledge_gate_contract: MechanismContract = {

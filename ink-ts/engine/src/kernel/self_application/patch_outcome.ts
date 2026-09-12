@@ -9,7 +9,7 @@
 import {
   AUDIT_STATUS_REJECTED,
 } from './constants.js';
-import { DECISION_REJECT } from '../approval/approval.js';
+import { DECISION_REJECT } from '../../gate/approval/approval.js';
 
 /** PatchOutcome 构造选项（对应 Python frozen dataclass 字段）。 */
 export interface PatchOutcomeInit {

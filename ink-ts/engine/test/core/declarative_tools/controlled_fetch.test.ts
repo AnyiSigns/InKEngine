@@ -15,7 +15,7 @@
  */
 import { describe, expect, it } from 'vitest';
 
-import { NetworkPolicy } from '../../../src/kernel/permissions/networkPolicy.js';
+import { NetworkPolicy } from '../../../src/gate/permissions/networkPolicy.js';
 import {
   DeclarativeToolExecutors,
   DeclarativeToolSpec,

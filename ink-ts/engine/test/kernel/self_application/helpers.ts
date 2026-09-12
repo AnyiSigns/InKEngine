@@ -9,14 +9,14 @@
  */
 
 import type { EngineEvent } from '../../../src/core/events/events.js';
-import type { ApprovalInterruptContext } from '../../../src/kernel/approval/approval.js';
+import type { ApprovalInterruptContext } from '../../../src/gate/approval/approval.js';
 import { ProposalValidator, SelfProposal } from '../../../src/kernel/self_proposal/index.js';
 import type { PatchKind } from '../../../src/kernel/self_proposal/index.js';
 import type {
   ChainLink,
   CheckpointRecord,
-} from '../../../src/core/storage/storage_records.js';
-import type { Storage } from '../../../src/core/storage/storage.js';
+} from '../../../src/model/storage/storage_records.js';
+import type { Storage } from '../../../src/dock/ports/storage.js';
 import type {
   ApprovalLevel,
   L2VettingHook,

@@ -15,9 +15,9 @@
  * - ``system_events`` 的 frozenset 以 ReadonlySet 承载（构造传 Set/ReadonlySet）；
  * - ``settle`` 引用 settle.SettleHooks 注册体、``plan_workflow`` 引用 workflow.WorkflowSpec。
  */
-import type { Storage } from '../storage/storage.js';
+import type { Storage } from '../../dock/ports/storage.js';
 import type { StateSchema } from '../state/schema.js';
-import type { BudgetManager } from '../../kernel/budget/budget.js';
+import type { BudgetManager } from '../../gate/budget/budget.js';
 import type { EngineTransport } from '../events/events.js';
 import type { InterruptState } from '../../kernel/interrupt/interrupt_types.js';
 import type { GraphRegistries } from '../../graph/registry/registry.js';

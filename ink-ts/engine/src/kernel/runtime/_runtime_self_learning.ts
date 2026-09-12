@@ -30,7 +30,7 @@ import {
 } from '../memory_extract/index.js';
 import type { SettleContext, SettleHooks } from '../settle/index.js';
 import { KnowledgeSkillStore } from '../skill_crystal/index.js';
-import type { Storage } from '../../core/storage/storage.js';
+import type { Storage } from '../../dock/ports/storage.js';
 import { MetaTuner } from '../tuning/index.js';
 import type { TunableParams, TurnMetrics } from '../tuning/index.js';
 import type { AssemblyRecipe } from './_types.js';

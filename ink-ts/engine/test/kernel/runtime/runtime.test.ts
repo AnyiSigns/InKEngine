@@ -30,7 +30,7 @@ import { EngineEvent } from '../../../src/core/events/events.js';
 import type { JsonRecord } from '../../../src/model/json.js';
 import { EVOLUTION_AUDIT_TYPE } from '../../../src/kernel/evolution_writer/evolution_writer.js';
 import { ROUND_LEDGER_COLLECTION } from '../../../src/kernel/runtime/_settle.js';
-import { DefaultInterruptPolicy } from '../../../src/kernel/approval/approval.js';
+import { DefaultInterruptPolicy } from '../../../src/gate/approval/approval.js';
 import { ToolSpec } from '../../../src/kernel/llm/tools.js';
 import { EventTypeSpec } from '../../../src/model/event_types/eventTypeSpec.js';
 import { HarnessDefinition } from '../../../src/core/harness/index.js';
@@ -44,7 +44,7 @@ import { SettleContext } from '../../../src/kernel/settle/index.js';
 import { MemoryStorage } from '../../graph/executor/helpers.js';
 import { TerminateReason } from '../../../src/model/graph/graph_types.js';
 import { GENERAL_WEIGHTS_SEED_ID } from '../../../src/model/seeds/seeds.js';
-import { CheckpointRecord } from '../../../src/core/storage/storage_records.js';
+import { CheckpointRecord } from '../../../src/model/storage/storage_records.js';
 
 /** 事件收集传输（EngineTransport 协议）。 */
 class FakeTransport {

@@ -14,7 +14,7 @@
  * engine/src/kernel/registry/contract_types.ts。
  */
 
-import type { MechanismContract } from '../registry/contract_types.js';
+import type { MechanismContract } from '../../dock/registry/contract_types.js';
 
 /** self_proposal 机制契约：零机制间依赖，零副作用端口（提案协议数据面）。 */
 export const self_proposal_contract: MechanismContract = {

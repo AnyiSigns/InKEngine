@@ -17,8 +17,8 @@ import type { PatchKind as PatchKindType } from '../../../src/kernel/self_propos
 import type {
   ChainLink,
   CheckpointRecord,
-} from '../../../src/core/storage/storage_records.js';
-import type { Storage } from '../../../src/core/storage/storage.js';
+} from '../../../src/model/storage/storage_records.js';
+import type { Storage } from '../../../src/dock/ports/storage.js';
 import {
   SelfToolContext,
   make_self_executor,

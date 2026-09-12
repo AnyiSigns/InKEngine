@@ -9,16 +9,16 @@
  * - 环境提供器注册表 + 配方环境声明登记 + 经 approval 的 install 入口。
  */
 
-import { approve_before_execute, ApprovalDecision } from '../approval/approval.js';
-import type { ApprovalInterruptContext, InterruptPolicy } from '../approval/approval.js';
-import type { InterruptPolicy as HostPolicyLike } from '../approval/approval_types.js';
-import { emit_audit } from '../audit_log/audit_log.js';
+import { approve_before_execute, ApprovalDecision } from '../../gate/approval/approval.js';
+import type { ApprovalInterruptContext, InterruptPolicy } from '../../gate/approval/approval.js';
+import type { InterruptPolicy as HostPolicyLike } from '../../gate/approval/approval_types.js';
+import { emit_audit } from '../../gate/audit_log/audit_log.js';
 import { EdgeEvidenceStore, RecordsEdgeEvidenceStorage } from '../../core/edge_evidence/index.js';
 import { EnvironmentProviders } from '../../core/environments/providers.js';
 import type { EnvironmentSpec } from '../../core/environments/spec.js';
 import { EnvironmentHandle } from '../../core/environments/spec.js';
 import { ENV_STATUS_READY } from '../../core/environments/constants.js';
-import type { Storage } from '../../core/storage/storage.js';
+import type { Storage } from '../../dock/ports/storage.js';
 import {
   EdgeEvidenceSettleHook,
   FailureAuditSettleHook,

@@ -12,7 +12,7 @@
  * 见 engine/src/kernel/registry/contract_types.ts。
  */
 
-import type { MechanismContract } from '../registry/contract_types.js';
+import type { MechanismContract } from '../../dock/registry/contract_types.js';
 
 /** 调参机制契约：依赖 knowledge_gate，effects 为空（零端口）。 */
 export const tuning_contract: MechanismContract = {

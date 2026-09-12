@@ -31,7 +31,7 @@ import {
   type NodeRegistrationInit,
   type NodeRegistrationProvenance,
 } from '../../graph/node_registry/index.js';
-import type { Storage } from '../../core/storage/storage.js';
+import type { Storage } from '../../dock/ports/storage.js';
 import type { AssemblyRecipe } from './_types.js';
 import { RuntimeSelfLearning } from './_runtime_self_learning.js';
 

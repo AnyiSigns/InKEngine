@@ -7,8 +7,8 @@
  * 供类型签名使用。
  */
 
-import type { AuditStorage } from '../audit_log/audit_log.js';
-import type { MechanismExemptionScope } from '../audit_log/audit_log.js';
+import type { AuditStorage } from '../../gate/audit_log/audit_log.js';
+import type { MechanismExemptionScope } from '../../gate/audit_log/audit_log.js';
 
 /** 演化资产记录（写入目标集合的载荷；任意 JSON 对象）。 */
 export type EvolutionRecord = { [key: string]: unknown };

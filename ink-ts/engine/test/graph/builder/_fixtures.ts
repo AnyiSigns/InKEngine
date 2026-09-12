@@ -11,11 +11,8 @@ import { createHash } from 'node:crypto';
 import { Builder, BuildKind, BuildSpec } from '../../../src/graph/builder/index.js';
 import type { BuildKindValue } from '../../../src/graph/builder/index.js';
 import type { BuildFs } from '../../../src/graph/builder/_types.js';
-import {
-  ProcessSandbox,
-  type SpawnHandle,
-  type SpawnSeam,
-} from '../../../src/kernel/sandbox/index.js';
+import { ProcessSandbox } from '../../../src/gate/sandbox/index.js';
+import type { SpawnHandle, SpawnSeam } from '../../../src/dock/ports/exec.js';
 
 export const BUILD_CMD = 'C:\\tools\\build.exe';
 export const ARTIFACT_ROOT = 'C:\\ws\\artifacts';

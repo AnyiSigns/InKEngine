@@ -6,7 +6,7 @@
  * 命令（沙箱 fail-closed）。EnvAuditStorage 取 Storage 接口的 put_record 面
  * （duck-typed 最小契约；宿主完整 Storage 亦满足）。
  */
-import type { ProcessResult } from '../../kernel/sandbox/index.js';
+import type { ProcessResult } from '../../gate/sandbox/index.js';
 
 import type { EnvironmentHandle, EnvironmentSpec } from './spec.js';
 

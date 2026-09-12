@@ -14,7 +14,7 @@
  * engine/src/kernel/registry/contract_types.ts。
  */
 
-import type { MechanismContract } from '../registry/contract_types.js';
+import type { MechanismContract } from '../../dock/registry/contract_types.js';
 import { PORT_STORAGE_SEAM } from '../../dock/ports.js';
 
 /** skill_crystal 机制契约：零机制间依赖，消费 storage_seam 缓存/技能存储端口面。 */

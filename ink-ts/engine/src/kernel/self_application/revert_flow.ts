@@ -7,12 +7,12 @@
  * 在审计中完整保留）。链尾补丁 = 版本 N，回退 N = 组装到 N-1。
  */
 
-import type { ApprovalInterruptContext } from '../approval/approval.js';
+import type { ApprovalInterruptContext } from '../../gate/approval/approval.js';
 import {
   approve_before_execute,
   DECISION_REJECT,
   DECISION_TERMINATE,
-} from '../approval/approval.js';
+} from '../../gate/approval/approval.js';
 import { GraphDefinitionError } from '../../model/errors.js';
 
 import {

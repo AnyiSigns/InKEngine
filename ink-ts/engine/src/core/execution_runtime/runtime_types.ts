@@ -19,7 +19,7 @@ import type { GuardrailConfig } from './guardrails.js';
 import type { TransitionApprovalSeam } from './channel_gate.js';
 import type { WhiteboardAuditEntry, WhiteboardBlock, WhiteboardGrants } from '../whiteboard/index.js';
 import type { AuthorizedBlock } from '../context/block_source.js';
-import type { Storage } from '../storage/storage.js';
+import type { Storage } from '../../dock/ports/storage.js';
 import type { InterruptState } from '../../kernel/interrupt/interrupt_types.js';
 import type { RunPhase } from './run_checkpoint.js';
 import type { RoutingDecision } from './routing_next.js';

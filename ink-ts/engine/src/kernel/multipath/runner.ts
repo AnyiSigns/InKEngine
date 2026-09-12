@@ -12,7 +12,7 @@
  * executor 侧注入——开关关闭/无候选的零生效路径不触达引擎内部。
  */
 
-import type { BudgetRemaining } from '../budget/budget_types.js';
+import type { BudgetRemaining } from '../../gate/budget/budget_types.js';
 import type { QualityGate } from '../../model/contracts/contracts.js';
 import type { EngineTransport } from '../../core/events/events.js';
 import { check_multipath_budget, multipath_budget_required, MultiPathConfig } from './config.js';

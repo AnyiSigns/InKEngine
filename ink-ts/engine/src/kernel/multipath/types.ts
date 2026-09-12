@@ -7,7 +7,7 @@
  * 传递。
  */
 
-import { required_field_names, produced_field_names } from '../../core/link_validator/link_validator.js';
+import { required_field_names, produced_field_names } from '../../gate/link_validator/link_validator.js';
 import type { QualityGate } from '../../model/contracts/contracts.js';
 import { SchemaSpec } from '../../model/schema/schemaValidator.js';
 import { StateSchema } from '../../core/state/schema.js';

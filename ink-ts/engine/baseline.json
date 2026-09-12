@@ -2,10 +2,11 @@
   "measuredOn": "2026-09-12",
   "engine": {
     "srcDirs": {
-      "core": 29,
-      "model": 14,
-      "kernel": 31,
-      "graph": 5
+      "core": 25,
+      "model": 15,
+      "kernel": 23,
+      "graph": 5,
+      "gate": 10
     },
     "tsFiles": 461,
     "indexLines": 768

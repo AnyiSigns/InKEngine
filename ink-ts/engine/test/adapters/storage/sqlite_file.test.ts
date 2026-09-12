@@ -11,8 +11,8 @@ import * as path from 'node:path';
 
 import { StorageError } from '../../../src/model/errors.js';
 import { EngineEvent, PROTOCOL_VERSION } from '../../../src/core/events/events.js';
-import type { Storage } from '../../../src/core/storage/storage.js';
-import { CheckpointRecord } from '../../../src/core/storage/storage_records.js';
+import type { Storage } from '../../../src/dock/ports/storage.js';
+import { CheckpointRecord } from '../../../src/model/storage/storage_records.js';
 import { create_storage } from '../../../src/adapters/storage/index.js';
 import { MemoryStorage } from '../../../src/adapters/storage/memory.js';
 import { SqliteStorage } from '../../../src/adapters/storage/sqlite.js';

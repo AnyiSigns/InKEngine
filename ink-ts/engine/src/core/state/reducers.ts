@@ -10,8 +10,8 @@
 
 import { GraphDefinitionError } from '../../model/errors.js';
 import { deepCopy, deepEqual, isRecord, stableStringify, type Json, typeName } from '../../model/json.js';
-import { PatchChain } from '../../kernel/patch/patchChain.js';
-import type { Patch } from '../../kernel/patch/types.js';
+import { PatchChain } from '../../gate/patch/patchChain.js';
+import type { Patch } from '../../gate/patch/types.js';
 
 export type Reducer = (base: unknown, overlay: unknown) => unknown;
 

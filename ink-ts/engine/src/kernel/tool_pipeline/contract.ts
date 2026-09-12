@@ -17,7 +17,7 @@
  * engine/src/kernel/registry/contract_types.ts。
  */
 
-import type { MechanismContract } from '../registry/contract_types.js';
+import type { MechanismContract } from '../../dock/registry/contract_types.js';
 
 /** tool_pipeline 机制契约：依赖 approval/permissions，零副作用端口（编排语义）。 */
 export const tool_pipeline_contract: MechanismContract = {

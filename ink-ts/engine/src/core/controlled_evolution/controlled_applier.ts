@@ -19,12 +19,12 @@
  * 注入 writer（测试用内存存储；宿主装配 GuardedStorage 包装的 writer）。
  */
 
-import { approve_before_execute } from '../../kernel/approval/approval.js';
+import { approve_before_execute } from '../../gate/approval/approval.js';
 import type {
   ApprovalInterruptContext,
   ApprovalOptions,
   InterruptPolicy,
-} from '../../kernel/approval/approval.js';
+} from '../../gate/approval/approval.js';
 import type { EvolutionWriter } from '../../kernel/evolution_writer/_types.js';
 import {
   channel_writer,

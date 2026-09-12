@@ -6,6 +6,7 @@ import { fileURLToPath } from 'node:url';
 import { afterEach, describe, expect, it } from 'vitest';
 
 import { scan, scanAll } from '../src/scan.js';
+import { scanSemanticE2e } from '../src/semantic_e2e.js';
 import { checkTestProtection } from '../src/test_protection.js';
 import { checkPendingTokens, compareApiSurface } from '../src/rules.js';
 
@@ -473,5 +474,60 @@ describe('no-orphan 扫描器', () => {
       status = (error as { status?: number }).status ?? -1;
     }
     expect(status).toBe(1);
+  });
+});
+
+describe('semantic-e2e 端到端语义断言', () => {
+  async function makeSemanticRoot(entries: { commandInGenerated: boolean; writeFaceFile: boolean }): Promise<string> {
+    const root = await makeRoot();
+    await write(root, 'plugins/commands/rounds.echo/spec.json', JSON.stringify({ id: 'rounds.echo', kind: 'command' }, null, 2) + '\n');
+    const generated = entries.commandInGenerated
+      ? "export const ROUNDS_COMMANDS = ['rounds.echo'] as const;\n"
+      : "export const ROUNDS_COMMANDS = ['rounds.other'] as const;\n";
+    await write(root, 'hosts/lib/src/bridge/commands.generated.ts', generated);
+    await write(root, 'plugins/ui_features/card_a/spec.json', JSON.stringify({
+      id: 'card_a',
+      kind: 'ui_feature',
+      faces: { ui: { target: 'web', entry: './faces/ui/index.tsx' } },
+    }, null, 2) + '\n');
+    if (entries.writeFaceFile) {
+      await write(root, 'plugins/ui_features/card_a/faces/ui/index.tsx', 'export const A = 1;\n');
+    }
+    return root;
+  }
+
+  it('正例：命令声明命中桥接字面量 + faces entry 文件真实存在 → 零违规', async () => {
+    const root = await makeSemanticRoot({ commandInGenerated: true, writeFaceFile: true });
+    expect(await scanSemanticE2e(root)).toEqual([]);
+  });
+
+  it('反例·孤儿命令：声明的 id 在桥接面找不到执行点 → red', async () => {
+    const root = await makeSemanticRoot({ commandInGenerated: false, writeFaceFile: true });
+    const violations = await scanSemanticE2e(root);
+    const cmd = violations.filter((v) => v.rule === 'semantic-e2e' && v.message.includes('rounds.echo'));
+    expect(cmd).toHaveLength(1);
+    expect(cmd[0]!.path).toContain('plugins/commands/rounds.echo/spec.json');
+  });
+
+  it('反例·入口缺失：faces.ui.entry 指向文件不存在 → red', async () => {
+    const root = await makeSemanticRoot({ commandInGenerated: true, writeFaceFile: false });
+    const violations = await scanSemanticE2e(root);
+    const face = violations.filter((v) => v.message.includes('faces.ui.entry'));
+    expect(face).toHaveLength(1);
+    expect(face[0]!.rule).toBe('semantic-e2e');
+    expect(face[0]!.path).toContain('plugins/ui_features/card_a/spec.json');
+  });
+
+  it('扫描面目录不存在 → 整规则静默（不误报）', async () => {
+    const root = await makeRoot();
+    expect(await scanSemanticE2e(root)).toEqual([]);
+  });
+
+  it('scanAll 接线（默认 enforce=true）：违规入 violations 而非 warnings', async () => {
+    const root = await makeSemanticRoot({ commandInGenerated: false, writeFaceFile: false });
+    const { violations, warnings } = await scanAll({ root, config: layerCfg() });
+    const sem = violations.filter((v) => v.rule === 'semantic-e2e');
+    expect(sem.length).toBeGreaterThanOrEqual(2);
+    expect(warnings.filter((v) => v.rule === 'semantic-e2e')).toEqual([]);
   });
 });

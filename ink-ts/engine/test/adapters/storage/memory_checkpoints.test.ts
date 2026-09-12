@@ -8,8 +8,8 @@
 import { describe, expect, it } from 'vitest';
 
 import { CheckpointConflictError, StorageError } from '../../../src/model/errors.js';
-import { validate_chain } from '../../../src/core/storage/storage.js';
-import { CheckpointRecord } from '../../../src/core/storage/storage_records.js';
+import { validate_chain } from '../../../src/dock/ports/storage.js';
+import { CheckpointRecord } from '../../../src/model/storage/storage_records.js';
 import { MemoryStorage } from '../../../src/adapters/storage/memory.js';
 
 function cp(over: Partial<ConstructorParameters<typeof CheckpointRecord>[0]> = {}): CheckpointRecord {

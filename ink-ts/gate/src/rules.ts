@@ -8,7 +8,7 @@ import type { GateConfig } from './config.js';
 
 export interface Violation {
   path: string;
-  rule: 'line-limit' | 'core-import' | 'core-token' | 'src-test' | 'utf8-valid' | 'private-seam' | 'json-valid' | 'layer-dag' | 'test-protection' | 'public-api' | 'no-pending' | 'no-orphan';
+  rule: 'line-limit' | 'core-import' | 'core-token' | 'src-test' | 'utf8-valid' | 'private-seam' | 'json-valid' | 'layer-dag' | 'test-protection' | 'public-api' | 'semantic-e2e' | 'no-pending' | 'no-orphan';
   message: string;
 }
 

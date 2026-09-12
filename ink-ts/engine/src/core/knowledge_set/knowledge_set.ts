@@ -9,7 +9,7 @@
 
 import { FixtureGateError, GraphDefinitionError } from '../../model/errors.js';
 import { isRecord } from '../../model/json.js';
-import { PatchChain } from '../../kernel/patch/patchChain.js';
+import { PatchChain } from '../../gate/patch/patchChain.js';
 import { KnowledgeEntry } from './knowledge_entry.js';
 import { _cjk_bigrams, _has_cjk, knowledge_collection } from './knowledge_utils.js';
 import {

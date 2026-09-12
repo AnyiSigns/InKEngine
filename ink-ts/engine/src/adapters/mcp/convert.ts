@@ -19,8 +19,8 @@ import { EndpointType } from '../../core/declarative_tools/endpoint_types.js';
 import {
   ToolManifest,
   ToolSource,
-} from '../../kernel/tool_vetting/tool_vetting.js';
-import type { ToolSourceValue } from '../../kernel/tool_vetting/tool_vetting.js';
+} from '../../gate/tool_vetting/tool_vetting.js';
+import type { ToolSourceValue } from '../../gate/tool_vetting/tool_vetting.js';
 import type { McpToolRecord } from './_types.js';
 
 /**

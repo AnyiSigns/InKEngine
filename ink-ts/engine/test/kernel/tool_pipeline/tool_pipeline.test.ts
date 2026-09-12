@@ -19,10 +19,10 @@
 import { describe, expect, it } from 'vitest';
 
 import { ToolSpec } from '../../../src/kernel/llm/tools.js';
-import { ALLOW, DENY, REVIEW, PermissionGate } from '../../../src/kernel/permissions/permissions.js';
+import { ALLOW, DENY, REVIEW, PermissionGate } from '../../../src/gate/permissions/permissions.js';
 import { SandboxViolation } from '../../../src/model/errors.js';
 import { InterruptSignal } from '../../../src/kernel/interrupt/interrupt_types.js';
-import { DefaultInterruptPolicy } from '../../../src/kernel/approval/approval.js';
+import { DefaultInterruptPolicy } from '../../../src/gate/approval/approval.js';
 import { ToolPipeline } from '../../../src/kernel/tool_pipeline/tool_pipeline.js';
 import type { Executor, ToolResult } from '../../../src/kernel/tool_pipeline/_types.js';
 import { STATE_ROUND_POSE } from '../../../src/graph/nodes/constants.js';

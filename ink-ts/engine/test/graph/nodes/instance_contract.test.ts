@@ -13,7 +13,7 @@ import { GraphDefinitionError } from '../../../src/model/errors.js';
 import {
   required_field_names,
   produced_field_names,
-} from '../../../src/core/link_validator/link_validator.js';
+} from '../../../src/gate/link_validator/link_validator.js';
 import { FIELD_STRING, SchemaField, SchemaSpec } from '../../../src/model/schema/schemaValidator.js';
 import { derive_instance_contract } from '../../../src/graph/nodes/instance_contract.js';
 import { llm_decider_contract } from '../../../src/graph/nodes/llm_decider.js';

@@ -25,9 +25,9 @@
  * 通道写入由本管线内部豁免上下文放行。
  */
 
-import { emit_audit } from '../audit_log/audit_log.js';
-import { PatchChain } from '../patch/patchChain.js';
-import type { Json, JsonRecord, Patch } from '../patch/types.js';
+import { emit_audit } from '../../gate/audit_log/audit_log.js';
+import { PatchChain } from '../../gate/patch/patchChain.js';
+import type { Json, JsonRecord, Patch } from '../../gate/patch/types.js';
 
 import type {
   EvolutionRecord,

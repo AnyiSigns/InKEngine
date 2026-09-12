@@ -12,7 +12,7 @@
  * engine/src/kernel/registry/contract_types.ts。
  */
 
-import type { MechanismContract } from '../registry/contract_types.js';
+import type { MechanismContract } from '../../dock/registry/contract_types.js';
 
 /** 进化工厂机制契约：零机制间依赖，effects 为空（纯计算无端口）。 */
 export const evolution_contract: MechanismContract = {

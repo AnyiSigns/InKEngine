@@ -26,8 +26,8 @@ import type {
 } from '../../kernel/evolution_writer/_types.js';
 import { isRecord } from '../../model/json.js';
 import type { Json } from '../../model/json.js';
-import { PatchChain } from '../../kernel/patch/patchChain.js';
-import type { Patch } from '../../kernel/patch/types.js';
+import { PatchChain } from '../../gate/patch/patchChain.js';
+import type { Patch } from '../../gate/patch/types.js';
 import {
   HARNESS_COLLECTION,
   HarnessDefinition,

@@ -13,12 +13,12 @@
  *
  * 汇总声明面（同一模块整段 star 聚合，符号与本面下方各语句全等，仅立语义
  * 分组口径）：dock/caps.ts（插件能力注册面，计划 §4.2）、dock/calls.ts
- * （调用面，§4.3）、dock/view.ts（渲染对接面，§4.4）。dock/ports.ts 与
- * dock/registry.ts 是四件→dock 层向白名单的内部声明面，不入本公共面
+ * （调用面，§4.3）、dock/view.ts（渲染对接面，§4.4）。dock/ports.ts（含
+ * ports/ 子面）与 dock/registry/ 是四件→dock 层向白名单的内部声明面，不入本公共面
  * （保持现有符号集，计划 §2/§5.1.1）。
  *
  * 取舍：目录自带 index 收敛者整组具名透传；同名类型跨层冲突（如
- * kernel/sandbox 的 SpawnSeam 进程沙箱 seam 与 adapters/mcp 的 SpawnSeam
+ * dock/ports/exec 的 SpawnSeam 进程沙箱 seam 与 adapters/mcp 的 SpawnSeam
  * stdio 生成 seam）按语义保留 core 名、adapters 名显式别名导出
  * （McpSpawnSeam），不做 export * 撞名。不导出 `_` 前缀私有文件；值面
  * 枚举与 data plane 常量收编自引擎内置数据面生成物（engine/schemas +
@@ -103,7 +103,7 @@ export type {
 } from '../graph/nodes/index.js';
 
 // 补丁链（Patch/Path/PatchOp/AssembleMode 数据面 + 链操作）
-export * from '../kernel/patch/patchChain.js';
+export * from '../gate/patch/patchChain.js';
 
 // 执行器入口（Engine/run_subgraph/节点上下文协议）
 export { Engine, run_subgraph } from '../graph/executor/index.js';
@@ -130,15 +130,15 @@ export * from '../core/state/reducers.js';
 export * from '../core/state/schema.js';
 
 // 审批卡辅助（approve_before_execute/approve_batch/决策形态）
-export * from '../kernel/approval/approval.js';
+export * from '../gate/approval/approval.js';
 
 // 自指应用管线（SelfApplicationPipeline/GuardedStorage/分级表等）
 export * from '../kernel/self_application/index.js';
 
 // 存储 seam（Storage 接口 + checkpoint/链记录数据形态 + 协议常量）
-export * from '../core/storage/storage.js';
-export * from '../core/storage/storage_records.js';
-export * from '../core/storage/storage_constants.js';
+export * from './ports/storage.js';
+export * from '../model/storage/storage_records.js';
+export * from '../model/storage/storage_constants.js';
 
 // LLM 机制契约（base/messages/tools/errors/fallback/cache，core 纯 seam）
 export * from '../kernel/llm/index.js';
@@ -177,19 +177,19 @@ export * from '../model/ui_schema/uiSchema.js';
 
 // 权限与沙箱安全类型（PermissionGate/NetworkPolicySandbox/文件与进程沙箱；
 // SpawnSeam = core 进程沙箱的宿主注入 seam）
-export * from '../kernel/permissions/permissions.js';
+export * from '../gate/permissions/permissions.js';
 export {
-  FS_OPERATIONS,
   FileSandbox,
   FileSnapshot,
   ProcessResult,
   ProcessSandbox,
   snapshot_before,
-} from '../kernel/sandbox/index.js';
-export type { FileOps, FsOperation, SpawnHandle, SpawnSeam } from '../kernel/sandbox/index.js';
+} from '../gate/sandbox/index.js';
+export { FS_OPERATIONS } from './ports/exec.js';
+export type { FileOps, FsOperation, SpawnHandle, SpawnSeam } from './ports/exec.js';
 
 // 链接校验（输出字段 ↔ 消费字段的前驱可达性）
-export * from '../core/link_validator/link_validator.js';
+export * from '../gate/link_validator/link_validator.js';
 
 // 事件类型（registry/specs，演化事件声明面；register_* 注册函数族为装配期
 // 内部动作——宿主经 EventTypeRegistry + 数据规格函数显式装配，不随公共面外泄）
@@ -215,8 +215,8 @@ export {
   BudgetManager,
   BudgetRemaining,
   can_afford,
-} from '../kernel/budget/budget.js';
-export type { BudgetPolicy, BudgetQuery } from '../kernel/budget/budget.js';
+} from '../gate/budget/budget.js';
+export type { BudgetPolicy, BudgetQuery } from '../gate/budget/budget.js';
 
 // 结点契约（NodeContract/QualityGate 等公开类型）
 export {

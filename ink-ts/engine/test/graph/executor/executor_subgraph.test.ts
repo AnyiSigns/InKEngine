@@ -204,7 +204,7 @@ describe('Engine 嵌套子图：路径/回流/事件', () => {
     const r2 = await engine.ainvoke({}, { thread_id: 't1' });
     expect(r2.reason).toBe(TerminateReason.REPLY);
     expect(r2.events_emitted).toBe(2);
-    const { validate_chain } = await import('../../../src/core/storage/storage.js');
+    const { validate_chain } = await import('../../../src/dock/ports/storage.js');
     expect(await validate_chain(storage, 't1')).toEqual([]);
     const r3 = await engine.ainvoke({}, { thread_id: 't1' });
     expect(r3.reason).toBe(TerminateReason.REPLY);

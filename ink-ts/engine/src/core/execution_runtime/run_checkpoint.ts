@@ -24,8 +24,8 @@
  * 挂起卡仍随结果返回——宿主可弹卡但无法续跑，fail-closed 方向上不静默）。
  */
 
-import { CheckpointRecord, jsonableStrip } from '../storage/storage_records.js';
-import type { Storage } from '../storage/storage.js';
+import { CheckpointRecord, jsonableStrip } from '../../model/storage/storage_records.js';
+import type { Storage } from '../../dock/ports/storage.js';
 import type { JsonRecord } from '../../model/json.js';
 import { InterruptState } from '../../kernel/interrupt/interrupt_types.js';
 import { resolve_resume, tail_checkpoint } from '../../kernel/recovery/index.js';

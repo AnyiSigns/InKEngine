@@ -9,7 +9,7 @@
  * 显式抛错（fail-closed），不静默降级为字符串。
  */
 import { ToolSpec } from '../llm/tools.js';
-import { strip_sensitive } from '../../core/security/security.js';
+import { strip_sensitive } from '../../gate/security/security.js';
 import type { Executor } from '../tool_pipeline/_types.js';
 import {
   INTROSPECTION_PERMISSION,

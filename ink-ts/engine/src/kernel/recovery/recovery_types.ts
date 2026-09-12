@@ -11,8 +11,8 @@
 import type { EngineEvent } from '../../core/events/events.js';
 import type { JsonRecord } from '../../model/json.js';
 import type { StateSchema } from '../../core/state/schema.js';
-import type { Storage } from '../../core/storage/storage.js';
-import type { CheckpointRecord } from '../../core/storage/storage_records.js';
+import type { Storage } from '../../dock/ports/storage.js';
+import type { CheckpointRecord } from '../../model/storage/storage_records.js';
 
 /**
  * 嵌套子图恢复锚点表（graph_path → checkpoint_id）。

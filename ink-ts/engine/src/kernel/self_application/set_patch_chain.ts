@@ -11,9 +11,9 @@
  * 为 GuardedStorage 包装层时透传（ENG1-7），其余后端不传令牌同样安全。
  */
 
-import type { Storage } from '../../core/storage/storage.js';
-import type { Patch } from '../patch/patchChain.js';
-import { PatchChain } from '../patch/patchChain.js';
+import type { Storage } from '../../dock/ports/storage.js';
+import type { Patch } from '../../gate/patch/patchChain.js';
+import { PatchChain } from '../../gate/patch/patchChain.js';
 import { GraphDefinitionError } from '../../model/errors.js';
 import type { Json } from '../../model/json.js';
 

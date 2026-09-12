@@ -18,8 +18,8 @@
  * 引擎——与 spawn 实例/推演分支的展开口径同构。
  */
 
-import type { BudgetManager } from '../budget/budget.js';
-import type { BudgetRemaining } from '../budget/budget_types.js';
+import type { BudgetManager } from '../../gate/budget/budget.js';
+import type { BudgetRemaining } from '../../gate/budget/budget_types.js';
 import type { EdgeEvidenceStore } from '../../core/edge_evidence/index.js';
 import type { EngineEvent, EngineTransport } from '../../core/events/events.js';
 import type { Graph } from '../../model/graph/graph.js';
@@ -28,7 +28,7 @@ import { InterruptSignal } from '../interrupt/interrupt_types.js';
 import type { RunResult } from '../../core/run_result/run_result.js';
 import type { RunOptions } from '../../core/run_result/run_result.js';
 import type { StateSchema } from '../../core/state/schema.js';
-import type { Storage } from '../../core/storage/storage.js';
+import type { Storage } from '../../dock/ports/storage.js';
 import type { TraceStep } from '../settle/index.js';
 import { fan_out } from '../../core/fanout/fanout.js';
 import { tail_checkpoint } from '../recovery/index.js';

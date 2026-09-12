@@ -36,6 +36,8 @@ export interface GateConfig {
   layerDagWhitelist: readonly string[];
   /** test-protection 是否强制（false = 报告模式；自 P0 生效，P8 行为波起强制）。 */
   testProtectionEnforce: boolean;
+  /** semantic-e2e 是否强制（§13.6 第 2 条 / §13.9 硬门禁：P3b 落地即强制，违规=拒绝）。 */
+  semanticE2eEnforce: boolean;
   /** no-pending 禁字（CODING §11.1.4 禁待定）：命中即违规。 「占位」经治理裁决除名（产品占位语义放行）。 */
   noPendingTokens: readonly string[];
   /** no-pending 强制位（false = 报告模式；保留词表零命中，经治理裁决 P0 即转强制）。 */
@@ -48,7 +50,7 @@ export const defaultConfig: GateConfig = {
   maxLines: 350,
   lineScanDirs: ['engine/src', 'engine/test', 'hosts/lib/src', 'hosts/lib/test', 'hosts/cli/src', 'hosts/cli/test', 'hosts/web/src', 'hosts/web/test', 'renderer/src', 'renderer/test', 'plugins/ui_features', 'plugins/tools/doc_parse/faces'],
   coreDirs: ['engine/src/core', 'engine/src/kernel'],
-  layerDirs: ['engine/src/dock', 'engine/src/model', 'engine/src/graph'],
+  layerDirs: ['engine/src/dock', 'engine/src/model', 'engine/src/graph', 'engine/src/gate'],
   adapterDirs: ['engine/src/adapters'],
   jsonScanDirs: ['seed_data', 'plugins', 'engine/schemas', 'engine/fixtures'],
   coreSeamMarker: '跨域契约模块',
@@ -59,6 +61,7 @@ export const defaultConfig: GateConfig = {
   layerDagEnforce: false,
   layerDagWhitelist: [],
   testProtectionEnforce: false,
+  semanticE2eEnforce: true,
   noPendingTokens: ['待接线', '未来接线', '待引擎补全', '机制先行'],
   noPendingEnforce: true,
   noPendingDirs: ['engine/src', 'hosts/lib/src', 'hosts/cli/src', 'hosts/web/src', 'renderer/src', 'plugins'],

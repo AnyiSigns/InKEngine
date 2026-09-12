@@ -16,7 +16,7 @@
  * （TS core 零 IO：logging.warning 属可观测性副作用，不落）。
  */
 
-import type { InterruptPolicy } from '../approval/approval.js';
+import type { InterruptPolicy } from '../../gate/approval/approval.js';
 import { APPROVAL_TIMEOUT_SECONDS } from './approval_level.js';
 
 export class _PatchApprovalPolicy implements InterruptPolicy {

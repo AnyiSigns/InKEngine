@@ -21,7 +21,7 @@
  * EnvironmentProviders）。
  */
 import { GraphDefinitionError } from '../../model/errors.js';
-import { ProcessResult, ProcessSandbox } from '../../kernel/sandbox/index.js';
+import { ProcessResult, ProcessSandbox } from '../../gate/sandbox/index.js';
 
 import {
   ENV_AUDIT_COLLECTION,

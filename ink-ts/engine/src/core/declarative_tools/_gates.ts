@@ -22,9 +22,9 @@
  * （guards_operation >1 位、validate >2 位），故两方法声明必填 name 位。
  */
 import { SandboxViolation } from '../../model/errors.js';
-import { FS_OPERATIONS } from '../../kernel/sandbox/index.js';
-import { DENY, REVIEW, GateResult } from '../../kernel/permissions/permissions.js';
-import { NetworkPolicySandbox } from '../../kernel/permissions/networkPolicy.js';
+import { FS_OPERATIONS } from '../../dock/ports/exec.js';
+import { DENY, REVIEW, GateResult } from '../../gate/permissions/permissions.js';
+import { NetworkPolicySandbox } from '../../gate/permissions/networkPolicy.js';
 import { pyRepr } from '../../model/py_repr.js';
 import type { GateSeam, SandboxSeam } from '../../kernel/tool_pipeline/_types.js';
 import type { DeclarativeToolExecutors } from './executors.js';

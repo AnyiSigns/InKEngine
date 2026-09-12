@@ -18,7 +18,7 @@ import {
   edge_key_tuple,
 } from './storage_seam.js';
 import { edge_evidence_from_dict, edge_evidence_to_dict } from './store.js';
-import type { Storage } from '../storage/storage.js';
+import type { Storage } from '../../dock/ports/storage.js';
 
 /** 边证据持久化集合（records 通道普通命名空间，非受守卫演化资产集合）。 */
 export const EDGE_EVIDENCE_COLLECTION = 'edge_evidence';

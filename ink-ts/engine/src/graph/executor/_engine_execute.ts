@@ -26,7 +26,7 @@ import { RunOptions, RunResult } from '../../core/run_result/run_result.js';
 import { TerminateReason } from '../../model/graph/graph_types.js';
 import { InterruptState } from '../../kernel/interrupt/interrupt_types.js';
 import { resolve_resume } from '../../kernel/recovery/index.js';
-import type { CheckpointRecord } from '../../core/storage/storage_records.js';
+import type { CheckpointRecord } from '../../model/storage/storage_records.js';
 import type { JsonRecord } from '../../model/json.js';
 import type { Graph } from '../../model/graph/graph.js';
 import { _NodeContextImpl } from './_node_context.js';

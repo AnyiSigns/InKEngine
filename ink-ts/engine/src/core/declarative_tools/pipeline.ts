@@ -24,8 +24,8 @@
  * registry 指定端点类型注册表（缺省 = 模块级 endpoint_registry——宿主
  * 自定义端点注册进同一注册表后此处自动生效）。
  */
-import { PermissionGate } from '../../kernel/permissions/permissions.js';
-import { NetworkPolicy, NetworkPolicySandbox } from '../../kernel/permissions/networkPolicy.js';
+import { PermissionGate } from '../../gate/permissions/permissions.js';
+import { NetworkPolicy, NetworkPolicySandbox } from '../../gate/permissions/networkPolicy.js';
 import { DEFAULT_MAX_RESULT_CHARS } from '../../kernel/tool_pipeline/_types.js';
 import { ToolPipeline } from '../../kernel/tool_pipeline/tool_pipeline.js';
 import type {

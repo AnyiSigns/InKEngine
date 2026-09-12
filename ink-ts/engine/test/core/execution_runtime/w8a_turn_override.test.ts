@@ -18,7 +18,7 @@ import { describe, expect, it } from 'vitest';
 
 import { ToolPipeline } from '../../../src/kernel/tool_pipeline/tool_pipeline.js';
 import { ToolSpec } from '../../../src/kernel/llm/tools.js';
-import { GateResult, REVIEW } from '../../../src/kernel/permissions/permissions.js';
+import { GateResult, REVIEW } from '../../../src/gate/permissions/permissions.js';
 import type { AsyncLLM, LLMChunk } from '../../../src/kernel/llm/_guard_types.js';
 import type { Message } from '../../../src/kernel/llm/messages.js';
 import { ToolCallDelta } from '../../../src/kernel/llm/messages.js';

@@ -20,11 +20,8 @@ import {
   WebBridgeProvider,
 } from '../../../src/core/environments/index.js';
 import type { EnvAuditStorage } from '../../../src/core/environments/_types.js';
-import {
-  ProcessSandbox,
-  type SpawnHandle,
-  type SpawnSeam,
-} from '../../../src/kernel/sandbox/index.js';
+import { ProcessSandbox } from '../../../src/gate/sandbox/index.js';
+import type { SpawnHandle, SpawnSeam } from '../../../src/dock/ports/exec.js';
 
 /** 记录一次 spawn 调用（断言命令/参数/工作目录透传）。 */
 interface SpawnCall {

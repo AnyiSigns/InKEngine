@@ -177,6 +177,7 @@ host/cli 取用；web/renderer 不静态 import engine（运行时经 cli serve 
 | 公共 API 全量快照（public-api） | `engine/src/index.ts` 导出面（typescript checker 递归展开 `export * from`，符号 `name:kind` 排序去重）：`engine/scripts/dump_api_surface.mjs --print` 与提交基线 `engine/api.surface.snapshot` 逐字比对（机械波来源路径可变、符号集合必须逐字不变） | 拒绝（gate check.ts 子进程执行；导出符号增/删/改名即红，宿主零迁移机器判定） |
 | 禁待定字面（no-pending） | `engine/src`、`hosts/*/src`、`renderer/src`、`plugins` 的 .ts(x) 禁 token：`待接线`/`未来接线`/`待引擎补全`/`机制先行`（CODING §11.1.4；「占位」在产品占位语义下放行，机制层红线另行守） | 强制（P0 即转强制：保留 4 token 扫描零命中；实施层：gate config `noPendingTokens/noPendingEnforce`） |
 | 孤儿候选扫描（no-orphan） | `engine/src` 全部 .ts 的 import 边：逐模块数「目录外消费者」，零外部消费者 = 孤儿候选（`src/index.ts` 入口豁免） | 扫描器 = `engine/scripts/no_orphan.mjs`：默认 report exit 0；`--strict` 有孤儿 exit 1（S6 执法用；扫描器形态不入 root `npm test` 阻断链） |
+| 端到端语义标签断言（semantic-e2e） | `plugins/commands/<id>/spec.json` kind=command 声明的命令 id 须在 `hosts/lib/src/bridge/` 内命中带点引号字面量（commands.generated.ts 各域 `*_COMMANDS` 元组 = BRIDGE_METHODS 派生源，或域工厂方法表键）；`plugins/ui_features/<id>/spec.json` 的 faces.ui / faces.logic 声明 entry 所指文件须真实存在（相对插件目录解析禁逃逸）——承诺机制的标签沿真实调用链找不到执行点 = 孤儿语义标签（§13.6 第 2 条） | 拒绝（硬门禁，落地即强制：实施层 `gate/src/semantic_e2e.ts`，`tsx gate/src/check.ts` 随 scanAll 执行，gate config `semanticE2eEnforce=true`；正反用例见 `gate/test/gate.test.ts`） |
 
 gate 实现与正反样例位于 `gate/src/` 与 `gate/test/`；**真实扫描链** =
 root `npm test` 首段 `npm run typecheck --workspace engine`（engine tsc

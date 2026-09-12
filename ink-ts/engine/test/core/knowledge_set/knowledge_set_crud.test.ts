@@ -11,7 +11,7 @@
 import { describe, expect, it } from 'vitest';
 
 import type { Json, JsonRecord } from '../../../src/model/json.js';
-import { PatchChain } from '../../../src/kernel/patch/patchChain.js';
+import { PatchChain } from '../../../src/gate/patch/patchChain.js';
 import { KnowledgeEntry } from '../../../src/core/knowledge_set/knowledge_entry.js';
 import { KnowledgeSet } from '../../../src/core/knowledge_set/knowledge_set.js';
 import { LEVEL_WORK } from '../../../src/core/knowledge_set/_types.js';

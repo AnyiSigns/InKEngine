@@ -14,13 +14,13 @@
  * 保序协调器跨引擎共享：父引擎与 spawn 实例/嵌套子图推进同一 thread 事件
  * 日志（seq 全局）、推送同一传输链——缺孔只能由全局协调器补齐。
  */
-import { CheckpointRecord } from '../../core/storage/storage_records.js';
-import type { ChainLink } from '../../core/storage/storage_records.js';
-import type { Storage } from '../../core/storage/storage.js';
+import { CheckpointRecord } from '../../model/storage/storage_records.js';
+import type { ChainLink } from '../../model/storage/storage_records.js';
+import type { Storage } from '../../dock/ports/storage.js';
 import { EngineEvent, type EngineTransport } from '../../core/events/events.js';
 import type { InterruptState } from '../../kernel/interrupt/interrupt_types.js';
 import type { JsonRecord } from '../../model/json.js';
-import { maybe_compact_chain } from '../../core/chain_rebase/chain_rebase.js';
+import { maybe_compact_chain } from '../../gate/chain_rebase/chain_rebase.js';
 import type { RunResult } from '../../core/run_result/run_result.js';
 import { EngineBase } from './_engine_base.js';
 import { _error, _warn, _now_monotonic_ms } from './_internals.js';

@@ -12,6 +12,7 @@ import { dirname, join, normalize, relative, resolve, sep } from 'node:path';
 
 import { defaultConfig, type GateConfig } from './config.js';
 import { scanLayerDag } from './layer_dag.js';
+import { scanSemanticE2e } from './semantic_e2e.js';
 import { checkTestProtection } from './test_protection.js';
 import {
   checkCoreImports,
@@ -236,7 +237,7 @@ export interface ScanAllResult {
   notes: string[];
 }
 
-/** 全量扫描 = 既有 7 规则 + 层向/待定/测试保护新规则按 enforce 分流违规与警告。 */
+/** 全量扫描 = 既有 7 规则 + 层向/端到端语义/待定/测试保护新规则按 enforce 分流违规与警告。 */
 export async function scanAll({ root, config, changedFiles }: ScanAllOptions): Promise<ScanAllResult> {
   const cfg: GateConfig = { ...defaultConfig, ...config };
   const violations = await scan({ root, config });
@@ -246,6 +247,8 @@ export async function scanAll({ root, config, changedFiles }: ScanAllOptions): P
   (cfg.layerDagEnforce ? violations : warnings).push(...dag);
   const pending = await scanNoPending(root, cfg);
   (cfg.noPendingEnforce ? violations : warnings).push(...pending);
+  const semantic = await scanSemanticE2e(root);
+  (cfg.semanticE2eEnforce ? violations : warnings).push(...semantic);
   if (changedFiles === undefined) {
     notes.push('test-protection 跳过：未提供本批变更清单（git 不可用）');
   } else {

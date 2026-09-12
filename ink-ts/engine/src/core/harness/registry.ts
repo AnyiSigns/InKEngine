@@ -22,7 +22,7 @@ import {
 import { GraphDefinitionError } from '../../model/errors.js';
 import { Graph } from '../../model/graph/graph.js';
 import type { ToolSpec } from '../../kernel/llm/tools.js';
-import type { NetworkPolicy } from '../../kernel/permissions/networkPolicy.js';
+import type { NetworkPolicy } from '../../gate/permissions/networkPolicy.js';
 import { Plan } from '../plan/plan.js';
 import { GraphRegistries } from '../../graph/registry/registry.js';
 import { StateSchema } from '../state/schema.js';

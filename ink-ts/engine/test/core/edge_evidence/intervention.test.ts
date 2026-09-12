@@ -16,7 +16,7 @@ import {
   downgrade_edge_tier,
   restore_edge_tier,
 } from '../../../src/core/edge_evidence/intervention.js';
-import type { AuditRecord } from '../../../src/kernel/audit_log/audit_log.js';
+import type { AuditRecord } from '../../../src/gate/audit_log/audit_log.js';
 import { makeEvidence } from './helpers.js';
 
 interface FakeStorage {

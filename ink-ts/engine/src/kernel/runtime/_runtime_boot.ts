@@ -6,9 +6,9 @@
  * MCP 管理器与默认 embedder 为宿主装配面（未迁 core）：mcp seam 未注入即
  * 不启用；ToolVectorIndex 以关键词基线构建。
  */
-import { PermissionGate } from '../permissions/permissions.js';
-import { ALL_MECHANISM_CONTRACTS, seal_mechanism_registry } from '../registry/index.js';
-import type { InterruptPolicy } from '../approval/approval.js';
+import { PermissionGate } from '../../gate/permissions/permissions.js';
+import { ALL_MECHANISM_CONTRACTS, seal_mechanism_registry } from '../../dock/registry/index.js';
+import type { InterruptPolicy } from '../../gate/approval/approval.js';
 import { register_perception_nodes } from '../../model/perception/perception.js';
 import { default_engine_pool_seed } from '../../graph/nodes/index.js';
 import { RuntimeNodeRegistrar } from './_runtime_node_registry.js';
@@ -49,7 +49,7 @@ import { KnowledgeSetRetriever, RetrieverRegistry } from '../../core/retrieval/i
 import { ToolPipeline } from '../tool_pipeline/tool_pipeline.js';
 import { ToolSelector } from '../../core/tool_orchestrator/tool_orchestrator.js';
 import { ToolVectorIndex } from '../../core/tool_index/tool_index.js';
-import { ToolVetting } from '../tool_vetting/tool_vetting.js';
+import { ToolVetting } from '../../gate/tool_vetting/tool_vetting.js';
 import { UISchemaValidator } from '../../model/ui_schema/uiSchema.js';
 import type { ToolSpec } from '../llm/tools.js';
 import type { Host, AssemblyRecipe } from './_types.js';

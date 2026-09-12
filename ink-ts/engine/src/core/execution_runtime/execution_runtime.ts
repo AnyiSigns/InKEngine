@@ -49,8 +49,8 @@ import {
 } from './run_result.js';
 import { InterruptCoordinator } from '../../kernel/interrupt/interrupt.js';
 import { InterruptSignal, InterruptState } from '../../kernel/interrupt/interrupt_types.js';
-import type { CheckpointRecord } from '../storage/storage_records.js';
-import type { Storage } from '../storage/storage.js';
+import type { CheckpointRecord } from '../../model/storage/storage_records.js';
+import type { Storage } from '../../dock/ports/storage.js';
 import type {
   ExecutionRequest,
   ExecutionResult,

@@ -8,8 +8,8 @@
 
 import { describe, expect, it } from 'vitest';
 
-import { AUDIT_COLLECTION } from '../../../src/kernel/audit_log/audit_log.js';
-import type { MechanismExemptionScope } from '../../../src/kernel/audit_log/audit_log.js';
+import { AUDIT_COLLECTION } from '../../../src/gate/audit_log/audit_log.js';
+import type { MechanismExemptionScope } from '../../../src/gate/audit_log/audit_log.js';
 import {
   DefaultEvolutionWriter,
   EVOLUTION_AUDIT_TYPE,
@@ -29,7 +29,7 @@ import type {
   EvolutionWriter,
   GuardedEvolutionStorage,
 } from '../../../src/kernel/evolution_writer/_types.js';
-import { PatchChain } from '../../../src/kernel/patch/patchChain.js';
+import { PatchChain } from '../../../src/gate/patch/patchChain.js';
 
 /** 裸内存存储：get/put records 全量记录（无守卫；emit_audit 直接写）。 */
 class MemStore implements EvolutionStorage {

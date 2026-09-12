@@ -13,7 +13,7 @@
  * non-ASCII keys). limit 0/negative = unbounded (legacy semantics).
  */
 
-import type { RecordListOptions, RecordListResult } from '../../core/storage/storage.js';
+import type { RecordListOptions, RecordListResult } from '../../dock/ports/storage.js';
 
 /** Prefix upper bound: last code unit + 1 (null = no upper bound). */
 export function prefix_upper_bound(prefix: string): string | null {

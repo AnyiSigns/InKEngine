@@ -15,9 +15,9 @@ import { RunOptions, RunResult } from '../../../src/core/run_result/run_result.j
 import { InterruptState } from '../../../src/kernel/interrupt/interrupt_types.js';
 import { DEFAULT_MAX_PLAN_STEPS } from '../../../src/core/plan/plan.js';
 import { DEFAULT_MAX_SIMULATIONS } from '../../../src/kernel/simulation/simulation.js';
-import type { Storage } from '../../../src/core/storage/storage.js';
+import type { Storage } from '../../../src/dock/ports/storage.js';
 import type { StateSchema } from '../../../src/core/state/schema.js';
-import type { BudgetManager } from '../../../src/kernel/budget/budget.js';
+import type { BudgetManager } from '../../../src/gate/budget/budget.js';
 import type { EngineTransport } from '../../../src/core/events/events.js';
 
 describe('RunOptions 默认值', () => {

@@ -12,7 +12,7 @@ import type { ContextSource } from '../context/context_types.js';
 import type { Clock } from '../context/context_types.js';
 import { GraphDefinitionError } from '../../model/errors.js';
 import type { Json, JsonRecord } from '../../model/json.js';
-import type { Path } from '../../kernel/patch/types.js';
+import type { Path } from '../../gate/patch/types.js';
 import {
   SOURCE_DIALOG,
   SOURCE_MODEL,

@@ -16,11 +16,11 @@
 import { EngineEvent } from '../../core/events/events.js';
 import { StorageError } from '../../model/errors.js';
 import { deepCopy, type JsonRecord } from '../../model/json.js';
-import { strip_sensitive } from '../../core/security/security.js';
+import { strip_sensitive } from '../../gate/security/security.js';
 import type {
   RecordListOptions,
   RecordListResult,
-} from '../../core/storage/storage.js';
+} from '../../dock/ports/storage.js';
 
 import { MemoryStorageCheckpoints } from './_checkpoints.js';
 import { memory_keys_in_window, page_limit, slice_paged_rows } from './_records_page.js';

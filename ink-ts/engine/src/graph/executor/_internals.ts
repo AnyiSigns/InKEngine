@@ -16,7 +16,7 @@ import { EngineEvent, type EngineTransport } from '../../core/events/events.js';
 import { TerminateReason } from '../../model/graph/graph_types.js';
 import type { Graph } from '../../model/graph/graph.js';
 import { InterruptSignal, InterruptState } from '../../kernel/interrupt/interrupt_types.js';
-import { strip_sensitive } from '../../core/security/security.js';
+import { strip_sensitive } from '../../gate/security/security.js';
 import type { Plan } from '../../core/plan/plan.js';
 import type { StateSchema } from '../../core/state/schema.js';
 import type { ResumeMap } from '../../kernel/recovery/recovery_types.js';

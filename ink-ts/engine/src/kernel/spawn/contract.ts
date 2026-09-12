@@ -14,7 +14,7 @@
  * engine/src/kernel/registry/contract_types.ts。
  */
 
-import type { MechanismContract } from '../registry/contract_types.js';
+import type { MechanismContract } from '../../dock/registry/contract_types.js';
 
 /** spawn 机制契约：零机制间依赖，零副作用端口（展开清单数据面）。 */
 export const spawn_contract: MechanismContract = {

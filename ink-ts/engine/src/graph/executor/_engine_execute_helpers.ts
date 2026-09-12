@@ -11,7 +11,7 @@
  */
 import { InterruptSignal, InterruptState } from '../../kernel/interrupt/interrupt_types.js';
 import { TerminateReason } from '../../model/graph/graph_types.js';
-import { strip_sensitive } from '../../core/security/security.js';
+import { strip_sensitive } from '../../gate/security/security.js';
 import { current_node_context } from '../../kernel/llm/guard.js';
 import type { Graph } from '../../model/graph/graph.js';
 import type { _NodeContextImpl } from './_node_context.js';

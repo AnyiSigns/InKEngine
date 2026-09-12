@@ -9,7 +9,7 @@ import * as fs from 'node:fs';
 import * as path from 'node:path';
 
 import { EngineEvent } from '../../../src/core/events/events.js';
-import { CheckpointRecord } from '../../../src/core/storage/storage_records.js';
+import { CheckpointRecord } from '../../../src/model/storage/storage_records.js';
 import { SqliteStorage } from '../../../src/adapters/storage/sqlite.js';
 import { makeTempDir, cleanupTempDirs } from './helpers.js';
 

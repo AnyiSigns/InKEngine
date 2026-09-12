@@ -13,7 +13,7 @@
  * engine/src/kernel/registry/contract_types.ts。
  */
 
-import type { MechanismContract } from '../registry/contract_types.js';
+import type { MechanismContract } from '../../dock/registry/contract_types.js';
 
 /** simulation 机制契约：依赖 patch，effects 为空（纯进程内数据面 + 链运算）。 */
 export const simulation_contract: MechanismContract = {

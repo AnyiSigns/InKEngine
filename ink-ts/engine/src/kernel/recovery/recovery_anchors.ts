@@ -8,9 +8,9 @@
  * （parent_id=null）。
  */
 
-import { ChainLink } from '../../core/storage/storage_records.js';
-import type { CheckpointRecord } from '../../core/storage/storage_records.js';
-import type { Storage } from '../../core/storage/storage.js';
+import { ChainLink } from '../../model/storage/storage_records.js';
+import type { CheckpointRecord } from '../../model/storage/storage_records.js';
+import type { Storage } from '../../dock/ports/storage.js';
 import type { ResumeMap } from './recovery_types.js';
 
 /** resume_map 键编码：graph_path 的 JSON 序列化（单射编码，见 recovery_types）。 */

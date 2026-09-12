@@ -22,7 +22,7 @@ import {
   VettingResult,
   VettingVerdict,
   type ShadowExecutor,
-} from '../../../src/kernel/tool_vetting/tool_vetting.js';
+} from '../../../src/gate/tool_vetting/tool_vetting.js';
 
 /** ����׮�Ự��ʵ�� list_tools/call_tool/aclose����¼���ñ��ڶ��ԡ� */
 export class FakeSession implements McpSessionHandle {

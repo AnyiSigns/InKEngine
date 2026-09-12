@@ -20,14 +20,14 @@
  * 确定性替代）。
  */
 
-import type { Storage } from '../../core/storage/storage.js';
+import type { Storage } from '../../dock/ports/storage.js';
 import type { ApplyTarget, PatchOutcome } from './patch_outcome.js';
 import type {
   ApprovalDecision,
   ApprovalInterruptContext,
   InterruptPolicy,
-} from '../approval/approval.js';
-import { DefaultInterruptPolicy } from '../approval/approval.js';
+} from '../../gate/approval/approval.js';
+import { DefaultInterruptPolicy } from '../../gate/approval/approval.js';
 import { SelfProposal } from '../self_proposal/index.js';
 import type { PatchKind, ProposalValidator } from '../self_proposal/index.js';
 

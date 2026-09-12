@@ -25,11 +25,11 @@
  */
 
 import { isRecord } from '../../model/json.js';
-import type { ApprovalDecision } from '../approval/approval_types.js';
-import type { InterruptPolicy } from '../approval/approval_types.js';
+import type { ApprovalDecision } from '../../gate/approval/approval_types.js';
+import type { InterruptPolicy } from '../../gate/approval/approval_types.js';
 import type { ToolSpec } from '../llm/tools.js';
-import { ALLOW, DENY, REVIEW } from '../permissions/permissions.js';
-import type { GateResult } from '../permissions/permissions.js';
+import { ALLOW, DENY, REVIEW } from '../../gate/permissions/permissions.js';
+import type { GateResult } from '../../gate/permissions/permissions.js';
 import type { ToolTrace } from '../../core/tool_orchestrator/_types.js';
 
 export { ALLOW, DENY, REVIEW };

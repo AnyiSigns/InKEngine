@@ -7,16 +7,16 @@
  * demo_linear/conditional/loop_graph 与 DemoBudgetPolicy。
  */
 import { EngineEvent } from '../../../src/core/events/events.js';
-import { ChainLink, CheckpointRecord } from '../../../src/core/storage/storage_records.js';
-import type { Storage } from '../../../src/core/storage/storage.js';
+import { ChainLink, CheckpointRecord } from '../../../src/model/storage/storage_records.js';
+import type { Storage } from '../../../src/dock/ports/storage.js';
 import { Engine } from '../../../src/graph/executor/index.js';
 import { Graph } from '../../../src/model/graph/graph.js';
 import { RunOptions, RunResult } from '../../../src/core/run_result/run_result.js';
 import type { EngineTransport } from '../../../src/core/events/events.js';
 import { CollectorTransport } from '../../../src/core/events/events.js';
 import type { JsonRecord } from '../../../src/model/json.js';
-import type { BudgetPolicy } from '../../../src/kernel/budget/budget_types.js';
-import { BudgetExceededError } from '../../../src/kernel/budget/budget.js';
+import type { BudgetPolicy } from '../../../src/gate/budget/budget_types.js';
+import { BudgetExceededError } from '../../../src/gate/budget/budget.js';
 
 /** 内存 Storage（自增 id/seq；链一致性写入校验；fork 首写跳过校验）。 */
 export class MemoryStorage implements Storage {

@@ -4,7 +4,8 @@
  * `task_hash` 口径来自 C.1：hashObj({instruction, family, x, expected,
  * world_version})，不含 plan——计划是否变化由 `plan_hash` 单独承载，故数据去重键
  * （style, composition_id, instruction, x, expected, plan_hash）不能省略 plan_hash。
- * `world_version` 见 world/version.ts，是 world/operators 契约表的规范 hash。
+ * `world_version` 见 world/version.ts，是 world/operators 契约表、变换语义与
+ * MAX_REPEAT 的规范 hash。
  */
 
 import { hashObj } from './world/hash.js';
@@ -16,8 +17,9 @@ export type Split = 'train' | 'val' | 'heldout';
 export type Root = 'Int' | 'Str';
 
 /**
- * 一个任务的公开 + 隐藏两半：public = instruction/x/spec/expected/候选动作集，
- * hidden = plan_hidden（gold）。控制器只见 public；verify 只吃 public + 产物。
+ * 一个任务的公开 + 隐藏两半：public = instruction/x/spec/候选动作集，
+ * hidden = plan_hidden（gold）。expected 仅存于 Task 记录与 acceptor_view，
+ * 绝无控制器可见路径（B.1/E.5）；verify 只吃 public + 产物。
  */
 export interface Task {
   readonly style: Style;
@@ -26,7 +28,7 @@ export interface Task {
   readonly x: number | string;
   /** 公开校验/目标（check_* 与 goal_ok 读它），运行期只读。 */
   readonly spec: Readonly<Record<string, unknown>>;
-  /** 真值：回放求出（配方族=计划输出；目标族=达标 witness），仅供验收/调试。 */
+  /** 真值：回放求出（配方族=计划输出；目标族=达标 witness），只进 acceptor_view 与去重键，绝无控制器可见路径。 */
   readonly expected: number | string;
   /** 隐藏 gold plan（含收尾终算子），控制器不可见。 */
   readonly plan_hidden: readonly string[];

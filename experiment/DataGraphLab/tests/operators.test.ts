@@ -145,12 +145,12 @@ describe('world/operators/applyOp（B.2 变换表）', () => {
     expect(st.x).toBe(3);
   });
 
-  it('shuffle 循环右移 crc32(x) % max(1,len) 位', () => {
+  it('shuffle 循环右移 emod(crc32(x), max(1,len)) 位', () => {
     const rng = makeRng(11);
     for (let i = 0; i < 200; i++) {
       const x = sampleValue(rng, 'Str') as string;
       const out = applyOp(GRAPH_BASE, 'shuffle', initState(x))!;
-      const k = crc32(x) % Math.max(1, x.length);
+      const k = emod(crc32(x), Math.max(1, x.length));
       expect(out.x).toBe(k === 0 ? x : x.slice(-k) + x.slice(0, x.length - k));
     }
   });
@@ -182,6 +182,43 @@ describe('world/operators/runPlan（B.1/C.1）', () => {
     const end = runPlan(['mul2', 'submit', 'check_parity'], initState(4, { parity: 0 }))!;
     expect(end.answer).toBe(8);
     expect(end.verdict).toBe('pass');
+  });
+});
+
+describe('world/operators/确定性（E.8，无随机面）', () => {
+  it('applyOp 同输入执行两次，返回 state 与 hist 深相等', () => {
+    const cases: ReadonlyArray<[string, unknown, Readonly<Record<string, unknown>>?]> = [
+      ['add3', 7],
+      ['neg', 7],
+      ['mod7', -1],
+      ['upper', 'aBc!'],
+      ['str_len', 'abcde'],
+      ['cond_even', 4],
+      ['cond_long', 'abc'],
+      ['submit', 5],
+      ['check_parity', 4, { parity: 0 }],
+      ['check_len', 'ab', { length: 3 }],
+      ['noop', 'x'],
+      ['fake_add', 3],
+      ['shuffle', 'abc'],
+      ['dead_end', 1],
+      ['echo', 5],
+      ['branch_decoy', 5],
+    ];
+    for (const [op, x, spec] of cases) {
+      const a = applyOp(GRAPH_BASE, op, initState(x, spec));
+      const b = applyOp(GRAPH_BASE, op, initState(x, spec));
+      expect(a, `op=${op}`).toEqual(b);
+    }
+  });
+
+  it('runPlan 同输入执行两次，返回 state 与 hist 深相等', () => {
+    const plan = ['add3', 'mul2', 'sub1', 'submit'];
+    const a = runPlan(plan, initState(12));
+    const b = runPlan(plan, initState(12));
+    expect(a).toEqual(b);
+    expect(a).not.toBeNull();
+    expect((a as State).hist).toEqual(plan);
   });
 });
 

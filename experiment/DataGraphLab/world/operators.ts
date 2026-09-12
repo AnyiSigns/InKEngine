@@ -256,7 +256,7 @@ export function applyOp(graph: Graph, nid: string, st: State): State | null {
       break;
     case 'shuffle': {
       const s = x as string;
-      const k = crc32(s) % Math.max(1, s.length);
+      const k = emod(crc32(s), Math.max(1, s.length));
       next = { x: k === 0 ? s : s.slice(-k) + s.slice(0, s.length - k) };
       break;
     }

@@ -54,11 +54,11 @@
 
 | 符号 | 签名 | 文件 | 状态 | 语义/边界 |
 |---|---|---|---|---|
-| `sample_value` | `sampleValue(rng, root): number | string` | `world/operators.ts` | 已实现 | Int 全域 -50..50；Str 长度 1..8 的 a-h |
-| `init_state` | `initState(x, spec?): State` | `world/operators.ts` | 已实现 | {x, answer:null, verdict:null, hist:[], spec:{}} |
-| `apply_op` | `applyOp(graph, nid, st): State | null` | `world/operators.ts` | 已实现 | 契约闸+变换+hist 追加；null=死路 |
-| `run_plan` | `runPlan(plan, st): State | null` | `world/operators.ts` | 已实现 | 顺序回放，不写 expected |
-| `obs_snapshot` | `obsSnapshot(st): object` | `controller/features.ts` | 待 Phase 0 | 只投影 x/answer/verdict/hist |
+| `sample_value` | `sampleValue(rng, root): number | string` | `world/operators.ts` | 已落地 | Int 全域 -50..50；Str 长度 1..8 的 a-h |
+| `init_state` | `initState(x, spec?): State` | `world/operators.ts` | 已落地 | {x, answer:null, verdict:null, hist:[], spec:{}} |
+| `apply_op` | `applyOp(graph, nid, st): State | null` | `world/operators.ts` | 已落地 | 契约闸+变换+hist 追加；null=死路 |
+| `run_plan` | `runPlan(plan, st): State | null` | `world/operators.ts` | 已落地 | 顺序回放，不写 expected |
+| `obs_snapshot` | `obsSnapshot(st): object` | `world/operators.ts` | 已落地 | 只投影 x/answer/verdict/hist |
 | `enumerate_skeletons` | `enumerateSkeletons(maxDepth): Skel[]` | `gen/generator.ts` | 待 Phase 0 | 只取 kind=op，终算子不入池 |
 | `signature` | `signature(root, skeleton): Sig` | `gen/generator.ts` | 待 Phase 0 | Int 全域探针；Str 固定探针 |
 | `dedupe_by_signature` | `dedupeBySignature(skels): Skel[]` | `gen/generator.ts` | 待 Phase 0 | 同签名留最短 |

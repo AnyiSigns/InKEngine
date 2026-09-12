@@ -10,8 +10,11 @@
     "gen/**/*.ts",
     "verify/**/*.ts",
     "runner/**/*.ts",
+    "teacher/**/*.ts",
+    "data/**/*.ts",
     "controller/**/*.ts",
     "conformance/**/*.ts",
+    "demos/**/*.ts",
     "tests/**/*.ts",
     "vitest.config.ts"
   ]

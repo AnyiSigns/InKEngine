@@ -76,6 +76,18 @@
 | `GRAPH` | `Graph` | `runner/graph.ts` | 已落地 | OPS/NODES_BASE 组装；entry/exit kind=structural（无契约，不参与契约/动作分类） |
 | `candidates` | `candidates(graph, st, hist): string[]` | `runner/graph.ts` | 已落地 | entry 禁入；exit 恒在；访问上限唯一实现 |
 | `MAX_STEPS` | `number` | `runner/graph.ts` | 已落地 | C.7/E.14 唯一口径 = 12 |
+| `oracleTrace` | `oracleTrace(task, graph): Step[]` | `teacher/oracle.ts` | 已落地 | C.3 逐步 on-path 标签；断言候选内/非死路/末步 EXIT/回放穿验收；obs 走白名单投影 |
+| `isOnPath` | `isOnPath(hist, plan): boolean` | `teacher/oracle.ts` | 已落地 | gold 前缀唯一判定源（标签纪律；DAgger 侧复用） |
+| `recordFromStep` | `recordFromStep(task, step, extraMeta?): StoreRecord` | `data/store.ts` | 已落地 | F.2 原始 obs 记录；meta 只带派生指纹（expected/spec/plan 原值绝无写入路径） |
+| `append / load` | `append(records, opts?): AppendResult; load(split, opts?): StoreRecord[]` | `data/store.ts` | 已落地 | 内容寻址 canonical-JSONL 分片按 (world_version, split, family)；对盘上既有步级去重；坏行 fail-fast |
+| `dedup / taskDedupKey / stepDedupKey` | `dedup(items); taskDedupKey(task); stepDedupKey(rec)` | `data/store.ts` | 已落地 | 两级去重唯一口径：任务级 C.1 六元组（含 plan_hash），步级 (task_hash, step_index, observation, action) |
+| `withContentHash` | `withContentHash(rec): StoreRecord` | `data/store.ts` | 已落地 | meta.c_hash 内容寻址；自身不参与重算，幂等 |
+| `manifest` | `manifest(opts?): Manifest` | `data/provenance.ts` | 已落地 | world/generator/acceptor/teacher pin/控制器代码/探针集全员版本化，同输入逐字同串 |
+| `audit` | `audit(records, opts?): AuditReport` | `data/audit.ts` | 已落地 | G0.4：前四项（obs 白名单/骨架重叠/模板重叠 follow/标签冲突）全 0 才 passed；坏标签 quarantine 清单带出 |
+| `templateFingerprint` | `templateFingerprint(instruction): string` | `data/audit.ts` | 已落地 | 数字串归一 # 的模板指纹（指令模板重叠统计唯一口径；goal 族豁免） |
+| `safeActionConflictRate` | `safeActionConflictRate(records, opts?): ConflictRateReport` | `data/provenance.ts` | 已落地 | 固定 seed 抽样 ≤200 on-path 状态，金标外合法且通向验收（bounded BFS）占比；C.8 诊断项不进门禁 |
+| `stateDigest / reachesAccept` | `stateDigest(st): string; reachesAccept(graph, task, start, budget): ReachResult` | `data/conflict_bfs.ts` | 已落地 | C.4 去重键（值字段+逐算子计数，不含完整 hist）；BFS 超预算保守判不可达；plan_bfs 落地时 import 本键 |
+| `main / buildTasks / loadDemoTasks` | `main(argv?): number; buildTasks(n, seed): Task[]; loadDemoTasks(path): Task[]` | `demos/generate_demo.ts` | 已落地 | style follow/goal 严格轮转 50/50，canonical Task JSONL（每行一键序稳定）；失败退出码非 0 |
 
 ## T2 其余 helper（随各自 Phase 0 文件补齐）
 
@@ -93,13 +105,12 @@
 | `runAll` | `runAll(): {rejectRatio; acceptCorrectRatio; caseCount}` | `verify/adversarial.ts` | 已落地 | 错误产物全拒 + 正确通道全收 + 固定 seed fuzz |
 | `FUZZ_COUNT` | `number` | `verify/adversarial.ts` | 已落地 | runAll 固定 seed 补刀错误产物条数 = 24 |
 | `runSandboxed` | `runSandboxed(code, tests, timeoutS?): Promise<{ok; output}>` | `verify/sandbox.ts` | 已落地 | 接口占位；代码族验证未启用，调用即抛错 |
-| `state_digest / plan_bfs` | `stateDigest(st): string; planBfs(task, graph): string[] | null` | `teacher/search.ts` | 待 Phase 0 | BFS 最短解；不进训练集 |
+| `plan_bfs` | `planBfs(task, graph, nodeBudget?): string[] | null` | `teacher/search.ts` | 待 Phase 0 | BFS 最短解（去重键复用 data/conflict_bfs.ts 的 stateDigest，C.4 同源）；不进训练集 |
 | `featurize_* / OBS_DIM / ACT_DIM` | `featurizeInstr/State/Action; OBS_DIM=724; ACT_DIM=83` | `controller/features.ts` | 待 Phase 0 | 白名单只读 instruction/state |
 | `Policy.forward/backward/act/save/load` | `Policy` | `controller/policy.ts` | 待 Phase 0 | pointer 打分；数值梯度校验 |
 | `val_ce / batches / snapshot` | `valCe(policy, D): number; batches(D, n); snapshot(policy)` | `controller/train.py` | 待 Phase 0 | 训练器内层；仅 numpy |
 | `trainPython / loadWeights` | `trainPython(D, valD): string; loadWeights(path): Policy` | `controller/train.py` | 待 Phase 0 | 唯一跨语言接口 records.bin/weights.json |
 | `recordOf / samePrefix` | `recordOf(st, cand, target); samePrefix(hist, plan, k)` | `runner/dagger.ts` | 待 Phase 0 | on-path 判定；off-prefix 不打标 |
-| `manifest / audit / quarantine` | `manifest(...); audit(...); quarantine(rec)` | `data/provenance.ts` | 待 Phase 0 | G0.4 泄漏审计；标签冲突隔离 |
 | `HeuristicArm / RandomArm / TrainedArm / PlannerArm` | `HeuristicArm; RandomArm; TrainedArm; PlannerArm` | `eval/arms.ts` | 待 Phase 0 | HeuristicArm 用 LEXICON 首现顺序解析 |
 | `pass_at_1 / path_excess / steps_over_shortest / routing_acc / ci95` | `指标函数` | `eval/metrics.ts` | 待 Phase 0 | pass@1 带 95% CI；routing_acc 仅诊断 |
 | `structure/*` | `Genome; validate; MUTATIONS; fitness; search; promote` | `structure/*` | 待 Phase 0 | 离线、需求触发、成功非降 + 回滚 |

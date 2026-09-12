@@ -17,7 +17,7 @@
  *   附录 D 的公开面（manifest / audit / safe_action_conflict_rate）单一真源。
  */
 
-import { existsSync, readFileSync } from 'node:fs';
+import { existsSync, readdirSync, readFileSync } from 'node:fs';
 import { dirname, join } from 'node:path';
 import { fileURLToPath } from 'node:url';
 
@@ -42,13 +42,32 @@ function pkgRoot(): string {
   return dirname(dirname(fileURLToPath(import.meta.url)));
 }
 
-/** 控制器代码指纹：逐文件内容进规范序列化（TS 单侧自检口径，F.2.5）。 */
-export function controllerCodeHash(files: readonly string[] = ['controller/slots.ts']): string {
-  const parts = files.map((f) => {
+/** 源码取料片：按路径码点排序、内容原样读入（文件缺席如实记 null，缺席也是版本）。 */
+function sourceParts(files: readonly string[]): Array<{ path: string; content: string | null }> {
+  const sorted = [...files].sort((a, b) => (a === b ? 0 : a < b ? -1 : 1));
+  return sorted.map((f) => {
     const abs = join(pkgRoot(), f);
     return { path: f, content: existsSync(abs) ? readFileSync(abs, 'utf8') : null };
   });
-  return hashObj(parts);
+}
+
+/** 控制器代码指纹：逐文件内容进规范序列化（TS 单侧自检口径，F.2.5）。 */
+export function controllerCodeHash(files: readonly string[] = ['controller/slots.ts']): string {
+  return hashObj(sourceParts(files));
+}
+
+/**
+ * generator 源码指纹：gen/ 目录全量 .ts 枚举（新增生成器文件自动纳入版本），
+ * §6 全员版本化里 generator 无独立版本号，源码内容 hash 即其版本。
+ */
+export function generatorSourceVersion(): string {
+  const genDir = join(pkgRoot(), 'gen');
+  return hashObj(sourceParts(readdirSync(genDir).filter((n) => n.endsWith('.ts')).map((n) => `gen/${n}`)));
+}
+
+/** acceptor 源码指纹：单文件 {path, content} 形状直接进 hashObj（与 generator 数组形状区分，语义各自钉死）。 */
+export function acceptorSourceVersion(): string {
+  return hashObj(sourceParts(['verify/acceptor.ts'])[0]);
 }
 
 export interface ManifestOptions {

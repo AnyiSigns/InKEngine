@@ -4,6 +4,8 @@
  * manifest hash, fixture hash}——三者任一变化都会让历史结果不可复用（§0.3.4）。
  * 任一 `passed=false` 整体退出码 1，但**继续跑完全部**并照样落盘（失败也要
  * 报告）；测试与非落盘调用把 `outDir` 置空，仓库 `runs/` 只由 CLI 入口写入。
+ * 给出 `runId` 时上下文构造即在同 run 目录落 `manifest.json`：全员版本化快照
+ * 加 `inputs_hash`，让每个 run 目录自带版本 pin 证据（审计面产物，不参与哈希）。
  *
  * 数据批次经 `genTasks` 缓存：同一 (split, perFamily, seed) 全 run 只生成一次，
  * 这让六个门禁共享同一确定性数据集而不各付一遍生成成本；缓存键入 hashObj
@@ -17,7 +19,7 @@ import { fileURLToPath } from 'node:url';
 import { hashObj } from '../../world/hash.js';
 import { worldVersion } from '../../world/version.js';
 import { makeSplit } from '../../gen/generator.js';
-import { manifest } from '../../data/provenance.js';
+import { acceptorSourceVersion, generatorSourceVersion, manifest } from '../../data/provenance.js';
 import { FIXTURES_PATH } from '../gen_golden.js';
 import type { Task } from '../../schema.js';
 
@@ -80,7 +82,19 @@ export function createGateContext(opts: { runId?: string } = {}): GateContext {
     }
     return tasks;
   };
-  return { worldVersion, inputsHash, manifestHash, fixturesHash, fixtures, genTasks, outDir, artifactPrefix };
+  const returnCtx: GateContext = { worldVersion, inputsHash, manifestHash, fixturesHash, fixtures, genTasks, outDir, artifactPrefix };
+  if (outDir !== undefined) {
+    // 完成定义的落盘件：run 级 manifest = §6 全员版本化快照（generator/acceptor 用
+    // 源码指纹而非缺省值）+ 门禁 inputs_hash。文件本身是审计面产物，不参与任何哈希。
+    const runDir = dirname(outDir);
+    mkdirSync(runDir, { recursive: true });
+    const snapshot = manifest({
+      generatorVersion: generatorSourceVersion(),
+      acceptorVersion: acceptorSourceVersion(),
+    });
+    writeFileSync(join(runDir, 'manifest.json'), `${JSON.stringify({ ...snapshot, inputs_hash: inputsHash }, null, 2)}\n`, 'utf8');
+  }
+  return returnCtx;
 }
 
 /** 依序跑全部六门禁；单个门禁抛错按失败兜底继续（§0.3.1「失败也要报告」）。 */

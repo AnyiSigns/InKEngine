@@ -1,8 +1,9 @@
 /**
  * data/provenance 测试（§6 + D 表 + docs/gates.md G0.4）：manifest 稳定对象；
  * audit 对合法数据集 passed 且前四指标为 0，泄漏/骨架重叠/模板重叠样本必红，
- * 冲突标签进 quarantine；safeActionConflictRate 固定 seed 确定、≤200 抽样、
- * shape 正确。数据集仅驻内存，测试不落仓库 runs/。
+ * 冲突标签进 quarantine；safeActionConflictRate 固定 seed 确定、先过滤
+ * （目标族+join+on-path）后在子池上抽样 ≤200、shape 正确。数据集仅驻内存，
+ * 测试不落仓库 runs/。
  */
 
 import { describe, expect, it } from 'vitest';
@@ -221,7 +222,9 @@ describe('data/provenance/audit（G0.4 泄漏审计）', () => {
 });
 
 describe('data/provenance/safeActionConflictRate（目标族诊断，C.8）', () => {
-  it('返回 {rate, sampled, notes}；固定 seed 下逐字确定', () => {
+  const isGoalFam = (r: StoreRecord): boolean => r.family === 'goal' || r.family === 'goal_verify';
+
+  it('返回 {rate, sampled, notes}；固定 seed 下逐字确定；notes 计数守恒', () => {
     const { records, tasks } = legitDataset();
     const r1 = safeActionConflictRate(records, { tasks, seed: 7, limit: 8, nodeBudget: 24 });
     const r2 = safeActionConflictRate(records, { tasks, seed: 7, limit: 8, nodeBudget: 24 });
@@ -232,21 +235,38 @@ describe('data/provenance/safeActionConflictRate（目标族诊断，C.8）', ()
     expect(r1.sampled).toBeLessThanOrEqual(8);
     expect(canonicalJson(r1)).toBe(canonicalJson(r2));
     expect(r1.notes.nodeBudget).toBe(24);
+    expect(r1.notes.onPathPool).toBeGreaterThanOrEqual(r1.sampled);
+    // 过滤全池扫描口径：poolSize = 族剔除 + 无 task + off-path + 子池。
+    const n = r1.notes;
+    expect(n.poolSize).toBe(n.excludedFollow + n.skippedNoTask + n.skippedOffPath + n.onPathPool);
   });
 
-  it('抽样上限 ≤200：大池下 sampled 恰 200，limit 可再收紧', () => {
+  it('池含 follow 记录时默认被排除：只统计 goal/goal_verify；includeFollow 才放回', () => {
+    const { records, tasks } = legitDataset();
+    const goalOnly = records.filter(isGoalFam);
+    const followCount = records.length - goalOnly.length;
+    expect(goalOnly.length).toBeGreaterThan(0);
+    expect(followCount).toBeGreaterThan(0);
+    const def = safeActionConflictRate(records, { tasks, seed: 3, nodeBudget: 24 });
+    expect(def.notes.excludedFollow).toBe(followCount);
+    expect(def.notes.onPathPool).toBe(goalOnly.length);
+    const withFollow = safeActionConflictRate(records, { tasks, seed: 3, nodeBudget: 24, includeFollow: true });
+    expect(withFollow.notes.excludedFollow).toBe(0);
+    expect(withFollow.notes.onPathPool).toBe(records.length);
+  });
+
+  it('抽样上限 ≤200：子池 >200 时 sampled 恰 200；抽在过滤后子池上，limit 即有效样本量', () => {
     const tasks: Task[] = [];
-    for (let seed = 1; seed <= 48; seed++) {
-      const style: Style = seed % 2 === 0 ? 'follow' : 'goal';
-      const t = makeTask(seed, style);
+    for (let seed = 1; seed <= 120; seed++) {
+      const t = makeTask(seed, 'goal');
       if (t !== null) tasks.push(t);
     }
     const records = recordsOf(tasks);
-    expect(records.length).toBeGreaterThan(200);
     const full = safeActionConflictRate(records, { tasks, seed: 0, nodeBudget: 6 });
+    expect(full.notes.onPathPool).toBeGreaterThan(200);
     expect(full.sampled).toBe(200);
     const tight = safeActionConflictRate(records, { tasks, seed: 0, limit: 5, nodeBudget: 6 });
-    expect(tight.sampled).toBeLessThanOrEqual(5);
+    expect(tight.sampled).toBe(5);
     expect(full.rate).toBeGreaterThanOrEqual(0);
     expect(full.notes.poolSize).toBe(records.length);
   });
@@ -262,18 +282,23 @@ describe('data/provenance/safeActionConflictRate（目标族诊断，C.8）', ()
     const records = trace.map((s) => recordFromStep(t!, s));
     const exitRec = records[records.length - 1]!;
     expect(exitRec.target).toBe('exit');
-    const one = safeActionConflictRate([exitRec], { tasks: [t!], seed: 1, nodeBudget: 400 });
+    const one = safeActionConflictRate([exitRec], { tasks: [t!], seed: 1, nodeBudget: 400, includeFollow: true });
     expect(one.sampled).toBe(1);
     // 验收态下 noop/echo 类动作仍通向验收 ⇒ 多解噪音必被计为冲突
     expect(one.rate).toBe(1);
+    // 缺省目标族口径：同一条 follow 记录整条被族过滤，sampled 归 0。
+    const excluded = safeActionConflictRate([exitRec], { tasks: [t!], seed: 1, nodeBudget: 400 });
+    expect(excluded.notes.excludedFollow).toBe(isGoalFam(exitRec) ? 0 : 1);
+    expect(excluded.sampled).toBe(isGoalFam(exitRec) ? 1 : 0);
   });
 
-  it('未 join 到 task 的记录计入跳过注记，不炸', () => {
+  it('未 join 到 task 的记录计入跳过注记（全池口径、恰 1），不炸', () => {
     const { records, tasks } = legitDataset();
-    const orphan: StoreRecord = { ...records[0]!, meta: { ...records[0]!.meta, task_hash: 'no-such-task' } };
+    const src = records.find(isGoalFam)!;
+    const orphan: StoreRecord = { ...src, meta: { ...src.meta, task_hash: 'no-such-task' } };
     const res = safeActionConflictRate([...records, orphan], { tasks, seed: 2, limit: 3, nodeBudget: 80 });
     expect(res.sampled).toBeLessThanOrEqual(3);
     expect(res.notes.poolSize).toBe(records.length + 1);
-    expect(res.notes.skippedNoTask).toBeGreaterThanOrEqual(0);
+    expect(res.notes.skippedNoTask).toBe(1);
   });
 });

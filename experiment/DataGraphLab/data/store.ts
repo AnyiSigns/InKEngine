@@ -14,8 +14,10 @@
  * 两级去重口径唯一（§6）：任务级 = C.1 六元组 `(style, composition_id,
  * instruction, x, expected, plan_hash)`；步级 = `(task_hash, step_index,
  * observation, action)`——含 `task_hash` 才避免跨任务误并；`observation` 用
- * `hashObj` 稳定规范序列化。外部边界（读回的行）先校验 schema 再返回，不一致
- * fail-fast、不静默降级。默认根 `runs/` 已被 gitignore；测试请注入临时目录。
+ * `hashObj` 稳定规范序列化。外部边界（读回的行）先过 `data/store_schema.ts` 的
+ * 四层校验（字段/类型/meta 坐标、style/family 值域、`meta.c_hash` 重算复核），
+ * 不一致 fail-fast、报错含 `分片#行号`，不静默降级。默认根 `runs/` 已被
+ * gitignore；测试请注入临时目录。
  */
 
 import { appendFileSync, existsSync, mkdirSync, readFileSync, readdirSync, statSync, writeFileSync } from 'node:fs';
@@ -26,6 +28,10 @@ import { obsSnapshot, type State } from '../world/operators.js';
 import { canonicalJson, hashObj } from '../world/hash.js';
 import { worldVersion } from '../world/version.js';
 import { taskHash, type Family, type Split, type Step, type Style, type Task } from '../schema.js';
+import { SPLIT_VALUES, parseLine, verifyForLoad, withContentHash } from './store_schema.js';
+
+// 内容寻址写侧公式在 store_schema.ts 单一实现，这里只透出 API（禁第二份）。
+export { withContentHash } from './store_schema.js';
 
 /** F.2 原始 obs 记录（一步 = 一条）；`target` 为该步动作（算子 id 或 exit）。 */
 export interface StoreRecord {
@@ -71,8 +77,6 @@ interface ShardIndexEntry {
 
 const RECORDS_SUBDIR = 'records';
 const INDEX_NAME = 'index.json';
-const TOP_FIELDS = ['style', 'family', 'instruction', 'x', 'state', 'hist', 'candidates', 'target', 'meta'];
-const SPLIT_VALUES: readonly string[] = ['train', 'val', 'heldout'];
 
 function pkgRoot(): string {
   return dirname(dirname(fileURLToPath(import.meta.url)));
@@ -81,13 +85,6 @@ function pkgRoot(): string {
 /** 缺省持久根：包内 `runs/`（gitignore 覆盖，运行产物不入库）。 */
 export function defaultOutRoot(): string {
   return join(pkgRoot(), 'runs');
-}
-
-/** 内容 hash：整条记录规范序列化寻址；`meta.c_hash` 自身不参与，重算幂等。 */
-export function withContentHash(rec: StoreRecord): StoreRecord {
-  const meta: Record<string, unknown> = { ...rec.meta };
-  delete meta.c_hash;
-  return { ...rec, meta: { ...meta, c_hash: hashObj({ ...rec, meta }) } };
 }
 
 /** oracle 一步 → F.2 记录：obs 走白名单投影，meta 只带派生指纹与切分坐标。 */
@@ -186,45 +183,6 @@ function resolveCoords(rec: StoreRecord, opts: AppendOptions): Coords {
 
 function shardPath(outRoot: string, c: Coords): string {
   return join(outRoot, RECORDS_SUBDIR, c.wv, c.split, `${c.family}.jsonl`);
-}
-
-/** 外部边界校验：字段集恰为 F.2 + meta 坐标齐全，坏行 fail-fast 并给定位信息。 */
-function validateRecord(raw: unknown, where: string): StoreRecord {
-  const r = raw as Partial<StoreRecord> & { meta?: Record<string, unknown> };
-  if (r === null || typeof r !== 'object') throw new Error(`store schema: ${where} 不是对象`);
-  if (Object.keys(r).sort().join(',') !== [...TOP_FIELDS].sort().join(',')) {
-    throw new Error(`store schema: ${where} 字段集不符 F.2（实际：${Object.keys(r).sort().join(',')}）`);
-  }
-  if (typeof r.instruction !== 'string' || typeof r.target !== 'string') {
-    throw new Error(`store schema: ${where} instruction/target 类型错误`);
-  }
-  if (!Array.isArray(r.hist) || !Array.isArray(r.candidates)) {
-    throw new Error(`store schema: ${where} hist/candidates 必须为数组`);
-  }
-  const st = r.state as Record<string, unknown> | undefined;
-  if (st === undefined || st === null || typeof st !== 'object' || Array.isArray(st)) {
-    throw new Error(`store schema: ${where} state 必须为对象`);
-  }
-  const meta = r.meta as Record<string, unknown>;
-  for (const field of ['task_hash', 'split', 'composition_id', 'plan_hash']) {
-    if (typeof meta[field] !== 'string') {
-      throw new Error(`store schema: ${where} meta.${field} 缺失或非字符串`);
-    }
-  }
-  if (typeof meta.step_index !== 'number' || !Number.isInteger(meta.step_index)) {
-    throw new Error(`store schema: ${where} meta.step_index 缺失或非整数`);
-  }
-  return r as StoreRecord;
-}
-
-function parseLine(line: string, where: string): StoreRecord {
-  let raw: unknown;
-  try {
-    raw = JSON.parse(line);
-  } catch {
-    throw new Error(`store schema: ${where} 不是合法 JSON 行`);
-  }
-  return validateRecord(raw, where);
 }
 
 function shardCoords(wv: string, split: string, family: string): Coords {
@@ -328,7 +286,7 @@ export function append(records: readonly StoreRecord[], opts: AppendOptions = {}
   return { appended, skippedDuplicate, shards };
 }
 
-/** 按 split 装载（跨 world_version/family，确定性排序）；逐行过 schema 校验。 */
+/** 按 split 装载（跨 world_version/family，确定性排序）；schema + 值域 + c_hash 逐行复核。 */
 export function load(split: Split, opts: LoadOptions = {}): StoreRecord[] {
   if (!SPLIT_VALUES.includes(split)) throw new Error(`load: 非法 split ${String(split)}`);
   const outRoot = opts.outRoot ?? defaultOutRoot();
@@ -339,7 +297,8 @@ export function load(split: Split, opts: LoadOptions = {}): StoreRecord[] {
     for (let i = 0; i < lines.length; i++) {
       const line = lines[i]!;
       if (line.trim().length === 0) continue;
-      const rec = parseLine(line, `${relative(outRoot, s.file)}#${String(i)}`);
+      const where = `${relative(outRoot, s.file)}#${String(i)}`;
+      const rec = verifyForLoad(parseLine(line, where), where);
       if (rec.meta.split !== split) {
         throw new Error(`store schema: 分片 ${s.split} 内发现 meta.split=${String(rec.meta.split)}（索引错位）`);
       }

@@ -25,7 +25,7 @@ import { makeTask } from '../gen/generator.js';
 import { GRAPH } from '../runner/graph.js';
 import { worldVersion } from '../world/version.js';
 import { taskHash } from '../schema.js';
-import { hashObj } from '../world/hash.js';
+import { canonicalJson, hashObj } from '../world/hash.js';
 import type { Task } from '../schema.js';
 
 const tmpRoots: string[] = [];
@@ -122,7 +122,8 @@ describe('data/store/recordFromStep + append/load 往返（F.2 记录格式）',
     append(recs, { outRoot: root });
     const file = join(root, 'records', worldVersion, 'train', recs[0]!.family + '.jsonl');
     const line = readFileSync(file, 'utf8').split('\n')[0]!;
-    expect(JSON.parse(line)).toEqual(recs[0]);
+    // 逐字断言（键序敏感）：JSON.parse 深比较检不出 canonical 序被破坏。
+    expect(line).toBe(canonicalJson(recs[0]));
     const again = append(recs, { outRoot: root });
     expect(again.appended).toBe(0);
     expect(again.skippedDuplicate).toBe(recs.length);
@@ -158,6 +159,68 @@ describe('data/store/recordFromStep + append/load 往返（F.2 记录格式）',
     const rec = recordsOf(pool('follow', [1]))[0]!;
     const stripped: StoreRecord = { ...rec, meta: { teacher: 'oracle' } };
     expect(() => append([stripped], { outRoot: root })).toThrow(/split|world_version/);
+  });
+
+  it('withContentHash 幂等：二次包裹深相等且 c_hash 不变（自身不参与重算）', () => {
+    const rec = recordsOf(pool('follow', [1]))[0]!;
+    const once = withContentHash(rec);
+    const twice = withContentHash(once);
+    expect(twice).toEqual(once);
+    expect(twice.meta.c_hash).toBe(once.meta.c_hash);
+    // recordFromStep 已钉 hash：再包裹逐字不变。
+    expect(once).toEqual(rec);
+  });
+
+  it('load 读侧：篡改行内容破坏 c_hash → fail-fast 且报错含分片#行号', () => {
+    const root = tmpRoot();
+    const recs = recordsOf(pool('follow', [1, 2]));
+    append(recs, { outRoot: root });
+    const family = recs[0]!.family;
+    const file = join(root, 'records', worldVersion, 'train', `${family}.jsonl`);
+    const lines = readFileSync(file, 'utf8').split('\n');
+    // 定位末条实-record 行的物理下标（load 的行号即物理下标），保持其余行不动。
+    const li = lines.reduce((last, l, idx) => (l.trim().length > 0 ? idx : last), -1);
+    expect(li).toBeGreaterThanOrEqual(0);
+    const victim = JSON.parse(lines[li]!) as StoreRecord;
+    lines[li] = canonicalJson({ ...victim, target: victim.target === 'exit' ? 'noop' : 'exit' });
+    writeFileSync(file, lines.join('\n'), 'utf8');
+    let msg = '';
+    try {
+      load('train', { outRoot: root });
+    } catch (e) {
+      msg = e instanceof Error ? e.message : String(e);
+    }
+    expect(msg).toMatch(/c_hash/);
+    // 报错须含该行物理定位（`…#<li>`）。
+    expect(msg).toContain(`#${String(li)}`);
+  });
+
+  it('load 读侧：style/family 值域越界 → fail-fast 且报错含行号', () => {
+    const root = tmpRoot();
+    const recs = recordsOf(pool('follow', [1]));
+    append(recs, { outRoot: root });
+    const family = recs[0]!.family;
+    const file = join(root, 'records', worldVersion, 'train', `${family}.jsonl`);
+    const [line] = readFileSync(file, 'utf8').split('\n');
+    const bad = JSON.parse(line!) as StoreRecord & { meta: Record<string, unknown> };
+    // 同步钉一个匹配的 c_hash，确保是「值域」这道拦截、而非 c_hash 先失败。
+    const forged: StoreRecord = withContentHash({ ...bad, family: 'nope' as StoreRecord['family'] });
+    writeFileSync(file, `${canonicalJson(forged)}\n`, 'utf8');
+    let msg = '';
+    try {
+      load('train', { outRoot: root });
+    } catch (e) {
+      msg = e instanceof Error ? e.message : String(e);
+    }
+    expect(msg).toMatch(/family|style/);
+    expect(msg).toMatch(/#0\b/);
+  });
+
+  it('load 正常数据：值域/c_hash 复核不误伤（往返仍逐条等值）', () => {
+    const root = tmpRoot();
+    const recs = recordsOf(pool('goal', [31]));
+    append(recs, { outRoot: root });
+    expect(load('train', { outRoot: root })).toEqual(recs);
   });
 });
 

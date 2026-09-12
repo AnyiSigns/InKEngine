@@ -1,0 +1,14 @@
+{
+  "extends": "../../ink-ts/tsconfig.base.json",
+  "compilerOptions": {
+    "rootDir": ".",
+    "types": ["node"]
+  },
+  "include": [
+    "world/**/*.ts",
+    "controller/**/*.ts",
+    "conformance/**/*.ts",
+    "tests/**/*.ts",
+    "vitest.config.ts"
+  ]
+}

@@ -1,0 +1,430 @@
+{
+  "meta": {
+    "generator": "conformance/gen_golden.ts",
+    "schema": 1
+  },
+  "constants": {
+    "TYPE_LIST": [
+      "Int",
+      "Str",
+      "Bool",
+      "List",
+      "Json",
+      "None"
+    ],
+    "NODES_BASE": [
+      "entry",
+      "add3",
+      "mul2",
+      "sub1",
+      "neg",
+      "mod7",
+      "upper",
+      "lower",
+      "reverse",
+      "append_bang",
+      "str_len",
+      "cond_even",
+      "cond_long",
+      "submit",
+      "check_parity",
+      "check_len",
+      "noop",
+      "fake_add",
+      "shuffle",
+      "dead_end",
+      "echo",
+      "branch_decoy",
+      "exit"
+    ],
+    "ROUTING": [
+      "add3",
+      "append_bang",
+      "branch_decoy",
+      "check_len",
+      "check_parity",
+      "cond_even",
+      "cond_long",
+      "dead_end",
+      "echo",
+      "exit",
+      "fake_add",
+      "lower",
+      "mod7",
+      "mul2",
+      "neg",
+      "noop",
+      "reverse",
+      "shuffle",
+      "str_len",
+      "sub1",
+      "submit",
+      "upper"
+    ],
+    "LEX_OPS_BASE": [
+      "add3",
+      "mul2",
+      "sub1",
+      "neg",
+      "mod7",
+      "upper",
+      "lower",
+      "reverse",
+      "append_bang",
+      "str_len",
+      "cond_even",
+      "cond_long",
+      "submit",
+      "check_parity",
+      "check_len"
+    ],
+    "MAX_REPEAT": 2,
+    "HIST_SLOTS": 32
+  },
+  "nodeSlots": {
+    "add3": 0,
+    "mul2": 1,
+    "sub1": 2,
+    "neg": 3,
+    "mod7": 4,
+    "upper": 5,
+    "lower": 6,
+    "reverse": 7,
+    "append_bang": 8,
+    "str_len": 9,
+    "cond_even": 10,
+    "cond_long": 11,
+    "submit": 12,
+    "check_parity": 13,
+    "check_len": 14,
+    "noop": 15,
+    "fake_add": 16,
+    "shuffle": 17,
+    "dead_end": 18,
+    "echo": 19,
+    "branch_decoy": 20,
+    "exit": 21
+  },
+  "rng": [
+    {
+      "seed": 0,
+      "first8": [
+        1144304738,
+        1416247,
+        958946056,
+        627933444,
+        2007157716,
+        2340967985,
+        2642484575,
+        2787370982
+      ]
+    },
+    {
+      "seed": 1,
+      "first8": [
+        2693262067,
+        11749833,
+        2265367787,
+        4213581821,
+        4159151403,
+        1207330352,
+        2632122864,
+        3095568220
+      ]
+    },
+    {
+      "seed": 42,
+      "first8": [
+        2581720956,
+        1925393290,
+        3661312704,
+        2876485805,
+        750819978,
+        2261697747,
+        1173505300,
+        2683257857
+      ]
+    }
+  ],
+  "crc32": [
+    {
+      "s": "",
+      "crc32": 0
+    },
+    {
+      "s": "hello",
+      "crc32": 907060870
+    },
+    {
+      "s": "加三",
+      "crc32": 1474690540
+    },
+    {
+      "s": "取反",
+      "crc32": 3706575867
+    },
+    {
+      "s": "task:0",
+      "crc32": 3143333359
+    }
+  ],
+  "canonical": [
+    {
+      "label": "zero",
+      "json": "0",
+      "hash": "b6589fc6ab0dc82c"
+    },
+    {
+      "label": "neg-zero",
+      "json": "0",
+      "hash": "b6589fc6ab0dc82c"
+    },
+    {
+      "label": "tenth",
+      "json": "0.1",
+      "hash": "180505679cfe0cca"
+    },
+    {
+      "label": "tiny",
+      "json": "1e-7",
+      "hash": "edd591d5998d92a0"
+    },
+    {
+      "label": "one",
+      "json": "1",
+      "hash": "356a192b7913b04c"
+    },
+    {
+      "label": "nested",
+      "json": "{\"a\":{\"n\":0.1},\"b\":[1,2,3],\"c\":\"中文\"}",
+      "hash": "7e6ad26fea2eecfd"
+    },
+    {
+      "label": "cjk",
+      "json": "{\"中文键\":\"值\"}",
+      "hash": "345e1522feecde02"
+    }
+  ],
+  "tokens": [
+    {
+      "input": "加三，然后翻倍",
+      "tokens": [
+        "加三",
+        "然后",
+        "后翻",
+        "翻倍"
+      ]
+    },
+    {
+      "input": "起点值12。按顺序做：加三，然后取反",
+      "tokens": [
+        "起点",
+        "点值",
+        "12",
+        "按顺",
+        "顺序",
+        "序做",
+        "加三",
+        "然后",
+        "后取",
+        "取反"
+      ]
+    },
+    {
+      "input": "结果是偶数，且结果大于5",
+      "tokens": [
+        "结果",
+        "果是",
+        "是偶",
+        "偶数",
+        "且结",
+        "结果",
+        "果大",
+        "大于",
+        "5"
+      ]
+    },
+    {
+      "input": "abc",
+      "tokens": [
+        "abc"
+      ]
+    }
+  ],
+  "mentionStats": [
+    {
+      "instruction": "加三，然后翻倍，接着减一",
+      "op": "mul2",
+      "hits": 1,
+      "first": 3,
+      "rank": 1
+    },
+    {
+      "instruction": "加三，然后翻倍，接着减一",
+      "op": "add3",
+      "hits": 1,
+      "first": 0,
+      "rank": 0
+    },
+    {
+      "instruction": "取反，再提交",
+      "op": "reverse",
+      "hits": 1,
+      "first": 0,
+      "rank": 0
+    },
+    {
+      "instruction": "结果是偶数，且结果大于5",
+      "op": "check_parity",
+      "hits": 0,
+      "first": -1,
+      "rank": 15
+    }
+  ],
+  "renderRecipe": [
+    {
+      "seed": 0,
+      "root": "Int",
+      "x": 12,
+      "plan": [
+        "add3",
+        "mul2",
+        "sub1",
+        "submit"
+      ],
+      "instruction": "起点值12。照下面来：添三，之后乘以二，接着减一，此时给出答案"
+    },
+    {
+      "seed": 1,
+      "root": "Int",
+      "x": -7,
+      "plan": [
+        "add3",
+        "add3",
+        "mod7",
+        "submit"
+      ],
+      "instruction": "起点值-7。按顺序做：增三，此时添三，随后模七求余，接着给出答案"
+    },
+    {
+      "seed": 2,
+      "root": "Str",
+      "x": "abc",
+      "plan": [
+        "upper",
+        "reverse",
+        "append_bang",
+        "submit"
+      ],
+      "instruction": "起点值「abc」。依次执行：变大写，然后颠倒，此时末尾添叹，随后提交"
+    },
+    {
+      "seed": 3,
+      "root": "Int",
+      "x": 9,
+      "plan": [
+        "cond_even",
+        "submit",
+        "check_parity"
+      ],
+      "instruction": "起点值9。照下面来：双数加一单数变双倍，再提交，之后核验奇偶"
+    },
+    {
+      "seed": 4,
+      "root": "Str",
+      "x": "abcd",
+      "plan": [
+        "cond_long",
+        "submit",
+        "check_len"
+      ],
+      "instruction": "起点值「abcd」。从起点出发，字符够多则全换大写，然后输出答案，此时核验长度"
+    },
+    {
+      "seed": 5,
+      "root": "Str",
+      "x": "hello",
+      "plan": [
+        "str_len",
+        "mul2",
+        "submit",
+        "check_parity"
+      ],
+      "instruction": "起点值「hello」。从起点出发，取长度，再乘以二，随后给出答案，此时校验奇偶性"
+    },
+    {
+      "seed": 6,
+      "root": "Int",
+      "x": 5,
+      "plan": [
+        "neg",
+        "add3",
+        "submit"
+      ],
+      "instruction": "起点值5。依次执行：变号，随后加三，接着输出答案"
+    },
+    {
+      "seed": 7,
+      "root": "Str",
+      "x": "ab",
+      "plan": [
+        "reverse",
+        "lower",
+        "submit"
+      ],
+      "instruction": "起点值「ab」。按顺序做：反转，再变小写，随后给出答案"
+    }
+  ],
+  "renderGoal": [
+    {
+      "seed": 0,
+      "goal": {
+        "kind": "parity",
+        "target": 0
+      },
+      "instruction": "输出应为偶数"
+    },
+    {
+      "seed": 1,
+      "goal": {
+        "kind": "parity",
+        "target": 1
+      },
+      "instruction": "让最终值为奇数"
+    },
+    {
+      "seed": 2,
+      "goal": {
+        "kind": "gt",
+        "target": 20
+      },
+      "instruction": "把结果变成大于20的数"
+    },
+    {
+      "seed": 3,
+      "goal": {
+        "kind": "len",
+        "min": 1,
+        "max": 5
+      },
+      "instruction": "字符数介于1和5"
+    },
+    {
+      "seed": 4,
+      "goal": {
+        "kind": "all",
+        "of": [
+          {
+            "kind": "parity",
+            "target": 1
+          },
+          {
+            "kind": "gt",
+            "target": 0
+          }
+        ]
+      },
+      "instruction": "输出应为奇数并且让最终值超过0"
+    }
+  ]
+}

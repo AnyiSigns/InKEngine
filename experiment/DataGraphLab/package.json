@@ -1,0 +1,22 @@
+{
+  "name": "datagraphlab",
+  "version": "0.0.0",
+  "private": true,
+  "type": "module",
+  "description": "DataGraphLab：程序化合成数据 + 可执行验收 + teacher 轨迹 → SFT/蒸馏可微控制器（TS 世界，Python 训练器）",
+  "scripts": {
+    "test": "vitest run",
+    "typecheck": "tsc -p tsconfig.json",
+    "golden": "tsx conformance/gen_golden.ts",
+    "golden:check": "tsx conformance/gen_golden.ts --check"
+  },
+  "devDependencies": {
+    "@types/node": "^24.0.0",
+    "tsx": "^4.19.0",
+    "typescript": "~5.8.2",
+    "vitest": "^3.0.5"
+  },
+  "allowScripts": {
+    "esbuild": true
+  }
+}

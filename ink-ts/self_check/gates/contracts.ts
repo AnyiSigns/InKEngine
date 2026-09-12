@@ -1,7 +1,7 @@
 /**
  * contracts 门禁：数据面生成物权威性校验（engine 内置单源）。
  * 执行 engine/scripts/verify_generated.mjs，把 engine/schemas + fixtures
- * 复制到临时目录重生成 core/contracts/generated/*，与仓库内生成物逐文件
+ * 复制到临时目录重生成 model/contracts/generated/*，与仓库内生成物逐文件
  * 归一化比较，一致才通过（生成物禁手改）。
  */
 
@@ -24,7 +24,7 @@ export async function runGateContracts(ctx: SelfCheckContext): Promise<GateResul
     passed,
     seconds,
     summary: passed
-      ? 'core/contracts/generated 与重生成产物一致'
+      ? 'model/contracts/generated 与重生成产物一致'
       : `退出码 ${out.code ?? '超时'}：generated 被手改或生成器漂移`,
     tail: out.stdout.split('\n').concat(out.stderr.split('\n')).filter((l) => l.trim() !== ''),
   };

@@ -73,9 +73,10 @@ id = 目录名）。本目录提供契约类型、依赖图校验与拓扑装配
   `seal_mechanism_registry(ALL_MECHANISM_CONTRACTS)`（boot 静态门禁；依赖单向/
   装配完整/循环拒绝，失败即抛错，半装配或带环的运行时不得进入装配流程）；
   密封纯静态（契约 const + Tarjan/topo），零 IO 零副作用。
-- verify：`engine/scripts/verify_mechanisms.ts`（verify:mechanisms 三键）取
-  `ALL_MECHANISM_CONTRACTS`/`MECHANISM_PORT_IDS`/`topo_order`/
-  `validate_mechanism_registry` + `runtime_contract`——依赖单向（密封）、装配
+- verify：`engine/scripts/verify_mechanisms.ts`（verify:mechanisms 三键）经本目录取
+  `ALL_MECHANISM_CONTRACTS`/`topo_order`/`validate_mechanism_registry` +
+  `runtime_contract`；端口词表 `MECHANISM_PORT_IDS` 现经 `engine/src/dock/ports.ts`
+  取用、本目录不再转出——依赖单向（密封）、装配
   完整（runtime depends 闭包 ∪ 自足叶子 = 全量）、0-IO。
 - 契约声明侧：31 个机制件 `contract.ts` 经 `contract_types.js` 取
   `MechanismContract` 类型；其中 13 个（audit_log/executor/growth/llm/

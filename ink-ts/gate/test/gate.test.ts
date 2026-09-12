@@ -128,6 +128,16 @@ describe('gate 规则', () => {
     expect(violations).toEqual([]);
   });
 
+  it('layerDirs 扩面：层目录文件 import node:* 违规（core-import 0-IO 扩面）', async () => {
+    const root = await makeRoot();
+    await write(root, 'engine/src/dock/io_leak.ts', `import { readFileSync } from 'node:fs';\nexport const r = readFileSync;\n`);
+    const off = await scan({ root, config: { ...cfg, layerDirs: [] } });
+    expect(off.map((v) => v.rule)).not.toContain('core-import');
+    const on = await scan({ root, config: { ...cfg, layerDirs: ['engine/src/dock'] } });
+    expect(on.map((v) => v.rule)).toContain('core-import');
+    expect(on.map((v) => v.message).join('\n')).toContain('node:fs');
+  });
+
   it('src 内夹测试文件被拒（测试须置于 test/）', async () => {
     const root = await makeRoot();
     await write(root, 'cli/src/server.test.ts', `import { describe, it } from 'vitest';\n`);
@@ -272,6 +282,18 @@ describe('layer-dag 层向门禁', () => {
     const paths = violations.map((v) => v.path);
     expect(paths).not.toContain('engine/src/dock/caps.ts');
     expect(paths).toContain('engine/src/dock/bad.ts');
+  });
+
+  it('dock→model 放行（model 被所有层引）；dock→adapters 仍违规', async () => {
+    const root = await makeRoot();
+    await write(root, 'engine/src/model/yyy.ts', `export const y = 1;\n`);
+    await write(root, 'engine/src/dock/xxx.ts', `import { y } from '../model/yyy.js';\nexport const x = y;\n`);
+    await write(root, 'engine/src/adapters/zzz.ts', `export const z = 1;\n`);
+    await write(root, 'engine/src/dock/leak.ts', `import { z } from '../adapters/zzz.js';\nexport const l = z;\n`);
+    const { violations } = await scanAll({ root, config: layerCfg({ layerDagEnforce: true, layerDirs: [] }) });
+    const paths = violations.filter((v) => v.rule === 'layer-dag').map((v) => v.path);
+    expect(paths).not.toContain('engine/src/dock/xxx.ts');
+    expect(paths).toContain('engine/src/dock/leak.ts');
   });
 
   it('adapters 只 import dock/ports 前缀与 model', async () => {

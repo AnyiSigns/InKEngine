@@ -9,6 +9,10 @@ export interface GateConfig {
   lineScanDirs: readonly string[];
   /** core 区相对路径（import/词汇/私有 seam 规则扫这里；含 kernel 机制件区）。 */
   coreDirs: readonly string[];
+  /** core 0-IO 纪律扩面层（core-import/core-token 判定集合 = coreDirs ∪ layerDirs；
+   *  私有 seam 检查仍只作用 coreDirs）。P0 值 = ['engine/src/dock']：
+   *  随 P2-P5 搬迁逐层加入，禁逆向移除。 */
+  layerDirs: readonly string[];
   /** adapters 区相对路径（反向依赖 core 私有模块检查）。 */
   adapterDirs: readonly string[];
   /** JSON 纪律扫描目录（parse/重复键/缩进，相对 ink-ts 根）。 */
@@ -23,12 +27,12 @@ export interface GateConfig {
   coreAllowedNodeModules: readonly string[];
   /** core 相对 import 中禁出现的子串（反向依赖下方层，如 adapters）。 */
   coreForbiddenRelSubstrings: readonly string[];
-  /** layer-dag 层向门禁是否强制（false = 报告模式：违规打印 WARN 但 exit 0）。 */
+  /** layer-dag 层向门禁是否强制（false = 报告模式：违规打印 WARN 但 exit 0；P7 转强制）。 */
   layerDagEnforce: boolean;
   /** layer-dag 豁免清单（条目格式 `<导入文件相对路径>:<import 说明符>` 精确匹配）：
    *  基线为空数组——过渡豁免**单调收缩只减不增**（阶段结束条数 ≤ 上一阶段）。 */
   layerDagWhitelist: readonly string[];
-  /** test-protection 是否强制（false = 报告模式；P7 转强制）。 */
+  /** test-protection 是否强制（false = 报告模式；自 P0 生效，P8 行为波起强制）。 */
   testProtectionEnforce: boolean;
   /** no-pending 禁字（CODING §11.1.4 禁待定）：命中即违规。 「占位」经治理裁决除名（产品占位语义放行）。 */
   noPendingTokens: readonly string[];
@@ -42,6 +46,7 @@ export const defaultConfig: GateConfig = {
   maxLines: 350,
   lineScanDirs: ['engine/src', 'engine/test', 'hosts/lib/src', 'hosts/lib/test', 'hosts/cli/src', 'hosts/cli/test', 'hosts/web/src', 'hosts/web/test', 'renderer/src', 'renderer/test', 'plugins/ui_features', 'plugins/tools/doc_parse/faces'],
   coreDirs: ['engine/src/core', 'engine/src/kernel'],
+  layerDirs: ['engine/src/dock'],
   adapterDirs: ['engine/src/adapters'],
   jsonScanDirs: ['seed_data', 'plugins', 'engine/schemas', 'engine/fixtures'],
   coreSeamMarker: '跨域契约模块',

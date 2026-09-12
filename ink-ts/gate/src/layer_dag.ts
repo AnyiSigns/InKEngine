@@ -9,6 +9,7 @@
  * - 四件 → dock：仅放行前缀 `dock/ports(.ts|/*)` 与 `dock/registry(.ts|/*)`；
  *   其余 `dock/**` 禁入；
  * - dock → 四件：只允许 import 各机制 `contract.ts` 且只能 re-export；
+ * - dock → model：放行（§2 model 被所有层引，矩阵允许边）；
  * - adapters：只 import `dock/ports` 前缀与 model；
  * - 四件间允许边：loop→graph、evolve→gate；其余四件互引违规；
  * - 未定义的层间边一律违规（矩阵闭合，防漂移）。
@@ -102,13 +103,14 @@ function classifyEdge(importerRel: string, importerLayer: Layer, targetRel: stri
     return { message: `${importerLayer} 禁 import ${targetLayer}` };
   }
   if (importerLayer === 'dock') {
+    if (targetLayer === 'model') return { message: null };
     if (FOUR.includes(targetLayer)) {
       const inSrc = targetRel.slice(SRC_PREFIX.length);
       const isContract = /^[^/]+\/[^/]+\/contract\.ts$/.test(inSrc);
       if (isContract && isReExport) return { message: null };
       return { message: `dock→四件只允许 re-export 各机制 contract.ts（命中 ${inSrc}${isContract ? '，非 re-export' : ''}）` };
     }
-    return { message: `dock 层禁 import ${targetLayer}（dock 仅经 contract re-export 聚合声明面）` };
+    return { message: `dock 层禁 import ${targetLayer}（dock 允许边：model 直引 + 四件 contract.ts re-export）` };
   }
   // adapters：只 import dock/ports 前缀与 model
   if (targetLayer === 'model') return { message: null };

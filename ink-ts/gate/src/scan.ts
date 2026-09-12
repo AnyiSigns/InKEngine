@@ -1,7 +1,8 @@
 /**
- * gate 扫描器：遍历源码目录并应用规则。core 区规则只作用于 coreDirs；
- * adapters 反向私有 import 规则作用于 adapterDirs；行数/生成文件规则作用于
- * 全部扫描目录；JSON 纪律作用于 jsonScanDirs。
+ * gate 扫描器：遍历源码目录并应用规则。core 0-IO 纪律（core-import/core-token）
+ * 作用于 coreDirs ∪ layerDirs（新搬迁层随 P2-P5 逐层纳入）；私有 seam 检查仍只
+ * 作用 coreDirs；adapters 反向私有 import 规则作用于 adapterDirs；行数/生成文件
+ * 规则作用于全部扫描目录；JSON 纪律作用于 jsonScanDirs。
  */
 
 import { readFile, readdir, stat } from 'node:fs/promises';
@@ -156,8 +157,8 @@ export async function scan({ root, config }: ScanOptions): Promise<Violation[]> 
       }
       const violation = checkLineLimit(content, rel, cfg.maxLines);
       if (violation) violations.push(violation);
-      const inCore = cfg.coreDirs.some((core) => isUnder(join(rootNorm, core), file));
-      if (inCore) {
+      const inCoreZone = [...cfg.coreDirs, ...cfg.layerDirs].some((zone) => isUnder(join(rootNorm, zone), file));
+      if (inCoreZone) {
         violations.push(...checkCoreImports(content, rel, cfg.coreForbiddenRelSubstrings, cfg.coreAllowedNodeModules));
         violations.push(...checkCoreTokens(content, rel, cfg.coreForbiddenTokens, cfg.coreOpaqueTokens));
       }

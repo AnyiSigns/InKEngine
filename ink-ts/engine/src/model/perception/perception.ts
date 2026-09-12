@@ -25,7 +25,7 @@
 
 import { isRecord } from '../json.js';
 import { NodeContract } from '../contracts/contracts.js';
-import { NodeTypeRegistry } from '../../graph/registry/registry.js';
+import type { NodeFn } from '../graph/graph_types.js';
 import { FIELD_NUMBER, FIELD_STRING, SchemaField, SchemaSpec } from '../schema/schemaValidator.js';
 
 // 感知结点类型名（不透明字符串，注册表不解释含义）
@@ -108,6 +108,11 @@ async function _vision_perceive_node(ctx: unknown): Promise<Record<string, unkno
   };
 }
 
+/** 局部登记面结构接口：只描述 register 一个方法（避免引入 graph/registry 依赖）。 */
+interface NodeTypeRegistrarLike {
+  register(type_name: string, factory: () => NodeFn, contract?: NodeContract): void;
+}
+
 /**
  * 登记感知结点类型（重复登记显式拒绝；装配处调用）。
  *
@@ -115,7 +120,7 @@ async function _vision_perceive_node(ctx: unknown): Promise<Record<string, unkno
  * 内容属敏感域，组装请求按任务审批档映射放行）。登记后该类型进入结点
  * 池，路径组装器的 contract_pool 即可见，可组装进执行路径。
  */
-export function register_perception_nodes(registry: NodeTypeRegistry): void {
+export function register_perception_nodes(registry: NodeTypeRegistrarLike): void {
   registry.register(
     VISION_PERCEIVE_TYPE,
     () => _vision_perceive_node,

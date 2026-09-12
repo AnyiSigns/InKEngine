@@ -72,9 +72,10 @@
 | `acceptChannelled` | `acceptChannelled(task, st): Verdict` | `verify/acceptor.ts` | 已落地 | 只读本族通道字段；缺失即 reason=missing:<field> |
 | `WRONG_ARTIFACTS` | `readonly AdversarialCase[]` | `verify/adversarial.ts` | 已落地 | 空值/语义错/旧 verdict 复用/复述原题/硬编码常量 |
 | `runAll` | `runAll(): {rejectRatio; acceptCorrectRatio; caseCount}` | `verify/adversarial.ts` | 已落地 | 错误产物全拒 + 正确通道全收 + 固定 seed fuzz |
+| `FUZZ_COUNT` | `number` | `verify/adversarial.ts` | 已落地 | runAll 固定 seed 补刀错误产物条数 = 24 |
 | `runSandboxed` | `runSandboxed(code, tests, timeoutS?): Promise<{ok; output}>` | `verify/sandbox.ts` | 已落地 | 接口占位；代码族验证未启用，调用即抛错 |
 | `state_digest / plan_bfs` | `stateDigest(st): string; planBfs(task, graph): string[] | null` | `teacher/search.ts` | 待 Phase 0 | BFS 最短解；不进训练集 |
-| `featurize_* / OBS_DIM / ACT_DIM` | `featurizeInstr/State/Action; OBS_DIM=596; ACT_DIM=83` | `controller/features.ts` | 待 Phase 0 | 白名单只读 instruction/state |
+| `featurize_* / OBS_DIM / ACT_DIM` | `featurizeInstr/State/Action; OBS_DIM=724; ACT_DIM=83` | `controller/features.ts` | 待 Phase 0 | 白名单只读 instruction/state |
 | `Policy.forward/backward/act/save/load` | `Policy` | `controller/policy.ts` | 待 Phase 0 | pointer 打分；数值梯度校验 |
 | `val_ce / batches / snapshot` | `valCe(policy, D): number; batches(D, n); snapshot(policy)` | `controller/train.py` | 待 Phase 0 | 训练器内层；仅 numpy |
 | `trainPython / loadWeights` | `trainPython(D, valD): string; loadWeights(path): Policy` | `controller/train.py` | 待 Phase 0 | 唯一跨语言接口 records.bin/weights.json |

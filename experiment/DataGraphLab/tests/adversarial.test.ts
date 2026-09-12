@@ -1,6 +1,6 @@
 import { describe, expect, it } from 'vitest';
 
-import { WRONG_ARTIFACTS, runAll } from '../verify/adversarial.js';
+import { FUZZ_COUNT, WRONG_ARTIFACTS, runAll } from '../verify/adversarial.js';
 import { accept } from '../verify/acceptor.js';
 
 describe('verify/adversarial 必拒错误产物套件（§4 对抗清单）', () => {
@@ -20,7 +20,7 @@ describe('verify/adversarial 必拒错误产物套件（§4 对抗清单）', ()
     const r = runAll();
     expect(r.rejectRatio).toBe(1);
     expect(r.acceptCorrectRatio).toBe(1);
-    expect(r.caseCount).toBeGreaterThanOrEqual(WRONG_ARTIFACTS.length);
+    expect(r.caseCount).toBe(WRONG_ARTIFACTS.length + FUZZ_COUNT);
   });
 
   it('runAll 确定性：固定 seed 两次运行结果一致', () => {

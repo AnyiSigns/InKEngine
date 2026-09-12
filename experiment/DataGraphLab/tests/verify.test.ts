@@ -124,6 +124,14 @@ describe('verify/accept B.4 目标族 goal（多解可接受）', () => {
     expect(() => accept(goalTask, withAnswer(9, 'abc'))).not.toThrow();
     expect(accept(goalTask, withAnswer(9, 'abc'))).toBe(false);
   });
+
+  it('goal 族忽略 verdict：缺失或 fail 均接受，与 goal_verify 必拒对称', () => {
+    expect(accept(goalTask, withAnswer(9, 24))).toBe(true);
+    expect(accept(goalTask, withAnswer(9, 24, { verdict: 'fail' }))).toBe(true);
+    expect(accept(goalTask, withAnswer(9, 21, { verdict: 'fail' }))).toBe(true);
+    expect(accept(goalVerifyTask, withAnswer(9, 24))).toBe(false);
+    expect(accept(goalVerifyTask, withAnswer(9, 24, { verdict: 'fail' }))).toBe(false);
+  });
 });
 
 describe('verify/accept B.4 目标族 goal_verify（双生产者）', () => {
